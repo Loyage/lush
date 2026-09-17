@@ -61,6 +61,8 @@ JSON 文件字段固定为七项，缺一或多一都报错：
 - `system_prompt`：实例创建时快照进它自己的 Context，成为之后每次 `call` 的系统提示词。
 - `child_templates`：该模板实例初始化后允许创建的子模板列表。
 
+注入创建方 Agent 的 `available_child_templates` 只列**此刻真能创建成功**的模板：按创建时快照的 `child_templates` 过滤权限、排除 `lush-root`，并剔除 `singleton: true` 且本 PID 下已有活动实例的模板（否则调用方只会白撞一次 `process.spawn` 的拒绝）。它是派生视图，不代替权限本身：完整白名单仍在 `child_templates`，被占位的那个实例就在 `children` 里。
+
 限制针对 template 名称，而非 task/service。`["*"]` 表示允许全部已加载模板；`[]` 禁止创建子节点。父节点必须 running。自身模板快照中的 `child_templates` 决定后续创建权限，外部文件修改不会悄悄改变已有进程能力。子节点 goal 由创建参数指定，未指定时使用名称；模板不携带初始 Context，新实例的 state、artifacts、references 一律从空开始。ContextBuilder 提供父节点摘要。
 
 模板快照是创建时的完整副本（含 `singleton`、`spawn_prompt`），外部改模板文件不会改变已有 Process。`singleton` 与 `type` 按当前已加载模板判定；唯一例外是 `child_templates`：daemon 启动时会把旧快照中缺失的该字段从同名已加载模板回填一次（幂等，记 template_backfilled 事件，不改其他字段），同名模板已不存在时跳过并记日志。旧快照里遗留的 `process_type`、`allowed_child_templates`、`agent_command`、`initial_context` 键不再被读取。

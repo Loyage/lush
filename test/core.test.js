@@ -170,6 +170,22 @@ describe('core', () => {
     expect(data.available_child_templates.some((item) => item.name === 'lush-root')).toBe(false);
   });
 
+  test('available child templates hide a singleton that is already taken', () => {
+    const names = (pid) => new ContextBuilder(manager.repository, manager.templates)
+      .build(manager.load(pid), null).data.available_child_templates.map((item) => item.name);
+    expect(names(0)).toContain('project-manager');
+    const taken = manager.spawn(0, 'project-manager', 'pm');
+    expect(names(0)).not.toContain('project-manager');
+    // Non-singleton templates stay advertised next to it.
+    expect(names(0)).toContain('generic-task');
+    manager.kill(taken.pid);
+    expect(names(0)).toContain('project-manager');
+    // A child is scoped by its own whitelist: it never inherits project-manager.
+    const child = root.createChild('project-manager');
+    expect(names(child.pid)).toContain('generic-task');
+    expect(names(child.pid)).not.toContain('project-manager');
+  });
+
   test('view has no command section and ignores legacy snapshot fields', () => {
     const child = root.createChild('generic-task');
     const view = manager.view(child.pid, ['parent', 'children', 'prompt']);

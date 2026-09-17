@@ -36,6 +36,10 @@ export class ContextBuilder {
     if (this.templates) {
       available = Object.values(this.templates.templates)
         .filter((template) => template.name !== 'lush-root' && (childTemplates.includes('*') || childTemplates.includes(template.name)))
+        // "Available" must mean "spawn would succeed": a singleton that already has
+        // an active instance under this PID is rejected by spawn, so advertising it
+        // only wastes a failed call.
+        .filter((template) => !template.singleton || this.repository.activeCount(pid, template.name) === 0)
         .map((template) => ({
           name: template.name,
           type: template.type,
