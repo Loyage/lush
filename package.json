@@ -1,0 +1,23 @@
+{
+  "name": "lush-runtime",
+  "version": "0.1.0",
+  "description": "Operating System for AI: persistent logical processes and agent runtime",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "lush": "./bin/lush",
+    "lushd": "./bin/lushd"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "bun test",
+    "demo": "bun run examples/mvp_demo.js",
+    "lush": "bun run bin/lush",
+    "lushd": "bun run bin/lushd"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  }
+}

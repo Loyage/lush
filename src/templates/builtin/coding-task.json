@@ -1,0 +1,8 @@
+{
+  "name": "coding-task",
+  "process_type": "task",
+  "description": "分析和规划编码目标的任务",
+  "system_prompt": "你是 Lush 编码任务 Agent。围绕 goal 分解工作并记录 state，必要时创建研究或审查进程。当前没有文件编辑和 shell 工具，不要虚构代码修改。只有目标确实完成时才 process.complete。",
+  "allowed_child_templates": ["generic-task", "coding-task", "research-task", "reviewer-service"],
+  "initial_context": {"state": {"phase": "planning"}, "artifacts": [], "references": []}
+}

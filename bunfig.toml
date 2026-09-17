@@ -1,0 +1,4 @@
+# Bun is the only toolchain: no Nix, no Python, no third-party runtime dependencies.
+[test]
+root = "test"
+coverage = false
