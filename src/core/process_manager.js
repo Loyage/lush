@@ -2,15 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 /** The shared business API used by RPC, Process handles and Agent Tools. */
 import { ACTIVE, TASK_TERMINAL, validateTransition } from './lifecycle.js';
+import { DEFAULT_ORPHAN_POLICY, OrphanSupervisor } from './orphans.js';
 import { Process } from './process.js';
-import { LushError, VIEW_SECTIONS, isPlainObject, jsonDump, text, validPid, viewSections } from './types.js';
+import {
+  LushError, VARIABLE_GROUPS, VIEW_SECTIONS, isPlainObject, jsonDump, text, validPid, viewSections,
+} from './types.js';
 
-/**
- * MVP stand-in for per-template argument declarations: creating these templates
- * requires the listed keys in `args` (see docs/process-model.md). Any `args.path`
- * is validated and later used as the external agent working directory.
- */
-const REQUIRED_SPAWN_ARGS = { project: ['path'] };
+/** Context state keys owned by the variable system; `update_state` must not touch them. */
+const VARIABLE_STATE_KEYS = ['params', 'vars'];
 
 /** Agents live in their own space: `PID.N`, minted per daemon run, never persisted. */
 function validAgentId(id) {
@@ -24,16 +23,19 @@ function validAgentId(id) {
  * Snapshot fields that older databases were written without. Adding a template
  * field is a breaking change for template files, but persisted snapshots must
  * stay readable, so they are filled in once per daemon start. Only
- * `child_templates` is read back from a snapshot (creation-time permissions);
- * every other template field is read from the currently loaded definition.
+ * `child_templates` (creation-time permissions) and `variables`
+ * (creation-time variable declaration) are read back from a snapshot; every
+ * other template field is read from the currently loaded definition.
  */
-const BACKFILLED_FIELDS = ['child_templates'];
+const BACKFILLED_FIELDS = ['child_templates', 'variables'];
 
 export class ProcessManager {
-  constructor(repository, templates) {
+  constructor(repository, templates, orphanPolicy = DEFAULT_ORPHAN_POLICY) {
     this.repository = repository;
     this.templates = templates;
     this.runtime = null; // composition root binds the AgentRuntime
+    /** PID 0's orphan supervision: policy plus the read model behind it. */
+    this.orphanSupervisor = new OrphanSupervisor(repository, this, orphanPolicy);
   }
 
   ensureRoot() {
@@ -57,8 +59,8 @@ export class ProcessManager {
 
   /**
    * `process tree`: the same rows as `list`, each with its live agents unless
-   * `agents` is false. Only runtime facts are attached — no Context, no argv,
-   * no session walk — so the tree stays one cheap read for N processes.
+   * `agents` is false. Only runtime facts are attached — no argv, no session
+   * walk — so the tree stays one cheap read for N processes.
    */
   tree(agents = true) {
     if (typeof agents !== 'boolean') throw new LushError('agents must be a boolean', -32602);
@@ -187,43 +189,56 @@ export class ProcessManager {
   }
 
   /**
-   * Validate explicit creation arguments: a JSON object with string keys, plus
-   * the template's required keys, plus `path` (absolute existing directory).
-   * Returns null when no arguments were given.
+   * Resolve creation-time variables against the template declaration. Only
+   * declared names are accepted, required ones must be present, declared
+   * defaults fill the rest, and the result is split into the two mutability
+   * regions that `Repository.create` stores. `path` keeps its
+   * working-directory contract: an absolute directory that must already exist.
    */
-  spawnArgs(template, args) {
-    const required = REQUIRED_SPAWN_ARGS[template] ?? [];
-    if (args === undefined || args === null) {
-      if (required.length) {
-        throw new LushError(`template ${template} requires spawn args: ${required.map((key) => `args.${key}`).join(', ')}`, -32602);
-      }
-      return null;
+  spawnVariables(template, variables) {
+    const declared = template.variables ?? {};
+    const values = variables === undefined || variables === null ? {} : variables;
+    if (!isPlainObject(values) || Object.getOwnPropertySymbols(values).length) {
+      throw new LushError('variables must be a JSON object with string keys', -32602);
     }
-    if (!isPlainObject(args) || Object.getOwnPropertySymbols(args).length) {
-      throw new LushError('args must be a JSON object with string keys', -32602);
+    jsonDump(values);
+    const specs = [];
+    for (const group of VARIABLE_GROUPS) {
+      for (const [name, spec] of Object.entries(declared[group] ?? {})) specs.push({ name, group, spec });
     }
-    jsonDump(args);
-    for (const key of required) {
-      if (typeof args[key] !== 'string' || args[key].trim() === '') {
-        throw new LushError(`template ${template} requires a non-empty args.${key}`, -32602);
+    const known = new Set(specs.map((entry) => entry.name));
+    for (const name of Object.keys(values)) {
+      if (!known.has(name)) {
+        throw new LushError(`template ${template.name} does not declare variable ${name}`, -32602);
       }
     }
-    if (Object.hasOwn(args, 'path')) {
-      if (typeof args.path !== 'string' || !path.isAbsolute(args.path)) {
-        throw new LushError('args.path must be an absolute path', -32602);
+    const resolved = { immutable: {}, mutable: {} };
+    for (const { name, group, spec } of specs) {
+      if (Object.hasOwn(values, name)) resolved[group][name] = values[name];
+      else if (Object.hasOwn(spec, 'default')) resolved[group][name] = spec.default;
+      else if (spec.required === true) {
+        throw new LushError(`template ${template.name} requires variables.${name}`, -32602);
       }
-      let stat;
-      try {
-        stat = fs.statSync(args.path);
-      } catch {
-        throw new LushError(`args.path does not exist: ${args.path}`, -32602);
-      }
-      if (!stat.isDirectory()) throw new LushError(`args.path is not a directory: ${args.path}`, -32602);
     }
-    return args;
+    if (Object.hasOwn(resolved.immutable, 'path')) this.checkWorkdir(resolved.immutable.path);
+    return resolved;
   }
 
-  spawn(parentPid, template, name = undefined, goal = undefined, args = undefined) {
+  /** The `path` variable is the agent working directory: absolute, and already a directory. */
+  checkWorkdir(value) {
+    if (typeof value !== 'string' || !path.isAbsolute(value)) {
+      throw new LushError('variable path must be an absolute path', -32602);
+    }
+    let stat;
+    try {
+      stat = fs.statSync(value);
+    } catch {
+      throw new LushError(`variable path does not exist: ${value}`, -32602);
+    }
+    if (!stat.isDirectory()) throw new LushError(`variable path is not a directory: ${value}`, -32602);
+  }
+
+  spawn(parentPid, template, name = undefined, goal = undefined, variables = undefined) {
     const parent = this.requireRunning(parentPid);
     const definition = this.templates.get(template);
     if (template === 'lush-root') throw new LushError('lush-root is reserved for PID 0', -32010);
@@ -239,20 +254,93 @@ export class ProcessManager {
         -32010,
       );
     }
-    const params = this.spawnArgs(template, args);
+    const resolved = this.spawnVariables(definition, variables);
     const finalName = name === undefined || name === null ? template : text(name, 'name', 200);
     const finalGoal = goal === undefined || goal === null ? finalName : text(goal, 'goal');
-    return this.repository.create(parentPid, definition, finalName, finalGoal, { params });
+    return this.repository.create(parentPid, definition, finalName, finalGoal, { variables: resolved });
   }
 
-  _transition(pid, target, { cancel = true, result = undefined } = {}) {
+  /**
+   * Orphan supervision policy in its internal camelCase shape (the daemon
+   * reads `sweepSeconds` to decide whether to arm its timer).
+   */
+  get orphanPolicy() {
+    return this.orphanSupervisor.policy;
+  }
+
+  /** The same policy in wire shape (snake_case) for status reports; no query. */
+  orphanPolicyReport() {
+    return this.orphanSupervisor.policyReport();
+  }
+
+  /** `process.orphans`: PID 0's orphan pool with busy/idle facts. Read-only. */
+  orphans() {
+    return this.orphanSupervisor.pool();
+  }
+
+  /** Run one orphan supervision pass now (also what the daemon timer calls). */
+  superviseOrphans(trigger = 'manual') {
+    return this.orphanSupervisor.supervise({ trigger });
+  }
+
+  /**
+   * Freeze one orphan on the supervisor's behalf: Service → stopped, Task →
+   * cancelled, with `reason` (orphan_ttl / orphan_limit) kept in the transition
+   * event. Supervised processes are frozen, never deleted, and this is the only
+   * entry point that may do it — the caller is always OrphanSupervisor, which
+   * has already checked busy state and policy.
+   */
+  orphanEvict(pid, reason) {
+    const process = this.repository.get(pid);
+    if (typeof reason !== 'string' || reason.trim() === '') {
+      throw new LushError('orphan eviction reason must be a non-empty string', -32602);
+    }
+    return this._transition(pid, process.type === 'service' ? 'stopped' : 'cancelled', { cause: reason });
+  }
+
+  _transition(pid, target, { cancel = true, result = undefined, adopt = null, cause = undefined } = {}) {
     const process = this.repository.get(pid);
     if (pid === 0) throw new LushError('PID 0 is managed by the daemon; use lush daemon stop');
     if (process.status === target) return process;
     validateTransition(process, target);
     const terminal = !ACTIVE.has(target) && target !== 'reclaimed';
-    const updated = this.repository.transition(pid, target, { adopt: terminal, result });
+    // The policy decides what happens to active children. `adopt === false`
+    // turns the whole thing off (removal is about to delete them anyway), and
+    // PID 0 is never subject to it: its own terminal transition must not touch
+    // anything but PID 0.
+    const mode = this.orphanSupervisor.policy.adopt;
+    const policyApplies = terminal && pid !== 0 && adopt !== false;
+    const effects = [];
+    const updated = this.repository.transition(pid, target, {
+      adopt: policyApplies && (adopt === true || mode === 'adopt'),
+      terminate: policyApplies && mode === 'terminate',
+      result,
+      cause,
+      effects,
+    });
+    const terminated = effects.filter((effect) => effect.kind === 'terminated');
+    if (terminated.length) {
+      // Children were frozen in the same transaction as their parent; their
+      // running calls are cancelled after it. The window between the two is
+      // covered by `recover()` on the next daemon start.
+      for (const effect of terminated) {
+        if (this.runtime) this.runtime.cancel(effect.pid);
+        // Each frozen child applies the same policy to its own children, which
+        // is what walks an active chain all the way down.
+        for (const child of this.repository.children(effect.pid)) {
+          if (ACTIVE.has(child.status)) {
+            this._transition(child.pid, child.type === 'service' ? 'stopped' : 'cancelled');
+          }
+        }
+      }
+    }
     if (cancel && terminal && this.runtime) this.runtime.cancel(pid);
+    // Adoptions just landed under PID 0: if a limit is configured it applies
+    // immediately (the supervisor ignores reentrant calls).
+    if (this.orphanSupervisor.policy.limit > 0
+      && effects.some((effect) => effect.kind === 'adopted')) {
+      this.orphanSupervisor.supervise({ trigger: 'adoption' });
+    }
     return updated;
   }
 
@@ -289,13 +377,124 @@ export class ProcessManager {
     return this._transition(pid, 'reclaimed');
   }
 
+  /**
+   * Subtract a process from the record for good: metadata, Context, messages,
+   * calls and its own events. Only an already finished process may go — a
+   * running one must be stopped or cancelled first, or `purge` both steps.
+   * Without `recursive`, a surviving child is an error, because its
+   * `parent_pid` would point at a row that no longer exists.
+   */
+  delete(pid, recursive = false) {
+    return this._remove(pid, recursive, false);
+  }
+
+  /** `process purge`: stop/cancel the process (interrupting its agent call), then delete it. */
+  purge(pid, recursive = false) {
+    return this._remove(pid, recursive, true);
+  }
+
+  /**
+   * The subtree rooted at `pid`, children before parents, so a row disappears
+   * only after the rows that reference it. Iterative on purpose: logical trees
+   * may be deeper than the call stack is tall.
+   */
+  subtree(pid) {
+    const order = [];
+    const stack = [pid];
+    while (stack.length) {
+      const current = stack.pop();
+      order.push(current);
+      for (const child of this.repository.children(current)) stack.push(child.pid);
+    }
+    return order.reverse();
+  }
+
+  /**
+   * Shared body of `delete` and `purge`. Decisions, in order: PID 0 is never
+   * removable (the daemon owns it), children need `recursive`, and unfinished
+   * work is refused unless the caller asked to terminate it.
+   */
+  _remove(pid, recursive, terminate) {
+    validPid(pid);
+    if (typeof recursive !== 'boolean') throw new LushError('recursive must be a boolean', -32602);
+    if (pid === 0) throw new LushError('PID 0 is managed by the daemon; it cannot be deleted', -32010);
+    const root = this.repository.get(pid);
+    const children = this.repository.children(pid).map((child) => child.pid);
+    if (children.length && !recursive) {
+      throw new LushError(
+        `process ${pid} has children [${children.join(', ')}]; delete them first, or repeat with recursive deletion`,
+        -32010,
+      );
+    }
+    const doomed = this.subtree(pid).map((item) => this.repository.get(item));
+    const active = doomed.filter((item) => ACTIVE.has(item.status));
+    if (active.length && !terminate) {
+      const detail = active.map((item) => `${item.pid} is ${item.status}`).join(', ');
+      throw new LushError(`process ${detail}; stop or kill it first, or use 'lush process purge'`, -32010);
+    }
+    const terminated = [];
+    for (const item of [...doomed].reverse()) {
+      if (!ACTIVE.has(item.status)) continue;
+      this._transition(item.pid, item.type === 'service' ? 'stopped' : 'cancelled', { adopt: false });
+      terminated.push(item.pid);
+    }
+    // The parent outlives the child by construction (a subtree holds no
+    // ancestor), so it is the one that keeps the record of what disappeared.
+    const pids = doomed.map((item) => item.pid);
+    const deleted = [...pids].sort((left, right) => left - right);
+    const audit = root.parent_pid === null ? null : {
+      pid: root.parent_pid,
+      kind: 'child_deleted',
+      data: { pid, name: root.name, template: root.template, status: root.status, deleted },
+    };
+    return {
+      pid,
+      deleted,
+      status: root.status,
+      terminated: terminated.sort((left, right) => left - right),
+      rows: this.repository.remove(pids, audit),
+    };
+  }
+
   updateState(pid, patch) {
     this.requireRunning(pid);
     if (!isPlainObject(patch) || Object.getOwnPropertySymbols(patch).length) {
       throw new LushError('patch must be a JSON object with string keys', -32602);
     }
+    for (const key of Object.keys(patch)) {
+      if (VARIABLE_STATE_KEYS.includes(key)) {
+        throw new LushError(
+          `state.${key} holds process variables; use process.update_vars to change mutable ones`,
+          -32602,
+        );
+      }
+    }
     jsonDump(patch);
     return this.repository.updateState(pid, patch);
+  }
+
+  /**
+   * Change mutable variables only. The declaration the process was created with
+   * decides what may change, so immutability does not depend on the caller's
+   * goodwill: an immutable or undeclared name is refused instead of written.
+   */
+  updateVars(pid, patch) {
+    const process = this.requireRunning(pid);
+    if (!isPlainObject(patch) || Object.getOwnPropertySymbols(patch).length) {
+      throw new LushError('patch must be a JSON object with string keys', -32602);
+    }
+    const keys = Object.keys(patch);
+    if (keys.length === 0) throw new LushError('patch must name at least one variable', -32602);
+    jsonDump(patch);
+    const declarations = process.variables.declarations;
+    for (const key of keys) {
+      if (Object.hasOwn(declarations.mutable, key)) continue;
+      if (Object.hasOwn(declarations.immutable, key)) {
+        throw new LushError(`variable ${key} is immutable in template ${process.template}`, -32602);
+      }
+      throw new LushError(`template ${process.template} does not declare variable ${key}`, -32602);
+    }
+    return this.repository.updateVars(pid, patch);
   }
 
   history(pid, after = 0, limit = 100) {

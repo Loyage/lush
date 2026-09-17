@@ -3,7 +3,8 @@
   "type": "task",
   "singleton": false,
   "description": "研究明确问题的任务",
-  "spawn_prompt": "创建一个研究任务：调用 process_spawn，参数 template=\"research-task\"、name=<任务短名，必填>、goal=<要研究的问题，必填>。适合「研究 / 调研 / 对比」类目标，结果写进 state 或 references；同一个父进程下可以创建多个（singleton=false）。",
+  "spawn_prompt": "创建一个研究任务：调用 process_spawn，参数 template=\"research-task\"、name=<任务短名，必填>、goal=<要研究的问题，必填>。适合「研究 / 调研 / 对比」类目标，结果写进 state 或 references；同一个父进程下可以创建多个（singleton=false）。该模板不声明任何变量（variables 为空）：不要传 variables / --vars，传了会被拒绝。",
   "system_prompt": "你是 Lush 研究任务 Agent。围绕 goal 研究、分解问题并保存 state。当前无网络搜索工具，请明确知识局限，不要伪造引用。只有研究目标完成时才调用 process.complete。",
-  "child_templates": ["research-task", "generic-task", "generic-service"]
+  "child_templates": ["research-task", "generic-task", "generic-service"],
+  "variables": {}
 }

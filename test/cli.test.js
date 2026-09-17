@@ -6,6 +6,7 @@ import { forceStopDaemon, isLocked } from '../src/daemon/locking.js';
 import { Dispatcher } from '../src/rpc/protocol.js';
 import { RPCServer } from '../src/rpc/server.js';
 import { createSignal } from '../src/signal.js';
+import { formatOrphans } from '../src/cli/main.js';
 import { cleanup, deferred, system, tmpdir } from './helpers.js';
 
 const ROOT = path.dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
@@ -141,7 +142,7 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await data('process', 'spawn', '0', 'generic-task')).pid).toBe(4);
   }, 120_000);
 
-  test('complete, update-state and spawn args over the CLI', async () => {
+  test('complete, update-state, variables and spawn over the CLI', async () => {
     await cli(['daemon', 'start']);
     await cli(['process', 'spawn', '0', 'generic-task', '--name', 'worker', '--goal', 'work']);
     expect((await data('process', 'update-state', '1', '--patch', '{"progress":"half"}')).progress).toBe('half');
@@ -149,8 +150,24 @@ describe('cli, daemon lifecycle and attach', () => {
     expect(done.status).toBe('completed');
     expect((await data('process', 'inspect', '1')).context.state).toEqual({ result: { answer: 42 }, progress: 'half' });
 
-    const spawned = await data('process', 'spawn', '0', 'project', '--name', 'p1', '--args', JSON.stringify({ path: state.dir }));
-    expect((await data('process', 'inspect', String(spawned.pid))).context.state.params).toEqual({ path: state.dir });
+    const spawned = await data('process', 'spawn', '0', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
+    const project = await data('process', 'inspect', String(spawned.pid));
+    expect(project.context.state).toEqual({ params: { path: state.dir }, vars: { branch: 'main' } });
+    expect(project.variables.declarations.mutable.branch.default).toBe('main');
+    // Tree text mode marks immutable values plain and mutable ones with `~` (long values truncate).
+    const tree = (await cli(['process', 'tree'])).stdout;
+    expect(tree).toContain(`p1[${spawned.pid}] path=${state.dir.slice(0, 10)}`);
+    expect(tree).toContain('~branch=main');
+
+    expect(await data('process', 'update-vars', String(spawned.pid), '--vars', '{"branch":"dev"}')).toEqual({ branch: 'dev' });
+    expect((await data('process', 'inspect', String(spawned.pid))).variables.mutable).toEqual({ branch: 'dev' });
+    expect((await cli(['process', 'update-vars', String(spawned.pid), '--vars', '{"branch":"release"}'])).stdout.trim())
+      .toBe('branch=release');
+    const locked = await cli(['process', 'update-vars', String(spawned.pid), '--vars', JSON.stringify({ path: '/tmp' })], { check: false });
+    expect(locked.code).not.toBe(0);
+    expect(locked.stderr).toContain('immutable');
+    expect((await cli(['process', 'update-state', String(spawned.pid), '--patch', '{"params":{}}'], { check: false })).stderr)
+      .toContain('update_vars');
 
     // --dry-run prints the invocation instead of calling the agent.
     const preview = await data('process', 'call', String(spawned.pid), 'hello', '--dry-run');
@@ -160,7 +177,10 @@ describe('cli, daemon lifecycle and attach', () => {
 
     const missing = await cli(['process', 'spawn', '0', 'project', '--name', 'p2'], { check: false });
     expect(missing.code).not.toBe(0);
-    expect(missing.stderr).toContain('args.path');
+    expect(missing.stderr).toContain('variables.path');
+    const unknown = await cli(['process', 'spawn', '0', 'project', '--name', 'p3', '--vars', JSON.stringify({ path: state.dir, nope: 1 })], { check: false });
+    expect(unknown.stderr).toContain('does not declare variable nope');
+    expect((await cli(['process', 'update-vars', String(spawned.pid)], { check: false })).stderr).toContain('--vars');
     expect((await cli(['process', 'update-state', '1', '--patch', '{oops'], { check: false })).stderr).toContain('invalid JSON');
 
     // --interactive needs an external agent: the in-process runtime has no TUI.
@@ -168,6 +188,153 @@ describe('cli, daemon lifecycle and attach', () => {
     expect(enter.code).not.toBe(0);
     expect(enter.stderr).toContain('runs in-process');
     expect((await cli(['process', 'call', String(spawned.pid), 'hello', '--interactive', '--dry-run'], { check: false })).code).toBe(2);
+  }, 60_000);
+
+  test('orphan supervision is visible and runnable from the CLI', async () => {
+    await cli(['daemon', 'start']);
+    // A stopped parent hands its active child to PID 0; that child is the orphan.
+    await cli(['process', 'spawn', '0', 'generic-service', '--name', 'parent']);
+    await cli(['process', 'spawn', '1', 'generic-task', '--name', 'kid']);
+    await cli(['process', 'stop', '1']);
+
+    const pool = await data('process', 'orphans');
+    expect(pool.policy).toEqual({ adopt: 'adopt', limit: 0, ttl_seconds: 0, sweep_seconds: 30 });
+    expect(pool).toMatchObject({ active_count: 1, busy_count: 0, over_limit: 0 });
+    expect(pool.orphans.map((orphan) => orphan.name)).toEqual(['kid']);
+    expect(pool.orphans[0]).toMatchObject({
+      pid: 2, type: 'task', status: 'running', busy: false, original_parent_pid: 1,
+    });
+    expect(typeof pool.orphans[0].idle_seconds).toBe('number');
+
+    const text = (await cli(['process', 'orphans'])).stdout;
+    expect(text).toContain('policy adopt=adopt limit=0 ttl=0s sweep=30s');
+    expect(text).toContain('orphans active=1 busy=0 over_limit=0');
+    expect(text).toMatch(/^\s+2\s+task\s+running\s+\S+\s+no\s+kid$/m);
+
+    // The default policy has nothing to freeze, and --sweep still reports the pass.
+    const report = await data('process', 'orphans', '--sweep');
+    expect(report).toMatchObject({
+      trigger: 'manual', skipped: false, checked: 1, active_before: 1, active_after: 1, evicted: [], deferred: [],
+    });
+    expect((await cli(['process', 'orphans', '--sweep'])).stdout.trim())
+      .toBe('trigger=manual checked=1 active 1->1 evicted=0 deferred=0 (limit=0 ttl=0s)');
+    expect((await data('process', 'inspect', '2')).status).toBe('running');
+
+    // Help documents the leaf, the command tree lists it, and bad flags are usage errors.
+    const help = (await cli(['process', 'orphans', '-h'])).stdout;
+    expect(help).toContain('孤儿');
+    expect(help).toContain('--sweep');
+    expect(JSON.parse((await cli(['--json', 'help', 'process'])).stdout).subcommands.map((child) => child.name))
+      .toContain('orphans');
+    expect((await cli(['process', 'orphans', '--bogus'], { check: false })).code).toBe(2);
+  }, 60_000);
+
+  test('the daemon timer sweeps idle orphans by ttl without a manual call', async () => {
+    // The policy is read at startup, so the timer is configured through the env.
+    await cli(['daemon', 'start'], { env: { ...state.env, LUSH_ORPHAN_TTL: '1', LUSH_ORPHAN_SWEEP: '1' } });
+    await cli(['process', 'spawn', '0', 'generic-service', '--name', 'parent']);
+    await cli(['process', 'spawn', '1', 'generic-task', '--name', 'kid']);
+    await cli(['process', 'stop', '1']);
+    expect((await data('process', 'orphans')).active_count).toBe(1);
+
+    let status = 'running';
+    const deadline = Date.now() + 10_000;
+    while (status === 'running' && Date.now() < deadline) {
+      await Bun.sleep(250);
+      status = (await data('process', 'inspect', '2')).status;
+    }
+    expect(status).toBe('cancelled');
+    expect((await data('process', 'inspect', '2')).recent_events[0])
+      .toMatchObject({ kind: 'transition', data: { from: 'running', to: 'cancelled', cause: 'orphan_ttl' } });
+    // The pass is the daemon's own: it reports itself in daemon.log, not to a client.
+    expect(fs.readFileSync(path.join(state.dir, 'daemon.log'), 'utf8'))
+      .toContain('orphan supervision evicted PIDs 2 (orphan_ttl)');
+  }, 60_000);
+
+  test('text output defaults to human-readable, --json stays the machine path', async () => {
+    await cli(['daemon', 'start']);
+    expect((await cli(['process', 'spawn', '0', 'generic-task', '--name', 'reader', '--goal', 'read stuff'])).stdout.trim())
+      .toBe('PID 1');
+    await cli(['process', 'call', '1', 'hello']);
+    await cli(['process', 'call', '1', '/tool process.update_state {"progress":"half"}']);
+
+    // history: one block per message, body verbatim, pagination cursor last.
+    const history = (await cli(['process', 'history', '1'])).stdout;
+    expect(history).toMatch(/^#1 user · \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} · call 1$/m);
+    expect(history).toMatch(/^#2 assistant · /m);
+    expect(history).toContain('hello');
+    expect(history).toContain('[Mock] 我是 reader');
+    expect(history).toMatch(/^\(\d+ messages · next --after \d+\)$/m);
+    expect(() => JSON.parse(history)).toThrow();
+    const messages = await data('process', 'history', '1');
+    expect(history).toContain(`(${messages.messages.length} messages · next --after ${messages.next_after})`);
+
+    // inspect: sectioned text, no metadata dump; --json keeps the full snapshot.
+    const inspect = (await cli(['process', 'inspect', '1'])).stdout;
+    expect(inspect).toMatch(/^pid 1 · reader · task · running$/m);
+    expect(inspect).toMatch(/^context · \d+ messages$/m);
+    expect(inspect).toMatch(/^calls · recent \d+, newest first$/m);
+    expect(inspect).toMatch(/^events · recent \d+, newest first$/m);
+    expect(inspect).toContain('progress');
+    expect(inspect).not.toContain('"template_snapshot"');
+    expect((await data('process', 'inspect', '1')).template_snapshot.name).toBe('generic-task');
+
+    // --with prints only the requested sections.
+    const view = (await cli(['process', 'inspect', '1', '--with', 'parent,children'])).stdout;
+    expect(view).toContain('pid 0 · lush · service · running');
+    expect(view).not.toContain('call_prompt');
+
+    // Nested state is aligned, not a JSON blob.
+    expect((await cli(['process', 'update-state', '1', '--patch', '{"progress":"done"}'])).stdout.trim())
+      .toBe('progress  done');
+
+    // Lifecycle commands answer with one summary line, not the whole metadata row.
+    expect((await cli(['process', 'complete', '1', '--result', '{"ok":true}'])).stdout.trim())
+      .toBe('completed pid 1 · reader · task · completed');
+    expect((await cli(['process', 'reclaim', '1'])).stdout.trim())
+      .toBe('reclaimed pid 1 · reader · task · reclaimed');
+    const service = await data('process', 'spawn', '0', 'generic-service', '--name', 'stopper');
+    expect((await cli(['process', 'stop', String(service.pid)])).stdout.trim())
+      .toBe(`stopped pid ${service.pid} · stopper · service · stopped`);
+    expect((await cli(['process', 'start', String(service.pid)])).stdout.trim())
+      .toBe(`started pid ${service.pid} · stopper · service · running`);
+    expect((await cli(['process', 'kill', String(service.pid)])).stdout.trim())
+      .toBe(`killed pid ${service.pid} · stopper · service · stopped`);
+  }, 60_000);
+
+  test('delete and purge remove a process and its record', async () => {
+    await cli(['daemon', 'start']);
+    const died = await data('process', 'spawn', '0', 'generic-task', '--name', 'died');
+    await data('process', 'complete', String(died.pid));
+    const text = (await cli(['process', 'delete', String(died.pid)])).stdout.trim();
+    expect(text).toContain(`deleted pid ${died.pid}`);
+    expect(text).toContain('processes=1');
+    expect(text).toContain('messages=0');
+    expect((await cli(['process', 'inspect', String(died.pid)], { check: false })).stderr).toContain('not found');
+    // The parent is where the disappearance is recorded.
+    expect((await data('process', 'inspect', '0')).recent_events[0])
+      .toMatchObject({ kind: 'child_deleted', data: { pid: died.pid, name: 'died' } });
+
+    // A running process: delete refuses, purge terminates and removes it.
+    const live = await data('process', 'spawn', '0', 'generic-service', '--name', 'live');
+    const refused = await cli(['process', 'delete', String(live.pid)], { check: false });
+    expect(refused.code).not.toBe(0);
+    expect(refused.stderr).toContain('purge');
+    expect(await data('process', 'purge', String(live.pid)))
+      .toMatchObject({ status: 'running', terminated: [live.pid], deleted: [live.pid] });
+    expect((await cli(['process', 'purge', String(live.pid)], { check: false })).code).not.toBe(0);
+
+    // A subtree: refused without --recursive, removed from the leaves up with it.
+    const branch = await data('process', 'spawn', '0', 'generic-service', '--name', 'branch');
+    const leaf = await data('process', 'spawn', String(branch.pid), 'generic-task', '--name', 'leaf');
+    await data('process', 'complete', String(leaf.pid));
+    expect((await cli(['process', 'delete', String(branch.pid)], { check: false })).stderr).toContain('has children');
+    await cli(['process', 'stop', String(branch.pid)]);
+    const expected = [branch.pid, leaf.pid].sort((left, right) => left - right);
+    expect((await data('process', 'delete', String(branch.pid), '--recursive')).deleted).toEqual(expected);
+    expect((await cli(['process', 'delete', '0'], { check: false })).stderr).toContain('PID 0');
+    expect((await cli(['process', 'delete'], { check: false })).code).toBe(2);
+    expect((await cli(['process', 'purge', String(died.pid)], { check: false })).code).not.toBe(0);
   }, 60_000);
 
   test('session lists the pi session and --open hands the terminal to pi', async () => {
@@ -189,7 +356,7 @@ describe('cli, daemon lifecycle and attach', () => {
     state.env = { ...baseEnv, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub };
     try {
       await cli(['daemon', 'start']);
-      const project = await data('process', 'spawn', '0', 'project', '--name', 'p1', '--args', JSON.stringify({ path: state.dir }));
+      const project = await data('process', 'spawn', '0', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
 
       const before = await data('process', 'session', String(project.pid));
       expect(before).toMatchObject({ agent: 'pi', session_id: `lush-${project.pid}`, file: null, files: [] });
@@ -567,4 +734,53 @@ describe('cli, daemon lifecycle and attach', () => {
       http.stop(true);
     }
   }, 60_000);
+});
+
+describe('orphan text output', () => {
+  test('pool and sweep report are stable, human-readable and free of JSON blobs', () => {
+    const pool = formatOrphans({
+      policy: { adopt: 'adopt', limit: 2, ttl_seconds: 0.5, sweep_seconds: 30 },
+      active_count: 3,
+      busy_count: 1,
+      over_limit: 1,
+      orphans: [
+        {
+          pid: 4, name: 'cache', type: 'service', status: 'running', template: 'generic-service',
+          original_parent_pid: 2, created_at: '2026-09-17T20:00:00.000Z', updated_at: '2026-09-17T20:00:00.000Z',
+          last_activity_at: '2026-09-17T20:05:00.000Z', idle_seconds: 75, busy: true,
+        },
+        {
+          pid: 5, name: 'worker', type: 'task', status: 'cancelled', template: 'generic-task',
+          original_parent_pid: 2, created_at: '2026-09-17T20:00:00.000Z', updated_at: '2026-09-17T20:00:00.000Z',
+          last_activity_at: '2026-09-17T20:05:00.000Z', idle_seconds: 75, busy: false,
+        },
+      ],
+    });
+    const lines = pool.split('\n');
+    expect(lines[0]).toBe('policy adopt=adopt limit=2 ttl=0.5s sweep=30s');
+    expect(lines[1]).toBe('orphans active=3 busy=1 over_limit=1');
+    expect(pool).toContain('cache');
+    expect(pool).toContain('worker');
+    expect(pool).toMatch(/^\s+4\s+service\s+running\s+1m15s\s+yes\s+cache$/m);
+    expect(pool).toMatch(/^\s+5\s+task\s+cancelled\s+1m15s\s+no\s+worker$/m);
+    expect(pool).not.toContain('{');
+    expect(formatOrphans({
+      policy: { adopt: 'adopt', limit: 0, ttl_seconds: 0, sweep_seconds: 30 },
+      active_count: 0, busy_count: 0, over_limit: 0, orphans: [],
+    })).toContain('(none');
+
+    const report = formatOrphans({
+      trigger: 'timer', skipped: false, checked: 3, active_before: 3, active_after: 1,
+      evicted: [
+        { pid: 4, name: 'cache', type: 'service', from: 'running', to: 'stopped', reason: 'orphan_ttl', idle_seconds: 900 },
+        { pid: 5, name: 'worker', type: 'task', from: 'running', to: 'cancelled', reason: 'orphan_limit', idle_seconds: 12 },
+      ],
+      deferred: [{ pid: 6, reason: 'busy' }],
+      limit: 1, ttl_seconds: 600,
+    });
+    expect(report.split('\n')[0]).toBe('trigger=timer checked=3 active 3->1 evicted=2 deferred=1 (limit=1 ttl=600s)');
+    expect(report).toMatch(/^ {2}evicted 4 service running->stopped reason=orphan_ttl idle=900s cache$/m);
+    expect(report).toMatch(/^ {2}evicted 5 task running->cancelled reason=orphan_limit idle=12s worker$/m);
+    expect(report).toMatch(/^ {2}deferred 6 reason=busy .*busy/m);
+  });
 });

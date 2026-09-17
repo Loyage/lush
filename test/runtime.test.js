@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { AgentResponse, ToolCall } from '../src/agent/provider.js';
-import { AgentTools } from '../src/agent/tools.js';
+import { AgentTools, TOOL_DEFINITIONS } from '../src/agent/tools.js';
 import { LushError } from '../src/core/types.js';
 import { cleanup, contextPid, deferred, expectRejection, queue, system, tmpdir } from './helpers.js';
 
@@ -77,6 +77,7 @@ describe('runtime', () => {
     for (const [name, args] of [
       ['process_spawn', '{"parent_pid":0,"template":"generic-task"}'],
       ['process_update_state', '{"pid":0,"patch":{}}'],
+      ['process_update_vars', '{"pid":0,"patch":{}}'],
       ['process_self', '[]'],
       ['process_self', 'bad-json'],
       ['process_inspect', '{"pid":true}'],
@@ -86,7 +87,29 @@ describe('runtime', () => {
     }
     manager.complete(task.pid);
     expect((await tools.execute('process_spawn', '{"template":"generic-task"}')).error).toBeDefined();
+    expect((await tools.execute('process_update_vars', '{"patch":{"branch":"dev"}}')).error).toBeDefined();
     expect((await tools.execute('process_self', '{}')).result).toBeDefined();
+    // The declaration is the full tool surface: variables are part of it.
+    expect(TOOL_DEFINITIONS.map((tool) => tool.function.name)).toContain('process_update_vars');
+    // Deleting records stays a human CLI/RPC decision: no agent gets that tool.
+    const names = TOOL_DEFINITIONS.map((tool) => tool.function.name);
+    expect(names).not.toContain('process_delete');
+    expect(names).not.toContain('process_purge');
+  });
+
+  test('process_update_vars tool only changes mutable variables', async () => {
+    const project = root.createChild('project', { variables: { path: dir } });
+    const tools = new AgentTools(manager, project.pid);
+    expect((await tools.execute('process_self', '{}')).result.variables.mutable).toEqual({ branch: 'main' });
+    expect((await tools.execute('process_update_vars', '{"patch":{"branch":"dev"}}')).result).toEqual({ branch: 'dev' });
+    for (const args of ['{"patch":{"path":"/tmp"}}', '{"patch":{"nope":1}}', '{"patch":{}}']) {
+      expect((await tools.execute('process_update_vars', args)).error).toBeDefined();
+    }
+    expect(project.inspect().variables.mutable).toEqual({ branch: 'dev' });
+    // Spawning through the tool takes the same declaration: path is required.
+    const spawnVariables = JSON.stringify({ template: 'project', name: 'child', goal: 'g', variables: { path: dir } });
+    expect((await tools.execute('process_spawn', spawnVariables)).result.variables.immutable).toEqual({ path: dir });
+    expect((await tools.execute('process_spawn', '{"template":"project"}')).error).toBeDefined();
   });
 
   test('concurrent calls on different pids; same pid is busy', async () => {
@@ -193,6 +216,28 @@ describe('runtime', () => {
     expect(parent.inspect().recent_calls[0].status).toBe('interrupted');
     provider.release.resolve();
     await independent;
+  });
+
+  test('purge interrupts a live call and keeps the agent log readable', async () => {
+    const provider = new BlockingProvider();
+    runtime.provider = provider;
+    const task = root.createChild('generic-task', { name: 'doomed' });
+    const pending = task.call('work');
+    pending.catch(() => {});
+    await provider.entered.next();
+    expect(runtime.isBusy(task.pid)).toBe(true);
+
+    const result = manager.purge(task.pid);
+    expect(result).toMatchObject({ status: 'running', terminated: [task.pid], deleted: [task.pid] });
+    const error = await expectRejection(pending, /interrupted/);
+    expect(error.code).toBe(-32021);
+    expect(runtime.isBusy(task.pid)).toBe(false);
+    expect(runtime.activeCalls).toBe(0);
+    // The finished worker is still in this daemon run's memory; its process is not.
+    expect(manager.agentsList()).toEqual([]);
+    expect(manager.agentsList(null, true)[0])
+      .toMatchObject({ id: `${task.pid}.1`, pid: task.pid, name: null, status: 'interrupted' });
+    provider.release.resolve();
   });
 
   test('cancelling a parent wait does not cancel a nested child', async () => {

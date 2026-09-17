@@ -34,7 +34,7 @@ lush process tree  # 树、Context、对话和调用历史仍在
 lush daemon stop
 ```
 
-命令分两层组：命令组（`daemon` / `process`）→ 命令 → 参数。`--json` 可写在命令之前或末尾。agent 不是独立的命令层：它属于某个 Process，随进程查询。
+命令分两层组：命令组（`daemon` / `process`）→ 命令 → 参数。默认输出是给人读的文本（表格、树、分块的 message、一行式状态），`--json` 给出稳定的机器可读 result，可写在命令之前或末尾。agent 不是独立的命令层：它属于某个 Process，随进程查询。
 
 也可通过 `bun run bin/lush`（或 `bun run bin/lushd` 前台运行 daemon）调用；`bun link` 之后 `lush` / `lushd` 会进入 PATH。
 
@@ -52,16 +52,18 @@ just daemon-start    # 起 daemon（幂等）
 just bootstrap       # 起 daemon 并创建 project-manager → implement-login
 just tree | just ps | just status
 just spawn 0 generic-task implement-login '实现登录功能'
-just spawn 0 project my-repo '' '{"path":"/abs/repo"}'   # project 必须给绝对路径
+just spawn 0 project my-repo '' '{"path":"/abs/repo"}'   # project 必须给变量 path（绝对路径，同时是 cwd）
 just call 2 '请介绍一下你自己'
 just call 2 'hi' dry   # 只打印将执行的命令（pi 命令行），不真的调用 agent
 just session 2        # 查看该进程的 pi session（dir/id/file）
 just session 2 open   # 直接进 pi TUI 接续该会话
-just complete 2 '"done"' | just update-state 2 '{"progress":"half"}'
+just complete 2 '"done"' | just update-state 2 '{"progress":"half"}' | just update-vars 2 '{"branch":"dev"}'
 just attach 2
 just inspect 2       # 统一查看：just inspect 2 parent,children,prompt
 just history 2 0 50
-just stop 1 | just kill 2 | just reclaim 2
+just stop 1 | just kill 2 | just reclaim 2 | just delete 2 | just purge 2
+just orphans         # PID 0 的孤儿池：策略 + 每个孤儿的 busy / 闲置秒数
+just orphans sweep   # 立刻按 TTL / 上限回收一次（冻结，不删除）
 just daemon-stop     # 或 just daemon-restart（保留进程树与历史）
 just prune           # 列出并清理残留 daemon（home 已消失的孤儿）；just prune all 连临时 home 一起清
 just log             # tail $LUSH_HOME/daemon.log
@@ -80,7 +82,7 @@ just clean           # 停 daemon 并删除仓库内的 .lush
 2. 共享的 Lush 说明层（`src/agent/guide.js`）：介绍 Lush 是什么、如何用 `lush` CLI 操作进程，所有 agent 后端都会带上；
 3. 运行时数据 `LUSH_CONTEXT`（自身 metadata、父/子摘要、state、可创建模板及其 `spawn_prompt`）。
 
-pi 用自带的 read / bash / edit / write 工具干活，并**通过 bash 调用 `lush` CLI** 来 spawn / call / complete 其他进程；`LUSH_HOME`、`LUSH_PID` 会传给它，仓库 `bin/` 会被加进 PATH。若进程创建时给了 `args.path`（例如 `project` 模板），pi 的 cwd 就是该目录，否则是 `$LUSH_HOME`。
+pi 用自带的 read / bash / edit / write 工具干活，并**通过 bash 调用 `lush` CLI** 来 spawn / call / complete 其他进程；`LUSH_HOME`、`LUSH_PID` 会传给它，仓库 `bin/` 会被加进 PATH。若进程创建时给了 `path` 变量（例如 `project` 模板），pi 的 cwd 就是该目录，否则是 `$LUSH_HOME`。
 
 ```bash
 export LUSH_PROVIDER=pi            # 默认
@@ -88,7 +90,7 @@ export LUSH_PROVIDER=pi            # 默认
 # export LUSH_PI_PROVIDER=openai   # 透传给 pi --provider
 # export LUSH_PI_MODEL=gpt-5       # 透传给 pi --model
 export LUSH_CALL_TIMEOUT=900       # pi 真实干活很慢，默认 15 分钟
-lush process spawn 0 project my-repo --name my-repo --args '{"path":"/abs/repo"}'
+lush process spawn 0 project my-repo --name my-repo --vars '{"path":"/abs/repo"}'
 lush process call 1 '看看这个仓库，列出待办并开工'
 ```
 
@@ -116,6 +118,38 @@ lush process session 2 --open # 把这个终端交给该 PID 的 pi session（�
 ```
 
 session 属于它所在的进程：session-id（`lush-<PID>`）与回话文件（`$LUSH_HOME/pi-sessions/<session 开始时间>_lush-<PID>.jsonl`）都按 PID 算，进程进入终态（completed / cancelled / reclaimed）后依然可查；多轮 call 追加到同一个文件（所以正常恒为 1 个，多于 1 只出现在 pi 自己 `--fork` / `/clone` 时）。这也是为什么命令都挂在 `process` 下：没有独立的 `agent` 命令组，`process agents …` 查运行期，`process session …` 查磁盘。
+
+### 删除：把记录真正拿掉
+
+`reclaim` 只是归档，`delete` / `purge` 才是物理删除——同一个事务里删掉该 PID 的 `processes` / `contexts` / `messages` / `agent_calls` / `process_events` 行，之后 `list` / `tree` / `inspect` / `history` 都不再有它。
+
+```bash
+lush process delete 2              # 只删已结束的进程；running 被拒绝并提示改用 purge
+lush process purge 2               # 先停止/取消（中断进行中的调用）再删
+lush process delete 1 --recursive  # 连整棵子树一起删（叶子先走，同一个事务）
+lush process purge 1 --recursive   # 子树里每个活动节点都会被终止，且不收养给 PID 0
+```
+
+有子进程时默认拒绝（删掉父行会让子进程指向不存在的行），`--recursive` 才级联。删完只留一处痕迹：被删进程的父进程记一条 `child_deleted` 事件（`lush process inspect 1` 里能看到是什么时候没的、叫什么名字）；`original_parent_pid` 指向被删进程的幸存节点会改挂 PID 0 并记 `parent_deleted`。内置运行时的 agent 工具里没有删除工具——删除是人的决定。PID 0 永远不能删。
+
+### 孤儿监督
+
+父节点进入终态时，它的活动直接子节点改挂 PID 0（收养），之后归 PID 0 监督。**默认不回收**（`adopt` + 不限 + 不超时，与历史行为一致），只有配了上限或闲置超时才动手；这四个变量在 daemon 启动时读取，**改配置必须重启 daemon**：
+
+| 环境变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `LUSH_ORPHAN_ADOPT` | `adopt` | 父节点结束时活动直接子节点怎么办：`adopt` 收养 / `none` 不收养也不终止 / `terminate` 连同子节点一起冻结 |
+| `LUSH_ORPHAN_LIMIT` | `0`（不限） | PID 0 下活动孤儿的上限，超出时从最旧开始冻结 |
+| `LUSH_ORPHAN_TTL` | `0`（不启用） | 闲置超过这么多秒的孤儿被冻结（可小数） |
+| `LUSH_ORPHAN_SWEEP` | `30` | daemon 每这么多秒扫一次；`0` = 不起定时器（仍可手动 `--sweep`） |
+
+```bash
+LUSH_ORPHAN_LIMIT=5 LUSH_ORPHAN_TTL=3600 just daemon-restart   # 默认的 adopt 收养下，上限 5、闲置一小时就回收
+lush process orphans          # 读模型：当前策略 + 每个孤儿的 busy / 闲置秒数
+lush process orphans --sweep  # 立刻按 TTL + 上限回收一次，返回本轮报告（evicted / deferred）
+```
+
+**回收是冻结，不是删除**：Service → `stopped`、Task → `cancelled`，metadata、Context、消息、调用与事件全部保留（真删除只有 `delete` / `purge`）。有 agent 调用在跑的孤儿（busy）永不被冻结，只出现在报告的 `deferred` 里。被监督冻结的进程，其 transition 事件带 `cause`（`orphan_ttl` / `orphan_limit`），用 `lush process inspect PID` 可查；`lush daemon status` 里的 `orphans_active` 是当前活动孤儿数。细节见 [Process 模型](docs/process-model.md#pid-0-的孤儿监督)。
 
 想「发起一次调用，同时自己也在场」，用 `lush process call PID 'PROMPT' --interactive`（简写 `-i`）：daemon 照常打开这次调用（写 user message、标记 busy、拦递归与并发），但 agent 不跑 `pi --print`，而是在你这个终端里跑同 cwd、同 session、同身份的 pi TUI，PROMPT 作为 TUI 的首条消息；你在里面看它干活、直接插话，退出 TUI 后 CLI 把结果报回 daemon 并结算这次调用（成功/失败、释放 busy）。只适用于外部 agent（`pi`）：内置运行时的 agent 跑在 Lush 进程内，没有可进入的终端，会报错。这次调用只有 prompt 落在 `agent_calls`，回复留在 pi 会话里；期间 `kill` / `stop` 只能把它标记为 interrupted，不会关掉你终端里的 pi。
 
@@ -161,13 +195,13 @@ lush --json help process       # 机器可读的命令树（summary/cover/usage/
 ## 验证
 
 ```bash
-just verify   # = bun test（51 项）+ bun run demo
+just verify   # = bun test（100 项）+ bun run demo
 bun test      # 只跑测试
 bun run demo  # 只跑演示（mock provider）
 ```
 
-数据默认保存在 `$XDG_STATE_HOME/lush` 或 `~/.local/state/lush`，可用 `LUSH_HOME` 覆盖。包含 SQLite 数据库、socket、daemon 锁、pi session 及日志。目录仅限当前用户访问。模板存放于仓库顶层 `templates/`（内置 `lush-root`、`generic-service`、`generic-task`、`research-task`、`project-manager`、`project`）；`$LUSH_HOME/templates/*.json` 可增加新模板，不覆盖仓库模板；重启后加载。模板字段固定为 name、type（task/service）、singleton（同一父进程下是否只允许一个活动实例）、description、spawn_prompt（创建该模板需要哪些参数、如何创建）、system_prompt（实例 call 时使用的系统提示词）、child_templates（该实例可创建哪些模板），缺一或多一都报错。`project` 是 `project-manager` 的子模板、非单例，创建时必须通过 `--args '{"path":"/abs/dir"}'` 给出已存在的绝对目录，该目录会成为它的 agent cwd。
+数据默认保存在 `$XDG_STATE_HOME/lush` 或 `~/.local/state/lush`，可用 `LUSH_HOME` 覆盖。包含 SQLite 数据库、socket、daemon 锁、pi session 及日志。目录仅限当前用户访问。模板存放于仓库顶层 `templates/`（内置 `lush-root`、`generic-service`、`generic-task`、`research-task`、`project-manager`、`project`、`dev-task`）；`$LUSH_HOME/templates/*.json` 可增加新模板，不覆盖仓库模板；重启后加载。模板字段固定为 name、type（task/service）、singleton（同一父进程下是否只允许一个活动实例）、description、spawn_prompt（创建该模板需要哪些变量、如何创建）、system_prompt（实例 call 时使用的系统提示词）、child_templates（该实例可创建哪些模板）、variables（实例变量声明：immutable / mutable 两个区间，每项有 description 与可选的 required、default），缺一或多一都报错。变量在创建时用 `--vars '<json>'` 提供：必填变量缺失、写了没声明的名字都会直接失败；immutable 变量（如 `path`）创建后不可改，mutable 变量用 `lush process update-vars PID --vars '<json>'` 修改，`process inspect` / `process tree` 都能看到变量的当前值与声明。`project` 是 `project-manager` 的子模板、非单例，必须提供 immutable 变量 `path`（已存在的绝对目录，会成为它的 agent cwd），另有 mutable 变量 `branch`（默认 main）。
 
-**生命周期提示：** spawn 自动进入 running；一次 call 返回不等于 Task 完成。完成的 Task 不再接受 call/attach；可通过 inspect 查看历史。stop 仅用于 Service，kill 停止 Service / 取消 Task。父进程结束时，活动直接子节点改挂 PID 0，自己的后代不变。`reclaim` 仅标记结束的 Task 为 reclaimed，历史不删除。PID 0 只能通过停止 daemon 退出。
+**生命周期提示：** spawn 自动进入 running；一次 call 返回不等于 Task 完成。完成的 Task 不再接受 call/attach；可通过 inspect 查看历史。stop 仅用于 Service，kill 停止 Service / 取消 Task。父进程结束时，活动直接子节点改挂 PID 0，自己的后代不变。`reclaim` 仅标记结束的 Task 为 reclaimed，历史不删除。**删除是唯一的物理删除路径**：`process delete PID` 只删已结束的进程，`process purge PID` 先停止/取消再删（`--recursive` 连整棵子树），同一个事务里删掉该 PID 的 Context、消息、调用与事件，且内置运行时的 agent 工具集里没有删除工具；被删进程的父进程会得到一条 `child_deleted` 事件，被删进程自己不留痕。PID 0 永远拒绝，只能通过停止 daemon 退出。
 
 本地单用户 MVP：没有 ACL、沙箱、自动调度、自动任务恢复、向量数据库或 Web UI。运行 pi 时，pi 自带的 read/bash/edit/write 工具和你的 pi 配置（skills、extensions、AGENTS.md）都会生效，因此 pi 进程能读写磁盘和执行命令；`openai` / `mock` 运行时只有 Lush 自己的 `process_*` 工具，不含 shell、文件编辑或联网能力。不要向不可信用户暴露 socket；Agent 可以调用其他 Process，因此工具调用不是安全隔离边界。

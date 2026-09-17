@@ -30,6 +30,7 @@ export async function serve(config) {
   let server = null;
   let runtime = null;
   let repository = null;
+  let orphanTimer = null;
   const stopping = createSignal();
   const onSignal = () => stopping.set();
   process.on('SIGTERM', onSignal);
@@ -41,7 +42,7 @@ export async function serve(config) {
     const provider = await configuredProvider(process.env, { home: config.home });
     database = new Database(path.join(config.home, 'lush.db'));
     repository = new Repository(database);
-    const manager = new ProcessManager(repository, templates);
+    const manager = new ProcessManager(repository, templates, config.orphanPolicy);
     manager.ensureRoot();
     repository.recover();
     const backfill = manager.backfillTemplateSnapshots();
@@ -59,9 +60,28 @@ export async function serve(config) {
     manager.runtime = runtime;
     server = new RPCServer(config.socket, new Dispatcher(manager, stopping, identity));
     await server.start();
+    // Orphan supervision only runs when there is something to enforce: a sweep
+    // interval of 0 means "never automatically", whatever the limit or TTL say.
+    const policy = config.orphanPolicy;
+    if (policy.sweepSeconds > 0 && (policy.limit > 0 || policy.ttlSeconds > 0)) {
+      orphanTimer = setInterval(() => {
+        try {
+          const report = manager.superviseOrphans('timer');
+          if (report.evicted.length) {
+            const detail = report.evicted.map((item) => `${item.pid} (${item.reason})`).join(', ');
+            log.info(`orphan supervision evicted PIDs ${detail}`);
+          }
+        } catch (err) {
+          log.warn(`orphan supervision failed: ${err?.message ?? err}`);
+        }
+      }, policy.sweepSeconds * 1000);
+      orphanTimer.unref?.(); // a pending sweep must never keep the daemon alive
+    }
     log.info(`lushd ready at ${config.socket} (provider=${provider.name})`);
     await stopping.promise;
   } finally {
+    // The timer must be gone before the database it reads from is closed.
+    if (orphanTimer) clearInterval(orphanTimer);
     // Stop accepting new work before cancelling agent invocations.
     if (server) await server.close();
     if (runtime) await runtime.shutdown();

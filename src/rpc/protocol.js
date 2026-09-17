@@ -37,9 +37,11 @@ export function parseRequest(raw) {
 const MANAGER_METHODS = [
   ['inspect', 'inspect'], ['parent', 'parent'], ['children', 'children'], ['view', 'view'], ['spawn', 'spawn'],
   ['call', 'call'], ['call_begin', 'callBegin'], ['call_end', 'callEnd'], ['call_os_pid', 'callOsPid'],
-  ['tree', 'tree'], ['agents_list', 'agentsList'], ['agents_show', 'agentShow'], ['agents_kill', 'agentsKill'],
-  ['session', 'session'], ['start', 'start'], ['stop', 'stop'], ['kill', 'kill'], ['reclaim', 'reclaim'],
-  ['update_state', 'updateState'], ['complete', 'complete'], ['history', 'history'],
+  ['tree', 'tree'], ['orphans', 'orphans'], ['orphan_sweep', 'superviseOrphans'],
+  ['agents_list', 'agentsList'], ['agents_show', 'agentShow'], ['agents_kill', 'agentsKill'],
+  ['session', 'session'], ['start', 'start'], ['stop', 'stop'], ['kill', 'kill'], ['delete', 'delete'],
+  ['purge', 'purge'], ['reclaim', 'reclaim'],
+  ['update_state', 'updateState'], ['update_vars', 'updateVars'], ['complete', 'complete'], ['history', 'history'],
 ];
 
 export class Dispatcher {
@@ -69,6 +71,10 @@ export class Dispatcher {
       provider: runtime ? runtime.provider.name : 'unbound',
       process_count: this.manager.list().length,
       active_calls: runtime ? runtime.activeCalls : 0,
+      // Orphan supervision is configured at startup and only observable here:
+      // the policy in wire shape plus how many orphans it currently holds.
+      orphan_policy: this.manager.orphanPolicyReport(),
+      orphans_active: this.manager.orphans().active_count,
       // The daemon is long-lived and keeps the guide, the CLI declaration and
       // the templates in memory, so which code answers is not visible from the
       // socket path alone; report it and let clients compare with their own.

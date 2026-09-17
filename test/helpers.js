@@ -19,11 +19,11 @@ export function cleanup(directory) {
 }
 
 /** Composition root used by the tests: persistence + core + runtime, no socket. */
-export function system(directory, provider = null, runtimeOptions = {}) {
+export function system(directory, provider = null, runtimeOptions = {}, orphanPolicy = undefined) {
   const database = new Database(path.join(directory, 'lush.db'));
   const repository = new Repository(database);
   const templates = new TemplateLoader();
-  const manager = new ProcessManager(repository, templates);
+  const manager = new ProcessManager(repository, templates, orphanPolicy);
   manager.ensureRoot();
   repository.recover();
   const agent = provider ?? new MockAgentProvider();

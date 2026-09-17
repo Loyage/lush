@@ -96,7 +96,39 @@ describe('rpc', () => {
     await client.request('process.complete', { pid, result: 'done' });
     await client.request('process.reclaim', { pid });
     expect((await client.request('process.inspect', { pid })).status).toBe('reclaimed');
-    expect(fs.statSync(server.path).mode & 0o777).toBe(0o600);
+    // Variables travel over the wire with their declaration and regions.
+    const project = await client.request('process.spawn', {
+      parent_pid: 0, template: 'project', name: 'wire', variables: { path: process.cwd() },
+    });
+    expect(project.variables).toMatchObject({ immutable: { path: process.cwd() }, mutable: { branch: 'main' } });
+    expect(await client.request('process.update_vars', { pid: project.pid, patch: { branch: 'wire' } }))
+      .toEqual({ branch: 'wire' });
+    expect((await client.request('process.inspect', { pid: project.pid })).variables.mutable).toEqual({ branch: 'wire' });
+
+    // delete: only a finished process goes, and its parent keeps the audit event.
+    const doomed = await client.request('process.spawn', { parent_pid: 0, template: 'generic-service', name: 'doomed' });
+    await client.request('process.stop', { pid: doomed.pid });
+    const removed = await client.request('process.delete', { pid: doomed.pid });
+    expect(removed).toMatchObject({
+      pid: doomed.pid,
+      deleted: [doomed.pid],
+      status: 'stopped',
+      terminated: [],
+    });
+    expect(removed.rows.processes).toBe(1);
+    expect((await client.request('process.list')).map((row) => row.pid)).not.toContain(doomed.pid);
+    expect((await expectRejection(client.request('process.inspect', { pid: doomed.pid }))).code).toBe(-32004);
+    expect((await client.request('process.inspect', { pid: 0 })).recent_events[0]).toMatchObject({
+      kind: 'child_deleted', data: { pid: doomed.pid, name: 'doomed', status: 'stopped' },
+    });
+
+    // purge: terminate first (interrupting the running call), then delete.
+    const live = await client.request('process.spawn', { parent_pid: 0, template: 'generic-task', name: 'live' });
+    const purged = await client.request('process.purge', { pid: live.pid });
+    expect(purged.status).toBe('running');
+    expect(purged.terminated).toEqual([live.pid]);
+    expect(purged.deleted).toEqual([live.pid]);
+    expect(await expectRejection(client.request('process.purge', { pid: live.pid }))).toBeDefined();    expect(fs.statSync(server.path).mode & 0o777).toBe(0o600);
   });
 
   test('error codes and parameter validation', async () => {
@@ -117,10 +149,22 @@ describe('rpc', () => {
       ['process.agents_show', { id: 5 }, -32602],
       ['process.agents_show', { id: '9.9' }, -32004],
       ['process.agents_kill', { id: 'nope' }, -32602],
+      ['process.update_vars', { pid: 0 }, -32602],
+      ['process.update_vars', { pid: 0, patch: 'branch' }, -32602],
+      ['process.update_vars', { pid: 0, patch: { path: '/tmp' } }, -32602],
       ['process.agents_kill', { id: '0.1' }, -32009],
       ['process.call_os_pid', { pid: 0, call_id: 1, os_pid: 0 }, -32602],
       ['process.call_os_pid', { pid: 0, call_id: 1, os_pid: 'x' }, -32602],
       ['process.kill', { pid: 0 }, -32009],
+      ['process.delete', { pid: 0 }, -32010],
+      ['process.delete', { pid: 0, recursive: 'yes' }, -32602],
+      ['process.purge', {}, -32602],
+      ['process.purge', { pid: 0, extra: 1 }, -32602],
+      ['process.purge', { pid: 0 }, -32010],
+      ['process.delete', { pid: 99 }, -32004],
+      ['process.orphans', { bogus: 1 }, -32602],
+      ['process.orphans', { sweep: true }, -32602],
+      ['process.orphan_sweep', { bogus: 1 }, -32602],
     ]) {
       const error = await expectRejection(client.request(method, params));
       expect(error.code).toBe(code);
@@ -133,6 +177,67 @@ describe('rpc', () => {
       [Buffer.from('{"value":NaN}\n'), -32700],
     ]) {
       expect((await raw(frame)).error.code).toBe(code);
+    }
+  });
+
+  test('system.status reports the orphan policy and the active orphan count', async () => {
+    const status = await client.request('system.status');
+    expect(status.orphan_policy).toEqual({ adopt: 'adopt', limit: 0, ttl_seconds: 0, sweep_seconds: 30 });
+    expect(status.orphans_active).toBe(0);
+    // An adopted child shows up in the scalar without changing the policy.
+    const parent = await client.request('process.spawn', { parent_pid: 0, template: 'generic-service', name: 'p' });
+    await client.request('process.spawn', { parent_pid: parent.pid, template: 'generic-task', name: 'kid' });
+    await client.request('process.stop', { pid: parent.pid });
+    expect((await client.request('system.status')).orphans_active).toBe(1);
+  });
+
+  test('process.orphans is a read model, process.orphan_sweep runs the policy now', async () => {
+    const pool = await client.request('process.orphans');
+    expect(pool.policy).toEqual({ adopt: 'adopt', limit: 0, ttl_seconds: 0, sweep_seconds: 30 });
+    expect(pool).toMatchObject({ active_count: 0, busy_count: 0, over_limit: 0, orphans: [] });
+    // Nothing to do under the default policy, and the pass still reports itself.
+    expect(await client.request('process.orphan_sweep')).toEqual({
+      trigger: 'manual', skipped: false, checked: 0, active_before: 0, active_after: 0,
+      evicted: [], deferred: [], limit: 0, ttl_seconds: 0,
+    });
+  });
+
+  test('a ttl sweep freezes an idle orphan over the wire', async () => {
+    // A daemon of its own: supervision is configured at startup.
+    const dir2 = tmpdir('lush-rpc-orphan-');
+    const second = system(dir2, null, {}, { ttlSeconds: 1 });
+    const stop2 = createSignal();
+    const server2 = new RPCServer(path.join(dir2, 'lush.sock'), new Dispatcher(second.manager, stop2));
+    await server2.start();
+    const client2 = new RPCClient(server2.path, 2);
+    try {
+      const parent = await client2.request('process.spawn', { parent_pid: 0, template: 'generic-service', name: 'p' });
+      const kid = await client2.request('process.spawn', { parent_pid: parent.pid, template: 'generic-task', name: 'kid' });
+      // Only a terminal parent turns its surviving children into PID 0's orphans.
+      await client2.request('process.stop', { pid: parent.pid });
+
+      const pool = await client2.request('process.orphans');
+      expect(pool.policy.ttl_seconds).toBe(1);
+      expect(pool.active_count).toBe(1);
+      expect(pool.orphans[0]).toMatchObject({ pid: kid.pid, name: 'kid', type: 'task', busy: false });
+      expect(typeof pool.orphans[0].last_activity_at).toBe('string');
+
+      // Jump the supervisor clock instead of waiting for a real TTL.
+      second.manager.orphanSupervisor.clock = () => Date.now() + 3600_000;
+      const report = await client2.request('process.orphan_sweep');
+      expect(report.trigger).toBe('manual');
+      expect(report.evicted).toHaveLength(1);
+      expect(report.evicted[0]).toMatchObject({ pid: kid.pid, from: 'running', to: 'cancelled', reason: 'orphan_ttl' });
+      expect(report).toMatchObject({ active_before: 1, active_after: 0, deferred: [] });
+      expect((await client2.request('process.inspect', { pid: kid.pid })).status).toBe('cancelled');
+      expect((await client2.request('process.inspect', { pid: kid.pid })).recent_events[0]).toMatchObject({
+        kind: 'transition', data: { from: 'running', to: 'cancelled', cause: 'orphan_ttl' },
+      });
+    } finally {
+      await server2.close();
+      await second.runtime.shutdown();
+      second.database.close();
+      cleanup(dir2);
     }
   });
 

@@ -1,0 +1,10 @@
+{
+  "name": "dev-task",
+  "type": "task",
+  "singleton": false,
+  "description": "开发某项功能的实现任务",
+  "spawn_prompt": "创建一个开发任务：调用 process_spawn，参数 template=\"dev-task\"、name=<任务短名，必填>、goal=<要实现/修改/修复的功能，必填>。任务创建后立即 running，由它自己实现、自测，确认目标达成后才 complete；同一个父进程下可以创建多个（singleton=false）。该模板不声明任何变量（variables 为空）：不要传 variables / --vars，传了会被拒绝——它需要的工作信息（仓库路径、分支等）自己向父进程取：创建时在 goal 里说清要改什么，父进程的 variables（如 project 的 path、branch）由它自己去读。dev-task 不能创建子进程（child_templates 为空），一个任务自己干到底；要并行或拆分，由创建方开多个 dev-task。",
+  "system_prompt": "你是 Lush 的开发任务 Agent，负责实现 goal 描述的功能。你的模板刻意不声明变量（variables 为空），所以工作参数要向父进程取：先从 LUSH_CONTEXT 的 parent.pid 拿到父 PID，再读它的 variables（CLI 用 `lush process inspect <parent.pid>`，内置运行时用 process_parent / process_inspect）——project 通常有不可变 path（仓库绝对路径）与可变 branch（当前分支）。拿到后 `cd` 到该目录，或全程用绝对路径读写文件、跑命令；注意你的默认工作目录是 $LUSH_HOME，不是仓库，不要在那里改代码。你不能创建子进程（child_templates 为空）：拆解、实现、自测都由你自己完成；需要调研或更大的拆分时，把发现写进 state，让父进程决定下一步。只有目标确实达成（改动已落地、相关测试跑过）才调用 process.complete，并把改了什么、怎么验证的写进 state；不要声称未实际执行的工作已经完成，也不要把猜测当成事实。",
+  "child_templates": [],
+  "variables": {}
+}

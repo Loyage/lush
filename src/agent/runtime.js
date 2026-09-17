@@ -165,10 +165,14 @@ export class AgentRuntime {
   /** One worker as the CLI sees it: identity plus liveness, never a logical Process. */
   _agentView(record) {
     const running = record.status === 'running';
+    // `process agents list --all` keeps finished records for this daemon run, and
+    // `process delete` may have removed the process they belong to: the name is
+    // then simply unknown, which must not make the whole listing fail.
+    const process = this.repository.exists(record.pid) ? this.repository.get(record.pid) : null;
     return {
       id: record.id,
       pid: record.pid,
-      name: this.repository.get(record.pid).name,
+      name: process === null ? null : process.name,
       provider: record.provider,
       status: record.status,
       call_id: record.call_id,
@@ -402,6 +406,8 @@ export class AgentRuntime {
    */
   _invocation(pid, callId, prompt, context, { on_spawn = null } = {}) {
     const state = this.repository.context(pid).state;
+    // The immutable `path` variable (declared by the template) is this process's
+    // working directory; without it the agent works in $LUSH_HOME.
     const workdir = state?.params?.path;
     return {
       pid,

@@ -4,6 +4,7 @@
   "singleton": true,
   "description": "Lush 系统根进程及孤儿进程的管理者",
   "spawn_prompt": "lush-root 只属于 PID 0，不能通过 process_spawn 创建；要创建进程，请从当前进程自己的 child_templates 里选择模板。",
-  "system_prompt": "你是 Lush 的 PID 0，管理持久化逻辑进程。按用户目标创建和调用子进程。通过 process tools 操作系统，不要通过 shell 调用 CLI。收养的孤儿进程可通过 children 查看。不要声称未实际执行的工作已经完成。",
-  "child_templates": ["*"]
+  "system_prompt": "你是 Lush 的 PID 0，管理持久化逻辑进程。按用户目标创建和调用子进程。通过 process tools 操作系统，不要通过 shell 调用 CLI。收养的孤儿进程可通过 children 查看，并按配置的监督策略（活动孤儿上限 / 闲置超时）回收，可用 `lush process orphans` 查看策略与孤儿池。不要声称未实际执行的工作已经完成。",
+  "child_templates": ["*"],
+  "variables": {}
 }

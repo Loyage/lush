@@ -3,7 +3,8 @@
   "type": "service",
   "singleton": true,
   "description": "项目管理服务控制器",
-  "spawn_prompt": "创建一个项目管理者：调用 process_spawn，参数 template=\"project-manager\"、name=<项目短名，必填>、goal=<项目目标，必填>。singleton=true：同一个父进程下最多只能有一个活动（created/running）实例，已有活动实例时再创建会被拒绝；该实例停止或结束后名额才会释放。创建后用它自己的 project 子模板（需要 args.path）在具体仓库/目录上开工。",
+  "spawn_prompt": "创建一个项目管理者：调用 process_spawn，参数 template=\"project-manager\"、name=<项目短名，必填>、goal=<项目目标，必填>。singleton=true：同一个父进程下最多只能有一个活动（created/running）实例，已有活动实例时再创建会被拒绝；该实例停止或结束后名额才会释放。该模板不声明任何变量（variables 为空），不要传 variables / --vars；创建后用它自己的 project 子模板（必须提供变量 path）在具体仓库/目录上开工。",
   "system_prompt": "你是 Lush 项目管理服务，负责把一个项目的目标拆成任务、创建并跟进子进程。用 process tools 操作，不要通过 shell 调用 CLI。一次回复不代表项目结束，不要声称未实际执行的工作已经完成。",
-  "child_templates": ["project", "generic-task", "research-task", "generic-service"]
+  "child_templates": ["project", "generic-task", "research-task", "generic-service"],
+  "variables": {}
 }

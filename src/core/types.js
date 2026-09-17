@@ -59,6 +59,13 @@ export function jsonLoad(value) {
  */
 export const VIEW_SECTIONS = ['parent', 'children', 'prompt'];
 
+/**
+ * Process variables are declared and stored in two regions: `immutable`
+ * values are fixed at creation (they are the template's initial variables),
+ * `mutable` values stay changeable through `process.update_vars`.
+ */
+export const VARIABLE_GROUPS = ['immutable', 'mutable'];
+
 /** Normalize requested view sections to canonical order; reject unknown or repeated names. */
 export function viewSections(value) {
   if (!Array.isArray(value) || value.length === 0) {

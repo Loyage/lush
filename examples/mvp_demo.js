@@ -81,6 +81,33 @@ async function demo(home) {
     if (reclaimed.status !== 'reclaimed') throw new Error('reclaim failed');
     if ((await json('process', 'history', '2')).messages.length === 0) throw new Error('history was dropped');
     console.log('✓ Reclaim preserved history');
+
+    // Variables: creation values are checked against the template and split into
+    // immutable / mutable; only mutable ones can change afterwards.
+    const project = await json('process', 'spawn', '0', 'project', '--name', 'lush-demo',
+      '--vars', JSON.stringify({ path: ROOT }));
+    const variables = (await json('process', 'inspect', String(project.pid))).variables;
+    if (variables.immutable.path !== ROOT || variables.mutable.branch !== 'main') {
+      throw new Error('template variables were not applied at creation');
+    }
+    let refused = null;
+    try {
+      await run(['process', 'update-vars', String(project.pid), '--vars', '{"path":"/tmp"}'], { quiet: true });
+    } catch (err) {
+      refused = err;
+    }
+    if (refused === null || !String(refused.message).includes('immutable')) {
+      throw new Error('immutable variable was not protected');
+    }
+    await run(['process', 'update-vars', String(project.pid), '--vars', '{"branch":"demo"}']);
+    if ((await json('process', 'inspect', String(project.pid))).variables.mutable.branch !== 'demo') {
+      throw new Error('mutable variable was not updated');
+    }
+    const variableTree = await run(['process', 'tree'], { quiet: true });
+    if (!variableTree.includes(`lush-demo[${project.pid}] path=`) || !variableTree.includes('~branch=demo')) {
+      throw new Error('tree does not show variables');
+    }
+    console.log('✓ Variables: required path at creation, mutable branch updated, immutable path refused');
     console.log('\nMVP demo passed.');
   } finally {
     await run(['daemon', 'stop'], { quiet: true }).catch(() => {});

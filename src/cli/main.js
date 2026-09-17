@@ -4,7 +4,7 @@ import cp from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { Config } from '../config.js';
-import { LushError, VIEW_SECTIONS } from '../core/types.js';
+import { LushError, VIEW_SECTIONS, isPlainObject } from '../core/types.js';
 import { isLocked } from '../daemon/locking.js';
 import { codeIdentity, codeMismatch } from '../identity.js';
 import { RPCClient } from '../rpc/client.js';
@@ -99,7 +99,7 @@ function parseOptions(args, result, options) {
 //  `help` can never drift from the real parser.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const GLOBAL_JSON = '输出机器可读 JSON；可放在命令之前或命令末尾（`lush --json process list` / `lush process list --json`）';
+const GLOBAL_JSON = '输出机器可读 JSON（默认是人类可读文本）；可放在命令之前或命令末尾（`lush --json process list` / `lush process list --json`）';
 
 const ROOT = {
   summary: 'AI 的操作系统：把 AI 工作组织成持久化的逻辑 Process',
@@ -159,15 +159,18 @@ const ROOT = {
       summary: '逻辑进程：查看、调用、派生与生命周期',
       cover: [
         '查看：list、tree、inspect、history 读取进程 metadata、层级、Context 与消息历史。',
+        '孤儿：父节点结束后的活动子节点由 PID 0 收养，`process orphans` 查看孤儿池与策略，`process orphans --sweep` 立刻按 TTL / 上限回收一次（冻结，不删除）。',
         'agent：每个进程的 agent（provider、busy、session）随进程走——tree --agents 一次看全，session 看单个。',
         '调用：call 发一次 prompt 并阻塞返回；attach 进入持续对话。',
-        '派生：spawn 按模板在指定父进程下创建子进程。',
-        '状态变更：start、stop、kill、reclaim、complete、update-state。',
+        '派生：spawn 按模板在指定父进程下创建子进程，并按模板的 variables 声明校验变量。',
+        '状态变更：start、stop、kill、reclaim、complete、update-state（持久 state）、update-vars（可变变量）。',
+        '删除：delete 只删已结束的进程，purge 先停止/取消再删；两者都是不可逆的硬删除（该 PID 的记录连同 Context、消息、调用与事件一起消失）。',
         '不覆盖：daemon 自身启停与状态（见 `lush daemon`）。',
       ],
       notes: [
-        'PID 0（lush 自身）不能 stop / kill / complete / reclaim，其生命周期由 daemon 管理。',
-        'call 与 attach 只接受 running 进程；只有 Task 能 complete；只有 Service 能 stop。',
+        'PID 0（lush 自身）不能 stop / kill / complete / reclaim / delete / purge，其生命周期由 daemon 管理。',
+        'call 与 attach 只接受 running 进程；只有 Task 能 complete；只有 Service 能 stop；reclaim 只用于 Task，删除对两者都适用。',
+        '删除会把该 PID 的 Context、messages、agent_calls 与 process_events 一并物理删除，被删记录不再出现在 list / tree / inspect / history 里；父进程会收到一条 child_deleted 事件。',
       ],
       children: {
         list: {
@@ -188,6 +191,7 @@ const ROOT = {
             '按 parent_pid 递归打印整棵树，根是 PID 0（lush）。',
             '孤儿已被 PID 0 收养，因此活动进程都会出现在某个位置。',
             '默认在「此刻有 agent 在跑」的进程下多打一行活跃度：agent 编号（`PID.N`）、运行时长，--interactive 的加 tty 标记；没有 agent 在跑的进程不多占一行。',
+            '进程有变量时在名字后跟一段 `key=value`：不可变变量直接写名字，可变变量加 `~` 前缀，长值截断；完整变量（含模板声明）用 `process inspect`。',
           ],
           notes: [
             'agent 是运行期的东西：daemon 重启后一个都不剩（持久记录是 agent_calls 与 `process session` 的 transcript）。',
@@ -203,13 +207,41 @@ const ROOT = {
           },
           parse: () => ({}),
         },
+        orphans: {
+          command: 'orphans',
+          method: (args) => (args.sweep ? 'process.orphan_sweep' : 'process.orphans'),
+          summary: '查看 PID 0 收养的孤儿，或立刻按策略回收一次',
+          cover: [
+            '孤儿是被 PID 0 收养的进程：父节点进入终态时（Service 停止、Task 完成或取消），它的活动直接子节点被交给 PID 0，保留 original_parent_pid 以便追溯。PID 0 自己 spawn 的孩子不算孤儿。',
+            '不带 --sweep 是只读的读模型：当前策略、活动孤儿数、超上限多少，以及每个孤儿的 busy / 闲置秒数（含已被冻结的历史行）。',
+            '--sweep 立刻执行一次监督：先按 TTL 冻结闲置超时的孤儿，再按上限冻结最旧的，返回本轮报告（trigger / checked / evicted / deferred / limit / ttl_seconds）。',
+            '回收是冻结而不是删除：Service → stopped、Task → cancelled，metadata、Context、消息、调用与事件全部保留（真删除只有 delete / purge）。',
+            '有 agent 调用在跑的孤儿（busy）永远不会被冻结，只会出现在报告的 deferred 里。',
+          ],
+          notes: [
+            '策略来自 daemon 启动时的环境变量，改配置必须重启 daemon：LUSH_ORPHAN_ADOPT（adopt | none | terminate）、LUSH_ORPHAN_LIMIT、LUSH_ORPHAN_TTL、LUSH_ORPHAN_SWEEP（见 README 的环境变量一节）。',
+            '默认 adopt + 不限 + 不超时，与历史行为一致：此时 --sweep 什么都不会冻结。',
+            'daemon 只在上限>0 或 TTL>0 且 sweep>0 时起定时器；`lush daemon status` 的 orphan_policy 与 orphans_active 能直接看到当前策略与孤儿数。',
+            '被冻结的孤儿的 transition 事件里带 cause（orphan_ttl / orphan_limit），用 `lush process inspect PID` 可查。',
+          ],
+          usage: ['lush process orphans [--sweep]'],
+          options: {
+            '--sweep': {
+              arg: null,
+              desc: '不再只读：立刻按 TTL 与上限监督一次，并返回本轮报告',
+              apply: (r) => { r.sweep = true; },
+            },
+          },
+          parse: () => ({}),
+        },
         inspect: {
           command: 'inspect',
           method: (args) => (args.sections ? 'process.view' : 'process.inspect'),
           summary: '查看单个进程的完整快照',
           cover: [
-            '不带 --with 时返回完整 inspect：metadata、Context、agent 状态、近期调用与事件，任何状态都可查。',
+            '不带 --with 时返回完整 inspect：metadata、Context、agent 状态、variables（不可变/可变变量的值 + 模板声明）、近期调用与事件，任何状态都可查。',
             '带 --with 时改走 process.view，只返回所选 section（父节点、子节点、Call Prompt）。',
+            '文本按「进程摘要 → context → calls → events」分节打印，时间用本地时间；`template_snapshot` 与变量声明只在 --json 里给出。',
           ],
           notes: [
             '--with 的逗号分隔列表可重复使用；重复的 section 在客户端去重，RPC 层仍拒绝重复。',
@@ -238,21 +270,27 @@ const ROOT = {
           cover: [
             '在 PARENT 之下按 TEMPLATE 原子创建并启动一个子进程，成功后文本只打印新 PID。',
             '模板必须在创建方的 child_templates 白名单内；singleton 模板在同一父进程下已有活动实例时拒绝创建。',
-            '子进程的 goal 取自 --goal，缺省时用名称；state.params 原样写入 --args。',
+            '子进程的 goal 取自 --goal，缺省时用名称；--vars 给出该模板声明的变量值，存入新进程 state（不可变变量在 state.params，可变变量在 state.vars）。',
           ],
           notes: [
-            '--args 的 `path` 若出现，必须是已存在的绝对目录，并将作为该进程 agent 的工作目录（cwd）。',
-            '`project` 模板必须提供 args.path，否则创建直接失败。',
+            '变量按模板的 variables 声明校验：缺少 required 变量、写了模板没声明的名字都会直接失败；带 default 的变量可以省略。',
+            '`path` 变量有通用约定：必须是已存在的绝对目录，并作为该进程 agent 的工作目录（cwd）；因此它只能声明在 immutable 区。',
+            '`project` 模板必须提供 variables.path，否则创建直接失败；`--args` 是 `--vars` 的旧写法，等价但已不建议使用。',
           ],
-          usage: ['lush process spawn PARENT TEMPLATE [--name NAME] [--goal GOAL] [--args JSON]'],
+          usage: ['lush process spawn PARENT TEMPLATE [--name NAME] [--goal GOAL] [--vars JSON]'],
           positionals: [['PARENT', '父进程 PID'], ['TEMPLATE', '模板名，见父进程的 available_child_templates']],
           options: {
             '--name': { arg: 'NAME', desc: '进程名；省略时用模板名', apply: (r, v) => { r.name = v; } },
             '--goal': { arg: 'GOAL', desc: '目标文本，写入 state.goal', apply: (r, v) => { r.goal = v; } },
+            '--vars': {
+              arg: 'JSON',
+              desc: '模板声明的变量值，按 immutable / mutable 存入新进程 state',
+              apply: (r, v) => { r.variables = jsonArg(v, '--vars'); },
+            },
             '--args': {
               arg: 'JSON',
-              desc: '模板参数对象，原样存入 state.params',
-              apply: (r, v) => { r.args = jsonArg(v, '--args'); },
+              desc: '--vars 的旧写法（等价，已不建议使用）',
+              apply: (r, v) => { r.variables = jsonArg(v, '--args'); },
             },
           },
           parse: (args) => ({ parent_pid: intArg(args.shift(), 'parent_pid'), template: next(args, 'template') }),
@@ -310,7 +348,8 @@ const ROOT = {
           method: 'process.history',
           summary: '读取进程的消息历史',
           cover: [
-            '按 id 升序返回该进程持久化 messages 的一段；文本与 --json 都是 JSON。',
+            '按 id 升序返回该进程持久化 messages 的一段。',
+            '文本按消息分块（头部 `#id role · 时间 · call`，正文原样换行），末尾给出 `next --after`；--json 返回 messages 数组与 next_after。',
             '历史可以读取终态进程，但不会重新调用它们。',
           ],
           usage: ['lush process history PID [--after ID] [--limit N]'],
@@ -369,6 +408,56 @@ const ROOT = {
           positionals: [['PID', '目标 Task PID']],
           parse: (args) => ({ pid: intArg(args.shift(), 'pid') }),
         },
+        delete: {
+          command: 'delete',
+          method: 'process.delete',
+          summary: '硬删除已结束的进程，连同它的 Context、消息、调用与事件',
+          cover: [
+            '只删已完成生命周期（非 running/created）的进程：stopped/failed Service、completed/failed/cancelled/reclaimed Task。',
+            '删除是物理删除且不可逆：该 PID 的 processes、contexts、messages、agent_calls、process_events 行在同一个事务里一起消失，之后 list / tree / inspect / history 都不再有它。',
+            '父进程（若还在）会收到一条 child_deleted 事件，记录被删 PID 的名字、模板与当时状态；被删 PID 自己的历史一并消失，不会留下痕迹。',
+          ],
+          notes: [
+            '仍为 running 的进程会被拒绝，提示先 stop/kill，或改用 `lush process purge`。',
+            '有子进程时默认拒绝（删掉父行会让子进程指向不存在的行）；--recursive 在同一个事务里从叶子往上删整棵子树，回包里的 deleted 列出全部 PID。',
+            '进程变量（state.params / state.vars）也在 Context 里，随进程一起消失；需要保留证据时先 `lush process history` / `inspect` 导出。',
+          ],
+          usage: ['lush process delete PID [--recursive]'],
+          positionals: [['PID', '目标进程 PID']],
+          options: {
+            '--recursive': {
+              arg: null,
+              desc: '整棵子树一起删（子进程必须先于父进程消失）',
+              apply: (r) => { r.recursive = true; },
+            },
+          },
+          parse: (args) => ({ pid: intArg(args.shift(), 'pid') }),
+        },
+        purge: {
+          command: 'purge',
+          method: 'process.purge',
+          summary: '先停止/取消再硬删除，一条命令清掉一个进程',
+          cover: [
+            '`process delete` 的强制版本：running Service 先置为 stopped、running Task 先置为 cancelled（并中断它正在跑的 Agent 调用），随后按 delete 的规则物理删除。',
+            '回包的 terminated 列出哪些 PID 因这次 purge 被停止/取消，deleted 列出实际消失的全部 PID，rows 是按表统计的删除行数。',
+            '调用方是终态时与 delete 等价（terminated 为空）。',
+          ],
+          notes: [
+            '与 kill / stop 不同，purge 不把活动子节点交给 PID 0 收养：整棵子树的每个活动节点都会被终止，收养只会写出马上又要删掉的行。',
+            '有子进程时同样要求 --recursive；同一条命令里终止与删除在同一个事务里完成。',
+            '进程若有一条终端持有的 `call --interactive` 正在跑，purge 只把那次调用标记为 interrupted 并删掉记录；你终端里的 pi 进程要自己退出（或用 `lush process agents kill`）。',
+          ],
+          usage: ['lush process purge PID [--recursive]'],
+          positionals: [['PID', '目标进程 PID']],
+          options: {
+            '--recursive': {
+              arg: null,
+              desc: '整棵子树一起终止并删除',
+              apply: (r) => { r.recursive = true; },
+            },
+          },
+          parse: (args) => ({ pid: intArg(args.shift(), 'pid') }),
+        },
         complete: {
           command: 'complete',
           method: 'process.complete',
@@ -392,6 +481,9 @@ const ROOT = {
             '把 --patch 的顶层字段 shallow-merge 进该进程的持久 state；嵌套对象整体替换。',
             '只能改结构化 state，不能覆写 pid、parent、type、status（RPC 方法名仍是 process.update_state）。',
           ],
+          notes: [
+            'state.params（不可变变量）与 state.vars（可变变量）归变量系统所有：写这两个键会被拒绝，可变变量用 `lush process update-vars`。',
+          ],
           usage: ['lush process update-state PID --patch JSON'],
           positionals: [['PID', '目标进程 PID']],
           options: {
@@ -400,6 +492,28 @@ const ROOT = {
           parse: (args) => ({ pid: intArg(args.shift(), 'pid') }),
           check: (r) => {
             if (!Object.hasOwn(r, 'patch')) throw new UsageError('the following arguments are required: --patch');
+          },
+        },
+        'update-vars': {
+          command: 'update-vars',
+          method: 'process.update_vars',
+          summary: '修改模板声明为可变（mutable）的变量',
+          cover: [
+            '把 --vars 的顶层字段 shallow-merge 进该进程的可变变量区（state.vars），保留未提到的变量。',
+            '能改哪些名字由该进程创建时快照的模板 variables 声明决定：mutable 区的名字可改，immutable 区的名字（例如 project 的 path）拒绝，模板没声明的名字也拒绝。',
+            '值立即持久化（状态与变量马上生效）；写入成功记 vars_updated 事件。',
+          ],
+          notes: [
+            '只接受 running 进程（与 update-state 一致）。想知道自己有哪些可变变量，看 `lush process inspect PID` 的 variables.declarations。',
+          ],
+          usage: ['lush process update-vars PID --vars JSON'],
+          positionals: [['PID', '目标进程 PID']],
+          options: {
+            '--vars': { arg: 'JSON', desc: '要合并的变量对象，必填', apply: (r, v) => { r.patch = jsonArg(v, '--vars'); } },
+          },
+          parse: (args) => ({ pid: intArg(args.shift(), 'pid') }),
+          check: (r) => {
+            if (!Object.hasOwn(r, 'patch')) throw new UsageError('the following arguments are required: --vars');
           },
         },
         agents: {
@@ -497,7 +611,9 @@ const ROOT = {
 //  Help
 // ─────────────────────────────────────────────────────────────────────────────
 
-const META_KEYS = new Set(['command', 'json', 'node', 'help']);
+// `sweep` / `open` style flags pick a method or a client-side path instead of
+// being RPC arguments, so they never travel in `params`.
+const META_KEYS = new Set(['command', 'json', 'node', 'help', 'sweep']);
 
 function usageLines(node, commandPath) {
   const name = ['lush', ...commandPath].join(' ');
@@ -687,8 +803,103 @@ function agentLine(summary) {
 }
 
 /**
+ * One-line variable summary for the text tree: immutable values plain, mutable
+ * ones prefixed `~` (the `~` is also the reminder that they can be changed).
+ */
+export function variableSummary(variables) {
+  const parts = [];
+  for (const group of ['immutable', 'mutable']) {
+    for (const [key, value] of Object.entries(variables?.[group] ?? {})) {
+      parts.push(`${group === 'mutable' ? '~' : ''}${key}=${shortValue(value)}`);
+    }
+  }
+  return parts.join(' ');
+}
+
+function shortValue(value) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return text.length > 48 ? `${text.slice(0, 45)}...` : text;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Human-readable rendering
+//
+//  Text is for people: aligned `key value` rows, local wall-clock timestamps and
+//  no JSON punctuation unless the value really is nested. `--json` is the stable
+//  machine interface; these formatters are free to change.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Local wall-clock `YYYY-MM-DD HH:MM:SS` from an ISO timestamp. */
+export function stamp(iso) {
+  if (typeof iso !== 'string' || iso === '') return '-';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    + ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+/** Indent every non-empty line by `depth` levels of two spaces. */
+function indentLines(value, depth = 1) {
+  const pad = '  '.repeat(depth);
+  return String(value).split('\n').map((line) => (line === '' ? '' : pad + line));
+}
+
+/** Aligned `key value` rows, keys padded to the widest one. */
+function alignRows(rows) {
+  const width = rows.reduce((max, [key]) => Math.max(max, key.length), 0);
+  return rows.map(([key, value]) => `${key.padEnd(width)}  ${value}`);
+}
+
+/**
+ * One-line form of a value: scalars as-is, compact arrays/objects as JSON.
+ * `null` means "needs a block of its own" (multi-line or too long to inline).
+ */
+function inlineText(value) {
+  if (typeof value === 'string') return value.includes('\n') ? null : value;
+  if (value === null || typeof value !== 'object') return String(value);
+  const json = JSON.stringify(value);
+  return json.length <= 72 ? json : null;
+}
+
+/**
+ * Human view of a JSON object: aligned `key  value` for scalars, a `key:` block
+ * for anything nested. Shared by `inspect` (state) and `update-state`.
+ */
+export function objectLines(value, depth = 0) {
+  const pad = '  '.repeat(depth);
+  const rows = Object.entries(value).map(([key, item]) => [key, inlineText(item), item]);
+  const width = rows.reduce((max, [key, text]) => (text === null ? max : Math.max(max, key.length)), 0);
+  const lines = [];
+  for (const [key, text, item] of rows) {
+    if (text !== null) {
+      lines.push(`${pad}${key.padEnd(width)}  ${text}`);
+    } else if (typeof item === 'string') {
+      lines.push(`${pad}${key}:`, ...indentLines(item, depth + 1));
+    } else if (isPlainObject(item)) {
+      lines.push(`${pad}${key}:`, ...objectLines(item, depth + 1));
+    } else {
+      lines.push(`${pad}${key}:`, ...indentLines(JSON.stringify(item, null, 2), depth + 1));
+    }
+  }
+  return lines;
+}
+
+/** `pid 3 · implement-login · task · running` — one-line identity of a process row. */
+function metadataTitle(row) {
+  return `pid ${row.pid} · ${row.name} · ${row.type} · ${row.status}`;
+}
+
+/** One event line: `#12 state_updated · 2026-09-17 23:12:30  {"keys":[...]}`. */
+function eventLine(event) {
+  const data = event.data === undefined || event.data === null ? '' : `  ${JSON.stringify(event.data)}`;
+  return `  #${event.id} ${event.kind} · ${stamp(event.created_at)}${data}`;
+}
+
+/**
  * Process tree, root first. `agents` adds one activity line below each process
  * that has a live worker (never a logical process: no PID, never expanded).
+ * A process's variables are appended on its own line.
  */
 export function treeLines(processes, { agents = true } = {}) {
   const byParent = new Map();
@@ -709,7 +920,8 @@ export function treeLines(processes, { agents = true } = {}) {
       continue;
     }
     const { process, prefix, branch } = node;
-    lines.push(`${prefix}${branch}${process.name}[${process.pid}]`);
+    const variables = variableSummary(process.variables);
+    lines.push(`${prefix}${branch}${process.name}[${process.pid}]${variables ? ` ${variables}` : ''}`);
     const children = byParent.get(process.pid) ?? [];
     const nextPrefix = prefix + (branch === '└── ' ? '    ' : branch ? '│   ' : '');
     const rows = [
@@ -725,6 +937,148 @@ export function treeLines(processes, { agents = true } = {}) {
     }
   }
   return lines;
+}
+
+/**
+ * `lush process history` text output: one block per message, body verbatim so
+ * long agent replies stay readable, then the pagination cursor. Roles are the
+ * stored Chat-Completions ones (user / assistant / tool).
+ */
+export function formatHistory(result) {
+  const lines = [];
+  for (const message of result.messages) {
+    const body = message.body ?? {};
+    const tool = body.role === 'tool' && body.tool_call_id ? ` · ${body.tool_call_id}` : '';
+    lines.push(`#${message.id} ${body.role} · ${stamp(message.created_at)} · call ${message.call_id}${tool}`);
+    const content = typeof body.content === 'string' && body.content !== '' ? body.content.split('\n') : [];
+    const calls = (body.tool_calls ?? []).map((call) => `→ ${call.function.name} ${call.function.arguments}`);
+    lines.push(...(content.length || calls.length ? [...content, ...calls] : ['(empty)']), '');
+  }
+  if (result.messages.length === 0) lines.push('(no messages)');
+  lines.push(`(${result.messages.length} messages · next --after ${result.next_after})`);
+  return lines.join('\n');
+}
+
+/**
+ * `lush process inspect` text output: process summary, then context, recent
+ * calls and recent events. The creation-time `template_snapshot` and the
+ * variable declarations stay in `--json` — they are reference material, not
+ * something to read at a glance.
+ */
+export function formatInspect(result) {
+  const { context = {}, recent_calls = [], recent_events = [], template_snapshot, variables, ...process } = result;
+  const parent = process.parent_pid === null
+    ? '-'
+    : `${process.parent_pid}${process.original_parent_pid === process.parent_pid ? '' : ` (original ${process.original_parent_pid})`}`;
+  const rows = [
+    ['template', process.template],
+    ['parent', parent],
+    ['goal', process.goal ?? '-'],
+    ['created', stamp(process.created_at)],
+    ['updated', stamp(process.updated_at)],
+    ['children', process.children?.length ? process.children.join(', ') : '(none)'],
+  ];
+  const declared = variableSummary(variables);
+  if (declared) rows.push(['variables', declared]);
+  if (process.agent) rows.push(['agent', `${process.agent.status} · ${process.agent.provider}`]);
+  const lines = [metadataTitle(process), ...alignRows(rows).map((row) => `  ${row}`)];
+
+  lines.push('', `context · ${context.message_count ?? 0} messages`);
+  const state = context.state ?? {};
+  lines.push(...(Object.keys(state).length ? ['  state', ...objectLines(state, 2)] : ['  state  (empty)']));
+  if (context.system_prompt) lines.push('  system_prompt', ...indentLines(context.system_prompt, 2));
+  for (const key of ['artifacts', 'references']) {
+    if (context[key]?.length) lines.push(`  ${key}`, ...indentLines(JSON.stringify(context[key], null, 2), 2));
+  }
+
+  lines.push('');
+  if (recent_calls.length === 0) {
+    lines.push('calls  (none)');
+  } else {
+    lines.push(`calls · recent ${recent_calls.length}, newest first`);
+    for (const call of recent_calls) {
+      const window = call.finished_at === null
+        ? `since ${stamp(call.started_at)}`
+        : `${stamp(call.started_at)} → ${stamp(call.finished_at)}`;
+      lines.push(`  #${call.id} ${call.status} · ${window}`);
+      for (const key of ['prompt', 'output', 'error']) {
+        if (call[key]) lines.push(`    ${key}`, ...indentLines(call[key], 3));
+      }
+    }
+  }
+
+  lines.push('');
+  if (recent_events.length === 0) {
+    lines.push('events  (none)');
+  } else {
+    lines.push(`events · recent ${recent_events.length}, newest first`);
+    for (const event of recent_events) lines.push(eventLine(event));
+  }
+
+  if (template_snapshot !== undefined) {
+    lines.push('', `# --json has the full snapshot, including template_snapshot and variable declarations`);
+  }
+  return lines.join('\n');
+}
+
+/** `lush process inspect --with ...`: the sections that were requested, in order. */
+export function formatView(result) {
+  const lines = [`pid ${result.pid}`];
+  if ('parent' in result) {
+    lines.push('', 'parent', `  ${result.parent === null ? '(none)' : metadataTitle(result.parent)}`);
+  }
+  if ('children' in result) {
+    lines.push('', 'children', ...(result.children.length
+      ? result.children.map((child) => `  ${metadataTitle(child)}`)
+      : ['  (none)']));
+  }
+  if ('call_prompt' in result) {
+    lines.push('', 'call_prompt', ...indentLines(result.call_prompt ?? '(none)', 1));
+  }
+  return lines.join('\n');
+}
+
+/** `lush process agents show AGENT_ID`: runtime facts, on-disk session, durable call. */
+export function formatAgent(result) {
+  const mode = result.interactive ? 'tty' : result.os_pid === null ? 'in-process' : 'pipe';
+  const rows = [
+    ['pid', `${result.pid}${result.name === null ? '' : ` (${result.name})`}`],
+    ['provider', result.provider],
+    ['status', result.status],
+    ['call', `#${result.call_id}`],
+    ['os-pid', result.os_pid === null ? '-' : String(result.os_pid)],
+    ['mode', mode],
+    ['started', stamp(result.started_at)],
+    ['ended', result.ended_at === null ? '-' : stamp(result.ended_at)],
+    ['elapsed', duration(result.elapsed_ms)],
+  ];
+  if (result.error !== null) rows.push(['error', result.error]);
+  const lines = [`agent ${result.id}`, ...alignRows(rows).map((row) => `  ${row}`)];
+
+  if (result.session) {
+    lines.push('', 'session', ...alignRows([
+      ['dir', result.session.session_dir],
+      ['id', result.session.session_id],
+      ['file', result.session.file ?? '(none yet)'],
+    ]).map((row) => `  ${row}`));
+  }
+  if (result.call) {
+    const call = result.call;
+    const window = call.finished_at === null ? 'running' : `→ ${stamp(call.finished_at)}`;
+    lines.push('', `call #${call.id} · ${call.status} · ${stamp(call.started_at)} ${window}`);
+    for (const key of ['prompt', 'output', 'error']) {
+      if (call[key]) lines.push(`  ${key}`, ...indentLines(call[key], 2));
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * `start` / `stop` / `kill` / `reclaim` / `complete` text output: the verb plus
+ * the resulting state of the process, instead of dumping the whole metadata row.
+ */
+export function formatLifecycle(verb, result) {
+  return `${verb} ${metadataTitle(result)}`;
 }
 
 export function rpcParams(args) {
@@ -747,6 +1101,45 @@ function formatAgents(rows) {
   }
   const width = table[0].map((_column, index) => Math.max(...table.map((row) => row[index].length)));
   return table.map((row) => row.map((cell, index) => cell.padEnd(width[index])).join('  ').trimEnd()).join('\n');
+}
+
+/** `lush process orphans` text output: the pool, or what one sweep just froze. */
+export function formatOrphans(result) {
+  // A sweep report is the only shape that carries `evicted`; the read model has
+  // `orphans`. Both stay JSON under --json.
+  if (Array.isArray(result.evicted)) {
+    const lines = [
+      `trigger=${result.trigger} checked=${result.checked}`
+      + ` active ${result.active_before}->${result.active_after}`
+      + ` evicted=${result.evicted.length} deferred=${result.deferred.length}`
+      + ` (limit=${result.limit} ttl=${result.ttl_seconds}s)`,
+    ];
+    for (const orphan of result.evicted) {
+      lines.push(`  evicted ${orphan.pid} ${orphan.type} ${orphan.from}->${orphan.to}`
+        + ` reason=${orphan.reason} idle=${orphan.idle_seconds}s ${orphan.name}`);
+    }
+    for (const orphan of result.deferred) {
+      lines.push(`  deferred ${orphan.pid} reason=${orphan.reason} (a busy orphan with a running call is never frozen)`);
+    }
+    return lines.join('\n');
+  }
+  const { policy } = result;
+  const lines = [
+    `policy adopt=${policy.adopt} limit=${policy.limit} ttl=${policy.ttl_seconds}s sweep=${policy.sweep_seconds}s`,
+    `orphans active=${result.active_count} busy=${result.busy_count} over_limit=${result.over_limit}`,
+  ];
+  if (result.orphans.length === 0) {
+    lines.push('  (none — nothing is currently adopted by PID 0)');
+    return lines.join('\n');
+  }
+  const table = [['PID', 'TYPE', 'STATUS', 'IDLE', 'BUSY', 'NAME']];
+  for (const orphan of result.orphans) {
+    table.push([String(orphan.pid), orphan.type, orphan.status,
+      duration(orphan.idle_seconds * 1000), orphan.busy ? 'yes' : 'no', orphan.name]);
+  }
+  const width = table[0].map((_column, index) => Math.max(...table.map((row) => row[index].length)));
+  for (const row of table) lines.push(`  ${row.map((cell, index) => cell.padEnd(width[index])).join('  ').trimEnd()}`);
+  return lines.join('\n');
 }
 
 /** `lush process session` text output: where the agent session lives and how to open it. */
@@ -787,6 +1180,30 @@ function formatDryRun(result) {
   return formatRun(result);
 }
 
+/**
+ * `lush process delete|purge` text output: what disappeared, what had to be
+ * terminated first, and how much of the record went with it.
+ */
+function formatRemoval(result) {
+  const target = result.deleted.length === 1
+    ? `pid ${result.pid}`
+    : `pid ${result.pid} (subtree ${result.deleted.join(', ')})`;
+  const terminated = result.terminated.length
+    ? `, after terminating ${result.terminated.join(', ')}`
+    : '';
+  const rows = Object.entries(result.rows).map(([table, count]) => `${table}=${count}`).join(' ');
+  return `deleted ${target}${terminated}  ${rows}`;
+}
+
+/** Lifecycle commands that answer with the updated process metadata. */
+const LIFECYCLE_VERBS = {
+  start: 'started',
+  stop: 'stopped',
+  kill: 'killed',
+  reclaim: 'reclaimed',
+  complete: 'completed',
+};
+
 export function format(args, result) {
   if (args.json) return JSON.stringify(result, null, 2);
   // `daemon start|stop` (command `daemon`) and `daemon status` (command `status`)
@@ -797,9 +1214,21 @@ export function format(args, result) {
   if (args.command === 'spawn') return `PID ${result.pid}`;
   if (args.command === 'tree') return treeLines(result, { agents: args.agents !== false }).join('\n');
   if (args.command === 'agents_list') return formatAgents(result);
+  if (args.command === 'orphans') return formatOrphans(result);
+  if (args.command === 'agents_show') return formatAgent(result);
+  if (args.command === 'history') return formatHistory(result);
+  if (args.command === 'inspect') return args.sections ? formatView(result) : formatInspect(result);
+  // Variables are few and scalar-ish: one `key=value` line each is easier to
+  // read than a JSON blob, and `--json` still gives the merged object.
+  if (args.command === 'update-vars') {
+    return Object.entries(result).map(([key, value]) => `${key}=${shortValue(value)}`).join('\n');
+  }
+  if (args.command === 'update-state') return objectLines(result).join('\n');
+  if (LIFECYCLE_VERBS[args.command]) return formatLifecycle(LIFECYCLE_VERBS[args.command], result);
   if (args.command === 'agents_kill') {
     return `killed agent ${result.id} (${result.killed ? `os ${result.os_pid}` : 'no OS pid to kill; cancellation requested'})`;
   }
+  if (args.command === 'delete' || args.command === 'purge') return formatRemoval(result);
   if (args.command === 'list') {
     const rows = [['PID', 'PPID', 'TYPE', 'STATUS', 'NAME']];
     for (const process of result) {

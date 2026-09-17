@@ -190,6 +190,11 @@ ps:
 tree:
   @{{lush}} process tree
 
+# 查看 PID 0 收养的孤儿；加参数 sweep 立刻按策略回收一次：just orphans sweep
+[group('process')]
+orphans sweep="":
+  @{{lush}} process orphans{{ if sweep != "" { " --sweep" } else { "" } }}
+
 # 查看单个进程：metadata、Context、Agent 状态、近期调用与事件
 [group('process')]
 inspect pid sections="":
@@ -217,10 +222,10 @@ attach pid:
   @{{lush}} process attach {{pid}}
 
 # 创建子进程：just spawn 0 generic-task implement-login '实现登录功能'
-# project 模板必须带路径：just spawn 0 project my-repo '' '{"path":"/abs/repo"}'
+# project 模板必须给变量 path：just spawn 0 project my-repo '' '{"path":"/abs/repo"}'
 [group('process')]
-spawn parent template name="" goal="" args="":
-  @{{lush}} process spawn {{parent}} {{template}}{{ if name != "" { " --name " + quote(name) } else { "" } }}{{ if goal != "" { " --goal " + quote(goal) } else { "" } }}{{ if args != "" { " --args " + quote(args) } else { "" } }}
+spawn parent template name="" goal="" vars="":
+  @{{lush}} process spawn {{parent}} {{template}}{{ if name != "" { " --name " + quote(name) } else { "" } }}{{ if goal != "" { " --goal " + quote(goal) } else { "" } }}{{ if vars != "" { " --vars " + quote(vars) } else { "" } }}
 
 # 完成 Task：just complete 2 '{"ok":true}'
 [group('process')]
@@ -231,6 +236,11 @@ complete pid result="":
 [group('process')]
 update-state pid patch:
   @{{lush}} process update-state {{pid}} --patch {{quote(patch)}}
+
+# 修改模板声明为 mutable 的变量：just update-vars 2 '{"branch":"dev"}'
+[group('process')]
+update-vars pid patch:
+  @{{lush}} process update-vars {{pid}} --vars {{quote(patch)}}
 
 # 查看进程的 agent session（pi）：just session 2；加第二个参数进入 pi TUI：just session 2 open
 [group('process')]
@@ -261,3 +271,13 @@ kill pid:
 [group('process')]
 reclaim pid:
   @{{lush}} process reclaim {{pid}}
+
+# 硬删除已结束的进程：Context、消息、调用与事件一起消失（不可逆）
+[group('process')]
+delete pid recursive="":
+  @{{lush}} process delete {{pid}}{{ if recursive != "" { " --recursive" } else { "" } }}
+
+# 先停止/取消再硬删除，一条命令清掉一个进程（running 也能删，不可逆）
+[group('process')]
+purge pid recursive="":
+  @{{lush}} process purge {{pid}}{{ if recursive != "" { " --recursive" } else { "" } }}

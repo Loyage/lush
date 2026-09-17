@@ -20,13 +20,13 @@ lush CLI -- JSON-RPC / Unix socket --> lushd
 
 ## 模块边界
 
-- `core/`：实体类型、生命周期、Process 句柄、统一业务 API、父子关系及孤儿收养。没有 socket / CLI / HTTP 知识。
+- `core/`：实体类型、生命周期、Process 句柄、统一业务 API、父子关系及孤儿收养。`core/orphans.js` 是 PID 0 的孤儿监督：孤儿池读模型、策略校验（`normalizeOrphanPolicy`）、上限 / TTL / busy 判定与一轮监督（`OrphanSupervisor`）；它只决定该冻结谁，真正的状态变更仍走 `ProcessManager`（冻结而非删除）。没有 socket / CLI / HTTP 知识。
 - `persistence/`：`bun:sqlite` schema、事务、记录查询与恢复。数据库是事实来源，不缓存进程树。
-- `template_loader.js` + `templates/`：仓库顶层 `templates/` 存放 JSON ProcessTemplate（name、type、singleton、description、spawn_prompt、system_prompt、child_templates 七个必填字段），loader 读取并校验；创建时保存完整快照，模板文件后续变更不影响既有 Process（`singleton`、`type` 按当前加载的模板判定）。
+- `template_loader.js` + `templates/`：仓库顶层 `templates/` 存放 JSON ProcessTemplate（name、type、singleton、description、spawn_prompt、system_prompt、child_templates、variables 八个必填字段），loader 读取并校验；创建时保存完整快照，模板文件后续变更不影响既有 Process（`singleton`、`type` 按当前加载的模板判定）。
 - `context/`：独立持久化 Context，以及 ContextBuilder。只读当前 Process 的对话、结构化 state、引用和直接亲属摘要，不注入全系统状态。
-- `agent/`：Agent 后端，以及受限轮数的调用循环。默认后端是 `pi`：每次 call 起一个 `pi --print` 子进程，每个 PID 一个 pi session，pi 自己跑工具循环并通过 bash 调用 `lush` CLI 操作进程；`mock` / `openai` 是 Lush 内置运行时，agent 直接拿 `process_*` 工具。`guide.js` 是两种形态共用的 Lush 说明层（介绍 Lush 与如何操作它），`ContextBuilder` 按后端选择 tools / cli 版本。共享的快照字段（`singleton`、`type`）由当前模板决定，`child_templates` 白名单与 `args` 校验由 Core 强制执行，后端不参与授权。
+- `agent/`：Agent 后端，以及受限轮数的调用循环。默认后端是 `pi`：每次 call 起一个 `pi --print` 子进程，每个 PID 一个 pi session，pi 自己跑工具循环并通过 bash 调用 `lush` CLI 操作进程；`mock` / `openai` 是 Lush 内置运行时，agent 直接拿 `process_*` 工具。`guide.js` 是两种形态共用的 Lush 说明层（介绍 Lush 与如何操作它），`ContextBuilder` 按后端选择 tools / cli 版本。共享的快照字段（`singleton`、`type`）由当前模板决定，`child_templates` 白名单、variables 声明（哪些必填、哪些创建后仍可改）与 `path` 的工作目录校验由 Core 强制执行，后端不参与授权。
 - `rpc/`：newline-delimited JSON-RPC；参数和错误映射，不复制业务逻辑。
-- `daemon/`：装配、单实例锁、socket 生命周期、信号和中断恢复。
+- `daemon/`：装配、单实例锁、socket 生命周期、信号和中断恢复；按 `config.orphanPolicy` 决定是否起孤儿监督定时器（`sweepSeconds` 秒，unref，关闭时先清掉再关数据库）。
 - `socket_io.js`：Bun socket 写入是有界的（单次 write 只接受有限字节），统一封装「写满队列 + drain 续写」，RPC 两端共用。
 - `cli/`：命令树声明（每一层自带 help）、参数解析、RPC 客户端、输出格式、交互 attach、daemon 启动客户端。
 
@@ -52,7 +52,7 @@ lush CLI -- JSON-RPC / Unix socket --> lushd
 
 SQLite 开启 foreign_keys、WAL、busy_timeout。每个 Core 变更在同步短事务内完成，事务中不 await / 不调用模型。单 daemon / 单事件循环拥有数据库连接，不存在线程共享 SQLite。`bun:sqlite` 是同步 API，属于 MVP 限制：大查询/磁盘 IO 可能短暂阻塞事件循环，后续可替换为专用工作线程或 `bun:sqlite` 的异步接口，不改变 Repository 边界。
 
-父进程结束及孤儿收养是同一事务。消息、事件、Context 和调用历史不会在 reclaim 时删除。重启恢复先将 running 的调用标记 interrupted，然后恢复 PID 0 为 running；其他 Process 状态保留。启动阶段还会把旧快照中缺失的、当前版本仍需从快照读取的模板字段（当前仅 `child_templates`）从同名已加载模板回填一次，并记 template_backfilled 事件；同名模板不存在时跳过并记 WARNING，其他快照字段不变。旧版快照里遗留的 `process_type`、`allowed_child_templates`、`agent_command`、`initial_context` 不再被读取。未完成的工具消息保留用于审计，但 ContextBuilder 不把不完整调用协议重放给 Provider，而将中断/失败的历史显示为普通对话和审计摘要。
+父进程结束及孤儿收养是同一事务。消息、事件、Context 和调用历史不会在 reclaim 时删除；唯一的物理删除路径是 `process.delete` / `process.purge`，它在一个事务里删掉目标 PID（或整棵子树）的全部行，只在父进程留一条 `child_deleted` 事件——详见 process-model.md 的「删除」。重启恢复先将 running 的调用标记 interrupted，然后恢复 PID 0 为 running；其他 Process 状态保留。启动阶段还会把旧快照中缺失的、当前版本仍需从快照读取的模板字段（`child_templates`、`variables`）从同名已加载模板回填一次，并记 template_backfilled 事件；同名模板不存在时跳过并记 WARNING，其他快照字段不变。旧版快照里遗留的 `process_type`、`allowed_child_templates`、`agent_command`、`initial_context` 不再被读取。未完成的工具消息保留用于审计，但 ContextBuilder 不把不完整调用协议重放给 Provider，而将中断/失败的历史显示为普通对话和审计摘要。
 
 ## 运行与限制
 
@@ -60,7 +60,7 @@ SQLite 开启 foreign_keys、WAL、busy_timeout。每个 Core 变更在同步短
 
 pi 子进程的限制：`LUSH_CALL_TIMEOUT`（默认 900 秒）是单次 call 的硬上限，超时后 pi 会被杀掉并记 invocation timeout；pi 继承 daemon 的环境（包括代理变量与它自己的配置目录），Lush 只额外注入 `LUSH_HOME` / `LUSH_PID` 并把仓库 `bin/` 前置到 PATH；一 PID 一 session 意味着并行 call 同一 PID 依旧被 busy 保护（包括 `--interactive` 持有的那次调用），而不同 PID 的 pi 进程可并行；agents 空间里的 `PID.N` 已为正好的并行 agent 留好编号，但今天一个 PID 同时最多一个活 agent。`LUSH_MAX_ROUNDS` 只对内置运行时有意义。
 
-Service 是长期逻辑存在，不等于无限循环的后台 Agent；MVP 由 call 驱动。没有自动监督孤儿的策略，PID 0 目前只负责收养和提供统一 Agent 入口。
+Service 是长期逻辑存在，不等于无限循环的后台 Agent；MVP 由 call 驱动。PID 0 会按配置的孤儿监督策略回收孤儿：父节点进入终态时按 `LUSH_ORPHAN_ADOPT` 收养（默认）/ 不收养 / 连同子节点一起冻结，收养后的孤儿按 `LUSH_ORPHAN_LIMIT`（活动孤儿上限，超出时从最旧开始冻结）与 `LUSH_ORPHAN_TTL`（闲置超时）回收，daemon 在 `LUSH_ORPHAN_SWEEP` 秒的定时器上（仅当 limit>0 或 ttl>0 时启用，unref）跑一轮，也可用 `lush process orphans [--sweep]` 查看/手动触发；有调用在跑的孤儿永不被冻结。默认值是 adopt + 不限 + 不超时，即不显式配置就不回收——配置入口是 daemon 启动时读的环境变量，改配置要重启。回收是冻结（Service → stopped、Task → cancelled，记录全留），物理删除仍只有 delete / purge。
 
 Context 是单独资源边界，而不是消息数组别名。当前持久上下文不自动压缩、不使用 token scheduler；完整历史会增长，达到 RPC 大小上限时可按页读取历史。未来可在 ContextBuilder / Repository 边界加入 compression、paging、inheritance、sharing 和调度，不改变 Process 语义。
 

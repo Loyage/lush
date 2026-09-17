@@ -100,9 +100,9 @@ describe('pi agent backend', () => {
     expect(manager.inspect(0).agent.provider).toBe('pi');
   });
 
-  test('project processes run the agent in args.path', async () => {
+  test('project processes run the agent in the immutable path variable', async () => {
     const real = fs.realpathSync(dir);
-    const project = manager.load(0).createChild('project', { name: 'demo-project', goal: 'ship it', args: { path: real } });
+    const project = manager.load(0).createChild('project', { name: 'demo-project', goal: 'ship it', variables: { path: real } });
     expect(project.inspect().context.state.params).toEqual({ path: real });
     expect((await manager.call(project.pid, 'where?', true)).cwd).toBe(real);
     const result = await project.call('what is here?');
