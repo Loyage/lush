@@ -35,8 +35,8 @@ export function parseRequest(raw) {
 
 // [wire name, ProcessManager method] — the wire protocol keeps snake_case.
 const MANAGER_METHODS = [
-  ['inspect', 'inspect'], ['parent', 'parent'], ['children', 'children'], ['spawn', 'spawn'],
-  ['call', 'call'], ['start', 'start'], ['stop', 'stop'], ['kill', 'kill'], ['reclaim', 'reclaim'],
+  ['inspect', 'inspect'], ['parent', 'parent'], ['children', 'children'], ['view', 'view'], ['spawn', 'spawn'],
+  ['call', 'call'], ['session', 'session'], ['start', 'start'], ['stop', 'stop'], ['kill', 'kill'], ['reclaim', 'reclaim'],
   ['update_state', 'updateState'], ['complete', 'complete'], ['history', 'history'],
 ];
 

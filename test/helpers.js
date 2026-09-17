@@ -4,10 +4,11 @@ import path from 'node:path';
 import { MockAgentProvider } from '../src/agent/mock.js';
 import { AgentRuntime } from '../src/agent/runtime.js';
 import { ContextBuilder } from '../src/context/builder.js';
+import { LUSH_CONTEXT_PREFIX } from '../src/context/context.js';
 import { ProcessManager } from '../src/core/process_manager.js';
 import { Database } from '../src/persistence/database.js';
 import { Repository } from '../src/persistence/repository.js';
-import { TemplateLoader } from '../src/templates/loader.js';
+import { TemplateLoader } from '../src/template_loader.js';
 
 export function tmpdir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -25,8 +26,9 @@ export function system(directory, provider = null, runtimeOptions = {}) {
   const manager = new ProcessManager(repository, templates);
   manager.ensureRoot();
   repository.recover();
-  const runtime = new AgentRuntime(manager, provider ?? new MockAgentProvider(),
-    new ContextBuilder(repository, templates), runtimeOptions);
+  const agent = provider ?? new MockAgentProvider();
+  const runtime = new AgentRuntime(manager, agent,
+    new ContextBuilder(repository, templates, { agentMode: agent.contextMode ?? 'tools' }), runtimeOptions);
   manager.runtime = runtime;
   return { database, manager, runtime };
 }
@@ -73,6 +75,6 @@ export function queue() {
 }
 
 export function contextPid(messages) {
-  const payload = messages.find((message) => message.role === 'system' && message.content.startsWith('LUSH_CONTEXT\n'));
-  return JSON.parse(payload.content.slice(payload.content.indexOf('\n') + 1)).process.pid;
+  const payload = messages.find((message) => message.role === 'system' && message.content.startsWith(LUSH_CONTEXT_PREFIX));
+  return JSON.parse(payload.content.slice(LUSH_CONTEXT_PREFIX.length)).process.pid;
 }

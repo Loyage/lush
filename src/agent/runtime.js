@@ -74,7 +74,7 @@ export class AgentRuntime {
 
     const callId = this.repository.beginCall(pid, prompt);
     const entry = { callId, controller: new AbortController(), busy: true, reason: null, timer: null, promise: null };
-    entry.promise = this.chain.run([...chain, pid], () => this._execute(pid, callId, entry));
+    entry.promise = this.chain.run([...chain, pid], () => this._execute(pid, callId, entry, prompt));
     this.active.set(pid, entry);
     // An abandoned waiter (detached CLI, dropped RPC connection) must not crash the daemon.
     entry.promise.catch(() => {});
@@ -97,14 +97,74 @@ export class AgentRuntime {
     }
   }
 
-  async _execute(pid, callId, entry) {
+  /**
+   * Structured description of one invocation. In-process providers read
+   * `messages`; external backends (pi) read the system prompt, the shared Lush
+   * guide, the runtime data and the working directory.
+   */
+  _invocation(pid, callId, prompt, context) {
+    const state = this.repository.context(pid).state;
+    const workdir = state?.params?.path;
+    return {
+      pid,
+      call_id: callId,
+      prompt,
+      system_prompt: context.context.systemPrompt,
+      guide: context.guide,
+      context: context.data,
+      cwd: typeof workdir === 'string' ? workdir : null,
+    };
+  }
+
+  /**
+   * Describe the invocation `call` would perform, without performing it: no
+   * agent_calls row, no messages, no busy marking, no provider request. Only
+   * external backends produce a command; in-process providers report null and
+   * how many messages they would send.
+   */
+  describe(pid, prompt) {
+    if (this.closing) throw new LushError('runtime is shutting down', -32021);
+    this.manager.requireRunning(pid);
+    const context = this.builder.build(this.manager.load(pid), null);
+    const invocation = this._invocation(pid, null, prompt, context);
+    const preview = this.provider.preview
+      ? this.provider.preview(invocation)
+      : { argv: null, command: null, cwd: null, env: null, messages: context.messages.length };
+    return { pid, dry_run: true, agent: this.provider.name, prompt, ...preview };
+  }
+
+  /**
+   * Describe this process's external agent session (pi): dir, id, files on
+   * disk and the interactive command that opens it. Read-only and allowed for
+   * any status; in-process providers have no session and return nulls.
+   */
+  session(pid) {
+    if (this.closing) throw new LushError('runtime is shutting down', -32021);
+    const process = this.manager.repository.get(pid);
+    const context = this.builder.build(this.manager.load(pid), null);
+    const invocation = this._invocation(pid, null, '', context);
+    const info = this.provider.sessionInfo
+      ? this.provider.sessionInfo(invocation)
+      : { session_dir: null, session_id: null, files: [], file: null, argv: null, command: null, cwd: null, env: null, path_prefix: undefined };
+    return {
+      pid,
+      name: process.name,
+      status: process.status,
+      agent: this.provider.name,
+      busy: this.isBusy(pid),
+      ...info,
+    };
+  }
+
+  async _execute(pid, callId, entry, prompt) {
     const signal = entry.controller.signal;
     const tools = new AgentTools(this.manager, pid);
     try {
       if (entry.reason) throw abortError();
       for (let round = 0; round < this.maxRounds; round += 1) {
         const context = this.builder.build(this.manager.load(pid), callId);
-        const response = await raceAbort(this.provider.call(context.messages, TOOL_DEFINITIONS, signal), signal);
+        const invocation = this._invocation(pid, callId, prompt, context);
+        const response = await raceAbort(this.provider.call(context.messages, TOOL_DEFINITIONS, signal, invocation), signal);
         if (!(response instanceof AgentResponse) || typeof response.content !== 'string') {
           throw new LushError('provider returned invalid AgentResponse', -32020);
         }

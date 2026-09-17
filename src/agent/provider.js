@@ -27,8 +27,12 @@ export class AgentResponse {
   }
 }
 
-export async function configuredProvider(env = process.env) {
-  const provider = env.LUSH_PROVIDER || 'mock';
+export async function configuredProvider(env = process.env, { home } = {}) {
+  const provider = env.LUSH_PROVIDER || 'pi';
+  if (provider === 'pi') {
+    const { PiAgentProvider } = await import('./pi.js');
+    return PiAgentProvider.fromEnv(env, { home });
+  }
   if (provider === 'mock') {
     const { MockAgentProvider } = await import('./mock.js');
     return new MockAgentProvider();

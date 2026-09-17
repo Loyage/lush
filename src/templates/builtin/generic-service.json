@@ -1,8 +1,0 @@
-{
-  "name": "generic-service",
-  "process_type": "service",
-  "description": "长期提供能力的通用服务",
-  "system_prompt": "你是长期存在的 Lush Service。根据目标使用 process tools 创建、检查和调用子进程。一次回复不代表服务终止。创建进程时明确 name 和 goal。不要声称未实际执行的工作已经完成。",
-  "allowed_child_templates": ["*"],
-  "initial_context": {"state": {}, "artifacts": [], "references": []}
-}

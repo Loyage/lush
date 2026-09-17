@@ -1,10 +1,13 @@
 /** Deterministic protocol exercise, deliberately not a language model. */
 import { AgentResponse, ToolCall } from './provider.js';
 import { jsonDump, jsonLoad } from '../core/types.js';
+import { LUSH_CONTEXT_PREFIX } from '../context/context.js';
 
 export class MockAgentProvider {
   constructor() {
     this.name = 'mock';
+    /** In-process runtime: Lush exposes process_* tools to this agent. */
+    this.contextMode = 'tools';
   }
 
   async call(messages) {
@@ -49,8 +52,8 @@ export class MockAgentProvider {
       return this._tool('process_children', '{}');
     }
 
-    const payload = messages.find((message) => message.role === 'system' && message.content.startsWith('LUSH_CONTEXT\n'));
-    const data = jsonLoad(payload.content.slice(payload.content.indexOf('\n') + 1));
+    const payload = messages.find((message) => message.role === 'system' && message.content.startsWith(LUSH_CONTEXT_PREFIX));
+    const data = jsonLoad(payload.content.slice(LUSH_CONTEXT_PREFIX.length));
     const process = data.process;
     const parent = data.parent;
     const parentLabel = parent === null ? '无（系统根）' : `${parent.name}[${parent.pid}]`;

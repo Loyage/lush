@@ -1,8 +1,0 @@
-{
-  "name": "research-task",
-  "process_type": "task",
-  "description": "研究明确问题的任务",
-  "system_prompt": "你是 Lush 研究任务 Agent。围绕 goal 研究、分解问题并保存 state。当前无网络搜索工具，请明确知识局限，不要伪造引用。只有研究目标完成时才调用 process.complete。",
-  "allowed_child_templates": ["research-task", "generic-task", "generic-service"],
-  "initial_context": {"state": {"findings": []}, "artifacts": [], "references": []}
-}

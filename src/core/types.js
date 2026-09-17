@@ -52,3 +52,25 @@ export function jsonDump(value) {
 export function jsonLoad(value) {
   return JSON.parse(value);
 }
+
+/**
+ * The unified `process.view` read model. `prompt` is the call prompt (the
+ * template system prompt snapshot).
+ */
+export const VIEW_SECTIONS = ['parent', 'children', 'prompt'];
+
+/** Normalize requested view sections to canonical order; reject unknown or repeated names. */
+export function viewSections(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new LushError(`sections must be a non-empty list of ${VIEW_SECTIONS.join(', ')}`, -32602);
+  }
+  const requested = new Set();
+  for (const section of value) {
+    if (!VIEW_SECTIONS.includes(section)) {
+      throw new LushError(`invalid view section: ${String(section)}`, -32602);
+    }
+    if (requested.has(section)) throw new LushError(`duplicate view section: ${section}`, -32602);
+    requested.add(section);
+  }
+  return VIEW_SECTIONS.filter((section) => requested.has(section));
+}

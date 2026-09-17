@@ -82,6 +82,11 @@ describe('rpc', () => {
     const child = await client.request('process.spawn', { parent_pid: 0, template: 'generic-task', name: 'demo' });
     const pid = child.pid;
     expect((await client.request('process.parent', { pid })).pid).toBe(0);
+    const preview = await client.request('process.call', { pid, prompt: 'who am I?', dry_run: true });
+    expect(preview.dry_run).toBe(true);
+    expect(preview.agent).toBe('mock');
+    expect(preview.command).toBeNull();
+    expect((await client.request('process.inspect', { pid })).context.message_count).toBe(0);
     await client.request('process.call', { pid, prompt: 'who am I?' });
     const info = await client.request('process.inspect', { pid });
     expect(info.context.message_count).toBe(2);
@@ -102,6 +107,8 @@ describe('rpc', () => {
       ['process.inspect', { pid: true }, -32602],
       ['process.inspect', { pid: 999 }, -32004],
       ['process.spawn', { parent_pid: 0, template: [] }, -32602],
+      ['process.call', { pid: 0, prompt: 'hi', dry_run: 'yes' }, -32602],
+      ['process.call', { pid: 0, prompt: 'hi', extra: 1 }, -32602],
       ['process.kill', { pid: 0 }, -32009],
     ]) {
       const error = await expectRejection(client.request(method, params));

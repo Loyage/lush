@@ -1,12 +1,14 @@
 export { Config } from './config.js';
 export { LushError } from './core/types.js';
 export { ProcessManager } from './core/process_manager.js';
-export { TemplateLoader } from './templates/loader.js';
+export { TemplateLoader } from './template_loader.js';
 export { Database } from './persistence/database.js';
 export { Repository } from './persistence/repository.js';
 export { ContextBuilder } from './context/builder.js';
 export { AgentRuntime } from './agent/runtime.js';
 export { AgentTools, TOOL_DEFINITIONS } from './agent/tools.js';
+export { agentGuide } from './agent/guide.js';
+export { PiAgentProvider } from './agent/pi.js';
 export { AgentResponse, ToolCall, configuredProvider } from './agent/provider.js';
 export { RPCClient } from './rpc/client.js';
 export { RPCServer } from './rpc/server.js';

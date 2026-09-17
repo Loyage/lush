@@ -44,10 +44,10 @@ export class Repository {
       .map((row) => this.decode(row));
   }
 
-  create(parentPid, template, name, goal, { root = false } = {}) {
+  create(parentPid, template, name, goal, { root = false, params = null } = {}) {
     const stamp = now();
     const columns = 'parent_pid,original_parent_pid,name,type,status,template,template_snapshot,goal,created_at,updated_at';
-    const values = [parentPid, parentPid, name, template.process_type, 'created',
+    const values = [parentPid, parentPid, name, template.type, 'created',
       template.name, jsonDump(template), goal, stamp, stamp];
     let pid = 0;
     this.database.transaction(() => {
@@ -57,16 +57,26 @@ export class Repository {
       } else {
         pid = this.db.run(`INSERT INTO processes(${columns}) VALUES(?,?,?,?,?,?,?,?,?,?)`, values).lastInsertRowid;
       }
-      const initial = template.initial_context;
-      this.db.run('INSERT INTO contexts VALUES(?,?,?,?,?)', [
-        pid, template.system_prompt,
-        jsonDump(initial.state ?? {}), jsonDump(initial.artifacts ?? []), jsonDump(initial.references ?? []),
-      ]);
+      // Templates carry no initial Context: state, artifacts and references always
+      // start empty. Explicit spawn args are namespaced under state.params.
+      const state = params === null ? '{}' : jsonDump({ params });
+      this.db.run('INSERT INTO contexts VALUES(?,?,?,?,?)', [pid, template.system_prompt, state, '[]', '[]']);
       this.event(pid, 'created', { parent_pid: parentPid, template: template.name });
       this.db.run("UPDATE processes SET status='running' WHERE pid=?", [pid]);
       this.event(pid, 'transition', { from: 'created', to: 'running' });
     });
     return this.get(pid);
+  }
+
+  /**
+   * Active (created/running) children of `parentPid` that were created from
+   * `template`. Singleton templates refuse creation while this is non-zero;
+   * stopped, completed, failed, cancelled and reclaimed instances do not count.
+   */
+  activeCount(parentPid, template) {
+    return this.db
+      .query("SELECT COUNT(*) AS n FROM processes WHERE parent_pid=? AND template=? AND status IN ('created','running')")
+      .get(parentPid, template).n;
   }
 
   transition(pid, target, { adopt = false, result } = {}) {
@@ -91,6 +101,28 @@ export class Repository {
       }
     });
     return this.get(pid);
+  }
+
+  /**
+   * Add fields that were introduced after this row was written, leaving every
+   * other snapshot key untouched. Returns the fields actually added.
+   */
+  backfillSnapshot(pid, fields) {
+    const added = [];
+    this.database.transaction(() => {
+      const row = this.db.query('SELECT template_snapshot FROM processes WHERE pid=?').get(pid);
+      if (row === null) return;
+      const snapshot = JSON.parse(row.template_snapshot);
+      for (const [key, value] of Object.entries(fields)) {
+        if (Object.hasOwn(snapshot, key)) continue;
+        snapshot[key] = value;
+        added.push(key);
+      }
+      if (added.length === 0) return;
+      this.db.run('UPDATE processes SET template_snapshot=? WHERE pid=?', [jsonDump(snapshot), pid]);
+      this.event(pid, 'template_backfilled', { fields: added });
+    });
+    return added;
   }
 
   context(pid) {

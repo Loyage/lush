@@ -18,8 +18,8 @@ export class Process {
     return this.manager.children(this.pid).map((child) => this.manager.load(child.pid));
   }
 
-  createChild(template, { name, goal } = {}) {
-    const result = this.manager.spawn(this.pid, template, name, goal);
+  createChild(template, { name, goal, args } = {}) {
+    const result = this.manager.spawn(this.pid, template, name, goal, args);
     return this.manager.load(result.pid);
   }
 

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { ContextBuilder } from '../src/context/builder.js';
 import { LushError } from '../src/core/types.js';
-import { TemplateLoader } from '../src/templates/loader.js';
+import { TemplateLoader } from '../src/template_loader.js';
 import { cleanup, system, tmpdir } from './helpers.js';
 
 describe('core', () => {
@@ -126,13 +126,68 @@ describe('core', () => {
 
   test('template restrictions and creation-time snapshot', () => {
     const template = manager.templates.get('generic-task');
-    manager.templates.register({ ...template, name: 'restricted-task', allowed_child_templates: ['research-task'] });
+    manager.templates.register({ ...template, name: 'restricted-task', child_templates: ['research-task'] });
     const parent = root.createChild('restricted-task');
     parent.createChild('research-task');
     expect(code(() => parent.createChild('generic-service'))).toBe(-32010);
-    manager.templates.templates['restricted-task'].allowed_child_templates = ['*'];
+    manager.templates.templates['restricted-task'].child_templates = ['*'];
     expect(() => parent.createChild('generic-service')).toThrow(LushError);
     expect(() => root.createChild('no-such-template')).toThrow(LushError);
+  });
+
+  test('singleton templates allow one active instance per parent', () => {
+    const template = manager.templates.get('generic-service');
+    manager.templates.register({ ...template, name: 'one-per-parent', singleton: true });
+    const parent = root.createChild('generic-service');
+    const first = parent.createChild('one-per-parent');
+    expect(code(() => parent.createChild('one-per-parent'))).toBe(-32010);
+    // Singleton is per parent PID, not system-wide.
+    expect(root.createChild('one-per-parent').getParent().pid).toBe(0);
+
+    // Only active instances occupy the slot: stopping one releases it.
+    manager.stop(first.pid);
+    const second = parent.createChild('one-per-parent');
+    expect(second.pid).not.toBe(first.pid);
+    expect(code(() => parent.createChild('one-per-parent'))).toBe(-32010);
+    manager.kill(second.pid);
+    expect(parent.createChild('one-per-parent').pid).not.toBe(second.pid);
+
+    // Non-singleton templates stay unrestricted.
+    const plain = parent.createChild('generic-task');
+    expect(parent.createChild('generic-task').pid).not.toBe(plain.pid);
+  });
+
+  test('context advertises child templates with their spawn prompts', () => {
+    const parent = root.createChild('generic-task');
+    const callId = manager.repository.beginCall(parent.pid, 'who can you create?');
+    const built = new ContextBuilder(manager.repository, manager.templates).build(manager.load(parent.pid), callId);
+    const data = JSON.parse(built.messages[1].content.slice('LUSH_CONTEXT\n'.length));
+    expect(data.child_templates).toEqual(['*']);
+    const generic = data.available_child_templates.find((item) => item.name === 'generic-task');
+    expect(generic.type).toBe('task');
+    expect(generic.singleton).toBe(false);
+    expect(generic.spawn_prompt).toContain('process_spawn');
+    expect(data.available_child_templates.some((item) => item.name === 'lush-root')).toBe(false);
+  });
+
+  test('view has no command section and ignores legacy snapshot fields', () => {
+    const child = root.createChild('generic-task');
+    const view = manager.view(child.pid, ['parent', 'children', 'prompt']);
+    expect(view.parent.pid).toBe(0);
+    expect(view.children).toEqual([]);
+    expect(view.call_prompt).toBe(manager.templates.get('generic-task').system_prompt);
+    expect(() => manager.view(child.pid, ['command'])).toThrow(LushError);
+  });
+
+  test('startup backfills child_templates for snapshots written earlier', () => {
+    const child = root.createChild('generic-task');
+    const snapshot = manager.repository.get(child.pid).template_snapshot;
+    delete snapshot.child_templates;
+    manager.repository.db.run('UPDATE processes SET template_snapshot=? WHERE pid=?',
+      [JSON.stringify(snapshot), child.pid]);
+    expect(manager.backfillTemplateSnapshots().filled).toEqual([child.pid]);
+    expect(manager.repository.get(child.pid).template_snapshot.child_templates).toEqual(['*']);
+    expect(manager.backfillTemplateSnapshots().filled).toEqual([]);
   });
 
   test('template loader rejects duplicates and unknown references', () => {
@@ -142,10 +197,51 @@ describe('core', () => {
     const file = path.join(directory, 'custom.json');
     fs.writeFileSync(file, JSON.stringify(template));
     expect(() => new TemplateLoader(directory)).toThrow(LushError);
-    fs.writeFileSync(file, JSON.stringify({ ...template, name: 'custom', allowed_child_templates: ['missing'] }));
+    fs.writeFileSync(file, JSON.stringify({ ...template, name: 'custom', child_templates: ['missing'] }));
     expect(() => new TemplateLoader(directory)).toThrow(LushError);
-    fs.writeFileSync(file, JSON.stringify({ ...template, name: 'custom', allowed_child_templates: [] }));
-    expect(new TemplateLoader(directory).get('custom').allowed_child_templates).toEqual([]);
+    fs.writeFileSync(file, JSON.stringify({ ...template, name: 'custom', child_templates: [] }));
+    expect(new TemplateLoader(directory).get('custom').child_templates).toEqual([]);
+    // The seven template fields are exact: dropping or adding one is an error.
+    for (const mutate of [
+      (value) => delete value.spawn_prompt,
+      (value) => { value.singleton = 'yes'; },
+      (value) => { value.type = 'daemon'; },
+      (value) => { value.extra = 1; },
+    ]) {
+      const broken = { ...template, name: 'custom' };
+      mutate(broken);
+      fs.writeFileSync(file, JSON.stringify(broken));
+      expect(() => new TemplateLoader(directory)).toThrow(LushError);
+    }
+  });
+
+  test('spawn args, project path requirement and args.path validation', () => {
+    expect(code(() => root.createChild('project'))).toBe(-32602);
+    expect(code(() => root.createChild('project', { args: { path: 'relative/dir' } }))).toBe(-32602);
+    expect(code(() => root.createChild('project', { args: { path: path.join(dir, 'missing') } }))).toBe(-32602);
+    const file = path.join(dir, 'not-a-dir');
+    fs.writeFileSync(file, 'x');
+    expect(code(() => root.createChild('project', { args: { path: file } }))).toBe(-32602);
+    expect(code(() => root.createChild('project', { args: [] }))).toBe(-32602);
+
+    const project = root.createChild('project', { name: 'p1', goal: 'ship', args: { path: dir, branch: 'main' } });
+    expect(project.inspect().context.state.params).toEqual({ path: dir, branch: 'main' });
+    // project is not a singleton, and args are namespaced so the agent keeps its own state.
+    const second = root.createChild('project', { args: { path: dir } });
+    expect(second.pid).not.toBe(project.pid);
+    manager.updateState(project.pid, { progress: 'started' });
+    expect(project.inspect().context.state).toEqual({ params: { path: dir, branch: 'main' }, progress: 'started' });
+    // Templates without required args stay optional, but a given path is still validated.
+    expect(root.createChild('generic-task').inspect().context.state).toEqual({});
+    expect(code(() => root.createChild('generic-task', { args: { path: '/definitely/missing' } }))).toBe(-32602);
+  });
+
+  test('project-manager advertises project as a child, project path stays per process', () => {
+    const template = manager.templates.get('project-manager');
+    expect(template.child_templates).toContain('project');
+    expect(template.singleton).toBe(true);
+    const spawnPrompt = manager.templates.get('project').spawn_prompt;
+    for (const expected of ['args.path', '绝对路径', 'singleton=false']) expect(spawnPrompt).toContain(expected);
   });
 
   test('state, context isolation and validation', () => {

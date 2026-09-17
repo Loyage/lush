@@ -10,7 +10,7 @@ import { Database } from '../persistence/database.js';
 import { Repository } from '../persistence/repository.js';
 import { Dispatcher } from '../rpc/protocol.js';
 import { RPCServer } from '../rpc/server.js';
-import { TemplateLoader } from '../templates/loader.js';
+import { TemplateLoader } from '../template_loader.js';
 import { createLogger } from '../log.js';
 import { createSignal } from '../signal.js';
 
@@ -33,16 +33,24 @@ export async function serve(config) {
   try {
     fs.rmSync(config.socket, { force: true }); // safe only while holding the daemon lock
     const templates = new TemplateLoader(path.join(config.home, 'templates'));
-    const provider = await configuredProvider();
+    const provider = await configuredProvider(process.env, { home: config.home });
     database = new Database(path.join(config.home, 'lush.db'));
     repository = new Repository(database);
     const manager = new ProcessManager(repository, templates);
     manager.ensureRoot();
     repository.recover();
-    runtime = new AgentRuntime(manager, provider, new ContextBuilder(repository, templates), {
-      timeout: config.callTimeout,
-      maxRounds: config.maxRounds,
-    });
+    const backfill = manager.backfillTemplateSnapshots();
+    if (backfill.filled.length) {
+      log.info(`backfilled template snapshot fields for PIDs ${backfill.filled.join(', ')}`);
+    }
+    if (backfill.unknown_template.length) {
+      log.warn(`cannot backfill PIDs whose template is not loaded: ${backfill.unknown_template.join(', ')}`);
+    }
+    runtime = new AgentRuntime(manager, provider,
+      new ContextBuilder(repository, templates, { agentMode: provider.contextMode ?? 'tools' }), {
+        timeout: config.callTimeout,
+        maxRounds: config.maxRounds,
+      });
     manager.runtime = runtime;
     server = new RPCServer(config.socket, new Dispatcher(manager, stopping));
     await server.start();

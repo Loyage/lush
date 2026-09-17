@@ -4,7 +4,7 @@ import path from 'node:path';
 
 /** Runtime configuration, read from the environment by the daemon at startup. */
 export class Config {
-  constructor({ home, provider = 'mock', callTimeout = 120, maxRounds = 12 }) {
+  constructor({ home, provider = 'pi', callTimeout = 900, maxRounds = 12 }) {
     this.home = home;
     this.provider = provider;
     this.callTimeout = callTimeout;
@@ -21,13 +21,13 @@ export class Config {
     if (home === '~' || home.startsWith('~/')) home = path.join(os.homedir(), home.slice(1));
     home = path.resolve(home);
 
-    const timeout = Number.parseFloat(env.LUSH_CALL_TIMEOUT ?? '120');
+    const timeout = Number.parseFloat(env.LUSH_CALL_TIMEOUT ?? '900');
     const rounds = Number.parseInt(env.LUSH_MAX_ROUNDS ?? '12', 10);
     if (!Number.isFinite(timeout) || !(timeout > 0 && timeout <= 86_400)
       || !Number.isInteger(rounds) || !(rounds >= 1 && rounds <= 100)) {
       throw new Error('invalid LUSH_CALL_TIMEOUT or LUSH_MAX_ROUNDS');
     }
-    return new Config({ home, provider: env.LUSH_PROVIDER || 'mock', callTimeout: timeout, maxRounds: rounds });
+    return new Config({ home, provider: env.LUSH_PROVIDER || 'pi', callTimeout: timeout, maxRounds: rounds });
   }
 
   prepare() {

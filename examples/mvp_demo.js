@@ -43,42 +43,42 @@ async function demo(home) {
   const json = async (...args) => JSON.parse(await run(['--json', ...args], { quiet: true }));
   try {
     await run(['daemon', 'start']);
-    if ((await run(['tree'], { quiet: true })).trim() !== 'lush[0]') throw new Error('unexpected initial tree');
-    await run(['spawn', '0', 'generic-service', '--name', 'project-manager']);
-    await run(['spawn', '1', 'generic-task', '--name', 'implement-login', '--goal', '实现登录功能']);
-    await run(['tree']);
+    if ((await run(['process', 'tree'], { quiet: true })).trim() !== 'lush[0]') throw new Error('unexpected initial tree');
+    await run(['process', 'spawn', '0', 'generic-service', '--name', 'project-manager']);
+    await run(['process', 'spawn', '1', 'generic-task', '--name', 'implement-login', '--goal', '实现登录功能']);
+    await run(['process', 'tree']);
 
-    const identity = await run(['call', '2', '请介绍一下你当前的身份和任务'], { quiet: true });
+    const identity = await run(['process', 'call', '2', '请介绍一下你当前的身份和任务'], { quiet: true });
     if (!identity.includes('PID = 2') || !identity.includes('project-manager[1]')) {
       throw new Error('mock identity output changed');
     }
-    await run(['attach', '2'], { input: '当前任务是什么？\n查看你的子任务\n/exit\n' });
-    await run(['call', '1', '创建一个子任务，研究 OAuth 登录实现方式']);
-    const tree = await run(['tree'], { quiet: true });
+    await run(['process', 'attach', '2'], { input: '当前任务是什么？\n查看你的子任务\n/exit\n' });
+    await run(['process', 'call', '1', '创建一个子任务，研究 OAuth 登录实现方式']);
+    const tree = await run(['process', 'tree'], { quiet: true });
     if (!tree.includes('research-oauth[3]')) throw new Error('autonomous spawn failed');
 
-    await run(['call', '2', '/tool process.update_state {"patch":{"progress":"designing"}}']);
-    const before = await json('inspect', '2');
+    await run(['process', 'call', '2', '/tool process.update_state {"patch":{"progress":"designing"}}']);
+    const before = await json('process', 'inspect', '2');
 
     await run(['daemon', 'stop']);
     await run(['daemon', 'start']);
-    if ((await run(['tree'], { quiet: true })) !== tree) throw new Error('tree was not restored');
-    const after = await json('inspect', '2');
+    if ((await run(['process', 'tree'], { quiet: true })) !== tree) throw new Error('tree was not restored');
+    const after = await json('process', 'inspect', '2');
     if (JSON.stringify(before.context) !== JSON.stringify(after.context)) {
       throw new Error('context was not restored');
     }
     console.log('✓ Restart restored tree, state, conversation and invocation history');
 
-    await run(['spawn', '2', 'generic-service', '--name', 'login-helper']);
-    await run(['call', '2', '/tool process.complete {"result":"MVP lifecycle demonstration complete"}']);
-    const orphan = await json('inspect', '4');
+    await run(['process', 'spawn', '2', 'generic-service', '--name', 'login-helper']);
+    await run(['process', 'call', '2', '/tool process.complete {"result":"MVP lifecycle demonstration complete"}']);
+    const orphan = await json('process', 'inspect', '4');
     if (orphan.parent_pid !== 0 || orphan.original_parent_pid !== 2) throw new Error('orphan adoption failed');
-    await run(['tree']);
+    await run(['process', 'tree']);
     console.log('✓ Task completion adopted its live Service into PID 0');
 
-    const reclaimed = await json('reclaim', '2');
+    const reclaimed = await json('process', 'reclaim', '2');
     if (reclaimed.status !== 'reclaimed') throw new Error('reclaim failed');
-    if ((await json('history', '2')).messages.length === 0) throw new Error('history was dropped');
+    if ((await json('process', 'history', '2')).messages.length === 0) throw new Error('history was dropped');
     console.log('✓ Reclaim preserved history');
     console.log('\nMVP demo passed.');
   } finally {

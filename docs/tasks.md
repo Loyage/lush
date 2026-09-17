@@ -32,6 +32,15 @@ MVP 范围内无未完成项。后续方向（本轮不实现）：PID 0 的孤�
 - [x] SIGKILL 遗留锁由 PID 存活检测回收；shutdown 回复先落盘再拆 socket
 - [x] 本机 loopback base URL 自动补 `NO_PROXY`，避免代理劫持本地模型
 - [x] README、协议、生命周期与已知限制最终核对
+- [x] 统一查看入口：`process.view` / `lush inspect PID --with parent,children,prompt`（父节点、子节点、Call Prompt）
+- [x] 模板字段改为七项契约：name、type（task/service）、singleton（同一父进程下只允许一个活动实例）、description、spawn_prompt（如何创建、需要哪些参数，注入创建方的 `available_child_templates`）、system_prompt、child_templates；移除 agent_command / initial_context 与 view 的 command section，旧快照只回填 child_templates；示例模板与 39 项测试、demo 全部恢复通过
+- [x] 默认 call agent 改为 `pi`：每次 call 起 `pi --print` 子进程 + 每 PID 一个 pi session（`$LUSH_HOME/pi-sessions`），`--system-prompt` 用模板 system_prompt 替换 pi 默认提示词，再追加共享 Lush 说明层与 `LUSH_CONTEXT`；取消/超时/daemon 退出会 SIGKILL 子进程，`LUSH_CALL_TIMEOUT` 默认 900 秒
+- [x] 共享 Lush 说明层 `src/agent/guide.js`（tools / cli 两个版本，所有 agent 后端都会带上），内置 provider 保留 `process_*` 工具，pi 改用 `lush` CLI
+- [x] spawn args：`process.spawn` / `lush spawn --args` / Justfile 新增 `--args`，原样存入 `state.params`；`args.path` 必须是已存在绝对目录，并作为该进程 agent 的 cwd
+- [x] 新模板 `project`（`project-manager` 子模板、非单例、必须提供 `args.path`，spawn_prompt 说明）；CLI 新增 `complete` / `update-state`
+- [x] `call --dry-run` / `dry_run: true`：不调用 agent、不写 agent_calls/messages、不标记 busy，只返回本来要执行的调用；pi 后端返回可直接执行的命令行（`executable` / `argv` / `command` / `cwd` / `env` / `path_prefix`），内置运行时返回 `command: null` + messages 条数；49 项测试通过
+- [x] `lush session PID [--open]` / RPC `process.session`：只读列出外部 agent 的 session-dir / session-id / 实际文件 / cwd / busy（任何状态可查），`--open` 用带 Lush 身份的交互式 argv 进入 pi TUI；51 项测试通过
+- [x] CLI 命令分层重组为 `lush <group> <command>`（`daemon` / `process` / `agent`），并新增逐层 help：顶层、命令组、命令都支持 `help`、`-h`、`--help`，说明本层覆盖范围、子命令与参数；`--json help [command]` 输出结构化命令树（summary/cover/usage/positionals/options/subcommands）；帮助与解析共用同一张 `COMMANDS` 声明，`--json` 可放命令前或末尾；同步 README、rpc/process-model/architecture 文档、Justfile、demo、pi 说明层与模板；52 项测试通过
 
 ## 验收命令
 
@@ -40,4 +49,4 @@ bun test
 bun run demo
 ```
 
-验证环境为 macOS / Bun 1.4.2。OpenAI-compatible Provider 以本地 HTTP fixture 验证请求格式、Authorization、tool calls、tool results 和错误处理；未使用真实供应商 API key，也未宣称验证真实模型的推理能力。
+验证环境为 macOS / Bun 1.4.2。OpenAI-compatible Provider 以本地 HTTP fixture 验证请求格式、Authorization、tool calls、tool results 和错误处理；pi 后端以本地假 pi 可执行文件 + 本地 HTTP fixture 验证命令行参数、会话目录、cwd、取消杀进程与错误处理，并用一个模拟 agent 的假 pi 跑通「通过 lush CLI 自建子进程」的端到端流程。未使用真实供应商 API key，也未宣称验证真实模型的推理能力。

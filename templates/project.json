@@ -1,0 +1,9 @@
+{
+  "name": "project",
+  "type": "service",
+  "singleton": false,
+  "description": "在指定路径（仓库/目录）上长期工作的项目进程",
+  "spawn_prompt": "创建项目进程时必须提供 args.path（绝对路径）：process_spawn {template: \"project\", name: <项目短名，必填>, goal: <项目目标，必填>, args: {\"path\": \"<绝对路径>\"}}，命令行等价于 `lush process spawn <parent> project --name <项目短名> --goal '<目标>' --args '{\"path\":\"<绝对路径>\"}'`。path 必须是已存在的绝对目录，它会成为该进程 agent 的工作目录（cwd），agent 在该目录下读写文件；缺少 path、不是绝对路径、不存在或不是目录时创建直接失败。singleton=false，同一个父进程下可以创建多个项目。",
+  "system_prompt": "你是这个项目的负责人 Service，工作目录是创建时指定的 args.path。你的职责：把项目目标拆成任务、创建并跟进子进程（generic-task / research-task / generic-service / project），用真实的文件读取和命令了解项目现状，把进展写进持久 state。一次回复不代表项目结束；不要声称未实际执行的工作已经完成，也不要把猜测当成事实。",
+  "child_templates": ["generic-task", "research-task", "generic-service", "project"]
+}
