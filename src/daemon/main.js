@@ -11,6 +11,7 @@ import { Repository } from '../persistence/repository.js';
 import { Dispatcher } from '../rpc/protocol.js';
 import { RPCServer } from '../rpc/server.js';
 import { TemplateLoader } from '../template_loader.js';
+import { codeIdentity } from '../identity.js';
 import { createLogger } from '../log.js';
 import { createSignal } from '../signal.js';
 
@@ -20,6 +21,10 @@ export async function serve(config) {
   config.prepare();
   const lock = new DaemonLock(config.home);
   lock.acquire();
+  // Captured once: this daemon keeps answering with the code it started with,
+  // and `system.status` must keep saying so after the checkout moves on.
+  const startedAt = new Date().toISOString();
+  const identity = { home: config.home, socket: config.socket, started_at: startedAt, ...codeIdentity() };
 
   let database = null;
   let server = null;
@@ -52,7 +57,7 @@ export async function serve(config) {
         maxRounds: config.maxRounds,
       });
     manager.runtime = runtime;
-    server = new RPCServer(config.socket, new Dispatcher(manager, stopping));
+    server = new RPCServer(config.socket, new Dispatcher(manager, stopping, identity));
     await server.start();
     log.info(`lushd ready at ${config.socket} (provider=${provider.name})`);
     await stopping.promise;

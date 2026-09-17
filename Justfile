@@ -40,7 +40,8 @@ doctor:
   @echo "bun       $(bun --version)"
   @echo "LUSH_HOME {{LUSH_HOME}}"
   @echo "provider  {{LUSH_PROVIDER}}"
-  @{{lush}} daemon status 2>/dev/null || echo "daemon    stopped"
+  @echo "code      {{justfile_directory()}}"
+  @{{lush}} daemon status 2>&1 || echo "daemon    stopped"
 
 # 运行全部测试（可选过滤：just test openai）
 [group('dev')]
@@ -88,6 +89,8 @@ daemon-start:
 daemon-stop:
   @{{lush}} daemon stop
 
+# 只重启 LUSH_HOME={{LUSH_HOME}} 这一份；命令打到的若是别的 home，它不会被重启
+# （`just doctor` / `just status` 会显示实际 home、代码指纹与是否匹配）
 # 重启 daemon：进程树、Context、消息与调用历史都会被保留
 [group('daemon')]
 daemon-restart: daemon-stop daemon-start
@@ -106,6 +109,72 @@ log:
 [group('daemon')]
 foreground:
   bun ./bin/lushd
+
+# 默认只清「home 目录已消失」的；`just prune all` 连仍存在但既不是当前 LUSH_HOME 也不是默认 home 的临时 home 一起清
+# 清理残留 daemon（测试/演示用临时 LUSH_HOME 留下的孤儿），从不碰当前 LUSH_HOME 与默认 home
+[group('daemon')]
+prune mode="":
+  #!/usr/bin/env zsh
+  set -u
+  # shebang recipe 的参数由 just 在运行前插值（不是位置参数）
+  typeset mode="{{mode}}"
+  typeset default_home="${XDG_STATE_HOME:-$HOME/.local/state}/lush"
+
+  # 只认我们自己的 daemon：argv 里带 src/daemon/main.js（lushd 走的也是它）
+  typeset -a pids
+  pids=(${(f)"$(ps -eo pid=,command= | awk '/daemon\/main\.js$/ {print $1}')"})
+  if (( ${#pids} == 0 )); then
+    echo "没有运行中的 daemon"
+    exit 0
+  fi
+
+  cwd_of() {
+    if [[ -e /proc/$1/cwd ]]; then
+      readlink -f /proc/$1/cwd 2>/dev/null && return
+    fi
+    lsof -a -p $1 -d cwd -Fn 2>/dev/null | sed -n 's/^n//p'
+  }
+
+  typeset -a doomed
+  typeset kept=0
+  for pid in $pids; do
+    home="$(cwd_of $pid)"
+    if [[ -z "$home" ]]; then
+      echo "保留 pid=$pid（读不到工作目录，不动）"; kept=$(( kept + 1 )); continue
+    fi
+    if [[ "$home" == "$LUSH_HOME" ]]; then
+      echo "保留 pid=$pid home=$home（当前 LUSH_HOME）"; kept=$(( kept + 1 )); continue
+    fi
+    if [[ "$home" == "$default_home" ]]; then
+      echo "保留 pid=$pid home=$home（默认 home）"; kept=$(( kept + 1 )); continue
+    fi
+    if [[ ! -d "$home" ]]; then
+      echo "清理 pid=$pid home=$home（目录已消失）"
+      kill $pid 2>/dev/null && doomed+=($pid) || echo "  kill 失败，跳过"
+      continue
+    fi
+    if [[ "$mode" == (all|--all|-a) ]]; then
+      echo "清理 pid=$pid home=$home（临时 home；目录仍在，确认无用后自行删除）"
+      kill $pid 2>/dev/null && doomed+=($pid) || echo "  kill 失败，跳过"
+      continue
+    fi
+    echo "保留 pid=$pid home=$home（仍在，但不是当前/默认 home；just prune all 可清理）"
+    kept=$(( kept + 1 ))
+  done
+
+  # 等它们真的退出：kill 只是请求，锁要等进程结束后才释放
+  typeset stuck=0
+  for pid in $doomed; do
+    for _ in {1..50}; do
+      kill -0 $pid 2>/dev/null || break
+      sleep 0.1
+    done
+    if kill -0 $pid 2>/dev/null; then
+      echo "警告：pid=$pid 仍未退出（可能卡在 handler 里）"
+      stuck=$(( stuck + 1 ))
+    fi
+  done
+  echo "已停止 $(( ${#doomed} - stuck )) 个，保留 $kept 个，未退出 $stuck 个"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Process 操作
@@ -137,6 +206,11 @@ history pid after="0" limit="100":
 call pid prompt dry="":
   @{{lush}} process call {{pid}} {{quote(prompt)}}{{ if dry != "" { " --dry-run" } else { "" } }}
 
+# 以参与方式发起一次调用：在这个终端里跑 pi TUI，边看边插话，退出后结算这次调用
+[group('process')]
+enter pid prompt:
+  @{{lush}} process call {{pid}} {{quote(prompt)}} --interactive
+
 # 交互式对话（/exit 或 Ctrl-D 退出，不会停止进程）
 [group('process')]
 attach pid:
@@ -161,7 +235,12 @@ update-state pid patch:
 # 查看进程的 agent session（pi）：just session 2；加第二个参数进入 pi TUI：just session 2 open
 [group('process')]
 session pid open="":
-  @{{lush}} agent session {{pid}}{{ if open != "" { " --open" } else { "" } }}
+  @{{lush}} process session {{pid}}{{ if open != "" { " --open" } else { "" } }}
+
+# 运行期 agent：谁在干活、干了多久、怎么终止（tree 默认就会在活跃进程下标一行）
+[group('process')]
+agents all="":
+  @{{lush}} process agents list{{ if all != "" { " --all" } else { "" } }}
 
 # 启动或重启进程（Service）
 [group('process')]

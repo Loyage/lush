@@ -1,3 +1,4 @@
+import cp from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
@@ -172,6 +173,119 @@ describe('pi agent backend', () => {
     expect(alive).toBe(false);
   });
 
+  test('interactive call hands pi the terminal and still records one call', async () => {
+    const opened = runtime.openInteractive(0, 'help me please');
+    expect(opened).toMatchObject({ pid: 0, call_id: 1, agent: 'pi', prompt: 'help me please', interactive: true });
+    // The interactive argv is the plain call argv without --print.
+    expect(opened.argv.includes('--print')).toBe(false);
+    expect(flagValue(opened.argv, '--session-id')).toBe('lush-0');
+    expect(opened.argv[opened.argv.length - 1]).toBe('help me please');
+    expect(opened.env).toEqual({ LUSH_HOME: dir, LUSH_PID: '0' });
+    expect(opened.cwd).toBe(dir);
+
+    // Opening the call is a real call: user message recorded, live agent registered.
+    expect(runtime.isBusy(0)).toBe(true);
+    expect(runtime.agentSummary(0)).toMatchObject({ running: 1, agents: [{ id: '0.1', call_id: 1, interactive: true }] });
+    expect(manager.inspect(0).agent.status).toBe('busy');
+    expect(manager.inspect(0).recent_calls[0]).toMatchObject({ status: 'running', prompt: 'help me please' });
+    expect(manager.inspect(0).context.message_count).toBe(1);
+    expect(() => manager.callBegin(0, 'again')).toThrow(/agent is busy/);
+    await expectRejection(manager.call(0, 'again'), /agent is busy/);
+
+    const settled = manager.callEnd(0, opened.call_id, 'succeeded');
+    expect(settled).toEqual({ pid: 0, call_id: opened.call_id, settled: true, status: 'succeeded' });
+    expect(runtime.isBusy(0)).toBe(false);
+    expect(manager.inspect(0).recent_calls[0].status).toBe('succeeded');
+    // Reporting twice is not an error: the daemon may have settled it first.
+    expect(manager.callEnd(0, opened.call_id, 'failed').settled).toBe(false);
+    expect(manager.inspect(0).recent_calls[0].status).toBe('succeeded');
+    // The next (daemon-run) call continues the same pi session.
+    expect(flagValue((await manager.call(0, 'hello', true)).argv, '--session-id')).toBe('lush-0');
+    expect((await manager.call(0, 'hello')).output).toContain('lush-0');
+  });
+
+  test('kill marks an open interactive call; the terminal settles it as interrupted', async () => {
+    const task = manager.load(0).createChild('generic-task', { name: 'worker' });
+    const opened = runtime.openInteractive(task.pid, 'do the work');
+    manager.kill(task.pid);
+    expect(runtime.isBusy(task.pid)).toBe(true); // the terminal still runs pi
+    const settled = manager.callEnd(task.pid, opened.call_id, 'succeeded');
+    expect(settled).toMatchObject({ settled: true, status: 'interrupted' });
+    expect(runtime.isBusy(task.pid)).toBe(false);
+  });
+
+  test('an interactive call nobody settles times out and frees the process', async () => {
+    const other = tmpdir('lush-pi-open-');
+    const parts = system(other, new PiAgentProvider({ command: writeStub(other, 'pi-stub'), home: other }),
+      { timeout: 0.05 });
+    try {
+      const opened = parts.runtime.openInteractive(0, 'abandoned');
+      expect(parts.runtime.isBusy(0)).toBe(true);
+      await Bun.sleep(300);
+      expect(parts.runtime.isBusy(0)).toBe(false);
+      const [call] = parts.manager.inspect(0).recent_calls;
+      expect(call.status).toBe('failed');
+      expect(call.error).toContain('timed out');
+      // The late terminal reports to nobody; the daemon's verdict stands.
+      expect(parts.manager.callEnd(0, opened.call_id, 'succeeded').settled).toBe(false);
+      expect(parts.manager.inspect(0).recent_calls[0].status).toBe('failed');
+    } finally {
+      await parts.runtime.shutdown();
+      parts.database.close();
+      cleanup(other);
+    }
+  });
+
+  test('agent space: termination, live pids and the durable call behind it', async () => {
+    const parent = manager.load(0).createChild('generic-task', { name: 'worker' });
+    await parent.call('first round');
+    const opened = runtime.openInteractive(parent.pid, 'interactive round');
+    expect(opened.agent_id).toBe(`${parent.pid}.2`);
+    expect(runtime.agentsList()).toEqual([
+      expect.objectContaining({ id: `${parent.pid}.2`, interactive: true, os_pid: null, cancellable: false }),
+    ]);
+    expect(runtime.agentsList({ pid: 0 })).toEqual([]);
+
+    // The terminal reports the OS pid of the pi process it runs.
+    const terminal = cp.spawn(process.execPath, ['-e', 'await Bun.sleep(30000)'], { stdio: 'ignore' });
+    const exited = new Promise((resolve) => terminal.on('close', resolve));
+    expect(manager.callOsPid(parent.pid, opened.call_id, terminal.pid))
+      .toEqual({ pid: parent.pid, call_id: opened.call_id, recorded: true, agent_id: `${parent.pid}.2` });
+    expect(runtime.agentsList()[0]).toMatchObject({ os_pid: terminal.pid, cancellable: true });
+    expect(manager.agentShow(`${parent.pid}.2`)).toMatchObject({
+      id: `${parent.pid}.2`,
+      call: { id: 2, prompt: 'interactive round', status: 'running' },
+      session: { session_id: `lush-${parent.pid}` },
+    });
+    expect(manager.agentShow(`${parent.pid}.1`)).toMatchObject({
+      status: 'succeeded', cancellable: false, call: { status: 'succeeded' },
+    });
+
+    // Killing one agent kills the OS process, not the logical Process.
+    expect(manager.agentsKill(`${parent.pid}.2`)).toMatchObject({ killed: true, os_pid: terminal.pid });
+    await exited;
+    expect(manager.callEnd(parent.pid, opened.call_id, 'succeeded')).toMatchObject({ settled: true, status: 'interrupted' });
+    expect(manager.inspect(parent.pid).status).toBe('running');
+    expect(runtime.agentsList()).toEqual([]);
+    expect(manager.agentsList(null, true).map((agent) => `${agent.id}:${agent.status}`))
+      .toEqual([`${parent.pid}.1:succeeded`, `${parent.pid}.2:interrupted`]);
+    expect(() => manager.agentsKill(`${parent.pid}.2`)).toThrow(/is not running/);
+    expect(() => manager.agentShow(`${parent.pid}.3`)).toThrow(/agent not found/);
+    // A report that arrives after the verdict is a no-op, not an error.
+    expect(manager.callOsPid(parent.pid, opened.call_id, process.pid)).toEqual({
+      pid: parent.pid, call_id: opened.call_id, recorded: false, agent_id: null,
+    });
+  });
+
+  test('interactive settlement is validated', () => {
+    expect(() => manager.callBegin(0, '')).toThrow(/prompt must be a non-empty string/);
+    expect(() => manager.callEnd(0, 1.5, 'succeeded')).toThrow(/call_id must be a positive integer/);
+    expect(() => manager.callEnd(0, 1, 'cancelled')).toThrow(/status must be/);
+    expect(() => manager.callEnd(0, 1, 'succeeded', '')).toThrow(/output must be a non-empty string/);
+    // A call the daemon already settled (timeout, kill, shutdown) reports settled: false.
+    expect(manager.callEnd(0, 1, 'succeeded')).toEqual({ pid: 0, call_id: 1, settled: false, status: null });
+  });
+
   test('session reports the pi session dir, id, file and open commands', async () => {
     const before = manager.session(0);
     expect(before).toMatchObject({
@@ -181,8 +295,20 @@ describe('pi agent backend', () => {
     // Read-only: no invocation was recorded.
     expect(manager.inspect(0).recent_calls).toEqual([]);
     expect(manager.inspect(0).context.message_count).toBe(0);
+    // The listing summary reads host liveness only: no Context, no session walk.
+    expect(runtime.agentSummary(0)).toEqual({ provider: 'pi', running: 0, agents: [] });
 
     await manager.call(0, 'hello');
+    // The finished agent moved to the bounded in-memory log.
+    expect(runtime.agentSummary(0)).toEqual({ provider: 'pi', running: 0, agents: [] });
+    const [finished] = manager.agentsList(null, true);
+    expect(finished).toMatchObject({
+      id: '0.1', pid: 0, name: 'lush', provider: 'pi', status: 'succeeded', call_id: 1,
+      interactive: false, os_pid: expect.any(Number), cancellable: false, error: null,
+    });
+    expect(finished.elapsed_ms).toBeGreaterThanOrEqual(0);
+    expect(manager.agentsList()).toEqual([]); // live only
+    expect(manager.tree().find((row) => row.pid === 0).agent).toEqual(runtime.agentSummary(0));
     const after = manager.session(0);
     expect(after.session_dir).toBe(path.join(dir, 'pi-sessions'));
     expect(after.file.endsWith('_lush-0.jsonl')).toBe(true);

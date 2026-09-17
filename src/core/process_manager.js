@@ -12,6 +12,14 @@ import { LushError, VIEW_SECTIONS, isPlainObject, jsonDump, text, validPid, view
  */
 const REQUIRED_SPAWN_ARGS = { project: ['path'] };
 
+/** Agents live in their own space: `PID.N`, minted per daemon run, never persisted. */
+function validAgentId(id) {
+  if (typeof id !== 'string' || !/^\d+\.\d+$/.test(id)) {
+    throw new LushError("agent id must look like 'PID.N' (see 'lush process agents list')", -32602);
+  }
+  return id;
+}
+
 /**
  * Snapshot fields that older databases were written without. Adding a template
  * field is a breaking change for template files, but persisted snapshots must
@@ -39,8 +47,72 @@ export class ProcessManager {
     return new Process(pid, this);
   }
 
+  /**
+   * Every process metadata row; `process tree` adds live-agent activity on top
+   * (see `tree`). Rows are never duplicated or filtered here.
+   */
   list() {
     return this.repository.list();
+  }
+
+  /**
+   * `process tree`: the same rows as `list`, each with its live agents unless
+   * `agents` is false. Only runtime facts are attached — no Context, no argv,
+   * no session walk — so the tree stays one cheap read for N processes.
+   */
+  tree(agents = true) {
+    if (typeof agents !== 'boolean') throw new LushError('agents must be a boolean', -32602);
+    const rows = this.repository.list();
+    if (!agents) return rows;
+    return rows.map((row) => ({ ...row, agent: this.agentInfo(row.pid) }));
+  }
+
+  /** Live-worker summary for one process, or null while no runtime is bound. */
+  agentInfo(pid) {
+    return this.runtime === null ? null : this.runtime.agentSummary(pid);
+  }
+
+  /**
+   * `process agents list`: live workers (optionally of one process), plus this
+   * daemon run's finished ones when `all` is set. Agents are runtime data —
+   * nothing here is persisted, and the durable record of the same work is the
+   * call row `agent_calls.id`.
+   */
+  agentsList(pid = null, all = false) {
+    if (pid !== null) this.repository.get(pid); // a missing process reports -32004
+    if (typeof all !== 'boolean') throw new LushError('all must be a boolean', -32602);
+    if (this.runtime === null) throw new LushError('AgentRuntime is not bound', -32020);
+    return this.runtime.agentsList({ pid, all });
+  }
+
+  /** `process agents show`: one agent, with its session on disk and its durable call row. */
+  agentShow(id) {
+    validAgentId(id);
+    if (this.runtime === null) throw new LushError('AgentRuntime is not bound', -32020);
+    return this.runtime.agentShow(id);
+  }
+
+  /**
+   * `process agents kill`: kill one worker, not the process. Unlike
+   * `process kill PID`, the logical Process keeps its status and its goal.
+   */
+  agentsKill(id) {
+    validAgentId(id);
+    if (this.runtime === null) throw new LushError('AgentRuntime is not bound', -32020);
+    return this.runtime.agentsKill(id);
+  }
+
+  /**
+   * A terminal running `call --interactive` reports the OS pid of the pi process
+   * it spawned: the daemon did not create it, so this is the only way the agent
+   * space can show or kill it.
+   */
+  callOsPid(pid, callId, osPid) {
+    validPid(pid);
+    if (!Number.isInteger(callId) || callId < 1) throw new LushError('call_id must be a positive integer', -32602);
+    if (!Number.isInteger(osPid) || osPid < 1) throw new LushError('os_pid must be a positive integer', -32602);
+    if (this.runtime === null) throw new LushError('AgentRuntime is not bound', -32020);
+    return this.runtime.noteAgentOsPid(pid, callId, osPid);
   }
 
   inspect(pid) {
@@ -241,6 +313,38 @@ export class ProcessManager {
     if (typeof dryRun !== 'boolean') throw new LushError('dry_run must be a boolean', -32602);
     if (this.runtime === null) throw new LushError('AgentRuntime is not bound', -32020);
     return dryRun ? this.runtime.describe(pid, prompt) : this.runtime.call(pid, prompt);
+  }
+
+  /**
+   * `lush process call --interactive`: open a call that the caller's terminal
+   * runs itself (pi TUI) and return what to run. The call row, the busy flag
+   * and the running/busy/recursion guards are the same as `call`; the caller
+   * reports the outcome with `callEnd`.
+   */
+  callBegin(pid, prompt) {
+    this.requireRunning(pid);
+    text(prompt, 'prompt');
+    if (this.runtime === null) throw new LushError('AgentRuntime is not bound', -32020);
+    return this.runtime.openInteractive(pid, prompt);
+  }
+
+  /**
+   * Settle a call opened by `callBegin`. The terminal outlives the caller, so
+   * any status may arrive here; `settled: false` means the daemon settled it
+   * first (timeout, kill, stop or daemon shutdown).
+   */
+  callEnd(pid, callId, status, output = null, error = null) {
+    validPid(pid);
+    if (!Number.isInteger(callId) || callId < 1) throw new LushError('call_id must be a positive integer', -32602);
+    if (status !== 'succeeded' && status !== 'failed') {
+      throw new LushError("status must be 'succeeded' or 'failed'", -32602);
+    }
+    if (output !== null) text(output, 'output');
+    if (error !== null) text(error, 'error');
+    if (this.runtime === null) throw new LushError('AgentRuntime is not bound', -32020);
+    const settled = this.runtime.settleInteractive(pid, callId, status, { output, error });
+    const call = this.repository.calls(pid).find((row) => row.id === callId);
+    return { pid, call_id: callId, settled, status: call?.status ?? null };
   }
 
   /** External agent session metadata for `pid` (read-only; any lifecycle status). */

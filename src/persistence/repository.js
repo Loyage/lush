@@ -176,6 +176,11 @@ export class Repository {
     return this.db.query('SELECT * FROM agent_calls WHERE pid=? ORDER BY id DESC LIMIT ?').all(pid, limit);
   }
 
+  /** One call row by id, whenever it happened (agent history is not paginated away). */
+  callById(callId) {
+    return this.db.query('SELECT * FROM agent_calls WHERE id=?').get(callId) ?? null;
+  }
+
   events(pid, limit = 20) {
     return this.db.query('SELECT * FROM process_events WHERE pid=? ORDER BY id DESC LIMIT ?').all(pid, limit)
       .map((row) => ({ ...row, data: JSON.parse(row.data) }));

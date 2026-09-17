@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { forceStopDaemon } from '../src/daemon/locking.js';
 
 const ROOT = path.dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const CLI = path.join(ROOT, 'src', 'cli', 'main.js');
@@ -90,5 +91,9 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-demo-'));
 try {
   await demo(home);
 } finally {
+  // The graceful stop above can fail (a wedged daemon, a lost socket); a
+  // detached daemon would then outlive the demo with its home deleted.
+  const forced = await forceStopDaemon(home);
+  if (forced.killed) console.log(`(cleaned up leftover daemon pid ${forced.pid})`);
   fs.rmSync(home, { recursive: true, force: true });
 }

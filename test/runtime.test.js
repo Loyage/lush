@@ -105,6 +105,51 @@ describe('runtime', () => {
     expect(a.inspect().agent.status).toBe('idle');
   });
 
+  test('agent ids are per process and the finished log is bounded', async () => {
+    const parent = root.createChild('generic-task', { name: 'worker' });
+    const other = root.createChild('generic-task', { name: 'other' });
+    expect(manager.agentsList()).toEqual([]);
+    for (let round = 1; round <= 35; round += 1) await parent.call(`round ${round}`);
+    const kept = manager.agentsList(null, true);
+    // 35 finished agents, only the last 32 are kept in memory.
+    expect(kept.length).toBe(32);
+    expect(kept[0].id).toBe(`${parent.pid}.4`);
+    expect(kept[kept.length - 1].id).toBe(`${parent.pid}.35`);
+    expect(manager.agentsList(parent.pid, true).map((agent) => agent.id)).not.toContain(`${parent.pid}.3`);
+    // Every process mints its own sequence, and new work pushes out the oldest kept entry.
+    await other.call('one');
+    expect(manager.agentsList(other.pid, true).map((agent) => agent.id)).toEqual([`${other.pid}.1`]);
+    expect(manager.agentsList(null, true).map((agent) => agent.id)).not.toContain(`${parent.pid}.4`);
+    // A live agent shows up in the tree and in `agents list`; history stays out of both.
+    const provider = new BlockingProvider();
+    runtime.provider = provider;
+    const pending = parent.call('blocking');
+    await provider.entered.next();
+    expect(manager.agentsList()).toEqual([
+      expect.objectContaining({ id: `${parent.pid}.36`, pid: parent.pid, provider: 'blocking-test', status: 'running', cancellable: true }),
+    ]);
+    expect(runtime.agentSummary(parent.pid)).toMatchObject({
+      provider: 'blocking-test', running: 1, agents: [{ id: `${parent.pid}.36`, interactive: false, os_pid: null }],
+    });
+    expect(manager.tree().find((row) => row.pid === parent.pid).agent.running).toBe(1);
+    expect(manager.tree(false).find((row) => row.pid === parent.pid).agent).toBeUndefined();
+    provider.release.resolve();
+    await pending;
+    expect(runtime.agentSummary(parent.pid).running).toBe(0);
+    expect(manager.agentsList(null, true).length).toBe(32);
+  });
+
+  test('agent validation keeps the two spaces apart', () => {
+    expect(() => manager.agentsList(null, 'yes')).toThrow(/all must be a boolean/);
+    expect(() => manager.agentsList(99)).toThrow(/process not found/);
+    expect(() => manager.tree('yes')).toThrow(/agents must be a boolean/);
+    expect(() => manager.agentShow('2')).toThrow(/agent id must look like/);
+    expect(() => manager.agentShow('2.x')).toThrow(/agent id must look like/);
+    expect(() => manager.agentsKill('1.1')).toThrow(/agent 1.1 is not running/);
+    expect(() => manager.callOsPid(0, 1, 0)).toThrow(/os_pid must be a positive integer/);
+    expect(() => manager.callOsPid(0, 0, 5)).toThrow(/call_id must be a positive integer/);
+  });
+
   test('recursive and cross calls do not deadlock', async () => {
     class CrossProvider {
       constructor() {

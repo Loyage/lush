@@ -5,6 +5,9 @@
  * own tool loop (read/bash/edit/write) and reaches Lush through the `lush` CLI
  * from its bash tool; Lush only supplies the template system prompt, the shared
  * Lush guide and the LUSH_CONTEXT payload, then stores the final text.
+ *
+ * `call --interactive` drops `--print`: the same session runs as pi's TUI inside
+ * the caller's terminal, so a human can watch and steer that same tool loop.
  */
 import cp from 'node:child_process';
 import fs from 'node:fs';
@@ -109,6 +112,7 @@ export class PiAgentProvider {
     return `lush-${pid}`;
   }
 
+  /** argv of `call`: `--print` makes pi answer once and exit. */
   argsFor(invocation) {
     const args = ['--print', ...this.identityArgs(invocation), invocation.prompt];
     if (args[args.length - 1].length > MAX_ARG) {
@@ -118,11 +122,28 @@ export class PiAgentProvider {
   }
 
   /**
-   * What `call` would run, without running it: the exact argv, the working
-   * directory and the extra environment. `command` is the shell-ready line.
+   * argv of `call --interactive`: the same identity and prompt without
+   * `--print`, so pi opens its TUI on that prompt and the terminal drives the
+   * tool loop instead of the daemon.
    */
-  preview(invocation) {
-    const argv = [this.command, ...this.argsFor(invocation)];
+  interactiveArgs(invocation) {
+    if (typeof invocation.prompt !== 'string' || invocation.prompt === '') {
+      throw new LushError('pi agent requires the current call prompt', -32020);
+    }
+    const args = [...this.identityArgs(invocation), invocation.prompt];
+    if (args[args.length - 1].length > MAX_ARG) {
+      throw new LushError('agent context is too large for a pi invocation', -32020);
+    }
+    return args;
+  }
+
+  /**
+   * What `call` (or `call --interactive`) would run, without running it: the
+   * exact argv, the working directory and the extra environment. `command` is
+   * the shell-ready line.
+   */
+  preview(invocation, { interactive = false } = {}) {
+    const argv = [this.command, ...(interactive ? this.interactiveArgs(invocation) : this.argsFor(invocation))];
     return {
       executable: this.command,
       argv,
@@ -133,20 +154,25 @@ export class PiAgentProvider {
     };
   }
 
+  /** Where this process's pi session lives and which id it uses (no disk walk of the argv). */
+  sessions(pid) {
+    const sessionId = this.sessionId(pid);
+    return { session_dir: this.sessionDir, session_id: sessionId, files: sessionFiles(this.sessionDir, sessionId) };
+  }
+
   /**
    * This process's pi session: where it lives, which id it uses, its files on
    * disk and the interactive argv that opens it (no `--print`).
    */
   sessionInfo(invocation) {
-    const sessionId = this.sessionId(invocation.pid);
-    const files = sessionFiles(this.sessionDir, sessionId);
+    const { session_dir: sessionDir, session_id: sessionId, files } = this.sessions(invocation.pid);
     const argv = [this.command, ...this.identityArgs(invocation)];
     // Compact line for browsing the conversation in pi's own TUI (pi's default prompt).
     const browseArgv = [this.command, '--session-dir', this.sessionDir, '--session-id', sessionId];
     if (this.provider !== '') browseArgv.push('--provider', this.provider);
     if (this.model !== '') browseArgv.push('--model', this.model);
     return {
-      session_dir: this.sessionDir,
+      session_dir: sessionDir,
       session_id: sessionId,
       files,
       file: files.length ? files[files.length - 1] : null,
@@ -160,9 +186,6 @@ export class PiAgentProvider {
   }
 
   async call(_messages, _tools, signal, invocation = {}) {
-    if (typeof invocation.prompt !== 'string' || invocation.prompt === '') {
-      throw new LushError('pi agent requires the current call prompt', -32020);
-    }
     const args = this.argsFor(invocation);
     const cwd = invocation.cwd ?? this.home;
     const env = {
@@ -175,6 +198,9 @@ export class PiAgentProvider {
     log.info(`pi call pid=${invocation.pid} cwd=${cwd} session=lush-${invocation.pid}`);
 
     const child = cp.spawn(this.command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    // Hand the OS pid to the runtime before waiting: the agent space needs to
+    // name the process while it is still running.
+    invocation.on_spawn?.(child.pid);
     let output = '';
     let stderr = '';
     let overflow = false;

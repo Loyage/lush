@@ -56,9 +56,9 @@ SQLite 开启 foreign_keys、WAL、busy_timeout。每个 Core 变更在同步短
 
 ## 运行与限制
 
-数据目录 0700，socket 0600；单实例锁保证同一 `$LUSH_HOME` 只有一个 daemon，持锁后才清理 stale socket。Bun 未暴露 `flock`，所以锁是原子创建的 `daemon.lock` 文件（先写临时文件再 `link()` 占位，读者不会看到空锁），内容为 daemon PID，通过进程存活检测判断归属，因此 SIGKILL 遗留的锁可被下一次启动接管。SIGTERM / SIGINT 或 daemon.stop 停止接收连接并取消 Agent 调用，记录中断后关闭数据库。不自动重试网络请求和工具。内置 Provider 请求使用 Bun `fetch` + `AbortSignal`：逻辑调用取消后不再执行其结果和工具，底层请求也会被中断；pi 后端在取消（kill/stop/超时/daemon 退出）时直接 SIGKILL 对应的 pi 子进程，因此 daemon 退出不必等 pi 干完。CLI 的 stop 等待的是 Core 锁释放。进程树恢复不等于恢复模型内部执行现场，也不重放 pi 的会话。
+数据目录 0700，socket 0600；单实例锁保证同一 `$LUSH_HOME` 只有一个 daemon，持锁后才清理 stale socket。Bun 未暴露 `flock`，所以锁是原子创建的 `daemon.lock` 文件（先写临时文件再 `link()` 占位，读者不会看到空锁），内容为 daemon PID，通过进程存活检测判断归属，因此 SIGKILL 遗留的锁可被下一次启动接管。SIGTERM / SIGINT 或 daemon.stop 停止接收连接并取消 Agent 调用，记录中断后关闭数据库。不自动重试网络请求和工具。内置 Provider 请求使用 Bun `fetch` + `AbortSignal`：逻辑调用取消后不再执行其结果和工具，底层请求也会被中断；pi 后端在取消（kill/stop/超时/daemon 退出）时直接 SIGKILL 对应的 pi 子进程，因此 daemon 退出不必等 pi 干完。运行期 agent 在 `AgentRuntime` 里有自己的空间（id `PID.N`，不落库）：普通 call 的 pi 由 provider 在 spawn 后回传 OS pid，`call --interactive` 的 pi 由终端上报 `process.call_os_pid`，所以 \`process agents kill\` 对两者都能直接 SIGKILL；daemon 重启后这个空间为空（活的 agent 本来就没剩），持久记录留在 `agent_calls` 与磁盘上的 session。CLI 的 stop 等待的是 Core 锁释放。进程树恢复不等于恢复模型内部执行现场，也不重放 pi 的会话。
 
-pi 子进程的限制：`LUSH_CALL_TIMEOUT`（默认 900 秒）是单次 call 的硬上限，超时后 pi 会被杀掉并记 invocation timeout；pi 继承 daemon 的环境（包括代理变量与它自己的配置目录），Lush 只额外注入 `LUSH_HOME` / `LUSH_PID` 并把仓库 `bin/` 前置到 PATH；一 PID 一 session 意味着并行 call 同一 PID 依旧被 busy 保护，而不同 PID 的 pi 进程可并行。`LUSH_MAX_ROUNDS` 只对内置运行时有意义。
+pi 子进程的限制：`LUSH_CALL_TIMEOUT`（默认 900 秒）是单次 call 的硬上限，超时后 pi 会被杀掉并记 invocation timeout；pi 继承 daemon 的环境（包括代理变量与它自己的配置目录），Lush 只额外注入 `LUSH_HOME` / `LUSH_PID` 并把仓库 `bin/` 前置到 PATH；一 PID 一 session 意味着并行 call 同一 PID 依旧被 busy 保护（包括 `--interactive` 持有的那次调用），而不同 PID 的 pi 进程可并行；agents 空间里的 `PID.N` 已为正好的并行 agent 留好编号，但今天一个 PID 同时最多一个活 agent。`LUSH_MAX_ROUNDS` 只对内置运行时有意义。
 
 Service 是长期逻辑存在，不等于无限循环的后台 Agent；MVP 由 call 驱动。没有自动监督孤儿的策略，PID 0 目前只负责收养和提供统一 Agent 入口。
 

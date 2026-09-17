@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { Config } from '../config.js';
 import { LushError, VIEW_SECTIONS } from '../core/types.js';
 import { isLocked } from '../daemon/locking.js';
+import { codeIdentity, codeMismatch } from '../identity.js';
 import { RPCClient } from '../rpc/client.js';
 import { shellEnv, shellQuote } from '../shell.js';
 
@@ -104,7 +105,7 @@ const ROOT = {
   summary: 'AI 的操作系统：把 AI 工作组织成持久化的逻辑 Process',
   cover: [
     'CLI 是 daemon（lushd）的客户端，通过 Unix socket 上的 JSON-RPC 操作 Lush，自身不持有状态。',
-    '命令分三层：顶层 → 命令组（daemon / process / agent）→ 具体命令，再往下是参数；每一层都有 help。',
+    '命令分三层：顶层 → 命令组（daemon / process）→ 具体命令，再往下是参数；每一层都有 help。',
     'daemon 未运行时，除 `lush daemon start` 外的命令都会连接失败（退出码 1）。',
   ],
   usage: ['lush [--json] <command> [args]', 'lush [--json] help [command [subcommand]]'],
@@ -123,6 +124,7 @@ const ROOT = {
           cover: [
             'detached 启动 daemon 并等待 RPC ready；已在运行时幂等返回现有 daemon 的状态。',
             '日志写入 `$LUSH_HOME/daemon.log`；启动超时或进程立即退出时报错并指向该日志。',
+            '输出包含本次操作的 home、代码目录与指纹（cli.*）：`just` 与手动运行可能用不同的 LUSH_HOME。',
           ],
           usage: ['lush daemon start'],
           parse: () => ({ action: 'start' }),
@@ -133,6 +135,7 @@ const ROOT = {
           cover: [
             '发送 system.shutdown，等待锁释放；已停止时幂等。',
             '中断 daemon 中正在进行的 Agent 调用（进程与历史都保留，重启后仍在）。',
+            '只作用于本次 CLI 的 LUSH_HOME；输出里的 home 表明停的是哪一份 daemon。',
           ],
           usage: ['lush daemon stop'],
           parse: () => ({ action: 'stop' }),
@@ -143,6 +146,8 @@ const ROOT = {
           summary: '查看 daemon 与根进程状态',
           cover: [
             '返回 daemon_pid、provider、进程总数、活动调用数等运行状态。',
+            '同时报告 daemon 自己的 home、code_dir、fingerprint、started_at，以及 CLI 侧的同样信息（cli.*，其中 cli.code_match 表示两边是否同一份代码）。',
+            'daemon 是常驻进程，改完提示词或 CLI 必须重启它才生效：这里用来发现「连的不是同一个 home」或「daemon 跑的是旧代码」。',
             '要求 daemon 正在运行：未启动时失败，这是判断「daemon 是否活着」的入口。',
           ],
           usage: ['lush daemon status'],
@@ -154,10 +159,11 @@ const ROOT = {
       summary: '逻辑进程：查看、调用、派生与生命周期',
       cover: [
         '查看：list、tree、inspect、history 读取进程 metadata、层级、Context 与消息历史。',
+        'agent：每个进程的 agent（provider、busy、session）随进程走——tree --agents 一次看全，session 看单个。',
         '调用：call 发一次 prompt 并阻塞返回；attach 进入持续对话。',
         '派生：spawn 按模板在指定父进程下创建子进程。',
         '状态变更：start、stop、kill、reclaim、complete、update-state。',
-        '不覆盖：daemon 自身启停与状态（见 `lush daemon`）、外部 agent 的 session（见 `lush agent`）。',
+        '不覆盖：daemon 自身启停与状态（见 `lush daemon`）。',
       ],
       notes: [
         'PID 0（lush 自身）不能 stop / kill / complete / reclaim，其生命周期由 daemon 管理。',
@@ -177,12 +183,24 @@ const ROOT = {
         tree: {
           command: 'tree',
           method: 'process.tree',
-          summary: '以树形打印进程层级',
+          summary: '以树形打印进程层级，并在活跃进程上标出正在跑的 agent',
           cover: [
             '按 parent_pid 递归打印整棵树，根是 PID 0（lush）。',
             '孤儿已被 PID 0 收养，因此活动进程都会出现在某个位置。',
+            '默认在「此刻有 agent 在跑」的进程下多打一行活跃度：agent 编号（`PID.N`）、运行时长，--interactive 的加 tty 标记；没有 agent 在跑的进程不多占一行。',
           ],
-          usage: ['lush process tree'],
+          notes: [
+            'agent 是运行期的东西：daemon 重启后一个都不剩（持久记录是 agent_calls 与 `process session` 的 transcript）。',
+            'agent 的详情、历史和终止用 `lush process agents list|show|kill`；--json 始终带上 agent 字段，--no-agents 连 JSON 也不带。',
+          ],
+          usage: ['lush process tree [--no-agents]'],
+          options: {
+            '--no-agents': {
+              arg: null,
+              desc: '不附加 agent 活跃度（纯进程结构，--json 也不再带 agent 字段）',
+              apply: (r) => { r.agents = false; },
+            },
+          },
           parse: () => ({}),
         },
         inspect: {
@@ -246,17 +264,35 @@ const ROOT = {
           cover: [
             '调用该进程的 agent 一次，跑完整个工具循环才返回，可能很久；文本输出是 agent 的最终回复。',
             '要求目标为 running；递归调用与 busy 调用立即失败。一次 call 成功不代表 Task 完成。',
+            '--interactive 改为在这个终端里执行同一次调用：daemon 照常记录这次调用并标记 busy，但 agent 跑在 pi TUI 里，由你边看边参与；pi 退出后 CLI 向 daemon 结算该次调用。',
           ],
           notes: [
             'PROMPT 也接受 `/tool process.update_state {...}` 这类直接工具调用。',
             '--dry-run 不调用 agent、不写 agent_calls / messages、不标记 busy：pi 后端打印本来要执行的命令行，内置运行时打印 command: null 与消息条数。',
+            '--interactive 只适用于外部 agent（pi）：内置运行时（mock / openai）在 Lush 进程内跑，没有可进入的进程，会报错。',
+            '--interactive 期间该进程是 busy（同 PID 不会出现第二个 pi），但调用由你的终端持有：kill / stop 只会把这次调用标记为 interrupted，不会关掉 TUI；最终回复留在 pi 会话里，daemon 侧的 agent_calls 只记这次调用本身。',
+            '调用方中途消失（关窗口 / SIGKILL）时，daemon 在 LUSH_CALL_TIMEOUT 后把这次调用标记为 failed 并释放 busy。',
           ],
-          usage: ['lush process call PID PROMPT [--dry-run]'],
+          usage: [
+            'lush process call PID PROMPT [--dry-run]',
+            'lush process call PID PROMPT --interactive  # 在本终端进入 pi TUI',
+          ],
           positionals: [['PID', '目标进程 PID'], ['PROMPT', '发给该进程 agent 的 prompt']],
           options: {
             '--dry-run': { arg: null, desc: '只描述本来要执行的调用，不真的调用 agent', apply: (r) => { r.dry_run = true; } },
+            '--interactive': {
+              arg: null,
+              desc: '在本终端用 pi TUI 执行这次调用（仅外部 agent）',
+              apply: (r) => { r.interactive = true; },
+            },
+            '-i': { arg: null, desc: '--interactive 的简写', apply: (r) => { r.interactive = true; } },
           },
           parse: (args) => ({ pid: intArg(args.shift(), 'pid'), prompt: next(args, 'prompt') }),
+          check: (r) => {
+            if (r.interactive && r.dry_run) throw new UsageError('--interactive cannot be combined with --dry-run');
+            // The terminal is handed to pi, so there is nothing left to serialize.
+            if (r.interactive && r.json) throw new UsageError('--interactive cannot be combined with --json');
+          },
         },
         attach: {
           command: 'attach',
@@ -366,29 +402,83 @@ const ROOT = {
             if (!Object.hasOwn(r, 'patch')) throw new UsageError('the following arguments are required: --patch');
           },
         },
-      },
-    },
-    agent: {
-      summary: '进程背后外部 agent 的会话（session）',
-      cover: [
-        '进程的 agent 由 daemon 的 provider 决定：`pi`（默认）在进程外运行，`mock` / `openai` 在 Lush 进程内运行。',
-        '本层只涉及外部 agent 的会话文件与 TUI 接续，不涉及进程创建或调用。',
-        '不覆盖：prompt 的发送（见 `lush process call`）。',
-      ],
-      children: {
+        agents: {
+          summary: '运行期 agent：谁在干活、干了多久、怎么终止',
+          cover: [
+            'agent 是「此刻在替某个进程干活」的工作者，不是逻辑进程：它没有 pid，只有 agents 空间的 id `PID.N`（PID 是它服务的进程，N 是本次 daemon 内该进程的第几个 agent）。',
+            'list 默认只列正在跑的（包括 `call --interactive` 在你自己终端里跑的那些）；--all 额外列出本次 daemon 内存里保留的已结束条目（有界，重启即清空）。',
+            'show 给出单个 agent 的完整信息：运行期事实、它在磁盘上的 session，以及对应的持久 call 行。kill 只杀这个工作者，不动逻辑进程（要改进程状态用 `lush process kill PID`）。',
+            '不覆盖：磁盘上的持久 transcript（见 `lush process session PID`）、调用历史与产物（见 `lush process history PID` 和 `inspect` 的 recent_calls）。',
+          ],
+          notes: [
+            'agent 空间不落库：daemon 重启后 list 为空（agent 本来就不存在了）；已经做完的活要去 call 行与磁盘 session 里找：`agents show ID` 同时给出两者。',
+            '一个 PID 同时最多一个活动 agent（busy 保护），所以今天 `running` 是 0 或 1；编号形式已为正好的并行 agent 留好。',
+          ],
+          children: {
+            list: {
+              command: 'agents_list',
+              method: 'process.agents_list',
+              summary: '列出运行期 agent（默认只看正在跑的）',
+              cover: [
+                '按 `PID.N` 升序列出：AGENT、PID、NAME、PROVIDER、STATUS、CALL、OS-PID、ELAPSED、MODE。',
+                'MODE：pipe（daemon 起的 pi）、tty（--interactive 在你终端里跑）、in-process（mock / openai）。',
+              ],
+              notes: [
+                '--all 附带本次 daemon 内存里最多 32 条已结束条目（含 status 与 error），用于回答「刚才那次怎么结束的」。',
+                '--pid 只看某个逻辑进程的 agent。',
+              ],
+              usage: ['lush process agents list [--pid PID] [--all]'],
+              options: {
+                '--pid': { arg: 'PID', desc: '只看该逻辑进程的 agent', apply: (r, v) => { r.pid = intArg(v, '--pid'); } },
+                '--all': { arg: null, desc: '附带本次 daemon 内已结束的 agent 条目', apply: (r) => { r.all = true; } },
+              },
+              parse: () => ({}),
+            },
+            show: {
+              command: 'agents_show',
+              method: 'process.agents_show',
+              summary: '查看单个 agent（运行期事实 + session + 持久 call）',
+              cover: [
+                '给出该 agent 的 id、pid、provider、status、call_id、os_pid、interactive、cancellable、开始/结束时间、时长与 error（若有）。',
+                '同时附带它服务的进程的 session（若 provider 是外部 agent）和它对应的持久 call 行（prompt / status / output / error）。',
+              ],
+              usage: ['lush process agents show AGENT_ID'],
+              positionals: [['AGENT_ID', 'agent 编号，形如 2.1']],
+              parse: (args) => ({ id: next(args, 'id') }),
+            },
+            kill: {
+              command: 'agents_kill',
+              method: 'process.agents_kill',
+              summary: '终止一个正在运行的 agent（不动逻辑进程）',
+              cover: [
+                '只杀这个工作者：该次调用被记为 interrupted，agent 从运行中列表消失，逻辑进程保持 running（要同时改进程状态用 `lush process kill PID`）。',
+                'daemon 起的 pi 走取消路径 SIGKILL；`--interactive` 的由 daemon 直接 SIGKILL 你终端里的那个 pi（CLI 起手已把 os_pid 报给 daemon）。',
+              ],
+              notes: [
+                '已结束或未知的 agent 会报错（没有可杀的东西）。',
+                'OS pid 已经自己消失时 `killed: false`，调用仍会被标记为 interrupted。',
+              ],
+              usage: ['lush process agents kill AGENT_ID'],
+              positionals: [['AGENT_ID', 'agent 编号，形如 2.1']],
+              parse: (args) => ({ id: next(args, 'id') }),
+            },
+          },
+        },
         session: {
           command: 'session',
           method: 'process.session',
-          summary: '查看外部 agent 的 session，或用 --open 进入 pi TUI',
+          summary: '查看该进程 agent 的 session，或用 --open 进入 pi TUI',
           cover: [
-            '只读列出该进程外部 agent 的 session-dir、session-id、磁盘上的 session 文件、cwd 与 busy，任何状态都可查（含终态 Task）。',
+            '只读列出该进程 agent 的 session-dir、session-id、磁盘上的 session 文件、cwd 与 busy，任何状态都可查（含终态 Task 与 reclaimed）。',
+            'agent 属于它所在的进程：由 daemon 的 provider 决定形态（`pi` 子进程 / `mock`、`openai` 内置），进程归档后 session 仍可查。',
             '--open 用带着 Lush 身份的命令把当前终端交给 pi TUI 接续该会话；内置运行时没有外部 session，会报错。',
           ],
           notes: [
             'busy 表示该进程有 call 正在运行，此时打开 TUI 可能交错写入。',
+            '一个 session-id 可以对应多个回话文件（历史轮次）；`lush process tree --agents` 可一次看完所有进程的 agent 与文件数。',
             '--open 不能与 --json 同时使用。',
           ],
-          usage: ['lush agent session PID [--open]', 'lush agent session PID --open  # 把终端交给 pi'],
+          usage: ['lush process session PID [--open]', 'lush process session PID --open  # 把终端交给 pi'],
           positionals: [['PID', '目标进程 PID']],
           options: {
             '--open': { arg: null, desc: '前台启动 pi TUI 接续该 session（内置运行时报错）', apply: (r) => { r.open = true; } },
@@ -569,7 +659,38 @@ export function parseArgs(argv) {
 //  Rendering
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function treeLines(processes) {
+/** Seconds-resolution duration (`45s`, `2m07s`, `3h05m`) for agent lines. */
+function duration(ms) {
+  const seconds = Math.round(Math.max(0, ms) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m${String(seconds % 60).padStart(2, '0')}s`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h${String(minutes % 60).padStart(2, '0')}m`;
+  return `${Math.floor(hours / 24)}d${String(hours % 24).padStart(2, '0')}h`;
+}
+
+/**
+ * One activity line: who is working for this process right now. Idle processes
+ * get no line at all — the tree shows activity, not history.
+ */
+function agentLine(summary) {
+  const running = summary?.agents ?? [];
+  if (running.length === 0) return null;
+  if (running.length === 1) {
+    const [agent] = running;
+    return `agent ${agent.id} running · ${duration(agent.elapsed_ms)}${agent.interactive ? ' · tty' : ''}`;
+  }
+  const shown = running.slice(0, 3).map((agent) => `${agent.id} ${duration(agent.elapsed_ms)}`);
+  const more = running.length > shown.length ? ` · +${running.length - shown.length}` : '';
+  return `agents ${running.length} running · ${shown.join(' · ')}${more}`;
+}
+
+/**
+ * Process tree, root first. `agents` adds one activity line below each process
+ * that has a live worker (never a logical process: no PID, never expanded).
+ */
+export function treeLines(processes, { agents = true } = {}) {
   const byParent = new Map();
   for (const process of processes) {
     const siblings = byParent.get(process.parent_pid) ?? [];
@@ -577,18 +698,29 @@ export function treeLines(processes) {
     byParent.set(process.parent_pid, siblings);
   }
   const lines = [];
-  // Iterative walk avoids recursion limits on deep logical trees.
+  // Iterative walk avoids recursion limits on deep logical trees. Agent rows use
+  // their own key: process rows themselves carry an `agent` field.
   const stack = [...(byParent.get(null) ?? [])].reverse().map((process) => ({ process, prefix: '', branch: '' }));
   while (stack.length) {
-    const { process, prefix, branch } = stack.pop();
+    const node = stack.pop();
+    if (node.agentRow !== undefined) {
+      const line = agentLine(node.agentRow);
+      if (line !== null) lines.push(`${node.prefix}${node.branch}${line}`);
+      continue;
+    }
+    const { process, prefix, branch } = node;
     lines.push(`${prefix}${branch}${process.name}[${process.pid}]`);
     const children = byParent.get(process.pid) ?? [];
     const nextPrefix = prefix + (branch === '└── ' ? '    ' : branch ? '│   ' : '');
-    for (let index = children.length - 1; index >= 0; index -= 1) {
+    const rows = [
+      ...(agents && process.agent?.running ? [{ agentRow: process.agent }] : []),
+      ...children.map((child) => ({ process: child })),
+    ];
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
       stack.push({
-        process: children[index],
+        ...rows[index],
         prefix: nextPrefix,
-        branch: index === children.length - 1 ? '└── ' : '├── ',
+        branch: index === rows.length - 1 ? '└── ' : '├── ',
       });
     }
   }
@@ -604,7 +736,20 @@ export function rpcParams(args) {
   return params;
 }
 
-/** `lush agent session` text output: where the agent session lives and how to open it. */
+/** `lush process agents list` text output: one row per live (or kept) worker. */
+function formatAgents(rows) {
+  if (rows.length === 0) return 'no running agents';
+  const table = [['AGENT', 'PID', 'NAME', 'PROVIDER', 'STATUS', 'CALL', 'OS-PID', 'ELAPSED', 'MODE']];
+  for (const agent of rows) {
+    const mode = agent.interactive ? 'tty' : agent.os_pid === null ? 'in-process' : 'pipe';
+    table.push([agent.id, String(agent.pid), agent.name, agent.provider, agent.status,
+      String(agent.call_id), agent.os_pid === null ? '-' : String(agent.os_pid), duration(agent.elapsed_ms), mode]);
+  }
+  const width = table[0].map((_column, index) => Math.max(...table.map((row) => row[index].length)));
+  return table.map((row) => row.map((cell, index) => cell.padEnd(width[index])).join('  ').trimEnd()).join('\n');
+}
+
+/** `lush process session` text output: where the agent session lives and how to open it. */
 function formatSession(result) {
   if (result.agent !== 'pi' || result.session_dir === null) {
     return `# agent ${result.agent} runs in-process; no external session to inspect.`;
@@ -644,10 +789,17 @@ function formatDryRun(result) {
 
 export function format(args, result) {
   if (args.json) return JSON.stringify(result, null, 2);
+  // `daemon start|stop` (command `daemon`) and `daemon status` (command `status`)
+  // all report identity in `cli`, so they share the aligned line format.
+  if (args.command === 'daemon' || args.command === 'status') return formatDaemon(result);
   if (args.command === 'call') return result.dry_run ? formatDryRun(result) : result.output;
   if (args.command === 'session') return formatSession(result);
   if (args.command === 'spawn') return `PID ${result.pid}`;
-  if (args.command === 'tree') return treeLines(result).join('\n');
+  if (args.command === 'tree') return treeLines(result, { agents: args.agents !== false }).join('\n');
+  if (args.command === 'agents_list') return formatAgents(result);
+  if (args.command === 'agents_kill') {
+    return `killed agent ${result.id} (${result.killed ? `os ${result.os_pid}` : 'no OS pid to kill; cancellation requested'})`;
+  }
   if (args.command === 'list') {
     const rows = [['PID', 'PPID', 'TYPE', 'STATUS', 'NAME']];
     for (const process of result) {
@@ -661,9 +813,62 @@ export function format(args, result) {
   return JSON.stringify(result, null, 2);
 }
 
+/**
+ * `lush daemon ...` in text mode: one aligned `key value` line per scalar
+ * field, with the CLI's own view prefixed `cli.`. A daemon is long-lived, so
+ * the fields that matter most are `home` (which state) and `code_dir` /
+ * `fingerprint` / `started_at` (which code, from when).
+ */
+export function formatDaemon(result) {
+  const rows = [];
+  for (const [key, value] of Object.entries(result)) {
+    if (key === 'cli' || value === null || typeof value === 'object') continue;
+    rows.push([key, String(value)]);
+  }
+  for (const [key, value] of Object.entries(result.cli ?? {})) {
+    if (value === null || typeof value === 'object') continue;
+    rows.push([`cli.${key}`, String(value)]);
+  }
+  const width = rows.reduce((max, [key]) => Math.max(max, key.length), 0);
+  return rows.map(([key, value]) => `${key.padEnd(width + 2)}${value}`).join('\n');
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Execution
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The CLI's own identity plus the state location it is talking to. Reported by
+ * every `lush daemon ...` command so `just daemon-restart` can be checked
+ * against the daemon that is actually answering.
+ */
+function cliContext(config, daemon = null) {
+  const code = codeIdentity();
+  const context = { home: config.home, socket: config.socket, ...code };
+  if (daemon !== null) context.code_match = codeMismatch(daemon, code) === null;
+  return context;
+}
+
+/**
+ * A daemon never re-reads its source: it answers with the guide, the CLI
+ * declaration and the templates it loaded at startup. Say so on stderr when a
+ * command reaches a daemon that runs different code than this CLI — the most
+ * common cause is a `daemon-restart` in another LUSH_HOME, which otherwise
+ * fails completely silently.
+ */
+async function warnOnStaleDaemon(client, config) {
+  let status;
+  try {
+    status = await client.request('system.status');
+  } catch {
+    return; // no daemon yet; the command itself reports that
+  }
+  const mismatch = codeMismatch(status);
+  if (mismatch === null) return;
+  const home = status.home ?? config.home;
+  process.stderr.write(`lush: warning: lushd pid=${status.daemon_pid} (home=${home}) runs different code -- ${mismatch}\n`);
+  process.stderr.write(`lush: warning: restarted code only applies to the daemon you restart; run 'LUSH_HOME=${home} lush daemon restart'\n`);
+}
 
 export async function daemonCommand(config, action) {
   config.prepare();
@@ -682,10 +887,10 @@ export async function daemonCommand(config, action) {
         /* stale socket, daemon is gone */
       }
     }
-    if (!live) return { stopped: true, already_stopped: true };
+    if (!live) return { stopped: true, already_stopped: true, cli: cliContext(config) };
     await client.request('system.shutdown');
     for (let attempt = 0; attempt < 150; attempt += 1) {
-      if (!isLocked(config.home)) return { stopped: true };
+      if (!isLocked(config.home)) return { stopped: true, cli: cliContext(config) };
       await Bun.sleep(100);
     }
     throw new LushError('daemon shutdown still pending; inspect daemon.log');
@@ -693,7 +898,7 @@ export async function daemonCommand(config, action) {
 
   try {
     const status = await client.request('system.status');
-    return { started: true, already_running: true, ...status };
+    return { started: true, already_running: true, ...status, cli: cliContext(config, status) };
   } catch {
     /* not running yet */
   }
@@ -715,7 +920,7 @@ export async function daemonCommand(config, action) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
       const status = await client.request('system.status');
-      return { started: true, ...status };
+      return { started: true, ...status, cli: cliContext(config, status) };
     } catch {
       if (exited !== null && !isLocked(config.home)) {
         throw new LushError(`lushd exited (${exited}); see ${logPath}`);
@@ -735,7 +940,7 @@ export async function daemonCommand(config, action) {
 }
 
 /**
- * `lush agent session PID --open`: hand the terminal to pi on that process's
+ * `lush process session PID --open`: hand the terminal to pi on that process's
  * session. The CLI process is replaced by pi; the daemon is untouched.
  */
 async function openSession(client, pid) {
@@ -757,6 +962,57 @@ async function openSession(client, pid) {
   if (child.error) throw new LushError(`could not start ${command}: ${child.error.message}`);
   if (child.signal) throw new LushError(`pi was interrupted (${child.signal})`);
   process.exitCode = child.status ?? 0;
+}
+
+/**
+ * `lush process call PID PROMPT --interactive`: the daemon opens the call (user
+ * message + busy) and this terminal runs the same pi session in its TUI — the
+ * only difference from a plain call is that `--print` is missing, so pi hands
+ * the terminal to the agent instead of answering once and exiting. The daemon
+ * settles the call with whatever this process reports back.
+ */
+async function interactiveCall(client, pid, prompt) {
+  const opened = await client.request('process.call_begin', { pid, prompt });
+  if (!Array.isArray(opened.argv)) {
+    throw new LushError(`agent ${opened.agent} runs in-process; there is no external agent to enter`);
+  }
+  process.stderr.write(`lush: entering ${opened.agent} for pid ${pid} (call ${opened.call_id}, agent ${opened.agent_id}); leave the TUI to settle the call\n`);
+  const [command, ...rest] = opened.argv;
+  const env = {
+    ...process.env,
+    ...(opened.env ?? {}),
+    PATH: opened.path_prefix ? `${opened.path_prefix}${path.delimiter}${process.env.PATH ?? ''}` : process.env.PATH,
+  };
+  // Spawn instead of spawnSync: the agent space needs this process's OS pid
+  // while it is still running, so `process agents show/kill` can reach it.
+  const child = cp.spawn(command, rest, { cwd: opened.cwd ?? undefined, env, stdio: 'inherit' });
+  if (Number.isInteger(child.pid)) {
+    // Not fatal if the call already ended (kill, timeout): the report is a hint.
+    await client.request('process.call_os_pid', { pid, call_id: opened.call_id, os_pid: child.pid }).catch(() => null);
+  }
+  const { code, signal, error } = await new Promise((resolve) => {
+    child.on('error', (err) => resolve({ code: null, signal: null, error: err }));
+    child.on('close', (exitCode, exitSignal) => resolve({ code: exitCode, signal: exitSignal, error: null }));
+  });
+  const failure = error
+    ? `could not start ${command}: ${error.message}`
+    : signal
+      ? `${opened.agent} was interrupted (${signal})`
+      : code === 0
+        ? null
+        : `${opened.agent} exited ${code}`;
+  // Report even a signalled child: the daemon must not stay busy until timeout.
+  const settled = await client.request('process.call_end', {
+    pid,
+    call_id: opened.call_id,
+    status: failure === null ? 'succeeded' : 'failed',
+    ...(failure === null ? {} : { error: failure }),
+  });
+  if (failure !== null) process.stderr.write(`lush: ${failure}\n`);
+  if (!settled.settled) {
+    process.stderr.write(`lush: call ${opened.call_id} was already ${settled.status} in the daemon; this round was not recorded\n`);
+  }
+  if (failure !== null || !settled.settled) process.exitCode = 1;
 }
 
 async function attach(client, pid) {
@@ -805,6 +1061,7 @@ export async function run(argv) {
     }
   }
   const client = new RPCClient(config.socket, timeout);
+  await warnOnStaleDaemon(client, config);
 
   if (args.command === 'daemon') {
     writeOut(format(args, await daemonCommand(config, args.action)));
@@ -818,9 +1075,16 @@ export async function run(argv) {
     await openSession(client, args.pid);
     return;
   }
+  if (args.command === 'call' && args.interactive) {
+    await interactiveCall(client, args.pid, args.prompt);
+    return;
+  }
   const { node } = args;
   const method = typeof node.method === 'function' ? node.method(args) : node.method;
-  writeOut(format(args, await client.request(method, rpcParams(args))));
+  const result = await client.request(method, rpcParams(args));
+  // `daemon status` is the one read that must also say which home and which
+  // code answer it; every other read is about the processes themselves.
+  writeOut(format(args, method === 'system.status' ? { ...result, cli: cliContext(config, result) } : result));
 }
 
 export async function main(argv = process.argv.slice(2)) {

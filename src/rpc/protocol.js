@@ -36,19 +36,25 @@ export function parseRequest(raw) {
 // [wire name, ProcessManager method] — the wire protocol keeps snake_case.
 const MANAGER_METHODS = [
   ['inspect', 'inspect'], ['parent', 'parent'], ['children', 'children'], ['view', 'view'], ['spawn', 'spawn'],
-  ['call', 'call'], ['session', 'session'], ['start', 'start'], ['stop', 'stop'], ['kill', 'kill'], ['reclaim', 'reclaim'],
+  ['call', 'call'], ['call_begin', 'callBegin'], ['call_end', 'callEnd'], ['call_os_pid', 'callOsPid'],
+  ['tree', 'tree'], ['agents_list', 'agentsList'], ['agents_show', 'agentShow'], ['agents_kill', 'agentsKill'],
+  ['session', 'session'], ['start', 'start'], ['stop', 'stop'], ['kill', 'kill'], ['reclaim', 'reclaim'],
   ['update_state', 'updateState'], ['complete', 'complete'], ['history', 'history'],
 ];
 
 export class Dispatcher {
-  constructor(manager, stopping) {
+  /**
+   * `identity` is captured by the daemon at startup and reported verbatim:
+   * which home (state) and which code (checkout + prompt surface) answer here.
+   */
+  constructor(manager, stopping, identity = {}) {
     this.manager = manager;
     this.stopping = stopping;
+    this.identity = identity;
     this.methods = {
       'system.status': { params: { required: [] }, fn: () => this.status() },
       'system.shutdown': { params: { required: [] }, fn: () => this.shutdown() },
-      'process.list': { params: { required: [] }, fn: () => manager.list() },
-      'process.tree': { params: { required: [] }, fn: () => manager.list() },
+      'process.list': { params: PARAMS.list, fn: () => manager.list() },
     };
     for (const [wire, method] of MANAGER_METHODS) {
       this.methods[`process.${wire}`] = { params: PARAMS[wire], fn: manager[method].bind(manager) };
@@ -63,6 +69,11 @@ export class Dispatcher {
       provider: runtime ? runtime.provider.name : 'unbound',
       process_count: this.manager.list().length,
       active_calls: runtime ? runtime.activeCalls : 0,
+      // The daemon is long-lived and keeps the guide, the CLI declaration and
+      // the templates in memory, so which code answers is not visible from the
+      // socket path alone; report it and let clients compare with their own.
+      ...this.identity,
+      uptime_seconds: Math.round(process.uptime()),
     };
   }
 

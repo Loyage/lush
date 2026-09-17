@@ -109,6 +109,17 @@ describe('rpc', () => {
       ['process.spawn', { parent_pid: 0, template: [] }, -32602],
       ['process.call', { pid: 0, prompt: 'hi', dry_run: 'yes' }, -32602],
       ['process.call', { pid: 0, prompt: 'hi', extra: 1 }, -32602],
+      ['process.tree', { agents: 'yes' }, -32602],
+      ['process.tree', { extra: 1 }, -32602],
+      ['process.agents_list', { all: 'yes' }, -32602],
+      ['process.agents_list', { pid: 99 }, -32004],
+      ['process.agents_show', {}, -32602],
+      ['process.agents_show', { id: 5 }, -32602],
+      ['process.agents_show', { id: '9.9' }, -32004],
+      ['process.agents_kill', { id: 'nope' }, -32602],
+      ['process.agents_kill', { id: '0.1' }, -32009],
+      ['process.call_os_pid', { pid: 0, call_id: 1, os_pid: 0 }, -32602],
+      ['process.call_os_pid', { pid: 0, call_id: 1, os_pid: 'x' }, -32602],
       ['process.kill', { pid: 0 }, -32009],
     ]) {
       const error = await expectRejection(client.request(method, params));
@@ -123,6 +134,19 @@ describe('rpc', () => {
     ]) {
       expect((await raw(frame)).error.code).toBe(code);
     }
+  });
+
+  test('tree carries live-agent activity, agents_list is its own view', async () => {
+    const plain = await client.request('process.tree', { agents: false });
+    expect(plain.length).toBe(1);
+    expect(plain[0].agent).toBeUndefined();
+    const rows = await client.request('process.tree');
+    expect(rows[0].agent).toEqual({ provider: 'mock', running: 0, agents: [] });
+    // Same rows either way: only the activity field differs, so list and tree stay one read model.
+    expect(rows.map((row) => row.pid)).toEqual(plain.map((row) => row.pid));
+    // The agent space is runtime data: nothing persisted, nothing to list yet.
+    expect(await client.request('process.agents_list')).toEqual([]);
+    expect(await client.request('process.agents_list', { all: true })).toEqual([]);
   });
 
   test('notifications and multiple requests on one connection', async () => {

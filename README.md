@@ -34,7 +34,7 @@ lush process tree  # 树、Context、对话和调用历史仍在
 lush daemon stop
 ```
 
-命令分三层：命令组（`daemon` / `process` / `agent`）→ 命令 → 参数。`--json` 可写在命令之前或末尾。
+命令分两层组：命令组（`daemon` / `process`）→ 命令 → 参数。`--json` 可写在命令之前或末尾。agent 不是独立的命令层：它属于某个 Process，随进程查询。
 
 也可通过 `bun run bin/lush`（或 `bun run bin/lushd` 前台运行 daemon）调用；`bun link` 之后 `lush` / `lushd` 会进入 PATH。
 
@@ -63,11 +63,14 @@ just inspect 2       # 统一查看：just inspect 2 parent,children,prompt
 just history 2 0 50
 just stop 1 | just kill 2 | just reclaim 2
 just daemon-stop     # 或 just daemon-restart（保留进程树与历史）
+just prune           # 列出并清理残留 daemon（home 已消失的孤儿）；just prune all 连临时 home 一起清
 just log             # tail $LUSH_HOME/daemon.log
 just clean           # 停 daemon 并删除仓库内的 .lush
 ```
 
 `just` 默认把开发数据放在仓库内的 `.lush/`（已 gitignore），不碰你日常的 `~/.local/state/lush`；用 `LUSH_HOME` 可覆盖（此时 `just clean` 只提示、不删除仓库外的目录）。
+
+**改代码或提示词之后，先确认你重启的是哪个 daemon。** daemon 是常驻进程：`src/agent/guide.js`、`src/cli/main.js` 与 `templates/*.json` 都在它启动时读入内存，所以 `just daemon-restart` 只重启 `LUSH_HOME`（默认仓库 `.lush/`）那一份。若你另外在 shell 里直接跑 `lush`（没有 `export LUSH_HOME`，走默认 `~/.local/state/lush`），命令打到的是另一个 daemon，重启那份不会有任何效果。`lush daemon status` / `just doctor` 会列出 daemon 自己的 `home`、`code_dir`、`fingerprint`、`started_at` 与 CLI 侧对应字段（`cli.code_match` 表示两边是否同一份代码）；不一致时，任何 `lush` 命令都会在 stderr 上告警并给出该重启哪一份。
 
 ## Agent：默认 pi
 
@@ -91,15 +94,30 @@ lush process call 1 '看看这个仓库，列出待办并开工'
 
 取消（`kill` / `stop` / 超时 / daemon 退出）会杀掉对应的 pi 子进程；pi 的 session 文件保留在 `$LUSH_HOME/pi-sessions/` 供审计，Lush 自身只记录 prompt 与最终文本。
 
-想进这个会话（包括看文件在哪、直接进 pi TUI）：
+### agent 与 session 是两回事
+
+**agent = 此刻在替某个进程干活的工作者**（运行期）；**session = pi 在磁盘上的持久 transcript**（按 PID）。前者会消失，后者会留下。
 
 ```bash
-lush agent session 2          # agent / session-dir / session-id / file / cwd / browse 命令
-lush --json agent session 2   # 结构化：argv、command、browse_command、env、path_prefix、busy
-lush agent session 2 --open   # 把这个终端交给该 PID 的 pi session（带 Lush 身份与 LUSH_CONTEXT）
+lush process tree              # 树里直接标出谁在干活：worker[1] → agent 1.1 running · 1m32s
+lush process tree --no-agents  # 只看纯进程结构
+lush process agents list       # 运行中的 agent：AGENT/PID/NAME/PROVIDER/STATUS/CALL/OS-PID/ELAPSED/MODE
+lush process agents list --all # 附带本次 daemon 内存里保留的已结束条目（有界 32 条，重启即清空）
+lush process agents show 1.1   # 运行期事实 + 它在磁盘上的 session + 对应的持久 call 行
+lush process agents kill 1.1   # 只杀这个工作者：调用记为 interrupted，进程本身仍 running
 ```
 
-`--open` 是同 cwd、同 `--session-dir` / `--session-id` 的交互式 pi，因此你在 TUI 里的对话会进入该进程的 pi 会话；下一次 `lush process call` 会接着它继续（反之，正在 call 时 `--open` 会警告会话共享）。
+agent 没有 pid：它在自己的空间里用 `PID.N` 标识（`1.1` = 服务 PID 1 的第 1 个 agent，`N` 在本次 daemon 内单调递增）。它也不落库——重启后 `agents list` 为空，持久记录是 `agent_calls` 的那一行（`agents show` 会把它一并给出）。`MODE` 说明它跑在哪：`pipe`（daemon 起的 pi）、`tty`（`call --interactive` 在你终端里跑的 pi，CLI 起手把 OS pid 报给 daemon，所以 daemon 也能杀它）、`in-process`（`mock` / `openai`）。
+
+```bash
+lush process session 2        # 那个 PID 的持久 transcript：session-dir / session-id / file / cwd / browse
+lush --json process session 2 # 结构化：argv、command、browse_command、env、path_prefix、busy
+lush process session 2 --open # 把这个终端交给该 PID 的 pi session（带 Lush 身份与 LUSH_CONTEXT）
+```
+
+session 属于它所在的进程：session-id（`lush-<PID>`）与回话文件（`$LUSH_HOME/pi-sessions/<session 开始时间>_lush-<PID>.jsonl`）都按 PID 算，进程进入终态（completed / cancelled / reclaimed）后依然可查；多轮 call 追加到同一个文件（所以正常恒为 1 个，多于 1 只出现在 pi 自己 `--fork` / `/clone` 时）。这也是为什么命令都挂在 `process` 下：没有独立的 `agent` 命令组，`process agents …` 查运行期，`process session …` 查磁盘。
+
+想「发起一次调用，同时自己也在场」，用 `lush process call PID 'PROMPT' --interactive`（简写 `-i`）：daemon 照常打开这次调用（写 user message、标记 busy、拦递归与并发），但 agent 不跑 `pi --print`，而是在你这个终端里跑同 cwd、同 session、同身份的 pi TUI，PROMPT 作为 TUI 的首条消息；你在里面看它干活、直接插话，退出 TUI 后 CLI 把结果报回 daemon 并结算这次调用（成功/失败、释放 busy）。只适用于外部 agent（`pi`）：内置运行时的 agent 跑在 Lush 进程内，没有可进入的终端，会报错。这次调用只有 prompt 落在 `agent_calls`，回复留在 pi 会话里；期间 `kill` / `stop` 只能把它标记为 interrupted，不会关掉你终端里的 pi。
 
 想先看一次 call 会执行什么，用 `--dry-run`（`dry_run: true`）：不调用 agent、不写历史，只打印那行命令（`cd <cwd> && LUSH_HOME=... LUSH_PID=... pi --print ... '<prompt>'`），可以直接粘到 shell 里重放；`--json` 则给出 `executable` / `argv` / `command` / `cwd` / `env`。内置运行时没有外部命令，返回 `command: null` 与将要发送的消息条数。
 
@@ -121,7 +139,7 @@ lush daemon start
 
 ## CLI 帮助（每一层都有）
 
-命令树按层组织：顶层 → 命令组（`daemon` / `process` / `agent`）→ 命令 → 参数。任何一层都能问自己这一层是什么、下面有什么、每个子命令干什么：
+命令树按层组织：顶层 → 命令组（`daemon` / `process`）→ 命令 → 参数。任何一层都能问自己这一层是什么、下面有什么、每个子命令干什么：
 
 ```bash
 lush help                      # 顶层：整体覆盖范围 + 命令组
