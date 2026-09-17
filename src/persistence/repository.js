@@ -1,15 +1,24 @@
-/** Persistence operations. No Agent, RPC or CLI dependencies. */
+/**
+ * Persistence operations. No Agent, RPC or CLI dependencies.
+ *
+ * This class is the only way the rest of Lush reaches the database, and it
+ * keeps the `processes` entity plus the transaction rules that span entities
+ * (`transition`, `remove`, `recover`). Two concerns live in sibling modules and
+ * are delegated to from here so the call sites keep their signatures: the
+ * Context / state / events / history side (`repository_state.js`) and the calls
+ * and messages side (`repository_calls.js`).
+ */
 import { LushError, jsonDump, now, validPid } from '../core/types.js';
+import {
+  backfillSnapshot, context, event, events, history, updateState, updateVars,
+} from './repository_state.js';
+import { addMessage, beginCall, callById, calls, conversation, finishCall } from './repository_calls.js';
+import { deleteRows, remove } from './repository_removal.js';
 
 export class Repository {
   constructor(database) {
     this.database = database;
     this.db = database.connection;
-  }
-
-  event(pid, kind, data) {
-    this.db.run('INSERT INTO process_events(pid,kind,data,created_at) VALUES(?,?,?,?)',
-      [pid, kind, jsonDump(data), now()]);
   }
 
   /**
@@ -176,189 +185,9 @@ export class Repository {
   }
 
   /**
-   * Delete every row one pid owns, inside the caller's transaction. Order
-   * matters: `messages` references `agent_calls`, and every other table
-   * references `processes`, so a surviving row would fail the last DELETE.
+   * A restarted daemon must not inherit `running` state it cannot vouch for:
+   * dangling calls become interrupted, and PID 0 goes back to running.
    */
-  _deleteRows(pid) {
-    return {
-      messages: this.db.run('DELETE FROM messages WHERE pid=?', [pid]).changes,
-      agent_calls: this.db.run('DELETE FROM agent_calls WHERE pid=?', [pid]).changes,
-      process_events: this.db.run('DELETE FROM process_events WHERE pid=?', [pid]).changes,
-      contexts: this.db.run('DELETE FROM contexts WHERE pid=?', [pid]).changes,
-      processes: this.db.run('DELETE FROM processes WHERE pid=?', [pid]).changes,
-    };
-  }
-
-  /**
-   * Hard-delete processes, children before parents, in one transaction; returns
-   * the total row counts. This is the only place in Lush that removes rows.
-   *
-   * A Process that a deleted pid created and that was later adopted by PID 0
-   * still names it in `original_parent_pid`, and a row may not outlive the pid
-   * it points at (the column is NOT NULL, so it cannot be cleared either). Such
-   * survivors are therefore re-pointed at PID 0 — the same value their
-   * `parent_pid` already holds — and each gets a `parent_deleted` event naming
-   * the pid that is gone, so the lineage stays readable.
-   *
-   * `audit` writes one extra event (`{ pid, kind, data }`) for the pid that
-   * keeps a record of what disappeared, typically the deleted process's parent.
-   */
-  remove(pids, audit = null) {
-    const doomed = new Set(pids);
-    return this.database.transaction(() => {
-      const rows = { processes: 0, contexts: 0, agent_calls: 0, messages: 0, process_events: 0 };
-      for (const pid of pids) {
-        const removed = this.get(pid);
-        for (const survivor of this.db.query('SELECT pid FROM processes WHERE original_parent_pid=?').all(pid)) {
-          if (doomed.has(survivor.pid)) continue;
-          this.db.run('UPDATE processes SET original_parent_pid=0,updated_at=? WHERE pid=?', [now(), survivor.pid]);
-          this.event(survivor.pid, 'parent_deleted', {
-            pid, name: removed.name, template: removed.template, status: removed.status,
-          });
-        }
-        for (const [table, count] of Object.entries(this._deleteRows(pid))) rows[table] += count;
-      }
-      if (audit !== null) this.event(audit.pid, audit.kind, audit.data);
-      return rows;
-    });
-  }
-
-  /**
-   * Add fields that were introduced after this row was written, leaving every
-   * other snapshot key untouched. Returns the fields actually added.
-   */
-  backfillSnapshot(pid, fields) {
-    const added = [];
-    this.database.transaction(() => {
-      const row = this.db.query('SELECT template_snapshot FROM processes WHERE pid=?').get(pid);
-      if (row === null) return;
-      const snapshot = JSON.parse(row.template_snapshot);
-      for (const [key, value] of Object.entries(fields)) {
-        if (Object.hasOwn(snapshot, key)) continue;
-        snapshot[key] = value;
-        added.push(key);
-      }
-      if (added.length === 0) return;
-      this.db.run('UPDATE processes SET template_snapshot=? WHERE pid=?', [jsonDump(snapshot), pid]);
-      this.event(pid, 'template_backfilled', { fields: added });
-    });
-    return added;
-  }
-
-  context(pid) {
-    this.get(pid);
-    const row = this.db.query('SELECT * FROM contexts WHERE pid=?').get(pid);
-    const count = this.db.query('SELECT COUNT(*) AS n FROM messages WHERE pid=?').get(pid).n;
-    return {
-      system_prompt: row.system_prompt,
-      state: JSON.parse(row.state),
-      artifacts: JSON.parse(row.artifacts),
-      references: JSON.parse(row.refs),
-      message_count: count,
-    };
-  }
-
-  updateState(pid, patch) {
-    let state;
-    this.database.transaction(() => {
-      state = this.context(pid).state;
-      Object.assign(state, patch);
-      this.db.run('UPDATE contexts SET state=? WHERE pid=?', [jsonDump(state), pid]);
-      this.db.run('UPDATE processes SET updated_at=? WHERE pid=?', [now(), pid]);
-      this.event(pid, 'state_updated', { keys: Object.keys(patch) });
-    });
-    return state;
-  }
-
-  /**
-   * Merge values into the mutable variable region (`state.vars`). Which names
-   * may be changed is decided by ProcessManager against the template snapshot;
-   * this layer only stores the merge.
-   */
-  updateVars(pid, patch) {
-    let vars;
-    this.database.transaction(() => {
-      const state = this.context(pid).state;
-      vars = { ...(state.vars ?? {}), ...patch };
-      state.vars = vars;
-      this.db.run('UPDATE contexts SET state=? WHERE pid=?', [jsonDump(state), pid]);
-      this.db.run('UPDATE processes SET updated_at=? WHERE pid=?', [now(), pid]);
-      this.event(pid, 'vars_updated', { keys: Object.keys(patch) });
-    });
-    return vars;
-  }
-
-  beginCall(pid, prompt) {
-    let callId = 0;
-    this.database.transaction(() => {
-      callId = this.db.run(
-        "INSERT INTO agent_calls(pid,prompt,status,started_at) VALUES(?,?,'running',?)",
-        [pid, prompt, now()],
-      ).lastInsertRowid;
-      this.addMessage(pid, callId, { role: 'user', content: prompt });
-    });
-    return callId;
-  }
-
-  addMessage(pid, callId, body) {
-    this.db.run('INSERT INTO messages(pid,call_id,body,created_at) VALUES(?,?,?,?)',
-      [pid, callId, jsonDump(body), now()]);
-  }
-
-  finishCall(callId, status, { output, error } = {}) {
-    this.db.run("UPDATE agent_calls SET status=?,output=?,error=?,finished_at=? WHERE id=? AND status='running'",
-      [status, output ?? null, error ?? null, now(), callId]);
-  }
-
-  calls(pid, limit = 20) {
-    return this.db.query('SELECT * FROM agent_calls WHERE pid=? ORDER BY id DESC LIMIT ?').all(pid, limit);
-  }
-
-  /** One call row by id, whenever it happened (agent history is not paginated away). */
-  callById(callId) {
-    return this.db.query('SELECT * FROM agent_calls WHERE id=?').get(callId) ?? null;
-  }
-
-  events(pid, limit = 20) {
-    return this.db.query('SELECT * FROM process_events WHERE pid=? ORDER BY id DESC LIMIT ?').all(pid, limit)
-      .map((row) => ({ ...row, data: JSON.parse(row.data) }));
-  }
-
-  history(pid, after = 0, limit = 100) {
-    this.get(pid);
-    const messages = this.db
-      .query('SELECT * FROM messages WHERE pid=? AND id>? ORDER BY id LIMIT ?')
-      .all(pid, after, limit)
-      .map((row) => ({ ...row, body: JSON.parse(row.body) }));
-    return { messages, next_after: messages.length ? messages[messages.length - 1].id : after };
-  }
-
-  /**
-   * Replay complete calls verbatim; failed calls as plain audit dialogue.
-   * Dangling assistant.tool_calls must never be sent back to a provider.
-   */
-  conversation(pid, currentCall) {
-    const calls = this.db.query('SELECT * FROM agent_calls WHERE pid=? ORDER BY id').all(pid);
-    const result = [];
-    for (const call of calls) {
-      if (call.status === 'succeeded' || call.id === currentCall) {
-        const rows = this.db.query('SELECT body FROM messages WHERE call_id=? ORDER BY id').all(call.id);
-        result.push(...rows.map((row) => JSON.parse(row.body)));
-      } else {
-        result.push(
-          { role: 'user', content: call.prompt },
-          {
-            role: 'assistant',
-            content: `[Lush audit: invocation ${call.id} ${call.status}; `
-              + 'tool effects may have committed. Inspect process state/events before retrying.]',
-          },
-        );
-      }
-    }
-    return result;
-  }
-
   recover() {
     this.database.transaction(() => {
       this.db.run("UPDATE agent_calls SET status='interrupted',error='daemon restarted',finished_at=? WHERE status='running'",
@@ -368,5 +197,72 @@ export class Repository {
         this.event(0, 'daemon_started', {});
       }
     });
+  }
+
+  // ── Hard removal (see repository_removal.js) ──────────────────────────────
+
+  /** Delete every row one pid owns; only called inside `remove`'s transaction. */
+  _deleteRows(pid) {
+    return deleteRows(this, pid);
+  }
+
+  remove(pids, audit = null) {
+    return remove(this, pids, audit);
+  }
+
+  // ── Context, state, events and history (see repository_state.js) ───────────
+
+  event(pid, kind, data) {
+    return event(this, pid, kind, data);
+  }
+
+  events(pid, limit = 20) {
+    return events(this, pid, limit);
+  }
+
+  context(pid) {
+    return context(this, pid);
+  }
+
+  updateState(pid, patch) {
+    return updateState(this, pid, patch);
+  }
+
+  updateVars(pid, patch) {
+    return updateVars(this, pid, patch);
+  }
+
+  history(pid, after = 0, limit = 100) {
+    return history(this, pid, after, limit);
+  }
+
+  backfillSnapshot(pid, fields) {
+    return backfillSnapshot(this, pid, fields);
+  }
+
+  // ── Agent calls and messages (see repository_calls.js) ────────────────────
+
+  beginCall(pid, prompt) {
+    return beginCall(this, pid, prompt);
+  }
+
+  addMessage(pid, callId, body) {
+    return addMessage(this, pid, callId, body);
+  }
+
+  finishCall(callId, status, detail = {}) {
+    return finishCall(this, callId, status, detail);
+  }
+
+  calls(pid, limit = 20) {
+    return calls(this, pid, limit);
+  }
+
+  callById(callId) {
+    return callById(this, callId);
+  }
+
+  conversation(pid, currentCall) {
+    return conversation(this, pid, currentCall);
   }
 }
