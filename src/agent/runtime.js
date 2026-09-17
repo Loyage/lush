@@ -1,58 +1,23 @@
+/**
+ * The agent runtime: who may be invoked, under which guards, and what is
+ * recorded for one invocation.
+ *
+ * One call at a time per process (`busy`), a recursion guard that travels with
+ * the async call chain, and a timeout that frees the slot when a caller
+ * disappears. The work itself is split out: the live-worker space lives in
+ * `agent_space.js`, invocation descriptions in `invocation.js`, and the tool
+ * loop in `loop.js`.
+ */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createLogger } from '../log.js';
-import { AgentResponse } from './provider.js';
-import { AgentTools, TOOL_DEFINITIONS } from './tools.js';
-import { LushError, jsonDump, text } from '../core/types.js';
+import { LushError, text } from '../core/types.js';
+import {
+  agentShow, agentSummary, agentsKill, agentsList, closeAgent, noteOsPid, openAgent,
+} from './agent_space.js';
+import { buildInvocation, describe, session } from './invocation.js';
+import { execute } from './loop.js';
 
 const log = createLogger('lush.agent.runtime');
-
-/** Finished agents kept in memory for `process agents list --all`; cleared on daemon exit. */
-const AGENT_LOG_LIMIT = 32;
-
-/** Seconds-resolution duration for the CLI's agent lines. */
-function elapsedMs(record) {
-  const end = record.ended_at === undefined ? Date.now() : Date.parse(record.ended_at);
-  return Math.max(0, end - Date.parse(record.started_at));
-}
-
-/** `PID.N` sorts by pid, then by the order the agent was minted. */
-function byAgentId(left, right) {
-  return Number(left.id.split('.')[0]) - Number(right.id.split('.')[0])
-    || Number(left.id.split('.')[1]) - Number(right.id.split('.')[1]);
-}
-
-function killProcess(osPid) {
-  try {
-    process.kill(osPid, 'SIGKILL');
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function abortError() {
-  const error = new Error('aborted');
-  error.name = 'AbortError';
-  error.aborted = true;
-  return error;
-}
-
-/**
- * Await `promise`, but give up as soon as `signal` aborts. The underlying
- * promise keeps running: aborting a waiter must never kill an independent
- * invocation (a child call, or another process's agent).
- */
-function raceAbort(promise, signal) {
-  if (signal.aborted) return Promise.reject(abortError());
-  return new Promise((resolve, reject) => {
-    const onAbort = () => reject(abortError());
-    signal.addEventListener('abort', onAbort, { once: true });
-    promise.then(
-      (value) => { signal.removeEventListener('abort', onAbort); resolve(value); },
-      (error) => { signal.removeEventListener('abort', onAbort); reject(error); },
-    );
-  });
-}
 
 export class AgentRuntime {
   constructor(manager, provider, builder, { timeout = 120, maxRounds = 12 } = {}) {
@@ -102,6 +67,36 @@ export class AgentRuntime {
     }
   }
 
+  // ── The agent space (see agent_space.js) ───────────────────────────────────
+
+  agentsList({ pid = null, all = false } = {}) {
+    return agentsList(this, { pid, all });
+  }
+
+  agentShow(id) {
+    return agentShow(this, id);
+  }
+
+  agentsKill(id) {
+    return agentsKill(this, id);
+  }
+
+  agentSummary(pid) {
+    return agentSummary(this, pid);
+  }
+
+  // ── Invocation descriptions (see invocation.js) ────────────────────────────
+
+  describe(pid, prompt) {
+    return describe(this, pid, prompt);
+  }
+
+  session(pid) {
+    return session(this, pid);
+  }
+
+  // ── One call ───────────────────────────────────────────────────────────────
+
   /** Free the busy slot of a call that ended, whatever ended it. */
   _release(pid, entry) {
     if (!entry.busy) return false;
@@ -111,48 +106,10 @@ export class AgentRuntime {
     return true;
   }
 
-  /**
-   * Mint the next agent id for `pid` (`PID.N`) and register the live worker.
-   * N is per process and per daemon run: ids are runtime identities — the
-   * durable identity of the same work is the call row (`agent_calls.id`).
-   */
-  _openAgent(pid, callId, { interactive = false } = {}) {
-    const seq = (this.agentSeq.get(pid) ?? 0) + 1;
-    this.agentSeq.set(pid, seq);
-    const record = {
-      id: `${pid}.${seq}`,
-      pid,
-      provider: this.provider.name,
-      call_id: callId,
-      status: 'running',
-      started_at: new Date().toISOString(),
-      os_pid: null,
-      interactive,
-    };
-    this.agents.set(record.id, record);
-    return record;
-  }
-
-  /** The OS process behind a live agent (daemon-spawned pi, or a reported terminal one). */
-  _noteOsPid(record, osPid) {
-    if (record && record.status === 'running') record.os_pid = osPid;
-  }
-
-  /** Move a finished worker out of the live map into the bounded in-memory log. */
-  _closeAgent(record, status, error = null) {
-    if (!record || !this.agents.has(record.id)) return;
-    record.status = status;
-    record.ended_at = new Date().toISOString();
-    if (error !== null) record.error = error;
-    this.agents.delete(record.id);
-    this.agentLog.unshift(record);
-    if (this.agentLog.length > AGENT_LOG_LIMIT) this.agentLog.length = AGENT_LOG_LIMIT;
-  }
-
   /** Finish the durable call row and close its live worker, if it had one. */
   _finishCall(entry, status, detail = {}) {
     this.repository.finishCall(entry.callId, status, detail);
-    this._closeAgent(entry.agent ?? null, status, detail.error ?? null);
+    closeAgent(this, entry.agent ?? null, status, detail.error ?? null);
   }
 
   /** Release the slot and record the call outcome. Returns false if already settled. */
@@ -160,112 +117,6 @@ export class AgentRuntime {
     if (!this._release(pid, entry)) return false;
     this._finishCall(entry, status, detail);
     return true;
-  }
-
-  /** One worker as the CLI sees it: identity plus liveness, never a logical Process. */
-  _agentView(record) {
-    const running = record.status === 'running';
-    // `process agents list --all` keeps finished records for this daemon run, and
-    // `process delete` may have removed the process they belong to: the name is
-    // then simply unknown, which must not make the whole listing fail.
-    const process = this.repository.exists(record.pid) ? this.repository.get(record.pid) : null;
-    return {
-      id: record.id,
-      pid: record.pid,
-      name: process === null ? null : process.name,
-      provider: record.provider,
-      status: record.status,
-      call_id: record.call_id,
-      interactive: record.interactive,
-      // A daemon-spawned agent is interruptible through the runtime; an
-      // interactive one only once its terminal reported the OS pid.
-      cancellable: running && (!record.interactive || record.os_pid !== null),
-      os_pid: record.os_pid,
-      started_at: record.started_at,
-      ended_at: record.ended_at ?? null,
-      elapsed_ms: elapsedMs(record),
-      error: record.error ?? null,
-    };
-  }
-
-  /**
-   * Live workers (`process agents list`), plus this daemon run's finished ones
-   * when `all` is set. Deliberately runtime data: a restarted daemon has no
-   * agents, and the durable record of the same work is its call row.
-   */
-  agentsList({ pid = null, all = false } = {}) {
-    const keep = (record) => pid === null || record.pid === pid;
-    const live = [...this.agents.values()].filter(keep).sort(byAgentId).map((record) => this._agentView(record));
-    if (!all) return live;
-    const finished = this.agentLog.filter(keep).sort(byAgentId).map((record) => this._agentView(record));
-    return [...live, ...finished];
-  }
-
-  /** One agent: its runtime facts, the session it writes into, and its durable call row. */
-  agentShow(id) {
-    const record = this.agents.get(id) ?? this.agentLog.find((candidate) => candidate.id === id);
-    if (record === undefined) throw new LushError(`agent not found: ${id}`, -32004);
-    const call = this.repository.callById(record.call_id);
-    const sessions = typeof this.provider.sessions === 'function' ? this.provider.sessions(record.pid) : null;
-    const files = sessions?.files ?? [];
-    return {
-      ...this._agentView(record),
-      session: sessions === null ? null : {
-        session_dir: sessions.session_dir,
-        session_id: sessions.session_id,
-        files,
-        file: files.length ? files[files.length - 1] : null,
-      },
-      call: call === null ? null : {
-        id: call.id,
-        prompt: call.prompt,
-        status: call.status,
-        output: call.output,
-        error: call.error,
-        started_at: call.started_at,
-        finished_at: call.finished_at,
-      },
-    };
-  }
-
-  /**
-   * Kill one live worker: the invocation ends as interrupted, the logical
-   * process is untouched (that is `process kill PID`). A daemon-spawned pi is
-   * killed through its abort path; an interactive one only through the OS pid
-   * its terminal reported — the daemon has no other handle on it.
-   */
-  agentsKill(id) {
-    const record = this.agents.get(id);
-    const entry = record === undefined ? undefined : this.active.get(record.pid);
-    if (record === undefined || entry === undefined || entry.agent !== record) {
-      throw new LushError(`agent ${id} is not running`, -32009);
-    }
-    entry.reason = 'cancelled';
-    const killed = record.os_pid === null ? false : killProcess(record.os_pid);
-    entry.controller.abort();
-    return { ...this._agentView(record), killed };
-  }
-
-  /**
-   * Live-worker summary for one process, used by `process tree`: how many agents
-   * are running and who they are. No Context, no argv, no session walk — the
-   * tree answers "who is working right now", the session answers "what is on
-   * disk", and both stay cheap.
-   */
-  agentSummary(pid) {
-    const running = [...this.agents.values()].filter((record) => record.pid === pid).sort(byAgentId);
-    return {
-      provider: this.provider.name,
-      running: running.length,
-      agents: running.map((record) => ({
-        id: record.id,
-        call_id: record.call_id,
-        interactive: record.interactive,
-        os_pid: record.os_pid,
-        started_at: record.started_at,
-        elapsed_ms: elapsedMs(record),
-      })),
-    };
   }
 
   async call(pid, prompt) {
@@ -281,7 +132,7 @@ export class AgentRuntime {
     const entry = {
       pid,
       callId,
-      agent: this._openAgent(pid, callId),
+      agent: openAgent(this, pid, callId),
       controller: new AbortController(),
       busy: true,
       reason: null,
@@ -289,7 +140,7 @@ export class AgentRuntime {
       promise: null,
       interactive: false,
     };
-    entry.promise = this.chain.run([...chain, pid], () => this._execute(pid, callId, entry, prompt));
+    entry.promise = this.chain.run([...chain, pid], () => execute(this, pid, callId, entry, prompt));
     this.active.set(pid, entry);
     // An abandoned waiter (detached CLI, dropped RPC connection) must not crash the daemon.
     entry.promise.catch(() => {});
@@ -331,14 +182,14 @@ export class AgentRuntime {
     if (this.isBusy(pid)) throw new LushError(`process ${pid} agent is busy`);
 
     const context = this.builder.build(this.manager.load(pid), null);
-    const invocation = this._invocation(pid, null, prompt, context);
+    const invocation = buildInvocation(this, pid, null, prompt, context);
     // Build the argv before opening the call: a rejected invocation must not leave a running row.
     const preview = this.provider.preview(invocation, { interactive: true });
     const callId = this.repository.beginCall(pid, prompt);
     const entry = {
       pid,
       callId,
-      agent: this._openAgent(pid, callId, { interactive: true }),
+      agent: openAgent(this, pid, callId, { interactive: true }),
       controller: new AbortController(),
       busy: true,
       reason: null,
@@ -378,7 +229,7 @@ export class AgentRuntime {
       // Already settled (kill, timeout, daemon shutdown): nothing to attach to.
       return { pid, call_id: callId, recorded: false, agent_id: null };
     }
-    this._noteOsPid(entry.agent, osPid);
+    noteOsPid(entry.agent, osPid);
     log.info(`agent ${entry.agent.id} runs as os pid ${osPid} (reported by the caller's terminal)`);
     return { pid, call_id: callId, recorded: true, agent_id: entry.agent.id };
   }
@@ -397,118 +248,6 @@ export class AgentRuntime {
       return this._settle(pid, entry, 'interrupted', { error: `invocation ${callId} interrupted` });
     }
     return this._settle(pid, entry, status, { output, error });
-  }
-
-  /**
-   * Structured description of one invocation. In-process providers read
-   * `messages`; external backends (pi) read the system prompt, the shared Lush
-   * guide, the runtime data and the working directory.
-   */
-  _invocation(pid, callId, prompt, context, { on_spawn = null } = {}) {
-    const state = this.repository.context(pid).state;
-    // The immutable `path` variable (declared by the template) is this process's
-    // working directory; without it the agent works in $LUSH_HOME.
-    const workdir = state?.params?.path;
-    return {
-      pid,
-      call_id: callId,
-      prompt,
-      system_prompt: context.context.systemPrompt,
-      guide: context.guide,
-      context: context.data,
-      on_spawn,
-      cwd: typeof workdir === 'string' ? workdir : null,
-    };
-  }
-
-  /**
-   * Describe the invocation `call` would perform, without performing it: no
-   * agent_calls row, no messages, no busy marking, no provider request. Only
-   * external backends produce a command; in-process providers report null and
-   * how many messages they would send.
-   */
-  describe(pid, prompt) {
-    if (this.closing) throw new LushError('runtime is shutting down', -32021);
-    this.manager.requireRunning(pid);
-    const context = this.builder.build(this.manager.load(pid), null);
-    const invocation = this._invocation(pid, null, prompt, context);
-    const preview = this.provider.preview
-      ? this.provider.preview(invocation)
-      : { argv: null, command: null, cwd: null, env: null, messages: context.messages.length };
-    return { pid, dry_run: true, agent: this.provider.name, prompt, ...preview };
-  }
-
-  /**
-   * Describe this process's external agent session (pi): dir, id, files on
-   * disk and the interactive command that opens it. Read-only and allowed for
-   * any status; in-process providers have no session and return nulls.
-   */
-  session(pid) {
-    if (this.closing) throw new LushError('runtime is shutting down', -32021);
-    const process = this.manager.repository.get(pid);
-    const context = this.builder.build(this.manager.load(pid), null);
-    const invocation = this._invocation(pid, null, '', context);
-    const info = this.provider.sessionInfo
-      ? this.provider.sessionInfo(invocation)
-      : { session_dir: null, session_id: null, files: [], file: null, argv: null, command: null, cwd: null, env: null, path_prefix: undefined };
-    return {
-      pid,
-      name: process.name,
-      status: process.status,
-      agent: this.provider.name,
-      busy: this.isBusy(pid),
-      ...info,
-    };
-  }
-
-  async _execute(pid, callId, entry, prompt) {
-    const signal = entry.controller.signal;
-    const tools = new AgentTools(this.manager, pid);
-    try {
-      if (entry.reason) throw abortError();
-      for (let round = 0; round < this.maxRounds; round += 1) {
-        const context = this.builder.build(this.manager.load(pid), callId);
-        // The provider reports the OS process it spawns, so the agent space can
-        // name (and kill) what is actually running.
-        const invocation = this._invocation(pid, callId, prompt, context,
-          { on_spawn: (osPid) => this._noteOsPid(entry.agent, osPid) });
-        const response = await raceAbort(this.provider.call(context.messages, TOOL_DEFINITIONS, signal, invocation), signal);
-        if (!(response instanceof AgentResponse) || typeof response.content !== 'string') {
-          throw new LushError('provider returned invalid AgentResponse', -32020);
-        }
-        const ids = response.toolCalls.map((tool) => tool.id);
-        if (ids.length !== new Set(ids).size || ids.length > 32) {
-          throw new LushError('invalid or excessive tool calls', -32020);
-        }
-        this.repository.addMessage(pid, callId, response.asMessage());
-        if (response.toolCalls.length === 0) {
-          this._finishCall(entry, 'succeeded', { output: response.content });
-          return { pid, call_id: callId, output: response.content };
-        }
-        // Tools of one response run in order: lifecycle and mutation tools must not race.
-        for (const tool of response.toolCalls) {
-          const result = await raceAbort(tools.execute(tool.name, tool.arguments), signal);
-          this.repository.addMessage(pid, callId, {
-            role: 'tool', tool_call_id: tool.id, content: jsonDump(result),
-          });
-        }
-      }
-      throw new LushError(`agent exceeded ${this.maxRounds} rounds`, -32020);
-    } catch (err) {
-      if (entry.reason === 'timeout') {
-        const error = 'agent invocation timed out; inspect before retrying';
-        this._finishCall(entry, 'failed', { error });
-        throw new LushError(error, -32020);
-      }
-      if (entry.reason) {
-        this._finishCall(entry, 'interrupted', { error: 'invocation cancelled' });
-        throw new LushError(`invocation ${callId} interrupted`, -32021);
-      }
-      const error = err instanceof LushError ? err.message : 'agent runtime error; see daemon.log';
-      if (!(err instanceof LushError)) log.exception(`agent invocation ${callId} failed`, err);
-      this._finishCall(entry, 'failed', { error });
-      throw new LushError(error, -32020);
-    }
   }
 
   async shutdown() {

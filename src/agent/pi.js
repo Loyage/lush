@@ -8,56 +8,25 @@
  *
  * `call --interactive` drops `--print`: the same session runs as pi's TUI inside
  * the caller's terminal, so a human can watch and steer that same tool loop.
+ * How an invocation is described (session, argv, command line) lives in
+ * `pi_args.js`; this file owns the provider class and running the subprocess.
  */
 import cp from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createLogger } from '../log.js';
 import { AgentResponse } from './provider.js';
 import { LushError } from '../core/types.js';
-import { lushContextMessage } from '../context/context.js';
-import { shellCommand } from '../shell.js';
+import {
+  LUSH_BIN_DIR, argsFor, identityArgs, interactiveArgs, preview, resolveCommand, sessionInfo, sessions,
+} from './pi_args.js';
+
+export { LUSH_BIN_DIR, sessionFiles } from './pi_args.js';
 
 const log = createLogger('lush.agent.pi');
 
-/** Repo `bin/` directory; prepended to PATH so the agent can always run `lush`. */
-export const LUSH_BIN_DIR = path.dirname(fileURLToPath(new URL('../../bin/lush', import.meta.url)));
 const MAX_OUTPUT = 4 * 1024 * 1024;
 const MAX_STDERR = 16 * 1024;
-const MAX_ARG = 100_000;
-
-/** Session files for one id, oldest first (`<timestamp>_<id>.jsonl`). */
-export function sessionFiles(sessionDir, sessionId) {
-  let names;
-  try {
-    names = fs.readdirSync(sessionDir);
-  } catch {
-    return [];
-  }
-  return names
-    .filter((name) => name.endsWith(`_${sessionId}.jsonl`))
-    .sort()
-    .map((name) => path.join(sessionDir, name));
-}
-
-/** Resolve `command` against PATH, or accept an explicit path. */
-function resolveCommand(command, env) {
-  if (command.includes('/')) {
-    return fs.existsSync(command) ? command : null;
-  }
-  const dirs = String(env.PATH ?? '').split(path.delimiter).filter((part) => part !== '');
-  for (const dir of dirs) {
-    const candidate = path.join(dir, command);
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      /* keep looking */
-    }
-  }
-  return null;
-}
 
 export class PiAgentProvider {
   static fromEnv(env = process.env, { home } = {}) {
@@ -89,101 +58,37 @@ export class PiAgentProvider {
     this.env = env;
   }
 
-  /** Session flags + agent identity, shared by `call`, `preview` and `sessionInfo`. */
-  identityArgs(invocation, { name = null } = {}) {
-    const pid = invocation.pid;
-    const args = [
-      '--session-dir', this.sessionDir,
-      '--session-id', this.sessionId(pid),
-      '--name', name ?? `${invocation.context?.process?.name ?? 'process'}[${pid}]`,
-      '--system-prompt', invocation.system_prompt,
-      '--append-system-prompt', invocation.guide,
-      '--append-system-prompt', lushContextMessage(invocation.context),
-    ];
-    if (this.provider !== '') args.push('--provider', this.provider);
-    if (this.model !== '') args.push('--model', this.model);
-    for (const arg of args) {
-      if (arg.length > MAX_ARG) throw new LushError('agent context is too large for a pi invocation', -32020);
-    }
-    return args;
-  }
-
   sessionId(pid) {
     return `lush-${pid}`;
   }
 
-  /** argv of `call`: `--print` makes pi answer once and exit. */
+  // ── How an invocation is described (see pi_args.js) ───────────────────────
+
+  identityArgs(invocation, options) {
+    return identityArgs(this, invocation, options);
+  }
+
   argsFor(invocation) {
-    const args = ['--print', ...this.identityArgs(invocation), invocation.prompt];
-    if (args[args.length - 1].length > MAX_ARG) {
-      throw new LushError('agent context is too large for a pi invocation', -32020);
-    }
-    return args;
+    return argsFor(this, invocation);
   }
 
-  /**
-   * argv of `call --interactive`: the same identity and prompt without
-   * `--print`, so pi opens its TUI on that prompt and the terminal drives the
-   * tool loop instead of the daemon.
-   */
   interactiveArgs(invocation) {
-    if (typeof invocation.prompt !== 'string' || invocation.prompt === '') {
-      throw new LushError('pi agent requires the current call prompt', -32020);
-    }
-    const args = [...this.identityArgs(invocation), invocation.prompt];
-    if (args[args.length - 1].length > MAX_ARG) {
-      throw new LushError('agent context is too large for a pi invocation', -32020);
-    }
-    return args;
+    return interactiveArgs(this, invocation);
   }
 
-  /**
-   * What `call` (or `call --interactive`) would run, without running it: the
-   * exact argv, the working directory and the extra environment. `command` is
-   * the shell-ready line.
-   */
-  preview(invocation, { interactive = false } = {}) {
-    const argv = [this.command, ...(interactive ? this.interactiveArgs(invocation) : this.argsFor(invocation))];
-    return {
-      executable: this.command,
-      argv,
-      command: shellCommand(argv),
-      cwd: invocation.cwd ?? this.home,
-      env: { LUSH_HOME: this.home, LUSH_PID: String(invocation.pid) },
-      path_prefix: LUSH_BIN_DIR,
-    };
+  preview(invocation, options) {
+    return preview(this, invocation, options);
   }
 
-  /** Where this process's pi session lives and which id it uses (no disk walk of the argv). */
   sessions(pid) {
-    const sessionId = this.sessionId(pid);
-    return { session_dir: this.sessionDir, session_id: sessionId, files: sessionFiles(this.sessionDir, sessionId) };
+    return sessions(this, pid);
   }
 
-  /**
-   * This process's pi session: where it lives, which id it uses, its files on
-   * disk and the interactive argv that opens it (no `--print`).
-   */
   sessionInfo(invocation) {
-    const { session_dir: sessionDir, session_id: sessionId, files } = this.sessions(invocation.pid);
-    const argv = [this.command, ...this.identityArgs(invocation)];
-    // Compact line for browsing the conversation in pi's own TUI (pi's default prompt).
-    const browseArgv = [this.command, '--session-dir', this.sessionDir, '--session-id', sessionId];
-    if (this.provider !== '') browseArgv.push('--provider', this.provider);
-    if (this.model !== '') browseArgv.push('--model', this.model);
-    return {
-      session_dir: sessionDir,
-      session_id: sessionId,
-      files,
-      file: files.length ? files[files.length - 1] : null,
-      argv,
-      command: shellCommand(argv),
-      browse_command: shellCommand(browseArgv),
-      cwd: invocation.cwd ?? this.home,
-      env: { LUSH_HOME: this.home, LUSH_PID: String(invocation.pid) },
-      path_prefix: LUSH_BIN_DIR,
-    };
+    return sessionInfo(this, invocation);
   }
+
+  // ── Running one invocation ────────────────────────────────────────────────
 
   async call(_messages, _tools, signal, invocation = {}) {
     const args = this.argsFor(invocation);
