@@ -63,7 +63,7 @@ inspect 的 Context 包含 system_prompt、state、artifacts、references、mess
 
 ### 身份：daemon 跑的是哪份代码
 
-`system.status` 里的 `home` / `socket` 描述状态在哪（`LUSH_HOME`），`code_dir` / `version` / `fingerprint` / `started_at` 描述**回答你的是哪份代码**：daemon 启动时把 `src/agent/guide.js`、`src/cli/main.js` 与 `templates/*.json` 读入内存（`src/identity.js` 的指纹覆盖这三处），之后不再重读。`code_dir` 不同 = 另一个 checkout；`fingerprint` 不同 = 同一 checkout 的旧进程。CLI 每次命令都会先读一次 status 并在不一致时于 stderr 告警（`cli.code_match` 是同一判断的布尔形式）。
+`system.status` 里的 `home` / `socket` 描述状态在哪（`LUSH_HOME`），`code_dir` / `version` / `fingerprint` / `started_at` 描述**回答你的是哪份代码**：daemon 启动时把 `src/agent/guide.js`、`src/cli/tree/`（CLI 声明树）与 `templates/*.json` 读入内存（`src/identity.js` 的指纹覆盖这几处），之后不再重读。`code_dir` 不同 = 另一个 checkout；`fingerprint` 不同 = 同一 checkout 的旧进程。CLI 每次命令都会先读一次 status 并在不一致时于 stderr 告警（`cli.code_match` 是同一判断的布尔形式）。
 
 process.view 是「查看」的统一读模型，把父子关系和 Call Prompt 合并到一次读取：
 
@@ -97,7 +97,7 @@ Provider tool 名称采用 OpenAI-compatible 安全字符：`process_self`、`pr
 
 ## CLI
 
-命令分三层：顶层 → 命令组 → 命令 → 参数。每一层都提供 help（`help` 子命令、`-h`、`--help`），帮助文本与下面的命令表来自同一张声明（`src/cli/main.js` 的 `COMMANDS`），不会与解析器脱节；`--json help [command]` 返回结构化的命令树。
+命令分三层：顶层 → 命令组 → 命令 → 参数。每一层都提供 help（`help` 子命令、`-h`、`--help`），帮助文本与下面的命令表来自同一张声明（`src/cli/tree/` 的命令声明），不会与解析器脱节；`--json help [command]` 返回结构化的命令树。
 
 ```text
 lush help [command [subcommand]]        # 顶层与任意一层的覆盖范围、子命令、参数

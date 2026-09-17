@@ -72,7 +72,7 @@ just clean           # 停 daemon 并删除仓库内的 .lush
 
 `just` 默认把开发数据放在仓库内的 `.lush/`（已 gitignore），不碰你日常的 `~/.local/state/lush`；用 `LUSH_HOME` 可覆盖（此时 `just clean` 只提示、不删除仓库外的目录）。
 
-**改代码或提示词之后，先确认你重启的是哪个 daemon。** daemon 是常驻进程：`src/agent/guide.js`、`src/cli/main.js` 与 `templates/*.json` 都在它启动时读入内存，所以 `just daemon-restart` 只重启 `LUSH_HOME`（默认仓库 `.lush/`）那一份。若你另外在 shell 里直接跑 `lush`（没有 `export LUSH_HOME`，走默认 `~/.local/state/lush`），命令打到的是另一个 daemon，重启那份不会有任何效果。`lush daemon status` / `just doctor` 会列出 daemon 自己的 `home`、`code_dir`、`fingerprint`、`started_at` 与 CLI 侧对应字段（`cli.code_match` 表示两边是否同一份代码）；不一致时，任何 `lush` 命令都会在 stderr 上告警并给出该重启哪一份。
+**改代码或提示词之后，先确认你重启的是哪个 daemon。** daemon 是常驻进程：`src/agent/guide.js`、`src/cli/tree/`（CLI 声明树）与 `templates/*.json` 都在它启动时读入内存，所以 `just daemon-restart` 只重启 `LUSH_HOME`（默认仓库 `.lush/`）那一份。若你另外在 shell 里直接跑 `lush`（没有 `export LUSH_HOME`，走默认 `~/.local/state/lush`），命令打到的是另一个 daemon，重启那份不会有任何效果。`lush daemon status` / `just doctor` 会列出 daemon 自己的 `home`、`code_dir`、`fingerprint`、`started_at` 与 CLI 侧对应字段（`cli.code_match` 表示两边是否同一份代码）；不一致时，任何 `lush` 命令都会在 stderr 上告警并给出该重启哪一份。
 
 ## Agent：默认 pi
 
@@ -183,7 +183,7 @@ lush process spawn --help      # 等价写法；`-h` 和 `lush process help spaw
 lush --json help process       # 机器可读的命令树（summary/cover/usage/options/subcommands）
 ```
 
-帮助文本与解析器读同一张命令表（`src/cli/main.js` 的 `COMMANDS`），所以不会和真实参数不一致；`lush` / `lush process` 这类缺参数的调用会把用法打到 stderr 并以退出码 2 结束。
+帮助文本与解析器读同一张命令表（`src/cli/tree/` 的命令声明），所以不会和真实参数不一致；`lush` / `lush process` 这类缺参数的调用会把用法打到 stderr 并以退出码 2 结束。
 
 ## 文档
 
