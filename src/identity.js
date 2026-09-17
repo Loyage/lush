@@ -28,7 +28,12 @@ const ROOT = path.dirname(fileURLToPath(new URL('../package.json', import.meta.u
  * behavior, not instructions.
  */
 const SURFACE_FILES = ['src/agent/guide.js', 'src/cli/main.js'];
-const SURFACE_DIRS = ['templates'];
+const SURFACE_DIRS = [
+  { path: 'templates', extension: '.json' },
+  // The command tree is the CLI declaration agents are pointed at; it lives in
+  // its own directory so `main.js` stays an entry point.
+  { path: 'src/cli/tree', extension: '.js' },
+];
 
 function addFile(hash, relative) {
   let content = null;
@@ -50,10 +55,10 @@ export function codeFingerprint() {
   const hash = createHash('sha256');
   hash.update('lush-code-v1\n');
   for (const relative of SURFACE_FILES) addFile(hash, relative);
-  for (const directory of SURFACE_DIRS) {
+  for (const { path: directory, extension } of SURFACE_DIRS) {
     let names = [];
     try {
-      names = fs.readdirSync(path.join(ROOT, directory)).filter((name) => name.endsWith('.json')).sort();
+      names = fs.readdirSync(path.join(ROOT, directory)).filter((name) => name.endsWith(extension)).sort();
     } catch {
       /* no such directory: the empty surface is still part of the identity */
     }
