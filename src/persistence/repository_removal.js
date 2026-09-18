@@ -24,6 +24,10 @@ export function deleteRows(repository, sid) {
   // Notices belong to the service that reported them (their `sid` is NOT NULL),
   // so they disappear with it — unlike tasks, which may have moved on.
   rows.notices = repository.deleteNoticesOfService(sid);
+  // Intensions are *not* owned by the service they name: the user's words stay,
+  // they only lose the target. A row the parser is still holding goes back to
+  // the queue, because the decision has to be made again against what is left.
+  repository.detachServiceIntensions(sid);
   // Tasks are mounted on the service, so they go with it; child tasks that live
   // on surviving services are re-pointed at themselves (they become roots).
   const detached = repository.detachServiceTasks([sid]);

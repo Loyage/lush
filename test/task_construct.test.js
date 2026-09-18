@@ -29,8 +29,11 @@ describe('lush task construct: who is the delegating task', () => {
 
   test('the parent defaults to $LUSH_TASK_ID and --parent-task-id overrides it', () => {
     withEnv(undefined, () => {
-      // Outside an agent there is nobody to delegate for: still a root task.
-      expect(construct.parse(['8'])).toEqual({ sid: 8 });
+      // Outside an agent there is nobody to delegate for, and a delegation must
+      // never silently become a root task (that is what `lush intent` is for).
+      const parsed = construct.parse(['8']);
+      construct.options['--goal'].apply(parsed, 'work');
+      expect(() => construct.check(parsed)).toThrow(/parent task is required/);
     });
     withEnv('19', () => {
       // This is the shape an agent's shell produces: `lush task construct 8 --goal ...`
@@ -76,7 +79,7 @@ describe('task.construct over the wire', () => {
     const parentSid = manager.construct(0, 'generic-service', 'parent').sid;
     const childSid = manager.construct(parentSid, 'generic-task', 'child').sid;
     // Not started: the parent stays active, like an agent that is still working.
-    const parent = manager.constructTask(null, parentSid, 'parent work', false);
+    const parent = manager.constructRootTask(parentSid, 'parent work', false);
 
     const child = await dispatcher.dispatch('task.construct', {
       sid: childSid, goal: 'downstream', parent_task_id: parent.id,
@@ -84,9 +87,11 @@ describe('task.construct over the wire', () => {
     expect(child).toMatchObject({ sid: childSid, parent_task_id: parent.id, root_task_id: parent.id });
     expect(manager.taskTree(parent.id).children.map((task) => task.id)).toContain(child.id);
 
-    // Without a parent it is a root task, which is why the CLI must supply one.
+    // Without a parent there is no delegation to make: the wire refuses it, so
+    // a stray call cannot become a root task outside the intension queue.
     const spareSid = manager.construct(parentSid, 'generic-task', 'spare').sid;
-    const standalone = await dispatcher.dispatch('task.construct', { sid: spareSid, goal: 'standalone' });
-    expect(standalone.parent_task_id).toBeNull();
+    await expect(
+      dispatcher.dispatch('task.construct', { sid: spareSid, goal: 'standalone' }),
+    ).rejects.toThrow(/root tasks are created only by the intension dispatcher/);
   });
 });

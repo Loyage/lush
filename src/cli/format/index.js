@@ -8,9 +8,10 @@
 import { objectLines, shortValue, treeLines } from './primitives.js';
 import { formatAgentCommand } from './agent.js';
 import { formatDaemon } from './daemon.js';
+import { formatIntension, formatIntensionList } from './intension.js';
 import { formatNotice, formatNoticeList } from './notice.js';
 import {
-  formatAgent, formatAgentKill, formatAgents, formatCall, formatDryRun, formatHistory, formatInspect, formatLifecycle,
+  formatAgent, formatAgentKill, formatAgents, formatCall, formatHistory, formatInspect, formatLifecycle,
   formatList, formatOrphans, formatRemoval, formatSession, formatTaskInbox, formatTaskInspect, formatTaskList,
   formatTaskMessage, formatTaskRemoval, formatTaskResult, formatTaskTrace, formatTaskTree, formatView,
 } from './service.js';
@@ -19,6 +20,7 @@ export * from './primitives.js';
 export * from './service.js';
 export { formatAgentCommand } from './agent.js';
 export { formatDaemon } from './daemon.js';
+export { formatIntension, formatIntensionList } from './intension.js';
 export { formatNotice, formatNoticeList } from './notice.js';
 
 /** Lifecycle commands that answer with the updated row. */
@@ -39,7 +41,11 @@ export function format(args, result) {
   // `daemon start|stop|restart` (command `daemon`) and `daemon status` (command `status`)
   // all report identity in `cli`, so they share the aligned line format.
   if (args.command === 'daemon' || args.command === 'status') return formatDaemon(result);
-  if (args.command === 'call') return result.dry_run ? formatDryRun(result) : formatCall(result);
+  if (args.command === 'intent_list') return formatIntensionList(result);
+  if (args.command === 'intent_submit' || args.command === 'intent_show' || args.command === 'intent_wait'
+    || args.command === 'intent_settle' || args.command === 'intent_defer' || args.command === 'intent_withdraw') {
+    return formatIntension(result);
+  }
   if (args.command === 'construct') return `SID ${result.sid}`;
   if (args.command === 'tree') return treeLines(result, { agents: args.agents !== false }).join('\n');
   if (args.command === 'children' || args.command === 'list') return formatList(result);

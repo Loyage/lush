@@ -7,7 +7,7 @@
  */
 import {
   countAwaitingNotices, createNotice, deleteNoticesOfService, detachTaskNotices, findNotice, getNotice,
-  listNotices, openNoticeCount, openNoticesOfTask, settleNotice,
+  linkNoticeToIntension, listNotices, openNoticeCount, openNoticesOfTask, settleNotice,
 } from '../repository_notices.js';
 
 export const noticeMethods = {
@@ -45,6 +45,11 @@ export const noticeMethods = {
 
   detachTaskNotices(taskId) {
     return detachTaskNotices(this, taskId);
+  },
+
+  /** Point one notice at the user input it is a question about. */
+  linkNoticeToIntension(noticeId, intensionId) {
+    return linkNoticeToIntension(this, noticeId, intensionId);
   },
 
   deleteNoticesOfService(sid) {

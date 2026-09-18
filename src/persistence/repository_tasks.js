@@ -243,6 +243,9 @@ export function deleteTaskRows(repository, taskIds) {
     repository.db.run('UPDATE agent_calls SET task_id=NULL WHERE task_id=?', [taskId]);
     repository.db.run('UPDATE messages SET task_id=NULL WHERE task_id=?', [taskId]);
     repository.detachTaskNotices(taskId);
+    // An intension may name this task as its parser or as the task a user
+    // decision parked it behind; either pointer has to go with the row.
+    repository.detachTaskIntensions(taskId);
     // Inbox rows name the task in both directions, so they go with it.
     repository.deleteTaskInbox(taskId);
     rows.tasks += repository.db.run('DELETE FROM tasks WHERE id=?', [taskId]).changes;

@@ -73,8 +73,10 @@ const TASK_METHODS = [
 ];
 
 const CALL_METHODS = [
-  ['call', 'call', 'call'],
-  ['call.describe', 'callDescribe', 'call_describe'],
+  // `call.end` / `call.os_pid` report an *interactive* call back to the daemon
+  // (`intent submit --interactive`): the terminal ran the agent, so it is the
+  // one that knows the outcome and the OS PID. Creating a root task is not a
+  // wire method any more — a user speaks through `intent.submit`.
   ['call.end', 'callEnd', 'call_end'],
   ['call.os_pid', 'callOsPid', 'call_os_pid'],
 ];
@@ -85,6 +87,17 @@ const NOTICE_METHODS = [
   ['notice.post', 'noticePost', 'notice_post'],
   ['notice.answer', 'noticeAnswer', 'notice_answer'],
   ['notice.dismiss', 'noticeDismiss', 'notice_dismiss'],
+];
+
+const INTENSION_METHODS = [
+  ['intent.submit', 'submitIntension', 'intent_submit'],
+  ['intent.list', 'intensionList', 'intent_list'],
+  ['intent.inspect', 'intensionInspect', 'intent_inspect'],
+  ['intent.context', 'intensionContext', 'intent_context'],
+  ['intent.settle', 'intensionSettle', 'intent_settle'],
+  ['intent.defer', 'intensionDefer', 'intent_defer'],
+  ['intent.withdraw', 'intensionWithdraw', 'intent_withdraw'],
+  ['intent.wait', 'intensionWait', 'intent_wait'],
 ];
 
 export class Dispatcher {
@@ -101,7 +114,7 @@ export class Dispatcher {
       'system.shutdown': { params: { required: [] }, fn: () => this.shutdown() },
       'service.list': { params: PARAMS.list, fn: () => manager.list() },
     };
-    for (const [wire, method, params] of [...SERVICE_METHODS, ...TASK_METHODS, ...CALL_METHODS, ...NOTICE_METHODS]) {
+    for (const [wire, method, params] of [...SERVICE_METHODS, ...TASK_METHODS, ...CALL_METHODS, ...NOTICE_METHODS, ...INTENSION_METHODS]) {
       this.methods[wire] = { params: PARAMS[params], fn: manager[method].bind(manager) };
     }
   }
@@ -121,6 +134,9 @@ export class Dispatcher {
       // Notices still waiting for a user: the one number that says "someone
       // needs a human" without walking the whole notice list.
       notices_open: this.manager.openNoticeCount(),
+      // User input still in the queue (queued / being parsed / parked on a
+      // conflict question): the same answer for "someone is waiting in line".
+      intensions_open: this.manager.openIntensionCount(),
       // The daemon is long-lived and keeps the guide, the CLI declaration and
       // the templates in memory, so which code answers is not visible from the
       // socket path alone; report it and let clients compare with their own.

@@ -9,7 +9,7 @@ import { serviceConstructChild } from './service_construct.js';
  * A service holds identity (template system_prompt), variables, persistent
  * state, its place in the tree and its permissions (`child_templates`). It
  * never runs an agent and never finishes work: work lives in tasks, which are
- * created on it (`lush call`, `task construct`) and delegated from there. This
+ * created on it (by the parser, or by `task construct`) and delegated from there. This
  * group therefore covers the node itself — look at it, create children, start /
  * stop it, change its data, remove it, supervise orphans.
  */
@@ -17,7 +17,7 @@ export const serviceGroup = {
   summary: 'Service：被动节点（状态、变量、权限、生命周期）',
   cover: [
     '查看：list、tree、inspect、children 读取服务 metadata、层级、树位置与持久 Context（含挂载在它身上的 task）。',
-    '派生：construct 按模板在指定父服务下构造子服务，并按模板的 variables 声明校验变量；新节点是静止的，要干活得在它上面开 task（`lush call`）。',
+    '派生：construct 按模板在指定父服务下构造子服务，并按模板的 variables 声明校验变量；新节点是静止的（建它不影响任何 task）。平时不用手工建：解析器会把活安排给合适的节点；手工建只用于你确定要调整架构时。',
     '状态：start 让节点重新接受 task，stop 停止它（它的 task 会先被取消）；service 不会「完成」——完成的是一次 task。',
     '数据：update-state 写这个节点跨 task 的长期 state，update-vars 改模板声明为 mutable 的变量。',
     '删除：delete 只删已停止的节点（连同它的 Context 与挂在它上面的 task），purge 先取消 task 再删；两者都不可逆。',

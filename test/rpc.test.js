@@ -83,14 +83,15 @@ describe('rpc', () => {
     const child = await client.request('service.construct', { parent_sid: 0, template: 'generic-task', name: 'demo' });
     const sid = child.sid;
     expect((await client.request('service.parent', { sid })).sid).toBe(0);
-    // Work travels as a task: `call` opens a root task and waits for it.
-    const preview = await client.request('call.describe', { sid, prompt: 'who am I?' });
-    expect(preview.dry_run).toBe(true);
-    expect(preview.agent).toBe('mock');
-    expect(preview.command).toBeNull();
+    // A person speaks once: `intent.submit` records it, SID 0 parses it, and the
+    // work it arranges lands as a task on the named service.
     expect((await client.request('service.inspect', { sid })).context.message_count).toBe(0);
-    const task = await client.request('call', { sid, goal: 'who am I?' });
-    expect(task).toMatchObject({ sid, status: 'completed', parent_task_id: null, root_task_id: task.id });
+    const settled = await client.request('intent.submit', { content: 'delegate: who am I?', sid, wait: true });
+    expect(settled).toMatchObject({ sid, status: 'settled', source: 'rpc', attempts: 1 });
+    expect(settled.resolution.task_ids).toHaveLength(1);
+    const task = await client.request('task.inspect', { task_id: settled.resolution.task_ids[0] });
+    expect(task).toMatchObject({ sid, status: 'completed' });
+    expect(task.parent_task_id).toBe(settled.parse_task_id);
     const info = await client.request('service.inspect', { sid });
     expect(info.context.message_count).toBe(2);
     const page = await client.request('task.history', { task_id: task.id, limit: 1 });
@@ -100,10 +101,13 @@ describe('rpc', () => {
     expect((await client.request('task.tree', { task_id: task.id })).id).toBe(task.id);
     expect(await client.request('task.list', { sid })).toHaveLength(1);
     expect(await client.request('task.result', { task_id: task.id })).toMatchObject({ finished: true, status: 'completed' });
-    // A detached call returns the task while it runs; `task.wait` settles it.
-    const detached = await client.request('call', { sid, goal: 'again', detach: true });
-    expect(detached.sid).toBe(sid);
-    await client.request('task.wait', { task_id: detached.id });
+    // Without `wait` the submission returns immediately and the queue view shows
+    // the row; `intent.wait` blocks until it is closed.
+    const submitted = await client.request('intent.submit', { content: 'delegate again', sid });
+    expect(['queued', 'parsing', 'settled']).toContain(submitted.status);
+    expect((await client.request('intent.list', { sid })).map((row) => row.id)).toContain(submitted.id);
+    const closed = await client.request('intent.wait', { intension_id: submitted.id });
+    expect(closed.status).toBe('settled');
     expect(await client.request('task.list', { sid })).toHaveLength(2);
     // Variables travel over the wire with their declaration and regions.
     const project = await client.request('service.construct', {
@@ -131,14 +135,13 @@ describe('rpc', () => {
       kind: 'child_deleted', data: { sid: doomed.sid, name: 'doomed', status: 'stopped' },
     });
 
-    // purge: cancel its work first, then delete the node.
+    // purge: an idle node goes with its rows (`purge` cancelling a *running*
+    // task is covered in core.test.js, where a task can be placed exactly).
     const live = await client.request('service.construct', { parent_sid: 0, template: 'generic-task', name: 'live' });
-    const liveTask = await client.request('task.construct', { sid: live.sid, goal: 'work' });
-    expect(liveTask.sid).toBe(live.sid);
     const purged = await client.request('service.purge', { sid: live.sid });
     expect(purged.status).toBe('active');
     expect(purged.deleted).toEqual([live.sid]);
-    expect(purged.cancelled.length).toBeLessThanOrEqual(1);
+    expect(purged.cancelled).toEqual([]);
     expect(await client.request('task.list', { sid: live.sid })).toEqual([]);
     expect(await expectRejection(client.request('service.purge', { sid: live.sid }))).toBeDefined();    expect(fs.statSync(server.path).mode & 0o777).toBe(0o600);
   });
@@ -151,10 +154,20 @@ describe('rpc', () => {
       ['service.inspect', { sid: true }, -32602],
       ['service.inspect', { sid: 999 }, -32004],
       ['service.construct', { parent_sid: 0, template: [] }, -32602],
-      ['call', { sid: 0, goal: 'hi', detach: 'yes' }, -32602],
-      ['call', { sid: 0, goal: 'hi', extra: 1 }, -32602],
-      ['call', { sid: 99, goal: 'hi' }, -32004],
-      ['call.describe', { sid: 0, prompt: '' }, -32602],
+      ['intent.submit', {}, -32602],
+      ['intent.submit', { content: '' }, -32602],
+      ['intent.submit', { content: 'hi', extra: 1 }, -32602],
+      ['intent.submit', { content: 'hi', sid: 99 }, -32004],
+      ['intent.submit', { content: 'hi', wait: 'yes' }, -32602],
+      ['intent.list', { status: 'nope' }, -32602],
+      ['intent.list', { sid: true }, -32602],
+      ['intent.inspect', {}, -32602],
+      ['intent.inspect', { intension_id: 99 }, -32004],
+      ['intent.context', {}, -32602],
+      ['intent.settle', { status: 'nope' }, -32602],
+      ['intent.defer', {}, -32602],
+      ['intent.withdraw', { intension_id: 99 }, -32004],
+      ['intent.wait', { intension_id: 99 }, -32004],
       ['service.tree', { agents: 'yes' }, -32602],
       ['service.tree', { extra: 1 }, -32602],
       ['task.list', { status: 'nope' }, -32602],
@@ -328,13 +341,13 @@ describe('rpc', () => {
         return new AgentResponse('survived');
       },
     };
-    const child = await client.request('service.construct', { parent_sid: 0, template: 'generic-task' });
-    const sid = child.sid;
+    // A submission is what a caller abandons here: the parse task it starts on
+    // SID 0 keeps running, and the intension still records the outcome.
     const socket = await Bun.connect({
       unix: server.path,
       socket: {
         open: (handle) => handle.write(encode({
-          jsonrpc: '2.0', id: 'detached', method: 'call', params: { sid, goal: 'work' },
+          jsonrpc: '2.0', id: 'detached', method: 'intent.submit', params: { content: 'work' },
         })),
         data: () => {},
         close: () => {},
@@ -345,11 +358,14 @@ describe('rpc', () => {
     await gate.promise;
     socket.end();
     await Bun.sleep(50);
-    const task = manager.taskList(sid)[0];
-    expect(runtime.isBusy(sid)).toBe(true);
+    const row = manager.intensionList(null, undefined, true)[0];
+    const task = manager.repository.getTask(row.parse_task_id);
+    expect(task.sid).toBe(0);
+    expect(runtime.isBusy(0)).toBe(true);
     release.resolve();
     await runtime.active.get(task.id).promise;
     expect(manager.repository.taskCalls(task.id)[0].status).toBe('succeeded');
+    expect(manager.intensionInspect(row.id)).toMatchObject({ status: 'settled', response: 'survived' });
     expect(LushError.name).toBe('LushError');
   });
 });

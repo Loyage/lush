@@ -6,17 +6,18 @@ import { taskAgentGroup } from './task_agents.js';
  * built-in runtime and external `pi` inject `$LUSH_TASK_ID`, the same convention
  * `task message --from` and `notice post --task` already rely on.
  *
- * Leaving the parent out would silently create a *root* task, which is how a
- * delegation escapes its own tree (see the two-process bug that motivated
- * this). A malformed value fails loudly instead of quietly becoming a root.
+ * The environment only *seeds* the parent (`--parent-task-id` overrides it) and
+ * the command's `check` insists that one exists: a delegation without a parent
+ * would be a root task, and the only root task Lush has is the parse task of the
+ * intension queue (`core/intensions.js`). A malformed value fails right here,
+ * before any flag could quietly paper over it.
  */
 function delegatingTask() {
   const raw = process.env.LUSH_TASK_ID;
   if (raw === undefined || raw === '') return {};
   const id = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : 0;
   if (id < 1) {
-    throw new UsageError(`$LUSH_TASK_ID is not a task id: '${raw}'`
-      + ' (pass --parent-task-id explicitly, or unset it to create a root task)');
+    throw new UsageError(`$LUSH_TASK_ID is not a task id: '${raw}' (or pass --parent-task-id explicitly)`);
   }
   return { parent_task_id: id };
 }
@@ -25,9 +26,10 @@ function delegatingTask() {
  * The `task` command group: the work layer of Lush.
  *
  * A service is a passive node; a task is one piece of work mounted on it, and
- * it is what has an agent. `lush call SID '...'` creates the root task of a
- * collaboration; the tasks that root opens on its child services (with
- * `task_construct`) are how the work travels down the tree — `lush task tree`
+ * it is what has an agent. The root task of a collaboration is the *parse task*
+ * the intension queue dispatches on SID 0 (`lush intent submit`); the tasks it
+ * opens on its child services (with `task_construct`) are how the work travels
+ * down the tree — `lush task tree`
  * shows that tree.
  */
 export const taskGroup = {
@@ -39,7 +41,7 @@ export const taskGroup = {
     '等待与取消：wait 阻塞到某个 task 及其子树结束；cancel 取消一棵子树（连它的后代一起）。',
     '结束：complete 由 task 自己的 agent（或人）在目标达成时调用，result 存进 task；有未结束的子 task 时会被拒绝。',
     '任务创建后不会等待：先派子 task（或直接干），结束本轮后 task 会自动 park；子 task 结算或收到消息时以一条 user 消息唤醒 agent。',
-    '不覆盖：被动节点本身（建、启停、变量、删除）见 `lush service`；用户入口 `lush call` 是「在某个 service 上开一个根 task 并等它」。',
+    '不覆盖：被动节点本身（建、启停、变量、删除）见 `lush service`；用户输入见 `lush intent`（你的话先是一条 intension，由 SID 0 解析成 task）。',
   ],
   notes: [
     'task 的状态：created → running →（waiting | awaiting）→ completed / failed / cancelled。waiting 表示在等子 task（或等消息），awaiting 表示在等用户处理它上报的 notice；两者都是「agent 已让出本轮、不在跑」，有输入时会被唤醒（子 task 结算 / 消息 / 用户答复 notice）。',
@@ -134,7 +136,7 @@ export const taskGroup = {
       method: 'task.complete',
       summary: '把 task 标记为完成并写入 result',
       cover: [
-        '由 task 自己的 agent 调用（人的话通常用 `lush call` 等它结束，不需要手动 complete）。',
+        '由 task 自己的 agent 调用；人一般不需要手动 complete，`lush intent submit --wait` / `lush task wait` 会等到结果。',
         '有未结束的子 task 时被拒绝：先 `task wait` 它们，或 `task cancel` 不需要的。',
       ],
       usage: ['lush task complete TASK_ID [--result JSON]'],
@@ -155,7 +157,8 @@ export const taskGroup = {
       ],
       notes: [
         '同一个 service 同时只能有一个活动 task；该 service 正忙时派活会被拒绝。',
-        '要建根 task（用户直接开的活）用 `lush call SID GOAL --detach`；--parent-task-id 也可以显式覆盖 $LUSH_TASK_ID。',
+        '这是**向下游委托**的入口，所以父 task 必须有：用户直接提需求用 `lush intent submit`，由顶层解析器决定交给谁。',
+        '--parent-task-id 可以显式覆盖 $LUSH_TASK_ID（一般不用：agent 环境里两者相同）。',
       ],
       usage: ['lush task construct SID --goal GOAL [--parent-task-id TASK_ID]'],
       positionals: [['SID', '挂载 task 的 service SID']],
@@ -163,13 +166,17 @@ export const taskGroup = {
         '--goal': { arg: 'GOAL', desc: '要做什么（必填）', apply: (r, v) => { r.goal = v; } },
         '--parent-task-id': {
           arg: 'TASK_ID',
-          desc: '派活的父 task（缺省取 $LUSH_TASK_ID；都没有时创建根 task）',
+          desc: '派活的父 task（缺省取 $LUSH_TASK_ID，两者都没有时直接报错）',
           apply: (r, v) => { r.parent_task_id = intArg(v, '--parent-task-id'); },
         },
       },
       parse: (args) => ({ sid: intArg(args.shift(), 'sid'), ...delegatingTask() }),
       check: (r) => {
         if (!Object.hasOwn(r, 'goal')) throw new UsageError('the following arguments are required: --goal');
+        if (!Object.hasOwn(r, 'parent_task_id')) {
+          throw new UsageError('a parent task is required: pass --parent-task-id TASK_ID or set $LUSH_TASK_ID'
+            + ' (a user request is not a root task — submit it with `lush intent submit` instead)');
+        }
       },
     },
     message: {

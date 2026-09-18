@@ -6,7 +6,7 @@
  * `path` variable pins. In-service providers read `messages`; external backends
  * (pi) read the system prompt, the shared Lush guide, the runtime data and the
  * working directory. `describe` and `session` use the same builder as a real
- * run, so `--dry-run` and `session --open` cannot drift from what a task does.
+ * run, so the interactive handover and `session --open` cannot drift from what a task does.
  */
 import { LushError } from '../core/types.js';
 import { DEFAULT_AGENT_NAME } from './profiles.js';

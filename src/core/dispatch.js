@@ -45,9 +45,17 @@ export const PARAMS = {
   notice_post: { required: ['task_id', 'title'], optional: ['kind', 'body', 'fields', 'wait'] },
   notice_answer: { required: ['notice_id', 'answer'] },
   notice_dismiss: { required: ['notice_id'], optional: ['reason'] },
-  // the user-facing entry: a root task on a service
-  call: { required: ['sid', 'goal'], optional: ['detach', 'interactive'] },
-  call_describe: { required: ['sid', 'prompt'] },
+  // intensions: raw user input, parsed by the top-level node into work
+  intent_submit: { required: ['content'], optional: ['sid', 'source', 'wait', 'interactive'] },
+  intent_list: { required: [], optional: ['status', 'sid', 'open', 'limit'] },
+  intent_inspect: { required: ['intension_id'] },
+  intent_context: { required: [], optional: ['intension_id', 'from_task_id'] },
+  intent_settle: { required: ['status'], optional: ['response', 'reason', 'intension_id', 'from_task_id'] },
+  intent_defer: { required: ['blocked_by_task_id'], optional: ['reason', 'intension_id', 'from_task_id'] },
+  intent_withdraw: { required: ['intension_id'], optional: ['reason'] },
+  intent_wait: { required: ['intension_id'] },
+  // the interactive handover: a terminal ran the agent and reports back
+  // (`intent submit --interactive`)
   call_end: { required: ['task_id', 'call_id', 'status'], optional: ['output', 'error'] },
   call_os_pid: { required: ['task_id', 'call_id', 'os_pid'] },
 };

@@ -94,7 +94,7 @@ export class ContextBuilder {
   }
 
   /**
-   * The same view for a task that does not exist yet (`call --dry-run`): the
+   * The same view for a task that does not exist yet (the interactive handover): the
    * service, an empty task slot, and no conversation.
    */
   preview(service, goal, agentMode = this.agentMode) {

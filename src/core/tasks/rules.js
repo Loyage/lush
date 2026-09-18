@@ -5,6 +5,8 @@
  * The rules (they are what keeps a task tree well-formed):
  *
  * - one active task per service: a service runs at most one agent at a time;
+ * - a root task is created by the intension dispatcher alone, on the parsing
+ *   node (see `core/intensions.js`) — every other task is a child task of one;
  * - child tasks go to a *direct child service* of the parent task's service,
  *   so the task tree is always a tree;
  * - a terminal task has no active children: completing requires the children to
@@ -16,6 +18,7 @@
  */
 import { LushError, text, validSid } from '../types.js';
 import { validateTaskTransition } from '../lifecycle.js';
+import { INTENSION_NODE_SID } from '../intensions.js';
 import { activeChildren, isTerminal, requireTask, wake } from './internal.js';
 import { notifyChildSettled } from './messages.js';
 
@@ -26,18 +29,27 @@ export function delegateTargets(manager, taskId) {
 }
 
 /**
- * Create and start one task. `parentTaskId === null` is the user-facing root
- * task (created by `call`); otherwise the task is delegated to `sid`, which
- * must be a direct child service of the parent task's service.
+ * Create and start one task. `parentTaskId === null` is a root task, which only
+ * the intension dispatcher may create (`intensionId` is the row it is parsing);
+ * otherwise the task is delegated to `sid`, which must be a direct child
+ * service of the parent task's service.
  */
-export function construct(manager, { parentTaskId = null, sid, goal, start = true }) {
+export function construct(manager, { parentTaskId = null, sid, goal, start = true, intensionId = null }) {
   validSid(sid);
   text(goal, 'goal');
   if (manager.runtime === null) throw new LushError('AgentRuntime is not bound', -32020);
-  const target = manager.repository.get(sid);
-  if (target.status !== 'active') {
-    throw new LushError(`service ${sid} is ${target.status}, expected active`, -32009);
+  if (parentTaskId === null) {
+    // Root tasks are user input, and user input arrives as an intension: the
+    // only root task in Lush is the parse task the queue dispatches, always on
+    // the parsing node (`core/intensions.js`). Everything else delegates down.
+    if (intensionId === null) {
+      throw new LushError('root tasks are created only by the intension dispatcher (intent.submit)', -32010);
+    }
+    if (sid !== INTENSION_NODE_SID) {
+      throw new LushError(`root tasks live on the parsing node (SID ${INTENSION_NODE_SID}), not on service ${sid}`, -32010);
+    }
   }
+  requireActiveTarget(manager, sid);
   let parentTask = null;
   if (parentTaskId !== null) {
     parentTask = requireTask(manager, parentTaskId);
@@ -54,10 +66,7 @@ export function construct(manager, { parentTaskId = null, sid, goal, start = tru
       );
     }
   }
-  const busy = manager.repository.activeTaskOfService(sid);
-  if (busy !== null) {
-    throw new LushError(`service ${sid} is already working on task ${busy.id}`, -32010);
-  }
+  requireIdleTarget(manager, sid);
   const task = manager.repository.createTask(sid, parentTaskId, goal, {
     rootTaskId: parentTask === null ? 0 : parentTask.root_task_id,
   });
@@ -68,6 +77,43 @@ export function construct(manager, { parentTaskId = null, sid, goal, start = tru
   // (`call --interactive` opens the invocation from the terminal).
   if (start) manager.runtime.startTask(task.id);
   return task;
+}
+
+/**
+ * A root task on an arbitrary service, bypassing the rule above. **Internal**:
+ * only the tests and an embedding caller use it, and neither the RPC surface,
+ * the CLI nor the agent tools can reach it. Everything a *user* says goes
+ * through `intent.submit` → `core/intensions.js` → `drain`.
+ */
+export function constructRoot(manager, { sid, goal, start = true }) {
+  validSid(sid);
+  text(goal, 'goal');
+  if (manager.runtime === null) throw new LushError('AgentRuntime is not bound', -32020);
+  requireActiveTarget(manager, sid);
+  requireIdleTarget(manager, sid);
+  const task = manager.repository.createTask(sid, null, goal, { rootTaskId: 0 });
+  if (start) manager.runtime.startTask(task.id);
+  return task;
+}
+
+/** The target node takes work at all (`created` is only the instant of creation). */
+function requireActiveTarget(manager, sid) {
+  const target = manager.repository.get(sid);
+  if (target.status !== 'active') {
+    throw new LushError(`service ${sid} is ${target.status}, expected active`, -32009);
+  }
+  return target;
+}
+
+/**
+ * Nobody else is working on it: one task per service, the rule the whole
+ * intension queue leans on ("serial for free").
+ */
+function requireIdleTarget(manager, sid) {
+  const busy = manager.repository.activeTaskOfService(sid);
+  if (busy !== null) {
+    throw new LushError(`service ${sid} is already working on task ${busy.id}`, -32010);
+  }
 }
 
 /**
@@ -199,6 +245,11 @@ function finish(manager, task, status) {
   // The parent learns through the same inbox a message arrives in.
   notifyChildSettled(manager, task);
   manager.repository.taskEvent(task.id, 'settled', { task_id: task.id, status });
+  // The intension queue moves here, for two reasons at once: a parse task just
+  // decided the outcome of its row (completed → settled, otherwise → requeued),
+  // and the parsing node just became free (or a row was waiting behind this very
+  // task). See `core/intensions.js`.
+  manager.intensionAfterTaskSettled(task, status);
   wake(manager, task.id);
 }
 

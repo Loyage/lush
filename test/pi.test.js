@@ -99,7 +99,7 @@ describe('pi agent backend', () => {
   });
 
   test('a task run stores the pi final text', async () => {
-    const task = await manager.call(0, 'hello');
+    const task = await manager.callRoot(0, 'hello');
     expect(task.status).toBe('completed');
     expect(JSON.parse(task.result).sid).toBe('0');
     expect(JSON.parse(task.result).task).toBe(String(task.id));
@@ -114,7 +114,7 @@ describe('pi agent backend', () => {
     expect(project.inspect().context.state.params).toEqual({ path: real });
     const preview = await manager.callDescribe(project.sid, 'where?');
     expect(preview.cwd).toBe(real);
-    const first = await manager.call(project.sid, 'what is here?');
+    const first = await manager.callRoot(project.sid, 'what is here?');
     const payload = JSON.parse(first.result);
     expect(payload.cwd).toBe(real);
     expect(flagValue(payload.argv, '--name')).toBe('demo-project[1]#1');
@@ -125,7 +125,7 @@ describe('pi agent backend', () => {
     const devTask = manager.load(manager.construct(project.sid, 'dev-task', 'fix-login', undefined, { title: '修登录' }).sid);
     const worktree = manager.load(manager.construct(devTask.sid, 'worktree-service', 'fix-login', undefined, { path: real }).sid);
     expect((await manager.callDescribe(worktree.sid, 'where?')).cwd).toBe(real);
-    const done = await manager.call(worktree.sid, 'what is here?');
+    const done = await manager.callRoot(worktree.sid, 'what is here?');
     expect(JSON.parse(done.result).cwd).toBe(real);
     expect(flagValue(JSON.parse(done.result).argv, '--name')).toBe('fix-login[3]#2');
   });
@@ -152,7 +152,7 @@ describe('pi agent backend', () => {
     expect(manager.taskList()).toEqual([]);
     expect(runtime.isBusy(0)).toBe(false);
     // The real task then runs the same flags (only the session id differs).
-    const task = await manager.call(0, 'preview me');
+    const task = await manager.callRoot(0, 'preview me');
     const echoed = JSON.parse(task.result).argv;
     expect(echoed[echoed.indexOf('--session-id') + 1]).toBe(`lush-task-${task.id}`);
     expect(echoed.slice(1, echoed.indexOf('--session-id'))).toEqual(preview.argv.slice(1, preview.argv.indexOf('--session-id')));
@@ -214,7 +214,7 @@ describe('pi agent backend', () => {
     expect(manager.inspect(0).agent.status).toBe('busy');
     expect(manager.repository.taskCalls(task.id)[0]).toMatchObject({ status: 'running', prompt: 'help me please' });
     // One active task per service: a second one is refused while the terminal owns pi.
-    await expectRejection(manager.call(0, 'again'), /already working on task/);
+    await expectRejection(manager.callRoot(0, 'again'), /already working on task/);
 
     const settled = manager.callEnd(task.id, opened.call_id, 'succeeded');
     expect(settled).toEqual({ task_id: task.id, call_id: opened.call_id, settled: true, status: 'completed' });
@@ -228,7 +228,7 @@ describe('pi agent backend', () => {
     // A new task on the same service gets its own session.
     const next = await manager.callDescribe(0, 'hello');
     expect(flagValue(next.argv, '--session-id')).toBe('lush-task-preview');
-    const second = await manager.call(0, 'hello');
+    const second = await manager.callRoot(0, 'hello');
     expect(JSON.parse(second.result).argv[JSON.parse(second.result).argv.indexOf('--session-id') + 1])
       .toBe(`lush-task-${second.id}`);
   });
@@ -274,7 +274,7 @@ describe('pi agent backend', () => {
 
   test('agent space: per-task ids, live OS sids and the durable call behind it', async () => {
     const worker = manager.load(manager.construct(0, 'generic-task', 'worker').sid);
-    const first = await manager.call(worker.sid, 'first round');
+    const first = await manager.callRoot(worker.sid, 'first round');
     const interactive = manager.repository.createTask(worker.sid, null, 'interactive round');
     const opened = runtime.openInteractive(interactive.id);
     // Ids are per task: the first task used 1.1, this one starts at 2.1.
@@ -364,7 +364,7 @@ describe('pi agent backend', () => {
     expect(runtime.agentSummary(0)).toEqual({ provider: 'pi', running: 0, agents: [] });
 
     manager.cancelTask(task.id);
-    const done = await manager.call(0, 'hello');
+    const done = await manager.callRoot(0, 'hello');
     const [finished] = manager.agentsList(done.id, null, true);
     expect(finished).toMatchObject({
       id: `${done.id}.1`, sid: 0, name: 'lush', provider: 'pi', status: 'succeeded',

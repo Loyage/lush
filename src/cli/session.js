@@ -1,8 +1,9 @@
 /**
- * The commands that own the terminal: `call --interactive`, `task session
- * --open` and `task attach`. They hand stdio to pi (so a human can watch and
- * steer the same agent), while the daemon stays the authority on the task and
- * its call; the CLI settles the call back into it when pi exits.
+ * The commands that own the terminal: `intent submit --interactive` (the human
+ * is the parser for one input) and `task session --open` / `task attach`. They
+ * hand stdio to pi (so a human can watch and steer the same agent), while the
+ * daemon stays the authority on the task and its call; the CLI settles the call
+ * back into it when pi exits.
  */
 import cp from 'node:child_process';
 import path from 'node:path';
@@ -39,20 +40,18 @@ export async function openSession(client, taskId) {
 }
 
 /**
- * `lush call SID GOAL --interactive`: the daemon creates the root task and opens
- * its call (user message + busy), and this terminal runs the same pi session in
- * its TUI — the only difference from a plain call is that `--print` is missing,
- * so pi hands the terminal to the agent instead of answering once and exiting.
- * The daemon finishes or fails the task with whatever this service reports back.
+ * `lush intent submit CONTENT --interactive`: the daemon records the intension
+ * and creates its parse task *without starting it*; this terminal then runs that
+ * task's agent (the pi TUI), so the human is the parser for this one input. The
+ * daemon learns the outcome only when this terminal reports back — or, if the
+ * terminal never came back, when the hang timeout frees the slot.
  */
-export async function interactiveCall(client, args) {
-  const opened = await client.openInteractiveTask(args.sid, args.goal);
-  if (!Array.isArray(opened.argv)) {
-    throw new LushError(`agent ${opened.agent} runs in-service; there is no external agent to enter`);
-  }
+export async function interactiveIntension(client, args) {
+  const submitted = await client.submitInteractiveIntension(args.content, args.sid ?? null);
+  const opened = submitted.interactive;
   process.stderr.write(
-    `lush: entering ${opened.agent} for task #${opened.task_id} on sid ${opened.sid} `
-    + `(call ${opened.call_id}, agent ${opened.agent_id}); leave the TUI to settle it\n`,
+    `lush: intension #${submitted.intension.id} is yours to parse: entering ${opened.agent} `
+    + `for task #${opened.task_id} (call ${opened.call_id}, agent ${opened.agent_id}); leave the TUI to settle it\n`,
   );
   const [command, ...rest] = opened.argv;
   // Spawn instead of spawnSync: the agent space needs this process's OS PID

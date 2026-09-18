@@ -4,12 +4,12 @@
 
 ## 命令树
 
-命令树按层组织：顶层（`call` 是入口）→ 命令组（`daemon` / `service` / `task` / `notice` / `agent`）→ 命令 → 参数。任何一层都能问自己这一层是什么、下面有什么、每个子命令干什么：
+命令树按层组织：顶层 → 命令组（`intent` / `task` / `service` / `notice` / `daemon` / `agent`）→ 命令 → 参数。人的入口是 `lush intent submit`（你的话先是一条 intension，由 SID 0 解析成工作）。任何一层都能问自己这一层是什么、下面有什么、每个子命令干什么：
 
 ```bash
 lush help                      # 顶层：整体覆盖范围 + 命令组
-lush help task                 # 命令组：覆盖范围 + 子命令列表
-lush help call                 # 单个命令：覆盖范围、用法、位置参数、选项、约束
+lush help intent               # 命令组：覆盖范围 + 子命令列表
+lush help intent submit        # 单个命令：覆盖范围、用法、位置参数、选项、约束
 lush task help inspect         # 等价写法；`-h` / `--help` / `lush help task inspect` 同理
 lush --json help task          # 机器可读的命令树（summary/cover/usage/options/subcommands）
 ```
@@ -21,7 +21,14 @@ lush --json help task          # 机器可读的命令树（summary/cover/usage/
 
 | 命令（RPC） | 说明 |
 | --- | --- |
-| `lush call SID '<目标>' [--detach] [--interactive] [--dry-run]`（RPC `call` / `call.describe`） | 在 SID 上开一个根 task 并阻塞到它（及其整棵子树）结束；`--detach` 立刻返回 task 快照，`--interactive` 把它的 agent 交给你的终端 |
+| `lush intent submit '<原话>' [--sid SID] [--wait]`（RPC `intent.submit`） | **人的入口**：把你说的话记成一条 intension 交给 SID 0 解析；`--sid` 是"我希望它落在哪"的提示（可省略），`--wait` 阻塞到它结算 |
+| `lush intent list [--open] [--status S] [--sid SID\|none] [--limit N]`（RPC `intent.list`） | 你的输入：状态、原话、指定的 service、解析 task；`--open` 只看队列里的 |
+| `lush intent show INTENSION_ID`（RPC `intent.inspect`） | 一条输入的全部：原话、解析 task、resolution（派了哪些 task）、response（结论）、相关 notice |
+| `lush intent context [INTENSION_ID] [--from-task T]`（RPC `intent.context`） | 解析器视角的全局快照：这条输入 + 对目标的机械体检 + 模板树 + 服务树 + 队列与未决 notice |
+| `lush intent settle --status settled\|rejected [--response T] [--reason T] [INTENSION_ID]`（RPC `intent.settle`） | （解析器侧）给这条输入下结论；省略 id 时取 `$LUSH_TASK_ID` 找到它正在解析的那条 |
+| `lush intent defer --blocked-by TASK_ID [--reason T] [INTENSION_ID]`（RPC `intent.defer`） | （解析器侧）用户选了"排队等它结束"：输入回到队列，等那个 task 结算后重新解析 |
+| `lush intent withdraw INTENSION_ID [--reason T]`（RPC `intent.withdraw`） | 撤回还没开始解析的输入 |
+| `lush intent wait INTENSION_ID`（RPC `intent.wait`） | 阻塞到这条输入结算（settled / rejected） |
 | `lush task list [--sid P] [--status S] [--roots\|--children] [--limit N]`（RPC `task.list`） | task 列表（ID / SID / 父 task / status / goal / result）；status 含 `waiting`（等子 task）与 `awaiting`（等用户处理它上报的 notice） |
 | `lush task tree TASK_ID`（RPC `task.tree`） | 整棵协作树：每个节点一行 `#id service[sid] status · goal → result` |
 | `lush task trace TASK_ID [--limit N]`（RPC `task.trace`） | 调用链：该 task 子树里「派活 / 消息 / 结算」按时间排成的一行一步（双向消息都在），只保留最近的 N 步（默认 200） |
@@ -30,7 +37,7 @@ lush --json help task          # 机器可读的命令树（summary/cover/usage/
 | `lush task wait TASK_ID`（RPC `task.wait`） | 阻塞到该 task 进入终态 |
 | `lush task cancel TASK_ID`（RPC `task.cancel`） | 取消 task 及其整棵子树（中断正在跑的 agent） |
 | `lush task complete TASK_ID [--result JSON]`（RPC `task.complete`） | 目标达成时结束 task 并写入 result |
-| `lush task construct SID --goal G [--parent-task-id T]`（RPC `task.construct`） | 直接派一个 task（agent 的工具 `task_construct` 的命令行等价物）；父 task 缺省取 `$LUSH_TASK_ID`（agent 里就是它自己），都没有时创建的是根 task——根 task 的正规入口是 `lush call SID GOAL --detach` |
+| `lush task construct SID --goal G [--parent-task-id T]`（RPC `task.construct`） | 向下游派一个子 task（agent 的工具 `task_construct` 的命令行等价物）；父 task 缺省取 `$LUSH_TASK_ID`（agent 里就是它自己），**两者都没有会报用法错误**——根 task 只有 intension 队列能创建（`lush intent submit`） |
 | `lush task update-state TASK_ID --patch JSON`（RPC `task.update_state`） | 合并这个 task 的草稿 state |
 | `lush task history TASK_ID [--after ID] [--limit N]`（RPC `task.history`） | 该 task 自己的对话 |
 | `lush task session TASK_ID [--open]`（RPC `task.session`） | 该 task agent 的磁盘会话；`--open` / `lush task attach` 进入 pi TUI |
@@ -63,6 +70,12 @@ bun run construct 1 generic-task implement-login '实现登录功能'
 bun run construct 1 generic-task x '' '' demo-agent   # 第 6 个参数是该服务使用的 agent profile
 bun run construct 1 project my-repo '' '{"path":"/abs/repo"}'   # project 必须给变量 path（绝对路径，同时是 cwd）
 bun run construct 1 dev-task fix-login '修好登录' '' '' '修复登录流程' '任务详情正文'   # dev-task：name（就是 --name）+ title + detail（第 6、7 个参数）
+
+bun run intent '给某条项目加一点东西'    # 提交一条 intension 并等它结算（人的入口）
+bun run intent '这句话我指定目标' 11     # 同上，并把目标 service 告诉解析器
+bun run intent-now '先记下来，不等'      # 只提交，立刻返回
+bun run intents open                   # 队列：状态、原话、解析 task
+bun run intent-show 3 | bun run intent-context 3
 bun run call 2 '请介绍一下你自己'          # 在 SID 2 上开一个根 task 并等它结束
 bun run call 2 'hi' dry                  # 只打印将执行的命令（pi 命令行），不真的调用 agent
 bun run detach 2 '慢慢做的事'             # 只建 task，随后 bun run tasks / bun run wait 1 观察
@@ -88,7 +101,7 @@ bun run daemon-stop     # 或 bun run daemon-restart（保留服务树与历史�
 bun run prune           # 列出并清理残留 daemon（home 已消失的孤儿）；bun run prune all 连临时 home 一起清
 bun run log             # tail $LUSH_HOME/daemon.log
 bun run clean           # 停 daemon 并删除仓库内的 .lush
-bun run reset yes       # 推倒重来：清空当前 home 的整棵服务树（只剩 SID 0）再重启它的 daemon（不可逆，默认要输 yes）
+bun run reset yes       # 推倒重来：撤回队列里未处理的输入 + 清空服务树（只剩 SID 0）再重启 daemon（不可逆，默认要输 yes）
 ```
 
 `bun run` 的这些入口默认把开发数据放在仓库内的 `.lush/`（已 gitignore），不碰你日常的 `~/.local/state/lush`；用 `LUSH_HOME` 可覆盖（此时 `bun run clean` 只提示、不删除仓库外的目录）。`lush` / `lushd` 两个 script 保持原样（`bun run bin/lush` / `bun run bin/lushd`），不带默认 `LUSH_HOME`。Web UI 的界面与 HTTP 接口见 [用户界面](./ui.md)。
@@ -98,11 +111,13 @@ bun run reset yes       # 推倒重来：清空当前 home 的整棵服务树（
 
 `bun run` 的这些入口默认把开发数据放在仓库内的 `.lush/`（已 gitignore），不碰你日常的 `~/.local/state/lush`；用 `LUSH_HOME` 可覆盖（此时 `bun run clean` 只提示、不删除仓库外的目录）。
 
-`bun run clean` 删的是**数据目录**（连历史一起没），`bun run reset` 删的是**服务树**（daemon、`agents/`、`daemon.log` 都保留，只把每个服务连同它的 Context / 消息 / 调用 / 事件递归 purge 掉）。两者都只作用于当前的 `LUSH_HOME`：别的 home 的 daemon 不会被碰，也不会被重启。
+`bun run clean` 删的是**数据目录**（连历史一起没），`bun run reset` 删的是**服务树加未处理的输入**（daemon、`agents/`、`daemon.log` 都保留：先把队列里的 intension 逐条撤回，再把每个服务连同它的 Context / 消息 / 调用 / 事件递归 purge 掉）。两者都只作用于当前的 `LUSH_HOME`：别的 home 的 daemon 不会被碰，也不会被重启。
 
-## 交互式与 dry-run
+## 亲自当解析器：--interactive
 
-想「发起一次工作，同时自己也在场」，用 `lush call SID 'GOAL' --interactive`（简写 `-i`）：daemon 先建一个 `created` 状态的 task（写 user message、拦住并发），但 agent 不跑 `pi --print`，而是在你这个终端里跑同 cwd、同 session、同身份的 pi TUI，GOAL 作为 TUI 的首条消息；你在里面看它干活、直接插话，退出 TUI 后 CLI 把结果报回 daemon：成功把 task 记为 completed，失败记为 failed。只适用于外部 agent（`pi`）：内置运行时的 agent 跑在 Lush 服务内，没有可进入的终端，会报错。这次调用只有 prompt 落在 `agent_calls`，回复留在 pi 会话里；期间 `task cancel` 只能把它标记为 interrupted，不会关掉你终端里的 pi。
+`lush intent submit '<原话>' --interactive`（简写 `-i`）把这条输入的**解析 task** 交给你：daemon 记下输入、在 SID 0 上建一个 `created` 状态的 task（不启动），然后在这个终端里跑同 cwd、同 session、同身份的 pi TUI，原话就是 TUI 的首条消息。你在里面看解析器怎么读全局、怎么判断，也可以自己动手把它安排掉；退出 TUI 后 CLI 把结果报回 daemon（成功 → task completed，**这条输入随之结算**——人手报的成功是结论，即使他没留下文字（`response` 为空），输入也不会被再解析一遍；失败 → failed → 输入回到队列重试）。只适用于外部 agent（`pi`）：内置运行时的 agent 跑在 Lush 服务内，没有可进入的终端，会在开跑之前就报错（不会留下半截的 task）。`--interactive` 与 `--wait` 互斥。
 
-想先看一次 call 会执行什么，用 `--dry-run`：不建 task、不调用 agent、不写历史，只打印那行命令（`cd <cwd> && LUSH_HOME=... LUSH_SID=... LUSH_TASK_ID=... pi --print ... '<goal>'`），可以直接粘到 shell 里重放；`--json` 则给出 `executable` / `argv` / `command` / `cwd` / `env`。内置运行时没有外部命令，返回 `command: null` 与将要发送的消息条数。
+想只是**看**某个 task 的 agent 干活（不新建输入），用 `lush task session TASK_ID --open`（等价 `lush task attach TASK_ID`）。
+
+要看某个 agent 真正会跑的 argv，用 `lush agent inspect <name>`（profile 层面的预览）或 `lush task session TASK_ID --json` 里的 argv 字段。
 

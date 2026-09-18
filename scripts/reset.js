@@ -6,6 +6,11 @@
  * `agents/` and `daemon.log` survive, so this is "same data, new tree". It only
  * ever touches the daemon answering for the current LUSH_HOME.
  *
+ * The intension queue is cleared first: those rows are user input, not the tree,
+ * but an input still waiting to be parsed would be picked up right after the
+ * restart and could rebuild what this script just threw away — "推倒重来" has to
+ * mean the whole picture, not the tree alone.
+ *
  * Without an argument it asks for `yes` on stdin; pass `yes` (or `y`, `--yes`,
  * `-y`, `all`) to skip the confirmation. A failed purge makes the script exit 1.
  */
@@ -36,6 +41,27 @@ async function confirmed(prompt) {
 
 function lines(text) {
   return text.split('\n').filter((line) => line !== '');
+}
+
+/**
+ * Withdraw every input still in the queue so the daemon that comes back has
+ * nothing to re-parse. Returns how many rows were withdrawn.
+ */
+function clearQueue() {
+  const listed = captureLush(['intent', 'list', '--open', '--json']);
+  let rows;
+  try {
+    rows = JSON.parse(listed.out);
+  } catch {
+    return 0;
+  }
+  let withdrawn = 0;
+  for (const row of rows) {
+    const done = captureLush(['intent', 'withdraw', String(row.id), '--reason', 'reset']);
+    if (done.code === 0) withdrawn += 1;
+    else process.stderr.write(`撤不回 intension #${row.id}：${done.err.trim()}\n`);
+  }
+  return withdrawn;
 }
 
 export async function reset(args = []) {
@@ -74,6 +100,9 @@ export async function reset(args = []) {
       return 1;
     }
   }
+
+  const withdrawn = clearQueue();
+  if (withdrawn > 0) process.stdout.write(`已撤回队列里 ${withdrawn} 条未处理的输入\n`);
 
   let failed = 0;
   for (const sid of sids) {

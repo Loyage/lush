@@ -2,23 +2,29 @@
 
 > 概念层：Lush 里有什么、它们的不变量是什么。接口细节见 [reference/](../reference/)（命令、RPC、模板字段），模块划分见 [engineering/architecture.md](../engineering/architecture.md)。
 
-Lush 里只有两类东西：
+Lush 里有两类**实体**（Service / Task）和一种**输入**（Intension）：
 
 - **Service** 是被动的节点：身份（模板的 `system_prompt`）、父子关系、变量、持久 state、权限（能创建哪些子模板）。它自己**不会运行任何 agent**，平时只保存状态；节点本身也没有「完成」这回事。
-- **Task** 是一次工作，挂在某个 service 上。只有 task 有自己的 agent、自己的会话、自己的 result。用户在一个 service 上 `call` 就创建了一个 **根 task**；这个 task 的 agent 要干活，就向自己的**下游**（子 service）派**子 task**，于是形成一棵 task 树——`lush task tree` 看到的就是「一件事如何在服务之间协作做完」。
+- **Task** 是一次工作，挂在某个 service 上。只有 task 有自己的 agent、自己的会话、自己的 result。
+- **Intension** 是**用户输入**：人说的话（逐字）+ 他想落在哪个 service（可选提示）+ 处理到哪一步。它是 Lush 唯一的入口，见 [intensions.md](./intensions.md)。
+
+人说完一句话，SID 0 上的解析 task 把它变成工作：那一条输入要么被直接回答，要么被派给下游节点。派出去的活再向**下游**（子 service）派**子 task**，于是形成一棵 task 树——`lush task tree` 看到的就是「一件事如何在服务之间协作做完」。
 
 ```text
-lush call 2 '实现登录'         → task #1 挂在 implement-login[2]
-  task #1 的 agent（在 [2]）派活
-    └── task #2 挂在 dev-task[3]        （[3] 是 [2] 的子服务）
-          └── task #3 挂在 worktree-service[4] （真正动手改代码的叶子）
+lush intent submit '实现登录' --sid 2      → intension #1（status=parsing）
+  SID 0 上的解析 task #1 判断后派活
+    └── task #2 挂在 implement-login[2]
+          └── task #3 挂在 dev-task[3]        （[3] 是 [2] 的子服务）
+                └── task #4 挂在 worktree-service[4] （真正动手改代码的叶子）
 ```
+
+根 task 只有一种：解析 task。其他所有 task 都是某个 task 的子 task——这条规则保证 task 树永远从一条用户输入开始生长。
 
 ## Service（被动节点）
 
 字段：`sid`、`parent_sid`、`original_parent_sid`、`children`（反查）、`status`、`name`、`goal`、`template` 快照、`variables`（值 + 模板声明）、`context`（system_prompt / state / artifacts / references）。
 
-- `ServiceManager.load(sid)` 返回轻量句柄 `Service`：`inspect()`、`getParent()`、`getChildren()`、`createChild(template, {...})`、`call(goal)`（= 在它上面开一个根 task）。
+- `ServiceManager.load(sid)` 返回轻量句柄 `Service`：`inspect()`、`getParent()`、`getChildren()`、`createChild(template, {...})`、`say(content)`（= 以这个 SID 为目标提交一条 intension，走和 CLI 一样的入口）。
 - 生命周期只有三态：
 
 ```text
@@ -30,7 +36,7 @@ created → active ⇄ stopped
   - `start`：`stopped` / `created` → `active`；重启不会自动取回已被收养的子节点。
   - `delete` / `purge` 见下节「删除」。
 - **权限**：创建子服务的模板必须来自该服务创建时快照的 `child_templates`（`*` 表示全部）。这是唯一的能力边界，和 task 无关。
-- **SID 0**（`lush-root`，`singleton`）是入口、路由器与孤儿管理者；它只能创建 `project-manager`，不能 stop / delete / purge，其生命周期由 daemon 管理。
+- **SID 0**（`lush-root`，`singleton`）是**用户输入的唯一入口与解析器**，也是孤儿管理者：它只能创建 `project-manager`，不能 stop / delete / purge，其生命周期由 daemon 管理。它的 system_prompt 是解析协议（见 [intensions.md](./intensions.md) 与 `templates/lush-root/system_prompt.md`）。
 
 ## Task（工作单元）
 
@@ -40,15 +46,16 @@ created → active ⇄ stopped
 created → running ⇄ waiting | awaiting → completed / failed / cancelled
 ```
 
-- `created`：行已建、agent 还没开始（交互式交接会停在这里）。
+- `created`：行已建、agent 还没开始（`lush intent submit --interactive` 会把解析 task 停在这里，交给你终端里的 pi）。
 - `running`：它的 agent 正在跑（一次 invocation）。
 - `waiting`：task 已让出本次运行，agent 不在跑——它在等子 task 或等输入（父 / 子 task 的消息）；有东西进收件箱时被唤醒。
-- `awaiting`：同样的“让出本次运行”，但它在等**用户**：它上报了一条 `wait: true` 的 notice，回答还没回来。状态从 notice 推得（`notices.status='open' AND wait=1`），所以“这个 task 还在跑吗”不能只看 agent——还有它欠着的 notice。
+- `awaiting`：同样的“让出本次运行”，但它在等**用户**：它上报了一条 `wait: true` 的 notice，回答还没回来（解析器报告输入冲突时也走这条路）。状态从 notice 推得（`notices.status='open' AND wait=1`），所以“这个 task 还在跑吗”不能只看 agent——还有它欠着的 notice。
 - `completed` / `failed` / `cancelled`：终态。
 
 规则（这些规则保证 task 树始终是一棵可观察的树）：
 
-1. **一个 service 同时只有一个活动 task**：service 是单线程的工作台。下游正忙时 `task_construct` 会被拒绝；先结束本轮等它（子结算会唤醒你），或换一个下游节点。所以**并行的正确表达方式是「一批活拆成多件、每件一个子 service」，而不是在一个节点上并发多个 task**——并发度是服务树给的。project 节点因此把「等人答复」挪出节点占用：阶段 1 只报结果、用 `wait: false` 的 notice（纯记录，不占用节点），阶段 2 才由用户的答复触发；而默认的 `wait: true` notice 会把那个 task 停在 `awaiting`，在用户处理前它一直占着这个节点。
+0. **根 task 只有一种**：intension 队列在 SID 0 上派发的解析 task。用户不直接创建 task——他说一句话，由解析器决定变成什么；`task_construct` 必须带父 task，只能向下游委托。
+1. **一个 service 同时只有一个活动 task**：service 是单线程的工作台。下游正忙时 `task_construct` 会被拒绝；先结束本轮等它（子结算会唤醒你），或换一个下游节点。所以**并行的正确表达方式是「一批活拆成多件、每件一个子 service」，而不是在一个节点上并发多个 task**——并发度是服务树给的。project 节点因此把「等人答复」挪出节点占用：阶段 1 只报结果、用 `wait: false` 的 notice（纯记录，不占用节点），阶段 2 才由用户的答复触发；而默认的 `wait: true` notice 会把那个 task 停在 `awaiting`，在用户处理前它一直占着这个节点。同一条规则也让 intension 队列天然串行：解析 task 占着 SID 0 时，后面的输入都在 `queued`。
 2. **子 task 只能挂在自己的直接子 service 上**：task 树因此永远沿 service 树向下生长，不会成环；消息也只能走直接父子边，所以通话关系同样不会成环。
 3. **终态 task 没有活动子 task**：`complete` 要求子 task 都已结束且收件箱没有未读消息（否则报错）；`fail` / `cancel` 会把整棵子树一起取消。
 4. **阻塞在 task 上，不在 agent 里**：agent 的工具里没有“等待”原语。结束一輪 invocation 后，task 层决定“投递队列里 的输入 / park 等输入（waiting 等子 task、awaiting 等用户的 notice）/ 完成”。
@@ -61,7 +68,7 @@ created → running ⇄ waiting | awaiting → completed / failed / cancelled
 - 一个 task 最多被 invoke `LUSH_TASK_CALLS` 次（默认 12）：首次运行 + 每次被唤醒（子 task 结算、收到消息）。超了就把 task 记为 `failed`，避免无限自旋。
 - 一輪 invocation 结束后 task 层按顺序判断：收件箱有未读输入 → 合成一条 user 消息（`[Lush] 你有新的输入：…`）重新 invoke；无输入但还欠着什么 → 置 `waiting`（子 task 还没结算）或 `awaiting`（自己上报的 `wait` notice 还没被处理）、等输入再唤醒；都没 → 本次回答就是 result。park 期间不吃调用超时。
 - 收件箱（`task_inbox`）里的输入有三种：直接父 / 子 task 发来的消息（`task_message`）、“某个子 task 已结算”的报告（`child_settled`），以及“用户处理了我上报的 notice”（`notice_settled`，见下节）；**都不打断正在跑的 invocation**，在两次 invocation 之间才交给 agent。
-- provider 失败、调用超时、轮数用尽 → task `failed`（`error` 里是原因）；daemon 重启时未结束的 task 记为 `failed`（`error = daemon restarted`），不会自动重放。
+- provider 失败、调用超时、轮数用尽 → task `failed`（`error` 里是原因）；daemon 重启时未结束的 task 记为 `failed`（`error = daemon restarted`），不会自动重放。**解析 task 是例外**：它失败/被取消时，它手上那条 intension 会回到队列重试（`attempts` 上限 3 次），所以用户输入不会因为一次解析翻车就丢。daemon 重启时留在 `parsing` / `awaiting` 的行也是这样被回收的。
 
 ### 任务之间：持续通话（task_inbox）
 
@@ -86,7 +93,7 @@ created → running ⇄ waiting | awaiting → completed / failed / cancelled
 
 ### Notice（task 找人的渠道）
 
-Task 的下游是子 service，但有些事情没有下游——自己处理不了、只有人能决定，或结果必须交给用户。这时 agent 用 `notice` 上报：
+Task 的下游是子 service，但有些事情没有下游——自己处理不了、只有人能决定，或结果必须交给用户。这时 agent 用 `notice` 上报（**解析器**报告输入冲突/需要选择时走的是同一条路，上报的 notice 会带上 `intension_id`）：
 
 - 一条 notice 记录**汇报者身份**（`task_id` + 它所在 service）、`kind`（`report` / `decision` / `blocked`）、`title` / `body`，以及它声明要用户填的 `fields` 表单；用户填的那份存在 `answer` 里。
 - 上报**不阻塞**：`notice` 工具 / `notice.post` 立即返回新建的 notice。`wait: true`（默认）的含义是“把它挂靠到汇报者身上”——汇报者本轮结束后进入 **`awaiting`**，用户 `answer` / `dismiss` 时，task 层向它的收件箱写一条 `notice_settled` 并把答复（或 `dismiss` 的 note）作为它的下一次输入送回去；`wait: false` 是纯记录：不改变 task 状态，也不会有答复回来（适合不需要回复的结果汇报）。
@@ -95,5 +102,6 @@ Task 的下游是子 service，但有些事情没有下游——自己处理不�
 
 ## 相关文档
 
+入口那一层（intension 与解析）见 [intensions.md](./intensions.md)。
 每个 task 有自己的 agent 后端与 Context；见 [agents.md](./agents.md)。
 孤儿收养、监督与删除见 [lifecycle-and-orphans.md](./lifecycle-and-orphans.md)；命令总览见 [reference/cli.md](../reference/cli.md)。

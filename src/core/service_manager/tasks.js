@@ -15,12 +15,22 @@ import * as tasks from '../tasks.js';
 
 export const taskLayer = {
   /**
-   * Create one task: `parentTaskId === null` for a user-facing root. `start`
+   * Create one task: `parentTaskId === null` for a **parse** task, which only
+   * the intension dispatcher may ask for (see `core/intensions.js`). `start`
    * is false only for an interactive handover, where the caller's terminal
    * runs the agent.
    */
-  constructTask(parentTaskId, sid, goal, start = true) {
-    return tasks.construct(this, { parentTaskId, sid, goal, start });
+  constructTask(parentTaskId, sid, goal, start = true, intensionId = null) {
+    return tasks.construct(this, { parentTaskId, sid, goal, start, intensionId });
+  },
+
+  /**
+   * **Internal**: a root task on any service, bypassing the intension queue.
+   * The tests and an embedding caller are the only users — `call.root` is not a
+   * wire method, and the CLI, Web UI and agent tools cannot reach it.
+   */
+  constructRootTask(sid, goal, start = true) {
+    return tasks.constructRoot(this, { sid, goal, start });
   },
 
   /** Is this task row still able to run (created / running / waiting / awaiting)? */
@@ -30,7 +40,12 @@ export const taskLayer = {
 
   /** `created → running`, or back to running after a wait. */
   taskRunning(taskId) {
-    return tasks.start(this, taskId);
+    const task = tasks.start(this, taskId);
+    // A parse task parked on a conflict notice is running again, and so is the
+    // intension it holds: the row cannot be `awaiting` while its parser works
+    // (`core/intensions.js`). One indexed lookup for every other task.
+    this.intensionResumeFromTask(task.id);
+    return task;
   },
 
   /**

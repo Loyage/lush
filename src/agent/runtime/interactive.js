@@ -19,10 +19,23 @@ const log = createLogger('lush.agent.runtime');
 
 export const interactive = {
   /**
+   * Can this node's agent be handed to somebody else's terminal at all? Asked
+   * *before* a task is created, so a provider without a handover leaves nothing
+   * behind (`intent submit --interactive`). Returns the provider it resolved.
+   */
+  interactiveSupport(sid) {
+    const provider = this.providerFor(sid);
+    if (typeof provider.interactiveArgs !== 'function') {
+      throw new LushError(`agent ${provider.name} runs in-service; there is no external agent to enter`, -32020);
+    }
+    return provider;
+  },
+
+  /**
    * Open a task whose agent runs in the caller's terminal instead of the
-   * daemon (`call --interactive`): the same guards and the same call row, but
-   * the caller receives the interactive argv and settles it with
-   * `settleInteractive`. Only external agents (pi) have a command to hand over.
+   * daemon: the same guards and the same call row, but the caller receives the
+   * interactive argv and settles it with `settleInteractive`. Only external
+   * agents (pi) have a command to hand over.
    */
   openInteractive(taskId) {
     if (this.closing) throw new LushError('runtime is shutting down', -32021);
@@ -33,10 +46,7 @@ export const interactive = {
     if (task.status !== 'created') {
       throw new LushError(`task ${taskId} is ${task.status}, expected created`, -32009);
     }
-    const provider = this.providerFor(task.sid);
-    if (typeof provider.interactiveArgs !== 'function') {
-      throw new LushError(`agent ${provider.name} runs in-service; there is no external agent to enter`, -32020);
-    }
+    const provider = this.interactiveSupport(task.sid);
     const context = this.builder.build(task, null, provider.contextMode);
     const invocation = buildInvocation(this, task, null, task.goal, context);
     // Build the argv before opening the call: a rejected invocation must not leave a running row.
@@ -122,8 +132,15 @@ export const interactive = {
     // turn to be delivered in; drop it rather than let the completion guard
     // reject a call the user already finished.
     this.manager.takeTaskInput(taskId);
-    if (status === 'succeeded') this.manager.settleTaskFromAnswer(taskId, output ?? '');
-    else this.manager.failTask(taskId, error ?? 'interactive invocation failed');
+    if (status === 'succeeded') {
+      // A terminal that reports success is a *human's* verdict: close the
+      // intension it was parsing first, so an empty report is not mistaken for
+      // an unfinished parse (which would queue the input up again behind them).
+      this.manager.intensionHandedOver(taskId, output ?? null);
+      this.manager.settleTaskFromAnswer(taskId, output ?? '');
+    } else {
+      this.manager.failTask(taskId, error ?? 'interactive invocation failed');
+    }
     return true;
   },
 };

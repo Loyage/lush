@@ -11,6 +11,7 @@
 import { LushError, jsonDump, now, validSid } from '../../core/types.js';
 import { ACTIVE_TASK_STATUS } from '../../core/lifecycle.js';
 import { dismissOpenNoticesOfTasks } from '../repository_notices.js';
+import { requeueParsingIntensions } from '../repository_intensions.js';
 import * as tasks from '../repository_tasks.js';
 
 export const rows = {
@@ -191,7 +192,8 @@ export const rows = {
    * A restarted daemon must not inherit work it cannot vouch for: dangling
    * calls become interrupted, every still-active task (`created` / `running` /
    * `waiting` / `awaiting`) becomes `failed` — its agent is gone, and a parked
-   * one would otherwise wait forever — and SID 0 goes back to active.
+   * one would otherwise wait forever — and SID 0 goes back to active. The
+   * intensions those tasks were parsing are requeued in the same breath.
    */
   recover() {
     this.database.transaction(() => {
@@ -208,6 +210,10 @@ export const rows = {
       // the same way a dying task does, so the user's inbox does not keep a
       // "等待答复" marker for a task that is already failed.
       dismissOpenNoticesOfTasks(this, abandoned.map((row) => row.id), 'daemon restarted');
+      // The same is true of the intensions those tasks were parsing: they go
+      // back to the queue, where the next daemon's drain picks them up, instead
+      // of waiting forever behind a task that is already failed.
+      requeueParsingIntensions(this, 'daemon restarted');
       if (this.exists(0)) {
         this.db.run("UPDATE services SET status='active',updated_at=? WHERE sid=0", [now()]);
         this.event(0, 'daemon_started', {});

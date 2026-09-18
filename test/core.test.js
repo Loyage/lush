@@ -77,7 +77,7 @@ describe('core', () => {
 
   test('call creates a root task, runs it and returns its result', async () => {
     const sid = worker();
-    const task = await manager.call(sid, 'do the thing');
+    const task = await manager.callRoot(sid, 'do the thing');
     expect(task).toMatchObject({ sid, status: 'completed', parent_task_id: null });
     expect(task.root_task_id).toBe(task.id);
     expect(String(task.result)).toContain('[Mock]');
@@ -92,7 +92,7 @@ describe('core', () => {
 
   test('detached call returns the task while it still runs', async () => {
     const sid = worker();
-    const task = await manager.call(sid, 'do the thing', true);
+    const task = await manager.callRoot(sid, 'do the thing', true);
     expect(task.status === 'running' || task.status === 'created' || task.status === 'completed').toBe(true);
     const settled = await manager.taskWait(task.id);
     expect(settled.status).toBe('completed');
@@ -101,10 +101,10 @@ describe('core', () => {
   test('one service runs at most one task at a time', async () => {
     const sid = worker();
     const first = manager.repository.createTask(sid, null, 'first');
-    expect(() => manager.constructTask(null, sid, 'second')).toThrow(/already working on task/);
+    expect(() => manager.constructRootTask(sid, 'second')).toThrow(/already working on task/);
     manager.cancelTask(first.id);
     // Once the first one is finished the service is free again.
-    const second = await manager.call(sid, 'second');
+    const second = await manager.callRoot(sid, 'second');
     expect(second.id).not.toBe(first.id);
   });
 
@@ -136,7 +136,7 @@ describe('core', () => {
     try {
       const parent = built.manager.construct(0, 'generic-service', 'pm');
       const child = built.manager.construct(parent.sid, 'generic-task', 'kid');
-      const task = await built.manager.call(parent.sid, '把这活派给下游');
+      const task = await built.manager.callRoot(parent.sid, '把这活派给下游');
       expect(task.status).toBe('completed');
       const children = built.manager.taskList(null, null, 'children');
       expect(children).toHaveLength(1);
@@ -160,7 +160,7 @@ describe('core', () => {
   test('task completion waits for the children, and terminating cascades', async () => {
     const parent = construct(0, 'generic-service', 'parent');
     const child = construct(parent.sid, 'generic-task', 'child');
-    const task = manager.constructTask(null, parent.sid, 'parent work');
+    const task = manager.constructRootTask(parent.sid, 'parent work');
     // Parked on purpose: a child task that is still active, without an agent.
     const sub = manager.repository.createTask(child.sid, task.id, 'child work', { rootTaskId: task.id });
 
@@ -198,7 +198,7 @@ describe('core', () => {
 
   test('tasks can be listed, inspected and deleted', async () => {
     const sid = worker();
-    const task = await manager.call(sid, 'do the thing');
+    const task = await manager.callRoot(sid, 'do the thing');
     expect(manager.taskList(null, 'completed').map((row) => row.id)).toContain(task.id);
     expect(manager.taskList(null, null, 'roots').map((row) => row.id)).toContain(task.id);
     expect(code(() => manager.taskList(null, 'nope'))).toBe(-32602);
@@ -234,11 +234,11 @@ describe('core', () => {
     manager.stop(sid);
     expect(manager.inspect(sid).status).toBe('stopped');
     manager.stop(sid); // idempotent
-    expect(code(() => manager.constructTask(null, sid, 'work'))).toBe(-32009);
+    expect(code(() => manager.constructRootTask(sid, 'work'))).toBe(-32009);
     expect(code(() => manager.start(sid))).toBeNull();
     expect(manager.inspect(sid).status).toBe('active');
 
-    const task = manager.constructTask(null, sid, 'work');
+    const task = manager.constructRootTask(sid, 'work');
     expect(() => manager.stop(sid)).toThrow(/working on task/);
     manager.cancelTask(task.id);
     manager.stop(sid);
@@ -267,7 +267,7 @@ describe('core', () => {
     const parent = construct(0, 'generic-service', 'parent');
     const child = construct(parent.sid, 'generic-service', 'child');
     const grandchild = construct(child.sid, 'generic-task', 'grandchild');
-    const task = await manager.call(grandchild.sid, 'work');
+    const task = await manager.callRoot(grandchild.sid, 'work');
     manager.updateState(child.sid, { progress: 'half' });
     // Stop the leaf first: stopping `child` would hand its *active* children to
     // SID 0, and then they would not be part of the deleted subtree.
@@ -302,7 +302,7 @@ describe('core', () => {
     expect(() => manager.purge(parent.sid)).toThrow(/has children/);
 
     // A task still running on the service is refused too, and purge cancels it.
-    const task = manager.constructTask(null, running.sid, 'work');
+    const task = manager.constructRootTask(running.sid, 'work');
     expect(() => manager.delete(running.sid)).toThrow(/task .* is (created|running|waiting)/);
     const purged = manager.purge(running.sid);
     expect(purged.cancelled).toEqual([task.id]);
@@ -506,7 +506,7 @@ describe('core', () => {
 
   test('context advertises child templates, the task, and no type', async () => {
     const parent = construct(0, 'generic-task', 'parent');
-    const task = manager.constructTask(null, parent.sid, 'who can you create?');
+    const task = manager.constructRootTask(parent.sid, 'who can you create?');
     const built = new ContextBuilder(manager.repository, manager.templates).build(manager.repository.getTask(task.id), null);
     const data = built.data;
     expect(data.child_templates).toEqual(['*']);
@@ -520,7 +520,7 @@ describe('core', () => {
 
     // A project is told what a dev-task needs.
     const project = construct(0, 'project', 'demo', undefined, { path: dir });
-    const projectTask = manager.constructTask(null, project.sid, 'split me');
+    const projectTask = manager.constructRootTask(project.sid, 'split me');
     const devTask = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(projectTask.id), null).data.available_child_templates
       .find((item) => item.name === 'dev-task');
@@ -546,7 +546,7 @@ describe('core', () => {
       }
     }
     const project = construct(0, 'project', 'demo', undefined, { path: dir });
-    const projectTask = manager.constructTask(null, project.sid, 'order');
+    const projectTask = manager.constructRootTask(project.sid, 'order');
     const names = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(projectTask.id), null).data.available_child_templates.map((item) => item.name);
     expect(names).toEqual(['dev-task']);
@@ -555,7 +555,7 @@ describe('core', () => {
 
   test('available child templates hide a singleton that is already taken', () => {
     const names = (sid) => {
-      const task = manager.constructTask(null, sid, 'names');
+      const task = manager.constructRootTask(sid, 'names');
       const list = new ContextBuilder(manager.repository, manager.templates)
         .build(manager.repository.getTask(task.id), null).data.available_child_templates.map((item) => item.name);
       manager.cancelTask(task.id);
@@ -591,7 +591,7 @@ describe('core', () => {
     expect(view.call_prompt).toBe(manager.templates.get('generic-task').system_prompt);
     // `templates` is the very list the node's own agent sees in Context, so the
     // two read paths cannot drift.
-    const task = manager.constructTask(null, child.sid, 'view');
+    const task = manager.constructRootTask(child.sid, 'view');
     const context = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(task.id), null).data.available_child_templates;
     manager.cancelTask(task.id);
@@ -802,25 +802,31 @@ describe('core', () => {
     expect(manager.templates.get('project').construct_prompt).toContain('singleton=false');
   });
 
-  test('SID 0 routes work to project-manager instead of doing it itself', () => {
+  test('SID 0 parses user input: its template carries the protocol, not a router role', () => {
     const template = manager.templates.get('lush-root');
     expect(template.child_templates).toEqual(['project-manager']);
     for (const expected of [
-      '入口', 'project-manager', 'children', 'task_construct', '被唤醒', '不要自己动手', '孤儿', '不要声称',
+      'intension', 'intent_context', 'intent_settle', 'intent_defer',
+      'project-manager', 'task_construct', 'notice', '孤儿', '不要声称',
+      '保留用户的原话', '串行',
     ]) {
       expect(template.system_prompt).toContain(expected);
     }
     expect(template.system_prompt).toContain('lush service orphans');
+    expect(template.description).toContain('intension');
   });
 
   test('the shared guide teaches the service/task split on both backends', () => {
     for (const mode of ['tools', 'cli']) {
       const guide = agentGuide(mode);
       for (const expected of [
-        'Service', 'Task', 'task_construct', 'task_message', 'task_complete', 'task tree', '下游', '被动的节点',
+        'Service', 'Task', 'intension', 'task_construct', 'task_message', 'task_complete',
+        'task tree', '下游', '被动的节点',
       ]) {
         expect(guide).toContain(expected);
       }
+      // The user's way in is not the agent's: that is stated in both howtos.
+      expect(guide).toContain('lush intent submit');
     }
     expect(agentGuide('tools').split('通用规则：')[1]).toBe(agentGuide('cli').split('通用规则：')[1]);
   });
@@ -841,7 +847,7 @@ describe('core', () => {
     const controller = construct(0, 'project-manager', 'controller');
     expect(construct(controller.sid, 'project', 'opened', undefined, { path: dir }).inspect().template).toBe('project');
 
-    const task = manager.constructTask(null, controller.sid, 'open the project');
+    const task = manager.constructRootTask(controller.sid, 'open the project');
     const names = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(task.id), null).data.available_child_templates.map((item) => item.name);
     expect(names).toContain('project');
@@ -969,7 +975,7 @@ describe('core', () => {
 
     const migrated = system(legacyDir);
     try {
-      expect(migrated.database.connection.query('PRAGMA user_version').get().user_version).toBe(9);
+      expect(migrated.database.connection.query('PRAGMA user_version').get().user_version).toBe(10);
       expect(migrated.database.connection.query('PRAGMA foreign_key_check').all()).toEqual([]);
       // v1 `running` / `completed` become `active`; v1 `cancelled` collapsed
       // into `stopped` on the way through v2, like v1 `stopped` does.
@@ -984,7 +990,7 @@ describe('core', () => {
       expect(migrated.manager.inspect(1).context.state).toEqual({ progress: 'half' });
       // The new schema allows work on any node, once it is started again.
       migrated.manager.start(3);
-      const task = await migrated.manager.call(3, 'back to work');
+      const task = await migrated.manager.callRoot(3, 'back to work');
       expect(task.status).toBe('completed');
     } finally {
       await migrated.runtime.shutdown();
@@ -992,17 +998,21 @@ describe('core', () => {
       cleanup(legacyDir);
     }
   });
-  test('a v8 home keeps its rows while v9 widens both CHECKs', () => {
+  test('a v8 home keeps its rows while v9 widens both CHECKs and v10 adds the queue', () => {
     const legacyDir = tmpdir('lush-migrate-v8-');
-    // The current schema with the two v9-widened CHECKs and the version rolled
-    // back: exactly what a home written one round earlier has on disk.
+    // The current schema with the v10 additions taken away, the two v9-widened
+    // CHECKs rolled back, and the version set to 8: exactly what a home written
+    // one round earlier has on disk. (`DROP COLUMN` is how a column a *later*
+    // migration adds is taken away again — hand-copying the older DDL is what
+    // this file exists to avoid.)
     const legacy = new SQLite(path.join(legacyDir, 'lush.db'), { create: true });
     legacy.exec(
       SCHEMA
         .replace("'created','running','waiting','awaiting','completed'", "'created','running','waiting','completed'")
         .replace("'message','child_settled','notice_settled'", "'message','child_settled'")
-        .replace('PRAGMA user_version = 9', 'PRAGMA user_version = 8'),
+        .replace('PRAGMA user_version = 10', 'PRAGMA user_version = 8'),
     );
+    legacy.exec('DROP INDEX notices_intension; ALTER TABLE notices DROP COLUMN intension_id; DROP TABLE intensions;');
     legacy.run("INSERT INTO services VALUES (0,NULL,NULL,'lush','active','lush-root','{}','g','t','t')");
     legacy.run("INSERT INTO contexts VALUES (0,'sys','{}','[]','[]')");
     legacy.run("INSERT INTO tasks VALUES (1,0,NULL,1,'parked','waiting',NULL,NULL,'{}','t','t',NULL,'t')");
@@ -1014,7 +1024,7 @@ describe('core', () => {
     const migrated = new Database(path.join(legacyDir, 'lush.db'));
     try {
       const read = (sql) => migrated.connection.query(sql).all();
-      expect(migrated.connection.query('PRAGMA user_version').get().user_version).toBe(9);
+      expect(migrated.connection.query('PRAGMA user_version').get().user_version).toBe(10);
       expect(read('PRAGMA foreign_key_check')).toEqual([]);
       // Both rebuilt tables kept their rows, with the same ids.
       expect(read('SELECT id,status FROM tasks')).toEqual([{ id: 1, status: 'waiting' }]);
@@ -1032,6 +1042,25 @@ describe('core', () => {
       expect(() => migrated.connection.run("UPDATE tasks SET status='nope' WHERE id=1")).toThrow();
       expect(() => migrated.connection.run("INSERT INTO task_inbox(to_task_id,from_task_id,kind,body,data,created_at,delivered_at)"
         + " VALUES(1,NULL,'nope','','{}','t',NULL)")).toThrow();
+      // v10 is a new table, its indexes, and one column on `notices` — the
+      // edge that lets a conflict notice point back at the input it is about.
+      const names = read("SELECT name FROM sqlite_master WHERE type IN ('table','index')").map((row) => row.name);
+      for (const name of ['intensions', 'intensions_status', 'intensions_blocked', 'intensions_parse_task', 'notices_intension']) {
+        expect(names).toContain(name);
+      }
+      // The target service is optional (a user may not name one) and the
+      // answer / resolution columns stay NULL until the parser settles the row.
+      migrated.connection.run("INSERT INTO intensions(content,source,status,attempts,created_at,updated_at)"
+        + " VALUES('do something','test','queued',0,'t','t')");
+      expect(read('SELECT sid,content,status,attempts,resolution,response,settled_at FROM intensions')).toEqual([
+        { sid: null, content: 'do something', status: 'queued', attempts: 0, resolution: null, response: null, settled_at: null },
+      ]);
+      migrated.connection.run("INSERT INTO notices(sid,task_id,intension_id,kind,title,body,fields,wait,status,created_at,updated_at)"
+        + " VALUES(0,NULL,1,'decision','findings','body','[]',1,'open','t','t')");
+      expect(read('SELECT intension_id FROM notices')).toEqual([{ intension_id: 1 }]);
+      // Both new edges and the new status set are enforced, not just declared.
+      expect(() => migrated.connection.run("UPDATE intensions SET status='nope' WHERE id=1")).toThrow();
+      expect(() => migrated.connection.run('UPDATE intensions SET sid=99 WHERE id=1')).toThrow();
     } finally {
       migrated.close();
       cleanup(legacyDir);
@@ -1191,8 +1220,8 @@ describe('orphan supervision', () => {
     const parent = slow.construct(0, 'generic-task', 'parent');
     const first = slow.construct(parent.sid, 'generic-service', 'first');
     const second = slow.construct(parent.sid, 'generic-service', 'second');
-    slow.manager.constructTask(null, first.sid, 'long work');
-    slow.manager.constructTask(null, second.sid, 'long work');
+    slow.manager.constructRootTask(first.sid, 'long work');
+    slow.manager.constructRootTask(second.sid, 'long work');
     expect(slow.manager.runtime.isBusy(first.sid)).toBe(true);
     slow.manager.stop(parent.sid);
     expect(slow.manager.orphans().active_count).toBe(2);
@@ -1261,7 +1290,7 @@ describe('SID 0 creation lockdown', () => {
   });
 
   test('SID 0 advertises exactly project-manager, and user templates are no exception', () => {
-    const task = manager.constructTask(null, 0, 'what can you create?');
+    const task = manager.constructRootTask(0, 'what can you create?');
     const names = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(task.id), null).data.available_child_templates.map((item) => item.name);
     expect(names).toEqual(['project-manager']);
@@ -1273,12 +1302,12 @@ describe('SID 0 creation lockdown', () => {
     fs.writeFileSync(path.join(directory, 'user.json'), JSON.stringify({ ...base, name: 'user-template' }));
     const loader = new TemplateLoader(directory);
     const built = new ContextBuilder(manager.repository, loader);
-    const scoped = built.build(manager.repository.getTask(manager.constructTask(null, 0, 'x').id), null);
+    const scoped = built.build(manager.repository.getTask(manager.constructRootTask(0, 'x').id), null);
     expect(scoped.data.available_child_templates.map((item) => item.name)).toEqual(['project-manager']);
   });
 
   test('refreshRootTemplate restores drift, is idempotent and only touches SID 0', () => {
-    const task = manager.constructTask(null, 0, 'drift');
+    const task = manager.constructRootTask(0, 'drift');
     manager.repository.replaceSnapshot(0, { ...manager.templates.get('generic-task'), name: 'drifted' });
     manager.cancelTask(task.id);
     const refreshed = manager.refreshRootTemplate();
@@ -1305,7 +1334,7 @@ describe('SID 0 creation lockdown', () => {
     manager.templates.templates['lush-root'] = { ...manager.templates.get('lush-root'), system_prompt: edited };
     manager.refreshRootTemplate();
     expect(manager.repository.context(0).system_prompt).toContain('EDITED-MARKER');
-    const task = manager.constructTask(null, 0, 'hello');
+    const task = manager.constructRootTask(0, 'hello');
     const built = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(task.id), null);
     expect(built.messages[0].content).toContain('EDITED-MARKER');

@@ -1,7 +1,10 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LushError } from '../../core/types.js';
-import { noticeAnswerRequest, noticeDismissRequest, noticeListQuery, taskDeleteRequest, taskListQuery, taskRequest, taskTraceQuery } from '../client.js';
+import {
+  intensionListQuery, intensionRequest, noticeAnswerRequest, noticeDismissRequest, noticeListQuery,
+  taskDeleteRequest, taskListQuery, taskTraceQuery,
+} from '../client.js';
 
 const ASSET_DIR = fileURLToPath(new URL('./assets/', import.meta.url));
 const MAX_BODY_BYTES = 128 * 1024;
@@ -134,10 +137,32 @@ export class WebUIServer {
         return json({ tasks: await this.ui.taskList(taskListQuery(url.searchParams)) });
       }
 
-      if (request.method === 'POST' && url.pathname === '/api/tasks') {
-        const input = taskRequest(await requestJson(request));
-        const task = await this.ui.createTask(input.sid, input.goal);
-        return json({ task }, 202);
+      // The one write a user makes: their own words. Everything a task does
+      // afterwards is the parser's arrangement, observable through the reads.
+      if (request.method === 'POST' && url.pathname === '/api/intents') {
+        const input = intensionRequest(await requestJson(request));
+        const row = await this.ui.submitIntension(input.content, input.sid);
+        return json({ intension: row }, 202);
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/intents') {
+        return json({ intensions: await this.ui.intensionList(intensionListQuery(url.searchParams)) });
+      }
+
+      const intentMatch = /^\/api\/intents\/(\d+)$/.exec(url.pathname);
+      if (request.method === 'GET' && intentMatch !== null) {
+        return json({ intension: await this.ui.intensionInspect(Number(intentMatch[1])) });
+      }
+
+      const intentContextMatch = /^\/api\/intents\/(\d+)\/context$/.exec(url.pathname);
+      if (request.method === 'GET' && intentContextMatch !== null) {
+        return json({ architecture: await this.ui.intensionContext(Number(intentContextMatch[1])) });
+      }
+
+      const intentWithdrawMatch = /^\/api\/intents\/(\d+)\/withdraw$/.exec(url.pathname);
+      if (request.method === 'POST' && intentWithdrawMatch !== null) {
+        const { reason } = noticeDismissRequest(await requestJson(request));
+        return json({ intension: await this.ui.withdrawIntension(Number(intentWithdrawMatch[1]), reason) });
       }
 
       const resultMatch = /^\/api\/tasks\/(\d+)$/.exec(url.pathname);

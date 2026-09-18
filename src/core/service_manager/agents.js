@@ -1,7 +1,7 @@
 /**
  * The agent layer: which backend answers for a service, and the forwarding of
- * the agent verbs (`agents list / show / kill`, `call`, `session`) to the bound
- * runtime.
+ * the agent verbs (`agents list / show / kill`, `session`, and the internal
+ * `callRoot`) to the bound runtime.
  *
  * Profiles are resolved *now*, not at construct time: editing a file under
  * `$LUSH_HOME/agents/` takes effect on the next task, without a daemon restart.
@@ -13,7 +13,7 @@
 import { LushError } from '../types.js';
 import { checkAgentName, DEFAULT_AGENT_NAME } from '../../agent/profiles.js';
 import {
-  agentInfo, agentShow, agentsKill, agentsList, call as runtimeCall, callEnd, callOsPid, describe,
+  agentInfo, agentShow, agentsKill, agentsList, callEnd, callOsPid, callRoot as runtimeCall, describe,
   session as runtimeSession,
 } from '../agent_calls.js';
 
@@ -121,15 +121,20 @@ export const agents = {
     return callEnd(this, taskId, callId, status, output, error);
   },
 
-  // `call` is async like the original method: a rejected argument must be a
-  // rejected promise, not a synchronous throw. Positional for the wire
-  // signature (`call {sid, goal, detach, interactive}`).
-  async call(sid, goal, detach = false, interactive = false) {
+  /**
+   * **Internal** root-task entry (see `core/agent_calls.js`): async like the
+   * original method, so a rejected argument is a rejected promise rather than a
+   * synchronous throw.
+   */
+  async callRoot(sid, goal, detach = false, interactive = false) {
     return runtimeCall(this, sid, goal, { detach, interactive });
   },
 
-  // Async like `call`: a rejected argument must be a rejected promise, not a
-  // synchronous throw.
+  /**
+   * **Internal** preview of a node's first invocation (`call.describe` is gone
+   * from the wire): async so a rejected argument is a rejected promise rather
+   * than a synchronous throw.
+   */
   async callDescribe(sid, prompt) {
     return describe(this, sid, prompt);
   },

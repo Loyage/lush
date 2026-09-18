@@ -73,6 +73,11 @@ export async function serve(config) {
         maxCalls: config.taskCalls,
       });
     manager.runtime = runtime;
+    // Whatever the previous daemon left in the intension queue (including the
+    // rows `recover` just requeued) waits for the parsing node to be free —
+    // which it is now.
+    const resumed = manager.drainIntensions();
+    if (resumed !== null) log.info(`resumed intension #${resumed.intension.id} from the queue`);
     server = new RPCServer(config.socket, new Dispatcher(manager, stopping, identity));
     await server.start();
     // Orphan supervision only runs when there is something to enforce: a sweep

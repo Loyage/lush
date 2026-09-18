@@ -89,19 +89,28 @@ describe('cli, daemon lifecycle and attach', () => {
       'service', 'construct', '1', 'project', '--name', 'implement-login', '--goal', '实现登录',
       '--vars', JSON.stringify({ path: state.dir }),
     ])).stdout.trim()).toBe('SID 2');
-    // `call` is the entry point: it creates a task on the service and waits.
-    const firstCall = await cli(['call', '2', '请介绍一下你当前的身份和任务']);
-    expect(firstCall.stdout).toContain('project-manager[1]');
-    expect(firstCall.stdout).toMatch(/^task #\d+ implement-login\[2\] completed$/m);
-    const first = (await data('task', 'list'))[0];
-    expect(first).toMatchObject({ sid: 2, status: 'completed', parent_task_id: null });
+    // The user says something once. It becomes an *intension*; the parsing node
+    // turns it into work, and the work walks down the service tree until a leaf
+    // does it — so the task on the named service is a child, not a root.
+    const firstRun = await cli(['intent', 'submit', '派：请介绍一下你当前的身份和任务', '--sid', '2', '--wait']);
+    expect(firstRun.stdout).toContain('settled');
+    const first = (await data('task', 'list', '--sid', '2'))[0];
+    expect(first).toMatchObject({ sid: 2, status: 'completed' });
+    expect(first.parent_task_id).not.toBeNull();
+    const runRow = (await data('intent', 'list'))[0];
+    expect(runRow).toMatchObject({ sid: 2, status: 'settled', source: 'cli' });
+    // `resolution.task_ids` is what the parser arranged itself: the subtrees it
+    // delegated to, i.e. the root of the job (`task tree <parse task>`).
+    expect(runRow.resolution.task_ids)
+      .toEqual((await data('task', 'tree', String(runRow.parse_task_id))).children.map((task) => task.id));
     expect((await cli(['task', 'tree', String(first.id)])).stdout).toContain(`#${first.id}`);
     expect((await cli(['task', 'inspect', String(first.id)])).stdout).toContain('goal');
     expect((await cli(['task', 'history', String(first.id)])).stdout).toContain('请介绍一下');
 
-    await cli(['call', '1', '/tool service_construct ' + JSON.stringify({
-      template: 'project', name: 'research-oauth', goal: '研究 OAuth 登录实现方式', variables: { path: state.dir },
-    })]);
+    // Nodes are still managed by hand: the parser decides *work*, not the
+    // architecture a human is deliberately building.
+    await cli(['service', 'construct', '1', 'project', '--name', 'research-oauth',
+      '--goal', '研究 OAuth 登录实现方式', '--vars', JSON.stringify({ path: state.dir })]);
     const tree = await cli(['service', 'tree']);
     expect(tree.stdout).toContain('lush[0]');
     expect(tree.stdout).toContain('implement-login[2]');
@@ -128,13 +137,18 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await data('service', 'inspect', '2')).parent_sid).toBe(0);
     expect((await data('service', 'inspect', '3')).original_parent_sid).toBe(1);
     await cli(['service', 'start', '1']);
-    // A service with an active task cannot be stopped; the task has to end first.
+    // A stopped node is not a usage error any more: submitting is still fine,
+    // and judging whether the target is usable is the parser's job (it would ask
+    // through a notice when it cannot proceed).
     await cli(['service', 'stop', '2']);
-    expect((await cli(['call', '2', 'x'], { check: false })).code).not.toBe(0);
+    const stopped = await data('intent', 'submit', '给停掉的节点派活', '--sid', '2');
+    expect(stopped).toMatchObject({ sid: 2, status: 'parsing' });
     await cli(['service', 'start', '2']);
-    // The mock agent can finish its own task through the tool path.
-    await cli(['call', '2', '/tool task_complete {"result":"done"}']);
-    expect((await data('task', 'list', '--sid', '2')).length).toBe(2);
+    // The mock agent can finish its own parse task through the tool path: what
+    // the agent declares as its result becomes the input's answer.
+    const done = await data('intent', 'submit', '/tool task_complete {"result":"done"}', '--sid', '2', '--wait');
+    expect(done).toMatchObject({ status: 'settled' });
+    expect((await data('task', 'inspect', String(done.parse_task_id))).result).toBe('done');
     expect((await data('service', 'construct', '1', 'project', '--name', 'next', '--vars', JSON.stringify({ path: state.dir }))).sid).toBe(4);
   }, 120_000);
 
@@ -143,19 +157,40 @@ describe('cli, daemon lifecycle and attach', () => {
     await cli(['service', 'construct', '0', 'project-manager', '--name', 'project-manager']);
     await cli(['service', 'construct', '1', 'project', '--name', 'worker', '--goal', 'work', '--vars', JSON.stringify({ path: state.dir })]);
     expect((await data('service', 'update-state', '2', '--patch', '{"progress":"half"}')).progress).toBe('half');
-    // Work verbs moved to tasks: `call` opens one, `task complete` finishes it.
-    const task = await data('call', '2', 'work');
+    // Work happens in tasks: the parser delegates, the leaf answers, the input
+    // closes with that answer.
+    const run = await data('intent', 'submit', '派：work', '--sid', '2', '--wait');
+    const task = (await data('task', 'list', '--sid', '2'))[0];
     expect(task.status).toBe('completed');
     expect((await data('task', 'result', String(task.id))).result).toContain('[Mock]');
-    // `task construct` starts the agent right away; the mock finishes immediately.
-    const constructedTask = await data('task', 'construct', '2', '--goal', 'manual work');
-    expect(constructedTask.sid).toBe(2);
+    // The leaf on the named service hangs off what the parser arranged, not off
+    // the parser itself: work walks down the service tree one level at a time.
+    const arranged = (await data('task', 'tree', String(run.parse_task_id))).children;
+    expect(run.resolution.task_ids).toEqual(arranged.map((item) => item.id));
+    expect(await data('task', 'tree', String(arranged[0].id))).toMatchObject({
+      children: [expect.objectContaining({ id: task.id })],
+    });
+    // `task construct` starts a delegated task right away. Its parent is the
+    // task an agent's shell would be running inside — here a parse task parked
+    // on a notice, which is the state an agent is in while it delegates.
+    const parked = await data('intent', 'submit', '/tool notice {"title":"hold"}', '--sid', '2');
+    let parent = null;
+    for (let attempt = 0; attempt < 200 && parent === null; attempt += 1) {
+      await Bun.sleep(20);
+      const shown = await data('intent', 'show', String(parked.id));
+      if (shown.status === 'awaiting') parent = shown.parse_task_id;
+    }
+    const constructedTask = await data('task', 'construct', '1', '--goal', 'manual work', '--parent-task-id', String(parent));
+    expect(constructedTask.sid).toBe(1);
+    expect(constructedTask.parent_task_id).toBe(parent);
     await data('task', 'wait', String(constructedTask.id));
+    // The parked parse task is dismissed so the queue can move again.
+    const openNotice = (await data('notice', 'list'))[0];
+    await cli(['notice', 'dismiss', String(openNotice.id), '--reason', 'test cleanup']);
     // An explicit result comes from the tool call, which is what an agent does.
-    const manual = await data('call', '2', '/tool task_complete {"result":{"answer":42}}');
-    expect(manual.status).toBe('completed');
-    expect((await data('task', 'result', String(manual.id))).result).toEqual({ answer: 42 });
-    expect((await data('task', 'list', '--sid', '2')).length).toBe(3);
+    const manual = await data('intent', 'submit', '/tool task_complete {"result":{"answer":42}}', '--wait');
+    expect(manual.status).toBe('settled');
+    expect((await data('task', 'inspect', String(manual.parse_task_id))).result).toEqual({ answer: 42 });
 
     const constructed = await data('service', 'construct', '1', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
     const project = await data('service', 'inspect', String(constructed.sid));
@@ -176,12 +211,6 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await cli(['service', 'update-state', String(constructed.sid), '--patch', '{"params":{}}'], { check: false })).stderr)
       .toContain('update_vars');
 
-    // --dry-run prints the invocation instead of calling the agent.
-    const preview = await data('call', String(constructed.sid), 'hello', '--dry-run');
-    expect(preview).toMatchObject({ dry_run: true, agent: 'mock', command: null });
-    expect((await data('service', 'inspect', String(constructed.sid))).context.message_count).toBe(0);
-    expect((await cli(['call', String(constructed.sid), 'hello', '--dry-run'])).stdout).toContain('runs in-service');
-
     const missing = await cli(['service', 'construct', '1', 'project', '--name', 'p2'], { check: false });
     expect(missing.code).not.toBe(0);
     expect(missing.stderr).toContain('variables.path');
@@ -190,43 +219,92 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await cli(['service', 'update-vars', String(constructed.sid)], { check: false })).stderr).toContain('--vars');
     expect((await cli(['service', 'update-state', '2', '--patch', '{oops'], { check: false })).stderr).toContain('invalid JSON');
 
-    // --interactive needs an external agent: the in-service runtime has no TUI.
-    const enter = await cli(['call', String(constructed.sid), 'hello', '-i'], { check: false });
+    // --interactive hands the parse task to this terminal, so it needs an agent
+    // that can be entered: the in-service runtime has no TUI to hand over.
+    const enter = await cli(['intent', 'submit', 'hello', '-i'], { check: false });
     expect(enter.code).not.toBe(0);
     expect(enter.stderr).toContain('runs in-service');
-    expect((await cli(['call', String(constructed.sid), 'hello', '--interactive', '--dry-run'], { check: false })).code).toBe(2);
+    expect((await cli(['intent', 'submit', 'hello', '--interactive', '--wait'], { check: false })).code).toBe(2);
   }, 60_000);
 
   test('task construct from inside a task lands in that task tree', async () => {
     await cli(['daemon', 'start']);
     await cli(['service', 'construct', '0', 'project-manager', '--name', 'project-manager']);
     await cli(['service', 'construct', '1', 'project', '--name', 'repo', '--vars', JSON.stringify({ path: state.dir })]);
-    await cli(['service', 'construct', '2', 'dev-task', '--name', 'fix-typo', '--vars', JSON.stringify({ title: '修一个错字' })]);
 
     // The parent stays active: its mock agent reported a `wait` notice, so the
-    // task is parked in `awaiting`, which is the state an agent is in when it
-    // delegates.
-    const parent = await data('call', '2', '/tool notice {"title":"hold"}', '--detach');
-    expect(parent.parent_task_id).toBeNull();
+    // parse task is parked in `awaiting` — the state an agent is in when it
+    // delegates. It lives on SID 0, whose only child is project-manager.
+    const parked = await data('intent', 'submit', '/tool notice {"title":"hold"}');
+    let parent = null;
+    for (let attempt = 0; attempt < 200 && parent === null; attempt += 1) {
+      await Bun.sleep(20);
+      const shown = await data('intent', 'show', String(parked.id));
+      if (shown.status === 'awaiting') parent = shown.parse_task_id;
+    }
 
     // What an agent's shell runs: no --parent-task-id, because $LUSH_TASK_ID is
     // already set. The child must land under the parent, not as a root task.
-    const env = { ...state.env, LUSH_TASK_ID: String(parent.id) };
-    const child = JSON.parse((await cli(['--json', 'task', 'construct', '3', '--goal', '改一行'], { env })).stdout);
-    expect(child).toMatchObject({ sid: 3, parent_task_id: parent.id, root_task_id: parent.id });
-    const tree = await data('task', 'tree', String(parent.id));
+    const env = { ...state.env, LUSH_TASK_ID: String(parent) };
+    const child = JSON.parse((await cli(['--json', 'task', 'construct', '1', '--goal', '改一行'], { env })).stdout);
+    expect(child).toMatchObject({ sid: 1, parent_task_id: parent, root_task_id: parent });
+    const tree = await data('task', 'tree', String(parent));
     expect(tree.children.map((task) => task.id)).toContain(child.id);
 
     // A malformed identity is refused rather than silently becoming a root task.
-    const bogus = await cli(['task', 'construct', '3', '--goal', 'x'], { env: { ...state.env, LUSH_TASK_ID: 'nope' }, check: false });
+    const bogus = await cli(['task', 'construct', '1', '--goal', 'x'], { env: { ...state.env, LUSH_TASK_ID: 'nope' }, check: false });
     expect(bogus.code).toBe(2);
     expect(bogus.stderr).toContain('$LUSH_TASK_ID');
 
-    await data('task', 'cancel', String(parent.id));
+    // Without a parent at all there is no delegation: the CLI refuses instead of
+    // quietly creating a root task outside the intension queue.
+    const rootless = await cli(['task', 'construct', '1', '--goal', 'x'], { check: false });
+    expect(rootless.code).toBe(2);
+    expect(rootless.stderr).toContain('parent task is required');
+
+    await data('task', 'cancel', String(parent));
   }, 60_000);
 
-
-
+  test('intent submit --interactive gives this terminal the parse task', async () => {
+    const stub = path.join(state.dir, 'pi-tui-stub');
+    fs.mkdirSync(state.dir, { recursive: true });
+    fs.writeFileSync(stub, [
+      '#!/usr/bin/env bun',
+      'const argv = process.argv.slice(2);',
+      "const dir = argv[argv.indexOf('--session-dir') + 1];",
+      "const id = argv[argv.indexOf('--session-id') + 1];",
+      "if (dir && id) await Bun.write(`${dir}/2020-01-01T00-00-00-000Z_${id}.jsonl`, '{}');",
+      // No --print in the interactive argv: the stub stands in for a TUI.
+      "console.log(JSON.stringify({ tui: !argv.includes('--print'), sid: process.env.LUSH_SID, task: process.env.LUSH_TASK_ID }));",
+      '',
+    ].join('\n'));
+    fs.chmodSync(stub, 0o755);
+    const baseEnv = state.env;
+    state.env = { ...baseEnv, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub };
+    try {
+      await cli(['daemon', 'start']);
+      const entered = await cli(['intent', 'submit', '我自己来解析这条', '--interactive']);
+      expect(entered.stderr).toContain('is yours to parse');
+      const printed = JSON.parse(entered.stdout);
+      expect(printed).toMatchObject({ tui: true, sid: '0' });
+      // The terminal's outcome settles the input: the parse task is completed,
+      // the row is closed (nothing was said, so there is no response), and it is
+      // *not* put back in the queue for a second, unasked parse.
+      const task = await data('task', 'inspect', String(printed.task));
+      expect(task).toMatchObject({ sid: 0, parent_task_id: null, status: 'completed' });
+      const row = await data('intent', 'show', (await data('intent', 'list'))[0].id);
+      expect(row).toMatchObject({ content: '我自己来解析这条', status: 'settled', parse_task_id: task.id });
+      expect(row.response).toBeNull();
+      await Bun.sleep(50); // give a stray re-parse the chance to show up
+      expect((await data('intent', 'list')).length).toBe(1);
+      expect(await data('task', 'list')).toHaveLength(1);
+      expect((await data('task', 'agents', 'list', '--all'))[0]).toMatchObject({
+        interactive: true, status: 'succeeded',
+      });
+    } finally {
+      state.env = baseEnv;
+    }
+  }, 60_000);
 
 
 
@@ -252,23 +330,20 @@ describe('cli, daemon lifecycle and attach', () => {
       await cli(['service', 'construct', '0', 'project-manager', '--name', 'project-manager']);
       const project = await data('service', 'construct', '1', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
 
-      // A session belongs to a task, not to the service: a task has to exist.
-      const task = await data('task', 'construct', String(project.sid), '--goal', 'hi');
-      const before = await data('task', 'session', String(task.id));
-      expect(before).toMatchObject({ agent: 'pi', session_id: `lush-task-${task.id}`, file: null, files: [] });
-      expect((await cli(['task', 'session', String(task.id)])).stdout).toContain('(none yet)');
-      await data('task', 'cancel', String(task.id));
-
-      const done = await data('call', String(project.sid), 'hi');
+      // A session belongs to a task, and the task a user's input creates is the
+      // parse task on SID 0.
+      const row = await data('intent', 'submit', 'hi', '--sid', String(project.sid), '--wait');
+      const done = await data('task', 'inspect', String(row.parse_task_id));
       const after = await data('task', 'session', String(done.id));
       expect(after.file.endsWith(`_lush-task-${done.id}.jsonl`)).toBe(true);
       const text = (await cli(['task', 'session', String(done.id)])).stdout;
       expect(text).toContain(path.join(state.dir, 'pi-sessions'));
       expect(text).toContain(`lush-task-${done.id}`);
 
-      // --open runs pi in the foreground (no --print) with the Lush environment.
+      // --open runs pi in the foreground (no --print) with the Lush environment
+      // of the task's own service — the parse task lives on SID 0.
       const opened = await cli(['task', 'session', String(done.id), '--open']);
-      expect(JSON.parse(opened.stdout)).toEqual({ tui: true, sid: String(project.sid) });
+      expect(JSON.parse(opened.stdout)).toEqual({ tui: true, sid: '0' });
       expect((await cli(['--json', 'task', 'session', String(done.id), '--open'], { check: false })).code).toBe(2);
     } finally {
       state.env = baseEnv;
@@ -291,57 +366,60 @@ describe('cli, daemon lifecycle and attach', () => {
     ].join('\n'));
     fs.chmodSync(stub, 0o755);
     const baseEnv = state.env;
-    state.env = { ...baseEnv, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub };
+    // The daemon runs the stub, so the sleep has to be in *its* environment.
+    state.env = { ...baseEnv, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub, PI_STUB_SLEEP: '3000' };
     try {
       await cli(['daemon', 'start']);
       await cli(['service', 'construct', '0', 'project-manager', '--name', 'project-manager']);
       expect((await cli([
         'service', 'construct', '1', 'project', '--name', 'worker', '--vars', JSON.stringify({ path: state.dir }),
       ])).stdout.trim()).toBe('SID 2');
-      // A daemon-constructed agent: this CLI only waits for the call to finish.
-      const call = Bun.spawn([process.execPath, CLI, 'call', '2', 'long work'], {
-        cwd: ROOT, env: { ...state.env, PI_STUB_SLEEP: '3000' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe',
+      // A daemon-run agent: the user's input is parsed by an agent on SID 0, and
+      // this CLI blocks until the input is settled.
+      const waiter = Bun.spawn([process.execPath, CLI, 'intent', 'submit', '派：long work', '--sid', '2', '--wait'], {
+        cwd: ROOT, env: state.env, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe',
       });
-      const [stdout, stderr] = [new Response(call.stdout).text(), new Response(call.stderr).text()];
+      const [stdout, stderr] = [new Response(waiter.stdout).text(), new Response(waiter.stderr).text()];
       let live = [];
       for (let attempt = 0; attempt < 300 && live.length === 0; attempt += 1) {
         await Bun.sleep(20);
         live = await data('task', 'agents', 'list');
       }
-      const task = (await data('task', 'list', '--sid', '2'))[0];
+      const row = (await data('intent', 'list'))[0];
+      const task = await data('task', 'inspect', String(row.parse_task_id));
       const agentId = `${task.id}.1`;
       expect(live).toHaveLength(1);
       expect(live[0]).toMatchObject({
-        id: agentId, task_id: task.id, sid: 2, provider: 'pi', status: 'running',
+        id: agentId, task_id: task.id, sid: 0, provider: 'pi', status: 'running',
         call_id: 1, interactive: false, cancellable: true,
       });
       expect(live[0].os_pid).toBeGreaterThan(0);
-      // The tree shows the activity of that service only.
+      // The tree shows the activity on the node the agent runs on.
       const tree = (await cli(['service', 'tree'])).stdout;
       expect(tree).toContain(`agent ${agentId} running · `);
       expect(tree).toContain('lush[0]');
-      expect(tree).not.toContain('agent 0.1');
       expect((await cli(['task', 'agents', 'list'])).stdout).toContain('pipe');
 
       // Killing the worker ends the invocation and cancels the task it served.
+      // The input is not lost with it: the row goes back to the queue and a
+      // second attempt picks it up.
       expect(JSON.parse((await cli(['--json', 'task', 'agents', 'kill', agentId])).stdout))
         .toMatchObject({ id: agentId, outcome: 'killed' });
-      expect(await call.exited).toBe(0);
-      expect(await stdout).toContain('cancelled');
+      expect(await waiter.exited).toBe(0);
+      expect(await stdout).toContain('late reply');
       expect(await data('task', 'inspect', String(task.id))).toMatchObject({
         status: 'cancelled',
         recent_calls: [expect.objectContaining({ status: 'interrupted', error: 'invocation cancelled' })],
       });
-      expect(await data('task', 'agents', 'list')).toEqual([]);
+      expect((await data('intent', 'show', String(row.id))).attempts).toBe(2);
       expect((await data('task', 'agents', 'list', '--all'))[0]).toMatchObject({ id: agentId, status: 'interrupted' });
       // A finished agent cannot be killed again, and the service stays usable.
       const again = await cli(['task', 'agents', 'kill', agentId], { check: false });
       expect(again.code).not.toBe(0);
       expect(again.stderr).toContain('is not running');
-      const later = (await cli(['call', '2', 'hi'])).stdout;
-      expect(later).toContain('completed');
+      const later = (await cli(['intent', 'submit', 'hi', '--wait'])).stdout;
+      expect(later).toContain('settled');
       expect(later).toContain('late reply');
-      expect((await data('task', 'list', '--sid', '2')).length).toBe(2);
       expect(await stderr).not.toContain('no such');
     } finally {
       state.env = baseEnv;
@@ -513,7 +591,7 @@ describe('cli, daemon lifecycle and attach', () => {
       state.env.LUSH_BASE_URL = `http://127.0.0.1:${http.port}/v1`;
 
       const status = await data('daemon', 'start');
-      waiter = Bun.spawn([process.execPath, CLI, 'call', '0', 'spawn once'], {
+      waiter = Bun.spawn([process.execPath, CLI, 'intent', 'submit', 'spawn once', '--wait'], {
         cwd: ROOT, env: state.env, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe',
       });
       const guard = Bun.sleep(10_000).then(() => {
@@ -537,8 +615,10 @@ describe('cli, daemon lifecycle and attach', () => {
         status: 'failed',
         recent_calls: [expect.objectContaining({ status: 'interrupted' })],
       });
-      await cli(['call', '0', 'who are you?']);
-      // The committed construct is not replayed by the next task.
+      // The interrupted input went back to the queue, and the next daemon parsed
+      // it again with the mock provider — which arranges nothing.
+      await cli(['intent', 'submit', 'who are you?', '--wait']);
+      expect((await data('intent', 'list'))[0]).toMatchObject({ status: 'settled' });
       expect((await data('service', 'list')).length).toBe(2);
       expect((await data('service', 'inspect', '1')).name).toBe('only-once');
     } finally {
@@ -698,7 +778,7 @@ describe('task list and tree text output', () => {
     expect(child).toBe('└── #2 sid 3 failed · child work (boom)');
   });
 
-  test('call output names the task and its outcome', () => {
+  test('a delegated task prints what it is and what it came back with', () => {
     expect(formatCall({ service: { name: 'worker' }, task: task({ status: 'completed', result: 'all done' }) }))
       .toBe('task #1 worker[2] completed\nall done');
     expect(formatCall(task({ status: 'cancelled' }))).toBe('task #1 sid 2 cancelled');

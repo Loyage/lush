@@ -22,7 +22,7 @@ export LUSH_PROVIDER=pi            # 默认
 export LUSH_CALL_TIMEOUT=900       # pi 真实干活很慢，默认 15 分钟
 lush service construct 0 project-manager --name project-manager
 lush service construct 1 project my-repo --name my-repo --vars '{"path":"/abs/repo"}'
-lush call 0 '打开 /abs/repo，列出待办并开工'   # 根 task 落在 SID 0，再逐层向下派
+lush intent submit '打开 /abs/repo，列出待办并开工' --wait   # SID 0 解析这条输入，再逐层向下派
 ```
 
 取消（`task cancel` / `task agents kill` / 超时 / daemon 退出）会杀掉对应的 pi 子服务；pi 的 session 文件保留在 `$LUSH_HOME/pi-sessions/` 供审计，Lush 自身只记录 prompt 与最终文本。
@@ -46,7 +46,7 @@ lush agent path                 # profile 目录（$LUSH_HOME/agents）
 
 **选择优先级**（服务 > 环境变量 > 内置 default）：
 
-1. 服务显式选择：`lush service construct … --agent <name>`，或模板里的可选字段 `agent`（`--agent` 覆盖模板）。选中的名字写进服务 state（`lush service inspect SID` 的 `agent.profile` 与 `context.state.agent` 都能看到），之后这个节点上每个 task 的 invocation、`task session`、`call --dry-run` 都用它。
+1. 服务显式选择：`lush service construct … --agent <name>`，或模板里的可选字段 `agent`（`--agent` 覆盖模板）。选中的名字写进服务 state（`lush service inspect SID` 的 `agent.profile` 与 `context.state.agent` 都能看到），之后这个节点上每个 task 的 invocation、`task session`、`lush agent inspect` 都用它。
 2. 环境变量：`LUSH_PROVIDER` / `LUSH_PI_COMMAND` / `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL`（语义与以前完全一致，`LUSH_PROVIDER=mock` 仍然照常工作）。
 3. 内置 `default`：provider `pi` + 纯净化参数。它永远可用、不可删除，但可以写 `$LUSH_HOME/agents/default.json` 逐字段覆盖（`lush agent edit default …` / `lush agent default <name>`）。
 
@@ -63,7 +63,7 @@ profile 字段（都可省略，未知字段会被拒绝）：
 | `flags` | 额外 pi 参数（字符串数组），追加在插件开关之后 |
 | `description` | 备注，只用于 `list` / `inspect` |
 
-pi 的 argv 顺序固定：`pi [--print] <插件开关> <flags> --session-dir … --session-id … --name … --system-prompt … --append-system-prompt … [--provider] [--model] <prompt>`；`lush agent inspect <name>` 会用一个占位 invocation 把它整条打印出来，`lush call SID 'hi' --dry-run` 打的是真实节点上的那条。
+pi 的 argv 顺序固定：`pi [--print] <插件开关> <flags> --session-dir … --session-id … --name … --system-prompt … --append-system-prompt … [--provider] [--model] <prompt>`；`lush agent inspect <name>` 会用一个占位 invocation 把它整条打印出来；`lush task session TASK_ID` 的 `argv` 是真实 task 上的那条。
 
 
 ## agent 与 session 是两回事
@@ -79,7 +79,7 @@ lush task agents show 3.1      # 运行期事实 + 它在磁盘上的 session + 
 lush task agents kill 3.1      # 杀掉这个工作者，并把它服务的 task 记为 cancelled
 ```
 
-agent 没有自己的 sid：它在自己的空间里用 `TASK.N` 标识（`3.1` = 服务 task #3 的第 1 个 agent，`N` 在本次 daemon 内按 task 单调递增）。它也不落库——重启后 `agents list` 为空，持久记录是 task 行与 `agent_calls` 的那一行（`agents show` 会把它一并给出）。`MODE` 说明它跑在哪：`pipe`（daemon 起的 pi）、`tty`（`call --interactive` 在你终端里跑的 pi，CLI 起手把 OS PID 报给 daemon，所以 daemon 也能杀它）、`in-service`（`mock` / `openai`）。
+agent 没有自己的 sid：它在自己的空间里用 `TASK.N` 标识（`3.1` = 服务 task #3 的第 1 个 agent，`N` 在本次 daemon 内按 task 单调递增）。它也不落库——重启后 `agents list` 为空，持久记录是 task 行与 `agent_calls` 的那一行（`agents show` 会把它一并给出）。`MODE` 说明它跑在哪：`pipe`（daemon 起的 pi）、`tty`（`lush intent submit --interactive` 在你终端里跑的 pi，CLI 起手把 OS PID 报给 daemon，所以 daemon 也能杀它）、`in-service`（`mock` / `openai`）。
 
 ```bash
 lush task session 3        # 那个 task 的持久 transcript：session-dir / session-id / file / cwd / browse

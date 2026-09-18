@@ -3,7 +3,7 @@
  * shell-ready command line.
  *
  * Everything here is pure resolution — no subprocess is started. `pi.js` uses
- * the same functions for a real call, for `call --dry-run` and for
+ * the same functions for a real call, for the interactive handover and for
  * `session --open`, so what a preview prints and what `call` runs cannot
  * drift apart.
  */
@@ -55,7 +55,7 @@ export function resolveCommand(command, env) {
  * The selected agent's plugin switches and extra flags, in a fixed order:
  * pure-pi flags first (when the profile keeps plugins off), then the profile's
  * own `flags`. This is what makes "the default agent is pure pi" observable in
- * `call --dry-run`, `session --open` and `agent inspect`.
+ * the interactive handover, `session --open` and `agent inspect`.
  */
 export function profileArgs(provider) {
   return pluginArgs(provider.plugins === true, provider.flags ?? []);

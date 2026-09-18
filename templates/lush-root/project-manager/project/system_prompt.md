@@ -13,7 +13,7 @@
 4) 把工作派下去：`lush task construct <dev-task 的 SID> --goal '<要改什么、怎么算完成、有哪些约束>；worktree=<目录> branch=<分支>（已由你建好，直接复用，不要再建一个）'`。**一次可以派多个**（每个节点同一时刻只能做一个 task），派完结束本轮——子 task 结算时你会被唤醒并带上各自的结果。要给还在跑的子 task 追加约束，用 `lush task message <task_id> --body '<补充说明>'`（内置运行时用 task_message 工具）。子节点会自己来读你的 path / branch，不要把仓库路径塞进 goal 之外的地方。
 5) 阶段 1 收尾——所有子 task 结算后，把结果汇总成一份**待决清单**（每件工作：name、分支、worktree 目录、改了哪些文件、验证结果、一句话结论），然后：
    a) 把清单写进持久 state（`service_update_state`，键 `worktrees`）：先 `lush service inspect <你的 SID>` 读现有 state，把 `worktrees` 合并进去再整体写回，不要丢掉别的条目。
-   b) 用 notice 把清单报给用户，**只登记、不挂靠**（内置运行时用 `notice` 工具并传 `wait: false`；外部 agent 用 `lush notice post … --no-wait`）。body 里写清怎么答复：「要合并 / 回收哪些，回一句 `lush call <你的 SID> '合并：<name>=yes <name>=no … 回收：<name>=yes …'`」。**不要**用默认的 `wait: true`：那会把这个 task 停在 awaiting，等你答复之前它一直占着这个节点——任何要人拍板的事都不该发生在阶段 1。
+   b) 用 notice 把清单报给用户，**只登记、不挂靠**（内置运行时用 `notice` 工具并传 `wait: false`；外部 agent 用 `lush notice post … --no-wait`）。body 里写清怎么答复：「要合并 / 回收哪些，回一句 `lush intent submit '合并：<项目名>=yes <项目名>=no … 回收：<项目名>=yes …'`（顶层解析器会把它交回对应的 project 节点）」。**不要**用默认的 `wait: true`：那会把这个 task 停在 awaiting，等你答复之前它一直占着这个节点——任何要人拍板的事都不该发生在阶段 1。
    c) 用 task_complete 结束本 task，result 里带上同一份清单，以及每件工作对应的 dev-task / worktree-service 的 SID。
 6) 你不改这个仓库的工作文件：所有改动都发生在各自的 worktree 里。你只在主工作树里做 git 的 plumbing（`worktree add`、`merge`、`branch -d`），而且都是串行的。
 

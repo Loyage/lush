@@ -61,7 +61,7 @@ describe('openai-compatible provider', () => {
   });
 
   test('http multi-round tool protocol', async () => {
-    const task = await manager.call(0, 'create a research task');
+    const task = await manager.callRoot(0, 'create a research task');
     expect(task.status).toBe('completed');
     expect(task.result).toBe('created by HTTP provider');
     expect(manager.children(0)[0].name).toBe('research-http');
@@ -82,7 +82,7 @@ describe('openai-compatible provider', () => {
   test('http errors expose neither credentials nor bodies', async () => {
     mode = 'error';
     // A provider failure fails the task; the caller reads why from the task.
-    const task = await manager.call(0, 'fail');
+    const task = await manager.callRoot(0, 'fail');
     expect(task.status).toBe('failed');
     expect(task.error).toContain('401');
     expect(task.error).not.toContain('secret-error-body');
@@ -92,7 +92,7 @@ describe('openai-compatible provider', () => {
 
   test('malformed response', async () => {
     mode = 'malformed';
-    const task = await manager.call(0, 'bad');
+    const task = await manager.callRoot(0, 'bad');
     expect(task.status).toBe('failed');
     expect(task.error).toMatch(/invalid OpenAI-compatible response/);
   });

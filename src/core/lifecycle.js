@@ -14,6 +14,11 @@ import { LushError } from './types.js';
  * are terminal. A terminal task never has an active child task: finishing,
  * failing or cancelling a task cascades into its subtree, which is what keeps
  * an observed task tree settled.
+ *
+ * An **intension** is one piece of user input on its way in (see
+ * `core/intensions.js`): the user speaks once, the top-level parsing node turns
+ * it into work. Its statuses do not form a state machine — they are the queue's
+ * bookkeeping.
  */
 export const ACTIVE_SERVICE_STATUS = ['created', 'active'];
 export const ACTIVE_TASK_STATUS = ['created', 'running', 'waiting', 'awaiting'];
@@ -35,6 +40,29 @@ export const TASK_TRANSITIONS = {
   failed: new Set(),
   cancelled: new Set(),
 };
+
+/**
+ * Intension statuses: raw user input that is still somewhere in the queue.
+ * `queued` waits for the parsing node, `parsing` is the one being parsed right
+ * now, `awaiting` is parked on a conflict notice the user has to settle, and
+ * `settled` / `rejected` are the two endings (arranged, or refused/withdrawn).
+ *
+ * There is no transition table here: unlike services and tasks, an intension
+ * moves by decision of the parser (`core/intensions.js`), not by a state
+ * machine — the only structural rule is one row per parse, and the queue
+ * itself is `INTENSION_OPEN_STATUS`.
+ */
+export const INTENSION_STATUSES = ['queued', 'parsing', 'awaiting', 'settled', 'rejected'];
+
+/** The intensions that still occupy the queue (in order: waiting, busy, parked). */
+export const INTENSION_OPEN_STATUS = ['queued', 'parsing', 'awaiting'];
+
+/**
+ * The intensions a parse task currently holds: the one it is parsing, and the
+ * one it parked on a conflict notice. This is what "the parse task still owes
+ * this row" means, and why such a task may not settle itself yet.
+ */
+export const INTENSION_HELD_STATUS = ['parsing', 'awaiting'];
 
 export function validateServiceTransition(service, target) {
   const allowed = SERVICE_TRANSITIONS[service.status] ?? new Set();

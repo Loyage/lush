@@ -256,7 +256,7 @@ describe('agent profiles inside services: construct, inspect and the argv of a c
     expect(preview.profile).toBe('demo');
     for (const flag of PURE_PI_FLAGS) expect(preview.argv).toContain(flag);
     expect(preview.argv[preview.argv.indexOf('--model') + 1]).toBe('demo-model');
-    const task = await manager.call(child.sid, 'hello');
+    const task = await manager.callRoot(child.sid, 'hello');
     const echoed = JSON.parse(task.result).argv;
     // The dry run and the real task are described by the same builder; only the
     // task id (and the session id / name derived from it) differ.
@@ -341,7 +341,7 @@ describe('agent profiles inside services: construct, inspect and the argv of a c
     expect(info.agent.profile_error).toContain('agent profile not found: gone');
     expect(manager.tree().find((row) => row.sid === child.sid).agent.provider).toBe('pi');
     // Running anything on it cannot work, preview included.
-    await expectRejection(manager.call(child.sid, 'hi'), /agent profile not found: gone/);
+    await expectRejection(manager.callRoot(child.sid, 'hi'), /agent profile not found: gone/);
     await expectRejection(manager.callDescribe(child.sid, 'hi'), /agent profile not found: gone/);
   });
 });

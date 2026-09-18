@@ -13,8 +13,8 @@ bun run              # 列出全部 script
 bun run doctor       # bun / LUSH_HOME / provider / code 目录 / daemon 状态
 bun run test / doctor
 bun run daemon-start / daemon-restart / daemon-stop / status / log
-bun run ps / tree / inspect / call / construct / complete / prune ...
-bun run reset [yes]  # 推倒重来：清空本 home 的服务树（只剩 SID 0）并重启 daemon；默认要输 yes，不可逆
+bun run ps / tree / inspect / intent / intents / construct / complete / prune ...
+bun run reset [yes]  # 推倒重来：撤回队列里的输入 + 清空本 home 的服务树（只剩 SID 0）并重启 daemon；默认要输 yes，不可逆
 bun run clean        # 停 daemon 并删本仓库的 .lush
 ```
 

@@ -68,11 +68,17 @@ export function callOsPid(manager, taskId, callId, osPid) {
 }
 
 /**
- * `call`: open a root task on `sid` and (unless `detach`) block until it — and
- * therefore its whole subtree of delegated tasks — is finished. `interactive`
- * hands the task's agent to the caller's terminal instead.
+ * `callRoot`: open a root task on `sid` and (unless `detach`) block until it —
+ * and therefore its whole subtree of delegated tasks — is finished.
+ * `interactive` hands the task's agent to the caller's terminal instead.
+ *
+ * **Internal.** What a user says is an intension now (`intent.submit`), and the
+ * only root task the user side creates is the parse task the queue dispatches
+ * on the parsing node (`core/intensions.js`). This entry point exists for the
+ * tests and an embedding caller: it is not reachable over RPC, CLI or the
+ * agent tools.
  */
-export async function call(manager, sid, goal, { detach = false, interactive = false } = {}) {
+export async function callRoot(manager, sid, goal, { detach = false, interactive = false } = {}) {
   validSid(sid);
   text(goal, 'goal');
   if (typeof detach !== 'boolean' || typeof interactive !== 'boolean') {
@@ -80,7 +86,7 @@ export async function call(manager, sid, goal, { detach = false, interactive = f
   }
   if (detach && interactive) throw new LushError('detach and interactive cannot be combined', -32602);
   // An interactive task is not started here: the caller's terminal runs it.
-  const task = manager.constructTask(null, sid, goal, !interactive);
+  const task = manager.constructRootTask(sid, goal, !interactive);
   if (interactive) return requireRuntime(manager).openInteractive(task.id);
   if (detach) return manager.taskInspect(task.id);
   await manager.waitForTask(task.id);
@@ -100,7 +106,11 @@ export async function call(manager, sid, goal, { detach = false, interactive = f
   return manager.taskInspect(task.id);
 }
 
-/** `call --dry-run`: what the task's first invocation would run, without running it. */
+/**
+ * Internal preview: what a node's first invocation would run, without running
+ * it. Used by the tests and an embedding caller; the user-facing preview of an
+ * argv is the interactive handover (`intent submit --interactive`).
+ */
 export function describe(manager, sid, prompt) {
   validSid(sid);
   text(prompt, 'prompt');

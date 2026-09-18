@@ -4,8 +4,10 @@
  * A **notice** is one message from a piece of work to the human watching it:
  * "I am blocked", "this needs your decision", "here is the result". It carries
  * the reporter's identity (`task_id` + its `sid`), what is needed (`kind`,
- * `title`, `body`), and — when the user has something to fill in — a declared
- * answer form (`fields`).
+ * `title`, `body`) — and, when the report is a question about a piece of user
+ * input, `intension_id`, the edge back to that input (`core/intensions.js`).
+ * When the user has something to fill in, it also carries a declared answer form
+ * (`fields`).
  *
  * Reporting never blocks. A notice with `wait` (the default) **attaches the
  * reporter to itself**: the task parks in `awaiting`, and settling the notice
@@ -193,6 +195,11 @@ export function post(manager, { taskId, kind = 'report', title, body = '', field
   manager.repository.taskEvent(taskId, 'notice', {
     notice_id: notice.id, kind, title, wait: notice.wait,
   });
+  // A parse task reporting is reporting *about the input it is holding*: the
+  // two are linked, and a `wait` notice parks the intension with the task, so
+  // the queue is visibly waiting on the user (`core/intensions.js`). Every
+  // other reporter has no intension and this is one indexed lookup.
+  manager.intensionAttachNotice(notice);
   return notice;
 }
 

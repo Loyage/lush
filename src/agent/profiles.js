@@ -37,7 +37,7 @@ export const DEFAULT_AGENT_NAME = 'default';
  * and none of the user's extensions, skills, prompt templates, themes or
  * `AGENTS.md` context files are loaded. These are the flags a profile with
  * `plugins: false` expands to; the daemon's own argv is what makes the change
- * visible (`lush agent inspect` / `lush call --dry-run`).
+ * visible (`lush agent inspect` / `lush task session --open`).
  */
 export const PURE_PI_FLAGS = Object.freeze([
   '--no-extensions',

@@ -38,7 +38,7 @@ describe('notices (core)', () => {
   /** A task that exists but never runs its agent, so a notice can be posted directly. */
   function idleTask(template = 'generic-task', name = 'worker') {
     const sid = manager.construct(0, template, name).sid;
-    return manager.constructTask(null, sid, 'idle goal', false);
+    return manager.constructRootTask(sid, 'idle goal', false);
   }
 
   test('a notice records the reporter, what it asks and how it is settled', () => {
@@ -141,7 +141,7 @@ describe('notices (core)', () => {
 
   test('a wait notice parks the reporter in awaiting, and the answer wakes it as input', async () => {
     const sid = manager.construct(0, 'generic-task', 'worker').sid;
-    const running = manager.call(sid, `/tool notice ${JSON.stringify({
+    const running = manager.callRoot(sid, `/tool notice ${JSON.stringify({
       kind: 'decision', title: '选一个', fields: [{ name: 'plan', type: 'choice', options: ['A', 'B'], required: true }],
     })}`);
     await Bun.sleep(20);
@@ -169,7 +169,7 @@ describe('notices (core)', () => {
 
   test('dismissing a notice also wakes the awaiting reporter', async () => {
     const sid = manager.construct(0, 'generic-task', 'worker').sid;
-    const running = manager.call(sid, '/tool notice {"title":"等我","fields":[{"name":"x"}]}');
+    const running = manager.callRoot(sid, '/tool notice {"title":"等我","fields":[{"name":"x"}]}');
     await Bun.sleep(20);
     const notice = manager.noticeList('open')[0];
     expect(manager.taskInspect(notice.task_id).status).toBe('awaiting');
@@ -185,7 +185,7 @@ describe('notices (core)', () => {
 
   test('wait=false reports without parking the task and never wake it', async () => {
     const sid = manager.construct(0, 'generic-task', 'worker').sid;
-    const task = await manager.call(sid, '/tool notice {"title":"只是汇报","wait":false}');
+    const task = await manager.callRoot(sid, '/tool notice {"title":"只是汇报","wait":false}');
     expect(task.status).toBe('completed');
     expect(manager.awaitingNoticeCount(task.id)).toBe(0);
     expect(manager.noticeList('open')).toHaveLength(1);
@@ -199,7 +199,7 @@ describe('notices (core)', () => {
 
   test('cancelling the reporter dismisses the notices nobody can answer any more', async () => {
     const sid = manager.construct(0, 'generic-task', 'worker').sid;
-    const running = manager.call(sid, '/tool notice {"title":"等我","fields":[{"name":"x"}]}');
+    const running = manager.callRoot(sid, '/tool notice {"title":"等我","fields":[{"name":"x"}]}');
     await Bun.sleep(20);
     const notice = manager.noticeList('open')[0];
     expect(manager.taskInspect(notice.task_id).status).toBe('awaiting');
@@ -234,7 +234,7 @@ describe('notices (core)', () => {
 
   test('a daemon restart fails an awaiting task and dismisses its notice', () => {
     const sid = manager.construct(0, 'generic-task', 'worker').sid;
-    const task = manager.constructTask(null, sid, 'work', false);
+    const task = manager.constructRootTask(sid, 'work', false);
     const notice = manager.postNotice({ taskId: task.id, kind: 'decision', title: '选一个' });
     manager.taskRunning(task.id);
     manager.taskPark(task.id, 'notice');
@@ -251,13 +251,13 @@ describe('notices (core)', () => {
 
   test('an awaiting task still occupies its service', async () => {
     const sid = manager.construct(0, 'generic-task', 'worker').sid;
-    const running = manager.call(sid, '/tool notice {"title":"等我"}');
+    const running = manager.callRoot(sid, '/tool notice {"title":"等我"}');
     await Bun.sleep(20);
     const [task] = manager.taskList();
     expect(task.status).toBe('awaiting');
     // Parked on a human is still "working on this service": no second task, and
     // the task counts as active everywhere a status list is consulted.
-    expect(() => manager.constructTask(null, sid, 'second', false)).toThrow(/already working on task/);
+    expect(() => manager.constructRootTask(sid, 'second', false)).toThrow(/already working on task/);
     expect(manager.activeTasks().map((row) => row.id)).toEqual([task.id]);
     expect(() => manager.taskDelete(task.id)).toThrow(/is awaiting; cancel it first/);
 
@@ -318,7 +318,7 @@ describe('notices (core)', () => {
 
   test('hard deletion takes notices with the service, and detaches them from a deleted task', () => {
     const sid = manager.construct(0, 'generic-task', 'doomed').sid;
-    const task = manager.constructTask(null, sid, 'g', false);
+    const task = manager.constructRootTask(sid, 'g', false);
     const notice = manager.postNotice({ taskId: task.id, title: 'keep me' });
 
     manager.completeTask(task.id, 'done');
@@ -368,7 +368,7 @@ describe('notices over RPC, the CLI surface and the web UI', () => {
   /** One open notice with a declared plan field, created the same way the tool does. */
   function seedNotice() {
     const sid = manager.construct(0, 'generic-task', 'worker').sid;
-    const task = manager.constructTask(null, sid, 'ship it', false);
+    const task = manager.constructRootTask(sid, 'ship it', false);
     return manager.postNotice({
       taskId: task.id,
       kind: 'decision',
@@ -453,7 +453,7 @@ describe('notices over RPC, the CLI surface and the web UI', () => {
 
   test('notice.post reports without blocking and the answer comes back through the inbox', async () => {
     const sid = manager.construct(0, 'generic-task', 'worker').sid;
-    const task = manager.constructTask(null, sid, 'ship it', false);
+    const task = manager.constructRootTask(sid, 'ship it', false);
 
     // wait=false only registers.
     const reported = await client.request('notice.post', {

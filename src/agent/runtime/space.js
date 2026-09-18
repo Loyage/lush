@@ -1,7 +1,7 @@
 /**
  * The agent space and the invocation *descriptions*, as the runtime exposes
  * them: `task agents …` reads the live workers, `task session` / `call
- * --dry-run` ask what command would run. All pure delegation — the state lives
+ * preview asks what command would run. All pure delegation — the state lives
  * in `agent_space.js` and `invocation.js`.
  *
  * Exported as a method group: `runner.js` merges it into `AgentRuntime`.

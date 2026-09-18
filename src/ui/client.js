@@ -53,11 +53,52 @@ export class UIClient {
     return this.execute('service.view', { sid, sections });
   }
 
-  /** Create a user-facing root task and return immediately while it runs. */
-  createTask(sid, goal) {
-    validSid(sid);
-    text(goal, 'goal');
-    return this.execute('call', { sid, goal, detach: true });
+  /**
+   * Say something about a node: what a user types becomes one **intension**,
+   * which the top-level parsing node turns into work (or answers). This is the
+   * only entry point that creates work; everything else observes or steers it.
+   */
+  submitIntension(content, sid = null) {
+    if (sid !== null) validSid(sid);
+    text(content, 'content');
+    return this.execute('intent.submit', {
+      content, ...(sid === null ? {} : { sid }), source: 'web',
+    });
+  }
+
+  /**
+   * Submit an intension *and* keep its parse task for this terminal: the daemon
+   * records the input and creates the task without starting it, and returns the
+   * argv to run. Used by `lush intent submit --interactive`.
+   */
+  submitInteractiveIntension(content, sid = null) {
+    if (sid !== null) validSid(sid);
+    text(content, 'content');
+    return this.execute('intent.submit', {
+      content, ...(sid === null ? {} : { sid }), source: 'cli', interactive: true,
+    });
+  }
+
+  /** The queue: what the user has said, and where each input has got to. */
+  intensionList({ status = null, sid = undefined, open = false, limit = 200 } = {}) {
+    return this.execute('intent.list', { status, sid, open, limit });
+  }
+
+  intensionInspect(intensionId) {
+    validSid(intensionId);
+    return this.execute('intent.inspect', { intension_id: intensionId });
+  }
+
+  /** The architecture the parser judged this input against, plus its precheck. */
+  intensionContext(intensionId) {
+    validSid(intensionId);
+    return this.execute('intent.context', { intension_id: intensionId });
+  }
+
+  withdrawIntension(intensionId, reason = null) {
+    validSid(intensionId);
+    if (reason !== null && typeof reason !== 'string') throw new TypeError('reason must be a string or null');
+    return this.execute('intent.withdraw', { intension_id: intensionId, reason });
   }
 
   taskResult(taskId) {
@@ -129,10 +170,17 @@ export class UIClient {
     return this.execute('notice.dismiss', { notice_id: noticeId, reason });
   }
 
-  openInteractiveTask(sid, goal) {
-    validSid(sid);
-    text(goal, 'goal');
-    return this.execute('call', { sid, goal, interactive: true });
+  /**
+   * Submit an intension *and* keep its parse task for this terminal: the daemon
+   * records the input and creates the task without starting it, and returns the
+   * argv to run. Used by `lush intent submit --interactive`.
+   */
+  submitInteractiveIntension(content, sid = null) {
+    if (sid !== null) validSid(sid);
+    text(content, 'content');
+    return this.execute('intent.submit', {
+      content, ...(sid === null ? {} : { sid }), source: 'cli', interactive: true,
+    });
   }
 
   recordInteractivePid(taskId, callId, osPid) {
@@ -155,20 +203,51 @@ export function connectUI(socket, timeout) {
   return new UIClient(new RPCClient(socket, timeout));
 }
 
-/** Strictly decode the intentionally tiny Web UI create-task payload. */
-export function taskRequest(value) {
+/**
+ * Strictly decode the intentionally tiny Web UI submission payload: the user's
+ * words, and the service they optionally named.
+ */
+export function intensionRequest(value) {
   if (!isPlainObject(value)) throw new LushError('request body must be a JSON object', -32602);
-  const keys = Object.keys(value);
-  for (const key of keys) {
-    if (key !== 'sid' && key !== 'goal') {
+  for (const key of Object.keys(value)) {
+    if (key !== 'content' && key !== 'sid') {
       throw new LushError(`request body has unexpected field '${key}'`, -32602);
     }
   }
-  if (!Object.hasOwn(value, 'sid')) throw new LushError("request body is missing 'sid'", -32602);
-  if (!Object.hasOwn(value, 'goal')) throw new LushError("request body is missing 'goal'", -32602);
-  validSid(value.sid);
-  text(value.goal, 'goal');
-  return { sid: value.sid, goal: value.goal };
+  if (!Object.hasOwn(value, 'content')) throw new LushError("request body is missing 'content'", -32602);
+  text(value.content, 'content');
+  const sid = value.sid ?? null;
+  if (sid !== null) validSid(sid);
+  return { content: value.content, sid };
+}
+
+const INTENSION_LIST_PARAMS = ['status', 'sid', 'open', 'limit'];
+
+/**
+ * Strictly decode the Web UI intension-list query
+ * (`?status=&sid=&open=&limit=`). As with the other lists, only the wire shape
+ * is enforced here; the enum and range checks stay in Core. `sid=none` asks for
+ * the inputs that named no service, which is a different question from omitting
+ * it (that means *any* target).
+ */
+export function intensionListQuery(search) {
+  const raw = new Map();
+  for (const [key, value] of search) {
+    if (!INTENSION_LIST_PARAMS.includes(key)) throw new LushError(`unknown query parameter '${key}'`, -32602);
+    if (raw.has(key)) throw new LushError(`duplicate query parameter '${key}'`, -32602);
+    raw.set(key, value);
+  }
+  const query = { status: null, sid: undefined, open: false, limit: 200 };
+  if ((raw.get('status') ?? '') !== '') query.status = raw.get('status');
+  const sid = raw.get('sid');
+  if (sid !== undefined && sid !== '') query.sid = sid === 'none' ? null : nonNegativeInt(sid, 'sid');
+  const open = raw.get('open');
+  if (open !== undefined && open !== '') {
+    if (open !== '1' && open !== 'true') throw new LushError("open must be '1' or 'true'", -32602);
+    query.open = true;
+  }
+  if ((raw.get('limit') ?? '') !== '') query.limit = nonNegativeInt(raw.get('limit'), 'limit');
+  return query;
 }
 
 const TASK_LIST_PARAMS = ['sid', 'status', 'roots', 'limit'];

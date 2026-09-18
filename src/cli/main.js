@@ -25,7 +25,7 @@ import { usageLines, renderHelp, renderHelpJson } from './help.js';
 import { ROOT } from './tree/index.js';
 import { format } from './format/index.js';
 import { writeOut } from './io.js';
-import { interactiveCall, openSession } from './session.js';
+import { interactiveIntension, openSession } from './session.js';
 
 const DAEMON_MAIN = fileURLToPath(new URL('../daemon/main.js', import.meta.url));
 
@@ -38,9 +38,9 @@ export {
 export { formatDaemon } from './format/daemon.js';
 export { format } from './format/index.js';
 
-// `sweep` / `open` / `dry_run` style flags pick a method or a client-side path
+// `sweep` / `open` / `wait` style flags pick a method or a client-side path
 // instead of being RPC arguments, so they never travel in `params`.
-const META_KEYS = new Set(['command', 'json', 'node', 'help', 'sweep', 'dry_run', 'open']);
+const META_KEYS = new Set(['command', 'json', 'node', 'help', 'sweep', 'open']);
 
 function rpcParams(args) {
   const params = {};
@@ -201,8 +201,8 @@ export async function run(argv) {
     await openSession(client, args.task_id);
     return;
   }
-  if (args.command === 'call' && args.interactive) {
-    await interactiveCall(client, args);
+  if (args.command === 'intent_submit' && args.interactive) {
+    await interactiveIntension(client, args);
     return;
   }
   const { node } = args;

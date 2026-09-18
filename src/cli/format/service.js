@@ -7,7 +7,7 @@
  * directory, split by what is being rendered:
  *
  *   service/inspect.js  a node: history, inspect, view, list, lifecycle, orphans
- *   service/agents.js   a running agent: show, list, kill, session, dry-run
+ *   service/agents.js   a running agent: show, list, kill, session, argv
  *   service/tasks.js    a task: line, list, tree, inspect, result, call, delete
  */
 export * from './service/inspect.js';

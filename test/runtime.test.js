@@ -45,21 +45,21 @@ describe('runtime', () => {
   test('a task carries its own identity, conversation and result', async () => {
     const parent = manager.load(manager.construct(0, 'generic-service', 'project-manager').sid);
     const child = manager.load(manager.construct(parent.sid, 'generic-task', 'implement-login', '实现登录').sid);
-    const first = await manager.call(child.sid, '请介绍一下你当前的身份和任务');
+    const first = await manager.callRoot(child.sid, '请介绍一下你当前的身份和任务');
     for (const expected of ['SID = 2', 'task = #1', 'project-manager[1]', 'children：无']) {
       expect(first.result).toContain(expected);
     }
     expect(first.status).toBe('completed');
     // A second call is a second task with its own conversation: the first
     // task's messages are not replayed into it.
-    const second = await manager.call(child.sid, '继续介绍');
+    const second = await manager.callRoot(child.sid, '继续介绍');
     expect(second.result).toContain('用户消息数：1');
     expect(second.id).not.toBe(first.id);
     expect(manager.taskHistory(first.id).messages.length).toBe(2);
     expect(manager.taskHistory(second.id).messages.length).toBe(2);
     // The service keeps the aggregate history of the work done on it.
     expect(manager.repository.calls(child.sid).length).toBe(2);
-    expect((await manager.call(0, 'who are you?')).result).toContain('SID = 0');
+    expect((await manager.callRoot(0, 'who are you?')).result).toContain('SID = 0');
   });
 
   test('the tools are the task/service split, and deleting stays human-only', async () => {
@@ -113,11 +113,11 @@ describe('runtime', () => {
     runtime.provider = provider;
     const a = worker();
     const b = worker();
-    const first = manager.call(a.sid, 'A');
-    const second = manager.call(b.sid, 'B');
+    const first = manager.callRoot(a.sid, 'A');
+    const second = manager.callRoot(b.sid, 'B');
     const entered = [await provider.entered.next(), await provider.entered.next()].sort();
     expect(entered).toEqual([a.sid, b.sid].sort());
-    await expectRejection(manager.call(a.sid, 'overlap'), /already working on task/);
+    await expectRejection(manager.callRoot(a.sid, 'overlap'), /already working on task/);
     expect(a.inspect().agent.status).toBe('busy');
     provider.release.resolve();
     await Promise.all([first, second]);
@@ -128,7 +128,7 @@ describe('runtime', () => {
     const workerService = worker('generic-task', 'worker');
     const other = worker('generic-task', 'other');
     expect(manager.agentsList()).toEqual([]);
-    for (let round = 1; round <= 35; round += 1) await manager.call(workerService.sid, `round ${round}`);
+    for (let round = 1; round <= 35; round += 1) await manager.callRoot(workerService.sid, `round ${round}`);
     const kept = manager.agentsList(null, null, true);
     // 35 finished agents, only the last 32 are kept in memory.
     expect(kept.length).toBe(32);
@@ -138,7 +138,7 @@ describe('runtime', () => {
     // Every task mints its own sequence; a live agent shows in tree and list.
     const provider = new BlockingProvider();
     runtime.provider = provider;
-    const pending = manager.call(workerService.sid, 'blocking');
+    const pending = manager.callRoot(workerService.sid, 'blocking');
     const sid = await provider.entered.next();
     expect(sid).toBe(workerService.sid);
     expect(manager.agentsList()).toEqual([
@@ -207,8 +207,8 @@ describe('runtime', () => {
     runtime.provider = provider;
     const first = worker();
     const second = worker();
-    const pending = manager.call(first.sid, 'work');
-    const other = manager.call(second.sid, 'other');
+    const pending = manager.callRoot(first.sid, 'work');
+    const other = manager.callRoot(second.sid, 'other');
     pending.catch(() => {});
     other.catch(() => {});
     for (let i = 0; i < 2; i += 1) await provider.entered.next();
@@ -225,7 +225,7 @@ describe('runtime', () => {
     const provider = new BlockingProvider();
     runtime.provider = provider;
     const doomed = worker('generic-task', 'doomed');
-    const pending = manager.call(doomed.sid, 'work');
+    const pending = manager.callRoot(doomed.sid, 'work');
     pending.catch(() => {});
     await provider.entered.next();
     expect(runtime.isBusy(doomed.sid)).toBe(true);
@@ -248,7 +248,7 @@ describe('runtime', () => {
     const provider = new BlockingProvider();
     runtime.provider = provider;
     const service_ = worker();
-    const waiter = manager.call(service_.sid, 'work');
+    const waiter = manager.callRoot(service_.sid, 'work');
     await provider.entered.next();
     // A detached client stops awaiting; the daemon must finish the work anyway.
     provider.release.resolve();
@@ -271,13 +271,13 @@ describe('runtime', () => {
     }
     const target = worker();
     runtime.provider = new Broken();
-    const broken = await manager.call(target.sid, 'fail');
+    const broken = await manager.callRoot(target.sid, 'fail');
     expect(broken.status).toBe('failed');
     expect(broken.error).toMatch(/test provider failure/);
 
     runtime.provider = new BlockingProvider();
     runtime.timeout = 0.03;
-    const timedOut = await manager.call(target.sid, 'timeout');
+    const timedOut = await manager.callRoot(target.sid, 'timeout');
     expect(timedOut.status).toBe('failed');
     expect(timedOut.error).toMatch(/timed out/);
 
@@ -293,7 +293,7 @@ describe('runtime', () => {
     runtime.provider = new Loop();
     runtime.maxRounds = 2;
     runtime.timeout = 1;
-    const looped = await manager.call(target.sid, 'loop');
+    const looped = await manager.callRoot(target.sid, 'loop');
     const task = manager.taskList(target.sid)[0];
     expect(looped.status).toBe('failed');
     expect(looped.error).toMatch(/exceeded 2 rounds/);
@@ -305,7 +305,7 @@ describe('runtime', () => {
     const provider = new BlockingProvider();
     runtime.provider = provider;
     const service_ = worker();
-    const waiter = manager.call(service_.sid, 'work');
+    const waiter = manager.callRoot(service_.sid, 'work');
     waiter.catch(() => {});
     const sid = await provider.entered.next();
     expect(sid).toBe(service_.sid);
@@ -320,7 +320,7 @@ describe('runtime', () => {
 
   test('shutdown releases a task parked between two invocations', async () => {
     const service_ = worker();
-    const waiter = manager.call(service_.sid, '/tool notice {"title":"等我回答"}');
+    const waiter = manager.callRoot(service_.sid, '/tool notice {"title":"等我回答"}');
     await Bun.sleep(20);
     const [parked] = manager.taskList(service_.sid);
     expect(parked.status).toBe('awaiting');

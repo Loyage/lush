@@ -2,12 +2,19 @@ const TASK_LIMIT = 500;
 const TRACE_LIMIT = 200;
 const ACTIVE_STATUSES = ['created', 'running', 'waiting', 'awaiting'];
 const TRACE_KIND_LABEL = { delegated: '派活', message: '消息', child_settled: '结算', notice_settled: 'notice' };
+const INTENT_STATUS_LABEL = {
+  queued: '排队中', parsing: '解析中', awaiting: '等你裁决', settled: '已安排', rejected: '已拒绝',
+};
+const INTENT_RESOLUTION_LABEL = {
+  arranged: '已安排', rejected: '已拒绝', withdrawn: '我撤回了', defer: '排队等另一个 task', requeue: '解析失败，已重排', exhausted: '解析连续失败',
+};
 
 const elements = {
   connection: document.querySelector('#connection'),
   refresh: document.querySelector('#refresh'),
   tabs: [...document.querySelectorAll('.tab')],
   servicesView: document.querySelector('#services-view'),
+  intentsView: document.querySelector('#intents-view'),
   tasksView: document.querySelector('#tasks-view'),
   noticesView: document.querySelector('#notices-view'),
   tree: document.querySelector('#tree'),
@@ -17,6 +24,24 @@ const elements = {
   taskList: document.querySelector('#task-list'),
   tasksEmpty: document.querySelector('#tasks-empty'),
   tasksNote: document.querySelector('#tasks-note'),
+  intentStatus: document.querySelector('#intent-status'),
+  intentList: document.querySelector('#intent-list'),
+  intentsEmpty: document.querySelector('#intents-empty'),
+  intentCount: document.querySelector('#intent-count'),
+  intentPanel: document.querySelector('#intent-panel'),
+  intentHint: document.querySelector('#intent-hint'),
+  intentDetail: document.querySelector('#intent-detail'),
+  intentId: document.querySelector('#intent-id'),
+  intentState: document.querySelector('#intent-state'),
+  intentAttempts: document.querySelector('#intent-attempts'),
+  intentTarget: document.querySelector('#intent-target'),
+  intentText: document.querySelector('#intent-text'),
+  intentResolution: document.querySelector('#intent-resolution'),
+  intentResponse: document.querySelector('#intent-response'),
+  intentNoticesSection: document.querySelector('#intent-notices-section'),
+  intentNoticesCount: document.querySelector('#intent-notices-count'),
+  intentNotices: document.querySelector('#intent-notices'),
+  intentWithdraw: document.querySelector('#intent-withdraw'),
   noticeStatus: document.querySelector('#notice-status'),
   noticeList: document.querySelector('#notice-list'),
   noticesEmpty: document.querySelector('#notices-empty'),
@@ -81,6 +106,9 @@ const state = {
   taskTree: null,
   trace: null,
   traceTaskId: null,
+  intensions: [],
+  selectedIntensionId: null,
+  intension: null,
   notices: [],
   selectedNoticeId: null,
   notice: null,
@@ -146,18 +174,25 @@ function selectService(sid) {
   state.selectedSid = sid;
   renderServiceTree();
   renderSelection();
-  if (selectedService()?.status === 'active') elements.goal.focus();
+  if (selectedService() !== null) elements.goal.focus();
   loadServiceView().catch((err) => showMessage(err.message, true));
 }
 
+/**
+ * The target is a *hint*, not a requirement: picking a service says where you
+ * expect the work to land, and picking none leaves it to the parser. So nothing
+ * here disables the form — a stopped node only warns before you submit.
+ */
 function renderSelection() {
   const service = selectedService();
+  const usable = service !== null && service.status === 'active';
   elements.selection.classList.toggle('empty-selection', service === null);
-  elements.selectionName.textContent = service === null ? '请从左侧选择' : service.name;
-  elements.selectionMeta.textContent = service === null ? '' : `SID ${service.sid} · ${service.status}`;
-  const active = service?.status === 'active';
-  elements.goal.disabled = !active;
-  elements.submit.disabled = !active || state.selectedSid === null;
+  elements.selectionName.textContent = service === null ? '由解析器判断' : service.name;
+  elements.selectionMeta.textContent = service === null
+    ? '（也可以先选一个 Service 表达你的预期）'
+    : `SID ${service.sid} · ${service.status}${usable ? '' : ' · 解析器多半会另择节点'}`;
+  elements.submit.disabled = elements.goal.value.trim() === '';
+  elements.submit.title = usable || service === null ? '' : `${service.name} 不是 active，解析器通常不会选它`;
 }
 
 function serviceButton(service, depth) {
@@ -736,7 +771,151 @@ async function selectNotice(noticeId) {
   }
 }
 
+// ── Intensions (user → Lush) ─────────────────────────────────────────────
+
+const INTENT_DOT = { queued: 'created', parsing: 'running', awaiting: 'waiting', settled: 'completed', rejected: 'cancelled' };
+
+/** The queue filter: "队列中" is the three open statuses, which Core owns. */
+function intentQuery() {
+  const value = elements.intentStatus.value;
+  if (value === '__open') return { open: '1' };
+  return value === '' ? {} : { status: value };
+}
+
+function intentRow(row) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `notice-row${row.id === state.selectedIntensionId ? ' selected' : ''}`;
+  button.setAttribute('role', 'listitem');
+
+  const dot = document.createElement('span');
+  dot.className = `status-dot ${INTENT_DOT[row.status] ?? 'created'}`;
+  dot.setAttribute('aria-hidden', 'true');
+
+  const copy = document.createElement('span');
+  const title = document.createElement('span');
+  title.className = 'notice-row-title';
+  title.textContent = `#${row.id} ${row.content.replace(/\s+/g, ' ').trim().slice(0, 60)}`;
+  const meta = document.createElement('span');
+  meta.className = 'notice-row-meta';
+  const target = row.sid === null ? '目标未指定' : serviceName(row.sid);
+  // Who the queue is waiting for is the one thing the list must never hide.
+  const waiting = row.status === 'awaiting' ? ' · 等你裁决冲突'
+    : row.status === 'queued' && row.blocked_by_task_id !== null ? ` · 等 task#${row.blocked_by_task_id}`
+      : row.parse_task_id === null ? '' : ` · 解析 task#${row.parse_task_id}`;
+  meta.textContent = `${INTENT_STATUS_LABEL[row.status] ?? row.status} · ${target}${waiting}`;
+  copy.append(title, meta);
+
+  button.replaceChildren(dot, copy);
+  button.title = row.content;
+  button.addEventListener('click', () => selectIntension(row.id));
+  return button;
+}
+
+function renderIntentList() {
+  elements.intentList.replaceChildren();
+  elements.intentsEmpty.hidden = state.intensions.length > 0;
+  for (const row of state.intensions) elements.intentList.append(intentRow(row));
+  const queued = state.intensions.filter((row) => row.status === 'queued').length;
+  const parked = state.intensions.filter((row) => row.status === 'awaiting').length;
+  elements.intentCount.hidden = queued + parked === 0;
+  elements.intentCount.textContent = String(queued + parked);
+}
+
+/**
+ * One input's whole story: the words, the parse task working on it, what came
+ * of it, and the conflict conversation (`resolution.task_ids` points at the
+ * tasks it arranged; the notices are the questions it asked).
+ */
+function renderIntentDetail() {
+  const row = state.intension;
+  const has = row !== null;
+  elements.intentHint.hidden = has;
+  elements.intentDetail.hidden = !has;
+  if (!has) return;
+
+  elements.intentId.textContent = `#${row.id}`;
+  elements.intentState.textContent = INTENT_STATUS_LABEL[row.status] ?? row.status;
+  elements.intentState.className = `status ${INTENT_DOT[row.status] ?? 'created'}`;
+  elements.intentAttempts.textContent = row.attempts > 1 ? `第 ${row.attempts} 次解析` : '';
+  elements.intentAttempts.hidden = row.attempts <= 1;
+
+  const target = row.sid === null ? '目标 Service：由解析器判断' : `目标 Service：${serviceName(row.sid)}`;
+  const parse = row.parse_task_id === null ? '' : ` · 解析 task#${row.parse_task_id} (${row.parse_task_status ?? 'gone'})`;
+  const blocked = row.blocked_by_task_id === null ? '' : ` · 等 task#${row.blocked_by_task_id} 结束`;
+  elements.intentTarget.textContent = `${target}${parse}${blocked} · 来源 ${row.source}`;
+
+  elements.intentText.textContent = row.content;
+
+  const resolution = row.resolution;
+  elements.intentResolution.hidden = resolution === null;
+  if (resolution !== null) {
+    const label = INTENT_RESOLUTION_LABEL[resolution.kind] ?? resolution.kind;
+    const tasks = Array.isArray(resolution.task_ids) && resolution.task_ids.length > 0
+      ? ` · 派出的 task：${resolution.task_ids.map((id) => `#${id}`).join(' ')}`
+      : '';
+    const reason = resolution.reason === null || resolution.reason === undefined ? '' : ` · ${resolution.reason}`;
+    elements.intentResolution.textContent = `解析结论：${label}${tasks}${reason}`;
+  }
+
+  elements.intentResponse.hidden = row.response === null;
+  if (row.response !== null) elements.intentResponse.textContent = row.response;
+
+  const notices = row.notices ?? [];
+  elements.intentNoticesSection.hidden = notices.length === 0;
+  elements.intentNoticesCount.textContent = String(notices.length);
+  elements.intentNotices.replaceChildren();
+  for (const notice of notices) elements.intentNotices.append(noticeRow(notice));
+
+  const withdrawable = row.status === 'queued';
+  elements.intentWithdraw.disabled = !withdrawable;
+  elements.intentWithdraw.title = withdrawable ? `撤回输入 #${row.id}` : '只有还没开始解析的输入可以撤回';
+}
+
+async function loadIntensions() {
+  const params = new URLSearchParams({ limit: '200', ...intentQuery() });
+  const payload = await api(`/api/intents?${params}`);
+  state.intensions = payload.intensions;
+  renderIntentList();
+}
+
+async function loadIntension() {
+  const id = state.selectedIntensionId;
+  if (id === null) {
+    state.intension = null;
+    renderIntentDetail();
+    return;
+  }
+  let payload;
+  try {
+    payload = await api(`/api/intents/${id}`);
+  } catch (err) {
+    if (err.status === 404) {
+      state.selectedIntensionId = null;
+      state.intension = null;
+      renderIntentDetail();
+      renderIntentList();
+      return;
+    }
+    throw err;
+  }
+  if (state.selectedIntensionId !== id) return;
+  state.intension = payload.intension;
+  renderIntentDetail();
+}
+
+async function selectIntension(id) {
+  state.selectedIntensionId = id;
+  renderIntentList();
+  try {
+    await loadIntension();
+  } catch (err) {
+    showMessage(err.message, true);
+  }
+}
+
 // ── Service capability panel ───────────────────────────────────────────────
+
 
 /**
  * One service's three read surfaces (`service.view`): its capability-boundary
@@ -892,6 +1071,8 @@ async function refresh({ quiet = false } = {}) {
   try {
     await loadServices();
     await loadServiceView();
+    if (state.view === 'intents') await loadIntensions();
+    await loadIntension();
     if (state.view === 'tasks') await loadTasks();
     await loadTaskTree();
     await loadNotices();
@@ -916,17 +1097,23 @@ function setView(view) {
     tab.setAttribute('aria-selected', String(active));
   }
   elements.servicesView.hidden = view !== 'services';
+  elements.intentsView.hidden = view !== 'intents';
   elements.tasksView.hidden = view !== 'tasks';
   elements.noticesView.hidden = view !== 'notices';
-  // The right column mirrors the sidebar selection: 服务 shows the create form
-  // plus the selected service's capabilities, 任务 shows the selected task's
-  // detail (create/service would push it below the fold), Notice its own form.
+  // The right column mirrors the sidebar selection: 服务 shows the submission
+  // form plus the selected service's capabilities, 输入 shows one input's story,
+  // 任务 the selected task's detail, Notice its own form.
   elements.createPanel.hidden = view !== 'services';
   elements.servicePanel.hidden = view !== 'services';
+  elements.intentPanel.hidden = view !== 'intents';
   elements.treePanel.hidden = view !== 'tasks';
   elements.noticePanel.hidden = view !== 'notices';
   // A panel swap can leave the page scrolled past the new first screen.
   if (changed) window.scrollTo({ top: 0 });
+  if (view === 'intents') {
+    loadIntensions().catch((err) => showMessage(err.message, true));
+    loadIntension().catch((err) => showMessage(err.message, true));
+  }
   if (view === 'tasks') {
     loadTasks().catch((err) => showMessage(err.message, true));
   }
@@ -937,10 +1124,10 @@ function setView(view) {
 
 for (const tab of elements.tabs) tab.addEventListener('click', () => setView(tab.dataset.view));
 elements.taskNew.addEventListener('click', () => {
-  // The create form lives in the 服务 view; one click gets there and the
-  // selected service (kept across views) is already filled in.
+  // The submission form lives in the 服务 view; one click gets there and the
+  // selected service (kept across views) is already filled in as the target.
   setView('services');
-  if (selectedService()?.status === 'active') elements.goal.focus();
+  elements.goal.focus();
 });
 elements.taskScope.addEventListener('change', () => {
   loadTasks().catch((err) => showMessage(err.message, true));
@@ -952,6 +1139,7 @@ elements.noticeStatus.addEventListener('change', () => {
   loadNotices().catch((err) => showMessage(err.message, true));
 });
 elements.refresh.addEventListener('click', () => refresh());
+elements.goal.addEventListener('input', () => { elements.submit.disabled = elements.goal.value.trim() === ''; });
 
 elements.noticeForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -1003,26 +1191,51 @@ elements.noticeDismiss.addEventListener('click', async () => {
 elements.form.addEventListener('submit', async (event) => {
   event.preventDefault();
   const service = selectedService();
-  const goal = elements.goal.value.trim();
-  if (service === null || service.status !== 'active' || goal === '') return;
+  const content = elements.goal.value.trim();
+  if (content === '') return;
 
   elements.submit.disabled = true;
-  showMessage('正在创建…');
+  showMessage('正在提交…');
   try {
-    const payload = await api('/api/tasks', {
+    const payload = await api('/api/intents', {
       method: 'POST',
-      body: JSON.stringify({ sid: service.sid, goal }),
+      body: JSON.stringify({ content, sid: service?.sid ?? null }),
     });
     elements.goal.value = '';
-    showMessage(`Task #${payload.task.id} 已在后台启动`);
-    setView('tasks');
-    state.selectedTaskId = payload.task.id;
-    await loadTasks();
-    await loadTaskTree();
+    const row = payload.intension;
+    showMessage(`输入 #${row.id} 已提交（${INTENT_STATUS_LABEL[row.status] ?? row.status}）；标题栏「输入」里可以跟它`);
+    state.selectedIntensionId = row.id;
+    setView('intents');
+    await loadIntensions();
+    await loadIntension();
   } catch (err) {
     showMessage(err.message, true);
   } finally {
     renderSelection();
+  }
+});
+
+elements.intentStatus.addEventListener('change', () => {
+  loadIntensions().catch((err) => showMessage(err.message, true));
+});
+
+elements.intentWithdraw.addEventListener('click', async () => {
+  const row = state.intension;
+  if (row === null || row.status !== 'queued') return;
+  const reason = window.prompt(`撤回输入 #${row.id}？可填写理由（留空即不填）：`, '');
+  if (reason === null) return;
+  elements.intentWithdraw.disabled = true;
+  try {
+    const payload = await api(`/api/intents/${row.id}/withdraw`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason === '' ? null : reason }),
+    });
+    state.intension = payload.intension;
+    renderIntentDetail();
+    await loadIntensions();
+  } catch (err) {
+    showMessage(err.message, true);
+    renderIntentDetail();
   }
 });
 

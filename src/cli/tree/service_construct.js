@@ -28,7 +28,7 @@ function setVariables(result, values, flag) {
 
 /**
  * `service construct`: create one passive node. Work is never started here — the
- * new service only exists so a task can be delegated to it (`lush call` or
+ * new service only exists so a task can be delegated to it (`lush intent submit` or
  * `task_construct`).
  */
 export const serviceConstructChild = {
@@ -41,7 +41,7 @@ export const serviceConstructChild = {
       '模板必须在创建方的 child_templates 白名单内；singleton 模板在同一父服务下已有活动实例时拒绝创建。',
       '子服务的 goal 取自 --goal，缺省时用名称；--vars 给出该模板声明的变量值，存入新服务 state（不可变变量在 state.params，可变变量在 state.vars）。',
       '--agent 指定该服务上的 task 使用的 agent profile（见 `lush agent list`），优先级高于模板的可选 agent 字段；两者都没有时用内置 default。选中的名字会写进 state，用 `service inspect` 可查。',
-      '新建的服务是静止的：要让它干活，再 `lush call <新SID> \'<目标>\'`（或让父 task 用 task_construct 派给它）。',
+      '新建的服务是静止的：要让它干活，就说一句 `lush intent submit \'<原话>\' --sid <新SID>`（或让父 task 用 task_construct 派给它）。',
     ],
     notes: [
       '变量按模板的 variables 声明校验：缺少 required 变量、写了模板没声明的名字、或值不符合声明的格式（pattern / max_length / single_line）都会直接失败；带 default 的变量可以省略。',

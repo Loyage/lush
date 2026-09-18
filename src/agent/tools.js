@@ -71,6 +71,15 @@ export const TOOL_DEFINITIONS = [
       fields: { type: 'array', items: NOTICE_FIELD },
       wait: { type: 'boolean' },
     }, ['title']),
+  tool('intent_context', 'Only for the task that is parsing a piece of user input: read that intension and the architecture it has to be judged against — the loaded template tree, the service tree with each node\'s active task, the whole open intension queue, the notices already waiting for the user, and `precheck`, the mechanical facts about the service the user named (exists / status / adopted / busy / duplicates in the queue). A precheck fact is a conflict candidate, not a verdict.'),
+  tool('intent_settle', "Only for the task that is parsing a piece of user input: close it. `settled` means it was arranged (the tasks you delegated are recorded automatically) or answered; `rejected` means it is refused or the user chose to drop it — then `reason` is what the user reads. `response` is what the user is shown for this input; if you never call this, your final answer becomes the response.",
+    {
+      status: { type: 'string', enum: ['settled', 'rejected'] },
+      response: { type: 'string' },
+      reason: { type: 'string' },
+    }, ['status']),
+  tool('intent_defer', 'Only for the task that is parsing a piece of user input: the user chose "let that task finish first". The input goes back into the queue behind `task_id` and is parsed again once that task settles; nothing new is created now.',
+    { task_id: SID, reason: { type: 'string' } }, ['task_id']),
 ];
 
 export const TOOL_PARAMS = {
@@ -89,6 +98,9 @@ export const TOOL_PARAMS = {
   service_update_state: { required: ['patch'] },
   service_update_vars: { required: ['patch'] },
   notice: { required: ['title'], optional: ['kind', 'body', 'fields', 'wait'] },
+  intent_context: { required: [] },
+  intent_settle: { required: ['status'], optional: ['response', 'reason'] },
+  intent_defer: { required: ['task_id'], optional: ['reason'] },
 };
 
 export class AgentTools {
@@ -127,6 +139,18 @@ export class AgentTools {
       notice: {
         params: TOOL_PARAMS.notice,
         fn: (title, kind, body, fields, wait) => this.notice(title, kind, body, fields, wait),
+      },
+      intent_context: {
+        params: TOOL_PARAMS.intent_context,
+        fn: () => manager.intensionContextOfTask(this.taskId),
+      },
+      intent_settle: {
+        params: TOOL_PARAMS.intent_settle,
+        fn: (status, response, reason) => manager.intensionSettleFromTask(this.taskId, status, response, reason),
+      },
+      intent_defer: {
+        params: TOOL_PARAMS.intent_defer,
+        fn: (taskId, reason) => manager.intensionDeferFromTask(this.taskId, taskId, reason),
       },
     };
   }

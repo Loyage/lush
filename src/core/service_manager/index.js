@@ -21,6 +21,7 @@
  *   service_manager/tasks.js   the task verbs
  *   service_manager/inbox.js   the task inbox (parent ↔ child input)
  *   service_manager/notices.js the notice verbs (agent → user reports)
+ *   service_manager/intensions.js  the intension queue (raw user input)
  *
  * Only the constructor and the `orphanPolicy` getter live in the class body:
  * `Object.assign` copies getter *values*, not the getters themselves.
@@ -28,6 +29,7 @@
 import { DEFAULT_ORPHAN_POLICY, OrphanSupervisor } from '../orphans.js';
 import { agents } from './agents.js';
 import { inboxLayer } from './inbox.js';
+import { intensionLayer } from './intensions.js';
 import { nodes } from './nodes.js';
 import { noticeLayer } from './notices.js';
 import { read } from './read.js';
@@ -57,6 +59,13 @@ export class ServiceManager {
      */
     this.taskWaiters = new Map();
     this.resumeWaiters = new Map();
+    /**
+     * Intension waiters: the user-facing `intent.wait`, the same in-memory
+     * shape as `taskWaiters` (a caller blocking until a row is closed). A
+     * restarted daemon requeues unfinished rows instead of resuming the wait
+     * (`Repository.recover`).
+     */
+    this.intensionWaiters = new Map();
   }
 
   /**
@@ -68,4 +77,4 @@ export class ServiceManager {
   }
 }
 
-Object.assign(ServiceManager.prototype, read, nodes, agents, taskLayer, inboxLayer, noticeLayer);
+Object.assign(ServiceManager.prototype, read, nodes, agents, taskLayer, inboxLayer, noticeLayer, intensionLayer);

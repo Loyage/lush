@@ -60,14 +60,16 @@ export function findNotice(repository, noticeId) {
 
 /**
  * `notice.list`: newest first. `status` narrows to open / answered /
- * dismissed, `taskId` / `sid` to the reporter. Range checks stay in Core.
+ * dismissed, `taskId` / `sid` to the reporter, and `intensionId` to the user
+ * input a conflict question is about. Range checks stay in Core.
  */
-export function listNotices(repository, { status = null, taskId = null, sid = null, limit = 200 } = {}) {
+export function listNotices(repository, { status = null, taskId = null, sid = null, intensionId = null, limit = 200 } = {}) {
   const where = [];
   const args = [];
   if (status !== null) { where.push('n.status=?'); args.push(status); }
   if (taskId !== null) { where.push('n.task_id=?'); args.push(taskId); }
   if (sid !== null) { where.push('n.sid=?'); args.push(sid); }
+  if (intensionId !== null) { where.push('n.intension_id=?'); args.push(intensionId); }
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   return repository.db.query(`${SELECT} ${clause} ORDER BY n.id DESC LIMIT ?`)
     .all(...args, limit)
@@ -114,6 +116,16 @@ export function settleNotice(repository, noticeId, status, { answer, note } = {}
 export function detachTaskNotices(repository, taskId) {
   return repository.db.run('UPDATE notices SET task_id=NULL,updated_at=? WHERE task_id=?',
     [now(), taskId]).changes;
+}
+
+/**
+ * Point one notice at the user input it is about. Written by the intension
+ * layer when a parsing task reports (`core/intensions.js`): the report is a
+ * question about *that input*, and `intent.show` follows this edge to find it.
+ */
+export function linkNoticeToIntension(repository, noticeId, intensionId) {
+  return repository.db.run('UPDATE notices SET intension_id=?,updated_at=? WHERE id=?',
+    [intensionId, now(), noticeId]).changes;
 }
 
 export function deleteNoticesOfService(repository, sid) {

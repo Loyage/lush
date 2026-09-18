@@ -26,6 +26,7 @@
     <aside class="panel sidebar">
       <div class="tabs" role="tablist" aria-label="侧边栏视图">
         <button id="tab-services" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="services-view" data-view="services">服务</button>
+        <button id="tab-intents" class="tab" type="button" role="tab" aria-selected="false" aria-controls="intents-view" data-view="intents">输入 <span id="intent-count" class="count" hidden>0</span></button>
         <button id="tab-tasks" class="tab" type="button" role="tab" aria-selected="false" aria-controls="tasks-view" data-view="tasks">任务</button>
         <button id="tab-notices" class="tab" type="button" role="tab" aria-selected="false" aria-controls="notices-view" data-view="notices">Notice <span id="notice-count" class="count" hidden>0</span></button>
       </div>
@@ -33,6 +34,25 @@
       <section id="services-view" class="view" role="tabpanel" aria-labelledby="tab-services">
         <p id="tree-empty" class="empty" hidden>暂无 Service。</p>
         <div id="tree" class="tree" role="tree" aria-label="Service tree"></div>
+      </section>
+
+      <section id="intents-view" class="view" role="tabpanel" aria-labelledby="tab-intents" hidden>
+        <div class="filters">
+          <label class="filter">
+            <span>状态</span>
+            <select id="intent-status">
+              <option value="__open">队列中</option>
+              <option value="">全部</option>
+              <option value="queued">queued</option>
+              <option value="parsing">parsing</option>
+              <option value="awaiting">awaiting</option>
+              <option value="settled">settled</option>
+              <option value="rejected">rejected</option>
+            </select>
+          </label>
+        </div>
+        <p id="intents-empty" class="empty" hidden>还没有输入。</p>
+        <div id="intent-list" class="notice-list" role="list" aria-label="Intension list"></div>
       </section>
 
       <section id="tasks-view" class="view" role="tabpanel" aria-labelledby="tab-tasks" hidden>
@@ -85,23 +105,25 @@
       <section id="create-panel" class="panel create-panel" aria-labelledby="create-title">
         <div class="panel-heading">
           <div>
-            <p class="eyebrow">NEW TASK</p>
-            <h2 id="create-title">创建 Task</h2>
+            <p class="eyebrow">NEW INPUT</p>
+            <h2 id="create-title">说点什么</h2>
           </div>
         </div>
 
+        <p class="empty">你的话会成为一条 <strong>输入</strong>（intension），由顶层解析节点串行解析、安排成 task 或直接答复；有冲突它会用 notice 问你。</p>
+
         <div id="selection" class="selection empty-selection">
-          <span class="selection-label">目标 Service</span>
-          <strong id="selection-name">请从左侧选择</strong>
+          <span class="selection-label">目标 Service（可选）</span>
+          <strong id="selection-name">由解析器判断</strong>
           <span id="selection-meta" class="selection-meta"></span>
         </div>
 
         <form id="task-form">
-          <label for="goal">目标</label>
-          <textarea id="goal" name="goal" rows="4" maxlength="100000" placeholder="描述希望这个 Service 完成的工作…" required disabled></textarea>
+          <label for="goal">你的话</label>
+          <textarea id="goal" name="goal" rows="4" maxlength="20000" placeholder="想做成什么、有什么约束、怎么算完成…" required></textarea>
           <div class="form-footer">
             <p id="form-message" class="message" role="status"></p>
-            <button id="submit" class="primary" type="submit" disabled>后台启动</button>
+            <button id="submit" class="primary" type="submit">交给 Lush</button>
           </div>
         </form>
       </section>
@@ -135,7 +157,7 @@
             <h2 id="task-detail-title">Task 树</h2>
           </div>
           <div class="actions">
-            <button id="task-new" class="ghost" type="button" title="切到「服务」视图，创建一个新 Task">＋ 新建 Task</button>
+            <button id="task-new" class="ghost" type="button" title="切到「服务」视图，说一句话交给 Lush">＋ 说点什么</button>
             <button id="task-parent" class="icon-button" type="button" title="返回上级 Task" aria-label="返回上级 Task" hidden>↑</button>
             <button id="task-cancel" class="ghost danger" type="button" disabled>取消</button>
             <button id="task-delete" class="ghost danger" type="button" disabled>删除</button>
@@ -158,6 +180,35 @@
           <div id="trace-list" class="task-trace" role="list" aria-label="Task trace"></div>
         </details>
         <div id="task-tree" class="task-tree" role="tree" aria-label="Task tree" hidden></div>
+      </section>
+
+      <section id="intent-panel" class="panel notice-panel" aria-labelledby="intent-detail-title" hidden>
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">INTENSION</p>
+            <h2 id="intent-detail-title">输入详情</h2>
+          </div>
+          <div class="actions">
+            <button id="intent-withdraw" class="ghost danger" type="button" disabled>撤回</button>
+          </div>
+        </div>
+
+        <p id="intent-hint" class="empty">从左侧「输入」列表选择一条：这里显示你的原话、解析器拿它做了什么，以及它在等谁。</p>
+        <div id="intent-detail" class="notice-detail" hidden>
+          <div class="notice-head">
+            <span id="intent-id" class="task-id"></span>
+            <span id="intent-state" class="status"></span>
+            <span id="intent-attempts" class="badge"></span>
+          </div>
+          <p id="intent-target" class="task-meta"></p>
+          <pre id="intent-text" class="notice-text"></pre>
+          <div id="intent-resolution" class="notice-answer" hidden></div>
+          <div id="intent-response" class="notice-answer" hidden></div>
+          <details id="intent-notices-section" class="task-section" hidden>
+            <summary>与用户的过程 <span id="intent-notices-count" class="count">0</span></summary>
+            <div id="intent-notices" class="notice-list"></div>
+          </details>
+        </div>
       </section>
 
       <section id="notice-panel" class="panel notice-panel" aria-labelledby="notice-detail-title" hidden>

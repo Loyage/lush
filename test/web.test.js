@@ -6,7 +6,9 @@ import { RPCClient } from '../src/rpc/client.js';
 import { Dispatcher } from '../src/rpc/protocol.js';
 import { RPCServer } from '../src/rpc/server.js';
 import { createSignal } from '../src/signal.js';
-import { UIClient, taskDeleteRequest, taskListQuery, taskRequest, taskTraceQuery } from '../src/ui/client.js';
+import {
+  UIClient, intensionListQuery, intensionRequest, taskDeleteRequest, taskListQuery, taskTraceQuery,
+} from '../src/ui/client.js';
 import { WebUIServer } from '../src/ui/web.js';
 import { cleanup, deferred, system, tmpdir } from './helpers.js';
 
@@ -52,7 +54,7 @@ describe('shared UI application client', () => {
     await ui.shutdown();
     await ui.serviceTree();
     await ui.serviceView(7);
-    await ui.createTask(7, 'work');
+    await ui.submitIntension('work', 7);
     await ui.taskResult(3);
     await ui.taskSession(3);
     await ui.taskList({ sid: 1, status: 'running', roots: 'roots', limit: 5 });
@@ -60,7 +62,11 @@ describe('shared UI application client', () => {
     await ui.taskTrace(3, { limit: 40 });
     await ui.cancelTask(3);
     await ui.deleteTask(3, true);
-    await ui.openInteractiveTask(7, 'pair');
+    await ui.submitInteractiveIntension('pair', 7);
+    await ui.intensionList({ open: true });
+    await ui.intensionInspect(11);
+    await ui.intensionContext(11);
+    await ui.withdrawIntension(11, 'changed my mind');
     await ui.recordInteractivePid(3, 4, 99);
     await ui.settleInteractiveTask(3, 4, 'failed', { error: 'stopped' });
 
@@ -70,7 +76,7 @@ describe('shared UI application client', () => {
       ['system.shutdown', {}],
       ['service.tree', {}],
       ['service.view', { sid: 7, sections: ['description', 'templates', 'prompt'] }],
-      ['call', { sid: 7, goal: 'work', detach: true }],
+      ['intent.submit', { content: 'work', sid: 7, source: 'web' }],
       ['task.result', { task_id: 3 }],
       ['task.session', { task_id: 3 }],
       ['task.list', { sid: 1, status: 'running', roots: 'roots', limit: 5 }],
@@ -78,7 +84,11 @@ describe('shared UI application client', () => {
       ['task.trace', { task_id: 3, limit: 40 }],
       ['task.cancel', { task_id: 3 }],
       ['task.delete', { task_id: 3, recursive: true }],
-      ['call', { sid: 7, goal: 'pair', interactive: true }],
+      ['intent.submit', { content: 'pair', sid: 7, source: 'cli', interactive: true }],
+      ['intent.list', { status: null, sid: undefined, open: true, limit: 200 }],
+      ['intent.inspect', { intension_id: 11 }],
+      ['intent.context', { intension_id: 11 }],
+      ['intent.withdraw', { intension_id: 11, reason: 'changed my mind' }],
       ['call.os_pid', { task_id: 3, call_id: 4, os_pid: 99 }],
       ['call.end', { task_id: 3, call_id: 4, status: 'failed', error: 'stopped' }],
     ]);
@@ -196,40 +206,43 @@ describe('web ui', () => {
     expect((await tree.json()).error.message).toContain('cannot connect to lushd');
   });
 
-  test('creates a detached root task and exposes its result', async () => {
-    const child = manager.construct(0, 'generic-task', 'worker');
-    const created = await request('/api/tasks', {
+  test('submits an intension and exposes what came of it', async () => {
+    const created = await request('/api/intents', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sid: child.sid, goal: 'do this later' }),
+      body: JSON.stringify({ content: 'do this later' }),
     });
     expect(created.status).toBe(202);
-    const task = (await created.json()).task;
-    expect(task).toMatchObject({ sid: child.sid, goal: 'do this later', parent_task_id: null });
-    expect(['created', 'running']).toContain(task.status);
+    const row = (await created.json()).intension;
+    expect(row).toMatchObject({ content: 'do this later', sid: null, source: 'web', status: 'parsing' });
+    expect(row.parse_task_id).not.toBeNull();
 
-    const pending = await request(`/api/tasks/${task.id}`);
+    // The queue view and the detail read the same row, one from the list, one
+    // with the parse task that is working on it.
+    const queue = await request('/api/intents?open=1');
+    expect((await queue.json()).intensions.map((item) => item.id)).toEqual([row.id]);
+    const pending = await request(`/api/intents/${row.id}`);
     expect(await pending.json()).toMatchObject({
-      task: { id: task.id, sid: child.sid, finished: false },
+      intension: { id: row.id, status: 'parsing', parse_task_status: 'running' },
     });
 
     gate.resolve();
-    await manager.waitForTask(task.id);
-    const finished = await request(`/api/tasks/${task.id}`);
-    expect(await finished.json()).toEqual({
-      task: {
-        id: task.id,
-        sid: child.sid,
-        status: 'completed',
-        finished: true,
-        result: 'finished in background',
-        error: null,
-      },
+    await manager.intensionWait(row.id);
+    const settled = await request(`/api/intents/${row.id}`);
+    expect(await settled.json()).toMatchObject({
+      intension: { id: row.id, status: 'settled', response: 'finished in background' },
     });
   });
 
   test('validates writes and blocks cross-origin API requests', async () => {
-    expect(() => taskRequest({ sid: 0, goal: 'x', extra: true })).toThrow(/unexpected field/);
+    expect(() => intensionRequest({ content: 'x', extra: true })).toThrow(/unexpected field/);
+    expect(() => intensionRequest({ sid: 0 })).toThrow(/missing 'content'/);
+    expect(intensionRequest({ content: 'x' })).toEqual({ content: 'x', sid: null });
+    expect(intensionListQuery(new URLSearchParams('open=1&sid=none&limit=5')))
+      .toEqual({ status: null, sid: null, open: true, limit: 5 });
+    expect(intensionListQuery(new URLSearchParams('status=awaiting')))
+      .toEqual({ status: 'awaiting', sid: undefined, open: false, limit: 200 });
+    expect(() => intensionListQuery(new URLSearchParams('sid=abc'))).toThrow(/sid/);
     expect(() => taskListQuery(new URLSearchParams('roots=sideways'))).toThrow(/roots/);
     expect(() => taskListQuery(new URLSearchParams('limit=1&limit=2'))).toThrow(/duplicate/);
     expect(() => taskListQuery(new URLSearchParams('nope=1'))).toThrow(/unknown query parameter/);
@@ -243,7 +256,7 @@ describe('web ui', () => {
     expect(taskListQuery(new URLSearchParams(''))).toEqual({ sid: null, status: null, roots: null, limit: 200 });
     expect(taskDeleteRequest({})).toEqual({ recursive: false });
 
-    const wrongType = await request('/api/tasks', { method: 'POST', body: '{}' });
+    const wrongType = await request('/api/intents', { method: 'POST', body: '{}' });
     expect(wrongType.status).toBe(400);
     expect((await wrongType.json()).error.message).toContain('Content-Type');
 
@@ -254,7 +267,7 @@ describe('web ui', () => {
 
   test('lists tasks, exposes one task tree and applies filters', async () => {
     const worker = manager.construct(0, 'generic-task', 'worker');
-    const root = manager.constructTask(null, 0, 'root goal');
+    const root = manager.constructRootTask(0, 'root goal');
     const child = manager.constructTask(root.id, worker.sid, 'child goal');
 
     const list = await request('/api/tasks');
@@ -310,7 +323,7 @@ describe('web ui', () => {
 
   test('cancels and deletes a task subtree through the API', async () => {
     const worker = manager.construct(0, 'generic-task', 'worker');
-    const root = manager.constructTask(null, 0, 'root goal');
+    const root = manager.constructRootTask(0, 'root goal');
     const child = manager.constructTask(root.id, worker.sid, 'child goal');
 
     const cancelled = await request(`/api/tasks/${root.id}/cancel`, { method: 'POST' });

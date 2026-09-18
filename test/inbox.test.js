@@ -53,7 +53,7 @@ describe('task inbox (core)', () => {
   function pair() {
     const parentSid = manager.construct(0, 'generic-service', 'parent').sid;
     const childSid = manager.construct(parentSid, 'generic-task', 'child').sid;
-    const parentTask = manager.constructTask(null, parentSid, 'parent work', false);
+    const parentTask = manager.constructRootTask(parentSid, 'parent work', false);
     return { parentSid, childSid, parentTask };
   }
 
@@ -107,7 +107,7 @@ describe('task inbox (core)', () => {
     try {
       const parentSid = built.manager.construct(0, 'generic-service', 'parent').sid;
       const childSid = built.manager.construct(parentSid, 'generic-task', 'child').sid;
-      const parentTask = built.manager.constructTask(null, parentSid, 'parent work', false);
+      const parentTask = built.manager.constructRootTask(parentSid, 'parent work', false);
 
       const childTask = built.manager.constructTask(parentTask.id, childSid, 'do the thing');
       await gate.entered.promise; // the child's first invocation is in flight
@@ -219,7 +219,7 @@ describe('task inbox over RPC', () => {
   test('task.message and task.inbox travel over the wire', async () => {
     const parentSid = manager.construct(0, 'generic-service', 'parent').sid;
     const childSid = manager.construct(parentSid, 'generic-task', 'child').sid;
-    const parentTask = manager.constructTask(null, parentSid, 'parent work', false);
+    const parentTask = manager.constructRootTask(parentSid, 'parent work', false);
     const childTask = manager.repository.createTask(childSid, parentTask.id, 'child work', { rootTaskId: parentTask.id });
 
     const sent = await client.request('task.message', {
@@ -245,7 +245,7 @@ describe('task inbox over RPC', () => {
   test('task.trace travels over the wire', async () => {
     const parentSid = manager.construct(0, 'generic-service', 'parent').sid;
     const childSid = manager.construct(parentSid, 'generic-task', 'child').sid;
-    const parentTask = manager.constructTask(null, parentSid, 'parent work', false);
+    const parentTask = manager.constructRootTask(parentSid, 'parent work', false);
     const childTask = manager.repository.createTask(childSid, parentTask.id, 'child work', { rootTaskId: parentTask.id });
     manager.taskMessage(parentTask.id, childTask.id, 'over the wire');
 
@@ -284,11 +284,11 @@ describe('task trace (调用链)', () => {
     const grandSid = manager.construct(childSid, 'generic-task', 'grand').sid;
     const otherSid = manager.construct(0, 'generic-service', 'other').sid;
 
-    const root = manager.constructTask(null, parentSid, 'root work', false);
+    const root = manager.constructRootTask(parentSid, 'root work', false);
     const child = manager.constructTask(root.id, childSid, 'child work', false);
     const grand = manager.constructTask(child.id, grandSid, 'grand work', false);
 
-    const otherRoot = manager.constructTask(null, otherSid, 'other root', false);
+    const otherRoot = manager.constructRootTask(otherSid, 'other root', false);
     const otherChildSid = manager.construct(otherSid, 'generic-task', 'other child').sid;
     const otherChild = manager.constructTask(otherRoot.id, otherChildSid, 'other work', false);
     manager.taskMessage(otherRoot.id, otherChild.id, '另一棵树');

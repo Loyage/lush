@@ -225,9 +225,9 @@ export function formatTaskResult(result) {
 }
 
 /**
- * `lush call` text output: which task was created and what it came back with.
- * The task id is printed first so the tree stays observably addressable
- * (`lush task tree <id>`), whatever the outcome.
+ * `lush task construct` text output: which task was created and what it came
+ * back with. The task id is printed first so the tree stays observably
+ * addressable (`lush task tree <id>`), whatever the outcome.
  */
 export function formatCall(result) {
   const task = result.task ?? result;

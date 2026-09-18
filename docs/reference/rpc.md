@@ -30,11 +30,17 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 
 | RPC | params | result |
 |---|---|---|
-| system.status | {} | daemon_pid, root_sid, provider, service_count, active_calls, notices_open（还没被回答 / 忽略的 notice 数）, home, socket, code_dir, version, fingerprint, started_at, uptime_seconds, orphan_policy（嵌套：adopt / limit / ttl_seconds / sweep_seconds）, orphans_active（标量，SID 0 当前活动孤儿数） |
+| system.status | {} | daemon_pid, root_sid, provider, service_count, active_calls, notices_open（还没被回答 / 忽略的 notice 数）, intensions_open（还在队列里的 intension 数：queued / parsing / awaiting）, home, socket, code_dir, version, fingerprint, started_at, uptime_seconds, orphan_policy（嵌套：adopt / limit / ttl_seconds / sweep_seconds）, orphans_active（标量，SID 0 当前活动孤儿数） |
 | system.shutdown | {} | stopping |
-| call | sid, goal, detach?, interactive? | 在 SID 上开一个根 task：不等待时（detach）立刻返回 task 快照；默认阻塞到该 task 进入终态再返回 `task.inspect` 形状的快照（若期间被 purge 掉则返回 `status: "removed"` 的最小快照）；interactive=true 时返回交互式 argv（见 `call.end`） |
-| call.describe | sid, prompt | 预览 task 的首次调用（dry run）：dry_run、agent、profile、prompt、command/argv/cwd/env；不建 task、不写记录 |
-| call.end | task_id, call_id, status, output?, error? | 结算 `call --interactive` 打开的调用：task_id、call_id、settled、status；succeeded 会把 task 记为 completed，failed 记为 failed |
+| intent.submit | content, sid?, source?, wait?, interactive? | **人的入口**：记下一条用户输入（intension）。默认立刻返回它的快照（可能已经 `parsing`）；`wait=true` 阻塞到它结算（settled / rejected）再返回；`interactive=true` 记下输入、在 SID 0 上建好解析 task 但**不启动**，返回 `{ intension, interactive }`，其中的 interactive 是交互式 argv（见 `call.end`）。`wait` 与 `interactive` 互斥 |
+| intent.list | status?, sid?, open?, limit? | intension 列表（默认新的在前，最多 200）。`open=true` 只看队列里的（queued / parsing / awaiting）；`sid` 省略表示"任意目标"，`sid: null` 表示"用户没指定 service" |
+| intent.inspect | intension_id | 一条输入的全部：行本身 + `parse_task` 快照 + 与它相关的 `notices` |
+| intent.context | intension_id?, from_task_id? | 解析器视角的派生读模型（无新表）：`intension`、`precheck`（目标的机械体检）、`parser`（SID 0 的忙碌 / 队列 / 未决 notice）、`architecture`（当前模板树 + 服务树与各自活动 task）。两个地址二选一：给 `intension_id`，或给正在解析它的 `from_task_id` |
+| intent.settle | status, response?, reason?, intension_id?, from_task_id? | （解析器侧）给一条输入下结论：`settled`（已安排，`resolution.task_ids` 自动取解析 task 的直接子 task）或 `rejected`；已结算的行不能再动（-32010） |
+| intent.defer | blocked_by_task_id, reason?, intension_id?, from_task_id? | 用户选了"排队等它结束"：行回到 `queued` 并记下 `blocked_by_task_id`，那个 task 结算之前不会被重新解析 |
+| intent.withdraw | intension_id, reason? | 撤回一条还没开始解析的输入（只有 `queued` 可以） |
+| intent.wait | intension_id | 阻塞到该输入结算，返回 `intent.inspect` 的形状 |
+| call.end | task_id, call_id, status, output?, error? | 结算 `intent submit --interactive`（或将来别的交互式交接）打开的调用：task_id、call_id、settled、status；succeeded 会把 task 记为 completed，failed 记为 failed |
 | call.os_pid | task_id, call_id, os_pid | 终端上报它自己起的 pi 服务：recorded=true 表示已挂到该 agent 上 |
 | service.list | {} | metadata 数组，每行带 variables（immutable / mutable 当前值 + declarations 变量声明） |
 | service.tree | agents? | metadata 数组（客户端格式化树），行内带与 service.list 同形的 variables；agents 默认 true，为每行附上运行期活跃度：provider、running（个数）、agents[]（id=`TASK.N` / task_id / call_id / interactive / os_pid / started_at / elapsed_ms）；agents=false 时不再带 agent 字段（variables 仍在） |
@@ -82,7 +88,7 @@ inspect 的 Context 包含 system_prompt、state、artifacts、references、mess
 
 ## agent profile（不走 RPC）
 
-`lush agent list|inspect|add|edit|delete|default|path` 只读写 `$LUSH_HOME/agents/<name>.json`，**不经过 socket**，daemon 未运行时也能用（与 `lush daemon` 一样是纯客户端命令）。因此它没有对应的 RPC 方法。daemon 侧在每次 call / dry-run / session 时按服务的 `state.agent` 读盘解析（见 `src/agent/catalog.js`），所以改 profile 不需要重启 daemon。
+`lush agent list|inspect|add|edit|delete|default|path` 只读写 `$LUSH_HOME/agents/<name>.json`，**不经过 socket**，daemon 未运行时也能用（与 `lush daemon` 一样是纯客户端命令）。因此它没有对应的 RPC 方法。daemon 侧在每次 invocation / session 时按服务的 `state.agent` 读盘解析（见 `src/agent/catalog.js`），所以改 profile 不需要重启 daemon。
 
 一次 call 的 agent 由三层决定，逐字段叠加：
 
@@ -114,7 +120,7 @@ sections 省略时返回全部五项；必须是非空、无重复、只含上�
 
 ## Agent Tools
 
-Provider tool 名称采用 OpenAI-compatible 安全字符：`service_self`、`service_construct` 等；Runtime 映射成以下 Core 操作。Mock `/tool service.construct {...}` 也接受逻辑点号名称。这些工具只属于 Lush 内置运行时（`mock` / `openai`）；`LUSH_PROVIDER=pi` 时 pi 没有它们，改用 bash 运行 `lush` CLI（上方同名命令）。`dry_run` 只在 RPC / CLI 上暴露，Agent 工具暂未开放；`service.call_begin` / `service.call_end`（`call --interactive`）也一样：进入 TUI 是给人用的，Agent 自己发调用一律用普通 `call`。
+Provider tool 名称采用 OpenAI-compatible 安全字符：`service_self`、`service_construct` 等；Runtime 映射成以下 Core 操作。Mock `/tool service.construct {...}` 也接受逻辑点号名称。这些工具只属于 Lush 内置运行时（`mock` / `openai`）；`LUSH_PROVIDER=pi` 时 pi 没有它们，改用 bash 运行 `lush` CLI（上方同名命令）。`call.end` / `call.os_pid`（交互式交接的报告）也不在 Agent 工具集里：进入 TUI 是给人用的，Agent 自己派活一律用 `task_construct`。
 
 | Tool | 参数 | 语义 |
 |---|---|---|
@@ -146,7 +152,14 @@ Provider tool 名称采用 OpenAI-compatible 安全字符：`service_self`、`se
 lush help [command [subcommand]]        # 顶层与任意一层的覆盖范围、子命令、参数
 
 lush daemon start|stop|restart|status
-lush call SID GOAL [--detach] [--interactive] [--dry-run]   # 入口：在 service 上开一个根 task
+lush intent submit CONTENT [--sid SID] [--wait]   # 入口：把用户原话记成一条 intension
+lush intent list [--open] [--status S] [--sid SID|none] [--limit N]
+lush intent show INTENSION_ID
+lush intent context [INTENSION_ID] [--from-task TASK_ID]     # 解析器视角：这条输入 + 全局架构
+lush intent settle --status settled|rejected [--response T] [--reason T] [INTENSION_ID]
+lush intent defer --blocked-by TASK_ID [--reason T] [INTENSION_ID]
+lush intent withdraw INTENSION_ID [--reason T]
+lush intent wait INTENSION_ID
 
 lush task list|tree|inspect|result|wait|construct|cancel|complete|delete|history|session|attach|update-state|agents
 lush service list|tree|inspect|children|construct|start|stop|delete|purge|update-state|update-vars|orphans
@@ -161,7 +174,7 @@ lush service update-vars SID --vars JSON
 lush service orphans [--sweep]   # 孤儿池读模型；--sweep 立刻按 TTL / 上限回收一次
 lush service tree [--no-agents]
 
-lush call SID GOAL --interactive        # 在本终端用 pi TUI 做这个 task（简写 -i）
+lush intent submit CONTENT --interactive   # 在本终端亲自解析这条输入（简写 -i）
 lush task list [--sid SID] [--status S] [--roots|--children]
 lush task tree TASK_ID
 lush task inspect|result|wait|cancel TASK_ID
@@ -189,9 +202,9 @@ lush notice dismiss NOTICE_ID [--reason TEXT]
 
 `delete` / `purge`（RPC `service.delete` / `service.purge`，可选 `recursive: true` / `--recursive`）是节点的物理删除路径：同一个事务里删掉该 SID 的 `services`、`contexts`、挂载在它上面的 `tasks`（含 `task_events`）、`messages`、`agent_calls` 与 `service_events` 行，之后任何查询都是 -32004。`delete` 只接受 `stopped` 且没有活动 task 的服务；`purge` 先取消活动 task、停止活动节点再删（回包 `cancelled` / `terminated` 分别列出被取消的 task 与被停止的 SID）。两者都拒绝 SID 0（-32010）；有子服务时默认拒绝，`recursive` 时从叶子往上删整棵子树（`purge --recursive` 不把子节点收养给 SID 0）。由于 `original_parent_sid` 是 NOT NULL 外键，被删 SID 曾创建、后来被收养的幸存节点会改挂 SID 0 并各记一条 `parent_deleted` 事件；删除根节点的父服务会记一条 `child_deleted` 事件。子 task 若挂在别的服务上，会变成根 task 继续存在。`task delete`（RPC `task.delete`）只删 task 行与它的事件，call 行与消息作为 service 的历史保留（`task_id` 置 NULL）。内置运行时的 Agent 工具集里没有任何删除工具。
 
-`call --dry-run`（RPC `call.describe`）不创建 task、不调用 agent：不写 agent_calls / messages，不标记 busy，只把本来要执行的调用描述出来。外部后端（pi）返回 `executable` / `argv` / `command`（可直接粘贴的 shell 行）/ `cwd` / `env` / `path_prefix`；内置运行时没有外部命令，返回 `command: null` 和 `messages`（本来会发给模型的条数）。文本输出就是那行可执行命令（含 `cd <cwd>` 与 `LUSH_HOME` / `LUSH_SID` / `LUSH_TASK_ID` / `PATH`）；`--json` 返回结构化字段。节点仍需是 active（此时还没有 task，session-id 打印为 `lush-task-preview`）。
+`intent submit --interactive`（CLI 简写 `-i`；不能和 `--wait` 同时用，且不能与 `--json` 一起交给终端）把这条输入的**解析 task** 交给调用方的终端：daemon 先写入这条 intension（status=parsing），在 SID 0 上建一个 **created** 状态的 task 但**不启动**它，返回**不带 `--print`** 的交互式 argv——同一个 pi session、同一个 cwd、同一套身份提示词，用户原话作为 TUI 的首条消息；CLI 用 `stdio: inherit` 前台运行它（spawn 而非 spawnSync，好让运行期就知道 OS PID），起手用 `call.os_pid` 把该 pi 的 OS PID 报给 daemon（于是 `task agents show/kill` 能指到它），退出后调 `call.end` 报回 succeeded / failed：succeeded 把 task 记为 completed（这条输入随之结算），failed 记为 failed（输入回到队列重试）。回包的 `settled: false` 表示 daemon 已经先结算了（timeout、cancel、daemon 退出），此时终端里的 pi 与调用记录无关。只有外部 agent（pi）能这样交接：内置运行时的 agent 在 Lush 服务内，没有可进入的终端，`--interactive` 在**建 task 之前**就报错（不会留下半截的 task）。`task agents kill` 能杀掉这个 pi（daemon 按上报的 OS PID SIGKILL）并取消它服务的 task；`task cancel` 只把这次调用标成 interrupted，真正关掉 pi 的是你的终端或上面的 agents kill；调用方被 SIGKILL 时，daemon 在 `LUSH_CALL_TIMEOUT` 后把 task 记为 failed 并释放（输入回到队列）。文本层面这次调用只留下 user message（回复在 pi 会话里）。
 
-`call --interactive`（CLI 简写 `-i`；不能和 `--dry-run`、`--detach`、`--json` 同时用）把这次 task 交给调用方的终端：`call` RPC 先建一个 **created** 状态的 task（不启动它），返回**不带 `--print`** 的交互式 argv——同一个 pi session、同一个 cwd、同一套身份提示词，GOAL 作为 TUI 的首条消息；CLI 用 `stdio: inherit` 前台运行它（spawn 而非 spawnSync，好让运行期就知道 OS PID），起手用 `call.os_pid` 把该 pi 的 OS PID 报给 daemon（于是 `task agents show/kill` 能指到它），退出后调 `call.end` 报回 succeeded / failed：succeeded 把 task 记为 completed，failed 记为 failed。回包的 `settled: false` 表示 daemon 已经先结算了（timeout、cancel、daemon 退出），此时终端里的 pi 与调用记录无关。只有外部 agent（pi）能这样交接：内置运行时的 agent 在 Lush 服务内，没有可进入的终端，`--interactive` 报错。`task agents kill` 能杀掉这个 pi（daemon 按上报的 OS PID SIGKILL）并取消它服务的 task；`task cancel` 只把这次调用标成 interrupted，真正关掉 pi 的是你的终端或上面的 agents kill；调用方被 SIGKILL 时，daemon 在 `LUSH_CALL_TIMEOUT` 后把 task 记为 failed 并释放。文本层面这次调用只留下 user message（回复在 pi 会话里）。
+观察一个 task 的 agent 干活（不新建输入）用 `task session TASK_ID --open`；要看某个 agent 真正会跑的 argv，用 `lush agent inspect <name>` 或 `task.session` 的 `argv` 字段。
 
 `task session`（RPC `task.session`）是只读查询，任何状态都可查：给出该 task 的 agent 的 session-dir、session-id（`lush-task-<id>`）、磁盘上的 session 文件（`<timestamp>_lush-task-<id>.jsonl`，没有则为 null）、cwd 与 busy。`argv` / `command` 是带着 Lush 身份（模板 system_prompt + 说明层 + `LUSH_CONTEXT`）的交互式命令（无 `--print`），`--open` 就是直接用它把终端交给 pi；`browse_command` 是不带身份的短命令（只有 `--session-dir` / `--session-id`，用 pi 默认提示词浏览）。内置运行时 `session_dir` 等字段为 null，文本输出提示 `runs in-service`；`--open` 会报错，且 `--open` 不能与 `--json` 同时用（CLI 报 usage 错误）。
 
@@ -201,7 +214,7 @@ agent 有两个互不相同的视图，都不落库也不共用 sid 空间：
 - **`service.tree` 的 `agent` 字段**（默认带；`agents: false` 去掉，CLI `--no-agents`）：只回答「此刻谁在干活」——`provider`、`running`（个数）、`agents[]`（每个的 id / task_id / call_id / interactive / os_pid / started_at / elapsed_ms）。由 `AgentRuntime.agentSummary` 生成，不建 Context、不拼 argv、不读磁盘与历史，因此 N 个服务只付 N 次内存查询；没有 agent 在跑的服务返回 `running: 0`。
 - **磁盘上的 transcript** 是 `task.session`（session_dir / session_id / files / file / argv / browse_command / cwd / busy）：按 task 命名，同一次唤醒追加同一个文件。
 
-`call.os_pid` 是 `call --interactive` 专用的补充：终端在 spawn 出 pi 之后立刻上报 `{ task_id, call_id, os_pid }`，daemon 才知道那个跑在别人终端里的服务叫什么、怎么杀；调用已经结算时返回 `recorded: false` 而不是报错。`task agents_*` 与 `call.os_pid` 都只在 RPC / CLI 上暴露，Agent 工具里没有（agent 不该杀自己）。
+`call.os_pid` 是交互式交接（`lush intent submit --interactive`）专用的补充：终端在 spawn 出 pi 之后立刻上报 `{ task_id, call_id, os_pid }`，daemon 才知道那个跑在别人终端里的服务叫什么、怎么杀；调用已经结算时返回 `recorded: false` 而不是报错。`task agents_*` 与 `call.os_pid` 都只在 RPC / CLI 上暴露，Agent 工具里没有（agent 不该杀自己）。
 
 `--json` 为全局标志，可放在命令之前或命令末尾（`lush --json service list` / `lush service list --json`），输出机器可读 result，是唯一稳定的机器接口。**默认（不加 `--json`）输出给人看**：`service list` / `task list` / agents list 是对齐的表格，`service tree` 是带 agent 活跃度的服务树（服务名后跟变量当前值，`~` 表示可变；保留名 `name` 与 `detail` 不进树），`task tree` 是带缩进的协作树，orphans 是策略行 + 孤儿表（`--sweep` 时是本轮报告），daemon status 是 `key value` 行，inspect / agents show / update-state 是分节的 `key value` 与嵌套块（`title` 占一行、`detail` 独占一个分节，超长截断），history 按消息分块（头部 `#id role · 本地时间 · call`，正文原样换行，末尾给出 `next --after`），生命周期命令打印 `stopped sid 1 · worker · stopped` / `completed task #3` 这样的一行摘要，`call` 打印 `task #1 name[sid] completed` 加 result，delete / purge 打印删了什么，spawn 打印 SID。文本格式可以随时改，需要稳定字段时用 `--json`。错误写 stderr，用法错误退出码 2（缺参数、未知命令/选项，以及 Core 的 -32602 参数值错误），其他错误退出码 1。
 

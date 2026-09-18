@@ -1,7 +1,7 @@
 /**
  * The runtime side of the text output: one agent (`task agents show`), the
  * agent table (`task agents list`), a kill outcome, a pi session and the
- * runnable command line behind `--dry-run` / `task session --open`.
+ * runnable command line behind `task session` / `agent inspect`.
  *
  * These render things that are *running* (or that were handed to a terminal),
  * as opposed to the durable records in `inspect.js`.
@@ -104,12 +104,4 @@ export function formatRun(result) {
   if (result.cwd !== null && result.cwd !== undefined) parts.push(`cd ${shellQuote(result.cwd)}`);
   parts.push(prefix === '' ? result.command : `${prefix} ${result.command}`);
   return parts.join(' && ');
-}
-
-/** `lush call --dry-run` text output: the runnable command, or what would be sent. */
-export function formatDryRun(result) {
-  if (typeof result.command !== 'string') {
-    return `# agent ${result.agent} runs in-service; no external command. Use --json for the invocation details.`;
-  }
-  return formatRun(result);
 }

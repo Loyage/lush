@@ -23,7 +23,12 @@ export class Service {
     return this.manager.load(result.sid);
   }
 
-  async call(prompt) {
-    return this.manager.call(this.sid, prompt);
+  /**
+   * Say something about this node. An embedding caller is user input like any
+   * other, so this is `intent.submit` with this SID as the named target — not a
+   * root task of its own (`core/intensions.js`).
+   */
+  async say(content) {
+    return this.manager.submitIntension(content, this.sid, 'sdk');
   }
 }

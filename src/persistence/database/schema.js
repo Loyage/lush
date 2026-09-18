@@ -1,6 +1,6 @@
 /**
  * Every DDL statement this project has ever shipped: the current schema plus
- * the migration ladder (`MIGRATION_V2` … `MIGRATION_V9`) that brings an older
+ * the migration ladder (`MIGRATION_V2` … `MIGRATION_V10`) that brings an older
  * home up to it.
  *
  * Keeping them in one file makes the "what does a database look like at
@@ -25,7 +25,16 @@
  *
  * Status sets match `core/lifecycle.js`: services are `created / active /
  * stopped`, tasks are `created / running / waiting / awaiting / completed /
- * failed / cancelled`.
+ * failed / cancelled`, intensions are `queued / parsing / awaiting / settled /
+ * rejected`.
+ *
+ * An `intension` is raw *user input* before it is any work: the user's own
+ * words (`content`), the service they named (`sid`, NULL when they named
+ * none), and how far the top-level parser got with it (`status`, `attempts`,
+ * `resolution`, `response`). The task that parses it is a normal root task on
+ * the parsing node, linked by `parse_task_id`; `blocked_by_task_id` is a user
+ * decision to let another task finish first. The other direction of the
+ * conflict conversation is `notices.intension_id`.
  *
  * A `notice` is a task's agent reporting to the user: it records who reported
  * (`sid` + `task_id`), what they need (`kind`, `title`, `body`), the answer form
@@ -119,6 +128,7 @@ CREATE TABLE IF NOT EXISTS notices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sid INTEGER NOT NULL REFERENCES services(sid),
     task_id INTEGER REFERENCES tasks(id),
+    intension_id INTEGER REFERENCES intensions(id),
     kind TEXT NOT NULL CHECK(kind IN ('report','decision','blocked')),
     title TEXT NOT NULL,
     body TEXT NOT NULL,
@@ -134,6 +144,25 @@ CREATE TABLE IF NOT EXISTS notices (
 CREATE INDEX IF NOT EXISTS notices_status ON notices(status, id);
 CREATE INDEX IF NOT EXISTS notices_sid ON notices(sid, id);
 CREATE INDEX IF NOT EXISTS notices_task ON notices(task_id, id);
+CREATE INDEX IF NOT EXISTS notices_intension ON notices(intension_id, id);
+CREATE TABLE IF NOT EXISTS intensions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sid INTEGER REFERENCES services(sid),
+    content TEXT NOT NULL,
+    source TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('queued','parsing','awaiting','settled','rejected')),
+    parse_task_id INTEGER REFERENCES tasks(id),
+    blocked_by_task_id INTEGER REFERENCES tasks(id),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    resolution TEXT,
+    response TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    settled_at TEXT
+);
+CREATE INDEX IF NOT EXISTS intensions_status ON intensions(status, id);
+CREATE INDEX IF NOT EXISTS intensions_blocked ON intensions(blocked_by_task_id);
+CREATE INDEX IF NOT EXISTS intensions_parse_task ON intensions(parse_task_id);
 CREATE TABLE IF NOT EXISTS task_inbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     to_task_id INTEGER NOT NULL REFERENCES tasks(id),
@@ -149,7 +178,7 @@ CREATE INDEX IF NOT EXISTS task_inbox_to ON task_inbox(to_task_id, id);
 -- (who did this task talk to), so it needs the mirror index or every trace
 -- walks the whole table.
 CREATE INDEX IF NOT EXISTS task_inbox_from ON task_inbox(from_task_id, id);
-PRAGMA user_version = 9;
+PRAGMA user_version = 10;
 `;
 
 /**
@@ -535,6 +564,42 @@ CREATE INDEX IF NOT EXISTS task_inbox_to ON task_inbox(to_task_id, id);
 CREATE INDEX IF NOT EXISTS task_inbox_from ON task_inbox(from_task_id, id);
 PRAGMA legacy_alter_table = OFF;
 PRAGMA user_version = 9;
+`;
+
+/**
+ * v9 → v10: the intension queue. Raw user input becomes a row of its own
+ * (`intensions`) instead of arriving as a root task on whatever service the
+ * user named, and a conflict notice can point back at the input it is about
+ * (`notices.intension_id`).
+ *
+ * The new column is the only change to an existing table and SQLite can add it
+ * in place, so nothing is rebuilt: an older home gets the table, the column,
+ * the indexes and the version stamp. The new table's foreign keys are resolved
+ * at DML time, so its `tasks` / `services` references are fine even though it
+ * is created after them.
+ */
+export const MIGRATION_V10 = `
+CREATE TABLE IF NOT EXISTS intensions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sid INTEGER REFERENCES services(sid),
+    content TEXT NOT NULL,
+    source TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('queued','parsing','awaiting','settled','rejected')),
+    parse_task_id INTEGER REFERENCES tasks(id),
+    blocked_by_task_id INTEGER REFERENCES tasks(id),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    resolution TEXT,
+    response TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    settled_at TEXT
+);
+CREATE INDEX IF NOT EXISTS intensions_status ON intensions(status, id);
+CREATE INDEX IF NOT EXISTS intensions_blocked ON intensions(blocked_by_task_id);
+CREATE INDEX IF NOT EXISTS intensions_parse_task ON intensions(parse_task_id);
+ALTER TABLE notices ADD COLUMN intension_id INTEGER REFERENCES intensions(id);
+CREATE INDEX IF NOT EXISTS notices_intension ON notices(intension_id, id);
+PRAGMA user_version = 10;
 `;
 
 /** One historical call → the root task it becomes in v3. */

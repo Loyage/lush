@@ -193,17 +193,26 @@ const handlers = {
     need(args, 1, 'trace <task> [limit]');
     return runLush(['task', 'trace', args[0], '--limit', args[1] ?? '200']);
   },
-  call: () => {
-    need(args, 2, 'call <sid> <prompt> [dry]');
-    return runLush(['call', args[0], args[1], ...(args[2] !== undefined && args[2] !== '' ? ['--dry-run'] : [])]);
+  intent: () => {
+    need(args, 1, 'intent <content> [sid] — 提交一条 intension 并等它结算');
+    return runLush(['intent', 'submit', args[0], ...flag(args[1], 'sid'), '--wait']);
   },
-  enter: () => {
-    need(args, 2, 'enter <sid> <prompt>');
-    return runLush(['call', args[0], args[1], '--interactive']);
+  'intent-now': () => {
+    need(args, 1, 'intent-now <content> [sid] — 只提交，不等待');
+    return runLush(['intent', 'submit', args[0], ...flag(args[1], 'sid')]);
   },
-  detach: () => {
-    need(args, 2, 'detach <sid> <prompt>');
-    return runLush(['call', args[0], args[1], '--detach']);
+  'intent-enter': () => {
+    need(args, 1, 'intent-enter <content> [sid] — 在这个终端里自己当解析器');
+    return runLush(['intent', 'submit', args[0], ...flag(args[1], 'sid'), '--interactive']);
+  },
+  intents: () => runLush(['intent', 'list', ...opt(args[0], 'open')]),
+  'intent-show': () => {
+    need(args, 1, 'intent-show <id>');
+    return runLush(['intent', 'show', args[0]]);
+  },
+  'intent-context': () => {
+    need(args, 1, 'intent-context <id>');
+    return runLush(['intent', 'context', args[0]]);
   },
   history: () => {
     need(args, 1, 'history <task> [after] [limit]');
