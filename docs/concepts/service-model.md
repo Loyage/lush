@@ -18,7 +18,7 @@ lush intent submit '实现登录' --sid 2      → intension #1（status=parsing
                 └── task #4 挂在 worktree-service[4] （真正动手改代码的叶子）
 ```
 
-根 task 只有一种：解析 task。其他所有 task 都是某个 task 的子 task——这条规则保证 task 树永远从一条用户输入开始生长。
+根 task 只有两种：解析 task，以及解析器交棒出来的工作树根。其他所有 task 都是某个 task 的子 task——这条规则保证 task 树永远从一条用户输入开始生长。
 
 ## Service（被动节点）
 
@@ -54,10 +54,10 @@ created → running ⇄ waiting | awaiting → completed / failed / cancelled
 
 规则（这些规则保证 task 树始终是一棵可观察的树）：
 
-0. **根 task 只有一种**：intension 队列在 SID 0 上派发的解析 task。用户不直接创建 task——他说一句话，由解析器决定变成什么；`task_construct` 必须带父 task，只能向下游委托。
+0. **根 task 有两种，都不由人直接建**：intension 队列在 SID 0 上派发的解析 task，以及解析器结算时**交棒**出来的工作树根（解析 task 名下未结束的子 task 被提升为根，见 [intensions.md](./intensions.md) 的「交棒」）。用户从不直接创建 task——他说一句话，由解析器决定变成什么；`task_construct` 必须带父 task，只能向下游委托。
 1. **一个 service 同时只有一个活动 task**：service 是单线程的工作台。下游正忙时 `task_construct` 会被拒绝；先结束本轮等它（子结算会唤醒你），或换一个下游节点。所以**并行的正确表达方式是「一批活拆成多件、每件一个子 service」，而不是在一个节点上并发多个 task**——并发度是服务树给的。project 节点因此把「等人答复」挪出节点占用：阶段 1 只报结果、用 `wait: false` 的 notice（纯记录，不占用节点），阶段 2 才由用户的答复触发；而默认的 `wait: true` notice 会把那个 task 停在 `awaiting`，在用户处理前它一直占着这个节点。同一条规则也让 intension 队列天然串行：解析 task 占着 SID 0 时，后面的输入都在 `queued`。
 2. **子 task 只能挂在自己的直接子 service 上**：task 树因此永远沿 service 树向下生长，不会成环；消息也只能走直接父子边，所以通话关系同样不会成环。
-3. **终态 task 没有活动子 task**：`complete` 要求子 task 都已结束且收件箱没有未读消息（否则报错）；`fail` / `cancel` 会把整棵子树一起取消。
+3. **终态 task 没有活动子 task**：`complete` 要求子 task 都已结束且收件箱没有未读消息（否则报错）；`fail` / `cancel` 会把整棵子树一起取消。这条也是交棒存在的原因：解析 task 结算后要马上结束（它占着解析节点，整条输入队列跟着等），所以它名下还在跑的子树先被提升为独立的根（`parent_task_id` 置空、`root_task_id` 指向自己），再让它 complete。
 4. **阻塞在 task 上，不在 agent 里**：agent 的工具里没有“等待”原语。结束一輪 invocation 后，task 层决定“投递队列里 的输入 / park 等输入（waiting 等子 task、awaiting 等用户的 notice）/ 完成”。
 5. 需要新的下游节点时先 `service_construct`（受 `child_templates` 限制）建子服务，再向它派 task。
 
@@ -86,7 +86,7 @@ created → running ⇄ waiting | awaiting → completed / failed / cancelled
 `task.tree` 看结构（谁挂在谁下面），`task.inbox` 只看入边（我收到了什么）。**调用链**补上第三个视角：一个 task 的整棵子树里，**谁在什么时候对谁做了什么**。
 
 - 一步（entry）只有四种：`delegated`（某 task 在子 service 上开了子 task，带上它给的 goal）、`message`（与直接父 / 子 task 的往来，**两个方向都在同一条链上**）、`child_settled`（某个子 task 结算的报告，带上 status / result）、`notice_settled`（用户处理了某 task 上报的 notice，答复从那一步起走进这条链）。
-- 范围是选中 task 的**整棵子树**，且“任一端在子树内”的行都算——委派与消息用的是同一条规则：所以它发给父 task 的消息也在链上（只按接收方过滤就会恰好丢掉这条出边），子树根那次“被委派”（事件写在子树外的父 task 上）也在链上。对根 task 来说，这就是“这活是怎么协作做完的”的时间视角。
+- 范围是选中 task 的**整棵子树**，且“任一端在子树内”的行都算——委派与消息用的是同一条规则：所以它发给父 task 的消息也在链上（只按接收方过滤就会恰好丢掉这条出边），子树根那次“被委派”也在链上：通常它写在子树外的父 task 上，交棒出来的根 task 没有父了，就读它自己的 `detached` 事件（同一条 `delegated` 步）。对根 task 来说，这就是“这活是怎么协作做完的”的时间视角。
 - 它是**派生读模型**：没有 trace 表，步骤就是 `task_inbox` 与 `task_events` 已有的行（`task_construct` 是唯一不进收件箱的交互，从父 task 的 `delegated` 事件合并进来）。没有新写入路径，也不会与它们不同步。
 - 两个代价，都是有意为之：**删除是边界**——`task delete` 会把该 task 的事件与两个方向的 inbox 行一起删，所以调用链是运行期观察视图，不是审计日志（父 task 上的 `delegated` 事件会活下来，被删子 task 发出的结算报告则消失）；**读是有界的**——只取最近的 `limit` 步（默认 200，上限 1000），`total` / `truncated` 说明被截掉多少。
 - 入口：`lush task trace TASK_ID [--limit N]`（RPC `task.trace`）；Web UI 的任务页在详情卡下面给出同一个链，每个端点可点击跳转。

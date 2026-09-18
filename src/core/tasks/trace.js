@@ -13,7 +13,8 @@
  * nothing has to be kept in sync and no write path changes. The one interaction
  * missing from the inbox — a delegation — is merged in from the parent's
  * `delegated` event, which is also why a subtree's root reads the (out-of-tree)
- * delegation that created it: the same "either end" rule as the messages.
+ * delegation that created it — or, once its parser handed it off, the `detached`
+ * event that promoted it: the same "either end" rule as the messages.
  *
  * The subtree filter is "either end", not "receiver": a task's message *to its
  * parent* is part of its own story, and filtering on the receiver alone would
@@ -59,9 +60,11 @@ export function trace(manager, taskId, limit = 200) {
   // A delegation is written on the *parent*, so the step that created this
   // subtree's root lives outside it; the root is the only task that can have a
   // parent outside (every other task's parent is in the subtree), so one lookup
-  // covers the whole inbound side. It is also necessarily the oldest step.
+  // covers the whole inbound side. It is also necessarily the oldest step. A
+  // root promoted out of a concluded parser (`core/intensions.js`) has no
+  // parent left to ask, and carries the promotion as its own `detached` event.
   const inbound = task.parent_task_id === null
-    ? null
+    ? manager.repository.detachmentOf(taskId)
     : manager.repository.delegationOf(task.parent_task_id, taskId);
   // Both sources come back newest-first (so the SQL `LIMIT` keeps the tail);
   // reversing each gives the ascending order the stable sort below relies on

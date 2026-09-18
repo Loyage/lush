@@ -201,6 +201,62 @@ export function delegationOf(repository, parentTaskId, childTaskId) {
   return row === null || row === undefined ? null : { ...row, data: JSON.parse(row.data) };
 }
 
+/**
+ * The same edge read from the child's side, for a root that no longer has a
+ * parent to ask. `detachChildTasks` writes the promotion as the task's own
+ * `detached` event with the shape of a delegation, so a trace can open the
+ * promoted task's chain with the delegation that created it.
+ */
+export function detachmentOf(repository, taskId) {
+  const row = repository.db
+    .query("SELECT * FROM task_events WHERE task_id=? AND kind='detached' ORDER BY id LIMIT 1")
+    .get(taskId);
+  if (row === null || row === undefined) return null;
+  // The event is written on the promoted task itself, so the child end of the
+  // edge is the row it lives on; `delegation` reads it from `data.task_id`.
+  const data = { task_id: row.task_id, ...JSON.parse(row.data) };
+  return { ...row, task_id: data.from_task_id ?? null, data };
+}
+
+/**
+ * Promote the still-active children of `taskId` to root tasks of their own,
+ * keeping everything below them; returns the promoted task ids, oldest first.
+ *
+ * The move `deleteTaskRows` makes when a parent disappears, applied to a parent
+ * that stays: a task tree is only well-formed while nothing active hangs under a
+ * terminal task, so a parent about to finish has to let go of the work that is
+ * still running. `core/intensions.js` is the caller — a parse task that has
+ * concluded its intension hands off the work it arranged, which is what frees
+ * the parsing node while that work keeps running. Only the edge up changes:
+ * goals, statuses, subtrees and conversations all stay where they are, and each
+ * promoted task's subtree moves its `root_task_id` to the new root with it.
+ */
+export function detachChildTasks(repository, taskId) {
+  const marks = ACTIVE_TASK_STATUS.map(() => '?').join(',');
+  const children = repository.db
+    .query(`SELECT id,sid,goal FROM tasks WHERE parent_task_id=? AND status IN (${marks}) ORDER BY id`)
+    .all(taskId, ...ACTIVE_TASK_STATUS);
+  if (children.length === 0) return [];
+  const stamp = now();
+  const promoted = [];
+  repository.database.transaction(() => {
+    for (const child of children) {
+      repository.db.run('UPDATE tasks SET parent_task_id=NULL,root_task_id=id,updated_at=? WHERE id=?',
+        [stamp, child.id]);
+      const subtree = taskSubtree(repository, child.id);
+      const subtreeMarks = subtree.map(() => '?').join(',');
+      repository.db.run(`UPDATE tasks SET root_task_id=?,updated_at=? WHERE id IN (${subtreeMarks})`,
+        [child.id, stamp, ...subtree]);
+      // Recorded on the promoted task in the shape of a delegation, so both a
+      // trace and `task inspect` can answer "who opened this, and why is it a
+      // root now" without the parent that is no longer there.
+      taskEvent(repository, child.id, 'detached', { from_task_id: taskId, sid: child.sid, goal: child.goal });
+      promoted.push(child.id);
+    }
+  });
+  return promoted;
+}
+
 /** The calls of one task, oldest first. */
 export function taskCalls(repository, taskId) {
   return repository.db.query('SELECT * FROM agent_calls WHERE task_id=? ORDER BY id').all(taskId);
@@ -234,6 +290,8 @@ export function deleteTaskRows(repository, taskIds) {
   for (const taskId of taskIds) {
     rows.task_events += repository.db.run('DELETE FROM task_events WHERE task_id=?', [taskId]).changes;
     // Child tasks that survive a deleted parent become roots of their own.
+    // Unlike `detachChildTasks` this also lets go of the finished ones: the
+    // parent row is going away, so nothing may keep pointing at it.
     repository.db.run('UPDATE tasks SET parent_task_id=NULL,root_task_id=id,updated_at=? WHERE parent_task_id=?',
       [now(), taskId]);
     // The calls and messages stay: they are the service's conversation history.

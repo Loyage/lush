@@ -70,6 +70,16 @@ export const taskMethods = {
     return tasks.delegationOf(this, parentTaskId, childTaskId);
   },
 
+  /** The `detached` event that promoted this task to a root (or null). */
+  detachmentOf(taskId) {
+    return tasks.detachmentOf(this, taskId);
+  },
+
+  /** Promote this task's still-active children to roots of their own. */
+  detachChildTasks(taskId) {
+    return tasks.detachChildTasks(this, taskId);
+  },
+
   taskCalls(taskId) {
     return tasks.taskCalls(this, taskId);
   },

@@ -14,8 +14,8 @@
  */
 import { requireRuntime } from '../agent_calls.js';
 import {
-  afterTaskSettled, attachNotice, context, contextOfTask, defer, drain, handedOver, inspect, list,
-  openCount, resumeFromTask, settle, submit, waitForIntension, withdraw, INTENSION_NODE_SID,
+  afterTaskSettled, attachNotice, context, contextOfTask, defer, drain, handoff, handedOver, inspect,
+  list, openCount, resumeFromTask, settle, submit, waitForIntension, withdraw, INTENSION_NODE_SID,
 } from '../intensions.js';
 import { LushError } from '../types.js';
 
@@ -115,6 +115,17 @@ export const intensionLayer = {
    */
   drainIntensions() {
     return drain(this);
+  },
+
+  /**
+   * A parse task that has concluded its intension hands its subtree over, so it
+   * can finish instead of parking on children it no longer owns. Called when the
+   * row is closed (the normal path, `core/intensions.js`), and again by the
+   * runtime's park decision as a safety net for a parser that opened work after
+   * it said it was done.
+   */
+  intensionHandoff(taskId) {
+    return handoff(this, taskId);
   },
 
   intensionAfterTaskSettled(task, status) {

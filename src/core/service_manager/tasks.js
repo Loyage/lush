@@ -60,9 +60,16 @@ export const taskLayer = {
    * Why a task with nothing queued must wait: the user owes it an answer to an
    * open notice (`notice`), or its child tasks are still working (`children`).
    * `null` means it is done — that is what lets the runtime settle it.
+   *
+   * A parse task that has concluded its intension is not waiting on anything,
+   * not even on its children: it does not own them any more. The handoff already
+   * happened when the row was closed; the call here catches a parser that opened
+   * work *after* it said it was done, and is what keeps the rule structural
+   * rather than a matter of tool-call order (`core/intensions.js`).
    */
   taskParkReason(taskId) {
     if (this.awaitingNoticeCount(taskId) > 0) return 'notice';
+    this.intensionHandoff(taskId);
     if (this.activeChildTasks(taskId).length > 0) return 'children';
     return null;
   },

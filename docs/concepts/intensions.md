@@ -15,6 +15,8 @@ lush intent submit '给 lush 加一列 intension 队列视图' --sid 11
         │  读一次 intent.context：这条输入 + 对目标的机械体检 + 模板树 + 服务树 + 队列
         ├── 没冲突 → task_construct 派给直接子节点（project-manager …），或自己回答
         │              → intent settle（或直接把结论说完）→ status=settled
+        │              → 交棒：派出去的子树成为独立的根 task，解析 task 随即结束
+        │                （先派活、最后 settle；settle 之后它不再拥有那棵子树）
         ├── 有冲突 → notice(kind=decision，带选项表单) → status=awaiting
         │              你 lush notice answer 之后，答复作为解析 task 的下一次输入回来
         │              → 拿到你的选择再安排 / 排队 / 放弃
@@ -24,6 +26,7 @@ lush intent submit '给 lush 加一列 intension 队列视图' --sid 11
 - **content 永远是用户的原话**，逐字保存；解析 task 的 goal 就是这段原话，没有包装、没有前缀（所以你也可以直接对 agent 说一句工具命令，例如 `/tool notice {...}`）。解析器要看的是"用户原话 + 我手上这条是哪条 + 现在架构长什么样"，后面这些它自己读。
 - **`sid` 只是提示**：写错一个不存在的 SID 会立刻报错（那是笔误），但该不该用它由解析器判断。大多数用户根本不知道 SID。
 - **intension 不是 task**：它是"用户说过什么、处理到哪一步"的记录；task 是解析之后安排出来的工作。一条 intension 最多对应一个解析 task，两者用 `parse_task_id` 互指。
+- **结算就是交棒**：`intent settle` / 拒绝 / defer 都意味着解析器不再持有这条输入；如果它已经派了活，那批 task 同时从它名下摘出去（见下节）。
 
 ## 串行是设计的一部分
 
@@ -31,9 +34,19 @@ lush intent submit '给 lush 加一列 intension 队列视图' --sid 11
 
 - 同一时刻只有一条 intension 在被解析，其余按先来后到停在 `queued`；
 - 解析 task 停在你身上（awaiting）时，整条队列都在等你；
-- 长活不该把 SID 0 占住：解析器派完活就该结算，剩下的时间属于那棵 task 子树。
+- 长活不占 SID 0：解析器**派完活就结算**，一结算就交棒（下一节），剩下的时间属于那棵 task 子树。
 
-这也意味着**根 task 只有一种**：intension 队列派发出来的解析 task。Lush 里其他所有 task 都是某个 task 的子 task（向下游委托），`lush task tree` 因此总能从一条用户输入追到底。`lush intent submit` 是唯一能创建根 task 的路径；`task construct` 必须带父 task（agent 环境里的 `$LUSH_TASK_ID`）。
+### 交棒：解析器不陪着子树走
+
+一条输入被安排出去之后，干活的是派下去的那批 task，不再需要解析器——但 task 层的规则是「终态 task 不能有活动子 task」（`core/tasks/rules.js`），所以解析 task 如果就这么结束，它就总是得先等整棵子树跑完；而它占着 SID 0，整条队列跟着一起等。
+
+所以结算时 Lush 会**交棒**（`core/intensions.js` 的 `handoff`）：解析 task 名下**还没结束**的子 task 被提升为**各自独立的根 task**（`parent_task_id` 置空、`root_task_id` 指向自己，连同它们的整棵子树），解析 task 随即结束、把 SID 0 让给下一条输入。交棒之后那批活已经是自己的树：它们不会再给解析 task 回消息，解析 task 也不会被它们唤醒。
+
+- 派出去的那批 task 仍是这条输入的成果：`resolution.task_ids` 记的就是它们，`lush intent show` 一眼能看到「这条输入变成了哪几棵树」。
+- `lush task tree <解析 task>` 到此为止（它已经没有子 task）；想看那批活用 `lush task tree <resolution.task_ids 里的 id>`。被提升的 task 自己记着一条 `detached` 事件（`task inspect` 看得到，`task trace` 把它作为链路的第一跳），所以「谁开的、为什么是根」仍然可查。
+- **顺序有意义**：解析器必须**先派活、最后 settle**。settle 之后再建的 task 只能等它自己结束（兜底逻辑见 `taskParkReason`）；反过来，若解析器需要子 task 的结果才能给结论（例如要汇总），它就不该 settle——那段时间 SID 0 及整条队列都在等它，这是明确记录的代价。
+
+这也意味着**根 task 有两种**：intension 队列派发出来的解析 task，以及解析器交棒出来的工作树根。Lush 里其他所有 task 都是某个 task 的子 task（向下游委托）。`lush intent submit` 仍旧是唯一把用户输入变成工作的路径；`task construct` 必须带父 task（agent 环境里的 `$LUSH_TASK_ID`）。
 
 ## 冲突：机械的与语义的
 
@@ -66,13 +79,13 @@ queued → parsing ⇄ awaiting → settled / rejected
 - `queued`：排队中（`blocked_by_task_id` 非空表示用户选了"等某个 task 结束"，那个 task 结算前不会被重新解析）。
 - `parsing`：正在解析（解析 task 的状态可以是 running / waiting——它可能在等自己派出去的子树）。
 - `awaiting`：解析器上报了一条 `wait` notice，在等你裁决冲突。状态跟着 notice 走，和 task 的 awaiting 同一个道理。
-- `settled` / `rejected`：终局。`resolution` 记着它派了哪些 task（`task_ids`，是解析 task 的直接子 task，也就是这棵工作子树的根）或为什么没做；`response` 是给用户看的结论。
+- `settled` / `rejected`：终局。`resolution` 记着它派了哪些 task（`task_ids`，是解析 task 结算那一刻的直接子 task，交棒后就是各自工作子树的根）或为什么没做；`response` 是给用户看的结论。
 - **不变量**：一条行只能被结算一次；解析 task 结束（完成 / 失败 / 取消 / 被人手工完成）时它手上的行一定会被处置——完成就把结论记进去，失败就回到队列重试（`attempts` 上限 3 次，超了才 `rejected`）。**用户的输入不会因为一次解析翻车而消失。**
 - 解析器的**最终回答就是这条输入的结论**：没显式 `settle` 也能收尾（`completedTask`），早期只 settle 了个空结论的，收尾时的回答会补进去（只补空，不改已记录的结论）。
 
 ## 和其他机制的关系
 
 - **notice**：冲突裁决、结果汇报都走它。解析器上报的 notice 会带上 `intension_id`，所以 `lush intent show` 能看到这条输入问过什么、答过什么。
-- **task**：解析器用 `task_construct` 向下游派活；`resolution.task_ids` 是那层委托的入口，`lush task tree <id>` 看整件事怎么协作完成。
+- **task**：解析器用 `task_construct` 向下游派活；结算时交棒，`resolution.task_ids` 是那层委托的入口（交棒后它们是根 task），`lush task tree <id>` 看整件事怎么协作完成。
 - **孤儿监督**：仍然是 SID 0 的职责（它不是解析任务的一部分，而是它作为根服务的长期角色）。
 - **手动管理**：`lush service construct` / `stop` 这类**节点**操作仍然可以直接用——它调整的是架构，不引入工作；解析器因此可以假设"架构是有人管的"，自己只负责把输入变成工作。

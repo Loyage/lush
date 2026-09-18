@@ -26,7 +26,7 @@ SQLite  ContextBuilder  AgentBackend
 
 ## 模块边界
 
-- `core/`：实体类型、两套生命周期（`lifecycle.js`：service 的 created/active/stopped 与 task 的 created/running/waiting/awaiting/completed/failed/cancelled）、Service 句柄、统一业务 API、父子关系及孤儿收养。`core/tasks.js` 是 task 层：派活规则（只向直接子 service、一个 service 一个活动 task、只能等自己树里的 task）、`waiting` / `awaiting` 与唤醒、complete/cancel/fail 与「终态 task 没有活动子 task」的不变量、task 树读模型。`core/intensions.js` 是入口那一层：intension 的入队 / 派发（唯一创建根 task 的地方）/ 结算 / 延期，以及 `intent.context` 这个派生读模型（模板树 + 服务树 + 队列 + 对目标的机械体检）。`core/orphans.js` 是 SID 0 的孤儿监督：孤儿池读模型、策略校验（`normalizeOrphanPolicy`）、上限 / TTL / busy 判定与一轮监督（`OrphanSupervisor`）；它只决定该冻结谁，真正的状态变更仍走 `ServiceManager`（冻结而非删除，并取消它手上的 task）。没有 socket / CLI / HTTP 知识。
+- `core/`：实体类型、两套生命周期（`lifecycle.js`：service 的 created/active/stopped 与 task 的 created/running/waiting/awaiting/completed/failed/cancelled）、Service 句柄、统一业务 API、父子关系及孤儿收养。`core/tasks.js` 是 task 层：派活规则（只向直接子 service、一个 service 一个活动 task、只能等自己树里的 task）、`waiting` / `awaiting` 与唤醒、complete/cancel/fail 与「终态 task 没有活动子 task」的不变量、task 树读模型。`core/intensions.js` 是入口那一层：intension 的入队 / 派发（唯一创建根 task 的地方）/ 结算 / 延期，以及 `intent.context` 这个派生读模型（模板树 + 服务树 + 队列 + 对目标的机械体检）；结算处的 `handoff` 是交棒的地方——解析器已下结论时，把它名下未结束的子树提升为独立的根 task，让解析 task 能当场结束（否则它会一直停在 `waiting`，而它占着 SID 0，整条输入队列跟着等）。`core/orphans.js` 是 SID 0 的孤儿监督：孤儿池读模型、策略校验（`normalizeOrphanPolicy`）、上限 / TTL / busy 判定与一轮监督（`OrphanSupervisor`）；它只决定该冻结谁，真正的状态变更仍走 `ServiceManager`（冻结而非删除，并取消它手上的 task）。没有 socket / CLI / HTTP 知识。
 - `persistence/`：`bun:sqlite` schema、事务、记录查询与恢复。数据库是事实来源，不缓存服务树。
 - `template_loader.js` + `templates/`：仓库顶层 `templates/` 存放 JSON ServiceTemplate（name、singleton、description、construct_prompt、system_prompt、child_templates、variables 七个必填字段，另有一个可选字段 agent），模板按 构造树分目录嵌套：`<name>.json` 的同级有一个同名文件夹 `<name>/`，里面放它能直接创建的模板（`templates/lush-root.json` + `templates/lush-root/project-manager.json` + `templates/lush-root/project-manager/project/dev-task.json` + `templates/lush-root/project-manager/project/dev-task/worktree-service.json`），loader 递归读取并校验，`child_templates` 写的是相对自己文件的路径（`project/dev-task.json` / `dev-task/worktree-service.json` / 同目录的 `generic-task.json`），加载时解析成模板名（也接受直接写名字），因此白名单、快照与权限比对里只有名字，并**按层级顺序排列模板**：层级 = 从「没有其他模板能创建它」的模板出发的最长路径（`*` 与自引用不算边，环在走到的那条边上截断），同级按名称排序，因此结果与文件名无关；`available_child_templates` 于是呈现根在前的拓扑序（`lush-root` → `project-manager` → `project` → 它能创建的任务），而不是文件名序。创建时保存完整快照，模板文件后续变更不影响既有 Service（`singleton` 按当前加载的模板判定）。可选的 `agent` 声明该模板新建实例使用的 agent profile，`construct --agent` 优先于它。三个散文字段（`description` / `construct_prompt` / `system_prompt`）可以写成 `@<相对路径>`，由 loader 相对声明文件读入旁边的 markdown 并内联（与 `child_templates` 同一条相对规则，引用不可读即 `-32602`，绝不退化成字面量），所以长提示词一个一个字地改而不用面对一行 `\n` 转义；这类 `.md` 与模板 JSON 一样属于提示词面，fingerprint 一并哈希。
 - `context/`：独立持久化 Context，以及 ContextBuilder。只读当前 Service 的对话、结构化 state、引用和直接亲属摘要，不注入全系统状态。
@@ -39,7 +39,7 @@ SQLite  ContextBuilder  AgentBackend
 
 ## 调用数据流
 
-1. 用户输入走 `lush intent submit` → RPC `intent.submit` → `core/intensions.js`：先落一行 intension，再由 `drain` 在 SID 0 上建**解析 task**（Lush 里唯一由队列创建的根 task）；解析器判断后要么用 agent 工具 `task_construct` 向下游派子 task，要么自己回答，要么用 notice 问用户。`ServiceManager.constructTask(...)` 是那两条路共用的入口：校验节点是否 active、这一个 service 上是否已有活动 task、目标是否是自己的直接子 service（根 task 则要求来自 intension 队列且落在 SID 0），然后建 task 行并在后台启动它的 run。
+1. 用户输入走 `lush intent submit` → RPC `intent.submit` → `core/intensions.js`：先落一行 intension，再由 `drain` 在 SID 0 上建**解析 task**（Lush 里唯一由队列创建的根 task）；解析器判断后要么用 agent 工具 `task_construct` 向下游派子 task，要么自己回答，要么用 notice 问用户。解析器一结算，它名下还在跑的子树就**交棒**出去（`handoff` / `repository.detachChildTasks`：提升为各自独立的根 task），这样它当场就能结束、不必等那棵子树跑完。`ServiceManager.constructTask(...)` 是那两条路共用的入口：校验节点是否 active、这一个 service 上是否已有活动 task、目标是否是自己的直接子 service（根 task 则要求来自 intension 队列且落在 SID 0），然后建 task 行并在后台启动它的 run。
 2. Runtime 打开这次 invocation：同一个 task 不会有第二个 invocation；一个 service 同时最多一个活动 task（task 层已保证），不同 service 的 task 可真并行。
 3. 持久化 agent_calls（带 `task_id`）和 user message。ContextBuilder 生成模板 system prompt、共享 Lush 说明层、`LUSH_CONTEXT`（service + task + 子 task + 可创建模板）与**这个 task 自己**的对话。内置后端直接用这些 messages；外部后端（pi）拿到同样的 system prompt / 说明层 / `LUSH_CONTEXT` 与工作目录（`path` 变量），由 Lush 拼成命令行参数。
 4. Provider 返回文本及结构化 tool calls。每个 assistant / tool 消息顺序持久化，工具经 Core 执行业务变更（派子 task、等子 task、改 state/变量、建子服务）。pi 后端没有工具轮次：pi 在子服务内自己完成整个工具循环，Lush 只记录 user prompt 与最终文本（完整 pi session 落在 `$LUSH_HOME/pi-sessions/`，按 task 命名）。
@@ -53,7 +53,7 @@ SQLite  ContextBuilder  AgentBackend
 - `contexts`：system_prompt、state JSON、artifacts/references JSON，与 Service 一对一。
 - `tasks`：id、sid（挂载的 service）、parent_task_id、root_task_id、goal、status（created / running / waiting / awaiting / completed / failed / cancelled）、result、error、state、时间戳。
 - `messages` / `agent_calls`：按自增 ID 排序的完整 provider 协议消息与调用记录，关联 SID、`task_id` 和 invocation。
-- `service_events` / `task_events`：节点与 task 各自的创建、状态变化、收养、state 更新事件（解析 task 还会多一条 `intension` 事件，指向它正在解析的那条输入）。
+- `service_events` / `task_events`：节点与 task 各自的创建、状态变化、收养、state 更新事件（解析 task 还会多一条 `intension` 事件，指向它正在解析的那条输入；交棒时被提升为根的那个 task 会多一条 `detached` 事件，记下它是从哪个解析 task 交出来的）。
 - `intensions`：用户原话（逐字）、可选的 `sid`、来源、状态（queued / parsing / awaiting / settled / rejected）、`parse_task_id`、`blocked_by_task_id`、`attempts`、`resolution`、`response`。`notices.intension_id` 是另一条边：冲突裁决的问与答都能从这条输入回溯。
 
 关系采用 `services.parent_sid` 外键作为唯一事实，不增加重复 children 表。children 反查并加索引；禁止任意 reparent，只允许创建及系统向根收养，因此不能产生环。original_parent_sid 不变。

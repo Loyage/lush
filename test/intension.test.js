@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { AgentResponse, ToolCall } from '../src/agent/provider.js';
 import { MockAgentProvider } from '../src/agent/mock.js';
 import { parseArgs } from '../src/cli/parse.js';
 import { MAX_ATTEMPTS } from '../src/core/intensions.js';
 import { LushError } from '../src/core/types.js';
-import { cleanup, expectRejection, permissiveRoot, system, tmpdir } from './helpers.js';
+import { cleanup, deferred, expectRejection, permissiveRoot, system, tmpdir } from './helpers.js';
 
 /**
  * The stock mock, with an optional per-attempt script.
@@ -47,6 +48,57 @@ class BrokenProvider {
   async call() {
     throw new Error('the model is on fire');
   }
+}
+
+/**
+ * The provider the handoff tests run on: the worker service answers nothing
+ * until the test releases the gate (so "the child is still running" is a fact
+ * rather than a race), while the parsing node either runs a script of tool calls
+ * the test handed it or falls back to the stock mock like every other task.
+ */
+class GateProvider {
+  constructor() {
+    this.name = 'mock';
+    this.contextMode = 'tools';
+    this.workerSid = null;
+    this.script = null;
+    this.gate = deferred();
+    this.inner = new MockAgentProvider();
+  }
+
+  /** What the parsing node answers with, as `[tool, args]` pairs, exactly once. */
+  answer(calls) {
+    this.script = calls;
+  }
+
+  async call(messages, tools, signal, invocation) {
+    if (invocation.sid === this.workerSid) return this.worker(messages, tools, signal, invocation);
+    if (this.script !== null) {
+      const calls = this.script;
+      this.script = null;
+      return new AgentResponse('已安排。', calls.map(([name, args], index) => (
+        new ToolCall(`gate_${index}`, name, JSON.stringify(args))
+      )));
+    }
+    return this.inner.call(messages, tools, signal, invocation);
+  }
+
+  async worker(messages, tools, signal, invocation) {
+    await this.gate.promise;
+    return this.inner.call(messages, tools, signal, invocation);
+  }
+}
+
+/**
+ * A home built for the handoff tests: a permissive SID 0, one gated worker
+ * service, and the provider wired to both. `gate.resolve()` lets the worker run.
+ */
+function handoffSystem(dir) {
+  const provider = new GateProvider();
+  const built = system(dir, provider);
+  permissiveRoot(built.manager);
+  provider.workerSid = built.manager.construct(0, 'generic-task', 'worker').sid;
+  return { ...built, provider };
 }
 
 /**
@@ -125,6 +177,78 @@ describe('the intension queue', () => {
     const carried = await manager.intensionWait(second.id);
     expect(carried.status).toBe('settled');
     expect(carried.attempts).toBe(1);
+  });
+
+  test('a parser that concludes hands its subtree off and frees the node', async () => {
+    const home = tmpdir('lush-handoff-');
+    const built = handoffSystem(home);
+    try {
+      const { manager: m, provider } = built;
+      const worker = provider.workerSid;
+      // The script is in place before the submission: parsing starts at once.
+      provider.answer([
+        ['task_construct', { sid: worker, goal: '干活' }],
+        ['intent_settle', { status: 'settled', response: '已派活' }],
+      ]);
+      const row = await m.submitIntension('把仓库里的活安排一下', null, 'test');
+      await until(() => m.intensionInspect(row.id).status === 'settled', 'the row to settle');
+
+      const settled = m.intensionInspect(row.id);
+      expect(settled.response).toBe('已派活');
+      expect(settled.resolution.task_ids).toHaveLength(1);
+      const childId = settled.resolution.task_ids[0];
+      await until(() => m.repository.findTask(childId).status === 'running', 'the child to run');
+
+      // Handed off: the promoted task is a root of its own, and the parser — which
+      // did the arranging — is already finished while the work keeps running.
+      const child = m.taskInspect(childId);
+      expect(child).toMatchObject({ parent_task_id: null, root_task_id: childId, status: 'running' });
+      expect(m.taskInspect(row.parse_task_id).status).toBe('completed');
+      expect(m.repository.activeTaskOfService(0)).toBeNull();
+      expect(m.intensionContext(row.id).parser.busy_task).toBeNull();
+      // The chain still opens with the delegation that created it, read from the
+      // promoted task's own `detached` event now that there is no parent left.
+      expect(m.taskTrace(childId).entries[0]).toMatchObject({
+        kind: 'delegated', from_task_id: row.parse_task_id, to_task_id: childId, goal: '干活',
+      });
+      expect(m.taskInspect(childId).recent_events.some((event) => event.kind === 'detached')).toBe(true);
+
+      // The point of it all: the next input is parsed while that work runs.
+      const second = await m.submitIntension('第二件事', null, 'test');
+      expect(second.status).toBe('parsing');
+      expect((await m.intensionWait(second.id)).status).toBe('settled');
+      expect(m.repository.findTask(childId).status).toBe('running');
+      expect(m.repository.activeTaskOfService(0)).toBeNull();
+    } finally {
+      built.provider.gate.resolve();
+      await built.runtime.shutdown();
+      built.database.close();
+      cleanup(home);
+    }
+  });
+
+  test('settling a parked parser also hands its work over and wakes it', async () => {
+    const home = tmpdir('lush-handoff-parked-');
+    const built = handoffSystem(home);
+    try {
+      const { manager: m, provider } = built;
+      const row = await m.submitIntension('派活：让它慢慢干', null, 'test');
+      await until(() => m.taskInspect(row.parse_task_id).status === 'waiting', 'the parser to park');
+      const childId = m.repository.childTasks(row.parse_task_id)[0].id;
+
+      // Someone else closes the row the parser is holding while it waits on the
+      // very children it delegated: those are no longer its business.
+      m.intensionSettle('settled', '外部下的结论', null, row.id);
+      await until(() => m.taskInspect(row.parse_task_id).status === 'completed', 'the parser to finish');
+      expect(m.taskInspect(childId)).toMatchObject({ parent_task_id: null, status: 'running' });
+      expect(m.intensionInspect(row.id)).toMatchObject({ status: 'settled', response: '外部下的结论' });
+      expect(m.repository.activeTaskOfService(0)).toBeNull();
+    } finally {
+      built.provider.gate.resolve();
+      await built.runtime.shutdown();
+      built.database.close();
+      cleanup(home);
+    }
   });
 
   test('what the parser arranged is derived from its own child tasks', async () => {

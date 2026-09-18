@@ -36,6 +36,7 @@ MVP 范围内无未完成项。后续方向（本轮不实现）：Context compr
 - [22 · Intension：用户输入收口成一条被串行解析的输入](./22-intensions.md)
 - [23 · 测试瘦身：删重复覆盖，固定睡眠换成条件等待](./23-test-trim.md)
 - [24 · Web UI 的页面与路由同版本：静态资源冻结 + UI revision](./24-webui-page-version.md)
+- [25 · 交棒：解析 task 结算后让出 SID 0，派出去的子树成为根 task](./25-parse-task-handoff.md)
 
 ## 验收命令
 

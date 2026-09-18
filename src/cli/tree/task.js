@@ -56,7 +56,7 @@ export const taskGroup = {
       summary: '列出 task（默认最近的在前，最多 200 条）',
       cover: [
         '一行一个 task：ID、挂载的 SID、父 task、状态、goal 摘要、result 摘要。',
-        '--sid 只看挂在某个 service 上的 task；--status 只看某个状态；--roots 只看根 task（用户直接开的），--children 只看派出去的子 task。',
+        '--sid 只看挂在某个 service 上的 task；--status 只看某个状态；--roots 只看根 task（解析 task，以及解析器交棒出来的工作树根），--children 只看派出去的子 task。',
       ],
       usage: ['lush task list [--sid SID] [--status STATUS] [--roots|--children] [--limit N]'],
       options: {

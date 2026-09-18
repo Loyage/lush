@@ -18,7 +18,8 @@
  * What a parser does with a row (it reads `context()` for the facts):
  *
  *   no conflict → arrange it: delegate downstream with `task_construct` (the
- *                 normal path) or answer directly, then `settle`;
+ *                 normal path) or answer directly, then `settle` — which hands
+ *                 the delegated subtree over so this task can end;
  *   conflict    → `notice` with a choice form, and the row parks in `awaiting`
  *                 with that notice. The answer arrives as the parse task's next
  *                 input, and the decision is taken then — never guessed.
@@ -44,6 +45,9 @@
  *   row back into the queue until `MAX_ATTEMPTS`, after which the row is
  *   *rejected* with the reason. A user's words are never dropped in silence.
  * - a closed row is final: `settle` refuses to move a settled or rejected row.
+ * - closing the row hands the subtree off: a parse task that has concluded does
+ *   not own the work it arranged any more (`handoff`), so it can finish at once
+ *   and the node is free for the next input while that work keeps running.
  * - the answer of a parse task *is* the intension's response: when the task
  *   finishes, `completedTask` closes the row with its result and the tasks it
  *   arranged — whether the agent called `task_complete` or simply answered. A
@@ -359,8 +363,48 @@ export function defer(manager, { intensionId = null, fromTaskId = null, blockedB
 /** The one place a row becomes terminal: every way of closing it goes through here. */
 function close(manager, intensionId, detail) {
   const closed = manager.repository.settleIntension(intensionId, detail);
+  // Closing the row is also the parser letting go: it owes the user nothing
+  // more, so the work it arranged is no longer its business (see `handoff`).
+  if (closed.parse_task_id !== null && closed.parse_task_id !== undefined) {
+    handoff(manager, closed.parse_task_id);
+  }
   wake(manager, intensionId);
   return closed;
+}
+
+/**
+ * The handoff: a parse task that has concluded its intension gives up the subtree
+ * it arranged, and the promoted tasks become roots of their own.
+ *
+ * This is what makes "a parser settles as soon as it has arranged the work" true
+ * rather than aspirational. A parse task's children are the work it created, and
+ * the task layer will not let a terminal task keep active children
+ * (`core/tasks/rules.js`) — so without this the parse task would park in
+ * `waiting` and hold the parsing node (and with it the whole input queue,
+ * `canParse`) for as long as its arrangement runs. Handing off first means it can
+ * finish on the spot and the next input is parsed while the work that came out of
+ * this one keeps going.
+ *
+ * Only the concluded hand off: while the parser still holds an open row, that row
+ * *and* the tasks it delegated are both its business (`completedTask` reads the
+ * children to derive `resolution.task_ids`). The parser therefore has to settle
+ * before it ends its turn — which is exactly the protocol its prompt states.
+ *
+ * Returns the promoted task ids, or null when nothing was handed off.
+ */
+export function handoff(manager, taskId) {
+  const task = manager.repository.findTask(taskId);
+  // Only a root task on the parsing node is a parser (`afterTaskSettled` reads
+  // the same shape), and only a busy one has anything to hand over.
+  if (task === null || task.parent_task_id !== null || task.sid !== INTENSION_NODE_SID) return null;
+  if (manager.repository.openIntensionOfTask(taskId) !== null) return null;
+  const promoted = manager.repository.detachChildTasks(taskId);
+  if (promoted.length === 0) return null;
+  // A parked parser is parked on exactly these children: it has nothing left to
+  // wait for, so wake its runtime and let it finish this turn. (Mid-invocation
+  // this is a no-op: nobody is parked on the task at that moment.)
+  manager.resumeTask(taskId);
+  return promoted;
 }
 
 /** The conflict notice a parse task just posted belongs to the row it holds. */
