@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { AgentCatalog } from '../src/agent/catalog.js';
 import { MockAgentProvider } from '../src/agent/mock.js';
 import { AgentRuntime } from '../src/agent/runtime.js';
 import { ContextBuilder } from '../src/context/builder.js';
@@ -20,15 +21,20 @@ export function cleanup(directory) {
 
 /** Composition root used by the tests: persistence + core + runtime, no socket. */
 export function system(directory, provider = null, runtimeOptions = {}, orphanPolicy = undefined) {
+  const {
+    templates = new TemplateLoader(),
+    catalog = new AgentCatalog({ home: directory, env: process.env }),
+    ...options
+  } = runtimeOptions;
   const database = new Database(path.join(directory, 'lush.db'));
   const repository = new Repository(database);
-  const templates = new TemplateLoader();
   const manager = new ProcessManager(repository, templates, orphanPolicy);
+  manager.agentCatalog = catalog;
   manager.ensureRoot();
   repository.recover();
   const agent = provider ?? new MockAgentProvider();
   const runtime = new AgentRuntime(manager, agent,
-    new ContextBuilder(repository, templates, { agentMode: agent.contextMode ?? 'tools' }), runtimeOptions);
+    new ContextBuilder(repository, templates, { agentMode: agent.contextMode ?? 'tools' }), options);
   manager.runtime = runtime;
   return { database, manager, runtime };
 }
