@@ -26,7 +26,9 @@ bun run web 4318 --project /absolute/path/to/my-project
 
 ```bash
 lush daemon start
-lush say '给搜索增加键盘导航'
+lush draft add '给搜索增加键盘导航'
+lush draft add '顺便把筛选器抽成组件'
+lush draft commit      # 整批交给一个 planner：拆任务、建依赖，然后才建 worktree
 lush task tree
 lush task inspect 3
 lush task message 3 '还要考虑中文输入法'
@@ -36,6 +38,20 @@ lush task merge 3       # 审阅代码与验证报告后，明确批准这个分
 lush task cleanup 3     # 合并后安全回收 worktree，保留分支作为恢复点
 lush daemon stop
 ```
+
+单条输入也可以用 `lush say '原话'` 立即提交，不等缓存。
+
+### 输入缓存与任务依赖
+
+输入可以先攒着：`lush draft add`（Web 输入框里回车）只写缓存、不规划；`lush draft commit`（Web 的「提交并规划」）把缓存**整体**交给一个 planner，由它拆成多个任务、给互有先后的任务建依赖边，然后才创建 worktree 开工。缓存存库（`drafts` 表），换浏览器或重启 daemon 都不丢；提交后每条草稿留着 `input_id` 作为审计链。
+
+依赖边由 planner 在派工时声明（`task spawn --depends-on ID[:code|order]`），daemon 只做结构校验：
+
+- `code`（默认）：子任务的 worktree 从上游任务的分支拉出，因此看得到上游**未合并**的改动。代价是合并顺序——上游先合，下游才能合，`task merge` 会拒绝越级合并。
+- `order`：只等上游结束，代码仍从项目 HEAD 开始。适合等一个调研结论。
+- 一个任务最多一条 `code` 依赖；依赖不能指向自己的祖先任务——祖先在等子孙结算，双方会互等而死。
+- 依赖未满足的任务保持 `queued`，界面显示「等 #ID」；上游结算时由调度器唤醒，不占 agent 槽。
+- 批与批之间不做语义冲突检测（重复劳动、改同一个文件）：那是 planner 读任务树自己判断的事，拿不准就问用户。
 
 默认从 cwd 向上找到 `.lush/project.json` 或 `.git`，以那个目录为项目根。`--project PATH` / `LUSH_PROJECT` 可以显式绑定。目录会 canonicalize，符号链接不会创建第二个 daemon。不同 Git worktree 可作为不同项目独立运行；agent 在任务 worktree 内通过注入的 `LUSH_PROJECT` 始终连接所属项目。
 
@@ -68,17 +84,17 @@ Project / 一个目录 / 一个 daemon
 - `worker`：在独立 worktree 中实现、测试、提交。
 - `research`：只读研究和审查。
 
-默认最多 **4 个执行 agent + 1 个独立规划 agent**。队列中的任务不占槽；`waiting` / `awaiting` 也不占槽。多个输入的规划仍受这个规划槽限制，但不会等待先前的开发树结束。
+默认最多 **4 个执行 agent + 1 个独立规划 agent**。队列中的任务不占槽；`waiting` / `awaiting` 也不占槽；被依赖挡住的 `queued` 任务同样不占槽。多个输入的规划仍受这个规划槽限制，但不会等待先前的开发树结束；多次提交的解析互不阻塞（每个批次各自一个 planner），越界或非法的依赖在**服务端**被拒绝。
 
 子任务完成、父子消息、用户补充、notice 答复都会进入持久化收件箱，**在 invocation 之间交给 agent**，不硬打断正在执行的模型调用。消息只能沿直接父子边传递；用户可以给任一活动任务追加要求。
 
 ## Worktree 与合并
 
 - 每个 worker 的 worktree 位于 `.lush/worktrees/task-<id>/`，分支使用包含项目路径哈希的名称；共享 Git 仓库的不同项目不会争用同名 task 分支。
-- 每个 worker 从创建时项目的 **已提交 HEAD** 开始。兄弟任务不会自动看到彼此未合并的修改；有关联的编辑应合在一个 worker 中，或由用户合并前置成果后再安排下一阶段。
+- 每个 worker 从创建时项目的 **已提交 HEAD** 开始，除非它对另一个任务声明了 `code` 依赖：那时它的 worktree 从上游任务的**分支**拉出（stacked），于是能拿到上游尚未合并的改动。兄弟任务不会自动看到彼此的修改；无关的编辑应合在一个 worker 中。
 - agent 最终输出作为 result。worker 必须提交改动、保持工作区干净；未提交就结束会失败，文件原样保留供检查和重试。
 - 完成与合并是两个状态：`completed + pending` 表示已产出提交，**尚未进入主工作树**。
-- `task merge ID` 检查任务完成、两边工作树干净、目标分支未切换、待审阅 HEAD 未变化，然后串行执行非快进 merge。冲突会尝试 abort，保留任务分支和错误；不会强制覆盖代码或自动解决冲突。
+- `task merge ID` 检查任务完成、两边工作树干净、目标分支未切换、待审阅 HEAD 未变化，然后串行执行非快进 merge。冲突会尝试 abort，保留任务分支和错误；不会强制覆盖代码或自动解决冲突。stacked 任务还要求上游已经是目标的祖先（即先合并上游），否则会把它未合并的改动一起带进来。
 - merge 中断后标为 `review`，不自动重放。检查 Git 历史、处理遗留冲突并恢复干净工作树后，可重新执行 `task merge ID` 明确批准恢复；若提交已经合入，Git 会确认已包含，不重复改写历史。
 - `task cleanup ID` 不使用 `--force`，拒绝未合并成果和脏工作区；取消/失败任务的提交也必须已经进入项目 HEAD 才允许清理。分支始终保留。
 

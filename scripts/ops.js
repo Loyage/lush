@@ -4,7 +4,7 @@ const [command, ...args] = process.argv.slice(2);
 const aliases = {
   start: ['daemon','start'], stop: ['daemon','stop'], 'daemon-start': ['daemon','start'],
   'daemon-stop': ['daemon','stop'], 'daemon-restart': ['daemon','restart'],
-  intent: ['say'], intents: ['input','list'], tasks: ['task','list'], tree: ['task','tree'],
+  intent: ['say'], intents: ['input','list'], drafts: ['draft','list'], tasks: ['task','list'], tree: ['task','tree'],
   inspect: ['task','inspect'], cancel: ['task','cancel'], retry: ['task','retry'],
   merge: ['task','merge'], cleanup: ['task','cleanup'], notices: ['notice','list'],
   answer: ['notice','answer'], message: ['task','message'], wait: ['task','wait'],

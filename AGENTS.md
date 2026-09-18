@@ -17,7 +17,10 @@ bun run doctor                  # 首先确认项目 / home / daemon 的代码�
 bun run test
 bun run start                   # 只启动所选项目；已有 daemon 不会换版本
 bun run daemon-restart          # 运行代码、提示词或配置变更后重启
-bun run say '输入'              # 立即返回，不等开发完成
+bun run say '输入'              # 立即提交单条输入，不等开发完成
+bun run draft add '输入'        # 只写缓存，不规划；按回车逐条攒
+bun run drafts                  # 看缓存里有什么
+bun run draft commit            # 缓存整体交给一个 planner：拆任务 + 建依赖
 bun run tree
 bun run inspect 3
 bun run web                     # 只启动本地 Web，不操作 daemon
@@ -34,7 +37,10 @@ bun run stop
 - 每个 worker 独立 worktree / 分支；默认必须由用户明确批准合并。
 - 不强制 reset / clean / 删除工作区，不自动提交用户已有改动。失败工作区也有价值。
 - `completed` 不等于 `merged`。保留独立的任务状态与 integration 状态。
-- Task 的父子关系创建后不变；终态 task 不允许活动后代。
+- Task 的父子关系创建后不变；终态 task 不允许活动后代。依赖边（`task_deps`）只在 spawn 时写入，之后不可变。
+- 依赖只做结构校验（自依赖、祖先、悬空 id、多 code 边、非 worker 上游）；语义冲突由 planner 判断，拿不准就问用户。
+- `code` 依赖把上游分支当作下游 worktree 的基线，所以合并必须上游先行；`task merge` 会拒绝越级。
+- 输入缓存在 `drafts` 表：草稿可在提交前删除，提交后行保留并回写 `input_id`；已提交的输入永不删除。
 - Agent 等待子任务或用户时释放 invocation 槽；新输入有独立规划槽。
 - 消息只在 invocation 之间送达。注意「父任务刚 park、子任务刚完成、running Map 还未清理」之间的 lost-wakeup 竞态。
 - 重启不自动重放有未知副作用的调用；旧 Service 数据不迁移、不覆盖。

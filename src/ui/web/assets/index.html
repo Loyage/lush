@@ -1,9 +1,11 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lush · 项目开发</title><link rel="stylesheet" href="/styles.css"><script type="module" src="/app.js"></script></head>
 <body><header><strong>Lush</strong><span id="project">连接项目…</span><span id="connection" role="status"></span></header>
-<main><section class="conversation"><h1>把项目做成你想象中的样子。</h1><p>随时补充想法。任务并行推进，合并由你决定。</p>
-<h2>输入记录</h2><div id="inputs"></div></section>
+<main><section class="conversation"><h1>把项目做成你想象中的样子。</h1><p>先把想法放进缓存，想清楚了一次提交；整批交给一个 planner 拆解成任务并建立依赖，然后再建 worktree 开工。</p>
+<h2>待提交缓存</h2><div id="drafts"></div>
+<h2>已提交输入</h2><div id="inputs"></div></section>
 <section><div class="section-title"><h2>任务树</h2><span id="agents"></span></div><div id="tasks"></div><h2>等你决定</h2><div id="notices"></div></section>
-<section id="detail"><h2>任务详情</h2><p>选择任务查看结果、工作区和待合并改动。</p></section></main>
-<div class="composer"><form id="input-form"><label for="input">你想做什么？</label><textarea id="input" required maxlength="32000" placeholder="添加一个登录页面；或者，先研究一下现有鉴权逻辑…"></textarea><button>发送，不等待任务完成 ↗</button></form><p id="error" role="alert"></p></div>
+<section id="detail"><h2>任务详情</h2><p>选择任务查看结果、工作区、依赖与待合并改动。</p></section></main>
+<div class="composer"><form id="input-form"><label for="input">你想做什么？</label><textarea id="input" maxlength="32000" placeholder="添加一个登录页面；或者，先研究一下现有鉴权逻辑…（回车加入缓存，⌘/Ctrl+回车整体提交）"></textarea>
+<div class="composer-actions"><button type="button" id="draft-add" class="ghost">加入缓存</button><button type="submit" id="draft-commit">提交并规划</button><span id="draft-count" class="hint"></span></div></form><p id="error" role="alert"></p></div>
 </body></html>

@@ -24,6 +24,20 @@ export class Workspaces {
     const status = await this.git(cwd, 'status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).lush');
     check(!status, `working tree is dirty: ${cwd}; commit or stash changes first`);
   }
+  /** The single code dependency a worker may stack on; it has to be a finished worker with a branch. */
+  codeBase(task) {
+    const edges = this.store.deps(task.id).filter(edge => edge.kind === 'code');
+    check(edges.length <= 1, 'a task cannot stack on more than one code dependency');
+    if (!edges.length) return null;
+    const upstream = this.store.task(edges[0].depends_on);
+    check(upstream.role === 'worker', `code dependency #${upstream.id} is a ${upstream.role} task; it has no branch to stack on`);
+    check(upstream.status === 'completed', `code dependency #${upstream.id} is ${upstream.status}; only a completed upstream can be a worktree base`);
+    check(upstream.branch && upstream.head_commit, `code dependency #${upstream.id} produced no branch or commit yet`);
+    return upstream;
+  }
+  async isAncestor(cwd, commit, ref) {
+    try { await this.git(cwd, 'merge-base', '--is-ancestor', commit, ref); return true; } catch { return false; }
+  }
   async ensure(task) {
     if (task.role !== 'worker') return this.config.project;
     return this.exclusive(async () => {
@@ -38,7 +52,10 @@ export class Workspaces {
       const root = fs.realpathSync(await this.git(project, 'rev-parse', '--show-toplevel'));
       check(root === project, 'coding tasks require the project to be a git worktree root');
       await this.clean(project);
-      const base = task.base_commit || await this.git(project, 'rev-parse', 'HEAD');
+      // A code dependency stacks this task on the upstream branch, so the agent sees work that is not merged yet.
+      // base_commit is frozen once: a retry must build the same tree as the review did.
+      const stacked = task.base_commit ? null : this.codeBase(task);
+      const base = task.base_commit || stacked?.head_commit || await this.git(project, 'rev-parse', 'HEAD');
       const target = task.target_branch || await this.git(project, 'symbolic-ref', '--short', 'HEAD');
       const branch = task.branch || `lush/${this.namespace}/task-${task.id}`;
       let reuse = false;
@@ -51,8 +68,8 @@ export class Workspaces {
       fs.mkdirSync(path.dirname(workspace), { recursive: true });
       // Save the intended identity before git; a crash never makes the directory invisible.
       this.store.update(task.id, { workspace, branch, base_commit: base, target_branch: target });
-      await this.git(project, 'worktree', 'add', ...(reuse ? [workspace, branch] : ['-b', branch, workspace, base]));
-      this.store.event(task.id, 'workspace.created', { workspace, branch, base });
+      await this.git(project, 'worktree', 'add', ...(reuse ? [workspace, branch] : ['-b', branch, workspace, stacked ? stacked.branch : base]));
+      this.store.event(task.id, 'workspace.created', { workspace, branch, base, stacked_on: stacked ? stacked.id : null });
       return workspace;
     });
   }
@@ -73,6 +90,14 @@ export class Workspaces {
       await this.clean(task.workspace);
       check(await this.git(project, 'symbolic-ref', '--short', 'HEAD') === task.target_branch, `switch to ${task.target_branch} before merging`);
       check(await this.git(task.workspace, 'rev-parse', 'HEAD') === task.head_commit, 'task branch changed after review');
+      // A stacked branch carries its upstream's commits. Merging a downstream task first would drag
+      // unmerged work into the target branch, so the upstream has to be an ancestor of the target already.
+      for (const edge of this.store.deps(task.id).filter(edge => edge.kind === 'code')) {
+        const upstream = this.store.task(edge.depends_on);
+        check(upstream.head_commit, `code dependency #${upstream.id} has no commit; inspect it before merging`);
+        check(await this.isAncestor(project, upstream.head_commit, 'HEAD'),
+          `code dependency #${upstream.id} is not merged into ${task.target_branch} yet; merge #${upstream.id} first so this branch does not carry it along`);
+      }
       // Persist approval before touching the main tree. On crash, never replay a merge.
       this.store.update(task.id, { integration: 'merging', integration_error: null });
       this.store.event(task.id, 'merge.approved', { commit: task.head_commit });

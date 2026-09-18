@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from '../src/identity.js';
-import { temp, env, until } from './helpers.js';
+import { temp, env, until, repo } from './helpers.js';
 import { Config } from '../src/config.js';
 import { UIClient } from '../src/ui/client.js';
 
@@ -93,3 +93,68 @@ setInterval(() => {}, 1000);
     expect(task.status).toBe('failed'); expect(task.error).toContain('daemon stopped');
   } finally { await cli(root,['stop']).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); }
 }, 30000);
+
+// A fake pi that plans two workers: the second one stacks on the first with a code dependency.
+const STACKED_PI = `#!/usr/bin/env bun
+import fs from 'node:fs';
+import path from 'node:path';
+const file = path.join(process.env.LUSH_HOME,'sessions','task-'+process.env.LUSH_TASK_ID+'-input.md');
+const task = JSON.parse(fs.readFileSync(file,'utf8')).task;
+const git = (...args) => { const proc = Bun.spawnSync(['git',...args]); if (proc.exitCode) throw new Error(proc.stderr.toString()); };
+if (task.role === 'planner') {
+  if (task.calls === 1) {
+    const spawn = async (goal, ...flags) => {
+      const proc = Bun.spawn(['lush','task','spawn',goal,'--role','worker',...flags,'--json'],{stdout:'pipe',stderr:'pipe'});
+      const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
+      if (await proc.exited) throw new Error(err);
+      return JSON.parse(out);
+    };
+    const upstream = await spawn('upstream change');
+    await spawn('downstream change','--depends-on',String(upstream.id));
+  }
+} else if (task.goal === 'upstream change') {
+  fs.writeFileSync('file.txt','upstream\\n');
+  git('add','file.txt'); git('commit','-qm','upstream work');
+} else {
+  fs.writeFileSync('saw.txt', fs.readFileSync('file.txt','utf8').trim());
+  fs.writeFileSync('other.txt','downstream\\n');
+  git('add','saw.txt','other.txt'); git('commit','-qm','downstream work');
+}
+console.log('fake pi completed');
+`;
+
+test('drafts become one planner, and a code dependency stacks worktrees with an ordered merge', async () => {
+  const root = temp();
+  const fake = path.join(root,'fake-pi');
+  fs.writeFileSync(fake, STACKED_PI, { mode:0o755 });
+  await repo(root);
+  const settle = async id => { for (let i=0;i<200;i++) { const task = await (new UIClient(Config.fromEnv(env(),root))).request('task.inspect',{id}); if (['completed','failed'].includes(task.status)) return task; await Bun.sleep(50); } throw new Error('task timeout'); };
+  try {
+    await cli(root,['start'], { LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
+    await cli(root,['draft','add','实现搜索键盘导航']);
+    await cli(root,['draft','add','把筛选器抽成组件']);
+    const batch = await cli(root,['draft','commit']);
+    expect(batch.content).toContain('用户在一次提交中给了 2 条');
+    expect(batch.content).toContain('1) 实现搜索键盘导航');
+    expect(batch.content).toContain('2) 把筛选器抽成组件');
+    const client = new UIClient(Config.fromEnv(env(),root));
+    expect((await settle(batch.task.id)).status).toBe('completed');
+    const children = (await client.request('task.list',{})).filter(task => task.parent_id === batch.task.id).sort((a,b) => a.id - b.id);
+    const [upstream, downstream] = children;
+    expect(downstream.deps).toEqual([{ id: upstream.id, kind:'code', status:'completed' }]);
+    expect(upstream.blocked).toBe(false);
+    const [fullUpstream, fullDownstream] = [await client.request('task.inspect',{id:upstream.id}), await client.request('task.inspect',{id:downstream.id})];
+    expect(fullDownstream.base_commit).toBe(fullUpstream.head_commit);
+    // 主工作树没有上游的改动，但下游的 worktree 是从上游分支拉出来的
+    expect(fs.readFileSync(path.join(root,'file.txt'),'utf8')).toBe('base\n');
+    expect(fs.readFileSync(path.join(root,'.lush','worktrees',`task-${downstream.id}`,'saw.txt'),'utf8')).toBe('upstream');
+    // 合并顺序：上游先合，越级合并被拒且不改状态
+    await expect(cli(root,['task','merge',String(downstream.id)])).rejects.toThrow('is not merged into');
+    expect((await client.request('task.inspect',{id:downstream.id})).integration).toBe('pending');
+    await cli(root,['task','merge',String(upstream.id)]);
+    await cli(root,['task','merge',String(downstream.id)]);
+    expect(fs.readFileSync(path.join(root,'file.txt'),'utf8')).toBe('upstream\n');
+    expect(fs.readFileSync(path.join(root,'other.txt'),'utf8')).toBe('downstream\n');
+    expect((await client.request('task.inspect',{id:downstream.id})).integration).toBe('merged');
+  } finally { await cli(root,['stop']).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); }
+}, 40000);

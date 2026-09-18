@@ -6,7 +6,7 @@ export class UIClient {
     return this.rpc.request(method, { ...params, ...(this.token ? { _token: this.token } : {}) });
   }
   async snapshot() {
-    const [status, inputs, notices] = await Promise.all(['system.status','input.list','notice.list'].map(method => this.request(method)));
+    const [status, inputs, drafts, notices] = await Promise.all(['system.status','input.list','draft.list','notice.list'].map(method => this.request(method)));
     check(status.project === this.config.project, 'daemon project mismatch');
     const tasks = []; let after = 0;
     for (;;) {
@@ -16,6 +16,6 @@ export class UIClient {
       after = page.at(-1).id;
       if (page.length < 200) break;
     }
-    return { status, tasks, inputs, notices };
+    return { status, tasks, inputs, drafts, notices };
   }
 }

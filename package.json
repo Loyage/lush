@@ -21,6 +21,8 @@
     "log": "bun ./scripts/ops.js log",
     "web": "bun ./scripts/ops.js web",
     "say": "bun ./scripts/ops.js say",
+    "draft": "bun ./scripts/ops.js draft",
+    "drafts": "bun ./scripts/ops.js drafts",
     "intent": "bun ./scripts/ops.js intent",
     "intents": "bun ./scripts/ops.js intents",
     "tasks": "bun ./scripts/ops.js tasks",

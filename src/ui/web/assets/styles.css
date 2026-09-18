@@ -6,3 +6,10 @@
 .composer #error:empty{display:none}
 main{padding-bottom:240px}
 @media(max-width:650px){.composer{padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px))}.composer textarea{min-height:60px}main{padding-bottom:250px}}
+.composer-actions{display:flex;align-items:center;gap:10px;margin-top:2px}
+.composer-actions .hint{margin-left:auto}
+button.ghost{background:transparent;color:#cfe3d6;border:1px solid #39503f}
+button.ghost:hover{background:#22302a;filter:none}
+#drafts article{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+#drafts article p{width:100%}
+#drafts:empty::after{content:'缓存空：输入框里按回车先攒着，攒够了一次提交。';display:block;color:#9daf9f;font-size:13px;padding:2px 0 8px}

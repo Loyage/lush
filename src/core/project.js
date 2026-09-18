@@ -1,7 +1,31 @@
 import { randomBytes } from 'node:crypto';
-import { check, id, text, TERMINAL, bounded, LushError } from './types.js';
+import { check, id, text, TERMINAL, bounded, isPlainObject, LushError } from './types.js';
 import { Workspaces } from './workspaces.js';
 import { PiProvider, MockProvider } from '../agent/provider.js';
+
+const DEP_KINDS = new Set(['code', 'order']);
+/** Buffered drafts are a cache, not a queue: bounded so a forgotten tab cannot grow the db forever. */
+const MAX_DRAFTS = 500;
+/** A batch keeps every utterance identifiable; a single draft stays verbatim. */
+function batchContent(drafts) {
+  if (drafts.length === 1) return drafts[0].content;
+  return [`用户在一次提交中给了 ${drafts.length} 条，按输入顺序：`,
+    ...drafts.map((draft, index) => `${index + 1}) ${draft.content}`)].join('\n');
+}
+function normalizeDeps(deps) {
+  check(Array.isArray(deps), 'deps must be an array');
+  check(deps.length <= 32, 'at most 32 dependencies per task');
+  const edges = [];
+  for (const raw of deps) {
+    const value = isPlainObject(raw) ? raw : { id: raw };
+    const kind = value.kind ?? 'code';
+    check(DEP_KINDS.has(kind), 'dependency kind must be code or order');
+    const depId = id(value.id);
+    check(!edges.some(edge => edge.id === depId), `duplicate dependency on task ${depId}`);
+    edges.push({ id: depId, kind });
+  }
+  return edges;
+}
 
 /** One project, a persistent task tree, and a bounded pool of disposable agents. */
 export class Project {
@@ -14,44 +38,114 @@ export class Project {
   status() {
     return { project: this.config.project, home: this.config.home, provider: this.config.provider,
       concurrency: this.config.concurrency, tasks: this.store.all('SELECT status, count(*) AS count FROM tasks GROUP BY status'),
+      drafts: this.store.draftCount(),
       agents: [...this.running].map(([task_id, run]) => ({ task_id, pid: run.pid || null })),
       pending_merges: this.store.all("SELECT id, substr(goal,1,500) AS goal, branch FROM tasks WHERE integration IN ('pending','review') ORDER BY id LIMIT 100"),
       notices: this.store.get("SELECT count(*) AS count FROM notices WHERE status='open'").count };
   }
-  submit(content) {
+  /** The single place a root planner is created; input.submit and draft.commit both land here. */
+  createInput(content) {
     text(content, 'input');
-    const result = this.store.transaction(() => {
+    return this.store.transaction(() => {
       const row = this.store.run('INSERT INTO inputs(content) VALUES (?)', content);
       const inputId = Number(row.lastInsertRowid);
       const task = this.store.create({ input_id: inputId, role: 'planner', goal: content });
       this.store.run('UPDATE inputs SET task_id=? WHERE id=?', task.id, inputId);
       return { id: inputId, content, task };
     });
+  }
+  submit(content) {
+    const result = this.createInput(content);
+    this.kick(); return result;
+  }
+  /** Buffering is user-only: agents submit work through task.spawn, never through the input buffer. */
+  draft(content) {
+    text(content, 'draft');
+    check(this.store.draftCount() < MAX_DRAFTS, 'too many buffered drafts; submit or remove some first');
+    return this.store.addDraft(content);
+  }
+  drafts() { return bounded(this.store.openDrafts(), 400000); }
+  dropDraft(draftId) {
+    const draft = this.store.draft(draftId);
+    check(draft.input_id === null, `draft ${draft.id} was already submitted as input ${draft.input_id}; inputs are never removed`);
+    this.store.run('DELETE FROM drafts WHERE id=?', draft.id);
+    return { id: draft.id };
+  }
+  /** Hands every buffered draft to one planner as a single batch. All-or-nothing. */
+  commitDrafts() {
+    const drafts = this.store.openDrafts();
+    check(drafts.length > 0, 'no buffered drafts to submit');
+    const result = this.store.transaction(() => {
+      const content = batchContent(drafts);
+      const row = this.store.run('INSERT INTO inputs(content) VALUES (?)', content);
+      const inputId = Number(row.lastInsertRowid);
+      const task = this.store.create({ input_id: inputId, role: 'planner', goal: content });
+      this.store.run('UPDATE inputs SET task_id=? WHERE id=?', task.id, inputId);
+      for (const draft of drafts) this.store.run('UPDATE drafts SET input_id=? WHERE id=?', inputId, draft.id);
+      return { id: inputId, content, task, drafts: drafts.map(draft => draft.id) };
+    });
+    this.store.event(result.task.id, 'input.batch', { draft_ids: result.drafts });
     this.kick(); return result;
   }
   inputs() {
-    return this.store.all('SELECT inputs.id, substr(inputs.content,1,2000) AS content, inputs.task_id, inputs.created_at, tasks.status FROM inputs JOIN tasks ON tasks.id=inputs.task_id ORDER BY inputs.id DESC LIMIT 100');
+    return this.store.all(`SELECT inputs.id, substr(inputs.content,1,2000) AS content, inputs.task_id, inputs.created_at, tasks.status,
+      (SELECT count(*) FROM drafts WHERE drafts.input_id=inputs.id) AS draft_count
+      FROM inputs JOIN tasks ON tasks.id=inputs.task_id ORDER BY inputs.id DESC LIMIT 100`);
   }
-  spawn(parentId, goal, role = 'worker') {
+  /** Task rows plus their dependency edges, so every read model shows what a queued task waits for. */
+  decorate(tasks) {
+    const edges = this.store.depMap();
+    return tasks.map(task => {
+      const deps = edges.get(task.id) || [];
+      return { ...task, deps, blocked: deps.some(edge => !TERMINAL.has(edge.status)) };
+    });
+  }
+  blockedBy(taskId) { return (this.store.depMap().get(taskId) || []).filter(edge => !TERMINAL.has(edge.status)).map(edge => edge.id); }
+  /** Structural dependency checks. Semantic conflicts (duplicate work, same files) stay the planner's job. */
+  assertDeps(taskId, parent, edges) {
+    const ancestors = new Set();
+    for (let node = parent; node; node = node.parent_id ? this.store.task(node.parent_id) : null) ancestors.add(node.id);
+    let code = 0;
+    for (const edge of edges) {
+      check(edge.id !== taskId, 'a task cannot depend on itself');
+      check(!ancestors.has(edge.id), `cannot depend on ancestor task #${edge.id}: an ancestor waits for its children, so both sides would wait forever`);
+      const dep = this.store.task(edge.id);
+      // Edges are only ever written here, so this cannot fire today; it keeps a future edit-DAG API honest.
+      check(!this.store.reaches(edge.id, taskId), `dependency on #${edge.id} would create a cycle`);
+      if (edge.kind !== 'code') continue;
+      code += 1;
+      check(code <= 1, 'a task can stack on at most one code dependency; use order for the rest, or add a task that merges both');
+      check(dep.role === 'worker', `code dependency #${dep.id} is a ${dep.role} task; only a worker gets a branch to stack on`);
+      check(!['failed','cancelled'].includes(dep.status), `code dependency #${dep.id} is ${dep.status}; it cannot serve as a code base`);
+    }
+  }
+  spawn(parentId, goal, role = 'worker', deps = []) {
     const parent = this.store.task(parentId);
     check(!TERMINAL.has(parent.status), 'cannot delegate from a terminal task');
     text(goal, 'goal'); check(['worker','coordinator','research'].includes(role), 'role must be worker, coordinator or research');
+    const edges = normalizeDeps(deps);
     let depth = 1, ancestor = parent;
     while (ancestor.parent_id) { ancestor = this.store.task(ancestor.parent_id); depth++; }
     check(depth < this.config.maxDepth, 'task nesting limit reached');
     check(this.store.get("SELECT count(*) AS n FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").n < 1000, 'too many active tasks');
-    const task = this.store.create({ parent_id: parent.id, input_id: parent.input_id, role, goal });
+    const task = this.store.transaction(() => {
+      const created = this.store.create({ parent_id: parent.id, input_id: parent.input_id, role, goal });
+      this.assertDeps(created.id, parent, edges);
+      for (const edge of edges) { this.store.addDep(created.id, edge.id, edge.kind); this.store.event(created.id, 'dep.added', edge); }
+      return created;
+    });
     this.kick(); return task;
   }
   inspect(taskId) {
     const task = this.store.task(taskId);
-    return { ...task, children: bounded(this.store.summaries().filter(child => child.parent_id === task.id), 100000),
+    return { ...task, deps: this.store.depsDetail(task.id), dependents: this.store.dependentsDetail(task.id),
+      children: bounded(this.store.summaries().filter(child => child.parent_id === task.id), 100000),
       messages: bounded(this.store.all('SELECT * FROM messages WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
       notices: bounded(this.store.all('SELECT * FROM notices WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
       agent: this.running.has(task.id) ? { pid: this.running.get(task.id).pid || null } : null };
   }
   tree(taskId = null) {
-    const tasks = this.store.summaries();
+    const tasks = this.decorate(this.store.summaries());
     const rows = new Map(tasks.map(task => [task.id, { ...task, children: [] }]));
     const roots = [];
     for (const row of rows.values()) {
@@ -109,6 +203,8 @@ export class Project {
       }
     });
     if (task.parent_id) this.wake(task.parent_id);
+    // A settled dependency releases every queued dependent; still-blocked ones stay queued.
+    for (const edge of this.store.dependents(task.id)) this.wake(edge.task_id);
     return this.store.task(task.id);
   }
   cancel(taskId, reason = 'cancelled by user', status = 'cancelled') {
@@ -150,8 +246,11 @@ export class Project {
     // Reserve one separate planning slot: a saturated worker pool cannot block input parsing.
     let planners = 0, workers = 0;
     for (const run of this.running.values()) { if (run.role === 'planner') planners++; else workers++; }
+    const dependencies = this.store.depMap();
     for (const task of this.store.all("SELECT * FROM tasks WHERE status='queued' ORDER BY id")) {
       if (this.running.has(task.id)) continue;
+      // A queued task whose dependencies are not settled stays queued; finish() re-kicks when they are.
+      if ((dependencies.get(task.id) || []).some(edge => !TERMINAL.has(edge.status))) continue;
       if (task.role === 'planner' ? planners >= 1 : workers >= this.config.concurrency) continue;
       if (task.role === 'planner') planners++; else workers++;
       const run = { role: task.role, controller: new AbortController(), token: randomBytes(32).toString('hex'), pid: null, promise: null };
@@ -192,7 +291,7 @@ export class Project {
         context: {
           children: this.store.summaries().filter(child => child.parent_id === taskId),
           open_notices: this.store.all("SELECT * FROM notices WHERE task_id=? AND status='open'", taskId),
-          recent_tasks: this.store.all('SELECT id,parent_id,role,status,substr(goal,1,500) AS goal,integration FROM tasks ORDER BY id DESC LIMIT 100'),
+          recent_tasks: this.decorate(this.store.all('SELECT id,parent_id,role,status,substr(goal,1,500) AS goal,integration FROM tasks ORDER BY id DESC LIMIT 100')),
         },
       });
       clearTimeout(timer);

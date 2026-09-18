@@ -81,3 +81,31 @@ test('large results do not inflate task listings and event history stays paginat
     expect((await client.request('task.inspect',{id:task.id})).result.length).toBe(250000);
   } finally { await f.close(); }
 });
+
+test('web buffers drafts, commits the whole batch and keeps agents out of the composer', async () => {
+  const f = await setup();
+  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
+  try {
+    const html = await (await fetch(f.url)).text();
+    expect(html).toContain('加入缓存');
+    expect(html).toContain('提交并规划');
+    expect(html).toContain('待提交缓存');
+    expect((await post('draft.add',{content:'第一条'})).status).toBe(200);
+    expect((await post('draft.add',{content:'第二条'})).status).toBe(200);
+    let snapshot = await (await fetch(f.url+'/api/snapshot')).json();
+    expect(snapshot.drafts.map(draft => draft.content)).toEqual(['第一条','第二条']);
+    expect(snapshot.status.drafts).toBe(2);
+    expect((await post('draft.remove',{id:snapshot.drafts[0].id})).status).toBe(200);
+    expect((await post('draft.commit',{})).status).toBe(200);
+    snapshot = await (await fetch(f.url+'/api/snapshot')).json();
+    expect(snapshot.drafts).toEqual([]);
+    expect(snapshot.status.drafts).toBe(0);
+    expect(snapshot.inputs[0].content).toBe('第二条');
+    expect(snapshot.tasks[0].role).toBe('planner');
+    // 已提交的输入不能被删；agent token 与非白名单方法都被拒
+    expect((await post('draft.remove',{id:1})).status).toBe(400);
+    expect((await post('draft.add',{content:'sneak',_token:'forged'})).status).toBe(400);
+    expect((await post('draft.clear',{})).status).toBe(400);
+    expect((await post('input.submit',{content:'raw',_token:'forged'})).status).toBe(400);
+  } finally { await f.close(); }
+});

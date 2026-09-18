@@ -7,6 +7,10 @@
 | CLI | RPC | 参数 |
 |---|---|---|
 | `lush say '原话'` | `input.submit` | `{content}` |
+| `lush draft add '原话'` | `draft.add` | `{content}` |
+| `lush draft list` | `draft.list` | `{}` |
+| `lush draft rm ID` | `draft.remove` | `{id}` |
+| `lush draft commit` | `draft.commit` | `{}` |
 | `lush input list` | `input.list` | `{}` |
 | `lush status` | `system.status` | `{}` |
 | `lush daemon stop` | `system.stop` | `{}` |
@@ -14,6 +18,8 @@
 `daemon start/restart` 是客户端工作流，不是 RPC。`doctor` 检查本地项目配置与 daemon 身份。`web [port]` 启动本地 Web 进程。
 
 `input.submit` 返回 `{id, content, task}`，其中 task 是根 planner。原话完整存库，列表展示最近 100 条摘要；根 task inspect 可读取完整 goal。
+
+`draft.*` 是输入缓存：`draft.add` 只落 `drafts` 行（`input_id` 为空），`draft.commit` 把当前全部未提交草稿**在一个事务里**拼成一条 `inputs`、建一个 planner、并回写每条草稿的 `input_id`，返回 `{id, content, task, drafts:[...]}`。单条草稿提交时原话逐字不变；多条带编号列表头。`draft.remove` 只删未提交的草稿，已提交的输入永不删除（返回错误）。`input.list` 额外给出 `draft_count`。缓存上限 500 条。这四个方法与 `input.submit` 一样是**用户专属**，agent 调用会被拒绝。
 
 ## 任务
 
@@ -23,7 +29,7 @@
 | `task tree [ID]` | `task.tree` | `{id?}` |
 | `task inspect ID` | `task.inspect` | `{id}` |
 | `task history ID [--after N]` | `task.history` | `{id, after?: 0}` |
-| `task spawn 'goal' --parent ID --role worker` | `task.spawn` | `{parent, goal, role?: 'worker'}` |
+| `task spawn 'goal' --parent ID --role worker [--depends-on ID[:kind]]` | `task.spawn` | `{parent, goal, role?: 'worker', deps?: [{id, kind: 'code'|'order'}]}` |
 | `task message ID 'body'` | `task.message` | `{id, body}` |
 | `task cancel ID` | `task.cancel` | `{id}` |
 | `task retry ID` | `task.retry` | `{id}` |
@@ -33,6 +39,12 @@
 `task wait ID` 在客户端轮询 inspect；只阻塞当前客户端，终态返回。failed/cancelled 设置非零退出码。Agent 不允许使用 wait，应结束 invocation 由调度器唤醒。
 
 spawn 必须关联一个活动父 task；根任务只能由用户输入创建。角色可选 `worker` / `coordinator` / `research`，`planner` 只由入口生成。
+
+`deps` 是依赖边（`task_deps` 表，`(task_id, depends_on, kind)`，创建后不可变）。`kind` 默认 `code`：本任务的 worktree 从上游分支拉出（stacked），`base_commit` 冻结为上游的 `head_commit`，审阅 diff 只含本任务自己的提交；`order` 只等上游终态，代码仍从 HEAD 开始。`kind` 缺省由 CLI 的 `--dep-kind` 决定。提交时做结构校验并拒绝：自依赖、依赖祖先任务（混合图死锁）、悬空 id、一个任务多于一条 `code` 边、`code` 边指向非 worker 或已 failed/cancelled 的上游。边只在创建时写入，所以环在结构上不可能；`assertDeps` 仍保留可达性校验，供未来加改边 API。
+
+依赖未满足的 `queued` 任务不会被调度，`task.list` / `tree` 的每行都带 `deps: [{id, kind, status}]` 与 `blocked` 布尔值，`task.inspect` 额外给出 `deps` / `dependents`（带上游状态、角色、goal 摘要）。上游结算时 `finish` 唤醒每一个依赖它的任务。
+
+`task.merge` 对 stacked 任务多一道检查：上游的 `head_commit` 必须已经是当前目标的祖先（即上游先合并），否则拒绝，防止把未合并的改动一起带进目标分支。
 
 `task.list` 和 tree 返回摘要，不复制每个 task 的结果与收件箱。完整 result 在 inspect 中；inspect 的子任务、消息、notice 集合受字节预算限制，完整记录仍在 SQLite。history 每页最多 100 个事件且有字节预算，以最后一条 event.id 作为下一页 after。大型任务森林超过 1 MiB frame 时应改用 task list 分页和指定根 ID 的 task tree。
 

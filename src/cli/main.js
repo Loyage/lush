@@ -14,11 +14,15 @@ lush [--project PATH] [--json] <command>
   doctor                          目录、工具链与代码版本
   say '你的想法'                   立即持久化并排入规划队列，不等待开发
   input list                      查看用户输入
+  draft add '想法'                 先放进缓存，不规划
+  draft list                      查看缓存（尚未提交）的输入
+  draft rm ID                     丢掉一条缓存输入
+  draft commit                    把缓存整体交给意图分析：一个 planner 拆成多个任务并建依赖
   task list [--after N] [--limit N] 分页任务列表（默认 200 条）
   task tree [ID]                  多级任务树
   task inspect ID                 结果、子任务、消息与工作区
   task history ID [--after N]      分页事件记录
-  task spawn '目标' [--parent ID] [--role worker|coordinator|research]
+  task spawn '目标' [--parent ID] [--role worker|coordinator|research] [--depends-on ID[:code|order]]
   task message ID '补充说明'       追加输入，不打断当前 invocation
   task cancel|retry ID            取消子树 / 明确重试失败任务
   task wait ID                    仅阻塞此客户端，不占 agent 槽
@@ -33,6 +37,9 @@ lush [--project PATH] [--json] <command>
 默认从当前目录向上发现项目；--project 或 LUSH_PROJECT 显式绑定。
 状态固定保存在 <project>/.lush/，不再支持全局 LUSH_HOME。
 实现任务需要已提交初始版本的 Git 仓库；主工作树应保持干净。
+依赖：一个任务最多一条 code 依赖。code（默认）把上游分支当作本任务 worktree 的基线，
+因此看得到上游未合并的改动，但必须先合并上游再合并本任务；order 只等上游结束，代码仍从 HEAD 开始。
+依赖不能指向自己的祖先任务（祖先在等子孙结束，双方会互相等死）。
 Agent 默认 pi；LUSH_PROVIDER=mock 可离线验证。`;
 
 function option(args, name, fallback = null) {
@@ -75,6 +82,13 @@ export async function main(argv = process.argv.slice(2)) {
     exact(args, 1); value = await client.request('input.submit', { content: args[0] });
   } else if (command === 'input') {
     check(args.length === 1 && args[0] === 'list', 'use input list'); value = await client.request('input.list');
+  } else if (command === 'draft') {
+    const verb = args.shift();
+    if (verb === 'add') { exact(args, 1); value = await client.request('draft.add', { content: args[0] }); }
+    else if (verb === 'list') { exact(args, 0); value = await client.request('draft.list'); }
+    else if (verb === 'rm' || verb === 'remove') { exact(args, 1); value = await client.request('draft.remove', { id: id(args[0]) }); }
+    else if (verb === 'commit' || verb === 'submit') { exact(args, 0); value = await client.request('draft.commit'); }
+    else throw new Error('unknown draft command; use add, list, rm or commit');
   } else if (command === 'task') {
     const verb = args.shift();
     if (verb === 'list') {
@@ -84,8 +98,18 @@ export async function main(argv = process.argv.slice(2)) {
     else if (verb === 'tree') { check(args.length <= 1, 'tree accepts an optional ID'); value = await client.request('task.tree', args.length ? { id: id(args[0]) } : {}); }
     else if (verb === 'spawn') {
       const parent = option(args, '--parent', process.env.LUSH_TASK_ID);
-      const role = option(args, '--role', 'worker'); exact(args, 1);
-      value = await client.request('task.spawn', { parent: id(parent), role, goal: args[0] });
+      const role = option(args, '--role', 'worker');
+      const defaultKind = option(args, '--dep-kind', 'code');
+      const deps = [];
+      // Repeatable and comma-separated: --depends-on 7,9:order --depends-on 11
+      for (let value$1 = option(args, '--depends-on'); value$1 !== null; value$1 = option(args, '--depends-on')) {
+        for (const token of value$1.split(',').filter(Boolean)) {
+          const [depId, kind = defaultKind] = token.split(':');
+          deps.push({ id: id(depId), kind });
+        }
+      }
+      exact(args, 1);
+      value = await client.request('task.spawn', { parent: id(parent), role, goal: args[0], deps });
     } else if (verb === 'message') { exact(args, 2); value = await client.request('task.message', { id: id(args[0]), body: args[1] }); }
     else if (verb === 'history') {
       const after = Number(option(args, '--after', '0')); exact(args, 1);

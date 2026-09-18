@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id);
-let selected = null, selectedRevision = null, busy = false, offlineError = null;
+let selected = null, selectedRevision = null, busy = false, offlineError = null, draftCount = 0, draftSignature = null;
 const labels = { queued:'排队', running:'运行中', waiting:'等子任务', awaiting:'等你决定', completed:'已完成', failed:'失败', cancelled:'已取消' };
+const TERMINAL_STATUS = new Set(['completed','failed','cancelled']);
 function el(tag, text, className) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; }
 function button(text, fn) { const node = el('button', text); node.type = 'button'; node.onclick = async () => { node.disabled = true; try { await fn(); } catch (error) { $('error').textContent = error.message; } finally { node.disabled = false; } }; return node; }
 function syncChildren(container, nodes) {
@@ -17,11 +18,34 @@ async function action(method, params) {
   const result = await api('/api/action', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({method, params}) });
   await refresh(); return result;
 }
+// 缓存一条输入：只落库，不规划。
+async function buffer() {
+  const value = $('input').value.trim();
+  if (!value) return;
+  await action('draft.add', { content: value });
+  if ($('input').value.trim() === value) $('input').value = '';
+}
+function syncComposer() { $('draft-commit').disabled = !draftCount && !$('input').value.trim(); }
+$('draft-add').onclick = async event => {
+  const target = event.currentTarget; target.disabled = true;
+  try { await buffer(); } catch (error) { $('error').textContent = error.message; } finally { target.disabled = false; }
+};
+// 整体提交：输入框里还没缓存的内容先收下，然后把整个缓存交给一个 planner 拆解。
 $('input-form').onsubmit = async event => {
-  event.preventDefault(); const value = $('input').value; if (!value.trim()) return;
-  const submit = event.currentTarget.querySelector('button'); submit.disabled = true;
-  try { await action('input.submit', {content:value}); if ($('input').value === value) $('input').value = ''; }
-  catch (error) { $('error').textContent = error.message; } finally { submit.disabled = false; }
+  event.preventDefault();
+  const submit = event.currentTarget.querySelector('button[type="submit"]'); submit.disabled = true;
+  try {
+    if ($('input').value.trim()) await buffer();
+    const result = await action('draft.commit');
+    $('error').textContent = `已提交 ${result.drafts.length} 条输入；planner #${result.task.id} 正在拆解任务并建依赖`;
+  } catch (error) { $('error').textContent = error.message; } finally { syncComposer(); }
+};
+$('input').oninput = syncComposer;
+// 回车=缓存，⌘/Ctrl+回车=整体提交，Shift+回车=换行。
+$('input').onkeydown = event => {
+  if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
+  event.preventDefault();
+  if (event.metaKey || event.ctrlKey) $('input-form').requestSubmit(); else $('draft-add').click();
 };
 async function detail(taskId) {
   selected = taskId;
@@ -30,13 +54,18 @@ async function detail(taskId) {
   selectedRevision = task.updated_at;
   const panel = $('detail'); panel.replaceChildren(el('h2', `#${task.id} · ${labels[task.status]}`), el('h3', task.goal));
   panel.append(el('p', `${task.role} · ${task.calls} 次调用`));
+  const described = (edges, title) => `${title}：${edges.map(edge => `#${edge.id}（${edge.kind === 'code' ? '代码基线' : '仅顺序'}${edge.status ? ` · ${labels[edge.status]}` : ''}）`).join('、')}`;
+  if (task.deps?.length) panel.append(el('p', described(task.deps, '依赖')));
+  if (task.dependents?.length) panel.append(el('p', described(task.dependents, '被依赖')));
   if (task.error) panel.append(el('pre', task.error, 'error'));
   if (task.workspace) panel.append(el('pre', `${task.branch}\n${task.workspace}`));
   if (task.result) panel.append(el('pre', task.result));
   if (task.integration_error) panel.append(el('pre', task.integration_error, 'error'));
   const controls = el('div', undefined, 'actions');
+  const stacked = (task.deps || []).filter(edge => edge.kind === 'code');
   if (task.status === 'completed' && ['pending','review'].includes(task.integration)) controls.append(button(task.integration === 'review' ? '检查后重新批准合并' : '批准合并', async () => {
-    if (confirm(`将 ${task.branch} 合并到 ${task.target_branch}？请先审阅代码和测试结果。`)) await action('task.merge', {id:task.id});
+    const warning = stacked.length ? `\n\n本任务 stacked 在 #${stacked.map(edge => edge.id).join('、')} 之上，必须先合并上游，否则会把它的改动一起带进来。` : '';
+    if (confirm(`将 ${task.branch} 合并到 ${task.target_branch}？请先审阅代码和测试结果。${warning}`)) await action('task.merge', {id:task.id});
     await detail(task.id);
   }));
   if (['failed','cancelled'].includes(task.status)) controls.append(button('检查后重试', async () => { await action('task.retry', {id:task.id}); await detail(task.id); }));
@@ -60,20 +89,35 @@ async function refresh() {
     if ($('error').textContent === offlineError) $('error').textContent = '';
     offlineError = null;
     $('agents').textContent = `${data.status.agents.length} 个 agent`;
+    // 缓存区只在内容变化时重建，否则轮询会把光标和滚动位置丢掉。
+    draftCount = data.drafts.length;
+    $('draft-count').textContent = draftCount ? `${draftCount} 条待提交` : '缓存空';
+    const signature = data.drafts.map(draft => `${draft.id}:${draft.content}`).join('\u0000');
+    if (signature !== draftSignature) {
+      draftSignature = signature;
+      $('drafts').replaceChildren(...data.drafts.map(draft => {
+        const node = el('article'); node.dataset.id = draft.id;
+        node.append(el('small', `草稿 #${draft.id}`), el('p', draft.content), button('移除', () => action('draft.remove', { id: draft.id })));
+        return node;
+      }));
+    }
+    syncComposer();
     const inputNodes = new Map([...$('inputs').children].map(node => [Number(node.dataset.id), node]));
     syncChildren($('inputs'), data.inputs.map(input => {
       const node = inputNodes.get(input.id) || el('article');
       if (!inputNodes.has(input.id)) {
         node.dataset.id = input.id; node.append(el('small'), el('p', input.content), button('查看任务', () => detail(input.task_id)));
       }
-      node.querySelector('small').textContent = `#${input.id} · ${labels[input.status]}`; return node;
+      node.querySelector('small').textContent = `输入 #${input.id} · ${labels[input.status]}${input.draft_count > 1 ? ` · ${input.draft_count} 条` : ''}`; return node;
     }));
     const tasks = $('tasks'), taskNodes = new Map([...tasks.children].map(node => [Number(node.dataset.id), node])), ordered = [];
     const byParent = new Map();
     for (const task of data.tasks) { const key = task.parent_id || 0; if (!byParent.has(key)) byParent.set(key, []); byParent.get(key).push(task); }
     function render(parent, depth) { for (const task of byParent.get(parent) || []) {
       const node = taskNodes.get(task.id) || button('', () => detail(task.id));
-      node.dataset.id = task.id; node.textContent = `#${task.id} · ${labels[task.status]} · ${task.goal}`;
+      const waiting = (task.deps || []).filter(edge => !TERMINAL_STATUS.has(edge.status));
+      node.dataset.id = task.id;
+      node.textContent = `#${task.id} · ${labels[task.status]}${waiting.length ? ` · 等 ${waiting.map(edge => `#${edge.id}`).join(' ')}` : ''} · ${task.goal}`;
       node.className = `task depth-${Math.min(depth, 4)}`; node.title = task.goal; ordered.push(node); render(task.id, depth + 1);
     } }
     render(0, 0); syncChildren(tasks, ordered);
