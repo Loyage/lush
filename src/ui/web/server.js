@@ -44,7 +44,7 @@ export function startWeb(config, port = 4318) {
             return json(await client.request('task.inspect', { id: taskId }));
           }
           if (url.pathname === '/favicon.ico') return new Response(null, { status: 204, headers });
-          const files = { '/': 'index.html', '/app.js': 'app.js', '/styles.css': 'styles.css' };
+          const files = { '/': 'index.html', '/app.js': 'app.js', '/markdown.js': 'markdown.js', '/styles.css': 'styles.css' };
           if (Object.hasOwn(files, url.pathname)) return new Response(Bun.file(path.join(ASSETS, files[url.pathname])), { headers });
         }
         if (request.method === 'POST' && url.pathname === '/api/action') {

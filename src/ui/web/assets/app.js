@@ -1,3 +1,5 @@
+import { renderMarkdown } from './markdown.js';
+
 const $ = id => document.getElementById(id);
 const STATUS = {
   queued: { label: '排队', icon: '○' }, running: { label: '运行中', icon: '●' },
@@ -20,6 +22,33 @@ let selected = null, selectedRevision = null, busy = false, offline = false, det
 let draftCount = 0, draftSignature = null;
 // 左侧「等你决定」只是索引；右侧展开的那条 notice 由 noticeFocus 记住，数据每次都取自最新 snapshot。
 let noticeFocus = null, noticeIndex = new Map();
+
+/* ---------- markdown 渲染开关 ---------- */
+const MARKDOWN_KEY = 'lush.markdown';
+let markdownEnabled = readMarkdownPref();
+function readMarkdownPref() {
+  try { return localStorage.getItem(MARKDOWN_KEY) !== '0'; } catch { return true; }   // 默认开启
+}
+function syncMarkdownToggle() {
+  const toggle = $('md-toggle');
+  toggle.textContent = `Markdown 渲染：${markdownEnabled ? '开' : '关'}`;
+  toggle.setAttribute('aria-pressed', String(markdownEnabled));
+}
+/** 受开关影响的 agent 输出：开启时返回 markdown 容器，关闭时保持与原来一致的纯文本节点。 */
+function agentText(value, { className = '', plain = 'div' } = {}) {
+  const text = value == null ? '' : String(value);
+  if (!markdownEnabled) return el(plain, text, className || undefined);
+  const node = renderMarkdown(text, document);
+  if (className) node.className = `${node.className} ${className}`;
+  return node;
+}
+$('md-toggle').onclick = () => {
+  markdownEnabled = !markdownEnabled;
+  try { localStorage.setItem(MARKDOWN_KEY, markdownEnabled ? '1' : '0'); } catch { /* 隐私模式里忽略 */ }
+  syncMarkdownToggle();
+  if (selected !== null) detail(selected).catch(error => { $('error').textContent = error.message; });
+};
+syncMarkdownToggle();
 
 const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
 const short = value => (typeof value === 'string' ? value.slice(0, 7) : '');
@@ -248,11 +277,11 @@ function renderHistory(history, { running = false, truncated = false } = {}) {
     const item = el('li', undefined, `e-${event.type.replaceAll('.', '-')}${running && index === history.length - 1 ? ' hot' : ''}`);
     const head = el('div'); head.append(el('strong', EVENTS[event.type] || event.type), el('span', `${relative(event.created_at)} · ${absolute(event.created_at)}`, 't-when'));
     item.append(head);
-    const data = event.data || {}; let body = '';
+    const data = event.data || {}; let body = '', agent = false;
     if (event.type === 'invocation.started') body = `第 ${data.call ?? '?'} 次调用${data.cwd ? ` · ${data.cwd}` : ''}`;
-    else if (event.type === 'invocation.completed' || event.type === 'completed' || event.type === 'failed') body = String(data.result || data.error || '').slice(0, 600);
+    else if (event.type === 'invocation.completed' || event.type === 'completed' || event.type === 'failed') { body = String(data.result || data.error || '').slice(0, 600); agent = true; }
     else if (event.type === 'created') body = `${ROLE[data.role] || data.role}${data.parent_id ? ` ← #${data.parent_id}` : ' · 根任务'}`;
-    else if (event.type === 'message') body = String(data.body || '').slice(0, 400);
+    else if (event.type === 'message') { body = String(data.body || '').slice(0, 400); agent = true; }
     else if (event.type === 'notice.opened') body = data.title || '';
     else if (event.type === 'notice.answered') body = data.dismiss ? '已忽略' : String(data.answer || '');
     else if (event.type === 'workspace.created') body = [data.branch, data.workspace].filter(Boolean).join(' · ');
@@ -263,7 +292,7 @@ function renderHistory(history, { running = false, truncated = false } = {}) {
     else if (event.type === 'merged' || event.type === 'merge.approved') body = short(data.commit);
     else if (event.type === 'merge.failed') body = data.error || '';
     else body = Object.keys(data).length ? JSON.stringify(data).slice(0, 300) : '';
-    if (body) item.append(el('div', body, 't-body'));
+    if (body) item.append(agent ? agentText(body, { className: 't-body' }) : el('div', body, 't-body'));
     list.append(item);
   });
   if (truncated) list.append(el('li', '… 更早的事件未显示（每页 100 条）', 't-body'));
@@ -306,6 +335,7 @@ const edgeLabel = edge => `#${edge.id}（${edge.kind === 'code' ? '代码基线'
 
 /* ---------- agent 执行过程：只读投影 pi 会话记录 ---------- */
 const STEP = { input: '输入', text: '回答', thinking: '思考', tool: '工具调用', result: '工具输出', meta: '运行时' };
+const MD_STEP = new Set(['text', 'result', 'thinking']);   // 这几类步骤正文按 markdown 渲染
 const transcriptOpen = new Set();    // 用户展开过「执行过程」的任务
 const transcriptCache = new Map();   // taskId -> 已加载的步骤窗口
 
@@ -323,7 +353,7 @@ function transcriptContent(taskId) {
     head.append(el('span', STEP[step.kind] || step.kind, `step-kind k-${step.kind}`), el('span', step.title, 'step-title'));
     if (step.at) head.append(el('span', relative(step.at), 'when'));
     item.append(head);
-    if (step.body) item.append(el('div', step.body, 'step-body'));
+    if (step.body) item.append(MD_STEP.has(step.kind) ? agentText(step.body, { className: 'step-body' }) : el('div', step.body, 'step-body'));
     list.append(item);
   }
   const actions = el('div', undefined, 'actions');
@@ -438,9 +468,9 @@ function renderDetail(task, history, diff) {
   stats.append(grid); panel.append(stats);
   panel.append(renderDeps(task));
 
-  if (task.result) { const result = block('结果'); result.append(el('pre', task.result)); panel.append(result); }
-  if (task.error) { const error = block('错误'); error.append(el('pre', task.error, 'error')); panel.append(error); }
-  if (task.integration_error) { const error = block('合并错误'); error.append(el('pre', task.integration_error, 'error')); panel.append(error); }
+  if (task.result) { const result = block('结果'); result.append(agentText(task.result, { plain: 'pre' })); panel.append(result); }
+  if (task.error) { const error = block('错误'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); panel.append(error); }
+  if (task.integration_error) { const error = block('合并错误'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); panel.append(error); }
   if (task.branch || task.workspace) {
     const workspace = block('工作区');
     workspace.append(el('p', [task.branch, task.workspace].filter(Boolean).join('\n'), 'mono'));

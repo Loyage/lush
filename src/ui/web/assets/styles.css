@@ -175,3 +175,30 @@ label{font-size:12px;color:var(--muted)}
 .draft:hover{background:var(--panel-2)}
 button.drop{background:transparent;color:var(--dim);border:1px solid transparent;border-radius:99px;padding:0 8px;font-size:11px;font-weight:400}
 button.drop:hover{background:transparent;filter:none;color:var(--failed);border-color:#552f2c}
+
+/* markdown 渲染（agent 输出；开关在 Web 头部） */
+.markdown{font-size:13px;color:var(--text);overflow-wrap:anywhere;white-space:normal}
+.markdown>*:first-child{margin-top:0}
+.markdown>*:last-child{margin-bottom:0}
+.markdown h1,.markdown h2,.markdown h3,.markdown h4,.markdown h5,.markdown h6{margin:12px 0 6px;line-height:1.35}
+.markdown h1{font-size:18px}
+.markdown h2{font-size:16px}
+.markdown h3{font-size:15px}
+.markdown h4,.markdown h5,.markdown h6{font-size:13.5px;color:var(--muted)}
+.markdown p{margin:6px 0;white-space:normal}
+.markdown ul,.markdown ol{margin:6px 0;padding-left:22px}
+.markdown li{margin:2px 0}
+.markdown blockquote{margin:6px 0;padding:2px 0 2px 10px;border-left:2px solid var(--line);color:var(--muted)}
+.markdown blockquote p{margin:3px 0}
+.markdown hr{border:0;border-top:1px solid var(--line);margin:12px 0}
+.markdown a{color:var(--accent)}
+.markdown strong{color:#f2faf5}
+.markdown code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.markdown :not(pre)>code{background:#0b120e;border:1px solid var(--line-soft);border-radius:5px;padding:1px 5px}
+.md-code{margin:8px 0;background:#0b120e;border:1px solid var(--line-soft);border-radius:var(--radius);overflow:hidden}
+.md-code .md-lang{display:block;font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;padding:4px 10px;border-bottom:1px solid var(--line-soft)}
+.md-code pre{margin:0;border:0;border-radius:0;background:transparent;padding:10px 12px;max-height:50vh;overflow:auto}
+.md-plain .hint{margin:0 0 4px}
+/* 渲染后的步骤正文不再是等宽斜体 */
+.step-body.markdown,.s-thinking .step-body.markdown,.s-meta .step-body.markdown{font-family:inherit;font-style:normal;color:var(--text)}
+.t-body.markdown{white-space:normal}
