@@ -144,6 +144,7 @@ export class Project {
       notices: bounded(this.store.all('SELECT * FROM notices WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
       agent: this.running.has(task.id) ? { pid: this.running.get(task.id).pid || null } : null };
   }
+  diff(taskId) { return this.workspaces.diff(this.store.task(taskId)); }
   tree(taskId = null) {
     const tasks = this.decorate(this.store.summaries());
     const rows = new Map(tasks.map(task => [task.id, { ...task, children: [] }]));

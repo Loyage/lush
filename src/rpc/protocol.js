@@ -16,7 +16,7 @@ export function parseRequest(raw) {
 const PARAMS = {
   'system.status': [], 'system.stop': [], 'input.submit': ['content'], 'input.list': [],
   'draft.add': ['content'], 'draft.list': [], 'draft.remove': ['id'], 'draft.commit': [],
-  'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'],
+  'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.diff': ['id'],
   'task.spawn': ['parent','goal','role','deps'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
   'task.merge': ['id'], 'task.cleanup': ['id'],
   'notice.list': [], 'notice.post': ['task','title','body'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
@@ -53,6 +53,7 @@ export class Dispatcher {
         check(Number.isSafeInteger(after) && after >= 0, 'invalid history cursor');
         return p.store.history(id(params.id), after);
       }
+      case 'task.diff': return p.diff(params.id);
       case 'task.spawn': {
         const parent = params.parent ?? actor;
         check(actor === null || id(parent) === actor, 'agents may delegate only from their own task');

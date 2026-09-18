@@ -81,6 +81,39 @@ export class Workspaces {
     const head = await this.git(task.workspace, 'rev-parse', 'HEAD');
     this.store.update(task.id, { head_commit: head, integration: head === task.base_commit ? 'none' : 'pending' });
   }
+  /** Read-only overview for review: never mutates, so it stays outside the mutation queue. */
+  async diff(task) {
+    const workspace = task.workspace;
+    if (!workspace || !fs.existsSync(workspace)) return null;
+    const lines = value => value.split('\n').filter(Boolean);
+    const range = task.base_commit && task.head_commit ? `${task.base_commit}..${task.head_commit}` : null;
+    const [status, numstat, commits, pendingNumstat] = await Promise.all([
+      this.git(workspace, 'status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).lush'),
+      range ? this.git(workspace, 'diff', '--numstat', range) : '',
+      range ? this.git(workspace, 'log', '--oneline', '--no-decorate', range) : '',
+      this.git(workspace, 'diff', '--numstat', 'HEAD'),
+    ]);
+    const parse = value => value.split('\n').filter(Boolean).map(line => {
+      const [added, deleted, ...rest] = line.split('\t');
+      return { path: rest.join('\t') || '(unknown)', added: added === '-' ? null : Number(added), deleted: deleted === '-' ? null : Number(deleted) };
+    });
+    const files = parse(numstat);
+    const numbers = new Map(parse(pendingNumstat).map(file => [file.path, file]));
+    const pending = lines(status).map(line => {
+      const match = /^(\S{1,2})\s+(.*)$/.exec(line);
+      if (!match) return null;
+      const path = match[2].includes(' -> ') ? match[2].split(' -> ').pop() : match[2];
+      const counted = numbers.get(path) || { added: null, deleted: null };
+      return { path, code: match[1].trim(), added: counted.added, deleted: counted.deleted };
+    }).filter(Boolean);
+    return {
+      branch: task.branch, target_branch: task.target_branch,
+      base_commit: task.base_commit, head_commit: task.head_commit, committed: Boolean(range),
+      files: files.slice(0, 500), files_total: files.length,
+      pending: pending.slice(0, 500), pending_total: pending.length,
+      commits: lines(commits).slice(0, 100),
+    };
+  }
   merge(taskId) {
     return this.exclusive(async () => {
       const task = this.store.task(taskId);

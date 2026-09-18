@@ -35,6 +35,29 @@ test('worker branch is isolated, committed results stay pending until explicit m
   } finally { await f.close(); }
 });
 
+test('review diff is read-only and reports commits, files and dirty worktrees', async () => {
+  const f = await setup();
+  try {
+    expect(await f.project.workspaces.diff(f.store.task(f.task.id))).toBeNull();
+    const cwd = await change(f, f.task);
+    const diff = await f.project.workspaces.diff(f.store.task(f.task.id));
+    expect(diff.committed).toBe(true);
+    expect(diff.files).toEqual([{ path: 'file.txt', added: 1, deleted: 1 }]);
+    expect(diff.pending).toEqual([]);
+    expect(diff.commits).toHaveLength(1);
+    expect(await git(f.root, 'rev-parse', 'HEAD')).not.toBe(f.store.task(f.task.id).head_commit);
+    fs.writeFileSync(path.join(cwd, 'file.txt'), 'uncommitted\n');
+    fs.writeFileSync(path.join(cwd, 'untracked.txt'), 'new\n');
+    const dirty = await f.project.workspaces.diff(f.store.task(f.task.id));
+    expect(dirty.pending).toEqual([
+      { path: 'file.txt', code: 'M', added: 1, deleted: 1 },
+      { path: 'untracked.txt', code: '??', added: null, deleted: null },
+    ]);
+    expect(dirty.files).toEqual([{ path: 'file.txt', added: 1, deleted: 1 }]);
+    expect(f.store.task(f.task.id).integration).toBe('pending');
+  } finally { await f.close(); }
+});
+
 test('independent workers get different worktrees and merge serially', async () => {
   const f = await setup();
   try {
