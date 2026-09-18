@@ -15,14 +15,14 @@
 ## 判断是否错位
 
 ```bash
-just status    # 等价于 lush daemon status
+bun run status    # 等价于 lush daemon status
 ```
 
 看 `cli.code_match`：
 
 - `true` → 应答你的 daemon 和当前 CLI 是同一份代码，正常。
 - `false`，且 `code_dir` 不同 → **别的 checkout 的 daemon** 在应答（典型：共用 home，或 `cd` 到另一个 worktree 敲命令）。
-- `false`，且 `code_dir` 相同、`fingerprint` 不同 → **同一份代码，但 daemon 是改动前启动的** → `just daemon-restart`。
+- `false`，且 `code_dir` 相同、`fingerprint` 不同 → **同一份代码，但 daemon 是改动前启动的** → `bun run daemon-restart`。
 - 完全不报 `code_dir` / `fingerprint` → daemon 版本太老，只能靠 `ps` / `LUSH_HOME` 人工判断——这是最危险的情况，此时新版 CLI 会告警、老 CLI 则完全静默。
 
 只要不匹配，任何 `lush` 命令都会在 stderr 告警，并给出该重启哪一个 home。
@@ -35,4 +35,4 @@ fingerprint 只哈希 `src/agent/guide.js`、`src/cli/main.js`、`src/cli/tree/*
 
 - `restart` 只重启 `LUSH_HOME` 指向的那一份 daemon。另一个 home 的 daemon 不会被碰，任何命令都影响不到它。
 - 分开在不同 shell 里跑 `lush`（其中一个没有 `export LUSH_HOME`，走 `~/.local/state/lush`）就是两个 daemon、两棵树、两份历史。
-- 改代码后 `daemon start` 是无效操作（幂等），只有 `restart` / 或者先 `stop` 再 `start` 才换版本；测试与演示留下的孤儿 daemon 用 `just prune`。
+- 改代码后 `daemon start` 是无效操作（幂等），只有 `restart` / 或者先 `stop` 再 `start` 才换版本；测试与演示留下的孤儿 daemon 用 `bun run prune`。

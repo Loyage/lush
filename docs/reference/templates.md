@@ -54,7 +54,7 @@ JSON 字符串里不能有真正的换行，所以 `system_prompt` 这种多段�
 - `@` 只在字符串整值等于 `@<路径>` 时生效，不是字符串插值；文件末尾由编辑器补的那一个换行会被去掉，CRLF 归一化成 LF，其余内容原样保留（不递归解析：文件里以 `@` 开头的第一行就是正文）。
 - 引用必须是可读文件：文件不存在、路径为空、或模板是程序化 `register` 注册的（没有文件可相对）都报 `-32602`，**绝不退化成字面量**。
 - 校验与快照看到的都是内联后的正文（长度上限、`service.view --with prompt`、创建时写入 Context 的 `system_prompt` 都是展开后的文本）。
-- 这些 `.md` 与模板 JSON 一样属于「喂给 agent 的提示词面」：`src/identity.js` 的 fingerprint 同时哈希 `templates/**/*.json` 与 `templates/**/*.md`，改了提示词文件同样要 `just daemon-restart`。
+- 这些 `.md` 与模板 JSON 一样属于「喂给 agent 的提示词面」：`src/identity.js` 的 fingerprint 同时哈希 `templates/**/*.json` 与 `templates/**/*.md`，改了提示词文件同样要 `bun run daemon-restart`。
 
 ### 保留变量名
 

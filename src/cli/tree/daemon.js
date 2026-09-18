@@ -13,7 +13,7 @@ export const daemonGroup = {
       cover: [
         'detached 启动 daemon 并等待 RPC ready；已在运行时幂等返回现有 daemon 的状态。',
         '日志写入 `$LUSH_HOME/daemon.log`；启动超时或服务立即退出时报错并指向该日志。',
-        '输出包含本次操作的 home、代码目录与指纹（cli.*）：`just` 与手动运行可能用不同的 LUSH_HOME。',
+        '输出包含本次操作的 home、代码目录与指纹（cli.*）：`bun run` 入口与手动运行可能用不同的 LUSH_HOME。',
       ],
       usage: ['lush daemon start'],
       parse: () => ({ action: 'start' }),
@@ -35,7 +35,7 @@ export const daemonGroup = {
       cover: [
         '先 stop（中断 daemon 中正在进行的 Agent 调用），等单实例锁释放后再 start，返回新 daemon 的状态。',
         'daemon 没在运行时等价于一次 start（was_running=false）。',
-        '改代码或提示词后用它让新代码生效：重启只作用于本次 CLI 的 LUSH_HOME；`just daemon-restart` 是同一件事。',
+        '改代码或提示词后用它让新代码生效：重启只作用于本次 CLI 的 LUSH_HOME；`bun run daemon-restart` 是同一件事。',
         '服务树、Context、消息与调用历史都保留；被中断的调用标记为 interrupted。',
       ],
       usage: ['lush daemon restart'],

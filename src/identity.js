@@ -4,7 +4,7 @@
  * A daemon is a long-lived service: the shared guide, the CLI declaration and
  * the templates are loaded once at startup and then stay in memory. The socket
  * path only says *where the state lives* (`LUSH_HOME`), never *which checkout*
- * — and because `just` exports a repo-local `LUSH_HOME`, a `daemon-restart`
+ * — and because the `bun run` scripts export a repo-local `LUSH_HOME`, a `daemon-restart`
  * can silently restart a daemon next to the one that is actually answering.
  *
  * So both sides compute the same identity from their own checkout and compare

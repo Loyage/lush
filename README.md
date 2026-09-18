@@ -57,30 +57,30 @@ lush daemon stop
                 └── 长期能力 / 常驻服务 → generic-service 节点
 ```
 
-SID 0 自己不做项目里的活：不读改仓库文件、不在项目目录里跑实现 / 构建 / 测试命令；`lush-root` 的 `child_templates` 只有 `project-manager`，`project` / `dev-task` 都不在它的权限里，所以它也无法替 `project-manager` 做决定。`project-manager` 收到请求后按上表分派，只有「打开 xx」「关闭 xx」这类项目生命周期管理动作它才亲自做。改这三处提示词（`src/agent/guide.js`、`templates/lush-root/`、`templates/lush-root/project-manager/` 下的 `*.md` 与 `*.json`）后要 `just daemon-restart` 才生效：模板的散文字段（`description` / `construct_prompt` / `system_prompt`）可以写成 `@<路径>` 引用旁边的 markdown 文件，改提示词不用再面对一行 `\n` 转义（见 `docs/reference/templates.md`）。
+SID 0 自己不做项目里的活：不读改仓库文件、不在项目目录里跑实现 / 构建 / 测试命令；`lush-root` 的 `child_templates` 只有 `project-manager`，`project` / `dev-task` 都不在它的权限里，所以它也无法替 `project-manager` 做决定。`project-manager` 收到请求后按上表分派，只有「打开 xx」「关闭 xx」这类项目生命周期管理动作它才亲自做。改这三处提示词（`src/agent/guide.js`、`templates/lush-root/`、`templates/lush-root/project-manager/` 下的 `*.md` 与 `*.json`）后要 `bun run daemon-restart` 才生效：模板的散文字段（`description` / `construct_prompt` / `system_prompt`）可以写成 `@<路径>` 引用旁边的 markdown 文件，改提示词不用再面对一行 `\n` 转义（见 `docs/reference/templates.md`）。
 
-## 常用命令（Justfile）
+## 常用命令（`bun run`）
 
-开发与操作入口是 `just`：默认把数据目录设在仓库内的 `.lush/`，所以每个 worktree 天然拥有自己独立的 daemon、数据库与 socket。
+开发与操作入口是 `bun run`：`package.json` 的 scripts 默认把数据目录设在仓库内的 `.lush/`，所以每个 worktree 天然拥有自己独立的 daemon、数据库与 socket。
 
 ```bash
-just                 # 列出全部命令        just doctor      # 工具链 / home / daemon 状态
-just test            # bun test
-just bootstrap       # 起 daemon + project-manager → implement-login
-just call 2 'hi'     # 在 SID 2 上开一个根 task 并等它结束（just call 2 'hi' dry 只打印命令）
-just tasks | just task-tree 1 | just wait 1 | just inspect 2
-just daemon-restart  # 改代码 / 提示词 / 模板之后重启当前 home 的 daemon
-just web             # 只启动 Web UI，不操作 daemon；http://127.0.0.1:4318
-just web 8080        # 只启动 Web UI，并指定本地端口
-just clean           # 停 daemon 并删掉本仓库的 .lush（连历史一起没）
-just reset yes       # 只清服务树（daemon、日志、session 都保留），不可逆
+bun run              # 列出全部 script         bun run doctor      # 工具链 / home / daemon 状态
+bun run test         # bun test
+bun run bootstrap    # 起 daemon + project-manager → implement-login
+bun run call 2 'hi'  # 在 SID 2 上开一个根 task 并等它结束（bun run call 2 'hi' dry 只打印命令）
+bun run tasks | bun run task-tree 1 | bun run wait 1 | bun run inspect 2
+bun run daemon-restart  # 改代码 / 提示词 / 模板之后重启当前 home 的 daemon
+bun run web             # 只启动 Web UI，不操作 daemon；http://127.0.0.1:4318
+bun run web 8080        # 只启动 Web UI，并指定本地端口
+bun run clean           # 停 daemon 并删掉本仓库的 .lush（连历史一起没）
+bun run reset yes       # 只清服务树（daemon、日志、session 都保留），不可逆
 ```
 
-Web UI 的侧边栏可在「服务」/「任务」/「Notice」三个视图之间切换，右侧主栏跟着当前视图走（不再把三块面板永远堆在一起）：服务视图显示「创建 Task」表单与选中 Service 的能力面板——选中任一 Service（含 stopped）看到它的能力边界、还能创建哪些子 Service 与在其上创建 Task 时会用的提示词（`service.view` 的 description / templates / prompt），选中 active Service 并填写 goal 会立即在后台启动一个根 Task；任务视图列出全部 Task（可按根/子与状态筛选），右侧首屏就是选中 Task 的详情（`task.tree`：id / status / goal / 元信息 / result，以及它派出去的全部子 Task，并可取消或删除），`＋ 新建 Task` 一次点击即切回服务视图的创建表单；Notice 视图只显示 notice 列表与详情表单。`just web` 不会启动、停止或重启 daemon：daemon 离线时页面保持运行，后续 daemon 启动或重启后自动恢复。它只监听本机回环地址，不应通过反向代理暴露给不可信用户。CLI、Web UI 以及未来 TUI 的 adapter 统一放在 `src/ui/`，并共享同一个 `UIClient` 应用客户端；细节见 [用户界面](docs/reference/ui.md)。
+Web UI 的侧边栏可在「服务」/「任务」/「Notice」三个视图之间切换，右侧主栏跟着当前视图走（不再把三块面板永远堆在一起）：服务视图显示「创建 Task」表单与选中 Service 的能力面板——选中任一 Service（含 stopped）看到它的能力边界、还能创建哪些子 Service 与在其上创建 Task 时会用的提示词（`service.view` 的 description / templates / prompt），选中 active Service 并填写 goal 会立即在后台启动一个根 Task；任务视图列出全部 Task（可按根/子与状态筛选），右侧首屏就是选中 Task 的详情（`task.tree`：id / status / goal / 元信息 / result，以及它派出去的全部子 Task，并可取消或删除），`＋ 新建 Task` 一次点击即切回服务视图的创建表单；Notice 视图只显示 notice 列表与详情表单。`bun run web` 不会启动、停止或重启 daemon：daemon 离线时页面保持运行，后续 daemon 启动或重启后自动恢复。它只监听本机回环地址，不应通过反向代理暴露给不可信用户。CLI、Web UI 以及未来 TUI 的 adapter 统一放在 `src/ui/`，并共享同一个 `UIClient` 应用客户端；细节见 [用户界面](docs/reference/ui.md)。
 
-完整清单、`just clean` 与 `just reset` 的区别、以及每个命令的参数，见 [docs/reference/cli.md](docs/reference/cli.md)。
+完整清单、`bun run clean` 与 `bun run reset` 的区别、以及每个命令的参数，见 [docs/reference/cli.md](docs/reference/cli.md)。
 
-**改代码或提示词之后，先确认你重启的是哪个 daemon**：daemon 是长驻服务，`start` 不会替换版本，只有 `restart` 会，而且只重启 `LUSH_HOME` 指向的那一份。`lush daemon status`（或 `just doctor`）会列出 daemon 与 CLI 各自的 `home` / `code_dir` / `fingerprint`，不一致时任何 `lush` 命令都会在 stderr 上告警。判据与排障见 [docs/engineering/identity.md](docs/engineering/identity.md)。
+**改代码或提示词之后，先确认你重启的是哪个 daemon**：daemon 是长驻服务，`start` 不会替换版本，只有 `restart` 会，而且只重启 `LUSH_HOME` 指向的那一份。`lush daemon status`（或 `bun run doctor`）会列出 daemon 与 CLI 各自的 `home` / `code_dir` / `fingerprint`，不一致时任何 `lush` 命令都会在 stderr 上告警。判据与排障见 [docs/engineering/identity.md](docs/engineering/identity.md)。
 
 ## Notice：agent 找人的渠道
 
@@ -94,7 +94,7 @@ lush notice answer 7 --text '先别动，我来处理'          # 没有声明�
 lush notice dismiss 7 --reason '已知'                  # 只阅读、不回答
 ```
 
-需要你填写时，agent 在 `fields` 里声明表单（`text` / `textarea` / `choice` / `boolean`，可标 `required`、可给 `default`），`answer` 就是把字段名填回去（`choice` 必须命中 `options`）。agent 默认**阻塞等待**：在被回答或忽略前，那个 task 停在 `waiting` 且超时计时暂停；`wait: false` 的 notice 只登记不阻塞，适合不需要回复的结果汇报。notice 不超时：没人处理就一直挂着，直到你处理，或它所属的 task 被 `lush task cancel`（未决 notice 会被一起忽略）。三个界面共用同一份数据：CLI（`lush notice` / `just notices`）、Web UI 的 Notice 页，以及 agent 侧——内置运行时（mock / openai）用 `notice` 工具，外部 agent（pi，默认后端）用 `lush notice post --title ... [--fields JSON]`（默认也阻塞到用户结算）。
+需要你填写时，agent 在 `fields` 里声明表单（`text` / `textarea` / `choice` / `boolean`，可标 `required`、可给 `default`），`answer` 就是把字段名填回去（`choice` 必须命中 `options`）。agent 默认**阻塞等待**：在被回答或忽略前，那个 task 停在 `waiting` 且超时计时暂停；`wait: false` 的 notice 只登记不阻塞，适合不需要回复的结果汇报。notice 不超时：没人处理就一直挂着，直到你处理，或它所属的 task 被 `lush task cancel`（未决 notice 会被一起忽略）。三个界面共用同一份数据：CLI（`lush notice` / `bun run notices`）、Web UI 的 Notice 页，以及 agent 侧——内置运行时（mock / openai）用 `notice` 工具，外部 agent（pi，默认后端）用 `lush notice post --title ... [--fields JSON]`（默认也阻塞到用户结算）。
 
 ## Agent
 
@@ -114,7 +114,7 @@ lush service construct 1 project x --vars '{"path":"/abs/repo"}'   # 服务也�
 读哪一份取决于你要回答什么；每份文档都在开头写了自己的定位。
 
 - **概念**：[Service 与 Task 模型](docs/concepts/service-model.md) · [生命周期与孤儿监督](docs/concepts/lifecycle-and-orphans.md) · [Agent 后端与 Context](docs/concepts/agents.md)
-- **参考**：[CLI 与 Justfile](docs/reference/cli.md) · [用户界面](docs/reference/ui.md) · [RPC 协议](docs/reference/rpc.md) · [模板](docs/reference/templates.md) · [Agent profile 与 session](docs/reference/agents.md)
+- **参考**：[CLI 与 package.json scripts](docs/reference/cli.md) · [用户界面](docs/reference/ui.md) · [RPC 协议](docs/reference/rpc.md) · [模板](docs/reference/templates.md) · [Agent profile 与 session](docs/reference/agents.md)
 - **工程**：[总体架构](docs/engineering/architecture.md) · [daemon 与 CLI 的版本对齐](docs/engineering/identity.md)
 - **历史**：[开发日志](docs/log/)
 - 索引与阅读约定：[docs/README.md](docs/README.md)
@@ -122,7 +122,7 @@ lush service construct 1 project x --vars '{"path":"/abs/repo"}'   # 服务也�
 ## 验证
 
 ```bash
-bun test      # 全部测试（just test 等价，可加文件名过滤：just test openai）
+bun test      # 全部测试（bun run test 等价，可加文件名过滤：bun run test openai）
 ```
 
 数据默认保存在 `$XDG_STATE_HOME/lush` 或 `~/.local/state/lush`，可用 `LUSH_HOME` 覆盖。包含 SQLite 数据库、socket、daemon 锁、pi session 及日志。目录仅限当前用户访问。仓库模板与用户模板的摆放见 [docs/reference/templates.md](docs/reference/templates.md)。

@@ -53,7 +53,7 @@ function rpcParams(args) {
 
 /**
  * The CLI's own identity plus the state location it is talking to. Reported by
- * every `lush daemon ...` command so `just daemon-restart` can be checked
+ * every `lush daemon ...` command so `bun run daemon-restart` can be checked
  * against the daemon that is actually answering.
  */
 function cliContext(config, daemon = null) {

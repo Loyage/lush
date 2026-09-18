@@ -1,4 +1,4 @@
-# CLI 与 Justfile
+# CLI 与 package.json scripts
 
 > 参考层：命令面。命令树每一层都能 `help`；协议细节见 [rpc.md](./rpc.md)，概念见 [concepts/](../concepts/)。
 
@@ -45,60 +45,60 @@ lush --json help task          # 机器可读的命令树（summary/cover/usage/
 | `lush notice dismiss NOTICE_ID [--reason TEXT]`（RPC `notice.dismiss`） | 只阅读不回答，notice 变为 dismissed；`--reason` 会随 note 一起交给等待的 task |
 
 
-## 常用命令（Justfile）
+## 常用命令（`bun run`）
 
 
 ```bash
-just                 # 列出全部命令
-just help            # 列出 lush CLI 的命令树（等价于 lush help）
-just doctor          # 工具链 / 数据目录 / daemon 状态
-just test            # bun test（just test openai 可按文件名过滤）
-just web             # 只启动 Web UI（127.0.0.1:4318），不操作 daemon；just web 8080 改端口
+bun run              # 列出全部 script
+bun run help         # 列出 lush CLI 的命令树（等价于 lush help）
+bun run doctor       # 工具链 / 数据目录 / daemon 状态
+bun run test         # bun test（bun run test openai 可按文件名过滤）
+bun run web          # 只启动 Web UI（127.0.0.1:4318），不操作 daemon；bun run web 8080 改端口
 
-just daemon-start    # 起 daemon（幂等）
-just bootstrap       # 起 daemon 并创建 project-manager → implement-login
-just tree | just ps | just status
-just agent list      # agent profile（不需要 daemon）：just agent inspect default / add / edit / delete / default / path
-just construct 1 generic-task implement-login '实现登录功能'
-just construct 1 generic-task x '' '' demo-agent   # 第 6 个参数是该服务使用的 agent profile
-just construct 1 project my-repo '' '{"path":"/abs/repo"}'   # project 必须给变量 path（绝对路径，同时是 cwd）
-just construct 1 dev-task fix-login '修好登录' '' '' '修复登录流程' '任务详情正文'   # dev-task：name（就是 --name）+ title + detail（第 6、7 个参数）
-just call 2 '请介绍一下你自己'          # 在 SID 2 上开一个根 task 并等它结束
-just call 2 'hi' dry                  # 只打印将执行的命令（pi 命令行），不真的调用 agent
-just detach 2 '慢慢做的事'             # 只建 task，随后 just tasks / just wait 1 观察
-just tasks                            # task 列表；just tasks 2 只看某个 service 上的
-just task-tree 1                      # 这棵 task 协作树；just result 1 / just task-inspect 1
-just wait 1 | just cancel 1 | just task-construct 2 '要它做的事'
-just history 1 0 50                   # 某个 task 自己的对话
-just session 1                        # 查看该 task 的 pi session（dir/id/file）
-just session 1 open                   # 直接进 pi TUI 接续该会话
-just complete 1 '"done"' | just task-state 1 '{"progress":"half"}' | just update-state 2 '{"progress":"half"}' | just update-vars 2 '{"branch":"dev"}'
-just attach 1
-just task-message 3 '把范围收窄到登录接口'   # 给直接父 / 子 task 传话（入队；from 缺省 $LUSH_TASK_ID）
-just inbox 1          # 某个 task 收到的输入（父子消息 / 子 task 结算）
-just notices          # 待处理的 notice（agent 汇报给用户）；just notices answered 看已回复的
-just notice 7         # 一条 notice 的详情与要填的字段
-just answer 7 plan=canary note=ok    # 填写回复并唤醒等待的 task；just answer-text 7 '自由文本'
-just dismiss 7 '已知' # 只阅读不回答
-just inspect 2       # 被动节点：metadata、变量、state、挂载的近期 task
-just stop 1 | just delete 2 | just purge 2
-just orphans         # SID 0 的孤儿池：策略 + 每个孤儿的 busy / 闲置秒数
-just orphans sweep   # 立刻按 TTL / 上限回收一次（冻结，不删除）
-just daemon-stop     # 或 just daemon-restart（保留服务树与历史）
-just prune           # 列出并清理残留 daemon（home 已消失的孤儿）；just prune all 连临时 home 一起清
-just log             # tail $LUSH_HOME/daemon.log
-just clean           # 停 daemon 并删除仓库内的 .lush
-just reset yes       # 推倒重来：清空当前 home 的整棵服务树（只剩 SID 0）再重启它的 daemon（不可逆，默认要输 yes）
+bun run daemon-start    # 起 daemon（幂等）
+bun run bootstrap       # 起 daemon 并创建 project-manager → implement-login
+bun run tree | bun run ps | bun run status
+bun run agent list      # agent profile（不需要 daemon）：bun run agent inspect default / add / edit / delete / default / path
+bun run construct 1 generic-task implement-login '实现登录功能'
+bun run construct 1 generic-task x '' '' demo-agent   # 第 6 个参数是该服务使用的 agent profile
+bun run construct 1 project my-repo '' '{"path":"/abs/repo"}'   # project 必须给变量 path（绝对路径，同时是 cwd）
+bun run construct 1 dev-task fix-login '修好登录' '' '' '修复登录流程' '任务详情正文'   # dev-task：name（就是 --name）+ title + detail（第 6、7 个参数）
+bun run call 2 '请介绍一下你自己'          # 在 SID 2 上开一个根 task 并等它结束
+bun run call 2 'hi' dry                  # 只打印将执行的命令（pi 命令行），不真的调用 agent
+bun run detach 2 '慢慢做的事'             # 只建 task，随后 bun run tasks / bun run wait 1 观察
+bun run tasks                            # task 列表；bun run tasks 2 只看某个 service 上的
+bun run task-tree 1                      # 这棵 task 协作树；bun run result 1 / bun run task-inspect 1
+bun run wait 1 | bun run cancel 1 | bun run task-construct 2 '要它做的事'
+bun run history 1 0 50                   # 某个 task 自己的对话
+bun run session 1                        # 查看该 task 的 pi session（dir/id/file）
+bun run session 1 open                   # 直接进 pi TUI 接续该会话
+bun run complete 1 '"done"' | bun run task-state 1 '{"progress":"half"}' | bun run update-state 2 '{"progress":"half"}' | bun run update-vars 2 '{"branch":"dev"}'
+bun run attach 1
+bun run task-message 3 '把范围收窄到登录接口'   # 给直接父 / 子 task 传话（入队；from 缺省 $LUSH_TASK_ID）
+bun run inbox 1          # 某个 task 收到的输入（父子消息 / 子 task 结算）
+bun run notices          # 待处理的 notice（agent 汇报给用户）；bun run notices answered 看已回复的
+bun run notice 7         # 一条 notice 的详情与要填的字段
+bun run answer 7 plan=canary note=ok    # 填写回复并唤醒等待的 task；bun run answer-text 7 '自由文本'
+bun run dismiss 7 '已知' # 只阅读不回答
+bun run inspect 2       # 被动节点：metadata、变量、state、挂载的近期 task
+bun run stop 1 | bun run delete 2 | bun run purge 2
+bun run orphans         # SID 0 的孤儿池：策略 + 每个孤儿的 busy / 闲置秒数
+bun run orphans sweep   # 立刻按 TTL / 上限回收一次（冻结，不删除）
+bun run daemon-stop     # 或 bun run daemon-restart（保留服务树与历史）
+bun run prune           # 列出并清理残留 daemon（home 已消失的孤儿）；bun run prune all 连临时 home 一起清
+bun run log             # tail $LUSH_HOME/daemon.log
+bun run clean           # 停 daemon 并删除仓库内的 .lush
+bun run reset yes       # 推倒重来：清空当前 home 的整棵服务树（只剩 SID 0）再重启它的 daemon（不可逆，默认要输 yes）
 ```
 
-`just` 默认把开发数据放在仓库内的 `.lush/`（已 gitignore），不碰你日常的 `~/.local/state/lush`；用 `LUSH_HOME` 可覆盖（此时 `just clean` 只提示、不删除仓库外的目录）。Web UI 的界面与 HTTP 接口见 [用户界面](./ui.md)。
+`bun run` 的这些入口默认把开发数据放在仓库内的 `.lush/`（已 gitignore），不碰你日常的 `~/.local/state/lush`；用 `LUSH_HOME` 可覆盖（此时 `bun run clean` 只提示、不删除仓库外的目录）。`lush` / `lushd` 两个 script 保持原样（`bun run bin/lush` / `bun run bin/lushd`），不带默认 `LUSH_HOME`。Web UI 的界面与 HTTP 接口见 [用户界面](./ui.md)。
 
 
 ## 开发数据目录
 
-`just` 默认把开发数据放在仓库内的 `.lush/`（已 gitignore），不碰你日常的 `~/.local/state/lush`；用 `LUSH_HOME` 可覆盖（此时 `just clean` 只提示、不删除仓库外的目录）。
+`bun run` 的这些入口默认把开发数据放在仓库内的 `.lush/`（已 gitignore），不碰你日常的 `~/.local/state/lush`；用 `LUSH_HOME` 可覆盖（此时 `bun run clean` 只提示、不删除仓库外的目录）。
 
-`just clean` 删的是**数据目录**（连历史一起没），`just reset` 删的是**服务树**（daemon、`agents/`、`daemon.log` 都保留，只把每个服务连同它的 Context / 消息 / 调用 / 事件递归 purge 掉）。两者都只作用于当前的 `LUSH_HOME`：别的 home 的 daemon 不会被碰，也不会被重启。
+`bun run clean` 删的是**数据目录**（连历史一起没），`bun run reset` 删的是**服务树**（daemon、`agents/`、`daemon.log` 都保留，只把每个服务连同它的 Context / 消息 / 调用 / 事件递归 purge 掉）。两者都只作用于当前的 `LUSH_HOME`：别的 home 的 daemon 不会被碰，也不会被重启。
 
 ## 交互式与 dry-run
 

@@ -30,6 +30,7 @@ MVP 范围内无未完成项。后续方向（本轮不实现）：Context compr
 - [16 · worktree 的回收改成「service 的析构」](./16-worktree-service-destructor.md)
 - [17 · 命名统一：构造 prompt（`construct_prompt`）与 `construct` 语系](./17-construct-naming.md)
 - [18 · task 调用链：把一次协作排成一条时间线（`task.trace`）](./18-task-trace.md)
+- [19 · 删掉 Justfile：把开发 / 操作入口迁到 `package.json` scripts（`bun run`）](./19-drop-justfile.md)
 
 ## 验收命令
 

@@ -29,6 +29,10 @@ describe('cli, daemon lifecycle and attach', () => {
       LUSH_CALL_TIMEOUT: '10',
       LUSH_RPC_TIMEOUT: '15',
     };
+    // Never inherit an ambient agent session: a leaked LUSH_TASK_ID would
+    // become the default parent of `task construct` and point at another home.
+    delete state.env.LUSH_TASK_ID;
+    delete state.env.LUSH_SID;
   }
 
   async function cli(args, { input = null, env = null, check = true } = {}) {

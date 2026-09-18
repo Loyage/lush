@@ -18,12 +18,12 @@
 Web UI 与 daemon 生命周期完全独立：
 
 ```bash
-just web             # 只启动 Web UI：http://127.0.0.1:4318
-just web 8080        # 只启动 Web UI，并指定端口
-just daemon-start    # daemon 需要单独启动
+bun run web             # 只启动 Web UI：http://127.0.0.1:4318
+bun run web 8080        # 只启动 Web UI，并指定端口
+bun run daemon-start    # daemon 需要单独启动
 ```
 
-`just web` 不会启动、停止或重启 daemon。daemon 尚未运行时页面仍可打开并显示离线；daemon 后续启动或重启后，页面会在下一次轮询时自动恢复。
+`bun run web` 不会启动、停止或重启 daemon。daemon 尚未运行时页面仍可打开并显示离线；daemon 后续启动或重启后，页面会在下一次轮询时自动恢复。
 
 也可以直接执行：
 
