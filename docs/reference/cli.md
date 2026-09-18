@@ -37,6 +37,7 @@ lush --json help task          # 机器可读的命令树（summary/cover/usage/
 | `lush task agents list\|show\|kill`（RPC `task.agents_*`） | 运行期 agent（`TASK.N`） |
 | `lush notice list [--status S] [--task T] [--sid P] [--limit N]`（RPC `notice.list`） | 列出 agent 汇报给用户的 notice（ID / kind / status / wait / title / 上报者） |
 | `lush notice show NOTICE_ID`（RPC `notice.inspect`） | 一条 notice 的完整快照：正文、上报者、fields 声明的表单、已填的 answer |
+| `lush notice post --title T [--kind K] [--body B] [--fields JSON] [--task TASK_ID] [--no-wait]`（RPC `notice.post`） | **agent 侧**上报一条 notice；默认阻塞到用户结算并打印结算后的 notice（answer 在其中）。汇报者缺省取 `$LUSH_TASK_ID`；`--no-wait` 对应 `wait: false` |
 | `lush notice answer NOTICE_ID --set K=V ... \| --text TEXT \| --answer JSON`（RPC `notice.answer`） | 填写回复；notice 变为 answered，正在等待的 task 被唤醒并拿到 `{status, answer}` |
 | `lush notice dismiss NOTICE_ID [--reason TEXT]`（RPC `notice.dismiss`） | 只阅读不回答，notice 变为 dismissed；`--reason` 会随 note 一起交给等待的 task |
 

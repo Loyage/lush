@@ -60,6 +60,56 @@ export const noticeGroup = {
       },
       parse: () => ({}),
     },
+    post: {
+      command: 'notice_post',
+      method: 'notice.post',
+      summary: '（agent 侧）上报一条 notice；(默认) 阻塞到用户答复并打印结果',
+      cover: [
+        '这是给 task 的 agent 用的：把自己无法处理、需要用户决策、或要交付的结果上报给用户，默认等用户在 `lush notice answer` / `dismiss` 里处理完再把结果打印出来——answer 就在输出的 notice 里。',
+        '汇报者身份取 --task，缺省时用环境变量 $LUSH_TASK_ID（外部 agent pi 的环境里已有）；两者都没有直接报 usage 错误。',
+        '--fields 给一个字段声明数组（和 notice 工具同形），用户回答时按它校验；--no-wait 只登记、立即返回 notice（wait=false），适合不需要回复的结果汇报。',
+      ],
+      notes: [
+        '等待受 CLI 的 LUSH_RPC_TIMEOUT 约束（默认调用超时 + 10 秒）；超时只是本次命令放弃，notice 仍是 open，用户随后处理即可。',
+        'notice 被 dismiss（包括上报它的 task 被 cancel）时返回的是 dismissed 的 notice，看 status 与 note，不要把“没有 answer”当成“不同意”。',
+      ],
+      usage: [
+        'lush notice post --title T [--kind report|decision|blocked] [--body B] [--fields JSON] [--task TASK_ID] [--no-wait]',
+      ],
+      options: {
+        '--title': { arg: 'TEXT', desc: '一句话摘要（必填）', apply: (r, v) => { r.title = v; } },
+        '--kind': {
+          arg: 'KIND',
+          desc: 'report（汇报结果）/ decision（需要你定）/ blocked（做不下去），默认 report',
+          apply: (r, v) => { r.kind = v; },
+        },
+        '--body': { arg: 'TEXT', desc: '完整上下文', apply: (r, v) => { r.body = v; } },
+        '--fields': {
+          arg: 'JSON',
+          desc: '要用户填的表单声明数组（和 notice 工具的 fields 同形）',
+          apply: (r, v) => { r.fields = jsonArg(v, '--fields'); },
+        },
+        '--task': {
+          arg: 'TASK_ID',
+          desc: '汇报者 task（缺省用 $LUSH_TASK_ID）',
+          apply: (r, v) => { r.task_id = intArg(v, '--task'); },
+        },
+        '--no-wait': { arg: null, desc: '只登记，不等待用户答复（wait=false）', apply: (r) => { r.wait = false; } },
+      },
+      parse: () => {
+        const fromEnv = process.env.LUSH_TASK_ID ?? '';
+        return {
+          ...(/^\d+$/.test(fromEnv) ? { task_id: Number.parseInt(fromEnv, 10) } : {}),
+          wait: true,
+        };
+      },
+      check: (r) => {
+        if (!Object.hasOwn(r, 'task_id')) {
+          throw new UsageError('reporting task is required: pass --task TASK_ID or set $LUSH_TASK_ID');
+        }
+        if (!Object.hasOwn(r, 'title')) throw new UsageError('the following arguments are required: --title');
+      },
+    },
     show: {
       command: 'notice_show',
       method: 'notice.inspect',

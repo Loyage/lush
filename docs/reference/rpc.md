@@ -129,6 +129,8 @@ Provider tool 名称采用 OpenAI-compatible 安全字符：`service_self`、`se
 
 工具错误作为带 code/message 的 tool result 回给 Agent；Provider 可以修正。未知工具拒绝。内置运行时不允许 Agent 伪造当前 SID（工具参数里没有 sid）；pi 后端的安全边界更弱：它能读写磁盘、执行命令，并通过 bash 调用 `lush` CLI，因此 `LUSH_SID` 只是便利信息，不是权限凭据。complete 后本轮可返回最终文本，但后续副作用工具被拒绝。
 
+`notice` 也一样分两条路：内置运行时（mock / openai）用 `notice` 工具，外部 agent（pi，默认后端）用 `lush notice post --title ... [--fields JSON]`（RPC `notice.post`，汇报者取 `$LUSH_TASK_ID`）—— pi 没有 Lush 工具，这是它上报的唯一通路。两者语义一致：默认阻塞到用户结算，把 `{ status, answer }` / 结算后的 notice 交回 agent。
+
 ## CLI
 
 命令分三层：顶层 → 命令组 → 命令 → 参数。每一层都提供 help（`help` 子命令、`-h`、`--help`），帮助文本与下面的命令表来自同一张声明（`src/cli/tree/` 的命令声明），不会与解析器脱节；`--json help [command]` 返回结构化的命令树。
@@ -169,6 +171,7 @@ lush task agents kill AGENT_ID
 
 lush notice list [--status open|answered|dismissed] [--task TASK_ID] [--sid SID]
 lush notice show NOTICE_ID
+lush notice post --title T [--kind K] [--body B] [--fields JSON] [--task TASK_ID] [--no-wait]  # agent 侧上报；默认阻塞到答复
 lush notice answer NOTICE_ID --set K=V [--set K=V ...]   # 或 --text TEXT / --answer JSON
 lush notice dismiss NOTICE_ID [--reason TEXT]
 ```

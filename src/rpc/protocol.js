@@ -79,6 +79,7 @@ const CALL_METHODS = [
 const NOTICE_METHODS = [
   ['notice.list', 'noticeList', 'notice_list'],
   ['notice.inspect', 'noticeInspect', 'notice_inspect'],
+  ['notice.post', 'noticePost', 'notice_post'],
   ['notice.answer', 'noticeAnswer', 'notice_answer'],
   ['notice.dismiss', 'noticeDismiss', 'notice_dismiss'],
 ];

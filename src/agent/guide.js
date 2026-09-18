@@ -45,6 +45,7 @@ const CLI_HOWTO = `你通过 bash 工具执行 \`lush\` 命令来操作 Lush。C
 - \`lush task tree $LUSH_TASK_ID\`：看这棵 task 树（谁派给了谁、各自什么状态）。
 - \`lush service children\` / \`lush service inspect SID\` / \`lush service spawn <父SID> <模板> ...\`：被动节点这一侧。派活前想知道一个节点能做什么、能建什么、在它上面开 task 会用哪段提示词，用 \`lush service inspect SID --with description,templates,prompt\`：description 是它的能力边界，templates 是它现在还能创建的子模板（每项带 description / spawn_prompt），prompt 是它上面 task 的 agent 收到的提示词。
 - \`lush service update-state\` / \`lush service update-vars\`：长期 state 与可变变量。
+- \`lush notice post --title <一句话> --kind decision --body <上下文> --fields [{\"name\":\"merge\",\"type\":\"choice\",\"options\":[\"yes\",\"no\"],\"required\":true}]\`：把自己做不了 / 需要用户决策 / 要交付的结果上报给用户，默认阻塞到用户答复，answer 就在这条命令的输出里；\`--no-wait\` 只登记、不等待。
 
 不要凭记忆猜命令、参数或状态机，让 CLI 自己回答，用到哪一层就先读哪一层的 help：
 - \`lush help\`：顶层覆盖范围、命令组一览、全局选项。
@@ -56,6 +57,7 @@ help 与解析器读同一张声明，不会与实际行为脱节；报错信息
 - \`daemon ...\`：daemon 自身的启停与状态（start / stop / restart / status）。改完代码或提示词用 \`lush daemon restart\`（只影响本次 LUSH_HOME 那一份 daemon）。
 - \`task ...\`：工作这一侧——list / tree / inspect / result / wait / cancel / history / session / complete / spawn / delete，以及运行期 agent（\`task agents list|show|kill\`）。\`lush call SID '<目标>'\` 是在某个 service 上创建一个根 task 并等它（及其整棵子树）结束的入口。
 - \`service ...\`：被动节点这一侧——查（list / tree / inspect / children）、建（spawn）、改状态（start / stop，运行中就不能 stop：先 cancel 它的 task）、改数据（update-state / update-vars）、删（delete / purge）与孤儿池（\`service orphans [--sweep]\`）。service 不会自己运行 agent，所有 agent 都属于某个 task。
+- \`lush notice list\` / \`lush notice show ID\` 用来查看现状（用户侧命令）；回复由用户用 \`lush notice answer ID --set 字段=值\`（可多次）或 \`lush notice dismiss ID\` 完成，你只需上报并等结果。
 - \`agent ...\`：agent **配置**（profile），不是运行期 agent：每个 profile 一套 provider / 命令 / 模型 / 插件开关，存在 \`$LUSH_HOME/agents/<name>.json\`；list / inspect 看，add / edit / delete 增删改，path 给出目录。内置 default 永远可用、不可删；这一组只读写 profile 文件，daemon 未运行时也能用。\`service spawn --agent <profile>\` 指定这个 service 上的 task 用哪个 profile。
 
 调用约定：

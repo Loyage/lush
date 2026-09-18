@@ -342,10 +342,53 @@ describe('notices over RPC, the CLI surface and the web UI', () => {
     expect(await shell.text()).toContain('Notice');
   });
 
+  test('notice.post lets an external agent report and block for the answer', async () => {
+    const sid = manager.spawn(0, 'generic-task', 'worker').sid;
+    const task = manager.spawnTask(null, sid, 'ship it', false);
+
+    // wait=false only registers.
+    const reported = await client.request('notice.post', {
+      task_id: task.id, kind: 'report', title: '只是汇报', body: '一切正常', wait: false,
+    });
+    expect(reported).toMatchObject({ status: 'open', wait: false, task_id: task.id, title: '只是汇报' });
+
+    // wait=true keeps the RPC open until the user settles it.
+    const pending = client.request('notice.post', {
+      task_id: task.id,
+      kind: 'decision',
+      title: '选一个',
+      fields: [{ name: 'plan', type: 'choice', options: ['A', 'B'], required: true }],
+    });
+    await Bun.sleep(20);
+    const open = await client.request('notice.list', { status: 'open', task_id: task.id });
+    const blocking = open.find((row) => row.title === '选一个');
+    expect(blocking).toMatchObject({ wait: true, task_id: task.id });
+    await client.request('notice.answer', { notice_id: blocking.id, answer: { plan: 'B' } });
+    const settled = await pending;
+    expect(settled).toMatchObject({ id: blocking.id, status: 'answered', answer: { plan: 'B' } });
+
+    expect((await expectRejection(client.request('notice.post', { task_id: task.id }))).code).toBe(-32602);
+    expect((await expectRejection(client.request('notice.post', { task_id: 999, title: 'x' }))).code).toBe(-32004);
+  });
+
   test('the CLI declares the notice group and the agent tool advertises it', () => {
     const group = ROOT.children.notice;
     expect(group.summary).toContain('Notice');
-    expect(Object.keys(group.children)).toEqual(['list', 'show', 'answer', 'dismiss']);
+    expect(Object.keys(group.children)).toEqual(['list', 'post', 'show', 'answer', 'dismiss']);
+
+    const post = group.children.post;
+    const posted = post.parse([]);
+    post.options['--title'].apply(posted, '选一个');
+    post.options['--kind'].apply(posted, 'decision');
+    post.options['--task'].apply(posted, '7');
+    post.options['--fields'].apply(posted, '[{"name":"plan","type":"choice","options":["A"]}]');
+    expect(posted).toMatchObject({ task_id: 7, title: '选一个', kind: 'decision', wait: true });
+    expect(posted.fields).toEqual([{ name: 'plan', type: 'choice', options: ['A'] }]);
+    const noTask = post.parse([]);
+    post.options['--title'].apply(noTask, 'x');
+    if (!Object.hasOwn(noTask, 'task_id')) {
+      expect(() => post.check(noTask)).toThrow(/LUSH_TASK_ID/);
+    }
 
     const answer = group.children.answer;
     const parsed = answer.parse(['7']);

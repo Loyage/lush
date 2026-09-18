@@ -39,6 +39,7 @@ export const PARAMS = {
   // notices: a task's agent reporting to the user
   notice_list: { required: [], optional: ['status', 'task_id', 'sid', 'limit'] },
   notice_inspect: { required: ['notice_id'] },
+  notice_post: { required: ['task_id', 'title'], optional: ['kind', 'body', 'fields', 'wait'] },
   notice_answer: { required: ['notice_id', 'answer'] },
   notice_dismiss: { required: ['notice_id'], optional: ['reason'] },
   // the user-facing entry: a root task on a service

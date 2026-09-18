@@ -58,7 +58,8 @@ export function format(args, result) {
   if (args.command === 'task_agents_show') return formatAgent(result);
   if (args.command === 'task_agents_kill') return formatAgentKill(result);
   if (args.command === 'notice_list') return formatNoticeList(result);
-  if (args.command === 'notice_show' || args.command === 'notice_answer' || args.command === 'notice_dismiss') {
+  if (args.command === 'notice_show' || args.command === 'notice_answer' || args.command === 'notice_dismiss'
+    || args.command === 'notice_post') {
     return formatNotice(result);
   }
   // Variables are few and scalar-ish: one `key=value` line each is easier to

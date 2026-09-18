@@ -17,6 +17,20 @@ export const noticeLayer = {
     return summary(post(this, { taskId, kind, title, body, fields, wait }));
   },
 
+  /**
+   * `notice.post`: the same report, but for a caller that is not an in-process
+   * agent — an external agent (pi) driving Lush through the CLI. It is
+   * synchronous where the tool is not: with `wait` the RPC itself stays open
+   * until the user answers or dismisses, so the settled notice (with `answer`)
+   * is what the caller reads off the wire.
+   */
+  async noticePost(taskId, title, kind = 'report', body = '', fields = undefined, wait = true) {
+    const notice = post(this, { taskId, kind, title, body, fields, wait });
+    if (!wait) return notice;
+    const settled = await waitForNotice(this, notice.id, taskId);
+    return settled ?? notice;
+  },
+
   noticeList(status = null, taskId = null, sid = null, limit = 200) {
     return list(this, { status, taskId, sid, limit });
   },
