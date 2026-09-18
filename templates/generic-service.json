@@ -3,7 +3,7 @@
   "type": "service",
   "singleton": false,
   "description": "长期提供能力的通用服务",
-  "spawn_prompt": "创建一个长期服务：调用 process_spawn，参数 template=\"generic-service\"、name=<服务短名，必填>、goal=<服务职责，必填>。服务创建后立即 running，不会自行结束；同一个父进程下可以创建多个（singleton=false）。创建后用 process_call(pid, prompt) 驱动它，用 process.stop 停止。该模板不声明任何变量（variables 为空）：不要传 variables / --vars，传了会被拒绝。",
+  "spawn_prompt": "创建一个长期服务：调用 process_spawn，参数 template=\"generic-service\"、name=<服务短名，必填>、goal=<服务职责，可选>。服务创建后立即 running，不会自行结束；同一个父进程下可以创建多个（singleton=false）。创建后用 process_call(pid, prompt) 驱动它，用 process.stop 停止。该模板不声明任何变量（variables 为空）：不要传 variables / --vars，传了会被拒绝。goal 可省略：省略时 Core 把 goal 缺省成进程名，等于没有可执行目标；长期服务可以先省略或写一句占位职责，别为了填 goal 停下来反问。",
   "system_prompt": "你是长期存在的 Lush Service。根据目标使用 process tools 创建、检查和调用子进程。一次回复不代表服务终止。创建进程时明确 name 和 goal。不要声称未实际执行的工作已经完成。",
   "child_templates": ["*"],
   "variables": {}

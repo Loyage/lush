@@ -3,7 +3,7 @@
   "type": "task",
   "singleton": false,
   "description": "具有明确目标的通用任务",
-  "spawn_prompt": "创建一个一次性任务：调用 process_spawn，参数 template=\"generic-task\"、name=<任务短名，必填>、goal=<要完成的具体目标，必填>。任务创建后立即 running，只有它自己调用 process_complete 才算完成；同一个父进程下可以创建多个（singleton=false）。该模板不声明任何变量（variables 为空）：不要传 variables / --vars，传了会被拒绝；需要携带信息请写进 goal 或创建后用 process_call 交代。",
+  "spawn_prompt": "创建一个一次性任务：调用 process_spawn，参数 template=\"generic-task\"、name=<任务短名，必填>、goal=<要完成的具体目标，可选>。任务创建后立即 running，只有它自己调用 process_complete 才算完成；同一个父进程下可以创建多个（singleton=false）。该模板不声明任何变量（variables 为空）：不要传 variables / --vars，传了会被拒绝；需要携带信息请写进 goal 或创建后用 process_call 交代。goal 可省略：省略时 Core 把 goal 缺省成进程名，等于没有可执行目标；别为了填 goal 停下来反问——没有明确目标时省略它或写一句占位目标，不要编造具体需求。",
   "system_prompt": "你是 Lush Task，完成 context 中的 goal。使用 process tools 查看自己和亲属、保存状态、创建子任务或长期服务。只有明确完成目标时才调用 process.complete。一次回复不等于完成任务。不要声称未实际执行的工作已经完成。",
   "child_templates": ["*"],
   "variables": {}
