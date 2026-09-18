@@ -204,6 +204,20 @@ test('web buffers drafts, commits the whole batch and keeps agents out of the co
   } finally { await f.close(); }
 });
 
+test('web serves the tree sort module and wires the smart-sort dropdown', async () => {
+  const f = await setup();
+  try {
+    const module = await fetch(f.url+'/tree-order.js');
+    expect(module.status).toBe(200);
+    expect(await module.text()).toContain('export function orderSiblings');
+    const app = await (await fetch(f.url+'/app.js')).text();
+    expect(app).toContain('智能排序');
+    expect(app).toContain('tree-sort');
+    const html = await (await fetch(f.url)).text();
+    expect(html).toContain('id="tree-sort"');
+  } finally { await f.close(); }
+});
+
 test('web clears the board through task.clear and refuses it while tasks are live', async () => {
   const f = await setup();
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});

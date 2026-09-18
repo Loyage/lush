@@ -1,4 +1,5 @@
 import { renderMarkdown } from './markdown.js';
+import { SORT_MODES, treeParent, rankTasks, orderSiblings } from './tree-order.js';
 
 const $ = id => document.getElementById(id);
 const STATUS = {
@@ -54,6 +55,28 @@ syncMarkdownToggle();
 
 const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
 const short = value => (typeof value === 'string' ? value.slice(0, 7) : '');
+
+/* ---------- 任务树排序偏好 ---------- */
+const TREE_SORT_KEY = 'lush.treeSort';
+const SORT_IDS = new Set(SORT_MODES.map(mode => mode.id));
+let treeSortMode = readTreeSortPref();
+let lastSnapshot = null;   // 切排序模式要立刻重排，不必等下一次轮询
+function readTreeSortPref() {
+  try { const value = localStorage.getItem(TREE_SORT_KEY); return SORT_IDS.has(value) ? value : 'smart'; } catch { return 'smart'; }
+}
+function syncTreeSortSelect() {
+  const select = $('tree-sort');
+  select.replaceChildren(...SORT_MODES.map(mode => { const option = el('option', mode.label); option.value = mode.id; return option; }));
+  select.value = treeSortMode;
+  select.title = '智能排序：有未答复问题的任务排最前，正在跑的次之，等你批准合并的再次之，已合并 / 失败 / 取消的沉到最后；父任务带着活跃子树一起靠前，只有同一层兄弟会换位置。';
+}
+$('tree-sort').addEventListener('change', () => {
+  const value = $('tree-sort').value;
+  treeSortMode = SORT_IDS.has(value) ? value : 'smart';
+  try { localStorage.setItem(TREE_SORT_KEY, treeSortMode); } catch { /* 隐私模式里忽略 */ }
+  if (lastSnapshot) renderTree(lastSnapshot);
+});
+syncTreeSortSelect();
 const statusOf = task => STATUS[task.status] || { label: task.status, icon: '·' };
 function relative(iso) {
   const at = Date.parse(iso); if (!Number.isFinite(at)) return '';
@@ -240,16 +263,19 @@ function renderTree(data) {
   const byParent = new Map();
   const ids = new Set(data.tasks.map(task => task.id));
   // verifier 用 verifies_task_id 而不是 parent_id；父任务不在列表里时当根任务渲染，不丢节点。
+  // 分组规则与 tree-order.js 的 rankTasks 共用同一个函数，保证排序看到的就是这棵树。
   for (const task of data.tasks) {
-    const parent = task.parent_id ?? task.verifies_task_id ?? 0;
-    const key = ids.has(parent) ? parent : 0;
+    const key = treeParent(task, ids);
     if (!byParent.has(key)) byParent.set(key, []);
     byParent.get(key).push(task);
   }
+  const openNoticeIds = new Set((data.notices || []).filter(notice => notice.status === 'open').map(notice => notice.task_id));
+  const ranks = rankTasks(data.tasks, openNoticeIds);
   const index = { concurrency: data.status.concurrency ?? 1, children: taskId => byParent.get(taskId) || [] };
   const ordered = [];
   const walk = (parent, depth) => {
-    const siblings = byParent.get(parent) || [];
+    // 每层兄弟先按当前偏好排好；band 行仍插在这层兄弟之前，节点复用 / dataset / 点击行为不变。
+    const siblings = orderSiblings(byParent.get(parent) || [], { mode: treeSortMode, ranks });
     // 根任务之间的并行由 planner 槽决定（不是一个父任务下的兄弟关系），所以只画委派出来的兄弟。
     if (parent !== 0 && siblings.length > 1) {
       const chain = siblingChain(siblings).map(group => group.length > 1 ? `{${group.map(taskId => `#${taskId}`).join(' ‖ ')}}` : `#${group[0]}`).join(' → ');
@@ -801,6 +827,7 @@ async function refresh() {
   if (busy) return; busy = true;
   try {
     const data = await api('/api/snapshot');
+    lastSnapshot = data;
     $('project').textContent = data.status.project;
     $('project').title = data.status.project;
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');
