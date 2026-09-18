@@ -44,8 +44,9 @@ function gitWorker({ conflicting = 'worker\n', other = 'clean\n', resolved = 're
 }
 /** 一个已完成、和 main 冲突的 worker，加一个独立的、干净可合的 worker。 */
 async function colliding(f) {
-  const input = f.project.submit('build').task;
-  // 两个子任务先同步 spawn 完：planner 一旦拿到槽就可能结束，终态任务不能再派活。
+  // planner 只写 spec 队列、不能直接派活：造一个能派活的 coordinator 作父任务。
+  const input = f.store.create({ input_id: null, role: 'coordinator', goal: 'build' });
+  // 两个子任务先同步 spawn 完：父任务一旦拿到槽就可能结束，终态任务不能再派活。
   const conflicting = f.project.spawn(input.id, 'conflicting', 'worker', [], 'conflicting');
   const clean = f.project.spawn(input.id, 'independent', 'worker', [], 'independent');
   await until(() => f.store.task(conflicting.id).status === 'completed');
@@ -219,7 +220,7 @@ test('only the runtime opens resolution tasks, and a failure releases the freeze
     await repo(f.root);
     const { colliding: target, clean } = await colliding(f);
     // agent 不能自己派一个 merger：合并与解冲突都只由 runtime 在用户批准下开。
-    const fresh = f.project.submit('build').task;
+    const fresh = f.store.create({ input_id: null, role: 'coordinator', goal: 'build' });
     expect(() => f.project.spawn(fresh.id, 'solve it', 'merger')).toThrow('role must be worker');
     const result = await f.project.approveMerge(target.id);
     const resolutionId = result.merge.resolution_task_id;

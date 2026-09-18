@@ -18,11 +18,14 @@ const PARAMS = {
   'draft.add': ['content'], 'draft.list': [], 'draft.remove': ['id'], 'draft.commit': [],
   'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.diff': ['id'],
   'task.transcript': ['id','after','limit'], 'task.usage': ['id'],
-  'task.spawn': ['parent','goal','role','deps','name'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
+  'task.spawn': ['parent','goal','role','deps','name','spec'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
   'task.merge': ['id'], 'task.cleanup': ['id','keep_branch'], 'task.verify': ['id'], 'task.clear': [], 'task.ladder': [],
+  'spec.list': [], 'spec.add': ['goal','role','name','deps'], 'spec.drop': ['id','note'],
   'notice.list': [], 'notice.post': ['task','title','body'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
 };
 const USER_ONLY = new Set(['system.stop','input.submit','draft.add','draft.remove','draft.commit','task.cancel','task.retry','task.merge','task.cleanup','task.verify','task.clear','notice.answer','notice.dismiss']);
+/** 拆解队列由 agent 写入；用户只能查看（lush spec list）。 */
+const AGENT_ONLY = new Set(['spec.add','spec.drop']);
 export class Dispatcher {
   constructor(project, stopping, identity) { this.project = project; this.stopping = stopping; this.identity = identity; }
   async dispatch(method, params = {}) {
@@ -31,6 +34,7 @@ export class Dispatcher {
     check(Object.keys(params).every(key => key === '_token' || PARAMS[method].includes(key)), 'unknown parameter');
     const actor = this.project.actor(params._token);
     check(actor === null || !USER_ONLY.has(method), `${method} requires user approval, not an agent`);
+    check(!(actor === null && AGENT_ONLY.has(method)), `${method} is planner/agent only; users inspect the queue with lush spec list`);
     const p = this.project;
     switch (method) {
       case 'system.status': return { ...p.status(), ...this.identity, pid: process.pid };
@@ -69,8 +73,11 @@ export class Dispatcher {
       case 'task.spawn': {
         const parent = params.parent ?? actor;
         check(actor === null || id(parent) === actor, 'agents may delegate only from their own task');
-        return p.spawn(parent, params.goal, params.role, params.deps ?? [], params.name ?? null);
+        return p.spawn(parent, params.goal, params.role, params.deps ?? [], params.name ?? null, params.spec ?? null);
       }
+      case 'spec.list': return bounded(p.store.specs({ limit: 1000 }), 900000);
+      case 'spec.add': return p.addSpec(actor, { goal: params.goal, role: params.role ?? null, name: params.name ?? null, deps: params.deps ?? [] });
+      case 'spec.drop': return p.dropSpec(params.id, params.note ?? null, actor);
       case 'task.message': return p.message(params.id, params.body, actor);
       case 'task.cancel': return p.cancel(params.id);
       case 'task.retry': return p.retry(params.id);

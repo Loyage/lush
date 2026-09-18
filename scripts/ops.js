@@ -8,7 +8,7 @@ const aliases = {
   ladder: ['task','ladder'], timeline: ['task','timeline'],
   inspect: ['task','inspect'], transcript: ['task','transcript'], usage: ['task','usage'], cancel: ['task','cancel'], retry: ['task','retry'],
   merge: ['task','merge'], cleanup: ['task','cleanup'], clear: ['task','clear'], notices: ['notice','list'],
-  answer: ['notice','answer'], message: ['task','message'], wait: ['task','wait'],
+  answer: ['notice','answer'], message: ['task','message'], wait: ['task','wait'], specs: ['spec','list'],
 };
 try { await main([...(aliases[command] || [command]), ...args]); }
 catch (error) { console.error(`lush: ${error.message}`); process.exitCode = 1; }

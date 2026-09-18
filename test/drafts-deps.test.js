@@ -5,10 +5,17 @@ import { fixture, repo, git, until, gate } from './helpers.js';
 import { Dispatcher } from '../src/rpc/protocol.js';
 import { createSignal } from '../src/signal.js';
 
+/** planner 只写 spec 队列；测试里用它造一个能直接派活的非 planner 任务。 */
+function host(f, { role = 'coordinator', goal = 'host', input_id = null } = {}) {
+  const task = f.store.create({ input_id, role, goal });
+  f.store.update(task.id, { status: 'waiting' });
+  return task;
+}
+
 /** A git project with one finished worker whose branch holds an unmerged change. */
 async function upstreamOnly() {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
-  const parent = f.project.submit('staged work').task;
+  const parent = f.store.create({ input_id: null, role: 'coordinator', goal: 'staged work' });
   const worker = f.project.spawn(parent.id, 'upstream change', 'worker');
   const cwd = await f.project.workspaces.ensure(f.store.task(worker.id));
   fs.writeFileSync(path.join(cwd, 'file.txt'), 'upstream\n');
@@ -67,7 +74,7 @@ test('the draft cache is bounded', async () => {
 test('a queued task waits for its dependencies and is released when they settle', async () => {
   const gates = new Map(); let a = null, b = null, upstreamStatusWhenDownstreamRan = null;
   const f = fixture({ run({ task, api, signal }) {
-    if (task.role === 'planner') {
+    if (task.role === 'coordinator') {
       if (task.calls === 1) {
         a = api.spawn(task.id, '上游工作', 'research');
         b = api.spawn(task.id, '下游工作', 'research', [{ id: a.id, kind: 'order' }]);
@@ -80,7 +87,8 @@ test('a queued task waits for its dependencies and is released when they settle'
     return done.promise;
   } }, { LUSH_CONCURRENCY: '4' });
   try {
-    const root = f.project.submit('两件有先后的事').task;
+    const root = f.store.create({ input_id: null, role: 'coordinator', goal: '两件有先后的事' });
+    f.project.kick();
     await until(() => a && gates.has(a.id));
     expect(f.project.running.has(b.id)).toBe(false);
     expect(gates.has(b.id)).toBe(false);
@@ -99,8 +107,8 @@ test('a queued task waits for its dependencies and is released when they settle'
 test('dependency declaration rejects deadlocks and dependencies that cannot work', async () => {
   const f = fixture(); f.project.stopping = true;
   try {
-    const first = f.project.submit('first').task;
-    const second = f.project.submit('second').task;
+    const first = host(f, { goal: 'first' });
+    const second = host(f, { goal: 'second' });
     const research = f.project.spawn(first.id, 'a', 'research');
     const worker = f.project.spawn(first.id, 'w', 'worker');
     expect(() => f.project.spawn(first.id, 'x', 'research', [{ id: 999 }])).toThrow('task 999 not found');
@@ -111,7 +119,7 @@ test('dependency declaration rejects deadlocks and dependencies that cannot work
     expect(() => f.project.spawn(research.id, 'x', 'research', [{ id: first.id, kind: 'order' }])).toThrow('ancestor');
     expect(() => f.project.spawn(research.id, 'x', 'research', [{ id: research.id, kind: 'order' }])).toThrow('ancestor');
     // code 依赖需要一条能叠上去的分支
-    expect(() => f.project.spawn(first.id, 'x', 'research', [{ id: second.id }])).toThrow('planner task');
+    expect(() => f.project.spawn(first.id, 'x', 'research', [{ id: second.id }])).toThrow('coordinator task');
     expect(() => f.project.spawn(first.id, 'x', 'research', [{ id: worker.id }, { id: research.id }])).toThrow('at most one code dependency');
     f.store.update(worker.id, { status: 'failed' });
     expect(() => f.project.spawn(first.id, 'x', 'research', [{ id: worker.id }])).toThrow('cannot serve as a code base');
@@ -120,10 +128,22 @@ test('dependency declaration rejects deadlocks and dependencies that cannot work
   } finally { await f.close(); }
 });
 
+test('a planner cannot delegate directly; the queue is its only path', async () => {
+  const f = fixture(); f.project.stopping = true;
+  try {
+    const planner = f.project.submit('plan').task;
+    expect(() => f.project.spawn(planner.id, 'no direct spawn', 'research')).toThrow('planner 不再直接派活');
+    const first = f.project.addSpec(planner.id, { goal: '第一次调研', role: 'research', name: 'first-research' });
+    const second = f.project.addSpec(planner.id, { goal: '第二次调研', role: 'research', name: 'second-research', deps: [{ spec: first.id, kind: 'order' }] });
+    expect(f.store.specsByPlanner(planner.id).map(spec => [spec.seq, spec.status, spec.name])).toEqual([[1, 'pending', 'first-research'], [2, 'pending', 'second-research']]);
+    expect(second.deps).toEqual([{ spec: first.id, kind: 'order' }]);
+  } finally { await f.close(); }
+});
+
 test('dependency reachability walks the chain so a future edit-DAG cannot loop', async () => {
   const f = fixture(); f.project.stopping = true;
   try {
-    const root = f.project.submit('chain').task;
+    const root = host(f, { goal: 'chain' });
     const a = f.project.spawn(root.id, 'a', 'research');
     const b = f.project.spawn(root.id, 'b', 'research', [{ id: a.id, kind: 'order' }]);
     const c = f.project.spawn(root.id, 'c', 'research', [{ id: b.id, kind: 'order' }]);
@@ -137,7 +157,7 @@ test('dependency reachability walks the chain so a future edit-DAG cannot loop',
 test('read models expose dependency edges and blocked state', async () => {
   const f = fixture(); f.project.stopping = true;
   try {
-    const root = f.project.submit('plan').task;
+    const root = host(f, { goal: 'plan' });
     const a = f.project.spawn(root.id, 'a', 'research');
     const b = f.project.spawn(root.id, 'b', 'research', [{ id: a.id, kind: 'order' }]);
     expect(f.project.inspect(b.id).deps).toEqual([{ id: a.id, kind: 'order', role: 'research', status: 'queued', integration: 'none', goal: 'a' }]);
@@ -201,7 +221,7 @@ test('an order dependency only waits; the worktree still starts from project HEA
 test('a cancelled upstream unblocks an order dependency but fails a code dependency loudly', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const parent = f.project.submit('staged work').task;
+    const parent = f.store.create({ input_id: null, role: 'coordinator', goal: 'staged work' });
     const upstream = f.project.spawn(parent.id, 'upstream', 'worker');
     const ordered = f.project.spawn(parent.id, 'ordered', 'worker', [{ id: upstream.id, kind: 'order' }]);
     const stacked = f.project.spawn(parent.id, 'stacked', 'worker', [{ id: upstream.id, kind: 'code' }]);

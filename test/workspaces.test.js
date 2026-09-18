@@ -7,7 +7,8 @@ import { createSignal } from '../src/signal.js';
 
 async function setup() {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
-  const parent = f.project.submit('build').task;
+  // planner 只写 spec 队列（spawn 会拒绝 planner 父任务），这里直接造一个能派活的 coordinator。
+  const parent = f.store.create({ input_id: null, role: 'coordinator', goal: 'build' });
   const task = f.project.spawn(parent.id,'implement','worker',[],'implement-feature');
   return { ...f, task };
 }
@@ -290,7 +291,7 @@ test('pre-existing branch collisions do not become task-owned on retry', async (
 
 test('end-to-end worker executes inside worktree and cannot silently finish dirty', async () => {
   const f = fixture({ async run({ task, cwd, api }) {
-    if (task.role === 'planner' && task.calls === 1) { api.spawn(task.id,'edit','worker'); return 'delegated'; }
+    if (task.role === 'coordinator' && task.calls === 1) { api.spawn(task.id,'edit','worker'); return 'delegated'; }
     if (task.role === 'worker') fs.writeFileSync(path.join(cwd,'new.txt'),'not committed');
     return 'done';
   } });
@@ -298,7 +299,9 @@ test('end-to-end worker executes inside worktree and cannot silently finish dirt
     await repo(f.root);
     // 主树带未提交改动：worker 仍然能开工（基于已提交 HEAD），但 Lush 不会动这份改动。
     fs.writeFileSync(path.join(f.root,'wip.txt'),'uncommitted');
-    const root = f.project.submit('edit').task;
+    // 合并后的语义：planner 只写队列、不能直接 spawn，这里用一个 coordinator 作可派活的根任务。
+    const root = f.store.create({ input_id: null, role: 'coordinator', goal: 'edit' });
+    f.project.kick();
     await until(() => f.store.task(root.id).status === 'completed');
     const child = f.store.children(root.id)[0];
     expect(child.status).toBe('failed'); expect(child.error).toContain('dirty');

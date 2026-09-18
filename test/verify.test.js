@@ -9,7 +9,11 @@ import { Store } from '../src/persistence/store.js';
 
 /** 一个已完成的 worker：有 worktree、有提交、integration=pending。 */
 async function completed(f, name = 'implement-feature') {
-  const parent = f.project.submit('build').task;
+  // planner 只写 spec 队列、不能直接派活：造一个能派活的 coordinator 作父任务。
+  const parent = f.store.create({ input_id: null, role: 'coordinator', goal: 'build' });
+  // 这个 worker 由测试自己驱动 git 造出「已完成」的改动，先停掉调度，
+  // 否则 runtime 可能同时跑它、与测试抢 worktree 的 index.lock（merge-conflict.test.js 里记过这个 flake）。
+  f.project.stopping = true;
   const worker = f.project.spawn(parent.id, 'implement', 'worker', [], name);
   const cwd = await f.project.workspaces.ensure(worker);
   fs.writeFileSync(path.join(cwd, 'file.txt'), 'changed\n');
@@ -17,6 +21,7 @@ async function completed(f, name = 'implement-feature') {
   await git(cwd, 'commit', '-m', 'implementation');
   await f.project.workspaces.finish(f.store.task(worker.id));
   f.store.update(worker.id, { status: 'completed' });
+  f.project.stopping = false;
   return { parent, worker, cwd };
 }
 function writeReport(reportPath, title) {
@@ -81,7 +86,7 @@ test('verify only accepts a completed worker that still has its worktree and com
   const f = fixture();
   try {
     await repo(f.root);
-    const parent = f.project.submit('build').task;
+    const parent = f.store.create({ input_id: null, role: 'coordinator', goal: 'build' });
     expect(() => f.project.verify(parent.id)).toThrow('only a worker task');
     const worker = f.project.spawn(parent.id, 'implement', 'worker', [], 'implement-feature');
     expect(() => f.project.verify(worker.id)).toThrow('only a completed task');

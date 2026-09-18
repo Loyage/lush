@@ -15,15 +15,15 @@ function controlled() {
 test('timeline turns invocations into runs and tells a dependency wait from a slot wait', async () => {
   const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '1' });
   try {
-    const planner = f.project.submit('input').task;
-    await until(() => provider.calls.length === 1);
     // 工作池只有一个槽：first 占住它，没有依赖的 queued 只能等槽，blocked 等的是 first 这条依赖。
-    const first = f.project.spawn(planner.id, 'takes the only worker slot', 'research');
-    const queued = f.project.spawn(planner.id, 'waits for the slot', 'research');
-    const blocked = f.project.spawn(planner.id, 'waits for first', 'research', [{ id: first.id, kind: 'order' }]);
+    // planner 不能再直接派活，这里按任务树最底层直接建任务与依赖边（都是 research，不建 worktree）。
+    const first = f.store.create({ input_id: null, role: 'research', goal: 'takes the only worker slot' });
+    const queued = f.store.create({ input_id: null, role: 'research', goal: 'waits for the slot' });
+    const blocked = f.store.create({ input_id: null, role: 'research', goal: 'waits for first' });
+    f.store.addDep(blocked.id, first.id, 'order');
+    f.project.kick();
     const call = taskId => provider.calls.find(entry => entry.task.id === taskId);
     await until(() => f.store.task(first.id).status === 'running');
-    call(planner.id).done.resolve('planned');
     call(first.id).done.resolve('done');
     await until(() => f.store.task(queued.id).status === 'running');
     call(queued.id).done.resolve('done');
@@ -47,7 +47,8 @@ test('timeline turns invocations into runs and tells a dependency wait from a sl
 test('timeline keeps an open segment for whatever a task is doing right now', async () => {
   const provider = controlled(), f = fixture(provider);
   try {
-    const parent = f.project.submit('parent').task;
+    const parent = f.store.create({ input_id: null, role: 'coordinator', goal: 'parent' });
+    f.project.kick();
     await until(() => provider.calls.length === 1);
     const child = f.project.spawn(parent.id, 'child', 'research');
     provider.calls[0].done.resolve('delegated');
