@@ -206,13 +206,17 @@ function siblingChain(children) {
   for (const child of children) { const at = level.get(child.id); if (!levels.has(at)) levels.set(at, []); levels.get(at).push(child.id); }
   return [...levels.entries()].sort((a, b) => a[0] - b[0]).map(([, group]) => group.sort((a, b) => a - b));
 }
-/** 一行依赖标签：⛓ 是分支基线（必须先合上游），⏳ 只是等它结束；未结算的上游高亮。 */
-function depChip(dep) {
-  const code = dep.kind === 'code', waiting = !TERMINAL_STATUS.has(dep.status);
-  const chip = el('span', `${code ? '⛓' : '⏳'}#${dep.id}${code ? '基线' : '顺序'}${waiting ? '·等' : ''}`,
-    `dep dep-${code ? 'code' : 'order'}${waiting ? ' dep-wait' : ''}`);
-  chip.title = `#${dep.id} ${code ? '（code 依赖）' : '（order 依赖）'}${DEP_HELP[code ? 'code' : 'order']}\n上游状态：${statusOf(dep).label}`;
-  return chip;
+/** 一行依赖标签：同名依赖合并成一个标签，词义放在 title 里，免得一行被标签挤爆。 */
+function depChips(task) {
+  const kinds = ['code', 'order'].filter(kind => depsOf(task).some(dep => dep.kind === kind));
+  return kinds.map(kind => {
+    const deps = depsOf(task).filter(dep => dep.kind === kind);
+    const waiting = deps.some(dep => !TERMINAL_STATUS.has(dep.status));
+    const chip = el('span', `${kind === 'code' ? '⛓' : '⏳'}#${deps.map(dep => dep.id).join(',')}${waiting ? '·等' : ''}`,
+      `dep dep-${kind}${waiting ? ' dep-wait' : ''}`);
+    chip.title = `${kind === 'code' ? 'code 依赖（分支基线）' : 'order 依赖（只等结束）'}：${DEP_HELP[kind]}\n上游：${deps.map(dep => `#${dep.id} ${statusOf(dep).label}`).join('、')}`;
+    return chip;
+  });
 }
 /** 此刻为什么没在干活：等依赖 / 等槽 / 等子任务 / 等你决定。四种拼起来才是完整的并行-串行关系。 */
 function whyLine(task, index) {
@@ -249,9 +253,8 @@ function renderTree(data) {
     // 根任务之间的并行由 planner 槽决定（不是一个父任务下的兄弟关系），所以只画委派出来的兄弟。
     if (parent !== 0 && siblings.length > 1) {
       const chain = siblingChain(siblings).map(group => group.length > 1 ? `{${group.map(taskId => `#${taskId}`).join(' ‖ ')}}` : `#${group[0]}`).join(' → ');
-      const band = el('div', `并行关系 ${chain}　并列的可同时跑，箭头表示要等前面结束（上限 ${index.concurrency} 个）`,
-        `band d${Math.min(depth, 5)}`);
-      band.title = '∥ 表示同一父任务下互相无依赖、可以同时跑；→ 的顺序来自依赖边：⛓ 基线还要求先合并上游。';
+      const band = el('div', `‖ ${chain}（并列可同时跑，上限 ${index.concurrency}）`, `band d${Math.min(depth, 5)}`);
+      band.title = '∥ 表示同一父任务下互相无依赖、可以同时跑；→ 的顺序来自依赖边：⛓ 基线还要求先合并上游，⏳ 顺序只等上游结束。';
       ordered.push(band);
     }
     for (const task of siblings) {
@@ -265,12 +268,13 @@ function renderTree(data) {
         el('span', `${statusOf(task).label} · ${ROLE[task.role] || task.role}`));
       const flow = task.parent_id === null && !task.verifies_task_id ? flows.get(task.input_id) : null;
       if (flow) row.append(badge(flow === 'explain' ? '了解' : '开发', flow === 'explain' ? 'b-neutral' : 'b-completed'));
-      for (const dep of depsOf(task)) row.append(depChip(dep));
+      for (const chip of depChips(task)) row.append(chip);
       row.append(el('span', relative(task.updated_at), 'when'));
       node.append(row, el('span', task.goal, 'goal'));
       const why = whyLine(task, index);
       if (why) node.append(el('span', why, 'meta reason'));
-      if (integration) node.append(el('span', integration, 'meta'));
+      // 已经用一句话说了"等你批准合并"，就不用再挂一个"待合并"标签。
+      if (integration && integration !== '待合并') node.append(el('span', integration, 'meta'));
       node.title = `${task.goal}\n更新于 ${absolute(task.updated_at)}`;
       ordered.push(node); walk(task.id, depth + 1);
     }
@@ -283,7 +287,8 @@ function renderTree(data) {
 /** 合并阶梯：该先合哪个、哪些分支已经被别的分支带进来了。 */
 function renderLadder(ladder) {
   const nodes = ladder?.nodes || [];
-  const section = block('合并阶梯', String(nodes.length));
+  // 这里就是「待你批准合并」：待合并分支、谁必须先合、谁已经被别人带进来了。
+  const section = block('合并阶梯', nodes.length ? `待批准 ${nodes.length}` : undefined);
   if (!nodes.length) { section.append(el('p', '没有待合并的分支。', 'hint')); return section; }
   section.append(el('p', '⛓ code 依赖＝下游 worktree 的基线：必须先合上游，否则下游的分支会把它一起带进来。\n⏳ order 依赖只要求上游结束，所以下游可以先合——那时它有没有把上游带进来由 git 判定。', 'hint'));
   for (const node of nodes) {
@@ -749,14 +754,6 @@ function renderOverview(data) {
   }
   panel.append(agents);
 
-  const merges = block('待你批准合并', String(data.status.pending_merges.length));
-  if (!data.status.pending_merges.length) merges.append(el('p', '没有待合并的分支。', 'hint'));
-  for (const task of data.status.pending_merges) {
-    const row = el('div', undefined, 'row');
-    row.append(el('span', `#${task.id}`, 'tid'), button(task.goal, () => detail(task.id), 'link'), el('span', task.branch, 'when'));
-    merges.append(row);
-  }
-  panel.append(merges);
   panel.append(renderLadder(data.ladder));
   panel.append(renderTimeline(data.timeline));
 
