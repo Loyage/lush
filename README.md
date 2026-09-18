@@ -56,7 +56,7 @@ lush daemon stop
                 └── 长期能力 / 常驻服务 → generic-service 节点
 ```
 
-SID 0 自己不做项目里的活：不读改仓库文件、不在项目目录里跑实现 / 构建 / 测试命令；`lush-root` 的 `child_templates` 只有 `project-manager`，`project` / `dev-task` 都不在它的权限里，所以它也无法替 `project-manager` 做决定。`project-manager` 收到请求后按上表分派，只有「打开 xx」「关闭 xx」这类项目生命周期管理动作它才亲自做。改这三处提示词（`src/agent/guide.js`、`templates/lush-root.json`、`templates/lush-root/project-manager.json`）后要 `just daemon-restart` 才生效。
+SID 0 自己不做项目里的活：不读改仓库文件、不在项目目录里跑实现 / 构建 / 测试命令；`lush-root` 的 `child_templates` 只有 `project-manager`，`project` / `dev-task` 都不在它的权限里，所以它也无法替 `project-manager` 做决定。`project-manager` 收到请求后按上表分派，只有「打开 xx」「关闭 xx」这类项目生命周期管理动作它才亲自做。改这三处提示词（`src/agent/guide.js`、`templates/lush-root/`、`templates/lush-root/project-manager/` 下的 `*.md` 与 `*.json`）后要 `just daemon-restart` 才生效：模板的散文字段（`description` / `spawn_prompt` / `system_prompt`）可以写成 `@<路径>` 引用旁边的 markdown 文件，改提示词不用再面对一行 `\n` 转义（见 `docs/reference/templates.md`）。
 
 ## 常用命令（Justfile）
 

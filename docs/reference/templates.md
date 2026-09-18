@@ -30,10 +30,29 @@
 - `description`：一段陈述句，说明这个节点**自己的**能力范围（做什么、边界在哪），用于上级节点判断该不该把活派到这里、该建什么 task；出现在创建方的 `available_child_templates` 与 `service.view --with description`，所以保持一句话、不换行。
 - `spawn_prompt`：告诉创建方「怎么创建这个模板、需要哪些变量」，随 Context 注入创建方 agent。
 - `system_prompt`：实例创建时快照进它自己的 Context，成为它上面每个 task 的 agent 的第一条 system message。
+
+这三个散文字段都可以写成 `@<路径>`，把正文放进旁边的独立文件（见〈提示词写在自己的文件里〉）。
 - `child_templates`：该实例允许创建的子模板（相对自己文件的路径，或模板名；`*` 表示全部）。
 - `variables`：变量声明，分 `immutable` / `mutable`；每个变量有 `description`（必填）与可选 `required` / `default` / `pattern` / `max_length` / `single_line`。
 
 模板按层级顺序加载（能创建某个模板的模板排在它前面），`available_child_templates` 也是这个顺序。`$LUSH_HOME/templates/**/*.json` 可以加用户模板，重启后生效。
+
+### 提示词写在自己的文件里
+
+JSON 字符串里不能有真正的换行，所以 `system_prompt` 这种多段散文写在 JSON 里只能是一行 `\n` 转义——编辑器里读不了、`git diff` 里看不见改了哪句。于是 `description` / `spawn_prompt` / `system_prompt` 三个散文字段可以写成 `@<路径>`，由 loader 相对**声明它的模板文件**读取并内联（与 `child_templates` 同一条相对路径规则）：
+
+```json
+{
+  "name": "project",
+  "spawn_prompt": "@project/spawn_prompt.md",
+  "system_prompt": "@project/system_prompt.md"
+}
+```
+
+- `@` 只在字符串整值等于 `@<路径>` 时生效，不是字符串插值；文件末尾由编辑器补的那一个换行会被去掉，CRLF 归一化成 LF，其余内容原样保留（不递归解析：文件里以 `@` 开头的第一行就是正文）。
+- 引用必须是可读文件：文件不存在、路径为空、或模板是程序化 `register` 注册的（没有文件可相对）都报 `-32602`，**绝不退化成字面量**。
+- 校验与快照看到的都是内联后的正文（长度上限、`service.view --with prompt`、创建时写入 Context 的 `system_prompt` 都是展开后的文本）。
+- 这些 `.md` 与模板 JSON 一样属于「喂给 agent 的提示词面」：`src/identity.js` 的 fingerprint 同时哈希 `templates/**/*.json` 与 `templates/**/*.md`，改了提示词文件同样要 `just daemon-restart`。
 
 ### 保留变量名
 
@@ -48,13 +67,15 @@
 
 ```text
 templates/lush-root.json
+templates/lush-root/{spawn_prompt,system_prompt}.md
 templates/lush-root/project-manager.json
+templates/lush-root/project-manager/{spawn_prompt,system_prompt}.md
 templates/lush-root/project-manager/{project,generic-task,generic-service,research-task}.json
 templates/lush-root/project-manager/project/dev-task.json
 templates/lush-root/project-manager/project/dev-task/worktree-service.json
 ```
 
-`child_templates` 写相对自己文件的路径（`lush-root/project-manager.json`、`project/dev-task.json`、`dev-task/worktree-service.json`、同目录的 `generic-task.json`），loader 递归读取并把它解析成模板名，白名单、快照与权限比对里始终只有名字；也接受直接写模板名（程序化 `register` 没有文件可相对，旧用户模板继续可用）。`$LUSH_HOME/templates/**/*.json` 可增加新模板，不覆盖仓库模板，重启后加载。
+`<name>/` 因此装两样东西：`<name>` 自己的两段提示词（`spawn_prompt.md` / `system_prompt.md`），和它能直接创建的模板（`.json`）。`child_templates` 写相对自己文件的路径（`lush-root/project-manager.json`、`project/dev-task.json`、`dev-task/worktree-service.json`、同目录的 `generic-task.json`），loader 递归读取并把它解析成模板名，白名单、快照与权限比对里始终只有名字；也接受直接写模板名（程序化 `register` 没有文件可相对，旧用户模板继续可用）。`$LUSH_HOME/templates/**/*.json` 可增加新模板，不覆盖仓库模板，重启后加载。
 
 **SID 0 只能创建 `project-manager`**：`lush-root` 的 `child_templates` 只有这一项，用户模板同样不在其列（列表是显式的，没有 `*`）。
 

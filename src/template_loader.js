@@ -33,6 +33,17 @@ export const REQUIRED_FIELDS = ['name', 'singleton', 'description', 'spawn_promp
  */
 export const OPTIONAL_FIELDS = ['agent'];
 
+/**
+ * The fields holding prose rather than identifiers, and the ones that may live
+ * in their own file: a string that is exactly `@<path>` is read from that path,
+ * relative to the declaring template's own file (the rule `child_templates`
+ * already follows). JSON strings cannot contain a raw newline, so a
+ * multi-paragraph prompt is otherwise one very long line of `\n` escapes —
+ * unreadable in an editor and invisible in `git diff`. A reference is never
+ * treated as a literal: `@` with no readable file behind it is an error.
+ */
+export const PROSE_FIELDS = ['description', 'spawn_prompt', 'system_prompt'];
+
 const VARIABLE_FIELDS = ['required', 'default', 'description', ...VARIABLE_CONSTRAINT_FIELDS];
 
 /**
@@ -102,6 +113,26 @@ function checkVariables(value, templateName) {
  * that survives both is cut at the edge being walked, so this always terminates.
  * Ties break on name, so the result never depends on file names.
  */
+/** One prose field: the text itself, or the content of the file it names. */
+function inlineProse(value, { field, name, file }) {
+  if (!value.startsWith('@')) return value;
+  const entry = value.slice(1);
+  if (entry.trim() === '') throw new LushError(`template ${name} ${field} is an empty reference (@)`, -32602);
+  if (file === null) {
+    throw new LushError(`template ${name} ${field} is a file reference (@${entry}), but ${name} was registered without a file`, -32602);
+  }
+  const target = path.resolve(path.dirname(file), entry);
+  let content;
+  try {
+    content = fs.readFileSync(target, 'utf8');
+  } catch {
+    throw new LushError(`template ${name} ${field}: no readable file at ${target}`, -32602);
+  }
+  // The file is prose, not a byte container: CRLF is normalized and the trailing
+  // newline an editor leaves behind is dropped. Everything else is verbatim.
+  return content.replace(/\r\n/g, '\n').replace(/\n+$/, '');
+}
+
 function hierarchyLevels(templates) {
   const parents = new Map(Object.keys(templates).map((name) => [name, []]));
   for (const [name, template] of Object.entries(templates)) {
@@ -227,29 +258,38 @@ export class TemplateLoader {
       throw new LushError(`template must contain exactly ${[...REQUIRED_FIELDS].sort()}`
         + (OPTIONAL_FIELDS.length ? ` (optional: ${OPTIONAL_FIELDS.join(', ')})` : ''), -32602);
     }
-    for (const field of ['name', 'description', 'spawn_prompt', 'system_prompt']) text(value[field], field, 100_000);
+    // Prose fields may be `@<file>` references: read them before anything is
+    // validated, so both the length limits below and the snapshot downstream
+    // see the real text. The copy keeps the caller's object untouched.
+    const template = { ...value };
+    for (const field of PROSE_FIELDS) {
+      if (typeof template[field] === 'string') {
+        template[field] = inlineProse(template[field], { field, name: template.name, file });
+      }
+    }
+    for (const field of ['name', 'description', 'spawn_prompt', 'system_prompt']) text(template[field], field, 100_000);
     // Optional: which agent profile new instances use unless --agent overrides it.
-    if (Object.hasOwn(value, 'agent')) text(value.agent, 'agent', 200);
-    if (typeof value.singleton !== 'boolean') {
+    if (Object.hasOwn(template, 'agent')) text(template.agent, 'agent', 200);
+    if (typeof template.singleton !== 'boolean') {
       throw new LushError('singleton must be a boolean', -32602);
     }
-    if (!Array.isArray(value.child_templates) || value.child_templates.some((name) => typeof name !== 'string' || name === '')) {
+    if (!Array.isArray(template.child_templates) || template.child_templates.some((name) => typeof name !== 'string' || name === '')) {
       throw new LushError('child_templates must be a list of names', -32602);
     }
-    checkVariables(value.variables, value.name);
-    if (Object.hasOwn(this.templates, value.name)) {
-      throw new LushError(`duplicate template: ${value.name}`, -32602);
+    checkVariables(template.variables, template.name);
+    if (Object.hasOwn(this.templates, template.name)) {
+      throw new LushError(`duplicate template: ${template.name}`, -32602);
     }
-    jsonDump(value);
-    const template = structuredClone(value);
-    if (file !== null) this.files.set(path.resolve(file), template.name);
+    jsonDump(template);
+    const stored = structuredClone(template);
+    if (file !== null) this.files.set(path.resolve(file), stored.name);
     // `resolve: false` defers the whitelist while a directory is being loaded:
     // a relative path there may name a file that is only registered later.
     if (resolve) {
-      template.child_templates = template.child_templates.map((entry) => this.resolveChild(entry, template.name, file));
+      stored.child_templates = stored.child_templates.map((entry) => this.resolveChild(entry, stored.name, file));
     }
-    this.templates[template.name] = template;
-    this.origins.set(template.name, file === null ? null : path.resolve(file));
+    this.templates[stored.name] = stored;
+    this.origins.set(stored.name, file === null ? null : path.resolve(file));
   }
 
   /** Current definition for `name`, or null when no such template is loaded. */

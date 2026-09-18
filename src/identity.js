@@ -36,6 +36,10 @@ const SURFACE_DIRS = [
   // Templates are nested (the layout mirrors the spawn tree), so the walk has to
   // descend: a nested template file is as much part of the surface as a flat one.
   { path: 'templates', extension: '.json', recursive: true },
+  // A template's prose may live in a `@`-referenced markdown file next to it
+  // (`src/template_loader.js`); that file decides what an agent is told just as
+  // much as the JSON does, so it is part of the same surface.
+  { path: 'templates', extension: '.md', recursive: true },
   // The command tree is the CLI declaration agents are pointed at; it lives in
   // its own directory so `main.js` stays an entry point.
   { path: 'src/cli/tree', extension: '.js' },

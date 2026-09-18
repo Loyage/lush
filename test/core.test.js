@@ -649,6 +649,44 @@ describe('core', () => {
     expect(new TemplateLoader(directory).get('leaf-tpl').child_templates).toEqual(['leaf-tpl']);
   });
 
+  test('prose fields may be read from a referenced file next to the template', () => {
+    const directory = path.join(dir, 'templates');
+    const base = manager.templates.get('generic-task');
+    const write = (relative, value) => {
+      fs.mkdirSync(path.dirname(path.join(directory, relative)), { recursive: true });
+      fs.writeFileSync(path.join(directory, relative), typeof value === 'string' ? value : JSON.stringify(value));
+    };
+    write('sub/prose-tpl.json', {
+      ...base,
+      name: 'prose-tpl',
+      description: '@prose-tpl/description.md',
+      spawn_prompt: '@prose-tpl/spawn_prompt.md',
+      system_prompt: '字面量：以 @ 之外的字符开头就不是引用',
+      child_templates: [],
+    });
+    write('sub/prose-tpl/description.md', '一句话。\n');
+    // CRLF 归一成 LF，编辑器补的末尾换行去掉，段落之间的空行原样保留。
+    write('sub/prose-tpl/spawn_prompt.md', '第一段。\n\n第二段。\r\n');
+
+    const template = new TemplateLoader(directory).get('prose-tpl');
+    expect(template.description).toBe('一句话。');
+    expect(template.spawn_prompt).toBe('第一段。\n\n第二段。');
+    expect(template.system_prompt).toBe('字面量：以 @ 之外的字符开头就不是引用');
+
+    // A reference is never a literal: nothing readable behind it is an error.
+    for (const [description, message] of [
+      ['@missing.md', /no readable file at .*missing\.md/],
+      ['@', /empty reference/],
+    ]) {
+      write('sub/prose-tpl.json', { ...base, name: 'prose-tpl', description });
+      expect(() => new TemplateLoader(directory)).toThrow(message);
+    }
+    // Programmatic register has no file to resolve against, so it refuses one.
+    expect(() => manager.templates.register({ ...base, name: 'prose-no-file', description: '@/tmp/x.md' }))
+      .toThrow(/registered without a file/);
+    expect(manager.templates.find('prose-no-file')).toBeNull();
+  });
+
   test('spawn variables: required path, defaults, mutability regions and validation', () => {
     expect(code(() => spawn(0, 'project', 'p'))).toBe(-32602);
     try {
