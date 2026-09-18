@@ -35,11 +35,12 @@ export function startWeb(config, port = 4318) {
             // 独立顶层文档（新标签打开）：不受主页面 CSP 约束，但仍显式收紧到一个自包含页面。
             return new Response(Bun.file(file), { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': REPORT_CSP } });
           }
-          const read = /^\/api\/task\/(\d+)(\/(history|diff|transcript))?$/.exec(url.pathname);
+          const read = /^\/api\/task\/(\d+)(\/(history|diff|transcript|usage))?$/.exec(url.pathname);
           if (read) {
             const taskId = Number(read[1]);
             if (read[3] === 'history') return json(await client.request('task.history', { id: taskId, after: Number(url.searchParams.get('after') ?? 0) }));
             if (read[3] === 'diff') return json(await client.request('task.diff', { id: taskId }));
+            if (read[3] === 'usage') return json(await client.request('task.usage', { id: taskId }));
             if (read[3] === 'transcript') return json(await client.request('task.transcript', { id: taskId, after: Number(url.searchParams.get('after') ?? 0) }));
             return json(await client.request('task.inspect', { id: taskId }));
           }

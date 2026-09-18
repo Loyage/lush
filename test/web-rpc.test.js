@@ -82,6 +82,8 @@ test('RPC rejects invalid frames, unknown params, invalid ids and cross-project 
     expect(() => encode({large:'x'.repeat(1048576)})).toThrow('1 MiB');
     const client = new RPCClient(f.config.socket);
     await expect(client.request('task.inspect',{id:-1})).rejects.toThrow('positive');
+    await expect(client.request('task.usage',{id:-1})).rejects.toThrow('positive');
+    await expect(client.request('task.usage',{id:1,after:0})).rejects.toThrow('unknown parameter');
     await expect(client.request('input.submit',{content:'x',sid:0})).rejects.toThrow('unknown parameter');
     await expect(client.request('input.list',{_token:'foreign'})).rejects.toThrow();
     // 客户端比 daemon 新时不能只说 unknown method，要给出重启这一步
@@ -144,10 +146,43 @@ test('web exposes the read-only agent transcript and keeps sessions out of the r
     // 越界游标、未知任务、超限 limit 都是 400，不当成服务器错误
     expect((await fetch(`${f.url}/api/task/${task.id}/transcript?after=-1`)).status).toBe(400);
     expect((await fetch(`${f.url}/api/task/99/transcript`)).status).toBe(400);
+    // 执行过程默认一步一行：默认展开的只有「回答」，其余（思考/工具调用/工具输出）要点开才看正文
+    const app = await (await fetch(`${f.url}/app.js`)).text();
+    expect(app).toMatch(/STEP_OPEN = new Set\(\['text'\]\)/);
+    expect(app).toContain('展开全部步骤');
+    expect(app).toContain('默认折叠成一行');
     // 过程不进快照/列表，只有 transcript 路由才读会话文件
     const snapshot = await (await fetch(f.url + '/api/snapshot')).json();
     expect(JSON.stringify(snapshot)).not.toContain('先看看代码');
     expect(snapshot.tasks[0].result).toBeUndefined();
+  } finally { await f.close(); }
+});
+
+test('web exposes agent usage (model, context, cost) next to the transcript', async () => {
+  const f = await setup();
+  try {
+    const task = f.project.submit('usage me').task;
+    f.project.stopping = true;   // 只造数据，不让 planner 真的跑
+    const dir = path.join(f.config.home, 'sessions');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `2026-01-01T00-00-00-000Z_lush-task-${task.id}.jsonl`), [
+      JSON.stringify({ type: 'model_change', timestamp: 1789749049000, provider: 'deepseek', modelId: 'deepseek-flash' }),
+      JSON.stringify({ type: 'message', timestamp: 1789749049638, message: { role: 'assistant', provider: 'deepseek', model: 'deepseek-flash',
+        content: [{ type: 'text', text: '已处理' }],
+        usage: { input: 1426, output: 193, cacheRead: 2176, cacheWrite: 0, reasoning: 68, totalTokens: 3795, cost: { total: 0.000672456 } } } }),
+    ].join('\n') + '\n');
+    const usage = await (await fetch(`${f.url}/api/task/${task.id}/usage`)).json();
+    expect(usage.model).toEqual({ provider: 'deepseek', model_id: 'deepseek-flash' });
+    expect(usage.requests).toBe(1);
+    expect(usage.context_tokens).toBe(3795);
+    expect(usage.totals.cost).toBeCloseTo(0.000672456, 9);
+    expect((await fetch(`${f.url}/api/task/99/usage`)).status).toBe(400);
+    // 用量只走这条只读路由，不进快照
+    expect(JSON.stringify(await (await fetch(f.url + '/api/snapshot')).json())).not.toContain('deepseek-flash');
+    // 详情面板把 agent 身份、模型、上下文与花费和执行过程放在同一块里
+    const app = await (await fetch(`${f.url}/app.js`)).text();
+    expect(app).toContain("block('Agent'");
+    for (const label of ['模型', '上下文占用', '累计 token', '预计花费', '模型请求']) expect(app).toContain(label);
   } finally { await f.close(); }
 });
 

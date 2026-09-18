@@ -4,7 +4,7 @@ import path from 'node:path';
 import { check, id, text, TERMINAL, bounded, isPlainObject, LushError } from './types.js';
 import { Workspaces } from './workspaces.js';
 import { taskSlug } from './naming.js';
-import { readTranscript } from './transcript.js';
+import { readTranscript, readUsage } from './transcript.js';
 import { PiProvider, MockProvider } from '../agent/provider.js';
 
 const DEP_KINDS = new Set(['code', 'order']);
@@ -260,6 +260,11 @@ export class Project {
   transcript(taskId, after = 0, limit = 100) {
     this.store.task(taskId);
     return readTranscript(this.config, taskId, after, limit);
+  }
+  /** Read-only agent usage (model, context, cost) from the same session files, without the bodies. */
+  usage(taskId) {
+    this.store.task(taskId);
+    return readUsage(this.config, taskId);
   }
   tree(taskId = null) {
     const tasks = this.decorate(this.store.summaries());

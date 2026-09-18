@@ -23,7 +23,7 @@ bun run web 4318 --project /absolute/path/to/my-project
 
 `start` 只启动项目 daemon；`say` **立即返回输入和 task ID，不等待模型或开发完成**；Web 是独立的本地界面进程，不隐式启停 daemon。Web 离线后会自动重连。
 
-Web UI（`http://127.0.0.1:4318`）是两栏视图：左栏是任务树与待决问题，右栏是所选任务的结果、改动概览（已提交与未提交的文件）、子任务、消息与事件时间线，输入框常驻底部。未选任务时右栏显示项目概览（状态分布、运行中与空闲的 agent、待合并分支、运行时信息）。选中任务会写入 `#task-ID` 哈希，可直接用链接打开；刷新不丢已输入的答复。
+Web UI（`http://127.0.0.1:4318`）是两栏视图：左栏是任务树与待决问题，右栏是所选任务的结果、改动概览（已提交与未提交的文件）、子任务、消息、Agent（模型、上下文占用、累计花费与执行过程）与事件时间线，输入框常驻底部。未选任务时右栏显示项目概览（状态分布、运行中与空闲的 agent、待合并分支、运行时信息）。选中任务会写入 `#task-ID` 哈希，可直接用链接打开；刷新不丢已输入的答复。
 
 若 `bin/` 已在 PATH，在目标项目内可以直接使用：
 
@@ -134,6 +134,7 @@ bun run tasks               # 默认前 200 条，可加 --after ID --limit N
 bun run tree
 bun run inspect 3
 bun run transcript 3        # 只看不写：agent 的思考、工具调用与输出
+bun run usage 3             # 同一个 agent 的模型、上下文占用与累计花费
 bun run message 3 '补充要求'
 bun run notices
 bun run answer 1 '我的选择'
@@ -189,7 +190,7 @@ pi 默认禁用个人 extensions / skills / prompt templates / themes，保留�
 | `LUSH_PI_COMMAND` | `pi` | pi 可执行文件 |
 | `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL` | pi 默认 | 模型选择 |
 
-`tasks.result` 只保存 invocation 的最后一次输出；完整的执行过程（思考、工具调用、工具输出）留在 `.lush/sessions/*.jsonl`，用 `lush task transcript ID`（Web 详情里的「执行过程」）只读查看。截图、过程与结论分开：审阅合并时看 result 与 `task diff`，需要追究 agent 怎么做的时候看 transcript，需要直接看结果跑起来时点「检验」。
+`tasks.result` 只保存 invocation 的最后一次输出；完整的执行过程（思考、工具调用、工具输出）留在 `.lush/sessions/*.jsonl`，用 `lush task transcript ID`（Web 详情里的「执行过程」）只读查看，agent 的模型、上下文占用与累计花费用 `lush task usage ID` 从同一批文件里读出（Web 详情里的「Agent」块）。截图、过程与结论分开：审阅合并时看 result 与 `task diff`，需要追究 agent 怎么做的时候看 transcript，需要直接看结果跑起来时点「检验」。
 
 ## 验证与文档
 

@@ -31,6 +31,7 @@
     "timeline": "bun ./scripts/ops.js timeline",
     "inspect": "bun ./scripts/ops.js inspect",
     "transcript": "bun ./scripts/ops.js transcript",
+    "usage": "bun ./scripts/ops.js usage",
     "message": "bun ./scripts/ops.js message",
     "cancel": "bun ./scripts/ops.js cancel",
     "retry": "bun ./scripts/ops.js retry",

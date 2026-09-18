@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture } from './helpers.js';
-import { readTranscript, sessionFiles } from '../src/core/transcript.js';
+import { readTranscript, readUsage, sessionFiles } from '../src/core/transcript.js';
 import { LushError } from '../src/core/types.js';
 
 /** pi 的会话记录长这样：一行一条 JSON，消息正文按 part 排列。 */
@@ -13,6 +13,9 @@ function sessionFile(root, taskId, lines, name = `2026-01-01T00-00-00-000Z_lush-
   return path.join(dir, name);
 }
 const message = (role, content, timestamp = 1789749049638) => ({ type: 'message', timestamp, message: { role, content } });
+/** assistant 消息带 pi 的用量：模型每次请求都给出 token 与按单价算好的花费。 */
+const billing = (text, usage, timestamp) => ({ type: 'message', timestamp,
+  message: { role: 'assistant', provider: 'deepseek', model: 'deepseek-flash', content: [{ type: 'text', text }], usage } });
 
 test('transcript projects pi session records into ordered steps', () => {
   const f = fixture();
@@ -70,6 +73,45 @@ test('transcript pages by cursor, keeps the window stable and stays read-only', 
     expect(readTranscript(f.config, 2, third.next, 3).steps).toEqual([]);
     expect(fs.readFileSync(file, 'utf8')).toBe(before);
     expect(fs.readdirSync(path.join(f.root, '.lush', 'sessions'))).toEqual([path.basename(file)]);
+  } finally { f.close(); }
+});
+
+test('usage reports model, context and cost across session files without projecting steps', () => {
+  const f = fixture();
+  try {
+    sessionFile(f.root, 4, [
+      { type: 'session', id: 'lush-task-4', cwd: '/tmp/proj' },
+      { type: 'model_change', provider: 'deepseek', modelId: 'deepseek-flash' },
+      { type: 'thinking_level_change', thinkingLevel: 'high' },
+      message('user', [{ type: 'text', text: 'go' }], 1000),
+      billing('first', { input: 100, output: 20, cacheRead: 200, cacheWrite: 0, reasoning: 5, totalTokens: 320, cost: { total: 0.0004 } }, 2000),
+      { type: 'compaction', summary: 'so far', tokensBefore: 120000 },
+    ], '2026-01-01T00-00-00-000Z_lush-task-4.jsonl');
+    sessionFile(f.root, 4, [
+      billing('second', { input: 10, output: 2, cacheRead: 300, cacheWrite: 4, reasoning: 0, totalTokens: 316, cost: { total: 0.00006 } }, 3000),
+    ], '2026-02-01T00-00-00-000Z_lush-task-4.jsonl');
+    const usage = readUsage(f.config, 4);
+    expect(usage.files).toEqual(['2026-01-01T00-00-00-000Z_lush-task-4.jsonl', '2026-02-01T00-00-00-000Z_lush-task-4.jsonl']);
+    expect(usage.model).toEqual({ provider: 'deepseek', model_id: 'deepseek-flash' });
+    expect(usage.thinking_level).toBe('high');
+    expect(usage.requests).toBe(2);
+    expect(usage.compacted).toBe(1);
+    expect(usage.context_tokens).toBe(316);                     // 最近一次请求，不是累计
+    expect(usage.totals.input).toBe(110);
+    expect(usage.totals.output).toBe(22);
+    expect(usage.totals.cache_read).toBe(500);
+    expect(usage.totals.cache_write).toBe(4);
+    expect(usage.totals.reasoning).toBe(5);
+    expect(usage.totals.tokens).toBe(636);
+    expect(usage.totals.cost).toBeCloseTo(0.00046, 9);
+    expect(usage.last_at).toBe(new Date(3000).toISOString());
+    expect(usage.steps).toBeUndefined();                         // 只有统计，不投影正文
+    // 没有会话记录、没有用量的会话都只是空统计，不是错误
+    expect(readUsage(f.config, 99)).toEqual({ task_id: 99, files: [], model: null, thinking_level: null, requests: 0, compacted: 0,
+      context_tokens: 0, last_at: null, totals: { input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, tokens: 0, cost: 0 }, truncated: false });
+    sessionFile(f.root, 5, [message('assistant', [{ type: 'text', text: 'no usage here' }])]);
+    expect(readUsage(f.config, 5)).toMatchObject({ requests: 1, context_tokens: 0, last_at: null });
+    expect(readUsage(f.config, 5).model).toBeNull();
   } finally { f.close(); }
 });
 

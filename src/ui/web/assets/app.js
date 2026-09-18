@@ -96,6 +96,10 @@ function duration(from, to) {
 }
 const absolute = iso => { const at = Date.parse(iso); return Number.isFinite(at) ? new Date(at).toLocaleString('zh-CN', { hour12: false }) : ''; };
 const clock = iso => { const at = Date.parse(iso); return Number.isFinite(at) ? new Date(at).toTimeString().slice(0, 8) : ''; };
+/** token 只让人比大小，不让人数位数：7.2k / 1.34M。 */
+const tokens = value => { const count = Number(value) || 0; return count >= 1e6 ? `${(count / 1e6).toFixed(2)}M` : count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count); };
+/** 花费可能小到 0.0006 美元，三位小数会全变成 $0.000，看不出差别。 */
+const money = value => { const amount = Number(value) || 0; return `$${amount > 0 && amount < 0.01 ? amount.toFixed(5) : amount.toFixed(3)}`; };
 const depsOf = task => task.deps || [];
 const waitingDeps = task => depsOf(task).filter(dep => !TERMINAL_STATUS.has(dep.status));
 const DEP_HELP = {
@@ -519,25 +523,56 @@ const STEP = { input: '输入', text: '回答', thinking: '思考', tool: '工�
 const MD_STEP = new Set(['text', 'result', 'thinking']);   // 这几类步骤正文按 markdown 渲染
 const transcriptOpen = new Set();    // 用户展开过「执行过程」的任务
 const transcriptCache = new Map();   // taskId -> 已加载的步骤窗口
+/** 单步折叠：默认每步只占一行（类型 + 标题 + 时间），点这一行才看正文；只有大模型的「回答」默认展开。 */
+const STEP_OPEN = new Set(['text']);
+const stepToggle = new Map();        // `<taskId>:<seq>` -> 用户显式选择的展开状态，重画详情不会丢
+const stepKey = (taskId, step) => `${taskId}:${step.seq}`;
+const stepExpanded = (taskId, step) => stepToggle.get(stepKey(taskId, step)) ?? STEP_OPEN.has(step.kind);
+
+/** 一步：折叠状态只改这一个节点，不重建整个执行过程（否则滚动位置会跳）。 */
+function stepNode(taskId, step) {
+  const item = el('li', undefined, `step s-${step.kind}`);
+  const head = el('button', undefined, 'step-head');
+  head.type = 'button';
+  const caret = el('span', '', 'step-caret');
+  head.append(caret, el('span', STEP[step.kind] || step.kind, `step-kind k-${step.kind}`), el('span', step.title, 'step-title'));
+  if (step.at) head.append(el('span', relative(step.at), 'when'));
+  item.append(head);
+  // 没有正文的步骤（运行时元数据）保持一行，也不做可点的样子。
+  if (!step.body) { head.classList.add('static'); head.tabIndex = -1; return item; }
+  const body = MD_STEP.has(step.kind) ? agentText(step.body, { className: 'step-body' }) : el('div', step.body, 'step-body');
+  const paint = open => {
+    item.classList.toggle('open', open);
+    caret.textContent = open ? '▾' : '▸';
+    body.hidden = !open;
+    head.setAttribute('aria-expanded', String(open));
+  };
+  head.title = '点击展开／收起这一步的正文';
+  head.onclick = () => { const open = !item.classList.contains('open'); stepToggle.set(stepKey(taskId, step), open); paint(open); };
+  paint(stepExpanded(taskId, step));
+  item.append(body);
+  return item;
+}
 
 function transcriptContent(taskId) {
   const state = transcriptCache.get(taskId);
   if (!state) return [el('p', '正在读取会话记录…', 'hint')];
   const meta = el('p', state.steps.length
-    ? `${state.steps.length} 步 \u00b7 来自 pi 会话记录：${state.files.join('\u3001')}`
+    ? `${state.steps.length} 步 \u00b7 来自 pi 会话记录：${state.files.join('\u3001')} \u00b7 默认折叠成一行，点标题展开（「回答」默认展开）`
     : (state.files.length ? '会话记录里还没有可显示的步骤。' : '这个任务还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。'), 'hint');
   if (!state.steps.length) return [meta];
   const list = el('ol', undefined, 'steps');
-  for (const step of state.steps) {
-    const item = el('li', undefined, `step s-${step.kind}`);
-    const head = el('div', undefined, 'step-head');
-    head.append(el('span', STEP[step.kind] || step.kind, `step-kind k-${step.kind}`), el('span', step.title, 'step-title'));
-    if (step.at) head.append(el('span', relative(step.at), 'when'));
-    item.append(head);
-    if (step.body) item.append(MD_STEP.has(step.kind) ? agentText(step.body, { className: 'step-body' }) : el('div', step.body, 'step-body'));
-    list.append(item);
-  }
+  for (const step of state.steps) list.append(stepNode(taskId, step));
+  const foldable = state.steps.filter(step => step.body);
   const actions = el('div', undefined, 'actions');
+  // 一步一行，但轮到要看全文时不该点几十次：一个按钮把整段过程一次摊开或收起。
+  if (foldable.length > 1) {
+    const allOpen = foldable.every(step => stepExpanded(taskId, step));
+    actions.append(button(allOpen ? '收起全部步骤' : '展开全部步骤', () => {
+      for (const step of foldable) stepToggle.set(stepKey(taskId, step), !allOpen);
+      paintTranscript(taskId);
+    }, 'ghost'));
+  }
   if (state.has_more) actions.append(button(`加载更多（已有 ${state.steps.length} 步）`, async () => {
     const page = await api(`/api/task/${taskId}/transcript?after=${state.next}`);
     state.steps.push(...page.steps); state.next = page.next; state.has_more = page.has_more;
@@ -593,7 +628,60 @@ function renderVerifications(task) {
   }
   return section;
 }
-function renderDetail(task, history, diff) {
+/** 一个 agent 的全部信息：身份与唤醒次数（Lush 侧）+ 模型、上下文、花费（pi 会话记录侧）。
+ *  执行过程就在同一块里——它就是 agent 这个身份干过的事，不是另一类数据。 */
+function renderAgent(task, usage) {
+  const section = block('Agent');
+  const grid = el('div', undefined, 'grid');
+  if (task.agent) {
+    grid.append(kv('agent', `${task.agent.id} · ${task.agent.active ? `运行中 · pid ${task.agent.pid ?? '待上报'}` : '空闲'}`));
+    grid.append(kv('唤醒', `累计 ${task.agent.wakes} 次${task.agent.last_seen_at ? ` · 上次动手 ${relative(task.agent.last_seen_at)}` : ''}`));
+  }
+  if (usage?.files?.length) {
+    grid.append(kv('模型', usage.model ? [usage.model.provider, usage.model.model_id].filter(Boolean).join('/') : '—', 'mono'));
+    if (usage.thinking_level) grid.append(kv('思考等级', usage.thinking_level));
+    // 还没等到模型回复就结束的会话（被杀、启动失败）没有用量，不摆一排 0 充数。
+    if (usage.requests) {
+      // 上下文占用＝最近一次请求真的送进去又收回来的 token（输入 + 缓存 + 输出），当作那一刻的上下文大小。
+      const context = kv('上下文占用', `${tokens(usage.context_tokens)} tokens（最近一次请求）`);
+      context.title = '最近一次模型请求的输入 + 缓存读 + 缓存写 + 输出。来自 pi 会话记录，不是估算。';
+      const spent = [`输入 ${tokens(usage.totals.input)}`, `输出 ${tokens(usage.totals.output)}`, `缓存读 ${tokens(usage.totals.cache_read)}`];
+      if (usage.totals.cache_write) spent.push(`缓存写 ${tokens(usage.totals.cache_write)}`);
+      if (usage.totals.reasoning) spent.push(`推理 ${tokens(usage.totals.reasoning)}`);
+      const cumulative = kv('累计 token', spent.join(' · '));
+      cumulative.title = '这个任务的全部会话文件累计；重试不会清空 agent 的历史。';
+      const cost = kv('预计花费', money(usage.totals.cost));
+      cost.title = 'pi 按模型单价对每次请求算出的 cost.total 累加；模型换过就按各自单价分别计。';
+      grid.append(context, cumulative, cost);
+    }
+    grid.append(kv('模型请求', `${usage.requests} 次${usage.last_at ? ` · 最近 ${relative(usage.last_at)}` : ''}`));
+    grid.append(kv('会话记录', `${usage.files.length} 个文件${usage.compacted ? ` · 上下文压缩 ${usage.compacted} 次` : ''}`, 'mono'));
+  }
+  section.append(grid);
+
+  const process = block('执行过程');
+  const holder = el('div', undefined, 'transcript');
+  const cached = transcriptCache.get(task.id);
+  if (cached) holder.replaceChildren(...transcriptContent(task.id));
+  // 会话文件不存在就别摆一个点了没用的按钮，直接说清楚为什么没东西可看。
+  else if (usage && !usage.files.length) holder.append(el('p', '这个任务还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。', 'hint'));
+  else if (transcriptOpen.has(task.id)) holder.append(el('p', '正在读取会话记录…', 'hint'));
+  else {
+    holder.append(el('p', '思考、工具调用与工具输出保存在 pi 会话记录里，默认不展开。', 'hint'));
+    const actions = el('div', undefined, 'actions');
+    actions.append(button('查看执行过程', async () => {
+      transcriptOpen.add(task.id);
+      try { await loadTranscript(task.id); } catch (error) { transcriptOpen.delete(task.id); throw error; }
+      if (selected === task.id) await detail(task.id);
+    }, 'ghost'));
+    holder.append(actions);
+  }
+  process.append(holder);
+  section.append(process);
+  return section;
+}
+
+function renderDetail(task, history, diff, usage) {
   const panel = $('detail'); panel.replaceChildren();
   const head = el('div', undefined, 'head');
   head.append(el('span', `#${task.id}`, 'tid-lg'), statusBadge(task),
@@ -639,10 +727,6 @@ function renderDetail(task, history, diff) {
   const stats = block('状态');
   const grid = el('div', undefined, 'grid');
   grid.append(kv('调用次数', `${task.calls}（本次尝试）`));
-  if (task.agent) {
-    grid.append(kv('agent', `${task.agent.id} · 累计唤醒 ${task.agent.wakes} 次`));
-    grid.append(kv('agent 上次动手', task.agent.last_seen_at ? `${absolute(task.agent.last_seen_at)} · ${relative(task.agent.last_seen_at)}` : '—'));
-  }
   grid.append(kv(task.status === 'running' ? '本次已运行' : '耗时', duration(task.created_at, task.status === 'running' ? new Date().toISOString() : task.updated_at)));
   grid.append(kv('创建', `${absolute(task.created_at)}`, 'mono'));
   grid.append(kv('最后更新', `${absolute(task.updated_at)} · ${relative(task.updated_at)}`));
@@ -680,25 +764,7 @@ function renderDetail(task, history, diff) {
     }
     panel.append(messages);
   }
-  if (task.calls) {
-    const process = block('执行过程');
-    const holder = el('div', undefined, 'transcript');
-    const cached = transcriptCache.get(task.id);
-    if (cached) holder.replaceChildren(...transcriptContent(task.id));
-    else if (transcriptOpen.has(task.id)) holder.append(el('p', '正在读取会话记录…', 'hint'));
-    else {
-      holder.append(el('p', 'agent 的思考、工具调用与工具输出保存在 pi 会话记录里，默认不展开。', 'hint'));
-      const actions = el('div', undefined, 'actions');
-      actions.append(button('查看执行过程', async () => {
-        transcriptOpen.add(task.id);
-        try { await loadTranscript(task.id); } catch (error) { transcriptOpen.delete(task.id); throw error; }
-        if (selected === task.id) await detail(task.id);
-      }, 'ghost'));
-      holder.append(actions);
-    }
-    process.append(holder);
-    panel.append(process);
-  }
+  if (task.calls) panel.append(renderAgent(task, usage));
   if (history?.events?.length) {
     const events = block('事件时间线', String(history.events.length));
     events.append(renderHistory(history.events.slice(-200), { running: task.status === 'running', truncated: history.truncated }));
@@ -724,11 +790,13 @@ async function detail(taskId) {
   const scrolled = detailTask === taskId ? $('detail').scrollTop : 0;
   // window.history: a local `history` binding here would shadow the global and throw a TDZ error on click.
   if (location.hash !== `#task-${taskId}`) window.history.replaceState(null, '', `#task-${taskId}`);
-  let task, timeline, diff;
+  let task, timeline, diff, usage;
   try {
-    [task, timeline, diff] = await Promise.all([
+    [task, timeline, diff, usage] = await Promise.all([
       api(`/api/task/${taskId}`), loadHistory(taskId).catch(() => ({ events: [], truncated: false })),
       api(`/api/task/${taskId}/diff`).catch(() => null),
+      // agent 用量（模型、上下文、花费）来自 pi 会话记录：读不到会话不影响详情其余部分。
+      api(`/api/task/${taskId}/usage`).catch(() => null),
     ]);
   } catch (error) {
     if (selected === taskId) renderDetailError(taskId, error.message);
@@ -736,7 +804,7 @@ async function detail(taskId) {
   }
   if (selected !== taskId) return;
   selectedRevision = task.updated_at; detailTask = taskId; detailRenderedAt = Date.now(); detailDirty = false;
-  renderDetail(task, timeline, diff);
+  renderDetail(task, timeline, diff, usage);
   $('detail').scrollTop = scrolled;
   const tree = $('tasks').querySelector(`[data-id="${taskId}"]`);
   if (tree) for (const node of $('tasks').children) node.classList.toggle('selected', node === tree);
