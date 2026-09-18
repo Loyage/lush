@@ -50,7 +50,7 @@ lush daemon stop
 用户 → SID 0（入口 / 路由器）上的根 task
         ├── 关于 Lush 自身的问题：SID 0 自己用只读命令回答
         └── 其他一切任务：把 task 派给 project-manager 节点
-                ├── 「给 <项目> 加功能 / 修 bug / 重构 / 调研它」→ 该项目的 project 节点上的 task（由它拆 dev-task 子 task）
+                ├── 「给 <项目> 加功能 / 修 bug / 重构 / 调研它」→ 该项目的 project 节点上的 task（由它拆 dev-task 子 task；除非明确说明例外，每个 dev-task 都新开一个 git worktree，并在那个 worktree 里用 worktree-service 上的 agent 改；改完后 agent 用 notice 问用户是否合并，用户答 yes 时由 project 节点在主工作树执行合并；合并成功后 project 再问用户是否回收 worktree 资源（删 worktree 与分支））
                 ├── 不绑定某个项目的问题（选型 / 通用调研）→ research-task 节点
                 ├── 有明确目标的一次性杂活 → generic-task 节点
                 └── 长期能力 / 常驻服务 → generic-service 节点
