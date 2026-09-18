@@ -18,6 +18,8 @@ const EVENTS = {
 };
 const HOT = new Set(['running', 'awaiting', 'waiting', 'queued']);
 const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
+/** 时间轴里「没在跑」的四种原因：前两种是结构造成的串行，后两种是资源与人的等待。 */
+const WAIT_REASON = { dep: '等依赖', children: '等子任务', user: '等你决定', slot: '等并发槽', setup: '没跑起来' };
 let selected = null, selectedRevision = null, busy = false, offline = false, detailDirty = false, detailTask = null, detailRenderedAt = 0;
 let draftCount = 0, draftSignature = null;
 // 左侧「等你决定」只是索引；右侧展开的那条 notice 由 noticeFocus 记住，数据每次都取自最新 snapshot。
@@ -70,6 +72,13 @@ function duration(from, to) {
   return `${Math.floor(seconds / 3600)} 小时 ${Math.floor((seconds % 3600) / 60)} 分`;
 }
 const absolute = iso => { const at = Date.parse(iso); return Number.isFinite(at) ? new Date(at).toLocaleString('zh-CN', { hour12: false }) : ''; };
+const clock = iso => { const at = Date.parse(iso); return Number.isFinite(at) ? new Date(at).toTimeString().slice(0, 8) : ''; };
+const depsOf = task => task.deps || [];
+const waitingDeps = task => depsOf(task).filter(dep => !TERMINAL_STATUS.has(dep.status));
+const DEP_HELP = {
+  code: '这是它的 worktree 基线：本任务的分支从上游分支长出来，所以合并必须先合上游，否则会把上游的改动一起带进来。',
+  order: '这只是顺序依赖：等上游结束才开跑，代码仍从当时的 HEAD 开始，因此不要求先合并上游。',
+};
 async function api(url, options) {
   const response = await fetch(url, options); const value = await response.json();
   if (!response.ok) throw new Error(value.error || response.statusText); return value;
@@ -164,6 +173,62 @@ function renderDrafts(data) {
     return item;
   }));
 }
+/** 顶部并发槽：并行不是树里的属性，而是全局资源——画出来才知道谁在占槽、谁在等槽。 */
+function slotGauge(data) {
+  const limit = data.status.concurrency ?? 1, used = data.status.agents.length;
+  const ready = data.tasks.filter(task => task.status === 'queued' && !waitingDeps(task).length).length;
+  const node = el('span', undefined, 'slots');
+  node.append(el('span', '并发槽', 'slot-label'));
+  const dots = el('span', undefined, 'slot-dots');
+  for (let i = 0; i < Math.min(limit, 16); i++) dots.append(el('span', '●', `slot ${i < used ? 'on' : 'off'}`));
+  if (limit > 16) dots.append(el('span', `+${limit - 16}`, 'slot'));
+  node.append(dots, el('span', `${used}/${limit}`, 'slot-count'));
+  // 没有依赖却没在跑的 queued 任务，等的就是槽——这是「为什么还没开始」最常见的答案。
+  if (ready) node.append(el('span', `排队 ${ready} 等槽`, 'slot-queue'));
+  node.title = `并发上限 ${limit}：同一时刻最多 ${limit} 个 agent 在跑。没有依赖却在排队的任务就是在等槽。`;
+  return node;
+}
+/** 同一个父任务下互相没有依赖的兄弟可以同时跑；有依赖的串成链——这就是树里看不到的并行/串行。 */
+function siblingChain(children) {
+  const ids = new Set(children.map(child => child.id));
+  const inner = new Map(children.map(child => [child.id, depsOf(child).filter(dep => ids.has(dep.id))]));
+  const level = new Map();
+  const depth = (taskId, seen = new Set()) => {
+    if (level.has(taskId)) return level.get(taskId);
+    if (seen.has(taskId)) return 0;
+    seen.add(taskId);
+    const upstreams = inner.get(taskId) || [];
+    const value = upstreams.length ? 1 + Math.max(...upstreams.map(dep => depth(dep.id, seen))) : 0;
+    level.set(taskId, value); return value;
+  };
+  for (const child of children) depth(child.id);
+  const levels = new Map();
+  for (const child of children) { const at = level.get(child.id); if (!levels.has(at)) levels.set(at, []); levels.get(at).push(child.id); }
+  return [...levels.entries()].sort((a, b) => a[0] - b[0]).map(([, group]) => group.sort((a, b) => a - b));
+}
+/** 一行依赖标签：⛓ 是分支基线（必须先合上游），⏳ 只是等它结束；未结算的上游高亮。 */
+function depChip(dep) {
+  const code = dep.kind === 'code', waiting = !TERMINAL_STATUS.has(dep.status);
+  const chip = el('span', `${code ? '⛓' : '⏳'}#${dep.id}${code ? '基线' : '顺序'}${waiting ? '·等' : ''}`,
+    `dep dep-${code ? 'code' : 'order'}${waiting ? ' dep-wait' : ''}`);
+  chip.title = `#${dep.id} ${code ? '（code 依赖）' : '（order 依赖）'}${DEP_HELP[code ? 'code' : 'order']}\n上游状态：${statusOf(dep).label}`;
+  return chip;
+}
+/** 此刻为什么没在干活：等依赖 / 等槽 / 等子任务 / 等你决定。四种拼起来才是完整的并行-串行关系。 */
+function whyLine(task, index) {
+  const waiting = waitingDeps(task);
+  if (task.status === 'running') return `运行中 · 占 1 个并发槽`;
+  if (task.status === 'queued' && waiting.length) return `排队：等 ${waiting.map(dep => `#${dep.id}`).join('、')} 结束`;
+  if (task.status === 'queued') return `排队：没有依赖、但没有空槽（上限 ${index.concurrency}）`;
+  if (task.status === 'waiting') {
+    const kids = index.children(task.id);
+    const live = kids.filter(child => child.status === 'running').length;
+    return `等子任务：${live} 个在跑 · ${kids.filter(child => !TERMINAL_STATUS.has(child.status)).length} 个未结束`;
+  }
+  if (task.status === 'awaiting') return '等你决定：有没答复的问题';
+  if (task.status === 'completed' && ['pending', 'review'].includes(task.integration)) return '已完成，等你批准合并';
+  return null;
+}
 function renderTree(data) {
   const container = $('tasks');
   const flows = new Map((data.inputs || []).map(input => [input.id, input.flow]));
@@ -177,9 +242,19 @@ function renderTree(data) {
     if (!byParent.has(key)) byParent.set(key, []);
     byParent.get(key).push(task);
   }
+  const index = { concurrency: data.status.concurrency ?? 1, children: taskId => byParent.get(taskId) || [] };
   const ordered = [];
   const walk = (parent, depth) => {
-    for (const task of byParent.get(parent) || []) {
+    const siblings = byParent.get(parent) || [];
+    // 根任务之间的并行由 planner 槽决定（不是一个父任务下的兄弟关系），所以只画委派出来的兄弟。
+    if (parent !== 0 && siblings.length > 1) {
+      const chain = siblingChain(siblings).map(group => group.length > 1 ? `{${group.map(taskId => `#${taskId}`).join(' ‖ ')}}` : `#${group[0]}`).join(' → ');
+      const band = el('div', `并行关系 ${chain}　并列的可同时跑，箭头表示要等前面结束（上限 ${index.concurrency} 个）`,
+        `band d${Math.min(depth, 5)}`);
+      band.title = '∥ 表示同一父任务下互相无依赖、可以同时跑；→ 的顺序来自依赖边：⛓ 基线还要求先合并上游。';
+      ordered.push(band);
+    }
+    for (const task of siblings) {
       const node = known.get(task.id) || button('', () => { noticeFocus = null; return detail(task.id); }, 'task');
       const integration = INTEGRATION[task.integration];
       node.dataset.id = task.id;
@@ -187,13 +262,15 @@ function renderTree(data) {
       node.replaceChildren();
       const row = el('span', undefined, 'row');
       row.append(el('span', statusOf(task).icon, `dot c-${task.status}`), el('span', `#${task.id}`, 'tid'),
-        el('span', `${statusOf(task).label} · ${ROLE[task.role] || task.role}`), el('span', relative(task.updated_at), 'when'));
+        el('span', `${statusOf(task).label} · ${ROLE[task.role] || task.role}`));
       const flow = task.parent_id === null && !task.verifies_task_id ? flows.get(task.input_id) : null;
       if (flow) row.append(badge(flow === 'explain' ? '了解' : '开发', flow === 'explain' ? 'b-neutral' : 'b-completed'));
+      for (const dep of depsOf(task)) row.append(depChip(dep));
+      row.append(el('span', relative(task.updated_at), 'when'));
       node.append(row, el('span', task.goal, 'goal'));
+      const why = whyLine(task, index);
+      if (why) node.append(el('span', why, 'meta reason'));
       if (integration) node.append(el('span', integration, 'meta'));
-      const waiting = (task.deps || []).filter(dep => !TERMINAL_STATUS.has(dep.status));
-      if (waiting.length) node.append(el('span', `等 ${waiting.map(dep => `#${dep.id}`).join(' ')}`, 'meta'));
       node.title = `${task.goal}\n更新于 ${absolute(task.updated_at)}`;
       ordered.push(node); walk(task.id, depth + 1);
     }
@@ -202,6 +279,79 @@ function renderTree(data) {
   syncChildren(container, ordered);
   const active = data.tasks.filter(task => HOT.has(task.status)).length;
   $('task-count').textContent = `${data.tasks.length} 个 · ${active} 进行中`;
+}
+/** 合并阶梯：该先合哪个、哪些分支已经被别的分支带进来了。 */
+function renderLadder(ladder) {
+  const nodes = ladder?.nodes || [];
+  const section = block('合并阶梯', String(nodes.length));
+  if (!nodes.length) { section.append(el('p', '没有待合并的分支。', 'hint')); return section; }
+  section.append(el('p', '⛓ code 依赖＝下游 worktree 的基线：必须先合上游，否则下游的分支会把它一起带进来。\n⏳ order 依赖只要求上游结束，所以下游可以先合——那时它有没有把上游带进来由 git 判定。', 'hint'));
+  for (const node of nodes) {
+    const line = el('div', undefined, `ladder l${Math.min(node.level, 5)}`);
+    const row = el('div', undefined, 'row');
+    row.append(el('span', `L${node.level}`, 'tid'), el('span', `#${node.id}`, 'tid'),
+      button(node.goal, () => detail(node.id), 'link'), el('span', node.branch, 'when'));
+    line.append(row);
+    for (const dep of node.deps) {
+      line.append(el('span', `${dep.kind === 'code' ? '⛓ 必须先合' : '⏳ 只等结束'} #${dep.id}${dep.merged ? '（已合并）' : ''}${dep.kind === 'order' && dep.contains ? '（它的提交已经在你里面）' : ''}`, 'meta'));
+    }
+    if (node.covered_by.length) line.append(el('span', `⚠ 已经被 #${node.covered_by.join('、')} 带进来：合后者即可，本分支会变成 no-op`, 'meta warn'));
+    section.append(line);
+  }
+  const first = nodes.filter(node => node.level === 0 && !node.covered_by.length).map(node => node.id);
+  if (first.length) section.append(el('p', `建议先合 ${first.map(taskId => `#${taskId}`).join('、')}；命令：lush task merge <id>`));
+  return section;
+}
+/** 并行时间轴：实心＝真的在跑，虚线＝排队，最下面一行是同时占用槽的数量。 */
+function renderTimeline(timeline) {
+  const section = block('并行时间轴', `${timeline?.tasks?.length ?? 0} 个任务`);
+  const tasks = timeline?.tasks || [];
+  if (!tasks.length) { section.append(el('p', '还没有任务。', 'hint')); return section; }
+  const start = Date.parse(timeline.start), end = Date.parse(timeline.end);
+  const span = Math.max(end - start, 1);
+  const pct = at => ((at - start) / span) * 100;
+  section.append(el('p', `${clock(timeline.start)} → ${clock(timeline.end)}（最近 ${tasks.length} 个任务${timeline.clamped ? '，窗口已截断' : ''}）· 上限 ${timeline.concurrency} 个并发${timeline.truncated ? ' · 更早的任务没有列出' : ''}`, 'hint'));
+  const chart = el('div', undefined, 'gantt');
+  for (const task of tasks) {
+    const row = el('div', undefined, 'gantt-row');
+    row.append(el('span', `#${task.id} ${ROLE[task.role] || task.role}`, 'gantt-label'));
+    const track = el('div', undefined, 'gantt-track');
+    for (const segment of task.segments) {
+      const left = pct(Date.parse(segment.start));
+      const width = Math.max(pct(Date.parse(segment.end)) - left, 0.35);
+      if (segment.kind === 'wait' && width < 0.6) continue;   // 毫秒级的调度延迟不画
+      const bar = el('span', undefined, `gantt-seg ${segment.kind}${segment.open ? ' open' : ''}${segment.reason ? ` r-${segment.reason}` : ''}`);
+      bar.style.left = `${left}%`; bar.style.width = `${width}%`;
+      const what = segment.kind === 'run' ? '运行' : WAIT_REASON[segment.reason] || '排队';
+      bar.title = `${what} ${clock(segment.start)} → ${clock(segment.end)}（${duration(segment.start, segment.end)}）${segment.blocked_by?.length ? `\n在等：${segment.blocked_by.map(taskId => `#${taskId}`).join('、')}` : ''}`;
+      track.append(bar);
+    }
+    row.append(track); chart.append(row);
+  }
+  // 槽位行：按所有区间边界采样，看每个时刻到底有几个 agent 在跑。
+  const limit = timeline.concurrency || 1;
+  const points = [...new Set(tasks.flatMap(task => task.segments.flatMap(segment => [Date.parse(segment.start), Date.parse(segment.end)])))].sort((a, b) => a - b);
+  const slotRow = el('div', undefined, 'gantt-row');
+  const slotTrack = el('div', undefined, 'gantt-track slot-track');
+  let peak = 0;
+  for (let index = 0; index + 1 < points.length; index += 1) {
+    const from = points[index], to = points[index + 1], mid = (from + to) / 2;
+    const busy = tasks.reduce((sum, task) => sum + task.segments.filter(segment => segment.kind === 'run' && Date.parse(segment.start) <= mid && Date.parse(segment.end) >= mid).length, 0);
+    peak = Math.max(peak, busy);
+    const bar = el('span', undefined, `gantt-seg slot-${busy === 0 ? 'idle' : busy >= limit ? 'full' : 'busy'}`);
+    const left = pct(from);
+    bar.style.left = `${left}%`; bar.style.width = `${Math.max(pct(to) - left, 0.2)}%`;
+    bar.title = `${clock(new Date(from).toISOString())} 起同时 ${busy} 个在跑（上限 ${limit}）`;
+    slotTrack.append(bar);
+  }
+  slotRow.append(el('span', `槽位 峰值 ${peak}/${limit}`, 'gantt-label'), slotTrack);
+  chart.append(slotRow);
+  section.append(chart);
+  const axis = el('div', undefined, 'gantt-axis');
+  axis.append(el('span', clock(timeline.start)), el('span', clock(timeline.end)));
+  section.append(axis);
+  section.append(el('p', '实心＝agent 真的在跑（来自 invocation 事件）；虚线＝排队，颜色区分等依赖 / 等子任务 / 等并发槽 / 等你决定。', 'hint'));
+  return section;
 }
 
 /** 左侧只放索引：点一下才在右侧展开正文与回复框。 */
@@ -565,7 +715,11 @@ let overviewKey = null;
 function renderOverview(data) {
   const open = data.notices.filter(notice => notice.status === 'open');
   const key = JSON.stringify([data.status.tasks, data.status.agents, data.status.agents_idle, data.status.pending_merges, data.status.drafts, open.map(n => n.id),
-    data.tasks.length, data.status.project, data.status.version, data.status.fingerprint, data.status.started_at]);
+    data.tasks.length, data.status.project, data.status.version, data.status.fingerprint, data.status.started_at,
+    // 时间轴的开口段一直在长，但只在结构变化或每 15 秒才需要重画一次，免得轮询把滚动位置冲掉。
+    Math.floor(Date.now() / 15000),
+    (data.timeline?.tasks || []).map(task => `${task.id}:${task.status}:${task.segments.length}`).join(','),
+    (data.ladder?.nodes || []).map(node => `${node.id}:${node.level}:${node.deps.length}:${node.covered_by.join('|')}`).join(',')]);
   if (key === overviewKey) return;
   overviewKey = key;
   const panel = $('detail'); panel.replaceChildren();
@@ -603,6 +757,8 @@ function renderOverview(data) {
     merges.append(row);
   }
   panel.append(merges);
+  panel.append(renderLadder(data.ladder));
+  panel.append(renderTimeline(data.timeline));
 
   const notices = block('待决问题', String(open.length));
   if (!open.length) notices.append(el('p', '没有等你决定的问题。', 'hint'));
@@ -651,7 +807,7 @@ async function refresh() {
     $('project').textContent = data.status.project;
     $('project').title = data.status.project;
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');
-    $('agents').textContent = `${data.status.agents.length} 运行 · ${data.status.agents_idle ?? 0} 空闲 · 并发 ${data.status.concurrency}`;
+    $('agents').replaceChildren(slotGauge(data));
     if (offline) { offline = false; $('error').textContent = ''; }
     renderDrafts(data); renderTree(data);
     const noticeBefore = noticeFocus;
