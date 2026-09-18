@@ -24,7 +24,7 @@ export class Store {
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_id);
       CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);
-      -- 依赖边只 writable-at-create：spawn 时写入，之后不可变。kind: code=从上游分支继续, order=只等它结束。
+      -- 依赖边只在 spawn 时写入，之后不可变。kind: code=从上游分支继续, order=只等它结束。
       CREATE TABLE IF NOT EXISTS task_deps (
         task_id INTEGER NOT NULL REFERENCES tasks(id), depends_on INTEGER NOT NULL REFERENCES tasks(id),
         kind TEXT NOT NULL CHECK (kind IN ('code','order')), PRIMARY KEY (task_id, depends_on));
