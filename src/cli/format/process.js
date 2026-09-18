@@ -184,6 +184,21 @@ export function formatAgents(rows) {
   return table.map((row) => row.map((cell, index) => cell.padEnd(width[index])).join('  ').trimEnd()).join('\n');
 }
 
+/** `lush process agents kill` text output: what died, and how the OS side fared. */
+export function formatAgentKill(result) {
+  const who = `agent ${result.id}`;
+  if (result.outcome === 'killed') return `killed ${who} (os ${result.os_pid})`;
+  if (result.outcome === 'gone') {
+    return `killed ${who} (os ${result.os_pid} was already gone; call interrupted)`;
+  }
+  // No OS pid: either an in-process provider (the abort settles it right here)
+  // or an interactive agent whose terminal has not reported its pi yet.
+  if (result.interactive) {
+    return `cancellation requested for ${who} (no OS pid reported yet; its terminal still owns that pi)`;
+  }
+  return `killed ${who} (in-process provider; call interrupted)`;
+}
+
 /** `lush process orphans` text output: the pool, or what one sweep just froze. */
 export function formatOrphans(result) {
   // A sweep report is the only shape that carries `evicted`; the read model has

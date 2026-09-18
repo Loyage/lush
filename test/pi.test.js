@@ -262,12 +262,16 @@ describe('pi agent backend', () => {
       status: 'succeeded', cancellable: false, call: { status: 'succeeded' },
     });
 
-    // Killing one agent kills the OS process, not the logical Process.
-    expect(manager.agentsKill(`${parent.pid}.2`)).toMatchObject({ killed: true, os_pid: terminal.pid });
+    // Killing one agent kills the OS process, not the logical Process, and
+    // settles the interactive call on the spot: there is nobody left to report.
+    const kill = manager.agentsKill(`${parent.pid}.2`);
+    expect(kill).toMatchObject({ outcome: 'killed', os_pid: terminal.pid });
+    expect('killed' in kill).toBe(false);
+    expect(kill.cancellable).toBe(false);
     await exited;
-    expect(manager.callEnd(parent.pid, opened.call_id, 'succeeded')).toMatchObject({ settled: true, status: 'interrupted' });
-    expect(manager.inspect(parent.pid).status).toBe('running');
     expect(runtime.agentsList()).toEqual([]);
+    expect(manager.callEnd(parent.pid, opened.call_id, 'succeeded')).toMatchObject({ settled: false, status: 'interrupted' });
+    expect(manager.inspect(parent.pid).status).toBe('running');
     expect(manager.agentsList(null, true).map((agent) => `${agent.id}:${agent.status}`))
       .toEqual([`${parent.pid}.1:succeeded`, `${parent.pid}.2:interrupted`]);
     expect(() => manager.agentsKill(`${parent.pid}.2`)).toThrow(/is not running/);
@@ -275,6 +279,24 @@ describe('pi agent backend', () => {
     // A report that arrives after the verdict is a no-op, not an error.
     expect(manager.callOsPid(parent.pid, opened.call_id, process.pid)).toEqual({
       pid: parent.pid, call_id: opened.call_id, recorded: false, agent_id: null,
+    });
+  });
+
+  test('agents kill settles an interactive worker whose pi is already gone', async () => {
+    const opened = runtime.openInteractive(0, 'interactive round');
+    // A pi that exits on its own leaves the agent listed (only the terminal can
+    // report back) with a pid that is no longer alive.
+    const dead = cp.spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
+    const exited = new Promise((resolve) => dead.on('close', resolve));
+    expect(manager.callOsPid(0, opened.call_id, dead.pid)).toMatchObject({ recorded: true });
+    await exited;
+    // `gone`, not `no_pid`: the daemon still knows which pid it had, so it can
+    // tell the terminal is not coming back and settle the call itself.
+    expect(manager.agentsKill(opened.agent_id)).toMatchObject({ outcome: 'gone', os_pid: dead.pid, status: 'interrupted' });
+    expect(runtime.agentsList()).toEqual([]);
+    expect(runtime.isBusy(0)).toBe(false);
+    expect(manager.inspect(0).recent_calls[0]).toMatchObject({
+      id: opened.call_id, status: 'interrupted', error: `invocation ${opened.call_id} interrupted`,
     });
   });
 

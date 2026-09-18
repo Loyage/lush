@@ -9,7 +9,7 @@ import { objectLines, shortValue, treeLines } from './primitives.js';
 import { formatAgentCommand } from './agent.js';
 import { formatDaemon } from './daemon.js';
 import {
-  formatAgent, formatAgents, formatDryRun, formatHistory, formatInspect, formatLifecycle, formatList,
+  formatAgent, formatAgentKill, formatAgents, formatDryRun, formatHistory, formatInspect, formatLifecycle, formatList,
   formatOrphans, formatRemoval, formatSession, formatView,
 } from './process.js';
 
@@ -53,9 +53,7 @@ export function format(args, result) {
   }
   if (args.command === 'update-state') return objectLines(result).join('\n');
   if (LIFECYCLE_VERBS[args.command]) return formatLifecycle(LIFECYCLE_VERBS[args.command], result);
-  if (args.command === 'agents_kill') {
-    return `killed agent ${result.id} (${result.killed ? `os ${result.os_pid}` : 'no OS pid to kill; cancellation requested'})`;
-  }
+  if (args.command === 'agents_kill') return formatAgentKill(result);
   if (args.command === 'delete' || args.command === 'purge') return formatRemoval(result);
   if (args.command === 'list') return formatList(result);
   return JSON.stringify(result, null, 2);

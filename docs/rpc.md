@@ -36,7 +36,7 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 | process.tree | agents? | metadata 数组（客户端格式化树），行内带与 process.list 同形的 variables；agents 默认 true，为每行附上运行期活跃度：provider、running（个数）、agents[]（id / call_id / interactive / os_pid / started_at / elapsed_ms）；agents=false 时不再带 agent 字段（variables 仍在） |
 | process.agents_list | pid?, all? | 运行期 agent 数组（id、pid、name、provider、status、call_id、os_pid、interactive、cancellable、started_at、ended_at、elapsed_ms、error）；all=true 附上本次 daemon 内存里已结束的条目（上限 32） |
 | process.agents_show | id | 单个 agent + 它服务的进程的 session + 对应的持久 call 行 |
-| process.agents_kill | id | 结束该 agent 的这次调用（interrupted），返回该 agent 的视图与 killed 标记；逻辑进程状态不变 |
+| process.agents_kill | id | 结束该 agent 的这次调用（interrupted），返回该 agent 的视图与 outcome（`killed` / `gone` / `no_pid`）；逻辑进程状态不变 |
 | process.call_os_pid | pid, call_id, os_pid | 终端上报 `call --interactive` 起在自己终端里的 pi 进程：recorded=true 表示已挂到该 agent 上 |
 | process.inspect | pid | metadata（含 variables 值与声明、`agent_profile`）、Context metadata、Agent 状态（status / provider / profile（选中的 agent profile 名，缺省为 default））、近期调用 |
 | process.parent | pid | parent metadata 或 null |
@@ -148,7 +148,7 @@ lush process session PID [--open]
 
 agent 有两个互不相同的视图，都不落库也不共用 pid 空间：
 
-- **运行期 agent**（`process.agents_list` / `_show` / `_kill`，CLI `lush process agents …`）：id 形如 `PID.N`（N 在本次 daemon 内按进程单调递增），字段有 `pid`、`name`、`provider`、`status`（只有 `running` 是活的）、`call_id`、`os_pid`（daemon 起的 pi 由 `invocation.on_spawn` 报回，`--interactive` 的由终端调 `process.call_os_pid` 上报）、`interactive`、`cancellable`（interactive 且尚未上报 os_pid 时为 false）、`started_at`/`ended_at`/`elapsed_ms`、`error`。`agents_list` 默认只返回活着的；`all: true` 再附上本次 daemon 内存里保留的已结束条目（上限 32，daemon 退出即清空）。`agents_kill` 只结束这一次调用（记为 interrupted），改变逻辑进程状态仍然是 `process.kill`。
+- **运行期 agent**（`process.agents_list` / `_show` / `_kill`，CLI `lush process agents …`）：id 形如 `PID.N`（N 在本次 daemon 内按进程单调递增），字段有 `pid`、`name`、`provider`、`status`（只有 `running` 是活的）、`call_id`、`os_pid`（daemon 起的 pi 由 `invocation.on_spawn` 报回，`--interactive` 的由终端调 `process.call_os_pid` 上报）、`interactive`、`cancellable`（interactive 且尚未上报 os_pid 时为 false）、`started_at`/`ended_at`/`elapsed_ms`、`error`。`agents_list` 默认只返回活着的；`all: true` 再附上本次 daemon 内存里保留的已结束条目（上限 32，daemon 退出即清空）。`agents_kill` 只结束这一次调用（记为 interrupted），改变逻辑进程状态仍然是 `process.kill`。返回值的 `outcome` 说明 OS 侧：`killed`（SIGKILL 送达）、`gone`（pid 已不存在）、`no_pid`（进程内 provider，或 interactive 且终端尚未上报 os_pid）；`killed` / `gone` 的 interactive 调用由 daemon 当场记为 interrupted，不再等终端回报或超时，`no_pid` 的只标记取消、等终端回报或超时。
 - **`process.tree` 的 `agent` 字段**（默认带；`agents: false` 去掉，CLI `--no-agents`）：只回答「此刻谁在干活」——`provider`、`running`（个数）、`agents[]`（每个的 id / call_id / interactive / os_pid / started_at / elapsed_ms）。由 `AgentRuntime.agentSummary` 生成，不建 Context、不拼 argv、不读磁盘与历史，因此 N 个进程只付 N 次内存查询；没有 agent 在跑的进程返回 `running: 0`。
 - **磁盘上的 transcript** 仍然是 `process.session`（session_dir / session_id / files / file / argv / browse_command / cwd / busy）：按 PID 命名，多轮 call 追加同一个文件，进程归档后照样可查。
 

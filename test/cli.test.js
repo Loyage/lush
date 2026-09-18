@@ -7,7 +7,7 @@ import { Dispatcher } from '../src/rpc/protocol.js';
 import { RPCServer } from '../src/rpc/server.js';
 import { createSignal } from '../src/signal.js';
 import { formatOrphans } from '../src/cli/main.js';
-import { formatInspect, formatList } from '../src/cli/format/process.js';
+import { formatAgentKill, formatInspect, formatList } from '../src/cli/format/process.js';
 import { treeLines } from '../src/cli/format/primitives.js';
 import { cleanup, deferred, system, tmpdir } from './helpers.js';
 
@@ -598,7 +598,8 @@ describe('cli, daemon lifecycle and attach', () => {
       expect((await cli(['process', 'agents', 'list'])).stdout).toContain('pipe');
 
       // Killing the worker ends the invocation; the process keeps running with its goal.
-      expect(JSON.parse((await cli(['--json', 'process', 'agents', 'kill', '2.1'])).stdout)).toMatchObject({ id: '2.1', killed: true });
+      expect(JSON.parse((await cli(['--json', 'process', 'agents', 'kill', '2.1'])).stdout))
+        .toMatchObject({ id: '2.1', outcome: 'killed' });
       expect(await call.exited).not.toBe(0);
       expect(await stderr).toContain('interrupted');
       expect(await stdout).toBe('');
@@ -877,6 +878,28 @@ describe('task field text output', () => {
     // A very long body is capped in text, and says so.
     const long = inspectOf(row({ title: 't', detail: 'y'.repeat(5000) }));
     expect(long).toContain('more characters; --json has the full value');
+  });
+});
+
+describe('agents kill text output', () => {
+  // The three outcomes of `process.agents_kill`: the OS pid is only one of them,
+  // and "no OS pid" must not be claimed when the pid simply died first.
+  const view = (extra) => ({ id: '1.1', interactive: true, os_pid: 35692, ...extra });
+
+  test('a delivered SIGKILL names the pid it killed', () => {
+    expect(formatAgentKill(view({ outcome: 'killed' }))).toBe('killed agent 1.1 (os 35692)');
+  });
+
+  test('a pid that was already gone says so instead of "no pid"', () => {
+    expect(formatAgentKill(view({ outcome: 'gone' })))
+      .toBe('killed agent 1.1 (os 35692 was already gone; call interrupted)');
+  });
+
+  test('tty and in-process agents without a pid explain what actually happened', () => {
+    expect(formatAgentKill(view({ outcome: 'no_pid', os_pid: null })))
+      .toBe('cancellation requested for agent 1.1 (no OS pid reported yet; its terminal still owns that pi)');
+    expect(formatAgentKill(view({ outcome: 'no_pid', os_pid: null, interactive: false })))
+      .toBe('killed agent 1.1 (in-process provider; call interrupted)');
   });
 });
 

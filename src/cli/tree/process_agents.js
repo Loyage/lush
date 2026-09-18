@@ -51,11 +51,11 @@ export const processAgentGroup = {
       summary: '终止一个正在运行的 agent（不动逻辑进程）',
       cover: [
         '只杀这个工作者：该次调用被记为 interrupted，agent 从运行中列表消失，逻辑进程保持 running（要同时改进程状态用 `lush process kill PID`）。',
-        'daemon 起的 pi 走取消路径 SIGKILL；`--interactive` 的由 daemon 直接 SIGKILL 你终端里的那个 pi（CLI 起手已把 os_pid 报给 daemon）。',
+        'daemon 起的 pi 走取消路径 SIGKILL；`--interactive` 的由 daemon 直接 SIGKILL 你终端里的那个 pi（CLI 起手已把 os_pid 报给 daemon），并在同一刻把这次调用记为 interrupted，不再等终端回报或超时。',
       ],
       notes: [
         '已结束或未知的 agent 会报错（没有可杀的东西）。',
-        'OS pid 已经自己消失时 `killed: false`，调用仍会被标记为 interrupted。',
+        '结果里的 `outcome` 说明 OS 侧怎么结束的：`killed`（SIGKILL 送达）、`gone`（pid 本来就已不存在，同样立刻记为 interrupted）、`no_pid`（进程内 provider，或终端还没上报 pi 的 pid——此时只标记取消，等终端回报或超时）。',
       ],
       usage: ['lush process agents kill AGENT_ID'],
       positionals: [['AGENT_ID', 'agent 编号，形如 2.1']],

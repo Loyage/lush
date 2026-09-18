@@ -28,6 +28,10 @@ export function byAgentId(left, right) {
     || Number(left.id.split('.')[1]) - Number(right.id.split('.')[1]);
 }
 
+/**
+ * SIGKILL one OS process. `false` means the pid was already gone (ESRCH) — an
+ * agent whose pi exited on its own is not a failure, just nothing to signal.
+ */
 function killProcess(osPid) {
   try {
     process.kill(osPid, 'SIGKILL');
@@ -149,9 +153,22 @@ export function agentShow(runtime, id) {
 
 /**
  * Kill one live worker: the invocation ends as interrupted, the logical
- * process is untouched (that is `process kill PID`). A daemon-spawned pi is
- * killed through its abort path; an interactive one only through the OS pid
- * its terminal reported — the daemon has no other handle on it.
+ * process is untouched (that is `process kill PID`).
+ *
+ * How the OS side fared is reported as `outcome`:
+ *
+ * - `killed`: the worker had an OS pid and it took the SIGKILL.
+ * - `gone`: it had one, but the process was already dead (ESRCH), so the
+ *   terminal's pi exited on its own and there was nothing to signal.
+ * - `no_pid`: nothing to signal — an in-process provider, or an interactive
+ *   agent whose terminal has not reported its pi's pid yet.
+ *
+ * A daemon-spawned pi settles itself when the abort reaches its tool loop. An
+ * interactive call has no daemon-side code to abort — its terminal is the only
+ * witness — so once its OS process is gone (`killed` or `gone`) the daemon
+ * settles the call here rather than leaving the worker listed until the call
+ * timeout fires. With `no_pid` there is no such evidence, so the entry is only
+ * marked and waits for the terminal to report back (or for the timeout).
  */
 export function agentsKill(runtime, id) {
   const record = runtime.agents.get(id);
@@ -160,9 +177,12 @@ export function agentsKill(runtime, id) {
     throw new LushError(`agent ${id} is not running`, -32009);
   }
   entry.reason = 'cancelled';
-  const killed = record.os_pid === null ? false : killProcess(record.os_pid);
+  const outcome = record.os_pid === null ? 'no_pid' : (killProcess(record.os_pid) ? 'killed' : 'gone');
   entry.controller.abort();
-  return { ...agentView(runtime, record), killed };
+  if (record.interactive && outcome !== 'no_pid') {
+    runtime._settle(entry.pid, entry, 'interrupted', { error: `invocation ${entry.callId} interrupted` });
+  }
+  return { ...agentView(runtime, record), outcome };
 }
 
 /**
