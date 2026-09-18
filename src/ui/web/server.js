@@ -1,9 +1,13 @@
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { UIClient } from '../client.js';
 import { check } from '../../core/types.js';
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
-const MUTATIONS = new Set(['input.submit','input.flow','draft.add','draft.remove','draft.commit','task.message','task.cancel','task.retry','task.merge','task.cleanup','task.clear','notice.answer','notice.dismiss']);
+const MUTATIONS = new Set(['input.submit','input.flow','draft.add','draft.remove','draft.commit','task.message','task.cancel','task.retry','task.merge','task.cleanup','task.verify','task.clear','notice.answer','notice.dismiss']);
+/** 检验报告是 agent 写的自包含 HTML：只允许内联样式/脚本与 data: 图片，禁止任何外部加载与表单提交。
+ *  主页面 CSP 不会作用于这个独立文档，所以这里必须自己收紧。 */
+const REPORT_CSP = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'";
 export function startWeb(config, port = 4318) {
   check(Number.isInteger(port) && port >= 0 && port <= 65535, 'invalid web port');
   const client = new UIClient(config);
@@ -22,6 +26,15 @@ export function startWeb(config, port = 4318) {
       try {
         if (request.method === 'GET') {
           if (url.pathname === '/api/snapshot') return json(await client.snapshot());
+          const report = /^\/api\/task\/(\d+)\/report$/.exec(url.pathname);
+          if (report) {
+            const task = await client.request('task.inspect', { id: Number(report[1]) });
+            check(task.role === 'verifier', `task #${task.id} is not a verification`);
+            const file = path.join(config.home, 'verify', String(task.id), 'report.html');
+            if (!fs.existsSync(file)) return json({ error: `verification #${task.id} has no report yet` }, 404);
+            // 独立顶层文档（新标签打开）：不受主页面 CSP 约束，但仍显式收紧到一个自包含页面。
+            return new Response(Bun.file(file), { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': REPORT_CSP } });
+          }
           const read = /^\/api\/task\/(\d+)(\/(history|diff|transcript))?$/.exec(url.pathname);
           if (read) {
             const taskId = Number(read[1]);

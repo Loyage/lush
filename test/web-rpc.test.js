@@ -147,6 +147,31 @@ test('web exposes the read-only agent transcript and keeps sessions out of the r
   } finally { await f.close(); }
 });
 
+test('web serves the verification report as a self-contained document and nothing else', async () => {
+  const f = await setup();
+  try {
+    f.project.stopping = true;   // 只造数据，不让 planner 真的跑
+    const worker = f.store.create({ parent_id: null, input_id: null, role: 'worker', goal: 'w', name: 'w' });
+    const verifier = f.store.create({ parent_id: null, input_id: null, role: 'verifier', goal: 'v', name: 'verify-1', verifies_task_id: worker.id });
+    // 还没写报告时是 404，而不是空文档
+    expect((await fetch(`${f.url}/api/task/${verifier.id}/report`)).status).toBe(404);
+    const file = path.join(f.config.home, 'verify', String(verifier.id), 'report.html');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '<!doctype html><title>对照</title><p>before/after</p>');
+    const response = await fetch(`${f.url}/api/task/${verifier.id}/report`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(response.headers.get('content-security-policy')).toContain("default-src 'none'");
+    expect(await response.text()).toContain('before/after');
+    // 非 verifier 任务与不存在的任务都不报文件路径，只报错
+    expect((await fetch(`${f.url}/api/task/${worker.id}/report`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/task/9999/report`)).status).toBe(400);
+    const app = await (await fetch(`${f.url}/app.js`)).text();
+    expect(app).toContain('检验中…');
+    expect(app).toContain('打开 HTML 报告');
+  } finally { await f.close(); }
+});
+
 test('web buffers drafts, commits the whole batch and keeps agents out of the composer', async () => {
   const f = await setup();
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});

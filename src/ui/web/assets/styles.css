@@ -124,6 +124,12 @@ button.danger:hover{background:#2a1b19}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .chip{font-size:11.5px;border:1px solid var(--line);border-radius:99px;padding:1px 9px;color:var(--muted)}
 
+/* 检验：只读 agent 的演示结论与自包含 HTML 报告 */
+.verify{background:var(--panel);border:1px solid var(--line-soft);border-left:3px solid var(--accent);border-radius:var(--radius);padding:10px 11px;margin:8px 0}
+.verify .row{font-size:11.5px;color:var(--muted)}
+.verify pre{max-height:32vh}
+.verify .actions{margin-top:6px}
+
 /* notices */
 .notice{background:var(--panel);border:1px solid #3d3527;border-left:3px solid var(--awaiting);border-radius:var(--radius);padding:11px;margin-bottom:10px}
 .notice h3{font-size:13px;color:var(--awaiting)}
