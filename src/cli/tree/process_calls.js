@@ -1,4 +1,30 @@
 import { intArg, jsonArg, next, UsageError } from '../args.js';
+import { isPlainObject } from '../../core/types.js';
+
+/**
+ * `--title` / `--detail` are sugar for two reserved variable names the task
+ * templates declare; they merge into the same object `--vars` builds, and the
+ * same name given twice is a usage error instead of one option silently
+ * winning over the other. The symbol remembers which option set which name so
+ * the error can quote both sides; symbols never travel in RPC params.
+ */
+const VARIABLE_SOURCE = Symbol('variable source');
+
+function setVariable(result, key, value, flag) {
+  if (result.variables !== undefined && !isPlainObject(result.variables)) {
+    throw new UsageError(`--vars must be a JSON object to combine with ${flag}`);
+  }
+  const sources = result[VARIABLE_SOURCE] ?? (result[VARIABLE_SOURCE] = {});
+  if (sources[key] !== undefined) throw new UsageError(`${sources[key]} and ${flag} cannot both set ${key}`);
+  result.variables = { ...(result.variables ?? {}), [key]: value };
+  sources[key] = flag;
+}
+
+function setVariables(result, values, flag) {
+  if (!isPlainObject(values)) return values;
+  for (const [key, value] of Object.entries(values)) setVariable(result, key, value, flag);
+  return result.variables;
+}
 
 /**
  * The `process` verbs that *invoke* a process: create a child, send one prompt,
@@ -17,30 +43,45 @@ export const processCallChildren = {
       '--agent 指定该进程使用的 agent profile（见 `lush agent list`），优先级高于模板的可选 agent 字段；两者都没有时用内置 default。选中的名字会写进 state，用 `process inspect` 可查。',
     ],
     notes: [
-      '变量按模板的 variables 声明校验：缺少 required 变量、写了模板没声明的名字都会直接失败；带 default 的变量可以省略。',
-      '`path` 变量有通用约定：必须是已存在的绝对目录，并作为该进程 agent 的工作目录（cwd）；因此它只能声明在 immutable 区。',
+      '变量按模板的 variables 声明校验：缺少 required 变量、写了模板没声明的名字、或值不符合声明的格式（pattern / max_length / single_line）都会直接失败；带 default 的变量可以省略。',
+      '保留变量名：`path` 是 agent 工作目录（必须是已存在的绝对目录，只能 immutable）；`name` 是进程名——声明了它的模板（如 dev-task）用它的声明校验 --name 的格式，--name 与 variables.name 是同一个值，两边给出不同值时拒绝；`title` / `detail` 是任务的一句话摘要与详情正文，list / tree / inspect 会渲染。',
+      '--title / --detail 是 dev-task 这两个变量的便捷写法，与 --vars 合并：同一个名字不能两边都给。',
       '`project` 模板必须提供 variables.path，否则创建直接失败；`--args` 是 `--vars` 的旧写法，等价但已不建议使用。',
       '`--agent` 的名字必须合法且 profile 必须已存在（否则创建直接失败）；profile 属于本次 LUSH_HOME，见 `lush agent list`。',
     ],
-    usage: ['lush process spawn PARENT TEMPLATE [--name NAME] [--agent AGENT] [--goal GOAL] [--vars JSON]'],
+    usage: ['lush process spawn PARENT TEMPLATE [--name NAME] [--agent AGENT] [--goal GOAL] [--title TEXT] [--detail TEXT] [--vars JSON]'],
     positionals: [['PARENT', '父进程 PID'], ['TEMPLATE', '模板名，见父进程的 available_child_templates']],
     options: {
-      '--name': { arg: 'NAME', desc: '进程名；省略时用模板名', apply: (r, v) => { r.name = v; } },
+      '--name': {
+        arg: 'NAME',
+        desc: '进程名；省略时用模板名（模板声明了 name 变量时必填，格式按该变量声明校验）',
+        apply: (r, v) => { r.name = v; },
+      },
       '--agent': {
         arg: 'AGENT',
         desc: '该进程使用的 agent profile（见 `lush agent list`）；省略时用模板的可选 agent 字段，再否则用内置 default',
         apply: (r, v) => { r.agent = v; },
       },
       '--goal': { arg: 'GOAL', desc: '目标文本，写入 state.goal', apply: (r, v) => { r.goal = v; } },
+      '--title': {
+        arg: 'TEXT',
+        desc: '任务一句话摘要（variables.title 的简写，单行）',
+        apply: (r, v) => { setVariable(r, 'title', v, '--title'); },
+      },
+      '--detail': {
+        arg: 'TEXT',
+        desc: '任务详情正文（variables.detail 的简写，可多行）',
+        apply: (r, v) => { setVariable(r, 'detail', v, '--detail'); },
+      },
       '--vars': {
         arg: 'JSON',
         desc: '模板声明的变量值，按 immutable / mutable 存入新进程 state',
-        apply: (r, v) => { r.variables = jsonArg(v, '--vars'); },
+        apply: (r, v) => { r.variables = setVariables(r, jsonArg(v, '--vars'), '--vars'); },
       },
       '--args': {
         arg: 'JSON',
         desc: '--vars 的旧写法（等价，已不建议使用）',
-        apply: (r, v) => { r.variables = jsonArg(v, '--args'); },
+        apply: (r, v) => { r.variables = setVariables(r, jsonArg(v, '--args'), '--args'); },
       },
     },
     parse: (args) => ({ parent_pid: intArg(args.shift(), 'parent_pid'), template: next(args, 'template') }),

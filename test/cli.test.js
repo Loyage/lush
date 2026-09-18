@@ -7,6 +7,8 @@ import { Dispatcher } from '../src/rpc/protocol.js';
 import { RPCServer } from '../src/rpc/server.js';
 import { createSignal } from '../src/signal.js';
 import { formatOrphans } from '../src/cli/main.js';
+import { formatInspect, formatList } from '../src/cli/format/process.js';
+import { treeLines } from '../src/cli/format/primitives.js';
 import { cleanup, deferred, system, tmpdir } from './helpers.js';
 
 const ROOT = path.dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
@@ -188,6 +190,61 @@ describe('cli, daemon lifecycle and attach', () => {
     expect(enter.code).not.toBe(0);
     expect(enter.stderr).toContain('runs in-process');
     expect((await cli(['process', 'call', String(spawned.pid), 'hello', '--interactive', '--dry-run'], { check: false })).code).toBe(2);
+  }, 60_000);
+
+  test('dev-task fields: creation, validation, and list / tree / inspect rendering', async () => {
+    await cli(['daemon', 'start']);
+    await cli(['process', 'spawn', '0', 'project', '--name', 'demo-project', '--goal', '示例项目',
+      '--vars', JSON.stringify({ path: state.dir })]);
+    const spawned = await data('process', 'spawn', '1', 'dev-task', '--name', 'fix-login', '--goal', '修好登录',
+      '--title', '修复登录流程', '--detail', '第一行\n第二行');
+    const pid = String(spawned.pid);
+    expect(spawned.name).toBe('fix-login');
+
+    // --json carries every field, where the text output only shows the summary.
+    const info = await data('process', 'inspect', pid);
+    expect(info.variables.immutable).toEqual({ name: 'fix-login', title: '修复登录流程', detail: '第一行\n第二行' });
+    expect(info.context.state.params).toMatchObject({ name: 'fix-login', title: '修复登录流程', detail: '第一行\n第二行' });
+    const listed = (await data('process', 'list')).find((row) => String(row.pid) === pid);
+    expect(listed.variables.immutable.title).toBe('修复登录流程');
+
+    // `list` adds a TITLE column without moving the ones that were already there.
+    const listText = (await cli(['process', 'list'])).stdout;
+    expect(listText.split('\n')[0].slice(0, 38)).toBe('PID   PPID  TYPE      STATUS      NAME');
+    expect(listText.split('\n')[0]).toMatch(/^PID\s+PPID\s+TYPE\s+STATUS\s+NAME\s+TITLE$/);
+    expect(listText).toMatch(/^\d+\s+\d+\s+task\s+running\s+fix-login\s+修复登录流程$/m);
+    // A process without a task title keeps the row, with a placeholder.
+    expect(listText).toMatch(/^\d+\s+\d+\s+service\s+running\s+demo-project\s+-$/m);
+
+    // `tree` shows the title, but neither the duplicate name nor the multi-line body.
+    const tree = (await cli(['process', 'tree'])).stdout;
+    expect(tree).toContain(`fix-login[${pid}] title=修复登录流程`);
+    expect(tree).not.toContain('name=fix-login');
+    expect(tree).not.toContain('detail=');
+
+    // `inspect` renders the headline as a row and the body as its own block.
+    const inspectText = (await cli(['process', 'inspect', pid])).stdout;
+    expect(inspectText).toMatch(/^ {2}title\s+修复登录流程$/m);
+    expect(inspectText).toMatch(/^detail\n {2}第一行\n {2}第二行$/m);
+    // The variables row does not repeat what the task fields already show.
+    expect(inspectText).not.toContain('title=');
+
+    // Illegal name / missing title: exit 2 (the CLI's usage-error code) with the
+    // contract quoted in the message.
+    const badName = await cli(['process', 'spawn', '1', 'dev-task', '--name', 'fix login', '--title', '标题'], { check: false });
+    expect(badName.code).toBe(2);
+    expect(badName.stderr).toContain('does not match');
+    expect(badName.stderr).toContain('worktree');
+    const noTitle = await cli(['process', 'spawn', '1', 'dev-task', '--name', 'no-title'], { check: false });
+    expect(noTitle.code).toBe(2);
+    expect(noTitle.stderr).toContain('variables.title');
+    const both = await cli(['process', 'spawn', '1', 'dev-task', '--name', 'both', '--title', 'a', '--vars', '{"title":"b"}'], { check: false });
+    expect(both.code).toBe(2);
+    expect(both.stderr).toContain('cannot both set title');
+    const tooLong = await cli(['process', 'spawn', '1', 'dev-task', '--name', 'a'.repeat(65), '--title', '标题'], { check: false });
+    expect(tooLong.code).toBe(2);
+    expect(tooLong.stderr).toContain('max_length 64');
+    expect((await data('process', 'list')).filter((row) => row.template === 'dev-task').length).toBe(1);
   }, 60_000);
 
   test('orphan supervision is visible and runnable from the CLI', async () => {
@@ -734,6 +791,81 @@ describe('cli, daemon lifecycle and attach', () => {
       http.stop(true);
     }
   }, 60_000);
+});
+
+describe('task field text output', () => {
+  /** A read-model row shaped like `process.list` delivers them. */
+  const row = ({ pid = 2, name = 'fix-login', title, detail, variables, ...rest } = {}) => ({
+    pid,
+    parent_pid: 1,
+    original_parent_pid: 1,
+    name,
+    type: 'task',
+    status: 'running',
+    template: 'dev-task',
+    goal: '修好登录',
+    created_at: '2026-09-17T20:00:00.000Z',
+    updated_at: '2026-09-17T20:00:00.000Z',
+    children: [],
+    variables: variables ?? {
+      immutable: {
+        name,
+        ...(title === undefined ? {} : { title }),
+        ...(detail === undefined ? {} : { detail }),
+      },
+      mutable: {},
+      declarations: { immutable: {}, mutable: {} },
+    },
+    ...rest,
+  });
+  const inspectOf = (process) => formatInspect({
+    ...process, context: { state: process.variables.immutable, message_count: 0 }, recent_calls: [], recent_events: [],
+  });
+
+  test('list adds a TITLE column and never moves the existing ones', () => {
+    const text = formatList([
+      row({ title: '修复登录流程' }),
+      row({ pid: 3, name: 'demo-project', type: 'service', template: 'project' }),
+    ]);
+    const [header, task, service] = text.split('\n');
+    // The historical prefix is untouched; TITLE is appended.
+    expect(header.slice(0, 38)).toBe('PID   PPID  TYPE      STATUS      NAME');
+    expect(header).toMatch(/^PID\s+PPID\s+TYPE\s+STATUS\s+NAME\s+TITLE$/);
+    expect(task).toMatch(/^2\s+1\s+task\s+running\s+fix-login\s+修复登录流程$/);
+    expect(service).toMatch(/^3\s+1\s+service\s+running\s+demo-project\s+-$/);
+  });
+
+  test('long titles are truncated in list and tree, and detail stays out of the tree', () => {
+    const long = 'x'.repeat(50);
+    expect(formatList([row({ title: long })])).toContain(`${'x'.repeat(37)}...`);
+    const tree = treeLines([row({ title: long, detail: 'a\nb', parent_pid: null })]).join('\n');
+    expect(tree).toContain(`fix-login[2] title=${'x'.repeat(45)}...`);
+    // The `name` variable only repeats the process name; the body has no one-line form.
+    expect(tree).not.toContain('name=fix-login');
+    expect(tree).not.toContain('detail=');
+    expect(tree.split('\n').length).toBe(1);
+  });
+
+  test('inspect shows title and detail, and old rows without them still render', () => {
+    const text = inspectOf(row({ title: '修复登录流程', detail: '第一行\n第二行' }));
+    expect(text).toMatch(/^ {2}title\s+修复登录流程$/m);
+    expect(text).toMatch(/^detail\n {2}第一行\n {2}第二行$/m);
+    // Nothing is repeated: the variables row would only repeat the task fields.
+    expect(text).not.toContain('variables');
+
+    // Data written before the three fields existed: no title row, no detail
+    // block, no crash, and `--json` shape unchanged.
+    const legacy = row({ variables: { immutable: {}, mutable: {}, declarations: { immutable: {}, mutable: {} } } });
+    const legacyText = inspectOf(legacy);
+    expect(legacyText).not.toContain('title');
+    expect(legacyText).not.toContain('detail');
+    expect(legacyText).toContain('pid 2 · fix-login · task · running');
+    expect(formatList([legacy])).toMatch(/^2\s+1\s+task\s+running\s+fix-login\s+-$/m);
+
+    // A very long body is capped in text, and says so.
+    const long = inspectOf(row({ title: 't', detail: 'y'.repeat(5000) }));
+    expect(long).toContain('more characters; --json has the full value');
+  });
 });
 
 describe('orphan text output', () => {

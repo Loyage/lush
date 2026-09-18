@@ -237,24 +237,105 @@ describe('core', () => {
     expect(parent.createChild('generic-task').pid).not.toBe(plain.pid);
   });
 
-  test('dev-task is a variable-less leaf that a project can create', () => {
+  test('dev-task declares name / title / detail as checked fields', () => {
     const template = manager.templates.get('dev-task');
-    expect(template).toMatchObject({ type: 'task', singleton: false, child_templates: [], variables: {} });
-    expect(template.spawn_prompt).toContain('dev-task');
-    // Its own guide says work parameters come from the parent, not from variables.
-    for (const expected of ['variables', 'parent', 'path']) expect(template.system_prompt).toContain(expected);
+    expect(template).toMatchObject({ type: 'task', singleton: false, child_templates: [] });
+    expect(template.variables.immutable.name)
+      .toMatchObject({ required: true, pattern: '^[A-Za-z][A-Za-z0-9_-]*$', max_length: 64 });
+    expect(template.variables.immutable.title).toMatchObject({ required: true, max_length: 200, single_line: true });
+    // The body is optional on purpose; only the two names must be there.
+    expect(template.variables.immutable.detail).toMatchObject({ max_length: 20000 });
+    expect(Object.hasOwn(template.variables.immutable.detail, 'required')).toBe(false);
+    // Creating agents are told all three fields, and why `name` must be branch-safe.
+    for (const expected of ['name', 'title', 'detail', 'worktree']) expect(template.spawn_prompt).toContain(expected);
+    // The task reads them from its own state and its work parameters from the parent.
+    for (const expected of ['state.params', 'detail', 'parent', 'path']) expect(template.system_prompt).toContain(expected);
 
     const project = root.createChild('project', { variables: { path: dir } });
     expect(manager.templates.get('project').child_templates).toContain('dev-task');
-    const task = project.createChild('dev-task', { name: 'implement-x', goal: '实现 X' });
-    expect(task.inspect().context.state).toEqual({});
-    expect(task.inspect().variables).toEqual({ immutable: {}, mutable: {}, declarations: { immutable: {}, mutable: {} } });
-    // Declaring nothing means accepting nothing: the creator must not pass variables.
-    expect(code(() => project.createChild('dev-task', { variables: { path: dir } }))).toBe(-32602);
+    const task = project.createChild('dev-task', {
+      name: 'fix-login', goal: '修好登录', variables: { title: '修复登录流程', detail: '第一行\n第二行' },
+    });
+    // The reserved `name` variable is the process name, and all three land in state.params.
+    expect(task.inspect().name).toBe('fix-login');
+    expect(task.inspect().context.state).toEqual({
+      params: { name: 'fix-login', title: '修复登录流程', detail: '第一行\n第二行' },
+    });
+    expect(task.inspect().variables.declarations.immutable.name.max_length).toBe(64);
     // A leaf even though other tasks can spawn: the whitelist is empty.
     expect(code(() => task.createChild('generic-task'))).toBe(-32010);
     // The parent's variables are readable through the normal read model.
     expect(task.getParent().inspect().variables.immutable).toEqual({ path: dir });
+    // Undeclared names are still refused, `path` included: dev-task has no cwd of its own.
+    expect(code(() => project.createChild('dev-task', { name: 'ok-name', variables: { title: 'x', path: dir } }))).toBe(-32602);
+
+    // `variables.name` alone names the process too, `detail` may be missing, and
+    // an empty goal keeps the historical default (the name).
+    const minimal = project.createChild('dev-task', { variables: { name: 'small-fix', title: '小修' } });
+    expect(minimal.inspect().name).toBe('small-fix');
+    expect(minimal.inspect().goal).toBe('small-fix');
+    expect(minimal.inspect().context.state).toEqual({ params: { name: 'small-fix', title: '小修' } });
+    // An explicitly empty body is stored as given, not turned into a missing value.
+    const empty = project.createChild('dev-task', { name: 'no-body', variables: { title: '没正文', detail: '' } });
+    expect(empty.inspect().context.state.params.detail).toBe('');
+  });
+
+  test('dev-task refuses an unusable name / title / detail with an actionable error', () => {
+    const project = root.createChild('project', { variables: { path: dir } });
+    const attempt = (overrides) => {
+      try {
+        return project.createChild('dev-task', { name: 'ok-name', variables: { title: '标题' }, ...overrides });
+      } catch (err) {
+        return err;
+      }
+    };
+    const rejects = (overrides, expected) => {
+      const err = attempt(overrides);
+      expect(err?.code).toBe(-32602);
+      for (const part of expected) expect(err.message).toContain(part);
+    };
+
+    // name: required, and an English identifier that is safe as a branch / worktree name.
+    rejects({ name: undefined }, ['process name', '--name']);
+    rejects({ name: '' }, ['variable name', 'A-Za-z', 'worktree']);
+    rejects({ name: 'fix login' }, ['does not match', 'worktree']);
+    rejects({ name: 'fix-login!' }, ['does not match']);
+    rejects({ name: '1fix' }, ['does not match']);
+    rejects({ name: 'a'.repeat(65) }, ['max_length 64']);
+    // One name, one value: supplying both spellings with different content is refused.
+    rejects({ variables: { name: 'other-name', title: '标题' } }, ['disagree']);
+    // title: required, one line, capped, a string.
+    rejects({ variables: { name: 'ok-name' } }, ['variables.title', '一句话摘要']);
+    rejects({ variables: { name: 'ok-name', title: 'a\nb' } }, ['single_line']);
+    rejects({ variables: { name: 'ok-name', title: 'x'.repeat(201) } }, ['max_length 200']);
+    rejects({ variables: { name: 'ok-name', title: 42 } }, ['must be a string']);
+    rejects({ variables: { name: 'ok-name', title: 'ok', detail: 42 } }, ['must be a string']);
+    rejects({ variables: { name: 'ok-name', title: 'ok', detail: 'x'.repeat(20001) } }, ['max_length 20000']);
+  });
+
+  test('declared format constraints are enforced on values and on updates', () => {
+    // A constrained mutable variable is checked on update too, against the
+    // declaration the process was created with.
+    manager.templates.register({
+      ...manager.templates.get('generic-task'),
+      name: 'checked-mutable',
+      variables: { mutable: { branch: { default: 'main', pattern: '[a-z]+', max_length: 8, description: '分支名' } } },
+    });
+    const checked = root.createChild('checked-mutable');
+    expect(checked.inspect().context.state.vars).toEqual({ branch: 'main' });
+    expect(manager.updateVars(checked.pid, { branch: 'dev' })).toEqual({ branch: 'dev' });
+    for (const patch of [{ branch: 'DEV 1' }, { branch: 'toolongbranch' }, { branch: 7 }]) {
+      expect(code(() => manager.updateVars(checked.pid, patch))).toBe(-32602);
+    }
+    expect(checked.inspect().context.state.vars).toEqual({ branch: 'dev' });
+    // A pattern describes the whole value: no substring ever matches.
+    manager.templates.register({
+      ...manager.templates.get('generic-task'),
+      name: 'anchored-pattern',
+      variables: { immutable: { tag: { pattern: '[a-z]+', description: '标签' } } },
+    });
+    expect(root.createChild('anchored-pattern', { variables: { tag: 'abc' } }).inspect().context.state.params.tag).toBe('abc');
+    expect(code(() => root.createChild('anchored-pattern', { variables: { tag: 'a1c' } }))).toBe(-32602);
   });
 
   test('context advertises child templates with their spawn prompts', () => {
@@ -268,6 +349,16 @@ describe('core', () => {
     expect(generic.singleton).toBe(false);
     expect(generic.spawn_prompt).toContain('process_spawn');
     expect(data.available_child_templates.some((item) => item.name === 'lush-root')).toBe(false);
+
+    // A project is told exactly what a dev-task needs: the three fields, with
+    // `name` being the process name and the two titles being renderable.
+    const project = root.createChild('project', { variables: { path: dir } });
+    const devTask = new ContextBuilder(manager.repository, manager.templates)
+      .build(manager.load(project.pid), null).data.available_child_templates
+      .find((item) => item.name === 'dev-task');
+    for (const expected of ['name', 'title', 'detail', 'worktree', 'process_spawn']) {
+      expect(devTask.spawn_prompt).toContain(expected);
+    }
   });
 
   test('available child templates hide a singleton that is already taken', () => {
@@ -423,9 +514,26 @@ describe('core', () => {
       groups({ path: { description: 'x', typo: 1 } }),
       groups({}, { path: { description: 'x' } }),
       { immutable: { a: { description: 'x' } }, mutable: { a: { description: 'y' } } },
+      // Reserved names have a contract: `name` is the process name, so it is fixed at creation.
+      groups({}, { name: { description: 'x' } }),
+      // Constraint fields are validated as declarations, not trusted.
+      groups({ title: { description: 'x', pattern: '[' } }),
+      groups({ title: { description: 'x', pattern: '' } }),
+      groups({ title: { description: 'x', pattern: 3 } }),
+      groups({ title: { description: 'x', max_length: 0 } }),
+      groups({ title: { description: 'x', max_length: 1.5 } }),
+      groups({ title: { description: 'x', single_line: 'yes' } }),
+      // A default that contradicts its own constraints fails at load time.
+      groups({ title: { description: 'x', max_length: 3, default: 'abcd' } }),
+      groups({ title: { description: 'x', pattern: '[a-z]+', default: 'A' } }),
+      groups({ title: { description: 'x', single_line: true, default: 'a\nb' } }),
     ]) {
       expect(code(() => write(broken))).toBe(-32602);
     }
+    // The same fields are accepted when they make sense, defaults included.
+    expect(write(groups({
+      title: { description: 'x', pattern: '^[a-z]+$', max_length: 5, single_line: true, default: 'abc' },
+    })).variables.immutable.title.max_length).toBe(5);
   });
 
   test('project-manager advertises project as a child, project path stays per process', () => {

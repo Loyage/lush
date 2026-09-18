@@ -44,7 +44,7 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 | process.view | pid, sections? | 只含被请求 section 的视图：parent、children、call_prompt |
 | process.orphans | {} | PID 0 孤儿池的读模型（不落库、不改状态）：`policy`（adopt / limit / ttl_seconds / sweep_seconds）、`active_count`、`busy_count`、`over_limit`（limit>0 时 max(0, active_count-limit)，否则 0）、`orphans[]`（pid、name、type、status、template、original_parent_pid、created_at、updated_at、last_activity_at、idle_seconds、busy；含已被冻结的终态行） |
 | process.orphan_sweep | {} | 立刻执行一轮孤儿监督并返回报告：`trigger`（manual / timer / adoption）、`skipped`（重入时 true）、`checked`（本轮读到的孤儿行数，含已冻结的）、`active_before` / `active_after`、`evicted[]`（pid、name、type、from、to、reason、idle_seconds；reason 为 orphan_ttl / orphan_limit）、`deferred[]`（pid、reason=busy）、`limit`、`ttl_seconds`；两个方法都不接受参数，未知字段报 -32602 |
-| process.spawn | parent_pid, template, name?, goal?, variables?, agent? | 新 Process metadata；variables 按模板声明校验后按区间存入 state（immutable → state.params，mutable → state.vars），未声明、缺失必填或非法 `path` 报 -32602；agent 为该进程选用的 agent profile 名（见 `lush agent`），需存在且合法，否则报 -32004 / -32602，选中后写入 state.agent（`process.inspect` 的 `agent.profile`）；缺省时用模板的可选 `agent` 字段，再否则用内置 default |
+| process.spawn | parent_pid, template, name?, goal?, variables?, agent? | 新 Process metadata；variables 按模板声明校验后按区间存入 state（immutable → state.params，mutable → state.vars），未声明、缺失必填、不满足声明的格式（pattern / max_length / single_line）或非法 `path` 报 -32602；声明了保留变量 `name` 的模板（dev-task）用 name 参数当进程名，两边不一致同样报 -32602；agent 为该进程选用的 agent profile 名（见 `lush agent`），需存在且合法，否则报 -32004 / -32602，选中后写入 state.agent（`process.inspect` 的 `agent.profile`）；缺省时用模板的可选 `agent` 字段，再否则用内置 default |
 | process.call | pid, prompt, dry_run? | pid, call_id, output；dry_run=true 时不调用 agent，返回将执行的命令预览 |
 | process.call_begin | pid, prompt | 打开一次由调用方终端自己跑的调用：pid, call_id, agent, prompt, argv/command, cwd, env, path_prefix；写 user message 并标记 busy |
 | process.call_end | pid, call_id, status, output?, error? | 结算 call_begin 打开的调用：pid, call_id, settled, status；status 只接受 succeeded / failed |
@@ -53,11 +53,11 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 | process.delete | pid, recursive? | 硬删除已结束的进程：`pid, status, deleted, terminated, rows`；running/created 报 -32010，有子进程且未 recursive 报 -32010，PID 0 报 -32010 |
 | process.purge | pid, recursive? | 同 delete，但先停止/取消再删（并中断进行中的调用）；`terminated` 列出被终止的 PID |
 | process.update_state | pid, patch | 更新后 state（顶层 merge）；写 state.params / state.vars 报 -32602 |
-| process.update_vars | pid, patch | 更新后的 mutable 变量对象（顶层 merge 进 state.vars）；非 mutable 或未声明的名字报 -32602 |
+| process.update_vars | pid, patch | 更新后的 mutable 变量对象（顶层 merge 进 state.vars）；非 mutable 或未声明的名字、不满足声明格式的值报 -32602 |
 | process.complete | pid, result? | 更新后的 metadata |
 | process.history | pid, after=0, limit=100 | 按 id 升序 messages、next_after |
 
-inspect 的 Context 包含 system_prompt、state、artifacts、references、message_count（变量就在 state 的两个区间里，`state.agent` 是创建时选中的 agent profile 名，`update_state` 不能写它）；调用和事件各取最近 20 条，避免无界响应。完整消息使用 history 分页读取。元数据含 template 的完整创建时快照，以及由快照与 state 拼出的 `variables`：`immutable` / `mutable`（当前值）与 `declarations`（两个区间各自的 `description` / `required` / `default`）。
+inspect 的 Context 包含 system_prompt、state、artifacts、references、message_count（变量就在 state 的两个区间里，`state.agent` 是创建时选中的 agent profile 名，`update_state` 不能写它）；调用和事件各取最近 20 条，避免无界响应。完整消息使用 history 分页读取。元数据含 template 的完整创建时快照，以及由快照与 state 拼出的 `variables`：`immutable` / `mutable`（当前值）与 `declarations`（两个区间各自的 `description` / `required` / `default` / 可选的 `pattern` / `max_length` / `single_line`）。任务字段就是变量：`title` / `detail`（保留变量名，见 process-model.md 的「保留变量名」）在 `--json` 里原样给出（`variables.immutable` 与 `context.state.params` 都能拿到），文本输出只做摘要与截断。
 
 ## agent profile（不走 RPC）
 
@@ -99,10 +99,10 @@ Provider tool 名称采用 OpenAI-compatible 安全字符：`process_self`、`pr
 | process.parent | {} | 当前父节点 |
 | process.children | {} | 当前直接子节点 |
 | process.inspect | pid | inspect 指定节点 |
-| process.spawn | template, name?, goal?, variables? | 当前节点创建 child；singleton 模板在已有活动实例时拒绝，变量按该模板的 variables 声明校验，参数见 available_child_templates[].spawn_prompt |
+| process.spawn | template, name?, goal?, variables? | 当前节点创建 child；singleton 模板在已有活动实例时拒绝，变量按该模板的 variables 声明校验（含声明的格式约束），参数见 available_child_templates[].spawn_prompt |
 | process.call | pid, prompt | 调用另一节点；禁止递归和 busy |
 | process.update_state | patch | 修改自身持久 state（不能写变量） |
-| process.update_vars | patch | 只能改自己模板声明为 mutable 的变量 |
+| process.update_vars | patch | 只能改自己模板声明为 mutable 的变量（值同样要满足声明的格式） |
 | process.complete | result? | 完成自身 Task |
 
 工具错误作为带 code/message 的 tool result 回给 Agent；Provider 可以修正。未知工具拒绝。内置运行时不允许 Agent 伪造当前 PID（工具参数里没有 pid）；pi 后端的安全边界更弱：它能读写磁盘、执行命令，并通过 bash 调用 `lush` CLI，因此 `LUSH_PID` 只是便利信息，不是权限凭据。complete 后本轮可返回最终文本，但后续副作用工具被拒绝。
@@ -118,7 +118,7 @@ lush daemon start|stop|status
 lush process list|tree|inspect|spawn|call|attach|history|start|stop|kill|delete|purge|reclaim|complete|update-state|update-vars|session|agents|orphans
 
 lush process inspect PID [--with parent,children,prompt]
-lush process spawn PARENT TEMPLATE [--name NAME] [--goal GOAL] [--vars JSON]   # --args 是 --vars 的旧写法
+lush process spawn PARENT TEMPLATE [--name NAME] [--goal GOAL] [--title TEXT] [--detail TEXT] [--vars JSON]   # --args 是 --vars 的旧写法
 lush process call PID PROMPT [--dry-run]
 lush process call PID PROMPT --interactive   # 在本终端用 pi TUI 跑这次调用（简写 -i）
 lush process attach PID
@@ -136,7 +136,7 @@ lush process agents kill AGENT_ID
 lush process session PID [--open]
 ```
 
-`--vars`（旧写法 `--args`）/ `--patch` / `--result` 接收 JSON 字面量，JSON 非法时报 usage 错误（退出码 2）。`complete` 只能用于 Task；`update-state` 顶层 shallow-merge 到该 Process 的 state（CLI 命令名带连字符，RPC 方法仍是 `process.update_state`），但 `state.params` / `state.vars` 归变量系统所有，改可变变量用 `update-vars`（RPC `process.update_vars`）。
+`--vars`（旧写法 `--args`）/ `--patch` / `--result` 接收 JSON 字面量，JSON 非法时报 usage 错误（退出码 2）。`--title` / `--detail` 是任务模板那两个变量的简写，和 `--vars` 合并、同名不能两边都给。用法错误（解析失败，或 Core 报 -32602 的参数值错误，如变量缺失、格式不符）一律以退出码 2 结束，其他错误是 1。`complete` 只能用于 Task；`update-state` 顶层 shallow-merge 到该 Process 的 state（CLI 命令名带连字符，RPC 方法仍是 `process.update_state`），但 `state.params` / `state.vars` 归变量系统所有，改可变变量用 `update-vars`（RPC `process.update_vars`）。
 
 `delete` / `purge`（RPC `process.delete` / `process.purge`，可选 `recursive: true` / `--recursive`）是唯一的物理删除路径：同一个事务里删掉该 PID 的 `processes`、`contexts`、`messages`、`agent_calls` 与 `process_events` 行（包括它自己的历史），之后任何查询都是 -32004。`delete` 只接受已结束（非 created/running）的进程，`purge` 先按 kill 的规则终止再删（回包 `terminated` 列出被终止的 PID）。两者都拒绝 PID 0（-32010）；有子进程时默认拒绝，`recursive` 时从叶子往上删整棵子树（`purge --recursive` 会终止子树里每个活动节点，且不把它们收养给 PID 0）。由于 `original_parent_pid` 是 NOT NULL 外键，被删 PID 曾创建、后来被收养的幸存节点会改挂 PID 0 并各记一条 `parent_deleted` 事件；删除根节点的父进程会记一条 `child_deleted` 事件（`data` = `{ pid, name, template, status, deleted }`）。回包 `{ pid, status, deleted, terminated, rows }`，`rows` 是按表统计的删除行数。内置运行时的 Agent 工具集里没有删除工具。
 
@@ -154,7 +154,7 @@ agent 有两个互不相同的视图，都不落库也不共用 pid 空间：
 
 `process.call_os_pid` 是 `call --interactive` 专用的补充：终端在 spawn 出 pi 之后立刻上报 `{ pid, call_id, os_pid }`，daemon 才知道那个跑在别人终端里的进程叫什么、怎么杀；调用已经结算时返回 `recorded: false` 而不是报错。`process agents_*` 与 `call_os_pid` 都只在 RPC / CLI 上暴露，Agent 工具里没有（agent 不该杀自己）。
 
-`--json` 为全局标志，可放在命令之前或命令末尾（`lush --json process list` / `lush process list --json`），输出机器可读 result，是唯一稳定的机器接口。**默认（不加 `--json`）输出给人看**：list / agents list 是对齐的表格，tree 是带 agent 活跃度的进程树，orphans 是策略行 + 孤儿表（`--sweep` 时是本轮报告），daemon status 是 `key value` 行，inspect / agents show / update-state 是分节的 `key value` 与嵌套块，history 按消息分块（头部 `#id role · 本地时间 · call`，正文原样换行，末尾给出 `next --after`），生命周期命令（start / stop / kill / reclaim / complete）打印 `completed pid 1 · worker · task · completed` 这样的一行摘要而不是整个 metadata，call 显示 agent 文本，delete / purge 打印删了什么，spawn 打印 PID。文本格式可以随时改，需要稳定字段时用 `--json`。错误写 stderr 并返回非零；缺参数或未知命令/选项报 usage 错误（退出码 2）并提示 `lush help`。
+`--json` 为全局标志，可放在命令之前或命令末尾（`lush --json process list` / `lush process list --json`），输出机器可读 result，是唯一稳定的机器接口。**默认（不加 `--json`）输出给人看**：list 是对齐的表格（表尾一列 TITLE 是任务的一句话摘要，没有则 `-`）/ agents list 是对齐的表格，tree 是带 agent 活跃度的进程树（进程名后跟变量当前值，`~` 表示可变；保留名 `name` 与 `detail` 不进树），orphans 是策略行 + 孤儿表（`--sweep` 时是本轮报告），daemon status 是 `key value` 行，inspect / agents show / update-state 是分节的 `key value` 与嵌套块（任务的 `title` 占一行、`detail` 独占一个分节，超长截断），history 按消息分块（头部 `#id role · 本地时间 · call`，正文原样换行，末尾给出 `next --after`），生命周期命令（start / stop / kill / reclaim / complete）打印 `completed pid 1 · worker · task · completed` 这样的一行摘要而不是整个 metadata，call 显示 agent 文本，delete / purge 打印删了什么，spawn 打印 PID。文本格式可以随时改，需要稳定字段时用 `--json`。错误写 stderr，用法错误退出码 2（缺参数、未知命令/选项，以及 Core 的 -32602 参数值错误），其他错误退出码 1。
 
 `inspect` 不带 `--with` 时保持完整 inspect 输出；带 `--with` 时改调 process.view，只返回所选 section（逗号分隔，可多次使用，重复的 section 在客户端去重；RPC 层仍拒绝重复）。未知 section 在 CLI 报 usage 错误（退出码 2），在 RPC 报 -32602。
 

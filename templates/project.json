@@ -4,7 +4,7 @@
   "singleton": false,
   "description": "在指定路径（仓库/目录）上长期工作的项目管理服务",
   "spawn_prompt": "创建项目进程必须提供模板变量 path（不可变/immutable）：process_spawn {template: \"project\", name: <项目短名，必填>, goal: <项目目标，必填>, variables: {\"path\": \"<绝对路径>\"}}，命令行等价于 `lush process spawn <parent> project --name <项目短名> --goal '<目标>' --vars '{\"path\":\"<绝对路径>\"}'`。path 必须是已存在的绝对目录，它同时是该进程 agent 的工作目录（cwd）；缺失 path、不是绝对路径、不存在或不是目录时创建直接失败，写模板没声明的变量名同样失败。另有可变变量 branch（默认 main，创建时可以不传）：它是项目当前工作分支，创建后由项目进程自己用 update-vars 修改。singleton=false，同一个父进程下可以创建多个项目。完整变量声明见该模板的 variables。",
-  "system_prompt": "你是这个项目的负责人 Service，工作目录是变量 path（创建时给定，不可变）。你的变量见 inspect 的 variables：path 不可改；branch 可变（项目当前工作分支，默认 main），要改变它用 `lush process update-vars <你的 PID> --vars '{\"branch\":\"<新分支>\"}'`。你的职责：把项目目标拆成任务、创建并跟进子进程（dev-task 负责实现具体功能，另有 generic-task / research-task / generic-service / project），用真实的文件读取和命令了解项目现状，把进展写进持久 state。子进程不会自动知道你的 path / branch：创建 dev-task 时在 goal 里写清要改什么（它自己会来读你的变量），你自己动手时也一律用真实路径。一次回复不代表项目结束；不要声称未实际执行的工作已经完成，也不要把猜测当成事实。",
+  "system_prompt": "你是这个项目的负责人 Service，工作目录是变量 path（创建时给定，不可变）。你的变量见 inspect 的 variables：path 不可改；branch 可变（项目当前工作分支，默认 main），要改变它用 `lush process update-vars <你的 PID> --vars '{\"branch\":\"<新分支>\"}'`。你的职责：把项目目标拆成任务、创建并跟进子进程（dev-task 负责实现具体功能，另有 generic-task / research-task / generic-service / project），用真实的文件读取和命令了解项目现状，把进展写进持久 state。子进程不会自动知道你的 path / branch：创建 dev-task 时用 name（无空格的英文短名，会被拿去命名 worktree / 分支）、title（一句话摘要，任务列表里显示的就是它）与 detail（要改什么、怎么算完成）说清任务，goal 说明目标；细节见它的 spawn_prompt，它自己会来读你的变量。你自己动手时也一律用真实路径。一次回复不代表项目结束；不要声称未实际执行的工作已经完成，也不要把猜测当成事实。",
   "child_templates": ["dev-task", "generic-task", "research-task", "generic-service", "project"],
   "variables": {
     "immutable": {

@@ -2,6 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LushError, VARIABLE_GROUPS, isPlainObject, jsonDump, jsonLoad, text } from './core/types.js';
+import {
+  RESERVED_VARIABLES, VARIABLE_CONSTRAINT_FIELDS, checkVariableDeclaration,
+} from './core/variables.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** Shipped templates live in the repository root `templates/` directory. */
@@ -24,7 +27,7 @@ export const REQUIRED_FIELDS = ['name', 'type', 'singleton', 'description', 'spa
  */
 export const OPTIONAL_FIELDS = ['agent'];
 
-const VARIABLE_FIELDS = ['required', 'default', 'description'];
+const VARIABLE_FIELDS = ['required', 'default', 'description', ...VARIABLE_CONSTRAINT_FIELDS];
 
 /**
  * A template's variables are its initial values for a new process, declared in
@@ -32,10 +35,13 @@ const VARIABLE_FIELDS = ['required', 'default', 'description'];
  * `immutable` (`state.params`) is fixed at creation, `mutable` (`state.vars`)
  * can be changed afterwards. Each declaration carries only what the creating
  * agent and the process itself must know: whether the value is required, its
- * default, and what it means. `path` keeps its working-directory contract, so
- * it may not be declared mutable.
+ * default, what it means, and the format constraints (`pattern` /
+ * `max_length` / `single_line`) that make the value renderable and usable.
+ * Two names are reserved and have a contract beyond their own template:
+ * `path` keeps its working-directory meaning, so it may not be declared
+ * mutable, and `name` is the process name, so it may not be either.
  */
-function checkVariables(value) {
+function checkVariables(value, templateName) {
   if (!isPlainObject(value)) {
     throw new LushError(`variables must be an object with ${VARIABLE_GROUPS.join(' / ')} groups`, -32602);
   }
@@ -67,9 +73,11 @@ function checkVariables(value) {
       if (spec.required === true && Object.hasOwn(spec, 'default')) {
         throw new LushError(`variable ${name} cannot be both required and defaulted`, -32602);
       }
-      if (group === 'mutable' && name === 'path') {
+      if (group === 'mutable' && name === RESERVED_VARIABLES.workdir) {
         throw new LushError('variable path must be immutable: it is the agent working directory', -32602);
       }
+      // Constraint fields, and the reserved-name rules that depend on them.
+      checkVariableDeclaration(templateName, group, name, spec);
       jsonDump(spec);
     }
   }
@@ -121,7 +129,7 @@ export class TemplateLoader {
     if (!Array.isArray(value.child_templates) || value.child_templates.some((name) => typeof name !== 'string' || name === '')) {
       throw new LushError('child_templates must be a list of names', -32602);
     }
-    checkVariables(value.variables);
+    checkVariables(value.variables, value.name);
     if (Object.hasOwn(this.templates, value.name)) {
       throw new LushError(`duplicate template: ${value.name}`, -32602);
     }

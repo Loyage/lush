@@ -440,7 +440,10 @@ describe('lush agent: the CLI group works without a daemon', () => {
     expect(await data('agent', 'edit', 'demo', '--no-plugins', '--command', '/bin/true'))
       .toMatchObject({ action: 'edit', created: false, profile: { provider: 'pi', command: '/bin/true', plugins: false } });
     expect((await data('agent', 'inspect', 'demo')).plugins).toBe(false);
-    expect((await cli(['agent', 'edit', 'demo'], { check: false })).code).toBe(1);
+    // -32602 (a rejected usage) exits 2, like a parse error: see the `lush agent`
+    // command contract in src/cli/main.js. Other codes (e.g. -32010 duplicates,
+    // -32004 missing profiles) keep exiting 1.
+    expect((await cli(['agent', 'edit', 'demo'], { check: false })).code).toBe(2);
     // `edit` on a missing profile creates it; `delete` then removes it.
     expect((await cli(['agent', 'edit', 'ghost', '--plugins'])).code).toBe(0);
     expect(await data('agent', 'delete', 'ghost')).toMatchObject({ action: 'delete', name: 'ghost' });
@@ -480,7 +483,8 @@ describe('lush agent: the CLI group works without a daemon', () => {
   test('the group rejects unknown names, fields and subcommands', async () => {
     for (const name of ['1bad', 'a b', 'a/b']) {
       const result = await cli(['agent', 'add', name], { check: false });
-      expect(result.code).toBe(1);
+      // An invalid name is a usage error (-32602), which exits 2.
+      expect(result.code).toBe(2);
       expect(result.stderr).toContain('invalid agent name');
     }
     expect((await cli(['agent', 'add', 'ok', '--provider', 'gemini'], { check: false })).stderr)

@@ -214,6 +214,16 @@ export async function main(argv = process.argv.slice(2)) {
       process.stderr.write("lush: run 'lush help' for the command tree\n");
       process.exit(2);
     }
+    // -32602 is the JSON-RPC equivalent of a bad command line: a rejected
+    // argument value (an undeclared variable, a variable that does not match
+    // its declared pattern, a missing required one). It gets the same exit
+    // code as a parse error, which is what the agent guide promises: exit 2
+    // means "fix the arguments", not "something went wrong".
+    if (err instanceof LushError && err.code === -32602) {
+      process.stderr.write(`lush: error: ${err.message}\n`);
+      process.stderr.write("lush: exit 2 = usage error: fix the arguments; run 'lush help' (or a command's -h) for the contract\n");
+      process.exit(2);
+    }
     process.stderr.write(`lush: ${err?.message ?? err}\n`);
     process.exit(1);
   }
