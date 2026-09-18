@@ -118,6 +118,10 @@ export const interactive = {
       return true;
     }
     this._settle(entry, status, { output, error });
+    // The daemon never runs this task's loop, so queued input has no later
+    // turn to be delivered in; drop it rather than let the completion guard
+    // reject a call the user already finished.
+    this.manager.takeTaskInput(taskId);
     if (status === 'succeeded') this.manager.settleTaskFromAnswer(taskId, output ?? '');
     else this.manager.failTask(taskId, error ?? 'interactive invocation failed');
     return true;

@@ -202,6 +202,8 @@ export function deleteTaskRows(repository, taskIds) {
     repository.db.run('UPDATE agent_calls SET task_id=NULL WHERE task_id=?', [taskId]);
     repository.db.run('UPDATE messages SET task_id=NULL WHERE task_id=?', [taskId]);
     repository.detachTaskNotices(taskId);
+    // Inbox rows name the task in both directions, so they go with it.
+    repository.deleteTaskInbox(taskId);
     rows.tasks += repository.db.run('DELETE FROM tasks WHERE id=?', [taskId]).changes;
   }
   return rows;

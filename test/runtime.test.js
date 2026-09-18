@@ -75,14 +75,14 @@ describe('runtime', () => {
       ['service_update_vars', '{}'],
       ['task_self', '[]'],
       ['task_self', 'bad-json'],
-      ['task_wait', '{"task_id":true}'],
+      ['task_message', '{"task_id":0}'],
       ['shell', '{}'],
     ]) {
       expect((await tools.execute(name, args)).error).toBeDefined();
     }
     // The declaration is the full tool surface.
     const names = TOOL_DEFINITIONS.map((tool) => tool.function.name);
-    for (const expected of ['task_self', 'task_spawn', 'task_wait', 'task_complete', 'service_spawn']) {
+    for (const expected of ['task_self', 'task_spawn', 'task_message', 'task_complete', 'service_spawn']) {
       expect(names).toContain(expected);
     }
     expect(names).not.toContain('service_delete');

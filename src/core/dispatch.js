@@ -27,6 +27,8 @@ export const PARAMS = {
   task_history: { required: ['task_id'], optional: ['after', 'limit'] },
   task_wait: { required: ['task_id'] },
   task_spawn: { required: ['sid', 'goal'], optional: ['parent_task_id'] },
+  task_message: { required: ['from_task_id', 'to_task_id', 'body'] },
+  task_inbox: { required: ['task_id'], optional: ['after', 'limit'] },
   task_complete: { required: ['task_id'], optional: ['result'] },
   task_cancel: { required: ['task_id'] },
   task_update_state: { required: ['task_id', 'patch'] },

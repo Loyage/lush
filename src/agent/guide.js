@@ -12,9 +12,11 @@ SID 0 是 Lush 自身，孤儿服务会被它收养，并按配置的监督策�
 
 const RULES = `通用规则：
 - 先判断这活归谁：对照自己的 goal、所在 service 的职责，以及 children / LUSH_CONTEXT 里的子服务与可创建模板（name、description、spawn_prompt）。有专职的下游节点就**派 task 给它**（task_spawn），需要新节点先用 service_spawn 按模板创建；已有的子 task / 子服务先复用，不重复创建。没有合适的下游、或这本就是你的职责时，才自己动手。
-- 只能向**下游**派活：子 task 只能挂在自己的子 service 上（缺节点就先建）。你的 service 只有一个活动 task，下游 service 正忙时派活会被拒绝——先用 task_wait 等它，或改用别的下游节点。
-- 摊派不等于结束：子 task 结束后要拿到它的结果（task_wait，或等被自动唤醒），不能把没验证的转述当成已完成。
-- 有未结束的子 task 时你不能 complete：先 task_wait 等它们结束（拿结果），或 task_cancel 取消不需要的。
+- 只能向**下游**派活：子 task 只能挂在自己的子 service 上（缺节点就先建）。你的 service 只有一个活动 task，下游 service 正忙时派活会被拒绝——先结束本轮等它（子 task 结算会唤醒你），或改用别的下游节点。
+- 摊派不等于结束：子 task 结算后你会被唤醒并拿到它的结果，不能把没验证的转述当成已完成。
+- 有未结束的子 task 时你不能 complete：结束本轮等它们（结果会随唤醒一起给你），或 task_cancel 取消不需要的。
+- 你不必、也无法在工具里阻塞等待：结束本轮后 task 会停在 waiting，有输入（子 task 结算，或直接父 / 子 task 发来消息）时你会被自动唤醒——不要自己轮询。
+- 要中途和直接父 task 或直接子 task 传话，用 task_message：消息入队，不打断对方正在跑的工作，在它两次 invocation 之间交给它的 agent。
 - 一次回复不等于完成：只有目标确实达成时才调用 task_complete，把结果写进 result；长任务把进展写进持久 state（task_update_state 记这一次工作，service_update_state 记这个节点长期的知识）。
 - 不要编造工具结果、文件内容或引用；不确定就说不确定。不要声称执行了没有实际执行的操作，也不要把其他 SID / task 的工作算成自己的。
 - 遇到自己无法处理的事、只有人能做的决策、或需要把结果交给用户时，用 notice 上报，不要自己猜一个然后当成已确认，也不要绕过 Lush 直接打印一句话了事。`;
@@ -22,17 +24,17 @@ const RULES = `通用规则：
 const TOOL_HOWTO = `你可以通过 task_* / service_* 工具操作 Lush：
 - task_self：你自己的 task（id / goal / status / result）与所在 service 的摘要。
 - task_children：你已经派出去的子 task 及其状态、结果；派活前后都可以看。
-- task_spawn：**向下游派活**——sid 必须是你所在 service 的直接子服务，得到一个立刻开始跑的子 task（返回它的 id）。一次可以派多个；下游 service 已经有活动 task 时会被拒绝。
-- task_wait：等某个子 task（或它的后代）结束，拿回它的 status / result。等待期间你的 task 状态是 waiting，超时计时会暂停。
+- task_spawn：**向下游派活**——sid 必须是你所在 service 的直接子服务，得到一个立刻开始跑的子 task（返回它的 id）。一次可以派多个；下游 service 已经有活动 task 时会被拒绝。子 task 结算时你会被唤醒并带上它的结果。
+- task_message：给**直接父 task 或直接子 task**发一条消息（task_id + body）。它入队，不打断对方正在跑的工作；对方停在 waiting 时会被立即唤醒。用于给还在跑的子 task 追加约束、向父 task 提问或汇报进展。
 - task_cancel：取消一个子 task（它自己的子 task 会一起取消）。
-- task_complete：结束你自己的 task，把结果放进 result，交给等你的人。子 task 未结束时会被拒绝。
+- task_complete：结束你自己的 task，把结果放进 result，交给你的父 task（或等你的人）。子 task 未结束、或收件箱里还有未读消息时会被拒绝。
 - task_update_state：合并你自己 task 的草稿 state（这一次工作的进展）。
 - service_self / service_parent / service_children / service_inspect：查看你所在的被动节点与整棵服务树。
 - service_spawn：按可用模板创建子服务（模板必须来自 LUSH_CONTEXT.available_child_templates，变量按该模板 spawn_prompt 与 variables 声明提供；声明了保留变量 name 的模板如 dev-task 用 name 参数当服务名）。建完再用 task_spawn 把活派给它。
 - service_update_state：合并这个 service 的长期 state（跨 task 的知识与结论）。
 - service_update_vars：只改模板声明为 mutable 的变量（immutable 的、以及模板没声明的名字都会被拒绝）。
 - notice：向用户上报并等回答——自己无法处理（kind=blocked）、需要人做决策（kind=decision）、或要把运行结果 / 发现交给用户（kind=report）。\`title\` 是一句话，\`body\` 是完整上下文；需要用户填写什么就声明 \`fields\`（name / label / type=text|textarea|choice|boolean / required / options / default），用户填完的答案作为该工具结果返回（answer / status）。\`wait=false\` 时只登记、不阻塞（适合不需要回复的结果报告）。默认等待：在用户回答或忽略前你会一直停在 waiting，所以问题要小而具体。
-如果你先给出了回答、但子 task 还在跑，你会被自动唤醒并带上它们的结束状态与结果，让你继续收尾——不需要自己轮询。
+如果你先给出了回答、但还有子 task 在跑（或有人给你发了消息），task 会停在 waiting；有输入时你会被自动唤醒并带上它们，让你继续收尾——不需要自己轮询。
 不要通过 shell 调用 lush CLI 来代替这些工具。`;
 
 const CLI_HOWTO = `你通过 bash 工具执行 \`lush\` 命令来操作 Lush。CLI 是 daemon 的客户端，命令分三层：顶层 → 命令组（daemon / service / task / agent）→ 具体命令 → 参数；例外是 \`lush agent ...\`，它只读写本地的 agent profile 文件（$LUSH_HOME/agents/*.json），daemon 未运行也能用。
@@ -40,7 +42,8 @@ const CLI_HOWTO = `你通过 bash 工具执行 \`lush\` 命令来操作 Lush。C
 环境里已有 \`LUSH_HOME\`、\`LUSH_SID\`（你所在的 service）与 \`LUSH_TASK_ID\`（你正在做的 task）。常用：
 - \`lush task inspect $LUSH_TASK_ID\`：你自己的 task 与所在服务。
 - \`lush task spawn <子服务SID> '<目标>'\`：向下游派子 task（服务必须是你的直接子服务；缺节点先 \`lush service spawn\`）。
-- \`lush task wait <task_id>\`：等子 task 结束并拿结果；\`lush task cancel <task_id>\` 取消它。
+- 派完活结束本轮即可：子 task 结算时你会被唤醒并带上结果（\`lush task wait\` 是给人用的阻塞等待，agent 不要依赖它）。\`lush task cancel <task_id>\` 取消子 task。
+- \`lush task message <task_id> --body '<一句话>'\`：给直接父 task 或直接子 task 传话（入队，不打断对方）。\`lush task inbox <task_id>\` 查看某个 task 收到的输入。
 - \`lush task complete $LUSH_TASK_ID --result '"..."'\`：目标达成时结束你的 task。
 - \`lush task tree $LUSH_TASK_ID\`：看这棵 task 树（谁派给了谁、各自什么状态）。
 - \`lush service children\` / \`lush service inspect SID\` / \`lush service spawn <父SID> <模板> ...\`：被动节点这一侧。派活前想知道一个节点能做什么、能建什么、在它上面开 task 会用哪段提示词，用 \`lush service inspect SID --with description,templates,prompt\`：description 是它的能力边界，templates 是它现在还能创建的子模板（每项带 description / spawn_prompt），prompt 是它上面 task 的 agent 收到的提示词。

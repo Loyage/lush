@@ -18,11 +18,12 @@ export const taskGroup = {
     '查看：list、tree（整棵协作树）、inspect、result、history（这个 task 自己的对话）、session（它 agent 的磁盘会话）、agents（此刻在跑的 agent）。',
     '等待与取消：wait 阻塞到某个 task 及其子树结束；cancel 取消一棵子树（连它的后代一起）。',
     '结束：complete 由 task 自己的 agent（或人）在目标达成时调用，result 存进 task；有未结束的子 task 时会被拒绝。',
+    '任务创建后不会等待：先派子 task（或直接干），结束本轮后 task 会自动 park；子 task 结算或收到消息时以一条 user 消息唤醒 agent。',
     '不覆盖：被动节点本身（建、启停、变量、删除）见 `lush service`；用户入口 `lush call` 是「在某个 service 上开一个根 task 并等它」。',
   ],
   notes: [
-    'task 的状态：created → running →（waiting）→ completed / failed / cancelled；waiting 表示它的 agent 正在等自己的子 task。',
-    '终结不变量：一个 task 走到终态时不会有活动的子 task——complete 要求子 task 都已结束，failed / cancelled 会把子 task 一起取消。',
+    'task 的状态：created → running →（waiting）→ completed / failed / cancelled；waiting 表示 task 已让出本次运行（在等子 task 或等消息），agent 不在跑；子 task 结算或收到消息时它会被唤醒。',
+    '终结不变量：一个 task 走到终态时不会有活动的子 task——complete 要求子 task 都已结束且收件箱没有未读消息，failed / cancelled 会把子 task 一起取消。',
     'daemon 重启时，未结束的 task 会被记为 failed（agent 已经不在了），不会自动重放。',
   ],
   children: {
@@ -147,6 +148,59 @@ export const taskGroup = {
       check: (r) => {
         if (!Object.hasOwn(r, 'goal')) throw new UsageError('the following arguments are required: --goal');
       },
+    },
+    message: {
+      command: 'task_message',
+      method: 'task.message',
+      summary: '给直接父 task 或直接子 task 发一条消息（入队，不打断对方）',
+      cover: [
+        '消息只在 task 树的直接边上走：接收方必须是你所在的 task 的直接父 task 或直接子 task（和 task_spawn 的“只能向下游、直接子 service”同一条边界）。',
+        '它是**异步**的：消息先入接收方的收件箱，在它两次 agent invocation 之间才交给它的 agent，所以不会打断正在跑的工作；对方处于 waiting 时会立即被唤醒。',
+        'agent 侧用 `task_message` 工具（内置运行时）/ `lush task message ...`（外部 agent pi）；--from 缺省取 $LUSH_TASK_ID。',
+      ],
+      notes: [
+        '接收方已进入终态时会被拒绝（-32010）：任务已经结束，没人会读了。',
+        '已经结束的 task 投递过的消息不会重投；要回顾用 `lush task inbox`。',
+      ],
+      usage: ['lush task message TASK_ID --body TEXT [--from TASK_ID]'],
+      positionals: [['TASK_ID', '接收方 task（直接父 task 或直接子 task）']],
+      options: {
+        '--body': { arg: 'TEXT', desc: '消息正文（必填）', apply: (r, v) => { r.body = v; } },
+        '--from': {
+          arg: 'TASK_ID',
+          desc: '发送方 task（缺省用 $LUSH_TASK_ID）',
+          apply: (r, v) => { r.from_task_id = intArg(v, '--from'); },
+        },
+      },
+      parse: (args) => {
+        const fromEnv = process.env.LUSH_TASK_ID ?? '';
+        return {
+          to_task_id: intArg(args.shift(), 'task_id'),
+          ...(/^\d+$/.test(fromEnv) ? { from_task_id: Number.parseInt(fromEnv, 10) } : {}),
+        };
+      },
+      check: (r) => {
+        if (!Object.hasOwn(r, 'body')) throw new UsageError('the following arguments are required: --body');
+        if (!Object.hasOwn(r, 'from_task_id')) {
+          throw new UsageError('sending task is required: pass --from TASK_ID or set $LUSH_TASK_ID');
+        }
+      },
+    },
+    inbox: {
+      command: 'task_inbox',
+      method: 'task.inbox',
+      summary: '查看一个 task 的收件箱（父 / 子消息与子 task 结算）',
+      cover: [
+        '按 id 升序列出投给该 task 的输入：`kind` 为 message（父子消息）或 child_settled（某个子 task 结算的报告），`delivered` 说明是否已经交给它的 agent。',
+        '这是只读的审计视图——actual 的注入仍由 task 层在两次 invocation 之间完成。',
+      ],
+      usage: ['lush task inbox TASK_ID [--after ID] [--limit N]'],
+      positionals: [['TASK_ID', '目标 task id']],
+      options: {
+        '--after': { arg: 'ID', desc: '只返回 id 大于该值的行（默认 0）', apply: (r, v) => { r.after = intArg(v, '--after'); } },
+        '--limit': { arg: 'N', desc: '最多返回多少条（默认 50）', apply: (r, v) => { r.limit = intArg(v, '--limit'); } },
+      },
+      parse: (args) => ({ task_id: intArg(args.shift(), 'task_id'), after: 0, limit: 50 }),
     },
     'update-state': {
       command: 'task_update_state',

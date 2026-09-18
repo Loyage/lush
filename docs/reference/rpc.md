@@ -52,12 +52,16 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 | service.update_vars | sid, patch | 更新后的 mutable 变量对象；非 mutable 或未声明的名字、不满足声明格式的值报 -32602 |
 | task.list | sid?, status?, roots?, limit? | task 数组（id、sid、parent_task_id、root_task_id、status、goal、result、error、state、时间戳）；`roots` 为 `roots` / `children` |
 | task.tree | task_id | 该 task 及其整棵子树（每个节点带 `service_name`） |
-| task.inspect | task_id | task + 所在 service + 父 task + 直接子 task + 最近 10 次调用 + 事件 + message 数 |
+| task.inspect | task_id | task + 所在 service + 父 task + 直接子 task + 最近 10 次调用 + 事件 + 最近 10 条 inbox 输入（`recent_inbox`）+ message 数 |
 | task.result | task_id | id、sid、status、finished、result、error |
 | task.wait | task_id | 阻塞到该 task 进入终态，返回 `task.inspect` 形状 |
 | task.cancel | task_id | 取消该 task 及其整棵子树（中断正在跑的 agent），返回更新后的 task |
-| task.complete | task_id, result? | 目标达成时结束 task 并写入 result（有活动子 task 时报 -32010） |
-| task.spawn | sid, goal, parent_task_id? | 新建并启动一个 task（`parent_task_id` 给定时必须挂在父 task 所在 service 的直接子 service 上）；返回 task 快照 |
+| task.complete | task_id, result? | 目标达成时结束 task 并写入 result（有活动子 task、或收件箱有未读消息时报 -32010） |
+| task.spawn | sid, goal, parent_task_id? | 新建并启动一个 task（`parent_task_id` 给定时必须挂在父 task 所在 service 的直接子 service 上）；返回 task 快照。不等待，子 task 结算时以收件箱输入唤醒父 task |
+| task.message | from_task_id, to_task_id, body | 给直接父 / 直接子 task 发一条消息（入队，不打断对方）：返回新建的 `task_inbox` 行；非直接父子 / 接收方已终态报 -32010 |
+| task.inbox | task_id, after=0, limit=50 | 该 task 收到的输入（`kind` 为 message / child_settled，`delivered_at` 说明是否已交给 agent），按 id 升序 |
+
+inbox 是“父子持续通话”的存储：`task_message` / `task.message` 只往直接父 / 子 task 投递，消息与“某个子 task 已结算”的报告进同一个队列；**只在接收方两次 agent invocation 之间交给它**，不会打断正在跑的工作，对方处于 `waiting` 时会被立即唤醒。`task.inspect` 里的 `recent_inbox` 是最近 10 条（新的在前）。
 | task.update_state | task_id, patch | 合并后的 task.state（顶层 merge） |
 | task.history | task_id, after=0, limit=100 | 按 id 升序 messages、next_after（只含该 task 自己的对话） |
 | task.delete | task_id, recursive? | 删除已结束的 task 行与它的事件：`task_id, status, deleted, rows`；有活动 task 报 -32010，有子 task 且未 recursive 报 -32010。call 行与消息保留（task_id 置 NULL） |
@@ -113,10 +117,10 @@ Provider tool 名称采用 OpenAI-compatible 安全字符：`service_self`、`se
 |---|---|---|
 | task_self | {} | 自己这个 task（goal / status / result / 子 task）+ 所在 service |
 | task_children | {} | 自己派出去的子 task |
-| task_spawn | sid, goal | 向下游派活：在直接子 service 上创建一个立刻开始跑的子 task；下游正忙时报 -32010 |
-| task_wait | task_id | 阻塞到某个子 task（或其后代）结束，返回它的 status / result（只能等自己树里的 task） |
+| task_spawn | sid, goal | 向下游派活：在直接子 service 上创建一个立刻开始跑的子 task；下游正忙时报 -32010。不等待：子 task 结算时你会被唤醒并拿到结果 |
+| task_message | task_id, body | 给直接父 task 或直接子 task 发一条消息：入队，不打断对方正在跑的工作；对方停在 waiting 时会被立即唤醒 |
 | task_cancel | task_id | 取消一个子 task（连带它的子树） |
-| task_complete | result? | 结束自己（有活动子 task 时报 -32010） |
+| task_complete | result? | 结束自己（有活动子 task 或收件箱有未读消息时报 -32010） |
 | task_update_state | patch | 合并自己 task 的草稿 state |
 | service_self | {} | 自己所在的被动节点（变量、state、子服务） |
 | service_parent | {} | 当前所在节点的父节点 |
@@ -160,6 +164,8 @@ lush task tree TASK_ID
 lush task inspect|result|wait|cancel TASK_ID
 lush task complete TASK_ID [--result JSON]
 lush task spawn SID --goal GOAL [--parent-task-id TASK_ID]
+lush task message TASK_ID --body TEXT [--from TASK_ID]   # agent 侧给直接父 / 子 task 传话（入队）
+lush task inbox TASK_ID [--after ID] [--limit N]          # 该 task 收到的输入（消息 / 子结算）
 lush task update-state TASK_ID --patch JSON
 lush task history TASK_ID [--after ID] [--limit N]
 lush task delete TASK_ID [--recursive]

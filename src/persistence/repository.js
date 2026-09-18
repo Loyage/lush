@@ -6,6 +6,7 @@
  *   repository/state.js    Context, state, events and history
  *   repository/calls.js    agent calls and messages
  *   repository/tasks.js    the task rows
+ *   repository/inbox.js    the task inbox (parent ↔ child input)
  *   repository/notices.js  the notice rows (agent → user reports)
  *   repository/removal.js  hard deletion
  */

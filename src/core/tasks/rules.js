@@ -6,16 +6,18 @@
  *
  * - one active task per service: a service runs at most one agent at a time;
  * - child tasks go to a *direct child service* of the parent task's service,
- *   so the task tree is always a tree and `task_wait` can never deadlock;
+ *   so the task tree is always a tree;
  * - a terminal task has no active children: completing requires the children to
  *   be finished, while failing / cancelling cascades into the subtree;
- * - `task_wait` only accepts tasks in the waiter's own subtree.
+ * - a settling child reports to its parent through the parent's inbox, and a
+ *   task may only message its direct parent / children (see `messages.js`).
  *
  * Everything operates on the `ServiceManager` passed in.
  */
 import { LushError, text, validSid } from '../types.js';
 import { validateTaskTransition } from '../lifecycle.js';
 import { activeChildren, isTerminal, requireTask, wake } from './internal.js';
+import { notifyChildSettled } from './messages.js';
 
 /** The service a task's children must be mounted on: a direct child of its own. */
 export function delegateTargets(manager, taskId) {
@@ -95,17 +97,6 @@ export function waitForTask(manager, taskId, { fromTaskId = null } = {}) {
   });
 }
 
-/** Resolve once `taskId` has no active child task (immediately when it has none). */
-export async function waitForChildren(manager, taskId) {
-  while (activeChildren(manager, taskId).length > 0) {
-    await new Promise((resolve) => {
-      const waiters = manager.childWaiters.get(taskId) ?? new Set();
-      waiters.add(resolve);
-      manager.childWaiters.set(taskId, waiters);
-    });
-  }
-}
-
 // ── Transitions ────────────────────────────────────────────────────────────
 
 function transition(manager, taskId, target, { result, error } = {}) {
@@ -129,7 +120,10 @@ export function markWaiting(manager, taskId, waiting = true) {
 
 /**
  * Finish a task. Completing requires every child task to be finished first:
- * agents that still have children under way are told to wait or cancel them.
+ * agents that still have children under way are told to end their turn and be
+ * woken with the results (the `task_complete` tool adds the same check for
+ * unread inbox input; the runtime drains the inbox before settling, and a human
+ * completing a task by hand is not blocked by a report nobody needs to read).
  */
 export function complete(manager, taskId, result = undefined) {
   const task = requireTask(manager, taskId);
@@ -137,7 +131,7 @@ export function complete(manager, taskId, result = undefined) {
   if (pending.length > 0) {
     throw new LushError(
       `task ${taskId} still has active child tasks [${pending.map((child) => child.id).join(', ')}]; `
-      + 'wait for them (task_wait) or cancel them (task_cancel) first',
+      + 'end this turn and you will be woken with their results, or cancel them (task_cancel) first',
       -32010,
     );
   }
@@ -178,7 +172,7 @@ function cascade(manager, taskId, status, reason) {
   }
 }
 
-/** Common tail of every terminal transition: abort the agent and wake waiters. */
+/** Common tail of every terminal transition: abort the agent, report, wake waiters. */
 function finish(manager, task, status) {
   if (status !== 'completed') manager.runtime?.cancelTask(task.id);
   // A reporter that dies with work still open (a blocking `notice` the user
@@ -187,6 +181,11 @@ function finish(manager, task, status) {
   // keeps its open notices — they are results and findings the user may still
   // want to read.
   if (status !== 'completed') manager.terminateNotices(task.id, `task ${task.id} ${status}`);
+  // A task parked in `waiting` (its agent yielded) must be released: the loop
+  // wakes, sees the terminal status and returns instead of leaking a promise.
+  manager.resumeTask(task.id);
+  // The parent learns through the same inbox a message arrives in.
+  notifyChildSettled(manager, task);
   manager.repository.taskEvent(task.id, 'settled', { task_id: task.id, status });
   wake(manager, task.id);
 }

@@ -42,25 +42,36 @@ created → running ⇄ waiting → completed / failed / cancelled
 
 - `created`：行已建、agent 还没开始（交互式交接会停在这里）。
 - `running`：它的 agent 正在跑（一次 invocation）。
-- `waiting`：agent 正在等自己的子 task（`task_wait`，或先回答后被自动唤醒）。
+- `waiting`：task 已让出本次运行，agent 不在跑——它在等子 task 或等输入（父 / 子 task 的消息）；有东西进收件箱时被唤醒。
 - `completed` / `failed` / `cancelled`：终态。
 
 规则（这些规则保证 task 树始终是一棵可观察的树）：
 
-1. **一个 service 同时只有一个活动 task**：service 是单线程的工作台。下游正忙时 `task_spawn` 会被拒绝；先 `task_wait` 它，或换一个下游节点。
-2. **子 task 只能挂在自己的直接子 service 上**：task 树因此永远沿 service 树向下生长，不会成环，`task_wait` 也不可能死锁。
-3. **终态 task 没有活动子 task**：`complete` 要求子 task 都已结束（否则报错，让你先 wait / cancel）；`fail` / `cancel` 会把整棵子树一起取消。
-4. **`task_wait` 只接受自己树里的 task**（自己的子 task 或它们的后代），不能等自己。
+1. **一个 service 同时只有一个活动 task**：service 是单线程的工作台。下游正忙时 `task_spawn` 会被拒绝；先结束本轮等它（子结算会唤醒你），或换一个下游节点。
+2. **子 task 只能挂在自己的直接子 service 上**：task 树因此永远沿 service 树向下生长，不会成环；消息也只能走直接父子边，所以通话关系同样不会成环。
+3. **终态 task 没有活动子 task**：`complete` 要求子 task 都已结束且收件箱没有未读消息（否则报错）；`fail` / `cancel` 会把整棵子树一起取消。
+4. **阻塞在 task 上，不在 agent 里**：agent 的工具里没有“等待”原语。结束一輪 invocation 后，task 层决定“投递队列里 的输入 / park 等输入 / 完成”。
 5. 需要新的下游节点时先 `service_spawn`（受 `child_templates` 限制）建子服务，再向它派 task。
 
 ### agent 与 task
 
 - 每个 task 有**自己的 agent 会话**：`agent_calls` / `messages` 都带 `task_id`，pi 的 session-id 是 `lush-task-<id>`（外部 agent 的环境里有 `LUSH_SID` 与 `LUSH_TASK_ID`）。
 - 运行期 agent 的编号是 `TASK.N`（N 是本次 daemon 内该 task 的第几个 agent），见 `lush task agents list|show|kill`。`kill` 会取消它服务的 task——被强杀的 agent 没有答案可记。
-- 一个 task 最多被 invoke `LUSH_TASK_CALLS` 次（默认 12）：首次运行 + 每次「子 task 结束后被唤醒」。超了就把 task 记为 `failed`，避免无限自旋。
-- 如果 agent 先给出了回答、但子 task 还在跑，运行期把 task 置为 `waiting`，等子 task 结束再用一条 `[Lush] 你的子 task 已经结束：…` 的消息唤醒它继续收尾（这条消息是 task 自己对话里的一条 user message）。等子 task 期间不吃调用超时。
+- 一个 task 最多被 invoke `LUSH_TASK_CALLS` 次（默认 12）：首次运行 + 每次被唤醒（子 task 结算、收到消息）。超了就把 task 记为 `failed`，避免无限自旋。
+- 一輪 invocation 结束后 task 层按顺序判断：收件箱有未读输入 → 合成一条 user 消息（`[Lush] 你有新的输入：…`）重新 invoke；无输入但有活动子 task → 置 `waiting`、等输入再唤醒；都没 → 本次回答就是 result。park 期间不吃调用超时。
+- 收件箱（`task_inbox`）里的输入只有两种：直接父 / 子 task 发来的消息（`task_message`），或“某个子 task 已结算”的报告；**都不打断正在跑的 invocation**，在两次 invocation 之间才交给 agent。
 - provider 失败、调用超时、轮数用尽 → task `failed`（`error` 里是原因）；daemon 重启时未结束的 task 记为 `failed`（`error = daemon restarted`），不会自动重放。
 
+### 任务之间：持续通话（task_inbox）
+
+`task_spawn` 只能派一次性 goal；之后的交流走收件箱：
+
+- **只走 task 树的直接边**：一个 task 只能给它的直接父 task 或它的直接子 task 发消息（`task_message`），和“只能向下游、直接子 service”同一条边界。
+- **异步、入队**：消息先落到接收方的 `task_inbox` 行（`delivered_at IS NULL`），在它两次 agent invocation 之间才交给它的 agent——正在跑的 invocation 不会被打断。接收方停在 `waiting` 时会被立即唤醒。
+- **子 settlement 也是输入**：子 task 进入终态时，task 层向父 task 的收件箱写一条 `child_settled`，父被唤醒并带上子 task 的状态与 result。所以“父等子、子报父”和“父子互发消息”是同一条队列、同一套唤醒语义。
+- **完成要求收件箱已清空**：有未读输入时 `task_complete` 会被拒绝；结束本轮，输入会在下一次 invocation 前交给你。
+- 读模型：`lush task inbox TASK_ID`（/ RPC `task.inbox`）；发：`task_message` 工具 或 `lush task message TASK_ID --body '...'`（RPC `task.message`）。
+- 代价：`waiting` 只由“有活动子 task 或收到输入”触发，一个既无子 task 又无输入的任务会直接完成；它不提供“原地等回信”的阻塞原语（需要回信就保持有未结束的子 task / 依赖用户 notice）。
 
 ### Notice（task 找人的渠道）
 

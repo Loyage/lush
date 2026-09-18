@@ -133,7 +133,18 @@ CREATE TABLE IF NOT EXISTS notices (
 CREATE INDEX IF NOT EXISTS notices_status ON notices(status, id);
 CREATE INDEX IF NOT EXISTS notices_sid ON notices(sid, id);
 CREATE INDEX IF NOT EXISTS notices_task ON notices(task_id, id);
-PRAGMA user_version = 6;
+CREATE TABLE IF NOT EXISTS task_inbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    to_task_id INTEGER NOT NULL REFERENCES tasks(id),
+    from_task_id INTEGER REFERENCES tasks(id),
+    kind TEXT NOT NULL CHECK(kind IN ('message','child_settled')),
+    body TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    delivered_at TEXT
+);
+CREATE INDEX IF NOT EXISTS task_inbox_to ON task_inbox(to_task_id, id);
+PRAGMA user_version = 7;
 `;
 
 /**
@@ -426,6 +437,26 @@ CREATE INDEX IF NOT EXISTS notices_status ON notices(status, id);
 CREATE INDEX IF NOT EXISTS notices_sid ON notices(sid, id);
 CREATE INDEX IF NOT EXISTS notices_task ON notices(task_id, id);
 PRAGMA user_version = 6;
+`;
+
+/**
+ * v6 → v7: the task inbox. A new table only — messages between direct parent /
+ * child tasks plus the report that a child settled. An older home just gets the
+ * table created and the version stamped.
+ */
+export const MIGRATION_V7 = `
+CREATE TABLE IF NOT EXISTS task_inbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    to_task_id INTEGER NOT NULL REFERENCES tasks(id),
+    from_task_id INTEGER REFERENCES tasks(id),
+    kind TEXT NOT NULL CHECK(kind IN ('message','child_settled')),
+    body TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    delivered_at TEXT
+);
+CREATE INDEX IF NOT EXISTS task_inbox_to ON task_inbox(to_task_id, id);
+PRAGMA user_version = 7;
 `;
 
 /** One historical call → the root task it becomes in v3. */

@@ -43,9 +43,9 @@ SQLite  ContextBuilder  AgentBackend
 2. Runtime 打开这次 invocation：同一个 task 不会有第二个 invocation；一个 service 同时最多一个活动 task（task 层已保证），不同 service 的 task 可真并行。
 3. 持久化 agent_calls（带 `task_id`）和 user message。ContextBuilder 生成模板 system prompt、共享 Lush 说明层、`LUSH_CONTEXT`（service + task + 子 task + 可创建模板）与**这个 task 自己**的对话。内置后端直接用这些 messages；外部后端（pi）拿到同样的 system prompt / 说明层 / `LUSH_CONTEXT` 与工作目录（`path` 变量），由 Lush 拼成命令行参数。
 4. Provider 返回文本及结构化 tool calls。每个 assistant / tool 消息顺序持久化，工具经 Core 执行业务变更（派子 task、等子 task、改 state/变量、建子服务）。pi 后端没有工具轮次：pi 在子服务内自己完成整个工具循环，Lush 只记录 user prompt 与最终文本（完整 pi session 落在 `$LUSH_HOME/pi-sessions/`，按 task 命名）。
-5. agent 给出最终回答、且没有活动子 task 时，这个回答就是 task 的 result（记为 completed）；还有子 task 时 task 进入 `waiting`，子 task 结束后被唤醒继续（最多 `LUSH_TASK_CALLS` 次）。异常记录 failed，取消记录 cancelled。
+5. agent 给出最终回答后，task 层按顺序决定：收件箱有未读输入（父子消息 / 子 task 结算）→ 合成一条 user 消息继续 invoke；无输入但有活动子 task → 进入 `waiting` 等输入；都没 → 这个回答就是 task 的 result（记为 completed，最多 `LUSH_TASK_CALLS` 次）。异常记录 failed，取消记录 cancelled。
 
-等待是树内的：`task_wait` 只接受自己子树里的 task，子 task 也只能挂在自己的子 service 上，所以等待关系不可能成环。单次 invocation 有轮数上限和超时（等待子 task 期间超时暂停）。同一个 Agent 回复的多个工具依次执行，避免同轮生命周期工具和变更工具竞态。多个客户端/父服务可同时调用不同 SID；单个父 Agent 的同轮多工具暂不并行。未来可以加入显式并行工具，不改变 Core API。
+阻塞在 task 上，不在 agent 里：agent 的工具没有“等待”原语。父子消息与子 task 结算都进同一个 `task_inbox`，只在两次 invocation 之间交给 agent，所以不会打断正在跑的工作；消息只走 task 树的直接边，与“只能向下游、直接子 service”同一条边界，所以通话关系不可能成环。单次 invocation 有轮数上限和超时（task 停在 `waiting` 等输入期间超时不计）。同一个 Agent 回复的多个工具依次执行，避免同轮生命周期工具和变更工具竞态。多个客户端/父服务可同时调用不同 SID；单个父 Agent 的同轮多工具暂不并行。未来可以加入显式并行工具，不改变 Core API。
 
 ## 持久化
 

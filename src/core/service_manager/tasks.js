@@ -46,11 +46,6 @@ export const taskLayer = {
     return this.taskWaitable(taskId, fromTaskId);
   },
 
-  /** Resolve once none of `taskId`'s child tasks is active any more. */
-  waitForChildren(taskId) {
-    return tasks.waitForChildren(this, taskId);
-  },
-
   activeChildTasks(taskId) {
     return this.repository.childTasks(taskId).filter((task) => this.taskIsActive(task));
   },

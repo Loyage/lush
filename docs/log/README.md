@@ -22,6 +22,7 @@ MVP 范围内无未完成项。后续方向（本轮不实现）：Context compr
 - [08 · 每个节点的三个查看接口与 description 重写](./08-service-view-and-descriptions.md)
 - [09 · Notice：task 向用户汇报并等待答复的渠道](./09-agent-notices.md)
 - [10 · worktree 合并的人工门与 agent 侧 notice.post](./10-worktree-merge-gate.md)
+- [11 · task 收件箱：父子持续通话，阻塞移到 task 层](./11-task-inbox.md)
 
 ## 验收命令
 

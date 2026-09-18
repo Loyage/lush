@@ -1,35 +1,32 @@
 /**
- * One task's run, in the background: invoke the agent, wait when the agent
- * answered before its child tasks were done, and wake it again with their
- * results. Also the hang timeout that guards each of those invocations.
+ * One task's run, in the background: invoke the agent, hand it whatever landed
+ * in its inbox, park when it has nothing to do, and finish when it is done.
  *
- * Exported as a method group and a function: `runner.js` merges the methods
- * into `AgentRuntime`; `continuationPrompt` is what the woken agent is told.
+ * The agent never blocks on its children: `task_wait` is gone. After every
+ * invocation the **task layer** decides, in this order:
+ *
+ *   1. queued input (a parent / child message, or a child that settled) →
+ *      synthesize the next prompt from it and invoke again;
+ *   2. nothing queued but children still active → park the task in `waiting`
+ *      (the hang timeout does not run while parked) until something arrives;
+ *   3. nothing queued and no active children → the last answer is the result.
+ *
+ * That is what keeps blocking on the task instead of inside the agent, and why
+ * a message can never cut an invocation short: it waits its turn in the inbox.
+ *
+ * Exported as a method group and the timeout guard: `runner.js` merges the
+ * methods into `AgentRuntime`.
  */
 import { createLogger } from '../../log.js';
 import { LushError, text } from '../../core/types.js';
 import { openAgent } from '../agent_space.js';
+import { inputPrompt } from '../../core/tasks/messages.js';
 import { execute } from '../loop.js';
 
 const log = createLogger('lush.agent.runtime');
 
-/** What an agent that just woke up after its children settled is told. */
-export function continuationPrompt(repository, taskId) {
-  const children = repository.childTasks(taskId);
-  const lines = children.map((child) => {
-    const outcome = child.status === 'completed'
-      ? (child.result === null ? '(no result)' : child.result)
-      : `${child.status}: ${child.error ?? '(no error recorded)'}`;
-    return `- task #${child.id} on service ${child.sid} → ${outcome}`;
-  });
-  return '[Lush] 你的子 task 已经结束：\n'
-    + `${lines.join('\n')}\n`
-    + '请据此继续：要么取用/汇总这些结果，要么再派新的子 task；'
-    + '确认目标达成后用 task_complete 结束本 task。';
-}
-
 export const taskRun = {
-  /** One task's whole life: invoke, wake when children settle, finish. */
+  /** One task's whole life: invoke, deliver input, park, finish. */
   async _runTask(entry) {
     const { taskId } = entry;
     let prompt = this.repository.getTask(taskId).goal;
@@ -41,18 +38,21 @@ export const taskRun = {
         const output = await this._invoke(entry, prompt);
         const after = this.repository.getTask(taskId);
         if (!this.manager.taskIsActive(after)) return;
-        const children = this.manager.activeChildTasks(taskId);
-        if (children.length > 0) {
-          // The agent answered before its children were done: park the task and
-          // wake it again with their results.
+
+        // Input that arrived while the agent was working is delivered first.
+        let input = this.manager.takeTaskInput(taskId);
+        while (input.length === 0 && this.manager.activeChildTasks(taskId).length > 0) {
           this.manager.taskWaiting(taskId, true);
-          await this.manager.waitForChildren(taskId);
+          await this.manager.waitForTaskInput(taskId);
           this.manager.taskWaiting(taskId, false);
-          prompt = continuationPrompt(this.repository, taskId);
-          continue;
+          if (!this.manager.taskIsActive(this.repository.getTask(taskId))) return;
+          input = this.manager.takeTaskInput(taskId);
         }
-        this.manager.settleTaskFromAnswer(taskId, output);
-        return;
+        if (input.length === 0) {
+          this.manager.settleTaskFromAnswer(taskId, output);
+          return;
+        }
+        prompt = inputPrompt(this.manager, input);
       }
       this.manager.failTask(taskId, `task exceeded ${this.maxCalls} agent calls`);
     } catch (err) {

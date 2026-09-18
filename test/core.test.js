@@ -143,7 +143,8 @@ describe('core', () => {
       expect(built.manager.repository.callsOfTask(task.id)).toHaveLength(2);
       // The wake prompt is part of the task's own conversation, not another task's.
       const messages = built.manager.taskHistory(task.id).messages.map((row) => row.body.content ?? '');
-      expect(messages.some((body) => body.includes('你的子 task 已经结束'))).toBe(true);
+      expect(messages.some((body) => body.includes('你有新的输入'))).toBe(true);
+      expect(messages.some((body) => body.includes('你的子 task #') && body.includes('已结束'))).toBe(true);
       // And the tree shows the collaboration.
       const tree = built.manager.taskTree(task.id);
       expect(tree.children.map((node) => node.id)).toEqual([children[0].id]);
@@ -736,7 +737,7 @@ describe('core', () => {
       expect(managerTemplate.system_prompt).toContain(expected);
     }
     const projectTemplate = manager.templates.get('project');
-    for (const expected of ['dev-task', 'task spawn', 'task wait', 'path', 'state']) {
+    for (const expected of ['dev-task', 'task spawn', 'task message', 'path', 'state']) {
       expect(projectTemplate.system_prompt).toContain(expected);
     }
     expect(manager.templates.get('project').spawn_prompt).toContain('path');
@@ -747,7 +748,7 @@ describe('core', () => {
     const template = manager.templates.get('lush-root');
     expect(template.child_templates).toEqual(['project-manager']);
     for (const expected of [
-      '入口', 'project-manager', 'children', 'task_spawn', 'task_wait', '不要自己动手', '孤儿', '不要声称',
+      '入口', 'project-manager', 'children', 'task_spawn', '被唤醒', '不要自己动手', '孤儿', '不要声称',
     ]) {
       expect(template.system_prompt).toContain(expected);
     }
@@ -758,7 +759,7 @@ describe('core', () => {
     for (const mode of ['tools', 'cli']) {
       const guide = agentGuide(mode);
       for (const expected of [
-        'Service', 'Task', 'task_spawn', 'task_wait', 'task_complete', 'task tree', '下游', '被动的节点',
+        'Service', 'Task', 'task_spawn', 'task_message', 'task_complete', 'task tree', '下游', '被动的节点',
       ]) {
         expect(guide).toContain(expected);
       }
@@ -910,7 +911,7 @@ describe('core', () => {
 
     const migrated = system(legacyDir);
     try {
-      expect(migrated.database.connection.query('PRAGMA user_version').get().user_version).toBe(6);
+      expect(migrated.database.connection.query('PRAGMA user_version').get().user_version).toBe(7);
       expect(migrated.database.connection.query('PRAGMA foreign_key_check').all()).toEqual([]);
       // v1 `running` / `completed` become `active`; v1 `cancelled` collapsed
       // into `stopped` on the way through v2, like v1 `stopped` does.

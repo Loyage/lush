@@ -65,6 +65,7 @@ export function inspect(manager, taskId) {
     child_tasks: manager.repository.childTasks(taskId).map(summary),
     recent_calls: calls.slice(0, 10),
     recent_events: manager.repository.taskEvents(taskId),
+    recent_inbox: manager.repository.recentTaskMessages(taskId, 10),
     messages: manager.repository.taskMessages(taskId).length,
   };
 }

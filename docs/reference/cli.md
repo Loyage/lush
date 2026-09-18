@@ -35,6 +35,8 @@ lush --json help task          # 机器可读的命令树（summary/cover/usage/
 | `lush task session TASK_ID [--open]`（RPC `task.session`） | 该 task agent 的磁盘会话；`--open` / `lush task attach` 进入 pi TUI |
 | `lush task delete TASK_ID [--recursive]`（RPC `task.delete`） | 删除已结束的 task 记录（call 行与消息保留为 service 的历史） |
 | `lush task agents list\|show\|kill`（RPC `task.agents_*`） | 运行期 agent（`TASK.N`） |
+| `lush task message TASK_ID --body TEXT [--from TASK_ID]`（RPC `task.message`） | 给直接父 task 或直接子 task 发一条消息（入队，不打断对方）；`--from` 缺省取 `$LUSH_TASK_ID` |
+| `lush task inbox TASK_ID [--after ID] [--limit N]`（RPC `task.inbox`） | 该 task 收到的输入：父子消息与“子 task 已结算”的报告，`delivered_at` 说明是否已交给 agent |
 | `lush notice list [--status S] [--task T] [--sid P] [--limit N]`（RPC `notice.list`） | 列出 agent 汇报给用户的 notice（ID / kind / status / wait / title / 上报者） |
 | `lush notice show NOTICE_ID`（RPC `notice.inspect`） | 一条 notice 的完整快照：正文、上报者、fields 声明的表单、已填的 answer |
 | `lush notice post --title T [--kind K] [--body B] [--fields JSON] [--task TASK_ID] [--no-wait]`（RPC `notice.post`） | **agent 侧**上报一条 notice；默认阻塞到用户结算并打印结算后的 notice（answer 在其中）。汇报者缺省取 `$LUSH_TASK_ID`；`--no-wait` 对应 `wait: false` |
@@ -71,6 +73,8 @@ just session 1                        # 查看该 task 的 pi session（dir/id/f
 just session 1 open                   # 直接进 pi TUI 接续该会话
 just complete 1 '"done"' | just task-state 1 '{"progress":"half"}' | just update-state 2 '{"progress":"half"}' | just update-vars 2 '{"branch":"dev"}'
 just attach 1
+just task-message 3 '把范围收窄到登录接口'   # 给直接父 / 子 task 传话（入队；from 缺省 $LUSH_TASK_ID）
+just inbox 1          # 某个 task 收到的输入（父子消息 / 子 task 结算）
 just notices          # 待处理的 notice（agent 汇报给用户）；just notices answered 看已回复的
 just notice 7         # 一条 notice 的详情与要填的字段
 just answer 7 plan=canary note=ok    # 填写回复并唤醒等待的 task；just answer-text 7 '自由文本'

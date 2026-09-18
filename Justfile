@@ -378,6 +378,16 @@ session task open="":
 agents all="":
   @{{lush}} task agents list{{ if all != "" { " --all" } else { "" } }}
 
+# 给直接父 task 或直接子 task 发一条消息（入队，不打断对方）：just task-message 3 '把范围收窄到登录接口'
+[group('task')]
+task-message to body from="":
+  @{{lush}} task message {{to}} --body {{quote(body)}}{{ if from != "" { " --from " + from } else { "" } }}
+
+# 查看某个 task 收到的输入（父子消息 / 子 task 结算报告）：just inbox 1
+[group('task')]
+inbox task:
+  @{{lush}} task inbox {{task}}
+
 # 启动（或重启）被动节点：让它重新接受 task
 [group('service')]
 start sid:

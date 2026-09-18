@@ -29,22 +29,15 @@ export function isTerminal(task) {
 //
 // Waiting is in-memory: waiter and waited-on task live in the same daemon, and
 // a restarted daemon fails the task instead of resuming it (see
-// `Repository.recover`). `taskWaiters` is keyed by task id; `childWaiters` is
-// keyed by the *parent* task id and fires when any of its children settles —
-// that is what lets an agent that answered early be woken with the results.
+// `Repository.recover`). `taskWaiters` is keyed by task id and exists for the
+// *user-facing* `task.wait` (a CLI / RPC caller blocking until a task reaches a
+// terminal status). An agent no longer blocks inside a call: it parks its task
+// in `waiting` and is resumed through its inbox (see `messages.js`).
 
-/** Fire every waiter parked on `taskId` (or on its parent, for `childWaiters`). */
+/** Fire every user-side waiter parked on `taskId` (it reached a terminal status). */
 export function wake(manager, taskId) {
   const waiters = manager.taskWaiters.get(taskId);
-  if (waiters !== undefined) {
-    manager.taskWaiters.delete(taskId);
-    for (const resolve of waiters) resolve(taskId);
-  }
-  const parentId = manager.repository.findTask(taskId)?.parent_task_id;
-  if (parentId === null || parentId === undefined) return;
-  const parents = manager.childWaiters.get(parentId);
-  if (parents !== undefined) {
-    manager.childWaiters.delete(parentId);
-    for (const resolve of parents) resolve(taskId);
-  }
+  if (waiters === undefined) return;
+  manager.taskWaiters.delete(taskId);
+  for (const resolve of waiters) resolve(taskId);
 }

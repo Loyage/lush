@@ -10,6 +10,31 @@ import {
   alignRows, eventLine, excerpt, indentLines, objectLines, shortValue, stamp, taskMetadataTitle,
 } from '../primitives.js';
 
+/** `lush task inbox` text output: one line per queued / delivered input. */
+export function formatTaskInbox(rows) {
+  if (rows.length === 0) return '收件箱为空';
+  return rows.map((row) => {
+    const from = row.from_task_id === null ? 'Lush' : `task#${row.from_task_id}`;
+    const delivered = row.delivered_at === null ? '未读' : `已投递 ${stamp(row.delivered_at)}`;
+    if (row.kind === 'child_settled') {
+      return `#${row.id} child_settled ${from} · ${row.data.status} · ${delivered}`;
+    }
+    return `#${row.id} message ${from} · ${delivered} · ${shortValue(row.body, 80)}`;
+  }).join('\n');
+}
+
+/** `lush task message`: the message that was just queued. */
+export function formatTaskMessage(row) {
+  const from = row.from_task_id === null ? 'Lush' : `task#${row.from_task_id}`;
+  return alignRows([
+    ['inbox', `#${row.id}`],
+    ['from', from],
+    ['to', `task#${row.to_task_id}`],
+    ['kind', row.kind],
+    ['queued', stamp(row.created_at)],
+  ]).concat(['', row.body]).join('\n');
+}
+
 /** One task line: `#12 project[3] running · goal`. Shared by list and inspect. */
 export function taskLine(task, serviceName = null) {
   const where = serviceName === null ? `sid ${task.sid}` : `${serviceName}[${task.sid}]`;
@@ -65,7 +90,7 @@ export function formatTaskTree(node, serviceName = null) {
  */
 export function formatTaskInspect(result) {
   const {
-    recent_calls = [], recent_events = [], child_tasks = [], service = null, state, ...task
+    recent_calls = [], recent_events = [], recent_inbox = [], child_tasks = [], service = null, state, ...task
   } = result;
   const rows = [
     ['service', service === null ? `sid ${task.sid}` : `${service.name}[${service.sid}] · ${service.template} · ${service.status}`],
@@ -111,6 +136,21 @@ export function formatTaskInspect(result) {
       for (const key of ['prompt', 'output', 'error']) {
         if (call[key]) lines.push(`    ${key}`, ...indentLines(call[key], 3));
       }
+    }
+  }
+
+  lines.push('');
+  if (recent_inbox.length === 0) {
+    lines.push('inbox  (empty)');
+  } else {
+    lines.push(`inbox · recent ${recent_inbox.length}, newest first`);
+    for (const row of recent_inbox) {
+      const from = row.from_task_id === null ? 'Lush' : `task#${row.from_task_id}`;
+      const delivered = row.delivered_at === null ? 'unread' : 'delivered';
+      const detail = row.kind === 'child_settled'
+        ? `child_settled · ${row.data.status}`
+        : `message · ${shortValue(row.body, 60)}`;
+      lines.push(`  #${row.id} ${from} → ${detail} (${delivered})`);
     }
   }
 

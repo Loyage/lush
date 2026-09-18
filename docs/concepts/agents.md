@@ -9,7 +9,7 @@ Task 的 agent 由这个 service 选中的 agent profile 决定（`service spawn
 - `pi`（默认）：每次 invocation 起一个 `pi --print` 子服务，session-id 是 `lush-task-<id>`。pi 用 read / bash / edit / write 自己的工具，并通过 bash 调 `lush` CLI 操作 Lush（`LUSH_SID` / `LUSH_TASK_ID` 告诉它自己是谁）。取消 invocation 会杀掉子服务。
 - `mock` / `openai`：内置运行时，agent 直接拿到 `task_*` / `service_*` 工具，共享说明层切到 tools 版本。
 
-共享说明层（`src/agent/guide.js`）和后端无关：它告诉每个 agent「你是某个 task 的 agent，service 是被动节点；向下游派 task，用 task_wait 收集，子 task 未结束不能 complete；先判断这活归谁再动手」。tools 与 cli 两种模式共用同一份「通用规则」文本。
+共享说明层（`src/agent/guide.js`）和后端无关：它告诉每个 agent「你是某个 task 的 agent，service 是被动节点；向下游派 task，结束本轮后会被唤醒并拿到子 task 的结果，子 task 未结束 / 有未读消息时不能 complete；给直接父 / 子 task 传话用 task_message；先判断这活归谁再动手」。tools 与 cli 两种模式共用同一份「通用规则」文本。
 
 ## Agent 和 Context
 

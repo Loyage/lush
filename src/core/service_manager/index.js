@@ -19,6 +19,7 @@
  *   service_manager/nodes.js   spawn, the transition machine, orphans, removal
  *   service_manager/agents.js  profile resolution and the agent verbs
  *   service_manager/tasks.js   the task verbs
+ *   service_manager/inbox.js   the task inbox (parent ↔ child input)
  *   service_manager/notices.js the notice verbs (agent → user reports)
  *
  * Only the constructor and the `orphanPolicy` getter live in the class body:
@@ -26,6 +27,7 @@
  */
 import { DEFAULT_ORPHAN_POLICY, OrphanSupervisor } from '../orphans.js';
 import { agents } from './agents.js';
+import { inboxLayer } from './inbox.js';
 import { nodes } from './nodes.js';
 import { noticeLayer } from './notices.js';
 import { read } from './read.js';
@@ -45,13 +47,15 @@ export class ServiceManager {
     /** SID 0's orphan supervision: policy plus the read model behind it. */
     this.orphanSupervisor = new OrphanSupervisor(repository, this, orphanPolicy);
     /**
-     * Task waiters, in memory: `taskWaiters` is keyed by the task being awaited
-     * and `childWaiters` by the parent task that wants to know when any of its
-     * children settles. A restarted daemon fails unfinished tasks instead of
-     * resuming them (`Repository.recover`), so nothing here needs to persist.
+     * Task waiters, in memory. `taskWaiters` is the *user-facing* `task.wait`
+     * (a CLI / RPC caller blocking until a task settles). `resumeWaiters` is a
+     * task parked in `waiting` whose agent yielded: it wakes when anything lands
+     * in that task's inbox (a parent/child message, or a child settling). A
+     * restarted daemon fails unfinished tasks instead of resuming them
+     * (`Repository.recover`), so nothing here needs to persist.
      */
     this.taskWaiters = new Map();
-    this.childWaiters = new Map();
+    this.resumeWaiters = new Map();
     /**
      * Notice waiters, in memory like the task ones: a reporter that chose to
      * wait (`notice` tool with `wait`) parks here until the user answers or
@@ -69,4 +73,4 @@ export class ServiceManager {
   }
 }
 
-Object.assign(ServiceManager.prototype, read, nodes, agents, taskLayer, noticeLayer);
+Object.assign(ServiceManager.prototype, read, nodes, agents, taskLayer, inboxLayer, noticeLayer);

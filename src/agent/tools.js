@@ -2,9 +2,11 @@
  * Agent capability adapter: names/JSON schema only, Core owns business rules.
  *
  * The agent works *as a task* on a service: `task_*` tools move work (delegate
- * to a child service, wait for the children, finish), `service_*` tools read
+ * to a child service, message a parent or child, finish), `service_*` tools read
  * and shape the passive node it runs on (identity, permissions, variables,
- * persistent state, and spawning child services).
+ * persistent state, and spawning child services), and `notice` reports to the
+ * user and waits for their answer. The agent never blocks on its children: it
+ * ends its turn and the task layer wakes it with their results.
  */
 import { invoke } from '../core/dispatch.js';
 import { LushError, jsonLoad } from '../core/types.js';
@@ -41,13 +43,13 @@ function tool(name, description, properties = {}, required = []) {
 export const TOOL_DEFINITIONS = [
   tool('task_self', 'Inspect the task you are working on: its goal, status, result, and the service it is mounted on.'),
   tool('task_children', 'List the child tasks you have delegated to child services (id, service, status, result).'),
-  tool('task_spawn', 'Delegate work downstream: create a child task on service `sid`. `sid` must be a direct child of your own service (spawn the service first with service_spawn if it does not exist yet). The child task starts running immediately; collect it later with task_wait. One active task per service: a busy child service refuses the delegation.',
+  tool('task_spawn', 'Delegate work downstream: create a child task on service `sid`. `sid` must be a direct child of your own service (spawn the service first with service_spawn if it does not exist yet). The child task starts running immediately; you are woken with its result when it settles.',
     { sid: SID, goal: STRING }, ['sid', 'goal']),
-  tool('task_wait', 'Block until one of your child tasks (or one of their descendants) is finished, then return its status and result. Waiting is what makes delegation observable and keeps the task tree settled.',
-    { task_id: SID }, ['task_id']),
+  tool('task_message', 'Send a message to your direct parent task or one of your direct child tasks (task_id). Use it to steer a child that is still working, to ask your parent something, or to report progress — it is queued on the receiver and delivered between two of its agent invocations, so it never interrupts work in flight. A parked task is woken by your message.',
+    { task_id: SID, body: STRING }, ['task_id', 'body']),
   tool('task_cancel', 'Cancel one of your child tasks; its own child tasks are cancelled with it.',
     { task_id: SID }, ['task_id']),
-  tool('task_complete', 'Finish your task. Only call this once the goal is really met; every child task must be finished (or cancelled) first. The result you pass is stored on the task and returned to whoever is waiting.',
+  tool('task_complete', 'Finish your task. Only call this once the goal is really met; every child task must be finished (or cancelled) and every message read first. The result you pass is stored on the task and handed to your parent.',
     { result: {} }),
   tool('task_update_state', 'Shallow-merge JSON fields into your task\'s own scratch state (progress notes for this piece of work). The service has a separate, long-lived state.',
     { patch: { type: 'object' } }, ['patch']),
@@ -75,7 +77,7 @@ export const TOOL_PARAMS = {
   task_self: { required: [] },
   task_children: { required: [] },
   task_spawn: { required: ['sid', 'goal'] },
-  task_wait: { required: ['task_id'] },
+  task_message: { required: ['task_id', 'body'] },
   task_cancel: { required: ['task_id'] },
   task_complete: { required: [], optional: ['result'] },
   task_update_state: { required: ['patch'] },
@@ -99,7 +101,7 @@ export class AgentTools {
       task_self: { params: TOOL_PARAMS.task_self, fn: () => this.self() },
       task_children: { params: TOOL_PARAMS.task_children, fn: () => this.children() },
       task_spawn: { params: TOOL_PARAMS.task_spawn, fn: (sid, goal) => this.spawn(sid, goal) },
-      task_wait: { params: TOOL_PARAMS.task_wait, fn: (taskId) => this.wait(taskId) },
+      task_message: { params: TOOL_PARAMS.task_message, fn: (taskId, body) => this.sendMessage(taskId, body) },
       task_cancel: { params: TOOL_PARAMS.task_cancel, fn: (taskId) => this.cancel(taskId) },
       task_complete: { params: TOOL_PARAMS.task_complete, fn: (result) => this.complete(result) },
       task_update_state: {
@@ -141,18 +143,9 @@ export class AgentTools {
     return this.manager.spawnTask(this.taskId, sid, goal);
   }
 
-  async wait(taskId) {
-    // Validated first: an unusable target must not park the task in `waiting`.
-    const pending = this.manager.waitForTask(taskId, this.taskId);
-    this.manager.taskWaiting(this.taskId, true);
-    this.manager.runtime?.pauseTimer(this.taskId);
-    try {
-      const settled = await pending;
-      return this.manager.taskResult(settled.id);
-    } finally {
-      this.manager.runtime?.resumeTimer(this.taskId);
-      this.manager.taskWaiting(this.taskId, false);
-    }
+  /** Message a direct parent / child task; it is queued and wakes a parked task. */
+  sendMessage(taskId, body) {
+    return this.manager.taskMessage(this.taskId, taskId, body);
   }
 
   cancel(taskId) {
@@ -160,6 +153,15 @@ export class AgentTools {
   }
 
   complete(result = undefined) {
+    // A message that arrived while this turn was running would be dropped by
+    // finishing now; end the turn instead and it is delivered next invocation.
+    const unread = this.manager.pendingTaskInput(this.taskId);
+    if (unread > 0) {
+      throw new LushError(
+        `you have ${unread} unread message(s); end this turn and they will be delivered to you`,
+        -32010,
+      );
+    }
     return this.manager.completeTask(this.taskId, result);
   }
 

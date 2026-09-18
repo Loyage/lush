@@ -8,4 +8,3 @@
  *   runtime/interactive.js  a run handed to the caller's own terminal
  */
 export { AgentRuntime } from './runtime/runner.js';
-export { continuationPrompt } from './runtime/task.js';

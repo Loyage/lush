@@ -42,7 +42,7 @@ lush daemon stop
 
 ## 请求怎么往下走：分派优先
 
-一个 task 的 agent 接到活时，第一件事不是自己动手，而是判断「这活归谁」：对照 task 的 goal、所在 service 的职责与 `children` / `LUSH_CONTEXT.available_child_templates` 里每个子服务、每个可创建模板的 `description` 与 `spawn_prompt`——有谁专职这件事就把 task 派给它（已有的子服务先复用，没有的先按模板 `service_spawn` 建，再 `task_spawn`），没有合适的下游或这本就是自己的职责时才自己动手。派完用 `task_wait`（或等被自动唤醒）拿结果。这条规则写在共享说明层（`src/agent/guide.js` 的「通用规则」），所有后端、所有模板都带；`tools` 与 `cli` 两个后端共用同一份文本。
+一个 task 的 agent 接到活时，第一件事不是自己动手，而是判断「这活归谁」：对照 task 的 goal、所在 service 的职责与 `children` / `LUSH_CONTEXT.available_child_templates` 里每个子服务、每个可创建模板的 `description` 与 `spawn_prompt`——有谁专职这件事就把 task 派给它（已有的子服务先复用，没有的先按模板 `service_spawn` 建，再 `task_spawn`），没有合适的下游或这本就是自己的职责时才自己动手。派完就结束本轮：task 会自动 park，子 task 结算时以一条 user 消息唤醒 agent 并带上结果；中途要给直接父 / 子 task 追加信息用 `task_message`（入队，不打断对方）。这条规则写在共享说明层（`src/agent/guide.js` 的「通用规则」），所有后端、所有模板都带；`tools` 与 `cli` 两个后端共用同一份文本。
 
 顶层因此长这样：
 
