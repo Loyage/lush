@@ -80,7 +80,7 @@ inspect 的 Context 包含 system_prompt、state、artifacts、references、mess
 
 进程选中的 profile 声明了哪个字段，哪个字段就优先于环境变量；未声明的字段照旧回落到环境变量与内置 fallback。内置运行时的 provider（mock / openai）没有 argv 预览。
 
-孤儿监督（RPC `process.orphans` / `process.orphan_sweep`，读模型与策略细节见 process-model.md 的「PID 0 的孤儿监督」）的策略来自 daemon 启动时的环境变量，改配置要重启 daemon；默认 `adopt` + 不限 + 不超时，此时 `orphan_sweep` 什么也不会冻结。回收是冻结而非删除（一律 → stopped，记录全留）；有 agent 调用在跑的孤儿（`busy`）永不被冻结，只在报告的 `deferred` 里出现。被监督冻结的进程，其 `transition` 事件 data 仍为 `{ from, to }`，额外带 `cause`：`orphan_ttl`（闲置超时）或 `orphan_limit`（超上限）；`adopt: terminate` 模式下被父节点连带的子节点 `cause` 是 `parent_terminated`。事件随进程一起用 inspect 读取。
+孤儿监督（RPC `process.orphans` / `process.orphan_sweep`，读模型与策略细节见 [concepts/lifecycle-and-orphans.md](../concepts/lifecycle-and-orphans.md) 的「PID 0 的孤儿监督」）的策略来自 daemon 启动时的环境变量，改配置要重启 daemon；默认 `adopt` + 不限 + 不超时，此时 `orphan_sweep` 什么也不会冻结。回收是冻结而非删除（一律 → stopped，记录全留）；有 agent 调用在跑的孤儿（`busy`）永不被冻结，只在报告的 `deferred` 里出现。被监督冻结的进程，其 `transition` 事件 data 仍为 `{ from, to }`，额外带 `cause`：`orphan_ttl`（闲置超时）或 `orphan_limit`（超上限）；`adopt: terminate` 模式下被父节点连带的子节点 `cause` 是 `parent_terminated`。事件随进程一起用 inspect 读取。
 
 ### 身份：daemon 跑的是哪份代码
 
@@ -96,7 +96,7 @@ process.view 是「查看」的统一读模型，把父子关系和 Call Prompt 
 
 sections 省略时返回全部三项；必须是非空、无重复、只含上述名称的字符串数组（否则 -32602）。返回字段顺序固定为 pid、parent、children、call_prompt，只包含被请求的 section。未知 PID 与其他方法一样返回 -32004。view 是只读操作，不改变状态、不创建调用记录。Agent 侧的等价能力仍是个体工具 process_self / process_parent / process_children。
 
-旧版本写入、快照里没有 `child_templates` 的 Process，会在 daemon 启动时从同名已加载模板回填一次（见 process-model）。PID 0 是唯一的例外：daemon 每次启动用当前加载的 `lush-root` **整份替换**它的快照（`replaceSnapshot`，逐字段比较、有差异才写并记 `template_refreshed`），所以收窄 / 放宽根权限靠改模板 + 重启生效（见 process-model）。
+旧版本写入、快照里没有 `child_templates` 的 Process，会在 daemon 启动时从同名已加载模板回填一次（见 [concepts/lifecycle-and-orphans.md](../concepts/lifecycle-and-orphans.md)）。PID 0 是唯一的例外：daemon 每次启动用当前加载的 `lush-root` **整份替换**它的快照（`replaceSnapshot`，逐字段比较、有差异才写并记 `template_refreshed`），所以收窄 / 放宽根权限靠改模板 + 重启生效（见 [concepts/lifecycle-and-orphans.md](../concepts/lifecycle-and-orphans.md)）。
 
 ## Agent Tools
 

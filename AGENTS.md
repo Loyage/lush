@@ -67,5 +67,6 @@ lush: warning: restarted code only applies to the daemon you restart; run 'LUSH_
 ## 相关文档
 
 - `README.md` 的「改代码或提示词之后，先确认你重启的是哪个 daemon」一节：同一问题的单 worktree 视角。
-- `docs/architecture.md`：模块边界与整体架构。
+- `docs/`：文档按概念 / 参考 / 工程 / 历史四层组织，入口是 `docs/README.md`；
+  模块边界与整体架构在 `docs/engineering/architecture.md`，daemon 与 CLI 的版本对齐在 `docs/engineering/identity.md`。
 - `src/identity.js`：identity / fingerprint 机制的实现与设计理由（注释即设计文档）。

@@ -52,7 +52,7 @@ lush CLI -- JSON-RPC / Unix socket --> lushd
 
 SQLite 开启 foreign_keys、WAL、busy_timeout。每个 Core 变更在同步短事务内完成，事务中不 await / 不调用模型。单 daemon / 单事件循环拥有数据库连接，不存在线程共享 SQLite。`bun:sqlite` 是同步 API，属于 MVP 限制：大查询/磁盘 IO 可能短暂阻塞事件循环，后续可替换为专用工作线程或 `bun:sqlite` 的异步接口，不改变 Repository 边界。
 
-父进程结束及孤儿收养是同一事务。唯一的物理删除路径是 `process.delete` / `process.purge`（连带挂载在它上面的 task）与 `task.delete`（只删 task 行，call 行与消息作为 process 历史保留），详见 process-model.md 的「删除」。重启恢复先把 running 的调用标记 interrupted，把未结束的 task 记为 failed（daemon restarted），再把 PID 0 恢复为 active；其他节点状态保留。启动阶段还会把旧快照中缺失的、当前版本仍需从快照读取的模板字段（`child_templates`、`variables`）从同名已加载模板回填一次，并记 template_backfilled 事件；同名模板不存在时跳过并记 WARNING，其他快照字段不变。旧版快照里遗留的 `process_type`、`allowed_child_templates`、`agent_command`、`initial_context` 不再被读取。未完成的工具消息保留用于审计，但 ContextBuilder 不把不完整调用协议重放给 Provider，而将中断/失败的历史显示为普通对话和审计摘要。
+父进程结束及孤儿收养是同一事务。唯一的物理删除路径是 `process.delete` / `process.purge`（连带挂载在它上面的 task）与 `task.delete`（只删 task 行，call 行与消息作为 process 历史保留），详见 [concepts/lifecycle-and-orphans.md](../concepts/lifecycle-and-orphans.md) 的「删除」。重启恢复先把 running 的调用标记 interrupted，把未结束的 task 记为 failed（daemon restarted），再把 PID 0 恢复为 active；其他节点状态保留。启动阶段还会把旧快照中缺失的、当前版本仍需从快照读取的模板字段（`child_templates`、`variables`）从同名已加载模板回填一次，并记 template_backfilled 事件；同名模板不存在时跳过并记 WARNING，其他快照字段不变。旧版快照里遗留的 `process_type`、`allowed_child_templates`、`agent_command`、`initial_context` 不再被读取。未完成的工具消息保留用于审计，但 ContextBuilder 不把不完整调用协议重放给 Provider，而将中断/失败的历史显示为普通对话和审计摘要。
 
 ## 运行与限制
 
@@ -65,3 +65,24 @@ Process 是被动节点，不等于后台循环的 Agent；一切由 task 驱动
 Context 是单独资源边界，而不是消息数组别名。当前持久上下文不自动压缩、不使用 token scheduler；完整历史会增长，达到 RPC 大小上限时可按页读取历史。未来可在 ContextBuilder / Repository 边界加入 compression、paging、inheritance、sharing 和调度，不改变 Process 语义。
 
 没有跨模型副作用的 exactly-once 保证：若工具已提交但 daemon 在 tool message 写入前崩溃，事件/实体变更仍在，但模型历史可能不完整。恢复标记 interrupted，要求人工 inspect 而不是自动重放。pi 后端同理：pi 会话文件里可能有已执行的 bash 副作用，而 Lush 只把 invocation 标为 interrupted。
+
+## 源码的分层布局
+
+`src/` 按模块分目录（`core/` / `persistence/` / `agent/` / `context/` / `rpc/` / `daemon/` / `cli/`），再往下的约定是：**一个语义单元写成 `x.js` + 同名目录 `x/`**，`x.js` 只做转发（通常 6~15 行），`x/` 里是按职责切开的层。这和 `templates/` 的布局是同一个把戏——目录本身就是结构。
+
+```text
+src/core/process_manager.js        # 入口：re-export
+src/core/process_manager/
+  index.js   组装：类本体（构造函数 + orphanPolicy getter）+ Object.assign(四个方法层)
+  read.js    PID 0 初始化、读模型、变量
+  nodes.js   spawn、状态机、孤儿监督、删除
+  agents.js  profile 解析与 agent 动词
+  tasks.js   task 动词
+```
+
+同样的模式用在 `agent/runtime.js`（runner / space / task / interactive）、`cli/format/process.js`（inspect / agents / tasks）、`core/tasks.js`（internal / rules / read）、`persistence/repository.js`（index / rows / state / calls / tasks / removal）、`persistence/database.js`（connection / schema）。
+
+两条实现约定：
+
+- **导入路径不随拆分变化**：入口文件保留原名（`'./tasks.js'`、`'../agent/runtime.js'` 照旧），所以调用方不需要知道内部怎么分层。
+- **宽接口用方法层合并，不用继承链**：每个层导出一个普通对象，`Object.assign(Class.prototype, layerA, layerB, ...)` 合到同一个原型上，表面仍是一个扁平对象（RPC 的 `process.*` / `task.*` 方法、CLI 的调用点都直连它）。构造函数的字段与 getter 留在类体里——`Object.assign` 复制的是 getter 的值，不是 getter 本身。
