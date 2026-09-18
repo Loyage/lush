@@ -71,6 +71,7 @@ test('review diff is read-only and reports commits, files and dirty worktrees', 
     expect(diff.files).toEqual([{ path: 'file.txt', added: 1, deleted: 1 }]);
     expect(diff.pending).toEqual([]);
     expect(diff.commits).toHaveLength(1);
+    expect(diff.base_behind).toBe(0);
     expect(await git(f.root, 'rev-parse', 'HEAD')).not.toBe(f.store.task(f.task.id).head_commit);
     fs.writeFileSync(path.join(cwd, 'file.txt'), 'uncommitted\n');
     fs.writeFileSync(path.join(cwd, 'untracked.txt'), 'new\n');
@@ -81,6 +82,10 @@ test('review diff is read-only and reports commits, files and dirty worktrees', 
     ]);
     expect(dirty.files).toEqual([{ path: 'file.txt', added: 1, deleted: 1 }]);
     expect(f.store.task(f.task.id).integration).toBe('pending');
+    // 主树可以在 worker 干活期间继续前进：审阅要能看出 base 已经落后。
+    fs.writeFileSync(path.join(f.root, 'main.txt'), 'main\n');
+    await git(f.root, 'add', '.'); await git(f.root, 'commit', '-m', 'main moves on');
+    expect((await f.project.workspaces.diff(f.store.task(f.task.id))).base_behind).toBe(1);
   } finally { await f.close(); }
 });
 
@@ -112,18 +117,29 @@ test('merge conflicts abort safely, retain both branches and allow later review'
   } finally { await f.close(); }
 });
 
-test('dirty source, dirty worker and changed reviewed branch all refuse unsafe operations', async () => {
+test('dirty main tree no longer blocks worktrees, but still blocks merge and dirty worker', async () => {
   const f = await setup();
   try {
-    fs.writeFileSync(path.join(f.root,'dirty.txt'),'uncommitted');
-    await expect(f.project.workspaces.ensure(f.task)).rejects.toThrow('dirty');
-    fs.rmSync(path.join(f.root,'dirty.txt'));
+    // 主树有未提交改动：worker 只基于已提交的 HEAD，所以允许开工；分歧写进事件供审阅。
+    fs.writeFileSync(path.join(f.root, 'file.txt'), 'uncommitted\n');
     const cwd = await f.project.workspaces.ensure(f.task);
-    fs.writeFileSync(path.join(cwd,'file.txt'),'dirty');
+    expect(cwd).toBe(path.join(f.config.home, 'worktrees', `${f.task.id}-implement-feature`));
+    expect(fs.readFileSync(path.join(cwd, 'file.txt'), 'utf8')).toBe('base\n');
+    const created = f.store.all("SELECT data FROM events WHERE task_id=? AND type='workspace.created'", f.task.id)[0];
+    expect(JSON.parse(created.data).dirty_source).toEqual({ files: 1, sample: [' M file.txt'], more: 0 });
+
+    // worker 必须自己提交：这条门槛与主树无关。
+    fs.writeFileSync(path.join(cwd, 'file.txt'), 'dirty');
     await expect(f.project.workspaces.finish(f.store.task(f.task.id))).rejects.toThrow('dirty');
-    await git(cwd,'add','.'); await git(cwd,'commit','-m','first');
-    await f.project.workspaces.finish(f.store.task(f.task.id)); f.store.update(f.task.id,{status:'completed'});
-    await git(cwd,'commit','--allow-empty','-m','unreviewed');
+    await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', 'first');
+    await f.project.workspaces.finish(f.store.task(f.task.id)); f.store.update(f.task.id, { status: 'completed' });
+
+    // 合并门槛仍在 merge 自己身上，而且报错要点出是哪个文件；失败的合并不动 integration。
+    await expect(f.project.workspaces.merge(f.task.id)).rejects.toThrow('file.txt');
+    expect(f.store.task(f.task.id).integration).toBe('pending');
+    await git(f.root, 'checkout', '--', 'file.txt');
+
+    await git(cwd, 'commit', '--allow-empty', '-m', 'unreviewed');
     await expect(f.project.workspaces.merge(f.task.id)).rejects.toThrow('changed after review');
   } finally { await f.close(); }
 });
@@ -195,11 +211,17 @@ test('end-to-end worker executes inside worktree and cannot silently finish dirt
     return 'done';
   } });
   try {
-    await repo(f.root); const root = f.project.submit('edit').task;
+    await repo(f.root);
+    // 主树带未提交改动：worker 仍然能开工（基于已提交 HEAD），但 Lush 不会动这份改动。
+    fs.writeFileSync(path.join(f.root,'wip.txt'),'uncommitted');
+    const root = f.project.submit('edit').task;
     await until(() => f.store.task(root.id).status === 'completed');
     const child = f.store.children(root.id)[0];
     expect(child.status).toBe('failed'); expect(child.error).toContain('dirty');
+    expect(child.error).toContain('new.txt');
     expect(fs.existsSync(path.join(child.workspace,'new.txt'))).toBe(true);
     expect(fs.existsSync(path.join(f.root,'new.txt'))).toBe(false);
+    expect(fs.readFileSync(path.join(f.root,'wip.txt'),'utf8')).toBe('uncommitted');
+    expect(await git(f.root,'status','--porcelain')).toBe('?? wip.txt');
   } finally { await f.close(); }
 });

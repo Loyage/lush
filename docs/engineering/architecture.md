@@ -65,9 +65,9 @@ agent 只能从自己的 task 派生子任务、给直接父/子发消息、给�
 
 所有 runtime 管理的 Git 操作使用 argv 数组、不经 shell 插值，共享异步串行队列。排队等待 Git 不阻塞事件循环、输入提交或已有 RPC。
 
-worker 创建时记录项目 HEAD 与目标分支，创建 `.lush/worktrees/<id>-<name>` 和 `lush/<project-hash>/<id>-<name>` 分支（`name` 是 spawn 时 planner 给的英文短名，见 `src/core/naming.js`）。每个 worker 是独立修改集，不自动继承其他未合并任务成果。
+worker 创建时记录项目 HEAD 与目标分支，创建 `.lush/worktrees/<id>-<name>` 和 `lush/<project-hash>/<id>-<name>` 分支（`name` 是 spawn 时 planner 给的英文短名，见 `src/core/naming.js`）。每个 worker 是独立修改集，不自动继承其他未合并任务成果。`git worktree add` 只读已提交的 HEAD、不碰用户现场，所以**建 worktree 不要求主工作树干净**：spawn 时 main tree 的未提交改动不传递给 worker，这份分歧记进 `workspace.created` 事件，`task.diff` 的 `base_behind` 报告基线落后目标分支的提交数。注意 planner / coordinator / research 的 cwd 就是主工作树，它们读到的是带未提交改动的现场，而 worker 读到的是干净 worktree。
 
-结果提交后进入 `integration=pending`。用户 `task.merge` 检查项目/worker 干净、原目标分支、已审阅的 commit 未变化，再持久化批准事件和 `merging`，执行 merge。成功 `merged`；失败尝试 abort 并回到 pending，完整错误保留。中断的 merging 恢复为 review，不猜测 Git 操作是否完成。
+结果提交后进入 `integration=pending`。用户 `task.merge` 检查主工作树/worker 干净（脏工作树的拒绝发生在 `merge`，不在建 worktree 时；错误列出具体文件）、原目标分支、已审阅的 commit 未变化，再持久化批准事件和 `merging`，执行 merge。成功 `merged`；失败尝试 abort 并回到 pending，完整错误保留。中断的 merging 恢复为 review，不猜测 Git 操作是否完成。
 
 检验不写任何 Git 状态：它用 `git worktree add --detach` 在 `.lush/worktrees/<label>-base` 拉一份目标分支当前的只读对照，在它和被测 worktree 里分别跑同一场景。对照检出是派生状态，检验结算（成功或失败）后立即回收，报告文件保留；重启恢复时也会回收上次崩在中间的对照检出。用户可以用 `task cleanup` 再回收一次。
 

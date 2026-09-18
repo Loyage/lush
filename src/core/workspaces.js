@@ -4,6 +4,12 @@ import { createHash } from 'node:crypto';
 import { check, LushError } from './types.js';
 import { taskLabel } from './naming.js';
 
+/** porcelain 明细可能很长（含未跟踪文件）：报错和事件里都要有界，但不能省掉「哪些文件」。 */
+function dirtDetail(status, limit = 20) {
+  const lines = status.split('\n').filter(Boolean);
+  return { files: lines.length, sample: lines.slice(0, limit), more: Math.max(0, lines.length - limit) };
+}
+
 /** All Lush git mutations are serialized. No shell interpolation, no forced cleanup. */
 export class Workspaces {
   constructor(config, store) {
@@ -16,14 +22,25 @@ export class Workspaces {
     return next;
   }
   async git(cwd, ...args) {
+    return (await this.gitOutput(cwd, ...args)).trim();
+  }
+  /** 需要保留行内空白时用它：porcelain 的首行状态位就是一个前导空格（" M path"）。 */
+  async gitOutput(cwd, ...args) {
     const proc = Bun.spawn(['git', '-C', cwd, ...args], { stdout: 'pipe', stderr: 'pipe', env: { ...this.config.env, GIT_TERMINAL_PROMPT: '0' } });
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
     if (code !== 0) throw new LushError(`git ${args[0]}: ${err.trim() || out.trim()}`);
-    return out.trim();
+    return out;
   }
+  /** porcelain 明细（含未跟踪文件，排除 .lush）；空字符串表示干净。 */
+  async porcelain(cwd) {
+    const out = await this.gitOutput(cwd, 'status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).lush');
+    return out.replace(/\n+$/, '');
+  }
+  /** 硬门槛：worker 自己的 worktree（必须提交）与 merge 时的主树。错误必须点出是哪些文件。 */
   async clean(cwd) {
-    const status = await this.git(cwd, 'status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).lush');
-    check(!status, `working tree is dirty: ${cwd}; commit or stash changes first`);
+    const status = await this.porcelain(cwd);
+    const { sample, more } = dirtDetail(status);
+    check(!status, `working tree is dirty: ${cwd}; commit or stash changes first\n${sample.join('\n')}${more ? `\n… ${more} more` : ''}`);
   }
   /** The single code dependency a worker may stack on; it has to be a finished worker with a branch. */
   codeBase(task) {
@@ -69,7 +86,10 @@ export class Workspaces {
       const project = this.config.project;
       const root = fs.realpathSync(await this.git(project, 'rev-parse', '--show-toplevel'));
       check(root === project, 'coding tasks require the project to be a git worktree root');
-      await this.clean(project);
+      // 主工作树脏不再是硬门槛：`git worktree add` 只读已提交的 HEAD、不碰用户现场，所以 Lush
+      // 不必为了开工去提交、暂存或藏起已有改动。代价是 worker 看不到未提交改动，这份分歧必须
+      // 留痕（dirty_source），否则 review 无从知道 base 与用户当时的现场不同。
+      const source = await this.porcelain(project);
       // A code dependency stacks this task on the upstream branch, so the agent sees work that is not merged yet.
       // base_commit is frozen once: a retry must build the same tree as the review did.
       const stacked = task.base_commit ? null : this.codeBase(task);
@@ -87,7 +107,9 @@ export class Workspaces {
       // Save the intended identity before git; a crash never makes the directory invisible.
       this.store.update(task.id, { workspace, branch, base_commit: base, target_branch: target });
       await this.git(project, 'worktree', 'add', ...(reuse ? [workspace, branch] : ['-b', branch, workspace, stacked ? stacked.branch : base]));
-      this.store.event(task.id, 'workspace.created', { workspace, branch, base, stacked_on: stacked ? stacked.id : null });
+      const dirt = dirtDetail(source);
+      this.store.event(task.id, 'workspace.created', { workspace, branch, base, stacked_on: stacked ? stacked.id : null,
+        dirty_source: dirt.files ? dirt : null });
       return workspace;
     });
   }
@@ -105,11 +127,18 @@ export class Workspaces {
     if (!workspace || !fs.existsSync(workspace)) return null;
     const lines = value => value.split('\n').filter(Boolean);
     const range = task.base_commit && task.head_commit ? `${task.base_commit}..${task.head_commit}` : null;
-    const [status, numstat, commits, pendingNumstat] = await Promise.all([
+    // 主树允许有未提交改动，spawn 之后目标分支还可能继续前进：base 落后多少提交必须看得见，
+    // 否则「相对 base」的审阅会被误读成相对当前代码。stacked 任务的 base 是上游分支，
+    // 所以这个数同时含上游尚未合并的差异，合并顺序的约束见 merge。
+    const behind = range
+      ? this.git(this.config.project, 'rev-list', '--count', `${task.base_commit}..${task.target_branch}`).catch(() => '')
+      : '';
+    const [status, numstat, commits, pendingNumstat, baseBehind] = await Promise.all([
       this.git(workspace, 'status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).lush'),
       range ? this.git(workspace, 'diff', '--numstat', range) : '',
       range ? this.git(workspace, 'log', '--oneline', '--no-decorate', range) : '',
       this.git(workspace, 'diff', '--numstat', 'HEAD'),
+      behind,
     ]);
     const parse = value => value.split('\n').filter(Boolean).map(line => {
       const [added, deleted, ...rest] = line.split('\t');
@@ -127,6 +156,7 @@ export class Workspaces {
     return {
       branch: task.branch, target_branch: task.target_branch,
       base_commit: task.base_commit, head_commit: task.head_commit, committed: Boolean(range),
+      base_behind: baseBehind === '' ? null : Number(baseBehind),
       files: files.slice(0, 500), files_total: files.length,
       pending: pending.slice(0, 500), pending_total: pending.length,
       commits: lines(commits).slice(0, 100),

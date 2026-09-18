@@ -81,7 +81,7 @@ verifier 与被检验任务是两个 task（worker 已经终态，不能再挂�
 ### 运行前提
 
 - 默认 agent 是 `pi`，需要在 PATH 中可用且已完成模型认证。可设置 `LUSH_PI_COMMAND`、`LUSH_PI_PROVIDER`、`LUSH_PI_MODEL`。
-- 实现任务需要项目是 **Git worktree 根目录，有初始提交且主工作树干净**。把 `.lush/` 加进项目的 `.gitignore`；Lush 不会替你提交、暂存或藏起已有改动。
+- 实现任务需要项目是 **Git worktree 根目录且有初始提交**。主工作树可以有未提交改动：worker 只基于**已提交**的 HEAD（或 `code` 依赖的上游分支）开工，看不到你未提交的编辑。这份分歧会记进 `workspace.created` 事件，`task diff` 的 `base_behind` 给出基线落后目标分支多少提交。把 `.lush/` 加进项目的 `.gitignore`；Lush 不会替你提交、暂存或藏起已有改动，**合并时主工作树必须干净**。
 - 非 Git 项目也能提交输入和调研，但不能创建实现 worktree。
 - `LUSH_PROVIDER=mock bun run start --project ...` 可离线演示调度。Mock 只派调研任务，不调用模型、不修改代码。
 - 改环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。
@@ -117,7 +117,7 @@ Project / 一个目录 / 一个 daemon
 - 每个 worker 从创建时项目的 **已提交 HEAD** 开始，除非它对另一个任务声明了 `code` 依赖：那时它的 worktree 从上游任务的**分支**拉出（stacked），于是能拿到上游尚未合并的改动。兄弟任务不会自动看到彼此的修改；无关的编辑应合在一个 worker 中。
 - agent 最终输出作为 result。worker 必须提交改动、保持工作区干净；未提交就结束会失败，文件原样保留供检查和重试。
 - 完成与合并是两个状态：`completed + pending` 表示已产出提交，**尚未进入主工作树**。
-- `task merge ID` 检查任务完成、两边工作树干净、目标分支未切换、待审阅 HEAD 未变化，然后串行执行非快进 merge。冲突会尝试 abort，保留任务分支和错误；不会强制覆盖代码或自动解决冲突。stacked 任务还要求上游已经是目标的祖先（即先合并上游），否则会把它未合并的改动一起带进来。
+- `task merge ID` 检查任务完成、两边工作树干净（脏时错误列出具体文件）、目标分支未切换、待审阅 HEAD 未变化，然后串行执行非快进 merge。冲突会尝试 abort，保留任务分支和错误；不会强制覆盖代码或自动解决冲突。stacked 任务还要求上游已经是目标的祖先（即先合并上游），否则会把它未合并的改动一起带进来。
 - merge 中断后标为 `review`，不自动重放。检查 Git 历史、处理遗留冲突并恢复干净工作树后，可重新执行 `task merge ID` 明确批准恢复；若提交已经合入，Git 会确认已包含，不重复改写历史。
 - `task cleanup ID` 不使用 `--force`，拒绝未合并成果和脏工作区；取消/失败任务的提交也必须已经进入项目 HEAD 才允许清理。分支始终保留。
 - `task clear`（`bun run clear`，Web 项目概览里的「清空任务看板」）一键删掉**全部已结束任务**及其消息、通知、事件与 `inputs` / `drafts` 审计。有 `queued`/`running`/`waiting`/`awaiting` 任务、或还有 invocation 在收尾时**拒绝执行**，不会隐式取消。它只清数据库：`.lush/worktrees/`、任务分支与 `.lush/sessions/` 原样保留（未合并的成果仍在），返回值会列出这些残留路径。因为目录与分支名里带着 task id，清空后 **id 不从 1 重新开始**，新任务不会撞上保留的旧 worktree。

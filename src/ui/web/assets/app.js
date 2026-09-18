@@ -469,7 +469,8 @@ function renderHistory(history, { running = false, truncated = false } = {}) {
     else if (event.type === 'message') { body = String(data.body || '').slice(0, 400); agent = true; }
     else if (event.type === 'notice.opened') body = data.title || '';
     else if (event.type === 'notice.answered') body = data.dismiss ? '已忽略' : String(data.answer || '');
-    else if (event.type === 'workspace.created') body = [data.branch, data.workspace].filter(Boolean).join(' · ');
+    else if (event.type === 'workspace.created') body = [data.branch, data.workspace,
+      data.dirty_source ? `创建时主树有 ${data.dirty_source.files} 处未提交改动，worker 看不到` : null].filter(Boolean).join(' · ');
     else if (event.type === 'workspace.removed') body = data.branch || '';
     else if (event.type === 'verify.requested') body = `检验任务 #${data.verify_task} · 对照 ${data.baseline}`;
     else if (event.type === 'baseline.created') body = [data.target_branch, short(data.commit), data.workspace].filter(Boolean).join(' · ');
@@ -502,6 +503,7 @@ function renderDiff(diff) {
   const grid = el('div', undefined, 'grid');
   grid.append(kv('分支', diff.branch || '—', 'mono'), kv('目标分支', diff.target_branch || '—', 'mono'));
   grid.append(kv('基准 → 提交', diff.committed ? `${short(diff.base_commit)} → ${short(diff.head_commit)}` : `${short(diff.base_commit) || '—'} → 无提交`, 'mono'));
+  if (diff.base_behind) grid.append(kv('基线落后主树', `${diff.base_behind} 个提交`));
   grid.append(kv('提交文件', diff.committed ? String(diff.files_total) : '0'));
   grid.append(kv('未提交文件', String(diff.pending_total || 0)));
   section.append(grid);
