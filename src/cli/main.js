@@ -13,7 +13,8 @@ lush [--project PATH] [--json] <command>
   status                          项目、agent、待合并改动
   doctor                          目录、工具链与代码版本
   say '你的想法'                   立即持久化并排入规划队列，不等待开发
-  input list                      查看用户输入
+  input list                      查看用户输入（含 develop/explain 判定）
+  input flow [TASK_ID] develop|explain  记录这条输入走哪条流程（agent 省略 TASK_ID 时用自己的任务）
   draft add '想法'                 先放进缓存，不规划
   draft list                      查看缓存（尚未提交）的输入
   draft rm ID                     丢掉一条缓存输入
@@ -52,7 +53,10 @@ function exact(args, n) { check(args.length === n, 'invalid arguments; run lush 
 function print(value, json) {
   if (json || !Array.isArray(value)) { console.log(JSON.stringify(value, null, 2)); return; }
   if (!value.length) { console.log('(empty)'); return; }
-  for (const row of value) console.log(`${row.id ?? '-'}\t${row.status || row.role || ''}\t${(row.goal || row.content || row.title || JSON.stringify(row)).replaceAll('\n',' ').slice(0, 180)}`);
+  for (const row of value) {
+    const flow = Object.hasOwn(row, 'flow') && row.flow ? `\t${row.flow}` : '';
+    console.log(`${row.id ?? '-'}\t${row.status || row.role || ''}${flow}\t${(row.goal || row.content || row.title || JSON.stringify(row)).replaceAll('\n',' ').slice(0, 180)}`);
+  }
 }
 export async function main(argv = process.argv.slice(2)) {
   const args = [...argv];
@@ -81,7 +85,14 @@ export async function main(argv = process.argv.slice(2)) {
     if (args[0] === 'submit') args.shift();
     exact(args, 1); value = await client.request('input.submit', { content: args[0] });
   } else if (command === 'input') {
-    check(args.length === 1 && args[0] === 'list', 'use input list'); value = await client.request('input.list');
+    const verb = args.shift();
+    if (verb === 'list') { exact(args, 0); value = await client.request('input.list'); }
+    else if (verb === 'flow') {
+      check(args.length === 1 || args.length === 2, 'use input flow [TASK_ID] develop|explain');
+      const flow = args.length === 2 ? args[1] : args[0];
+      const task = args.length === 2 ? args[0] : process.env.LUSH_TASK_ID;
+      value = await client.request('input.flow', task ? { id: id(task), flow } : { flow });
+    } else throw new Error('unknown input command; use list or flow');
   } else if (command === 'draft') {
     const verb = args.shift();
     if (verb === 'add') { exact(args, 1); value = await client.request('draft.add', { content: args[0] }); }

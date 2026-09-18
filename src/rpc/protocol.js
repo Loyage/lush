@@ -14,7 +14,7 @@ export function parseRequest(raw) {
   return value;
 }
 const PARAMS = {
-  'system.status': [], 'system.stop': [], 'input.submit': ['content'], 'input.list': [],
+  'system.status': [], 'system.stop': [], 'input.submit': ['content'], 'input.list': [], 'input.flow': ['id','flow'],
   'draft.add': ['content'], 'draft.list': [], 'draft.remove': ['id'], 'draft.commit': [],
   'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.diff': ['id'],
   'task.spawn': ['parent','goal','role','deps'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
@@ -36,6 +36,13 @@ export class Dispatcher {
       case 'system.stop': this.stopping.request(); return { stopping: true };
       case 'input.submit': return p.submit(params.content);
       case 'input.list': return p.inputs();
+      case 'input.flow': {
+        // Agent 省略 id 时判定自己的输入；用户（无 token）可对任意根 task 判定或改判。
+        const target = params.id ?? actor;
+        check(target !== null && target !== undefined, 'input.flow requires a root task id (agents may omit it to use their own task)');
+        check(actor === null || id(target) === actor, 'agents may classify only their own input');
+        return p.setInputFlow(id(target), params.flow);
+      }
       case 'draft.add': return p.draft(params.content);
       case 'draft.list': return p.drafts();
       case 'draft.remove': return p.dropDraft(params.id);

@@ -39,6 +39,7 @@ bun run stop
 - `completed` 不等于 `merged`。保留独立的任务状态与 integration 状态。
 - Task 的父子关系创建后不变；终态 task 不允许活动后代。依赖边（`task_deps`）只在 spawn 时写入，之后不可变。
 - 依赖只做结构校验（自依赖、祖先、悬空 id、多 code 边、非 worker 上游）；语义冲突由 planner 判断，拿不准就问用户。
+- 输入分 `develop` / `explain` 两类（`inputs.flow`，未判定按 develop）：explain 输入不得派生 worker/coordinator（`Project.spawn` 硬校验），因此了解类输入不产生 worktree 与待合并改动；改判只影响之后的 spawn。
 - `code` 依赖把上游分支当作下游 worktree 的基线，所以合并必须上游先行；`task merge` 会拒绝越级。
 - 输入缓存在 `drafts` 表：草稿可在提交前删除，提交后行保留并回写 `input_id`；已提交的输入永不删除。
 - Agent 等待子任务或用户时释放 invocation 槽；新输入有独立规划槽。

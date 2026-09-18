@@ -43,6 +43,15 @@ lush daemon stop
 
 单条输入也可以用 `lush say '原话'` 立即提交，不等缓存。
 
+### 两类输入：develop 与 explain
+
+每条输入有一个流程判定（`inputs.flow`），由处理它的根 planner 用 `lush input flow develop|explain` 记录：
+
+- `develop`：需要新增功能或改代码。照常拆解，派 coordinator/worker，可派 research。
+- `explain`：只是了解、询问、解释相关内容。planner 直接把答案写进自己的 result，必要时派 research 去读代码；**runtime 会硬性拒绝它派发 worker/coordinator**（`input #N is classified as explain (了解)`），因此不会创建 worktree、不会产生待合并改动。
+
+未判定（`flow` 为空）的输入按 `develop` 处理。用户随时可以改判：`lush input flow [TASK_ID] develop|explain`（agent 省略 TASK_ID 时判定自己的输入，Web 任务详情里也有「标记为开发/了解」），`lush input list` 会显示当前判定。改判只影响之后的派工，不会追溯取消已经建立的 worker/coordinator 子任务。
+
 ### 输入缓存与任务依赖
 
 输入可以先攒着：`lush draft add`（Web 输入框里回车）只写缓存、不规划；`lush draft commit`（Web 的「提交并规划」）把缓存**整体**交给一个 planner，由它拆成多个任务、给互有先后的任务建依赖边，然后才创建 worktree 开工。缓存存库（`drafts` 表），换浏览器或重启 daemon 都不丢；提交后每条草稿留着 `input_id` 作为审计链。

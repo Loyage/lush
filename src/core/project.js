@@ -4,6 +4,8 @@ import { Workspaces } from './workspaces.js';
 import { PiProvider, MockProvider } from '../agent/provider.js';
 
 const DEP_KINDS = new Set(['code', 'order']);
+/** 两类用户输入：develop 会派生 worker 产码，explain 只出结论、不产生待合并改动。 */
+export const FLOWS = new Set(['develop', 'explain']);
 /** Buffered drafts are a cache, not a queue: bounded so a forgotten tab cannot grow the db forever. */
 const MAX_DRAFTS = 500;
 /** A batch keeps every utterance identifiable; a single draft stays verbatim. */
@@ -97,9 +99,21 @@ export class Project {
     this.kick(); return result;
   }
   inputs() {
-    return this.store.all(`SELECT inputs.id, substr(inputs.content,1,2000) AS content, inputs.task_id, inputs.created_at, tasks.status,
+    return this.store.all(`SELECT inputs.id, inputs.flow, substr(inputs.content,1,2000) AS content, inputs.task_id, inputs.created_at, tasks.status,
       (SELECT count(*) FROM drafts WHERE drafts.input_id=inputs.id) AS draft_count
       FROM inputs JOIN tasks ON tasks.id=inputs.task_id ORDER BY inputs.id DESC LIMIT 100`);
+  }
+  /** The root planner decides which flow an input takes; runtime only records it and enforces the explain constraint in spawn(). */
+  setInputFlow(taskId, flow) {
+    const task = this.store.task(taskId);
+    check(FLOWS.has(flow), 'flow must be develop or explain');
+    check(task.parent_id === null, 'only a root task can classify an input');
+    check(task.input_id !== null, 'task belongs to no input');
+    this.store.transaction(() => {
+      this.store.run('UPDATE inputs SET flow=? WHERE id=?', flow, task.input_id);
+      this.store.event(task.id, 'input.flow', { input_id: task.input_id, flow });
+    });
+    return { input_id: task.input_id, task_id: task.id, flow };
   }
   /** Task rows plus their dependency edges, so every read model shows what a queued task waits for. */
   decorate(tasks) {
@@ -132,6 +146,11 @@ export class Project {
     const parent = this.store.task(parentId);
     check(!TERMINAL.has(parent.status), 'cannot delegate from a terminal task');
     text(goal, 'goal'); check(['worker','coordinator','research'].includes(role), 'role must be worker, coordinator or research');
+    // 硬约束：了解类输入只能派生只读的 research，不能产生 worker/coordinator（因此不会创建 worktree 或待合并改动）。
+    // 所有后代都复制 parent.input_id，所以查一次 parent 即可覆盖整棵子树。
+    const input = parent.input_id === null ? null : this.store.get('SELECT id, flow FROM inputs WHERE id=?', parent.input_id);
+    check(!input || input.flow !== 'explain' || role === 'research',
+      `input #${input?.id} is classified as explain (了解); delegate research or answer directly, not ${role}`);
     const edges = normalizeDeps(deps);
     let depth = 1, ancestor = parent;
     while (ancestor.parent_id) { ancestor = this.store.task(ancestor.parent_id); depth++; }

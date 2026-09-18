@@ -6,8 +6,9 @@ export class Store {
     this.db = new Database(file, { create: true });
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      -- flow: 'develop'=要改代码, 'explain'=只了解；NULL 表示 planner 还没判定，按 develop 处理。
       CREATE TABLE IF NOT EXISTS inputs (
-        id INTEGER PRIMARY KEY, content TEXT NOT NULL, task_id INTEGER,
+        id INTEGER PRIMARY KEY, content TEXT NOT NULL, task_id INTEGER, flow TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       -- 用户输入先落成草稿；input_id IS NULL 表示还没提交。提交时整批拼成一条 inputs。
       CREATE TABLE IF NOT EXISTS drafts (
@@ -50,6 +51,9 @@ export class Store {
       if (!columns.has(name)) this.run(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
     }
     this.run('CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash)');
+    // 两类输入的判定列晚于首个 release；既有库需要补列。
+    const inputColumns = new Set(this.all('PRAGMA table_info(inputs)').map(row => row.name));
+    if (!inputColumns.has('flow')) this.run('ALTER TABLE inputs ADD COLUMN flow TEXT');
     const binding = this.get('SELECT value FROM meta WHERE key=?', 'project');
     if (binding && binding.value !== project) { this.close(); throw new Error('database belongs to another project'); }
     this.run('INSERT OR IGNORE INTO meta VALUES (?,?)', 'project', project);
