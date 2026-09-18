@@ -13,6 +13,7 @@ export class Store {
         id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES tasks(id), input_id INTEGER REFERENCES inputs(id),
         role TEXT NOT NULL, goal TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
         result TEXT, error TEXT, calls INTEGER NOT NULL DEFAULT 0,
+        agent_wakes INTEGER NOT NULL DEFAULT 0, agent_token_hash TEXT, agent_last_seen_at TEXT,
         workspace TEXT, branch TEXT, base_commit TEXT, head_commit TEXT,
         integration TEXT NOT NULL DEFAULT 'none', target_branch TEXT, integration_error TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -32,6 +33,13 @@ export class Store {
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS messages_task ON messages(task_id, consumed);
       CREATE INDEX IF NOT EXISTS events_task ON events(task_id, id);`);
+    // Agent identity columns arrived after the first release; an existing project.db predates them.
+    // The index over agent_token_hash must wait for the columns it references.
+    const columns = new Set(this.all('PRAGMA table_info(tasks)').map(row => row.name));
+    for (const [name, type] of [['agent_wakes', 'INTEGER NOT NULL DEFAULT 0'], ['agent_token_hash', 'TEXT'], ['agent_last_seen_at', 'TEXT']]) {
+      if (!columns.has(name)) this.run(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
+    }
+    this.run('CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash)');
     const binding = this.get('SELECT value FROM meta WHERE key=?', 'project');
     if (binding && binding.value !== project) { this.close(); throw new Error('database belongs to another project'); }
     this.run('INSERT OR IGNORE INTO meta VALUES (?,?)', 'project', project);
@@ -48,11 +56,17 @@ export class Store {
   }
   tasks() { return this.all('SELECT * FROM tasks ORDER BY id'); }
   summaries() {
-    return this.all('SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,updated_at FROM tasks ORDER BY id');
+    return this.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,updated_at,
+      agent_wakes,agent_last_seen_at FROM tasks ORDER BY id`);
   }
+  /** Credentials exist only while their invocation runs; Project#actor is the only reader. */
+  armAgent(taskId, hash) { this.run('UPDATE tasks SET agent_token_hash=? WHERE id=?', hash, taskId); }
+  /** Last authenticated agent contact; deliberately does not touch updated_at, so it never reorders the tree. */
+  touchAgent(taskId) { this.run("UPDATE tasks SET agent_last_seen_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", taskId); }
+  agentByToken(hash) { return this.get('SELECT * FROM tasks WHERE agent_token_hash=?', hash); }
   children(taskId) { return this.all('SELECT * FROM tasks WHERE parent_id=? ORDER BY id', taskId); }
   update(taskId, patch) {
-    const allowed = ['status','result','error','calls','workspace','branch','base_commit','head_commit','integration','target_branch','integration_error'];
+    const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','head_commit','integration','target_branch','integration_error'];
     check(Object.keys(patch).every(key => allowed.includes(key)), 'invalid task patch');
     this.run(`UPDATE tasks SET ${Object.keys(patch).map(key => `${key}=?`).join(',')}, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, ...Object.values(patch), taskId);
     return this.task(taskId);

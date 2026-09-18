@@ -205,7 +205,7 @@ function renderDetail(task, history, diff) {
     badge(ROLE[task.role] || task.role, 'b-neutral'), badge(`输入 #${task.input_id}`, 'b-neutral'));
   const integration = INTEGRATION[task.integration];
   if (integration) head.append(badge(integration, task.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
-  if (task.agent) head.append(badge(`agent pid ${task.agent.pid ?? '—'}`, 'b-neutral'));
+  if (task.agent) head.append(badge(`agent ${task.agent.id}${task.agent.active ? ` · pid ${task.agent.pid ?? '待上报'}` : ' · 空闲'}`, 'b-neutral'));
   panel.append(head);
 
   const actions = el('div', undefined, 'actions');
@@ -227,7 +227,11 @@ function renderDetail(task, history, diff) {
 
   const stats = block('状态');
   const grid = el('div', undefined, 'grid');
-  grid.append(kv('调用次数', `${task.calls}`));
+  grid.append(kv('调用次数', `${task.calls}（本次尝试）`));
+  if (task.agent) {
+    grid.append(kv('agent', `${task.agent.id} · 累计唤醒 ${task.agent.wakes} 次`));
+    grid.append(kv('agent 上次动手', task.agent.last_seen_at ? `${absolute(task.agent.last_seen_at)} · ${relative(task.agent.last_seen_at)}` : '—'));
+  }
   grid.append(kv(task.status === 'running' ? '本次已运行' : '耗时', duration(task.created_at, task.status === 'running' ? new Date().toISOString() : task.updated_at)));
   grid.append(kv('创建', `${absolute(task.created_at)}`, 'mono'));
   grid.append(kv('最后更新', `${absolute(task.updated_at)} · ${relative(task.updated_at)}`));
@@ -308,7 +312,7 @@ async function detail(taskId) {
 let overviewKey = null;
 function renderOverview(data) {
   const open = data.notices.filter(notice => notice.status === 'open');
-  const key = JSON.stringify([data.status.tasks, data.status.agents, data.status.pending_merges, open.map(n => n.id),
+  const key = JSON.stringify([data.status.tasks, data.status.agents, data.status.agents_idle, data.status.pending_merges, open.map(n => n.id),
     data.status.project, data.status.version, data.status.fingerprint, data.status.started_at]);
   if (key === overviewKey) return;
   overviewKey = key;
@@ -327,12 +331,14 @@ function renderOverview(data) {
   }
   counts.append(grid); panel.append(counts);
 
-  const agents = block('运行中的 agent', String(data.status.agents.length));
-  if (!data.status.agents.length) agents.append(el('p', `并发额度 ${data.status.concurrency}，当前空闲。`, 'hint'));
+  const agents = block('运行中的 agent', `${data.status.agents.length} / ${data.status.agents_total ?? data.status.agents.length}`);
+  if (!data.status.agents.length) agents.append(el('p', `并发额度 ${data.status.concurrency}，当前空闲；另有 ${data.status.agents_idle ?? 0} 个 agent 待唤醒。`, 'hint'));
+  else if (data.status.agents_idle) agents.append(el('p', `另有 ${data.status.agents_idle} 个 agent 空闲待唤醒。`, 'hint'));
   for (const agent of data.status.agents) {
     const row = el('div', undefined, 'row');
-    row.append(el('span', '●', 'dot c-running'), el('span', `#${agent.task_id}`, 'tid'),
-      button('查看任务', () => detail(agent.task_id), 'link'), el('span', agent.pid ? `pid ${agent.pid}` : 'agent pid 待上报', 'when'));
+    row.append(el('span', '●', 'dot c-running'), el('span', agent.id ?? `#${agent.task_id}`, 'tid'),
+      button('查看任务', () => detail(agent.task_id), 'link'),
+      el('span', `${agent.pid ? `pid ${agent.pid}` : 'pid 待上报'} · 第 ${agent.wakes} 次唤醒`, 'when'));
     agents.append(row);
   }
   panel.append(agents);
@@ -371,7 +377,7 @@ async function refresh() {
     $('project').textContent = data.status.project;
     $('project').title = data.status.project;
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');
-    $('agents').textContent = `${data.status.agents.length} 个 agent 运行中 · 并发 ${data.status.concurrency}`;
+    $('agents').textContent = `${data.status.agents.length} 运行 · ${data.status.agents_idle ?? 0} 空闲 · 并发 ${data.status.concurrency}`;
     if (offline) { offline = false; $('error').textContent = ''; }
     renderTree(data); renderNotices(data);
     if (selected === null) renderOverview(data);

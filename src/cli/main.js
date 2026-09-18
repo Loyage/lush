@@ -16,7 +16,7 @@ lush [--project PATH] [--json] <command>
   input list                      查看用户输入
   task list [--after N] [--limit N] 分页任务列表（默认 200 条）
   task tree [ID]                  多级任务树
-  task inspect ID                 结果、子任务、消息与工作区
+  task inspect ID                 结果、agent、子任务、消息与工作区
   task history ID [--after N]      分页事件记录
   task spawn '目标' [--parent ID] [--role worker|coordinator|research]
   task message ID '补充说明'       追加输入，不打断当前 invocation

@@ -47,6 +47,27 @@ test('project state and database cannot be rebound; legacy data is never silentl
   } finally { fs.rmSync(a,{recursive:true,force:true}); fs.rmSync(b,{recursive:true,force:true}); }
 });
 
+test('agent identity columns are added to a database written by an earlier build', () => {
+  const root = temp();
+  try {
+    const config = Config.fromEnv(env(),root); config.prepare();
+    const file = path.join(config.home,'project.db');
+    const store = new Store(file,root);
+    const task = store.create({ input_id: null, role: 'planner', goal: 'before the upgrade' });
+    store.run('DROP INDEX IF EXISTS tasks_agent_token');
+    for (const column of ['agent_wakes','agent_token_hash','agent_last_seen_at']) store.run(`ALTER TABLE tasks DROP COLUMN ${column}`);
+    store.close();
+    const reopened = new Store(file,root);
+    expect(reopened.tasks().map(row => row.agent_wakes)).toEqual([0]);
+    expect(reopened.agentByToken('deadbeef')).toBeNull();
+    reopened.armAgent(task.id,'deadbeef');
+    expect(reopened.agentByToken('deadbeef').id).toBe(task.id);
+    reopened.touchAgent(task.id);
+    expect(reopened.task(task.id).agent_last_seen_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    reopened.close();
+  } finally { fs.rmSync(root,{recursive:true,force:true}); }
+});
+
 test('non-git projects bind via manifest and can accept research tasks', () => {
   const root = temp();
   try {
