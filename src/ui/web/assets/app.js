@@ -5,11 +5,12 @@ const STATUS = {
   completed: { label: '已完成', icon: '✓' }, failed: { label: '失败', icon: '✗' }, cancelled: { label: '已取消', icon: '⊘' },
 };
 const INTEGRATION = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并' };
-const ROLE = { planner: '规划', worker: '执行', coordinator: '协调', research: '调研' };
+const ROLE = { planner: '规划', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验' };
 const EVENTS = {
   created: '创建任务', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
   'workspace.created': '创建 worktree', 'workspace.removed': '回收 worktree',
+  'verify.requested': '请求检验', 'baseline.created': '创建对照基线', 'baseline.removed': '回收对照基线',
   'merge.approved': '批准合并', merged: '已合并', 'merge.failed': '合并失败',
   completed: '完成', failed: '失败', cancelled: '取消',
 };
@@ -139,7 +140,14 @@ function renderTree(data) {
   const flows = new Map((data.inputs || []).map(input => [input.id, input.flow]));
   const known = new Map([...container.children].map(node => [Number(node.dataset.id), node]));
   const byParent = new Map();
-  for (const task of data.tasks) { const key = task.parent_id || 0; if (!byParent.has(key)) byParent.set(key, []); byParent.get(key).push(task); }
+  const ids = new Set(data.tasks.map(task => task.id));
+  // verifier 用 verifies_task_id 而不是 parent_id；父任务不在列表里时当根任务渲染，不丢节点。
+  for (const task of data.tasks) {
+    const parent = task.parent_id ?? task.verifies_task_id ?? 0;
+    const key = ids.has(parent) ? parent : 0;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(task);
+  }
   const ordered = [];
   const walk = (parent, depth) => {
     for (const task of byParent.get(parent) || []) {
@@ -151,7 +159,7 @@ function renderTree(data) {
       const row = el('span', undefined, 'row');
       row.append(el('span', statusOf(task).icon, `dot c-${task.status}`), el('span', `#${task.id}`, 'tid'),
         el('span', `${statusOf(task).label} · ${ROLE[task.role] || task.role}`), el('span', relative(task.updated_at), 'when'));
-      const flow = task.parent_id === null ? flows.get(task.input_id) : null;
+      const flow = task.parent_id === null && !task.verifies_task_id ? flows.get(task.input_id) : null;
       if (flow) row.append(badge(flow === 'explain' ? '了解' : '开发', flow === 'explain' ? 'b-neutral' : 'b-completed'));
       node.append(row, el('span', task.goal, 'goal'));
       if (integration) node.append(el('span', integration, 'meta'));
@@ -249,6 +257,9 @@ function renderHistory(history, { running = false, truncated = false } = {}) {
     else if (event.type === 'notice.answered') body = data.dismiss ? '已忽略' : String(data.answer || '');
     else if (event.type === 'workspace.created') body = [data.branch, data.workspace].filter(Boolean).join(' · ');
     else if (event.type === 'workspace.removed') body = data.branch || '';
+    else if (event.type === 'verify.requested') body = `检验任务 #${data.verify_task} · 对照 ${data.baseline}`;
+    else if (event.type === 'baseline.created') body = [data.target_branch, short(data.commit), data.workspace].filter(Boolean).join(' · ');
+    else if (event.type === 'baseline.removed') body = data.workspace || '';
     else if (event.type === 'merged' || event.type === 'merge.approved') body = short(data.commit);
     else if (event.type === 'merge.failed') body = data.error || '';
     else body = Object.keys(data).length ? JSON.stringify(data).slice(0, 300) : '';
@@ -341,6 +352,36 @@ function renderDeps(task) {
   section.append(el('p', task.dependents?.length ? `这些任务在等它：${task.dependents.map(edgeLabel).join('、')}` : '没有任务在等它。', 'hint'));
   return section;
 }
+const reportButton = taskId => button('打开 HTML 报告', () => { window.open(`/api/task/${taskId}/report`, '_blank', 'noopener'); }, 'ghost');
+/** 检验区块：worker 看自己的历次检验，verifier 看自己的报告。 */
+function renderVerifications(task) {
+  if (task.role === 'verifier') {
+    const section = block('检验');
+    section.append(el('p', `本任务检验 #${task.verifies_task_id}：演示它 worktree 里的实际运行结果，并对照目标分支的同一场景。`, 'hint'));
+    if (task.report) { const actions = el('div', undefined, 'actions'); actions.append(reportButton(task.id)); section.append(actions); }
+    else section.append(el('p', '还没有生成 HTML 报告；报告写到任务 result 里给出的 report_path。', 'hint'));
+    return section;
+  }
+  const verifications = task.verifications || [];
+  const section = block('检验', String(verifications.length));
+  if (!verifications.length) {
+    section.append(el('p', '还没有检验。点上面的「检验」会派一个只读 agent，用它自己判断的最直观方式演示 worktree 结果，并对照目标分支。', 'hint'));
+    return section;
+  }
+  for (const item of verifications) {
+    const card = el('div', undefined, 'verify');
+    const row = el('div', undefined, 'row');
+    row.append(statusBadge(item), el('span', `#${item.id}`, 'tid'), button('查看检验任务', () => detail(item.id), 'link'),
+      el('span', `${relative(item.updated_at)} · ${absolute(item.updated_at)}`, 'when'));
+    card.append(row);
+    if (item.baseline_commit) card.append(el('p', `对照基线 ${short(item.baseline_commit)}`, 'hint'));
+    if (item.result) card.append(el('pre', item.result));
+    if (item.error) card.append(el('pre', item.error, 'error'));
+    if (item.has_report) { const actions = el('div', undefined, 'actions'); actions.append(reportButton(item.id)); card.append(actions); }
+    section.append(card);
+  }
+  return section;
+}
 function renderDetail(task, history, diff) {
   const panel = $('detail'); panel.replaceChildren();
   const head = el('div', undefined, 'head');
@@ -364,11 +405,19 @@ function renderDetail(task, history, diff) {
     }));
   if (['failed', 'cancelled'].includes(task.status)) actions.append(button('检查后重试', async () => { await action('task.retry', { id: task.id }); await detail(task.id); }));
   if (task.status === 'completed' && task.workspace && ['merged', 'none'].includes(task.integration)) actions.append(button('回收 worktree', async () => { await action('task.cleanup', { id: task.id }); await detail(task.id); }, 'ghost'));
+  const verifications = task.verifications || [];
+  const activeVerification = verifications.find(item => !TERMINAL_STATUS.has(item.status));
+  if (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit) {
+    const node = button(activeVerification ? `检验中… #${activeVerification.id}` : (verifications.length ? '重新检验' : '检验'),
+      async () => { await action('task.verify', { id: task.id }); await detail(task.id); });
+    if (activeVerification) node.disabled = true;
+    actions.append(node);
+  }
   if (!['completed', 'failed', 'cancelled'].includes(task.status)) actions.append(button('取消任务树', async () => {
     if (confirm('取消这个任务及所有子任务？工作区会保留。')) await action('task.cancel', { id: task.id });
     await detail(task.id);
   }, 'danger'));
-  if (task.parent_id === null) actions.append(
+  if (task.parent_id === null && task.role === 'planner') actions.append(
     button('标记为开发', async () => { await action('input.flow', { id: task.id, flow: 'develop' }); await detail(task.id); }, 'ghost'),
     button('标记为了解', async () => { await action('input.flow', { id: task.id, flow: 'explain' }); await detail(task.id); }, 'ghost'));
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
@@ -398,6 +447,7 @@ function renderDetail(task, history, diff) {
     panel.append(workspace);
   }
   panel.append(renderDiff(diff));
+  if (task.role === 'verifier' || verifications.length || (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit)) panel.append(renderVerifications(task));
 
   if (task.children?.length) {
     const children = block('子任务', String(task.children.length));

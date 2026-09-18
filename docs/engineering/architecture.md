@@ -4,7 +4,7 @@
 
 - **Project**：不是全局注册表里的记录，而是 daemon 的不可变作用域：canonical 目录 + `.lush/project.json` + SQLite 中的项目绑定。
 - **Input**：用户原话，逐字持久化，关联一个根 planner Task。入口调用只做短事务和安排调度，不等待 agent。
-- **Task**：goal / role / parent_id / input_id / status / result / error / invocation 次数；worker 另有工作区和 integration 状态。父子关系只在创建时指定，不能变更。
+- **Task**：goal / role / parent_id / input_id / status / result / error / invocation 次数；worker 另有工作区和 integration 状态。父子关系只在创建时指定，不能变更。verifier 另带 `verifies_task_id`（指向被检验的 worker）与 `baseline_workspace` / `baseline_commit`（目标分支的临时对照检出）——它用关联边而不是父子边，所以「终态任务没有活动后代」这条不变量不被破坏。
 - **Agent**：与 task 终身一对一的身份（`<role>#<task-id>`）。task 创建时它就存在，跨唤醒复用同一个 pi session，记录累计唤醒次数与上次动手时间；但 RPC 凭证每次唤醒重新签发，库里只存 SHA-256，且只在该次 invocation 运行期间可解析。
 - **Message**：持久化收件箱，用户、直接父子 task、子任务结算与 notice 答复共享同一通道。
 - **Notice**：task 请求用户做决定；答复/忽略入收件箱。
@@ -34,7 +34,7 @@ CLI / Web → UIClient → JSON-RPC / Unix socket → Project
 ### 一次 invocation
 
 1. 按任务 ID 从 queued 中挑选，不超过对应槽限制。
-2. 在 `running` Map 中占位并签发本次 invocation 的 token（库里只写 hash），再异步准备 worker worktree；将 task 标为 running。
+2. 在 `running` Map 中占位并签发本次 invocation 的 token（库里只写 hash），再异步准备 worker worktree（verifier 则准备目标分支的对照检出）；将 task 标为 running。
 3. 读取此次未消费消息、当前任务/子任务和最近任务摘要，启动 provider。
 4. pi 收到项目/任务/token 环境变量、固定代码路径下的 lush CLI、独立 session 和输入文件。在 cwd 中运行工具循环；Lush 不在 argv 中传入巨大的项目快照。
 5. provider 正常返回后消费**启动时读到的消息**，记录结果。运行期间到达的消息留给下次。
@@ -45,7 +45,7 @@ waiting / awaiting 不占 agent 槽，也不运行 sleep/poll 子进程。最终
 
 ### 多级协作
 
-agent 只能从自己的 task 派生子任务、给直接父/子发消息、给自己发 notice。用户可以给任意活动 task 追加输入。子任务结算发送状态、结果与错误给父 task；父 task 重新入队后自己决定继续派活或汇总。
+agent 只能从自己的 task 派生子任务、给直接父/子发消息、给自己发 notice。用户可以给任意活动 task 追加输入。子任务结算发送状态、结果与错误给父 task；父 task 重新入队后自己决定继续派活或汇总。角色 planner / coordinator / worker / research 由 agent 自己派生；verifier 只能由用户经 `task.verify` 创建（RPC 层是 USER_ONLY），它以被检验 worktree 为 cwd，用最直观的方式演示结果并在目标分支的对照检出上重跑同一场景，最后把自包含 HTML 报告写到 `.lush/verify/<id>/report.html`。
 
 最大层数、活动任务数上限、调用次数上限和 invocation 超时限制失控分派。默认 maxDepth=8、活动任务上限=1000、maxCalls=24。
 
@@ -69,6 +69,8 @@ worker 创建时记录项目 HEAD 与目标分支，创建 `.lush/worktrees/<id>
 
 结果提交后进入 `integration=pending`。用户 `task.merge` 检查项目/worker 干净、原目标分支、已审阅的 commit 未变化，再持久化批准事件和 `merging`，执行 merge。成功 `merged`；失败尝试 abort 并回到 pending，完整错误保留。中断的 merging 恢复为 review，不猜测 Git 操作是否完成。
 
+检验不写任何 Git 状态：它用 `git worktree add --detach` 在 `.lush/worktrees/<label>-base` 拉一份目标分支当前的只读对照，在它和被测 worktree 里分别跑同一场景。对照检出是派生状态，检验结算（成功或失败）后立即回收，报告文件保留；重启恢复时也会回收上次崩在中间的对照检出。用户可以用 `task cleanup` 再回收一次。
+
 工作区清理不强制删除；即使 failed/cancelled task 的 integration=none，也检查其 commit 是否已包含在项目 HEAD 中，防止删除未交付成果。分支作为廉价恢复点保留。
 
 Lush 无法锁住用户的编辑器或外部 Git 进程；合并期间不要并发修改主工作树。Agent 工具也不是 OS 沙箱，目录/角色约束不能阻止恶意 shell 命令。
@@ -79,7 +81,7 @@ Lush 无法锁住用户的编辑器或外部 Git 进程；合并期间不要并�
 
 daemon 启动捕获全部运行源码 fingerprint；status 显示 project、home、socket、code_dir、fingerprint。start 遇到已运行 daemon 只报告，不换版本。
 
-正常退出停止接收 RPC，取消正在执行的任务、终止 agent 进程组、等待调用和 Git 队列结束，再关闭数据库和释放锁。queued / waiting / awaiting 持久保留。重启发现 running 时记失败并取消其活动后代，不重放可能已有副作用的工作；留待用户检查。SIGKILL 可能留下外部进程，需要用户检查后重试。
+正常退出停止接收 RPC，取消正在执行的任务、终止 agent 进程组、等待调用和 Git 队列结束，再关闭数据库和释放锁。queued / waiting / awaiting 持久保留。重启发现 running 时记失败并取消其活动后代，不重放可能已有副作用的工作，并回收中断的检验对照检出；留待用户检查。SIGKILL 可能留下外部进程，需要用户检查后重试。
 
 不提供 exactly-once 文件副作用保证。SQLite 事务只能保护 Lush 记录，不能把任意模型工具与 Git 操作一起纳入事务。
 
@@ -87,7 +89,7 @@ daemon 启动捕获全部运行源码 fingerprint；status 显示 project、home
 
 CLI 的 task list / history 支持 cursor 分页；task inspect 返回完整任务结果和有界的相关记录。Web 复用 UIClient，轮询快照，采用 textContent 呈现模型输出，不插入 HTML；输入表单和 notice 答复在轮询时保留。
 
-Web 只监听 127.0.0.1，校验 Host / Origin / Sec-Fetch-Site，修改操作要求 JSON；HTTP 只能访问显式允许的方法，不能代理任意 RPC。RPC 以本机用户为可信边界；agent token 只约束正常的 agent 调用，不是本机攻击者隔离。`system.status` 报告运行中的 agent 列表与 `agents_total` / `agents_idle`（每个活动 task 一个 agent，含已 park 的），`task.inspect` 报告该 agent 的 id、唤醒次数与上次动手时间。
+Web 只监听 127.0.0.1，校验 Host / Origin / Sec-Fetch-Site，修改操作要求 JSON；HTTP 只能访问显式允许的方法，不能代理任意 RPC。检验报告在 `/api/task/<id>/report` 以独立文档返回，只允许内联样式/脚本与 `data:` 图片（`default-src 'none'`），因此报告里的脚本不能回调本地 API；非 verifier 任务或不存在的报告不会被当文件读出去。RPC 以本机用户为可信边界；agent token 只约束正常的 agent 调用，不是本机攻击者隔离。`system.status` 报告运行中的 agent 列表与 `agents_total` / `agents_idle`（每个活动 task 一个 agent，含已 park 的），`task.inspect` 报告该 agent 的 id、唤醒次数与上次动手时间。
 
 ## 源码布局
 
@@ -96,7 +98,7 @@ Web 只监听 127.0.0.1，校验 Host / Origin / Sec-Fetch-Site，修改操作�
 | `config.js` | 项目发现、配置、绑定 |
 | `persistence/store.js` | schema、事务、事实读写 |
 | `core/project.js` | 任务树、调度、生命周期、消息/notice |
-| `core/workspaces.js` | Git worktree、批准合并、安全回收 |
+| `core/workspaces.js` | Git worktree、检验对照检出、批准合并、安全回收 |
 | `agent/guide.js` | 项目开发与各角色的 agent 指令 |
 | `agent/provider.js` | pi 进程与 mock 后端 |
 | `rpc/` | JSON-RPC framing、参数/身份校验、socket |

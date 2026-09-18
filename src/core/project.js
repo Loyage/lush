@@ -1,4 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { check, id, text, TERMINAL, bounded, isPlainObject, LushError } from './types.js';
 import { Workspaces } from './workspaces.js';
 import { taskSlug } from './naming.js';
@@ -174,9 +176,50 @@ export class Project {
       children: bounded(this.store.summaries().filter(child => child.parent_id === task.id), 100000),
       messages: bounded(this.store.all('SELECT * FROM messages WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
       notices: bounded(this.store.all('SELECT * FROM notices WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
+      // worker 带着自己的检验记录；verifier 带着自己的报告路径。两边都是只读投影。
+      verifications: task.role === 'worker' ? bounded(this.store.verifications(task.id).map(row => ({ ...row, has_report: this.hasReport(row.id) })), 200000) : undefined,
+      report: task.role === 'verifier' && this.hasReport(task.id) ? this.reportPath(task.id) : null,
       agent: agentView(task, this.running.get(task.id) ?? null) };
   }
   diff(taskId) { return this.workspaces.diff(this.store.task(taskId)); }
+  /** 自包含 HTML 检验报告：由 verifier 自己写文件，runtime 只决定它在哪。 */
+  reportPath(taskId) { return path.join(this.config.home, 'verify', String(taskId), 'report.html'); }
+  hasReport(taskId) { return fs.existsSync(this.reportPath(taskId)); }
+  /**
+   * 用户点「检验」：为一个已完成的 worker 派一个只读 verifier，
+   * 由它自己判断最直观的演示方式，并对照目标分支的同一场景。
+   * 终态任务不能有活动子任务，所以 verifier 是独立根任务，用 verifies_task_id 关联而非 parent_id。
+   */
+  verify(taskId) {
+    const target = this.store.task(taskId);
+    check(target.role === 'worker', `only a worker task can be verified; #${target.id} is a ${target.role}`);
+    check(target.status === 'completed', `only a completed task can be verified; #${target.id} is ${target.status}`);
+    check(target.workspace && fs.existsSync(target.workspace) && target.head_commit,
+      `task #${target.id} has no worktree or commit to verify`);
+    check(target.target_branch, `task #${target.id} has no target branch to compare against`);
+    const active = this.store.activeVerification(target.id);
+    check(!active, `verification #${active?.id} is still running; wait for it or cancel it`);
+    const goal = `检验 #${target.id}：用最直观的方式演示它这一步改动的实际运行结果，并对照 ${target.target_branch} 分支在当前同样场景下的表现。`;
+    const task = this.store.transaction(() => this.store.create({
+      parent_id: null, input_id: target.input_id, role: 'verifier', goal,
+      name: `verify-${target.id}`, verifies_task_id: target.id }));
+    this.store.event(target.id, 'verify.requested', { verify_task: task.id, baseline: target.target_branch });
+    // 让界面知道被检验任务刚刚有了新状态，否则轮询不会重新渲染它的详情。
+    this.store.touch(target.id);
+    this.kick();
+    return task;
+  }
+  /** verifier 的上下文：它要演示哪次改动、对照在哪个目录、报告写到哪。 */
+  verificationContext(task) {
+    const target = this.store.task(task.verifies_task_id);
+    return {
+      verified_task: { id: target.id, goal: target.goal, name: target.name, status: target.status, result: target.result },
+      branch: target.branch, base_commit: target.base_commit, head_commit: target.head_commit,
+      target_branch: target.target_branch, workspace: target.workspace,
+      baseline_workspace: task.baseline_workspace, baseline_commit: task.baseline_commit,
+      report_path: this.reportPath(task.id),
+    };
+  }
   /** Read-only agent process log from pi's session files; never touches the database. */
   transcript(taskId, after = 0, limit = 100) {
     this.store.task(taskId);
@@ -187,7 +230,9 @@ export class Project {
     const rows = new Map(tasks.map(task => [task.id, { ...task, children: [] }]));
     const roots = [];
     for (const row of rows.values()) {
-      if (row.parent_id) rows.get(row.parent_id).children.push(row); else roots.push(row);
+      // verifier 不是子任务（终态任务不能有活动后代），但界面上挂在它检验的那个任务下面。
+      const parent = row.parent_id ?? row.verifies_task_id;
+      if (parent !== null && parent !== undefined && rows.has(parent)) rows.get(parent).children.push(row); else roots.push(row);
     }
     if (taskId !== null) { this.store.task(taskId); return rows.get(id(taskId)); }
     return roots;
@@ -239,6 +284,8 @@ export class Project {
       if (task.parent_id && !TERMINAL.has(this.store.task(task.parent_id).status)) {
         this.store.message(task.parent_id, JSON.stringify({ child: task.id, status, result, error }), task.id);
       }
+      // 检验结算后让被检验任务的详情重新渲染，看得到最新结论。
+      if (task.verifies_task_id) this.store.touch(task.verifies_task_id);
     });
     if (task.parent_id) this.wake(task.parent_id);
     // A settled dependency releases every queued dependent; still-blocked ones stay queued.
@@ -266,12 +313,12 @@ export class Project {
     const active = this.store.activeTasks();
     check(active.length === 0,
       `#${active.slice(0, 20).map(task => task.id).join(', #')} still active (${active.length}); cancel them or wait until they finish`);
-    const retained = this.store.all('SELECT id, branch, workspace FROM tasks WHERE branch IS NOT NULL OR workspace IS NOT NULL ORDER BY id');
+    const retained = this.store.all('SELECT id, branch, workspace, baseline_workspace FROM tasks WHERE branch IS NOT NULL OR workspace IS NOT NULL OR baseline_workspace IS NOT NULL ORDER BY id');
     const counts = this.store.purge();
     return {
       cleared: { tasks: counts.tasks, inputs: counts.inputs, drafts: counts.drafts, notices: counts.notices,
         messages: counts.messages, events: counts.events, task_deps: counts.task_deps },
-      retained: { note: 'worktrees, branches and pi sessions are kept on disk; remove them by hand', tasks: bounded(retained, 200000) },
+      retained: { note: 'worktrees, branches, verification baselines and pi sessions are kept on disk; remove them by hand', tasks: bounded(retained, 200000) },
       next_task_id: this.store.taskIdHigh() + 1,
     };
   }
@@ -293,6 +340,12 @@ export class Project {
     // A crash can land between committing an inbox message and queueing its owner.
     for (const task of this.store.tasks()) {
       if (!TERMINAL.has(task.status) && this.store.unread(task.id).length) this.wake(task.id);
+    }
+    // 中断的检验已经标成失败；对照基线是派生状态，顺手回收掉。
+    for (const task of this.store.tasks()) {
+      if (task.baseline_workspace && TERMINAL.has(task.status)) {
+        this.workspaces.removeBaseline(task.id).catch(error => console.error(`verification ${task.id}: baseline cleanup failed: ${error.message}`));
+      }
     }
     this.kick();
   }
@@ -361,6 +414,7 @@ export class Project {
           children: this.store.summaries().filter(child => child.parent_id === taskId),
           open_notices: this.store.all("SELECT * FROM notices WHERE task_id=? AND status='open'", taskId),
           recent_tasks: this.decorate(this.store.all('SELECT id,parent_id,role,status,substr(goal,1,500) AS goal,integration FROM tasks ORDER BY id DESC LIMIT 100')),
+          verification: task.role === 'verifier' ? this.verificationContext(task) : undefined,
         },
       });
       clearTimeout(timer);
@@ -393,7 +447,14 @@ export class Project {
       this.finish(taskId, 'completed', result);
     } catch (error) {
       if (!TERMINAL.has(this.store.task(taskId).status)) this.cancel(taskId, error.message, 'failed');
-    } finally { clearTimeout(timer); }
+    } finally {
+      clearTimeout(timer);
+      // 对照基线是派生的只读检出：invocation 一结束就回收，不把每次检验都堆在磁盘上。
+      // 失败也不保留——结论/错误已入库，重建一次基线很便宜。
+      if (this.store.task(taskId).verifies_task_id) {
+        await this.workspaces.removeBaseline(taskId).catch(error => console.error(`verification ${taskId}: ${error.message}`));
+      }
+    }
   }
   async shutdown() {
     this.stopping = true;

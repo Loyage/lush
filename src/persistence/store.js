@@ -22,6 +22,8 @@ export class Store {
         agent_wakes INTEGER NOT NULL DEFAULT 0, agent_token_hash TEXT, agent_last_seen_at TEXT,
         workspace TEXT, branch TEXT, base_commit TEXT, head_commit TEXT,
         integration TEXT NOT NULL DEFAULT 'none', target_branch TEXT, integration_error TEXT,
+        -- verifier task: verifies_task_id 指向被检验的 worker；baseline_* 是目标分支的对照检出。
+        verifies_task_id INTEGER REFERENCES tasks(id), baseline_workspace TEXT, baseline_commit TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_id);
@@ -47,7 +49,8 @@ export class Store {
     // Agent identity columns arrived after the first release; an existing project.db predates them.
     // The index over agent_token_hash must wait for the columns it references.
     const columns = new Set(this.all('PRAGMA table_info(tasks)').map(row => row.name));
-    for (const [name, type] of [['name', 'TEXT'], ['agent_wakes', 'INTEGER NOT NULL DEFAULT 0'], ['agent_token_hash', 'TEXT'], ['agent_last_seen_at', 'TEXT']]) {
+    for (const [name, type] of [['name', 'TEXT'], ['agent_wakes', 'INTEGER NOT NULL DEFAULT 0'], ['agent_token_hash', 'TEXT'], ['agent_last_seen_at', 'TEXT'],
+      ['verifies_task_id', 'INTEGER REFERENCES tasks(id)'], ['baseline_workspace', 'TEXT'], ['baseline_commit', 'TEXT']]) {
       if (!columns.has(name)) this.run(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
     }
     this.run('CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash)');
@@ -82,7 +85,16 @@ export class Store {
   tasks() { return this.all('SELECT * FROM tasks ORDER BY id'); }
   summaries() {
     return this.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,updated_at,
-      agent_wakes,agent_last_seen_at FROM tasks ORDER BY id`);
+      agent_wakes,agent_last_seen_at,verifies_task_id FROM tasks ORDER BY id`);
+  }
+  /** 一个 worker 收到过的检验记录，最新的在前。 */
+  verifications(taskId) {
+    return this.all(`SELECT id,status,result,error,baseline_commit,created_at,updated_at
+      FROM tasks WHERE verifies_task_id=? ORDER BY id DESC`, taskId);
+  }
+  /** 同一任务同时只允许一次检验：还在跑的会占住这个名额。 */
+  activeVerification(taskId) {
+    return this.get(`SELECT id,status FROM tasks WHERE verifies_task_id=? AND status NOT IN ('completed','failed','cancelled') ORDER BY id DESC`, taskId);
   }
   /** Tasks the scheduler may still touch: a clear has to wait for all of them. */
   activeTasks() {
@@ -159,18 +171,21 @@ export class Store {
     }
     return false;
   }
+  /** Bump the visible timestamp without touching status; used when a verification starts or settles. */
+  touch(taskId) { this.run("UPDATE tasks SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", taskId); }
   update(taskId, patch) {
-    const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','head_commit','integration','target_branch','integration_error'];
+    const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit'];
     check(Object.keys(patch).every(key => allowed.includes(key)), 'invalid task patch');
     this.run(`UPDATE tasks SET ${Object.keys(patch).map(key => `${key}=?`).join(',')}, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, ...Object.values(patch), taskId);
     return this.task(taskId);
   }
   /** name is the task's own short slug; it is written once at spawn and never edited, so a worktree keeps its name. */
-  create({ parent_id = null, input_id, role, goal, name = null }) {
+  create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null }) {
     const taskId = this.nextTaskId();
-    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name) VALUES (?,?,?,?,?,?)', taskId, parent_id, input_id, role, goal, name);
+    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id) VALUES (?,?,?,?,?,?,?)',
+      taskId, parent_id, input_id, role, goal, name, verifies_task_id);
     const task = this.task(taskId);
-    this.event(task.id, 'created', { parent_id, role, goal, name });
+    this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id });
     return task;
   }
   event(taskId, type, data) { this.run('INSERT INTO events(task_id,type,data) VALUES (?,?,?)', taskId, type, JSON.stringify(data)); }

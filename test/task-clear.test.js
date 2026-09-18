@@ -55,7 +55,7 @@ test('clear drops rows but keeps worktrees, branches and never recycles task ids
     const result = f.project.clear();
     expect(result.cleared).toMatchObject({ tasks: 2, inputs: 1, drafts: 1, notices: 1, messages: 1 });
     expect(result.next_task_id).toBe(worker.id + 1);
-    expect(result.retained.tasks).toEqual([{ id: worker.id, branch, workspace: cwd }]);
+    expect(result.retained.tasks).toEqual([{ id: worker.id, branch, workspace: cwd, baseline_workspace: null }]);
 
     for (const table of ['tasks','inputs','drafts','notices','messages','events','task_deps']) {
       expect(f.store.get(`SELECT count(*) AS n FROM ${table}`).n).toBe(0);

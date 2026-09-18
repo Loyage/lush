@@ -19,10 +19,10 @@ const PARAMS = {
   'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.diff': ['id'],
   'task.transcript': ['id','after','limit'],
   'task.spawn': ['parent','goal','role','deps','name'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
-  'task.merge': ['id'], 'task.cleanup': ['id'], 'task.clear': [],
+  'task.merge': ['id'], 'task.cleanup': ['id'], 'task.verify': ['id'], 'task.clear': [],
   'notice.list': [], 'notice.post': ['task','title','body'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
 };
-const USER_ONLY = new Set(['system.stop','input.submit','draft.add','draft.remove','draft.commit','task.cancel','task.retry','task.merge','task.cleanup','task.clear','notice.answer','notice.dismiss']);
+const USER_ONLY = new Set(['system.stop','input.submit','draft.add','draft.remove','draft.commit','task.cancel','task.retry','task.merge','task.cleanup','task.verify','task.clear','notice.answer','notice.dismiss']);
 export class Dispatcher {
   constructor(project, stopping, identity) { this.project = project; this.stopping = stopping; this.identity = identity; }
   async dispatch(method, params = {}) {
@@ -72,6 +72,7 @@ export class Dispatcher {
       case 'task.cancel': return p.cancel(params.id);
       case 'task.retry': return p.retry(params.id);
       case 'task.merge': return p.workspaces.merge(id(params.id));
+      case 'task.verify': return p.verify(id(params.id));
       case 'task.cleanup':
         check(!p.running.has(id(params.id)), 'agent is still stopping; cleanup must wait');
         return p.workspaces.cleanup(id(params.id));

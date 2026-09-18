@@ -40,6 +40,23 @@ export class Workspaces {
     try { await this.git(cwd, 'merge-base', '--is-ancestor', commit, ref); return true; } catch { return false; }
   }
   async ensure(task) {
+    // verifier 不修改代码：它站在被检验的 worktree 里演示，另拉一个目标分支的只读对照。
+    if (task.role === 'verifier') return this.exclusive(async () => {
+      task = this.store.task(task.id);
+      const target = this.store.task(task.verifies_task_id);
+      check(target.workspace && fs.existsSync(target.workspace), `verified task #${target.id} has no worktree to compare`);
+      if (task.baseline_workspace && fs.existsSync(task.baseline_workspace)) return target.workspace;
+      const project = this.config.project;
+      // 对照取目标分支「当前」的顶端：合并时校验的也是同一个分支，所以对比的是它现在会得到什么。
+      const commit = await this.git(project, 'rev-parse', target.target_branch);
+      const dir = path.join(this.config.home, 'worktrees', `${taskLabel(task.id, task.name)}-base`);
+      fs.mkdirSync(path.dirname(dir), { recursive: true });
+      // 先落库再动 git：崩溃后重试看得到自己曾经指向哪个目录。
+      this.store.update(task.id, { baseline_workspace: dir, baseline_commit: commit });
+      await this.git(project, 'worktree', 'add', '--detach', dir, commit);
+      this.store.event(task.id, 'baseline.created', { workspace: dir, commit, target_branch: target.target_branch });
+      return target.workspace;
+    });
     if (task.role !== 'worker') return this.config.project;
     return this.exclusive(async () => {
       task = this.store.task(task.id);
@@ -115,6 +132,23 @@ export class Workspaces {
       commits: lines(commits).slice(0, 100),
     };
   }
+  /** 对照基线是派生检出，没有用户工作：检验结算后回收，不占用磁盘。 */
+  removeBaseline(taskId) {
+    return this.exclusive(async () => {
+      const task = this.store.task(taskId);
+      if (!task.baseline_workspace) return task;
+      const dir = task.baseline_workspace;
+      try { await this.git(this.config.project, 'worktree', 'remove', '--force', dir); }
+      catch (error) {
+        // 回收失败时保留指针，用户可以再次 cleanup；不隐藏仍然占着磁盘的目录。
+        console.error(`verification ${taskId}: baseline cleanup failed: ${error.message}`);
+        return this.store.task(task.id);
+      }
+      this.store.update(task.id, { baseline_workspace: null });
+      this.store.event(task.id, 'baseline.removed', { workspace: dir });
+      return this.store.task(task.id);
+    });
+  }
   merge(taskId) {
     return this.exclusive(async () => {
       const task = this.store.task(taskId);
@@ -155,6 +189,15 @@ export class Workspaces {
       try {
         const task = this.store.task(taskId);
         check(['completed','failed','cancelled'].includes(task.status), 'task must have stopped');
+        // 检验任务没有 branch/integration，只有派生出来的对照检出。
+        if (task.verifies_task_id) {
+          if (!task.baseline_workspace) return task;
+          const dir = task.baseline_workspace;
+          await this.git(this.config.project, 'worktree', 'remove', '--force', dir);
+          this.store.update(task.id, { baseline_workspace: null });
+          this.store.event(task.id, 'baseline.removed', { workspace: dir });
+          return this.store.task(task.id);
+        }
         check(task.integration === 'merged' || task.integration === 'none', 'unmerged work must be kept');
         if (!task.workspace) return task;
         await this.clean(task.workspace);

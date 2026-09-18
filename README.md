@@ -34,6 +34,7 @@ lush draft commit      # 整批交给一个 planner：拆任务、建依赖，�
 lush task tree
 lush task inspect 3
 lush task message 3 '还要考虑中文输入法'
+lush task verify 3      # 派一个只读 verifier：先演示它的 worktree 结果，再对照目标分支
 lush notice list
 lush notice answer 1 '采用方案 A'
 lush task merge 3       # 审阅代码与验证报告后，明确批准这个分支
@@ -51,6 +52,16 @@ lush daemon stop
 - `explain`：只是了解、询问、解释相关内容。planner 直接把答案写进自己的 result，必要时派 research 去读代码；**runtime 会硬性拒绝它派发 worker/coordinator**（`input #N is classified as explain (了解)`），因此不会创建 worktree、不会产生待合并改动。
 
 未判定（`flow` 为空）的输入按 `develop` 处理。用户随时可以改判：`lush input flow [TASK_ID] develop|explain`（agent 省略 TASK_ID 时判定自己的输入，Web 任务详情里也有「标记为开发/了解」），`lush input list` 会显示当前判定。改判只影响之后的派工，不会追溯取消已经建立的 worker/coordinator 子任务。
+
+### 检验：用最直观的方式看这次改动跑起来是什么样
+
+任务完成后，点 Web 详情里的「检验」（或 `lush task verify ID`）会派一个**只读 verifier**，它不是复查代码，而是想办法让用户直接看到结果：
+
+- 读被检验任务的 goal 与 diff，自己判断「怎样才能最直观地说明这次改动成立」——跑测试、跑同一个命令对比输出、起服务看界面，方式由它按任务意图决定；可重复的命令与真实输出优先于主观描述。
+- 在任务的 worktree 里跑一遍，再在 daemon 临时拉出的**目标分支对照检出**（`git worktree add --detach` 到 `.lush/worktrees/<id>-verify-N-base`）里跑同一场景，把两边并排呈现；基准本来就失败，就说明那是既有问题。
+- 最后把结论写成一份自包含 HTML 报告（样式/脚本内联，图片内联为 `data:`）落到 `.lush/verify/<verifier-id>/report.html`，Web 详情里的「打开 HTML 报告」在一个新标签打开它。
+
+verifier 与被检验任务是两个 task（worker 已经终态，不能再挂活动子任务），用 `tasks.verifies_task_id` 关联，界面上挂在被检验任务下面。同一任务同时只允许一次检验；`task.verify` 是用户专属命令，agent 不能用。对照基线是派生状态，检验一结算（成功或失败）就回收，报告保留在磁盘上；`task clear` 不会删它。
 
 ### 输入缓存与任务依赖
 
@@ -146,7 +157,8 @@ bun run stop
 project.json       不可跨目录复用的项目绑定
 project.db         SQLite：inputs / tasks / messages / notices / events（task.clear 会清空这些表，并把 task id 高水位记在 meta）
 sessions/          每个 task 的独立 pi session 与当前输入文件（thinking / 工具调用的原文）
-worktrees/         worker 工作区
+worktrees/         worker 工作区，以及检验期间临时的目标分支对照检出
+verify/            每个 verifier 的自包含 HTML 检验报告
 daemon.lock        项目 daemon 单实例锁
 daemon.log         daemon 日志
 ```
@@ -154,6 +166,8 @@ daemon.log         daemon 日志
 socket 放在用户私有临时目录，名字由 canonical 项目路径决定，以避免长项目路径超过 Unix socket 限制。它只是通信端点；持久状态仍在项目内。`LUSH_HOME` 不再是独立作用域：若保留该变量，必须恰好等于所选项目的 `.lush`，否则拒绝运行。
 
 任务状态：`queued → running → waiting / awaiting / completed / failed / cancelled`。等待收到新消息后重新排队。终态任务不会保留活动子任务。取消或停止会终止 agent 进程组；重启对未知副作用的运行中任务标记失败，不自动重放；未开始的排队任务、待用户答复和记录保留。重试失败子任务要求父任务仍活动，否则重试父任务或提交新输入。
+
+角色有 planner / coordinator / worker / research / verifier。verifier 是用户点「检验」时才创建的只读任务，它**不是**被检验任务的子任务（终态任务不能再挂活动子任务），而是独立根任务，用 `tasks.verifies_task_id` 指向被检验的 worker；父子不变的不变量不被破坏，界面上依旧挂在被检验任务下面。
 
 **Task 与 agent 是终身一对一的身份。** 任务一创建就拥有一个 agent（`<role>#<task-id>`，例如 `worker#7`），跨唤醒不换身份：pi session、累计唤醒次数和上次动手时间都记在这个 agent 上，`task inspect` 与 Web 详情直接展示。但它的 RPC 凭证是每次唤醒重新签发的：daemon 只存 SHA-256，且只在该次 invocation 运行期间可解析，invocation 结束即作废，重启后一律清空。因此 1:1 指的是身份，不是进程或凭证——等待子任务或用户时 agent 依然存在，但不占执行槽、也没有活着的调用。
 
@@ -174,7 +188,7 @@ pi 默认禁用个人 extensions / skills / prompt templates / themes，保留�
 | `LUSH_PI_COMMAND` | `pi` | pi 可执行文件 |
 | `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL` | pi 默认 | 模型选择 |
 
-`tasks.result` 只保存 invocation 的最后一次输出；完整的执行过程（思考、工具调用、工具输出）留在 `.lush/sessions/*.jsonl`，用 `lush task transcript ID`（Web 详情里的「执行过程」）只读查看。截图、过程与结论分开：审阅合并时看 result 与 `task diff`，需要追究 agent 怎么做的时候看 transcript。
+`tasks.result` 只保存 invocation 的最后一次输出；完整的执行过程（思考、工具调用、工具输出）留在 `.lush/sessions/*.jsonl`，用 `lush task transcript ID`（Web 详情里的「执行过程」）只读查看。截图、过程与结论分开：审阅合并时看 result 与 `task diff`，需要追究 agent 怎么做的时候看 transcript，需要直接看结果跑起来时点「检验」。
 
 ## 验证与文档
 
@@ -182,7 +196,7 @@ pi 默认禁用个人 extensions / skills / prompt templates / themes，保留�
 bun run test
 ```
 
-测试覆盖纯任务树、并发额度、独立规划槽、消息与 notice 唤醒、取消、恢复、任务权限、真实 Git worktree/merge/冲突、真实 daemon 的项目隔离、pi 子进程协议与本地 Web 边界。pi 协议测试使用可控的假 pi 可执行文件，不调用付费模型。
+测试覆盖纯任务树、并发额度、独立规划槽、消息与 notice 唤醒、取消、恢复、任务权限、真实 Git worktree/merge/冲突、检验的对照基线生命周期与报告路由、真实 daemon 的项目隔离、pi 子进程协议与本地 Web 边界。pi 协议测试使用可控的假 pi 可执行文件，不调用付费模型。
 
 [架构](docs/engineering/architecture.md) · [命令与 RPC](docs/reference/api.md) · [重构说明](docs/README.md)
 
