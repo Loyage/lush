@@ -1,4 +1,4 @@
 #!/usr/bin/env bun
-import { main } from '../src/cli/main.js';
+import { main } from '../src/ui/cli.js';
 
 await main(process.argv.slice(2));

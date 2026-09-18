@@ -68,9 +68,13 @@ just bootstrap       # 起 daemon + project-manager → implement-login
 just call 2 'hi'     # 在 SID 2 上开一个根 task 并等它结束（just call 2 'hi' dry 只打印命令）
 just tasks | just task-tree 1 | just wait 1 | just inspect 2
 just daemon-restart  # 改代码 / 提示词 / 模板之后重启当前 home 的 daemon
+just web             # 只启动 Web UI，不操作 daemon；http://127.0.0.1:4318
+just web 8080        # 只启动 Web UI，并指定本地端口
 just clean           # 停 daemon 并删掉本仓库的 .lush（连历史一起没）
 just reset yes       # 只清服务树（daemon、日志、session 都保留），不可逆
 ```
+
+Web UI 在树中选择 active Service，填写 goal 后会立即在后台启动一个根 Task，并轮询显示状态与结果。`just web` 不会启动、停止或重启 daemon：daemon 离线时页面保持运行，后续 daemon 启动或重启后自动恢复。它只监听本机回环地址，不应通过反向代理暴露给不可信用户。CLI、Web UI 以及未来 TUI 的 adapter 统一放在 `src/ui/`，并共享同一个 `UIClient` 应用客户端；细节见 [用户界面](docs/reference/ui.md)。
 
 完整清单、`just clean` 与 `just reset` 的区别、以及每个命令的参数，见 [docs/reference/cli.md](docs/reference/cli.md)。
 
@@ -94,7 +98,7 @@ lush service spawn 1 project x --vars '{"path":"/abs/repo"}'   # 服务也可以
 读哪一份取决于你要回答什么；每份文档都在开头写了自己的定位。
 
 - **概念**：[Service 与 Task 模型](docs/concepts/service-model.md) · [生命周期与孤儿监督](docs/concepts/lifecycle-and-orphans.md) · [Agent 后端与 Context](docs/concepts/agents.md)
-- **参考**：[CLI 与 Justfile](docs/reference/cli.md) · [RPC 协议](docs/reference/rpc.md) · [模板](docs/reference/templates.md) · [Agent profile 与 session](docs/reference/agents.md)
+- **参考**：[CLI 与 Justfile](docs/reference/cli.md) · [用户界面](docs/reference/ui.md) · [RPC 协议](docs/reference/rpc.md) · [模板](docs/reference/templates.md) · [Agent profile 与 session](docs/reference/agents.md)
 - **工程**：[总体架构](docs/engineering/architecture.md) · [daemon 与 CLI 的版本对齐](docs/engineering/identity.md)
 - **历史**：[开发日志](docs/log/)
 - 索引与阅读约定：[docs/README.md](docs/README.md)
@@ -102,7 +106,7 @@ lush service spawn 1 project x --vars '{"path":"/abs/repo"}'   # 服务也可以
 ## 验证
 
 ```bash
-just verify   # = bun test（139 项）+ bun run demo
+just verify   # = bun test（145 项）+ bun run demo
 bun test      # 只跑测试
 bun run demo  # 只跑演示（mock provider）
 ```
@@ -111,4 +115,4 @@ bun run demo  # 只跑演示（mock provider）
 
 **生命周期提示：** Service 只有 created / active / stopped——它是被动的，`service spawn` 只是建节点，不会跑任何 agent，`service stop` 只让它不再接受 task（先取消它手上的 task）。工作全在 task 上：`call` 建根 task 并等待，task 的状态是 created / running / waiting / completed / failed / cancelled，`task cancel` 取消一棵子树，`task complete` 由它的 agent（或人）在目标达成时调用；终态 task 不会有活动子 task。节点结束时（`stop` / `purge`），活动的直接子节点改挂 SID 0。**删除是唯一的物理删除路径**：`task delete` 只删 task 行（call 行与消息留作 service 的历史），`service delete SID` 只删 stopped 且没有活动 task 的节点（连带它上面的 task），`service purge SID` 先取消 task、停止节点再删（`--recursive` 连整棵子树），且内置运行时的 agent 工具集里没有删除工具；被删节点的父服务会得到一条 `child_deleted` 事件。SID 0 永远拒绝，只能通过停止 daemon 退出。详见 [docs/concepts/lifecycle-and-orphans.md](docs/concepts/lifecycle-and-orphans.md)。
 
-本地单用户 MVP：没有 ACL、沙箱、自动调度、自动任务恢复、向量数据库或 Web UI。运行 pi 时，pi 自带的 read/bash/edit/write 工具和你的 pi 配置（skills、extensions、AGENTS.md）都会生效，因此 pi 服务能读写磁盘和执行命令；`openai` / `mock` 运行时只有 Lush 自己的 `service_*` / `task_*` 工具，不含 shell、文件编辑或联网能力。不要向不可信用户暴露 socket；Agent 可以调用其他 Service，因此工具调用不是安全隔离边界。
+本地单用户 MVP：没有 ACL、沙箱、自动调度、自动任务恢复或向量数据库。Web UI 也只允许监听本机回环地址。运行 pi 时，pi 自带的 read/bash/edit/write 工具和你的 pi 配置（skills、extensions、AGENTS.md）都会生效，因此 pi 服务能读写磁盘和执行命令；`openai` / `mock` 运行时只有 Lush 自己的 `service_*` / `task_*` 工具，不含 shell、文件编辑或联网能力。不要向不可信用户暴露 socket 或 Web UI；Agent 可以调用其他 Service，因此工具调用不是安全隔离边界。

@@ -18,6 +18,7 @@ Lush 把 AI 工作组织成**被动的 Service 节点**与**会干活的 Task**�
 ## 参考层
 
 - [CLI 与 Justfile](./reference/cli.md)：命令树、命令总览、开发用 Justfile、`--interactive` / `--dry-run`。
+- [用户界面](./reference/ui.md)：统一 `src/ui/` 边界、Web UI 启动方式与本地 HTTP 接口。
 - [RPC 协议](./reference/rpc.md)：传输、方法表、错误码、Agent Tools、身份字段。
 - [模板（ServiceTemplate）](./reference/templates.md)：字段契约、保留变量名、目录摆放、随仓库发布的模板。
 - [Agent profile、session 与内置后端](./reference/agents.md)：profile 文件与选择优先级、session 在哪、`mock` / `openai`。

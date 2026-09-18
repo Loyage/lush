@@ -23,7 +23,7 @@ function childEnv(info) {
  * daemon is untouched.
  */
 export async function openSession(client, taskId) {
-  const info = await client.request('task.session', { task_id: taskId });
+  const info = await client.taskSession(taskId);
   if (info.agent !== 'pi' || !Array.isArray(info.argv)) {
     throw new LushError(`agent ${info.agent} runs in-service; there is no external session to open`);
   }
@@ -46,7 +46,7 @@ export async function openSession(client, taskId) {
  * The daemon finishes or fails the task with whatever this service reports back.
  */
 export async function interactiveCall(client, args) {
-  const opened = await client.request('call', { sid: args.sid, goal: args.goal, interactive: true });
+  const opened = await client.openInteractiveTask(args.sid, args.goal);
   if (!Array.isArray(opened.argv)) {
     throw new LushError(`agent ${opened.agent} runs in-service; there is no external agent to enter`);
   }
@@ -60,8 +60,7 @@ export async function interactiveCall(client, args) {
   const child = cp.spawn(command, rest, { cwd: opened.cwd ?? undefined, env: childEnv(opened), stdio: 'inherit' });
   if (Number.isInteger(child.pid)) {
     // Not fatal if the call already ended (kill, timeout): the report is a hint.
-    await client.request('call.os_pid', { task_id: opened.task_id, call_id: opened.call_id, os_pid: child.pid })
-      .catch(() => null);
+    await client.recordInteractivePid(opened.task_id, opened.call_id, child.pid).catch(() => null);
   }
   const { code, signal, error } = await new Promise((resolve) => {
     child.on('error', (err) => resolve({ code: null, signal: null, error: err }));
@@ -75,12 +74,12 @@ export async function interactiveCall(client, args) {
         ? null
         : `${opened.agent} exited ${code}`;
   // Report even a signalled child: the daemon must not stay busy until timeout.
-  const settled = await client.request('call.end', {
-    task_id: opened.task_id,
-    call_id: opened.call_id,
-    status: failure === null ? 'succeeded' : 'failed',
-    ...(failure === null ? {} : { error: failure }),
-  });
+  const settled = await client.settleInteractiveTask(
+    opened.task_id,
+    opened.call_id,
+    failure === null ? 'succeeded' : 'failed',
+    failure === null ? {} : { error: failure },
+  );
   if (failure !== null) process.stderr.write(`lush: ${failure}\n`);
   if (!settled.settled) {
     process.stderr.write(`lush: call ${opened.call_id} was already ${settled.status} in the daemon; this round was not recorded\n`);

@@ -13,3 +13,5 @@ export { AgentResponse, ToolCall, configuredProvider } from './agent/provider.js
 export { RPCClient } from './rpc/client.js';
 export { RPCServer } from './rpc/server.js';
 export { Dispatcher } from './rpc/protocol.js';
+export { UIClient, connectUI } from './ui/client.js';
+export { WebUIServer } from './ui/web.js';

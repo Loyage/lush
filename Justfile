@@ -5,6 +5,7 @@
 #   just test           跑测试
 #   just demo           完整演示
 #   just daemon-start   起 daemon，然后用 just tree / just call 操作
+#   just web            起本地 Web UI（service tree + 后台创建 task）
 
 set shell := ["zsh", "-uc"]
 
@@ -29,6 +30,11 @@ default:
 # 列出 lush CLI 的命令树（每一层都可以再加 help / -h，如 {{lush}} service help）
 help:
   @{{lush}} help
+
+# 在 127.0.0.1 上启动最小 Web UI；端口默认 4318：just web 8080
+[group('ui')]
+web port="4318":
+  @LUSH_WEB_PORT={{quote(port)}} bun ./bin/lush-web
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  开发与验证

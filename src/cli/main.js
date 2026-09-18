@@ -18,7 +18,7 @@ import { Config } from '../config.js';
 import { LushError } from '../core/types.js';
 import { isLocked } from '../daemon/locking.js';
 import { codeIdentity, codeMismatch } from '../identity.js';
-import { RPCClient } from '../rpc/client.js';
+import { connectUI } from '../ui/client.js';
 import { UsageError } from './args.js';
 import { parseArgs } from './parse.js';
 import { usageLines, renderHelp, renderHelpJson } from './help.js';
@@ -73,7 +73,7 @@ function cliContext(config, daemon = null) {
 async function warnOnStaleDaemon(client, config) {
   let status;
   try {
-    status = await client.request('system.status');
+    status = await client.status();
   } catch {
     return; // no daemon yet; the command itself reports that
   }
@@ -90,14 +90,14 @@ async function stopDaemon(config, client) {
   let live = isLocked(config.home);
   if (!live && fs.existsSync(config.socket)) {
     try {
-      await client.request('system.status');
+      await client.status();
       live = true;
     } catch {
       /* stale socket, daemon is gone */
     }
   }
   if (!live) return { stopped: true, already_stopped: true, cli: cliContext(config) };
-  await client.request('system.shutdown');
+  await client.shutdown();
   for (let attempt = 0; attempt < 150; attempt += 1) {
     if (!isLocked(config.home)) return { stopped: true, cli: cliContext(config) };
     await Bun.sleep(100);
@@ -108,7 +108,7 @@ async function stopDaemon(config, client) {
 async function startDaemon(config, client) {
   const logPath = path.join(config.home, 'daemon.log');
   try {
-    const status = await client.request('system.status');
+    const status = await client.status();
     return { started: true, already_running: true, ...status, cli: cliContext(config, status) };
   } catch {
     /* not running yet */
@@ -130,7 +130,7 @@ async function startDaemon(config, client) {
 
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
-      const status = await client.request('system.status');
+      const status = await client.status();
       return { started: true, ...status, cli: cliContext(config, status) };
     } catch {
       if (exited !== null && !isLocked(config.home)) {
@@ -158,7 +158,7 @@ async function startDaemon(config, client) {
  */
 export async function daemonCommand(config, action) {
   config.prepare();
-  const client = new RPCClient(config.socket, 1);
+  const client = connectUI(config.socket, 1);
   if (action === 'restart') {
     const stopped = await stopDaemon(config, client);
     const started = await startDaemon(config, client);
@@ -190,7 +190,7 @@ export async function run(argv) {
       throw new LushError(`invalid LUSH_RPC_TIMEOUT: ${process.env.LUSH_RPC_TIMEOUT}`);
     }
   }
-  const client = new RPCClient(config.socket, timeout);
+  const client = connectUI(config.socket, timeout);
   await warnOnStaleDaemon(client, config);
 
   if (args.command === 'daemon') {
@@ -207,7 +207,7 @@ export async function run(argv) {
   }
   const { node } = args;
   const method = typeof node.method === 'function' ? node.method(args) : node.method;
-  const result = await client.request(method, rpcParams(args));
+  const result = await client.execute(method, rpcParams(args));
   // `daemon status` is the one read that must also say which home and which
   // code answer it; every other read is about the services themselves.
   writeOut(format(args, method === 'system.status' ? { ...result, cli: cliContext(config, result) } : result));

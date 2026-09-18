@@ -6,7 +6,8 @@
   "private": true,
   "bin": {
     "lush": "./bin/lush",
-    "lushd": "./bin/lushd"
+    "lushd": "./bin/lushd",
+    "lush-web": "./bin/lush-web"
   },
   "exports": {
     ".": "./src/index.js"

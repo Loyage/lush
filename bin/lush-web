@@ -1,0 +1,4 @@
+#!/usr/bin/env bun
+import { webMain } from '../src/ui/index.js';
+
+await webMain();

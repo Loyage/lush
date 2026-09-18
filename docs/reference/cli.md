@@ -47,6 +47,7 @@ just doctor          # 工具链 / 数据目录 / daemon 状态
 just test            # bun test（just test openai 可按文件名过滤）
 just demo            # 完整 CLI / daemon 演示
 just verify          # test + demo
+just web             # 只启动 Web UI（127.0.0.1:4318），不操作 daemon；just web 8080 改端口
 
 just daemon-start    # 起 daemon（幂等）
 just bootstrap       # 起 daemon 并创建 project-manager → implement-login
@@ -78,7 +79,7 @@ just clean           # 停 daemon 并删除仓库内的 .lush
 just reset yes       # 推倒重来：清空当前 home 的整棵服务树（只剩 SID 0）再重启它的 daemon（不可逆，默认要输 yes）
 ```
 
-`just` 默认把开发数据放在仓库内的 `.lush/`（已 gitignore），不碰你日常的 `~/.local/state/lush`；用 `LUSH_HOME` 可覆盖（此时 `just clean` 只提示、不删除仓库外的目录）。
+`just` 默认把开发数据放在仓库内的 `.lush/`（已 gitignore），不碰你日常的 `~/.local/state/lush`；用 `LUSH_HOME` 可覆盖（此时 `just clean` 只提示、不删除仓库外的目录）。Web UI 的界面与 HTTP 接口见 [用户界面](./ui.md)。
 
 
 ## 开发数据目录

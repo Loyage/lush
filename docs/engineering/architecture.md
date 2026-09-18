@@ -5,17 +5,23 @@
 Lush 管理 AI 活动，而不是 CPU、内存和 Unix 服务。它有两层实体：**Service** 是被动的持久化节点（身份、变量、state、权限），**Task** 是挂在某个 service 上的一次工作（有 agent、会话与 result，可向下游派子 task）。内存中的 Service 只是通过 SID 访问 Core 的句柄，不维护递归 children 对象图。
 
 ```text
-lush CLI -- JSON-RPC / Unix socket --> lushd
-                                       |
-                                  ServiceManager <--- Agent Tools
-                                    |       |              ^
-                               Repository   AgentRuntime --|
-                                    |       |       |
-                                 SQLite  ContextBuilder  AgentBackend
-                                              |         /          \
-                                        Lush guide   pi (子服务)   内置 provider
-                                                                    /        \
-                                                                  Mock     OpenAI
+CLI / Web / future TUI
+          |
+     UI adapters
+          |
+ JSON-RPC / Unix socket
+          |
+        lushd
+          |
+ ServiceManager <--- Agent Tools
+   |       |              ^
+Repository AgentRuntime --|
+   |       |       |
+SQLite  ContextBuilder  AgentBackend
+             |         /          \
+       Lush guide   pi (子服务)   内置 provider
+                                   /        \
+                                 Mock     OpenAI
 ```
 
 ## 模块边界
@@ -28,7 +34,8 @@ lush CLI -- JSON-RPC / Unix socket --> lushd
 - `rpc/`：newline-delimited JSON-RPC；参数和错误映射，不复制业务逻辑。
 - `daemon/`：装配、单实例锁、socket 生命周期、信号和中断恢复；启动时建一个 `AgentCatalog`（默认 provider = 环境变量叠加内置 default profile），并把它绑给 `ServiceManager`（spawn 时校验 `--agent` / 模板 `agent`）与 `AgentRuntime`（task 开始时解析该 SID 的 profile）；按 `config.orphanPolicy` 决定是否起孤儿监督定时器（`sweepSeconds` 秒，unref，关闭时先清掉再关数据库）。
 - `socket_io.js`：Bun socket 写入是有界的（单次 write 只接受有限字节），统一封装「写满队列 + drain 续写」，RPC 两端共用。
-- `cli/`：命令树声明（每一层自带 help）、参数解析、RPC 客户端、输出格式、交互 session、daemon 启动客户端。`call` 是顶层入口（在某个 service 上开一个根 task 并等待），`task` 组管工作，`service` 组管被动节点。
+- `ui/`：用户交互的统一应用边界。CLI / Web / 未来 TUI 都先进入 `UIClient`：命令型 adapter 走完整的 `execute(method, params)` 网关，常见交互走具名工作流，再由它独占 request transport（当前为 `RPCClient`）；任何 UI adapter 都不直接操作 socket。`ui/web/` 用 Bun HTTP 提供仅回环地址可访问的 service tree 与后台根 task 创建；`ui/cli.js` 把现有 CLI 接到统一入口，并保留 `cli/` 的兼容导入路径。
+- `cli/`：CLI 的命令树声明（每一层自带 help）、参数解析、`UIClient` 调用、输出格式、交互 session、daemon 启动客户端。`call` 是顶层入口（在某个 service 上开一个根 task 并等待），`task` 组管工作，`service` 组管被动节点。
 
 ## 调用数据流
 
