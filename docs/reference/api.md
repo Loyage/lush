@@ -32,6 +32,7 @@
 | `task tree [ID]` | `task.tree` | `{id?}` |
 | `task inspect ID` | `task.inspect` | `{id}` |
 | `task history ID [--after N]` | `task.history` | `{id, after?: 0}` |
+| `task transcript ID [--after N]` | `task.transcript` | `{id, after?: 0, limit?: 100}`，limit 最大 200 |
 | `task spawn 'goal' --parent ID --role worker [--depends-on ID[:kind]]` | `task.spawn` | `{parent, goal, role?: 'worker', deps?: [{id, kind: 'code'|'order'}]}` |
 | —（只读，Web UI 使用） | `task.diff` | `{id}` |
 | `task message ID 'body'` | `task.message` | `{id, body}` |
@@ -54,6 +55,8 @@ spawn 必须关联一个活动父 task；根任务只能由用户输入创建。
 
 `task.diff` 是只读审阅视图：不写库、不改仓库，因此不进入 Git 串行队列。返回 `{branch, target_branch, base_commit, head_commit, committed, files, files_total, pending, pending_total, commits}`；`files` 是 base..head 的已提交改动，`pending` 是相对 HEAD 的未提交改动（含未跟踪文件，`code` 为 git porcelain 状态、新增删除行数为 null）。无工作区时返回 `null`。该 RPC 暂无 CLI 命令。
 
+`task.transcript` 是 agent **执行过程**的只读投影。过程数据不在 SQLite：daemon 只把 invocation 的最后一次 stdout 存成 `tasks.result`，而思考、工具调用与工具输出由 pi 写在 `<home>/sessions/*_lush-task-ID.jsonl`。这个 RPC 是那些文件的唯一读取者，不写库、不改工作区、也不进入 Git 串行队列。每条 JSONL 记录投影成 0..n 个 `{seq, kind, title, at, body, file, line}`：`kind` 为 `meta`（模型、思考等级等）、`input`（注入的任务上下文）、`thinking`、`tool`（工具调用，body 是参数 JSON）、`result`（工具输出，失败时 title 带「（失败）」）或 `text`（回答）。单步正文截断到 4000 字符；一次最多返回 200 步且受 RPC 字节预算限制，用返回的 `next` 作为下一页 `after`，`has_more` 表示还有步骤。同一个 task 可能因重试或重启留下多个会话文件，按文件名（时间前缀）从旧到新拼接，`seq` 跨文件连续；半行 JSON（agent 被杀）跳过，未知记录类型降级为 `meta`，都不算错误。单次请求读取的会话字节上限为 8 MiB，超出时 `truncated` 为 true。`files` 列出本次涉及的会话文件名，便于人去磁盘上核对原文。
+
 ## Web 读取路由
 
 Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
@@ -64,6 +67,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
 | `GET /api/task/ID` | `task.inspect` |
 | `GET /api/task/ID/history?after=N` | `task.history` |
 | `GET /api/task/ID/diff` | `task.diff` |
+| `GET /api/task/ID/transcript?after=N` | `task.transcript` |
 | `POST /api/action` | 仅限上方 `MUTATIONS` 中的用户动作 |
 
 ## 待决问题
@@ -99,6 +103,7 @@ CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 t
 - `GET /`、`/app.js`、`/styles.css`：Web 资源。
 - `GET /api/snapshot`：项目状态、任务摘要、输入与 notice。
 - `GET /api/task/<id>`：任务详情。
+- `GET /api/task/<id>/transcript`：agent 执行过程，只读，来自 pi 会话记录。
 - `POST /api/action`：JSON `{method, params}`，只允许用户输入、任务 message/cancel/retry/merge/cleanup 和 notice answer/dismiss。
 
 仅回环监听；拒绝非本地 Host、跨 Origin、跨站请求和非 JSON 修改请求。不能将它作为公网多用户服务暴露。

@@ -22,11 +22,12 @@ export function startWeb(config, port = 4318) {
       try {
         if (request.method === 'GET') {
           if (url.pathname === '/api/snapshot') return json(await client.snapshot());
-          const read = /^\/api\/task\/(\d+)(\/(history|diff))?$/.exec(url.pathname);
+          const read = /^\/api\/task\/(\d+)(\/(history|diff|transcript))?$/.exec(url.pathname);
           if (read) {
             const taskId = Number(read[1]);
             if (read[3] === 'history') return json(await client.request('task.history', { id: taskId, after: Number(url.searchParams.get('after') ?? 0) }));
             if (read[3] === 'diff') return json(await client.request('task.diff', { id: taskId }));
+            if (read[3] === 'transcript') return json(await client.request('task.transcript', { id: taskId, after: Number(url.searchParams.get('after') ?? 0) }));
             return json(await client.request('task.inspect', { id: taskId }));
           }
           if (url.pathname === '/favicon.ico') return new Response(null, { status: 204, headers });

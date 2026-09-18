@@ -23,6 +23,7 @@ lush [--project PATH] [--json] <command>
   task tree [ID]                  多级任务树
   task inspect ID                 结果、agent、子任务、消息与工作区
   task history ID [--after N]      分页事件记录
+  task transcript ID [--after N]   只读查看 agent 的思考、工具调用与工具输出（来自 pi 会话记录）
   task spawn '目标' [--parent ID] [--role worker|coordinator|research] [--depends-on ID[:code|order]]
   task message ID '补充说明'       追加输入，不打断当前 invocation
   task cancel|retry ID            取消子树 / 明确重试失败任务
@@ -57,6 +58,12 @@ function print(value, json) {
     const flow = Object.hasOwn(row, 'flow') && row.flow ? `\t${row.flow}` : '';
     console.log(`${row.id ?? '-'}\t${row.status || row.role || ''}${flow}\t${(row.goal || row.content || row.title || JSON.stringify(row)).replaceAll('\n',' ').slice(0, 180)}`);
   }
+}
+function printTranscript(page) {
+  if (!page.steps.length) { console.log(page.files.length ? '(会话记录里没有可显示的步骤)' : '(这个任务还没有 pi 会话记录)'); return; }
+  for (const step of page.steps) console.log(`[${step.seq}] ${step.kind}\t${step.title}${step.at ? `\t${step.at}` : ''}\n${step.body}\n`);
+  if (page.has_more) console.error(`… 还有更多步骤；用 --after ${page.next} 继续`);
+  if (page.truncated) console.error('… 会话记录过大，只读取了前面一部分');
 }
 export async function main(argv = process.argv.slice(2)) {
   const args = [...argv];
@@ -121,6 +128,10 @@ export async function main(argv = process.argv.slice(2)) {
       }
       exact(args, 1);
       value = await client.request('task.spawn', { parent: id(parent), role, goal: args[0], deps });
+    } else if (verb === 'transcript') {
+      const after = Number(option(args, '--after', '0')); exact(args, 1);
+      value = await client.request('task.transcript', { id: id(args[0]), after });
+      if (!json) { printTranscript(value); return; }
     } else if (verb === 'message') { exact(args, 2); value = await client.request('task.message', { id: id(args[0]), body: args[1] }); }
     else if (verb === 'history') {
       const after = Number(option(args, '--after', '0')); exact(args, 1);

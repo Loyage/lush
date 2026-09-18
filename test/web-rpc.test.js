@@ -1,5 +1,6 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
+import path from 'node:path';
 import http from 'node:http';
 import { fixture } from './helpers.js';
 import { RPCServer } from '../src/rpc/server.js';
@@ -110,6 +111,36 @@ test('web surfaces the input flow badge and lets the user reclassify an input', 
     // 非法取值与非根 task 都在 Web 层报错
     expect((await post('input.flow',{id:1,flow:'maybe'})).status).toBe(400);
     expect((await post('input.flow',{id:99,flow:'develop'})).status).toBe(400);
+  } finally { await f.close(); }
+});
+
+test('web exposes the read-only agent transcript and keeps sessions out of the read models', async () => {
+  const f = await setup();
+  try {
+    const task = f.project.submit('transcript me').task;
+    f.project.stopping = true;   // 只造数据，不让 planner 真的跑
+    const dir = path.join(f.config.home, 'sessions');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `2026-01-01T00-00-00-000Z_lush-task-${task.id}.jsonl`);
+    fs.writeFileSync(file, [
+      JSON.stringify({ type: 'message', timestamp: 1789749049638, message: { role: 'assistant', content: [
+        { type: 'thinking', thinking: '先看看代码' },
+        { type: 'toolCall', name: 'bash', arguments: { command: 'ls' } }] } }),
+      JSON.stringify({ type: 'message', timestamp: 1789749049639, message: { role: 'toolResult', toolName: 'bash', isError: false, content: [{ type: 'text', text: 'src\nREADME.md' }] } }),
+    ].join('\n') + '\n');
+    const before = fs.readFileSync(file, 'utf8');
+    const page = await (await fetch(`${f.url}/api/task/${task.id}/transcript`)).json();
+    expect(page.steps.map(step => [step.kind, step.title])).toEqual([['thinking', '思考'], ['tool', 'bash'], ['result', 'bash']]);
+    expect(page.steps[0].body).toBe('先看看代码');
+    expect(page.has_more).toBe(false);
+    expect(fs.readFileSync(file, 'utf8')).toBe(before);
+    // 越界游标、未知任务、超限 limit 都是 400，不当成服务器错误
+    expect((await fetch(`${f.url}/api/task/${task.id}/transcript?after=-1`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/task/99/transcript`)).status).toBe(400);
+    // 过程不进快照/列表，只有 transcript 路由才读会话文件
+    const snapshot = await (await fetch(f.url + '/api/snapshot')).json();
+    expect(JSON.stringify(snapshot)).not.toContain('先看看代码');
+    expect(snapshot.tasks[0].result).toBeUndefined();
   } finally { await f.close(); }
 });
 

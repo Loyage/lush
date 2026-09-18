@@ -28,6 +28,7 @@
     "tasks": "bun ./scripts/ops.js tasks",
     "tree": "bun ./scripts/ops.js tree",
     "inspect": "bun ./scripts/ops.js inspect",
+    "transcript": "bun ./scripts/ops.js transcript",
     "message": "bun ./scripts/ops.js message",
     "cancel": "bun ./scripts/ops.js cancel",
     "retry": "bun ./scripts/ops.js retry",

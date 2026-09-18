@@ -102,6 +102,19 @@ button.danger:hover{background:#2a1b19}
 .timeline li.e-notice-opened::before,.timeline li.e-awaiting::before{background:var(--awaiting)}
 .msg{border-left:2px solid var(--line);padding:2px 0 2px 10px;margin:8px 0}
 .msg small{font-size:11px}
+
+/* agent 执行过程（只读 transcript） */
+.transcript{min-width:0}
+.steps{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-left:1px solid var(--line);max-height:60vh;overflow:auto}
+.steps li{padding:6px 0 8px 10px;border-bottom:1px solid var(--line-soft);min-width:0}
+.steps li:last-child{border-bottom:0}
+.step-head{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--muted);min-width:0}
+.step-kind{border:1px solid currentColor;border-radius:99px;padding:0 7px;font-size:10.5px;white-space:nowrap;flex:none}
+.step-title{color:var(--text);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.step-body{margin-top:4px;font-size:12px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere;max-height:16em;overflow:auto;background:#0b120e;border:1px solid var(--line-soft);border-radius:8px;padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.k-input{color:var(--queued)}.k-text{color:var(--completed)}.k-tool{color:var(--accent)}
+.k-result{color:var(--muted)}.k-thinking{color:var(--dim)}.k-meta{color:var(--dim)}
+.s-thinking .step-body,.s-meta .step-body{font-style:italic}
 .difflist{list-style:none;margin:6px 0 0;padding:0;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .difflist li{display:flex;gap:8px;padding:3px 0;border-bottom:1px solid var(--line-soft);min-width:0}
 .difflist .path{overflow-wrap:anywhere;flex:1}

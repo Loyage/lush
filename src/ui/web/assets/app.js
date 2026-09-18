@@ -240,6 +240,49 @@ function renderDiff(diff) {
   return section;
 }
 const edgeLabel = edge => `#${edge.id}（${edge.kind === 'code' ? '代码基线' : '仅顺序'} · ${statusOf(edge).label}）`;
+
+/* ---------- agent 执行过程：只读投影 pi 会话记录 ---------- */
+const STEP = { input: '输入', text: '回答', thinking: '思考', tool: '工具调用', result: '工具输出', meta: '运行时' };
+const transcriptOpen = new Set();    // 用户展开过「执行过程」的任务
+const transcriptCache = new Map();   // taskId -> 已加载的步骤窗口
+
+function transcriptContent(taskId) {
+  const state = transcriptCache.get(taskId);
+  if (!state) return [el('p', '正在读取会话记录…', 'hint')];
+  const meta = el('p', state.steps.length
+    ? `${state.steps.length} 步 \u00b7 来自 pi 会话记录：${state.files.join('\u3001')}`
+    : (state.files.length ? '会话记录里还没有可显示的步骤。' : '这个任务还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。'), 'hint');
+  if (!state.steps.length) return [meta];
+  const list = el('ol', undefined, 'steps');
+  for (const step of state.steps) {
+    const item = el('li', undefined, `step s-${step.kind}`);
+    const head = el('div', undefined, 'step-head');
+    head.append(el('span', STEP[step.kind] || step.kind, `step-kind k-${step.kind}`), el('span', step.title, 'step-title'));
+    if (step.at) head.append(el('span', relative(step.at), 'when'));
+    item.append(head);
+    if (step.body) item.append(el('div', step.body, 'step-body'));
+    list.append(item);
+  }
+  const actions = el('div', undefined, 'actions');
+  if (state.has_more) actions.append(button(`加载更多（已有 ${state.steps.length} 步）`, async () => {
+    const page = await api(`/api/task/${taskId}/transcript?after=${state.next}`);
+    state.steps.push(...page.steps); state.next = page.next; state.has_more = page.has_more;
+    paintTranscript(taskId);
+  }, 'ghost'));
+  actions.append(button('重新加载', async () => { await loadTranscript(taskId); await detail(taskId); }, 'ghost'));
+  return [meta, list, actions, state.truncated ? el('p', '会话记录过大，只读取了前面一部分。', 'hint') : null].filter(Boolean);
+}
+/** 只替换执行过程区块，避免为了追加一页步骤重建整个详情面板。 */
+function paintTranscript(taskId) {
+  if (selected !== taskId) return;
+  const holder = $('detail').querySelector('.transcript');
+  if (holder) holder.replaceChildren(...transcriptContent(taskId));
+}
+async function loadTranscript(taskId) {
+  const page = await api(`/api/task/${taskId}/transcript?after=0`);
+  transcriptCache.set(taskId, { steps: page.steps, files: page.files, next: page.next, has_more: page.has_more, truncated: page.truncated });
+  paintTranscript(taskId);
+}
 function renderDeps(task) {
   const section = block('任务依赖');
   section.append(el('p', task.deps?.length ? `本任务等这些结算：${task.deps.map(edgeLabel).join('、')}` : '本任务不依赖其他任务。', 'hint'));
@@ -320,6 +363,25 @@ function renderDetail(task, history, diff) {
       messages.append(item);
     }
     panel.append(messages);
+  }
+  if (task.calls) {
+    const process = block('执行过程');
+    const holder = el('div', undefined, 'transcript');
+    const cached = transcriptCache.get(task.id);
+    if (cached) holder.replaceChildren(...transcriptContent(task.id));
+    else if (transcriptOpen.has(task.id)) holder.append(el('p', '正在读取会话记录…', 'hint'));
+    else {
+      holder.append(el('p', 'agent 的思考、工具调用与工具输出保存在 pi 会话记录里，默认不展开。', 'hint'));
+      const actions = el('div', undefined, 'actions');
+      actions.append(button('查看执行过程', async () => {
+        transcriptOpen.add(task.id);
+        try { await loadTranscript(task.id); } catch (error) { transcriptOpen.delete(task.id); throw error; }
+        if (selected === task.id) await detail(task.id);
+      }, 'ghost'));
+      holder.append(actions);
+    }
+    process.append(holder);
+    panel.append(process);
   }
   if (history?.events?.length) {
     const events = block('事件时间线', String(history.events.length));

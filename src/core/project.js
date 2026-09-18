@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { check, id, text, TERMINAL, bounded, isPlainObject, LushError } from './types.js';
 import { Workspaces } from './workspaces.js';
+import { readTranscript } from './transcript.js';
 import { PiProvider, MockProvider } from '../agent/provider.js';
 
 const DEP_KINDS = new Set(['code', 'order']);
@@ -173,6 +174,11 @@ export class Project {
       agent: agentView(task, this.running.get(task.id) ?? null) };
   }
   diff(taskId) { return this.workspaces.diff(this.store.task(taskId)); }
+  /** Read-only agent process log from pi's session files; never touches the database. */
+  transcript(taskId, after = 0, limit = 100) {
+    this.store.task(taskId);
+    return readTranscript(this.config, taskId, after, limit);
+  }
   tree(taskId = null) {
     const tasks = this.decorate(this.store.summaries());
     const rows = new Map(tasks.map(task => [task.id, { ...task, children: [] }]));

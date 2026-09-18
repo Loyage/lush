@@ -120,6 +120,7 @@ bun run intents
 bun run tasks               # 默认前 200 条，可加 --after ID --limit N
 bun run tree
 bun run inspect 3
+bun run transcript 3        # 只看不写：agent 的思考、工具调用与输出
 bun run message 3 '补充要求'
 bun run notices
 bun run answer 1 '我的选择'
@@ -142,7 +143,7 @@ bun run stop
 ```text
 project.json       不可跨目录复用的项目绑定
 project.db         SQLite：inputs / tasks / messages / notices / events
-sessions/          每个 task 的独立 pi session 与当前输入文件
+sessions/          每个 task 的独立 pi session 与当前输入文件（thinking / 工具调用的原文）
 worktrees/         worker 工作区
 daemon.lock        项目 daemon 单实例锁
 daemon.log         daemon 日志
@@ -170,6 +171,8 @@ pi 默认禁用个人 extensions / skills / prompt templates / themes，保留�
 | `LUSH_MAX_DEPTH` | `8` | 任务树最大层数 |
 | `LUSH_PI_COMMAND` | `pi` | pi 可执行文件 |
 | `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL` | pi 默认 | 模型选择 |
+
+`tasks.result` 只保存 invocation 的最后一次输出；完整的执行过程（思考、工具调用、工具输出）留在 `.lush/sessions/*.jsonl`，用 `lush task transcript ID`（Web 详情里的「执行过程」）只读查看。截图、过程与结论分开：审阅合并时看 result 与 `task diff`，需要追究 agent 怎么做的时候看 transcript。
 
 ## 验证与文档
 
