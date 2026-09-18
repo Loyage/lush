@@ -23,7 +23,7 @@ const TOOL_HOWTO = `你可以通过 process_* 工具操作 Lush：
 - process_complete：完成自己（仅 Task，Service 不能 complete）。
 不要通过 shell 调用 lush CLI 来代替这些工具。`;
 
-const CLI_HOWTO = `你通过 bash 工具执行 \`lush\` 命令来操作 Lush。CLI 是 daemon 的客户端，命令分三层：顶层 → 命令组（daemon / process / agent）→ 具体命令 → 参数。
+const CLI_HOWTO = `你通过 bash 工具执行 \`lush\` 命令来操作 Lush。CLI 是 daemon 的客户端，命令分三层：顶层 → 命令组（daemon / process / agent）→ 具体命令 → 参数；例外是 \`lush agent ...\`，它只读写本地的 agent profile 文件（$LUSH_HOME/agents/*.json），daemon 未运行也能用。
 
 不要凭记忆猜命令、参数或状态机，让 CLI 自己回答，用到哪一层就先读哪一层的 help：
 - \`lush help\`：顶层覆盖范围、命令组一览、全局选项。
@@ -32,9 +32,10 @@ const CLI_HOWTO = `你通过 bash 工具执行 \`lush\` 命令来操作 Lush。C
 help 与解析器读同一张声明，不会与实际行为脱节；每层都给出「覆盖范围 / 用法 / 位置参数 / 子命令 / 选项 / 说明」，报错信息也会提示该读哪一层。操作 Lush 前先花一次调用读顶层与相关层的 help，比事后试错便宜。
 
 命令组速览（只用于定位，具体用法一律以 help 为准）：
-- \`daemon ...\`：daemon 自身的启停与状态。daemon 未运行时，除 \`lush daemon start\` 外的命令都会连接失败（退出码 1）。
+- \`daemon ...\`：daemon 自身的启停与状态。daemon 未运行时，除 \`lush daemon start\` 与 \`lush agent ...\` 外的命令都会连接失败（退出码 1）。
 - \`process ...\`：查看进程（list / tree / inspect / history，\`tree\` 默认在活跃进程下多一行 agent 活跃度、并在进程名后列出变量当前值）、创建与调用（spawn / call / attach）、运行期 agent（\`process agents list|show|kill\`）、该进程 agent 的持久 session（\`process session\`）、改状态（update-state / update-vars / complete）与生命周期（start / stop / kill / reclaim，以及不可逆的硬删除 delete / purge——会连 Context、消息、调用与事件一起删掉，只在被明确要求时用）、孤儿池（\`process orphans [--sweep]\`：查看 PID 0 收养的孤儿，或立刻按 TTL / 上限回收一次；回收是冻结不是删除，被回收的孤儿仍可 inspect）。
-agent 属于它所在的进程：运行期身份是 agents 空间的 \`PID.N\`（没有自己的 pid），持久身份是那一次调用（call_id）与磁盘上的 session，没有独立的 agent 命令组。
+- \`agent ...\`：agent **配置**（profile），不是运行期 agent：每个 profile 一套 provider / 命令 / 模型 / 插件开关，存在 \`$LUSH_HOME/agents/<name>.json\`；\`list\` / \`inspect\` 看，\`add\` / \`edit\` / \`delete\` 增删改，\`path\` 给出目录。内置 \`default\`（provider pi + 不加载 extensions / skills / prompt templates / themes / AGENTS.md）永远可用、不可删；这一组只读写 profile 文件，daemon 未运行也能用，且 daemon 在每次 call 时按 profile 起后端（改完无需重启 daemon）。
+运行期 agent 与进程的持久会话仍属于进程：运行期身份是 agents 空间的 \`PID.N\`（没有自己的 pid），持久身份是那一次调用（call_id）与磁盘上的 session（用 \`lush process session\` 查看）。\`process spawn --agent <profile>\` 或模板的可选 \`agent\` 字段指定一个进程用哪个 profile，优先级高于环境变量（LUSH_PROVIDER / LUSH_PI_COMMAND / LUSH_PI_PROVIDER / LUSH_PI_MODEL）与内置 default；\`lush process inspect PID\` 的 \`agent.profile\` 就是它选中的名字。
 
 调用约定：
 - 环境变量 LUSH_HOME 指向数据目录、LUSH_PID 是当前 PID。默认输出是给人读的文本（对齐的 key/value、分块的 message、一行式状态），不要拿文本做解析；\`--json\` 是全局标志（可放在命令之前或末尾，如 \`lush --json process list\`），要解析输出或要结构化命令树（\`lush help --json process\`）时加上。

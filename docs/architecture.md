@@ -22,11 +22,11 @@ lush CLI -- JSON-RPC / Unix socket --> lushd
 
 - `core/`：实体类型、生命周期、Process 句柄、统一业务 API、父子关系及孤儿收养。`core/orphans.js` 是 PID 0 的孤儿监督：孤儿池读模型、策略校验（`normalizeOrphanPolicy`）、上限 / TTL / busy 判定与一轮监督（`OrphanSupervisor`）；它只决定该冻结谁，真正的状态变更仍走 `ProcessManager`（冻结而非删除）。没有 socket / CLI / HTTP 知识。
 - `persistence/`：`bun:sqlite` schema、事务、记录查询与恢复。数据库是事实来源，不缓存进程树。
-- `template_loader.js` + `templates/`：仓库顶层 `templates/` 存放 JSON ProcessTemplate（name、type、singleton、description、spawn_prompt、system_prompt、child_templates、variables 八个必填字段），loader 读取并校验；创建时保存完整快照，模板文件后续变更不影响既有 Process（`singleton`、`type` 按当前加载的模板判定）。
+- `template_loader.js` + `templates/`：仓库顶层 `templates/` 存放 JSON ProcessTemplate（name、type、singleton、description、spawn_prompt、system_prompt、child_templates、variables 八个必填字段，另有一个可选字段 agent），loader 读取并校验；创建时保存完整快照，模板文件后续变更不影响既有 Process（`singleton`、`type` 按当前加载的模板判定）。可选的 `agent` 声明该模板新建实例使用的 agent profile，`spawn --agent` 优先于它。
 - `context/`：独立持久化 Context，以及 ContextBuilder。只读当前 Process 的对话、结构化 state、引用和直接亲属摘要，不注入全系统状态。
-- `agent/`：Agent 后端，以及受限轮数的调用循环。默认后端是 `pi`：每次 call 起一个 `pi --print` 子进程，每个 PID 一个 pi session，pi 自己跑工具循环并通过 bash 调用 `lush` CLI 操作进程；`mock` / `openai` 是 Lush 内置运行时，agent 直接拿 `process_*` 工具。`guide.js` 是两种形态共用的 Lush 说明层（介绍 Lush 与如何操作它），`ContextBuilder` 按后端选择 tools / cli 版本。共享的快照字段（`singleton`、`type`）由当前模板决定，`child_templates` 白名单、variables 声明（哪些必填、哪些创建后仍可改）与 `path` 的工作目录校验由 Core 强制执行，后端不参与授权。
+- `agent/`：Agent 后端，以及受限轮数的调用循环。默认后端是 `pi`：每次 call 起一个 `pi --print` 子进程，每个 PID 一个 pi session，pi 自己跑工具循环并通过 bash 调用 `lush` CLI 操作进程；`mock` / `openai` 是 Lush 内置运行时，agent 直接拿 `process_*` 工具。`profiles.js` 是 agent profile 的存储与逐字段解析（一个 agent 一个 `$LUSH_HOME/agents/<name>.json`，内置 default 为「纯净 pi」：不加载使用者的 extensions / skills / prompt templates / themes / AGENTS.md），`catalog.js` 把「进程选中了哪个 profile」在 call 时解析成 provider（缓存按解析后的字段做键，改文件即改行为，不用重启 daemon）。`guide.js` 是两种形态共用的 Lush 说明层（介绍 Lush 与如何操作它），`ContextBuilder` 按**该进程实际使用的后端**选择 tools / cli 版本。共享的快照字段（`singleton`、`type`）由当前模板决定，`child_templates` 白名单、variables 声明（哪些必填、哪些创建后仍可改）与 `path` 的工作目录校验由 Core 强制执行，后端不参与授权。
 - `rpc/`：newline-delimited JSON-RPC；参数和错误映射，不复制业务逻辑。
-- `daemon/`：装配、单实例锁、socket 生命周期、信号和中断恢复；按 `config.orphanPolicy` 决定是否起孤儿监督定时器（`sweepSeconds` 秒，unref，关闭时先清掉再关数据库）。
+- `daemon/`：装配、单实例锁、socket 生命周期、信号和中断恢复；启动时建一个 `AgentCatalog`（默认 provider = 环境变量叠加内置 default profile），并把它绑给 `ProcessManager`（spawn 时校验 `--agent` / 模板 `agent`）与 `AgentRuntime`（call 时解析该 PID 的 profile）；按 `config.orphanPolicy` 决定是否起孤儿监督定时器（`sweepSeconds` 秒，unref，关闭时先清掉再关数据库）。
 - `socket_io.js`：Bun socket 写入是有界的（单次 write 只接受有限字节），统一封装「写满队列 + drain 续写」，RPC 两端共用。
 - `cli/`：命令树声明（每一层自带 help）、参数解析、RPC 客户端、输出格式、交互 attach、daemon 启动客户端。
 

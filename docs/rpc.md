@@ -38,17 +38,17 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 | process.agents_show | id | 单个 agent + 它服务的进程的 session + 对应的持久 call 行 |
 | process.agents_kill | id | 结束该 agent 的这次调用（interrupted），返回该 agent 的视图与 killed 标记；逻辑进程状态不变 |
 | process.call_os_pid | pid, call_id, os_pid | 终端上报 `call --interactive` 起在自己终端里的 pi 进程：recorded=true 表示已挂到该 agent 上 |
-| process.inspect | pid | metadata、Context metadata、Agent 状态、近期调用；metadata 含 variables（值 + 声明） |
+| process.inspect | pid | metadata（含 variables 值与声明、`agent_profile`）、Context metadata、Agent 状态（status / provider / profile（选中的 agent profile 名，缺省为 default））、近期调用 |
 | process.parent | pid | parent metadata 或 null |
 | process.children | pid | children metadata 数组 |
 | process.view | pid, sections? | 只含被请求 section 的视图：parent、children、call_prompt |
 | process.orphans | {} | PID 0 孤儿池的读模型（不落库、不改状态）：`policy`（adopt / limit / ttl_seconds / sweep_seconds）、`active_count`、`busy_count`、`over_limit`（limit>0 时 max(0, active_count-limit)，否则 0）、`orphans[]`（pid、name、type、status、template、original_parent_pid、created_at、updated_at、last_activity_at、idle_seconds、busy；含已被冻结的终态行） |
 | process.orphan_sweep | {} | 立刻执行一轮孤儿监督并返回报告：`trigger`（manual / timer / adoption）、`skipped`（重入时 true）、`checked`（本轮读到的孤儿行数，含已冻结的）、`active_before` / `active_after`、`evicted[]`（pid、name、type、from、to、reason、idle_seconds；reason 为 orphan_ttl / orphan_limit）、`deferred[]`（pid、reason=busy）、`limit`、`ttl_seconds`；两个方法都不接受参数，未知字段报 -32602 |
-| process.spawn | parent_pid, template, name?, goal?, variables? | 新 Process metadata；variables 按模板声明校验后按区间存入 state（immutable → state.params，mutable → state.vars），未声明、缺失必填或非法 `path` 报 -32602 |
+| process.spawn | parent_pid, template, name?, goal?, variables?, agent? | 新 Process metadata；variables 按模板声明校验后按区间存入 state（immutable → state.params，mutable → state.vars），未声明、缺失必填或非法 `path` 报 -32602；agent 为该进程选用的 agent profile 名（见 `lush agent`），需存在且合法，否则报 -32004 / -32602，选中后写入 state.agent（`process.inspect` 的 `agent.profile`）；缺省时用模板的可选 `agent` 字段，再否则用内置 default |
 | process.call | pid, prompt, dry_run? | pid, call_id, output；dry_run=true 时不调用 agent，返回将执行的命令预览 |
 | process.call_begin | pid, prompt | 打开一次由调用方终端自己跑的调用：pid, call_id, agent, prompt, argv/command, cwd, env, path_prefix；写 user message 并标记 busy |
 | process.call_end | pid, call_id, status, output?, error? | 结算 call_begin 打开的调用：pid, call_id, settled, status；status 只接受 succeeded / failed |
-| process.session | pid | 该进程 agent 的 session：session_dir、session_id、files、file、argv/command（--open 用）、browse_command、cwd、env、busy；内置运行时全为 null。列表形式见 process.tree 的 agents |
+| process.session | pid | 该进程 agent 的 session：session_dir、session_id、files、file、argv/command（--open 用）、browse_command、cwd、env、busy，以及 `profile`（该进程选中的 agent profile）；内置运行时全为 null（argv 已经带上了该 profile 的插件开关）。列表形式见 process.tree 的 agents |
 | process.start/stop/kill/reclaim | pid | 更新后的 metadata |
 | process.delete | pid, recursive? | 硬删除已结束的进程：`pid, status, deleted, terminated, rows`；running/created 报 -32010，有子进程且未 recursive 报 -32010，PID 0 报 -32010 |
 | process.purge | pid, recursive? | 同 delete，但先停止/取消再删（并中断进行中的调用）；`terminated` 列出被终止的 PID |
@@ -57,7 +57,19 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 | process.complete | pid, result? | 更新后的 metadata |
 | process.history | pid, after=0, limit=100 | 按 id 升序 messages、next_after |
 
-inspect 的 Context 包含 system_prompt、state、artifacts、references、message_count（变量就在 state 的两个区间里）；调用和事件各取最近 20 条，避免无界响应。完整消息使用 history 分页读取。元数据含 template 的完整创建时快照，以及由快照与 state 拼出的 `variables`：`immutable` / `mutable`（当前值）与 `declarations`（两个区间各自的 `description` / `required` / `default`）。
+inspect 的 Context 包含 system_prompt、state、artifacts、references、message_count（变量就在 state 的两个区间里，`state.agent` 是创建时选中的 agent profile 名，`update_state` 不能写它）；调用和事件各取最近 20 条，避免无界响应。完整消息使用 history 分页读取。元数据含 template 的完整创建时快照，以及由快照与 state 拼出的 `variables`：`immutable` / `mutable`（当前值）与 `declarations`（两个区间各自的 `description` / `required` / `default`）。
+
+## agent profile（不走 RPC）
+
+`lush agent list|inspect|add|edit|delete|default|path` 只读写 `$LUSH_HOME/agents/<name>.json`，**不经过 socket**，daemon 未运行时也能用（与 `lush daemon` 一样是纯客户端命令）。因此它没有对应的 RPC 方法。daemon 侧在每次 call / dry-run / session 时按进程的 `state.agent` 读盘解析（见 `src/agent/catalog.js`），所以改 profile 不需要重启 daemon。
+
+一次 call 的 agent 由三层决定，逐字段叠加：
+
+1. 进程显式选择（`process.spawn` 的 `agent` / 模板的可选 `agent` 字段，写入 state）；
+2. 环境变量 `LUSH_PROVIDER` / `LUSH_PI_COMMAND` / `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL`；
+3. 内置 `default`（provider pi + `--no-extensions --no-skills --no-prompt-templates --no-themes --no-context-files`）。
+
+进程选中的 profile 声明了哪个字段，哪个字段就优先于环境变量；未声明的字段照旧回落到环境变量与内置 fallback。内置运行时的 provider（mock / openai）没有 argv 预览。
 
 孤儿监督（RPC `process.orphans` / `process.orphan_sweep`，读模型与策略细节见 process-model.md 的「PID 0 的孤儿监督」）的策略来自 daemon 启动时的环境变量，改配置要重启 daemon；默认 `adopt` + 不限 + 不超时，此时 `orphan_sweep` 什么也不会冻结。回收是冻结而非删除（Service → stopped、Task → cancelled，记录全留）；有 agent 调用在跑的孤儿（`busy`）永不被冻结，只在报告的 `deferred` 里出现。被监督冻结的进程，其 `transition` 事件 data 仍为 `{ from, to }`，额外带 `cause`：`orphan_ttl`（闲置超时）或 `orphan_limit`（超上限）；`adopt: terminate` 模式下被父节点连带的子节点 `cause` 是 `parent_terminated`。事件随进程一起用 inspect 读取。
 
@@ -149,5 +161,7 @@ agent 有两个互不相同的视图，都不落库也不共用 pid 空间：
 attach 是持续 RPC 对话，不是独占接管锁，也不是历史终态的只读模型对话。进入前验证 running；`/exit`、`/quit`、EOF 退出。不改变 Process 状态。Ctrl-C 退出客户端，不保证取消 daemon 中的调用；需要 `lush process stop|kill` 明确中断。
 
 daemon start 后台用 `process.execPath` 启动 `src/daemon/main.js`（detached，日志 `$LUSH_HOME/daemon.log`）并等待 RPC ready。已启动时幂等。daemon stop 发 system.shutdown 并等待锁释放。根进程不能用 `lush process stop 0` 停止。启动参数来自环境：LUSH_HOME、LUSH_PROVIDER=pi|mock|openai（默认 pi）、LUSH_PI_COMMAND、LUSH_PI_PROVIDER、LUSH_PI_MODEL、LUSH_API_KEY、LUSH_BASE_URL、LUSH_MODEL、LUSH_CALL_TIMEOUT（默认 900 秒）、LUSH_MAX_ROUNDS（默认 12，仅内置运行时）、LUSH_ORPHAN_ADOPT / LUSH_ORPHAN_LIMIT / LUSH_ORPHAN_TTL / LUSH_ORPHAN_SWEEP（PID 0 的孤儿监督策略，默认 adopt / 0 / 0 / 30，非法值启动即报错）。客户端超时为调用超时 + 10 秒，可用 LUSH_RPC_TIMEOUT 覆盖。
+
+默认的 pi 是「纯净化」的：daemon 启动时把内置 `default` profile 解析成 fallback provider（pi + `--no-extensions --no-skills --no-prompt-templates --no-themes --no-context-files`），所以 pi 不加载使用者的 extensions / skills / prompt templates / themes / AGENTS.md；`$LUSH_HOME/agents/default.json` 可逐字段覆盖它。所有 `$LUSH_HOME/agents/<name>.json` 都在**每次 call 时**读盘（不需要重启 daemon），只有 provider 是 `pi` 之外的后端或 `agent` 解析出错时才会以 -32602 / -32004 失败。环境变量与 profile 的优先级见上一节。
 
 实现细节：Bun socket 单次 `write()` 只能接受有限字节，RPC 两端都用 `socket_io.js` 的写队列处理部分写与 drain；`system.shutdown` 的回复在拆连接之前写出，然后才唤醒 daemon 拆除流程。

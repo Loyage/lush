@@ -51,7 +51,9 @@ just verify          # test + demo
 just daemon-start    # 起 daemon（幂等）
 just bootstrap       # 起 daemon 并创建 project-manager → implement-login
 just tree | just ps | just status
+just agent list      # agent profile（不需要 daemon）：just agent inspect default / add / edit / delete / default / path
 just spawn 0 generic-task implement-login '实现登录功能'
+just spawn 0 generic-task x '' '' demo-agent   # 第 5 个参数是该进程使用的 agent profile
 just spawn 0 project my-repo '' '{"path":"/abs/repo"}'   # project 必须给变量 path（绝对路径，同时是 cwd）
 just call 2 '请介绍一下你自己'
 just call 2 'hi' dry   # 只打印将执行的命令（pi 命令行），不真的调用 agent
@@ -74,9 +76,11 @@ just clean           # 停 daemon 并删除仓库内的 .lush
 
 **改代码或提示词之后，先确认你重启的是哪个 daemon。** daemon 是常驻进程：`src/agent/guide.js`、`src/cli/tree/`（CLI 声明树）与 `templates/*.json` 都在它启动时读入内存，所以 `just daemon-restart` 只重启 `LUSH_HOME`（默认仓库 `.lush/`）那一份。若你另外在 shell 里直接跑 `lush`（没有 `export LUSH_HOME`，走默认 `~/.local/state/lush`），命令打到的是另一个 daemon，重启那份不会有任何效果。`lush daemon status` / `just doctor` 会列出 daemon 自己的 `home`、`code_dir`、`fingerprint`、`started_at` 与 CLI 侧对应字段（`cli.code_match` 表示两边是否同一份代码）；不一致时，任何 `lush` 命令都会在 stderr 上告警并给出该重启哪一份。
 
-## Agent：默认 pi
+## Agent：默认「纯净 pi」
 
-`call` 默认交给 **`pi`** 执行（`LUSH_PROVIDER=pi`）：每次 call 起一个 `pi --print` 子进程，**每个 PID 一个 pi session**（`$LUSH_HOME/pi-sessions/`，`--session-id lush-<PID>`），多轮上下文由 pi 自己持久化。Lush 给 pi 的输入是三层提示词：
+`call` 默认交给 **`pi`** 执行（`LUSH_PROVIDER=pi`）。**行为变更**：Lush 现在给 pi 加上一组纯净化开关，pi 只带自己的 read / bash / edit / write 工具，**不再加载你本机的 pi extensions / skills / prompt templates / themes 与 `AGENTS.md` context 文件**（等价于 `--no-extensions --no-skills --no-prompt-templates --no-themes --no-context-files`）。要让某个 agent（或全局默认）恢复 pi 原本的加载行为，用 `lush agent add/edit … --plugins`，见下面的「agent profile」。
+
+每次 call 起一个 `pi --print` 子进程，**每个 PID 一个 pi session**（`$LUSH_HOME/pi-sessions/`，`--session-id lush-<PID>`），多轮上下文由 pi 自己持久化。Lush 给 pi 的输入是三层提示词：
 
 1. 模板的 `system_prompt`（用 `--system-prompt` **替换** pi 默认的 coding 提示词）；
 2. 共享的 Lush 说明层（`src/agent/guide.js`）：介绍 Lush 是什么、如何用 `lush` CLI 操作进程，所有 agent 后端都会带上；
@@ -95,6 +99,44 @@ lush process call 1 '看看这个仓库，列出待办并开工'
 ```
 
 取消（`kill` / `stop` / 超时 / daemon 退出）会杀掉对应的 pi 子进程；pi 的 session 文件保留在 `$LUSH_HOME/pi-sessions/` 供审计，Lush 自身只记录 prompt 与最终文本。
+
+### agent profile：一个进程用哪个 agent、这个 agent 长什么样
+
+**agent profile** 把「用哪个 agent」变成可配置的一等概念。每个 profile 是一个文件 `$LUSH_HOME/agents/<name>.json`（**文件名就是 agent 名**，没有 `name` 字段，可手写），由 `lush agent` 命令组读写：
+
+```bash
+lush agent list                 # NAME PROVIDER COMMAND MODEL PLUGINS DEFAULT SOURCE PATH
+lush agent inspect default      # 完整配置 + 定义来源 + 校验 + 真正会跑的 argv 预览
+lush agent add analyst --model gpt-5 --flag --verbose   # 新 profile，默认就是纯净 pi
+lush agent add legacy --plugins # 这个 profile 保留 pi 自己的插件默认行为
+lush agent edit analyst --no-plugins                    # 增量修改：未给出的字段不变
+lush agent delete analyst       # default 拒绝删除
+lush agent default analyst      # 把 analyst 的字段复制到 default 的 override
+lush agent path                 # profile 目录（$LUSH_HOME/agents）
+```
+
+**`lush agent` 不经过 daemon**：它只读写 `$LUSH_HOME/agents/*.json`，daemon 没运行时也能用（这是它和 `lush process ...` 的区别）。daemon 在**每次 call 时按名字读盘**，所以改完 profile 不用 `daemon-restart`（`daemon-restart` 仍然要用于改代码 / 提示词 / 模板）。
+
+**选择优先级**（进程 > 环境变量 > 内置 default）：
+
+1. 进程显式选择：`lush process spawn … --agent <name>`，或模板里的可选字段 `agent`（`--agent` 覆盖模板）。选中的名字写进进程 state（`lush process inspect PID` 的 `agent.profile` 与 `context.state.agent` 都能看到），之后这个进程的每次 call、`process session`、`process call --dry-run` 都用它。
+2. 环境变量：`LUSH_PROVIDER` / `LUSH_PI_COMMAND` / `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL`（语义与以前完全一致，`LUSH_PROVIDER=mock` 仍然照常工作）。
+3. 内置 `default`：provider `pi` + 纯净化参数。它永远可用、不可删除，但可以写 `$LUSH_HOME/agents/default.json` 逐字段覆盖（`lush agent edit default …` / `lush agent default <name>`）。
+
+解析是**逐字段叠加**：profile 里声明了的字段优先，没声明的字段回落到环境变量，再回落到内置 fallback。所以一个 profile 只写它要改的字段即可，而 `LUSH_PI_COMMAND` 之类的环境变量对所有 pi profile 仍然生效（例如把 pi 指向 stub 做测试）。
+
+profile 字段（都可省略，未知字段会被拒绝）：
+
+| 字段 | 含义 |
+| --- | --- |
+| `provider` | `pi`（默认，外部子进程）/ `openai` / `mock`（Lush 内置运行时） |
+| `command` | pi 可执行文件；省略时用 `LUSH_PI_COMMAND`，最后回落到 `pi` |
+| `model` / `pi_provider` | 透传 pi `--model` / `--provider` |
+| `plugins` | `false`（默认）= 纯净化：追加五个 `--no-*`；`true` = 不追加任何插件开关 |
+| `flags` | 额外 pi 参数（字符串数组），追加在插件开关之后 |
+| `description` | 备注，只用于 `list` / `inspect` |
+
+pi 的 argv 顺序固定：`pi [--print] <插件开关> <flags> --session-dir … --session-id … --name … --system-prompt … --append-system-prompt … [--provider] [--model] <prompt>`；`lush agent inspect <name>` 会用一个占位 invocation 把它整条打印出来，`lush process call PID 'hi' --dry-run` 打的是真实进程的那条。
 
 ### agent 与 session 是两回事
 
@@ -117,7 +159,7 @@ lush --json process session 2 # 结构化：argv、command、browse_command、en
 lush process session 2 --open # 把这个终端交给该 PID 的 pi session（带 Lush 身份与 LUSH_CONTEXT）
 ```
 
-session 属于它所在的进程：session-id（`lush-<PID>`）与回话文件（`$LUSH_HOME/pi-sessions/<session 开始时间>_lush-<PID>.jsonl`）都按 PID 算，进程进入终态（completed / cancelled / reclaimed）后依然可查；多轮 call 追加到同一个文件（所以正常恒为 1 个，多于 1 只出现在 pi 自己 `--fork` / `/clone` 时）。这也是为什么命令都挂在 `process` 下：没有独立的 `agent` 命令组，`process agents …` 查运行期，`process session …` 查磁盘。
+session 属于它所在的进程：session-id（`lush-<PID>`）与回话文件（`$LUSH_HOME/pi-sessions/<session 开始时间>_lush-<PID>.jsonl`）都按 PID 算，进程进入终态（completed / cancelled / reclaimed）后依然可查；多轮 call 追加到同一个文件（所以正常恒为 1 个，多于 1 只出现在 pi 自己 `--fork` / `/clone` 时）。所以运行期与磁盘都挂在 `process` 下：`process agents …` 查运行期，`process session …` 查磁盘；名字容易混的是 `agent` 命令组——那是**配置**（profile，见上一节），与某个进程此刻的 agent 无关。
 
 ### 删除：把记录真正拿掉
 
@@ -171,9 +213,11 @@ lush daemon start
 
 环境变量由 **daemon 启动时** 读取，切换需重启。API key 不写入数据库。请求走 Bun 的 `fetch`，自动遵循标准代理环境变量（`http_proxy` / `https_proxy` / `all_proxy` / `no_proxy`）；本机 loopback base URL 会把 loopback 主机名补进 `NO_PROXY`，保证本地模型直连。拒绝 HTTP 重定向以避免转发 API key。调用带 `AbortSignal`，取消后不再执行工具或写入结果；daemon 退出时不会等待网络请求自然结束。不自动重试有副作用的 Agent 调用。内置运行时不支持流式输出。Mock 的自然语言识别只是演示规则。
 
+`mock` / `openai` 也可以写进 agent profile（`lush agent add x --provider mock`）：被进程显式选中的 profile 优先于 `LUSH_PROVIDER`，所以同一个 daemon 里可以同时有跑 pi 的进程和跑内置运行时的进程（各自带上匹配的 Lush 说明层：`cli` 或 `tools`）。openai 的 URL / key / model 仍然只来自环境变量。
+
 ## CLI 帮助（每一层都有）
 
-命令树按层组织：顶层 → 命令组（`daemon` / `process`）→ 命令 → 参数。任何一层都能问自己这一层是什么、下面有什么、每个子命令干什么：
+命令树按层组织：顶层 → 命令组（`daemon` / `process` / `agent`）→ 命令 → 参数。任何一层都能问自己这一层是什么、下面有什么、每个子命令干什么：
 
 ```bash
 lush help                      # 顶层：整体覆盖范围 + 命令组
