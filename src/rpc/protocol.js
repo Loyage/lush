@@ -14,12 +14,12 @@ export function parseRequest(raw) {
   return value;
 }
 const PARAMS = {
-  'system.status': [], 'system.stop': [], 'input.submit': ['content'], 'input.list': [], 'input.flow': ['id','flow'],
+  'system.status': [], 'system.stop': [], 'system.timeline': ['limit'], 'input.submit': ['content'], 'input.list': [], 'input.flow': ['id','flow'],
   'draft.add': ['content'], 'draft.list': [], 'draft.remove': ['id'], 'draft.commit': [],
   'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.diff': ['id'],
   'task.transcript': ['id','after','limit'],
   'task.spawn': ['parent','goal','role','deps','name'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
-  'task.merge': ['id'], 'task.cleanup': ['id'], 'task.verify': ['id'], 'task.clear': [],
+  'task.merge': ['id'], 'task.cleanup': ['id'], 'task.verify': ['id'], 'task.clear': [], 'task.ladder': [],
   'notice.list': [], 'notice.post': ['task','title','body'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
 };
 const USER_ONLY = new Set(['system.stop','input.submit','draft.add','draft.remove','draft.commit','task.cancel','task.retry','task.merge','task.cleanup','task.verify','task.clear','notice.answer','notice.dismiss']);
@@ -35,6 +35,7 @@ export class Dispatcher {
     switch (method) {
       case 'system.status': return { ...p.status(), ...this.identity, pid: process.pid };
       case 'system.stop': this.stopping.request(); return { stopping: true };
+      case 'system.timeline': return p.timeline({ limit: params.limit });
       case 'input.submit': return p.submit(params.content);
       case 'input.list': return p.inputs();
       case 'input.flow': {
@@ -54,6 +55,7 @@ export class Dispatcher {
         return bounded(p.decorate(p.store.summaries().filter(task => task.id > after).slice(0, limit)), 900000);
       }
       case 'task.tree': return p.tree(params.id ?? null);
+      case 'task.ladder': return p.ladder();
       case 'task.inspect': return p.inspect(params.id);
       case 'task.history': {
         p.store.task(params.id);

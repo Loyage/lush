@@ -38,6 +38,10 @@ test('web is project scoped, submits immediately and exposes no Service views', 
     expect(submit.status).toBe(200);
     const snapshot = await (await fetch(f.url+'/api/snapshot')).json();
     expect(snapshot.status.project).toBe(f.root); expect(snapshot.inputs[0].content).toBe('web request');
+    // 并行/串行读模型跟着快照一起下发：没有它们，界面只能说"有这些任务"，说不出谁和谁能同时跑。
+    expect(Array.isArray(snapshot.timeline.tasks)).toBe(true);
+    expect(snapshot.timeline.concurrency).toBeGreaterThan(0);
+    expect(Array.isArray(snapshot.ladder.nodes)).toBe(true);
     const task = await (await fetch(f.url+'/api/task/1')).json(); expect(task.role).toBe('planner');
   } finally { await f.close(); }
 });

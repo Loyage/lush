@@ -39,6 +39,42 @@ function agentView(task, run = null) {
     created_at: task.created_at, last_seen_at: task.agent_last_seen_at, active: Boolean(run), pid: run?.pid ?? null };
 }
 const tokenHash = token => createHash('sha256').update(token).digest('hex');
+/** 时间轴窗口：再老的调用线段画成一堆像素没有意义，所以只展示最近一段。 */
+const TIMELINE_WINDOW_MS = 6 * 3600 * 1000;
+/**
+ * 一段空隙的原因。库里只留下两边的状态，所以历史上只能按"起点时上游是否已结算"近似：
+ * 起点还有上游没结束 ⇒ 等依赖；否则就是排队等并发槽（等子任务/等你决定只对当前状态精确）。
+ */
+function waitSegment(start, end, deps, status = null, children = []) {
+  if (status === 'waiting') return { kind: 'wait', start, end, reason: 'children', blocked_by: children.map(child => child.id) };
+  if (status === 'awaiting') return { kind: 'wait', start, end, reason: 'user' };
+  // 父任务停着不动时，先看是不是在等子任务：子任务的存活区间和这段空隙重叠就是了。
+  const covering = children.filter(child => child.created_at <= end && (!child.terminal_at || child.terminal_at >= start));
+  if (covering.length) return { kind: 'wait', start, end, reason: 'children', blocked_by: covering.map(child => child.id) };
+  const pending = deps.filter(dep => !dep.terminal_at || dep.terminal_at > start);
+  if (pending.length) return { kind: 'wait', start, end, reason: 'dep', blocked_by: pending.map(dep => dep.id) };
+  return { kind: 'wait', start, end, reason: 'slot' };
+}
+/** 把 lifecycle 事件配成 run/wait 区间；最后一段没闭合的就是"现在还在跑/还在等"。 */
+function timelineSegments(task, events, deps, children, now) {
+  const segments = [];
+  let cursor = task.created_at, open = null, started = false;
+  for (const event of events) {
+    if (event.type === 'invocation.started') {
+      if (cursor < event.created_at) segments.push(waitSegment(cursor, event.created_at, deps, null, children));
+      open = event.created_at; started = true;
+    } else {
+      // invocation.completed 与终态事件（completed/failed/cancelled）都闭合当前这段调用。
+      if (open && open < event.created_at) segments.push({ kind: 'run', start: open, end: event.created_at });
+      open = null; cursor = event.created_at;
+    }
+  }
+  // 一行事件都没有就结束的任务（比如建 worktree 就失败了）不能画成空白：它就是“没跑起来”。
+  if (!segments.length && !started && TERMINAL.has(task.status)) return [{ kind: 'wait', start: task.created_at, end: cursor, reason: 'setup' }];
+  if (open) segments.push({ kind: 'run', start: open, end: now, open: true });
+  else if (!TERMINAL.has(task.status) && cursor < now) segments.push({ ...waitSegment(cursor, now, deps, task.status, children), open: true });
+  return segments;
+}
 
 /** One project, a persistent task tree, and a bounded pool of disposable agents. */
 export class Project {
@@ -46,7 +82,7 @@ export class Project {
     this.config = config; this.store = store;
     this.provider = provider || (config.provider === 'mock' ? new MockProvider() : new PiProvider(config));
     this.workspaces = new Workspaces(config, store);
-    this.running = new Map(); this.stopping = false; this.scheduled = false;
+    this.running = new Map(); this.stopping = false; this.scheduled = false; this.ancestry = new Map();
   }
   status() {
     const alive = this.store.get("SELECT count(*) AS count FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").count;
@@ -236,6 +272,93 @@ export class Project {
     }
     if (taskId !== null) { this.store.task(taskId); return rows.get(id(taskId)); }
     return roots;
+  }
+  /**
+   * 只读时间轴：面板上看不出"谁和谁同时在跑"，因为并行只是并发池的副产品、串行只是依赖边的后果。
+   * 这里把 events 配成真实的调用区间，空隙就是排队（等依赖或等并发槽），界面据此画泳道与槽位。
+   */
+  timeline({ limit = 40 } = {}) {
+    const size = Number(limit);
+    check(Number.isInteger(size) && size >= 1 && size <= 200, 'timeline limit must be 1..200');
+    const tasks = this.store.timelineTasks(size);
+    const ids = tasks.map(task => task.id);
+    const edges = this.store.edgesOf(ids);
+    const upstreamIds = edges.map(edge => edge.depends_on).filter(depId => !ids.includes(depId));
+    const events = this.store.lifecycleEvents([...new Set([...ids, ...upstreamIds])]);
+    const children = new Map();
+    for (const row of this.store.childSpans(ids)) {
+      if (!children.has(row.parent_id)) children.set(row.parent_id, []);
+      children.get(row.parent_id).push(row);
+    }
+    const byTask = new Map();
+    for (const event of events) {
+      if (!byTask.has(event.task_id)) byTask.set(event.task_id, []);
+      byTask.get(event.task_id).push(event);
+    }
+    const terminalAt = taskId => (byTask.get(taskId) || []).filter(row => TERMINAL.has(row.type)).at(-1)?.created_at ?? null;
+    const now = new Date().toISOString();
+    const rows = tasks.map(task => {
+      const deps = edges.filter(edge => edge.task_id === task.id)
+        .map(edge => ({ id: edge.depends_on, kind: edge.kind, terminal_at: terminalAt(edge.depends_on) }));
+      return { id: task.id, parent_id: task.parent_id, input_id: task.input_id, role: task.role, name: task.name,
+        status: task.status, integration: task.integration, created_at: task.created_at, updated_at: task.updated_at,
+        terminal_at: terminalAt(task.id), deps, segments: timelineSegments(task, byTask.get(task.id) || [], deps, children.get(task.id) || [], now) };
+    });
+    const floor = Date.parse(now) - TIMELINE_WINDOW_MS;
+    const earliest = Math.min(...rows.map(row => Date.parse(row.created_at)), Date.parse(now));
+    return { now, concurrency: this.config.concurrency, start: new Date(Math.max(earliest, floor)).toISOString(), end: now,
+      clamped: earliest < floor, truncated: this.store.get('SELECT count(*) AS count FROM tasks').count > rows.length,
+      tasks: bounded(rows, 300000) };
+  }
+  /**
+   * 合并阶梯：未合并分支之间的依赖，以及"谁已经含了谁的提交"。
+   * code 边是下游 worktree 的基线，runtime 要求上游先进目标分支才允许合下游；
+   * order 边只要求上游终态，所以下游可以先合——那时它是否已经把上游带进来，只能问 git。
+   * merge-base 的答案只取决于两个不可变 commit，所以缓存是准确的，不是过期近似。
+   */
+  async ladder() {
+    const rows = this.store.all(`SELECT id, role, substr(goal,1,200) AS goal, branch, target_branch, head_commit, integration
+      FROM tasks WHERE integration IN ('pending','review') ORDER BY id LIMIT 50`);
+    const pendingIds = new Set(rows.map(row => row.id));
+    const nodes = new Map(rows.map(row => [row.id, { id: row.id, role: row.role, goal: row.goal, branch: row.branch,
+      target_branch: row.target_branch, integration: row.integration, deps: [], covered_by: [] }]));
+    const head = new Map(this.store.all('SELECT id, branch, head_commit, integration FROM tasks').map(row => [row.id, row]));
+    const edges = this.store.edgesOf([...pendingIds]);
+    for (const id of pendingIds) {
+      const node = nodes.get(id);
+      for (const edge of edges.filter(row => row.task_id === id)) {
+        const upstream = head.get(edge.depends_on) ?? {};
+        // code 边＝下游 worktree 以它为基线，所以下游分支一定含上游提交；
+        // order 边只保证顺序，含不含提交只能问 git。
+        const contains = edge.kind === 'code' ? true : await this.containsCommit(upstream.head_commit, head.get(id)?.head_commit);
+        node.deps.push({ id: edge.depends_on, kind: edge.kind, branch: upstream.branch ?? null,
+          merged: upstream.integration === 'merged', pending: pendingIds.has(edge.depends_on), contains });
+        // 只有 order 上游"可能已被带进来"：code 上游本来就必须先合，把它标成被覆盖会和 runtime 的守卫自相矛盾。
+        if (edge.kind === 'order' && pendingIds.has(edge.depends_on) && contains) nodes.get(edge.depends_on).covered_by.push(id);
+      }
+    }
+    for (const node of nodes.values()) node.covered_by = [...new Set(node.covered_by)];
+    // 合并顺序只看 code 边：层级 = 必须先合的上游在它前面。order 边不改变顺序。
+    const level = new Map();
+    const depth = (taskId, seen = new Set()) => {
+      if (level.has(taskId)) return level.get(taskId);
+      if (seen.has(taskId)) return 0;
+      seen.add(taskId);
+      const codes = (nodes.get(taskId)?.deps ?? []).filter(dep => dep.kind === 'code' && dep.pending).map(dep => dep.id);
+      const value = codes.length ? 1 + Math.max(...codes.map(dep => depth(dep, seen))) : 0;
+      level.set(taskId, value); return value;
+    };
+    for (const id of pendingIds) depth(id);
+    const pending = this.store.get("SELECT count(*) AS count FROM tasks WHERE integration IN ('pending','review')").count;
+    return { target_branch: rows[0]?.target_branch ?? null, truncated: pending > rows.length,
+      nodes: [...nodes.values()].map(node => ({ ...node, level: level.get(node.id) })) };
+  }
+  /** git merge-base --is-ancestor 的答案只取决于两个不可变 commit，缓存下来，轮询就不必反复跑 git。 */
+  async containsCommit(upstream, downstream) {
+    if (!upstream || !downstream || upstream === downstream) return false;
+    const key = `${upstream}..${downstream}`;
+    if (!this.ancestry.has(key)) this.ancestry.set(key, await this.workspaces.isAncestor(this.config.project, upstream, downstream));
+    return this.ancestry.get(key);
   }
   message(taskId, body, sender = null) {
     const target = this.store.task(taskId); text(body, 'message');
