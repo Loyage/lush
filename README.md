@@ -51,7 +51,7 @@ lush daemon stop
 用户 → SID 0（入口 / 路由器）上的根 task
         ├── 关于 Lush 自身的问题：SID 0 自己用只读命令回答
         └── 其他一切任务：把 task 派给 project-manager 节点
-                ├── 「给 <项目> 加功能 / 修 bug / 重构 / 调研它」→ 该项目的 project 节点上的 task（由它拆 dev-task 子 task；除非明确说明例外，每个 dev-task 都新开一个 git worktree，并在那个 worktree 里用 worktree-service 上的 agent 改；改完后 agent 用 notice 问用户是否合并，用户答 yes 时由 project 节点在主工作树执行合并；合并成功后 project 再问用户是否回收 worktree 资源（答 yes 时先回收对应的 service：project 给那次开发的 dev-task 开一个「回收」task，由它按析构协议 stop 那个 worktree-service 节点并删除 worktree 与分支，project 再把 dev-task 也 stop——记录保留））
+                ├── 「给 <项目> 加功能 / 修 bug / 重构 / 调研它」→ 该项目的 project 节点上的 task，分两个阶段：**阶段 1 · 开发**把一批独立的工作拆成多件，由 project 串行建好各自的 git worktree 再建 dev-task 节点并并行派下去（实际改动由各 worktree 里的 worktree-service agent 做），全部结算后 project 汇总成一份待决清单、用**不阻塞**的 notice 报给用户并结束——并行度因此是「一批活里拆出几件」，而不是并发 call 同一个节点（一个 service 同时只有一个活动 task）；**阶段 2 · 合并与回收**由用户回一句 `lush call <project SID> '合并：<name>=yes … 回收：<name>=yes …'` 触发：project 在主工作树串行合并，再给对应 dev-task 开「回收」task，由它按析构协议 stop 那个 worktree-service 节点并删除 worktree 与分支，project 再把 dev-task 也 stop——记录保留
                 ├── 不绑定某个项目的问题（选型 / 通用调研）→ research-task 节点
                 ├── 有明确目标的一次性杂活 → generic-task 节点
                 └── 长期能力 / 常驻服务 → generic-service 节点

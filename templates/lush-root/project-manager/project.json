@@ -1,7 +1,7 @@
 {
   "name": "project",
   "singleton": false,
-  "description": "我是绑定某个已存在路径（仓库/目录）的常驻项目节点：把收到的目标拆成一件件工作、为每件工作创建 dev-task 节点并汇总它们的结果，自身工作目录保持只读；我不亲自改代码，也不在别的路径上工作。",
+  "description": "我是绑定某个已存在路径（仓库/目录）的常驻项目节点：收到一批目标就拆成一件件工作，为每件串行建好独立 worktree、创建 dev-task 节点并派下去，让它们并行开发；它们结算后我汇总成待决清单报给用户，再按用户答复串行地合并分支、回收 worktree。我不改工作树里的源文件，也不在别的路径上工作。",
   "construct_prompt": "@project/construct_prompt.md",
   "system_prompt": "@project/system_prompt.md",
   "child_templates": [

@@ -428,6 +428,24 @@ describe('core', () => {
     expect(code(() => construct(service.sid, 'generic-task', 'nope'))).toBe(-32010);
   });
 
+  test('project runs development and merge as two phases, and builds the worktrees itself', () => {
+    const project = manager.templates.get('project');
+    // Phase 1 is machine-paced and must not park the node on a human.
+    for (const expected of ['阶段 1', '阶段 2', 'worktree add', '合并：', 'wait: false']) {
+      expect(project.system_prompt).toContain(expected);
+    }
+    // The worktree comes from the parent, so parallel dev-tasks never race on
+    // `git worktree add` / branch names.
+    const devTask = manager.templates.get('dev-task');
+    for (const expected of ['worktree=', '串行', '不要再 `git worktree add`', 'merge: null']) {
+      expect(devTask.system_prompt).toContain(expected);
+    }
+    // The leaf reports and never blocks on a merge decision of its own.
+    const worktree = manager.templates.get('worktree-service');
+    expect(worktree.system_prompt).toContain('merge: null');
+    expect(worktree.system_prompt).not.toContain('--kind decision');
+  });
+
   test('dev-task refuses an unusable name / title / detail with an actionable error', () => {
     const project = construct(0, 'project', 'demo', undefined, { path: dir });
     const attempt = (overrides) => {

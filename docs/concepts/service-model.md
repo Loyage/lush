@@ -47,7 +47,7 @@ created → running ⇄ waiting → completed / failed / cancelled
 
 规则（这些规则保证 task 树始终是一棵可观察的树）：
 
-1. **一个 service 同时只有一个活动 task**：service 是单线程的工作台。下游正忙时 `task_construct` 会被拒绝；先结束本轮等它（子结算会唤醒你），或换一个下游节点。
+1. **一个 service 同时只有一个活动 task**：service 是单线程的工作台。下游正忙时 `task_construct` 会被拒绝；先结束本轮等它（子结算会唤醒你），或换一个下游节点。所以**并行的正确表达方式是「一批活拆成多件、每件一个子 service」，而不是在一个节点上并发多个 task**——并发度是服务树给的。project 节点因此把「等人答复」挪出节点占用：阶段 1 只报结果、用 `wait: false` 的 notice，阶段 2 才由用户的答复触发；阻塞的 notice 会让那个 service 在用户答复之前一直不可派活。
 2. **子 task 只能挂在自己的直接子 service 上**：task 树因此永远沿 service 树向下生长，不会成环；消息也只能走直接父子边，所以通话关系同样不会成环。
 3. **终态 task 没有活动子 task**：`complete` 要求子 task 都已结束且收件箱没有未读消息（否则报错）；`fail` / `cancel` 会把整棵子树一起取消。
 4. **阻塞在 task 上，不在 agent 里**：agent 的工具里没有“等待”原语。结束一輪 invocation 后，task 层决定“投递队列里 的输入 / park 等输入 / 完成”。
