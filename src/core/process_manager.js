@@ -17,7 +17,7 @@ import {
   session as runtimeSession,
 } from './agent_calls.js';
 import { remove, subtree } from './removal.js';
-import { checkWorkdir, spawnVariables, updateState, updateVars } from './variables.js';
+import { checkWorkdir, declaredProcessName, spawnVariables, updateState, updateVars, withProcessName } from './variables.js';
 import { backfillTemplateSnapshots, children, history, inspect, list, load, parent, requireRunning, tree, view } from './queries.js';
 
 export class ProcessManager {
@@ -89,8 +89,15 @@ export class ProcessManager {
         -32010,
       );
     }
-    const resolved = this.spawnVariables(definition, variables);
-    const finalName = name === undefined || name === null ? template : text(name, 'name', 200);
+    const resolved = this.spawnVariables(definition, withProcessName(definition, name, variables));
+    // A template that reserves `name` as a variable names its processes with
+    // it: `--name` seeds it, `variables.name` names the process, and either way
+    // the declaration decides the format. Only templates without it keep the
+    // generic free-form process name.
+    const declared = declaredProcessName(definition, resolved);
+    const finalName = declared === null
+      ? (name === undefined || name === null ? template : text(name, 'name', 200))
+      : text(declared, 'name', 200);
     const finalGoal = goal === undefined || goal === null ? finalName : text(goal, 'goal');
     return this.repository.create(parentPid, definition, finalName, finalGoal, { variables: resolved });
   }
