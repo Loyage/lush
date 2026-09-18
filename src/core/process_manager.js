@@ -42,6 +42,19 @@ export class ProcessManager {
     }
   }
 
+  /**
+   * PID 0 is the one exception to "snapshots are creation-time": its permissions
+   * and prompt follow the currently loaded `lush-root` template, refreshed once
+   * per daemon start. Only PID 0 — every other process keeps its snapshot.
+   */
+  refreshRootTemplate() {
+    if (!this.repository.exists(0)) return { refreshed: false, changed: [], missing: false };
+    const template = this.templates.find('lush-root');
+    if (template === null) return { refreshed: false, changed: [], missing: true };
+    const changed = this.repository.replaceSnapshot(0, template);
+    return { refreshed: changed.length > 0, changed, missing: false };
+  }
+
   // ── Read models (see queries.js) ────────────────────────────────────────
 
   load(pid) {

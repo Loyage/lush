@@ -252,6 +252,39 @@ export class Repository {
     return backfillSnapshot(this, pid, fields);
   }
 
+  /**
+   * Replace one process's whole template snapshot with `snapshot` and record
+   * which fields changed. The sibling of `backfillSnapshot`: that one only
+   * adds missing keys (older rows), this one overwrites the lot. It exists for
+   * PID 0 alone, whose snapshot follows the currently loaded `lush-root`
+   * template and is refreshed once per daemon start (see
+   * `ProcessManager.refreshRootTemplate`); every other process keeps its
+   * creation-time snapshot.
+   *
+   * Fields are compared per key with `jsonDump`, so a value that differs, a key
+   * only the old snapshot had, and a key only the new one has all count. The
+   * returned list is ordered stably: new-snapshot key order first, then keys
+   * the replacement drops in their old order. A missing process or an
+   * identical snapshot writes nothing and returns `[]`.
+   */
+  replaceSnapshot(pid, snapshot) {
+    const fields = [];
+    this.database.transaction(() => {
+      const row = this.db.query('SELECT template_snapshot FROM processes WHERE pid=?').get(pid);
+      if (row === null) return;
+      const current = JSON.parse(row.template_snapshot);
+      const changed = Object.keys(snapshot)
+        .filter((key) => !Object.hasOwn(current, key) || jsonDump(current[key]) !== jsonDump(snapshot[key]));
+      const removed = Object.keys(current).filter((key) => !Object.hasOwn(snapshot, key));
+      fields.push(...changed, ...removed);
+      if (fields.length === 0) return;
+      this.db.run('UPDATE processes SET template_snapshot=?, updated_at=? WHERE pid=?',
+        [jsonDump(snapshot), now(), pid]);
+      this.event(pid, 'template_refreshed', { template: snapshot.name, fields: [...fields] });
+    });
+    return fields;
+  }
+
   // ── Agent calls and messages (see repository_calls.js) ────────────────────
 
   beginCall(pid, prompt) {

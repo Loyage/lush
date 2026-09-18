@@ -5,7 +5,7 @@ import { ContextBuilder } from '../src/context/builder.js';
 import { DEFAULT_ORPHAN_POLICY, normalizeOrphanPolicy } from '../src/core/orphans.js';
 import { LushError } from '../src/core/types.js';
 import { TemplateLoader } from '../src/template_loader.js';
-import { cleanup, system, tmpdir } from './helpers.js';
+import { cleanup, permissiveRoot, system, tmpdir } from './helpers.js';
 
 describe('core', () => {
   let dir;
@@ -17,7 +17,7 @@ describe('core', () => {
   beforeEach(() => {
     dir = tmpdir('lush-core-');
     ({ database: db, manager, runtime } = system(dir));
-    root = manager.load(0);
+    root = permissiveRoot(manager);
   });
 
   afterEach(() => {
@@ -638,7 +638,7 @@ describe('orphan supervision', () => {
   beforeEach(() => {
     dir = tmpdir('lush-core-orphan-');
     ({ database: db, manager, runtime } = system(dir));
-    root = manager.load(0);
+    root = permissiveRoot(manager);
   });
 
   afterEach(() => {
@@ -662,6 +662,7 @@ describe('orphan supervision', () => {
   function policySystem(policy) {
     const directory = tmpdir('lush-core-orphan-');
     const built = system(directory, null, {}, policy);
+    permissiveRoot(built.manager);
     extras.push({ directory, database: built.database });
     return built;
   }
@@ -957,5 +958,114 @@ describe('orphan supervision', () => {
     // The trigger names are validated too, before any work happens.
     expect(code(() => manager.superviseOrphans('bogus'))).toBe(-32602);
     expect(code(() => manager.superviseOrphans('timer'))).toBe(null);
+  });
+});
+
+describe('PID 0 creation lockdown', () => {
+  const extras = [];
+
+  /** A fresh system whose root whitelist is *not* widened by `permissiveRoot`. */
+  function fresh() {
+    const directory = tmpdir('lush-root-lock-');
+    const built = system(directory);
+    extras.push({ directory, database: built.database });
+    return built;
+  }
+
+  afterEach(() => {
+    for (const extra of extras.splice(0)) {
+      try {
+        extra.database.close();
+      } catch {
+        /* already closed */
+      }
+      cleanup(extra.directory);
+    }
+  });
+
+  function code(fn) {
+    try {
+      fn();
+    } catch (err) {
+      return err.code;
+    }
+    return null;
+  }
+
+  test('PID 0 may only create project-manager', () => {
+    const { manager } = fresh();
+    const root = manager.load(0);
+    expect(root.createChild('project-manager').inspect().template).toBe('project-manager');
+
+    const failure = (() => {
+      try {
+        root.createChild('generic-task');
+      } catch (err) {
+        return err;
+      }
+      return null;
+    })();
+    expect(failure?.code).toBe(-32010);
+    expect(failure?.message).toContain('cannot create template generic-task');
+    // `lush-root` stays reserved for PID 0 itself, whatever the whitelist says.
+    expect(() => root.createChild('lush-root')).toThrow(/reserved/);
+  });
+
+  test('PID 0 advertises exactly project-manager, and user templates are no exception', () => {
+    const { manager } = fresh();
+    const names = (pid) => new ContextBuilder(manager.repository, manager.templates)
+      .build(manager.load(pid), null).data.available_child_templates.map((item) => item.name);
+    expect(names(0)).toEqual(['project-manager']);
+
+    // The list is explicit: one more user template does not widen it, and PID 0
+    // cannot spawn it either (the snapshot, not just the rendered list, says so).
+    manager.templates.register({
+      ...manager.templates.get('generic-task'), name: 'user-template', child_templates: [],
+    });
+    expect(names(0)).toEqual(['project-manager']);
+    expect(names(0)).not.toContain('user-template');
+    expect(code(() => manager.load(0).createChild('user-template'))).toBe(-32010);
+    expect(manager.repository.get(0).template_snapshot.child_templates).toEqual(['project-manager']);
+  });
+
+  test('refreshRootTemplate restores drift, is idempotent and only touches PID 0', () => {
+    const { manager } = fresh();
+    const root = manager.load(0);
+    const other = root.createChild('project-manager');
+    const otherSnapshot = manager.repository.get(other.pid).template_snapshot;
+
+    // Forge the old, widened root snapshot: refresh must undo exactly this field.
+    const drift = { ...manager.repository.get(0).template_snapshot, child_templates: ['*'] };
+    expect(manager.repository.replaceSnapshot(0, drift)).toEqual(['child_templates']);
+    const before = manager.repository.events(0, 100)
+      .filter((event) => event.kind === 'template_refreshed').length;
+    expect(before).toBe(1);
+
+    expect(manager.refreshRootTemplate()).toEqual({ refreshed: true, changed: ['child_templates'], missing: false });
+    expect(manager.repository.get(0).template_snapshot).toEqual(manager.templates.get('lush-root'));
+    const refreshed = manager.repository.events(0, 100).filter((event) => event.kind === 'template_refreshed');
+    expect(refreshed.length).toBe(before + 1);
+    expect(refreshed[0].data).toEqual({ template: 'lush-root', fields: ['child_templates'] });
+    // Every other process keeps its creation-time snapshot.
+    expect(manager.repository.get(other.pid).template_snapshot).toEqual(otherSnapshot);
+
+    // Running again is a no-op: no change, no event.
+    expect(manager.refreshRootTemplate()).toEqual({ refreshed: false, changed: [], missing: false });
+    expect(manager.repository.events(0, 100).filter((event) => event.kind === 'template_refreshed').length)
+      .toBe(before + 1);
+
+    // The narrowed whitelist is in force again after the refresh.
+    expect(code(() => root.createChild('generic-task'))).toBe(-32010);
+    manager.kill(other.pid); // free the singleton slot
+    expect(root.createChild('project-manager').inspect().template).toBe('project-manager');
+  });
+
+  test('a missing lush-root template is reported instead of thrown', () => {
+    const { manager } = fresh();
+    delete manager.templates.templates['lush-root'];
+    expect(manager.templates.find('lush-root')).toBeNull();
+    expect(manager.refreshRootTemplate()).toEqual({ refreshed: false, changed: [], missing: true });
+    // PID 0 keeps the snapshot it was created with.
+    expect(manager.repository.get(0).template_snapshot.child_templates).toEqual(['project-manager']);
   });
 });

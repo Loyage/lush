@@ -9,7 +9,7 @@ import {
 import { TemplateLoader } from '../src/template_loader.js';
 import { buildInvocation } from '../src/agent/invocation.js';
 import { agentAdd, agentDefault, agentDelete, agentEdit, agentInspect, agentList, agentPath } from '../src/cli/agent.js';
-import { cleanup, expectRejection, system, tmpdir } from './helpers.js';
+import { cleanup, expectRejection, permissiveRoot, system, tmpdir } from './helpers.js';
 
 const ROOT = path.dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const CLI = path.join(ROOT, 'src', 'cli', 'main.js');
@@ -230,6 +230,7 @@ describe('agent profiles inside processes: spawn, inspect and the argv of a call
     const templates = new TemplateLoader();
     if (mutateTemplates !== null) mutateTemplates(templates);
     ({ database: db, manager, runtime } = system(dir, catalog.defaultProvider(), { catalog, templates }));
+    permissiveRoot(manager);
   }
 
   afterEach(async () => {

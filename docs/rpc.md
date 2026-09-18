@@ -87,7 +87,7 @@ process.view 是「查看」的统一读模型，把父子关系和 Call Prompt 
 
 sections 省略时返回全部三项；必须是非空、无重复、只含上述名称的字符串数组（否则 -32602）。返回字段顺序固定为 pid、parent、children、call_prompt，只包含被请求的 section。未知 PID 与其他方法一样返回 -32004。view 是只读操作，不改变状态、不创建调用记录。Agent 侧的等价能力仍是个体工具 process_self / process_parent / process_children。
 
-旧版本写入、快照里没有 `child_templates` 的 Process，会在 daemon 启动时从同名已加载模板回填一次（见 process-model）。
+旧版本写入、快照里没有 `child_templates` 的 Process，会在 daemon 启动时从同名已加载模板回填一次（见 process-model）。PID 0 是唯一的例外：daemon 每次启动用当前加载的 `lush-root` **整份替换**它的快照（`replaceSnapshot`，逐字段比较、有差异才写并记 `template_refreshed`），所以收窄 / 放宽根权限靠改模板 + 重启生效（见 process-model）。
 
 ## Agent Tools
 

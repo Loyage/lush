@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { OpenAICompatibleProvider } from '../src/agent/openai.js';
 import { LushError } from '../src/core/types.js';
-import { cleanup, expectRejection, system, tmpdir } from './helpers.js';
+import { cleanup, expectRejection, permissiveRoot, system, tmpdir } from './helpers.js';
 
 describe('openai-compatible provider', () => {
   let dir;
@@ -50,6 +50,7 @@ describe('openai-compatible provider', () => {
     provider = new OpenAICompatibleProvider('test-key', `http://127.0.0.1:${http.port}/v1`, 'test-model');
     dir = tmpdir('lush-http-');
     ({ database: db, manager, runtime } = system(dir, provider));
+    permissiveRoot(manager);
   });
 
   afterEach(async () => {

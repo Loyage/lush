@@ -9,7 +9,7 @@ import { RPCClient } from '../src/rpc/client.js';
 import { RPCServer, log as serverLog } from '../src/rpc/server.js';
 import { createSignal } from '../src/signal.js';
 import { createWriter } from '../src/socket_io.js';
-import { cleanup, contextPid, deferred, expectRejection, system, tmpdir } from './helpers.js';
+import { cleanup, contextPid, deferred, expectRejection, permissiveRoot, system, tmpdir } from './helpers.js';
 
 const NL = 0x0a;
 
@@ -25,6 +25,7 @@ describe('rpc', () => {
   beforeEach(async () => {
     dir = tmpdir('lush-rpc-');
     ({ database: db, manager, runtime } = system(dir));
+    permissiveRoot(manager);
     stopping = createSignal();
     server = new RPCServer(path.join(dir, 'lush.sock'), new Dispatcher(manager, stopping));
     await server.start();
@@ -206,6 +207,7 @@ describe('rpc', () => {
     // A daemon of its own: supervision is configured at startup.
     const dir2 = tmpdir('lush-rpc-orphan-');
     const second = system(dir2, null, {}, { ttlSeconds: 1 });
+    permissiveRoot(second.manager);
     const stop2 = createSignal();
     const server2 = new RPCServer(path.join(dir2, 'lush.sock'), new Dispatcher(second.manager, stop2));
     await server2.start();

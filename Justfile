@@ -60,7 +60,7 @@ verify: test demo
 # 起 daemon 并创建 README 里的最小流程（project-manager → implement-login）
 [group('dev')]
 bootstrap: daemon-start
-  @{{lush}} process spawn 0 generic-service --name project-manager
+  @{{lush}} process spawn 0 project-manager --name project-manager
   @{{lush}} process spawn 1 generic-task --name implement-login --goal '实现登录功能'
   @{{lush}} process tree
 
@@ -226,9 +226,9 @@ enter pid prompt:
 attach pid:
   @{{lush}} process attach {{pid}}
 
-# 创建子进程：just spawn 0 generic-task implement-login '实现登录功能'
-# project 模板必须给变量 path：just spawn 0 project my-repo '' '{"path":"/abs/repo"}'
-# 指定 agent profile（见 just agent list）：just spawn 0 generic-task x '' '' demo-agent
+# 创建子进程：just spawn 1 generic-task implement-login '实现登录功能'（PID 0 只能建 project-manager）
+# project 模板必须给变量 path：just spawn 1 project my-repo '' '{"path":"/abs/repo"}'
+# 指定 agent profile（见 just agent list）：just spawn 1 generic-task x '' '' demo-agent
 # dev-task 的三个字段（name 就是 --name）：just spawn 1 dev-task fix-login '修好登录' '' '' '修复登录流程' '任务详情正文'
 [group('process')]
 spawn parent template name="" goal="" vars="" agent="" title="" detail="":

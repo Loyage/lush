@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { AgentResponse, ToolCall } from '../src/agent/provider.js';
 import { AgentTools, TOOL_DEFINITIONS } from '../src/agent/tools.js';
 import { LushError } from '../src/core/types.js';
-import { cleanup, contextPid, deferred, expectRejection, queue, system, tmpdir } from './helpers.js';
+import { cleanup, contextPid, deferred, expectRejection, permissiveRoot, queue, system, tmpdir } from './helpers.js';
 
 class BlockingProvider {
   constructor() {
@@ -28,7 +28,7 @@ describe('runtime', () => {
   beforeEach(() => {
     dir = tmpdir('lush-agent-');
     ({ database: db, manager, runtime } = system(dir));
-    root = manager.load(0);
+    root = permissiveRoot(manager);
   });
 
   afterEach(async () => {

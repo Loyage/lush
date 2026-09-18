@@ -7,7 +7,7 @@ import { agentGuide } from '../src/agent/guide.js';
 import { configuredProvider } from '../src/agent/provider.js';
 import { LUSH_CONTEXT_PREFIX } from '../src/context/context.js';
 import { shellCommand } from '../src/shell.js';
-import { cleanup, expectRejection, system, tmpdir } from './helpers.js';
+import { cleanup, expectRejection, permissiveRoot, system, tmpdir } from './helpers.js';
 
 // A fake `pi` binary: it records how Lush invoked it instead of calling a model.
 const STUB = `#!/usr/bin/env bun
@@ -57,6 +57,7 @@ describe('pi agent backend', () => {
     dir = tmpdir('lush-pi-');
     provider = new PiAgentProvider({ command: writeStub(dir), home: dir });
     ({ database: db, manager, runtime } = system(dir, provider));
+    permissiveRoot(manager);
   });
 
   afterEach(() => {

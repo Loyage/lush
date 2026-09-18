@@ -17,7 +17,7 @@ lush help                   # 每一层都有 help：lush help process / lush pr
 lush daemon start
 lush daemon status
 lush process tree
-lush process spawn 0 generic-service --name project-manager
+lush process spawn 0 project-manager --name project-manager
 lush process spawn 1 generic-task --name implement-login --goal '实现登录功能'
 lush process call 2 '请介绍一下你当前的身份和任务'
 lush process attach 2
@@ -52,9 +52,9 @@ just daemon-start    # 起 daemon（幂等）
 just bootstrap       # 起 daemon 并创建 project-manager → implement-login
 just tree | just ps | just status
 just agent list      # agent profile（不需要 daemon）：just agent inspect default / add / edit / delete / default / path
-just spawn 0 generic-task implement-login '实现登录功能'
-just spawn 0 generic-task x '' '' demo-agent   # 第 6 个参数是该进程使用的 agent profile
-just spawn 0 project my-repo '' '{"path":"/abs/repo"}'   # project 必须给变量 path（绝对路径，同时是 cwd）
+just spawn 1 generic-task implement-login '实现登录功能'
+just spawn 1 generic-task x '' '' demo-agent   # 第 6 个参数是该进程使用的 agent profile
+just spawn 1 project my-repo '' '{"path":"/abs/repo"}'   # project 必须给变量 path（绝对路径，同时是 cwd）
 just spawn 1 dev-task fix-login '修好登录' '' '' '修复登录流程' '任务详情正文'   # dev-task：name（就是 --name）+ title + detail（第 6、7 个参数）
 just call 2 '请介绍一下你自己'
 just call 2 'hi' dry   # 只打印将执行的命令（pi 命令行），不真的调用 agent
@@ -95,8 +95,9 @@ export LUSH_PROVIDER=pi            # 默认
 # export LUSH_PI_PROVIDER=openai   # 透传给 pi --provider
 # export LUSH_PI_MODEL=gpt-5       # 透传给 pi --model
 export LUSH_CALL_TIMEOUT=900       # pi 真实干活很慢，默认 15 分钟
-lush process spawn 0 project my-repo --name my-repo --vars '{"path":"/abs/repo"}'
-lush process call 1 '看看这个仓库，列出待办并开工'
+lush process spawn 0 project-manager --name project-manager
+lush process spawn 1 project my-repo --name my-repo --vars '{"path":"/abs/repo"}'
+lush process call 2 '看看这个仓库，列出待办并开工'
 ```
 
 取消（`kill` / `stop` / 超时 / daemon 退出）会杀掉对应的 pi 子进程；pi 的 session 文件保留在 `$LUSH_HOME/pi-sessions/` 供审计，Lush 自身只记录 prompt 与最终文本。
@@ -240,12 +241,12 @@ lush --json help process       # 机器可读的命令树（summary/cover/usage/
 ## 验证
 
 ```bash
-just verify   # = bun test（124 项）+ bun run demo
+just verify   # = bun test（132 项）+ bun run demo
 bun test      # 只跑测试
 bun run demo  # 只跑演示（mock provider）
 ```
 
-数据默认保存在 `$XDG_STATE_HOME/lush` 或 `~/.local/state/lush`，可用 `LUSH_HOME` 覆盖。包含 SQLite 数据库、socket、daemon 锁、pi session 及日志。目录仅限当前用户访问。模板存放于仓库顶层 `templates/`（内置 `lush-root`、`generic-service`、`generic-task`、`research-task`、`project-manager`、`project`、`dev-task`）；`$LUSH_HOME/templates/*.json` 可增加新模板，不覆盖仓库模板；重启后加载。模板字段固定为 name、type（task/service）、singleton（同一父进程下是否只允许一个活动实例）、description、spawn_prompt（创建该模板需要哪些变量、如何创建）、system_prompt（实例 call 时使用的系统提示词）、child_templates（该实例可创建哪些模板）、variables（实例变量声明：immutable / mutable 两个区间，每项有 description 与可选的 required、default，以及可选的格式约束 pattern / max_length / single_line），缺一或多一都报错。变量在创建时用 `--vars '<json>'` 提供：必填变量缺失、写了没声明的名字、值不符合声明里的格式都会直接失败（CLI 退出码 2，RPC 错误码 -32602，报错会引述该变量的声明）；immutable 变量（如 `path`）创建后不可改，mutable 变量用 `lush process update-vars PID --vars '<json>'` 修改（同样要满足声明的格式），`process inspect` / `process tree` 都能看到变量的当前值与声明。四个变量名是保留的，它们的含义不限于声明它们的模板：`path` 是 agent 工作目录（必须是已存在的绝对目录，只能 immutable）；`name` 是进程名——声明它的模板（`dev-task`）用 `--name` 或 `variables.name` 给同一个值，格式按该声明校验；`title` / `detail` 是任务的一行摘要与详情正文，`process list` / `tree` / `inspect` 会渲染。`project` 是 `project-manager` 的子模板、非单例，必须提供 immutable 变量 `path`（已存在的绝对目录，会成为它的 agent cwd），另有 mutable 变量 `branch`（默认 main）。它的 `system_prompt`（每次 call 的系统提示词）带一条「先拆分、再创建」的协议：拿到一批指令时先判断是不是明显多条，是就按目标模板自己的 `spawn_prompt` / `variables` 声明配置字段、用 `process_spawn` 逐个创建 task 进程（一次 call 可以建多个），只有一条目标时不硬拆；默认只创建、不逐个 call。`dev-task` 是 `project` 的子模板，用三个正式字段描述一项开发任务：`name`（不可留空的英文标识符 `^[A-Za-z][A-Za-z0-9_-]*$`、≤64，同时就是进程名，用来命名相关的 worktree / 分支）、`title`（不可留空的一行摘要、≤200，`process list` 与 `inspect` 显示的就是它）、`detail`（任务详情正文，可多行、可以为空，≤20000）。创建时 `lush process spawn 1 dev-task --name fix-login --title '修复登录流程' --detail '正文'`（`--title` / `--detail` 是这两个变量的简写，等价于写进 `--vars`）；工作目录与分支仍由任务自己向父进程取。
+数据默认保存在 `$XDG_STATE_HOME/lush` 或 `~/.local/state/lush`，可用 `LUSH_HOME` 覆盖。包含 SQLite 数据库、socket、daemon 锁、pi session 及日志。目录仅限当前用户访问。模板存放于仓库顶层 `templates/`（内置 `lush-root`、`generic-service`、`generic-task`、`research-task`、`project-manager`、`project`、`dev-task`）；`$LUSH_HOME/templates/*.json` 可增加新模板，不覆盖仓库模板；重启后加载。**PID 0 只能创建 `project-manager`**：`lush-root` 的 `child_templates` 只有这一项，用户模板同样不在其列（列表是显式的，没有 `*`）。模板字段固定为 name、type（task/service）、singleton（同一父进程下是否只允许一个活动实例）、description、spawn_prompt（创建该模板需要哪些变量、如何创建）、system_prompt（实例 call 时使用的系统提示词）、child_templates（该实例可创建哪些模板）、variables（实例变量声明：immutable / mutable 两个区间，每项有 description 与可选的 required、default，以及可选的格式约束 pattern / max_length / single_line），缺一或多一都报错。变量在创建时用 `--vars '<json>'` 提供：必填变量缺失、写了没声明的名字、值不符合声明里的格式都会直接失败（CLI 退出码 2，RPC 错误码 -32602，报错会引述该变量的声明）；immutable 变量（如 `path`）创建后不可改，mutable 变量用 `lush process update-vars PID --vars '<json>'` 修改（同样要满足声明的格式），`process inspect` / `process tree` 都能看到变量的当前值与声明。四个变量名是保留的，它们的含义不限于声明它们的模板：`path` 是 agent 工作目录（必须是已存在的绝对目录，只能 immutable）；`name` 是进程名——声明它的模板（`dev-task`）用 `--name` 或 `variables.name` 给同一个值，格式按该声明校验；`title` / `detail` 是任务的一行摘要与详情正文，`process list` / `tree` / `inspect` 会渲染。`project` 是 `project-manager` 的子模板、非单例，必须提供 immutable 变量 `path`（已存在的绝对目录，会成为它的 agent cwd），另有 mutable 变量 `branch`（默认 main）。它的 `system_prompt`（每次 call 的系统提示词）带一条「先拆分、再创建」的协议：拿到一批指令时先判断是不是明显多条，是就按目标模板自己的 `spawn_prompt` / `variables` 声明配置字段、用 `process_spawn` 逐个创建 task 进程（一次 call 可以建多个），只有一条目标时不硬拆；默认只创建、不逐个 call。`dev-task` 是 `project` 的子模板，用三个正式字段描述一项开发任务：`name`（不可留空的英文标识符 `^[A-Za-z][A-Za-z0-9_-]*$`、≤64，同时就是进程名，用来命名相关的 worktree / 分支）、`title`（不可留空的一行摘要、≤200，`process list` 与 `inspect` 显示的就是它）、`detail`（任务详情正文，可多行、可以为空，≤20000）。创建时 `lush process spawn 1 dev-task --name fix-login --title '修复登录流程' --detail '正文'`（`--title` / `--detail` 是这两个变量的简写，等价于写进 `--vars`）；工作目录与分支仍由任务自己向父进程取。
 
 **生命周期提示：** spawn 自动进入 running；一次 call 返回不等于 Task 完成。完成的 Task 不再接受 call/attach；可通过 inspect 查看历史。stop 仅用于 Service，kill 停止 Service / 取消 Task。父进程结束时，活动直接子节点改挂 PID 0，自己的后代不变。`reclaim` 仅标记结束的 Task 为 reclaimed，历史不删除。**删除是唯一的物理删除路径**：`process delete PID` 只删已结束的进程，`process purge PID` 先停止/取消再删（`--recursive` 连整棵子树），同一个事务里删掉该 PID 的 Context、消息、调用与事件，且内置运行时的 agent 工具集里没有删除工具；被删进程的父进程会得到一条 `child_deleted` 事件，被删进程自己不留痕。PID 0 永远拒绝，只能通过停止 daemon 退出。
 

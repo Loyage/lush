@@ -111,7 +111,12 @@ describe('cli, daemon lifecycle and attach', () => {
     const started = await data('daemon', 'start');
     expect((await cli(['process', 'tree'])).stdout.trim()).toBe('lush[0]');
     expect((await data('daemon', 'start')).daemon_pid).toBe(started.daemon_pid);
-    expect((await cli(['process', 'spawn', '0', 'generic-service', '--name', 'project-manager'])).stdout.trim()).toBe('PID 1');
+    // PID 0's snapshot only allows project-manager; every other template is refused.
+    const denied = await cli(['process', 'spawn', '0', 'generic-task'], { check: false });
+    expect(denied.code).not.toBe(0);
+    expect(denied.stderr).toContain('cannot create template generic-task');
+    expect((await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager'])).stdout.trim())
+      .toBe('PID 1');
     expect((await cli(['process', 'spawn', '1', 'generic-task', '--name', 'implement-login', '--goal', '实现登录'])).stdout.trim())
       .toBe('PID 2');
     expect((await cli(['process', 'call', '2', '请介绍一下你当前的身份和任务'])).stdout).toContain('project-manager[1]');
@@ -141,18 +146,19 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await cli(['process', 'attach', '2'], { input: '/exit\n', check: false })).code).not.toBe(0);
     await cli(['process', 'reclaim', '2']);
     expect((await data('process', 'history', '2')).messages.length).toBeGreaterThan(0);
-    expect((await data('process', 'spawn', '0', 'generic-task')).pid).toBe(4);
+    expect((await data('process', 'spawn', '1', 'generic-task', '--name', 'next')).pid).toBe(4);
   }, 120_000);
 
   test('complete, update-state, variables and spawn over the CLI', async () => {
     await cli(['daemon', 'start']);
-    await cli(['process', 'spawn', '0', 'generic-task', '--name', 'worker', '--goal', 'work']);
-    expect((await data('process', 'update-state', '1', '--patch', '{"progress":"half"}')).progress).toBe('half');
-    const done = await data('process', 'complete', '1', '--result', '{"answer":42}');
+    await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+    await cli(['process', 'spawn', '1', 'generic-task', '--name', 'worker', '--goal', 'work']);
+    expect((await data('process', 'update-state', '2', '--patch', '{"progress":"half"}')).progress).toBe('half');
+    const done = await data('process', 'complete', '2', '--result', '{"answer":42}');
     expect(done.status).toBe('completed');
-    expect((await data('process', 'inspect', '1')).context.state).toEqual({ result: { answer: 42 }, progress: 'half' });
+    expect((await data('process', 'inspect', '2')).context.state).toEqual({ result: { answer: 42 }, progress: 'half' });
 
-    const spawned = await data('process', 'spawn', '0', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
+    const spawned = await data('process', 'spawn', '1', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
     const project = await data('process', 'inspect', String(spawned.pid));
     expect(project.context.state).toEqual({ params: { path: state.dir }, vars: { branch: 'main' } });
     expect(project.variables.declarations.mutable.branch.default).toBe('main');
@@ -177,13 +183,13 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await data('process', 'inspect', String(spawned.pid))).context.message_count).toBe(0);
     expect((await cli(['process', 'call', String(spawned.pid), 'hello', '--dry-run'])).stdout).toContain('runs in-process');
 
-    const missing = await cli(['process', 'spawn', '0', 'project', '--name', 'p2'], { check: false });
+    const missing = await cli(['process', 'spawn', '1', 'project', '--name', 'p2'], { check: false });
     expect(missing.code).not.toBe(0);
     expect(missing.stderr).toContain('variables.path');
-    const unknown = await cli(['process', 'spawn', '0', 'project', '--name', 'p3', '--vars', JSON.stringify({ path: state.dir, nope: 1 })], { check: false });
+    const unknown = await cli(['process', 'spawn', '1', 'project', '--name', 'p3', '--vars', JSON.stringify({ path: state.dir, nope: 1 })], { check: false });
     expect(unknown.stderr).toContain('does not declare variable nope');
     expect((await cli(['process', 'update-vars', String(spawned.pid)], { check: false })).stderr).toContain('--vars');
-    expect((await cli(['process', 'update-state', '1', '--patch', '{oops'], { check: false })).stderr).toContain('invalid JSON');
+    expect((await cli(['process', 'update-state', '2', '--patch', '{oops'], { check: false })).stderr).toContain('invalid JSON');
 
     // --interactive needs an external agent: the in-process runtime has no TUI.
     const enter = await cli(['process', 'call', String(spawned.pid), 'hello', '-i'], { check: false });
@@ -194,9 +200,10 @@ describe('cli, daemon lifecycle and attach', () => {
 
   test('dev-task fields: creation, validation, and list / tree / inspect rendering', async () => {
     await cli(['daemon', 'start']);
-    await cli(['process', 'spawn', '0', 'project', '--name', 'demo-project', '--goal', '示例项目',
+    await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+    await cli(['process', 'spawn', '1', 'project', '--name', 'demo-project', '--goal', '示例项目',
       '--vars', JSON.stringify({ path: state.dir })]);
-    const spawned = await data('process', 'spawn', '1', 'dev-task', '--name', 'fix-login', '--goal', '修好登录',
+    const spawned = await data('process', 'spawn', '2', 'dev-task', '--name', 'fix-login', '--goal', '修好登录',
       '--title', '修复登录流程', '--detail', '第一行\n第二行');
     const pid = String(spawned.pid);
     expect(spawned.name).toBe('fix-login');
@@ -231,17 +238,17 @@ describe('cli, daemon lifecycle and attach', () => {
 
     // Illegal name / missing title: exit 2 (the CLI's usage-error code) with the
     // contract quoted in the message.
-    const badName = await cli(['process', 'spawn', '1', 'dev-task', '--name', 'fix login', '--title', '标题'], { check: false });
+    const badName = await cli(['process', 'spawn', '2', 'dev-task', '--name', 'fix login', '--title', '标题'], { check: false });
     expect(badName.code).toBe(2);
     expect(badName.stderr).toContain('does not match');
     expect(badName.stderr).toContain('worktree');
-    const noTitle = await cli(['process', 'spawn', '1', 'dev-task', '--name', 'no-title'], { check: false });
+    const noTitle = await cli(['process', 'spawn', '2', 'dev-task', '--name', 'no-title'], { check: false });
     expect(noTitle.code).toBe(2);
     expect(noTitle.stderr).toContain('variables.title');
-    const both = await cli(['process', 'spawn', '1', 'dev-task', '--name', 'both', '--title', 'a', '--vars', '{"title":"b"}'], { check: false });
+    const both = await cli(['process', 'spawn', '2', 'dev-task', '--name', 'both', '--title', 'a', '--vars', '{"title":"b"}'], { check: false });
     expect(both.code).toBe(2);
     expect(both.stderr).toContain('cannot both set title');
-    const tooLong = await cli(['process', 'spawn', '1', 'dev-task', '--name', 'a'.repeat(65), '--title', '标题'], { check: false });
+    const tooLong = await cli(['process', 'spawn', '2', 'dev-task', '--name', 'a'.repeat(65), '--title', '标题'], { check: false });
     expect(tooLong.code).toBe(2);
     expect(tooLong.stderr).toContain('max_length 64');
     expect((await data('process', 'list')).filter((row) => row.template === 'dev-task').length).toBe(1);
@@ -250,7 +257,7 @@ describe('cli, daemon lifecycle and attach', () => {
   test('orphan supervision is visible and runnable from the CLI', async () => {
     await cli(['daemon', 'start']);
     // A stopped parent hands its active child to PID 0; that child is the orphan.
-    await cli(['process', 'spawn', '0', 'generic-service', '--name', 'parent']);
+    await cli(['process', 'spawn', '0', 'project-manager', '--name', 'parent']);
     await cli(['process', 'spawn', '1', 'generic-task', '--name', 'kid']);
     await cli(['process', 'stop', '1']);
 
@@ -289,7 +296,7 @@ describe('cli, daemon lifecycle and attach', () => {
   test('the daemon timer sweeps idle orphans by ttl without a manual call', async () => {
     // The policy is read at startup, so the timer is configured through the env.
     await cli(['daemon', 'start'], { env: { ...state.env, LUSH_ORPHAN_TTL: '1', LUSH_ORPHAN_SWEEP: '1' } });
-    await cli(['process', 'spawn', '0', 'generic-service', '--name', 'parent']);
+    await cli(['process', 'spawn', '0', 'project-manager', '--name', 'parent']);
     await cli(['process', 'spawn', '1', 'generic-task', '--name', 'kid']);
     await cli(['process', 'stop', '1']);
     expect((await data('process', 'orphans')).active_count).toBe(1);
@@ -310,47 +317,48 @@ describe('cli, daemon lifecycle and attach', () => {
 
   test('text output defaults to human-readable, --json stays the machine path', async () => {
     await cli(['daemon', 'start']);
-    expect((await cli(['process', 'spawn', '0', 'generic-task', '--name', 'reader', '--goal', 'read stuff'])).stdout.trim())
-      .toBe('PID 1');
-    await cli(['process', 'call', '1', 'hello']);
-    await cli(['process', 'call', '1', '/tool process.update_state {"progress":"half"}']);
+    await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+    expect((await cli(['process', 'spawn', '1', 'generic-task', '--name', 'reader', '--goal', 'read stuff'])).stdout.trim())
+      .toBe('PID 2');
+    await cli(['process', 'call', '2', 'hello']);
+    await cli(['process', 'call', '2', '/tool process.update_state {"progress":"half"}']);
 
     // history: one block per message, body verbatim, pagination cursor last.
-    const history = (await cli(['process', 'history', '1'])).stdout;
+    const history = (await cli(['process', 'history', '2'])).stdout;
     expect(history).toMatch(/^#1 user · \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} · call 1$/m);
     expect(history).toMatch(/^#2 assistant · /m);
     expect(history).toContain('hello');
     expect(history).toContain('[Mock] 我是 reader');
     expect(history).toMatch(/^\(\d+ messages · next --after \d+\)$/m);
     expect(() => JSON.parse(history)).toThrow();
-    const messages = await data('process', 'history', '1');
+    const messages = await data('process', 'history', '2');
     expect(history).toContain(`(${messages.messages.length} messages · next --after ${messages.next_after})`);
 
     // inspect: sectioned text, no metadata dump; --json keeps the full snapshot.
-    const inspect = (await cli(['process', 'inspect', '1'])).stdout;
-    expect(inspect).toMatch(/^pid 1 · reader · task · running$/m);
+    const inspect = (await cli(['process', 'inspect', '2'])).stdout;
+    expect(inspect).toMatch(/^pid 2 · reader · task · running$/m);
     expect(inspect).toMatch(/^context · \d+ messages$/m);
     expect(inspect).toMatch(/^calls · recent \d+, newest first$/m);
     expect(inspect).toMatch(/^events · recent \d+, newest first$/m);
     expect(inspect).toContain('progress');
     expect(inspect).not.toContain('"template_snapshot"');
-    expect((await data('process', 'inspect', '1')).template_snapshot.name).toBe('generic-task');
+    expect((await data('process', 'inspect', '2')).template_snapshot.name).toBe('generic-task');
 
     // --with prints only the requested sections.
-    const view = (await cli(['process', 'inspect', '1', '--with', 'parent,children'])).stdout;
-    expect(view).toContain('pid 0 · lush · service · running');
+    const view = (await cli(['process', 'inspect', '2', '--with', 'parent,children'])).stdout;
+    expect(view).toContain('pid 1 · project-manager · service · running');
     expect(view).not.toContain('call_prompt');
 
     // Nested state is aligned, not a JSON blob.
-    expect((await cli(['process', 'update-state', '1', '--patch', '{"progress":"done"}'])).stdout.trim())
+    expect((await cli(['process', 'update-state', '2', '--patch', '{"progress":"done"}'])).stdout.trim())
       .toBe('progress  done');
 
     // Lifecycle commands answer with one summary line, not the whole metadata row.
-    expect((await cli(['process', 'complete', '1', '--result', '{"ok":true}'])).stdout.trim())
-      .toBe('completed pid 1 · reader · task · completed');
-    expect((await cli(['process', 'reclaim', '1'])).stdout.trim())
-      .toBe('reclaimed pid 1 · reader · task · reclaimed');
-    const service = await data('process', 'spawn', '0', 'generic-service', '--name', 'stopper');
+    expect((await cli(['process', 'complete', '2', '--result', '{"ok":true}'])).stdout.trim())
+      .toBe('completed pid 2 · reader · task · completed');
+    expect((await cli(['process', 'reclaim', '2'])).stdout.trim())
+      .toBe('reclaimed pid 2 · reader · task · reclaimed');
+    const service = await data('process', 'spawn', '1', 'generic-service', '--name', 'stopper');
     expect((await cli(['process', 'stop', String(service.pid)])).stdout.trim())
       .toBe(`stopped pid ${service.pid} · stopper · service · stopped`);
     expect((await cli(['process', 'start', String(service.pid)])).stdout.trim())
@@ -361,7 +369,8 @@ describe('cli, daemon lifecycle and attach', () => {
 
   test('delete and purge remove a process and its record', async () => {
     await cli(['daemon', 'start']);
-    const died = await data('process', 'spawn', '0', 'generic-task', '--name', 'died');
+    await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+    const died = await data('process', 'spawn', '1', 'generic-task', '--name', 'died');
     await data('process', 'complete', String(died.pid));
     const text = (await cli(['process', 'delete', String(died.pid)])).stdout.trim();
     expect(text).toContain(`deleted pid ${died.pid}`);
@@ -369,11 +378,11 @@ describe('cli, daemon lifecycle and attach', () => {
     expect(text).toContain('messages=0');
     expect((await cli(['process', 'inspect', String(died.pid)], { check: false })).stderr).toContain('not found');
     // The parent is where the disappearance is recorded.
-    expect((await data('process', 'inspect', '0')).recent_events[0])
+    expect((await data('process', 'inspect', '1')).recent_events[0])
       .toMatchObject({ kind: 'child_deleted', data: { pid: died.pid, name: 'died' } });
 
     // A running process: delete refuses, purge terminates and removes it.
-    const live = await data('process', 'spawn', '0', 'generic-service', '--name', 'live');
+    const live = await data('process', 'spawn', '1', 'generic-service', '--name', 'live');
     const refused = await cli(['process', 'delete', String(live.pid)], { check: false });
     expect(refused.code).not.toBe(0);
     expect(refused.stderr).toContain('purge');
@@ -382,7 +391,7 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await cli(['process', 'purge', String(live.pid)], { check: false })).code).not.toBe(0);
 
     // A subtree: refused without --recursive, removed from the leaves up with it.
-    const branch = await data('process', 'spawn', '0', 'generic-service', '--name', 'branch');
+    const branch = await data('process', 'spawn', '1', 'generic-service', '--name', 'branch');
     const leaf = await data('process', 'spawn', String(branch.pid), 'generic-task', '--name', 'leaf');
     await data('process', 'complete', String(leaf.pid));
     expect((await cli(['process', 'delete', String(branch.pid)], { check: false })).stderr).toContain('has children');
@@ -413,7 +422,8 @@ describe('cli, daemon lifecycle and attach', () => {
     state.env = { ...baseEnv, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub };
     try {
       await cli(['daemon', 'start']);
-      const project = await data('process', 'spawn', '0', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
+      await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+      const project = await data('process', 'spawn', '1', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
 
       const before = await data('process', 'session', String(project.pid));
       expect(before).toMatchObject({ agent: 'pi', session_id: `lush-${project.pid}`, file: null, files: [] });
@@ -459,8 +469,9 @@ describe('cli, daemon lifecycle and attach', () => {
     state.env = { ...baseEnv, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub };
     try {
       await cli(['daemon', 'start']);
-      expect((await cli(['process', 'spawn', '0', 'generic-task', '--name', 'worker'])).stdout.trim()).toBe('PID 1');
-      const pid = '1';
+      await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+      expect((await cli(['process', 'spawn', '1', 'generic-task', '--name', 'worker'])).stdout.trim()).toBe('PID 2');
+      const pid = '2';
 
       // The daemon opens the call, this terminal runs pi, then the call is settled.
       const running = Bun.spawn([process.execPath, CLI, 'process', 'call', pid, 'do the thing', '--interactive'], {
@@ -490,10 +501,10 @@ describe('cli, daemon lifecycle and attach', () => {
       expect((await cli(['process', 'tree'])).stdout).toContain(`agent ${pid}.1 running · `);
       expect((await cli(['process', 'tree'])).stdout).toContain('· tty');
       expect((await cli(['process', 'tree', '--no-agents'])).stdout).not.toContain('agent ');
-      expect((await data('process', 'tree'))[1].agent).toMatchObject({
+      expect((await data('process', 'tree'))[2].agent).toMatchObject({
         provider: 'pi', running: 1, agents: [{ id: `${pid}.1`, interactive: true, call_id: 1 }],
       });
-      expect((await data('process', 'tree', '--no-agents'))[1].agent).toBeUndefined();
+      expect((await data('process', 'tree', '--no-agents'))[2].agent).toBeUndefined();
       // The agent space names it and shows the durable call behind it.
       expect((await cli(['process', 'agents', 'list'])).stdout).toContain(`${pid}.1`);
       expect((await cli(['process', 'agents', 'list'])).stdout).toContain('tty');
@@ -562,9 +573,10 @@ describe('cli, daemon lifecycle and attach', () => {
     state.env = { ...baseEnv, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub };
     try {
       await cli(['daemon', 'start']);
-      expect((await cli(['process', 'spawn', '0', 'generic-task', '--name', 'worker'])).stdout.trim()).toBe('PID 1');
+      await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+      expect((await cli(['process', 'spawn', '1', 'generic-task', '--name', 'worker'])).stdout.trim()).toBe('PID 2');
       // A daemon-spawned agent: this CLI only waits for the call to finish.
-      const call = Bun.spawn([process.execPath, CLI, 'process', 'call', '1', 'long work'], {
+      const call = Bun.spawn([process.execPath, CLI, 'process', 'call', '2', 'long work'], {
         cwd: ROOT, env: { ...state.env, PI_STUB_SLEEP: '3000' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe',
       });
       const [stdout, stderr] = [new Response(call.stdout).text(), new Response(call.stderr).text()];
@@ -575,37 +587,37 @@ describe('cli, daemon lifecycle and attach', () => {
       }
       expect(live).toHaveLength(1);
       expect(live[0]).toMatchObject({
-        id: '1.1', pid: 1, provider: 'pi', status: 'running', call_id: 1, interactive: false, cancellable: true,
+        id: '2.1', pid: 2, provider: 'pi', status: 'running', call_id: 1, interactive: false, cancellable: true,
       });
       expect(live[0].os_pid).toBeGreaterThan(0);
       // The tree shows the activity of that process only.
       const tree = (await cli(['process', 'tree'])).stdout;
-      expect(tree).toContain('agent 1.1 running · ');
+      expect(tree).toContain('agent 2.1 running · ');
       expect(tree).toContain('lush[0]');
       expect(tree).not.toContain('agent 0.1');
       expect((await cli(['process', 'agents', 'list'])).stdout).toContain('pipe');
 
       // Killing the worker ends the invocation; the process keeps running with its goal.
-      expect(JSON.parse((await cli(['--json', 'process', 'agents', 'kill', '1.1'])).stdout)).toMatchObject({ id: '1.1', killed: true });
+      expect(JSON.parse((await cli(['--json', 'process', 'agents', 'kill', '2.1'])).stdout)).toMatchObject({ id: '2.1', killed: true });
       expect(await call.exited).not.toBe(0);
       expect(await stderr).toContain('interrupted');
       expect(await stdout).toBe('');
       let info = null;
       for (let attempt = 0; attempt < 200; attempt += 1) {
-        info = await data('process', 'inspect', '1');
+        info = await data('process', 'inspect', '2');
         if (info.recent_calls[0].status !== 'running') break;
         await Bun.sleep(20);
       }
       expect(info.recent_calls[0]).toMatchObject({ status: 'interrupted', error: 'invocation cancelled' });
       expect(info.status).toBe('running');
       expect(await data('process', 'agents', 'list')).toEqual([]);
-      expect((await data('process', 'agents', 'list', '--all'))[0]).toMatchObject({ id: '1.1', status: 'interrupted' });
+      expect((await data('process', 'agents', 'list', '--all'))[0]).toMatchObject({ id: '2.1', status: 'interrupted' });
       // A finished agent cannot be killed again, and the process stays usable.
-      const again = await cli(['process', 'agents', 'kill', '1.1'], { check: false });
+      const again = await cli(['process', 'agents', 'kill', '2.1'], { check: false });
       expect(again.code).not.toBe(0);
       expect(again.stderr).toContain('is not running');
-      expect((await cli(['process', 'call', '1', 'hi'])).stdout.trim()).toBe('late reply');
-      expect((await data('process', 'agents', 'list', '--all')).map((agent) => agent.id)).toEqual(['1.1', '1.2']);
+      expect((await cli(['process', 'call', '2', 'hi'])).stdout.trim()).toBe('late reply');
+      expect((await data('process', 'agents', 'list', '--all')).map((agent) => agent.id)).toEqual(['2.1', '2.2']);
     } finally {
       state.env = baseEnv;
     }
@@ -741,7 +753,7 @@ describe('cli, daemon lifecycle and attach', () => {
               tool_calls: [{
                 id: 'spawn-once',
                 type: 'function',
-                function: { name: 'process_spawn', arguments: '{"template":"generic-task","name":"only-once"}' },
+                function: { name: 'process_spawn', arguments: '{"template":"project-manager","name":"only-once"}' },
               }],
             },
           }],

@@ -45,7 +45,7 @@ async function demo(home) {
   try {
     await run(['daemon', 'start']);
     if ((await run(['process', 'tree'], { quiet: true })).trim() !== 'lush[0]') throw new Error('unexpected initial tree');
-    await run(['process', 'spawn', '0', 'generic-service', '--name', 'project-manager']);
+    await run(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
     await run(['process', 'spawn', '1', 'generic-task', '--name', 'implement-login', '--goal', '实现登录功能']);
     await run(['process', 'tree']);
 
@@ -84,7 +84,7 @@ async function demo(home) {
 
     // Variables: creation values are checked against the template and split into
     // immutable / mutable; only mutable ones can change afterwards.
-    const project = await json('process', 'spawn', '0', 'project', '--name', 'lush-demo',
+    const project = await json('process', 'spawn', '1', 'project', '--name', 'lush-demo',
       '--vars', JSON.stringify({ path: ROOT }));
     const variables = (await json('process', 'inspect', String(project.pid))).variables;
     if (variables.immutable.path !== ROOT || variables.mutable.branch !== 'main') {

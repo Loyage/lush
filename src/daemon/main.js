@@ -50,6 +50,14 @@ export async function serve(config) {
     const manager = new ProcessManager(repository, templates, config.orphanPolicy);
     manager.agentCatalog = catalog;
     manager.ensureRoot();
+    // PID 0 is the only process whose snapshot tracks the loaded template: the
+    // root whitelist is whatever `lush-root` currently says, once per start.
+    const rootTemplate = manager.refreshRootTemplate();
+    if (rootTemplate.missing) {
+      log.warn('lush-root template is not loaded; PID 0 keeps its stored snapshot');
+    } else if (rootTemplate.changed.length) {
+      log.info(`refreshed PID 0 template snapshot: ${rootTemplate.changed.join(', ')}`);
+    }
     repository.recover();
     const backfill = manager.backfillTemplateSnapshots();
     if (backfill.filled.length) {

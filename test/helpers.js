@@ -39,6 +39,17 @@ export function system(directory, provider = null, runtimeOptions = {}, orphanPo
   return { database, manager, runtime };
 }
 
+/**
+ * PID 0's production template only allows project-manager. Most tests need a
+ * parent that may spawn any template, so they widen the *test* root explicitly;
+ * the real whitelist is covered by dedicated tests in core.test.js.
+ */
+export function permissiveRoot(manager) {
+  const snapshot = { ...manager.repository.get(0).template_snapshot, child_templates: ['*'] };
+  manager.repository.replaceSnapshot(0, snapshot);
+  return manager.load(0);
+}
+
 /** Await a promise that is expected to reject; returns the error for inspection. */
 export async function expectRejection(promise, pattern = null) {
   let value;
