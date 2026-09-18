@@ -12,7 +12,7 @@ const ROLE = { planner: '规划', worker: '执行', coordinator: '协调', resea
 const EVENTS = {
   created: '创建任务', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
-  'workspace.created': '创建 worktree', 'workspace.removed': '回收 worktree',
+  'workspace.created': '创建 worktree', 'workspace.removed': '回收 worktree', 'branch.removed': '回收分支',
   'verify.requested': '请求检验', 'baseline.created': '创建对照基线', 'baseline.removed': '回收对照基线',
   'merge.approved': '批准合并', merged: '已合并', 'merge.failed': '合并失败',
   completed: '完成', failed: '失败', cancelled: '取消',
@@ -472,6 +472,7 @@ function renderHistory(history, { running = false, truncated = false } = {}) {
     else if (event.type === 'workspace.created') body = [data.branch, data.workspace,
       data.dirty_source ? `创建时主树有 ${data.dirty_source.files} 处未提交改动，worker 看不到` : null].filter(Boolean).join(' · ');
     else if (event.type === 'workspace.removed') body = data.branch || '';
+    else if (event.type === 'branch.removed') body = data.branch || '';
     else if (event.type === 'verify.requested') body = `检验任务 #${data.verify_task} · 对照 ${data.baseline}`;
     else if (event.type === 'baseline.created') body = [data.target_branch, short(data.commit), data.workspace].filter(Boolean).join(' · ');
     else if (event.type === 'baseline.removed') body = data.workspace || '';
@@ -705,7 +706,13 @@ function renderDetail(task, history, diff, usage) {
       await detail(task.id);
     }));
   if (['failed', 'cancelled'].includes(task.status)) actions.append(button('检查后重试', async () => { await action('task.retry', { id: task.id }); await detail(task.id); }));
-  if (task.status === 'completed' && task.workspace && ['merged', 'none'].includes(task.integration)) actions.append(button('回收 worktree', async () => { await action('task.cleanup', { id: task.id }); await detail(task.id); }, 'ghost'));
+  const reclaimable = task.status === 'completed' && ['merged', 'none'].includes(task.integration) && (task.workspace || task.branch);
+  if (reclaimable) actions.append(button('回收工作区与分支', async () => {
+    const plan = [task.workspace && `删除 ${task.workspace}`, task.branch && `回收分支 ${task.branch}`].filter(Boolean).join('\n');
+    if (!confirm(`${plan}\n\n只有分支顶端就是审阅过的那次提交、且已经进入 ${task.target_branch} 时才删；否则分支保留并在事件里说明原因。`)) return;
+    await action('task.cleanup', { id: task.id }); await detail(task.id);
+  }, 'ghost'));
+  if (reclaimable && task.workspace && task.branch) actions.append(button('只回收 worktree（保留分支）', async () => { await action('task.cleanup', { id: task.id, keep_branch: true }); await detail(task.id); }, 'ghost'));
   const verifications = task.verifications || [];
   const activeVerification = verifications.find(item => !TERMINAL_STATUS.has(item.status));
   if (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit) {
@@ -870,22 +877,22 @@ function renderOverview(data) {
     kv('状态目录', data.status.home || '—', 'mono'), kv('启动', absolute(data.status.started_at) || '—'));
   info.append(meta); panel.append(info);
 
-  // 一键清空：只删库里已结束的任务；磁盘上的 worktree、分支与会话记录不碰，所以必须二次确认。
+  // 一键清空：删库里的已结束任务，并按 cleanup 的安全门回收 worktree/分支，所以必须二次确认。
   const maintenance = block('维护');
   const live = data.status.tasks.filter(row => HOT.has(row.status)).reduce((sum, row) => sum + row.count, 0);
   if (live) maintenance.append(el('p', `还有 ${live} 个任务没有结束。取消它们或等它们结束之后，才能清空看板。`, 'hint'));
   else if (!data.tasks.length) maintenance.append(el('p', '任务看板是空的。', 'hint'));
   else {
-    maintenance.append(el('p', `删除全部 ${data.tasks.length} 个已结束任务，以及 inputs / drafts / notices / events。worktree、分支与 pi 会话记录保留在磁盘上；旧 task id 不会被新任务复用。`, 'hint'));
+    maintenance.append(el('p', `删除全部 ${data.tasks.length} 个已结束任务，以及 inputs / drafts / notices / events。能安全回收的连 worktree 目录、对照检出与任务分支一起删；有未合并成果或分支被改过的保留在磁盘上，返回值会列出原因。旧 task id 不会被新任务复用。`, 'hint'));
     const actions = el('div', undefined, 'actions');
     actions.append(button('清空任务看板', async () => {
       if (!confirm(`删除全部 ${data.tasks.length} 个已结束任务？`)) return;
-      if (!confirm('再次确认：库里的任务、输入与事件将不可恢复；磁盘上的 worktree 与分支会保留。')) return;
+      if (!confirm('再次确认：库里的任务、输入与事件将不可恢复；已进目标分支的 worktree 目录与分支会一并删除，未合并的保留。')) return;
       const result = await action('task.clear');
       selected = null; overviewKey = null;
       window.history.replaceState(null, '', location.pathname);
       await refresh();
-      $('error').textContent = `已清空 ${result.cleared.tasks} 个任务、${result.cleared.inputs} 条输入；磁盘上保留 ${result.retained.tasks.length} 个 worktree/分支`;
+      $('error').textContent = `已清空 ${result.cleared.tasks} 个任务、${result.cleared.inputs} 条输入；回收 ${result.reclaimed?.worktrees ?? 0} 个 worktree、${result.reclaimed?.branches ?? 0} 个分支，保留 ${result.retained.tasks.length} 个`;
     }, 'danger'));
     maintenance.append(actions);
   }

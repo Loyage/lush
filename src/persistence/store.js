@@ -102,8 +102,9 @@ export class Store {
   }
   /**
    * Project-level reset: drops every task-scoped row plus the input audit trail.
-   * Only Project#clear calls this, and only after proving no task is active and no
-   * invocation is still unwinding. Disk state (worktrees, branches, sessions) is not touched,
+   * Only Project#clear calls this, and only after proving no task is active, no
+   * invocation is still unwinding, and every ended task has been through the
+   * worktree/branch reclamation gates. Whatever those gates kept stays on disk,
    * which is why nextTaskId() is pinned first: the retained names must stay unambiguous.
    */
   purge() {
