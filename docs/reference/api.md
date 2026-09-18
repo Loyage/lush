@@ -33,6 +33,7 @@
 | `task inspect ID` | `task.inspect` | `{id}` |
 | `task history ID [--after N]` | `task.history` | `{id, after?: 0}` |
 | `task transcript ID [--after N]` | `task.transcript` | `{id, after?: 0, limit?: 100}`，limit 最大 200 |
+| `task usage ID` | `task.usage` | `{id}` |
 | `task spawn 'goal' --parent ID --role worker [--name short-kebab-name] [--depends-on ID[:kind]]` | `task.spawn` | `{parent, goal, role?: 'worker', deps?: [{id, kind: 'code'|'order'}], name?}` |
 | —（只读，Web UI 使用） | `task.diff` | `{id}` |
 | `task message ID 'body'` | `task.message` | `{id, body}` |
@@ -62,6 +63,8 @@ spawn 必须关联一个活动父 task；根任务只能由用户输入创建。
 
 `task.transcript` 是 agent **执行过程**的只读投影。过程数据不在 SQLite：daemon 只把 invocation 的最后一次 stdout 存成 `tasks.result`，而思考、工具调用与工具输出由 pi 写在 `<home>/sessions/*_lush-task-ID.jsonl`。这个 RPC 是那些文件的唯一读取者，不写库、不改工作区、也不进入 Git 串行队列。每条 JSONL 记录投影成 0..n 个 `{seq, kind, title, at, body, file, line}`：`kind` 为 `meta`（模型、思考等级等）、`input`（注入的任务上下文）、`thinking`、`tool`（工具调用，body 是参数 JSON）、`result`（工具输出，失败时 title 带「（失败）」）或 `text`（回答）。单步正文截断到 4000 字符；一次最多返回 200 步且受 RPC 字节预算限制，用返回的 `next` 作为下一页 `after`，`has_more` 表示还有步骤。同一个 task 可能因重试或重启留下多个会话文件，按文件名（时间前缀）从旧到新拼接，`seq` 跨文件连续；半行 JSON（agent 被杀）跳过，未知记录类型降级为 `meta`，都不算错误。单次请求读取的会话字节上限为 8 MiB，超出时 `truncated` 为 true。`files` 列出本次涉及的会话文件名，便于人去磁盘上核对原文。
 
+`task.usage` 是同一个 agent 的**用量**只读视图，读的还是那批会话文件，但不投影步骤、不做正文截断，所以详情面板每次刷新都可以取它。返回 `{task_id, files, model, thinking_level, requests, context_tokens, compacted, last_at, totals, truncated}`：`model` 是最近一次请求的 `{provider, model_id}`（模型中途被换掉时显示最后真正用到的），`requests` 是 assistant 回合并（＝模型请求次数），`context_tokens` 是**最近一次**请求的 `totalTokens`（＝输入 + 缓存读 + 缓存写 + 输出），也就是那一刻上下文里真的有多少 token；`totals` 是全部会话文件累计的 `{input, output, cache_read, cache_write, reasoning, tokens, cost}`，其中 `cost` 是 pi 按模型单价算出的每次请求花费之和。`compacted` 是上下文压缩次数，`last_at` 是最近一次带用量的请求时间，读取预算同样为 8 MiB（超出时 `truncated`）。没有会话文件时返回各项为零/空的统计，不报错。它不写库、不改工作区，也不进入 Git 串行队列。
+
 ## Web 读取路由
 
 Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
@@ -73,6 +76,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
 | `GET /api/task/ID/history?after=N` | `task.history` |
 | `GET /api/task/ID/diff` | `task.diff` |
 | `GET /api/task/ID/transcript?after=N` | `task.transcript` |
+| `GET /api/task/ID/usage` | `task.usage` |
 | `POST /api/action` | 仅限上方 `MUTATIONS` 中的用户动作（含 `task.clear`） |
 
 ## 待决问题
@@ -109,6 +113,7 @@ CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 t
 - `GET /api/snapshot`：项目状态、任务摘要、输入与 notice。
 - `GET /api/task/<id>`：任务详情。
 - `GET /api/task/<id>/transcript`：agent 执行过程，只读，来自 pi 会话记录。
+- `GET /api/task/<id>/usage`：同一个 agent 的模型、上下文占用与累计花费，只读。
 - `POST /api/action`：JSON `{method, params}`，只允许用户输入、任务 message/cancel/retry/merge/cleanup/clear 和 notice answer/dismiss。
 
 仅回环监听；拒绝非本地 Host、跨 Origin、跨站请求和非 JSON 修改请求。不能将它作为公网多用户服务暴露。

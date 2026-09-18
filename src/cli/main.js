@@ -26,6 +26,7 @@ lush [--project PATH] [--json] <command>
   task inspect ID                 结果、agent、子任务、消息与工作区
   task history ID [--after N]      分页事件记录
   task transcript ID [--after N]   只读查看 agent 的思考、工具调用与工具输出（来自 pi 会话记录）
+  task usage ID                   只读查看这个 agent 的模型、上下文占用与累计花费（同一批会话记录）
   task spawn '目标' [--parent ID] [--role worker|coordinator|research] [--name short-kebab-name] [--depends-on ID[:code|order]]
       --name 是任务的英文短名，决定 worktree 目录与分支 <id>-<name>；省略时按 goal 里的英文词回退。
   task message ID '补充说明'       追加输入，不打断当前 invocation
@@ -70,6 +71,17 @@ function printTranscript(page) {
   for (const step of page.steps) console.log(`[${step.seq}] ${step.kind}\t${step.title}${step.at ? `\t${step.at}` : ''}\n${step.body}\n`);
   if (page.has_more) console.error(`… 还有更多步骤；用 --after ${page.next} 继续`);
   if (page.truncated) console.error('… 会话记录过大，只读取了前面一部分');
+}
+function printUsage(usage) {
+  if (!usage.files.length) { console.log('(这个任务还没有 pi 会话记录)'); return; }
+  const model = usage.model ? [usage.model.provider, usage.model.model_id].filter(Boolean).join('/') : '—';
+  const t = usage.totals;
+  console.log(`模型\t${model}${usage.thinking_level ? ` · 思考等级 ${usage.thinking_level}` : ''}`);
+  console.log(`上下文\t${usage.context_tokens} tokens（最近一次请求）`);
+  console.log(`累计\t输入 ${t.input} · 输出 ${t.output} · 缓存读 ${t.cache_read} · 缓存写 ${t.cache_write} · 推理 ${t.reasoning}`);
+  console.log(`花费\t$${t.cost.toFixed(6)}（${usage.requests} 次模型请求）`);
+  console.log(`会话\t${usage.files.length} 个文件${usage.compacted ? ` · 上下文压缩 ${usage.compacted} 次` : ''}`);
+  if (usage.truncated) console.error('… 会话记录过大，统计只覆盖前面一部分');
 }
 /* ---------- 并行/串行关系：任务树、合并阶梯、时间轴 ---------- */
 const DEP_MARK = { code: '⛓', order: '⏳' };
@@ -242,6 +254,10 @@ export async function main(argv = process.argv.slice(2)) {
       const after = Number(option(args, '--after', '0')); exact(args, 1);
       value = await client.request('task.transcript', { id: id(args[0]), after });
       if (!json) { printTranscript(value); return; }
+    } else if (verb === 'usage') {
+      exact(args, 1);
+      value = await client.request('task.usage', { id: id(args[0]) });
+      if (!json) { printUsage(value); return; }
     } else if (verb === 'message') { exact(args, 2); value = await client.request('task.message', { id: id(args[0]), body: args[1] }); }
     else if (verb === 'history') {
       const after = Number(option(args, '--after', '0')); exact(args, 1);
