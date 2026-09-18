@@ -25,6 +25,7 @@ MVP 范围内无未完成项。后续方向（本轮不实现）：Context compr
 - [11 · task 收件箱：父子持续通话，阻塞移到 task 层](./11-task-inbox.md)
 - [12 · worktree 合并后的资源回收（第二次 notice）](./12-worktree-reclaim.md)
 - [13 · 模板提示词外置为 markdown（`@<路径>`）](./13-template-prompt-files.md)
+- [14 · Web UI 右侧主栏跟着当前视图走](./14-webui-right-panel-follows-view.md)
 
 ## 验收命令
 

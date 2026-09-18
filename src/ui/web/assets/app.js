@@ -44,6 +44,7 @@ const elements = {
   goal: document.querySelector('#goal'),
   submit: document.querySelector('#submit'),
   formMessage: document.querySelector('#form-message'),
+  taskNew: document.querySelector('#task-new'),
   taskParent: document.querySelector('#task-parent'),
   taskCancel: document.querySelector('#task-cancel'),
   taskDelete: document.querySelector('#task-delete'),
@@ -746,6 +747,7 @@ async function refresh({ quiet = false } = {}) {
 // ── View switching and actions ─────────────────────────────────────────────
 
 function setView(view) {
+  const changed = state.view !== view;
   state.view = view;
   for (const tab of elements.tabs) {
     const active = tab.dataset.view === view;
@@ -755,12 +757,15 @@ function setView(view) {
   elements.servicesView.hidden = view !== 'services';
   elements.tasksView.hidden = view !== 'tasks';
   elements.noticesView.hidden = view !== 'notices';
-  // Notice is its own workspace: the task/service panels would only be in the way.
-  const noticesMode = view === 'notices';
-  elements.createPanel.hidden = noticesMode;
-  elements.servicePanel.hidden = noticesMode;
-  elements.treePanel.hidden = noticesMode;
-  elements.noticePanel.hidden = !noticesMode;
+  // The right column mirrors the sidebar selection: 服务 shows the create form
+  // plus the selected service's capabilities, 任务 shows the selected task's
+  // detail (create/service would push it below the fold), Notice its own form.
+  elements.createPanel.hidden = view !== 'services';
+  elements.servicePanel.hidden = view !== 'services';
+  elements.treePanel.hidden = view !== 'tasks';
+  elements.noticePanel.hidden = view !== 'notices';
+  // A panel swap can leave the page scrolled past the new first screen.
+  if (changed) window.scrollTo({ top: 0 });
   if (view === 'tasks') {
     loadTasks().catch((err) => showMessage(err.message, true));
   }
@@ -770,6 +775,12 @@ function setView(view) {
 }
 
 for (const tab of elements.tabs) tab.addEventListener('click', () => setView(tab.dataset.view));
+elements.taskNew.addEventListener('click', () => {
+  // The create form lives in the 服务 view; one click gets there and the
+  // selected service (kept across views) is already filled in.
+  setView('services');
+  if (selectedService()?.status === 'active') elements.goal.focus();
+});
 elements.taskScope.addEventListener('change', () => {
   loadTasks().catch((err) => showMessage(err.message, true));
 });

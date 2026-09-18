@@ -15,6 +15,9 @@
 
 * { box-sizing: border-box; }
 
+/* `hidden` 是切换视图的唯一开关；类上的 `display`（如 .service-view 的 grid）会盖过浏览器默认的 [hidden]，所以要显式压住。 */
+[hidden] { display: none !important; }
+
 body {
   min-width: 320px;
   min-height: 100vh;

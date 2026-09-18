@@ -75,7 +75,7 @@ just clean           # 停 daemon 并删掉本仓库的 .lush（连历史一起�
 just reset yes       # 只清服务树（daemon、日志、session 都保留），不可逆
 ```
 
-Web UI 的侧边栏可在「服务」与「任务」两个视图之间切换：服务视图里选中任一 Service（含 stopped）就在右侧「Service 能力」看到它的能力边界、还能创建哪些子 Service 与在其上创建 Task 时会用的提示词（`service.view` 的 description / templates / prompt），选中 active Service 并填写 goal 会立即在后台启动一个根 Task；任务视图列出全部 Task（可按根/子与状态筛选），选中后右侧用 `task.tree` 展开它派出去的全部子 Task，并可取消或删除。`just web` 不会启动、停止或重启 daemon：daemon 离线时页面保持运行，后续 daemon 启动或重启后自动恢复。它只监听本机回环地址，不应通过反向代理暴露给不可信用户。CLI、Web UI 以及未来 TUI 的 adapter 统一放在 `src/ui/`，并共享同一个 `UIClient` 应用客户端；细节见 [用户界面](docs/reference/ui.md)。
+Web UI 的侧边栏可在「服务」/「任务」/「Notice」三个视图之间切换，右侧主栏跟着当前视图走（不再把三块面板永远堆在一起）：服务视图显示「创建 Task」表单与选中 Service 的能力面板——选中任一 Service（含 stopped）看到它的能力边界、还能创建哪些子 Service 与在其上创建 Task 时会用的提示词（`service.view` 的 description / templates / prompt），选中 active Service 并填写 goal 会立即在后台启动一个根 Task；任务视图列出全部 Task（可按根/子与状态筛选），右侧首屏就是选中 Task 的详情（`task.tree`：id / status / goal / 元信息 / result，以及它派出去的全部子 Task，并可取消或删除），`＋ 新建 Task` 一次点击即切回服务视图的创建表单；Notice 视图只显示 notice 列表与详情表单。`just web` 不会启动、停止或重启 daemon：daemon 离线时页面保持运行，后续 daemon 启动或重启后自动恢复。它只监听本机回环地址，不应通过反向代理暴露给不可信用户。CLI、Web UI 以及未来 TUI 的 adapter 统一放在 `src/ui/`，并共享同一个 `UIClient` 应用客户端；细节见 [用户界面](docs/reference/ui.md)。
 
 完整清单、`just clean` 与 `just reset` 的区别、以及每个命令的参数，见 [docs/reference/cli.md](docs/reference/cli.md)。
 
