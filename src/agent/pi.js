@@ -10,6 +10,11 @@
  * the caller's terminal, so a human can watch and steer that same tool loop.
  * How an invocation is described (session, argv, command line) lives in
  * `pi_args.js`; this file owns the provider class and running the subprocess.
+ *
+ * `plugins` is the agent profile's switch: `false` (the default) adds the pure
+ * pi flag set so no user extension / skill / prompt template / theme / AGENTS.md
+ * is loaded, `true` leaves pi's own defaults alone. `flags` are extra pi flags
+ * a profile asked for, appended after the plugin switches.
  */
 import cp from 'node:child_process';
 import fs from 'node:fs';
@@ -29,6 +34,7 @@ const MAX_OUTPUT = 4 * 1024 * 1024;
 const MAX_STDERR = 16 * 1024;
 
 export class PiAgentProvider {
+  /** The env-only fallback tier: environment variables over the built-in defaults. */
   static fromEnv(env = process.env, { home } = {}) {
     return new PiAgentProvider({
       command: env.LUSH_PI_COMMAND || 'pi',
@@ -39,20 +45,54 @@ export class PiAgentProvider {
     });
   }
 
-  constructor({ command = 'pi', provider = '', model = '', home, env = process.env, sessionDir = null } = {}) {
+  /** One resolved agent profile (`resolveAgentSpec`). */
+  static fromSpec(spec, env = process.env, { home, sessionDir = null } = {}) {
+    return new PiAgentProvider({
+      command: spec.command || 'pi',
+      provider: spec.pi_provider ?? '',
+      model: spec.model ?? '',
+      plugins: spec.plugins === true,
+      flags: spec.flags ?? [],
+      home,
+      env,
+      sessionDir,
+    });
+  }
+
+  /** Same as `fromSpec`, but a missing binary is kept as-is instead of throwing (argv preview). */
+  static forPreview(spec, env = process.env, { home } = {}) {
+    return new PiAgentProvider({
+      command: spec.command || 'pi',
+      provider: spec.pi_provider ?? '',
+      model: spec.model ?? '',
+      plugins: spec.plugins === true,
+      flags: spec.flags ?? [],
+      home,
+      env,
+      requireCommand: false,
+    });
+  }
+
+  constructor({
+    command = 'pi', provider = '', model = '', plugins = false, flags = [],
+    home, env = process.env, sessionDir = null, requireCommand = true,
+  } = {}) {
     if (typeof home !== 'string' || home === '') {
       throw new LushError('pi agent requires the Lush home directory', -32602);
     }
     const resolved = resolveCommand(command, env);
-    if (resolved === null) {
-      throw new LushError(`pi agent command not found: ${command} (set LUSH_PI_COMMAND or LUSH_PROVIDER=mock)`, -32602);
+    if (resolved === null && requireCommand) {
+      throw new LushError(`pi agent command not found: ${command} (set LUSH_PI_COMMAND, the profile command, or LUSH_PROVIDER=mock)`, -32602);
     }
     this.name = 'pi';
     /** External agents reach Lush through the CLI, not through process_* tools. */
     this.contextMode = 'cli';
-    this.command = resolved;
+    this.command = resolved ?? command;
     this.provider = provider;
     this.model = model;
+    /** `false` = pure pi: no user extensions / skills / prompt templates / themes / AGENTS.md. */
+    this.plugins = plugins;
+    this.flags = [...flags];
     this.home = home;
     this.sessionDir = sessionDir ?? path.join(home, 'pi-sessions');
     this.env = env;

@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { LushError } from '../core/types.js';
 import { lushContextMessage } from '../context/context.js';
 import { shellCommand } from '../shell.js';
+import { pluginArgs } from './profiles.js';
 
 /** Repo `bin/` directory; prepended to PATH so the agent can always run `lush`. */
 export const LUSH_BIN_DIR = path.dirname(fileURLToPath(new URL('../../bin/lush', import.meta.url)));
@@ -50,10 +51,21 @@ export function resolveCommand(command, env) {
   return null;
 }
 
+/**
+ * The selected agent's plugin switches and extra flags, in a fixed order:
+ * pure-pi flags first (when the profile keeps plugins off), then the profile's
+ * own `flags`. This is what makes "the default agent is pure pi" observable in
+ * `call --dry-run`, `session --open` and `agent inspect`.
+ */
+export function profileArgs(provider) {
+  return pluginArgs(provider.plugins === true, provider.flags ?? []);
+}
+
 /** Session flags + agent identity, shared by `call`, `preview` and `sessionInfo`. */
 export function identityArgs(provider, invocation, { name = null } = {}) {
   const pid = invocation.pid;
   const args = [
+    ...profileArgs(provider),
     '--session-dir', provider.sessionDir,
     '--session-id', provider.sessionId(pid),
     '--name', name ?? `${invocation.context?.process?.name ?? 'process'}[${pid}]`,
@@ -125,7 +137,7 @@ export function sessionInfo(provider, invocation) {
   const { session_dir: sessionDir, session_id: sessionId, files } = sessions(provider, invocation.pid);
   const argv = [provider.command, ...identityArgs(provider, invocation)];
   // Compact line for browsing the conversation in pi's own TUI (pi's default prompt).
-  const browseArgv = [provider.command, '--session-dir', provider.sessionDir, '--session-id', sessionId];
+  const browseArgv = [provider.command, ...profileArgs(provider), '--session-dir', provider.sessionDir, '--session-id', sessionId];
   if (provider.provider !== '') browseArgv.push('--provider', provider.provider);
   if (provider.model !== '') browseArgv.push('--model', provider.model);
   return {

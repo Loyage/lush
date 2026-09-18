@@ -35,6 +35,19 @@ export function context(repository, pid) {
   };
 }
 
+/**
+ * The agent profile a process selected at spawn time (`state.agent`), or null.
+ * Reading one column keeps `process tree` cheap: it resolves a provider name per
+ * row without walking sessions or counting messages.
+ */
+export function stateAgent(repository, pid) {
+  const row = repository.db.query('SELECT state FROM contexts WHERE pid=?').get(pid);
+  if (row === null) return null;
+  const state = JSON.parse(row.state);
+  const name = state === null || typeof state !== 'object' ? undefined : state.agent;
+  return typeof name === 'string' && name !== '' ? name : null;
+}
+
 export function updateState(repository, pid, patch) {
   let state;
   repository.database.transaction(() => {

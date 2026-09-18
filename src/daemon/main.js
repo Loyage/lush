@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Config } from '../config.js';
 import { AgentRuntime } from '../agent/runtime.js';
-import { configuredProvider } from '../agent/provider.js';
+import { AgentCatalog } from '../agent/catalog.js';
 import { ContextBuilder } from '../context/builder.js';
 import { ProcessManager } from '../core/process_manager.js';
 import { DaemonLock } from './locking.js';
@@ -39,10 +39,16 @@ export async function serve(config) {
   try {
     fs.rmSync(config.socket, { force: true }); // safe only while holding the daemon lock
     const templates = new TemplateLoader(path.join(config.home, 'templates'));
-    const provider = await configuredProvider(process.env, { home: config.home });
+    // The catalog is created once and stays valid for the whole daemon run: it
+    // re-reads `$LUSH_HOME/agents/<name>.json` per call, so editing a profile
+    // takes effect immediately while the daemon's own fallback provider (env over
+    // the built-in pure-pi default) is built here and never changes.
+    const catalog = new AgentCatalog({ home: config.home, env: process.env });
+    const provider = catalog.defaultProvider();
     database = new Database(path.join(config.home, 'lush.db'));
     repository = new Repository(database);
     const manager = new ProcessManager(repository, templates, config.orphanPolicy);
+    manager.agentCatalog = catalog;
     manager.ensureRoot();
     repository.recover();
     const backfill = manager.backfillTemplateSnapshots();

@@ -41,14 +41,18 @@ function killProcess(osPid) {
  * Mint the next agent id for `pid` (`PID.N`) and register the live worker.
  * N is per process and per daemon run: ids are runtime identities — the
  * durable identity of the same work is the call row (`agent_calls.id`).
+ * The provider instance is kept on the record (never serialized) so later
+ * reads (`agents show`) can ask *that* agent about its session, even if the
+ * profile file changed in the meantime.
  */
-export function openAgent(runtime, pid, callId, { interactive = false } = {}) {
+export function openAgent(runtime, pid, callId, { interactive = false, provider = runtime.provider } = {}) {
   const seq = (runtime.agentSeq.get(pid) ?? 0) + 1;
   runtime.agentSeq.set(pid, seq);
   const record = {
     id: `${pid}.${seq}`,
     pid,
-    provider: runtime.provider.name,
+    provider: provider.name,
+    impl: provider,
     call_id: callId,
     status: 'running',
     started_at: new Date().toISOString(),
@@ -120,7 +124,8 @@ export function agentShow(runtime, id) {
   const record = runtime.agents.get(id) ?? runtime.agentLog.find((candidate) => candidate.id === id);
   if (record === undefined) throw new LushError(`agent not found: ${id}`, -32004);
   const call = runtime.repository.callById(record.call_id);
-  const sessions = typeof runtime.provider.sessions === 'function' ? runtime.provider.sessions(record.pid) : null;
+  const provider = record.impl ?? runtime.provider;
+  const sessions = typeof provider.sessions === 'function' ? provider.sessions(record.pid) : null;
   const files = sessions?.files ?? [];
   return {
     ...agentView(runtime, record),
@@ -166,10 +171,10 @@ export function agentsKill(runtime, id) {
  * tree answers "who is working right now", the session answers "what is on
  * disk", and both stay cheap.
  */
-export function agentSummary(runtime, pid) {
+export function agentSummary(runtime, pid, profile = undefined) {
   const running = [...runtime.agents.values()].filter((record) => record.pid === pid).sort(byAgentId);
   return {
-    provider: runtime.provider.name,
+    provider: runtime.providerName(pid, profile),
     running: running.length,
     agents: running.map((record) => ({
       id: record.id,

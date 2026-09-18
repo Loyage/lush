@@ -20,11 +20,24 @@ export class ContextBuilder {
     this.repository = repository;
     this.templates = templates;
     this.agentMode = agentMode;
-    this.guide = agentGuide(agentMode);
+    this.guides = new Map([[agentMode, agentGuide(agentMode)]]);
   }
 
-  build(process, currentCall) {
+  /** The shared Lush layer for one mode; the two modes are cached per builder. */
+  guideFor(agentMode) {
+    if (!this.guides.has(agentMode)) this.guides.set(agentMode, agentGuide(agentMode));
+    return this.guides.get(agentMode);
+  }
+
+  /**
+   * Build one invocation's context. `agentMode` may be overridden per process:
+   * the agent a process selected can be a different backend than the daemon's
+   * fallback one, and the shared Lush layer must match the backend that runs it
+   * (`cli` for external pi, `tools` for the in-process runtimes).
+   */
+  build(process, currentCall, agentMode = this.agentMode) {
     const pid = process.pid;
+    const guide = this.guideFor(agentMode);
     const metadata = this.repository.get(pid);
     const context = ProcessContext.load(this.repository, pid);
     const parent = metadata.parent_pid === null
@@ -59,12 +72,12 @@ export class ContextBuilder {
       available_child_templates: available,
     };
     const messages = [
-      { role: 'system', content: `${context.systemPrompt}\n\n${this.guide}` },
+      { role: 'system', content: `${context.systemPrompt}\n\n${guide}` },
       { role: 'system', content: lushContextMessage(data) },
       ...this.repository.conversation(pid, currentCall),
     ];
     return new BuiltContext({
-      context, metadata: summary(metadata), parent, children, messages, guide: this.guide, data,
+      context, metadata: summary(metadata), parent, children, messages, guide, data,
     });
   }
 }

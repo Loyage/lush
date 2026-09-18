@@ -47,6 +47,34 @@ export class AgentRuntime {
     return Boolean(entry && entry.busy);
   }
 
+  // ── Which agent answers for one process ───────────────────────────────────
+
+  /** The profile name a process selected at spawn time (`state.agent`), or null. */
+  selectedAgent(pid) {
+    return this.manager.selectedAgent(pid);
+  }
+
+  /** The profile name to show for a process: its explicit choice, or `default`. */
+  agentProfile(pid, selected = undefined) {
+    return this.manager.agentProfileName(pid, selected);
+  }
+
+  /**
+   * The effective provider of one process: the agent profile it selected, or the
+   * daemon's fallback provider. See `ProcessManager.agentProvider`.
+   */
+  providerFor(pid) {
+    return this.manager.agentProvider(pid);
+  }
+
+  /**
+   * The provider *name* of one process, without building a provider. `selected`
+   * lets a caller that already decoded the process row skip the extra read.
+   */
+  providerName(pid, selected = undefined) {
+    return this.manager.agentProviderName(pid, selected);
+  }
+
   get activeCalls() {
     let count = 0;
     for (const entry of this.active.values()) if (entry.busy) count += 1;
@@ -81,8 +109,8 @@ export class AgentRuntime {
     return agentsKill(this, id);
   }
 
-  agentSummary(pid) {
-    return agentSummary(this, pid);
+  agentSummary(pid, profile = undefined) {
+    return agentSummary(this, pid, profile);
   }
 
   // ── Invocation descriptions (see invocation.js) ────────────────────────────
@@ -128,11 +156,15 @@ export class AgentRuntime {
     }
     if (this.isBusy(pid)) throw new LushError(`process ${pid} agent is busy`);
 
+    // Resolve the agent before opening the call: an unusable profile must not
+    // leave a running call row behind.
+    const provider = this.providerFor(pid);
     const callId = this.repository.beginCall(pid, prompt);
     const entry = {
       pid,
       callId,
-      agent: openAgent(this, pid, callId),
+      provider,
+      agent: openAgent(this, pid, callId, { provider }),
       controller: new AbortController(),
       busy: true,
       reason: null,
@@ -170,8 +202,9 @@ export class AgentRuntime {
    */
   openInteractive(pid, prompt) {
     if (this.closing) throw new LushError('runtime is shutting down', -32021);
-    if (typeof this.provider.interactiveArgs !== 'function') {
-      throw new LushError(`agent ${this.provider.name} runs in-process; there is no external agent to enter`, -32020);
+    const provider = this.providerFor(pid);
+    if (typeof provider.interactiveArgs !== 'function') {
+      throw new LushError(`agent ${provider.name} runs in-process; there is no external agent to enter`, -32020);
     }
     this.manager.requireRunning(pid);
     text(prompt, 'prompt');
@@ -181,15 +214,16 @@ export class AgentRuntime {
     }
     if (this.isBusy(pid)) throw new LushError(`process ${pid} agent is busy`);
 
-    const context = this.builder.build(this.manager.load(pid), null);
+    const context = this.builder.build(this.manager.load(pid), null, provider.contextMode);
     const invocation = buildInvocation(this, pid, null, prompt, context);
     // Build the argv before opening the call: a rejected invocation must not leave a running row.
-    const preview = this.provider.preview(invocation, { interactive: true });
+    const preview = provider.preview(invocation, { interactive: true });
     const callId = this.repository.beginCall(pid, prompt);
     const entry = {
       pid,
       callId,
-      agent: openAgent(this, pid, callId, { interactive: true }),
+      provider,
+      agent: openAgent(this, pid, callId, { interactive: true, provider }),
       controller: new AbortController(),
       busy: true,
       reason: null,
@@ -214,7 +248,7 @@ export class AgentRuntime {
       entry.timer.unref?.();
     }
     log.info(`interactive call ${callId} handed to the caller's terminal for pid=${pid} as agent ${entry.agent.id}`);
-    return { pid, call_id: callId, agent_id: entry.agent.id, agent: this.provider.name, prompt, interactive: true, ...preview };
+    return { pid, call_id: callId, agent_id: entry.agent.id, agent: provider.name, prompt, interactive: true, ...preview };
   }
 
   /**

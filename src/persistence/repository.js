@@ -10,7 +10,7 @@
  */
 import { LushError, jsonDump, now, validPid } from '../core/types.js';
 import {
-  backfillSnapshot, context, event, events, history, updateState, updateVars,
+  backfillSnapshot, context, event, events, history, stateAgent, updateState, updateVars,
 } from './repository_state.js';
 import { addMessage, beginCall, callById, calls, conversation, finishCall } from './repository_calls.js';
 import { deleteRows, remove } from './repository_removal.js';
@@ -34,6 +34,10 @@ export class Repository {
     const state = this.db.query('SELECT state FROM contexts WHERE pid=?').get(item.pid);
     const stored = state === null ? {} : JSON.parse(state.state);
     const declared = item.template_snapshot.variables ?? {};
+    // The agent profile this process selected at spawn time (null = the
+    // daemon's fallback tier). It lives in the Context state next to the
+    // variables, so reading it costs nothing extra here.
+    item.agent_profile = typeof stored.agent === 'string' && stored.agent !== '' ? stored.agent : null;
     item.variables = {
       immutable: stored.params ?? {},
       mutable: stored.vars ?? {},
@@ -68,7 +72,7 @@ export class Repository {
       .map((row) => this.decode(row));
   }
 
-  create(parentPid, template, name, goal, { root = false, variables = null } = {}) {
+  create(parentPid, template, name, goal, { root = false, variables = null, agent = null } = {}) {
     const stamp = now();
     const columns = 'parent_pid,original_parent_pid,name,type,status,template,template_snapshot,goal,created_at,updated_at';
     const values = [parentPid, parentPid, name, template.type, 'created',
@@ -83,10 +87,13 @@ export class Repository {
       }
       // Templates carry no initial Context: state, artifacts and references always
       // start empty. Creation-time variables are stored by mutability region:
-      // immutable values in state.params, mutable ones in state.vars.
+      // immutable values in state.params, mutable ones in state.vars. The
+      // selected agent profile is recorded in the same state so every later read
+      // (`inspect`, `tree`, a call) knows which backend this PID asked for.
       const state = {};
       if (variables !== null && Object.keys(variables.immutable).length) state.params = variables.immutable;
       if (variables !== null && Object.keys(variables.mutable).length) state.vars = variables.mutable;
+      if (agent !== null && agent !== undefined) state.agent = agent;
       this.db.run('INSERT INTO contexts VALUES(?,?,?,?,?)', [pid, template.system_prompt, jsonDump(state), '[]', '[]']);
       this.event(pid, 'created', { parent_pid: parentPid, template: template.name });
       this.db.run("UPDATE processes SET status='running' WHERE pid=?", [pid]);
@@ -211,6 +218,11 @@ export class Repository {
   }
 
   // ── Context, state, events and history (see repository_state.js) ───────────
+
+  /** The agent profile this process selected at spawn time (null when unset). */
+  stateAgent(pid) {
+    return stateAgent(this, pid);
+  }
 
   event(pid, kind, data) {
     return event(this, pid, kind, data);

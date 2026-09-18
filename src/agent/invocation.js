@@ -9,17 +9,21 @@
  * `--dry-run` and `session --open` cannot drift from what `call` would do.
  */
 import { LushError } from '../core/types.js';
+import { DEFAULT_AGENT_NAME } from './profiles.js';
 
 /**
  * Structured description of one invocation. In-process providers read
  * `messages`; external backends (pi) read the system prompt, the shared Lush
- * guide, the runtime data and the working directory.
+ * guide, the runtime data and the working directory. `agent_profile` is the
+ * agent profile this invocation runs under: the argv already carries that
+ * profile's flags, and the name makes the choice traceable.
  */
 export function buildInvocation(runtime, pid, callId, prompt, context, { on_spawn = null } = {}) {
   const state = runtime.repository.context(pid).state;
   // The immutable `path` variable (declared by the template) is this process's
   // working directory; without it the agent works in $LUSH_HOME.
   const workdir = state?.params?.path;
+  const profile = state?.agent;
   return {
     pid,
     call_id: callId,
@@ -29,6 +33,7 @@ export function buildInvocation(runtime, pid, callId, prompt, context, { on_spaw
     context: context.data,
     on_spawn,
     cwd: typeof workdir === 'string' ? workdir : null,
+    agent_profile: typeof profile === 'string' && profile !== '' ? profile : DEFAULT_AGENT_NAME,
   };
 }
 
@@ -41,12 +46,22 @@ export function buildInvocation(runtime, pid, callId, prompt, context, { on_spaw
 export function describe(runtime, pid, prompt) {
   if (runtime.closing) throw new LushError('runtime is shutting down', -32021);
   runtime.manager.requireRunning(pid);
-  const context = runtime.builder.build(runtime.manager.load(pid), null);
+  // The agent a process selected decides both the backend and the shared Lush
+  // layer, so the dry run and the real call are described by the same provider.
+  const provider = runtime.providerFor(pid);
+  const context = runtime.builder.build(runtime.manager.load(pid), null, provider.contextMode);
   const invocation = buildInvocation(runtime, pid, null, prompt, context);
-  const preview = runtime.provider.preview
-    ? runtime.provider.preview(invocation)
+  const preview = provider.preview
+    ? provider.preview(invocation)
     : { argv: null, command: null, cwd: null, env: null, messages: context.messages.length };
-  return { pid, dry_run: true, agent: runtime.provider.name, prompt, ...preview };
+  return {
+    pid,
+    dry_run: true,
+    agent: provider.name,
+    profile: runtime.agentProfile(pid),
+    prompt,
+    ...preview,
+  };
 }
 
 /**
@@ -57,16 +72,18 @@ export function describe(runtime, pid, prompt) {
 export function session(runtime, pid) {
   if (runtime.closing) throw new LushError('runtime is shutting down', -32021);
   const process = runtime.manager.repository.get(pid);
-  const context = runtime.builder.build(runtime.manager.load(pid), null);
+  const provider = runtime.providerFor(pid);
+  const context = runtime.builder.build(runtime.manager.load(pid), null, provider.contextMode);
   const invocation = buildInvocation(runtime, pid, null, '', context);
-  const info = runtime.provider.sessionInfo
-    ? runtime.provider.sessionInfo(invocation)
+  const info = provider.sessionInfo
+    ? provider.sessionInfo(invocation)
     : { session_dir: null, session_id: null, files: [], file: null, argv: null, command: null, cwd: null, env: null, path_prefix: undefined };
   return {
     pid,
     name: process.name,
     status: process.status,
-    agent: runtime.provider.name,
+    agent: provider.name,
+    profile: process.agent_profile ?? DEFAULT_AGENT_NAME,
     busy: runtime.isBusy(pid),
     ...info,
   };

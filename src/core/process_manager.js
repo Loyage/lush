@@ -11,6 +11,7 @@
  */
 import { ACTIVE, TASK_TERMINAL, validateTransition } from './lifecycle.js';
 import { DEFAULT_ORPHAN_POLICY, OrphanSupervisor } from './orphans.js';
+import { checkAgentName, DEFAULT_AGENT_NAME } from '../agent/profiles.js';
 import { LushError, VIEW_SECTIONS, jsonDump, text } from './types.js';
 import {
   agentInfo, agentShow, agentsKill, agentsList, call as runtimeCall, callBegin, callEnd, callOsPid,
@@ -25,6 +26,12 @@ export class ProcessManager {
     this.repository = repository;
     this.templates = templates;
     this.runtime = null; // composition root binds the AgentRuntime
+    /**
+     * Agent profile catalog (`agent/catalog.js`) used to resolve which backend
+     * answers for one process. The composition root binds it like `runtime`;
+     * when unbound (embedded use) every process uses the runtime's provider.
+     */
+    this.agentCatalog = null;
     /** PID 0's orphan supervision: policy plus the read model behind it. */
     this.orphanSupervisor = new OrphanSupervisor(repository, this, orphanPolicy);
   }
@@ -73,7 +80,83 @@ export class ProcessManager {
     return requireRunning(this, pid);
   }
 
-  spawn(parentPid, template, name = undefined, goal = undefined, variables = undefined) {
+  /**
+   * Which agent profile a new process uses: `--agent` wins over the template's
+   * optional `agent` field, and both are validated here (name syntax, and that
+   * the profile exists when a catalog is bound) so a typo fails at creation
+   * time instead of at the first call.
+   */
+  resolveAgentProfile(template, requested = undefined) {
+    const name = requested === undefined || requested === null ? (template.agent ?? null) : requested;
+    if (name === null || name === undefined) return null;
+    if (typeof name !== 'string' || name.trim() === '') {
+      throw new LushError('agent must be a non-empty string', -32602);
+    }
+    checkAgentName(name);
+    // `default` is built in: it exists even when no override file was written.
+    if (this.agentCatalog !== null && name !== DEFAULT_AGENT_NAME && !this.agentCatalog.store.exists(name)) {
+      throw new LushError(`agent profile not found: ${name} (see 'lush agent list')`, -32004);
+    }
+    return name;
+  }
+
+  // ── Which agent answers for one process (see agent/catalog.js) ───────────
+
+  /** The profile name a process selected at spawn time (`state.agent`), or null. */
+  selectedAgent(pid) {
+    return this.repository.stateAgent(pid);
+  }
+
+  /** The profile name to show for a process: its explicit choice, or `default`. */
+  agentProfileName(pid, selected = undefined) {
+    return (selected === undefined ? this.selectedAgent(pid) : selected) ?? DEFAULT_AGENT_NAME;
+  }
+
+  /**
+   * The provider *name* of one process without building a provider, so
+   * `process tree` / `inspect` stay cheap. `selected` lets a caller that already
+   * decoded the process row skip the extra state read. A profile that no longer
+   * resolves (file deleted by hand) must not break the read models: the recorded
+   * name stays visible and the failure is reported separately by
+   * `agentProfileError`.
+   */
+  agentProviderName(pid, selected = undefined) {
+    const name = selected === undefined ? this.selectedAgent(pid) : selected;
+    if (name === null || this.agentCatalog === null || this.runtime === null) {
+      return this.runtime === null ? 'unbound' : this.runtime.provider.name;
+    }
+    try {
+      return this.agentCatalog.spec(name).provider;
+    } catch {
+      return this.runtime.provider.name;
+    }
+  }
+
+  /** Why a process's selected agent profile cannot be resolved, or null. */
+  agentProfileError(pid, selected = undefined) {
+    const name = selected === undefined ? this.selectedAgent(pid) : selected;
+    if (name === null || this.agentCatalog === null) return null;
+    try {
+      this.agentCatalog.spec(name);
+      return null;
+    } catch (err) {
+      return err?.message ?? String(err);
+    }
+  }
+
+  /**
+   * The provider of one process. A process that selected no agent uses the
+   * daemon's fallback provider (environment over the built-in default); an
+   * explicit choice is resolved from `$LUSH_HOME/agents/` *now*, so editing a
+   * profile takes effect on the next call without restarting the daemon.
+   */
+  agentProvider(pid) {
+    const name = this.selectedAgent(pid);
+    if (name === null || this.agentCatalog === null) return this.runtime.provider;
+    return this.agentCatalog.provider(this.agentCatalog.spec(name));
+  }
+
+  spawn(parentPid, template, name = undefined, goal = undefined, variables = undefined, agent = undefined) {
     const parent = this.requireRunning(parentPid);
     const definition = this.templates.get(template);
     if (template === 'lush-root') throw new LushError('lush-root is reserved for PID 0', -32010);
@@ -90,9 +173,10 @@ export class ProcessManager {
       );
     }
     const resolved = this.spawnVariables(definition, variables);
+    const profile = this.resolveAgentProfile(definition, agent);
     const finalName = name === undefined || name === null ? template : text(name, 'name', 200);
     const finalGoal = goal === undefined || goal === null ? finalName : text(goal, 'goal');
-    return this.repository.create(parentPid, definition, finalName, finalGoal, { variables: resolved });
+    return this.repository.create(parentPid, definition, finalName, finalGoal, { variables: resolved, agent: profile });
   }
 
   /**

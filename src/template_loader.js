@@ -17,6 +17,13 @@ export const BUILTIN_DIR = path.join(HERE, '..', 'templates');
  */
 export const REQUIRED_FIELDS = ['name', 'type', 'singleton', 'description', 'spawn_prompt', 'system_prompt', 'child_templates', 'variables'];
 
+/**
+ * Optional template fields. `agent` names the agent profile a spawned instance
+ * uses; `lush process spawn --agent <name>` overrides it. Every other extra key
+ * stays an error, so a typo in a template still fails loudly.
+ */
+export const OPTIONAL_FIELDS = ['agent'];
+
 const VARIABLE_FIELDS = ['required', 'default', 'description'];
 
 /**
@@ -96,14 +103,18 @@ export class TemplateLoader {
 
   register(value) {
     if (!isPlainObject(value)) throw new LushError(`template must contain exactly ${[...REQUIRED_FIELDS].sort()}`, -32602);
-    const keys = Object.keys(value);
-    if (keys.length !== REQUIRED_FIELDS.length || keys.some((key) => !REQUIRED_FIELDS.includes(key))) {
-      throw new LushError(`template must contain exactly ${[...REQUIRED_FIELDS].sort()}`, -32602);
+    const missing = REQUIRED_FIELDS.filter((field) => !Object.hasOwn(value, field));
+    const unknown = Object.keys(value).filter((key) => !REQUIRED_FIELDS.includes(key) && !OPTIONAL_FIELDS.includes(key));
+    if (missing.length || unknown.length) {
+      throw new LushError(`template must contain exactly ${[...REQUIRED_FIELDS].sort()}`
+        + (OPTIONAL_FIELDS.length ? ` (optional: ${OPTIONAL_FIELDS.join(', ')})` : ''), -32602);
     }
     for (const field of ['name', 'description', 'spawn_prompt', 'system_prompt']) text(value[field], field, 100_000);
     if (value.type !== 'service' && value.type !== 'task') {
       throw new LushError('invalid template type', -32602);
     }
+    // Optional: which agent profile new instances use unless --agent overrides it.
+    if (Object.hasOwn(value, 'agent')) text(value.agent, 'agent', 200);
     if (typeof value.singleton !== 'boolean') {
       throw new LushError('singleton must be a boolean', -32602);
     }

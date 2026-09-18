@@ -15,7 +15,7 @@ export const PARAMS = {
   orphans: { required: [] },
   orphan_sweep: { required: [] },
   view: { required: ['pid'], optional: ['sections'] },
-  spawn: { required: ['parent_pid', 'template'], optional: ['name', 'goal', 'variables'] },
+  spawn: { required: ['parent_pid', 'template'], optional: ['name', 'goal', 'variables', 'agent'] },
   call: { required: ['pid', 'prompt'], optional: ['dry_run'] },
   call_begin: { required: ['pid', 'prompt'] },
   call_end: { required: ['pid', 'call_id', 'status'], optional: ['output', 'error'] },

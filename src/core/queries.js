@@ -43,17 +43,25 @@ export function tree(manager, agents = true) {
   if (typeof agents !== 'boolean') throw new LushError('agents must be a boolean', -32602);
   const rows = manager.repository.list();
   if (!agents) return rows;
-  return rows.map((row) => ({ ...row, agent: manager.agentInfo(row.pid) }));
+  // The row already carries the selected profile, so the provider name costs no
+  // extra read per process.
+  return rows.map((row) => ({ ...row, agent: manager.agentInfo(row.pid, row.agent_profile) }));
 }
 
 export function inspect(manager, pid) {
   const process = manager.repository.get(pid);
+  const profileError = manager.agentProfileError(pid, process.agent_profile);
   return {
     ...process,
     context: manager.repository.context(pid),
     agent: {
       status: manager.runtime && manager.runtime.isBusy(pid) ? 'busy' : 'idle',
-      provider: manager.runtime ? manager.runtime.provider.name : 'unbound',
+      provider: manager.agentProviderName(pid, process.agent_profile),
+      // The agent profile this process selected; `default` is the fallback tier.
+      profile: manager.agentProfileName(pid, process.agent_profile),
+      // Set when the selected profile no longer resolves (deleted or invalid
+      // file): reading the process still works, calling it does not.
+      ...(profileError === null ? {} : { profile_error: profileError }),
     },
     recent_calls: manager.repository.calls(pid),
     recent_events: manager.repository.events(pid),

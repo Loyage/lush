@@ -20,6 +20,9 @@ import { LushError, VARIABLE_GROUPS, isPlainObject, jsonDump } from './types.js'
 /** Context state keys owned by the variable system; `update_state` must not touch them. */
 export const VARIABLE_STATE_KEYS = ['params', 'vars'];
 
+/** Context state key owned by creation: which agent profile the process selected. */
+export const AGENT_STATE_KEY = 'agent';
+
 /**
  * Resolve creation-time variables against the template declaration. Only
  * declared names are accepted, required ones must be present, declared
@@ -81,6 +84,9 @@ export function updateState(manager, pid, patch) {
         `state.${key} holds process variables; use process.update_vars to change mutable ones`,
         -32602,
       );
+    }
+    if (key === AGENT_STATE_KEY) {
+      throw new LushError('state.agent records the agent profile chosen at spawn; it cannot be updated', -32602);
     }
   }
   jsonDump(patch);

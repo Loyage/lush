@@ -23,11 +23,15 @@ const ROOT = path.dirname(fileURLToPath(new URL('../package.json', import.meta.u
 /**
  * What decides what an agent is told: the shared guide (the prompts every call
  * carries), the CLI declaration (the tree `lush help` renders and the guide
- * points agents at) and the templates (system prompts plus the spawn
- * contract). Runtime internals are intentionally out of scope: they change
- * behavior, not instructions.
+ * points agents at), the templates (system prompts plus the spawn contract) and
+ * the built-in agent profile (`src/agent/profiles.js`). The last one is how much
+ * of pi's own configuration an agent gets: the pure-pi flag set decides whether
+ * the user's extensions, skills, prompt templates and AGENTS.md are loaded at
+ * all, so a daemon started before a change there must be restarted. Runtime
+ * internals are intentionally out of scope: they change behavior, not
+ * instructions.
  */
-const SURFACE_FILES = ['src/agent/guide.js', 'src/cli/main.js'];
+const SURFACE_FILES = ['src/agent/guide.js', 'src/agent/profiles.js', 'src/cli/main.js'];
 const SURFACE_DIRS = [
   { path: 'templates', extension: '.json' },
   // The command tree is the CLI declaration agents are pointed at; it lives in

@@ -45,6 +45,12 @@ function orphanPolicyFromEnv(env) {
 export class Config {
   constructor({ home, provider = 'pi', callTimeout = 900, maxRounds = 12, orphanPolicy = DEFAULT_ORPHAN_POLICY }) {
     this.home = home;
+    /**
+     * The provider the *environment* selects (`LUSH_PROVIDER`, default `pi`).
+     * This is the fallback tier only: `lush agent` profiles can select a
+     * different backend per process, and `src/agent/profiles.js` adds the
+     * built-in `default` profile (pure pi) as the last tier after this one.
+     */
     this.provider = provider;
     this.callTimeout = callTimeout;
     this.maxRounds = maxRounds;

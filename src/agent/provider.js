@@ -1,6 +1,4 @@
 /** Provider-neutral messages + tool results (Chat Completions-compatible shapes). */
-import { LushError } from '../core/types.js';
-
 export class ToolCall {
   constructor(id, name, args) {
     this.id = id;
@@ -27,19 +25,16 @@ export class AgentResponse {
   }
 }
 
-export async function configuredProvider(env = process.env, { home } = {}) {
-  const provider = env.LUSH_PROVIDER || 'pi';
-  if (provider === 'pi') {
-    const { PiAgentProvider } = await import('./pi.js');
-    return PiAgentProvider.fromEnv(env, { home });
-  }
-  if (provider === 'mock') {
-    const { MockAgentProvider } = await import('./mock.js');
-    return new MockAgentProvider();
-  }
-  if (provider === 'openai') {
-    const { OpenAICompatibleProvider } = await import('./openai.js');
-    return OpenAICompatibleProvider.fromEnv(env);
-  }
-  throw new LushError(`unknown LUSH_PROVIDER: ${provider}`, -32602);
+/**
+ * The fallback-tier provider: environment variables over the built-in `default`
+ * profile (pi with the pure flag set). A process that selects its own agent
+ * profile goes through `AgentCatalog` instead; see `catalog.js`.
+ *
+ * `profile` accepts an already resolved spec (`AgentCatalog.spec`), which is how
+ * the daemon hands a specific agent to this factory.
+ */
+export async function configuredProvider(env = process.env, { home, profile = null } = {}) {
+  const { AgentCatalog } = await import('./catalog.js');
+  const catalog = new AgentCatalog({ home, env });
+  return catalog.provider(profile === null ? catalog.spec(null) : profile);
 }

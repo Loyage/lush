@@ -26,8 +26,8 @@ export function requireRuntime(manager) {
 }
 
 /** Live-worker summary for one process, or null while no runtime is bound. */
-export function agentInfo(manager, pid) {
-  return manager.runtime === null ? null : manager.runtime.agentSummary(pid);
+export function agentInfo(manager, pid, profile = undefined) {
+  return manager.runtime === null ? null : manager.runtime.agentSummary(pid, profile);
 }
 
 /**

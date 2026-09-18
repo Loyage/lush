@@ -42,16 +42,19 @@ export function raceAbort(promise, signal) {
 
 export async function execute(runtime, pid, callId, entry, prompt) {
   const signal = entry.controller.signal;
+  // The provider was resolved when the call opened: a profile edit mid-call must
+  // not switch backends halfway through the tool loop.
+  const provider = entry.provider ?? runtime.provider;
   const tools = new AgentTools(runtime.manager, pid);
   try {
     if (entry.reason) throw abortError();
     for (let round = 0; round < runtime.maxRounds; round += 1) {
-      const context = runtime.builder.build(runtime.manager.load(pid), callId);
+      const context = runtime.builder.build(runtime.manager.load(pid), callId, provider.contextMode);
       // The provider reports the OS process it spawns, so the agent space can
       // name (and kill) what is actually running.
       const invocation = buildInvocation(runtime, pid, callId, prompt, context,
         { on_spawn: (osPid) => noteOsPid(entry.agent, osPid) });
-      const response = await raceAbort(runtime.provider.call(context.messages, TOOL_DEFINITIONS, signal, invocation), signal);
+      const response = await raceAbort(provider.call(context.messages, TOOL_DEFINITIONS, signal, invocation), signal);
       if (!(response instanceof AgentResponse) || typeof response.content !== 'string') {
         throw new LushError('provider returned invalid AgentResponse', -32020);
       }
