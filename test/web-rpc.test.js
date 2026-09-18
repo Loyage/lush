@@ -2,12 +2,13 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { fixture } from './helpers.js';
+import { fixture, until } from './helpers.js';
 import { RPCServer } from '../src/rpc/server.js';
 import { RPCClient } from '../src/rpc/client.js';
 import { Dispatcher, parseRequest, encode } from '../src/rpc/protocol.js';
 import { createSignal } from '../src/signal.js';
 import { startWeb } from '../src/ui/web/server.js';
+import { UIClient } from '../src/ui/client.js';
 
 // node:http does not inherit machine-wide proxies for these loopback tests.
 const fetch = (url, options = {}) => new Promise((resolve, reject) => {
@@ -79,6 +80,8 @@ test('RPC rejects invalid frames, unknown params, invalid ids and cross-project 
     await expect(client.request('task.inspect',{id:-1})).rejects.toThrow('positive');
     await expect(client.request('input.submit',{content:'x',sid:0})).rejects.toThrow('unknown parameter');
     await expect(client.request('input.list',{_token:'foreign'})).rejects.toThrow();
+    // 客户端比 daemon 新时不能只说 unknown method，要给出重启这一步
+    await expect(new UIClient(f.config).request('service.list',{})).rejects.toThrow('daemon restart');
   } finally { await f.close(); }
 });
 
@@ -169,5 +172,23 @@ test('web buffers drafts, commits the whole batch and keeps agents out of the co
     expect((await post('draft.add',{content:'sneak',_token:'forged'})).status).toBe(400);
     expect((await post('draft.clear',{})).status).toBe(400);
     expect((await post('input.submit',{content:'raw',_token:'forged'})).status).toBe(400);
+  } finally { await f.close(); }
+});
+
+test('web clears the board through task.clear and refuses it while tasks are live', async () => {
+  const f = await setup();
+  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
+  try {
+    expect(await (await fetch(f.url+'/app.js')).text()).toContain('清空任务看板');
+    expect((await post('input.submit',{content:'one job'})).status).toBe(200);
+    // agent token 在 Web 层直接被拒；真正的「有活动任务就不许清」由 daemon 判定，见 task-clear.test.js
+    expect((await post('task.clear',{_token:'forged'})).status).toBe(400);
+    await until(() => f.project.running.size === 0 && f.store.activeTasks().length === 0);
+    const response = await post('task.clear',{});
+    expect(response.status).toBe(200);
+    expect((await response.json()).cleared.tasks).toBeGreaterThan(0);
+    const snapshot = await (await fetch(f.url+'/api/snapshot')).json();
+    expect(snapshot.tasks).toEqual([]); expect(snapshot.inputs).toEqual([]);
+    expect(snapshot.status.tasks).toEqual([]);
   } finally { await f.close(); }
 });

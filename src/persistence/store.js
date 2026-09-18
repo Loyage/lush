@@ -63,6 +63,17 @@ export class Store {
   all(sql, ...params) { return this.db.query(sql).all(...params); }
   transaction(fn) { return this.db.transaction(fn)(); }
   close() { this.db.close(); }
+  /** Highest task id ever handed out, kept in meta so a cleared project never reuses an id. */
+  taskIdHigh() { return Number(this.get("SELECT value FROM meta WHERE key='task_id_high'")?.value ?? 0); }
+  setTaskIdHigh(value) {
+    this.run("INSERT INTO meta(key,value) VALUES ('task_id_high',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", String(value));
+  }
+  /** Ids are never recycled: worktree directories, branches and pi sessions outlive the rows that named them. */
+  nextTaskId() {
+    const next = Math.max(this.taskIdHigh(), this.get('SELECT COALESCE(MAX(id),0) AS value FROM tasks').value) + 1;
+    this.setTaskIdHigh(next);
+    return next;
+  }
   task(taskId) {
     const task = this.get('SELECT * FROM tasks WHERE id=?', id(taskId));
     check(task, `task ${taskId} not found`);
@@ -72,6 +83,28 @@ export class Store {
   summaries() {
     return this.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,updated_at,
       agent_wakes,agent_last_seen_at FROM tasks ORDER BY id`);
+  }
+  /** Tasks the scheduler may still touch: a clear has to wait for all of them. */
+  activeTasks() {
+    return this.all("SELECT id,status FROM tasks WHERE status NOT IN ('completed','failed','cancelled') ORDER BY id");
+  }
+  /**
+   * Project-level reset: drops every task-scoped row plus the input audit trail.
+   * Only Project#clear calls this, and only after proving no task is active and no
+   * invocation is still unwinding. Disk state (worktrees, branches, sessions) is not touched,
+   * which is why nextTaskId() is pinned first: the retained names must stay unambiguous.
+   */
+  purge() {
+    const counts = {};
+    return this.transaction(() => {
+      this.setTaskIdHigh(Math.max(this.taskIdHigh(), this.get('SELECT COALESCE(MAX(id),0) AS value FROM tasks').value));
+      // Children of tasks/inputs go first; foreign keys are on, so the order is not decorative.
+      for (const table of ['messages','notices','task_deps','events','tasks','drafts','inputs']) {
+        counts[table] = this.get(`SELECT count(*) AS value FROM ${table}`).value;
+        this.run(`DELETE FROM ${table}`);
+      }
+      return counts;
+    });
   }
   /** Credentials exist only while their invocation runs; Project#actor is the only reader. */
   armAgent(taskId, hash) { this.run('UPDATE tasks SET agent_token_hash=? WHERE id=?', hash, taskId); }
@@ -134,8 +167,9 @@ export class Store {
   }
   /** name is the task's own short slug; it is written once at spawn and never edited, so a worktree keeps its name. */
   create({ parent_id = null, input_id, role, goal, name = null }) {
-    const row = this.run('INSERT INTO tasks(parent_id,input_id,role,goal,name) VALUES (?,?,?,?,?)', parent_id, input_id, role, goal, name);
-    const task = this.task(Number(row.lastInsertRowid));
+    const taskId = this.nextTaskId();
+    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name) VALUES (?,?,?,?,?,?)', taskId, parent_id, input_id, role, goal, name);
+    const task = this.task(taskId);
     this.event(task.id, 'created', { parent_id, role, goal, name });
     return task;
   }

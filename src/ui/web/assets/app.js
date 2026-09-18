@@ -430,7 +430,7 @@ let overviewKey = null;
 function renderOverview(data) {
   const open = data.notices.filter(notice => notice.status === 'open');
   const key = JSON.stringify([data.status.tasks, data.status.agents, data.status.agents_idle, data.status.pending_merges, data.status.drafts, open.map(n => n.id),
-    data.status.project, data.status.version, data.status.fingerprint, data.status.started_at]);
+    data.tasks.length, data.status.project, data.status.version, data.status.fingerprint, data.status.started_at]);
   if (key === overviewKey) return;
   overviewKey = key;
   const panel = $('detail'); panel.replaceChildren();
@@ -485,6 +485,27 @@ function renderOverview(data) {
     kv('版本', [data.status.version, data.status.fingerprint].filter(Boolean).join(' · ') || '—', 'mono'),
     kv('状态目录', data.status.home || '—', 'mono'), kv('启动', absolute(data.status.started_at) || '—'));
   info.append(meta); panel.append(info);
+
+  // 一键清空：只删库里已结束的任务；磁盘上的 worktree、分支与会话记录不碰，所以必须二次确认。
+  const maintenance = block('维护');
+  const live = data.status.tasks.filter(row => HOT.has(row.status)).reduce((sum, row) => sum + row.count, 0);
+  if (live) maintenance.append(el('p', `还有 ${live} 个任务没有结束。取消它们或等它们结束之后，才能清空看板。`, 'hint'));
+  else if (!data.tasks.length) maintenance.append(el('p', '任务看板是空的。', 'hint'));
+  else {
+    maintenance.append(el('p', `删除全部 ${data.tasks.length} 个已结束任务，以及 inputs / drafts / notices / events。worktree、分支与 pi 会话记录保留在磁盘上；旧 task id 不会被新任务复用。`, 'hint'));
+    const actions = el('div', undefined, 'actions');
+    actions.append(button('清空任务看板', async () => {
+      if (!confirm(`删除全部 ${data.tasks.length} 个已结束任务？`)) return;
+      if (!confirm('再次确认：库里的任务、输入与事件将不可恢复；磁盘上的 worktree 与分支会保留。')) return;
+      const result = await action('task.clear');
+      selected = null; overviewKey = null;
+      window.history.replaceState(null, '', location.pathname);
+      await refresh();
+      $('error').textContent = `已清空 ${result.cleared.tasks} 个任务、${result.cleared.inputs} 条输入；磁盘上保留 ${result.retained.tasks.length} 个 worktree/分支`;
+    }, 'danger'));
+    maintenance.append(actions);
+  }
+  panel.append(maintenance);
 }
 
 /* ---------- polling ---------- */

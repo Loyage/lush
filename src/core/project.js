@@ -253,6 +253,28 @@ export class Project {
     this.running.get(task.id)?.controller.abort();
     return this.finish(task.id, status, null, reason);
   }
+  /**
+   * 用户专属的一键清空：删掉全部已结束任务，连同 inputs / drafts / notices / events。
+   * 有活动任务（或刚 abort、invocation 尚未收尾的 agent）时拒绝，不做隐式取消——
+   * 删除正在被调用的任务行会让 agent 的收尾路径读到不存在的 task。
+   * 只清数据库：.lush/worktrees/、lush/<ns>/* 分支与 sessions/ 原样保留，
+   * 所以返回值里列出这些仍然占着磁盘、且带着旧 task id 的路径。
+   */
+  clear() {
+    check(this.running.size === 0, 'an agent invocation is still unwinding; clear must wait');
+    check(this.workspaces.busy.size === 0, 'worktree cleanup is in progress; clear must wait');
+    const active = this.store.activeTasks();
+    check(active.length === 0,
+      `#${active.slice(0, 20).map(task => task.id).join(', #')} still active (${active.length}); cancel them or wait until they finish`);
+    const retained = this.store.all('SELECT id, branch, workspace FROM tasks WHERE branch IS NOT NULL OR workspace IS NOT NULL ORDER BY id');
+    const counts = this.store.purge();
+    return {
+      cleared: { tasks: counts.tasks, inputs: counts.inputs, drafts: counts.drafts, notices: counts.notices,
+        messages: counts.messages, events: counts.events, task_deps: counts.task_deps },
+      retained: { note: 'worktrees, branches and pi sessions are kept on disk; remove them by hand', tasks: bounded(retained, 200000) },
+      next_task_id: this.store.taskIdHigh() + 1,
+    };
+  }
   retry(taskId) {
     const task = this.store.task(taskId);
     check(['failed','cancelled'].includes(task.status), 'only failed/cancelled tasks can be retried');

@@ -40,6 +40,7 @@
 | `task retry ID` | `task.retry` | `{id}` |
 | `task merge ID` | `task.merge` | `{id}` |
 | `task cleanup ID` | `task.cleanup` | `{id}` |
+| `task clear` | `task.clear` | `{}` |
 
 `task wait ID` 在客户端轮询 inspect；只阻塞当前客户端，终态返回。failed/cancelled 设置非零退出码。Agent 不允许使用 wait，应结束 invocation 由调度器唤醒。
 
@@ -50,6 +51,10 @@ spawn 必须关联一个活动父 task；根任务只能由用户输入创建。
 依赖未满足的 `queued` 任务不会被调度，`task.list` / `tree` 的每行都带 `deps: [{id, kind, status}]` 与 `blocked` 布尔值，`task.inspect` 额外给出 `deps` / `dependents`（带上游状态、角色、goal 摘要）。上游结算时 `finish` 唤醒每一个依赖它的任务。
 
 `task.merge` 对 stacked 任务多一道检查：上游的 `head_commit` 必须已经是当前目标的祖先（即上游先合并），否则拒绝，防止把未合并的改动一起带进目标分支。
+
+`task.clear` 是用户专属的**一键清空**：把全部任务行及 `messages` / `notices` / `task_deps` / `events`，连同 `inputs` 与 `drafts` 一起删掉（这是 `draft.remove` 那条「已提交输入永不删除」的唯一例外，且只在这里）。前置条件是**当前没有活动任务**，并且没有 invocation 正在收尾、没有 worktree 清理在进行：有 `queued`/`running`/`waiting`/`awaiting` 时返回 `#3, #7 still active (2); cancel them or wait until they finish`，不做隐式取消（删掉正在调用中的 task 行会让 agent 收尾时读到不存在的 task）。
+
+它**只清数据库**：`.lush/worktrees/`、`lush/<项目哈希>/*` 分支与 `.lush/sessions/*.jsonl` 原样保留（未合并的成果仍有恢复点），返回值 `retained.tasks` 列出这些还在磁盘上、带着旧 task id 的 `{id, branch, workspace}`，需要人工决定去留。因为目录名与分支名里带着 task id，**id 不会被复用**：清空后 daemon 把用过的最大 id 记在 `meta.task_id_high`，下一个任务继续往大走（`next_task_id` 是清空后将要使用的 id），因此新 worktree 不会撞上保留下来的旧目录。返回 `{cleared: {tasks, inputs, drafts, notices, messages, events, task_deps}, retained, next_task_id}`。
 
 `task.list` 和 tree 返回摘要，不复制每个 task 的结果与收件箱。完整 result 在 inspect 中；inspect 的子任务、消息、notice 集合受字节预算限制，完整记录仍在 SQLite。摘要与 inspect 都带 agent 字段：摘要含 `agent_wakes` / `agent_last_seen_at`，inspect 额外给出 `agent.id`（`<role>#<task-id>`）、`agent.active` 与 `agent.pid`。history 每页最多 100 个事件且有字节预算，以最后一条 event.id 作为下一页 after。大型任务森林超过 1 MiB frame 时应改用 task list 分页和指定根 ID 的 task tree。
 
@@ -68,7 +73,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
 | `GET /api/task/ID/history?after=N` | `task.history` |
 | `GET /api/task/ID/diff` | `task.diff` |
 | `GET /api/task/ID/transcript?after=N` | `task.transcript` |
-| `POST /api/action` | 仅限上方 `MUTATIONS` 中的用户动作 |
+| `POST /api/action` | 仅限上方 `MUTATIONS` 中的用户动作（含 `task.clear`） |
 
 ## 待决问题
 
@@ -94,7 +99,7 @@ CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 t
 
 `system.status` 里 `agents` 只列运行中的 agent，另有 `agents_total`（每个活动 task 一个 agent）与 `agents_idle`（已 park、未在跑的，含尚未首次唤醒的）。agent 身份本身（id / 唤醒次数 / 上次动手时间）可以跨唤醒读取，但它不是可寻址的执行句柄：用户操作一律按 task ID 进行。
 
-以下操作限用户：system.stop、input.submit、task.cancel/retry/merge/cleanup、notice.answer/dismiss。CLI 另禁止 agent 启动 daemon、Web 或阻塞等待。
+以下操作限用户：system.stop、input.submit、task.cancel/retry/merge/cleanup/clear、notice.answer/dismiss。CLI 另禁止 agent 启动 daemon、Web 或阻塞等待。
 
 本地用户可以不带 token 调用 RPC，这是明确的信任边界，不是多用户 ACL。能执行任意本机命令的恶意 agent 也能绕过环境约定；需要真正沙箱时应另加 OS 隔离。
 
@@ -104,6 +109,6 @@ CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 t
 - `GET /api/snapshot`：项目状态、任务摘要、输入与 notice。
 - `GET /api/task/<id>`：任务详情。
 - `GET /api/task/<id>/transcript`：agent 执行过程，只读，来自 pi 会话记录。
-- `POST /api/action`：JSON `{method, params}`，只允许用户输入、任务 message/cancel/retry/merge/cleanup 和 notice answer/dismiss。
+- `POST /api/action`：JSON `{method, params}`，只允许用户输入、任务 message/cancel/retry/merge/cleanup/clear 和 notice answer/dismiss。
 
 仅回环监听；拒绝非本地 Host、跨 Origin、跨站请求和非 JSON 修改请求。不能将它作为公网多用户服务暴露。

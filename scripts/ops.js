@@ -6,7 +6,7 @@ const aliases = {
   'daemon-stop': ['daemon','stop'], 'daemon-restart': ['daemon','restart'],
   intent: ['say'], intents: ['input','list'], drafts: ['draft','list'], tasks: ['task','list'], tree: ['task','tree'],
   inspect: ['task','inspect'], transcript: ['task','transcript'], cancel: ['task','cancel'], retry: ['task','retry'],
-  merge: ['task','merge'], cleanup: ['task','cleanup'], notices: ['notice','list'],
+  merge: ['task','merge'], cleanup: ['task','cleanup'], clear: ['task','clear'], notices: ['notice','list'],
   answer: ['notice','answer'], message: ['task','message'], wait: ['task','wait'],
 };
 try { await main([...(aliases[command] || [command]), ...args]); }

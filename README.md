@@ -108,6 +108,7 @@ Project / 一个目录 / 一个 daemon
 - `task merge ID` 检查任务完成、两边工作树干净、目标分支未切换、待审阅 HEAD 未变化，然后串行执行非快进 merge。冲突会尝试 abort，保留任务分支和错误；不会强制覆盖代码或自动解决冲突。stacked 任务还要求上游已经是目标的祖先（即先合并上游），否则会把它未合并的改动一起带进来。
 - merge 中断后标为 `review`，不自动重放。检查 Git 历史、处理遗留冲突并恢复干净工作树后，可重新执行 `task merge ID` 明确批准恢复；若提交已经合入，Git 会确认已包含，不重复改写历史。
 - `task cleanup ID` 不使用 `--force`，拒绝未合并成果和脏工作区；取消/失败任务的提交也必须已经进入项目 HEAD 才允许清理。分支始终保留。
+- `task clear`（`bun run clear`，Web 项目概览里的「清空任务看板」）一键删掉**全部已结束任务**及其消息、通知、事件与 `inputs` / `drafts` 审计。有 `queued`/`running`/`waiting`/`awaiting` 任务、或还有 invocation 在收尾时**拒绝执行**，不会隐式取消。它只清数据库：`.lush/worktrees/`、任务分支与 `.lush/sessions/` 原样保留（未合并的成果仍在），返回值会列出这些残留路径。因为目录与分支名里带着 task id，清空后 **id 不从 1 重新开始**，新任务不会撞上保留的旧 worktree。
 
 ## 常用开发命令
 
@@ -128,6 +129,7 @@ bun run cancel 3            # 取消这个任务及其活动后代，保留工�
 bun run retry 3             # 检查失败现场之后明确重试
 bun run merge 3
 bun run cleanup 3
+bun run clear               # 一键清空已结束任务（有活动任务时拒绝）
 bun run wait 3              # 只有当前客户端等待，不影响调度
 bun run web
 bun run daemon-restart
@@ -142,7 +144,7 @@ bun run stop
 
 ```text
 project.json       不可跨目录复用的项目绑定
-project.db         SQLite：inputs / tasks / messages / notices / events
+project.db         SQLite：inputs / tasks / messages / notices / events（task.clear 会清空这些表，并把 task id 高水位记在 meta）
 sessions/          每个 task 的独立 pi session 与当前输入文件（thinking / 工具调用的原文）
 worktrees/         worker 工作区
 daemon.lock        项目 daemon 单实例锁
