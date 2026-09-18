@@ -91,7 +91,13 @@ export class Project {
       drafts: this.store.draftCount(),
       agents: [...this.running].map(([task_id, run]) => agentView(this.store.task(task_id), run)),
       agents_total: alive, agents_idle: alive - this.running.size,
-      pending_merges: this.store.all("SELECT id, substr(goal,1,500) AS goal, branch FROM tasks WHERE integration IN ('pending','review') ORDER BY id LIMIT 100"),
+      pending_merges: this.store.all("SELECT id, substr(goal,1,500) AS goal, branch, integration FROM tasks WHERE integration IN ('pending','review','conflict') ORDER BY id LIMIT 100"),
+      // 未解决的冲突冻结同一目标分支上的合并：界面据此禁用按钮并说清原因。
+      // resolves_task_id 取真正在服务这条冲突的解冲突任务（他不在 W 自己的列上，而是它指向 W）。
+      merge_freeze: this.store.all(`SELECT id AS task_id, target_branch,
+        (SELECT r.id FROM tasks r WHERE r.resolves_task_id = tasks.id AND r.status NOT IN ('failed','cancelled')
+          ORDER BY r.id DESC LIMIT 1) AS resolves_task_id
+        FROM tasks WHERE integration='conflict' ORDER BY id LIMIT 50`),
       notices: this.store.get("SELECT count(*) AS count FROM notices WHERE status='open'").count };
   }
   /** The single place a root planner is created; input.submit and draft.commit both land here. */
@@ -212,8 +218,9 @@ export class Project {
       children: bounded(this.store.summaries().filter(child => child.parent_id === task.id), 100000),
       messages: bounded(this.store.all('SELECT * FROM messages WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
       notices: bounded(this.store.all('SELECT * FROM notices WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
-      // worker 带着自己的检验记录；verifier 带着自己的报告路径。两边都是只读投影。
+      // worker 带着自己的检验记录与合并冲突处理记录；verifier 带着自己的报告路径。都是只读投影。
       verifications: task.role === 'worker' ? bounded(this.store.verifications(task.id).map(row => ({ ...row, has_report: this.hasReport(row.id) })), 200000) : undefined,
+      resolutions: task.role === 'worker' ? bounded(this.store.resolutions(task.id), 200000) : undefined,
       report: task.role === 'verifier' && this.hasReport(task.id) ? this.reportPath(task.id) : null,
       agent: agentView(task, this.running.get(task.id) ?? null) };
   }
@@ -256,6 +263,92 @@ export class Project {
       report_path: this.reportPath(task.id),
     };
   }
+  /**
+   * 用户明确批准合并。干净合并一键完成；**内容冲突是正常结局**：它变成一个专用任务加一条待决问题。
+   * 冲突未解决期间同一目标分支上的合并被冻结：解冲突的产物要靠 --ff-only 原样落地，
+   * main 一旦被别的合并推走，agent 测过的那棵树就不再是要落地的树。
+   */
+  async approveMerge(taskId) {
+    const task = this.store.task(taskId);
+    // 这条冲突不算冻结自己的三种情况：冲突就是我自己（重试）；我就是它现在的解冲突任务；它为当前这次落地服务。
+    const frozen = this.store.conflictsOn(task.target_branch).filter(row => row.id !== task.id
+      && row.resolves_task_id !== task.id && task.resolves_task_id !== row.id);
+    const blocker = frozen[0];
+    check(!blocker, blocker
+      ? `merging into ${task.target_branch} is frozen by the unresolved conflict on #${blocker.id}; answer its notice, cancel its resolution task, or retry that merge first`
+      : '');
+    const result = await this.workspaces.merge(task.id);
+    if (!result.conflict) {
+      const resolvedTaskId = result.task.resolves_task_id;
+      // 解冲突任务落地 = 原任务的提交也进了目标分支：两个任务一起收尾，冻结随之消失。
+      if (resolvedTaskId) this.settleResolution(result.task);
+      return { ...result.task, merge: resolvedTaskId ? { status: 'resolved', resolved_task_id: resolvedTaskId } : { status: 'merged' } };
+    }
+    return this.openResolution(result.task.id, result.conflict);
+  }
+  /**
+   * 内容冲突的收口：主树已经 abort 回合并前的干净状态，现在把「怎么并」变成一次用户决定。
+   * 解冲突任务不在原任务的子树里（终态任务不允许有活动后代），用 resolves_task_id 关联；
+   * 它的 worktree 以目标分支顶端为基线，agent 把那次审阅过的提交并进来解冲突，产物是一个合并提交，
+   * 所以批准时能 --ff-only 落地：审阅过的树就是落地的树，不会再有第二轮冲突。
+   * 任务先预置成 awaiting（不占并发槽、不烧 token），答复那条 notice 才开工，忽略则整件事撤销。
+   */
+  openResolution(taskId, conflict) {
+    const task = this.store.task(taskId);
+    check(['pending', 'review'].includes(task.integration), `#${task.id} is not waiting for a merge`);
+    const active = this.store.activeResolver(task.id);
+    check(!active, `resolution task #${active?.id} is still running; wait for it or cancel it before asking for another round`);
+    const stale = this.store.unlandedResolver(task.id);
+    const goal = `解决 #${task.id} 合并到 ${task.target_branch} 的冲突。\n`
+      + `你的 worktree 以 ${task.target_branch} 的顶端为基线；把 #${task.id} 已审阅的提交 ${task.head_commit ?? task.branch}（分支 ${task.branch}）并进来，\n`
+      + `解决下面这些冲突，提交这次 merge，然后跑能重复的测试证明并完的结果可用。只解决冲突，不要顺手重构或改与冲突无关的行为。\n`
+      + `冲突文件：\n${conflict.files.map(file => `  ${file}`).join('\n')}\n\ngit：\n${conflict.output}`;
+    const resolution = this.store.transaction(() => {
+      const created = this.store.create({ parent_id: null, input_id: task.input_id, role: 'merger', goal,
+        name: `resolve-${task.id}`, resolves_task_id: task.id });
+      // 上一轮完成了却没落地（比如 main 前进导致 --ff-only 失败）：重试就是明确抛弃那一轮，
+      // 但分支与 worktree 一律不删，只把它标成 superseded，让用户在可回收和可追溯之间自己选。
+      if (stale) {
+        this.store.update(stale.id, { integration: 'superseded' });
+        this.store.event(stale.id, 'resolution.superseded', { by: created.id });
+      }
+      this.store.update(task.id, { integration: 'conflict', integration_error: conflict.output });
+      this.store.event(task.id, 'merge.conflict', { resolution: created.id, target_branch: task.target_branch,
+        commit: task.head_commit, files: conflict.files });
+      return this.store.update(created.id, { status: 'awaiting', target_branch: task.target_branch });
+    });
+    const notice = this.notice(resolution.id, `#${task.id} 合并到 ${task.target_branch} 冲突：要开一个解冲突任务吗？`, [
+      `冲突文件：\n${conflict.files.map(file => `  ${file}`).join('\n')}`,
+      `git 的输出：\n${conflict.output}`,
+      `${task.target_branch} 已经 abort 回合并前的干净状态，没有留下中间态。`,
+      `答复任意内容：批准解冲突任务 #${resolution.id} 开工。它在自己的 worktree 里（基线＝${task.target_branch} 顶端）把 #${task.id} 已审阅的提交并进来、解冲突、跑测试，完成后由你决定要不要落地。`,
+      `解冲突任务落地时用 --ff-only：落地的树就是它测过的那棵树，不会再冲突一次。`,
+      `忽略这条问题：撤销 #${resolution.id}，#${task.id} 回到「待合并」。`,
+      `在冲突解决之前，同一目标分支 ${task.target_branch} 上的其它合并会被冻结，防止 main 前进让解冲突的结果失效。`,
+    ].join('\n\n'));
+    return { ...task, integration: 'conflict', merge: { status: 'conflict', files: conflict.files,
+      resolution_task_id: resolution.id, notice_id: notice.id, superseded_task_id: stale?.id ?? null } };
+  }
+  /** 解冲突任务落地：原任务的提交已经在目标分支里，两个任务一起标成已合并。 */
+  settleResolution(resolution) {
+    const target = this.store.task(resolution.resolves_task_id);
+    if (target.integration === 'merged') return target;
+    this.store.transaction(() => {
+      this.store.update(target.id, { integration: 'merged', integration_error: null });
+      this.store.event(target.id, 'merge.resolved', { via: resolution.id, commit: resolution.head_commit });
+    });
+    return this.store.task(target.id);
+  }
+  /** 解冲突任务的上下文：并谁、并到哪、冲突在哪几个文件。 */
+  mergeConflictContext(task) {
+    const target = this.store.task(task.resolves_task_id);
+    const event = this.store.get("SELECT data FROM events WHERE task_id=? AND type='merge.conflict' ORDER BY id", target.id);
+    return {
+      conflicted_task: { id: target.id, goal: target.goal, name: target.name, result: target.result },
+      branch: target.branch, commit: target.head_commit, target_branch: target.target_branch,
+      files: event ? JSON.parse(event.data).files ?? [] : [],
+    };
+  }
   /** Read-only agent process log from pi's session files; never touches the database. */
   transcript(taskId, after = 0, limit = 100) {
     this.store.task(taskId);
@@ -271,8 +364,8 @@ export class Project {
     const rows = new Map(tasks.map(task => [task.id, { ...task, children: [] }]));
     const roots = [];
     for (const row of rows.values()) {
-      // verifier 不是子任务（终态任务不能有活动后代），但界面上挂在它检验的那个任务下面。
-      const parent = row.parent_id ?? row.verifies_task_id;
+      // verifier 与 merger 都不是子任务（终态任务不能有活动后代），但界面上挂在它们服务的任务下面。
+      const parent = row.parent_id ?? row.verifies_task_id ?? row.resolves_task_id;
       if (parent !== null && parent !== undefined && rows.has(parent)) rows.get(parent).children.push(row); else roots.push(row);
     }
     if (taskId !== null) { this.store.task(taskId); return rows.get(id(taskId)); }
@@ -323,7 +416,7 @@ export class Project {
    */
   async ladder() {
     const rows = this.store.all(`SELECT id, role, substr(goal,1,200) AS goal, branch, target_branch, head_commit, integration
-      FROM tasks WHERE integration IN ('pending','review') ORDER BY id LIMIT 50`);
+      FROM tasks WHERE integration IN ('pending','review','conflict') ORDER BY id LIMIT 50`);
     const pendingIds = new Set(rows.map(row => row.id));
     const nodes = new Map(rows.map(row => [row.id, { id: row.id, role: row.role, goal: row.goal, branch: row.branch,
       target_branch: row.target_branch, integration: row.integration, deps: [], covered_by: [] }]));
@@ -393,7 +486,11 @@ export class Project {
       this.store.message(notice.task_id, JSON.stringify({ notice_id: notice.id, title: notice.title, dismissed: dismiss, answer: answer || '' }));
       this.store.event(notice.task_id, 'notice.answered', { notice_id: notice.id, answer, dismiss });
     });
-    this.wake(notice.task_id);
+    const owner = this.store.task(notice.task_id);
+    // 预置任务（从未被唤醒过的解冲突任务）唯一没答过的请求就是这条 notice：
+    // 忽略它意味着这件事不要做了，唤醒 agent 只会让它去做用户刚拒绝的事，所以直接让它结束。
+    if (dismiss && owner.agent_wakes === 0) this.cancel(owner.id, `user dismissed notice ${notice.id}: ${notice.title}`);
+    else this.wake(notice.task_id);
     return this.store.get('SELECT * FROM notices WHERE id=?', notice.id);
   }
   wake(taskId) {
@@ -414,6 +511,16 @@ export class Project {
       }
       // 检验结算后让被检验任务的详情重新渲染，看得到最新结论。
       if (task.verifies_task_id) this.store.touch(task.verifies_task_id);
+      // 解冲突任务没做成（失败 / 被取消）：原任务回到待合并，冻结随之解除，错误留在解冲突任务上。
+      // 分支与 worktree 都保留，用户可以重试或自己处理。
+      if (task.resolves_task_id && status !== 'completed') {
+        const target = this.store.task(task.resolves_task_id);
+        if (target.integration === 'conflict') {
+          this.store.update(target.id, { integration: 'pending',
+            integration_error: `resolution task #${task.id} ${status}${error ? `: ${error}` : ''}` });
+          this.store.event(target.id, 'merge.conflict.abandoned', { resolution: task.id, status });
+        }
+      }
     });
     if (task.parent_id) this.wake(task.parent_id);
     // A settled dependency releases every queued dependent; still-blocked ones stay queued.
@@ -556,6 +663,7 @@ export class Project {
           open_notices: this.store.all("SELECT * FROM notices WHERE task_id=? AND status='open'", taskId),
           recent_tasks: this.decorate(this.store.all('SELECT id,parent_id,role,status,substr(goal,1,500) AS goal,integration FROM tasks ORDER BY id DESC LIMIT 100')),
           verification: task.role === 'verifier' ? this.verificationContext(task) : undefined,
+          merge_conflict: task.resolves_task_id ? this.mergeConflictContext(task) : undefined,
         },
       });
       clearTimeout(timer);

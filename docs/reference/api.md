@@ -51,15 +51,23 @@ spawn 必须关联一个活动父 task；根任务只能由用户输入创建。
 
 依赖未满足的 `queued` 任务不会被调度，`task.list` / `tree` 的每行都带 `deps: [{id, kind, status}]` 与 `blocked` 布尔值，`task.inspect` 额外给出 `deps` / `dependents`（带上游状态、角色、goal 摘要）。上游结算时 `finish` 唤醒每一个依赖它的任务。
 
-`task.merge` 对 stacked 任务多一道检查：上游的 `head_commit` 必须已经是当前目标的祖先（即上游先合并），否则拒绝，防止把未合并的改动一起带进目标分支。
+`task.merge` 是**用户明确批准合并**的唯一入口（仍限用户）。三种返回值：干净合并成功 `merge: {status: 'merged'}`；落地一次解冲突结果 `merge: {status: 'resolved', resolved_task_id}`；内容冲突 `merge: {status: 'conflict', files, resolution_task_id, notice_id, superseded_task_id}`——冲突是正常返值，不是 RPC 错误。
 
-`task.cleanup` 回收一个已结束任务占的磁盘状态：worktree 目录、检验对照检出（如果有）与任务分支。worktree 仍然不强制删除（干净检查 + commit 已进 HEAD 的检查不变）；分支额外要求**它的顶端就是审阅过的那次提交**，且那次提交已经是 `target_branch` 的祖先——任一条不满足就保留分支，并在返回的 `cleanup.branch` / `cleanup.reason` 里说明。删除用 `git update-ref -d <ref> <tip>` 的 compare-and-delete，不用 `--force`：检查之后分支被谁动过就拒绝，审阅过之外的提交一条也不会丢；`branch` 快照不再存在时库里也会清空。`keep_branch: true`（CLI `--keep-branch`）只回收 worktree，把分支留成恢复点。返回 `{...task, cleanup: {worktree: removed|absent, branch: removed|kept|absent, reason}}`。
+冲突的处理：真跑一次 merge，失败时取未解决冲突的文件路径并 `merge --abort`，主树回到合并前（abort 不成功就直接报错，不进入冲突状态）。然后原任务进入 `integration=conflict`，runtime 同步开一个 `role=merger`、`resolves_task_id=<原任务>`、`target_branch` 相同的解冲突任务（`parent_id` 为空，与 verifier 一样用关联边）并预置成 `awaiting`，同时用 `notice.post` 发一条待决问题：冲突文件、git 输出、接下来会发生什么、以及「同一目标分支上的其它合并已被冻结」。**`merger` 不是一个可 spawn 的角色**：agent 调用 `task.spawn --role merger` 仍会被拒。
+
+答复那条 notice 即批准开工：解冲突任务此时才建 worktree，基线是**目标分支当前顶端**（不是 HEAD，用户可能已经切走），agent 把原任务已审阅的 `head_commit` 并进来、解冲突、提交成合并提交。忽略那条 notice 则直接取消这个从未被唤醒过的解冲突任务，并把原任务放回 `pending`（`integration_error` 记下原因）。
+
+解冲突任务完成后走同一条 `task.merge`：落地必须同时满足两道额外守卫——结果分支真的包含原任务的 `head_commit`（防止「解冲突」把对方改动整个丢掉）、且只能用 `git merge --ff-only` 落地（成功即证明目标分支没被推走，落地的树就是 agent 测过的那棵树）。成功后原任务一起标成 `merged`（事件 `merge.resolved`），冻结随之解除；快进失败则主树未被动过、原任务仍挂起，重试原任务的合并会开新一轮并把上一轮标成 `integration=superseded`（分支与目录保留，可以直接 `task.cleanup` 回收）。
+
+**合并冻结**：`integration=conflict` 就是一把按 `target_branch` 的合并锁。同目标分支上其它任务的 `task.merge` 会被拒（`merging into <branch> is frozen by the unresolved conflict on #N`），`system.status.merge_freeze` 给出 `[{task_id, resolves_task_id, target_branch}]` 供界面禁用按钮。锁从状态派生，不另建表，所以重启后仍然准确、也不会留下无人认领的锁。`task.merge` 对 stacked 任务仍多一道检查：上游的 `head_commit` 必须已经是当前目标的祖先（即上游先合并），否则拒绝，防止把未合并的改动一起带进目标分支。`integration=conflict` 的任务可以直接重试（这是冲突后唯一的出路）。
+
+`task.cleanup` 回收一个已结束任务占的磁盘状态：worktree 目录、检验对照检出（如果有）与任务分支。只有 `integration` 为 `merged` / `none` / `superseded` 的任务可回收（`superseded` 是「这一轮解冲突已被下一轮取代」，分支仍当恢复点看待）。worktree 仍然不强制删除（干净检查 + commit 已进 HEAD 的检查不变）；分支额外要求**它的顶端就是审阅过的那次提交**，且那次提交已经是 `target_branch` 的祖先——任一条不满足就保留分支，并在返回的 `cleanup.branch` / `cleanup.reason` 里说明。删除用 `git update-ref -d <ref> <tip>` 的 compare-and-delete，不用 `--force`：检查之后分支被谁动过就拒绝，审阅过之外的提交一条也不会丢；`branch` 快照不再存在时库里也会清空。`keep_branch: true`（CLI `--keep-branch`）只回收 worktree，把分支留成恢复点。返回 `{...task, cleanup: {worktree: removed|absent, branch: removed|kept|absent, reason}}`。
 
 `task.clear` 是用户专属的**一键清空**：把全部任务行及 `messages` / `notices` / `task_deps` / `events`，连同 `inputs` 与 `drafts` 一起删掉（这是 `draft.remove` 那条「已提交输入永不删除」的唯一例外，且只在这里）。前置条件是**当前没有活动任务**，并且没有 invocation 正在收尾、没有 worktree 清理在进行：有 `queued`/`running`/`waiting`/`awaiting` 时返回 `#3, #7 still active (2); cancel them or wait until they finish`，不做隐式取消（删掉正在调用中的 task 行会让 agent 收尾时读到不存在的 task）。
 
-它**先回收再清库**：对每个已结束任务跑与 `task cleanup` 相同的安全门，能回收的连 `.lush/worktrees/<id>-<name>/`、派生对照检出与 `lush/<项目哈希>/<id>-<name>` 分支一起删，返回 `reclaimed: {worktrees, branches}`。回收不掉的任务（`integration=pending/review` 的未合并成果、审阅后又被改过的分支、脏工作区）连同目录与分支一起保留，`retained.tasks` 列出 `{id, branch, workspace, baseline_workspace, reason}` 供人工决定去留。`.lush/sessions/*.jsonl` 与 `.lush/verify/*/report.html` 不受影响。因为目录名与分支名里带着 task id，**id 不会被复用**：清空后 daemon 把用过的最大 id 记在 `meta.task_id_high`，下一个任务继续往大走（`next_task_id` 是清空后将要使用的 id），因此新 worktree 不会撞上保留下来的旧目录。前置检查是同步的（调用时立即拿到拒绝），磁盘回收在返回的 Promise 里串行执行。返回 `{cleared: {tasks, inputs, drafts, notices, messages, events, task_deps}, reclaimed, retained, next_task_id}`。
+它**先回收再清库**：对每个已结束任务跑与 `task cleanup` 相同的安全门，能回收的连 `.lush/worktrees/<id>-<name>/`、派生对照检出与 `lush/<项目哈希>/<id>-<name>` 分支一起删，返回 `reclaimed: {worktrees, branches}`。回收不掉的任务（`integration=pending/review/conflict` 的未合并成果、审阅后又被改过的分支、脏工作区）连同目录与分支一起保留，`retained.tasks` 列出 `{id, branch, workspace, baseline_workspace, reason}` 供人工决定去留。`.lush/sessions/*.jsonl` 与 `.lush/verify/*/report.html` 不受影响。因为目录名与分支名里带着 task id，**id 不会被复用**：清空后 daemon 把用过的最大 id 记在 `meta.task_id_high`，下一个任务继续往大走（`next_task_id` 是清空后将要使用的 id），因此新 worktree 不会撞上保留下来的旧目录。前置检查是同步的（调用时立即拿到拒绝），磁盘回收在返回的 Promise 里串行执行。返回 `{cleared: {tasks, inputs, drafts, notices, messages, events, task_deps}, reclaimed, retained, next_task_id}`。
 
-`task.list` 和 tree 返回摘要，不复制每个 task 的结果与收件箱。完整 result 在 inspect 中；inspect 的子任务、消息、notice 集合受字节预算限制，完整记录仍在 SQLite。摘要与 inspect 都带 agent 字段：摘要含 `agent_wakes` / `agent_last_seen_at`，inspect 额外给出 `agent.id`（`<role>#<task-id>`）、`agent.active` 与 `agent.pid`。history 每页最多 100 个事件且有字节预算，以最后一条 event.id 作为下一页 after。大型任务森林超过 1 MiB frame 时应改用 task list 分页和指定根 ID 的 task tree。
+`task.list` 和 tree 返回摘要，不复制每个 task 的结果与收件箱。完整 result 在 inspect 中；inspect 的子任务、消息、notice 集合受字节预算限制，完整记录仍在 SQLite。摘要与 inspect 都带 agent 字段：摘要含 `agent_wakes` / `agent_last_seen_at`，inspect 额外给出 `agent.id`（`<role>#<task-id>`）、`agent.active` 与 `agent.pid`；worker 的 inspect 还带 `verifications`（检验记录）与 `resolutions`（合并冲突处理记录：`{id, status, integration, branch, head_commit, ...}`），解冲突任务自身带 `resolves_task_id`。history 每页最多 100 个事件且有字节预算，以最后一条 event.id 作为下一页 after。大型任务森林超过 1 MiB frame 时应改用 task list 分页和指定根 ID 的 task tree。
 
 `task.diff` 是只读审阅视图：不写库、不改仓库，因此不进入 Git 串行队列。返回 `{branch, target_branch, base_commit, head_commit, committed, base_behind, files, files_total, pending, pending_total, commits}`；`files` 是 base..head 的已提交改动，`pending` 是相对 HEAD 的未提交改动（含未跟踪文件，`code` 为 git porcelain 状态、新增删除行数为 null）。`base_behind` 是 `base_commit..target_branch` 的提交数：主工作树允许有未提交改动，spawn 之后目标分支可能继续前进，这个数说明审阅是相对哪个 base；stacked 任务的 base 是上游分支，所以它也含上游尚未合并的差异。无工作区时返回 `null`。该 RPC 暂无 CLI 命令。
 
@@ -90,7 +98,9 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
 | `notice answer ID 'answer'` | `notice.answer` | `{id, answer}` |
 | `notice dismiss ID` | `notice.dismiss` | `{id}` |
 
-当前统一使用自由文本答复，不保留旧 Service notice 的动态字段表单。notice 是需要用户回复的决策请求；普通结果汇报直接使用 task result。列表优先返回未决项，同组按新到旧排列；最多 200 条并受 RPC 字节预算限制。
+当前统一使用自由文本答复，不保留旧 Service notice 的动态字段表单。notice 是需要用户回复的决策请求；普通结果汇报直接使用 task result。列表优先返回未决项，同组按新到旧排列；最多 200 条并受 RPC 字节预算限制。合并冲突的那条 notice 由 runtime 自己发：它是「要不要开一个解冲突任务」的请示。
+
+`notice.answer` 把答复作为消息送给 owner task 并唤醒它。`notice.dismiss` 在 owner 从未被唤醒过（`agent_wakes=0`，即 runtime 预置的解冲突任务）时会**直接取消该任务**，而不是唤醒 agent 去做用户刚拒绝的事。
 
 ## Agent 环境与权限
 
@@ -103,7 +113,7 @@ pi 从 daemon 启动时获得：
 
 CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 task，并要求该 task 仍是活动 invocation（在 `running` 中且未被 abort），否则报 invalid or expired agent token。agent spawn 的 parent / notice 的 task 缺省为自己的 task，不能伪造其他父任务；message 只能沿直接父子边。
 
-`system.status` 里 `agents` 只列运行中的 agent，另有 `agents_total`（每个活动 task 一个 agent）与 `agents_idle`（已 park、未在跑的，含尚未首次唤醒的）。agent 身份本身（id / 唤醒次数 / 上次动手时间）可以跨唤醒读取，但它不是可寻址的执行句柄：用户操作一律按 task ID 进行。
+`system.status` 里 `agents` 只列运行中的 agent，另有 `agents_total`（每个活动 task 一个 agent）与 `agents_idle`（已 park、未在跑的，含尚未首次唤醒的）。`pending_merges` 把 `integration=pending/review/conflict` 都算作待处理的合并，`merge_freeze` 列出正被未解决冲突冻结的目标分支。agent 身份本身（id / 唤醒次数 / 上次动手时间）可以跨唤醒读取，但它不是可寻址的执行句柄：用户操作一律按 task ID 进行。
 
 以下操作限用户：system.stop、input.submit、task.cancel/retry/merge/cleanup/clear、notice.answer/dismiss。CLI 另禁止 agent 启动 daemon、Web 或阻塞等待。
 

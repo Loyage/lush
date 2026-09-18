@@ -174,6 +174,7 @@ test('an existing project.db gains the verification columns in place', () => {
     expect(columns.has('verifies_task_id')).toBe(true);
     expect(columns.has('baseline_workspace')).toBe(true);
     expect(columns.has('baseline_commit')).toBe(true);
+    expect(columns.has('resolves_task_id')).toBe(true);
     store.close();
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

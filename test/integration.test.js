@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from '../src/identity.js';
-import { temp, env, until, repo } from './helpers.js';
+import { temp, env, until, repo, git } from './helpers.js';
 import { Config } from '../src/config.js';
 import { UIClient } from '../src/ui/client.js';
 
@@ -179,6 +179,79 @@ if (task.role === 'planner') {
 }
 console.log('fake pi completed');
 `;
+
+const MERGE_PI = `#!/usr/bin/env bun
+import fs from 'node:fs';
+import path from 'node:path';
+const file = path.join(process.env.LUSH_HOME,'sessions','task-'+process.env.LUSH_TASK_ID+'-input.md');
+const context = JSON.parse(fs.readFileSync(file,'utf8'));
+const task = context.task;
+async function run(...args) {
+  const proc = Bun.spawn(args,{stdout:'pipe',stderr:'pipe'});
+  const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
+  return { code: await proc.exited, out, err };
+}
+const git = (...args) => run('git','-C',process.cwd(),...args);
+if (task.role === 'planner') {
+  if (task.calls === 1) {
+    const spawned = await run('lush','task','spawn','改同一个文件','--role','worker','--name','conflict-worker','--json');
+    if (spawned.code) throw new Error(spawned.err);
+  }
+} else if (task.role === 'worker') {
+  fs.writeFileSync(path.join(process.cwd(),'file.txt'),'worker\\n');
+  await git('add','-A'); await git('commit','-m','worker change');
+} else if (task.role === 'merger') {
+  // 真的并进来、解冲突、提交这次 merge：git 返回冲突是预期的。
+  await git('merge',context.merge_conflict.commit);
+  fs.writeFileSync(path.join(process.cwd(),'file.txt'),'resolved\\n');
+  await git('add','-A'); await git('commit','-m','resolve conflict');
+}
+console.log('fake pi done ' + task.role);
+`;
+
+test('a real conflict becomes a notice plus a merger task, and lands with --ff-only', async () => {
+  const root = temp();
+  const fake = path.join(root,'fake-pi');
+  fs.writeFileSync(fake, MERGE_PI, { mode:0o755 });
+  try {
+    await repo(root);
+    await cli(root,['start'], { LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
+    const input = await cli(root,['say','改同一个文件']);
+    const client = new UIClient(Config.fromEnv(env(),root));
+    // planner 只在子任务全部结算后才会完成，所以这一刻 worker 已经是终态。
+    await done(client,input.task.id);
+    const worker = (await client.request('task.list',{})).find(task => task.role === 'worker');
+    expect(worker.status).toBe('completed');
+    // 主树在同名文件上继续前进：合并必然内容冲突。
+    fs.writeFileSync(path.join(root,'file.txt'),'main\n');
+    await git(root,'add','-A'); await git(root,'commit','-m','main moves on');
+    const mainHead = await git(root,'rev-parse','HEAD');
+
+    // 批准合并：冲突不走错误通道，而是带着冲突文件与解冲突任务回来。
+    const merged = await cli(root,['task','merge',String(worker.id)]);
+    expect(merged.integration).toBe('conflict');
+    expect(merged.merge).toMatchObject({ status:'conflict', files:['file.txt'] });
+    expect(await git(root,'rev-parse','HEAD')).toBe(mainHead);
+    expect(await git(root,'status','--porcelain')).toBe('');
+    // 请示真的存在，且挂在那个人还没答应的解冲突任务上。
+    const notice = (await cli(root,['notices'])).find(row => row.status === 'open');
+    expect(notice.task_id).toBe(merged.merge.resolution_task_id);
+    expect(notice.body).toContain('file.txt');
+    expect((await cli(root,['status'])).merge_freeze)
+      .toEqual([{ task_id: worker.id, target_branch:'main', resolves_task_id: merged.merge.resolution_task_id }]);
+
+    // 答复 → 解冲突任务开工 → 完成后用 --ff-only 落地，两个任务一起变成已合并。
+    await cli(root,['answer',String(notice.id),'批准，开始解冲突']);
+    const resolution = await done(client, merged.merge.resolution_task_id);
+    expect(resolution.integration).toBe('pending');
+    const landed = await cli(root,['task','merge',String(resolution.id)]);
+    expect(landed.merge).toEqual({ status:'resolved', resolved_task_id: worker.id });
+    expect((await client.request('task.inspect',{id:worker.id})).integration).toBe('merged');
+    expect(await git(root,'rev-parse','HEAD')).toBe(resolution.head_commit);
+    expect(fs.readFileSync(path.join(root,'file.txt'),'utf8')).toBe('resolved\n');
+    expect((await cli(root,['status'])).merge_freeze).toEqual([]);
+  } finally { await cli(root,['stop']).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); }
+}, 40000);
 
 test('drafts become one planner, and a code dependency stacks worktrees with an ordered merge', async () => {
   const root = temp();

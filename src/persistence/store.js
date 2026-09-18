@@ -24,6 +24,9 @@ export class Store {
         integration TEXT NOT NULL DEFAULT 'none', target_branch TEXT, integration_error TEXT,
         -- verifier task: verifies_task_id 指向被检验的 worker；baseline_* 是目标分支的对照检出。
         verifies_task_id INTEGER REFERENCES tasks(id), baseline_workspace TEXT, baseline_commit TEXT,
+        -- merger task: resolves_task_id 指向合并冲突的那个 worker。冲突处理不在原任务的子树里
+        -- （终态任务不允许有活动后代），所以和 verifier 一样用关联边而不是父子边。
+        resolves_task_id INTEGER REFERENCES tasks(id),
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_id);
@@ -50,7 +53,8 @@ export class Store {
     // The index over agent_token_hash must wait for the columns it references.
     const columns = new Set(this.all('PRAGMA table_info(tasks)').map(row => row.name));
     for (const [name, type] of [['name', 'TEXT'], ['agent_wakes', 'INTEGER NOT NULL DEFAULT 0'], ['agent_token_hash', 'TEXT'], ['agent_last_seen_at', 'TEXT'],
-      ['verifies_task_id', 'INTEGER REFERENCES tasks(id)'], ['baseline_workspace', 'TEXT'], ['baseline_commit', 'TEXT']]) {
+      ['verifies_task_id', 'INTEGER REFERENCES tasks(id)'], ['baseline_workspace', 'TEXT'], ['baseline_commit', 'TEXT'],
+      ['resolves_task_id', 'INTEGER REFERENCES tasks(id)']]) {
       if (!columns.has(name)) this.run(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
     }
     this.run('CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash)');
@@ -85,7 +89,7 @@ export class Store {
   tasks() { return this.all('SELECT * FROM tasks ORDER BY id'); }
   summaries() {
     return this.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,updated_at,
-      agent_wakes,agent_last_seen_at,verifies_task_id FROM tasks ORDER BY id`);
+      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id FROM tasks ORDER BY id`);
   }
   /** 一个 worker 收到过的检验记录，最新的在前。 */
   verifications(taskId) {
@@ -95,6 +99,34 @@ export class Store {
   /** 同一任务同时只允许一次检验：还在跑的会占住这个名额。 */
   activeVerification(taskId) {
     return this.get(`SELECT id,status FROM tasks WHERE verifies_task_id=? AND status NOT IN ('completed','failed','cancelled') ORDER BY id DESC`, taskId);
+  }
+  /** 一次 worker 的合并冲突处理记录，最新在前：与 verifications 同一读模型。 */
+  resolutions(taskId) {
+    return this.all(`SELECT id,status,result,error,integration,integration_error,branch,head_commit,created_at,updated_at
+      FROM tasks WHERE resolves_task_id=? ORDER BY id DESC`, taskId);
+  }
+  /**
+   * 还在跑的解冲突任务：这种情况不允许再开一轮，也不允许重试原任务的合并。
+   */
+  activeResolver(taskId) {
+    return this.get(`SELECT id,status FROM tasks WHERE resolves_task_id=? AND status NOT IN ('completed','failed','cancelled') ORDER BY id DESC`, taskId);
+  }
+  /**
+   * 已经结束但没落地的解冲突任务：它的分支还值得留（恢复点），但已经没法再批准了，
+   * 所以下一轮可以直接把它标成 superseded——不强删工作区，只把状态说清楚。
+   */
+  unlandedResolver(taskId) {
+    return this.get(`SELECT id,status,integration FROM tasks WHERE resolves_task_id=?
+      AND status='completed' AND integration NOT IN ('merged','superseded') ORDER BY id DESC`, taskId);
+  }
+  /**
+   * 同一目标分支上未解决的合并冲突（只取 id：调用方只需要知道「这条分支被谁冻结」）。
+   * 这就是那把合并锁：从状态派生，不另建表，
+   * 所以崩溃重启后锁跟着行一起还在，也不会出现「进程死了锁留在内存里」这种残留。
+   */
+  conflictsOn(targetBranch) {
+    if (!targetBranch) return [];
+    return this.all("SELECT id FROM tasks WHERE integration='conflict' AND target_branch=? ORDER BY id", targetBranch);
   }
   /** Tasks the scheduler may still touch: a clear has to wait for all of them. */
   activeTasks() {
@@ -208,12 +240,12 @@ export class Store {
     return this.task(taskId);
   }
   /** name is the task's own short slug; it is written once at spawn and never edited, so a worktree keeps its name. */
-  create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null }) {
+  create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null, resolves_task_id = null }) {
     const taskId = this.nextTaskId();
-    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id) VALUES (?,?,?,?,?,?,?)',
-      taskId, parent_id, input_id, role, goal, name, verifies_task_id);
+    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id,resolves_task_id) VALUES (?,?,?,?,?,?,?,?)',
+      taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id);
     const task = this.task(taskId);
-    this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id });
+    this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id, resolves_task_id });
     return task;
   }
   event(taskId, type, data) { this.run('INSERT INTO events(task_id,type,data) VALUES (?,?,?)', taskId, type, JSON.stringify(data)); }

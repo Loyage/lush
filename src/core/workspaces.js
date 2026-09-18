@@ -56,6 +56,15 @@ export class Workspaces {
   async isAncestor(cwd, commit, ref) {
     try { await this.git(cwd, 'merge-base', '--is-ancestor', commit, ref); return true; } catch { return false; }
   }
+  /** main 上是否正卡着一次合并：只有这时才需要（也才能）abort。快进失败不会留下中间态。 */
+  async merging(cwd) {
+    try { await this.git(cwd, 'rev-parse', '--quiet', '--verify', 'MERGE_HEAD'); return true; } catch { return false; }
+  }
+  /** 未解决冲突的文件路径；空数组表示不是内容冲突，而是别的 git 失败。 */
+  async unmerged(cwd) {
+    const out = await this.gitOutput(cwd, 'diff', '--name-only', '--diff-filter=U');
+    return out.split('\n').map(line => line.trim()).filter(Boolean);
+  }
   async ensure(task) {
     // verifier 不修改代码：它站在被检验的 worktree 里演示，另拉一个目标分支的只读对照。
     if (task.role === 'verifier') return this.exclusive(async () => {
@@ -74,7 +83,7 @@ export class Workspaces {
       this.store.event(task.id, 'baseline.created', { workspace: dir, commit, target_branch: target.target_branch });
       return target.workspace;
     });
-    if (task.role !== 'worker') return this.config.project;
+    if (task.role !== 'worker' && task.role !== 'merger') return this.config.project;
     return this.exclusive(async () => {
       task = this.store.task(task.id);
       if (task.workspace && fs.existsSync(task.workspace)) {
@@ -92,8 +101,12 @@ export class Workspaces {
       const source = await this.porcelain(project);
       // A code dependency stacks this task on the upstream branch, so the agent sees work that is not merged yet.
       // base_commit is frozen once: a retry must build the same tree as the review did.
+      // 解冲突任务的基线取目标分支的顶端（不是 HEAD：用户可能已经切到别的分支）：
+      // 它的产物必须是「目标分支 + 那次已审阅的提交」的合并提交，批准时才能 --ff-only 原样落地。
       const stacked = task.base_commit ? null : this.codeBase(task);
-      const base = task.base_commit || stacked?.head_commit || await this.git(project, 'rev-parse', 'HEAD');
+      const base = task.base_commit || (task.resolves_task_id
+        ? await this.git(project, 'rev-parse', `refs/heads/${task.target_branch}`)
+        : stacked?.head_commit || await this.git(project, 'rev-parse', 'HEAD'));
       const target = task.target_branch || await this.git(project, 'symbolic-ref', '--short', 'HEAD');
       const branch = task.branch || `lush/${this.namespace}/${taskLabel(task.id, task.name)}`;
       let reuse = false;
@@ -181,15 +194,31 @@ export class Workspaces {
       return this.store.task(task.id);
     });
   }
+  /**
+   * 批准一次合并。三种结局：
+   *   {task, conflict: null}          合并成功，integration=merged
+   *   {task, conflict: {files, output}} 内容冲突：main 已 abort 回合并前的干净状态，等用户决定下一步
+   *   throw                            前置门槛不通过（脏树、分支不对、审阅后又被改、上游未合），或 abort 没成功
+   * 「冲突」是正常结局，不是异常：它必须能被上层转成一个待决决定，而不是一句报错。
+   */
   merge(taskId) {
     return this.exclusive(async () => {
       const task = this.store.task(taskId);
-      check(task.status === 'completed' && ['pending','review'].includes(task.integration), 'only completed tasks with pending/review changes can be merged');
+      // conflict 也在允许之列：那是「合并冲突过、现在重试」——冲突中不解决就永远走不出去。
+      check(task.status === 'completed' && ['pending','review','conflict'].includes(task.integration), 'only completed tasks with pending/review/conflict changes can be merged');
       const project = this.config.project;
       await this.clean(project);
       await this.clean(task.workspace);
       check(await this.git(project, 'symbolic-ref', '--short', 'HEAD') === task.target_branch, `switch to ${task.target_branch} before merging`);
       check(await this.git(task.workspace, 'rev-parse', 'HEAD') === task.head_commit, 'task branch changed after review');
+      // 解冲突任务不是普通分支：它必须真的含被并进来的那次审阅过的提交（防止「解冲突」把对方改动整个丢掉），
+      // 而且只能用 --ff-only 落地——成功即证明 main 没被推走，落地的树就是 agent 测过的那棵树。
+      const resolved = task.resolves_task_id ? this.store.task(task.resolves_task_id) : null;
+      if (resolved) {
+        check(resolved.head_commit, `#${task.id} resolves #${resolved.id}, which has no reviewed commit`);
+        check(await this.isAncestor(project, resolved.head_commit, task.head_commit),
+          `resolution #${task.id} does not contain the reviewed commit of #${resolved.id}; land a branch that keeps that work`);
+      }
       // A stacked branch carries its upstream's commits. Merging a downstream task first would drag
       // unmerged work into the target branch, so the upstream has to be an ancestor of the target already.
       for (const edge of this.store.deps(task.id).filter(edge => edge.kind === 'code')) {
@@ -200,19 +229,28 @@ export class Workspaces {
       }
       // Persist approval before touching the main tree. On crash, never replay a merge.
       this.store.update(task.id, { integration: 'merging', integration_error: null });
-      this.store.event(task.id, 'merge.approved', { commit: task.head_commit });
+      this.store.event(task.id, 'merge.approved', { commit: task.head_commit, fast_forward: Boolean(resolved) });
       try {
-        await this.git(project, 'merge', '--no-ff', '--no-edit', task.head_commit);
+        if (resolved) await this.git(project, 'merge', '--ff-only', task.head_commit);
+        else await this.git(project, 'merge', '--no-ff', '--no-edit', task.head_commit);
         this.store.update(task.id, { integration: 'merged' });
         this.store.event(task.id, 'merged', { commit: task.head_commit });
       } catch (error) {
+        // 先取冲突明细，再决定这是「内容冲突」还是「硬失败」，最后一定把主树恢复原状。
+        const files = await this.unmerged(project).catch(() => []);
         let abortError = null;
-        try { await this.git(project, 'merge', '--abort'); } catch (err) { abortError = err.message; }
-        this.store.update(task.id, { integration: 'pending', integration_error: `${error.message}${abortError ? `\nCheck repository state: ${abortError}` : ''}` });
-        this.store.event(task.id, 'merge.failed', { error: error.message });
+        if (await this.merging(project)) {
+          try { await this.git(project, 'merge', '--abort'); } catch (err) { abortError = err.message; }
+        }
+        const detail = `${error.message}${abortError ? `\nCheck repository state: ${abortError}` : ''}`;
+        this.store.update(task.id, { integration: 'pending', integration_error: detail });
+        this.store.event(task.id, 'merge.failed', { error: error.message, files });
+        // abort 没成功表示主树还卡在合并里：不能把这种现场交给解冲突 agent。
+        if (abortError) throw new LushError(detail);
+        if (files.length) return { task: this.store.task(task.id), conflict: { files, output: error.message } };
         throw error;
       }
-      return this.store.task(task.id);
+      return { task: this.store.task(task.id), conflict: null };
     });
   }
   /** 分支是否正被某个 worktree 检出：删掉它会让那个检出的 HEAD 失效，所以先问清楚。 */
@@ -258,7 +296,8 @@ export class Workspaces {
       this.store.event(task.id, 'baseline.removed', { workspace: dir });
       return { id: task.id, worktree: 'removed', branch: 'absent', reason: null };
     }
-    check(task.integration === 'merged' || task.integration === 'none', 'unmerged work must be kept');
+    // merged/none：这条线已经收尾；superseded：这一轮解冲突被下一轮取代，分支留作恢复点，不强留工作区。
+    check(['merged','none','superseded'].includes(task.integration), 'unmerged work must be kept');
     let worktree = 'absent';
     if (task.workspace) {
       const dir = task.workspace;

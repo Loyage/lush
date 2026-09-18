@@ -4,7 +4,7 @@
 
 - **Project**：不是全局注册表里的记录，而是 daemon 的不可变作用域：canonical 目录 + `.lush/project.json` + SQLite 中的项目绑定。
 - **Input**：用户原话，逐字持久化，关联一个根 planner Task。入口调用只做短事务和安排调度，不等待 agent。
-- **Task**：goal / role / parent_id / input_id / status / result / error / invocation 次数；worker 另有工作区和 integration 状态。父子关系只在创建时指定，不能变更。verifier 另带 `verifies_task_id`（指向被检验的 worker）与 `baseline_workspace` / `baseline_commit`（目标分支的临时对照检出）——它用关联边而不是父子边，所以「终态任务没有活动后代」这条不变量不被破坏。
+- **Task**：goal / role / parent_id / input_id / status / result / error / invocation 次数；worker 另有工作区和 integration 状态。父子关系只在创建时指定，不能变更。verifier 另带 `verifies_task_id`（指向被检验的 worker）与 `baseline_workspace` / `baseline_commit`（目标分支的临时对照检出）；merger 另带 `resolves_task_id`（指向合并冲突的那个 worker）。两者都用关联边而不是父子边，所以「终态任务没有活动后代」这条不变量不被破坏。
 - **Agent**：与 task 终身一对一的身份（`<role>#<task-id>`）。task 创建时它就存在，跨唤醒复用同一个 pi session，记录累计唤醒次数与上次动手时间；但 RPC 凭证每次唤醒重新签发，库里只存 SHA-256，且只在该次 invocation 运行期间可解析。
 - **Message**：持久化收件箱，用户、直接父子 task、子任务结算与 notice 答复共享同一通道。
 - **Notice**：task 请求用户做决定；答复/忽略入收件箱。
@@ -60,6 +60,7 @@ agent 只能从自己的 task 派生子任务、给直接父/子发消息、给�
 - 重试必须是用户显式动作，且父 task 不能已终态。
 - 不删除任务历史；工作区清理与任务终态是不同操作。
 - `explain` 输入的子树只允许 research；runtime 在 spawn 层拒绝 worker/coordinator，保证了解类输入不产生待合并改动。
+- 内容冲突不当作错误：它进入 `integration=conflict`、开一个 runtime 专属的 `merger` 任务并请求用户决定；解冲突结果只用 `--ff-only` 落地（落地的树＝测过的树），落地期间同一目标分支上的其它合并被冻结。agent 不能自行派 merger，也不能自行合并或解决冲突。
 
 ## Git 边界
 
@@ -67,7 +68,11 @@ agent 只能从自己的 task 派生子任务、给直接父/子发消息、给�
 
 worker 创建时记录项目 HEAD 与目标分支，创建 `.lush/worktrees/<id>-<name>` 和 `lush/<project-hash>/<id>-<name>` 分支（`name` 是 spawn 时 planner 给的英文短名，见 `src/core/naming.js`）。每个 worker 是独立修改集，不自动继承其他未合并任务成果。`git worktree add` 只读已提交的 HEAD、不碰用户现场，所以**建 worktree 不要求主工作树干净**：spawn 时 main tree 的未提交改动不传递给 worker，这份分歧记进 `workspace.created` 事件，`task.diff` 的 `base_behind` 报告基线落后目标分支的提交数。注意 planner / coordinator / research 的 cwd 就是主工作树，它们读到的是带未提交改动的现场，而 worker 读到的是干净 worktree。
 
-结果提交后进入 `integration=pending`。用户 `task.merge` 检查主工作树/worker 干净（脏工作树的拒绝发生在 `merge`，不在建 worktree 时；错误列出具体文件）、原目标分支、已审阅的 commit 未变化，再持久化批准事件和 `merging`，执行 merge。成功 `merged`；失败尝试 abort 并回到 pending，完整错误保留。中断的 merging 恢复为 review，不猜测 Git 操作是否完成。
+结果提交后进入 `integration=pending`。用户 `task.merge` 检查主工作树/worker 干净（脏工作树的拒绝发生在 `merge`，不在建 worktree 时；错误列出具体文件）、原目标分支、已审阅的 commit 未变化，再持久化批准事件和 `merging`，执行 merge。成功 `merged`。
+
+**内容冲突不是异常，是第三种正常结局。** `workspaces.merge` 在真合并失败时先取 `git diff --diff-filter=U` 的冲突文件，再 `merge --abort`，只有在主树确实回到合并前的干净状态时才把结果（而不是错误）交给上层；abort 不成功就保持原来的「主树需人工检查」语义，绝不把卡住的合并现场交给 agent。上层 `Project.approveMerge` 把冲突转成一次用户决定：任务进入 `integration=conflict`，同时开一个 `role=merger`、`resolves_task_id` 指向该任务的解冲突任务（关联边而非父子边，所以「终态任务没有活动后代」不被破坏），并挂一条 notice 请示。解冲突任务先预置成 `awaiting`（不占并发槽、不烧 token），答复即开工、忽略即撤销；它的 worktree 以**目标分支顶端**为基线，agent 把那次审阅过的提交并进来、解冲突、提交成合并提交，因此批准落地时能用 `--ff-only`：成功等价于「main 没被推走」，落地的树就是它测过的那棵树，不会再冲突一次。落地时同时要求解冲突结果真的包含原任务的 `head_commit`（防「解冲突」把对方改动整个丢掉），并把两个任务一起标成 `merged`。
+
+`integration=conflict` 同时就是一把**按目标分支**的合并锁：同一 `target_branch` 上其它任务的合并会被拒绝，直到解冲突落地或撤销。锁从状态派生，不另建表，所以崩溃重启后锁跟着行一起还在，也不会留下无人认领的锁；三条显式解除路径是忽略那条 notice、重试原任务的合并（会作新一轮解冲突）、或让解冲突任务失败/取消（`finish` 把原任务放回 `pending`）。解冲突任务若完成但没落地（例如用户直接往 main 提交，快进失败），重试原任务的合并会把它标成 `superseded`：分支与目录一律保留，只是允许用户单独回收。中断的 merging 仍恢复为 review，不猜测 Git 操作是否完成。
 
 检验不写任何 Git 状态：它用 `git worktree add --detach` 在 `.lush/worktrees/<label>-base` 拉一份目标分支当前的只读对照，在它和被测 worktree 里分别跑同一场景。对照检出是派生状态，检验结算（成功或失败）后立即回收，报告文件保留；重启恢复时也会回收上次崩在中间的对照检出。用户可以用 `task cleanup` 再回收一次。
 

@@ -7,14 +7,16 @@ const STATUS = {
   waiting: { label: '等子任务', icon: '◐' }, awaiting: { label: '等你决定', icon: '◔' },
   completed: { label: '已完成', icon: '✓' }, failed: { label: '失败', icon: '✗' }, cancelled: { label: '已取消', icon: '⊘' },
 };
-const INTEGRATION = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并' };
-const ROLE = { planner: '规划', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验' };
+const INTEGRATION = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并', conflict: '冲突待处理', superseded: '已作废' };
+const ROLE = { planner: '规划', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验', merger: '解冲突' };
 const EVENTS = {
   created: '创建任务', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
   'workspace.created': '创建 worktree', 'workspace.removed': '回收 worktree', 'branch.removed': '回收分支',
   'verify.requested': '请求检验', 'baseline.created': '创建对照基线', 'baseline.removed': '回收对照基线',
   'merge.approved': '批准合并', merged: '已合并', 'merge.failed': '合并失败',
+  'merge.conflict': '合并冲突', 'merge.resolved': '冲突已解决', 'merge.conflict.abandoned': '放弃解冲突',
+  'resolution.superseded': '解冲突作废',
   completed: '完成', failed: '失败', cancelled: '取消',
 };
 const HOT = new Set(['running', 'awaiting', 'waiting', 'queued']);
@@ -102,6 +104,21 @@ const tokens = value => { const count = Number(value) || 0; return count >= 1e6 
 const money = value => { const amount = Number(value) || 0; return `$${amount > 0 && amount < 0.01 ? amount.toFixed(5) : amount.toFixed(3)}`; };
 const depsOf = task => task.deps || [];
 const waitingDeps = task => depsOf(task).filter(dep => !TERMINAL_STATUS.has(dep.status));
+/**
+ * 还没落地的解冲突任务：进行中的不许重开一轮，已经完成但没落地的可以被「重试合并」取代。
+ * merged（已交付）与 superseded（已被下一轮取代）都不再算数。
+ */
+function resolverOf(task) {
+  return (task.resolutions || [])
+    .filter(row => row.integration !== 'merged' && row.integration !== 'superseded')
+    .sort((a, b) => b.id - a.id)[0] || null;
+}
+/** 未解决的冲突会冻结同一目标分支上的合并：解冲突的产物要靠 --ff-only 原样落地，main 不能被推走。 */
+function freezeOf(task) {
+  const freeze = lastSnapshot?.status?.merge_freeze || [];
+  return freeze.find(row => row.target_branch === task.target_branch
+    && row.task_id !== task.id && row.resolves_task_id !== task.id) || null;
+}
 const DEP_HELP = {
   code: '这是它的 worktree 基线：本任务的分支从上游分支长出来，所以合并必须先合上游，否则会把上游的改动一起带进来。',
   order: '这只是顺序依赖：等上游结束才开跑，代码仍从当时的 HEAD 开始，因此不要求先合并上游。',
@@ -257,6 +274,7 @@ function whyLine(task, index) {
     return `等子任务：${live} 个在跑 · ${kids.filter(child => !TERMINAL_STATUS.has(child.status)).length} 个未结束`;
   }
   if (task.status === 'awaiting') return '等你决定：有没答复的问题';
+  if (task.status === 'completed' && task.integration === 'conflict') return '已完成，合并冲突等你决定';
   if (task.status === 'completed' && ['pending', 'review'].includes(task.integration)) return '已完成，等你批准合并';
   return null;
 }
@@ -296,7 +314,7 @@ function renderTree(data) {
       const row = el('span', undefined, 'row');
       row.append(el('span', statusOf(task).icon, `dot c-${task.status}`), el('span', `#${task.id}`, 'tid'),
         el('span', `${statusOf(task).label} · ${ROLE[task.role] || task.role}`));
-      const flow = task.parent_id === null && !task.verifies_task_id ? flows.get(task.input_id) : null;
+      const flow = task.parent_id === null && !task.verifies_task_id && !task.resolves_task_id ? flows.get(task.input_id) : null;
       if (flow) row.append(badge(flow === 'explain' ? '了解' : '开发', flow === 'explain' ? 'b-neutral' : 'b-completed'));
       for (const chip of depChips(task)) row.append(chip);
       row.append(el('span', relative(task.updated_at), 'when'));
@@ -684,6 +702,22 @@ function renderAgent(task, usage) {
   return section;
 }
 
+/**
+ * 合并冲突的处理记录：git 自己合不了的那次合并交给了哪几个专用任务，各自到哪了。
+ * 已经落地的用 --ff-only 落地（落地的树＝测过的树）；superseded 表示被下一轮取代。
+ */
+function renderResolutions(task) {
+  const section = block('合并冲突', String(task.resolutions.length));
+  section.append(el('p', '内容冲突会开一个专用任务：它在自己的 worktree 里（基线＝目标分支顶端）把已审阅的提交并进来、解冲突、跑测试；批准时用 --ff-only 落地，所以落地的就是它测过的那棵树。', 'hint'));
+  for (const row of task.resolutions) {
+    const line = el('div', undefined, 'row');
+    line.append(el('span', `#${row.id}`, 'tid'), el('span', `${statusOf(row).icon} ${statusOf(row).label}`, `dot c-${row.status}`),
+      badge(INTEGRATION[row.integration] || row.integration, row.integration === 'merged' ? 'b-completed' : 'b-awaiting'),
+      button('查看', () => detail(row.id), 'link'), el('span', row.head_commit ? short(row.head_commit) : '', 'when'));
+    section.append(line);
+  }
+  return section;
+}
 function renderDetail(task, history, diff, usage) {
   const panel = $('detail'); panel.replaceChildren();
   const head = el('div', undefined, 'head');
@@ -699,14 +733,36 @@ function renderDetail(task, history, diff, usage) {
 
   const actions = el('div', undefined, 'actions');
   const stacked = (task.deps || []).filter(edge => edge.kind === 'code');
-  if (task.status === 'completed' && ['pending', 'review'].includes(task.integration)) actions.append(button(
-    task.integration === 'review' ? '检查后重新批准合并' : '批准合并', async () => {
-      const warning = stacked.length ? `\n\n本任务 stacked 在 #${stacked.map(edge => edge.id).join('、')} 之上，必须先合并上游，否则会把它的改动一起带进来。` : '';
-      if (confirm(`将 ${task.branch} 合并到 ${task.target_branch}？请先审阅代码和测试结果。${warning}`)) await action('task.merge', { id: task.id });
+  const freeze = freezeOf(task);
+  const resolver = resolverOf(task);
+  if (freeze) {
+    // 同一目标分支上有没解决的冲突：这里点合并只会失败，所以禁用并指向那个任务。
+    const node = button('合并已被冻结', () => {}, 'ghost');
+    node.disabled = true;
+    node.title = `#${freeze.task_id} 的合并冲突还没解决：先处理它的待决问题（或让它的解冲突任务作废），${task.target_branch} 上的合并才能继续。`;
+    actions.append(node);
+  } else if (task.status === 'completed' && ['pending', 'review', 'conflict'].includes(task.integration)) {
+    const live = resolver && !TERMINAL_STATUS.has(resolver.status);
+    const retry = task.integration === 'conflict';
+    const label = live ? `解冲突任务 #${resolver.id} 进行中`
+      : retry ? '重试合并' : task.integration === 'review' ? '检查后重新批准合并' : '批准合并';
+    const node = button(label, async () => {
+      const lines = [retry ? `重新尝试把 ${task.branch} 合并到 ${task.target_branch}？如果还冲突，会再开一轮解冲突任务。`
+        : `将 ${task.branch} 合并到 ${task.target_branch}？请先审阅代码和测试结果。`];
+      if (stacked.length) lines.push(`本任务 stacked 在 #${stacked.map(edge => edge.id).join('、')} 之上，必须先合并上游，否则会把它的改动一起带进来。`);
+      if (task.resolves_task_id) lines.push('这是解冲突任务：落地用 --ff-only，落地的树就是它测过的那棵树。');
+      if (resolver) lines.push(`解冲突任务 #${resolver.id} 还没落地：重试会让它作废（分支与目录保留在磁盘上）。`);
+      if (!confirm(lines.join('\n\n'))) return;
+      const result = await action('task.merge', { id: task.id });
+      if (result?.merge?.status === 'conflict') $('error').textContent = `合并冲突：已开解冲突任务 #${result.merge.resolution_task_id}，请处理左侧的待决问题（${task.target_branch} 上的其它合并已冻结）。`;
+      else if (result?.merge?.status === 'resolved') $('error').textContent = `冲突已解决：原任务 #${result.merge.resolved_task_id} 也标成已合并。`;
       await detail(task.id);
-    }));
+    });
+    if (live) { node.disabled = true; node.title = `#${resolver.id} 正在解冲突：等它结束，或者先取消它再重试。`; }
+    actions.append(node);
+  }
   if (['failed', 'cancelled'].includes(task.status)) actions.append(button('检查后重试', async () => { await action('task.retry', { id: task.id }); await detail(task.id); }));
-  const reclaimable = task.status === 'completed' && ['merged', 'none'].includes(task.integration) && (task.workspace || task.branch);
+  const reclaimable = task.status === 'completed' && ['merged', 'none', 'superseded'].includes(task.integration) && (task.workspace || task.branch);
   if (reclaimable) actions.append(button('回收工作区与分支', async () => {
     const plan = [task.workspace && `删除 ${task.workspace}`, task.branch && `回收分支 ${task.branch}`].filter(Boolean).join('\n');
     if (!confirm(`${plan}\n\n只有分支顶端就是审阅过的那次提交、且已经进入 ${task.target_branch} 时才删；否则分支保留并在事件里说明原因。`)) return;
@@ -741,6 +797,7 @@ function renderDetail(task, history, diff, usage) {
   grid.append(kv('最后更新', `${absolute(task.updated_at)} · ${relative(task.updated_at)}`));
   stats.append(grid); panel.append(stats);
   panel.append(renderDeps(task));
+  if ((task.resolutions || []).length) panel.append(renderResolutions(task));
 
   if (task.result) { const result = block('结果'); result.append(agentText(task.result, { plain: 'pre' })); panel.append(result); }
   if (task.error) { const error = block('错误'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); panel.append(error); }

@@ -32,7 +32,8 @@ lush [--project PATH] [--json] <command>
   task message ID '补充说明'       追加输入，不打断当前 invocation
   task cancel|retry ID            取消子树 / 明确重试失败任务
   task wait ID                    仅阻塞此客户端，不占 agent 槽
-  task merge ID                   用户明确批准合并到原目标分支
+  task merge ID                   用户明确批准合并到原目标分支；内容冲突不会变成报错，而是开一个解冲突任务并提问，
+                                  解决前同一目标分支上的其它合并被冻结（答复／忽略那条 notice 即可继续）
   task verify ID                  为一个已完成的 worker 派只读 verifier：演示 worktree 结果并对照目标分支
   task cleanup ID [--keep-branch] 安全回收 worktree 与任务分支（--keep-branch 只回收 worktree）
   task clear                      删除全部已结束任务及 inputs/drafts/notices/events；有活动任务时拒绝
@@ -88,7 +89,7 @@ function printUsage(usage) {
 const DEP_MARK = { code: '⛓', order: '⏳' };
 const DEP_WORD = { code: '基线', order: '顺序' };
 const WAIT_LABEL = { dep: '等依赖', children: '等子任务', user: '等你决定', slot: '等并发槽', setup: '没跑起来就结束' };
-const INTEGRATION_WORD = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并' };
+const INTEGRATION_WORD = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并', conflict: '冲突待处理', superseded: '已作废' };
 const oneLine = (value, max = 60) => String(value ?? '').replace(/\s+/g, ' ').slice(0, max);
 const indent = depth => '  '.repeat(depth);
 const settled = dep => TERMINAL.has(dep.status);
@@ -102,6 +103,7 @@ function whyText(task, children = []) {
   if (task.status === 'queued') return waiting.length ? `排队：等 ${waiting.map(dep => `#${dep.id}`).join('、')}` : '排队：等并发槽';
   if (task.status === 'waiting') return `等子任务（${children.filter(child => child.status === 'running').length} 个在跑）`;
   if (task.status === 'awaiting') return '等你决定';
+  if (task.status === 'completed' && task.integration === 'conflict') return '合并冲突：等你决定要不要开解冲突任务';
   if (task.status === 'completed' && ['pending', 'review'].includes(task.integration)) return '等你批准合并';
   return null;
 }

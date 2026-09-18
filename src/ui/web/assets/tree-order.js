@@ -23,12 +23,12 @@ export const SORT_MODES = [
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 /** 终态里还需要用户动手的合并状态；merged / none 表示这条线已经收尾。 */
-const LIVE_INTEGRATION = new Set(['pending', 'review', 'merging']);
+const LIVE_INTEGRATION = new Set(['pending', 'review', 'merging', 'conflict']);
 const EMPTY = new Set();
 
-/** 与 app.js 的分组规则一致：verifier 用 verifies_task_id，父不在当前列表里时当根任务，不丢节点。 */
+/** 与 app.js 的分组规则一致：verifier / merger 用关联边，父不在当前列表里时当根任务，不丢节点。 */
 export function treeParent(task, ids) {
-  const parent = task.parent_id ?? task.verifies_task_id ?? 0;
+  const parent = task.parent_id ?? task.verifies_task_id ?? task.resolves_task_id ?? 0;
   return ids.has(parent) ? parent : 0;
 }
 
@@ -48,7 +48,7 @@ function rankOf(task, openTaskIds) {
 
 /**
  * 对整棵扁平任务表自底向上算档位。
- * @param {Array} tasks store.summaries() 的扁平任务（字段含 id/parent_id/verifies_task_id/status/integration/updated_at）
+ * @param {Array} tasks store.summaries() 的扁平任务（字段含 id/parent_id/verifies_task_id/resolves_task_id/status/integration/updated_at）
  * @param {Set|Array} openNoticeIds 存在未答复 notice 的 task id 集合（调用方从 notices 里筛 status==='open' 后取 task_id）；
  *   也接受 notice 行对象（取 task_id，缺省取 id），方便调用方直接把筛选结果传进来。数字一律按 task id 解释。
  * @returns {Map<number, {rank:number, effectiveRank:number, activity:number}>}

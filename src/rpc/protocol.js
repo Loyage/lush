@@ -74,7 +74,7 @@ export class Dispatcher {
       case 'task.message': return p.message(params.id, params.body, actor);
       case 'task.cancel': return p.cancel(params.id);
       case 'task.retry': return p.retry(params.id);
-      case 'task.merge': return p.workspaces.merge(id(params.id));
+      case 'task.merge': return p.approveMerge(id(params.id));
       case 'task.verify': return p.verify(id(params.id));
       case 'task.cleanup':
         check(!p.running.has(id(params.id)), 'agent is still stopping; cleanup must wait');

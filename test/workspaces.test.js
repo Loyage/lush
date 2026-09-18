@@ -108,19 +108,26 @@ test('independent workers get different worktrees and merge serially', async () 
   } finally { await f.close(); }
 });
 
-test('merge conflicts abort safely, retain both branches and allow later review', async () => {
+test('merge conflicts come back as a structured result and leave the main tree untouched', async () => {
   const f = await setup();
   try {
     const b = f.project.spawn(f.task.parent_id,'other','worker');
     await change(f,f.task,'A\n'); await change(f,b,'B\n');
-    await f.project.workspaces.merge(f.task.id);
+    // 干净合并：conflict 为空。
+    expect((await f.project.workspaces.merge(f.task.id)).conflict).toBeNull();
     const head = await git(f.root,'rev-parse','HEAD');
-    await expect(f.project.workspaces.merge(b.id)).rejects.toThrow('git merge');
+    // 内容冲突不是异常：它带着冲突文件列表回来，main 已 abort 回合并前的干净状态。
+    const result = await f.project.workspaces.merge(b.id);
+    expect(result.conflict.files).toEqual(['file.txt']);
+    expect(result.conflict.output).toContain('CONFLICT');
+    expect(result.task.integration).toBe('pending');
     expect(await git(f.root,'rev-parse','HEAD')).toBe(head);
     expect(await git(f.root,'status','--porcelain')).toBe('');
-    expect(f.store.task(b.id).integration).toBe('pending');
     expect(f.store.task(b.id).integration_error).toBeTruthy();
+    // 两边分支都留着：稍后还能重试，或者交给解冲突任务。
     expect(fs.readFileSync(path.join(f.store.task(b.id).workspace,'file.txt'),'utf8')).toBe('B\n');
+    expect((await f.project.workspaces.merge(b.id)).conflict.files).toEqual(['file.txt']);
+    expect(await git(f.root,'status','--porcelain')).toBe('');
   } finally { await f.close(); }
 });
 
