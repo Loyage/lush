@@ -1,6 +1,7 @@
 # Lush
 
-**把项目开发成你想象中的样子。**
+**一丁点儿时间不浪费。**
+**Not a single moment wasted.**
 
 Lush 是项目级的多 agent 开发应用，不再是电脑级的 AI 管家。一个 daemon 绑定一个项目目录；输入、任务、agent 会话、工作区与待决问题都属于这个项目。
 
