@@ -111,6 +111,13 @@ describe('pi agent backend', () => {
     expect(payload.cwd).toBe(real);
     expect(flagValue(payload.argv, '--name')).toBe('demo-project[1]');
     expect(manager.repository.context(project.pid).state.params.path).toBe(real);
+    // The same binding carries a git worktree: the manager a dev-task hands a
+    // worktree to runs there, without anyone having to `cd`.
+    const task = project.createChild('dev-task', { name: 'fix-login', variables: { title: '修登录' } });
+    const worktree = task.createChild('worktree-service', { name: 'fix-login', variables: { path: real } });
+    expect((await manager.call(worktree.pid, 'where?', true)).cwd).toBe(real);
+    expect(JSON.parse((await worktree.call('what is here?')).output).cwd).toBe(real);
+    expect(flagValue(JSON.parse((await worktree.call('again?')).output).argv, '--name')).toBe('fix-login[3]');
   });
 
   test('dry run prints the command without touching invocation history', async () => {

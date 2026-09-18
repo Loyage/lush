@@ -239,7 +239,7 @@ describe('core', () => {
 
   test('dev-task declares name / title / detail as checked fields', () => {
     const template = manager.templates.get('dev-task');
-    expect(template).toMatchObject({ type: 'task', singleton: false, child_templates: [] });
+    expect(template).toMatchObject({ type: 'task', singleton: false, child_templates: ['worktree-service'] });
     expect(template.variables.immutable.name)
       .toMatchObject({ required: true, pattern: '^[A-Za-z][A-Za-z0-9_-]*$', max_length: 64 });
     expect(template.variables.immutable.title).toMatchObject({ required: true, max_length: 200, single_line: true });
@@ -262,8 +262,10 @@ describe('core', () => {
       params: { name: 'fix-login', title: '修复登录流程', detail: '第一行\n第二行' },
     });
     expect(task.inspect().variables.declarations.immutable.name.max_length).toBe(64);
-    // A leaf even though other tasks can spawn: the whitelist is empty.
+    // One child and one only: the worktree manager. Everything else is refused,
+    // so a dev-task works through a worktree instead of on the main tree.
     expect(code(() => task.createChild('generic-task'))).toBe(-32010);
+    expect(code(() => task.createChild('project'))).toBe(-32010);
     // The parent's variables are readable through the normal read model.
     expect(task.getParent().inspect().variables.immutable).toEqual({ path: dir });
     // Undeclared names are still refused, `path` included: dev-task has no cwd of its own.
@@ -278,6 +280,38 @@ describe('core', () => {
     // An explicitly empty body is stored as given, not turned into a missing value.
     const empty = project.createChild('dev-task', { name: 'no-body', variables: { title: '没正文', detail: '' } });
     expect(empty.inspect().context.state.params.detail).toBe('');
+  });
+
+  test('worktree-service is bound to one worktree through the immutable path variable', () => {
+    const template = manager.templates.get('worktree-service');
+    expect(template).toMatchObject({ type: 'service', singleton: false, child_templates: [] });
+    // The worktree directory is the whole binding: the reserved `path` variable,
+    // required and immutable, so it is also the service's working directory.
+    expect(template.variables.immutable.path).toMatchObject({ required: true });
+    expect(template.variables.mutable).toBeUndefined();
+    for (const expected of ['path', 'worktree add', 'process_spawn']) expect(template.spawn_prompt).toContain(expected);
+    for (const expected of ['worktree', 'state', 'complete']) expect(template.system_prompt).toContain(expected);
+
+    const project = root.createChild('project', { variables: { path: dir } });
+    // Only the dev-task that owns it may create it: the project may not.
+    expect(code(() => project.createChild('worktree-service', { variables: { path: dir } }))).toBe(-32010);
+    const task = project.createChild('dev-task', { name: 'fix-login', variables: { title: '修登录' } });
+    // The worktree has to exist before the manager does (`git worktree add` first):
+    // missing, relative and non-existent directories all fail at spawn.
+    expect(code(() => task.createChild('worktree-service'))).toBe(-32602);
+    expect(code(() => task.createChild('worktree-service', { variables: { path: 'relative/dir' } }))).toBe(-32602);
+    expect(code(() => task.createChild('worktree-service', { variables: { path: `${dir}/nope` } }))).toBe(-32602);
+    expect(code(() => task.createChild('worktree-service', { variables: { path: dir, branch: 'dev' } }))).toBe(-32602);
+
+    const service = task.createChild('worktree-service', { name: 'fix-login', goal: '修登录', variables: { path: dir } });
+    expect(service.inspect().template).toBe('worktree-service');
+    expect(service.inspect().name).toBe('fix-login');
+    expect(service.inspect().context.state).toEqual({ params: { path: dir } });
+    expect(service.inspect().variables.declarations.immutable.path.required).toBe(true);
+    // The address is bound for good: a later update cannot repoint it.
+    expect(code(() => manager.updateVars(service.pid, { path: '/tmp' }))).toBe(-32602);
+    // One worktree, one manager: it manages and does not delegate further.
+    expect(code(() => service.createChild('generic-task'))).toBe(-32010);
   });
 
   test('project tells its agent to split a multi-task prompt into child tasks', () => {
@@ -385,7 +419,7 @@ describe('core', () => {
     const order = Object.keys(loader.templates);
     expect(order).toEqual([
       'lush-root', 'project-manager', 'project',
-      'dev-task', 'research-task', 'generic-service', 'generic-task',
+      'dev-task', 'research-task', 'generic-service', 'generic-task', 'worktree-service',
     ]);
     // The layout is the spawn tree: a template file sits next to a folder named
     // after it, and that folder holds the templates it may create
@@ -395,6 +429,7 @@ describe('core', () => {
     expect(origin('lush-root').endsWith('/templates/lush-root.json')).toBe(true);
     expect(origin('project-manager').endsWith('/templates/lush-root/project-manager.json')).toBe(true);
     expect(origin('dev-task').endsWith('/templates/lush-root/project-manager/project/dev-task.json')).toBe(true);
+    expect(origin('worktree-service').endsWith('/templates/lush-root/project-manager/project/dev-task/worktree-service.json')).toBe(true);
     // The invariant behind the order: a template is listed after everything that
     // may spawn it (`*` and self-references are not hierarchy steps, so the
     // generic templates sit below research-task, which names them explicitly).
