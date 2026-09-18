@@ -1,9 +1,18 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lush · 项目开发</title><link rel="stylesheet" href="/styles.css"><script type="module" src="/app.js"></script></head>
-<body><header><strong>Lush</strong><span id="project">连接项目…</span><span id="connection" role="status"></span></header>
-<main><section class="conversation"><h1>把项目做成你想象中的样子。</h1><p>随时补充想法。任务并行推进，合并由你决定。</p>
-<h2>输入记录</h2><div id="inputs"></div></section>
-<section><div class="section-title"><h2>任务树</h2><span id="agents"></span></div><div id="tasks"></div><h2>等你决定</h2><div id="notices"></div></section>
-<section id="detail"><h2>任务详情</h2><p>选择任务查看结果、工作区和待合并改动。</p></section></main>
-<div class="composer"><form id="input-form"><label for="input">你想做什么？</label><textarea id="input" required maxlength="32000" placeholder="添加一个登录页面；或者，先研究一下现有鉴权逻辑…"></textarea><button>发送，不等待任务完成 ↗</button></form><p id="error" role="alert"></p></div>
-</body></html>
+<body><div class="app">
+<header><div class="brand"><strong>Lush</strong><span id="project">连接项目…</span></div>
+<span id="agents"></span><span id="connection" role="status">连接中…</span></header>
+<main><aside>
+<div class="section-title"><h2>任务树</h2><span id="task-count" class="count"></span></div>
+<div id="tasks"></div>
+<div class="section-title"><h2>等你决定</h2><span id="notice-count" class="count"></span></div>
+<div id="notices"></div>
+</aside>
+<section id="detail"><h2>任务详情</h2><p class="hint">从左侧选择任务，查看结果、改动、子任务与事件时间线。</p></section>
+</main>
+<div class="composer"><form id="input-form"><label for="input">你想做什么？</label>
+<textarea id="input" required maxlength="32000" placeholder="添加一个登录页面；或者，先研究一下现有鉴权逻辑…"></textarea>
+<div class="composer-foot"><button>发送，不等待任务完成 ↗</button><span class="hint">任务并行推进，合并由你决定。</span></div></form>
+<p id="error" role="alert"></p></div>
+</div></body></html>

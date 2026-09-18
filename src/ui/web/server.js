@@ -22,7 +22,14 @@ export function startWeb(config, port = 4318) {
       try {
         if (request.method === 'GET') {
           if (url.pathname === '/api/snapshot') return json(await client.snapshot());
-          if (/^\/api\/task\/\d+$/.test(url.pathname)) return json(await client.request('task.inspect', { id: Number(url.pathname.split('/').pop()) }));
+          const read = /^\/api\/task\/(\d+)(\/(history|diff))?$/.exec(url.pathname);
+          if (read) {
+            const taskId = Number(read[1]);
+            if (read[3] === 'history') return json(await client.request('task.history', { id: taskId, after: Number(url.searchParams.get('after') ?? 0) }));
+            if (read[3] === 'diff') return json(await client.request('task.diff', { id: taskId }));
+            return json(await client.request('task.inspect', { id: taskId }));
+          }
+          if (url.pathname === '/favicon.ico') return new Response(null, { status: 204, headers });
           const files = { '/': 'index.html', '/app.js': 'app.js', '/styles.css': 'styles.css' };
           if (Object.hasOwn(files, url.pathname)) return new Response(Bun.file(path.join(ASSETS, files[url.pathname])), { headers });
         }

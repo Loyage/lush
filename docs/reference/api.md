@@ -23,6 +23,7 @@
 | `task tree [ID]` | `task.tree` | `{id?}` |
 | `task inspect ID` | `task.inspect` | `{id}` |
 | `task history ID [--after N]` | `task.history` | `{id, after?: 0}` |
+| —（只读，Web UI 使用） | `task.diff` | `{id}` |
 | `task spawn 'goal' --parent ID --role worker` | `task.spawn` | `{parent, goal, role?: 'worker'}` |
 | `task message ID 'body'` | `task.message` | `{id, body}` |
 | `task cancel ID` | `task.cancel` | `{id}` |
@@ -35,6 +36,20 @@
 spawn 必须关联一个活动父 task；根任务只能由用户输入创建。角色可选 `worker` / `coordinator` / `research`，`planner` 只由入口生成。
 
 `task.list` 和 tree 返回摘要，不复制每个 task 的结果与收件箱。完整 result 在 inspect 中；inspect 的子任务、消息、notice 集合受字节预算限制，完整记录仍在 SQLite。history 每页最多 100 个事件且有字节预算，以最后一条 event.id 作为下一页 after。大型任务森林超过 1 MiB frame 时应改用 task list 分页和指定根 ID 的 task tree。
+
+`task.diff` 是只读审阅视图：不写库、不改仓库，因此不进入 Git 串行队列。返回 `{branch, target_branch, base_commit, head_commit, committed, files, files_total, pending, pending_total, commits}`；`files` 是 base..head 的已提交改动，`pending` 是相对 HEAD 的未提交改动（含未跟踪文件，`code` 为 git porcelain 状态、新增删除行数为 null）。无工作区时返回 `null`。该 RPC 暂无 CLI 命令。
+
+## Web 读取路由
+
+Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
+
+| 路由 | 底层 |
+|---|---|
+| `GET /api/snapshot` | status + input.list + notice.list + 分页 task.list |
+| `GET /api/task/ID` | `task.inspect` |
+| `GET /api/task/ID/history?after=N` | `task.history` |
+| `GET /api/task/ID/diff` | `task.diff` |
+| `POST /api/action` | 仅限上方 `MUTATIONS` 中的用户动作 |
 
 ## 待决问题
 

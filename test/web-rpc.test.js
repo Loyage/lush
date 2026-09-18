@@ -40,6 +40,22 @@ test('web is project scoped, submits immediately and exposes no Service views', 
   } finally { await f.close(); }
 });
 
+test('web exposes only read-only task routes and rejects other paths', async () => {
+  const f = await setup();
+  try {
+    await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'input.submit',params:{content:'read routes'}})});
+    expect((await fetch(f.url+'/api/task/1/history')).status).toBe(200);
+    const history = await (await fetch(f.url+'/api/task/1/history')).json();
+    expect(history[0].type).toBe('created');
+    expect((await fetch(f.url+'/api/task/1/history?after=9999')).status).toBe(200);
+    expect(await (await fetch(f.url+'/api/task/1/diff')).json()).toBeNull();
+    expect((await fetch(f.url+'/api/task/1/diff')).status).toBe(200);
+    expect((await fetch(f.url+'/api/task/99/diff')).status).toBe(400);
+    expect((await fetch(f.url+'/api/task/1/merge')).status).toBe(404);
+    expect((await fetch(f.url+'/api/system/status')).status).toBe(404);
+  } finally { await f.close(); }
+});
+
 test('web rejects cross-origin requests, forged host, non-JSON and arbitrary RPC', async () => {
   const f = await setup();
   try {
