@@ -144,6 +144,11 @@ test('web exposes the read-only agent transcript and keeps sessions out of the r
     // 越界游标、未知任务、超限 limit 都是 400，不当成服务器错误
     expect((await fetch(`${f.url}/api/task/${task.id}/transcript?after=-1`)).status).toBe(400);
     expect((await fetch(`${f.url}/api/task/99/transcript`)).status).toBe(400);
+    // 执行过程默认一步一行：默认展开的只有「回答」，其余（思考/工具调用/工具输出）要点开才看正文
+    const app = await (await fetch(`${f.url}/app.js`)).text();
+    expect(app).toMatch(/STEP_OPEN = new Set\(\['text'\]\)/);
+    expect(app).toContain('展开全部步骤');
+    expect(app).toContain('默认折叠成一行');
     // 过程不进快照/列表，只有 transcript 路由才读会话文件
     const snapshot = await (await fetch(f.url + '/api/snapshot')).json();
     expect(JSON.stringify(snapshot)).not.toContain('先看看代码');
