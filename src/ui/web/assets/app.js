@@ -1,3 +1,8 @@
+// Replaced by the server with the revision of the code it froze its routes at:
+// the page and the API it talks to must be one build. A tab outlives the process
+// that served it, and after a restart every call would otherwise hit a route
+// table that no longer matches this file.
+const UI_REVISION = '__LUSH_UI_REVISION__';
 const TASK_LIMIT = 500;
 const TRACE_LIMIT = 200;
 const ACTIVE_STATUSES = ['created', 'running', 'waiting', 'awaiting'];
@@ -113,12 +118,17 @@ const state = {
   selectedNoticeId: null,
   notice: null,
   noticeSignature: null,
+  stale: false,
 };
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
-    headers: { ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...options.headers },
+    headers: {
+      ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      'X-Lush-UI-Revision': UI_REVISION,
+      ...options.headers,
+    },
   });
   let payload = null;
   try {
@@ -127,11 +137,25 @@ async function api(path, options = {}) {
     // A non-JSON body means the error came from far outside the API surface.
   }
   if (!response.ok) {
+    if (payload?.error?.data?.reason === 'ui_revision_mismatch') stalePage();
     const error = new Error(payload?.error?.message ?? `HTTP ${response.status}`);
     error.status = response.status;
     throw error;
   }
   return payload;
+}
+
+/**
+ * The server answered from a different UI build than the one this page runs.
+ * Retrying cannot fix that — this tab holds JavaScript from a `lush-web` that
+ * is no longer listening — so say so once, where it stays visible from every
+ * view, instead of letting the 2.5s polling repeat it.
+ */
+function stalePage() {
+  if (state.stale) return;
+  state.stale = true;
+  connection('error', '页面已过期，请刷新');
+  showMessage('这个标签页运行的是旧版 Web UI（服务端已换版本），刷新浏览器后再操作。', true);
 }
 
 function connection(kind, label) {

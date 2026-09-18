@@ -45,7 +45,10 @@ const SURFACE_DIRS = [
   { path: 'src/cli/tree', extension: '.js' },
 ];
 
-/** Relative paths under `directory` whose name ends with `extension`, sorted. */
+/**
+ * Relative paths under `directory` whose name ends with `extension` (`null`
+ * means every file), sorted.
+ */
 function surfaceFiles(directory, extension, recursive = false) {
   const found = [];
   const walk = (relative) => {
@@ -59,7 +62,7 @@ function surfaceFiles(directory, extension, recursive = false) {
       const nested = relative === '' ? entry.name : `${relative}/${entry.name}`;
       if (entry.isDirectory()) {
         if (recursive) walk(nested);
-      } else if (entry.name.endsWith(extension)) {
+      } else if (extension === null || entry.name.endsWith(extension)) {
         found.push(`${directory}/${nested}`);
       }
     }
@@ -101,6 +104,31 @@ export function codeVersion() {
   } catch {
     return null;
   }
+}
+
+/**
+ * Which Web UI a page and the routes answering it come from.
+ *
+ * The web adapter is a long-lived process of its own (`lush-web`), and a page
+ * outlives the process that served it: a browser tab keeps its JavaScript while
+ * the port is rebound to a newer build. Comparing a revision the page carries
+ * against the one the route table froze at lets the server answer "reload"
+ * instead of a bare 404 per route that moved in between. Deliberately *not* part
+ * of `codeIdentity`: that fingerprint is about what an agent is told, and a
+ * UI-only change must not be reported as a stale daemon.
+ */
+const UI_DIR = 'src/ui';
+
+let cachedUi = null;
+
+/** Short stable digest of the UI adapter surface: client, HTTP server, assets. */
+export function uiRevision() {
+  if (cachedUi !== null) return cachedUi;
+  const hash = createHash('sha256');
+  hash.update('lush-ui-v1\n');
+  for (const relative of surfaceFiles(UI_DIR, null, true)) addFile(hash, relative);
+  cachedUi = hash.digest('hex').slice(0, 12);
+  return cachedUi;
 }
 
 let cached = null;

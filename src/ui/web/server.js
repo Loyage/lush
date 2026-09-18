@@ -1,19 +1,43 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
 import { LushError } from '../../core/types.js';
+import { uiRevision } from '../../identity.js';
 import {
   intensionListQuery, intensionRequest, noticeAnswerRequest, noticeDismissRequest, noticeListQuery,
   taskDeleteRequest, taskListQuery, taskTraceQuery,
 } from '../client.js';
 
-const ASSET_DIR = fileURLToPath(new URL('./assets/', import.meta.url));
+const ASSET_DIR = new URL('./assets/', import.meta.url);
 const MAX_BODY_BYTES = 128 * 1024;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
+/** How a page says which UI build it was served from. */
+const REVISION_HEADER = 'x-lush-ui-revision';
+/** Filled in when the assets are frozen; see `loadAssets`. */
+const REVISION_TOKEN = '__LUSH_UI_REVISION__';
 const ASSETS = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
 ]);
+
+/**
+ * The static files, read once per process and stamped with the revision of the
+ * route table that will serve them.
+ *
+ * Reading them per request is the trap this avoids: routes are frozen when the
+ * process starts, so a long-running `lush-web` would hand the browser the page
+ * of a *newer* code version than the API it answers with — the page then calls
+ * routes that moved, and every click fails with a bare 404. One process serves
+ * exactly one version of the UI; `src/ui/**` changes reach the browser when
+ * `lush-web` is restarted, not before.
+ */
+function loadAssets(revision) {
+  const assets = new Map();
+  for (const [route, [name, type]] of ASSETS) {
+    const body = fs.readFileSync(new URL(name, ASSET_DIR), 'utf8').replaceAll(REVISION_TOKEN, revision);
+    assets.set(route, { type, body });
+  }
+  return assets;
+}
 
 const SECURITY_HEADERS = {
   'Cache-Control': 'no-store',
@@ -91,6 +115,11 @@ export class WebUIServer {
     this.hostname = hostname;
     this.port = port;
     this.server = null;
+    // The page and the routes are one build, decided here and never reloaded:
+    // a second `start()` of this same object must not serve a page that has
+    // meanwhile changed on disk under a route table that has not.
+    this.revision = uiRevision();
+    this.assets = loadAssets(this.revision);
   }
 
   get url() {
@@ -119,6 +148,21 @@ export class WebUIServer {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/') && !sameOrigin(request, url)) {
       return json({ error: { code: -32600, message: 'cross-origin requests are not allowed' } }, 403);
+    }
+
+    // A page that names the UI it was served from and names a different one is
+    // not talking to its own routes, so only a reload helps: say that once,
+    // instead of letting it fail route by route. Clients that stay silent
+    // (curl, tests, the CLI) are answered as before.
+    const claimed = request.headers.get(REVISION_HEADER);
+    if (url.pathname.startsWith('/api/') && claimed !== null && claimed !== this.revision) {
+      return json({
+        error: {
+          code: -32600,
+          message: `web UI page is stale: page ${claimed}, server ${this.revision}; reload the page`,
+          data: { reason: 'ui_revision_mismatch', page: claimed, server: this.revision },
+        },
+      }, 409);
     }
 
     try {
@@ -223,16 +267,19 @@ export class WebUIServer {
       }
 
       if (request.method === 'GET' || request.method === 'HEAD') {
-        const asset = ASSETS.get(url.pathname);
+        const asset = this.assets.get(url.pathname);
         if (asset !== undefined) {
-          const [name, type] = asset;
-          const body = request.method === 'HEAD' ? null : Bun.file(path.join(ASSET_DIR, name));
-          return response(body, { type });
+          return response(request.method === 'HEAD' ? null : asset.body, { type: asset.type });
         }
       }
 
       if (url.pathname.startsWith('/api/')) {
-        return json({ error: { code: -32601, message: 'API route not found' } }, 404);
+        return json({
+          error: {
+            code: -32601,
+            message: `API route not found: ${url.pathname} (a page from another build is asking for it; reload the browser)`,
+          },
+        }, 404);
       }
       return response('Not found\n', { status: 404, type: 'text/plain; charset=utf-8' });
     } catch (err) {

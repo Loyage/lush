@@ -25,6 +25,10 @@ bun run daemon-start    # daemon 需要单独启动
 
 `bun run web` 不会启动、停止或重启 daemon。daemon 尚未运行时页面仍可打开并显示离线；daemon 后续启动或重启后，页面会在下一次轮询时自动恢复。
 
+但 `lush-web` 自己也是**版本在启动瞬间冻结**的长驻进程，而且这一条对页面比对 daemon 更严：路由表与 `assets/` 下的页面在**构造时**一起读进内存，并盖上同一个 **UI revision**（`src/ui/**` 的摘要，见 `src/identity.js` 的 `uiRevision()`）。于是「一个进程服务的页面 + 它应答的 API」永远是同一版，不会出现「页面是新版、路由是旧版」的错位（页面逐请求读盘、路由启动时冻结时就会错位：新版页面调用的路由在旧版路由表里不存在，每次点击都是一句没头没脑的 404）。代价是：**改了 `src/ui/**` 必须重启 `lush-web`**（`bun run web`），刷新浏览器没用。
+
+页面在每个 API 请求上带 `X-Lush-UI-Revision` 头。标签页会活得比服务它的进程久（端口被新版本接管后，旧 JS 还在跑），所以发现版本对不上时服务端不再让它一条条撞 404，而是直接回 `409`（`error.code = -32600`、`error.data.reason = "ui_revision_mismatch"`，消息里给出两个 revision 与「reload」），页面据此把顶部状态改成「页面已过期，请刷新」并提示一次。不带这个头的客户端（curl、测试、未来的其他 adapter）按老样子处理。
+
 也可以直接执行：
 
 ```bash
@@ -69,4 +73,4 @@ HTTP adapter 的接口是：
 | `POST /api/notices/:id/answer` | JSON `{ answer: object }`；按声明的 fields 校验后提交，返回 `{ notice }`（已 answered） |
 | `POST /api/notices/:id/dismiss` | JSON `{ reason?: string }`；返回 `{ notice }`（已 dismissed） |
 
-Web UI 只允许绑定 `127.0.0.1` / `::1` / `localhost`，默认固定为 `127.0.0.1`；不提供远程监听开关。写请求要求 `Content-Type: application/json`，API 拒绝跨 Origin 请求，响应带 CSP 等安全头。取消与删除是破坏性动作，沿用 Lush 的本地单用户安全模型：不要通过反向代理把它暴露给不可信用户。
+Web UI 只允许绑定 `127.0.0.1` / `::1` / `localhost`，默认固定为 `127.0.0.1`；不提供远程监听开关。写请求要求 `Content-Type: application/json`，API 拒绝跨 Origin 请求，响应带 CSP 等安全头。页面上所有 `/api/` 请求都会带 `X-Lush-UI-Revision`（见上）：与当前进程的 UI revision 不一致时一律 `409`（`ui_revision_mismatch`），不会继续路由——旧版页面在新版路由表上不管问什么都只有一个答案：刷新。取消与删除是破坏性动作，沿用 Lush 的本地单用户安全模型：不要通过反向代理把它暴露给不可信用户。

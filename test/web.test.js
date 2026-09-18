@@ -9,6 +9,7 @@ import { createSignal } from '../src/signal.js';
 import {
   UIClient, intensionListQuery, intensionRequest, taskDeleteRequest, taskListQuery, taskTraceQuery,
 } from '../src/ui/client.js';
+import { uiRevision } from '../src/identity.js';
 import { WebUIServer } from '../src/ui/web.js';
 import { cleanup, deferred, system, tmpdir } from './helpers.js';
 
@@ -232,6 +233,42 @@ describe('web ui', () => {
     expect(await settled.json()).toMatchObject({
       intension: { id: row.id, status: 'settled', response: 'finished in background' },
     });
+  });
+
+  test('serves one frozen UI version and refuses a page from another', async () => {
+    const revision = uiRevision();
+    const app = await (await request('/app.js')).text();
+    // The page is stamped with the revision of the routes that will answer it,
+    // and no longer carries the token the stamp replaced.
+    expect(app).toContain(revision);
+    expect(app).not.toContain('__LUSH_UI_REVISION__');
+    expect(await (await request('/app.js')).text()).toBe(app);
+    expect(await (await request('/')).text()).not.toContain('__LUSH_UI_REVISION__');
+    expect((await request('/app.js', { method: 'HEAD' })).status).toBe(200);
+
+    // A page that names its own revision is answered only when it matches; one
+    // from another build is told to reload rather than left to fail route by
+    // route. Silence (curl, tests) keeps working, which every other case here
+    // relies on.
+    const mine = await request('/api/tree', { headers: { 'X-Lush-UI-Revision': revision } });
+    expect(mine.status).toBe(200);
+    const theirs = await request('/api/tree', { headers: { 'X-Lush-UI-Revision': 'older-build' } });
+    expect(theirs.status).toBe(409);
+    const error = (await theirs.json()).error;
+    expect(error.data).toEqual({ reason: 'ui_revision_mismatch', page: 'older-build', server: revision });
+    expect(error.message).toContain(revision);
+    expect(error.message).toContain('reload');
+    const staleWrite = await request('/api/intents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Lush-UI-Revision': 'older-build' },
+      body: JSON.stringify({ content: 'never parsed' }),
+    });
+    expect(staleWrite.status).toBe(409);
+
+    // A route that moved in between is still a 404, but one that says what to do.
+    const moved = await request('/api/tasks', { method: 'POST' });
+    expect(moved.status).toBe(404);
+    expect((await moved.json()).error.message).toContain('reload');
   });
 
   test('validates writes and blocks cross-origin API requests', async () => {
