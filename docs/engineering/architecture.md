@@ -29,6 +29,8 @@ CLI / Web → UIClient → JSON-RPC / Unix socket → Project
 
 每条输入有自己的 planner；不会复用长期被占用的单个根任务。调度器保留一个规划槽，执行任务使用另外 N 个槽。因此一个规划任务派活后等待，不会阻碍其他输入被规划。规划本身不是无限并发，以免大量输入造成不受控模型调用。
 
+每条输入还带一个流程判定（`inputs.flow`，未判定按 develop 处理）：`develop` 照常拆解出 worker/coordinator/research；`explain` 只解答、不产出代码，根 planner 直接把结论写进 result，必要时只派 research。runtime 在 `Project.spawn` 层硬校验 `explain` 子树只允许 research，因此了解类输入不会创建 worktree、不会产生待合并改动。判定与改判由根 planner / 用户经 `input.flow` 写入；改判只影响之后的 spawn，不追溯已建子任务。
+
 ### 一次 invocation
 
 1. 按任务 ID 从 queued 中挑选，不超过对应槽限制。
@@ -57,6 +59,7 @@ agent 只能从自己的 task 派生子任务、给直接父/子发消息、给�
 - 取消、notice 答复与 completion 的核心状态变更都在同步短事务中完成；事务内不等待模型或 Git。
 - 重试必须是用户显式动作，且父 task 不能已终态。
 - 不删除任务历史；工作区清理与任务终态是不同操作。
+- `explain` 输入的子树只允许 research；runtime 在 spawn 层拒绝 worker/coordinator，保证了解类输入不产生待合并改动。
 
 ## Git 边界
 

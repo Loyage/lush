@@ -68,6 +68,23 @@ test('agent identity columns are added to a database written by an earlier build
   } finally { fs.rmSync(root,{recursive:true,force:true}); }
 });
 
+test('the input flow column is added to a database written by an earlier build', () => {
+  const root = temp();
+  try {
+    const config = Config.fromEnv(env(),root); config.prepare();
+    const file = path.join(config.home,'project.db');
+    const store = new Store(file,root);
+    store.run('ALTER TABLE inputs DROP COLUMN flow');
+    expect(store.all('PRAGMA table_info(inputs)').map(row => row.name)).not.toContain('flow');
+    store.close();
+    const reopened = new Store(file,root);
+    expect(reopened.all('PRAGMA table_info(inputs)').map(row => row.name)).toContain('flow');
+    reopened.run('INSERT INTO inputs(content) VALUES (?)','after upgrade');
+    expect(reopened.get('SELECT flow FROM inputs').flow).toBeNull();
+    reopened.close();
+  } finally { fs.rmSync(root,{recursive:true,force:true}); }
+});
+
 test('non-git projects bind via manifest and can accept research tasks', () => {
   const root = temp();
   try {

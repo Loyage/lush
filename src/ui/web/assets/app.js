@@ -128,6 +128,7 @@ function renderDrafts(data) {
 }
 function renderTree(data) {
   const container = $('tasks');
+  const flows = new Map((data.inputs || []).map(input => [input.id, input.flow]));
   const known = new Map([...container.children].map(node => [Number(node.dataset.id), node]));
   const byParent = new Map();
   for (const task of data.tasks) { const key = task.parent_id || 0; if (!byParent.has(key)) byParent.set(key, []); byParent.get(key).push(task); }
@@ -142,6 +143,8 @@ function renderTree(data) {
       const row = el('span', undefined, 'row');
       row.append(el('span', statusOf(task).icon, `dot c-${task.status}`), el('span', `#${task.id}`, 'tid'),
         el('span', `${statusOf(task).label} · ${ROLE[task.role] || task.role}`), el('span', relative(task.updated_at), 'when'));
+      const flow = task.parent_id === null ? flows.get(task.input_id) : null;
+      if (flow) row.append(badge(flow === 'explain' ? '了解' : '开发', flow === 'explain' ? 'b-neutral' : 'b-completed'));
       node.append(row, el('span', task.goal, 'goal'));
       if (integration) node.append(el('span', integration, 'meta'));
       const waiting = (task.deps || []).filter(dep => !TERMINAL_STATUS.has(dep.status));
@@ -267,6 +270,9 @@ function renderDetail(task, history, diff) {
     if (confirm('取消这个任务及所有子任务？工作区会保留。')) await action('task.cancel', { id: task.id });
     await detail(task.id);
   }, 'danger'));
+  if (task.parent_id === null) actions.append(
+    button('标记为开发', async () => { await action('input.flow', { id: task.id, flow: 'develop' }); await detail(task.id); }, 'ghost'),
+    button('标记为了解', async () => { await action('input.flow', { id: task.id, flow: 'explain' }); await detail(task.id); }, 'ghost'));
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
 

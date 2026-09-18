@@ -98,6 +98,21 @@ test('large results do not inflate task listings and event history stays paginat
   } finally { await f.close(); }
 });
 
+test('web surfaces the input flow badge and lets the user reclassify an input', async () => {
+  const f = await setup();
+  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
+  try {
+    expect((await post('input.submit',{content:'了解调度器怎么工作'})).status).toBe(200);
+    expect((await post('input.flow',{id:1,flow:'explain'})).status).toBe(200);
+    const snapshot = await (await fetch(f.url+'/api/snapshot')).json();
+    expect(snapshot.inputs[0].flow).toBe('explain');
+    expect(await (await fetch(f.url+'/app.js')).text()).toContain('标记为了解');
+    // 非法取值与非根 task 都在 Web 层报错
+    expect((await post('input.flow',{id:1,flow:'maybe'})).status).toBe(400);
+    expect((await post('input.flow',{id:99,flow:'develop'})).status).toBe(400);
+  } finally { await f.close(); }
+});
+
 test('web buffers drafts, commits the whole batch and keeps agents out of the composer', async () => {
   const f = await setup();
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});

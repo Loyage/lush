@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { UIClient } from '../client.js';
 import { check } from '../../core/types.js';
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
-const MUTATIONS = new Set(['input.submit','draft.add','draft.remove','draft.commit','task.message','task.cancel','task.retry','task.merge','task.cleanup','notice.answer','notice.dismiss']);
+const MUTATIONS = new Set(['input.submit','input.flow','draft.add','draft.remove','draft.commit','task.message','task.cancel','task.retry','task.merge','task.cleanup','notice.answer','notice.dismiss']);
 export function startWeb(config, port = 4318) {
   check(Number.isInteger(port) && port >= 0 && port <= 65535, 'invalid web port');
   const client = new UIClient(config);
