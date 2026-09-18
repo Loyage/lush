@@ -107,7 +107,7 @@ const git = (...args) => { const proc = Bun.spawnSync(['git',...args]); if (proc
 if (task.role === 'planner') {
   if (task.calls === 1) {
     const spawn = async (goal, ...flags) => {
-      const proc = Bun.spawn(['lush','task','spawn',goal,'--role','worker',...flags,'--json'],{stdout:'pipe',stderr:'pipe'});
+      const proc = Bun.spawn(['lush','task','spawn',goal,'--name',flags.length ? 'stacked-downstream' : 'stacked-upstream','--role','worker',...flags,'--json'],{stdout:'pipe',stderr:'pipe'});
       const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
       if (await proc.exited) throw new Error(err);
       return JSON.parse(out);
@@ -150,7 +150,7 @@ test('drafts become one planner, and a code dependency stacks worktrees with an 
     expect(fullDownstream.base_commit).toBe(fullUpstream.head_commit);
     // 主工作树没有上游的改动，但下游的 worktree 是从上游分支拉出来的
     expect(fs.readFileSync(path.join(root,'file.txt'),'utf8')).toBe('base\n');
-    expect(fs.readFileSync(path.join(root,'.lush','worktrees',`task-${downstream.id}`,'saw.txt'),'utf8')).toBe('upstream');
+    expect(fs.readFileSync(path.join(root,'.lush','worktrees',`${downstream.id}-stacked-downstream`,'saw.txt'),'utf8')).toBe('upstream');
     // 合并顺序：上游先合，越级合并被拒且不改状态
     await expect(cli(root,['task','merge',String(downstream.id)])).rejects.toThrow('is not merged into');
     expect((await client.request('task.inspect',{id:downstream.id})).integration).toBe('pending');

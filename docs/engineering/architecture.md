@@ -65,7 +65,7 @@ agent 只能从自己的 task 派生子任务、给直接父/子发消息、给�
 
 所有 runtime 管理的 Git 操作使用 argv 数组、不经 shell 插值，共享异步串行队列。排队等待 Git 不阻塞事件循环、输入提交或已有 RPC。
 
-worker 创建时记录项目 HEAD 与目标分支，创建 `.lush/worktrees/task-ID` 和 `lush/<project-hash>/task-ID` 分支。每个 worker 是独立修改集，不自动继承其他未合并任务成果。
+worker 创建时记录项目 HEAD 与目标分支，创建 `.lush/worktrees/<id>-<name>` 和 `lush/<project-hash>/<id>-<name>` 分支（`name` 是 spawn 时 planner 给的英文短名，见 `src/core/naming.js`）。每个 worker 是独立修改集，不自动继承其他未合并任务成果。
 
 结果提交后进入 `integration=pending`。用户 `task.merge` 检查项目/worker 干净、原目标分支、已审阅的 commit 未变化，再持久化批准事件和 `merging`，执行 merge。成功 `merged`；失败尝试 abort 并回到 pending，完整错误保留。中断的 merging 恢复为 review，不猜测 Git 操作是否完成。
 

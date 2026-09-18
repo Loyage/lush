@@ -17,7 +17,7 @@ export class Store {
       CREATE INDEX IF NOT EXISTS drafts_open ON drafts(input_id);
       CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES tasks(id), input_id INTEGER REFERENCES inputs(id),
-        role TEXT NOT NULL, goal TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
+        role TEXT NOT NULL, goal TEXT NOT NULL, name TEXT, status TEXT NOT NULL DEFAULT 'queued',
         result TEXT, error TEXT, calls INTEGER NOT NULL DEFAULT 0,
         agent_wakes INTEGER NOT NULL DEFAULT 0, agent_token_hash TEXT, agent_last_seen_at TEXT,
         workspace TEXT, branch TEXT, base_commit TEXT, head_commit TEXT,
@@ -47,7 +47,7 @@ export class Store {
     // Agent identity columns arrived after the first release; an existing project.db predates them.
     // The index over agent_token_hash must wait for the columns it references.
     const columns = new Set(this.all('PRAGMA table_info(tasks)').map(row => row.name));
-    for (const [name, type] of [['agent_wakes', 'INTEGER NOT NULL DEFAULT 0'], ['agent_token_hash', 'TEXT'], ['agent_last_seen_at', 'TEXT']]) {
+    for (const [name, type] of [['name', 'TEXT'], ['agent_wakes', 'INTEGER NOT NULL DEFAULT 0'], ['agent_token_hash', 'TEXT'], ['agent_last_seen_at', 'TEXT']]) {
       if (!columns.has(name)) this.run(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
     }
     this.run('CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash)');
@@ -132,10 +132,11 @@ export class Store {
     this.run(`UPDATE tasks SET ${Object.keys(patch).map(key => `${key}=?`).join(',')}, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, ...Object.values(patch), taskId);
     return this.task(taskId);
   }
-  create({ parent_id = null, input_id, role, goal }) {
-    const row = this.run('INSERT INTO tasks(parent_id,input_id,role,goal) VALUES (?,?,?,?)', parent_id, input_id, role, goal);
+  /** name is the task's own short slug; it is written once at spawn and never edited, so a worktree keeps its name. */
+  create({ parent_id = null, input_id, role, goal, name = null }) {
+    const row = this.run('INSERT INTO tasks(parent_id,input_id,role,goal,name) VALUES (?,?,?,?,?)', parent_id, input_id, role, goal, name);
     const task = this.task(Number(row.lastInsertRowid));
-    this.event(task.id, 'created', { parent_id, role, goal });
+    this.event(task.id, 'created', { parent_id, role, goal, name });
     return task;
   }
   event(taskId, type, data) { this.run('INSERT INTO events(task_id,type,data) VALUES (?,?,?)', taskId, type, JSON.stringify(data)); }

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { check, id, text, TERMINAL, bounded, isPlainObject, LushError } from './types.js';
 import { Workspaces } from './workspaces.js';
+import { taskSlug } from './naming.js';
 import { readTranscript } from './transcript.js';
 import { PiProvider, MockProvider } from '../agent/provider.js';
 
@@ -143,7 +144,8 @@ export class Project {
       check(!['failed','cancelled'].includes(dep.status), `code dependency #${dep.id} is ${dep.status}; it cannot serve as a code base`);
     }
   }
-  spawn(parentId, goal, role = 'worker', deps = []) {
+  /** name is the planner's short slug for the work; it becomes the branch/worktree name and stays fixed for the task's life. */
+  spawn(parentId, goal, role = 'worker', deps = [], name = null) {
     const parent = this.store.task(parentId);
     check(!TERMINAL.has(parent.status), 'cannot delegate from a terminal task');
     text(goal, 'goal'); check(['worker','coordinator','research'].includes(role), 'role must be worker, coordinator or research');
@@ -157,8 +159,9 @@ export class Project {
     while (ancestor.parent_id) { ancestor = this.store.task(ancestor.parent_id); depth++; }
     check(depth < this.config.maxDepth, 'task nesting limit reached');
     check(this.store.get("SELECT count(*) AS n FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").n < 1000, 'too many active tasks');
+    const slug = taskSlug(name, goal);
     const task = this.store.transaction(() => {
-      const created = this.store.create({ parent_id: parent.id, input_id: parent.input_id, role, goal });
+      const created = this.store.create({ parent_id: parent.id, input_id: parent.input_id, role, goal, name: slug });
       this.assertDeps(created.id, parent, edges);
       for (const edge of edges) { this.store.addDep(created.id, edge.id, edge.kind); this.store.event(created.id, 'dep.added', edge); }
       return created;

@@ -24,7 +24,8 @@ lush [--project PATH] [--json] <command>
   task inspect ID                 结果、agent、子任务、消息与工作区
   task history ID [--after N]      分页事件记录
   task transcript ID [--after N]   只读查看 agent 的思考、工具调用与工具输出（来自 pi 会话记录）
-  task spawn '目标' [--parent ID] [--role worker|coordinator|research] [--depends-on ID[:code|order]]
+  task spawn '目标' [--parent ID] [--role worker|coordinator|research] [--name short-kebab-name] [--depends-on ID[:code|order]]
+      --name 是任务的英文短名，决定 worktree 目录与分支 <id>-<name>；省略时按 goal 里的英文词回退。
   task message ID '补充说明'       追加输入，不打断当前 invocation
   task cancel|retry ID            取消子树 / 明确重试失败任务
   task wait ID                    仅阻塞此客户端，不占 agent 槽
@@ -117,6 +118,7 @@ export async function main(argv = process.argv.slice(2)) {
     else if (verb === 'spawn') {
       const parent = option(args, '--parent', process.env.LUSH_TASK_ID);
       const role = option(args, '--role', 'worker');
+      const name = option(args, '--name');
       const defaultKind = option(args, '--dep-kind', 'code');
       const deps = [];
       // Repeatable and comma-separated: --depends-on 7,9:order --depends-on 11
@@ -127,7 +129,7 @@ export async function main(argv = process.argv.slice(2)) {
         }
       }
       exact(args, 1);
-      value = await client.request('task.spawn', { parent: id(parent), role, goal: args[0], deps });
+      value = await client.request('task.spawn', { parent: id(parent), role, goal: args[0], deps, name });
     } else if (verb === 'transcript') {
       const after = Number(option(args, '--after', '0')); exact(args, 1);
       value = await client.request('task.transcript', { id: id(args[0]), after });

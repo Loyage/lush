@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { check, LushError } from './types.js';
+import { taskLabel } from './naming.js';
 
 /** All Lush git mutations are serialized. No shell interpolation, no forced cleanup. */
 export class Workspaces {
@@ -57,14 +58,14 @@ export class Workspaces {
       const stacked = task.base_commit ? null : this.codeBase(task);
       const base = task.base_commit || stacked?.head_commit || await this.git(project, 'rev-parse', 'HEAD');
       const target = task.target_branch || await this.git(project, 'symbolic-ref', '--short', 'HEAD');
-      const branch = task.branch || `lush/${this.namespace}/task-${task.id}`;
+      const branch = task.branch || `lush/${this.namespace}/${taskLabel(task.id, task.name)}`;
       let reuse = false;
       if (!task.branch) check(!(await this.git(project, 'branch', '--list', branch)), 'task branch already exists; preserve or rename the old branch before retrying');
       if (task.branch) {
         try { await this.git(project, 'show-ref', '--verify', `refs/heads/${branch}`); reuse = true; }
         catch { /* a crash may have happened before the initial branch was created */ }
       }
-      const workspace = path.join(this.config.home, 'worktrees', `task-${task.id}`);
+      const workspace = path.join(this.config.home, 'worktrees', taskLabel(task.id, task.name));
       fs.mkdirSync(path.dirname(workspace), { recursive: true });
       // Save the intended identity before git; a crash never makes the directory invisible.
       this.store.update(task.id, { workspace, branch, base_commit: base, target_branch: target });

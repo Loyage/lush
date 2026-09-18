@@ -101,7 +101,7 @@ Project / 一个目录 / 一个 daemon
 
 ## Worktree 与合并
 
-- 每个 worker 的 worktree 位于 `.lush/worktrees/task-<id>/`，分支使用包含项目路径哈希的名称；共享 Git 仓库的不同项目不会争用同名 task 分支。
+- 每个 worker 的 worktree 位于 `.lush/worktrees/<id>-<name>/`，分支名为 `lush/<项目路径哈希>/<id>-<name>`（`<name>` 是派工时 planner 给的英文短名，如 `fix-login-composer`）。id 保证唯一，短名说清任务做什么；共享 Git 仓库的不同项目不会争用同名 task 分支。省略 `--name` 时 runtime 从 goal 首行的英文词回退，提不出可用名字（例如纯中文 goal）才回到 `task-<id>`；名字只在 spawn 时定一次，之后不变。
 - 每个 worker 从创建时项目的 **已提交 HEAD** 开始，除非它对另一个任务声明了 `code` 依赖：那时它的 worktree 从上游任务的**分支**拉出（stacked），于是能拿到上游尚未合并的改动。兄弟任务不会自动看到彼此的修改；无关的编辑应合在一个 worker 中。
 - agent 最终输出作为 result。worker 必须提交改动、保持工作区干净；未提交就结束会失败，文件原样保留供检查和重试。
 - 完成与合并是两个状态：`completed + pending` 表示已产出提交，**尚未进入主工作树**。

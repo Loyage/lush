@@ -18,7 +18,7 @@ const PARAMS = {
   'draft.add': ['content'], 'draft.list': [], 'draft.remove': ['id'], 'draft.commit': [],
   'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.diff': ['id'],
   'task.transcript': ['id','after','limit'],
-  'task.spawn': ['parent','goal','role','deps'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
+  'task.spawn': ['parent','goal','role','deps','name'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
   'task.merge': ['id'], 'task.cleanup': ['id'],
   'notice.list': [], 'notice.post': ['task','title','body'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
 };
@@ -66,7 +66,7 @@ export class Dispatcher {
       case 'task.spawn': {
         const parent = params.parent ?? actor;
         check(actor === null || id(parent) === actor, 'agents may delegate only from their own task');
-        return p.spawn(parent, params.goal, params.role, params.deps ?? []);
+        return p.spawn(parent, params.goal, params.role, params.deps ?? [], params.name ?? null);
       }
       case 'task.message': return p.message(params.id, params.body, actor);
       case 'task.cancel': return p.cancel(params.id);
