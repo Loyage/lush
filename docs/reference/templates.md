@@ -10,7 +10,7 @@
 {
   "name": "coding-node",
   "singleton": false,
-  "description": "完成编码目标的节点",
+  "description": "我是完成编码目标的节点：在给定仓库路径上实现 / 修改 / 修复代码并跑最小验证；我不做调研选型，也不合并或推送改动。",
   "spawn_prompt": "创建编码节点：service_spawn {template: \"coding-node\", name: <短名，必填>, goal: <目标，可选>}；建完用 task spawn 把活派给它。",
   "system_prompt": "你是编码节点。收到 task 后先用真实命令把事情做完，再 task_complete 写清改了什么、怎么验证的。",
   "child_templates": ["generic-task", "generic-service"],
@@ -27,7 +27,7 @@
 
 - `name`：模板名，也是 `service.spawn` / `lush service spawn` 的 template 参数。
 - `singleton`：`true` 时同一个父 SID 下最多一个活动实例；实例停止后名额释放。
-- `description`：一句话用途，出现在创建方的 `available_child_templates`。
+- `description`：一段陈述句，说明这个节点**自己的**能力范围（做什么、边界在哪），用于上级节点判断该不该把活派到这里、该建什么 task；出现在创建方的 `available_child_templates` 与 `service.view --with description`，所以保持一句话、不换行。
 - `spawn_prompt`：告诉创建方「怎么创建这个模板、需要哪些变量」，随 Context 注入创建方 agent。
 - `system_prompt`：实例创建时快照进它自己的 Context，成为它上面每个 task 的 agent 的第一条 system message。
 - `child_templates`：该实例允许创建的子模板（相对自己文件的路径，或模板名；`*` 表示全部）。

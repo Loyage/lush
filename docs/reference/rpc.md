@@ -41,7 +41,7 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 | service.inspect | sid | metadata（含 variables 值与声明、`agent_profile`、`recent_tasks`）、Context metadata、Agent 状态（status / provider / profile）、近期调用与事件 |
 | service.parent | sid | parent metadata 或 null |
 | service.children | sid | children metadata 数组 |
-| service.view | sid, sections? | 只含被请求 section 的视图：parent、children、call_prompt |
+| service.view | sid, sections? | 只含被请求 section 的视图：description、parent、children、call_prompt、available_child_templates |
 | service.orphans | {} | SID 0 孤儿池的读模型（不落库、不改状态）：`policy`（adopt / limit / ttl_seconds / sweep_seconds）、`active_count`、`busy_count`、`over_limit`、`orphans[]`（sid、name、status、template、original_parent_sid、created_at、updated_at、last_activity_at、idle_seconds、busy；含已被冻结的终态行） |
 | service.orphan_sweep | {} | 立刻执行一轮孤儿监督并返回报告：`trigger`、`skipped`、`checked`、`active_before` / `active_after`、`evicted[]`（sid、name、from、to、reason、idle_seconds）、`deferred[]`、`limit`、`ttl_seconds`；两个方法都不接受参数，未知字段报 -32602 |
 | service.spawn | parent_sid, template, name?, goal?, variables?, agent? | 新 Service metadata（创建只建节点，不跑 agent）；variables 按模板声明校验后按区间存入 state（immutable → state.params，mutable → state.vars），未声明、缺失必填、不满足声明的格式（pattern / max_length / single_line）或非法 `path` 报 -32602；声明了保留变量 `name` 的模板（dev-task）用 name 参数当服务名，两边不一致同样报 -32602；agent 为该节点上的 task 选用的 agent profile 名，需存在且合法，否则报 -32004 / -32602，选中后写入 state.agent |
@@ -86,15 +86,17 @@ inspect 的 Context 包含 system_prompt、state、artifacts、references、mess
 
 `system.status` 里的 `home` / `socket` 描述状态在哪（`LUSH_HOME`），`code_dir` / `version` / `fingerprint` / `started_at` 描述**回答你的是哪份代码**：daemon 启动时把 `src/agent/guide.js`、`src/cli/tree/`（CLI 声明树）与 `templates/**/*.json`（递归，含嵌套子目录）读入内存（`src/identity.js` 的指纹覆盖这几处），之后不再重读。`code_dir` 不同 = 另一个 checkout；`fingerprint` 不同 = 同一 checkout 的旧服务。CLI 每次命令都会先读一次 status 并在不一致时于 stderr 告警（`cli.code_match` 是同一判断的布尔形式）。
 
-service.view 是「查看」的统一读模型，把父子关系和 Call Prompt 合并到一次读取：
+service.view 是「查看」的统一读模型，把「这个节点是什么 / 能建什么 / 在它上面开 task 用什么提示词」和父子关系合并到一次读取：
 
-| section | 内容 |
-|---|---|
-| parent | 当前父节点完整 metadata；无父节点时为 null（例如 SID 0） |
-| children | 直接子节点完整 metadata 数组 |
-| prompt | call_prompt：该 Service 模板 system_prompt 的快照 |
+| section | 结果字段 | 内容 |
+|---|---|---|
+| description | description | 该节点模板的 description（能力边界陈述）；读当前加载的模板定义，模板文件已不在时回落创建时快照，null 表示两者都没有 |
+| parent | parent | 当前父节点完整 metadata；无父节点时为 null（例如 SID 0） |
+| children | children | 直接子节点完整 metadata 数组 |
+| prompt | call_prompt | 该 Service 模板 system_prompt 的快照（它上面 task 的 agent 收到的提示词） |
+| templates | available_child_templates | 该节点现在还能创建的子模板，按层级顺序，每项 name / singleton / description / spawn_prompt；权限来自创建时快照，已被占用的 singleton 不出现（与 agent Context 里的同名列表是同一个函数） |
 
-sections 省略时返回全部三项；必须是非空、无重复、只含上述名称的字符串数组（否则 -32602）。返回字段顺序固定为 sid、parent、children、call_prompt，只包含被请求的 section。未知 SID 与其他方法一样返回 -32004。view 是只读操作，不改变状态、不创建调用记录。Agent 侧的等价能力仍是个体工具 service_self / service_parent / service_children。
+sections 省略时返回全部五项；必须是非空、无重复、只含上述名称的字符串数组（否则 -32602）。返回字段顺序固定为 sid、description、parent、children、call_prompt、available_child_templates，只包含被请求的 section。未知 SID 与其他方法一样返回 -32004。view 是只读操作，不改变状态、不创建调用记录。Agent 侧的等价能力仍是个体工具 service_self / service_parent / service_children；`templates` 与它自己 Context 里的 `available_child_templates` 是同一份数据。
 
 旧版本写入、快照里没有 `child_templates` 的 Service，会在 daemon 启动时从同名已加载模板回填一次（见 [concepts/lifecycle-and-orphans.md](../concepts/lifecycle-and-orphans.md)）。SID 0 是唯一的例外：daemon 每次启动用当前加载的 `lush-root` **整份替换**它的快照（`replaceSnapshot`，逐字段比较、有差异才写并记 `template_refreshed`），所以收窄 / 放宽根权限靠改模板 + 重启生效（见 [concepts/lifecycle-and-orphans.md](../concepts/lifecycle-and-orphans.md)）。
 
@@ -134,7 +136,7 @@ lush call SID GOAL [--detach] [--interactive] [--dry-run]   # 入口：在 servi
 lush task list|tree|inspect|result|wait|spawn|cancel|complete|delete|history|session|attach|update-state|agents
 lush service list|tree|inspect|children|spawn|start|stop|delete|purge|update-state|update-vars|orphans
 
-lush service inspect SID [--with parent,children,prompt]
+lush service inspect SID [--with description,parent,children,prompt,templates]
 lush service spawn PARENT TEMPLATE [--name NAME] [--goal GOAL] [--title TEXT] [--detail TEXT] [--vars JSON]   # --args 是 --vars 的旧写法
 lush service children SID
 lush service start|stop SID

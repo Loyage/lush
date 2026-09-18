@@ -123,6 +123,13 @@ export class WebUIServer {
         return json({ services: await this.ui.serviceTree() });
       }
 
+      // One node's three read surfaces: what it is, what it may still create,
+      // and the prompt its tasks run with.
+      const viewMatch = /^\/api\/services\/(\d+)\/view$/.exec(url.pathname);
+      if (request.method === 'GET' && viewMatch !== null) {
+        return json({ service: await this.ui.serviceView(Number(viewMatch[1])) });
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/tasks') {
         return json({ tasks: await this.ui.taskList(taskListQuery(url.searchParams)) });
       }

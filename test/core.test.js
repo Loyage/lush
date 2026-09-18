@@ -561,6 +561,31 @@ describe('core', () => {
     expect(() => manager.view(child.sid, ['command'])).toThrow(LushError);
   });
 
+  test('view answers what the node is, what it may create and how its tasks read', () => {
+    const child = spawn(0, 'generic-task', 'child');
+    const view = manager.view(child.sid, ['description', 'parent', 'children', 'prompt', 'templates']);
+    expect(view.description).toBe(manager.templates.get('generic-task').description);
+    expect(view.parent.sid).toBe(0);
+    expect(view.children).toEqual([]);
+    expect(view.call_prompt).toBe(manager.templates.get('generic-task').system_prompt);
+    // `templates` is the very list the node's own agent sees in Context, so the
+    // two read paths cannot drift.
+    const task = manager.spawnTask(null, child.sid, 'view');
+    const context = new ContextBuilder(manager.repository, manager.templates)
+      .build(manager.repository.getTask(task.id), null).data.available_child_templates;
+    manager.cancelTask(task.id);
+    expect(view.available_child_templates).toEqual(context);
+    expect(view.available_child_templates.map((item) => item.name)).not.toContain('lush-root');
+    expect(view.available_child_templates.length).toBeGreaterThan(0);
+    // A singleton whose slot under this parent is taken is not advertised.
+    const names = () => manager.view(0, ['templates']).available_child_templates.map((item) => item.name);
+    expect(names()).toContain('project-manager');
+    const taken = manager.spawn(0, 'project-manager', 'pm');
+    expect(names()).not.toContain('project-manager');
+    manager.stop(taken.sid);
+    expect(names()).toContain('project-manager');
+  });
+
   test('startup backfills child_templates for snapshots written earlier', () => {
     const child = spawn(0, 'generic-task', 'child');
     const snapshot = manager.repository.get(child.sid).template_snapshot;

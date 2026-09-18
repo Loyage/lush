@@ -88,6 +88,28 @@
         </form>
       </section>
 
+      <section class="panel service-panel" aria-labelledby="service-view-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">SERVICE</p>
+            <h2 id="service-view-title">Service 能力</h2>
+          </div>
+        </div>
+
+        <p id="service-hint" class="empty">从左侧选择一个 Service：这里显示它的能力边界、它还能创建哪些子 Service，以及在其上创建 Task 时 agent 会收到的提示词。</p>
+        <div id="service-view" class="service-view" hidden>
+          <p id="service-description" class="service-description"></p>
+          <details class="service-section" id="service-templates-section" open>
+            <summary>可创建的子 Service <span id="service-templates-count" class="count">0</span></summary>
+            <div id="service-templates" class="template-list"></div>
+          </details>
+          <details class="service-section" id="service-prompt-section">
+            <summary>Call Prompt · 在该 Service 上创建 Task 的提示词</summary>
+            <pre id="service-prompt" class="service-prompt"></pre>
+          </details>
+        </div>
+      </section>
+
       <section class="panel tree-panel" aria-labelledby="task-detail-title">
         <div class="panel-heading">
           <div>

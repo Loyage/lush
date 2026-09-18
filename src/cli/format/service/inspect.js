@@ -128,6 +128,9 @@ export function formatInspect(result) {
 /** `lush service inspect --with ...`: the sections that were requested, in order. */
 export function formatView(result) {
   const lines = [`sid ${result.sid}`];
+  if ('description' in result) {
+    lines.push('', 'description', `  ${result.description ?? '(none)'}`);
+  }
   if ('parent' in result) {
     lines.push('', 'parent', `  ${result.parent === null ? '(none)' : metadataTitle(result.parent)}`);
   }
@@ -138,6 +141,14 @@ export function formatView(result) {
   }
   if ('call_prompt' in result) {
     lines.push('', 'call_prompt', ...indentLines(result.call_prompt ?? '(none)', 1));
+  }
+  if ('available_child_templates' in result) {
+    const templates = result.available_child_templates;
+    lines.push('', templates.length ? `templates · ${templates.length} available` : 'templates  (none)');
+    for (const template of templates) {
+      lines.push(`  ${template.name}${template.singleton ? ' · singleton' : ''} — ${template.description}`);
+      lines.push('    spawn', ...indentLines(excerpt(template.spawn_prompt, 2000), 3));
+    }
   }
   return lines.join('\n');
 }

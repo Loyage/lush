@@ -80,19 +80,62 @@ export function children(manager, sid) {
 }
 
 /**
+ * The child templates a service may still create: its creation-time permission
+ * list (`child_templates`) filtered to what `spawn` would accept right now, in
+ * loader (hierarchy) order. A singleton whose slot under this parent is already
+ * taken is *not* available — advertising it would only produce a failed call.
+ *
+ * Both read paths go through here so they cannot drift: `service.view`'s
+ * `templates` section and the `available_child_templates` an agent sees in its
+ * Context.
+ */
+export function availableTemplates(templates, childTemplates, activeCount) {
+  const snapshot = childTemplates ?? [];
+  const loaded = templates === null || templates === undefined ? {} : templates.templates;
+  return Object.values(loaded)
+    .filter((template) => template.name !== 'lush-root'
+      && (snapshot.includes('*') || snapshot.includes(template.name)))
+    .filter((template) => !template.singleton || activeCount(template.name) === 0)
+    .map((template) => ({
+      name: template.name,
+      singleton: template.singleton,
+      description: template.description,
+      spawn_prompt: template.spawn_prompt,
+    }));
+}
+
+/**
  * Unified "查看" read model. Sections are validated before any lookup, and a
  * missing service is reported the same way for every section.
  */
 export function view(manager, sid, sections = VIEW_SECTIONS) {
   const requested = viewSections(sections);
   validSid(sid);
-  manager.repository.get(sid); // a missing service fails the same way for every section
+  // A missing service fails the same way for every section, so read it once.
+  const service = manager.repository.get(sid);
+  const snapshot = service.template_snapshot ?? {};
+  const templates = manager.templates ?? null;
   const result = { sid };
   for (const section of requested) {
-    if (section === 'parent') result.parent = manager.parent(sid);
-    else if (section === 'children') result.children = manager.children(sid);
-    else if (section === 'prompt') result.call_prompt = manager.repository.context(sid).system_prompt;
-    else throw new LushError(`unhandled view section: ${section}`);
+    if (section === 'description') {
+      // The description is template identity, not creation-time data: read the
+      // loaded definition and only fall back to the snapshot when the template
+      // is gone.
+      const template = templates === null ? null : templates.find(service.template);
+      result.description = (template ?? snapshot).description ?? null;
+    } else if (section === 'parent') {
+      result.parent = manager.parent(sid);
+    } else if (section === 'children') {
+      result.children = manager.children(sid);
+    } else if (section === 'prompt') {
+      result.call_prompt = manager.repository.context(sid).system_prompt;
+    } else if (section === 'templates') {
+      result.available_child_templates = availableTemplates(
+        templates, snapshot.child_templates, (name) => manager.repository.activeCount(sid, name),
+      );
+    } else {
+      throw new LushError(`unhandled view section: ${section}`);
+    }
   }
   return result;
 }

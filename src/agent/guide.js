@@ -41,7 +41,7 @@ const CLI_HOWTO = `你通过 bash 工具执行 \`lush\` 命令来操作 Lush。C
 - \`lush task wait <task_id>\`：等子 task 结束并拿结果；\`lush task cancel <task_id>\` 取消它。
 - \`lush task complete $LUSH_TASK_ID --result '"..."'\`：目标达成时结束你的 task。
 - \`lush task tree $LUSH_TASK_ID\`：看这棵 task 树（谁派给了谁、各自什么状态）。
-- \`lush service children\` / \`lush service inspect SID\` / \`lush service spawn <父SID> <模板> ...\`：被动节点这一侧。
+- \`lush service children\` / \`lush service inspect SID\` / \`lush service spawn <父SID> <模板> ...\`：被动节点这一侧。派活前想知道一个节点能做什么、能建什么、在它上面开 task 会用哪段提示词，用 \`lush service inspect SID --with description,templates,prompt\`：description 是它的能力边界，templates 是它现在还能创建的子模板（每项带 description / spawn_prompt），prompt 是它上面 task 的 agent 收到的提示词。
 - \`lush service update-state\` / \`lush service update-vars\`：长期 state 与可变变量。
 
 不要凭记忆猜命令、参数或状态机，让 CLI 自己回答，用到哪一层就先读哪一层的 help：

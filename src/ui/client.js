@@ -39,6 +39,20 @@ export class UIClient {
     return this.execute('service.tree');
   }
 
+  /**
+   * The three questions a parent asks about a node before delegating work to
+   * it: what it is (`description`), what it may still create (`templates`), and
+   * the prompt its tasks run with (`prompt`). Defaults to exactly those
+   * sections; callers may pass any `VIEW_SECTIONS` subset.
+   */
+  serviceView(sid, sections = ['description', 'templates', 'prompt']) {
+    validSid(sid);
+    if (!Array.isArray(sections) || sections.length === 0) {
+      throw new TypeError('sections must be a non-empty array');
+    }
+    return this.execute('service.view', { sid, sections });
+  }
+
   /** Create a user-facing root task and return immediately while it runs. */
   createTask(sid, goal) {
     validSid(sid);

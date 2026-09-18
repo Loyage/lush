@@ -71,7 +71,8 @@ export const serviceGroup = {
       summary: '查看单个服务的完整快照',
       cover: [
         '不带 --with 时返回完整 inspect：metadata、Context、variable（不可变/可变变量的值 + 模板声明）、挂载在它身上的近期 task、近期调用与事件，任何状态都可查。',
-        '带 --with 时改走 service.view，只返回所选 section（父节点、子节点、Call Prompt）。',
+        '带 --with 时改走 service.view，只返回所选 section：description（这个节点是什么、能力边界在哪）、parent、children、prompt（call_prompt，即创建在它上面的 task 的 agent 收到的提示词）、templates（它现在还能创建哪些子模板，每项带 name / singleton / description / spawn_prompt）。',
+        'description、templates 与 prompt 是上级节点派活前要问的三件事：它能做什么、能建什么、在它上面开 task 会用哪段提示词；三者在同一节点上永远与 agent 自己 Context 里的 available_child_templates 一致。',
         '文本按「服务摘要 → context → calls → events」分节打印，时间用本地时间；`template_snapshot` 与变量声明只在 --json 里给出。',
       ],
       notes: [

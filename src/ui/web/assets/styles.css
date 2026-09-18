@@ -316,6 +316,78 @@ textarea:disabled { opacity: 0.5; }
 .primary:hover { background: #c4facf; }
 .primary:disabled { opacity: 0.38; cursor: not-allowed; }
 
+/* ── Service capability panel ──────────────────────────────────────────── */
+
+.service-panel { padding-bottom: 18px; }
+
+.service-view { display: grid; gap: 14px; padding: 18px 24px 0; }
+
+.service-description {
+  padding: 13px 14px;
+  border: 1px solid rgba(167, 243, 181, 0.28);
+  border-radius: 11px;
+  color: #d6ded9;
+  background: rgba(119, 221, 140, 0.06);
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.service-section {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel-strong);
+}
+.service-section > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+  list-style: none;
+}
+.service-section > summary::-webkit-details-marker { display: none; }
+.service-section > summary::before { content: "▸"; color: var(--muted); font-size: 0.7rem; }
+.service-section[open] > summary::before { content: "▾"; }
+.service-section > summary:hover { background: rgba(255, 255, 255, 0.02); }
+.count {
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+}
+
+.template-list { display: grid; gap: 1px; border-top: 1px solid var(--line); background: var(--line); }
+.template { padding: 13px 14px; background: #101412; }
+.template-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.template-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; font-weight: 700; }
+.template-description { margin-top: 7px; color: #b9c2bd; font-size: 0.8rem; line-height: 1.55; }
+.template-spawn { margin-top: 9px; }
+.template-spawn > summary { color: var(--muted); font-size: 0.72rem; cursor: pointer; }
+.template-spawn pre, .service-prompt {
+  max-height: 320px;
+  overflow: auto;
+  margin: 9px 0 0;
+  padding: 12px;
+  border-radius: 8px;
+  color: #cfd8d2;
+  background: #090c0b;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.service-prompt {
+  max-height: 340px;
+  margin: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+}
+.template-empty { padding: 16px 14px; }
+
 /* ── Task tree panel ───────────────────────────────────────────────────── */
 
 .tree-panel { padding-bottom: 18px; }

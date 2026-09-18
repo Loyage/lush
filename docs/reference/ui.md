@@ -6,7 +6,7 @@
 
 `src/ui/` 是交互层的统一入口：
 
-- `ui/client.js`：所有 UI 共用的应用客户端。`connectUI(socket, timeout)` 统一装配 transport；`execute(method, params)` 是完整命令网关；daemon 状态、service tree、后台创建根 task、task 列表 / task 树 / 取消 / 删除、task result 与交互式 session 另有具名工作流。
+- `ui/client.js`：所有 UI 共用的应用客户端。`connectUI(socket, timeout)` 统一装配 transport；`execute(method, params)` 是完整命令网关；daemon 状态、service tree、**单节点视图（`serviceView`，默认取 description / templates / prompt 三个 section）**、后台创建根 task、task 列表 / task 树 / 取消 / 删除、task result 与交互式 session 另有具名工作流。
 - `ui/web.js` + `ui/web/`：本地 HTTP 服务与无第三方依赖的静态页面。
 - `ui/cli.js`：CLI adapter；`bin/lush` 通过这里进入。参数树解析出 method / params 后统一调用 `UIClient.execute`，session / interactive call 使用同一个客户端的具名工作流；原 `src/cli/` 实现路径继续保留，避免破坏已有导入。
 - 未来原生 TUI 应作为另一个 adapter 放在 `src/ui/` 下，并复用 `UIClient`，不直接读取 SQLite、RPC transport 或复制 Core 规则。
@@ -33,7 +33,7 @@ LUSH_HOME=/path/to/home LUSH_WEB_PORT=4318 bun ./bin/lush-web
 
 页面提供两类视图，侧边栏顶部可切换：
 
-1. **服务**（默认）：每 2.5 秒刷新 `service.tree`，显示节点状态与正在运行的 agent 数；选中 active Service 后可在右侧「创建 Task」填写 goal，以 `call { detach: true }` 创建并立即启动根 Task。
+1. **服务**（默认）：每 2.5 秒刷新 `service.tree`，显示节点状态与正在运行的 agent 数；选中任一 Service（包括 stopped）后，右侧「Service 能力」用 `service.view` 显示它的 `description`（能力边界）、可创建的子模板（名称 / singleton / description / spawn_prompt 可展开）与 `call_prompt`（在其上创建 Task 时 agent 收到的提示词）；选中 active Service 则可在「创建 Task」填写 goal，以 `call { detach: true }` 创建并立即启动根 Task。
 2. **任务**：展示 `task.list` 返回的 task 森林（同一 service 树的父子关系由 `parent_task_id` 还原，可按「全部 / 根 Task / 子 Task」与状态筛选）。选中任一 Task 后，右侧「Task 树」用 `task.tree` 显示它不仅包含自己、还包含它派出去的全部子 Task；点击树中任一节点即以它为根重新展开，`↑` 返回上级。
 
 选中 Task 后可以取消或删除它：
@@ -48,6 +48,7 @@ HTTP adapter 的接口是：
 | HTTP | 含义 |
 | --- | --- |
 | `GET /api/tree` | 返回 `{ services }`，数据来自 RPC `service.tree` |
+| `GET /api/services/:sid/view` | 返回 `{ service }`，数据来自 RPC `service.view`，固定请求 `description` / `templates` / `prompt` 三个 section |
 | `GET /api/tasks` | 返回 `{ tasks }`；查询参数 `sid` / `status` / `roots=roots\|children` / `limit` 透传给 RPC `task.list` |
 | `POST /api/tasks` | JSON `{ sid, goal }`；后台创建根 Task，成功返回 `202 { task }` |
 | `GET /api/tasks/:id` | 返回 `{ task }`，数据来自 RPC `task.result` |

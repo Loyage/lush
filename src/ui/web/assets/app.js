@@ -32,12 +32,20 @@ const elements = {
   detailMeta: document.querySelector('#detail-meta'),
   detailResult: document.querySelector('#detail-result'),
   taskTree: document.querySelector('#task-tree'),
+  serviceHint: document.querySelector('#service-hint'),
+  serviceView: document.querySelector('#service-view'),
+  serviceDescription: document.querySelector('#service-description'),
+  serviceTemplates: document.querySelector('#service-templates'),
+  serviceTemplatesCount: document.querySelector('#service-templates-count'),
+  servicePrompt: document.querySelector('#service-prompt'),
 };
 
 const state = {
   view: 'services',
   services: [],
   selectedSid: null,
+  serviceView: null,
+  serviceViewSid: null,
   tasks: [],
   selectedTaskId: null,
   taskTree: null,
@@ -103,6 +111,7 @@ function selectService(sid) {
   renderServiceTree();
   renderSelection();
   if (selectedService()?.status === 'active') elements.goal.focus();
+  loadServiceView().catch((err) => showMessage(err.message, true));
 }
 
 function renderSelection() {
@@ -332,6 +341,92 @@ function renderTaskDetail() {
   elements.detailResult.classList.toggle('error', task.error !== null && task.error !== undefined);
 }
 
+// ── Service capability panel ───────────────────────────────────────────────
+
+/**
+ * One service's three read surfaces (`service.view`): its capability-boundary
+ * description, the child templates it may still create, and the call prompt its
+ * tasks run with. Read-only — creating a task stays in the panel above.
+ */
+function templateCard(template) {
+  const card = document.createElement('article');
+  card.className = 'template';
+
+  const head = document.createElement('div');
+  head.className = 'template-head';
+  const name = document.createElement('span');
+  name.className = 'template-name';
+  name.textContent = template.name;
+  head.append(name);
+  if (template.singleton) {
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = 'singleton';
+    head.append(badge);
+  }
+
+  const description = document.createElement('p');
+  description.className = 'template-description';
+  description.textContent = template.description ?? '';
+
+  const spawn = document.createElement('details');
+  spawn.className = 'template-spawn';
+  const summary = document.createElement('summary');
+  summary.textContent = '创建方式（spawn_prompt）';
+  const prompt = document.createElement('pre');
+  prompt.textContent = template.spawn_prompt ?? '';
+  spawn.append(summary, prompt);
+
+  card.append(head, description, spawn);
+  return card;
+}
+
+function renderServiceView() {
+  const view = state.serviceView;
+  const has = view !== null;
+  elements.serviceHint.hidden = has;
+  elements.serviceView.hidden = !has;
+  if (!has) {
+    elements.serviceDescription.textContent = '';
+    elements.serviceTemplates.replaceChildren();
+    elements.servicePrompt.textContent = '';
+    return;
+  }
+
+  const description = view.description ?? '';
+  elements.serviceDescription.textContent = description;
+  elements.serviceDescription.hidden = description === '';
+
+  const templates = view.available_child_templates ?? [];
+  elements.serviceTemplatesCount.textContent = String(templates.length);
+  elements.serviceTemplates.replaceChildren();
+  if (templates.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'empty template-empty';
+    empty.textContent = '当前没有可创建的子 Service（叶子节点，或 singleton 名额已被占用）。';
+    elements.serviceTemplates.append(empty);
+  }
+  for (const template of templates) elements.serviceTemplates.append(templateCard(template));
+  elements.servicePrompt.textContent = view.call_prompt ?? '';
+}
+
+/** Re-fetch the selected node's view; re-render only when it actually changed. */
+async function loadServiceView() {
+  const sid = state.selectedSid;
+  if (sid === null) {
+    state.serviceView = null;
+    state.serviceViewSid = null;
+    renderServiceView();
+    return;
+  }
+  const payload = await api(`/api/services/${sid}/view`);
+  if (state.selectedSid !== sid) return;
+  if (state.serviceViewSid === sid && JSON.stringify(state.serviceView) === JSON.stringify(payload.service)) return;
+  state.serviceView = payload.service;
+  state.serviceViewSid = sid;
+  renderServiceView();
+}
+
 // ── Loading ────────────────────────────────────────────────────────────────
 
 async function loadServices() {
@@ -390,6 +485,7 @@ async function refresh({ quiet = false } = {}) {
   if (!quiet) elements.refresh.disabled = true;
   try {
     await loadServices();
+    await loadServiceView();
     if (state.view === 'tasks') await loadTasks();
     await loadTaskTree();
     connection('online', 'daemon online');

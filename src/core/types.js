@@ -54,10 +54,15 @@ export function jsonLoad(value) {
 }
 
 /**
- * The unified `service.view` read model. `prompt` is the call prompt (the
- * template system prompt snapshot).
+ * The unified `service.view` read model — the three questions a parent asks
+ * about a node before using it, plus where it sits in the tree:
+ * `description` is what the node is (its capability boundary),
+ * `templates` is what it may still create (the child templates its own agent
+ * sees as `available_child_templates`),
+ * `prompt` is the prompt its tasks run with (the call prompt),
+ * `parent` / `children` are its tree position.
  */
-export const VIEW_SECTIONS = ['parent', 'children', 'prompt'];
+export const VIEW_SECTIONS = ['description', 'parent', 'children', 'prompt', 'templates'];
 
 /**
  * Service variables are declared and stored in two regions: `immutable`

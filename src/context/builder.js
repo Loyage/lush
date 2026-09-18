@@ -1,5 +1,6 @@
 import { BuiltContext, ServiceContext, lushContextMessage } from './context.js';
 import { agentGuide } from '../agent/guide.js';
+import { availableTemplates } from '../core/queries.js';
 
 const SUMMARY_KEYS = ['sid', 'parent_sid', 'original_parent_sid', 'name', 'template', 'status', 'goal', 'created_at'];
 
@@ -66,21 +67,11 @@ export class ContextBuilder {
       : summary(this.repository.get(metadata.parent_sid));
     const children = this.repository.children(sid).map(summary);
     const childTemplates = metadata.template_snapshot.child_templates ?? [];
-    let available = [];
-    if (this.templates) {
-      available = Object.values(this.templates.templates)
-        .filter((template) => template.name !== 'lush-root' && (childTemplates.includes('*') || childTemplates.includes(template.name)))
-        // "Available" must mean "spawn would succeed": a singleton that already has
-        // an active instance under this SID is rejected by spawn, so advertising it
-        // only wastes a failed call.
-        .filter((template) => !template.singleton || this.repository.activeCount(sid, template.name) === 0)
-        .map((template) => ({
-          name: template.name,
-          singleton: template.singleton,
-          description: template.description,
-          spawn_prompt: template.spawn_prompt,
-        }));
-    }
+    // One function with `service.view`'s `templates` section: the agent and any
+    // parent inspecting this node must see the same "what can it create" list.
+    const available = availableTemplates(
+      this.templates, childTemplates, (name) => this.repository.activeCount(sid, name),
+    );
     const data = {
       service: summary(metadata),
       task: taskSummary(task),

@@ -8,7 +8,7 @@ import { RPCServer } from '../src/rpc/server.js';
 import { createSignal } from '../src/signal.js';
 import { formatOrphans } from '../src/cli/main.js';
 import {
-  formatCall, formatInspect, formatList, formatTaskList, formatTaskResult, formatTaskTree,
+  formatCall, formatInspect, formatList, formatTaskList, formatTaskResult, formatTaskTree, formatView,
 } from '../src/cli/format/service.js';
 import { treeLines } from '../src/cli/format/primitives.js';
 import { cleanup, deferred, system, tmpdir } from './helpers.js';
@@ -601,6 +601,28 @@ describe('service and task text output', () => {
     expect(legacyText).not.toContain('detail');
     expect(legacyText).toContain('sid 2 · fix-login · active');
     expect(formatList([legacy])).toMatch(/^2\s+1\s+active\s+fix-login\s+-$/m);
+  });
+
+  test('inspect --with renders description, the task prompt and the child templates', () => {
+    const text = formatView({
+      sid: 2,
+      description: '我是开发任务节点。',
+      parent: null,
+      children: [],
+      call_prompt: '你是开发任务节点。',
+      available_child_templates: [
+        { name: 'worktree-service', singleton: false, description: '我是 worktree 节点。', spawn_prompt: '先建 worktree' },
+        { name: 'project-manager', singleton: true, description: '我是调度节点。', spawn_prompt: '派给 project' },
+      ],
+    });
+    expect(text).toMatch(/^description\n {2}我是开发任务节点。$/m);
+    expect(text).toMatch(/^call_prompt\n {2}你是开发任务节点。$/m);
+    expect(text).toMatch(/^templates · 2 available$/m);
+    expect(text).toContain('worktree-service — 我是 worktree 节点。');
+    expect(text).toContain('project-manager · singleton — 我是调度节点。');
+    expect(text).toMatch(/^ {4}spawn\n {6}先建 worktree$/m);
+    // Each section is rendered only when it was requested.
+    expect(formatView({ sid: 2, description: null })).toBe('sid 2\n\ndescription\n  (none)');
   });
 });
 

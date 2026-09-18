@@ -21,8 +21,9 @@ function testTemplates() {
     variables: {},
   });
   const templates = {
-    'lush-root': { ...make('lush-root', ['generic-task']), singleton: true },
+    'lush-root': { ...make('lush-root', ['generic-task', 'generic-service']), singleton: true },
     'generic-task': make('generic-task'),
+    'generic-service': { ...make('generic-service'), singleton: true },
   };
   return {
     templates,
@@ -50,6 +51,7 @@ describe('shared UI application client', () => {
     await ui.status();
     await ui.shutdown();
     await ui.serviceTree();
+    await ui.serviceView(7);
     await ui.createTask(7, 'work');
     await ui.taskResult(3);
     await ui.taskSession(3);
@@ -66,6 +68,7 @@ describe('shared UI application client', () => {
       ['system.status', {}],
       ['system.shutdown', {}],
       ['service.tree', {}],
+      ['service.view', { sid: 7, sections: ['description', 'templates', 'prompt'] }],
       ['call', { sid: 7, goal: 'work', detach: true }],
       ['task.result', { task_id: 3 }],
       ['task.session', { task_id: 3 }],
@@ -77,6 +80,9 @@ describe('shared UI application client', () => {
       ['call.os_pid', { task_id: 3, call_id: 4, os_pid: 99 }],
       ['call.end', { task_id: 3, call_id: 4, status: 'failed', error: 'stopped' }],
     ]);
+
+    // The view workflow only carries what it is given; Core still owns the section names.
+    expect(() => ui.serviceView(-1)).toThrow(/sid/);
   });
 });
 
@@ -131,7 +137,9 @@ describe('web ui', () => {
     const page = await request('/');
     expect(page.status).toBe(200);
     expect(page.headers.get('content-security-policy')).toContain("default-src 'self'");
-    expect(await page.text()).toContain('服务与任务');
+    const html = await page.text();
+    expect(html).toContain('服务与任务');
+    expect(html).toContain('Service 能力');
 
     const tree = await request('/api/tree');
     expect(tree.status).toBe(200);
@@ -139,6 +147,39 @@ describe('web ui', () => {
       expect.objectContaining({ sid: 0, name: 'lush', status: 'active' }),
     ]);
     expect((await request('/app.js')).headers.get('content-type')).toContain('text/javascript');
+  });
+
+  test('serves one service view: description, child templates and call prompt', async () => {
+    const response = await request('/api/services/0/view');
+    expect(response.status).toBe(200);
+    expect((await response.json()).service).toEqual({
+      sid: 0,
+      description: 'lush-root test template',
+      call_prompt: 'you are lush-root',
+      available_child_templates: [
+        {
+          name: 'generic-task',
+          singleton: false,
+          description: 'generic-task test template',
+          spawn_prompt: 'create generic-task',
+        },
+        {
+          name: 'generic-service',
+          singleton: true,
+          description: 'generic-service test template',
+          spawn_prompt: 'create generic-service',
+        },
+      ],
+    });
+
+    // A singleton disappears once its slot under SID 0 is taken; a leaf node has none.
+    const taken = manager.spawn(0, 'generic-service', 'keeper');
+    const names = async () => (await (await request('/api/services/0/view')).json())
+      .service.available_child_templates.map((item) => item.name);
+    expect(await names()).toEqual(['generic-task']);
+    expect((await (await request(`/api/services/${taken.sid}/view`)).json())
+      .service.available_child_templates).toEqual([]);
+    expect((await request('/api/services/999/view')).status).toBe(404);
   });
 
   test('keeps serving the UI shell while the daemon is offline', async () => {

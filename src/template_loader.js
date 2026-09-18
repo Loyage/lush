@@ -13,9 +13,11 @@ export const BUILTIN_DIR = path.join(HERE, '..', 'templates');
 /**
  * The exact template key set. A template describes one kind of **service** (a
  * passive node: identity, permissions, variables); `singleton` limits creation to
- * one active instance per parent SID,
- * `spawn_prompt` tells a creating agent how to spawn this template and which
- * variables it needs, `system_prompt` becomes the instance Call prompt,
+ * one active instance per parent SID, `description` is the node's
+ * capability-boundary statement (one declarative sentence an upstream node reads
+ * to decide whether the work belongs here), `spawn_prompt` tells a creating
+ * agent how to spawn this template and which variables it needs, `system_prompt`
+ * becomes the instance Call prompt (the prompt its tasks run with),
  * `child_templates` is the creation-time whitelist of spawnable templates (each
  * entry is a file path relative to the declaring template's own file — the
  * directory layout mirrors the spawn tree — or, for programmatic `register`
