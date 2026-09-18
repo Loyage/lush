@@ -203,8 +203,9 @@ describe('cli, daemon lifecycle and attach', () => {
     await cli(['service', 'construct', '1', 'project', '--name', 'repo', '--vars', JSON.stringify({ path: state.dir })]);
     await cli(['service', 'construct', '2', 'dev-task', '--name', 'fix-typo', '--vars', JSON.stringify({ title: '修一个错字' })]);
 
-    // The parent stays active: its mock agent blocks on a notice, which is the
-    // state an agent is in when it delegates.
+    // The parent stays active: its mock agent reported a `wait` notice, so the
+    // task is parked in `awaiting`, which is the state an agent is in when it
+    // delegates.
     const parent = await data('call', '2', '/tool notice {"title":"hold"}', '--detach');
     expect(parent.parent_task_id).toBeNull();
 

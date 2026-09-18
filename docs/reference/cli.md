@@ -22,7 +22,7 @@ lush --json help task          # 机器可读的命令树（summary/cover/usage/
 | 命令（RPC） | 说明 |
 | --- | --- |
 | `lush call SID '<目标>' [--detach] [--interactive] [--dry-run]`（RPC `call` / `call.describe`） | 在 SID 上开一个根 task 并阻塞到它（及其整棵子树）结束；`--detach` 立刻返回 task 快照，`--interactive` 把它的 agent 交给你的终端 |
-| `lush task list [--sid P] [--status S] [--roots\|--children] [--limit N]`（RPC `task.list`） | task 列表（ID / SID / 父 task / status / goal / result） |
+| `lush task list [--sid P] [--status S] [--roots\|--children] [--limit N]`（RPC `task.list`） | task 列表（ID / SID / 父 task / status / goal / result）；status 含 `waiting`（等子 task）与 `awaiting`（等用户处理它上报的 notice） |
 | `lush task tree TASK_ID`（RPC `task.tree`） | 整棵协作树：每个节点一行 `#id service[sid] status · goal → result` |
 | `lush task trace TASK_ID [--limit N]`（RPC `task.trace`） | 调用链：该 task 子树里「派活 / 消息 / 结算」按时间排成的一行一步（双向消息都在），只保留最近的 N 步（默认 200） |
 | `lush task inspect TASK_ID`（RPC `task.inspect`） | task + 所在 service + 父 task + 直接子 task + 最近调用与事件 |
@@ -40,9 +40,9 @@ lush --json help task          # 机器可读的命令树（summary/cover/usage/
 | `lush task inbox TASK_ID [--after ID] [--limit N]`（RPC `task.inbox`） | 该 task 收到的输入：父子消息与“子 task 已结算”的报告，`delivered_at` 说明是否已交给 agent |
 | `lush notice list [--status S] [--task T] [--sid P] [--limit N]`（RPC `notice.list`） | 列出 agent 汇报给用户的 notice（ID / kind / status / wait / title / 上报者） |
 | `lush notice show NOTICE_ID`（RPC `notice.inspect`） | 一条 notice 的完整快照：正文、上报者、fields 声明的表单、已填的 answer |
-| `lush notice post --title T [--kind K] [--body B] [--fields JSON] [--task TASK_ID] [--no-wait]`（RPC `notice.post`） | **agent 侧**上报一条 notice；默认阻塞到用户结算并打印结算后的 notice（answer 在其中）。汇报者缺省取 `$LUSH_TASK_ID`；`--no-wait` 对应 `wait: false` |
-| `lush notice answer NOTICE_ID --set K=V ... \| --text TEXT \| --answer JSON`（RPC `notice.answer`） | 填写回复；notice 变为 answered，正在等待的 task 被唤醒并拿到 `{status, answer}` |
-| `lush notice dismiss NOTICE_ID [--reason TEXT]`（RPC `notice.dismiss`） | 只阅读不回答，notice 变为 dismissed；`--reason` 会随 note 一起交给等待的 task |
+| `lush notice post --title T [--kind K] [--body B] [--fields JSON] [--task TASK_ID] [--no-wait]`（RPC `notice.post`） | **agent 侧**上报一条 notice；立即返回 open 的 notice（不阻塞）。默认 `wait: true` 把上报的 task 挂在它上面（那个 task 进入 awaiting），答复会作为它的下一次输入送回；`--no-wait` 对应 `wait: false`（纯记录）。汇报者缺省取 `$LUSH_TASK_ID` |
+| `lush notice answer NOTICE_ID --set K=V ... \| --text TEXT \| --answer JSON`（RPC `notice.answer`） | 填写回复；notice 变为 answered，挂在上面的 task 拿到一次新输入（`notice_settled`）继续 |
+| `lush notice dismiss NOTICE_ID [--reason TEXT]`（RPC `notice.dismiss`） | 只阅读不回答，notice 变为 dismissed；`--reason` 会随 note 一起交给挂在上面的 task |
 
 
 ## 常用命令（`bun run`）

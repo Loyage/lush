@@ -9,6 +9,8 @@
  * `index.js`.
  */
 import { LushError, jsonDump, now, validSid } from '../../core/types.js';
+import { ACTIVE_TASK_STATUS } from '../../core/lifecycle.js';
+import { dismissOpenNoticesOfTasks } from '../repository_notices.js';
 import * as tasks from '../repository_tasks.js';
 
 export const rows = {
@@ -187,19 +189,25 @@ export const rows = {
 
   /**
    * A restarted daemon must not inherit work it cannot vouch for: dangling
-   * calls become interrupted, tasks that were running or waiting become
-   * `failed` (their agents are gone), and SID 0 goes back to active.
+   * calls become interrupted, every still-active task (`created` / `running` /
+   * `waiting` / `awaiting`) becomes `failed` — its agent is gone, and a parked
+   * one would otherwise wait forever — and SID 0 goes back to active.
    */
   recover() {
     this.database.transaction(() => {
       this.db.run("UPDATE agent_calls SET status='interrupted',error='daemon restarted',finished_at=? WHERE status='running'",
         [now()]);
-      const abandoned = this.db.query("SELECT id FROM tasks WHERE status IN ('created','running','waiting')").all();
+      const marks = ACTIVE_TASK_STATUS.map(() => '?').join(',');
+      const abandoned = this.db.query(`SELECT id,status FROM tasks WHERE status IN (${marks})`).all(...ACTIVE_TASK_STATUS);
       for (const row of abandoned) {
         this.db.run("UPDATE tasks SET status='failed',error='daemon restarted',finished_at=?,updated_at=? WHERE id=?",
           [now(), now(), row.id]);
-        tasks.taskEvent(this, row.id, 'transition', { from: 'running', to: 'failed', cause: 'daemon_restarted' });
+        tasks.taskEvent(this, row.id, 'transition', { from: row.status, to: 'failed', cause: 'daemon_restarted' });
       }
+      // A notice those tasks reported has nobody left to answer it: settle it
+      // the same way a dying task does, so the user's inbox does not keep a
+      // "等待答复" marker for a task that is already failed.
+      dismissOpenNoticesOfTasks(this, abandoned.map((row) => row.id), 'daemon restarted');
       if (this.exists(0)) {
         this.db.run("UPDATE services SET status='active',updated_at=? WHERE sid=0", [now()]);
         this.event(0, 'daemon_started', {});

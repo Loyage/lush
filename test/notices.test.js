@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { TOOL_DEFINITIONS } from '../src/agent/tools.js';
+import { AgentTools, TOOL_DEFINITIONS } from '../src/agent/tools.js';
 import { ROOT } from '../src/cli/tree/index.js';
 import { formatNotice, formatNoticeList } from '../src/cli/format/notice.js';
 import { RPCClient } from '../src/rpc/client.js';
@@ -139,31 +139,62 @@ describe('notices (core)', () => {
     expect(() => manager.noticeAnswer(third.id, { bad: { nested: true } })).toThrow(/must be a string, number or boolean/);
   });
 
-  test('waiting on a notice blocks the reporter and the answer wakes it with the values', async () => {
+  test('a wait notice parks the reporter in awaiting, and the answer wakes it as input', async () => {
     const sid = manager.construct(0, 'generic-task', 'worker').sid;
     const running = manager.call(sid, `/tool notice ${JSON.stringify({
       kind: 'decision', title: '选一个', fields: [{ name: 'plan', type: 'choice', options: ['A', 'B'], required: true }],
     })}`);
     await Bun.sleep(20);
     const [task] = manager.taskList();
-    expect(task.status).toBe('waiting');
+    // The task is not running any more, and it is not waiting on a child either:
+    // it is waiting on the user.
+    expect(task.status).toBe('awaiting');
     expect(manager.openNoticeCount()).toBe(1);
+    expect(manager.awaitingNoticeCount(task.id)).toBe(1);
 
     const notice = manager.noticeList('open')[0];
     manager.noticeAnswer(notice.id, { plan: 'B' });
     const settled = await running;
+    // The answer arrived in the inbox and the agent finished on its next turn.
     expect(settled.status).toBe('completed');
-    expect(settled.result).toContain('"plan":"B"');
+    expect(settled.result).toContain('woken');
     expect(manager.noticeInspect(notice.id)).toMatchObject({ status: 'answered', answer: { plan: 'B' } });
     expect(manager.openNoticeCount()).toBe(0);
+
+    const [delivered] = manager.taskInbox(task.id);
+    expect(delivered).toMatchObject({ kind: 'notice_settled', from_task_id: null, to_task_id: task.id });
+    expect(delivered.data).toMatchObject({ notice_id: notice.id, status: 'answered', answer: { plan: 'B' } });
+    expect(delivered.delivered_at).not.toBeNull();
   });
 
-  test('wait=false reports without parking the task', async () => {
+  test('dismissing a notice also wakes the awaiting reporter', async () => {
+    const sid = manager.construct(0, 'generic-task', 'worker').sid;
+    const running = manager.call(sid, '/tool notice {"title":"等我","fields":[{"name":"x"}]}');
+    await Bun.sleep(20);
+    const notice = manager.noticeList('open')[0];
+    expect(manager.taskInspect(notice.task_id).status).toBe('awaiting');
+    expect(manager.awaitingNoticeCount(notice.task_id)).toBe(1);
+
+    manager.noticeDismiss(notice.id, '先别动');
+    const settled = await running;
+    expect(settled.status).toBe('completed');
+    expect(manager.awaitingNoticeCount(settled.id)).toBe(0);
+    expect(manager.taskInbox(settled.id)[0]).toMatchObject({ kind: 'notice_settled' });
+    expect(manager.taskInbox(settled.id)[0].data).toMatchObject({ status: 'dismissed', note: '先别动', answer: null });
+  });
+
+  test('wait=false reports without parking the task and never wake it', async () => {
     const sid = manager.construct(0, 'generic-task', 'worker').sid;
     const task = await manager.call(sid, '/tool notice {"title":"只是汇报","wait":false}');
     expect(task.status).toBe('completed');
+    expect(manager.awaitingNoticeCount(task.id)).toBe(0);
     expect(manager.noticeList('open')).toHaveLength(1);
     expect(manager.noticeList('open')[0]).toMatchObject({ kind: 'report', wait: false, status: 'open' });
+
+    // A record nobody is attached to: settling it does not reach the task.
+    const notice = manager.noticeList('open')[0];
+    manager.noticeAnswer(notice.id, { text: '收到' });
+    expect(manager.taskInbox(task.id)).toEqual([]);
   });
 
   test('cancelling the reporter dismisses the notices nobody can answer any more', async () => {
@@ -171,7 +202,7 @@ describe('notices (core)', () => {
     const running = manager.call(sid, '/tool notice {"title":"等我","fields":[{"name":"x"}]}');
     await Bun.sleep(20);
     const notice = manager.noticeList('open')[0];
-    expect(manager.taskInspect(notice.task_id).status).toBe('waiting');
+    expect(manager.taskInspect(notice.task_id).status).toBe('awaiting');
     manager.cancelTask(notice.task_id);
     await running;
     expect(manager.noticeInspect(notice.id)).toMatchObject({
@@ -180,13 +211,88 @@ describe('notices (core)', () => {
     expect(manager.openNoticeCount()).toBe(0);
   });
 
-  test('a task may only wait on a notice it reported itself', () => {
-    const mine = idleTask('generic-task', 'mine');
-    const theirs = idleTask('generic-task', 'theirs');
-    const notice = manager.postNotice({ taskId: theirs.id, title: 'not yours' });
-    expect(() => { manager.waitForNotice(notice.id, mine.id); }).toThrow(/may only wait on its own notices/);
-    expect(() => { manager.waitForNotice(notice.id, theirs.id); }).not.toThrow();
-    expect(() => manager.waitForNotice(9999)).toThrow(/notice not found/);
+  test('an agent may not complete while the user still owes it an answer', async () => {
+    const task = idleTask('generic-task', 'reporter');
+    const notice = manager.postNotice({ taskId: task.id, kind: 'decision', title: '选一个' });
+    const tools = new AgentTools(manager, task.id, task.sid);
+
+    const refused = await tools.execute('task_complete', '{"result":"done"}');
+    expect(refused.error.code).toBe(-32010);
+    expect(refused.error.message).toContain('notice(s) the user has not settled');
+    expect(manager.taskInspect(task.id).status).toBe('created');
+
+    manager.noticeAnswer(notice.id, { text: 'go' });
+    // The answer lands in the inbox, so the run-time refuses completion for the
+    // unread input first — the same guard as any parent/child message. Once the
+    // answer is handed over (what the runtime does between two invocations), the
+    // agent may finish.
+    expect((await tools.execute('task_complete', '{"result":"done"}')).error.message).toContain('unread message');
+    expect(manager.takeTaskInput(task.id)[0]).toMatchObject({ kind: 'notice_settled' });
+    expect((await tools.execute('task_complete', '{"result":"done"}')).result)
+      .toMatchObject({ id: task.id, status: 'completed' });
+  });
+
+  test('a daemon restart fails an awaiting task and dismisses its notice', () => {
+    const sid = manager.construct(0, 'generic-task', 'worker').sid;
+    const task = manager.constructTask(null, sid, 'work', false);
+    const notice = manager.postNotice({ taskId: task.id, kind: 'decision', title: '选一个' });
+    manager.taskRunning(task.id);
+    manager.taskPark(task.id, 'notice');
+    expect(manager.repository.getTask(task.id).status).toBe('awaiting');
+
+    // What `daemon start` runs before it accepts work: a task it cannot vouch
+    // for fails, and the notice nobody can answer any more goes with it.
+    manager.repository.recover();
+    expect(manager.repository.getTask(task.id)).toMatchObject({ status: 'failed', error: 'daemon restarted' });
+    expect(manager.noticeInspect(notice.id)).toMatchObject({ status: 'dismissed', note: 'daemon restarted' });
+    expect(manager.awaitingNoticeCount(task.id)).toBe(0);
+    expect(manager.openNoticeCount()).toBe(0);
+  });
+
+  test('an awaiting task still occupies its service', async () => {
+    const sid = manager.construct(0, 'generic-task', 'worker').sid;
+    const running = manager.call(sid, '/tool notice {"title":"等我"}');
+    await Bun.sleep(20);
+    const [task] = manager.taskList();
+    expect(task.status).toBe('awaiting');
+    // Parked on a human is still "working on this service": no second task, and
+    // the task counts as active everywhere a status list is consulted.
+    expect(() => manager.constructTask(null, sid, 'second', false)).toThrow(/already working on task/);
+    expect(manager.activeTasks().map((row) => row.id)).toEqual([task.id]);
+    expect(() => manager.taskDelete(task.id)).toThrow(/is awaiting; cancel it first/);
+
+    manager.noticeAnswer(manager.noticeList('open')[0].id, { text: 'go' });
+    expect((await running).status).toBe('completed');
+  });
+
+  test('a settled notice is delivered to its reporter once, and never to a dead one', () => {
+    const reporter = idleTask('generic-task', 'reporter');
+    const notice = manager.postNotice({ taskId: reporter.id, title: '问一句' });
+    expect(manager.awaitingNoticeCount(reporter.id)).toBe(1);
+
+    manager.noticeAnswer(notice.id, { text: 'go' });
+    const rows = manager.taskInbox(reporter.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: 'notice_settled', to_task_id: reporter.id, from_task_id: null });
+    expect(rows[0].data).toMatchObject({ notice_id: notice.id, status: 'answered', answer: { text: 'go' } });
+    expect(manager.awaitingNoticeCount(reporter.id)).toBe(0);
+    // Settling is one-way, so it cannot be delivered twice.
+    expect(() => manager.noticeAnswer(notice.id, { text: 'again' })).toThrow(/is answered/);
+    expect(manager.taskInbox(reporter.id)).toHaveLength(1);
+
+    // A notice whose task already finished is only a record: nobody to hand it to.
+    const gone = idleTask('generic-task', 'gone');
+    const orphan = manager.postNotice({ taskId: gone.id, title: 'x' });
+    manager.completeTask(gone.id, 'done');
+    manager.terminateNotices(gone.id, 'task gone');
+    expect(manager.taskInbox(gone.id)).toEqual([]);
+
+    const deleted = idleTask('generic-task', 'deleted');
+    const detached = manager.postNotice({ taskId: deleted.id, title: 'y' });
+    manager.completeTask(deleted.id, 'done');
+    manager.taskDelete(deleted.id);
+    expect(manager.noticeInspect(orphan.id)).toMatchObject({ status: 'dismissed' });
+    expect(manager.noticeAnswer(detached.id, { text: 'into the void' })).toMatchObject({ task_id: null, status: 'answered' });
   });
 
   test('list filters, orders newest first and validates its arguments', () => {
@@ -339,10 +445,13 @@ describe('notices over RPC, the CLI surface and the web UI', () => {
     expect((await request('/api/notices?bogus=1')).status).toBe(400);
     expect((await request('/api/notices/999999')).status).toBe(404);
     const shell = await request('/');
-    expect(await shell.text()).toContain('Notice');
+    const page = await shell.text();
+    expect(page).toContain('Notice');
+    // The task status filter knows the state a wait notice parks a task in.
+    expect(page).toContain('awaiting');
   });
 
-  test('notice.post lets an external agent report and block for the answer', async () => {
+  test('notice.post reports without blocking and the answer comes back through the inbox', async () => {
     const sid = manager.construct(0, 'generic-task', 'worker').sid;
     const task = manager.constructTask(null, sid, 'ship it', false);
 
@@ -351,21 +460,21 @@ describe('notices over RPC, the CLI surface and the web UI', () => {
       task_id: task.id, kind: 'report', title: '只是汇报', body: '一切正常', wait: false,
     });
     expect(reported).toMatchObject({ status: 'open', wait: false, task_id: task.id, title: '只是汇报' });
+    await client.request('notice.answer', { notice_id: reported.id, answer: { text: 'ok' } });
+    expect(await client.request('task.inbox', { task_id: task.id })).toEqual([]);
 
-    // wait=true keeps the RPC open until the user settles it.
-    const pending = client.request('notice.post', {
+    // wait=true returns immediately too; the settled answer is inbox input.
+    const posted = await client.request('notice.post', {
       task_id: task.id,
       kind: 'decision',
       title: '选一个',
       fields: [{ name: 'plan', type: 'choice', options: ['A', 'B'], required: true }],
     });
-    await Bun.sleep(20);
-    const open = await client.request('notice.list', { status: 'open', task_id: task.id });
-    const blocking = open.find((row) => row.title === '选一个');
-    expect(blocking).toMatchObject({ wait: true, task_id: task.id });
-    await client.request('notice.answer', { notice_id: blocking.id, answer: { plan: 'B' } });
-    const settled = await pending;
-    expect(settled).toMatchObject({ id: blocking.id, status: 'answered', answer: { plan: 'B' } });
+    expect(posted).toMatchObject({ status: 'open', wait: true, task_id: task.id });
+    await client.request('notice.answer', { notice_id: posted.id, answer: { plan: 'B' } });
+    const [delivered] = await client.request('task.inbox', { task_id: task.id });
+    expect(delivered).toMatchObject({ kind: 'notice_settled', from_task_id: null });
+    expect(delivered.data).toMatchObject({ notice_id: posted.id, status: 'answered', answer: { plan: 'B' } });
 
     expect((await expectRejection(client.request('notice.post', { task_id: task.id }))).code).toBe(-32602);
     expect((await expectRejection(client.request('notice.post', { task_id: 999, title: 'x' }))).code).toBe(-32004);

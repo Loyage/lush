@@ -318,6 +318,26 @@ describe('runtime', () => {
     expect(manager.repository.callsOfTask(task.id)[0].status).toBe('interrupted');
   });
 
+  test('shutdown releases a task parked between two invocations', async () => {
+    const service_ = worker();
+    const waiter = manager.call(service_.sid, '/tool notice {"title":"等我回答"}');
+    await Bun.sleep(20);
+    const [parked] = manager.taskList(service_.sid);
+    expect(parked.status).toBe('awaiting');
+
+    // Two things are being pinned here: a parked loop must be released (an
+    // unresolved `waitForTaskInput` leaves the teardown hanging, which used to
+    // mean the daemon exited in the middle of its own cleanup), and the parked
+    // task must end up failed with the shutdown as the reason.
+    await runtime.shutdown();
+    const settled = await waiter;
+    expect(settled).toMatchObject({ status: 'failed', error: 'daemon shut down' });
+    expect(runtime.active.size).toBe(0);
+    expect(manager.repository.getTask(parked.id)).toMatchObject({ status: 'failed', error: 'daemon shut down' });
+    // The notice nobody can answer any more is dismissed with the same reason.
+    expect(manager.repository.openNoticesOfTask(parked.id)).toEqual([]);
+  });
+
   test('the continuation budget bounds how often one task is woken', () => {
     expect(runtime.maxCalls).toBe(12);
     runtime.maxCalls = 3;

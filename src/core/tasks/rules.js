@@ -111,18 +111,25 @@ export function start(manager, taskId) {
   return transition(manager, taskId, 'running');
 }
 
-/** Mark an agent that is blocked on its child tasks (and back again). */
-export function markWaiting(manager, taskId, waiting = true) {
+/**
+ * Park a running task that has nothing left to do this turn, and say what it is
+ * parked on: `children` (child tasks still working, status `waiting`) or
+ * `notice` (a notice the user has not settled, status `awaiting`). Both are the
+ * same shape of wait — the task layer wakes the task when input arrives — the
+ * status just tells the user whether they are the ones being waited on.
+ */
+export function park(manager, taskId, reason = 'children') {
   const task = requireTask(manager, taskId);
-  if (waiting) return task.status === 'running' ? transition(manager, taskId, 'waiting') : task;
-  return task.status === 'waiting' ? transition(manager, taskId, 'running') : task;
+  if (task.status !== 'running') return task;
+  return transition(manager, taskId, reason === 'notice' ? 'awaiting' : 'waiting');
 }
 
 /**
  * Finish a task. Completing requires every child task to be finished first:
  * agents that still have children under way are told to end their turn and be
  * woken with the results (the `task_complete` tool adds the same check for
- * unread inbox input; the runtime drains the inbox before settling, and a human
+ * unread inbox input and for a notice the user still owes an answer to; the
+ * runtime parks the task on either before it would settle it, and a human
  * completing a task by hand is not blocked by a report nobody needs to read).
  */
 export function complete(manager, taskId, result = undefined) {
@@ -135,6 +142,10 @@ export function complete(manager, taskId, result = undefined) {
       -32010,
     );
   }
+  // An unsettled notice is work the user owes this task: the answer is on its
+  // way through the inbox. The run-time parks the task on an open notice before
+  // it would settle it and `AgentTools.complete` refuses a mid-turn call, but
+  // the rule itself stays permissive so a human can finish a task by hand.
   const updated = transition(manager, taskId, 'completed', { result, error: null });
   finish(manager, updated, 'completed');
   return updated;
@@ -175,14 +186,15 @@ function cascade(manager, taskId, status, reason) {
 /** Common tail of every terminal transition: abort the agent, report, wake waiters. */
 function finish(manager, task, status) {
   if (status !== 'completed') manager.runtime?.cancelTask(task.id);
-  // A reporter that dies with work still open (a blocking `notice` the user
-  // never answered, or a report nobody read) leaves notices nobody can act on:
-  // dismiss them, which also wakes the agent parked on them. A completed task
-  // keeps its open notices — they are results and findings the user may still
-  // want to read.
+  // A reporter that dies with work still open (a `notice` the user never
+  // answered, or a report nobody read) leaves notices nobody can act on:
+  // dismiss them. A completed task keeps its open notices — they are results
+  // and findings the user may still want to read — but a `wait` notice can no
+  // longer survive it (`complete` refuses while one is open).
   if (status !== 'completed') manager.terminateNotices(task.id, `task ${task.id} ${status}`);
-  // A task parked in `waiting` (its agent yielded) must be released: the loop
-  // wakes, sees the terminal status and returns instead of leaking a promise.
+  // A task parked in `waiting` / `awaiting` (its agent yielded) must be
+  // released: the loop wakes, sees the terminal status and returns instead of
+  // leaking a promise.
   manager.resumeTask(task.id);
   // The parent learns through the same inbox a message arrives in.
   notifyChildSettled(manager, task);

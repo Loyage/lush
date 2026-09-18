@@ -10,7 +10,8 @@ import { alignRows, excerpt, stamp } from './primitives.js';
 /** `#7 [decision/open] 需要你选一个方案 · task#3 project-manager[2]` */
 export function noticeLine(notice) {
   const where = notice.task_id === null ? `sid ${notice.sid}` : `task#${notice.task_id} ${notice.service_name}[${notice.sid}]`;
-  const waited = notice.wait ? ' · 阻塞中' : '';
+  // Only an open notice is still waiting: once settled, nothing is parked on it.
+  const waited = notice.wait && notice.status === 'open' ? ' · 等待答复' : '';
   return `#${notice.id} [${notice.kind}/${notice.status}]${waited} ${notice.title} · ${where}`;
 }
 
@@ -24,11 +25,16 @@ export function formatNotice(notice) {
   const where = notice.task_id === null
     ? `service ${notice.service_name}[${notice.sid}]`
     : `task#${notice.task_id} on ${notice.service_name}[${notice.sid}]`;
+  const wait = notice.wait
+    ? `yes (the reporter ${notice.status === 'open'
+      ? 'is parked in awaiting until this is settled'
+      : 'was parked in awaiting until this was settled'})`
+    : 'no (a record only; nothing comes back)';
   const rows = [
     ['notice', `#${notice.id}`],
     ['kind', notice.kind],
     ['status', notice.status],
-    ['wait', notice.wait ? 'yes (reporter is parked until this is settled)' : 'no'],
+    ['wait', wait],
     ['reporter', where],
     ['created', stamp(notice.created_at)],
     ['answered', stamp(notice.answered_at)],

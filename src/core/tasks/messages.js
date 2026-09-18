@@ -1,22 +1,24 @@
 /**
- * The task inbox: how a task and its direct parent / children talk, and how
- * input reaches an agent.
+ * The task inbox: how a task and its direct parent / children talk, how input
+ * reaches an agent, and how a settled notice comes home.
  *
  * The model is deliberately asynchronous. A message is **queued**, never
  * interrupt: `send` only inserts a row and wakes a *parked* task. A task that is
  * in the middle of an agent invocation keeps working; the runtime hands it the
  * queued input between two invocations (`take`), which is also how a settling
- * child reports to its parent (`notifyChildSettled`) — one queue, two kinds of
- * input.
+ * child reports to its parent (`notifyChildSettled`) and how a notice the user
+ * settled returns to its reporter (`notifyNoticeSettled`) — one queue, three
+ * kinds of input.
  *
  * Waiting lives on the **task**, not inside the agent: the runtime parks a task
- * in `waiting` and `ServiceManager.waitForTaskInput` resolves when anything
- * lands in its inbox. `task_wait` no longer exists as an agent tool.
+ * in `waiting` (children still working) or `awaiting` (a notice still open) and
+ * `ServiceManager.waitForTaskInput` resolves when anything lands in its inbox.
+ * `task_wait` no longer exists as an agent tool.
  *
  * Every function operates on the `ServiceManager` passed in; `core/tasks/rules.js`
  * and the runtime are the callers.
  */
-import { LushError, text, validSid } from '../types.js';
+import { LushError, jsonDump, text, validSid } from '../types.js';
 import { isTerminal, requireTask } from './internal.js';
 
 const MAX_BODY = 20_000;
@@ -73,12 +75,48 @@ export function notifyChildSettled(manager, child) {
   });
 }
 
+/**
+ * The report that a notice a task reported was settled by the user. This is the
+ * notice's reply channel: opening a `wait` notice binds the answer to the
+ * reporter, so `notice.answer` / `notice.dismiss` hand it back here and a parked
+ * task wakes with it the way it wakes with a child's result. A notice with no
+ * reporter left (a deleted task, or one that already settled) is only a record;
+ * nothing is delivered.
+ */
+export function notifyNoticeSettled(manager, notice) {
+  if (!notice.wait || notice.task_id === null || notice.task_id === undefined) return null;
+  const task = manager.repository.findTask(notice.task_id);
+  if (task === null || isTerminal(task)) return null;
+  return deliver(manager, {
+    toTaskId: notice.task_id,
+    fromTaskId: null,
+    kind: 'notice_settled',
+    body: '',
+    data: {
+      notice_id: notice.id,
+      kind: notice.kind,
+      title: notice.title,
+      status: notice.status,
+      answer: notice.answer ?? null,
+      note: notice.note ?? null,
+    },
+  });
+}
+
+/** How one inbox kind is named in the receiver's event stream. */
+const EVENT_KIND = {
+  message: 'message_received',
+  child_settled: 'child_reported',
+  notice_settled: 'notice_settled',
+};
+
 function deliver(manager, { toTaskId, fromTaskId, kind, body, data }) {
   const row = manager.repository.createTaskMessage({ toTaskId, fromTaskId, kind, body, data });
-  manager.repository.taskEvent(toTaskId, kind === 'message' ? 'message_received' : 'child_reported', {
+  manager.repository.taskEvent(toTaskId, EVENT_KIND[kind] ?? kind, {
     inbox_id: row.id,
-    from_task_id: fromTaskId,
-    ...(kind === 'message' ? {} : { task_id: data.task_id, status: data.status }),
+    ...(fromTaskId === null || fromTaskId === undefined ? {} : { from_task_id: fromTaskId }),
+    ...(kind === 'child_settled' ? { task_id: data.task_id, status: data.status } : {}),
+    ...(kind === 'notice_settled' ? { notice_id: data.notice_id, status: data.status } : {}),
   });
   // A parked task must wake up; a running one will pick the row up after its
   // current invocation (the runtime drains the inbox before deciding anything).
@@ -122,6 +160,13 @@ function outcomeText(data) {
   return typeof data.result === 'string' ? data.result : JSON.stringify(data.result);
 }
 
+/** One settled notice, as the reporter's next prompt reads it. */
+function noticeText(data) {
+  const head = `你上报的 notice #${data.notice_id}（${data.kind}：${data.title}）`;
+  if (data.status === 'answered') return `${head} 已由用户答复：${jsonDump(data.answer)}`;
+  return `${head} 被用户忽略${data.note ? `：${data.note}` : '（未填答案）'}`;
+}
+
 /**
  * The next invocation's prompt, built from the input that arrived: one
  * `role: user` message (persisted by `beginCall`), the same shape every other
@@ -133,6 +178,7 @@ export function inputPrompt(manager, rows) {
     if (row.kind === 'child_settled') {
       return `- 你的子 task #${row.data.task_id} 已结束 → ${outcomeText(row.data)}`;
     }
+    if (row.kind === 'notice_settled') return `- ${noticeText(row.data)}`;
     return `- ${senderLabel(manager, row.from_task_id)} 发来消息：${row.body}`;
   });
   return '[Lush] 你有新的输入：\n'

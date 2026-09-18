@@ -2,14 +2,18 @@
  * One task's run, in the background: invoke the agent, hand it whatever landed
  * in its inbox, park when it has nothing to do, and finish when it is done.
  *
- * The agent never blocks on its children: `task_wait` is gone. After every
- * invocation the **task layer** decides, in this order:
+ * The agent never blocks on its children or on the user: `task_wait` is gone and
+ * `notice` returns as soon as it is recorded. After every invocation the **task
+ * layer** decides, in this order:
  *
- *   1. queued input (a parent / child message, or a child that settled) →
- *      synthesize the next prompt from it and invoke again;
- *   2. nothing queued but children still active → park the task in `waiting`
- *      (the hang timeout does not run while parked) until something arrives;
- *   3. nothing queued and no active children → the last answer is the result.
+ *   1. queued input (a parent / child message, a child that settled, or the
+ *      answer to a notice this task reported) → synthesize the next prompt from
+ *      it and invoke again;
+ *   2. nothing queued but the task is still owed something → park it until an
+ *      input arrives: `awaiting` while a notice it reported is open (the user
+ *      owes the answer), `waiting` while child tasks are still working (the
+ *      hang timeout does not run while parked);
+ *   3. nothing queued and nothing owed → the last answer is the result.
  *
  * That is what keeps blocking on the task instead of inside the agent, and why
  * a message can never cut an invocation short: it waits its turn in the inbox.
@@ -41,11 +45,20 @@ export const taskRun = {
 
         // Input that arrived while the agent was working is delivered first.
         let input = this.manager.takeTaskInput(taskId);
-        while (input.length === 0 && this.manager.activeChildTasks(taskId).length > 0) {
-          this.manager.taskWaiting(taskId, true);
-          await this.manager.waitForTaskInput(taskId);
-          this.manager.taskWaiting(taskId, false);
+        // A task may owe the user an answer it is waiting on (a `notice` it
+        // reported) just as much as it may owe work to its children: either way
+        // it parks here until that input lands in its inbox.
+        while (input.length === 0) {
+          const reason = this.manager.taskParkReason(taskId);
+          if (reason === null) break;
+          this.manager.taskPark(taskId, reason);
+          // `parkRelease` is what a daemon shutdown uses to end the wait: a task
+          // parked on a child or on the user is still parked when the daemon
+          // goes away, and its teardown must not sit on it.
+          await Promise.race([this.manager.waitForTaskInput(taskId), this.parkRelease]);
+          if (this.closing) return;
           if (!this.manager.taskIsActive(this.repository.getTask(taskId))) return;
+          this.manager.taskRunning(taskId);
           input = this.manager.takeTaskInput(taskId);
         }
         if (input.length === 0) {
@@ -97,29 +110,5 @@ export const taskRun = {
       if (entry.timer) clearTimeout(entry.timer);
       entry.timer = null;
     }
-  },
-
-  /**
-   * Pause the hang timeout while the agent is legitimately parked on a human
-   * (a blocking `notice`): it is not consuming the model, so wall clock should
-   * not count against it.
-   */
-  pauseTimer(taskId) {
-    const entry = this.active.get(taskId);
-    if (!entry || entry.timer === null) return;
-    clearTimeout(entry.timer);
-    entry.timer = null;
-  },
-
-  resumeTimer(taskId) {
-    const entry = this.active.get(taskId);
-    if (!entry || !entry.busy || entry.timer !== null || this.timeout <= 0 || entry.interactive) return;
-    entry.timer = setTimeout(() => {
-      if (entry.busy) {
-        entry.reason = 'timeout';
-        entry.controller.abort();
-      }
-    }, this.timeout * 1000);
-    entry.timer.unref?.();
   },
 };

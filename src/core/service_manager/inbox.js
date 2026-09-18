@@ -4,9 +4,9 @@
  * `send` / `inbox` / `trace` are the user- and agent-facing surface
  * (`task.message` / `task.inbox` / `task.trace`); `takeTaskInput`,
  * `waitForTaskInput` and `resumeTask` are what the runtime uses to hand queued
- * input to one task's agent and to park a task between invocations. The rules
- * live in `core/tasks/messages.js`; the trace's read model in
- * `core/tasks/trace.js`.
+ * input to one task's agent and to park a task between invocations (on children,
+ * or on a notice the user owes it an answer to). The rules live in
+ * `core/tasks/messages.js`; the trace's read model in `core/tasks/trace.js`.
  *
  * Exported as a method group: `index.js` merges it into `ServiceManager`.
  */
@@ -55,7 +55,7 @@ export const inboxLayer = {
     });
   },
 
-  /** Wake a task parked in `waiting` because new input arrived (or it settled). */
+  /** Wake a task parked in `waiting` / `awaiting` because new input arrived. */
   resumeTask(taskId) {
     const waiters = this.resumeWaiters.get(taskId);
     if (waiters === undefined) return;

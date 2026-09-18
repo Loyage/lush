@@ -23,7 +23,7 @@ export const taskLayer = {
     return tasks.construct(this, { parentTaskId, sid, goal, start });
   },
 
-  /** Is this task row still able to run (created / running / waiting)? */
+  /** Is this task row still able to run (created / running / waiting / awaiting)? */
   taskIsActive(task) {
     return ACTIVE_TASK_STATUS.includes(task.status);
   },
@@ -33,9 +33,23 @@ export const taskLayer = {
     return tasks.start(this, taskId);
   },
 
-  /** Park a task whose agent is blocked on its child tasks (and back). */
-  taskWaiting(taskId, waiting = true) {
-    return tasks.markWaiting(this, taskId, waiting);
+  /**
+   * Park a running task whose agent yielded: `notice` when it is waiting on the
+   * user, `children` when its child tasks are still working.
+   */
+  taskPark(taskId, reason = 'children') {
+    return tasks.park(this, taskId, reason);
+  },
+
+  /**
+   * Why a task with nothing queued must wait: the user owes it an answer to an
+   * open notice (`notice`), or its child tasks are still working (`children`).
+   * `null` means it is done — that is what lets the runtime settle it.
+   */
+  taskParkReason(taskId) {
+    if (this.awaitingNoticeCount(taskId) > 0) return 'notice';
+    if (this.activeChildTasks(taskId).length > 0) return 'children';
+    return null;
   },
 
   taskWaitable(taskId, fromTaskId) {

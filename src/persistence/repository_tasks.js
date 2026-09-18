@@ -9,9 +9,11 @@
  * passed in; the class in `repository.js` is the only caller.
  */
 import { LushError, jsonDump, now, validSid } from '../core/types.js';
-
-/** Task statuses that mean "the work is not finished yet". */
-export const ACTIVE_TASK_STATUS = ['created', 'running', 'waiting'];
+// The one canonical "not finished yet" list: every query that asks "is this task
+// still active" (here and in `repository/rows.js`) reads the same array
+// `core/lifecycle.js` validates transitions against, so a new active status
+// cannot be added in one place and forgotten in another.
+import { ACTIVE_TASK_STATUS } from '../core/lifecycle.js';
 
 /**
  * Raw row → wire shape (no joins). `state` and `result` are stored as JSON, so
@@ -112,7 +114,7 @@ export function transitionTask(repository, taskId, target, { result, error } = {
     if (old === null) throw new LushError(`task not found: ${taskId}`, -32004);
     const fields = ['status=?', 'updated_at=?'];
     const args = [target, now()];
-    if (old.started_at === null && (target === 'running' || target === 'waiting')) {
+    if (old.started_at === null && (target === 'running' || target === 'waiting' || target === 'awaiting')) {
       fields.push('started_at=?');
       args.push(now());
     }

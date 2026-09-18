@@ -368,6 +368,29 @@ describe('task trace (调用链)', () => {
     expect(after.entries[1]).toMatchObject({ to_task_id: grand.id, to_service: 'grand', goal: 'grand work' });
   });
 
+  test('a settled notice is one more step on the chain (and the CLI renders it)', () => {
+    const { root } = collaboration();
+    const notice = manager.postNotice({
+      taskId: root.id, kind: 'decision', title: '选一个', fields: [{ name: 'plan', type: 'choice', options: ['A', 'B'] }],
+    });
+    manager.noticeAnswer(notice.id, { plan: 'A' });
+
+    const trace = manager.taskTrace(root.id);
+    const step = trace.entries.find((entry) => entry.kind === 'notice_settled');
+    expect(step).toMatchObject({
+      from_task_id: null,
+      to_task_id: root.id,
+      notice_id: notice.id,
+      status: 'answered',
+      result: { plan: 'A' },
+      body: '选一个',
+      delivered_at: null,
+    });
+    const text = formatTaskTrace(trace);
+    expect(text).toContain('notice_settled');
+    expect(text).toContain(`notice#${notice.id} answered`);
+  });
+
   test('the CLI declares task trace and the chain renders as text', () => {
     const group = ROOT.children.task;
     expect(Object.keys(group.children)).toContain('trace');

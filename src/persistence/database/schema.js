@@ -1,6 +1,6 @@
 /**
  * Every DDL statement this project has ever shipped: the current schema plus
- * the migration ladder (`MIGRATION_V2` … `MIGRATION_V8`) that brings an older
+ * the migration ladder (`MIGRATION_V2` … `MIGRATION_V9`) that brings an older
  * home up to it.
  *
  * Keeping them in one file makes the "what does a database look like at
@@ -24,13 +24,13 @@
  * tree.
  *
  * Status sets match `core/lifecycle.js`: services are `created / active /
- * stopped`, tasks are `created / running / waiting / completed / failed /
- * cancelled`.
+ * stopped`, tasks are `created / running / waiting / awaiting / completed /
+ * failed / cancelled`.
  *
  * A `notice` is a task's agent reporting to the user: it records who reported
  * (`sid` + `task_id`), what they need (`kind`, `title`, `body`), the answer form
- * they declared (`fields`), whether the reporter is blocked on the answer
- * (`wait`), and how the user settled it (`status` / `answer` / `note`).
+ * they declared (`fields`), whether the reporter is waiting on it (`wait`), and
+ * how the user settled it (`status` / `answer` / `note`).
  */
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS services (
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     parent_task_id INTEGER REFERENCES tasks(id),
     root_task_id INTEGER NOT NULL,
     goal TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('created','running','waiting','completed','failed','cancelled')),
+    status TEXT NOT NULL CHECK(status IN ('created','running','waiting','awaiting','completed','failed','cancelled')),
     result TEXT,
     error TEXT,
     state TEXT NOT NULL,
@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS task_inbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     to_task_id INTEGER NOT NULL REFERENCES tasks(id),
     from_task_id INTEGER REFERENCES tasks(id),
-    kind TEXT NOT NULL CHECK(kind IN ('message','child_settled')),
+    kind TEXT NOT NULL CHECK(kind IN ('message','child_settled','notice_settled')),
     body TEXT NOT NULL,
     data TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -149,7 +149,7 @@ CREATE INDEX IF NOT EXISTS task_inbox_to ON task_inbox(to_task_id, id);
 -- (who did this task talk to), so it needs the mirror index or every trace
 -- walks the whole table.
 CREATE INDEX IF NOT EXISTS task_inbox_from ON task_inbox(from_task_id, id);
-PRAGMA user_version = 8;
+PRAGMA user_version = 9;
 `;
 
 /**
@@ -472,6 +472,69 @@ PRAGMA user_version = 7;
 export const MIGRATION_V8 = `
 CREATE INDEX IF NOT EXISTS task_inbox_from ON task_inbox(from_task_id, id);
 PRAGMA user_version = 8;
+`;
+
+/**
+ * v8 → v9: notices stop blocking and start being answered asynchronously. A
+ * reporter that asks for an answer now parks in the new `awaiting` task status,
+ * and the settled notice is handed back to it as one more piece of inbox input
+ * (`kind='notice_settled'`). Both are CHECK constraints, which SQLite cannot
+ * alter in place, so `tasks` and `task_inbox` are rebuilt with the wider sets.
+ *
+ * Each table is renamed *out of the way*, the new one is created, the rows are
+ * copied and the old one dropped. That order matters twice: sibling tables keep
+ * pointing at `tasks` (they reference it by name and the old one must be gone
+ * before the name comes back), and `tasks.parent_task_id` references `tasks`
+ * itself — the one clause SQLite will *not* rewrite when a table is renamed.
+ * `legacy_alter_table` is what turns that rewriting off, so the names in
+ * existing FKs stay exactly as they were; `PRAGMA foreign_keys = OFF` (in
+ * `script()`) is what makes the drop legal while siblings still point at it.
+ *
+ * Rows are copied by `SELECT *`, so the new status starts out unused and old
+ * homes keep their data; the dropped tables' indexes are recreated by hand.
+ */
+export const MIGRATION_V9 = `
+PRAGMA legacy_alter_table = ON;
+ALTER TABLE tasks RENAME TO tasks_v9;
+CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sid INTEGER NOT NULL REFERENCES services(sid),
+    parent_task_id INTEGER REFERENCES tasks(id),
+    root_task_id INTEGER NOT NULL,
+    goal TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('created','running','waiting','awaiting','completed','failed','cancelled')),
+    result TEXT,
+    error TEXT,
+    state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    updated_at TEXT NOT NULL,
+    CHECK(parent_task_id IS NULL OR parent_task_id != id)
+);
+INSERT INTO tasks SELECT * FROM tasks_v9;
+DROP TABLE tasks_v9;
+CREATE INDEX IF NOT EXISTS tasks_sid ON tasks(sid, id);
+CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_task_id, id);
+CREATE INDEX IF NOT EXISTS tasks_root ON tasks(root_task_id, id);
+CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status, id);
+ALTER TABLE task_inbox RENAME TO task_inbox_v9;
+CREATE TABLE task_inbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    to_task_id INTEGER NOT NULL REFERENCES tasks(id),
+    from_task_id INTEGER REFERENCES tasks(id),
+    kind TEXT NOT NULL CHECK(kind IN ('message','child_settled','notice_settled')),
+    body TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    delivered_at TEXT
+);
+INSERT INTO task_inbox SELECT * FROM task_inbox_v9;
+DROP TABLE task_inbox_v9;
+CREATE INDEX IF NOT EXISTS task_inbox_to ON task_inbox(to_task_id, id);
+CREATE INDEX IF NOT EXISTS task_inbox_from ON task_inbox(from_task_id, id);
+PRAGMA legacy_alter_table = OFF;
+PRAGMA user_version = 9;
 `;
 
 /** One historical call → the root task it becomes in v3. */

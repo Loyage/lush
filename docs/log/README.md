@@ -32,6 +32,7 @@ MVP 范围内无未完成项。后续方向（本轮不实现）：Context compr
 - [18 · task 调用链：把一次协作排成一条时间线（`task.trace`）](./18-task-trace.md)
 - [19 · 删掉 Justfile：把开发 / 操作入口迁到 `package.json` scripts（`bun run`）](./19-drop-justfile.md)
 - [20 · 并行项目开发：开发与合并拆成两个阶段，worktree 由 project 串行建](./20-two-phase-parallel-development.md)
+- [21 · notice 不阻塞：答复作为下一次输入回家，task 多一个 awaiting](./21-non-blocking-notice.md)
 
 ## 验收命令
 

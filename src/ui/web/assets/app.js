@@ -1,7 +1,7 @@
 const TASK_LIMIT = 500;
 const TRACE_LIMIT = 200;
-const ACTIVE_STATUSES = ['created', 'running', 'waiting'];
-const TRACE_KIND_LABEL = { delegated: '派活', message: '消息', child_settled: '结算' };
+const ACTIVE_STATUSES = ['created', 'running', 'waiting', 'awaiting'];
+const TRACE_KIND_LABEL = { delegated: '派活', message: '消息', child_settled: '结算', notice_settled: 'notice' };
 
 const elements = {
   connection: document.querySelector('#connection'),
@@ -376,6 +376,10 @@ function traceDetail(entry) {
     wrap.textContent = entry.goal ?? '';
   } else if (entry.kind === 'message') {
     wrap.textContent = entry.body ?? '';
+  } else if (entry.kind === 'notice_settled') {
+    const answer = entry.result === null || entry.result === undefined ? '' : ` · ${resultText(entry.result)}`;
+    const reason = entry.error === null || entry.error === undefined ? '' : ` · ${entry.error}`;
+    wrap.textContent = `notice#${entry.notice_id} ${entry.status}${answer}${reason}`;
   } else if (entry.status === 'completed') {
     wrap.textContent = entry.result === null || entry.result === undefined
       ? 'completed'
@@ -538,7 +542,10 @@ function noticeRow(notice) {
   const meta = document.createElement('span');
   meta.className = 'notice-row-meta';
   const where = notice.task_id === null ? `sid ${notice.sid}` : `task#${notice.task_id} ${serviceName(notice.sid)}`;
-  meta.textContent = `${NOTICE_KIND_LABEL[notice.kind] ?? notice.kind} · ${notice.status} · ${where}`;
+  // A `wait` notice is why some task is parked in `awaiting`: say so here, since
+  // the task list otherwise just looks "not running". Once settled, nothing is.
+  const waited = notice.wait && notice.status === 'open' ? ' · 等待答复' : '';
+  meta.textContent = `${NOTICE_KIND_LABEL[notice.kind] ?? notice.kind} · ${notice.status}${waited} · ${where}`;
   copy.append(title, meta);
 
   button.replaceChildren(dot, copy);

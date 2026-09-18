@@ -42,7 +42,8 @@ export const taskGroup = {
     '不覆盖：被动节点本身（建、启停、变量、删除）见 `lush service`；用户入口 `lush call` 是「在某个 service 上开一个根 task 并等它」。',
   ],
   notes: [
-    'task 的状态：created → running →（waiting）→ completed / failed / cancelled；waiting 表示 task 已让出本次运行（在等子 task 或等消息），agent 不在跑；子 task 结算或收到消息时它会被唤醒。',
+    'task 的状态：created → running →（waiting | awaiting）→ completed / failed / cancelled。waiting 表示在等子 task（或等消息），awaiting 表示在等用户处理它上报的 notice；两者都是「agent 已让出本轮、不在跑」，有输入时会被唤醒（子 task 结算 / 消息 / 用户答复 notice）。',
+    '一个 task 只要还有 open 的 wait notice（awaiting），它就不会被当成“跑完了”：上报不阻塞，但答复会作为下一次输入回来，所以它得先等人。',
     '终结不变量：一个 task 走到终态时不会有活动的子 task——complete 要求子 task 都已结束且收件箱没有未读消息，failed / cancelled 会把子 task 一起取消。',
     'daemon 重启时，未结束的 task 会被记为 failed（agent 已经不在了），不会自动重放。',
   ],
@@ -60,7 +61,7 @@ export const taskGroup = {
         '--sid': { arg: 'SID', desc: '只看这个 service 上的 task', apply: (r, v) => { r.sid = intArg(v, '--sid'); } },
         '--status': {
           arg: 'STATUS',
-          desc: '只看某个状态（created / running / waiting / completed / failed / cancelled）',
+          desc: '只看某个状态（created / running / waiting / awaiting / completed / failed / cancelled）',
           apply: (r, v) => { r.status = v; },
         },
         '--roots': { arg: null, desc: '只看根 task（parent_task_id 为空）', apply: (r) => { r.roots = 'roots'; } },
@@ -177,7 +178,7 @@ export const taskGroup = {
       summary: '给直接父 task 或直接子 task 发一条消息（入队，不打断对方）',
       cover: [
         '消息只在 task 树的直接边上走：接收方必须是你所在的 task 的直接父 task 或直接子 task（和 task_construct 的“只能向下游、直接子 service”同一条边界）。',
-        '它是**异步**的：消息先入接收方的收件箱，在它两次 agent invocation 之间才交给它的 agent，所以不会打断正在跑的工作；对方处于 waiting 时会立即被唤醒。',
+        '它是**异步**的：消息先入接收方的收件箱，在它两次 agent invocation 之间才交给它的 agent，所以不会打断正在跑的工作；对方处于 waiting / awaiting 时会立即被唤醒。',
         'agent 侧用 `task_message` 工具（内置运行时）/ `lush task message ...`（外部 agent pi）；--from 缺省取 $LUSH_TASK_ID。',
       ],
       notes: [
@@ -213,7 +214,7 @@ export const taskGroup = {
       method: 'task.inbox',
       summary: '查看一个 task 的收件箱（父 / 子消息与子 task 结算）',
       cover: [
-        '按 id 升序列出投给该 task 的输入：`kind` 为 message（父子消息）或 child_settled（某个子 task 结算的报告），`delivered` 说明是否已经交给它的 agent。',
+        '按 id 升序列出投给该 task 的输入：`kind` 为 message（父子消息）、child_settled（某个子 task 结算的报告）或 notice_settled（用户答复了它上报的 notice），`delivered` 说明是否已经交给它的 agent。',
         '这是只读的审计视图——actual 的注入仍由 task 层在两次 invocation 之间完成。',
       ],
       usage: ['lush task inbox TASK_ID [--after ID] [--limit N]'],
@@ -229,7 +230,7 @@ export const taskGroup = {
       method: 'task.trace',
       summary: '按时间列出该 task 子树里的调用链（派活 / 消息 / 结算）',
       cover: [
-        '把「这个 task 在完成过程中跟谁说了什么、派了什么活、拿到了什么回报」排成一条时间线：delegated（在子 service 上开的子 task）、message（与直接父 / 子 task 的往来，两个方向都在同一条链上）、child_settled（子 task 结算的报告）。',
+        '把「这个 task 在完成过程中跟谁说了什么、派了什么活、拿到了什么回报」排成一条时间线：delegated（在子 service 上开的子 task）、message（与直接父 / 子 task 的往来，两个方向都在同一条链上）、child_settled（子 task 结算的报告）、notice_settled（用户处理了它上报的 notice 后把答复送回来）。',
         '范围是选中 task 的整棵子树，且「任一端在子树内」的行都算——委派与消息同一条规则：所以它发给父 task 的消息、以及子树根那次「被委派」（事件写在子树外的父 task 上）都在链上。根 task 的调用链就是「这活是怎么协作做完的」的时间视角；`lush task tree` 是同一件事的结构视角，`lush task inbox` 只看入边。',
         '它是派生读模型（task_inbox 加上父 task 的 delegated 事件），没有新表；--limit 只保留最近的若干步，输出会说明总步数与截断。删掉的 task 的事件与收件箱行会一起消失，所以它是运行期观察视图，不是审计日志。',
       ],

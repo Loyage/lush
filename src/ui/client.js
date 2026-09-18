@@ -115,7 +115,7 @@ export class UIClient {
     return this.execute('notice.inspect', { notice_id: noticeId });
   }
 
-  /** Fill in a notice's declared form; the waiting reporter is unblocked. */
+  /** Fill in a notice's declared form; the answer is handed to the reporter. */
   answerNotice(noticeId, answer) {
     validSid(noticeId);
     if (!isPlainObject(answer)) throw new TypeError('answer must be an object');

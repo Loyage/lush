@@ -49,19 +49,14 @@ export class ServiceManager {
     /**
      * Task waiters, in memory. `taskWaiters` is the *user-facing* `task.wait`
      * (a CLI / RPC caller blocking until a task settles). `resumeWaiters` is a
-     * task parked in `waiting` whose agent yielded: it wakes when anything lands
-     * in that task's inbox (a parent/child message, or a child settling). A
-     * restarted daemon fails unfinished tasks instead of resuming them
-     * (`Repository.recover`), so nothing here needs to persist.
+     * task parked in `waiting` / `awaiting` whose agent yielded: it wakes when
+     * anything lands in that task's inbox (a parent/child message, a child
+     * settling, or the answer to a notice it reported). A restarted daemon
+     * fails unfinished tasks instead of resuming them (`Repository.recover`), so
+     * nothing here needs to persist.
      */
     this.taskWaiters = new Map();
     this.resumeWaiters = new Map();
-    /**
-     * Notice waiters, in memory like the task ones: a reporter that chose to
-     * wait (`notice` tool with `wait`) parks here until the user answers or
-     * dismisses. Keyed by notice id.
-     */
-    this.noticeWaiters = new Map();
   }
 
   /**

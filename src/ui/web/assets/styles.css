@@ -265,6 +265,7 @@ h2 { margin-top: 3px; font-size: 1.15rem; }
 .status-dot.running { background: var(--accent-strong); box-shadow: 0 0 0 3px rgba(119, 221, 140, 0.14); }
 .status-dot.created { background: #6fa8dc; }
 .status-dot.waiting { background: var(--warn); }
+.status-dot.awaiting { background: #d98cc8; }
 .status-dot.completed { background: #4c8f63; }
 .status-dot.failed { background: #e2726e; }
 .status-dot.cancelled { background: #8a6a6a; }
@@ -514,6 +515,7 @@ textarea:disabled { opacity: 0.5; }
 .trace-kind.delegated { color: var(--accent); background: rgba(119, 221, 140, 0.12); }
 .trace-kind.message { color: #9cc7ea; background: rgba(111, 168, 220, 0.14); }
 .trace-kind.child_settled { color: var(--warn); background: rgba(224, 179, 93, 0.13); }
+.trace-kind.notice_settled { color: #d98cc8; background: rgba(217, 140, 200, 0.13); }
 .trace-edge { grid-column: 3; display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; }
 .trace-endpoint { display: inline-flex; align-items: baseline; gap: 4px; }
 .trace-link {
@@ -560,6 +562,7 @@ textarea:disabled { opacity: 0.5; }
 }
 .badge.running, .status.running, .status.waiting, .status.created { border-color: rgba(167, 243, 181, 0.35); color: var(--accent); }
 .status.waiting { border-color: rgba(224, 179, 93, 0.4); color: var(--warn); }
+.status.awaiting { border-color: rgba(217, 140, 200, 0.4); color: #d98cc8; }
 .status.created { border-color: rgba(111, 168, 220, 0.4); color: #9cc7ea; }
 .badge.stopped, .status.failed, .status.cancelled { border-color: rgba(255, 159, 159, 0.3); color: var(--danger); }
 

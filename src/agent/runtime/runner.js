@@ -4,10 +4,11 @@
  *
  * Agents belong to **tasks**, not to services. `startTask` opens a task's run
  * in the background; within it, `_runTask` invokes the agent, and when the
- * agent answers while its child tasks are still running, waits for them and
- * wakes the agent again with their results (that is `waiting`). One task at a
- * time per service is enforced by the task layer before a task exists, so the
- * runtime only has to keep one invocation per task in flight.
+ * agent answers while it is still owed something, parks the task until an input
+ * arrives and wakes the agent again with it (that is `waiting` for children,
+ * `awaiting` for a notice the user owes an answer to). One task at a time per
+ * service is enforced by the task layer before a task exists, so the runtime
+ * only has to keep one invocation per task in flight.
  *
  * This file holds the object itself — the live-slot bookkeeping, which provider
  * answers for a service, and shutdown. The three groups of behaviour are merged
@@ -52,6 +53,14 @@ export class AgentRuntime {
     this.agentSeq = new Map();
     this.agentLog = [];
     this.closing = false;
+    /**
+     * A parked task waits on its inbox; `shutdown()` resolves this promise to
+     * end those waits. Without it the teardown would sit on a task parked on a
+     * child (or on a notice the user never answered) forever — an unresolved
+     * promise does not keep the process alive, so the daemon would exit in the
+     * middle of its own cleanup, leaving the lock file and unfinished rows.
+     */
+    this.parkRelease = new Promise((resolve) => { this._releasePark = resolve; });
   }
 
   /** A service is busy while one of its tasks is being worked on. */
@@ -176,6 +185,9 @@ export class AgentRuntime {
       entry.reason = 'shutdown';
       entry.controller.abort();
     }
+    // Release tasks parked between two invocations: aborting has no effect on a
+    // `waitForTaskInput`, and their loops return as soon as they see `closing`.
+    this._releasePark();
     await Promise.allSettled(entries.map((entry) => entry.promise));
     // Interactive calls have no promise to wait for: their terminal outlives the
     // daemon, so their rows are settled here and the CLI reports back to nobody.

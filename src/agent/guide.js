@@ -15,7 +15,7 @@ const RULES = `通用规则：
 - 只能向**下游**派活：子 task 只能挂在自己的子 service 上（缺节点就先建）。你的 service 只有一个活动 task，下游 service 正忙时派活会被拒绝——先结束本轮等它（子 task 结算会唤醒你），或改用别的下游节点。
 - 摊派不等于结束：子 task 结算后你会被唤醒并拿到它的结果，不能把没验证的转述当成已完成。
 - 有未结束的子 task 时你不能 complete：结束本轮等它们（结果会随唤醒一起给你），或 task_cancel 取消不需要的。
-- 你不必、也无法在工具里阻塞等待：结束本轮后 task 会停在 waiting，有输入（子 task 结算，或直接父 / 子 task 发来消息）时你会被自动唤醒——不要自己轮询。
+- 你不必、也无法在工具里阻塞等待：结束本轮后 task 会停在 waiting（等子 task）或 awaiting（等你上报的 notice 有答复），有输入（子 task 结算、父 / 子 task 的消息，或用户对你 notice 的答复）时你会被自动唤醒——不要自己轮询。
 - 要中途和直接父 task 或直接子 task 传话，用 task_message：消息入队，不打断对方正在跑的工作，在它两次 invocation 之间交给它的 agent。
 - 一次回复不等于完成：只有目标确实达成时才调用 task_complete，把结果写进 result；长任务把进展写进持久 state（task_update_state 记这一次工作，service_update_state 记这个节点长期的知识）。
 - 不要编造工具结果、文件内容或引用；不确定就说不确定。不要声称执行了没有实际执行的操作，也不要把其他 SID / task 的工作算成自己的。
@@ -25,16 +25,16 @@ const TOOL_HOWTO = `你可以通过 task_* / service_* 工具操作 Lush：
 - task_self：你自己的 task（id / goal / status / result）与所在 service 的摘要。
 - task_children：你已经派出去的子 task 及其状态、结果；派活前后都可以看。
 - task_construct：**向下游派活**——sid 必须是你所在 service 的直接子服务，得到一个立刻开始跑的子 task（返回它的 id）。一次可以派多个；下游 service 已经有活动 task 时会被拒绝。子 task 结算时你会被唤醒并带上它的结果。
-- task_message：给**直接父 task 或直接子 task**发一条消息（task_id + body）。它入队，不打断对方正在跑的工作；对方停在 waiting 时会被立即唤醒。用于给还在跑的子 task 追加约束、向父 task 提问或汇报进展。
+- task_message：给**直接父 task 或直接子 task**发一条消息（task_id + body）。它入队，不打断对方正在跑的工作；对方停在 waiting / awaiting 时会被立即唤醒。用于给还在跑的子 task 追加约束、向父 task 提问或汇报进展。
 - task_cancel：取消一个子 task（它自己的子 task 会一起取消）。
-- task_complete：结束你自己的 task，把结果放进 result，交给你的父 task（或等你的人）。子 task 未结束、或收件箱里还有未读消息时会被拒绝。
+- task_complete：结束你自己的 task，把结果放进 result，交给你的父 task（或等你的人）。子 task 未结束、收件箱里还有未读消息、或还有未决的 notice 时会被拒绝。
 - task_update_state：合并你自己 task 的草稿 state（这一次工作的进展）。
 - service_self / service_parent / service_children / service_inspect：查看你所在的被动节点与整棵服务树。
 - service_construct：按可用模板创建子服务（模板必须来自 LUSH_CONTEXT.available_child_templates，变量按该模板 construct_prompt 与 variables 声明提供；声明了保留变量 name 的模板如 dev-task 用 name 参数当服务名）。建完再用 task_construct 把活派给它。
 - service_update_state：合并这个 service 的长期 state（跨 task 的知识与结论）。
 - service_update_vars：只改模板声明为 mutable 的变量（immutable 的、以及模板没声明的名字都会被拒绝）。
-- notice：向用户上报并等回答——自己无法处理（kind=blocked）、需要人做决策（kind=decision）、或要把运行结果 / 发现交给用户（kind=report）。\`title\` 是一句话，\`body\` 是完整上下文；需要用户填写什么就声明 \`fields\`（name / label / type=text|textarea|choice|boolean / required / options / default），用户填完的答案作为该工具结果返回（answer / status）。\`wait=false\` 时只登记、不阻塞（适合不需要回复的结果报告）。默认等待：在用户回答或忽略前你会一直停在 waiting，所以问题要小而具体。
-如果你先给出了回答、但还有子 task 在跑（或有人给你发了消息），task 会停在 waiting；有输入时你会被自动唤醒并带上它们，让你继续收尾——不需要自己轮询。
+- notice：向用户上报并等回答——自己无法处理（kind=blocked）、需要人做决策（kind=decision）、或要把运行结果 / 发现交给用户（kind=report）。\`title\` 是一句话，\`body\` 是完整上下文；需要用户填写什么就声明 \`fields\`（name / label / type=text|textarea|choice|boolean / required / options / default）。它**立即返回**：默认 wait=true 时你与这条 notice 绑定，本轮结束后 task 停在 awaiting，用户 answer / dismiss 后答复作为你的**下一次输入**送回来（等待期间不要调 task_complete，会被拒绝）。wait=false 只登记、不改变状态（适合不需要回复的结果报告）。用户不处理时你会一直等着，所以问题要小而具体。
+如果你先给出了回答、但还有子 task 在跑（或有人给你发了消息、或你在等用户答复你上报的 notice），task 会停在 waiting / awaiting；有输入时你会被自动唤醒并带上它们，让你继续收尾——不需要自己轮询。
 不要通过 shell 调用 lush CLI 来代替这些工具。`;
 
 const CLI_HOWTO = `你通过 bash 工具执行 \`lush\` 命令来操作 Lush。CLI 是 daemon 的客户端，命令分三层：顶层 → 命令组（daemon / service / task / agent）→ 具体命令 → 参数；例外是 \`lush agent ...\`，它只读写本地的 agent profile 文件（$LUSH_HOME/agents/*.json），daemon 未运行也能用。
@@ -48,7 +48,7 @@ const CLI_HOWTO = `你通过 bash 工具执行 \`lush\` 命令来操作 Lush。C
 - \`lush task tree $LUSH_TASK_ID\`：看这棵 task 树（谁派给了谁、各自什么状态）。
 - \`lush service children\` / \`lush service inspect SID\` / \`lush service construct <父SID> <模板> ...\`：被动节点这一侧。派活前想知道一个节点能做什么、能建什么、在它上面开 task 会用哪段提示词，用 \`lush service inspect SID --with description,templates,prompt\`：description 是它的能力边界，templates 是它现在还能创建的子模板（每项带 description / construct_prompt），prompt 是它上面 task 的 agent 收到的提示词。
 - \`lush service update-state\` / \`lush service update-vars\`：长期 state 与可变变量。
-- \`lush notice post --title <一句话> --kind decision --body <上下文> --fields [{\"name\":\"merge\",\"type\":\"choice\",\"options\":[\"yes\",\"no\"],\"required\":true}]\`：把自己做不了 / 需要用户决策 / 要交付的结果上报给用户，默认阻塞到用户答复，answer 就在这条命令的输出里；\`--no-wait\` 只登记、不等待。
+- \`lush notice post --title <一句话> --kind decision --body <上下文> --fields [{\"name\":\"merge\",\"type\":\"choice\",\"options\":[\"yes\",\"no\"],\"required\":true}]\`：把自己做不了 / 需要用户决策 / 要交付的结果上报给用户。命令立即返回、不阻塞：默认（wait=true）你会与它绑定，本轮结束后 task 停在 awaiting，用户答复会作为你下一次 invocation 的输入送回来；\`--no-wait\` 只登记（纯记录，不会有答复回来）。
 
 不要凭记忆猜命令、参数或状态机，让 CLI 自己回答，用到哪一层就先读哪一层的 help：
 - \`lush help\`：顶层覆盖范围、命令组一览、全局选项。
@@ -60,7 +60,7 @@ help 与解析器读同一张声明，不会与实际行为脱节；报错信息
 - \`daemon ...\`：daemon 自身的启停与状态（start / stop / restart / status）。改完代码或提示词用 \`lush daemon restart\`（只影响本次 LUSH_HOME 那一份 daemon）。
 - \`task ...\`：工作这一侧——list / tree / inspect / result / wait / cancel / history / session / complete / construct / delete，以及运行期 agent（\`task agents list|show|kill\`）。\`lush call SID '<目标>'\` 是在某个 service 上创建一个根 task 并等它（及其整棵子树）结束的入口。
 - \`service ...\`：被动节点这一侧——查（list / tree / inspect / children）、建（construct）、改状态（start / stop，运行中就不能 stop：先 cancel 它的 task）、改数据（update-state / update-vars）、删（delete / purge）与孤儿池（\`service orphans [--sweep]\`）。service 不会自己运行 agent，所有 agent 都属于某个 task。
-- \`lush notice list\` / \`lush notice show ID\` 用来查看现状（用户侧命令）；回复由用户用 \`lush notice answer ID --set 字段=值\`（可多次）或 \`lush notice dismiss ID\` 完成，你只需上报并等结果。
+- \`lush notice list\` / \`lush notice show ID\` 用来查看现状（用户侧命令）；回复由用户用 \`lush notice answer ID --set 字段=值\`（可多次）或 \`lush notice dismiss ID\` 完成——你上报后结束本轮即可，答复会在下一次 invocation 交给你，不需要轮询。
 - \`agent ...\`：agent **配置**（profile），不是运行期 agent：每个 profile 一套 provider / 命令 / 模型 / 插件开关，存在 \`$LUSH_HOME/agents/<name>.json\`；list / inspect 看，add / edit / delete 增删改，path 给出目录。内置 default 永远可用、不可删；这一组只读写 profile 文件，daemon 未运行时也能用。\`service construct --agent <profile>\` 指定这个 service 上的 task 用哪个 profile。
 
 调用约定：

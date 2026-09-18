@@ -3,9 +3,10 @@
  *
  * A `notices` row is the durable record of one report — who reported (`sid`,
  * `task_id`), what they need (`kind`, `title`, `body`), the answer form they
- * declared (`fields`), whether the reporter is blocked on the answer (`wait`),
- * and how the user settled it (`status` / `answer` / `note`). The reporter's
- * live wait is in memory (`ServiceManager.noticeWaiters`), never here.
+ * declared (`fields`), whether the reporter is parked on the answer (`wait`),
+ * and how the user settled it (`status` / `answer` / `note`). Nothing about the
+ * wait is live state: a `wait` notice is delivered back to its reporter as
+ * inbox input when it is settled (see `core/tasks/messages.js`).
  *
  * Every function operates on the `Repository` passed in; the classes in
  * `repository.js` and `service_manager.js` are the only callers.
@@ -79,6 +80,18 @@ export function openNoticesOfTask(repository, taskId) {
     .map(decodeNotice);
 }
 
+/**
+ * How many notices a task reported that are still waiting for the user — the
+ * `wait` ones. This is what says a task is `awaiting` rather than running:
+ * opening a notice attaches the answer to the reporter, so the reporter cannot
+ * settle until it comes back (or the user dismisses it).
+ */
+export function countAwaitingNotices(repository, taskId) {
+  return repository.db
+    .query("SELECT COUNT(*) AS n FROM notices WHERE task_id=? AND status='open' AND wait=1")
+    .get(taskId).n;
+}
+
 /** How many notices still need a user (`system.status`). */
 export function openNoticeCount(repository) {
   return repository.db.query("SELECT COUNT(*) AS n FROM notices WHERE status='open'").get().n;
@@ -105,4 +118,20 @@ export function detachTaskNotices(repository, taskId) {
 
 export function deleteNoticesOfService(repository, sid) {
   return repository.db.run('DELETE FROM notices WHERE sid=?', [sid]).changes;
+}
+
+/**
+ * Dismiss the open notices of a set of tasks in one statement, with one shared
+ * reason. `Repository.recover` uses it for the tasks a restarted daemon failed:
+ * their reporters are gone, so nobody can answer those notices any more.
+ */
+export function dismissOpenNoticesOfTasks(repository, taskIds, note) {
+  if (taskIds.length === 0) return 0;
+  const marks = taskIds.map(() => '?').join(',');
+  const stamp = now();
+  return repository.db.run(
+    `UPDATE notices SET status='dismissed',note=?,answered_at=?,updated_at=?
+      WHERE status='open' AND task_id IN (${marks})`,
+    [note, stamp, stamp, ...taskIds],
+  ).changes;
 }

@@ -32,7 +32,8 @@ export function isTerminal(task) {
 // `Repository.recover`). `taskWaiters` is keyed by task id and exists for the
 // *user-facing* `task.wait` (a CLI / RPC caller blocking until a task reaches a
 // terminal status). An agent no longer blocks inside a call: it parks its task
-// in `waiting` and is resumed through its inbox (see `messages.js`).
+// in `waiting` / `awaiting` and is resumed through its inbox (see
+// `messages.js`).
 
 /** Fire every user-side waiter parked on `taskId` (it reached a terminal status). */
 export function wake(manager, taskId) {

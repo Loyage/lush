@@ -15,7 +15,8 @@
  *
  *   tasks/internal.js  guards and the in-memory waiter registry, shared
  *   tasks/rules.js     which work may be opened, and every status transition
- *   tasks/messages.js  the inbox: parent ↔ child messages and child reports
+ *   tasks/messages.js  the inbox: parent ↔ child messages, child reports, and
+ *                      the return leg of a settled notice
  *   tasks/read.js      the wire shape, list / tree / inspect, state and delete
  *   tasks/trace.js     the collaboration timeline derived from the two above
  *

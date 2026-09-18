@@ -19,6 +19,9 @@ export function formatTaskInbox(rows) {
     if (row.kind === 'child_settled') {
       return `#${row.id} child_settled ${from} · ${row.data.status} · ${delivered}`;
     }
+    if (row.kind === 'notice_settled') {
+      return `#${row.id} notice_settled ${from} · notice#${row.data.notice_id} ${row.data.status} · ${delivered}`;
+    }
     return `#${row.id} message ${from} · ${delivered} · ${shortValue(row.body, 80)}`;
   }).join('\n');
 }
@@ -34,6 +37,13 @@ function traceDetail(entry) {
   const unread = entry.delivered_at === null && entry.kind !== 'delegated' ? '  (未读)' : '';
   if (entry.kind === 'delegated') return `"${shortValue(entry.goal ?? '', 60)}"`;
   if (entry.kind === 'message') return `${shortValue(entry.body ?? '', 80)}${unread}`;
+  // A settled notice: the answer (or the dismissal reason) is what came back.
+  if (entry.kind === 'notice_settled') {
+    const answer = entry.result === null || entry.result === undefined
+      ? ''
+      : ` · ${shortValue(entry.result, 60)}`;
+    return `notice#${entry.notice_id} ${entry.status}${answer}${unread}`;
+  }
   const outcome = entry.status === 'completed'
     ? (entry.result === null || entry.result === undefined
       ? 'completed'
@@ -188,7 +198,9 @@ export function formatTaskInspect(result) {
       const delivered = row.delivered_at === null ? 'unread' : 'delivered';
       const detail = row.kind === 'child_settled'
         ? `child_settled · ${row.data.status}`
-        : `message · ${shortValue(row.body, 60)}`;
+        : row.kind === 'notice_settled'
+          ? `notice_settled · notice#${row.data.notice_id} ${row.data.status}`
+          : `message · ${shortValue(row.body, 60)}`;
       lines.push(`  #${row.id} ${from} → ${detail} (${delivered})`);
     }
   }
@@ -226,8 +238,14 @@ export function formatCall(result) {
   const lines = [head];
   if (task.error !== null && task.error !== undefined) lines.push(`error: ${excerpt(String(task.error), 4000)}`);
   else if (task.result !== null && task.result !== undefined) lines.push(excerpt(String(task.result), 20000));
-  else if (task.status === 'running' || task.status === 'created' || task.status === 'waiting') {
-    lines.push('(still running in the daemon; watch it with `lush task tree ' + task.id + '`)');
+  else if (task.status === 'running' || task.status === 'created' || task.status === 'waiting'
+    || task.status === 'awaiting') {
+    // "Not finished yet" has two flavours now: the agent is working, or the
+    // task parked — on its children, or on a notice the user owes it.
+    const state = task.status === 'awaiting'
+      ? 'parked until the user settles a notice it reported'
+      : task.status === 'waiting' ? 'parked on its child tasks' : 'still running';
+    lines.push('(' + state + ' in the daemon; watch it with `lush task tree ' + task.id + '`)');
   }
   return lines.join('\n');
 }

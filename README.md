@@ -51,7 +51,7 @@ lush daemon stop
 用户 → SID 0（入口 / 路由器）上的根 task
         ├── 关于 Lush 自身的问题：SID 0 自己用只读命令回答
         └── 其他一切任务：把 task 派给 project-manager 节点
-                ├── 「给 <项目> 加功能 / 修 bug / 重构 / 调研它」→ 该项目的 project 节点上的 task，分两个阶段：**阶段 1 · 开发**把一批独立的工作拆成多件，由 project 串行建好各自的 git worktree 再建 dev-task 节点并并行派下去（实际改动由各 worktree 里的 worktree-service agent 做），全部结算后 project 汇总成一份待决清单、用**不阻塞**的 notice 报给用户并结束——并行度因此是「一批活里拆出几件」，而不是并发 call 同一个节点（一个 service 同时只有一个活动 task）；**阶段 2 · 合并与回收**由用户回一句 `lush call <project SID> '合并：<name>=yes … 回收：<name>=yes …'` 触发：project 在主工作树串行合并，再给对应 dev-task 开「回收」task，由它按析构协议 stop 那个 worktree-service 节点并删除 worktree 与分支，project 再把 dev-task 也 stop——记录保留
+                ├── 「给 <项目> 加功能 / 修 bug / 重构 / 调研它」→ 该项目的 project 节点上的 task，分两个阶段：**阶段 1 · 开发**把一批独立的工作拆成多件，由 project 串行建好各自的 git worktree 再建 dev-task 节点并并行派下去（实际改动由各 worktree 里的 worktree-service agent 做），全部结算后 project 汇总成一份待决清单、用**只登记**（`wait: false`）的 notice 报给用户并结束——并行度因此是「一批活里拆出几件」，而不是并发 call 同一个节点（一个 service 同时只有一个活动 task），也不把节点停在等用户；**阶段 2 · 合并与回收**由用户回一句 `lush call <project SID> '合并：<name>=yes … 回收：<name>=yes …'` 触发：project 在主工作树串行合并，再给对应 dev-task 开「回收」task，由它按析构协议 stop 那个 worktree-service 节点并删除 worktree 与分支，project 再把 dev-task 也 stop——记录保留
                 ├── 不绑定某个项目的问题（选型 / 通用调研）→ research-task 节点
                 ├── 有明确目标的一次性杂活 → generic-task 节点
                 └── 长期能力 / 常驻服务 → generic-service 节点
@@ -89,12 +89,12 @@ Task 的 agent 遇到自己处理不了的事、只有人能做的决策，或�
 ```bash
 lush notice list                 # 待处理项：--status open / answered / dismissed，--task / --sid 过滤
 lush notice show 7               # 详情：kind、正文、以及它声明要你填的字段
-lush notice answer 7 --set plan=canary --set note=ok   # 填写并唤醒等待的 task
+lush notice answer 7 --set plan=canary --set note=ok   # 填写；挂在它上面的 task 拿到答复继续
 lush notice answer 7 --text '先别动，我来处理'          # 没有声明字段时的自由文本回复
 lush notice dismiss 7 --reason '已知'                  # 只阅读、不回答
 ```
 
-需要你填写时，agent 在 `fields` 里声明表单（`text` / `textarea` / `choice` / `boolean`，可标 `required`、可给 `default`），`answer` 就是把字段名填回去（`choice` 必须命中 `options`）。agent 默认**阻塞等待**：在被回答或忽略前，那个 task 停在 `waiting` 且超时计时暂停；`wait: false` 的 notice 只登记不阻塞，适合不需要回复的结果汇报。notice 不超时：没人处理就一直挂着，直到你处理，或它所属的 task 被 `lush task cancel`（未决 notice 会被一起忽略）。三个界面共用同一份数据：CLI（`lush notice` / `bun run notices`）、Web UI 的 Notice 页，以及 agent 侧——内置运行时（mock / openai）用 `notice` 工具，外部 agent（pi，默认后端）用 `lush notice post --title ... [--fields JSON]`（默认也阻塞到用户结算）。
+需要你填写时，agent 在 `fields` 里声明表单（`text` / `textarea` / `choice` / `boolean`，可标 `required`、可给 `default`），`answer` 就是把字段名填回去（`choice` 必须命中 `options`）。**上报不阻塞**：`notice` 工具 / `lush notice post` 立即返回，而默认的 `wait: true` 把上报它的 task 挂在这条 notice 上——那个 task 进入 `awaiting`（等的是你，不是子 task），你 `answer` / `dismiss` 后答复作为它的**下一次输入**送回去，它接着干；`wait: false` 的 notice 是纯记录，不改变 task 状态也没有答复回来，适合不需要回复的结果汇报。notice 不超时：没人处理就一直挂着，直到你处理，或它所属的 task 被 `lush task cancel`（未决 notice 会被一起忽略）。三个界面共用同一份数据：CLI（`lush notice` / `bun run notices`）、Web UI 的 Notice 页，以及 agent 侧——内置运行时（mock / openai）用 `notice` 工具，外部 agent（pi，默认后端）用 `lush notice post --title ... [--fields JSON]`（同样立即返回，答复在下一次 invocation 送达）。
 
 ## Agent
 
@@ -127,6 +127,6 @@ bun test      # 全部测试（bun run test 等价，可加文件名过滤：bun
 
 数据默认保存在 `$XDG_STATE_HOME/lush` 或 `~/.local/state/lush`，可用 `LUSH_HOME` 覆盖。包含 SQLite 数据库、socket、daemon 锁、pi session 及日志。目录仅限当前用户访问。仓库模板与用户模板的摆放见 [docs/reference/templates.md](docs/reference/templates.md)。
 
-**生命周期提示：** Service 只有 created / active / stopped——它是被动的，`service construct` 只是把节点构造出来、不会跑任何 agent，`service stop` 只让它不再接受 task（先取消它手上的 task）。工作全在 task 上：`call` 建根 task 并等待，task 的状态是 created / running / waiting / completed / failed / cancelled，`task cancel` 取消一棵子树，`task complete` 由它的 agent（或人）在目标达成时调用；终态 task 不会有活动子 task。节点结束时（`stop` / `purge`），活动的直接子节点改挂 SID 0。**删除是唯一的物理删除路径**：`task delete` 只删 task 行（call 行与消息留作 service 的历史），`service delete SID` 只删 stopped 且没有活动 task 的节点（连带它上面的 task），`service purge SID` 先取消 task、停止节点再删（`--recursive` 连整棵子树），且内置运行时的 agent 工具集里没有删除工具；被删节点的父服务会得到一条 `child_deleted` 事件。SID 0 永远拒绝，只能通过停止 daemon 退出。详见 [docs/concepts/lifecycle-and-orphans.md](docs/concepts/lifecycle-and-orphans.md)。
+**生命周期提示：** Service 只有 created / active / stopped——它是被动的，`service construct` 只是把节点构造出来、不会跑任何 agent，`service stop` 只让它不再接受 task（先取消它手上的 task）。工作全在 task 上：`call` 建根 task 并等待，task 的状态是 created / running / waiting（等子 task）/ awaiting（等用户处理它上报的 notice）/ completed / failed / cancelled，`task cancel` 取消一棵子树，`task complete` 由它的 agent（或人）在目标达成时调用；终态 task 不会有活动子 task。节点结束时（`stop` / `purge`），活动的直接子节点改挂 SID 0。**删除是唯一的物理删除路径**：`task delete` 只删 task 行（call 行与消息留作 service 的历史），`service delete SID` 只删 stopped 且没有活动 task 的节点（连带它上面的 task），`service purge SID` 先取消 task、停止节点再删（`--recursive` 连整棵子树），且内置运行时的 agent 工具集里没有删除工具；被删节点的父服务会得到一条 `child_deleted` 事件。SID 0 永远拒绝，只能通过停止 daemon 退出。详见 [docs/concepts/lifecycle-and-orphans.md](docs/concepts/lifecycle-and-orphans.md)。
 
 本地单用户 MVP：没有 ACL、沙箱、自动调度、自动任务恢复或向量数据库。Web UI 也只允许监听本机回环地址。运行 pi 时，pi 自带的 read/bash/edit/write 工具和你的 pi 配置（skills、extensions、AGENTS.md）都会生效，因此 pi 服务能读写磁盘和执行命令；`openai` / `mock` 运行时只有 Lush 自己的 `service_*` / `task_*` 工具，不含 shell、文件编辑或联网能力。不要向不可信用户暴露 socket 或 Web UI；Agent 可以调用其他 Service，因此工具调用不是安全隔离边界。

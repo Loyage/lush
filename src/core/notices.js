@@ -5,16 +5,21 @@
  * "I am blocked", "this needs your decision", "here is the result". It carries
  * the reporter's identity (`task_id` + its `sid`), what is needed (`kind`,
  * `title`, `body`), and — when the user has something to fill in — a declared
- * answer form (`fields`). With `wait` (the default) the reporting task parks in
- * `waiting` (the way any other input wait parks it), and the filled-in answer
- * is the tool call's result.
+ * answer form (`fields`).
+ *
+ * Reporting never blocks. A notice with `wait` (the default) **attaches the
+ * reporter to itself**: the task parks in `awaiting`, and settling the notice
+ * hands the answer back through the task's inbox as one more piece of input
+ * (`core/tasks/messages.js`). So the answer arrives at the agent the same way a
+ * child's result does — between two invocations — instead of being waited for
+ * inside one. A `wait: false` notice is a pure record: it neither parks the
+ * reporter nor comes back to it.
  *
  * The rules live here; the rows are in `persistence/repository_notices.js` and
- * the wire signatures in `service_manager/notices.js`. Waiting is in memory,
- * keyed by notice id (`ServiceManager.noticeWaiters`): a restarted daemon fails
- * unfinished tasks instead of resuming them, so nothing here needs to persist.
+ * the wire signatures in `service_manager/notices.js`.
  */
 import { LushError, isPlainObject, text, validSid } from './types.js';
+import { notifyNoticeSettled } from './tasks/messages.js';
 
 /** What the report is for: a result to read, a decision to make, a blocker. */
 export const NOTICE_KINDS = ['report', 'decision', 'blocked'];
@@ -211,7 +216,17 @@ export function openCount(manager) {
   return manager.repository.openNoticeCount();
 }
 
-/** Answer one notice; the reporter is woken with the values the user filled in. */
+/**
+ * How many notices this task reported that still need the user (`wait` ones).
+ * This is what makes a task `awaiting` rather than running: the user owes it an
+ * answer, and the task may not settle until that answer is handed back.
+ */
+export function awaitingCount(manager, taskId) {
+  validSid(taskId);
+  return manager.repository.countAwaitingNotices(taskId);
+}
+
+/** Answer one notice; the reporter is handed the values the user filled in. */
 export function answer(manager, noticeId, value) {
   const notice = requireNotice(manager, noticeId);
   if (notice.status !== 'open') {
@@ -219,7 +234,7 @@ export function answer(manager, noticeId, value) {
   }
   const filled = normalizeAnswer(notice.fields, value);
   const updated = manager.repository.settleNotice(noticeId, 'answered', { answer: filled });
-  wake(manager, noticeId);
+  notifyNoticeSettled(manager, updated);
   return updated;
 }
 
@@ -233,51 +248,21 @@ export function dismiss(manager, noticeId, reason = null) {
     throw new LushError(`reason must be a string (max ${MAX_NOTE})`, -32602);
   }
   const updated = manager.repository.settleNotice(noticeId, 'dismissed', { note: reason });
-  wake(manager, noticeId);
+  notifyNoticeSettled(manager, updated);
   return updated;
 }
 
 /**
- * Block until one notice is settled. A task may only wait on a notice it
- * reported itself, so waiting can never cross the task tree.
- */
-export function waitForNotice(manager, noticeId, fromTaskId = null) {
-  const notice = requireNotice(manager, noticeId);
-  if (fromTaskId !== null) {
-    if (notice.task_id !== fromTaskId) {
-      throw new LushError(
-        `notice ${noticeId} was not reported by task ${fromTaskId}; a task may only wait on its own notices`,
-        -32010,
-      );
-    }
-  }
-  if (notice.status !== 'open') return Promise.resolve(notice);
-  return new Promise((resolve) => {
-    const waiters = manager.noticeWaiters.get(noticeId) ?? new Set();
-    waiters.add(() => resolve(manager.repository.findNotice(noticeId)));
-    manager.noticeWaiters.set(noticeId, waiters);
-  });
-}
-
-/**
  * The reporter is gone (its task failed or was cancelled): dismiss whatever it
- * was still waiting on, which also wakes anyone parked on those notices. Called
- * from the task layer's terminal transition.
+ * was still waiting on, so nobody is left answering a question whose asker is
+ * gone. Called from the task layer's terminal transition, which also wakes the
+ * task's own parking loop.
  */
 export function terminate(manager, taskId, reason) {
   const dismissed = [];
   for (const notice of manager.repository.openNoticesOfTask(taskId)) {
     manager.repository.settleNotice(notice.id, 'dismissed', { note: reason });
-    wake(manager, notice.id);
     dismissed.push(notice.id);
   }
   return dismissed;
-}
-
-/** Fire every waiter parked on one notice. */
-function wake(manager, noticeId) {
-  const waiters = manager.noticeWaiters.get(noticeId);
-  if (waiters === undefined) return;
-  manager.noticeWaiters.delete(noticeId);
-  for (const resolve of waiters) resolve(noticeId);
 }

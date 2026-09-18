@@ -26,7 +26,7 @@ SQLite  ContextBuilder  AgentBackend
 
 ## 模块边界
 
-- `core/`：实体类型、两套生命周期（`lifecycle.js`：service 的 created/active/stopped 与 task 的 created/running/waiting/completed/failed/cancelled）、Service 句柄、统一业务 API、父子关系及孤儿收养。`core/tasks.js` 是 task 层：派活规则（只向直接子 service、一个 service 一个活动 task、只能等自己树里的 task）、`waiting` 与唤醒、complete/cancel/fail 与「终态 task 没有活动子 task」的不变量、task 树读模型。`core/orphans.js` 是 SID 0 的孤儿监督：孤儿池读模型、策略校验（`normalizeOrphanPolicy`）、上限 / TTL / busy 判定与一轮监督（`OrphanSupervisor`）；它只决定该冻结谁，真正的状态变更仍走 `ServiceManager`（冻结而非删除，并取消它手上的 task）。没有 socket / CLI / HTTP 知识。
+- `core/`：实体类型、两套生命周期（`lifecycle.js`：service 的 created/active/stopped 与 task 的 created/running/waiting/awaiting/completed/failed/cancelled）、Service 句柄、统一业务 API、父子关系及孤儿收养。`core/tasks.js` 是 task 层：派活规则（只向直接子 service、一个 service 一个活动 task、只能等自己树里的 task）、`waiting` / `awaiting` 与唤醒、complete/cancel/fail 与「终态 task 没有活动子 task」的不变量、task 树读模型。`core/orphans.js` 是 SID 0 的孤儿监督：孤儿池读模型、策略校验（`normalizeOrphanPolicy`）、上限 / TTL / busy 判定与一轮监督（`OrphanSupervisor`）；它只决定该冻结谁，真正的状态变更仍走 `ServiceManager`（冻结而非删除，并取消它手上的 task）。没有 socket / CLI / HTTP 知识。
 - `persistence/`：`bun:sqlite` schema、事务、记录查询与恢复。数据库是事实来源，不缓存服务树。
 - `template_loader.js` + `templates/`：仓库顶层 `templates/` 存放 JSON ServiceTemplate（name、singleton、description、construct_prompt、system_prompt、child_templates、variables 七个必填字段，另有一个可选字段 agent），模板按 构造树分目录嵌套：`<name>.json` 的同级有一个同名文件夹 `<name>/`，里面放它能直接创建的模板（`templates/lush-root.json` + `templates/lush-root/project-manager.json` + `templates/lush-root/project-manager/project/dev-task.json` + `templates/lush-root/project-manager/project/dev-task/worktree-service.json`），loader 递归读取并校验，`child_templates` 写的是相对自己文件的路径（`project/dev-task.json` / `dev-task/worktree-service.json` / 同目录的 `generic-task.json`），加载时解析成模板名（也接受直接写名字），因此白名单、快照与权限比对里只有名字，并**按层级顺序排列模板**：层级 = 从「没有其他模板能创建它」的模板出发的最长路径（`*` 与自引用不算边，环在走到的那条边上截断），同级按名称排序，因此结果与文件名无关；`available_child_templates` 于是呈现根在前的拓扑序（`lush-root` → `project-manager` → `project` → 它能创建的任务），而不是文件名序。创建时保存完整快照，模板文件后续变更不影响既有 Service（`singleton` 按当前加载的模板判定）。可选的 `agent` 声明该模板新建实例使用的 agent profile，`construct --agent` 优先于它。三个散文字段（`description` / `construct_prompt` / `system_prompt`）可以写成 `@<相对路径>`，由 loader 相对声明文件读入旁边的 markdown 并内联（与 `child_templates` 同一条相对规则，引用不可读即 `-32602`，绝不退化成字面量），所以长提示词一个一个字地改而不用面对一行 `\n` 转义；这类 `.md` 与模板 JSON 一样属于提示词面，fingerprint 一并哈希。
 - `context/`：独立持久化 Context，以及 ContextBuilder。只读当前 Service 的对话、结构化 state、引用和直接亲属摘要，不注入全系统状态。
@@ -43,15 +43,15 @@ SQLite  ContextBuilder  AgentBackend
 2. Runtime 打开这次 invocation：同一个 task 不会有第二个 invocation；一个 service 同时最多一个活动 task（task 层已保证），不同 service 的 task 可真并行。
 3. 持久化 agent_calls（带 `task_id`）和 user message。ContextBuilder 生成模板 system prompt、共享 Lush 说明层、`LUSH_CONTEXT`（service + task + 子 task + 可创建模板）与**这个 task 自己**的对话。内置后端直接用这些 messages；外部后端（pi）拿到同样的 system prompt / 说明层 / `LUSH_CONTEXT` 与工作目录（`path` 变量），由 Lush 拼成命令行参数。
 4. Provider 返回文本及结构化 tool calls。每个 assistant / tool 消息顺序持久化，工具经 Core 执行业务变更（派子 task、等子 task、改 state/变量、建子服务）。pi 后端没有工具轮次：pi 在子服务内自己完成整个工具循环，Lush 只记录 user prompt 与最终文本（完整 pi session 落在 `$LUSH_HOME/pi-sessions/`，按 task 命名）。
-5. agent 给出最终回答后，task 层按顺序决定：收件箱有未读输入（父子消息 / 子 task 结算）→ 合成一条 user 消息继续 invoke；无输入但有活动子 task → 进入 `waiting` 等输入；都没 → 这个回答就是 task 的 result（记为 completed，最多 `LUSH_TASK_CALLS` 次）。异常记录 failed，取消记录 cancelled。
+5. agent 给出最终回答后，task 层按顺序决定：收件箱有未读输入（父子消息 / 子 task 结算 / 用户结算的 notice）→ 合成一条 user 消息继续 invoke；无输入但还欠着什么 → 进入 `waiting`（子 task 未结算）或 `awaiting`（自己上报的 wait notice 未被处理）等输入；都没 → 这个回答就是 task 的 result（记为 completed，最多 `LUSH_TASK_CALLS` 次）。异常记录 failed，取消记录 cancelled。
 
-阻塞在 task 上，不在 agent 里：agent 的工具没有“等待”原语。父子消息与子 task 结算都进同一个 `task_inbox`，只在两次 invocation 之间交给 agent，所以不会打断正在跑的工作；消息只走 task 树的直接边，与“只能向下游、直接子 service”同一条边界，所以通话关系不可能成环。单次 invocation 有轮数上限和超时（task 停在 `waiting` 等输入期间超时不计）。同一个 Agent 回复的多个工具依次执行，避免同轮生命周期工具和变更工具竞态。多个客户端/父服务可同时调用不同 SID；单个父 Agent 的同轮多工具暂不并行。未来可以加入显式并行工具，不改变 Core API。
+阻塞在 task 上，不在 agent 里：agent 的工具没有“等待”原语（notice 也一样：上报即返回，答复后来才作为收件箱输入送到）。父子消息、子 task 结算与用户对 notice 的答复都进同一个 `task_inbox`，只在两次 invocation 之间交给 agent，所以不会打断正在跑的工作；消息只走 task 树的直接边，与“只能向下游、直接子 service”同一条边界，所以通话关系不可能成环。单次 invocation 有轮数上限和超时（task 停在 `waiting` / `awaiting` 等输入期间超时不计）。同一个 Agent 回复的多个工具依次执行，避免同轮生命周期工具和变更工具竞态。多个客户端/父服务可同时调用不同 SID；单个父 Agent 的同轮多工具暂不并行。未来可以加入显式并行工具，不改变 Core API。
 
 ## 持久化
 
 - `services`：SID、当前 parent、original_parent、名称、状态（created / active / stopped）、目标、模板快照、时间戳。
 - `contexts`：system_prompt、state JSON、artifacts/references JSON，与 Service 一对一。
-- `tasks`：id、sid（挂载的 service）、parent_task_id、root_task_id、goal、status（created / running / waiting / completed / failed / cancelled）、result、error、state、时间戳。
+- `tasks`：id、sid（挂载的 service）、parent_task_id、root_task_id、goal、status（created / running / waiting / awaiting / completed / failed / cancelled）、result、error、state、时间戳。
 - `messages` / `agent_calls`：按自增 ID 排序的完整 provider 协议消息与调用记录，关联 SID、`task_id` 和 invocation。
 - `service_events` / `task_events`：节点与 task 各自的创建、状态变化、收养、state 更新事件。
 

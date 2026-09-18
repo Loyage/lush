@@ -7,6 +7,8 @@ import { agentGuide } from '../src/agent/guide.js';
 import { DEFAULT_ORPHAN_POLICY, normalizeOrphanPolicy } from '../src/core/orphans.js';
 import { LushError } from '../src/core/types.js';
 import { TemplateLoader } from '../src/template_loader.js';
+import { SCHEMA } from '../src/persistence/database/schema.js';
+import { Database } from '../src/persistence/database.js';
 import { cleanup, permissiveRoot, SlowProvider, system, tmpdir } from './helpers.js';
 
 describe('core', () => {
@@ -967,7 +969,7 @@ describe('core', () => {
 
     const migrated = system(legacyDir);
     try {
-      expect(migrated.database.connection.query('PRAGMA user_version').get().user_version).toBe(8);
+      expect(migrated.database.connection.query('PRAGMA user_version').get().user_version).toBe(9);
       expect(migrated.database.connection.query('PRAGMA foreign_key_check').all()).toEqual([]);
       // v1 `running` / `completed` become `active`; v1 `cancelled` collapsed
       // into `stopped` on the way through v2, like v1 `stopped` does.
@@ -990,7 +992,54 @@ describe('core', () => {
       cleanup(legacyDir);
     }
   });
+  test('a v8 home keeps its rows while v9 widens both CHECKs', () => {
+    const legacyDir = tmpdir('lush-migrate-v8-');
+    // The current schema with the two v9-widened CHECKs and the version rolled
+    // back: exactly what a home written one round earlier has on disk.
+    const legacy = new SQLite(path.join(legacyDir, 'lush.db'), { create: true });
+    legacy.exec(
+      SCHEMA
+        .replace("'created','running','waiting','awaiting','completed'", "'created','running','waiting','completed'")
+        .replace("'message','child_settled','notice_settled'", "'message','child_settled'")
+        .replace('PRAGMA user_version = 9', 'PRAGMA user_version = 8'),
+    );
+    legacy.run("INSERT INTO services VALUES (0,NULL,NULL,'lush','active','lush-root','{}','g','t','t')");
+    legacy.run("INSERT INTO contexts VALUES (0,'sys','{}','[]','[]')");
+    legacy.run("INSERT INTO tasks VALUES (1,0,NULL,1,'parked','waiting',NULL,NULL,'{}','t','t',NULL,'t')");
+    legacy.run("INSERT INTO task_inbox VALUES (1,1,NULL,'message','hi','{}','t',NULL)");
+    legacy.close();
+
+    // Raw connection on purpose: `system()` would also run `recover()` and
+    // overwrite the very status this test is about preserving.
+    const migrated = new Database(path.join(legacyDir, 'lush.db'));
+    try {
+      const read = (sql) => migrated.connection.query(sql).all();
+      expect(migrated.connection.query('PRAGMA user_version').get().user_version).toBe(9);
+      expect(read('PRAGMA foreign_key_check')).toEqual([]);
+      // Both rebuilt tables kept their rows, with the same ids.
+      expect(read('SELECT id,status FROM tasks')).toEqual([{ id: 1, status: 'waiting' }]);
+      expect(read('SELECT id,kind,body,delivered_at FROM task_inbox'))
+        .toEqual([{ id: 1, kind: 'message', body: 'hi', delivered_at: null }]);
+      // The indexes the rebuild had to recreate are back, and usable.
+      const indexes = read("SELECT name FROM sqlite_master WHERE type='index'").map((row) => row.name);
+      expect(indexes).toContain('tasks_status');
+      expect(indexes).toContain('task_inbox_from');
+      // The widened sets are what v9 is for: both new values insert now.
+      migrated.connection.run("UPDATE tasks SET status='awaiting' WHERE id=1");
+      migrated.connection.run("INSERT INTO task_inbox(to_task_id,from_task_id,kind,body,data,created_at,delivered_at)"
+        + " VALUES(1,NULL,'notice_settled','','{}','t',NULL)");
+      expect(migrated.connection.query('SELECT status FROM tasks WHERE id=1').get().status).toBe('awaiting');
+      expect(() => migrated.connection.run("UPDATE tasks SET status='nope' WHERE id=1")).toThrow();
+      expect(() => migrated.connection.run("INSERT INTO task_inbox(to_task_id,from_task_id,kind,body,data,created_at,delivered_at)"
+        + " VALUES(1,NULL,'nope','','{}','t',NULL)")).toThrow();
+    } finally {
+      migrated.close();
+      cleanup(legacyDir);
+    }
+  });
 });
+
+// ── Orphan supervision ──────────────────────────────────────────────
 
 describe('orphan supervision', () => {
   let dir;

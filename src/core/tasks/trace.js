@@ -4,8 +4,9 @@
  * `task.tree` shows the *shape* of a delegation — who reports to whom. This
  * module shows its *time*: every `task_construct` with either end in the
  * subtree, every `task_message` with either end in the subtree, and every
- * settlement that came back. Reading it answers "while this task was being
- * finished, what did it hand to other tasks, and what came back".
+ * settlement that came back, and every notice the user settled that came back.
+ * Reading it answers "while this task was being finished, what did it hand to
+ * other tasks (and to the user), and what came back".
  *
  * It is a **derived read model**, not a stored one. There is no trace table:
  * the steps are exactly the rows `task_inbox` and `task_events` already hold, so
@@ -38,10 +39,10 @@ const TRACE_LIMIT_MAX = 1000;
 /**
  * Ordering is by time, then by a fixed kind rank so two steps written in the
  * same millisecond still read causally: the delegation first, the messages
- * about it next, the settlement last. The sort is stable, so identical keys
+ * about it next, the settlements last. The sort is stable, so identical keys
  * keep the construction order below.
  */
-const KIND_RANK = { delegated: 0, message: 1, child_settled: 2 };
+const KIND_RANK = { delegated: 0, message: 1, child_settled: 2, notice_settled: 3 };
 
 /**
  * `task.trace`: the collaboration timeline of `taskId`'s subtree, oldest step
@@ -139,11 +140,15 @@ function delegation(resolve, row) {
   };
 }
 
-/** One inbox row: a `message` in either direction, or a child's settlement. */
+/**
+ * One inbox row: a `message` in either direction, a child's settlement, or the
+ * answer to a notice the task reported (that one comes from Lush, not a task).
+ */
 function message(resolve, row) {
   const from = resolve.end(row.from_task_id);
   const to = resolve.end(row.to_task_id);
   const settled = row.kind === 'child_settled' ? row.data : null;
+  const notice = row.kind === 'notice_settled' ? row.data : null;
   return {
     at: row.created_at,
     kind: row.kind,
@@ -154,10 +159,11 @@ function message(resolve, row) {
     to_sid: to.sid,
     to_service: to.service,
     delivered_at: row.delivered_at,
-    body: row.kind === 'message' ? row.body : null,
+    body: row.kind === 'message' ? row.body : (notice === null ? null : notice.title),
     goal: null,
-    status: settled === null ? null : settled.status,
-    result: settled === null ? null : settled.result ?? null,
-    error: settled === null ? null : settled.error ?? null,
+    notice_id: notice === null ? null : notice.notice_id,
+    status: settled === null ? notice?.status ?? null : settled.status,
+    result: settled === null ? notice?.answer ?? null : settled.result ?? null,
+    error: settled === null ? notice?.note ?? null : settled.error ?? null,
   };
 }

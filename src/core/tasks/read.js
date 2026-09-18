@@ -28,7 +28,7 @@ export function summary(task) {
   };
 }
 
-export const TASK_STATUSES = ['created', 'running', 'waiting', 'completed', 'failed', 'cancelled'];
+export const TASK_STATUSES = ['created', 'running', 'waiting', 'awaiting', 'completed', 'failed', 'cancelled'];
 
 /** `task list`: filtered rows, newest first, `limit`-bounded. */
 export function list(manager, { sid = null, status = null, roots = null, limit = 200 } = {}) {

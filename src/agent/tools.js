@@ -5,8 +5,8 @@
  * to a child service, message a parent or child, finish), `service_*` tools read
  * and shape the passive node it runs on (identity, permissions, variables,
  * persistent state, and constructing child services), and `notice` reports to the
- * user and waits for their answer. The agent never blocks on its children: it
- * ends its turn and the task layer wakes it with their results.
+ * user — the answer comes back as the task's next input, not as the tool's
+ * result. The agent never blocks on its children, nor on the user.
  */
 import { invoke } from '../core/dispatch.js';
 import { LushError, jsonLoad } from '../core/types.js';
@@ -63,7 +63,7 @@ export const TOOL_DEFINITIONS = [
     { patch: { type: 'object' } }, ['patch']),
   tool('service_update_vars', 'Change only the variables your service\'s template declares in the mutable group (see the `declarations` field of your variables). Variables declared immutable, names the template does not declare, and values that do not satisfy the declared format (pattern / max_length / single_line) are rejected.',
     { patch: { type: 'object' } }, ['patch']),
-  tool('notice', 'Report to the user through Lush and, by default, wait for their answer. Use it when you are blocked and cannot proceed, when a decision only the user can make is required, or when a human must receive a result. `title` is one line, `body` is the full context; declare what you need filled in with `fields`. The user answers or dismisses it and the answer comes back as this tool\'s result (`answer`, `status`). With wait=false it is only recorded and returns immediately, for status reports you do not need an answer to. A notice the user never answers blocks you indefinitely; keep the reporter and the ask small and specific.',
+  tool('notice', 'Report to the user through Lush: use it when you are blocked and cannot proceed, when a decision only the user can make is required, or when a human must receive a result. `title` is one line, `body` is the full context; declare what you need filled in with `fields`. This tool returns immediately — with wait=true (the default) you are attached to the notice: end your turn and you will be woken with the user\'s answer (`answer`, `status`), so do not call task_complete while it is open. With wait=false it is only recorded, for status reports you do not need an answer to. A notice the user never answers leaves you waiting indefinitely; keep the ask small and specific.',
     {
       kind: { type: 'string', enum: ['report', 'decision', 'blocked'] },
       title: STRING,
@@ -162,6 +162,15 @@ export class AgentTools {
         -32010,
       );
     }
+    // An unsettled notice is the same shape of debt: the answer arrives as the
+    // next input, so finishing now would have nowhere to hand it.
+    const awaited = this.manager.awaitingNoticeCount(this.taskId);
+    if (awaited > 0) {
+      throw new LushError(
+        `you have ${awaited} notice(s) the user has not settled; end this turn and you will be woken with the answer`,
+        -32010,
+      );
+    }
     return this.manager.completeTask(this.taskId, result);
   }
 
@@ -174,29 +183,14 @@ export class AgentTools {
   }
 
   /**
-   * Report to the user and — unless `wait` is false — park this task until they
-   * answer or dismiss it. The same park-and-wake shape the task layer uses for
-   * child results: the task goes to `waiting` and its hang timeout is paused,
-   * because waiting on a human is not the agent hanging.
+   * Report to the user. The notice is recorded and returned immediately; when
+   * `wait` is true the task is bound to it, and the runtime parks the task in
+   * `awaiting` at the end of this turn so the user's answer arrives as the
+   * task's next input. Nothing blocks inside the tool call.
    */
-  async notice(title, kind = 'report', body = '', fields = undefined, wait = true) {
+  notice(title, kind = 'report', body = '', fields = undefined, wait = true) {
     const posted = this.manager.postNotice({ taskId: this.taskId, kind, title, body, fields, wait });
-    if (!posted.wait) return { notice: posted, waited: false };
-    this.manager.taskWaiting(this.taskId, true);
-    this.manager.runtime?.pauseTimer(this.taskId);
-    try {
-      const settled = await this.manager.waitForNotice(posted.id, this.taskId);
-      if (settled === null) return { notice: posted, waited: false, status: 'removed' };
-      return {
-        notice: { ...posted, status: settled.status, note: settled.note },
-        waited: true,
-        status: settled.status,
-        answer: settled.answer,
-      };
-    } finally {
-      this.manager.runtime?.resumeTimer(this.taskId);
-      this.manager.taskWaiting(this.taskId, false);
-    }
+    return { notice: posted, waiting: posted.wait };
   }
 
   async execute(name, args) {

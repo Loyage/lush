@@ -6,8 +6,8 @@
  * what a caller may do with them.
  */
 import {
-  createNotice, deleteNoticesOfService, detachTaskNotices, findNotice, getNotice, listNotices,
-  openNoticeCount, openNoticesOfTask, settleNotice,
+  countAwaitingNotices, createNotice, deleteNoticesOfService, detachTaskNotices, findNotice, getNotice,
+  listNotices, openNoticeCount, openNoticesOfTask, settleNotice,
 } from '../repository_notices.js';
 
 export const noticeMethods = {
@@ -29,6 +29,10 @@ export const noticeMethods = {
 
   openNoticesOfTask(taskId) {
     return openNoticesOfTask(this, taskId);
+  },
+
+  countAwaitingNotices(taskId) {
+    return countAwaitingNotices(this, taskId);
   },
 
   openNoticeCount() {

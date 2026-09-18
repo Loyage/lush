@@ -6,29 +6,27 @@
  *
  * Exported as a method group: `index.js` merges it into `ServiceManager`.
  */
-import { answer, dismiss, inspect, list, openCount, post, summary, terminate, waitForNotice } from '../notices.js';
+import { answer, awaitingCount, dismiss, inspect, list, openCount, post, summary, terminate } from '../notices.js';
 
 export const noticeLayer = {
   /**
    * `notice` agent tool: report to the user. The reporter is the calling task;
-   * `sid` is derived from it. Returns the compact notice summary.
+   * `sid` is derived from it. Returns the compact notice summary — the answer
+   * comes back as this task's next input, never as this call's result.
    */
   postNotice({ taskId, kind = 'report', title, body = '', fields = undefined, wait = true }) {
     return summary(post(this, { taskId, kind, title, body, fields, wait }));
   },
 
   /**
-   * `notice.post`: the same report, but for a caller that is not an in-process
-   * agent — an external agent (pi) driving Lush through the CLI. It is
-   * synchronous where the tool is not: with `wait` the RPC itself stays open
-   * until the user answers or dismisses, so the settled notice (with `answer`)
-   * is what the caller reads off the wire.
+   * `notice.post`: the same report, for a caller that is not an in-process
+   * agent — an external agent (pi) driving Lush through the CLI. It returns the
+   * open notice immediately and never blocks: with `wait` the reporter is
+   * attached to the notice (it parks in `awaiting`) and the settled answer is
+   * handed to it as inbox input by `notice.answer` / `notice.dismiss`.
    */
-  async noticePost(taskId, title, kind = 'report', body = '', fields = undefined, wait = true) {
-    const notice = post(this, { taskId, kind, title, body, fields, wait });
-    if (!wait) return notice;
-    const settled = await waitForNotice(this, notice.id, taskId);
-    return settled ?? notice;
+  noticePost(taskId, title, kind = 'report', body = '', fields = undefined, wait = true) {
+    return post(this, { taskId, kind, title, body, fields, wait });
   },
 
   noticeList(status = null, taskId = null, sid = null, limit = 200) {
@@ -51,9 +49,9 @@ export const noticeLayer = {
     return openCount(this);
   },
 
-  /** Block until one notice is settled (used by the `notice` agent tool). */
-  waitForNotice(noticeId, fromTaskId = null) {
-    return waitForNotice(this, noticeId, fromTaskId);
+  /** How many notices this task reported that the user has not settled yet. */
+  awaitingNoticeCount(taskId) {
+    return awaitingCount(this, taskId);
   },
 
   /** A dying task's open notices are dismissed with this reason. */

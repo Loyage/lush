@@ -50,19 +50,19 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 | service.purge | sid, recursive? | 同 delete，但先取消活动 task、停止活动节点再删；`cancelled` 列出被取消的 task，`terminated` 列出被停止的 SID |
 | service.update_state | sid, patch | 更新后 state（顶层 merge）；写 state.params / state.vars 报 -32602 |
 | service.update_vars | sid, patch | 更新后的 mutable 变量对象；非 mutable 或未声明的名字、不满足声明格式的值报 -32602 |
-| task.list | sid?, status?, roots?, limit? | task 数组（id、sid、parent_task_id、root_task_id、status、goal、result、error、state、时间戳）；`roots` 为 `roots` / `children` |
+| task.list | sid?, status?, roots?, limit? | task 数组（id、sid、parent_task_id、root_task_id、status、goal、result、error、state、时间戳）；`roots` 为 `roots` / `children`；status 含 created / running / waiting（等子 task）/ **awaiting（等用户的 notice）** / completed / failed / cancelled |
 | task.tree | task_id | 该 task 及其整棵子树（每个节点带 `service_name`） |
 | task.inspect | task_id | task + 所在 service + 父 task + 直接子 task + 最近 10 次调用 + 事件 + 最近 10 条 inbox 输入（`recent_inbox`）+ message 数 |
 | task.result | task_id | id、sid、status、finished、result、error |
 | task.wait | task_id | 阻塞到该 task 进入终态，返回 `task.inspect` 形状 |
 | task.cancel | task_id | 取消该 task 及其整棵子树（中断正在跑的 agent），返回更新后的 task |
-| task.complete | task_id, result? | 目标达成时结束 task 并写入 result（有活动子 task、或收件箱有未读消息时报 -32010） |
+| task.complete | task_id, result? | 目标达成时结束 task 并写入 result（有活动子 task、或收件箱有未读消息时报 -32010）。agent 侧 `task_complete` 还会拒绝未决的 wait notice（那种情况下运行期本来就会把 task 停在 awaiting） |
 | task.construct | sid, goal, parent_task_id? | 构造并启动一个 task（`parent_task_id` 给定时必须挂在父 task 所在 service 的直接子 service 上；不给定时建的是根 task，CLI 的 `task construct` 会缺省填 `$LUSH_TASK_ID`）；返回 task 快照。不等待，子 task 结算时以收件箱输入唤醒父 task |
 | task.message | from_task_id, to_task_id, body | 给直接父 / 直接子 task 发一条消息（入队，不打断对方）：返回新建的 `task_inbox` 行；非直接父子 / 接收方已终态报 -32010 |
 | task.inbox | task_id, after=0, limit=50 | 该 task 收到的输入（`kind` 为 message / child_settled，`delivered_at` 说明是否已交给 agent），按 id 升序 |
 | task.trace | task_id, limit=200 | 该 task 子树的调用链：`{task_id, entries, total, truncated}`，entries 按时间升序，每步是 `delegated` / `message` / `child_settled`（含 `from_*` / `to_*` 的 task_id、sid、service，及 goal / body / status / result / error / delivered_at）；`limit` 只保留最近的若干步，上限 1000，超范围报 -32602 |
 
-inbox 是“父子持续通话”的存储：`task_message` / `task.message` 只往直接父 / 子 task 投递，消息与“某个子 task 已结算”的报告进同一个队列；**只在接收方两次 agent invocation 之间交给它**，不会打断正在跑的工作，对方处于 `waiting` 时会被立即唤醒。`task.inspect` 里的 `recent_inbox` 是最近 10 条（新的在前）。
+inbox 是“父子持续通话”的存储：`task_message` / `task.message` 只往直接父 / 子 task 投递，消息、“某个子 task 已结算”的报告与“用户结算了某 task 的 notice”进同一个队列；**只在接收方两次 agent invocation 之间交给它**，不会打断正在跑的工作，对方处于 `waiting` / `awaiting` 时会被立即唤醒。`task.inspect` 里的 `recent_inbox` 是最近 10 条（新的在前）。
 
 `task.trace` 是同一个边集合的**时间线读模型**，也是**派生**的（没有 trace 表）：它把 `delegated` 事件（`task_construct` 从来不入收件箱，而且写在**父** task 上）与 inbox 行合并起来按时间排序，两者用的是同一条“**任一端在子树内**”规则——所以只暴露入边的 `task.inbox` 看不到的**出边**（这个 task 发出的消息、它结算时给父 task 的报告）也在里面，它发给父 task 的消息、以及子树根那次“被委派”（事件在子树外的父 task 上）同样算数。`task.tree` 是结构视角，`task.trace` 是时间视角。代价：`task.delete` 会连同该 task 的事件与两个方向的 inbox 行一起删，所以调用链是运行期观察视图，不是审计日志（父 task 上的 `delegated` 事件会活下来，但被删子 task 发出的结算报告会消失）。
 | task.update_state | task_id, patch | 合并后的 task.state（顶层 merge） |
@@ -74,9 +74,9 @@ inbox 是“父子持续通话”的存储：`task_message` / `task.message` 只
 | task.session | task_id | 该 task agent 的 session：task_id、sid、name、task_status、session_dir、session_id（`lush-task-<id>`）、files、file、argv/command、browse_command、cwd、env、busy、`profile`；内置运行时全为 null |
 | notice.list | status?, task_id?, sid?, limit? | notice 数组（id、sid、task_id、kind、title、body、fields、wait、status、answer、note、created_at、answered_at、updated_at，加连接出的 `service_name` / `service_template` / `task_goal` / `task_status`）；status 为 open / answered / dismissed，默认按 id 倒序取 200 条 |
 | notice.inspect | notice_id | 同上形状的单条 notice |
-| notice.post | task_id, title, kind?, body?, fields?, wait? | agent 侧上报：以 task_id 为汇报者建一条 notice；wait（默认 true）时这个 RPC 一直挂着，直到用户 answer / dismiss，返回结算后的 notice（answer / note 已填），wait=false 立即返回 open 的 notice。汇报者 task 不存在报 -32004，fields / title / kind 不合法报 -32602 |
-| notice.answer | notice_id, answer | 按 notice 声明的 fields 校验 answer 后置为 answered，唤醒等待的 task：返回更新后的 notice（answer 已填、answered_at 已记） |
-| notice.dismiss | notice_id, reason? | 置为 dismissed（不填 answer），唤醒等待的 task：返回更新后的 notice，reason 存入 `note` |
+| notice.post | task_id, title, kind?, body?, fields?, wait? | agent 侧上报：以 task_id 为汇报者建一条 notice，**立即**返回 open 的 notice（不阻塞）。wait（默认 true）表示把汇报者挂在这条 notice 上：它本轮结束后停在 awaiting，用户 answer / dismiss 时 task 层向它的收件箱写一条 notice_settled（答复在 `answer`，dismiss 的原因在 `note`）作为它的下一次输入；wait=false 是纯记录，不改变 task 状态也不投递。汇报者 task 不存在报 -32004，fields / title / kind 不合法报 -32602 |
+| notice.answer | notice_id, answer | 按 notice 声明的 fields 校验 answer 后置为 answered，并把答复投给挂着它的 task（收件箱 notice_settled）：返回更新后的 notice（answer 已填、answered_at 已记） |
+| notice.dismiss | notice_id, reason? | 置为 dismissed（不填 answer），同样把结果投给挂着它的 task：返回更新后的 notice，reason 存入 `note` |
 
 inspect 的 Context 包含 system_prompt、state、artifacts、references、message_count（变量就在 state 的两个区间里，`state.agent` 是创建时选中的 agent profile 名，`update_state` 不能写它）；调用和事件各取最近 20 条，`recent_tasks` 取最近 10 个 task，避免无界响应。完整消息使用 `task.history` 分页读取（对话按 task 划分，不是按 SID）。元数据含 template 的完整创建时快照，以及由快照与 state 拼出的 `variables`：`immutable` / `mutable`（当前值）与 `declarations`（两个区间各自的 `description` / `required` / `default` / 可选的 `pattern` / `max_length` / `single_line`）。`title` / `detail`（保留变量名）在 `--json` 里原样给出，文本输出只做摘要与截断。
 
@@ -121,9 +121,9 @@ Provider tool 名称采用 OpenAI-compatible 安全字符：`service_self`、`se
 | task_self | {} | 自己这个 task（goal / status / result / 子 task）+ 所在 service |
 | task_children | {} | 自己派出去的子 task |
 | task_construct | sid, goal | 向下游派活：在直接子 service 上创建一个立刻开始跑的子 task；下游正忙时报 -32010。不等待：子 task 结算时你会被唤醒并拿到结果 |
-| task_message | task_id, body | 给直接父 task 或直接子 task 发一条消息：入队，不打断对方正在跑的工作；对方停在 waiting 时会被立即唤醒 |
+| task_message | task_id, body | 给直接父 task 或直接子 task 发一条消息：入队，不打断对方正在跑的工作；对方停在 waiting / awaiting 时会被立即唤醒 |
 | task_cancel | task_id | 取消一个子 task（连带它的子树） |
-| task_complete | result? | 结束自己（有活动子 task 或收件箱有未读消息时报 -32010） |
+| task_complete | result? | 结束自己（有活动子 task、收件箱有未读消息、或还有未决的 wait notice 时报 -32010；后两种结束本轮就会被唤醒） |
 | task_update_state | patch | 合并自己 task 的草稿 state |
 | service_self | {} | 自己所在的被动节点（变量、state、子服务） |
 | service_parent | {} | 当前所在节点的父节点 |
@@ -132,11 +132,11 @@ Provider tool 名称采用 OpenAI-compatible 安全字符：`service_self`、`se
 | service_construct | template, name?, goal?, variables? | 构造子服务（受 child_templates 限制）；建完再用 task_construct 把活派给它 |
 | service_update_state | patch | 修改所在节点的长期 state（不能写变量） |
 | service_update_vars | patch | 只能改该节点模板声明为 mutable 的变量 |
-| notice | title, kind?, body?, fields?, wait? | 向用户上报：kind 为 report / decision / blocked；`fields` 声明要用户填的表单（name / label / type=text\|textarea\|choice\|boolean / required / options / default）；默认（wait=true）阻塞到用户 answer / dismiss，把 `{status, answer}` 作为工具结果返回，wait=false 只登记、立即返回 |
+| notice | title, kind?, body?, fields?, wait? | 向用户上报：kind 为 report / decision / blocked；`fields` 声明要用户填的表单（name / label / type=text\|textarea\|choice\|boolean / required / options / default）；**立即返回**（不阻塞）。wait=true（默认）把本 task 挂在这条 notice 上：本轮结束后停在 awaiting，用户 answer / dismiss 后答复作为下一次 invocation 的输入送回来；wait=false 只登记，不改变状态 |
 
 工具错误作为带 code/message 的 tool result 回给 Agent；Provider 可以修正。未知工具拒绝。内置运行时不允许 Agent 伪造当前 SID（工具参数里没有 sid）；pi 后端的安全边界更弱：它能读写磁盘、执行命令，并通过 bash 调用 `lush` CLI，因此 `LUSH_SID` 只是便利信息，不是权限凭据。complete 后本轮可返回最终文本，但后续副作用工具被拒绝。
 
-`notice` 也一样分两条路：内置运行时（mock / openai）用 `notice` 工具，外部 agent（pi，默认后端）用 `lush notice post --title ... [--fields JSON]`（RPC `notice.post`，汇报者取 `$LUSH_TASK_ID`）—— pi 没有 Lush 工具，这是它上报的唯一通路。两者语义一致：默认阻塞到用户结算，把 `{ status, answer }` / 结算后的 notice 交回 agent。
+`notice` 也一样分两条路：内置运行时（mock / openai）用 `notice` 工具，外部 agent（pi，默认后端）用 `lush notice post --title ... [--fields JSON]`（RPC `notice.post`，汇报者取 `$LUSH_TASK_ID`）—— pi 没有 Lush 工具，这是它上报的唯一通路。两者语义一致：上报即返回，答复作为收件箱输入（`notice_settled`）在下一次 invocation 交回 agent。
 
 ## CLI
 
@@ -180,7 +180,7 @@ lush task agents kill AGENT_ID
 
 lush notice list [--status open|answered|dismissed] [--task TASK_ID] [--sid SID]
 lush notice show NOTICE_ID
-lush notice post --title T [--kind K] [--body B] [--fields JSON] [--task TASK_ID] [--no-wait]  # agent 侧上报；默认阻塞到答复
+lush notice post --title T [--kind K] [--body B] [--fields JSON] [--task TASK_ID] [--no-wait]  # agent 侧上报；立即返回，答复下一次 invocation 送达
 lush notice answer NOTICE_ID --set K=V [--set K=V ...]   # 或 --text TEXT / --answer JSON
 lush notice dismiss NOTICE_ID [--reason TEXT]
 ```
