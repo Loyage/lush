@@ -280,6 +280,25 @@ describe('core', () => {
     expect(empty.inspect().context.state.params.detail).toBe('');
   });
 
+  test('project tells its agent to split a multi-task prompt into child tasks', () => {
+    const template = manager.templates.get('project');
+    // The call-time prompt carries the decomposition protocol: judge how many
+    // tasks the input holds, then configure each child from the target
+    // template's own declaration instead of from memory.
+    for (const expected of [
+      '拆分', '明显多条', '不要硬拆', 'dev-task', 'research-task', 'generic-task',
+      'available_child_templates', 'spawn_prompt', 'process_spawn', 'state',
+    ]) {
+      expect(template.system_prompt).toContain(expected);
+    }
+    // The protocol reaches the agent twice over: as the first system message of
+    // an invocation, and as the snapshot stored in the instance's Context.
+    const project = root.createChild('project', { variables: { path: dir } });
+    const built = new ContextBuilder(manager.repository, manager.templates).build(manager.load(project.pid), null);
+    expect(built.messages[0].content).toContain('拆成多个 task');
+    expect(project.inspect().context.system_prompt).toContain('拆成多个 task');
+  });
+
   test('dev-task refuses an unusable name / title / detail with an actionable error', () => {
     const project = root.createChild('project', { variables: { path: dir } });
     const attempt = (overrides) => {

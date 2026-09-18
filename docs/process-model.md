@@ -149,6 +149,8 @@ JSON 文件字段固定为八项，缺一或多一都报错：
 
 `dev-task`（`project` 的子模板、task、非单例、`child_templates: []`）把一项开发任务描述成三个正式字段，都是它自己声明、受校验、可渲染的变量：`name`（不可留空的英文标识符 `^[A-Za-z][A-Za-z0-9_-]*$`、≤64、不含空格；它同时就是这个进程的进程名，用来命名相关的 worktree / 分支）、`title`（不可留空的一行摘要 ≤200，`process list` / `inspect` 显示的就是它）、`detail`（任务详情正文，可多行、可以为空 ≤20000，为空时以 title 为准）。`goal` 仍然是「要实现什么」的简述，`detail` 是它的展开；`name` / `title` 缺失或格式不合规时创建直接失败（-32602），报错引述该变量的声明。工作参数（仓库路径、分支）仍然由任务自己向父进程取（`project` 的 `path` / `branch`），所以 `dev-task` 不声明 `path`。想给子进程带信息，可以直接像 `project` 那样声明变量，也可以像 `dev-task` 这样让子进程自己去父节点取（更灵活，但子进程必须真的去取）。
 
+`project` 的 `system_prompt` 是「收到一次 call 之后怎么做」的协议：先把输入拆成一条或多条任务（编号 / 项目符号列表、并列祈使句、互不依赖的交付物算多条；同一目标的多步骤、有先后的连续步骤不拆），每条的字段按目标模板自己的 `spawn_prompt` 与 `variables` 声明配置（不凭记忆，`dev-task` 给 `name` / `title` / `detail`，`research-task` / `generic-task` 只给 `goal`），用 `process_spawn` 一次创建多个 task 进程，并把拆分理由与 pid / name / title 写进自己的 state；默认只创建、不逐个 call。协议与所有提示词一样随实例快照冻结：改模板文件只对重启 daemon 后新建的 `project` 生效。
+
 ### 变量（variables）
 
 模板用 `variables` 给出实例的初始变量，创建进程时必须按它提供值：`process.spawn` 的 `variables` 参数 / `lush process spawn ... --vars '<json>'`（旧写法 `args` / `--args` 仍接受，等价但已不建议使用）。校验全部由 Core 执行：
