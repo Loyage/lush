@@ -14,7 +14,6 @@
   },
   "scripts": {
     "test": "bun test",
-    "demo": "bun run examples/mvp_demo.js",
     "lush": "bun run bin/lush",
     "lushd": "bun run bin/lushd"
   },

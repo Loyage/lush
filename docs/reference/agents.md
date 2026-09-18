@@ -92,7 +92,7 @@ session 属于它所在的 task：session-id（`lush-task-<id>`）与回话文�
 
 ## 内置后端（mock / openai）
 
-`LUSH_PROVIDER=mock`：确定性架构演示，不是真实语言模型，支持身份查询、中文/英文创建子节点与「派给下游」请求，以及显式工具指令（`/tool task_complete {...}`、`/tool service_spawn {...}`）；`bun test` 与 `bun run demo` 都用它。
+`LUSH_PROVIDER=mock`：确定性架构演示，不是真实语言模型，支持身份查询、中文/英文创建子节点与「派给下游」请求，以及显式工具指令（`/tool task_complete {...}`、`/tool service_spawn {...}`）；`bun test` 用它。
 
 `LUSH_PROVIDER=openai`：Lush 内置的 OpenAI-style Chat Completions 运行时（多轮 tool calling，agent 直接用 `task_*` / `service_*` 工具）。
 

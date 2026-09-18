@@ -45,8 +45,6 @@ just                 # 列出全部命令
 just help            # 列出 lush CLI 的命令树（等价于 lush help）
 just doctor          # 工具链 / 数据目录 / daemon 状态
 just test            # bun test（just test openai 可按文件名过滤）
-just demo            # 完整 CLI / daemon 演示
-just verify          # test + demo
 just web             # 只启动 Web UI（127.0.0.1:4318），不操作 daemon；just web 8080 改端口
 
 just daemon-start    # 起 daemon（幂等）

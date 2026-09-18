@@ -11,7 +11,7 @@ Justfile 把 `LUSH_HOME` 默认设为仓库内的 `.lush/`（已 gitignore），
 ```bash
 just                 # 列出所有命令
 just doctor          # bun / LUSH_HOME / provider / code 目录 / daemon 状态
-just test / demo / verify
+just test / doctor
 just daemon-start / daemon-restart / daemon-stop / status / log
 just ps / tree / inspect / call / spawn / complete / reclaim ...
 just reset [yes]     # 推倒重来：清空本 home 的服务树（只剩 SID 0）并重启 daemon；默认要输 yes，不可逆

@@ -11,8 +11,8 @@ Bun 1.2+ / JavaScript (ESM) / `bun:sqlite` / Unix Domain Socket / JSON-RPC 2.0�
 ```bash
 # 仓库开发模式，无需安装：CLI 与 daemon 都用 bun 直接运行
 export PATH="$PWD/bin:$PATH"
-export LUSH_HOME="${TMPDIR:-/tmp}/lush-demo-$USER"
-export LUSH_PROVIDER=mock   # 确定性演示；真实 agent 用 pi（默认值）
+export LUSH_HOME="${TMPDIR:-/tmp}/lush-dev-$USER"
+export LUSH_PROVIDER=mock   # 确定性、不调模型；真实 agent 用 pi（默认值）
 lush help                   # 每一层都有 help：lush help service / lush service spawn -h
 lush daemon start
 lush daemon status
@@ -63,7 +63,7 @@ SID 0 自己不做项目里的活：不读改仓库文件、不在项目目录�
 
 ```bash
 just                 # 列出全部命令        just doctor      # 工具链 / home / daemon 状态
-just test            # bun test            just demo        # 完整 CLI / daemon 演示（mock）
+just test            # bun test
 just bootstrap       # 起 daemon + project-manager → implement-login
 just call 2 'hi'     # 在 SID 2 上开一个根 task 并等它结束（just call 2 'hi' dry 只打印命令）
 just tasks | just task-tree 1 | just wait 1 | just inspect 2
@@ -106,9 +106,7 @@ lush service spawn 1 project x --vars '{"path":"/abs/repo"}'   # 服务也可以
 ## 验证
 
 ```bash
-just verify   # = bun test（145 项）+ bun run demo
-bun test      # 只跑测试
-bun run demo  # 只跑演示（mock provider）
+bun test      # 全部测试（just test 等价，可加文件名过滤：just test openai）
 ```
 
 数据默认保存在 `$XDG_STATE_HOME/lush` 或 `~/.local/state/lush`，可用 `LUSH_HOME` 覆盖。包含 SQLite 数据库、socket、daemon 锁、pi session 及日志。目录仅限当前用户访问。仓库模板与用户模板的摆放见 [docs/reference/templates.md](docs/reference/templates.md)。

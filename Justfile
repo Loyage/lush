@@ -3,7 +3,6 @@
 #
 #   just                列出所有命令
 #   just test           跑测试
-#   just demo           完整演示
 #   just daemon-start   起 daemon，然后用 just tree / just call 操作
 #   just web            起本地 Web UI（service tree + task tree + 后台创建 task）
 
@@ -11,7 +10,7 @@ set shell := ["zsh", "-uc"]
 
 # 开发数据目录：默认仓库内 .lush（已被 .gitignore 忽略），可用 LUSH_HOME 覆盖
 export LUSH_HOME := env_var_or_default("LUSH_HOME", justfile_directory() / ".lush")
-# 默认 agent 是 pi（真实 agent，会真的调用模型）；开发/演示可 `just demo` 或改用 mock
+# 默认 agent 是 pi（真实 agent，会真的调用模型）；开发可用 `LUSH_PROVIDER=mock` 或 agent profile 切换
 export LUSH_PROVIDER := env_var_or_default("LUSH_PROVIDER", "pi")
 export LUSH_CALL_TIMEOUT := env_var_or_default("LUSH_CALL_TIMEOUT", "900")
 export LUSH_RPC_TIMEOUT := env_var_or_default("LUSH_RPC_TIMEOUT", "910")
@@ -53,15 +52,6 @@ doctor:
 [group('dev')]
 test *args:
   bun test {{args}}
-
-# 运行完整 CLI / daemon 演示：恢复、孤儿收养、reclaim
-[group('dev')]
-demo:
-  bun run examples/mvp_demo.js
-
-# test + demo
-[group('dev')]
-verify: test demo
 
 # 起 daemon 并创建 README 里的最小流程（project-manager → implement-login）
 [group('dev')]
