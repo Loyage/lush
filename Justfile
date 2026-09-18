@@ -75,6 +75,87 @@ clean:
     *) echo "跳过：{{LUSH_HOME}} 不在仓库内，请手动处理" ;;
   esac
 
+# 推倒重来：清空当前 LUSH_HOME 的整棵进程树（只剩 PID 0），然后重启它的 daemon
+# 每个根节点都按 --recursive purge：那些 PID 的 Context、消息、调用与事件一并不可逆消失；
+# daemon 自身、$LUSH_HOME/agents 与 daemon.log 保留，也就是「数据在、树重来」。
+# 默认要输入 yes 才动手，`just reset yes` 跳过确认；只作用于当前 LUSH_HOME，别的 home 的 daemon 不会被碰
+[group('dev')]
+reset yes="":
+  #!/usr/bin/env zsh
+  set -u
+  # shebang recipe 的参数由 just 在运行前插值（不是位置参数）
+  typeset confirm="{{yes}}"
+
+  if ! {{lush}} daemon status >/dev/null 2>&1; then
+    echo "daemon 未运行（{{LUSH_HOME}}），直接启动"
+    {{lush}} daemon start
+    exit 0
+  fi
+
+  typeset json
+  if ! json="$({{lush}} process list --json 2>/dev/null)"; then
+    echo "读不到 {{LUSH_HOME}} 的进程列表，已中止"
+    exit 1
+  fi
+
+  # 根节点 = 所有非 0 进程里，父节点不在「将被删掉的那批」里的那些（父为 0 或父已缺失）
+  typeset -a pids
+  pids=(${(f)"$(print -r -- "$json" | bun -e '
+    const rows = JSON.parse(await Bun.stdin.text());
+    const targets = rows.filter((r) => r.pid !== 0);
+    const targetSet = new Set(targets.map((r) => r.pid));
+    process.stdout.write(
+      targets
+        .filter((r) => r.parent_pid === null || !targetSet.has(r.parent_pid))
+        .map((r) => r.pid)
+        .sort((a, b) => a - b)
+        .join("\n"),
+    );
+  ')"})
+  pids=(${pids:#})
+
+  echo "home  {{LUSH_HOME}}"
+  echo
+  {{lush}} process tree
+  echo
+
+  if (( ${#pids} == 0 )); then
+    echo "进程树已经是空的（只剩 PID 0），只重启 daemon"
+  else
+    echo "将递归 purge 这些根节点（连同整棵子树）：${(j:, :)pids}"
+  fi
+
+  if [[ "$confirm" != (yes|y|--yes|-y|all) ]]; then
+    typeset reply=""
+    read "reply?输入 yes 回车确认清空并重启（其他任何输入取消）: "
+    if [[ "$reply" != (yes|y) ]]; then
+      echo "已取消，什么都没删"
+      exit 1
+    fi
+  fi
+
+  typeset failed=0 out=""
+  for pid in $pids; do
+    echo "--- purge $pid ---"
+    if out="$({{lush}} process purge $pid --recursive 2>&1)"; then
+      print -r -- "$out" | grep -v '^lush: warning:' || true
+    else
+      print -r -- "$out" >&2
+      failed=$(( failed + 1 ))
+    fi
+  done
+
+  echo
+  {{lush}} daemon restart
+  echo
+  {{lush}} process tree
+
+  if (( failed )); then
+    echo "有 $failed 个根节点 purge 失败（见上面输出）"
+    exit 1
+  fi
+  echo "已重置 {{LUSH_HOME}}：进程树只剩 PID 0，daemon 已重启"
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  daemon
 # ─────────────────────────────────────────────────────────────────────────────
@@ -207,26 +288,61 @@ orphans sweep="":
 inspect pid sections="":
   @{{lush}} process inspect {{pid}}{{ if sections != "" { " --with " + quote(sections) } else { "" } }}
 
-# 读取消息历史：just history 2 0 100
-[group('process')]
-history pid after="0" limit="100":
-  @{{lush}} process history {{pid}} --after {{after}} --limit {{limit}}
+# 某个 task 自己的对话：just history 1 0 100
+[group('task')]
+history task after="0" limit="100":
+  @{{lush}} task history {{task}} --after {{after}} --limit {{limit}}
 
-# 给进程发一次 prompt：just call 2 '请介绍一下你自己'
+# 在一个 process 上开一个根 task 并等它结束：just call 2 '请介绍一下你自己'
 # 加第三个参数只打印将执行的命令，不真的调用 agent：just call 2 'hi' dry
-[group('process')]
+[group('task')]
 call pid prompt dry="":
-  @{{lush}} process call {{pid}} {{quote(prompt)}}{{ if dry != "" { " --dry-run" } else { "" } }}
+  @{{lush}} call {{pid}} {{quote(prompt)}}{{ if dry != "" { " --dry-run" } else { "" } }}
 
-# 以参与方式发起一次调用：在这个终端里跑 pi TUI，边看边插话，退出后结算这次调用
-[group('process')]
+# 以参与方式做这个 task：在这个终端里跑 pi TUI，边看边插话，退出后结算
+[group('task')]
 enter pid prompt:
-  @{{lush}} process call {{pid}} {{quote(prompt)}} --interactive
+  @{{lush}} call {{pid}} {{quote(prompt)}} --interactive
 
-# 交互式对话（/exit 或 Ctrl-D 退出，不会停止进程）
-[group('process')]
-attach pid:
-  @{{lush}} process attach {{pid}}
+# 只创建 task 不等待：just detach 2 '慢慢做的事'
+[group('task')]
+detach pid prompt:
+  @{{lush}} call {{pid}} {{quote(prompt)}} --detach
+
+# task 列表 / 一棵协作树 / 单个 task / 结论 / 取消
+[group('task')]
+tasks pid="":
+  @{{lush}} task list{{ if pid != "" { " --pid " + pid } else { "" } }}
+
+[group('task')]
+task-tree task="":
+  @{{lush}} task tree {{task}}
+
+[group('task')]
+task-inspect task:
+  @{{lush}} task inspect {{task}}
+
+[group('task')]
+result task:
+  @{{lush}} task result {{task}}
+
+[group('task')]
+wait task:
+  @{{lush}} task wait {{task}}
+
+[group('task')]
+cancel task:
+  @{{lush}} task cancel {{task}}
+
+# 派一个 task 给某个 process（不等待）：just task-spawn 2 '要它做的事'
+[group('task')]
+task-spawn pid goal parent="":
+  @{{lush}} task spawn {{pid}} --goal {{quote(goal)}}{{ if parent != "" { " --parent-task-id " + parent } else { "" } }}
+
+# 进入该 task 的 pi 会话：just attach 1；just session 1 查看会话文件
+[group('task')]
+attach task:
+  @{{lush}} task attach {{task}}
 
 # 创建子进程：just spawn 1 generic-task implement-login '实现登录功能'（PID 0 只能建 project-manager）
 # project 模板必须给变量 path：just spawn 1 project my-repo '' '{"path":"/abs/repo"}'
@@ -236,10 +352,15 @@ attach pid:
 spawn parent template name="" goal="" vars="" agent="" title="" detail="":
   @{{lush}} process spawn {{parent}} {{template}}{{ if name != "" { " --name " + quote(name) } else { "" } }}{{ if goal != "" { " --goal " + quote(goal) } else { "" } }}{{ if vars != "" { " --vars " + quote(vars) } else { "" } }}{{ if agent != "" { " --agent " + quote(agent) } else { "" } }}{{ if title != "" { " --title " + quote(title) } else { "" } }}{{ if detail != "" { " --detail " + quote(detail) } else { "" } }}
 
-# 完成 Task：just complete 2 '{"ok":true}'
-[group('process')]
-complete pid result="":
-  @{{lush}} process complete {{pid}}{{ if result != "" { " --result " + quote(result) } else { "" } }}
+# 结束一个 task 并写入结论：just complete 1 '{"ok":true}'
+[group('task')]
+complete task result="":
+  @{{lush}} task complete {{task}}{{ if result != "" { " --result " + quote(result) } else { "" } }}
+
+# 合并这个 task 自己的草稿 state：just task-state 1 '{"progress":"half"}'
+[group('task')]
+task-state task patch:
+  @{{lush}} task update-state {{task}} --patch {{quote(patch)}}
 
 # 合并持久 state：just update-state 2 '{"progress":"half"}'
 [group('process')]
@@ -251,42 +372,32 @@ update-state pid patch:
 update-vars pid patch:
   @{{lush}} process update-vars {{pid}} --vars {{quote(patch)}}
 
-# 查看进程的 agent session（pi）：just session 2；加第二个参数进入 pi TUI：just session 2 open
-[group('process')]
-session pid open="":
-  @{{lush}} process session {{pid}}{{ if open != "" { " --open" } else { "" } }}
+# 查看某个 task 的 agent session（pi）：just session 1；加第二个参数进入 pi TUI：just session 1 open
+[group('task')]
+session task open="":
+  @{{lush}} task session {{task}}{{ if open != "" { " --open" } else { "" } }}
 
 # 运行期 agent：谁在干活、干了多久、怎么终止（tree 默认就会在活跃进程下标一行）
-[group('process')]
+[group('task')]
 agents all="":
-  @{{lush}} process agents list{{ if all != "" { " --all" } else { "" } }}
+  @{{lush}} task agents list{{ if all != "" { " --all" } else { "" } }}
 
-# 启动或重启进程（Service）
+# 启动（或重启）被动节点：让它重新接受 task
 [group('process')]
 start pid:
   @{{lush}} process start {{pid}}
 
-# 停止 Service（活动直接子节点会被 PID 0 收养）
+# 停止节点（它手上的 task 会先被取消；活动直接子节点会被 PID 0 收养）
 [group('process')]
 stop pid:
   @{{lush}} process stop {{pid}}
-
-# 停止 Service / 取消 Task，并中断其正在进行的 Agent 调用
-[group('process')]
-kill pid:
-  @{{lush}} process kill {{pid}}
-
-# 标记已结束的 Task 为 reclaimed（保留 metadata、Context 与历史）
-[group('process')]
-reclaim pid:
-  @{{lush}} process reclaim {{pid}}
 
 # 硬删除已结束的进程：Context、消息、调用与事件一起消失（不可逆）
 [group('process')]
 delete pid recursive="":
   @{{lush}} process delete {{pid}}{{ if recursive != "" { " --recursive" } else { "" } }}
 
-# 先停止/取消再硬删除，一条命令清掉一个进程（running 也能删，不可逆）
+# 先取消它的 task 再硬删除，一条命令清掉一个进程（不可逆）
 [group('process')]
 purge pid recursive="":
   @{{lush}} process purge {{pid}}{{ if recursive != "" { " --recursive" } else { "" } }}

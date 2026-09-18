@@ -33,15 +33,47 @@ export function parseRequest(raw) {
   return value;
 }
 
-// [wire name, ProcessManager method] — the wire protocol keeps snake_case.
-const MANAGER_METHODS = [
-  ['inspect', 'inspect'], ['parent', 'parent'], ['children', 'children'], ['view', 'view'], ['spawn', 'spawn'],
-  ['call', 'call'], ['call_begin', 'callBegin'], ['call_end', 'callEnd'], ['call_os_pid', 'callOsPid'],
-  ['tree', 'tree'], ['orphans', 'orphans'], ['orphan_sweep', 'superviseOrphans'],
-  ['agents_list', 'agentsList'], ['agents_show', 'agentShow'], ['agents_kill', 'agentsKill'],
-  ['session', 'session'], ['start', 'start'], ['stop', 'stop'], ['kill', 'kill'], ['delete', 'delete'],
-  ['purge', 'purge'], ['reclaim', 'reclaim'],
-  ['update_state', 'updateState'], ['update_vars', 'updateVars'], ['complete', 'complete'], ['history', 'history'],
+// [wire name, ProcessManager method, params key] — the wire protocol keeps snake_case.
+const PROCESS_METHODS = [
+  ['process.inspect', 'inspect', 'inspect'],
+  ['process.parent', 'parent', 'parent'],
+  ['process.children', 'children', 'children'],
+  ['process.view', 'view', 'view'],
+  ['process.spawn', 'spawn', 'spawn'],
+  ['process.tree', 'tree', 'tree'],
+  ['process.orphans', 'orphans', 'orphans'],
+  ['process.orphan_sweep', 'superviseOrphans', 'orphan_sweep'],
+  ['process.start', 'start', 'start'],
+  ['process.stop', 'stop', 'stop'],
+  ['process.delete', 'delete', 'delete'],
+  ['process.purge', 'purge', 'purge'],
+  ['process.update_state', 'updateState', 'update_state'],
+  ['process.update_vars', 'updateVars', 'update_vars'],
+];
+
+const TASK_METHODS = [
+  ['task.list', 'taskList', 'task_list'],
+  ['task.tree', 'taskTree', 'task_tree'],
+  ['task.inspect', 'taskInspect', 'task_inspect'],
+  ['task.result', 'taskResult', 'task_result'],
+  ['task.history', 'taskHistory', 'task_history'],
+  ['task.wait', 'taskWait', 'task_wait'],
+  ['task.spawn', 'taskSpawn', 'task_spawn'],
+  ['task.complete', 'completeTask', 'task_complete'],
+  ['task.cancel', 'cancelTask', 'task_cancel'],
+  ['task.delete', 'taskDelete', 'task_delete'],
+  ['task.update_state', 'updateTaskState', 'task_update_state'],
+  ['task.agents_list', 'taskAgentsList', 'agents_list'],
+  ['task.agents_show', 'taskAgentShow', 'agents_show'],
+  ['task.agents_kill', 'taskAgentsKill', 'agents_kill'],
+  ['task.session', 'taskSession', 'session'],
+];
+
+const CALL_METHODS = [
+  ['call', 'call', 'call'],
+  ['call.describe', 'callDescribe', 'call_describe'],
+  ['call.end', 'callEnd', 'call_end'],
+  ['call.os_pid', 'callOsPid', 'call_os_pid'],
 ];
 
 export class Dispatcher {
@@ -58,8 +90,8 @@ export class Dispatcher {
       'system.shutdown': { params: { required: [] }, fn: () => this.shutdown() },
       'process.list': { params: PARAMS.list, fn: () => manager.list() },
     };
-    for (const [wire, method] of MANAGER_METHODS) {
-      this.methods[`process.${wire}`] = { params: PARAMS[wire], fn: manager[method].bind(manager) };
+    for (const [wire, method, params] of [...PROCESS_METHODS, ...TASK_METHODS, ...CALL_METHODS]) {
+      this.methods[wire] = { params: PARAMS[params], fn: manager[method].bind(manager) };
     }
   }
 

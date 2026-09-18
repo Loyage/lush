@@ -25,21 +25,22 @@ import { usageLines, renderHelp, renderHelpJson } from './help.js';
 import { ROOT } from './tree/index.js';
 import { format } from './format/index.js';
 import { writeOut } from './io.js';
-import { attach, interactiveCall, openSession } from './session.js';
+import { interactiveCall, openSession } from './session.js';
 
 const DAEMON_MAIN = fileURLToPath(new URL('../daemon/main.js', import.meta.url));
 
 export { parseArgs } from './parse.js';
 export { variableSummary, stamp, objectLines, treeLines } from './format/primitives.js';
 export {
-  formatHistory, formatInspect, formatView, formatAgent, formatLifecycle, formatOrphans,
+  formatHistory, formatInspect, formatView, formatAgent, formatLifecycle, formatOrphans, formatTaskList,
+  formatTaskTree, formatCall,
 } from './format/process.js';
 export { formatDaemon } from './format/daemon.js';
 export { format } from './format/index.js';
 
-// `sweep` / `open` style flags pick a method or a client-side path instead of
-// being RPC arguments, so they never travel in `params`.
-const META_KEYS = new Set(['command', 'json', 'node', 'help', 'sweep']);
+// `sweep` / `open` / `dry_run` style flags pick a method or a client-side path
+// instead of being RPC arguments, so they never travel in `params`.
+const META_KEYS = new Set(['command', 'json', 'node', 'help', 'sweep', 'dry_run', 'open']);
 
 function rpcParams(args) {
   const params = {};
@@ -196,16 +197,12 @@ export async function run(argv) {
     writeOut(format(args, await daemonCommand(config, args.action)));
     return;
   }
-  if (args.command === 'attach') {
-    await attach(client, args.pid);
-    return;
-  }
-  if (args.command === 'session' && args.open) {
-    await openSession(client, args.pid);
+  if (args.command === 'task_attach' || (args.command === 'task_session' && args.open)) {
+    await openSession(client, args.task_id);
     return;
   }
   if (args.command === 'call' && args.interactive) {
-    await interactiveCall(client, args.pid, args.prompt);
+    await interactiveCall(client, args);
     return;
   }
   const { node } = args;

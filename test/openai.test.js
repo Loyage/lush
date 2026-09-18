@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { OpenAICompatibleProvider } from '../src/agent/openai.js';
 import { LushError } from '../src/core/types.js';
-import { cleanup, expectRejection, permissiveRoot, system, tmpdir } from './helpers.js';
+import { cleanup, permissiveRoot, system, tmpdir } from './helpers.js';
 
 describe('openai-compatible provider', () => {
   let dir;
@@ -61,8 +61,9 @@ describe('openai-compatible provider', () => {
   });
 
   test('http multi-round tool protocol', async () => {
-    const result = await manager.call(0, 'create a research task');
-    expect(result.output).toBe('created by HTTP provider');
+    const task = await manager.call(0, 'create a research task');
+    expect(task.status).toBe('completed');
+    expect(task.result).toBe('created by HTTP provider');
     expect(manager.children(0)[0].name).toBe('research-http');
     expect(requests.length).toBe(2);
 
@@ -75,20 +76,25 @@ describe('openai-compatible provider', () => {
     const messages = second.payload.messages;
     expect(messages[messages.length - 1].role).toBe('tool');
     expect(messages[messages.length - 1].tool_call_id).toBe('http-tool-1');
-    expect(manager.history(0).messages.length).toBe(4);
+    expect(manager.taskHistory(task.id).messages.length).toBe(4);
   });
 
   test('http errors expose neither credentials nor bodies', async () => {
     mode = 'error';
-    const error = await expectRejection(manager.call(0, 'fail'), /401/);
-    expect(error.message).not.toContain('secret-error-body');
+    // A provider failure fails the task; the caller reads why from the task.
+    const task = await manager.call(0, 'fail');
+    expect(task.status).toBe('failed');
+    expect(task.error).toContain('401');
+    expect(task.error).not.toContain('secret-error-body');
     expect(JSON.stringify(manager.inspect(0))).not.toContain('test-key');
     expect(requests.length).toBe(1); // no implicit retry
   });
 
   test('malformed response', async () => {
     mode = 'malformed';
-    await expectRejection(manager.call(0, 'bad'), /invalid OpenAI-compatible response/);
+    const task = await manager.call(0, 'bad');
+    expect(task.status).toBe('failed');
+    expect(task.error).toMatch(/invalid OpenAI-compatible response/);
   });
 
   test('configuration validation', () => {

@@ -83,20 +83,28 @@ describe('rpc', () => {
     const child = await client.request('process.spawn', { parent_pid: 0, template: 'generic-task', name: 'demo' });
     const pid = child.pid;
     expect((await client.request('process.parent', { pid })).pid).toBe(0);
-    const preview = await client.request('process.call', { pid, prompt: 'who am I?', dry_run: true });
+    // Work travels as a task: `call` opens a root task and waits for it.
+    const preview = await client.request('call.describe', { pid, prompt: 'who am I?' });
     expect(preview.dry_run).toBe(true);
     expect(preview.agent).toBe('mock');
     expect(preview.command).toBeNull();
     expect((await client.request('process.inspect', { pid })).context.message_count).toBe(0);
-    await client.request('process.call', { pid, prompt: 'who am I?' });
+    const task = await client.request('call', { pid, goal: 'who am I?' });
+    expect(task).toMatchObject({ pid, status: 'completed', parent_task_id: null, root_task_id: task.id });
     const info = await client.request('process.inspect', { pid });
     expect(info.context.message_count).toBe(2);
-    const page = await client.request('process.history', { pid, limit: 1 });
-    const page2 = await client.request('process.history', { pid, after: page.next_after });
+    const page = await client.request('task.history', { task_id: task.id, limit: 1 });
+    const page2 = await client.request('task.history', { task_id: task.id, after: page.next_after });
     expect(page2.messages.length).toBe(1);
-    await client.request('process.complete', { pid, result: 'done' });
-    await client.request('process.reclaim', { pid });
-    expect((await client.request('process.inspect', { pid })).status).toBe('reclaimed');
+    expect((await client.request('task.inspect', { task_id: task.id })).process.pid).toBe(pid);
+    expect((await client.request('task.tree', { task_id: task.id })).id).toBe(task.id);
+    expect(await client.request('task.list', { pid })).toHaveLength(1);
+    expect(await client.request('task.result', { task_id: task.id })).toMatchObject({ finished: true, status: 'completed' });
+    // A detached call returns the task while it runs; `task.wait` settles it.
+    const detached = await client.request('call', { pid, goal: 'again', detach: true });
+    expect(detached.pid).toBe(pid);
+    await client.request('task.wait', { task_id: detached.id });
+    expect(await client.request('task.list', { pid })).toHaveLength(2);
     // Variables travel over the wire with their declaration and regions.
     const project = await client.request('process.spawn', {
       parent_pid: 0, template: 'project', name: 'wire', variables: { path: process.cwd() },
@@ -123,12 +131,15 @@ describe('rpc', () => {
       kind: 'child_deleted', data: { pid: doomed.pid, name: 'doomed', status: 'stopped' },
     });
 
-    // purge: terminate first (interrupting the running call), then delete.
+    // purge: cancel its work first, then delete the node.
     const live = await client.request('process.spawn', { parent_pid: 0, template: 'generic-task', name: 'live' });
+    const liveTask = await client.request('task.spawn', { pid: live.pid, goal: 'work' });
+    expect(liveTask.pid).toBe(live.pid);
     const purged = await client.request('process.purge', { pid: live.pid });
-    expect(purged.status).toBe('running');
-    expect(purged.terminated).toEqual([live.pid]);
+    expect(purged.status).toBe('active');
     expect(purged.deleted).toEqual([live.pid]);
+    expect(purged.cancelled.length).toBeLessThanOrEqual(1);
+    expect(await client.request('task.list', { pid: live.pid })).toEqual([]);
     expect(await expectRejection(client.request('process.purge', { pid: live.pid }))).toBeDefined();    expect(fs.statSync(server.path).mode & 0o777).toBe(0o600);
   });
 
@@ -140,23 +151,35 @@ describe('rpc', () => {
       ['process.inspect', { pid: true }, -32602],
       ['process.inspect', { pid: 999 }, -32004],
       ['process.spawn', { parent_pid: 0, template: [] }, -32602],
-      ['process.call', { pid: 0, prompt: 'hi', dry_run: 'yes' }, -32602],
-      ['process.call', { pid: 0, prompt: 'hi', extra: 1 }, -32602],
+      ['call', { pid: 0, goal: 'hi', detach: 'yes' }, -32602],
+      ['call', { pid: 0, goal: 'hi', extra: 1 }, -32602],
+      ['call', { pid: 99, goal: 'hi' }, -32004],
+      ['call.describe', { pid: 0, prompt: '' }, -32602],
       ['process.tree', { agents: 'yes' }, -32602],
       ['process.tree', { extra: 1 }, -32602],
-      ['process.agents_list', { all: 'yes' }, -32602],
-      ['process.agents_list', { pid: 99 }, -32004],
-      ['process.agents_show', {}, -32602],
-      ['process.agents_show', { id: 5 }, -32602],
-      ['process.agents_show', { id: '9.9' }, -32004],
-      ['process.agents_kill', { id: 'nope' }, -32602],
+      ['task.list', { status: 'nope' }, -32602],
+      ['task.spawn', { pid: 0 }, -32602],
+      ['task.inspect', {}, -32602],
+      ['task.inspect', { task_id: 99 }, -32004],
+      ['task.result', { task_id: 99 }, -32004],
+      ['task.wait', { task_id: 99 }, -32004],
+      ['task.cancel', { task_id: 99 }, -32004],
+      ['task.complete', { task_id: 99 }, -32004],
+      ['task.delete', { task_id: 99 }, -32004],
+      ['task.session', { task_id: 99 }, -32004],
+      ['task.agents_list', { all: 'yes' }, -32602],
+      ['task.agents_list', { pid: 99 }, -32004],
+      ['task.agents_show', {}, -32602],
+      ['task.agents_show', { id: 5 }, -32602],
+      ['task.agents_show', { id: '9.9' }, -32004],
+      ['task.agents_kill', { id: 'nope' }, -32602],
+      ['task.agents_kill', { id: '0.1' }, -32009],
+      ['call.os_pid', { task_id: 0, call_id: 1, os_pid: 0 }, -32602],
+      ['call.os_pid', { task_id: 0, call_id: 1, os_pid: 'x' }, -32602],
+      ['call.end', { task_id: 0, call_id: 1, status: 'cancelled' }, -32602],
       ['process.update_vars', { pid: 0 }, -32602],
       ['process.update_vars', { pid: 0, patch: 'branch' }, -32602],
       ['process.update_vars', { pid: 0, patch: { path: '/tmp' } }, -32602],
-      ['process.agents_kill', { id: '0.1' }, -32009],
-      ['process.call_os_pid', { pid: 0, call_id: 1, os_pid: 0 }, -32602],
-      ['process.call_os_pid', { pid: 0, call_id: 1, os_pid: 'x' }, -32602],
-      ['process.kill', { pid: 0 }, -32009],
       ['process.delete', { pid: 0 }, -32010],
       ['process.delete', { pid: 0, recursive: 'yes' }, -32602],
       ['process.purge', {}, -32602],
@@ -221,7 +244,7 @@ describe('rpc', () => {
       const pool = await client2.request('process.orphans');
       expect(pool.policy.ttl_seconds).toBe(1);
       expect(pool.active_count).toBe(1);
-      expect(pool.orphans[0]).toMatchObject({ pid: kid.pid, name: 'kid', type: 'task', busy: false });
+      expect(pool.orphans[0]).toMatchObject({ pid: kid.pid, name: 'kid', busy: false, status: 'active' });
       expect(typeof pool.orphans[0].last_activity_at).toBe('string');
 
       // Jump the supervisor clock instead of waiting for a real TTL.
@@ -229,11 +252,11 @@ describe('rpc', () => {
       const report = await client2.request('process.orphan_sweep');
       expect(report.trigger).toBe('manual');
       expect(report.evicted).toHaveLength(1);
-      expect(report.evicted[0]).toMatchObject({ pid: kid.pid, from: 'running', to: 'cancelled', reason: 'orphan_ttl' });
+      expect(report.evicted[0]).toMatchObject({ pid: kid.pid, from: 'active', to: 'stopped', reason: 'orphan_ttl' });
       expect(report).toMatchObject({ active_before: 1, active_after: 0, deferred: [] });
-      expect((await client2.request('process.inspect', { pid: kid.pid })).status).toBe('cancelled');
+      expect((await client2.request('process.inspect', { pid: kid.pid })).status).toBe('stopped');
       expect((await client2.request('process.inspect', { pid: kid.pid })).recent_events[0]).toMatchObject({
-        kind: 'transition', data: { from: 'running', to: 'cancelled', cause: 'orphan_ttl' },
+        kind: 'transition', data: { from: 'active', to: 'stopped', cause: 'orphan_ttl' },
       });
     } finally {
       await server2.close();
@@ -252,8 +275,8 @@ describe('rpc', () => {
     // Same rows either way: only the activity field differs, so list and tree stay one read model.
     expect(rows.map((row) => row.pid)).toEqual(plain.map((row) => row.pid));
     // The agent space is runtime data: nothing persisted, nothing to list yet.
-    expect(await client.request('process.agents_list')).toEqual([]);
-    expect(await client.request('process.agents_list', { all: true })).toEqual([]);
+    expect(await client.request('task.agents_list')).toEqual([]);
+    expect(await client.request('task.agents_list', { all: true })).toEqual([]);
   });
 
   test('notifications and multiple requests on one connection', async () => {
@@ -311,7 +334,7 @@ describe('rpc', () => {
       unix: server.path,
       socket: {
         open: (handle) => handle.write(encode({
-          jsonrpc: '2.0', id: 'detached', method: 'process.call', params: { pid, prompt: 'work' },
+          jsonrpc: '2.0', id: 'detached', method: 'call', params: { pid, goal: 'work' },
         })),
         data: () => {},
         close: () => {},
@@ -322,10 +345,11 @@ describe('rpc', () => {
     await gate.promise;
     socket.end();
     await Bun.sleep(50);
+    const task = manager.taskList(pid)[0];
     expect(runtime.isBusy(pid)).toBe(true);
     release.resolve();
-    await runtime.active.get(pid).promise;
-    expect(manager.inspect(pid).recent_calls[0].status).toBe('succeeded');
+    await runtime.active.get(task.id).promise;
+    expect(manager.repository.taskCalls(task.id)[0].status).toBe('succeeded');
     expect(LushError.name).toBe('LushError');
   });
 });

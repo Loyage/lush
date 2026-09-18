@@ -3,8 +3,8 @@
  * run every tool call in order, and repeat until the agent answers without
  * tools or the round budget runs out.
  *
- * Only the loop lives here; opening/closing the call (busy flag, call row,
- * timeout) stays in `runtime.js`.
+ * Only the loop lives here; opening/closing the invocation (call row, agent
+ * record, timeout, wake-ups) stays in `runtime.js`.
  */
 import { createLogger } from '../log.js';
 import { AgentResponse } from './provider.js';
@@ -26,7 +26,7 @@ export function abortError() {
 /**
  * Await `promise`, but give up as soon as `signal` aborts. The underlying
  * promise keeps running: aborting a waiter must never kill an independent
- * invocation (a child call, or another process's agent).
+ * invocation (a child task's agent, or another process's agent).
  */
 export function raceAbort(promise, signal) {
   if (signal.aborted) return Promise.reject(abortError());
@@ -40,19 +40,22 @@ export function raceAbort(promise, signal) {
   });
 }
 
-export async function execute(runtime, pid, callId, entry, prompt) {
+/** One invocation of one task's agent; resolves with the agent's final answer. */
+export async function execute(runtime, entry, prompt) {
+  const { taskId, callId } = entry;
   const signal = entry.controller.signal;
-  // The provider was resolved when the call opened: a profile edit mid-call must
+  // The provider was resolved when the task started: a profile edit mid-run must
   // not switch backends halfway through the tool loop.
   const provider = entry.provider ?? runtime.provider;
-  const tools = new AgentTools(runtime.manager, pid);
+  const tools = new AgentTools(runtime.manager, taskId, entry.pid);
   try {
     if (entry.reason) throw abortError();
     for (let round = 0; round < runtime.maxRounds; round += 1) {
-      const context = runtime.builder.build(runtime.manager.load(pid), callId, provider.contextMode);
+      const current = runtime.repository.getTask(taskId);
+      const context = runtime.builder.build(current, callId, provider.contextMode);
       // The provider reports the OS process it spawns, so the agent space can
       // name (and kill) what is actually running.
-      const invocation = buildInvocation(runtime, pid, callId, prompt, context,
+      const invocation = buildInvocation(runtime, current, callId, prompt, context,
         { on_spawn: (osPid) => noteOsPid(entry.agent, osPid) });
       const response = await raceAbort(provider.call(context.messages, TOOL_DEFINITIONS, signal, invocation), signal);
       if (!(response instanceof AgentResponse) || typeof response.content !== 'string') {
@@ -62,17 +65,23 @@ export async function execute(runtime, pid, callId, entry, prompt) {
       if (ids.length !== new Set(ids).size || ids.length > 32) {
         throw new LushError('invalid or excessive tool calls', -32020);
       }
-      runtime.repository.addMessage(pid, callId, response.asMessage());
+      runtime.repository.addMessage(entry.pid, taskId, callId, response.asMessage());
       if (response.toolCalls.length === 0) {
         runtime._finishCall(entry, 'succeeded', { output: response.content });
-        return { pid, call_id: callId, output: response.content };
+        return response.content;
       }
       // Tools of one response run in order: lifecycle and mutation tools must not race.
       for (const tool of response.toolCalls) {
         const result = await raceAbort(tools.execute(tool.name, tool.arguments), signal);
-        runtime.repository.addMessage(pid, callId, {
+        runtime.repository.addMessage(entry.pid, taskId, callId, {
           role: 'tool', tool_call_id: tool.id, content: jsonDump(result),
         });
+      }
+      // A tool may have finished or cancelled this very task (`task_complete`,
+      // `task_cancel` on a parent): stop looping and record the answer.
+      if (!runtime.manager.taskIsActive(runtime.repository.getTask(taskId))) {
+        runtime._finishCall(entry, 'succeeded', { output: response.content });
+        return response.content;
       }
     }
     throw new LushError(`agent exceeded ${runtime.maxRounds} rounds`, -32020);

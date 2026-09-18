@@ -1,20 +1,20 @@
 /**
- * Everything `ProcessManager` forwards to the `AgentRuntime`: the running
- * workers of one process, and the calls (plain, dry-run and interactive) that
- * create them.
+ * Everything `ProcessManager` forwards to the `AgentRuntime`: creating a task's
+ * run, the live workers of one daemon run, and the calls that open or settle an
+ * invocation.
  *
- * This module is the boundary between "the business API" and "the runtime
- * bound to it": it only validates the wire-level arguments and the
- * runtime-is-bound precondition, then delegates. Every function operates on
- * the `ProcessManager` passed in; the class in `process_manager.js` is the
- * only caller.
+ * This module is the boundary between "the business API" and "the runtime bound
+ * to it": it only validates the wire-level arguments and the
+ * runtime-is-bound precondition, then delegates. Every function operates on the
+ * `ProcessManager` passed in; the class in `process_manager.js` is the only
+ * caller.
  */
 import { LushError, text, validPid } from './types.js';
 
-/** Agents live in their own space: `PID.N`, minted per daemon run, never persisted. */
+/** Agents live in their own space: `TASK.N`, minted per daemon run, never persisted. */
 export function validAgentId(id) {
   if (typeof id !== 'string' || !/^\d+\.\d+$/.test(id)) {
-    throw new LushError("agent id must look like 'PID.N' (see 'lush process agents list')", -32602);
+    throw new LushError("agent id must look like 'TASK.N' (see 'lush task agents list')", -32602);
   }
   return id;
 }
@@ -31,27 +31,25 @@ export function agentInfo(manager, pid, profile = undefined) {
 }
 
 /**
- * `process agents list`: live workers (optionally of one process), plus this
- * daemon run's finished ones when `all` is set. Agents are runtime data —
+ * `task agents list`: live workers, optionally of one task or one process, plus
+ * this daemon run's finished ones when `all` is set. Agents are runtime data —
  * nothing here is persisted, and the durable record of the same work is the
- * call row `agent_calls.id`.
+ * call row (`agent_calls.id`).
  */
-export function agentsList(manager, pid = null, all = false) {
+export function agentsList(manager, { taskId = null, pid = null, all = false } = {}) {
   if (pid !== null) manager.repository.get(pid); // a missing process reports -32004
+  if (taskId !== null) manager.repository.getTask(taskId); // a missing task reports -32004
   if (typeof all !== 'boolean') throw new LushError('all must be a boolean', -32602);
-  return requireRuntime(manager).agentsList({ pid, all });
+  return requireRuntime(manager).agentsList({ taskId, pid, all });
 }
 
-/** `process agents show`: one agent, with its session on disk and its durable call row. */
+/** `task agents show`: one agent, with its session on disk and its durable call row. */
 export function agentShow(manager, id) {
   validAgentId(id);
   return requireRuntime(manager).agentShow(id);
 }
 
-/**
- * `process agents kill`: kill one worker, not the process. Unlike
- * `process kill PID`, the logical Process keeps its status and its goal.
- */
+/** `task agents kill`: kill one worker, which cancels the task it was working on. */
 export function agentsKill(manager, id) {
   validAgentId(id);
   return requireRuntime(manager).agentsKill(id);
@@ -62,53 +60,73 @@ export function agentsKill(manager, id) {
  * it spawned: the daemon did not create it, so this is the only way the agent
  * space can show or kill it.
  */
-export function callOsPid(manager, pid, callId, osPid) {
-  validPid(pid);
+export function callOsPid(manager, taskId, callId, osPid) {
+  validPid(taskId);
   if (!Number.isInteger(callId) || callId < 1) throw new LushError('call_id must be a positive integer', -32602);
   if (!Number.isInteger(osPid) || osPid < 1) throw new LushError('os_pid must be a positive integer', -32602);
-  return requireRuntime(manager).noteAgentOsPid(pid, callId, osPid);
-}
-
-export function call(manager, pid, prompt, dryRun = false) {
-  manager.requireRunning(pid);
-  text(prompt, 'prompt');
-  if (typeof dryRun !== 'boolean') throw new LushError('dry_run must be a boolean', -32602);
-  const runtime = requireRuntime(manager);
-  return dryRun ? runtime.describe(pid, prompt) : runtime.call(pid, prompt);
+  return requireRuntime(manager).noteAgentOsPid(taskId, callId, osPid);
 }
 
 /**
- * `lush process call --interactive`: open a call that the caller's terminal
- * runs itself (pi TUI) and return what to run. The call row, the busy flag
- * and the running/busy/recursion guards are the same as `call`; the caller
- * reports the outcome with `callEnd`.
+ * `call`: open a root task on `pid` and (unless `detach`) block until it — and
+ * therefore its whole subtree of delegated tasks — is finished. `interactive`
+ * hands the task's agent to the caller's terminal instead.
  */
-export function callBegin(manager, pid, prompt) {
-  manager.requireRunning(pid);
-  text(prompt, 'prompt');
-  return requireRuntime(manager).openInteractive(pid, prompt);
-}
-
-/**
- * Settle a call opened by `callBegin`. The terminal outlives the caller, so
- * any status may arrive here; `settled: false` means the daemon settled it
- * first (timeout, kill, stop or daemon shutdown).
- */
-export function callEnd(manager, pid, callId, status, output = null, error = null) {
+export async function call(manager, pid, goal, { detach = false, interactive = false } = {}) {
   validPid(pid);
+  text(goal, 'goal');
+  if (typeof detach !== 'boolean' || typeof interactive !== 'boolean') {
+    throw new LushError('detach and interactive must be booleans', -32602);
+  }
+  if (detach && interactive) throw new LushError('detach and interactive cannot be combined', -32602);
+  // An interactive task is not started here: the caller's terminal runs it.
+  const task = manager.spawnTask(null, pid, goal, !interactive);
+  if (interactive) return requireRuntime(manager).openInteractive(task.id);
+  if (detach) return manager.taskInspect(task.id);
+  await manager.waitForTask(task.id);
+  const settled = manager.repository.findTask(task.id);
+  if (settled === null) {
+    // `purge` removed the row while this caller was waiting: report that instead
+    // of failing the command with a confusing "task not found".
+    return {
+      id: task.id,
+      pid: task.pid,
+      goal: task.goal,
+      status: 'removed',
+      result: null,
+      error: 'task was removed while its caller was waiting',
+    };
+  }
+  return manager.taskInspect(task.id);
+}
+
+/** `call --dry-run`: what the task's first invocation would run, without running it. */
+export function describe(manager, pid, prompt) {
+  validPid(pid);
+  text(prompt, 'prompt');
+  return requireRuntime(manager).describe(pid, prompt);
+}
+
+/**
+ * Settle a call opened by `call --interactive`. The terminal outlives the
+ * caller, so any status may arrive here; `settled: false` means the daemon
+ * settled it first (timeout, cancel, daemon shutdown).
+ */
+export function callEnd(manager, taskId, callId, status, output = null, error = null) {
+  validPid(taskId);
   if (!Number.isInteger(callId) || callId < 1) throw new LushError('call_id must be a positive integer', -32602);
   if (status !== 'succeeded' && status !== 'failed') {
     throw new LushError("status must be 'succeeded' or 'failed'", -32602);
   }
   if (output !== null) text(output, 'output');
   if (error !== null) text(error, 'error');
-  const settled = requireRuntime(manager).settleInteractive(pid, callId, status, { output, error });
-  const call = manager.repository.calls(pid).find((row) => row.id === callId);
-  return { pid, call_id: callId, settled, status: call?.status ?? null };
+  const settled = requireRuntime(manager).settleInteractive(taskId, callId, status, { output, error });
+  const task = manager.repository.findTask(taskId);
+  return { task_id: taskId, call_id: callId, settled, status: task?.status ?? null };
 }
 
-/** External agent session metadata for `pid` (read-only; any lifecycle status). */
-export function session(manager, pid) {
-  validPid(pid);
-  return requireRuntime(manager).session(pid);
+/** External agent session metadata for a task's agent (read-only, any status). */
+export function session(manager, taskId) {
+  validPid(taskId);
+  return requireRuntime(manager).session(taskId);
 }

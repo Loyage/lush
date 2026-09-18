@@ -1,7 +1,7 @@
 import { BuiltContext, ProcessContext, lushContextMessage } from './context.js';
 import { agentGuide } from '../agent/guide.js';
 
-const SUMMARY_KEYS = ['pid', 'parent_pid', 'original_parent_pid', 'name', 'type', 'template', 'status', 'goal', 'created_at'];
+const SUMMARY_KEYS = ['pid', 'parent_pid', 'original_parent_pid', 'name', 'template', 'status', 'goal', 'created_at'];
 
 export function summary(process) {
   const result = {};
@@ -9,12 +9,31 @@ export function summary(process) {
   return result;
 }
 
+/** The work an agent is currently doing, as the agent itself sees it. */
+function taskSummary(task) {
+  if (task === null) return null;
+  return {
+    id: task.id,
+    pid: task.pid,
+    parent_task_id: task.parent_task_id,
+    root_task_id: task.root_task_id,
+    status: task.status,
+    goal: task.goal,
+    result: task.result ?? null,
+    error: task.error ?? null,
+    state: task.state ?? {},
+    created_at: task.created_at,
+    finished_at: task.finished_at ?? null,
+  };
+}
+
 export class ContextBuilder {
   /**
    * `agentMode` selects the shared Lush layer: `tools` for Lush's own runtime
-   * (process_* tools), `cli` for external agents that drive Lush through the
-   * `lush` CLI. The built messages are only used by in-process providers;
-   * external backends receive the same system prompt, guide and data directly.
+   * (task_* / process_* tools), `cli` for external agents that drive Lush
+   * through the `lush` CLI. The built messages are only used by in-process
+   * providers; external backends receive the same system prompt, guide and data
+   * directly.
    */
   constructor(repository, templates = null, { agentMode = 'tools' } = {}) {
     this.repository = repository;
@@ -30,15 +49,17 @@ export class ContextBuilder {
   }
 
   /**
-   * Build one invocation's context. `agentMode` may be overridden per process:
-   * the agent a process selected can be a different backend than the daemon's
-   * fallback one, and the shared Lush layer must match the backend that runs it
+   * Build one invocation's context for a task. The process supplies identity,
+   * variables, permissions and its tree position; the task supplies the work
+   * being done and its own scratch state. `agentMode` may be overridden per
+   * task: the agent a process selected can be a different backend than the
+   * daemon's fallback one, and the shared Lush layer must match that backend
    * (`cli` for external pi, `tools` for the in-process runtimes).
    */
-  build(process, currentCall, agentMode = this.agentMode) {
-    const pid = process.pid;
+  build(task, currentCall, agentMode = this.agentMode, { process = null } = {}) {
+    const metadata = process ?? this.repository.get(task.pid);
+    const pid = metadata.pid;
     const guide = this.guideFor(agentMode);
-    const metadata = this.repository.get(pid);
     const context = ProcessContext.load(this.repository, pid);
     const parent = metadata.parent_pid === null
       ? null
@@ -55,7 +76,6 @@ export class ContextBuilder {
         .filter((template) => !template.singleton || this.repository.activeCount(pid, template.name) === 0)
         .map((template) => ({
           name: template.name,
-          type: template.type,
           singleton: template.singleton,
           description: template.description,
           spawn_prompt: template.spawn_prompt,
@@ -63,6 +83,7 @@ export class ContextBuilder {
     }
     const data = {
       process: summary(metadata),
+      task: taskSummary(task),
       parent,
       children,
       state: context.state,
@@ -74,10 +95,23 @@ export class ContextBuilder {
     const messages = [
       { role: 'system', content: `${context.systemPrompt}\n\n${guide}` },
       { role: 'system', content: lushContextMessage(data) },
-      ...this.repository.conversation(pid, currentCall),
+      ...this.repository.conversation(task.id, currentCall),
     ];
     return new BuiltContext({
       context, metadata: summary(metadata), parent, children, messages, guide, data,
     });
+  }
+
+  /**
+   * The same view for a task that does not exist yet (`call --dry-run`): the
+   * process, an empty task slot, and no conversation.
+   */
+  preview(process, goal, agentMode = this.agentMode) {
+    return this.build(
+      { id: null, pid: process.pid, goal, status: 'created', parent_task_id: null, root_task_id: null },
+      null,
+      agentMode,
+      { process },
+    );
   }
 }

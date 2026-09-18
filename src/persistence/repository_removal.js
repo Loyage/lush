@@ -15,13 +15,19 @@ import { event } from './repository_state.js';
  * references `processes`, so a surviving row would fail the last DELETE.
  */
 export function deleteRows(repository, pid) {
-  return {
+  const rows = {
     messages: repository.db.run('DELETE FROM messages WHERE pid=?', [pid]).changes,
     agent_calls: repository.db.run('DELETE FROM agent_calls WHERE pid=?', [pid]).changes,
     process_events: repository.db.run('DELETE FROM process_events WHERE pid=?', [pid]).changes,
     contexts: repository.db.run('DELETE FROM contexts WHERE pid=?', [pid]).changes,
-    processes: repository.db.run('DELETE FROM processes WHERE pid=?', [pid]).changes,
   };
+  // Tasks are mounted on the process, so they go with it; child tasks that live
+  // on surviving processes are re-pointed at themselves (they become roots).
+  const detached = repository.detachProcessTasks([pid]);
+  rows.tasks = detached.tasks;
+  rows.task_events = detached.task_events;
+  rows.processes = repository.db.run('DELETE FROM processes WHERE pid=?', [pid]).changes;
+  return rows;
 }
 
 /**
@@ -41,7 +47,7 @@ export function deleteRows(repository, pid) {
 export function remove(repository, pids, audit = null) {
   const doomed = new Set(pids);
   return repository.database.transaction(() => {
-    const rows = { processes: 0, contexts: 0, agent_calls: 0, messages: 0, process_events: 0 };
+    const rows = { processes: 0, contexts: 0, agent_calls: 0, messages: 0, process_events: 0, tasks: 0, task_events: 0 };
     for (const pid of pids) {
       const removed = repository.get(pid);
       for (const survivor of repository.db.query('SELECT pid FROM processes WHERE original_parent_pid=?').all(pid)) {

@@ -6,12 +6,12 @@
 import { shellEnv, shellQuote } from '../../shell.js';
 import { RESERVED_VARIABLES } from '../../core/variables.js';
 import {
-  alignRows, duration, eventLine, excerpt, indentLines, metadataTitle, objectLines, shortValue, stamp, taskDetail,
-  taskTitle, variableSummary,
+  alignRows, duration, eventLine, excerpt, indentLines, metadataTitle, objectLines, shortValue,
+  stamp, taskDetail, taskMetadataTitle, taskTitle, variableSummary,
 } from './primitives.js';
 
 /**
- * `lush process history` text output: one block per message, body verbatim so
+ * `lush task history` text output: one block per message, body verbatim so
  * long agent replies stay readable, then the pagination cursor. Roles are the
  * stored Chat-Completions ones (user / assistant / tool).
  */
@@ -38,7 +38,9 @@ export function formatHistory(result) {
  * `detail` gets its own block (truncated in text; `--json` has it whole).
  */
 export function formatInspect(result) {
-  const { context = {}, recent_calls = [], recent_events = [], template_snapshot, variables, ...process } = result;
+  const {
+    context = {}, recent_calls = [], recent_events = [], recent_tasks = [], template_snapshot, variables, ...process
+  } = result;
   const parent = process.parent_pid === null
     ? '-'
     : `${process.parent_pid}${process.original_parent_pid === process.parent_pid ? '' : ` (original ${process.original_parent_pid})`}`;
@@ -72,6 +74,14 @@ export function formatInspect(result) {
   // than a table cell that would break the alignment.
   const detail = taskDetail(fields);
   if (detail !== null) lines.push('', 'detail', ...indentLines(excerpt(detail, 4000), 1));
+
+  lines.push('');
+  if (recent_tasks.length === 0) {
+    lines.push('tasks  (none)');
+  } else {
+    lines.push(`tasks · recent ${recent_tasks.length}, newest first`);
+    for (const task of recent_tasks) lines.push(`  ${taskLine(task)}`);
+  }
 
   lines.push('', `context · ${context.message_count ?? 0} messages`);
   const state = context.state ?? {};
@@ -128,10 +138,11 @@ export function formatView(result) {
   return lines.join('\n');
 }
 
-/** `lush process agents show AGENT_ID`: runtime facts, on-disk session, durable call. */
+/** `lush task agents show AGENT_ID`: runtime facts, on-disk session, durable call. */
 export function formatAgent(result) {
   const mode = result.interactive ? 'tty' : result.os_pid === null ? 'in-process' : 'pipe';
   const rows = [
+    ['task', `#${result.task_id}${result.task_status === null ? '' : ` (${result.task_status})`}`],
     ['pid', `${result.pid}${result.name === null ? '' : ` (${result.name})`}`],
     ['provider', result.provider],
     ['status', result.status],
@@ -164,27 +175,27 @@ export function formatAgent(result) {
 }
 
 /**
- * `start` / `stop` / `kill` / `reclaim` / `complete` text output: the verb plus
- * the resulting state of the process, instead of dumping the whole metadata row.
+ * `start` / `stop` (and the task verbs) text output: the verb plus the
+ * resulting state of the row, instead of dumping the whole metadata row.
  */
 export function formatLifecycle(verb, result) {
   return `${verb} ${metadataTitle(result)}`;
 }
 
-/** `lush process agents list` text output: one row per live (or kept) worker. */
+/** `lush task agents list` text output: one row per live (or kept) worker. */
 export function formatAgents(rows) {
   if (rows.length === 0) return 'no running agents';
-  const table = [['AGENT', 'PID', 'NAME', 'PROVIDER', 'STATUS', 'CALL', 'OS-PID', 'ELAPSED', 'MODE']];
+  const table = [['AGENT', 'TASK', 'PID', 'NAME', 'PROVIDER', 'STATUS', 'CALL', 'OS-PID', 'ELAPSED', 'MODE']];
   for (const agent of rows) {
     const mode = agent.interactive ? 'tty' : agent.os_pid === null ? 'in-process' : 'pipe';
-    table.push([agent.id, String(agent.pid), agent.name, agent.provider, agent.status,
+    table.push([agent.id, `#${agent.task_id}`, String(agent.pid), agent.name, agent.provider, agent.status,
       String(agent.call_id), agent.os_pid === null ? '-' : String(agent.os_pid), duration(agent.elapsed_ms), mode]);
   }
   const width = table[0].map((_column, index) => Math.max(...table.map((row) => row[index].length)));
   return table.map((row) => row.map((cell, index) => cell.padEnd(width[index])).join('  ').trimEnd()).join('\n');
 }
 
-/** `lush process agents kill` text output: what died, and how the OS side fared. */
+/** `lush task agents kill` text output: what died, and how the OS side fared. */
 export function formatAgentKill(result) {
   const who = `agent ${result.id}`;
   if (result.outcome === 'killed') return `killed ${who} (os ${result.os_pid})`;
@@ -211,7 +222,7 @@ export function formatOrphans(result) {
       + ` (limit=${result.limit} ttl=${result.ttl_seconds}s)`,
     ];
     for (const orphan of result.evicted) {
-      lines.push(`  evicted ${orphan.pid} ${orphan.type} ${orphan.from}->${orphan.to}`
+      lines.push(`  evicted ${orphan.pid} ${orphan.from}->${orphan.to}`
         + ` reason=${orphan.reason} idle=${orphan.idle_seconds}s ${orphan.name}`);
     }
     for (const orphan of result.deferred) {
@@ -228,9 +239,9 @@ export function formatOrphans(result) {
     lines.push('  (none — nothing is currently adopted by PID 0)');
     return lines.join('\n');
   }
-  const table = [['PID', 'TYPE', 'STATUS', 'IDLE', 'BUSY', 'NAME']];
+  const table = [['PID', 'STATUS', 'IDLE', 'BUSY', 'NAME']];
   for (const orphan of result.orphans) {
-    table.push([String(orphan.pid), orphan.type, orphan.status,
+    table.push([String(orphan.pid), orphan.status,
       duration(orphan.idle_seconds * 1000), orphan.busy ? 'yes' : 'no', orphan.name]);
   }
   const width = table[0].map((_column, index) => Math.max(...table.map((row) => row[index].length)));
@@ -238,12 +249,14 @@ export function formatOrphans(result) {
   return lines.join('\n');
 }
 
-/** `lush process session` text output: where the agent session lives and how to open it. */
+/** `lush task session` text output: where the agent session lives and how to open it. */
 export function formatSession(result) {
   if (result.agent !== 'pi' || result.session_dir === null) {
     return `# agent ${result.agent} runs in-process; no external session to inspect.`;
   }
   const rows = [
+    ['task', `#${result.task_id} (${result.task_status})`],
+    ['process', `${result.name}[${result.pid}]`],
     ['agent', result.agent],
     ['profile', result.profile ?? 'default'],
     ['session-dir', result.session_dir],
@@ -269,7 +282,7 @@ export function formatRun(result) {
   return parts.join(' && ');
 }
 
-/** `lush process call --dry-run` text output: the runnable command, or what would be sent. */
+/** `lush call --dry-run` text output: the runnable command, or what would be sent. */
 export function formatDryRun(result) {
   if (typeof result.command !== 'string') {
     return `# agent ${result.agent} runs in-process; no external command. Use --json for the invocation details.`;
@@ -278,36 +291,186 @@ export function formatDryRun(result) {
 }
 
 /**
- * `lush process delete|purge` text output: what disappeared, what had to be
- * terminated first, and how much of the record went with it.
+ * `lush process list` text output: fixed-width columns, one row per process.
+ * The trailing TITLE column is the one-line summary a template may declare (a
+ * reserved variable name, see `core/variables.js`): every existing column keeps
+ * its width, and a process without a title — only dev-task declares one — shows
+ * `-` instead.
+ */
+export function formatList(result) {
+  const rows = [['PID', 'PPID', 'STATUS', 'NAME', 'TITLE']];
+  for (const process of result) {
+    const title = taskTitle(process);
+    rows.push([String(process.pid), process.parent_pid === null ? '-' : String(process.parent_pid),
+      process.status, process.name, title === null ? '-' : shortValue(title, 40)]);
+  }
+  const nameWidth = rows.reduce((max, row) => Math.max(max, row[3].length), 0);
+  return rows
+    .map(([pid, ppid, status, name, title]) => `${pid.padEnd(6)}${ppid.padEnd(6)}${status.padEnd(10)}${name.padEnd(nameWidth)}  ${title}`.trimEnd())
+    .join('\n');
+}
+
+/**
+ * `lush process delete|purge` text output: what disappeared, which tasks had to
+ * be cancelled first, and how much of the record went with it.
  */
 export function formatRemoval(result) {
   const target = result.deleted.length === 1
     ? `pid ${result.pid}`
     : `pid ${result.pid} (subtree ${result.deleted.join(', ')})`;
+  const cancelled = result.cancelled?.length ? `, after cancelling task ${result.cancelled.join(', ')}` : '';
   const terminated = result.terminated.length
-    ? `, after terminating ${result.terminated.join(', ')}`
+    ? `, after stopping ${result.terminated.join(', ')}`
     : '';
   const rows = Object.entries(result.rows).map(([table, count]) => `${table}=${count}`).join(' ');
-  return `deleted ${target}${terminated}  ${rows}`;
+  return `deleted ${target}${cancelled}${terminated}  ${rows}`;
+}
+
+/** One task line: `#12 project[3] running · goal`. Shared by list and inspect. */
+export function taskLine(task, processName = null) {
+  const where = processName === null ? `pid ${task.pid}` : `${processName}[${task.pid}]`;
+  return `#${task.id} ${where} ${task.status} · ${shortValue(task.goal, 60)}`;
+}
+
+/** `lush task list` text output: fixed-width columns, one row per task. */
+export function formatTaskList(result) {
+  const table = [['ID', 'PID', 'PARENT', 'STATUS', 'GOAL', 'RESULT']];
+  for (const task of result) {
+    table.push([
+      `#${task.id}`,
+      String(task.pid),
+      task.parent_task_id === null ? '-' : `#${task.parent_task_id}`,
+      task.status,
+      shortValue(task.goal, 60),
+      task.result === null || task.result === undefined ? '-' : shortValue(task.result, 40),
+    ]);
+  }
+  const width = table[0].map((_column, index) => Math.max(...table.map((row) => row[index].length)));
+  return table.map((row) => row.map((cell, index) => cell.padEnd(width[index])).join('  ').trimEnd()).join('\n');
 }
 
 /**
- * `lush process list` text output: fixed-width columns, one row per process.
- * The trailing TITLE column is the task's one-line summary (a reserved
- * variable name, see `core/variables.js`): every existing column keeps its
- * width, and a process without a title — every non-task, and old rows written
- * before the field existed — shows `-` instead.
+ * `lush task tree` text output: the task and everything it delegated, one
+ * branch per child task. This is the view of "how one piece of work was solved
+ * by cooperation between processes".
  */
-export function formatList(result) {
-  const rows = [['PID', 'PPID', 'TYPE', 'STATUS', 'NAME', 'TITLE']];
-  for (const process of result) {
-    const title = taskTitle(process);
-    rows.push([String(process.pid), process.parent_pid === null ? '-' : String(process.parent_pid),
-      process.type, process.status, process.name, title === null ? '-' : shortValue(title, 40)]);
+export function formatTaskTree(node, processName = null) {
+  const lines = [];
+  const walk = (task, prefix, branch) => {
+    const name = task.process_name ?? processName;
+    const where = name === null || name === undefined ? `pid ${task.pid}` : `${name}[${task.pid}]`;
+    const result = task.result === null || task.result === undefined ? '' : ` → ${shortValue(task.result, 50)}`;
+    const error = task.status === 'failed' || task.status === 'cancelled'
+      ? ` (${shortValue(task.error ?? task.status, 50)})`
+      : '';
+    lines.push(`${prefix}${branch}#${task.id} ${where} ${task.status} · ${shortValue(task.goal, 60)}${result}${error}`);
+    const children = task.children ?? [];
+    const nextPrefix = prefix + (branch === '└── ' ? '    ' : branch === '' ? '' : '│   ');
+    children.forEach((child, index) => {
+      walk(child, nextPrefix, index === children.length - 1 ? '└── ' : '├── ');
+    });
+  };
+  walk(node, '', '');
+  return lines.join('\n');
+}
+
+/**
+ * `lush task inspect` text output: the task summary, the process it is mounted
+ * on, its child tasks, then calls and events. The task's own scratch state is a
+ * block, not a table cell.
+ */
+export function formatTaskInspect(result) {
+  const {
+    recent_calls = [], recent_events = [], child_tasks = [], process = null, state, ...task
+  } = result;
+  const rows = [
+    ['process', process === null ? `pid ${task.pid}` : `${process.name}[${process.pid}] · ${process.template} · ${process.status}`],
+    ['parent task', task.parent_task_id === null ? '-' : `#${task.parent_task_id}`],
+    ['root task', `#${task.root_task_id}`],
+    ['goal', task.goal],
+    ['created', stamp(task.created_at)],
+    ['started', task.started_at === null ? '-' : stamp(task.started_at)],
+    ['finished', task.finished_at === null ? '-' : stamp(task.finished_at)],
+  ];
+  if (task.error !== null && task.error !== undefined) rows.push(['error', task.error]);
+  const lines = [taskMetadataTitle(task, process?.name ?? null), ...alignRows(rows).map((row) => `  ${row}`)];
+
+  if (task.result !== null && task.result !== undefined) {
+    lines.push('', 'result', ...indentLines(excerpt(String(task.result), 4000), 1));
   }
-  const nameWidth = rows.reduce((max, row) => Math.max(max, row[4].length), 0);
-  return rows
-    .map(([pid, ppid, type, status, name, title]) => `${pid.padEnd(6)}${ppid.padEnd(6)}${type.padEnd(10)}${status.padEnd(12)}${name.padEnd(nameWidth)}  ${title}`.trimEnd())
-    .join('\n');
+
+  lines.push('');
+  if (Object.keys(state ?? {}).length === 0) {
+    lines.push('state  (empty)');
+  } else {
+    lines.push('state', ...objectLines(state, 1));
+  }
+
+  lines.push('');
+  if (child_tasks.length === 0) {
+    lines.push('child tasks  (none)');
+  } else {
+    lines.push(`child tasks · ${child_tasks.length}`);
+    for (const child of child_tasks) lines.push(`  ${taskLine(child)}`);
+  }
+
+  lines.push('');
+  if (recent_calls.length === 0) {
+    lines.push('calls  (none)');
+  } else {
+    lines.push(`calls · recent ${recent_calls.length}, newest first`);
+    for (const call of recent_calls) {
+      const window = call.finished_at === null
+        ? `since ${stamp(call.started_at)}`
+        : `${stamp(call.started_at)} → ${stamp(call.finished_at)}`;
+      lines.push(`  #${call.id} ${call.status} · ${window}`);
+      for (const key of ['prompt', 'output', 'error']) {
+        if (call[key]) lines.push(`    ${key}`, ...indentLines(call[key], 3));
+      }
+    }
+  }
+
+  lines.push('');
+  if (recent_events.length === 0) {
+    lines.push('events  (none)');
+  } else {
+    lines.push(`events · recent ${recent_events.length}, newest first`);
+    for (const event of recent_events) lines.push(eventLine(event));
+  }
+  return lines.join('\n');
+}
+
+/** `lush task result` text output: the conclusion, or an explicit "not finished". */
+export function formatTaskResult(result) {
+  if (!result.finished) return `task #${result.id} is ${result.status} (not finished yet; use 'lush task wait ${result.id}')`;
+  const head = `task #${result.id} ${result.status}`;
+  if (result.error !== null && result.error !== undefined) return `${head}\n  error: ${result.error}`;
+  if (result.result === null || result.result === undefined) return `${head}\n  (no result)`;
+  return `${head}\n  ${typeof result.result === 'string' ? result.result : JSON.stringify(result.result)}`;
+}
+
+/**
+ * `lush call` text output: which task was created and what it came back with.
+ * The task id is printed first so the tree stays observably addressable
+ * (`lush task tree <id>`), whatever the outcome.
+ */
+export function formatCall(result) {
+  const task = result.task ?? result;
+  const where = result.process === undefined || result.process === null
+    ? `pid ${task.pid}`
+    : `${result.process.name}[${task.pid}]`;
+  const head = `task #${task.id} ${where} ${task.status}`;
+  const lines = [head];
+  if (task.error !== null && task.error !== undefined) lines.push(`error: ${excerpt(String(task.error), 4000)}`);
+  else if (task.result !== null && task.result !== undefined) lines.push(excerpt(String(task.result), 20000));
+  else if (task.status === 'running' || task.status === 'created' || task.status === 'waiting') {
+    lines.push('(still running in the daemon; watch it with `lush task tree ' + task.id + '`)');
+  }
+  return lines.join('\n');
+}
+
+/** `lush task delete` text output: which task rows went, and how many of them. */
+export function formatTaskRemoval(result) {
+  const target = result.deleted.length === 1 ? `task #${result.task_id}` : `task #${result.task_id} (subtree ${result.deleted.join(', ')})`;
+  return `deleted ${target}  tasks=${result.rows.tasks} task_events=${result.rows.task_events}`;
 }

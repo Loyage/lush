@@ -98,8 +98,9 @@ export class PiAgentProvider {
     this.env = env;
   }
 
-  sessionId(pid) {
-    return `lush-${pid}`;
+  /** One pi session per task: a task's conversation is its own agent's memory. */
+  sessionId(taskId) {
+    return taskId === null || taskId === undefined ? 'lush-task-preview' : `lush-task-${taskId}`;
   }
 
   // ── How an invocation is described (see pi_args.js) ───────────────────────
@@ -120,8 +121,8 @@ export class PiAgentProvider {
     return preview(this, invocation, options);
   }
 
-  sessions(pid) {
-    return sessions(this, pid);
+  sessions(taskId) {
+    return sessions(this, taskId);
   }
 
   sessionInfo(invocation) {
@@ -136,11 +137,16 @@ export class PiAgentProvider {
     const env = {
       ...this.env,
       LUSH_HOME: this.home,
+      // The agent acts on a task, and needs to name it: `$LUSH_TASK_ID` is how
+      // it reaches `lush task ...` for the very task it is working on.
       LUSH_PID: String(invocation.pid),
+      LUSH_TASK_ID: invocation.task_id === null || invocation.task_id === undefined
+        ? ''
+        : String(invocation.task_id),
       PATH: `${LUSH_BIN_DIR}${path.delimiter}${this.env.PATH ?? ''}`,
     };
     fs.mkdirSync(this.sessionDir, { recursive: true, mode: 0o700 });
-    log.info(`pi call pid=${invocation.pid} cwd=${cwd} session=lush-${invocation.pid}`);
+    log.info(`pi call task=${invocation.task_id ?? '-'} pid=${invocation.pid} cwd=${cwd} session=${this.sessionId(invocation.task_id)}`);
 
     const child = cp.spawn(this.command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
     // Hand the OS pid to the runtime before waiting: the agent space needs to

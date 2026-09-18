@@ -1,6 +1,8 @@
 import { daemonGroup } from './daemon.js';
 import { agentGroup } from './agent.js';
 import { processGroup } from './process.js';
+import { taskGroup } from './task.js';
+import { callCommand } from './call.js';
 
 /**
  * The root of the CLI declaration tree.
@@ -12,16 +14,20 @@ import { processGroup } from './process.js';
  * `help` can never drift from the real parser.
  */
 export const ROOT = {
-  summary: 'AI 的操作系统：把 AI 工作组织成持久化的逻辑 Process',
+  summary: 'AI 的操作系统：被动的 Process 节点 + 会干活的 Task',
   cover: [
     'CLI 是 daemon（lushd）的客户端，通过 Unix socket 上的 JSON-RPC 操作 Lush，自身不持有状态。',
-    '命令分三层：顶层 → 命令组（daemon / process / agent）→ 具体命令，再往下是参数；每一层都有 help。',
+    '两类东西：Process 是被动节点（身份、变量、持久 state、权限、生命周期），Task 是挂在 process 上的一次工作（有自己的 agent、会话与 result）。',
+    '入口是 `lush call PID \'<目标>\'`：在某个 process 上开一个根 task 并等它结束；task 会向下游 process 派子 task，`lush task tree` 能看到这棵树。',
+    '命令分三层：顶层 → 命令组（daemon / process / task / agent）→ 具体命令，再往下是参数；每一层都有 help。',
     'daemon 未运行时，`lush agent ...` 仍可用（它只读写 $LUSH_HOME/agents/*.json），其余命令会连接失败（退出码 1）。',
   ],
   usage: ['lush [--json] <command> [args]', 'lush [--json] help [command [subcommand]]'],
   children: {
-    daemon: daemonGroup,
+    call: callCommand,
+    task: taskGroup,
     process: processGroup,
+    daemon: daemonGroup,
     agent: agentGroup,
   },
 };

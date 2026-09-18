@@ -23,6 +23,7 @@ import { OpenAICompatibleProvider } from './openai.js';
  */
 export function previewInvocation() {
   return {
+    task_id: 0,
     pid: 0,
     prompt: '<PROMPT>',
     system_prompt: '<SYSTEM_PROMPT>',

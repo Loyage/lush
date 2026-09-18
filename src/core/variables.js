@@ -222,7 +222,7 @@ export function checkWorkdir(value) {
 }
 
 export function updateState(manager, pid, patch) {
-  manager.requireRunning(pid);
+  manager.requireActive(pid);
   if (!isPlainObject(patch) || Object.getOwnPropertySymbols(patch).length) {
     throw new LushError('patch must be a JSON object with string keys', -32602);
   }
@@ -247,7 +247,7 @@ export function updateState(manager, pid, patch) {
  * goodwill: an immutable or undeclared name is refused instead of written.
  */
 export function updateVars(manager, pid, patch) {
-  const process = manager.requireRunning(pid);
+  const process = manager.requireActive(pid);
   if (!isPlainObject(patch) || Object.getOwnPropertySymbols(patch).length) {
     throw new LushError('patch must be a JSON object with string keys', -32602);
   }

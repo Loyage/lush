@@ -29,6 +29,7 @@ console.log(JSON.stringify({
   cwd: process.cwd(),
   home: process.env.LUSH_HOME,
   pid: process.env.LUSH_PID,
+  task: process.env.LUSH_TASK_ID,
   path: process.env.PATH,
 }));
 `;
@@ -60,97 +61,109 @@ describe('pi agent backend', () => {
     permissiveRoot(manager);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await runtime.shutdown();
     db.close();
     cleanup(dir);
   });
 
-  test('invocation carries system prompt, Lush guide, context, session and cwd', async () => {
+  test('invocation carries system prompt, guide, context, task session and cwd', async () => {
     const result = await provider.call([], [], null, {
+      task_id: 7,
       pid: 4,
       prompt: 'do the thing',
       system_prompt: 'SYSTEM_PROMPT',
       guide: agentGuide('cli'),
-      context: { process: { name: 'demo' }, pid: 4 },
+      context: { process: { name: 'demo' }, task: { id: 7 } },
       cwd: dir,
     });
     const payload = JSON.parse(result.content);
     expect(payload.argv[0].endsWith('pi-stub')).toBe(true);
     expect(payload.argv[1]).toBe('--print');
     expect(payload.argv[payload.argv.length - 1]).toBe('do the thing');
-    expect(flagValue(payload.argv, '--session-id')).toBe('lush-4');
+    // Sessions belong to tasks: the id names the task, not the process.
+    expect(flagValue(payload.argv, '--session-id')).toBe('lush-task-7');
     expect(flagValue(payload.argv, '--session-dir')).toBe(path.join(dir, 'pi-sessions'));
-    expect(flagValue(payload.argv, '--name')).toBe('demo[4]');
+    expect(flagValue(payload.argv, '--name')).toBe('demo[4]#7');
     expect(flagValue(payload.argv, '--system-prompt')).toBe('SYSTEM_PROMPT');
     const appended = payload.argv.filter((_value, index) => payload.argv[index - 1] === '--append-system-prompt');
     expect(appended[0]).toBe(agentGuide('cli'));
     expect(appended[1].startsWith(LUSH_CONTEXT_PREFIX)).toBe(true);
-    expect(JSON.parse(appended[1].slice(LUSH_CONTEXT_PREFIX.length)).pid).toBe(4);
+    expect(JSON.parse(appended[1].slice(LUSH_CONTEXT_PREFIX.length)).task.id).toBe(7);
     expect(payload.cwd).toBe(fs.realpathSync(dir));
     expect(payload.home).toBe(dir);
     expect(payload.pid).toBe('4');
+    expect(payload.task).toBe('7');
     expect(payload.path.startsWith(`${LUSH_BIN_DIR}${path.delimiter}`)).toBe(true);
     expect(fs.statSync(path.join(dir, 'pi-sessions')).mode & 0o777).toBe(0o700);
   });
 
-  test('runtime call stores the pi final text', async () => {
-    const result = await manager.call(0, 'hello');
-    expect(JSON.parse(result.output).pid).toBe('0');
+  test('a task run stores the pi final text', async () => {
+    const task = await manager.call(0, 'hello');
+    expect(task.status).toBe('completed');
+    expect(JSON.parse(task.result).pid).toBe('0');
+    expect(JSON.parse(task.result).task).toBe(String(task.id));
+    expect(manager.repository.taskCalls(task.id)[0].status).toBe('succeeded');
     expect(manager.inspect(0).recent_calls[0].status).toBe('succeeded');
-    expect(manager.inspect(0).context.message_count).toBe(2);
     expect(manager.inspect(0).agent.provider).toBe('pi');
   });
 
-  test('project processes run the agent in the immutable path variable', async () => {
+  test('processes that declare path run the agent in it', async () => {
     const real = fs.realpathSync(dir);
-    const project = manager.load(0).createChild('project', { name: 'demo-project', goal: 'ship it', variables: { path: real } });
+    const project = manager.load(manager.spawn(0, 'project', 'demo-project', 'ship it', { path: real }).pid);
     expect(project.inspect().context.state.params).toEqual({ path: real });
-    expect((await manager.call(project.pid, 'where?', true)).cwd).toBe(real);
-    const result = await project.call('what is here?');
-    const payload = JSON.parse(result.output);
+    const preview = await manager.callDescribe(project.pid, 'where?');
+    expect(preview.cwd).toBe(real);
+    const first = await manager.call(project.pid, 'what is here?');
+    const payload = JSON.parse(first.result);
     expect(payload.cwd).toBe(real);
-    expect(flagValue(payload.argv, '--name')).toBe('demo-project[1]');
+    expect(flagValue(payload.argv, '--name')).toBe('demo-project[1]#1');
     expect(manager.repository.context(project.pid).state.params.path).toBe(real);
-    // The same binding carries a git worktree: the manager a dev-task hands a
+
+    // The same binding carries a git worktree: the node a dev-task hands a
     // worktree to runs there, without anyone having to `cd`.
-    const task = project.createChild('dev-task', { name: 'fix-login', variables: { title: '修登录' } });
-    const worktree = task.createChild('worktree-service', { name: 'fix-login', variables: { path: real } });
-    expect((await manager.call(worktree.pid, 'where?', true)).cwd).toBe(real);
-    expect(JSON.parse((await worktree.call('what is here?')).output).cwd).toBe(real);
-    expect(flagValue(JSON.parse((await worktree.call('again?')).output).argv, '--name')).toBe('fix-login[3]');
+    const devTask = manager.load(manager.spawn(project.pid, 'dev-task', 'fix-login', undefined, { title: '修登录' }).pid);
+    const worktree = manager.load(manager.spawn(devTask.pid, 'worktree-service', 'fix-login', undefined, { path: real }).pid);
+    expect((await manager.callDescribe(worktree.pid, 'where?')).cwd).toBe(real);
+    const done = await manager.call(worktree.pid, 'what is here?');
+    expect(JSON.parse(done.result).cwd).toBe(real);
+    expect(flagValue(JSON.parse(done.result).argv, '--name')).toBe('fix-login[3]#2');
   });
 
-  test('dry run prints the command without touching invocation history', async () => {
-    const preview = await manager.call(0, 'preview me', true);
+  test('dry run prints the command without creating a task', async () => {
+    const preview = await manager.callDescribe(0, 'preview me');
     expect(preview.dry_run).toBe(true);
     expect(preview.agent).toBe('pi');
     expect(preview.prompt).toBe('preview me');
     expect(preview.argv[0].endsWith('pi-stub')).toBe(true);
     expect(preview.executable.endsWith('pi-stub')).toBe(true);
     expect(preview.argv[1]).toBe('--print');
-    expect(flagValue(preview.argv, '--session-id')).toBe('lush-0');
+    // No task exists yet, so the session id is a placeholder.
+    expect(flagValue(preview.argv, '--session-id')).toBe('lush-task-preview');
     expect(preview.command).toContain('--append-system-prompt');
     expect(preview.command.startsWith(preview.argv[0])).toBe(true);
     expect(preview.command.endsWith("'preview me'")).toBe(true);
     expect(preview.cwd).toBe(dir); // printed as configured; the child resolves symlinks itself
-    expect(preview.env).toEqual({ LUSH_HOME: dir, LUSH_PID: '0' });
+    expect(preview.env).toEqual({ LUSH_HOME: dir, LUSH_PID: '0', LUSH_TASK_ID: '' });
     expect(preview.path_prefix).toBe(LUSH_BIN_DIR);
-    // A dry run records nothing and does not mark the process busy.
+    // A dry run records nothing, creates no task and does not mark the process busy.
     expect(manager.inspect(0).recent_calls).toEqual([]);
     expect(manager.inspect(0).context.message_count).toBe(0);
+    expect(manager.taskList()).toEqual([]);
     expect(runtime.isBusy(0)).toBe(false);
-    // The real call then runs exactly the previewed argv (argv[0] may be canonicalized by the OS).
-    const echoed = JSON.parse((await manager.call(0, 'preview me')).output).argv;
-    expect(echoed.slice(1)).toEqual(preview.argv.slice(1));
+    // The real task then runs the same flags (only the session id differs).
+    const task = await manager.call(0, 'preview me');
+    const echoed = JSON.parse(task.result).argv;
+    expect(echoed[echoed.indexOf('--session-id') + 1]).toBe(`lush-task-${task.id}`);
+    expect(echoed.slice(1, echoed.indexOf('--session-id'))).toEqual(preview.argv.slice(1, preview.argv.indexOf('--session-id')));
     expect(fs.realpathSync(echoed[0])).toBe(fs.realpathSync(preview.argv[0]));
-    await expectRejection(manager.call(0, 'again', 'yes'), /dry_run must be a boolean/);
   });
 
   test('non-zero exit becomes a provider error without leaking details', async () => {
     const env = { ...process.env, PI_STUB_MODE: 'fail' };
     const failing = new PiAgentProvider({ command: writeStub(dir, 'pi-fail'), home: dir, env });
     const error = await expectRejection(failing.call([], [], null, {
-      pid: 1, prompt: 'x', system_prompt: 's', guide: 'g', context: { process: { name: 'x' } },
+      task_id: 1, pid: 1, prompt: 'x', system_prompt: 's', guide: 'g', context: { process: { name: 'x' } },
     }), /pi agent failed \(exit 3\)/);
     expect(error.code).toBe(-32020);
     expect(error.message).toContain('stub pi exploded');
@@ -162,7 +175,7 @@ describe('pi agent backend', () => {
     const slow = new PiAgentProvider({ command: writeStub(dir, 'pi-slow'), home: dir, env });
     const controller = new AbortController();
     const pending = slow.call([], [], controller.signal, {
-      pid: 1, prompt: 'x', system_prompt: 's', guide: 'g', context: { process: { name: 'x' } },
+      task_id: 1, pid: 1, prompt: 'x', system_prompt: 's', guide: 'g', context: { process: { name: 'x' } },
     });
     pending.catch(() => {});
     for (let attempt = 0; attempt < 100 && !fs.existsSync(pidFile); attempt += 1) await Bun.sleep(20);
@@ -181,62 +194,77 @@ describe('pi agent backend', () => {
     expect(alive).toBe(false);
   });
 
-  test('interactive call hands pi the terminal and still records one call', async () => {
-    const opened = runtime.openInteractive(0, 'help me please');
-    expect(opened).toMatchObject({ pid: 0, call_id: 1, agent: 'pi', prompt: 'help me please', interactive: true });
+  test('interactive task hands pi the terminal and still records one call', async () => {
+    const task = manager.repository.createTask(0, null, 'help me please');
+    const opened = runtime.openInteractive(task.id);
+    expect(opened).toMatchObject({ task_id: task.id, pid: 0, call_id: 1, agent: 'pi', prompt: 'help me please', interactive: true });
     // The interactive argv is the plain call argv without --print.
     expect(opened.argv.includes('--print')).toBe(false);
-    expect(flagValue(opened.argv, '--session-id')).toBe('lush-0');
+    expect(flagValue(opened.argv, '--session-id')).toBe(`lush-task-${task.id}`);
     expect(opened.argv[opened.argv.length - 1]).toBe('help me please');
-    expect(opened.env).toEqual({ LUSH_HOME: dir, LUSH_PID: '0' });
+    expect(opened.env).toEqual({ LUSH_HOME: dir, LUSH_PID: '0', LUSH_TASK_ID: String(task.id) });
     expect(opened.cwd).toBe(dir);
 
-    // Opening the call is a real call: user message recorded, live agent registered.
+    // Opening the task is real work: user message recorded, live agent registered.
     expect(runtime.isBusy(0)).toBe(true);
-    expect(runtime.agentSummary(0)).toMatchObject({ running: 1, agents: [{ id: '0.1', call_id: 1, interactive: true }] });
+    expect(manager.repository.getTask(task.id).status).toBe('running');
+    expect(runtime.agentSummary(0)).toMatchObject({
+      running: 1, agents: [{ id: `${task.id}.1`, call_id: 1, interactive: true }],
+    });
     expect(manager.inspect(0).agent.status).toBe('busy');
-    expect(manager.inspect(0).recent_calls[0]).toMatchObject({ status: 'running', prompt: 'help me please' });
-    expect(manager.inspect(0).context.message_count).toBe(1);
-    expect(() => manager.callBegin(0, 'again')).toThrow(/agent is busy/);
-    await expectRejection(manager.call(0, 'again'), /agent is busy/);
+    expect(manager.repository.taskCalls(task.id)[0]).toMatchObject({ status: 'running', prompt: 'help me please' });
+    // One active task per process: a second one is refused while the terminal owns pi.
+    await expectRejection(manager.call(0, 'again'), /already working on task/);
 
-    const settled = manager.callEnd(0, opened.call_id, 'succeeded');
-    expect(settled).toEqual({ pid: 0, call_id: opened.call_id, settled: true, status: 'succeeded' });
+    const settled = manager.callEnd(task.id, opened.call_id, 'succeeded');
+    expect(settled).toEqual({ task_id: task.id, call_id: opened.call_id, settled: true, status: 'completed' });
     expect(runtime.isBusy(0)).toBe(false);
-    expect(manager.inspect(0).recent_calls[0].status).toBe('succeeded');
-    // Reporting twice is not an error: the daemon may have settled it first.
-    expect(manager.callEnd(0, opened.call_id, 'failed').settled).toBe(false);
-    expect(manager.inspect(0).recent_calls[0].status).toBe('succeeded');
-    // The next (daemon-run) call continues the same pi session.
-    expect(flagValue((await manager.call(0, 'hello', true)).argv, '--session-id')).toBe('lush-0');
-    expect((await manager.call(0, 'hello')).output).toContain('lush-0');
+    expect(manager.repository.taskCalls(task.id)[0].status).toBe('succeeded');
+    expect(manager.repository.getTask(task.id).status).toBe('completed');
+    // Reporting twice is not an error: the daemon settled it first.
+    expect(manager.callEnd(task.id, opened.call_id, 'failed').settled).toBe(false);
+    expect(manager.repository.getTask(task.id).status).toBe('completed');
+
+    // A new task on the same process gets its own session.
+    const next = await manager.callDescribe(0, 'hello');
+    expect(flagValue(next.argv, '--session-id')).toBe('lush-task-preview');
+    const second = await manager.call(0, 'hello');
+    expect(JSON.parse(second.result).argv[JSON.parse(second.result).argv.indexOf('--session-id') + 1])
+      .toBe(`lush-task-${second.id}`);
   });
 
-  test('kill marks an open interactive call; the terminal settles it as interrupted', async () => {
-    const task = manager.load(0).createChild('generic-task', { name: 'worker' });
-    const opened = runtime.openInteractive(task.pid, 'do the work');
-    manager.kill(task.pid);
+  test('cancelling an interactive task lets the terminal settle as interrupted', async () => {
+    const task = manager.repository.createTask(
+      manager.spawn(0, 'generic-task', 'worker').pid, null, 'do the work',
+    );
+    const opened = runtime.openInteractive(task.id);
+    manager.cancelTask(task.id);
     expect(runtime.isBusy(task.pid)).toBe(true); // the terminal still runs pi
-    const settled = manager.callEnd(task.pid, opened.call_id, 'succeeded');
-    expect(settled).toMatchObject({ settled: true, status: 'interrupted' });
+    const settled = manager.callEnd(task.id, opened.call_id, 'succeeded');
+    expect(settled).toMatchObject({ settled: true, status: 'cancelled' });
     expect(runtime.isBusy(task.pid)).toBe(false);
+    expect(manager.repository.getTask(task.id).status).toBe('cancelled');
   });
 
-  test('an interactive call nobody settles times out and frees the process', async () => {
+  test('an interactive task nobody settles times out and fails', async () => {
     const other = tmpdir('lush-pi-open-');
     const parts = system(other, new PiAgentProvider({ command: writeStub(other, 'pi-stub'), home: other }),
       { timeout: 0.05 });
     try {
-      const opened = parts.runtime.openInteractive(0, 'abandoned');
+      const task = parts.manager.repository.createTask(0, null, 'abandoned');
+      const opened = parts.runtime.openInteractive(task.id);
       expect(parts.runtime.isBusy(0)).toBe(true);
       await Bun.sleep(300);
       expect(parts.runtime.isBusy(0)).toBe(false);
-      const [call] = parts.manager.inspect(0).recent_calls;
+      const [call] = parts.manager.repository.taskCalls(task.id);
       expect(call.status).toBe('failed');
       expect(call.error).toContain('timed out');
+      expect(parts.manager.repository.getTask(task.id)).toMatchObject({
+        status: 'failed', error: 'interactive invocation timed out',
+      });
       // The late terminal reports to nobody; the daemon's verdict stands.
-      expect(parts.manager.callEnd(0, opened.call_id, 'succeeded').settled).toBe(false);
-      expect(parts.manager.inspect(0).recent_calls[0].status).toBe('failed');
+      expect(parts.manager.callEnd(task.id, opened.call_id, 'succeeded').settled).toBe(false);
+      expect(parts.manager.repository.taskCalls(task.id)[0].status).toBe('failed');
     } finally {
       await parts.runtime.shutdown();
       parts.database.close();
@@ -244,116 +272,117 @@ describe('pi agent backend', () => {
     }
   });
 
-  test('agent space: termination, live pids and the durable call behind it', async () => {
-    const parent = manager.load(0).createChild('generic-task', { name: 'worker' });
-    await parent.call('first round');
-    const opened = runtime.openInteractive(parent.pid, 'interactive round');
-    expect(opened.agent_id).toBe(`${parent.pid}.2`);
+  test('agent space: per-task ids, live OS pids and the durable call behind it', async () => {
+    const worker = manager.load(manager.spawn(0, 'generic-task', 'worker').pid);
+    const first = await manager.call(worker.pid, 'first round');
+    const interactive = manager.repository.createTask(worker.pid, null, 'interactive round');
+    const opened = runtime.openInteractive(interactive.id);
+    // Ids are per task: the first task used 1.1, this one starts at 2.1.
+    expect(opened.agent_id).toBe(`${interactive.id}.1`);
     expect(runtime.agentsList()).toEqual([
-      expect.objectContaining({ id: `${parent.pid}.2`, interactive: true, os_pid: null, cancellable: false }),
+      expect.objectContaining({ id: `${interactive.id}.1`, task_id: interactive.id, interactive: true, os_pid: null, cancellable: false }),
     ]);
-    expect(runtime.agentsList({ pid: 0 })).toEqual([]);
+    expect(runtime.agentsList({ taskId: first.id })).toEqual([]);
 
     // The terminal reports the OS pid of the pi process it runs.
     const terminal = cp.spawn(process.execPath, ['-e', 'await Bun.sleep(30000)'], { stdio: 'ignore' });
     const exited = new Promise((resolve) => terminal.on('close', resolve));
-    expect(manager.callOsPid(parent.pid, opened.call_id, terminal.pid))
-      .toEqual({ pid: parent.pid, call_id: opened.call_id, recorded: true, agent_id: `${parent.pid}.2` });
+    expect(manager.callOsPid(interactive.id, opened.call_id, terminal.pid))
+      .toEqual({ task_id: interactive.id, call_id: opened.call_id, recorded: true, agent_id: `${interactive.id}.1` });
     expect(runtime.agentsList()[0]).toMatchObject({ os_pid: terminal.pid, cancellable: true });
-    expect(manager.agentShow(`${parent.pid}.2`)).toMatchObject({
-      id: `${parent.pid}.2`,
-      call: { id: 2, prompt: 'interactive round', status: 'running' },
-      session: { session_id: `lush-${parent.pid}` },
+    expect(manager.agentShow(`${interactive.id}.1`)).toMatchObject({
+      id: `${interactive.id}.1`,
+      task_id: interactive.id,
+      call: { id: opened.call_id, prompt: 'interactive round', status: 'running' },
+      session: { session_id: `lush-task-${interactive.id}` },
     });
-    expect(manager.agentShow(`${parent.pid}.1`)).toMatchObject({
+    expect(manager.agentShow(`${first.id}.1`)).toMatchObject({
       status: 'succeeded', cancellable: false, call: { status: 'succeeded' },
     });
 
-    // Killing one agent kills the OS process, not the logical Process, and
-    // settles the interactive call on the spot: there is nobody left to report.
-    const kill = manager.agentsKill(`${parent.pid}.2`);
+    // Killing one agent kills the OS process and cancels the task it served.
+    const kill = manager.agentsKill(`${interactive.id}.1`);
     expect(kill).toMatchObject({ outcome: 'killed', os_pid: terminal.pid });
-    expect('killed' in kill).toBe(false);
     expect(kill.cancellable).toBe(false);
     await exited;
     expect(runtime.agentsList()).toEqual([]);
-    expect(manager.callEnd(parent.pid, opened.call_id, 'succeeded')).toMatchObject({ settled: false, status: 'interrupted' });
-    expect(manager.inspect(parent.pid).status).toBe('running');
-    expect(manager.agentsList(null, true).map((agent) => `${agent.id}:${agent.status}`))
-      .toEqual([`${parent.pid}.1:succeeded`, `${parent.pid}.2:interrupted`]);
-    expect(() => manager.agentsKill(`${parent.pid}.2`)).toThrow(/is not running/);
-    expect(() => manager.agentShow(`${parent.pid}.3`)).toThrow(/agent not found/);
+    expect(manager.repository.getTask(interactive.id).status).toBe('cancelled');
+    expect(manager.callEnd(interactive.id, opened.call_id, 'succeeded')).toMatchObject({ settled: false, status: 'cancelled' });
+    expect(manager.inspect(worker.pid).status).toBe('active');
+    expect(manager.agentsList(null, null, true).map((agent) => `${agent.id}:${agent.status}`))
+      .toEqual([`${first.id}.1:succeeded`, `${interactive.id}.1:interrupted`]);
+    expect(() => manager.agentsKill(`${interactive.id}.1`)).toThrow(/is not running/);
+    expect(() => manager.agentShow(`${interactive.id}.3`)).toThrow(/agent not found/);
     // A report that arrives after the verdict is a no-op, not an error.
-    expect(manager.callOsPid(parent.pid, opened.call_id, process.pid)).toEqual({
-      pid: parent.pid, call_id: opened.call_id, recorded: false, agent_id: null,
+    expect(manager.callOsPid(interactive.id, opened.call_id, process.pid)).toEqual({
+      task_id: interactive.id, call_id: opened.call_id, recorded: false, agent_id: null,
     });
   });
 
   test('agents kill settles an interactive worker whose pi is already gone', async () => {
-    const opened = runtime.openInteractive(0, 'interactive round');
+    const task = manager.repository.createTask(0, null, 'interactive round');
+    const opened = runtime.openInteractive(task.id);
     // A pi that exits on its own leaves the agent listed (only the terminal can
     // report back) with a pid that is no longer alive.
     const dead = cp.spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
     const exited = new Promise((resolve) => dead.on('close', resolve));
-    expect(manager.callOsPid(0, opened.call_id, dead.pid)).toMatchObject({ recorded: true });
+    expect(manager.callOsPid(task.id, opened.call_id, dead.pid)).toMatchObject({ recorded: true });
     await exited;
     // `gone`, not `no_pid`: the daemon still knows which pid it had, so it can
     // tell the terminal is not coming back and settle the call itself.
-    expect(manager.agentsKill(opened.agent_id)).toMatchObject({ outcome: 'gone', os_pid: dead.pid, status: 'interrupted' });
+    expect(manager.agentsKill(opened.agent_id))
+      .toMatchObject({ outcome: 'gone', os_pid: dead.pid, status: 'interrupted' });
     expect(runtime.agentsList()).toEqual([]);
     expect(runtime.isBusy(0)).toBe(false);
-    expect(manager.inspect(0).recent_calls[0]).toMatchObject({
+    expect(manager.repository.taskCalls(task.id)[0]).toMatchObject({
       id: opened.call_id, status: 'interrupted', error: `invocation ${opened.call_id} interrupted`,
     });
+    expect(manager.repository.getTask(task.id).status).toBe('cancelled');
   });
 
   test('interactive settlement is validated', () => {
-    expect(() => manager.callBegin(0, '')).toThrow(/prompt must be a non-empty string/);
-    expect(() => manager.callEnd(0, 1.5, 'succeeded')).toThrow(/call_id must be a positive integer/);
-    expect(() => manager.callEnd(0, 1, 'cancelled')).toThrow(/status must be/);
-    expect(() => manager.callEnd(0, 1, 'succeeded', '')).toThrow(/output must be a non-empty string/);
+    const task = manager.repository.createTask(0, null, 'work');
+    expect(() => runtime.openInteractive(manager.repository.createTask(0, null, 'x').id)).not.toThrow();
+    expect(() => manager.callEnd(task.id, 1.5, 'succeeded')).toThrow(/call_id must be a positive integer/);
+    expect(() => manager.callEnd(task.id, 1, 'cancelled')).toThrow(/status must be/);
+    expect(() => manager.callEnd(task.id, 1, 'succeeded', '')).toThrow(/output must be a non-empty string/);
     // A call the daemon already settled (timeout, kill, shutdown) reports settled: false.
-    expect(manager.callEnd(0, 1, 'succeeded')).toEqual({ pid: 0, call_id: 1, settled: false, status: null });
+    expect(manager.callEnd(task.id, 1, 'succeeded')).toEqual({ task_id: task.id, call_id: 1, settled: false, status: 'created' });
   });
 
   test('session reports the pi session dir, id, file and open commands', async () => {
-    const before = manager.session(0);
+    // A task on PID 0: the session belongs to it, not to the process.
+    const task = manager.repository.createTask(0, null, 'hello');
+    const before = manager.session(task.id);
     expect(before).toMatchObject({
-      pid: 0, name: 'lush', status: 'running', agent: 'pi', busy: false, session_id: 'lush-0', file: null, files: [],
+      task_id: task.id, pid: 0, name: 'lush', task_status: 'created', agent: 'pi', busy: false,
+      session_id: `lush-task-${task.id}`, file: null, files: [],
     });
     expect(before.cwd).toBe(dir);
     // Read-only: no invocation was recorded.
-    expect(manager.inspect(0).recent_calls).toEqual([]);
-    expect(manager.inspect(0).context.message_count).toBe(0);
-    // The listing summary reads host liveness only: no Context, no session walk.
+    expect(manager.repository.calls(0)).toEqual([]);
     expect(runtime.agentSummary(0)).toEqual({ provider: 'pi', running: 0, agents: [] });
 
-    await manager.call(0, 'hello');
-    // The finished agent moved to the bounded in-memory log.
-    expect(runtime.agentSummary(0)).toEqual({ provider: 'pi', running: 0, agents: [] });
-    const [finished] = manager.agentsList(null, true);
+    manager.cancelTask(task.id);
+    const done = await manager.call(0, 'hello');
+    const [finished] = manager.agentsList(done.id, null, true);
     expect(finished).toMatchObject({
-      id: '0.1', pid: 0, name: 'lush', provider: 'pi', status: 'succeeded', call_id: 1,
+      id: `${done.id}.1`, pid: 0, name: 'lush', provider: 'pi', status: 'succeeded',
       interactive: false, os_pid: expect.any(Number), cancellable: false, error: null,
     });
     expect(finished.elapsed_ms).toBeGreaterThanOrEqual(0);
     expect(manager.agentsList()).toEqual([]); // live only
     expect(manager.tree().find((row) => row.pid === 0).agent).toEqual(runtime.agentSummary(0));
-    const after = manager.session(0);
+    const after = manager.session(done.id);
     expect(after.session_dir).toBe(path.join(dir, 'pi-sessions'));
-    expect(after.file.endsWith('_lush-0.jsonl')).toBe(true);
+    expect(after.file.endsWith(`_lush-task-${done.id}.jsonl`)).toBe(true);
     expect(after.files).toEqual([after.file]);
     // `--open` argv keeps the Lush identity and has no --print; browse_command is the short form.
     expect(after.argv.includes('--print')).toBe(false);
     expect(flagValue(after.argv, '--system-prompt')).toBe(manager.templates.get('lush-root').system_prompt);
     expect(after.command).toBe(shellCommand(after.argv));
-    expect(after.browse_command).toContain('--session-id lush-0');
+    expect(after.browse_command).toContain(`--session-id lush-task-${done.id}`);
     expect(after.browse_command).not.toContain('--system-prompt');
-
-    // Allowed for any status: a finished task can still be reviewed.
-    const task = manager.load(0).createChild('generic-task');
-    manager.complete(task.pid);
-    expect(manager.session(task.pid).status).toBe('completed');
   });
 
   test('missing pi command fails fast and env overrides are honoured', async () => {

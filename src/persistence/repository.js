@@ -10,10 +10,11 @@
  */
 import { LushError, jsonDump, now, validPid } from '../core/types.js';
 import {
-  backfillSnapshot, context, event, events, history, stateAgent, updateState, updateVars,
+  backfillSnapshot, context, event, events, history, replaceContextPrompt, stateAgent, updateState, updateVars,
 } from './repository_state.js';
-import { addMessage, beginCall, callById, calls, conversation, finishCall } from './repository_calls.js';
+import { addMessage, beginCall, callById, calls, callsOfTask, conversation, finishCall } from './repository_calls.js';
 import { deleteRows, remove } from './repository_removal.js';
+import * as tasks from './repository_tasks.js';
 
 export class Repository {
   constructor(database) {
@@ -72,18 +73,22 @@ export class Repository {
       .map((row) => this.decode(row));
   }
 
+  /**
+   * Insert one process row plus its Context, both in one transaction; the row
+   * starts as `created` and is moved to `active` before returning.
+   */
   create(parentPid, template, name, goal, { root = false, variables = null, agent = null } = {}) {
     const stamp = now();
-    const columns = 'parent_pid,original_parent_pid,name,type,status,template,template_snapshot,goal,created_at,updated_at';
-    const values = [parentPid, parentPid, name, template.type, 'created',
+    const columns = 'parent_pid,original_parent_pid,name,status,template,template_snapshot,goal,created_at,updated_at';
+    const values = [parentPid, parentPid, name, 'created',
       template.name, jsonDump(template), goal, stamp, stamp];
     let pid = 0;
     this.database.transaction(() => {
       if (root) {
-        this.db.run(`INSERT INTO processes(pid,${columns}) VALUES(0,?,?,?,?,?,?,?,?,?,?)`, values);
+        this.db.run(`INSERT INTO processes(pid,${columns}) VALUES(0,?,?,?,?,?,?,?,?,?)`, values);
         pid = 0;
       } else {
-        pid = this.db.run(`INSERT INTO processes(${columns}) VALUES(?,?,?,?,?,?,?,?,?,?)`, values).lastInsertRowid;
+        pid = this.db.run(`INSERT INTO processes(${columns}) VALUES(?,?,?,?,?,?,?,?,?)`, values).lastInsertRowid;
       }
       // Templates carry no initial Context: state, artifacts and references always
       // start empty. Creation-time variables are stored by mutability region:
@@ -96,29 +101,28 @@ export class Repository {
       if (agent !== null && agent !== undefined) state.agent = agent;
       this.db.run('INSERT INTO contexts VALUES(?,?,?,?,?)', [pid, template.system_prompt, jsonDump(state), '[]', '[]']);
       this.event(pid, 'created', { parent_pid: parentPid, template: template.name });
-      this.db.run("UPDATE processes SET status='running' WHERE pid=?", [pid]);
-      this.event(pid, 'transition', { from: 'created', to: 'running' });
+      this.db.run("UPDATE processes SET status='active' WHERE pid=?", [pid]);
+      this.event(pid, 'transition', { from: 'created', to: 'active' });
     });
     return this.get(pid);
   }
 
   /**
-   * Active (created/running) children of `parentPid` that were created from
+   * Active (created/active) children of `parentPid` that were created from
    * `template`. Singleton templates refuse creation while this is non-zero;
-   * stopped, completed, failed, cancelled and reclaimed instances do not count.
+   * stopped instances do not count.
    */
   activeCount(parentPid, template) {
     return this.db
-      .query("SELECT COUNT(*) AS n FROM processes WHERE parent_pid=? AND template=? AND status IN ('created','running')")
+      .query("SELECT COUNT(*) AS n FROM processes WHERE parent_pid=? AND template=? AND status IN ('created','active')")
       .get(parentPid, template).n;
   }
 
   /**
    * Move one process to `target` and, in the same transaction, apply the
    * parent's policy to its active direct children: `adopt` reparents them to
-   * PID 0, `terminate` freezes them (Service → stopped, Task → cancelled).
-   * PID 0 is exempt from both, so daemon shutdown stays a change to PID 0
-   * alone.
+   * PID 0, `terminate` freezes them (always → stopped). PID 0 is exempt from
+   * both, so daemon shutdown stays a change to PID 0 alone.
    *
    * `cause` is the supervision reason (`orphan_ttl`, `orphan_limit`) and is
    * only recorded in the transition event when given. `effects` is an optional
@@ -150,7 +154,7 @@ export class Repository {
       // `transition(0, 'stopped')` and must stay a change to PID 0 alone.
       if ((adopt || terminate) && pid !== 0) {
         const children = this.db
-          .query("SELECT pid,type,status FROM processes WHERE parent_pid=? AND status IN ('created','running')")
+          .query("SELECT pid,status FROM processes WHERE parent_pid=? AND status IN ('created','active')")
           .all(pid);
         for (const child of children) {
           if (adopt) {
@@ -162,7 +166,7 @@ export class Repository {
           // The child is frozen, not deleted, and only this one level is
           // written here: each frozen child goes through the same policy again
           // in ProcessManager, which is what walks an active chain down.
-          const childTarget = child.type === 'service' ? 'stopped' : 'cancelled';
+          const childTarget = 'stopped';
           this.db.run('UPDATE processes SET status=?,updated_at=? WHERE pid=?', [childTarget, now(), child.pid]);
           this.event(child.pid, 'transition', { from: child.status, to: childTarget, cause: 'parent_terminated' });
           if (effects !== null) effects.push({ pid: child.pid, from: child.status, to: childTarget, kind: 'terminated' });
@@ -180,7 +184,7 @@ export class Repository {
    */
   orphans() {
     return this.db.query(`
-      SELECT p.pid, p.name, p.type, p.status, p.template, p.parent_pid, p.original_parent_pid,
+      SELECT p.pid, p.name, p.status, p.template, p.parent_pid, p.original_parent_pid,
              p.created_at, p.updated_at, p.goal,
              (SELECT MAX(m.created_at) FROM messages m WHERE m.pid = p.pid) AS last_message_at,
              (SELECT MAX(COALESCE(c.finished_at, c.started_at)) FROM agent_calls c WHERE c.pid = p.pid) AS last_call_at
@@ -192,15 +196,22 @@ export class Repository {
   }
 
   /**
-   * A restarted daemon must not inherit `running` state it cannot vouch for:
-   * dangling calls become interrupted, and PID 0 goes back to running.
+   * A restarted daemon must not inherit work it cannot vouch for: dangling
+   * calls become interrupted, tasks that were running or waiting become
+   * `failed` (their agents are gone), and PID 0 goes back to active.
    */
   recover() {
     this.database.transaction(() => {
       this.db.run("UPDATE agent_calls SET status='interrupted',error='daemon restarted',finished_at=? WHERE status='running'",
         [now()]);
+      const abandoned = this.db.query("SELECT id FROM tasks WHERE status IN ('created','running','waiting')").all();
+      for (const row of abandoned) {
+        this.db.run("UPDATE tasks SET status='failed',error='daemon restarted',finished_at=?,updated_at=? WHERE id=?",
+          [now(), now(), row.id]);
+        tasks.taskEvent(this, row.id, 'transition', { from: 'running', to: 'failed', cause: 'daemon_restarted' });
+      }
       if (this.exists(0)) {
-        this.db.run("UPDATE processes SET status='running',updated_at=? WHERE pid=0", [now()]);
+        this.db.run("UPDATE processes SET status='active',updated_at=? WHERE pid=0", [now()]);
         this.event(0, 'daemon_started', {});
       }
     });
@@ -234,6 +245,11 @@ export class Repository {
 
   context(pid) {
     return context(this, pid);
+  }
+
+  /** Replace a Context system prompt (see `repository_state.replaceContextPrompt`). */
+  replaceContextPrompt(pid, systemPrompt) {
+    return replaceContextPrompt(this, pid, systemPrompt);
   }
 
   updateState(pid, patch) {
@@ -287,12 +303,12 @@ export class Repository {
 
   // ── Agent calls and messages (see repository_calls.js) ────────────────────
 
-  beginCall(pid, prompt) {
-    return beginCall(this, pid, prompt);
+  beginCall(pid, taskId, prompt) {
+    return beginCall(this, pid, taskId, prompt);
   }
 
-  addMessage(pid, callId, body) {
-    return addMessage(this, pid, callId, body);
+  addMessage(pid, taskId, callId, body) {
+    return addMessage(this, pid, taskId, callId, body);
   }
 
   finishCall(callId, status, detail = {}) {
@@ -303,11 +319,86 @@ export class Repository {
     return calls(this, pid, limit);
   }
 
+  callsOfTask(taskId, limit = 20) {
+    return callsOfTask(this, taskId, limit);
+  }
+
   callById(callId) {
     return callById(this, callId);
   }
 
-  conversation(pid, currentCall) {
-    return conversation(this, pid, currentCall);
+  conversation(taskId, currentCall) {
+    return conversation(this, taskId, currentCall);
+  }
+
+  // ── Tasks (see repository_tasks.js) ────────────────────────────────────────
+
+  /** `createTask` opens a unit of work on one process; the root task is its own root. */
+  createTask(pid, parentTaskId, goal, options) {
+    return tasks.createTask(this, pid, parentTaskId, goal, options);
+  }
+
+  getTask(taskId) {
+    return tasks.getTask(this, taskId);
+  }
+
+  findTask(taskId) {
+    return tasks.findTask(this, taskId);
+  }
+
+  listTasks(options) {
+    return tasks.listTasks(this, options);
+  }
+
+  tasksOfProcess(pid) {
+    return tasks.tasksOfProcess(this, pid);
+  }
+
+  childTasks(taskId) {
+    return tasks.childTasks(this, taskId);
+  }
+
+  activeTasks(options) {
+    return tasks.activeTasks(this, options);
+  }
+
+  activeTaskOfProcess(pid) {
+    return tasks.activeTaskOfProcess(this, pid);
+  }
+
+  transitionTask(taskId, target, options) {
+    return tasks.transitionTask(this, taskId, target, options);
+  }
+
+  updateTaskState(taskId, patch) {
+    return tasks.updateTaskState(this, taskId, patch);
+  }
+
+  taskEvent(taskId, kind, data) {
+    return tasks.taskEvent(this, taskId, kind, data);
+  }
+
+  taskEvents(taskId, limit = 20) {
+    return tasks.taskEvents(this, taskId, limit);
+  }
+
+  taskCalls(taskId) {
+    return tasks.taskCalls(this, taskId);
+  }
+
+  taskMessages(taskId) {
+    return tasks.taskMessages(this, taskId);
+  }
+
+  taskSubtree(taskId) {
+    return tasks.taskSubtree(this, taskId);
+  }
+
+  deleteTaskRows(taskIds) {
+    return tasks.deleteTaskRows(this, taskIds);
+  }
+
+  detachProcessTasks(pids) {
+    return tasks.detachProcessTasks(this, pids);
   }
 }

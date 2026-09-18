@@ -250,23 +250,31 @@ describe('agent profiles inside processes: spawn, inspect and the argv of a call
     expect(manager.inspect(child.pid).agent).toMatchObject({ provider: 'pi', profile: 'demo' });
     expect(manager.inspect(0).agent).toMatchObject({ provider: 'pi', profile: 'default' });
 
-    // The dry run and the real call agree, and both carry the profile's flags.
-    const preview = await manager.call(child.pid, 'hello', true);
+    // The dry run and the real task agree, and both carry the profile's flags.
+    const preview = await manager.callDescribe(child.pid, 'hello');
     expect(preview.agent).toBe('pi');
     expect(preview.profile).toBe('demo');
     for (const flag of PURE_PI_FLAGS) expect(preview.argv).toContain(flag);
     expect(preview.argv[preview.argv.indexOf('--model') + 1]).toBe('demo-model');
-    const echoed = JSON.parse((await manager.call(child.pid, 'hello')).output).argv;
-    expect(echoed.slice(1)).toEqual(preview.argv.slice(1));
-    expect(manager.session(child.pid)).toMatchObject({ agent: 'pi', profile: 'demo' });
-    expect(manager.session(child.pid).argv).toContain('--no-extensions');
+    const task = await manager.call(child.pid, 'hello');
+    const echoed = JSON.parse(task.result).argv;
+    // The dry run and the real task are described by the same builder; only the
+    // task id (and the session id / name derived from it) differ.
+    for (const flag of PURE_PI_FLAGS) expect(echoed).toContain(flag);
+    expect(echoed[echoed.indexOf('--model') + 1]).toBe('demo-model');
+    expect(echoed[echoed.indexOf('--session-id') + 1]).toBe(`lush-task-${task.id}`);
+    expect(preview.argv[preview.argv.indexOf('--session-id') + 1]).toBe('lush-task-preview');
+    // Sessions belong to tasks now, and the id names the task.
+    expect(manager.session(task.id)).toMatchObject({ agent: 'pi', profile: 'demo', task_id: task.id, pid: child.pid });
+    expect(manager.session(task.id).argv).toContain('--no-extensions');
+    expect(manager.session(task.id).session_id).toBe(`lush-task-${task.id}`);
 
     // The invocation handed to the provider also names the profile it runs under.
-    const invocation = buildInvocation(runtime, child.pid, null, 'p', {
+    const invocation = buildInvocation(runtime, { id: 1, pid: child.pid }, null, 'p', {
       context: { systemPrompt: 'S' }, guide: 'G', data: {},
     });
-    expect(invocation).toMatchObject({ pid: child.pid, agent_profile: 'demo', prompt: 'p' });
-    expect(buildInvocation(runtime, 0, null, 'p', { context: { systemPrompt: 'S' }, guide: 'G', data: {} }).agent_profile)
+    expect(invocation).toMatchObject({ task_id: 1, pid: child.pid, agent_profile: 'demo', prompt: 'p' });
+    expect(buildInvocation(runtime, { id: 2, pid: 0 }, null, 'p', { context: { systemPrompt: 'S' }, guide: 'G', data: {} }).agent_profile)
       .toBe('default');
   });
 
@@ -290,7 +298,7 @@ describe('agent profiles inside processes: spawn, inspect and the argv of a call
     expect(manager.inspect(fromTemplate.pid).agent).toMatchObject({ provider: 'pi', profile: 'from-template' });
     expect(manager.inspect(explicit.pid).agent).toMatchObject({ provider: 'pi', profile: 'explicit' });
     // The plugins=true profiles therefore run without any --no-* flag.
-    const preview = await manager.call(explicit.pid, 'hi', true);
+    const preview = await manager.callDescribe(explicit.pid, 'hi');
     for (const flag of PURE_PI_FLAGS) expect(preview.argv).not.toContain(flag);
     // No explicit agent: the environment tier (mock) still applies.
     const plain = manager.spawn(0, 'generic-task', 'c');
@@ -332,9 +340,9 @@ describe('agent profiles inside processes: spawn, inspect and the argv of a call
     expect(info.agent.profile).toBe('gone');
     expect(info.agent.profile_error).toContain('agent profile not found: gone');
     expect(manager.tree().find((row) => row.pid === child.pid).agent.provider).toBe('pi');
-    // Calling it cannot work, preview included.
+    // Running anything on it cannot work, preview included.
     await expectRejection(manager.call(child.pid, 'hi'), /agent profile not found: gone/);
-    await expectRejection(manager.call(child.pid, 'hi', true), /agent profile not found: gone/);
+    await expectRejection(manager.callDescribe(child.pid, 'hi'), /agent profile not found: gone/);
   });
 });
 

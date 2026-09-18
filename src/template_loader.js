@@ -11,8 +11,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const BUILTIN_DIR = path.join(HERE, '..', 'templates');
 
 /**
- * The exact template key set. `type` is the process type (`task` / `service`),
- * `singleton` limits creation to one active instance per parent PID,
+ * The exact template key set. A template describes one kind of **process** (a
+ * passive node: identity, permissions, variables); `singleton` limits creation to
+ * one active instance per parent PID,
  * `spawn_prompt` tells a creating agent how to spawn this template and which
  * variables it needs, `system_prompt` becomes the instance Call prompt,
  * `child_templates` is the creation-time whitelist of spawnable templates (each
@@ -21,7 +22,7 @@ export const BUILTIN_DIR = path.join(HERE, '..', 'templates');
  * calls and older user templates, a bare template name), and `variables`
  * declares the instance's variables (see `checkVariables`).
  */
-export const REQUIRED_FIELDS = ['name', 'type', 'singleton', 'description', 'spawn_prompt', 'system_prompt', 'child_templates', 'variables'];
+export const REQUIRED_FIELDS = ['name', 'singleton', 'description', 'spawn_prompt', 'system_prompt', 'child_templates', 'variables'];
 
 /**
  * Optional template fields. `agent` names the agent profile a spawned instance
@@ -225,9 +226,6 @@ export class TemplateLoader {
         + (OPTIONAL_FIELDS.length ? ` (optional: ${OPTIONAL_FIELDS.join(', ')})` : ''), -32602);
     }
     for (const field of ['name', 'description', 'spawn_prompt', 'system_prompt']) text(value[field], field, 100_000);
-    if (value.type !== 'service' && value.type !== 'task') {
-      throw new LushError('invalid template type', -32602);
-    }
     // Optional: which agent profile new instances use unless --agent overrides it.
     if (Object.hasOwn(value, 'agent')) text(value.agent, 'agent', 200);
     if (typeof value.singleton !== 'boolean') {

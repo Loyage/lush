@@ -1,4 +1,11 @@
-/** Agent capability adapter: names/JSON schema only, Core owns business rules. */
+/**
+ * Agent capability adapter: names/JSON schema only, Core owns business rules.
+ *
+ * The agent works *as a task* on a process: `task_*` tools move work (delegate
+ * to a child process, wait for the children, finish), `process_*` tools read
+ * and shape the passive node it runs on (identity, permissions, variables,
+ * persistent state, and spawning child processes).
+ */
 import { invoke } from '../core/dispatch.js';
 import { LushError, jsonLoad } from '../core/types.js';
 
@@ -17,91 +24,123 @@ function tool(name, description, properties = {}, required = []) {
 }
 
 export const TOOL_DEFINITIONS = [
-  tool('process_self', 'Inspect this process: identity, goal, persistent context and recent history.'),
-  tool('process_parent', "Read this process's current parent (may be PID 0 after adoption)."),
-  tool('process_children', "List this process's direct children."),
-  tool('process_inspect', 'Inspect another process.', { pid: PID }, ['pid']),
-  tool('process_spawn', 'Create and start a child using an allowed template. Both tasks and services may create either kind. A singleton template fails while the parent already has an active instance; see available_child_templates for how to create each template and which variables it needs. A template that declares a reserved `name` variable (dev-task does) makes that variable the process name, so `name` is required and is checked against the declared pattern.',
-    { template: STRING, name: STRING, goal: STRING, variables: { type: 'object' } }, ['template']),
-  tool('process_call', 'Call another running process. Recursive and busy calls fail immediately.',
-    { pid: PID, prompt: STRING }, ['pid', 'prompt']),
-  tool('process_update_state', 'Shallow-merge JSON fields into your own persistent state, not lifecycle metadata. Cannot write process variables; use process_update_vars for those.',
-    { patch: { type: 'object' } }, ['patch']),
-  tool('process_update_vars', 'Change only the variables your own template declares in the mutable group (see the `declarations` field of your variables). Variables declared immutable, names the template does not declare, and values that do not satisfy the declared format (pattern / max_length / single_line) are rejected.',
-    { patch: { type: 'object' } }, ['patch']),
-  tool('process_complete', 'Explicitly complete your own Task only when its goal is met. Active children are adopted by PID 0. Services cannot complete.',
+  tool('task_self', 'Inspect the task you are working on: its goal, status, result, and the process it is mounted on.'),
+  tool('task_children', 'List the child tasks you have delegated to child processes (id, process, status, result).'),
+  tool('task_spawn', 'Delegate work downstream: create a child task on process `pid`. `pid` must be a direct child of your own process (spawn the process first with process_spawn if it does not exist yet). The child task starts running immediately; collect it later with task_wait. One active task per process: a busy child process refuses the delegation.',
+    { pid: PID, goal: STRING }, ['pid', 'goal']),
+  tool('task_wait', 'Block until one of your child tasks (or one of their descendants) is finished, then return its status and result. Waiting is what makes delegation observable and keeps the task tree settled.',
+    { task_id: PID }, ['task_id']),
+  tool('task_cancel', 'Cancel one of your child tasks; its own child tasks are cancelled with it.',
+    { task_id: PID }, ['task_id']),
+  tool('task_complete', 'Finish your task. Only call this once the goal is really met; every child task must be finished (or cancelled) first. The result you pass is stored on the task and returned to whoever is waiting.',
     { result: {} }),
+  tool('task_update_state', 'Shallow-merge JSON fields into your task\'s own scratch state (progress notes for this piece of work). The process has a separate, long-lived state.',
+    { patch: { type: 'object' } }, ['patch']),
+  tool('process_self', 'Inspect the passive node you run on: identity, variables, persistent state and child processes.'),
+  tool('process_parent', "Read your process's current parent (may be PID 0 after adoption)."),
+  tool('process_children', "List your process's direct child processes."),
+  tool('process_inspect', 'Inspect another process.', { pid: PID }, ['pid']),
+  tool('process_spawn', 'Create and start a child process using an allowed template, so work can be delegated to it with task_spawn. A singleton template fails while the parent already has an active instance; see available_child_templates for how to create each template and which variables it needs. A template that declares a reserved `name` variable (dev-task does) makes that variable the process name, so `name` is required and is checked against the declared pattern.',
+    { template: STRING, name: STRING, goal: STRING, variables: { type: 'object' } }, ['template']),
+  tool('process_update_state', 'Shallow-merge JSON fields into your process\'s long-lived state (knowledge that outlives this task). Variables are not writable here; use process_update_vars.',
+    { patch: { type: 'object' } }, ['patch']),
+  tool('process_update_vars', 'Change only the variables your process\'s template declares in the mutable group (see the `declarations` field of your variables). Variables declared immutable, names the template does not declare, and values that do not satisfy the declared format (pattern / max_length / single_line) are rejected.',
+    { patch: { type: 'object' } }, ['patch']),
 ];
 
 export const TOOL_PARAMS = {
+  task_self: { required: [] },
+  task_children: { required: [] },
+  task_spawn: { required: ['pid', 'goal'] },
+  task_wait: { required: ['task_id'] },
+  task_cancel: { required: ['task_id'] },
+  task_complete: { required: [], optional: ['result'] },
+  task_update_state: { required: ['patch'] },
   process_self: { required: [] },
   process_parent: { required: [] },
   process_children: { required: [] },
   process_inspect: { required: ['pid'] },
   process_spawn: { required: ['template'], optional: ['name', 'goal', 'variables'] },
-  process_call: { required: ['pid', 'prompt'] },
   process_update_state: { required: ['patch'] },
   process_update_vars: { required: ['patch'] },
-  process_complete: { required: [], optional: ['result'] },
 };
 
 export class AgentTools {
-  constructor(manager, pid) {
+  /** `taskId` is who the agent is; `pid` is the passive node it runs on. */
+  constructor(manager, taskId, pid) {
     this.manager = manager;
+    this.taskId = taskId;
     this.pid = pid;
     this.methods = {
-      process_self: { params: TOOL_PARAMS.process_self, fn: () => this.self() },
-      process_parent: { params: TOOL_PARAMS.process_parent, fn: () => this.parent() },
-      process_children: { params: TOOL_PARAMS.process_children, fn: () => this.children() },
+      task_self: { params: TOOL_PARAMS.task_self, fn: () => this.self() },
+      task_children: { params: TOOL_PARAMS.task_children, fn: () => this.children() },
+      task_spawn: { params: TOOL_PARAMS.task_spawn, fn: (pid, goal) => this.spawn(pid, goal) },
+      task_wait: { params: TOOL_PARAMS.task_wait, fn: (taskId) => this.wait(taskId) },
+      task_cancel: { params: TOOL_PARAMS.task_cancel, fn: (taskId) => this.cancel(taskId) },
+      task_complete: { params: TOOL_PARAMS.task_complete, fn: (result) => this.complete(result) },
+      task_update_state: {
+        params: TOOL_PARAMS.task_update_state,
+        fn: (patch) => this.updateTaskState(patch),
+      },
+      process_self: { params: TOOL_PARAMS.process_self, fn: () => manager.inspect(this.pid) },
+      process_parent: { params: TOOL_PARAMS.process_parent, fn: () => manager.parent(this.pid) },
+      process_children: { params: TOOL_PARAMS.process_children, fn: () => manager.children(this.pid) },
       process_inspect: { params: TOOL_PARAMS.process_inspect, fn: (pid) => manager.inspect(pid) },
       process_spawn: {
         params: TOOL_PARAMS.process_spawn,
-        fn: (template, name, goal, variables) => this.spawn(template, name, goal, variables),
+        fn: (template, name, goal, variables) => this.spawnProcess(template, name, goal, variables),
       },
-      process_call: { params: TOOL_PARAMS.process_call, fn: (pid, prompt) => this.call(pid, prompt) },
       process_update_state: {
         params: TOOL_PARAMS.process_update_state,
-        fn: (patch) => this.updateState(patch),
+        fn: (patch) => manager.updateState(this.pid, patch),
       },
       process_update_vars: {
         params: TOOL_PARAMS.process_update_vars,
-        fn: (patch) => this.updateVars(patch),
+        fn: (patch) => manager.updateVars(this.pid, patch),
       },
-      process_complete: { params: TOOL_PARAMS.process_complete, fn: (result) => this.complete(result) },
     };
   }
 
   self() {
-    return this.manager.inspect(this.pid);
-  }
-
-  parent() {
-    return this.manager.parent(this.pid);
+    return this.manager.taskInspect(this.taskId);
   }
 
   children() {
-    return this.manager.children(this.pid);
+    return this.manager.listChildTasks(this.taskId);
   }
 
-  spawn(template, name = undefined, goal = undefined, variables = undefined) {
-    return this.manager.spawn(this.pid, template, name, goal, variables);
+  spawn(pid, goal) {
+    return this.manager.spawnTask(this.taskId, pid, goal);
   }
 
-  async call(pid, prompt) {
-    this.manager.requireRunning(this.pid);
-    return this.manager.call(pid, prompt);
+  async wait(taskId) {
+    // Validated first: an unusable target must not park the task in `waiting`.
+    const pending = this.manager.waitForTask(taskId, this.taskId);
+    this.manager.taskWaiting(this.taskId, true);
+    this.manager.runtime?.pauseTimer(this.taskId);
+    try {
+      const settled = await pending;
+      return this.manager.taskResult(settled.id);
+    } finally {
+      this.manager.runtime?.resumeTimer(this.taskId);
+      this.manager.taskWaiting(this.taskId, false);
+    }
   }
 
-  updateState(patch) {
-    return this.manager.updateState(this.pid, patch);
-  }
-
-  updateVars(patch) {
-    return this.manager.updateVars(this.pid, patch);
+  cancel(taskId) {
+    return this.manager.cancelChildTask(this.taskId, taskId);
   }
 
   complete(result = undefined) {
-    return this.manager.complete(this.pid, result);
+    return this.manager.completeTask(this.taskId, result);
+  }
+
+  updateTaskState(patch) {
+    return this.manager.updateTaskState(this.taskId, patch);
+  }
+
+  spawnProcess(template, name = undefined, goal = undefined, variables = undefined) {
+    return this.manager.spawn(this.pid, template, name, goal, variables);
   }
 
   async execute(name, args) {

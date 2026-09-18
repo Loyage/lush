@@ -144,9 +144,15 @@ export function objectLines(value, depth = 0) {
   return lines;
 }
 
-/** `pid 3 · implement-login · task · running` — one-line identity of a process row. */
+/** `pid 3 · implement-login · active` — one-line identity of a process row. */
 export function metadataTitle(row) {
-  return `pid ${row.pid} · ${row.name} · ${row.type} · ${row.status}`;
+  return `pid ${row.pid} · ${row.name} · ${row.status}`;
+}
+
+/** `task #12 · running · project[3]` — one-line identity of a task row. */
+export function taskMetadataTitle(row, processName = null) {
+  const where = processName === null ? `pid ${row.pid}` : `${processName}[${row.pid}]`;
+  return `task #${row.id} · ${row.status} · ${where}`;
 }
 
 /** One event line: `#12 state_updated · 2026-09-17 23:12:30  {"keys":[...]}`. */

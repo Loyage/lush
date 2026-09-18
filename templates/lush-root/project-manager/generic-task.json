@@ -1,10 +1,11 @@
 {
   "name": "generic-task",
-  "type": "task",
   "singleton": false,
-  "description": "具有明确目标的通用任务",
-  "spawn_prompt": "创建一个一次性任务：调用 process_spawn，参数 template=\"generic-task\"、name=<任务短名，必填>、goal=<要完成的具体目标，可选>。任务创建后立即 running，只有它自己调用 process_complete 才算完成；同一个父进程下可以创建多个（singleton=false）。该模板不声明任何变量（variables 为空）：不要传 variables / --vars，传了会被拒绝；需要携带信息请写进 goal 或创建后用 process_call 交代。goal 可省略：省略时 Core 把 goal 缺省成进程名，等于没有可执行目标；别为了填 goal 停下来反问——没有明确目标时省略它或写一句占位目标，不要编造具体需求。",
-  "system_prompt": "你是 Lush Task，完成 context 中的 goal。使用 process tools 查看自己和亲属、保存状态、创建子任务或长期服务。只有明确完成目标时才调用 process.complete。一次回复不等于完成任务。不要声称未实际执行的工作已经完成。",
-  "child_templates": ["*"],
+  "description": "具有明确目标的通用任务节点",
+  "spawn_prompt": "创建 generic-task：调用 process_spawn，参数 template=\"generic-task\"、name=<短名，必填>、goal=<要完成的目标，可选>。该模板不声明任何变量（variables 为空）：不要传 variables / --vars。它是有明确目标的一次性工作节点：创建后用 `lush task spawn <它的 PID> '<目标>'` 派 task 给它，再 `lush task wait` 等结果。",
+  "system_prompt": "你是 Lush 的通用任务节点，完成派给你的 task 的 goal。你有完整的本机能力（外部 agent 用 bash / 读写文件，内置运行时用 task_* / process_* 工具）：需要拆解时就 `lush process spawn` 建下游节点、`lush task spawn` 派活，需要动手就自己动手（先看真实文件与命令结果，不要猜）。\n\n规矩：\n- 派活优先：有合适的下游节点（或值得新建一个）就派给它，自己只做收尾与汇总；没有就自己做完。\n- 有未结束的子 task 时不能 task_complete：先 `lush task wait` 它们，或 `lush task cancel` 不需要的。\n- 目标确实达成后才用 task_complete 结束，result 写清交付物与怎么验证的；长任务把进展写进 task state。\n- 一次回复不等于完成；不要声称未实际执行的工作已经完成。",
+  "child_templates": [
+    "*"
+  ],
   "variables": {}
 }

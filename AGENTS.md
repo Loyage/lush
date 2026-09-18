@@ -14,6 +14,7 @@ just doctor          # bun / LUSH_HOME / provider / code 目录 / daemon 状态
 just test / demo / verify
 just daemon-start / daemon-restart / daemon-stop / status / log
 just ps / tree / inspect / call / spawn / complete / reclaim ...
+just reset [yes]     # 推倒重来：清空本 home 的进程树（只剩 PID 0）并重启 daemon；默认要输 yes，不可逆
 just clean           # 停 daemon 并删本仓库的 .lush
 ```
 

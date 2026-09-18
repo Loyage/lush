@@ -53,6 +53,8 @@ export function inspect(manager, pid) {
   const profileError = manager.agentProfileError(pid, process.agent_profile);
   return {
     ...process,
+    /** Work mounted on this node, newest first: the tasks it is the home of. */
+    recent_tasks: manager.repository.tasksOfProcess(pid).slice(-10).reverse(),
     context: manager.repository.context(pid),
     agent: {
       status: manager.runtime && manager.runtime.isBusy(pid) ? 'busy' : 'idle',
@@ -119,12 +121,13 @@ export function backfillTemplateSnapshots(manager) {
 
 /**
  * The read every mutating verb starts with: the process must exist, and it must
- * be running. The row is returned so the caller does not read it twice.
+ * be active (taking work). The row is returned so the caller does not read it
+ * twice.
  */
-export function requireRunning(manager, pid) {
+export function requireActive(manager, pid) {
   const process = manager.repository.get(pid);
-  if (process.status !== 'running') {
-    throw new LushError(`process ${pid} is ${process.status}, expected running`);
+  if (process.status !== 'active') {
+    throw new LushError(`process ${pid} is ${process.status}, expected active`);
   }
   return process;
 }

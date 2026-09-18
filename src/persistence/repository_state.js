@@ -36,6 +36,25 @@ export function context(repository, pid) {
 }
 
 /**
+ * Replace one process's Context system prompt. The call prompt comes from the
+ * Context, not from the template snapshot (`buildInvocation` reads
+ * `context.context.systemPrompt`), so a process whose prompt must follow a
+ * template edit needs this in addition to `replaceSnapshot`. Used for PID 0
+ * alone, by `ProcessManager.refreshRootTemplate`; every other process keeps the
+ * prompt it was created with. Returns whether the prompt actually changed.
+ */
+export function replaceContextPrompt(repository, pid, systemPrompt) {
+  let changed = false;
+  repository.database.transaction(() => {
+    const row = repository.db.query('SELECT system_prompt FROM contexts WHERE pid=?').get(pid);
+    if (row === null || row.system_prompt === systemPrompt) return;
+    repository.db.run('UPDATE contexts SET system_prompt=? WHERE pid=?', [systemPrompt, pid]);
+    changed = true;
+  });
+  return changed;
+}
+
+/**
  * The agent profile a process selected at spawn time (`state.agent`), or null.
  * Reading one column keeps `process tree` cheap: it resolves a provider name per
  * row without walking sessions or counting messages.
@@ -78,12 +97,12 @@ export function updateVars(repository, pid, patch) {
   return vars;
 }
 
-/** One page of persisted messages, plus the cursor that continues it. */
-export function history(repository, pid, after = 0, limit = 100) {
-  repository.get(pid);
+/** One page of one task's persisted messages, plus the cursor that continues it. */
+export function history(repository, taskId, after = 0, limit = 100) {
+  repository.getTask(taskId);
   const messages = repository.db
-    .query('SELECT * FROM messages WHERE pid=? AND id>? ORDER BY id LIMIT ?')
-    .all(pid, after, limit)
+    .query('SELECT * FROM messages WHERE task_id=? AND id>? ORDER BY id LIMIT ?')
+    .all(taskId, after, limit)
     .map((row) => ({ ...row, body: JSON.parse(row.body) }));
   return { messages, next_after: messages.length ? messages[messages.length - 1].id : after };
 }

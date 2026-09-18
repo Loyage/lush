@@ -102,7 +102,6 @@ export class OrphanSupervisor {
     return {
       pid: row.pid,
       name: row.name,
-      type: row.type,
       status: row.status,
       template: row.template,
       original_parent_pid: row.original_parent_pid,
@@ -120,7 +119,7 @@ export class OrphanSupervisor {
    */
   pool() {
     const orphans = this.repository.orphans().map((row) => this._entry(row));
-    const active = orphans.filter((orphan) => orphan.status === 'created' || orphan.status === 'running');
+    const active = orphans.filter((orphan) => orphan.status === 'created' || orphan.status === 'active');
     const limit = this._policy.limit;
     return {
       policy: this.policyReport(),
@@ -134,7 +133,7 @@ export class OrphanSupervisor {
   /** Active orphans, oldest activity first (ties broken by pid) — the eviction order. */
   _candidates(pool) {
     return pool.orphans
-      .filter((orphan) => orphan.status === 'created' || orphan.status === 'running')
+      .filter((orphan) => orphan.status === 'created' || orphan.status === 'active')
       .sort((left, right) => (
         left.last_activity_at === right.last_activity_at
           ? left.pid - right.pid
@@ -180,7 +179,6 @@ export class OrphanSupervisor {
         report.evicted.push({
           pid: candidate.pid,
           name: candidate.name,
-          type: candidate.type,
           from: candidate.status,
           to: updated.status,
           reason,

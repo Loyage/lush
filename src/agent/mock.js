@@ -6,7 +6,7 @@ import { LUSH_CONTEXT_PREFIX } from '../context/context.js';
 export class MockAgentProvider {
   constructor() {
     this.name = 'mock';
-    /** In-process runtime: Lush exposes process_* tools to this agent. */
+    /** In-process runtime: Lush exposes task_* / process_* tools to this agent. */
     this.contextMode = 'tools';
   }
 
@@ -19,6 +19,10 @@ export class MockAgentProvider {
       if (value !== null && typeof value === 'object' && !Array.isArray(value)
         && Object.hasOwn(value, 'pid') && Object.hasOwn(value, 'name')) {
         return new AgentResponse(`已执行工具：${value.name}[${value.pid}]，status=${value.status}。`);
+      }
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)
+        && Object.hasOwn(value, 'id') && Object.hasOwn(value, 'status')) {
+        return new AgentResponse(`已执行工具：task#${value.id}，status=${value.status}。`);
       }
       return new AgentResponse(`Mock tool result: ${jsonDump(value)}`);
     }
@@ -39,9 +43,30 @@ export class MockAgentProvider {
     }
 
     const lower = prompt.toLowerCase();
-    if ((prompt.includes('创建') && (prompt.includes('任务') || prompt.includes('服务')))
-      || (['create', 'spawn'].some((word) => lower.includes(word))
-        && ['task', 'service'].some((word) => lower.includes(word)))) {
+    const payload = messages.find((message) => message.role === 'system' && message.content.startsWith(LUSH_CONTEXT_PREFIX));
+    const data = jsonLoad(payload.content.slice(LUSH_CONTEXT_PREFIX.length));
+
+    // The runtime wakes a task whose children settled with this prompt: report
+    // the outcome and finish, which is exactly what a real agent is asked to do.
+    if (prompt.startsWith('[Lush]')) {
+      const kids = (data.task?.id === null || data.task?.id === undefined)
+        ? []
+        : data.task.children ?? [];
+      const summary = kids.length
+        ? kids.map((child) => `#${child.id}=${child.status}`).join(' ')
+        : 'children settled';
+      return this._tool('task_complete', jsonDump({ result: `woken: ${summary}` }));
+    }
+
+    // Delegation first: that is how work moves down the process tree.
+    if (prompt.includes('派') || prompt.includes('委托') || lower.includes('delegate') || lower.includes('task_spawn')) {
+      const target = data.children[0];
+      if (target !== undefined) return this._tool('task_spawn', jsonDump({ pid: target.pid, goal: prompt }));
+    }
+    const createWord = prompt.includes('创建') || prompt.includes('研究') || prompt.includes('服务')
+      || ['create', 'spawn'].some((word) => lower.includes(word));
+    if (createWord
+      && ['任务', '进程', '服务', 'process', 'task', 'service', 'template'].some((word) => prompt.includes(word) || lower.includes(word))) {
       const service = prompt.includes('服务') || lower.includes('service');
       const research = prompt.includes('研究') || lower.includes('research');
       const template = service ? 'generic-service' : research ? 'research-task' : 'generic-task';
@@ -49,19 +74,22 @@ export class MockAgentProvider {
       return this._tool('process_spawn', jsonDump({ template, name, goal: prompt }));
     }
     if (prompt.includes('子') || lower.includes('children')) {
-      return this._tool('process_children', '{}');
+      return this._tool('task_children', '{}');
     }
 
-    const payload = messages.find((message) => message.role === 'system' && message.content.startsWith(LUSH_CONTEXT_PREFIX));
-    const data = jsonLoad(payload.content.slice(LUSH_CONTEXT_PREFIX.length));
     const process = data.process;
+    const task = data.task;
     const parent = data.parent;
     const parentLabel = parent === null ? '无（系统根）' : `${parent.name}[${parent.pid}]`;
     const children = data.children.map((child) => `${child.name}[${child.pid}]`).join(', ') || '无';
     const userMessages = messages.filter((message) => message.role === 'user').length;
+    const taskLabel = task === null
+      ? '无（预览）'
+      : `#${task.id}（status=${task.status}，父 task=${task.parent_task_id ?? '无'}）`;
     return new AgentResponse(
-      `[Mock] 我是 ${process.name}，PID = ${process.pid}，type = ${process.type}，`
-      + `status = ${process.status}。\nparent = ${parentLabel}\n目标：${process.goal}\n`
+      `[Mock] 我是 ${process.name}，PID = ${process.pid}，status = ${process.status}。\n`
+      + `task = ${taskLabel}\n`
+      + `parent = ${parentLabel}\n目标：${process.goal}\n`
       + `children：${children}\nstate：${jsonDump(data.state)}\n`
       + `当前对话用户消息数：${userMessages}`,
     );

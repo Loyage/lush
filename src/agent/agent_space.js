@@ -1,11 +1,12 @@
 /**
  * The runtime agent space: the live workers of one daemon run.
  *
- * An agent is "whoever is working for a process right now", not a logical
- * process: it has no pid of its own and is never persisted. Each one gets an
- * id `PID.N` (N minted per daemon run and per process), finished ones are kept
- * in a bounded in-memory log so `agents list --all` can answer "what just
- * ran?", and the durable record of the same work is the `agent_calls` row.
+ * An agent is "whoever is working on a task right now": it is not a process and
+ * is never persisted. Its id is `TASK.N` — the task it serves and the N-th
+ * agent that task has run in this daemon (a task that was woken again after its
+ * children settled gets a new N). Finished ones are kept in a bounded in-memory
+ * log so `task agents list --all` can answer "what just ran?", and the durable
+ * record of the same work is the `agent_calls` row.
  *
  * Every function here operates on a live `AgentRuntime` (its maps plus the
  * repository and provider it holds); the class in `runtime.js` is the only
@@ -13,7 +14,7 @@
  */
 import { LushError } from '../core/types.js';
 
-/** Finished agents kept in memory for `process agents list --all`; cleared on daemon exit. */
+/** Finished agents kept in memory for `task agents list --all`; cleared on daemon exit. */
 export const AGENT_LOG_LIMIT = 32;
 
 /** Seconds-resolution duration for the CLI's agent lines. */
@@ -22,7 +23,7 @@ export function elapsedMs(record) {
   return Math.max(0, end - Date.parse(record.started_at));
 }
 
-/** `PID.N` sorts by pid, then by the order the agent was minted. */
+/** `TASK.N` sorts by task, then by the order the agent was minted. */
 export function byAgentId(left, right) {
   return Number(left.id.split('.')[0]) - Number(right.id.split('.')[0])
     || Number(left.id.split('.')[1]) - Number(right.id.split('.')[1]);
@@ -42,18 +43,17 @@ function killProcess(osPid) {
 }
 
 /**
- * Mint the next agent id for `pid` (`PID.N`) and register the live worker.
- * N is per process and per daemon run: ids are runtime identities — the
- * durable identity of the same work is the call row (`agent_calls.id`).
- * The provider instance is kept on the record (never serialized) so later
- * reads (`agents show`) can ask *that* agent about its session, even if the
- * profile file changed in the meantime.
+ * Mint the next agent id for `taskId` (`TASK.N`) and register the live worker.
+ * N is per task and per daemon run: ids are runtime identities — the durable
+ * identity of the same work is the call row (`agent_calls.id`).
  */
-export function openAgent(runtime, pid, callId, { interactive = false, provider = runtime.provider } = {}) {
-  const seq = (runtime.agentSeq.get(pid) ?? 0) + 1;
-  runtime.agentSeq.set(pid, seq);
+export function openAgent(runtime, taskId, pid, callId, { interactive = false, provider = runtime.provider } = {}) {
+  const key = String(taskId);
+  const seq = (runtime.agentSeq.get(key) ?? 0) + 1;
+  runtime.agentSeq.set(key, seq);
   const record = {
-    id: `${pid}.${seq}`,
+    id: `${taskId}.${seq}`,
+    task_id: taskId,
     pid,
     provider: provider.name,
     impl: provider,
@@ -86,14 +86,18 @@ export function closeAgent(runtime, record, status, error = null) {
 /** One worker as the CLI sees it: identity plus liveness, never a logical Process. */
 export function agentView(runtime, record) {
   const running = record.status === 'running';
-  // `process agents list --all` keeps finished records for this daemon run, and
-  // `process delete` may have removed the process they belong to: the name is
-  // then simply unknown, which must not make the whole listing fail.
+  // `task agents list --all` keeps finished records for this daemon run, and the
+  // process or task they belong to may have been deleted since: unknown names
+  // must not make the whole listing fail.
   const process = runtime.repository.exists(record.pid) ? runtime.repository.get(record.pid) : null;
+  const task = runtime.repository.findTask(record.task_id);
   return {
     id: record.id,
+    task_id: record.task_id,
     pid: record.pid,
     name: process === null ? null : process.name,
+    task_status: task === null ? null : task.status,
+    goal: task === null ? null : task.goal,
     provider: record.provider,
     status: record.status,
     call_id: record.call_id,
@@ -110,12 +114,13 @@ export function agentView(runtime, record) {
 }
 
 /**
- * Live workers (`process agents list`), plus this daemon run's finished ones
- * when `all` is set. Deliberately runtime data: a restarted daemon has no
- * agents, and the durable record of the same work is its call row.
+ * Live workers (`task agents list`), plus this daemon run's finished ones when
+ * `all` is set. Deliberately runtime data: a restarted daemon has no agents,
+ * and the durable record of the same work is its call row.
  */
-export function agentsList(runtime, { pid = null, all = false } = {}) {
-  const keep = (record) => pid === null || record.pid === pid;
+export function agentsList(runtime, { taskId = null, pid = null, all = false } = {}) {
+  const keep = (record) => (taskId === null || record.task_id === taskId)
+    && (pid === null || record.pid === pid);
   const live = [...runtime.agents.values()].filter(keep).sort(byAgentId)
     .map((record) => agentView(runtime, record));
   if (!all) return live;
@@ -129,7 +134,7 @@ export function agentShow(runtime, id) {
   if (record === undefined) throw new LushError(`agent not found: ${id}`, -32004);
   const call = runtime.repository.callById(record.call_id);
   const provider = record.impl ?? runtime.provider;
-  const sessions = typeof provider.sessions === 'function' ? provider.sessions(record.pid) : null;
+  const sessions = typeof provider.sessions === 'function' ? provider.sessions(record.task_id) : null;
   const files = sessions?.files ?? [];
   return {
     ...agentView(runtime, record),
@@ -152,8 +157,8 @@ export function agentShow(runtime, id) {
 }
 
 /**
- * Kill one live worker: the invocation ends as interrupted, the logical
- * process is untouched (that is `process kill PID`).
+ * Kill one live worker: the invocation ends as interrupted and its task is
+ * cancelled (a task whose agent was force-killed has no answer to record).
  *
  * How the OS side fared is reported as `outcome`:
  *
@@ -162,33 +167,30 @@ export function agentShow(runtime, id) {
  *   terminal's pi exited on its own and there was nothing to signal.
  * - `no_pid`: nothing to signal — an in-process provider, or an interactive
  *   agent whose terminal has not reported its pi's pid yet.
- *
- * A daemon-spawned pi settles itself when the abort reaches its tool loop. An
- * interactive call has no daemon-side code to abort — its terminal is the only
- * witness — so once its OS process is gone (`killed` or `gone`) the daemon
- * settles the call here rather than leaving the worker listed until the call
- * timeout fires. With `no_pid` there is no such evidence, so the entry is only
- * marked and waits for the terminal to report back (or for the timeout).
  */
 export function agentsKill(runtime, id) {
   const record = runtime.agents.get(id);
-  const entry = record === undefined ? undefined : runtime.active.get(record.pid);
+  const entry = record === undefined ? undefined : runtime.active.get(record.task_id);
   if (record === undefined || entry === undefined || entry.agent !== record) {
     throw new LushError(`agent ${id} is not running`, -32009);
   }
   entry.reason = 'cancelled';
   const outcome = record.os_pid === null ? 'no_pid' : (killProcess(record.os_pid) ? 'killed' : 'gone');
   entry.controller.abort();
+  // The task an agent was force-killed for has no answer to record, so it ends
+  // as cancelled — whether the abort reaches a daemon-run tool loop (which
+  // would otherwise report a failure) or only a terminal that never came back.
   if (record.interactive && outcome !== 'no_pid') {
-    runtime._settle(entry.pid, entry, 'interrupted', { error: `invocation ${entry.callId} interrupted` });
+    runtime._settle(entry, 'interrupted', { error: `invocation ${entry.callId} interrupted` });
   }
+  runtime.manager.cancelTask(record.task_id);
   return { ...agentView(runtime, record), outcome };
 }
 
 /**
  * Live-worker summary for one process, used by `process tree`: how many agents
- * are running and who they are. No Context, no argv, no session walk — the
- * tree answers "who is working right now", the session answers "what is on
+ * are running there and who they are. No Context, no argv, no session walk —
+ * the tree answers "who is working right now", the session answers "what is on
  * disk", and both stay cheap.
  */
 export function agentSummary(runtime, pid, profile = undefined) {
@@ -198,6 +200,7 @@ export function agentSummary(runtime, pid, profile = undefined) {
     running: running.length,
     agents: running.map((record) => ({
       id: record.id,
+      task_id: record.task_id,
       call_id: record.call_id,
       interactive: record.interactive,
       os_pid: record.os_pid,

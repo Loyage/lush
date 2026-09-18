@@ -2,14 +2,16 @@
  * Hard removal of processes: `delete` and `purge`, and the subtree walk they
  * share.
  *
- * Both subtract a process from the record for good — metadata, Context,
- * messages, calls and its own events — inside one transaction. `delete` only
- * accepts an already finished process, `purge` stops/cancels first. Every
- * function operates on the `ProcessManager` passed in (its repository and
- * `_transition`); the class in `process_manager.js` is the only caller.
+ * Both subtract a process from the record for good — metadata, Context, the
+ * tasks mounted on it (with their calls, messages and events) and its own
+ * events — inside one transaction. `delete` only accepts a process that is
+ * stopped and has no active task left, `purge` cancels the work first. Every
+ * function operates on the `ProcessManager` passed in (its repository,
+ * `_transition` and the task layer); the class in `process_manager.js` is the
+ * only caller.
  */
 import { LushError, validPid } from './types.js';
-import { ACTIVE } from './lifecycle.js';
+import { ACTIVE_PROCESS_STATUS } from './lifecycle.js';
 
 /**
  * The subtree rooted at `pid`, children before parents, so a row disappears
@@ -30,7 +32,8 @@ export function subtree(manager, pid) {
 /**
  * Shared body of `delete` and `purge`. Decisions, in order: PID 0 is never
  * removable (the daemon owns it), children need `recursive`, and unfinished
- * work is refused unless the caller asked to terminate it.
+ * work (an active process, or an active task on one of them) is refused unless
+ * the caller asked to terminate it.
  */
 export function remove(manager, pid, recursive, terminate) {
   validPid(pid);
@@ -45,15 +48,25 @@ export function remove(manager, pid, recursive, terminate) {
     );
   }
   const doomed = subtree(manager, pid).map((item) => manager.repository.get(item));
-  const active = doomed.filter((item) => ACTIVE.has(item.status));
-  if (active.length && !terminate) {
-    const detail = active.map((item) => `${item.pid} is ${item.status}`).join(', ');
-    throw new LushError(`process ${detail}; stop or kill it first, or use 'lush process purge'`, -32010);
+  const active = doomed.filter((item) => ACTIVE_PROCESS_STATUS.includes(item.status));
+  const busy = doomed.flatMap((item) => manager.repository.activeTasks({ pid: item.pid }));
+  if ((active.length || busy.length) && !terminate) {
+    const detail = [
+      ...active.map((item) => `process ${item.pid} is ${item.status}`),
+      ...busy.map((task) => `task ${task.id} on process ${task.pid} is ${task.status}`),
+    ].join(', ');
+    throw new LushError(
+      `${detail}; stop it first (cancel its task with 'lush task cancel TASK_ID'), or use 'lush process purge'`,
+      -32010,
+    );
   }
+  // Terminate the work first: cancelling a task aborts its agent, and only then
+  // can the node be stopped without leaving an agent running behind it.
+  for (const task of busy) manager.cancelTask(task.id);
   const terminated = [];
   for (const item of [...doomed].reverse()) {
-    if (!ACTIVE.has(item.status)) continue;
-    manager._transition(item.pid, item.type === 'service' ? 'stopped' : 'cancelled', { adopt: false });
+    if (!ACTIVE_PROCESS_STATUS.includes(item.status)) continue;
+    manager._transition(item.pid, 'stopped', { adopt: false });
     terminated.push(item.pid);
   }
   // The parent outlives the child by construction (a subtree holds no
@@ -69,6 +82,7 @@ export function remove(manager, pid, recursive, terminate) {
     pid,
     deleted,
     status: root.status,
+    cancelled: busy.map((task) => task.id).sort((left, right) => left - right),
     terminated: terminated.sort((left, right) => left - right),
     rows: manager.repository.remove(pids, audit),
   };

@@ -1,6 +1,10 @@
 /**
  * Reproducible CLI/daemon demo, isolated from the user's normal Lush data.
  * Run with: bun run demo
+ *
+ * It walks the shape of Lush: passive **processes** (identity, variables,
+ * state) and **tasks** (the work, run by agents, delegated downstream) — and
+ * the task tree that shows one piece of work being solved across processes.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -45,42 +49,62 @@ async function demo(home) {
   try {
     await run(['daemon', 'start']);
     if ((await run(['process', 'tree'], { quiet: true })).trim() !== 'lush[0]') throw new Error('unexpected initial tree');
+
+    // Processes are passive nodes: creating one starts nothing at all.
     await run(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
     await run(['process', 'spawn', '1', 'generic-task', '--name', 'implement-login', '--goal', '实现登录功能']);
     await run(['process', 'tree']);
+    if ((await json('task', 'list')).length !== 0) throw new Error('spawning a process must not create work');
+    console.log('✓ Processes are passive: no agent, no task, just identity and state');
 
-    const identity = await run(['process', 'call', '2', '请介绍一下你当前的身份和任务'], { quiet: true });
-    if (!identity.includes('PID = 2') || !identity.includes('project-manager[1]')) {
+    // `call` is the entry point: a root task on the process, worked by an agent.
+    const first = await run(['call', '2', '请介绍一下你当前的身份和任务'], { quiet: true });
+    if (!first.includes('PID = 2') || !first.includes('parent = project-manager[1]')) {
       throw new Error('mock identity output changed');
     }
-    await run(['process', 'attach', '2'], { input: '当前任务是什么？\n查看你的子任务\n/exit\n' });
-    await run(['process', 'call', '1', '创建一个子任务，研究 OAuth 登录实现方式']);
+    await run(['task', 'list']);
+    await run(['task', 'tree', '1']);
+    await run(['task', 'history', '1']);
+    console.log('✓ A call creates a task on a process; the task owns the agent and the conversation');
+
+    // Delegation: the agent on PID 1 opens a task on its own child process.
+    await run(['call', '1', '把这活派给下游']);
+    await run(['process', 'tree']);
+    const tasks = await json('task', 'list');
+    const root = tasks.find((task) => task.pid === 1);
+    const delegated = tasks.filter((task) => task.parent_task_id === root.id);
+    if (delegated.length === 0) throw new Error('the task was not delegated downstream');
+    await run(['task', 'tree', String(root.id)]);
+    console.log('✓ A task delegates by creating child tasks on its child processes');
+
+    // The autonomous-spawn path stays available: the agent may grow the tree.
+    await run(['call', '1', '创建一个子任务，研究 OAuth 登录实现方式']);
     const tree = await run(['process', 'tree'], { quiet: true });
     if (!tree.includes('research-oauth[3]')) throw new Error('autonomous spawn failed');
+    await run(['process', 'tree']);
 
-    await run(['process', 'call', '2', '/tool process.update_state {"patch":{"progress":"designing"}}']);
+    // Restart: nodes, variables, tasks and their conversations all survive.
     const before = await json('process', 'inspect', '2');
-
+    const beforeTasks = (await json('task', 'list')).length;
     await run(['daemon', 'stop']);
     await run(['daemon', 'start']);
     if ((await run(['process', 'tree'], { quiet: true })) !== tree) throw new Error('tree was not restored');
-    const after = await json('process', 'inspect', '2');
-    if (JSON.stringify(before.context) !== JSON.stringify(after.context)) {
+    if ((await json('task', 'list')).length !== beforeTasks) throw new Error('tasks were not restored');
+    if (JSON.stringify(before.context) !== JSON.stringify((await json('process', 'inspect', '2')).context)) {
       throw new Error('context was not restored');
     }
-    console.log('✓ Restart restored tree, state, conversation and invocation history');
+    console.log('✓ Restart restored the tree, its tasks, state and conversation');
 
+    // Stopping a node hands its active children to PID 0, and cancels its work.
     await run(['process', 'spawn', '2', 'generic-service', '--name', 'login-helper']);
-    await run(['process', 'call', '2', '/tool process.complete {"result":"MVP lifecycle demonstration complete"}']);
-    const orphan = await json('process', 'inspect', '4');
+    const helper = (await json('process', 'list')).find((row) => row.name === 'login-helper');
+    const longTask = await json('task', 'spawn', '2', '--goal', 'hold this work');
+    await json('task', 'wait', String(longTask.id));
+    await run(['process', 'stop', '2']);
+    const orphan = await json('process', 'inspect', String(helper.pid));
     if (orphan.parent_pid !== 0 || orphan.original_parent_pid !== 2) throw new Error('orphan adoption failed');
-    await run(['process', 'tree']);
-    console.log('✓ Task completion adopted its live Service into PID 0');
-
-    const reclaimed = await json('process', 'reclaim', '2');
-    if (reclaimed.status !== 'reclaimed') throw new Error('reclaim failed');
-    if ((await json('process', 'history', '2')).messages.length === 0) throw new Error('history was dropped');
-    console.log('✓ Reclaim preserved history');
+    await run(['process', 'orphans']);
+    console.log('✓ Stopping a node hands its active children to PID 0');
 
     // Variables: creation values are checked against the template and split into
     // immutable / mutable; only mutable ones can change afterwards.
@@ -108,6 +132,12 @@ async function demo(home) {
       throw new Error('tree does not show variables');
     }
     console.log('✓ Variables: required path at creation, mutable branch updated, immutable path refused');
+
+    // Tasks are removable history; the call rows stay as the node's record.
+    const doomed = (await json('task', 'list')).find((task) => task.status === 'completed');
+    await run(['task', 'delete', String(doomed.id)]);
+    if ((await json('task', 'list')).some((task) => task.id === doomed.id)) throw new Error('task was not deleted');
+    console.log('✓ Tasks can be archived without losing the process history');
     console.log('\nMVP demo passed.');
   } finally {
     await run(['daemon', 'stop'], { quiet: true }).catch(() => {});

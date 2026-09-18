@@ -33,6 +33,15 @@ describe('config', () => {
     // The rest of the config is untouched by the orphan settings.
     expect(config.provider).toBe('pi');
     expect(config.callTimeout).toBe(900);
+    expect(config.maxRounds).toBe(12);
+    expect(config.taskCalls).toBe(12);
+  });
+
+  test('the task call budget is configurable and validated', () => {
+    expect(Config.fromEnv(env({ LUSH_TASK_CALLS: '3' })).taskCalls).toBe(3);
+    for (const value of ['0', '-1', 'many', '101']) {
+      expect(() => Config.fromEnv(env({ LUSH_TASK_CALLS: value }))).toThrow(/LUSH_TASK_CALLS/);
+    }
   });
 
   test('invalid orphan settings name the variable to fix', () => {

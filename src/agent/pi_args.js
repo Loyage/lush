@@ -64,11 +64,13 @@ export function profileArgs(provider) {
 /** Session flags + agent identity, shared by `call`, `preview` and `sessionInfo`. */
 export function identityArgs(provider, invocation, { name = null } = {}) {
   const pid = invocation.pid;
+  const taskId = invocation.task_id;
+  const processName = invocation.context?.process?.name ?? 'process';
   const args = [
     ...profileArgs(provider),
     '--session-dir', provider.sessionDir,
-    '--session-id', provider.sessionId(pid),
-    '--name', name ?? `${invocation.context?.process?.name ?? 'process'}[${pid}]`,
+    '--session-id', provider.sessionId(taskId),
+    '--name', name ?? `${processName}[${pid}]#${taskId ?? 'preview'}`,
     '--system-prompt', invocation.system_prompt,
     '--append-system-prompt', invocation.guide,
     '--append-system-prompt', lushContextMessage(invocation.context),
@@ -118,23 +120,29 @@ export function preview(provider, invocation, { interactive = false } = {}) {
     argv,
     command: shellCommand(argv),
     cwd: invocation.cwd ?? provider.home,
-    env: { LUSH_HOME: provider.home, LUSH_PID: String(invocation.pid) },
+    env: {
+      LUSH_HOME: provider.home,
+      LUSH_PID: String(invocation.pid),
+      LUSH_TASK_ID: invocation.task_id === null || invocation.task_id === undefined
+        ? ''
+        : String(invocation.task_id),
+    },
     path_prefix: LUSH_BIN_DIR,
   };
 }
 
-/** Where this process's pi session lives and which id it uses (no disk walk of the argv). */
-export function sessions(provider, pid) {
-  const sessionId = provider.sessionId(pid);
+/** Where one task's pi session lives and which id it uses (no disk walk of the argv). */
+export function sessions(provider, taskId) {
+  const sessionId = provider.sessionId(taskId);
   return { session_dir: provider.sessionDir, session_id: sessionId, files: sessionFiles(provider.sessionDir, sessionId) };
 }
 
 /**
- * This process's pi session: where it lives, which id it uses, its files on
- * disk and the interactive argv that opens it (no `--print`).
+ * One task's pi session: where it lives, which id it uses, its files on disk
+ * and the interactive argv that opens it (no `--print`).
  */
 export function sessionInfo(provider, invocation) {
-  const { session_dir: sessionDir, session_id: sessionId, files } = sessions(provider, invocation.pid);
+  const { session_dir: sessionDir, session_id: sessionId, files } = sessions(provider, invocation.task_id);
   const argv = [provider.command, ...identityArgs(provider, invocation)];
   // Compact line for browsing the conversation in pi's own TUI (pi's default prompt).
   const browseArgv = [provider.command, ...profileArgs(provider), '--session-dir', provider.sessionDir, '--session-id', sessionId];
@@ -149,7 +157,11 @@ export function sessionInfo(provider, invocation) {
     command: shellCommand(argv),
     browse_command: shellCommand(browseArgv),
     cwd: invocation.cwd ?? provider.home,
-    env: { LUSH_HOME: provider.home, LUSH_PID: String(invocation.pid) },
+    env: {
+      LUSH_HOME: provider.home,
+      LUSH_PID: String(invocation.pid),
+      LUSH_TASK_ID: String(invocation.task_id),
+    },
     path_prefix: LUSH_BIN_DIR,
   };
 }

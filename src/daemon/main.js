@@ -70,6 +70,7 @@ export async function serve(config) {
       new ContextBuilder(repository, templates, { agentMode: provider.contextMode ?? 'tools' }), {
         timeout: config.callTimeout,
         maxRounds: config.maxRounds,
+        maxCalls: config.taskCalls,
       });
     manager.runtime = runtime;
     server = new RPCServer(config.socket, new Dispatcher(manager, stopping, identity));

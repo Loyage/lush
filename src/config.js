@@ -43,7 +43,9 @@ function orphanPolicyFromEnv(env) {
 
 /** Runtime configuration, read from the environment by the daemon at startup. */
 export class Config {
-  constructor({ home, provider = 'pi', callTimeout = 900, maxRounds = 12, orphanPolicy = DEFAULT_ORPHAN_POLICY }) {
+  constructor({
+    home, provider = 'pi', callTimeout = 900, maxRounds = 12, taskCalls = 12, orphanPolicy = DEFAULT_ORPHAN_POLICY,
+  }) {
     this.home = home;
     /**
      * The provider the *environment* selects (`LUSH_PROVIDER`, default `pi`).
@@ -54,6 +56,12 @@ export class Config {
     this.provider = provider;
     this.callTimeout = callTimeout;
     this.maxRounds = maxRounds;
+    /**
+     * How many times one task's agent may be invoked: the first run plus the
+     * wake-ups after its child tasks settle. A task that keeps delegating
+     * forever is failed instead of looping.
+     */
+    this.taskCalls = taskCalls;
     // PID 0's supervision policy (camelCase), normalized once so the daemon can
     // trust `limit` / `ttlSeconds` / `sweepSeconds` without re-validating.
     this.orphanPolicy = normalizeOrphanPolicy(orphanPolicy);
@@ -71,15 +79,18 @@ export class Config {
 
     const timeout = Number.parseFloat(env.LUSH_CALL_TIMEOUT ?? '900');
     const rounds = Number.parseInt(env.LUSH_MAX_ROUNDS ?? '12', 10);
+    const taskCalls = Number.parseInt(env.LUSH_TASK_CALLS ?? '12', 10);
     if (!Number.isFinite(timeout) || !(timeout > 0 && timeout <= 86_400)
-      || !Number.isInteger(rounds) || !(rounds >= 1 && rounds <= 100)) {
-      throw new Error('invalid LUSH_CALL_TIMEOUT or LUSH_MAX_ROUNDS');
+      || !Number.isInteger(rounds) || !(rounds >= 1 && rounds <= 100)
+      || !Number.isInteger(taskCalls) || !(taskCalls >= 1 && taskCalls <= 100)) {
+      throw new Error('invalid LUSH_CALL_TIMEOUT, LUSH_MAX_ROUNDS or LUSH_TASK_CALLS');
     }
     return new Config({
       home,
       provider: env.LUSH_PROVIDER || 'pi',
       callTimeout: timeout,
       maxRounds: rounds,
+      taskCalls,
       orphanPolicy: orphanPolicyFromEnv(env),
     });
   }

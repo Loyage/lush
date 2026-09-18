@@ -11,6 +11,25 @@ import { Database } from '../src/persistence/database.js';
 import { Repository } from '../src/persistence/repository.js';
 import { TemplateLoader } from '../src/template_loader.js';
 
+/**
+ * The mock agent, slowed down: lets a test observe "the parent answered before
+ * its child task was done" (which is what parks the parent in `waiting`).
+ */
+export class SlowProvider {
+  /** `delay` is milliseconds, or `(invocation) => milliseconds` for a per-process one. */
+  constructor(delay = 25) {
+    this.name = 'mock';
+    this.contextMode = 'tools';
+    this.delay = delay;
+    this.inner = new MockAgentProvider();
+  }
+
+  async call(messages, tools, signal, invocation) {
+    await Bun.sleep(typeof this.delay === 'function' ? this.delay(invocation) : this.delay);
+    return this.inner.call(messages, tools, signal, invocation);
+  }
+}
+
 export function tmpdir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
@@ -94,4 +113,10 @@ export function queue() {
 export function contextPid(messages) {
   const payload = messages.find((message) => message.role === 'system' && message.content.startsWith(LUSH_CONTEXT_PREFIX));
   return JSON.parse(payload.content.slice(LUSH_CONTEXT_PREFIX.length)).process.pid;
+}
+
+/** The task an invocation is working on, as the provider sees it. */
+export function contextTaskId(messages) {
+  const payload = messages.find((message) => message.role === 'system' && message.content.startsWith(LUSH_CONTEXT_PREFIX));
+  return JSON.parse(payload.content.slice(LUSH_CONTEXT_PREFIX.length)).task?.id ?? null;
 }
