@@ -42,6 +42,7 @@ bun run stop
 - `code` 依赖把上游分支当作下游 worktree 的基线，所以合并必须上游先行；`task merge` 会拒绝越级。
 - 输入缓存在 `drafts` 表：草稿可在提交前删除，提交后行保留并回写 `input_id`；已提交的输入永不删除。
 - Agent 等待子任务或用户时释放 invocation 槽；新输入有独立规划槽。
+- Task 与 agent 是终身一对一的身份（`<role>#<id>`），但凭证只代表一次 invocation：库里只存 SHA-256，`actor()` 必须同时校验 hash 命中与「仍在 running 且未被 abort」。不要把 token 改成终身有效，否则上一轮逃逸的后台进程会重新变成合法 actor。
 - 消息只在 invocation 之间送达。注意「父任务刚 park、子任务刚完成、running Map 还未清理」之间的 lost-wakeup 竞态。
 - 重启不自动重放有未知副作用的调用；旧 Service 数据不迁移、不覆盖。
 

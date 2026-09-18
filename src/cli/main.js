@@ -20,7 +20,7 @@ lush [--project PATH] [--json] <command>
   draft commit                    把缓存整体交给意图分析：一个 planner 拆成多个任务并建依赖
   task list [--after N] [--limit N] 分页任务列表（默认 200 条）
   task tree [ID]                  多级任务树
-  task inspect ID                 结果、子任务、消息与工作区
+  task inspect ID                 结果、agent、子任务、消息与工作区
   task history ID [--after N]      分页事件记录
   task spawn '目标' [--parent ID] [--role worker|coordinator|research] [--depends-on ID[:code|order]]
   task message ID '补充说明'       追加输入，不打断当前 invocation

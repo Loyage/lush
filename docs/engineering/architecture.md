@@ -5,6 +5,7 @@
 - **Project**：不是全局注册表里的记录，而是 daemon 的不可变作用域：canonical 目录 + `.lush/project.json` + SQLite 中的项目绑定。
 - **Input**：用户原话，逐字持久化，关联一个根 planner Task。入口调用只做短事务和安排调度，不等待 agent。
 - **Task**：goal / role / parent_id / input_id / status / result / error / invocation 次数；worker 另有工作区和 integration 状态。父子关系只在创建时指定，不能变更。
+- **Agent**：与 task 终身一对一的身份（`<role>#<task-id>`）。task 创建时它就存在，跨唤醒复用同一个 pi session，记录累计唤醒次数与上次动手时间；但 RPC 凭证每次唤醒重新签发，库里只存 SHA-256，且只在该次 invocation 运行期间可解析。
 - **Message**：持久化收件箱，用户、直接父子 task、子任务结算与 notice 答复共享同一通道。
 - **Notice**：task 请求用户做决定；答复/忽略入收件箱。
 - **Event**：创建、调用、状态转换、消息和 Git 生命周期审计。
@@ -31,12 +32,12 @@ CLI / Web → UIClient → JSON-RPC / Unix socket → Project
 ### 一次 invocation
 
 1. 按任务 ID 从 queued 中挑选，不超过对应槽限制。
-2. 在 `running` Map 中占位，再异步准备 worker worktree；将 task 标为 running。
+2. 在 `running` Map 中占位并签发本次 invocation 的 token（库里只写 hash），再异步准备 worker worktree；将 task 标为 running。
 3. 读取此次未消费消息、当前任务/子任务和最近任务摘要，启动 provider。
 4. pi 收到项目/任务/token 环境变量、固定代码路径下的 lush CLI、独立 session 和输入文件。在 cwd 中运行工具循环；Lush 不在 argv 中传入巨大的项目快照。
 5. provider 正常返回后消费**启动时读到的消息**，记录结果。运行期间到达的消息留给下次。
 6. 依次判定：还有未读消息 → queued；有未决 notice → awaiting；有活动子任务 → waiting；否则校验 worker 提交并 completed。
-7. 释放 running 占位，再次检查未读消息，防止 child settled 与 parent park/清理之间丢唤醒。
+7. 释放 running 占位并作废 token，再次检查未读消息，防止 child settled 与 parent park/清理之间丢唤醒。
 
 waiting / awaiting 不占 agent 槽，也不运行 sleep/poll 子进程。最终输出是 task result；不提供可被 agent 提前调用的 complete 命令。
 
@@ -49,7 +50,7 @@ agent 只能从自己的 task 派生子任务、给直接父/子发消息、给�
 ## 生命周期不变量
 
 - 状态：queued / running / waiting / awaiting / completed / failed / cancelled。
-- 一个 task 同时只有一个 invocation。
+- 一个 task 同时只有一个 invocation，且只有一个 agent 身份；身份跨唤醒不变，凭证只在该 invocation 活动期间有效，重启后全部作废。
 - 终态 task 没有活动子 task。失败和取消会先自底向上取消活动后代，再结算自身。
 - 父子边只由已有父 task 的创建操作建立，不允许环或任意 reparent。
 - 消息只有在一次调用成功返回后才消费，失败后可以在明确重试时再次交付。
@@ -83,7 +84,7 @@ daemon 启动捕获全部运行源码 fingerprint；status 显示 project、home
 
 CLI 的 task list / history 支持 cursor 分页；task inspect 返回完整任务结果和有界的相关记录。Web 复用 UIClient，轮询快照，采用 textContent 呈现模型输出，不插入 HTML；输入表单和 notice 答复在轮询时保留。
 
-Web 只监听 127.0.0.1，校验 Host / Origin / Sec-Fetch-Site，修改操作要求 JSON；HTTP 只能访问显式允许的方法，不能代理任意 RPC。RPC 以本机用户为可信边界；agent token 只约束正常的 agent 调用，不是本机攻击者隔离。
+Web 只监听 127.0.0.1，校验 Host / Origin / Sec-Fetch-Site，修改操作要求 JSON；HTTP 只能访问显式允许的方法，不能代理任意 RPC。RPC 以本机用户为可信边界；agent token 只约束正常的 agent 调用，不是本机攻击者隔离。`system.status` 报告运行中的 agent 列表与 `agents_total` / `agents_idle`（每个活动 task 一个 agent，含已 park 的），`task.inspect` 报告该 agent 的 id、唤醒次数与上次动手时间。
 
 ## 源码布局
 

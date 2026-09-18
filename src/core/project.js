@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { check, id, text, TERMINAL, bounded, isPlainObject, LushError } from './types.js';
 import { Workspaces } from './workspaces.js';
 import { PiProvider, MockProvider } from '../agent/provider.js';
@@ -27,6 +27,13 @@ function normalizeDeps(deps) {
   return edges;
 }
 
+/** One task owns exactly one agent for its whole life; only the credential rotates per wake. */
+function agentView(task, run = null) {
+  return { id: `${task.role}#${task.id}`, task_id: task.id, role: task.role, wakes: task.agent_wakes,
+    created_at: task.created_at, last_seen_at: task.agent_last_seen_at, active: Boolean(run), pid: run?.pid ?? null };
+}
+const tokenHash = token => createHash('sha256').update(token).digest('hex');
+
 /** One project, a persistent task tree, and a bounded pool of disposable agents. */
 export class Project {
   constructor(config, store, provider = null) {
@@ -36,10 +43,12 @@ export class Project {
     this.running = new Map(); this.stopping = false; this.scheduled = false;
   }
   status() {
+    const alive = this.store.get("SELECT count(*) AS count FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").count;
     return { project: this.config.project, home: this.config.home, provider: this.config.provider,
       concurrency: this.config.concurrency, tasks: this.store.all('SELECT status, count(*) AS count FROM tasks GROUP BY status'),
       drafts: this.store.draftCount(),
-      agents: [...this.running].map(([task_id, run]) => ({ task_id, pid: run.pid || null })),
+      agents: [...this.running].map(([task_id, run]) => agentView(this.store.task(task_id), run)),
+      agents_total: alive, agents_idle: alive - this.running.size,
       pending_merges: this.store.all("SELECT id, substr(goal,1,500) AS goal, branch FROM tasks WHERE integration IN ('pending','review') ORDER BY id LIMIT 100"),
       notices: this.store.get("SELECT count(*) AS count FROM notices WHERE status='open'").count };
   }
@@ -142,7 +151,7 @@ export class Project {
       children: bounded(this.store.summaries().filter(child => child.parent_id === task.id), 100000),
       messages: bounded(this.store.all('SELECT * FROM messages WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
       notices: bounded(this.store.all('SELECT * FROM notices WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
-      agent: this.running.has(task.id) ? { pid: this.running.get(task.id).pid || null } : null };
+      agent: agentView(task, this.running.get(task.id) ?? null) };
   }
   diff(taskId) { return this.workspaces.diff(this.store.task(taskId)); }
   tree(taskId = null) {
@@ -226,6 +235,8 @@ export class Project {
     this.store.event(task.id, 'retry', {}); this.kick(); return this.store.task(task.id);
   }
   recover() {
+    // A credential dies with the invocation that issued it; nothing survives a restart.
+    this.store.run('UPDATE tasks SET agent_token_hash=NULL');
     // Never replay an invocation with unknown filesystem side effects.
     for (const task of this.store.tasks()) if (task.status === 'running') this.cancel(task.id, 'daemon interrupted; inspect worktree and explicitly retry', 'failed');
     this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging'");
@@ -256,10 +267,13 @@ export class Project {
       if (task.role === 'planner') planners++; else workers++;
       const run = { role: task.role, controller: new AbortController(), token: randomBytes(32).toString('hex'), pid: null, promise: null };
       this.running.set(task.id, run);
+      this.store.armAgent(task.id, tokenHash(run.token));
       run.promise = this.invoke(task.id, run).catch(error => {
         console.error(`task ${task.id}: ${error.stack || error}`);
       }).finally(() => {
         this.running.delete(task.id);
+        // The credential is valid only while this invocation owns the task.
+        this.store.armAgent(task.id, null);
         // A child can settle after its parent parked but before this cleanup.
         // Recheck the inbox after releasing ownership to avoid a lost wake-up.
         if (!TERMINAL.has(this.store.task(task.id).status) && this.store.unread(task.id).length) this.wake(task.id);
@@ -267,13 +281,16 @@ export class Project {
       });
     }
   }
+  /** Resolve an agent credential to its task. Only the invocation that was issued the token is an actor. */
   actor(token) {
-    if (!token) return null;
-    for (const [taskId, run] of this.running) if (run.token === token) {
-      check(!TERMINAL.has(this.store.task(taskId).status) && !run.controller.signal.aborted, 'agent task is no longer active');
-      return taskId;
-    }
-    throw new LushError('invalid or expired agent token');
+    if (token === undefined || token === null || token === '') return null;
+    check(typeof token === 'string', 'invalid agent token');
+    const task = this.store.agentByToken(tokenHash(token));
+    const run = task ? this.running.get(task.id) : null;
+    if (!run) throw new LushError('invalid or expired agent token');
+    check(!TERMINAL.has(task.status) && !run.controller.signal.aborted, 'agent task is no longer active');
+    this.store.touchAgent(task.id);
+    return task.id;
   }
   async invoke(taskId, run) {
     let timer;
@@ -281,7 +298,8 @@ export class Project {
     try {
       let task = this.store.task(taskId);
       check(task.calls < this.config.maxCalls, 'task invocation limit reached');
-      this.store.update(taskId, { status: 'running', calls: task.calls + 1 });
+      this.store.update(taskId, { status: 'running', calls: task.calls + 1, agent_wakes: task.agent_wakes + 1 });
+      this.store.touchAgent(taskId);
       const cwd = await this.workspaces.ensure(task);
       if (run.controller.signal.aborted) throw new Error('cancelled');
       task = this.store.task(taskId);
