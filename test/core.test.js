@@ -514,7 +514,7 @@ describe('core', () => {
     const order = Object.keys(loader.templates);
     expect(order).toEqual([
       'lush-root', 'project-manager', 'project',
-      'dev-task', 'research-task', 'generic-service', 'generic-task', 'worktree-service',
+      'dev-task', 'worktree-service',
     ]);
     const origin = (name) => loader.origins.get(name).split(path.sep).join('/');
     expect(origin('dev-task').endsWith('/templates/lush-root/project-manager/project/dev-task.json')).toBe(true);
@@ -528,7 +528,7 @@ describe('core', () => {
     const projectTask = manager.spawnTask(null, project.sid, 'order');
     const names = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(projectTask.id), null).data.available_child_templates.map((item) => item.name);
-    expect(names).toEqual(['dev-task', 'research-task', 'generic-service', 'generic-task']);
+    expect(names).toEqual(['dev-task']);
     manager.cancelTask(projectTask.id);
   });
 
@@ -547,7 +547,8 @@ describe('core', () => {
     manager.stop(taken.sid);
     expect(names(0)).toContain('project-manager');
     const child = spawn(0, 'project-manager', 'pm2');
-    expect(names(child.sid)).toContain('generic-task');
+    expect(names(child.sid)).toContain('project');
+    expect(names(child.sid)).not.toContain('generic-task');
     expect(names(child.sid)).not.toContain('project-manager');
   });
 
@@ -576,7 +577,7 @@ describe('core', () => {
   test('template loader rejects duplicates, unknown references and the old type field', () => {
     const directory = path.join(dir, 'templates');
     fs.mkdirSync(directory);
-    const template = manager.templates.get('generic-task');
+    const template = new TemplateLoader().get('dev-task');
     const file = path.join(directory, 'custom.json');
     fs.writeFileSync(file, JSON.stringify(template));
     expect(() => new TemplateLoader(directory)).toThrow(LushError);
@@ -752,9 +753,7 @@ describe('core', () => {
     })();
     expect(failure?.code).toBe(-32010);
     expect(failure?.message).toContain('cannot create template project');
-    expect(manager.templates.get('project').child_templates).toEqual([
-      'dev-task', 'generic-task', 'research-task', 'generic-service',
-    ]);
+    expect(manager.templates.get('project').child_templates).toEqual(['dev-task']);
     const controller = spawn(0, 'project-manager', 'controller');
     expect(spawn(controller.sid, 'project', 'opened', undefined, { path: dir }).inspect().template).toBe('project');
 

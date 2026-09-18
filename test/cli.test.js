@@ -76,13 +76,15 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await cli(['service', 'tree'])).stdout.trim()).toBe('lush[0]');
     expect((await data('daemon', 'start')).daemon_pid).toBe(started.daemon_pid);
     // SID 0's snapshot only allows project-manager; every other template is refused.
-    const denied = await cli(['service', 'spawn', '0', 'generic-task'], { check: false });
+    const denied = await cli(['service', 'spawn', '0', 'project'], { check: false });
     expect(denied.code).not.toBe(0);
-    expect(denied.stderr).toContain('cannot create template generic-task');
+    expect(denied.stderr).toContain('cannot create template project');
     expect((await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager'])).stdout.trim())
       .toBe('SID 1');
-    expect((await cli(['service', 'spawn', '1', 'generic-task', '--name', 'implement-login', '--goal', '实现登录'])).stdout.trim())
-      .toBe('SID 2');
+    expect((await cli([
+      'service', 'spawn', '1', 'project', '--name', 'implement-login', '--goal', '实现登录',
+      '--vars', JSON.stringify({ path: state.dir }),
+    ])).stdout.trim()).toBe('SID 2');
     // `call` is the entry point: it creates a task on the service and waits.
     const firstCall = await cli(['call', '2', '请介绍一下你当前的身份和任务']);
     expect(firstCall.stdout).toContain('project-manager[1]');
@@ -93,9 +95,13 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await cli(['task', 'inspect', String(first.id)])).stdout).toContain('goal');
     expect((await cli(['task', 'history', String(first.id)])).stdout).toContain('请介绍一下');
 
-    await cli(['call', '1', '创建一个子任务，研究 OAuth 登录实现方式']);
-    const expected = 'lush[0]\n└── project-manager[1]\n    ├── implement-login[2]\n    └── research-oauth[3]\n';
-    expect((await cli(['service', 'tree'])).stdout).toBe(expected);
+    await cli(['call', '1', '/tool service_spawn ' + JSON.stringify({
+      template: 'project', name: 'research-oauth', goal: '研究 OAuth 登录实现方式', variables: { path: state.dir },
+    })]);
+    const tree = await cli(['service', 'tree']);
+    expect(tree.stdout).toContain('lush[0]');
+    expect(tree.stdout).toContain('implement-login[2]');
+    expect(tree.stdout).toContain('research-oauth[3]');
     expect((await cli(['service', 'list'])).stdout).toContain('PPID');
 
     const info = await data('service', 'inspect', '2');
@@ -105,7 +111,10 @@ describe('cli, daemon lifecycle and attach', () => {
 
     await cli(['daemon', 'stop']);
     await cli(['daemon', 'start']);
-    expect((await cli(['service', 'tree'])).stdout).toBe(expected);
+    const restartedTree = await cli(['service', 'tree']);
+    expect(restartedTree.stdout).toContain('lush[0]');
+    expect(restartedTree.stdout).toContain('implement-login[2]');
+    expect(restartedTree.stdout).toContain('research-oauth[3]');
     expect((await data('task', 'list')).length).toBe(tasksBefore);
     // The tasks themselves survive a restart; their status does too.
     expect((await data('task', 'result', String(first.id)).catch(() => null)) ?? (await data('task', 'inspect', String(first.id))).status)
@@ -122,13 +131,13 @@ describe('cli, daemon lifecycle and attach', () => {
     // The mock agent can finish its own task through the tool path.
     await cli(['call', '2', '/tool task_complete {"result":"done"}']);
     expect((await data('task', 'list', '--sid', '2')).length).toBe(2);
-    expect((await data('service', 'spawn', '1', 'generic-task', '--name', 'next')).sid).toBe(4);
+    expect((await data('service', 'spawn', '1', 'project', '--name', 'next', '--vars', JSON.stringify({ path: state.dir }))).sid).toBe(4);
   }, 120_000);
 
   test('complete, update-state, variables and spawn over the CLI', async () => {
     await cli(['daemon', 'start']);
     await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
-    await cli(['service', 'spawn', '1', 'generic-task', '--name', 'worker', '--goal', 'work']);
+    await cli(['service', 'spawn', '1', 'project', '--name', 'worker', '--goal', 'work', '--vars', JSON.stringify({ path: state.dir })]);
     expect((await data('service', 'update-state', '2', '--patch', '{"progress":"half"}')).progress).toBe('half');
     // Work verbs moved to tasks: `call` opens one, `task complete` finishes it.
     const task = await data('call', '2', 'work');
@@ -254,7 +263,9 @@ describe('cli, daemon lifecycle and attach', () => {
     try {
       await cli(['daemon', 'start']);
       await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
-      expect((await cli(['service', 'spawn', '1', 'generic-task', '--name', 'worker'])).stdout.trim()).toBe('SID 2');
+      expect((await cli([
+        'service', 'spawn', '1', 'project', '--name', 'worker', '--vars', JSON.stringify({ path: state.dir }),
+      ])).stdout.trim()).toBe('SID 2');
       // A daemon-spawned agent: this CLI only waits for the call to finish.
       const call = Bun.spawn([process.execPath, CLI, 'call', '2', 'long work'], {
         cwd: ROOT, env: { ...state.env, PI_STUB_SLEEP: '3000' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe',

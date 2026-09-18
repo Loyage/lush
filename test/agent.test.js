@@ -9,7 +9,7 @@ import {
 import { TemplateLoader } from '../src/template_loader.js';
 import { buildInvocation } from '../src/agent/invocation.js';
 import { agentAdd, agentDefault, agentDelete, agentEdit, agentInspect, agentList, agentPath } from '../src/cli/agent.js';
-import { cleanup, expectRejection, permissiveRoot, system, tmpdir } from './helpers.js';
+import { cleanup, expectRejection, permissiveRoot, system, testTemplates, tmpdir } from './helpers.js';
 
 const ROOT = path.dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const CLI = path.join(ROOT, 'src', 'cli', 'main.js');
@@ -227,7 +227,7 @@ describe('agent profiles inside services: spawn, inspect and the argv of a call'
       home: dir,
       env: { ...process.env, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub, LUSH_PI_PROVIDER: '', LUSH_PI_MODEL: '', ...env },
     });
-    const templates = new TemplateLoader();
+    const templates = testTemplates();
     if (mutateTemplates !== null) mutateTemplates(templates);
     ({ database: db, manager, runtime } = system(dir, catalog.defaultProvider(), { catalog, templates }));
     permissiveRoot(manager);

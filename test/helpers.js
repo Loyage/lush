@@ -39,9 +39,33 @@ export function cleanup(directory) {
 }
 
 /** Composition root used by the tests: persistence + core + runtime, no socket. */
+function registerTestTemplates(loader) {
+  const base = {
+    singleton: false,
+    description: 'test-only generic service fixture',
+    spawn_prompt: 'test fixture service_spawn',
+    system_prompt: 'test fixture',
+    child_templates: ['*'],
+    variables: {},
+  };
+  for (const name of ['generic-task', 'generic-service', 'research-task']) {
+    loader.register({ ...base, name });
+  }
+  return loader;
+}
+
+/**
+ * Unit tests use generic service kinds as neutral fixtures. They are not
+ * shipped templates anymore, so keep them explicit and test-only rather than
+ * weakening the production template tree.
+ */
+export function testTemplates() {
+  return registerTestTemplates(new TemplateLoader());
+}
+
 export function system(directory, provider = null, runtimeOptions = {}, orphanPolicy = undefined) {
   const {
-    templates = new TemplateLoader(),
+    templates = testTemplates(),
     catalog = new AgentCatalog({ home: directory, env: process.env }),
     ...options
   } = runtimeOptions;
