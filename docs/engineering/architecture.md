@@ -1,97 +1,103 @@
-# 总体架构
+# 架构：一个项目，一棵棵任务树
 
-## 定位
+## 实体
 
-Lush 管理 AI 活动，而不是 CPU、内存和 Unix 服务。它有两层**实体**：**Service** 是被动的持久化节点（身份、变量、state、权限），**Task** 是挂在某个 service 上的一次工作（有 agent、会话与 result，可向下游派子 task）；人的输入是第三种**记录**——**Intension**（用户原话 + 指定的 service + 处理到哪一步），由 SID 0 上的解析 task 串行变成 task。内存中的 Service 只是通过 SID 访问 Core 的句柄，不维护递归 children 对象图。
+- **Project**：不是全局注册表里的记录，而是 daemon 的不可变作用域：canonical 目录 + `.lush/project.json` + SQLite 中的项目绑定。
+- **Input**：用户原话，逐字持久化，关联一个根 planner Task。入口调用只做短事务和安排调度，不等待 agent。
+- **Task**：goal / role / parent_id / input_id / status / result / error / invocation 次数；worker 另有工作区和 integration 状态。父子关系只在创建时指定，不能变更。
+- **Message**：持久化收件箱，用户、直接父子 task、子任务结算与 notice 答复共享同一通道。
+- **Notice**：task 请求用户做决定；答复/忽略入收件箱。
+- **Event**：创建、调用、状态转换、消息和 Git 生命周期审计。
 
-```text
-CLI / Web / future TUI
-          |
-     UI adapters
-          |
- JSON-RPC / Unix socket
-          |
-        lushd
-          |
- ServiceManager <--- Agent Tools
-   |       |              ^
-Repository AgentRuntime --|
-   |       |       |
-SQLite  ContextBuilder  AgentBackend
-             |         /          \
-       Lush guide   pi (子服务)   内置 provider
-                                   /        \
-                                 Mock     OpenAI
-```
+没有 Service，也没有为创建 task 而先构造的被动节点。
 
-## 模块边界
-
-- `core/`：实体类型、两套生命周期（`lifecycle.js`：service 的 created/active/stopped 与 task 的 created/running/waiting/awaiting/completed/failed/cancelled）、Service 句柄、统一业务 API、父子关系及孤儿收养。`core/tasks.js` 是 task 层：派活规则（只向直接子 service、一个 service 一个活动 task、只能等自己树里的 task）、`waiting` / `awaiting` 与唤醒、complete/cancel/fail 与「终态 task 没有活动子 task」的不变量、task 树读模型。`core/intensions.js` 是入口那一层：intension 的入队 / 派发（唯一创建根 task 的地方）/ 结算 / 延期，以及 `intent.context` 这个派生读模型（模板树 + 服务树 + 队列 + 对目标的机械体检）；结算处的 `handoff` 是交棒的地方——解析器已下结论时，把它名下未结束的子树提升为独立的根 task，让解析 task 能当场结束（否则它会一直停在 `waiting`，而它占着 SID 0，整条输入队列跟着等）。`core/orphans.js` 是 SID 0 的孤儿监督：孤儿池读模型、策略校验（`normalizeOrphanPolicy`）、上限 / TTL / busy 判定与一轮监督（`OrphanSupervisor`）；它只决定该冻结谁，真正的状态变更仍走 `ServiceManager`（冻结而非删除，并取消它手上的 task）。没有 socket / CLI / HTTP 知识。
-- `persistence/`：`bun:sqlite` schema、事务、记录查询与恢复。数据库是事实来源，不缓存服务树。
-- `template_loader.js` + `templates/`：仓库顶层 `templates/` 存放 JSON ServiceTemplate（name、singleton、description、construct_prompt、system_prompt、child_templates、variables 七个必填字段，另有一个可选字段 agent），模板按 构造树分目录嵌套：`<name>.json` 的同级有一个同名文件夹 `<name>/`，里面放它能直接创建的模板（`templates/lush-root.json` + `templates/lush-root/project-manager.json` + `templates/lush-root/project-manager/project/dev-task.json` + `templates/lush-root/project-manager/project/dev-task/worktree-service.json`），loader 递归读取并校验，`child_templates` 写的是相对自己文件的路径（`project/dev-task.json` / `dev-task/worktree-service.json` / 同目录的 `generic-task.json`），加载时解析成模板名（也接受直接写名字），因此白名单、快照与权限比对里只有名字，并**按层级顺序排列模板**：层级 = 从「没有其他模板能创建它」的模板出发的最长路径（`*` 与自引用不算边，环在走到的那条边上截断），同级按名称排序，因此结果与文件名无关；`available_child_templates` 于是呈现根在前的拓扑序（`lush-root` → `project-manager` → `project` → 它能创建的任务），而不是文件名序。创建时保存完整快照，模板文件后续变更不影响既有 Service（`singleton` 按当前加载的模板判定）。可选的 `agent` 声明该模板新建实例使用的 agent profile，`construct --agent` 优先于它。三个散文字段（`description` / `construct_prompt` / `system_prompt`）可以写成 `@<相对路径>`，由 loader 相对声明文件读入旁边的 markdown 并内联（与 `child_templates` 同一条相对规则，引用不可读即 `-32602`，绝不退化成字面量），所以长提示词一个一个字地改而不用面对一行 `\n` 转义；这类 `.md` 与模板 JSON 一样属于提示词面，fingerprint 一并哈希。
-- `context/`：独立持久化 Context，以及 ContextBuilder。只读当前 Service 的对话、结构化 state、引用和直接亲属摘要，不注入全系统状态。
-- `agent/`：Agent 后端，以及受限轮数的调用循环。默认后端是 `pi`：每次 invocation 起一个 `pi --print` 子服务，**每个 task 一个 pi session**（id `lush-task-<task>`），pi 自己跑工具循环并通过 bash 调用 `lush` CLI 操作 Lush；`mock` / `openai` 是 Lush 内置运行时，agent 直接拿 `task_*` / `service_*` 工具。`profiles.js` 是 agent profile 的存储与逐字段解析（一个 agent 一个 `$LUSH_HOME/agents/<name>.json`，内置 default 为「纯净 pi」：不加载使用者的 extensions / skills / prompt templates / themes / AGENTS.md），`catalog.js` 把「服务选中了哪个 profile」在 call 时解析成 provider（缓存按解析后的字段做键，改文件即改行为，不用重启 daemon）。`guide.js` 是两种形态共用的 Lush 说明层（介绍 Lush 与如何操作它），`ContextBuilder` 按**该服务实际使用的后端**选择 tools / cli 版本。共享的快照字段（`singleton`）由当前模板决定，`child_templates` 白名单、variables 声明（哪些必填、哪些创建后仍可改、格式约束 pattern / max_length / single_line）与保留名 `path` 的工作目录校验、`name` 的服务名等价关系由 Core 强制执行，后端不参与授权。
-- `rpc/`：newline-delimited JSON-RPC；参数和错误映射，不复制业务逻辑。
-- `daemon/`：装配、单实例锁、socket 生命周期、信号和中断恢复；启动时建一个 `AgentCatalog`（默认 provider = 环境变量叠加内置 default profile），并把它绑给 `ServiceManager`（construct 时校验 `--agent` / 模板 `agent`）与 `AgentRuntime`（task 开始时解析该 SID 的 profile）；按 `config.orphanPolicy` 决定是否起孤儿监督定时器（`sweepSeconds` 秒，unref，关闭时先清掉再关数据库）。
-- `socket_io.js`：Bun socket 写入是有界的（单次 write 只接受有限字节），统一封装「写满队列 + drain 续写」，RPC 两端共用。
-- `ui/`：用户交互的统一应用边界。CLI / Web / 未来 TUI 都先进入 `UIClient`：命令型 adapter 走完整的 `execute(method, params)` 网关，常见交互走具名工作流，再由它独占 request transport（当前为 `RPCClient`）；任何 UI adapter 都不直接操作 socket。`ui/web/` 用 Bun HTTP 提供仅回环地址可访问的 service tree、intension 队列与提交入口；`ui/cli.js` 把现有 CLI 接到统一入口，并保留 `cli/` 的兼容导入路径。
-- `cli/`：CLI 的命令树声明（每一层自带 help）、参数解析、`UIClient` 调用、输出格式、交互 session、daemon 启动客户端。`intent` 是人的入口（提交用户原话 / 看队列 / 解析器自己的 settle / defer），`task` 组管工作，`service` 组管被动节点。
-
-## 调用数据流
-
-1. 用户输入走 `lush intent submit` → RPC `intent.submit` → `core/intensions.js`：先落一行 intension，再由 `drain` 在 SID 0 上建**解析 task**（Lush 里唯一由队列创建的根 task）；解析器判断后要么用 agent 工具 `task_construct` 向下游派子 task，要么自己回答，要么用 notice 问用户。解析器一结算，它名下还在跑的子树就**交棒**出去（`handoff` / `repository.detachChildTasks`：提升为各自独立的根 task），这样它当场就能结束、不必等那棵子树跑完。`ServiceManager.constructTask(...)` 是那两条路共用的入口：校验节点是否 active、这一个 service 上是否已有活动 task、目标是否是自己的直接子 service（根 task 则要求来自 intension 队列且落在 SID 0），然后建 task 行并在后台启动它的 run。
-2. Runtime 打开这次 invocation：同一个 task 不会有第二个 invocation；一个 service 同时最多一个活动 task（task 层已保证），不同 service 的 task 可真并行。
-3. 持久化 agent_calls（带 `task_id`）和 user message。ContextBuilder 生成模板 system prompt、共享 Lush 说明层、`LUSH_CONTEXT`（service + task + 子 task + 可创建模板）与**这个 task 自己**的对话。内置后端直接用这些 messages；外部后端（pi）拿到同样的 system prompt / 说明层 / `LUSH_CONTEXT` 与工作目录（`path` 变量），由 Lush 拼成命令行参数。
-4. Provider 返回文本及结构化 tool calls。每个 assistant / tool 消息顺序持久化，工具经 Core 执行业务变更（派子 task、等子 task、改 state/变量、建子服务）。pi 后端没有工具轮次：pi 在子服务内自己完成整个工具循环，Lush 只记录 user prompt 与最终文本（完整 pi session 落在 `$LUSH_HOME/pi-sessions/`，按 task 命名）。
-5. agent 给出最终回答后，task 层按顺序决定：收件箱有未读输入（父子消息 / 子 task 结算 / 用户结算的 notice）→ 合成一条 user 消息继续 invoke；无输入但还欠着什么 → 进入 `waiting`（子 task 未结算）或 `awaiting`（自己上报的 wait notice 未被处理）等输入；都没 → 这个回答就是 task 的 result（记为 completed，最多 `LUSH_TASK_CALLS` 次）。异常记录 failed，取消记录 cancelled。解析 task 终态时同一处还会处置它手上的 intension：完成就把结论记进 `response`，失败 / 取消就把行放回队列重试（`attempts` 上限 3 次），所以`core/tasks/rules.js` 的 `finish()` 也是队列前进的地方。
-
-阻塞在 task 上，不在 agent 里：agent 的工具没有“等待”原语（notice 也一样：上报即返回，答复后来才作为收件箱输入送到）。父子消息、子 task 结算与用户对 notice 的答复都进同一个 `task_inbox`，只在两次 invocation 之间交给 agent，所以不会打断正在跑的工作；消息只走 task 树的直接边，与“只能向下游、直接子 service”同一条边界，所以通话关系不可能成环。单次 invocation 有轮数上限和超时（task 停在 `waiting` / `awaiting` 等输入期间超时不计）。同一个 Agent 回复的多个工具依次执行，避免同轮生命周期工具和变更工具竞态。多个客户端/父服务可同时调用不同 SID；单个父 Agent 的同轮多工具暂不并行。未来可以加入显式并行工具，不改变 Core API。
-
-## 持久化
-
-- `services`：SID、当前 parent、original_parent、名称、状态（created / active / stopped）、目标、模板快照、时间戳。
-- `contexts`：system_prompt、state JSON、artifacts/references JSON，与 Service 一对一。
-- `tasks`：id、sid（挂载的 service）、parent_task_id、root_task_id、goal、status（created / running / waiting / awaiting / completed / failed / cancelled）、result、error、state、时间戳。
-- `messages` / `agent_calls`：按自增 ID 排序的完整 provider 协议消息与调用记录，关联 SID、`task_id` 和 invocation。
-- `service_events` / `task_events`：节点与 task 各自的创建、状态变化、收养、state 更新事件（解析 task 还会多一条 `intension` 事件，指向它正在解析的那条输入；交棒时被提升为根的那个 task 会多一条 `detached` 事件，记下它是从哪个解析 task 交出来的）。
-- `intensions`：用户原话（逐字）、可选的 `sid`、来源、状态（queued / parsing / awaiting / settled / rejected）、`parse_task_id`、`blocked_by_task_id`、`attempts`、`resolution`、`response`。`notices.intension_id` 是另一条边：冲突裁决的问与答都能从这条输入回溯。
-
-关系采用 `services.parent_sid` 外键作为唯一事实，不增加重复 children 表。children 反查并加索引；禁止任意 reparent，只允许创建及系统向根收养，因此不能产生环。original_parent_sid 不变。
-
-SQLite 开启 foreign_keys、WAL、busy_timeout。每个 Core 变更在同步短事务内完成，事务中不 await / 不调用模型。单 daemon / 单事件循环拥有数据库连接，不存在线程共享 SQLite。`bun:sqlite` 是同步 API，属于 MVP 限制：大查询/磁盘 IO 可能短暂阻塞事件循环，后续可替换为专用工作线程或 `bun:sqlite` 的异步接口，不改变 Repository 边界。
-
-父服务结束及孤儿收养是同一事务。唯一的物理删除路径是 `service.delete` / `service.purge`（连带挂载在它上面的 task）与 `task.delete`（只删 task 行，call 行与消息作为 service 历史保留），详见 [concepts/lifecycle-and-orphans.md](../concepts/lifecycle-and-orphans.md) 的「删除」。重启恢复先把 running 的调用标记 interrupted，把未结束的 task 记为 failed（daemon restarted），再把 SID 0 恢复为 active；其他节点状态保留。启动阶段还会把旧快照中缺失的、当前版本仍需从快照读取的模板字段（`child_templates`、`variables`）从同名已加载模板回填一次，并记 template_backfilled 事件；同名模板不存在时跳过并记 WARNING，其他快照字段不变。旧版快照里遗留的 `service_type`、`allowed_child_templates`、`agent_command`、`initial_context` 不再被读取。未完成的工具消息保留用于审计，但 ContextBuilder 不把不完整调用协议重放给 Provider，而将中断/失败的历史显示为普通对话和审计摘要。
-
-## 运行与限制
-
-数据目录 0700，socket 0600；单实例锁保证同一 `$LUSH_HOME` 只有一个 daemon，持锁后才清理 stale socket。Bun 未暴露 `flock`，所以锁是原子创建的 `daemon.lock` 文件（先写临时文件再 `link()` 占位，读者不会看到空锁），内容为 daemon 的 OS PID，通过进程存活检测判断归属，因此 SIGKILL 遗留的锁可被下一次启动接管。SIGTERM / SIGINT 或 daemon.stop 停止接收连接并取消 Agent 调用，记录中断后关闭数据库。不自动重试网络请求和工具。内置 Provider 请求使用 Bun `fetch` + `AbortSignal`：逻辑调用取消后不再执行其结果和工具，底层请求也会被中断；pi 后端在取消（kill/stop/超时/daemon 退出）时直接 SIGKILL 对应的 pi 子进程，因此 daemon 退出不必等 pi 干完。运行期 agent 在 `AgentRuntime` 里有自己的空间（id `TASK.N`，不落库）：daemon 起的 pi 由 provider 在 spawn 后回传 OS PID，`lush intent submit --interactive` 的 pi 由终端上报 `call.os_pid`，所以 \`task agents kill\` 对两者都能直接 SIGKILL（并取消它服务的 task）；daemon 重启后这个空间为空（活的 agent 本来就没剩），持久记录留在 task 行、`agent_calls` 与磁盘上的 session。CLI 的 stop 等待的是 Core 锁释放。服务树恢复不等于恢复模型内部执行现场，也不重放 pi 的会话。
-
-pi 子进程的限制：`LUSH_CALL_TIMEOUT`（默认 900 秒）是单次 invocation 的硬上限，超时后 pi 会被杀掉并把 task 记为 failed；pi 继承 daemon 的环境（包括代理变量与它自己的配置目录），Lush 只额外注入 `LUSH_HOME` / `LUSH_SID` / `LUSH_TASK_ID` 并把仓库 `bin/` 前置到 PATH；**一 task 一 session**，所以两个 task 的 pi 服务可并行（同一 task 不会再开第二个），而一个 service 同时最多一个活动 task。`LUSH_MAX_ROUNDS` 是单次 invocation 的轮数上限，`LUSH_TASK_CALLS`（默认 12）是一个 task 最多被 invoke 几次（首次 + 唤醒），两者都只对内置运行时/唤醒逻辑有意义。
-
-Service 是被动节点，不等于后台循环的 Agent；一切由 task 驱动。SID 0 会按配置的孤儿监督策略回收孤儿：父节点进入终态时按 `LUSH_ORPHAN_ADOPT` 收养（默认）/ 不收养 / 连同子节点一起冻结，收养后的孤儿按 `LUSH_ORPHAN_LIMIT`（活动孤儿上限，超出时从最旧开始冻结）与 `LUSH_ORPHAN_TTL`（闲置超时）回收，daemon 在 `LUSH_ORPHAN_SWEEP` 秒的定时器上（仅当 limit>0 或 ttl>0 时启用，unref）跑一轮，也可用 `lush service orphans [--sweep]` 查看/手动触发；有调用在跑的孤儿永不被冻结。默认值是 adopt + 不限 + 不超时，即不显式配置就不回收——配置入口是 daemon 启动时读的环境变量，改配置要重启。回收是冻结（一律 → stopped，记录全留），物理删除仍只有 delete / purge。
-
-Context 是单独资源边界，而不是消息数组别名。当前持久上下文不自动压缩、不使用 token scheduler；完整历史会增长，达到 RPC 大小上限时可按页读取历史。未来可在 ContextBuilder / Repository 边界加入 compression、paging、inheritance、sharing 和调度，不改变 Service 语义。
-
-没有跨模型副作用的 exactly-once 保证：若工具已提交但 daemon 在 tool message 写入前崩溃，事件/实体变更仍在，但模型历史可能不完整。恢复标记 interrupted，要求人工 inspect 而不是自动重放。pi 后端同理：pi 会话文件里可能有已执行的 bash 副作用，而 Lush 只把 invocation 标为 interrupted。
-
-## 源码的分层布局
-
-`src/` 按模块分目录（`core/` / `persistence/` / `agent/` / `context/` / `rpc/` / `daemon/` / `cli/`），再往下的约定是：**一个语义单元写成 `x.js` + 同名目录 `x/`**，`x.js` 只做转发（通常 6~15 行），`x/` 里是按职责切开的层。这和 `templates/` 的布局是同一个把戏——目录本身就是结构。
+## 数据流
 
 ```text
-src/core/service_manager.js        # 入口：re-export
-src/core/service_manager/
-  index.js   组装：类本体（构造函数 + orphanPolicy getter）+ Object.assign(五个方法层)
-  read.js    SID 0 初始化、读模型、变量
-  nodes.js   construct、状态机、孤儿监督、删除
-  agents.js  profile 解析与 agent 动词
-  tasks.js   task 动词
-  notices.js notice 动词（agent → 用户）
+CLI / Web → UIClient → JSON-RPC / Unix socket → Project
+                                                   ├── Store / SQLite
+                                                   ├── scheduler → pi subprocess / mock
+                                                   └── Workspaces → serialized Git operations
 ```
 
-同样的模式用在 `agent/runtime.js`（runner / space / task / interactive）、`cli/format/service.js`（inspect / agents / tasks）、`core/tasks.js`（internal / rules / read）、`persistence/repository.js`（index / rows / state / calls / tasks / notices / removal）、`persistence/database.js`（connection / schema）。
+所有业务校验在 Project / Workspaces，RPC 只检查参数、身份与命令权限，UI 不直接操作数据库。
 
-两条实现约定：
+### 输入和规划
 
-- **导入路径不随拆分变化**：入口文件保留原名（`'./tasks.js'`、`'../agent/runtime.js'` 照旧），所以调用方不需要知道内部怎么分层。
-- **宽接口用方法层合并，不用继承链**：每个层导出一个普通对象，`Object.assign(Class.prototype, layerA, layerB, ...)` 合到同一个原型上，表面仍是一个扁平对象（RPC 的 `service.*` / `task.*` 方法、CLI 的调用点都直连它）。构造函数的字段与 getter 留在类体里——`Object.assign` 复制的是 getter 的值，不是 getter 本身。
+`input.submit` 在一个事务中写 Input、根 planner Task、关联字段和创建事件，然后通过 microtask 启动调度。
+
+每条输入有自己的 planner；不会复用长期被占用的单个根任务。调度器保留一个规划槽，执行任务使用另外 N 个槽。因此一个规划任务派活后等待，不会阻碍其他输入被规划。规划本身不是无限并发，以免大量输入造成不受控模型调用。
+
+### 一次 invocation
+
+1. 按任务 ID 从 queued 中挑选，不超过对应槽限制。
+2. 在 `running` Map 中占位，再异步准备 worker worktree；将 task 标为 running。
+3. 读取此次未消费消息、当前任务/子任务和最近任务摘要，启动 provider。
+4. pi 收到项目/任务/token 环境变量、固定代码路径下的 lush CLI、独立 session 和输入文件。在 cwd 中运行工具循环；Lush 不在 argv 中传入巨大的项目快照。
+5. provider 正常返回后消费**启动时读到的消息**，记录结果。运行期间到达的消息留给下次。
+6. 依次判定：还有未读消息 → queued；有未决 notice → awaiting；有活动子任务 → waiting；否则校验 worker 提交并 completed。
+7. 释放 running 占位，再次检查未读消息，防止 child settled 与 parent park/清理之间丢唤醒。
+
+waiting / awaiting 不占 agent 槽，也不运行 sleep/poll 子进程。最终输出是 task result；不提供可被 agent 提前调用的 complete 命令。
+
+### 多级协作
+
+agent 只能从自己的 task 派生子任务、给直接父/子发消息、给自己发 notice。用户可以给任意活动 task 追加输入。子任务结算发送状态、结果与错误给父 task；父 task 重新入队后自己决定继续派活或汇总。
+
+最大层数、活动任务数上限、调用次数上限和 invocation 超时限制失控分派。默认 maxDepth=8、活动任务上限=1000、maxCalls=24。
+
+## 生命周期不变量
+
+- 状态：queued / running / waiting / awaiting / completed / failed / cancelled。
+- 一个 task 同时只有一个 invocation。
+- 终态 task 没有活动子 task。失败和取消会先自底向上取消活动后代，再结算自身。
+- 父子边只由已有父 task 的创建操作建立，不允许环或任意 reparent。
+- 消息只有在一次调用成功返回后才消费，失败后可以在明确重试时再次交付。
+- 取消、notice 答复与 completion 的核心状态变更都在同步短事务中完成；事务内不等待模型或 Git。
+- 重试必须是用户显式动作，且父 task 不能已终态。
+- 不删除任务历史；工作区清理与任务终态是不同操作。
+
+## Git 边界
+
+所有 runtime 管理的 Git 操作使用 argv 数组、不经 shell 插值，共享异步串行队列。排队等待 Git 不阻塞事件循环、输入提交或已有 RPC。
+
+worker 创建时记录项目 HEAD 与目标分支，创建 `.lush/worktrees/task-ID` 和 `lush/<project-hash>/task-ID` 分支。每个 worker 是独立修改集，不自动继承其他未合并任务成果。
+
+结果提交后进入 `integration=pending`。用户 `task.merge` 检查项目/worker 干净、原目标分支、已审阅的 commit 未变化，再持久化批准事件和 `merging`，执行 merge。成功 `merged`；失败尝试 abort 并回到 pending，完整错误保留。中断的 merging 恢复为 review，不猜测 Git 操作是否完成。
+
+工作区清理不强制删除；即使 failed/cancelled task 的 integration=none，也检查其 commit 是否已包含在项目 HEAD 中，防止删除未交付成果。分支作为廉价恢复点保留。
+
+Lush 无法锁住用户的编辑器或外部 Git 进程；合并期间不要并发修改主工作树。Agent 工具也不是 OS 沙箱，目录/角色约束不能阻止恶意 shell 命令。
+
+## 项目身份与恢复
+
+项目路径 canonicalize 后决定 `.lush` 和 socket。manifest 与数据库双重校验路径，拒绝旧库与跨项目复用。daemon.lock 按项目持有；socket 位于 uid 私有临时目录，权限 0600，目录 0700。
+
+daemon 启动捕获全部运行源码 fingerprint；status 显示 project、home、socket、code_dir、fingerprint。start 遇到已运行 daemon 只报告，不换版本。
+
+正常退出停止接收 RPC，取消正在执行的任务、终止 agent 进程组、等待调用和 Git 队列结束，再关闭数据库和释放锁。queued / waiting / awaiting 持久保留。重启发现 running 时记失败并取消其活动后代，不重放可能已有副作用的工作；留待用户检查。SIGKILL 可能留下外部进程，需要用户检查后重试。
+
+不提供 exactly-once 文件副作用保证。SQLite 事务只能保护 Lush 记录，不能把任意模型工具与 Git 操作一起纳入事务。
+
+## 界面与传输
+
+CLI 的 task list / history 支持 cursor 分页；task inspect 返回完整任务结果和有界的相关记录。Web 复用 UIClient，轮询快照，采用 textContent 呈现模型输出，不插入 HTML；输入表单和 notice 答复在轮询时保留。
+
+Web 只监听 127.0.0.1，校验 Host / Origin / Sec-Fetch-Site，修改操作要求 JSON；HTTP 只能访问显式允许的方法，不能代理任意 RPC。RPC 以本机用户为可信边界；agent token 只约束正常的 agent 调用，不是本机攻击者隔离。
+
+## 源码布局
+
+| 路径 | 职责 |
+|---|---|
+| `config.js` | 项目发现、配置、绑定 |
+| `persistence/store.js` | schema、事务、事实读写 |
+| `core/project.js` | 任务树、调度、生命周期、消息/notice |
+| `core/workspaces.js` | Git worktree、批准合并、安全回收 |
+| `agent/guide.js` | 项目开发与各角色的 agent 指令 |
+| `agent/provider.js` | pi 进程与 mock 后端 |
+| `rpc/` | JSON-RPC framing、参数/身份校验、socket |
+| `daemon/` | 单实例锁、装配与停止 |
+| `cli/` | CLI 和 daemon 启停客户端 |
+| `ui/` | 统一客户端与本地 Web |
+
+维护时优先保持这些小模块，不重新引入通用 Service 管理或电脑级能力体系。

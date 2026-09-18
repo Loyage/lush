@@ -1,6 +1,6 @@
 import { LushError, isPlainObject, jsonLoad } from '../core/types.js';
 import { createWriter } from '../socket_io.js';
-import { encode } from './protocol.js';
+import { encode, MAX_FRAME } from './protocol.js';
 
 export class RPCClient {
   constructor(path, timeout = 130) {
@@ -51,6 +51,10 @@ export class RPCClient {
           },
           data: (handle, chunk) => {
             buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+            if (buffer.length > MAX_FRAME) {
+              finish(() => { writer.end(); rejectLine(new LushError('daemon response too large')); });
+              return;
+            }
             const index = buffer.indexOf(0x0a);
             if (index === -1) return;
             const payload = buffer.subarray(0, index).toString('utf8');

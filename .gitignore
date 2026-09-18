@@ -1,6 +1,7 @@
 node_modules/
 coverage/
 .lush/
+.lush-backup-*/
 result
 *.log
 .DS_Store

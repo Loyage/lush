@@ -1,159 +1,73 @@
-/** JSON-RPC framing and dispatch; business rules remain in ServiceManager. */
-import { PARAMS, invoke } from '../core/dispatch.js';
-import { LushError, isPlainObject, jsonDump, jsonLoad } from '../core/types.js';
-
+import { LushError, check, isPlainObject, id, bounded } from '../core/types.js';
 export const MAX_FRAME = 1024 * 1024;
-
 export function encode(value) {
-  const payload = Buffer.from(jsonDump(value), 'utf8');
-  if (payload.length + 1 > MAX_FRAME) {
-    throw new LushError('RPC frame exceeds 1 MiB; use paginated history', -32600);
-  }
-  return Buffer.concat([payload, Buffer.from('\n')]);
+  const payload = Buffer.from(JSON.stringify(value) + '\n');
+  check(payload.length <= MAX_FRAME, 'RPC frame exceeds 1 MiB; use paginated history');
+  return payload;
 }
-
-export function errorResponse(requestId, code, message) {
-  return { jsonrpc: '2.0', id: requestId ?? null, error: { code, message } };
-}
-
+export const errorResponse = (id, code, message) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
 export function parseRequest(raw) {
   let value;
-  try {
-    value = jsonLoad(raw.toString('utf8'));
-  } catch {
-    throw new LushError('parse error', -32700);
-  }
-  if (!isPlainObject(value) || value.jsonrpc !== '2.0' || typeof value.method !== 'string') {
-    throw new LushError('invalid JSON-RPC request', -32600);
-  }
-  if (Object.hasOwn(value, 'id') && value.id !== null
-    && !(typeof value.id === 'string' || (typeof value.id === 'number' && Number.isInteger(value.id)))) {
-    throw new LushError('id must be string, integer or null', -32600);
-  }
+  try { value = JSON.parse(raw.toString('utf8')); } catch { throw new LushError('parse error', -32700); }
+  check(isPlainObject(value) && value.jsonrpc === '2.0' && typeof value.method === 'string', 'invalid JSON-RPC request');
+  check(value.id === undefined || value.id === null || typeof value.id === 'string' || Number.isSafeInteger(value.id), 'invalid request id');
   return value;
 }
-
-// [wire name, ServiceManager method, params key] — the wire protocol keeps snake_case.
-const SERVICE_METHODS = [
-  ['service.inspect', 'inspect', 'inspect'],
-  ['service.parent', 'parent', 'parent'],
-  ['service.children', 'children', 'children'],
-  ['service.view', 'view', 'view'],
-  ['service.construct', 'construct', 'construct'],
-  ['service.tree', 'tree', 'tree'],
-  ['service.orphans', 'orphans', 'orphans'],
-  ['service.orphan_sweep', 'superviseOrphans', 'orphan_sweep'],
-  ['service.start', 'start', 'start'],
-  ['service.stop', 'stop', 'stop'],
-  ['service.delete', 'delete', 'delete'],
-  ['service.purge', 'purge', 'purge'],
-  ['service.update_state', 'updateState', 'update_state'],
-  ['service.update_vars', 'updateVars', 'update_vars'],
-];
-
-const TASK_METHODS = [
-  ['task.list', 'taskList', 'task_list'],
-  ['task.tree', 'taskTree', 'task_tree'],
-  ['task.inspect', 'taskInspect', 'task_inspect'],
-  ['task.result', 'taskResult', 'task_result'],
-  ['task.history', 'taskHistory', 'task_history'],
-  ['task.wait', 'taskWait', 'task_wait'],
-  ['task.construct', 'taskConstruct', 'task_construct'],
-  ['task.message', 'taskMessage', 'task_message'],
-  ['task.inbox', 'taskInbox', 'task_inbox'],
-  ['task.trace', 'taskTrace', 'task_trace'],
-  ['task.complete', 'completeTask', 'task_complete'],
-  ['task.cancel', 'cancelTask', 'task_cancel'],
-  ['task.delete', 'taskDelete', 'task_delete'],
-  ['task.update_state', 'updateTaskState', 'task_update_state'],
-  ['task.agents_list', 'taskAgentsList', 'agents_list'],
-  ['task.agents_show', 'taskAgentShow', 'agents_show'],
-  ['task.agents_kill', 'taskAgentsKill', 'agents_kill'],
-  ['task.session', 'taskSession', 'session'],
-];
-
-const CALL_METHODS = [
-  // `call.end` / `call.os_pid` report an *interactive* call back to the daemon
-  // (`intent submit --interactive`): the terminal ran the agent, so it is the
-  // one that knows the outcome and the OS PID. Creating a root task is not a
-  // wire method any more — a user speaks through `intent.submit`.
-  ['call.end', 'callEnd', 'call_end'],
-  ['call.os_pid', 'callOsPid', 'call_os_pid'],
-];
-
-const NOTICE_METHODS = [
-  ['notice.list', 'noticeList', 'notice_list'],
-  ['notice.inspect', 'noticeInspect', 'notice_inspect'],
-  ['notice.post', 'noticePost', 'notice_post'],
-  ['notice.answer', 'noticeAnswer', 'notice_answer'],
-  ['notice.dismiss', 'noticeDismiss', 'notice_dismiss'],
-];
-
-const INTENSION_METHODS = [
-  ['intent.submit', 'submitIntension', 'intent_submit'],
-  ['intent.list', 'intensionList', 'intent_list'],
-  ['intent.inspect', 'intensionInspect', 'intent_inspect'],
-  ['intent.context', 'intensionContext', 'intent_context'],
-  ['intent.settle', 'intensionSettle', 'intent_settle'],
-  ['intent.defer', 'intensionDefer', 'intent_defer'],
-  ['intent.withdraw', 'intensionWithdraw', 'intent_withdraw'],
-  ['intent.wait', 'intensionWait', 'intent_wait'],
-];
-
+const PARAMS = {
+  'system.status': [], 'system.stop': [], 'input.submit': ['content'], 'input.list': [],
+  'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'],
+  'task.spawn': ['parent','goal','role'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
+  'task.merge': ['id'], 'task.cleanup': ['id'],
+  'notice.list': [], 'notice.post': ['task','title','body'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
+};
+const USER_ONLY = new Set(['system.stop','input.submit','task.cancel','task.retry','task.merge','task.cleanup','notice.answer','notice.dismiss']);
 export class Dispatcher {
-  /**
-   * `identity` is captured by the daemon at startup and reported verbatim:
-   * which home (state) and which code (checkout + prompt surface) answer here.
-   */
-  constructor(manager, stopping, identity = {}) {
-    this.manager = manager;
-    this.stopping = stopping;
-    this.identity = identity;
-    this.methods = {
-      'system.status': { params: { required: [] }, fn: () => this.status() },
-      'system.shutdown': { params: { required: [] }, fn: () => this.shutdown() },
-      'service.list': { params: PARAMS.list, fn: () => manager.list() },
-    };
-    for (const [wire, method, params] of [...SERVICE_METHODS, ...TASK_METHODS, ...CALL_METHODS, ...NOTICE_METHODS, ...INTENSION_METHODS]) {
-      this.methods[wire] = { params: PARAMS[params], fn: manager[method].bind(manager) };
+  constructor(project, stopping, identity) { this.project = project; this.stopping = stopping; this.identity = identity; }
+  async dispatch(method, params = {}) {
+    check(isPlainObject(params), 'params must be an object');
+    if (!Object.hasOwn(PARAMS, method)) throw new LushError(`unknown method: ${method}`, -32601);
+    check(Object.keys(params).every(key => key === '_token' || PARAMS[method].includes(key)), 'unknown parameter');
+    const actor = this.project.actor(params._token);
+    check(actor === null || !USER_ONLY.has(method), `${method} requires user approval, not an agent`);
+    const p = this.project;
+    switch (method) {
+      case 'system.status': return { ...p.status(), ...this.identity, pid: process.pid };
+      case 'system.stop': this.stopping.request(); return { stopping: true };
+      case 'input.submit': return p.submit(params.content);
+      case 'input.list': return p.inputs();
+      case 'task.list': {
+        const after = Number(params.after ?? 0), limit = Number(params.limit ?? 200);
+        check(Number.isSafeInteger(after) && after >= 0 && Number.isInteger(limit) && limit > 0 && limit <= 1000, 'invalid task page');
+        return bounded(p.store.summaries().filter(task => task.id > after).slice(0, limit), 900000);
+      }
+      case 'task.tree': return p.tree(params.id ?? null);
+      case 'task.inspect': return p.inspect(params.id);
+      case 'task.history': {
+        p.store.task(params.id);
+        const after = Number(params.after ?? 0);
+        check(Number.isSafeInteger(after) && after >= 0, 'invalid history cursor');
+        return p.store.history(id(params.id), after);
+      }
+      case 'task.spawn': {
+        const parent = params.parent ?? actor;
+        check(actor === null || id(parent) === actor, 'agents may delegate only from their own task');
+        return p.spawn(parent, params.goal, params.role);
+      }
+      case 'task.message': return p.message(params.id, params.body, actor);
+      case 'task.cancel': return p.cancel(params.id);
+      case 'task.retry': return p.retry(params.id);
+      case 'task.merge': return p.workspaces.merge(id(params.id));
+      case 'task.cleanup':
+        check(!p.running.has(id(params.id)), 'agent is still stopping; cleanup must wait');
+        return p.workspaces.cleanup(id(params.id));
+      case 'notice.list': return bounded(p.store.all("SELECT * FROM notices ORDER BY (status='open') DESC, id DESC LIMIT 200"), 900000);
+      case 'notice.post': {
+        const task = params.task ?? actor;
+        check(actor === null || id(task) === actor, 'agents may post notices only for their own task');
+        return p.notice(task, params.title, params.body);
+      }
+      case 'notice.answer': return p.answer(params.id, params.answer);
+      case 'notice.dismiss': return p.answer(params.id, '', true);
     }
-  }
-
-  status() {
-    const runtime = this.manager.runtime;
-    return {
-      daemon_pid: process.pid,
-      root_sid: 0,
-      provider: runtime ? runtime.provider.name : 'unbound',
-      service_count: this.manager.list().length,
-      active_calls: runtime ? runtime.activeCalls : 0,
-      // Orphan supervision is configured at startup and only observable here:
-      // the policy in wire shape plus how many orphans it currently holds.
-      orphan_policy: this.manager.orphanPolicyReport(),
-      orphans_active: this.manager.orphans().active_count,
-      // Notices still waiting for a user: the one number that says "someone
-      // needs a human" without walking the whole notice list.
-      notices_open: this.manager.openNoticeCount(),
-      // User input still in the queue (queued / being parsed / parked on a
-      // conflict question): the same answer for "someone is waiting in line".
-      intensions_open: this.manager.openIntensionCount(),
-      // The daemon is long-lived and keeps the guide, the CLI declaration and
-      // the templates in memory, so which code answers is not visible from the
-      // socket path alone; report it and let clients compare with their own.
-      ...this.identity,
-      uptime_seconds: Math.round(process.uptime()),
-    };
-  }
-
-  shutdown() {
-    // The RPC server releases the daemon only after the reply is written.
-    this.stopping.request();
-    return { stopping: true };
-  }
-
-  async dispatch(method, params) {
-    const entry = this.methods[method];
-    if (!entry) throw new LushError(`method not found: ${method}`, -32601);
-    return invoke(entry.fn, params, entry.params);
   }
 }

@@ -1,88 +1,27 @@
-/** Shared domain errors and validation; no transport dependencies. */
-
-/** JavaScript numbers are only exact up to 2^53 - 1; SQLite INTEGER tops out at 2^63 - 1. */
-export const MAX_INT = Number.MAX_SAFE_INTEGER;
-
 export class LushError extends Error {
-  constructor(message, code = -32009) {
-    super(message);
-    this.name = 'LushError';
-    this.code = code;
-  }
+  constructor(message, code = -32010) { super(message); this.name = 'LushError'; this.code = code; }
 }
-
-export function now() {
-  return new Date().toISOString();
-}
-
-export function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-export function validSid(sid) {
-  if (typeof sid !== 'number' || !Number.isInteger(sid) || sid < 0 || sid > MAX_INT) {
-    throw new LushError('sid must be a non-negative SQLite integer', -32602);
-  }
-  return sid;
-}
-
-export function text(value, field, maxLength = 100_000) {
-  if (typeof value !== 'string' || value.trim() === '' || value.length > maxLength) {
-    throw new LushError(`${field} must be a non-empty string (max ${maxLength})`, -32602);
-  }
+export const isPlainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+export const jsonDump = JSON.stringify;
+export const jsonLoad = JSON.parse;
+export const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+export function check(condition, message) { if (!condition) throw new LushError(message, -32602); }
+export function text(value, name = 'text') {
+  check(typeof value === 'string' && value.trim().length > 0 && value.length <= 32000, `${name} must be non-empty text (max 32000 characters)`);
   return value;
 }
-
-/** Serialize to JSON, rejecting everything that is not valid JSON (NaN, Infinity, bigint, undefined, cycles). */
-export function jsonDump(value) {
-  let out;
-  try {
-    out = JSON.stringify(value, (_key, item) => {
-      if (typeof item === 'number' && !Number.isFinite(item)) throw new TypeError('non-finite number');
-      if (typeof item === 'bigint') throw new TypeError('bigint');
-      return item;
-    });
-  } catch (err) {
-    throw new LushError('value must be finite JSON', -32602);
+/** Bound read-model collections by UTF-8 bytes; complete records remain in SQLite. */
+export function bounded(rows, bytes = 200000) {
+  const result = []; let size = 0;
+  for (const row of rows) {
+    const length = Buffer.byteLength(JSON.stringify(row));
+    if (size + length > bytes) break;
+    result.push(row); size += length;
   }
-  if (typeof out !== 'string') throw new LushError('value must be finite JSON', -32602);
-  return out;
+  return result;
 }
-
-export function jsonLoad(value) {
-  return JSON.parse(value);
-}
-
-/**
- * The unified `service.view` read model — the three questions a parent asks
- * about a node before using it, plus where it sits in the tree:
- * `description` is what the node is (its capability boundary),
- * `templates` is what it may still create (the child templates its own agent
- * sees as `available_child_templates`),
- * `prompt` is the prompt its tasks run with (the call prompt),
- * `parent` / `children` are its tree position.
- */
-export const VIEW_SECTIONS = ['description', 'parent', 'children', 'prompt', 'templates'];
-
-/**
- * Service variables are declared and stored in two regions: `immutable`
- * values are fixed at creation (they are the template's initial variables),
- * `mutable` values stay changeable through `service.update_vars`.
- */
-export const VARIABLE_GROUPS = ['immutable', 'mutable'];
-
-/** Normalize requested view sections to canonical order; reject unknown or repeated names. */
-export function viewSections(value) {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new LushError(`sections must be a non-empty list of ${VIEW_SECTIONS.join(', ')}`, -32602);
-  }
-  const requested = new Set();
-  for (const section of value) {
-    if (!VIEW_SECTIONS.includes(section)) {
-      throw new LushError(`invalid view section: ${String(section)}`, -32602);
-    }
-    if (requested.has(section)) throw new LushError(`duplicate view section: ${section}`, -32602);
-    requested.add(section);
-  }
-  return VIEW_SECTIONS.filter((section) => requested.has(section));
+export function id(value) {
+  check((typeof value === 'number' || (typeof value === 'string' && /^[1-9]\d*$/.test(value)))
+    && Number.isSafeInteger(Number(value)) && Number(value) > 0, 'id must be a positive integer');
+  return Number(value);
 }

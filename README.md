@@ -1,137 +1,155 @@
 # Lush
 
-**Operating System for AI — AI 的操作系统，而不是 AI Operating System。**
+**把项目开发成你想象中的样子。**
 
-Lush 把 AI 工作组织成**被动的 Service 节点**与**会干活的 Task**：Service 持有身份、变量与持久状态，自己不会运行 agent；task 才有自己的 agent、会话与 result。人的入口只有一个——`lush intent submit '<原话>'`：你的话先是一条 **intension**（用户输入），由顶层的解析节点 SID 0 串行读一遍全局架构，决定它该变成什么（派给下游节点、直接回答，或有冲突时用 notice 问你）。被安排的活向下游子 service 派子 task，于是形成一棵 task 树——`lush task tree` 能看到一件事是怎样在服务之间协作做完的。SID 0 代表 Lush 自身。它不是 Unix 服务管理器，也不是模型供应商的 CLI 包装器。
+Lush 是项目级的多 agent 开发应用，不再是电脑级的 AI 管家。一个 daemon 绑定一个项目目录；输入、任务、agent 会话、工作区与待决问题都属于这个项目。
 
-## MVP 范围
+你随时描述想法，Lush 立即保存输入并安排规划任务。规划 agent 拆分工作，多级 agent 在后台并行执行；等待子任务或用户决定时释放 agent 槽，不阻塞下一条输入。代码在独立 Git worktree 中实现，**只有用户明确批准才合并**。
 
-Bun 1.2+ / JavaScript (ESM) / `bun:sqlite` / Unix Domain Socket / JSON-RPC 2.0；**没有任何第三方依赖**，不用 Nix、不用 Python、不需要 `bun install`。支持 macOS 和 Linux。CLI 和 Agent Tools 调用同一套 Core API。
+Bun 1.2+ / JavaScript / SQLite / Unix socket，零第三方运行时依赖，支持 macOS 和 Linux。
+
+## 开始使用
+
+在 Lush 源码仓库内操作统一使用 `bun run`。默认项目是当前仓库；操作其他项目时显式指定路径：
 
 ```bash
-# 仓库开发模式，无需安装：CLI 与 daemon 都用 bun 直接运行
-export PATH="$PWD/bin:$PATH"
-export LUSH_HOME="${TMPDIR:-/tmp}/lush-dev-$USER"
-export LUSH_PROVIDER=mock   # 确定性、不调模型；真实 agent 用 pi（默认值）
-lush help                   # 每一层都有 help：lush help service / lush service construct -h
+bun run doctor --project /absolute/path/to/my-project
+bun run start --project /absolute/path/to/my-project
+bun run say '实现登录页面，先研究现有认证流程，再拆分实现和测试' --project /absolute/path/to/my-project
+bun run tree --project /absolute/path/to/my-project
+bun run web 4318 --project /absolute/path/to/my-project
+```
+
+`start` 只启动项目 daemon；`say` **立即返回输入和 task ID，不等待模型或开发完成**；Web 是独立的本地界面进程，不隐式启停 daemon。Web 离线后会自动重连。
+
+若 `bin/` 已在 PATH，在目标项目内可以直接使用：
+
+```bash
 lush daemon start
-lush daemon status
-lush service tree
-lush service construct 0 project-manager --name project-manager
-lush service construct 1 generic-task --name implement-login --goal '实现登录功能'
-lush service tree                  # 被动节点：创建本身不会跑任何 agent
-lush intent submit '请介绍一下你当前的身份和任务' --sid 2 --wait   # 唯一的人入口：说一句，等它结算
-lush intent list                   # 你的输入排到哪了（队列 / 正在解析 / 等你裁决）
-lush task list                     # 解析之后安排出来的活
-lush task tree 1                   # 它派出去的子 task（协作树）
-lush task trace 1                  # 调用链：派活 / 消息 / 结算的时间线
-lush task history 1                # 这个 task 自己的对话
-lush intent submit '把这活派给下游' --sid 1   # 再补一句；解析器会派给合适的下游
-lush task tree 2
-lush task inspect 2
-lush task session 2 --open         # 进入该 task 的 pi TUI（等价 `lush task attach 2`）
-lush service inspect 2             # 被动节点这一侧：变量、state、挂载的近期 task
-lush service inspect 2 --with description,templates,prompt   # 它是什么、能建哪些子模板、在它上面开 task 用什么提示词
-lush service update-state 2 --patch '{"progress":"half"}'
-lush daemon restart # 等价 stop + start；树、task、Context、对话和调用历史仍在
-lush task tree 1
+lush say '给搜索增加键盘导航'
+lush task tree
+lush task inspect 3
+lush task message 3 '还要考虑中文输入法'
+lush notice list
+lush notice answer 1 '采用方案 A'
+lush task merge 3       # 审阅代码与验证报告后，明确批准这个分支
+lush task cleanup 3     # 合并后安全回收 worktree，保留分支作为恢复点
 lush daemon stop
 ```
 
-命令分层：命令组（`intent` / `task` / `service` / `notice` / `daemon` / `agent`）→ 具体命令 → 参数，人的入口是 `lush intent submit`。默认输出是给人读的文本（表格、树、分块的 message、一行式状态），`--json` 给出稳定的机器可读 result，可写在命令之前或末尾。运行期 agent 属于 task（`lush task agents …`），不是独立的命令层。
+默认从 cwd 向上找到 `.lush/project.json` 或 `.git`，以那个目录为项目根。`--project PATH` / `LUSH_PROJECT` 可以显式绑定。目录会 canonicalize，符号链接不会创建第二个 daemon。不同 Git worktree 可作为不同项目独立运行；agent 在任务 worktree 内通过注入的 `LUSH_PROJECT` 始终连接所属项目。
 
-也可通过 `bun run bin/lush`（或 `bun run bin/lushd` 前台运行 daemon）调用；`bun link` 之后 `lush` / `lushd` 会进入 PATH。
+### 运行前提
 
-## 请求怎么往下走：分派优先
+- 默认 agent 是 `pi`，需要在 PATH 中可用且已完成模型认证。可设置 `LUSH_PI_COMMAND`、`LUSH_PI_PROVIDER`、`LUSH_PI_MODEL`。
+- 实现任务需要项目是 **Git worktree 根目录，有初始提交且主工作树干净**。把 `.lush/` 加进项目的 `.gitignore`；Lush 不会替你提交、暂存或藏起已有改动。
+- 非 Git 项目也能提交输入和调研，但不能创建实现 worktree。
+- `LUSH_PROVIDER=mock bun run start --project ...` 可离线演示调度。Mock 只派调研任务，不调用模型、不修改代码。
+- 改环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。
 
-一个 task 的 agent 接到活时，第一件事不是自己动手，而是判断「这活归谁」：对照 task 的 goal、所在 service 的职责与 `children` / `LUSH_CONTEXT.available_child_templates` 里每个子服务、每个可创建模板的 `description` 与 `construct_prompt`——有谁专职这件事就把 task 派给它（已有的子服务先复用，没有的先按模板 `service_construct` 建，再 `task_construct`），没有合适的下游或这本就是自己的职责时才自己动手。派完就结束本轮：task 会自动 park，子 task 结算时以一条 user 消息唤醒 agent 并带上结果；中途要给直接父 / 子 task 追加信息用 `task_message`（入队，不打断对方）。这条规则写在共享说明层（`src/agent/guide.js` 的「通用规则」），所有后端、所有模板都带；`tools` 与 `cli` 两个后端共用同一份文本。
-
-顶层因此长这样：
+## 新模型
 
 ```text
-用户 → intension（用户原话 + 指定的 service）
-        → SID 0 上的解析 task（串行；一个 service 同时只有一个活动 task）
-        │  解析器一结算就**交棒**：派出去的子树成为独立的根 task，它当场结束、把 SID 0 让给下一条输入
-        ├── 关于 Lush 自身的问题：SID 0 自己用只读命令回答，然后结算这条输入
-        ├── 有冲突（目标正忙 / 与架构设计不符 / 和正在跑的活重合）：notice 问你，输入进 awaiting，你答完它接着解析
-        └── 其他一切任务：把 task 派给 project-manager 节点
-                ├── 「给 <项目> 加功能 / 修 bug / 重构 / 调研它」→ 该项目的 project 节点上的 task，分两个阶段：**阶段 1 · 开发**把一批独立的工作拆成多件，由 project 串行建好各自的 git worktree 再建 dev-task 节点并并行派下去（实际改动由各 worktree 里的 worktree-service agent 做），全部结算后 project 汇总成一份待决清单、用**只登记**（`wait: false`）的 notice 报给用户并结束——并行度因此是「一批活里拆出几件」，而不是并发派给同一个节点（一个 service 同时只有一个活动 task），也不把节点停在等用户；**阶段 2 · 合并与回收**由用户再说一句 `lush intent submit '合并：<name>=yes … 回收：<name>=yes …'`（解析器会把它交给对应的 project 节点）触发：project 在主工作树串行合并，再给对应 dev-task 开「回收」task，由它按析构协议 stop 那个 worktree-service 节点并删除 worktree 与分支，project 再把 dev-task 也 stop——记录保留
-                ├── 不绑定某个项目的问题（选型 / 通用调研）→ research-task 节点
-                ├── 有明确目标的一次性杂活 → generic-task 节点
-                └── 长期能力 / 常驻服务 → generic-service 节点
+Project / 一个目录 / 一个 daemon
+├── Input #1（逐字保存用户原话）
+│   └── planner Task
+│       └── coordinator Task
+│           ├── worker Task → 独立分支 + worktree
+│           ├── worker Task → 独立分支 + worktree
+│           └── research Task
+├── Input #2 → 另一个 planner Task（无需等 #1 完成）
+└── Notices（某个 task 等用户做决定）
 ```
 
-SID 0 自己不做项目里的活：不读改仓库文件、不在项目目录里跑实现 / 构建 / 测试命令；`lush-root` 的 `child_templates` 只有 `project-manager`，`project` / `dev-task` 都不在它的权限里，所以它也无法替 `project-manager` 做决定——出这种事它只能问你（notice），不能自己绕过去。`project-manager` 收到请求后按上表分派，只有「打开 xx」「关闭 xx」这类项目生命周期管理动作它才亲自做。改这三处提示词（`src/agent/guide.js`、`templates/lush-root/`、`templates/lush-root/project-manager/` 下的 `*.md` 与 `*.json`）后要 `bun run daemon-restart` 才生效：模板的散文字段（`description` / `construct_prompt` / `system_prompt`）可以写成 `@<路径>` 引用旁边的 markdown 文件，改提示词不用再面对一行 `\n` 转义（见 `docs/reference/templates.md`）。
+**没有 Service、SID、project-manager、模板构造树或全局项目注册表。** Task 自己持有目标、角色、父任务、状态、结果、消息与工作区。
 
-## 常用命令（`bun run`）
+- `planner`：快速理解原话，参考项目中已有工作，派发任务；不亲自实施开发。
+- `coordinator`：拆分多级任务、收集结果、调整计划。
+- `worker`：在独立 worktree 中实现、测试、提交。
+- `research`：只读研究和审查。
 
-开发与操作入口是 `bun run`：`package.json` 的 scripts 默认把数据目录设在仓库内的 `.lush/`，所以每个 worktree 天然拥有自己独立的 daemon、数据库与 socket。
+默认最多 **4 个执行 agent + 1 个独立规划 agent**。队列中的任务不占槽；`waiting` / `awaiting` 也不占槽。多个输入的规划仍受这个规划槽限制，但不会等待先前的开发树结束。
+
+子任务完成、父子消息、用户补充、notice 答复都会进入持久化收件箱，**在 invocation 之间交给 agent**，不硬打断正在执行的模型调用。消息只能沿直接父子边传递；用户可以给任一活动任务追加要求。
+
+## Worktree 与合并
+
+- 每个 worker 的 worktree 位于 `.lush/worktrees/task-<id>/`，分支使用包含项目路径哈希的名称；共享 Git 仓库的不同项目不会争用同名 task 分支。
+- 每个 worker 从创建时项目的 **已提交 HEAD** 开始。兄弟任务不会自动看到彼此未合并的修改；有关联的编辑应合在一个 worker 中，或由用户合并前置成果后再安排下一阶段。
+- agent 最终输出作为 result。worker 必须提交改动、保持工作区干净；未提交就结束会失败，文件原样保留供检查和重试。
+- 完成与合并是两个状态：`completed + pending` 表示已产出提交，**尚未进入主工作树**。
+- `task merge ID` 检查任务完成、两边工作树干净、目标分支未切换、待审阅 HEAD 未变化，然后串行执行非快进 merge。冲突会尝试 abort，保留任务分支和错误；不会强制覆盖代码或自动解决冲突。
+- merge 中断后标为 `review`，不自动重放。检查 Git 历史、处理遗留冲突并恢复干净工作树后，可重新执行 `task merge ID` 明确批准恢复；若提交已经合入，Git 会确认已包含，不重复改写历史。
+- `task cleanup ID` 不使用 `--force`，拒绝未合并成果和脏工作区；取消/失败任务的提交也必须已经进入项目 HEAD 才允许清理。分支始终保留。
+
+## 常用开发命令
 
 ```bash
-bun run              # 列出全部 script         bun run doctor      # 工具链 / home / daemon 状态
-bun run test         # bun test
-bun run bootstrap    # 起 daemon + project-manager → implement-login
-bun run intent 'hi'  # 提交一条 intension 并等它结算（bun run intents 看队列）
-bun run intent 'hi' 2 # 同上，并把你期望的目标 service 告诉解析器
-bun run tasks | bun run task-tree 1 | bun run wait 1 | bun run inspect 2
-bun run daemon-restart  # 改代码 / 提示词 / 模板之后重启当前 home 的 daemon
-bun run web             # 只启动 Web UI，不操作 daemon；http://127.0.0.1:4318
-bun run web 8080        # 只启动 Web UI，并指定本地端口
-bun run clean           # 停 daemon 并删掉本仓库的 .lush（连历史一起没）
-bun run reset yes       # 清服务树与队列里的输入（daemon、日志、session 都保留），不可逆
+bun run help
+bun run doctor
+bun run start
+bun run say '你的原话'       # intent 是同义入口，同样不等待
+bun run intents
+bun run tasks               # 默认前 200 条，可加 --after ID --limit N
+bun run tree
+bun run inspect 3
+bun run message 3 '补充要求'
+bun run notices
+bun run answer 1 '我的选择'
+bun run cancel 3            # 取消这个任务及其活动后代，保留工作区
+bun run retry 3             # 检查失败现场之后明确重试
+bun run merge 3
+bun run cleanup 3
+bun run wait 3              # 只有当前客户端等待，不影响调度
+bun run web
+bun run daemon-restart
+bun run stop
 ```
 
-Web UI 的侧边栏可在「服务」/「输入」/「任务」/「Notice」四个视图之间切换，右侧主栏跟着当前视图走：服务视图显示「说点什么」表单（你的话，外加可选的「目标 Service」提示）与选中 Service 的能力面板——选中任一 Service（含 stopped）看到它的能力边界、还能创建哪些子 Service 与在其上创建 Task 时会用的提示词（`service.view` 的 description / templates / prompt）；输入视图列出你的 intension（默认只看队列中的，可按状态筛选），右侧是这一条的原话、解析 task、结论与相关 notice，还没开始解析的可以撤回；任务视图列出全部 Task（可按根/子与状态筛选），右侧首屏就是选中 Task 的详情（`task.tree`：id / status / goal / 元信息 / result，以及它派出去的全部子 Task，并可取消或删除），`＋ 说点什么` 一次点击即切回提交表单；Notice 视图只显示 notice 列表与详情表单。`bun run web` 不会启动、停止或重启 daemon：daemon 离线时页面保持运行，后续 daemon 启动或重启后自动恢复。它只监听本机回环地址，不应通过反向代理暴露给不可信用户。CLI、Web UI 以及未来 TUI 的 adapter 统一放在 `src/ui/`，并共享同一个 `UIClient` 应用客户端；细节见 [用户界面](docs/reference/ui.md)。
+任一命令都可以加 `--project PATH`。`--json` 输出机器可读结果。底层完整命令见 `bun run help`；不再支持旧 Service API、OpenAI 内置工具后端或 Service agent profiles。
 
-完整清单、`bun run clean` 与 `bun run reset` 的区别、以及每个命令的参数，见 [docs/reference/cli.md](docs/reference/cli.md)。
+## 状态、恢复与边界
 
-**改代码或提示词之后，先确认你重启的是哪个 daemon**：daemon 是长驻服务，`start` 不会替换版本，只有 `restart` 会，而且只重启 `LUSH_HOME` 指向的那一份。`lush daemon status`（或 `bun run doctor`）会列出 daemon 与 CLI 各自的 `home` / `code_dir` / `fingerprint`，不一致时任何 `lush` 命令都会在 stderr 上告警。判据与排障见 [docs/engineering/identity.md](docs/engineering/identity.md)。
+状态目录固定为 `<project>/.lush/`：
 
-## Notice：agent 找人的渠道
+```text
+project.json       不可跨目录复用的项目绑定
+project.db         SQLite：inputs / tasks / messages / notices / events
+sessions/          每个 task 的独立 pi session 与当前输入文件
+worktrees/         worker 工作区
+daemon.lock        项目 daemon 单实例锁
+daemon.log         daemon 日志
+```
 
-Task 的 agent 遇到自己处理不了的事、只有人能做的决策，或要把结果 / 发现交给用户时，用 `notice` 工具上报；由上报它的 task 与 service 标识汇报者身份。**解析器也走这条路**：一条输入与现有架构或正在跑的活冲突时（目标正忙、和某个节点的职责不符、和已打开的项目对不上），它不会猜，而是把冲突和选项（排队等它结束 / 改派其他节点 / 取消已有 task 后重试 / 放弃这次请求）作为一条 notice 报给你，那条输入停在 `awaiting`，你答完它接着解析。
+socket 放在用户私有临时目录，名字由 canonical 项目路径决定，以避免长项目路径超过 Unix socket 限制。它只是通信端点；持久状态仍在项目内。`LUSH_HOME` 不再是独立作用域：若保留该变量，必须恰好等于所选项目的 `.lush`，否则拒绝运行。
+
+任务状态：`queued → running → waiting / awaiting / completed / failed / cancelled`。等待收到新消息后重新排队。终态任务不会保留活动子任务。取消或停止会终止 agent 进程组；重启对未知副作用的运行中任务标记失败，不自动重放；未开始的排队任务、待用户答复和记录保留。重试失败子任务要求父任务仍活动，否则重试父任务或提交新输入。
+
+**这是本机可信用户工具，不是沙箱。** 目录绑定隔离的是 Lush 的数据库、RPC、调度和工作区管理，不是 OS 文件权限。pi 的 bash 仍拥有当前用户权限，角色约束主要依赖 agent 指令；应审阅改动，不向不可信用户暴露 socket / Web，也不要让其他程序同时修改正在合并的工作树。Agent RPC 使用 invocation token 限制所属任务，不能通过正常 agent 命令批准合并；这不是针对恶意本机进程的安全边界。
+
+pi 默认禁用个人 extensions / skills / prompt templates / themes，保留上下文文件加载以遵循项目开发约定。daemon 意外被 SIGKILL 时可能留下外部进程；恢复不会重放任务，但仍应检查进程和工作区后再重试。
+
+### 配置
+
+| 环境变量 | 默认值 | 用途 |
+|---|---|---|
+| `LUSH_PROJECT` | 从 cwd 发现 | 显式项目目录 |
+| `LUSH_PROVIDER` | `pi` | `pi` / `mock` |
+| `LUSH_CONCURRENCY` | `4` | 执行 agent 上限，另保留一个规划槽 |
+| `LUSH_CALL_TIMEOUT` | `900` | 单次模型调用超时秒数 |
+| `LUSH_TASK_CALLS` | `24` | 单 task invocation 总上限 |
+| `LUSH_MAX_DEPTH` | `8` | 任务树最大层数 |
+| `LUSH_PI_COMMAND` | `pi` | pi 可执行文件 |
+| `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL` | pi 默认 | 模型选择 |
+
+## 验证与文档
 
 ```bash
-lush notice list                 # 待处理项：--status open / answered / dismissed，--task / --sid 过滤
-lush notice show 7               # 详情：kind、正文、以及它声明要你填的字段
-lush notice answer 7 --set plan=canary --set note=ok   # 填写；挂在它上面的 task 拿到答复继续
-lush notice answer 7 --text '先别动，我来处理'          # 没有声明字段时的自由文本回复
-lush notice dismiss 7 --reason '已知'                  # 只阅读、不回答
+bun run test
 ```
 
-需要你填写时，agent 在 `fields` 里声明表单（`text` / `textarea` / `choice` / `boolean`，可标 `required`、可给 `default`），`answer` 就是把字段名填回去（`choice` 必须命中 `options`）。**上报不阻塞**：`notice` 工具 / `lush notice post` 立即返回，而默认的 `wait: true` 把上报它的 task 挂在这条 notice 上——那个 task 进入 `awaiting`（等的是你，不是子 task），你 `answer` / `dismiss` 后答复作为它的**下一次输入**送回去，它接着干；`wait: false` 的 notice 是纯记录，不改变 task 状态也没有答复回来，适合不需要回复的结果汇报。notice 不超时：没人处理就一直挂着，直到你处理，或它所属的 task 被 `lush task cancel`（未决 notice 会被一起忽略）。三个界面共用同一份数据：CLI（`lush notice` / `bun run notices`）、Web UI 的 Notice 页，以及 agent 侧——内置运行时（mock / openai）用 `notice` 工具，外部 agent（pi，默认后端）用 `lush notice post --title ... [--fields JSON]`（同样立即返回，答复在下一次 invocation 送达）。
+测试覆盖纯任务树、并发额度、独立规划槽、消息与 notice 唤醒、取消、恢复、任务权限、真实 Git worktree/merge/冲突、真实 daemon 的项目隔离、pi 子进程协议与本地 Web 边界。pi 协议测试使用可控的假 pi 可执行文件，不调用付费模型。
 
-## Agent
+[架构](docs/engineering/architecture.md) · [命令与 RPC](docs/reference/api.md) · [重构说明](docs/README.md)
 
-每一条 intension 的解析默认交给 **`pi`** 执行，且 pi 是「纯净化」的：只带自己的 read / bash / edit / write 工具，不加载你本机的 extensions / skills / prompt templates / themes 与 `AGENTS.md`（要恢复本机加载行为，用 `lush agent add/edit … --plugins`）。agent 是**配置**（`$LUSH_HOME/agents/<name>.json`，`lush agent` 命令组读写，不经过 daemon），运行期的 agent 属于某个 task（`lush task agents …`），两者互不相干。
-
-```bash
-lush agent list                 # NAME PROVIDER COMMAND MODEL PLUGINS DEFAULT SOURCE PATH
-lush agent inspect default      # 完整配置 + 定义来源 + 真正会跑的 argv 预览
-lush agent add analyst --model gpt-5
-lush service construct 1 project x --vars '{"path":"/abs/repo"}'   # 服务也可以用 --agent 指定 profile
-```
-
-字段表、选择优先级（服务 > 环境变量 > 内置 default）、`mock` / `openai` 后端与 session 的位置，见 [docs/reference/agents.md](docs/reference/agents.md) 与 [docs/concepts/agents.md](docs/concepts/agents.md)。
-
-## 文档
-
-读哪一份取决于你要回答什么；每份文档都在开头写了自己的定位。
-
-- **概念**：[Service 与 Task 模型](docs/concepts/service-model.md) · [Intension 与解析](docs/concepts/intensions.md) · [生命周期与孤儿监督](docs/concepts/lifecycle-and-orphans.md) · [Agent 后端与 Context](docs/concepts/agents.md)
-- **参考**：[CLI 与 package.json scripts](docs/reference/cli.md) · [用户界面](docs/reference/ui.md) · [RPC 协议](docs/reference/rpc.md) · [模板](docs/reference/templates.md) · [Agent profile 与 session](docs/reference/agents.md)
-- **工程**：[总体架构](docs/engineering/architecture.md) · [daemon 与 CLI 的版本对齐](docs/engineering/identity.md)
-- **历史**：[开发日志](docs/log/)
-- 索引与阅读约定：[docs/README.md](docs/README.md)
-
-## 验证
-
-```bash
-bun test      # 全部测试（bun run test 等价，可加文件名过滤：bun run test openai）
-```
-
-数据默认保存在 `$XDG_STATE_HOME/lush` 或 `~/.local/state/lush`，可用 `LUSH_HOME` 覆盖。包含 SQLite 数据库、socket、daemon 锁、pi session 及日志。目录仅限当前用户访问。仓库模板与用户模板的摆放见 [docs/reference/templates.md](docs/reference/templates.md)。
-
-**生命周期提示：** Service 只有 created / active / stopped——它是被动的，`service construct` 只是把节点构造出来、不会跑任何 agent，`service stop` 只让它不再接受 task（先取消它手上的 task）。工作全在 task 上：`lush intent submit` 把你说的话记成一条输入，SID 0 上的解析 task 把它安排成工作，task 的状态是 created / running / waiting（等子 task）/ awaiting（等用户处理它上报的 notice）/ completed / failed / cancelled，`task cancel` 取消一棵子树，`task complete` 由它的 agent（或人）在目标达成时调用；终态 task 不会有活动子 task（解析 task 结算时先交棒，把名下未结束的子树提升为独立的根 task）。节点结束时（`stop` / `purge`），活动的直接子节点改挂 SID 0。**删除是唯一的物理删除路径**：`task delete` 只删 task 行（call 行与消息留作 service 的历史），`service delete SID` 只删 stopped 且没有活动 task 的节点（连带它上面的 task），`service purge SID` 先取消 task、停止节点再删（`--recursive` 连整棵子树），且内置运行时的 agent 工具集里没有删除工具；被删节点的父服务会得到一条 `child_deleted` 事件。SID 0 永远拒绝，只能通过停止 daemon 退出。详见 [docs/concepts/lifecycle-and-orphans.md](docs/concepts/lifecycle-and-orphans.md)。
-
-本地单用户 MVP：没有 ACL、沙箱、自动调度、自动任务恢复或向量数据库。Web UI 也只允许监听本机回环地址。运行 pi 时，pi 自带的 read/bash/edit/write 工具和你的 pi 配置（skills、extensions、AGENTS.md）都会生效，因此 pi 服务能读写磁盘和执行命令；`openai` / `mock` 运行时只有 Lush 自己的 `service_*` / `task_*` 工具，不含 shell、文件编辑或联网能力。不要向不可信用户暴露 socket 或 Web UI；Agent 可以调用其他 Service，因此工具调用不是安全隔离边界。
+0.2 是不兼容重构，不迁移旧 Service 数据。旧 `.lush/lush.db` 会明确拒绝加载；需要先停止旧 daemon，把旧 `.lush/` 移开保存，再启动新版本。

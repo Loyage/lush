@@ -1,244 +1,120 @@
-/**
- * The `lush` entry point: dispatch one command line to the daemon over the
- * JSON-RPC socket and print the answer.
- *
- * The pieces it is built from are one directory over: `args.js` (argument
- * primitives), `parse.js` (the token walk), `help.js` (help rendering),
- * `tree/` (the declaration the parser and help both read), `format/` (text
- * output) and `session.js` (the commands that own the terminal). This file
- * keeps what only an entry point can do — talk to the daemon, and turn errors
- * into exit codes — and re-exports the public names the CLI has always
- * exported.
- */
 import fs from 'node:fs';
 import path from 'node:path';
-import cp from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { Config } from '../config.js';
-import { LushError } from '../core/types.js';
-import { isLocked } from '../daemon/locking.js';
-import { codeIdentity, codeMismatch } from '../identity.js';
-import { connectUI } from '../ui/client.js';
-import { UsageError } from './args.js';
-import { parseArgs } from './parse.js';
-import { usageLines, renderHelp, renderHelpJson } from './help.js';
-import { ROOT } from './tree/index.js';
-import { format } from './format/index.js';
-import { writeOut } from './io.js';
-import { interactiveIntension, openSession } from './session.js';
+import { UIClient } from '../ui/client.js';
+import { daemon } from './daemon.js';
+import { codeIdentity } from '../identity.js';
+import { check, id, TERMINAL } from '../core/types.js';
 
-const DAEMON_MAIN = fileURLToPath(new URL('../daemon/main.js', import.meta.url));
+export const HELP = `Lush — 项目级多 agent 开发
 
-export { parseArgs } from './parse.js';
-export { variableSummary, stamp, objectLines, treeLines } from './format/primitives.js';
-export {
-  formatHistory, formatInspect, formatView, formatAgent, formatLifecycle, formatOrphans, formatTaskList,
-  formatTaskTree, formatCall,
-} from './format/service.js';
-export { formatDaemon } from './format/daemon.js';
-export { format } from './format/index.js';
+lush [--project PATH] [--json] <command>
+  daemon start|stop|restart|status  一个项目一个进程
+  status                          项目、agent、待合并改动
+  doctor                          目录、工具链与代码版本
+  say '你的想法'                   立即持久化并排入规划队列，不等待开发
+  input list                      查看用户输入
+  task list [--after N] [--limit N] 分页任务列表（默认 200 条）
+  task tree [ID]                  多级任务树
+  task inspect ID                 结果、子任务、消息与工作区
+  task history ID [--after N]      分页事件记录
+  task spawn '目标' [--parent ID] [--role worker|coordinator|research]
+  task message ID '补充说明'       追加输入，不打断当前 invocation
+  task cancel|retry ID            取消子树 / 明确重试失败任务
+  task wait ID                    仅阻塞此客户端，不占 agent 槽
+  task merge ID                   用户明确批准合并到原目标分支
+  task cleanup ID                 安全回收 worktree（保留分支）
+  notice list                     待决问题与答复
+  notice post '问题' [--task ID] [--body '背景']
+  notice answer ID '答复'
+  notice dismiss ID
+  web [PORT]                      本地 Web UI（默认 4318）
 
-// `sweep` / `open` / `wait` style flags pick a method or a client-side path
-// instead of being RPC arguments, so they never travel in `params`.
-const META_KEYS = new Set(['command', 'json', 'node', 'help', 'sweep', 'open']);
+默认从当前目录向上发现项目；--project 或 LUSH_PROJECT 显式绑定。
+状态固定保存在 <project>/.lush/，不再支持全局 LUSH_HOME。
+实现任务需要已提交初始版本的 Git 仓库；主工作树应保持干净。
+Agent 默认 pi；LUSH_PROVIDER=mock 可离线验证。`;
 
-function rpcParams(args) {
-  const params = {};
-  for (const [key, value] of Object.entries(args)) {
-    if (META_KEYS.has(key) || value === null || value === undefined) continue;
-    params[key] = value;
-  }
-  return params;
+function option(args, name, fallback = null) {
+  const index = args.indexOf(name);
+  if (index === -1) return fallback;
+  check(index + 1 < args.length && !args[index + 1].startsWith('--'), `${name} requires a value`);
+  const value = args[index + 1]; args.splice(index, 2); return value;
 }
-
-/**
- * The CLI's own identity plus the state location it is talking to. Reported by
- * every `lush daemon ...` command so `bun run daemon-restart` can be checked
- * against the daemon that is actually answering.
- */
-function cliContext(config, daemon = null) {
-  const code = codeIdentity();
-  const context = { home: config.home, socket: config.socket, ...code };
-  if (daemon !== null) context.code_match = codeMismatch(daemon, code) === null;
-  return context;
+function exact(args, n) { check(args.length === n, 'invalid arguments; run lush help'); }
+function print(value, json) {
+  if (json || !Array.isArray(value)) { console.log(JSON.stringify(value, null, 2)); return; }
+  if (!value.length) { console.log('(empty)'); return; }
+  for (const row of value) console.log(`${row.id ?? '-'}\t${row.status || row.role || ''}\t${(row.goal || row.content || row.title || JSON.stringify(row)).replaceAll('\n',' ').slice(0, 180)}`);
 }
-
-/**
- * A daemon never re-reads its source: it answers with the guide, the CLI
- * declaration and the templates it loaded at startup. Say so on stderr when a
- * command reaches a daemon that runs different code than this CLI — the most
- * common cause is a `daemon-restart` in another LUSH_HOME, which otherwise
- * fails completely silently.
- */
-async function warnOnStaleDaemon(client, config) {
-  let status;
-  try {
-    status = await client.status();
-  } catch {
-    return; // no daemon yet; the command itself reports that
-  }
-  const mismatch = codeMismatch(status);
-  if (mismatch === null) return;
-  const home = status.home ?? config.home;
-  process.stderr.write(`lush: warning: lushd pid=${status.daemon_pid} (home=${home}) runs different code -- ${mismatch}\n`);
-  process.stderr.write(`lush: warning: restarted code only applies to the daemon you restart; run 'LUSH_HOME=${home} lush daemon restart'\n`);
-}
-
-async function stopDaemon(config, client) {
-  // Trust the lock, but also handle a daemon whose lock file was removed or
-  // written by an older implementation: ask the socket before giving up.
-  let live = isLocked(config.home);
-  if (!live && fs.existsSync(config.socket)) {
-    try {
-      await client.status();
-      live = true;
-    } catch {
-      /* stale socket, daemon is gone */
-    }
-  }
-  if (!live) return { stopped: true, already_stopped: true, cli: cliContext(config) };
-  await client.shutdown();
-  for (let attempt = 0; attempt < 150; attempt += 1) {
-    if (!isLocked(config.home)) return { stopped: true, cli: cliContext(config) };
-    await Bun.sleep(100);
-  }
-  throw new LushError('daemon shutdown still pending; inspect daemon.log');
-}
-
-async function startDaemon(config, client) {
-  const logPath = path.join(config.home, 'daemon.log');
-  try {
-    const status = await client.status();
-    return { started: true, already_running: true, ...status, cli: cliContext(config, status) };
-  } catch {
-    /* not running yet */
-  }
-
-  const env = { ...process.env, LUSH_HOME: config.home };
-  const fd = fs.openSync(logPath, 'a');
-  let child;
-  try {
-    child = cp.spawn(process.execPath, [DAEMON_MAIN], {
-      stdio: ['ignore', fd, fd], env, cwd: config.home, detached: true,
-    });
-  } finally {
-    fs.closeSync(fd);
-  }
-  let exited = null;
-  child.on('exit', (code) => { exited = code; });
-  child.unref();
-
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    try {
-      const status = await client.status();
-      return { started: true, ...status, cli: cliContext(config, status) };
-    } catch {
-      if (exited !== null && !isLocked(config.home)) {
-        throw new LushError(`lushd exited (${exited}); see ${logPath}`);
-      }
-      await Bun.sleep(100);
-    }
-  }
-  // Terminate only the child we launched, never a daemon owned by another start.
-  if (exited === null) {
-    try {
-      child.kill('SIGTERM');
-    } catch {
-      /* already gone */
-    }
-  }
-  throw new LushError(`lushd startup timed out; see ${logPath}`);
-}
-
-/**
- * `daemon start` is idempotent, so a `restart` must stop first: the lock is the
- * only thing that keeps a second daemon from being started, and only the daemon
- * holding it can release it. Waiting for the lock (done by `stopDaemon`) is
- * what makes `was_running` meaningful and the new daemon the one answering.
- */
-export async function daemonCommand(config, action) {
-  config.prepare();
-  const client = connectUI(config.socket, 1);
-  if (action === 'restart') {
-    const stopped = await stopDaemon(config, client);
-    const started = await startDaemon(config, client);
-    return { restarted: true, was_running: !stopped.already_stopped, ...started };
-  }
-  if (action === 'stop') return stopDaemon(config, client);
-  return startDaemon(config, client);
-}
-
-export async function run(argv) {
-  const args = parseArgs(argv);
-  if (args.help) {
-    writeOut(args.json ? renderHelpJson(args.node, args.path) : renderHelp(args.node, args.path));
-    return;
-  }
-
-  const config = Config.fromEnv();
-  // `agent` is the one command group that never talks to the daemon: it reads and
-  // writes `$LUSH_HOME/agents/*.json` directly, so it must work while lushd is
-  // stopped. Everything else needs a client (and a stale-daemon warning).
-  if (typeof args.node.local === 'function') {
-    writeOut(format(args, await args.node.local(config, args)));
-    return;
-  }
-  let timeout = config.callTimeout + 10;
-  if (process.env.LUSH_RPC_TIMEOUT !== undefined) {
-    timeout = Number.parseFloat(process.env.LUSH_RPC_TIMEOUT);
-    if (!Number.isFinite(timeout) || timeout <= 0) {
-      throw new LushError(`invalid LUSH_RPC_TIMEOUT: ${process.env.LUSH_RPC_TIMEOUT}`);
-    }
-  }
-  const client = connectUI(config.socket, timeout);
-  await warnOnStaleDaemon(client, config);
-
-  if (args.command === 'daemon') {
-    writeOut(format(args, await daemonCommand(config, args.action)));
-    return;
-  }
-  if (args.command === 'task_attach' || (args.command === 'task_session' && args.open)) {
-    await openSession(client, args.task_id);
-    return;
-  }
-  if (args.command === 'intent_submit' && args.interactive) {
-    await interactiveIntension(client, args);
-    return;
-  }
-  const { node } = args;
-  const method = typeof node.method === 'function' ? node.method(args) : node.method;
-  const result = await client.execute(method, rpcParams(args));
-  // `daemon status` is the one read that must also say which home and which
-  // code answer it; every other read is about the services themselves.
-  writeOut(format(args, method === 'system.status' ? { ...result, cli: cliContext(config, result) } : result));
-}
-
 export async function main(argv = process.argv.slice(2)) {
-  process.on('SIGINT', () => {
-    process.stderr.write('\ndetached (daemon calls may still be running)\n');
-    process.exit(130);
-  });
-  try {
-    await run(argv);
-  } catch (err) {
-    if (err instanceof UsageError) {
-      process.stderr.write(`${usageLines(ROOT, []).join('\n')}\nlush: error: ${err.message}\n`);
-      process.stderr.write("lush: run 'lush help' for the command tree\n");
-      process.exit(2);
-    }
-    // -32602 is the JSON-RPC equivalent of a bad command line: a rejected
-    // argument value (an undeclared variable, a variable that does not match
-    // its declared pattern, a missing required one). It gets the same exit
-    // code as a parse error, which is what the agent guide promises: exit 2
-    // means "fix the arguments", not "something went wrong".
-    if (err instanceof LushError && err.code === -32602) {
-      process.stderr.write(`lush: error: ${err.message}\n`);
-      process.stderr.write("lush: exit 2 = usage error: fix the arguments; run 'lush help' (or a command's -h) for the contract\n");
-      process.exit(2);
-    }
-    process.stderr.write(`lush: ${err?.message ?? err}\n`);
-    process.exit(1);
+  const args = [...argv];
+  const projectPath = option(args, '--project');
+  const json = args.includes('--json'); if (json) args.splice(args.indexOf('--json'), 1);
+  if (!args.length || ['help','--help','-h'].includes(args[0])) { console.log(HELP); return; }
+  const config = Config.fromEnv(process.env, process.cwd(), projectPath);
+  const client = new UIClient(config, process.env.LUSH_AGENT_TOKEN || null);
+  let command = args.shift(), value;
+  if (command === 'web') {
+    check(!client.token, 'agents cannot start web servers');
+    check(args.length <= 1, 'web accepts one port');
+    const { startWeb } = await import('../ui/web/server.js');
+    const server = startWeb(config, Number(args[0] ?? 4318));
+    console.log(`Lush ${config.project}\nhttp://127.0.0.1:${server.port}`); return;
   }
+  if (command === 'daemon') {
+    check(!client.token, 'agents cannot control daemons'); exact(args, 1); value = await daemon(config, args[0]);
+  } else if (command === 'doctor') {
+    exact(args, 0);
+    value = { bun: Bun.version, project: config.project, home: config.home, socket: config.socket, provider: config.provider, ...codeIdentity() };
+    try { value.daemon = await client.request('system.status'); value.code_match = value.daemon.fingerprint === value.fingerprint && value.daemon.code_dir === value.code_dir; }
+    catch (error) { value.daemon = error.message; }
+  } else if (command === 'status') { exact(args, 0); value = await client.request('system.status');
+  } else if (command === 'say' || command === 'intent') {
+    if (args[0] === 'submit') args.shift();
+    exact(args, 1); value = await client.request('input.submit', { content: args[0] });
+  } else if (command === 'input') {
+    check(args.length === 1 && args[0] === 'list', 'use input list'); value = await client.request('input.list');
+  } else if (command === 'task') {
+    const verb = args.shift();
+    if (verb === 'list') {
+      const after = Number(option(args, '--after', '0')), limit = Number(option(args, '--limit', '200'));
+      exact(args, 0); value = await client.request('task.list', { after, limit });
+    }
+    else if (verb === 'tree') { check(args.length <= 1, 'tree accepts an optional ID'); value = await client.request('task.tree', args.length ? { id: id(args[0]) } : {}); }
+    else if (verb === 'spawn') {
+      const parent = option(args, '--parent', process.env.LUSH_TASK_ID);
+      const role = option(args, '--role', 'worker'); exact(args, 1);
+      value = await client.request('task.spawn', { parent: id(parent), role, goal: args[0] });
+    } else if (verb === 'message') { exact(args, 2); value = await client.request('task.message', { id: id(args[0]), body: args[1] }); }
+    else if (verb === 'history') {
+      const after = Number(option(args, '--after', '0')); exact(args, 1);
+      value = await client.request('task.history', { id: id(args[0]), after });
+    } else if (verb === 'wait') {
+      check(!client.token, 'agents must end their invocation rather than wait; Lush wakes the parent automatically');
+      exact(args, 1);
+      do { value = await client.request('task.inspect', { id: id(args[0]) }); if (!TERMINAL.has(value.status)) await Bun.sleep(300); }
+      while (!TERMINAL.has(value.status));
+      if (value.status !== 'completed') process.exitCode = 1;
+    } else {
+      check(['inspect','cancel','retry','merge','cleanup'].includes(verb), 'unknown task command'); exact(args, 1);
+      value = await client.request(`task.${verb}`, { id: id(args[0]) });
+    }
+  } else if (command === 'notice') {
+    const verb = args.shift();
+    if (verb === 'list') { exact(args, 0); value = await client.request('notice.list'); }
+    else if (verb === 'post') {
+      const task = option(args, '--task', process.env.LUSH_TASK_ID), body = option(args, '--body', ''); exact(args, 1);
+      value = await client.request('notice.post', { task: id(task), title: args[0], body });
+    } else if (verb === 'answer') { exact(args, 2); value = await client.request('notice.answer', { id: id(args[0]), answer: args[1] }); }
+    else if (verb === 'dismiss') { exact(args, 1); value = await client.request('notice.dismiss', { id: id(args[0]) }); }
+    else throw new Error('unknown notice command');
+  } else if (command === 'log') {
+    exact(args, 0); console.log(fs.readFileSync(path.join(config.home, 'daemon.log'), 'utf8').split('\n').slice(-60).join('\n')); return;
+  } else throw new Error(`unknown command: ${command}; run lush help`);
+  if (value?.fingerprint) {
+    const local = codeIdentity();
+    if (value.fingerprint !== local.fingerprint || value.code_dir !== local.code_dir) console.error('lush: daemon runs different code; restart this project daemon');
+  }
+  print(value, json);
 }
-
-if (import.meta.main) await main();

@@ -1,4 +1,3 @@
 #!/usr/bin/env bun
-import { webMain } from '../src/ui/index.js';
-
-await webMain();
+import { main } from '../src/cli/main.js';
+try { await main(['web', ...process.argv.slice(2)]); } catch (error) { console.error(error.message); process.exitCode = 1; }

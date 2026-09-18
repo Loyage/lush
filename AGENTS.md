@@ -1,72 +1,55 @@
-# AGENTS.md
+# Lush 开发约定
 
-Lush —— AI 的操作系统（持久化逻辑 Service + agent runtime）。Bun / JavaScript，零第三方依赖。
+Lush 是**项目级的多 agent 开发应用**。Bun / JavaScript / SQLite，零第三方运行时依赖。
 
-这个文件只讲一件最容易出错、且会静默出错的事：**你敲的命令、真正应答你的 daemon、以及 agent 子进程里的 `lush`，可能是三份不同版本的代码。** 多个 worktree 并行开发时尤其如此。
+## 作用域
 
-## 铁律：在这个仓库里一律走 `bun run`
+- 一个 daemon 对应一个 canonical 项目目录，状态固定在 `<project>/.lush/`。
+- 默认向上发现 `.lush/project.json` 或 `.git`；用 `--project PATH` 显式选择项目。
+- `LUSH_PROJECT` 会传入 agent 子进程，agent 在独立 worktree 中仍连接原项目。
+- `LUSH_HOME` 不再允许指向独立的全局目录；非空时必须等于 `<project>/.lush`。
+- 没有 Service、SID、project-manager 或模板模型。不要重新引入电脑级调度。
 
-`package.json` 的 scripts 把 `LUSH_HOME` 默认设为仓库内的 `.lush/`（已 gitignore），所以**每个 worktree 天然拥有自己独立的 daemon、数据库、socket**：
-
-```bash
-bun run              # 列出全部 script
-bun run doctor       # bun / LUSH_HOME / provider / code 目录 / daemon 状态
-bun run test / doctor
-bun run daemon-start / daemon-restart / daemon-stop / status / log
-bun run ps / tree / inspect / intent / intents / construct / complete / prune ...
-bun run reset [yes]  # 推倒重来：撤回队列里的输入 + 清空本 home 的服务树（只剩 SID 0）并重启 daemon；默认要输 yes，不可逆
-bun run clean        # 停 daemon 并删本仓库的 .lush
-```
-
-- **不要**裸跑 `./bin/lush`、`bun run lush` 或 `bun lush`：`lush` / `lushd` 这两个 script 保持原样（`bun run bin/lush`），用默认 home（`$XDG_STATE_HOME/lush` 或 `~/.local/state/lush`），会和**别的 worktree 或你日常那份**共用同一个 daemon —— 你敲的是这份代码，应答的是另一份。其余 `bun run <name>` 入口都默认走仓库内的 `.lush`。
-- 确实需要裸跑时，显式指定 home：`LUSH_HOME=$PWD/.lush bun ./bin/lush ...`
-- 若你 shell 里 `export LUSH_HOME=...`，这些 script 会采用你的值，隔离就失效了（`bun run doctor` 会显示实际的 `LUSH_HOME`）。
-
-## 为什么：两层模型
-
-- **CLI 是纯客户端**，通过 unix socket 上的 JSON-RPC 操作 daemon，自身不持有状态。谁应答你，由 **`LUSH_HOME` 指向的 socket** 决定，**与 worktree 无关**。
-- **你敲的命令用哪份 CLI 代码** = 你所在的 worktree（`./bin/lush` 是相对路径；`bun run lush` 由 bun 从 cwd 向上找最近的 `package.json`）。
-- **一个 home 只能有一个 daemon**（`daemon.lock` 单实例锁）。`daemon start` 发现已有 daemon 时直接返回 `already_running`，**不会替换版本** —— 先启动的那份代码会一直应答；要换版本只能用 `daemon restart`（先 stop 等锁释放，再 start）。
-- **daemon 是长驻服务，版本在启动瞬间冻结**：`src/agent/guide.js`（喂给 agent 的提示词）、`src/cli/tree/`（CLI 声明树）、`templates/**/*.json` 与它们 `@` 引用的 `templates/**/*.md` 提示词正文（模板按 构造树分层嵌套）都在启动时读入内存。改了这些，**不 restart 就不生效**（`bun run daemon-restart` / `lush daemon restart`，等价于 stop + start）。
-- **agent 子进程里的 `lush` 也被钉死在 daemon 那份代码上**：`src/agent/pi.js` 把 daemon 自己 checkout 的 `bin/` 前置进 PATH（`LUSH_BIN_DIR`）。所以 agent 调 `lush` 用的是 daemon 的版本，不是你敲命令的版本。
-
-## 排障：一条命令判断是否错位
+## 命令一律走 bun run
 
 ```bash
-bun run status    # 等价于 lush daemon status
+bun run doctor                  # 首先确认项目 / home / daemon 的代码身份
+bun run test
+bun run start                   # 只启动所选项目；已有 daemon 不会换版本
+bun run daemon-restart          # 运行代码、提示词或配置变更后重启
+bun run say '输入'              # 立即返回，不等开发完成
+bun run tree
+bun run inspect 3
+bun run web                     # 只启动本地 Web，不操作 daemon
+bun run stop
 ```
 
-看 `cli.code_match`：
+任意入口可加 `--project PATH`；操作其他项目时必须显式指定。`bun run lush <command>` 也遵循同一套项目发现规则，没有旧版默认全局 home 的例外。
 
-- `true` → 应答你的 daemon 和当前 CLI 是同一份代码，正常。
-- `false` → 看 `code_dir` 与 `fingerprint`：
-  - `code_dir` 不同 → **别的 checkout 的 daemon** 在应答（典型：共用 home、或 `cd` 到另一个 worktree 敲命令）。
-  - `code_dir` 相同但 `fingerprint` 不同 → **同一份代码，但 daemon 是改动前启动的** → `bun run daemon-restart`。
-  - 完全不报 `code_dir`/`fingerprint` → daemon 版本太老（见下「边界」）。
+不要在开发测试时默认操纵用户正在开发的项目。测试用临时项目目录和 mock/可控子进程；测试结束停 daemon 并清理自己的临时文件。
 
-只要不匹配，任何 `lush` 命令都会在 stderr 告警，并给出该重启哪一个 home，例如：
+## 安全与持久化
 
-```text
-lush: warning: lushd pid=14945 (home=...) runs different code -- different checkout: daemon /path/A, cli /path/B
-lush: warning: restarted code only applies to the daemon you restart; run 'LUSH_HOME=... lush daemon restart'
-```
+- Git 操作通过 `src/core/workspaces.js`，无 shell 插值，所有 Lush Git 变更串行。
+- 每个 worker 独立 worktree / 分支；默认必须由用户明确批准合并。
+- 不强制 reset / clean / 删除工作区，不自动提交用户已有改动。失败工作区也有价值。
+- `completed` 不等于 `merged`。保留独立的任务状态与 integration 状态。
+- Task 的父子关系创建后不变；终态 task 不允许活动后代。
+- Agent 等待子任务或用户时释放 invocation 槽；新输入有独立规划槽。
+- 消息只在 invocation 之间送达。注意「父任务刚 park、子任务刚完成、running Map 还未清理」之间的 lost-wakeup 竞态。
+- 重启不自动重放有未知副作用的调用；旧 Service 数据不迁移、不覆盖。
 
-## 新 worktree 检查清单
+## 模块
 
-1. 所有 lush 操作用 `bun run`（自动 `.lush`，零配置隔离）。
-2. 进来先 `bun run doctor`，确认 `LUSH_HOME` 是本 worktree 的 `.lush`、`code` 是当前目录。
-3. 改代码或提示词（`guide.js` / `cli/tree/` / `templates/`）后 → **`bun run daemon-restart`**（`daemon-start` 遇到已有 daemon 不会换版本）。
-4. 不要在 worktree A 里、用 worktree A 的 home，去操作属于 worktree B 的 daemon；怀疑错位就先 `bun run status`。
-5. 收工可选 `bun run clean`；测试/演示留下的孤儿 daemon 用 `bun run prune`（`bun run prune all` 连临时 home 一起清）。
+- `src/config.js`：项目发现与不可变绑定。
+- `src/persistence/store.js`：SQLite 事实来源。
+- `src/core/project.js`：任务树、消息、notice、调度与生命周期。
+- `src/core/workspaces.js`：Git 工作区、人工批准合并、安全清理。
+- `src/agent/`：共享指令、pi 与 mock 后端。
+- `src/rpc/` / `src/daemon/`：通信、装配、锁与退出。
+- `src/ui/client.js`：CLI / Web 的统一客户端。
+- `src/cli/` / `src/ui/web/`：用户界面。
 
-## 边界：fingerprint 覆盖什么、不覆盖什么
+`src/identity.js` 的 fingerprint 覆盖整个 src、bin 和 package.json。相同路径但 fingerprint 不同表示 daemon 仍运行旧代码；重启正确项目才生效。
 
-- fingerprint 只哈希 `src/agent/guide.js`、`src/cli/main.js` 与 `src/cli/tree/*.js`（CLI 声明树）、`templates/**/*.json` 与 `templates/**/*.md`（递归，含嵌套子目录；`.md` 是模板散文字段的 `@` 引用文件）。所以 `cli.code_match: true` 仅表示「**喂给 agent 的提示词与 CLI 声明面**」一致，**不代表整个代码库一致**：改 `src/core/`、`src/daemon/`、`src/persistence/` 等运行期代码不会改变 fingerprint，但行为会变。**改任何运行期代码后同样要 restart daemon。**
-- 老版本 checkout（例如 main 分支上还没有 `src/identity.js` 的版本）启动的 daemon 不报告 `code_dir`/`fingerprint`：新版 CLI 会把它判为 stale 并告警，**老 CLI 则完全静默** —— 这是最危险的情况，此时只能靠 `ps` / `LUSH_HOME` 人工判断。
-
-## 相关文档
-
-- `README.md` 的「改代码或提示词之后，先确认你重启的是哪个 daemon」一节：同一问题的单 worktree 视角。
-- `docs/`：文档按概念 / 参考 / 工程 / 历史四层组织，入口是 `docs/README.md`；
-  模块边界与整体架构在 `docs/engineering/architecture.md`，daemon 与 CLI 的版本对齐在 `docs/engineering/identity.md`。
-- `src/identity.js`：identity / fingerprint 机制的实现与设计理由（注释即设计文档）。
+更多见 `README.md` 与 `docs/README.md`。`docs/log/` 是重构前历史，不代表当前 API。

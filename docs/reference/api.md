@@ -1,0 +1,72 @@
+# CLI 与 RPC（0.2）
+
+完整 CLI 帮助：`bun run help`。全局参数 `--project PATH`、`--json` 可放在命令前后。
+
+## 入口
+
+| CLI | RPC | 参数 |
+|---|---|---|
+| `lush say '原话'` | `input.submit` | `{content}` |
+| `lush input list` | `input.list` | `{}` |
+| `lush status` | `system.status` | `{}` |
+| `lush daemon stop` | `system.stop` | `{}` |
+
+`daemon start/restart` 是客户端工作流，不是 RPC。`doctor` 检查本地项目配置与 daemon 身份。`web [port]` 启动本地 Web 进程。
+
+`input.submit` 返回 `{id, content, task}`，其中 task 是根 planner。原话完整存库，列表展示最近 100 条摘要；根 task inspect 可读取完整 goal。
+
+## 任务
+
+| CLI | RPC | 参数 |
+|---|---|---|
+| `task list [--after N] [--limit N]` | `task.list` | `{after?: 0, limit?: 200}`，limit 最大 1000 |
+| `task tree [ID]` | `task.tree` | `{id?}` |
+| `task inspect ID` | `task.inspect` | `{id}` |
+| `task history ID [--after N]` | `task.history` | `{id, after?: 0}` |
+| `task spawn 'goal' --parent ID --role worker` | `task.spawn` | `{parent, goal, role?: 'worker'}` |
+| `task message ID 'body'` | `task.message` | `{id, body}` |
+| `task cancel ID` | `task.cancel` | `{id}` |
+| `task retry ID` | `task.retry` | `{id}` |
+| `task merge ID` | `task.merge` | `{id}` |
+| `task cleanup ID` | `task.cleanup` | `{id}` |
+
+`task wait ID` 在客户端轮询 inspect；只阻塞当前客户端，终态返回。failed/cancelled 设置非零退出码。Agent 不允许使用 wait，应结束 invocation 由调度器唤醒。
+
+spawn 必须关联一个活动父 task；根任务只能由用户输入创建。角色可选 `worker` / `coordinator` / `research`，`planner` 只由入口生成。
+
+`task.list` 和 tree 返回摘要，不复制每个 task 的结果与收件箱。完整 result 在 inspect 中；inspect 的子任务、消息、notice 集合受字节预算限制，完整记录仍在 SQLite。history 每页最多 100 个事件且有字节预算，以最后一条 event.id 作为下一页 after。大型任务森林超过 1 MiB frame 时应改用 task list 分页和指定根 ID 的 task tree。
+
+## 待决问题
+
+| CLI | RPC | 参数 |
+|---|---|---|
+| `notice list` | `notice.list` | `{}` |
+| `notice post 'title' --task ID --body 'body'` | `notice.post` | `{task, title, body?: ''}` |
+| `notice answer ID 'answer'` | `notice.answer` | `{id, answer}` |
+| `notice dismiss ID` | `notice.dismiss` | `{id}` |
+
+当前统一使用自由文本答复，不保留旧 Service notice 的动态字段表单。notice 是需要用户回复的决策请求；普通结果汇报直接使用 task result。列表优先返回未决项，同组按新到旧排列；最多 200 条并受 RPC 字节预算限制。
+
+## Agent 环境与权限
+
+pi 从 daemon 启动时获得：
+
+- `LUSH_PROJECT` / `LUSH_HOME`：固定所属项目，即使 cwd 是隔离 worktree。
+- `LUSH_TASK_ID`：自己的任务。
+- `LUSH_AGENT_TOKEN`：当前 invocation 的临时 capability。
+- `PATH` 前置 daemon 所属 checkout 的 `bin/`。
+
+CLI 会把 token 放入 RPC params 的 `_token`；daemon 校验仍属于活动 invocation。agent spawn 的 parent / notice 的 task 缺省为自己的 task，不能伪造其他父任务；message 只能沿直接父子边。
+
+以下操作限用户：system.stop、input.submit、task.cancel/retry/merge/cleanup、notice.answer/dismiss。CLI 另禁止 agent 启动 daemon、Web 或阻塞等待。
+
+本地用户可以不带 token 调用 RPC，这是明确的信任边界，不是多用户 ACL。能执行任意本机命令的恶意 agent 也能绕过环境约定；需要真正沙箱时应另加 OS 隔离。
+
+## HTTP
+
+- `GET /`、`/app.js`、`/styles.css`：Web 资源。
+- `GET /api/snapshot`：项目状态、任务摘要、输入与 notice。
+- `GET /api/task/<id>`：任务详情。
+- `POST /api/action`：JSON `{method, params}`，只允许用户输入、任务 message/cancel/retry/merge/cleanup 和 notice answer/dismiss。
+
+仅回环监听；拒绝非本地 Host、跨 Origin、跨站请求和非 JSON 修改请求。不能将它作为公网多用户服务暴露。

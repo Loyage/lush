@@ -86,6 +86,7 @@ export class RPCServer {
   }
 
   async _handle(socket, conn, frame) {
+    if (conn.closed) return;
     let requestId = null;
     let notification = false;
     let response;

@@ -56,7 +56,7 @@ export class DaemonLock {
         fs.rmSync(tmp, { force: true });
         if (err.code !== 'EEXIST') throw err;
         const owner = readPid(this.path);
-        if (owner !== null && owner !== process.pid && isAlive(owner)) {
+        if (owner !== null && isAlive(owner)) {
           throw new LushError('lushd is already running');
         }
         fs.rmSync(this.path, { force: true });
