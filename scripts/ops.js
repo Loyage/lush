@@ -5,6 +5,7 @@ const aliases = {
   start: ['daemon','start'], stop: ['daemon','stop'], 'daemon-start': ['daemon','start'],
   'daemon-stop': ['daemon','stop'], 'daemon-restart': ['daemon','restart'],
   intent: ['say'], intents: ['input','list'], drafts: ['draft','list'], tasks: ['task','list'], tree: ['task','tree'],
+  ladder: ['task','ladder'], timeline: ['task','timeline'],
   inspect: ['task','inspect'], transcript: ['task','transcript'], cancel: ['task','cancel'], retry: ['task','retry'],
   merge: ['task','merge'], cleanup: ['task','cleanup'], clear: ['task','clear'], notices: ['notice','list'],
   answer: ['notice','answer'], message: ['task','message'], wait: ['task','wait'],

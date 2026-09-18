@@ -20,7 +20,9 @@ lush [--project PATH] [--json] <command>
   draft rm ID                     丢掉一条缓存输入
   draft commit                    把缓存整体交给意图分析：一个 planner 拆成多个任务并建依赖
   task list [--after N] [--limit N] 分页任务列表（默认 200 条）
-  task tree [ID]                  多级任务树
+  task tree [ID]                  多级任务树：依赖（⛓ 基线 / ⏳ 顺序）与兄弟间的并行关系
+  task ladder                     合并阶梯：未合并分支之间谁必须先进目标分支、谁已经被别的分支带进来
+  task timeline [--limit N]       并行时间轴：每个任务什么时候真的在跑，排队是在等依赖、等槽还是等子任务
   task inspect ID                 结果、agent、子任务、消息与工作区
   task history ID [--after N]      分页事件记录
   task transcript ID [--after N]   只读查看 agent 的思考、工具调用与工具输出（来自 pi 会话记录）
@@ -68,6 +70,94 @@ function printTranscript(page) {
   for (const step of page.steps) console.log(`[${step.seq}] ${step.kind}\t${step.title}${step.at ? `\t${step.at}` : ''}\n${step.body}\n`);
   if (page.has_more) console.error(`… 还有更多步骤；用 --after ${page.next} 继续`);
   if (page.truncated) console.error('… 会话记录过大，只读取了前面一部分');
+}
+/* ---------- 并行/串行关系：任务树、合并阶梯、时间轴 ---------- */
+const DEP_MARK = { code: '⛓', order: '⏳' };
+const DEP_WORD = { code: '基线', order: '顺序' };
+const WAIT_LABEL = { dep: '等依赖', children: '等子任务', user: '等你决定', slot: '等并发槽', setup: '没跑起来就结束' };
+const INTEGRATION_WORD = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并' };
+const oneLine = (value, max = 60) => String(value ?? '').replace(/\s+/g, ' ').slice(0, max);
+const indent = depth => '  '.repeat(depth);
+const settled = dep => TERMINAL.has(dep.status);
+function depLabels(task) {
+  return (task.deps || []).map(dep => `${DEP_MARK[dep.kind] || ''}#${dep.id}${DEP_WORD[dep.kind] || ''}${settled(dep) ? '' : '·等'}`).join(' ');
+}
+/** 此刻为什么没在干活；和 Web 树里那行是同一套说法。 */
+function whyText(task, children = []) {
+  const waiting = (task.deps || []).filter(dep => !settled(dep));
+  if (task.status === 'running') return '在跑（占 1 个并发槽）';
+  if (task.status === 'queued') return waiting.length ? `排队：等 ${waiting.map(dep => `#${dep.id}`).join('、')}` : '排队：等并发槽';
+  if (task.status === 'waiting') return `等子任务（${children.filter(child => child.status === 'running').length} 个在跑）`;
+  if (task.status === 'awaiting') return '等你决定';
+  if (task.status === 'completed' && ['pending', 'review'].includes(task.integration)) return '等你批准合并';
+  return null;
+}
+/** 兄弟之间无依赖＝可以同时跑；有依赖＝串成链。 */
+function siblingChain(children) {
+  const ids = new Set(children.map(child => child.id));
+  const inner = new Map(children.map(child => [child.id, (child.deps || []).filter(dep => ids.has(dep.id))]));
+  const level = new Map();
+  const depth = (taskId, seen = new Set()) => {
+    if (level.has(taskId)) return level.get(taskId);
+    if (seen.has(taskId)) return 0;
+    seen.add(taskId);
+    const upstreams = inner.get(taskId) || [];
+    const value = upstreams.length ? 1 + Math.max(...upstreams.map(dep => depth(dep.id, seen))) : 0;
+    level.set(taskId, value); return value;
+  };
+  for (const child of children) depth(child.id);
+  const levels = new Map();
+  for (const child of children) { const at = level.get(child.id); if (!levels.has(at)) levels.set(at, []); levels.get(at).push(child.id); }
+  return [...levels.entries()].sort((a, b) => a[0] - b[0]).map(([, group]) => group.sort((a, b) => a - b));
+}
+function printTree(value, status) {
+  const roots = Array.isArray(value) ? value : [value];
+  const flat = [];
+  const collect = node => { flat.push(node); for (const child of node.children || []) collect(child); };
+  roots.forEach(collect);
+  const ready = flat.filter(task => task.status === 'queued' && !(task.deps || []).some(dep => !settled(dep))).length;
+  console.log(`并发上限 ${status?.concurrency ?? '?'} · ${status?.agents?.length ?? '?'} 个在跑 · ${ready} 个在等槽 · ${flat.length} 个任务`);
+  console.log('⛓ = 分支基线（必须先合上游）  ⏳ = 只等上游结束  ‖ = 兄弟之间无依赖，可同时跑');
+  const walk = (node, depth) => {
+    const children = node.children || [];
+    if (children.length > 1) {
+      const chain = siblingChain(children).map(group => group.length > 1 ? `{${group.map(taskId => `#${taskId}`).join(' ‖ ')}}` : `#${group[0]}`).join(' → ');
+      console.log(`${indent(depth + 1)}‖ ${chain}（并列的可同时跑）`);
+    }
+    const meta = [depLabels(node), INTEGRATION_WORD[node.integration] || '', whyText(node, children)].filter(Boolean).join(' · ');
+    console.log(`${indent(depth)}#${node.id} ${node.role} ${node.status}${meta ? `  ${meta}` : ''}  ${oneLine(node.goal)}`);
+    for (const child of children) walk(child, depth + 1);
+  };
+  for (const root of roots) walk(root, 0);
+}
+function printLadder(ladder) {
+  if (!ladder.nodes.length) { console.log(`没有待合并的分支（目标分支 ${ladder.target_branch ?? '—'}）。`); return; }
+  console.log(`合并阶梯 → ${ladder.target_branch}${ladder.truncated ? '（只列出前 50 个）' : ''}`);
+  for (const node of ladder.nodes) {
+    console.log(`${indent(node.level)}L${node.level} #${node.id} ${node.role} ${node.branch}${node.covered_by.length ? `  ⚠ 已被 #${node.covered_by.join('、')} 带进来：合后者即可` : ''}`);
+    for (const dep of node.deps) console.log(`${indent(node.level + 1)}${dep.kind === 'code' ? '⛓ 必须先合' : '⏳ 只等结束'} #${dep.id} ${dep.branch ?? ''}${dep.merged ? '（已合并）' : ''}${dep.kind === 'order' && dep.contains ? '（它的提交已经在下游里）' : ''}`);
+  }
+  const first = ladder.nodes.filter(node => node.level === 0 && !node.covered_by.length).map(node => node.id);
+  if (first.length) console.log(`先合 ${first.map(taskId => `#${taskId}`).join('、')}；命令：lush task merge <id>`);
+}
+function printTimeline(page) {
+  const start = Date.parse(page.start), end = Date.parse(page.end), span = Math.max(end - start, 1);
+  const width = Math.max(24, Math.min((process.stdout.columns || 100) - 34, 96));
+  const cell = at => Math.max(0, Math.min(width, Math.round(((at - start) / span) * width)));
+  const stamp = at => new Date(at).toTimeString().slice(0, 8);
+  console.log(`${stamp(start)} → ${stamp(end)} · 并发上限 ${page.concurrency}${page.clamped ? ' · 窗口已截断' : ''}${page.truncated ? ' · 更早的任务未列出' : ''}`);
+  for (const task of page.tasks) {
+    const track = Array(width).fill('·');
+    // 只看得到方格的变化：毫秒级的调度延迟不画，也不进"在等什么"的说明。
+    const visible = task.segments.filter(segment => segment.kind === 'run' || segment.reason === 'setup' || cell(Date.parse(segment.end)) > cell(Date.parse(segment.start)));
+    for (const segment of visible) {
+      const from = cell(Date.parse(segment.start)), to = Math.max(from + 1, cell(Date.parse(segment.end)));
+      for (let index = from; index < to && index < width; index += 1) track[index] = segment.kind === 'run' ? '█' : '▒';
+    }
+    const waits = [...new Set(visible.filter(segment => segment.kind === 'wait' && segment.reason).map(segment => WAIT_LABEL[segment.reason] || segment.reason))];
+    console.log(`#${String(task.id).padEnd(3)} ${task.role.padEnd(11)} ${track.join('')} ${waits.join('/')}${task.segments.some(segment => segment.open) ? ' ←进行中' : ''}`);
+  }
+  console.log('█ = 真的在跑（invocation 区间）  ▒ = 排队  · = 任务已结束');
 }
 export async function main(argv = process.argv.slice(2)) {
   const args = [...argv];
@@ -117,7 +207,22 @@ export async function main(argv = process.argv.slice(2)) {
       const after = Number(option(args, '--after', '0')), limit = Number(option(args, '--limit', '200'));
       exact(args, 0); value = await client.request('task.list', { after, limit });
     }
-    else if (verb === 'tree') { check(args.length <= 1, 'tree accepts an optional ID'); value = await client.request('task.tree', args.length ? { id: id(args[0]) } : {}); }
+    else if (verb === 'tree') {
+      check(args.length <= 1, 'tree accepts an optional ID');
+      const request = args.length ? { id: id(args[0]) } : {};
+      if (!json) {
+        // 树本身看不出并发槽与排队，所以顺带问一句 status，让"为什么没在跑"也有答案。
+        const [tree, status] = await Promise.all([client.request('task.tree', request), client.request('system.status')]);
+        printTree(tree, status); return;
+      }
+      value = await client.request('task.tree', request);
+    }
+    else if (verb === 'ladder') { exact(args, 0); value = await client.request('task.ladder'); if (!json) { printLadder(value); return; } }
+    else if (verb === 'timeline') {
+      const limit = option(args, '--limit'); exact(args, 0);
+      value = await client.request('system.timeline', limit ? { limit: Number(limit) } : {});
+      if (!json) { printTimeline(value); return; }
+    }
     else if (verb === 'spawn') {
       const parent = option(args, '--parent', process.env.LUSH_TASK_ID);
       const role = option(args, '--role', 'worker');
