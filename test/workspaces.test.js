@@ -5,7 +5,8 @@ import { fixture, repo, git, until } from './helpers.js';
 
 async function setup() {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
-  const parent = f.project.submit('build').task;
+  // planner 只写 spec 队列（spawn 会拒绝 planner 父任务），这里直接造一个能派活的 coordinator。
+  const parent = f.store.create({ input_id: null, role: 'coordinator', goal: 'build' });
   const task = f.project.spawn(parent.id,'implement','worker',[],'implement-feature');
   return { ...f, task };
 }
@@ -190,12 +191,14 @@ test('pre-existing branch collisions do not become task-owned on retry', async (
 
 test('end-to-end worker executes inside worktree and cannot silently finish dirty', async () => {
   const f = fixture({ async run({ task, cwd, api }) {
-    if (task.role === 'planner' && task.calls === 1) { api.spawn(task.id,'edit','worker'); return 'delegated'; }
+    if (task.role === 'coordinator' && task.calls === 1) { api.spawn(task.id,'edit','worker'); return 'delegated'; }
     if (task.role === 'worker') fs.writeFileSync(path.join(cwd,'new.txt'),'not committed');
     return 'done';
   } });
   try {
-    await repo(f.root); const root = f.project.submit('edit').task;
+    await repo(f.root);
+    const root = f.store.create({ input_id: null, role: 'coordinator', goal: 'edit' });
+    f.project.kick();
     await until(() => f.store.task(root.id).status === 'completed');
     const child = f.store.children(root.id)[0];
     expect(child.status).toBe('failed'); expect(child.error).toContain('dirty');

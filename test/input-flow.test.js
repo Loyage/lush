@@ -12,6 +12,13 @@ function controlled() {
   } };
 }
 
+/** planner 只写 spec 队列；测试里用它造一个继承某条 input 的非 planner 任务。 */
+function host(f, input_id) {
+  const task = f.store.create({ input_id, role: 'coordinator', goal: 'host' });
+  f.store.update(task.id, { status: 'waiting' });
+  return task;
+}
+
 test('a root planner records the flow of its input and can reclassify it', async () => {
   const f = fixture(); f.project.stopping = true;
   try {
@@ -32,10 +39,11 @@ test('an explain input may delegate research but never worker or coordinator', a
   try {
     const { task } = f.project.submit('了解调度器怎么工作');
     f.project.setInputFlow(task.id, 'explain');
-    expect(() => f.project.spawn(task.id, 'implement it', 'worker')).toThrow('explain');
-    expect(() => f.project.spawn(task.id, 'implement it', 'worker')).toThrow('了解');
-    expect(() => f.project.spawn(task.id, 'split it', 'coordinator')).toThrow('explain');
-    const research = f.project.spawn(task.id, 'read the scheduler', 'research');
+    const root = host(f, task.input_id);
+    expect(() => f.project.spawn(root.id, 'implement it', 'worker')).toThrow('explain');
+    expect(() => f.project.spawn(root.id, 'implement it', 'worker')).toThrow('了解');
+    expect(() => f.project.spawn(root.id, 'split it', 'coordinator')).toThrow('explain');
+    const research = f.project.spawn(root.id, 'read the scheduler', 'research');
     expect(research.role).toBe('research');
     // 后代沿用同一个 input_id，所以约束覆盖整棵子树
     expect(() => f.project.spawn(research.id, 'deep worker', 'worker')).toThrow('explain');
@@ -52,8 +60,9 @@ test('develop and undecided inputs keep spawning workers unchanged', async () =>
     const developed = f.project.submit('开发新功能').task;
     const undecided = f.project.submit('还没判定').task;
     f.project.setInputFlow(developed.id, 'develop');
-    expect(f.project.spawn(developed.id, 'implement', 'worker').role).toBe('worker');
-    expect(f.project.spawn(undecided.id, 'implement', 'worker').role).toBe('worker');
+    const developedHost = host(f, developed.input_id), undecidedHost = host(f, undecided.input_id);
+    expect(f.project.spawn(developedHost.id, 'implement', 'worker').role).toBe('worker');
+    expect(f.project.spawn(undecidedHost.id, 'implement', 'worker').role).toBe('worker');
   } finally { await f.close(); }
 });
 
@@ -61,7 +70,7 @@ test('only a root task can classify an input; unknown flows are rejected', async
   const f = fixture(); f.project.stopping = true;
   try {
     const root = f.project.submit('root').task;
-    const child = f.project.spawn(root.id, 'child', 'research');
+    const child = f.project.spawn(host(f, root.input_id).id, 'child', 'research');
     expect(() => f.project.setInputFlow(child.id, 'explain')).toThrow('only a root task');
     expect(() => f.project.setInputFlow(root.id, 'maybe')).toThrow('flow must be develop or explain');
     expect(f.store.get('SELECT flow FROM inputs WHERE id=?', root.input_id).flow).toBeNull();
@@ -90,7 +99,6 @@ test('an agent classifies only its own root input', async () => {
   try {
     const root = f.project.submit('root').task;
     await until(() => f.project.running.has(root.id));
-    const child = f.project.spawn(root.id, 'child', 'research');
     const other = f.project.submit('other').task;
     const token = f.project.running.get(root.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});
@@ -98,11 +106,12 @@ test('an agent classifies only its own root input', async () => {
     expect(await rpc.dispatch('input.flow', { flow: 'explain', _token: token })).toMatchObject({ task_id: root.id, flow: 'explain' });
     // 指定别的根 task 被拒
     await expect(rpc.dispatch('input.flow', { id: other.id, flow: 'develop', _token: token })).rejects.toThrow('own input');
-    // 自己的非根 task 也不能判定
-    await expect(rpc.dispatch('input.flow', { id: child.id, flow: 'develop', _token: token })).rejects.toThrow('own input');
-    // explain 生效后 agent 不能再派 worker
-    await expect(rpc.dispatch('task.spawn', { parent: root.id, goal: 'no', role: 'worker', _token: token })).rejects.toThrow('explain');
+    // planner 不再直接派活，只能写 spec 队列
+    await expect(rpc.dispatch('task.spawn', { parent: root.id, goal: 'no', role: 'worker', _token: token })).rejects.toThrow('planner 不再直接派活');
+    // explain 输入下只能写 research 的 spec
+    await expect(rpc.dispatch('spec.add', { goal: 'no worker', role: 'worker', _token: token })).rejects.toThrow('explain');
+    expect((await rpc.dispatch('spec.add', { goal: 'read the scheduler', role: 'research', _token: token })).role).toBe('research');
     f.project.cancel(root.id);
-    await until(() => !f.project.running.has(root.id) && !f.project.running.has(child.id));
+    await until(() => !f.project.running.has(root.id));
   } finally { await f.close(); }
 });

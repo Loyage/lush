@@ -50,6 +50,8 @@ export class Project {
     const alive = this.store.get("SELECT count(*) AS count FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").count;
     return { project: this.config.project, home: this.config.home, provider: this.config.provider,
       concurrency: this.config.concurrency, tasks: this.store.all('SELECT status, count(*) AS count FROM tasks GROUP BY status'),
+      specs: { ...this.store.specStats(),
+        batches: bounded(this.store.all("SELECT t.id, t.status, t.role, (SELECT count(*) FROM task_specs s WHERE s.batch_id=t.id) AS count FROM tasks t WHERE t.role='scheduler' ORDER BY t.id DESC LIMIT 100"), 100000) },
       drafts: this.store.draftCount(),
       agents: [...this.running].map(([task_id, run]) => agentView(this.store.task(task_id), run)),
       agents_total: alive, agents_idle: alive - this.running.size,
@@ -117,6 +119,19 @@ export class Project {
     });
     return { input_id: task.input_id, task_id: task.id, flow };
   }
+  /** The one place a scheduler task is born: pending specs exist and no live scheduler owns them. */
+  ensureScheduler() {
+    const pending = this.store.pendingSpecs(51);
+    if (!pending.length) return null;
+    if (this.store.get("SELECT id FROM tasks WHERE role='scheduler' AND status NOT IN ('completed','failed','cancelled')")) return null;
+    const count = Math.min(pending.length, 50);
+    return this.store.transaction(() => {
+      const task = this.store.create({ input_id: null, role: 'scheduler', name: null,
+        goal: `调度拆解队列：${count} 条 pending spec，一次性编排完本批（不允许遗留）` });
+      this.store.assignSpecs(task.id, 50);
+      return task;
+    });
+  }
   /** Task rows plus their dependency edges, so every read model shows what a queued task waits for. */
   decorate(tasks) {
     const edges = this.store.depMap();
@@ -144,26 +159,94 @@ export class Project {
       check(!['failed','cancelled'].includes(dep.status), `code dependency #${dep.id} is ${dep.status}; it cannot serve as a code base`);
     }
   }
+  /** planner 只写队列：把一条拆解结果变成 task_specs 行，同样只允许引用自己写的 spec。 */
+  addSpec(plannerTaskId, spec = {}) {
+    const planner = this.store.task(plannerTaskId);
+    check(planner.role === 'planner', 'only a planner writes to the spec queue (lush spec add)');
+    text(spec.goal, 'goal');
+    const role = spec.role ?? null;
+    check(role === null || ['worker','coordinator','research'].includes(role), 'spec role must be worker, coordinator or research');
+    // explain 输入只允许写 research 的 spec，否则 scheduler 一定会 spawn 出一个被拒的任务。
+    const flowInput = planner.input_id === null ? null : this.store.get('SELECT id, flow FROM inputs WHERE id=?', planner.input_id);
+    check(!flowInput || flowInput.flow !== 'explain' || role === 'research',
+      `input #${flowInput?.id} is classified as explain (了解); only research specs are allowed`);
+    const name = spec.name ?? null;
+    const slug = taskSlug(name, spec.goal);
+    const deps = spec.deps ?? [];
+    check(Array.isArray(deps) && deps.length <= 32, 'at most 32 spec dependencies');
+    const hints = [];
+    for (const raw of deps) {
+      const value = isPlainObject(raw) ? raw : { spec: raw };
+      const specId = id(value.spec);
+      const kind = value.kind ?? 'code';
+      check(DEP_KINDS.has(kind), 'spec dependency kind must be code or order');
+      check(!hints.some(hint => hint.spec === specId), `duplicate spec dependency on #${specId}`);
+      const target = this.store.spec(specId);
+      check(target.planner_task_id === planner.id, `spec #${specId} belongs to another planner; link only your own specs`);
+      hints.push({ spec: specId, kind });
+    }
+    const pending = this.store.get("SELECT count(*) AS n FROM task_specs WHERE planner_task_id=? AND status='pending'", planner.id).n;
+    check(pending < 200, 'a planner may hold at most 200 pending specs; let the scheduler drain the queue first');
+    const row = this.store.addSpec({ input_id: planner.input_id, planner_task_id: planner.id, goal: spec.goal, role, name: slug, deps: hints });
+    this.store.event(planner.id, 'spec.added', { spec_id: row.id, role, name: slug, deps: hints });
+    this.kick();
+    return row;
+  }
+  /** Only the planner that wrote a pending spec, or the scheduler holding its batch, may drop it. */
+  dropSpec(specId, note = null, actor = null) {
+    const spec = this.store.spec(specId);
+    check(spec.status === 'pending', `spec #${spec.id} is ${spec.status}; only a pending spec can be dropped`);
+    if (actor !== null) {
+      const owner = actor === spec.planner_task_id || (spec.batch_id !== null && actor === spec.batch_id);
+      check(owner, `task #${actor} may not drop spec #${spec.id}`);
+    }
+    if (note !== null && note !== undefined) text(note, 'note');
+    this.store.dropSpec(spec.id, note ?? null);
+    this.store.event(actor ?? spec.planner_task_id, 'spec.dropped', { spec_id: spec.id, note: note ?? null });
+    return this.store.spec(spec.id);
+  }
   /** name is the planner's short slug for the work; it becomes the branch/worktree name and stays fixed for the task's life. */
-  spawn(parentId, goal, role = 'worker', deps = [], name = null) {
+  spawn(parentId, goal, role = 'worker', deps = [], name = null, specId = null) {
     const parent = this.store.task(parentId);
     check(!TERMINAL.has(parent.status), 'cannot delegate from a terminal task');
+    check(parent.role !== 'planner', 'planner 不再直接派活；用 lush spec add 写拆解队列，由 scheduler 编排');
     text(goal, 'goal'); check(['worker','coordinator','research'].includes(role), 'role must be worker, coordinator or research');
+    const edges = normalizeDeps(deps);
+    const resolved = new Map(edges.map(edge => [edge.id, edge.kind]));
+    let spec = null;
+    if (specId !== null && specId !== undefined) {
+      spec = this.store.spec(specId);
+      check(spec.status === 'pending', `spec #${spec.id} is ${spec.status}; only a pending spec can be spawned`);
+      if (parent.role === 'scheduler') check(spec.batch_id === parent.id, `spec #${spec.id} is not in scheduler #${parent.id}'s batch`);
+      // Turn the planner's dependency hints into real edges. A dependency cannot be spawned after its consumer.
+      for (const hint of spec.deps) {
+        const target = this.store.spec(hint.spec);
+        check(target.status !== 'dropped', `spec #${hint.spec} was dropped; its dependency can never be met, so drop spec #${spec.id} instead of spawning it`);
+        check(target.task_id !== null, `spec #${hint.spec} has not been spawned yet; spawn the dependency before spec #${spec.id}`);
+        const existing = resolved.get(target.task_id);
+        if (existing !== undefined) check(existing === hint.kind, `conflicting dependency on task #${target.task_id}: explicit ${existing} vs spec hint ${hint.kind}`);
+        else resolved.set(target.task_id, hint.kind);
+      }
+    } else {
+      check(parent.role !== 'scheduler', 'a scheduler must spawn every spec with --spec SPEC_ID; the spec queue is its only input');
+    }
+    const merged = [...resolved].map(([edgeId, kind]) => ({ id: edgeId, kind }));
     // 硬约束：了解类输入只能派生只读的 research，不能产生 worker/coordinator（因此不会创建 worktree 或待合并改动）。
-    // 所有后代都复制 parent.input_id，所以查一次 parent 即可覆盖整棵子树。
-    const input = parent.input_id === null ? null : this.store.get('SELECT id, flow FROM inputs WHERE id=?', parent.input_id);
+    // scheduler 自己没有 input，所以它 spawn 的 spec 要把 spec 的 input_id 接过来，explain 约束才能覆盖整棵子树。
+    const inheritedInput = parent.input_id ?? (spec ? spec.input_id : null);
+    const input = inheritedInput === null ? null : this.store.get('SELECT id, flow FROM inputs WHERE id=?', inheritedInput);
     check(!input || input.flow !== 'explain' || role === 'research',
       `input #${input?.id} is classified as explain (了解); delegate research or answer directly, not ${role}`);
-    const edges = normalizeDeps(deps);
     let depth = 1, ancestor = parent;
     while (ancestor.parent_id) { ancestor = this.store.task(ancestor.parent_id); depth++; }
     check(depth < this.config.maxDepth, 'task nesting limit reached');
     check(this.store.get("SELECT count(*) AS n FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").n < 1000, 'too many active tasks');
     const slug = taskSlug(name, goal);
     const task = this.store.transaction(() => {
-      const created = this.store.create({ parent_id: parent.id, input_id: parent.input_id, role, goal, name: slug });
-      this.assertDeps(created.id, parent, edges);
-      for (const edge of edges) { this.store.addDep(created.id, edge.id, edge.kind); this.store.event(created.id, 'dep.added', edge); }
+      const created = this.store.create({ parent_id: parent.id, input_id: inheritedInput, role, goal, name: slug });
+      this.assertDeps(created.id, parent, merged);
+      for (const edge of merged) { this.store.addDep(created.id, edge.id, edge.kind); this.store.event(created.id, 'dep.added', edge); }
+      if (spec) this.store.plannedSpec(spec.id, created.id);
       return created;
     });
     this.kick(); return task;
@@ -171,6 +254,8 @@ export class Project {
   inspect(taskId) {
     const task = this.store.task(taskId);
     return { ...task, deps: this.store.depsDetail(task.id), dependents: this.store.dependentsDetail(task.id),
+      ...(task.role === 'planner' ? { specs: bounded(this.store.specsByPlanner(task.id), 200000) } : {}),
+      ...(task.role === 'scheduler' ? { specs: bounded(this.store.specsForBatch(task.id), 200000) } : {}),
       children: bounded(this.store.summaries().filter(child => child.parent_id === task.id), 100000),
       messages: bounded(this.store.all('SELECT * FROM messages WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
       notices: bounded(this.store.all('SELECT * FROM notices WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
@@ -236,6 +321,11 @@ export class Project {
       this.store.update(task.id, { status, result, error });
       this.store.run("UPDATE notices SET status='dismissed',answer='task ended' WHERE task_id=? AND status='open'", task.id);
       this.store.event(task.id, status, { result, error });
+      // 一个 scheduler 要么把 spec 编成任务，要么明确 drop；取消则把未处理的 spec 还给队列，绝不静默丢弃。
+      if (task.role === 'scheduler') {
+        if (status === 'cancelled') this.store.releaseBatch(task.id, 'scheduler 被取消，spec 回到 pending');
+        else if (status === 'completed' || status === 'failed') this.store.discardBatch(task.id, `scheduler 未覆盖该 spec（${status}）`);
+      }
       if (task.parent_id && !TERMINAL.has(this.store.task(task.parent_id).status)) {
         this.store.message(task.parent_id, JSON.stringify({ child: task.id, status, result, error }), task.id);
       }
@@ -270,7 +360,7 @@ export class Project {
     const counts = this.store.purge();
     return {
       cleared: { tasks: counts.tasks, inputs: counts.inputs, drafts: counts.drafts, notices: counts.notices,
-        messages: counts.messages, events: counts.events, task_deps: counts.task_deps },
+        messages: counts.messages, events: counts.events, task_deps: counts.task_deps, task_specs: counts.task_specs },
       retained: { note: 'worktrees, branches and pi sessions are kept on disk; remove them by hand', tasks: bounded(retained, 200000) },
       next_task_id: this.store.taskIdHigh() + 1,
     };
@@ -305,16 +395,14 @@ export class Project {
     });
   }
   pump() {
-    // Reserve one separate planning slot: a saturated worker pool cannot block input parsing.
-    let planners = 0, workers = 0;
-    for (const run of this.running.values()) { if (run.role === 'planner') planners++; else workers++; }
+    // 唯一的并发上限就是总池大小：planner 之间可并行，scheduler 与 worker 一样占一个槽。
+    this.ensureScheduler();
     const dependencies = this.store.depMap();
     for (const task of this.store.all("SELECT * FROM tasks WHERE status='queued' ORDER BY id")) {
       if (this.running.has(task.id)) continue;
       // A queued task whose dependencies are not settled stays queued; finish() re-kicks when they are.
       if ((dependencies.get(task.id) || []).some(edge => !TERMINAL.has(edge.status))) continue;
-      if (task.role === 'planner' ? planners >= 1 : workers >= this.config.concurrency) continue;
-      if (task.role === 'planner') planners++; else workers++;
+      if (this.running.size >= this.config.concurrency) continue;
       const run = { role: task.role, controller: new AbortController(), token: randomBytes(32).toString('hex'), pid: null, promise: null };
       this.running.set(task.id, run);
       this.store.armAgent(task.id, tokenHash(run.token));
@@ -360,6 +448,16 @@ export class Project {
         context: {
           children: this.store.summaries().filter(child => child.parent_id === taskId),
           open_notices: this.store.all("SELECT * FROM notices WHERE task_id=? AND status='open'", taskId),
+          // scheduler 拿到整批 spec 全文，并把每条 dep hint 解析成真实 task id，方便直接建依赖。
+          ...(task.role === 'scheduler' ? { specs: this.store.specsForBatch(taskId).map(spec => ({
+            id: spec.id, seq: spec.seq, goal: spec.goal, role: spec.role, name: spec.name, status: spec.status,
+            input_id: spec.input_id, planner_task_id: spec.planner_task_id,
+            deps: spec.deps.map(hint => {
+              const target = this.store.get('SELECT id, task_id FROM task_specs WHERE id=?', hint.spec);
+              return { spec: hint.spec, task_id: target ? target.task_id : null, kind: hint.kind };
+            }),
+          })) } : {}),
+          ...(task.role === 'planner' ? { queued_specs: this.store.specs({ planner_task_id: taskId, status: 'pending', limit: 50 }) } : {}),
           recent_tasks: this.decorate(this.store.all('SELECT id,parent_id,role,status,substr(goal,1,500) AS goal,integration FROM tasks ORDER BY id DESC LIMIT 100')),
         },
       });

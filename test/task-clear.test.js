@@ -40,7 +40,9 @@ test('clear drops rows but keeps worktrees, branches and never recycles task ids
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const parent = f.project.submit('build').task;
-    const worker = f.project.spawn(parent.id, 'implement', 'worker', [], 'implement-feature');
+    // planner 只写队列；用一个 coordinator 充当可派活的父任务。
+    const host = f.store.create({ input_id: null, role: 'coordinator', goal: 'host' });
+    const worker = f.project.spawn(host.id, 'implement', 'worker', [], 'implement-feature');
     const cwd = await f.project.workspaces.ensure(worker);
     fs.writeFileSync(path.join(cwd, 'file.txt'), 'changed\n');
     await git(cwd, 'add', 'file.txt'); await git(cwd, 'commit', '-m', 'implementation');
@@ -50,14 +52,15 @@ test('clear drops rows but keeps worktrees, branches and never recycles task ids
     f.project.notice(parent.id, 'question', 'body');
     f.project.draft('buffered');
     f.store.update(parent.id, { status: 'completed' });
+    f.store.update(host.id, { status: 'completed' });
     f.store.update(worker.id, { status: 'completed' });
 
     const result = f.project.clear();
-    expect(result.cleared).toMatchObject({ tasks: 2, inputs: 1, drafts: 1, notices: 1, messages: 1 });
+    expect(result.cleared).toMatchObject({ tasks: 3, inputs: 1, drafts: 1, notices: 1, messages: 1, task_specs: 0 });
     expect(result.next_task_id).toBe(worker.id + 1);
     expect(result.retained.tasks).toEqual([{ id: worker.id, branch, workspace: cwd }]);
 
-    for (const table of ['tasks','inputs','drafts','notices','messages','events','task_deps']) {
+    for (const table of ['tasks','inputs','drafts','notices','messages','events','task_deps','task_specs']) {
       expect(f.store.get(`SELECT count(*) AS n FROM ${table}`).n).toBe(0);
     }
     expect(f.project.status().tasks).toEqual([]);

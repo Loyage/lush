@@ -49,9 +49,16 @@ const file = path.join(process.env.LUSH_HOME,'sessions','task-'+process.env.LUSH
 const context = JSON.parse(fs.readFileSync(file,'utf8'));
 fs.appendFileSync(path.join(process.env.LUSH_HOME,'seen.jsonl'),JSON.stringify({args, cwd:process.cwd(), project:process.env.LUSH_PROJECT, token:!!process.env.LUSH_AGENT_TOKEN, task:context.task})+'\\n');
 if(context.task.role === 'planner' && context.task.calls === 1) {
- const proc = Bun.spawn(['lush','task','spawn','delegated via pinned CLI','--role','research','--json'],{stdout:'pipe',stderr:'pipe'});
+ const proc = Bun.spawn(['lush','spec','add','delegated via pinned CLI','--role','research','--name','delegated-research','--json'],{stdout:'pipe',stderr:'pipe'});
  const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
  if(await proc.exited) throw new Error(err); console.log(out);
+}
+if(context.task.role === 'scheduler') {
+ for(const spec of context.specs.filter(s => s.status === 'pending')) {
+  const proc = Bun.spawn(['lush','task','spawn',spec.goal,'--role',spec.role,'--name',spec.name,'--spec',String(spec.id),'--json'],{stdout:'pipe',stderr:'pipe'});
+  const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
+  if(await proc.exited) throw new Error(err); console.log(out);
+ }
 }
 console.log('fake pi completed');
 `, { mode:0o755 });
@@ -64,12 +71,20 @@ console.log('fake pi completed');
     expect(result.agent).toMatchObject({ id: `planner#${input.task.id}`, role: 'planner', active: false, pid: null });
     expect(result.agent.wakes).toBeGreaterThan(0);
     expect(result.agent.last_seen_at).toBeTruthy();
+    // 等 scheduler 把 spec 编成任务并收尾
+    let scheduler;
+    for (let i=0;i<100 && !scheduler;i++) { scheduler = (await client.request('task.list',{})).find(task => task.role === 'scheduler'); if (!scheduler) await Bun.sleep(30); }
+    expect(scheduler).toBeTruthy();
+    expect((await done(client, scheduler.id)).status).toBe('completed');
+    const research = (await client.request('task.list',{})).find(task => task.role === 'research');
+    expect(research.goal).toBe('delegated via pinned CLI');
+    expect(research.parent_id).toBe(scheduler.id);
+    expect((await done(client, research.id)).status).toBe('completed');
     const seen = fs.readFileSync(path.join(root,'.lush','seen.jsonl'),'utf8').trim().split('\n').map(JSON.parse);
     expect(seen.length).toBeGreaterThanOrEqual(3);
     expect(seen.every(row => row.project === root && row.token)).toBe(true);
     const sessions = seen.filter(row => row.task.id === input.task.id).map(row => row.args[row.args.indexOf('--session-id')+1]);
     expect(new Set(sessions).size).toBe(1);
-    expect((await client.request('task.tree'))[0].children[0].goal).toBe('delegated via pinned CLI');
   } finally { await cli(root,['stop']).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); }
 }, 30000);
 
@@ -102,20 +117,24 @@ const STACKED_PI = `#!/usr/bin/env bun
 import fs from 'node:fs';
 import path from 'node:path';
 const file = path.join(process.env.LUSH_HOME,'sessions','task-'+process.env.LUSH_TASK_ID+'-input.md');
-const task = JSON.parse(fs.readFileSync(file,'utf8')).task;
+const context = JSON.parse(fs.readFileSync(file,'utf8'));
 const git = (...args) => { const proc = Bun.spawnSync(['git',...args]); if (proc.exitCode) throw new Error(proc.stderr.toString()); };
-if (task.role === 'planner') {
-  if (task.calls === 1) {
-    const spawn = async (goal, ...flags) => {
-      const proc = Bun.spawn(['lush','task','spawn',goal,'--name',flags.length ? 'stacked-downstream' : 'stacked-upstream','--role','worker',...flags,'--json'],{stdout:'pipe',stderr:'pipe'});
-      const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
-      if (await proc.exited) throw new Error(err);
-      return JSON.parse(out);
-    };
-    const upstream = await spawn('upstream change');
-    await spawn('downstream change','--depends-on',String(upstream.id));
+const lush = async (...args) => {
+  const proc = Bun.spawn(['lush',...args,'--json'],{stdout:'pipe',stderr:'pipe'});
+  const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
+  if (await proc.exited) throw new Error(err);
+  return JSON.parse(out);
+};
+if (context.task.role === 'planner') {
+  if (context.task.calls === 1) {
+    const upstream = await lush('spec','add','upstream change','--role','worker','--name','stacked-upstream');
+    await lush('spec','add','downstream change','--role','worker','--name','stacked-downstream','--depends-on',String(upstream.id));
   }
-} else if (task.goal === 'upstream change') {
+} else if (context.task.role === 'scheduler') {
+  for (const spec of context.specs.filter(s => s.status === 'pending')) {
+    await lush('task','spawn',spec.goal,'--role',spec.role,'--name',spec.name,'--spec',String(spec.id));
+  }
+} else if (context.task.goal === 'upstream change') {
   fs.writeFileSync('file.txt','upstream\\n');
   git('add','file.txt'); git('commit','-qm','upstream work');
 } else {
@@ -142,11 +161,27 @@ test('drafts become one planner, and a code dependency stacks worktrees with an 
     expect(batch.content).toContain('2) 把筛选器抽成组件');
     const client = new UIClient(Config.fromEnv(env(),root));
     expect((await settle(batch.task.id)).status).toBe('completed');
-    const children = (await client.request('task.list',{})).filter(task => task.parent_id === batch.task.id).sort((a,b) => a.id - b.id);
-    const [upstream, downstream] = children;
+    // planner 写 spec，scheduler 串行把它们编成任务并在子任务全部终态后收尾（每条 spec 可能各自成批）
+    let workers = [];
+    for (let i=0;i<200 && workers.length<2;i++) {
+      workers = (await client.request('task.list',{})).filter(task => task.role === 'worker').sort((a,b) => a.id - b.id);
+      if (workers.length < 2) await Bun.sleep(30);
+    }
+    expect(workers).toHaveLength(2);
+    const [upstream, downstream] = workers;
+    expect((await settle(upstream.id)).status).toBe('completed');
+    expect((await settle(downstream.id)).status).toBe('completed');
+    let schedulers = [];
+    for (let i=0;i<200;i++) {
+      schedulers = (await client.request('task.list',{})).filter(task => task.role === 'scheduler');
+      if (schedulers.length && schedulers.every(task => ['completed','failed'].includes(task.status))) break;
+      await Bun.sleep(30);
+    }
+    expect(schedulers.length).toBeGreaterThanOrEqual(1);
+    expect(schedulers.every(task => task.status === 'completed')).toBe(true);
+    const [fullUpstream, fullDownstream] = [await client.request('task.inspect',{id:upstream.id}), await client.request('task.inspect',{id:downstream.id})];
     expect(downstream.deps).toEqual([{ id: upstream.id, kind:'code', status:'completed' }]);
     expect(upstream.blocked).toBe(false);
-    const [fullUpstream, fullDownstream] = [await client.request('task.inspect',{id:upstream.id}), await client.request('task.inspect',{id:downstream.id})];
     expect(fullDownstream.base_commit).toBe(fullUpstream.head_commit);
     // 主工作树没有上游的改动，但下游的 worktree 是从上游分支拉出来的
     expect(fs.readFileSync(path.join(root,'file.txt'),'utf8')).toBe('base\n');

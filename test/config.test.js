@@ -94,3 +94,32 @@ test('non-git projects bind via manifest and can accept research tasks', () => {
     expect(fs.statSync(config.home).mode & 0o777).toBe(0o700);
   } finally { fs.rmSync(root,{recursive:true,force:true}); }
 });
+
+test('the spec queue table is added to a database written by an earlier build', () => {
+  const root = temp();
+  try {
+    const config = Config.fromEnv(env(),root); config.prepare();
+    const file = path.join(config.home,'project.db');
+    const store = new Store(file,root);
+    store.run('DROP TABLE task_specs');
+    expect(store.get("SELECT name FROM sqlite_master WHERE name='task_specs'")).toBeNull();
+    store.close();
+    const reopened = new Store(file,root);
+    expect(reopened.get("SELECT name FROM sqlite_master WHERE name='task_specs'")).toBeTruthy();
+    const planner = reopened.create({ input_id: null, role: 'planner', goal: 'plan' });
+    const first = reopened.addSpec({ input_id: null, planner_task_id: planner.id, goal: 'first', role: 'research', name: 'first', deps: [] });
+    const second = reopened.addSpec({ input_id: null, planner_task_id: planner.id, goal: 'second', role: 'worker', name: 'second', deps: [{ spec: first.id, kind: 'code' }] });
+    expect(second).toMatchObject({ seq: 2, status: 'pending' });
+    expect(second.deps).toEqual([{ spec: first.id, kind: 'code' }]);
+    expect(reopened.pendingSpecs().map(row => row.id)).toEqual([first.id, second.id]);
+    expect(reopened.specStats()).toEqual({ pending: 2, planned: 0, dropped: 0 });
+    const batch = reopened.create({ input_id: null, role: 'scheduler', goal: 'batch' });
+    expect(reopened.takeSpecs(batch.id, 50).map(row => row.id)).toEqual([first.id, second.id]);
+    expect(reopened.specsForBatch(batch.id).map(row => row.status)).toEqual(['pending','pending']);
+    reopened.dropSpec(first.id, 'nope');
+    expect(reopened.spec(first.id)).toMatchObject({ status: 'dropped', note: 'nope' });
+    reopened.releaseBatch(batch.id, 'back to queue');
+    expect(reopened.spec(second.id)).toMatchObject({ status: 'pending', batch_id: null, note: 'back to queue' });
+    reopened.close();
+  } finally { fs.rmSync(root,{recursive:true,force:true}); }
+});

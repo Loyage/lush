@@ -24,8 +24,13 @@ lush [--project PATH] [--json] <command>
   task inspect ID                 结果、agent、子任务、消息与工作区
   task history ID [--after N]      分页事件记录
   task transcript ID [--after N]   只读查看 agent 的思考、工具调用与工具输出（来自 pi 会话记录）
-  task spawn '目标' [--parent ID] [--role worker|coordinator|research] [--name short-kebab-name] [--depends-on ID[:code|order]]
+  task spawn '目标' [--parent ID] [--role worker|coordinator|research] [--name short-kebab-name] [--depends-on ID[:code|order]] [--spec SPEC_ID]
       --name 是任务的英文短名，决定 worktree 目录与分支 <id>-<name>；省略时按 goal 里的英文词回退。
+      --spec 把这次 spawn 与拆解队列里的 spec 关联（scheduler 必须给）。
+  spec list [--status pending|planned|dropped]  查看拆解队列（spec 是等 scheduler 编排的条目，task 才是真实任务）
+  spec add '目标与验收标准' [--role worker|coordinator|research] [--name short-kebab-name] [--depends-on SPEC_ID[:code|order]]
+      planner 专用：把拆解结果写进队列，不直接建任务。
+  spec drop ID [--note '原因']      scheduler/planner 明确放弃一条 spec
   task message ID '补充说明'       追加输入，不打断当前 invocation
   task cancel|retry ID            取消子树 / 明确重试失败任务
   task wait ID                    仅阻塞此客户端，不占 agent 槽
@@ -121,6 +126,7 @@ export async function main(argv = process.argv.slice(2)) {
       const parent = option(args, '--parent', process.env.LUSH_TASK_ID);
       const role = option(args, '--role', 'worker');
       const name = option(args, '--name');
+      const spec = option(args, '--spec');
       const defaultKind = option(args, '--dep-kind', 'code');
       const deps = [];
       // Repeatable and comma-separated: --depends-on 7,9:order --depends-on 11
@@ -131,7 +137,7 @@ export async function main(argv = process.argv.slice(2)) {
         }
       }
       exact(args, 1);
-      value = await client.request('task.spawn', { parent: id(parent), role, goal: args[0], deps, name });
+      value = await client.request('task.spawn', { parent: id(parent), role, goal: args[0], deps, name, spec: spec === null ? null : id(spec) });
     } else if (verb === 'transcript') {
       const after = Number(option(args, '--after', '0')); exact(args, 1);
       value = await client.request('task.transcript', { id: id(args[0]), after });
@@ -151,6 +157,33 @@ export async function main(argv = process.argv.slice(2)) {
       if (verb === 'clear') { exact(args, 0); value = await client.request('task.clear'); }
       else { exact(args, 1); value = await client.request(`task.${verb}`, { id: id(args[0]) }); }
     }
+  } else if (command === 'spec') {
+    const verb = args.shift();
+    if (verb === 'list') {
+      const status = option(args, '--status');
+      if (status) check(['pending','planned','dropped'].includes(status), '--status must be pending, planned or dropped');
+      exact(args, 0);
+      value = await client.request('spec.list');
+      if (status) value = value.filter(row => row.status === status);
+    } else if (verb === 'add') {
+      const role = option(args, '--role');
+      const name = option(args, '--name');
+      const defaultKind = option(args, '--dep-kind', 'code');
+      const deps = [];
+      // Repeatable and comma-separated, like task spawn: --depends-on 7,9:order --depends-on 11
+      for (let raw = option(args, '--depends-on'); raw !== null; raw = option(args, '--depends-on')) {
+        for (const token of raw.split(',').filter(Boolean)) {
+          const [specId, kind = defaultKind] = token.split(':');
+          deps.push({ spec: id(specId), kind });
+        }
+      }
+      exact(args, 1);
+      value = await client.request('spec.add', { goal: args[0], role, name, deps });
+    } else if (verb === 'drop') {
+      const note = option(args, '--note');
+      exact(args, 1);
+      value = await client.request('spec.drop', { id: id(args[0]), note });
+    } else throw new Error('unknown spec command; use list, add or drop');
   } else if (command === 'notice') {
     const verb = args.shift();
     if (verb === 'list') { exact(args, 0); value = await client.request('notice.list'); }

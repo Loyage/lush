@@ -56,8 +56,9 @@ export class MockProvider {
   async run({ task, messages, signal, api }) {
     if (signal.aborted) throw new Error('aborted');
     if (task.role === 'planner' && !messages.length) {
-      api.spawn(task.id, task.goal, 'research');
-      return '已分派离线演示任务。';
+      // planner 只写拆解队列；真正的任务由 scheduler 串行编排出来。
+      api.addSpec(task.id, { goal: `${task.goal}（离线演示调研）`, role: 'research', name: 'mock-research', deps: [] });
+      return '已把拆解写入拆解队列。';
     }
     return `Mock ${task.role} #${task.id}: ${task.goal}（未调用模型、未修改文件）`;
   }
