@@ -1,8 +1,19 @@
+const TASK_LIMIT = 500;
+const ACTIVE_STATUSES = ['created', 'running', 'waiting'];
+
 const elements = {
   connection: document.querySelector('#connection'),
   refresh: document.querySelector('#refresh'),
+  tabs: [...document.querySelectorAll('.tab')],
+  servicesView: document.querySelector('#services-view'),
+  tasksView: document.querySelector('#tasks-view'),
   tree: document.querySelector('#tree'),
   treeEmpty: document.querySelector('#tree-empty'),
+  taskScope: document.querySelector('#task-scope'),
+  taskStatus: document.querySelector('#task-status'),
+  taskList: document.querySelector('#task-list'),
+  tasksEmpty: document.querySelector('#tasks-empty'),
+  tasksNote: document.querySelector('#tasks-note'),
   selection: document.querySelector('#selection'),
   selectionName: document.querySelector('#selection-name'),
   selectionMeta: document.querySelector('#selection-meta'),
@@ -10,18 +21,26 @@ const elements = {
   goal: document.querySelector('#goal'),
   submit: document.querySelector('#submit'),
   formMessage: document.querySelector('#form-message'),
-  taskCard: document.querySelector('#task-card'),
-  taskId: document.querySelector('#task-id'),
-  taskStatus: document.querySelector('#task-status'),
-  taskGoal: document.querySelector('#task-goal'),
-  taskResult: document.querySelector('#task-result'),
+  taskParent: document.querySelector('#task-parent'),
+  taskCancel: document.querySelector('#task-cancel'),
+  taskDelete: document.querySelector('#task-delete'),
+  taskHint: document.querySelector('#task-hint'),
+  taskDetail: document.querySelector('#task-detail'),
+  detailId: document.querySelector('#detail-id'),
+  detailStatus: document.querySelector('#detail-status'),
+  detailGoal: document.querySelector('#detail-goal'),
+  detailMeta: document.querySelector('#detail-meta'),
+  detailResult: document.querySelector('#detail-result'),
+  taskTree: document.querySelector('#task-tree'),
 };
 
 const state = {
+  view: 'services',
   services: [],
   selectedSid: null,
-  task: null,
-  taskTimer: null,
+  tasks: [],
+  selectedTaskId: null,
+  taskTree: null,
 };
 
 async function api(path, options = {}) {
@@ -29,13 +48,17 @@ async function api(path, options = {}) {
     ...options,
     headers: { ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...options.headers },
   });
-  let payload;
+  let payload = null;
   try {
     payload = await response.json();
   } catch {
-    throw new Error(`HTTP ${response.status}`);
+    // A non-JSON body means the error came from far outside the API surface.
   }
-  if (!response.ok) throw new Error(payload.error?.message ?? `HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(payload?.error?.message ?? `HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
   return payload;
 }
 
@@ -44,25 +67,52 @@ function connection(kind, label) {
   elements.connection.lastElementChild.textContent = label;
 }
 
+function showMessage(message, error = false) {
+  elements.formMessage.textContent = message;
+  elements.formMessage.classList.toggle('error', error);
+}
+
+function stamp(value) {
+  if (value === null || value === undefined) return '-';
+  const time = new Date(value);
+  return Number.isNaN(time.getTime()) ? String(value) : time.toLocaleString('zh-CN', { hour12: false });
+}
+
+function resultText(value) {
+  if (value === null || value === undefined || value === '') return '';
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
+function subtreeSize(task) {
+  return 1 + (task.children ?? []).reduce((total, child) => total + subtreeSize(child), 0);
+}
+
+// ── Services ───────────────────────────────────────────────────────────────
+
 function selectedService() {
   return state.services.find((service) => service.sid === state.selectedSid) ?? null;
 }
 
+function serviceName(sid) {
+  const service = state.services.find((row) => row.sid === sid);
+  return service === undefined ? `sid ${sid}` : `${service.name}[${sid}]`;
+}
+
 function selectService(sid) {
   state.selectedSid = sid;
-  renderTree();
+  renderServiceTree();
   renderSelection();
-  elements.goal.focus();
+  if (selectedService()?.status === 'active') elements.goal.focus();
 }
 
 function renderSelection() {
   const service = selectedService();
-  const active = service?.status === 'active';
   elements.selection.classList.toggle('empty-selection', service === null);
   elements.selectionName.textContent = service === null ? '请从左侧选择' : service.name;
   elements.selectionMeta.textContent = service === null ? '' : `SID ${service.sid} · ${service.status}`;
+  const active = service?.status === 'active';
   elements.goal.disabled = !active;
-  elements.submit.disabled = !active;
+  elements.submit.disabled = !active || state.selectedSid === null;
 }
 
 function serviceButton(service, depth) {
@@ -97,7 +147,7 @@ function serviceButton(service, depth) {
   return button;
 }
 
-function renderTree() {
+function renderServiceTree() {
   elements.tree.replaceChildren();
   elements.treeEmpty.hidden = state.services.length > 0;
   if (state.services.length === 0) return;
@@ -126,14 +176,222 @@ function renderTree() {
   for (const service of state.services) if (!visited.has(service.sid)) append(service, 0);
 }
 
-async function loadTree({ quiet = false } = {}) {
+// ── Task list (sidebar) ────────────────────────────────────────────────────
+
+function taskScopeParam() {
+  return elements.taskScope.value === 'all' ? null : elements.taskScope.value;
+}
+
+function taskStatusParam() {
+  return elements.taskStatus.value === '' ? null : elements.taskStatus.value;
+}
+
+/**
+ * The sidebar shows a forest built from the flat `task.list` rows: tasks whose
+ * parent is not in the fetched window become roots, so a filtered list still
+ * renders as a tree instead of losing nodes.
+ */
+function taskForest() {
+  const byParent = new Map();
+  const ids = new Set(state.tasks.map((task) => task.id));
+  for (const task of state.tasks) {
+    const parent = task.parent_task_id !== null && ids.has(task.parent_task_id) ? task.parent_task_id : null;
+    const siblings = byParent.get(parent) ?? [];
+    siblings.push(task);
+    byParent.set(parent, siblings);
+  }
+  return byParent;
+}
+
+function taskRow(task, depth, childCount) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `task-row${task.id === state.selectedTaskId ? ' selected' : ''}`;
+  button.style.setProperty('--indent', `${depth * 18}px`);
+  button.setAttribute('role', 'treeitem');
+  button.setAttribute('aria-selected', String(task.id === state.selectedTaskId));
+
+  const dot = document.createElement('span');
+  dot.className = `status-dot ${task.status}`;
+  dot.setAttribute('aria-hidden', 'true');
+
+  const copy = document.createElement('span');
+  const title = document.createElement('span');
+  title.className = 'task-row-title';
+  title.textContent = `#${task.id} ${task.goal ?? ''}`;
+  const meta = document.createElement('span');
+  meta.className = 'task-row-meta';
+  const children = childCount > 0 ? ` · 子 ${childCount}` : '';
+  meta.textContent = `${serviceName(task.sid)} · ${task.status}${children}`;
+  copy.append(title, meta);
+
+  button.replaceChildren(dot, copy);
+  button.title = task.goal ?? '';
+  button.addEventListener('click', () => selectTask(task.id));
+  return button;
+}
+
+function renderTaskList() {
+  elements.taskList.replaceChildren();
+  elements.tasksEmpty.hidden = state.tasks.length > 0;
+  elements.tasksNote.hidden = state.tasks.length < TASK_LIMIT;
+  elements.tasksNote.textContent = state.tasks.length < TASK_LIMIT
+    ? ''
+    : `只显示最近 ${TASK_LIMIT} 条 Task，请用上方筛选缩小范围。`;
+  if (state.tasks.length === 0) return;
+
+  const byParent = taskForest();
+  const visited = new Set();
+  const append = (task, depth) => {
+    if (visited.has(task.id)) return;
+    visited.add(task.id);
+    const node = document.createElement('div');
+    node.className = 'tree-node';
+    node.append(taskRow(task, depth, (byParent.get(task.id) ?? []).length));
+    elements.taskList.append(node);
+    for (const child of byParent.get(task.id) ?? []) append(child, depth + 1);
+  };
+  for (const root of byParent.get(null) ?? []) append(root, 0);
+  for (const task of state.tasks) if (!visited.has(task.id)) append(task, 0);
+}
+
+// ── Task tree (detail panel) ───────────────────────────────────────────────
+
+function taskNode(task, depth) {
+  const node = document.createElement('div');
+  node.className = 'task-tree-node';
+  node.style.setProperty('--indent', `${depth * 20}px`);
+
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = `task-node${task.id === state.selectedTaskId ? ' selected' : ''}`;
+  row.dataset.depth = String(depth);
+  row.setAttribute('role', 'treeitem');
+  row.setAttribute('aria-selected', String(task.id === state.selectedTaskId));
+  row.title = task.goal ?? '';
+
+  const head = document.createElement('span');
+  head.className = 'task-node-head';
+  const id = document.createElement('span');
+  id.className = 'task-node-id';
+  id.textContent = `#${task.id}`;
+  const where = document.createElement('span');
+  where.className = 'task-node-service';
+  where.textContent = `${task.service_name ?? serviceName(task.sid)}[${task.sid}]`;
+  const status = document.createElement('span');
+  status.className = `status ${task.status}`;
+  status.textContent = task.status;
+  head.append(id, where, status);
+  const goal = document.createElement('span');
+  goal.className = 'task-node-goal';
+  goal.textContent = task.goal ?? '';
+  row.append(head, goal);
+  row.addEventListener('click', () => selectTask(task.id));
+  node.append(row);
+
+  for (const child of task.children ?? []) node.append(taskNode(child, depth + 1));
+  return node;
+}
+
+function renderTaskTree() {
+  elements.taskTree.replaceChildren();
+  const task = state.taskTree;
+  if (task === null) return;
+  elements.taskTree.append(taskNode(task, 0));
+}
+
+function renderTaskDetail() {
+  const task = state.taskTree;
+  const has = task !== null;
+  elements.taskHint.hidden = has;
+  elements.taskDetail.hidden = !has;
+  elements.taskTree.hidden = !has;
+  elements.taskParent.hidden = !has || task.parent_task_id === null;
+  elements.taskCancel.disabled = !has || !ACTIVE_STATUSES.includes(task.status);
+  elements.taskDelete.disabled = !has || ACTIVE_STATUSES.includes(task.status);
+  if (!has) {
+    elements.taskTree.replaceChildren();
+    return;
+  }
+
+  elements.detailId.textContent = `#${task.id}`;
+  elements.detailStatus.textContent = task.status;
+  elements.detailStatus.className = `status ${task.status}`;
+  elements.detailGoal.textContent = task.goal ?? '';
+  const meta = [
+    `service ${task.service_name ?? `sid ${task.sid}`}[${task.sid}]`,
+    `父 ${task.parent_task_id === null ? '-' : `#${task.parent_task_id}`}`,
+    `创建 ${stamp(task.created_at)}`,
+    `结束 ${stamp(task.finished_at)}`,
+    `子树 ${subtreeSize(task)} 个 task`,
+  ];
+  elements.detailMeta.textContent = meta.join(' · ');
+  const outcome = resultText(task.error ?? task.result);
+  elements.detailResult.hidden = outcome === '';
+  elements.detailResult.textContent = outcome;
+  elements.detailResult.classList.toggle('error', task.error !== null && task.error !== undefined);
+}
+
+// ── Loading ────────────────────────────────────────────────────────────────
+
+async function loadServices() {
+  const payload = await api('/api/tree');
+  state.services = payload.services;
+  if (state.selectedSid !== null && selectedService() === null) state.selectedSid = null;
+  renderServiceTree();
+  renderSelection();
+}
+
+async function loadTasks() {
+  const params = new URLSearchParams({ limit: String(TASK_LIMIT) });
+  const scope = taskScopeParam();
+  const status = taskStatusParam();
+  if (scope !== null) params.set('roots', scope);
+  if (status !== null) params.set('status', status);
+  const payload = await api(`/api/tasks?${params}`);
+  state.tasks = payload.tasks;
+  renderTaskList();
+}
+
+async function loadTaskTree() {
+  const taskId = state.selectedTaskId;
+  if (taskId === null) return;
+  let payload;
+  try {
+    payload = await api(`/api/tasks/${taskId}/tree`);
+  } catch (err) {
+    // The task was deleted (here or through the CLI): drop the dead selection.
+    if (err.status === 404) {
+      state.selectedTaskId = null;
+      state.taskTree = null;
+      renderTaskDetail();
+      renderTaskList();
+      return;
+    }
+    throw err;
+  }
+  if (state.selectedTaskId !== taskId) return;
+  state.taskTree = payload.task;
+  renderTaskDetail();
+  renderTaskTree();
+}
+
+async function selectTask(taskId) {
+  state.selectedTaskId = taskId;
+  renderTaskList();
+  try {
+    await loadTaskTree();
+  } catch (err) {
+    showMessage(err.message, true);
+  }
+}
+
+async function refresh({ quiet = false } = {}) {
   if (!quiet) elements.refresh.disabled = true;
   try {
-    const payload = await api('/api/tree');
-    state.services = payload.services;
-    if (state.selectedSid !== null && selectedService() === null) state.selectedSid = null;
-    renderTree();
-    renderSelection();
+    await loadServices();
+    if (state.view === 'tasks') await loadTasks();
+    await loadTaskTree();
     connection('online', 'daemon online');
   } catch (err) {
     connection('error', '连接失败');
@@ -143,49 +401,30 @@ async function loadTree({ quiet = false } = {}) {
   }
 }
 
-function showMessage(message, error = false) {
-  elements.formMessage.textContent = message;
-  elements.formMessage.classList.toggle('error', error);
-}
+// ── View switching and actions ─────────────────────────────────────────────
 
-function resultText(task) {
-  const value = task.error ?? task.result;
-  if (value === null || value === undefined || value === '') return '';
-  return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-}
-
-function showTask(task) {
-  state.task = { ...state.task, ...task };
-  elements.taskCard.hidden = false;
-  elements.taskId.textContent = `TASK #${state.task.id}`;
-  elements.taskStatus.textContent = state.task.status;
-  elements.taskStatus.className = `status ${state.task.status}`;
-  elements.taskGoal.textContent = state.task.goal ?? '';
-  const result = resultText(state.task);
-  elements.taskResult.hidden = result === '';
-  elements.taskResult.textContent = result;
-}
-
-function stopTaskPoll() {
-  if (state.taskTimer !== null) window.clearTimeout(state.taskTimer);
-  state.taskTimer = null;
-}
-
-async function pollTask(taskId) {
-  stopTaskPoll();
-  try {
-    const payload = await api(`/api/tasks/${taskId}`);
-    showTask(payload.task);
-    if (!payload.task.finished) {
-      state.taskTimer = window.setTimeout(() => pollTask(taskId), 1000);
-    } else {
-      showMessage(`Task #${taskId} 已结束`);
-      await loadTree({ quiet: true });
-    }
-  } catch (err) {
-    showMessage(`读取 Task #${taskId} 失败：${err.message}`, true);
+function setView(view) {
+  state.view = view;
+  for (const tab of elements.tabs) {
+    const active = tab.dataset.view === view;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', String(active));
+  }
+  elements.servicesView.hidden = view !== 'services';
+  elements.tasksView.hidden = view !== 'tasks';
+  if (view === 'tasks') {
+    loadTasks().catch((err) => showMessage(err.message, true));
   }
 }
+
+for (const tab of elements.tabs) tab.addEventListener('click', () => setView(tab.dataset.view));
+elements.taskScope.addEventListener('change', () => {
+  loadTasks().catch((err) => showMessage(err.message, true));
+});
+elements.taskStatus.addEventListener('change', () => {
+  loadTasks().catch((err) => showMessage(err.message, true));
+});
+elements.refresh.addEventListener('click', () => refresh());
 
 elements.form.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -200,22 +439,74 @@ elements.form.addEventListener('submit', async (event) => {
       method: 'POST',
       body: JSON.stringify({ sid: service.sid, goal }),
     });
-    showTask({ ...payload.task, goal });
     elements.goal.value = '';
     showMessage(`Task #${payload.task.id} 已在后台启动`);
-    await loadTree({ quiet: true });
-    await pollTask(payload.task.id);
+    setView('tasks');
+    state.selectedTaskId = payload.task.id;
+    await loadTasks();
+    await loadTaskTree();
   } catch (err) {
     showMessage(err.message, true);
   } finally {
-    elements.submit.disabled = selectedService()?.status !== 'active';
+    renderSelection();
   }
 });
 
-elements.refresh.addEventListener('click', () => loadTree());
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) loadTree({ quiet: true });
+elements.taskParent.addEventListener('click', () => {
+  const parent = state.taskTree?.parent_task_id;
+  if (parent !== null && parent !== undefined) selectTask(parent);
 });
 
-await loadTree();
-window.setInterval(() => loadTree({ quiet: true }), 2500);
+elements.taskCancel.addEventListener('click', async () => {
+  const task = state.taskTree;
+  if (task === null) return;
+  const size = subtreeSize(task);
+  const extra = size > 1 ? `及其 ${size - 1} 个后代 task ` : '';
+  if (!window.confirm(`取消 task #${task.id} ${extra}？正在运行的 agent 会被中断。`)) return;
+  elements.taskCancel.disabled = true;
+  try {
+    const payload = await api(`/api/tasks/${task.id}/cancel`, { method: 'POST' });
+    state.taskTree = payload.task;
+    renderTaskDetail();
+    renderTaskTree();
+    showMessage(`Task #${task.id} 已取消`);
+    if (state.view === 'tasks') await loadTasks();
+  } catch (err) {
+    showMessage(err.message, true);
+    renderTaskDetail();
+  }
+});
+
+elements.taskDelete.addEventListener('click', async () => {
+  const task = state.taskTree;
+  if (task === null) return;
+  const size = subtreeSize(task);
+  const extra = size > 1 ? `及其 ${size - 1} 个后代 task ` : '';
+  if (!window.confirm(`删除 task #${task.id} ${extra}的记录？历史消息与调用记录会保留。`)) return;
+  elements.taskDelete.disabled = true;
+  try {
+    await api(`/api/tasks/${task.id}/delete`, {
+      method: 'POST',
+      body: JSON.stringify({ recursive: true }),
+    });
+    const parentId = task.parent_task_id;
+    state.selectedTaskId = parentId;
+    state.taskTree = null;
+    renderTaskDetail();
+    renderTaskList();
+    showMessage(`Task #${task.id} 已删除`);
+    if (state.view === 'tasks') await loadTasks();
+    if (parentId !== null) await loadTaskTree();
+  } catch (err) {
+    showMessage(err.message, true);
+    renderTaskDetail();
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) refresh({ quiet: true });
+});
+
+setView(state.view);
+await refresh();
+window.setInterval(() => refresh({ quiet: true }), 2500);

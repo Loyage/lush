@@ -4,66 +4,116 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
-  <title>Lush · Service Tree</title>
+  <title>Lush · Service &amp; Task Tree</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <header class="topbar">
     <div>
       <p class="eyebrow">LUSH / WEB UI</p>
-      <h1>Service Tree</h1>
+      <h1>服务与任务</h1>
     </div>
-    <div id="connection" class="connection" role="status">
-      <span class="dot"></span>
-      <span>正在连接</span>
+    <div class="topbar-actions">
+      <div id="connection" class="connection" role="status">
+        <span class="dot"></span>
+        <span>正在连接</span>
+      </div>
+      <button id="refresh" class="icon-button" type="button" aria-label="刷新" title="刷新">↻</button>
     </div>
   </header>
 
   <main class="layout">
-    <section class="panel tree-panel" aria-labelledby="tree-title">
-      <div class="panel-heading">
-        <div>
-          <p class="eyebrow">SERVICES</p>
-          <h2 id="tree-title">服务树</h2>
-        </div>
-        <button id="refresh" class="icon-button" type="button" aria-label="刷新服务树" title="刷新">↻</button>
-      </div>
-      <p id="tree-empty" class="empty" hidden>暂无 Service。</p>
-      <div id="tree" class="tree" role="tree" aria-label="Service tree"></div>
-    </section>
-
-    <section class="panel task-panel" aria-labelledby="task-title">
-      <div class="panel-heading">
-        <div>
-          <p class="eyebrow">NEW TASK</p>
-          <h2 id="task-title">创建 Task</h2>
-        </div>
+    <aside class="panel sidebar">
+      <div class="tabs" role="tablist" aria-label="侧边栏视图">
+        <button id="tab-services" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="services-view" data-view="services">服务</button>
+        <button id="tab-tasks" class="tab" type="button" role="tab" aria-selected="false" aria-controls="tasks-view" data-view="tasks">任务</button>
       </div>
 
-      <div id="selection" class="selection empty-selection">
-        <span class="selection-label">目标 Service</span>
-        <strong id="selection-name">请从左侧选择</strong>
-        <span id="selection-meta" class="selection-meta"></span>
-      </div>
+      <section id="services-view" class="view" role="tabpanel" aria-labelledby="tab-services">
+        <p id="tree-empty" class="empty" hidden>暂无 Service。</p>
+        <div id="tree" class="tree" role="tree" aria-label="Service tree"></div>
+      </section>
 
-      <form id="task-form">
-        <label for="goal">目标</label>
-        <textarea id="goal" name="goal" rows="7" maxlength="100000" placeholder="描述希望这个 Service 完成的工作…" required disabled></textarea>
-        <div class="form-footer">
-          <p id="form-message" class="message" role="status"></p>
-          <button id="submit" class="primary" type="submit" disabled>后台启动</button>
+      <section id="tasks-view" class="view" role="tabpanel" aria-labelledby="tab-tasks" hidden>
+        <div class="filters">
+          <label class="filter">
+            <span>范围</span>
+            <select id="task-scope">
+              <option value="all">全部</option>
+              <option value="roots">根 Task</option>
+              <option value="children">子 Task</option>
+            </select>
+          </label>
+          <label class="filter">
+            <span>状态</span>
+            <select id="task-status">
+              <option value="">全部</option>
+              <option value="created">created</option>
+              <option value="running">running</option>
+              <option value="waiting">waiting</option>
+              <option value="completed">completed</option>
+              <option value="failed">failed</option>
+              <option value="cancelled">cancelled</option>
+            </select>
+          </label>
         </div>
-      </form>
+        <p id="tasks-empty" class="empty" hidden>暂无 Task。</p>
+        <p id="tasks-note" class="note" hidden></p>
+        <div id="task-list" class="tree" role="tree" aria-label="Task tree"></div>
+      </section>
+    </aside>
 
-      <article id="task-card" class="task-card" hidden aria-live="polite">
-        <div class="task-card-heading">
-          <span id="task-id" class="task-id"></span>
-          <span id="task-status" class="status"></span>
+    <div class="main-column">
+      <section class="panel create-panel" aria-labelledby="create-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">NEW TASK</p>
+            <h2 id="create-title">创建 Task</h2>
+          </div>
         </div>
-        <p id="task-goal" class="task-goal"></p>
-        <pre id="task-result" class="task-result" hidden></pre>
-      </article>
-    </section>
+
+        <div id="selection" class="selection empty-selection">
+          <span class="selection-label">目标 Service</span>
+          <strong id="selection-name">请从左侧选择</strong>
+          <span id="selection-meta" class="selection-meta"></span>
+        </div>
+
+        <form id="task-form">
+          <label for="goal">目标</label>
+          <textarea id="goal" name="goal" rows="4" maxlength="100000" placeholder="描述希望这个 Service 完成的工作…" required disabled></textarea>
+          <div class="form-footer">
+            <p id="form-message" class="message" role="status"></p>
+            <button id="submit" class="primary" type="submit" disabled>后台启动</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel tree-panel" aria-labelledby="task-detail-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">TASK TREE</p>
+            <h2 id="task-detail-title">Task 树</h2>
+          </div>
+          <div class="actions">
+            <button id="task-parent" class="icon-button" type="button" title="返回上级 Task" aria-label="返回上级 Task" hidden>↑</button>
+            <button id="task-cancel" class="ghost danger" type="button" disabled>取消</button>
+            <button id="task-delete" class="ghost danger" type="button" disabled>删除</button>
+          </div>
+        </div>
+
+        <p id="task-hint" class="empty">从左侧「任务」列表选择一个 Task，查看它派出去的全部子 Task。</p>
+        <div id="task-detail" class="task-detail" hidden>
+          <div class="task-detail-head">
+            <span id="detail-id" class="task-id"></span>
+            <span id="detail-status" class="status"></span>
+          </div>
+          <p id="detail-goal" class="task-goal"></p>
+          <p id="detail-meta" class="task-meta"></p>
+          <pre id="detail-result" class="task-result" hidden></pre>
+        </div>
+        <div id="task-tree" class="task-tree" role="tree" aria-label="Task tree" hidden></div>
+      </section>
+    </div>
   </main>
 
   <script type="module" src="/app.js"></script>

@@ -6,7 +6,7 @@ import { RPCClient } from '../src/rpc/client.js';
 import { Dispatcher } from '../src/rpc/protocol.js';
 import { RPCServer } from '../src/rpc/server.js';
 import { createSignal } from '../src/signal.js';
-import { UIClient, taskRequest } from '../src/ui/client.js';
+import { UIClient, taskDeleteRequest, taskListQuery, taskRequest } from '../src/ui/client.js';
 import { WebUIServer } from '../src/ui/web.js';
 import { cleanup, deferred, system, tmpdir } from './helpers.js';
 
@@ -53,6 +53,10 @@ describe('shared UI application client', () => {
     await ui.createTask(7, 'work');
     await ui.taskResult(3);
     await ui.taskSession(3);
+    await ui.taskList({ sid: 1, status: 'running', roots: 'roots', limit: 5 });
+    await ui.taskTree(3);
+    await ui.cancelTask(3);
+    await ui.deleteTask(3, true);
     await ui.openInteractiveTask(7, 'pair');
     await ui.recordInteractivePid(3, 4, 99);
     await ui.settleInteractiveTask(3, 4, 'failed', { error: 'stopped' });
@@ -65,6 +69,10 @@ describe('shared UI application client', () => {
       ['call', { sid: 7, goal: 'work', detach: true }],
       ['task.result', { task_id: 3 }],
       ['task.session', { task_id: 3 }],
+      ['task.list', { sid: 1, status: 'running', roots: 'roots', limit: 5 }],
+      ['task.tree', { task_id: 3 }],
+      ['task.cancel', { task_id: 3 }],
+      ['task.delete', { task_id: 3, recursive: true }],
       ['call', { sid: 7, goal: 'pair', interactive: true }],
       ['call.os_pid', { task_id: 3, call_id: 4, os_pid: 99 }],
       ['call.end', { task_id: 3, call_id: 4, status: 'failed', error: 'stopped' }],
@@ -123,7 +131,7 @@ describe('web ui', () => {
     const page = await request('/');
     expect(page.status).toBe(200);
     expect(page.headers.get('content-security-policy')).toContain("default-src 'self'");
-    expect(await page.text()).toContain('Service Tree');
+    expect(await page.text()).toContain('服务与任务');
 
     const tree = await request('/api/tree');
     expect(tree.status).toBe(200);
@@ -179,6 +187,14 @@ describe('web ui', () => {
 
   test('validates writes and blocks cross-origin API requests', async () => {
     expect(() => taskRequest({ sid: 0, goal: 'x', extra: true })).toThrow(/unexpected field/);
+    expect(() => taskListQuery(new URLSearchParams('roots=sideways'))).toThrow(/roots/);
+    expect(() => taskListQuery(new URLSearchParams('limit=1&limit=2'))).toThrow(/duplicate/);
+    expect(() => taskListQuery(new URLSearchParams('nope=1'))).toThrow(/unknown query parameter/);
+    expect(() => taskDeleteRequest({ recursive: 'yes' })).toThrow(/boolean/);
+    expect(taskListQuery(new URLSearchParams('sid=2&status=running&limit=9')))
+      .toEqual({ sid: 2, status: 'running', roots: null, limit: 9 });
+    expect(taskListQuery(new URLSearchParams(''))).toEqual({ sid: null, status: null, roots: null, limit: 200 });
+    expect(taskDeleteRequest({})).toEqual({ recursive: false });
 
     const wrongType = await request('/api/tasks', { method: 'POST', body: '{}' });
     expect(wrongType.status).toBe(400);
@@ -187,6 +203,70 @@ describe('web ui', () => {
     const crossOrigin = await request('/api/tree', { headers: { Origin: 'https://example.com' } });
     expect(crossOrigin.status).toBe(403);
     expect((await crossOrigin.json()).error.message).toContain('cross-origin');
+  });
+
+  test('lists tasks, exposes one task tree and applies filters', async () => {
+    const worker = manager.spawn(0, 'generic-task', 'worker');
+    const root = manager.spawnTask(null, 0, 'root goal');
+    const child = manager.spawnTask(root.id, worker.sid, 'child goal');
+
+    const list = await request('/api/tasks');
+    expect(list.status).toBe(200);
+    expect((await list.json()).tasks.map((task) => task.id)).toEqual([child.id, root.id]);
+
+    const filtered = await request(`/api/tasks?sid=${worker.sid}&status=running`);
+    expect((await filtered.json()).tasks.map((task) => task.id)).toEqual([child.id]);
+
+    const roots = await request('/api/tasks?roots=roots');
+    expect((await roots.json()).tasks.map((task) => task.id)).toEqual([root.id]);
+
+    const tree = await request(`/api/tasks/${root.id}/tree`);
+    expect(tree.status).toBe(200);
+    expect(await tree.json()).toEqual({
+      task: expect.objectContaining({
+        id: root.id,
+        sid: 0,
+        service_name: 'lush',
+        status: 'running',
+        children: [expect.objectContaining({
+          id: child.id,
+          sid: worker.sid,
+          service_name: 'worker',
+          goal: 'child goal',
+          children: [],
+        })],
+      }),
+    });
+
+    gate.resolve();
+  });
+
+  test('cancels and deletes a task subtree through the API', async () => {
+    const worker = manager.spawn(0, 'generic-task', 'worker');
+    const root = manager.spawnTask(null, 0, 'root goal');
+    const child = manager.spawnTask(root.id, worker.sid, 'child goal');
+
+    const cancelled = await request(`/api/tasks/${root.id}/cancel`, { method: 'POST' });
+    expect(cancelled.status).toBe(200);
+    expect(await cancelled.json()).toEqual({
+      task: expect.objectContaining({
+        id: root.id,
+        status: 'cancelled',
+        children: [expect.objectContaining({ id: child.id, status: 'cancelled' })],
+      }),
+    });
+
+    const remove = (body) => request(`/api/tasks/${root.id}/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect((await remove({ nope: true })).status).toBe(400);
+
+    const deleted = await remove({ recursive: true });
+    expect(deleted.status).toBe(200);
+    expect((await deleted.json()).deleted).toEqual([root.id, child.id]);
+    expect((await request(`/api/tasks/${root.id}/tree`)).status).toBe(404);
   });
 
   test('only binds loopback addresses', () => {

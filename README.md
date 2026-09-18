@@ -74,7 +74,7 @@ just clean           # 停 daemon 并删掉本仓库的 .lush（连历史一起�
 just reset yes       # 只清服务树（daemon、日志、session 都保留），不可逆
 ```
 
-Web UI 在树中选择 active Service，填写 goal 后会立即在后台启动一个根 Task，并轮询显示状态与结果。`just web` 不会启动、停止或重启 daemon：daemon 离线时页面保持运行，后续 daemon 启动或重启后自动恢复。它只监听本机回环地址，不应通过反向代理暴露给不可信用户。CLI、Web UI 以及未来 TUI 的 adapter 统一放在 `src/ui/`，并共享同一个 `UIClient` 应用客户端；细节见 [用户界面](docs/reference/ui.md)。
+Web UI 的侧边栏可在「服务」与「任务」两个视图之间切换：服务视图里选中 active Service 并填写 goal，会立即在后台启动一个根 Task；任务视图列出全部 Task（可按根/子与状态筛选），选中后右侧用 `task.tree` 展开它派出去的全部子 Task，并可取消或删除。`just web` 不会启动、停止或重启 daemon：daemon 离线时页面保持运行，后续 daemon 启动或重启后自动恢复。它只监听本机回环地址，不应通过反向代理暴露给不可信用户。CLI、Web UI 以及未来 TUI 的 adapter 统一放在 `src/ui/`，并共享同一个 `UIClient` 应用客户端；细节见 [用户界面](docs/reference/ui.md)。
 
 完整清单、`just clean` 与 `just reset` 的区别、以及每个命令的参数，见 [docs/reference/cli.md](docs/reference/cli.md)。
 

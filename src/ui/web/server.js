@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LushError } from '../../core/types.js';
-import { taskRequest } from '../client.js';
+import { taskDeleteRequest, taskListQuery, taskRequest } from '../client.js';
 
 const ASSET_DIR = fileURLToPath(new URL('./assets/', import.meta.url));
 const MAX_BODY_BYTES = 128 * 1024;
@@ -123,6 +123,10 @@ export class WebUIServer {
         return json({ services: await this.ui.serviceTree() });
       }
 
+      if (request.method === 'GET' && url.pathname === '/api/tasks') {
+        return json({ tasks: await this.ui.taskList(taskListQuery(url.searchParams)) });
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/tasks') {
         const input = taskRequest(await requestJson(request));
         const task = await this.ui.createTask(input.sid, input.goal);
@@ -133,6 +137,27 @@ export class WebUIServer {
       if (request.method === 'GET' && resultMatch !== null) {
         const taskId = Number(resultMatch[1]);
         return json({ task: await this.ui.taskResult(taskId) });
+      }
+
+      const treeMatch = /^\/api\/tasks\/(\d+)\/tree$/.exec(url.pathname);
+      if (request.method === 'GET' && treeMatch !== null) {
+        return json({ task: await this.ui.taskTree(Number(treeMatch[1])) });
+      }
+
+      const cancelMatch = /^\/api\/tasks\/(\d+)\/cancel$/.exec(url.pathname);
+      if (request.method === 'POST' && cancelMatch !== null) {
+        const taskId = Number(cancelMatch[1]);
+        await this.ui.cancelTask(taskId);
+        // The subtree changed with it (cancellation cascades), so answer with
+        // the refreshed tree instead of the single row the RPC returns.
+        return json({ task: await this.ui.taskTree(taskId) });
+      }
+
+      const deleteMatch = /^\/api\/tasks\/(\d+)\/delete$/.exec(url.pathname);
+      if (request.method === 'POST' && deleteMatch !== null) {
+        const { recursive } = taskDeleteRequest(await requestJson(request));
+        const removed = await this.ui.deleteTask(Number(deleteMatch[1]), recursive);
+        return json({ deleted: removed.deleted });
       }
 
       if (request.method === 'GET' || request.method === 'HEAD') {

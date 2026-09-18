@@ -51,6 +51,30 @@ export class UIClient {
     return this.execute('task.result', { task_id: taskId });
   }
 
+  /** Rows (newest first) for the task browser; `roots` picks root or child tasks. */
+  taskList({ sid = null, status = null, roots = null, limit = 200 } = {}) {
+    return this.execute('task.list', { sid, status, roots, limit });
+  }
+
+  /** The task plus its whole subtree of delegated work (`lush task tree`). */
+  taskTree(taskId) {
+    validSid(taskId);
+    return this.execute('task.tree', { task_id: taskId });
+  }
+
+  /** Cancel a task and its subtree; idempotent for an already-settled task. */
+  cancelTask(taskId) {
+    validSid(taskId);
+    return this.execute('task.cancel', { task_id: taskId });
+  }
+
+  /** Remove a finished task's rows; `recursive` also removes its finished subtree. */
+  deleteTask(taskId, recursive = false) {
+    validSid(taskId);
+    if (typeof recursive !== 'boolean') throw new TypeError('recursive must be a boolean');
+    return this.execute('task.delete', { task_id: taskId, recursive });
+  }
+
   taskSession(taskId) {
     validSid(taskId);
     return this.execute('task.session', { task_id: taskId });
@@ -96,4 +120,51 @@ export function taskRequest(value) {
   validSid(value.sid);
   text(value.goal, 'goal');
   return { sid: value.sid, goal: value.goal };
+}
+
+const TASK_LIST_PARAMS = ['sid', 'status', 'roots', 'limit'];
+const TASK_ROOTS = ['roots', 'children'];
+
+function nonNegativeInt(value, field) {
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+    throw new LushError(`${field} must be a non-negative integer`, -32602);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new LushError(`${field} must be a non-negative integer`, -32602);
+  return parsed;
+}
+
+/**
+ * Strictly decode the Web UI task-list query (`?sid=&status=&roots=&limit=`).
+ * Range and enum checks stay in Core so the error text lives in one place; here
+ * only the wire shape (known, single, well-formed keys) is enforced.
+ */
+export function taskListQuery(search) {
+  const raw = new Map();
+  for (const [key, value] of search) {
+    if (!TASK_LIST_PARAMS.includes(key)) throw new LushError(`unknown query parameter '${key}'`, -32602);
+    if (raw.has(key)) throw new LushError(`duplicate query parameter '${key}'`, -32602);
+    raw.set(key, value);
+  }
+  const query = { sid: null, status: null, roots: null, limit: 200 };
+  if (raw.has('sid')) query.sid = validSid(nonNegativeInt(raw.get('sid'), 'sid'));
+  if ((raw.get('status') ?? '') !== '') query.status = raw.get('status');
+  const roots = raw.get('roots');
+  if (roots !== undefined && roots !== '') {
+    if (!TASK_ROOTS.includes(roots)) throw new LushError("roots must be 'roots' or 'children'", -32602);
+    query.roots = roots;
+  }
+  if ((raw.get('limit') ?? '') !== '') query.limit = nonNegativeInt(raw.get('limit'), 'limit');
+  return query;
+}
+
+/** Strictly decode the Web UI delete-task payload (`{ recursive?: boolean }`). */
+export function taskDeleteRequest(value) {
+  if (!isPlainObject(value)) throw new LushError('request body must be a JSON object', -32602);
+  for (const key of Object.keys(value)) {
+    if (key !== 'recursive') throw new LushError(`request body has unexpected field '${key}'`, -32602);
+  }
+  const recursive = value.recursive ?? false;
+  if (typeof recursive !== 'boolean') throw new LushError('recursive must be a boolean', -32602);
+  return { recursive };
 }
