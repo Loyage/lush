@@ -102,7 +102,7 @@ lush process spawn 1 project x --vars '{"path":"/abs/repo"}'   # 进程也可以
 ## 验证
 
 ```bash
-just verify   # = bun test（146 项）+ bun run demo
+just verify   # = bun test（139 项）+ bun run demo
 bun test      # 只跑测试
 bun run demo  # 只跑演示（mock provider）
 ```
