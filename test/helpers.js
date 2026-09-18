@@ -43,7 +43,7 @@ function registerTestTemplates(loader) {
   const base = {
     singleton: false,
     description: 'test-only generic service fixture',
-    spawn_prompt: 'test fixture service_spawn',
+    construct_prompt: 'test fixture service_construct',
     system_prompt: 'test fixture',
     child_templates: ['*'],
     variables: {},
@@ -84,7 +84,7 @@ export function system(directory, provider = null, runtimeOptions = {}, orphanPo
 
 /**
  * SID 0's production template only allows project-manager. Most tests need a
- * parent that may spawn any template, so they widen the *test* root explicitly;
+ * parent that may construct any template, so they widen the *test* root explicitly;
  * the real whitelist is covered by dedicated tests in core.test.js.
  */
 export function permissiveRoot(manager) {

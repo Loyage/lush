@@ -9,7 +9,7 @@
 - **CLI 是纯客户端**：通过 Unix socket 上的 JSON-RPC 操作 daemon，自身不持有状态。谁应答你，由 **`LUSH_HOME` 指向的 socket** 决定，与 worktree 无关。
 - **你敲的命令用哪份 CLI 代码** = 你所在的 worktree（`./bin/lush` 是相对路径；`bun run lush` 由 bun 从 cwd 向上找最近的 `package.json`）。
 - **一个 home 只能有一个 daemon**（`daemon.lock` 单实例锁）。`daemon start` 发现已有 daemon 时直接返回 `already_running`，**不会替换版本**：先启动的那份代码会一直应答，换版本只能用 `daemon restart`（先 stop 等锁释放，再 start）。
-- **daemon 是长驻服务，版本在启动瞬间冻结**：`src/agent/guide.js`（喂给 agent 的提示词）、`src/cli/tree/`（CLI 声明树）、`templates/**/*.json` 与它们 `@` 引用的 `templates/**/*.md`（`spawn_prompt` / `system_prompt` 的正文）都在启动时读入内存。改了这些，不 restart 不生效；改运行期代码（`src/core/`、`src/daemon/`、`src/persistence/`）同理。
+- **daemon 是长驻服务，版本在启动瞬间冻结**：`src/agent/guide.js`（喂给 agent 的提示词）、`src/cli/tree/`（CLI 声明树）、`templates/**/*.json` 与它们 `@` 引用的 `templates/**/*.md`（`construct_prompt` / `system_prompt` 的正文）都在启动时读入内存。改了这些，不 restart 不生效；改运行期代码（`src/core/`、`src/daemon/`、`src/persistence/`）同理。
 - **agent 子服务里的 `lush` 也被钉死在 daemon 那份代码上**：`src/agent/pi.js` 把 daemon 自己 checkout 的 `bin/` 前置进 PATH（`LUSH_BIN_DIR`）。所以 agent 调 `lush` 用的是 daemon 的版本，不是你敲命令的版本。
 
 ## 判断是否错位

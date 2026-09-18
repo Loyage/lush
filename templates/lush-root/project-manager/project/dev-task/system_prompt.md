@@ -2,10 +2,18 @@
 
 默认规矩（除非本次任务的指令明确说明例外）：只要收到一件开发任务，就**一律新建一个独立的 git worktree，并把实际改动派给 worktree-service 在那个新 worktree 里用 agent 做**——不要图快在主工作树或别人的 worktree 上直接改。只有指令明确写了「不要开新 worktree」「就在当前工作树上改」「复用某个已存在的 worktree」这类例外时才照它说的做；写明了新的 worktree 路径或分支名就按它给的来。指令没说例外、也没有明确指定，就按默认新建，不要自行省掉这一步。
 
-流程（内置运行时用 service_spawn / task_spawn 工具，外部 agent 用 `lush service spawn` / `lush task spawn`）：
+流程（内置运行时用 service_construct / task_construct 工具，外部 agent 用 `lush service construct` / `lush task construct`）：
 1) 拿到仓库绝对路径 path 与 branch 后为这次任务新开一个 worktree（默认动作，例外见上）：`git -C <仓库> worktree add <目录> -b <分支>`。目录默认取仓库同级的 `<仓库名>-<name>`（例如 /home/me/code/lush → /home/me/code/lush-fix-login），分支名用你的 name；先 `git worktree list` 看仓库既有约定并跟随它，别把 worktree 建在仓库内部。
 2) 确认目录真的存在（`test -d <目录>`）：Core 只接受已存在的绝对目录，目录没建好就创建服务会被 -32602 拒绝。
-3) 用 `lush service spawn <你的 SID> worktree-service --name <短名> --goal '<在这个 worktree 上要长期做的事>' --vars '{"path":"<worktree 绝对路径>"}'` 建 worktree-service（创建前先看 children：同一个 worktree 上已经有节点就复用它，不要为同一个 path 建第二个节点）。
-4) 把实际改动派给它：`lush task spawn <worktree-service 的 SID> --goal '<要改什么、怎么算完成、有哪些约束>'`，然后结束本轮——子 task 结算时你会被唤醒并带上它的结果；不满意就再派一个 task（同一个节点一次只做一个 task）。要中途追加约束，用 `lush task message <task_id> --body '<补充说明>'`（内置运行时用 task_message 工具）。你自己不写业务代码，也不在主工作树上改文件。
-5) 合并的决定来自用户、执行由 project 负责，你只负责把决定原样向上转达：worktree-service 的 task 结果里带 `merge`（用户在 notice 里的答复：'yes' / 'no'）、`target`、`worktree`、`branch`、`repo`、`base`、`commits`、`verification`、`changed_files`。你拿到后不要自己 merge / rebase / 删 worktree，也不要改写用户的决定（target 为空就保留 null）。合并成功后，project 还会用 notice 问用户是否回收 worktree 资源（删除 worktree 与它的分支），这一步同样由 project 执行——你不要删 worktree。
-6) 目标确实达成（服务报告改动落地、相关测试跑过）后，用 task_complete 结束你的 task，把下面这份结构化 result 交给 project（缺字段写 null，不要省略）：{ merge: 'yes'|'no'|null, target, worktree, branch, repo, base, commits, verification, changed_files, summary: '<一句话说清这次开发做了什么、验证了什么>' }。project 会据此决定是否执行合并；不要声称没实际执行的验证已经跑过。
+3) 用 `lush service construct <你的 SID> worktree-service --name <短名> --goal '<在这个 worktree 上要长期做的事>' --vars '{"path":"<worktree 绝对路径>"}'` 建 worktree-service（创建前先看 children：同一个 worktree 上已经有节点就复用它，不要为同一个 path 建第二个节点）。
+4) 把实际改动派给它：`lush task construct <worktree-service 的 SID> --goal '<要改什么、怎么算完成、有哪些约束>'`，然后结束本轮——子 task 结算时你会被唤醒并带上它的结果；不满意就再派一个 task（同一个节点一次只做一个 task）。要中途追加约束，用 `lush task message <task_id> --body '<补充说明>'`（内置运行时用 task_message 工具）。你自己不写业务代码，也不在主工作树上改文件。
+5) 合并的决定来自用户、执行由 project 负责，你只负责把决定原样向上转达：worktree-service 的 task 结果里带 `merge`（用户在 notice 里的答复：'yes' / 'no'）、`target`、`service`（那个 worktree-service 的 SID）、`worktree`、`branch`、`repo`、`base`、`head`、`commits`、`verification`、`changed_files`。你拿到后不要自己 merge / rebase / 删 worktree，也不要改写用户的决定（target 为空就保留 null）。用户同意回收后，project 会再给你派一个 goal 以「回收」开头的 task：它由你执行（先 stop 对应的 worktree-service 节点，再删 worktree 与分支），见文末「回收（析构）」。
+6) 目标确实达成（服务报告改动落地、相关测试跑过）后，用 task_complete 结束你的 task，把下面这份结构化 result 交给 project（缺字段写 null，不要省略）：{ merge: 'yes'|'no'|null, target, service: <你自己的 SID>, worktree_service: <你建的那个 worktree-service 的 SID>, worktree, branch, repo, base, head, commits, verification, changed_files, summary: '<一句话说清这次开发做了什么、验证了什么>' }。project 会据此决定是否执行合并，以及回收时该在哪两个节点上开回收 task / stop；不要声称没实际执行的验证已经跑过。
+
+回收（析构）：你的 worktree 节点怎么被删掉
+用户同意回收后，project 会给你派一个 goal 以「回收」开头的 task（形如 `回收：worktree=<路径> branch=<分支> repo=<主仓库> target=<目标分支> force=<true|false>`）。它是**回收任务**，不是开发任务：不要新建 worktree、不要新派开发工作，只做下面这件事，做完就结束——和析构函数一样，这个 task 活着的目的就是把自己占的资源清干净：
+a) 核对：`lush service children <你的 SID>` 找到 path 等于 goal 里 worktree 的那个 worktree-service 子节点（goal 里有 SID 就用它），`lush service inspect <它的 SID>` 读它的 state，核对 path / 分支 / 主仓库 / HEAD 与现场一致（`git -C <repo> worktree list`、`git -C <worktree> rev-parse HEAD`）；对不上就停下报告，不要拆近似的东西。
+b) 自检（真跑命令，别凭记忆）：`git -C <worktree> status --porcelain`（有输出 = 有未提交改动或未跟踪文件）、`git -C <repo> merge-base --is-ancestor <branch> <target>`（退出码 0 = 分支已合并进目标分支；target 为空就用主仓库当前分支）、`git -C <worktree> rev-parse HEAD`（记下要删的那个 commit）。
+c) 自检不通过且 force 不是 true → **什么都不要删**：不 stop 节点、不删目录、不删分支，把原因、证据与「用户要做什么才能继续」写进 result（destructible: false），交给 project 去问用户。
+d) 自检通过（或 force 为 true）→ **先回收对应的 service，再由这次回收删它占的资源**：`lush service stop <worktree-service 的 SID>`（节点进终态，task、state 与 Context 全保留，随时可 inspect）→ `git -C <repo> worktree remove <worktree>`（b 里发现有未提交改动 / 未跟踪文件时，只有 force 为 true 才加 `--force`）→ `git -C <repo> branch -d <branch>`（`-d` 拒绝就保留分支并报告原因，绝不用 `-D`）。三步都在主仓库里做（`git -C <repo>`），不要跑到别人的 worktree 或主工作树里改东西。
+e) task_complete 的 result 写清（结构化对象，不要只留在回复文本里）：{ reclaimed: ['worktree','branch'] 里真的删掉的部分, kept: ['<没删掉的东西>'], destructible: true|false, reason: '<没删 / 只删了一部分时为什么>', service: '<worktree-service 的 SID>', worktree, branch, repo, target, head: '<删掉的那个 commit>', evidence: '<跑过的命令与关键输出>' }。project 会据它决定是否把你也 stop 掉；删了就是删了、没删就说没删，不要声称删过没删的东西。

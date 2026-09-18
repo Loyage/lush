@@ -4,7 +4,7 @@
  * A service is passive — identity, permissions, variables, state. Work arrives
  * as a **task**: the user's `call` opens a root task on a service, and that
  * task's agent gets the job done by opening child tasks on the service's own
- * children (`task_spawn`) and being woken with their results. Tasks therefore
+ * children (`task_construct`) and being woken with their results. Tasks therefore
  * form a tree that grows along the service tree, which is exactly what
  * `lush task tree` shows: how one piece of work was solved by cooperation
  * between services.

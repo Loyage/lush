@@ -39,12 +39,12 @@ describe('runtime', () => {
 
   /** A service whose task we are about to run. */
   function worker(template = 'generic-task', name = 'worker') {
-    return manager.load(manager.spawn(0, template, name).sid);
+    return manager.load(manager.construct(0, template, name).sid);
   }
 
   test('a task carries its own identity, conversation and result', async () => {
-    const parent = manager.load(manager.spawn(0, 'generic-service', 'project-manager').sid);
-    const child = manager.load(manager.spawn(parent.sid, 'generic-task', 'implement-login', '实现登录').sid);
+    const parent = manager.load(manager.construct(0, 'generic-service', 'project-manager').sid);
+    const child = manager.load(manager.construct(parent.sid, 'generic-task', 'implement-login', '实现登录').sid);
     const first = await manager.call(child.sid, '请介绍一下你当前的身份和任务');
     for (const expected of ['SID = 2', 'task = #1', 'project-manager[1]', 'children：无']) {
       expect(first.result).toContain(expected);
@@ -69,8 +69,8 @@ describe('runtime', () => {
     expect((await tools.execute('service_self', '{}')).result.sid).toBe(task.sid);
     expect((await tools.execute('task_children', '{}')).result).toEqual([]);
     for (const [name, args] of [
-      ['task_spawn', '{"sid":0,"goal":"x"}'],
-      ['service_spawn', '{"template":"no-such-template"}'],
+      ['task_construct', '{"sid":0,"goal":"x"}'],
+      ['service_construct', '{"template":"no-such-template"}'],
       ['service_update_state', '{}'],
       ['service_update_vars', '{}'],
       ['task_self', '[]'],
@@ -82,7 +82,7 @@ describe('runtime', () => {
     }
     // The declaration is the full tool surface.
     const names = TOOL_DEFINITIONS.map((tool) => tool.function.name);
-    for (const expected of ['task_self', 'task_spawn', 'task_message', 'task_complete', 'service_spawn']) {
+    for (const expected of ['task_self', 'task_construct', 'task_message', 'task_complete', 'service_construct']) {
       expect(names).toContain(expected);
     }
     expect(names).not.toContain('service_delete');
@@ -92,7 +92,7 @@ describe('runtime', () => {
   });
 
   test('task state is scratch, service state is long-lived, variables stay declarable', async () => {
-    const project = manager.load(manager.spawn(0, 'project', 'demo', undefined, { path: dir }).sid);
+    const project = manager.load(manager.construct(0, 'project', 'demo', undefined, { path: dir }).sid);
     const task = manager.repository.createTask(project.sid, null, 'work');
     const tools = new AgentTools(manager, task.id, project.sid);
     expect((await tools.execute('task_update_state', '{"patch":{"progress":"half"}}')).result).toEqual({ progress: 'half' });
@@ -180,8 +180,8 @@ describe('runtime', () => {
     const unrelated = manager.repository.createTask(other.sid, null, 'unrelated');
 
     // A task may not delegate to a non-child service, nor to its own service.
-    expect(() => manager.spawnTask(task.id, other.sid, 'off tree')).toThrow(/only delegate downstream/);
-    expect(() => manager.spawnTask(task.id, parent.sid, 'itself')).toThrow(/cannot delegate to its own service/);
+    expect(() => manager.constructTask(task.id, other.sid, 'off tree')).toThrow(/only delegate downstream/);
+    expect(() => manager.constructTask(task.id, parent.sid, 'itself')).toThrow(/cannot delegate to its own service/);
     // Waiting is symmetric: only the waiter's subtree, never itself.
     expect(() => manager.waitForTask(unrelated.id, task.id)).toThrow(/not part of task/);
     expect(() => manager.waitForTask(task.id, task.id)).toThrow(/cannot wait on itself/);

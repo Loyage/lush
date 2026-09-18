@@ -15,20 +15,20 @@ export const BUILTIN_DIR = path.join(HERE, '..', 'templates');
  * passive node: identity, permissions, variables); `singleton` limits creation to
  * one active instance per parent SID, `description` is the node's
  * capability-boundary statement (one declarative sentence an upstream node reads
- * to decide whether the work belongs here), `spawn_prompt` tells a creating
- * agent how to spawn this template and which variables it needs, `system_prompt`
+ * to decide whether the work belongs here), `construct_prompt` tells the agent
+ * that constructs this node how to build one and which variables it needs, `system_prompt`
  * becomes the instance Call prompt (the prompt its tasks run with),
- * `child_templates` is the creation-time whitelist of spawnable templates (each
+ * `child_templates` is the creation-time whitelist of templates it may construct (each
  * entry is a file path relative to the declaring template's own file — the
- * directory layout mirrors the spawn tree — or, for programmatic `register`
+ * directory layout mirrors the construct tree — or, for programmatic `register`
  * calls and older user templates, a bare template name), and `variables`
  * declares the instance's variables (see `checkVariables`).
  */
-export const REQUIRED_FIELDS = ['name', 'singleton', 'description', 'spawn_prompt', 'system_prompt', 'child_templates', 'variables'];
+export const REQUIRED_FIELDS = ['name', 'singleton', 'description', 'construct_prompt', 'system_prompt', 'child_templates', 'variables'];
 
 /**
- * Optional template fields. `agent` names the agent profile a spawned instance
- * uses; `lush service spawn --agent <name>` overrides it. Every other extra key
+ * Optional template fields. `agent` names the agent profile a constructed instance
+ * uses; `lush service construct --agent <name>` overrides it. Every other extra key
  * stays an error, so a typo in a template still fails loudly.
  */
 export const OPTIONAL_FIELDS = ['agent'];
@@ -42,7 +42,7 @@ export const OPTIONAL_FIELDS = ['agent'];
  * unreadable in an editor and invisible in `git diff`. A reference is never
  * treated as a literal: `@` with no readable file behind it is an error.
  */
-export const PROSE_FIELDS = ['description', 'spawn_prompt', 'system_prompt'];
+export const PROSE_FIELDS = ['description', 'construct_prompt', 'system_prompt'];
 
 const VARIABLE_FIELDS = ['required', 'default', 'description', ...VARIABLE_CONSTRAINT_FIELDS];
 
@@ -106,7 +106,7 @@ function checkVariables(value, templateName) {
  * that order), and it should read root-first — lush-root → project-manager →
  * project → the tasks a project creates, not alphabetically.
  *
- * A template's level is the longest path from a template no one else spawns, so
+ * A template's level is the longest path from a template no one else constructs, so
  * one reachable at several depths lands below the deepest. Two `child_templates`
  * entries are not edges: `*` (every template would become a parent of every
  * other one) and a self-reference (several templates list themselves). A cycle
@@ -267,7 +267,7 @@ export class TemplateLoader {
         template[field] = inlineProse(template[field], { field, name: template.name, file });
       }
     }
-    for (const field of ['name', 'description', 'spawn_prompt', 'system_prompt']) text(template[field], field, 100_000);
+    for (const field of ['name', 'description', 'construct_prompt', 'system_prompt']) text(template[field], field, 100_000);
     // Optional: which agent profile new instances use unless --agent overrides it.
     if (Object.hasOwn(template, 'agent')) text(template.agent, 'agent', 200);
     if (typeof template.singleton !== 'boolean') {

@@ -614,15 +614,15 @@ function templateCard(template) {
   description.className = 'template-description';
   description.textContent = template.description ?? '';
 
-  const spawn = document.createElement('details');
-  spawn.className = 'template-spawn';
+  const construct = document.createElement('details');
+  construct.className = 'template-construct';
   const summary = document.createElement('summary');
-  summary.textContent = '创建方式（spawn_prompt）';
+  summary.textContent = '构造方式（construct_prompt）';
   const prompt = document.createElement('pre');
-  prompt.textContent = template.spawn_prompt ?? '';
-  spawn.append(summary, prompt);
+  prompt.textContent = template.construct_prompt ?? '';
+  construct.append(summary, prompt);
 
-  card.append(head, description, spawn);
+  card.append(head, description, construct);
   return card;
 }
 

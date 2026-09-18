@@ -4,7 +4,7 @@
 
 ## Agent 后端
 
-Task 的 agent 由这个 service 选中的 agent profile 决定（`service spawn --agent`、模板的可选 `agent` 字段、环境变量、内置 `default`，依次生效）：
+Task 的 agent 由这个 service 选中的 agent profile 决定（`service construct --agent`、模板的可选 `agent` 字段、环境变量、内置 `default`，依次生效）：
 
 - `pi`（默认）：每次 invocation 起一个 `pi --print` 子服务，session-id 是 `lush-task-<id>`。pi 用 read / bash / edit / write 自己的工具，并通过 bash 调 `lush` CLI 操作 Lush（`LUSH_SID` / `LUSH_TASK_ID` 告诉它自己是谁）。取消 invocation 会杀掉子服务。
 - `mock` / `openai`：内置运行时，agent 直接拿到 `task_*` / `service_*` 工具，共享说明层切到 tools 版本。

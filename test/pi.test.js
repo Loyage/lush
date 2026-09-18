@@ -110,7 +110,7 @@ describe('pi agent backend', () => {
 
   test('services that declare path run the agent in it', async () => {
     const real = fs.realpathSync(dir);
-    const project = manager.load(manager.spawn(0, 'project', 'demo-project', 'ship it', { path: real }).sid);
+    const project = manager.load(manager.construct(0, 'project', 'demo-project', 'ship it', { path: real }).sid);
     expect(project.inspect().context.state.params).toEqual({ path: real });
     const preview = await manager.callDescribe(project.sid, 'where?');
     expect(preview.cwd).toBe(real);
@@ -122,8 +122,8 @@ describe('pi agent backend', () => {
 
     // The same binding carries a git worktree: the node a dev-task hands a
     // worktree to runs there, without anyone having to `cd`.
-    const devTask = manager.load(manager.spawn(project.sid, 'dev-task', 'fix-login', undefined, { title: '修登录' }).sid);
-    const worktree = manager.load(manager.spawn(devTask.sid, 'worktree-service', 'fix-login', undefined, { path: real }).sid);
+    const devTask = manager.load(manager.construct(project.sid, 'dev-task', 'fix-login', undefined, { title: '修登录' }).sid);
+    const worktree = manager.load(manager.construct(devTask.sid, 'worktree-service', 'fix-login', undefined, { path: real }).sid);
     expect((await manager.callDescribe(worktree.sid, 'where?')).cwd).toBe(real);
     const done = await manager.call(worktree.sid, 'what is here?');
     expect(JSON.parse(done.result).cwd).toBe(real);
@@ -235,7 +235,7 @@ describe('pi agent backend', () => {
 
   test('cancelling an interactive task lets the terminal settle as interrupted', async () => {
     const task = manager.repository.createTask(
-      manager.spawn(0, 'generic-task', 'worker').sid, null, 'do the work',
+      manager.construct(0, 'generic-task', 'worker').sid, null, 'do the work',
     );
     const opened = runtime.openInteractive(task.id);
     manager.cancelTask(task.id);
@@ -273,7 +273,7 @@ describe('pi agent backend', () => {
   });
 
   test('agent space: per-task ids, live OS sids and the durable call behind it', async () => {
-    const worker = manager.load(manager.spawn(0, 'generic-task', 'worker').sid);
+    const worker = manager.load(manager.construct(0, 'generic-task', 'worker').sid);
     const first = await manager.call(worker.sid, 'first round');
     const interactive = manager.repository.createTask(worker.sid, null, 'interactive round');
     const opened = runtime.openInteractive(interactive.id);

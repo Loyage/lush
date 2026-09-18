@@ -1,7 +1,7 @@
 import { VIEW_SECTIONS } from '../../core/types.js';
 import { inspectSections, intArg } from '../args.js';
 import { serviceLifecycleChildren } from './service_lifecycle.js';
-import { serviceSpawnChild } from './service_spawn.js';
+import { serviceConstructChild } from './service_construct.js';
 
 /**
  * The `service` command group: the passive side of Lush.
@@ -9,7 +9,7 @@ import { serviceSpawnChild } from './service_spawn.js';
  * A service holds identity (template system_prompt), variables, persistent
  * state, its place in the tree and its permissions (`child_templates`). It
  * never runs an agent and never finishes work: work lives in tasks, which are
- * created on it (`lush call`, `task spawn`) and delegated from there. This
+ * created on it (`lush call`, `task construct`) and delegated from there. This
  * group therefore covers the node itself — look at it, create children, start /
  * stop it, change its data, remove it, supervise orphans.
  */
@@ -17,7 +17,7 @@ export const serviceGroup = {
   summary: 'Service：被动节点（状态、变量、权限、生命周期）',
   cover: [
     '查看：list、tree、inspect、children 读取服务 metadata、层级、树位置与持久 Context（含挂载在它身上的 task）。',
-    '派生：spawn 按模板在指定父服务下创建子服务，并按模板的 variables 声明校验变量；新节点是静止的，要干活得在它上面开 task（`lush call`）。',
+    '派生：construct 按模板在指定父服务下构造子服务，并按模板的 variables 声明校验变量；新节点是静止的，要干活得在它上面开 task（`lush call`）。',
     '状态：start 让节点重新接受 task，stop 停止它（它的 task 会先被取消）；service 不会「完成」——完成的是一次 task。',
     '数据：update-state 写这个节点跨 task 的长期 state，update-vars 改模板声明为 mutable 的变量。',
     '删除：delete 只删已停止的节点（连同它的 Context 与挂在它上面的 task），purge 先取消 task 再删；两者都不可逆。',
@@ -71,7 +71,7 @@ export const serviceGroup = {
       summary: '查看单个服务的完整快照',
       cover: [
         '不带 --with 时返回完整 inspect：metadata、Context、variable（不可变/可变变量的值 + 模板声明）、挂载在它身上的近期 task、近期调用与事件，任何状态都可查。',
-        '带 --with 时改走 service.view，只返回所选 section：description（这个节点是什么、能力边界在哪）、parent、children、prompt（call_prompt，即创建在它上面的 task 的 agent 收到的提示词）、templates（它现在还能创建哪些子模板，每项带 name / singleton / description / spawn_prompt）。',
+        '带 --with 时改走 service.view，只返回所选 section：description（这个节点是什么、能力边界在哪）、parent、children、prompt（call_prompt，即创建在它上面的 task 的 agent 收到的提示词）、templates（它现在还能创建哪些子模板，每项带 name / singleton / description / construct_prompt）。',
         'description、templates 与 prompt 是上级节点派活前要问的三件事：它能做什么、能建什么、在它上面开 task 会用哪段提示词；三者在同一节点上永远与 agent 自己 Context 里的 available_child_templates 一致。',
         '文本按「服务摘要 → context → calls → events」分节打印，时间用本地时间；`template_snapshot` 与变量声明只在 --json 里给出。',
       ],
@@ -112,7 +112,7 @@ export const serviceGroup = {
       method: (args) => (args.sweep ? 'service.orphan_sweep' : 'service.orphans'),
       summary: '查看 SID 0 收养的孤儿，或立刻按策略回收一次',
       cover: [
-        '孤儿是被 SID 0 收养的服务：父节点进入终态时（stop / purge），它的活动直接子节点被交给 SID 0，保留 original_parent_sid 以便追溯。SID 0 自己 spawn 的孩子不算孤儿。',
+        '孤儿是被 SID 0 收养的服务：父节点进入终态时（stop / purge），它的活动直接子节点被交给 SID 0，保留 original_parent_sid 以便追溯。SID 0 自己 construct 的孩子不算孤儿。',
         '不带 --sweep 是只读的读模型：当前策略、活动孤儿数、超上限多少，以及每个孤儿的 busy / 闲置秒数（含已被冻结的历史行）。',
         '--sweep 立刻执行一次监督：先按 TTL 冻结闲置超时的孤儿，再按上限冻结最旧的，返回本轮报告（trigger / checked / evicted / deferred / limit / ttl_seconds）。',
         '回收是冻结而不是删除：孤儿一律置为 stopped（它手上的 task 会被取消），metadata、Context、task、消息、调用与事件全部保留（真删除只有 delete / purge）。',
@@ -134,7 +134,7 @@ export const serviceGroup = {
       },
       parse: () => ({}),
     },
-    ...serviceSpawnChild,
+    ...serviceConstructChild,
     ...serviceLifecycleChildren,
   },
 };

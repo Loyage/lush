@@ -10,9 +10,9 @@
 
 1. 模板的 `system_prompt`（用 `--system-prompt` **替换** pi 默认的 coding 提示词）；
 2. 共享的 Lush 说明层（`src/agent/guide.js`）：介绍 Lush 是什么、如何用 `lush` CLI 操作服务，所有 agent 后端都会带上；
-3. 运行时数据 `LUSH_CONTEXT`（自身 metadata、父/子摘要、state、可创建模板及其 `spawn_prompt`）。
+3. 运行时数据 `LUSH_CONTEXT`（自身 metadata、父/子摘要、state、可创建模板及其 `construct_prompt`）。
 
-pi 用自带的 read / bash / edit / write 工具干活，并**通过 bash 调用 `lush` CLI** 来 spawn / call / complete 其他服务；`LUSH_HOME`、`LUSH_SID` 会传给它，仓库 `bin/` 会被加进 PATH。若服务创建时给了 `path` 变量（例如 `project` 模板），pi 的 cwd 就是该目录，否则是 `$LUSH_HOME`。
+pi 用自带的 read / bash / edit / write 工具干活，并**通过 bash 调用 `lush` CLI** 来 construct / call / complete 其他服务；`LUSH_HOME`、`LUSH_SID` 会传给它，仓库 `bin/` 会被加进 PATH。若服务创建时给了 `path` 变量（例如 `project` 模板），pi 的 cwd 就是该目录，否则是 `$LUSH_HOME`。
 
 ```bash
 export LUSH_PROVIDER=pi            # 默认
@@ -20,8 +20,8 @@ export LUSH_PROVIDER=pi            # 默认
 # export LUSH_PI_PROVIDER=openai   # 透传给 pi --provider
 # export LUSH_PI_MODEL=gpt-5       # 透传给 pi --model
 export LUSH_CALL_TIMEOUT=900       # pi 真实干活很慢，默认 15 分钟
-lush service spawn 0 project-manager --name project-manager
-lush service spawn 1 project my-repo --name my-repo --vars '{"path":"/abs/repo"}'
+lush service construct 0 project-manager --name project-manager
+lush service construct 1 project my-repo --name my-repo --vars '{"path":"/abs/repo"}'
 lush call 0 '打开 /abs/repo，列出待办并开工'   # 根 task 落在 SID 0，再逐层向下派
 ```
 
@@ -46,7 +46,7 @@ lush agent path                 # profile 目录（$LUSH_HOME/agents）
 
 **选择优先级**（服务 > 环境变量 > 内置 default）：
 
-1. 服务显式选择：`lush service spawn … --agent <name>`，或模板里的可选字段 `agent`（`--agent` 覆盖模板）。选中的名字写进服务 state（`lush service inspect SID` 的 `agent.profile` 与 `context.state.agent` 都能看到），之后这个节点上每个 task 的 invocation、`task session`、`call --dry-run` 都用它。
+1. 服务显式选择：`lush service construct … --agent <name>`，或模板里的可选字段 `agent`（`--agent` 覆盖模板）。选中的名字写进服务 state（`lush service inspect SID` 的 `agent.profile` 与 `context.state.agent` 都能看到），之后这个节点上每个 task 的 invocation、`task session`、`call --dry-run` 都用它。
 2. 环境变量：`LUSH_PROVIDER` / `LUSH_PI_COMMAND` / `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL`（语义与以前完全一致，`LUSH_PROVIDER=mock` 仍然照常工作）。
 3. 内置 `default`：provider `pi` + 纯净化参数。它永远可用、不可删除，但可以写 `$LUSH_HOME/agents/default.json` 逐字段覆盖（`lush agent edit default …` / `lush agent default <name>`）。
 
@@ -92,7 +92,7 @@ session 属于它所在的 task：session-id（`lush-task-<id>`）与回话文�
 
 ## 内置后端（mock / openai）
 
-`LUSH_PROVIDER=mock`：确定性架构演示，不是真实语言模型，支持身份查询、中文/英文创建子节点与「派给下游」请求，以及显式工具指令（`/tool task_complete {...}`、`/tool service_spawn {...}`）；`bun test` 用它。
+`LUSH_PROVIDER=mock`：确定性架构演示，不是真实语言模型，支持身份查询、中文/英文创建子节点与「派给下游」请求，以及显式工具指令（`/tool task_complete {...}`、`/tool service_construct {...}`）；`bun test` 用它。
 
 `LUSH_PROVIDER=openai`：Lush 内置的 OpenAI-style Chat Completions 运行时（多轮 tool calling，agent 直接用 `task_*` / `service_*` 工具）。
 

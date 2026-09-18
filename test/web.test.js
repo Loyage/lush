@@ -15,7 +15,7 @@ function testTemplates() {
     name,
     singleton: false,
     description: `${name} test template`,
-    spawn_prompt: `create ${name}`,
+    construct_prompt: `create ${name}`,
     system_prompt: `you are ${name}`,
     child_templates: childTemplates,
     variables: {},
@@ -161,19 +161,19 @@ describe('web ui', () => {
           name: 'generic-task',
           singleton: false,
           description: 'generic-task test template',
-          spawn_prompt: 'create generic-task',
+          construct_prompt: 'create generic-task',
         },
         {
           name: 'generic-service',
           singleton: true,
           description: 'generic-service test template',
-          spawn_prompt: 'create generic-service',
+          construct_prompt: 'create generic-service',
         },
       ],
     });
 
     // A singleton disappears once its slot under SID 0 is taken; a leaf node has none.
-    const taken = manager.spawn(0, 'generic-service', 'keeper');
+    const taken = manager.construct(0, 'generic-service', 'keeper');
     const names = async () => (await (await request('/api/services/0/view')).json())
       .service.available_child_templates.map((item) => item.name);
     expect(await names()).toEqual(['generic-task']);
@@ -195,7 +195,7 @@ describe('web ui', () => {
   });
 
   test('creates a detached root task and exposes its result', async () => {
-    const child = manager.spawn(0, 'generic-task', 'worker');
+    const child = manager.construct(0, 'generic-task', 'worker');
     const created = await request('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -247,9 +247,9 @@ describe('web ui', () => {
   });
 
   test('lists tasks, exposes one task tree and applies filters', async () => {
-    const worker = manager.spawn(0, 'generic-task', 'worker');
-    const root = manager.spawnTask(null, 0, 'root goal');
-    const child = manager.spawnTask(root.id, worker.sid, 'child goal');
+    const worker = manager.construct(0, 'generic-task', 'worker');
+    const root = manager.constructTask(null, 0, 'root goal');
+    const child = manager.constructTask(root.id, worker.sid, 'child goal');
 
     const list = await request('/api/tasks');
     expect(list.status).toBe(200);
@@ -283,9 +283,9 @@ describe('web ui', () => {
   });
 
   test('cancels and deletes a task subtree through the API', async () => {
-    const worker = manager.spawn(0, 'generic-task', 'worker');
-    const root = manager.spawnTask(null, 0, 'root goal');
-    const child = manager.spawnTask(root.id, worker.sid, 'child goal');
+    const worker = manager.construct(0, 'generic-task', 'worker');
+    const root = manager.constructTask(null, 0, 'root goal');
+    const child = manager.constructTask(root.id, worker.sid, 'child goal');
 
     const cancelled = await request(`/api/tasks/${root.id}/cancel`, { method: 'POST' });
     expect(cancelled.status).toBe(200);

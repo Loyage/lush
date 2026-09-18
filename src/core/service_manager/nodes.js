@@ -18,7 +18,7 @@ import * as tasks from '../tasks.js';
 export const nodes = {
   // ── Services ───────────────────────────────────────────────────────────
 
-  spawn(parentSid, template, name = undefined, goal = undefined, variables = undefined, agent = undefined) {
+  construct(parentSid, template, name = undefined, goal = undefined, variables = undefined, agent = undefined) {
     const parent = this.requireActive(parentSid);
     const definition = this.templates.get(template);
     if (template === 'lush-root') throw new LushError('lush-root is reserved for SID 0', -32010);
@@ -34,7 +34,7 @@ export const nodes = {
         -32010,
       );
     }
-    const resolved = this.spawnVariables(definition, withServiceName(definition, name, variables));
+    const resolved = this.constructVariables(definition, withServiceName(definition, name, variables));
     // A template that reserves `name` as a variable names its services with
     // it: `--name` seeds it, `variables.name` names the service, and either way
     // the declaration decides the format. Only templates without it keep the

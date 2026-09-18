@@ -2,7 +2,7 @@
   "name": "worktree-service",
   "singleton": false,
   "description": "我绑定一个已存在的 git worktree 并在里面真正动手干活：读改文件、跑测试与构建、做增量的 git 提交，并把改动、命令与结果写进报告；我不创建子服务，也不做 push / rebase / reset --hard / 删除 worktree 这类破坏性或影响共享状态的操作。",
-  "spawn_prompt": "@worktree-service/spawn_prompt.md",
+  "construct_prompt": "@worktree-service/construct_prompt.md",
   "system_prompt": "@worktree-service/system_prompt.md",
   "child_templates": [],
   "variables": {

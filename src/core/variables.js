@@ -27,7 +27,7 @@ export const AGENT_STATE_KEY = 'agent';
  * Optional format constraints a declaration may carry on top of
  * `required` / `default` / `description`. They are checked twice: the
  * declaration at template load time (`checkVariableDeclaration`), the value at
- * spawn and update time (`checkVariableValue`). Constraints are declared, not
+ * construct and update time (`checkVariableValue`). Constraints are declared, not
  * hard-coded, so a template states its own contract and the error message can
  * quote it back.
  */
@@ -58,7 +58,7 @@ function hint(spec, max = 160) {
 /**
  * Validate one declaration's constraint fields, and the `default` against
  * them, so a template that contradicts itself fails at load time instead of at
- * the first spawn.
+ * the first construct.
  */
 export function checkVariableDeclaration(templateName, group, name, spec) {
   if (Object.hasOwn(spec, 'pattern')) {
@@ -143,7 +143,7 @@ export function withServiceName(template, name, variables) {
   const declared = serviceNameVariable(template);
   if (declared === null) return variables;
   const values = variables === undefined || variables === null ? {} : variables;
-  // Not a plain object: leave the shape error to spawnVariables, which owns it.
+  // Not a plain object: leave the shape error to constructVariables, which owns it.
   if (!isPlainObject(values)) return variables;
   if (Object.hasOwn(values, RESERVED_VARIABLES.serviceName)) {
     if (name !== undefined && name !== null && name !== values[RESERVED_VARIABLES.serviceName]) {
@@ -177,7 +177,7 @@ export function declaredServiceName(template, resolved) {
  * working-directory contract: an absolute directory that must already exist,
  * and every value must satisfy the constraints its declaration carries.
  */
-export function spawnVariables(template, variables) {
+export function constructVariables(template, variables) {
   const declared = template.variables ?? {};
   const values = variables === undefined || variables === null ? {} : variables;
   if (!isPlainObject(values) || Object.getOwnPropertySymbols(values).length) {
@@ -234,7 +234,7 @@ export function updateState(manager, sid, patch) {
       );
     }
     if (key === AGENT_STATE_KEY) {
-      throw new LushError('state.agent records the agent profile chosen at spawn; it cannot be updated', -32602);
+      throw new LushError('state.agent records the agent profile chosen at construct time; it cannot be updated', -32602);
     }
   }
   jsonDump(patch);

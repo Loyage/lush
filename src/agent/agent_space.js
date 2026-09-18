@@ -67,7 +67,7 @@ export function openAgent(runtime, taskId, sid, callId, { interactive = false, p
   return record;
 }
 
-/** The OS process behind a live agent (daemon-spawned pi, or a reported terminal one). */
+/** The OS process behind a live agent (daemon-constructed pi, or a reported terminal one). */
 export function noteOsPid(record, osPid) {
   if (record && record.status === 'running') record.os_pid = osPid;
 }
@@ -102,7 +102,7 @@ export function agentView(runtime, record) {
     status: record.status,
     call_id: record.call_id,
     interactive: record.interactive,
-    // A daemon-spawned agent is interruptible through the runtime; an
+    // A daemon-constructed agent is interruptible through the runtime; an
     // interactive one only once its terminal reported the OS PID.
     cancellable: running && (!record.interactive || record.os_pid !== null),
     os_pid: record.os_pid,

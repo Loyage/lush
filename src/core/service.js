@@ -19,7 +19,7 @@ export class Service {
   }
 
   createChild(template, { name, goal, variables } = {}) {
-    const result = this.manager.spawn(this.sid, template, name, goal, variables);
+    const result = this.manager.construct(this.sid, template, name, goal, variables);
     return this.manager.load(result.sid);
   }
 

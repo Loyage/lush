@@ -4,7 +4,7 @@
  * The agent works *as a task* on a service: `task_*` tools move work (delegate
  * to a child service, message a parent or child, finish), `service_*` tools read
  * and shape the passive node it runs on (identity, permissions, variables,
- * persistent state, and spawning child services), and `notice` reports to the
+ * persistent state, and constructing child services), and `notice` reports to the
  * user and waits for their answer. The agent never blocks on its children: it
  * ends its turn and the task layer wakes it with their results.
  */
@@ -43,7 +43,7 @@ function tool(name, description, properties = {}, required = []) {
 export const TOOL_DEFINITIONS = [
   tool('task_self', 'Inspect the task you are working on: its goal, status, result, and the service it is mounted on.'),
   tool('task_children', 'List the child tasks you have delegated to child services (id, service, status, result).'),
-  tool('task_spawn', 'Delegate work downstream: create a child task on service `sid`. `sid` must be a direct child of your own service (spawn the service first with service_spawn if it does not exist yet). The child task starts running immediately; you are woken with its result when it settles.',
+  tool('task_construct', 'Delegate work downstream: create a child task on service `sid`. `sid` must be a direct child of your own service (construct the service first with service_construct if it does not exist yet). The child task starts running immediately; you are woken with its result when it settles.',
     { sid: SID, goal: STRING }, ['sid', 'goal']),
   tool('task_message', 'Send a message to your direct parent task or one of your direct child tasks (task_id). Use it to steer a child that is still working, to ask your parent something, or to report progress — it is queued on the receiver and delivered between two of its agent invocations, so it never interrupts work in flight. A parked task is woken by your message.',
     { task_id: SID, body: STRING }, ['task_id', 'body']),
@@ -57,7 +57,7 @@ export const TOOL_DEFINITIONS = [
   tool('service_parent', "Read your service's current parent (may be SID 0 after adoption)."),
   tool('service_children', "List your service's direct child services."),
   tool('service_inspect', 'Inspect another service.', { sid: SID }, ['sid']),
-  tool('service_spawn', 'Create and start a child service using an allowed template, so work can be delegated to it with task_spawn. A singleton template fails while the parent already has an active instance; see available_child_templates for how to create each template and which variables it needs. A template that declares a reserved `name` variable (dev-task does) makes that variable the service name, so `name` is required and is checked against the declared pattern.',
+  tool('service_construct', 'Create and start a child service using an allowed template, so work can be delegated to it with task_construct. A singleton template fails while the parent already has an active instance; see available_child_templates for how to create each template and which variables it needs. A template that declares a reserved `name` variable (dev-task does) makes that variable the service name, so `name` is required and is checked against the declared pattern.',
     { template: STRING, name: STRING, goal: STRING, variables: { type: 'object' } }, ['template']),
   tool('service_update_state', 'Shallow-merge JSON fields into your service\'s long-lived state (knowledge that outlives this task). Variables are not writable here; use service_update_vars.',
     { patch: { type: 'object' } }, ['patch']),
@@ -76,7 +76,7 @@ export const TOOL_DEFINITIONS = [
 export const TOOL_PARAMS = {
   task_self: { required: [] },
   task_children: { required: [] },
-  task_spawn: { required: ['sid', 'goal'] },
+  task_construct: { required: ['sid', 'goal'] },
   task_message: { required: ['task_id', 'body'] },
   task_cancel: { required: ['task_id'] },
   task_complete: { required: [], optional: ['result'] },
@@ -85,7 +85,7 @@ export const TOOL_PARAMS = {
   service_parent: { required: [] },
   service_children: { required: [] },
   service_inspect: { required: ['sid'] },
-  service_spawn: { required: ['template'], optional: ['name', 'goal', 'variables'] },
+  service_construct: { required: ['template'], optional: ['name', 'goal', 'variables'] },
   service_update_state: { required: ['patch'] },
   service_update_vars: { required: ['patch'] },
   notice: { required: ['title'], optional: ['kind', 'body', 'fields', 'wait'] },
@@ -100,7 +100,7 @@ export class AgentTools {
     this.methods = {
       task_self: { params: TOOL_PARAMS.task_self, fn: () => this.self() },
       task_children: { params: TOOL_PARAMS.task_children, fn: () => this.children() },
-      task_spawn: { params: TOOL_PARAMS.task_spawn, fn: (sid, goal) => this.spawn(sid, goal) },
+      task_construct: { params: TOOL_PARAMS.task_construct, fn: (sid, goal) => this.construct(sid, goal) },
       task_message: { params: TOOL_PARAMS.task_message, fn: (taskId, body) => this.sendMessage(taskId, body) },
       task_cancel: { params: TOOL_PARAMS.task_cancel, fn: (taskId) => this.cancel(taskId) },
       task_complete: { params: TOOL_PARAMS.task_complete, fn: (result) => this.complete(result) },
@@ -112,9 +112,9 @@ export class AgentTools {
       service_parent: { params: TOOL_PARAMS.service_parent, fn: () => manager.parent(this.sid) },
       service_children: { params: TOOL_PARAMS.service_children, fn: () => manager.children(this.sid) },
       service_inspect: { params: TOOL_PARAMS.service_inspect, fn: (sid) => manager.inspect(sid) },
-      service_spawn: {
-        params: TOOL_PARAMS.service_spawn,
-        fn: (template, name, goal, variables) => this.spawnService(template, name, goal, variables),
+      service_construct: {
+        params: TOOL_PARAMS.service_construct,
+        fn: (template, name, goal, variables) => this.constructService(template, name, goal, variables),
       },
       service_update_state: {
         params: TOOL_PARAMS.service_update_state,
@@ -139,8 +139,8 @@ export class AgentTools {
     return this.manager.listChildTasks(this.taskId);
   }
 
-  spawn(sid, goal) {
-    return this.manager.spawnTask(this.taskId, sid, goal);
+  construct(sid, goal) {
+    return this.manager.constructTask(this.taskId, sid, goal);
   }
 
   /** Message a direct parent / child task; it is queued and wakes a parked task. */
@@ -169,8 +169,8 @@ export class AgentTools {
     return this.manager.updateTaskState(this.taskId, patch);
   }
 
-  spawnService(template, name = undefined, goal = undefined, variables = undefined) {
-    return this.manager.spawn(this.sid, template, name, goal, variables);
+  constructService(template, name = undefined, goal = undefined, variables = undefined) {
+    return this.manager.construct(this.sid, template, name, goal, variables);
   }
 
   /**

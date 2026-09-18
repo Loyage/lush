@@ -10,7 +10,7 @@ import {
 } from '../repository_state.js';
 
 export const state = {
-  /** The agent profile this service selected at spawn time (null when unset). */
+  /** The agent profile this service selected at construct time (null when unset). */
   stateAgent(sid) {
     return stateAgent(this, sid);
   },

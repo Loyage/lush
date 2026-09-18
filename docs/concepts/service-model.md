@@ -25,7 +25,7 @@ lush call 2 '实现登录'         → task #1 挂在 implement-login[2]
 created → active ⇄ stopped
 ```
 
-  - `spawn` 原子创建并进入 `active`（`created` → `active` 记在同一事务里）。
+  - `construct` 原子创建并进入 `active`（`created` → `active` 记在同一事务里）。
   - `stop`：置为 `stopped`。它的**活动子节点**交给 SID 0 收养（`parent_sid = 0`，保留 `original_parent_sid`）。同一个节点上还有活动 task 时 `stop` 会被拒绝（提示先 `task cancel`）——停止一个节点不能悄悄杀掉正在跑的 agent。
   - `start`：`stopped` / `created` → `active`；重启不会自动取回已被收养的子节点。
   - `delete` / `purge` 见下节「删除」。
@@ -47,11 +47,11 @@ created → running ⇄ waiting → completed / failed / cancelled
 
 规则（这些规则保证 task 树始终是一棵可观察的树）：
 
-1. **一个 service 同时只有一个活动 task**：service 是单线程的工作台。下游正忙时 `task_spawn` 会被拒绝；先结束本轮等它（子结算会唤醒你），或换一个下游节点。
+1. **一个 service 同时只有一个活动 task**：service 是单线程的工作台。下游正忙时 `task_construct` 会被拒绝；先结束本轮等它（子结算会唤醒你），或换一个下游节点。
 2. **子 task 只能挂在自己的直接子 service 上**：task 树因此永远沿 service 树向下生长，不会成环；消息也只能走直接父子边，所以通话关系同样不会成环。
 3. **终态 task 没有活动子 task**：`complete` 要求子 task 都已结束且收件箱没有未读消息（否则报错）；`fail` / `cancel` 会把整棵子树一起取消。
 4. **阻塞在 task 上，不在 agent 里**：agent 的工具里没有“等待”原语。结束一輪 invocation 后，task 层决定“投递队列里 的输入 / park 等输入 / 完成”。
-5. 需要新的下游节点时先 `service_spawn`（受 `child_templates` 限制）建子服务，再向它派 task。
+5. 需要新的下游节点时先 `service_construct`（受 `child_templates` 限制）建子服务，再向它派 task。
 
 ### agent 与 task
 
@@ -64,7 +64,7 @@ created → running ⇄ waiting → completed / failed / cancelled
 
 ### 任务之间：持续通话（task_inbox）
 
-`task_spawn` 只能派一次性 goal；之后的交流走收件箱：
+`task_construct` 只能派一次性 goal；之后的交流走收件箱：
 
 - **只走 task 树的直接边**：一个 task 只能给它的直接父 task 或它的直接子 task 发消息（`task_message`），和“只能向下游、直接子 service”同一条边界。
 - **异步、入队**：消息先落到接收方的 `task_inbox` 行（`delivered_at IS NULL`），在它两次 agent invocation 之间才交给它的 agent——正在跑的 invocation 不会被打断。接收方停在 `waiting` 时会被立即唤醒。

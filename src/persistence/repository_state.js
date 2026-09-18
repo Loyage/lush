@@ -55,7 +55,7 @@ export function replaceContextPrompt(repository, sid, systemPrompt) {
 }
 
 /**
- * The agent profile a service selected at spawn time (`state.agent`), or null.
+ * The agent profile a service selected at construct time (`state.agent`), or null.
  * Reading one column keeps `service tree` cheap: it resolves a provider name per
  * row without walking sessions or counting messages.
  */

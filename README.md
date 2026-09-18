@@ -13,12 +13,12 @@ Bun 1.2+ / JavaScript (ESM) / `bun:sqlite` / Unix Domain Socket / JSON-RPC 2.0�
 export PATH="$PWD/bin:$PATH"
 export LUSH_HOME="${TMPDIR:-/tmp}/lush-dev-$USER"
 export LUSH_PROVIDER=mock   # 确定性、不调模型；真实 agent 用 pi（默认值）
-lush help                   # 每一层都有 help：lush help service / lush service spawn -h
+lush help                   # 每一层都有 help：lush help service / lush service construct -h
 lush daemon start
 lush daemon status
 lush service tree
-lush service spawn 0 project-manager --name project-manager
-lush service spawn 1 generic-task --name implement-login --goal '实现登录功能'
+lush service construct 0 project-manager --name project-manager
+lush service construct 1 generic-task --name implement-login --goal '实现登录功能'
 lush service tree                  # 被动节点：创建本身不会跑任何 agent
 lush call 2 '请介绍一下你当前的身份和任务'   # 在 SID 2 上开一个根 task 并等它结束
 lush task list                     # 这件事的 task
@@ -42,7 +42,7 @@ lush daemon stop
 
 ## 请求怎么往下走：分派优先
 
-一个 task 的 agent 接到活时，第一件事不是自己动手，而是判断「这活归谁」：对照 task 的 goal、所在 service 的职责与 `children` / `LUSH_CONTEXT.available_child_templates` 里每个子服务、每个可创建模板的 `description` 与 `spawn_prompt`——有谁专职这件事就把 task 派给它（已有的子服务先复用，没有的先按模板 `service_spawn` 建，再 `task_spawn`），没有合适的下游或这本就是自己的职责时才自己动手。派完就结束本轮：task 会自动 park，子 task 结算时以一条 user 消息唤醒 agent 并带上结果；中途要给直接父 / 子 task 追加信息用 `task_message`（入队，不打断对方）。这条规则写在共享说明层（`src/agent/guide.js` 的「通用规则」），所有后端、所有模板都带；`tools` 与 `cli` 两个后端共用同一份文本。
+一个 task 的 agent 接到活时，第一件事不是自己动手，而是判断「这活归谁」：对照 task 的 goal、所在 service 的职责与 `children` / `LUSH_CONTEXT.available_child_templates` 里每个子服务、每个可创建模板的 `description` 与 `construct_prompt`——有谁专职这件事就把 task 派给它（已有的子服务先复用，没有的先按模板 `service_construct` 建，再 `task_construct`），没有合适的下游或这本就是自己的职责时才自己动手。派完就结束本轮：task 会自动 park，子 task 结算时以一条 user 消息唤醒 agent 并带上结果；中途要给直接父 / 子 task 追加信息用 `task_message`（入队，不打断对方）。这条规则写在共享说明层（`src/agent/guide.js` 的「通用规则」），所有后端、所有模板都带；`tools` 与 `cli` 两个后端共用同一份文本。
 
 顶层因此长这样：
 
@@ -50,13 +50,13 @@ lush daemon stop
 用户 → SID 0（入口 / 路由器）上的根 task
         ├── 关于 Lush 自身的问题：SID 0 自己用只读命令回答
         └── 其他一切任务：把 task 派给 project-manager 节点
-                ├── 「给 <项目> 加功能 / 修 bug / 重构 / 调研它」→ 该项目的 project 节点上的 task（由它拆 dev-task 子 task；除非明确说明例外，每个 dev-task 都新开一个 git worktree，并在那个 worktree 里用 worktree-service 上的 agent 改；改完后 agent 用 notice 问用户是否合并，用户答 yes 时由 project 节点在主工作树执行合并；合并成功后 project 再问用户是否回收 worktree 资源（删 worktree 与分支））
+                ├── 「给 <项目> 加功能 / 修 bug / 重构 / 调研它」→ 该项目的 project 节点上的 task（由它拆 dev-task 子 task；除非明确说明例外，每个 dev-task 都新开一个 git worktree，并在那个 worktree 里用 worktree-service 上的 agent 改；改完后 agent 用 notice 问用户是否合并，用户答 yes 时由 project 节点在主工作树执行合并；合并成功后 project 再问用户是否回收 worktree 资源（答 yes 时先回收对应的 service：project 给那次开发的 dev-task 开一个「回收」task，由它按析构协议 stop 那个 worktree-service 节点并删除 worktree 与分支，project 再把 dev-task 也 stop——记录保留））
                 ├── 不绑定某个项目的问题（选型 / 通用调研）→ research-task 节点
                 ├── 有明确目标的一次性杂活 → generic-task 节点
                 └── 长期能力 / 常驻服务 → generic-service 节点
 ```
 
-SID 0 自己不做项目里的活：不读改仓库文件、不在项目目录里跑实现 / 构建 / 测试命令；`lush-root` 的 `child_templates` 只有 `project-manager`，`project` / `dev-task` 都不在它的权限里，所以它也无法替 `project-manager` 做决定。`project-manager` 收到请求后按上表分派，只有「打开 xx」「关闭 xx」这类项目生命周期管理动作它才亲自做。改这三处提示词（`src/agent/guide.js`、`templates/lush-root/`、`templates/lush-root/project-manager/` 下的 `*.md` 与 `*.json`）后要 `just daemon-restart` 才生效：模板的散文字段（`description` / `spawn_prompt` / `system_prompt`）可以写成 `@<路径>` 引用旁边的 markdown 文件，改提示词不用再面对一行 `\n` 转义（见 `docs/reference/templates.md`）。
+SID 0 自己不做项目里的活：不读改仓库文件、不在项目目录里跑实现 / 构建 / 测试命令；`lush-root` 的 `child_templates` 只有 `project-manager`，`project` / `dev-task` 都不在它的权限里，所以它也无法替 `project-manager` 做决定。`project-manager` 收到请求后按上表分派，只有「打开 xx」「关闭 xx」这类项目生命周期管理动作它才亲自做。改这三处提示词（`src/agent/guide.js`、`templates/lush-root/`、`templates/lush-root/project-manager/` 下的 `*.md` 与 `*.json`）后要 `just daemon-restart` 才生效：模板的散文字段（`description` / `construct_prompt` / `system_prompt`）可以写成 `@<路径>` 引用旁边的 markdown 文件，改提示词不用再面对一行 `\n` 转义（见 `docs/reference/templates.md`）。
 
 ## 常用命令（Justfile）
 
@@ -103,7 +103,7 @@ lush notice dismiss 7 --reason '已知'                  # 只阅读、不回答
 lush agent list                 # NAME PROVIDER COMMAND MODEL PLUGINS DEFAULT SOURCE PATH
 lush agent inspect default      # 完整配置 + 定义来源 + 真正会跑的 argv 预览
 lush agent add analyst --model gpt-5
-lush service spawn 1 project x --vars '{"path":"/abs/repo"}'   # 服务也可以用 --agent 指定 profile
+lush service construct 1 project x --vars '{"path":"/abs/repo"}'   # 服务也可以用 --agent 指定 profile
 ```
 
 字段表、选择优先级（服务 > 环境变量 > 内置 default）、`mock` / `openai` 后端与 session 的位置，见 [docs/reference/agents.md](docs/reference/agents.md) 与 [docs/concepts/agents.md](docs/concepts/agents.md)。
@@ -126,6 +126,6 @@ bun test      # 全部测试（just test 等价，可加文件名过滤：just t
 
 数据默认保存在 `$XDG_STATE_HOME/lush` 或 `~/.local/state/lush`，可用 `LUSH_HOME` 覆盖。包含 SQLite 数据库、socket、daemon 锁、pi session 及日志。目录仅限当前用户访问。仓库模板与用户模板的摆放见 [docs/reference/templates.md](docs/reference/templates.md)。
 
-**生命周期提示：** Service 只有 created / active / stopped——它是被动的，`service spawn` 只是建节点，不会跑任何 agent，`service stop` 只让它不再接受 task（先取消它手上的 task）。工作全在 task 上：`call` 建根 task 并等待，task 的状态是 created / running / waiting / completed / failed / cancelled，`task cancel` 取消一棵子树，`task complete` 由它的 agent（或人）在目标达成时调用；终态 task 不会有活动子 task。节点结束时（`stop` / `purge`），活动的直接子节点改挂 SID 0。**删除是唯一的物理删除路径**：`task delete` 只删 task 行（call 行与消息留作 service 的历史），`service delete SID` 只删 stopped 且没有活动 task 的节点（连带它上面的 task），`service purge SID` 先取消 task、停止节点再删（`--recursive` 连整棵子树），且内置运行时的 agent 工具集里没有删除工具；被删节点的父服务会得到一条 `child_deleted` 事件。SID 0 永远拒绝，只能通过停止 daemon 退出。详见 [docs/concepts/lifecycle-and-orphans.md](docs/concepts/lifecycle-and-orphans.md)。
+**生命周期提示：** Service 只有 created / active / stopped——它是被动的，`service construct` 只是把节点构造出来、不会跑任何 agent，`service stop` 只让它不再接受 task（先取消它手上的 task）。工作全在 task 上：`call` 建根 task 并等待，task 的状态是 created / running / waiting / completed / failed / cancelled，`task cancel` 取消一棵子树，`task complete` 由它的 agent（或人）在目标达成时调用；终态 task 不会有活动子 task。节点结束时（`stop` / `purge`），活动的直接子节点改挂 SID 0。**删除是唯一的物理删除路径**：`task delete` 只删 task 行（call 行与消息留作 service 的历史），`service delete SID` 只删 stopped 且没有活动 task 的节点（连带它上面的 task），`service purge SID` 先取消 task、停止节点再删（`--recursive` 连整棵子树），且内置运行时的 agent 工具集里没有删除工具；被删节点的父服务会得到一条 `child_deleted` 事件。SID 0 永远拒绝，只能通过停止 daemon 退出。详见 [docs/concepts/lifecycle-and-orphans.md](docs/concepts/lifecycle-and-orphans.md)。
 
 本地单用户 MVP：没有 ACL、沙箱、自动调度、自动任务恢复或向量数据库。Web UI 也只允许监听本机回环地址。运行 pi 时，pi 自带的 read/bash/edit/write 工具和你的 pi 配置（skills、extensions、AGENTS.md）都会生效，因此 pi 服务能读写磁盘和执行命令；`openai` / `mock` 运行时只有 Lush 自己的 `service_*` / `task_*` 工具，不含 shell、文件编辑或联网能力。不要向不可信用户暴露 socket 或 Web UI；Agent 可以调用其他 Service，因此工具调用不是安全隔离边界。

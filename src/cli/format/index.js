@@ -40,7 +40,7 @@ export function format(args, result) {
   // all report identity in `cli`, so they share the aligned line format.
   if (args.command === 'daemon' || args.command === 'status') return formatDaemon(result);
   if (args.command === 'call') return result.dry_run ? formatDryRun(result) : formatCall(result);
-  if (args.command === 'spawn') return `SID ${result.sid}`;
+  if (args.command === 'construct') return `SID ${result.sid}`;
   if (args.command === 'tree') return treeLines(result, { agents: args.agents !== false }).join('\n');
   if (args.command === 'children' || args.command === 'list') return formatList(result);
   if (args.command === 'orphans') return formatOrphans(result);
@@ -49,7 +49,7 @@ export function format(args, result) {
   if (args.command === 'task_tree') return formatTaskTree(result);
   if (args.command === 'task_inspect' || args.command === 'task_wait') return formatTaskInspect(result);
   if (args.command === 'task_result') return formatTaskResult(result);
-  if (args.command === 'task_spawn') return formatCall(result);
+  if (args.command === 'task_construct') return formatCall(result);
   if (args.command === 'task_delete') return formatTaskRemoval(result);
   if (args.command === 'task_update_state') return objectLines(result).join('\n');
   if (args.command === 'task_message') return formatTaskMessage(result);

@@ -51,16 +51,16 @@ describe('task inbox (core)', () => {
 
   /** parent service + child service + one idle parent task (no agent). */
   function pair() {
-    const parentSid = manager.spawn(0, 'generic-service', 'parent').sid;
-    const childSid = manager.spawn(parentSid, 'generic-task', 'child').sid;
-    const parentTask = manager.spawnTask(null, parentSid, 'parent work', false);
+    const parentSid = manager.construct(0, 'generic-service', 'parent').sid;
+    const childSid = manager.construct(parentSid, 'generic-task', 'child').sid;
+    const parentTask = manager.constructTask(null, parentSid, 'parent work', false);
     return { parentSid, childSid, parentTask };
   }
 
   test('a message is queued, only walks direct parent/child edges, and never wakes a finished task', () => {
     const { parentSid, childSid, parentTask } = pair();
-    const childTask = manager.spawnTask(parentTask.id, childSid, 'child work', false);
-    const grandSid = manager.spawn(childSid, 'generic-task', 'grand').sid;
+    const childTask = manager.constructTask(parentTask.id, childSid, 'child work', false);
+    const grandSid = manager.construct(childSid, 'generic-task', 'grand').sid;
     const grandTask = manager.repository.createTask(grandSid, childTask.id, 'grand work', { rootTaskId: parentTask.id });
 
     const queued = manager.taskMessage(parentTask.id, childTask.id, '把范围收窄到登录接口');
@@ -92,7 +92,7 @@ describe('task inbox (core)', () => {
 
   test('queueing a message wakes a parked task', async () => {
     const { childSid, parentTask } = pair();
-    const childTask = manager.spawnTask(parentTask.id, childSid, 'child work', false);
+    const childTask = manager.constructTask(parentTask.id, childSid, 'child work', false);
     const parked = manager.waitForTaskInput(childTask.id);
     manager.taskMessage(parentTask.id, childTask.id, 'wake up');
     await parked; // resolves as soon as anything lands in the inbox
@@ -105,11 +105,11 @@ describe('task inbox (core)', () => {
     const built = system(gateDir, gate);
     permissiveRoot(built.manager);
     try {
-      const parentSid = built.manager.spawn(0, 'generic-service', 'parent').sid;
-      const childSid = built.manager.spawn(parentSid, 'generic-task', 'child').sid;
-      const parentTask = built.manager.spawnTask(null, parentSid, 'parent work', false);
+      const parentSid = built.manager.construct(0, 'generic-service', 'parent').sid;
+      const childSid = built.manager.construct(parentSid, 'generic-task', 'child').sid;
+      const parentTask = built.manager.constructTask(null, parentSid, 'parent work', false);
 
-      const childTask = built.manager.spawnTask(parentTask.id, childSid, 'do the thing');
+      const childTask = built.manager.constructTask(parentTask.id, childSid, 'do the thing');
       await gate.entered.promise; // the child's first invocation is in flight
       built.manager.taskMessage(parentTask.id, childTask.id, 'mid-flight note');
       gate.release.resolve();
@@ -129,7 +129,7 @@ describe('task inbox (core)', () => {
 
   test("a settling child reports into its parent's inbox", () => {
     const { parentTask } = pair();
-    const childSid = manager.spawn(0, 'generic-task', 'child').sid;
+    const childSid = manager.construct(0, 'generic-task', 'child').sid;
     const childTask = manager.repository.createTask(childSid, parentTask.id, 'child work', { rootTaskId: parentTask.id });
 
     manager.completeTask(childTask.id, { answer: 'shipped' });
@@ -217,9 +217,9 @@ describe('task inbox over RPC', () => {
   });
 
   test('task.message and task.inbox travel over the wire', async () => {
-    const parentSid = manager.spawn(0, 'generic-service', 'parent').sid;
-    const childSid = manager.spawn(parentSid, 'generic-task', 'child').sid;
-    const parentTask = manager.spawnTask(null, parentSid, 'parent work', false);
+    const parentSid = manager.construct(0, 'generic-service', 'parent').sid;
+    const childSid = manager.construct(parentSid, 'generic-task', 'child').sid;
+    const parentTask = manager.constructTask(null, parentSid, 'parent work', false);
     const childTask = manager.repository.createTask(childSid, parentTask.id, 'child work', { rootTaskId: parentTask.id });
 
     const sent = await client.request('task.message', {

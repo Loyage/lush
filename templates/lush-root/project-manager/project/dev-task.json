@@ -2,7 +2,7 @@
   "name": "dev-task",
   "singleton": false,
   "description": "我负责一件开发工作：除非调用方明确说明例外，否则一律为它在仓库旁新开一个独占的 git worktree、创建 worktree-service 节点把实际改动派下去，最后汇报改动、分支与验证方式；我不在主工作树上写文件，也不擅自 merge / rebase 或删除 worktree。",
-  "spawn_prompt": "@dev-task/spawn_prompt.md",
+  "construct_prompt": "@dev-task/construct_prompt.md",
   "system_prompt": "@dev-task/system_prompt.md",
   "child_templates": [
     "dev-task/worktree-service.json"

@@ -29,7 +29,7 @@ lush --json help task          # 机器可读的命令树（summary/cover/usage/
 | `lush task wait TASK_ID`（RPC `task.wait`） | 阻塞到该 task 进入终态 |
 | `lush task cancel TASK_ID`（RPC `task.cancel`） | 取消 task 及其整棵子树（中断正在跑的 agent） |
 | `lush task complete TASK_ID [--result JSON]`（RPC `task.complete`） | 目标达成时结束 task 并写入 result |
-| `lush task spawn SID --goal G [--parent-task-id T]`（RPC `task.spawn`） | 直接派一个 task（agent 的工具 `task_spawn` 的命令行等价物）；父 task 缺省取 `$LUSH_TASK_ID`（agent 里就是它自己），都没有时创建的是根 task——根 task 的正规入口是 `lush call SID GOAL --detach` |
+| `lush task construct SID --goal G [--parent-task-id T]`（RPC `task.construct`） | 直接派一个 task（agent 的工具 `task_construct` 的命令行等价物）；父 task 缺省取 `$LUSH_TASK_ID`（agent 里就是它自己），都没有时创建的是根 task——根 task 的正规入口是 `lush call SID GOAL --detach` |
 | `lush task update-state TASK_ID --patch JSON`（RPC `task.update_state`） | 合并这个 task 的草稿 state |
 | `lush task history TASK_ID [--after ID] [--limit N]`（RPC `task.history`） | 该 task 自己的对话 |
 | `lush task session TASK_ID [--open]`（RPC `task.session`） | 该 task agent 的磁盘会话；`--open` / `lush task attach` 进入 pi TUI |
@@ -58,16 +58,16 @@ just daemon-start    # 起 daemon（幂等）
 just bootstrap       # 起 daemon 并创建 project-manager → implement-login
 just tree | just ps | just status
 just agent list      # agent profile（不需要 daemon）：just agent inspect default / add / edit / delete / default / path
-just spawn 1 generic-task implement-login '实现登录功能'
-just spawn 1 generic-task x '' '' demo-agent   # 第 6 个参数是该服务使用的 agent profile
-just spawn 1 project my-repo '' '{"path":"/abs/repo"}'   # project 必须给变量 path（绝对路径，同时是 cwd）
-just spawn 1 dev-task fix-login '修好登录' '' '' '修复登录流程' '任务详情正文'   # dev-task：name（就是 --name）+ title + detail（第 6、7 个参数）
+just construct 1 generic-task implement-login '实现登录功能'
+just construct 1 generic-task x '' '' demo-agent   # 第 6 个参数是该服务使用的 agent profile
+just construct 1 project my-repo '' '{"path":"/abs/repo"}'   # project 必须给变量 path（绝对路径，同时是 cwd）
+just construct 1 dev-task fix-login '修好登录' '' '' '修复登录流程' '任务详情正文'   # dev-task：name（就是 --name）+ title + detail（第 6、7 个参数）
 just call 2 '请介绍一下你自己'          # 在 SID 2 上开一个根 task 并等它结束
 just call 2 'hi' dry                  # 只打印将执行的命令（pi 命令行），不真的调用 agent
 just detach 2 '慢慢做的事'             # 只建 task，随后 just tasks / just wait 1 观察
 just tasks                            # task 列表；just tasks 2 只看某个 service 上的
 just task-tree 1                      # 这棵 task 协作树；just result 1 / just task-inspect 1
-just wait 1 | just cancel 1 | just task-spawn 2 '要它做的事'
+just wait 1 | just cancel 1 | just task-construct 2 '要它做的事'
 just history 1 0 50                   # 某个 task 自己的对话
 just session 1                        # 查看该 task 的 pi session（dir/id/file）
 just session 1 open                   # 直接进 pi TUI 接续该会话

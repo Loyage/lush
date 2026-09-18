@@ -1,1 +1,0 @@
-创建 project-manager：调用 service_spawn，参数 template="project-manager"、name=<短名，必填>、goal=<职责，可选>；它自己不会干活，创建后要把请求派给它。singleton=true：同一个父服务下最多一个活动实例，已有活动实例时创建会被拒绝。该模板不声明任何变量（variables 为空），不要传 variables / --vars。典型用法：先确保它存在，再 `lush task spawn <它的 SID> --goal '<用户请求原话>'`，然后结束本轮——它结算时你会被唤醒并拿到结果。

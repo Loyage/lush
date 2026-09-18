@@ -2,7 +2,7 @@
   "name": "project",
   "singleton": false,
   "description": "我是绑定某个已存在路径（仓库/目录）的常驻项目节点：把收到的目标拆成一件件工作、为每件工作创建 dev-task 节点并汇总它们的结果，自身工作目录保持只读；我不亲自改代码，也不在别的路径上工作。",
-  "spawn_prompt": "@project/spawn_prompt.md",
+  "construct_prompt": "@project/construct_prompt.md",
   "system_prompt": "@project/system_prompt.md",
   "child_templates": [
     "project/dev-task.json"

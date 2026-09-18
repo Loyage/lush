@@ -80,7 +80,7 @@ describe('rpc', () => {
 
   test('full round trip', async () => {
     expect((await client.request('system.status')).provider).toBe('mock');
-    const child = await client.request('service.spawn', { parent_sid: 0, template: 'generic-task', name: 'demo' });
+    const child = await client.request('service.construct', { parent_sid: 0, template: 'generic-task', name: 'demo' });
     const sid = child.sid;
     expect((await client.request('service.parent', { sid })).sid).toBe(0);
     // Work travels as a task: `call` opens a root task and waits for it.
@@ -106,7 +106,7 @@ describe('rpc', () => {
     await client.request('task.wait', { task_id: detached.id });
     expect(await client.request('task.list', { sid })).toHaveLength(2);
     // Variables travel over the wire with their declaration and regions.
-    const project = await client.request('service.spawn', {
+    const project = await client.request('service.construct', {
       parent_sid: 0, template: 'project', name: 'wire', variables: { path: process.cwd() },
     });
     expect(project.variables).toMatchObject({ immutable: { path: process.cwd() }, mutable: { branch: 'main' } });
@@ -115,7 +115,7 @@ describe('rpc', () => {
     expect((await client.request('service.inspect', { sid: project.sid })).variables.mutable).toEqual({ branch: 'wire' });
 
     // delete: only a finished service goes, and its parent keeps the audit event.
-    const doomed = await client.request('service.spawn', { parent_sid: 0, template: 'generic-service', name: 'doomed' });
+    const doomed = await client.request('service.construct', { parent_sid: 0, template: 'generic-service', name: 'doomed' });
     await client.request('service.stop', { sid: doomed.sid });
     const removed = await client.request('service.delete', { sid: doomed.sid });
     expect(removed).toMatchObject({
@@ -132,8 +132,8 @@ describe('rpc', () => {
     });
 
     // purge: cancel its work first, then delete the node.
-    const live = await client.request('service.spawn', { parent_sid: 0, template: 'generic-task', name: 'live' });
-    const liveTask = await client.request('task.spawn', { sid: live.sid, goal: 'work' });
+    const live = await client.request('service.construct', { parent_sid: 0, template: 'generic-task', name: 'live' });
+    const liveTask = await client.request('task.construct', { sid: live.sid, goal: 'work' });
     expect(liveTask.sid).toBe(live.sid);
     const purged = await client.request('service.purge', { sid: live.sid });
     expect(purged.status).toBe('active');
@@ -150,7 +150,7 @@ describe('rpc', () => {
       ['service.inspect', { sid: 0, extra: 1 }, -32602],
       ['service.inspect', { sid: true }, -32602],
       ['service.inspect', { sid: 999 }, -32004],
-      ['service.spawn', { parent_sid: 0, template: [] }, -32602],
+      ['service.construct', { parent_sid: 0, template: [] }, -32602],
       ['call', { sid: 0, goal: 'hi', detach: 'yes' }, -32602],
       ['call', { sid: 0, goal: 'hi', extra: 1 }, -32602],
       ['call', { sid: 99, goal: 'hi' }, -32004],
@@ -158,7 +158,7 @@ describe('rpc', () => {
       ['service.tree', { agents: 'yes' }, -32602],
       ['service.tree', { extra: 1 }, -32602],
       ['task.list', { status: 'nope' }, -32602],
-      ['task.spawn', { sid: 0 }, -32602],
+      ['task.construct', { sid: 0 }, -32602],
       ['task.inspect', {}, -32602],
       ['task.inspect', { task_id: 99 }, -32004],
       ['task.result', { task_id: 99 }, -32004],
@@ -209,8 +209,8 @@ describe('rpc', () => {
     expect(status.orphan_policy).toEqual({ adopt: 'adopt', limit: 0, ttl_seconds: 0, sweep_seconds: 30 });
     expect(status.orphans_active).toBe(0);
     // An adopted child shows up in the scalar without changing the policy.
-    const parent = await client.request('service.spawn', { parent_sid: 0, template: 'generic-service', name: 'p' });
-    await client.request('service.spawn', { parent_sid: parent.sid, template: 'generic-task', name: 'kid' });
+    const parent = await client.request('service.construct', { parent_sid: 0, template: 'generic-service', name: 'p' });
+    await client.request('service.construct', { parent_sid: parent.sid, template: 'generic-task', name: 'kid' });
     await client.request('service.stop', { sid: parent.sid });
     expect((await client.request('system.status')).orphans_active).toBe(1);
   });
@@ -236,8 +236,8 @@ describe('rpc', () => {
     await server2.start();
     const client2 = new RPCClient(server2.path, 2);
     try {
-      const parent = await client2.request('service.spawn', { parent_sid: 0, template: 'generic-service', name: 'p' });
-      const kid = await client2.request('service.spawn', { parent_sid: parent.sid, template: 'generic-task', name: 'kid' });
+      const parent = await client2.request('service.construct', { parent_sid: 0, template: 'generic-service', name: 'p' });
+      const kid = await client2.request('service.construct', { parent_sid: parent.sid, template: 'generic-task', name: 'kid' });
       // Only a terminal parent turns its surviving children into SID 0's orphans.
       await client2.request('service.stop', { sid: parent.sid });
 
@@ -281,7 +281,7 @@ describe('rpc', () => {
 
   test('notifications and multiple requests on one connection', async () => {
     const frames = Buffer.concat([
-      encode({ jsonrpc: '2.0', method: 'service.spawn', params: { parent_sid: 0, template: 'generic-task' } }),
+      encode({ jsonrpc: '2.0', method: 'service.construct', params: { parent_sid: 0, template: 'generic-task' } }),
       encode({ jsonrpc: '2.0', id: 'next', method: 'service.list' }),
     ]);
     const response = await raw(frames);
@@ -328,7 +328,7 @@ describe('rpc', () => {
         return new AgentResponse('survived');
       },
     };
-    const child = await client.request('service.spawn', { parent_sid: 0, template: 'generic-task' });
+    const child = await client.request('service.construct', { parent_sid: 0, template: 'generic-task' });
     const sid = child.sid;
     const socket = await Bun.connect({
       unix: server.path,

@@ -147,7 +147,7 @@ export function formatView(result) {
     lines.push('', templates.length ? `templates · ${templates.length} available` : 'templates  (none)');
     for (const template of templates) {
       lines.push(`  ${template.name}${template.singleton ? ' · singleton' : ''} — ${template.description}`);
-      lines.push('    spawn', ...indentLines(excerpt(template.spawn_prompt, 2000), 3));
+      lines.push('    construct', ...indentLines(excerpt(template.construct_prompt, 2000), 3));
     }
   }
   return lines.join('\n');

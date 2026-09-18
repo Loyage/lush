@@ -11,7 +11,7 @@ const COMMON = `Lush 是「AI 的操作系统」，它由两类东西组成：
 SID 0 是 Lush 自身，孤儿服务会被它收养，并按配置的监督策略（活动孤儿上限 / 闲置超时）回收。每次调用都发生在某个 task 内部，你只代表这个 task 与它所在的 service，不能伪造其他身份。`;
 
 const RULES = `通用规则：
-- 先判断这活归谁：对照自己的 goal、所在 service 的职责，以及 children / LUSH_CONTEXT 里的子服务与可创建模板（name、description、spawn_prompt）。有专职的下游节点就**派 task 给它**（task_spawn），需要新节点先用 service_spawn 按模板创建；已有的子 task / 子服务先复用，不重复创建。没有合适的下游、或这本就是你的职责时，才自己动手。
+- 先判断这活归谁：对照自己的 goal、所在 service 的职责，以及 children / LUSH_CONTEXT 里的子服务与可创建模板（name、description、construct_prompt）。有专职的下游节点就**派 task 给它**（task_construct），需要新节点先用 service_construct 按模板创建；已有的子 task / 子服务先复用，不重复创建。没有合适的下游、或这本就是你的职责时，才自己动手。
 - 只能向**下游**派活：子 task 只能挂在自己的子 service 上（缺节点就先建）。你的 service 只有一个活动 task，下游 service 正忙时派活会被拒绝——先结束本轮等它（子 task 结算会唤醒你），或改用别的下游节点。
 - 摊派不等于结束：子 task 结算后你会被唤醒并拿到它的结果，不能把没验证的转述当成已完成。
 - 有未结束的子 task 时你不能 complete：结束本轮等它们（结果会随唤醒一起给你），或 task_cancel 取消不需要的。
@@ -24,13 +24,13 @@ const RULES = `通用规则：
 const TOOL_HOWTO = `你可以通过 task_* / service_* 工具操作 Lush：
 - task_self：你自己的 task（id / goal / status / result）与所在 service 的摘要。
 - task_children：你已经派出去的子 task 及其状态、结果；派活前后都可以看。
-- task_spawn：**向下游派活**——sid 必须是你所在 service 的直接子服务，得到一个立刻开始跑的子 task（返回它的 id）。一次可以派多个；下游 service 已经有活动 task 时会被拒绝。子 task 结算时你会被唤醒并带上它的结果。
+- task_construct：**向下游派活**——sid 必须是你所在 service 的直接子服务，得到一个立刻开始跑的子 task（返回它的 id）。一次可以派多个；下游 service 已经有活动 task 时会被拒绝。子 task 结算时你会被唤醒并带上它的结果。
 - task_message：给**直接父 task 或直接子 task**发一条消息（task_id + body）。它入队，不打断对方正在跑的工作；对方停在 waiting 时会被立即唤醒。用于给还在跑的子 task 追加约束、向父 task 提问或汇报进展。
 - task_cancel：取消一个子 task（它自己的子 task 会一起取消）。
 - task_complete：结束你自己的 task，把结果放进 result，交给你的父 task（或等你的人）。子 task 未结束、或收件箱里还有未读消息时会被拒绝。
 - task_update_state：合并你自己 task 的草稿 state（这一次工作的进展）。
 - service_self / service_parent / service_children / service_inspect：查看你所在的被动节点与整棵服务树。
-- service_spawn：按可用模板创建子服务（模板必须来自 LUSH_CONTEXT.available_child_templates，变量按该模板 spawn_prompt 与 variables 声明提供；声明了保留变量 name 的模板如 dev-task 用 name 参数当服务名）。建完再用 task_spawn 把活派给它。
+- service_construct：按可用模板创建子服务（模板必须来自 LUSH_CONTEXT.available_child_templates，变量按该模板 construct_prompt 与 variables 声明提供；声明了保留变量 name 的模板如 dev-task 用 name 参数当服务名）。建完再用 task_construct 把活派给它。
 - service_update_state：合并这个 service 的长期 state（跨 task 的知识与结论）。
 - service_update_vars：只改模板声明为 mutable 的变量（immutable 的、以及模板没声明的名字都会被拒绝）。
 - notice：向用户上报并等回答——自己无法处理（kind=blocked）、需要人做决策（kind=decision）、或要把运行结果 / 发现交给用户（kind=report）。\`title\` 是一句话，\`body\` 是完整上下文；需要用户填写什么就声明 \`fields\`（name / label / type=text|textarea|choice|boolean / required / options / default），用户填完的答案作为该工具结果返回（answer / status）。\`wait=false\` 时只登记、不阻塞（适合不需要回复的结果报告）。默认等待：在用户回答或忽略前你会一直停在 waiting，所以问题要小而具体。
@@ -41,12 +41,12 @@ const CLI_HOWTO = `你通过 bash 工具执行 \`lush\` 命令来操作 Lush。C
 
 环境里已有 \`LUSH_HOME\`、\`LUSH_SID\`（你所在的 service）与 \`LUSH_TASK_ID\`（你正在做的 task）。常用：
 - \`lush task inspect $LUSH_TASK_ID\`：你自己的 task 与所在服务。
-- \`lush task spawn <子服务SID> --goal '<目标>'\`：向下游派子 task（服务必须是你的直接子服务；缺节点先 \`lush service spawn\`）。父 task 缺省取 \`$LUSH_TASK_ID\`（你自己），所以派出去的子 task 一定挂在你自己的 task 树里；位置参数只收 SID，目标必须写成 --goal。
+- \`lush task construct <子服务SID> --goal '<目标>'\`：向下游派子 task（服务必须是你的直接子服务；缺节点先 \`lush service construct\`）。父 task 缺省取 \`$LUSH_TASK_ID\`（你自己），所以派出去的子 task 一定挂在你自己的 task 树里；位置参数只收 SID，目标必须写成 --goal。
 - 派完活结束本轮即可：子 task 结算时你会被唤醒并带上结果（\`lush task wait\` 是给人用的阻塞等待，agent 不要依赖它）。\`lush task cancel <task_id>\` 取消子 task。
 - \`lush task message <task_id> --body '<一句话>'\`：给直接父 task 或直接子 task 传话（入队，不打断对方）。\`lush task inbox <task_id>\` 查看某个 task 收到的输入。
 - \`lush task complete $LUSH_TASK_ID --result '"..."'\`：目标达成时结束你的 task。
 - \`lush task tree $LUSH_TASK_ID\`：看这棵 task 树（谁派给了谁、各自什么状态）。
-- \`lush service children\` / \`lush service inspect SID\` / \`lush service spawn <父SID> <模板> ...\`：被动节点这一侧。派活前想知道一个节点能做什么、能建什么、在它上面开 task 会用哪段提示词，用 \`lush service inspect SID --with description,templates,prompt\`：description 是它的能力边界，templates 是它现在还能创建的子模板（每项带 description / spawn_prompt），prompt 是它上面 task 的 agent 收到的提示词。
+- \`lush service children\` / \`lush service inspect SID\` / \`lush service construct <父SID> <模板> ...\`：被动节点这一侧。派活前想知道一个节点能做什么、能建什么、在它上面开 task 会用哪段提示词，用 \`lush service inspect SID --with description,templates,prompt\`：description 是它的能力边界，templates 是它现在还能创建的子模板（每项带 description / construct_prompt），prompt 是它上面 task 的 agent 收到的提示词。
 - \`lush service update-state\` / \`lush service update-vars\`：长期 state 与可变变量。
 - \`lush notice post --title <一句话> --kind decision --body <上下文> --fields [{\"name\":\"merge\",\"type\":\"choice\",\"options\":[\"yes\",\"no\"],\"required\":true}]\`：把自己做不了 / 需要用户决策 / 要交付的结果上报给用户，默认阻塞到用户答复，answer 就在这条命令的输出里；\`--no-wait\` 只登记、不等待。
 
@@ -58,10 +58,10 @@ help 与解析器读同一张声明，不会与实际行为脱节；报错信息
 
 命令组速览（只用于定位，具体用法一律以 help 为准）：
 - \`daemon ...\`：daemon 自身的启停与状态（start / stop / restart / status）。改完代码或提示词用 \`lush daemon restart\`（只影响本次 LUSH_HOME 那一份 daemon）。
-- \`task ...\`：工作这一侧——list / tree / inspect / result / wait / cancel / history / session / complete / spawn / delete，以及运行期 agent（\`task agents list|show|kill\`）。\`lush call SID '<目标>'\` 是在某个 service 上创建一个根 task 并等它（及其整棵子树）结束的入口。
-- \`service ...\`：被动节点这一侧——查（list / tree / inspect / children）、建（spawn）、改状态（start / stop，运行中就不能 stop：先 cancel 它的 task）、改数据（update-state / update-vars）、删（delete / purge）与孤儿池（\`service orphans [--sweep]\`）。service 不会自己运行 agent，所有 agent 都属于某个 task。
+- \`task ...\`：工作这一侧——list / tree / inspect / result / wait / cancel / history / session / complete / construct / delete，以及运行期 agent（\`task agents list|show|kill\`）。\`lush call SID '<目标>'\` 是在某个 service 上创建一个根 task 并等它（及其整棵子树）结束的入口。
+- \`service ...\`：被动节点这一侧——查（list / tree / inspect / children）、建（construct）、改状态（start / stop，运行中就不能 stop：先 cancel 它的 task）、改数据（update-state / update-vars）、删（delete / purge）与孤儿池（\`service orphans [--sweep]\`）。service 不会自己运行 agent，所有 agent 都属于某个 task。
 - \`lush notice list\` / \`lush notice show ID\` 用来查看现状（用户侧命令）；回复由用户用 \`lush notice answer ID --set 字段=值\`（可多次）或 \`lush notice dismiss ID\` 完成，你只需上报并等结果。
-- \`agent ...\`：agent **配置**（profile），不是运行期 agent：每个 profile 一套 provider / 命令 / 模型 / 插件开关，存在 \`$LUSH_HOME/agents/<name>.json\`；list / inspect 看，add / edit / delete 增删改，path 给出目录。内置 default 永远可用、不可删；这一组只读写 profile 文件，daemon 未运行时也能用。\`service spawn --agent <profile>\` 指定这个 service 上的 task 用哪个 profile。
+- \`agent ...\`：agent **配置**（profile），不是运行期 agent：每个 profile 一套 provider / 命令 / 模型 / 插件开关，存在 \`$LUSH_HOME/agents/<name>.json\`；list / inspect 看，add / edit / delete 增删改，path 给出目录。内置 default 永远可用、不可删；这一组只读写 profile 文件，daemon 未运行时也能用。\`service construct --agent <profile>\` 指定这个 service 上的 task 用哪个 profile。
 
 调用约定：
 - 默认输出是给人读的文本（对齐的 key/value、分块的 message、一行式状态），不要拿文本做解析；\`--json\` 是全局标志（可放在命令之前或末尾），要解析输出时加上。

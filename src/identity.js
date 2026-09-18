@@ -23,7 +23,7 @@ const ROOT = path.dirname(fileURLToPath(new URL('../package.json', import.meta.u
 /**
  * What decides what an agent is told: the shared guide (the prompts every call
  * carries), the CLI declaration (the tree `lush help` renders and the guide
- * points agents at), the templates (system prompts plus the spawn contract) and
+ * points agents at), the templates (system prompts plus the construct contract) and
  * the built-in agent profile (`src/agent/profiles.js`). The last one is how much
  * of pi's own configuration an agent gets: the pure-pi flag set decides whether
  * the user's extensions, skills, prompt templates and AGENTS.md are loaded at
@@ -33,7 +33,7 @@ const ROOT = path.dirname(fileURLToPath(new URL('../package.json', import.meta.u
  */
 const SURFACE_FILES = ['src/agent/guide.js', 'src/agent/profiles.js', 'src/cli/main.js'];
 const SURFACE_DIRS = [
-  // Templates are nested (the layout mirrors the spawn tree), so the walk has to
+  // Templates are nested (the layout mirrors the construct tree), so the walk has to
   // descend: a nested template file is as much part of the surface as a flat one.
   { path: 'templates', extension: '.json', recursive: true },
   // A template's prose may live in a `@`-referenced markdown file next to it

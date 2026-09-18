@@ -19,8 +19,8 @@ export const taskLayer = {
    * is false only for an interactive handover, where the caller's terminal
    * runs the agent.
    */
-  spawnTask(parentTaskId, sid, goal, start = true) {
-    return tasks.spawn(this, { parentTaskId, sid, goal, start });
+  constructTask(parentTaskId, sid, goal, start = true) {
+    return tasks.construct(this, { parentTaskId, sid, goal, start });
   },
 
   /** Is this task row still able to run (created / running / waiting)? */
@@ -101,9 +101,9 @@ export const taskLayer = {
     return tasks.inspect(this, taskId);
   },
 
-  /** `task.spawn`: create a task without waiting for it (the tool path uses this). */
-  taskSpawn(sid, goal, parentTaskId = null) {
-    return this.spawnTask(parentTaskId, sid, goal);
+  /** `task.construct`: create a task without waiting for it (the tool path uses this). */
+  taskConstruct(sid, goal, parentTaskId = null) {
+    return this.constructTask(parentTaskId, sid, goal);
   },
 
   /** Remove one finished task (and, with `recursive`, its finished subtree). */

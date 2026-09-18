@@ -37,7 +37,7 @@ describe('openai-compatible provider', () => {
                   id: 'http-tool-1',
                   type: 'function',
                   function: {
-                    name: 'service_spawn',
+                    name: 'service_construct',
                     arguments: JSON.stringify({ template: 'research-task', name: 'research-http', goal: 'OAuth' }),
                   },
                 }],

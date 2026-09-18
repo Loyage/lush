@@ -369,9 +369,9 @@ textarea:disabled { opacity: 0.5; }
 .template-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .template-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; font-weight: 700; }
 .template-description { margin-top: 7px; color: #b9c2bd; font-size: 0.8rem; line-height: 1.55; }
-.template-spawn { margin-top: 9px; }
-.template-spawn > summary { color: var(--muted); font-size: 0.72rem; cursor: pointer; }
-.template-spawn pre, .service-prompt {
+.template-construct { margin-top: 9px; }
+.template-construct > summary { color: var(--muted); font-size: 0.72rem; cursor: pointer; }
+.template-construct pre, .service-prompt {
   max-height: 320px;
   overflow: auto;
   margin: 9px 0 0;

@@ -2,7 +2,7 @@
   "name": "lush-root",
   "singleton": true,
   "description": "我是 Lush 的根服务（SID 0）：回答关于 Lush 自身的问题、把涉及项目/仓库/实现/研究/长期服务的请求原话转交 project-manager，并收养与按策略监督失去父节点的服务；我不创建项目节点、不读写任何项目文件，也不自己拆解或执行工作。",
-  "spawn_prompt": "@lush-root/spawn_prompt.md",
+  "construct_prompt": "@lush-root/construct_prompt.md",
   "system_prompt": "@lush-root/system_prompt.md",
   "child_templates": [
     "lush-root/project-manager.json"

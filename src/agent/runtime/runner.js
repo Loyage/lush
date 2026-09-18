@@ -69,7 +69,7 @@ export class AgentRuntime {
 
   // ── Which agent answers for one service ───────────────────────────────────
 
-  /** The profile name a service selected at spawn time (`state.agent`), or null. */
+  /** The profile name a service selected at construct time (`state.agent`), or null. */
   selectedAgent(sid) {
     return this.manager.selectedAgent(sid);
   }
@@ -114,7 +114,7 @@ export class AgentRuntime {
 
   /**
    * Open a task's run in the background and return immediately: the caller
-   * (a `call`, a `task_spawn` tool) gets the task id, and the work proceeds in
+   * (a `call`, a `task_construct` tool) gets the task id, and the work proceeds in
    * this daemon. The promise is kept on the entry so `shutdown` can await it.
    */
   startTask(taskId) {

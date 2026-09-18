@@ -30,7 +30,7 @@ export function delegateTargets(manager, taskId) {
  * task (created by `call`); otherwise the task is delegated to `sid`, which
  * must be a direct child service of the parent task's service.
  */
-export function spawn(manager, { parentTaskId = null, sid, goal, start = true }) {
+export function construct(manager, { parentTaskId = null, sid, goal, start = true }) {
   validSid(sid);
   text(goal, 'goal');
   if (manager.runtime === null) throw new LushError('AgentRuntime is not bound', -32020);
@@ -42,7 +42,7 @@ export function spawn(manager, { parentTaskId = null, sid, goal, start = true })
   if (parentTaskId !== null) {
     parentTask = requireTask(manager, parentTaskId);
     if (isTerminal(parentTask)) {
-      throw new LushError(`task ${parentTaskId} is ${parentTask.status}; it cannot spawn more work`, -32009);
+      throw new LushError(`task ${parentTaskId} is ${parentTask.status}; it cannot construct more work`, -32009);
     }
     if (parentTask.sid === sid) {
       throw new LushError(`task ${parentTaskId} cannot delegate to its own service ${sid}`, -32010);

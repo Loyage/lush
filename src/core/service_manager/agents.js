@@ -3,7 +3,7 @@
  * the agent verbs (`agents list / show / kill`, `call`, `session`) to the bound
  * runtime.
  *
- * Profiles are resolved *now*, not at spawn time: editing a file under
+ * Profiles are resolved *now*, not at construct time: editing a file under
  * `$LUSH_HOME/agents/` takes effect on the next task, without a daemon restart.
  * The one exception is the *name* a service selected, which is recorded at
  * creation and stays visible even if the profile is later deleted.
@@ -40,7 +40,7 @@ export const agents = {
 
   // ── Which agent answers for one service (see agent/catalog.js) ───────────
 
-  /** The profile name a service selected at spawn time (`state.agent`), or null. */
+  /** The profile name a service selected at construct time (`state.agent`), or null. */
   selectedAgent(sid) {
     return this.repository.stateAgent(sid);
   },

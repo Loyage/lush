@@ -5,15 +5,15 @@ import { createSignal } from '../src/signal.js';
 import { cleanup, permissiveRoot, system, tmpdir } from './helpers.js';
 
 /**
- * `lush task spawn` must stay inside the task tree it was called from: a
+ * `lush task construct` must stay inside the task tree it was called from: a
  * delegation that silently becomes a *root* task is invisible to the parent
  * (`task tree` does not show it) and only turns up later as mysterious orphan
  * work. The parent is therefore taken from `$LUSH_TASK_ID` — the convention
  * `task message --from` and `notice post --task` already use — exactly like the
- * built-in runtime's `task_spawn` tool takes it from the calling task.
+ * built-in runtime's `task_construct` tool takes it from the calling task.
  */
-describe('lush task spawn: who is the delegating task', () => {
-  const spawn = ROOT.children.task.children.spawn;
+describe('lush task construct: who is the delegating task', () => {
+  const construct = ROOT.children.task.children.construct;
 
   function withEnv(value, body) {
     const before = process.env.LUSH_TASK_ID;
@@ -30,15 +30,15 @@ describe('lush task spawn: who is the delegating task', () => {
   test('the parent defaults to $LUSH_TASK_ID and --parent-task-id overrides it', () => {
     withEnv(undefined, () => {
       // Outside an agent there is nobody to delegate for: still a root task.
-      expect(spawn.parse(['8'])).toEqual({ sid: 8 });
+      expect(construct.parse(['8'])).toEqual({ sid: 8 });
     });
     withEnv('19', () => {
-      // This is the shape an agent's shell produces: `lush task spawn 8 --goal ...`
-      expect(spawn.parse(['8'])).toEqual({ sid: 8, parent_task_id: 19 });
-      const explicit = spawn.parse(['8']);
-      spawn.options['--goal'].apply(explicit, 'work');
-      spawn.options['--parent-task-id'].apply(explicit, '20');
-      spawn.check(explicit);
+      // This is the shape an agent's shell produces: `lush task construct 8 --goal ...`
+      expect(construct.parse(['8'])).toEqual({ sid: 8, parent_task_id: 19 });
+      const explicit = construct.parse(['8']);
+      construct.options['--goal'].apply(explicit, 'work');
+      construct.options['--parent-task-id'].apply(explicit, '20');
+      construct.check(explicit);
       expect(explicit).toMatchObject({ sid: 8, goal: 'work', parent_task_id: 20 });
     });
   });
@@ -46,13 +46,13 @@ describe('lush task spawn: who is the delegating task', () => {
   test('a malformed $LUSH_TASK_ID fails loudly instead of becoming a root task', () => {
     for (const bad of ['not-a-task', '0', '-3']) {
       withEnv(bad, () => {
-        expect(() => spawn.parse(['8'])).toThrow(/\$LUSH_TASK_ID/);
+        expect(() => construct.parse(['8'])).toThrow(/\$LUSH_TASK_ID/);
       });
     }
   });
 });
 
-describe('task.spawn over the wire', () => {
+describe('task.construct over the wire', () => {
   let dir;
   let database;
   let manager;
@@ -60,7 +60,7 @@ describe('task.spawn over the wire', () => {
   let dispatcher;
 
   beforeEach(() => {
-    dir = tmpdir('lush-task-spawn-');
+    dir = tmpdir('lush-task-construct-');
     ({ database, manager, runtime } = system(dir));
     permissiveRoot(manager);
     dispatcher = new Dispatcher(manager, createSignal());
@@ -73,20 +73,20 @@ describe('task.spawn over the wire', () => {
   });
 
   test('a delegated task lands inside the tree of the task that delegated it', async () => {
-    const parentSid = manager.spawn(0, 'generic-service', 'parent').sid;
-    const childSid = manager.spawn(parentSid, 'generic-task', 'child').sid;
+    const parentSid = manager.construct(0, 'generic-service', 'parent').sid;
+    const childSid = manager.construct(parentSid, 'generic-task', 'child').sid;
     // Not started: the parent stays active, like an agent that is still working.
-    const parent = manager.spawnTask(null, parentSid, 'parent work', false);
+    const parent = manager.constructTask(null, parentSid, 'parent work', false);
 
-    const child = await dispatcher.dispatch('task.spawn', {
+    const child = await dispatcher.dispatch('task.construct', {
       sid: childSid, goal: 'downstream', parent_task_id: parent.id,
     });
     expect(child).toMatchObject({ sid: childSid, parent_task_id: parent.id, root_task_id: parent.id });
     expect(manager.taskTree(parent.id).children.map((task) => task.id)).toContain(child.id);
 
     // Without a parent it is a root task, which is why the CLI must supply one.
-    const spareSid = manager.spawn(parentSid, 'generic-task', 'spare').sid;
-    const standalone = await dispatcher.dispatch('task.spawn', { sid: spareSid, goal: 'standalone' });
+    const spareSid = manager.construct(parentSid, 'generic-task', 'spare').sid;
+    const standalone = await dispatcher.dispatch('task.construct', { sid: spareSid, goal: 'standalone' });
     expect(standalone.parent_task_id).toBeNull();
   });
 });

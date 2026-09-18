@@ -81,7 +81,7 @@ export function children(manager, sid) {
 
 /**
  * The child templates a service may still create: its creation-time permission
- * list (`child_templates`) filtered to what `spawn` would accept right now, in
+ * list (`child_templates`) filtered to what `construct` would accept right now, in
  * loader (hierarchy) order. A singleton whose slot under this parent is already
  * taken is *not* available — advertising it would only produce a failed call.
  *
@@ -100,7 +100,7 @@ export function availableTemplates(templates, childTemplates, activeCount) {
       name: template.name,
       singleton: template.singleton,
       description: template.description,
-      spawn_prompt: template.spawn_prompt,
+      construct_prompt: template.construct_prompt,
     }));
 }
 

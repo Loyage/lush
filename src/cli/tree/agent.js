@@ -69,7 +69,7 @@ export const agentGroup = {
     '每个 profile 是 $LUSH_HOME/agents/<name>.json 一个文件，可手写、可被这里校验；文件名就是 agent 名（没有 name 字段），未知字段一律拒绝。',
     '内置 default：provider pi + 纯净化参数（不加载 extensions / skills / prompt templates / themes / AGENTS.md），永远可用、不可删除；写 $LUSH_HOME/agents/default.json 可逐字段覆盖它。',
     '这些命令只读写 profile 文件，不经过 daemon：daemon 没运行时也能用（这是它和 `lush service ...` 的区别）。daemon 在每次 call 时按 profile 决定后端。',
-    '选择优先级：服务显式选择（spawn --agent / 模板 agent 字段）> 环境变量（LUSH_PROVIDER / LUSH_PI_COMMAND / LUSH_PI_PROVIDER / LUSH_PI_MODEL）> 内置 default。',
+    '选择优先级：服务显式选择（construct --agent / 模板 agent 字段）> 环境变量（LUSH_PROVIDER / LUSH_PI_COMMAND / LUSH_PI_PROVIDER / LUSH_PI_MODEL）> 内置 default。',
     '不覆盖：运行期的 agent（TASK.N，用 `lush task agents`）与某个 task 的持久 session（用 `lush task session`）。',
   ],
   notes: [

@@ -6,7 +6,7 @@
  * Exported as a method group: `index.js` merges it into `ServiceManager`.
  */
 import { VIEW_SECTIONS } from '../types.js';
-import { checkWorkdir, spawnVariables, updateState, updateVars } from '../variables.js';
+import { checkWorkdir, constructVariables, updateState, updateVars } from '../variables.js';
 import {
   backfillTemplateSnapshots, children, inspect, list, load, parent, requireActive, tree, view,
 } from '../queries.js';
@@ -81,8 +81,8 @@ export const read = {
 
   // ── Variables and service state (see variables.js) ─────────────────────────
 
-  spawnVariables(template, variables) {
-    return spawnVariables(template, variables);
+  constructVariables(template, variables) {
+    return constructVariables(template, variables);
   },
 
   checkWorkdir(value) {

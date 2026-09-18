@@ -211,7 +211,7 @@ describe('agent catalog: pure pi is what pi actually runs', () => {
   });
 });
 
-describe('agent profiles inside services: spawn, inspect and the argv of a call', () => {
+describe('agent profiles inside services: construct, inspect and the argv of a call', () => {
   let dir;
   let stub;
   let db;
@@ -239,12 +239,12 @@ describe('agent profiles inside services: spawn, inspect and the argv of a call'
     cleanup(dir);
   });
 
-  test('spawn --agent records the profile name and the call runs that profile', async () => {
+  test('construct --agent records the profile name and the call runs that profile', async () => {
     setup();
     new ProfileStore(dir).write('demo', {
       provider: 'pi', command: stub, plugins: false, model: 'demo-model',
     });
-    const child = manager.spawn(0, 'generic-task', 'worker', 'work', undefined, 'demo');
+    const child = manager.construct(0, 'generic-task', 'worker', 'work', undefined, 'demo');
     expect(child.agent_profile).toBe('demo');
     expect(manager.repository.context(child.sid).state.agent).toBe('demo');
     expect(manager.inspect(child.sid).agent).toMatchObject({ provider: 'pi', profile: 'demo' });
@@ -290,9 +290,9 @@ describe('agent profiles inside services: spawn, inspect and the argv of a call'
     store.write('from-template', piProfile);
     store.write('explicit', piProfile);
 
-    const fromTemplate = manager.spawn(0, 'agent-task', 'a');
+    const fromTemplate = manager.construct(0, 'agent-task', 'a');
     expect(fromTemplate.agent_profile).toBe('from-template');
-    const explicit = manager.spawn(0, 'agent-task', 'b', undefined, undefined, 'explicit');
+    const explicit = manager.construct(0, 'agent-task', 'b', undefined, undefined, 'explicit');
     expect(explicit.agent_profile).toBe('explicit');
     // Both are pi profiles even though the daemon's fallback provider is mock.
     expect(manager.inspect(fromTemplate.sid).agent).toMatchObject({ provider: 'pi', profile: 'from-template' });
@@ -301,28 +301,28 @@ describe('agent profiles inside services: spawn, inspect and the argv of a call'
     const preview = await manager.callDescribe(explicit.sid, 'hi');
     for (const flag of PURE_PI_FLAGS) expect(preview.argv).not.toContain(flag);
     // No explicit agent: the environment tier (mock) still applies.
-    const plain = manager.spawn(0, 'generic-task', 'c');
+    const plain = manager.construct(0, 'generic-task', 'c');
     expect(plain.agent_profile).toBeNull();
     expect(manager.inspect(plain.sid).agent).toMatchObject({ provider: 'mock', profile: 'default' });
   });
 
-  test('spawn validates the profile name and its existence', () => {
+  test('construct validates the profile name and its existence', () => {
     setup(null, (loader) => {
       loader.register({
         ...loader.get('generic-task'), name: 'ghost-task', singleton: false, agent: 'ghost', child_templates: ['*'],
       });
     });
     // `default` is built in and usable even though it has no file.
-    expect(manager.spawn(0, 'generic-task', 'd', undefined, undefined, 'default').agent_profile).toBe('default');
-    expect(() => manager.spawn(0, 'generic-task', 'x', undefined, undefined, 'ghost')).toThrow(/agent profile not found: ghost/);
-    expect(() => manager.spawn(0, 'generic-task', 'x', undefined, undefined, 'bad name')).toThrow(/invalid agent name/);
-    // A template that names a missing profile fails at spawn too.
-    expect(() => manager.spawn(0, 'ghost-task', 'x')).toThrow(/agent profile not found: ghost/);
+    expect(manager.construct(0, 'generic-task', 'd', undefined, undefined, 'default').agent_profile).toBe('default');
+    expect(() => manager.construct(0, 'generic-task', 'x', undefined, undefined, 'ghost')).toThrow(/agent profile not found: ghost/);
+    expect(() => manager.construct(0, 'generic-task', 'x', undefined, undefined, 'bad name')).toThrow(/invalid agent name/);
+    // A template that names a missing profile fails at construct time too.
+    expect(() => manager.construct(0, 'ghost-task', 'x')).toThrow(/agent profile not found: ghost/);
   });
 
   test('the selected profile is part of the record and cannot be rewritten by update_state', () => {
     setup();
-    const child = manager.spawn(0, 'generic-task', 'x');
+    const child = manager.construct(0, 'generic-task', 'x');
     expect(() => manager.updateState(child.sid, { agent: 'other' })).toThrow(/state.agent records the agent profile/);
     expect(manager.inspect(child.sid).context.state).toEqual({});
     expect(manager.inspect(child.sid).agent.profile).toBe('default');
@@ -332,7 +332,7 @@ describe('agent profiles inside services: spawn, inspect and the argv of a call'
     setup();
     const store = new ProfileStore(dir);
     store.write('gone', { provider: 'pi', command: stub });
-    const child = manager.spawn(0, 'generic-task', 'x', undefined, undefined, 'gone');
+    const child = manager.construct(0, 'generic-task', 'x', undefined, undefined, 'gone');
     store.remove('gone');
 
     // Reading the service still works and says why the agent cannot be built.

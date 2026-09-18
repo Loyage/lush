@@ -64,13 +64,13 @@ describe('core', () => {
   });
 
   /** Spawn a service and keep the SID handle (the tests read it like the old ones did). */
-  function spawn(parent, template, name, goal, variables) {
-    return manager.load(manager.spawn(parent, template, name, goal, variables).sid);
+  function construct(parent, template, name, goal, variables) {
+    return manager.load(manager.construct(parent, template, name, goal, variables).sid);
   }
 
   /** A child service of SID 0 that is ready to be given work. */
   function worker(template = 'generic-task', name = 'worker') {
-    return spawn(0, template, name).sid;
+    return construct(0, template, name).sid;
   }
 
   test('call creates a root task, runs it and returns its result', async () => {
@@ -99,7 +99,7 @@ describe('core', () => {
   test('one service runs at most one task at a time', async () => {
     const sid = worker();
     const first = manager.repository.createTask(sid, null, 'first');
-    expect(() => manager.spawnTask(null, sid, 'second')).toThrow(/already working on task/);
+    expect(() => manager.constructTask(null, sid, 'second')).toThrow(/already working on task/);
     manager.cancelTask(first.id);
     // Once the first one is finished the service is free again.
     const second = await manager.call(sid, 'second');
@@ -107,17 +107,17 @@ describe('core', () => {
   });
 
   test('a task may only delegate to a direct child service', () => {
-    const parent = spawn(0, 'generic-service', 'parent');
-    const child = spawn(parent.sid, 'generic-task', 'child');
-    const grandchild = spawn(child.sid, 'generic-task', 'grandchild');
+    const parent = construct(0, 'generic-service', 'parent');
+    const child = construct(parent.sid, 'generic-task', 'child');
+    const grandchild = construct(child.sid, 'generic-task', 'grandchild');
     const task = manager.repository.createTask(parent.sid, null, 'delegate');
 
     // A direct child service is the only legal target, and the child task
     // inherits the root of the tree it belongs to.
-    const sub = manager.spawnTask(task.id, child.sid, 'downstream');
+    const sub = manager.constructTask(task.id, child.sid, 'downstream');
     expect(sub).toMatchObject({ sid: child.sid, parent_task_id: task.id, root_task_id: task.id });
-    expect(() => manager.spawnTask(task.id, grandchild.sid, 'skip a level')).toThrow(/only delegate downstream/);
-    expect(() => manager.spawnTask(task.id, parent.sid, 'its own service')).toThrow(/cannot delegate to its own service/);
+    expect(() => manager.constructTask(task.id, grandchild.sid, 'skip a level')).toThrow(/only delegate downstream/);
+    expect(() => manager.constructTask(task.id, parent.sid, 'its own service')).toThrow(/cannot delegate to its own service/);
     manager.cancelTask(task.id);
   });
 
@@ -132,8 +132,8 @@ describe('core', () => {
     ));
     permissiveRoot(built.manager);
     try {
-      const parent = built.manager.spawn(0, 'generic-service', 'pm');
-      const child = built.manager.spawn(parent.sid, 'generic-task', 'kid');
+      const parent = built.manager.construct(0, 'generic-service', 'pm');
+      const child = built.manager.construct(parent.sid, 'generic-task', 'kid');
       const task = await built.manager.call(parent.sid, '把这活派给下游');
       expect(task.status).toBe('completed');
       const children = built.manager.taskList(null, null, 'children');
@@ -156,9 +156,9 @@ describe('core', () => {
   });
 
   test('task completion waits for the children, and terminating cascades', async () => {
-    const parent = spawn(0, 'generic-service', 'parent');
-    const child = spawn(parent.sid, 'generic-task', 'child');
-    const task = manager.spawnTask(null, parent.sid, 'parent work');
+    const parent = construct(0, 'generic-service', 'parent');
+    const child = construct(parent.sid, 'generic-task', 'child');
+    const task = manager.constructTask(null, parent.sid, 'parent work');
     // Parked on purpose: a child task that is still active, without an agent.
     const sub = manager.repository.createTask(child.sid, task.id, 'child work', { rootTaskId: task.id });
 
@@ -180,9 +180,9 @@ describe('core', () => {
   });
 
   test('a task may only wait on its own subtree, and never on itself', async () => {
-    const parent = spawn(0, 'generic-service', 'parent');
-    const child = spawn(parent.sid, 'generic-task', 'child');
-    const other = spawn(0, 'generic-task', 'other');
+    const parent = construct(0, 'generic-service', 'parent');
+    const child = construct(parent.sid, 'generic-task', 'child');
+    const other = construct(0, 'generic-task', 'other');
     const task = manager.repository.createTask(parent.sid, null, 'parent work');
     const mine = manager.repository.createTask(child.sid, task.id, 'child work', { rootTaskId: task.id });
     const theirs = manager.repository.createTask(other.sid, null, 'unrelated');
@@ -232,11 +232,11 @@ describe('core', () => {
     manager.stop(sid);
     expect(manager.inspect(sid).status).toBe('stopped');
     manager.stop(sid); // idempotent
-    expect(code(() => manager.spawnTask(null, sid, 'work'))).toBe(-32009);
+    expect(code(() => manager.constructTask(null, sid, 'work'))).toBe(-32009);
     expect(code(() => manager.start(sid))).toBeNull();
     expect(manager.inspect(sid).status).toBe('active');
 
-    const task = manager.spawnTask(null, sid, 'work');
+    const task = manager.constructTask(null, sid, 'work');
     expect(() => manager.stop(sid)).toThrow(/working on task/);
     manager.cancelTask(task.id);
     manager.stop(sid);
@@ -249,7 +249,7 @@ describe('core', () => {
   });
 
   test('stop adopts active children; restart does not take them back', () => {
-    const parent = spawn(0, 'generic-service', 'parent');
+    const parent = construct(0, 'generic-service', 'parent');
     const child = parent.createChild('generic-task', { name: 'kid' });
     manager.stop(parent.sid);
     expect(child.getParent().sid).toBe(0);
@@ -262,9 +262,9 @@ describe('core', () => {
   });
 
   test('delete removes a stopped service, its tasks and every row they owned', async () => {
-    const parent = spawn(0, 'generic-service', 'parent');
-    const child = spawn(parent.sid, 'generic-service', 'child');
-    const grandchild = spawn(child.sid, 'generic-task', 'grandchild');
+    const parent = construct(0, 'generic-service', 'parent');
+    const child = construct(parent.sid, 'generic-service', 'child');
+    const grandchild = construct(child.sid, 'generic-task', 'grandchild');
     const task = await manager.call(grandchild.sid, 'work');
     manager.updateState(child.sid, { progress: 'half' });
     // Stop the leaf first: stopping `child` would hand its *active* children to
@@ -287,20 +287,20 @@ describe('core', () => {
   });
 
   test('delete refuses live work, children and SID 0', () => {
-    const running = spawn(0, 'generic-task', 'busy');
+    const running = construct(0, 'generic-task', 'busy');
     expect(code(() => manager.delete(running.sid))).toBe(-32010);
     expect(() => manager.delete(running.sid)).toThrow(/stop it first/);
     expect(code(() => manager.delete(0))).toBe(-32010);
     expect(() => manager.purge(0)).toThrow(/SID 0 is managed by the daemon/);
     expect(() => manager.delete(running.sid + 99)).toThrow(/not found/);
 
-    const parent = spawn(0, 'generic-service', 'parent');
+    const parent = construct(0, 'generic-service', 'parent');
     parent.createChild('generic-task', { name: 'kid' });
     expect(() => manager.delete(parent.sid)).toThrow(/has children/);
     expect(() => manager.purge(parent.sid)).toThrow(/has children/);
 
     // A task still running on the service is refused too, and purge cancels it.
-    const task = manager.spawnTask(null, running.sid, 'work');
+    const task = manager.constructTask(null, running.sid, 'work');
     expect(() => manager.delete(running.sid)).toThrow(/task .* is (created|running|waiting)/);
     const purged = manager.purge(running.sid);
     expect(purged.cancelled).toEqual([task.id]);
@@ -308,9 +308,9 @@ describe('core', () => {
   });
 
   test('purge cancels the whole subtree before removing it, without adopting', () => {
-    const parent = spawn(0, 'generic-service', 'parent');
-    const child = spawn(parent.sid, 'generic-task', 'child');
-    const grandchild = spawn(child.sid, 'generic-task', 'grandchild');
+    const parent = construct(0, 'generic-service', 'parent');
+    const child = construct(parent.sid, 'generic-task', 'child');
+    const grandchild = construct(child.sid, 'generic-task', 'grandchild');
     const sids = [parent.sid, child.sid, grandchild.sid];
     const result = manager.purge(parent.sid, true);
     expect(result.deleted).toEqual(sids);
@@ -322,8 +322,8 @@ describe('core', () => {
   });
 
   test('delete repairs surviving links to the sid it removes', () => {
-    const creator = spawn(0, 'generic-service', 'creator');
-    const adopted = spawn(creator.sid, 'generic-service', 'adopted');
+    const creator = construct(0, 'generic-service', 'creator');
+    const adopted = construct(creator.sid, 'generic-service', 'adopted');
     manager.stop(creator.sid);
     expect(adopted.inspect().parent_sid).toBe(0);
     expect(adopted.inspect().original_parent_sid).toBe(creator.sid);
@@ -341,29 +341,29 @@ describe('core', () => {
   test('template restrictions and creation-time snapshot', () => {
     const template = manager.templates.get('generic-task');
     manager.templates.register({ ...template, name: 'restricted-task', child_templates: ['research-task'] });
-    const parent = spawn(0, 'restricted-task', 'restricted');
-    spawn(parent.sid, 'research-task', 'researcher');
-    expect(code(() => spawn(parent.sid, 'generic-service', 'nope'))).toBe(-32010);
+    const parent = construct(0, 'restricted-task', 'restricted');
+    construct(parent.sid, 'research-task', 'researcher');
+    expect(code(() => construct(parent.sid, 'generic-service', 'nope'))).toBe(-32010);
     manager.templates.templates['restricted-task'].child_templates = ['*'];
-    expect(() => spawn(parent.sid, 'generic-service', 'nope')).toThrow(LushError);
-    expect(() => spawn(0, 'no-such-template', 'x')).toThrow(LushError);
-    expect(() => spawn(0, 'lush-root', 'x')).toThrow(/reserved/);
+    expect(() => construct(parent.sid, 'generic-service', 'nope')).toThrow(LushError);
+    expect(() => construct(0, 'no-such-template', 'x')).toThrow(LushError);
+    expect(() => construct(0, 'lush-root', 'x')).toThrow(/reserved/);
   });
 
   test('singleton templates allow one active instance per parent', () => {
     const template = manager.templates.get('generic-service');
     manager.templates.register({ ...template, name: 'one-per-parent', singleton: true });
-    const parent = spawn(0, 'generic-service', 'parent');
-    const first = spawn(parent.sid, 'one-per-parent', 'first');
-    expect(code(() => spawn(parent.sid, 'one-per-parent', 'second'))).toBe(-32010);
+    const parent = construct(0, 'generic-service', 'parent');
+    const first = construct(parent.sid, 'one-per-parent', 'first');
+    expect(code(() => construct(parent.sid, 'one-per-parent', 'second'))).toBe(-32010);
     // Singleton is per parent SID, not system-wide.
-    expect(spawn(0, 'one-per-parent', 'other').inspect().parent_sid).toBe(0);
+    expect(construct(0, 'one-per-parent', 'other').inspect().parent_sid).toBe(0);
     // Only active instances occupy the slot.
     manager.stop(first.sid);
-    expect(spawn(parent.sid, 'one-per-parent', 'third').sid).not.toBe(first.sid);
+    expect(construct(parent.sid, 'one-per-parent', 'third').sid).not.toBe(first.sid);
     // Non-singleton templates stay unrestricted.
-    const plain = spawn(parent.sid, 'generic-task', 'plain');
-    expect(spawn(parent.sid, 'generic-task', 'plain-2').sid).not.toBe(plain.sid);
+    const plain = construct(parent.sid, 'generic-task', 'plain');
+    expect(construct(parent.sid, 'generic-task', 'plain-2').sid).not.toBe(plain.sid);
   });
 
   test('dev-task declares name / title / detail as checked fields', () => {
@@ -377,15 +377,15 @@ describe('core', () => {
     expect(Object.hasOwn(template.variables.immutable.detail, 'required')).toBe(false);
     // Creating agents are told all three fields, and how the work is delegated.
     for (const expected of ['name', 'title', 'detail', 'worktree', 'task']) {
-      expect(template.spawn_prompt).toContain(expected);
+      expect(template.construct_prompt).toContain(expected);
     }
-    for (const expected of ['variables', 'detail', 'parent', 'task_spawn']) {
+    for (const expected of ['variables', 'detail', 'parent', 'task_construct']) {
       expect(template.system_prompt).toContain(expected);
     }
 
-    const project = spawn(0, 'project', 'demo', undefined, { path: dir });
+    const project = construct(0, 'project', 'demo', undefined, { path: dir });
     expect(manager.templates.get('project').child_templates).toContain('dev-task');
-    const task = spawn(project.sid, 'dev-task', 'fix-login', '修好登录',
+    const task = construct(project.sid, 'dev-task', 'fix-login', '修好登录',
       { title: '修复登录流程', detail: '第一行\n第二行' });
     expect(task.inspect().name).toBe('fix-login');
     expect(task.inspect().context.state).toEqual({
@@ -393,15 +393,15 @@ describe('core', () => {
     });
     expect(task.inspect().variables.declarations.immutable.name.max_length).toBe(64);
     // One child and one only: the worktree node.
-    expect(code(() => spawn(task.sid, 'generic-task', 'nope'))).toBe(-32010);
-    expect(code(() => spawn(task.sid, 'project', 'nope'))).toBe(-32010);
+    expect(code(() => construct(task.sid, 'generic-task', 'nope'))).toBe(-32010);
+    expect(code(() => construct(task.sid, 'project', 'nope'))).toBe(-32010);
     expect(task.getParent().inspect().variables.immutable).toEqual({ path: dir });
-    expect(code(() => spawn(project.sid, 'dev-task', 'ok-name', undefined, { title: 'x', path: dir }))).toBe(-32602);
+    expect(code(() => construct(project.sid, 'dev-task', 'ok-name', undefined, { title: 'x', path: dir }))).toBe(-32602);
 
-    const minimal = spawn(project.sid, 'dev-task', 'small-fix', undefined, { title: '小修' });
+    const minimal = construct(project.sid, 'dev-task', 'small-fix', undefined, { title: '小修' });
     expect(minimal.inspect().name).toBe('small-fix');
     expect(minimal.inspect().goal).toBe('small-fix');
-    const empty = spawn(project.sid, 'dev-task', 'no-body', undefined, { title: '没正文', detail: '' });
+    const empty = construct(project.sid, 'dev-task', 'no-body', undefined, { title: '没正文', detail: '' });
     expect(empty.inspect().context.state.params.detail).toBe('');
   });
 
@@ -410,33 +410,33 @@ describe('core', () => {
     expect(template).toMatchObject({ singleton: false, child_templates: [] });
     expect(template.variables.immutable.path).toMatchObject({ required: true });
     expect(template.variables.mutable).toBeUndefined();
-    for (const expected of ['path', 'worktree add', 'service_spawn']) expect(template.spawn_prompt).toContain(expected);
+    for (const expected of ['path', 'worktree add', 'service_construct']) expect(template.construct_prompt).toContain(expected);
     for (const expected of ['worktree', 'state', 'task_complete']) expect(template.system_prompt).toContain(expected);
 
-    const project = spawn(0, 'project', 'demo', undefined, { path: dir });
-    expect(code(() => spawn(project.sid, 'worktree-service', 'nope', undefined, { path: dir }))).toBe(-32010);
-    const task = spawn(project.sid, 'dev-task', 'fix-login', undefined, { title: '修登录' });
-    expect(code(() => spawn(task.sid, 'worktree-service', 'wt'))).toBe(-32602);
-    expect(code(() => spawn(task.sid, 'worktree-service', 'wt', undefined, { path: 'relative/dir' }))).toBe(-32602);
-    expect(code(() => spawn(task.sid, 'worktree-service', 'wt', undefined, { path: `${dir}/nope` }))).toBe(-32602);
-    expect(code(() => spawn(task.sid, 'worktree-service', 'wt', undefined, { path: dir, branch: 'dev' }))).toBe(-32602);
+    const project = construct(0, 'project', 'demo', undefined, { path: dir });
+    expect(code(() => construct(project.sid, 'worktree-service', 'nope', undefined, { path: dir }))).toBe(-32010);
+    const task = construct(project.sid, 'dev-task', 'fix-login', undefined, { title: '修登录' });
+    expect(code(() => construct(task.sid, 'worktree-service', 'wt'))).toBe(-32602);
+    expect(code(() => construct(task.sid, 'worktree-service', 'wt', undefined, { path: 'relative/dir' }))).toBe(-32602);
+    expect(code(() => construct(task.sid, 'worktree-service', 'wt', undefined, { path: `${dir}/nope` }))).toBe(-32602);
+    expect(code(() => construct(task.sid, 'worktree-service', 'wt', undefined, { path: dir, branch: 'dev' }))).toBe(-32602);
 
-    const service = spawn(task.sid, 'worktree-service', 'fix-login', '修登录', { path: dir });
+    const service = construct(task.sid, 'worktree-service', 'fix-login', '修登录', { path: dir });
     expect(service.inspect().template).toBe('worktree-service');
     expect(service.inspect().context.state).toEqual({ params: { path: dir } });
     expect(code(() => manager.updateVars(service.sid, { path: '/tmp' }))).toBe(-32602);
-    expect(code(() => spawn(service.sid, 'generic-task', 'nope'))).toBe(-32010);
+    expect(code(() => construct(service.sid, 'generic-task', 'nope'))).toBe(-32010);
   });
 
   test('dev-task refuses an unusable name / title / detail with an actionable error', () => {
-    const project = spawn(0, 'project', 'demo', undefined, { path: dir });
+    const project = construct(0, 'project', 'demo', undefined, { path: dir });
     const attempt = (overrides) => {
-      // An explicit `undefined` must reach spawn as "no name", so no
+      // An explicit `undefined` must reach construct as "no name", so no
       // destructuring default may swallow it.
       const name = Object.hasOwn(overrides, 'name') ? overrides.name : 'ok-name';
       const variables = Object.hasOwn(overrides, 'variables') ? overrides.variables : { title: '标题' };
       try {
-        return spawn(project.sid, 'dev-task', name, undefined, variables);
+        return construct(project.sid, 'dev-task', name, undefined, variables);
       } catch (err) {
         return err;
       }
@@ -468,7 +468,7 @@ describe('core', () => {
       name: 'checked-mutable',
       variables: { mutable: { branch: { default: 'main', pattern: '[a-z]+', max_length: 8, description: '分支名' } } },
     });
-    const checked = spawn(0, 'checked-mutable', 'checked');
+    const checked = construct(0, 'checked-mutable', 'checked');
     expect(checked.inspect().context.state.vars).toEqual({ branch: 'main' });
     expect(manager.updateVars(checked.sid, { branch: 'dev' })).toEqual({ branch: 'dev' });
     for (const patch of [{ branch: 'DEV 1' }, { branch: 'toolongbranch' }, { branch: 7 }]) {
@@ -480,13 +480,13 @@ describe('core', () => {
       name: 'anchored-pattern',
       variables: { immutable: { tag: { pattern: '[a-z]+', description: '标签' } } },
     });
-    expect(spawn(0, 'anchored-pattern', 'ok', undefined, { tag: 'abc' }).inspect().context.state.params.tag).toBe('abc');
-    expect(code(() => spawn(0, 'anchored-pattern', 'bad', undefined, { tag: 'a1c' }))).toBe(-32602);
+    expect(construct(0, 'anchored-pattern', 'ok', undefined, { tag: 'abc' }).inspect().context.state.params.tag).toBe('abc');
+    expect(code(() => construct(0, 'anchored-pattern', 'bad', undefined, { tag: 'a1c' }))).toBe(-32602);
   });
 
   test('context advertises child templates, the task, and no type', async () => {
-    const parent = spawn(0, 'generic-task', 'parent');
-    const task = manager.spawnTask(null, parent.sid, 'who can you create?');
+    const parent = construct(0, 'generic-task', 'parent');
+    const task = manager.constructTask(null, parent.sid, 'who can you create?');
     const built = new ContextBuilder(manager.repository, manager.templates).build(manager.repository.getTask(task.id), null);
     const data = built.data;
     expect(data.child_templates).toEqual(['*']);
@@ -494,18 +494,18 @@ describe('core', () => {
     const generic = data.available_child_templates.find((item) => item.name === 'generic-task');
     expect(generic.type).toBeUndefined();
     expect(generic.singleton).toBe(false);
-    expect(generic.spawn_prompt).toContain('service_spawn');
+    expect(generic.construct_prompt).toContain('service_construct');
     expect(data.available_child_templates.some((item) => item.name === 'lush-root')).toBe(false);
     manager.cancelTask(task.id);
 
     // A project is told what a dev-task needs.
-    const project = spawn(0, 'project', 'demo', undefined, { path: dir });
-    const projectTask = manager.spawnTask(null, project.sid, 'split me');
+    const project = construct(0, 'project', 'demo', undefined, { path: dir });
+    const projectTask = manager.constructTask(null, project.sid, 'split me');
     const devTask = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(projectTask.id), null).data.available_child_templates
       .find((item) => item.name === 'dev-task');
-    for (const expected of ['name', 'title', 'detail', 'worktree', 'service_spawn']) {
-      expect(devTask.spawn_prompt).toContain(expected);
+    for (const expected of ['name', 'title', 'detail', 'worktree', 'service_construct']) {
+      expect(devTask.construct_prompt).toContain(expected);
     }
     manager.cancelTask(projectTask.id);
   });
@@ -525,8 +525,8 @@ describe('core', () => {
         expect(order.indexOf(template.name)).toBeLessThan(order.indexOf(child));
       }
     }
-    const project = spawn(0, 'project', 'demo', undefined, { path: dir });
-    const projectTask = manager.spawnTask(null, project.sid, 'order');
+    const project = construct(0, 'project', 'demo', undefined, { path: dir });
+    const projectTask = manager.constructTask(null, project.sid, 'order');
     const names = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(projectTask.id), null).data.available_child_templates.map((item) => item.name);
     expect(names).toEqual(['dev-task']);
@@ -535,26 +535,26 @@ describe('core', () => {
 
   test('available child templates hide a singleton that is already taken', () => {
     const names = (sid) => {
-      const task = manager.spawnTask(null, sid, 'names');
+      const task = manager.constructTask(null, sid, 'names');
       const list = new ContextBuilder(manager.repository, manager.templates)
         .build(manager.repository.getTask(task.id), null).data.available_child_templates.map((item) => item.name);
       manager.cancelTask(task.id);
       return list;
     };
     expect(names(0)).toContain('project-manager');
-    const taken = spawn(0, 'project-manager', 'pm');
+    const taken = construct(0, 'project-manager', 'pm');
     expect(names(0)).not.toContain('project-manager');
     expect(names(0)).toContain('generic-task');
     manager.stop(taken.sid);
     expect(names(0)).toContain('project-manager');
-    const child = spawn(0, 'project-manager', 'pm2');
+    const child = construct(0, 'project-manager', 'pm2');
     expect(names(child.sid)).toContain('project');
     expect(names(child.sid)).not.toContain('generic-task');
     expect(names(child.sid)).not.toContain('project-manager');
   });
 
   test('view has no command section and ignores legacy snapshot fields', () => {
-    const child = spawn(0, 'generic-task', 'child');
+    const child = construct(0, 'generic-task', 'child');
     const view = manager.view(child.sid, ['parent', 'children', 'prompt']);
     expect(view.parent.sid).toBe(0);
     expect(view.children).toEqual([]);
@@ -563,7 +563,7 @@ describe('core', () => {
   });
 
   test('view answers what the node is, what it may create and how its tasks read', () => {
-    const child = spawn(0, 'generic-task', 'child');
+    const child = construct(0, 'generic-task', 'child');
     const view = manager.view(child.sid, ['description', 'parent', 'children', 'prompt', 'templates']);
     expect(view.description).toBe(manager.templates.get('generic-task').description);
     expect(view.parent.sid).toBe(0);
@@ -571,7 +571,7 @@ describe('core', () => {
     expect(view.call_prompt).toBe(manager.templates.get('generic-task').system_prompt);
     // `templates` is the very list the node's own agent sees in Context, so the
     // two read paths cannot drift.
-    const task = manager.spawnTask(null, child.sid, 'view');
+    const task = manager.constructTask(null, child.sid, 'view');
     const context = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(task.id), null).data.available_child_templates;
     manager.cancelTask(task.id);
@@ -581,14 +581,14 @@ describe('core', () => {
     // A singleton whose slot under this parent is taken is not advertised.
     const names = () => manager.view(0, ['templates']).available_child_templates.map((item) => item.name);
     expect(names()).toContain('project-manager');
-    const taken = manager.spawn(0, 'project-manager', 'pm');
+    const taken = manager.construct(0, 'project-manager', 'pm');
     expect(names()).not.toContain('project-manager');
     manager.stop(taken.sid);
     expect(names()).toContain('project-manager');
   });
 
   test('startup backfills child_templates for snapshots written earlier', () => {
-    const child = spawn(0, 'generic-task', 'child');
+    const child = construct(0, 'generic-task', 'child');
     const snapshot = manager.repository.get(child.sid).template_snapshot;
     delete snapshot.child_templates;
     delete snapshot.variables;
@@ -613,7 +613,7 @@ describe('core', () => {
     expect(new TemplateLoader(directory).get('custom').child_templates).toEqual([]);
     // The seven template fields are exact: dropping or adding one is an error.
     for (const mutate of [
-      (value) => delete value.spawn_prompt,
+      (value) => delete value.construct_prompt,
       (value) => delete value.variables,
       (value) => { value.singleton = 'yes'; },
       (value) => { value.extra = 1; },
@@ -660,17 +660,17 @@ describe('core', () => {
       ...base,
       name: 'prose-tpl',
       description: '@prose-tpl/description.md',
-      spawn_prompt: '@prose-tpl/spawn_prompt.md',
+      construct_prompt: '@prose-tpl/construct_prompt.md',
       system_prompt: '字面量：以 @ 之外的字符开头就不是引用',
       child_templates: [],
     });
     write('sub/prose-tpl/description.md', '一句话。\n');
     // CRLF 归一成 LF，编辑器补的末尾换行去掉，段落之间的空行原样保留。
-    write('sub/prose-tpl/spawn_prompt.md', '第一段。\n\n第二段。\r\n');
+    write('sub/prose-tpl/construct_prompt.md', '第一段。\n\n第二段。\r\n');
 
     const template = new TemplateLoader(directory).get('prose-tpl');
     expect(template.description).toBe('一句话。');
-    expect(template.spawn_prompt).toBe('第一段。\n\n第二段。');
+    expect(template.construct_prompt).toBe('第一段。\n\n第二段。');
     expect(template.system_prompt).toBe('字面量：以 @ 之外的字符开头就不是引用');
 
     // A reference is never a literal: nothing readable behind it is an error.
@@ -687,25 +687,25 @@ describe('core', () => {
     expect(manager.templates.find('prose-no-file')).toBeNull();
   });
 
-  test('spawn variables: required path, defaults, mutability regions and validation', () => {
-    expect(code(() => spawn(0, 'project', 'p'))).toBe(-32602);
+  test('construct variables: required path, defaults, mutability regions and validation', () => {
+    expect(code(() => construct(0, 'project', 'p'))).toBe(-32602);
     try {
-      spawn(0, 'project', 'p');
+      construct(0, 'project', 'p');
     } catch (err) {
       expect(err.message).toContain('variables.path');
     }
-    expect(code(() => spawn(0, 'project', 'p', undefined, { path: 'relative/dir' }))).toBe(-32602);
-    expect(code(() => spawn(0, 'project', 'p', undefined, { path: path.join(dir, 'missing') }))).toBe(-32602);
+    expect(code(() => construct(0, 'project', 'p', undefined, { path: 'relative/dir' }))).toBe(-32602);
+    expect(code(() => construct(0, 'project', 'p', undefined, { path: path.join(dir, 'missing') }))).toBe(-32602);
     const file = path.join(dir, 'not-a-dir');
     fs.writeFileSync(file, 'x');
-    expect(code(() => spawn(0, 'project', 'p', undefined, { path: file }))).toBe(-32602);
-    expect(code(() => spawn(0, 'project', 'p', undefined, []))).toBe(-32602);
-    expect(code(() => spawn(0, 'project', 'p', undefined, { path: dir, nope: 1 }))).toBe(-32602);
-    expect(code(() => spawn(0, 'generic-task', 'p', undefined, { path: dir }))).toBe(-32602);
+    expect(code(() => construct(0, 'project', 'p', undefined, { path: file }))).toBe(-32602);
+    expect(code(() => construct(0, 'project', 'p', undefined, []))).toBe(-32602);
+    expect(code(() => construct(0, 'project', 'p', undefined, { path: dir, nope: 1 }))).toBe(-32602);
+    expect(code(() => construct(0, 'generic-task', 'p', undefined, { path: dir }))).toBe(-32602);
 
-    const project = spawn(0, 'project', 'p1', 'ship', { path: dir });
+    const project = construct(0, 'project', 'p1', 'ship', { path: dir });
     expect(project.inspect().context.state).toEqual({ params: { path: dir }, vars: { branch: 'main' } });
-    const second = spawn(0, 'project', 'p2', undefined, { path: dir, branch: 'dev' });
+    const second = construct(0, 'project', 'p2', undefined, { path: dir, branch: 'dev' });
     expect(second.inspect().variables).toMatchObject({
       immutable: { path: dir },
       mutable: { branch: 'dev' },
@@ -718,7 +718,7 @@ describe('core', () => {
   });
 
   test('update_vars changes mutable variables only, and update_state cannot write them', () => {
-    const project = spawn(0, 'project', 'p1', undefined, { path: dir });
+    const project = construct(0, 'project', 'p1', undefined, { path: dir });
     expect(manager.updateVars(project.sid, { branch: 'dev' })).toEqual({ branch: 'dev' });
     expect(project.inspect().variables.mutable).toEqual({ branch: 'dev' });
     for (const patch of [{ path: '/tmp' }, { nope: 1 }, {}, [], { branch: Number.NaN }]) {
@@ -727,7 +727,7 @@ describe('core', () => {
     for (const patch of [{ params: { path: '/tmp' } }, { vars: { branch: 'x' } }]) {
       expect(code(() => manager.updateState(project.sid, patch))).toBe(-32602);
     }
-    const plain = spawn(0, 'generic-task', 'plain');
+    const plain = construct(0, 'generic-task', 'plain');
     expect(code(() => manager.updateVars(plain.sid, { branch: 'dev' }))).toBe(-32602);
     manager.stop(plain.sid);
     expect(code(() => manager.updateVars(plain.sid, { branch: 'dev' }))).toBe(-32009);
@@ -771,22 +771,22 @@ describe('core', () => {
     const managerTemplate = manager.templates.get('project-manager');
     expect(managerTemplate.child_templates).toContain('project');
     expect(managerTemplate.singleton).toBe(true);
-    for (const expected of ['task_spawn', 'project', 'research-task', 'generic-task', 'generic-service', 'children']) {
+    for (const expected of ['task_construct', 'project', 'research-task', 'generic-task', 'generic-service', 'children']) {
       expect(managerTemplate.system_prompt).toContain(expected);
     }
     const projectTemplate = manager.templates.get('project');
-    for (const expected of ['dev-task', 'task spawn', 'task message', 'path', 'state']) {
+    for (const expected of ['dev-task', 'task construct', 'task message', 'path', 'state']) {
       expect(projectTemplate.system_prompt).toContain(expected);
     }
-    expect(manager.templates.get('project').spawn_prompt).toContain('path');
-    expect(manager.templates.get('project').spawn_prompt).toContain('singleton=false');
+    expect(manager.templates.get('project').construct_prompt).toContain('path');
+    expect(manager.templates.get('project').construct_prompt).toContain('singleton=false');
   });
 
   test('SID 0 routes work to project-manager instead of doing it itself', () => {
     const template = manager.templates.get('lush-root');
     expect(template.child_templates).toEqual(['project-manager']);
     for (const expected of [
-      '入口', 'project-manager', 'children', 'task_spawn', '被唤醒', '不要自己动手', '孤儿', '不要声称',
+      '入口', 'project-manager', 'children', 'task_construct', '被唤醒', '不要自己动手', '孤儿', '不要声称',
     ]) {
       expect(template.system_prompt).toContain(expected);
     }
@@ -797,7 +797,7 @@ describe('core', () => {
     for (const mode of ['tools', 'cli']) {
       const guide = agentGuide(mode);
       for (const expected of [
-        'Service', 'Task', 'task_spawn', 'task_message', 'task_complete', 'task tree', '下游', '被动的节点',
+        'Service', 'Task', 'task_construct', 'task_message', 'task_complete', 'task tree', '下游', '被动的节点',
       ]) {
         expect(guide).toContain(expected);
       }
@@ -806,10 +806,10 @@ describe('core', () => {
   });
 
   test('only project-manager opens projects: a project cannot nest another one', async () => {
-    const project = spawn(0, 'project', 'demo', undefined, { path: dir });
+    const project = construct(0, 'project', 'demo', undefined, { path: dir });
     const failure = (() => {
       try {
-        spawn(project.sid, 'project', 'nested', undefined, { path: dir });
+        construct(project.sid, 'project', 'nested', undefined, { path: dir });
       } catch (err) {
         return err;
       }
@@ -818,10 +818,10 @@ describe('core', () => {
     expect(failure?.code).toBe(-32010);
     expect(failure?.message).toContain('cannot create template project');
     expect(manager.templates.get('project').child_templates).toEqual(['dev-task']);
-    const controller = spawn(0, 'project-manager', 'controller');
-    expect(spawn(controller.sid, 'project', 'opened', undefined, { path: dir }).inspect().template).toBe('project');
+    const controller = construct(0, 'project-manager', 'controller');
+    expect(construct(controller.sid, 'project', 'opened', undefined, { path: dir }).inspect().template).toBe('project');
 
-    const task = manager.spawnTask(null, controller.sid, 'open the project');
+    const task = manager.constructTask(null, controller.sid, 'open the project');
     const names = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(task.id), null).data.available_child_templates.map((item) => item.name);
     expect(names).toContain('project');
@@ -829,8 +829,8 @@ describe('core', () => {
   });
 
   test('state, context isolation and validation', () => {
-    const a = spawn(0, 'generic-task', 'a');
-    const b = spawn(0, 'generic-task', 'b');
+    const a = construct(0, 'generic-task', 'a');
+    const b = construct(0, 'generic-task', 'b');
     manager.updateState(a.sid, { x: 1, nested: { a: 1 } });
     manager.updateState(a.sid, { nested: { b: 2 } });
     expect(a.inspect().context.state).toEqual({ x: 1, nested: { b: 2 } });
@@ -845,8 +845,8 @@ describe('core', () => {
   });
 
   test('restart recovers the tree and fails unfinished tasks', async () => {
-    const parent = spawn(0, 'generic-service', 'parent');
-    const child = spawn(parent.sid, 'generic-task', 'child');
+    const parent = construct(0, 'generic-service', 'parent');
+    const child = construct(parent.sid, 'generic-task', 'child');
     const task = manager.repository.createTask(child.sid, null, 'work');
     manager.updateTaskState(task.id, { progress: 'half' });
     let repo = manager.repository;
@@ -1016,8 +1016,8 @@ describe('orphan supervision', () => {
     permissiveRoot(built.manager);
     extras.push({ directory, database: built.database, runtime: built.runtime });
     // Spawn a service and keep the SID handle, like the main describe does.
-    const spawn = (parent, template, name) => built.manager.load(built.manager.spawn(parent, template, name).sid);
-    return { ...built, spawn };
+    const construct = (parent, template, name) => built.manager.load(built.manager.construct(parent, template, name).sid);
+    return { ...built, construct };
   }
 
   function code(fn) {
@@ -1030,8 +1030,8 @@ describe('orphan supervision', () => {
   }
 
   test('default policy adopts active children and reports the pool', () => {
-    const parent = manager.spawn(0, 'generic-task', 'parent');
-    const live = manager.spawn(parent.sid, 'generic-service', 'live');
+    const parent = manager.construct(0, 'generic-task', 'parent');
+    const live = manager.construct(parent.sid, 'generic-service', 'live');
     manager.stop(parent.sid);
 
     const pool = manager.orphans();
@@ -1050,9 +1050,9 @@ describe('orphan supervision', () => {
   });
 
   test("adopt mode 'none' leaves children under their stopped parent", () => {
-    const { manager: strict, spawn } = policySystem({ adopt: 'none' });
-    const parent = spawn(0, 'generic-task', 'parent');
-    const live = spawn(parent.sid, 'generic-service', 'live');
+    const { manager: strict, construct } = policySystem({ adopt: 'none' });
+    const parent = construct(0, 'generic-task', 'parent');
+    const live = construct(parent.sid, 'generic-service', 'live');
     strict.stop(parent.sid);
 
     expect(live.inspect().status).toBe('active');
@@ -1062,11 +1062,11 @@ describe('orphan supervision', () => {
   });
 
   test("adopt mode 'terminate' freezes direct children and walks the chain", () => {
-    const { manager: strict, spawn } = policySystem({ adopt: 'terminate' });
-    const parent = spawn(0, 'generic-task', 'parent');
-    const service = spawn(parent.sid, 'generic-service', 'service');
-    const task = spawn(parent.sid, 'generic-task', 'task');
-    const grandchild = spawn(service.sid, 'generic-task', 'grandchild');
+    const { manager: strict, construct } = policySystem({ adopt: 'terminate' });
+    const parent = construct(0, 'generic-task', 'parent');
+    const service = construct(parent.sid, 'generic-service', 'service');
+    const task = construct(parent.sid, 'generic-task', 'task');
+    const grandchild = construct(service.sid, 'generic-task', 'grandchild');
     strict.stop(parent.sid);
 
     expect(service.inspect().status).toBe('stopped');
@@ -1078,8 +1078,8 @@ describe('orphan supervision', () => {
   });
 
   test('a stopped SID 0 never adopts or terminates its own children', () => {
-    const { manager: strict, spawn } = policySystem({ adopt: 'terminate' });
-    const child = spawn(0, 'generic-service', 'child');
+    const { manager: strict, construct } = policySystem({ adopt: 'terminate' });
+    const child = construct(0, 'generic-service', 'child');
     expect(child.inspect().original_parent_sid).toBe(0);
 
     strict.repository.transition(0, 'stopped', { adopt: true, terminate: true });
@@ -1089,9 +1089,9 @@ describe('orphan supervision', () => {
   });
 
   test('the limit freezes the oldest orphans, on adoption and on demand', () => {
-    const { manager: strict, spawn } = policySystem({ limit: 1 });
-    const parent = spawn(0, 'generic-task', 'parent');
-    const children = [1, 2, 3].map((index) => spawn(parent.sid, 'generic-service', `orphan-${index}`));
+    const { manager: strict, construct } = policySystem({ limit: 1 });
+    const parent = construct(0, 'generic-task', 'parent');
+    const children = [1, 2, 3].map((index) => construct(parent.sid, 'generic-service', `orphan-${index}`));
     strict.stop(parent.sid);
 
     expect(strict.orphans().active_count).toBe(1);
@@ -1104,9 +1104,9 @@ describe('orphan supervision', () => {
   });
 
   test('eviction cancels the task an orphan was working on', () => {
-    const { manager: strict, spawn } = policySystem({ ttlSeconds: 1 });
-    const parent = spawn(0, 'generic-task', 'parent');
-    const busy = spawn(parent.sid, 'generic-task', 'busy');
+    const { manager: strict, construct } = policySystem({ ttlSeconds: 1 });
+    const parent = construct(0, 'generic-task', 'parent');
+    const busy = construct(parent.sid, 'generic-task', 'busy');
     // A task with no agent of its own: created directly, so it stays active.
     const task = strict.repository.createTask(busy.sid, null, 'long work');
     strict.stop(parent.sid);
@@ -1121,11 +1121,11 @@ describe('orphan supervision', () => {
     // A slow agent keeps both orphans busy; the limit is 1 and nothing may be
     // frozen, so the pass reports them as deferred instead of forcing it.
     const slow = policySystem({ limit: 1 }, new SlowProvider(400));
-    const parent = slow.spawn(0, 'generic-task', 'parent');
-    const first = slow.spawn(parent.sid, 'generic-service', 'first');
-    const second = slow.spawn(parent.sid, 'generic-service', 'second');
-    slow.manager.spawnTask(null, first.sid, 'long work');
-    slow.manager.spawnTask(null, second.sid, 'long work');
+    const parent = slow.construct(0, 'generic-task', 'parent');
+    const first = slow.construct(parent.sid, 'generic-service', 'first');
+    const second = slow.construct(parent.sid, 'generic-service', 'second');
+    slow.manager.constructTask(null, first.sid, 'long work');
+    slow.manager.constructTask(null, second.sid, 'long work');
     expect(slow.manager.runtime.isBusy(first.sid)).toBe(true);
     slow.manager.stop(parent.sid);
     expect(slow.manager.orphans().active_count).toBe(2);
@@ -1137,9 +1137,9 @@ describe('orphan supervision', () => {
   });
 
   test('orphans() is a read model with busy, idle and limit arithmetic', () => {
-    const { manager: strict, spawn } = policySystem({ limit: 0, ttlSeconds: 60 });
-    const parent = spawn(0, 'generic-task', 'parent');
-    const live = spawn(parent.sid, 'generic-service', 'live');
+    const { manager: strict, construct } = policySystem({ limit: 0, ttlSeconds: 60 });
+    const parent = construct(0, 'generic-task', 'parent');
+    const live = construct(parent.sid, 'generic-service', 'live');
     strict.stop(parent.sid);
     strict.repository.db.run('UPDATE services SET updated_at=? WHERE sid=?',
       ['2020-01-01T00:00:00.000Z', live.sid]);
@@ -1189,12 +1189,12 @@ describe('SID 0 creation lockdown', () => {
 
   test('SID 0 may only create project-manager', () => {
     expect(manager.templates.get('lush-root').child_templates).toEqual(['project-manager']);
-    expect(manager.spawn(0, 'project-manager', 'pm').template).toBe('project-manager');
-    expect(() => manager.spawn(0, 'generic-task', 'nope')).toThrow(/cannot create template generic-task/);
+    expect(manager.construct(0, 'project-manager', 'pm').template).toBe('project-manager');
+    expect(() => manager.construct(0, 'generic-task', 'nope')).toThrow(/cannot create template generic-task/);
   });
 
   test('SID 0 advertises exactly project-manager, and user templates are no exception', () => {
-    const task = manager.spawnTask(null, 0, 'what can you create?');
+    const task = manager.constructTask(null, 0, 'what can you create?');
     const names = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(task.id), null).data.available_child_templates.map((item) => item.name);
     expect(names).toEqual(['project-manager']);
@@ -1206,12 +1206,12 @@ describe('SID 0 creation lockdown', () => {
     fs.writeFileSync(path.join(directory, 'user.json'), JSON.stringify({ ...base, name: 'user-template' }));
     const loader = new TemplateLoader(directory);
     const built = new ContextBuilder(manager.repository, loader);
-    const scoped = built.build(manager.repository.getTask(manager.spawnTask(null, 0, 'x').id), null);
+    const scoped = built.build(manager.repository.getTask(manager.constructTask(null, 0, 'x').id), null);
     expect(scoped.data.available_child_templates.map((item) => item.name)).toEqual(['project-manager']);
   });
 
   test('refreshRootTemplate restores drift, is idempotent and only touches SID 0', () => {
-    const task = manager.spawnTask(null, 0, 'drift');
+    const task = manager.constructTask(null, 0, 'drift');
     manager.repository.replaceSnapshot(0, { ...manager.templates.get('generic-task'), name: 'drifted' });
     manager.cancelTask(task.id);
     const refreshed = manager.refreshRootTemplate();
@@ -1238,7 +1238,7 @@ describe('SID 0 creation lockdown', () => {
     manager.templates.templates['lush-root'] = { ...manager.templates.get('lush-root'), system_prompt: edited };
     manager.refreshRootTemplate();
     expect(manager.repository.context(0).system_prompt).toContain('EDITED-MARKER');
-    const task = manager.spawnTask(null, 0, 'hello');
+    const task = manager.constructTask(null, 0, 'hello');
     const built = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(task.id), null);
     expect(built.messages[0].content).toContain('EDITED-MARKER');

@@ -27,7 +27,7 @@ function delegatingTask() {
  * A service is a passive node; a task is one piece of work mounted on it, and
  * it is what has an agent. `lush call SID '...'` creates the root task of a
  * collaboration; the tasks that root opens on its child services (with
- * `task_spawn`) are how the work travels down the tree — `lush task tree`
+ * `task_construct`) are how the work travels down the tree — `lush task tree`
  * shows that tree.
  */
 export const taskGroup = {
@@ -143,20 +143,20 @@ export const taskGroup = {
       },
       parse: (args) => ({ task_id: intArg(args.shift(), 'task_id') }),
     },
-    spawn: {
-      command: 'task_spawn',
-      method: 'task.spawn',
-      summary: '在某个 service 上派一个 task（不等待）',
+    construct: {
+      command: 'task_construct',
+      method: 'task.construct',
+      summary: '在某个 service 上构造一个子 task（向下游派活，不等待）',
       cover: [
         '在 SID 上创建并立刻启动一个 task，返回它的 id；随后用 `task wait` / `task inspect` / `task tree` 观察。',
-        '这是 agent 内部 `task_spawn` 工具的命令行等价物：SID 必须是父 task 所在 service 的直接子服务（下游委托）。',
-        '父 task 缺省取 $LUSH_TASK_ID——agent 的环境里就是它自己，所以 agent 直接 `lush task spawn <子服务SID> --goal <目标>` 派出去的一定挂在自己的 task 树里。',
+        '这是 agent 内部 `task_construct` 工具的命令行等价物：SID 必须是父 task 所在 service 的直接子服务（下游委托）。',
+        '父 task 缺省取 $LUSH_TASK_ID——agent 的环境里就是它自己，所以 agent 直接 `lush task construct <子服务SID> --goal <目标>` 派出去的一定挂在自己的 task 树里。',
       ],
       notes: [
         '同一个 service 同时只能有一个活动 task；该 service 正忙时派活会被拒绝。',
         '要建根 task（用户直接开的活）用 `lush call SID GOAL --detach`；--parent-task-id 也可以显式覆盖 $LUSH_TASK_ID。',
       ],
-      usage: ['lush task spawn SID --goal GOAL [--parent-task-id TASK_ID]'],
+      usage: ['lush task construct SID --goal GOAL [--parent-task-id TASK_ID]'],
       positionals: [['SID', '挂载 task 的 service SID']],
       options: {
         '--goal': { arg: 'GOAL', desc: '要做什么（必填）', apply: (r, v) => { r.goal = v; } },
@@ -176,7 +176,7 @@ export const taskGroup = {
       method: 'task.message',
       summary: '给直接父 task 或直接子 task 发一条消息（入队，不打断对方）',
       cover: [
-        '消息只在 task 树的直接边上走：接收方必须是你所在的 task 的直接父 task 或直接子 task（和 task_spawn 的“只能向下游、直接子 service”同一条边界）。',
+        '消息只在 task 树的直接边上走：接收方必须是你所在的 task 的直接父 task 或直接子 task（和 task_construct 的“只能向下游、直接子 service”同一条边界）。',
         '它是**异步**的：消息先入接收方的收件箱，在它两次 agent invocation 之间才交给它的 agent，所以不会打断正在跑的工作；对方处于 waiting 时会立即被唤醒。',
         'agent 侧用 `task_message` 工具（内置运行时）/ `lush task message ...`（外部 agent pi）；--from 缺省取 $LUSH_TASK_ID。',
       ],

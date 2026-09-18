@@ -56,8 +56,8 @@ test *args:
 # 起 daemon 并创建 README 里的最小流程（project-manager → implement-login）
 [group('dev')]
 bootstrap: daemon-start
-  @{{lush}} service spawn 0 project-manager --name project-manager
-  @{{lush}} service spawn 1 generic-task --name implement-login --goal '实现登录功能'
+  @{{lush}} service construct 0 project-manager --name project-manager
+  @{{lush}} service construct 1 generic-task --name implement-login --goal '实现登录功能'
   @{{lush}} service tree
 
 # 停 daemon 并删除仓库内的开发数据目录（LUSH_HOME 在仓库外时只提示不删除）
@@ -330,23 +330,23 @@ wait task:
 cancel task:
   @{{lush}} task cancel {{task}}
 
-# 派一个 task 给某个 service（不等待）：just task-spawn 2 '要它做的事'
+# 派一个 task 给某个 service（不等待）：just task-construct 2 '要它做的事'
 [group('task')]
-task-spawn sid goal parent="":
-  @{{lush}} task spawn {{sid}} --goal {{quote(goal)}}{{ if parent != "" { " --parent-task-id " + parent } else { "" } }}
+task-construct sid goal parent="":
+  @{{lush}} task construct {{sid}} --goal {{quote(goal)}}{{ if parent != "" { " --parent-task-id " + parent } else { "" } }}
 
 # 进入该 task 的 pi 会话：just attach 1；just session 1 查看会话文件
 [group('task')]
 attach task:
   @{{lush}} task attach {{task}}
 
-# 创建子服务：just spawn 1 generic-task implement-login '实现登录功能'（SID 0 只能建 project-manager）
-# project 模板必须给变量 path：just spawn 1 project my-repo '' '{"path":"/abs/repo"}'
-# 指定 agent profile（见 just agent list）：just spawn 1 generic-task x '' '' demo-agent
-# dev-task 的三个字段（name 就是 --name）：just spawn 1 dev-task fix-login '修好登录' '' '' '修复登录流程' '任务详情正文'
+# 构造子服务：just construct 1 generic-task implement-login '实现登录功能'（SID 0 只能建 project-manager）
+# project 模板必须给变量 path：just construct 1 project my-repo '' '{"path":"/abs/repo"}'
+# 指定 agent profile（见 just agent list）：just construct 1 generic-task x '' '' demo-agent
+# dev-task 的三个字段（name 就是 --name）：just construct 1 dev-task fix-login '修好登录' '' '' '修复登录流程' '任务详情正文'
 [group('service')]
-spawn parent template name="" goal="" vars="" agent="" title="" detail="":
-  @{{lush}} service spawn {{parent}} {{template}}{{ if name != "" { " --name " + quote(name) } else { "" } }}{{ if goal != "" { " --goal " + quote(goal) } else { "" } }}{{ if vars != "" { " --vars " + quote(vars) } else { "" } }}{{ if agent != "" { " --agent " + quote(agent) } else { "" } }}{{ if title != "" { " --title " + quote(title) } else { "" } }}{{ if detail != "" { " --detail " + quote(detail) } else { "" } }}
+construct parent template name="" goal="" vars="" agent="" title="" detail="":
+  @{{lush}} service construct {{parent}} {{template}}{{ if name != "" { " --name " + quote(name) } else { "" } }}{{ if goal != "" { " --goal " + quote(goal) } else { "" } }}{{ if vars != "" { " --vars " + quote(vars) } else { "" } }}{{ if agent != "" { " --agent " + quote(agent) } else { "" } }}{{ if title != "" { " --title " + quote(title) } else { "" } }}{{ if detail != "" { " --detail " + quote(detail) } else { "" } }}
 
 # 结束一个 task 并写入结论：just complete 1 '{"ok":true}'
 [group('task')]

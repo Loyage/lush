@@ -44,7 +44,7 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 | service.view | sid, sections? | 只含被请求 section 的视图：description、parent、children、call_prompt、available_child_templates |
 | service.orphans | {} | SID 0 孤儿池的读模型（不落库、不改状态）：`policy`（adopt / limit / ttl_seconds / sweep_seconds）、`active_count`、`busy_count`、`over_limit`、`orphans[]`（sid、name、status、template、original_parent_sid、created_at、updated_at、last_activity_at、idle_seconds、busy；含已被冻结的终态行） |
 | service.orphan_sweep | {} | 立刻执行一轮孤儿监督并返回报告：`trigger`、`skipped`、`checked`、`active_before` / `active_after`、`evicted[]`（sid、name、from、to、reason、idle_seconds）、`deferred[]`、`limit`、`ttl_seconds`；两个方法都不接受参数，未知字段报 -32602 |
-| service.spawn | parent_sid, template, name?, goal?, variables?, agent? | 新 Service metadata（创建只建节点，不跑 agent）；variables 按模板声明校验后按区间存入 state（immutable → state.params，mutable → state.vars），未声明、缺失必填、不满足声明的格式（pattern / max_length / single_line）或非法 `path` 报 -32602；声明了保留变量 `name` 的模板（dev-task）用 name 参数当服务名，两边不一致同样报 -32602；agent 为该节点上的 task 选用的 agent profile 名，需存在且合法，否则报 -32004 / -32602，选中后写入 state.agent |
+| service.construct | parent_sid, template, name?, goal?, variables?, agent? | 新 Service metadata（construct 只构造节点，不跑 agent）；variables 按模板声明校验后按区间存入 state（immutable → state.params，mutable → state.vars），未声明、缺失必填、不满足声明的格式（pattern / max_length / single_line）或非法 `path` 报 -32602；声明了保留变量 `name` 的模板（dev-task）用 name 参数当服务名，两边不一致同样报 -32602；agent 为该节点上的 task 选用的 agent profile 名，需存在且合法，否则报 -32004 / -32602，选中后写入 state.agent |
 | service.start / service.stop | sid | 更新后的 metadata；stop 在有活动 task 时报 -32010（先取消 task），节点或它的活动直接子节点按 `LUSH_ORPHAN_ADOPT` 处理 |
 | service.delete | sid, recursive? | 硬删除：`sid, status, deleted, cancelled, terminated, rows`；active/created 或还有活动 task 报 -32010，有子服务且未 recursive 报 -32010，SID 0 报 -32010 |
 | service.purge | sid, recursive? | 同 delete，但先取消活动 task、停止活动节点再删；`cancelled` 列出被取消的 task，`terminated` 列出被停止的 SID |
@@ -57,7 +57,7 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 | task.wait | task_id | 阻塞到该 task 进入终态，返回 `task.inspect` 形状 |
 | task.cancel | task_id | 取消该 task 及其整棵子树（中断正在跑的 agent），返回更新后的 task |
 | task.complete | task_id, result? | 目标达成时结束 task 并写入 result（有活动子 task、或收件箱有未读消息时报 -32010） |
-| task.spawn | sid, goal, parent_task_id? | 新建并启动一个 task（`parent_task_id` 给定时必须挂在父 task 所在 service 的直接子 service 上；不给定时建的是根 task，CLI 的 `task spawn` 会缺省填 `$LUSH_TASK_ID`）；返回 task 快照。不等待，子 task 结算时以收件箱输入唤醒父 task |
+| task.construct | sid, goal, parent_task_id? | 构造并启动一个 task（`parent_task_id` 给定时必须挂在父 task 所在 service 的直接子 service 上；不给定时建的是根 task，CLI 的 `task construct` 会缺省填 `$LUSH_TASK_ID`）；返回 task 快照。不等待，子 task 结算时以收件箱输入唤醒父 task |
 | task.message | from_task_id, to_task_id, body | 给直接父 / 直接子 task 发一条消息（入队，不打断对方）：返回新建的 `task_inbox` 行；非直接父子 / 接收方已终态报 -32010 |
 | task.inbox | task_id, after=0, limit=50 | 该 task 收到的输入（`kind` 为 message / child_settled，`delivered_at` 说明是否已交给 agent），按 id 升序 |
 
@@ -83,7 +83,7 @@ inspect 的 Context 包含 system_prompt、state、artifacts、references、mess
 
 一次 call 的 agent 由三层决定，逐字段叠加：
 
-1. 服务显式选择（`service.spawn` 的 `agent` / 模板的可选 `agent` 字段，写入 state）；
+1. 服务显式选择（`service.construct` 的 `agent` / 模板的可选 `agent` 字段，写入 state）；
 2. 环境变量 `LUSH_PROVIDER` / `LUSH_PI_COMMAND` / `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL`；
 3. 内置 `default`（provider pi + `--no-extensions --no-skills --no-prompt-templates --no-themes --no-context-files`）。
 
@@ -103,7 +103,7 @@ service.view 是「查看」的统一读模型，把「这个节点是什么 / �
 | parent | parent | 当前父节点完整 metadata；无父节点时为 null（例如 SID 0） |
 | children | children | 直接子节点完整 metadata 数组 |
 | prompt | call_prompt | 该 Service 模板 system_prompt 的快照（它上面 task 的 agent 收到的提示词） |
-| templates | available_child_templates | 该节点现在还能创建的子模板，按层级顺序，每项 name / singleton / description / spawn_prompt；权限来自创建时快照，已被占用的 singleton 不出现（与 agent Context 里的同名列表是同一个函数） |
+| templates | available_child_templates | 该节点现在还能创建的子模板，按层级顺序，每项 name / singleton / description / construct_prompt；权限来自创建时快照，已被占用的 singleton 不出现（与 agent Context 里的同名列表是同一个函数） |
 
 sections 省略时返回全部五项；必须是非空、无重复、只含上述名称的字符串数组（否则 -32602）。返回字段顺序固定为 sid、description、parent、children、call_prompt、available_child_templates，只包含被请求的 section。未知 SID 与其他方法一样返回 -32004。view 是只读操作，不改变状态、不创建调用记录。Agent 侧的等价能力仍是个体工具 service_self / service_parent / service_children；`templates` 与它自己 Context 里的 `available_child_templates` 是同一份数据。
 
@@ -111,13 +111,13 @@ sections 省略时返回全部五项；必须是非空、无重复、只含上�
 
 ## Agent Tools
 
-Provider tool 名称采用 OpenAI-compatible 安全字符：`service_self`、`service_spawn` 等；Runtime 映射成以下 Core 操作。Mock `/tool service.spawn {...}` 也接受逻辑点号名称。这些工具只属于 Lush 内置运行时（`mock` / `openai`）；`LUSH_PROVIDER=pi` 时 pi 没有它们，改用 bash 运行 `lush` CLI（上方同名命令）。`dry_run` 只在 RPC / CLI 上暴露，Agent 工具暂未开放；`service.call_begin` / `service.call_end`（`call --interactive`）也一样：进入 TUI 是给人用的，Agent 自己发调用一律用普通 `call`。
+Provider tool 名称采用 OpenAI-compatible 安全字符：`service_self`、`service_construct` 等；Runtime 映射成以下 Core 操作。Mock `/tool service.construct {...}` 也接受逻辑点号名称。这些工具只属于 Lush 内置运行时（`mock` / `openai`）；`LUSH_PROVIDER=pi` 时 pi 没有它们，改用 bash 运行 `lush` CLI（上方同名命令）。`dry_run` 只在 RPC / CLI 上暴露，Agent 工具暂未开放；`service.call_begin` / `service.call_end`（`call --interactive`）也一样：进入 TUI 是给人用的，Agent 自己发调用一律用普通 `call`。
 
 | Tool | 参数 | 语义 |
 |---|---|---|
 | task_self | {} | 自己这个 task（goal / status / result / 子 task）+ 所在 service |
 | task_children | {} | 自己派出去的子 task |
-| task_spawn | sid, goal | 向下游派活：在直接子 service 上创建一个立刻开始跑的子 task；下游正忙时报 -32010。不等待：子 task 结算时你会被唤醒并拿到结果 |
+| task_construct | sid, goal | 向下游派活：在直接子 service 上创建一个立刻开始跑的子 task；下游正忙时报 -32010。不等待：子 task 结算时你会被唤醒并拿到结果 |
 | task_message | task_id, body | 给直接父 task 或直接子 task 发一条消息：入队，不打断对方正在跑的工作；对方停在 waiting 时会被立即唤醒 |
 | task_cancel | task_id | 取消一个子 task（连带它的子树） |
 | task_complete | result? | 结束自己（有活动子 task 或收件箱有未读消息时报 -32010） |
@@ -126,7 +126,7 @@ Provider tool 名称采用 OpenAI-compatible 安全字符：`service_self`、`se
 | service_parent | {} | 当前所在节点的父节点 |
 | service_children | {} | 当前所在节点的直接子节点 |
 | service_inspect | sid | inspect 指定节点 |
-| service_spawn | template, name?, goal?, variables? | 创建子服务（受 child_templates 限制）；建完再用 task_spawn 把活派给它 |
+| service_construct | template, name?, goal?, variables? | 构造子服务（受 child_templates 限制）；建完再用 task_construct 把活派给它 |
 | service_update_state | patch | 修改所在节点的长期 state（不能写变量） |
 | service_update_vars | patch | 只能改该节点模板声明为 mutable 的变量 |
 | notice | title, kind?, body?, fields?, wait? | 向用户上报：kind 为 report / decision / blocked；`fields` 声明要用户填的表单（name / label / type=text\|textarea\|choice\|boolean / required / options / default）；默认（wait=true）阻塞到用户 answer / dismiss，把 `{status, answer}` 作为工具结果返回，wait=false 只登记、立即返回 |
@@ -145,11 +145,11 @@ lush help [command [subcommand]]        # 顶层与任意一层的覆盖范围�
 lush daemon start|stop|restart|status
 lush call SID GOAL [--detach] [--interactive] [--dry-run]   # 入口：在 service 上开一个根 task
 
-lush task list|tree|inspect|result|wait|spawn|cancel|complete|delete|history|session|attach|update-state|agents
-lush service list|tree|inspect|children|spawn|start|stop|delete|purge|update-state|update-vars|orphans
+lush task list|tree|inspect|result|wait|construct|cancel|complete|delete|history|session|attach|update-state|agents
+lush service list|tree|inspect|children|construct|start|stop|delete|purge|update-state|update-vars|orphans
 
 lush service inspect SID [--with description,parent,children,prompt,templates]
-lush service spawn PARENT TEMPLATE [--name NAME] [--goal GOAL] [--title TEXT] [--detail TEXT] [--vars JSON]   # --args 是 --vars 的旧写法
+lush service construct PARENT TEMPLATE [--name NAME] [--goal GOAL] [--title TEXT] [--detail TEXT] [--vars JSON]   # --args 是 --vars 的旧写法
 lush service children SID
 lush service start|stop SID
 lush service delete|purge SID [--recursive]
@@ -163,7 +163,7 @@ lush task list [--sid SID] [--status S] [--roots|--children]
 lush task tree TASK_ID
 lush task inspect|result|wait|cancel TASK_ID
 lush task complete TASK_ID [--result JSON]
-lush task spawn SID --goal GOAL [--parent-task-id TASK_ID]
+lush task construct SID --goal GOAL [--parent-task-id TASK_ID]
 lush task message TASK_ID --body TEXT [--from TASK_ID]   # agent 侧给直接父 / 子 task 传话（入队）
 lush task inbox TASK_ID [--after ID] [--limit N]          # 该 task 收到的输入（消息 / 子结算）
 lush task update-state TASK_ID --patch JSON

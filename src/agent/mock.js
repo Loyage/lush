@@ -59,19 +59,19 @@ export class MockAgentProvider {
     }
 
     // Delegation first: that is how work moves down the service tree.
-    if (prompt.includes('派') || prompt.includes('委托') || lower.includes('delegate') || lower.includes('task_spawn')) {
+    if (prompt.includes('派') || prompt.includes('委托') || lower.includes('delegate') || lower.includes('task_construct')) {
       const target = data.children[0];
-      if (target !== undefined) return this._tool('task_spawn', jsonDump({ sid: target.sid, goal: prompt }));
+      if (target !== undefined) return this._tool('task_construct', jsonDump({ sid: target.sid, goal: prompt }));
     }
     const createWord = prompt.includes('创建') || prompt.includes('研究') || prompt.includes('服务')
-      || ['create', 'spawn'].some((word) => lower.includes(word));
+      || ['create', 'construct'].some((word) => lower.includes(word));
     if (createWord
       && ['任务', '服务', '服务', 'service', 'task', 'service', 'template'].some((word) => prompt.includes(word) || lower.includes(word))) {
       const service = prompt.includes('服务') || lower.includes('service');
       const research = prompt.includes('研究') || lower.includes('research');
       const template = service ? 'generic-service' : research ? 'research-task' : 'generic-task';
       const name = lower.includes('oauth') && !service ? 'research-oauth' : template;
-      return this._tool('service_spawn', jsonDump({ template, name, goal: prompt }));
+      return this._tool('service_construct', jsonDump({ template, name, goal: prompt }));
     }
     if (prompt.includes('子') || lower.includes('children')) {
       return this._tool('task_children', '{}');

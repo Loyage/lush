@@ -76,13 +76,13 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await cli(['service', 'tree'])).stdout.trim()).toBe('lush[0]');
     expect((await data('daemon', 'start')).daemon_pid).toBe(started.daemon_pid);
     // SID 0's snapshot only allows project-manager; every other template is refused.
-    const denied = await cli(['service', 'spawn', '0', 'project'], { check: false });
+    const denied = await cli(['service', 'construct', '0', 'project'], { check: false });
     expect(denied.code).not.toBe(0);
     expect(denied.stderr).toContain('cannot create template project');
-    expect((await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager'])).stdout.trim())
+    expect((await cli(['service', 'construct', '0', 'project-manager', '--name', 'project-manager'])).stdout.trim())
       .toBe('SID 1');
     expect((await cli([
-      'service', 'spawn', '1', 'project', '--name', 'implement-login', '--goal', '实现登录',
+      'service', 'construct', '1', 'project', '--name', 'implement-login', '--goal', '实现登录',
       '--vars', JSON.stringify({ path: state.dir }),
     ])).stdout.trim()).toBe('SID 2');
     // `call` is the entry point: it creates a task on the service and waits.
@@ -95,7 +95,7 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await cli(['task', 'inspect', String(first.id)])).stdout).toContain('goal');
     expect((await cli(['task', 'history', String(first.id)])).stdout).toContain('请介绍一下');
 
-    await cli(['call', '1', '/tool service_spawn ' + JSON.stringify({
+    await cli(['call', '1', '/tool service_construct ' + JSON.stringify({
       template: 'project', name: 'research-oauth', goal: '研究 OAuth 登录实现方式', variables: { path: state.dir },
     })]);
     const tree = await cli(['service', 'tree']);
@@ -131,73 +131,73 @@ describe('cli, daemon lifecycle and attach', () => {
     // The mock agent can finish its own task through the tool path.
     await cli(['call', '2', '/tool task_complete {"result":"done"}']);
     expect((await data('task', 'list', '--sid', '2')).length).toBe(2);
-    expect((await data('service', 'spawn', '1', 'project', '--name', 'next', '--vars', JSON.stringify({ path: state.dir }))).sid).toBe(4);
+    expect((await data('service', 'construct', '1', 'project', '--name', 'next', '--vars', JSON.stringify({ path: state.dir }))).sid).toBe(4);
   }, 120_000);
 
-  test('complete, update-state, variables and spawn over the CLI', async () => {
+  test('complete, update-state, variables and construct over the CLI', async () => {
     await cli(['daemon', 'start']);
-    await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
-    await cli(['service', 'spawn', '1', 'project', '--name', 'worker', '--goal', 'work', '--vars', JSON.stringify({ path: state.dir })]);
+    await cli(['service', 'construct', '0', 'project-manager', '--name', 'project-manager']);
+    await cli(['service', 'construct', '1', 'project', '--name', 'worker', '--goal', 'work', '--vars', JSON.stringify({ path: state.dir })]);
     expect((await data('service', 'update-state', '2', '--patch', '{"progress":"half"}')).progress).toBe('half');
     // Work verbs moved to tasks: `call` opens one, `task complete` finishes it.
     const task = await data('call', '2', 'work');
     expect(task.status).toBe('completed');
     expect((await data('task', 'result', String(task.id))).result).toContain('[Mock]');
-    // `task spawn` starts the agent right away; the mock finishes immediately.
-    const spawnedTask = await data('task', 'spawn', '2', '--goal', 'manual work');
-    expect(spawnedTask.sid).toBe(2);
-    await data('task', 'wait', String(spawnedTask.id));
+    // `task construct` starts the agent right away; the mock finishes immediately.
+    const constructedTask = await data('task', 'construct', '2', '--goal', 'manual work');
+    expect(constructedTask.sid).toBe(2);
+    await data('task', 'wait', String(constructedTask.id));
     // An explicit result comes from the tool call, which is what an agent does.
     const manual = await data('call', '2', '/tool task_complete {"result":{"answer":42}}');
     expect(manual.status).toBe('completed');
     expect((await data('task', 'result', String(manual.id))).result).toEqual({ answer: 42 });
     expect((await data('task', 'list', '--sid', '2')).length).toBe(3);
 
-    const spawned = await data('service', 'spawn', '1', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
-    const project = await data('service', 'inspect', String(spawned.sid));
+    const constructed = await data('service', 'construct', '1', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
+    const project = await data('service', 'inspect', String(constructed.sid));
     expect(project.context.state).toEqual({ params: { path: state.dir }, vars: { branch: 'main' } });
     expect(project.variables.declarations.mutable.branch.default).toBe('main');
     // Tree text mode marks immutable values plain and mutable ones with `~` (long values truncate).
     const tree = (await cli(['service', 'tree'])).stdout;
-    expect(tree).toContain(`p1[${spawned.sid}] path=${state.dir.slice(0, 10)}`);
+    expect(tree).toContain(`p1[${constructed.sid}] path=${state.dir.slice(0, 10)}`);
     expect(tree).toContain('~branch=main');
 
-    expect(await data('service', 'update-vars', String(spawned.sid), '--vars', '{"branch":"dev"}')).toEqual({ branch: 'dev' });
-    expect((await data('service', 'inspect', String(spawned.sid))).variables.mutable).toEqual({ branch: 'dev' });
-    expect((await cli(['service', 'update-vars', String(spawned.sid), '--vars', '{"branch":"release"}'])).stdout.trim())
+    expect(await data('service', 'update-vars', String(constructed.sid), '--vars', '{"branch":"dev"}')).toEqual({ branch: 'dev' });
+    expect((await data('service', 'inspect', String(constructed.sid))).variables.mutable).toEqual({ branch: 'dev' });
+    expect((await cli(['service', 'update-vars', String(constructed.sid), '--vars', '{"branch":"release"}'])).stdout.trim())
       .toBe('branch=release');
-    const locked = await cli(['service', 'update-vars', String(spawned.sid), '--vars', JSON.stringify({ path: '/tmp' })], { check: false });
+    const locked = await cli(['service', 'update-vars', String(constructed.sid), '--vars', JSON.stringify({ path: '/tmp' })], { check: false });
     expect(locked.code).not.toBe(0);
     expect(locked.stderr).toContain('immutable');
-    expect((await cli(['service', 'update-state', String(spawned.sid), '--patch', '{"params":{}}'], { check: false })).stderr)
+    expect((await cli(['service', 'update-state', String(constructed.sid), '--patch', '{"params":{}}'], { check: false })).stderr)
       .toContain('update_vars');
 
     // --dry-run prints the invocation instead of calling the agent.
-    const preview = await data('call', String(spawned.sid), 'hello', '--dry-run');
+    const preview = await data('call', String(constructed.sid), 'hello', '--dry-run');
     expect(preview).toMatchObject({ dry_run: true, agent: 'mock', command: null });
-    expect((await data('service', 'inspect', String(spawned.sid))).context.message_count).toBe(0);
-    expect((await cli(['call', String(spawned.sid), 'hello', '--dry-run'])).stdout).toContain('runs in-service');
+    expect((await data('service', 'inspect', String(constructed.sid))).context.message_count).toBe(0);
+    expect((await cli(['call', String(constructed.sid), 'hello', '--dry-run'])).stdout).toContain('runs in-service');
 
-    const missing = await cli(['service', 'spawn', '1', 'project', '--name', 'p2'], { check: false });
+    const missing = await cli(['service', 'construct', '1', 'project', '--name', 'p2'], { check: false });
     expect(missing.code).not.toBe(0);
     expect(missing.stderr).toContain('variables.path');
-    const unknown = await cli(['service', 'spawn', '1', 'project', '--name', 'p3', '--vars', JSON.stringify({ path: state.dir, nope: 1 })], { check: false });
+    const unknown = await cli(['service', 'construct', '1', 'project', '--name', 'p3', '--vars', JSON.stringify({ path: state.dir, nope: 1 })], { check: false });
     expect(unknown.stderr).toContain('does not declare variable nope');
-    expect((await cli(['service', 'update-vars', String(spawned.sid)], { check: false })).stderr).toContain('--vars');
+    expect((await cli(['service', 'update-vars', String(constructed.sid)], { check: false })).stderr).toContain('--vars');
     expect((await cli(['service', 'update-state', '2', '--patch', '{oops'], { check: false })).stderr).toContain('invalid JSON');
 
     // --interactive needs an external agent: the in-service runtime has no TUI.
-    const enter = await cli(['call', String(spawned.sid), 'hello', '-i'], { check: false });
+    const enter = await cli(['call', String(constructed.sid), 'hello', '-i'], { check: false });
     expect(enter.code).not.toBe(0);
     expect(enter.stderr).toContain('runs in-service');
-    expect((await cli(['call', String(spawned.sid), 'hello', '--interactive', '--dry-run'], { check: false })).code).toBe(2);
+    expect((await cli(['call', String(constructed.sid), 'hello', '--interactive', '--dry-run'], { check: false })).code).toBe(2);
   }, 60_000);
 
-  test('task spawn from inside a task lands in that task tree', async () => {
+  test('task construct from inside a task lands in that task tree', async () => {
     await cli(['daemon', 'start']);
-    await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
-    await cli(['service', 'spawn', '1', 'project', '--name', 'repo', '--vars', JSON.stringify({ path: state.dir })]);
-    await cli(['service', 'spawn', '2', 'dev-task', '--name', 'fix-typo', '--vars', JSON.stringify({ title: '修一个错字' })]);
+    await cli(['service', 'construct', '0', 'project-manager', '--name', 'project-manager']);
+    await cli(['service', 'construct', '1', 'project', '--name', 'repo', '--vars', JSON.stringify({ path: state.dir })]);
+    await cli(['service', 'construct', '2', 'dev-task', '--name', 'fix-typo', '--vars', JSON.stringify({ title: '修一个错字' })]);
 
     // The parent stays active: its mock agent blocks on a notice, which is the
     // state an agent is in when it delegates.
@@ -207,13 +207,13 @@ describe('cli, daemon lifecycle and attach', () => {
     // What an agent's shell runs: no --parent-task-id, because $LUSH_TASK_ID is
     // already set. The child must land under the parent, not as a root task.
     const env = { ...state.env, LUSH_TASK_ID: String(parent.id) };
-    const child = JSON.parse((await cli(['--json', 'task', 'spawn', '3', '--goal', '改一行'], { env })).stdout);
+    const child = JSON.parse((await cli(['--json', 'task', 'construct', '3', '--goal', '改一行'], { env })).stdout);
     expect(child).toMatchObject({ sid: 3, parent_task_id: parent.id, root_task_id: parent.id });
     const tree = await data('task', 'tree', String(parent.id));
     expect(tree.children.map((task) => task.id)).toContain(child.id);
 
     // A malformed identity is refused rather than silently becoming a root task.
-    const bogus = await cli(['task', 'spawn', '3', '--goal', 'x'], { env: { ...state.env, LUSH_TASK_ID: 'nope' }, check: false });
+    const bogus = await cli(['task', 'construct', '3', '--goal', 'x'], { env: { ...state.env, LUSH_TASK_ID: 'nope' }, check: false });
     expect(bogus.code).toBe(2);
     expect(bogus.stderr).toContain('$LUSH_TASK_ID');
 
@@ -244,11 +244,11 @@ describe('cli, daemon lifecycle and attach', () => {
     state.env = { ...baseEnv, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub };
     try {
       await cli(['daemon', 'start']);
-      await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
-      const project = await data('service', 'spawn', '1', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
+      await cli(['service', 'construct', '0', 'project-manager', '--name', 'project-manager']);
+      const project = await data('service', 'construct', '1', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
 
       // A session belongs to a task, not to the service: a task has to exist.
-      const task = await data('task', 'spawn', String(project.sid), '--goal', 'hi');
+      const task = await data('task', 'construct', String(project.sid), '--goal', 'hi');
       const before = await data('task', 'session', String(task.id));
       expect(before).toMatchObject({ agent: 'pi', session_id: `lush-task-${task.id}`, file: null, files: [] });
       expect((await cli(['task', 'session', String(task.id)])).stdout).toContain('(none yet)');
@@ -289,11 +289,11 @@ describe('cli, daemon lifecycle and attach', () => {
     state.env = { ...baseEnv, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub };
     try {
       await cli(['daemon', 'start']);
-      await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+      await cli(['service', 'construct', '0', 'project-manager', '--name', 'project-manager']);
       expect((await cli([
-        'service', 'spawn', '1', 'project', '--name', 'worker', '--vars', JSON.stringify({ path: state.dir }),
+        'service', 'construct', '1', 'project', '--name', 'worker', '--vars', JSON.stringify({ path: state.dir }),
       ])).stdout.trim()).toBe('SID 2');
-      // A daemon-spawned agent: this CLI only waits for the call to finish.
+      // A daemon-constructed agent: this CLI only waits for the call to finish.
       const call = Bun.spawn([process.execPath, CLI, 'call', '2', 'long work'], {
         cwd: ROOT, env: { ...state.env, PI_STUB_SLEEP: '3000' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe',
       });
@@ -363,7 +363,7 @@ describe('cli, daemon lifecycle and attach', () => {
 
   test('daemon restart replaces the daemon and keeps the tree', async () => {
     const first = await data('daemon', 'start');
-    await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+    await cli(['service', 'construct', '0', 'project-manager', '--name', 'project-manager']);
     const tree = 'lush[0]\n└── project-manager[1]';
     expect((await cli(['service', 'tree'])).stdout.trim()).toBe(tree);
 
@@ -470,7 +470,7 @@ describe('cli, daemon lifecycle and attach', () => {
     }
   }, 60_000);
 
-  test('SIGKILL recovers an in-flight task without replaying its spawn', async () => {
+  test('SIGKILL recovers an in-flight task without replaying its construct', async () => {
     const blocked = deferred();
     const release = deferred();
     const http = Bun.serve({
@@ -490,9 +490,9 @@ describe('cli, daemon lifecycle and attach', () => {
               role: 'assistant',
               content: null,
               tool_calls: [{
-                id: 'spawn-once',
+                id: 'construct-once',
                 type: 'function',
-                function: { name: 'service_spawn', arguments: '{"template":"project-manager","name":"only-once"}' },
+                function: { name: 'service_construct', arguments: '{"template":"project-manager","name":"only-once"}' },
               }],
             },
           }],
@@ -533,7 +533,7 @@ describe('cli, daemon lifecycle and attach', () => {
         recent_calls: [expect.objectContaining({ status: 'interrupted' })],
       });
       await cli(['call', '0', 'who are you?']);
-      // The committed spawn is not replayed by the next task.
+      // The committed construct is not replayed by the next task.
       expect((await data('service', 'list')).length).toBe(2);
       expect((await data('service', 'inspect', '1')).name).toBe('only-once');
     } finally {
@@ -638,8 +638,8 @@ describe('service and task text output', () => {
       children: [],
       call_prompt: '你是开发任务节点。',
       available_child_templates: [
-        { name: 'worktree-service', singleton: false, description: '我是 worktree 节点。', spawn_prompt: '先建 worktree' },
-        { name: 'project-manager', singleton: true, description: '我是调度节点。', spawn_prompt: '派给 project' },
+        { name: 'worktree-service', singleton: false, description: '我是 worktree 节点。', construct_prompt: '先建 worktree' },
+        { name: 'project-manager', singleton: true, description: '我是调度节点。', construct_prompt: '派给 project' },
       ],
     });
     expect(text).toMatch(/^description\n {2}我是开发任务节点。$/m);
@@ -647,7 +647,7 @@ describe('service and task text output', () => {
     expect(text).toMatch(/^templates · 2 available$/m);
     expect(text).toContain('worktree-service — 我是 worktree 节点。');
     expect(text).toContain('project-manager · singleton — 我是调度节点。');
-    expect(text).toMatch(/^ {4}spawn\n {6}先建 worktree$/m);
+    expect(text).toMatch(/^ {4}construct\n {6}先建 worktree$/m);
     // Each section is rendered only when it was requested.
     expect(formatView({ sid: 2, description: null })).toBe('sid 2\n\ndescription\n  (none)');
   });

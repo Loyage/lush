@@ -25,7 +25,7 @@ export const rows = {
     const state = this.db.query('SELECT state FROM contexts WHERE sid=?').get(item.sid);
     const stored = state === null ? {} : JSON.parse(state.state);
     const declared = item.template_snapshot.variables ?? {};
-    // The agent profile this service selected at spawn time (null = the
+    // The agent profile this service selected at construct time (null = the
     // daemon's fallback tier). It lives in the Context state next to the
     // variables, so reading it costs nothing extra here.
     item.agent_profile = typeof stored.agent === 'string' && stored.agent !== '' ? stored.agent : null;

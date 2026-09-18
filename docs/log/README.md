@@ -27,6 +27,8 @@ MVP 范围内无未完成项。后续方向（本轮不实现）：Context compr
 - [13 · 模板提示词外置为 markdown（`@<路径>`）](./13-template-prompt-files.md)
 - [14 · Web UI 右侧主栏跟着当前视图走](./14-webui-right-panel-follows-view.md)
 - [15 · 派活不再跑出 task 树：`task spawn` 的父 task 缺省取 `$LUSH_TASK_ID`](./15-fix-task-spawn-parent.md)
+- [16 · worktree 的回收改成「service 的析构」](./16-worktree-service-destructor.md)
+- [17 · 命名统一：构造 prompt（`construct_prompt`）与 `construct` 语系](./17-construct-naming.md)
 
 ## 验收命令
 

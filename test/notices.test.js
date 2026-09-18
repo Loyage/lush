@@ -37,8 +37,8 @@ describe('notices (core)', () => {
 
   /** A task that exists but never runs its agent, so a notice can be posted directly. */
   function idleTask(template = 'generic-task', name = 'worker') {
-    const sid = manager.spawn(0, template, name).sid;
-    return manager.spawnTask(null, sid, 'idle goal', false);
+    const sid = manager.construct(0, template, name).sid;
+    return manager.constructTask(null, sid, 'idle goal', false);
   }
 
   test('a notice records the reporter, what it asks and how it is settled', () => {
@@ -140,7 +140,7 @@ describe('notices (core)', () => {
   });
 
   test('waiting on a notice blocks the reporter and the answer wakes it with the values', async () => {
-    const sid = manager.spawn(0, 'generic-task', 'worker').sid;
+    const sid = manager.construct(0, 'generic-task', 'worker').sid;
     const running = manager.call(sid, `/tool notice ${JSON.stringify({
       kind: 'decision', title: '选一个', fields: [{ name: 'plan', type: 'choice', options: ['A', 'B'], required: true }],
     })}`);
@@ -159,7 +159,7 @@ describe('notices (core)', () => {
   });
 
   test('wait=false reports without parking the task', async () => {
-    const sid = manager.spawn(0, 'generic-task', 'worker').sid;
+    const sid = manager.construct(0, 'generic-task', 'worker').sid;
     const task = await manager.call(sid, '/tool notice {"title":"只是汇报","wait":false}');
     expect(task.status).toBe('completed');
     expect(manager.noticeList('open')).toHaveLength(1);
@@ -167,7 +167,7 @@ describe('notices (core)', () => {
   });
 
   test('cancelling the reporter dismisses the notices nobody can answer any more', async () => {
-    const sid = manager.spawn(0, 'generic-task', 'worker').sid;
+    const sid = manager.construct(0, 'generic-task', 'worker').sid;
     const running = manager.call(sid, '/tool notice {"title":"等我","fields":[{"name":"x"}]}');
     await Bun.sleep(20);
     const notice = manager.noticeList('open')[0];
@@ -211,8 +211,8 @@ describe('notices (core)', () => {
   });
 
   test('hard deletion takes notices with the service, and detaches them from a deleted task', () => {
-    const sid = manager.spawn(0, 'generic-task', 'doomed').sid;
-    const task = manager.spawnTask(null, sid, 'g', false);
+    const sid = manager.construct(0, 'generic-task', 'doomed').sid;
+    const task = manager.constructTask(null, sid, 'g', false);
     const notice = manager.postNotice({ taskId: task.id, title: 'keep me' });
 
     manager.completeTask(task.id, 'done');
@@ -261,8 +261,8 @@ describe('notices over RPC, the CLI surface and the web UI', () => {
 
   /** One open notice with a declared plan field, created the same way the tool does. */
   function seedNotice() {
-    const sid = manager.spawn(0, 'generic-task', 'worker').sid;
-    const task = manager.spawnTask(null, sid, 'ship it', false);
+    const sid = manager.construct(0, 'generic-task', 'worker').sid;
+    const task = manager.constructTask(null, sid, 'ship it', false);
     return manager.postNotice({
       taskId: task.id,
       kind: 'decision',
@@ -343,8 +343,8 @@ describe('notices over RPC, the CLI surface and the web UI', () => {
   });
 
   test('notice.post lets an external agent report and block for the answer', async () => {
-    const sid = manager.spawn(0, 'generic-task', 'worker').sid;
-    const task = manager.spawnTask(null, sid, 'ship it', false);
+    const sid = manager.construct(0, 'generic-task', 'worker').sid;
+    const task = manager.constructTask(null, sid, 'ship it', false);
 
     // wait=false only registers.
     const reported = await client.request('notice.post', {

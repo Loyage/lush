@@ -57,7 +57,7 @@ export function agentsKill(manager, id) {
 
 /**
  * A terminal running `call --interactive` reports the OS PID of the pi process
- * it spawned: the daemon did not create it, so this is the only way the agent
+ * it constructed: the daemon did not create it, so this is the only way the agent
  * space can show or kill it.
  */
 export function callOsPid(manager, taskId, callId, osPid) {
@@ -80,7 +80,7 @@ export async function call(manager, sid, goal, { detach = false, interactive = f
   }
   if (detach && interactive) throw new LushError('detach and interactive cannot be combined', -32602);
   // An interactive task is not started here: the caller's terminal runs it.
-  const task = manager.spawnTask(null, sid, goal, !interactive);
+  const task = manager.constructTask(null, sid, goal, !interactive);
   if (interactive) return requireRuntime(manager).openInteractive(task.id);
   if (detach) return manager.taskInspect(task.id);
   await manager.waitForTask(task.id);
