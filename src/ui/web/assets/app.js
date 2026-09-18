@@ -120,11 +120,17 @@ function renderDrafts(data) {
   const signature = drafts.map(draft => `${draft.id}:${draft.content}`).join('\u0000');
   if (signature === draftSignature) return;
   draftSignature = signature;
+  // 和任务树同一套行结构（状态点 / #id / 状态 / 时间 + 一行正文），右侧挂一个删除入口。
   $('drafts').replaceChildren(...drafts.map(draft => {
     const item = el('article', undefined, 'draft');
-    const actions = el('div', undefined, 'actions');
-    actions.append(button('移除', () => action('draft.remove', { id: draft.id }), 'ghost'));
-    item.append(el('small', `草稿 #${draft.id}`), el('p', draft.content), actions);
+    item.dataset.id = draft.id;
+    const row = el('span', undefined, 'row');
+    const drop = button('移除', () => action('draft.remove', { id: draft.id }), 'drop');
+    drop.setAttribute('aria-label', `从缓存移除草稿 #${draft.id}`); drop.title = '从缓存移除这条输入（已提交的输入不可删）';
+    row.append(el('span', '○', 'dot c-queued'), el('span', `#${draft.id}`, 'tid'), el('span', '待规划'),
+      el('span', relative(draft.created_at), 'when'), drop);
+    item.append(row, el('span', draft.content, 'goal'));
+    item.title = `${draft.content}\n加入缓存于 ${absolute(draft.created_at)}`;
     return item;
   }));
 }
