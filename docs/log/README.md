@@ -26,6 +26,7 @@ MVP 范围内无未完成项。后续方向（本轮不实现）：Context compr
 - [12 · worktree 合并后的资源回收（第二次 notice）](./12-worktree-reclaim.md)
 - [13 · 模板提示词外置为 markdown（`@<路径>`）](./13-template-prompt-files.md)
 - [14 · Web UI 右侧主栏跟着当前视图走](./14-webui-right-panel-follows-view.md)
+- [15 · 派活不再跑出 task 树：`task spawn` 的父 task 缺省取 `$LUSH_TASK_ID`](./15-fix-task-spawn-parent.md)
 
 ## 验收命令
 

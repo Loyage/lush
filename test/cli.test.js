@@ -193,6 +193,33 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await cli(['call', String(spawned.sid), 'hello', '--interactive', '--dry-run'], { check: false })).code).toBe(2);
   }, 60_000);
 
+  test('task spawn from inside a task lands in that task tree', async () => {
+    await cli(['daemon', 'start']);
+    await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+    await cli(['service', 'spawn', '1', 'project', '--name', 'repo', '--vars', JSON.stringify({ path: state.dir })]);
+    await cli(['service', 'spawn', '2', 'dev-task', '--name', 'fix-typo', '--vars', JSON.stringify({ title: '修一个错字' })]);
+
+    // The parent stays active: its mock agent blocks on a notice, which is the
+    // state an agent is in when it delegates.
+    const parent = await data('call', '2', '/tool notice {"title":"hold"}', '--detach');
+    expect(parent.parent_task_id).toBeNull();
+
+    // What an agent's shell runs: no --parent-task-id, because $LUSH_TASK_ID is
+    // already set. The child must land under the parent, not as a root task.
+    const env = { ...state.env, LUSH_TASK_ID: String(parent.id) };
+    const child = JSON.parse((await cli(['--json', 'task', 'spawn', '3', '--goal', '改一行'], { env })).stdout);
+    expect(child).toMatchObject({ sid: 3, parent_task_id: parent.id, root_task_id: parent.id });
+    const tree = await data('task', 'tree', String(parent.id));
+    expect(tree.children.map((task) => task.id)).toContain(child.id);
+
+    // A malformed identity is refused rather than silently becoming a root task.
+    const bogus = await cli(['task', 'spawn', '3', '--goal', 'x'], { env: { ...state.env, LUSH_TASK_ID: 'nope' }, check: false });
+    expect(bogus.code).toBe(2);
+    expect(bogus.stderr).toContain('$LUSH_TASK_ID');
+
+    await data('task', 'cancel', String(parent.id));
+  }, 60_000);
+
 
 
 

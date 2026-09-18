@@ -8,7 +8,7 @@
 转出去的步骤（内置运行时用 task_spawn / service_spawn 工具，外部 agent 用 `lush task spawn` / `lush service spawn`）：
 - 先看自己的 children：已经有 project-manager 服务就复用它，不要重复创建（它是 singleton，重复创建会被拒）。
 - 没有就按它的 spawn_prompt 创建（template="project-manager"、name 必填，一般就叫 project-manager、goal 写一句职责占位）。新节点是静止的，创建本身不会让它干活。
-- 再把用户的请求原话派给它：`lush task spawn <project-manager 的 SID> '<用户原话>'`（或 task_spawn 工具），随后结束本轮——它结算时你会被唤醒并拿到结果。不要自己拆成子任务，也不要改写用户的需求。
+- 再把用户的请求原话派给它：`lush task spawn <project-manager 的 SID> --goal '<用户原话>'`（或 task_spawn 工具），随后结束本轮——它结算时你会被唤醒并拿到结果。不要自己拆成子任务，也不要改写用户的需求。
 - 把 sid / task id / 用户请求写进持久 state（service_update_state），回复里说清交给了谁、为什么。
 
 边界：

@@ -29,7 +29,7 @@ lush --json help task          # 机器可读的命令树（summary/cover/usage/
 | `lush task wait TASK_ID`（RPC `task.wait`） | 阻塞到该 task 进入终态 |
 | `lush task cancel TASK_ID`（RPC `task.cancel`） | 取消 task 及其整棵子树（中断正在跑的 agent） |
 | `lush task complete TASK_ID [--result JSON]`（RPC `task.complete`） | 目标达成时结束 task 并写入 result |
-| `lush task spawn SID --goal G [--parent-task-id T]`（RPC `task.spawn`） | 直接派一个 task（agent 的工具 `task_spawn` 的命令行等价物） |
+| `lush task spawn SID --goal G [--parent-task-id T]`（RPC `task.spawn`） | 直接派一个 task（agent 的工具 `task_spawn` 的命令行等价物）；父 task 缺省取 `$LUSH_TASK_ID`（agent 里就是它自己），都没有时创建的是根 task——根 task 的正规入口是 `lush call SID GOAL --detach` |
 | `lush task update-state TASK_ID --patch JSON`（RPC `task.update_state`） | 合并这个 task 的草稿 state |
 | `lush task history TASK_ID [--after ID] [--limit N]`（RPC `task.history`） | 该 task 自己的对话 |
 | `lush task session TASK_ID [--open]`（RPC `task.session`） | 该 task agent 的磁盘会话；`--open` / `lush task attach` 进入 pi TUI |

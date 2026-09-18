@@ -57,7 +57,7 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 | task.wait | task_id | 阻塞到该 task 进入终态，返回 `task.inspect` 形状 |
 | task.cancel | task_id | 取消该 task 及其整棵子树（中断正在跑的 agent），返回更新后的 task |
 | task.complete | task_id, result? | 目标达成时结束 task 并写入 result（有活动子 task、或收件箱有未读消息时报 -32010） |
-| task.spawn | sid, goal, parent_task_id? | 新建并启动一个 task（`parent_task_id` 给定时必须挂在父 task 所在 service 的直接子 service 上）；返回 task 快照。不等待，子 task 结算时以收件箱输入唤醒父 task |
+| task.spawn | sid, goal, parent_task_id? | 新建并启动一个 task（`parent_task_id` 给定时必须挂在父 task 所在 service 的直接子 service 上；不给定时建的是根 task，CLI 的 `task spawn` 会缺省填 `$LUSH_TASK_ID`）；返回 task 快照。不等待，子 task 结算时以收件箱输入唤醒父 task |
 | task.message | from_task_id, to_task_id, body | 给直接父 / 直接子 task 发一条消息（入队，不打断对方）：返回新建的 `task_inbox` 行；非直接父子 / 接收方已终态报 -32010 |
 | task.inbox | task_id, after=0, limit=50 | 该 task 收到的输入（`kind` 为 message / child_settled，`delivered_at` 说明是否已交给 agent），按 id 升序 |
 

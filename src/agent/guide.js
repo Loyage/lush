@@ -41,7 +41,7 @@ const CLI_HOWTO = `你通过 bash 工具执行 \`lush\` 命令来操作 Lush。C
 
 环境里已有 \`LUSH_HOME\`、\`LUSH_SID\`（你所在的 service）与 \`LUSH_TASK_ID\`（你正在做的 task）。常用：
 - \`lush task inspect $LUSH_TASK_ID\`：你自己的 task 与所在服务。
-- \`lush task spawn <子服务SID> '<目标>'\`：向下游派子 task（服务必须是你的直接子服务；缺节点先 \`lush service spawn\`）。
+- \`lush task spawn <子服务SID> --goal '<目标>'\`：向下游派子 task（服务必须是你的直接子服务；缺节点先 \`lush service spawn\`）。父 task 缺省取 \`$LUSH_TASK_ID\`（你自己），所以派出去的子 task 一定挂在你自己的 task 树里；位置参数只收 SID，目标必须写成 --goal。
 - 派完活结束本轮即可：子 task 结算时你会被唤醒并带上结果（\`lush task wait\` 是给人用的阻塞等待，agent 不要依赖它）。\`lush task cancel <task_id>\` 取消子 task。
 - \`lush task message <task_id> --body '<一句话>'\`：给直接父 task 或直接子 task 传话（入队，不打断对方）。\`lush task inbox <task_id>\` 查看某个 task 收到的输入。
 - \`lush task complete $LUSH_TASK_ID --result '"..."'\`：目标达成时结束你的 task。

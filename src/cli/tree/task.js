@@ -2,6 +2,26 @@ import { intArg, jsonArg, UsageError } from '../args.js';
 import { taskAgentGroup } from './task_agents.js';
 
 /**
+ * Who is delegating, when this command runs inside an agent's shell: both the
+ * built-in runtime and external `pi` inject `$LUSH_TASK_ID`, the same convention
+ * `task message --from` and `notice post --task` already rely on.
+ *
+ * Leaving the parent out would silently create a *root* task, which is how a
+ * delegation escapes its own tree (see the two-process bug that motivated
+ * this). A malformed value fails loudly instead of quietly becoming a root.
+ */
+function delegatingTask() {
+  const raw = process.env.LUSH_TASK_ID;
+  if (raw === undefined || raw === '') return {};
+  const id = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : 0;
+  if (id < 1) {
+    throw new UsageError(`$LUSH_TASK_ID is not a task id: '${raw}'`
+      + ' (pass --parent-task-id explicitly, or unset it to create a root task)');
+  }
+  return { parent_task_id: id };
+}
+
+/**
  * The `task` command group: the work layer of Lush.
  *
  * A service is a passive node; a task is one piece of work mounted on it, and
@@ -129,10 +149,12 @@ export const taskGroup = {
       summary: '在某个 service 上派一个 task（不等待）',
       cover: [
         '在 SID 上创建并立刻启动一个 task，返回它的 id；随后用 `task wait` / `task inspect` / `task tree` 观察。',
-        '这是 agent 内部 `task_spawn` 工具的命令行等价物：--parent-task-id 给定时，SID 必须是父 task 所在 service 的直接子服务（下游委托）；不给时创建的是根 task。',
+        '这是 agent 内部 `task_spawn` 工具的命令行等价物：SID 必须是父 task 所在 service 的直接子服务（下游委托）。',
+        '父 task 缺省取 $LUSH_TASK_ID——agent 的环境里就是它自己，所以 agent 直接 `lush task spawn <子服务SID> --goal <目标>` 派出去的一定挂在自己的 task 树里。',
       ],
       notes: [
         '同一个 service 同时只能有一个活动 task；该 service 正忙时派活会被拒绝。',
+        '要建根 task（用户直接开的活）用 `lush call SID GOAL --detach`；--parent-task-id 也可以显式覆盖 $LUSH_TASK_ID。',
       ],
       usage: ['lush task spawn SID --goal GOAL [--parent-task-id TASK_ID]'],
       positionals: [['SID', '挂载 task 的 service SID']],
@@ -140,11 +162,11 @@ export const taskGroup = {
         '--goal': { arg: 'GOAL', desc: '要做什么（必填）', apply: (r, v) => { r.goal = v; } },
         '--parent-task-id': {
           arg: 'TASK_ID',
-          desc: '派活的父 task（缺省时创建根 task）',
+          desc: '派活的父 task（缺省取 $LUSH_TASK_ID；都没有时创建根 task）',
           apply: (r, v) => { r.parent_task_id = intArg(v, '--parent-task-id'); },
         },
       },
-      parse: (args) => ({ sid: intArg(args.shift(), 'sid') }),
+      parse: (args) => ({ sid: intArg(args.shift(), 'sid'), ...delegatingTask() }),
       check: (r) => {
         if (!Object.hasOwn(r, 'goal')) throw new UsageError('the following arguments are required: --goal');
       },
