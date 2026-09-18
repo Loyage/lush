@@ -316,8 +316,12 @@ describe('the intent command line', () => {
     withEnv('19', () => {
       expect(() => parseArgs(['intent', 'submit', '你好'])).toThrow(/not yours to submit/);
     });
-    expect(parseArgs(['intent', 'submit', '你好', '--sid', '2']))
-      .toMatchObject({ command: 'intent_submit', content: '你好', sid: 2, source: 'cli' });
-    expect(() => parseArgs(['intent', 'submit', '你好', '--wait', '--interactive'])).toThrow(/--wait/);
+    // Inside a task `submit` is refused, so the words-first shape is checked
+    // without one: the ambient environment must not decide what this asserts.
+    withEnv(undefined, () => {
+      expect(parseArgs(['intent', 'submit', '你好', '--sid', '2']))
+        .toMatchObject({ command: 'intent_submit', content: '你好', sid: 2, source: 'cli' });
+      expect(() => parseArgs(['intent', 'submit', '你好', '--wait', '--interactive'])).toThrow(/--wait/);
+    });
   });
 });

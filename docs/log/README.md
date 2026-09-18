@@ -34,6 +34,7 @@ MVP 范围内无未完成项。后续方向（本轮不实现）：Context compr
 - [20 · 并行项目开发：开发与合并拆成两个阶段，worktree 由 project 串行建](./20-two-phase-parallel-development.md)
 - [21 · notice 不阻塞：答复作为下一次输入回家，task 多一个 awaiting](./21-non-blocking-notice.md)
 - [22 · Intension：用户输入收口成一条被串行解析的输入](./22-intensions.md)
+- [23 · 测试瘦身：删重复覆盖，固定睡眠换成条件等待](./23-test-trim.md)
 
 ## 验收命令
 

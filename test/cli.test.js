@@ -66,8 +66,10 @@ describe('cli, daemon lifecycle and attach', () => {
   setup();
 
   afterEach(async () => {
-    // Graceful stop first; then make sure no detached daemon survives the test.
-    await cli(['daemon', 'stop'], { check: false });
+    // Cleanup, not a test: a graceful `daemon stop` is exercised by the tests
+    // themselves (see the MVP flow and the restart test). Killing the daemon
+    // here skips the CLI's 100ms shutdown poll per test, and the home the next
+    // test gets is a fresh tmpdir anyway.
     await forceStopDaemon(state.dir);
     expect(isLocked(state.dir)).toBe(false);
     cleanup(state.dir);
@@ -353,21 +355,26 @@ describe('cli, daemon lifecycle and attach', () => {
 
   test('task agents kill stops the worker and cancels its task', async () => {
     const stub = path.join(state.dir, 'pi-slow-agent');
+    const gate = path.join(state.dir, 'pi-gate');
     fs.mkdirSync(state.dir, { recursive: true });
+    fs.writeFileSync(gate, 'hold');
     fs.writeFileSync(stub, [
       '#!/usr/bin/env bun',
       'const argv = process.argv.slice(2);',
       "const dir = argv[argv.indexOf('--session-dir') + 1];",
       "const id = argv[argv.indexOf('--session-id') + 1];",
       "if (dir && id) await Bun.write(`${dir}/2020-01-01T00-00-00-000Z_${id}.jsonl`, '{}');",
-      'await Bun.sleep(Number(process.env.PI_STUB_SLEEP ?? 0));',
+      // Block while the gate file exists: the test releases the stub exactly when
+      // it is done observing the running agent, instead of paying a fixed sleep.
+      'const gate = process.env.PI_STUB_GATE;',
+      'while (gate && await Bun.file(gate).exists()) await Bun.sleep(10);',
       "console.log('late reply');",
       '',
     ].join('\n'));
     fs.chmodSync(stub, 0o755);
     const baseEnv = state.env;
-    // The daemon runs the stub, so the sleep has to be in *its* environment.
-    state.env = { ...baseEnv, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub, PI_STUB_SLEEP: '3000' };
+    // The daemon runs the stub, so the gate has to be in *its* environment.
+    state.env = { ...baseEnv, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub, PI_STUB_GATE: gate };
     try {
       await cli(['daemon', 'start']);
       await cli(['service', 'construct', '0', 'project-manager', '--name', 'project-manager']);
@@ -405,6 +412,9 @@ describe('cli, daemon lifecycle and attach', () => {
       // second attempt picks it up.
       expect(JSON.parse((await cli(['--json', 'task', 'agents', 'kill', agentId])).stdout))
         .toMatchObject({ id: agentId, outcome: 'killed' });
+      // The worker is gone: release the gate so the retry this kill triggers (and
+      // the later submission) return at once instead of blocking on it.
+      fs.rmSync(gate, { force: true });
       expect(await waiter.exited).toBe(0);
       expect(await stdout).toContain('late reply');
       expect(await data('task', 'inspect', String(task.id))).toMatchObject({
@@ -483,10 +493,15 @@ describe('cli, daemon lifecycle and attach', () => {
     // A daemon running this exact code stays quiet on stderr.
     expect((await cli(['service', 'list'])).stderr).not.toContain('runs different code');
 
-    // Text output is one aligned line per field, not a JSON blob.
+    // Text output is one aligned line per field, not a JSON blob; the nested
+    // `cli` object is flattened (`cli.` prefix), never printed as one.
     const text = await cli(['daemon', 'status']);
     expect(text.stdout).toMatch(new RegExp(`^home\\s+${state.dir}$`, 'm'));
+    expect(text.stdout).toMatch(/^daemon_pid\s+\d+$/m);
+    expect(text.stdout).toMatch(/^fingerprint\s+[0-9a-f]{12}$/m);
     expect(text.stdout).toMatch(/^cli\.code_match\s+true$/m);
+    expect(text.stdout).not.toMatch(/^cli\s/m);
+    expect(text.stdout).not.toContain('{');
   }, 60_000);
 
   test('force stop reclaims the daemon that owns the home', async () => {

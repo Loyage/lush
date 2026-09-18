@@ -254,7 +254,9 @@ describe('pi agent backend', () => {
       const task = parts.manager.repository.createTask(0, null, 'abandoned');
       const opened = parts.runtime.openInteractive(task.id);
       expect(parts.runtime.isBusy(0)).toBe(true);
-      await Bun.sleep(300);
+      // The timeout is the subject, not the wall clock: wait for the daemon's
+      // verdict instead of sleeping a fixed multiple of it.
+      for (let attempt = 0; attempt < 200 && parts.runtime.isBusy(0); attempt += 1) await Bun.sleep(5);
       expect(parts.runtime.isBusy(0)).toBe(false);
       const [call] = parts.manager.repository.taskCalls(task.id);
       expect(call.status).toBe('failed');

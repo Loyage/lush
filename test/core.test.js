@@ -202,7 +202,9 @@ describe('core', () => {
     expect(manager.taskList(null, 'completed').map((row) => row.id)).toContain(task.id);
     expect(manager.taskList(null, null, 'roots').map((row) => row.id)).toContain(task.id);
     expect(code(() => manager.taskList(null, 'nope'))).toBe(-32602);
-    expect(code(() => manager.taskHistory(task.id, -1, 10))).toBe(-32602);
+    for (const [after, limit] of [[-1, 1], [0, 0], [0, 1001], [true, 1]]) {
+      expect(code(() => manager.taskHistory(task.id, after, limit))).toBe(-32602);
+    }
 
     const info = manager.taskInspect(task.id);
     expect(info.service).toMatchObject({ sid, status: 'active' });
@@ -573,15 +575,6 @@ describe('core', () => {
     expect(names(child.sid)).not.toContain('project-manager');
   });
 
-  test('view has no command section and ignores legacy snapshot fields', () => {
-    const child = construct(0, 'generic-task', 'child');
-    const view = manager.view(child.sid, ['parent', 'children', 'prompt']);
-    expect(view.parent.sid).toBe(0);
-    expect(view.children).toEqual([]);
-    expect(view.call_prompt).toBe(manager.templates.get('generic-task').system_prompt);
-    expect(() => manager.view(child.sid, ['command'])).toThrow(LushError);
-  });
-
   test('view answers what the node is, what it may create and how its tasks read', () => {
     const child = construct(0, 'generic-task', 'child');
     const view = manager.view(child.sid, ['description', 'parent', 'children', 'prompt', 'templates']);
@@ -589,6 +582,8 @@ describe('core', () => {
     expect(view.parent.sid).toBe(0);
     expect(view.children).toEqual([]);
     expect(view.call_prompt).toBe(manager.templates.get('generic-task').system_prompt);
+    // Sections are a closed set: `command` is not one of them any more.
+    expect(() => manager.view(child.sid, ['command'])).toThrow(LushError);
     // `templates` is the very list the node's own agent sees in Context, so the
     // two read paths cannot drift.
     const task = manager.constructRootTask(child.sid, 'view');
@@ -900,12 +895,6 @@ describe('core', () => {
     expect(() => manager.completeTask(task.id, Number.NaN)).toThrow(LushError);
     expect(manager.repository.getTask(task.id).status).toMatch(/created|running/);
     manager.cancelTask(task.id);
-  });
-
-  test('pagination validation', () => {
-    for (const [after, limit] of [[-1, 1], [0, 0], [0, 1001], [true, 1]]) {
-      expect(() => manager.taskHistory(1, after, limit)).toThrow(LushError);
-    }
   });
 
   test('a v1 database migrates through v2 to the service/task schema', async () => {

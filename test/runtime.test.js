@@ -171,26 +171,6 @@ describe('runtime', () => {
     expect(() => manager.callDescribe(99, 'x')).toThrow(/not found/);
   });
 
-  test('a task can only wait on its own downstream work', async () => {
-    const parent = worker('generic-service', 'parent');
-    const child = worker('generic-task', 'child');
-    const other = worker('generic-task', 'other');
-    const task = manager.repository.createTask(parent.sid, null, 'parent work');
-    const parked = manager.repository.createTask(child.sid, task.id, 'child work', { rootTaskId: task.id });
-    const unrelated = manager.repository.createTask(other.sid, null, 'unrelated');
-
-    // A task may not delegate to a non-child service, nor to its own service.
-    expect(() => manager.constructTask(task.id, other.sid, 'off tree')).toThrow(/only delegate downstream/);
-    expect(() => manager.constructTask(task.id, parent.sid, 'itself')).toThrow(/cannot delegate to its own service/);
-    // Waiting is symmetric: only the waiter's subtree, never itself.
-    expect(() => manager.waitForTask(unrelated.id, task.id)).toThrow(/not part of task/);
-    expect(() => manager.waitForTask(task.id, task.id)).toThrow(/cannot wait on itself/);
-    manager.completeTask(parked.id, 'done');
-    expect((await manager.waitForTask(parked.id, task.id)).status).toBe('completed');
-    manager.cancelTask(task.id);
-    manager.cancelTask(unrelated.id);
-  });
-
   test('cancelTask cancels its whole subtree', () => {
     const a = worker('generic-service', 'a');
     const b = worker('generic-task', 'b');
