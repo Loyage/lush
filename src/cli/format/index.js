@@ -34,7 +34,7 @@ export function format(args, result) {
   if (typeof args.command === 'string' && args.command.startsWith('agent_')) {
     return formatAgentCommand(args.command, result);
   }
-  // `daemon start|stop` (command `daemon`) and `daemon status` (command `status`)
+  // `daemon start|stop|restart` (command `daemon`) and `daemon status` (command `status`)
   // all report identity in `cli`, so they share the aligned line format.
   if (args.command === 'daemon' || args.command === 'status') return formatDaemon(result);
   if (args.command === 'call') return result.dry_run ? formatDryRun(result) : result.output;

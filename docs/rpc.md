@@ -114,7 +114,7 @@ Provider tool 名称采用 OpenAI-compatible 安全字符：`process_self`、`pr
 ```text
 lush help [command [subcommand]]        # 顶层与任意一层的覆盖范围、子命令、参数
 
-lush daemon start|stop|status
+lush daemon start|stop|restart|status
 lush process list|tree|inspect|spawn|call|attach|history|start|stop|kill|delete|purge|reclaim|complete|update-state|update-vars|session|agents|orphans
 
 lush process inspect PID [--with parent,children,prompt]
@@ -160,7 +160,7 @@ agent 有两个互不相同的视图，都不落库也不共用 pid 空间：
 
 attach 是持续 RPC 对话，不是独占接管锁，也不是历史终态的只读模型对话。进入前验证 running；`/exit`、`/quit`、EOF 退出。不改变 Process 状态。Ctrl-C 退出客户端，不保证取消 daemon 中的调用；需要 `lush process stop|kill` 明确中断。
 
-daemon start 后台用 `process.execPath` 启动 `src/daemon/main.js`（detached，日志 `$LUSH_HOME/daemon.log`）并等待 RPC ready。已启动时幂等。daemon stop 发 system.shutdown 并等待锁释放。根进程不能用 `lush process stop 0` 停止。启动参数来自环境：LUSH_HOME、LUSH_PROVIDER=pi|mock|openai（默认 pi）、LUSH_PI_COMMAND、LUSH_PI_PROVIDER、LUSH_PI_MODEL、LUSH_API_KEY、LUSH_BASE_URL、LUSH_MODEL、LUSH_CALL_TIMEOUT（默认 900 秒）、LUSH_MAX_ROUNDS（默认 12，仅内置运行时）、LUSH_ORPHAN_ADOPT / LUSH_ORPHAN_LIMIT / LUSH_ORPHAN_TTL / LUSH_ORPHAN_SWEEP（PID 0 的孤儿监督策略，默认 adopt / 0 / 0 / 30，非法值启动即报错）。客户端超时为调用超时 + 10 秒，可用 LUSH_RPC_TIMEOUT 覆盖。
+daemon start 后台用 `process.execPath` 启动 `src/daemon/main.js`（detached，日志 `$LUSH_HOME/daemon.log`）并等待 RPC ready。已启动时幂等。daemon stop 发 system.shutdown 并等待锁释放。daemon restart 先 stop 再 start（daemon 没在运行时等价于一次 start），返回新 daemon 的状态并多一个 `restarted` / `was_running`；因为 `start` 幂等，只有先等旧 daemon 释放单实例锁，新 daemon 才能成为应答的那一份。根进程不能用 `lush process stop 0` 停止。启动参数来自环境：LUSH_HOME、LUSH_PROVIDER=pi|mock|openai（默认 pi）、LUSH_PI_COMMAND、LUSH_PI_PROVIDER、LUSH_PI_MODEL、LUSH_API_KEY、LUSH_BASE_URL、LUSH_MODEL、LUSH_CALL_TIMEOUT（默认 900 秒）、LUSH_MAX_ROUNDS（默认 12，仅内置运行时）、LUSH_ORPHAN_ADOPT / LUSH_ORPHAN_LIMIT / LUSH_ORPHAN_TTL / LUSH_ORPHAN_SWEEP（PID 0 的孤儿监督策略，默认 adopt / 0 / 0 / 30，非法值启动即报错）。客户端超时为调用超时 + 10 秒，可用 LUSH_RPC_TIMEOUT 覆盖。
 
 默认的 pi 是「纯净化」的：daemon 启动时把内置 `default` profile 解析成 fallback provider（pi + `--no-extensions --no-skills --no-prompt-templates --no-themes --no-context-files`），所以 pi 不加载使用者的 extensions / skills / prompt templates / themes / AGENTS.md；`$LUSH_HOME/agents/default.json` 可逐字段覆盖它。所有 `$LUSH_HOME/agents/<name>.json` 都在**每次 call 时**读盘（不需要重启 daemon），只有 provider 是 `pi` 之外的后端或 `agent` 解析出错时才会以 -32602 / -32004 失败。环境变量与 profile 的优先级见上一节。
 

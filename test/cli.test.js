@@ -85,6 +85,8 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await cli(['process', 'spawn', 'help'])).stdout).toBe(leaf.stdout);
     expect((await cli(['help', 'process', 'spawn'])).stdout).toBe(leaf.stdout);
     expect((await cli(['daemon', 'help'])).stdout).toContain('lush daemon <command> [args]');
+    expect((await cli(['daemon', 'help'])).stdout).toContain('restart');
+    expect((await cli(['daemon', 'restart', '-h'])).stdout).toContain('lush daemon restart —');
     // Help wins over a missing positional, so it never depends on a live daemon.
     expect((await cli(['process', 'call', '--help'])).stdout).toContain('lush process call —');
 
@@ -640,6 +642,25 @@ describe('cli, daemon lifecycle and attach', () => {
 
     await cli(['daemon', 'start']);
     expect((await data('process', 'list')).length).toBe(1);
+  }, 60_000);
+
+  test('daemon restart replaces the daemon and keeps the tree', async () => {
+    const first = await data('daemon', 'start');
+    await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+    const tree = 'lush[0]\n└── project-manager[1]';
+    expect((await cli(['process', 'tree'])).stdout.trim()).toBe(tree);
+
+    const restarted = await data('daemon', 'restart');
+    expect(restarted).toMatchObject({ restarted: true, was_running: true, started: true });
+    expect(restarted.daemon_pid).not.toBe(first.daemon_pid); // a new daemon, not the old one
+    expect(restarted.cli.code_match).toBe(true);
+    expect((await cli(['process', 'tree'])).stdout.trim()).toBe(tree);
+
+    // Restarting a stopped home is just a start, and says so.
+    await cli(['daemon', 'stop']);
+    const fromStopped = await data('daemon', 'restart');
+    expect(fromStopped).toMatchObject({ restarted: true, was_running: false, started: true });
+    expect((await cli(['process', 'tree'])).stdout.trim()).toBe(tree);
   }, 60_000);
 
   test('daemon status reports which home and which code answer', async () => {

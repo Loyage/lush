@@ -28,9 +28,8 @@ lush process inspect 2
 lush process inspect 2 --with parent,children,prompt  # 一次查看父/子/Call Prompt
 lush process complete 2 --result '"done"'   # 只有 Task 能自己完成
 lush process update-state 2 --patch '{"progress":"half"}'
-lush daemon stop
-lush daemon start
-lush process tree  # 树、Context、对话和调用历史仍在
+lush daemon restart # 等价 stop + start；树、Context、对话和调用历史仍在
+lush process tree
 lush daemon stop
 ```
 
@@ -75,7 +74,7 @@ just clean           # 停 daemon 并删除仓库内的 .lush
 
 `just` 默认把开发数据放在仓库内的 `.lush/`（已 gitignore），不碰你日常的 `~/.local/state/lush`；用 `LUSH_HOME` 可覆盖（此时 `just clean` 只提示、不删除仓库外的目录）。
 
-**改代码或提示词之后，先确认你重启的是哪个 daemon。** daemon 是常驻进程：`src/agent/guide.js`、`src/cli/tree/`（CLI 声明树）与 `templates/**/*.json`（模板按 spawn 树分层嵌套，递归加载）都在它启动时读入内存，所以 `just daemon-restart` 只重启 `LUSH_HOME`（默认仓库 `.lush/`）那一份。若你另外在 shell 里直接跑 `lush`（没有 `export LUSH_HOME`，走默认 `~/.local/state/lush`），命令打到的是另一个 daemon，重启那份不会有任何效果。`lush daemon status` / `just doctor` 会列出 daemon 自己的 `home`、`code_dir`、`fingerprint`、`started_at` 与 CLI 侧对应字段（`cli.code_match` 表示两边是否同一份代码）；不一致时，任何 `lush` 命令都会在 stderr 上告警并给出该重启哪一份。
+**改代码或提示词之后，先确认你重启的是哪个 daemon。** daemon 是常驻进程：`src/agent/guide.js`、`src/cli/tree/`（CLI 声明树）与 `templates/**/*.json`（模板按 spawn 树分层嵌套，递归加载）都在它启动时读入内存，所以 `just daemon-restart`（等价 `lush daemon restart`）只重启 `LUSH_HOME`（默认仓库 `.lush/`）那一份。若你另外在 shell 里直接跑 `lush`（没有 `export LUSH_HOME`，走默认 `~/.local/state/lush`），命令打到的是另一个 daemon，重启那份不会有任何效果。`lush daemon status` / `just doctor` 会列出 daemon 自己的 `home`、`code_dir`、`fingerprint`、`started_at` 与 CLI 侧对应字段（`cli.code_match` 表示两边是否同一份代码）；不一致时，任何 `lush` 命令都会在 stderr 上告警并给出该重启哪一份。
 
 ## Agent：默认「纯净 pi」
 
@@ -210,10 +209,10 @@ export LUSH_PROVIDER=openai
 export LUSH_API_KEY='...'
 export LUSH_BASE_URL='https://api.openai.com/v1'
 export LUSH_MODEL='your-model'
-lush daemon start
+lush daemon start    # 或 lush daemon restart：进程树与历史保留，只有代码 / 环境变量变新
 ```
 
-环境变量由 **daemon 启动时** 读取，切换需重启。API key 不写入数据库。请求走 Bun 的 `fetch`，自动遵循标准代理环境变量（`http_proxy` / `https_proxy` / `all_proxy` / `no_proxy`）；本机 loopback base URL 会把 loopback 主机名补进 `NO_PROXY`，保证本地模型直连。拒绝 HTTP 重定向以避免转发 API key。调用带 `AbortSignal`，取消后不再执行工具或写入结果；daemon 退出时不会等待网络请求自然结束。不自动重试有副作用的 Agent 调用。内置运行时不支持流式输出。Mock 的自然语言识别只是演示规则。
+环境变量由 **daemon 启动时** 读取，切换需重启（`lush daemon restart`）。API key 不写入数据库。请求走 Bun 的 `fetch`，自动遵循标准代理环境变量（`http_proxy` / `https_proxy` / `all_proxy` / `no_proxy`）；本机 loopback base URL 会把 loopback 主机名补进 `NO_PROXY`，保证本地模型直连。拒绝 HTTP 重定向以避免转发 API key。调用带 `AbortSignal`，取消后不再执行工具或写入结果；daemon 退出时不会等待网络请求自然结束。不自动重试有副作用的 Agent 调用。内置运行时不支持流式输出。Mock 的自然语言识别只是演示规则。
 
 `mock` / `openai` 也可以写进 agent profile（`lush agent add x --provider mock`）：被进程显式选中的 profile 优先于 `LUSH_PROVIDER`，所以同一个 daemon 里可以同时有跑 pi 的进程和跑内置运行时的进程（各自带上匹配的 Lush 说明层：`cli` 或 `tools`）。openai 的 URL / key / model 仍然只来自环境变量。
 

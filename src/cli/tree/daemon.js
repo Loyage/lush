@@ -29,6 +29,18 @@ export const daemonGroup = {
       usage: ['lush daemon stop'],
       parse: () => ({ action: 'stop' }),
     },
+    restart: {
+      command: 'daemon',
+      summary: '重启 daemon（stop 后 start，等待新 daemon ready）',
+      cover: [
+        '先 stop（中断 daemon 中正在进行的 Agent 调用），等单实例锁释放后再 start，返回新 daemon 的状态。',
+        'daemon 没在运行时等价于一次 start（was_running=false）。',
+        '改代码或提示词后用它让新代码生效：重启只作用于本次 CLI 的 LUSH_HOME；`just daemon-restart` 是同一件事。',
+        '进程树、Context、消息与调用历史都保留；被中断的调用标记为 interrupted。',
+      ],
+      usage: ['lush daemon restart'],
+      parse: () => ({ action: 'restart' }),
+    },
     status: {
       command: 'status',
       method: 'system.status',

@@ -92,8 +92,10 @@ daemon-stop:
 # 只重启 LUSH_HOME={{LUSH_HOME}} 这一份；命令打到的若是别的 home，它不会被重启
 # （`just doctor` / `just status` 会显示实际 home、代码指纹与是否匹配）
 # 重启 daemon：进程树、Context、消息与调用历史都会被保留
+# （等价于 `lush daemon restart`：先 stop 等锁释放，再 start 等新 daemon ready）
 [group('daemon')]
-daemon-restart: daemon-stop daemon-start
+daemon-restart:
+  @{{lush}} daemon restart
 
 # daemon 状态：daemon_pid、provider、进程数、活动调用数
 [group('daemon')]

@@ -83,32 +83,29 @@ async function warnOnStaleDaemon(client, config) {
   process.stderr.write(`lush: warning: restarted code only applies to the daemon you restart; run 'LUSH_HOME=${home} lush daemon restart'\n`);
 }
 
-export async function daemonCommand(config, action) {
-  config.prepare();
-  const client = new RPCClient(config.socket, 1);
-  const logPath = path.join(config.home, 'daemon.log');
-
-  if (action === 'stop') {
-    // Trust the lock, but also handle a daemon whose lock file was removed or
-    // written by an older implementation: ask the socket before giving up.
-    let live = isLocked(config.home);
-    if (!live && fs.existsSync(config.socket)) {
-      try {
-        await client.request('system.status');
-        live = true;
-      } catch {
-        /* stale socket, daemon is gone */
-      }
+async function stopDaemon(config, client) {
+  // Trust the lock, but also handle a daemon whose lock file was removed or
+  // written by an older implementation: ask the socket before giving up.
+  let live = isLocked(config.home);
+  if (!live && fs.existsSync(config.socket)) {
+    try {
+      await client.request('system.status');
+      live = true;
+    } catch {
+      /* stale socket, daemon is gone */
     }
-    if (!live) return { stopped: true, already_stopped: true, cli: cliContext(config) };
-    await client.request('system.shutdown');
-    for (let attempt = 0; attempt < 150; attempt += 1) {
-      if (!isLocked(config.home)) return { stopped: true, cli: cliContext(config) };
-      await Bun.sleep(100);
-    }
-    throw new LushError('daemon shutdown still pending; inspect daemon.log');
   }
+  if (!live) return { stopped: true, already_stopped: true, cli: cliContext(config) };
+  await client.request('system.shutdown');
+  for (let attempt = 0; attempt < 150; attempt += 1) {
+    if (!isLocked(config.home)) return { stopped: true, cli: cliContext(config) };
+    await Bun.sleep(100);
+  }
+  throw new LushError('daemon shutdown still pending; inspect daemon.log');
+}
 
+async function startDaemon(config, client) {
+  const logPath = path.join(config.home, 'daemon.log');
   try {
     const status = await client.request('system.status');
     return { started: true, already_running: true, ...status, cli: cliContext(config, status) };
@@ -150,6 +147,24 @@ export async function daemonCommand(config, action) {
     }
   }
   throw new LushError(`lushd startup timed out; see ${logPath}`);
+}
+
+/**
+ * `daemon start` is idempotent, so a `restart` must stop first: the lock is the
+ * only thing that keeps a second daemon from being started, and only the daemon
+ * holding it can release it. Waiting for the lock (done by `stopDaemon`) is
+ * what makes `was_running` meaningful and the new daemon the one answering.
+ */
+export async function daemonCommand(config, action) {
+  config.prepare();
+  const client = new RPCClient(config.socket, 1);
+  if (action === 'restart') {
+    const stopped = await stopDaemon(config, client);
+    const started = await startDaemon(config, client);
+    return { restarted: true, was_running: !stopped.already_stopped, ...started };
+  }
+  if (action === 'stop') return stopDaemon(config, client);
+  return startDaemon(config, client);
 }
 
 export async function run(argv) {
