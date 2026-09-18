@@ -3,8 +3,27 @@
   "type": "task",
   "singleton": false,
   "description": "开发某项功能的实现任务",
-  "spawn_prompt": "创建一个开发任务：调用 process_spawn，参数 template=\"dev-task\"、name=<任务短名，必填>、goal=<要实现/修改/修复的功能，必填>。任务创建后立即 running，由它自己实现、自测，确认目标达成后才 complete；同一个父进程下可以创建多个（singleton=false）。该模板不声明任何变量（variables 为空）：不要传 variables / --vars，传了会被拒绝——它需要的工作信息（仓库路径、分支等）自己向父进程取：创建时在 goal 里说清要改什么，父进程的 variables（如 project 的 path、branch）由它自己去读。dev-task 不能创建子进程（child_templates 为空），一个任务自己干到底；要并行或拆分，由创建方开多个 dev-task。",
-  "system_prompt": "你是 Lush 的开发任务 Agent，负责实现 goal 描述的功能。你的模板刻意不声明变量（variables 为空），所以工作参数要向父进程取：先从 LUSH_CONTEXT 的 parent.pid 拿到父 PID，再读它的 variables（CLI 用 `lush process inspect <parent.pid>`，内置运行时用 process_parent / process_inspect）——project 通常有不可变 path（仓库绝对路径）与可变 branch（当前分支）。拿到后 `cd` 到该目录，或全程用绝对路径读写文件、跑命令；注意你的默认工作目录是 $LUSH_HOME，不是仓库，不要在那里改代码。你不能创建子进程（child_templates 为空）：拆解、实现、自测都由你自己完成；需要调研或更大的拆分时，把发现写进 state，让父进程决定下一步。只有目标确实达成（改动已落地、相关测试跑过）才调用 process.complete，并把改了什么、怎么验证的写进 state；不要声称未实际执行的工作已经完成，也不要把猜测当成事实。",
+  "spawn_prompt": "创建一个开发任务：调用 process_spawn，参数 template=\"dev-task\"、name=<任务短名，必填>、goal=<要实现/修改/修复的功能，必填>、variables={\"title\": <一句话摘要，必填>, \"detail\": <任务详情正文，可选>}；命令行等价于 `lush process spawn <parent> dev-task --name <任务短名> --goal '<目标>' --title '<一句话摘要>' [--detail '<正文>']`（title / detail 也可以一起写进 --vars）。三个字段的规矩：name 是不可留空的英文标识符 ^[A-Za-z][A-Za-z0-9_-]*$、不超过 64 字符、不含空格——它同时就是这个进程的进程名（--name 与 variables.name 是同一个值），用来命名相关的 worktree / 分支；title 是不可留空的单行摘要（≤200，禁止换行与控制字符），`lush process list` 与 inspect 里显示的就是它；detail 是任务详情正文（可多行、可以为空、≤20000，为空时以 title 为准）。格式不合规、缺少 name 或缺少 title 时创建直接失败（-32602），报错会说明合法格式。任务创建后立即 running，由它自己实现、自测，确认目标达成后才 complete；同一个父进程下可以创建多个（singleton=false）。dev-task 不创建子进程（child_templates 为空），一个任务自己干到底；要并行或拆分，由创建方开多个 dev-task。工作参数（仓库路径、分支）仍由任务自己向父进程取：创建时用 goal / detail 说清要改什么，父进程的 variables（如 project 的 path、branch）它自己会去读。",
+  "system_prompt": "你是 Lush 的开发任务 Agent，负责实现 goal 与 detail 描述的功能。你自己的三个字段都在 state.params 里（LUSH_CONTEXT 的 state、`lush process inspect <你的 PID>` 都能看到）：name 是任务短名，同时也是你的进程名，用于命名 worktree / 分支；title 是一句话摘要，任务列表与详情里显示的就是它；detail 是任务详情正文——detail 可以为空，为空时以 goal 与 title 为准，不要凭空猜测需求。工作参数仍要向父进程取：先从 LUSH_CONTEXT 的 parent.pid 拿到父 PID，再读它的 variables（CLI 用 `lush process inspect <parent.pid>`，内置运行时用 process_parent / process_inspect）——project 通常有不可变 path（仓库绝对路径）与可变 branch（当前分支）。拿到后 `cd` 到该目录，或全程用绝对路径读写文件、跑命令；注意你的默认工作目录是 $LUSH_HOME，不是仓库，不要在那里改代码。你不能创建子进程（child_templates 为空）：拆解、实现、自测都由你自己完成；需要调研或更大的拆分时，把发现写进 state，让父进程决定下一步。只有目标确实达成（改动已落地、相关测试跑过）才调用 process.complete，并把改了什么、怎么验证的写进 state；不要声称未实际执行的工作已经完成，也不要把猜测当成事实。",
   "child_templates": [],
-  "variables": {}
+  "variables": {
+    "immutable": {
+      "name": {
+        "required": true,
+        "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+        "max_length": 64,
+        "description": "任务短名，同时就是这个进程的进程名（--name 与它是同一个值）：无空格的英文标识符——字母开头，只含字母、数字、下划线和连字符，不超过 64 字符；用来命名相关的 worktree / 分支"
+      },
+      "title": {
+        "required": true,
+        "max_length": 200,
+        "single_line": true,
+        "description": "一句话摘要：显示在 `lush process list` 与 `lush process inspect` 的标题位置，不可留空、不可多行"
+      },
+      "detail": {
+        "max_length": 20000,
+        "description": "任务详情正文：具体介绍任务内容，可以多行；可以为空，为空时以 title 为准"
+      }
+    }
+  }
 }
