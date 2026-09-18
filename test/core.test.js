@@ -380,6 +380,37 @@ describe('core', () => {
     }
   });
 
+  test('templates load in hierarchy order, and agents see that order', () => {
+    const loader = new TemplateLoader();
+    const order = Object.keys(loader.templates);
+    expect(order).toEqual([
+      'lush-root', 'project-manager', 'project',
+      'dev-task', 'research-task', 'generic-service', 'generic-task',
+    ]);
+    // The layout is the spawn tree: a template file sits next to a folder named
+    // after it, and that folder holds the templates it may create
+    // (`templates/lush-root.json` + `templates/lush-root/`). Templates with
+    // several parents live with the shallowest one.
+    const origin = (name) => loader.origins.get(name).split(path.sep).join('/');
+    expect(origin('lush-root').endsWith('/templates/lush-root.json')).toBe(true);
+    expect(origin('project-manager').endsWith('/templates/lush-root/project-manager.json')).toBe(true);
+    expect(origin('dev-task').endsWith('/templates/lush-root/project-manager/project/dev-task.json')).toBe(true);
+    // The invariant behind the order: a template is listed after everything that
+    // may spawn it (`*` and self-references are not hierarchy steps, so the
+    // generic templates sit below research-task, which names them explicitly).
+    for (const template of Object.values(loader.templates)) {
+      for (const child of template.child_templates) {
+        if (child === '*' || child === template.name) continue;
+        expect(order.indexOf(template.name)).toBeLessThan(order.indexOf(child));
+      }
+    }
+    // available_child_templates is served in the same order, not alphabetically.
+    const project = root.createChild('project', { variables: { path: dir } });
+    const names = new ContextBuilder(manager.repository, manager.templates)
+      .build(manager.load(project.pid), null).data.available_child_templates.map((item) => item.name);
+    expect(names).toEqual(['dev-task', 'research-task', 'generic-service', 'generic-task']);
+  });
+
   test('available child templates hide a singleton that is already taken', () => {
     const names = (pid) => new ContextBuilder(manager.repository, manager.templates)
       .build(manager.load(pid), null).data.available_child_templates.map((item) => item.name);
@@ -443,6 +474,37 @@ describe('core', () => {
       fs.writeFileSync(file, JSON.stringify(broken));
       expect(() => new TemplateLoader(directory)).toThrow(LushError);
     }
+  });
+
+  test('child_templates paths resolve against the declaring template file', () => {
+    const directory = path.join(dir, 'templates');
+    fs.mkdirSync(path.join(directory, 'sub'), { recursive: true });
+    const base = manager.templates.get('generic-task');
+    const write = (relative, value) => fs.writeFileSync(path.join(directory, relative), JSON.stringify(value));
+    write('root-tpl.json', { ...base, name: 'root-tpl', child_templates: ['sub/mid-tpl.json'] });
+    write('sub/mid-tpl.json', { ...base, name: 'mid-tpl', child_templates: ['leaf-tpl.json', '../shared-tpl.json'] });
+    write('sub/leaf-tpl.json', { ...base, name: 'leaf-tpl', child_templates: [] });
+    write('shared-tpl.json', { ...base, name: 'shared-tpl', child_templates: ['*'] });
+
+    // Templates load recursively, and a path is relative to its own file:
+    // `sub/mid-tpl.json` from the directory root, `../shared-tpl.json` from
+    // inside `sub/`, `leaf-tpl.json` next to the file that names it.
+    const loader = new TemplateLoader(directory);
+    expect(loader.get('root-tpl').child_templates).toEqual(['mid-tpl']);
+    expect(loader.get('mid-tpl').child_templates).toEqual(['leaf-tpl', 'shared-tpl']);
+
+    // A path that points nowhere is refused, and a path in a template that has no
+    // file of its own (programmatic `register`) has nothing to be relative to.
+    write('sub/leaf-tpl.json', { ...base, name: 'leaf-tpl', child_templates: ['nope.json'] });
+    expect(() => new TemplateLoader(directory)).toThrow(/no template file at .*nope\.json/);
+    expect(() => manager.templates.register({ ...base, name: 'path-task', child_templates: ['other.json'] }))
+      .toThrow(/registered without a file/);
+    expect(manager.templates.find('path-task')).toBeNull();
+
+    // A bare name is still a name (no `/`, no `.json`), so self-references and
+    // hand-registered templates keep working.
+    write('sub/leaf-tpl.json', { ...base, name: 'leaf-tpl', child_templates: ['leaf-tpl'] });
+    expect(new TemplateLoader(directory).get('leaf-tpl').child_templates).toEqual(['leaf-tpl']);
   });
 
   test('spawn variables: required path, defaults, mutability regions and validation', () => {
@@ -563,6 +625,43 @@ describe('core', () => {
     for (const expected of ['path', '绝对路径', 'singleton=false', 'update-vars', 'variables']) {
       expect(spawnPrompt).toContain(expected);
     }
+  });
+
+  test('only project-manager opens projects: a project cannot nest another one', () => {
+    // Opening (and closing) a project is the project-manager's job, so the
+    // project whitelist lists tasks only — spawning a project is refused before
+    // any variable is looked at.
+    const project = root.createChild('project', { variables: { path: dir } });
+    const failure = (() => {
+      try {
+        project.createChild('project', { variables: { path: dir } });
+      } catch (err) {
+        return err;
+      }
+      return null;
+    })();
+    expect(failure?.code).toBe(-32010);
+    expect(failure?.message).toContain('cannot create template project');
+    expect(manager.templates.get('project').child_templates).toEqual([
+      'dev-task', 'generic-task', 'research-task', 'generic-service',
+    ]);
+    expect(manager.templates.get('project').child_templates).not.toContain('project');
+    // The instance prompt must not send agents after a template the whitelist
+    // refuses (a prompt that advertises `project` would only buy a -32010).
+    expect(manager.templates.get('project').system_prompt).toContain('你不能再建 project');
+
+    // The project-manager keeps the permission (PID 0 → project-manager → project).
+    const controller = root.createChild('project-manager');
+    const opened = controller.createChild('project', { variables: { path: dir } });
+    expect(opened.inspect().template).toBe('project');
+    expect(manager.repository.get(opened.pid).template_snapshot.child_templates).not.toContain('project');
+
+    // A live project is told the same thing: `available_child_templates` has no
+    // `project` in it, and the task templates it may create are still there.
+    const names = new ContextBuilder(manager.repository, manager.templates)
+      .build(manager.load(project.pid), null).data.available_child_templates.map((item) => item.name);
+    expect(names).not.toContain('project');
+    expect(names).toContain('dev-task');
   });
 
   test('state, context isolation and validation', () => {

@@ -75,7 +75,7 @@ inspect 的 Context 包含 system_prompt、state、artifacts、references、mess
 
 ### 身份：daemon 跑的是哪份代码
 
-`system.status` 里的 `home` / `socket` 描述状态在哪（`LUSH_HOME`），`code_dir` / `version` / `fingerprint` / `started_at` 描述**回答你的是哪份代码**：daemon 启动时把 `src/agent/guide.js`、`src/cli/tree/`（CLI 声明树）与 `templates/*.json` 读入内存（`src/identity.js` 的指纹覆盖这几处），之后不再重读。`code_dir` 不同 = 另一个 checkout；`fingerprint` 不同 = 同一 checkout 的旧进程。CLI 每次命令都会先读一次 status 并在不一致时于 stderr 告警（`cli.code_match` 是同一判断的布尔形式）。
+`system.status` 里的 `home` / `socket` 描述状态在哪（`LUSH_HOME`），`code_dir` / `version` / `fingerprint` / `started_at` 描述**回答你的是哪份代码**：daemon 启动时把 `src/agent/guide.js`、`src/cli/tree/`（CLI 声明树）与 `templates/**/*.json`（递归，含嵌套子目录）读入内存（`src/identity.js` 的指纹覆盖这几处），之后不再重读。`code_dir` 不同 = 另一个 checkout；`fingerprint` 不同 = 同一 checkout 的旧进程。CLI 每次命令都会先读一次 status 并在不一致时于 stderr 告警（`cli.code_match` 是同一判断的布尔形式）。
 
 process.view 是「查看」的统一读模型，把父子关系和 Call Prompt 合并到一次读取：
 

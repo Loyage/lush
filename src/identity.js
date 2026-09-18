@@ -33,11 +33,36 @@ const ROOT = path.dirname(fileURLToPath(new URL('../package.json', import.meta.u
  */
 const SURFACE_FILES = ['src/agent/guide.js', 'src/agent/profiles.js', 'src/cli/main.js'];
 const SURFACE_DIRS = [
-  { path: 'templates', extension: '.json' },
+  // Templates are nested (the layout mirrors the spawn tree), so the walk has to
+  // descend: a nested template file is as much part of the surface as a flat one.
+  { path: 'templates', extension: '.json', recursive: true },
   // The command tree is the CLI declaration agents are pointed at; it lives in
   // its own directory so `main.js` stays an entry point.
   { path: 'src/cli/tree', extension: '.js' },
 ];
+
+/** Relative paths under `directory` whose name ends with `extension`, sorted. */
+function surfaceFiles(directory, extension, recursive = false) {
+  const found = [];
+  const walk = (relative) => {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(path.join(ROOT, directory, relative), { withFileTypes: true });
+    } catch {
+      return; // no such directory: the empty surface is still part of the identity
+    }
+    for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      const nested = relative === '' ? entry.name : `${relative}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (recursive) walk(nested);
+      } else if (entry.name.endsWith(extension)) {
+        found.push(`${directory}/${nested}`);
+      }
+    }
+  };
+  walk('');
+  return found;
+}
 
 function addFile(hash, relative) {
   let content = null;
@@ -59,14 +84,8 @@ export function codeFingerprint() {
   const hash = createHash('sha256');
   hash.update('lush-code-v1\n');
   for (const relative of SURFACE_FILES) addFile(hash, relative);
-  for (const { path: directory, extension } of SURFACE_DIRS) {
-    let names = [];
-    try {
-      names = fs.readdirSync(path.join(ROOT, directory)).filter((name) => name.endsWith(extension)).sort();
-    } catch {
-      /* no such directory: the empty surface is still part of the identity */
-    }
-    for (const name of names) addFile(hash, `${directory}/${name}`);
+  for (const { path: directory, extension, recursive } of SURFACE_DIRS) {
+    for (const relative of surfaceFiles(directory, extension, recursive)) addFile(hash, relative);
   }
   return hash.digest('hex').slice(0, 12);
 }

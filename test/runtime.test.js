@@ -107,9 +107,13 @@ describe('runtime', () => {
     }
     expect(project.inspect().variables.mutable).toEqual({ branch: 'dev' });
     // Spawning through the tool takes the same declaration: path is required.
+    // Opening a project is the project-manager's job, so the spawn goes through
+    // one — the project itself may not create projects.
+    const controller = new AgentTools(manager, root.createChild('project-manager').pid);
     const spawnVariables = JSON.stringify({ template: 'project', name: 'child', goal: 'g', variables: { path: dir } });
-    expect((await tools.execute('process_spawn', spawnVariables)).result.variables.immutable).toEqual({ path: dir });
-    expect((await tools.execute('process_spawn', '{"template":"project"}')).error).toBeDefined();
+    expect((await controller.execute('process_spawn', spawnVariables)).result.variables.immutable).toEqual({ path: dir });
+    expect((await controller.execute('process_spawn', '{"template":"project"}')).error).toBeDefined();
+    expect((await tools.execute('process_spawn', spawnVariables)).error).toBeDefined();
   });
 
   test('concurrent calls on different pids; same pid is busy', async () => {

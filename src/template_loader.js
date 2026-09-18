@@ -15,8 +15,11 @@ export const BUILTIN_DIR = path.join(HERE, '..', 'templates');
  * `singleton` limits creation to one active instance per parent PID,
  * `spawn_prompt` tells a creating agent how to spawn this template and which
  * variables it needs, `system_prompt` becomes the instance Call prompt,
- * `child_templates` is the creation-time whitelist of spawnable templates, and
- * `variables` declares the instance's variables (see `checkVariables`).
+ * `child_templates` is the creation-time whitelist of spawnable templates (each
+ * entry is a file path relative to the declaring template's own file — the
+ * directory layout mirrors the spawn tree — or, for programmatic `register`
+ * calls and older user templates, a bare template name), and `variables`
+ * declares the instance's variables (see `checkVariables`).
  */
 export const REQUIRED_FIELDS = ['name', 'type', 'singleton', 'description', 'spawn_prompt', 'system_prompt', 'child_templates', 'variables'];
 
@@ -83,33 +86,137 @@ function checkVariables(value, templateName) {
   }
 }
 
+/**
+ * Order templates by hierarchy level instead of by file name: `Object.values(
+ * templates.templates)` is what agents read as `available_child_templates` (in
+ * that order), and it should read root-first — lush-root → project-manager →
+ * project → the tasks a project creates, not alphabetically.
+ *
+ * A template's level is the longest path from a template no one else spawns, so
+ * one reachable at several depths lands below the deepest. Two `child_templates`
+ * entries are not edges: `*` (every template would become a parent of every
+ * other one) and a self-reference (several templates list themselves). A cycle
+ * that survives both is cut at the edge being walked, so this always terminates.
+ * Ties break on name, so the result never depends on file names.
+ */
+function hierarchyLevels(templates) {
+  const parents = new Map(Object.keys(templates).map((name) => [name, []]));
+  for (const [name, template] of Object.entries(templates)) {
+    for (const child of template.child_templates) {
+      if (child === '*' || child === name || !parents.has(child)) continue;
+      parents.get(child).push(name);
+    }
+  }
+  const levels = new Map();
+  const onPath = new Set();
+  const levelOf = (name) => {
+    const known = levels.get(name);
+    if (known !== undefined) return known;
+    if (onPath.has(name)) return 0;
+    onPath.add(name);
+    let level = 0;
+    for (const parent of parents.get(name)) level = Math.max(level, levelOf(parent) + 1);
+    onPath.delete(name);
+    levels.set(name, level);
+    return level;
+  };
+  for (const name of Object.keys(templates)) levelOf(name);
+  return levels;
+}
+
+/** Same templates, re-keyed in hierarchy order (see `hierarchyLevels`). */
+function orderByHierarchy(templates) {
+  const levels = hierarchyLevels(templates);
+  const names = Object.keys(templates).sort((a, b) => {
+    const byLevel = levels.get(a) - levels.get(b);
+    if (byLevel !== 0) return byLevel;
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+  return Object.fromEntries(names.map((name) => [name, templates[name]]));
+}
+
+/**
+ * Every `*.json` below `root`, as a path relative to it, in a deterministic
+ * order (names sorted within each directory, files and subdirectories
+ * interleaving by name). The templates themselves are sorted by hierarchy
+ * afterwards, so this order only decides which duplicate is reported first.
+ */
+function templateFiles(root) {
+  const found = [];
+  const walk = (relative) => {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(path.join(root, relative), { withFileTypes: true });
+    } catch {
+      return; // no such directory: loading nothing is the same as an empty one
+    }
+    for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      const nested = relative === '' ? entry.name : `${relative}/${entry.name}`;
+      if (entry.isDirectory()) walk(nested);
+      else if (entry.name.endsWith('.json')) found.push(nested);
+    }
+  };
+  walk('');
+  return found;
+}
+
 export class TemplateLoader {
   constructor(extraDir = null) {
     this.templates = {};
+    /** Template name → the file it came from (a relative path resolves against its directory). */
+    this.origins = new Map();
+    /** Absolute file path → template name (the reverse lookup a relative path goes through). */
+    this.files = new Map();
     const directories = [BUILTIN_DIR];
     if (extraDir !== null && extraDir !== undefined) directories.push(extraDir);
     for (const directory of directories) {
-      if (!fs.existsSync(directory)) continue;
-      const files = fs.readdirSync(directory).filter((name) => name.endsWith('.json')).sort();
-      for (const file of files) {
-        const full = path.join(directory, file);
+      // Register every file before resolving anything: a `child_templates` path
+      // may point at a template that is loaded later, since the layout is the tree.
+      const loaded = templateFiles(directory).map((relative) => {
+        const full = path.join(directory, relative);
         try {
-          this.register(jsonLoad(fs.readFileSync(full, 'utf8')));
+          return { full, value: jsonLoad(fs.readFileSync(full, 'utf8')) };
         } catch (err) {
           throw new LushError(`invalid template ${full}: ${err.message}`, -32602);
         }
-      }
+      });
+      for (const { full, value } of loaded) this.register(value, { file: full, resolve: false });
     }
     for (const template of Object.values(this.templates)) {
-      for (const name of template.child_templates) {
-        if (name !== '*' && !Object.hasOwn(this.templates, name)) {
-          throw new LushError(`unknown child template ${name} in ${template.name}`, -32602);
-        }
-      }
+      const file = this.origins.get(template.name);
+      template.child_templates = template.child_templates.map((entry) => this.resolveChild(entry, template.name, file));
     }
+    this.templates = orderByHierarchy(this.templates);
   }
 
-  register(value) {
+  /**
+   * One `child_templates` entry → the template name it grants. `*` stays `*`.
+   * An entry that names a file (`dev-task.json`, `../generic-task.json`, or any
+   * `path/to/name.json`) is relative to the declaring template's own directory
+   * and must point at a loaded template file; a bare name is looked up as a
+   * name (programmatic `register` has no file to be relative to). Either way
+   * the stored whitelist, the snapshot and the permission check only see names.
+   */
+  resolveChild(entry, templateName, file = null) {
+    if (entry === '*') return '*';
+    if (!entry.includes('/') && !entry.endsWith('.json')) {
+      if (entry !== templateName && !Object.hasOwn(this.templates, entry)) {
+        throw new LushError(`unknown child template ${entry} in ${templateName}`, -32602);
+      }
+      return entry;
+    }
+    if (file === null) {
+      throw new LushError(`child template ${entry} in ${templateName} is a path, but ${templateName} was registered without a file`, -32602);
+    }
+    const target = path.resolve(path.dirname(file), entry);
+    const name = this.files.get(target);
+    if (name === undefined) {
+      throw new LushError(`unknown child template ${entry} in ${templateName}: no template file at ${target}`, -32602);
+    }
+    return name;
+  }
+
+  register(value, { file = null, resolve = true } = {}) {
     if (!isPlainObject(value)) throw new LushError(`template must contain exactly ${[...REQUIRED_FIELDS].sort()}`, -32602);
     const missing = REQUIRED_FIELDS.filter((field) => !Object.hasOwn(value, field));
     const unknown = Object.keys(value).filter((key) => !REQUIRED_FIELDS.includes(key) && !OPTIONAL_FIELDS.includes(key));
@@ -134,7 +241,15 @@ export class TemplateLoader {
       throw new LushError(`duplicate template: ${value.name}`, -32602);
     }
     jsonDump(value);
-    this.templates[value.name] = structuredClone(value);
+    const template = structuredClone(value);
+    if (file !== null) this.files.set(path.resolve(file), template.name);
+    // `resolve: false` defers the whitelist while a directory is being loaded:
+    // a relative path there may name a file that is only registered later.
+    if (resolve) {
+      template.child_templates = template.child_templates.map((entry) => this.resolveChild(entry, template.name, file));
+    }
+    this.templates[template.name] = template;
+    this.origins.set(template.name, file === null ? null : path.resolve(file));
   }
 
   /** Current definition for `name`, or null when no such template is loaded. */
