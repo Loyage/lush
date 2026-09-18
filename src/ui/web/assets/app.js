@@ -17,6 +17,8 @@ const HOT = new Set(['running', 'awaiting', 'waiting', 'queued']);
 const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
 let selected = null, selectedRevision = null, busy = false, offline = false, detailDirty = false, detailTask = null, detailRenderedAt = 0;
 let draftCount = 0, draftSignature = null;
+// 左侧「等你决定」只是索引；右侧展开的那条 notice 由 noticeFocus 记住，数据每次都取自最新 snapshot。
+let noticeFocus = null, noticeIndex = new Map();
 
 const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
 const short = value => (typeof value === 'string' ? value.slice(0, 7) : '');
@@ -135,7 +137,7 @@ function renderTree(data) {
   const ordered = [];
   const walk = (parent, depth) => {
     for (const task of byParent.get(parent) || []) {
-      const node = known.get(task.id) || button('', () => detail(task.id), 'task');
+      const node = known.get(task.id) || button('', () => { noticeFocus = null; return detail(task.id); }, 'task');
       const integration = INTEGRATION[task.integration];
       node.dataset.id = task.id;
       node.className = `task d${Math.min(depth, 5)} s-${task.status}${selected === task.id ? ' selected' : ''}`;
@@ -159,29 +161,73 @@ function renderTree(data) {
   $('task-count').textContent = `${data.tasks.length} 个 · ${active} 进行中`;
 }
 
+/** 左侧只放索引：点一下才在右侧展开正文与回复框。 */
 function renderNotices(data) {
   const open = data.notices.filter(notice => notice.status === 'open');
+  noticeIndex = new Map(open.map(notice => [notice.id, notice]));
+  // notice 可能被 CLI 或另一个标签页答复/忽略；关掉了就不再展开。
+  if (noticeFocus !== null && !noticeIndex.has(noticeFocus)) noticeFocus = null;
   $('notice-count').textContent = open.length ? String(open.length) : '无';
   const container = $('notices');
   const known = new Map([...container.children].map(node => [Number(node.dataset.id), node]));
   const nodes = open.map(notice => {
-    if (known.has(notice.id)) return known.get(notice.id);
-    const form = el('form', undefined, 'notice'); form.dataset.id = notice.id;
-    form.append(el('h3', `#${notice.task_id} · ${notice.title}`), el('p', notice.body));
-    const answer = el('textarea'); answer.required = true; answer.placeholder = '你的决定'; answer.rows = 2;
-    form.append(answer);
-    const actions = el('div', undefined, 'actions');
-    actions.append(button('回复', async () => { await action('notice.answer', { id: notice.id, answer: answer.value }); form.remove(); }),
-      button('转到任务', () => detail(notice.task_id), 'ghost'),
-      button('忽略', () => action('notice.dismiss', { id: notice.id }), 'ghost'));
-    form.append(actions);
-    form.onsubmit = event => { event.preventDefault(); actions.querySelector('button').click(); };
-    return form;
+    const node = known.get(notice.id) || button('', () => openNotice(notice.id), 'notice-brief');
+    node.dataset.id = notice.id;
+    node.className = `notice-brief${noticeFocus === notice.id ? ' selected' : ''}`;
+    node.replaceChildren();
+    const row = el('span', undefined, 'row');
+    row.append(el('span', '◔', 'dot c-awaiting'), el('span', `#${notice.task_id}`, 'tid'),
+      el('span', relative(notice.created_at), 'when'));
+    node.append(row, el('span', notice.title, 'goal'));
+    node.title = `${notice.title}\n发布于 ${absolute(notice.created_at)}`;
+    return node;
   });
   syncChildren(container, nodes);
 }
+function openNotice(noticeId) {
+  const notice = noticeIndex.get(noticeId);
+  if (!notice) return Promise.resolve();
+  noticeFocus = noticeId;
+  return detail(notice.task_id);
+}
 
 /* ---------- detail ---------- */
+/** 右侧顶部的 notice：完整正文 + 回复框，下面继续跟它所属任务的详情。 */
+function noticePanel(notice) {
+  const section = el('section', undefined, 'notice focus');
+  section.dataset.id = notice.id;
+  const head = el('div', undefined, 'notice-head');
+  head.append(badge('◔ 等你决定', 'b-awaiting'), el('span', `任务 #${notice.task_id}`, 'tid'),
+    el('span', `${relative(notice.created_at)} · ${absolute(notice.created_at)}`, 'when'));
+  section.append(head, el('h3', notice.title), el('p', notice.body || '（没有补充说明）', 'notice-body'));
+
+  const answer = el('textarea');
+  answer.placeholder = '你的决定；⌘/Ctrl+回车提交'; answer.rows = 3;
+  answer.addEventListener('input', () => { detailDirty = true; });
+  const actions = el('div', undefined, 'actions');
+  const settle = async () => {
+    actions.querySelectorAll('button').forEach(node => { node.disabled = true; });
+    await action('notice.answer', { id: notice.id, answer: answer.value });
+    noticeFocus = null; detailDirty = false;
+    await detail(notice.task_id);
+  };
+  actions.append(
+    button('回复并继续任务', settle),
+    button('忽略', async () => {
+      actions.querySelectorAll('button').forEach(node => { node.disabled = true; });
+      await action('notice.dismiss', { id: notice.id });
+      noticeFocus = null; detailDirty = false;
+      await detail(notice.task_id);
+    }, 'ghost'),
+    button('收起，只看任务详情', () => { noticeFocus = null; detailDirty = false; return detail(notice.task_id); }, 'ghost'));
+  answer.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
+    if (!event.metaKey && !event.ctrlKey) return;
+    event.preventDefault(); actions.querySelector('button').click();
+  });
+  section.append(answer, actions);
+  return section;
+}
 function renderHistory(history, { running = false, truncated = false } = {}) {
   const list = el('ol', undefined, 'timeline');
   history.forEach((event, index) => {
@@ -298,6 +344,9 @@ function renderDetail(task, history, diff) {
   if (integration) head.append(badge(integration, task.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
   if (task.agent) head.append(badge(`agent ${task.agent.id}${task.agent.active ? ` · pid ${task.agent.pid ?? '待上报'}` : ' · 空闲'}`, 'b-neutral'));
   panel.append(head);
+
+  const notice = noticeFocus === null ? null : noticeIndex.get(noticeFocus);
+  if (notice && notice.task_id === task.id) panel.prepend(noticePanel(notice));
 
   const actions = el('div', undefined, 'actions');
   const stacked = (task.deps || []).filter(edge => edge.kind === 'code');
@@ -473,7 +522,7 @@ function renderOverview(data) {
   if (!open.length) notices.append(el('p', '没有等你决定的问题。', 'hint'));
   for (const notice of open) {
     const row = el('div', undefined, 'row');
-    row.append(el('span', `#${notice.task_id}`, 'tid'), button(notice.title, () => detail(notice.task_id), 'link'));
+    row.append(el('span', `#${notice.task_id}`, 'tid'), button(notice.title, () => openNotice(notice.id), 'link'));
     notices.append(row);
   }
   panel.append(notices);
@@ -518,7 +567,9 @@ async function refresh() {
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');
     $('agents').textContent = `${data.status.agents.length} 运行 · ${data.status.agents_idle ?? 0} 空闲 · 并发 ${data.status.concurrency}`;
     if (offline) { offline = false; $('error').textContent = ''; }
-    renderDrafts(data); renderTree(data); renderNotices(data); syncComposer();
+    renderDrafts(data); renderTree(data);
+    const noticeBefore = noticeFocus;
+    renderNotices(data); syncComposer();
     if (selected === null) renderOverview(data);
     const current = data.tasks.find(task => task.id === selected);
     const editing = detailDirty || [...$('detail').querySelectorAll('textarea')].some(node => node.value || node === document.activeElement);
@@ -528,6 +579,8 @@ async function refresh() {
       const tick = HOT.has(current.status) && Date.now() - detailRenderedAt > 15000;
       if (changed || tick) await detail(selected);
     }
+    // 展开中的 notice 被别处答复/忽略后，右侧要收敛回普通任务详情。
+    if (noticeBefore !== noticeFocus && selected !== null && !editing) await detail(selected);
   } catch (error) {
     $('connection').textContent = '离线 · 自动重连'; $('connection').classList.add('offline');
     offline = true; $('error').textContent = error.message;

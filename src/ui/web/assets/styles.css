@@ -128,6 +128,19 @@ button.danger:hover{background:#2a1b19}
 .notice{background:var(--panel);border:1px solid #3d3527;border-left:3px solid var(--awaiting);border-radius:var(--radius);padding:11px;margin-bottom:10px}
 .notice h3{font-size:13px;color:var(--awaiting)}
 .notice p{font-size:12.5px;color:var(--muted)}
+/* 左侧索引：一行标题，正文与回复框放右侧 */
+.notice-brief{display:block;width:100%;text-align:left;background:transparent;border:0;border-left:2px solid transparent;color:inherit;
+  font:inherit;padding:7px 8px 8px 10px;margin:0 0 2px;border-radius:8px;cursor:pointer}
+.notice-brief:hover{background:var(--panel-2)}
+.notice-brief.selected{background:var(--panel-2);box-shadow:inset 2px 0 0 var(--awaiting),inset 0 0 0 1px var(--line)}
+.notice-brief .goal{color:var(--awaiting)}
+/* 右侧详情顶部的 notice */
+.notice.focus{background:var(--panel-2);border-color:#4a4029;margin:0 0 6px}
+.notice.focus .notice-head{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted)}
+.notice.focus h3{margin-top:7px;font-size:15px}
+.notice.focus .notice-body{color:var(--text);font-size:13px}
+.notice.focus .actions{margin-top:8px}
+.notice.focus textarea{margin:8px 0 0}
 textarea{display:block;width:100%;resize:vertical;background:#0d1511;border:1px solid var(--line);color:inherit;border-radius:8px;padding:10px;margin:6px 0;font:inherit;font-size:13px}
 textarea:focus{outline:2px solid var(--accent);outline-offset:0}
 label{font-size:12px;color:var(--muted)}
