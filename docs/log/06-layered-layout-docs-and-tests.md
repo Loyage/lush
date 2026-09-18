@@ -1,0 +1,7 @@
+# 06 · 分层布局、文档重组与测试瘦身
+
+> 这一轮没有改行为：把「太大所以难读」的文件与文档切开，并删掉重复覆盖的慢测试。三件事各自独立，都只动存储形状与组织方式。
+
+- [x] **六个超大模块拆成分层目录**（`refactor: 把六个超大模块拆成分层目录`）：`core/process_manager.js`（559 行）、`cli/format/process.js`（476）、`agent/runtime.js`（428）、`persistence/repository.js`（404）、`core/tasks.js`（373）、`persistence/database.js`（315）按职责拆进**同名目录**，原文件变成只做转发的入口——导入路径一行未改（`'./tasks.js'`、`'../agent/runtime.js'` 照旧），调用方无需知道内部分层。宽接口用「方法层 + `Object.assign(Class.prototype, ...)`」合并，保持表面是一个扁平对象（RPC 的 `process.*` / `task.*` 与 CLI 调用点直连它）；构造函数的字段与 getter 留在类体里（`Object.assign` 复制的是 getter 的值，不是 getter 本身）。拆完最大的源文件降到 288 行。146 项测试通过。
+- [x] **文档按用途分四层**（`docs: 文档按概念 / 参考 / 工程 / 历史四层重组`）：`docs/concepts/`（模型与不变量）、`docs/reference/`（命令 / RPC / 模板 / profile 的精确形状）、`docs/engineering/`（模块边界、源码布局、daemon 与 CLI 的版本对齐）、`docs/log/`（历史）。原来的 `process-model.md` 同时装着概念、字段契约与命令表，按落位切开；`tasks.md`（80 行、单行最长 2.3k 字符）按阶段切成 5 个日志文件 + 一个索引；根 README 从 280 行瘦到 ~130 行，指向 docs/。同一份「接口面」只保留一处（命令总览只在 `reference/cli.md`），并修掉了 README 里与模板契约冲突的旧字段说明（还在讲恒为 `service` 的 `type` 与八个字段）。
+- [x] **删掉 7 条起真 daemon 只为验证单测已覆盖之事的用例**（`test: 删掉 7 条…`）：`test/cli.test.js` 每个用例起一次真 daemon（基线 ~0.5s），18 个用例占了整套 20.3 秒里的 ~15 秒。删掉的 7 条里，5 条（文本渲染、dev-task 字段、delete / purge、孤儿 CLI、interactive）的断言在 core / rpc / pi 的单测里有更便宜也更精确的等价物；另 2 条是明确的取舍——**daemon 的孤儿监督定时器**（2.35s 的睡眠等待）与**CLI 声明树的逐层 help**（0.44s、15 次子进程）没有替代覆盖，删掉即放弃守护。测试数 146 → 139，整套 `bun test` 20.3s → 11.3s，`bun run demo` 通过。

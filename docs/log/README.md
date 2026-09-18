@@ -17,6 +17,7 @@ MVP 范围内无未完成项。后续方向（本轮不实现）：Context compr
 - [03 · 变量、硬删除与 dev-task](./03-variables-removal-and-dev-task.md)
 - [04 · 孤儿监督与模板演化](./04-orphan-supervision-and-templates.md)
 - [05 · 进程类型收敛与 task 层](./05-process-kinds-and-task-layer.md)
+- [06 · 分层布局、文档重组与测试瘦身](./06-layered-layout-docs-and-tests.md)
 
 ## 验收命令
 
