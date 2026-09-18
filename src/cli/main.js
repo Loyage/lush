@@ -160,6 +160,13 @@ export async function run(argv) {
   }
 
   const config = Config.fromEnv();
+  // `agent` is the one command group that never talks to the daemon: it reads and
+  // writes `$LUSH_HOME/agents/*.json` directly, so it must work while lushd is
+  // stopped. Everything else needs a client (and a stale-daemon warning).
+  if (typeof args.node.local === 'function') {
+    writeOut(format(args, await args.node.local(config, args)));
+    return;
+  }
   let timeout = config.callTimeout + 10;
   if (process.env.LUSH_RPC_TIMEOUT !== undefined) {
     timeout = Number.parseFloat(process.env.LUSH_RPC_TIMEOUT);

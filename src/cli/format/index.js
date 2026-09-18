@@ -6,6 +6,7 @@
  * `src/cli/main.js` can keep its historical export surface.
  */
 import { objectLines, shortValue, treeLines } from './primitives.js';
+import { formatAgentCommand } from './agent.js';
 import { formatDaemon } from './daemon.js';
 import {
   formatAgent, formatAgents, formatDryRun, formatHistory, formatInspect, formatLifecycle, formatList,
@@ -14,6 +15,7 @@ import {
 
 export * from './primitives.js';
 export * from './process.js';
+export { formatAgentCommand } from './agent.js';
 export { formatDaemon } from './daemon.js';
 
 /** Lifecycle commands that answer with the updated process metadata. */
@@ -27,6 +29,11 @@ const LIFECYCLE_VERBS = {
 
 export function format(args, result) {
   if (args.json) return JSON.stringify(result, null, 2);
+  // `agent` is the one local command group: its result carries the action, not
+  // an RPC payload.
+  if (typeof args.command === 'string' && args.command.startsWith('agent_')) {
+    return formatAgentCommand(args.command, result);
+  }
   // `daemon start|stop` (command `daemon`) and `daemon status` (command `status`)
   // all report identity in `cli`, so they share the aligned line format.
   if (args.command === 'daemon' || args.command === 'status') return formatDaemon(result);

@@ -185,6 +185,11 @@ prune mode="":
 ps:
   @{{lush}} process list
 
+# agent profile（配置文件，不需要 daemon）：just agent list / just agent inspect default
+[group('agent')]
+agent *args:
+  @{{lush}} agent {{args}}
+
 # 进程树
 [group('process')]
 tree:
@@ -223,9 +228,10 @@ attach pid:
 
 # 创建子进程：just spawn 0 generic-task implement-login '实现登录功能'
 # project 模板必须给变量 path：just spawn 0 project my-repo '' '{"path":"/abs/repo"}'
+# 指定 agent profile（见 just agent list）：just spawn 0 generic-task x '' '' demo-agent
 [group('process')]
-spawn parent template name="" goal="" vars="":
-  @{{lush}} process spawn {{parent}} {{template}}{{ if name != "" { " --name " + quote(name) } else { "" } }}{{ if goal != "" { " --goal " + quote(goal) } else { "" } }}{{ if vars != "" { " --vars " + quote(vars) } else { "" } }}
+spawn parent template name="" goal="" vars="" agent="":
+  @{{lush}} process spawn {{parent}} {{template}}{{ if name != "" { " --name " + quote(name) } else { "" } }}{{ if goal != "" { " --goal " + quote(goal) } else { "" } }}{{ if vars != "" { " --vars " + quote(vars) } else { "" } }}{{ if agent != "" { " --agent " + quote(agent) } else { "" } }}
 
 # 完成 Task：just complete 2 '{"ok":true}'
 [group('process')]

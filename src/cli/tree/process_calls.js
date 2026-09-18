@@ -14,16 +14,23 @@ export const processCallChildren = {
       '在 PARENT 之下按 TEMPLATE 原子创建并启动一个子进程，成功后文本只打印新 PID。',
       '模板必须在创建方的 child_templates 白名单内；singleton 模板在同一父进程下已有活动实例时拒绝创建。',
       '子进程的 goal 取自 --goal，缺省时用名称；--vars 给出该模板声明的变量值，存入新进程 state（不可变变量在 state.params，可变变量在 state.vars）。',
+      '--agent 指定该进程使用的 agent profile（见 `lush agent list`），优先级高于模板的可选 agent 字段；两者都没有时用内置 default。选中的名字会写进 state，用 `process inspect` 可查。',
     ],
     notes: [
       '变量按模板的 variables 声明校验：缺少 required 变量、写了模板没声明的名字都会直接失败；带 default 的变量可以省略。',
       '`path` 变量有通用约定：必须是已存在的绝对目录，并作为该进程 agent 的工作目录（cwd）；因此它只能声明在 immutable 区。',
       '`project` 模板必须提供 variables.path，否则创建直接失败；`--args` 是 `--vars` 的旧写法，等价但已不建议使用。',
+      '`--agent` 的名字必须合法且 profile 必须已存在（否则创建直接失败）；profile 属于本次 LUSH_HOME，见 `lush agent list`。',
     ],
-    usage: ['lush process spawn PARENT TEMPLATE [--name NAME] [--goal GOAL] [--vars JSON]'],
+    usage: ['lush process spawn PARENT TEMPLATE [--name NAME] [--agent AGENT] [--goal GOAL] [--vars JSON]'],
     positionals: [['PARENT', '父进程 PID'], ['TEMPLATE', '模板名，见父进程的 available_child_templates']],
     options: {
       '--name': { arg: 'NAME', desc: '进程名；省略时用模板名', apply: (r, v) => { r.name = v; } },
+      '--agent': {
+        arg: 'AGENT',
+        desc: '该进程使用的 agent profile（见 `lush agent list`）；省略时用模板的可选 agent 字段，再否则用内置 default',
+        apply: (r, v) => { r.agent = v; },
+      },
       '--goal': { arg: 'GOAL', desc: '目标文本，写入 state.goal', apply: (r, v) => { r.goal = v; } },
       '--vars': {
         arg: 'JSON',

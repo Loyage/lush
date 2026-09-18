@@ -49,7 +49,11 @@ export function formatInspect(result) {
   ];
   const declared = variableSummary(variables);
   if (declared) rows.push(['variables', declared]);
-  if (process.agent) rows.push(['agent', `${process.agent.status} · ${process.agent.provider}`]);
+  if (process.agent) {
+    const profile = process.agent.profile ? ` · agent ${process.agent.profile}` : '';
+    const broken = process.agent.profile_error ? ` (${process.agent.profile_error})` : '';
+    rows.push(['agent', `${process.agent.status} · ${process.agent.provider}${profile}${broken}`]);
+  }
   const lines = [metadataTitle(process), ...alignRows(rows).map((row) => `  ${row}`)];
 
   lines.push('', `context · ${context.message_count ?? 0} messages`);
@@ -209,6 +213,7 @@ export function formatSession(result) {
   }
   const rows = [
     ['agent', result.agent],
+    ['profile', result.profile ?? 'default'],
     ['session-dir', result.session_dir],
     ['session-id', result.session_id],
     ['file', result.file ?? '(none yet)'],
