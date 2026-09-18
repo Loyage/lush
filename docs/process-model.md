@@ -137,7 +137,7 @@ JSON 文件字段固定为八项，缺一或多一都报错：
 - `spawn_prompt`：告诉创建方「如何创建这个模板、需要哪些变量」的 prompt，随 Context 一起注入创建方 Agent（`available_child_templates[].spawn_prompt`）。它只描述创建契约（必填变量、`--vars` 用法），不参与被创建实例自身的 Call；哪些变量创建后仍可改，由模板的 `variables` 声明决定。
 - `system_prompt`：实例创建时快照进它自己的 Context，成为之后每次 `call` 的系统提示词。
 - `child_templates`：该模板实例初始化后允许创建的子模板列表。
-- `variables`：该模板实例的变量声明，分 `immutable` / `mutable` 两个区间（两个键都可省略，省略即该区为空）。每个变量的字段固定为 `description`（必填，说明这个变量是什么）、`required`（可选布尔，缺省 false）、`default`（可选 JSON 值）；`required: true` 与 `default` 同时出现、同名变量出现在两个区、mutable 区声明 `path`（它必须是工作目录，因而不可变）都报错。校验细节与存储位置见下方「变量（variables）」。
+- `variables`：该模板实例的变量声明，分 `immutable` / `mutable` 两个区间（两个键都可省略，省略即该区为空）。每个变量的字段固定为 `description`（必填，说明这个变量是什么）、`required`（可选布尔，缺省 false）、`default`（可选 JSON 值），以及可选的格式约束 `pattern`（正则表达式）、`max_length`（正整数）、`single_line`（布尔）；`required: true` 与 `default` 同时出现、同名变量出现在两个区、mutable 区声明 `path` 或 `name`，都报错。约束字段本身也在加载时校验（正则要能编译、`max_length` 是正整数、`single_line` 是布尔），且 `default` 必须满足自己声明的约束——模板自相矛盾在 daemon 启动时就报错，而不是等到第一次 spawn。校验细节与存储位置见下方「变量（variables）」。
 
 注入创建方 Agent 的 `available_child_templates` 只列**此刻真能创建成功**的模板：按创建时快照的 `child_templates` 过滤权限、排除 `lush-root`，并剔除 `singleton: true` 且本 PID 下已有活动实例的模板（否则调用方只会白撞一次 `process.spawn` 的拒绝）。它是派生视图，不代替权限本身：完整白名单仍在 `child_templates`，被占位的那个实例就在 `children` 里。
 
@@ -147,14 +147,15 @@ JSON 文件字段固定为八项，缺一或多一都报错：
 
 仓库顶层 `templates/` 内置 `lush-root.json`（PID 0 专用，任何节点都不能用它 spawn 子进程，即使 `child_templates` 含 `*`）以及 `generic-service`、`generic-task`、`research-task`、`project-manager`、`project`、`dev-task` 示例。其余模板需自行编写，放入 `templates/` 或 `$LUSH_HOME/templates/`；用户目录模板不能覆盖仓库模板名称；loader 检查 `type`、`singleton`、必填字段和列表中的模板引用。
 
-`dev-task`（`project` 的子模板、task、非单例、`child_templates: []`）是「模板不声明变量」的样板：它自己不声明任何变量（传 `variables` 会被拒），system_prompt 明确告诉它去读父进程的 `variables`（`project` 的 `path` / `branch`）当工作参数，并且提醒它默认 cwd 是 `$LUSH_HOME`、要先 `cd` 到仓库。想给子进程带信息，可以直接像 `project` 那样声明变量；也可以像 `dev-task` 这样让子进程自己去父节点取（更灵活，但子进程必须真的去取）。
+`dev-task`（`project` 的子模板、task、非单例、`child_templates: []`）把一项开发任务描述成三个正式字段，都是它自己声明、受校验、可渲染的变量：`name`（不可留空的英文标识符 `^[A-Za-z][A-Za-z0-9_-]*$`、≤64、不含空格；它同时就是这个进程的进程名，用来命名相关的 worktree / 分支）、`title`（不可留空的一行摘要 ≤200，`process list` / `inspect` 显示的就是它）、`detail`（任务详情正文，可多行、可以为空 ≤20000，为空时以 title 为准）。`goal` 仍然是「要实现什么」的简述，`detail` 是它的展开；`name` / `title` 缺失或格式不合规时创建直接失败（-32602），报错引述该变量的声明。工作参数（仓库路径、分支）仍然由任务自己向父进程取（`project` 的 `path` / `branch`），所以 `dev-task` 不声明 `path`。想给子进程带信息，可以直接像 `project` 那样声明变量，也可以像 `dev-task` 这样让子进程自己去父节点取（更灵活，但子进程必须真的去取）。
 
 ### 变量（variables）
 
 模板用 `variables` 给出实例的初始变量，创建进程时必须按它提供值：`process.spawn` 的 `variables` 参数 / `lush process spawn ... --vars '<json>'`（旧写法 `args` / `--args` 仍接受，等价但已不建议使用）。校验全部由 Core 执行：
 
 - 只接受模板声明过的变量名：写了 `variables` 没声明的名字直接报错（-32602），不静默丢弃。
-- `required: true` 的变量必须提供，否则报 `template <name> requires variables.<key>`；带 `default` 的变量可以省略，省略时用默认值。
+- `required: true` 的变量必须提供，否则报 `template <name> requires variables.<key>`（并附上该变量的 `description`）；带 `default` 的变量可以省略，省略时用默认值。
+- 值必须满足该变量声明的格式约束：`pattern`（匹配整个值，等价于在两边加 `^(?:` 与 `)$`）、`max_length`、`single_line`（不允许换行与控制字符）。声明了任一约束的变量必须是字符串；没声明约束的变量仍然接受任意有限 JSON（历史行为不变）。报错引述违反的那条约束与变量的 `description`，例如 `template dev-task variable name value "fix login" does not match /^[A-Za-z][A-Za-z0-9_-]*$/ — ...`。
 - 值可以是任意有限 JSON（不做类型标注）；`path` 例外，见下。
 - `variables` 必须是 JSON 对象（`{}` 或省略等于不提供任何变量）。
 
@@ -169,11 +170,25 @@ JSON 文件字段固定为八项，缺一或多一都报错：
 
 `process.update_vars`（CLI `lush process update-vars PID --vars '<json>'`，内置运行时的工具 `process_update_vars`）只把值 shallow-merge 进 mutable 区：
 
-- 未在 mutable 区声明的名字被拒绝：immutable 变量报 `variable <key> is immutable in template <name>`，模板没声明的名字报 `does not declare variable`（都是 -32602）。
+- 未在 mutable 区声明的名字被拒绝：immutable 变量报 `variable <key> is immutable in template <name>`，模板没声明的名字报 `does not declare variable`（都是 -32602）；值同样要满足该变量声明的格式约束。
 - patch 必须是非空 JSON 对象；只接受 running 进程（与 `update_state` 一致）；写入记 `vars_updated` 事件。
 - `update_state` 不能写 `state.params` / `state.vars`（报错并指向 `update_vars`），所以「不可变」不是靠调用方自觉。
 
 `path` 是所有模板共用的工作目录约定：只要模板声明了 `path`，它的值必须是**已存在的绝对目录**，并且会作为该进程 agent 的 cwd（pi 的 `cwd`，其他后端同理）；没声明 `path` 时 cwd 是 `$LUSH_HOME`。因为 cwd 从 `state.params.path` 读出，`path` 只能声明在 immutable 区；缺失、不是绝对路径、不存在或不是目录时 spawn 直接报错（-32602）。
+
+### 保留变量名
+
+四个变量名有超出「模板自己要用一个值」的含义，谁声明它们就自动获得这些语义（与 `path` 的工作目录约定同一机制）：
+
+| 变量名 | 含义 | 谁读它 |
+| --- | --- | --- |
+| `path` | agent 工作目录（`state.params.path` → cwd） | Runtime（见上） |
+| `name` | 进程名 | Core：`process.spawn` 的 `name` 参数与它**是同一个值** |
+| `title` | 任务的一句话摘要 | CLI：`process list` / `tree` / `inspect` |
+| `detail` | 任务的详情正文 | CLI：`inspect`（分节渲染，超长截断） |
+
+- `name`：声明它的模板（内置的 `dev-task`）把进程名交给这条声明管：`process_spawn` 的 `name` 参数（CLI `--name`）会填进这个变量，直接给 `variables.name` 也行，两边给出不同值时**拒绝创建**（同一个名字不给两个值）；格式约束（`pattern` / `max_length`）写在声明里，所以「name 必须是工作区 / 分支名能用的英文标识符」由模板自带、由 Core 执行。`name` 只能声明在 immutable 区——进程名是创建那一刻的身份。没声明 `name` 的模板行为不变：进程名仍是自由文本，省略时用模板名。
+- `title` / `detail`：默认不参与任何语义，只在模板声明它们时才被渲染（`dev-task` 声明）。`process list` 末尾多一列 TITLE（`-` 表示没有），`process tree` 在进程名后打印 `title=...`（`name` 变量因为与进程名重复而不打印，`detail` 是多行正文所以不进树），`inspect` 把 `title` 作为一行、`detail` 作为独立分节（文本截断，`--json` 是完整的）。模板没声明、或旧数据没有这两个值时，渲染退回原样，不报错。
 
 仓库内置模板里，`project` 就是这样声明的：immutable `path`（required）+ mutable `branch`（default `main`），创建时必须给出 `path`，否则报 `template project requires variables.path`。
 

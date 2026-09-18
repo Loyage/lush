@@ -5,6 +5,7 @@
  * Text is for people: no JSON punctuation unless the value really is nested.
  * `--json` is the stable machine interface; these formatters are free to change.
  */
+import { RESERVED_VARIABLES } from '../../core/variables.js';
 import { isPlainObject } from '../../core/types.js';
 
 /** Seconds-resolution duration (`45s`, `2m07s`, `3h05m`) for agent lines. */
@@ -37,20 +38,54 @@ export function agentLine(summary) {
 /**
  * One-line variable summary for the text tree: immutable values plain, mutable
  * ones prefixed `~` (the `~` is also the reminder that they can be changed).
+ * `omit` drops reserved names a caller renders on their own — a `name`
+ * variable only repeats the process name already printed as the line's first
+ * token.
  */
-export function variableSummary(variables) {
+export function variableSummary(variables, { omit = [] } = {}) {
   const parts = [];
   for (const group of ['immutable', 'mutable']) {
     for (const [key, value] of Object.entries(variables?.[group] ?? {})) {
+      if (omit.includes(key)) continue;
       parts.push(`${group === 'mutable' ? '~' : ''}${key}=${shortValue(value)}`);
     }
   }
   return parts.join(' ');
 }
 
-export function shortValue(value) {
-  const text = typeof value === 'string' ? value : JSON.stringify(value);
-  return text.length > 48 ? `${text.slice(0, 45)}...` : text;
+/**
+ * The task's headline and body: `title` / `detail` are reserved variable names
+ * (see `core/variables.js`), so any template declaring them — the built-in
+ * `dev-task` does — gets them rendered here. Processes created before those
+ * variables existed, or templates that never declare them, simply have neither.
+ */
+export function taskTitle(process) {
+  return reservedVariable(process, RESERVED_VARIABLES.headline);
+}
+
+/** The `title` text a process declared, or null; see `taskTitle`. */
+export function taskDetail(process) {
+  return reservedVariable(process, RESERVED_VARIABLES.body);
+}
+
+function reservedVariable(process, key) {
+  const value = process?.variables?.immutable?.[key] ?? process?.variables?.mutable?.[key];
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/** One line, always: whitespace runs collapse to single spaces, then truncate. */
+export function shortValue(value, max = 48) {
+  const text = (typeof value === 'string' ? value : JSON.stringify(value)).replace(/\s+/g, ' ').trim();
+  return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+}
+
+/**
+ * A block of text capped for the text output, saying so: `--json` still has
+ * the whole value, which matters for a multi-line task `detail`.
+ */
+export function excerpt(value, max) {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max)}\n... (${value.length - max} more characters; --json has the full value)`;
 }
 
 /** Local wall-clock `YYYY-MM-DD HH:MM:SS` from an ISO timestamp. */
@@ -144,7 +179,12 @@ export function treeLines(processes, { agents = true } = {}) {
       continue;
     }
     const { process, prefix, branch } = node;
-    const variables = variableSummary(process.variables);
+    // The `name` variable only repeats the process name printed right below, and
+    // `detail` is a multi-line body: neither belongs on a tree line. A long
+    // `title` is truncated by `shortValue` like every other value.
+    const variables = variableSummary(process.variables, {
+      omit: [RESERVED_VARIABLES.processName, RESERVED_VARIABLES.body],
+    });
     lines.push(`${prefix}${branch}${process.name}[${process.pid}]${variables ? ` ${variables}` : ''}`);
     const children = byParent.get(process.pid) ?? [];
     const nextPrefix = prefix + (branch === '└── ' ? '    ' : branch ? '│   ' : '');

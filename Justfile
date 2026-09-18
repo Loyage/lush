@@ -223,9 +223,10 @@ attach pid:
 
 # 创建子进程：just spawn 0 generic-task implement-login '实现登录功能'
 # project 模板必须给变量 path：just spawn 0 project my-repo '' '{"path":"/abs/repo"}'
+# dev-task 的三个字段（name 就是 --name）：just spawn 1 dev-task fix-login '修好登录' '' '修复登录流程' '任务详情正文'
 [group('process')]
-spawn parent template name="" goal="" vars="":
-  @{{lush}} process spawn {{parent}} {{template}}{{ if name != "" { " --name " + quote(name) } else { "" } }}{{ if goal != "" { " --goal " + quote(goal) } else { "" } }}{{ if vars != "" { " --vars " + quote(vars) } else { "" } }}
+spawn parent template name="" goal="" vars="" title="" detail="":
+  @{{lush}} process spawn {{parent}} {{template}}{{ if name != "" { " --name " + quote(name) } else { "" } }}{{ if goal != "" { " --goal " + quote(goal) } else { "" } }}{{ if title != "" { " --title " + quote(title) } else { "" } }}{{ if detail != "" { " --detail " + quote(detail) } else { "" } }}{{ if vars != "" { " --vars " + quote(vars) } else { "" } }}
 
 # 完成 Task：just complete 2 '{"ok":true}'
 [group('process')]

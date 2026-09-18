@@ -24,7 +24,7 @@ lush CLI -- JSON-RPC / Unix socket --> lushd
 - `persistence/`：`bun:sqlite` schema、事务、记录查询与恢复。数据库是事实来源，不缓存进程树。
 - `template_loader.js` + `templates/`：仓库顶层 `templates/` 存放 JSON ProcessTemplate（name、type、singleton、description、spawn_prompt、system_prompt、child_templates、variables 八个必填字段），loader 读取并校验；创建时保存完整快照，模板文件后续变更不影响既有 Process（`singleton`、`type` 按当前加载的模板判定）。
 - `context/`：独立持久化 Context，以及 ContextBuilder。只读当前 Process 的对话、结构化 state、引用和直接亲属摘要，不注入全系统状态。
-- `agent/`：Agent 后端，以及受限轮数的调用循环。默认后端是 `pi`：每次 call 起一个 `pi --print` 子进程，每个 PID 一个 pi session，pi 自己跑工具循环并通过 bash 调用 `lush` CLI 操作进程；`mock` / `openai` 是 Lush 内置运行时，agent 直接拿 `process_*` 工具。`guide.js` 是两种形态共用的 Lush 说明层（介绍 Lush 与如何操作它），`ContextBuilder` 按后端选择 tools / cli 版本。共享的快照字段（`singleton`、`type`）由当前模板决定，`child_templates` 白名单、variables 声明（哪些必填、哪些创建后仍可改）与 `path` 的工作目录校验由 Core 强制执行，后端不参与授权。
+- `agent/`：Agent 后端，以及受限轮数的调用循环。默认后端是 `pi`：每次 call 起一个 `pi --print` 子进程，每个 PID 一个 pi session，pi 自己跑工具循环并通过 bash 调用 `lush` CLI 操作进程；`mock` / `openai` 是 Lush 内置运行时，agent 直接拿 `process_*` 工具。`guide.js` 是两种形态共用的 Lush 说明层（介绍 Lush 与如何操作它），`ContextBuilder` 按后端选择 tools / cli 版本。共享的快照字段（`singleton`、`type`）由当前模板决定，`child_templates` 白名单、variables 声明（哪些必填、哪些创建后仍可改、格式约束 pattern / max_length / single_line）与保留名 `path` 的工作目录校验、`name` 的进程名等价关系由 Core 强制执行，后端不参与授权。
 - `rpc/`：newline-delimited JSON-RPC；参数和错误映射，不复制业务逻辑。
 - `daemon/`：装配、单实例锁、socket 生命周期、信号和中断恢复；按 `config.orphanPolicy` 决定是否起孤儿监督定时器（`sweepSeconds` 秒，unref，关闭时先清掉再关数据库）。
 - `socket_io.js`：Bun socket 写入是有界的（单次 write 只接受有限字节），统一封装「写满队列 + drain 续写」，RPC 两端共用。

@@ -4,8 +4,10 @@
  * and the dry-run command line.
  */
 import { shellEnv, shellQuote } from '../../shell.js';
+import { RESERVED_VARIABLES } from '../../core/variables.js';
 import {
-  alignRows, duration, eventLine, indentLines, metadataTitle, objectLines, stamp, variableSummary,
+  alignRows, duration, eventLine, excerpt, indentLines, metadataTitle, objectLines, shortValue, stamp, taskDetail,
+  taskTitle, variableSummary,
 } from './primitives.js';
 
 /**
@@ -32,25 +34,40 @@ export function formatHistory(result) {
  * `lush process inspect` text output: process summary, then context, recent
  * calls and recent events. The creation-time `template_snapshot` and the
  * variable declarations stay in `--json` — they are reference material, not
- * something to read at a glance.
+ * something to read at a glance. The task's `title` gets a row and a long
+ * `detail` gets its own block (truncated in text; `--json` has it whole).
  */
 export function formatInspect(result) {
   const { context = {}, recent_calls = [], recent_events = [], template_snapshot, variables, ...process } = result;
   const parent = process.parent_pid === null
     ? '-'
     : `${process.parent_pid}${process.original_parent_pid === process.parent_pid ? '' : ` (original ${process.original_parent_pid})`}`;
+  // `variables` was destructured out of `process` above; the reserved task
+  // fields live there.
+  const fields = { variables };
+  const title = taskTitle(fields);
   const rows = [
     ['template', process.template],
     ['parent', parent],
     ['goal', process.goal ?? '-'],
+    ...(title === null ? [] : [['title', title]]),
     ['created', stamp(process.created_at)],
     ['updated', stamp(process.updated_at)],
     ['children', process.children?.length ? process.children.join(', ') : '(none)'],
   ];
-  const declared = variableSummary(variables);
+  // `name` is the process name above, `title` and `detail` are shown in full
+  // right here: only the variables with no rendering of their own remain.
+  const declared = variableSummary(variables, {
+    omit: [RESERVED_VARIABLES.processName, RESERVED_VARIABLES.headline, RESERVED_VARIABLES.body],
+  });
   if (declared) rows.push(['variables', declared]);
   if (process.agent) rows.push(['agent', `${process.agent.status} · ${process.agent.provider}`]);
   const lines = [metadataTitle(process), ...alignRows(rows).map((row) => `  ${row}`)];
+
+  // A task body can be long and multi-line: it gets a block of its own rather
+  // than a table cell that would break the alignment.
+  const detail = taskDetail(fields);
+  if (detail !== null) lines.push('', 'detail', ...indentLines(excerpt(detail, 4000), 1));
 
   lines.push('', `context · ${context.message_count ?? 0} messages`);
   const state = context.state ?? {};
@@ -255,14 +272,22 @@ export function formatRemoval(result) {
   return `deleted ${target}${terminated}  ${rows}`;
 }
 
-/** `lush process list` text output: fixed-width columns, one row per process. */
+/**
+ * `lush process list` text output: fixed-width columns, one row per process.
+ * The trailing TITLE column is the task's one-line summary (a reserved
+ * variable name, see `core/variables.js`): every existing column keeps its
+ * width, and a process without a title — every non-task, and old rows written
+ * before the field existed — shows `-` instead.
+ */
 export function formatList(result) {
-  const rows = [['PID', 'PPID', 'TYPE', 'STATUS', 'NAME']];
+  const rows = [['PID', 'PPID', 'TYPE', 'STATUS', 'NAME', 'TITLE']];
   for (const process of result) {
+    const title = taskTitle(process);
     rows.push([String(process.pid), process.parent_pid === null ? '-' : String(process.parent_pid),
-      process.type, process.status, process.name]);
+      process.type, process.status, process.name, title === null ? '-' : shortValue(title, 40)]);
   }
+  const nameWidth = rows.reduce((max, row) => Math.max(max, row[4].length), 0);
   return rows
-    .map(([pid, ppid, type, status, name]) => `${pid.padEnd(6)}${ppid.padEnd(6)}${type.padEnd(10)}${status.padEnd(12)}${name}`)
+    .map(([pid, ppid, type, status, name, title]) => `${pid.padEnd(6)}${ppid.padEnd(6)}${type.padEnd(10)}${status.padEnd(12)}${name.padEnd(nameWidth)}  ${title}`.trimEnd())
     .join('\n');
 }
