@@ -36,6 +36,11 @@ export const PARAMS = {
   agents_show: { required: ['id'] },
   agents_kill: { required: ['id'] },
   session: { required: ['task_id'] },
+  // notices: a task's agent reporting to the user
+  notice_list: { required: [], optional: ['status', 'task_id', 'sid', 'limit'] },
+  notice_inspect: { required: ['notice_id'] },
+  notice_answer: { required: ['notice_id', 'answer'] },
+  notice_dismiss: { required: ['notice_id'], optional: ['reason'] },
   // the user-facing entry: a root task on a service
   call: { required: ['sid', 'goal'], optional: ['detach', 'interactive'] },
   call_describe: { required: ['sid', 'prompt'] },

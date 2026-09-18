@@ -181,6 +181,12 @@ function cascade(manager, taskId, status, reason) {
 /** Common tail of every terminal transition: abort the agent and wake waiters. */
 function finish(manager, task, status) {
   if (status !== 'completed') manager.runtime?.cancelTask(task.id);
+  // A reporter that dies with work still open (a blocking `notice` the user
+  // never answered, or a report nobody read) leaves notices nobody can act on:
+  // dismiss them, which also wakes the agent parked on them. A completed task
+  // keeps its open notices — they are results and findings the user may still
+  // want to read.
+  if (status !== 'completed') manager.terminateNotices(task.id, `task ${task.id} ${status}`);
   manager.repository.taskEvent(task.id, 'settled', { task_id: task.id, status });
   wake(manager, task.id);
 }

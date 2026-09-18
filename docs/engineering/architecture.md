@@ -80,14 +80,15 @@ Context 是单独资源边界，而不是消息数组别名。当前持久上下
 ```text
 src/core/service_manager.js        # 入口：re-export
 src/core/service_manager/
-  index.js   组装：类本体（构造函数 + orphanPolicy getter）+ Object.assign(四个方法层)
+  index.js   组装：类本体（构造函数 + orphanPolicy getter）+ Object.assign(五个方法层)
   read.js    SID 0 初始化、读模型、变量
   nodes.js   spawn、状态机、孤儿监督、删除
   agents.js  profile 解析与 agent 动词
   tasks.js   task 动词
+  notices.js notice 动词（agent → 用户）
 ```
 
-同样的模式用在 `agent/runtime.js`（runner / space / task / interactive）、`cli/format/service.js`（inspect / agents / tasks）、`core/tasks.js`（internal / rules / read）、`persistence/repository.js`（index / rows / state / calls / tasks / removal）、`persistence/database.js`（connection / schema）。
+同样的模式用在 `agent/runtime.js`（runner / space / task / interactive）、`cli/format/service.js`（inspect / agents / tasks）、`core/tasks.js`（internal / rules / read）、`persistence/repository.js`（index / rows / state / calls / tasks / notices / removal）、`persistence/database.js`（connection / schema）。
 
 两条实现约定：
 

@@ -100,8 +100,9 @@ export const taskRun = {
   },
 
   /**
-   * Pause the hang timeout while the agent is legitimately parked on its child
-   * tasks (it is not consuming the model, so the wall clock should not count).
+   * Pause the hang timeout while the agent is legitimately parked on a human
+   * (a blocking `notice`): it is not consuming the model, so wall clock should
+   * not count against it.
    */
   pauseTimer(taskId) {
     const entry = this.active.get(taskId);

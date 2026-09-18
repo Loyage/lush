@@ -61,6 +61,16 @@ created → running ⇄ waiting → completed / failed / cancelled
 - 如果 agent 先给出了回答、但子 task 还在跑，运行期把 task 置为 `waiting`，等子 task 结束再用一条 `[Lush] 你的子 task 已经结束：…` 的消息唤醒它继续收尾（这条消息是 task 自己对话里的一条 user message）。等子 task 期间不吃调用超时。
 - provider 失败、调用超时、轮数用尽 → task `failed`（`error` 里是原因）；daemon 重启时未结束的 task 记为 `failed`（`error = daemon restarted`），不会自动重放。
 
+
+### Notice（task 找人的渠道）
+
+Task 的下游是子 service，但有些事情没有下游——自己处理不了、只有人能决定，或结果必须交给用户。这时 agent 用 `notice` 上报：
+
+- 一条 notice 记录**汇报者身份**（`task_id` + 它所在 service）、`kind`（`report` / `decision` / `blocked`）、`title` / `body`，以及它声明要用户填的 `fields` 表单；用户填的那份存在 `answer` 里。
+- `wait: true`（默认）时上报的 task 进入 **`waiting`**（暂停调用超时），直到用户 `answer` 或 `dismiss`，填好的值作为 `notice` 工具的返回值交给 agent；`wait: false` 只登记不阻塞，适合不需回复的结果汇报。
+- notice **不超时**：无人处理就一直 `open`，直到用户处理，或上报它的 task 被 cancel / fail（那时未决 notice 会被一并 `dismiss`，note 里写清原因）。已 `completed` 的 task 的未决 notice 保留，因为那是留给人读的结果。
+- 用户侧的入口是 `lush notice list|show|answer|dismiss`、Web UI 的 Notice 页与 `just notices`；agent 侧分两条路：内置运行时（mock / openai）用 `notice` 工具，外部 agent（pi）用 `lush notice post`（RPC `notice.post`），两者都默认阻塞到用户结算并把结果交回 agent。
+
 ## 相关文档
 
 每个 task 有自己的 agent 后端与 Context；见 [agents.md](./agents.md)。

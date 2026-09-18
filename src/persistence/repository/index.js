@@ -9,13 +9,16 @@
  *   repository/state.js    Context, state, events and history
  *   repository/calls.js    agent calls and messages
  *   repository/tasks.js    the task rows
+ *   repository/notices.js  the notice rows (agent → user reports)
  *   repository/removal.js  hard deletion
  *
  * Each layer is a method group forwarding to the statement module it belongs to
  * (`repository_state.js`, `repository_calls.js`, `repository_tasks.js`,
- * `repository_removal.js`), so the call sites keep their signatures.
+ * `repository_notices.js`, `repository_removal.js`),
+ * so the call sites keep their signatures.
  */
 import { callMethods } from './calls.js';
+import { noticeMethods } from './notices.js';
 import { removalMethods } from './removal.js';
 import { rows } from './rows.js';
 import { state } from './state.js';
@@ -28,4 +31,4 @@ export class Repository {
   }
 }
 
-Object.assign(Repository.prototype, rows, state, callMethods, taskMethods, removalMethods);
+Object.assign(Repository.prototype, rows, state, callMethods, taskMethods, removalMethods, noticeMethods);

@@ -197,9 +197,11 @@ export function deleteTaskRows(repository, taskIds) {
       [now(), taskId]);
     // The calls and messages stay: they are the service's conversation history.
     // They only lose the task they belonged to (like calls written before tasks
-    // existed), because the row they point at is going away.
+    // existed), because the row they point at is going away. Notices keep their
+    // own record for the same reason.
     repository.db.run('UPDATE agent_calls SET task_id=NULL WHERE task_id=?', [taskId]);
     repository.db.run('UPDATE messages SET task_id=NULL WHERE task_id=?', [taskId]);
+    repository.detachTaskNotices(taskId);
     rows.tasks += repository.db.run('DELETE FROM tasks WHERE id=?', [taskId]).changes;
   }
   return rows;

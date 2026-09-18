@@ -76,6 +76,13 @@ const CALL_METHODS = [
   ['call.os_pid', 'callOsPid', 'call_os_pid'],
 ];
 
+const NOTICE_METHODS = [
+  ['notice.list', 'noticeList', 'notice_list'],
+  ['notice.inspect', 'noticeInspect', 'notice_inspect'],
+  ['notice.answer', 'noticeAnswer', 'notice_answer'],
+  ['notice.dismiss', 'noticeDismiss', 'notice_dismiss'],
+];
+
 export class Dispatcher {
   /**
    * `identity` is captured by the daemon at startup and reported verbatim:
@@ -90,7 +97,7 @@ export class Dispatcher {
       'system.shutdown': { params: { required: [] }, fn: () => this.shutdown() },
       'service.list': { params: PARAMS.list, fn: () => manager.list() },
     };
-    for (const [wire, method, params] of [...SERVICE_METHODS, ...TASK_METHODS, ...CALL_METHODS]) {
+    for (const [wire, method, params] of [...SERVICE_METHODS, ...TASK_METHODS, ...CALL_METHODS, ...NOTICE_METHODS]) {
       this.methods[wire] = { params: PARAMS[params], fn: manager[method].bind(manager) };
     }
   }
@@ -107,6 +114,9 @@ export class Dispatcher {
       // the policy in wire shape plus how many orphans it currently holds.
       orphan_policy: this.manager.orphanPolicyReport(),
       orphans_active: this.manager.orphans().active_count,
+      // Notices still waiting for a user: the one number that says "someone
+      // needs a human" without walking the whole notice list.
+      notices_open: this.manager.openNoticeCount(),
       // The daemon is long-lived and keeps the guide, the CLI declaration and
       // the templates in memory, so which code answers is not visible from the
       // socket path alone; report it and let clients compare with their own.

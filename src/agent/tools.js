@@ -12,6 +12,21 @@ import { LushError, jsonLoad } from '../core/types.js';
 const SID = { type: 'integer', minimum: 0 };
 const STRING = { type: 'string', minLength: 1 };
 
+/** One answer-form field the reporter declares for the user to fill in. */
+const NOTICE_FIELD = {
+  type: 'object',
+  properties: {
+    name: { type: 'string', description: 'Key the answer comes back under (identifier).' },
+    label: { type: 'string', description: 'What to show the user; defaults to name.' },
+    type: { type: 'string', enum: ['text', 'textarea', 'choice', 'boolean'] },
+    required: { type: 'boolean' },
+    options: { type: 'array', items: { type: 'string' }, description: 'Allowed values for a choice field.' },
+    default: { description: 'Value used when the user leaves an optional field empty.' },
+  },
+  required: ['name'],
+  additionalProperties: false,
+};
+
 function tool(name, description, properties = {}, required = []) {
   return {
     type: 'function',
@@ -46,6 +61,14 @@ export const TOOL_DEFINITIONS = [
     { patch: { type: 'object' } }, ['patch']),
   tool('service_update_vars', 'Change only the variables your service\'s template declares in the mutable group (see the `declarations` field of your variables). Variables declared immutable, names the template does not declare, and values that do not satisfy the declared format (pattern / max_length / single_line) are rejected.',
     { patch: { type: 'object' } }, ['patch']),
+  tool('notice', 'Report to the user through Lush and, by default, wait for their answer. Use it when you are blocked and cannot proceed, when a decision only the user can make is required, or when a human must receive a result. `title` is one line, `body` is the full context; declare what you need filled in with `fields`. The user answers or dismisses it and the answer comes back as this tool\'s result (`answer`, `status`). With wait=false it is only recorded and returns immediately, for status reports you do not need an answer to. A notice the user never answers blocks you indefinitely; keep the reporter and the ask small and specific.',
+    {
+      kind: { type: 'string', enum: ['report', 'decision', 'blocked'] },
+      title: STRING,
+      body: { type: 'string' },
+      fields: { type: 'array', items: NOTICE_FIELD },
+      wait: { type: 'boolean' },
+    }, ['title']),
 ];
 
 export const TOOL_PARAMS = {
@@ -63,6 +86,7 @@ export const TOOL_PARAMS = {
   service_spawn: { required: ['template'], optional: ['name', 'goal', 'variables'] },
   service_update_state: { required: ['patch'] },
   service_update_vars: { required: ['patch'] },
+  notice: { required: ['title'], optional: ['kind', 'body', 'fields', 'wait'] },
 };
 
 export class AgentTools {
@@ -97,6 +121,10 @@ export class AgentTools {
       service_update_vars: {
         params: TOOL_PARAMS.service_update_vars,
         fn: (patch) => manager.updateVars(this.sid, patch),
+      },
+      notice: {
+        params: TOOL_PARAMS.notice,
+        fn: (title, kind, body, fields, wait) => this.notice(title, kind, body, fields, wait),
       },
     };
   }
@@ -141,6 +169,32 @@ export class AgentTools {
 
   spawnService(template, name = undefined, goal = undefined, variables = undefined) {
     return this.manager.spawn(this.sid, template, name, goal, variables);
+  }
+
+  /**
+   * Report to the user and — unless `wait` is false — park this task until they
+   * answer or dismiss it. The same park-and-wake shape the task layer uses for
+   * child results: the task goes to `waiting` and its hang timeout is paused,
+   * because waiting on a human is not the agent hanging.
+   */
+  async notice(title, kind = 'report', body = '', fields = undefined, wait = true) {
+    const posted = this.manager.postNotice({ taskId: this.taskId, kind, title, body, fields, wait });
+    if (!posted.wait) return { notice: posted, waited: false };
+    this.manager.taskWaiting(this.taskId, true);
+    this.manager.runtime?.pauseTimer(this.taskId);
+    try {
+      const settled = await this.manager.waitForNotice(posted.id, this.taskId);
+      if (settled === null) return { notice: posted, waited: false, status: 'removed' };
+      return {
+        notice: { ...posted, status: settled.status, note: settled.note },
+        waited: true,
+        status: settled.status,
+        answer: settled.answer,
+      };
+    } finally {
+      this.manager.runtime?.resumeTimer(this.taskId);
+      this.manager.taskWaiting(this.taskId, false);
+    }
   }
 
   async execute(name, args) {

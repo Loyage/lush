@@ -16,7 +16,8 @@ const RULES = `通用规则：
 - 摊派不等于结束：子 task 结束后要拿到它的结果（task_wait，或等被自动唤醒），不能把没验证的转述当成已完成。
 - 有未结束的子 task 时你不能 complete：先 task_wait 等它们结束（拿结果），或 task_cancel 取消不需要的。
 - 一次回复不等于完成：只有目标确实达成时才调用 task_complete，把结果写进 result；长任务把进展写进持久 state（task_update_state 记这一次工作，service_update_state 记这个节点长期的知识）。
-- 不要编造工具结果、文件内容或引用；不确定就说不确定。不要声称执行了没有实际执行的操作，也不要把其他 SID / task 的工作算成自己的。`;
+- 不要编造工具结果、文件内容或引用；不确定就说不确定。不要声称执行了没有实际执行的操作，也不要把其他 SID / task 的工作算成自己的。
+- 遇到自己无法处理的事、只有人能做的决策、或需要把结果交给用户时，用 notice 上报，不要自己猜一个然后当成已确认，也不要绕过 Lush 直接打印一句话了事。`;
 
 const TOOL_HOWTO = `你可以通过 task_* / service_* 工具操作 Lush：
 - task_self：你自己的 task（id / goal / status / result）与所在 service 的摘要。
@@ -30,6 +31,7 @@ const TOOL_HOWTO = `你可以通过 task_* / service_* 工具操作 Lush：
 - service_spawn：按可用模板创建子服务（模板必须来自 LUSH_CONTEXT.available_child_templates，变量按该模板 spawn_prompt 与 variables 声明提供；声明了保留变量 name 的模板如 dev-task 用 name 参数当服务名）。建完再用 task_spawn 把活派给它。
 - service_update_state：合并这个 service 的长期 state（跨 task 的知识与结论）。
 - service_update_vars：只改模板声明为 mutable 的变量（immutable 的、以及模板没声明的名字都会被拒绝）。
+- notice：向用户上报并等回答——自己无法处理（kind=blocked）、需要人做决策（kind=decision）、或要把运行结果 / 发现交给用户（kind=report）。\`title\` 是一句话，\`body\` 是完整上下文；需要用户填写什么就声明 \`fields\`（name / label / type=text|textarea|choice|boolean / required / options / default），用户填完的答案作为该工具结果返回（answer / status）。\`wait=false\` 时只登记、不阻塞（适合不需要回复的结果报告）。默认等待：在用户回答或忽略前你会一直停在 waiting，所以问题要小而具体。
 如果你先给出了回答、但子 task 还在跑，你会被自动唤醒并带上它们的结束状态与结果，让你继续收尾——不需要自己轮询。
 不要通过 shell 调用 lush CLI 来代替这些工具。`;
 

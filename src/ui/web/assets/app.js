@@ -7,6 +7,7 @@ const elements = {
   tabs: [...document.querySelectorAll('.tab')],
   servicesView: document.querySelector('#services-view'),
   tasksView: document.querySelector('#tasks-view'),
+  noticesView: document.querySelector('#notices-view'),
   tree: document.querySelector('#tree'),
   treeEmpty: document.querySelector('#tree-empty'),
   taskScope: document.querySelector('#task-scope'),
@@ -14,6 +15,28 @@ const elements = {
   taskList: document.querySelector('#task-list'),
   tasksEmpty: document.querySelector('#tasks-empty'),
   tasksNote: document.querySelector('#tasks-note'),
+  noticeStatus: document.querySelector('#notice-status'),
+  noticeList: document.querySelector('#notice-list'),
+  noticesEmpty: document.querySelector('#notices-empty'),
+  noticeCount: document.querySelector('#notice-count'),
+  createPanel: document.querySelector('#create-panel'),
+  servicePanel: document.querySelector('#service-panel'),
+  treePanel: document.querySelector('#tree-panel'),
+  noticePanel: document.querySelector('#notice-panel'),
+  noticeHint: document.querySelector('#notice-hint'),
+  noticeDetail: document.querySelector('#notice-detail'),
+  noticeId: document.querySelector('#notice-id'),
+  noticeKind: document.querySelector('#notice-kind'),
+  noticeState: document.querySelector('#notice-state'),
+  noticeReporter: document.querySelector('#notice-reporter'),
+  noticeSubject: document.querySelector('#notice-subject'),
+  noticeText: document.querySelector('#notice-text'),
+  noticeForm: document.querySelector('#notice-form'),
+  noticeFields: document.querySelector('#notice-fields'),
+  noticeMessage: document.querySelector('#notice-message'),
+  noticeSubmit: document.querySelector('#notice-submit'),
+  noticeAnswer: document.querySelector('#notice-answer'),
+  noticeDismiss: document.querySelector('#notice-dismiss'),
   selection: document.querySelector('#selection'),
   selectionName: document.querySelector('#selection-name'),
   selectionMeta: document.querySelector('#selection-meta'),
@@ -49,6 +72,10 @@ const state = {
   tasks: [],
   selectedTaskId: null,
   taskTree: null,
+  notices: [],
+  selectedNoticeId: null,
+  notice: null,
+  noticeSignature: null,
 };
 
 async function api(path, options = {}) {
@@ -341,6 +368,223 @@ function renderTaskDetail() {
   elements.detailResult.classList.toggle('error', task.error !== null && task.error !== undefined);
 }
 
+// ── Notices (agent → user) ──────────────────────────────────────────────
+
+const NOTICE_KIND_LABEL = { report: '汇报', decision: '决策', blocked: '受阻' };
+const NOTICE_DOT = { open: 'waiting', answered: 'completed', dismissed: 'cancelled' };
+
+function noticeStatusParam() {
+  return elements.noticeStatus.value === '' ? null : elements.noticeStatus.value;
+}
+
+function noticeRow(notice) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `notice-row${notice.id === state.selectedNoticeId ? ' selected' : ''}`;
+  button.setAttribute('role', 'listitem');
+
+  const dot = document.createElement('span');
+  dot.className = `status-dot ${NOTICE_DOT[notice.status] ?? 'created'}`;
+  dot.setAttribute('aria-hidden', 'true');
+
+  const copy = document.createElement('span');
+  const title = document.createElement('span');
+  title.className = 'notice-row-title';
+  title.textContent = `#${notice.id} ${notice.title}`;
+  const meta = document.createElement('span');
+  meta.className = 'notice-row-meta';
+  const where = notice.task_id === null ? `sid ${notice.sid}` : `task#${notice.task_id} ${serviceName(notice.sid)}`;
+  meta.textContent = `${NOTICE_KIND_LABEL[notice.kind] ?? notice.kind} · ${notice.status} · ${where}`;
+  copy.append(title, meta);
+
+  button.replaceChildren(dot, copy);
+  button.title = notice.title;
+  button.addEventListener('click', () => selectNotice(notice.id));
+  return button;
+}
+
+function renderNoticeList() {
+  elements.noticeList.replaceChildren();
+  elements.noticesEmpty.hidden = state.notices.length > 0;
+  for (const notice of state.notices) elements.noticeList.append(noticeRow(notice));
+  const open = state.notices.filter((notice) => notice.status === 'open').length;
+  elements.noticeCount.hidden = open === 0;
+  elements.noticeCount.textContent = String(open);
+}
+
+/** One input for one declared field; the shape mirrors `core/notices.js`. */
+function noticeFieldInput(field) {
+  const wrap = document.createElement('label');
+  wrap.className = 'notice-field';
+  const label = document.createElement('span');
+  label.className = 'notice-field-label';
+  label.textContent = field.required ? `${field.label} *` : field.label;
+
+  let input;
+  if (field.type === 'textarea') {
+    input = document.createElement('textarea');
+    input.rows = 4;
+  } else if (field.type === 'choice') {
+    input = document.createElement('select');
+    if (!field.required) input.append(new Option('（不填）', ''));
+    for (const option of field.options) input.append(new Option(option, option));
+  } else if (field.type === 'boolean') {
+    input = document.createElement('input');
+    input.type = 'checkbox';
+  } else {
+    input = document.createElement('input');
+    input.type = 'text';
+  }
+  input.dataset.field = field.name;
+  input.id = `notice-field-${field.name}`;
+  if (field.type === 'boolean') {
+    input.checked = field.default === true;
+    wrap.classList.add('notice-field-check');
+    wrap.append(input, label);
+  } else {
+    if (field.default !== undefined) input.value = field.default;
+    wrap.append(label, input);
+  }
+  return wrap;
+}
+
+function renderNoticeFields(notice) {
+  elements.noticeFields.replaceChildren();
+  if (notice.fields.length === 0) {
+    const wrap = document.createElement('label');
+    wrap.className = 'notice-field';
+    const label = document.createElement('span');
+    label.className = 'notice-field-label';
+    label.textContent = '回答';
+    const input = document.createElement('textarea');
+    input.rows = 4;
+    input.id = 'notice-field-text';
+    input.dataset.field = 'text';
+    wrap.append(label, input);
+    elements.noticeFields.append(wrap);
+    return;
+  }
+  for (const field of notice.fields) elements.noticeFields.append(noticeFieldInput(field));
+}
+
+/**
+ * `signature` guards the input elements: the page polls every 2.5s, and
+ * rebuilding the form while the user is typing would wipe their answer.
+ */
+function renderNoticeDetail({ force = false } = {}) {
+  const notice = state.notice;
+  const has = notice !== null;
+  elements.noticeHint.hidden = has;
+  elements.noticeDetail.hidden = !has;
+  if (!has) {
+    state.noticeSignature = null;
+    return;
+  }
+
+  const signature = `${notice.id}:${notice.status}:${notice.answered_at ?? ''}`;
+  const changed = force || signature !== state.noticeSignature;
+  state.noticeSignature = signature;
+
+  elements.noticeId.textContent = `#${notice.id}`;
+  elements.noticeKind.textContent = NOTICE_KIND_LABEL[notice.kind] ?? notice.kind;
+  elements.noticeKind.className = `badge ${notice.kind}`;
+  elements.noticeState.textContent = notice.status;
+  elements.noticeState.className = `status ${notice.status}`;
+  const where = notice.task_id === null
+    ? `service ${notice.service_name}[${notice.sid}]`
+    : `task#${notice.task_id} ${notice.service_name}[${notice.sid}]`;
+  const goal = notice.task_goal ? ` · ${notice.task_goal}` : '';
+  elements.noticeReporter.textContent = `${where}${goal}${notice.wait ? ' · 上报者正在等待' : ''}`;
+  elements.noticeSubject.textContent = notice.title;
+  elements.noticeText.textContent = notice.body ?? '';
+  elements.noticeText.hidden = (notice.body ?? '') === '';
+
+  if (changed) {
+    renderNoticeFields(notice);
+    elements.noticeMessage.textContent = '';
+    elements.noticeMessage.classList.remove('error');
+  }
+
+  const open = notice.status === 'open';
+  elements.noticeForm.hidden = !open;
+  elements.noticeSubmit.disabled = !open;
+  elements.noticeDismiss.disabled = !open;
+  for (const input of elements.noticeFields.querySelectorAll('input, textarea, select')) {
+    input.disabled = !open;
+  }
+
+  const settled = notice.answer !== null || notice.note !== null;
+  elements.noticeAnswer.hidden = !settled;
+  if (settled) {
+    elements.noticeAnswer.textContent = notice.answer !== null
+      ? JSON.stringify(notice.answer, null, 2)
+      : `忽略原因：${notice.note}`;
+  }
+}
+
+/** The user's filled-in answer, keyed the way the reporter declared it. */
+function collectAnswer(notice) {
+  const answer = {};
+  for (const input of elements.noticeFields.querySelectorAll('[data-field]')) {
+    const name = input.dataset.field;
+    if (name === 'text') {
+      if (input.value !== '') answer.text = input.value;
+      continue;
+    }
+    const field = notice.fields.find((item) => item.name === name);
+    if (field?.type === 'boolean') {
+      answer[name] = input.checked;
+      continue;
+    }
+    if (input.value !== '') answer[name] = input.value;
+  }
+  return answer;
+}
+
+async function loadNotices() {
+  const params = new URLSearchParams({ limit: '200' });
+  const status = noticeStatusParam();
+  if (status !== null) params.set('status', status);
+  const payload = await api(`/api/notices?${params}`);
+  state.notices = payload.notices;
+  renderNoticeList();
+}
+
+async function loadNotice() {
+  const noticeId = state.selectedNoticeId;
+  if (noticeId === null) {
+    state.notice = null;
+    renderNoticeDetail();
+    return;
+  }
+  let payload;
+  try {
+    payload = await api(`/api/notices/${noticeId}`);
+  } catch (err) {
+    if (err.status === 404) {
+      state.selectedNoticeId = null;
+      state.notice = null;
+      renderNoticeDetail();
+      renderNoticeList();
+      return;
+    }
+    throw err;
+  }
+  if (state.selectedNoticeId !== noticeId) return;
+  state.notice = payload.notice;
+  renderNoticeDetail();
+}
+
+async function selectNotice(noticeId) {
+  state.selectedNoticeId = noticeId;
+  renderNoticeList();
+  try {
+    await loadNotice();
+  } catch (err) {
+    showMessage(err.message, true);
+  }
+}
+
 // ── Service capability panel ───────────────────────────────────────────────
 
 /**
@@ -488,6 +732,8 @@ async function refresh({ quiet = false } = {}) {
     await loadServiceView();
     if (state.view === 'tasks') await loadTasks();
     await loadTaskTree();
+    await loadNotices();
+    await loadNotice();
     connection('online', 'daemon online');
   } catch (err) {
     connection('error', '连接失败');
@@ -508,8 +754,18 @@ function setView(view) {
   }
   elements.servicesView.hidden = view !== 'services';
   elements.tasksView.hidden = view !== 'tasks';
+  elements.noticesView.hidden = view !== 'notices';
+  // Notice is its own workspace: the task/service panels would only be in the way.
+  const noticesMode = view === 'notices';
+  elements.createPanel.hidden = noticesMode;
+  elements.servicePanel.hidden = noticesMode;
+  elements.treePanel.hidden = noticesMode;
+  elements.noticePanel.hidden = !noticesMode;
   if (view === 'tasks') {
     loadTasks().catch((err) => showMessage(err.message, true));
+  }
+  if (view === 'notices') {
+    loadNotices().catch((err) => showMessage(err.message, true));
   }
 }
 
@@ -520,7 +776,57 @@ elements.taskScope.addEventListener('change', () => {
 elements.taskStatus.addEventListener('change', () => {
   loadTasks().catch((err) => showMessage(err.message, true));
 });
+elements.noticeStatus.addEventListener('change', () => {
+  loadNotices().catch((err) => showMessage(err.message, true));
+});
 elements.refresh.addEventListener('click', () => refresh());
+
+elements.noticeForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const notice = state.notice;
+  if (notice === null || notice.status !== 'open') return;
+  const answer = collectAnswer(notice);
+  elements.noticeSubmit.disabled = true;
+  elements.noticeMessage.textContent = '正在提交…';
+  elements.noticeMessage.classList.remove('error');
+  try {
+    const payload = await api(`/api/notices/${notice.id}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ answer }),
+    });
+    state.notice = payload.notice;
+    state.noticeSignature = null;
+    renderNoticeDetail();
+    await loadNotices();
+    await loadTaskTree();
+  } catch (err) {
+    elements.noticeMessage.textContent = err.message;
+    elements.noticeMessage.classList.add('error');
+    renderNoticeDetail();
+  }
+});
+
+elements.noticeDismiss.addEventListener('click', async () => {
+  const notice = state.notice;
+  if (notice === null || notice.status !== 'open') return;
+  const reason = window.prompt(`忽略 notice #${notice.id}？可填写原因（留空即无）：`, '');
+  if (reason === null) return;
+  elements.noticeDismiss.disabled = true;
+  try {
+    const payload = await api(`/api/notices/${notice.id}/dismiss`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason === '' ? null : reason }),
+    });
+    state.notice = payload.notice;
+    state.noticeSignature = null;
+    renderNoticeDetail();
+    await loadNotices();
+    await loadTaskTree();
+  } catch (err) {
+    showMessage(err.message, true);
+    renderNoticeDetail();
+  }
+});
 
 elements.form.addEventListener('submit', async (event) => {
   event.preventDefault();

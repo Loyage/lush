@@ -20,6 +20,7 @@ MVP 范围内无未完成项。后续方向（本轮不实现）：Context compr
 - [06 · 分层布局、文档重组与测试瘦身](./06-layered-layout-docs-and-tests.md)
 - [07 · Web UI 的 Task 树视图](./07-web-ui-task-tree.md)
 - [08 · 每个节点的三个查看接口与 description 重写](./08-service-view-and-descriptions.md)
+- [09 · Notice：task 向用户汇报并等待答复的渠道](./09-agent-notices.md)
 
 ## 验收命令
 

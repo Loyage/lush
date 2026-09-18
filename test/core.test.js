@@ -910,7 +910,7 @@ describe('core', () => {
 
     const migrated = system(legacyDir);
     try {
-      expect(migrated.database.connection.query('PRAGMA user_version').get().user_version).toBe(5);
+      expect(migrated.database.connection.query('PRAGMA user_version').get().user_version).toBe(6);
       expect(migrated.database.connection.query('PRAGMA foreign_key_check').all()).toEqual([]);
       // v1 `running` / `completed` become `active`; v1 `cancelled` collapsed
       // into `stopped` on the way through v2, like v1 `stopped` does.

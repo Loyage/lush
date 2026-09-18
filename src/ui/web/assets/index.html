@@ -27,6 +27,7 @@
       <div class="tabs" role="tablist" aria-label="侧边栏视图">
         <button id="tab-services" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="services-view" data-view="services">服务</button>
         <button id="tab-tasks" class="tab" type="button" role="tab" aria-selected="false" aria-controls="tasks-view" data-view="tasks">任务</button>
+        <button id="tab-notices" class="tab" type="button" role="tab" aria-selected="false" aria-controls="notices-view" data-view="notices">Notice <span id="notice-count" class="count" hidden>0</span></button>
       </div>
 
       <section id="services-view" class="view" role="tabpanel" aria-labelledby="tab-services">
@@ -61,10 +62,26 @@
         <p id="tasks-note" class="note" hidden></p>
         <div id="task-list" class="tree" role="tree" aria-label="Task tree"></div>
       </section>
+
+      <section id="notices-view" class="view" role="tabpanel" aria-labelledby="tab-notices" hidden>
+        <div class="filters">
+          <label class="filter">
+            <span>状态</span>
+            <select id="notice-status">
+              <option value="open">未处理</option>
+              <option value="">全部</option>
+              <option value="answered">已回答</option>
+              <option value="dismissed">已忽略</option>
+            </select>
+          </label>
+        </div>
+        <p id="notices-empty" class="empty" hidden>暂无 Notice。</p>
+        <div id="notice-list" class="notice-list" role="list" aria-label="Notice list"></div>
+      </section>
     </aside>
 
     <div class="main-column">
-      <section class="panel create-panel" aria-labelledby="create-title">
+      <section id="create-panel" class="panel create-panel" aria-labelledby="create-title">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">NEW TASK</p>
@@ -88,7 +105,7 @@
         </form>
       </section>
 
-      <section class="panel service-panel" aria-labelledby="service-view-title">
+      <section id="service-panel" class="panel service-panel" aria-labelledby="service-view-title">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">SERVICE</p>
@@ -110,7 +127,7 @@
         </div>
       </section>
 
-      <section class="panel tree-panel" aria-labelledby="task-detail-title">
+      <section id="tree-panel" class="panel tree-panel" aria-labelledby="task-detail-title">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">TASK TREE</p>
@@ -134,6 +151,38 @@
           <pre id="detail-result" class="task-result" hidden></pre>
         </div>
         <div id="task-tree" class="task-tree" role="tree" aria-label="Task tree" hidden></div>
+      </section>
+
+      <section id="notice-panel" class="panel notice-panel" aria-labelledby="notice-detail-title" hidden>
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">NOTICE</p>
+            <h2 id="notice-detail-title">Notice 详情</h2>
+          </div>
+          <div class="actions">
+            <button id="notice-dismiss" class="ghost danger" type="button" disabled>忽略</button>
+          </div>
+        </div>
+
+        <p id="notice-hint" class="empty">从左侧「Notice」列表选择一条：这里显示 agent 汇报了什么、需要你填什么。</p>
+        <div id="notice-detail" class="notice-detail" hidden>
+          <div class="notice-head">
+            <span id="notice-id" class="task-id"></span>
+            <span id="notice-kind" class="badge"></span>
+            <span id="notice-state" class="status"></span>
+          </div>
+          <p id="notice-reporter" class="task-meta"></p>
+          <h3 id="notice-subject" class="notice-subject"></h3>
+          <pre id="notice-text" class="notice-text"></pre>
+          <form id="notice-form">
+            <div id="notice-fields" class="notice-fields"></div>
+            <div class="form-footer">
+              <p id="notice-message" class="message" role="status"></p>
+              <button id="notice-submit" class="primary" type="submit">提交回答</button>
+            </div>
+          </form>
+          <div id="notice-answer" class="notice-answer" hidden></div>
+        </div>
       </section>
     </div>
   </main>

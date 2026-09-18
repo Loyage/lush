@@ -8,6 +8,7 @@
 import { objectLines, shortValue, treeLines } from './primitives.js';
 import { formatAgentCommand } from './agent.js';
 import { formatDaemon } from './daemon.js';
+import { formatNotice, formatNoticeList } from './notice.js';
 import {
   formatAgent, formatAgentKill, formatAgents, formatCall, formatDryRun, formatHistory, formatInspect, formatLifecycle,
   formatList, formatOrphans, formatRemoval, formatSession, formatTaskInspect, formatTaskList, formatTaskRemoval,
@@ -18,6 +19,7 @@ export * from './primitives.js';
 export * from './service.js';
 export { formatAgentCommand } from './agent.js';
 export { formatDaemon } from './daemon.js';
+export { formatNotice, formatNoticeList } from './notice.js';
 
 /** Lifecycle commands that answer with the updated row. */
 const LIFECYCLE_VERBS = {
@@ -55,6 +57,10 @@ export function format(args, result) {
   if (args.command === 'task_agents_list') return formatAgents(result);
   if (args.command === 'task_agents_show') return formatAgent(result);
   if (args.command === 'task_agents_kill') return formatAgentKill(result);
+  if (args.command === 'notice_list') return formatNoticeList(result);
+  if (args.command === 'notice_show' || args.command === 'notice_answer' || args.command === 'notice_dismiss') {
+    return formatNotice(result);
+  }
   // Variables are few and scalar-ish: one `key=value` line each is easier to
   // read than a JSON blob, and `--json` still gives the merged object.
   if (args.command === 'update-vars') {

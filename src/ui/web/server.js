@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LushError } from '../../core/types.js';
-import { taskDeleteRequest, taskListQuery, taskRequest } from '../client.js';
+import { noticeAnswerRequest, noticeDismissRequest, noticeListQuery, taskDeleteRequest, taskListQuery, taskRequest } from '../client.js';
 
 const ASSET_DIR = fileURLToPath(new URL('./assets/', import.meta.url));
 const MAX_BODY_BYTES = 128 * 1024;
@@ -165,6 +165,28 @@ export class WebUIServer {
         const { recursive } = taskDeleteRequest(await requestJson(request));
         const removed = await this.ui.deleteTask(Number(deleteMatch[1]), recursive);
         return json({ deleted: removed.deleted });
+      }
+
+      // The notice inbox: what agents reported and the user has not settled yet.
+      if (request.method === 'GET' && url.pathname === '/api/notices') {
+        return json({ notices: await this.ui.noticeList(noticeListQuery(url.searchParams)) });
+      }
+
+      const noticeMatch = /^\/api\/notices\/(\d+)$/.exec(url.pathname);
+      if (request.method === 'GET' && noticeMatch !== null) {
+        return json({ notice: await this.ui.noticeInspect(Number(noticeMatch[1])) });
+      }
+
+      const noticeAnswerMatch = /^\/api\/notices\/(\d+)\/answer$/.exec(url.pathname);
+      if (request.method === 'POST' && noticeAnswerMatch !== null) {
+        const { answer } = noticeAnswerRequest(await requestJson(request));
+        return json({ notice: await this.ui.answerNotice(Number(noticeAnswerMatch[1]), answer) });
+      }
+
+      const noticeDismissMatch = /^\/api\/notices\/(\d+)\/dismiss$/.exec(url.pathname);
+      if (request.method === 'POST' && noticeDismissMatch !== null) {
+        const { reason } = noticeDismissRequest(await requestJson(request));
+        return json({ notice: await this.ui.dismissNotice(Number(noticeDismissMatch[1]), reason) });
       }
 
       if (request.method === 'GET' || request.method === 'HEAD') {

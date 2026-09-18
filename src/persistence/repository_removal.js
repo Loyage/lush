@@ -21,6 +21,9 @@ export function deleteRows(repository, sid) {
     service_events: repository.db.run('DELETE FROM service_events WHERE sid=?', [sid]).changes,
     contexts: repository.db.run('DELETE FROM contexts WHERE sid=?', [sid]).changes,
   };
+  // Notices belong to the service that reported them (their `sid` is NOT NULL),
+  // so they disappear with it — unlike tasks, which may have moved on.
+  rows.notices = repository.deleteNoticesOfService(sid);
   // Tasks are mounted on the service, so they go with it; child tasks that live
   // on surviving services are re-pointed at themselves (they become roots).
   const detached = repository.detachServiceTasks([sid]);
@@ -47,7 +50,7 @@ export function deleteRows(repository, sid) {
 export function remove(repository, sids, audit = null) {
   const doomed = new Set(sids);
   return repository.database.transaction(() => {
-    const rows = { services: 0, contexts: 0, agent_calls: 0, messages: 0, service_events: 0, tasks: 0, task_events: 0 };
+    const rows = { services: 0, contexts: 0, agent_calls: 0, messages: 0, service_events: 0, tasks: 0, task_events: 0, notices: 0 };
     for (const sid of sids) {
       const removed = repository.get(sid);
       for (const survivor of repository.db.query('SELECT sid FROM services WHERE original_parent_sid=?').all(sid)) {

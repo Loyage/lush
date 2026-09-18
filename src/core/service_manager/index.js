@@ -19,6 +19,7 @@
  *   service_manager/nodes.js   spawn, the transition machine, orphans, removal
  *   service_manager/agents.js  profile resolution and the agent verbs
  *   service_manager/tasks.js   the task verbs
+ *   service_manager/notices.js the notice verbs (agent → user reports)
  *
  * Only the constructor and the `orphanPolicy` getter live in the class body:
  * `Object.assign` copies getter *values*, not the getters themselves.
@@ -26,6 +27,7 @@
 import { DEFAULT_ORPHAN_POLICY, OrphanSupervisor } from '../orphans.js';
 import { agents } from './agents.js';
 import { nodes } from './nodes.js';
+import { noticeLayer } from './notices.js';
 import { read } from './read.js';
 import { taskLayer } from './tasks.js';
 
@@ -50,6 +52,12 @@ export class ServiceManager {
      */
     this.taskWaiters = new Map();
     this.childWaiters = new Map();
+    /**
+     * Notice waiters, in memory like the task ones: a reporter that chose to
+     * wait (`notice` tool with `wait`) parks here until the user answers or
+     * dismisses. Keyed by notice id.
+     */
+    this.noticeWaiters = new Map();
   }
 
   /**
@@ -61,4 +69,4 @@ export class ServiceManager {
   }
 }
 
-Object.assign(ServiceManager.prototype, read, nodes, agents, taskLayer);
+Object.assign(ServiceManager.prototype, read, nodes, agents, taskLayer, noticeLayer);

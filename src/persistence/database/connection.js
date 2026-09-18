@@ -2,12 +2,12 @@
  * One connection owned by the daemon event loop; transactions never await.
  *
  * The class decides *when* to run which DDL: a fresh home gets `SCHEMA`, an
- * older one is walked forward by the migration scripts (v1 → v2 → v3), and the
+ * older one is walked forward by the migration scripts (v1 → v6), and the
  * one interpretive step — turning pre-task agent calls into root tasks — lives
  * at the bottom of this file because it reads rows, not just DDL.
  */
 import { Database as SQLite } from 'bun:sqlite';
-import { CALL_TASK_STATUS, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, SCHEMA } from './schema.js';
+import { CALL_TASK_STATUS, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, SCHEMA } from './schema.js';
 
 export class Database {
   constructor(file) {
@@ -16,7 +16,7 @@ export class Database {
     this.connection.exec('PRAGMA busy_timeout = 5000');
     this.connection.exec('PRAGMA journal_mode = WAL');
     const version = this.connection.query('PRAGMA user_version').get().user_version;
-    if (version !== 0 && version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5) {
+    if (version !== 0 && version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6) {
       this.close();
       throw new Error(`unsupported database schema: ${version}`);
     }
@@ -24,6 +24,7 @@ export class Database {
     if (version === 1 || version === 2) this.migrateV3();
     if (version === 1 || version === 2 || version === 3) this.migrateV4();
     if (version === 1 || version === 2 || version === 3 || version === 4) this.migrateV5();
+    if (version >= 1 && version <= 5) this.migrateV6();
     this.connection.exec(SCHEMA);
   }
 
@@ -46,6 +47,11 @@ export class Database {
   /** Rename service identifiers from PID terminology to SID terminology. */
   migrateV5() {
     this.script(MIGRATION_V5);
+  }
+
+  /** Add the notice channel (see `MIGRATION_V6`). */
+  migrateV6() {
+    this.script(MIGRATION_V6);
   }
 
   /**

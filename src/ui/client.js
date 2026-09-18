@@ -94,6 +94,31 @@ export class UIClient {
     return this.execute('task.session', { task_id: taskId });
   }
 
+  /** Notices still waiting for a human, newest first (sidebar inbox). */
+  noticeList({ status = null, taskId = null, sid = null, limit = 200 } = {}) {
+    return this.execute('notice.list', { status, task_id: taskId, sid, limit });
+  }
+
+  /** One notice: reporter, declared answer form, and any answer already given. */
+  noticeInspect(noticeId) {
+    validSid(noticeId);
+    return this.execute('notice.inspect', { notice_id: noticeId });
+  }
+
+  /** Fill in a notice's declared form; the waiting reporter is unblocked. */
+  answerNotice(noticeId, answer) {
+    validSid(noticeId);
+    if (!isPlainObject(answer)) throw new TypeError('answer must be an object');
+    return this.execute('notice.answer', { notice_id: noticeId, answer });
+  }
+
+  /** Dismiss a notice without answering it. */
+  dismissNotice(noticeId, reason = null) {
+    validSid(noticeId);
+    if (reason !== null && typeof reason !== 'string') throw new TypeError('reason must be a string or null');
+    return this.execute('notice.dismiss', { notice_id: noticeId, reason });
+  }
+
   openInteractiveTask(sid, goal) {
     validSid(sid);
     text(goal, 'goal');
@@ -181,4 +206,50 @@ export function taskDeleteRequest(value) {
   const recursive = value.recursive ?? false;
   if (typeof recursive !== 'boolean') throw new LushError('recursive must be a boolean', -32602);
   return { recursive };
+}
+
+const NOTICE_LIST_PARAMS = ['status', 'task_id', 'sid', 'limit'];
+
+/**
+ * Strictly decode the Web UI notice-list query
+ * (`?status=&task_id=&sid=&limit=`). As with tasks, only the wire shape is
+ * enforced here; the enum and range checks stay in Core.
+ */
+export function noticeListQuery(search) {
+  const raw = new Map();
+  for (const [key, value] of search) {
+    if (!NOTICE_LIST_PARAMS.includes(key)) throw new LushError(`unknown query parameter '${key}'`, -32602);
+    if (raw.has(key)) throw new LushError(`duplicate query parameter '${key}'`, -32602);
+    raw.set(key, value);
+  }
+  const query = { status: null, taskId: null, sid: null, limit: 200 };
+  if ((raw.get('status') ?? '') !== '') query.status = raw.get('status');
+  if ((raw.get('task_id') ?? '') !== '') query.taskId = nonNegativeInt(raw.get('task_id'), 'task_id');
+  if ((raw.get('sid') ?? '') !== '') query.sid = nonNegativeInt(raw.get('sid'), 'sid');
+  if ((raw.get('limit') ?? '') !== '') query.limit = nonNegativeInt(raw.get('limit'), 'limit');
+  return query;
+}
+
+/** Strictly decode the Web UI notice-answer payload (`{ answer: object }`). */
+export function noticeAnswerRequest(value) {
+  if (!isPlainObject(value)) throw new LushError('request body must be a JSON object', -32602);
+  for (const key of Object.keys(value)) {
+    if (key !== 'answer') throw new LushError(`request body has unexpected field '${key}'`, -32602);
+  }
+  if (!Object.hasOwn(value, 'answer')) throw new LushError("request body is missing 'answer'", -32602);
+  if (!isPlainObject(value.answer)) throw new LushError('answer must be an object', -32602);
+  return { answer: value.answer };
+}
+
+/** Strictly decode the Web UI notice-dismiss payload (`{ reason?: string }`). */
+export function noticeDismissRequest(value) {
+  if (!isPlainObject(value)) throw new LushError('request body must be a JSON object', -32602);
+  for (const key of Object.keys(value)) {
+    if (key !== 'reason') throw new LushError(`request body has unexpected field '${key}'`, -32602);
+  }
+  const reason = value.reason ?? null;
+  if (reason !== null && typeof reason !== 'string') {
+    throw new LushError('reason must be a string', -32602);
+  }
+  return { reason };
 }

@@ -30,7 +30,7 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 
 | RPC | params | result |
 |---|---|---|
-| system.status | {} | daemon_pid, root_sid, provider, service_count, active_calls, home, socket, code_dir, version, fingerprint, started_at, uptime_seconds, orphan_policy（嵌套：adopt / limit / ttl_seconds / sweep_seconds）, orphans_active（标量，SID 0 当前活动孤儿数） |
+| system.status | {} | daemon_pid, root_sid, provider, service_count, active_calls, notices_open（还没被回答 / 忽略的 notice 数）, home, socket, code_dir, version, fingerprint, started_at, uptime_seconds, orphan_policy（嵌套：adopt / limit / ttl_seconds / sweep_seconds）, orphans_active（标量，SID 0 当前活动孤儿数） |
 | system.shutdown | {} | stopping |
 | call | sid, goal, detach?, interactive? | 在 SID 上开一个根 task：不等待时（detach）立刻返回 task 快照；默认阻塞到该 task 进入终态再返回 `task.inspect` 形状的快照（若期间被 purge 掉则返回 `status: "removed"` 的最小快照）；interactive=true 时返回交互式 argv（见 `call.end`） |
 | call.describe | sid, prompt | 预览 task 的首次调用（dry run）：dry_run、agent、profile、prompt、command/argv/cwd/env；不建 task、不写记录 |
@@ -65,6 +65,11 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 | task.agents_show | id | 单个 agent + 它服务的 task 的 session + 对应的持久 call 行 |
 | task.agents_kill | id | 结束该 agent 的这次调用（interrupted）并取消它服务的 task，返回该 agent 的视图与 outcome（`killed` / `gone` / `no_pid`） |
 | task.session | task_id | 该 task agent 的 session：task_id、sid、name、task_status、session_dir、session_id（`lush-task-<id>`）、files、file、argv/command、browse_command、cwd、env、busy、`profile`；内置运行时全为 null |
+| notice.list | status?, task_id?, sid?, limit? | notice 数组（id、sid、task_id、kind、title、body、fields、wait、status、answer、note、created_at、answered_at、updated_at，加连接出的 `service_name` / `service_template` / `task_goal` / `task_status`）；status 为 open / answered / dismissed，默认按 id 倒序取 200 条 |
+| notice.inspect | notice_id | 同上形状的单条 notice |
+| notice.post | task_id, title, kind?, body?, fields?, wait? | agent 侧上报：以 task_id 为汇报者建一条 notice；wait（默认 true）时这个 RPC 一直挂着，直到用户 answer / dismiss，返回结算后的 notice（answer / note 已填），wait=false 立即返回 open 的 notice。汇报者 task 不存在报 -32004，fields / title / kind 不合法报 -32602 |
+| notice.answer | notice_id, answer | 按 notice 声明的 fields 校验 answer 后置为 answered，唤醒等待的 task：返回更新后的 notice（answer 已填、answered_at 已记） |
+| notice.dismiss | notice_id, reason? | 置为 dismissed（不填 answer），唤醒等待的 task：返回更新后的 notice，reason 存入 `note` |
 
 inspect 的 Context 包含 system_prompt、state、artifacts、references、message_count（变量就在 state 的两个区间里，`state.agent` 是创建时选中的 agent profile 名，`update_state` 不能写它）；调用和事件各取最近 20 条，`recent_tasks` 取最近 10 个 task，避免无界响应。完整消息使用 `task.history` 分页读取（对话按 task 划分，不是按 SID）。元数据含 template 的完整创建时快照，以及由快照与 state 拼出的 `variables`：`immutable` / `mutable`（当前值）与 `declarations`（两个区间各自的 `description` / `required` / `default` / 可选的 `pattern` / `max_length` / `single_line`）。`title` / `detail`（保留变量名）在 `--json` 里原样给出，文本输出只做摘要与截断。
 
@@ -120,6 +125,7 @@ Provider tool 名称采用 OpenAI-compatible 安全字符：`service_self`、`se
 | service_spawn | template, name?, goal?, variables? | 创建子服务（受 child_templates 限制）；建完再用 task_spawn 把活派给它 |
 | service_update_state | patch | 修改所在节点的长期 state（不能写变量） |
 | service_update_vars | patch | 只能改该节点模板声明为 mutable 的变量 |
+| notice | title, kind?, body?, fields?, wait? | 向用户上报：kind 为 report / decision / blocked；`fields` 声明要用户填的表单（name / label / type=text\|textarea\|choice\|boolean / required / options / default）；默认（wait=true）阻塞到用户 answer / dismiss，把 `{status, answer}` 作为工具结果返回，wait=false 只登记、立即返回 |
 
 工具错误作为带 code/message 的 tool result 回给 Agent；Provider 可以修正。未知工具拒绝。内置运行时不允许 Agent 伪造当前 SID（工具参数里没有 sid）；pi 后端的安全边界更弱：它能读写磁盘、执行命令，并通过 bash 调用 `lush` CLI，因此 `LUSH_SID` 只是便利信息，不是权限凭据。complete 后本轮可返回最终文本，但后续副作用工具被拒绝。
 
@@ -160,6 +166,11 @@ lush task attach TASK_ID
 lush task agents list [--task-id TASK_ID] [--sid SID] [--all]
 lush task agents show AGENT_ID
 lush task agents kill AGENT_ID
+
+lush notice list [--status open|answered|dismissed] [--task TASK_ID] [--sid SID]
+lush notice show NOTICE_ID
+lush notice answer NOTICE_ID --set K=V [--set K=V ...]   # 或 --text TEXT / --answer JSON
+lush notice dismiss NOTICE_ID [--reason TEXT]
 ```
 
 `--goal` / `--vars`（旧写法 `--args`）/ `--patch` / `--result` 接收文本或 JSON 字面量，JSON 非法时报 usage 错误（退出码 2）。`--title` / `--detail` 是模板那两个变量的简写，和 `--vars` 合并、同名不能两边都给。用法错误（解析失败，或 Core 报 -32602 的参数值错误，如变量缺失、格式不符）一律以退出码 2 结束，其他错误是 1。`service update-state` / `task update-state` 把 patch 顶层 shallow-merge 到该节点 / 该 task 的 state（CLI 命令名带连字符，RPC 方法分别是 `service.update_state` / `task.update_state`），但 `state.params` / `state.vars` 归变量系统所有，改可变变量用 `update-vars`（RPC `service.update_vars`）。

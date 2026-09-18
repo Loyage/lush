@@ -36,7 +36,7 @@ lush task tree 1
 lush daemon stop
 ```
 
-命令分两层组：命令组（`daemon` / `service` / `task` / `agent`）与顶层入口 `call` → 命令 → 参数。默认输出是给人读的文本（表格、树、分块的 message、一行式状态），`--json` 给出稳定的机器可读 result，可写在命令之前或末尾。运行期 agent 属于 task（`lush task agents …`），不是独立的命令层。
+命令分两层组：命令组（`daemon` / `service` / `task` / `notice` / `agent`）与顶层入口 `call` → 命令 → 参数。默认输出是给人读的文本（表格、树、分块的 message、一行式状态），`--json` 给出稳定的机器可读 result，可写在命令之前或末尾。运行期 agent 属于 task（`lush task agents …`），不是独立的命令层。
 
 也可通过 `bun run bin/lush`（或 `bun run bin/lushd` 前台运行 daemon）调用；`bun link` 之后 `lush` / `lushd` 会进入 PATH。
 
@@ -80,6 +80,20 @@ Web UI 的侧边栏可在「服务」与「任务」两个视图之间切换：�
 完整清单、`just clean` 与 `just reset` 的区别、以及每个命令的参数，见 [docs/reference/cli.md](docs/reference/cli.md)。
 
 **改代码或提示词之后，先确认你重启的是哪个 daemon**：daemon 是长驻服务，`start` 不会替换版本，只有 `restart` 会，而且只重启 `LUSH_HOME` 指向的那一份。`lush daemon status`（或 `just doctor`）会列出 daemon 与 CLI 各自的 `home` / `code_dir` / `fingerprint`，不一致时任何 `lush` 命令都会在 stderr 上告警。判据与排障见 [docs/engineering/identity.md](docs/engineering/identity.md)。
+
+## Notice：agent 找人的渠道
+
+Task 的 agent 遇到自己处理不了的事、只有人能做的决策，或要把结果 / 发现交给用户时，用 `notice` 工具上报；由上报它的 task 与 service 标识汇报者身份：
+
+```bash
+lush notice list                 # 待处理项：--status open / answered / dismissed，--task / --sid 过滤
+lush notice show 7               # 详情：kind、正文、以及它声明要你填的字段
+lush notice answer 7 --set plan=canary --set note=ok   # 填写并唤醒等待的 task
+lush notice answer 7 --text '先别动，我来处理'          # 没有声明字段时的自由文本回复
+lush notice dismiss 7 --reason '已知'                  # 只阅读、不回答
+```
+
+需要你填写时，agent 在 `fields` 里声明表单（`text` / `textarea` / `choice` / `boolean`，可标 `required`、可给 `default`），`answer` 就是把字段名填回去（`choice` 必须命中 `options`）。agent 默认**阻塞等待**：在被回答或忽略前，那个 task 停在 `waiting` 且超时计时暂停；`wait: false` 的 notice 只登记不阻塞，适合不需要回复的结果汇报。notice 不超时：没人处理就一直挂着，直到你处理，或它所属的 task 被 `lush task cancel`（未决 notice 会被一起忽略）。三个界面共用同一份数据：CLI（`lush notice` / `just notices`）、Web UI 的 Notice 页，以及 agent 侧——内置运行时（mock / openai）用 `notice` 工具，外部 agent（pi，默认后端）用 `lush notice post --title ... [--fields JSON]`（默认也阻塞到用户结算）。
 
 ## Agent
 

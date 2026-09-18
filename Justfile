@@ -397,3 +397,39 @@ delete sid recursive="":
 [group('service')]
 purge sid recursive="":
   @{{lush}} service purge {{sid}}{{ if recursive != "" { " --recursive" } else { "" } }}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Notice：agent 汇报给用户，等待处理
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 待处理的 notice：just notices；只看某个状态：just notices answered
+[group('notice')]
+notices status="":
+  @{{lush}} notice list{{ if status != "" { " --status " + quote(status) } else { "" } }}
+
+# 看一条 notice 的详情与要填的字段：just notice 7
+[group('notice')]
+notice id:
+  @{{lush}} notice show {{id}}
+
+# 填写回复并唤醒等待的 task（key=value 可给多组）：just answer 7 plan=canary note=ok
+[group('notice')]
+answer id *sets:
+  #!/usr/bin/env zsh
+  set -u
+  typeset -a cmd
+  cmd=({{lush}} notice answer {{id}})
+  for item in "$@"; do
+    cmd+=(--set "$item")
+  done
+  "${cmd[@]}"
+
+# 自由文本回复：just answer-text 7 '先别动，我来处理'
+[group('notice')]
+answer-text id text:
+  @{{lush}} notice answer {{id}} --text {{quote(text)}}
+
+# 忽略一条 notice（不填答案）：just dismiss 7 '已知，不用处理'
+[group('notice')]
+dismiss id reason="":
+  @{{lush}} notice dismiss {{id}}{{ if reason != "" { " --reason " + quote(reason) } else { "" } }}

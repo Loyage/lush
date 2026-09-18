@@ -25,6 +25,11 @@
  * Status sets match `core/lifecycle.js`: services are `created / active /
  * stopped`, tasks are `created / running / waiting / completed / failed /
  * cancelled`.
+ *
+ * A `notice` is a task's agent reporting to the user: it records who reported
+ * (`sid` + `task_id`), what they need (`kind`, `title`, `body`), the answer form
+ * they declared (`fields`), whether the reporter is blocked on the answer
+ * (`wait`), and how the user settled it (`status` / `answer` / `note`).
  */
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS services (
@@ -109,7 +114,26 @@ CREATE TABLE IF NOT EXISTS task_events (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS task_events_task ON task_events(task_id, id);
-PRAGMA user_version = 5;
+CREATE TABLE IF NOT EXISTS notices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sid INTEGER NOT NULL REFERENCES services(sid),
+    task_id INTEGER REFERENCES tasks(id),
+    kind TEXT NOT NULL CHECK(kind IN ('report','decision','blocked')),
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    fields TEXT NOT NULL,
+    wait INTEGER NOT NULL CHECK(wait IN (0,1)),
+    status TEXT NOT NULL CHECK(status IN ('open','answered','dismissed')),
+    answer TEXT,
+    note TEXT,
+    created_at TEXT NOT NULL,
+    answered_at TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS notices_status ON notices(status, id);
+CREATE INDEX IF NOT EXISTS notices_sid ON notices(sid, id);
+CREATE INDEX IF NOT EXISTS notices_task ON notices(task_id, id);
+PRAGMA user_version = 6;
 `;
 
 /**
@@ -375,6 +399,33 @@ CREATE INDEX task_events_task ON task_events(task_id,id);
 DROP TABLE _v5_services; DROP TABLE _v5_contexts; DROP TABLE _v5_tasks; DROP TABLE _v5_agent_calls;
 DROP TABLE _v5_messages; DROP TABLE _v5_service_events; DROP TABLE _v5_task_events;
 PRAGMA user_version = 5;
+`;
+
+/**
+ * v5 → v6: the notice channel. A new table only — nothing existing changes, so
+ * an older home is brought forward by creating it and stamping the version.
+ */
+export const MIGRATION_V6 = `
+CREATE TABLE IF NOT EXISTS notices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sid INTEGER NOT NULL REFERENCES services(sid),
+    task_id INTEGER REFERENCES tasks(id),
+    kind TEXT NOT NULL CHECK(kind IN ('report','decision','blocked')),
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    fields TEXT NOT NULL,
+    wait INTEGER NOT NULL CHECK(wait IN (0,1)),
+    status TEXT NOT NULL CHECK(status IN ('open','answered','dismissed')),
+    answer TEXT,
+    note TEXT,
+    created_at TEXT NOT NULL,
+    answered_at TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS notices_status ON notices(status, id);
+CREATE INDEX IF NOT EXISTS notices_sid ON notices(sid, id);
+CREATE INDEX IF NOT EXISTS notices_task ON notices(task_id, id);
+PRAGMA user_version = 6;
 `;
 
 /** One historical call → the root task it becomes in v3. */
