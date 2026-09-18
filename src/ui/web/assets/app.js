@@ -344,10 +344,11 @@ function renderDetailError(taskId, message) {
 async function detail(taskId) {
   selected = taskId;
   const scrolled = detailTask === taskId ? $('detail').scrollTop : 0;
-  if (location.hash !== `#task-${taskId}`) history.replaceState(null, '', `#task-${taskId}`);
-  let task, history, diff;
+  // window.history: a local `history` binding here would shadow the global and throw a TDZ error on click.
+  if (location.hash !== `#task-${taskId}`) window.history.replaceState(null, '', `#task-${taskId}`);
+  let task, timeline, diff;
   try {
-    [task, history, diff] = await Promise.all([
+    [task, timeline, diff] = await Promise.all([
       api(`/api/task/${taskId}`), loadHistory(taskId).catch(() => ({ events: [], truncated: false })),
       api(`/api/task/${taskId}/diff`).catch(() => null),
     ]);
@@ -357,7 +358,7 @@ async function detail(taskId) {
   }
   if (selected !== taskId) return;
   selectedRevision = task.updated_at; detailTask = taskId; detailRenderedAt = Date.now(); detailDirty = false;
-  renderDetail(task, history, diff);
+  renderDetail(task, timeline, diff);
   $('detail').scrollTop = scrolled;
   const tree = $('tasks').querySelector(`[data-id="${taskId}"]`);
   if (tree) for (const node of $('tasks').children) node.classList.toggle('selected', node === tree);
