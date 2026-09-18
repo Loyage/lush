@@ -39,7 +39,7 @@ lush task verify 3      # 派一个只读 verifier：先演示它的 worktree �
 lush notice list
 lush notice answer 1 '采用方案 A'
 lush task merge 3       # 审阅代码与验证报告后，明确批准这个分支
-lush task cleanup 3     # 合并后安全回收 worktree，保留分支作为恢复点
+lush task cleanup 3     # 合并后安全回收 worktree 与任务分支（--keep-branch 留分支作恢复点）
 lush daemon stop
 ```
 
@@ -119,8 +119,8 @@ Project / 一个目录 / 一个 daemon
 - 完成与合并是两个状态：`completed + pending` 表示已产出提交，**尚未进入主工作树**。
 - `task merge ID` 检查任务完成、两边工作树干净、目标分支未切换、待审阅 HEAD 未变化，然后串行执行非快进 merge。冲突会尝试 abort，保留任务分支和错误；不会强制覆盖代码或自动解决冲突。stacked 任务还要求上游已经是目标的祖先（即先合并上游），否则会把它未合并的改动一起带进来。
 - merge 中断后标为 `review`，不自动重放。检查 Git 历史、处理遗留冲突并恢复干净工作树后，可重新执行 `task merge ID` 明确批准恢复；若提交已经合入，Git 会确认已包含，不重复改写历史。
-- `task cleanup ID` 不使用 `--force`，拒绝未合并成果和脏工作区；取消/失败任务的提交也必须已经进入项目 HEAD 才允许清理。分支始终保留。
-- `task clear`（`bun run clear`，Web 项目概览里的「清空任务看板」）一键删掉**全部已结束任务**及其消息、通知、事件与 `inputs` / `drafts` 审计。有 `queued`/`running`/`waiting`/`awaiting` 任务、或还有 invocation 在收尾时**拒绝执行**，不会隐式取消。它只清数据库：`.lush/worktrees/`、任务分支与 `.lush/sessions/` 原样保留（未合并的成果仍在），返回值会列出这些残留路径。因为目录与分支名里带着 task id，清空后 **id 不从 1 重新开始**，新任务不会撞上保留的旧 worktree。
+- `task cleanup ID [--keep-branch]` 不使用 `--force`：worktree 拒绝未合并成果和脏工作区，取消/失败任务的提交也必须已经进入项目 HEAD 才允许清理。分支额外要求**顶端就是审阅过的那次提交**且它已经是 `target_branch` 的祖先，然后用 `git update-ref -d <ref> <tip>` 做 compare-and-delete——检查之后分支被谁动过就拒绝，`head_commit` 之外的提交一条也不会丢；不满足就把分支留下，并在返回的 `cleanup.reason` 里说明原因。`--keep-branch` 只回收 worktree，把分支单独留成恢复点。
+- `task clear`（`bun run clear`，Web 项目概览里的「清空任务看板」）一键删掉**全部已结束任务**及其消息、通知、事件与 `inputs` / `drafts` 审计，并先按与 `task cleanup` 相同的安全门回收磁盘状态：能回收的连 `.lush/worktrees/<id>-<name>/`、检验对照检出与任务分支一起删，返回值 `reclaimed` 给出数量。有 `queued`/`running`/`waiting`/`awaiting` 任务、或还有 invocation 在收尾时**拒绝执行**，不会隐式取消。回收不掉的任务（未合并成果、审阅后被改过的分支、脏工作区）连同目录与分支一起保留在磁盘上，`retained.tasks` 列出 `{id, branch, workspace, baseline_workspace, reason}`；`.lush/sessions/` 与检验报告不受影响。因为目录与分支名里带着 task id，清空后 **id 不从 1 重新开始**，新任务不会撞上保留的旧 worktree。
 
 ## 常用开发命令
 
@@ -140,8 +140,8 @@ bun run answer 1 '我的选择'
 bun run cancel 3            # 取消这个任务及其活动后代，保留工作区
 bun run retry 3             # 检查失败现场之后明确重试
 bun run merge 3
-bun run cleanup 3
-bun run clear               # 一键清空已结束任务（有活动任务时拒绝）
+bun run cleanup 3           # 回收 worktree 与分支（--keep-branch 只回收 worktree）
+bun run clear               # 一键清空已结束任务并回收可安全回收的 worktree/分支
 bun run wait 3              # 只有当前客户端等待，不影响调度
 bun run web
 bun run daemon-restart

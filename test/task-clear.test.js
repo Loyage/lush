@@ -36,7 +36,7 @@ test('clear refuses while a task is active, and refuses agent credentials', asyn
   } finally { await f.close(); }
 });
 
-test('clear drops rows but keeps worktrees, branches and never recycles task ids', async () => {
+test('clear drops rows but keeps unmerged worktrees, branches and never recycles task ids', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const parent = f.project.submit('build').task;
@@ -52,10 +52,12 @@ test('clear drops rows but keeps worktrees, branches and never recycles task ids
     f.store.update(parent.id, { status: 'completed' });
     f.store.update(worker.id, { status: 'completed' });
 
-    const result = f.project.clear();
+    const result = await f.project.clear();
     expect(result.cleared).toMatchObject({ tasks: 2, inputs: 1, drafts: 1, notices: 1, messages: 1 });
+    expect(result.reclaimed).toEqual({ worktrees: 0, branches: 0 });
     expect(result.next_task_id).toBe(worker.id + 1);
-    expect(result.retained.tasks).toEqual([{ id: worker.id, branch, workspace: cwd, baseline_workspace: null }]);
+    // 未合并的成果回收不掉，所以行虽删了，磁盘上的目录与分支都保留，并给出原因。
+    expect(result.retained.tasks).toEqual([{ id: worker.id, branch, workspace: cwd, baseline_workspace: null, reason: 'unmerged work must be kept' }]);
 
     for (const table of ['tasks','inputs','drafts','notices','messages','events','task_deps']) {
       expect(f.store.get(`SELECT count(*) AS n FROM ${table}`).n).toBe(0);
@@ -72,6 +74,35 @@ test('clear drops rows but keeps worktrees, branches and never recycles task ids
     const next = f.project.submit('after clear').task;
     expect(next.id).toBe(worker.id + 1);
     expect(f.project.submit('again').task.id).toBe(worker.id + 2);
+  } finally { await f.close(); }
+});
+
+test('clear reclaims merged worktrees and branches while keeping unmerged work', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const parent = f.project.submit('build').task;
+    const merged = f.project.spawn(parent.id, 'merged work', 'worker', [], 'merged-work');
+    const pending = f.project.spawn(parent.id, 'pending work', 'worker', [], 'pending-work');
+    for (const task of [merged, pending]) {
+      const cwd = await f.project.workspaces.ensure(task);
+      fs.writeFileSync(path.join(cwd, 'file.txt'), `${task.name}\n`);
+      await git(cwd, 'add', 'file.txt'); await git(cwd, 'commit', '-m', task.name);
+      await f.project.workspaces.finish(f.store.task(task.id));
+      f.store.update(task.id, { status: 'completed' });
+    }
+    await f.project.workspaces.merge(merged.id);
+    f.store.update(parent.id, { status: 'completed' });
+    const mergedCwd = f.store.task(merged.id).workspace, mergedBranch = f.store.task(merged.id).branch;
+    const pendingCwd = f.store.task(pending.id).workspace, pendingBranch = f.store.task(pending.id).branch;
+
+    const result = await f.project.clear();
+    expect(result.reclaimed).toEqual({ worktrees: 1, branches: 1 });
+    expect(result.retained.tasks).toEqual([{ id: pending.id, branch: pendingBranch, workspace: pendingCwd, baseline_workspace: null, reason: 'unmerged work must be kept' }]);
+    expect(fs.existsSync(mergedCwd)).toBe(false);
+    expect(await git(f.root, 'branch', '--list', mergedBranch)).toBe('');
+    expect(fs.existsSync(pendingCwd)).toBe(true);
+    expect(await git(f.root, 'branch', '--list', pendingBranch)).toContain(pendingBranch);
+    expect(f.store.tasks()).toEqual([]);
   } finally { await f.close(); }
 });
 

@@ -427,8 +427,9 @@ export class Project {
    * 用户专属的一键清空：删掉全部已结束任务，连同 inputs / drafts / notices / events。
    * 有活动任务（或刚 abort、invocation 尚未收尾的 agent）时拒绝，不做隐式取消——
    * 删除正在被调用的任务行会让 agent 的收尾路径读到不存在的 task。
-   * 只清数据库：.lush/worktrees/、lush/<ns>/* 分支与 sessions/ 原样保留，
-   * 所以返回值里列出这些仍然占着磁盘、且带着旧 task id 的路径。
+   * 先按与 task cleanup 相同的安全门回收磁盘状态（worktree 目录、对照检出、已进目标分支的分支），
+   * 再清库；回收不掉的任务连同分支与目录一起保留，返回值里列出原因。
+   * 状态检查是同步的（调用方立即拿到拒绝），磁盘回收在返回的 Promise 里串行执行。
    */
   clear() {
     check(this.running.size === 0, 'an agent invocation is still unwinding; clear must wait');
@@ -436,12 +437,24 @@ export class Project {
     const active = this.store.activeTasks();
     check(active.length === 0,
       `#${active.slice(0, 20).map(task => task.id).join(', #')} still active (${active.length}); cancel them or wait until they finish`);
-    const retained = this.store.all('SELECT id, branch, workspace, baseline_workspace FROM tasks WHERE branch IS NOT NULL OR workspace IS NOT NULL OR baseline_workspace IS NOT NULL ORDER BY id');
+    // 分支名、worktree 路径与对照目录都记在即将被删的行里，所以先回收再 purge。
+    return this.reclaimThenPurge(this.store.tasks());
+  }
+  async reclaimThenPurge(tasks) {
+    const outcomes = await this.workspaces.reclaim(tasks);
+    const reason = new Map(outcomes.map(row => [row.id, row.reason]));
+    const retained = this.store.all(`SELECT id, branch, workspace, baseline_workspace FROM tasks
+      WHERE workspace IS NOT NULL OR baseline_workspace IS NOT NULL OR branch IS NOT NULL ORDER BY id`);
     const counts = this.store.purge();
     return {
       cleared: { tasks: counts.tasks, inputs: counts.inputs, drafts: counts.drafts, notices: counts.notices,
         messages: counts.messages, events: counts.events, task_deps: counts.task_deps },
-      retained: { note: 'worktrees, branches, verification baselines and pi sessions are kept on disk; remove them by hand', tasks: bounded(retained, 200000) },
+      reclaimed: {
+        worktrees: outcomes.filter(row => row.worktree === 'removed').length,
+        branches: outcomes.filter(row => row.branch === 'removed').length,
+      },
+      retained: { note: 'unmerged work, unreviewed branches and pi sessions stay on disk; remove them by hand',
+        tasks: bounded(retained.map(row => ({ ...row, reason: reason.get(row.id) ?? null })), 200000) },
       next_task_id: this.store.taskIdHigh() + 1,
     };
   }

@@ -2,6 +2,8 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, repo, git, until } from './helpers.js';
+import { Dispatcher } from '../src/rpc/protocol.js';
+import { createSignal } from '../src/signal.js';
 
 async function setup() {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
@@ -54,10 +56,15 @@ test('worker branch is isolated, committed results stay pending until explicit m
     await f.project.workspaces.merge(f.task.id);
     expect(fs.readFileSync(path.join(f.root,'file.txt'),'utf8')).toBe('changed\n');
     expect(f.store.task(f.task.id).integration).toBe('merged');
-    await f.project.workspaces.cleanup(f.task.id);
+    const branch = f.store.task(f.task.id).branch;
+    const result = await f.project.workspaces.cleanup(f.task.id);
     expect(fs.existsSync(cwd)).toBe(false);
     expect(f.store.task(f.task.id).workspace).toBeNull();
-    expect(await git(f.root,'rev-parse',f.store.task(f.task.id).branch)).toBeTruthy();
+    // 合进目标分支的提交还在历史里，任务自己的 ref 不再是恢复点。
+    expect(result.cleanup).toEqual({ id: f.task.id, worktree: 'removed', branch: 'removed', reason: null });
+    expect(f.store.task(f.task.id).branch).toBeNull();
+    expect(await git(f.root,'branch','--list',branch)).toBe('');
+    expect(await git(f.root,'rev-parse',f.store.task(f.task.id).head_commit)).toBeTruthy();
   } finally { await f.close(); }
 });
 
@@ -139,6 +146,23 @@ test('cleanup refuses unmerged work, including commits on failed tasks', async (
   } finally { await f.close(); }
 });
 
+test('task.cleanup over RPC honors keep_branch and reports what it reclaimed', async () => {
+  const f = await setup();
+  try {
+    await change(f, f.task);
+    await f.project.workspaces.merge(f.task.id);
+    const branch = f.store.task(f.task.id).branch;
+    const rpc = new Dispatcher(f.project, createSignal(), {});
+    const kept = await rpc.dispatch('task.cleanup', { id: f.task.id, keep_branch: true });
+    expect(kept.cleanup).toEqual({ id: f.task.id, worktree: 'removed', branch: 'kept', reason: 'kept by --keep-branch' });
+    expect(await git(f.root,'branch','--list',branch)).toContain(branch);
+    const removed = await rpc.dispatch('task.cleanup', { id: f.task.id });
+    expect(removed.cleanup).toEqual({ id: f.task.id, worktree: 'absent', branch: 'removed', reason: null });
+    expect(await git(f.root,'branch','--list',branch)).toBe('');
+    await expect(rpc.dispatch('task.cleanup', { id: f.task.id, nope: true })).rejects.toThrow('unknown parameter');
+  } finally { await f.close(); }
+});
+
 test('merge refuses a different target branch and an active task', async () => {
   const f = await setup();
   try {
@@ -163,7 +187,58 @@ test('an interrupted merge can only be reconciled by another explicit approval',
   } finally { await f.close(); }
 });
 
-test('cleaned failed worktree can be recreated from its preserved branch', async () => {
+test('cleanup reclaims a merged branch, and --keep-branch keeps it as a recovery point', async () => {
+  const f = await setup();
+  try {
+    const cwd = await change(f, f.task);
+    await f.project.workspaces.merge(f.task.id);
+    const branch = f.store.task(f.task.id).branch;
+    const kept = await f.project.workspaces.cleanup(f.task.id, { keepBranch: true });
+    expect(kept.cleanup).toEqual({ id: f.task.id, worktree: 'removed', branch: 'kept', reason: 'kept by --keep-branch' });
+    expect(await git(f.root,'branch','--list',branch)).toContain(branch);
+    expect(f.store.task(f.task.id).branch).toBe(branch);
+    // 第二次回收：worktree 已经不在，现在要收的就是这条分支。
+    const again = await f.project.workspaces.cleanup(f.task.id);
+    expect(again.cleanup).toEqual({ id: f.task.id, worktree: 'absent', branch: 'removed', reason: null });
+    expect(f.store.task(f.task.id).branch).toBeNull();
+    expect(await git(f.root,'branch','--list',branch)).toBe('');
+    expect(fs.existsSync(cwd)).toBe(false);
+  } finally { await f.close(); }
+});
+
+test('a preserved branch that no longer points at the reviewed commit is never deleted', async () => {
+  const f = await setup();
+  try {
+    await change(f, f.task);
+    await f.project.workspaces.merge(f.task.id);
+    const branch = f.store.task(f.task.id).branch;
+    await f.project.workspaces.cleanup(f.task.id, { keepBranch: true });
+    // 用户在保留的恢复点上继续提交：分支不再等于审阅过的那次提交，就不删。
+    await git(f.root,'update-ref',`refs/heads/${branch}`, await git(f.root,'rev-parse','HEAD'));
+    const result = await f.project.workspaces.cleanup(f.task.id);
+    expect(result.cleanup.worktree).toBe('absent');
+    expect(result.cleanup.branch).toBe('kept');
+    expect(result.cleanup.reason).toContain('is not the reviewed commit');
+    expect(await git(f.root,'branch','--list',branch)).toContain(branch);
+    expect(f.store.task(f.task.id).branch).toBe(branch);
+  } finally { await f.close(); }
+});
+
+test('a downstream code dependency stacks on a cleaned upstream commit, not on a deleted ref', async () => {
+  const f = await setup();
+  try {
+    await change(f, f.task);
+    await f.project.workspaces.merge(f.task.id);
+    await f.project.workspaces.cleanup(f.task.id);
+    expect(f.store.task(f.task.id).branch).toBeNull();
+    const child = f.project.spawn(f.task.parent_id,'continue on top','worker',[{ id: f.task.id, kind: 'code' }],'stacked-on-cleaned');
+    const cwd = await f.project.workspaces.ensure(child);
+    expect(await git(cwd,'rev-parse','HEAD')).toBe(f.store.task(f.task.id).head_commit);
+    expect(fs.readFileSync(path.join(cwd,'file.txt'),'utf8')).toBe('changed\n');
+  } finally { await f.close(); }
+});
+
+test('cleaned failed worktree can be recreated by rebuilding its branch from base', async () => {
   const f = await setup();
   try {
     const cwd = await f.project.workspaces.ensure(f.task);
@@ -171,6 +246,8 @@ test('cleaned failed worktree can be recreated from its preserved branch', async
     f.store.update(f.task.id,{status:'failed'});
     await f.project.workspaces.cleanup(f.task.id);
     expect(fs.existsSync(cwd)).toBe(false);
+    // 没产出过提交：分支就是 base，回收掉不丢任何历史。
+    expect(await git(f.root,'branch','--list',branch)).toBe('');
     f.project.retry(f.task.id);
     expect(await f.project.workspaces.ensure(f.store.task(f.task.id))).toBe(cwd);
     expect(await git(cwd,'symbolic-ref','--short','HEAD')).toBe(branch);

@@ -33,9 +33,10 @@ lush [--project PATH] [--json] <command>
   task wait ID                    仅阻塞此客户端，不占 agent 槽
   task merge ID                   用户明确批准合并到原目标分支
   task verify ID                  为一个已完成的 worker 派只读 verifier：演示 worktree 结果并对照目标分支
-  task cleanup ID                 安全回收 worktree（保留分支）
+  task cleanup ID [--keep-branch] 安全回收 worktree 与任务分支（--keep-branch 只回收 worktree）
   task clear                      删除全部已结束任务及 inputs/drafts/notices/events；有活动任务时拒绝
-                                  worktree、分支与 pi 会话记录保留在磁盘上，task id 不复用
+                                  同时按 cleanup 的安全门回收 worktree/分支，回收不掉的保留在磁盘上并列出原因
+                                  分支名带着旧 task id，所以 id 不复用
   notice list                     待决问题与答复
   notice post '问题' [--task ID] [--body '背景']
   notice answer ID '答复'
@@ -255,7 +256,11 @@ export async function main(argv = process.argv.slice(2)) {
     } else {
       check(['inspect','cancel','retry','merge','cleanup','verify','clear'].includes(verb), 'unknown task command');
       if (verb === 'clear') { exact(args, 0); value = await client.request('task.clear'); }
-      else { exact(args, 1); value = await client.request(`task.${verb}`, { id: id(args[0]) }); }
+      else if (verb === 'cleanup') {
+        const keepBranch = args.includes('--keep-branch');
+        if (keepBranch) args.splice(args.indexOf('--keep-branch'), 1);
+        exact(args, 1); value = await client.request('task.cleanup', { id: id(args[0]), keep_branch: keepBranch });
+      } else { exact(args, 1); value = await client.request(`task.${verb}`, { id: id(args[0]) }); }
     }
   } else if (command === 'notice') {
     const verb = args.shift();

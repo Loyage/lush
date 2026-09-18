@@ -71,7 +71,7 @@ worker 创建时记录项目 HEAD 与目标分支，创建 `.lush/worktrees/<id>
 
 检验不写任何 Git 状态：它用 `git worktree add --detach` 在 `.lush/worktrees/<label>-base` 拉一份目标分支当前的只读对照，在它和被测 worktree 里分别跑同一场景。对照检出是派生状态，检验结算（成功或失败）后立即回收，报告文件保留；重启恢复时也会回收上次崩在中间的对照检出。用户可以用 `task cleanup` 再回收一次。
 
-工作区清理不强制删除；即使 failed/cancelled task 的 integration=none，也检查其 commit 是否已包含在项目 HEAD 中，防止删除未交付成果。分支作为廉价恢复点保留。
+工作区清理不强制删除；即使 failed/cancelled task 的 integration=none，也检查其 commit 是否已包含在项目 HEAD 中，防止删除未交付成果。任务分支也只在能证明它已经是恢复不必要时才删：分支顶端仍等于审阅过的 `head_commit`，且该提交已经是 `target_branch` 的祖先。删除用 `update-ref -d` 的 compare-and-delete，`head_commit` 之外多出来的任何提交都留得住；拿不准就保留（`reason` 说明原因）。`keepBranch` / `--keep-branch` 可以把分支单独留成恢复点。
 
 Lush 无法锁住用户的编辑器或外部 Git 进程；合并期间不要并发修改主工作树。Agent 工具也不是 OS 沙箱，目录/角色约束不能阻止恶意 shell 命令。
 
