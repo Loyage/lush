@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { AgentTools } from '../src/agent/tools.js';
 import { MockAgentProvider } from '../src/agent/mock.js';
 import { ROOT } from '../src/cli/tree/index.js';
-import { formatTaskInbox } from '../src/cli/format/service/tasks.js';
+import { formatTaskInbox, formatTaskTrace } from '../src/cli/format/service/tasks.js';
 import { RPCClient } from '../src/rpc/client.js';
 import { Dispatcher } from '../src/rpc/protocol.js';
 import { RPCServer } from '../src/rpc/server.js';
@@ -240,5 +240,159 @@ describe('task inbox over RPC', () => {
       }
     })();
     expect(err.code).toBe(-32010);
+  });
+
+  test('task.trace travels over the wire', async () => {
+    const parentSid = manager.construct(0, 'generic-service', 'parent').sid;
+    const childSid = manager.construct(parentSid, 'generic-task', 'child').sid;
+    const parentTask = manager.constructTask(null, parentSid, 'parent work', false);
+    const childTask = manager.repository.createTask(childSid, parentTask.id, 'child work', { rootTaskId: parentTask.id });
+    manager.taskMessage(parentTask.id, childTask.id, 'over the wire');
+
+    const trace = await client.request('task.trace', { task_id: parentTask.id });
+    expect(trace).toMatchObject({ task_id: parentTask.id, total: 1, truncated: false });
+    expect(trace.entries[0]).toMatchObject({ kind: 'message', body: 'over the wire', delivered_at: null });
+    await expect(client.request('task.trace', { task_id: parentTask.id, limit: 0 })).rejects.toThrow(/limit/);
+  });
+});
+
+describe('task trace (调用链)', () => {
+  let dir;
+  let db;
+  let manager;
+  let runtime;
+
+  beforeEach(() => {
+    dir = tmpdir('lush-trace-');
+    ({ database: db, manager, runtime } = system(dir));
+    permissiveRoot(manager);
+  });
+
+  afterEach(async () => {
+    await runtime.shutdown();
+    db.close();
+    cleanup(dir);
+  });
+
+  /**
+   * root task → child task → grandchild task, plus a second unrelated root task
+   * in its own service subtree: a trace must never mix the two.
+   */
+  function collaboration() {
+    const parentSid = manager.construct(0, 'generic-service', 'parent').sid;
+    const childSid = manager.construct(parentSid, 'generic-task', 'child').sid;
+    const grandSid = manager.construct(childSid, 'generic-task', 'grand').sid;
+    const otherSid = manager.construct(0, 'generic-service', 'other').sid;
+
+    const root = manager.constructTask(null, parentSid, 'root work', false);
+    const child = manager.constructTask(root.id, childSid, 'child work', false);
+    const grand = manager.constructTask(child.id, grandSid, 'grand work', false);
+
+    const otherRoot = manager.constructTask(null, otherSid, 'other root', false);
+    const otherChildSid = manager.construct(otherSid, 'generic-task', 'other child').sid;
+    const otherChild = manager.constructTask(otherRoot.id, otherChildSid, 'other work', false);
+    manager.taskMessage(otherRoot.id, otherChild.id, '另一棵树');
+    return { root, child, grand, otherRoot, otherChild };
+  }
+
+  test('is the subtree timeline: delegations, both message directions and settlements', () => {
+    const { root, child, grand } = collaboration();
+    manager.taskMessage(root.id, child.id, '把范围收窄');
+    manager.taskMessage(child.id, root.id, '进度：一半');
+    manager.completeTask(grand.id, 'grand done');
+    manager.completeTask(child.id, 'child done');
+
+    const trace = manager.taskTrace(root.id);
+    expect(trace).toMatchObject({ task_id: root.id, total: 6, truncated: false });
+    expect(trace.entries.map((entry) => `${entry.kind} ${entry.from_task_id}->${entry.to_task_id}`)).toEqual([
+      `delegated ${root.id}->${child.id}`,
+      `delegated ${child.id}->${grand.id}`,
+      `message ${root.id}->${child.id}`,
+      `message ${child.id}->${root.id}`,
+      `child_settled ${grand.id}->${child.id}`,
+      `child_settled ${child.id}->${root.id}`,
+    ]);
+    // The delegation carries the goal it was given; the settlement its outcome.
+    expect(trace.entries[0]).toMatchObject({
+      from_service: 'parent', to_service: 'child', goal: 'child work', delivered_at: null,
+    });
+    expect(trace.entries[2]).toMatchObject({ from_service: 'parent', to_service: 'child', body: '把范围收窄' });
+    expect(trace.entries[4]).toMatchObject({ status: 'completed', result: 'grand done' });
+    // The unrelated root task's traffic stays out of this subtree.
+    expect(trace.entries.some((entry) => entry.from_service === 'other' || entry.to_service === 'other')).toBe(false);
+    // A message to the parent is an outbound edge of the subtree, so it is here.
+    expect(trace.entries.some((entry) => entry.to_task_id === root.id)).toBe(true);
+
+    // “Either end in the subtree” holds for delegations too: the child's own
+    // chain opens with the delegation that created it, though that event is
+    // stored on its parent (outside the child's subtree).
+    const childTrace = manager.taskTrace(child.id);
+    expect(childTrace.total).toBe(6);
+    expect(childTrace.entries[0]).toMatchObject({
+      kind: 'delegated', from_task_id: root.id, to_task_id: child.id, goal: 'child work',
+    });
+  });
+
+  test('keeps only the newest steps, and says how many it left out', () => {
+    const { root, child, grand } = collaboration();
+    manager.taskMessage(root.id, child.id, '一');
+    manager.taskMessage(child.id, root.id, '二');
+    manager.completeTask(grand.id, 'done');
+
+    const tail = manager.taskTrace(root.id, 2);
+    expect(tail.total).toBe(5);
+    expect(tail.truncated).toBe(true);
+    expect(tail.entries.map((entry) => entry.kind)).toEqual(['message', 'child_settled']);
+    expect(tail.entries.at(-1)).toMatchObject({ from_task_id: grand.id, to_task_id: child.id, status: 'completed' });
+
+    const all = manager.taskTrace(root.id, 1000);
+    expect(all.entries).toHaveLength(5);
+    expect(all.truncated).toBe(false);
+
+    expect(() => manager.taskTrace(root.id, 0)).toThrow(/limit/);
+    expect(() => manager.taskTrace(root.id, 1001)).toThrow(/limit/);
+    expect(() => manager.taskTrace(9999)).toThrow(/task not found/);
+  });
+
+  test('is derived: deleting a task takes its inbox rows, and the read model follows', () => {
+    const { root, grand } = collaboration();
+    manager.completeTask(grand.id, 'grand done');
+    expect(manager.taskTrace(root.id).entries).toHaveLength(3);
+
+    manager.taskDelete(grand.id);
+    const after = manager.taskTrace(root.id);
+    // The delegation step survives — it is the *parent's* own event — and still
+    // names the child's service (the event carries the sid). The settlement the
+    // deleted task sent is gone with its inbox rows.
+    expect(after.entries.map((entry) => entry.kind)).toEqual(['delegated', 'delegated']);
+    expect(after.entries[1]).toMatchObject({ to_task_id: grand.id, to_service: 'grand', goal: 'grand work' });
+  });
+
+  test('the CLI declares task trace and the chain renders as text', () => {
+    const group = ROOT.children.task;
+    expect(Object.keys(group.children)).toContain('trace');
+    const command = group.children.trace;
+    expect(command.method).toBe('task.trace');
+    expect(command.parse(['1'])).toEqual({ task_id: 1, limit: 200 });
+    const parsed = command.parse(['1']);
+    command.options['--limit'].apply(parsed, '5');
+    expect(parsed).toEqual({ task_id: 1, limit: 5 });
+
+    const { root, child, grand } = collaboration();
+    manager.taskMessage(root.id, child.id, '把范围收窄');
+    manager.completeTask(grand.id, 'grand done');
+
+    const text = formatTaskTrace(manager.taskTrace(root.id));
+    expect(text.split('\n')[0]).toBe(`task #${root.id} · 调用链 4 步`);
+    expect(text).toContain('delegated');
+    expect(text).toContain(`#${root.id} parent[`);
+    expect(text).toContain('→');
+    expect(text).toContain('把范围收窄');
+    expect(text).toContain('grand done');
+
+    const truncated = formatTaskTrace(manager.taskTrace(root.id, 2));
+    expect(truncated.split('\n')[0]).toBe(`task #${root.id} · 调用链 2 步（共 4 步，只显示最近的 2 步）`);
+    expect(formatTaskTrace({ task_id: 9, entries: [], total: 0, truncated: false }))
+      .toContain('还没有与其他 task 的往来');
   });
 });

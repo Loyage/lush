@@ -1,14 +1,16 @@
 /**
  * The inbox verbs as RPC / CLI / runtime callers see them.
  *
- * `send` / `inbox` are the user- and agent-facing surface (`task.message` /
- * `task.inbox`); `takeTaskInput`, `waitForTaskInput` and `resumeTask` are what
- * the runtime uses to hand queued input to one task's agent and to park a task
- * between invocations. The rules live in `core/tasks/messages.js`.
+ * `send` / `inbox` / `trace` are the user- and agent-facing surface
+ * (`task.message` / `task.inbox` / `task.trace`); `takeTaskInput`,
+ * `waitForTaskInput` and `resumeTask` are what the runtime uses to hand queued
+ * input to one task's agent and to park a task between invocations. The rules
+ * live in `core/tasks/messages.js`; the trace's read model in
+ * `core/tasks/trace.js`.
  *
  * Exported as a method group: `index.js` merges it into `ServiceManager`.
  */
-import { inbox, pending, send, take } from '../tasks.js';
+import { inbox, pending, send, take, trace } from '../tasks.js';
 
 export const inboxLayer = {
   /** `task.message`: a direct parent ↔ child message. Queued, never interrupting. */
@@ -19,6 +21,15 @@ export const inboxLayer = {
   /** `task.inbox`: the mailbox of one task, oldest first. */
   taskInbox(taskId, after = 0, limit = 50) {
     return inbox(this, taskId, { after, limit });
+  },
+
+  /**
+   * `task.trace`: the subtree's collaboration timeline, oldest step first —
+   * delegations, messages in either direction, and settlements. Derived from
+   * `task_inbox` + `task_events`, so there is nothing to keep in sync.
+   */
+  taskTrace(taskId, limit = 200) {
+    return trace(this, taskId, limit);
   },
 
   /** Undelivered input, marked delivered: it becomes the next invocation's prompt. */

@@ -73,6 +73,16 @@ created → running ⇄ waiting → completed / failed / cancelled
 - 读模型：`lush task inbox TASK_ID`（/ RPC `task.inbox`）；发：`task_message` 工具 或 `lush task message TASK_ID --body '...'`（RPC `task.message`）。
 - 代价：`waiting` 只由“有活动子 task 或收到输入”触发，一个既无子 task 又无输入的任务会直接完成；它不提供“原地等回信”的阻塞原语（需要回信就保持有未结束的子 task / 依赖用户 notice）。
 
+### 调用链：一次协作排成一条时间线（task.trace）
+
+`task.tree` 看结构（谁挂在谁下面），`task.inbox` 只看入边（我收到了什么）。**调用链**补上第三个视角：一个 task 的整棵子树里，**谁在什么时候对谁做了什么**。
+
+- 一步（entry）只有三种：`delegated`（某 task 在子 service 上开了子 task，带上它给的 goal）、`message`（与直接父 / 子 task 的往来，**两个方向都在同一条链上**）、`child_settled`（某个子 task 结算的报告，带上 status / result）。
+- 范围是选中 task 的**整棵子树**，且“任一端在子树内”的行都算——委派与消息用的是同一条规则：所以它发给父 task 的消息也在链上（只按接收方过滤就会恰好丢掉这条出边），子树根那次“被委派”（事件写在子树外的父 task 上）也在链上。对根 task 来说，这就是“这活是怎么协作做完的”的时间视角。
+- 它是**派生读模型**：没有 trace 表，步骤就是 `task_inbox` 与 `task_events` 已有的行（`task_construct` 是唯一不进收件箱的交互，从父 task 的 `delegated` 事件合并进来）。没有新写入路径，也不会与它们不同步。
+- 两个代价，都是有意为之：**删除是边界**——`task delete` 会把该 task 的事件与两个方向的 inbox 行一起删，所以调用链是运行期观察视图，不是审计日志（父 task 上的 `delegated` 事件会活下来，被删子 task 发出的结算报告则消失）；**读是有界的**——只取最近的 `limit` 步（默认 200，上限 1000），`total` / `truncated` 说明被截掉多少。
+- 入口：`lush task trace TASK_ID [--limit N]`（RPC `task.trace`）；Web UI 的任务页在详情卡下面给出同一个链，每个端点可点击跳转。
+
 ### Notice（task 找人的渠道）
 
 Task 的下游是子 service，但有些事情没有下游——自己处理不了、只有人能决定，或结果必须交给用户。这时 agent 用 `notice` 上报：

@@ -1,12 +1,13 @@
 /**
  * Every DDL statement this project has ever shipped: the current schema plus
- * the two migration scripts that bring an older home up to it.
+ * the migration ladder (`MIGRATION_V2` … `MIGRATION_V8`) that brings an older
+ * home up to it.
  *
  * Keeping them in one file makes the "what does a database look like at
  * version N" question answerable by reading top to bottom — `SCHEMA` is what a
- * fresh home gets, `MIGRATION_V2` / `MIGRATION_V3` are the in-place rebuilds an
- * existing home goes through, and `CALL_TASK_STATUS` is the only interpretive
- * step (how an old call's status maps onto the task status that replaced it).
+ * fresh home gets, each `MIGRATION_Vn` is one in-place step an existing home
+ * goes through, and `CALL_TASK_STATUS` is the only interpretive step (how an
+ * old call's status maps onto the task status that replaced it).
  *
  * The executing side (`connection.js`) only decides *when* to run which.
  */
@@ -144,7 +145,11 @@ CREATE TABLE IF NOT EXISTS task_inbox (
     delivered_at TEXT
 );
 CREATE INDEX IF NOT EXISTS task_inbox_to ON task_inbox(to_task_id, id);
-PRAGMA user_version = 7;
+-- The chain view ('task.trace') reads the *outbound* side of the same table
+-- (who did this task talk to), so it needs the mirror index or every trace
+-- walks the whole table.
+CREATE INDEX IF NOT EXISTS task_inbox_from ON task_inbox(from_task_id, id);
+PRAGMA user_version = 8;
 `;
 
 /**
@@ -457,6 +462,16 @@ CREATE TABLE IF NOT EXISTS task_inbox (
 );
 CREATE INDEX IF NOT EXISTS task_inbox_to ON task_inbox(to_task_id, id);
 PRAGMA user_version = 7;
+`;
+
+/**
+ * v7 → v8: the outbound edge of the task inbox. The chain read model
+ * (`task.trace`) asks "what did this task send", which is `from_task_id` — the
+ * column the v7 table left unindexed. An index only; no row changes.
+ */
+export const MIGRATION_V8 = `
+CREATE INDEX IF NOT EXISTS task_inbox_from ON task_inbox(from_task_id, id);
+PRAGMA user_version = 8;
 `;
 
 /** One historical call → the root task it becomes in v3. */

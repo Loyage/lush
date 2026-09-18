@@ -56,6 +56,20 @@ export const taskMethods = {
     return tasks.taskEvents(this, taskId, limit);
   },
 
+  /** `delegated` events of this subtree, newest first (the trace). */
+  subtreeDelegations(taskIds, limit) {
+    return tasks.subtreeDelegations(this, taskIds, limit);
+  },
+
+  countSubtreeDelegations(taskIds) {
+    return tasks.countSubtreeDelegations(this, taskIds);
+  },
+
+  /** The delegation that created `childTaskId` under `parentTaskId` (or null). */
+  delegationOf(parentTaskId, childTaskId) {
+    return tasks.delegationOf(this, parentTaskId, childTaskId);
+  },
+
   taskCalls(taskId) {
     return tasks.taskCalls(this, taskId);
   },

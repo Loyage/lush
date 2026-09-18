@@ -388,6 +388,11 @@ task-message to body from="":
 inbox task:
   @{{lush}} task inbox {{task}}
 
+# 查看某个 task 子树里的调用链（派活 / 消息 / 结算的时间线）：just trace 1
+[group('task')]
+trace task limit="200":
+  @{{lush}} task trace {{task}} --limit {{limit}}
+
 # 启动（或重启）被动节点：让它重新接受 task
 [group('service')]
 start sid:

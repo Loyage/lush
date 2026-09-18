@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LushError } from '../../core/types.js';
-import { noticeAnswerRequest, noticeDismissRequest, noticeListQuery, taskDeleteRequest, taskListQuery, taskRequest } from '../client.js';
+import { noticeAnswerRequest, noticeDismissRequest, noticeListQuery, taskDeleteRequest, taskListQuery, taskRequest, taskTraceQuery } from '../client.js';
 
 const ASSET_DIR = fileURLToPath(new URL('./assets/', import.meta.url));
 const MAX_BODY_BYTES = 128 * 1024;
@@ -149,6 +149,14 @@ export class WebUIServer {
       const treeMatch = /^\/api\/tasks\/(\d+)\/tree$/.exec(url.pathname);
       if (request.method === 'GET' && treeMatch !== null) {
         return json({ task: await this.ui.taskTree(Number(treeMatch[1])) });
+      }
+
+      // The collaboration timeline of one task's subtree: what it delegated,
+      // what it and its descendants said to each other, what came back.
+      const traceMatch = /^\/api\/tasks\/(\d+)\/trace$/.exec(url.pathname);
+      if (request.method === 'GET' && traceMatch !== null) {
+        const { limit } = taskTraceQuery(url.searchParams);
+        return json({ trace: await this.ui.taskTrace(Number(traceMatch[1]), { limit }) });
       }
 
       const cancelMatch = /^\/api\/tasks\/(\d+)\/cancel$/.exec(url.pathname);

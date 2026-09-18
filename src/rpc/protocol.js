@@ -61,6 +61,7 @@ const TASK_METHODS = [
   ['task.construct', 'taskConstruct', 'task_construct'],
   ['task.message', 'taskMessage', 'task_message'],
   ['task.inbox', 'taskInbox', 'task_inbox'],
+  ['task.trace', 'taskTrace', 'task_trace'],
   ['task.complete', 'completeTask', 'task_complete'],
   ['task.cancel', 'cancelTask', 'task_cancel'],
   ['task.delete', 'taskDelete', 'task_delete'],

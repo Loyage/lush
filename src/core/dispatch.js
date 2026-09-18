@@ -29,6 +29,7 @@ export const PARAMS = {
   task_construct: { required: ['sid', 'goal'], optional: ['parent_task_id'] },
   task_message: { required: ['from_task_id', 'to_task_id', 'body'] },
   task_inbox: { required: ['task_id'], optional: ['after', 'limit'] },
+  task_trace: { required: ['task_id'], optional: ['limit'] },
   task_complete: { required: ['task_id'], optional: ['result'] },
   task_cancel: { required: ['task_id'] },
   task_update_state: { required: ['task_id', 'patch'] },

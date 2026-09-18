@@ -70,6 +70,35 @@ export function recentTaskMessages(repository, taskId, limit = 10) {
     .map(decodeInbox);
 }
 
+/**
+ * Inbox rows touching a *set* of tasks, from either end, newest first.
+ *
+ * The chain read model needs both directions in one row set: a task's message
+ * to its parent belongs to that task's own story just as much as the one it
+ * sent to a child, so filtering on the receiver alone would drop the outbound
+ * edge that leaves the subtree.
+ */
+export function subtreeTaskMessages(repository, taskIds, limit) {
+  if (taskIds.length === 0) return [];
+  const marks = taskIds.map(() => '?').join(',');
+  return repository.db
+    .query(`SELECT * FROM task_inbox
+            WHERE from_task_id IN (${marks}) OR to_task_id IN (${marks})
+            ORDER BY id DESC LIMIT ?`)
+    .all(...taskIds, ...taskIds, limit)
+    .map(decodeInbox);
+}
+
+/** How many inbox rows touch the set, in either direction (the trace's `total`). */
+export function countSubtreeTaskMessages(repository, taskIds) {
+  if (taskIds.length === 0) return 0;
+  const marks = taskIds.map(() => '?').join(',');
+  return repository.db
+    .query(`SELECT COUNT(*) AS n FROM task_inbox
+            WHERE from_task_id IN (${marks}) OR to_task_id IN (${marks})`)
+    .get(...taskIds, ...taskIds).n;
+}
+
 /** A deleted task's mailbox (both directions) is meaningless without it. */
 export function deleteTaskInbox(repository, taskId) {
   return repository.db.run('DELETE FROM task_inbox WHERE to_task_id=? OR from_task_id=?',

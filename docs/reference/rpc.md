@@ -60,8 +60,11 @@ Unix Domain Socket：`$LUSH_HOME/lush.sock`。每行一个 UTF-8 JSON-RPC 2.0 �
 | task.construct | sid, goal, parent_task_id? | 构造并启动一个 task（`parent_task_id` 给定时必须挂在父 task 所在 service 的直接子 service 上；不给定时建的是根 task，CLI 的 `task construct` 会缺省填 `$LUSH_TASK_ID`）；返回 task 快照。不等待，子 task 结算时以收件箱输入唤醒父 task |
 | task.message | from_task_id, to_task_id, body | 给直接父 / 直接子 task 发一条消息（入队，不打断对方）：返回新建的 `task_inbox` 行；非直接父子 / 接收方已终态报 -32010 |
 | task.inbox | task_id, after=0, limit=50 | 该 task 收到的输入（`kind` 为 message / child_settled，`delivered_at` 说明是否已交给 agent），按 id 升序 |
+| task.trace | task_id, limit=200 | 该 task 子树的调用链：`{task_id, entries, total, truncated}`，entries 按时间升序，每步是 `delegated` / `message` / `child_settled`（含 `from_*` / `to_*` 的 task_id、sid、service，及 goal / body / status / result / error / delivered_at）；`limit` 只保留最近的若干步，上限 1000，超范围报 -32602 |
 
 inbox 是“父子持续通话”的存储：`task_message` / `task.message` 只往直接父 / 子 task 投递，消息与“某个子 task 已结算”的报告进同一个队列；**只在接收方两次 agent invocation 之间交给它**，不会打断正在跑的工作，对方处于 `waiting` 时会被立即唤醒。`task.inspect` 里的 `recent_inbox` 是最近 10 条（新的在前）。
+
+`task.trace` 是同一个边集合的**时间线读模型**，也是**派生**的（没有 trace 表）：它把 `delegated` 事件（`task_construct` 从来不入收件箱，而且写在**父** task 上）与 inbox 行合并起来按时间排序，两者用的是同一条“**任一端在子树内**”规则——所以只暴露入边的 `task.inbox` 看不到的**出边**（这个 task 发出的消息、它结算时给父 task 的报告）也在里面，它发给父 task 的消息、以及子树根那次“被委派”（事件在子树外的父 task 上）同样算数。`task.tree` 是结构视角，`task.trace` 是时间视角。代价：`task.delete` 会连同该 task 的事件与两个方向的 inbox 行一起删，所以调用链是运行期观察视图，不是审计日志（父 task 上的 `delegated` 事件会活下来，但被删子 task 发出的结算报告会消失）。
 | task.update_state | task_id, patch | 合并后的 task.state（顶层 merge） |
 | task.history | task_id, after=0, limit=100 | 按 id 升序 messages、next_after（只含该 task 自己的对话） |
 | task.delete | task_id, recursive? | 删除已结束的 task 行与它的事件：`task_id, status, deleted, rows`；有活动 task 报 -32010，有子 task 且未 recursive 报 -32010。call 行与消息保留（task_id 置 NULL） |

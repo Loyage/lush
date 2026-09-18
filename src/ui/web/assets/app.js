@@ -1,5 +1,7 @@
 const TASK_LIMIT = 500;
+const TRACE_LIMIT = 200;
 const ACTIVE_STATUSES = ['created', 'running', 'waiting'];
+const TRACE_KIND_LABEL = { delegated: '派活', message: '消息', child_settled: '结算' };
 
 const elements = {
   connection: document.querySelector('#connection'),
@@ -56,6 +58,10 @@ const elements = {
   detailMeta: document.querySelector('#detail-meta'),
   detailResult: document.querySelector('#detail-result'),
   taskTree: document.querySelector('#task-tree'),
+  traceSection: document.querySelector('#trace-section'),
+  traceCount: document.querySelector('#trace-count'),
+  traceNote: document.querySelector('#trace-note'),
+  traceList: document.querySelector('#trace-list'),
   serviceHint: document.querySelector('#service-hint'),
   serviceView: document.querySelector('#service-view'),
   serviceDescription: document.querySelector('#service-description'),
@@ -73,6 +79,8 @@ const state = {
   tasks: [],
   selectedTaskId: null,
   taskTree: null,
+  trace: null,
+  traceTaskId: null,
   notices: [],
   selectedNoticeId: null,
   notice: null,
@@ -337,12 +345,147 @@ function renderTaskTree() {
   elements.taskTree.append(taskNode(task, 0));
 }
 
+// ── Task trace (调用链) ────────────────────────────────────────────────────
+
+/** One endpoint of a step: the id is a button, because every task is addressable. */
+function traceEndpoint(taskId, service, sid) {
+  const wrap = document.createElement('span');
+  wrap.className = 'trace-endpoint';
+  if (taskId === null || taskId === undefined) {
+    wrap.textContent = 'Lush';
+    return wrap;
+  }
+  const link = document.createElement('button');
+  link.type = 'button';
+  link.className = `trace-link${taskId === state.selectedTaskId ? ' current' : ''}`;
+  link.textContent = `#${taskId}`;
+  link.title = `选中 task #${taskId}`;
+  link.addEventListener('click', () => selectTask(taskId));
+  const where = document.createElement('span');
+  where.className = 'trace-where';
+  where.textContent = service === null || service === undefined ? `sid ${sid}` : `${service}[${sid}]`;
+  wrap.append(link, where);
+  return wrap;
+}
+
+/** What a step is about: a delegated goal, a message body, or an outcome. */
+function traceDetail(entry) {
+  const wrap = document.createElement('span');
+  wrap.className = 'trace-detail';
+  if (entry.kind === 'delegated') {
+    wrap.textContent = entry.goal ?? '';
+  } else if (entry.kind === 'message') {
+    wrap.textContent = entry.body ?? '';
+  } else if (entry.status === 'completed') {
+    wrap.textContent = entry.result === null || entry.result === undefined
+      ? 'completed'
+      : `completed · ${resultText(entry.result)}`;
+  } else {
+    wrap.classList.add('error');
+    wrap.textContent = `${entry.status}${entry.error === null || entry.error === undefined ? '' : ` · ${entry.error}`}`;
+  }
+  if (entry.delivered_at === null && entry.kind !== 'delegated') {
+    const unread = document.createElement('span');
+    unread.className = 'trace-unread';
+    unread.textContent = '未读';
+    wrap.append(' ', unread);
+  }
+  return wrap;
+}
+
+function traceRow(entry) {
+  const row = document.createElement('div');
+  row.className = 'trace-row';
+  row.setAttribute('role', 'listitem');
+
+  const time = document.createElement('span');
+  time.className = 'trace-time';
+  const at = new Date(entry.at);
+  time.textContent = Number.isNaN(at.getTime())
+    ? String(entry.at)
+    : at.toLocaleTimeString('zh-CN', { hour12: false });
+  time.title = stamp(entry.at);
+
+  const kind = document.createElement('span');
+  kind.className = `trace-kind ${entry.kind}`;
+  kind.textContent = TRACE_KIND_LABEL[entry.kind] ?? entry.kind;
+
+  const edge = document.createElement('span');
+  edge.className = 'trace-edge';
+  edge.append(traceEndpoint(entry.from_task_id, entry.from_service, entry.from_sid));
+  const arrow = document.createElement('span');
+  arrow.className = 'trace-arrow';
+  arrow.textContent = '→';
+  edge.append(arrow, traceEndpoint(entry.to_task_id, entry.to_service, entry.to_sid));
+
+  row.append(time, kind, edge, traceDetail(entry));
+  return row;
+}
+
+/**
+ * The whole payload is the signature: the page polls every 2.5s, and a step's
+ * `未读` flag flips without the step count changing (same idea as the service
+ * view, which also compares the fetched object before re-rendering).
+ */
+function renderTaskTrace() {
+  const trace = state.trace;
+  elements.traceCount.textContent = String(trace?.entries.length ?? 0);
+  elements.traceNote.hidden = trace === null || !trace.truncated;
+  elements.traceNote.textContent = trace !== null && trace.truncated
+    ? `共 ${trace.total} 步，只显示最近的 ${trace.entries.length} 步。`
+    : '';
+  elements.traceList.replaceChildren();
+  if (trace === null) return;
+  if (trace.entries.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'empty trace-empty';
+    empty.textContent = '这个 task 子树还没有与其他 task 的往来：派活 / 消息 / 结算都会出现在这里。';
+    elements.traceList.append(empty);
+    return;
+  }
+  for (const entry of trace.entries) elements.traceList.append(traceRow(entry));
+}
+
+async function loadTaskTrace() {
+  const taskId = state.selectedTaskId;
+  if (taskId === null) {
+    state.trace = null;
+    state.traceTaskId = null;
+    renderTaskTrace();
+    return;
+  }
+  let payload;
+  try {
+    payload = await api(`/api/tasks/${taskId}/trace?limit=${TRACE_LIMIT}`);
+  } catch (err) {
+    // Same recovery as the tree: a task deleted elsewhere drops the selection.
+    if (err.status === 404) {
+      state.selectedTaskId = null;
+      state.taskTree = null;
+      state.trace = null;
+      state.traceTaskId = null;
+      renderTaskDetail();
+      renderTaskTrace();
+      renderTaskList();
+      return;
+    }
+    throw err;
+  }
+  if (state.selectedTaskId !== taskId) return;
+  if (state.traceTaskId !== taskId || JSON.stringify(state.trace) !== JSON.stringify(payload.trace)) {
+    state.trace = payload.trace;
+    state.traceTaskId = taskId;
+    renderTaskTrace();
+  }
+}
+
 function renderTaskDetail() {
   const task = state.taskTree;
   const has = task !== null;
   elements.taskHint.hidden = has;
   elements.taskDetail.hidden = !has;
   elements.taskTree.hidden = !has;
+  elements.traceSection.hidden = !has;
   elements.taskParent.hidden = !has || task.parent_task_id === null;
   elements.taskCancel.disabled = !has || !ACTIVE_STATUSES.includes(task.status);
   elements.taskDelete.disabled = !has || ACTIVE_STATUSES.includes(task.status);
@@ -695,7 +838,14 @@ async function loadTasks() {
 
 async function loadTaskTree() {
   const taskId = state.selectedTaskId;
-  if (taskId === null) return;
+  if (taskId === null) {
+    state.taskTree = null;
+    state.trace = null;
+    state.traceTaskId = null;
+    renderTaskDetail();
+    renderTaskTrace();
+    return;
+  }
   let payload;
   try {
     payload = await api(`/api/tasks/${taskId}/tree`);
@@ -704,7 +854,10 @@ async function loadTaskTree() {
     if (err.status === 404) {
       state.selectedTaskId = null;
       state.taskTree = null;
+      state.trace = null;
+      state.traceTaskId = null;
       renderTaskDetail();
+      renderTaskTrace();
       renderTaskList();
       return;
     }
@@ -714,6 +867,7 @@ async function loadTaskTree() {
   state.taskTree = payload.task;
   renderTaskDetail();
   renderTaskTree();
+  await loadTaskTrace();
 }
 
 async function selectTask(taskId) {

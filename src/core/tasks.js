@@ -17,6 +17,7 @@
  *   tasks/rules.js     which work may be opened, and every status transition
  *   tasks/messages.js  the inbox: parent ↔ child messages and child reports
  *   tasks/read.js      the wire shape, list / tree / inspect, state and delete
+ *   tasks/trace.js     the collaboration timeline derived from the two above
  *
  * Everything operates on the `ServiceManager` passed in; the class in
  * `service_manager.js` is the only caller.
@@ -24,3 +25,4 @@
 export * from './tasks/rules.js';
 export * from './tasks/messages.js';
 export * from './tasks/read.js';
+export * from './tasks/trace.js';

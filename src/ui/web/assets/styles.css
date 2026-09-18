@@ -467,6 +467,86 @@ textarea:disabled { opacity: 0.5; }
   white-space: nowrap;
 }
 
+/* ── Task trace (调用链) ─────────────────────────────────────────────────── */
+
+.task-section {
+  margin: 16px 24px 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #101412;
+}
+.task-section > summary {
+  padding: 11px 15px;
+  color: #cfd8d2;
+  font-size: 0.8rem;
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+}
+.task-section > summary::-webkit-details-marker { display: none; }
+.task-section > summary::before { content: "▸ "; color: var(--muted); }
+.task-section[open] > summary::before { content: "▾ "; }
+.task-section > .note { padding: 2px 15px 10px; }
+
+.task-trace { padding: 0 15px 12px; }
+.trace-empty { padding: 10px 0 6px; }
+.trace-row {
+  display: grid;
+  grid-template-columns: 64px 52px minmax(0, 1fr);
+  gap: 2px 10px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-top: 1px solid rgba(41, 49, 45, 0.55);
+}
+.trace-time {
+  grid-column: 1;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+}
+.trace-kind {
+  grid-column: 2;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  line-height: 1.6;
+  text-align: center;
+}
+.trace-kind.delegated { color: var(--accent); background: rgba(119, 221, 140, 0.12); }
+.trace-kind.message { color: #9cc7ea; background: rgba(111, 168, 220, 0.14); }
+.trace-kind.child_settled { color: var(--warn); background: rgba(224, 179, 93, 0.13); }
+.trace-edge { grid-column: 3; display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; }
+.trace-endpoint { display: inline-flex; align-items: baseline; gap: 4px; }
+.trace-link {
+  padding: 0;
+  border: 0;
+  color: #cfd8d2;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+  background: none;
+  cursor: pointer;
+}
+.trace-link:hover { color: var(--accent); text-decoration: underline; }
+.trace-link.current { color: var(--accent); }
+.trace-where { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.68rem; }
+.trace-arrow { color: var(--muted); font-size: 0.72rem; }
+.trace-detail {
+  grid-column: 3;
+  overflow: hidden;
+  color: #b9c2bd;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.trace-detail.error { color: var(--danger); }
+.trace-unread {
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--warn);
+  background: rgba(224, 179, 93, 0.14);
+  font-size: 0.66rem;
+}
+
 .badge, .status {
   align-self: center;
   padding: 3px 7px;

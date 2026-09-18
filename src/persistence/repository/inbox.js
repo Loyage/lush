@@ -6,8 +6,9 @@
  * and when input is handed to the agent.
  */
 import {
-  countUndeliveredTaskMessages, createTaskMessage, deleteTaskInbox, deliverTaskMessages,
-  listTaskMessages, recentTaskMessages, undeliveredTaskMessages,
+  countSubtreeTaskMessages, countUndeliveredTaskMessages, createTaskMessage, deleteTaskInbox,
+  deliverTaskMessages, listTaskMessages, recentTaskMessages, subtreeTaskMessages,
+  undeliveredTaskMessages,
 } from '../repository_task_inbox.js';
 
 export const inboxMethods = {
@@ -33,6 +34,15 @@ export const inboxMethods = {
 
   recentTaskMessages(taskId, limit = 10) {
     return recentTaskMessages(this, taskId, limit);
+  },
+
+  /** Inbox rows touching this subtree, either end, newest first (the trace). */
+  subtreeTaskMessages(taskIds, limit) {
+    return subtreeTaskMessages(this, taskIds, limit);
+  },
+
+  countSubtreeTaskMessages(taskIds) {
+    return countSubtreeTaskMessages(this, taskIds);
   },
 
   deleteTaskInbox(taskId) {

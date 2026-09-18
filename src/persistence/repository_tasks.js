@@ -160,6 +160,45 @@ export function taskEvents(repository, taskId, limit = 20) {
     .map((row) => ({ ...row, data: JSON.parse(row.data) }));
 }
 
+/**
+ * The `delegated` events of a set of tasks, newest first. A delegation is the
+ * one interaction that never enters an inbox — it is written on the parent when
+ * `task_construct` opens the child — so the chain read model merges it in from
+ * here.
+ */
+export function subtreeDelegations(repository, taskIds, limit) {
+  if (taskIds.length === 0) return [];
+  const marks = taskIds.map(() => '?').join(',');
+  return repository.db
+    .query(`SELECT * FROM task_events WHERE kind='delegated' AND task_id IN (${marks})
+            ORDER BY id DESC LIMIT ?`)
+    .all(...taskIds, limit)
+    .map((row) => ({ ...row, data: JSON.parse(row.data) }));
+}
+
+/** How many delegations the set made (the trace's `total`). */
+export function countSubtreeDelegations(repository, taskIds) {
+  if (taskIds.length === 0) return 0;
+  const marks = taskIds.map(() => '?').join(',');
+  return repository.db
+    .query(`SELECT COUNT(*) AS n FROM task_events WHERE kind='delegated' AND task_id IN (${marks})`)
+    .get(...taskIds).n;
+}
+
+/**
+ * The one `delegated` event that created `childTaskId` under `parentTaskId`, if
+ * it is still there. A delegation is written on the parent, so this is how a
+ * subtree reads the edge that *entered* it: only the subtree's root can have
+ * its creator outside, so one lookup is all a trace needs. The `task_id`
+ * predicate is indexed; `json_extract` then filters that one parent's rows.
+ */
+export function delegationOf(repository, parentTaskId, childTaskId) {
+  const row = repository.db
+    .query("SELECT * FROM task_events WHERE kind='delegated' AND task_id=? AND json_extract(data,'$.task_id')=?")
+    .get(parentTaskId, childTaskId);
+  return row === null || row === undefined ? null : { ...row, data: JSON.parse(row.data) };
+}
+
 /** The calls of one task, oldest first. */
 export function taskCalls(repository, taskId) {
   return repository.db.query('SELECT * FROM agent_calls WHERE task_id=? ORDER BY id').all(taskId);

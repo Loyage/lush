@@ -76,6 +76,16 @@ export class UIClient {
     return this.execute('task.tree', { task_id: taskId });
   }
 
+  /**
+   * The subtree's collaboration timeline (`task.trace`): delegations, messages
+   * in either direction, and settlements, oldest step first. `limit` bounds the
+   * returned tail; the payload's `total` / `truncated` say what was left out.
+   */
+  taskTrace(taskId, { limit = 200 } = {}) {
+    validSid(taskId);
+    return this.execute('task.trace', { task_id: taskId, limit });
+  }
+
   /** Cancel a task and its subtree; idempotent for an already-settled task. */
   cancelTask(taskId) {
     validSid(taskId);
@@ -195,6 +205,21 @@ export function taskListQuery(search) {
   }
   if ((raw.get('limit') ?? '') !== '') query.limit = nonNegativeInt(raw.get('limit'), 'limit');
   return query;
+}
+
+/**
+ * Strictly decode the Web UI trace query (`?limit=`). As with the task list,
+ * only the wire shape is enforced here; the range check stays in Core.
+ */
+export function taskTraceQuery(search) {
+  const raw = new Map();
+  for (const [key, value] of search) {
+    if (key !== 'limit') throw new LushError(`unknown query parameter '${key}'`, -32602);
+    if (raw.has(key)) throw new LushError(`duplicate query parameter '${key}'`, -32602);
+    raw.set(key, value);
+  }
+  const value = raw.get('limit');
+  return { limit: value === undefined || value === '' ? 200 : nonNegativeInt(value, 'limit') };
 }
 
 /** Strictly decode the Web UI delete-task payload (`{ recursive?: boolean }`). */

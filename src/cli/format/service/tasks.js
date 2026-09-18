@@ -23,6 +23,45 @@ export function formatTaskInbox(rows) {
   }).join('\n');
 }
 
+/** How one endpoint of a trace step is named: `#2 dev-task[3]`, or `Lush`. */
+function traceEndpoint(taskId, service, sid) {
+  if (taskId === null || taskId === undefined) return 'Lush';
+  return service === null || service === undefined ? `#${taskId} sid ${sid}` : `#${taskId} ${service}[${sid}]`;
+}
+
+/** What a trace step is *about*: a delegated goal, a message body, an outcome. */
+function traceDetail(entry) {
+  const unread = entry.delivered_at === null && entry.kind !== 'delegated' ? '  (未读)' : '';
+  if (entry.kind === 'delegated') return `"${shortValue(entry.goal ?? '', 60)}"`;
+  if (entry.kind === 'message') return `${shortValue(entry.body ?? '', 80)}${unread}`;
+  const outcome = entry.status === 'completed'
+    ? (entry.result === null || entry.result === undefined
+      ? 'completed'
+      : `completed · ${shortValue(entry.result, 60)}`)
+    : `${entry.status}: ${shortValue(entry.error ?? '', 60)}`;
+  return `${outcome}${unread}`;
+}
+
+/**
+ * `lush task trace` text output: the subtree's collaboration timeline, oldest
+ * step first, one line per step. This is the time-ordered companion of
+ * `formatTaskTree` — the tree gives the shape, this gives who said what when.
+ */
+export function formatTaskTrace(result) {
+  const head = `task #${result.task_id} · 调用链 ${result.entries.length} 步`
+    + (result.truncated ? `（共 ${result.total} 步，只显示最近的 ${result.entries.length} 步）` : '');
+  if (result.entries.length === 0) {
+    return `${head}\n(这个 task 子树还没有与其他 task 的往来：派活 / 消息 / 结算都会出现在这里)`;
+  }
+  const lines = result.entries.map((entry) => {
+    const edge = `${traceEndpoint(entry.from_task_id, entry.from_service, entry.from_sid)} → `
+      + traceEndpoint(entry.to_task_id, entry.to_service, entry.to_sid);
+    const detail = traceDetail(entry);
+    return `${stamp(entry.at)}  ${entry.kind.padEnd(13)}  ${edge}  ${detail}`.trimEnd();
+  });
+  return [head, ...lines].join('\n');
+}
+
 /** `lush task message`: the message that was just queued. */
 export function formatTaskMessage(row) {
   const from = row.from_task_id === null ? 'Lush' : `task#${row.from_task_id}`;

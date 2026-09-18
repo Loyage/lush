@@ -35,7 +35,7 @@ export const taskGroup = {
   cover: [
     'task 是唯一会调用 agent 的东西：一个 task 有 goal、status、自己的草稿 state 和 result；它结束后 result 就是交给派活方的答案。',
     'task 只能挂在 service 上；一个 service 同时最多一个活动 task（下游正忙时派活会被拒绝）。子 task 只能挂在自己的直接子 service 上，所以 task 树总是沿着 service 树向下生长。',
-    '查看：list、tree（整棵协作树）、inspect、result、history（这个 task 自己的对话）、session（它 agent 的磁盘会话）、agents（此刻在跑的 agent）。',
+    '查看：list、tree（整棵协作树）、trace（调用链：派活 / 消息 / 结算的时间线）、inspect、result、history（这个 task 自己的对话）、session（它 agent 的磁盘会话）、agents（此刻在跑的 agent）。',
     '等待与取消：wait 阻塞到某个 task 及其子树结束；cancel 取消一棵子树（连它的后代一起）。',
     '结束：complete 由 task 自己的 agent（或人）在目标达成时调用，result 存进 task；有未结束的子 task 时会被拒绝。',
     '任务创建后不会等待：先派子 task（或直接干），结束本轮后 task 会自动 park；子 task 结算或收到消息时以一条 user 消息唤醒 agent。',
@@ -223,6 +223,22 @@ export const taskGroup = {
         '--limit': { arg: 'N', desc: '最多返回多少条（默认 50）', apply: (r, v) => { r.limit = intArg(v, '--limit'); } },
       },
       parse: (args) => ({ task_id: intArg(args.shift(), 'task_id'), after: 0, limit: 50 }),
+    },
+    trace: {
+      command: 'task_trace',
+      method: 'task.trace',
+      summary: '按时间列出该 task 子树里的调用链（派活 / 消息 / 结算）',
+      cover: [
+        '把「这个 task 在完成过程中跟谁说了什么、派了什么活、拿到了什么回报」排成一条时间线：delegated（在子 service 上开的子 task）、message（与直接父 / 子 task 的往来，两个方向都在同一条链上）、child_settled（子 task 结算的报告）。',
+        '范围是选中 task 的整棵子树，且「任一端在子树内」的行都算——委派与消息同一条规则：所以它发给父 task 的消息、以及子树根那次「被委派」（事件写在子树外的父 task 上）都在链上。根 task 的调用链就是「这活是怎么协作做完的」的时间视角；`lush task tree` 是同一件事的结构视角，`lush task inbox` 只看入边。',
+        '它是派生读模型（task_inbox 加上父 task 的 delegated 事件），没有新表；--limit 只保留最近的若干步，输出会说明总步数与截断。删掉的 task 的事件与收件箱行会一起消失，所以它是运行期观察视图，不是审计日志。',
+      ],
+      usage: ['lush task trace TASK_ID [--limit N]'],
+      positionals: [['TASK_ID', '子树的根 task id']],
+      options: {
+        '--limit': { arg: 'N', desc: '最多返回最近的多少步（默认 200，上限 1000）', apply: (r, v) => { r.limit = intArg(v, '--limit'); } },
+      },
+      parse: (args) => ({ task_id: intArg(args.shift(), 'task_id'), limit: 200 }),
     },
     'update-state': {
       command: 'task_update_state',

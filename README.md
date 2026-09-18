@@ -23,6 +23,7 @@ lush service tree                  # 被动节点：创建本身不会跑任何 
 lush call 2 '请介绍一下你当前的身份和任务'   # 在 SID 2 上开一个根 task 并等它结束
 lush task list                     # 这件事的 task
 lush task tree 1                   # 它派出去的子 task（协作树）
+lush task trace 1                  # 调用链：派活 / 消息 / 结算的时间线
 lush task history 1                # 这个 task 自己的对话
 lush call 1 '把这活派给下游'          # agent 会在自己的子 service 上开子 task
 lush task tree 2

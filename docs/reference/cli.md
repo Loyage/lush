@@ -24,6 +24,7 @@ lush --json help task          # 机器可读的命令树（summary/cover/usage/
 | `lush call SID '<目标>' [--detach] [--interactive] [--dry-run]`（RPC `call` / `call.describe`） | 在 SID 上开一个根 task 并阻塞到它（及其整棵子树）结束；`--detach` 立刻返回 task 快照，`--interactive` 把它的 agent 交给你的终端 |
 | `lush task list [--sid P] [--status S] [--roots\|--children] [--limit N]`（RPC `task.list`） | task 列表（ID / SID / 父 task / status / goal / result） |
 | `lush task tree TASK_ID`（RPC `task.tree`） | 整棵协作树：每个节点一行 `#id service[sid] status · goal → result` |
+| `lush task trace TASK_ID [--limit N]`（RPC `task.trace`） | 调用链：该 task 子树里「派活 / 消息 / 结算」按时间排成的一行一步（双向消息都在），只保留最近的 N 步（默认 200） |
 | `lush task inspect TASK_ID`（RPC `task.inspect`） | task + 所在 service + 父 task + 直接子 task + 最近调用与事件 |
 | `lush task result TASK_ID`（RPC `task.result`） | 结论（未结束时 `finished: false`） |
 | `lush task wait TASK_ID`（RPC `task.wait`） | 阻塞到该 task 进入终态 |

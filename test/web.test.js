@@ -6,7 +6,7 @@ import { RPCClient } from '../src/rpc/client.js';
 import { Dispatcher } from '../src/rpc/protocol.js';
 import { RPCServer } from '../src/rpc/server.js';
 import { createSignal } from '../src/signal.js';
-import { UIClient, taskDeleteRequest, taskListQuery, taskRequest } from '../src/ui/client.js';
+import { UIClient, taskDeleteRequest, taskListQuery, taskRequest, taskTraceQuery } from '../src/ui/client.js';
 import { WebUIServer } from '../src/ui/web.js';
 import { cleanup, deferred, system, tmpdir } from './helpers.js';
 
@@ -57,6 +57,7 @@ describe('shared UI application client', () => {
     await ui.taskSession(3);
     await ui.taskList({ sid: 1, status: 'running', roots: 'roots', limit: 5 });
     await ui.taskTree(3);
+    await ui.taskTrace(3, { limit: 40 });
     await ui.cancelTask(3);
     await ui.deleteTask(3, true);
     await ui.openInteractiveTask(7, 'pair');
@@ -74,6 +75,7 @@ describe('shared UI application client', () => {
       ['task.session', { task_id: 3 }],
       ['task.list', { sid: 1, status: 'running', roots: 'roots', limit: 5 }],
       ['task.tree', { task_id: 3 }],
+      ['task.trace', { task_id: 3, limit: 40 }],
       ['task.cancel', { task_id: 3 }],
       ['task.delete', { task_id: 3, recursive: true }],
       ['call', { sid: 7, goal: 'pair', interactive: true }],
@@ -232,6 +234,10 @@ describe('web ui', () => {
     expect(() => taskListQuery(new URLSearchParams('limit=1&limit=2'))).toThrow(/duplicate/);
     expect(() => taskListQuery(new URLSearchParams('nope=1'))).toThrow(/unknown query parameter/);
     expect(() => taskDeleteRequest({ recursive: 'yes' })).toThrow(/boolean/);
+    expect(() => taskTraceQuery(new URLSearchParams('limit=1&limit=2'))).toThrow(/duplicate/);
+    expect(() => taskTraceQuery(new URLSearchParams('nope=1'))).toThrow(/unknown query parameter/);
+    expect(taskTraceQuery(new URLSearchParams(''))).toEqual({ limit: 200 });
+    expect(taskTraceQuery(new URLSearchParams('limit=7'))).toEqual({ limit: 7 });
     expect(taskListQuery(new URLSearchParams('sid=2&status=running&limit=9')))
       .toEqual({ sid: 2, status: 'running', roots: null, limit: 9 });
     expect(taskListQuery(new URLSearchParams(''))).toEqual({ sid: null, status: null, roots: null, limit: 200 });
@@ -278,6 +284,26 @@ describe('web ui', () => {
         })],
       }),
     });
+
+    // The collaboration timeline of the same subtree: the delegation it made.
+    const trace = await request(`/api/tasks/${root.id}/trace?limit=50`);
+    expect(trace.status).toBe(200);
+    expect(await trace.json()).toEqual({
+      trace: expect.objectContaining({
+        task_id: root.id,
+        total: 1,
+        truncated: false,
+        entries: [expect.objectContaining({
+          kind: 'delegated',
+          from_task_id: root.id,
+          to_task_id: child.id,
+          to_service: 'worker',
+          goal: 'child goal',
+        })],
+      }),
+    });
+    expect((await request(`/api/tasks/${root.id}/trace?nope=1`)).status).toBe(400);
+    expect((await request('/api/tasks/9999/trace')).status).toBe(404);
 
     gate.resolve();
   });

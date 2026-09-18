@@ -12,7 +12,7 @@ import { formatNotice, formatNoticeList } from './notice.js';
 import {
   formatAgent, formatAgentKill, formatAgents, formatCall, formatDryRun, formatHistory, formatInspect, formatLifecycle,
   formatList, formatOrphans, formatRemoval, formatSession, formatTaskInbox, formatTaskInspect, formatTaskList,
-  formatTaskMessage, formatTaskRemoval, formatTaskResult, formatTaskTree, formatView,
+  formatTaskMessage, formatTaskRemoval, formatTaskResult, formatTaskTrace, formatTaskTree, formatView,
 } from './service.js';
 
 export * from './primitives.js';
@@ -54,6 +54,7 @@ export function format(args, result) {
   if (args.command === 'task_update_state') return objectLines(result).join('\n');
   if (args.command === 'task_message') return formatTaskMessage(result);
   if (args.command === 'task_inbox') return formatTaskInbox(result);
+  if (args.command === 'task_trace') return formatTaskTrace(result);
   if (args.command === 'task_history') return formatHistory(result);
   if (args.command === 'task_session' || args.command === 'task_attach') return formatSession(result);
   if (args.command === 'task_agents_list') return formatAgents(result);
