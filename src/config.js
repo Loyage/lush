@@ -50,7 +50,7 @@ export class Config {
     /**
      * The provider the *environment* selects (`LUSH_PROVIDER`, default `pi`).
      * This is the fallback tier only: `lush agent` profiles can select a
-     * different backend per process, and `src/agent/profiles.js` adds the
+     * different backend per service, and `src/agent/profiles.js` adds the
      * built-in `default` profile (pure pi) as the last tier after this one.
      */
     this.provider = provider;
@@ -62,7 +62,7 @@ export class Config {
      * forever is failed instead of looping.
      */
     this.taskCalls = taskCalls;
-    // PID 0's supervision policy (camelCase), normalized once so the daemon can
+    // SID 0's supervision policy (camelCase), normalized once so the daemon can
     // trust `limit` / `ttlSeconds` / `sweepSeconds` without re-validating.
     this.orphanPolicy = normalizeOrphanPolicy(orphanPolicy);
   }

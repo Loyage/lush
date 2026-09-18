@@ -5,7 +5,7 @@
  * Nothing here is exported through `core/tasks.js` — the layer's public surface
  * is the rules (`rules.js`) and the read models (`read.js`).
  */
-import { validPid } from '../types.js';
+import { validSid } from '../types.js';
 import { ACTIVE_TASK_STATUS } from '../lifecycle.js';
 
 /** The task's active child tasks, oldest first. */
@@ -16,7 +16,7 @@ export function activeChildren(manager, taskId) {
 
 /** Decode and validate one task id, or throw the not-found error. */
 export function requireTask(manager, taskId) {
-  validPid(taskId);
+  validSid(taskId);
   return manager.repository.getTask(taskId);
 }
 

@@ -12,10 +12,10 @@ import {
   formatAgent, formatAgentKill, formatAgents, formatCall, formatDryRun, formatHistory, formatInspect, formatLifecycle,
   formatList, formatOrphans, formatRemoval, formatSession, formatTaskInspect, formatTaskList, formatTaskRemoval,
   formatTaskResult, formatTaskTree, formatView,
-} from './process.js';
+} from './service.js';
 
 export * from './primitives.js';
-export * from './process.js';
+export * from './service.js';
 export { formatAgentCommand } from './agent.js';
 export { formatDaemon } from './daemon.js';
 
@@ -38,7 +38,7 @@ export function format(args, result) {
   // all report identity in `cli`, so they share the aligned line format.
   if (args.command === 'daemon' || args.command === 'status') return formatDaemon(result);
   if (args.command === 'call') return result.dry_run ? formatDryRun(result) : formatCall(result);
-  if (args.command === 'spawn') return `PID ${result.pid}`;
+  if (args.command === 'spawn') return `SID ${result.sid}`;
   if (args.command === 'tree') return treeLines(result, { agents: args.agents !== false }).join('\n');
   if (args.command === 'children' || args.command === 'list') return formatList(result);
   if (args.command === 'orphans') return formatOrphans(result);

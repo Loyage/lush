@@ -29,7 +29,7 @@ export const AGENT_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
 /** Providers a profile may name; `pi` is the only external one. */
 export const AGENT_PROVIDERS = ['pi', 'openai', 'mock'];
 
-/** The profile used when a process does not select one explicitly. */
+/** The profile used when a service does not select one explicitly. */
 export const DEFAULT_AGENT_NAME = 'default';
 
 /**

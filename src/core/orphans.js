@@ -1,12 +1,12 @@
 /**
- * PID 0 orphan supervision.
+ * SID 0 orphan supervision.
  *
- * An orphan is a process PID 0 adopted when its parent entered a terminal
- * state: `parent_pid = 0`, `pid > 0` and a non-zero `original_parent_pid`.
- * Processes PID 0 created itself are not orphans and are never supervised.
+ * An orphan is a service SID 0 adopted when its parent entered a terminal
+ * state: `parent_sid = 0`, `sid > 0` and a non-zero `original_parent_sid`.
+ * Services SID 0 created itself are not orphans and are never supervised.
  *
  * This module is pure policy plus read model: it decides *which* orphan is
- * due, and every state change goes through `ProcessManager.orphanEvict`
+ * due, and every state change goes through `ServiceManager.orphanEvict`
  * (freezing, never deleting — metadata, Context, messages, calls and events
  * all survive; only `delete` / `purge` remove rows).
  */
@@ -63,7 +63,7 @@ function stamp(value) {
 }
 
 /**
- * The orphan pool of PID 0: a read model over `repository.orphans()`, with the
+ * The orphan pool of SID 0: a read model over `repository.orphans()`, with the
  * runtime facts (busy, idle) the supervision rules need. Nothing here writes.
  */
 export class OrphanSupervisor {
@@ -81,7 +81,7 @@ export class OrphanSupervisor {
     return { ...this._policy };
   }
 
-  /** Wire (snake_case) policy, as shown by `process.orphans` and `system.status`. */
+  /** Wire (snake_case) policy, as shown by `service.orphans` and `system.status`. */
   policyReport() {
     return {
       adopt: this._policy.adopt,
@@ -100,21 +100,21 @@ export class OrphanSupervisor {
     const lastActivity = stamps.length ? Math.max(...stamps) : this.clock();
     const idleMs = Math.max(0, this.clock() - lastActivity);
     return {
-      pid: row.pid,
+      sid: row.sid,
       name: row.name,
       status: row.status,
       template: row.template,
-      original_parent_pid: row.original_parent_pid,
+      original_parent_sid: row.original_parent_sid,
       created_at: row.created_at,
       updated_at: row.updated_at,
       last_activity_at: new Date(lastActivity).toISOString(),
       idle_seconds: Math.floor(idleMs / 1000),
-      busy: this.manager.runtime?.isBusy(row.pid) ?? false,
+      busy: this.manager.runtime?.isBusy(row.sid) ?? false,
     };
   }
 
   /**
-   * PID 0's orphans (terminal ones included, so the read model can show what
+   * SID 0's orphans (terminal ones included, so the read model can show what
    * was frozen), plus the counters the policy is expressed against.
    */
   pool() {
@@ -130,23 +130,23 @@ export class OrphanSupervisor {
     };
   }
 
-  /** Active orphans, oldest activity first (ties broken by pid) — the eviction order. */
+  /** Active orphans, oldest activity first (ties broken by sid) — the eviction order. */
   _candidates(pool) {
     return pool.orphans
       .filter((orphan) => orphan.status === 'created' || orphan.status === 'active')
       .sort((left, right) => (
         left.last_activity_at === right.last_activity_at
-          ? left.pid - right.pid
+          ? left.sid - right.sid
           : (left.last_activity_at < right.last_activity_at ? -1 : 1)
       ));
   }
 
   /**
    * Run one supervision pass: freeze idle orphans past the TTL, then freeze the
-   * oldest ones while PID 0 holds more active orphans than the limit allows.
+   * oldest ones while SID 0 holds more active orphans than the limit allows.
    *
    * The pool is re-read after every eviction, because freezing a parent makes
-   * its own active children orphans of PID 0 in turn. Busy orphans (an agent
+   * its own active children orphans of SID 0 in turn. Busy orphans (an agent
    * call is running) are never frozen; when only busy ones remain, the limit
    * pass stops and reports them as `deferred`.
    *
@@ -175,9 +175,9 @@ export class OrphanSupervisor {
     this.running = true;
     try {
       const evict = (candidate, reason) => {
-        const updated = this.manager.orphanEvict(candidate.pid, reason);
+        const updated = this.manager.orphanEvict(candidate.sid, reason);
         report.evicted.push({
-          pid: candidate.pid,
+          sid: candidate.sid,
           name: candidate.name,
           from: candidate.status,
           to: updated.status,
@@ -188,8 +188,8 @@ export class OrphanSupervisor {
       };
       const attempted = new Set();
       const next = (predicate) => {
-        const candidate = this._candidates(pool).find((orphan) => !attempted.has(orphan.pid) && predicate(orphan));
-        if (candidate) attempted.add(candidate.pid);
+        const candidate = this._candidates(pool).find((orphan) => !attempted.has(orphan.sid) && predicate(orphan));
+        if (candidate) attempted.add(candidate.sid);
         return candidate;
       };
 
@@ -201,8 +201,8 @@ export class OrphanSupervisor {
       while (this._policy.limit > 0 && pool.active_count > this._policy.limit) {
         const candidate = next((orphan) => !orphan.busy);
         if (!candidate) {
-          const blocked = this._candidates(pool).find((orphan) => !attempted.has(orphan.pid));
-          if (blocked) report.deferred.push({ pid: blocked.pid, reason: 'busy' });
+          const blocked = this._candidates(pool).find((orphan) => !attempted.has(orphan.sid));
+          if (blocked) report.deferred.push({ sid: blocked.sid, reason: 'busy' });
           break;
         }
         evict(candidate, 'orphan_limit');

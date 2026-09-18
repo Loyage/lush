@@ -6,7 +6,7 @@ import { LUSH_CONTEXT_PREFIX } from '../context/context.js';
 export class MockAgentProvider {
   constructor() {
     this.name = 'mock';
-    /** In-process runtime: Lush exposes task_* / process_* tools to this agent. */
+    /** In-service runtime: Lush exposes task_* / service_* tools to this agent. */
     this.contextMode = 'tools';
   }
 
@@ -17,8 +17,8 @@ export class MockAgentProvider {
       if (Object.hasOwn(result, 'error')) return new AgentResponse(`Mock tool error: ${jsonDump(result.error)}`);
       const value = result.result;
       if (value !== null && typeof value === 'object' && !Array.isArray(value)
-        && Object.hasOwn(value, 'pid') && Object.hasOwn(value, 'name')) {
-        return new AgentResponse(`已执行工具：${value.name}[${value.pid}]，status=${value.status}。`);
+        && Object.hasOwn(value, 'sid') && Object.hasOwn(value, 'name')) {
+        return new AgentResponse(`已执行工具：${value.name}[${value.sid}]，status=${value.status}。`);
       }
       if (value !== null && typeof value === 'object' && !Array.isArray(value)
         && Object.hasOwn(value, 'id') && Object.hasOwn(value, 'status')) {
@@ -58,38 +58,38 @@ export class MockAgentProvider {
       return this._tool('task_complete', jsonDump({ result: `woken: ${summary}` }));
     }
 
-    // Delegation first: that is how work moves down the process tree.
+    // Delegation first: that is how work moves down the service tree.
     if (prompt.includes('派') || prompt.includes('委托') || lower.includes('delegate') || lower.includes('task_spawn')) {
       const target = data.children[0];
-      if (target !== undefined) return this._tool('task_spawn', jsonDump({ pid: target.pid, goal: prompt }));
+      if (target !== undefined) return this._tool('task_spawn', jsonDump({ sid: target.sid, goal: prompt }));
     }
     const createWord = prompt.includes('创建') || prompt.includes('研究') || prompt.includes('服务')
       || ['create', 'spawn'].some((word) => lower.includes(word));
     if (createWord
-      && ['任务', '进程', '服务', 'process', 'task', 'service', 'template'].some((word) => prompt.includes(word) || lower.includes(word))) {
+      && ['任务', '服务', '服务', 'service', 'task', 'service', 'template'].some((word) => prompt.includes(word) || lower.includes(word))) {
       const service = prompt.includes('服务') || lower.includes('service');
       const research = prompt.includes('研究') || lower.includes('research');
       const template = service ? 'generic-service' : research ? 'research-task' : 'generic-task';
       const name = lower.includes('oauth') && !service ? 'research-oauth' : template;
-      return this._tool('process_spawn', jsonDump({ template, name, goal: prompt }));
+      return this._tool('service_spawn', jsonDump({ template, name, goal: prompt }));
     }
     if (prompt.includes('子') || lower.includes('children')) {
       return this._tool('task_children', '{}');
     }
 
-    const process = data.process;
+    const service = data.service;
     const task = data.task;
     const parent = data.parent;
-    const parentLabel = parent === null ? '无（系统根）' : `${parent.name}[${parent.pid}]`;
-    const children = data.children.map((child) => `${child.name}[${child.pid}]`).join(', ') || '无';
+    const parentLabel = parent === null ? '无（系统根）' : `${parent.name}[${parent.sid}]`;
+    const children = data.children.map((child) => `${child.name}[${child.sid}]`).join(', ') || '无';
     const userMessages = messages.filter((message) => message.role === 'user').length;
     const taskLabel = task === null
       ? '无（预览）'
       : `#${task.id}（status=${task.status}，父 task=${task.parent_task_id ?? '无'}）`;
     return new AgentResponse(
-      `[Mock] 我是 ${process.name}，PID = ${process.pid}，status = ${process.status}。\n`
+      `[Mock] 我是 ${service.name}，SID = ${service.sid}，status = ${service.status}。\n`
       + `task = ${taskLabel}\n`
-      + `parent = ${parentLabel}\n目标：${process.goal}\n`
+      + `parent = ${parentLabel}\n目标：${service.goal}\n`
       + `children：${children}\nstate：${jsonDump(data.state)}\n`
       + `当前对话用户消息数：${userMessages}`,
     );

@@ -1,7 +1,7 @@
 {
   "name": "lush-runtime",
   "version": "0.1.0",
-  "description": "Operating System for AI: persistent logical processes and agent runtime",
+  "description": "Operating System for AI: persistent logical services and agent runtime",
   "type": "module",
   "private": true,
   "bin": {

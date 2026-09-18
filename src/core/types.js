@@ -19,11 +19,11 @@ export function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export function validPid(pid) {
-  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid < 0 || pid > MAX_INT) {
-    throw new LushError('pid must be a non-negative SQLite integer', -32602);
+export function validSid(sid) {
+  if (typeof sid !== 'number' || !Number.isInteger(sid) || sid < 0 || sid > MAX_INT) {
+    throw new LushError('sid must be a non-negative SQLite integer', -32602);
   }
-  return pid;
+  return sid;
 }
 
 export function text(value, field, maxLength = 100_000) {
@@ -54,15 +54,15 @@ export function jsonLoad(value) {
 }
 
 /**
- * The unified `process.view` read model. `prompt` is the call prompt (the
+ * The unified `service.view` read model. `prompt` is the call prompt (the
  * template system prompt snapshot).
  */
 export const VIEW_SECTIONS = ['parent', 'children', 'prompt'];
 
 /**
- * Process variables are declared and stored in two regions: `immutable`
+ * Service variables are declared and stored in two regions: `immutable`
  * values are fixed at creation (they are the template's initial variables),
- * `mutable` values stay changeable through `process.update_vars`.
+ * `mutable` values stay changeable through `service.update_vars`.
  */
 export const VARIABLE_GROUPS = ['immutable', 'mutable'];
 

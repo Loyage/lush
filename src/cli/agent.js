@@ -4,7 +4,7 @@
  * These commands never touch the daemon. A profile is a plain file under
  * `$LUSH_HOME/agents/`, so the CLI reads and writes it directly and keeps
  * working while `lushd` is stopped — that is the whole point of the command
- * group, and the difference from `lush process ...` (whose every verb is an RPC).
+ * group, and the difference from `lush service ...` (whose every verb is an RPC).
  *
  * Every function returns a plain JSON-able result; text rendering lives in
  * `format/agent.js`. The daemon resolves the same profile files at call time
@@ -47,7 +47,7 @@ function previewProfile(config, spec) {
   if (spec.provider !== 'pi') {
     return {
       preview: null,
-      preview_error: `agent ${spec.name} runs in-process (${spec.provider}); there is no external command line`,
+      preview_error: `agent ${spec.name} runs in-service (${spec.provider}); there is no external command line`,
     };
   }
   try {

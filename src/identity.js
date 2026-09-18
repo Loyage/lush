@@ -1,7 +1,7 @@
 /**
  * Which code is answering.
  *
- * A daemon is a long-lived process: the shared guide, the CLI declaration and
+ * A daemon is a long-lived service: the shared guide, the CLI declaration and
  * the templates are loaded once at startup and then stay in memory. The socket
  * path only says *where the state lives* (`LUSH_HOME`), never *which checkout*
  * — and because `just` exports a repo-local `LUSH_HOME`, a `daemon-restart`
@@ -78,7 +78,7 @@ function addFile(hash, relative) {
 
 /**
  * Short stable digest of the loaded prompt/declaration surface. Equal
- * fingerprints mean two processes were started from identical code.
+ * fingerprints mean two services were started from identical code.
  */
 export function codeFingerprint() {
   const hash = createHash('sha256');
@@ -101,14 +101,14 @@ export function codeVersion() {
 
 let cached = null;
 
-/** `{ code_dir, version, fingerprint }` of the code this process is running. */
+/** `{ code_dir, version, fingerprint }` of the code this service is running. */
 export function codeIdentity() {
   cached ??= { code_dir: ROOT, version: codeVersion(), fingerprint: codeFingerprint() };
   return { ...cached };
 }
 
 /**
- * Compare a daemon's reported identity with this process's own. Returns null
+ * Compare a daemon's reported identity with this service's own. Returns null
  * when they match, otherwise one human sentence saying why they do not — a
  * daemon that predates this feature reports nothing and is treated as stale.
  */

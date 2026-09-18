@@ -55,69 +55,69 @@ describe('core', () => {
 
     const a = root.createChild('generic-service', { name: 'pm' });
     const b = a.createChild('generic-task', { goal: 'implement login' });
-    expect([a.pid, b.pid]).toEqual([1, 2]);
-    expect(b.getParent().pid).toBe(1);
-    expect(a.getChildren()[0].pid).toBe(2);
+    expect([a.sid, b.sid]).toEqual([1, 2]);
+    expect(b.getParent().sid).toBe(1);
+    expect(a.getChildren()[0].sid).toBe(2);
     expect(b.inspect().goal).toBe('implement login');
-    // A process is passive: creating it starts no agent and creates no task.
+    // A service is passive: creating it starts no agent and creates no task.
     expect(manager.repository.activeTasks()).toEqual([]);
   });
 
-  /** Spawn a process and keep the PID handle (the tests read it like the old ones did). */
+  /** Spawn a service and keep the SID handle (the tests read it like the old ones did). */
   function spawn(parent, template, name, goal, variables) {
-    return manager.load(manager.spawn(parent, template, name, goal, variables).pid);
+    return manager.load(manager.spawn(parent, template, name, goal, variables).sid);
   }
 
-  /** A child process of PID 0 that is ready to be given work. */
+  /** A child service of SID 0 that is ready to be given work. */
   function worker(template = 'generic-task', name = 'worker') {
-    return spawn(0, template, name).pid;
+    return spawn(0, template, name).sid;
   }
 
   test('call creates a root task, runs it and returns its result', async () => {
-    const pid = worker();
-    const task = await manager.call(pid, 'do the thing');
-    expect(task).toMatchObject({ pid, status: 'completed', parent_task_id: null });
+    const sid = worker();
+    const task = await manager.call(sid, 'do the thing');
+    expect(task).toMatchObject({ sid, status: 'completed', parent_task_id: null });
     expect(task.root_task_id).toBe(task.id);
     expect(String(task.result)).toContain('[Mock]');
     // The conversation belongs to the task, and the call row carries both ids.
     expect(manager.taskHistory(task.id).messages.length).toBeGreaterThan(0);
     const calls = manager.repository.callsOfTask(task.id);
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ pid, task_id: task.id, status: 'succeeded' });
-    expect(manager.taskList(pid).map((row) => row.id)).toEqual([task.id]);
+    expect(calls[0]).toMatchObject({ sid, task_id: task.id, status: 'succeeded' });
+    expect(manager.taskList(sid).map((row) => row.id)).toEqual([task.id]);
     expect(manager.taskResult(task.id)).toMatchObject({ finished: true, status: 'completed' });
   });
 
   test('detached call returns the task while it still runs', async () => {
-    const pid = worker();
-    const task = await manager.call(pid, 'do the thing', true);
+    const sid = worker();
+    const task = await manager.call(sid, 'do the thing', true);
     expect(task.status === 'running' || task.status === 'created' || task.status === 'completed').toBe(true);
     const settled = await manager.taskWait(task.id);
     expect(settled.status).toBe('completed');
   });
 
-  test('one process runs at most one task at a time', async () => {
-    const pid = worker();
-    const first = manager.repository.createTask(pid, null, 'first');
-    expect(() => manager.spawnTask(null, pid, 'second')).toThrow(/already working on task/);
+  test('one service runs at most one task at a time', async () => {
+    const sid = worker();
+    const first = manager.repository.createTask(sid, null, 'first');
+    expect(() => manager.spawnTask(null, sid, 'second')).toThrow(/already working on task/);
     manager.cancelTask(first.id);
-    // Once the first one is finished the process is free again.
-    const second = await manager.call(pid, 'second');
+    // Once the first one is finished the service is free again.
+    const second = await manager.call(sid, 'second');
     expect(second.id).not.toBe(first.id);
   });
 
-  test('a task may only delegate to a direct child process', () => {
+  test('a task may only delegate to a direct child service', () => {
     const parent = spawn(0, 'generic-service', 'parent');
-    const child = spawn(parent.pid, 'generic-task', 'child');
-    const grandchild = spawn(child.pid, 'generic-task', 'grandchild');
-    const task = manager.repository.createTask(parent.pid, null, 'delegate');
+    const child = spawn(parent.sid, 'generic-task', 'child');
+    const grandchild = spawn(child.sid, 'generic-task', 'grandchild');
+    const task = manager.repository.createTask(parent.sid, null, 'delegate');
 
-    // A direct child process is the only legal target, and the child task
+    // A direct child service is the only legal target, and the child task
     // inherits the root of the tree it belongs to.
-    const sub = manager.spawnTask(task.id, child.pid, 'downstream');
-    expect(sub).toMatchObject({ pid: child.pid, parent_task_id: task.id, root_task_id: task.id });
-    expect(() => manager.spawnTask(task.id, grandchild.pid, 'skip a level')).toThrow(/only delegate downstream/);
-    expect(() => manager.spawnTask(task.id, parent.pid, 'its own process')).toThrow(/cannot delegate to its own process/);
+    const sub = manager.spawnTask(task.id, child.sid, 'downstream');
+    expect(sub).toMatchObject({ sid: child.sid, parent_task_id: task.id, root_task_id: task.id });
+    expect(() => manager.spawnTask(task.id, grandchild.sid, 'skip a level')).toThrow(/only delegate downstream/);
+    expect(() => manager.spawnTask(task.id, parent.sid, 'its own service')).toThrow(/cannot delegate to its own service/);
     manager.cancelTask(task.id);
   });
 
@@ -128,17 +128,17 @@ describe('core', () => {
     // The child is the slow one: the parent is guaranteed to answer while its
     // child task is still running, which is the path being tested.
     const built = system(slowDir, new SlowProvider(
-      (invocation) => (invocation?.context?.process?.name === 'kid' ? 300 : 5),
+      (invocation) => (invocation?.context?.service?.name === 'kid' ? 300 : 5),
     ));
     permissiveRoot(built.manager);
     try {
       const parent = built.manager.spawn(0, 'generic-service', 'pm');
-      const child = built.manager.spawn(parent.pid, 'generic-task', 'kid');
-      const task = await built.manager.call(parent.pid, '把这活派给下游');
+      const child = built.manager.spawn(parent.sid, 'generic-task', 'kid');
+      const task = await built.manager.call(parent.sid, '把这活派给下游');
       expect(task.status).toBe('completed');
       const children = built.manager.taskList(null, null, 'children');
       expect(children).toHaveLength(1);
-      expect(children[0]).toMatchObject({ pid: child.pid, parent_task_id: task.id, status: 'completed' });
+      expect(children[0]).toMatchObject({ sid: child.sid, parent_task_id: task.id, status: 'completed' });
       // The parent's own run was invoked twice: delegate, then finish after the wake.
       expect(built.manager.repository.callsOfTask(task.id)).toHaveLength(2);
       // The wake prompt is part of the task's own conversation, not another task's.
@@ -156,10 +156,10 @@ describe('core', () => {
 
   test('task completion waits for the children, and terminating cascades', async () => {
     const parent = spawn(0, 'generic-service', 'parent');
-    const child = spawn(parent.pid, 'generic-task', 'child');
-    const task = manager.spawnTask(null, parent.pid, 'parent work');
+    const child = spawn(parent.sid, 'generic-task', 'child');
+    const task = manager.spawnTask(null, parent.sid, 'parent work');
     // Parked on purpose: a child task that is still active, without an agent.
-    const sub = manager.repository.createTask(child.pid, task.id, 'child work', { rootTaskId: task.id });
+    const sub = manager.repository.createTask(child.sid, task.id, 'child work', { rootTaskId: task.id });
 
     // Not while the child task is active.
     expect(() => manager.completeTask(task.id, 'done')).toThrow(/active child tasks/);
@@ -170,8 +170,8 @@ describe('core', () => {
     expect(manager.repository.childTasks(task.id)[0].status).toBe('cancelled');
 
     // Cancelling a task cancels its whole subtree.
-    const one = manager.repository.createTask(parent.pid, null, 'one');
-    const two = manager.repository.createTask(child.pid, one.id, 'two', { rootTaskId: one.id });
+    const one = manager.repository.createTask(parent.sid, null, 'one');
+    const two = manager.repository.createTask(child.sid, one.id, 'two', { rootTaskId: one.id });
     const cancelled = manager.cancelTask(one.id);
     expect(cancelled.status).toBe('cancelled');
     expect(manager.repository.getTask(two.id).status).toBe('cancelled');
@@ -180,11 +180,11 @@ describe('core', () => {
 
   test('a task may only wait on its own subtree, and never on itself', async () => {
     const parent = spawn(0, 'generic-service', 'parent');
-    const child = spawn(parent.pid, 'generic-task', 'child');
+    const child = spawn(parent.sid, 'generic-task', 'child');
     const other = spawn(0, 'generic-task', 'other');
-    const task = manager.repository.createTask(parent.pid, null, 'parent work');
-    const mine = manager.repository.createTask(child.pid, task.id, 'child work', { rootTaskId: task.id });
-    const theirs = manager.repository.createTask(other.pid, null, 'unrelated');
+    const task = manager.repository.createTask(parent.sid, null, 'parent work');
+    const mine = manager.repository.createTask(child.sid, task.id, 'child work', { rootTaskId: task.id });
+    const theirs = manager.repository.createTask(other.sid, null, 'unrelated');
     expect(() => manager.waitForTask(theirs.id, task.id)).toThrow(/not part of task/);
     expect(() => manager.waitForTask(task.id, task.id)).toThrow(/cannot wait on itself/);
     manager.completeTask(mine.id, 'done');
@@ -194,15 +194,15 @@ describe('core', () => {
   });
 
   test('tasks can be listed, inspected and deleted', async () => {
-    const pid = worker();
-    const task = await manager.call(pid, 'do the thing');
+    const sid = worker();
+    const task = await manager.call(sid, 'do the thing');
     expect(manager.taskList(null, 'completed').map((row) => row.id)).toContain(task.id);
     expect(manager.taskList(null, null, 'roots').map((row) => row.id)).toContain(task.id);
     expect(code(() => manager.taskList(null, 'nope'))).toBe(-32602);
     expect(code(() => manager.taskHistory(task.id, -1, 10))).toBe(-32602);
 
     const info = manager.taskInspect(task.id);
-    expect(info.process).toMatchObject({ pid, status: 'active' });
+    expect(info.service).toMatchObject({ sid, status: 'active' });
     expect(info.recent_calls).toHaveLength(1);
     expect(info.messages).toBeGreaterThan(0);
 
@@ -210,38 +210,38 @@ describe('core', () => {
     expect(deleted.deleted).toEqual([task.id]);
     expect(manager.repository.findTask(task.id)).toBeNull();
     expect(code(() => manager.taskInspect(task.id))).toBe(-32004);
-    // The call rows stay: they are the process's durable history.
+    // The call rows stay: they are the service's durable history.
     expect(manager.repository.callsOfTask(task.id)).toEqual([]);
-    expect(manager.repository.calls(pid).length).toBe(1);
+    expect(manager.repository.calls(sid).length).toBe(1);
   });
 
-  test('update-state writes the task scratch and the process keeps its own state', async () => {
-    const pid = worker();
-    const task = manager.repository.createTask(pid, null, 'work');
+  test('update-state writes the task scratch and the service keeps its own state', async () => {
+    const sid = worker();
+    const task = manager.repository.createTask(sid, null, 'work');
     expect(manager.updateTaskState(task.id, { progress: 'half' })).toEqual({ progress: 'half' });
     expect(manager.taskInspect(task.id).state).toEqual({ progress: 'half' });
     expect(code(() => manager.updateTaskState(task.id, []))).toBe(-32602);
-    manager.updateState(pid, { knowledge: 'shared' });
-    expect(manager.inspect(pid).context.state).toEqual({ knowledge: 'shared' });
+    manager.updateState(sid, { knowledge: 'shared' });
+    expect(manager.inspect(sid).context.state).toEqual({ knowledge: 'shared' });
     manager.cancelTask(task.id);
   });
 
-  test('process lifecycle: created → active → stopped, and stop refuses live work', async () => {
-    const pid = worker();
-    manager.stop(pid);
-    expect(manager.inspect(pid).status).toBe('stopped');
-    manager.stop(pid); // idempotent
-    expect(code(() => manager.spawnTask(null, pid, 'work'))).toBe(-32009);
-    expect(code(() => manager.start(pid))).toBeNull();
-    expect(manager.inspect(pid).status).toBe('active');
+  test('service lifecycle: created → active → stopped, and stop refuses live work', async () => {
+    const sid = worker();
+    manager.stop(sid);
+    expect(manager.inspect(sid).status).toBe('stopped');
+    manager.stop(sid); // idempotent
+    expect(code(() => manager.spawnTask(null, sid, 'work'))).toBe(-32009);
+    expect(code(() => manager.start(sid))).toBeNull();
+    expect(manager.inspect(sid).status).toBe('active');
 
-    const task = manager.spawnTask(null, pid, 'work');
-    expect(() => manager.stop(pid)).toThrow(/working on task/);
+    const task = manager.spawnTask(null, sid, 'work');
+    expect(() => manager.stop(sid)).toThrow(/working on task/);
     manager.cancelTask(task.id);
-    manager.stop(pid);
-    expect(manager.inspect(pid).status).toBe('stopped');
+    manager.stop(sid);
+    expect(manager.inspect(sid).status).toBe('stopped');
 
-    // The process state machine is small and closed.
+    // The service state machine is small and closed.
     for (const method of ['start', 'stop', 'delete', 'purge']) {
       expect(() => manager[method](0)).toThrow(LushError);
     }
@@ -250,90 +250,90 @@ describe('core', () => {
   test('stop adopts active children; restart does not take them back', () => {
     const parent = spawn(0, 'generic-service', 'parent');
     const child = parent.createChild('generic-task', { name: 'kid' });
-    manager.stop(parent.pid);
-    expect(child.getParent().pid).toBe(0);
-    expect(child.inspect().original_parent_pid).toBe(parent.pid);
-    manager.start(parent.pid);
-    expect(child.getParent().pid).toBe(0);
+    manager.stop(parent.sid);
+    expect(child.getParent().sid).toBe(0);
+    expect(child.inspect().original_parent_sid).toBe(parent.sid);
+    manager.start(parent.sid);
+    expect(child.getParent().sid).toBe(0);
     const event = child.inspect().recent_events[0];
     expect(event.kind).toBe('reparented');
-    expect(event.data).toEqual({ from: parent.pid, to: 0, reason: 'stopped' });
+    expect(event.data).toEqual({ from: parent.sid, to: 0, reason: 'stopped' });
   });
 
-  test('delete removes a stopped process, its tasks and every row they owned', async () => {
+  test('delete removes a stopped service, its tasks and every row they owned', async () => {
     const parent = spawn(0, 'generic-service', 'parent');
-    const child = spawn(parent.pid, 'generic-service', 'child');
-    const grandchild = spawn(child.pid, 'generic-task', 'grandchild');
-    const task = await manager.call(grandchild.pid, 'work');
-    manager.updateState(child.pid, { progress: 'half' });
+    const child = spawn(parent.sid, 'generic-service', 'child');
+    const grandchild = spawn(child.sid, 'generic-task', 'grandchild');
+    const task = await manager.call(grandchild.sid, 'work');
+    manager.updateState(child.sid, { progress: 'half' });
     // Stop the leaf first: stopping `child` would hand its *active* children to
-    // PID 0, and then they would not be part of the deleted subtree.
-    manager.stop(grandchild.pid);
-    manager.stop(child.pid);
+    // SID 0, and then they would not be part of the deleted subtree.
+    manager.stop(grandchild.sid);
+    manager.stop(child.sid);
 
-    expect(code(() => manager.delete(child.pid, 'yes'))).toBe(-32602);
-    const result = manager.delete(child.pid, true);
+    expect(code(() => manager.delete(child.sid, 'yes'))).toBe(-32602);
+    const result = manager.delete(child.sid, true);
     expect(result.status).toBe('stopped');
-    expect(result.deleted).toEqual([child.pid, grandchild.pid].sort((left, right) => left - right));
+    expect(result.deleted).toEqual([child.sid, grandchild.sid].sort((left, right) => left - right));
     expect(result.rows.tasks).toBe(1);
     expect(manager.repository.findTask(task.id)).toBeNull();
-    expect(() => manager.inspect(child.pid)).toThrow(/not found/);
+    expect(() => manager.inspect(child.sid)).toThrow(/not found/);
     expect(() => manager.taskInspect(task.id)).toThrow(/not found/);
     expect(parent.getChildren()).toEqual([]);
-    const event = manager.repository.events(parent.pid, 1)[0];
+    const event = manager.repository.events(parent.sid, 1)[0];
     expect(event.kind).toBe('child_deleted');
-    expect(event.data).toMatchObject({ pid: child.pid, template: 'generic-service', status: 'stopped' });
+    expect(event.data).toMatchObject({ sid: child.sid, template: 'generic-service', status: 'stopped' });
   });
 
-  test('delete refuses live work, children and PID 0', () => {
+  test('delete refuses live work, children and SID 0', () => {
     const running = spawn(0, 'generic-task', 'busy');
-    expect(code(() => manager.delete(running.pid))).toBe(-32010);
-    expect(() => manager.delete(running.pid)).toThrow(/stop it first/);
+    expect(code(() => manager.delete(running.sid))).toBe(-32010);
+    expect(() => manager.delete(running.sid)).toThrow(/stop it first/);
     expect(code(() => manager.delete(0))).toBe(-32010);
-    expect(() => manager.purge(0)).toThrow(/PID 0 is managed by the daemon/);
-    expect(() => manager.delete(running.pid + 99)).toThrow(/not found/);
+    expect(() => manager.purge(0)).toThrow(/SID 0 is managed by the daemon/);
+    expect(() => manager.delete(running.sid + 99)).toThrow(/not found/);
 
     const parent = spawn(0, 'generic-service', 'parent');
     parent.createChild('generic-task', { name: 'kid' });
-    expect(() => manager.delete(parent.pid)).toThrow(/has children/);
-    expect(() => manager.purge(parent.pid)).toThrow(/has children/);
+    expect(() => manager.delete(parent.sid)).toThrow(/has children/);
+    expect(() => manager.purge(parent.sid)).toThrow(/has children/);
 
-    // A task still running on the process is refused too, and purge cancels it.
-    const task = manager.spawnTask(null, running.pid, 'work');
-    expect(() => manager.delete(running.pid)).toThrow(/task .* is (created|running|waiting)/);
-    const purged = manager.purge(running.pid);
+    // A task still running on the service is refused too, and purge cancels it.
+    const task = manager.spawnTask(null, running.sid, 'work');
+    expect(() => manager.delete(running.sid)).toThrow(/task .* is (created|running|waiting)/);
+    const purged = manager.purge(running.sid);
     expect(purged.cancelled).toEqual([task.id]);
-    expect(manager.list().map((item) => item.pid)).toEqual([0, parent.pid, parent.getChildren()[0].pid]);
+    expect(manager.list().map((item) => item.sid)).toEqual([0, parent.sid, parent.getChildren()[0].sid]);
   });
 
   test('purge cancels the whole subtree before removing it, without adopting', () => {
     const parent = spawn(0, 'generic-service', 'parent');
-    const child = spawn(parent.pid, 'generic-task', 'child');
-    const grandchild = spawn(child.pid, 'generic-task', 'grandchild');
-    const pids = [parent.pid, child.pid, grandchild.pid];
-    const result = manager.purge(parent.pid, true);
-    expect(result.deleted).toEqual(pids);
-    expect(result.terminated).toEqual(pids);
+    const child = spawn(parent.sid, 'generic-task', 'child');
+    const grandchild = spawn(child.sid, 'generic-task', 'grandchild');
+    const sids = [parent.sid, child.sid, grandchild.sid];
+    const result = manager.purge(parent.sid, true);
+    expect(result.deleted).toEqual(sids);
+    expect(result.terminated).toEqual(sids);
     expect(result.status).toBe('active');
-    expect(manager.list().map((item) => item.pid)).toEqual([0]);
+    expect(manager.list().map((item) => item.sid)).toEqual([0]);
     expect(manager.repository.events(0, 20).map((event) => event.kind)).not.toContain('reparented');
-    expect(manager.repository.events(0, 1)[0]).toMatchObject({ kind: 'child_deleted', data: { pid: parent.pid } });
+    expect(manager.repository.events(0, 1)[0]).toMatchObject({ kind: 'child_deleted', data: { sid: parent.sid } });
   });
 
-  test('delete repairs surviving links to the pid it removes', () => {
+  test('delete repairs surviving links to the sid it removes', () => {
     const creator = spawn(0, 'generic-service', 'creator');
-    const adopted = spawn(creator.pid, 'generic-service', 'adopted');
-    manager.stop(creator.pid);
-    expect(adopted.inspect().parent_pid).toBe(0);
-    expect(adopted.inspect().original_parent_pid).toBe(creator.pid);
+    const adopted = spawn(creator.sid, 'generic-service', 'adopted');
+    manager.stop(creator.sid);
+    expect(adopted.inspect().parent_sid).toBe(0);
+    expect(adopted.inspect().original_parent_sid).toBe(creator.sid);
 
-    manager.delete(creator.pid);
+    manager.delete(creator.sid);
     const survivor = adopted.inspect();
-    expect(survivor.parent_pid).toBe(0);
-    expect(survivor.original_parent_pid).toBe(0);
+    expect(survivor.parent_sid).toBe(0);
+    expect(survivor.original_parent_sid).toBe(0);
     expect(survivor.recent_events[0]).toMatchObject({
       kind: 'parent_deleted',
-      data: { pid: creator.pid, name: 'creator', template: 'generic-service', status: 'stopped' },
+      data: { sid: creator.sid, name: 'creator', template: 'generic-service', status: 'stopped' },
     });
   });
 
@@ -341,10 +341,10 @@ describe('core', () => {
     const template = manager.templates.get('generic-task');
     manager.templates.register({ ...template, name: 'restricted-task', child_templates: ['research-task'] });
     const parent = spawn(0, 'restricted-task', 'restricted');
-    spawn(parent.pid, 'research-task', 'researcher');
-    expect(code(() => spawn(parent.pid, 'generic-service', 'nope'))).toBe(-32010);
+    spawn(parent.sid, 'research-task', 'researcher');
+    expect(code(() => spawn(parent.sid, 'generic-service', 'nope'))).toBe(-32010);
     manager.templates.templates['restricted-task'].child_templates = ['*'];
-    expect(() => spawn(parent.pid, 'generic-service', 'nope')).toThrow(LushError);
+    expect(() => spawn(parent.sid, 'generic-service', 'nope')).toThrow(LushError);
     expect(() => spawn(0, 'no-such-template', 'x')).toThrow(LushError);
     expect(() => spawn(0, 'lush-root', 'x')).toThrow(/reserved/);
   });
@@ -353,16 +353,16 @@ describe('core', () => {
     const template = manager.templates.get('generic-service');
     manager.templates.register({ ...template, name: 'one-per-parent', singleton: true });
     const parent = spawn(0, 'generic-service', 'parent');
-    const first = spawn(parent.pid, 'one-per-parent', 'first');
-    expect(code(() => spawn(parent.pid, 'one-per-parent', 'second'))).toBe(-32010);
-    // Singleton is per parent PID, not system-wide.
-    expect(spawn(0, 'one-per-parent', 'other').inspect().parent_pid).toBe(0);
+    const first = spawn(parent.sid, 'one-per-parent', 'first');
+    expect(code(() => spawn(parent.sid, 'one-per-parent', 'second'))).toBe(-32010);
+    // Singleton is per parent SID, not system-wide.
+    expect(spawn(0, 'one-per-parent', 'other').inspect().parent_sid).toBe(0);
     // Only active instances occupy the slot.
-    manager.stop(first.pid);
-    expect(spawn(parent.pid, 'one-per-parent', 'third').pid).not.toBe(first.pid);
+    manager.stop(first.sid);
+    expect(spawn(parent.sid, 'one-per-parent', 'third').sid).not.toBe(first.sid);
     // Non-singleton templates stay unrestricted.
-    const plain = spawn(parent.pid, 'generic-task', 'plain');
-    expect(spawn(parent.pid, 'generic-task', 'plain-2').pid).not.toBe(plain.pid);
+    const plain = spawn(parent.sid, 'generic-task', 'plain');
+    expect(spawn(parent.sid, 'generic-task', 'plain-2').sid).not.toBe(plain.sid);
   });
 
   test('dev-task declares name / title / detail as checked fields', () => {
@@ -384,7 +384,7 @@ describe('core', () => {
 
     const project = spawn(0, 'project', 'demo', undefined, { path: dir });
     expect(manager.templates.get('project').child_templates).toContain('dev-task');
-    const task = spawn(project.pid, 'dev-task', 'fix-login', '修好登录',
+    const task = spawn(project.sid, 'dev-task', 'fix-login', '修好登录',
       { title: '修复登录流程', detail: '第一行\n第二行' });
     expect(task.inspect().name).toBe('fix-login');
     expect(task.inspect().context.state).toEqual({
@@ -392,15 +392,15 @@ describe('core', () => {
     });
     expect(task.inspect().variables.declarations.immutable.name.max_length).toBe(64);
     // One child and one only: the worktree node.
-    expect(code(() => spawn(task.pid, 'generic-task', 'nope'))).toBe(-32010);
-    expect(code(() => spawn(task.pid, 'project', 'nope'))).toBe(-32010);
+    expect(code(() => spawn(task.sid, 'generic-task', 'nope'))).toBe(-32010);
+    expect(code(() => spawn(task.sid, 'project', 'nope'))).toBe(-32010);
     expect(task.getParent().inspect().variables.immutable).toEqual({ path: dir });
-    expect(code(() => spawn(project.pid, 'dev-task', 'ok-name', undefined, { title: 'x', path: dir }))).toBe(-32602);
+    expect(code(() => spawn(project.sid, 'dev-task', 'ok-name', undefined, { title: 'x', path: dir }))).toBe(-32602);
 
-    const minimal = spawn(project.pid, 'dev-task', 'small-fix', undefined, { title: '小修' });
+    const minimal = spawn(project.sid, 'dev-task', 'small-fix', undefined, { title: '小修' });
     expect(minimal.inspect().name).toBe('small-fix');
     expect(minimal.inspect().goal).toBe('small-fix');
-    const empty = spawn(project.pid, 'dev-task', 'no-body', undefined, { title: '没正文', detail: '' });
+    const empty = spawn(project.sid, 'dev-task', 'no-body', undefined, { title: '没正文', detail: '' });
     expect(empty.inspect().context.state.params.detail).toBe('');
   });
 
@@ -409,22 +409,22 @@ describe('core', () => {
     expect(template).toMatchObject({ singleton: false, child_templates: [] });
     expect(template.variables.immutable.path).toMatchObject({ required: true });
     expect(template.variables.mutable).toBeUndefined();
-    for (const expected of ['path', 'worktree add', 'process_spawn']) expect(template.spawn_prompt).toContain(expected);
+    for (const expected of ['path', 'worktree add', 'service_spawn']) expect(template.spawn_prompt).toContain(expected);
     for (const expected of ['worktree', 'state', 'task_complete']) expect(template.system_prompt).toContain(expected);
 
     const project = spawn(0, 'project', 'demo', undefined, { path: dir });
-    expect(code(() => spawn(project.pid, 'worktree-service', 'nope', undefined, { path: dir }))).toBe(-32010);
-    const task = spawn(project.pid, 'dev-task', 'fix-login', undefined, { title: '修登录' });
-    expect(code(() => spawn(task.pid, 'worktree-service', 'wt'))).toBe(-32602);
-    expect(code(() => spawn(task.pid, 'worktree-service', 'wt', undefined, { path: 'relative/dir' }))).toBe(-32602);
-    expect(code(() => spawn(task.pid, 'worktree-service', 'wt', undefined, { path: `${dir}/nope` }))).toBe(-32602);
-    expect(code(() => spawn(task.pid, 'worktree-service', 'wt', undefined, { path: dir, branch: 'dev' }))).toBe(-32602);
+    expect(code(() => spawn(project.sid, 'worktree-service', 'nope', undefined, { path: dir }))).toBe(-32010);
+    const task = spawn(project.sid, 'dev-task', 'fix-login', undefined, { title: '修登录' });
+    expect(code(() => spawn(task.sid, 'worktree-service', 'wt'))).toBe(-32602);
+    expect(code(() => spawn(task.sid, 'worktree-service', 'wt', undefined, { path: 'relative/dir' }))).toBe(-32602);
+    expect(code(() => spawn(task.sid, 'worktree-service', 'wt', undefined, { path: `${dir}/nope` }))).toBe(-32602);
+    expect(code(() => spawn(task.sid, 'worktree-service', 'wt', undefined, { path: dir, branch: 'dev' }))).toBe(-32602);
 
-    const service = spawn(task.pid, 'worktree-service', 'fix-login', '修登录', { path: dir });
+    const service = spawn(task.sid, 'worktree-service', 'fix-login', '修登录', { path: dir });
     expect(service.inspect().template).toBe('worktree-service');
     expect(service.inspect().context.state).toEqual({ params: { path: dir } });
-    expect(code(() => manager.updateVars(service.pid, { path: '/tmp' }))).toBe(-32602);
-    expect(code(() => spawn(service.pid, 'generic-task', 'nope'))).toBe(-32010);
+    expect(code(() => manager.updateVars(service.sid, { path: '/tmp' }))).toBe(-32602);
+    expect(code(() => spawn(service.sid, 'generic-task', 'nope'))).toBe(-32010);
   });
 
   test('dev-task refuses an unusable name / title / detail with an actionable error', () => {
@@ -435,7 +435,7 @@ describe('core', () => {
       const name = Object.hasOwn(overrides, 'name') ? overrides.name : 'ok-name';
       const variables = Object.hasOwn(overrides, 'variables') ? overrides.variables : { title: '标题' };
       try {
-        return spawn(project.pid, 'dev-task', name, undefined, variables);
+        return spawn(project.sid, 'dev-task', name, undefined, variables);
       } catch (err) {
         return err;
       }
@@ -446,7 +446,7 @@ describe('core', () => {
       for (const part of expected) expect(err.message).toContain(part);
     };
 
-    rejects({ name: undefined }, ['process name', '--name']);
+    rejects({ name: undefined }, ['service name', '--name']);
     rejects({ name: '' }, ['variable name', 'A-Za-z', 'worktree']);
     rejects({ name: 'fix login' }, ['does not match', 'worktree']);
     rejects({ name: 'fix-login!' }, ['does not match']);
@@ -469,9 +469,9 @@ describe('core', () => {
     });
     const checked = spawn(0, 'checked-mutable', 'checked');
     expect(checked.inspect().context.state.vars).toEqual({ branch: 'main' });
-    expect(manager.updateVars(checked.pid, { branch: 'dev' })).toEqual({ branch: 'dev' });
+    expect(manager.updateVars(checked.sid, { branch: 'dev' })).toEqual({ branch: 'dev' });
     for (const patch of [{ branch: 'DEV 1' }, { branch: 'toolongbranch' }, { branch: 7 }]) {
-      expect(code(() => manager.updateVars(checked.pid, patch))).toBe(-32602);
+      expect(code(() => manager.updateVars(checked.sid, patch))).toBe(-32602);
     }
     expect(checked.inspect().context.state.vars).toEqual({ branch: 'dev' });
     manager.templates.register({
@@ -485,7 +485,7 @@ describe('core', () => {
 
   test('context advertises child templates, the task, and no type', async () => {
     const parent = spawn(0, 'generic-task', 'parent');
-    const task = manager.spawnTask(null, parent.pid, 'who can you create?');
+    const task = manager.spawnTask(null, parent.sid, 'who can you create?');
     const built = new ContextBuilder(manager.repository, manager.templates).build(manager.repository.getTask(task.id), null);
     const data = built.data;
     expect(data.child_templates).toEqual(['*']);
@@ -493,17 +493,17 @@ describe('core', () => {
     const generic = data.available_child_templates.find((item) => item.name === 'generic-task');
     expect(generic.type).toBeUndefined();
     expect(generic.singleton).toBe(false);
-    expect(generic.spawn_prompt).toContain('process_spawn');
+    expect(generic.spawn_prompt).toContain('service_spawn');
     expect(data.available_child_templates.some((item) => item.name === 'lush-root')).toBe(false);
     manager.cancelTask(task.id);
 
     // A project is told what a dev-task needs.
     const project = spawn(0, 'project', 'demo', undefined, { path: dir });
-    const projectTask = manager.spawnTask(null, project.pid, 'split me');
+    const projectTask = manager.spawnTask(null, project.sid, 'split me');
     const devTask = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(projectTask.id), null).data.available_child_templates
       .find((item) => item.name === 'dev-task');
-    for (const expected of ['name', 'title', 'detail', 'worktree', 'process_spawn']) {
+    for (const expected of ['name', 'title', 'detail', 'worktree', 'service_spawn']) {
       expect(devTask.spawn_prompt).toContain(expected);
     }
     manager.cancelTask(projectTask.id);
@@ -525,7 +525,7 @@ describe('core', () => {
       }
     }
     const project = spawn(0, 'project', 'demo', undefined, { path: dir });
-    const projectTask = manager.spawnTask(null, project.pid, 'order');
+    const projectTask = manager.spawnTask(null, project.sid, 'order');
     const names = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(projectTask.id), null).data.available_child_templates.map((item) => item.name);
     expect(names).toEqual(['dev-task', 'research-task', 'generic-service', 'generic-task']);
@@ -533,8 +533,8 @@ describe('core', () => {
   });
 
   test('available child templates hide a singleton that is already taken', () => {
-    const names = (pid) => {
-      const task = manager.spawnTask(null, pid, 'names');
+    const names = (sid) => {
+      const task = manager.spawnTask(null, sid, 'names');
       const list = new ContextBuilder(manager.repository, manager.templates)
         .build(manager.repository.getTask(task.id), null).data.available_child_templates.map((item) => item.name);
       manager.cancelTask(task.id);
@@ -544,31 +544,31 @@ describe('core', () => {
     const taken = spawn(0, 'project-manager', 'pm');
     expect(names(0)).not.toContain('project-manager');
     expect(names(0)).toContain('generic-task');
-    manager.stop(taken.pid);
+    manager.stop(taken.sid);
     expect(names(0)).toContain('project-manager');
     const child = spawn(0, 'project-manager', 'pm2');
-    expect(names(child.pid)).toContain('generic-task');
-    expect(names(child.pid)).not.toContain('project-manager');
+    expect(names(child.sid)).toContain('generic-task');
+    expect(names(child.sid)).not.toContain('project-manager');
   });
 
   test('view has no command section and ignores legacy snapshot fields', () => {
     const child = spawn(0, 'generic-task', 'child');
-    const view = manager.view(child.pid, ['parent', 'children', 'prompt']);
-    expect(view.parent.pid).toBe(0);
+    const view = manager.view(child.sid, ['parent', 'children', 'prompt']);
+    expect(view.parent.sid).toBe(0);
     expect(view.children).toEqual([]);
     expect(view.call_prompt).toBe(manager.templates.get('generic-task').system_prompt);
-    expect(() => manager.view(child.pid, ['command'])).toThrow(LushError);
+    expect(() => manager.view(child.sid, ['command'])).toThrow(LushError);
   });
 
   test('startup backfills child_templates for snapshots written earlier', () => {
     const child = spawn(0, 'generic-task', 'child');
-    const snapshot = manager.repository.get(child.pid).template_snapshot;
+    const snapshot = manager.repository.get(child.sid).template_snapshot;
     delete snapshot.child_templates;
     delete snapshot.variables;
-    manager.repository.db.run('UPDATE processes SET template_snapshot=? WHERE pid=?',
-      [JSON.stringify(snapshot), child.pid]);
-    expect(manager.backfillTemplateSnapshots().filled).toEqual([child.pid]);
-    const filled = manager.repository.get(child.pid).template_snapshot;
+    manager.repository.db.run('UPDATE services SET template_snapshot=? WHERE sid=?',
+      [JSON.stringify(snapshot), child.sid]);
+    expect(manager.backfillTemplateSnapshots().filled).toEqual([child.sid]);
+    const filled = manager.repository.get(child.sid).template_snapshot;
     expect(filled.child_templates).toEqual(['*']);
     expect(manager.backfillTemplateSnapshots().filled).toEqual([]);
   });
@@ -646,26 +646,26 @@ describe('core', () => {
       mutable: { branch: 'dev' },
       declarations: { immutable: { path: { required: true } }, mutable: { branch: { default: 'main' } } },
     });
-    expect(manager.tree().find((row) => row.pid === project.pid).variables.mutable).toEqual({ branch: 'main' });
-    manager.updateState(project.pid, { progress: 'started' });
+    expect(manager.tree().find((row) => row.sid === project.sid).variables.mutable).toEqual({ branch: 'main' });
+    manager.updateState(project.sid, { progress: 'started' });
     expect(project.inspect().context.state)
       .toEqual({ params: { path: dir }, vars: { branch: 'main' }, progress: 'started' });
   });
 
   test('update_vars changes mutable variables only, and update_state cannot write them', () => {
     const project = spawn(0, 'project', 'p1', undefined, { path: dir });
-    expect(manager.updateVars(project.pid, { branch: 'dev' })).toEqual({ branch: 'dev' });
+    expect(manager.updateVars(project.sid, { branch: 'dev' })).toEqual({ branch: 'dev' });
     expect(project.inspect().variables.mutable).toEqual({ branch: 'dev' });
     for (const patch of [{ path: '/tmp' }, { nope: 1 }, {}, [], { branch: Number.NaN }]) {
-      expect(code(() => manager.updateVars(project.pid, patch))).toBe(-32602);
+      expect(code(() => manager.updateVars(project.sid, patch))).toBe(-32602);
     }
     for (const patch of [{ params: { path: '/tmp' } }, { vars: { branch: 'x' } }]) {
-      expect(code(() => manager.updateState(project.pid, patch))).toBe(-32602);
+      expect(code(() => manager.updateState(project.sid, patch))).toBe(-32602);
     }
     const plain = spawn(0, 'generic-task', 'plain');
-    expect(code(() => manager.updateVars(plain.pid, { branch: 'dev' }))).toBe(-32602);
-    manager.stop(plain.pid);
-    expect(code(() => manager.updateVars(plain.pid, { branch: 'dev' }))).toBe(-32009);
+    expect(code(() => manager.updateVars(plain.sid, { branch: 'dev' }))).toBe(-32602);
+    manager.stop(plain.sid);
+    expect(code(() => manager.updateVars(plain.sid, { branch: 'dev' }))).toBe(-32009);
   });
 
   test('template variables declaration is validated', () => {
@@ -717,7 +717,7 @@ describe('core', () => {
     expect(manager.templates.get('project').spawn_prompt).toContain('singleton=false');
   });
 
-  test('PID 0 routes work to project-manager instead of doing it itself', () => {
+  test('SID 0 routes work to project-manager instead of doing it itself', () => {
     const template = manager.templates.get('lush-root');
     expect(template.child_templates).toEqual(['project-manager']);
     for (const expected of [
@@ -725,14 +725,14 @@ describe('core', () => {
     ]) {
       expect(template.system_prompt).toContain(expected);
     }
-    expect(template.system_prompt).toContain('lush process orphans');
+    expect(template.system_prompt).toContain('lush service orphans');
   });
 
-  test('the shared guide teaches the process/task split on both backends', () => {
+  test('the shared guide teaches the service/task split on both backends', () => {
     for (const mode of ['tools', 'cli']) {
       const guide = agentGuide(mode);
       for (const expected of [
-        'Process', 'Task', 'task_spawn', 'task_wait', 'task_complete', 'task tree', '下游', '被动的节点',
+        'Service', 'Task', 'task_spawn', 'task_wait', 'task_complete', 'task tree', '下游', '被动的节点',
       ]) {
         expect(guide).toContain(expected);
       }
@@ -744,7 +744,7 @@ describe('core', () => {
     const project = spawn(0, 'project', 'demo', undefined, { path: dir });
     const failure = (() => {
       try {
-        spawn(project.pid, 'project', 'nested', undefined, { path: dir });
+        spawn(project.sid, 'project', 'nested', undefined, { path: dir });
       } catch (err) {
         return err;
       }
@@ -756,9 +756,9 @@ describe('core', () => {
       'dev-task', 'generic-task', 'research-task', 'generic-service',
     ]);
     const controller = spawn(0, 'project-manager', 'controller');
-    expect(spawn(controller.pid, 'project', 'opened', undefined, { path: dir }).inspect().template).toBe('project');
+    expect(spawn(controller.sid, 'project', 'opened', undefined, { path: dir }).inspect().template).toBe('project');
 
-    const task = manager.spawnTask(null, controller.pid, 'open the project');
+    const task = manager.spawnTask(null, controller.sid, 'open the project');
     const names = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(task.id), null).data.available_child_templates.map((item) => item.name);
     expect(names).toContain('project');
@@ -768,41 +768,41 @@ describe('core', () => {
   test('state, context isolation and validation', () => {
     const a = spawn(0, 'generic-task', 'a');
     const b = spawn(0, 'generic-task', 'b');
-    manager.updateState(a.pid, { x: 1, nested: { a: 1 } });
-    manager.updateState(a.pid, { nested: { b: 2 } });
+    manager.updateState(a.sid, { x: 1, nested: { a: 1 } });
+    manager.updateState(a.sid, { nested: { b: 2 } });
     expect(a.inspect().context.state).toEqual({ x: 1, nested: { b: 2 } });
     expect(b.inspect().context.state).toEqual({});
     const symbolPatch = { [Symbol('k')]: 'x' };
     for (const bad of [[], { x: Number.NaN }, symbolPatch]) {
-      expect(() => manager.updateState(a.pid, bad)).toThrow(LushError);
+      expect(() => manager.updateState(a.sid, bad)).toThrow(LushError);
     }
-    for (const pid of [true, -1, '1', 2 ** 64, null]) {
-      expect(() => manager.inspect(pid)).toThrow(LushError);
+    for (const sid of [true, -1, '1', 2 ** 64, null]) {
+      expect(() => manager.inspect(sid)).toThrow(LushError);
     }
   });
 
   test('restart recovers the tree and fails unfinished tasks', async () => {
     const parent = spawn(0, 'generic-service', 'parent');
-    const child = spawn(parent.pid, 'generic-task', 'child');
-    const task = manager.repository.createTask(child.pid, null, 'work');
+    const child = spawn(parent.sid, 'generic-task', 'child');
+    const task = manager.repository.createTask(child.sid, null, 'work');
     manager.updateTaskState(task.id, { progress: 'half' });
     let repo = manager.repository;
-    const callId = repo.beginCall(child.pid, task.id, 'work');
-    repo.addMessage(child.pid, task.id, callId, { role: 'user', content: 'work' });
+    const callId = repo.beginCall(child.sid, task.id, 'work');
+    repo.addMessage(child.sid, task.id, callId, { role: 'user', content: 'work' });
     await runtime.shutdown();
     db.close();
     ({ database: db, manager, runtime } = system(dir));
 
-    const info = manager.inspect(child.pid);
-    expect(info.parent_pid).toBe(parent.pid);
+    const info = manager.inspect(child.sid);
+    expect(info.parent_sid).toBe(parent.sid);
     expect(info.status).toBe('active');
     expect(info.context.state).toEqual({});
     expect(manager.repository.getTask(task.id)).toMatchObject({
       status: 'failed', error: 'daemon restarted', state: { progress: 'half' },
     });
-    expect(manager.repository.calls(child.pid)[0].status).toBe('interrupted');
+    expect(manager.repository.calls(child.sid)[0].status).toBe('interrupted');
     repo = manager.repository;
-    const next = repo.beginCall(child.pid, task.id, 'continue');
+    const next = repo.beginCall(child.sid, task.id, 'continue');
     expect(repo.conversation(task.id, next).length).toBeGreaterThan(0);
   });
 
@@ -819,7 +819,7 @@ describe('core', () => {
     }
   });
 
-  test('a v1 database migrates through v2 to the process/task schema', async () => {
+  test('a v1 database migrates through v2 to the service/task schema', async () => {
     const legacyDir = tmpdir('lush-migrate-');
     const legacy = new SQLite(path.join(legacyDir, 'lush.db'), { create: true });
     legacy.exec(`
@@ -886,17 +886,17 @@ describe('core', () => {
 
     const migrated = system(legacyDir);
     try {
-      expect(migrated.database.connection.query('PRAGMA user_version').get().user_version).toBe(3);
+      expect(migrated.database.connection.query('PRAGMA user_version').get().user_version).toBe(5);
       expect(migrated.database.connection.query('PRAGMA foreign_key_check').all()).toEqual([]);
       // v1 `running` / `completed` become `active`; v1 `cancelled` collapsed
       // into `stopped` on the way through v2, like v1 `stopped` does.
-      expect(migrated.manager.list().map((row) => [row.pid, row.status])).toEqual([
+      expect(migrated.manager.list().map((row) => [row.sid, row.status])).toEqual([
         [0, 'active'], [1, 'active'], [2, 'stopped'], [3, 'stopped'],
       ]);
       // The historical call became a root task with its output as the result.
       const adopted = migrated.manager.taskList(1);
       expect(adopted).toHaveLength(1);
-      expect(adopted[0]).toMatchObject({ status: 'completed', goal: 'old work', result: 'old output', pid: 1 });
+      expect(adopted[0]).toMatchObject({ status: 'completed', goal: 'old work', result: 'old output', sid: 1 });
       expect(migrated.manager.taskHistory(adopted[0].id).messages).toHaveLength(1);
       expect(migrated.manager.inspect(1).context.state).toEqual({ progress: 'half' });
       // The new schema allows work on any node, once it is started again.
@@ -952,8 +952,8 @@ describe('orphan supervision', () => {
     const built = system(directory, provider, {}, policy);
     permissiveRoot(built.manager);
     extras.push({ directory, database: built.database, runtime: built.runtime });
-    // Spawn a process and keep the PID handle, like the main describe does.
-    const spawn = (parent, template, name) => built.manager.load(built.manager.spawn(parent, template, name).pid);
+    // Spawn a service and keep the SID handle, like the main describe does.
+    const spawn = (parent, template, name) => built.manager.load(built.manager.spawn(parent, template, name).sid);
     return { ...built, spawn };
   }
 
@@ -968,17 +968,17 @@ describe('orphan supervision', () => {
 
   test('default policy adopts active children and reports the pool', () => {
     const parent = manager.spawn(0, 'generic-task', 'parent');
-    const live = manager.spawn(parent.pid, 'generic-service', 'live');
-    manager.stop(parent.pid);
+    const live = manager.spawn(parent.sid, 'generic-service', 'live');
+    manager.stop(parent.sid);
 
     const pool = manager.orphans();
     expect(pool.policy).toEqual({ adopt: 'adopt', limit: 0, ttl_seconds: 0, sweep_seconds: 30 });
     expect(pool.active_count).toBe(1);
-    expect(pool.orphans.map((orphan) => orphan.pid)).toEqual([live.pid]);
+    expect(pool.orphans.map((orphan) => orphan.sid)).toEqual([live.sid]);
     expect(pool.orphans[0]).toMatchObject({
       name: 'live',
       status: 'active',
-      original_parent_pid: parent.pid,
+      original_parent_sid: parent.sid,
       busy: false,
     });
     expect(manager.orphanPolicy).toEqual(DEFAULT_ORPHAN_POLICY);
@@ -989,11 +989,11 @@ describe('orphan supervision', () => {
   test("adopt mode 'none' leaves children under their stopped parent", () => {
     const { manager: strict, spawn } = policySystem({ adopt: 'none' });
     const parent = spawn(0, 'generic-task', 'parent');
-    const live = spawn(parent.pid, 'generic-service', 'live');
-    strict.stop(parent.pid);
+    const live = spawn(parent.sid, 'generic-service', 'live');
+    strict.stop(parent.sid);
 
     expect(live.inspect().status).toBe('active');
-    expect(live.inspect().parent_pid).toBe(parent.pid);
+    expect(live.inspect().parent_sid).toBe(parent.sid);
     expect(live.inspect().recent_events.map((event) => event.kind)).not.toContain('reparented');
     expect(strict.orphans().active_count).toBe(0);
   });
@@ -1001,10 +1001,10 @@ describe('orphan supervision', () => {
   test("adopt mode 'terminate' freezes direct children and walks the chain", () => {
     const { manager: strict, spawn } = policySystem({ adopt: 'terminate' });
     const parent = spawn(0, 'generic-task', 'parent');
-    const service = spawn(parent.pid, 'generic-service', 'service');
-    const task = spawn(parent.pid, 'generic-task', 'task');
-    const grandchild = spawn(service.pid, 'generic-task', 'grandchild');
-    strict.stop(parent.pid);
+    const service = spawn(parent.sid, 'generic-service', 'service');
+    const task = spawn(parent.sid, 'generic-task', 'task');
+    const grandchild = spawn(service.sid, 'generic-task', 'grandchild');
+    strict.stop(parent.sid);
 
     expect(service.inspect().status).toBe('stopped');
     expect(task.inspect().status).toBe('stopped');
@@ -1014,10 +1014,10 @@ describe('orphan supervision', () => {
     expect(strict.orphans().active_count).toBe(0);
   });
 
-  test('a stopped PID 0 never adopts or terminates its own children', () => {
+  test('a stopped SID 0 never adopts or terminates its own children', () => {
     const { manager: strict, spawn } = policySystem({ adopt: 'terminate' });
     const child = spawn(0, 'generic-service', 'child');
-    expect(child.inspect().original_parent_pid).toBe(0);
+    expect(child.inspect().original_parent_sid).toBe(0);
 
     strict.repository.transition(0, 'stopped', { adopt: true, terminate: true });
     expect(strict.repository.get(0).status).toBe('stopped');
@@ -1028,8 +1028,8 @@ describe('orphan supervision', () => {
   test('the limit freezes the oldest orphans, on adoption and on demand', () => {
     const { manager: strict, spawn } = policySystem({ limit: 1 });
     const parent = spawn(0, 'generic-task', 'parent');
-    const children = [1, 2, 3].map((index) => spawn(parent.pid, 'generic-service', `orphan-${index}`));
-    strict.stop(parent.pid);
+    const children = [1, 2, 3].map((index) => spawn(parent.sid, 'generic-service', `orphan-${index}`));
+    strict.stop(parent.sid);
 
     expect(strict.orphans().active_count).toBe(1);
     const stopped = children.filter((child) => child.inspect().status === 'stopped');
@@ -1043,11 +1043,11 @@ describe('orphan supervision', () => {
   test('eviction cancels the task an orphan was working on', () => {
     const { manager: strict, spawn } = policySystem({ ttlSeconds: 1 });
     const parent = spawn(0, 'generic-task', 'parent');
-    const busy = spawn(parent.pid, 'generic-task', 'busy');
+    const busy = spawn(parent.sid, 'generic-task', 'busy');
     // A task with no agent of its own: created directly, so it stays active.
-    const task = strict.repository.createTask(busy.pid, null, 'long work');
-    strict.stop(parent.pid);
-    const evicted = strict.orphanEvict(busy.pid, 'orphan_ttl');
+    const task = strict.repository.createTask(busy.sid, null, 'long work');
+    strict.stop(parent.sid);
+    const evicted = strict.orphanEvict(busy.sid, 'orphan_ttl');
     expect(strict.repository.getTask(task.id).status).toBe('cancelled');
     expect(evicted.status).toBe('stopped');
     expect(busy.inspect().status).toBe('stopped');
@@ -1059,12 +1059,12 @@ describe('orphan supervision', () => {
     // frozen, so the pass reports them as deferred instead of forcing it.
     const slow = policySystem({ limit: 1 }, new SlowProvider(400));
     const parent = slow.spawn(0, 'generic-task', 'parent');
-    const first = slow.spawn(parent.pid, 'generic-service', 'first');
-    const second = slow.spawn(parent.pid, 'generic-service', 'second');
-    slow.manager.spawnTask(null, first.pid, 'long work');
-    slow.manager.spawnTask(null, second.pid, 'long work');
-    expect(slow.manager.runtime.isBusy(first.pid)).toBe(true);
-    slow.manager.stop(parent.pid);
+    const first = slow.spawn(parent.sid, 'generic-service', 'first');
+    const second = slow.spawn(parent.sid, 'generic-service', 'second');
+    slow.manager.spawnTask(null, first.sid, 'long work');
+    slow.manager.spawnTask(null, second.sid, 'long work');
+    expect(slow.manager.runtime.isBusy(first.sid)).toBe(true);
+    slow.manager.stop(parent.sid);
     expect(slow.manager.orphans().active_count).toBe(2);
     expect(first.inspect().status).toBe('active');
     expect(second.inspect().status).toBe('active');
@@ -1076,19 +1076,19 @@ describe('orphan supervision', () => {
   test('orphans() is a read model with busy, idle and limit arithmetic', () => {
     const { manager: strict, spawn } = policySystem({ limit: 0, ttlSeconds: 60 });
     const parent = spawn(0, 'generic-task', 'parent');
-    const live = spawn(parent.pid, 'generic-service', 'live');
-    strict.stop(parent.pid);
-    strict.repository.db.run('UPDATE processes SET updated_at=? WHERE pid=?',
-      ['2020-01-01T00:00:00.000Z', live.pid]);
+    const live = spawn(parent.sid, 'generic-service', 'live');
+    strict.stop(parent.sid);
+    strict.repository.db.run('UPDATE services SET updated_at=? WHERE sid=?',
+      ['2020-01-01T00:00:00.000Z', live.sid]);
     const pool = strict.orphans();
     expect(pool.orphans[0].idle_seconds).toBeGreaterThan(1000);
     expect(pool.over_limit).toBe(0);
     expect(pool.busy_count).toBe(0);
     const report = strict.superviseOrphans('manual');
     expect(report.ttl_seconds).toBe(60);
-    expect(report.evicted.map((item) => item.pid)).toEqual([live.pid]);
+    expect(report.evicted.map((item) => item.sid)).toEqual([live.sid]);
     expect(code(() => strict.superviseOrphans('never'))).toBe(-32602);
-    expect(code(() => strict.orphanEvict(live.pid, ''))).toBe(-32602);
+    expect(code(() => strict.orphanEvict(live.sid, ''))).toBe(-32602);
   });
 
   test('normalizeOrphanPolicy fills defaults and rejects invalid values', () => {
@@ -1103,7 +1103,7 @@ describe('orphan supervision', () => {
   });
 });
 
-describe('PID 0 creation lockdown', () => {
+describe('SID 0 creation lockdown', () => {
   let dir;
   let db;
   let manager;
@@ -1124,13 +1124,13 @@ describe('PID 0 creation lockdown', () => {
     cleanup(dir);
   });
 
-  test('PID 0 may only create project-manager', () => {
+  test('SID 0 may only create project-manager', () => {
     expect(manager.templates.get('lush-root').child_templates).toEqual(['project-manager']);
     expect(manager.spawn(0, 'project-manager', 'pm').template).toBe('project-manager');
     expect(() => manager.spawn(0, 'generic-task', 'nope')).toThrow(/cannot create template generic-task/);
   });
 
-  test('PID 0 advertises exactly project-manager, and user templates are no exception', () => {
+  test('SID 0 advertises exactly project-manager, and user templates are no exception', () => {
     const task = manager.spawnTask(null, 0, 'what can you create?');
     const names = new ContextBuilder(manager.repository, manager.templates)
       .build(manager.repository.getTask(task.id), null).data.available_child_templates.map((item) => item.name);
@@ -1147,7 +1147,7 @@ describe('PID 0 creation lockdown', () => {
     expect(scoped.data.available_child_templates.map((item) => item.name)).toEqual(['project-manager']);
   });
 
-  test('refreshRootTemplate restores drift, is idempotent and only touches PID 0', () => {
+  test('refreshRootTemplate restores drift, is idempotent and only touches SID 0', () => {
     const task = manager.spawnTask(null, 0, 'drift');
     manager.repository.replaceSnapshot(0, { ...manager.templates.get('generic-task'), name: 'drifted' });
     manager.cancelTask(task.id);
@@ -1170,7 +1170,7 @@ describe('PID 0 creation lockdown', () => {
     }
   });
 
-  test('refreshRootTemplate makes an edited lush-root prompt reach the agent, PID 0 only', async () => {
+  test('refreshRootTemplate makes an edited lush-root prompt reach the agent, SID 0 only', async () => {
     const edited = `${manager.templates.get('lush-root').system_prompt}\nEDITED-MARKER`;
     manager.templates.templates['lush-root'] = { ...manager.templates.get('lush-root'), system_prompt: edited };
     manager.refreshRootTemplate();

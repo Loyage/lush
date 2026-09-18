@@ -1,7 +1,7 @@
 /**
- * Which provider answers for which process.
+ * Which provider answers for which service.
  *
- * The catalog is the one place that turns "a process selected agent X" into a
+ * The catalog is the one place that turns "a service selected agent X" into a
  * live provider: it reads the profile from disk *at that moment* (so editing
  * `$LUSH_HOME/agents/<name>.json` takes effect on the next call, no daemon
  * restart), resolves it against the environment, and builds (or reuses) the
@@ -24,11 +24,11 @@ import { OpenAICompatibleProvider } from './openai.js';
 export function previewInvocation() {
   return {
     task_id: 0,
-    pid: 0,
+    sid: 0,
     prompt: '<PROMPT>',
     system_prompt: '<SYSTEM_PROMPT>',
     guide: '<LUSH_GUIDE>',
-    context: { process: { pid: 0, name: '<PROCESS>' } },
+    context: { service: { sid: 0, name: '<SERVICE>' } },
     cwd: null,
   };
 }
@@ -84,7 +84,7 @@ export class AgentCatalog {
   preview(spec) {
     if (spec.provider !== 'pi') {
       throw new LushError(
-        `agent ${spec.name} runs in-process (${spec.provider}); there is no external command line`,
+        `agent ${spec.name} runs in-service (${spec.provider}); there is no external command line`,
         -32020,
       );
     }

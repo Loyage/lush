@@ -4,7 +4,7 @@ import { Config } from '../config.js';
 import { AgentRuntime } from '../agent/runtime.js';
 import { AgentCatalog } from '../agent/catalog.js';
 import { ContextBuilder } from '../context/builder.js';
-import { ProcessManager } from '../core/process_manager.js';
+import { ServiceManager } from '../core/service_manager.js';
 import { DaemonLock } from './locking.js';
 import { Database } from '../persistence/database.js';
 import { Repository } from '../persistence/repository.js';
@@ -47,24 +47,24 @@ export async function serve(config) {
     const provider = catalog.defaultProvider();
     database = new Database(path.join(config.home, 'lush.db'));
     repository = new Repository(database);
-    const manager = new ProcessManager(repository, templates, config.orphanPolicy);
+    const manager = new ServiceManager(repository, templates, config.orphanPolicy);
     manager.agentCatalog = catalog;
     manager.ensureRoot();
-    // PID 0 is the only process whose snapshot tracks the loaded template: the
+    // SID 0 is the only service whose snapshot tracks the loaded template: the
     // root whitelist is whatever `lush-root` currently says, once per start.
     const rootTemplate = manager.refreshRootTemplate();
     if (rootTemplate.missing) {
-      log.warn('lush-root template is not loaded; PID 0 keeps its stored snapshot');
+      log.warn('lush-root template is not loaded; SID 0 keeps its stored snapshot');
     } else if (rootTemplate.changed.length) {
-      log.info(`refreshed PID 0 template snapshot: ${rootTemplate.changed.join(', ')}`);
+      log.info(`refreshed SID 0 template snapshot: ${rootTemplate.changed.join(', ')}`);
     }
     repository.recover();
     const backfill = manager.backfillTemplateSnapshots();
     if (backfill.filled.length) {
-      log.info(`backfilled template snapshot fields for PIDs ${backfill.filled.join(', ')}`);
+      log.info(`backfilled template snapshot fields for SIDs ${backfill.filled.join(', ')}`);
     }
     if (backfill.unknown_template.length) {
-      log.warn(`cannot backfill PIDs whose template is not loaded: ${backfill.unknown_template.join(', ')}`);
+      log.warn(`cannot backfill SIDs whose template is not loaded: ${backfill.unknown_template.join(', ')}`);
     }
     runtime = new AgentRuntime(manager, provider,
       new ContextBuilder(repository, templates, { agentMode: provider.contextMode ?? 'tools' }), {
@@ -83,8 +83,8 @@ export async function serve(config) {
         try {
           const report = manager.superviseOrphans('timer');
           if (report.evicted.length) {
-            const detail = report.evicted.map((item) => `${item.pid} (${item.reason})`).join(', ');
-            log.info(`orphan supervision evicted PIDs ${detail}`);
+            const detail = report.evicted.map((item) => `${item.sid} (${item.reason})`).join(', ');
+            log.info(`orphan supervision evicted SIDs ${detail}`);
           }
         } catch (err) {
           log.warn(`orphan supervision failed: ${err?.message ?? err}`);

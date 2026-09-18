@@ -3,7 +3,7 @@
  * delegation tree, one task's inspect block, its result, the `call` outcome and
  * the task-removal one-liner.
  *
- * `taskLine` is exported because the process side reuses it: a process's
+ * `taskLine` is exported because the service side reuses it: a service's
  * `inspect` lists the tasks mounted on it with exactly this line.
  */
 import {
@@ -11,18 +11,18 @@ import {
 } from '../primitives.js';
 
 /** One task line: `#12 project[3] running · goal`. Shared by list and inspect. */
-export function taskLine(task, processName = null) {
-  const where = processName === null ? `pid ${task.pid}` : `${processName}[${task.pid}]`;
+export function taskLine(task, serviceName = null) {
+  const where = serviceName === null ? `sid ${task.sid}` : `${serviceName}[${task.sid}]`;
   return `#${task.id} ${where} ${task.status} · ${shortValue(task.goal, 60)}`;
 }
 
 /** `lush task list` text output: fixed-width columns, one row per task. */
 export function formatTaskList(result) {
-  const table = [['ID', 'PID', 'PARENT', 'STATUS', 'GOAL', 'RESULT']];
+  const table = [['ID', 'SID', 'PARENT', 'STATUS', 'GOAL', 'RESULT']];
   for (const task of result) {
     table.push([
       `#${task.id}`,
-      String(task.pid),
+      String(task.sid),
       task.parent_task_id === null ? '-' : `#${task.parent_task_id}`,
       task.status,
       shortValue(task.goal, 60),
@@ -36,13 +36,13 @@ export function formatTaskList(result) {
 /**
  * `lush task tree` text output: the task and everything it delegated, one
  * branch per child task. This is the view of "how one piece of work was solved
- * by cooperation between processes".
+ * by cooperation between services".
  */
-export function formatTaskTree(node, processName = null) {
+export function formatTaskTree(node, serviceName = null) {
   const lines = [];
   const walk = (task, prefix, branch) => {
-    const name = task.process_name ?? processName;
-    const where = name === null || name === undefined ? `pid ${task.pid}` : `${name}[${task.pid}]`;
+    const name = task.service_name ?? serviceName;
+    const where = name === null || name === undefined ? `sid ${task.sid}` : `${name}[${task.sid}]`;
     const result = task.result === null || task.result === undefined ? '' : ` → ${shortValue(task.result, 50)}`;
     const error = task.status === 'failed' || task.status === 'cancelled'
       ? ` (${shortValue(task.error ?? task.status, 50)})`
@@ -59,16 +59,16 @@ export function formatTaskTree(node, processName = null) {
 }
 
 /**
- * `lush task inspect` text output: the task summary, the process it is mounted
+ * `lush task inspect` text output: the task summary, the service it is mounted
  * on, its child tasks, then calls and events. The task's own scratch state is a
  * block, not a table cell.
  */
 export function formatTaskInspect(result) {
   const {
-    recent_calls = [], recent_events = [], child_tasks = [], process = null, state, ...task
+    recent_calls = [], recent_events = [], child_tasks = [], service = null, state, ...task
   } = result;
   const rows = [
-    ['process', process === null ? `pid ${task.pid}` : `${process.name}[${process.pid}] · ${process.template} · ${process.status}`],
+    ['service', service === null ? `sid ${task.sid}` : `${service.name}[${service.sid}] · ${service.template} · ${service.status}`],
     ['parent task', task.parent_task_id === null ? '-' : `#${task.parent_task_id}`],
     ['root task', `#${task.root_task_id}`],
     ['goal', task.goal],
@@ -77,7 +77,7 @@ export function formatTaskInspect(result) {
     ['finished', task.finished_at === null ? '-' : stamp(task.finished_at)],
   ];
   if (task.error !== null && task.error !== undefined) rows.push(['error', task.error]);
-  const lines = [taskMetadataTitle(task, process?.name ?? null), ...alignRows(rows).map((row) => `  ${row}`)];
+  const lines = [taskMetadataTitle(task, service?.name ?? null), ...alignRows(rows).map((row) => `  ${row}`)];
 
   if (task.result !== null && task.result !== undefined) {
     lines.push('', 'result', ...indentLines(excerpt(String(task.result), 4000), 1));
@@ -140,9 +140,9 @@ export function formatTaskResult(result) {
  */
 export function formatCall(result) {
   const task = result.task ?? result;
-  const where = result.process === undefined || result.process === null
-    ? `pid ${task.pid}`
-    : `${result.process.name}[${task.pid}]`;
+  const where = result.service === undefined || result.service === null
+    ? `sid ${task.sid}`
+    : `${result.service.name}[${task.sid}]`;
   const head = `task #${task.id} ${where} ${task.status}`;
   const lines = [head];
   if (task.error !== null && task.error !== undefined) lines.push(`error: ${excerpt(String(task.error), 4000)}`);

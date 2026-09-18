@@ -10,8 +10,8 @@ import { agentShow, agentSummary, agentsKill, agentsList } from '../agent_space.
 import { describe, session } from '../invocation.js';
 
 export const space = {
-  agentsList({ taskId = null, pid = null, all = false } = {}) {
-    return agentsList(this, { taskId, pid, all });
+  agentsList({ taskId = null, sid = null, all = false } = {}) {
+    return agentsList(this, { taskId, sid, all });
   },
 
   agentShow(id) {
@@ -22,8 +22,8 @@ export const space = {
     return agentsKill(this, id);
   },
 
-  agentSummary(pid, profile = undefined) {
-    return agentSummary(this, pid, profile);
+  agentSummary(sid, profile = undefined) {
+    return agentSummary(this, sid, profile);
   },
 
   describe(taskId, prompt = null) {

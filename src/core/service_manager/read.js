@@ -1,9 +1,9 @@
 /**
- * The node layer: PID 0's own setup, the process read models, and the two
- * variable verbs. Everything here treats a process as a *record* — identity,
+ * The node layer: SID 0's own setup, the service read models, and the two
+ * variable verbs. Everything here treats a service as a *record* — identity,
  * snapshot, Context, state — never as something that runs.
  *
- * Exported as a method group: `index.js` merges it into `ProcessManager`.
+ * Exported as a method group: `index.js` merges it into `ServiceManager`.
  */
 import { VIEW_SECTIONS } from '../types.js';
 import { checkWorkdir, spawnVariables, updateState, updateVars } from '../variables.js';
@@ -14,14 +14,14 @@ import {
 export const read = {
   ensureRoot() {
     if (!this.repository.exists(0)) {
-      this.repository.create(null, this.templates.get('lush-root'), 'lush', '管理 Lush 进程与收养孤儿进程', { root: true });
+      this.repository.create(null, this.templates.get('lush-root'), 'lush', '管理 Lush 服务与收养孤儿服务', { root: true });
     }
   },
 
   /**
-   * PID 0 is the one exception to "snapshots are creation-time": its permissions
+   * SID 0 is the one exception to "snapshots are creation-time": its permissions
    * and prompt follow the currently loaded `lush-root` template, refreshed once
-   * per daemon start. Only PID 0 — every other process keeps its snapshot.
+   * per daemon start. Only SID 0 — every other service keeps its snapshot.
    */
   refreshRootTemplate() {
     if (!this.repository.exists(0)) return { refreshed: false, changed: [], missing: false };
@@ -40,10 +40,10 @@ export const read = {
     return { refreshed: changed.length > 0, changed, missing: false };
   },
 
-  // ── Process read models (see queries.js) ────────────────────────────────
+  // ── Service read models (see queries.js) ────────────────────────────────
 
-  load(pid) {
-    return load(this, pid);
+  load(sid) {
+    return load(this, sid);
   },
 
   list() {
@@ -54,32 +54,32 @@ export const read = {
     return tree(this, agents);
   },
 
-  inspect(pid) {
-    return inspect(this, pid);
+  inspect(sid) {
+    return inspect(this, sid);
   },
 
-  parent(pid) {
-    return parent(this, pid);
+  parent(sid) {
+    return parent(this, sid);
   },
 
-  children(pid) {
-    return children(this, pid);
+  children(sid) {
+    return children(this, sid);
   },
 
-  view(pid, sections = VIEW_SECTIONS) {
-    return view(this, pid, sections);
+  view(sid, sections = VIEW_SECTIONS) {
+    return view(this, sid, sections);
   },
 
   backfillTemplateSnapshots() {
     return backfillTemplateSnapshots(this);
   },
 
-  /** The read every mutating verb starts with: the process must be active. */
-  requireActive(pid) {
-    return requireActive(this, pid);
+  /** The read every mutating verb starts with: the service must be active. */
+  requireActive(sid) {
+    return requireActive(this, sid);
   },
 
-  // ── Variables and process state (see variables.js) ─────────────────────────
+  // ── Variables and service state (see variables.js) ─────────────────────────
 
   spawnVariables(template, variables) {
     return spawnVariables(template, variables);
@@ -89,11 +89,11 @@ export const read = {
     return checkWorkdir(value);
   },
 
-  updateState(pid, patch) {
-    return updateState(this, pid, patch);
+  updateState(sid, patch) {
+    return updateState(this, sid, patch);
   },
 
-  updateVars(pid, patch) {
-    return updateVars(this, pid, patch);
+  updateVars(sid, patch) {
+    return updateVars(this, sid, patch);
   },
 };

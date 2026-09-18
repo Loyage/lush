@@ -11,10 +11,10 @@ import { alignRows, duration, indentLines, stamp } from '../primitives.js';
 
 /** `lush task agents show AGENT_ID`: runtime facts, on-disk session, durable call. */
 export function formatAgent(result) {
-  const mode = result.interactive ? 'tty' : result.os_pid === null ? 'in-process' : 'pipe';
+  const mode = result.interactive ? 'tty' : result.os_pid === null ? 'in-service' : 'pipe';
   const rows = [
     ['task', `#${result.task_id}${result.task_status === null ? '' : ` (${result.task_status})`}`],
-    ['pid', `${result.pid}${result.name === null ? '' : ` (${result.name})`}`],
+    ['sid', `${result.sid}${result.name === null ? '' : ` (${result.name})`}`],
     ['provider', result.provider],
     ['status', result.status],
     ['call', `#${result.call_id}`],
@@ -48,10 +48,10 @@ export function formatAgent(result) {
 /** `lush task agents list` text output: one row per live (or kept) worker. */
 export function formatAgents(rows) {
   if (rows.length === 0) return 'no running agents';
-  const table = [['AGENT', 'TASK', 'PID', 'NAME', 'PROVIDER', 'STATUS', 'CALL', 'OS-PID', 'ELAPSED', 'MODE']];
+  const table = [['AGENT', 'TASK', 'SID', 'NAME', 'PROVIDER', 'STATUS', 'CALL', 'OS-SID', 'ELAPSED', 'MODE']];
   for (const agent of rows) {
-    const mode = agent.interactive ? 'tty' : agent.os_pid === null ? 'in-process' : 'pipe';
-    table.push([agent.id, `#${agent.task_id}`, String(agent.pid), agent.name, agent.provider, agent.status,
+    const mode = agent.interactive ? 'tty' : agent.os_pid === null ? 'in-service' : 'pipe';
+    table.push([agent.id, `#${agent.task_id}`, String(agent.sid), agent.name, agent.provider, agent.status,
       String(agent.call_id), agent.os_pid === null ? '-' : String(agent.os_pid), duration(agent.elapsed_ms), mode]);
   }
   const width = table[0].map((_column, index) => Math.max(...table.map((row) => row[index].length)));
@@ -65,22 +65,22 @@ export function formatAgentKill(result) {
   if (result.outcome === 'gone') {
     return `killed ${who} (os ${result.os_pid} was already gone; call interrupted)`;
   }
-  // No OS pid: either an in-process provider (the abort settles it right here)
+  // No OS PID: either an in-service provider (the abort settles it right here)
   // or an interactive agent whose terminal has not reported its pi yet.
   if (result.interactive) {
-    return `cancellation requested for ${who} (no OS pid reported yet; its terminal still owns that pi)`;
+    return `cancellation requested for ${who} (no OS PID reported yet; its terminal still owns that pi)`;
   }
-  return `killed ${who} (in-process provider; call interrupted)`;
+  return `killed ${who} (in-service provider; call interrupted)`;
 }
 
 /** `lush task session` text output: where the agent session lives and how to open it. */
 export function formatSession(result) {
   if (result.agent !== 'pi' || result.session_dir === null) {
-    return `# agent ${result.agent} runs in-process; no external session to inspect.`;
+    return `# agent ${result.agent} runs in-service; no external session to inspect.`;
   }
   const rows = [
     ['task', `#${result.task_id} (${result.task_status})`],
-    ['process', `${result.name}[${result.pid}]`],
+    ['service', `${result.name}[${result.sid}]`],
     ['agent', result.agent],
     ['profile', result.profile ?? 'default'],
     ['session-dir', result.session_dir],
@@ -109,7 +109,7 @@ export function formatRun(result) {
 /** `lush call --dry-run` text output: the runnable command, or what would be sent. */
 export function formatDryRun(result) {
   if (typeof result.command !== 'string') {
-    return `# agent ${result.agent} runs in-process; no external command. Use --json for the invocation details.`;
+    return `# agent ${result.agent} runs in-service; no external command. Use --json for the invocation details.`;
   }
   return formatRun(result);
 }

@@ -63,14 +63,14 @@ export function profileArgs(provider) {
 
 /** Session flags + agent identity, shared by `call`, `preview` and `sessionInfo`. */
 export function identityArgs(provider, invocation, { name = null } = {}) {
-  const pid = invocation.pid;
+  const sid = invocation.sid;
   const taskId = invocation.task_id;
-  const processName = invocation.context?.process?.name ?? 'process';
+  const serviceName = invocation.context?.service?.name ?? 'service';
   const args = [
     ...profileArgs(provider),
     '--session-dir', provider.sessionDir,
     '--session-id', provider.sessionId(taskId),
-    '--name', name ?? `${processName}[${pid}]#${taskId ?? 'preview'}`,
+    '--name', name ?? `${serviceName}[${sid}]#${taskId ?? 'preview'}`,
     '--system-prompt', invocation.system_prompt,
     '--append-system-prompt', invocation.guide,
     '--append-system-prompt', lushContextMessage(invocation.context),
@@ -122,7 +122,7 @@ export function preview(provider, invocation, { interactive = false } = {}) {
     cwd: invocation.cwd ?? provider.home,
     env: {
       LUSH_HOME: provider.home,
-      LUSH_PID: String(invocation.pid),
+      LUSH_SID: String(invocation.sid),
       LUSH_TASK_ID: invocation.task_id === null || invocation.task_id === undefined
         ? ''
         : String(invocation.task_id),
@@ -159,7 +159,7 @@ export function sessionInfo(provider, invocation) {
     cwd: invocation.cwd ?? provider.home,
     env: {
       LUSH_HOME: provider.home,
-      LUSH_PID: String(invocation.pid),
+      LUSH_SID: String(invocation.sid),
       LUSH_TASK_ID: String(invocation.task_id),
     },
     path_prefix: LUSH_BIN_DIR,

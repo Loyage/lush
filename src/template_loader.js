@@ -11,9 +11,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const BUILTIN_DIR = path.join(HERE, '..', 'templates');
 
 /**
- * The exact template key set. A template describes one kind of **process** (a
+ * The exact template key set. A template describes one kind of **service** (a
  * passive node: identity, permissions, variables); `singleton` limits creation to
- * one active instance per parent PID,
+ * one active instance per parent SID,
  * `spawn_prompt` tells a creating agent how to spawn this template and which
  * variables it needs, `system_prompt` becomes the instance Call prompt,
  * `child_templates` is the creation-time whitelist of spawnable templates (each
@@ -26,7 +26,7 @@ export const REQUIRED_FIELDS = ['name', 'singleton', 'description', 'spawn_promp
 
 /**
  * Optional template fields. `agent` names the agent profile a spawned instance
- * uses; `lush process spawn --agent <name>` overrides it. Every other extra key
+ * uses; `lush service spawn --agent <name>` overrides it. Every other extra key
  * stays an error, so a typo in a template still fails loudly.
  */
 export const OPTIONAL_FIELDS = ['agent'];
@@ -34,16 +34,16 @@ export const OPTIONAL_FIELDS = ['agent'];
 const VARIABLE_FIELDS = ['required', 'default', 'description', ...VARIABLE_CONSTRAINT_FIELDS];
 
 /**
- * A template's variables are its initial values for a new process, declared in
+ * A template's variables are its initial values for a new service, declared in
  * the two mutability groups that also decide where values are stored:
  * `immutable` (`state.params`) is fixed at creation, `mutable` (`state.vars`)
  * can be changed afterwards. Each declaration carries only what the creating
- * agent and the process itself must know: whether the value is required, its
+ * agent and the service itself must know: whether the value is required, its
  * default, what it means, and the format constraints (`pattern` /
  * `max_length` / `single_line`) that make the value renderable and usable.
  * Two names are reserved and have a contract beyond their own template:
  * `path` keeps its working-directory meaning, so it may not be declared
- * mutable, and `name` is the process name, so it may not be either.
+ * mutable, and `name` is the service name, so it may not be either.
  */
 function checkVariables(value, templateName) {
   if (!isPlainObject(value)) {

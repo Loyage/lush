@@ -27,7 +27,7 @@ export class AgentResponse {
 
 /**
  * The fallback-tier provider: environment variables over the built-in `default`
- * profile (pi with the pure flag set). A process that selects its own agent
+ * profile (pi with the pure flag set). A service that selects its own agent
  * profile goes through `AgentCatalog` instead; see `catalog.js`.
  *
  * `profile` accepts an already resolved spec (`AgentCatalog.spec`), which is how

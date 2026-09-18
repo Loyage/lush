@@ -1,14 +1,14 @@
 /**
- * The agent layer: which backend answers for a process, and the forwarding of
+ * The agent layer: which backend answers for a service, and the forwarding of
  * the agent verbs (`agents list / show / kill`, `call`, `session`) to the bound
  * runtime.
  *
  * Profiles are resolved *now*, not at spawn time: editing a file under
  * `$LUSH_HOME/agents/` takes effect on the next task, without a daemon restart.
- * The one exception is the *name* a process selected, which is recorded at
+ * The one exception is the *name* a service selected, which is recorded at
  * creation and stays visible even if the profile is later deleted.
  *
- * Exported as a method group: `index.js` merges it into `ProcessManager`.
+ * Exported as a method group: `index.js` merges it into `ServiceManager`.
  */
 import { LushError } from '../types.js';
 import { checkAgentName, DEFAULT_AGENT_NAME } from '../../agent/profiles.js';
@@ -19,7 +19,7 @@ import {
 
 export const agents = {
   /**
-   * Which agent profile a new process uses: `--agent` wins over the template's
+   * Which agent profile a new service uses: `--agent` wins over the template's
    * optional `agent` field, and both are validated here (name syntax, and that
    * the profile exists when a catalog is bound) so a typo fails at creation
    * time instead of at the first task.
@@ -38,28 +38,28 @@ export const agents = {
     return name;
   },
 
-  // ── Which agent answers for one process (see agent/catalog.js) ───────────
+  // ── Which agent answers for one service (see agent/catalog.js) ───────────
 
-  /** The profile name a process selected at spawn time (`state.agent`), or null. */
-  selectedAgent(pid) {
-    return this.repository.stateAgent(pid);
+  /** The profile name a service selected at spawn time (`state.agent`), or null. */
+  selectedAgent(sid) {
+    return this.repository.stateAgent(sid);
   },
 
-  /** The profile name to show for a process: its explicit choice, or `default`. */
-  agentProfileName(pid, selected = undefined) {
-    return (selected === undefined ? this.selectedAgent(pid) : selected) ?? DEFAULT_AGENT_NAME;
+  /** The profile name to show for a service: its explicit choice, or `default`. */
+  agentProfileName(sid, selected = undefined) {
+    return (selected === undefined ? this.selectedAgent(sid) : selected) ?? DEFAULT_AGENT_NAME;
   },
 
   /**
-   * The provider *name* of one process without building a provider, so
-   * `process tree` / `inspect` stay cheap. `selected` lets a caller that already
-   * decoded the process row skip the extra state read. A profile that no longer
+   * The provider *name* of one service without building a provider, so
+   * `service tree` / `inspect` stay cheap. `selected` lets a caller that already
+   * decoded the service row skip the extra state read. A profile that no longer
    * resolves (file deleted by hand) must not break the read models: the recorded
    * name stays visible and the failure is reported separately by
    * `agentProfileError`.
    */
-  agentProviderName(pid, selected = undefined) {
-    const name = selected === undefined ? this.selectedAgent(pid) : selected;
+  agentProviderName(sid, selected = undefined) {
+    const name = selected === undefined ? this.selectedAgent(sid) : selected;
     if (name === null || this.agentCatalog === null || this.runtime === null) {
       return this.runtime === null ? 'unbound' : this.runtime.provider.name;
     }
@@ -70,9 +70,9 @@ export const agents = {
     }
   },
 
-  /** Why a process's selected agent profile cannot be resolved, or null. */
-  agentProfileError(pid, selected = undefined) {
-    const name = selected === undefined ? this.selectedAgent(pid) : selected;
+  /** Why a service's selected agent profile cannot be resolved, or null. */
+  agentProfileError(sid, selected = undefined) {
+    const name = selected === undefined ? this.selectedAgent(sid) : selected;
     if (name === null || this.agentCatalog === null) return null;
     try {
       this.agentCatalog.spec(name);
@@ -83,26 +83,26 @@ export const agents = {
   },
 
   /**
-   * The provider of one process. A process that selected no agent uses the
+   * The provider of one service. A service that selected no agent uses the
    * daemon's fallback provider (environment over the built-in default); an
    * explicit choice is resolved from `$LUSH_HOME/agents/` *now*, so editing a
    * profile takes effect on the next task without restarting the daemon.
    */
-  agentProvider(pid) {
-    const name = this.selectedAgent(pid);
+  agentProvider(sid) {
+    const name = this.selectedAgent(sid);
     if (name === null || this.agentCatalog === null) return this.runtime.provider;
     return this.agentCatalog.provider(this.agentCatalog.spec(name));
   },
 
   // ── Agents, forwarded to the bound runtime (see agent_calls.js) ────────────
 
-  agentInfo(pid) {
-    return agentInfo(this, pid);
+  agentInfo(sid) {
+    return agentInfo(this, sid);
   },
 
-  /** Positional like the wire signature: `agents_list {task_id, pid, all}`. */
-  agentsList(taskId = null, pid = null, all = false) {
-    return agentsList(this, { taskId, pid, all });
+  /** Positional like the wire signature: `agents_list {task_id, sid, all}`. */
+  agentsList(taskId = null, sid = null, all = false) {
+    return agentsList(this, { taskId, sid, all });
   },
 
   agentShow(id) {
@@ -123,15 +123,15 @@ export const agents = {
 
   // `call` is async like the original method: a rejected argument must be a
   // rejected promise, not a synchronous throw. Positional for the wire
-  // signature (`call {pid, goal, detach, interactive}`).
-  async call(pid, goal, detach = false, interactive = false) {
-    return runtimeCall(this, pid, goal, { detach, interactive });
+  // signature (`call {sid, goal, detach, interactive}`).
+  async call(sid, goal, detach = false, interactive = false) {
+    return runtimeCall(this, sid, goal, { detach, interactive });
   },
 
   // Async like `call`: a rejected argument must be a rejected promise, not a
   // synchronous throw.
-  async callDescribe(pid, prompt) {
-    return describe(this, pid, prompt);
+  async callDescribe(sid, prompt) {
+    return describe(this, sid, prompt);
   },
 
   session(taskId) {

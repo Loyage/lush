@@ -7,9 +7,9 @@
 import * as tasks from '../repository_tasks.js';
 
 export const taskMethods = {
-  /** `createTask` opens a unit of work on one process; the root task is its own root. */
-  createTask(pid, parentTaskId, goal, options) {
-    return tasks.createTask(this, pid, parentTaskId, goal, options);
+  /** `createTask` opens a unit of work on one service; the root task is its own root. */
+  createTask(sid, parentTaskId, goal, options) {
+    return tasks.createTask(this, sid, parentTaskId, goal, options);
   },
 
   getTask(taskId) {
@@ -24,8 +24,8 @@ export const taskMethods = {
     return tasks.listTasks(this, options);
   },
 
-  tasksOfProcess(pid) {
-    return tasks.tasksOfProcess(this, pid);
+  tasksOfService(sid) {
+    return tasks.tasksOfService(this, sid);
   },
 
   childTasks(taskId) {
@@ -36,8 +36,8 @@ export const taskMethods = {
     return tasks.activeTasks(this, options);
   },
 
-  activeTaskOfProcess(pid) {
-    return tasks.activeTaskOfProcess(this, pid);
+  activeTaskOfService(sid) {
+    return tasks.activeTaskOfService(this, sid);
   },
 
   transitionTask(taskId, target, options) {
@@ -72,7 +72,7 @@ export const taskMethods = {
     return tasks.deleteTaskRows(this, taskIds);
   },
 
-  detachProcessTasks(pids) {
-    return tasks.detachProcessTasks(this, pids);
+  detachServiceTasks(sids) {
+    return tasks.detachServiceTasks(this, sids);
   },
 };

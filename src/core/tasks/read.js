@@ -3,17 +3,17 @@
  * / inspect models, and the two operations that only touch a finished task's
  * own rows (state patch, delete).
  *
- * Read models are deliberately cheap: a task row plus the process it is
+ * Read models are deliberately cheap: a task row plus the service it is
  * mounted on, never the whole task tree unless `tree` was asked.
  */
-import { LushError, isPlainObject, jsonDump, validPid } from '../types.js';
+import { LushError, isPlainObject, jsonDump, validSid } from '../types.js';
 import { isTerminal, requireTask } from './internal.js';
 
 /** Wire shape of one task: the row plus how far it has come. */
 export function summary(task) {
   return {
     id: task.id,
-    pid: task.pid,
+    sid: task.sid,
     parent_task_id: task.parent_task_id,
     root_task_id: task.root_task_id,
     status: task.status,
@@ -31,8 +31,8 @@ export function summary(task) {
 export const TASK_STATUSES = ['created', 'running', 'waiting', 'completed', 'failed', 'cancelled'];
 
 /** `task list`: filtered rows, newest first, `limit`-bounded. */
-export function list(manager, { pid = null, status = null, roots = null, limit = 200 } = {}) {
-  if (pid !== null) validPid(pid);
+export function list(manager, { sid = null, status = null, roots = null, limit = 200 } = {}) {
+  if (sid !== null) validSid(sid);
   if (status !== null && !TASK_STATUSES.includes(status)) {
     throw new LushError(`unknown task status: ${status} (expected ${TASK_STATUSES.join(', ')})`, -32602);
   }
@@ -42,24 +42,24 @@ export function list(manager, { pid = null, status = null, roots = null, limit =
   if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
     throw new LushError('limit must be 1..1000', -32602);
   }
-  return manager.repository.listTasks({ pid, status, root: roots, limit }).map(summary);
+  return manager.repository.listTasks({ sid, status, root: roots, limit }).map(summary);
 }
 
-/** `task inspect`: the task, the process it sits on, its children, calls and events. */
+/** `task inspect`: the task, the service it sits on, its children, calls and events. */
 export function inspect(manager, taskId) {
   const task = requireTask(manager, taskId);
-  const pid = task.pid;
-  const process = manager.repository.get(pid);
+  const sid = task.sid;
+  const service = manager.repository.get(sid);
   const parent = task.parent_task_id === null ? null : manager.repository.findTask(task.parent_task_id);
   const calls = manager.repository.callsOfTask(taskId);
   return {
     ...summary(task),
-    process: {
-      pid: process.pid,
-      name: process.name,
-      template: process.template,
-      status: process.status,
-      parent_pid: process.parent_pid,
+    service: {
+      sid: service.sid,
+      name: service.name,
+      template: service.template,
+      status: service.status,
+      parent_sid: service.parent_sid,
     },
     parent_task: parent === null ? null : summary(parent),
     child_tasks: manager.repository.childTasks(taskId).map(summary),
@@ -74,11 +74,11 @@ export function tree(manager, taskId) {
   const task = requireTask(manager, taskId);
   const node = (current) => {
     const row = current.id === taskId ? current : manager.repository.getTask(current.id);
-    const process = manager.repository.get(row.pid);
+    const service = manager.repository.get(row.sid);
     return {
       ...summary(row),
-      // The process name makes the tree readable: a task is always "on" one node.
-      process_name: process.name,
+      // The service name makes the tree readable: a task is always "on" one node.
+      service_name: service.name,
       children: manager.repository.childTasks(row.id)
         .map((child) => node(child)),
     };
@@ -91,7 +91,7 @@ export function result(manager, taskId) {
   const task = requireTask(manager, taskId);
   return {
     id: task.id,
-    pid: task.pid,
+    sid: task.sid,
     status: task.status,
     finished: isTerminal(task),
     result: task.result,
@@ -99,7 +99,7 @@ export function result(manager, taskId) {
   };
 }
 
-/** Shallow-merge the task's own scratch state (the process state is separate). */
+/** Shallow-merge the task's own scratch state (the service state is separate). */
 export function updateState(manager, taskId, patch) {
   requireTask(manager, taskId);
   if (!isPlainObject(patch)) throw new LushError('patch must be an object', -32602);
@@ -109,7 +109,7 @@ export function updateState(manager, taskId, patch) {
 
 /**
  * Remove one finished task's rows (its calls and messages stay, because they
- * belong to the process's history — only the task row and its events go). The
+ * belong to the service's history — only the task row and its events go). The
  * subtree is removed children-first, and a task that still has active work is
  * refused; `recursive` is required when child tasks exist.
  */
@@ -135,9 +135,9 @@ export function remove(manager, taskId, recursive = false) {
   return { task_id: taskId, status: task.status, deleted: subtreeIds.sort((left, right) => left - right), rows };
 }
 
-/** Root tasks of one process, newest first (`process inspect`). */
-export function tasksOfProcess(manager, pid) {
-  return manager.repository.tasksOfProcess(pid).map(summary);
+/** Root tasks of one service, newest first (`service inspect`). */
+export function tasksOfService(manager, sid) {
+  return manager.repository.tasksOfService(sid).map(summary);
 }
 
 /** Every active task in the daemon, oldest first (orphan supervision / status). */

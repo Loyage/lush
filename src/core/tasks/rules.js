@@ -4,37 +4,37 @@
  *
  * The rules (they are what keeps a task tree well-formed):
  *
- * - one active task per process: a process runs at most one agent at a time;
- * - child tasks go to a *direct child process* of the parent task's process,
+ * - one active task per service: a service runs at most one agent at a time;
+ * - child tasks go to a *direct child service* of the parent task's service,
  *   so the task tree is always a tree and `task_wait` can never deadlock;
  * - a terminal task has no active children: completing requires the children to
  *   be finished, while failing / cancelling cascades into the subtree;
  * - `task_wait` only accepts tasks in the waiter's own subtree.
  *
- * Everything operates on the `ProcessManager` passed in.
+ * Everything operates on the `ServiceManager` passed in.
  */
-import { LushError, text, validPid } from '../types.js';
+import { LushError, text, validSid } from '../types.js';
 import { validateTaskTransition } from '../lifecycle.js';
 import { activeChildren, isTerminal, requireTask, wake } from './internal.js';
 
-/** The process a task's children must be mounted on: a direct child of its own. */
+/** The service a task's children must be mounted on: a direct child of its own. */
 export function delegateTargets(manager, taskId) {
   const task = requireTask(manager, taskId);
-  return manager.repository.children(task.pid).map((child) => child.pid);
+  return manager.repository.children(task.sid).map((child) => child.sid);
 }
 
 /**
  * Create and start one task. `parentTaskId === null` is the user-facing root
- * task (created by `call`); otherwise the task is delegated to `pid`, which
- * must be a direct child process of the parent task's process.
+ * task (created by `call`); otherwise the task is delegated to `sid`, which
+ * must be a direct child service of the parent task's service.
  */
-export function spawn(manager, { parentTaskId = null, pid, goal, start = true }) {
-  validPid(pid);
+export function spawn(manager, { parentTaskId = null, sid, goal, start = true }) {
+  validSid(sid);
   text(goal, 'goal');
   if (manager.runtime === null) throw new LushError('AgentRuntime is not bound', -32020);
-  const target = manager.repository.get(pid);
+  const target = manager.repository.get(sid);
   if (target.status !== 'active') {
-    throw new LushError(`process ${pid} is ${target.status}, expected active`, -32009);
+    throw new LushError(`service ${sid} is ${target.status}, expected active`, -32009);
   }
   let parentTask = null;
   if (parentTaskId !== null) {
@@ -42,25 +42,25 @@ export function spawn(manager, { parentTaskId = null, pid, goal, start = true })
     if (isTerminal(parentTask)) {
       throw new LushError(`task ${parentTaskId} is ${parentTask.status}; it cannot spawn more work`, -32009);
     }
-    if (parentTask.pid === pid) {
-      throw new LushError(`task ${parentTaskId} cannot delegate to its own process ${pid}`, -32010);
+    if (parentTask.sid === sid) {
+      throw new LushError(`task ${parentTaskId} cannot delegate to its own service ${sid}`, -32010);
     }
-    if (!delegateTargets(manager, parentTaskId).includes(pid)) {
+    if (!delegateTargets(manager, parentTaskId).includes(sid)) {
       throw new LushError(
-        `process ${pid} is not a child of process ${parentTask.pid}; a task may only delegate downstream`,
+        `service ${sid} is not a child of service ${parentTask.sid}; a task may only delegate downstream`,
         -32010,
       );
     }
   }
-  const busy = manager.repository.activeTaskOfProcess(pid);
+  const busy = manager.repository.activeTaskOfService(sid);
   if (busy !== null) {
-    throw new LushError(`process ${pid} is already working on task ${busy.id}`, -32010);
+    throw new LushError(`service ${sid} is already working on task ${busy.id}`, -32010);
   }
-  const task = manager.repository.createTask(pid, parentTaskId, goal, {
+  const task = manager.repository.createTask(sid, parentTaskId, goal, {
     rootTaskId: parentTask === null ? 0 : parentTask.root_task_id,
   });
   if (parentTask !== null) {
-    manager.repository.taskEvent(parentTask.id, 'delegated', { task_id: task.id, pid, goal });
+    manager.repository.taskEvent(parentTask.id, 'delegated', { task_id: task.id, sid, goal });
   }
   // `start: false` hands the task to a caller that runs its agent itself
   // (`call --interactive` opens the invocation from the terminal).

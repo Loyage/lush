@@ -2,15 +2,15 @@
  * The agent runtime: which task's agent may run, under which guards, and what
  * is recorded for one invocation.
  *
- * Agents belong to **tasks**, not to processes. `startTask` opens a task's run
+ * Agents belong to **tasks**, not to services. `startTask` opens a task's run
  * in the background; within it, `_runTask` invokes the agent, and when the
  * agent answers while its child tasks are still running, waits for them and
  * wakes the agent again with their results (that is `waiting`). One task at a
- * time per process is enforced by the task layer before a task exists, so the
+ * time per service is enforced by the task layer before a task exists, so the
  * runtime only has to keep one invocation per task in flight.
  *
  * This file holds the object itself — the live-slot bookkeeping, which provider
- * answers for a process, and shutdown. The three groups of behaviour are merged
+ * answers for a service, and shutdown. The three groups of behaviour are merged
  * in from the same-named directory:
  *
  *   runtime/space.js        the agent space and invocation descriptions (read)
@@ -40,7 +40,7 @@ export class AgentRuntime {
     this.maxRounds = maxRounds;
     /** How many times one task's agent may be invoked (initial + wake-ups). */
     this.maxCalls = maxCalls;
-    /** task id -> { taskId, pid, callId, agent, controller, busy, reason, timer, promise, interactive } */
+    /** task id -> { taskId, sid, callId, agent, controller, busy, reason, timer, promise, interactive } */
     this.active = new Map();
     /**
      * The agent space: live workers keyed by `TASK.N`. Agents are runtime data,
@@ -54,10 +54,10 @@ export class AgentRuntime {
     this.closing = false;
   }
 
-  /** A process is busy while one of its tasks is being worked on. */
-  isBusy(pid) {
+  /** A service is busy while one of its tasks is being worked on. */
+  isBusy(sid) {
     for (const entry of this.active.values()) {
-      if (entry.busy && entry.pid === pid) return true;
+      if (entry.busy && entry.sid === sid) return true;
     }
     return false;
   }
@@ -67,32 +67,32 @@ export class AgentRuntime {
     return Boolean(entry && entry.busy);
   }
 
-  // ── Which agent answers for one process ───────────────────────────────────
+  // ── Which agent answers for one service ───────────────────────────────────
 
-  /** The profile name a process selected at spawn time (`state.agent`), or null. */
-  selectedAgent(pid) {
-    return this.manager.selectedAgent(pid);
+  /** The profile name a service selected at spawn time (`state.agent`), or null. */
+  selectedAgent(sid) {
+    return this.manager.selectedAgent(sid);
   }
 
-  /** The profile name to show for a process: its explicit choice, or `default`. */
-  agentProfile(pid, selected = undefined) {
-    return this.manager.agentProfileName(pid, selected);
-  }
-
-  /**
-   * The effective provider of one process: the agent profile it selected, or the
-   * daemon's fallback provider. See `ProcessManager.agentProvider`.
-   */
-  providerFor(pid) {
-    return this.manager.agentProvider(pid);
+  /** The profile name to show for a service: its explicit choice, or `default`. */
+  agentProfile(sid, selected = undefined) {
+    return this.manager.agentProfileName(sid, selected);
   }
 
   /**
-   * The provider *name* of one process, without building a provider. `selected`
-   * lets a caller that already decoded the process row skip the extra read.
+   * The effective provider of one service: the agent profile it selected, or the
+   * daemon's fallback provider. See `ServiceManager.agentProvider`.
    */
-  providerName(pid, selected = undefined) {
-    return this.manager.agentProviderName(pid, selected);
+  providerFor(sid) {
+    return this.manager.agentProvider(sid);
+  }
+
+  /**
+   * The provider *name* of one service, without building a provider. `selected`
+   * lets a caller that already decoded the service row skip the extra read.
+   */
+  providerName(sid, selected = undefined) {
+    return this.manager.agentProviderName(sid, selected);
   }
 
   get activeCalls() {
@@ -124,10 +124,10 @@ export class AgentRuntime {
       throw new LushError(`task ${taskId} is ${task.status}, expected created`, -32009);
     }
     if (this.active.has(taskId)) throw new LushError(`task ${taskId} is already running`, -32009);
-    const provider = this.providerFor(task.pid);
+    const provider = this.providerFor(task.sid);
     const entry = {
       taskId,
-      pid: task.pid,
+      sid: task.sid,
       callId: null,
       provider,
       agent: null,
@@ -142,7 +142,7 @@ export class AgentRuntime {
     entry.promise = this._runTask(entry);
     // An abandoned waiter (detached CLI, dropped RPC connection) must not crash the daemon.
     entry.promise.catch(() => {});
-    log.info(`task ${taskId} started on pid=${task.pid} with agent ${provider.name}`);
+    log.info(`task ${taskId} started on sid=${task.sid} with agent ${provider.name}`);
     return task;
   }
 

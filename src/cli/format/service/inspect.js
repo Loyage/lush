@@ -1,5 +1,5 @@
 /**
- * The process side of the text output: `history`, `inspect`, `inspect --with`,
+ * The service side of the text output: `history`, `inspect`, `inspect --with`,
  * `list`, the lifecycle one-liners, removal reports and the orphan pool.
  *
  * What these have in common is that they render a *node* — its metadata, its
@@ -11,7 +11,7 @@ import {
   alignRows, duration, eventLine, excerpt, indentLines, metadataTitle, objectLines, shortValue,
   stamp, taskDetail, taskTitle, variableSummary,
 } from '../primitives.js';
-// A process's own `inspect` lists the tasks mounted on it with the task side's line.
+// A service's own `inspect` lists the tasks mounted on it with the task side's line.
 import { taskLine } from './tasks.js';
 
 /**
@@ -35,7 +35,7 @@ export function formatHistory(result) {
 }
 
 /**
- * `lush process inspect` text output: process summary, then context, recent
+ * `lush service inspect` text output: service summary, then context, recent
  * calls and recent events. The creation-time `template_snapshot` and the
  * variable declarations stay in `--json` — they are reference material, not
  * something to read at a glance. The task's `title` gets a row and a long
@@ -43,36 +43,36 @@ export function formatHistory(result) {
  */
 export function formatInspect(result) {
   const {
-    context = {}, recent_calls = [], recent_events = [], recent_tasks = [], template_snapshot, variables, ...process
+    context = {}, recent_calls = [], recent_events = [], recent_tasks = [], template_snapshot, variables, ...service
   } = result;
-  const parent = process.parent_pid === null
+  const parent = service.parent_sid === null
     ? '-'
-    : `${process.parent_pid}${process.original_parent_pid === process.parent_pid ? '' : ` (original ${process.original_parent_pid})`}`;
-  // `variables` was destructured out of `process` above; the reserved task
+    : `${service.parent_sid}${service.original_parent_sid === service.parent_sid ? '' : ` (original ${service.original_parent_sid})`}`;
+  // `variables` was destructured out of `service` above; the reserved task
   // fields live there.
   const fields = { variables };
   const title = taskTitle(fields);
   const rows = [
-    ['template', process.template],
+    ['template', service.template],
     ['parent', parent],
-    ['goal', process.goal ?? '-'],
+    ['goal', service.goal ?? '-'],
     ...(title === null ? [] : [['title', title]]),
-    ['created', stamp(process.created_at)],
-    ['updated', stamp(process.updated_at)],
-    ['children', process.children?.length ? process.children.join(', ') : '(none)'],
+    ['created', stamp(service.created_at)],
+    ['updated', stamp(service.updated_at)],
+    ['children', service.children?.length ? service.children.join(', ') : '(none)'],
   ];
-  // `name` is the process name above, `title` and `detail` are shown in full
+  // `name` is the service name above, `title` and `detail` are shown in full
   // right here: only the variables with no rendering of their own remain.
   const declared = variableSummary(variables, {
-    omit: [RESERVED_VARIABLES.processName, RESERVED_VARIABLES.headline, RESERVED_VARIABLES.body],
+    omit: [RESERVED_VARIABLES.serviceName, RESERVED_VARIABLES.headline, RESERVED_VARIABLES.body],
   });
   if (declared) rows.push(['variables', declared]);
-  if (process.agent) {
-    const profile = process.agent.profile ? ` · agent ${process.agent.profile}` : '';
-    const broken = process.agent.profile_error ? ` (${process.agent.profile_error})` : '';
-    rows.push(['agent', `${process.agent.status} · ${process.agent.provider}${profile}${broken}`]);
+  if (service.agent) {
+    const profile = service.agent.profile ? ` · agent ${service.agent.profile}` : '';
+    const broken = service.agent.profile_error ? ` (${service.agent.profile_error})` : '';
+    rows.push(['agent', `${service.agent.status} · ${service.agent.provider}${profile}${broken}`]);
   }
-  const lines = [metadataTitle(process), ...alignRows(rows).map((row) => `  ${row}`)];
+  const lines = [metadataTitle(service), ...alignRows(rows).map((row) => `  ${row}`)];
 
   // A task body can be long and multi-line: it gets a block of its own rather
   // than a table cell that would break the alignment.
@@ -125,9 +125,9 @@ export function formatInspect(result) {
   return lines.join('\n');
 }
 
-/** `lush process inspect --with ...`: the sections that were requested, in order. */
+/** `lush service inspect --with ...`: the sections that were requested, in order. */
 export function formatView(result) {
-  const lines = [`pid ${result.pid}`];
+  const lines = [`sid ${result.sid}`];
   if ('parent' in result) {
     lines.push('', 'parent', `  ${result.parent === null ? '(none)' : metadataTitle(result.parent)}`);
   }
@@ -150,7 +150,7 @@ export function formatLifecycle(verb, result) {
   return `${verb} ${metadataTitle(result)}`;
 }
 
-/** `lush process orphans` text output: the pool, or what one sweep just froze. */
+/** `lush service orphans` text output: the pool, or what one sweep just froze. */
 export function formatOrphans(result) {
   // A sweep report is the only shape that carries `evicted`; the read model has
   // `orphans`. Both stay JSON under --json.
@@ -162,11 +162,11 @@ export function formatOrphans(result) {
       + ` (limit=${result.limit} ttl=${result.ttl_seconds}s)`,
     ];
     for (const orphan of result.evicted) {
-      lines.push(`  evicted ${orphan.pid} ${orphan.from}->${orphan.to}`
+      lines.push(`  evicted ${orphan.sid} ${orphan.from}->${orphan.to}`
         + ` reason=${orphan.reason} idle=${orphan.idle_seconds}s ${orphan.name}`);
     }
     for (const orphan of result.deferred) {
-      lines.push(`  deferred ${orphan.pid} reason=${orphan.reason} (a busy orphan with a running call is never frozen)`);
+      lines.push(`  deferred ${orphan.sid} reason=${orphan.reason} (a busy orphan with a running call is never frozen)`);
     }
     return lines.join('\n');
   }
@@ -176,12 +176,12 @@ export function formatOrphans(result) {
     `orphans active=${result.active_count} busy=${result.busy_count} over_limit=${result.over_limit}`,
   ];
   if (result.orphans.length === 0) {
-    lines.push('  (none — nothing is currently adopted by PID 0)');
+    lines.push('  (none — nothing is currently adopted by SID 0)');
     return lines.join('\n');
   }
-  const table = [['PID', 'STATUS', 'IDLE', 'BUSY', 'NAME']];
+  const table = [['SID', 'STATUS', 'IDLE', 'BUSY', 'NAME']];
   for (const orphan of result.orphans) {
-    table.push([String(orphan.pid), orphan.status,
+    table.push([String(orphan.sid), orphan.status,
       duration(orphan.idle_seconds * 1000), orphan.busy ? 'yes' : 'no', orphan.name]);
   }
   const width = table[0].map((_column, index) => Math.max(...table.map((row) => row[index].length)));
@@ -190,33 +190,33 @@ export function formatOrphans(result) {
 }
 
 /**
- * `lush process list` text output: fixed-width columns, one row per process.
+ * `lush service list` text output: fixed-width columns, one row per service.
  * The trailing TITLE column is the one-line summary a template may declare (a
  * reserved variable name, see `core/variables.js`): every existing column keeps
- * its width, and a process without a title — only dev-task declares one — shows
+ * its width, and a service without a title — only dev-task declares one — shows
  * `-` instead.
  */
 export function formatList(result) {
-  const rows = [['PID', 'PPID', 'STATUS', 'NAME', 'TITLE']];
-  for (const process of result) {
-    const title = taskTitle(process);
-    rows.push([String(process.pid), process.parent_pid === null ? '-' : String(process.parent_pid),
-      process.status, process.name, title === null ? '-' : shortValue(title, 40)]);
+  const rows = [['SID', 'PPID', 'STATUS', 'NAME', 'TITLE']];
+  for (const service of result) {
+    const title = taskTitle(service);
+    rows.push([String(service.sid), service.parent_sid === null ? '-' : String(service.parent_sid),
+      service.status, service.name, title === null ? '-' : shortValue(title, 40)]);
   }
   const nameWidth = rows.reduce((max, row) => Math.max(max, row[3].length), 0);
   return rows
-    .map(([pid, ppid, status, name, title]) => `${pid.padEnd(6)}${ppid.padEnd(6)}${status.padEnd(10)}${name.padEnd(nameWidth)}  ${title}`.trimEnd())
+    .map(([sid, ppid, status, name, title]) => `${sid.padEnd(6)}${ppid.padEnd(6)}${status.padEnd(10)}${name.padEnd(nameWidth)}  ${title}`.trimEnd())
     .join('\n');
 }
 
 /**
- * `lush process delete|purge` text output: what disappeared, which tasks had to
+ * `lush service delete|purge` text output: what disappeared, which tasks had to
  * be cancelled first, and how much of the record went with it.
  */
 export function formatRemoval(result) {
   const target = result.deleted.length === 1
-    ? `pid ${result.pid}`
-    : `pid ${result.pid} (subtree ${result.deleted.join(', ')})`;
+    ? `sid ${result.sid}`
+    : `sid ${result.sid} (subtree ${result.deleted.join(', ')})`;
   const cancelled = result.cancelled?.length ? `, after cancelling task ${result.cancelled.join(', ')}` : '';
   const terminated = result.terminated.length
     ? `, after stopping ${result.terminated.join(', ')}`

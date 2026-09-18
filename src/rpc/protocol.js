@@ -1,4 +1,4 @@
-/** JSON-RPC framing and dispatch; business rules remain in ProcessManager. */
+/** JSON-RPC framing and dispatch; business rules remain in ServiceManager. */
 import { PARAMS, invoke } from '../core/dispatch.js';
 import { LushError, isPlainObject, jsonDump, jsonLoad } from '../core/types.js';
 
@@ -33,22 +33,22 @@ export function parseRequest(raw) {
   return value;
 }
 
-// [wire name, ProcessManager method, params key] — the wire protocol keeps snake_case.
-const PROCESS_METHODS = [
-  ['process.inspect', 'inspect', 'inspect'],
-  ['process.parent', 'parent', 'parent'],
-  ['process.children', 'children', 'children'],
-  ['process.view', 'view', 'view'],
-  ['process.spawn', 'spawn', 'spawn'],
-  ['process.tree', 'tree', 'tree'],
-  ['process.orphans', 'orphans', 'orphans'],
-  ['process.orphan_sweep', 'superviseOrphans', 'orphan_sweep'],
-  ['process.start', 'start', 'start'],
-  ['process.stop', 'stop', 'stop'],
-  ['process.delete', 'delete', 'delete'],
-  ['process.purge', 'purge', 'purge'],
-  ['process.update_state', 'updateState', 'update_state'],
-  ['process.update_vars', 'updateVars', 'update_vars'],
+// [wire name, ServiceManager method, params key] — the wire protocol keeps snake_case.
+const SERVICE_METHODS = [
+  ['service.inspect', 'inspect', 'inspect'],
+  ['service.parent', 'parent', 'parent'],
+  ['service.children', 'children', 'children'],
+  ['service.view', 'view', 'view'],
+  ['service.spawn', 'spawn', 'spawn'],
+  ['service.tree', 'tree', 'tree'],
+  ['service.orphans', 'orphans', 'orphans'],
+  ['service.orphan_sweep', 'superviseOrphans', 'orphan_sweep'],
+  ['service.start', 'start', 'start'],
+  ['service.stop', 'stop', 'stop'],
+  ['service.delete', 'delete', 'delete'],
+  ['service.purge', 'purge', 'purge'],
+  ['service.update_state', 'updateState', 'update_state'],
+  ['service.update_vars', 'updateVars', 'update_vars'],
 ];
 
 const TASK_METHODS = [
@@ -88,9 +88,9 @@ export class Dispatcher {
     this.methods = {
       'system.status': { params: { required: [] }, fn: () => this.status() },
       'system.shutdown': { params: { required: [] }, fn: () => this.shutdown() },
-      'process.list': { params: PARAMS.list, fn: () => manager.list() },
+      'service.list': { params: PARAMS.list, fn: () => manager.list() },
     };
-    for (const [wire, method, params] of [...PROCESS_METHODS, ...TASK_METHODS, ...CALL_METHODS]) {
+    for (const [wire, method, params] of [...SERVICE_METHODS, ...TASK_METHODS, ...CALL_METHODS]) {
       this.methods[wire] = { params: PARAMS[params], fn: manager[method].bind(manager) };
     }
   }
@@ -99,9 +99,9 @@ export class Dispatcher {
     const runtime = this.manager.runtime;
     return {
       daemon_pid: process.pid,
-      root_pid: 0,
+      root_sid: 0,
       provider: runtime ? runtime.provider.name : 'unbound',
-      process_count: this.manager.list().length,
+      service_count: this.manager.list().length,
       active_calls: runtime ? runtime.activeCalls : 0,
       // Orphan supervision is configured at startup and only observable here:
       // the policy in wire shape plus how many orphans it currently holds.

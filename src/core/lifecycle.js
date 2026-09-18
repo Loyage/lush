@@ -3,22 +3,22 @@ import { LushError } from './types.js';
 /**
  * Two state machines, one per kind of row.
  *
- * A **process** is a passive node: it holds identity, permissions, variables
+ * A **service** is a passive node: it holds identity, permissions, variables
  * and state, and never runs an agent itself. Its short life is `created →
  * active ⇄ stopped` — stopped just means "this node takes no new work".
  *
- * A **task** is one unit of work mounted on a process, and it is where agents
+ * A **task** is one unit of work mounted on a service, and it is where agents
  * run. `created → running` starts the agent, `running ⇄ waiting` marks an agent
  * that is blocked on its child tasks, and `completed / failed / cancelled` are
  * terminal. A terminal task never has an active child task: finishing,
  * failing or cancelling a task cascades into its subtree, which is what keeps
  * an observed task tree settled.
  */
-export const ACTIVE_PROCESS_STATUS = ['created', 'active'];
+export const ACTIVE_SERVICE_STATUS = ['created', 'active'];
 export const ACTIVE_TASK_STATUS = ['created', 'running', 'waiting'];
 
-/** Process statuses: a node is either coming up, taking work, or stopped. */
-export const PROCESS_TRANSITIONS = {
+/** Service statuses: a node is either coming up, taking work, or stopped. */
+export const SERVICE_TRANSITIONS = {
   created: new Set(['active', 'stopped']),
   active: new Set(['stopped']),
   stopped: new Set(['active']),
@@ -34,10 +34,10 @@ export const TASK_TRANSITIONS = {
   cancelled: new Set(),
 };
 
-export function validateProcessTransition(process, target) {
-  const allowed = PROCESS_TRANSITIONS[process.status] ?? new Set();
+export function validateServiceTransition(service, target) {
+  const allowed = SERVICE_TRANSITIONS[service.status] ?? new Set();
   if (!allowed.has(target)) {
-    throw new LushError(`cannot transition process ${process.pid} from ${process.status} to ${target}`);
+    throw new LushError(`cannot transition service ${service.sid} from ${service.status} to ${target}`);
   }
 }
 

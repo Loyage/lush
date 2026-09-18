@@ -1,5 +1,5 @@
 /**
- * Context, state, events and history: everything attached to one process
+ * Context, state, events and history: everything attached to one service
  * besides its own row.
  *
  * The persistent Context owns the system prompt, `state`, artifacts and
@@ -10,22 +10,22 @@
  */
 import { jsonDump, now } from '../core/types.js';
 
-/** Append one process event. The only writer of `process_events`. */
-export function event(repository, pid, kind, data) {
-  repository.db.run('INSERT INTO process_events(pid,kind,data,created_at) VALUES(?,?,?,?)',
-    [pid, kind, jsonDump(data), now()]);
+/** Append one service event. The only writer of `service_events`. */
+export function event(repository, sid, kind, data) {
+  repository.db.run('INSERT INTO service_events(sid,kind,data,created_at) VALUES(?,?,?,?)',
+    [sid, kind, jsonDump(data), now()]);
 }
 
-/** The most recent events of a process, newest first. */
-export function events(repository, pid, limit = 20) {
-  return repository.db.query('SELECT * FROM process_events WHERE pid=? ORDER BY id DESC LIMIT ?').all(pid, limit)
+/** The most recent events of a service, newest first. */
+export function events(repository, sid, limit = 20) {
+  return repository.db.query('SELECT * FROM service_events WHERE sid=? ORDER BY id DESC LIMIT ?').all(sid, limit)
     .map((row) => ({ ...row, data: JSON.parse(row.data) }));
 }
 
-export function context(repository, pid) {
-  repository.get(pid);
-  const row = repository.db.query('SELECT * FROM contexts WHERE pid=?').get(pid);
-  const count = repository.db.query('SELECT COUNT(*) AS n FROM messages WHERE pid=?').get(pid).n;
+export function context(repository, sid) {
+  repository.get(sid);
+  const row = repository.db.query('SELECT * FROM contexts WHERE sid=?').get(sid);
+  const count = repository.db.query('SELECT COUNT(*) AS n FROM messages WHERE sid=?').get(sid).n;
   return {
     system_prompt: row.system_prompt,
     state: JSON.parse(row.state),
@@ -36,63 +36,63 @@ export function context(repository, pid) {
 }
 
 /**
- * Replace one process's Context system prompt. The call prompt comes from the
+ * Replace one service's Context system prompt. The call prompt comes from the
  * Context, not from the template snapshot (`buildInvocation` reads
- * `context.context.systemPrompt`), so a process whose prompt must follow a
- * template edit needs this in addition to `replaceSnapshot`. Used for PID 0
- * alone, by `ProcessManager.refreshRootTemplate`; every other process keeps the
+ * `context.context.systemPrompt`), so a service whose prompt must follow a
+ * template edit needs this in addition to `replaceSnapshot`. Used for SID 0
+ * alone, by `ServiceManager.refreshRootTemplate`; every other service keeps the
  * prompt it was created with. Returns whether the prompt actually changed.
  */
-export function replaceContextPrompt(repository, pid, systemPrompt) {
+export function replaceContextPrompt(repository, sid, systemPrompt) {
   let changed = false;
   repository.database.transaction(() => {
-    const row = repository.db.query('SELECT system_prompt FROM contexts WHERE pid=?').get(pid);
+    const row = repository.db.query('SELECT system_prompt FROM contexts WHERE sid=?').get(sid);
     if (row === null || row.system_prompt === systemPrompt) return;
-    repository.db.run('UPDATE contexts SET system_prompt=? WHERE pid=?', [systemPrompt, pid]);
+    repository.db.run('UPDATE contexts SET system_prompt=? WHERE sid=?', [systemPrompt, sid]);
     changed = true;
   });
   return changed;
 }
 
 /**
- * The agent profile a process selected at spawn time (`state.agent`), or null.
- * Reading one column keeps `process tree` cheap: it resolves a provider name per
+ * The agent profile a service selected at spawn time (`state.agent`), or null.
+ * Reading one column keeps `service tree` cheap: it resolves a provider name per
  * row without walking sessions or counting messages.
  */
-export function stateAgent(repository, pid) {
-  const row = repository.db.query('SELECT state FROM contexts WHERE pid=?').get(pid);
+export function stateAgent(repository, sid) {
+  const row = repository.db.query('SELECT state FROM contexts WHERE sid=?').get(sid);
   if (row === null) return null;
   const state = JSON.parse(row.state);
   const name = state === null || typeof state !== 'object' ? undefined : state.agent;
   return typeof name === 'string' && name !== '' ? name : null;
 }
 
-export function updateState(repository, pid, patch) {
+export function updateState(repository, sid, patch) {
   let state;
   repository.database.transaction(() => {
-    state = context(repository, pid).state;
+    state = context(repository, sid).state;
     Object.assign(state, patch);
-    repository.db.run('UPDATE contexts SET state=? WHERE pid=?', [jsonDump(state), pid]);
-    repository.db.run('UPDATE processes SET updated_at=? WHERE pid=?', [now(), pid]);
-    event(repository, pid, 'state_updated', { keys: Object.keys(patch) });
+    repository.db.run('UPDATE contexts SET state=? WHERE sid=?', [jsonDump(state), sid]);
+    repository.db.run('UPDATE services SET updated_at=? WHERE sid=?', [now(), sid]);
+    event(repository, sid, 'state_updated', { keys: Object.keys(patch) });
   });
   return state;
 }
 
 /**
  * Merge values into the mutable variable region (`state.vars`). Which names
- * may be changed is decided by ProcessManager against the template snapshot;
+ * may be changed is decided by ServiceManager against the template snapshot;
  * this layer only stores the merge.
  */
-export function updateVars(repository, pid, patch) {
+export function updateVars(repository, sid, patch) {
   let vars;
   repository.database.transaction(() => {
-    const state = context(repository, pid).state;
+    const state = context(repository, sid).state;
     vars = { ...(state.vars ?? {}), ...patch };
     state.vars = vars;
-    repository.db.run('UPDATE contexts SET state=? WHERE pid=?', [jsonDump(state), pid]);
-    repository.db.run('UPDATE processes SET updated_at=? WHERE pid=?', [now(), pid]);
-    event(repository, pid, 'vars_updated', { keys: Object.keys(patch) });
+    repository.db.run('UPDATE contexts SET state=? WHERE sid=?', [jsonDump(state), sid]);
+    repository.db.run('UPDATE services SET updated_at=? WHERE sid=?', [now(), sid]);
+    event(repository, sid, 'vars_updated', { keys: Object.keys(patch) });
   });
   return vars;
 }
@@ -111,10 +111,10 @@ export function history(repository, taskId, after = 0, limit = 100) {
  * Add fields that were introduced after this row was written, leaving every
  * other snapshot key untouched. Returns the fields actually added.
  */
-export function backfillSnapshot(repository, pid, fields) {
+export function backfillSnapshot(repository, sid, fields) {
   const added = [];
   repository.database.transaction(() => {
-    const row = repository.db.query('SELECT template_snapshot FROM processes WHERE pid=?').get(pid);
+    const row = repository.db.query('SELECT template_snapshot FROM services WHERE sid=?').get(sid);
     if (row === null) return;
     const snapshot = JSON.parse(row.template_snapshot);
     for (const [key, value] of Object.entries(fields)) {
@@ -123,8 +123,8 @@ export function backfillSnapshot(repository, pid, fields) {
       added.push(key);
     }
     if (added.length === 0) return;
-    repository.db.run('UPDATE processes SET template_snapshot=? WHERE pid=?', [jsonDump(snapshot), pid]);
-    event(repository, pid, 'template_backfilled', { fields: added });
+    repository.db.run('UPDATE services SET template_snapshot=? WHERE sid=?', [jsonDump(snapshot), sid]);
+    event(repository, sid, 'template_backfilled', { fields: added });
   });
   return added;
 }

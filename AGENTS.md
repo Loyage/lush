@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Lush —— AI 的操作系统（持久化逻辑 Process + agent runtime）。Bun / JavaScript，零第三方依赖。
+Lush —— AI 的操作系统（持久化逻辑 Service + agent runtime）。Bun / JavaScript，零第三方依赖。
 
 这个文件只讲一件最容易出错、且会静默出错的事：**你敲的命令、真正应答你的 daemon、以及 agent 子进程里的 `lush`，可能是三份不同版本的代码。** 多个 worktree 并行开发时尤其如此。
 
@@ -14,7 +14,7 @@ just doctor          # bun / LUSH_HOME / provider / code 目录 / daemon 状态
 just test / demo / verify
 just daemon-start / daemon-restart / daemon-stop / status / log
 just ps / tree / inspect / call / spawn / complete / reclaim ...
-just reset [yes]     # 推倒重来：清空本 home 的进程树（只剩 PID 0）并重启 daemon；默认要输 yes，不可逆
+just reset [yes]     # 推倒重来：清空本 home 的服务树（只剩 SID 0）并重启 daemon；默认要输 yes，不可逆
 just clean           # 停 daemon 并删本仓库的 .lush
 ```
 
@@ -27,7 +27,7 @@ just clean           # 停 daemon 并删本仓库的 .lush
 - **CLI 是纯客户端**，通过 unix socket 上的 JSON-RPC 操作 daemon，自身不持有状态。谁应答你，由 **`LUSH_HOME` 指向的 socket** 决定，**与 worktree 无关**。
 - **你敲的命令用哪份 CLI 代码** = 你所在的 worktree（`./bin/lush` 是相对路径；`bun run lush` 由 bun 从 cwd 向上找最近的 `package.json`）。
 - **一个 home 只能有一个 daemon**（`daemon.lock` 单实例锁）。`daemon start` 发现已有 daemon 时直接返回 `already_running`，**不会替换版本** —— 先启动的那份代码会一直应答；要换版本只能用 `daemon restart`（先 stop 等锁释放，再 start）。
-- **daemon 是长驻进程，版本在启动瞬间冻结**：`src/agent/guide.js`（喂给 agent 的提示词）、`src/cli/tree/`（CLI 声明树）、`templates/**/*.json`（模板按 spawn 树分层嵌套）都在启动时读入内存。改了这些，**不 restart 就不生效**（`just daemon-restart` / `lush daemon restart`，等价于 stop + start）。
+- **daemon 是长驻服务，版本在启动瞬间冻结**：`src/agent/guide.js`（喂给 agent 的提示词）、`src/cli/tree/`（CLI 声明树）、`templates/**/*.json`（模板按 spawn 树分层嵌套）都在启动时读入内存。改了这些，**不 restart 就不生效**（`just daemon-restart` / `lush daemon restart`，等价于 stop + start）。
 - **agent 子进程里的 `lush` 也被钉死在 daemon 那份代码上**：`src/agent/pi.js` 把 daemon 自己 checkout 的 `bin/` 前置进 PATH（`LUSH_BIN_DIR`）。所以 agent 调 `lush` 用的是 daemon 的版本，不是你敲命令的版本。
 
 ## 排障：一条命令判断是否错位

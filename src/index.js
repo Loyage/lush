@@ -1,6 +1,6 @@
 export { Config } from './config.js';
 export { LushError } from './core/types.js';
-export { ProcessManager } from './core/process_manager.js';
+export { ServiceManager } from './core/service_manager.js';
 export { TemplateLoader } from './template_loader.js';
 export { Database } from './persistence/database.js';
 export { Repository } from './persistence/repository.js';

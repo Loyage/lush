@@ -4,7 +4,7 @@
  *
  * Same guards and the same call row as a normal run, but the daemon never
  * spawns the agent process — so it has no handle on it until the terminal
- * reports the OS pid (`noteAgentOsPid`), and it learns the outcome only when
+ * reports the OS PID (`noteAgentOsPid`), and it learns the outcome only when
  * the terminal reports back (`settleInteractive`). The hang timeout is the one
  * thing that can free a terminal that never came back.
  *
@@ -33,21 +33,21 @@ export const interactive = {
     if (task.status !== 'created') {
       throw new LushError(`task ${taskId} is ${task.status}, expected created`, -32009);
     }
-    const provider = this.providerFor(task.pid);
+    const provider = this.providerFor(task.sid);
     if (typeof provider.interactiveArgs !== 'function') {
-      throw new LushError(`agent ${provider.name} runs in-process; there is no external agent to enter`, -32020);
+      throw new LushError(`agent ${provider.name} runs in-service; there is no external agent to enter`, -32020);
     }
     const context = this.builder.build(task, null, provider.contextMode);
     const invocation = buildInvocation(this, task, null, task.goal, context);
     // Build the argv before opening the call: a rejected invocation must not leave a running row.
     const preview = provider.preview(invocation, { interactive: true });
-    const callId = this.repository.beginCall(task.pid, taskId, task.goal);
+    const callId = this.repository.beginCall(task.sid, taskId, task.goal);
     const entry = {
       taskId,
-      pid: task.pid,
+      sid: task.sid,
       callId,
       provider,
-      agent: openAgent(this, taskId, task.pid, callId, { interactive: true, provider }),
+      agent: openAgent(this, taskId, task.sid, callId, { interactive: true, provider }),
       controller: new AbortController(),
       busy: true,
       reason: null,
@@ -57,7 +57,7 @@ export const interactive = {
     };
     this.active.set(taskId, entry);
     this.manager.taskRunning(taskId, { interactive: true });
-    // No daemon-side process exists to abort, so the timeout is the only thing
+    // No daemon-side service exists to abort, so the timeout is the only thing
     // that can free a terminal that never came back (closed window, SIGKILL).
     if (this.timeout > 0) {
       entry.timer = setTimeout(() => {
@@ -76,7 +76,7 @@ export const interactive = {
     log.info(`interactive call ${callId} handed to the caller's terminal for task ${taskId} as agent ${entry.agent.id}`);
     return {
       task_id: taskId,
-      pid: task.pid,
+      sid: task.sid,
       call_id: callId,
       agent_id: entry.agent.id,
       agent: provider.name,
@@ -87,8 +87,8 @@ export const interactive = {
   },
 
   /**
-   * The interactive caller reports the OS pid of the pi process it runs, right
-   * after spawning it. The daemon did not spawn that process, so this is its
+   * The interactive caller reports the OS PID of the pi process it runs, right
+   * after spawning it. The daemon did not spawn that service, so this is its
    * only handle on it — without it `agents kill` and `agents show` could not
    * reach an agent that lives in someone else's terminal.
    */
@@ -99,7 +99,7 @@ export const interactive = {
       return { task_id: taskId, call_id: callId, recorded: false, agent_id: null };
     }
     noteOsPid(entry.agent, osPid);
-    log.info(`agent ${entry.agent.id} runs as os pid ${osPid} (reported by the caller's terminal)`);
+    log.info(`agent ${entry.agent.id} runs as OS PID ${osPid} (reported by the caller's terminal)`);
     return { task_id: taskId, call_id: callId, recorded: true, agent_id: entry.agent.id };
   },
 

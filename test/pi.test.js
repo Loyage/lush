@@ -28,7 +28,7 @@ console.log(JSON.stringify({
   argv: process.argv.slice(1),
   cwd: process.cwd(),
   home: process.env.LUSH_HOME,
-  pid: process.env.LUSH_PID,
+  sid: process.env.LUSH_SID,
   task: process.env.LUSH_TASK_ID,
   path: process.env.PATH,
 }));
@@ -70,18 +70,18 @@ describe('pi agent backend', () => {
   test('invocation carries system prompt, guide, context, task session and cwd', async () => {
     const result = await provider.call([], [], null, {
       task_id: 7,
-      pid: 4,
+      sid: 4,
       prompt: 'do the thing',
       system_prompt: 'SYSTEM_PROMPT',
       guide: agentGuide('cli'),
-      context: { process: { name: 'demo' }, task: { id: 7 } },
+      context: { service: { name: 'demo' }, task: { id: 7 } },
       cwd: dir,
     });
     const payload = JSON.parse(result.content);
     expect(payload.argv[0].endsWith('pi-stub')).toBe(true);
     expect(payload.argv[1]).toBe('--print');
     expect(payload.argv[payload.argv.length - 1]).toBe('do the thing');
-    // Sessions belong to tasks: the id names the task, not the process.
+    // Sessions belong to tasks: the id names the task, not the service.
     expect(flagValue(payload.argv, '--session-id')).toBe('lush-task-7');
     expect(flagValue(payload.argv, '--session-dir')).toBe(path.join(dir, 'pi-sessions'));
     expect(flagValue(payload.argv, '--name')).toBe('demo[4]#7');
@@ -92,7 +92,7 @@ describe('pi agent backend', () => {
     expect(JSON.parse(appended[1].slice(LUSH_CONTEXT_PREFIX.length)).task.id).toBe(7);
     expect(payload.cwd).toBe(fs.realpathSync(dir));
     expect(payload.home).toBe(dir);
-    expect(payload.pid).toBe('4');
+    expect(payload.sid).toBe('4');
     expect(payload.task).toBe('7');
     expect(payload.path.startsWith(`${LUSH_BIN_DIR}${path.delimiter}`)).toBe(true);
     expect(fs.statSync(path.join(dir, 'pi-sessions')).mode & 0o777).toBe(0o700);
@@ -101,31 +101,31 @@ describe('pi agent backend', () => {
   test('a task run stores the pi final text', async () => {
     const task = await manager.call(0, 'hello');
     expect(task.status).toBe('completed');
-    expect(JSON.parse(task.result).pid).toBe('0');
+    expect(JSON.parse(task.result).sid).toBe('0');
     expect(JSON.parse(task.result).task).toBe(String(task.id));
     expect(manager.repository.taskCalls(task.id)[0].status).toBe('succeeded');
     expect(manager.inspect(0).recent_calls[0].status).toBe('succeeded');
     expect(manager.inspect(0).agent.provider).toBe('pi');
   });
 
-  test('processes that declare path run the agent in it', async () => {
+  test('services that declare path run the agent in it', async () => {
     const real = fs.realpathSync(dir);
-    const project = manager.load(manager.spawn(0, 'project', 'demo-project', 'ship it', { path: real }).pid);
+    const project = manager.load(manager.spawn(0, 'project', 'demo-project', 'ship it', { path: real }).sid);
     expect(project.inspect().context.state.params).toEqual({ path: real });
-    const preview = await manager.callDescribe(project.pid, 'where?');
+    const preview = await manager.callDescribe(project.sid, 'where?');
     expect(preview.cwd).toBe(real);
-    const first = await manager.call(project.pid, 'what is here?');
+    const first = await manager.call(project.sid, 'what is here?');
     const payload = JSON.parse(first.result);
     expect(payload.cwd).toBe(real);
     expect(flagValue(payload.argv, '--name')).toBe('demo-project[1]#1');
-    expect(manager.repository.context(project.pid).state.params.path).toBe(real);
+    expect(manager.repository.context(project.sid).state.params.path).toBe(real);
 
     // The same binding carries a git worktree: the node a dev-task hands a
     // worktree to runs there, without anyone having to `cd`.
-    const devTask = manager.load(manager.spawn(project.pid, 'dev-task', 'fix-login', undefined, { title: '修登录' }).pid);
-    const worktree = manager.load(manager.spawn(devTask.pid, 'worktree-service', 'fix-login', undefined, { path: real }).pid);
-    expect((await manager.callDescribe(worktree.pid, 'where?')).cwd).toBe(real);
-    const done = await manager.call(worktree.pid, 'what is here?');
+    const devTask = manager.load(manager.spawn(project.sid, 'dev-task', 'fix-login', undefined, { title: '修登录' }).sid);
+    const worktree = manager.load(manager.spawn(devTask.sid, 'worktree-service', 'fix-login', undefined, { path: real }).sid);
+    expect((await manager.callDescribe(worktree.sid, 'where?')).cwd).toBe(real);
+    const done = await manager.call(worktree.sid, 'what is here?');
     expect(JSON.parse(done.result).cwd).toBe(real);
     expect(flagValue(JSON.parse(done.result).argv, '--name')).toBe('fix-login[3]#2');
   });
@@ -144,9 +144,9 @@ describe('pi agent backend', () => {
     expect(preview.command.startsWith(preview.argv[0])).toBe(true);
     expect(preview.command.endsWith("'preview me'")).toBe(true);
     expect(preview.cwd).toBe(dir); // printed as configured; the child resolves symlinks itself
-    expect(preview.env).toEqual({ LUSH_HOME: dir, LUSH_PID: '0', LUSH_TASK_ID: '' });
+    expect(preview.env).toEqual({ LUSH_HOME: dir, LUSH_SID: '0', LUSH_TASK_ID: '' });
     expect(preview.path_prefix).toBe(LUSH_BIN_DIR);
-    // A dry run records nothing, creates no task and does not mark the process busy.
+    // A dry run records nothing, creates no task and does not mark the service busy.
     expect(manager.inspect(0).recent_calls).toEqual([]);
     expect(manager.inspect(0).context.message_count).toBe(0);
     expect(manager.taskList()).toEqual([]);
@@ -163,29 +163,29 @@ describe('pi agent backend', () => {
     const env = { ...process.env, PI_STUB_MODE: 'fail' };
     const failing = new PiAgentProvider({ command: writeStub(dir, 'pi-fail'), home: dir, env });
     const error = await expectRejection(failing.call([], [], null, {
-      task_id: 1, pid: 1, prompt: 'x', system_prompt: 's', guide: 'g', context: { process: { name: 'x' } },
+      task_id: 1, sid: 1, prompt: 'x', system_prompt: 's', guide: 'g', context: { service: { name: 'x' } },
     }), /pi agent failed \(exit 3\)/);
     expect(error.code).toBe(-32020);
     expect(error.message).toContain('stub pi exploded');
   });
 
-  test('abort kills the pi subprocess', async () => {
-    const pidFile = path.join(dir, 'pi.pid');
+  test('abort kills the pi subservice', async () => {
+    const pidFile = path.join(dir, 'pi.sid');
     const env = { ...process.env, PI_STUB_MODE: 'slow', PI_STUB_PID_FILE: pidFile };
     const slow = new PiAgentProvider({ command: writeStub(dir, 'pi-slow'), home: dir, env });
     const controller = new AbortController();
     const pending = slow.call([], [], controller.signal, {
-      task_id: 1, pid: 1, prompt: 'x', system_prompt: 's', guide: 'g', context: { process: { name: 'x' } },
+      task_id: 1, sid: 1, prompt: 'x', system_prompt: 's', guide: 'g', context: { service: { name: 'x' } },
     });
     pending.catch(() => {});
     for (let attempt = 0; attempt < 100 && !fs.existsSync(pidFile); attempt += 1) await Bun.sleep(20);
-    const childPid = Number(fs.readFileSync(pidFile, 'utf8'));
+    const childSid = Number(fs.readFileSync(pidFile, 'utf8'));
     controller.abort();
     await expectRejection(pending, /aborted/);
     let alive = true;
     for (let attempt = 0; attempt < 100 && alive; attempt += 1) {
       try {
-        process.kill(childPid, 0);
+        process.kill(childSid, 0);
         await Bun.sleep(20);
       } catch {
         alive = false;
@@ -197,12 +197,12 @@ describe('pi agent backend', () => {
   test('interactive task hands pi the terminal and still records one call', async () => {
     const task = manager.repository.createTask(0, null, 'help me please');
     const opened = runtime.openInteractive(task.id);
-    expect(opened).toMatchObject({ task_id: task.id, pid: 0, call_id: 1, agent: 'pi', prompt: 'help me please', interactive: true });
+    expect(opened).toMatchObject({ task_id: task.id, sid: 0, call_id: 1, agent: 'pi', prompt: 'help me please', interactive: true });
     // The interactive argv is the plain call argv without --print.
     expect(opened.argv.includes('--print')).toBe(false);
     expect(flagValue(opened.argv, '--session-id')).toBe(`lush-task-${task.id}`);
     expect(opened.argv[opened.argv.length - 1]).toBe('help me please');
-    expect(opened.env).toEqual({ LUSH_HOME: dir, LUSH_PID: '0', LUSH_TASK_ID: String(task.id) });
+    expect(opened.env).toEqual({ LUSH_HOME: dir, LUSH_SID: '0', LUSH_TASK_ID: String(task.id) });
     expect(opened.cwd).toBe(dir);
 
     // Opening the task is real work: user message recorded, live agent registered.
@@ -213,7 +213,7 @@ describe('pi agent backend', () => {
     });
     expect(manager.inspect(0).agent.status).toBe('busy');
     expect(manager.repository.taskCalls(task.id)[0]).toMatchObject({ status: 'running', prompt: 'help me please' });
-    // One active task per process: a second one is refused while the terminal owns pi.
+    // One active task per service: a second one is refused while the terminal owns pi.
     await expectRejection(manager.call(0, 'again'), /already working on task/);
 
     const settled = manager.callEnd(task.id, opened.call_id, 'succeeded');
@@ -225,7 +225,7 @@ describe('pi agent backend', () => {
     expect(manager.callEnd(task.id, opened.call_id, 'failed').settled).toBe(false);
     expect(manager.repository.getTask(task.id).status).toBe('completed');
 
-    // A new task on the same process gets its own session.
+    // A new task on the same service gets its own session.
     const next = await manager.callDescribe(0, 'hello');
     expect(flagValue(next.argv, '--session-id')).toBe('lush-task-preview');
     const second = await manager.call(0, 'hello');
@@ -235,14 +235,14 @@ describe('pi agent backend', () => {
 
   test('cancelling an interactive task lets the terminal settle as interrupted', async () => {
     const task = manager.repository.createTask(
-      manager.spawn(0, 'generic-task', 'worker').pid, null, 'do the work',
+      manager.spawn(0, 'generic-task', 'worker').sid, null, 'do the work',
     );
     const opened = runtime.openInteractive(task.id);
     manager.cancelTask(task.id);
-    expect(runtime.isBusy(task.pid)).toBe(true); // the terminal still runs pi
+    expect(runtime.isBusy(task.sid)).toBe(true); // the terminal still runs pi
     const settled = manager.callEnd(task.id, opened.call_id, 'succeeded');
     expect(settled).toMatchObject({ settled: true, status: 'cancelled' });
-    expect(runtime.isBusy(task.pid)).toBe(false);
+    expect(runtime.isBusy(task.sid)).toBe(false);
     expect(manager.repository.getTask(task.id).status).toBe('cancelled');
   });
 
@@ -272,10 +272,10 @@ describe('pi agent backend', () => {
     }
   });
 
-  test('agent space: per-task ids, live OS pids and the durable call behind it', async () => {
-    const worker = manager.load(manager.spawn(0, 'generic-task', 'worker').pid);
-    const first = await manager.call(worker.pid, 'first round');
-    const interactive = manager.repository.createTask(worker.pid, null, 'interactive round');
+  test('agent space: per-task ids, live OS sids and the durable call behind it', async () => {
+    const worker = manager.load(manager.spawn(0, 'generic-task', 'worker').sid);
+    const first = await manager.call(worker.sid, 'first round');
+    const interactive = manager.repository.createTask(worker.sid, null, 'interactive round');
     const opened = runtime.openInteractive(interactive.id);
     // Ids are per task: the first task used 1.1, this one starts at 2.1.
     expect(opened.agent_id).toBe(`${interactive.id}.1`);
@@ -284,7 +284,7 @@ describe('pi agent backend', () => {
     ]);
     expect(runtime.agentsList({ taskId: first.id })).toEqual([]);
 
-    // The terminal reports the OS pid of the pi process it runs.
+    // The terminal reports the OS sid of the pi service it runs.
     const terminal = cp.spawn(process.execPath, ['-e', 'await Bun.sleep(30000)'], { stdio: 'ignore' });
     const exited = new Promise((resolve) => terminal.on('close', resolve));
     expect(manager.callOsPid(interactive.id, opened.call_id, terminal.pid))
@@ -300,7 +300,7 @@ describe('pi agent backend', () => {
       status: 'succeeded', cancellable: false, call: { status: 'succeeded' },
     });
 
-    // Killing one agent kills the OS process and cancels the task it served.
+    // Killing one agent kills the OS service and cancels the task it served.
     const kill = manager.agentsKill(`${interactive.id}.1`);
     expect(kill).toMatchObject({ outcome: 'killed', os_pid: terminal.pid });
     expect(kill.cancellable).toBe(false);
@@ -308,7 +308,7 @@ describe('pi agent backend', () => {
     expect(runtime.agentsList()).toEqual([]);
     expect(manager.repository.getTask(interactive.id).status).toBe('cancelled');
     expect(manager.callEnd(interactive.id, opened.call_id, 'succeeded')).toMatchObject({ settled: false, status: 'cancelled' });
-    expect(manager.inspect(worker.pid).status).toBe('active');
+    expect(manager.inspect(worker.sid).status).toBe('active');
     expect(manager.agentsList(null, null, true).map((agent) => `${agent.id}:${agent.status}`))
       .toEqual([`${first.id}.1:succeeded`, `${interactive.id}.1:interrupted`]);
     expect(() => manager.agentsKill(`${interactive.id}.1`)).toThrow(/is not running/);
@@ -323,12 +323,12 @@ describe('pi agent backend', () => {
     const task = manager.repository.createTask(0, null, 'interactive round');
     const opened = runtime.openInteractive(task.id);
     // A pi that exits on its own leaves the agent listed (only the terminal can
-    // report back) with a pid that is no longer alive.
+    // report back) with a sid that is no longer alive.
     const dead = cp.spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
     const exited = new Promise((resolve) => dead.on('close', resolve));
     expect(manager.callOsPid(task.id, opened.call_id, dead.pid)).toMatchObject({ recorded: true });
     await exited;
-    // `gone`, not `no_pid`: the daemon still knows which pid it had, so it can
+    // `gone`, not `no_pid`: the daemon still knows which sid it had, so it can
     // tell the terminal is not coming back and settle the call itself.
     expect(manager.agentsKill(opened.agent_id))
       .toMatchObject({ outcome: 'gone', os_pid: dead.pid, status: 'interrupted' });
@@ -351,11 +351,11 @@ describe('pi agent backend', () => {
   });
 
   test('session reports the pi session dir, id, file and open commands', async () => {
-    // A task on PID 0: the session belongs to it, not to the process.
+    // A task on SID 0: the session belongs to it, not to the service.
     const task = manager.repository.createTask(0, null, 'hello');
     const before = manager.session(task.id);
     expect(before).toMatchObject({
-      task_id: task.id, pid: 0, name: 'lush', task_status: 'created', agent: 'pi', busy: false,
+      task_id: task.id, sid: 0, name: 'lush', task_status: 'created', agent: 'pi', busy: false,
       session_id: `lush-task-${task.id}`, file: null, files: [],
     });
     expect(before.cwd).toBe(dir);
@@ -367,12 +367,12 @@ describe('pi agent backend', () => {
     const done = await manager.call(0, 'hello');
     const [finished] = manager.agentsList(done.id, null, true);
     expect(finished).toMatchObject({
-      id: `${done.id}.1`, pid: 0, name: 'lush', provider: 'pi', status: 'succeeded',
+      id: `${done.id}.1`, sid: 0, name: 'lush', provider: 'pi', status: 'succeeded',
       interactive: false, os_pid: expect.any(Number), cancellable: false, error: null,
     });
     expect(finished.elapsed_ms).toBeGreaterThanOrEqual(0);
     expect(manager.agentsList()).toEqual([]); // live only
-    expect(manager.tree().find((row) => row.pid === 0).agent).toEqual(runtime.agentSummary(0));
+    expect(manager.tree().find((row) => row.sid === 0).agent).toEqual(runtime.agentSummary(0));
     const after = manager.session(done.id);
     expect(after.session_dir).toBe(path.join(dir, 'pi-sessions'));
     expect(after.file.endsWith(`_lush-task-${done.id}.jsonl`)).toBe(true);

@@ -1,7 +1,7 @@
 /**
  * The default call agent: the `pi` CLI as an external, subprocess-based agent.
  *
- * One `pi --print` process per call, one pi session per Lush PID. pi runs its
+ * One `pi --print` service per call, one pi session per Lush SID. pi runs its
  * own tool loop (read/bash/edit/write) and reaches Lush through the `lush` CLI
  * from its bash tool; Lush only supplies the template system prompt, the shared
  * Lush guide and the LUSH_CONTEXT payload, then stores the final text.
@@ -85,7 +85,7 @@ export class PiAgentProvider {
       throw new LushError(`pi agent command not found: ${command} (set LUSH_PI_COMMAND, the profile command, or LUSH_PROVIDER=mock)`, -32602);
     }
     this.name = 'pi';
-    /** External agents reach Lush through the CLI, not through process_* tools. */
+    /** External agents reach Lush through the CLI, not through service_* tools. */
     this.contextMode = 'cli';
     this.command = resolved ?? command;
     this.provider = provider;
@@ -139,18 +139,18 @@ export class PiAgentProvider {
       LUSH_HOME: this.home,
       // The agent acts on a task, and needs to name it: `$LUSH_TASK_ID` is how
       // it reaches `lush task ...` for the very task it is working on.
-      LUSH_PID: String(invocation.pid),
+      LUSH_SID: String(invocation.sid),
       LUSH_TASK_ID: invocation.task_id === null || invocation.task_id === undefined
         ? ''
         : String(invocation.task_id),
       PATH: `${LUSH_BIN_DIR}${path.delimiter}${this.env.PATH ?? ''}`,
     };
     fs.mkdirSync(this.sessionDir, { recursive: true, mode: 0o700 });
-    log.info(`pi call task=${invocation.task_id ?? '-'} pid=${invocation.pid} cwd=${cwd} session=${this.sessionId(invocation.task_id)}`);
+    log.info(`pi call task=${invocation.task_id ?? '-'} sid=${invocation.sid} cwd=${cwd} session=${this.sessionId(invocation.task_id)}`);
 
     const child = cp.spawn(this.command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
-    // Hand the OS pid to the runtime before waiting: the agent space needs to
-    // name the process while it is still running.
+    // Hand the OS PID to the runtime before waiting: the agent space needs to
+    // name the service while it is still running.
     invocation.on_spawn?.(child.pid);
     let output = '';
     let stderr = '';
@@ -195,16 +195,16 @@ export class PiAgentProvider {
       throw aborted;
     }
     if (error) {
-      log.warn(`pi could not start for pid=${invocation.pid}: ${error.message}`);
+      log.warn(`pi could not start for sid=${invocation.sid}: ${error.message}`);
       throw new LushError(`pi agent could not start: ${error.message}`, -32020);
     }
     if (code !== 0) {
       const detail = stderr.trim().split('\n').slice(-1)[0]?.slice(0, 200) ?? '';
-      log.warn(`pi exited ${code ?? signalName} for pid=${invocation.pid}: ${stderr.trim().slice(0, 2000)}`);
+      log.warn(`pi exited ${code ?? signalName} for sid=${invocation.sid}: ${stderr.trim().slice(0, 2000)}`);
       throw new LushError(`pi agent failed (exit ${code ?? signalName})${detail ? `: ${detail}` : ''}`, -32020);
     }
     if (overflow) {
-      log.warn(`pi output truncated for pid=${invocation.pid}`);
+      log.warn(`pi output truncated for sid=${invocation.sid}`);
       throw new LushError('pi agent output is too large', -32020);
     }
     return new AgentResponse(output.trim());

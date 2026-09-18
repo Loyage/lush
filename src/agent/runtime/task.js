@@ -20,7 +20,7 @@ export function continuationPrompt(repository, taskId) {
     const outcome = child.status === 'completed'
       ? (child.result === null ? '(no result)' : child.result)
       : `${child.status}: ${child.error ?? '(no error recorded)'}`;
-    return `- task #${child.id} on process ${child.pid} → ${outcome}`;
+    return `- task #${child.id} on service ${child.sid} → ${outcome}`;
   });
   return '[Lush] 你的子 task 已经结束：\n'
     + `${lines.join('\n')}\n`
@@ -76,12 +76,12 @@ export const taskRun = {
    * that frees the slot when the agent hangs, and the tool loop itself.
    */
   async _invoke(entry, prompt) {
-    const { taskId, pid } = entry;
+    const { taskId, sid } = entry;
     text(prompt, 'prompt');
     entry.reason = null;
     entry.controller = new AbortController();
-    entry.callId = this.repository.beginCall(pid, taskId, prompt);
-    entry.agent = openAgent(this, taskId, pid, entry.callId, { provider: entry.provider });
+    entry.callId = this.repository.beginCall(sid, taskId, prompt);
+    entry.agent = openAgent(this, taskId, sid, entry.callId, { provider: entry.provider });
     if (this.timeout > 0) {
       entry.timer = setTimeout(() => {
         if (entry.busy) {

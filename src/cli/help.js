@@ -5,7 +5,7 @@
  */
 import { HELP_TOKENS, UsageError } from './args.js';
 
-const GLOBAL_JSON = '输出机器可读 JSON（默认是人类可读文本）；可放在命令之前或命令末尾（`lush --json process list` / `lush process list --json`）';
+const GLOBAL_JSON = '输出机器可读 JSON（默认是人类可读文本）；可放在命令之前或命令末尾（`lush --json service list` / `lush service list --json`）';
 
 export function usageLines(node, commandPath) {
   const name = ['lush', ...commandPath].join(' ');
@@ -91,7 +91,7 @@ export function helpRequest(json, node, commandPath, rest = []) {
   let useJson = json;
   const targetPath = [...commandPath];
   for (const token of rest) {
-    // `lush help --json process` and `lush process --json help` both work.
+    // `lush help --json service` and `lush service --json help` both work.
     if (token === '--json') {
       useJson = true;
       continue;

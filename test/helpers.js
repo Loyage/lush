@@ -6,7 +6,7 @@ import { MockAgentProvider } from '../src/agent/mock.js';
 import { AgentRuntime } from '../src/agent/runtime.js';
 import { ContextBuilder } from '../src/context/builder.js';
 import { LUSH_CONTEXT_PREFIX } from '../src/context/context.js';
-import { ProcessManager } from '../src/core/process_manager.js';
+import { ServiceManager } from '../src/core/service_manager.js';
 import { Database } from '../src/persistence/database.js';
 import { Repository } from '../src/persistence/repository.js';
 import { TemplateLoader } from '../src/template_loader.js';
@@ -16,7 +16,7 @@ import { TemplateLoader } from '../src/template_loader.js';
  * its child task was done" (which is what parks the parent in `waiting`).
  */
 export class SlowProvider {
-  /** `delay` is milliseconds, or `(invocation) => milliseconds` for a per-process one. */
+  /** `delay` is milliseconds, or `(invocation) => milliseconds` for a per-service one. */
   constructor(delay = 25) {
     this.name = 'mock';
     this.contextMode = 'tools';
@@ -47,7 +47,7 @@ export function system(directory, provider = null, runtimeOptions = {}, orphanPo
   } = runtimeOptions;
   const database = new Database(path.join(directory, 'lush.db'));
   const repository = new Repository(database);
-  const manager = new ProcessManager(repository, templates, orphanPolicy);
+  const manager = new ServiceManager(repository, templates, orphanPolicy);
   manager.agentCatalog = catalog;
   manager.ensureRoot();
   repository.recover();
@@ -59,7 +59,7 @@ export function system(directory, provider = null, runtimeOptions = {}, orphanPo
 }
 
 /**
- * PID 0's production template only allows project-manager. Most tests need a
+ * SID 0's production template only allows project-manager. Most tests need a
  * parent that may spawn any template, so they widen the *test* root explicitly;
  * the real whitelist is covered by dedicated tests in core.test.js.
  */
@@ -110,9 +110,9 @@ export function queue() {
   };
 }
 
-export function contextPid(messages) {
+export function contextSid(messages) {
   const payload = messages.find((message) => message.role === 'system' && message.content.startsWith(LUSH_CONTEXT_PREFIX));
-  return JSON.parse(payload.content.slice(LUSH_CONTEXT_PREFIX.length)).process.pid;
+  return JSON.parse(payload.content.slice(LUSH_CONTEXT_PREFIX.length)).service.sid;
 }
 
 /** The task an invocation is working on, as the provider sees it. */

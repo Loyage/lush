@@ -50,7 +50,7 @@ export class OpenAICompatibleProvider {
       throw new LushError('LUSH_BASE_URL must be an http(s) API base URL', -32602);
     }
     this.name = 'openai';
-    /** In-process runtime: Lush exposes process_* tools to this agent. */
+    /** In-service runtime: Lush exposes service_* tools to this agent. */
     this.contextMode = 'tools';
     this.apiKey = apiKey;
     this.model = model;

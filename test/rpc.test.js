@@ -9,7 +9,7 @@ import { RPCClient } from '../src/rpc/client.js';
 import { RPCServer, log as serverLog } from '../src/rpc/server.js';
 import { createSignal } from '../src/signal.js';
 import { createWriter } from '../src/socket_io.js';
-import { cleanup, contextPid, deferred, expectRejection, permissiveRoot, system, tmpdir } from './helpers.js';
+import { cleanup, contextSid, deferred, expectRejection, permissiveRoot, system, tmpdir } from './helpers.js';
 
 const NL = 0x0a;
 
@@ -80,85 +80,85 @@ describe('rpc', () => {
 
   test('full round trip', async () => {
     expect((await client.request('system.status')).provider).toBe('mock');
-    const child = await client.request('process.spawn', { parent_pid: 0, template: 'generic-task', name: 'demo' });
-    const pid = child.pid;
-    expect((await client.request('process.parent', { pid })).pid).toBe(0);
+    const child = await client.request('service.spawn', { parent_sid: 0, template: 'generic-task', name: 'demo' });
+    const sid = child.sid;
+    expect((await client.request('service.parent', { sid })).sid).toBe(0);
     // Work travels as a task: `call` opens a root task and waits for it.
-    const preview = await client.request('call.describe', { pid, prompt: 'who am I?' });
+    const preview = await client.request('call.describe', { sid, prompt: 'who am I?' });
     expect(preview.dry_run).toBe(true);
     expect(preview.agent).toBe('mock');
     expect(preview.command).toBeNull();
-    expect((await client.request('process.inspect', { pid })).context.message_count).toBe(0);
-    const task = await client.request('call', { pid, goal: 'who am I?' });
-    expect(task).toMatchObject({ pid, status: 'completed', parent_task_id: null, root_task_id: task.id });
-    const info = await client.request('process.inspect', { pid });
+    expect((await client.request('service.inspect', { sid })).context.message_count).toBe(0);
+    const task = await client.request('call', { sid, goal: 'who am I?' });
+    expect(task).toMatchObject({ sid, status: 'completed', parent_task_id: null, root_task_id: task.id });
+    const info = await client.request('service.inspect', { sid });
     expect(info.context.message_count).toBe(2);
     const page = await client.request('task.history', { task_id: task.id, limit: 1 });
     const page2 = await client.request('task.history', { task_id: task.id, after: page.next_after });
     expect(page2.messages.length).toBe(1);
-    expect((await client.request('task.inspect', { task_id: task.id })).process.pid).toBe(pid);
+    expect((await client.request('task.inspect', { task_id: task.id })).service.sid).toBe(sid);
     expect((await client.request('task.tree', { task_id: task.id })).id).toBe(task.id);
-    expect(await client.request('task.list', { pid })).toHaveLength(1);
+    expect(await client.request('task.list', { sid })).toHaveLength(1);
     expect(await client.request('task.result', { task_id: task.id })).toMatchObject({ finished: true, status: 'completed' });
     // A detached call returns the task while it runs; `task.wait` settles it.
-    const detached = await client.request('call', { pid, goal: 'again', detach: true });
-    expect(detached.pid).toBe(pid);
+    const detached = await client.request('call', { sid, goal: 'again', detach: true });
+    expect(detached.sid).toBe(sid);
     await client.request('task.wait', { task_id: detached.id });
-    expect(await client.request('task.list', { pid })).toHaveLength(2);
+    expect(await client.request('task.list', { sid })).toHaveLength(2);
     // Variables travel over the wire with their declaration and regions.
-    const project = await client.request('process.spawn', {
-      parent_pid: 0, template: 'project', name: 'wire', variables: { path: process.cwd() },
+    const project = await client.request('service.spawn', {
+      parent_sid: 0, template: 'project', name: 'wire', variables: { path: process.cwd() },
     });
     expect(project.variables).toMatchObject({ immutable: { path: process.cwd() }, mutable: { branch: 'main' } });
-    expect(await client.request('process.update_vars', { pid: project.pid, patch: { branch: 'wire' } }))
+    expect(await client.request('service.update_vars', { sid: project.sid, patch: { branch: 'wire' } }))
       .toEqual({ branch: 'wire' });
-    expect((await client.request('process.inspect', { pid: project.pid })).variables.mutable).toEqual({ branch: 'wire' });
+    expect((await client.request('service.inspect', { sid: project.sid })).variables.mutable).toEqual({ branch: 'wire' });
 
-    // delete: only a finished process goes, and its parent keeps the audit event.
-    const doomed = await client.request('process.spawn', { parent_pid: 0, template: 'generic-service', name: 'doomed' });
-    await client.request('process.stop', { pid: doomed.pid });
-    const removed = await client.request('process.delete', { pid: doomed.pid });
+    // delete: only a finished service goes, and its parent keeps the audit event.
+    const doomed = await client.request('service.spawn', { parent_sid: 0, template: 'generic-service', name: 'doomed' });
+    await client.request('service.stop', { sid: doomed.sid });
+    const removed = await client.request('service.delete', { sid: doomed.sid });
     expect(removed).toMatchObject({
-      pid: doomed.pid,
-      deleted: [doomed.pid],
+      sid: doomed.sid,
+      deleted: [doomed.sid],
       status: 'stopped',
       terminated: [],
     });
-    expect(removed.rows.processes).toBe(1);
-    expect((await client.request('process.list')).map((row) => row.pid)).not.toContain(doomed.pid);
-    expect((await expectRejection(client.request('process.inspect', { pid: doomed.pid }))).code).toBe(-32004);
-    expect((await client.request('process.inspect', { pid: 0 })).recent_events[0]).toMatchObject({
-      kind: 'child_deleted', data: { pid: doomed.pid, name: 'doomed', status: 'stopped' },
+    expect(removed.rows.services).toBe(1);
+    expect((await client.request('service.list')).map((row) => row.sid)).not.toContain(doomed.sid);
+    expect((await expectRejection(client.request('service.inspect', { sid: doomed.sid }))).code).toBe(-32004);
+    expect((await client.request('service.inspect', { sid: 0 })).recent_events[0]).toMatchObject({
+      kind: 'child_deleted', data: { sid: doomed.sid, name: 'doomed', status: 'stopped' },
     });
 
     // purge: cancel its work first, then delete the node.
-    const live = await client.request('process.spawn', { parent_pid: 0, template: 'generic-task', name: 'live' });
-    const liveTask = await client.request('task.spawn', { pid: live.pid, goal: 'work' });
-    expect(liveTask.pid).toBe(live.pid);
-    const purged = await client.request('process.purge', { pid: live.pid });
+    const live = await client.request('service.spawn', { parent_sid: 0, template: 'generic-task', name: 'live' });
+    const liveTask = await client.request('task.spawn', { sid: live.sid, goal: 'work' });
+    expect(liveTask.sid).toBe(live.sid);
+    const purged = await client.request('service.purge', { sid: live.sid });
     expect(purged.status).toBe('active');
-    expect(purged.deleted).toEqual([live.pid]);
+    expect(purged.deleted).toEqual([live.sid]);
     expect(purged.cancelled.length).toBeLessThanOrEqual(1);
-    expect(await client.request('task.list', { pid: live.pid })).toEqual([]);
-    expect(await expectRejection(client.request('process.purge', { pid: live.pid }))).toBeDefined();    expect(fs.statSync(server.path).mode & 0o777).toBe(0o600);
+    expect(await client.request('task.list', { sid: live.sid })).toEqual([]);
+    expect(await expectRejection(client.request('service.purge', { sid: live.sid }))).toBeDefined();    expect(fs.statSync(server.path).mode & 0o777).toBe(0o600);
   });
 
   test('error codes and parameter validation', async () => {
     for (const [method, params, code] of [
       ['not.real', {}, -32601],
-      ['process.inspect', {}, -32602],
-      ['process.inspect', { pid: 0, extra: 1 }, -32602],
-      ['process.inspect', { pid: true }, -32602],
-      ['process.inspect', { pid: 999 }, -32004],
-      ['process.spawn', { parent_pid: 0, template: [] }, -32602],
-      ['call', { pid: 0, goal: 'hi', detach: 'yes' }, -32602],
-      ['call', { pid: 0, goal: 'hi', extra: 1 }, -32602],
-      ['call', { pid: 99, goal: 'hi' }, -32004],
-      ['call.describe', { pid: 0, prompt: '' }, -32602],
-      ['process.tree', { agents: 'yes' }, -32602],
-      ['process.tree', { extra: 1 }, -32602],
+      ['service.inspect', {}, -32602],
+      ['service.inspect', { sid: 0, extra: 1 }, -32602],
+      ['service.inspect', { sid: true }, -32602],
+      ['service.inspect', { sid: 999 }, -32004],
+      ['service.spawn', { parent_sid: 0, template: [] }, -32602],
+      ['call', { sid: 0, goal: 'hi', detach: 'yes' }, -32602],
+      ['call', { sid: 0, goal: 'hi', extra: 1 }, -32602],
+      ['call', { sid: 99, goal: 'hi' }, -32004],
+      ['call.describe', { sid: 0, prompt: '' }, -32602],
+      ['service.tree', { agents: 'yes' }, -32602],
+      ['service.tree', { extra: 1 }, -32602],
       ['task.list', { status: 'nope' }, -32602],
-      ['task.spawn', { pid: 0 }, -32602],
+      ['task.spawn', { sid: 0 }, -32602],
       ['task.inspect', {}, -32602],
       ['task.inspect', { task_id: 99 }, -32004],
       ['task.result', { task_id: 99 }, -32004],
@@ -168,7 +168,7 @@ describe('rpc', () => {
       ['task.delete', { task_id: 99 }, -32004],
       ['task.session', { task_id: 99 }, -32004],
       ['task.agents_list', { all: 'yes' }, -32602],
-      ['task.agents_list', { pid: 99 }, -32004],
+      ['task.agents_list', { sid: 99 }, -32004],
       ['task.agents_show', {}, -32602],
       ['task.agents_show', { id: 5 }, -32602],
       ['task.agents_show', { id: '9.9' }, -32004],
@@ -177,18 +177,18 @@ describe('rpc', () => {
       ['call.os_pid', { task_id: 0, call_id: 1, os_pid: 0 }, -32602],
       ['call.os_pid', { task_id: 0, call_id: 1, os_pid: 'x' }, -32602],
       ['call.end', { task_id: 0, call_id: 1, status: 'cancelled' }, -32602],
-      ['process.update_vars', { pid: 0 }, -32602],
-      ['process.update_vars', { pid: 0, patch: 'branch' }, -32602],
-      ['process.update_vars', { pid: 0, patch: { path: '/tmp' } }, -32602],
-      ['process.delete', { pid: 0 }, -32010],
-      ['process.delete', { pid: 0, recursive: 'yes' }, -32602],
-      ['process.purge', {}, -32602],
-      ['process.purge', { pid: 0, extra: 1 }, -32602],
-      ['process.purge', { pid: 0 }, -32010],
-      ['process.delete', { pid: 99 }, -32004],
-      ['process.orphans', { bogus: 1 }, -32602],
-      ['process.orphans', { sweep: true }, -32602],
-      ['process.orphan_sweep', { bogus: 1 }, -32602],
+      ['service.update_vars', { sid: 0 }, -32602],
+      ['service.update_vars', { sid: 0, patch: 'branch' }, -32602],
+      ['service.update_vars', { sid: 0, patch: { path: '/tmp' } }, -32602],
+      ['service.delete', { sid: 0 }, -32010],
+      ['service.delete', { sid: 0, recursive: 'yes' }, -32602],
+      ['service.purge', {}, -32602],
+      ['service.purge', { sid: 0, extra: 1 }, -32602],
+      ['service.purge', { sid: 0 }, -32010],
+      ['service.delete', { sid: 99 }, -32004],
+      ['service.orphans', { bogus: 1 }, -32602],
+      ['service.orphans', { sweep: true }, -32602],
+      ['service.orphan_sweep', { bogus: 1 }, -32602],
     ]) {
       const error = await expectRejection(client.request(method, params));
       expect(error.code).toBe(code);
@@ -209,18 +209,18 @@ describe('rpc', () => {
     expect(status.orphan_policy).toEqual({ adopt: 'adopt', limit: 0, ttl_seconds: 0, sweep_seconds: 30 });
     expect(status.orphans_active).toBe(0);
     // An adopted child shows up in the scalar without changing the policy.
-    const parent = await client.request('process.spawn', { parent_pid: 0, template: 'generic-service', name: 'p' });
-    await client.request('process.spawn', { parent_pid: parent.pid, template: 'generic-task', name: 'kid' });
-    await client.request('process.stop', { pid: parent.pid });
+    const parent = await client.request('service.spawn', { parent_sid: 0, template: 'generic-service', name: 'p' });
+    await client.request('service.spawn', { parent_sid: parent.sid, template: 'generic-task', name: 'kid' });
+    await client.request('service.stop', { sid: parent.sid });
     expect((await client.request('system.status')).orphans_active).toBe(1);
   });
 
-  test('process.orphans is a read model, process.orphan_sweep runs the policy now', async () => {
-    const pool = await client.request('process.orphans');
+  test('service.orphans is a read model, service.orphan_sweep runs the policy now', async () => {
+    const pool = await client.request('service.orphans');
     expect(pool.policy).toEqual({ adopt: 'adopt', limit: 0, ttl_seconds: 0, sweep_seconds: 30 });
     expect(pool).toMatchObject({ active_count: 0, busy_count: 0, over_limit: 0, orphans: [] });
     // Nothing to do under the default policy, and the pass still reports itself.
-    expect(await client.request('process.orphan_sweep')).toEqual({
+    expect(await client.request('service.orphan_sweep')).toEqual({
       trigger: 'manual', skipped: false, checked: 0, active_before: 0, active_after: 0,
       evicted: [], deferred: [], limit: 0, ttl_seconds: 0,
     });
@@ -236,26 +236,26 @@ describe('rpc', () => {
     await server2.start();
     const client2 = new RPCClient(server2.path, 2);
     try {
-      const parent = await client2.request('process.spawn', { parent_pid: 0, template: 'generic-service', name: 'p' });
-      const kid = await client2.request('process.spawn', { parent_pid: parent.pid, template: 'generic-task', name: 'kid' });
-      // Only a terminal parent turns its surviving children into PID 0's orphans.
-      await client2.request('process.stop', { pid: parent.pid });
+      const parent = await client2.request('service.spawn', { parent_sid: 0, template: 'generic-service', name: 'p' });
+      const kid = await client2.request('service.spawn', { parent_sid: parent.sid, template: 'generic-task', name: 'kid' });
+      // Only a terminal parent turns its surviving children into SID 0's orphans.
+      await client2.request('service.stop', { sid: parent.sid });
 
-      const pool = await client2.request('process.orphans');
+      const pool = await client2.request('service.orphans');
       expect(pool.policy.ttl_seconds).toBe(1);
       expect(pool.active_count).toBe(1);
-      expect(pool.orphans[0]).toMatchObject({ pid: kid.pid, name: 'kid', busy: false, status: 'active' });
+      expect(pool.orphans[0]).toMatchObject({ sid: kid.sid, name: 'kid', busy: false, status: 'active' });
       expect(typeof pool.orphans[0].last_activity_at).toBe('string');
 
       // Jump the supervisor clock instead of waiting for a real TTL.
       second.manager.orphanSupervisor.clock = () => Date.now() + 3600_000;
-      const report = await client2.request('process.orphan_sweep');
+      const report = await client2.request('service.orphan_sweep');
       expect(report.trigger).toBe('manual');
       expect(report.evicted).toHaveLength(1);
-      expect(report.evicted[0]).toMatchObject({ pid: kid.pid, from: 'active', to: 'stopped', reason: 'orphan_ttl' });
+      expect(report.evicted[0]).toMatchObject({ sid: kid.sid, from: 'active', to: 'stopped', reason: 'orphan_ttl' });
       expect(report).toMatchObject({ active_before: 1, active_after: 0, deferred: [] });
-      expect((await client2.request('process.inspect', { pid: kid.pid })).status).toBe('stopped');
-      expect((await client2.request('process.inspect', { pid: kid.pid })).recent_events[0]).toMatchObject({
+      expect((await client2.request('service.inspect', { sid: kid.sid })).status).toBe('stopped');
+      expect((await client2.request('service.inspect', { sid: kid.sid })).recent_events[0]).toMatchObject({
         kind: 'transition', data: { from: 'active', to: 'stopped', cause: 'orphan_ttl' },
       });
     } finally {
@@ -267,13 +267,13 @@ describe('rpc', () => {
   });
 
   test('tree carries live-agent activity, agents_list is its own view', async () => {
-    const plain = await client.request('process.tree', { agents: false });
+    const plain = await client.request('service.tree', { agents: false });
     expect(plain.length).toBe(1);
     expect(plain[0].agent).toBeUndefined();
-    const rows = await client.request('process.tree');
+    const rows = await client.request('service.tree');
     expect(rows[0].agent).toEqual({ provider: 'mock', running: 0, agents: [] });
     // Same rows either way: only the activity field differs, so list and tree stay one read model.
-    expect(rows.map((row) => row.pid)).toEqual(plain.map((row) => row.pid));
+    expect(rows.map((row) => row.sid)).toEqual(plain.map((row) => row.sid));
     // The agent space is runtime data: nothing persisted, nothing to list yet.
     expect(await client.request('task.agents_list')).toEqual([]);
     expect(await client.request('task.agents_list', { all: true })).toEqual([]);
@@ -281,8 +281,8 @@ describe('rpc', () => {
 
   test('notifications and multiple requests on one connection', async () => {
     const frames = Buffer.concat([
-      encode({ jsonrpc: '2.0', method: 'process.spawn', params: { parent_pid: 0, template: 'generic-task' } }),
-      encode({ jsonrpc: '2.0', id: 'next', method: 'process.list' }),
+      encode({ jsonrpc: '2.0', method: 'service.spawn', params: { parent_sid: 0, template: 'generic-task' } }),
+      encode({ jsonrpc: '2.0', id: 'next', method: 'service.list' }),
     ]);
     const response = await raw(frames);
     expect(response.id).toBe('next');
@@ -322,19 +322,19 @@ describe('rpc', () => {
     runtime.provider = {
       name: 'blocking',
       async call(messages) {
-        contextPid(messages);
+        contextSid(messages);
         gate.resolve();
         await release.promise;
         return new AgentResponse('survived');
       },
     };
-    const child = await client.request('process.spawn', { parent_pid: 0, template: 'generic-task' });
-    const pid = child.pid;
+    const child = await client.request('service.spawn', { parent_sid: 0, template: 'generic-task' });
+    const sid = child.sid;
     const socket = await Bun.connect({
       unix: server.path,
       socket: {
         open: (handle) => handle.write(encode({
-          jsonrpc: '2.0', id: 'detached', method: 'call', params: { pid, goal: 'work' },
+          jsonrpc: '2.0', id: 'detached', method: 'call', params: { sid, goal: 'work' },
         })),
         data: () => {},
         close: () => {},
@@ -345,8 +345,8 @@ describe('rpc', () => {
     await gate.promise;
     socket.end();
     await Bun.sleep(50);
-    const task = manager.taskList(pid)[0];
-    expect(runtime.isBusy(pid)).toBe(true);
+    const task = manager.taskList(sid)[0];
+    expect(runtime.isBusy(sid)).toBe(true);
     release.resolve();
     await runtime.active.get(task.id).promise;
     expect(manager.repository.taskCalls(task.id)[0].status).toBe('succeeded');

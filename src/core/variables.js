@@ -1,16 +1,16 @@
 /**
- * The variable system: what a template declares, what a process was created
+ * The variable system: what a template declares, what a service was created
  * with, and which region a caller may still change.
  *
  * Values live in the persistent state, split by mutability: immutable ones in
- * `state.params`, mutable ones in `state.vars`. The declaration a process was
+ * `state.params`, mutable ones in `state.vars`. The declaration a service was
  * created with (its template snapshot) decides what may change, so
  * immutability never depends on the caller's goodwill. `state.params` and
  * `state.vars` belong to this module: the generic `update_state` cannot write
  * them.
  *
- * Every function operates on the `ProcessManager` passed in (its repository),
- * or on the template declaration alone; the class in `process_manager.js` is
+ * Every function operates on the `ServiceManager` passed in (its repository),
+ * or on the template declaration alone; the class in `service_manager.js` is
  * the only caller.
  */
 import fs from 'node:fs';
@@ -20,7 +20,7 @@ import { LushError, VARIABLE_GROUPS, isPlainObject, jsonDump } from './types.js'
 /** Context state keys owned by the variable system; `update_state` must not touch them. */
 export const VARIABLE_STATE_KEYS = ['params', 'vars'];
 
-/** Context state key owned by creation: which agent profile the process selected. */
+/** Context state key owned by creation: which agent profile the service selected. */
 export const AGENT_STATE_KEY = 'agent';
 
 /**
@@ -39,14 +39,14 @@ export const VARIABLE_CONSTRAINT_FIELDS = ['pattern', 'max_length', 'single_line
  * template, so their spelling is a contract:
  *
  * - `path` is the agent working directory (see `checkWorkdir`);
- * - `name` is the process name — `--name` and this variable are one value;
+ * - `name` is the service name — `--name` and this variable are one value;
  * - `title` / `detail` are the task's one-line headline and its body, which
- *   the CLI renders in `process list` / `tree` / `inspect`
+ *   the CLI renders in `service list` / `tree` / `inspect`
  *   (see `src/cli/format/primitives.js`).
  *
  * A template that declares none of them keeps the historical behaviour.
  */
-export const RESERVED_VARIABLES = { workdir: 'path', processName: 'name', headline: 'title', body: 'detail' };
+export const RESERVED_VARIABLES = { workdir: 'path', serviceName: 'name', headline: 'title', body: 'detail' };
 
 /** Short quote of a declaration's own description: the "why" half of a value error. */
 function hint(spec, max = 160) {
@@ -78,8 +78,8 @@ export function checkVariableDeclaration(templateName, group, name, spec) {
   if (Object.hasOwn(spec, 'single_line') && typeof spec.single_line !== 'boolean') {
     throw new LushError(`variable ${name} single_line must be a boolean`, -32602);
   }
-  if (group === 'mutable' && name === RESERVED_VARIABLES.processName) {
-    throw new LushError('variable name must be immutable: it is the process name', -32602);
+  if (group === 'mutable' && name === RESERVED_VARIABLES.serviceName) {
+    throw new LushError('variable name must be immutable: it is the service name', -32602);
   }
   if (Object.hasOwn(spec, 'default')) checkVariableValue(templateName, name, spec.default, spec);
 }
@@ -121,34 +121,34 @@ export function checkVariableValue(templateName, name, value, spec) {
 
 /**
  * The reserved `name` variable a template declares, or null. Declaring it makes
- * that variable the process name: `--name` seeds it, a value passed as
- * `variables.name` names the process, and the declaration's constraints decide
+ * that variable the service name: `--name` seeds it, a value passed as
+ * `variables.name` names the service, and the declaration's constraints decide
  * the format — one name with one contract instead of two spellings that can
  * drift apart.
  */
-export function processNameVariable(template) {
+export function serviceNameVariable(template) {
   for (const group of VARIABLE_GROUPS) {
-    const spec = template.variables?.[group]?.[RESERVED_VARIABLES.processName];
+    const spec = template.variables?.[group]?.[RESERVED_VARIABLES.serviceName];
     if (spec !== undefined) return { group, spec };
   }
   return null;
 }
 
 /**
- * Seed the reserved `name` variable from the process name so either spelling
+ * Seed the reserved `name` variable from the service name so either spelling
  * works, and refuse the ambiguous case (both given, disagreeing) instead of
  * silently picking one.
  */
-export function withProcessName(template, name, variables) {
-  const declared = processNameVariable(template);
+export function withServiceName(template, name, variables) {
+  const declared = serviceNameVariable(template);
   if (declared === null) return variables;
   const values = variables === undefined || variables === null ? {} : variables;
   // Not a plain object: leave the shape error to spawnVariables, which owns it.
   if (!isPlainObject(values)) return variables;
-  if (Object.hasOwn(values, RESERVED_VARIABLES.processName)) {
-    if (name !== undefined && name !== null && name !== values[RESERVED_VARIABLES.processName]) {
+  if (Object.hasOwn(values, RESERVED_VARIABLES.serviceName)) {
+    if (name !== undefined && name !== null && name !== values[RESERVED_VARIABLES.serviceName]) {
       throw new LushError(
-        `name and variables.name disagree: ${JSON.stringify(name)} vs ${JSON.stringify(values[RESERVED_VARIABLES.processName])}; they are the same value`,
+        `name and variables.name disagree: ${JSON.stringify(name)} vs ${JSON.stringify(values[RESERVED_VARIABLES.serviceName])}; they are the same value`,
         -32602,
       );
     }
@@ -156,17 +156,17 @@ export function withProcessName(template, name, variables) {
   }
   if (name === undefined || name === null) {
     throw new LushError(
-      `template ${template.name} requires a process name: pass name (CLI --name) or variables.name${hint(declared.spec)}`,
+      `template ${template.name} requires a service name: pass name (CLI --name) or variables.name${hint(declared.spec)}`,
       -32602,
     );
   }
-  return { ...values, [RESERVED_VARIABLES.processName]: name };
+  return { ...values, [RESERVED_VARIABLES.serviceName]: name };
 }
 
-/** The process name a template's reserved `name` variable resolved to, or null. */
-export function declaredProcessName(template, resolved) {
-  const declared = processNameVariable(template);
-  return declared === null ? null : resolved[declared.group][RESERVED_VARIABLES.processName];
+/** The service name a template's reserved `name` variable resolved to, or null. */
+export function declaredServiceName(template, resolved) {
+  const declared = serviceNameVariable(template);
+  return declared === null ? null : resolved[declared.group][RESERVED_VARIABLES.serviceName];
 }
 
 /**
@@ -221,15 +221,15 @@ export function checkWorkdir(value) {
   if (!stat.isDirectory()) throw new LushError(`variable path is not a directory: ${value}`, -32602);
 }
 
-export function updateState(manager, pid, patch) {
-  manager.requireActive(pid);
+export function updateState(manager, sid, patch) {
+  manager.requireActive(sid);
   if (!isPlainObject(patch) || Object.getOwnPropertySymbols(patch).length) {
     throw new LushError('patch must be a JSON object with string keys', -32602);
   }
   for (const key of Object.keys(patch)) {
     if (VARIABLE_STATE_KEYS.includes(key)) {
       throw new LushError(
-        `state.${key} holds process variables; use process.update_vars to change mutable ones`,
+        `state.${key} holds service variables; use service.update_vars to change mutable ones`,
         -32602,
       );
     }
@@ -238,34 +238,34 @@ export function updateState(manager, pid, patch) {
     }
   }
   jsonDump(patch);
-  return manager.repository.updateState(pid, patch);
+  return manager.repository.updateState(sid, patch);
 }
 
 /**
- * Change mutable variables only. The declaration the process was created with
+ * Change mutable variables only. The declaration the service was created with
  * decides what may change, so immutability does not depend on the caller's
  * goodwill: an immutable or undeclared name is refused instead of written.
  */
-export function updateVars(manager, pid, patch) {
-  const process = manager.requireActive(pid);
+export function updateVars(manager, sid, patch) {
+  const service = manager.requireActive(sid);
   if (!isPlainObject(patch) || Object.getOwnPropertySymbols(patch).length) {
     throw new LushError('patch must be a JSON object with string keys', -32602);
   }
   const keys = Object.keys(patch);
   if (keys.length === 0) throw new LushError('patch must name at least one variable', -32602);
   jsonDump(patch);
-  const declarations = process.variables.declarations;
+  const declarations = service.variables.declarations;
   for (const key of keys) {
     if (Object.hasOwn(declarations.mutable, key)) {
-      // The declaration the process was created with is still the contract a
+      // The declaration the service was created with is still the contract a
       // later update has to satisfy.
-      checkVariableValue(process.template, key, patch[key], declarations.mutable[key]);
+      checkVariableValue(service.template, key, patch[key], declarations.mutable[key]);
       continue;
     }
     if (Object.hasOwn(declarations.immutable, key)) {
-      throw new LushError(`variable ${key} is immutable in template ${process.template}`, -32602);
+      throw new LushError(`variable ${key} is immutable in template ${service.template}`, -32602);
     }
-    throw new LushError(`template ${process.template} does not declare variable ${key}`, -32602);
+    throw new LushError(`template ${service.template} does not declare variable ${key}`, -32602);
   }
-  return manager.repository.updateVars(pid, patch);
+  return manager.repository.updateVars(sid, patch);
 }

@@ -1,5 +1,5 @@
 /**
- * The task record: one unit of work mounted on a process.
+ * The task record: one unit of work mounted on a service.
  *
  * A `tasks` row is the durable identity of a piece of work — its goal, its
  * status, its result and its place in the task tree. The conversation that
@@ -8,7 +8,7 @@
  * (see `agent/agent_space.js`). Every function operates on the `Repository`
  * passed in; the class in `repository.js` is the only caller.
  */
-import { LushError, jsonDump, now, validPid } from '../core/types.js';
+import { LushError, jsonDump, now, validSid } from '../core/types.js';
 
 /** Task statuses that mean "the work is not finished yet". */
 export const ACTIVE_TASK_STATUS = ['created', 'running', 'waiting'];
@@ -27,22 +27,22 @@ export function decodeTask(row) {
 }
 
 /** Open one task. `rootTaskId` is filled in by the caller for root tasks. */
-export function createTask(repository, pid, parentTaskId, goal, { rootTaskId = 0 } = {}) {
-  validPid(pid);
+export function createTask(repository, sid, parentTaskId, goal, { rootTaskId = 0 } = {}) {
+  validSid(sid);
   let taskId = 0;
   repository.database.transaction(() => {
     const stamp = now();
     taskId = repository.db.run(
-      `INSERT INTO tasks(pid,parent_task_id,root_task_id,goal,status,result,error,state,
+      `INSERT INTO tasks(sid,parent_task_id,root_task_id,goal,status,result,error,state,
                          created_at,started_at,finished_at,updated_at)
        VALUES(?,?,?,?,'created',NULL,NULL,'{}',?,NULL,NULL,?)`,
-      [pid, parentTaskId, rootTaskId, goal, stamp, stamp],
+      [sid, parentTaskId, rootTaskId, goal, stamp, stamp],
     ).lastInsertRowid;
     // A root task is its own root; a child inherits its parent's.
     repository.db.run('UPDATE tasks SET root_task_id=? WHERE id=?',
       [parentTaskId === null ? taskId : rootTaskId, taskId]);
-    repository.event(pid, 'task_created', { task_id: taskId, parent_task_id: parentTaskId, goal });
-    taskEvent(repository, taskId, 'created', { pid, parent_task_id: parentTaskId });
+    repository.event(sid, 'task_created', { task_id: taskId, parent_task_id: parentTaskId, goal });
+    taskEvent(repository, taskId, 'created', { sid, parent_task_id: parentTaskId });
   });
   return getTask(repository, taskId);
 }
@@ -62,10 +62,10 @@ export function findTask(repository, taskId) {
   return decodeTask(repository.db.query('SELECT * FROM tasks WHERE id=?').get(taskId));
 }
 
-export function listTasks(repository, { pid = null, status = null, root = null, limit = 200 } = {}) {
+export function listTasks(repository, { sid = null, status = null, root = null, limit = 200 } = {}) {
   const where = [];
   const args = [];
-  if (pid !== null) { where.push('pid=?'); args.push(pid); }
+  if (sid !== null) { where.push('sid=?'); args.push(sid); }
   if (status !== null) { where.push('status=?'); args.push(status); }
   if (root === 'roots') where.push('parent_task_id IS NULL');
   if (root === 'children') where.push('parent_task_id IS NOT NULL');
@@ -75,30 +75,30 @@ export function listTasks(repository, { pid = null, status = null, root = null, 
     .map(decodeTask);
 }
 
-/** Every task mounted on one process, oldest first (tree rendering). */
-export function tasksOfProcess(repository, pid) {
-  return repository.db.query('SELECT * FROM tasks WHERE pid=? ORDER BY id').all(pid).map(decodeTask);
+/** Every task mounted on one service, oldest first (tree rendering). */
+export function tasksOfService(repository, sid) {
+  return repository.db.query('SELECT * FROM tasks WHERE sid=? ORDER BY id').all(sid).map(decodeTask);
 }
 
 export function childTasks(repository, taskId) {
   return repository.db.query('SELECT * FROM tasks WHERE parent_task_id=? ORDER BY id').all(taskId).map(decodeTask);
 }
 
-export function activeTasks(repository, { pid = null } = {}) {
+export function activeTasks(repository, { sid = null } = {}) {
   const marks = ACTIVE_TASK_STATUS.map(() => '?').join(',');
-  const rows = pid === null
+  const rows = sid === null
     ? repository.db.query(`SELECT * FROM tasks WHERE status IN (${marks}) ORDER BY id`).all(...ACTIVE_TASK_STATUS)
-    : repository.db.query(`SELECT * FROM tasks WHERE pid=? AND status IN (${marks}) ORDER BY id`)
-      .all(pid, ...ACTIVE_TASK_STATUS);
+    : repository.db.query(`SELECT * FROM tasks WHERE sid=? AND status IN (${marks}) ORDER BY id`)
+      .all(sid, ...ACTIVE_TASK_STATUS);
   return rows.map(decodeTask);
 }
 
-/** The task currently occupying one process, if any (one active task per process). */
-export function activeTaskOfProcess(repository, pid) {
+/** The task currently occupying one service, if any (one active task per service). */
+export function activeTaskOfService(repository, sid) {
   const marks = ACTIVE_TASK_STATUS.map(() => '?').join(',');
   return decodeTask(repository.db
-    .query(`SELECT * FROM tasks WHERE pid=? AND status IN (${marks}) ORDER BY id LIMIT 1`)
-    .get(pid, ...ACTIVE_TASK_STATUS));
+    .query(`SELECT * FROM tasks WHERE sid=? AND status IN (${marks}) ORDER BY id LIMIT 1`)
+    .get(sid, ...ACTIVE_TASK_STATUS));
 }
 
 /**
@@ -135,7 +135,7 @@ export function transitionTask(repository, taskId, target, { result, error } = {
   return getTask(repository, taskId);
 }
 
-/** Task-scoped state: shallow merge, same rules as a process's state. */
+/** Task-scoped state: shallow merge, same rules as a service's state. */
 export function updateTaskState(repository, taskId, patch) {
   let state = null;
   repository.database.transaction(() => {
@@ -195,7 +195,7 @@ export function deleteTaskRows(repository, taskIds) {
     // Child tasks that survive a deleted parent become roots of their own.
     repository.db.run('UPDATE tasks SET parent_task_id=NULL,root_task_id=id,updated_at=? WHERE parent_task_id=?',
       [now(), taskId]);
-    // The calls and messages stay: they are the process's conversation history.
+    // The calls and messages stay: they are the service's conversation history.
     // They only lose the task they belonged to (like calls written before tasks
     // existed), because the row they point at is going away.
     repository.db.run('UPDATE agent_calls SET task_id=NULL WHERE task_id=?', [taskId]);
@@ -206,20 +206,20 @@ export function deleteTaskRows(repository, taskIds) {
 }
 
 /**
- * Tasks mounted on processes that are about to disappear. Their child tasks may
- * live on processes that survive, so those are re-pointed at themselves (roots)
+ * Tasks mounted on services that are about to disappear. Their child tasks may
+ * live on services that survive, so those are re-pointed at themselves (roots)
  * by `deleteTaskRows` instead of being deleted with their parent.
  */
-export function tasksOnProcesses(repository, pids) {
+export function tasksOnServices(repository, sids) {
   const ids = [];
-  for (const pid of pids) {
-    for (const row of repository.db.query('SELECT id FROM tasks WHERE pid=? ORDER BY id DESC').all(pid)) {
+  for (const sid of sids) {
+    for (const row of repository.db.query('SELECT id FROM tasks WHERE sid=? ORDER BY id DESC').all(sid)) {
       ids.push(row.id);
     }
   }
   return ids;
 }
 
-export function detachProcessTasks(repository, pids) {
-  return deleteTaskRows(repository, tasksOnProcesses(repository, pids));
+export function detachServiceTasks(repository, sids) {
+  return deleteTaskRows(repository, tasksOnServices(repository, sids));
 }

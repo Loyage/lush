@@ -1,11 +1,11 @@
 /**
  * The work layer: the task verbs as the RPC / CLI / agent-tool surface sees
  * them. Every one of them is a guard plus a call into `core/tasks.js`, which
- * owns the rules — this layer exists so the wire signatures (`task_list {pid,
+ * owns the rules — this layer exists so the wire signatures (`task_list {sid,
  * status, roots, limit}`, `cancelChildTask(from, id)`) stay exactly where
  * callers expect them.
  *
- * Exported as a method group: `index.js` merges it into `ProcessManager`.
+ * Exported as a method group: `index.js` merges it into `ServiceManager`.
  */
 import { LushError, jsonDump } from '../types.js';
 import { ACTIVE_TASK_STATUS } from '../lifecycle.js';
@@ -19,8 +19,8 @@ export const taskLayer = {
    * is false only for an interactive handover, where the caller's terminal
    * runs the agent.
    */
-  spawnTask(parentTaskId, pid, goal, start = true) {
-    return tasks.spawn(this, { parentTaskId, pid, goal, start });
+  spawnTask(parentTaskId, sid, goal, start = true) {
+    return tasks.spawn(this, { parentTaskId, sid, goal, start });
   },
 
   /** Is this task row still able to run (created / running / waiting)? */
@@ -95,9 +95,9 @@ export const taskLayer = {
     return tasks.updateState(this, taskId, patch);
   },
 
-  /** Positional like the wire signature: `task_list {pid, status, roots, limit}`. */
-  taskList(pid = null, status = null, roots = null, limit = 200) {
-    return tasks.list(this, { pid, status, roots, limit });
+  /** Positional like the wire signature: `task_list {sid, status, roots, limit}`. */
+  taskList(sid = null, status = null, roots = null, limit = 200) {
+    return tasks.list(this, { sid, status, roots, limit });
   },
 
   /** `task.wait`: block until the task is terminal, then report it. */
@@ -107,8 +107,8 @@ export const taskLayer = {
   },
 
   /** `task.spawn`: create a task without waiting for it (the tool path uses this). */
-  taskSpawn(pid, goal, parentTaskId = null) {
-    return this.spawnTask(parentTaskId, pid, goal);
+  taskSpawn(sid, goal, parentTaskId = null) {
+    return this.spawnTask(parentTaskId, sid, goal);
   },
 
   /** Remove one finished task (and, with `recursive`, its finished subtree). */
@@ -116,8 +116,8 @@ export const taskLayer = {
     return tasks.remove(this, taskId, recursive);
   },
 
-  taskAgentsList(taskId = null, pid = null, all = false) {
-    return agentsList(this, { taskId, pid, all });
+  taskAgentsList(taskId = null, sid = null, all = false) {
+    return agentsList(this, { taskId, sid, all });
   },
 
   taskAgentShow(id) {
@@ -152,8 +152,8 @@ export const taskLayer = {
     return this.repository.taskEvents(taskId, limit);
   },
 
-  tasksOfProcess(pid) {
-    return tasks.tasksOfProcess(this, pid);
+  tasksOfService(sid) {
+    return tasks.tasksOfService(this, sid);
   },
 
   activeTasks() {

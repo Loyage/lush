@@ -1,5 +1,5 @@
 /**
- * The one place in Lush that removes rows: hard deletion of processes and
+ * The one place in Lush that removes rows: hard deletion of services and
  * everything they own.
  *
  * `delete` and `purge` both land here, children before parents, inside one
@@ -10,56 +10,56 @@ import { now } from '../core/types.js';
 import { event } from './repository_state.js';
 
 /**
- * Delete every row one pid owns, inside the caller's transaction. Order
+ * Delete every row one sid owns, inside the caller's transaction. Order
  * matters: `messages` references `agent_calls`, and every other table
- * references `processes`, so a surviving row would fail the last DELETE.
+ * references `services`, so a surviving row would fail the last DELETE.
  */
-export function deleteRows(repository, pid) {
+export function deleteRows(repository, sid) {
   const rows = {
-    messages: repository.db.run('DELETE FROM messages WHERE pid=?', [pid]).changes,
-    agent_calls: repository.db.run('DELETE FROM agent_calls WHERE pid=?', [pid]).changes,
-    process_events: repository.db.run('DELETE FROM process_events WHERE pid=?', [pid]).changes,
-    contexts: repository.db.run('DELETE FROM contexts WHERE pid=?', [pid]).changes,
+    messages: repository.db.run('DELETE FROM messages WHERE sid=?', [sid]).changes,
+    agent_calls: repository.db.run('DELETE FROM agent_calls WHERE sid=?', [sid]).changes,
+    service_events: repository.db.run('DELETE FROM service_events WHERE sid=?', [sid]).changes,
+    contexts: repository.db.run('DELETE FROM contexts WHERE sid=?', [sid]).changes,
   };
-  // Tasks are mounted on the process, so they go with it; child tasks that live
-  // on surviving processes are re-pointed at themselves (they become roots).
-  const detached = repository.detachProcessTasks([pid]);
+  // Tasks are mounted on the service, so they go with it; child tasks that live
+  // on surviving services are re-pointed at themselves (they become roots).
+  const detached = repository.detachServiceTasks([sid]);
   rows.tasks = detached.tasks;
   rows.task_events = detached.task_events;
-  rows.processes = repository.db.run('DELETE FROM processes WHERE pid=?', [pid]).changes;
+  rows.services = repository.db.run('DELETE FROM services WHERE sid=?', [sid]).changes;
   return rows;
 }
 
 /**
- * Hard-delete processes, children before parents, in one transaction; returns
+ * Hard-delete services, children before parents, in one transaction; returns
  * the total row counts. This is the only place in Lush that removes rows.
  *
- * A Process that a deleted pid created and that was later adopted by PID 0
- * still names it in `original_parent_pid`, and a row may not outlive the pid
+ * A Service that a deleted sid created and that was later adopted by SID 0
+ * still names it in `original_parent_sid`, and a row may not outlive the sid
  * it points at (the column is NOT NULL, so it cannot be cleared either). Such
- * survivors are therefore re-pointed at PID 0 — the same value their
- * `parent_pid` already holds — and each gets a `parent_deleted` event naming
- * the pid that is gone, so the lineage stays readable.
+ * survivors are therefore re-pointed at SID 0 — the same value their
+ * `parent_sid` already holds — and each gets a `parent_deleted` event naming
+ * the sid that is gone, so the lineage stays readable.
  *
- * `audit` writes one extra event (`{ pid, kind, data }`) for the pid that
- * keeps a record of what disappeared, typically the deleted process's parent.
+ * `audit` writes one extra event (`{ sid, kind, data }`) for the sid that
+ * keeps a record of what disappeared, typically the deleted service's parent.
  */
-export function remove(repository, pids, audit = null) {
-  const doomed = new Set(pids);
+export function remove(repository, sids, audit = null) {
+  const doomed = new Set(sids);
   return repository.database.transaction(() => {
-    const rows = { processes: 0, contexts: 0, agent_calls: 0, messages: 0, process_events: 0, tasks: 0, task_events: 0 };
-    for (const pid of pids) {
-      const removed = repository.get(pid);
-      for (const survivor of repository.db.query('SELECT pid FROM processes WHERE original_parent_pid=?').all(pid)) {
-        if (doomed.has(survivor.pid)) continue;
-        repository.db.run('UPDATE processes SET original_parent_pid=0,updated_at=? WHERE pid=?', [now(), survivor.pid]);
-        event(repository, survivor.pid, 'parent_deleted', {
-          pid, name: removed.name, template: removed.template, status: removed.status,
+    const rows = { services: 0, contexts: 0, agent_calls: 0, messages: 0, service_events: 0, tasks: 0, task_events: 0 };
+    for (const sid of sids) {
+      const removed = repository.get(sid);
+      for (const survivor of repository.db.query('SELECT sid FROM services WHERE original_parent_sid=?').all(sid)) {
+        if (doomed.has(survivor.sid)) continue;
+        repository.db.run('UPDATE services SET original_parent_sid=0,updated_at=? WHERE sid=?', [now(), survivor.sid]);
+        event(repository, survivor.sid, 'parent_deleted', {
+          sid, name: removed.name, template: removed.template, status: removed.status,
         });
       }
-      for (const [table, count] of Object.entries(deleteRows(repository, pid))) rows[table] += count;
+      for (const [table, count] of Object.entries(deleteRows(repository, sid))) rows[table] += count;
     }
-    if (audit !== null) event(repository, audit.pid, audit.kind, audit.data);
+    if (audit !== null) event(repository, audit.sid, audit.kind, audit.data);
     return rows;
   });
 }

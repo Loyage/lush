@@ -1,5 +1,5 @@
 /**
- * Context, persistent state, events and history — the process's durable memory
+ * Context, persistent state, events and history — the service's durable memory
  * as the class exposes it. Every method forwards to `repository_state.js`, which
  * holds the statements; the class surface stays where callers expect it.
  *
@@ -10,41 +10,41 @@ import {
 } from '../repository_state.js';
 
 export const state = {
-  /** The agent profile this process selected at spawn time (null when unset). */
-  stateAgent(pid) {
-    return stateAgent(this, pid);
+  /** The agent profile this service selected at spawn time (null when unset). */
+  stateAgent(sid) {
+    return stateAgent(this, sid);
   },
 
-  event(pid, kind, data) {
-    return event(this, pid, kind, data);
+  event(sid, kind, data) {
+    return event(this, sid, kind, data);
   },
 
-  events(pid, limit = 20) {
-    return events(this, pid, limit);
+  events(sid, limit = 20) {
+    return events(this, sid, limit);
   },
 
-  context(pid) {
-    return context(this, pid);
+  context(sid) {
+    return context(this, sid);
   },
 
   /** Replace a Context system prompt (see `repository_state.replaceContextPrompt`). */
-  replaceContextPrompt(pid, systemPrompt) {
-    return replaceContextPrompt(this, pid, systemPrompt);
+  replaceContextPrompt(sid, systemPrompt) {
+    return replaceContextPrompt(this, sid, systemPrompt);
   },
 
-  updateState(pid, patch) {
-    return updateState(this, pid, patch);
+  updateState(sid, patch) {
+    return updateState(this, sid, patch);
   },
 
-  updateVars(pid, patch) {
-    return updateVars(this, pid, patch);
+  updateVars(sid, patch) {
+    return updateVars(this, sid, patch);
   },
 
-  history(pid, after = 0, limit = 100) {
-    return history(this, pid, after, limit);
+  history(sid, after = 0, limit = 100) {
+    return history(this, sid, after, limit);
   },
 
-  backfillSnapshot(pid, fields) {
-    return backfillSnapshot(this, pid, fields);
+  backfillSnapshot(sid, fields) {
+    return backfillSnapshot(this, sid, fields);
   },
 };

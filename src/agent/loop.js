@@ -26,7 +26,7 @@ export function abortError() {
 /**
  * Await `promise`, but give up as soon as `signal` aborts. The underlying
  * promise keeps running: aborting a waiter must never kill an independent
- * invocation (a child task's agent, or another process's agent).
+ * invocation (a child task's agent, or another service's agent).
  */
 export function raceAbort(promise, signal) {
   if (signal.aborted) return Promise.reject(abortError());
@@ -47,7 +47,7 @@ export async function execute(runtime, entry, prompt) {
   // The provider was resolved when the task started: a profile edit mid-run must
   // not switch backends halfway through the tool loop.
   const provider = entry.provider ?? runtime.provider;
-  const tools = new AgentTools(runtime.manager, taskId, entry.pid);
+  const tools = new AgentTools(runtime.manager, taskId, entry.sid);
   try {
     if (entry.reason) throw abortError();
     for (let round = 0; round < runtime.maxRounds; round += 1) {
@@ -65,7 +65,7 @@ export async function execute(runtime, entry, prompt) {
       if (ids.length !== new Set(ids).size || ids.length > 32) {
         throw new LushError('invalid or excessive tool calls', -32020);
       }
-      runtime.repository.addMessage(entry.pid, taskId, callId, response.asMessage());
+      runtime.repository.addMessage(entry.sid, taskId, callId, response.asMessage());
       if (response.toolCalls.length === 0) {
         runtime._finishCall(entry, 'succeeded', { output: response.content });
         return response.content;
@@ -73,7 +73,7 @@ export async function execute(runtime, entry, prompt) {
       // Tools of one response run in order: lifecycle and mutation tools must not race.
       for (const tool of response.toolCalls) {
         const result = await raceAbort(tools.execute(tool.name, tool.arguments), signal);
-        runtime.repository.addMessage(entry.pid, taskId, callId, {
+        runtime.repository.addMessage(entry.sid, taskId, callId, {
           role: 'tool', tool_call_id: tool.id, content: jsonDump(result),
         });
       }

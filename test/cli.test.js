@@ -9,7 +9,7 @@ import { createSignal } from '../src/signal.js';
 import { formatOrphans } from '../src/cli/main.js';
 import {
   formatCall, formatInspect, formatList, formatTaskList, formatTaskResult, formatTaskTree,
-} from '../src/cli/format/process.js';
+} from '../src/cli/format/service.js';
 import { treeLines } from '../src/cli/format/primitives.js';
 import { cleanup, deferred, system, tmpdir } from './helpers.js';
 
@@ -73,115 +73,115 @@ describe('cli, daemon lifecycle and attach', () => {
     expect((await cli(['daemon', 'status'], { check: false })).code).not.toBe(0);
 
     const started = await data('daemon', 'start');
-    expect((await cli(['process', 'tree'])).stdout.trim()).toBe('lush[0]');
+    expect((await cli(['service', 'tree'])).stdout.trim()).toBe('lush[0]');
     expect((await data('daemon', 'start')).daemon_pid).toBe(started.daemon_pid);
-    // PID 0's snapshot only allows project-manager; every other template is refused.
-    const denied = await cli(['process', 'spawn', '0', 'generic-task'], { check: false });
+    // SID 0's snapshot only allows project-manager; every other template is refused.
+    const denied = await cli(['service', 'spawn', '0', 'generic-task'], { check: false });
     expect(denied.code).not.toBe(0);
     expect(denied.stderr).toContain('cannot create template generic-task');
-    expect((await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager'])).stdout.trim())
-      .toBe('PID 1');
-    expect((await cli(['process', 'spawn', '1', 'generic-task', '--name', 'implement-login', '--goal', '实现登录'])).stdout.trim())
-      .toBe('PID 2');
-    // `call` is the entry point: it creates a task on the process and waits.
+    expect((await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager'])).stdout.trim())
+      .toBe('SID 1');
+    expect((await cli(['service', 'spawn', '1', 'generic-task', '--name', 'implement-login', '--goal', '实现登录'])).stdout.trim())
+      .toBe('SID 2');
+    // `call` is the entry point: it creates a task on the service and waits.
     const firstCall = await cli(['call', '2', '请介绍一下你当前的身份和任务']);
     expect(firstCall.stdout).toContain('project-manager[1]');
     expect(firstCall.stdout).toMatch(/^task #\d+ implement-login\[2\] completed$/m);
     const first = (await data('task', 'list'))[0];
-    expect(first).toMatchObject({ pid: 2, status: 'completed', parent_task_id: null });
+    expect(first).toMatchObject({ sid: 2, status: 'completed', parent_task_id: null });
     expect((await cli(['task', 'tree', String(first.id)])).stdout).toContain(`#${first.id}`);
     expect((await cli(['task', 'inspect', String(first.id)])).stdout).toContain('goal');
     expect((await cli(['task', 'history', String(first.id)])).stdout).toContain('请介绍一下');
 
     await cli(['call', '1', '创建一个子任务，研究 OAuth 登录实现方式']);
     const expected = 'lush[0]\n└── project-manager[1]\n    ├── implement-login[2]\n    └── research-oauth[3]\n';
-    expect((await cli(['process', 'tree'])).stdout).toBe(expected);
-    expect((await cli(['process', 'list'])).stdout).toContain('PPID');
+    expect((await cli(['service', 'tree'])).stdout).toBe(expected);
+    expect((await cli(['service', 'list'])).stdout).toContain('PPID');
 
-    const info = await data('process', 'inspect', '2');
+    const info = await data('service', 'inspect', '2');
     expect(info.recent_tasks.length).toBeGreaterThan(0);
     expect(info.context.message_count).toBeGreaterThan(0);
     const tasksBefore = (await data('task', 'list')).length;
 
     await cli(['daemon', 'stop']);
     await cli(['daemon', 'start']);
-    expect((await cli(['process', 'tree'])).stdout).toBe(expected);
+    expect((await cli(['service', 'tree'])).stdout).toBe(expected);
     expect((await data('task', 'list')).length).toBe(tasksBefore);
     // The tasks themselves survive a restart; their status does too.
     expect((await data('task', 'result', String(first.id)).catch(() => null)) ?? (await data('task', 'inspect', String(first.id))).status)
       .toBeTruthy();
 
-    await cli(['process', 'stop', '1']);
-    expect((await data('process', 'inspect', '2')).parent_pid).toBe(0);
-    expect((await data('process', 'inspect', '3')).original_parent_pid).toBe(1);
-    await cli(['process', 'start', '1']);
-    // A process with an active task cannot be stopped; the task has to end first.
-    await cli(['process', 'stop', '2']);
+    await cli(['service', 'stop', '1']);
+    expect((await data('service', 'inspect', '2')).parent_sid).toBe(0);
+    expect((await data('service', 'inspect', '3')).original_parent_sid).toBe(1);
+    await cli(['service', 'start', '1']);
+    // A service with an active task cannot be stopped; the task has to end first.
+    await cli(['service', 'stop', '2']);
     expect((await cli(['call', '2', 'x'], { check: false })).code).not.toBe(0);
-    await cli(['process', 'start', '2']);
+    await cli(['service', 'start', '2']);
     // The mock agent can finish its own task through the tool path.
     await cli(['call', '2', '/tool task_complete {"result":"done"}']);
-    expect((await data('task', 'list', '--pid', '2')).length).toBe(2);
-    expect((await data('process', 'spawn', '1', 'generic-task', '--name', 'next')).pid).toBe(4);
+    expect((await data('task', 'list', '--sid', '2')).length).toBe(2);
+    expect((await data('service', 'spawn', '1', 'generic-task', '--name', 'next')).sid).toBe(4);
   }, 120_000);
 
   test('complete, update-state, variables and spawn over the CLI', async () => {
     await cli(['daemon', 'start']);
-    await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
-    await cli(['process', 'spawn', '1', 'generic-task', '--name', 'worker', '--goal', 'work']);
-    expect((await data('process', 'update-state', '2', '--patch', '{"progress":"half"}')).progress).toBe('half');
+    await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+    await cli(['service', 'spawn', '1', 'generic-task', '--name', 'worker', '--goal', 'work']);
+    expect((await data('service', 'update-state', '2', '--patch', '{"progress":"half"}')).progress).toBe('half');
     // Work verbs moved to tasks: `call` opens one, `task complete` finishes it.
     const task = await data('call', '2', 'work');
     expect(task.status).toBe('completed');
     expect((await data('task', 'result', String(task.id))).result).toContain('[Mock]');
     // `task spawn` starts the agent right away; the mock finishes immediately.
     const spawnedTask = await data('task', 'spawn', '2', '--goal', 'manual work');
-    expect(spawnedTask.pid).toBe(2);
+    expect(spawnedTask.sid).toBe(2);
     await data('task', 'wait', String(spawnedTask.id));
     // An explicit result comes from the tool call, which is what an agent does.
     const manual = await data('call', '2', '/tool task_complete {"result":{"answer":42}}');
     expect(manual.status).toBe('completed');
     expect((await data('task', 'result', String(manual.id))).result).toEqual({ answer: 42 });
-    expect((await data('task', 'list', '--pid', '2')).length).toBe(3);
+    expect((await data('task', 'list', '--sid', '2')).length).toBe(3);
 
-    const spawned = await data('process', 'spawn', '1', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
-    const project = await data('process', 'inspect', String(spawned.pid));
+    const spawned = await data('service', 'spawn', '1', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
+    const project = await data('service', 'inspect', String(spawned.sid));
     expect(project.context.state).toEqual({ params: { path: state.dir }, vars: { branch: 'main' } });
     expect(project.variables.declarations.mutable.branch.default).toBe('main');
     // Tree text mode marks immutable values plain and mutable ones with `~` (long values truncate).
-    const tree = (await cli(['process', 'tree'])).stdout;
-    expect(tree).toContain(`p1[${spawned.pid}] path=${state.dir.slice(0, 10)}`);
+    const tree = (await cli(['service', 'tree'])).stdout;
+    expect(tree).toContain(`p1[${spawned.sid}] path=${state.dir.slice(0, 10)}`);
     expect(tree).toContain('~branch=main');
 
-    expect(await data('process', 'update-vars', String(spawned.pid), '--vars', '{"branch":"dev"}')).toEqual({ branch: 'dev' });
-    expect((await data('process', 'inspect', String(spawned.pid))).variables.mutable).toEqual({ branch: 'dev' });
-    expect((await cli(['process', 'update-vars', String(spawned.pid), '--vars', '{"branch":"release"}'])).stdout.trim())
+    expect(await data('service', 'update-vars', String(spawned.sid), '--vars', '{"branch":"dev"}')).toEqual({ branch: 'dev' });
+    expect((await data('service', 'inspect', String(spawned.sid))).variables.mutable).toEqual({ branch: 'dev' });
+    expect((await cli(['service', 'update-vars', String(spawned.sid), '--vars', '{"branch":"release"}'])).stdout.trim())
       .toBe('branch=release');
-    const locked = await cli(['process', 'update-vars', String(spawned.pid), '--vars', JSON.stringify({ path: '/tmp' })], { check: false });
+    const locked = await cli(['service', 'update-vars', String(spawned.sid), '--vars', JSON.stringify({ path: '/tmp' })], { check: false });
     expect(locked.code).not.toBe(0);
     expect(locked.stderr).toContain('immutable');
-    expect((await cli(['process', 'update-state', String(spawned.pid), '--patch', '{"params":{}}'], { check: false })).stderr)
+    expect((await cli(['service', 'update-state', String(spawned.sid), '--patch', '{"params":{}}'], { check: false })).stderr)
       .toContain('update_vars');
 
     // --dry-run prints the invocation instead of calling the agent.
-    const preview = await data('call', String(spawned.pid), 'hello', '--dry-run');
+    const preview = await data('call', String(spawned.sid), 'hello', '--dry-run');
     expect(preview).toMatchObject({ dry_run: true, agent: 'mock', command: null });
-    expect((await data('process', 'inspect', String(spawned.pid))).context.message_count).toBe(0);
-    expect((await cli(['call', String(spawned.pid), 'hello', '--dry-run'])).stdout).toContain('runs in-process');
+    expect((await data('service', 'inspect', String(spawned.sid))).context.message_count).toBe(0);
+    expect((await cli(['call', String(spawned.sid), 'hello', '--dry-run'])).stdout).toContain('runs in-service');
 
-    const missing = await cli(['process', 'spawn', '1', 'project', '--name', 'p2'], { check: false });
+    const missing = await cli(['service', 'spawn', '1', 'project', '--name', 'p2'], { check: false });
     expect(missing.code).not.toBe(0);
     expect(missing.stderr).toContain('variables.path');
-    const unknown = await cli(['process', 'spawn', '1', 'project', '--name', 'p3', '--vars', JSON.stringify({ path: state.dir, nope: 1 })], { check: false });
+    const unknown = await cli(['service', 'spawn', '1', 'project', '--name', 'p3', '--vars', JSON.stringify({ path: state.dir, nope: 1 })], { check: false });
     expect(unknown.stderr).toContain('does not declare variable nope');
-    expect((await cli(['process', 'update-vars', String(spawned.pid)], { check: false })).stderr).toContain('--vars');
-    expect((await cli(['process', 'update-state', '2', '--patch', '{oops'], { check: false })).stderr).toContain('invalid JSON');
+    expect((await cli(['service', 'update-vars', String(spawned.sid)], { check: false })).stderr).toContain('--vars');
+    expect((await cli(['service', 'update-state', '2', '--patch', '{oops'], { check: false })).stderr).toContain('invalid JSON');
 
-    // --interactive needs an external agent: the in-process runtime has no TUI.
-    const enter = await cli(['call', String(spawned.pid), 'hello', '-i'], { check: false });
+    // --interactive needs an external agent: the in-service runtime has no TUI.
+    const enter = await cli(['call', String(spawned.sid), 'hello', '-i'], { check: false });
     expect(enter.code).not.toBe(0);
-    expect(enter.stderr).toContain('runs in-process');
-    expect((await cli(['call', String(spawned.pid), 'hello', '--interactive', '--dry-run'], { check: false })).code).toBe(2);
+    expect(enter.stderr).toContain('runs in-service');
+    expect((await cli(['call', String(spawned.sid), 'hello', '--interactive', '--dry-run'], { check: false })).code).toBe(2);
   }, 60_000);
 
 
@@ -200,7 +200,7 @@ describe('cli, daemon lifecycle and attach', () => {
       "  const id = argv[argv.indexOf('--session-id') + 1];",
       "  await Bun.write(dir + '/2020-01-01T00-00-00-000Z_' + id + '.jsonl', '{}');",
       '}',
-      "console.log(JSON.stringify({ tui: !argv.includes('--print'), pid: process.env.LUSH_PID }));",
+      "console.log(JSON.stringify({ tui: !argv.includes('--print'), sid: process.env.LUSH_SID }));",
       '',
     ].join('\n'));
     fs.chmodSync(stub, 0o755);
@@ -208,17 +208,17 @@ describe('cli, daemon lifecycle and attach', () => {
     state.env = { ...baseEnv, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub };
     try {
       await cli(['daemon', 'start']);
-      await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
-      const project = await data('process', 'spawn', '1', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
+      await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+      const project = await data('service', 'spawn', '1', 'project', '--name', 'p1', '--vars', JSON.stringify({ path: state.dir }));
 
-      // A session belongs to a task, not to the process: a task has to exist.
-      const task = await data('task', 'spawn', String(project.pid), '--goal', 'hi');
+      // A session belongs to a task, not to the service: a task has to exist.
+      const task = await data('task', 'spawn', String(project.sid), '--goal', 'hi');
       const before = await data('task', 'session', String(task.id));
       expect(before).toMatchObject({ agent: 'pi', session_id: `lush-task-${task.id}`, file: null, files: [] });
       expect((await cli(['task', 'session', String(task.id)])).stdout).toContain('(none yet)');
       await data('task', 'cancel', String(task.id));
 
-      const done = await data('call', String(project.pid), 'hi');
+      const done = await data('call', String(project.sid), 'hi');
       const after = await data('task', 'session', String(done.id));
       expect(after.file.endsWith(`_lush-task-${done.id}.jsonl`)).toBe(true);
       const text = (await cli(['task', 'session', String(done.id)])).stdout;
@@ -227,7 +227,7 @@ describe('cli, daemon lifecycle and attach', () => {
 
       // --open runs pi in the foreground (no --print) with the Lush environment.
       const opened = await cli(['task', 'session', String(done.id), '--open']);
-      expect(JSON.parse(opened.stdout)).toEqual({ tui: true, pid: String(project.pid) });
+      expect(JSON.parse(opened.stdout)).toEqual({ tui: true, sid: String(project.sid) });
       expect((await cli(['--json', 'task', 'session', String(done.id), '--open'], { check: false })).code).toBe(2);
     } finally {
       state.env = baseEnv;
@@ -253,8 +253,8 @@ describe('cli, daemon lifecycle and attach', () => {
     state.env = { ...baseEnv, LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub };
     try {
       await cli(['daemon', 'start']);
-      await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
-      expect((await cli(['process', 'spawn', '1', 'generic-task', '--name', 'worker'])).stdout.trim()).toBe('PID 2');
+      await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+      expect((await cli(['service', 'spawn', '1', 'generic-task', '--name', 'worker'])).stdout.trim()).toBe('SID 2');
       // A daemon-spawned agent: this CLI only waits for the call to finish.
       const call = Bun.spawn([process.execPath, CLI, 'call', '2', 'long work'], {
         cwd: ROOT, env: { ...state.env, PI_STUB_SLEEP: '3000' }, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe',
@@ -265,16 +265,16 @@ describe('cli, daemon lifecycle and attach', () => {
         await Bun.sleep(20);
         live = await data('task', 'agents', 'list');
       }
-      const task = (await data('task', 'list', '--pid', '2'))[0];
+      const task = (await data('task', 'list', '--sid', '2'))[0];
       const agentId = `${task.id}.1`;
       expect(live).toHaveLength(1);
       expect(live[0]).toMatchObject({
-        id: agentId, task_id: task.id, pid: 2, provider: 'pi', status: 'running',
+        id: agentId, task_id: task.id, sid: 2, provider: 'pi', status: 'running',
         call_id: 1, interactive: false, cancellable: true,
       });
       expect(live[0].os_pid).toBeGreaterThan(0);
-      // The tree shows the activity of that process only.
-      const tree = (await cli(['process', 'tree'])).stdout;
+      // The tree shows the activity of that service only.
+      const tree = (await cli(['service', 'tree'])).stdout;
       expect(tree).toContain(`agent ${agentId} running · `);
       expect(tree).toContain('lush[0]');
       expect(tree).not.toContain('agent 0.1');
@@ -291,14 +291,14 @@ describe('cli, daemon lifecycle and attach', () => {
       });
       expect(await data('task', 'agents', 'list')).toEqual([]);
       expect((await data('task', 'agents', 'list', '--all'))[0]).toMatchObject({ id: agentId, status: 'interrupted' });
-      // A finished agent cannot be killed again, and the process stays usable.
+      // A finished agent cannot be killed again, and the service stays usable.
       const again = await cli(['task', 'agents', 'kill', agentId], { check: false });
       expect(again.code).not.toBe(0);
       expect(again.stderr).toContain('is not running');
       const later = (await cli(['call', '2', 'hi'])).stdout;
       expect(later).toContain('completed');
       expect(later).toContain('late reply');
-      expect((await data('task', 'list', '--pid', '2')).length).toBe(2);
+      expect((await data('task', 'list', '--sid', '2')).length).toBe(2);
       expect(await stderr).not.toContain('no such');
     } finally {
       state.env = baseEnv;
@@ -320,26 +320,26 @@ describe('cli, daemon lifecycle and attach', () => {
     expect(fs.existsSync(path.join(state.dir, 'lush.sock'))).toBe(false);
 
     await cli(['daemon', 'start']);
-    expect((await data('process', 'list')).length).toBe(1);
+    expect((await data('service', 'list')).length).toBe(1);
   }, 60_000);
 
   test('daemon restart replaces the daemon and keeps the tree', async () => {
     const first = await data('daemon', 'start');
-    await cli(['process', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
+    await cli(['service', 'spawn', '0', 'project-manager', '--name', 'project-manager']);
     const tree = 'lush[0]\n└── project-manager[1]';
-    expect((await cli(['process', 'tree'])).stdout.trim()).toBe(tree);
+    expect((await cli(['service', 'tree'])).stdout.trim()).toBe(tree);
 
     const restarted = await data('daemon', 'restart');
     expect(restarted).toMatchObject({ restarted: true, was_running: true, started: true });
     expect(restarted.daemon_pid).not.toBe(first.daemon_pid); // a new daemon, not the old one
     expect(restarted.cli.code_match).toBe(true);
-    expect((await cli(['process', 'tree'])).stdout.trim()).toBe(tree);
+    expect((await cli(['service', 'tree'])).stdout.trim()).toBe(tree);
 
     // Restarting a stopped home is just a start, and says so.
     await cli(['daemon', 'stop']);
     const fromStopped = await data('daemon', 'restart');
     expect(fromStopped).toMatchObject({ restarted: true, was_running: false, started: true });
-    expect((await cli(['process', 'tree'])).stdout.trim()).toBe(tree);
+    expect((await cli(['service', 'tree'])).stdout.trim()).toBe(tree);
   }, 60_000);
 
   test('daemon status reports which home and which code answer', async () => {
@@ -360,7 +360,7 @@ describe('cli, daemon lifecycle and attach', () => {
       code_match: true,
     });
     // A daemon running this exact code stays quiet on stderr.
-    expect((await cli(['process', 'list'])).stderr).not.toContain('runs different code');
+    expect((await cli(['service', 'list'])).stderr).not.toContain('runs different code');
 
     // Text output is one aligned line per field, not a JSON blob.
     const text = await cli(['daemon', 'status']);
@@ -376,10 +376,10 @@ describe('cli, daemon lifecycle and attach', () => {
     });
     await new Response(start.stderr).text();
     expect(await start.exited).toBe(0);
-    const pid = Number.parseInt(fs.readFileSync(path.join(dir, 'daemon.lock'), 'utf8'), 10);
+    const sid = Number.parseInt(fs.readFileSync(path.join(dir, 'daemon.lock'), 'utf8'), 10);
     expect(isLocked(dir)).toBe(true);
 
-    expect(await forceStopDaemon(dir)).toEqual({ pid, killed: true, reason: 'SIGKILL' });
+    expect(await forceStopDaemon(dir)).toEqual({ pid: sid, killed: true, reason: 'SIGKILL' });
     expect(isLocked(dir)).toBe(false);
     cleanup(dir);
   }, 30_000);
@@ -393,7 +393,7 @@ describe('cli, daemon lifecycle and attach', () => {
     expect(forced.pid).toBe(sleeper.pid);
     expect(forced.killed).toBe(false);
     expect(forced.reason).toContain('not a lush daemon');
-    expect(sleeper.exitCode).toBeNull(); // pids are recycled: the guard must hold
+    expect(sleeper.exitCode).toBeNull(); // sids are recycled: the guard must hold
 
     sleeper.kill();
     await sleeper.exited;
@@ -412,7 +412,7 @@ describe('cli, daemon lifecycle and attach', () => {
     await server.start();
     const env = { ...state.env, LUSH_HOME: dir };
     try {
-      const listed = await cli(['process', 'list'], { check: false, env });
+      const listed = await cli(['service', 'list'], { check: false, env });
       expect(listed.code).toBe(0);
       expect(listed.stderr).toContain('runs different code');
       expect(listed.stderr).toContain('different checkout');
@@ -454,7 +454,7 @@ describe('cli, daemon lifecycle and attach', () => {
               tool_calls: [{
                 id: 'spawn-once',
                 type: 'function',
-                function: { name: 'process_spawn', arguments: '{"template":"project-manager","name":"only-once"}' },
+                function: { name: 'service_spawn', arguments: '{"template":"project-manager","name":"only-once"}' },
               }],
             },
           }],
@@ -477,7 +477,7 @@ describe('cli, daemon lifecycle and attach', () => {
         throw new Error('provider never entered the second round');
       });
       await Promise.race([blocked.promise, guard]);
-      expect((await data('process', 'list')).length).toBe(2);
+      expect((await data('service', 'list')).length).toBe(2);
       const taskId = (await data('task', 'list'))[0].id;
 
       process.kill(status.daemon_pid, 'SIGKILL');
@@ -496,8 +496,8 @@ describe('cli, daemon lifecycle and attach', () => {
       });
       await cli(['call', '0', 'who are you?']);
       // The committed spawn is not replayed by the next task.
-      expect((await data('process', 'list')).length).toBe(2);
-      expect((await data('process', 'inspect', '1')).name).toBe('only-once');
+      expect((await data('service', 'list')).length).toBe(2);
+      expect((await data('service', 'inspect', '1')).name).toBe('only-once');
     } finally {
       release.resolve();
       if (waiter && waiter.exitCode === null) {
@@ -509,12 +509,12 @@ describe('cli, daemon lifecycle and attach', () => {
   }, 60_000);
 });
 
-describe('process and task text output', () => {
-  /** A read-model row shaped like `process.list` delivers them. */
-  const row = ({ pid = 2, name = 'fix-login', title, detail, variables, ...rest } = {}) => ({
-    pid,
-    parent_pid: 1,
-    original_parent_pid: 1,
+describe('service and task text output', () => {
+  /** A read-model row shaped like `service.list` delivers them. */
+  const row = ({ sid = 2, name = 'fix-login', title, detail, variables, ...rest } = {}) => ({
+    sid,
+    parent_sid: 1,
+    original_parent_sid: 1,
     name,
     status: 'active',
     template: 'dev-task',
@@ -533,21 +533,21 @@ describe('process and task text output', () => {
     },
     ...rest,
   });
-  const inspectOf = (process) => formatInspect({
-    ...process,
-    context: { state: process.variables.immutable, message_count: 0 },
+  const inspectOf = (service) => formatInspect({
+    ...service,
+    context: { state: service.variables.immutable, message_count: 0 },
     recent_calls: [],
     recent_events: [],
     recent_tasks: [],
   });
 
-  test('list carries PID / PPID / STATUS / NAME / TITLE and no type column', () => {
+  test('list carries SID / PPID / STATUS / NAME / TITLE and no type column', () => {
     const text = formatList([
       row({ title: '修复登录流程' }),
-      row({ pid: 3, name: 'demo-project', template: 'project' }),
+      row({ sid: 3, name: 'demo-project', template: 'project' }),
     ]);
     const [header, first, second] = text.split('\n');
-    expect(header).toMatch(/^PID\s+PPID\s+STATUS\s+NAME\s+TITLE$/);
+    expect(header).toMatch(/^SID\s+PPID\s+STATUS\s+NAME\s+TITLE$/);
     expect(first).toMatch(/^2\s+1\s+active\s+fix-login\s+修复登录流程$/);
     expect(second).toMatch(/^3\s+1\s+active\s+demo-project\s+-$/);
     expect(text).not.toContain('service');
@@ -556,15 +556,15 @@ describe('process and task text output', () => {
   test('long titles are truncated in list and tree, and detail stays out of the tree', () => {
     const long = 'x'.repeat(50);
     expect(formatList([row({ title: long })])).toContain(`${'x'.repeat(37)}...`);
-    const tree = treeLines([row({ title: long, detail: 'a\nb', parent_pid: null })]).join('\n');
+    const tree = treeLines([row({ title: long, detail: 'a\nb', parent_sid: null })]).join('\n');
     expect(tree).toContain(`fix-login[2] title=${'x'.repeat(45)}...`);
-    // The `name` variable only repeats the process name; the body has no one-line form.
+    // The `name` variable only repeats the service name; the body has no one-line form.
     expect(tree).not.toContain('name=fix-login');
     expect(tree).not.toContain('detail=');
     expect(tree.split('\n').length).toBe(1);
   });
 
-  test('inspect shows title, detail and the tasks mounted on the process', () => {
+  test('inspect shows title, detail and the tasks mounted on the service', () => {
     const text = inspectOf(row({ title: '修复登录流程', detail: '第一行\n第二行' }));
     expect(text).toMatch(/^ {2}title\s+修复登录流程$/m);
     expect(text).toMatch(/^detail\n {2}第一行\n {2}第二行$/m);
@@ -577,10 +577,10 @@ describe('process and task text output', () => {
       context: { state: {}, message_count: 0 },
       recent_calls: [],
       recent_events: [],
-      recent_tasks: [{ id: 7, pid: 2, status: 'running', goal: 'do the thing' }],
+      recent_tasks: [{ id: 7, sid: 2, status: 'running', goal: 'do the thing' }],
     });
     expect(withTasks).toMatch(/^tasks · recent 1, newest first$/m);
-    expect(withTasks).toContain('#7 pid 2 running · do the thing');
+    expect(withTasks).toContain('#7 sid 2 running · do the thing');
 
     // Data written before the three fields existed: no title row, no detail
     // block, no crash, and `--json` shape unchanged.
@@ -588,7 +588,7 @@ describe('process and task text output', () => {
     const legacyText = inspectOf(legacy);
     expect(legacyText).not.toContain('title');
     expect(legacyText).not.toContain('detail');
-    expect(legacyText).toContain('pid 2 · fix-login · active');
+    expect(legacyText).toContain('sid 2 · fix-login · active');
     expect(formatList([legacy])).toMatch(/^2\s+1\s+active\s+fix-login\s+-$/m);
   });
 });
@@ -596,7 +596,7 @@ describe('process and task text output', () => {
 describe('task list and tree text output', () => {
   const task = (overrides = {}) => ({
     id: 1,
-    pid: 2,
+    sid: 2,
     parent_task_id: null,
     root_task_id: 1,
     status: 'running',
@@ -614,10 +614,10 @@ describe('task list and tree text output', () => {
   test('list is one aligned row per task, with parent and result', () => {
     const text = formatTaskList([
       task(),
-      task({ id: 2, parent_task_id: 1, pid: 3, status: 'completed', goal: 'child work', result: 'done' }),
+      task({ id: 2, parent_task_id: 1, sid: 3, status: 'completed', goal: 'child work', result: 'done' }),
     ]);
     const [header, parent, child] = text.split('\n');
-    expect(header).toMatch(/^ID\s+PID\s+PARENT\s+STATUS\s+GOAL\s+RESULT$/);
+    expect(header).toMatch(/^ID\s+SID\s+PARENT\s+STATUS\s+GOAL\s+RESULT$/);
     expect(parent).toMatch(/^#1\s+2\s+-\s+running\s+do the thing\s+-$/);
     expect(child).toMatch(/^#2\s+3\s+#1\s+completed\s+child work\s+done$/);
   });
@@ -626,20 +626,20 @@ describe('task list and tree text output', () => {
     const text = formatTaskTree(task({
       status: 'completed',
       result: 'shipped',
-      children: [task({ id: 2, pid: 3, status: 'failed', goal: 'child work', error: 'boom' })],
+      children: [task({ id: 2, sid: 3, status: 'failed', goal: 'child work', error: 'boom' })],
     }));
     const [root, child] = text.split('\n');
-    expect(root).toMatch(/^#1 pid 2 completed · do the thing → shipped$/);
-    expect(child).toBe('└── #2 pid 3 failed · child work (boom)');
+    expect(root).toMatch(/^#1 sid 2 completed · do the thing → shipped$/);
+    expect(child).toBe('└── #2 sid 3 failed · child work (boom)');
   });
 
   test('call output names the task and its outcome', () => {
-    expect(formatCall({ process: { name: 'worker' }, task: task({ status: 'completed', result: 'all done' }) }))
+    expect(formatCall({ service: { name: 'worker' }, task: task({ status: 'completed', result: 'all done' }) }))
       .toBe('task #1 worker[2] completed\nall done');
-    expect(formatCall(task({ status: 'cancelled' }))).toBe('task #1 pid 2 cancelled');
-    expect(formatTaskResult({ id: 1, pid: 2, status: 'running', finished: false, result: null, error: null }))
+    expect(formatCall(task({ status: 'cancelled' }))).toBe('task #1 sid 2 cancelled');
+    expect(formatTaskResult({ id: 1, sid: 2, status: 'running', finished: false, result: null, error: null }))
       .toBe("task #1 is running (not finished yet; use 'lush task wait 1')");
-    expect(formatTaskResult({ id: 1, pid: 2, status: 'failed', finished: true, result: null, error: 'boom' }))
+    expect(formatTaskResult({ id: 1, sid: 2, status: 'failed', finished: true, result: null, error: 'boom' }))
       .toBe('task #1 failed\n  error: boom');
   });
 });
@@ -653,13 +653,13 @@ describe('orphan text output', () => {
       over_limit: 1,
       orphans: [
         {
-          pid: 4, name: 'cache', status: 'active', template: 'generic-service',
-          original_parent_pid: 2, created_at: '2026-09-17T20:00:00.000Z', updated_at: '2026-09-17T20:00:00.000Z',
+          sid: 4, name: 'cache', status: 'active', template: 'generic-service',
+          original_parent_sid: 2, created_at: '2026-09-17T20:00:00.000Z', updated_at: '2026-09-17T20:00:00.000Z',
           last_activity_at: '2026-09-17T20:05:00.000Z', idle_seconds: 75, busy: true,
         },
         {
-          pid: 5, name: 'worker', status: 'stopped', template: 'generic-task',
-          original_parent_pid: 2, created_at: '2026-09-17T20:00:00.000Z', updated_at: '2026-09-17T20:00:00.000Z',
+          sid: 5, name: 'worker', status: 'stopped', template: 'generic-task',
+          original_parent_sid: 2, created_at: '2026-09-17T20:00:00.000Z', updated_at: '2026-09-17T20:00:00.000Z',
           last_activity_at: '2026-09-17T20:05:00.000Z', idle_seconds: 75, busy: false,
         },
       ],
@@ -680,10 +680,10 @@ describe('orphan text output', () => {
     const report = formatOrphans({
       trigger: 'timer', skipped: false, checked: 3, active_before: 3, active_after: 1,
       evicted: [
-        { pid: 4, name: 'cache', from: 'active', to: 'stopped', reason: 'orphan_ttl', idle_seconds: 900 },
-        { pid: 5, name: 'worker', from: 'active', to: 'stopped', reason: 'orphan_limit', idle_seconds: 12 },
+        { sid: 4, name: 'cache', from: 'active', to: 'stopped', reason: 'orphan_ttl', idle_seconds: 900 },
+        { sid: 5, name: 'worker', from: 'active', to: 'stopped', reason: 'orphan_limit', idle_seconds: 12 },
       ],
-      deferred: [{ pid: 6, reason: 'busy' }],
+      deferred: [{ sid: 6, reason: 'busy' }],
       limit: 1, ttl_seconds: 600,
     });
     expect(report.split('\n')[0]).toBe('trigger=timer checked=3 active 3->1 evicted=2 deferred=1 (limit=1 ttl=600s)');

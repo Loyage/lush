@@ -45,7 +45,7 @@ export function jsonArg(value, label) {
 
 /**
  * `inspect --with` selects sections of the unified view. Returns null when the
- * flag is absent, which keeps plain `lush process inspect PID` on the full payload.
+ * flag is absent, which keeps plain `lush service inspect SID` on the full payload.
  */
 export function inspectSections(args) {
   const sections = [];

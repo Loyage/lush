@@ -9,7 +9,7 @@ export function lushContextMessage(data) {
   return `${LUSH_CONTEXT_PREFIX}${jsonDump(data)}`;
 }
 
-export class ProcessContext {
+export class ServiceContext {
   constructor({ system_prompt, state, artifacts, references, message_count }) {
     this.systemPrompt = system_prompt;
     this.state = state;
@@ -18,8 +18,8 @@ export class ProcessContext {
     this.messageCount = message_count;
   }
 
-  static load(repository, pid) {
-    return new ProcessContext(repository.context(pid));
+  static load(repository, sid) {
+    return new ServiceContext(repository.context(sid));
   }
 }
 

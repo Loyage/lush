@@ -19,13 +19,13 @@ function childEnv(info) {
 
 /**
  * `lush task session TASK_ID --open` (and `lush task attach TASK_ID`): hand the
- * terminal to pi on that task's session. The CLI process is replaced by pi; the
+ * terminal to pi on that task's session. The CLI service is replaced by pi; the
  * daemon is untouched.
  */
 export async function openSession(client, taskId) {
   const info = await client.request('task.session', { task_id: taskId });
   if (info.agent !== 'pi' || !Array.isArray(info.argv)) {
-    throw new LushError(`agent ${info.agent} runs in-process; there is no external session to open`);
+    throw new LushError(`agent ${info.agent} runs in-service; there is no external session to open`);
   }
   if (info.busy) {
     process.stderr.write(`lush: warning: task #${taskId} has a call running; the pi session is shared\n`);
@@ -39,23 +39,23 @@ export async function openSession(client, taskId) {
 }
 
 /**
- * `lush call PID GOAL --interactive`: the daemon creates the root task and opens
+ * `lush call SID GOAL --interactive`: the daemon creates the root task and opens
  * its call (user message + busy), and this terminal runs the same pi session in
  * its TUI — the only difference from a plain call is that `--print` is missing,
  * so pi hands the terminal to the agent instead of answering once and exiting.
- * The daemon finishes or fails the task with whatever this process reports back.
+ * The daemon finishes or fails the task with whatever this service reports back.
  */
 export async function interactiveCall(client, args) {
-  const opened = await client.request('call', { pid: args.pid, goal: args.goal, interactive: true });
+  const opened = await client.request('call', { sid: args.sid, goal: args.goal, interactive: true });
   if (!Array.isArray(opened.argv)) {
-    throw new LushError(`agent ${opened.agent} runs in-process; there is no external agent to enter`);
+    throw new LushError(`agent ${opened.agent} runs in-service; there is no external agent to enter`);
   }
   process.stderr.write(
-    `lush: entering ${opened.agent} for task #${opened.task_id} on pid ${opened.pid} `
+    `lush: entering ${opened.agent} for task #${opened.task_id} on sid ${opened.sid} `
     + `(call ${opened.call_id}, agent ${opened.agent_id}); leave the TUI to settle it\n`,
   );
   const [command, ...rest] = opened.argv;
-  // Spawn instead of spawnSync: the agent space needs this process's OS pid
+  // Spawn instead of spawnSync: the agent space needs this process's OS PID
   // while it is still running, so `task agents show/kill` can reach it.
   const child = cp.spawn(command, rest, { cwd: opened.cwd ?? undefined, env: childEnv(opened), stdio: 'inherit' });
   if (Number.isInteger(child.pid)) {

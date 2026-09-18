@@ -1,11 +1,11 @@
-import { BuiltContext, ProcessContext, lushContextMessage } from './context.js';
+import { BuiltContext, ServiceContext, lushContextMessage } from './context.js';
 import { agentGuide } from '../agent/guide.js';
 
-const SUMMARY_KEYS = ['pid', 'parent_pid', 'original_parent_pid', 'name', 'template', 'status', 'goal', 'created_at'];
+const SUMMARY_KEYS = ['sid', 'parent_sid', 'original_parent_sid', 'name', 'template', 'status', 'goal', 'created_at'];
 
-export function summary(process) {
+export function summary(service) {
   const result = {};
-  for (const key of SUMMARY_KEYS) result[key] = process[key];
+  for (const key of SUMMARY_KEYS) result[key] = service[key];
   return result;
 }
 
@@ -14,7 +14,7 @@ function taskSummary(task) {
   if (task === null) return null;
   return {
     id: task.id,
-    pid: task.pid,
+    sid: task.sid,
     parent_task_id: task.parent_task_id,
     root_task_id: task.root_task_id,
     status: task.status,
@@ -30,8 +30,8 @@ function taskSummary(task) {
 export class ContextBuilder {
   /**
    * `agentMode` selects the shared Lush layer: `tools` for Lush's own runtime
-   * (task_* / process_* tools), `cli` for external agents that drive Lush
-   * through the `lush` CLI. The built messages are only used by in-process
+   * (task_* / service_* tools), `cli` for external agents that drive Lush
+   * through the `lush` CLI. The built messages are only used by in-service
    * providers; external backends receive the same system prompt, guide and data
    * directly.
    */
@@ -49,31 +49,31 @@ export class ContextBuilder {
   }
 
   /**
-   * Build one invocation's context for a task. The process supplies identity,
+   * Build one invocation's context for a task. The service supplies identity,
    * variables, permissions and its tree position; the task supplies the work
    * being done and its own scratch state. `agentMode` may be overridden per
-   * task: the agent a process selected can be a different backend than the
+   * task: the agent a service selected can be a different backend than the
    * daemon's fallback one, and the shared Lush layer must match that backend
-   * (`cli` for external pi, `tools` for the in-process runtimes).
+   * (`cli` for external pi, `tools` for the in-service runtimes).
    */
-  build(task, currentCall, agentMode = this.agentMode, { process = null } = {}) {
-    const metadata = process ?? this.repository.get(task.pid);
-    const pid = metadata.pid;
+  build(task, currentCall, agentMode = this.agentMode, { service = null } = {}) {
+    const metadata = service ?? this.repository.get(task.sid);
+    const sid = metadata.sid;
     const guide = this.guideFor(agentMode);
-    const context = ProcessContext.load(this.repository, pid);
-    const parent = metadata.parent_pid === null
+    const context = ServiceContext.load(this.repository, sid);
+    const parent = metadata.parent_sid === null
       ? null
-      : summary(this.repository.get(metadata.parent_pid));
-    const children = this.repository.children(pid).map(summary);
+      : summary(this.repository.get(metadata.parent_sid));
+    const children = this.repository.children(sid).map(summary);
     const childTemplates = metadata.template_snapshot.child_templates ?? [];
     let available = [];
     if (this.templates) {
       available = Object.values(this.templates.templates)
         .filter((template) => template.name !== 'lush-root' && (childTemplates.includes('*') || childTemplates.includes(template.name)))
         // "Available" must mean "spawn would succeed": a singleton that already has
-        // an active instance under this PID is rejected by spawn, so advertising it
+        // an active instance under this SID is rejected by spawn, so advertising it
         // only wastes a failed call.
-        .filter((template) => !template.singleton || this.repository.activeCount(pid, template.name) === 0)
+        .filter((template) => !template.singleton || this.repository.activeCount(sid, template.name) === 0)
         .map((template) => ({
           name: template.name,
           singleton: template.singleton,
@@ -82,7 +82,7 @@ export class ContextBuilder {
         }));
     }
     const data = {
-      process: summary(metadata),
+      service: summary(metadata),
       task: taskSummary(task),
       parent,
       children,
@@ -104,14 +104,14 @@ export class ContextBuilder {
 
   /**
    * The same view for a task that does not exist yet (`call --dry-run`): the
-   * process, an empty task slot, and no conversation.
+   * service, an empty task slot, and no conversation.
    */
-  preview(process, goal, agentMode = this.agentMode) {
+  preview(service, goal, agentMode = this.agentMode) {
     return this.build(
-      { id: null, pid: process.pid, goal, status: 'created', parent_task_id: null, root_task_id: null },
+      { id: null, sid: service.sid, goal, status: 'created', parent_task_id: null, root_task_id: null },
       null,
       agentMode,
-      { process },
+      { service },
     );
   }
 }

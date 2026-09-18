@@ -34,7 +34,7 @@ export { variableSummary, stamp, objectLines, treeLines } from './format/primiti
 export {
   formatHistory, formatInspect, formatView, formatAgent, formatLifecycle, formatOrphans, formatTaskList,
   formatTaskTree, formatCall,
-} from './format/process.js';
+} from './format/service.js';
 export { formatDaemon } from './format/daemon.js';
 export { format } from './format/index.js';
 
@@ -209,7 +209,7 @@ export async function run(argv) {
   const method = typeof node.method === 'function' ? node.method(args) : node.method;
   const result = await client.request(method, rpcParams(args));
   // `daemon status` is the one read that must also say which home and which
-  // code answer it; every other read is about the processes themselves.
+  // code answer it; every other read is about the services themselves.
   writeOut(format(args, method === 'system.status' ? { ...result, cli: cliContext(config, result) } : result));
 }
 

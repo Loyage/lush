@@ -7,20 +7,20 @@
 import { addMessage, beginCall, callById, calls, callsOfTask, conversation, finishCall } from '../repository_calls.js';
 
 export const callMethods = {
-  beginCall(pid, taskId, prompt) {
-    return beginCall(this, pid, taskId, prompt);
+  beginCall(sid, taskId, prompt) {
+    return beginCall(this, sid, taskId, prompt);
   },
 
-  addMessage(pid, taskId, callId, body) {
-    return addMessage(this, pid, taskId, callId, body);
+  addMessage(sid, taskId, callId, body) {
+    return addMessage(this, sid, taskId, callId, body);
   },
 
   finishCall(callId, status, detail = {}) {
     return finishCall(this, callId, status, detail);
   },
 
-  calls(pid, limit = 20) {
-    return calls(this, pid, limit);
+  calls(sid, limit = 20) {
+    return calls(this, sid, limit);
   },
 
   callsOfTask(taskId, limit = 20) {

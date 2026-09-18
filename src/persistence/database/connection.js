@@ -7,7 +7,7 @@
  * at the bottom of this file because it reads rows, not just DDL.
  */
 import { Database as SQLite } from 'bun:sqlite';
-import { CALL_TASK_STATUS, MIGRATION_V2, MIGRATION_V3, SCHEMA } from './schema.js';
+import { CALL_TASK_STATUS, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, SCHEMA } from './schema.js';
 
 export class Database {
   constructor(file) {
@@ -16,12 +16,14 @@ export class Database {
     this.connection.exec('PRAGMA busy_timeout = 5000');
     this.connection.exec('PRAGMA journal_mode = WAL');
     const version = this.connection.query('PRAGMA user_version').get().user_version;
-    if (version !== 0 && version !== 1 && version !== 2 && version !== 3) {
+    if (version !== 0 && version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5) {
       this.close();
       throw new Error(`unsupported database schema: ${version}`);
     }
     if (version === 1) this.migrateV2();
     if (version === 1 || version === 2) this.migrateV3();
+    if (version === 1 || version === 2 || version === 3) this.migrateV4();
+    if (version === 1 || version === 2 || version === 3 || version === 4) this.migrateV5();
     this.connection.exec(SCHEMA);
   }
 
@@ -36,9 +38,19 @@ export class Database {
     this._adoptHistoricalCalls();
   }
 
+  /** Rename the persisted logical process entity to the service entity. */
+  migrateV4() {
+    this.script(MIGRATION_V4);
+  }
+
+  /** Rename service identifiers from PID terminology to SID terminology. */
+  migrateV5() {
+    this.script(MIGRATION_V5);
+  }
+
   /**
    * A v2 home has agent calls but no tasks. Each call becomes a root task with
-   * the same pid / prompt / output / window, and its messages are attached to
+   * the same sid / prompt / output / window, and its messages are attached to
    * it, so `lush task list` and `lush task history` keep showing old work.
    */
   _adoptHistoricalCalls() {

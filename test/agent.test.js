@@ -22,7 +22,7 @@ if (argv.includes('--session-dir')) {
   const id = argv[argv.indexOf('--session-id') + 1];
   await Bun.write(dir + '/2020-01-01T00-00-00-000Z_' + id + '.jsonl', '{}');
 }
-console.log(JSON.stringify({ argv: process.argv.slice(1), cwd: process.cwd(), pid: process.env.LUSH_PID }));
+console.log(JSON.stringify({ argv: process.argv.slice(1), cwd: process.cwd(), sid: process.env.LUSH_SID }));
 `;
 
 function writeStub(dir, name = 'pi-stub') {
@@ -207,11 +207,11 @@ describe('agent catalog: pure pi is what pi actually runs', () => {
     store.write('inproc', { provider: 'mock' });
     const spec = catalog.spec('inproc');
     expect(catalog.provider(spec).name).toBe('mock');
-    expect(() => catalog.preview(spec)).toThrow(/in-process/);
+    expect(() => catalog.preview(spec)).toThrow(/in-service/);
   });
 });
 
-describe('agent profiles inside processes: spawn, inspect and the argv of a call', () => {
+describe('agent profiles inside services: spawn, inspect and the argv of a call', () => {
   let dir;
   let stub;
   let db;
@@ -246,17 +246,17 @@ describe('agent profiles inside processes: spawn, inspect and the argv of a call
     });
     const child = manager.spawn(0, 'generic-task', 'worker', 'work', undefined, 'demo');
     expect(child.agent_profile).toBe('demo');
-    expect(manager.repository.context(child.pid).state.agent).toBe('demo');
-    expect(manager.inspect(child.pid).agent).toMatchObject({ provider: 'pi', profile: 'demo' });
+    expect(manager.repository.context(child.sid).state.agent).toBe('demo');
+    expect(manager.inspect(child.sid).agent).toMatchObject({ provider: 'pi', profile: 'demo' });
     expect(manager.inspect(0).agent).toMatchObject({ provider: 'pi', profile: 'default' });
 
     // The dry run and the real task agree, and both carry the profile's flags.
-    const preview = await manager.callDescribe(child.pid, 'hello');
+    const preview = await manager.callDescribe(child.sid, 'hello');
     expect(preview.agent).toBe('pi');
     expect(preview.profile).toBe('demo');
     for (const flag of PURE_PI_FLAGS) expect(preview.argv).toContain(flag);
     expect(preview.argv[preview.argv.indexOf('--model') + 1]).toBe('demo-model');
-    const task = await manager.call(child.pid, 'hello');
+    const task = await manager.call(child.sid, 'hello');
     const echoed = JSON.parse(task.result).argv;
     // The dry run and the real task are described by the same builder; only the
     // task id (and the session id / name derived from it) differ.
@@ -265,16 +265,16 @@ describe('agent profiles inside processes: spawn, inspect and the argv of a call
     expect(echoed[echoed.indexOf('--session-id') + 1]).toBe(`lush-task-${task.id}`);
     expect(preview.argv[preview.argv.indexOf('--session-id') + 1]).toBe('lush-task-preview');
     // Sessions belong to tasks now, and the id names the task.
-    expect(manager.session(task.id)).toMatchObject({ agent: 'pi', profile: 'demo', task_id: task.id, pid: child.pid });
+    expect(manager.session(task.id)).toMatchObject({ agent: 'pi', profile: 'demo', task_id: task.id, sid: child.sid });
     expect(manager.session(task.id).argv).toContain('--no-extensions');
     expect(manager.session(task.id).session_id).toBe(`lush-task-${task.id}`);
 
     // The invocation handed to the provider also names the profile it runs under.
-    const invocation = buildInvocation(runtime, { id: 1, pid: child.pid }, null, 'p', {
+    const invocation = buildInvocation(runtime, { id: 1, sid: child.sid }, null, 'p', {
       context: { systemPrompt: 'S' }, guide: 'G', data: {},
     });
-    expect(invocation).toMatchObject({ task_id: 1, pid: child.pid, agent_profile: 'demo', prompt: 'p' });
-    expect(buildInvocation(runtime, { id: 2, pid: 0 }, null, 'p', { context: { systemPrompt: 'S' }, guide: 'G', data: {} }).agent_profile)
+    expect(invocation).toMatchObject({ task_id: 1, sid: child.sid, agent_profile: 'demo', prompt: 'p' });
+    expect(buildInvocation(runtime, { id: 2, sid: 0 }, null, 'p', { context: { systemPrompt: 'S' }, guide: 'G', data: {} }).agent_profile)
       .toBe('default');
   });
 
@@ -295,15 +295,15 @@ describe('agent profiles inside processes: spawn, inspect and the argv of a call
     const explicit = manager.spawn(0, 'agent-task', 'b', undefined, undefined, 'explicit');
     expect(explicit.agent_profile).toBe('explicit');
     // Both are pi profiles even though the daemon's fallback provider is mock.
-    expect(manager.inspect(fromTemplate.pid).agent).toMatchObject({ provider: 'pi', profile: 'from-template' });
-    expect(manager.inspect(explicit.pid).agent).toMatchObject({ provider: 'pi', profile: 'explicit' });
+    expect(manager.inspect(fromTemplate.sid).agent).toMatchObject({ provider: 'pi', profile: 'from-template' });
+    expect(manager.inspect(explicit.sid).agent).toMatchObject({ provider: 'pi', profile: 'explicit' });
     // The plugins=true profiles therefore run without any --no-* flag.
-    const preview = await manager.callDescribe(explicit.pid, 'hi');
+    const preview = await manager.callDescribe(explicit.sid, 'hi');
     for (const flag of PURE_PI_FLAGS) expect(preview.argv).not.toContain(flag);
     // No explicit agent: the environment tier (mock) still applies.
     const plain = manager.spawn(0, 'generic-task', 'c');
     expect(plain.agent_profile).toBeNull();
-    expect(manager.inspect(plain.pid).agent).toMatchObject({ provider: 'mock', profile: 'default' });
+    expect(manager.inspect(plain.sid).agent).toMatchObject({ provider: 'mock', profile: 'default' });
   });
 
   test('spawn validates the profile name and its existence', () => {
@@ -323,9 +323,9 @@ describe('agent profiles inside processes: spawn, inspect and the argv of a call
   test('the selected profile is part of the record and cannot be rewritten by update_state', () => {
     setup();
     const child = manager.spawn(0, 'generic-task', 'x');
-    expect(() => manager.updateState(child.pid, { agent: 'other' })).toThrow(/state.agent records the agent profile/);
-    expect(manager.inspect(child.pid).context.state).toEqual({});
-    expect(manager.inspect(child.pid).agent.profile).toBe('default');
+    expect(() => manager.updateState(child.sid, { agent: 'other' })).toThrow(/state.agent records the agent profile/);
+    expect(manager.inspect(child.sid).context.state).toEqual({});
+    expect(manager.inspect(child.sid).agent.profile).toBe('default');
   });
 
   test('a profile deleted behind the daemon keeps reads usable and stops the call', async () => {
@@ -335,14 +335,14 @@ describe('agent profiles inside processes: spawn, inspect and the argv of a call
     const child = manager.spawn(0, 'generic-task', 'x', undefined, undefined, 'gone');
     store.remove('gone');
 
-    // Reading the process still works and says why the agent cannot be built.
-    const info = manager.inspect(child.pid);
+    // Reading the service still works and says why the agent cannot be built.
+    const info = manager.inspect(child.sid);
     expect(info.agent.profile).toBe('gone');
     expect(info.agent.profile_error).toContain('agent profile not found: gone');
-    expect(manager.tree().find((row) => row.pid === child.pid).agent.provider).toBe('pi');
+    expect(manager.tree().find((row) => row.sid === child.sid).agent.provider).toBe('pi');
     // Running anything on it cannot work, preview included.
-    await expectRejection(manager.call(child.pid, 'hi'), /agent profile not found: gone/);
-    await expectRejection(manager.callDescribe(child.pid, 'hi'), /agent profile not found: gone/);
+    await expectRejection(manager.call(child.sid, 'hi'), /agent profile not found: gone/);
+    await expectRejection(manager.callDescribe(child.sid, 'hi'), /agent profile not found: gone/);
   });
 });
 
@@ -521,7 +521,7 @@ describe('agent CLI helpers are usable as a library', () => {
     expect(added).toMatchObject({ action: 'add', name: 'demo', overwrote: false });
     expect(agentList(config).agents.map((row) => row.name)).toEqual(['default', 'demo']);
     expect(agentInspect(config, { name: 'demo' })).toMatchObject({ provider: 'mock', preview: null });
-    expect(agentInspect(config, { name: 'demo' }).preview_error).toContain('in-process');
+    expect(agentInspect(config, { name: 'demo' }).preview_error).toContain('in-service');
     expect(agentInspect(config, { name: 'default' }).valid).toBe(true);
     expect(agentEdit(config, { name: 'default', plugins: true })).toMatchObject({ created: true });
     expect(agentDefault(config, { name: 'demo' }).copied_from).toBe('demo');

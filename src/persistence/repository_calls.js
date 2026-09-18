@@ -4,7 +4,7 @@
  *
  * An `agent_calls` row is the durable record of one invocation (prompt, status,
  * output, error, window); `messages` hangs off it in order. Both carry the
- * `task_id` they belong to and the `pid` they ran on. The provider-facing view
+ * `task_id` they belong to and the `sid` they ran on. The provider-facing view
  * is `conversation`, which replays only what a provider may safely see again.
  * Every function operates on the `Repository` passed in; the class in
  * `repository.js` is the only caller.
@@ -15,21 +15,21 @@ import { jsonDump, now } from '../core/types.js';
  * Open a call: a `running` row plus the user message, in one transaction, so a
  * provider can never see a prompt without its call.
  */
-export function beginCall(repository, pid, taskId, prompt) {
+export function beginCall(repository, sid, taskId, prompt) {
   let callId = 0;
   repository.database.transaction(() => {
     callId = repository.db.run(
-      "INSERT INTO agent_calls(pid,task_id,prompt,status,started_at) VALUES(?,?,?,'running',?)",
-      [pid, taskId, prompt, now()],
+      "INSERT INTO agent_calls(sid,task_id,prompt,status,started_at) VALUES(?,?,?,'running',?)",
+      [sid, taskId, prompt, now()],
     ).lastInsertRowid;
-    addMessage(repository, pid, taskId, callId, { role: 'user', content: prompt });
+    addMessage(repository, sid, taskId, callId, { role: 'user', content: prompt });
   });
   return callId;
 }
 
-export function addMessage(repository, pid, taskId, callId, body) {
-  repository.db.run('INSERT INTO messages(pid,task_id,call_id,body,created_at) VALUES(?,?,?,?,?)',
-    [pid, taskId, callId, jsonDump(body), now()]);
+export function addMessage(repository, sid, taskId, callId, body) {
+  repository.db.run('INSERT INTO messages(sid,task_id,call_id,body,created_at) VALUES(?,?,?,?,?)',
+    [sid, taskId, callId, jsonDump(body), now()]);
 }
 
 /** Close a call row. Only a `running` row may change, so a late report is a no-op. */
@@ -38,9 +38,9 @@ export function finishCall(repository, callId, status, { output, error } = {}) {
     [status, output ?? null, error ?? null, now(), callId]);
 }
 
-/** The most recent calls of a process, newest first (read model). */
-export function calls(repository, pid, limit = 20) {
-  return repository.db.query('SELECT * FROM agent_calls WHERE pid=? ORDER BY id DESC LIMIT ?').all(pid, limit);
+/** The most recent calls of a service, newest first (read model). */
+export function calls(repository, sid, limit = 20) {
+  return repository.db.query('SELECT * FROM agent_calls WHERE sid=? ORDER BY id DESC LIMIT ?').all(sid, limit);
 }
 
 /** The most recent calls of one task, newest first (read model). */
@@ -57,7 +57,7 @@ export function callById(repository, callId) {
 /**
  * Replay complete calls verbatim; failed calls as plain audit dialogue.
  * Dangling assistant.tool_calls must never be sent back to a provider. The
- * conversation is task-scoped: another task on the same process is a different
+ * conversation is task-scoped: another task on the same service is a different
  * piece of work with its own agent.
  */
 export function conversation(repository, taskId, currentCall) {

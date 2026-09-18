@@ -1,6 +1,6 @@
 /**
  * Text primitives shared by every human-readable formatter: aligned `key value`
- * rows, local wall-clock timestamps, one-line values, and the process tree.
+ * rows, local wall-clock timestamps, one-line values, and the service tree.
  *
  * Text is for people: no JSON punctuation unless the value really is nested.
  * `--json` is the stable machine interface; these formatters are free to change.
@@ -20,7 +20,7 @@ export function duration(ms) {
 }
 
 /**
- * One activity line: who is working for this process right now. Idle processes
+ * One activity line: who is working for this service right now. Idle services
  * get no line at all — the tree shows activity, not history.
  */
 export function agentLine(summary) {
@@ -39,7 +39,7 @@ export function agentLine(summary) {
  * One-line variable summary for the text tree: immutable values plain, mutable
  * ones prefixed `~` (the `~` is also the reminder that they can be changed).
  * `omit` drops reserved names a caller renders on their own — a `name`
- * variable only repeats the process name already printed as the line's first
+ * variable only repeats the service name already printed as the line's first
  * token.
  */
 export function variableSummary(variables, { omit = [] } = {}) {
@@ -56,20 +56,20 @@ export function variableSummary(variables, { omit = [] } = {}) {
 /**
  * The task's headline and body: `title` / `detail` are reserved variable names
  * (see `core/variables.js`), so any template declaring them — the built-in
- * `dev-task` does — gets them rendered here. Processes created before those
+ * `dev-task` does — gets them rendered here. Services created before those
  * variables existed, or templates that never declare them, simply have neither.
  */
-export function taskTitle(process) {
-  return reservedVariable(process, RESERVED_VARIABLES.headline);
+export function taskTitle(service) {
+  return reservedVariable(service, RESERVED_VARIABLES.headline);
 }
 
-/** The `title` text a process declared, or null; see `taskTitle`. */
-export function taskDetail(process) {
-  return reservedVariable(process, RESERVED_VARIABLES.body);
+/** The `title` text a service declared, or null; see `taskTitle`. */
+export function taskDetail(service) {
+  return reservedVariable(service, RESERVED_VARIABLES.body);
 }
 
-function reservedVariable(process, key) {
-  const value = process?.variables?.immutable?.[key] ?? process?.variables?.mutable?.[key];
+function reservedVariable(service, key) {
+  const value = service?.variables?.immutable?.[key] ?? service?.variables?.mutable?.[key];
   return typeof value === 'string' && value !== '' ? value : null;
 }
 
@@ -144,14 +144,14 @@ export function objectLines(value, depth = 0) {
   return lines;
 }
 
-/** `pid 3 · implement-login · active` — one-line identity of a process row. */
+/** `sid 3 · implement-login · active` — one-line identity of a service row. */
 export function metadataTitle(row) {
-  return `pid ${row.pid} · ${row.name} · ${row.status}`;
+  return `sid ${row.sid} · ${row.name} · ${row.status}`;
 }
 
 /** `task #12 · running · project[3]` — one-line identity of a task row. */
-export function taskMetadataTitle(row, processName = null) {
-  const where = processName === null ? `pid ${row.pid}` : `${processName}[${row.pid}]`;
+export function taskMetadataTitle(row, serviceName = null) {
+  const where = serviceName === null ? `sid ${row.sid}` : `${serviceName}[${row.sid}]`;
   return `task #${row.id} · ${row.status} · ${where}`;
 }
 
@@ -162,21 +162,21 @@ export function eventLine(event) {
 }
 
 /**
- * Process tree, root first. `agents` adds one activity line below each process
- * that has a live worker (never a logical process: no PID, never expanded).
- * A process's variables are appended on its own line.
+ * Service tree, root first. `agents` adds one activity line below each service
+ * that has a live worker (never a logical service: no SID, never expanded).
+ * A service's variables are appended on its own line.
  */
-export function treeLines(processes, { agents = true } = {}) {
+export function treeLines(services, { agents = true } = {}) {
   const byParent = new Map();
-  for (const process of processes) {
-    const siblings = byParent.get(process.parent_pid) ?? [];
-    siblings.push(process);
-    byParent.set(process.parent_pid, siblings);
+  for (const service of services) {
+    const siblings = byParent.get(service.parent_sid) ?? [];
+    siblings.push(service);
+    byParent.set(service.parent_sid, siblings);
   }
   const lines = [];
   // Iterative walk avoids recursion limits on deep logical trees. Agent rows use
-  // their own key: process rows themselves carry an `agent` field.
-  const stack = [...(byParent.get(null) ?? [])].reverse().map((process) => ({ process, prefix: '', branch: '' }));
+  // their own key: service rows themselves carry an `agent` field.
+  const stack = [...(byParent.get(null) ?? [])].reverse().map((service) => ({ service, prefix: '', branch: '' }));
   while (stack.length) {
     const node = stack.pop();
     if (node.agentRow !== undefined) {
@@ -184,19 +184,19 @@ export function treeLines(processes, { agents = true } = {}) {
       if (line !== null) lines.push(`${node.prefix}${node.branch}${line}`);
       continue;
     }
-    const { process, prefix, branch } = node;
-    // The `name` variable only repeats the process name printed right below, and
+    const { service, prefix, branch } = node;
+    // The `name` variable only repeats the service name printed right below, and
     // `detail` is a multi-line body: neither belongs on a tree line. A long
     // `title` is truncated by `shortValue` like every other value.
-    const variables = variableSummary(process.variables, {
-      omit: [RESERVED_VARIABLES.processName, RESERVED_VARIABLES.body],
+    const variables = variableSummary(service.variables, {
+      omit: [RESERVED_VARIABLES.serviceName, RESERVED_VARIABLES.body],
     });
-    lines.push(`${prefix}${branch}${process.name}[${process.pid}]${variables ? ` ${variables}` : ''}`);
-    const children = byParent.get(process.pid) ?? [];
+    lines.push(`${prefix}${branch}${service.name}[${service.sid}]${variables ? ` ${variables}` : ''}`);
+    const children = byParent.get(service.sid) ?? [];
     const nextPrefix = prefix + (branch === '└── ' ? '    ' : branch ? '│   ' : '');
     const rows = [
-      ...(agents && process.agent?.running ? [{ agentRow: process.agent }] : []),
-      ...children.map((child) => ({ process: child })),
+      ...(agents && service.agent?.running ? [{ agentRow: service.agent }] : []),
+      ...children.map((child) => ({ service: child })),
     ];
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       stack.push({
