@@ -5,15 +5,27 @@
 <button type="button" id="md-toggle" class="ghost" aria-pressed="true" title="按 Markdown 渲染 agent 输出；关闭则显示原文">Markdown 渲染：开</button>
 <span id="agents"></span><span id="connection" role="status">连接中…</span></header>
 <main><aside>
-<div class="section-title"><h2>意图 · 待提交缓存</h2><span id="draft-count" class="count">缓存空</span></div>
-<div id="drafts"></div>
-<div id="intents"></div>
-<div class="section-title"><h2>任务树</h2><span id="task-count" class="count"></span><select id="tree-sort" class="sort" aria-label="任务树排序方式"></select></div>
-<div id="tasks"></div>
-<div class="section-title"><h2>拆解队列</h2><span id="spec-count" class="count"></span></div>
-<div id="specs"></div>
-<div class="section-title"><h2>等你决定</h2><span id="notice-count" class="count"></span></div>
-<div id="notices"></div>
+<nav id="side-nav" class="side-nav" aria-label="左侧快速导航"></nav>
+<section class="side" id="side-drafts" data-side="drafts">
+<div class="section-title"><button type="button" class="side-head" id="side-head-drafts" data-side="drafts" aria-expanded="true" aria-controls="drafts"><span class="side-name">待提交缓存</span><span id="draft-count" class="count">缓存空</span></button></div>
+<div class="side-body" id="side-drafts-body"><div id="drafts"></div></div>
+</section>
+<section class="side" id="side-intents" data-side="intents">
+<div class="section-title"><button type="button" class="side-head" id="side-head-intents" data-side="intents" aria-expanded="true" aria-controls="intents"><span class="side-name">意图</span><span id="intent-count" class="count"></span></button></div>
+<div class="side-body" id="side-intents-body"><div class="filters" id="intent-filters"></div><div id="intents"></div></div>
+</section>
+<section class="side" id="side-tasks" data-side="tasks">
+<div class="section-title"><button type="button" class="side-head" id="side-head-tasks" data-side="tasks" aria-expanded="true" aria-controls="tasks"><span class="side-name">任务树</span><span id="task-count" class="count"></span></button><select id="tree-sort" class="sort" aria-label="任务树排序方式"></select></div>
+<div class="side-body" id="side-tasks-body"><div class="filters" id="task-filters"></div><div id="tasks"></div></div>
+</section>
+<section class="side" id="side-specs" data-side="specs">
+<div class="section-title"><button type="button" class="side-head" id="side-head-specs" data-side="specs" aria-expanded="true" aria-controls="specs"><span class="side-name">拆解队列</span><span id="spec-count" class="count"></span></button></div>
+<div class="side-body" id="side-specs-body"><div class="filters" id="spec-filters"></div><div id="specs"></div></div>
+</section>
+<section class="side" id="side-notices" data-side="notices">
+<div class="section-title"><button type="button" class="side-head" id="side-head-notices" data-side="notices" aria-expanded="true" aria-controls="notices"><span class="side-name">等你决定</span><span id="notice-count" class="count"></span></button></div>
+<div class="side-body" id="side-notices-body"><div id="notices"></div></div>
+</section>
 </aside>
 <section id="detail"><h2>任务详情</h2><p class="hint">从左侧选择任务或待决问题，查看结果、改动、子任务与事件时间线。</p></section>
 </main>
