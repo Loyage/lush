@@ -1082,11 +1082,26 @@ function renderTaskSpecs(task) {
   for (const spec of [...specs].sort((a, b) => a.id - b.id)) section.append(specItem(spec));
   return section;
 }
+/** 详情头部的意图编号（inputs.id）：点开对应意图的 planner 详情。
+ *  input_id 为空（如 scheduler）就不显示，免得出现「意图 #null」；对不上意图或它还没有 planner 任务时退化成不可点的普通 badge。 */
+function intentBadge(task) {
+  const inputId = task.input_id;
+  if (inputId === null || inputId === undefined) return null;
+  const intent = (lastSnapshot?.inputs || []).find(row => row.id === inputId) || null;
+  const node = badge(`意图 #${inputId}`, 'b-neutral');
+  if (intent?.content) node.title = String(intent.content).slice(0, 200);
+  if (intent?.task_id) {
+    node.classList.add('intent-link');
+    node.title = `${node.title ? `${node.title}\n` : ''}点开看这条意图的规划与拆解`;
+    node.onclick = () => { noticeFocus = null; return detail(intent.task_id); };
+  }
+  return node;
+}
 function renderDetail(task, history, diff, usage) {
   const panel = $('detail'); panel.replaceChildren();
   const head = el('div', undefined, 'head');
   head.append(el('span', `#${task.id}`, 'tid-lg'), statusBadge(task),
-    badge(ROLE[task.role] || task.role, 'b-neutral'), badge(`输入 #${task.input_id}`, 'b-neutral'));
+    badge(ROLE[task.role] || task.role, 'b-neutral'), intentBadge(task));
   const integration = INTEGRATION[task.integration];
   if (integration) head.append(badge(integration, task.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
   if (task.agent) head.append(badge(`agent ${task.agent.id}${task.agent.active ? ` · pid ${task.agent.pid ?? '待上报'}` : ' · 空闲'}`, 'b-neutral'));
