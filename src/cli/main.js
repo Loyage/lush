@@ -12,7 +12,11 @@ lush [--project PATH] [--json] <command>
   daemon start|stop|restart|status  一个项目一个进程
   status                          项目、agent、待合并改动
   doctor                          目录、工具链与代码版本
-  say '你的想法'                   立即持久化并排入规划队列，不等待开发
+  say '你的意图'                    立即持久化并排入规划队列，不等待开发
+  intent list                     查看意图：每条输入 + 它的 planner 拆解与 scheduler 编排进度（别名 intents）
+  plan propose '标题' [--body '…']   planner 专用：这轮拆解请你先批准（影响面大 / 与现状冲突 / 没把握读懂意图）
+  plan approve ID|NOTICE_ID        批准这一轮拆解，交给 scheduler 编排
+  plan reject ID|NOTICE_ID '理由'   驳回：本轮 spec 作废，理由送回 planner 重拆
   input list                      查看用户输入（含 develop/explain 判定）
   input flow [TASK_ID] develop|explain  记录这条输入走哪条流程（agent 省略 TASK_ID 时用自己的任务）
   draft add '想法'                 先放进缓存，不规划
@@ -20,7 +24,7 @@ lush [--project PATH] [--json] <command>
   draft edit ID '想法'             改一条缓存输入（别名 update）
   draft rm ID                     丢掉一条缓存输入
   draft commit [ID...]            把缓存交给意图分析：只提交给定 ID（无参即全部），一个 planner 拆成多个任务并建依赖
-  task list [--after N] [--limit N] 分页任务列表（默认 200 条）
+  task list [--after N] [--limit N] 分页任务列表（默认 200 条，只含开发任务；planner/scheduler 见 intent list）
   task tree [ID]                  多级任务树：依赖（⛓ 基线 / ⏳ 顺序）与兄弟间的并行关系
   task ladder                     合并阶梯：未合并分支之间谁必须先进目标分支、谁已经被别的分支带进来
   task timeline [--limit N]       并行时间轴：每个任务什么时候真的在跑，排队是在等依赖、等槽还是等子任务
@@ -219,8 +223,12 @@ export async function main(argv = process.argv.slice(2)) {
     catch (error) { value.daemon = error.message; }
   } else if (command === 'status') { exact(args, 0); value = await client.request('system.status');
   } else if (command === 'say' || command === 'intent') {
-    if (args[0] === 'submit') args.shift();
-    exact(args, 1); value = await client.request('input.submit', { content: args[0] });
+    // 意图：lush intent '…' 提交一条；lush intent list 看每条意图的 planner/scheduler 进度。
+    if (command === 'intent' && ['list','ls'].includes(args[0])) { exact(args.slice(1), 0); value = await client.request('input.list'); }
+    else {
+      if (['submit','add'].includes(args[0])) args.shift();
+      exact(args, 1); value = await client.request('input.submit', { content: args[0] });
+    }
   } else if (command === 'input') {
     const verb = args.shift();
     if (verb === 'list') { exact(args, 0); value = await client.request('input.list'); }
@@ -343,6 +351,15 @@ export async function main(argv = process.argv.slice(2)) {
       exact(args, 1);
       value = await client.request('spec.drop', { id: id(args[0]), note });
     } else throw new Error('unknown spec command; use list, add or drop');
+  } else if (command === 'plan') {
+    const verb = args.shift();
+    if (verb === 'propose') {
+      // planner 专用：这轮拆解需要用户先拍板时才提（影响面大 / 与现状冲突 / 没把握读懂意图）。
+      const body = option(args, '--body', ''); exact(args, 1);
+      value = await client.request('plan.propose', { title: args[0], body });
+    } else if (verb === 'approve') { exact(args, 1); value = await client.request('plan.approve', { id: id(args[0]) }); }
+    else if (verb === 'reject') { exact(args, 2); value = await client.request('plan.reject', { id: id(args[0]), reason: args[1] }); }
+    else throw new Error('unknown plan command; use propose, approve or reject');
   } else if (command === 'notice') {
     const verb = args.shift();
     if (verb === 'list') { exact(args, 0); value = await client.request('notice.list'); }

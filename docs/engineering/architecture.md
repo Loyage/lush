@@ -31,14 +31,25 @@ CLI / Web → UIClient → JSON-RPC / Unix socket → Project
 
 每条输入还带一个流程判定（`inputs.flow`，未判定按 develop 处理）：`develop` 照常拆解出 worker/coordinator/research；`explain` 只解答、不产出代码，根 planner 直接把结论写进 result，必要时只派 research。runtime 在 `Project.spawn` 层硬校验 `explain` 子树只允许 research，因此了解类输入不会创建 worktree、不会产生待合并改动。判定与改判由根 planner / 用户经 `input.flow` 写入；改判只影响之后的 spawn，不追溯已建子任务。
 
-### 拆解与编排（spec 队列）
+### 意图层与拆解队列
 
-planner 不直接派活：它把每条可独立完成的工作写成一条 spec（`task_specs`，状态 `pending`），scheduler 再把 spec 变成真实 task。一个 planner 的**一轮拆解**（这一次 invocation 里写下的全部 spec）在它停止执行后作为**同一批**交给同一个 scheduler：批次边界是「谁写的」，不是「哪一刻写的」。
+用户输入存 `inputs`（意图），它对应一个根 planner task。**planner 与 scheduler 属于 `layer='intent'`，不进任务树/任务列表/时间轴**：`task.list` / `task.tree` / `task.timeline` 只读 `layer='work'`，planner/scheduler 的进度跟着 `input.list` 下发（每条意图带 planner 状态与闸门、拆解计数、scheduler id 与状态）。按 id 仍可 `task.inspect` / `task.tree` 一个 planner 或 scheduler——Web 的意图卡片就是从这跳进去的。work 任务的 `parent_id` 仍是它所属的 scheduler（消息、结算、唤醒都靠这条边），只是在树上被“提上来”当根。
+
+planner 不直接派活：它把每条可独立完成的工作写成一条 spec（`task_specs`，状态 `pending`），scheduler 再把它变成真实 task。一个 planner 的**一轮拆解**（这一次 invocation 里写下的全部 spec）在它停止执行后作为**同一批**交给同一个 scheduler：批次边界是「谁写的」，不是「哪一刻写的」。
 
 - planner 还在跑（`queued` / `running`）时，它写的 spec 一条都不会被取走，所以不会出现只包含前几条的半成品批次；写完一轮直接结束本轮即可。停止执行包括停在 `awaiting`（发 notice 等用户答复）：这一轮已写好的条目不会被别人的答复卡住；答复后醒来补写的 spec 算新的一轮、新的一批。
-- 同一批内没有依赖边的 spec 会同时开工（受并发上限限制）：用户一次提交里的两条独立需求不会再被批次边界拆成前后两轮。
+- 同一批内没有依赖边的 spec 会同时开工（受并发上限限制）：用户一次提交里的两条独立需求不会被拆成前后两轮。
 - 批次之间串行：同一项目同时只有一个未终态 scheduler，前一批收尾（子任务全部终态）后下一批才出生。`Project.spawn` 校验 scheduler 只能 spawn 自己批里的 spec。
 - planner 或持有该批的 scheduler 可以 `spec drop`；scheduler 结束时未处理的 spec 标为 `dropped`，被取消则退回队列等下一批。
+
+### 计划审批闸门（可选）
+
+planner 判断「影响面大（改架构/公共接口/数据模型/现有行为）」「与已有任务或设计冲突」「没把握完全读懂意图」之一时，可以在写完之后 `plan.propose`（`lush plan propose '标题' --body '…'`）：把 `plan_gate` 置为 `proposed` 并在自己身上开一条 `kind='plan'` 的 notice。`nextSpecPlanner()` 跳过 `proposed` 的条目，所以这一批 spec 会一直待在队列里，直到：
+
+- **批准**（`plan.approve` / Web「批准并开发」）：闸门置 `approved`，notice 关掉，planner 本轮就此结束（计划已定），下一次 `pump` 把这批交给 scheduler。
+- **驳回**（`plan.reject` + 理由）：闸门置 `rejected`，本轮 pending spec 全部标 `dropped`，理由作为消息送进 planner 收件箱并唤醒它重拆；下一轮 invocation 开头清掉闸门（要不要再申请批准由它自己判）。
+
+`plan.propose` 是 agent（planner）专属，`plan.approve` / `plan.reject` 是用户专属；plan notice 不能用 `notice.answer` 回答（会报错并指向这两个命令），否则就绕过了闸门。不申请批准的拆解照旧直接进 scheduler。
 
 ### 一次 invocation
 

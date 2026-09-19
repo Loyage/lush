@@ -104,7 +104,8 @@ export function installDom({ fetch: fetchImpl } = {}) {
   };
   const store = new Map();
   const localStorage = { getItem: key => (store.has(key) ? store.get(key) : null), setItem: (key, value) => store.set(key, String(value)), removeItem: key => store.delete(key) };
-  const confirms = [];
+  const confirms = [], prompts = [];
+  let promptReply = '';
   const document = {
     createElement: tag => new StubNode(tag),
     createTextNode: textNode,
@@ -121,11 +122,13 @@ export function installDom({ fetch: fetchImpl } = {}) {
   assign('location', location);
   assign('localStorage', localStorage);
   assign('confirm', message => { confirms.push(String(message)); return true; });
+  assign('prompt', message => { prompts.push(String(message)); return promptReply; });
   assign('fetch', fetchImpl);
   assign('addEventListener', (type, handler) => { (listeners[type] ||= []).push(handler); });
   assign('setInterval', (handler, ms) => { intervals.push({ handler, ms }); return intervals.length; });
   return {
-    document, window, location, listeners, intervals, byId, confirms,
+    document, window, location, listeners, intervals, byId, confirms, prompts,
+    setPrompt: value => { promptReply = String(value); },
     node: id => document.getElementById(id),
     fire: async (type, event = {}) => { for (const handler of listeners[type] || []) await handler(event); },
     intervalFor: ms => intervals.find(entry => entry.ms === ms)?.handler,

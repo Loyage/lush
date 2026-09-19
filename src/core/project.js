@@ -90,7 +90,12 @@ export class Project {
   status() {
     const alive = this.store.get("SELECT count(*) AS count FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").count;
     return { project: this.config.project, home: this.config.home, provider: this.config.provider,
-      concurrency: this.config.concurrency, tasks: this.store.all('SELECT status, count(*) AS count FROM tasks GROUP BY status'),
+      concurrency: this.config.concurrency,
+      // 任务链只算 work 层；planner/scheduler 的进度在意图视图里报（layer 单独给计数）。
+      tasks: this.store.all("SELECT status, count(*) AS count FROM tasks WHERE layer='work' GROUP BY status"),
+      layers: this.store.all('SELECT layer, status, count(*) AS count FROM tasks GROUP BY layer, status'),
+      intents: { total: this.store.get('SELECT count(*) AS count FROM inputs').count,
+        waiting_approval: this.store.get("SELECT count(*) AS count FROM tasks WHERE role='planner' AND plan_gate='proposed'").count },
       specs: { ...this.store.specStats(),
         batches: bounded(this.store.all("SELECT t.id, t.status, t.role, (SELECT count(*) FROM task_specs s WHERE s.batch_id=t.id) AS count FROM tasks t WHERE t.role='scheduler' ORDER BY t.id DESC LIMIT 100"), 100000) },
       drafts: this.store.draftCount(),
@@ -103,7 +108,8 @@ export class Project {
         (SELECT r.id FROM tasks r WHERE r.resolves_task_id = tasks.id AND r.status NOT IN ('failed','cancelled')
           ORDER BY r.id DESC LIMIT 1) AS resolves_task_id
         FROM tasks WHERE integration='conflict' ORDER BY id LIMIT 50`),
-      notices: this.store.get("SELECT count(*) AS count FROM notices WHERE status='open'").count };
+      // 计划审批（kind='plan'）不是「等你回答的问题」，它归意图面板，不在这里计数。
+      notices: this.store.get("SELECT count(*) AS count FROM notices WHERE status='open' AND kind='question'").count };
   }
   /** The single place a root planner is created; input.submit and draft.commit both land here. */
   createInput(content) {
@@ -177,9 +183,19 @@ export class Project {
     this.store.event(result.task.id, 'input.batch', { draft_ids: result.drafts });
     this.kick(); return result;
   }
+  /** 意图视图：一条输入 + 它的 planner（拆解）与 scheduler（编排）进度，一起喂给界面。 */
   inputs() {
-    return this.store.all(`SELECT inputs.id, inputs.flow, substr(inputs.content,1,2000) AS content, inputs.task_id, inputs.created_at, tasks.status,
-      (SELECT count(*) FROM drafts WHERE drafts.input_id=inputs.id) AS draft_count
+    return this.store.all(`SELECT inputs.id, inputs.flow, substr(inputs.content,1,2000) AS content, inputs.task_id, inputs.created_at,
+      tasks.status, tasks.plan_gate, tasks.agent_wakes, tasks.updated_at AS planner_updated_at,
+      (SELECT count(*) FROM drafts WHERE drafts.input_id=inputs.id) AS draft_count,
+      (SELECT count(*) FROM task_specs WHERE task_specs.input_id=inputs.id AND task_specs.status='pending') AS specs_pending,
+      (SELECT count(*) FROM task_specs WHERE task_specs.input_id=inputs.id AND task_specs.status='planned') AS specs_planned,
+      (SELECT count(*) FROM task_specs WHERE task_specs.input_id=inputs.id AND task_specs.status='dropped') AS specs_dropped,
+      (SELECT s.batch_id FROM task_specs s WHERE s.input_id=inputs.id AND s.batch_id IS NOT NULL ORDER BY s.id DESC LIMIT 1) AS scheduler_id,
+      (SELECT t.status FROM task_specs s JOIN tasks t ON t.id=s.batch_id WHERE s.input_id=inputs.id AND s.batch_id IS NOT NULL
+        ORDER BY s.id DESC LIMIT 1) AS scheduler_status,
+      (SELECT n.id FROM notices n WHERE n.task_id=inputs.task_id AND n.status='open' AND n.kind='plan' ORDER BY n.id DESC LIMIT 1) AS plan_notice_id,
+      (SELECT count(*) FROM tasks w WHERE w.input_id=inputs.id AND w.layer='work') AS work_tasks
       FROM inputs JOIN tasks ON tasks.id=inputs.task_id ORDER BY inputs.id DESC LIMIT 100`);
   }
   /** The root planner decides which flow an input takes; runtime only records it and enforces the explain constraint in spawn(). */
@@ -516,7 +532,12 @@ export class Project {
     return readUsage(this.config, taskId);
   }
   tree(taskId = null) {
-    const tasks = this.decorate(this.store.summaries());
+    // 任务树只画 work 层：planner / scheduler 属于意图（见 inputs()），它们的 work 子任务直接顶上来当根。
+    const raw = this.store.summaries('work');
+    const intentParents = new Set(this.store.summaries('intent').map(task => task.id));
+    const originalParent = new Map(raw.map(task => [task.id, task.parent_id]));
+    const tasks = this.decorate(raw.map(task => (task.parent_id !== null && intentParents.has(task.parent_id))
+      ? { ...task, parent_id: null } : task));
     const rows = new Map(tasks.map(task => [task.id, { ...task, children: [] }]));
     const roots = [];
     for (const row of rows.values()) {
@@ -524,7 +545,12 @@ export class Project {
       const parent = row.parent_id ?? row.verifies_task_id ?? row.resolves_task_id;
       if (parent !== null && parent !== undefined && rows.has(parent)) rows.get(parent).children.push(row); else roots.push(row);
     }
-    if (taskId !== null) { this.store.task(taskId); return rows.get(id(taskId)); }
+    if (taskId !== null) {
+      const target = this.store.task(taskId);
+      if (rows.has(target.id)) return rows.get(target.id);
+      // 按 id 看 planner / scheduler：它自己不进树，但把它这一批 work 子任务挂上来，展开就有内容。
+      return { ...this.decorate([target])[0], children: [...rows.values()].filter(row => originalParent.get(row.id) === target.id) };
+    }
     return roots;
   }
   /**
@@ -625,17 +651,77 @@ export class Project {
     this.store.event(target.id, 'message', { sender, body });
     this.wake(target.id); return this.store.task(target.id);
   }
-  notice(taskId, title, body = '') {
+  notice(taskId, title, body = '', kind = 'question') {
     const task = this.store.task(taskId); text(title, 'title');
     check(typeof body === 'string' && body.length <= 32000, 'invalid notice body');
+    check(['question','plan'].includes(kind), 'notice kind must be question or plan');
     check(!TERMINAL.has(task.status), 'task has ended');
-    const row = this.store.run('INSERT INTO notices(task_id,title,body) VALUES (?,?,?)', task.id, title, body);
-    this.store.event(task.id, 'notice.opened', { notice_id: Number(row.lastInsertRowid), title });
+    const row = this.store.run('INSERT INTO notices(task_id,title,body,kind) VALUES (?,?,?,?)', task.id, title, body, kind);
+    this.store.event(task.id, 'notice.opened', { notice_id: Number(row.lastInsertRowid), title, kind });
     return this.store.get('SELECT * FROM notices WHERE id=?', Number(row.lastInsertRowid));
+  }
+  /**
+   * planner 认为这一轮拆解需要用户先拍板（影响面大 / 与现状冲突 / 没把握完全读懂意图）时提出的审批。
+   * 提出后这一批 spec 不再被 scheduler 取走，直到 plan.approve / plan.reject。
+   */
+  proposePlan(plannerId, title, body = '') {
+    const planner = this.store.task(plannerId);
+    check(planner.role === 'planner', 'only a planner proposes a plan (lush plan propose)');
+    check(!TERMINAL.has(planner.status), 'planner has ended; submit a new intent instead');
+    check(planner.plan_gate !== 'proposed', 'a plan approval is already pending for this planner');
+    const specs = this.store.specsByPlanner(planner.id).filter(spec => spec.status === 'pending');
+    check(specs.length > 0, 'write the specs first, then ask for approval (lush spec add ...)');
+    const pending = this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' AND kind='plan'", planner.id);
+    check(!pending, 'a plan approval is already open for this planner');
+    return this.store.transaction(() => {
+      this.store.update(planner.id, { plan_gate: 'proposed' });
+      this.store.event(planner.id, 'plan.proposed', { specs: specs.map(spec => spec.id) });
+      return this.notice(planner.id, title, body, 'plan');
+    });
+  }
+  /** 用户批准这一轮拆解：闸门放行 → 下次 pump 就会把它交给 scheduler；planner 这一轮就此结束。 */
+  approvePlan(plannerId, answer = '已批准') {
+    const planner = this.planForApproval(plannerId);
+    const specs = this.store.specsByPlanner(planner.id).filter(spec => spec.status === 'pending');
+    this.store.transaction(() => {
+      this.store.update(planner.id, { plan_gate: 'approved' });
+      this.store.run("UPDATE notices SET status='answered',answer=? WHERE task_id=? AND status='open' AND kind='plan'", answer, planner.id);
+      this.store.message(planner.id, JSON.stringify({ plan: planner.id, approved: true, answer, specs: specs.map(spec => spec.id) }));
+      this.store.event(planner.id, 'plan.approved', { answer, specs: specs.map(spec => spec.id) });
+    });
+    // 计划被接受 = planner 这一轮的结论已经定了，它不必再跑一轮；编排由 scheduler 接着做。
+    this.finish(planner.id, 'completed', `计划已批准（${specs.length} 条拆解交给 scheduler 编排）`);
+    return { planner: planner.id, plan_gate: 'approved', specs: specs.map(spec => spec.id) };
+  }
+  /** 用户驳回：本轮 spec 全部作废，理由送给 planner 并唤醒它重拆（新的一轮、新的一批）。 */
+  rejectPlan(plannerId, reason) {
+    const planner = this.planForApproval(plannerId);
+    text(reason, 'reason');
+    const specs = this.store.specsByPlanner(planner.id).filter(spec => spec.status === 'pending');
+    this.store.transaction(() => {
+      this.store.update(planner.id, { plan_gate: 'rejected' });
+      for (const spec of specs) this.store.dropSpec(spec.id, `计划被驳回：${reason}`);
+      this.store.run("UPDATE notices SET status='dismissed',answer=? WHERE task_id=? AND status='open' AND kind='plan'", reason, planner.id);
+      this.store.event(planner.id, 'plan.rejected', { reason, specs: specs.map(spec => spec.id) });
+    });
+    // 唤醒它重拆：理由走普通收件箱，下一轮 invocation 开头会把这个闸门清掉。
+    this.message(planner.id, `上一轮拆解被驳回：${reason}\n\n请据此重拆，并重新写 spec（旧的那批已作废）。`);
+    return { planner: planner.id, plan_gate: 'rejected', dropped_specs: specs.map(spec => spec.id) };
+  }
+  /** plan.approve / plan.reject 的入参：planner 任务 id 或那条 plan notice 的 id 都收。 */
+  planForApproval(reference) {
+    const value = id(reference);
+    const notice = this.store.get("SELECT * FROM notices WHERE id=? AND kind='plan'", value);
+    const planner = notice ? this.store.task(notice.task_id) : this.store.task(value);
+    check(planner.role === 'planner', `task #${planner.id} is a ${planner.role}; only a planner has a plan to approve`);
+    check(planner.plan_gate === 'proposed', `planner #${planner.id} has no plan waiting for approval`);
+    return planner;
   }
   answer(noticeId, answer, dismiss = false) {
     const notice = this.store.get('SELECT * FROM notices WHERE id=?', id(noticeId));
     check(notice && notice.status === 'open', 'notice is not open');
+    // 计划审批走 plan.approve / plan.reject：它们要动闸门、作废本轮 spec，不是“回答一个问题”。
+    check(notice.kind !== 'plan', `notice ${notice.id} is a plan approval; use lush plan approve|reject ${notice.task_id}`);
     if (!dismiss) text(answer, 'answer');
     this.store.transaction(() => {
       this.store.run('UPDATE notices SET status=?,answer=? WHERE id=?', dismiss ? 'dismissed' : 'answered', answer || '', notice.id);
@@ -811,6 +897,8 @@ export class Project {
       let task = this.store.task(taskId);
       check(task.calls < this.config.maxCalls, 'task invocation limit reached');
       this.store.update(taskId, { status: 'running', calls: task.calls + 1, agent_wakes: task.agent_wakes + 1 });
+      // 新一轮拆解：上一轮被驳回的闸门清零，这一轮要不要再请你批准由 planner 自己判断。
+      if (task.role === 'planner' && task.plan_gate === 'rejected') this.store.update(taskId, { plan_gate: null });
       this.store.touchAgent(taskId);
       const cwd = await this.workspaces.ensure(task);
       if (run.controller.signal.aborted) throw new Error('cancelled');

@@ -16,6 +16,15 @@ async function done(client, taskId) {
   for (let i=0;i<100;i++) { const task = await client.request('task.inspect',{id:taskId}); if (['completed','failed'].includes(task.status)) return task; await Bun.sleep(30); }
   throw new Error('task timeout');
 }
+/** scheduler 属于意图层，不在 task.list 里：它的 id 与状态跟着意图行下发。 */
+async function schedulerOf(client, plannerTaskId) {
+  for (let i=0;i<200;i++) {
+    const row = (await client.request('input.list')).find(intent => intent.task_id === plannerTaskId);
+    if (row?.scheduler_id) return { id: row.scheduler_id, status: row.scheduler_status };
+    await Bun.sleep(30);
+  }
+  return null;
+}
 
 test('real daemons: project isolation, duplicate start, immediate input, restart persistence', async () => {
   const a = temp(), b = temp();
@@ -72,8 +81,7 @@ console.log('fake pi completed');
     expect(result.agent.wakes).toBeGreaterThan(0);
     expect(result.agent.last_seen_at).toBeTruthy();
     // 等 scheduler 把 spec 编成任务并收尾
-    let scheduler;
-    for (let i=0;i<100 && !scheduler;i++) { scheduler = (await client.request('task.list',{})).find(task => task.role === 'scheduler'); if (!scheduler) await Bun.sleep(30); }
+    const scheduler = await schedulerOf(client, input.task.id);
     expect(scheduler).toBeTruthy();
     expect((await done(client, scheduler.id)).status).toBe('completed');
     const research = (await client.request('task.list',{})).find(task => task.role === 'research');
@@ -127,8 +135,7 @@ console.log('fake pi completed');
     const client = new UIClient(Config.fromEnv(env(),root));
     expect((await done(client,input.task.id)).status).toBe('completed');
     // planner 只写 spec；scheduler 串行把它编成真实任务，子任务全部终态后 scheduler 才收尾。
-    let scheduler;
-    for (let i=0;i<100 && !scheduler;i++) { scheduler = (await client.request('task.list',{})).find(task => task.role === 'scheduler'); if (!scheduler) await Bun.sleep(30); }
+    const scheduler = await schedulerOf(client, input.task.id);
     expect(scheduler).toBeTruthy();
     expect((await done(client, scheduler.id)).status).toBe('completed');
     const worker = (await client.request('task.list',{})).find(task => task.role === 'worker');
@@ -255,8 +262,7 @@ test('a real conflict becomes a notice plus a merger task, and lands with --ff-o
     const client = new UIClient(Config.fromEnv(env(),root));
     // planner 只写 spec；等 scheduler 把整批 spec 编成任务并收尾，这一刻 worker 才是终态。
     await done(client,input.task.id);
-    let scheduler;
-    for (let i=0;i<100 && !scheduler;i++) { scheduler = (await client.request('task.list',{})).find(task => task.role === 'scheduler'); if (!scheduler) await Bun.sleep(30); }
+    const scheduler = await schedulerOf(client, input.task.id);
     expect(scheduler).toBeTruthy();
     expect((await done(client, scheduler.id)).status).toBe('completed');
     const worker = (await client.request('task.list',{})).find(task => task.role === 'worker');
@@ -320,7 +326,8 @@ test('drafts become one planner, and a code dependency stacks worktrees with an 
     expect((await settle(downstream.id)).status).toBe('completed');
     let schedulers = [];
     for (let i=0;i<200;i++) {
-      schedulers = (await client.request('task.list',{})).filter(task => task.role === 'scheduler');
+      const row = (await client.request('input.list')).find(intent => intent.task_id === batch.task.id);
+      schedulers = row?.scheduler_id ? [await client.request('task.inspect',{id:row.scheduler_id})] : [];
       if (schedulers.length && schedulers.every(task => ['completed','failed'].includes(task.status))) break;
       await Bun.sleep(30);
     }

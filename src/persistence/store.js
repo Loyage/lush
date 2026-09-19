@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { check, id, bounded, EXECUTING } from '../core/types.js';
+import { check, id, bounded, EXECUTING, layerOf } from '../core/types.js';
 
 export class Store {
   constructor(file, project) {
@@ -22,6 +22,10 @@ export class Store {
         agent_wakes INTEGER NOT NULL DEFAULT 0, agent_token_hash TEXT, agent_last_seen_at TEXT,
         workspace TEXT, branch TEXT, base_commit TEXT, head_commit TEXT,
         integration TEXT NOT NULL DEFAULT 'none', target_branch TEXT, integration_error TEXT,
+        -- layer: 'intent'（planner 拆解 / scheduler 编排）不进任务树；'work' 才是用户要的开发任务链。
+        layer TEXT NOT NULL DEFAULT 'work',
+        -- plan_gate: planner 这一轮拆解的审批闸门：NULL=没申请批准（直接编排）/ proposed=等你批准 / approved / rejected。
+        plan_gate TEXT,
         -- verifier task: verifies_task_id 指向被检验的 worker；baseline_* 是目标分支的对照检出。
         verifies_task_id INTEGER REFERENCES tasks(id), baseline_workspace TEXT, baseline_commit TEXT,
         -- merger task: resolves_task_id 指向合并冲突的那个 worker。冲突处理不在原任务的子树里
@@ -55,7 +59,7 @@ export class Store {
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE TABLE IF NOT EXISTS notices (
         id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES tasks(id), title TEXT NOT NULL, body TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'open', answer TEXT,
+        status TEXT NOT NULL DEFAULT 'open', answer TEXT, kind TEXT NOT NULL DEFAULT 'question',
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY, task_id INTEGER REFERENCES tasks(id), type TEXT NOT NULL, data TEXT NOT NULL,
@@ -67,9 +71,14 @@ export class Store {
     const columns = new Set(this.all('PRAGMA table_info(tasks)').map(row => row.name));
     for (const [name, type] of [['name', 'TEXT'], ['agent_wakes', 'INTEGER NOT NULL DEFAULT 0'], ['agent_token_hash', 'TEXT'], ['agent_last_seen_at', 'TEXT'],
       ['verifies_task_id', 'INTEGER REFERENCES tasks(id)'], ['baseline_workspace', 'TEXT'], ['baseline_commit', 'TEXT'],
-      ['resolves_task_id', 'INTEGER REFERENCES tasks(id)']]) {
+      ['resolves_task_id', 'INTEGER REFERENCES tasks(id)'],
+      ['layer', "TEXT NOT NULL DEFAULT 'work'"], ['plan_gate', 'TEXT']]) {
       if (!columns.has(name)) this.run(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
     }
+    // 分层的列先有后补：既有库里的 planner / scheduler 行也要归到 intent 层，不能留在任务树里。
+    this.run("UPDATE tasks SET layer='intent' WHERE role IN ('planner','scheduler') AND layer='work'");
+    const noticeColumns = new Set(this.all('PRAGMA table_info(notices)').map(row => row.name));
+    if (!noticeColumns.has('kind')) this.run("ALTER TABLE notices ADD COLUMN kind TEXT NOT NULL DEFAULT 'question'");
     this.run('CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash)');
     // 两类输入的判定列晚于首个 release；既有库需要补列。
     const inputColumns = new Set(this.all('PRAGMA table_info(inputs)').map(row => row.name));
@@ -135,15 +144,18 @@ export class Store {
   specsForBatch(batchId, limit = 200) { return this.specs({ batch_id: batchId, limit }); }
   specsByPlanner(plannerTaskId, limit = 200) { return this.specs({ planner_task_id: plannerTaskId, limit }); }
   /**
-   * 下一条该编排的拆解：最老的、已经停止执行的 planner 写下的未编排 spec。
+   * 下一条该编排的拆解：最老的、已经停止执行且**不需要等你批准**的 planner 写下的未编排 spec。
    * 批次边界是「谁写的」而不是「哪一刻写的」，所以 planner 还在跑（或还会被再调用）时它写的 spec 一条都不会被取走，
    * 一轮拆解只会形成一批；同一批里没有依赖边的 spec 因此在同一时刻开始并跑。
    * planner 停在 awaiting（等用户答复）也算这一轮结束：它已写好的条目不该被别人的答复卡住。
+   * 例外：plan_gate='proposed' 表示 planner 自己觉得这轮拆解需要你先批准，这时一条都不取。
    */
   nextSpecPlanner() {
     const rows = this.all(`SELECT s.planner_task_id, count(*) AS count, min(s.id) AS first_spec_id
       FROM task_specs s JOIN tasks p ON p.id = s.planner_task_id
-      WHERE s.status='pending' AND s.batch_id IS NULL AND p.status NOT IN (${[...EXECUTING].map(() => '?').join(',')})
+      WHERE s.status='pending' AND s.batch_id IS NULL AND p.layer='intent'
+        AND (p.plan_gate IS NULL OR p.plan_gate='approved')
+        AND p.status NOT IN (${[...EXECUTING].map(() => '?').join(',')})
       GROUP BY s.planner_task_id ORDER BY first_spec_id LIMIT 1`, ...EXECUTING);
     return rows[0] ?? null;
   }
@@ -179,9 +191,11 @@ export class Store {
   discardBatch(batchId, note = null) {
     this.run("UPDATE task_specs SET status='dropped', note=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE batch_id=? AND status='pending'", note, batchId);
   }
-  summaries() {
-    return this.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,updated_at,
-      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id FROM tasks ORDER BY id`);
+  /** layer 省略时给全部任务（内部用）；'work' 是任务树/任务链的读模型，'intent' 是 planner + scheduler。 */
+  summaries(layer = null) {
+    return this.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
+      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
+      ...(layer ? [layer] : []));
   }
   /** 一个 worker 收到过的检验记录，最新的在前。 */
   verifications(taskId) {
@@ -283,7 +297,7 @@ export class Store {
   /** 时间轴原料：最近 limit 个任务，按 id 升序（画图从左到右）。 */
   timelineTasks(limit) {
     return this.all(`SELECT id,parent_id,input_id,role,name,status,integration,created_at,updated_at
-      FROM (SELECT * FROM tasks ORDER BY id DESC LIMIT ?) ORDER BY id`, limit);
+      FROM (SELECT * FROM tasks WHERE layer='work' ORDER BY id DESC LIMIT ?) ORDER BY id`, limit);
   }
   /** 这些任务的依赖边：时间轴与合并阶梯都要画"在等谁"。 */
   edgesOf(taskIds) {
@@ -332,7 +346,7 @@ export class Store {
   /** Bump the visible timestamp without touching status; used when a verification starts or settles. */
   touch(taskId) { this.run("UPDATE tasks SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", taskId); }
   update(taskId, patch) {
-    const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit'];
+    const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit','plan_gate'];
     check(Object.keys(patch).every(key => allowed.includes(key)), 'invalid task patch');
     this.run(`UPDATE tasks SET ${Object.keys(patch).map(key => `${key}=?`).join(',')}, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, ...Object.values(patch), taskId);
     return this.task(taskId);
@@ -340,10 +354,11 @@ export class Store {
   /** name is the task's own short slug; it is written once at spawn and never edited, so a worktree keeps its name. */
   create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null, resolves_task_id = null }) {
     const taskId = this.nextTaskId();
-    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id,resolves_task_id) VALUES (?,?,?,?,?,?,?,?)',
-      taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id);
+    const layer = layerOf(role);
+    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id,resolves_task_id,layer) VALUES (?,?,?,?,?,?,?,?,?)',
+      taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id, layer);
     const task = this.task(taskId);
-    this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id, resolves_task_id });
+    this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id, resolves_task_id, layer });
     return task;
   }
   event(taskId, type, data) { this.run('INSERT INTO events(task_id,type,data) VALUES (?,?,?)', taskId, type, JSON.stringify(data)); }

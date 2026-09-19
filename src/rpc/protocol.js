@@ -21,11 +21,12 @@ const PARAMS = {
   'task.spawn': ['parent','goal','role','deps','name','spec'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
   'task.merge': ['id'], 'task.merge_many': ['ids'], 'task.cleanup': ['id','keep_branch'], 'task.verify': ['id'], 'task.clear': [], 'task.ladder': [],
   'spec.list': [], 'spec.add': ['goal','role','name','deps'], 'spec.drop': ['id','note'],
+  'plan.propose': ['title','body'], 'plan.approve': ['id','answer'], 'plan.reject': ['id','reason'],
   'notice.list': [], 'notice.post': ['task','title','body'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
 };
-const USER_ONLY = new Set(['system.stop','input.submit','draft.add','draft.remove','draft.update','draft.commit','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.clear','notice.answer','notice.dismiss']);
-/** 拆解队列由 agent 写入；用户只能查看（lush spec list）。 */
-const AGENT_ONLY = new Set(['spec.add','spec.drop']);
+const USER_ONLY = new Set(['system.stop','input.submit','draft.add','draft.remove','draft.update','draft.commit','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject']);
+/** 拆解队列与计划审批由 agent 写入；用户只能查看（lush spec list / lush intents），批不批走 plan.approve|reject。 */
+const AGENT_ONLY = new Set(['spec.add','spec.drop','plan.propose']);
 export class Dispatcher {
   constructor(project, stopping, identity) { this.project = project; this.stopping = stopping; this.identity = identity; }
   async dispatch(method, params = {}) {
@@ -57,7 +58,7 @@ export class Dispatcher {
       case 'task.list': {
         const after = Number(params.after ?? 0), limit = Number(params.limit ?? 200);
         check(Number.isSafeInteger(after) && after >= 0 && Number.isInteger(limit) && limit > 0 && limit <= 1000, 'invalid task page');
-        return bounded(p.decorate(p.store.summaries().filter(task => task.id > after).slice(0, limit)), 900000);
+        return bounded(p.decorate(p.store.summaries('work').filter(task => task.id > after).slice(0, limit)), 900000);
       }
       case 'task.tree': return p.tree(params.id ?? null);
       case 'task.ladder': return p.ladder();
@@ -79,6 +80,10 @@ export class Dispatcher {
       case 'spec.list': return bounded(p.store.specs({ limit: 1000 }), 900000);
       case 'spec.add': return p.addSpec(actor, { goal: params.goal, role: params.role ?? null, name: params.name ?? null, deps: params.deps ?? [] });
       case 'spec.drop': return p.dropSpec(params.id, params.note ?? null, actor);
+      // planner 自己判断这轮拆解要不要先请你批准；approve/reject 是用户专属的闸门。
+      case 'plan.propose': return p.proposePlan(actor, params.title, params.body ?? '');
+      case 'plan.approve': return p.approvePlan(params.id, params.answer ?? '已批准');
+      case 'plan.reject': return p.rejectPlan(params.id, params.reason);
       case 'task.message': return p.message(params.id, params.body, actor);
       case 'task.cancel': return p.cancel(params.id);
       case 'task.retry': return p.retry(params.id);

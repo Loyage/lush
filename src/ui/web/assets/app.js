@@ -27,6 +27,8 @@ const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
 const WAIT_REASON = { dep: '等依赖', children: '等子任务', user: '等你决定', slot: '等并发槽', setup: '没跑起来' };
 let selected = null, selectedRevision = null, busy = false, offline = false, detailDirty = false, detailTask = null, detailRenderedAt = 0;
 let draftSignature = null;
+// 意图面板的重建哨兵：planner 状态、闸门、spec 计数、scheduler 进度变了才重画。
+let intentSignature = null;
 // 拆解队列的重建哨兵：id/status/batch_id/task_id 变化才重画，轮询不冲掉滚动。
 let specSignature = null;
 // 勾选与编辑态都按草稿 id 记，这样轮询重建时不会丢用户的意图；默认全选。
@@ -278,6 +280,65 @@ function renderDrafts(data) {
   draftSignature = signature;
   $('drafts').replaceChildren(...drafts.map(draftItem));
   syncComposer();
+}
+/* ---------- 意图（intent）：一条用户输入 + 它的 planner 拆解 / scheduler 编排 ---------- */
+// 意图层不是任务：planner 与 scheduler 不进任务树，在这里跟「待提交缓存」放在一起。
+const PLAN_GATE = { proposed: { label: '等你批准', className: 'b-awaiting' }, approved: { label: '已批准', className: 'b-completed' },
+  rejected: { label: '已驳回', className: 'b-failed' } };
+function planActions(intent) {
+  if (intent.plan_gate !== 'proposed') return null;
+  const actions = el('span', undefined, 'intent-actions');
+  actions.append(button('批准并开发', () => action('plan.approve', { id: intent.task_id }), 'primary'));
+  actions.append(button('驳回', () => {
+    const reason = prompt('驳回理由（会送给 planner，让它据此重拆）：', '');
+    if (!reason || !reason.trim()) return Promise.resolve();
+    return action('plan.reject', { id: intent.task_id, reason: reason.trim() });
+  }));
+  return actions;
+}
+/** 一条意图：输入正文 + planner 状态/闸门 + 拆解条数 + scheduler 编排进度。只读，除了批准/驳回。 */
+function intentItem(intent) {
+  const status = statusOf(intent);
+  const item = el('div', undefined, `intent${intent.plan_gate === 'proposed' ? ' needs-approval' : ''}`);
+  const row = el('span', undefined, 'row');
+  row.append(el('span', `#${intent.id}`, 'tid'), badge(`${status.icon} ${status.label}`, `b-${intent.status}`));
+  if (intent.flow) row.append(badge(intent.flow === 'explain' ? '了解' : '开发', 'b-neutral'));
+  row.append(el('span', relative(intent.created_at), 'when'));
+  item.append(row);
+  const goal = el('span', intent.content, 'goal intent-goal');
+  goal.title = intent.content;
+  item.append(goal);
+  const meta = el('span', undefined, 'meta');
+  meta.append(el('span', `规划 #${intent.task_id}`, 'tid'));
+  const counts = [intent.specs_pending ? `待编排 ${intent.specs_pending}` : null, intent.specs_planned ? `已编排 ${intent.specs_planned}` : null,
+    intent.specs_dropped ? `已丢弃 ${intent.specs_dropped}` : null].filter(Boolean);
+  meta.append(el('span', counts.length ? `拆解 ${counts.join(' · ')}` : '还没拆解'));
+  if (intent.scheduler_id) {
+    const scheduler = el('button', `调度 #${intent.scheduler_id} · ${STATUS[intent.scheduler_status]?.label ?? intent.scheduler_status}`, 'link');
+    scheduler.type = 'button';
+    scheduler.onclick = () => { noticeFocus = null; return detail(intent.scheduler_id); };
+    meta.append(scheduler);
+  }
+  if (PLAN_GATE[intent.plan_gate]) meta.append(badge(PLAN_GATE[intent.plan_gate].label, PLAN_GATE[intent.plan_gate].className));
+  if (intent.work_tasks) meta.append(el('span', `开发任务 ${intent.work_tasks}`));
+  item.append(meta);
+  const actions = planActions(intent);
+  if (actions) item.append(actions);
+  item.append(el('span', intent.plan_gate === 'proposed'
+    ? 'planner 认为这次改动影响面大 / 与现状冲突 / 没把握读准意图，先请你拍板；不批就不进 scheduler。'
+    : '点这条看 planner 的拆解与调试详情。', 'hint'));
+  item.onclick = event => { if (event.target === item || event.target.classList.contains('goal')) { noticeFocus = null; return detail(intent.task_id); } };
+  return item;
+}
+function renderIntents(data) {
+  const intents = data.inputs || [];
+  const signature = intents.map(intent => [intent.id, intent.status, intent.plan_gate, intent.specs_pending, intent.specs_planned,
+    intent.specs_dropped, intent.scheduler_id, intent.scheduler_status, intent.work_tasks, intent.flow].join(':')).join('\u0000');
+  if (signature === intentSignature) return;
+  intentSignature = signature;
+  const container = $('intents');
+  if (!intents.length) { container.replaceChildren(el('div', '还没有意图：在下面输入框回车就提交一条。', 'intent-empty')); return; }
+  container.replaceChildren(...intents.map(intentItem));
 }
 /* ---------- 拆解队列（只读）：planner 写、scheduler 取走、Web 只展示 ---------- */
 // deps 可能是已解析的数组（{spec,kind} 或裸 id），也可能是 JSON 字符串（旧库/旧读模型）；三种都要兼容。
@@ -650,7 +711,8 @@ function renderTimeline(timeline) {
 
 /** 左侧只放索引：点一下才在右侧展开正文与回复框。 */
 function renderNotices(data) {
-  const open = data.notices.filter(notice => notice.status === 'open');
+  // 计划审批在意图面板上批（kind='plan'），不走这里的问答。
+  const open = data.notices.filter(notice => notice.status === 'open' && notice.kind !== 'plan');
   noticeIndex = new Map(open.map(notice => [notice.id, notice]));
   // notice 可能被 CLI 或另一个标签页答复/忽略；关掉了就不再展开。
   if (noticeFocus !== null && !noticeIndex.has(noticeFocus)) noticeFocus = null;
@@ -1272,7 +1334,7 @@ async function refresh() {
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');
     $('agents').replaceChildren(slotGauge(data));
     if (offline) { offline = false; $('error').textContent = ''; }
-    renderDrafts(data); renderTree(data); renderSpecs(data);
+    renderDrafts(data); renderIntents(data); renderTree(data); renderSpecs(data);
     const noticeBefore = noticeFocus;
     renderNotices(data); syncComposer();
     if (selected === null) renderOverview(data);

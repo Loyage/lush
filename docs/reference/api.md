@@ -6,7 +6,11 @@
 
 | CLI | RPC | 参数 |
 |---|---|---|
-| `lush say '原话'` | `input.submit` | `{content}` |
+| `lush say '原话'` / `lush intent '原话'` | `input.submit` | `{content}` |
+| `lush intent list` | `input.list` | `{}`（每行带 planner 状态/闸门与 scheduler 进度） |
+| `lush plan propose '标题' [--body '…']` | `plan.propose` | `{title, body?}`（planner 专用） |
+| `lush plan approve ID\|NOTICE_ID` | `plan.approve` | `{id, answer?}`（用户专属） |
+| `lush plan reject ID\|NOTICE_ID '理由'` | `plan.reject` | `{id, reason}`（用户专属） |
 | `lush draft add '原话'` | `draft.add` | `{content}` |
 | `lush draft list` | `draft.list` | `{}` |
 | `lush draft rm ID` | `draft.remove` | `{id}` |
@@ -26,9 +30,11 @@
 
 ## 任务
 
+概念分三层：意图（`inputs` + 根 planner）→ 拆解（`task_specs`）→ 任务（`tasks`）。`tasks.layer` 区分：`intent`（planner / scheduler）与 `work`（其余角色）。**`task.list` / `task.tree` / `task.timeline` 只返回 work 层**（`system.status.tasks` 也只数 work 层，另给 `layers` 计数）；planner / scheduler 的进度由 `input.list` 下发，需要细节时用 `task.inspect ID` 按 id 直接读。`plan.propose` 把 planner 的 `plan_gate` 置为 `proposed` 并开一条 `kind='plan'` 的 notice，`nextSpecPlanner()` 跳过它，直到 `plan.approve`（闸门放行、planner 本轮结束、下一次 pump 交给 scheduler）或 `plan.reject`（本轮 pending spec 全标 `dropped`、理由送进 planner 收件箱并唤醒它重拆）。plan notice 不能用 `notice.answer` 回答。
+
 | CLI | RPC | 参数 |
 |---|---|---|
-| `task list [--after N] [--limit N]` | `task.list` | `{after?: 0, limit?: 200}`，limit 最大 1000 |
+| `task list [--after N] [--limit N]` | `task.list` | `{after?: 0, limit?: 200}`，limit 最大 1000，只含 work 层 |
 | `task tree [ID]` | `task.tree` | `{id?}` |
 | `task inspect ID` | `task.inspect` | `{id}` |
 | `task history ID [--after N]` | `task.history` | `{id, after?: 0}` |
@@ -45,7 +51,7 @@
 
 `task wait ID` 在客户端轮询 inspect；只阻塞当前客户端，终态返回。failed/cancelled 设置非零退出码。Agent 不允许使用 wait，应结束 invocation 由调度器唤醒。
 
-spawn 必须关联一个活动父 task；根任务只能由用户输入创建。角色可选 `worker` / `coordinator` / `research`，`planner` 只由入口生成。`name` 是任务自己的英文短名（kebab-case），写入只读的 `tasks.name`，决定分支与 worktree 名：`lush/<项目哈希>/<id>-<name>` 与 `.lush/worktrees/<id>-<name>`。省略时 runtime 从 goal 首行提取英文词回退，提不出可用词则任务没有 name（分支/目录回到 `task-<id>`）。`name` 给不出至少两个 ASCII 字母或数字时报 `name needs at least two ASCII letters or digits (kebab-case)`；名字不可改，已有 worktree 不会被改名。
+spawn 必须关联一个活动父 task；根任务只能由用户输入创建，planner 只写拆解队列、scheduler 只能 spawn 自己批里的 spec。角色可选 `worker` / `coordinator` / `research`，`planner` / `scheduler` 不能由 agent 创建。`name` 是任务自己的英文短名（kebab-case），写入只读的 `tasks.name`，决定分支与 worktree 名：`lush/<项目哈希>/<id>-<name>` 与 `.lush/worktrees/<id>-<name>`。省略时 runtime 从 goal 首行提取英文词回退，提不出可用词则任务没有 name（分支/目录回到 `task-<id>`）。`name` 给不出至少两个 ASCII 字母或数字时报 `name needs at least two ASCII letters or digits (kebab-case)`；名字不可改，已有 worktree 不会被改名。
 
 `deps` 是依赖边（`task_deps` 表，`(task_id, depends_on, kind)`，创建后不可变）。`kind` 默认 `code`：本任务的 worktree 从上游分支拉出（stacked），`base_commit` 冻结为上游的 `head_commit`，审阅 diff 只含本任务自己的提交；`order` 只等上游终态，代码仍从 HEAD 开始。`kind` 缺省由 CLI 的 `--dep-kind` 决定。提交时做结构校验并拒绝：自依赖、依赖祖先任务（父任务在等子任务结算，双方会互等而死）、悬空 id、一个任务多于一条 `code` 边、`code` 边指向非 worker 或已 failed/cancelled 的上游。边只在创建时写入，所以环在结构上不可能；`assertDeps` 仍保留可达性校验，供未来加改边 API。
 

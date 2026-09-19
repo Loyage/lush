@@ -22,6 +22,15 @@ function makeWorld() {
     actions: [],
     drafts: [],
     commits: [],
+    // 意图层的两条输入：一条的 planner 申请了批准（specs 分两批），一条已经批准。
+    intents: [
+      { id: 1, content: 'demo', flow: 'develop', task_id: 9, status: 'awaiting', plan_gate: 'proposed', plan_notice_id: 7,
+        specs_pending: 1, specs_planned: 1, specs_dropped: 0, scheduler_id: 4, scheduler_status: 'queued', work_tasks: 2,
+        draft_count: 0, created_at: iso(NOW - 9000), planner_updated_at: iso(NOW - 1000) },
+      { id: 2, content: '已批准的那条', flow: 'develop', task_id: 11, status: 'completed', plan_gate: 'approved', plan_notice_id: null,
+        specs_pending: 0, specs_planned: 2, specs_dropped: 1, scheduler_id: null, scheduler_status: null, work_tasks: 3,
+        draft_count: 0, created_at: iso(NOW - 9500), planner_updated_at: iso(NOW - 2000) },
+    ],
     // 左侧拆解队列的两条：一条还没被 scheduler 取走，一条已被 scheduler #4 取走并排成了任务 #2。
     specs: [
       { id: 1, input_id: 1, planner_task_id: 9, batch_id: null, seq: 1, goal: '还没编排的拆解', role: 'worker', name: 'queued-one',
@@ -50,7 +59,7 @@ function makeWorld() {
       { id: 2, role: 'worker', goal: '合并我', branch: 'lush/2-x', target_branch: 'main', integration: 'pending', deps: [], covered_by: [], level: 0 },
       { id: 3, role: 'worker', goal: '另一个待合的', branch: 'lush/3-x', target_branch: 'release', integration: 'review', deps: [], covered_by: [], level: 0 },
     ] },
-    tasks: [task1, task2, task3, task4], inputs: [{ id: 1, content: 'demo', flow: 'develop' }], drafts: state.drafts, notices: [], specs: state.specs,
+    tasks: [task1, task2, task3], inputs: state.intents, drafts: state.drafts, notices: [], specs: state.specs,
   });
   const detail = id => {
     if (id === 1) return { ...task1, branch: 'lush/1-x', workspace: '/tmp/wt/1', head_commit: 'abc1234', target_branch: 'main',
@@ -80,6 +89,11 @@ function makeWorld() {
         const chosen = state.drafts.filter(row => ids.includes(row.id));
         state.drafts = state.drafts.filter(row => !ids.includes(row.id));
         return json({ id: 1, content: chosen.map(row => row.content).join('\n'), task: { id: 99 }, drafts: ids });
+      }
+      if (body.method === 'plan.approve' || body.method === 'plan.reject') {
+        const intent = state.intents.find(row => row.task_id === body.params.id);
+        if (intent) intent.plan_gate = body.method === 'plan.approve' ? 'approved' : 'rejected';
+        return json({ planner: body.params.id, plan_gate: intent?.plan_gate ?? null });
       }
       return json({});
     }
@@ -236,12 +250,11 @@ test('拆解队列只读展示：按批次分组、能跳到派生的任务，sc
   await findByText(specs, '查看任务').onclick();
   expect(deepText(dom.node('detail'))).toContain('合并我');
 
-  // 任务树把 scheduler 显示成「调度」；展开它，右侧出现这一批 spec 与依赖
-  const tree = dom.node('tasks');
-  expect(deepText(tree)).toContain('排队 · 调度');
-  const schedulerNode = tree.querySelector('[data-id="4"]');
-  expect(schedulerNode).toBeTruthy();
-  await schedulerNode.onclick();
+  // 意图面板把 scheduler 显示成「调度 #4 · 排队」；点它可展开这一批 spec 与依赖（scheduler 不在任务树里）
+  const intents = dom.node('intents');
+  expect(deepText(intents)).toContain('调度 #4 · 排队');
+  expect(dom.node('tasks').querySelector('[data-id="4"]')).toBeFalsy();
+  await findByText(intents, '调度 #4 · 排队').onclick();
   const detail = dom.node('detail');
   expect(deepText(detail)).toContain('拆解队列');
   expect(deepText(detail)).toContain('本任务这一批取走的 spec');
@@ -255,4 +268,33 @@ test('拆解队列只读展示：按批次分组、能跳到派生的任务，sc
   expect(deepText(specs)).toContain('拆解队列空');
   expect(specs.querySelectorAll('.spec')).toHaveLength(0);
   expect(specs.querySelectorAll('.spec-batch')).toHaveLength(0);
+});
+
+test('意图面板：planner/scheduler 不进任务树，批准/驳回走 plan.approve|reject', async () => {
+  const intents = dom.node('intents');
+  const text = deepText(intents);
+  // 意图正文 + 意图层状态：规划 #9（planner）与调度 #4（scheduler）都在这里，不在任务树里
+  expect(text).toContain('demo');
+  expect(text).toContain('规划 #9');
+  expect(text).toContain('拆解 待编排 1 · 已编排 1');
+  expect(text).toContain('调度 #4 · 排队');
+  expect(text).toContain('等你批准');
+  expect(text).toContain('已批准');
+  expect(dom.node('tasks').querySelector('[data-id="9"]')).toBeFalsy();
+  expect(dom.node('tasks').querySelector('[data-id="11"]')).toBeFalsy();
+
+  // 批准：闸门放行交给 scheduler，刷新后按钮消失、徽章变成已批准
+  await findByText(intents, '批准并开发').onclick();
+  expect(world.state.actions.at(-1)).toEqual({ method: 'plan.approve', params: { id: 9 } });
+  expect(deepText(dom.node('intents'))).not.toContain('批准并开发');
+  expect(findByText(dom.node('intents'), '已批准')).toBeTruthy();
+
+  // 驳回：先问理由，再把理由一起送给 planner 重拆
+  world.state.intents[0].plan_gate = 'proposed';
+  await dom.intervalFor(1500)();
+  dom.setPrompt('别动架构，先加个开关');
+  await findByText(dom.node('intents'), '驳回').onclick();
+  expect(dom.prompts.at(-1)).toContain('驳回理由');
+  expect(world.state.actions.at(-1)).toEqual({ method: 'plan.reject', params: { id: 9, reason: '别动架构，先加个开关' } });
+  expect(findByText(dom.node('intents'), '已驳回')).toBeTruthy();
 });

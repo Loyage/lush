@@ -90,26 +90,33 @@ verifier 与被检验任务是两个 task（worker 已经终态，不能再挂�
 
 ## 新模型
 
+概念分三层：**意图（intent）→ 拆解（spec）→ 任务（task）**。意图是用户原话加它的 planner 分析，planner 与 scheduler 都属于意图层、**不进任务树**（`task list` / `tree` / `timeline` 只画开发工作）；它们只在 `lush intent list` 与 Web 的「意图 · 待提交缓存」里出现。
+
 ```text
 Project / 一个目录 / 一个 daemon
-├── Input #1（逐字保存用户原话）
-│   └── planner Task
-│       └── coordinator Task
-│           ├── worker Task → 独立分支 + worktree
-│           ├── worker Task → 独立分支 + worktree
-│           └── research Task
-├── Input #2 → 另一个 planner Task（无需等 #1 完成）
-└── Notices（某个 task 等用户做决定）
+├── Intent #1（逐字保存用户原话）           ← 意图层（不进任务树）
+│   ├── planner Task   拆解分析 → spec 队列
+│   └── scheduler Task 把这一轮 spec 编排成任务
+├── Intent #2 → 另一个 planner（无需等 #1 完成）
+└── 任务树（只有开发工作）
+    ├── coordinator Task
+    │   ├── worker Task → 独立分支 + worktree
+    │   ├── worker Task → 独立分支 + worktree
+    │   └── research Task
+    └── Notices（某个 task 等你做决定）
 ```
+
+planner 不直接派活：它把每条可独立完成的工作写成拆解队列条目（`lush spec add`）。一个 planner 的**一轮拆解**（它这次 invocation 里写下的全部 spec）在它停下后作为**同一批**交给同一个 scheduler：批内没有依赖边的 spec 同时开工，批次之间串行。planner 觉得这次改动影响面大、与现状冲突、或没把握读准意图时，可以 `lush plan propose` 请用户先拍板——**批准**（`lush plan approve ID` / Web 卡片上的「批准并开发」）才交给 scheduler；**驳回**（`lush plan reject ID '理由'`）会让这一轮 spec 作废、理由送回 planner 并唤醒它重拆。默认不问，直接进入编排。
 
 **没有 Service、SID、project-manager、模板构造树或全局项目注册表。** Task 自己持有目标、角色、父任务、状态、结果、消息与工作区。
 
-- `planner`：快速理解原话，参考项目中已有工作，派发任务；不亲自实施开发。
+- `planner`：快速理解意图，参考项目中已有工作，写拆解队列；不实施开发、不直接建任务。
+- `scheduler`：把一批 spec 编排成真实任务（建依赖、建 worktree 基线），自己也不写代码。
 - `coordinator`：拆分多级任务、收集结果、调整计划。
 - `worker`：在独立 worktree 中实现、测试、提交。
 - `research`：只读研究和审查。
 
-默认最多 **4 个执行 agent + 1 个独立规划 agent**。队列中的任务不占槽；`waiting` / `awaiting` 也不占槽；被依赖挡住的 `queued` 任务同样不占槽。多个输入的规划仍受这个规划槽限制，但不会等待先前的开发树结束；多次提交的解析互不阻塞（每个批次各自一个 planner），越界或非法的依赖在**服务端**被拒绝。
+默认并发上限就是一个池：`LUSH_CONCURRENCY`（默认 4）个 agent，planner / scheduler / worker 一视同仁。队列中的任务不占槽；`waiting` / `awaiting` 也不占槽；被依赖挡住的 `queued` 任务同样不占槽。多个输入的规划互不阻塞（各自一个 planner），越界或非法的依赖在**服务端**被拒绝。
 
 子任务完成、父子消息、用户补充、notice 答复都会进入持久化收件箱，**在 invocation 之间交给 agent**，不硬打断正在执行的模型调用。消息只能沿直接父子边传递；用户可以给任一活动任务追加要求。
 
@@ -130,9 +137,13 @@ Project / 一个目录 / 一个 daemon
 bun run help
 bun run doctor
 bun run start
-bun run say '你的原话'       # intent 是同义入口，同样不等待
-bun run intents
-bun run tasks               # 默认前 200 条，可加 --after ID --limit N
+bun run say '你的原话'       # lush intent '…' 是同义入口，同样不等待
+bun run intents             # 意图列表：每条输入的 planner 拆解 / scheduler 编排进度
+bun run propose '标题' --body '我打算这样拆'   # planner 专用：这轮拆解请你先拍板
+bun run approve 40          # 批准（ID 可以是 planner task id 或那条 notice id）
+bun run reject 40 '别动架构'  # 驳回：本轮 spec 作废，理由送回 planner 重拆
+bun run specs               # 拆解队列：等 scheduler 编排 / 已编排 / 已丢弃
+bun run tasks               # 默认前 200 条，只含开发任务（意图层见 intents）
 bun run tree
 bun run inspect 3
 bun run transcript 3        # 只看不写：agent 的思考、工具调用与输出
