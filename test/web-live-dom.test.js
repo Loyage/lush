@@ -157,6 +157,29 @@ test('批量合并：只列出能合的任务，冻结的不给选，按依赖�
   expect(findByText(detail, '#3')).toBeTruthy();
 });
 
+test('详情头部显示对应意图编号，能点开那条意图，input_id 为空时不乱显示', async () => {
+  const detail = dom.node('detail');
+  const head = () => detail.querySelector('.head');
+  dom.location.hash = '#task-1';
+  await dom.fire('hashchange');
+  await until(() => head() && findByText(head(), '意图 #1'), 2000);
+
+  // 头部写着「意图 #1」而不是「输入 #1」，hover 能看到意图原文，并且是可点的。
+  const intent = findByText(head(), '意图 #1');
+  expect(intent.title).toContain('demo');
+  expect(intent.classList.contains('intent-link')).toBe(true);
+
+  // 点击跳到这条意图的 planner 任务 #9（fixture 里 intents[0].task_id = 9）。
+  await intent.onclick();
+  expect(dom.location.hash).toBe('#task-9');
+
+  // scheduler #4 的 input_id 是 null：头部不该出现「意图 #null」。
+  dom.location.hash = '#task-4';
+  await dom.fire('hashchange');
+  await until(() => head() && deepText(head()).includes('#4'), 2000);
+  expect(deepText(head())).not.toContain('意图 #');
+});
+
 test('热任务的详情会自己变新：最近一次执行与展开的执行过程随轮询推进', async () => {
   dom.location.hash = '#task-1';
   await dom.fire('hashchange');
