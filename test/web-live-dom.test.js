@@ -211,20 +211,29 @@ test('详情头部显示对应意图编号，能点开那条意图，input_id �
   expect(deepText(head())).not.toContain('意图 #');
 });
 
-test('热任务的详情会自己变新：最近一次执行与展开的执行过程随轮询推进', async () => {
+test('热任务的详情会自己变新：折叠的执行过程只显示最近一条步骤，展开后随轮询推进', async () => {
   dom.location.hash = '#task-1';
   await dom.fire('hashchange');
   const detail = dom.node('detail');
   await until(() => detail.querySelector('[data-live="last"]'), 2000);
 
-  const lastRow = detail.querySelector('[data-live="last"]');
+  const blockByTitle = title => [...detail.querySelectorAll('.block')].find(node => node.querySelector('h2')?.textContent === title);
+  // 用户要求：最近一次执行不要在 Agent 信息的方格区，而是放进执行过程区块。
+  expect(blockByTitle('Agent').querySelector('.grid').querySelector('[data-live="last"]')).toBeFalsy();
+  const process = blockByTitle('执行过程');
+  const lastRow = process.querySelector('[data-live="last"]');
+  expect(lastRow).toBeTruthy();
   expect(lastRow.querySelector('span').textContent).toContain('bash');
   expect(lastRow.querySelector('span').textContent).toContain('刚刚');
+  expect(lastRow.querySelector('span').textContent).toContain('ls -la');
+  // 折叠态是单行预览，全文放 title，并保留「查看执行过程」按钮。
+  expect(lastRow.title).toContain('ls -la');
+  expect(findByText(process, '查看执行过程')).toBeTruthy();
 
-  // 模拟浏览器里每 3 秒跑一次的 liveRefresh：agent 又推进一步，面板不用手点就变新。
+  // 模拟浏览器里每 3 秒跑一次的 liveRefresh：agent 又推进一步，折叠态那一行不用手点就变新。
   world.state.usageLast = { at: iso(NOW), kind: 'text', title: '回答', body: '改好了，正在跑测试' };
   await dom.intervalFor(3000)();
-  const updated = detail.querySelector('[data-live="last"]').querySelector('span').textContent;
+  const updated = process.querySelector('[data-live="last"]').querySelector('span').textContent;
   expect(updated).toContain('改好了，正在跑测试');
   expect(updated).toContain('回答');
 
@@ -234,6 +243,8 @@ test('热任务的详情会自己变新：最近一次执行与展开的执行�
   const list = () => detail.querySelector('[data-live="transcript-steps"]');
   await until(() => list() && list().children.length === 2, 2000);
   expect(world.state.transcriptAfter).toEqual([0]);
+  // 展开后折叠态那一行让位给完整步骤列表。
+  expect(blockByTitle('执行过程').querySelector('[data-live="last"]')).toBeFalsy();
 
   world.state.transcriptSteps.push({ seq: 3, kind: 'text', title: '回答', at: iso(NOW), body: '测试通过' });
   await dom.intervalFor(3000)();
@@ -241,8 +252,6 @@ test('热任务的详情会自己变新：最近一次执行与展开的执行�
   expect(deepText(list())).toContain('测试通过');
   // 第二个 tick 用的是游标 2，不是从头再读一遍。
   expect(world.state.transcriptAfter).toEqual([0, 2]);
-  // 会话步骤与「最近一次执行」是同一份数据源：最后一步也能在这里看到。
-  expect(detail.querySelector('[data-live="last"]').querySelector('span').textContent).toContain('回答');
 });
 
 test('缓存可勾选部分提交，也可以就地编辑，轮询不打断编辑', async () => {
