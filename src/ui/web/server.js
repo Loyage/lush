@@ -4,6 +4,19 @@ import { fileURLToPath } from 'node:url';
 import { UIClient } from '../client.js';
 import { check } from '../../core/types.js';
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
+/**
+ * 前端资源按 basename 解析，新增模块只加文件、不改这张表——否则每个拆分 asset 的并行 worker
+ * 都要动同一个 server.js，正是我们要消掉的那种冲突。扩展名白名单把目录穿越、dotfile
+ * 与任意文件读取挡在外面：name 里不允许 '/'，只接受 .js / .css。
+ */
+const ASSET_EXTENSIONS = new Set(['.js', '.css']);
+const ASSET_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+function assetFile(pathname) {
+  if (pathname === '/') return path.join(ASSETS, 'index.html');
+  const name = pathname.slice(1);
+  if (!ASSET_NAME.test(name) || !ASSET_EXTENSIONS.has(path.extname(name))) return null;
+  return path.join(ASSETS, name);
+}
 const MUTATIONS = new Set(['input.submit','input.flow','draft.add','draft.remove','draft.update','draft.commit','task.message','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject']);
 /** 检验报告是 agent 写的自包含 HTML：只允许内联样式/脚本与 data: 图片，禁止任何外部加载与表单提交。
  *  主页面 CSP 不会作用于这个独立文档，所以这里必须自己收紧。 */
@@ -45,8 +58,8 @@ export function startWeb(config, port = 4318) {
             return json(await client.request('task.inspect', { id: taskId }));
           }
           if (url.pathname === '/favicon.ico') return new Response(null, { status: 204, headers });
-          const files = { '/': 'index.html', '/app.js': 'app.js', '/markdown.js': 'markdown.js', '/tree-order.js': 'tree-order.js', '/live.js': 'live.js', '/merge-select.js': 'merge-select.js', '/sidebar.js': 'sidebar.js', '/styles.css': 'styles.css' };
-          if (Object.hasOwn(files, url.pathname)) return new Response(Bun.file(path.join(ASSETS, files[url.pathname])), { headers });
+          const file = assetFile(url.pathname);
+          if (file && fs.existsSync(file) && fs.statSync(file).isFile()) return new Response(Bun.file(file), { headers });
         }
         if (request.method === 'POST' && url.pathname === '/api/action') {
           check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');

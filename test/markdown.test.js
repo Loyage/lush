@@ -139,9 +139,10 @@ test('web serves the markdown module and keeps the CSP header', async () => {
     expect(module.status).toBe(200);
     expect(module.headers.get('content-security-policy')).toContain("script-src 'self'");
     expect(await module.text()).toContain('export function renderMarkdown');
-    const app = await fetch(`${f.url}/app.js`);
-    expect(app.status).toBe(200);
-    expect(await app.text()).toContain("from './markdown.js'");
+    // app.js 只是入口：markdown.js 由真正 import 它的 text.js（agent 输出渲染）加载。
+    const loader = await fetch(`${f.url}/text.js`);
+    expect(loader.status).toBe(200);
+    expect(await loader.text()).toContain("from './markdown.js'");
     const page = await (await fetch(f.url)).text();
     expect(page).toContain('md-toggle');
     expect(page).toContain('Markdown 渲染');
