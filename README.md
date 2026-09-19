@@ -3,7 +3,7 @@
 **一丁点儿时间不浪费。**
 **Not a single moment wasted.**
 
-Lush 是项目级的多 agent 开发应用，不再是电脑级的 AI 管家。一个 daemon 绑定一个项目目录；输入、任务、agent 会话、工作区与待决问题都属于这个项目。
+Lush 是项目级的多 agent 开发应用。一个 daemon 绑定一个项目目录；输入、任务、agent 会话、工作区与待决问题都属于这个项目。
 
 你随时描述想法，Lush 立即保存输入并安排规划任务。规划 agent 拆分工作，多级 agent 在后台并行执行；等待子任务或用户决定时释放 agent 槽，不阻塞下一条输入。代码在独立 Git worktree 中实现，**只有用户明确批准才合并**。
 
@@ -108,7 +108,7 @@ Project / 一个目录 / 一个 daemon
 
 planner 不直接派活：它把每条可独立完成的工作写成拆解队列条目（`lush spec add`）。一个 planner 的**一轮拆解**（它这次 invocation 里写下的全部 spec）在它停下后作为**同一批**交给同一个 scheduler：批内没有依赖边的 spec 同时开工，批次之间串行。planner 觉得这次改动影响面大、与现状冲突、或没把握读准意图时，可以 `lush plan propose` 请用户先拍板——**批准**（`lush plan approve ID` / Web 卡片上的「批准并开发」）才交给 scheduler；**驳回**（`lush plan reject ID '理由'`）会让这一轮 spec 作废、理由送回 planner 并唤醒它重拆。默认不问，直接进入编排。
 
-**没有 Service、SID、project-manager、模板构造树或全局项目注册表。** Task 自己持有目标、角色、父任务、状态、结果、消息与工作区。
+**Task 自己持有目标、角色、父任务、状态、结果、消息与工作区。**
 
 - `planner`：快速理解意图，参考项目中已有工作，写拆解队列；不实施开发、不直接建任务。
 - `scheduler`：把一批 spec 编排成真实任务（建依赖、建 worktree 基线），自己也不写代码。
@@ -162,7 +162,7 @@ bun run daemon-restart
 bun run stop
 ```
 
-任一命令都可以加 `--project PATH`。`--json` 输出机器可读结果。底层完整命令见 `bun run help`；不再支持旧 Service API、OpenAI 内置工具后端或 Service agent profiles。
+任一命令都可以加 `--project PATH`。`--json` 输出机器可读结果。底层完整命令见 `bun run help`；内置 agent 后端只有 pi 与 mock。
 
 ## 状态、恢复与边界
 
@@ -178,7 +178,7 @@ daemon.lock        项目 daemon 单实例锁
 daemon.log         daemon 日志
 ```
 
-socket 放在用户私有临时目录，名字由 canonical 项目路径决定，以避免长项目路径超过 Unix socket 限制。它只是通信端点；持久状态仍在项目内。`LUSH_HOME` 不再是独立作用域：若保留该变量，必须恰好等于所选项目的 `.lush`，否则拒绝运行。
+socket 放在用户私有临时目录，名字由 canonical 项目路径决定，以避免长项目路径超过 Unix socket 限制。它只是通信端点；持久状态仍在项目内。`LUSH_HOME` 不是独立作用域：若保留该变量，必须恰好等于所选项目的 `.lush`，否则拒绝运行。
 
 任务状态：`queued → running → waiting / awaiting / completed / failed / cancelled`。等待收到新消息后重新排队。终态任务不会保留活动子任务。取消或停止会终止 agent 进程组；重启对未知副作用的运行中任务标记失败，不自动重放；未开始的排队任务、待用户答复和记录保留。重试失败子任务要求父任务仍活动，否则重试父任务或提交新输入。
 
@@ -213,6 +213,4 @@ bun run test
 
 测试覆盖纯任务树、并发额度、独立规划槽、消息与 notice 唤醒、取消、恢复、任务权限、真实 Git worktree/merge/冲突、检验的对照基线生命周期与报告路由、真实 daemon 的项目隔离、pi 子进程协议与本地 Web 边界。pi 协议测试使用可控的假 pi 可执行文件，不调用付费模型。
 
-[架构](docs/engineering/architecture.md) · [命令与 RPC](docs/reference/api.md) · [重构说明](docs/README.md)
-
-0.2 是不兼容重构，不迁移旧 Service 数据。旧 `.lush/lush.db` 会明确拒绝加载；需要先停止旧 daemon，把旧 `.lush/` 移开保存，再启动新版本。
+[架构](docs/engineering/architecture.md) · [命令与 RPC](docs/reference/api.md) · [文档](docs/README.md)

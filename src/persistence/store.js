@@ -65,24 +65,8 @@ export class Store {
         id INTEGER PRIMARY KEY, task_id INTEGER REFERENCES tasks(id), type TEXT NOT NULL, data TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS messages_task ON messages(task_id, consumed);
-      CREATE INDEX IF NOT EXISTS events_task ON events(task_id, id);`);
-    // Agent identity columns arrived after the first release; an existing project.db predates them.
-    // The index over agent_token_hash must wait for the columns it references.
-    const columns = new Set(this.all('PRAGMA table_info(tasks)').map(row => row.name));
-    for (const [name, type] of [['name', 'TEXT'], ['agent_wakes', 'INTEGER NOT NULL DEFAULT 0'], ['agent_token_hash', 'TEXT'], ['agent_last_seen_at', 'TEXT'],
-      ['verifies_task_id', 'INTEGER REFERENCES tasks(id)'], ['baseline_workspace', 'TEXT'], ['baseline_commit', 'TEXT'],
-      ['resolves_task_id', 'INTEGER REFERENCES tasks(id)'],
-      ['layer', "TEXT NOT NULL DEFAULT 'work'"], ['plan_gate', 'TEXT']]) {
-      if (!columns.has(name)) this.run(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
-    }
-    // 分层的列先有后补：既有库里的 planner / scheduler 行也要归到 intent 层，不能留在任务树里。
-    this.run("UPDATE tasks SET layer='intent' WHERE role IN ('planner','scheduler') AND layer='work'");
-    const noticeColumns = new Set(this.all('PRAGMA table_info(notices)').map(row => row.name));
-    if (!noticeColumns.has('kind')) this.run("ALTER TABLE notices ADD COLUMN kind TEXT NOT NULL DEFAULT 'question'");
-    this.run('CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash)');
-    // 两类输入的判定列晚于首个 release；既有库需要补列。
-    const inputColumns = new Set(this.all('PRAGMA table_info(inputs)').map(row => row.name));
-    if (!inputColumns.has('flow')) this.run('ALTER TABLE inputs ADD COLUMN flow TEXT');
+      CREATE INDEX IF NOT EXISTS events_task ON events(task_id, id);
+      CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash);`);
     const binding = this.get('SELECT value FROM meta WHERE key=?', 'project');
     if (binding && binding.value !== project) { this.close(); throw new Error('database belongs to another project'); }
     this.run('INSERT OR IGNORE INTO meta VALUES (?,?)', 'project', project);

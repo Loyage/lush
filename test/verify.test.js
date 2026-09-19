@@ -1,11 +1,9 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Database } from 'bun:sqlite';
 import { fixture, repo, git, until, temp, gate } from './helpers.js';
 import { Dispatcher } from '../src/rpc/protocol.js';
 import { createSignal } from '../src/signal.js';
-import { Store } from '../src/persistence/store.js';
 
 /** 一个已完成的 worker：有 worktree、有提交、integration=pending。 */
 async function completed(f, name = 'implement-feature') {
@@ -159,27 +157,4 @@ test('recover reclaims the baseline of a verification interrupted by a restart',
     await until(() => f.store.task(verification.id).baseline_workspace === null);
     expect(fs.existsSync(dir)).toBe(false);
   } finally { await f.close(); }
-});
-
-test('an existing project.db gains the verification columns in place', () => {
-  const root = temp();
-  try {
-    const file = path.join(root, 'project.db');
-    const legacy = new Database(file, { create: true });
-    legacy.exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      CREATE TABLE tasks (id INTEGER PRIMARY KEY, parent_id INTEGER, input_id INTEGER,
-        role TEXT NOT NULL, goal TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', result TEXT, error TEXT,
-        calls INTEGER NOT NULL DEFAULT 0, workspace TEXT, branch TEXT, base_commit TEXT, head_commit TEXT,
-        integration TEXT NOT NULL DEFAULT 'none', target_branch TEXT, integration_error TEXT,
-        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));`);
-    legacy.close();
-    const store = new Store(file, root);
-    const columns = new Set(store.all('PRAGMA table_info(tasks)').map(row => row.name));
-    expect(columns.has('verifies_task_id')).toBe(true);
-    expect(columns.has('baseline_workspace')).toBe(true);
-    expect(columns.has('baseline_commit')).toBe(true);
-    expect(columns.has('resolves_task_id')).toBe(true);
-    store.close();
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

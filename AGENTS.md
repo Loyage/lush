@@ -7,8 +7,8 @@ Lush 是**项目级的多 agent 开发应用**。Bun / JavaScript / SQLite，零
 - 一个 daemon 对应一个 canonical 项目目录，状态固定在 `<project>/.lush/`。
 - 默认向上发现 `.lush/project.json` 或 `.git`；用 `--project PATH` 显式选择项目。
 - `LUSH_PROJECT` 会传入 agent 子进程，agent 在独立 worktree 中仍连接原项目。
-- `LUSH_HOME` 不再允许指向独立的全局目录；非空时必须等于 `<project>/.lush`。
-- 没有 Service、SID、project-manager 或模板模型。不要重新引入电脑级调度。
+- `LUSH_HOME` 不许指向独立的全局目录；非空时必须等于 `<project>/.lush`。
+- 实体只有 Input / Task / Agent / Message / Notice / Event。不要引入电脑级调度。
 
 ## 命令一律走 bun run
 
@@ -27,7 +27,7 @@ bun run web                     # 只启动本地 Web，不操作 daemon
 bun run stop
 ```
 
-任意入口可加 `--project PATH`；操作其他项目时必须显式指定。`bun run lush <command>` 也遵循同一套项目发现规则，没有旧版默认全局 home 的例外。
+任意入口可加 `--project PATH`；操作其他项目时必须显式指定。`bun run lush <command>` 也遵循同一套项目发现规则，没有默认全局 home 的例外。
 
 不要在开发测试时默认操纵用户正在开发的项目。测试用临时项目目录和 mock/可控子进程；测试结束停 daemon 并清理自己的临时文件。
 
@@ -45,7 +45,7 @@ bun run stop
 - Agent 等待子任务或用户时释放 invocation 槽；新输入有独立规划槽。
 - Task 与 agent 是终身一对一的身份（`<role>#<id>`），但凭证只代表一次 invocation：库里只存 SHA-256，`actor()` 必须同时校验 hash 命中与「仍在 running 且未被 abort」。不要把 token 改成终身有效，否则上一轮逃逸的后台进程会重新变成合法 actor。
 - 消息只在 invocation 之间送达。注意「父任务刚 park、子任务刚完成、running Map 还未清理」之间的 lost-wakeup 竞态。
-- 重启不自动重放有未知副作用的调用；旧 Service 数据不迁移、不覆盖。
+- 重启不自动重放有未知副作用的调用；不迁移、不覆盖磁盘上已有的数据。
 
 ## 模块
 
@@ -60,4 +60,4 @@ bun run stop
 
 `src/identity.js` 的 fingerprint 覆盖整个 src、bin 和 package.json。相同路径但 fingerprint 不同表示 daemon 仍运行旧代码；重启正确项目才生效。
 
-更多见 `README.md` 与 `docs/README.md`。`docs/log/` 是重构前历史，不代表当前 API。
+更多见 `README.md` 与 `docs/README.md`。

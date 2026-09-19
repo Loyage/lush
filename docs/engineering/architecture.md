@@ -10,8 +10,6 @@
 - **Notice**：task 请求用户做决定；答复/忽略入收件箱。
 - **Event**：创建、调用、状态转换、消息和 Git 生命周期审计。
 
-没有 Service，也没有为创建 task 而先构造的被动节点。
-
 ## 数据流
 
 ```text
@@ -102,7 +100,7 @@ Lush 无法锁住用户的编辑器或外部 Git 进程；合并期间不要并�
 
 ## 项目身份与恢复
 
-项目路径 canonicalize 后决定 `.lush` 和 socket。manifest 与数据库双重校验路径，拒绝旧库与跨项目复用。daemon.lock 按项目持有；socket 位于 uid 私有临时目录，权限 0600，目录 0700。
+项目路径 canonicalize 后决定 `.lush` 和 socket。manifest 与数据库双重校验路径，拒绝跨项目复用。daemon.lock 按项目持有；socket 位于 uid 私有临时目录，权限 0600，目录 0700。
 
 daemon 启动捕获全部运行源码 fingerprint；status 显示 project、home、socket、code_dir、fingerprint。start 遇到已运行 daemon 只报告，不换版本。
 
@@ -131,4 +129,4 @@ Web 只监听 127.0.0.1，校验 Host / Origin / Sec-Fetch-Site，修改操作�
 | `cli/` | CLI 和 daemon 启停客户端 |
 | `ui/` | 统一客户端与本地 Web |
 
-维护时优先保持这些小模块，不重新引入通用 Service 管理或电脑级能力体系。
+维护时优先保持这些小模块，不引入通用服务管理或电脑级能力体系。

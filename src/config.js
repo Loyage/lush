@@ -52,7 +52,6 @@ export class Config {
       const binding = JSON.parse(fs.readFileSync(file, 'utf8'));
       check(binding.version === 2 && binding.path === this.project, 'state belongs to another project/version; move .lush aside to initialize a new project');
     } else {
-      check(!fs.existsSync(path.join(this.home, 'lush.db')), 'legacy database found; move .lush aside (no automatic migration)');
       fs.writeFileSync(file, JSON.stringify({ version: 2, path: this.project }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
     }
   }

@@ -534,7 +534,7 @@ function renderIntents(data) {
   container.replaceChildren(...intents.map(intentItem));
 }
 /* ---------- 拆解队列（只读）：planner 写、scheduler 取走、Web 只展示 ---------- */
-// deps 可能是已解析的数组（{spec,kind} 或裸 id），也可能是 JSON 字符串（旧库/旧读模型）；三种都要兼容。
+// deps 可能是已解析的数组（{spec,kind} 或裸 id），也可能是 JSON 字符串；三种都要兼容。
 function specDeps(value) {
   if (Array.isArray(value)) return value;
   if (typeof value !== 'string' || !value) return [];
