@@ -178,12 +178,18 @@ label{font-size:12px;color:var(--muted)}
   .composer{padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px))}
 }
 
-/* drafts (input buffer)：和任务树共用 .row / .tid / .when / .goal，只多一个删除入口 */
+/* drafts (input buffer)：和任务树共用 .row / .tid / .when / .goal，多一个勾选框、编辑与删除入口 */
 #drafts:empty::after{content:'缓存空：输入框里按回车先攒着。';display:block;color:var(--dim);font-size:12.5px;padding:2px 2px 12px}
 .draft{display:block;width:100%;background:transparent;border-left:2px solid var(--line);border-radius:8px;padding:7px 8px 8px 10px;margin:0 0 2px;min-width:0}
 .draft:hover{background:var(--panel-2)}
+.draft .pick{flex:none;accent-color:var(--accent);cursor:pointer}
+.draft .goal{cursor:text}
+.draft .goal:hover{color:var(--text)}
 button.drop{background:transparent;color:var(--dim);border:1px solid transparent;border-radius:99px;padding:0 8px;font-size:11px;font-weight:400}
 button.drop:hover{background:transparent;filter:none;color:var(--failed);border-color:#552f2c}
+button.edit{background:transparent;color:var(--dim);border:1px solid transparent;border-radius:99px;padding:0 8px;font-size:11px;font-weight:400}
+button.edit:hover{background:transparent;filter:none;color:var(--text);border-color:var(--line)}
+.draft-edit{display:block;width:100%;margin-top:4px;background:var(--panel-2);color:var(--text);border:1px solid var(--accent);border-radius:8px;padding:6px 8px;font:inherit;font-size:13px;resize:vertical}
 
 /* markdown 渲染（agent 输出；开关在 Web 头部） */
 .markdown{font-size:13px;color:var(--text);overflow-wrap:anywhere;white-space:normal}

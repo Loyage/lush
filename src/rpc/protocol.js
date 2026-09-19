@@ -15,7 +15,7 @@ export function parseRequest(raw) {
 }
 const PARAMS = {
   'system.status': [], 'system.stop': [], 'system.timeline': ['limit'], 'input.submit': ['content'], 'input.list': [], 'input.flow': ['id','flow'],
-  'draft.add': ['content'], 'draft.list': [], 'draft.remove': ['id'], 'draft.commit': [],
+  'draft.add': ['content'], 'draft.list': [], 'draft.remove': ['id'], 'draft.update': ['id','content'], 'draft.commit': ['ids'],
   'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.diff': ['id'],
   'task.transcript': ['id','after','limit'], 'task.usage': ['id'],
   'task.spawn': ['parent','goal','role','deps','name','spec'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
@@ -23,7 +23,7 @@ const PARAMS = {
   'spec.list': [], 'spec.add': ['goal','role','name','deps'], 'spec.drop': ['id','note'],
   'notice.list': [], 'notice.post': ['task','title','body'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
 };
-const USER_ONLY = new Set(['system.stop','input.submit','draft.add','draft.remove','draft.commit','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.clear','notice.answer','notice.dismiss']);
+const USER_ONLY = new Set(['system.stop','input.submit','draft.add','draft.remove','draft.update','draft.commit','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.clear','notice.answer','notice.dismiss']);
 /** 拆解队列由 agent 写入；用户只能查看（lush spec list）。 */
 const AGENT_ONLY = new Set(['spec.add','spec.drop']);
 export class Dispatcher {
@@ -52,7 +52,8 @@ export class Dispatcher {
       case 'draft.add': return p.draft(params.content);
       case 'draft.list': return p.drafts();
       case 'draft.remove': return p.dropDraft(params.id);
-      case 'draft.commit': return p.commitDrafts();
+      case 'draft.update': return p.editDraft(params.id, params.content);
+      case 'draft.commit': return p.commitDrafts(params.ids ?? null);
       case 'task.list': {
         const after = Number(params.after ?? 0), limit = Number(params.limit ?? 200);
         check(Number.isSafeInteger(after) && after >= 0 && Number.isInteger(limit) && limit > 0 && limit <= 1000, 'invalid task page');

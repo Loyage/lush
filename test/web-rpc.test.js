@@ -257,6 +257,40 @@ test('web buffers drafts, commits the whole batch and keeps agents out of the co
   } finally { await f.close(); }
 });
 
+test('web edits a buffered draft and submits only the picked subset', async () => {
+  const f = await setup();
+  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
+  const snapshotNow = async () => (await fetch(f.url+'/api/snapshot')).json();
+  try {
+    await post('draft.add',{content:'第一条'});
+    await post('draft.add',{content:'第二条'});
+    let snapshot = await snapshotNow();
+    const [first, second] = snapshot.drafts;
+
+    // 就地编辑：draft.update 经 HTTP 可用，内容立刻生效
+    expect((await post('draft.update',{id:first.id,content:'第一条（改过）'})).status).toBe(200);
+    snapshot = await snapshotNow();
+    expect(snapshot.drafts.map(draft => draft.content)).toEqual(['第一条（改过）','第二条']);
+
+    // 只提交选中的一条：input 里只有它，未选中的留在缓存
+    expect((await post('draft.commit',{ids:[second.id]})).status).toBe(200);
+    snapshot = await snapshotNow();
+    expect(snapshot.drafts.map(draft => draft.content)).toEqual(['第一条（改过）']);
+    expect(snapshot.inputs[0].content).toBe('第二条');
+    expect(snapshot.status.drafts).toBe(1);
+
+    // 已提交的输入既不能改也不在缓存里；未知 id 与空 ids 都拒绝
+    expect((await post('draft.update',{id:second.id,content:'x'})).status).toBe(400);
+    expect((await post('draft.commit',{ids:[9999]})).status).toBe(400);
+    expect((await post('draft.commit',{ids:[]})).status).toBe(400);
+
+    // 页面真的带上了勾选框与就地编辑
+    const app = await (await fetch(f.url+'/app.js')).text();
+    expect(app).toContain("pick.type = 'checkbox'");
+    expect(app).toContain("'draft.update'");
+  } finally { await f.close(); }
+});
+
 test('web serves the tree sort module and wires the smart-sort dropdown', async () => {
   const f = await setup();
   try {
