@@ -24,6 +24,17 @@ test('web serves the live-refresh and batch-merge modules alongside app.js', asy
   } finally { await f.close(); }
 });
 
+test('styles.css enlarges sidebar section headings without touching detail block titles', async () => {
+  const f = await setup();
+  try {
+    const css = await (await fetch(f.url + '/styles.css')).text();
+    // 左栏区块标题放大到 14px；共享规则已拆开。
+    expect(css).toContain('.section-title .side-name{color:var(--muted);font-size:14px');
+    // 详情区 block 标题仍是 12px。
+    expect(css).toContain('.section-title h2{color:var(--muted);font-size:12px');
+  } finally { await f.close(); }
+});
+
 test('web serves the tree sort module and wires the smart-sort dropdown', async () => {
   const f = await setup();
   try {
