@@ -2,6 +2,8 @@ import { renderMarkdown } from './markdown.js';
 import { SORT_MODES, treeParent, rankTasks, orderSiblings } from './tree-order.js';
 import { LIVE_INTERVAL, liveTarget, liveTick } from './live.js';
 import { mergeCandidates, isMergeable, previewMergeOrder, ladderEdges, freezeBlocker } from './merge-select.js';
+import { SIDEBAR_SECTIONS, COLLAPSED_KEY, FILTERS_KEY, parseCollapsed, serializeCollapsed, toggleCollapsed,
+  parseFilters, filterTasks, filterSpecs, filterIntents, matchTask, isFiltering, countText, describeFilters } from './sidebar.js';
 
 const $ = id => document.getElementById(id);
 const STATUS = {
@@ -23,6 +25,9 @@ const EVENTS = {
 };
 const HOT = new Set(['running', 'awaiting', 'waiting', 'queued']);
 const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
+/** 左栏：折叠状态（Set of section id）与三组筛选条件，都持久化到 localStorage。 */
+let collapsed = readCollapsedPref();
+let filters = readFiltersPref();
 /** 时间轴里「没在跑」的四种原因：前两种是结构造成的串行，后两种是资源与人的等待。 */
 const WAIT_REASON = { dep: '等依赖', children: '等子任务', user: '等你决定', slot: '等并发槽', setup: '没跑起来' };
 let selected = null, selectedRevision = null, busy = false, offline = false, detailDirty = false, detailTask = null, detailRenderedAt = 0;
@@ -88,6 +93,181 @@ $('tree-sort').addEventListener('change', () => {
   if (lastSnapshot) renderTree(lastSnapshot);
 });
 syncTreeSortSelect();
+
+/* ---------- 左侧栏：快速导航、可折叠区块、三个列表的筛选 ---------- */
+// 纯逻辑（筛选规则、摘要、折叠 / 筛选状态形态）都在 sidebar.js，这里只负责接到 DOM。
+const sideNodes = new Map();      // section id -> 区块 <section>
+const sideHeads = new Map();      // section id -> 标题按钮
+const navButtons = new Map();     // section id -> 导航按钮
+const navCounts = new Map();      // section id -> 导航计数
+const filterUi = {};              // 选项随数据变化的筛选控件（角色 / planner / 意图状态）
+
+function readCollapsedPref() {
+  try { return parseCollapsed(localStorage.getItem(COLLAPSED_KEY)); } catch { return new Set(); }
+}
+function readFiltersPref() {
+  try { return parseFilters(localStorage.getItem(FILTERS_KEY)); } catch { return parseFilters(null); }
+}
+function saveCollapsedPref() {
+  try { localStorage.setItem(COLLAPSED_KEY, serializeCollapsed(collapsed)); } catch { /* 隐私模式里忽略 */ }
+}
+function saveFiltersPref() {
+  try { localStorage.setItem(FILTERS_KEY, JSON.stringify(filters)); } catch { /* 隐私模式里忽略 */ }
+}
+/** 把折叠状态画到 DOM：区块加 .collapsed（CSS 隐藏内容并换箭头），标题按钮同步 aria-expanded。 */
+function paintCollapsed() {
+  for (const section of SIDEBAR_SECTIONS) {
+    const collapsedNow = collapsed.has(section.id);
+    sideNodes.get(section.id)?.classList.toggle('collapsed', collapsedNow);
+    sideHeads.get(section.id)?.setAttribute('aria-expanded', String(!collapsedNow));
+  }
+}
+function setNavCount(id, count) { const node = navCounts.get(id); if (node) node.textContent = String(count); }
+function selectNav(id) {
+  for (const [key, node] of navButtons) {
+    node.classList.toggle('selected', key === id);
+    node.setAttribute('aria-current', key === id ? 'true' : 'false');
+  }
+}
+/** 快速导航：能滚就滚并高亮；dom-stub / 老浏览器没有 scrollIntoView 时静默降级成只高亮。 */
+function navTo(id) {
+  const section = sideNodes.get(id);
+  if (section && typeof section.scrollIntoView === 'function') {
+    try { section.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch { /* 忽略 */ }
+  }
+  selectNav(id);
+}
+function makeFoldButton(text, fn) {
+  const node = el('button', text, 'nav-fold-btn');
+  node.type = 'button';
+  node.onclick = fn;
+  return node;
+}
+function makeNavItem(section) {
+  const item = el('button', undefined, 'nav-item');
+  item.type = 'button';
+  item.dataset.side = section.id;
+  item.title = `跳到「${section.long}」`;
+  item.append(el('span', section.label, 'nav-label'), el('span', '0', 'nav-count'));
+  item.onclick = () => navTo(section.id);
+  return item;
+}
+/* ---------- 筛选条控件：节点建一次就够，轮询只换 option、不重建输入框 ---------- */
+function syncSelectOptions(select, options, value) {
+  const signature = options.map(option => `${option.value}\u0000${option.label}`).join('\u0001');
+  if (select.dataset.options !== signature) {
+    select.dataset.options = signature;
+    select.replaceChildren(...options.map(option => { const node = el('option', option.label); node.value = option.value; return node; }));
+  }
+  select.value = value;
+}
+function filterSelect(label, options, value, onChange) {
+  const wrap = el('label', undefined, 'filter');
+  wrap.append(el('span', label, 'filter-label'));
+  const select = el('select', undefined, 'filter-select');
+  select.title = label;
+  syncSelectOptions(select, options, value);
+  select.addEventListener('change', () => onChange(select.value));
+  wrap.append(select);
+  return { wrap, select };
+}
+function filterToggle(label, checked, onChange) {
+  const wrap = el('label', undefined, 'filter filter-check');
+  const box = el('input', undefined, 'filter-toggle');
+  box.type = 'checkbox'; box.checked = checked; box.title = label;
+  box.addEventListener('change', () => onChange(box.checked));
+  wrap.append(box, el('span', label, 'filter-label'));
+  return { wrap, box };
+}
+function filterInput(value, onChange) {
+  const wrap = el('label', undefined, 'filter filter-text');
+  const input = el('input', undefined, 'filter-input');
+  input.type = 'search'; input.value = value; input.placeholder = '关键字';
+  input.setAttribute('aria-label', '按关键字筛选');
+  input.addEventListener('input', () => onChange(input.value));
+  wrap.append(input);
+  return { wrap, input };
+}
+const roleOption = value => ({ value, label: ROLE[value] || value });
+const statusOption = value => ({ value, label: STATUS[value]?.label || value });
+const specStatusOption = value => ({ value, label: SPEC_STATUS[value]?.label || value });
+const plannerOption = value => ({ value: String(value), label: `planner #${value}` });
+/** 角色 / planner 这类选项随数据出现：把当前值补进去，免得筛选值从选项里消失、select 被清空。 */
+function withCurrent(options, current, label) {
+  if (current === 'all' || options.some(option => option.value === current)) return options;
+  return [...options, { value: current, label: label(current) }];
+}
+function uniqueValues(rows, field) {
+  return [...new Set((rows || []).map(row => row[field]).filter(value => value !== null && value !== undefined))]
+    .sort((a, b) => (a > b ? 1 : a < b ? -1 : 0));
+}
+/** 条件变了：存回 localStorage，再用最近一次快照就地重画三个列表（筛选条本身不重建）。 */
+function applyFilters() {
+  saveFiltersPref();
+  if (!lastSnapshot) return;
+  renderIntents(lastSnapshot);
+  renderTree(lastSnapshot);
+  renderSpecs(lastSnapshot);
+}
+function initSidebar() {
+  for (const section of SIDEBAR_SECTIONS) {
+    sideNodes.set(section.id, $(`side-${section.id}`));
+    sideHeads.set(section.id, $(`side-head-${section.id}`));
+  }
+  const nav = $('side-nav');
+  for (const section of SIDEBAR_SECTIONS) {
+    const item = makeNavItem(section);
+    nav.append(item);
+    navButtons.set(section.id, item);
+    navCounts.set(section.id, item.querySelector('.nav-count'));
+  }
+  const folds = el('span', undefined, 'nav-fold');
+  folds.append(
+    makeFoldButton('全部折叠', () => { collapsed = new Set(SIDEBAR_SECTIONS.map(section => section.id)); paintCollapsed(); saveCollapsedPref(); }),
+    makeFoldButton('全部展开', () => { collapsed = new Set(); paintCollapsed(); saveCollapsedPref(); }));
+  nav.append(folds);
+  for (const section of SIDEBAR_SECTIONS) {
+    sideHeads.get(section.id)?.addEventListener('click', () => {
+      collapsed = toggleCollapsed(collapsed, section.id);
+      paintCollapsed(); saveCollapsedPref();
+    });
+  }
+  // 任务树：状态 / 角色 / 合并 / 只看待我处理 / 关键字
+  const taskStatus = filterSelect('状态', [{ value: 'all', label: '全部状态' },
+    ...['queued', 'running', 'waiting', 'awaiting', 'completed', 'failed', 'cancelled'].map(statusOption)],
+    filters.tasks.status, value => { filters.tasks.status = value; applyFilters(); });
+  const taskRole = filterSelect('角色', withCurrent([{ value: 'all', label: '全部角色' }], filters.tasks.role, roleOption), filters.tasks.role,
+    value => { filters.tasks.role = value; applyFilters(); });
+  const taskIntegration = filterSelect('合并', [{ value: 'all', label: '全部' }, { value: 'unmerged', label: '待合并' }, { value: 'merged', label: '已合并' }],
+    filters.tasks.integration, value => { filters.tasks.integration = value; applyFilters(); });
+  const taskMine = filterToggle('只看待我处理', filters.tasks.mine, value => { filters.tasks.mine = value; applyFilters(); });
+  const taskText = filterInput(filters.tasks.text, value => { filters.tasks.text = value; applyFilters(); });
+  $('task-filters').replaceChildren(taskStatus.wrap, taskRole.wrap, taskIntegration.wrap, taskMine.wrap, taskText.wrap);
+  filterUi.taskRole = taskRole.select;
+  // 拆解队列：状态 / planner / 角色 / 关键字
+  const specStatus = filterSelect('状态', [{ value: 'all', label: '全部状态' }, specStatusOption('pending'), specStatusOption('planned'), specStatusOption('dropped')],
+    filters.specs.status, value => { filters.specs.status = value; applyFilters(); });
+  const specPlanner = filterSelect('planner', withCurrent([{ value: 'all', label: '全部 planner' }], filters.specs.planner, plannerOption), filters.specs.planner,
+    value => { filters.specs.planner = value; applyFilters(); });
+  const specRole = filterSelect('角色', withCurrent([{ value: 'all', label: '全部角色' }], filters.specs.role, roleOption), filters.specs.role,
+    value => { filters.specs.role = value; applyFilters(); });
+  const specText = filterInput(filters.specs.text, value => { filters.specs.text = value; applyFilters(); });
+  $('spec-filters').replaceChildren(specStatus.wrap, specPlanner.wrap, specRole.wrap, specText.wrap);
+  filterUi.specPlanner = specPlanner.select;
+  filterUi.specRole = specRole.select;
+  // 意图：流程 / 闸门 / 状态 / 关键字
+  const intentFlow = filterSelect('流程', [{ value: 'all', label: '全部' }, { value: 'develop', label: '开发' }, { value: 'explain', label: '了解' }],
+    filters.intents.flow, value => { filters.intents.flow = value; applyFilters(); });
+  const intentGate = filterSelect('闸门', [{ value: 'all', label: '全部' }, { value: 'proposed', label: '等你批准' }],
+    filters.intents.gate, value => { filters.intents.gate = value; applyFilters(); });
+  const intentStatus = filterSelect('状态', withCurrent([{ value: 'all', label: '全部状态' }], filters.intents.status, statusOption), filters.intents.status,
+    value => { filters.intents.status = value; applyFilters(); });
+  const intentText = filterInput(filters.intents.text, value => { filters.intents.text = value; applyFilters(); });
+  $('intent-filters').replaceChildren(intentFlow.wrap, intentGate.wrap, intentStatus.wrap, intentText.wrap);
+  filterUi.intentStatus = intentStatus.select;
+  paintCollapsed();
+}
+
 const statusOf = task => STATUS[task.status] || { label: task.status, icon: '·' };
 function relative(iso) {
   const at = Date.parse(iso); if (!Number.isFinite(at)) return '';
@@ -265,6 +445,7 @@ function renderDrafts(data) {
   const drafts = data.drafts || [];
   draftIds = drafts.map(draft => draft.id);
   $('draft-count').textContent = drafts.length ? `${drafts.length} 条` : '缓存空';
+  setNavCount('drafts', drafts.length);
   // 被提交或移除的草稿不再保留勾选/编辑态。
   const live = new Set(draftIds);
   for (const draftId of [...draftUnchecked]) if (!live.has(draftId)) draftUnchecked.delete(draftId);
@@ -331,13 +512,25 @@ function intentItem(intent) {
   return item;
 }
 function renderIntents(data) {
-  const intents = data.inputs || [];
-  const signature = intents.map(intent => [intent.id, intent.status, intent.plan_gate, intent.specs_pending, intent.specs_planned,
-    intent.specs_dropped, intent.scheduler_id, intent.scheduler_status, intent.work_tasks, intent.flow].join(':')).join('\u0000');
+  const all = data.inputs || [];
+  const query = filters.intents;
+  const intents = filterIntents(all, query);
+  setNavCount('intents', all.length);
+  const intentSummary = describeFilters(query);
+  $('intent-count').textContent = isFiltering(query)
+    ? `${countText(intents.length, all.length)}${intentSummary ? ` · ${intentSummary}` : ''}`
+    : (all.length ? `${all.length} 条` : '空');
+  if (filterUi.intentStatus) {
+    const options = [{ value: 'all', label: '全部状态' }, ...uniqueValues(all, 'status').map(statusOption)];
+    syncSelectOptions(filterUi.intentStatus, withCurrent(options, filters.intents.status, statusOption), filters.intents.status);
+  }
+  const signature = [JSON.stringify(query), all.map(intent => [intent.id, intent.status, intent.plan_gate, intent.specs_pending, intent.specs_planned,
+    intent.specs_dropped, intent.scheduler_id, intent.scheduler_status, intent.work_tasks, intent.flow].join(':')).join('\u0000')].join('\u0002');
   if (signature === intentSignature) return;
   intentSignature = signature;
   const container = $('intents');
-  if (!intents.length) { container.replaceChildren(el('div', '还没有意图：在下面输入框回车就提交一条。', 'intent-empty')); return; }
+  if (!all.length) { container.replaceChildren(el('div', '还没有意图：在下面输入框回车就提交一条。', 'intent-empty')); return; }
+  if (!intents.length) { container.replaceChildren(el('div', '没有符合筛选的条目', 'intent-empty')); return; }
   container.replaceChildren(...intents.map(intentItem));
 }
 /* ---------- 拆解队列（只读）：planner 写、scheduler 取走、Web 只展示 ---------- */
@@ -385,22 +578,41 @@ function specItem(spec) {
 }
 /** 只读展示拆解队列：按批次分组，区分「等 scheduler 编排」与「已被 scheduler #N 取走」。 */
 function renderSpecs(data) {
-  const specs = data.specs || [];
+  const all = data.specs || [];
+  const query = filters.specs;
+  const specs = filterSpecs(all, query);
   const tasks = data.tasks || [];
   const stats = data.status?.specs || {};
-  $('spec-count').textContent = specs.length
-    ? `排队 ${stats.pending ?? 0} · 已排期 ${stats.planned ?? 0} · 丢弃 ${stats.dropped ?? 0}`
+  setNavCount('specs', all.length);
+  const specSummary = describeFilters(query);
+  $('spec-count').textContent = all.length
+    ? (isFiltering(query)
+      ? `${countText(specs.length, all.length)}${specSummary ? ` · ${specSummary}` : ''}`
+      : `排队 ${stats.pending ?? 0} · 已排期 ${stats.planned ?? 0} · 丢弃 ${stats.dropped ?? 0}`)
     : '空';
-  // 只在队列结构变化时重建：轮询不能把左侧的滚动位置冲掉。
-  const signature = specs.map(spec => `${spec.id}:${spec.status}:${spec.batch_id}:${spec.task_id}`).join('\u0000');
+  if (filterUi.specPlanner) {
+    const options = [{ value: 'all', label: '全部 planner' }, ...uniqueValues(all, 'planner_task_id').map(plannerOption)];
+    syncSelectOptions(filterUi.specPlanner, withCurrent(options, filters.specs.planner, plannerOption), filters.specs.planner);
+  }
+  if (filterUi.specRole) {
+    const options = [{ value: 'all', label: '全部角色' }, ...uniqueValues(all, 'role').map(roleOption)];
+    syncSelectOptions(filterUi.specRole, withCurrent(options, filters.specs.role, roleOption), filters.specs.role);
+  }
+  // 只在队列结构或筛选条件变化时重建：轮询不能把左侧的滚动位置冲掉。
+  const signature = [JSON.stringify(query), all.map(spec => `${spec.id}:${spec.status}:${spec.batch_id}:${spec.task_id}`).join('\u0000')].join('\u0002');
   if (signature === specSignature) return;
   specSignature = signature;
   const container = $('specs');
-  if (!specs.length) { container.replaceChildren(el('div', '拆解队列空：planner 还没写下可编排的条目；写完由 scheduler 一次性编排本批。', 'spec-empty')); return; }
+  if (!all.length) { container.replaceChildren(el('div', '拆解队列空：planner 还没写下可编排的条目；写完由 scheduler 一次性编排本批。', 'spec-empty')); return; }
+  if (!specs.length) { container.replaceChildren(el('div', '没有符合筛选的条目', 'spec-empty')); return; }
   // 组：batch_id 为空的是还没被 scheduler 取走的一轮拆解（按 planner 分）；否则按 batch（= scheduler 任务 id）分。
+  const groupKey = spec => (spec.batch_id === null || spec.batch_id === undefined ? `planner:${spec.planner_task_id}` : `batch:${spec.batch_id}`);
+  // 每组的总数从全量算：筛选后组标题能给出「匹配 N / 共 M 条」。
+  const totalByGroup = new Map();
+  for (const spec of all) totalByGroup.set(groupKey(spec), (totalByGroup.get(groupKey(spec)) || 0) + 1);
   const groups = new Map();
   for (const spec of specs) {
-    const key = spec.batch_id === null || spec.batch_id === undefined ? `planner:${spec.planner_task_id}` : `batch:${spec.batch_id}`;
+    const key = groupKey(spec);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(spec);
   }
@@ -415,12 +627,14 @@ function renderSpecs(data) {
     const sorted = [...rows].sort((a, b) => a.id - b.id);
     const first = sorted[0];
     const group = el('div', undefined, 'spec-group');
+    const total = totalByGroup.get(groupKey(first)) ?? sorted.length;
+    const count = isFiltering(query) && total !== sorted.length ? `匹配 ${sorted.length} / 共 ${total} 条` : `${sorted.length} 条`;
     let title;
     if (first.batch_id === null || first.batch_id === undefined) {
-      title = `等 scheduler 编排 · planner #${first.planner_task_id} 的一轮拆解（${sorted.length} 条）`;
+      title = `等 scheduler 编排 · planner #${first.planner_task_id} 的一轮拆解（${count}）`;
     } else {
       const scheduler = tasks.find(task => task.id === first.batch_id);
-      title = `已被 scheduler #${first.batch_id}${scheduler ? `（${statusOf(scheduler).label}）` : ''} 取走 · planner #${first.planner_task_id} 的一轮拆解（${sorted.length} 条）`;
+      title = `已被 scheduler #${first.batch_id}${scheduler ? `（${statusOf(scheduler).label}）` : ''} 取走 · planner #${first.planner_task_id} 的一轮拆解（${count}）`;
     }
     group.append(el('div', title, 'spec-batch'));
     for (const spec of sorted) group.append(specItem(spec));
@@ -492,18 +706,33 @@ function renderTree(data) {
   const container = $('tasks');
   const flows = new Map((data.inputs || []).map(input => [input.id, input.flow]));
   const known = new Map([...container.children].map(node => [Number(node.dataset.id), node]));
-  const byParent = new Map();
-  const ids = new Set(data.tasks.map(task => task.id));
-  // verifier 用 verifies_task_id 而不是 parent_id；父任务不在列表里时当根任务渲染，不丢节点。
-  // 分组规则与 tree-order.js 的 rankTasks 共用同一个函数，保证排序看到的就是这棵树。
+  const allIds = new Set(data.tasks.map(task => task.id));
+  // 完整父子索引：whyLine 说「等子任务」时要数全部子任务，不能因为筛选把它们藏掉。
+  const fullByParent = new Map();
   for (const task of data.tasks) {
-    const key = treeParent(task, ids);
+    const key = treeParent(task, allIds);
+    if (!fullByParent.has(key)) fullByParent.set(key, []);
+    fullByParent.get(key).push(task);
+  }
+  const openNoticeIds = new Set((data.notices || []).filter(notice => notice.status === 'open').map(notice => notice.task_id));
+  // 筛选只影响呈现：可见集合 = 命中项 + 命中项的全部祖先（父作为通路保留），子任务被筛掉时父仍可见。
+  const query = { ...filters.tasks, openNoticeIds };
+  const visible = filterTasks(data.tasks, query);
+  const visibleIds = new Set(visible.map(task => task.id));
+  const byParent = new Map();
+  // 分组规则与 tree-order.js 的 rankTasks 共用同一个函数，保证排序看到的就是这棵树。
+  for (const task of visible) {
+    const key = treeParent(task, visibleIds);
     if (!byParent.has(key)) byParent.set(key, []);
     byParent.get(key).push(task);
   }
-  const openNoticeIds = new Set((data.notices || []).filter(notice => notice.status === 'open').map(notice => notice.task_id));
-  const ranks = rankTasks(data.tasks, openNoticeIds);
-  const index = { concurrency: data.status.concurrency ?? 1, children: taskId => byParent.get(taskId) || [] };
+  // 角色选项随任务出现：轮询里只换 option 节点，不换 select，不打断正在选择的人。
+  if (filterUi.taskRole) {
+    const options = [{ value: 'all', label: '全部角色' }, ...uniqueValues(data.tasks, 'role').map(roleOption)];
+    syncSelectOptions(filterUi.taskRole, withCurrent(options, filters.tasks.role, roleOption), filters.tasks.role);
+  }
+  const ranks = rankTasks(visible, openNoticeIds);
+  const index = { concurrency: data.status.concurrency ?? 1, children: taskId => fullByParent.get(taskId) || [] };
   const ordered = [];
   const walk = (parent, depth) => {
     // 每层兄弟先按当前偏好排好；band 行仍插在这层兄弟之前，节点复用 / dataset / 点击行为不变。
@@ -538,9 +767,16 @@ function renderTree(data) {
     }
   };
   walk(0, 0);
+  if (isFiltering(query) && !visible.length) ordered.push(el('div', '没有符合筛选的条目', 'filter-empty'));
   syncChildren(container, ordered);
   const active = data.tasks.filter(task => HOT.has(task.status)).length;
-  $('task-count').textContent = `${data.tasks.length} 个 · ${active} 进行中`;
+  const matched = isFiltering(query) ? data.tasks.filter(task => matchTask(task, query)).length : data.tasks.length;
+  const paths = visible.length - matched;
+  const summary = describeFilters(query);
+  $('task-count').textContent = isFiltering(query)
+    ? `${countText(matched, data.tasks.length)}${paths > 0 ? `（含 ${paths} 个父级）` : ''}${summary ? ` · ${summary}` : ''}`
+    : `${data.tasks.length} 个 · ${active} 进行中`;
+  setNavCount('tasks', data.tasks.length);
 }
 /* ---------- 批量合并的选择 ---------- */
 /** 勾选状态按 id 存：任务树 / 阶梯每次重画都从它取，轮询不会把勾选丢掉。 */
@@ -717,6 +953,7 @@ function renderNotices(data) {
   // notice 可能被 CLI 或另一个标签页答复/忽略；关掉了就不再展开。
   if (noticeFocus !== null && !noticeIndex.has(noticeFocus)) noticeFocus = null;
   $('notice-count').textContent = open.length ? String(open.length) : '无';
+  setNavCount('notices', open.length);
   const container = $('notices');
   const known = new Map([...container.children].map(node => [Number(node.dataset.id), node]));
   const nodes = open.map(notice => {
@@ -1379,6 +1616,7 @@ async function refresh() {
 }
 const linked = taskId => /^#task-(\d+)$/.test(taskId) ? Number(taskId.slice(6)) : null;
 $('home').onclick = () => { overview().catch(error => { $('error').textContent = error.message; }); };
+initSidebar();
 await refresh();
 const initial = linked(location.hash);
 if (initial) { try { await detail(initial); } catch (error) { $('error').textContent = error.message; } }
