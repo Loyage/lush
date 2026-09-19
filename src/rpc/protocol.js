@@ -19,11 +19,11 @@ const PARAMS = {
   'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.diff': ['id'],
   'task.transcript': ['id','after','limit'], 'task.usage': ['id'],
   'task.spawn': ['parent','goal','role','deps','name','spec'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
-  'task.merge': ['id'], 'task.cleanup': ['id','keep_branch'], 'task.verify': ['id'], 'task.clear': [], 'task.ladder': [],
+  'task.merge': ['id'], 'task.merge_many': ['ids'], 'task.cleanup': ['id','keep_branch'], 'task.verify': ['id'], 'task.clear': [], 'task.ladder': [],
   'spec.list': [], 'spec.add': ['goal','role','name','deps'], 'spec.drop': ['id','note'],
   'notice.list': [], 'notice.post': ['task','title','body'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
 };
-const USER_ONLY = new Set(['system.stop','input.submit','draft.add','draft.remove','draft.commit','task.cancel','task.retry','task.merge','task.cleanup','task.verify','task.clear','notice.answer','notice.dismiss']);
+const USER_ONLY = new Set(['system.stop','input.submit','draft.add','draft.remove','draft.commit','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.clear','notice.answer','notice.dismiss']);
 /** 拆解队列由 agent 写入；用户只能查看（lush spec list）。 */
 const AGENT_ONLY = new Set(['spec.add','spec.drop']);
 export class Dispatcher {
@@ -82,6 +82,7 @@ export class Dispatcher {
       case 'task.cancel': return p.cancel(params.id);
       case 'task.retry': return p.retry(params.id);
       case 'task.merge': return p.approveMerge(id(params.id));
+      case 'task.merge_many': return p.approveMergeMany(params.ids);
       case 'task.verify': return p.verify(id(params.id));
       case 'task.cleanup':
         check(!p.running.has(id(params.id)), 'agent is still stopping; cleanup must wait');

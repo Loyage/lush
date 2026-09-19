@@ -253,6 +253,19 @@ test('web serves the tree sort module and wires the smart-sort dropdown', async 
   } finally { await f.close(); }
 });
 
+test('web exposes batch merge through the mutation whitelist', async () => {
+  const f = await setup();
+  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
+  try {
+    // 白名单通过后才会到运行时校验：空 ids 报的是「至少一个」，不是「method not allowed from Web UI」。
+    const response = await post('task.merge_many', { ids: [] });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain('at least one');
+    // agent token 在 Web 层直接被拒；真正的 USER_ONLY 校验在 daemon，见 merge-batch.test.js
+    expect((await post('task.merge_many', { ids: [1], _token: 'forged' })).status).toBe(400);
+  } finally { await f.close(); }
+});
+
 test('web clears the board through task.clear and refuses it while tasks are live', async () => {
   const f = await setup();
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
