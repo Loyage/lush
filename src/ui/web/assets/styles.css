@@ -26,6 +26,9 @@ code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 header{display:flex;gap:16px;align-items:center;padding:14px 22px;border-bottom:1px solid var(--line);background:var(--panel);min-width:0}
 .brand{display:flex;align-items:baseline;gap:12px;min-width:0}
 header strong{font-size:20px;color:var(--accent);letter-spacing:.01em}
+/* 左上角 Lush 标志就是「回项目概览」：合并阶梯与批量合并按钮只长在概览里，详情页需要一条退路。 */
+header button.home{background:none;border:0;padding:0;font:inherit;cursor:pointer;display:flex;align-items:baseline}
+header button.home:hover strong,header button.home:focus-visible strong{text-decoration:underline}
 #project{color:var(--muted);font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #agents{color:var(--muted);font-size:12px;margin-left:auto;white-space:nowrap}
 #connection{font-size:12px;white-space:nowrap;color:var(--completed);display:flex;align-items:center;gap:6px}

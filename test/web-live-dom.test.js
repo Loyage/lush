@@ -157,6 +157,37 @@ test('批量合并：只列出能合的任务，冻结的不给选，按依赖�
   expect(findByText(detail, '#3')).toBeTruthy();
 });
 
+test('合并阶梯只长在概览里：点左上角 Lush 回概览，后退到无 hash 也一样', async () => {
+  const load = () => dom.intervalFor(1500)();
+  await load();
+  const detail = dom.node('detail');
+  // 批量合并按钮只在概览里，所以「回不去概览」等于功能消失。
+  expect(deepText(detail)).toContain('合并阶梯');
+  expect(findByText(detail, '一键合并所有可合并任务')).toBeTruthy();
+
+  // 从任务树点进详情（真实的入口）：批量按钮随之消失，回概览只能靠左上角的 Lush，
+  // 并且这次要压栈，否则浏览器后退无处可退。
+  const pushedBefore = dom.pushed();
+  await dom.node('tasks').querySelector('[data-id="1"]').onclick();
+  await until(() => findByText(detail, '追加说明'), 2000);
+  expect(dom.location.hash).toBe('#task-1');
+  expect(dom.pushed()).toBeGreaterThan(pushedBefore);
+  expect(findByText(detail, '一键合并所有可合并任务')).toBeNull();
+
+  await dom.node('home').onclick();
+  await until(() => findByText(detail, '一键合并所有可合并任务'), 2000);
+  // hash 一起清掉，刷新页面不会又跳回详情。
+  expect(dom.location.hash).toBe('');
+
+  // 浏览器后退到无 hash 的地址：也是回概览，不是停在一个点不到合并按钮的详情上。
+  dom.location.hash = '#task-1';
+  await dom.fire('hashchange');
+  await until(() => findByText(detail, '追加说明'), 2000);
+  dom.location.hash = '';
+  await dom.fire('hashchange');
+  await until(() => findByText(detail, '一键合并所有可合并任务'), 2000);
+});
+
 test('热任务的详情会自己变新：最近一次执行与展开的执行过程随轮询推进', async () => {
   dom.location.hash = '#task-1';
   await dom.fire('hashchange');

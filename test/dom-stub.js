@@ -98,8 +98,12 @@ export function installDom({ fetch: fetchImpl } = {}) {
   const listeners = {};
   const intervals = [];
   const location = { hash: '', pathname: '/' };
+  // 浏览器里 pushState / replaceState 都会改地址栏；stub 只关心 hash，两个都实现。区别只在
+  // 「后退能不能回到概览」这条浏览器行为上，所以另外记一个压栈次数让测试能断言。
+  let pushed = 0;
+  const setUrl = url => { const at = String(url).indexOf('#'); location.hash = at >= 0 ? String(url).slice(at) : ''; };
   const window = {
-    history: { replaceState: (_state, _title, url) => { const at = String(url).indexOf('#'); location.hash = at >= 0 ? String(url).slice(at) : ''; } },
+    history: { replaceState: (_state, _title, url) => setUrl(url), pushState: (_state, _title, url) => { pushed += 1; setUrl(url); } },
     open: () => null,
   };
   const store = new Map();
@@ -128,6 +132,7 @@ export function installDom({ fetch: fetchImpl } = {}) {
   assign('setInterval', (handler, ms) => { intervals.push({ handler, ms }); return intervals.length; });
   return {
     document, window, location, listeners, intervals, byId, confirms, prompts,
+    pushed: () => pushed,
     setPrompt: value => { promptReply = String(value); },
     node: id => document.getElementById(id),
     fire: async (type, event = {}) => { for (const handler of listeners[type] || []) await handler(event); },

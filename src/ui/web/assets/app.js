@@ -1216,11 +1216,18 @@ function renderDetailError(taskId, message) {
   const panel = $('detail');
   panel.replaceChildren(el('h2', `无法打开 #${taskId}`), el('p', message, 'error'));
 }
+/** 回到项目概览：清掉选中与地址栏 hash，再把概览重画一次。入口是左上角的 Lush 标志。 */
+async function overview() {
+  selected = null; selectedRevision = null; detailDirty = false; overviewKey = null;
+  if (location.hash) window.history.replaceState(null, '', location.pathname);
+  await refresh();
+}
 async function detail(taskId) {
   selected = taskId;
   const scrolled = detailTask === taskId ? $('detail').scrollTop : 0;
   // window.history: a local `history` binding here would shadow the global and throw a TDZ error on click.
-  if (location.hash !== `#task-${taskId}`) window.history.replaceState(null, '', `#task-${taskId}`);
+  // pushState（而不是 replace）让浏览器后退能回到概览或上一个任务；hash 没变时不重复压栈。
+  if (location.hash !== `#task-${taskId}`) window.history.pushState(null, '', `#task-${taskId}`);
   let task, timeline, diff, usage;
   try {
     [task, timeline, diff, usage] = await Promise.all([
@@ -1313,9 +1320,7 @@ function renderOverview(data) {
       if (!confirm(`删除全部 ${data.tasks.length} 个已结束任务？`)) return;
       if (!confirm('再次确认：库里的任务、输入与事件将不可恢复；已进目标分支的 worktree 目录与分支会一并删除，未合并的保留。')) return;
       const result = await action('task.clear');
-      selected = null; overviewKey = null;
-      window.history.replaceState(null, '', location.pathname);
-      await refresh();
+      await overview();
       $('error').textContent = `已清空 ${result.cleared.tasks} 个任务、${result.cleared.inputs} 条输入；回收 ${result.reclaimed?.worktrees ?? 0} 个 worktree、${result.reclaimed?.branches ?? 0} 个分支，保留 ${result.retained.tasks.length} 个`;
     }, 'danger'));
     maintenance.append(actions);
@@ -1354,10 +1359,16 @@ async function refresh() {
   } finally { busy = false; }
 }
 const linked = taskId => /^#task-(\d+)$/.test(taskId) ? Number(taskId.slice(6)) : null;
+$('home').onclick = () => { overview().catch(error => { $('error').textContent = error.message; }); };
 await refresh();
 const initial = linked(location.hash);
 if (initial) { try { await detail(initial); } catch (error) { $('error').textContent = error.message; } }
-addEventListener('hashchange', () => { const next = linked(location.hash); if (next && next !== selected) detail(next).catch(error => { $('error').textContent = error.message; }); });
+addEventListener('hashchange', () => {
+  const next = linked(location.hash);
+  // 后退到没有 hash 的地址＝用户想回概览：只画详情不换面板会让合并按钮彻底消失。
+  if (!next) { if (selected !== null) overview().catch(error => { $('error').textContent = error.message; }); return; }
+  if (next !== selected) detail(next).catch(error => { $('error').textContent = error.message; });
+});
 setInterval(refresh, 1500);
 
 /* ---------- 热任务的实时刷新：页面自己变新，不用手点 ---------- */
