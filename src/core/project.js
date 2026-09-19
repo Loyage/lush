@@ -131,9 +131,37 @@ export class Project {
     this.store.run('DELETE FROM drafts WHERE id=?', draft.id);
     return { id: draft.id };
   }
-  /** Hands every buffered draft to one planner as a single batch. All-or-nothing. */
-  commitDrafts() {
-    const drafts = this.store.openDrafts();
+  /** Edit a buffered draft in place. Submitted drafts are the audit chain of an input and never change. */
+  editDraft(draftId, content) {
+    text(content, 'draft');
+    const draft = this.store.draft(draftId);
+    check(draft.input_id === null, `draft ${draft.id} was already submitted as input ${draft.input_id}; inputs are never changed`);
+    return this.store.updateDraft(draft.id, content);
+  }
+  /**
+   * Hands buffered drafts to one planner as a single batch. ids omitted: every open draft.
+   * With ids: only the selected subset, ascending by id (= input order); unselected drafts stay buffered.
+   */
+  commitDrafts(ids = null) {
+    let drafts;
+    if (ids === null || ids === undefined) {
+      drafts = this.store.openDrafts();
+    } else {
+      check(Array.isArray(ids), 'commit ids must be an array of draft ids');
+      check(ids.length > 0, 'select at least one draft to submit');
+      check(ids.length <= MAX_DRAFTS, 'too many drafts in one commit');
+      const selected = new Set();
+      for (const raw of ids) {
+        const draftId = id(raw);
+        check(!selected.has(draftId), `draft ${draftId} listed twice`);
+        selected.add(draftId);
+      }
+      drafts = [...selected].sort((a, b) => a - b).map(draftId => {
+        const draft = this.store.draft(draftId);
+        check(draft.input_id === null, `draft ${draft.id} was already submitted as input ${draft.input_id}; inputs are never committed twice`);
+        return draft;
+      });
+    }
     check(drafts.length > 0, 'no buffered drafts to submit');
     const result = this.store.transaction(() => {
       const content = batchContent(drafts);

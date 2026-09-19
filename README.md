@@ -31,7 +31,8 @@ Web UI（`http://127.0.0.1:4318`）是两栏视图：左栏是任务树与待决
 lush daemon start
 lush draft add '给搜索增加键盘导航'
 lush draft add '顺便把筛选器抽成组件'
-lush draft commit      # 整批交给一个 planner：拆任务、建依赖，然后才建 worktree
+lush draft edit 2 '把筛选器抽成独立组件'   # 改一条缓存输入
+lush draft commit 1 2   # 只提交选中的几条（无参即全部）交给一个 planner：拆任务、建依赖，然后才建 worktree
 lush task tree
 lush task inspect 3
 lush task message 3 '还要考虑中文输入法'
@@ -67,7 +68,7 @@ verifier 与被检验任务是两个 task（worker 已经终态，不能再挂�
 
 ### 输入缓存与任务依赖
 
-输入可以先攒着：`lush draft add`（Web 输入框里回车）只写缓存、不规划；`lush draft commit`（Web 的「提交并规划」）把缓存**整体**交给一个 planner，由它拆成多个任务、给互有先后的任务建依赖边，然后才创建 worktree 开工。缓存存库（`drafts` 表），换浏览器或重启 daemon 都不丢；提交后每条草稿留着 `input_id` 作为审计链。
+输入可以先攒着：`lush draft add`（Web 输入框里回车）只写缓存、不规划；`lush draft edit ID '内容'`（Web 里点草稿正文就地编辑）改动某一条；`lush draft commit [ID...]`（Web 的「提交并规划」）把选中的草稿交给一个 planner——省略 ID 即提交整个缓存，给了 ID 就只提交这几条、其余继续留在缓存，由 planner 拆成多个任务、给互有先后的任务建依赖边，然后才创建 worktree 开工。缓存存库（`drafts` 表），换浏览器或重启 daemon 都不丢；提交后每条草稿留着 `input_id` 作为审计链（已提交的草稿不可改也不可再提交）。
 
 依赖边由 planner 在派工时声明（`task spawn --depends-on ID[:code|order]`），daemon 只做结构校验：
 

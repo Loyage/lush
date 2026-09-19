@@ -26,7 +26,10 @@ const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
 /** 时间轴里「没在跑」的四种原因：前两种是结构造成的串行，后两种是资源与人的等待。 */
 const WAIT_REASON = { dep: '等依赖', children: '等子任务', user: '等你决定', slot: '等并发槽', setup: '没跑起来' };
 let selected = null, selectedRevision = null, busy = false, offline = false, detailDirty = false, detailTask = null, detailRenderedAt = 0;
-let draftCount = 0, draftSignature = null;
+let draftSignature = null;
+// 勾选与编辑态都按草稿 id 记，这样轮询重建时不会丢用户的意图；默认全选。
+const draftUnchecked = new Set();
+let draftIds = [], draftEditing = null;
 // 左侧「等你决定」只是索引；右侧展开的那条 notice 由 noticeFocus 记住，数据每次都取自最新 snapshot。
 let noticeFocus = null, noticeIndex = new Map();
 
@@ -164,24 +167,28 @@ async function loadHistory(taskId) {
   return { events, truncated: true };
 }
 
-// 输入缓存：只落库不规划；整批交给一个 planner 拆解成任务并建依赖。
+// 输入缓存：只落库不规划；可改、可勾选，只把选中的交给一个 planner 拆解成任务并建依赖。
 async function buffer() {
   const value = $('input').value.trim();
   if (!value) return;
   await action('draft.add', { content: value });
   if ($('input').value.trim() === value) $('input').value = '';
 }
-function syncComposer() { $('draft-commit').disabled = !draftCount && !$('input').value.trim(); }
+const selectedDraftIds = () => draftIds.filter(draftId => !draftUnchecked.has(draftId));
+// 按钮的可用性同时看输入框与勾选：都没内容就没什么可提交的。
+function syncComposer() { $('draft-commit').disabled = !$('input').value.trim() && selectedDraftIds().length === 0; }
 $('draft-add').onclick = async event => {
   const target = event.currentTarget; target.disabled = true;
   try { await buffer(); } catch (error) { $('error').textContent = error.message; } finally { target.disabled = false; }
 };
 $('input-form').onsubmit = async event => {
   event.preventDefault();
-  const submit = event.currentTarget.querySelector('button[type="submit"]'); submit.disabled = true;
+  const submit = $('draft-commit'); submit.disabled = true;
   try {
     if ($('input').value.trim()) await buffer();
-    const result = await action('draft.commit');
+    const ids = selectedDraftIds();
+    if (!ids.length) throw new Error('没有勾选任何草稿；勾选要提交的，或者先在输入框里写点什么');
+    const result = await action('draft.commit', { ids });
     $('error').textContent = `已提交 ${result.drafts.length} 条输入；planner #${result.task.id} 正在拆解任务并建依赖`;
   } catch (error) { $('error').textContent = error.message; } finally { syncComposer(); }
 };
@@ -194,27 +201,81 @@ $('input').addEventListener('keydown', event => {
 });
 
 /* ---------- sidebar ---------- */
+/** 点一条草稿就地编辑：Enter / 失焦保存，Esc 取消；轮询不重建正在编辑的那条。 */
+function startDraftEdit(draft) {
+  if (draftEditing !== null) return;
+  const item = $('drafts').querySelector(`[data-id="${draft.id}"]`);
+  const body = item?.querySelector('.goal');
+  if (!item || !body) return;
+  const box = document.createElement('textarea');
+  box.className = 'draft-edit';
+  box.value = draft.content;
+  box.rows = Math.min(10, Math.max(2, Math.ceil(draft.content.length / 40) + 1));
+  let done = false;
+  const finish = () => { draftEditing = null; draftSignature = null; };
+  const cancel = () => { if (done) return; done = true; finish(); refresh(); };
+  const save = async () => {
+    if (done) return;
+    const value = box.value.trim();
+    if (!value) { $('error').textContent = '草稿不能为空'; box.focus?.(); return; }
+    done = true; finish();
+    if (value === draft.content) { await refresh(); return; }
+    try { await action('draft.update', { id: draft.id, content: value }); }
+    catch (error) { $('error').textContent = error.message; await refresh(); }
+  };
+  box.addEventListener('keydown', event => {
+    if (event.isComposing) return;
+    if (event.key === 'Escape') { event.preventDefault(); cancel(); }
+    else if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey) { event.preventDefault(); save(); }
+  });
+  box.addEventListener('blur', save);
+  draftEditing = draft.id;
+  body.remove();
+  item.append(box);
+  box.focus?.();
+}
+function draftItem(draft) {
+  const item = el('article', undefined, 'draft');
+  item.dataset.id = draft.id;
+  const row = el('span', undefined, 'row');
+  const pick = document.createElement('input');
+  pick.type = 'checkbox'; pick.className = 'pick';
+  pick.checked = !draftUnchecked.has(draft.id);
+  pick.setAttribute('aria-label', `选中草稿 #${draft.id} 一起提交`);
+  pick.title = '勾选后「提交并规划」只提交选中的；不勾的继续留在缓存里';
+  pick.onchange = () => { if (pick.checked) draftUnchecked.delete(draft.id); else draftUnchecked.add(draft.id); syncComposer(); };
+  const edit = button('编辑', () => startDraftEdit(draft), 'edit');
+  edit.setAttribute('aria-label', `编辑草稿 #${draft.id}`);
+  const drop = button('移除', () => action('draft.remove', { id: draft.id }), 'drop');
+  drop.setAttribute('aria-label', `从缓存移除草稿 #${draft.id}`); drop.title = '从缓存移除这条输入（已提交的输入不可删）';
+  row.append(pick, el('span', '○', 'dot c-queued'), el('span', `#${draft.id}`, 'tid'), el('span', '待规划'),
+    el('span', relative(draft.created_at), 'when'), edit, drop);
+  const body = el('span', draft.content, 'goal');
+  body.title = '点击就地编辑这条缓存';
+  body.onclick = () => startDraftEdit(draft);
+  item.append(row, body);
+  item.title = `${draft.content}\n加入缓存于 ${absolute(draft.created_at)}`;
+  return item;
+}
 function renderDrafts(data) {
   const drafts = data.drafts || [];
-  draftCount = drafts.length;
+  draftIds = drafts.map(draft => draft.id);
   $('draft-count').textContent = drafts.length ? `${drafts.length} 条` : '缓存空';
+  // 被提交或移除的草稿不再保留勾选/编辑态。
+  const live = new Set(draftIds);
+  for (const draftId of [...draftUnchecked]) if (!live.has(draftId)) draftUnchecked.delete(draftId);
+  // 正在编辑的那条不重建：replaceChildren 会摘掉 textarea，把光标和未保存的内容一起冲掉。
+  // 轮询在编辑期间只更新勾选态；保存 / 取消会把 draftSignature 归空，那时再重建。
+  if (draftEditing !== null) {
+    if (live.has(draftEditing)) { syncComposer(); return; }
+    draftEditing = null;
+  }
   // 只在内容变化时重建，否则轮询会把滚动和正在输入的光标丢掉。
   const signature = drafts.map(draft => `${draft.id}:${draft.content}`).join('\u0000');
-  if (signature === draftSignature) return;
+  if (signature === draftSignature) { syncComposer(); return; }
   draftSignature = signature;
-  // 和任务树同一套行结构（状态点 / #id / 状态 / 时间 + 一行正文），右侧挂一个删除入口。
-  $('drafts').replaceChildren(...drafts.map(draft => {
-    const item = el('article', undefined, 'draft');
-    item.dataset.id = draft.id;
-    const row = el('span', undefined, 'row');
-    const drop = button('移除', () => action('draft.remove', { id: draft.id }), 'drop');
-    drop.setAttribute('aria-label', `从缓存移除草稿 #${draft.id}`); drop.title = '从缓存移除这条输入（已提交的输入不可删）';
-    row.append(el('span', '○', 'dot c-queued'), el('span', `#${draft.id}`, 'tid'), el('span', '待规划'),
-      el('span', relative(draft.created_at), 'when'), drop);
-    item.append(row, el('span', draft.content, 'goal'));
-    item.title = `${draft.content}\n加入缓存于 ${absolute(draft.created_at)}`;
-    return item;
-  }));
+  $('drafts').replaceChildren(...drafts.map(draftItem));
+  syncComposer();
 }
 /** 顶部并发槽：并行不是树里的属性，而是全局资源——画出来才知道谁在占槽、谁在等槽。 */
 function slotGauge(data) {

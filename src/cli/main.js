@@ -17,8 +17,9 @@ lush [--project PATH] [--json] <command>
   input flow [TASK_ID] develop|explain  记录这条输入走哪条流程（agent 省略 TASK_ID 时用自己的任务）
   draft add '想法'                 先放进缓存，不规划
   draft list                      查看缓存（尚未提交）的输入
+  draft edit ID '想法'             改一条缓存输入（别名 update）
   draft rm ID                     丢掉一条缓存输入
-  draft commit                    把缓存整体交给意图分析：一个 planner 拆成多个任务并建依赖
+  draft commit [ID...]            把缓存交给意图分析：只提交给定 ID（无参即全部），一个 planner 拆成多个任务并建依赖
   task list [--after N] [--limit N] 分页任务列表（默认 200 条）
   task tree [ID]                  多级任务树：依赖（⛓ 基线 / ⏳ 顺序）与兄弟间的并行关系
   task ladder                     合并阶梯：未合并分支之间谁必须先进目标分支、谁已经被别的分支带进来
@@ -233,9 +234,13 @@ export async function main(argv = process.argv.slice(2)) {
     const verb = args.shift();
     if (verb === 'add') { exact(args, 1); value = await client.request('draft.add', { content: args[0] }); }
     else if (verb === 'list') { exact(args, 0); value = await client.request('draft.list'); }
+    else if (verb === 'edit' || verb === 'update') { exact(args, 2); value = await client.request('draft.update', { id: id(args[0]), content: args[1] }); }
     else if (verb === 'rm' || verb === 'remove') { exact(args, 1); value = await client.request('draft.remove', { id: id(args[0]) }); }
-    else if (verb === 'commit' || verb === 'submit') { exact(args, 0); value = await client.request('draft.commit'); }
-    else throw new Error('unknown draft command; use add, list, rm or commit');
+    else if (verb === 'commit' || verb === 'submit') {
+      const ids = args.map(value => id(value));
+      value = await client.request('draft.commit', ids.length ? { ids } : {});
+    }
+    else throw new Error('unknown draft command; use add, list, edit, rm or commit');
   } else if (command === 'task') {
     const verb = args.shift();
     if (verb === 'list') {

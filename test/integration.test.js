@@ -341,5 +341,15 @@ test('drafts become one planner, and a code dependency stacks worktrees with an 
     expect(fs.readFileSync(path.join(root,'file.txt'),'utf8')).toBe('upstream\n');
     expect(fs.readFileSync(path.join(root,'other.txt'),'utf8')).toBe('downstream\n');
     expect((await client.request('task.inspect',{id:downstream.id})).integration).toBe('merged');
+    // CLI：草稿可改，也能按 id 只提交选中的几条，未选中的留在缓存
+    const keep = await cli(root,['draft','add','这条留着']);
+    const pick = await cli(root,['draft','add','只提交这条']);
+    const edited = await cli(root,['draft','edit',String(pick.id),'只提交这条（改过）']);
+    expect(edited).toMatchObject({ id: pick.id, content: '只提交这条（改过）' });
+    const partial = await cli(root,['draft','commit',String(pick.id)]);
+    expect(partial.content).toBe('只提交这条（改过）');
+    expect(partial.drafts).toEqual([pick.id]);
+    expect((await cli(root,['draft','list'])).map(draft => draft.id)).toEqual([keep.id]);
+    await settle(partial.task.id);
   } finally { await cli(root,['stop']).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); }
 }, 40000);

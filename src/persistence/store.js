@@ -236,6 +236,12 @@ export class Store {
     check(draft, `draft ${draftId} not found`);
     return draft;
   }
+  /** Edit a buffered draft in place; the row keeps its id, so input order stays stable. */
+  updateDraft(draftId, content) {
+    const draft = this.draft(draftId);
+    this.run('UPDATE drafts SET content=? WHERE id=?', content, draft.id);
+    return this.draft(draft.id);
+  }
   /** Buffered drafts in input order; submitted ones keep their input_id as the audit link. */
   openDrafts() { return this.all('SELECT * FROM drafts WHERE input_id IS NULL ORDER BY id'); }
   draftCount() { return this.get('SELECT count(*) AS n FROM drafts WHERE input_id IS NULL').n; }

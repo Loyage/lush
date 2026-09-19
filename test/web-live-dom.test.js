@@ -20,6 +20,8 @@ function makeWorld() {
     freeze: [],
     transcriptAfter: [],
     actions: [],
+    drafts: [],
+    commits: [],
   };
   const task1 = { id: 1, parent_id: null, input_id: 1, role: 'worker', goal: '正在改点什么', status: 'running', integration: 'none',
     updated_at: iso(NOW - 1000), agent_wakes: 2, agent_last_seen_at: iso(NOW - 1000), verifies_task_id: null, resolves_task_id: null };
@@ -37,7 +39,7 @@ function makeWorld() {
       { id: 2, role: 'worker', goal: '合并我', branch: 'lush/2-x', target_branch: 'main', integration: 'pending', deps: [], covered_by: [], level: 0 },
       { id: 3, role: 'worker', goal: '另一个待合的', branch: 'lush/3-x', target_branch: 'release', integration: 'review', deps: [], covered_by: [], level: 0 },
     ] },
-    tasks: [task1, task2, task3], inputs: [{ id: 1, content: 'demo', flow: 'develop' }], drafts: [], notices: [],
+    tasks: [task1, task2, task3], inputs: [{ id: 1, content: 'demo', flow: 'develop' }], drafts: state.drafts, notices: [],
   });
   const detail = id => id === 1 ? { ...task1, branch: 'lush/1-x', workspace: '/tmp/wt/1', head_commit: 'abc1234', target_branch: 'main',
     calls: 1, agent: { id: 'worker#1', wakes: 2, active: true, pid: 4242, last_seen_at: iso(NOW - 1000) },
@@ -53,6 +55,16 @@ function makeWorld() {
       const body = JSON.parse(options.body);
       state.actions.push(body);
       if (body.method === 'task.merge_many') return json({ merges: body.params.ids.map(id => ({ id, status: 'merged', integration: 'merged' })), merged: body.params.ids.length, stopped: null });
+      if (body.method === 'draft.update') { const draft = state.drafts.find(row => row.id === body.params.id); if (draft) draft.content = body.params.content; return json({ id: draft?.id, content: draft?.content }); }
+      if (body.method === 'draft.remove') { state.drafts = state.drafts.filter(row => row.id !== body.params.id); return json({ id: body.params.id }); }
+      if (body.method === 'draft.add') { const draft = { id: state.drafts.length ? Math.max(...state.drafts.map(row => row.id)) + 1 : 1, content: body.params.content, created_at: iso(NOW) }; state.drafts = [...state.drafts, draft]; return json(draft); }
+      if (body.method === 'draft.commit') {
+        const ids = body.params.ids ?? state.drafts.map(row => row.id);
+        state.commits.push(ids);
+        const chosen = state.drafts.filter(row => ids.includes(row.id));
+        state.drafts = state.drafts.filter(row => !ids.includes(row.id));
+        return json({ id: 1, content: chosen.map(row => row.content).join('\n'), task: { id: 99 }, drafts: ids });
+      }
       return json({});
     }
     let match = /^\/api\/task\/(\d+)$/.exec(path);
@@ -147,4 +159,39 @@ test('热任务的详情会自己变新：最近一次执行与展开的执行�
   expect(world.state.transcriptAfter).toEqual([0, 2]);
   // 会话步骤与「最近一次执行」是同一份数据源：最后一步也能在这里看到。
   expect(detail.querySelector('[data-live="last"]').querySelector('span').textContent).toContain('回答');
+});
+
+test('缓存可勾选部分提交，也可以就地编辑，轮询不打断编辑', async () => {
+  world.state.drafts = [
+    { id: 11, content: '第一条', created_at: iso(NOW - 5000) },
+    { id: 12, content: '第二条', created_at: iso(NOW - 4000) },
+  ];
+  await dom.intervalFor(1500)();
+  const drafts = dom.node('drafts');
+  expect(drafts.querySelectorAll('.draft')).toHaveLength(2);
+  const boxes = drafts.querySelectorAll('.pick');
+  expect(boxes).toHaveLength(2);
+  expect(boxes.every(box => box.checked)).toBe(true);
+
+  // 取消勾选 #12：提交按钮仍可用（#11 还选着），提交只带 #11
+  boxes[1].checked = false; boxes[1].onchange();
+  expect(dom.node('draft-commit').disabled).toBe(false);
+  await dom.node('input-form').onsubmit({ preventDefault() {} });
+  expect(world.state.commits.at(-1)).toEqual([11]);
+  expect(dom.node('error').textContent).toContain('已提交 1 条输入');
+
+  // 剩下的一条可以点正文就地编辑；轮询刷新不重建正在编辑的那条
+  await dom.intervalFor(1500)();
+  drafts.querySelector('.goal').onclick();
+  const box = drafts.querySelector('textarea.draft-edit');
+  expect(box).toBeTruthy();
+  expect(box.value).toBe('第二条');
+  await dom.intervalFor(1500)();
+  expect(drafts.querySelector('textarea.draft-edit')).toBe(box);
+
+  // Enter 保存：draft.update 发出后正文变成新内容
+  box.value = '第二条（改过）';
+  await box.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
+  await until(() => world.state.drafts[0]?.content === '第二条（改过）');
+  await until(() => dom.node('drafts').querySelector('.goal')?.textContent === '第二条（改过）');
 });
