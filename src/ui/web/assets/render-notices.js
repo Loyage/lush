@@ -3,6 +3,7 @@ import { action } from './api.js';
 import { absolute, relative } from './format.js';
 import { detail } from './navigate.js';
 import { setNavCount } from './sidebar-ui.js';
+import { orderList } from './tree-order.js';
 import { ui } from './state.js';
 
 /** 左侧只放索引：点一下才在右侧展开正文与回复框。 */
@@ -16,7 +17,9 @@ export function renderNotices(data) {
   setNavCount('notices', open.length);
   const container = $('notices');
   const known = new Map([...container.children].map(node => [Number(node.dataset.id), node]));
-  const nodes = open.map(notice => {
+  // 智能排序＝保持 notice.list 的返回顺序（按发布时间）；updated 与 id 按左栏全局排序重排。
+  const ordered = orderList(open, { mode: ui.sidebarSortMode, timeOf: notice => notice.created_at });
+  const nodes = ordered.map(notice => {
     const node = known.get(notice.id) || button('', () => openNotice(notice.id), 'notice-brief');
     node.dataset.id = notice.id;
     node.className = `notice-brief${ui.noticeFocus === notice.id ? ' selected' : ''}`;

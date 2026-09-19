@@ -2,26 +2,25 @@
 import { $, el } from './dom.js';
 import { LIVE_INTERVAL } from './live.js';
 import { detail, overview } from './navigate.js';
-import { liveRefresh, refresh } from './refresh.js';
-import { renderTree } from './render-tree.js';
+import { liveRefresh, refresh, applySort } from './refresh.js';
 import { initSidebar } from './sidebar-init.js';
-import { SORT_IDS, TREE_SORT_KEY, resetUiState, ui } from './state.js';
+import { SIDEBAR_SORT_KEY, SORT_IDS, resetUiState, ui } from './state.js';
 import { syncMarkdownToggle, toggleMarkdown } from './text.js';
 import { initComposer } from './composer.js';
 import { SORT_MODES } from './tree-order.js';
 
-/* ---------- 任务树排序偏好 ---------- */
-function syncTreeSortSelect() {
-  const select = $('tree-sort');
+/* ---------- 左栏全局排序偏好 ---------- */
+function syncSidebarSortSelect() {
+  const select = $('sidebar-sort');
   select.replaceChildren(...SORT_MODES.map(mode => { const option = el('option', mode.label); option.value = mode.id; return option; }));
-  select.value = ui.treeSortMode;
-  select.title = '智能排序：有未答复问题的任务排最前，正在跑的次之，等你批准合并的再次之，已合并 / 失败 / 取消的沉到最后；父任务带着活跃子树一起靠前，只有同一层兄弟会换位置。';
+  select.value = ui.sidebarSortMode;
+  select.title = '左栏四个列表共用：智能排序＝每个列表用自己最有用的顺序（行动任务先看未答复问题与运行状态，规划任务保持批次分组，历史输入与待定事项保持时间线顺序）；按最近更新＝最近动过的排最前；按编号＝新在前。';
 }
-function onTreeSortChange() {
-  const value = $('tree-sort').value;
-  ui.treeSortMode = SORT_IDS.has(value) ? value : 'smart';
-  try { localStorage.setItem(TREE_SORT_KEY, ui.treeSortMode); } catch { /* 隐私模式里忽略 */ }
-  if (ui.lastSnapshot) renderTree(ui.lastSnapshot);
+function onSidebarSortChange() {
+  const value = $('sidebar-sort').value;
+  ui.sidebarSortMode = SORT_IDS.has(value) ? value : 'smart';
+  try { localStorage.setItem(SIDEBAR_SORT_KEY, ui.sidebarSortMode); } catch { /* 隐私模式里忽略 */ }
+  applySort();
 }
 
 const linked = taskId => /^#task-(\d+)$/.test(taskId) ? Number(taskId.slice(6)) : null;
@@ -47,8 +46,8 @@ export async function boot() {
   resetUiState();
   $('md-toggle').onclick = toggleMarkdown;
   syncMarkdownToggle();
-  syncTreeSortSelect();
-  $('tree-sort').addEventListener('change', onTreeSortChange);
+  syncSidebarSortSelect();
+  $('sidebar-sort').addEventListener('change', onSidebarSortChange);
   initComposer();
   $('home').onclick = () => { overview().catch(error => { $('error').textContent = error.message; }); };
   initSidebar();

@@ -87,7 +87,7 @@ export function renderTree(data) {
   const ordered = [];
   const walk = (parent, depth) => {
     // 每层兄弟先按当前偏好排好；band 行仍插在这层兄弟之前，节点复用 / dataset / 点击行为不变。
-    const siblings = orderSiblings(byParent.get(parent) || [], { mode: ui.treeSortMode, ranks });
+    const siblings = orderSiblings(byParent.get(parent) || [], { mode: ui.sidebarSortMode, ranks });
     // 根任务之间的并行由 planner 槽决定（不是一个父任务下的兄弟关系），所以只画委派出来的兄弟。
     if (parent !== 0 && siblings.length > 1) {
       const chain = siblingChain(siblings).map(group => group.length > 1 ? `{${group.map(taskId => `#${taskId}`).join(' ‖ ')}}` : `#${group[0]}`).join(' → ');

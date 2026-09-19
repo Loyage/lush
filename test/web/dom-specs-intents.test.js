@@ -56,7 +56,7 @@ test('拆解队列只读展示：按批次分组、能跳到派生的任务，sc
   // 队列被清空后，轮询把它收敛成空态，不残留旧节点
   world.state.specs = [];
   await dom.intervalFor(1500)();
-  expect(deepText(specs)).toContain('拆解队列空');
+  expect(deepText(specs)).toContain('规划任务空');
   expect(specs.querySelectorAll('.spec')).toHaveLength(0);
   expect(specs.querySelectorAll('.spec-batch')).toHaveLength(0);
 });

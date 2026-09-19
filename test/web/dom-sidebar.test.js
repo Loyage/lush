@@ -2,7 +2,7 @@ import { test, expect, afterAll } from 'bun:test';
 import { installDom, findByText, deepText } from '../dom-stub.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
-// 左栏导航计数、折叠、任务树筛选。
+// 左栏导航计数、折叠、全局排序控件、行动任务筛选。
 // 每个 DOM 测试文件都自给自足：bun test 在文件之间共享模块注册表，只有本进程里第一个 dom 文件会走到
 // app.js 顶部那次 boot()，其余文件 import 到的是缓存模块。所以这里自己建 world、装 stub，再显式装配
 // 一次当前 DOM。
@@ -15,19 +15,19 @@ const { boot } = await import('../../src/ui/web/assets/app.js');
 dom.node('side-nav').replaceChildren();
 await boot();
 
-// 原用例排在其他用例之后，那时缓存里还剩一条、拆解队列已被清空；把这两行准备内联进来，断言不变。
-world.state.drafts = [{ id: 12, content: '第二条（改过）', created_at: iso(NOW - 4000) }];
+// 原用例排在其他用例之后，那时拆解队列已被清空；把这一行准备内联进来，断言不变。
 world.state.specs = [];
 
 afterAll(() => dom.restore());
 
-test('左侧栏：导航计数、折叠开关、任务树筛选在真 DOM 上都生效', async () => {
+test('左栏：四个区块的导航计数与索引、折叠开关、行动任务筛选在真 DOM 上都生效', async () => {
   await dom.intervalFor(1500)();
   const nav = dom.node('side-nav');
   const items = nav.querySelectorAll('.nav-item');
-  // 五个区块的导航（缓存 / 意图 / 任务树 / 队列 / 待决），计数取自各列表
-  expect(items).toHaveLength(5);
-  expect(items.map(node => node.querySelector('.nav-count').textContent)).toEqual(['1', '2', '3', '0', '0']);
+  // 四个区块的导航（待定事项 / 历史输入 / 规划任务 / 行动任务），计数取自各列表
+  expect(items).toHaveLength(4);
+  expect(items.map(node => node.querySelector('.nav-count').textContent)).toEqual(['0', '2', '0', '3']);
+  // 索引顺序就是区块顺序：第三个是「规划任务」
   await items[2].onclick();
   expect(items[2].classList.contains('selected')).toBe(true);
   // 筛选条与列表容器分离：控件建一次，轮询只重画列表
@@ -67,4 +67,21 @@ test('左侧栏：导航计数、折叠开关、任务树筛选在真 DOM 上都
   await findByText(nav, '全部展开').onclick();
   expect(sideTasks.classList.contains('collapsed')).toBe(false);
   expect(JSON.parse(globalThis.localStorage.getItem('lush.sidebar.collapsed'))).toEqual([]);
+});
+
+test('排序是左栏顶部的全局控件，不再是行动任务区块里的下拉', async () => {
+  const sort = dom.node('sidebar-sort');
+  // 控件是全局的：挂在左栏顶部，四个列表共用一个；带说明性 title
+  expect(sort.title).toContain('四个列表共用');
+  expect(sort.querySelectorAll('option').map(node => node.textContent)).toEqual(['智能排序', '按最近更新', '按编号（新在前）']);
+  expect(sort.value).toBe('smart');
+  // 区块标题里不再自带排序下拉
+  expect(dom.node('side-tasks').querySelector('#tree-sort')).toBeFalsy();
+  // 切换后写进新 key，并立刻重画（这里只验证偏好落盘与默认值）
+  sort.value = 'updated';
+  await sort.listeners.change[0]();
+  expect(globalThis.localStorage.getItem('lush.sidebarSort')).toBe('updated');
+  sort.value = 'smart';
+  await sort.listeners.change[0]();
+  expect(globalThis.localStorage.getItem('lush.sidebarSort')).toBe('smart');
 });

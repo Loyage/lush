@@ -44,7 +44,7 @@ test('web shows the read-only spec queue and labels scheduler tasks', async () =
 
     // 页面真的画了这个区块，并把 scheduler 显示成「调度」
     const html = await (await fetch(f.url)).text();
-    expect(html).toContain('拆解队列');
+    expect(html).toContain('规划任务');
     expect(await pageSource(f.url)).toContain("scheduler: '调度'");
   } finally { await f.close(); }
 });

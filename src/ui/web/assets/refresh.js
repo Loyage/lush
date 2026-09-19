@@ -25,6 +25,18 @@ export function applyFilters() {
   renderSpecs(ui.lastSnapshot);
 }
 
+/**
+ * 排序偏好变了：四个列表立刻就地重画，不等下一次轮询。
+ * 传的是上一份快照，所以只用本地数据重排，不额外请求 daemon。
+ */
+export function applySort() {
+  if (!ui.lastSnapshot) return;
+  renderNotices(ui.lastSnapshot);
+  renderIntents(ui.lastSnapshot);
+  renderSpecs(ui.lastSnapshot);
+  renderTree(ui.lastSnapshot);
+}
+
 /** 回到项目概览：清掉选中与地址栏 hash，再把概览重画一次。入口是左上角的 Lush 标志。 */
 export async function overview() {
   ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.overviewKey = null;

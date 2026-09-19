@@ -13,6 +13,7 @@ export function makeWorld() {
       { seq: 2, kind: 'tool', title: 'bash', at: iso(NOW - 8000), body: '{"command":"ls"}' },
     ],
     freeze: [],
+    notices: [],
     transcriptAfter: [],
     actions: [],
     drafts: [],
@@ -54,7 +55,7 @@ export function makeWorld() {
       { id: 2, role: 'worker', goal: '合并我', branch: 'lush/2-x', target_branch: 'main', integration: 'pending', deps: [], covered_by: [], level: 0 },
       { id: 3, role: 'worker', goal: '另一个待合的', branch: 'lush/3-x', target_branch: 'release', integration: 'review', deps: [], covered_by: [], level: 0 },
     ] },
-    tasks: [task1, task2, task3], inputs: state.intents, drafts: state.drafts, notices: [], specs: state.specs,
+    tasks: [task1, task2, task3], inputs: state.intents, drafts: state.drafts, notices: state.notices, specs: state.specs,
   });
   const detail = id => {
     if (id === 1) return { ...task1, branch: 'lush/1-x', workspace: '/tmp/wt/1', head_commit: 'abc1234', target_branch: 'main',

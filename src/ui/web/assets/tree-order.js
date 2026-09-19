@@ -1,8 +1,9 @@
 /**
- * 任务树排序：纯函数，不依赖 DOM / window，浏览器里以 ES module 加载，测试里由 bun 直接 import。
+ * 左栏排序：纯函数，不依赖 DOM / window，浏览器里以 ES module 加载，测试里由 bun 直接 import。
  *
- * 为什么单独一个模块：任务树的「分组」（谁挂在谁下面）和「排序」（同一父任务下谁先渲染）必须是同一棵树的两面。
- * 两边各写一遍 parent 规则迟早会漂移，所以 app.js 的 renderTree 与这里的 rankTasks 共用 treeParent()。
+ * 任务树的「分组」（谁挂在谁下面）和「排序」（同一父任务下谁先渲染）必须是同一棵树的两面。
+ * 两边各写一遍 parent 规则迟早会漂移，所以 renderTree 与这里的 rankTasks 共用 treeParent()。
+ * 历史输入 / 规划任务 / 待定事项没有树结构，只按「最多一条时间线」排，共用 orderList()。
  *
  * 档位（数字越小越靠前）：
  *   0 有未答复 notice  —— 卡在用户身上的任务最该被看见。
@@ -32,8 +33,9 @@ export function treeParent(task, ids) {
   return ids.has(parent) ? parent : 0;
 }
 
-/** Date.parse 解析不出的时间当 0：排序永远确定，不会因为一条坏数据抛异常。 */
+/** 时间字段解析不出的当 0：排序永远确定，不会因为一条坏数据抛异常。毫秒数与 ISO 字符串都接受。 */
 function timestamp(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
   const at = Date.parse(value);
   return Number.isFinite(at) ? at : 0;
 }
@@ -121,4 +123,23 @@ export function orderSiblings(children, { mode, ranks } = {}) {
     return left.effectiveRank - right.effectiveRank || left.rank - right.rank
       || right.activity - left.activity || a.id - b.id;
   });
+}
+
+/**
+ * 左栏四个列表共用的排序（行动任务另有 orderSiblings，它要跟着树结构走）。
+ * smart（默认，未知 mode 也回落）原样返回入参数组本身：每个列表的「智能」口径不同——
+ * 历史输入与待定事项保持接口返回的时间线顺序，规划任务保持批次分组 + 组内编号升序——
+ * 这些都由调用方先排好，orderList 不再插手，零开销也不会打乱它们的口径。
+ * updated：按 timeOf(row) 倒序（最近的在最前），时间相同时 id 升序兜底；
+ * id：按编号倒序（新在前）。
+ * timeOf 缺省取 row.updated_at，返回 ISO 字符串或毫秒数都行，解析不出当 0。
+ * 两种模式都返回新数组，不修改入参。
+ */
+export function orderList(rows, { mode, timeOf } = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (mode !== 'updated' && mode !== 'id') return list;
+  const copy = [...list];
+  if (mode === 'id') return copy.sort((a, b) => b.id - a.id);
+  const pick = typeof timeOf === 'function' ? timeOf : row => row?.updated_at;
+  return copy.sort((a, b) => timestamp(pick(b)) - timestamp(pick(a)) || a.id - b.id);
 }

@@ -4,9 +4,8 @@ import { action } from './api.js';
 import { syncComposer } from './composer.js';
 import { refresh } from './navigate.js';
 import { draftUnchecked, ui } from './state.js';
-import { setNavCount } from './sidebar-ui.js';
 
-/* ---------- sidebar ---------- */
+/* ---------- 待提交意图（底部 composer 面板） ---------- */
 /** 点一条草稿就地编辑：Enter / 失焦保存，Esc 取消；轮询不重建正在编辑的那条。 */
 function startDraftEdit(draft) {
   if (ui.draftEditing !== null) return;
@@ -47,27 +46,26 @@ function draftItem(draft) {
   const pick = document.createElement('input');
   pick.type = 'checkbox'; pick.className = 'pick';
   pick.checked = !draftUnchecked.has(draft.id);
-  pick.setAttribute('aria-label', `选中草稿 #${draft.id} 一起提交`);
-  pick.title = '勾选后「提交并规划」只提交选中的；不勾的继续留在缓存里';
+  pick.setAttribute('aria-label', `选中待提交意图 #${draft.id} 一起提交`);
+  pick.title = '勾选后「提交并规划」只提交选中的；不勾的继续留在待提交意图里';
   pick.onchange = () => { if (pick.checked) draftUnchecked.delete(draft.id); else draftUnchecked.add(draft.id); syncComposer(); };
   const edit = button('编辑', () => startDraftEdit(draft), 'edit');
-  edit.setAttribute('aria-label', `编辑草稿 #${draft.id}`);
+  edit.setAttribute('aria-label', `编辑待提交意图 #${draft.id}`);
   const drop = button('移除', () => action('draft.remove', { id: draft.id }), 'drop');
-  drop.setAttribute('aria-label', `从缓存移除草稿 #${draft.id}`); drop.title = '从缓存移除这条输入（已提交的输入不可删）';
+  drop.setAttribute('aria-label', `从待提交意图里移除 #${draft.id}`); drop.title = '从待提交意图里移除这条输入（已提交的输入不可删）';
   row.append(pick, el('span', '○', 'dot c-queued'), el('span', `#${draft.id}`, 'tid'), el('span', '待规划'),
     el('span', relative(draft.created_at), 'when'), edit, drop);
   const body = el('span', draft.content, 'goal');
-  body.title = '点击就地编辑这条缓存';
+  body.title = '点击就地编辑这条待提交意图';
   body.onclick = () => startDraftEdit(draft);
   item.append(row, body);
-  item.title = `${draft.content}\n加入缓存于 ${absolute(draft.created_at)}`;
+  item.title = `${draft.content}\n加入于 ${absolute(draft.created_at)}`;
   return item;
 }
 export function renderDrafts(data) {
   const drafts = data.drafts || [];
   ui.draftIds = drafts.map(draft => draft.id);
-  $('draft-count').textContent = drafts.length ? `${drafts.length} 条` : '缓存空';
-  setNavCount('drafts', drafts.length);
+  $('draft-count').textContent = drafts.length ? `${drafts.length} 条` : '空';
   // 被提交或移除的草稿不再保留勾选/编辑态。
   const live = new Set(ui.draftIds);
   for (const draftId of [...draftUnchecked]) if (!live.has(draftId)) draftUnchecked.delete(draftId);

@@ -8,9 +8,9 @@ test('web buffers drafts, commits the whole batch and keeps agents out of the co
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     const html = await (await fetch(f.url)).text();
-    expect(html).toContain('加入缓存');
+    expect(html).toContain('加入待提交意图');
     expect(html).toContain('提交并规划');
-    expect(html).toContain('待提交缓存');
+    expect(html).toContain('待提交意图');
     expect((await post('draft.add',{content:'第一条'})).status).toBe(200);
     expect((await post('draft.add',{content:'第二条'})).status).toBe(200);
     let snapshot = await (await fetch(f.url+'/api/snapshot')).json();

@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { SORT_MODES, treeParent, rankTasks, orderSiblings } from '../src/ui/web/assets/tree-order.js';
+import { SORT_MODES, treeParent, rankTasks, orderSiblings, orderList } from '../src/ui/web/assets/tree-order.js';
 
 // 扁平任务表：字段与 store.summaries() 一致（id/parent_id/verifies_task_id/status/integration/updated_at）。
 const task = (id, extra = {}) => ({
@@ -147,4 +147,41 @@ test('防环：parent 互指时不无限递归', () => {
   expect(ranks.size).toBe(2);
   expect(ranks.get(1).rank).toBe(1);
   expect(ranks.get(2).rank).toBe(3);
+});
+
+// orderList 是历史输入 / 规划任务 / 待定事项共用的排序；三种模式的口径必须固定住。
+const row = (id, extra = {}) => ({ id, created_at: at(id), updated_at: at(id), ...extra });
+
+test('orderList：smart 与未知 mode 原样返回入参数组本身', () => {
+  const rows = [row(3), row(1), row(2)];
+  expect(orderList(rows, { mode: 'smart' })).toBe(rows);
+  expect(orderList(rows, { mode: 'nonsense' })).toBe(rows);
+  expect(ids(orderList(rows, { mode: 'smart' }))).toEqual([3, 1, 2]);
+  expect(orderList(undefined, { mode: 'smart' })).toEqual([]);
+});
+
+test('orderList：updated 按 timeOf 倒序，时间相同按 id 升序兜底', () => {
+  const rows = [row(1, { planner_updated_at: at(1) }), row(2, { planner_updated_at: at(9) }), row(3, { planner_updated_at: at(5) })];
+  const timeOf = entry => entry.planner_updated_at;
+  expect(ids(orderList(rows, { mode: 'updated', timeOf }))).toEqual([2, 3, 1]);
+  expect(ids(orderList([row(7, { planner_updated_at: at(5) }), row(2, { planner_updated_at: at(5) })], { mode: 'updated', timeOf }))).toEqual([2, 7]);
+  // 不提供 timeOf 时退回 updated_at
+  expect(ids(orderList([row(1), row(3)], { mode: 'updated' }))).toEqual([3, 1]);
+});
+
+test('orderList：id 新在前；缺时间字段当 0，次序仍确定', () => {
+  const rows = [row(1), row(2), row(3), row(4)];
+  expect(ids(orderList(rows, { mode: 'id' }))).toEqual([4, 3, 2, 1]);
+  // 一条字段缺失、一条坏数据、一条合法：解析不出的都当 0，再按 id 升序固定住次序，不抛异常
+  const mixed = [row(9, { updated_at: undefined }), row(5, { updated_at: 'not a date' }), row(7, { updated_at: at(3) })];
+  expect(ids(orderList(mixed, { mode: 'updated' }))).toEqual([7, 5, 9]);
+});
+
+test('orderList：两种活动 mode 返回新数组，不修改入参', () => {
+  const rows = [row(1), row(2)];
+  const before = ids(rows);
+  const out = orderList(rows, { mode: 'updated' });
+  expect(ids(rows)).toEqual(before);
+  expect(out).not.toBe(rows);
+  expect(orderList(rows, { mode: 'smart' })).toBe(rows);
 });

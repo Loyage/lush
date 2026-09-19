@@ -9,13 +9,16 @@
  */
 import { treeParent } from './tree-order.js';
 
-/** 左栏的五个区块：导航条、折叠状态、筛选条都按这个顺序走。 */
+/**
+ * 左栏的四个区块：导航条、折叠状态都按这个顺序走，DOM 顺序也必须是同一个顺序。
+ * 待提交意图不在这里——它挂在底部 composer 里，见 composer.js。
+ * 顺序即优先级：先看要人拍板的（待定事项），再回看输入与拆解，最后才是正在跑的行动任务。
+ */
 export const SIDEBAR_SECTIONS = [
-  { id: 'drafts', label: '缓存', long: '待提交缓存' },
-  { id: 'intents', label: '意图', long: '意图' },
-  { id: 'tasks', label: '任务树', long: '任务树' },
-  { id: 'specs', label: '队列', long: '拆解队列' },
-  { id: 'notices', label: '待决', long: '等你决定' },
+  { id: 'notices', label: '待定事项', long: '待定事项' },
+  { id: 'intents', label: '历史输入', long: '历史输入' },
+  { id: 'specs', label: '规划任务', long: '规划任务' },
+  { id: 'tasks', label: '行动任务', long: '行动任务' },
 ];
 export const COLLAPSED_KEY = 'lush.sidebar.collapsed';
 export const FILTERS_KEY = 'lush.sidebar.filters';

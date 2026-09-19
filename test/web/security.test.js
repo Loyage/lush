@@ -12,7 +12,7 @@ test('web is project scoped, submits immediately and exposes no Service views', 
   const f = await setup();
   try {
     const page = await fetch(f.url); const html = await page.text();
-    expect(html).toContain('任务树'); expect(html).not.toContain('Service');
+    expect(html).toContain('行动任务'); expect(html).not.toContain('Service');
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
     const submit = await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'input.submit',params:{content:'web request'}})});
     expect(submit.status).toBe(200);

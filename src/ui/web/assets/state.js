@@ -2,10 +2,15 @@ import { COLLAPSED_KEY, FILTERS_KEY, parseCollapsed, serializeCollapsed, parseFi
 import { SORT_MODES } from './tree-order.js';
 
 /* ---------- 偏好：折叠 / 筛选 / 排序都持久化到 localStorage ---------- */
-export const TREE_SORT_KEY = 'lush.treeSort';
+// 排序以前只作用于任务树（lush.treeSort）；改成左栏全局后换 key，读取时回落旧 key，老用户的选择不丢。
+export const SIDEBAR_SORT_KEY = 'lush.sidebarSort';
+export const LEGACY_TREE_SORT_KEY = 'lush.treeSort';
 export const SORT_IDS = new Set(SORT_MODES.map(mode => mode.id));
-export function readTreeSortPref() {
-  try { const value = localStorage.getItem(TREE_SORT_KEY); return SORT_IDS.has(value) ? value : 'smart'; } catch { return 'smart'; }
+export function readSidebarSortPref() {
+  try {
+    const value = localStorage.getItem(SIDEBAR_SORT_KEY) ?? localStorage.getItem(LEGACY_TREE_SORT_KEY);
+    return SORT_IDS.has(value) ? value : 'smart';
+  } catch { return 'smart'; }
 }
 export function readCollapsedPref() {
   try { return parseCollapsed(localStorage.getItem(COLLAPSED_KEY)); } catch { return new Set(); }
@@ -34,10 +39,11 @@ export const ui = {
   intentSignature: null,
   // 拆解队列的重建哨兵：id/status/batch_id/task_id 变化才重画，轮询不冲掉滚动。
   specSignature: null,
-  draftIds: [], draftEditing: null,
-  // 左侧「等你决定」只是索引；右侧展开的那条 notice 由 noticeFocus 记住，数据每次都取自最新 snapshot。
+  draftIds: [], draftEditing: null, draftPanelOpen: false,
+  // 左侧「待定事项」只是索引；右侧展开的那条 notice 由 noticeFocus 记住，数据每次都取自最新 snapshot。
   noticeFocus: null, noticeIndex: new Map(),
-  treeSortMode: readTreeSortPref(),
+  // 左栏四个列表共用的排序偏好（smart / updated / id）。
+  sidebarSortMode: readSidebarSortPref(),
   lastSnapshot: null,   // 切排序模式要立刻重排，不必等下一次轮询
   sideNodes: new Map(),      // section id -> 区块 <section>
   sideHeads: new Map(),      // section id -> 标题按钮
@@ -65,12 +71,12 @@ export const mergeSelection = new Set();
 export function resetUiState() {
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;
   ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0;
-  ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = [];
+  ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false;
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeFocus = null; ui.noticeIndex = new Map();
   ui.lastSnapshot = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.sideNodes = new Map(); ui.sideHeads = new Map(); ui.navButtons = new Map(); ui.navCounts = new Map();
   ui.stepToggle = new Map();
-  ui.collapsed = readCollapsedPref(); ui.filters = readFiltersPref(); ui.treeSortMode = readTreeSortPref();
+  ui.collapsed = readCollapsedPref(); ui.filters = readFiltersPref(); ui.sidebarSortMode = readSidebarSortPref();
   draftUnchecked.clear(); transcriptOpen.clear(); transcriptCache.clear(); mergeSelection.clear();
 }

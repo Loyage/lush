@@ -122,8 +122,9 @@ test('折叠状态：解析、序列化、切换都是纯函数且容忍坏数�
   expect([...parseCollapsed('not json')]).toEqual([]);
   expect([...parseCollapsed('{"tasks":1}')]).toEqual([]);
   expect([...parseCollapsed(null)]).toEqual([]);
-  // 序列化按区块顺序，结果稳定
-  expect(serializeCollapsed(new Set(['specs', 'tasks']))).toBe('["tasks","specs"]');
+  // 序列化按区块顺序（待定事项 → 历史输入 → 规划任务 → 行动任务），结果稳定；已删掉的 drafts 区块被丢弃
+  expect(serializeCollapsed(new Set(['specs', 'tasks']))).toBe('["specs","tasks"]');
+  expect([...parseCollapsed('["drafts"]')]).toEqual([]);
   expect(serializeCollapsed([])).toBe('[]');
   expect([...toggleCollapsed(new Set(['tasks']), 'specs')]).toEqual(['tasks', 'specs']);
   expect([...toggleCollapsed(new Set(['tasks']), 'tasks')]).toEqual([]);

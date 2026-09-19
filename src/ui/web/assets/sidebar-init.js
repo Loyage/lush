@@ -45,7 +45,7 @@ export function initSidebar() {
       paintCollapsed(); saveCollapsedPref();
     });
   }
-  // 任务树：状态 / 角色 / 合并 / 只看待我处理 / 关键字
+  // 行动任务：状态 / 角色 / 合并 / 只看待我处理 / 关键字
   const taskStatus = filterSelect('状态', [{ value: 'all', label: '全部状态' },
     ...['queued', 'running', 'waiting', 'awaiting', 'completed', 'failed', 'cancelled'].map(statusOption)],
     ui.filters.tasks.status, value => { ui.filters.tasks.status = value; applyFilters(); });
@@ -57,7 +57,7 @@ export function initSidebar() {
   const taskText = filterInput(ui.filters.tasks.text, value => { ui.filters.tasks.text = value; applyFilters(); });
   $('task-filters').replaceChildren(taskStatus.wrap, taskRole.wrap, taskIntegration.wrap, taskMine.wrap, taskText.wrap);
   filterUi.taskRole = taskRole.select;
-  // 拆解队列：状态 / planner / 角色 / 关键字
+  // 规划任务：状态 / planner / 角色 / 关键字
   const specStatus = filterSelect('状态', [{ value: 'all', label: '全部状态' }, specStatusOption('pending'), specStatusOption('planned'), specStatusOption('dropped')],
     ui.filters.specs.status, value => { ui.filters.specs.status = value; applyFilters(); });
   const specPlanner = filterSelect('planner', withCurrent([{ value: 'all', label: '全部 planner' }], ui.filters.specs.planner, plannerOption), ui.filters.specs.planner,
@@ -68,7 +68,7 @@ export function initSidebar() {
   $('spec-filters').replaceChildren(specStatus.wrap, specPlanner.wrap, specRole.wrap, specText.wrap);
   filterUi.specPlanner = specPlanner.select;
   filterUi.specRole = specRole.select;
-  // 意图：流程 / 闸门 / 状态 / 关键字
+  // 历史输入：流程 / 闸门 / 状态 / 关键字
   const intentFlow = filterSelect('流程', [{ value: 'all', label: '全部' }, { value: 'develop', label: '开发' }, { value: 'explain', label: '了解' }],
     ui.filters.intents.flow, value => { ui.filters.intents.flow = value; applyFilters(); });
   const intentGate = filterSelect('闸门', [{ value: 'all', label: '全部' }, { value: 'proposed', label: '等你批准' }],

@@ -24,16 +24,22 @@ test('web serves the live-refresh and batch-merge modules alongside app.js', asy
   } finally { await f.close(); }
 });
 
-test('web serves the tree sort module and wires the smart-sort dropdown', async () => {
+test('web serves the sort module and wires the left-column sort dropdown', async () => {
   const f = await setup();
   try {
     const module = await fetch(f.url+'/tree-order.js');
     expect(module.status).toBe(200);
-    expect(await module.text()).toContain('export function orderSiblings');
+    const source = await module.text();
+    expect(source).toContain('export function orderSiblings');
+    // 四个列表共用的排序函数也在同一个模块里，浏览器加载 app.js 时 import 不会 404
+    expect(source).toContain('export function orderList');
     const app = await pageSource(f.url);
     expect(app).toContain('智能排序');
-    expect(app).toContain('tree-sort');
+    expect(app).toContain('sidebar-sort');
     const html = await (await fetch(f.url)).text();
-    expect(html).toContain('id="tree-sort"');
+    expect(html).toContain('id="sidebar-sort"');
+    expect(html).toContain('aria-label="左栏排序方式"');
+    // 排序控件已经从行动任务区块移到左栏顶部，旧的 #tree-sort 不再存在
+    expect(html).not.toContain('id="tree-sort"');
   } finally { await f.close(); }
 });

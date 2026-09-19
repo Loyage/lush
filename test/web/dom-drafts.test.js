@@ -3,7 +3,7 @@ import { installDom } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
-// 缓存勾选部分提交、就地编辑、轮询不打断编辑。
+// 待提交意图（底部 composer 面板）勾选部分提交、就地编辑、轮询不打断编辑。
 // 每个 DOM 测试文件都自给自足：bun test 在文件之间共享模块注册表，只有本进程里第一个 dom 文件会走到
 // app.js 顶部那次 boot()，其余文件 import 到的是缓存模块。所以这里自己建 world、装 stub，再显式装配
 // 一次当前 DOM。
@@ -18,12 +18,21 @@ await boot();
 
 afterAll(() => dom.restore());
 
-test('缓存可勾选部分提交，也可以就地编辑，轮询不打断编辑', async () => {
+test('待提交意图可勾选部分提交，也可以就地编辑，轮询不打断编辑', async () => {
   world.state.drafts = [
     { id: 11, content: '第一条', created_at: iso(NOW - 5000) },
     { id: 12, content: '第二条', created_at: iso(NOW - 4000) },
   ];
   await dom.intervalFor(1500)();
+  // 面板默认折叠在输入区，带条数开关；展开后才看到列表
+  const toggle = dom.node('draft-toggle');
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(dom.node('draft-panel').classList.contains('open')).toBe(false);
+  expect(dom.node('draft-count').textContent).toBe('2 条');
+  await toggle.onclick();
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  expect(dom.node('draft-panel').classList.contains('open')).toBe(true);
+
   const drafts = dom.node('drafts');
   expect(drafts.querySelectorAll('.draft')).toHaveLength(2);
   const boxes = drafts.querySelectorAll('.pick');

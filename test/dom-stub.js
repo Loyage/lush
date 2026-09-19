@@ -53,6 +53,12 @@ class StubNode {
     this.append(...nodes);
   }
   insertBefore(node, reference) {
+    // 与浏览器一致：把节点从原位置摘下来再插到 reference 之前，否则同一父节点下换位
+    // 会把自己复制成两个（syncChildren 重排列表时就会踩到）。
+    if (node.parentNode) {
+      const old = node.parentNode.children.indexOf(node);
+      if (old >= 0) node.parentNode.children.splice(old, 1);
+    }
     const at = reference ? this.children.indexOf(reference) : -1;
     node.parentNode = this;
     if (at < 0) this.children.push(node); else this.children.splice(at, 0, node);

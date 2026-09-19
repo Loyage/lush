@@ -61,7 +61,7 @@ export function renderOverview(data) {
   const info = block('运行时');
   const meta = el('div', undefined, 'grid');
   meta.append(kv('项目', data.status.project, 'mono'), kv('provider', data.status.provider || '—'), kv('并发额度', String(data.status.concurrency)),
-    kv('缓存中的输入', String(data.status.drafts ?? 0)),
+    kv('待提交意图', String(data.status.drafts ?? 0)),
     kv('版本', [data.status.version, data.status.fingerprint].filter(Boolean).join(' · ') || '—', 'mono'),
     kv('状态目录', data.status.home || '—', 'mono'), kv('启动', absolute(data.status.started_at) || '—'));
   info.append(meta); panel.append(info);

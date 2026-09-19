@@ -4,6 +4,7 @@ import { filterUi, plannerOption, roleOption, syncSelectOptions, uniqueValues, w
 import { detail } from './navigate.js';
 import { countText, describeFilters, filterSpecs, isFiltering } from './sidebar.js';
 import { setNavCount } from './sidebar-ui.js';
+import { orderList } from './tree-order.js';
 import { ui } from './state.js';
 
 /* ---------- 拆解队列（只读）：planner 写、scheduler 取走、Web 只展示 ---------- */
@@ -61,11 +62,11 @@ export function renderSpecs(data) {
     syncSelectOptions(filterUi.specRole, withCurrent(options, ui.filters.specs.role, roleOption), ui.filters.specs.role);
   }
   // 只在队列结构或筛选条件变化时重建：轮询不能把左侧的滚动位置冲掉。
-  const signature = [JSON.stringify(query), all.map(spec => `${spec.id}:${spec.status}:${spec.batch_id}:${spec.task_id}`).join('\u0000')].join('\u0002');
+  const signature = [ui.sidebarSortMode, JSON.stringify(query), all.map(spec => `${spec.id}:${spec.status}:${spec.batch_id}:${spec.task_id}`).join('\u0000')].join('\u0002');
   if (signature === ui.specSignature) return;
   ui.specSignature = signature;
   const container = $('specs');
-  if (!all.length) { container.replaceChildren(el('div', '拆解队列空：planner 还没写下可编排的条目；写完由 scheduler 一次性编排本批。', 'spec-empty')); return; }
+  if (!all.length) { container.replaceChildren(el('div', '规划任务空：planner 还没写下可编排的条目；写完由 scheduler 一次性编排本批。', 'spec-empty')); return; }
   if (!specs.length) { container.replaceChildren(el('div', '没有符合筛选的条目', 'spec-empty')); return; }
   // 组：batch_id 为空的是还没被 scheduler 取走的一轮拆解（按 planner 分）；否则按 batch（= scheduler 任务 id）分。
   const groupKey = spec => (spec.batch_id === null || spec.batch_id === undefined ? `planner:${spec.planner_task_id}` : `batch:${spec.batch_id}`);
@@ -86,7 +87,11 @@ export function renderSpecs(data) {
     return a[0].batch_id - b[0].batch_id;                  // 已被取走的按 scheduler id 升序
   });
   container.replaceChildren(...ordered.map(rows => {
-    const sorted = [...rows].sort((a, b) => a.id - b.id);
+    // 批次分组与组顺序不受排序影响；三种模式只决定组内次序。
+    // 智能＝编号升序（与接口返回一致），其余两种走共用的 orderList。
+    const sorted = ui.sidebarSortMode === 'smart'
+      ? [...rows].sort((a, b) => a.id - b.id)
+      : orderList(rows, { mode: ui.sidebarSortMode, timeOf: spec => spec.updated_at });
     const first = sorted[0];
     const group = el('div', undefined, 'spec-group');
     const total = totalByGroup.get(groupKey(first)) ?? sorted.length;

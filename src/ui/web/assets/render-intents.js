@@ -5,10 +5,11 @@ import { filterUi, statusOption, syncSelectOptions, uniqueValues, withCurrent } 
 import { detail } from './navigate.js';
 import { countText, describeFilters, filterIntents, isFiltering } from './sidebar.js';
 import { setNavCount } from './sidebar-ui.js';
+import { orderList } from './tree-order.js';
 import { ui } from './state.js';
 
-/* ---------- 意图（intent）：一条用户输入 + 它的 planner 拆解 / scheduler 编排 ---------- */
-// 意图层不是任务：planner 与 scheduler 不进任务树，在这里跟「待提交缓存」放在一起。
+/* ---------- 历史输入（intent）：一条用户输入 + 它的 planner 拆解 / scheduler 编排 ---------- */
+// 意图层不是任务：planner 与 scheduler 不进任务树，只在这里和左栏的「历史输入」区块里露面。
 function planActions(intent) {
   if (intent.plan_gate !== 'proposed') return null;
   const actions = el('span', undefined, 'intent-actions');
@@ -57,7 +58,10 @@ function intentItem(intent) {
 export function renderIntents(data) {
   const all = data.inputs || [];
   const query = ui.filters.intents;
-  const intents = filterIntents(all, query);
+  // 智能排序＝保持接口返回的时间线顺序；updated 用 planner 最近动过的时间兜底到输入创建时间。
+  const intents = orderList(filterIntents(all, query), {
+    mode: ui.sidebarSortMode, timeOf: intent => intent.planner_updated_at ?? intent.created_at,
+  });
   setNavCount('intents', all.length);
   const intentSummary = describeFilters(query);
   $('intent-count').textContent = isFiltering(query)
@@ -67,12 +71,12 @@ export function renderIntents(data) {
     const options = [{ value: 'all', label: '全部状态' }, ...uniqueValues(all, 'status').map(statusOption)];
     syncSelectOptions(filterUi.intentStatus, withCurrent(options, ui.filters.intents.status, statusOption), ui.filters.intents.status);
   }
-  const signature = [JSON.stringify(query), all.map(intent => [intent.id, intent.status, intent.plan_gate, intent.specs_pending, intent.specs_planned,
+  const signature = [ui.sidebarSortMode, JSON.stringify(query), all.map(intent => [intent.id, intent.status, intent.plan_gate, intent.specs_pending, intent.specs_planned,
     intent.specs_dropped, intent.scheduler_id, intent.scheduler_status, intent.work_tasks, intent.flow].join(':')).join('\u0000')].join('\u0002');
   if (signature === ui.intentSignature) return;
   ui.intentSignature = signature;
   const container = $('intents');
-  if (!all.length) { container.replaceChildren(el('div', '还没有意图：在下面输入框回车就提交一条。', 'intent-empty')); return; }
+  if (!all.length) { container.replaceChildren(el('div', '还没有历史输入：在下面输入框回车就提交一条。', 'intent-empty')); return; }
   if (!intents.length) { container.replaceChildren(el('div', '没有符合筛选的条目', 'intent-empty')); return; }
   container.replaceChildren(...intents.map(intentItem));
 }
