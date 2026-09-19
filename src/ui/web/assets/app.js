@@ -1,5 +1,7 @@
 import { renderMarkdown } from './markdown.js';
 import { SORT_MODES, treeParent, rankTasks, orderSiblings } from './tree-order.js';
+import { LIVE_INTERVAL, liveTarget, liveTick } from './live.js';
+import { mergeCandidates, isMergeable, previewMergeOrder, ladderEdges, freezeBlocker } from './merge-select.js';
 
 const $ = id => document.getElementById(id);
 const STATUS = {
@@ -113,12 +115,9 @@ function resolverOf(task) {
     .filter(row => row.integration !== 'merged' && row.integration !== 'superseded')
     .sort((a, b) => b.id - a.id)[0] || null;
 }
-/** 未解决的冲突会冻结同一目标分支上的合并：解冲突的产物要靠 --ff-only 原样落地，main 不能被推走。 */
-function freezeOf(task) {
-  const freeze = lastSnapshot?.status?.merge_freeze || [];
-  return freeze.find(row => row.target_branch === task.target_branch
-    && row.task_id !== task.id && row.resolves_task_id !== task.id) || null;
-}
+/** 未解决的冲突会冻结同一目标分支上的合并：解冲突的产物要靠 --ff-only 原样落地，main 不能被推走。
+ *  判定与运行时 approveMerge / 批量合并的候选过滤共用 merge-select.js 的 freezeBlocker。 */
+const freezeOf = task => freezeBlocker(task.target_branch, task, lastSnapshot?.status?.merge_freeze || []);
 const DEP_HELP = {
   code: '这是它的 worktree 基线：本任务的分支从上游分支长出来，所以合并必须先合上游，否则会把上游的改动一起带进来。',
   order: '这只是顺序依赖：等上游结束才开跑，代码仍从当时的 HEAD 开始，因此不要求先合并上游。',
@@ -332,27 +331,119 @@ function renderTree(data) {
   const active = data.tasks.filter(task => HOT.has(task.status)).length;
   $('task-count').textContent = `${data.tasks.length} 个 · ${active} 进行中`;
 }
-/** 合并阶梯：该先合哪个、哪些分支已经被别的分支带进来了。 */
-function renderLadder(ladder) {
-  const nodes = ladder?.nodes || [];
+/* ---------- 批量合并的选择 ---------- */
+/** 勾选状态按 id 存：任务树 / 阶梯每次重画都从它取，轮询不会把勾选丢掉。 */
+const mergeSelection = new Set();
+/** 最近一次批量合并的逐条结果，刷新后仍留在页面上，直到用户收起。 */
+let lastMergeResult = null;
+const MERGE_STATUS = { merged: '✓ 已合并', conflict: '⚠ 冲突', failed: '✗ 失败', skipped: '⊘ 跳过' };
+
+/** 合并一批选中的任务：先按与运行时相同的规则预览顺序，再整批交给 task.merge_many。 */
+async function mergeBatch(ids, candidates) {
+  const picked = [...new Set(ids)];
+  if (!picked.length) return;
+  const nodes = lastSnapshot?.ladder?.nodes || [];
+  const order = previewMergeOrder(picked, ladderEdges(nodes));
+  const goalOf = id => candidates.find(candidate => candidate.id === id)?.goal || nodes.find(node => node.id === id)?.goal || '';
+  const lines = order.map((taskId, index) => `${index + 1}. #${taskId}${goalOf(taskId) ? ` ${String(goalOf(taskId)).slice(0, 40)}` : ''}`);
+  if (!confirm(`将按依赖顺序合并 ${order.length} 个任务（上游先合，逐个写主树，遇到冲突或错误就停下并把剩余跳过）：\n\n${lines.join('\n')}\n\n请先确认代码与测试结果都审阅过。`)) return;
+  const result = await action('task.merge_many', { ids: picked });
+  lastMergeResult = { requested: order, result };
+  overviewKey = null;   // 结果要落在概览里，强制重画一次
+  await refresh();
+}
+
+/** 合并阶梯：该先合哪个、哪些已经被别的分支带进来了，以及勾选 / 一键多任务合并。 */
+function renderLadder(data) {
+  const nodes = data?.ladder?.nodes || [];
+  const candidates = mergeCandidates(data?.tasks || [], { nodes, freeze: data?.status?.merge_freeze || [] });
+  const byId = new Map(candidates.map(candidate => [candidate.id, candidate]));
+  // 已经不合法的勾选（任务合完了 / 被冻结 / 从阶梯消失）在重画时清掉。
+  for (const id of [...mergeSelection]) if (!byId.has(id) || !isMergeable(byId.get(id))) mergeSelection.delete(id);
+  const mergeable = candidates.filter(isMergeable);
+
   // 这里就是「待你批准合并」：待合并分支、谁必须先合、谁已经被别人带进来了。
   const section = block('合并阶梯', nodes.length ? `待批准 ${nodes.length}` : undefined);
   if (!nodes.length) { section.append(el('p', '没有待合并的分支。', 'hint')); return section; }
   section.append(el('p', '⛓ code 依赖＝下游 worktree 的基线：必须先合上游，否则下游的分支会把它一起带进来。\n⏳ order 依赖只要求上游结束，所以下游可以先合——那时它有没有把上游带进来由 git 判定。', 'hint'));
+
+  const boxes = new Map();
+  const actions = el('div', undefined, 'actions pick-actions');
+  const mergeSelected = button('合并选中', () => mergeBatch(mergeable.filter(candidate => mergeSelection.has(candidate.id)).map(candidate => candidate.id), candidates));
+  const mergeAll = button('一键合并所有可合并任务', () => mergeBatch(mergeable.map(candidate => candidate.id), candidates));
+  const selectAll = button('全选可合并', () => { for (const candidate of mergeable) mergeSelection.add(candidate.id); sync(); }, 'ghost');
+  const clearAll = button('清空选择', () => { mergeSelection.clear(); sync(); }, 'ghost');
+  const sync = () => {
+    const picked = mergeable.filter(candidate => mergeSelection.has(candidate.id)).length;
+    mergeSelected.textContent = `合并选中 (${picked})`;
+    mergeSelected.disabled = !picked;
+    mergeAll.textContent = `一键合并所有可合并任务 (${mergeable.length})`;
+    mergeAll.disabled = !mergeable.length;
+    selectAll.disabled = !mergeable.length;
+    clearAll.disabled = !mergeSelection.size;
+    for (const [id, box] of boxes) box.checked = mergeSelection.has(id);
+  };
+  actions.append(mergeSelected, mergeAll, selectAll, clearAll);
+  section.append(actions);
+
   for (const node of nodes) {
+    const candidate = byId.get(node.id);
     const line = el('div', undefined, `ladder l${Math.min(node.level, 5)}`);
     const row = el('div', undefined, 'row');
+    if (candidate) {
+      const box = el('input', undefined, 'pick');
+      box.type = 'checkbox'; box.checked = mergeSelection.has(candidate.id); box.disabled = !isMergeable(candidate);
+      box.setAttribute('aria-label', `选择任务 #${candidate.id} 参与批量合并`);
+      box.title = isMergeable(candidate) ? '勾选后点「合并选中」' : `合并被冻结：#${candidate.frozen_by} 的冲突还没解决`;
+      box.onchange = () => {
+        if (box.checked) mergeSelection.add(candidate.id); else mergeSelection.delete(candidate.id);
+        sync();
+      };
+      boxes.set(candidate.id, box);
+      row.append(box);
+    } else {
+      // 还没到 completed（比如刚创建的解冲突任务）：列出来说明它占着阶梯，但不可合并。
+      row.append(el('span', '·', 'tid'));
+    }
     row.append(el('span', `L${node.level}`, 'tid'), el('span', `#${node.id}`, 'tid'),
-      button(node.goal, () => detail(node.id), 'link'), el('span', node.branch, 'when'));
+      button(node.goal, () => detail(node.id), 'link'),
+      el('span', [INTEGRATION[node.integration] || node.integration, node.branch].filter(Boolean).join(' · '), 'when'));
     line.append(row);
     for (const dep of node.deps) {
       line.append(el('span', `${dep.kind === 'code' ? '⛓ 必须先合' : '⏳ 只等结束'} #${dep.id}${dep.merged ? '（已合并）' : ''}${dep.kind === 'order' && dep.contains ? '（它的提交已经在你里面）' : ''}`, 'meta'));
     }
     if (node.covered_by.length) line.append(el('span', `⚠ 已经被 #${node.covered_by.join('、')} 带进来：合后者即可，本分支会变成 no-op`, 'meta warn'));
+    if (candidate && candidate.frozen_by) line.append(el('span', `⛔ 合并被冻结：#${candidate.frozen_by} 的冲突还没解决，先处理它的待决问题`, 'meta warn'));
     section.append(line);
   }
+  sync();
   const first = nodes.filter(node => node.level === 0 && !node.covered_by.length).map(node => node.id);
-  if (first.length) section.append(el('p', `建议先合 ${first.map(taskId => `#${taskId}`).join('、')}；命令：lush task merge <id>`));
+  if (first.length) section.append(el('p', `建议先合 ${first.map(taskId => `#${taskId}`).join('、')}；命令：lush task merge <id> ，或在上面勾选后一键合并。`));
+  if (lastMergeResult) section.append(renderMergeResult(lastMergeResult));
+  return section;
+}
+
+/** 批量合并的逐条结果：成功、失败原因、冲突并指向新开的解冲突任务。 */
+function renderMergeResult(entry) {
+  const { result } = entry;
+  const section = block('批量合并结果', `${result.merged} 个成功`);
+  const summary = result.stopped
+    ? `合并 ${result.merged} 个后停在 #${result.stopped.id}：${result.stopped.reason}；剩余任务已跳过（未动主树）。`
+    : `全部合并成功：${result.merged} 个。`;
+  section.append(el('p', summary, result.stopped ? 'hint warn' : 'hint'));
+  for (const row of result.merges) {
+    const line = el('div', undefined, 'row');
+    line.append(el('span', MERGE_STATUS[row.status] || row.status, `c-${row.status === 'merged' ? 'completed' : row.status === 'conflict' || row.status === 'failed' ? 'failed' : 'queued'}`),
+      el('span', `#${row.id}`, 'tid'));
+    if (row.status === 'conflict' && row.resolution_task_id) {
+      line.append(el('span', `已开解冲突任务 #${row.resolution_task_id}`, 'meta'), button('查看解冲突任务', () => detail(row.resolution_task_id), 'link'));
+    } else if (row.error && row.status !== 'merged') line.append(el('span', row.error, 'meta'));
+    if (row.status === 'merged') line.append(el('span', '已进入目标分支', 'meta'));
+    section.append(line);
+  }
+  const actions = el('div', undefined, 'actions');
+  actions.append(button('收起结果', () => { lastMergeResult = null; overviewKey = null; return refresh(); }, 'ghost'));
+  section.append(actions);
   return section;
 }
 /** 并行时间轴：实心＝真的在跑，虚线＝排队，最下面一行是同时占用槽的数量。 */
@@ -578,11 +669,11 @@ function stepNode(taskId, step) {
 function transcriptContent(taskId) {
   const state = transcriptCache.get(taskId);
   if (!state) return [el('p', '正在读取会话记录…', 'hint')];
-  const meta = el('p', state.steps.length
-    ? `${state.steps.length} 步 \u00b7 来自 pi 会话记录：${state.files.join('\u3001')} \u00b7 默认折叠成一行，点标题展开（「回答」默认展开）`
-    : (state.files.length ? '会话记录里还没有可显示的步骤。' : '这个任务还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。'), 'hint');
+  const meta = el('p', transcriptMetaText(state), 'hint');
+  meta.dataset.live = 'transcript-meta';
   if (!state.steps.length) return [meta];
   const list = el('ol', undefined, 'steps');
+  list.dataset.live = 'transcript-steps';
   for (const step of state.steps) list.append(stepNode(taskId, step));
   const foldable = state.steps.filter(step => step.body);
   const actions = el('div', undefined, 'actions');
@@ -594,11 +685,11 @@ function transcriptContent(taskId) {
       paintTranscript(taskId);
     }, 'ghost'));
   }
-  if (state.has_more) actions.append(button(`加载更多（已有 ${state.steps.length} 步）`, async () => {
+  if (state.has_more) { const more = button(`加载更多（已有 ${state.steps.length} 步）`, async () => {
     const page = await api(`/api/task/${taskId}/transcript?after=${state.next}`);
     state.steps.push(...page.steps); state.next = page.next; state.has_more = page.has_more;
     paintTranscript(taskId);
-  }, 'ghost'));
+  }, 'ghost'); more.dataset.live = 'transcript-more'; actions.append(more); }
   actions.append(button('重新加载', async () => { await loadTranscript(taskId); await detail(taskId); }, 'ghost'));
   return [meta, list, actions, state.truncated ? el('p', '会话记录过大，只读取了前面一部分。', 'hint') : null].filter(Boolean);
 }
@@ -607,6 +698,26 @@ function paintTranscript(taskId) {
   if (selected !== taskId) return;
   const holder = $('detail').querySelector('.transcript');
   if (holder) holder.replaceChildren(...transcriptContent(taskId));
+}
+const transcriptMetaText = state => state.steps.length
+  ? `${state.steps.length} 步 \u00b7 来自 pi 会话记录：${state.files.join('\u3001')} \u00b7 默认折叠成一行，点标题展开（「回答」默认展开）`
+  : (state.files.length ? '会话记录里还没有可显示的步骤。' : '这个任务还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。');
+/**
+ * 热任务轮询的增量续读：只往现有 <ol> 后面接新步骤，不重建列表、不动 #detail 的滚动位置，
+ * 也不碰用户正在输入的 textarea。列表还没画出来（刚展开/之前没有步骤）时才整体重画那一个区块。
+ */
+function appendTranscriptSteps(taskId, steps) {
+  if (selected !== taskId) return;
+  const state = transcriptCache.get(taskId);
+  const holder = $('detail').querySelector('.transcript');
+  if (!state || !holder) return;
+  const list = holder.querySelector('[data-live="transcript-steps"]');
+  if (list) for (const step of steps) list.append(stepNode(taskId, step));
+  else paintTranscript(taskId);
+  const meta = holder.querySelector('[data-live="transcript-meta"]');
+  if (meta) meta.textContent = transcriptMetaText(state);
+  const more = holder.querySelector('[data-live="transcript-more"]');
+  if (more) more.textContent = `加载更多（已有 ${state.steps.length} 步）`;
 }
 async function loadTranscript(taskId) {
   const page = await api(`/api/task/${taskId}/transcript?after=0`);
@@ -649,6 +760,30 @@ function renderVerifications(task) {
   }
   return section;
 }
+/** 「最近一次执行」＝执行过程最后一条可显示步骤：相对时间（会随轮询自己走）+ 内容单行预览，全文放 title。 */
+function lastView(last) {
+  if (!last) return { value: '—', title: '还没有会话记录：这个任务从未被唤醒，或会话文件已被清理。' };
+  const when = last.at ? relative(last.at) : '时间未知';
+  const kindLabel = last.kind ? STEP[last.kind] || last.kind : '';
+  const title = last.title || '';
+  // 「回答」这类步骤的 kind 标签与 title 相同，不重复写两遍。
+  const what = title && title !== kindLabel ? [kindLabel, title].filter(Boolean).join(' ') : (title || kindLabel);
+  const body = String(last.body || '').replace(/\s+/g, ' ').trim();
+  const preview = body.length > 80 ? `${body.slice(0, 79)}…` : body;
+  const value = [when, what && body && body !== what ? `${what}：${preview}` : what || preview].filter(Boolean).join(' · ');
+  const full = [last.at ? `${when}（${absolute(last.at)}）` : when, what, body].filter(Boolean).join(' · ');
+  return { value, title: full };
+}
+/** 轮询里只重画这一行：「最近一次执行」的相对时间不必等整个详情面板重建。 */
+function paintUsageLast(taskId, usage) {
+  if (selected !== taskId) return;
+  const row = $('detail').querySelector('[data-live="last"]');
+  if (!row) return;
+  const view = lastView(usage?.last ?? null);
+  const span = row.querySelector('span');
+  if (span) span.textContent = view.value;
+  row.title = view.title;
+}
 /** 一个 agent 的全部信息：身份与唤醒次数（Lush 侧）+ 模型、上下文、花费（pi 会话记录侧）。
  *  执行过程就在同一块里——它就是 agent 这个身份干过的事，不是另一类数据。 */
 function renderAgent(task, usage) {
@@ -658,6 +793,12 @@ function renderAgent(task, usage) {
     grid.append(kv('agent', `${task.agent.id} · ${task.agent.active ? `运行中 · pid ${task.agent.pid ?? '待上报'}` : '空闲'}`));
     grid.append(kv('唤醒', `累计 ${task.agent.wakes} 次${task.agent.last_seen_at ? ` · 上次动手 ${relative(task.agent.last_seen_at)}` : ''}`));
   }
+  // 用户要的“最近一次执行”：时间就是执行过程最后一条步骤的时间，内容就是那一步。
+  const last = lastView(usage?.last ?? null);
+  const lastRow = kv('最近一次执行', last.value);
+  lastRow.dataset.live = 'last';
+  lastRow.title = last.title;
+  grid.append(lastRow);
   if (usage?.files?.length) {
     grid.append(kv('模型', usage.model ? [usage.model.provider, usage.model.model_id].filter(Boolean).join('/') : '—', 'mono'));
     if (usage.thinking_level) grid.append(kv('思考等级', usage.thinking_level));
@@ -884,7 +1025,9 @@ function renderOverview(data) {
     // 时间轴的开口段一直在长，但只在结构变化或每 15 秒才需要重画一次，免得轮询把滚动位置冲掉。
     Math.floor(Date.now() / 15000),
     (data.timeline?.tasks || []).map(task => `${task.id}:${task.status}:${task.segments.length}`).join(','),
-    (data.ladder?.nodes || []).map(node => `${node.id}:${node.level}:${node.deps.length}:${node.covered_by.join('|')}`).join(',')]);
+    (data.ladder?.nodes || []).map(node => `${node.id}:${node.level}:${node.deps.length}:${node.covered_by.join('|')}`).join(','),
+    // 冻结状态一变，可合并集合与勾选可用性就跟着变，所以它也必须进 key。
+    (data.status.merge_freeze || []).map(row => `${row.task_id}:${row.target_branch}:${row.resolves_task_id ?? '-'}`).join(',')]);
   if (key === overviewKey) return;
   overviewKey = key;
   const panel = $('detail'); panel.replaceChildren();
@@ -914,7 +1057,7 @@ function renderOverview(data) {
   }
   panel.append(agents);
 
-  panel.append(renderLadder(data.ladder));
+  panel.append(renderLadder(data));
   panel.append(renderTimeline(data.timeline));
 
   const notices = block('待决问题', String(open.length));
@@ -992,3 +1135,25 @@ const initial = linked(location.hash);
 if (initial) { try { await detail(initial); } catch (error) { $('error').textContent = error.message; } }
 addEventListener('hashchange', () => { const next = linked(location.hash); if (next && next !== selected) detail(next).catch(error => { $('error').textContent = error.message; }); });
 setInterval(refresh, 1500);
+
+/* ---------- 热任务的实时刷新：页面自己变新，不用手点 ---------- */
+let liveBusy = false;
+async function liveRefresh() {
+  if (busy || liveBusy) return;
+  const task = liveTarget(lastSnapshot?.tasks || [], selected);
+  if (!task) return;
+  const taskId = task.id;
+  liveBusy = true;
+  try {
+    await liveTick({
+      task,
+      // 只有用户已经展开、有缓存时才增量续读；没展开就不读整份会话文件。
+      transcript: transcriptCache.get(taskId) ?? null,
+      fetchUsage: id => api(`/api/task/${id}/usage`).catch(() => null),
+      fetchTranscript: (id, after) => api(`/api/task/${id}/transcript?after=${after}`),
+      publish: { usage: paintUsageLast, steps: appendTranscriptSteps },
+    });
+  } catch { /* 网络抖动交给主 refresh 的离线提示，live tick 不弹错 */ }
+  finally { liveBusy = false; }
+}
+setInterval(liveRefresh, LIVE_INTERVAL);

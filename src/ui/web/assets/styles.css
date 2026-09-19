@@ -238,6 +238,9 @@ button.drop:hover{background:transparent;filter:none;color:var(--failed);border-
 .ladder{border-left:1px solid var(--line);padding:2px 0 2px 10px;margin:2px 0 6px}
 .ladder.l1{margin-left:16px}.ladder.l2{margin-left:32px}.ladder.l3{margin-left:48px}.ladder.l4{margin-left:64px}.ladder.l5{margin-left:80px}
 .ladder .meta{display:block}
+.pick-actions{margin:0 0 10px}
+input.pick{flex:none;width:13px;height:13px;accent-color:var(--accent);cursor:pointer}
+input.pick:disabled{cursor:not-allowed;opacity:.45}
 
 /* 并行时间轴 */
 .gantt{margin:6px 0 0;border:1px solid var(--line-soft);border-radius:var(--radius);background:#121a16;padding:7px 9px}

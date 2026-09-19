@@ -74,6 +74,24 @@ test('web rejects cross-origin requests, forged host, non-JSON and arbitrary RPC
   } finally { await f.close(); }
 });
 
+test('web serves the live-refresh and batch-merge modules alongside app.js', async () => {
+  const f = await setup();
+  try {
+    for (const file of ['/live.js', '/merge-select.js']) {
+      const response = await fetch(f.url + file);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-security-policy')).toContain("script-src 'self'");
+    }
+    expect(await (await fetch(f.url + '/live.js')).text()).toContain('export async function liveTick');
+    expect(await (await fetch(f.url + '/merge-select.js')).text()).toContain('export function mergeCandidates');
+    const app = await (await fetch(f.url + '/app.js')).text();
+    expect(app).toContain("from './live.js'");
+    expect(app).toContain("from './merge-select.js'");
+    // 白名单之外仍然 404。
+    expect((await fetch(f.url + '/live.mjs')).status).toBe(404);
+  } finally { await f.close(); }
+});
+
 test('RPC rejects invalid frames, unknown params, invalid ids and cross-project tokens', async () => {
   const f = await setup();
   try {
