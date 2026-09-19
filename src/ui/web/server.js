@@ -112,10 +112,14 @@ function originAllowed(request, url, origins) {
   const navigation = request.method === 'GET' && request.headers.get('sec-fetch-mode') === 'navigate' && request.headers.get('sec-fetch-dest') === 'document';
   // 顶层导航只是「有人从别的站点点了链接进来」，后面还有认证拦着；跨站子请求才是 CSRF 的形状。
   if (site === 'cross-site' && !navigation) return false;
+  // Sec-Fetch-* 由浏览器自己填，网页改不了；浏览器既然说不是跨站就不必再拿 Origin 复算一遍。
+  // 内嵌 webview / 沙箱 iframe / 部分隐私扩展会报 Origin: null 却依然是同源，硬要 Origin 会白挡下正常的个人使用。
+  if (site) return true;
+  // 没有 Sec-Fetch（旧浏览器）时退回 Origin 校验。
   const origin = request.headers.get('origin');
   if (!origin) return true;
   let parsed;
-  try { parsed = new URL(origin); } catch { parsed = null; }   // Origin: null（沙箱/内嵌浏览器）在这里被拒
+  try { parsed = new URL(origin); } catch { parsed = null; }
   return Boolean(parsed) && (parsed.host === url.host || origins.includes(parsed.origin));
 }
 

@@ -109,6 +109,11 @@ test('web accepts a configured public origin behind a Host-rewriting proxy', asy
     const navigation = { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' };
     expect((await fetch(f.url + '/', { headers: navigation })).status).toBe(303);
     expect((await fetch(f.url + '/api/snapshot', { headers: { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'empty' } })).status).toBe(403);
+    // 内嵌 webview / 沙箱 iframe 会报 Origin: null 却依然是同源：浏览器说不是跨站就照常登录。
+    const opaque = await fetch(f.url + '/login', { method: 'POST', headers: { ...headers, Origin: 'null', 'Sec-Fetch-Site': 'same-origin', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' }, body: form });
+    expect(opaque.status).toBe(303);
+    // 但旧浏览器没有 Sec-Fetch 可依据时，null origin 仍然按跨站处理。
+    expect((await fetch(f.url + '/login', { method: 'POST', headers: { ...headers, Origin: 'null' }, body: form })).status).toBe(403);
   } finally { await f.close(); }
 });
 
