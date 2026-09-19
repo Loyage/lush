@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import http from 'node:http';
+import path from 'node:path';
 import { fixture } from '../helpers.js';
 import { RPCServer } from '../../src/rpc/server.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
@@ -31,8 +32,9 @@ export async function pageSource(url) {
   return chunks.join('\n');
 }
 
-export async function setup() {
+export async function setup(options = {}) {
   const f = fixture(), signal = createSignal();
+  if (options.auth) fs.writeFileSync(path.join(f.config.home, 'web.json'), JSON.stringify({ version: 1, ...options.auth }, null, 2) + '\n', { mode: 0o600 });
   const rpc = new RPCServer(f.config.socket,new Dispatcher(f.project,signal,{})); await rpc.start();
   const web = startWeb(f.config,0);
   return { ...f, rpc, web, url:`http://127.0.0.1:${web.port}`, async close() {

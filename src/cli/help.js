@@ -47,7 +47,7 @@ lush [--project PATH] [--json] <command>
   notice post '问题' [--task ID] [--body '背景']
   notice answer ID '答复'
   notice dismiss ID
-  web [PORT]                      本地 Web UI（默认 4318）
+  web [PORT]                      Web UI（默认仅本机；.lush/web.json 开启公网监听与登录认证）
 
 默认从当前目录向上发现项目；--project 或 LUSH_PROJECT 显式绑定。
 状态固定保存在 <project>/.lush/，不再支持全局 LUSH_HOME。

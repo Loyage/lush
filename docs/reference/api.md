@@ -2,7 +2,7 @@
 
 完整 CLI 帮助：`bun run help`。全局参数 `--project PATH`、`--json` 可放在命令前后。
 
-`daemon start/restart` 是客户端工作流，不是 RPC。`doctor` 检查本地项目配置与 daemon 身份。`web [port]` 启动本地 Web 进程。
+`daemon start/restart` 是客户端工作流，不是 RPC。`doctor` 检查本地项目配置与 daemon 身份。`web [port]` 启动独立 Web 进程；默认只监听本机，存在 `.lush/web.json` 时改为公网监听并启用登录认证。
 
 本页是索引：CLI 与 RPC 表格、返回值和错误信息都在下面各章里。
 

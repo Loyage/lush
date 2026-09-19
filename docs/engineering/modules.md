@@ -24,7 +24,8 @@
 - SQLite schema、表名、列名与 `meta.task_id_high` 的行为。
 - `src/index.js` 的导出、`bin/*` 的行为。
 - Web 路由与 asset 路径：`server.js` 只按 basename 服务 `assets/` 下的 `.js` / `.css`，
-  所以**新增前端模块不需要改 server.js**。
+  所以**新增前端模块不需要改 server.js**。认证边界也在 `server.js`：无 `.lush/web.json` 时只监听本机；
+  有配置时监听公网，并用 `/login`、`/logout` 与 HttpOnly 会话 Cookie 保护全部页面、资源和 API。
 - 环境变量与 agent capability 语义（`LUSH_PROJECT` / `LUSH_HOME` / `LUSH_TASK_ID` / `LUSH_AGENT_TOKEN`）。
 
 ## 分区总览

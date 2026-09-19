@@ -21,9 +21,19 @@ bun run tree --project /absolute/path/to/my-project
 bun run web 4318 --project /absolute/path/to/my-project
 ```
 
-`start` 只启动项目 daemon；`say` **立即返回输入和 task ID，不等待模型或开发完成**；Web 是独立的本地界面进程，不隐式启停 daemon。Web 离线后会自动重连。
+`start` 只启动项目 daemon；`say` **立即返回输入和 task ID，不等待模型或开发完成**；Web 是独立的界面进程，不隐式启停 daemon。Web 离线后会自动重连。默认只监听 `127.0.0.1`；如需从公网访问，在项目的 `.lush/web.json` 写入登录凭证：
 
-Web UI（`http://127.0.0.1:4318`）是两栏视图：左栏是任务树与待决问题，右栏是所选任务的结果、改动概览（已提交与未提交的文件）、子任务、消息、Agent（模型、上下文占用、累计花费与执行过程）与事件时间线，输入框常驻底部。未选任务时右栏显示项目概览（状态分布、运行中与空闲的 agent、待合并分支、运行时信息）。选中任务会写入 `#task-ID` 哈希，可直接用链接打开；刷新不丢已输入的答复。
+```json
+{
+  "version": 1,
+  "username": "your-name",
+  "password": "a-strong-password-at-least-12-characters"
+}
+```
+
+文件权限必须是 `600`。`bun run web` 会监听 `0.0.0.0`，首次启动时自动把明文 `password` 原地替换为 scrypt `password_hash`；之后浏览器通过登录页取得 12 小时的 HttpOnly / SameSite 会话 Cookie。公网部署仍应在前面配置 HTTPS 反向代理，否则登录密码会在网络中明文传输。删除 `.lush/web.json` 即恢复仅本机、无需登录的模式。
+
+Web UI（默认 `http://127.0.0.1:4318`）是两栏视图：左栏是任务树与待决问题，右栏是所选任务的结果、改动概览（已提交与未提交的文件）、子任务、消息、Agent（模型、上下文占用、累计花费与执行过程）与事件时间线，输入框常驻底部。未选任务时右栏显示项目概览（状态分布、运行中与空闲的 agent、待合并分支、运行时信息）。选中任务会写入 `#task-ID` 哈希，可直接用链接打开；刷新不丢已输入的答复。
 
 若 `bin/` 已在 PATH，在目标项目内可以直接使用：
 
@@ -186,7 +196,7 @@ socket 放在用户私有临时目录，名字由 canonical 项目路径决定�
 
 **Task 与 agent 是终身一对一的身份。** 任务一创建就拥有一个 agent（`<role>#<task-id>`，例如 `worker#7`），跨唤醒不换身份：pi session、累计唤醒次数和上次动手时间都记在这个 agent 上，`task inspect` 与 Web 详情直接展示。但它的 RPC 凭证是每次唤醒重新签发的：daemon 只存 SHA-256，且只在该次 invocation 运行期间可解析，invocation 结束即作废，重启后一律清空。因此 1:1 指的是身份，不是进程或凭证——等待子任务或用户时 agent 依然存在，但不占执行槽、也没有活着的调用。
 
-**这是本机可信用户工具，不是沙箱。** 目录绑定隔离的是 Lush 的数据库、RPC、调度和工作区管理，不是 OS 文件权限。pi 的 bash 仍拥有当前用户权限，角色约束主要依赖 agent 指令；应审阅改动，不向不可信用户暴露 socket / Web，也不要让其他程序同时修改正在合并的工作树。Agent RPC 用属于活动 invocation 的 token 限制所属任务，不能通过正常 agent 命令批准合并；这不是针对恶意本机进程的安全边界。
+**这是可信用户工具，不是沙箱。** 目录绑定隔离的是 Lush 的数据库、RPC、调度和工作区管理，不是 OS 文件权限。pi 的 bash 仍拥有当前用户权限，角色约束主要依赖 agent 指令；应审阅改动，不向不可信用户暴露 socket，也不要让其他程序同时修改正在合并的工作树。公网 Web 必须启用 `.lush/web.json` 登录认证并使用 HTTPS，但这仍不把 agent 或宿主机变成面向恶意用户的安全沙箱。Agent RPC 用属于活动 invocation 的 token 限制所属任务，不能通过正常 agent 命令批准合并；这不是针对恶意本机进程的安全边界。
 
 pi 默认禁用个人 extensions / skills / prompt templates / themes，保留上下文文件加载以遵循项目开发约定。daemon 意外被 SIGKILL 时可能留下外部进程；恢复不会重放任务，但仍应检查进程和工作区后再重试。
 

@@ -1,4 +1,6 @@
 import { test, expect } from 'bun:test';
+import fs from 'node:fs';
+import path from 'node:path';
 import { RPCClient } from '../../src/rpc/client.js';
 import { parseRequest, encode } from '../../src/rpc/protocol.js';
 import { UIClient } from '../../src/ui/client.js';
@@ -49,6 +51,44 @@ test('web rejects cross-origin requests, forged host, non-JSON and arbitrary RPC
     expect((await fetch(f.url+'/api/action',{method:'POST',body})).status).toBe(400);
     expect((await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'system.stop',params:{}})})).status).toBe(400);
     expect(f.project.inputs()).toHaveLength(0);
+  } finally { await f.close(); }
+});
+
+test('web auth config enables public hosts and protects every route with a login session', async () => {
+  const password = 'correct horse battery staple';
+  const f = await setup({ auth: { username: 'owner', password } });
+  try {
+    expect(f.web.hostname).toBe('0.0.0.0');
+    const config = JSON.parse(fs.readFileSync(path.join(f.config.home, 'web.json'), 'utf8'));
+    expect(config.password).toBeUndefined();
+    expect(config.password_hash).toStartWith('scrypt$');
+    expect(fs.statSync(path.join(f.config.home, 'web.json')).mode & 0o777).toBe(0o600);
+
+    const blocked = await fetch(f.url);
+    expect(blocked.status).toBe(303);
+    expect(blocked.headers.get('location')).toBe('/login?next=%2F');
+    expect((await fetch(f.url + '/api/snapshot')).status).toBe(401);
+    const login = await fetch(f.url + '/login');
+    expect(login.status).toBe(200);
+    expect(await login.text()).toContain('登录后访问项目 Web UI');
+
+    const wrong = await fetch(f.url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'username=owner&password=wrong-password&next=%2F' });
+    expect(wrong.status).toBe(401);
+    const success = await fetch(f.url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `username=owner&password=${encodeURIComponent(password)}&next=%2F` });
+    expect(success.status).toBe(303);
+    const cookie = success.headers.get('set-cookie').split(';')[0];
+    expect(cookie).toStartWith('lush_session=');
+    expect((await fetch(f.url, { headers: { Cookie: cookie } })).status).toBe(200);
+
+    const publicHost = `lush.example:${f.web.port}`;
+    expect((await fetch(f.url + '/api/snapshot', { headers: { Cookie: cookie, Host: publicHost } })).status).toBe(200);
+    const mutation = JSON.stringify({ method: 'input.submit', params: { content: 'cross-site' } });
+    expect((await fetch(f.url + '/api/action', { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json', Origin: 'https://evil.invalid' }, body: mutation })).status).toBe(403);
+    expect(f.project.inputs()).toHaveLength(0);
+
+    const logout = await fetch(f.url + '/logout', { method: 'POST', headers: { Cookie: cookie } });
+    expect(logout.status).toBe(303);
+    expect((await fetch(f.url + '/api/snapshot', { headers: { Cookie: cookie } })).status).toBe(401);
   } finally { await f.close(); }
 });
 

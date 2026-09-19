@@ -13,8 +13,9 @@ export async function run(command, args, ctx) {
     check(!client.token, 'agents cannot start web servers');
     check(args.length <= 1, 'web accepts one port');
     const { startWeb } = await import('../../ui/web/server.js');
+    const publicMode = fs.existsSync(path.join(config.home, 'web.json'));
     const server = startWeb(config, Number(args[0] ?? 4318));
-    console.log(`Lush ${config.project}\nhttp://127.0.0.1:${server.port}`); return;
+    console.log(`Lush ${config.project}\nhttp://${publicMode ? '0.0.0.0' : '127.0.0.1'}:${server.port}${publicMode ? '\n公网监听，需登录；请在前置代理启用 HTTPS。' : ''}`); return;
   }
   if (command === 'daemon') {
     check(!client.token, 'agents cannot control daemons'); exact(args, 1); value = await daemon(config, args[0]);

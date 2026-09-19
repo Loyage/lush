@@ -34,6 +34,7 @@ header button.home:hover strong,header button.home:focus-visible strong{text-dec
 #connection{font-size:12px;white-space:nowrap;color:var(--completed);display:flex;align-items:center;gap:6px}
 #connection::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
 #connection.offline{color:var(--failed)}
+.logout{margin:0}.logout button{white-space:nowrap}
 main{display:grid;grid-template-columns:minmax(300px,370px) minmax(0,1fr);min-height:0;overflow:hidden}
 aside{border-right:1px solid var(--line);overflow-y:auto;padding:16px 14px 28px;min-width:0;background:#121a16}
 #detail{overflow-y:auto;padding:18px 22px 32px;min-width:0}
