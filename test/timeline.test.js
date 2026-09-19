@@ -101,7 +101,7 @@ test('ladder separates code bases from order waits and notices a branch that alr
     const two = await commit('two', [one]);
     const three = await commit('three', [main]);
     const four = await commit('merge one', [main, one]);
-    const merged = await commit('already merged', [main]);
+    const merged = main;
     // 任务行必须先在库里，才能给它们挂分支信息与依赖边。
     expect([1, 2, 3, 4, 5]).toEqual(Array.from({ length: 5 }, (_, index) => f.store.create({ role: 'worker', goal: `task ${index + 1}`, name: `t${index + 1}` }).id));
     const rows = [['up', one, 1], ['stacked', two, 2], ['waits', three, 3], ['integrator', four, 4], ['landed', merged, 5]];
@@ -122,6 +122,9 @@ test('ladder separates code bases from order waits and notices a branch that alr
       { id: 5, kind: 'code', branch: 'lush/ns/5', merged: true, pending: false, contains: true },
     ]);
     expect(node(2).level).toBe(1);
+    const delivery = taskId => ladder.groups.flatMap(group => group.items).find(item => item.id === taskId);
+    expect(delivery(2)).toMatchObject({ ready: false, selectable: true });
+    expect(delivery(2).blockers).toContainEqual(expect.objectContaining({ code: 'code_upstream', task_id: 1 }));
     expect(node(3).deps[0]).toMatchObject({ kind: 'order', contains: false });
     expect(node(4).deps[0]).toMatchObject({ kind: 'order', contains: true });
     // order 边不改变合并层级：集成分支可以先合，而 code 基线必须先合。

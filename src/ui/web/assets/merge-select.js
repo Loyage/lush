@@ -5,7 +5,7 @@
  * 而不是各写一份互相漂移的判断。
  */
 
-/** 有交付、正在等合并的 integration；merged/superseded 已经没有可合的东西。 */
+/** 旧快照的兼容集合；新快照直接使用 ladder.groups[].items 的 ready/blockers。 */
 export const MERGEABLE_INTEGRATION = new Set(['pending', 'review', 'conflict']);
 
 /**
@@ -26,7 +26,11 @@ export function freezeBlocker(targetBranch, task, freeze = []) {
  * 目标分支、层级与覆盖关系来自 snapshot 的 ladder.nodes；冻结来自 status.merge_freeze。
  * 返回按 id 升序的数组；frozen_by 非空表示这个候选此刻不能合（勾选框禁用并说明是谁冻的）。
  */
-export function mergeCandidates(tasks, { nodes = [], freeze = [] } = {}) {
+export function mergeCandidates(tasks, { nodes = [], groups = [], freeze = [] } = {}) {
+  // 新交付队列由后端给出唯一候选与精确阻塞原因：原冲突任务和 resolver 不会再并列。
+  if (groups?.length) return groups.flatMap(group => group.items || []).map(item => ({
+    ...item, merge_id: item.source_task_id ?? item.id, frozen_by: item.blockers?.find(blocker => blocker.code === 'frozen')?.task_id ?? null,
+  })).sort((a, b) => a.id - b.id);
   const byId = new Map((nodes || []).map(node => [node.id, node]));
   return (tasks || [])
     .filter(task => task.status === 'completed' && MERGEABLE_INTEGRATION.has(task.integration))
@@ -37,17 +41,19 @@ export function mergeCandidates(tasks, { nodes = [], freeze = [] } = {}) {
       return {
         id: task.id, goal: task.goal, integration: task.integration, target_branch: target,
         level: node.level ?? 0, covered_by: node.covered_by || [],
+        ready: !blocker, blockers: blocker ? [{ code: 'frozen', task_id: blocker.task_id,
+          message: `合并被冻结：#${blocker.task_id} 的冲突还没解决` }] : [],
         frozen_by: blocker ? blocker.task_id : null,
       };
     })
     .sort((a, b) => a.id - b.id);
 }
 
-export const isMergeable = candidate => !candidate || candidate.frozen_by === null;
+export const isMergeable = candidate => !candidate || ((candidate.selectable ?? candidate.ready) !== false && candidate.frozen_by === null);
 
 /**
- * 顺序预览：与 src/core/merge-batch.js 的 mergeOrder 同一套规则——只算选中集合内的依赖边，
- * 上游优先，并列按 id 升序（无解时兜底按 id 升序，绝不无限循环）。所以确认框里看到的顺序
+ * 顺序预览：与 src/core/merge-batch.js 的 mergeOrder 同一套规则——只算选中集合内的 code 边；
+ * order 只约束执行。代码上游优先，并列按 id 升序（无解时兜底按 id 升序）。所以确认框里看到的顺序
  * 就是运行时真正执行的顺序。
  */
 export function previewMergeOrder(ids, edges = []) {
@@ -55,7 +61,7 @@ export function previewMergeOrder(ids, edges = []) {
   const selected = new Set(unique);
   const upstreams = new Map(unique.map(taskId => [taskId, new Set()]));
   for (const edge of edges || []) {
-    if (!selected.has(edge.task_id) || !selected.has(edge.depends_on)) continue;
+    if (edge.kind !== 'code' || !selected.has(edge.task_id) || !selected.has(edge.depends_on)) continue;
     upstreams.get(edge.task_id).add(edge.depends_on);
   }
   const order = [];
@@ -76,7 +82,7 @@ export function previewMergeOrder(ids, edges = []) {
   return order;
 }
 
-/** ladder.nodes 的 deps 展成预览要的边列表；kind 只影响说明文案，先后由边本身决定。 */
+/** ladder.nodes 的 deps 展成预览边；previewMergeOrder 会只采用 code 边。 */
 export function ladderEdges(nodes = []) {
   const edges = [];
   for (const node of nodes || []) {

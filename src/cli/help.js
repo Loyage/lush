@@ -18,7 +18,7 @@ lush [--project PATH] [--json] <command>
   draft commit [ID...]            把缓存交给意图分析：只提交给定 ID（无参即全部），一个 planner 拆成多个任务并建依赖
   task list [--after N] [--limit N] 分页任务列表（默认 200 条，只含开发任务；planner/scheduler 见 intent list）
   task tree [ID]                  多级任务树：依赖（⛓ 基线 / ⏳ 顺序）与兄弟间的并行关系
-  task ladder                     合并阶梯：未合并分支之间谁必须先进目标分支、谁已经被别的分支带进来
+  task ladder                     交付队列：按目标分支分组，显示变更栈、当前来源与阻塞原因
   task timeline [--limit N]       并行时间轴：每个任务什么时候真的在跑，排队是在等依赖、等槽还是等子任务
   task inspect ID                 结果、agent、子任务、消息与工作区
   task history ID [--after N]      分页事件记录
@@ -34,10 +34,10 @@ lush [--project PATH] [--json] <command>
   task message ID '补充说明'       追加输入，不打断当前 invocation
   task cancel|retry ID            取消子树 / 明确重试失败任务
   task wait ID                    仅阻塞此客户端，不占 agent 槽
-  task merge ID [ID...]           用户明确批准合并到原目标分支（多个 id 时批量合并，按依赖顺序逐个）；
-                                  内容冲突不会变成报错，而是开一个解冲突任务并提问，
-                                  解决前同一目标分支上的其它合并被冻结（答复／忽略那条 notice 即可继续）；
-                                  批量合并遇到第一个冲突或失败即停下，剩余标为跳过。
+  task merge ID [ID...]           用户明确批准交付到原目标分支；批量只接受同一目标分支，
+                                  只按 code 基线排序（order 只影响执行），预检后逐个落地；
+                                  内容冲突会开 resolver 并提问，完成后原任务 id 自动指向其结果；
+                                  运行期遇到第一个冲突或失败即停下，剩余标为跳过。
   task verify ID                  为一个已完成的 worker 派只读 verifier：演示 worktree 结果并对照目标分支
   task cleanup ID [--keep-branch] 安全回收 worktree 与任务分支（--keep-branch 只回收 worktree）
   task clear                      删除全部已结束任务及 inputs/drafts/notices/events；有活动任务时拒绝

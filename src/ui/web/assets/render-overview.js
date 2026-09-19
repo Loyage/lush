@@ -15,6 +15,7 @@ export function renderOverview(data) {
     Math.floor(Date.now() / 15000),
     (data.timeline?.tasks || []).map(task => `${task.id}:${task.status}:${task.segments.length}`).join(','),
     (data.ladder?.nodes || []).map(node => `${node.id}:${node.level}:${node.deps.length}:${node.covered_by.join('|')}`).join(','),
+    (data.ladder?.groups || []).flatMap(group => group.items || []).map(item => `${item.id}:${item.source_task_id}:${item.phase}:${item.ready}:${(item.blockers || []).map(blocker => blocker.code).join('|')}`).join(','),
     // 冻结状态一变，可合并集合与勾选可用性就跟着变，所以它也必须进 key。
     (data.status.merge_freeze || []).map(row => `${row.task_id}:${row.target_branch}:${row.resolves_task_id ?? '-'}`).join(',')]);
   if (key === ui.overviewKey) return;

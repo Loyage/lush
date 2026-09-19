@@ -17,7 +17,8 @@ export default {
       drafts: this.store.draftCount(),
       agents: [...this.running].map(([task_id, run]) => agentView(this.store.task(task_id), run)),
       agents_total: alive, agents_idle: alive - this.running.size,
-      pending_merges: this.store.all("SELECT id, substr(goal,1,500) AS goal, branch, integration FROM tasks WHERE integration IN ('pending','review','conflict') ORDER BY id LIMIT 100"),
+      // 以原 worker 为稳定交付项；resolver 是它的来源，不在这里重复计数（完整阶段见 task.ladder.groups）。
+      pending_merges: this.store.all("SELECT id, substr(goal,1,500) AS goal, branch, integration FROM tasks WHERE resolves_task_id IS NULL AND integration IN ('pending','review','conflict') ORDER BY id LIMIT 100"),
       // 未解决的冲突冻结同一目标分支上的合并：界面据此禁用按钮并说清原因。
       // resolves_task_id 取真正在服务这条冲突的解冲突任务（他不在 W 自己的列上，而是它指向 W）。
       merge_freeze: this.store.all(`SELECT id AS task_id, target_branch,

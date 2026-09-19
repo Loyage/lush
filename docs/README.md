@@ -1,6 +1,7 @@
 # 文档
 
-- [使用说明](../README.md)：运行、任务、worktree 与合并。
+- [使用说明](../README.md)：安装、运行与常用命令。
+- [行动任务处理流程](task-flow.md)：从输入、规划、执行、审阅到交付、解冲突与回收的完整使用流程。
 - [总体架构](engineering/architecture.md)：索引；实体、不变量、调度与恢复的入口。
 - [CLI / RPC 参考](reference/api.md)：公开接口。
 

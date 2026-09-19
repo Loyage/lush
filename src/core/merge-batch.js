@@ -3,7 +3,8 @@
  *
  * 规则（与 Project.approveMergeMany 的契约一致）：
  * - 只看「本次选中集合内」的依赖边：`task_id` 与 `depends_on` 都在集合里才算数。
- * - `code` 与 `order` 都要求上游先合；`code` 更是硬要求（下游分支以它为基线）。
+ * - 只有 `code` 是合并依赖：下游分支以它为基线，必须先落地上游。
+ * - `order` 只约束任务执行，不约束交付；把它用于合并排序会让任务树与交付队列出现两套语义。
  * - 没有依赖约束的按 id 升序，所以并列者的位置稳定、可预测。
  * - 集合外的上游不参与排序：它是否已合由 approveMerge 自己的门槛判断，不是这里的职责。
  */
@@ -11,7 +12,7 @@ export function mergeOrder(ids, edges = []) {
   const selected = new Set(ids);
   const upstreams = new Map(ids.map(taskId => [taskId, new Set()]));
   for (const edge of edges) {
-    if (!selected.has(edge.task_id) || !selected.has(edge.depends_on)) continue;
+    if (edge.kind !== 'code' || !selected.has(edge.task_id) || !selected.has(edge.depends_on)) continue;
     upstreams.get(edge.task_id).add(edge.depends_on);
   }
   const order = [];

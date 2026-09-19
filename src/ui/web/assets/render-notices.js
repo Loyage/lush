@@ -42,7 +42,7 @@ export function openNotice(noticeId) {
 
 /* ---------- detail ---------- */
 /** 右侧顶部的 notice：完整正文 + 回复框，下面继续跟它所属任务的详情。 */
-export function noticePanel(notice) {
+export function noticePanel(notice, task = null) {
   const section = el('section', undefined, 'notice focus');
   section.dataset.id = notice.id;
   const head = el('div', undefined, 'notice-head');
@@ -50,30 +50,35 @@ export function noticePanel(notice) {
     el('span', `${relative(notice.created_at)} · ${absolute(notice.created_at)}`, 'when'));
   section.append(head, el('h3', notice.title), el('p', notice.body || '（没有补充说明）', 'notice-body'));
 
-  const answer = el('textarea');
-  answer.placeholder = '你的决定；⌘/Ctrl+回车提交'; answer.rows = 3;
-  answer.addEventListener('input', () => { ui.detailDirty = true; });
+  const resolutionDecision = task?.role === 'merger' && task.resolves_task_id && task.agent_wakes === 0;
+  const answer = resolutionDecision ? null : el('textarea');
+  if (answer) {
+    answer.placeholder = '你的决定；⌘/Ctrl+回车提交'; answer.rows = 3;
+    answer.addEventListener('input', () => { ui.detailDirty = true; });
+  }
   const actions = el('div', undefined, 'actions');
-  const settle = async () => {
+  const settle = async value => {
     actions.querySelectorAll('button').forEach(node => { node.disabled = true; });
-    await action('notice.answer', { id: notice.id, answer: answer.value });
+    await action('notice.answer', { id: notice.id, answer: value });
     ui.noticeFocus = null; ui.detailDirty = false;
     await detail(notice.task_id);
   };
-  actions.append(
-    button('回复并继续任务', settle),
-    button('忽略', async () => {
-      actions.querySelectorAll('button').forEach(node => { node.disabled = true; });
-      await action('notice.dismiss', { id: notice.id });
-      ui.noticeFocus = null; ui.detailDirty = false;
-      await detail(notice.task_id);
-    }, 'ghost'),
-    button('收起，只看任务详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost'));
-  answer.addEventListener('keydown', event => {
+  const dismiss = async () => {
+    actions.querySelectorAll('button').forEach(node => { node.disabled = true; });
+    await action('notice.dismiss', { id: notice.id });
+    ui.noticeFocus = null; ui.detailDirty = false;
+    await detail(notice.task_id);
+  };
+  if (resolutionDecision) actions.append(
+    button('开始解冲突', () => settle('批准，开始解冲突')),
+    button('暂不处理', dismiss, 'ghost'));
+  else actions.append(button('回复并继续任务', () => settle(answer.value)), button('忽略', dismiss, 'ghost'));
+  actions.append(button('收起，只看任务详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost'));
+  if (answer) answer.addEventListener('keydown', event => {
     if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
     if (!event.metaKey && !event.ctrlKey) return;
     event.preventDefault(); actions.querySelector('button').click();
   });
-  section.append(answer, actions);
+  section.append(...(answer ? [answer] : []), actions);
   return section;
 }

@@ -13,7 +13,7 @@ export const deps = {
     return this.all(`SELECT d.task_id AS id, d.kind, t.role, t.status, substr(t.goal,1,200) AS goal
       FROM task_deps d JOIN tasks t ON t.id=d.task_id WHERE d.depends_on=? ORDER BY d.task_id`, taskId);
   },
-  /** 这些任务的依赖边：时间轴与合并阶梯都要画"在等谁"。 */
+  /** 这些任务的依赖边：时间轴画执行等待，交付队列只把其中的 code 边当合并约束。 */
   edgesOf(taskIds) {
     if (!taskIds.length) return [];
     const holes = taskIds.map(() => '?').join(',');

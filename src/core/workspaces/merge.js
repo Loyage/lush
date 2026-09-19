@@ -1,7 +1,30 @@
 import { check, LushError } from '../types.js';
 
-/** 批准合并的三种结局。 */
+/** 批准合并的预检与三种结局。 */
 export const methods = {
+  /** 批量交付的只读预检：在第一项改写主树前把共同分支、脏树、审阅提交漂移与 resolver 完整性一次查完。 */
+  preflightMerge(tasks) {
+    return this.exclusive(async () => {
+      check(Array.isArray(tasks) && tasks.length > 0, 'merge preflight needs tasks');
+      const project = this.config.project;
+      const targets = [...new Set(tasks.map(task => task.target_branch))];
+      check(targets.length === 1 && targets[0], 'merge preflight requires one target branch');
+      await this.clean(project);
+      check(await this.git(project, 'symbolic-ref', '--short', 'HEAD') === targets[0], `switch to ${targets[0]} before merging`);
+      for (const raw of tasks) {
+        const task = this.store.task(raw.id);
+        check(task.status === 'completed' && ['pending','review','conflict'].includes(task.integration), `#${task.id} is not a completed merge candidate`);
+        await this.clean(task.workspace);
+        check(await this.git(task.workspace, 'rev-parse', 'HEAD') === task.head_commit, `task #${task.id} branch changed after review`);
+        if (task.resolves_task_id) {
+          const resolved = this.store.task(task.resolves_task_id);
+          check(resolved.head_commit && await this.isAncestor(project, resolved.head_commit, task.head_commit),
+            `resolution #${task.id} does not contain the reviewed commit of #${resolved.id}; land a branch that keeps that work`);
+        }
+      }
+      return { target_branch: targets[0], tasks: tasks.map(task => task.id) };
+    });
+  },
   /**
    * 批准一次合并。三种结局：
    *   {task, conflict: null}          合并成功，integration=merged

@@ -12,7 +12,7 @@ export const EVENTS = {
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
   'workspace.created': '创建 worktree', 'workspace.removed': '回收 worktree', 'branch.removed': '回收分支',
   'verify.requested': '请求检验', 'baseline.created': '创建对照基线', 'baseline.removed': '回收对照基线',
-  'merge.approved': '批准合并', merged: '已合并', 'merge.failed': '合并失败',
+  'merge.approved': '批准合并', merged: '已合并', 'merge.included': '随其它变更一并落地', 'merge.failed': '合并失败',
   'merge.conflict': '合并冲突', 'merge.resolved': '冲突已解决', 'merge.conflict.abandoned': '放弃解冲突',
   'resolution.superseded': '解冲突作废',
   completed: '完成', failed: '失败', cancelled: '取消',

@@ -74,9 +74,53 @@ test('task.merge answers with a conflict payload instead of an error, and the no
     // 答复走过的也是用户通道；答复后解冲突任务开工。
     await dispatcher.dispatch('notice.answer', { id: result.merge.notice_id, answer: '批准' });
     await until(() => f.store.task(result.merge.resolution_task_id).status === 'completed');
-    const landed = await dispatcher.dispatch('task.merge', { id: result.merge.resolution_task_id });
+    // 单任务入口也接受稳定的原 worker id，并自动落地已经完成且仍可快进的 resolver。
+    const landed = await dispatcher.dispatch('task.merge', { id: target.id });
     expect(landed.merge).toEqual({ status: 'resolved', resolved_task_id: target.id });
     expect(f.project.status().merge_freeze).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test('batch merge treats a completed resolver as the original change’s only delivery source', async () => {
+  const f = fixture(gitWorker());
+  try {
+    await repo(f.root);
+    const { colliding: target } = await colliding(f);
+    const conflict = await f.project.approveMerge(target.id);
+    const resolutionId = conflict.merge.resolution_task_id;
+    f.project.answer(conflict.merge.notice_id, '开始');
+    await until(() => f.store.task(resolutionId).status === 'completed');
+    const queue = await f.project.ladder();
+    const item = queue.groups.flatMap(group => group.items).find(row => row.id === target.id);
+    expect(item).toMatchObject({ id: target.id, source_task_id: resolutionId, phase: 'resolution_ready', ready: true });
+    expect(queue.nodes.some(row => row.id === resolutionId)).toBe(false);
+
+    const result = await f.project.approveMergeMany([target.id]);
+    expect(result.merges).toHaveLength(1);
+    expect(result.merges[0]).toMatchObject({ id: target.id, source_task_id: resolutionId, status: 'merged' });
+    expect(f.store.task(target.id).integration).toBe('merged');
+    expect(f.store.task(resolutionId).integration).toBe('merged');
+  } finally { await f.close(); }
+});
+
+test('batch keeps code-stack order when the upstream lands through a resolver', async () => {
+  const f = fixture(gitWorker());
+  try {
+    await repo(f.root);
+    const parent = f.store.create({ input_id: null, role: 'coordinator', goal: 'stack' });
+    const upstream = f.project.spawn(parent.id, 'upstream', 'worker', [], 'conflicting');
+    const downstream = f.project.spawn(parent.id, 'downstream', 'worker', [{ id: upstream.id, kind: 'code' }], 'independent');
+    await until(() => f.store.task(upstream.id).status === 'completed' && f.store.task(downstream.id).status === 'completed');
+    fs.writeFileSync(path.join(f.root, 'file.txt'), 'main\n');
+    await git(f.root, 'add', '-A'); await git(f.root, 'commit', '-m', 'main moves on');
+    const conflict = await f.project.approveMerge(upstream.id);
+    f.project.answer(conflict.merge.notice_id, '开始');
+    await until(() => f.store.task(conflict.merge.resolution_task_id).status === 'completed');
+
+    const result = await f.project.approveMergeMany([downstream.id, upstream.id]);
+    expect(result.merges.map(row => [row.id, row.source_task_id ?? row.id, row.status])).toEqual([
+      [upstream.id, conflict.merge.resolution_task_id, 'merged'], [downstream.id, downstream.id, 'merged'],
+    ]);
   } finally { await f.close(); }
 });
 
@@ -108,8 +152,9 @@ test('a conflict becomes an awaiting resolution task with a notice, and lands wi
     expect(f.project.tree(target.id).children.map(child => child.id)).toEqual([resolution.id]);
     expect(f.project.inspect(target.id).resolutions.map(row => row.id)).toEqual([resolution.id]);
 
-    // 2) 冲突未解决期间，同一目标分支上的其它合并被冻结。
+    // 2) 冲突未解决期间，同一目标分支上的其它合并被冻结；原任务也不能绕过活动 resolver 从旁重试。
     await expect(f.project.approveMerge(clean.id)).rejects.toThrow('frozen');
+    await expect(f.project.approveMerge(target.id)).rejects.toThrow(`resolution task #${resolution.id} is still active`);
 
     // 3) 答复 notice → 解冲突任务开工 → 在目标分支基线上做出一个合并提交。
     f.project.answer(notice.id, '批准，开始解冲突');
@@ -174,6 +219,9 @@ test('a resolution the target has moved past is superseded by the next round', a
     await git(f.root, 'add', '-A');
     await git(f.root, 'commit', '-m', 'main moves by hand');
     const moved = await git(f.root, 'rev-parse', 'HEAD');
+    const stale = (await f.project.ladder()).groups.flatMap(group => group.items).find(item => item.id === target.id);
+    expect(stale).toMatchObject({ source_task_id: resolutionId, phase: 'resolution_stale', ready: false });
+    expect(stale.blockers).toContainEqual(expect.objectContaining({ code: 'resolution_stale', task_id: resolutionId }));
     await expect(f.project.approveMerge(resolutionId)).rejects.toThrow('fast-forward');
     // 快进失败没有中间态：main 没被动过，原任务仍挂起（冻结也还在），解冲突任务留着等重试。
     expect(await git(f.root, 'rev-parse', 'HEAD')).toBe(moved);

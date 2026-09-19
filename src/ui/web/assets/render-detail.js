@@ -58,12 +58,13 @@ export function renderDetail(task, history, diff, usage) {
   panel.append(head);
 
   const notice = ui.noticeFocus === null ? null : ui.noticeIndex.get(ui.noticeFocus);
-  if (notice && notice.task_id === task.id) panel.prepend(noticePanel(notice));
+  if (notice && notice.task_id === task.id) panel.prepend(noticePanel(notice, task));
 
   const actions = el('div', undefined, 'actions');
   const stacked = (task.deps || []).filter(edge => edge.kind === 'code');
   const freeze = freezeOf(task);
   const resolver = resolverOf(task);
+  const deliveryItem = (ui.lastSnapshot?.ladder?.groups || []).flatMap(group => group.items || []).find(item => item.id === task.id) || null;
   if (freeze) {
     // 同一目标分支上有没解决的冲突：这里点合并只会失败，所以禁用并指向那个任务。
     const node = button('合并已被冻结', () => {}, 'ghost');
@@ -72,15 +73,18 @@ export function renderDetail(task, history, diff, usage) {
     actions.append(node);
   } else if (task.status === 'completed' && ['pending', 'review', 'conflict'].includes(task.integration)) {
     const live = resolver && !TERMINAL_STATUS.has(resolver.status);
+    const readyResolver = resolver && resolver.status === 'completed' && ['pending', 'review'].includes(resolver.integration)
+      && deliveryItem?.phase !== 'resolution_stale';
     const retry = task.integration === 'conflict';
-    const label = live ? `解冲突任务 #${resolver.id} 进行中`
-      : retry ? '重试合并' : task.integration === 'review' ? '检查后重新批准合并' : '批准合并';
+    const label = readyResolver ? `审阅并落地解冲突结果 #${resolver.id}` : live ? `解冲突任务 #${resolver.id} 进行中`
+      : retry ? '重新尝试合并' : task.integration === 'review' ? '检查后重新批准合并' : '批准合并';
     const node = button(label, async () => {
+      if (readyResolver) return detail(resolver.id);
       const lines = [retry ? `重新尝试把 ${task.branch} 合并到 ${task.target_branch}？如果还冲突，会再开一轮解冲突任务。`
         : `将 ${task.branch} 合并到 ${task.target_branch}？请先审阅代码和测试结果。`];
       if (stacked.length) lines.push(`本任务 stacked 在 #${stacked.map(edge => edge.id).join('、')} 之上，必须先合并上游，否则会把它的改动一起带进来。`);
       if (task.resolves_task_id) lines.push('这是解冲突任务：落地用 --ff-only，落地的树就是它测过的那棵树。');
-      if (resolver) lines.push(`解冲突任务 #${resolver.id} 还没落地：重试会让它作废（分支与目录保留在磁盘上）。`);
+      if (resolver) lines.push(`解冲突任务 #${resolver.id} 还没落地：重新尝试会明确废弃它（分支与目录仍保留）。`);
       if (!confirm(lines.join('\n\n'))) return;
       const result = await action('task.merge', { id: task.id });
       if (result?.merge?.status === 'conflict') $('error').textContent = `合并冲突：已开解冲突任务 #${result.merge.resolution_task_id}，请处理左侧的待决问题（${task.target_branch} 上的其它合并已冻结）。`;

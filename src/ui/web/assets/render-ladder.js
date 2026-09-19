@@ -1,92 +1,133 @@
 import { $, block, button, el } from './dom.js';
 import { action } from './api.js';
-import { INTEGRATION, MERGE_STATUS } from './format.js';
+import { MERGE_STATUS } from './format.js';
 import { isMergeable, ladderEdges, mergeCandidates, previewMergeOrder } from './merge-select.js';
 import { detail, refresh } from './navigate.js';
 import { mergeSelection, ui } from './state.js';
 
-/* ---------- 批量合并的选择 ---------- */
-/** 合并一批选中的任务：先按与运行时相同的规则预览顺序，再整批交给 task.merge_many。 */
+const PHASE = {
+  awaiting_review: '待审阅与批准',
+  review_required: '合并曾中断 · 需复查',
+  conflict_decision: '等待决定是否解冲突',
+  resolving: '正在解冲突',
+  resolution_ready: '解冲突结果待落地',
+  resolution_stale: '解冲突结果已过期',
+};
+
+/* ---------- 批量交付 ---------- */
+/** 合并一批稳定的“原任务 id”；后端会把有现成 resolver 的条目映射到真正的来源分支。 */
 export async function mergeBatch(ids, candidates) {
-  const picked = [...new Set(ids)];
+  const picked = [...new Set(ids)].map(id => candidates.find(candidate => candidate.id === id)).filter(Boolean);
   if (!picked.length) return;
+  const targets = [...new Set(picked.map(candidate => candidate.target_branch))];
+  if (targets.length !== 1) throw new Error('一次只能合并到一个目标分支');
   const nodes = ui.lastSnapshot?.ladder?.nodes || [];
-  const order = previewMergeOrder(picked, ladderEdges(nodes));
-  const goalOf = id => candidates.find(candidate => candidate.id === id)?.goal || nodes.find(node => node.id === id)?.goal || '';
-  const lines = order.map((taskId, index) => `${index + 1}. #${taskId}${goalOf(taskId) ? ` ${String(goalOf(taskId)).slice(0, 40)}` : ''}`);
-  if (!confirm(`将按依赖顺序合并 ${order.length} 个任务（上游先合，逐个写主树，遇到冲突或错误就停下并把剩余跳过）：\n\n${lines.join('\n')}\n\n请先确认代码与测试结果都审阅过。`)) return;
-  const result = await action('task.merge_many', { ids: picked });
+  const order = previewMergeOrder(picked.map(candidate => candidate.id), ladderEdges(nodes));
+  const byId = new Map(picked.map(candidate => [candidate.id, candidate]));
+  const lines = order.map((taskId, index) => {
+    const candidate = byId.get(taskId);
+    const source = candidate?.merge_id && candidate.merge_id !== taskId ? `（落地解冲突结果 #${candidate.merge_id}）` : '';
+    return `${index + 1}. #${taskId}${candidate?.goal ? ` ${String(candidate.goal).slice(0, 40)}` : ''}${source}`;
+  });
+  if (!confirm(`将向 ${targets[0]} 依次交付 ${order.length} 个变更（只按代码基线排序，遇到冲突或错误就停止；此前已成功的不会回滚）：\n\n${lines.join('\n')}\n\n请先确认代码与测试结果都已审阅。`)) return;
+  const result = await action('task.merge_many', { ids: picked.map(candidate => candidate.id) });
   ui.lastMergeResult = { requested: order, result };
-  ui.overviewKey = null;   // 结果要落在概览里，强制重画一次
+  ui.overviewKey = null;
   await refresh();
 }
 
-/** 合并阶梯：该先合哪个、哪些已经被别的分支带进来了，以及勾选 / 一键多任务合并。 */
+function fallbackGroups(candidates) {
+  const groups = new Map();
+  for (const candidate of candidates) {
+    const target = candidate.target_branch || '(未知目标分支)';
+    if (!groups.has(target)) groups.set(target, []);
+    groups.get(target).push(candidate);
+  }
+  return [...groups].map(([target_branch, items]) => ({ target_branch, current: null, items }));
+}
+
+/** 交付队列：按目标分支分组；code 链是变更栈，resolver 只作为原任务的当前落地来源。 */
 export function renderLadder(data) {
-  const nodes = data?.ladder?.nodes || [];
-  const candidates = mergeCandidates(data?.tasks || [], { nodes, freeze: data?.status?.merge_freeze || [] });
+  const ladder = data?.ladder || {};
+  const nodes = ladder.nodes || [];
+  const candidates = mergeCandidates(data?.tasks || [], { nodes, groups: ladder.groups || [], freeze: data?.status?.merge_freeze || [] });
   const byId = new Map(candidates.map(candidate => [candidate.id, candidate]));
-  // 已经不合法的勾选（任务合完了 / 被冻结 / 从阶梯消失）在重画时清掉。
   for (const id of [...mergeSelection]) if (!byId.has(id) || !isMergeable(byId.get(id))) mergeSelection.delete(id);
-  const mergeable = candidates.filter(isMergeable);
 
-  // 这里就是「待你批准合并」：待合并分支、谁必须先合、谁已经被别人带进来了。
-  const section = block('合并阶梯', nodes.length ? `待批准 ${nodes.length}` : undefined);
-  if (!nodes.length) { section.append(el('p', '没有待合并的分支。', 'hint')); return section; }
-  section.append(el('p', '⛓ code 依赖＝下游 worktree 的基线：必须先合上游，否则下游的分支会把它一起带进来。\n⏳ order 依赖只要求上游结束，所以下游可以先合——那时它有没有把上游带进来由 git 判定。', 'hint'));
+  const section = block('交付队列', candidates.length ? `待处理 ${candidates.length}` : undefined);
+  if (!candidates.length) { section.append(el('p', '没有待交付的变更。', 'hint')); return section; }
+  section.append(el('p', '任务树表示谁在做什么；这里仅表示改动如何进入目标分支。⛓ 代码基线决定必须先落地的变更栈，⏳ 执行依赖不改变合并顺序。一次批量操作只处理一个目标分支。', 'hint'));
 
+  const groups = ladder.groups?.length
+    ? ladder.groups.map(group => ({ ...group, items: group.items.map(item => byId.get(item.id)).filter(Boolean) }))
+    : fallbackGroups(candidates);
   const boxes = new Map();
-  const actions = el('div', undefined, 'actions pick-actions');
-  const mergeSelected = button('合并选中', () => mergeBatch(mergeable.filter(candidate => mergeSelection.has(candidate.id)).map(candidate => candidate.id), candidates));
-  const mergeAll = button('一键合并所有可合并任务', () => mergeBatch(mergeable.map(candidate => candidate.id), candidates));
-  const selectAll = button('全选可合并', () => { for (const candidate of mergeable) mergeSelection.add(candidate.id); sync(); }, 'ghost');
-  const clearAll = button('清空选择', () => { mergeSelection.clear(); sync(); }, 'ghost');
-  const sync = () => {
-    const picked = mergeable.filter(candidate => mergeSelection.has(candidate.id)).length;
-    mergeSelected.textContent = `合并选中 (${picked})`;
-    mergeSelected.disabled = !picked;
-    mergeAll.textContent = `一键合并所有可合并任务 (${mergeable.length})`;
-    mergeAll.disabled = !mergeable.length;
-    selectAll.disabled = !mergeable.length;
-    clearAll.disabled = !mergeSelection.size;
-    for (const [id, box] of boxes) box.checked = mergeSelection.has(id);
+  const controls = [];
+  const selectStack = candidate => {
+    for (const dep of (candidate.deps || []).filter(edge => edge.kind === 'code')) {
+      const upstream = byId.get(dep.id);
+      if (upstream && isMergeable(upstream)) selectStack(upstream);
+    }
+    mergeSelection.add(candidate.id);
   };
-  actions.append(mergeSelected, mergeAll, selectAll, clearAll);
-  section.append(actions);
 
-  for (const node of nodes) {
-    const candidate = byId.get(node.id);
-    const line = el('div', undefined, `ladder l${Math.min(node.level, 5)}`);
-    const row = el('div', undefined, 'row');
-    if (candidate) {
+  const sync = () => {
+    for (const [id, box] of boxes) box.checked = mergeSelection.has(id);
+    for (const control of controls) {
+      const ready = control.items.filter(isMergeable);
+      const picked = ready.filter(item => mergeSelection.has(item.id));
+      control.selected.textContent = `合并本分支选中 (${picked.length})`;
+      control.selected.disabled = !picked.length;
+      control.all.textContent = `合并本分支全部可交付 (${ready.length})`;
+      control.all.disabled = !ready.length;
+    }
+  };
+
+  for (const group of groups) {
+    const groupItems = group.items || [];
+    const groupBlock = block(`目标分支 ${group.target_branch}`, group.current === true ? '当前检出' : group.current === false ? `当前检出 ${ladder.current_branch || '其它分支'}` : undefined);
+    const ready = groupItems.filter(isMergeable);
+    const actions = el('div', undefined, 'actions pick-actions');
+    const selected = button('', () => mergeBatch(ready.filter(item => mergeSelection.has(item.id)).map(item => item.id), candidates));
+    const all = button('', () => mergeBatch(ready.map(item => item.id), candidates));
+    const clear = button('清空选择', () => { mergeSelection.clear(); sync(); }, 'ghost');
+    controls.push({ items: groupItems, selected, all });
+    actions.append(selected, all, clear); groupBlock.append(actions);
+
+    for (const candidate of groupItems) {
+      const line = el('div', undefined, `ladder l${Math.min(candidate.level || 0, 5)}`);
+      const row = el('div', undefined, 'row');
       const box = el('input', undefined, 'pick');
       box.type = 'checkbox'; box.checked = mergeSelection.has(candidate.id); box.disabled = !isMergeable(candidate);
       box.setAttribute('aria-label', `选择任务 #${candidate.id} 参与批量合并`);
-      box.title = isMergeable(candidate) ? '勾选后点「合并选中」' : `合并被冻结：#${candidate.frozen_by} 的冲突还没解决`;
+      box.title = isMergeable(candidate)
+        ? ((candidate.blockers || []).some(item => item.code === 'code_upstream') ? '勾选时会自动带上同一变更栈的 code 上游' : '勾选后合并到本目标分支')
+        : (candidate.blockers || []).map(item => item.message).join('\n');
       box.onchange = () => {
-        if (box.checked) mergeSelection.add(candidate.id); else mergeSelection.delete(candidate.id);
+        if (box.checked) {
+          // 选择另一个目标分支时清掉旧选择，避免界面制造跨分支批次。
+          for (const id of [...mergeSelection]) if (byId.get(id)?.target_branch !== candidate.target_branch) mergeSelection.delete(id);
+          selectStack(candidate);
+        } else mergeSelection.delete(candidate.id);
         sync();
       };
       boxes.set(candidate.id, box);
-      row.append(box);
-    } else {
-      // 还没到 completed（比如刚创建的解冲突任务）：列出来说明它占着阶梯，但不可合并。
-      row.append(el('span', '·', 'tid'));
+      row.append(box, el('span', `#${candidate.id}`, 'tid'), button(candidate.goal, () => detail(candidate.id), 'link'),
+        el('span', PHASE[candidate.phase] || candidate.phase || candidate.integration, 'when'));
+      line.append(row);
+      if (candidate.merge_id && candidate.merge_id !== candidate.id) {
+        line.append(el('span', `↳ 当前落地来源：解冲突任务 #${candidate.merge_id}`, 'meta'));
+      }
+      for (const dep of candidate.deps || []) {
+        line.append(el('span', `${dep.kind === 'code' ? '⛓ 代码基线' : '⏳ 仅执行依赖'} #${dep.id}${dep.merged ? '（已落地）' : ''}`, 'meta'));
+      }
+      for (const blocker of candidate.blockers || []) line.append(el('span', `⛔ ${blocker.message}`, 'meta warn'));
+      if (candidate.covered_by?.length) line.append(el('span', `提示：提交也存在于 #${candidate.covered_by.join('、')}；任一分支落地后系统会按 Git 事实自动收口状态。`, 'meta'));
+      groupBlock.append(line);
     }
-    row.append(el('span', `L${node.level}`, 'tid'), el('span', `#${node.id}`, 'tid'),
-      button(node.goal, () => detail(node.id), 'link'),
-      el('span', [INTEGRATION[node.integration] || node.integration, node.branch].filter(Boolean).join(' · '), 'when'));
-    line.append(row);
-    for (const dep of node.deps) {
-      line.append(el('span', `${dep.kind === 'code' ? '⛓ 必须先合' : '⏳ 只等结束'} #${dep.id}${dep.merged ? '（已合并）' : ''}${dep.kind === 'order' && dep.contains ? '（它的提交已经在你里面）' : ''}`, 'meta'));
-    }
-    if (node.covered_by.length) line.append(el('span', `⚠ 已经被 #${node.covered_by.join('、')} 带进来：合后者即可，本分支会变成 no-op`, 'meta warn'));
-    if (candidate && candidate.frozen_by) line.append(el('span', `⛔ 合并被冻结：#${candidate.frozen_by} 的冲突还没解决，先处理它的待决问题`, 'meta warn'));
-    section.append(line);
+    section.append(groupBlock);
   }
   sync();
-  const first = nodes.filter(node => node.level === 0 && !node.covered_by.length).map(node => node.id);
-  if (first.length) section.append(el('p', `建议先合 ${first.map(taskId => `#${taskId}`).join('、')}；命令：lush task merge <id> ，或在上面勾选后一键合并。`));
   if (ui.lastMergeResult) section.append(renderMergeResult(ui.lastMergeResult));
   return section;
 }
@@ -94,19 +135,20 @@ export function renderLadder(data) {
 /** 批量合并的逐条结果：成功、失败原因、冲突并指向新开的解冲突任务。 */
 export function renderMergeResult(entry) {
   const { result } = entry;
-  const section = block('批量合并结果', `${result.merged} 个成功`);
+  const section = block('批量交付结果', `${result.merged} 个成功`);
   const summary = result.stopped
-    ? `合并 ${result.merged} 个后停在 #${result.stopped.id}：${result.stopped.reason}；剩余任务已跳过（未动主树）。`
-    : `全部合并成功：${result.merged} 个。`;
+    ? `已向 ${result.target_branch || '目标分支'} 交付 ${result.merged} 个，随后停在 #${result.stopped.id}：${result.stopped.reason}；剩余任务未执行。`
+    : `全部交付成功：${result.merged} 个${result.target_branch ? ` → ${result.target_branch}` : ''}。`;
   section.append(el('p', summary, result.stopped ? 'hint warn' : 'hint'));
   for (const row of result.merges) {
     const line = el('div', undefined, 'row');
     line.append(el('span', MERGE_STATUS[row.status] || row.status, `c-${row.status === 'merged' ? 'completed' : row.status === 'conflict' || row.status === 'failed' ? 'failed' : 'queued'}`),
       el('span', `#${row.id}`, 'tid'));
+    if (row.source_task_id && row.source_task_id !== row.id) line.append(el('span', `通过解冲突任务 #${row.source_task_id}`, 'meta'));
     if (row.status === 'conflict' && row.resolution_task_id) {
       line.append(el('span', `已开解冲突任务 #${row.resolution_task_id}`, 'meta'), button('查看解冲突任务', () => detail(row.resolution_task_id), 'link'));
     } else if (row.error && row.status !== 'merged') line.append(el('span', row.error, 'meta'));
-    if (row.status === 'merged') line.append(el('span', '已进入目标分支', 'meta'));
+    if (row.status === 'merged') line.append(el('span', row.included ? '已随前一项进入目标分支' : '已进入目标分支', 'meta'));
     section.append(line);
   }
   const actions = el('div', undefined, 'actions');

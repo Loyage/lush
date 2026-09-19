@@ -13,6 +13,7 @@ export function makeWorld() {
       { seq: 2, kind: 'tool', title: 'bash', at: iso(NOW - 8000), body: '{"command":"ls"}' },
     ],
     freeze: [],
+    currentBranch: 'main',
     notices: [],
     transcriptAfter: [],
     actions: [],
@@ -51,9 +52,24 @@ export function makeWorld() {
       specs: { pending: 1, planned: 1, dropped: 0, batches: [{ id: 4, status: 'queued', role: 'scheduler', count: 1 }] },
       version: '0.2.0', fingerprint: 'abc', home: '/tmp/demo/.lush', started_at: iso(NOW - 60000) },
     timeline: { now: iso(NOW), concurrency: 2, start: iso(NOW - 60000), end: iso(NOW), clamped: false, truncated: false, tasks: [] },
-    ladder: { target_branch: 'main', truncated: false, nodes: [
+    ladder: { target_branch: 'main', current_branch: state.currentBranch, truncated: false, nodes: [
       { id: 2, role: 'worker', goal: '合并我', branch: 'lush/2-x', target_branch: 'main', integration: 'pending', deps: [], covered_by: [], level: 0 },
       { id: 3, role: 'worker', goal: '另一个待合的', branch: 'lush/3-x', target_branch: 'release', integration: 'review', deps: [], covered_by: [], level: 0 },
+    ], groups: [
+      { target_branch: 'main', current: state.currentBranch === 'main', ready: !state.freeze.length && state.currentBranch === 'main' ? 1 : 0, items: [
+        { id: 2, source_task_id: 2, role: 'worker', goal: '合并我', branch: 'lush/2-x', target_branch: 'main', integration: 'pending',
+          phase: 'awaiting_review', ready: !state.freeze.length && state.currentBranch === 'main', deps: [], covered_by: [], level: 0,
+          blockers: [
+            ...(state.freeze.length ? [{ code: 'frozen', task_id: state.freeze[0].task_id, message: `#${state.freeze[0].task_id} 的冲突冻结了 main` }] : []),
+            ...(state.currentBranch !== 'main' ? [{ code: 'wrong_branch', message: `当前检出 ${state.currentBranch}，需要切换到 main` }] : []),
+          ] },
+      ] },
+      { target_branch: 'release', current: state.currentBranch === 'release', ready: state.currentBranch === 'release' ? 1 : 0, items: [
+        { id: 3, source_task_id: 3, role: 'worker', goal: '另一个待合的', branch: 'lush/3-x', target_branch: 'release', integration: 'review',
+          phase: 'review_required', ready: state.currentBranch === 'release',
+          blockers: state.currentBranch === 'release' ? [] : [{ code: 'wrong_branch', message: `当前检出 ${state.currentBranch}，需要切换到 release` }],
+          deps: [], covered_by: [], level: 0 },
+      ] },
     ] },
     tasks: [task1, task2, task3], inputs: state.intents, drafts: state.drafts, notices: state.notices, specs: state.specs,
   });
@@ -75,7 +91,8 @@ export function makeWorld() {
     if (path === '/api/action') {
       const body = JSON.parse(options.body);
       state.actions.push(body);
-      if (body.method === 'task.merge_many') return json({ merges: body.params.ids.map(id => ({ id, status: 'merged', integration: 'merged' })), merged: body.params.ids.length, stopped: null });
+      if (body.method === 'task.merge_many') return json({ target_branch: body.params.ids.includes(3) ? 'release' : 'main',
+        merges: body.params.ids.map(id => ({ id, status: 'merged', integration: 'merged' })), merged: body.params.ids.length, stopped: null });
       if (body.method === 'draft.update') { const draft = state.drafts.find(row => row.id === body.params.id); if (draft) draft.content = body.params.content; return json({ id: draft?.id, content: draft?.content }); }
       if (body.method === 'draft.remove') { state.drafts = state.drafts.filter(row => row.id !== body.params.id); return json({ id: body.params.id }); }
       if (body.method === 'draft.add') { const draft = { id: state.drafts.length ? Math.max(...state.drafts.map(row => row.id)) + 1 : 1, content: body.params.content, created_at: iso(NOW) }; state.drafts = [...state.drafts, draft]; return json(draft); }

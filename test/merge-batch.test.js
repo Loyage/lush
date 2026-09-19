@@ -36,7 +36,7 @@ function colliding() {
 function host(f) { return f.store.create({ input_id: null, role: 'coordinator', goal: 'build' }); }
 
 test('mergeOrder ranks selected upstreams before downstream and keeps ties stable', () => {
-  // 3 依赖 1，5 依赖 3；2 无依赖：1 → 2 → 3 → 5（并列按 id 升序）
+  // 3 的代码基线是 1；5 只在执行时等 3。交付只按 code 排序，其余按 id 稳定排列。
   const edges = [
     { task_id: 3, depends_on: 1, kind: 'code' },
     { task_id: 5, depends_on: 3, kind: 'order' },
@@ -48,6 +48,8 @@ test('mergeOrder ranks selected upstreams before downstream and keeps ties stabl
   expect(mergeOrder([3, 1], [{ task_id: 3, depends_on: 9, kind: 'code' }])).toEqual([1, 3]);
   // 同一输入永远同一输出
   expect(mergeOrder([4, 2, 6], [])).toEqual([2, 4, 6]);
+  // order 不得偷偷变成合并依赖：即使 #1 执行时等 #9，交付仍按 id。
+  expect(mergeOrder([9, 1], [{ task_id: 1, depends_on: 9, kind: 'order' }])).toEqual([1, 9]);
 });
 
 test('batch merge merges every selected task, dedupes ids and counts the successes', async () => {
@@ -87,6 +89,37 @@ test('batch merge follows a code dependency: the upstream lands first even when 
   } finally { await f.close(); }
 });
 
+test('batch preflight finds a dirty later worktree before the first selected change lands', async () => {
+  const f = fixture(committer());
+  try {
+    await repo(f.root);
+    const parent = host(f);
+    const first = f.project.spawn(parent.id, 'first', 'worker', [], 'first');
+    const dirty = f.project.spawn(parent.id, 'dirty', 'worker', [], 'dirty');
+    await until(() => [first, dirty].every(task => f.store.task(task.id).status === 'completed'));
+    fs.writeFileSync(path.join(f.store.task(dirty.id).workspace, 'uncommitted.txt'), 'dirty\n');
+    await expect(f.project.approveMergeMany([first.id, dirty.id])).rejects.toThrow('working tree is dirty');
+    expect(fs.existsSync(path.join(f.root, 'first.txt'))).toBe(false);
+    expect(f.store.task(first.id).integration).toBe('pending');
+  } finally { await f.close(); }
+});
+
+test('batch preflight rejects tasks from different target branches before changing either branch', async () => {
+  const f = fixture(committer());
+  try {
+    await repo(f.root);
+    const parent = host(f);
+    const mainTask = f.project.spawn(parent.id, 'main change', 'worker', [], 'main-change');
+    const releaseTask = f.project.spawn(parent.id, 'release change', 'worker', [], 'release-change');
+    await until(() => [mainTask, releaseTask].every(task => f.store.task(task.id).status === 'completed'));
+    f.store.update(releaseTask.id, { target_branch: 'release' });
+    await expect(f.project.approveMergeMany([mainTask.id, releaseTask.id])).rejects.toThrow('must target one branch');
+    expect(f.store.task(mainTask.id).integration).toBe('pending');
+    expect(f.store.task(releaseTask.id).integration).toBe('pending');
+    expect(fs.existsSync(path.join(f.root, 'main-change.txt'))).toBe(false);
+  } finally { await f.close(); }
+});
+
 test('a conflict stops the batch and the remaining tasks are skipped', async () => {
   const f = fixture(colliding());
   try {
@@ -116,21 +149,16 @@ test('a conflict stops the batch and the remaining tasks are skipped', async () 
   } finally { await f.close(); }
 });
 
-test('a failing entry stops the batch instead of being swallowed', async () => {
+test('batch preflight rejects an ineligible entry before touching any selected branch', async () => {
   const f = fixture(committer());
   try {
     await repo(f.root);
-    // coordinator 没有可合并的分支，approveMerge 会直接报错；它的 id 比 worker 小，所以排在最前。
     const parent = host(f);
     const good = f.project.spawn(parent.id, 'alpha', 'worker', [], 'alpha');
     await until(() => f.store.task(good.id).status === 'completed' && f.store.task(parent.id).status === 'completed');
-    const result = await f.project.approveMergeMany([good.id, parent.id]);
-    expect(result.merged).toBe(0);
-    expect(result.merges[0]).toMatchObject({ id: parent.id, status: 'failed' });
-    expect(result.merges[0].error).toContain('pending/review/conflict');
-    expect(result.merges[1]).toMatchObject({ id: good.id, status: 'skipped' });
-    expect(result.stopped).toMatchObject({ id: parent.id });
+    await expect(f.project.approveMergeMany([good.id, parent.id])).rejects.toThrow('not a completed merge candidate');
     expect(f.store.task(good.id).integration).toBe('pending');
+    expect(fs.existsSync(path.join(f.root, 'alpha.txt'))).toBe(false);
   } finally { await f.close(); }
 });
 

@@ -24,13 +24,13 @@ export function printMergeMany(result) {
   if (!result.merges.length) { console.log('(没有任务需要合并)'); return; }
   for (const row of result.merges) {
     const word = MERGE_STATUS_WORD[row.status] || row.status;
-    const extra = [row.integration ? `integration=${row.integration}` : '',
-      row.resolution_task_id ? `解冲突任务 #${row.resolution_task_id}` : '', row.error || ''].filter(Boolean).join(' · ');
+    const extra = [row.source_task_id ? `实际来源 #${row.source_task_id}` : '', row.integration ? `integration=${row.integration}` : '',
+      row.resolution_task_id ? `解冲突任务 #${row.resolution_task_id}` : '', row.included ? '随前一项一并落地' : '', row.error || ''].filter(Boolean).join(' · ');
     console.log(`#${row.id}\t${word}${extra ? `\t${extra}` : ''}`);
   }
   console.log(`共 ${result.merges.length} 个：已合并 ${result.merged}${result.stopped ? `；在 #${result.stopped.id} 停止（${result.stopped.reason}）` : ''}`);
 }
-/* ---------- 并行/串行关系：任务树、合并阶梯、时间轴 ---------- */
+/* ---------- 并行/串行关系：任务树、交付队列、时间轴 ---------- */
 const DEP_MARK = { code: '⛓', order: '⏳' };
 const DEP_WORD = { code: '基线', order: '顺序' };
 const WAIT_LABEL = { dep: '等依赖', children: '等子任务', user: '等你决定', slot: '等并发槽', setup: '没跑起来就结束' };
@@ -91,14 +91,25 @@ export function printTree(value, status) {
   for (const root of roots) walk(root, 0);
 }
 export function printLadder(ladder) {
-  if (!ladder.nodes.length) { console.log(`没有待合并的分支（目标分支 ${ladder.target_branch ?? '—'}）。`); return; }
-  console.log(`合并阶梯 → ${ladder.target_branch}${ladder.truncated ? '（只列出前 50 个）' : ''}`);
-  for (const node of ladder.nodes) {
-    console.log(`${indent(node.level)}L${node.level} #${node.id} ${node.role} ${node.branch}${node.covered_by.length ? `  ⚠ 已被 #${node.covered_by.join('、')} 带进来：合后者即可` : ''}`);
-    for (const dep of node.deps) console.log(`${indent(node.level + 1)}${dep.kind === 'code' ? '⛓ 必须先合' : '⏳ 只等结束'} #${dep.id} ${dep.branch ?? ''}${dep.merged ? '（已合并）' : ''}${dep.kind === 'order' && dep.contains ? '（它的提交已经在下游里）' : ''}`);
+  if (!ladder.nodes.length) { console.log('没有待交付的变更。'); return; }
+  if (ladder.groups?.length) {
+    console.log(`交付队列${ladder.current_branch ? ` · 当前分支 ${ladder.current_branch}` : ''}${ladder.truncated ? '（只列出前 50 个）' : ''}`);
+    for (const group of ladder.groups) {
+      console.log(`\n→ ${group.target_branch}${group.current ? '（当前检出）' : ''} · ${group.ready} 个就绪`);
+      for (const item of group.items) {
+        const source = item.source_task_id !== item.id ? ` · 落地来源 #${item.source_task_id}` : '';
+        console.log(`${indent(item.level)}#${item.id} ${item.phase}${source}  ${oneLine(item.goal)}`);
+        for (const dep of item.deps) console.log(`${indent(item.level + 1)}${dep.kind === 'code' ? '⛓ 代码基线' : '⏳ 仅执行依赖'} #${dep.id}${dep.merged ? '（已落地）' : ''}`);
+        for (const blocker of item.blockers) console.log(`${indent(item.level + 1)}⛔ ${blocker.message}`);
+      }
+    }
+    return;
   }
-  const first = ladder.nodes.filter(node => node.level === 0 && !node.covered_by.length).map(node => node.id);
-  if (first.length) console.log(`先合 ${first.map(taskId => `#${taskId}`).join('、')}；命令：lush task merge <id>`);
+  console.log(`交付队列 → ${ladder.target_branch}${ladder.truncated ? '（只列出前 50 个）' : ''}`);
+  for (const node of ladder.nodes) {
+    console.log(`${indent(node.level)}L${node.level} #${node.id} ${node.role} ${node.branch}`);
+    for (const dep of node.deps) console.log(`${indent(node.level + 1)}${dep.kind === 'code' ? '⛓ 必须先合' : '⏳ 仅执行依赖'} #${dep.id} ${dep.branch ?? ''}${dep.merged ? '（已合并）' : ''}`);
+  }
 }
 export function printTimeline(page) {
   const start = Date.parse(page.start), end = Date.parse(page.end), span = Math.max(end - start, 1);

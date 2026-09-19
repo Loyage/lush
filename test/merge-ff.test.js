@@ -44,6 +44,26 @@ test('a merge that can fast-forward does not create a merge commit', async () =>
   } finally { await f.close(); }
 });
 
+test('a successful delivery reconciles another pending task whose reviewed commit was carried along', async () => {
+  const f = await setup();
+  const carrier = f.project.spawn(f.task.parent_id, 'carrier', 'worker', [], 'carrier');
+  try {
+    await change(f, f.task, 'A\n', 'a.txt');
+    const upstreamHead = f.store.task(f.task.id).head_commit;
+    const cwd = await f.project.workspaces.ensure(carrier);
+    await git(cwd, 'merge', '--ff-only', upstreamHead);
+    fs.writeFileSync(path.join(cwd, 'b.txt'), 'B\n');
+    await git(cwd, 'add', 'b.txt'); await git(cwd, 'commit', '-m', 'carrier change');
+    await f.project.workspaces.finish(f.store.task(carrier.id));
+    f.store.update(carrier.id, { status: 'completed' });
+
+    const landed = await f.project.approveMerge(carrier.id);
+    expect(landed.merge.included_task_ids).toEqual([f.task.id]);
+    expect(f.store.task(f.task.id).integration).toBe('merged');
+    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='merge.included'", f.task.id)).toHaveLength(1);
+  } finally { await f.close(); }
+});
+
 test('a merge whose target branch has moved on creates the merge commit instead', async () => {
   const f = await setup();
   try {

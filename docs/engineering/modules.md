@@ -63,7 +63,7 @@
 | `project/tree.js` | 任务树读模型（intent 层提上来当根） | `tree(taskId)` |
 | `project/timeline.js` | 并发时间轴（run/wait 区间与原因） | `timeline({limit})` |
 | `project/messages.js` | 收件箱、notice、答复 | `message`、`notice`、`answer` |
-| `project/merge.js` | 批准合并、批量合并、冲突收口与合并阶梯 | `approveMerge`、`approveMergeMany`、`openResolution`、`settleResolution`、`mergeConflictContext`、`ladder()`、`containsCommit` |
+| `project/merge.js` | 批准合并、按目标分支批量交付、冲突收口、随带提交对账与交付队列 | `approveMerge`、`approveMergeMany`、`reconcileIntegrated`、`openResolution`、`settleResolution`、`mergeConflictContext`、`ladder()`、`containsCommit` |
 | `project/verify.js` | 检验任务与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
 | `project/transcript.js` | pi 会话记录的只读投影 | `transcript(taskId, after, limit)`、`usage(taskId)` |
 | `project/scheduling.js` | 调度、invocation 生命周期、凭证 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
@@ -77,7 +77,7 @@
 | `workspaces/git.js` | Git 原语与串行队列（无 shell 插值） | `exclusive`、`git`、`gitOutput`、`porcelain`、`clean`、`isAncestor`、`merging`、`unmerged`、`checkedOut` |
 | `workspaces/worktree.js` | worktree / 对照检出的创建与回收 | `ensure(task)`、`finish(task)`、`codeBase(task)`、`removeBaseline(taskId)` |
 | `workspaces/diff.js` | 只读审阅视图（不进写队列） | `diff(task)` |
-| `workspaces/merge.js` | 批准合并的三种结局 | `merge(taskId)` |
+| `workspaces/merge.js` | 批量只读预检与批准合并的三种结局 | `preflightMerge(tasks)`、`merge(taskId)` |
 | `workspaces/cleanup.js` | 分支回收与安全清理 | `dropBranch`、`release`、`cleanup`、`reclaim` |
 
 ## 3. 持久化：`src/persistence/store.js` + `src/persistence/store/`
@@ -126,8 +126,8 @@
 | `render-intents.js` | 意图面板（planner 闸门 + scheduler 进度） | `renderIntents(data)` |
 | `render-specs.js` | 拆解队列（只读） | `renderSpecs(data)`、`specItem(spec)`、`specDeps(value)` |
 | `render-tree.js` | 任务树、兄弟链、依赖标签、为什么没在跑 | `renderTree(data)` |
-| `render-notices.js` | 待决问题索引与右侧展开 | `renderNotices(data)`、`openNotice(noticeId)`、`noticePanel(notice)` |
-| `render-ladder.js` | 合并阶梯与批量合并 | `renderLadder(data)`、`mergeBatch(ids, candidates)`、`renderMergeResult(entry)` |
+| `render-notices.js` | 待决问题索引与右侧展开；resolver 首次请示使用明确的开始/暂不处理动作 | `renderNotices(data)`、`openNotice(noticeId)`、`noticePanel(notice, task?)` |
+| `render-ladder.js` | 按目标分支分组的交付队列、变更栈与批量落地 | `renderLadder(data)`、`mergeBatch(ids, candidates)`、`renderMergeResult(entry)` |
 | `render-timeline.js` | 并行时间轴 | `renderTimeline(timeline)` |
 | `render-history.js` | 事件时间线 | `renderHistory(history, opts)` |
 | `render-diff.js` | 改动概览 | `renderDiff(diff)` |
@@ -140,8 +140,7 @@
 | `detail.js` | 拉取并渲染一个任务详情 | `loadDetail(taskId)` |
 | `refresh.js` | 轮询快照、概览、热任务增量刷新、筛选重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
 
-已存在、这次不动的纯逻辑模块：`markdown.js`、`tree-order.js`、`live.js`、`merge-select.js`、`sidebar.js`。
-它们只在测试文件里有消费者，**不参与这次拆分**。
+其它纯逻辑模块：`markdown.js`、`tree-order.js`、`live.js`、`sidebar.js`；`merge-select.js` 是交付队列的候选、冻结与 code-only 顺序预览接缝，由 `render-ladder.js` 使用。
 
 ## 5. CLI：`src/cli/main.js` + `src/cli/`
 

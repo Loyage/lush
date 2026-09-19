@@ -26,6 +26,18 @@ test('可合并候选＝completed 且 integration 在 pending/review/conflict；
   expect(candidates.every(isMergeable)).toBe(true);
 });
 
+test('新交付队列直接采用后端的唯一来源、阶段与 blockers', () => {
+  const groups = [{ target_branch: 'main', items: [
+    { id: 8, source_task_id: 13, goal: '冲突改动', target_branch: 'main', phase: 'resolution_ready', ready: true, blockers: [] },
+    { id: 9, source_task_id: 9, goal: '代码下游', target_branch: 'main', phase: 'awaiting_review', ready: false, selectable: true,
+      blockers: [{ code: 'code_upstream', task_id: 7, message: '先把基线任务 #7 落地' }] },
+  ] }];
+  const candidates = mergeCandidates([], { groups });
+  expect(candidates.map(row => [row.id, row.merge_id, row.phase, isMergeable(row)])).toEqual([
+    [8, 13, 'resolution_ready', true], [9, 9, 'awaiting_review', true],
+  ]);
+});
+
 test('冻结规则与运行时 approveMerge 一致：别的未解决冲突冻结同一目标分支', () => {
   // status.merge_freeze 的行同时有 id 与 task_id（都是冲突任务的 id）。
   const freeze = [{ id: 9, task_id: 9, target_branch: 'main', resolves_task_id: 12 }];
@@ -60,8 +72,8 @@ test('候选按 id 升序，阶梯里没有的候选目标分支未知但不被�
   expect(candidates[1]).toMatchObject({ target_branch: null, frozen_by: null });
 });
 
-test('顺序预览与运行时 mergeOrder 同规则：上游优先、并列按 id 升序', () => {
-  // 3 依赖 1，5 依赖 3；2 无依赖：1 → 2 → 3 → 5
+test('顺序预览与运行时 mergeOrder 同规则：只按 code 上游、并列按 id 升序', () => {
+  // 3 的代码基线是 1；5 对 3 只是执行依赖，不改变交付顺序。
   const edges = [
     { task_id: 3, depends_on: 1, kind: 'code' },
     { task_id: 5, depends_on: 3, kind: 'order' },
@@ -73,6 +85,7 @@ test('顺序预览与运行时 mergeOrder 同规则：上游优先、并列按 i
   expect(previewMergeOrder([3, 1], [{ task_id: 3, depends_on: 9, kind: 'code' }])).toEqual([1, 3]);
   // 去重且确定性
   expect(previewMergeOrder([4, 4, 2, 6], [])).toEqual([2, 4, 6]);
+  expect(previewMergeOrder([9, 1], [{ task_id: 1, depends_on: 9, kind: 'order' }])).toEqual([1, 9]);
   expect(previewMergeOrder([], [])).toEqual([]);
 });
 
