@@ -108,10 +108,37 @@ test('usage reports model, context and cost across session files without project
     expect(usage.steps).toBeUndefined();                         // 只有统计，不投影正文
     // 没有会话记录、没有用量的会话都只是空统计，不是错误
     expect(readUsage(f.config, 99)).toEqual({ task_id: 99, files: [], model: null, thinking_level: null, requests: 0, compacted: 0,
-      context_tokens: 0, last_at: null, totals: { input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, tokens: 0, cost: 0 }, truncated: false });
+      context_tokens: 0, last_at: null, last: null, totals: { input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, tokens: 0, cost: 0 }, truncated: false });
     sessionFile(f.root, 5, [message('assistant', [{ type: 'text', text: 'no usage here' }])]);
     expect(readUsage(f.config, 5)).toMatchObject({ requests: 1, context_tokens: 0, last_at: null });
     expect(readUsage(f.config, 5).model).toBeNull();
+  } finally { f.close(); }
+});
+
+test('usage reports the last execution step with its time and a short preview', () => {
+  const f = fixture();
+  try {
+    sessionFile(f.root, 6, [
+      billing('first', { input: 1, output: 1, totalTokens: 2, cost: { total: 0 } }, 1000),
+      { type: 'message', message: { role: 'toolResult', toolName: 'bash', content: [{ type: 'text', text: 'x'.repeat(500) }] } }, // 没有 timestamp
+      { type: 'message', timestamp: 2000, message: { role: 'assistant', content: [{ type: 'text', text: '最后一步' }] } },
+    ]);
+    const usage = readUsage(f.config, 6);
+    // kind/title 与步骤一致，body 是 ≤200 字符的预览
+    expect(usage.last).toEqual({ at: new Date(2000).toISOString(), kind: 'text', title: '回答', body: '最后一步' });
+    // 最后一步没有时间戳时，at 回退到最近一条有时间戳的步骤
+    sessionFile(f.root, 7, [
+      { type: 'message', timestamp: 3000, message: { role: 'assistant', content: [{ type: 'text', text: '有时间戳' }] } },
+      { type: 'message', message: { role: 'toolResult', toolName: 'bash', content: [{ type: 'text', text: 'y'.repeat(500) }] } },
+    ]);
+    const fallback = readUsage(f.config, 7);
+    expect(fallback.last.at).toBe(new Date(3000).toISOString());
+    expect(fallback.last.kind).toBe('result');
+    expect(fallback.last.title).toBe('bash');
+    expect(fallback.last.body.length).toBeLessThanOrEqual(200);
+    expect(fallback.last.body).toContain('…');
+    // 没有任何会话/步骤时为 null
+    expect(readUsage(f.config, 98).last).toBeNull();
   } finally { f.close(); }
 });
 

@@ -37,8 +37,10 @@ lush [--project PATH] [--json] <command>
   task message ID '补充说明'       追加输入，不打断当前 invocation
   task cancel|retry ID            取消子树 / 明确重试失败任务
   task wait ID                    仅阻塞此客户端，不占 agent 槽
-  task merge ID                   用户明确批准合并到原目标分支；内容冲突不会变成报错，而是开一个解冲突任务并提问，
-                                  解决前同一目标分支上的其它合并被冻结（答复／忽略那条 notice 即可继续）
+  task merge ID [ID...]           用户明确批准合并到原目标分支（多个 id 时批量合并，按依赖顺序逐个）；
+                                  内容冲突不会变成报错，而是开一个解冲突任务并提问，
+                                  解决前同一目标分支上的其它合并被冻结（答复／忽略那条 notice 即可继续）；
+                                  批量合并遇到第一个冲突或失败即停下，剩余标为跳过。
   task verify ID                  为一个已完成的 worker 派只读 verifier：演示 worktree 结果并对照目标分支
   task cleanup ID [--keep-branch] 安全回收 worktree 与任务分支（--keep-branch 只回收 worktree）
   task clear                      删除全部已结束任务及 inputs/drafts/notices/events；有活动任务时拒绝
@@ -88,7 +90,20 @@ function printUsage(usage) {
   console.log(`累计\t输入 ${t.input} · 输出 ${t.output} · 缓存读 ${t.cache_read} · 缓存写 ${t.cache_write} · 推理 ${t.reasoning}`);
   console.log(`花费\t$${t.cost.toFixed(6)}（${usage.requests} 次模型请求）`);
   console.log(`会话\t${usage.files.length} 个文件${usage.compacted ? ` · 上下文压缩 ${usage.compacted} 次` : ''}`);
+  if (usage.last) console.log(`最近一次执行\t${usage.last.at ?? '—'}${usage.last.title ? ` · ${usage.last.title}` : ''}\t${oneLine(usage.last.body, 80)}`);
   if (usage.truncated) console.error('… 会话记录过大，统计只覆盖前面一部分');
+}
+/** 批量合并的人类可读汇总：每行一个任务，最后一行给总量与停止点。 */
+const MERGE_STATUS_WORD = { merged: '已合并', conflict: '冲突待处理', failed: '失败', skipped: '已跳过' };
+function printMergeMany(result) {
+  if (!result.merges.length) { console.log('(没有任务需要合并)'); return; }
+  for (const row of result.merges) {
+    const word = MERGE_STATUS_WORD[row.status] || row.status;
+    const extra = [row.integration ? `integration=${row.integration}` : '',
+      row.resolution_task_id ? `解冲突任务 #${row.resolution_task_id}` : '', row.error || ''].filter(Boolean).join(' · ');
+    console.log(`#${row.id}\t${word}${extra ? `\t${extra}` : ''}`);
+  }
+  console.log(`共 ${result.merges.length} 个：已合并 ${result.merged}${result.stopped ? `；在 #${result.stopped.id} 停止（${result.stopped.reason}）` : ''}`);
 }
 /* ---------- 并行/串行关系：任务树、合并阶梯、时间轴 ---------- */
 const DEP_MARK = { code: '⛓', order: '⏳' };
@@ -280,6 +295,16 @@ export async function main(argv = process.argv.slice(2)) {
     } else {
       check(['inspect','cancel','retry','merge','cleanup','verify','clear'].includes(verb), 'unknown task command');
       if (verb === 'clear') { exact(args, 0); value = await client.request('task.clear'); }
+      else if (verb === 'merge') {
+        // 一个 id 保持原有单任务输出语义；多个 id 走批量合并。
+        check(args.length >= 1, 'merge needs at least one task id');
+        const ids = args.map(value$1 => id(value$1));
+        if (ids.length === 1) value = await client.request('task.merge', { id: ids[0] });
+        else {
+          value = await client.request('task.merge_many', { ids });
+          if (!json) { printMergeMany(value); return; }
+        }
+      }
       else if (verb === 'cleanup') {
         const keepBranch = args.includes('--keep-branch');
         if (keepBranch) args.splice(args.indexOf('--keep-branch'), 1);

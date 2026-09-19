@@ -17,6 +17,13 @@ const MAX_BODY = 4000;
 export const MAX_STEPS = 200;
 /** Total bytes read from one task's session files per request. */
 const MAX_BYTES = 8 * 1024 * 1024;
+/** 「最近一次执行内容」是给 UI 单行展示的预览，不重复 step 里可达 4000 字符的正文。 */
+const MAX_PREVIEW = 200;
+
+function preview(value) {
+  const text = String(value ?? '');
+  return text.length > MAX_PREVIEW ? `${text.slice(0, MAX_PREVIEW - 1)}…` : text;
+}
 
 function clip(value) {
   if (value === undefined || value === null) return '';
@@ -128,9 +135,9 @@ const num = value => (Number.isFinite(value) ? value : 0);
 const tokensOf = row => num(row.totalTokens) || num(row.input) + num(row.output) + num(row.cacheRead) + num(row.cacheWrite);
 
 /**
- * What one agent spent: the model it ran on, how full its context is and what the session cost
- * so far. Same files as the transcript, but nothing is projected into steps — the Web UI shows
- * this on every task detail, so it must not pay for ~4 KB bodies it will not render.
+ * What one agent spent: the model it ran on, how full its context is, what the session cost
+ * so far, and the last execution step (time + short preview). Same files as the transcript,
+ * but steps are not returned wholesale: only the final one is previewed for the task detail.
  */
 export function readUsage(config, taskId) {
   const files = sessionFiles(config, taskId);
@@ -138,9 +145,14 @@ export function readUsage(config, taskId) {
   const totals = { input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, tokens: 0, cost: 0 };
   const usage = {
     task_id: taskId, files, model: null, thinking_level: null, requests: 0,
-    context_tokens: 0, compacted: 0, last_at: null, totals, truncated: false,
+    context_tokens: 0, compacted: 0, last_at: null, last: null, totals, truncated: false,
   };
   for (const { record } of eachRecord(sessionDir(config), files, budget)) {
+    // 「最近一次执行」= 执行过程最后一条可显示步骤（与 transcript 同一套 project()/stamp()）；
+    // 若这一步没有时间戳，at 向前回退到最近一条有时间的步骤。
+    for (const step of project(record)) {
+      usage.last = { at: step.at ?? usage.last?.at ?? null, kind: step.kind, title: step.title, body: preview(step.body) };
+    }
     const at = stamp(record.timestamp);
     if (record.type === 'model_change') {
       usage.model = { provider: record.provider ?? null, model_id: record.modelId ?? null };

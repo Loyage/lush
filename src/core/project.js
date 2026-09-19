@@ -5,6 +5,7 @@ import { check, id, text, TERMINAL, bounded, isPlainObject, LushError } from './
 import { Workspaces } from './workspaces.js';
 import { taskSlug } from './naming.js';
 import { readTranscript, readUsage } from './transcript.js';
+import { mergeOrder } from './merge-batch.js';
 import { PiProvider, MockProvider } from '../agent/provider.js';
 
 const DEP_KINDS = new Set(['code', 'order']);
@@ -370,6 +371,44 @@ export class Project {
       return { ...result.task, merge: resolvedTaskId ? { status: 'resolved', resolved_task_id: resolvedTaskId } : { status: 'merged' } };
     }
     return this.openResolution(result.task.id, result.conflict);
+  }
+  /**
+   * 批量合并：用户一次选中多个任务，运行时按依赖顺序逐个走**同一个** approveMerge，
+   * 不绕过它的任何门槛（资格、code 上游、冲突冻结），也绝不并行写主树。
+   * 遇到第一个冲突或硬失败就停下：后续条目标 skipped，避免在未知现场上继续合并。
+   * 顺序只看「本次选中集合内」的依赖边（code 与 order 都算先后），并列者按 id 升序——逻辑在 mergeOrder。
+   */
+  async approveMergeMany(ids) {
+    check(Array.isArray(ids), 'ids must be an array of task ids');
+    check(ids.length > 0, 'batch merge needs at least one task id');
+    const unique = [...new Set(ids.map(value => id(value)))];
+    check(unique.length <= 50, 'at most 50 tasks per batch merge');
+    const ordered = mergeOrder(unique, this.store.edgesOf(unique));
+    const merges = [];
+    let stopped = null;
+    const integrationOf = taskId => this.store.get('SELECT integration FROM tasks WHERE id=?', taskId)?.integration ?? 'none';
+    for (const taskId of ordered) {
+      if (stopped) {
+        merges.push({ id: taskId, status: 'skipped', integration: integrationOf(taskId),
+          error: `batch stopped at #${stopped.id}: ${stopped.reason}` });
+        continue;
+      }
+      try {
+        const result = await this.approveMerge(taskId);
+        if (result.merge?.status === 'conflict') {
+          const files = result.merge.files ?? [];
+          stopped = { id: taskId, reason: `merge conflict on ${files.length ? files.join(', ') : 'unknown files'}` };
+          merges.push({ id: taskId, status: 'conflict', integration: result.integration,
+            resolution_task_id: result.merge.resolution_task_id, error: stopped.reason });
+        } else {
+          merges.push({ id: taskId, status: 'merged', integration: result.integration });
+        }
+      } catch (error) {
+        stopped = { id: taskId, reason: error.message };
+        merges.push({ id: taskId, status: 'failed', integration: integrationOf(taskId), error: error.message });
+      }
+    }
+    return { merges, merged: merges.filter(row => row.status === 'merged').length, stopped };
   }
   /**
    * 内容冲突的收口：主树已经 abort 回合并前的干净状态，现在把「怎么并」变成一次用户决定。
