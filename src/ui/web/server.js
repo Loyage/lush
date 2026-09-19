@@ -59,6 +59,16 @@ function loadAuth(config) {
   check(value && value.version === 1, `${file} must have version 1`);
   check(typeof value.username === 'string' && value.username === value.username.trim() && value.username.length >= 1 && value.username.length <= 128,
     `${file} username must be 1-128 characters without surrounding whitespace`);
+  check(value.origin === undefined || typeof value.origin === 'string', `${file} origin must be a string`);
+  check(value.origins === undefined || Array.isArray(value.origins), `${file} origins must be an array of strings`);
+  // 反向代理把 Host 改写成 127.0.0.1 时，浏览器发出的 Origin 是对外地址：这里把对外地址登记成可信源。
+  const origins = [...(value.origin ? [value.origin] : []), ...(value.origins || [])].map(entry => {
+    let parsed;
+    try { parsed = new URL(entry); } catch { parsed = null; }
+    check(parsed && ['http:', 'https:'].includes(parsed.protocol) && parsed.pathname === '/' && !parsed.search && !parsed.hash,
+      `${file} origin "${entry}" must look like https://lush.example.com`);
+    return parsed.origin;
+  });
   const plaintext = typeof value.password === 'string';
   const hashed = typeof value.password_hash === 'string';
   check(plaintext !== hashed, `${file} must contain exactly one of password or password_hash`);
@@ -68,7 +78,7 @@ function loadAuth(config) {
     const secret = value.password.trim();
     check(secret.length >= 12 && secret.length <= 1024, `${file} password must be 12-1024 characters`);
     password_hash = passwordHash(secret);
-    const replacement = JSON.stringify({ version: 1, username: value.username, password_hash }, null, 2) + '\n';
+    const replacement = JSON.stringify({ version: 1, username: value.username, ...(origins.length ? { origin: origins[0], ...(origins.length > 1 ? { origins: origins.slice(1) } : {}) } : {}), password_hash }, null, 2) + '\n';
     const temporary = `${file}.${process.pid}.tmp`;
     try {
       fs.writeFileSync(temporary, replacement, { mode: 0o600, flag: 'wx' });
@@ -76,7 +86,7 @@ function loadAuth(config) {
       fs.chmodSync(file, 0o600);
     } finally { fs.rmSync(temporary, { force: true }); }
   } else check(/^scrypt\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/.test(password_hash), `${file} has an invalid password_hash`);
-  return { username: value.username, password_hash };
+  return { username: value.username, password_hash, origins };
 }
 function cookieValue(request, name) {
   for (const part of (request.headers.get('cookie') || '').split(';')) {
@@ -96,11 +106,17 @@ function loginPage(error = '', next = '/') {
 :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:dark;color:#e6efe9;background:#0f1613}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.login{width:min(380px,100%);padding:28px;background:#161f1a;border:1px solid #27362d;border-radius:12px}.login h1{margin:0 0 4px;color:#8fd6a9;font-size:24px}.login p{margin:0 0 20px;color:#93a89b;font-size:13px}.login label{display:block;margin:12px 0 5px;font-size:13px}.login input{width:100%;padding:10px;border:1px solid #27362d;border-radius:7px;background:#0f1613;color:#e6efe9;font:inherit}.login button{width:100%;margin-top:20px;padding:10px;border:0;border-radius:7px;background:#8fd6a9;color:#12211a;font:inherit;font-weight:600;cursor:pointer}.error{color:#ffb4ac!important}.warning{margin-top:16px!important;font-size:11px!important}
 </style></head><body><main class="login"><h1>Lush</h1><p>登录后访问项目 Web UI</p>${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ''}<form method="post" action="/login"><input type="hidden" name="next" value="${escapeHtml(safeNext(next))}"><label for="username">账号</label><input id="username" name="username" autocomplete="username" required autofocus><label for="password">密码</label><input id="password" name="password" type="password" autocomplete="current-password" required><button type="submit">登录</button></form><p class="warning">公网访问请在本服务前配置 HTTPS 反向代理，避免账号密码被明文传输。</p></main></body></html>`;
 }
-function sameOrigin(request, url) {
-  if (request.headers.get('sec-fetch-site') === 'cross-site') return false;
+/** 请求自带的 host 就是浏览器看到的 host；反向代理改写过 Host 时两者才会不一致，需要用 web.json 的 origin 显式登记对外地址。 */
+function originAllowed(request, url, origins) {
+  const site = request.headers.get('sec-fetch-site');
+  const navigation = request.method === 'GET' && request.headers.get('sec-fetch-mode') === 'navigate' && request.headers.get('sec-fetch-dest') === 'document';
+  // 顶层导航只是「有人从别的站点点了链接进来」，后面还有认证拦着；跨站子请求才是 CSRF 的形状。
+  if (site === 'cross-site' && !navigation) return false;
   const origin = request.headers.get('origin');
   if (!origin) return true;
-  try { return new URL(origin).host === url.host; } catch { return false; }
+  let parsed;
+  try { parsed = new URL(origin); } catch { parsed = null; }   // Origin: null（沙箱/内嵌浏览器）在这里被拒
+  return Boolean(parsed) && (parsed.host === url.host || origins.includes(parsed.origin));
 }
 
 export function startWeb(config, port = 4318) {
@@ -116,10 +132,16 @@ export function startWeb(config, port = 4318) {
       const host = request.headers.get('host');
       const localHosts = [`127.0.0.1:${server.port}`, `localhost:${server.port}`];
       if (!host || url.host !== host || (!auth && !localHosts.includes(host))) return new Response('Invalid host', { status: 403 });
-      if (!sameOrigin(request, url)) return new Response('Cross-site access denied', { status: 403 });
       const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
         'Content-Security-Policy': PAGE_CSP };
       const json = (body, status = 200, extra = {}) => Response.json(body, { status, headers: { ...headers, ...extra } });
+      if (!originAllowed(request, url, auth?.origins || [])) {
+        const seen = ['origin', 'sec-fetch-site', 'referer'].map(name => `${name}=${request.headers.get(name) ?? '-'}`).join(' ');
+        console.warn(`[web] blocked cross-site ${request.method} ${url.pathname} (host=${host} ${seen})`);
+        // 登录提交被挡最容易发生在反向代理后面：直接告诉用户去哪儿改，而不是甩一行 403 文本。
+        if (request.method === 'POST' && url.pathname === '/login') return new Response(loginPage(`请求被判定为跨站（host=${host}）。如果通过反向代理/域名访问，请在 .lush/web.json 里写上对外地址，例如 "origin": "https://lush.example.com"。`), { status: 403, headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': LOGIN_CSP } });
+        return new Response('Cross-site access denied', { status: 403 });
+      }
       const token = cookieValue(request, SESSION_COOKIE);
       const expires = token && sessions.get(token);
       const authenticated = !auth || (expires && expires > Date.now());

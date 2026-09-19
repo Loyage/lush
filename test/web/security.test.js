@@ -94,6 +94,24 @@ test('web auth config enables public hosts and protects every route with a login
   } finally { await f.close(); }
 });
 
+test('web accepts a configured public origin behind a Host-rewriting proxy', async () => {
+  const password = 'correct horse battery staple';
+  const f = await setup({ auth: { username: 'owner', password, origin: 'https://lush.example.com' } });
+  try {
+    const form = 'username=owner&password=' + encodeURIComponent(password) + '&next=%2F';
+    const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+    // 代理把 Host 改写成 127.0.0.1，浏览器发出的 Origin 是对外地址：登记过就必须放行。
+    expect((await fetch(f.url + '/login', { method: 'POST', headers: { ...headers, Origin: 'https://lush.example.com' }, body: form })).status).toBe(303);
+    const denied = await fetch(f.url + '/login', { method: 'POST', headers: { ...headers, Origin: 'https://evil.invalid' }, body: form });
+    expect(denied.status).toBe(403);
+    expect(await denied.text()).toContain('.lush/web.json');   // 错误页要指向修法，而不是只甩一行 403
+    // 跨站顶层导航只是「从别处点进来」，后面还有认证；跨站子请求才是 CSRF 的形状。
+    const navigation = { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' };
+    expect((await fetch(f.url + '/', { headers: navigation })).status).toBe(303);
+    expect((await fetch(f.url + '/api/snapshot', { headers: { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'empty' } })).status).toBe(403);
+  } finally { await f.close(); }
+});
+
 test('RPC rejects invalid frames, unknown params, invalid ids and cross-project tokens', async () => {
   const f = await setup();
   try {
