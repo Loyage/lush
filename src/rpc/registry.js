@@ -8,6 +8,7 @@ export const PARAMS = {
   'task.spawn': ['parent','goal','role','deps','name','spec'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
   'task.merge': ['id'], 'task.merge_many': ['ids'], 'task.cleanup': ['id','keep_branch'], 'task.verify': ['id'], 'task.clear': [], 'task.ladder': [],
   'spec.list': [], 'spec.add': ['goal','role','name','deps'], 'spec.drop': ['id','note'],
+  'graph.get': [],
   'plan.propose': ['title','body'], 'plan.approve': ['id','answer'], 'plan.reject': ['id','reason'],
   'notice.list': [], 'notice.post': ['task','title','body'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
 };

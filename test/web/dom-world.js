@@ -13,6 +13,29 @@ export function makeWorld() {
       { seq: 2, kind: 'tool', title: 'bash', at: iso(NOW - 8000), body: '{"command":"ls"}' },
     ],
     freeze: [],
+    // 分支图：给 /api/graph 造数据。测试可以整体替换 state.graph 来模拟截断 / 空图。
+    graph: {
+      generated_at: iso(NOW), current_branch: 'main', truncated: false, git: true, error: null,
+      nodes: [
+        { kind: 'task', id: 1, role: 'worker', name: 'one', goal: '正在改点什么', status: 'running', integration: 'none',
+          branch: 'lush/1-x', workspace: '/tmp/wt/1', workspace_state: 'missing', branch_state: 'present',
+          base_commit: 'aaa', head_commit: 'bbb', target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
+        { kind: 'task', id: 2, role: 'worker', name: 'two', goal: '合并我', status: 'completed', integration: 'pending',
+          branch: 'lush/2-x', workspace: '/tmp/wt/2', workspace_state: 'present', branch_state: 'present',
+          base_commit: 'ccc', head_commit: 'ddd', target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
+        { kind: 'task', id: 3, role: 'worker', name: 'three', goal: '另一个待合的', status: 'completed', integration: 'review',
+          branch: 'lush/3-x', workspace: null, workspace_state: 'none', branch_state: 'missing',
+          base_commit: 'eee', head_commit: 'fff', target_branch: 'release', ahead: 2, behind: 1, merged: false, current: false },
+        { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'eee', current: true },
+        { kind: 'branch', id: 'branch:release', name: 'release', head_commit: 'fff', current: false },
+      ],
+      edges: [
+        { kind: 'code', from: 1, to: 2 },
+        { kind: 'target', from: 1, to: 'branch:main' },
+        { kind: 'target', from: 2, to: 'branch:main' },
+        { kind: 'target', from: 3, to: 'branch:release' },
+      ],
+    },
     currentBranch: 'main',
     notices: [],
     transcriptAfter: [],
@@ -88,6 +111,7 @@ export function makeWorld() {
     const path = String(url);
     const json = data => ({ ok: true, status: 200, json: async () => data });
     if (path === '/api/snapshot') return json(snapshot());
+    if (path === '/api/graph') return json(state.graph);
     if (path === '/api/action') {
       const body = JSON.parse(options.body);
       state.actions.push(body);

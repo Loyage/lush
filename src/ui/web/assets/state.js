@@ -44,6 +44,8 @@ export const ui = {
   noticeFocus: null, noticeIndex: new Map(),
   // 左栏四个列表共用的排序偏好（smart / updated / id）。
   sidebarSortMode: readSidebarSortPref(),
+  /** 分支图视图：打开期间轮询不用概览覆盖它；指纹 + 最小时隔决定要不要重拉 /api/graph。 */
+  graphOpen: false, graphFingerprint: null, graphFetchedAt: 0, graphRenderKey: null,
   lastSnapshot: null,   // 切排序模式要立刻重排，不必等下一次轮询
   sideNodes: new Map(),      // section id -> 区块 <section>
   sideHeads: new Map(),      // section id -> 标题按钮
@@ -75,6 +77,7 @@ export function resetUiState() {
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeFocus = null; ui.noticeIndex = new Map();
   ui.lastSnapshot = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
+  ui.graphOpen = false; ui.graphFingerprint = null; ui.graphFetchedAt = 0; ui.graphRenderKey = null;
   ui.sideNodes = new Map(); ui.sideHeads = new Map(); ui.navButtons = new Map(); ui.navCounts = new Map();
   ui.stepToggle = new Map();
   ui.collapsed = readCollapsedPref(); ui.filters = readFiltersPref(); ui.sidebarSortMode = readSidebarSortPref();

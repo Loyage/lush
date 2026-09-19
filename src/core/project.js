@@ -10,6 +10,7 @@ import treeMethods from './project/tree.js';
 import timelineMethods from './project/timeline.js';
 import messagesMethods from './project/messages.js';
 import mergeMethods from './project/merge.js';
+import graphMethods from './project/graph.js';
 import verifyMethods from './project/verify.js';
 import transcriptMethods from './project/transcript.js';
 import schedulingMethods from './project/scheduling.js';
@@ -33,6 +34,7 @@ const MIXINS = [
   ['status', statusMethods], ['deps', depsMethods], ['inputs', inputsMethods], ['drafts', draftsMethods],
   ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['tree', treeMethods],
   ['timeline', timelineMethods], ['messages', messagesMethods], ['merge', mergeMethods], ['verify', verifyMethods],
+  ['graph', graphMethods],
   ['transcript', transcriptMethods], ['scheduling', schedulingMethods], ['lifecycle', lifecycleMethods],
 ];
 

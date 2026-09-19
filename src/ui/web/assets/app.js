@@ -3,6 +3,7 @@ import { $, el } from './dom.js';
 import { LIVE_INTERVAL } from './live.js';
 import { detail, overview } from './navigate.js';
 import { liveRefresh, refresh, applySort } from './refresh.js';
+import { openGraph } from './render-graph.js';
 import { initSidebar } from './sidebar-init.js';
 import { SIDEBAR_SORT_KEY, SORT_IDS, resetUiState, ui } from './state.js';
 import { syncMarkdownToggle, toggleMarkdown } from './text.js';
@@ -24,10 +25,15 @@ function onSidebarSortChange() {
 }
 
 const linked = taskId => /^#task-(\d+)$/.test(taskId) ? Number(taskId.slice(6)) : null;
+
+/** 打开分支图：点按钮与 #graph hash 共用；失败只报错，不中断轮询。 */
+function openGraphView() { return openGraph().catch(error => { $('error').textContent = error.message; }); }
+
 function onHashChange() {
+  if (location.hash === '#graph') { if (!ui.graphOpen) openGraphView(); return; }
   const next = linked(location.hash);
   // 后退到没有 hash 的地址＝用户想回概览：只画详情不换面板会让合并按钮彻底消失。
-  if (!next) { if (ui.selected !== null) overview().catch(error => { $('error').textContent = error.message; }); return; }
+  if (!next) { if (ui.selected !== null || ui.graphOpen) overview().catch(error => { $('error').textContent = error.message; }); return; }
   if (next !== ui.selected) detail(next).catch(error => { $('error').textContent = error.message; });
 }
 
@@ -50,10 +56,14 @@ export async function boot() {
   $('sidebar-sort').addEventListener('change', onSidebarSortChange);
   initComposer();
   $('home').onclick = () => { overview().catch(error => { $('error').textContent = error.message; }); };
+  $('graph-open').onclick = () => { location.hash = '#graph'; openGraphView(); };
   initSidebar();
   await refresh();
-  const initial = linked(location.hash);
-  if (initial) { try { await detail(initial); } catch (error) { $('error').textContent = error.message; } }
+  if (location.hash === '#graph') await openGraphView();
+  else {
+    const initial = linked(location.hash);
+    if (initial) { try { await detail(initial); } catch (error) { $('error').textContent = error.message; } }
+  }
   hashListener = onHashChange;
   addEventListener('hashchange', hashListener);
   refreshTimer = setInterval(refresh, 1500);

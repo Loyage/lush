@@ -32,10 +32,10 @@
 
 | 分区 | 入口 | 细粒度模块 | 独立可并行 |
 |---|---|---|---|
-| 任务编排 | `src/core/project.js` | `src/core/project/`（17 个） | ✅ |
+| 任务编排 | `src/core/project.js` | `src/core/project/`（18 个） | ✅ |
 | Git 边界 | `src/core/workspaces.js` | `src/core/workspaces/`（5 个） | ✅ |
 | 持久化 | `src/persistence/store.js` | `src/persistence/store/`（9 个） | ✅ |
-| 前端 | `src/ui/web/assets/app.js` | `src/ui/web/assets/`（26 个） | ✅ |
+| 前端 | `src/ui/web/assets/app.js` | `src/ui/web/assets/`（38 个） | ✅ |
 | CLI | `src/cli/main.js` | `src/cli/`（10 个） | ✅ |
 | RPC | `src/rpc/protocol.js` | `src/rpc/`（7 个） | ✅ |
 | 测试 | `test/*.test.js` | `test/<分区>/*.test.js` | 依赖上面六个落定后 |
@@ -64,6 +64,7 @@
 | `project/timeline.js` | 并发时间轴（run/wait 区间与原因） | `timeline({limit})` |
 | `project/messages.js` | 收件箱、notice、答复 | `message`、`notice`、`answer` |
 | `project/merge.js` | 批准合并、按目标分支批量交付、冲突收口、随带提交对账与交付队列 | `approveMerge`、`approveMergeMany`、`reconcileIntegrated`、`openResolution`、`settleResolution`、`mergeConflictContext`、`ladder()`、`containsCommit` |
+| `project/graph.js` | 分支图只读读模型（任务 / 分支节点、code/order/resolve/verify/target 边、ahead/behind、merged、workspace/branch 缺失容错与上限截断） | `graph()` |
 | `project/verify.js` | 检验任务与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
 | `project/transcript.js` | pi 会话记录的只读投影 | `transcript(taskId, after, limit)`、`usage(taskId)` |
 | `project/scheduling.js` | 调度、invocation 生命周期、凭证 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
@@ -137,6 +138,8 @@
 | `render-resolutions.js` | 合并冲突处理记录 | `renderResolutions(task)` |
 | `render-detail.js` | 任务详情整页 | `renderDetail(task, history, diff, usage)`、`renderDetailError(taskId, message)` |
 | `render-overview.js` | 项目概览 | `renderOverview(data)` |
+| `graph-layout.js` | 分支图纯逻辑：按目标分支分组、组内 code 层级、标签与廉价结构指纹 | `graphLayout(graph)`、`graphFingerprint(snapshot)`、`graphRenderKey(graph)`、`aheadBehindText(node)`、`nodeMarks(node)` |
+| `render-graph.js` | 分支图视图（拉 `/api/graph`、幂等渲染、节点跳详情） | `openGraph()`、`loadGraph()`、`renderGraph(graph, opts)` |
 | `detail.js` | 拉取并渲染一个任务详情 | `loadDetail(taskId)` |
 | `refresh.js` | 轮询快照、概览、热任务增量刷新、筛选重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
 
@@ -170,7 +173,7 @@
 |---|---|---|
 | `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
-| `rpc/handlers/system.js` | `system.*` | `handlers` |
+| `rpc/handlers/system.js` | `system.*`、`graph.get` | `handlers` |
 | `rpc/handlers/input.js` | `input.*`、`draft.*` | `handlers` |
 | `rpc/handlers/task.js` | `task.*` | `handlers` |
 | `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |

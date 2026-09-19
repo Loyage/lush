@@ -6,6 +6,7 @@ import { ui } from './state.js';
 /** 拉取并渲染一个任务详情。 */
 export async function loadDetail(taskId) {
   ui.selected = taskId;
+  ui.graphOpen = false; ui.graphRenderKey = null;
   const scrolled = ui.detailTask === taskId ? $('detail').scrollTop : 0;
   // window.history: a local `history` binding here would shadow the global and throw a TDZ error on click.
   // pushState（而不是 replace）让浏览器后退能回到概览或上一个任务；hash 没变时不重复压栈。

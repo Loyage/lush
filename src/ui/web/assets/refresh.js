@@ -5,6 +5,8 @@ import { HOT } from './format.js';
 import { liveTarget, liveTick } from './live.js';
 import { detail, registerNavigation } from './navigate.js';
 import { syncComposer } from './composer.js';
+import { graphFingerprint } from './graph-layout.js';
+import { loadGraph } from './render-graph.js';
 import { slotGauge } from './gauge.js';
 import { paintUsageLast } from './render-agent.js';
 import { renderDrafts } from './render-drafts.js';
@@ -37,9 +39,10 @@ export function applySort() {
   renderTree(ui.lastSnapshot);
 }
 
-/** 回到项目概览：清掉选中与地址栏 hash，再把概览重画一次。入口是左上角的 Lush 标志。 */
+/** 回到项目概览：清掉选中、分支图与地址栏 hash，再把概览重画一次。入口是左上角的 Lush 标志。 */
 export async function overview() {
   ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.overviewKey = null;
+  ui.graphOpen = false; ui.graphRenderKey = null;
   if (location.hash) window.history.replaceState(null, '', location.pathname);
   await refresh();
 }
@@ -58,7 +61,12 @@ export async function refresh() {
     renderDrafts(data); renderIntents(data); renderTree(data); renderSpecs(data);
     const noticeBefore = ui.noticeFocus;
     renderNotices(data); syncComposer();
-    if (ui.selected === null) renderOverview(data);
+    if (ui.selected === null && !ui.graphOpen) renderOverview(data);
+    // 分支图打开期间：不用概览覆盖它；只有结构指纹真的变了、且距上次拉图至少 3 秒，才重拉一次 git 图。
+    if (ui.graphOpen) {
+      const fingerprint = graphFingerprint(data);
+      if (fingerprint && fingerprint !== ui.graphFingerprint && Date.now() - ui.graphFetchedAt >= 3000) await loadGraph();
+    }
     const current = data.tasks.find(task => task.id === ui.selected);
     const editing = ui.detailDirty || [...$('detail').querySelectorAll('textarea')].some(node => node.value || node === document.activeElement);
     if (current && !editing) {

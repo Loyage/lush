@@ -194,6 +194,8 @@ export function startWeb(config, port = 4318) {
       try {
         if (request.method === 'GET') {
           if (url.pathname === '/api/snapshot') return json(await client.snapshot());
+          // 分支图跑 git，不进 1.5s 的 /api/snapshot：只有打开视图时才单独取一次。
+          if (url.pathname === '/api/graph') return json(await client.request('graph.get'));
           const report = /^\/api\/task\/(\d+)\/report$/.exec(url.pathname);
           if (report) {
             const task = await client.request('task.inspect', { id: Number(report[1]) });
