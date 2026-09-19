@@ -238,7 +238,9 @@ test('a preserved branch that no longer points at the reviewed commit is never d
     const branch = f.store.task(f.task.id).branch;
     await f.project.workspaces.cleanup(f.task.id, { keepBranch: true });
     // 用户在保留的恢复点上继续提交：分支不再等于审阅过的那次提交，就不删。
-    await git(f.root,'update-ref',`refs/heads/${branch}`, await git(f.root,'rev-parse','HEAD'));
+    // （快进合并后 main 顶端就是审阅过的提交，所以必须真的多一个提交，而不是把分支指回 HEAD。）
+    const moved = await git(f.root, 'commit-tree', `${branch}^{tree}`, '-p', await git(f.root, 'rev-parse', branch), '-m', 'user keeps working');
+    await git(f.root,'update-ref',`refs/heads/${branch}`, moved);
     const result = await f.project.workspaces.cleanup(f.task.id);
     expect(result.cleanup.worktree).toBe('absent');
     expect(result.cleanup.branch).toBe('kept');

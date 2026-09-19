@@ -227,11 +227,14 @@ export class Workspaces {
         check(await this.isAncestor(project, upstream.head_commit, 'HEAD'),
           `code dependency #${upstream.id} is not merged into ${task.target_branch} yet; merge #${upstream.id} first so this branch does not carry it along`);
       }
+      // 能快进就快进：不产生合并提交，历史保持线性；只有目标分支已经前进（HEAD 不是该提交的祖先）
+      // 才退回 --no-ff 生成合并提交。解冲突任务恒为快进：它的产物就是「目标分支 + 那次提交」。
+      const fastForward = resolved ? true : await this.isAncestor(project, 'HEAD', task.head_commit);
       // Persist approval before touching the main tree. On crash, never replay a merge.
       this.store.update(task.id, { integration: 'merging', integration_error: null });
-      this.store.event(task.id, 'merge.approved', { commit: task.head_commit, fast_forward: Boolean(resolved) });
+      this.store.event(task.id, 'merge.approved', { commit: task.head_commit, fast_forward: fastForward });
       try {
-        if (resolved) await this.git(project, 'merge', '--ff-only', task.head_commit);
+        if (fastForward) await this.git(project, 'merge', '--ff-only', task.head_commit);
         else await this.git(project, 'merge', '--no-ff', '--no-edit', task.head_commit);
         this.store.update(task.id, { integration: 'merged' });
         this.store.event(task.id, 'merged', { commit: task.head_commit });
