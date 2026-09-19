@@ -22,6 +22,13 @@ function makeWorld() {
     actions: [],
     drafts: [],
     commits: [],
+    // 左侧拆解队列的两条：一条还没被 scheduler 取走，一条已被 scheduler #4 取走并排成了任务 #2。
+    specs: [
+      { id: 1, input_id: 1, planner_task_id: 9, batch_id: null, seq: 1, goal: '还没编排的拆解', role: 'worker', name: 'queued-one',
+        deps: [], status: 'pending', task_id: null, note: null, created_at: iso(NOW - 4000), updated_at: iso(NOW - 4000) },
+      { id: 2, input_id: 1, planner_task_id: 9, batch_id: 4, seq: 2, goal: '已被调度取走的拆解', role: 'research', name: 'taken-one',
+        deps: [{ spec: 1, kind: 'order' }], status: 'planned', task_id: 2, note: null, created_at: iso(NOW - 3000), updated_at: iso(NOW - 3000) },
+    ],
   };
   const task1 = { id: 1, parent_id: null, input_id: 1, role: 'worker', goal: '正在改点什么', status: 'running', integration: 'none',
     updated_at: iso(NOW - 1000), agent_wakes: 2, agent_last_seen_at: iso(NOW - 1000), verifies_task_id: null, resolves_task_id: null };
@@ -29,21 +36,30 @@ function makeWorld() {
     updated_at: iso(NOW - 2000), agent_wakes: 1, agent_last_seen_at: iso(NOW - 2000), verifies_task_id: null, resolves_task_id: null };
   const task3 = { id: 3, parent_id: null, input_id: 1, role: 'worker', goal: '另一个待合的', status: 'completed', integration: 'review',
     updated_at: iso(NOW - 3000), agent_wakes: 1, agent_last_seen_at: iso(NOW - 3000), verifies_task_id: null, resolves_task_id: null };
+  const task4 = { id: 4, parent_id: null, input_id: null, role: 'scheduler', goal: '调度拆解队列', status: 'queued', integration: 'none',
+    updated_at: iso(NOW - 500), agent_wakes: 0, agent_last_seen_at: null, verifies_task_id: null, resolves_task_id: null };
   const snapshot = () => ({
     status: { project: '/tmp/demo', provider: 'mock', concurrency: 2, agents: [], agents_idle: 0, agents_total: 0,
       pending_merges: [{ id: 2, goal: '合并我', branch: 'lush/2-x', integration: 'pending' }], drafts: 0,
       tasks: [{ status: 'running', count: 1 }, { status: 'completed', count: 2 }], merge_freeze: state.freeze, notices: 0,
+      // 拆解队列的计数与批次摘要（和 system.status 同形）
+      specs: { pending: 1, planned: 1, dropped: 0, batches: [{ id: 4, status: 'queued', role: 'scheduler', count: 1 }] },
       version: '0.2.0', fingerprint: 'abc', home: '/tmp/demo/.lush', started_at: iso(NOW - 60000) },
     timeline: { now: iso(NOW), concurrency: 2, start: iso(NOW - 60000), end: iso(NOW), clamped: false, truncated: false, tasks: [] },
     ladder: { target_branch: 'main', truncated: false, nodes: [
       { id: 2, role: 'worker', goal: '合并我', branch: 'lush/2-x', target_branch: 'main', integration: 'pending', deps: [], covered_by: [], level: 0 },
       { id: 3, role: 'worker', goal: '另一个待合的', branch: 'lush/3-x', target_branch: 'release', integration: 'review', deps: [], covered_by: [], level: 0 },
     ] },
-    tasks: [task1, task2, task3], inputs: [{ id: 1, content: 'demo', flow: 'develop' }], drafts: state.drafts, notices: [],
+    tasks: [task1, task2, task3, task4], inputs: [{ id: 1, content: 'demo', flow: 'develop' }], drafts: state.drafts, notices: [], specs: state.specs,
   });
-  const detail = id => id === 1 ? { ...task1, branch: 'lush/1-x', workspace: '/tmp/wt/1', head_commit: 'abc1234', target_branch: 'main',
-    calls: 1, agent: { id: 'worker#1', wakes: 2, active: true, pid: 4242, last_seen_at: iso(NOW - 1000) },
-    deps: [], dependents: [], verifications: [], resolutions: [], children: [], messages: [], result: null, error: null, integration_error: null } : { ...task2, calls: 1 };
+  const detail = id => {
+    if (id === 1) return { ...task1, branch: 'lush/1-x', workspace: '/tmp/wt/1', head_commit: 'abc1234', target_branch: 'main',
+      calls: 1, agent: { id: 'worker#1', wakes: 2, active: true, pid: 4242, last_seen_at: iso(NOW - 1000) },
+      deps: [], dependents: [], verifications: [], resolutions: [], children: [], messages: [], result: null, error: null, integration_error: null };
+    if (id === 4) return { ...task4, calls: 0, deps: [], dependents: [], children: [], messages: [], notices: [], result: null, error: null,
+      integration_error: null, specs: state.specs };
+    return { ...task2, calls: 1 };
+  };
   const usage = () => ({ task_id: 1, files: ['s1.jsonl'], model: { provider: 'mock', model_id: 'mock-1' }, thinking_level: null,
     requests: 1, context_tokens: 123, compacted: 0, last_at: state.usageLast.at, last: state.usageLast,
     totals: { input: 10, output: 5, cache_read: 0, cache_write: 0, reasoning: 0, tokens: 15, cost: 0.001 } });
@@ -194,4 +210,49 @@ test('缓存可勾选部分提交，也可以就地编辑，轮询不打断编�
   await box.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
   await until(() => world.state.drafts[0]?.content === '第二条（改过）');
   await until(() => dom.node('drafts').querySelector('.goal')?.textContent === '第二条（改过）');
+});
+
+test('拆解队列只读展示：按批次分组、能跳到派生的任务，scheduler 显示成调度，空队列收敛成空态', async () => {
+  const specs = dom.node('specs');
+  const groups = () => specs.querySelectorAll('.spec-batch').map(node => node.textContent);
+  // 两条分组标题：还没编排的在前，已被 scheduler 取走的次之
+  expect(groups()).toHaveLength(2);
+  expect(groups()[0]).toContain('等 scheduler 编排');
+  expect(groups()[0]).toContain('planner #9');
+  expect(groups()[1]).toContain('已被 scheduler #4');
+  expect(groups()[1]).toContain('planner #9');
+  const text = deepText(specs);
+  expect(text).toContain('#1');
+  expect(text).toContain('还没编排的拆解');
+  expect(text).toContain('排队中');
+  expect(text).toContain('#2');
+  expect(text).toContain('已被调度取走的拆解');
+  expect(text).toContain('已排期');
+  expect(text).toContain('任务 #2');
+  // 纯只读：队列里唯一的按钮是跳转，没有 spec.add / spec.drop / 编辑入口
+  expect(specs.querySelectorAll('button').map(node => node.textContent)).toEqual(['查看任务']);
+
+  // planned 那条的「查看任务」打开它派生成的任务详情
+  await findByText(specs, '查看任务').onclick();
+  expect(deepText(dom.node('detail'))).toContain('合并我');
+
+  // 任务树把 scheduler 显示成「调度」；展开它，右侧出现这一批 spec 与依赖
+  const tree = dom.node('tasks');
+  expect(deepText(tree)).toContain('排队 · 调度');
+  const schedulerNode = tree.querySelector('[data-id="4"]');
+  expect(schedulerNode).toBeTruthy();
+  await schedulerNode.onclick();
+  const detail = dom.node('detail');
+  expect(deepText(detail)).toContain('拆解队列');
+  expect(deepText(detail)).toContain('本任务这一批取走的 spec');
+  expect(deepText(detail)).toContain('还没编排的拆解');
+  expect(deepText(detail)).toContain('已被调度取走的拆解');
+  expect(deepText(detail)).toContain('依赖 spec #1');
+
+  // 队列被清空后，轮询把它收敛成空态，不残留旧节点
+  world.state.specs = [];
+  await dom.intervalFor(1500)();
+  expect(deepText(specs)).toContain('拆解队列空');
+  expect(specs.querySelectorAll('.spec')).toHaveLength(0);
+  expect(specs.querySelectorAll('.spec-batch')).toHaveLength(0);
 });

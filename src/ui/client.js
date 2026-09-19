@@ -14,8 +14,8 @@ export class UIClient {
     }
   }
   async snapshot() {
-    const [status, timeline, ladder, inputs, drafts, notices] = await Promise.all(
-      ['system.status','system.timeline','task.ladder','input.list','draft.list','notice.list'].map(method => this.request(method)));
+    const [status, timeline, ladder, inputs, drafts, notices, specs] = await Promise.all(
+      ['system.status','system.timeline','task.ladder','input.list','draft.list','notice.list','spec.list'].map(method => this.request(method)));
     check(status.project === this.config.project, 'daemon project mismatch');
     const tasks = []; let after = 0;
     for (;;) {
@@ -25,6 +25,6 @@ export class UIClient {
       after = page.at(-1).id;
       if (page.length < 200) break;
     }
-    return { status, timeline, ladder, tasks, inputs, drafts, notices };
+    return { status, timeline, ladder, tasks, inputs, drafts, notices, specs };
   }
 }

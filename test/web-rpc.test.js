@@ -106,6 +106,8 @@ test('RPC rejects invalid frames, unknown params, invalid ids and cross-project 
     await expect(client.request('input.list',{_token:'foreign'})).rejects.toThrow();
     // 客户端比 daemon 新时不能只说 unknown method，要给出重启这一步
     await expect(new UIClient(f.config).request('service.list',{})).rejects.toThrow('daemon restart');
+    // spec.list 无参数：多带一个过滤条件也必须被参数白名单拒掉（过滤/分组在 UI 侧做）
+    await expect(new UIClient(f.config).request('spec.list', { status: 'pending' })).rejects.toThrow('unknown parameter');
   } finally { await f.close(); }
 });
 
@@ -315,6 +317,51 @@ test('web exposes batch merge through the mutation whitelist', async () => {
     expect((await response.json()).error).toContain('at least one');
     // agent token 在 Web 层直接被拒；真正的 USER_ONLY 校验在 daemon，见 merge-batch.test.js
     expect((await post('task.merge_many', { ids: [1], _token: 'forged' })).status).toBe(400);
+  } finally { await f.close(); }
+});
+
+test('web shows the read-only spec queue and labels scheduler tasks', async () => {
+  const f = await setup();
+  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
+  try {
+    f.project.stopping = true;   // 只造数据，不让 planner / scheduler 真的跑
+    const planner = f.project.submit('重做一个页面').task;
+    const workerSpec = f.project.addSpec(planner.id, { goal: '写一个页面', role: 'worker', name: 'build-page' });
+    const researchSpec = f.project.addSpec(planner.id, { goal: '调研旧实现', role: 'research', name: 'study-old' });
+    const droppedSpec = f.project.addSpec(planner.id, { goal: '重复的拆解', role: 'worker', name: 'duplicate' });
+    f.project.dropSpec(droppedSpec.id, '重复');
+    // 一个 scheduler 一次性取走这一批；取走后排成任务的算 planned，剩下的仍是 pending。
+    const scheduler = f.store.create({ input_id: null, role: 'scheduler', goal: '调度拆解队列' });
+    f.store.takeSpecs(scheduler.id, 10);
+    const spawned = f.store.create({ parent_id: scheduler.id, input_id: null, role: 'worker', goal: '写一个页面', name: 'build-page' });
+    f.store.plannedSpec(workerSpec.id, spawned.id);
+
+    const snapshot = await (await fetch(f.url+'/api/snapshot')).json();
+    expect(Array.isArray(snapshot.specs)).toBe(true);
+    expect(snapshot.specs.map(spec => spec.id).sort((a, b) => a - b))
+      .toEqual([workerSpec.id, researchSpec.id, droppedSpec.id].sort((a, b) => a - b));
+    const planned = snapshot.specs.find(spec => spec.id === workerSpec.id);
+    expect(planned).toMatchObject({ status: 'planned', batch_id: scheduler.id, planner_task_id: planner.id,
+      role: 'worker', name: 'build-page', task_id: spawned.id });
+    expect(planned.deps).toEqual([]);
+    expect(snapshot.specs.find(spec => spec.id === researchSpec.id)).toMatchObject({ status: 'pending', batch_id: scheduler.id, task_id: null });
+    const dropped = snapshot.specs.find(spec => spec.id === droppedSpec.id);
+    expect(dropped.status).toBe('dropped');
+    expect(dropped.note).toBe('重复');
+    // status.specs 的计数与批次摘要
+    expect(snapshot.status.specs).toMatchObject({ pending: 1, planned: 1, dropped: 1 });
+    expect(snapshot.status.specs.batches.find(batch => batch.id === scheduler.id)).toMatchObject({ status: 'queued', role: 'scheduler', count: 2 });
+    // scheduler 是任务树里的真实任务
+    expect(snapshot.tasks.some(task => task.role === 'scheduler')).toBe(true);
+
+    // 队列区块是只读的：Web 不暴露 spec 写操作
+    expect((await post('spec.add', { goal: 'nope', role: 'worker' })).status).toBe(400);
+    expect((await post('spec.drop', { id: researchSpec.id })).status).toBe(400);
+
+    // 页面真的画了这个区块，并把 scheduler 显示成「调度」
+    const html = await (await fetch(f.url)).text();
+    expect(html).toContain('拆解队列');
+    expect(await (await fetch(f.url+'/app.js')).text()).toContain("scheduler: '调度'");
   } finally { await f.close(); }
 });
 

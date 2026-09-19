@@ -10,7 +10,7 @@ const STATUS = {
   completed: { label: '已完成', icon: '✓' }, failed: { label: '失败', icon: '✗' }, cancelled: { label: '已取消', icon: '⊘' },
 };
 const INTEGRATION = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并', conflict: '冲突待处理', superseded: '已作废' };
-const ROLE = { planner: '规划', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验', merger: '解冲突' };
+const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验', merger: '解冲突' };
 const EVENTS = {
   created: '创建任务', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
@@ -27,6 +27,8 @@ const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
 const WAIT_REASON = { dep: '等依赖', children: '等子任务', user: '等你决定', slot: '等并发槽', setup: '没跑起来' };
 let selected = null, selectedRevision = null, busy = false, offline = false, detailDirty = false, detailTask = null, detailRenderedAt = 0;
 let draftSignature = null;
+// 拆解队列的重建哨兵：id/status/batch_id/task_id 变化才重画，轮询不冲掉滚动。
+let specSignature = null;
 // 勾选与编辑态都按草稿 id 记，这样轮询重建时不会丢用户的意图；默认全选。
 const draftUnchecked = new Set();
 let draftIds = [], draftEditing = null;
@@ -276,6 +278,93 @@ function renderDrafts(data) {
   draftSignature = signature;
   $('drafts').replaceChildren(...drafts.map(draftItem));
   syncComposer();
+}
+/* ---------- 拆解队列（只读）：planner 写、scheduler 取走、Web 只展示 ---------- */
+// deps 可能是已解析的数组（{spec,kind} 或裸 id），也可能是 JSON 字符串（旧库/旧读模型）；三种都要兼容。
+function specDeps(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string' || !value) return [];
+  try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
+}
+const SPEC_STATUS = {
+  pending: { label: '排队中', className: 'b-queued' },
+  planned: { label: '已排期', className: 'b-completed' },
+  dropped: { label: '已丢弃', className: 'b-failed' },
+};
+const specStatus = spec => SPEC_STATUS[spec.status] || { label: spec.status, className: 'b-neutral' };
+/** 一条 spec 的完整可读文本，放进 title，让人 hover 就能看全文与丢弃原因。 */
+function specTitle(spec) {
+  const info = specStatus(spec);
+  return [`#${spec.id} ${spec.goal}`, `状态：${info.label}`, spec.note ? `备注：${spec.note}` : null].filter(Boolean).join('\n');
+}
+/** 一条 spec：id / 状态 / role / name / goal（单行截断）/ 更新时间 / 派生的任务 / 依赖。纯只读。 */
+function specItem(spec) {
+  const info = specStatus(spec);
+  const item = el('div', undefined, 'spec');
+  const row = el('span', undefined, 'row');
+  row.append(el('span', `#${spec.id}`, 'tid'), badge(info.label, info.className));
+  if (spec.role) row.append(badge(ROLE[spec.role] || spec.role, 'b-neutral'));
+  if (spec.name) row.append(el('span', spec.name, 'spec-name'));
+  row.append(el('span', relative(spec.updated_at), 'when'));
+  item.append(row);
+  const goal = el('span', spec.goal, 'spec-goal');
+  goal.title = spec.goal;
+  item.append(goal);
+  const deps = specDeps(spec.deps).map(dep => (dep && typeof dep === 'object' ? dep.spec : dep));
+  if (deps.length) item.append(el('span', `依赖 spec #${deps.join('、')}`, 'meta'));
+  if (spec.note && spec.status === 'dropped') item.append(el('span', `原因：${spec.note}`, 'meta'));
+  if (spec.status === 'planned' && spec.task_id !== null && spec.task_id !== undefined) {
+    const taskRow = el('span', undefined, 'spec-task');
+    taskRow.append(el('span', `任务 #${spec.task_id}`, 'tid'),
+      button('查看任务', () => { noticeFocus = null; return detail(spec.task_id); }, 'link'));
+    item.append(taskRow);
+  }
+  item.title = specTitle(spec);
+  return item;
+}
+/** 只读展示拆解队列：按批次分组，区分「等 scheduler 编排」与「已被 scheduler #N 取走」。 */
+function renderSpecs(data) {
+  const specs = data.specs || [];
+  const tasks = data.tasks || [];
+  const stats = data.status?.specs || {};
+  $('spec-count').textContent = specs.length
+    ? `排队 ${stats.pending ?? 0} · 已排期 ${stats.planned ?? 0} · 丢弃 ${stats.dropped ?? 0}`
+    : '空';
+  // 只在队列结构变化时重建：轮询不能把左侧的滚动位置冲掉。
+  const signature = specs.map(spec => `${spec.id}:${spec.status}:${spec.batch_id}:${spec.task_id}`).join('\u0000');
+  if (signature === specSignature) return;
+  specSignature = signature;
+  const container = $('specs');
+  if (!specs.length) { container.replaceChildren(el('div', '拆解队列空：planner 还没写下可编排的条目；写完由 scheduler 一次性编排本批。', 'spec-empty')); return; }
+  // 组：batch_id 为空的是还没被 scheduler 取走的一轮拆解（按 planner 分）；否则按 batch（= scheduler 任务 id）分。
+  const groups = new Map();
+  for (const spec of specs) {
+    const key = spec.batch_id === null || spec.batch_id === undefined ? `planner:${spec.planner_task_id}` : `batch:${spec.batch_id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(spec);
+  }
+  const ordered = [...groups.values()].sort((a, b) => {
+    const pendingA = a[0].batch_id === null || a[0].batch_id === undefined;
+    const pendingB = b[0].batch_id === null || b[0].batch_id === undefined;
+    if (pendingA !== pendingB) return pendingA ? -1 : 1;   // 等编排的组在前
+    if (pendingA) return a[0].planner_task_id - b[0].planner_task_id;
+    return a[0].batch_id - b[0].batch_id;                  // 已被取走的按 scheduler id 升序
+  });
+  container.replaceChildren(...ordered.map(rows => {
+    const sorted = [...rows].sort((a, b) => a.id - b.id);
+    const first = sorted[0];
+    const group = el('div', undefined, 'spec-group');
+    let title;
+    if (first.batch_id === null || first.batch_id === undefined) {
+      title = `等 scheduler 编排 · planner #${first.planner_task_id} 的一轮拆解（${sorted.length} 条）`;
+    } else {
+      const scheduler = tasks.find(task => task.id === first.batch_id);
+      title = `已被 scheduler #${first.batch_id}${scheduler ? `（${statusOf(scheduler).label}）` : ''} 取走 · planner #${first.planner_task_id} 的一轮拆解（${sorted.length} 条）`;
+    }
+    group.append(el('div', title, 'spec-batch'));
+    for (const spec of sorted) group.append(specItem(spec));
+    return group;
+  }));
 }
 /** 顶部并发槽：并行不是树里的属性，而是全局资源——画出来才知道谁在占槽、谁在等槽。 */
 function slotGauge(data) {
@@ -920,6 +1009,17 @@ function renderResolutions(task) {
   }
   return section;
 }
+/** planner 这一轮写下的拆解 / scheduler 这一批取走的 spec：只读，和左侧队列同一套行。 */
+function renderTaskSpecs(task) {
+  const specs = task.specs || [];
+  const section = block('拆解队列', String(specs.length));
+  section.append(el('p', task.role === 'scheduler'
+    ? '本任务这一批取走的 spec：每一条都要有归宿——spawn 成任务，或明确丢弃。'
+    : '这一轮写下的拆解（等 scheduler 编排）：scheduler 会把它们一次性编排成真实任务，批内没有依赖边的会同时开工。', 'hint'));
+  if (!specs.length) section.append(el('p', '这一批是空的。', 'hint'));
+  for (const spec of [...specs].sort((a, b) => a.id - b.id)) section.append(specItem(spec));
+  return section;
+}
 function renderDetail(task, history, diff, usage) {
   const panel = $('detail'); panel.replaceChildren();
   const head = el('div', undefined, 'head');
@@ -998,6 +1098,7 @@ function renderDetail(task, history, diff, usage) {
   grid.append(kv('创建', `${absolute(task.created_at)}`, 'mono'));
   grid.append(kv('最后更新', `${absolute(task.updated_at)} · ${relative(task.updated_at)}`));
   stats.append(grid); panel.append(stats);
+  if (task.specs) panel.append(renderTaskSpecs(task));
   panel.append(renderDeps(task));
   if ((task.resolutions || []).length) panel.append(renderResolutions(task));
 
@@ -1171,7 +1272,7 @@ async function refresh() {
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');
     $('agents').replaceChildren(slotGauge(data));
     if (offline) { offline = false; $('error').textContent = ''; }
-    renderDrafts(data); renderTree(data);
+    renderDrafts(data); renderTree(data); renderSpecs(data);
     const noticeBefore = noticeFocus;
     renderNotices(data); syncComposer();
     if (selected === null) renderOverview(data);
