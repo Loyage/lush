@@ -13,6 +13,8 @@ const DEP_KINDS = new Set(['code', 'order']);
 export const FLOWS = new Set(['develop', 'explain']);
 /** Buffered drafts are a cache, not a queue: bounded so a forgotten tab cannot grow the db forever. */
 const MAX_DRAFTS = 500;
+/** 一个 planner 一轮能攒下的 pending spec 上限；一批也按它取，所以一轮拆解不会被截成两批。 */
+const MAX_BATCH_SPECS = 200;
 /** A batch keeps every utterance identifiable; a single draft stays verbatim. */
 function batchContent(drafts) {
   if (drafts.length === 1) return drafts[0].content;
@@ -192,16 +194,18 @@ export class Project {
     });
     return { input_id: task.input_id, task_id: task.id, flow };
   }
-  /** The one place a scheduler task is born: pending specs exist and no live scheduler owns them. */
+  /**
+   * The one place a scheduler task is born: a planner has finished its round and no live scheduler owns the queue.
+   * 批次 = 那个 planner 这一轮写下的全部 spec，所以等待只由「planner 结束」触发，不由写入时刻决定。
+   */
   ensureScheduler() {
-    const pending = this.store.pendingSpecs(51);
-    if (!pending.length) return null;
+    const group = this.store.nextSpecPlanner();
+    if (!group) return null;
     if (this.store.get("SELECT id FROM tasks WHERE role='scheduler' AND status NOT IN ('completed','failed','cancelled')")) return null;
-    const count = Math.min(pending.length, 50);
     return this.store.transaction(() => {
       const task = this.store.create({ input_id: null, role: 'scheduler', name: null,
-        goal: `调度拆解队列：${count} 条 pending spec，一次性编排完本批（不允许遗留）` });
-      this.store.assignSpecs(task.id, 50);
+        goal: `调度拆解队列：planner #${group.planner_task_id} 写下的 ${group.count} 条 spec，一次性编排完本批（不允许遗留）` });
+      this.store.assignSpecs(task.id, MAX_BATCH_SPECS, group.planner_task_id);
       return task;
     });
   }
@@ -259,7 +263,7 @@ export class Project {
       hints.push({ spec: specId, kind });
     }
     const pending = this.store.get("SELECT count(*) AS n FROM task_specs WHERE planner_task_id=? AND status='pending'", planner.id).n;
-    check(pending < 200, 'a planner may hold at most 200 pending specs; let the scheduler drain the queue first');
+    check(pending < MAX_BATCH_SPECS, `a planner may hold at most ${MAX_BATCH_SPECS} pending specs; let the scheduler drain the queue first`);
     const row = this.store.addSpec({ input_id: planner.input_id, planner_task_id: planner.id, goal: spec.goal, role, name: slug, deps: hints });
     this.store.event(planner.id, 'spec.added', { spec_id: row.id, role, name: slug, deps: hints });
     this.kick();
@@ -682,6 +686,8 @@ export class Project {
     if (task.parent_id) this.wake(task.parent_id);
     // A settled dependency releases every queued dependent; still-blocked ones stay queued.
     for (const edge of this.store.dependents(task.id)) this.wake(edge.task_id);
+    // 一个没有父子/依赖边的 planner（根任务）也要在自己结束时把这一轮拆解交给 scheduler。
+    this.kick();
     return this.store.task(task.id);
   }
   cancel(taskId, reason = 'cancelled by user', status = 'cancelled') {

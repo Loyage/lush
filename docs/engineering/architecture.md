@@ -31,6 +31,15 @@ CLI / Web → UIClient → JSON-RPC / Unix socket → Project
 
 每条输入还带一个流程判定（`inputs.flow`，未判定按 develop 处理）：`develop` 照常拆解出 worker/coordinator/research；`explain` 只解答、不产出代码，根 planner 直接把结论写进 result，必要时只派 research。runtime 在 `Project.spawn` 层硬校验 `explain` 子树只允许 research，因此了解类输入不会创建 worktree、不会产生待合并改动。判定与改判由根 planner / 用户经 `input.flow` 写入；改判只影响之后的 spawn，不追溯已建子任务。
 
+### 拆解与编排（spec 队列）
+
+planner 不直接派活：它把每条可独立完成的工作写成一条 spec（`task_specs`，状态 `pending`），scheduler 再把 spec 变成真实 task。一个 planner 的**一轮拆解**（这一次 invocation 里写下的全部 spec）在它停止执行后作为**同一批**交给同一个 scheduler：批次边界是「谁写的」，不是「哪一刻写的」。
+
+- planner 还在跑（`queued` / `running`）时，它写的 spec 一条都不会被取走，所以不会出现只包含前几条的半成品批次；写完一轮直接结束本轮即可。停止执行包括停在 `awaiting`（发 notice 等用户答复）：这一轮已写好的条目不会被别人的答复卡住；答复后醒来补写的 spec 算新的一轮、新的一批。
+- 同一批内没有依赖边的 spec 会同时开工（受并发上限限制）：用户一次提交里的两条独立需求不会再被批次边界拆成前后两轮。
+- 批次之间串行：同一项目同时只有一个未终态 scheduler，前一批收尾（子任务全部终态）后下一批才出生。`Project.spawn` 校验 scheduler 只能 spawn 自己批里的 spec。
+- planner 或持有该批的 scheduler 可以 `spec drop`；scheduler 结束时未处理的 spec 标为 `dropped`，被取消则退回队列等下一批。
+
 ### 一次 invocation
 
 1. 按任务 ID 从 queued 中挑选，不超过对应槽限制。

@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { check, id, bounded } from '../core/types.js';
+import { check, id, bounded, EXECUTING } from '../core/types.js';
 
 export class Store {
   constructor(file, project) {
@@ -36,7 +36,8 @@ export class Store {
         task_id INTEGER NOT NULL REFERENCES tasks(id), depends_on INTEGER NOT NULL REFERENCES tasks(id),
         kind TEXT NOT NULL CHECK (kind IN ('code','order')), PRIMARY KEY (task_id, depends_on));
       CREATE INDEX IF NOT EXISTS task_deps_reverse ON task_deps(depends_on);
-      -- 拆解队列：planner 只往这里写条目，scheduler 串行批量编排后才产生真实任务。
+      -- 拆解队列：planner 只往这里写条目，一个 planner 一轮写完（它结束）后，runtime 把它写的全部 pending
+      -- 条目收成一个 batch 交给一个 scheduler；批次之间串行，所以批内没有依赖边的条目会同时开工。
       CREATE TABLE IF NOT EXISTS task_specs (
         id INTEGER PRIMARY KEY, input_id INTEGER REFERENCES inputs(id),
         planner_task_id INTEGER NOT NULL REFERENCES tasks(id), batch_id INTEGER,
@@ -133,9 +134,30 @@ export class Store {
   pendingSpecs(limit = 200) { return this.specs({ status: 'pending', limit }); }
   specsForBatch(batchId, limit = 200) { return this.specs({ batch_id: batchId, limit }); }
   specsByPlanner(plannerTaskId, limit = 200) { return this.specs({ planner_task_id: plannerTaskId, limit }); }
-  /** Take the oldest pending specs for a batch; callers that already hold a transaction use this directly. */
-  assignSpecs(batchId, limit) {
-    const rows = this.all("SELECT id FROM task_specs WHERE status='pending' ORDER BY id LIMIT ?", limit);
+  /**
+   * 下一条该编排的拆解：最老的、已经停止执行的 planner 写下的未编排 spec。
+   * 批次边界是「谁写的」而不是「哪一刻写的」，所以 planner 还在跑（或还会被再调用）时它写的 spec 一条都不会被取走，
+   * 一轮拆解只会形成一批；同一批里没有依赖边的 spec 因此在同一时刻开始并跑。
+   * planner 停在 awaiting（等用户答复）也算这一轮结束：它已写好的条目不该被别人的答复卡住。
+   */
+  nextSpecPlanner() {
+    const rows = this.all(`SELECT s.planner_task_id, count(*) AS count, min(s.id) AS first_spec_id
+      FROM task_specs s JOIN tasks p ON p.id = s.planner_task_id
+      WHERE s.status='pending' AND s.batch_id IS NULL AND p.status NOT IN (${[...EXECUTING].map(() => '?').join(',')})
+      GROUP BY s.planner_task_id ORDER BY first_spec_id LIMIT 1`, ...EXECUTING);
+    return rows[0] ?? null;
+  }
+  /**
+   * Take the oldest unclaimed pending specs for a batch; callers that already hold a transaction use this directly.
+   * plannerTaskId 把范围收窄到一个 planner 写的条目（正常路径都用它）；省略时按 id 取最老的，供人工/测试造批。
+   */
+  assignSpecs(batchId, limit, plannerTaskId = null) {
+    const params = [];
+    let where = "status='pending' AND batch_id IS NULL";
+    if (plannerTaskId !== null && plannerTaskId !== undefined) {
+      where += ' AND planner_task_id=?'; params.push(id(plannerTaskId));
+    }
+    const rows = this.all(`SELECT id FROM task_specs WHERE ${where} ORDER BY id LIMIT ?`, ...params, limit);
     for (const row of rows) this.run("UPDATE task_specs SET batch_id=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", batchId, row.id);
     return rows.map(row => this.spec(row.id));
   }

@@ -308,7 +308,7 @@ test('drafts become one planner, and a code dependency stacks worktrees with an 
     expect(batch.content).toContain('2) 把筛选器抽成组件');
     const client = new UIClient(Config.fromEnv(env(),root));
     expect((await settle(batch.task.id)).status).toBe('completed');
-    // planner 写 spec，scheduler 串行把它们编成任务并在子任务全部终态后收尾（每条 spec 可能各自成批）
+    // planner 写 spec，scheduler 串行把它们编成任务并在子任务全部终态后收尾（同一轮拆解是同一批）
     let workers = [];
     for (let i=0;i<200 && workers.length<2;i++) {
       workers = (await client.request('task.list',{})).filter(task => task.role === 'worker').sort((a,b) => a.id - b.id);
@@ -327,7 +327,7 @@ test('drafts become one planner, and a code dependency stacks worktrees with an 
     expect(schedulers.length).toBeGreaterThanOrEqual(1);
     expect(schedulers.every(task => task.status === 'completed')).toBe(true);
     const [fullUpstream, fullDownstream] = [await client.request('task.inspect',{id:upstream.id}), await client.request('task.inspect',{id:downstream.id})];
-    expect(downstream.deps).toEqual([{ id: upstream.id, kind:'code', status:'completed' }]);
+    expect(fullDownstream.deps.map(dep => ({ id: dep.id, kind: dep.kind, status: dep.status }))).toEqual([{ id: upstream.id, kind:'code', status:'completed' }]);
     expect(upstream.blocked).toBe(false);
     expect(fullDownstream.base_commit).toBe(fullUpstream.head_commit);
     // 主工作树没有上游的改动，但下游的 worktree 是从上游分支拉出来的
