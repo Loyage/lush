@@ -64,8 +64,10 @@ function loadAuth(config) {
   check(plaintext !== hashed, `${file} must contain exactly one of password or password_hash`);
   let password_hash = value.password_hash;
   if (plaintext) {
-    check(value.password.length >= 12 && value.password.length <= 1024, `${file} password must be 12-1024 characters`);
-    password_hash = passwordHash(value.password);
+    // 首尾空白一律忽略：从终端或聊天窗口复制密码时很容易带上换行，它不该变成登录失败。
+    const secret = value.password.trim();
+    check(secret.length >= 12 && secret.length <= 1024, `${file} password must be 12-1024 characters`);
+    password_hash = passwordHash(secret);
     const replacement = JSON.stringify({ version: 1, username: value.username, password_hash }, null, 2) + '\n';
     const temporary = `${file}.${process.pid}.tmp`;
     try {
@@ -134,14 +136,16 @@ export function startWeb(config, port = 4318) {
         const attempt = failures.get(remote);
         if (attempt?.retry_at > Date.now()) return new Response(loginPage('登录尝试过多，请一分钟后再试。'), { status: 429, headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': LOGIN_CSP } });
         const form = await request.formData();
-        const username = String(form.get('username') ?? '');
-        const password = String(form.get('password') ?? '');
+        const username = String(form.get('username') ?? '').trim();
+        const password = String(form.get('password') ?? '').trim();
         const usernameOk = secretEqual(username, auth.username);
         const passwordOk = verifyPassword(password, auth.password_hash);
         if (!usernameOk || !passwordOk) {
           const count = (attempt?.count || 0) + 1;
           failures.set(remote, count >= 5 ? { count: 0, retry_at: Date.now() + 60_000 } : { count, retry_at: 0 });
           if (failures.size > 1024) failures.clear();
+          // 只记「账号对不对」，不记密码；用于区分「没连上服务器」与「确实被拒」。
+          console.warn(`[web] login rejected from ${remote} (username ${usernameOk ? 'matched' : 'mismatched'}, ${count}/5)`);
           return new Response(loginPage('账号或密码错误。', form.get('next')), { status: 401, headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': LOGIN_CSP } });
         }
         failures.delete(remote);

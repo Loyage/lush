@@ -58,8 +58,7 @@ test('web auth config enables public hosts and protects every route with a login
   const password = 'correct horse battery staple';
   const f = await setup({ auth: { username: 'owner', password } });
   try {
-    expect(f.web.hostname).toBe('0.0.0.0');
-    const config = JSON.parse(fs.readFileSync(path.join(f.config.home, 'web.json'), 'utf8'));
+    expect(f.web.hostname).toBe('0.0.0.0');    const config = JSON.parse(fs.readFileSync(path.join(f.config.home, 'web.json'), 'utf8'));
     expect(config.password).toBeUndefined();
     expect(config.password_hash).toStartWith('scrypt$');
     expect(fs.statSync(path.join(f.config.home, 'web.json')).mode & 0o777).toBe(0o600);
@@ -74,6 +73,9 @@ test('web auth config enables public hosts and protects every route with a login
 
     const wrong = await fetch(f.url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'username=owner&password=wrong-password&next=%2F' });
     expect(wrong.status).toBe(401);
+    // 从终端或聊天窗口复制密码常带尾随空白；只有真正写错才算登录失败。
+    const padded = await fetch(f.url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `username=${encodeURIComponent(' owner ')}&password=${encodeURIComponent(` ${password}\n`)}&next=%2F` });
+    expect(padded.status).toBe(303);
     const success = await fetch(f.url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `username=owner&password=${encodeURIComponent(password)}&next=%2F` });
     expect(success.status).toBe(303);
     const cookie = success.headers.get('set-cookie').split(';')[0];
