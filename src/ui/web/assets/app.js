@@ -986,14 +986,22 @@ function lastView(last) {
   const full = [last.at ? `${when}（${absolute(last.at)}）` : when, what, body].filter(Boolean).join(' · ');
   return { value, title: full };
 }
-/** 轮询里只重画这一行：「最近一次执行」的相对时间不必等整个详情面板重建。 */
+/** 折叠态的执行过程只摆这一行：相对时间 + 类型/标题 + 正文单行预览，全文在 title。 */
+function lastStepRow(last) {
+  const view = lastView(last);
+  const row = el('p', undefined, 'last-step');
+  row.dataset.live = 'last';
+  row.append(el('span', view.value));
+  row.title = view.title;
+  return row;
+}
+/** 轮询里只重画这一行：不展开执行过程时，「最近一条步骤」不必等整个详情面板重建。 */
 function paintUsageLast(taskId, usage) {
   if (selected !== taskId) return;
   const row = $('detail').querySelector('[data-live="last"]');
   if (!row) return;
   const view = lastView(usage?.last ?? null);
-  const span = row.querySelector('span');
-  if (span) span.textContent = view.value;
+  (row.querySelector('span') || row).textContent = view.value;
   row.title = view.title;
 }
 /** 一个 agent 的全部信息：身份与唤醒次数（Lush 侧）+ 模型、上下文、花费（pi 会话记录侧）。
@@ -1005,12 +1013,6 @@ function renderAgent(task, usage) {
     grid.append(kv('agent', `${task.agent.id} · ${task.agent.active ? `运行中 · pid ${task.agent.pid ?? '待上报'}` : '空闲'}`));
     grid.append(kv('唤醒', `累计 ${task.agent.wakes} 次${task.agent.last_seen_at ? ` · 上次动手 ${relative(task.agent.last_seen_at)}` : ''}`));
   }
-  // 用户要的“最近一次执行”：时间就是执行过程最后一条步骤的时间，内容就是那一步。
-  const last = lastView(usage?.last ?? null);
-  const lastRow = kv('最近一次执行', last.value);
-  lastRow.dataset.live = 'last';
-  lastRow.title = last.title;
-  grid.append(lastRow);
   if (usage?.files?.length) {
     grid.append(kv('模型', usage.model ? [usage.model.provider, usage.model.model_id].filter(Boolean).join('/') : '—', 'mono'));
     if (usage.thinking_level) grid.append(kv('思考等级', usage.thinking_level));
@@ -1038,10 +1040,12 @@ function renderAgent(task, usage) {
   const cached = transcriptCache.get(task.id);
   if (cached) holder.replaceChildren(...transcriptContent(task.id));
   // 会话文件不存在就别摆一个点了没用的按钮，直接说清楚为什么没东西可看。
-  else if (usage && !usage.files.length) holder.append(el('p', '这个任务还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。', 'hint'));
+  else if (!usage?.files?.length) holder.append(el('p', '这个任务还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。', 'hint'));
   else if (transcriptOpen.has(task.id)) holder.append(el('p', '正在读取会话记录…', 'hint'));
   else {
-    holder.append(el('p', '思考、工具调用与工具输出保存在 pi 会话记录里，默认不展开。', 'hint'));
+    // 不展开时「只显示最近一条信息」（用户原话）：那一步就是执行过程的最后一条。
+    if (usage.last) holder.append(lastStepRow(usage.last));
+    else holder.append(el('p', '思考、工具调用与工具输出保存在 pi 会话记录里，默认不展开。', 'hint'));
     const actions = el('div', undefined, 'actions');
     actions.append(button('查看执行过程', async () => {
       transcriptOpen.add(task.id);
