@@ -1,132 +1,53 @@
 # 架构：一个项目，一棵棵任务树
 
+这份文件是索引：实体与生命周期不变量在这里一览，各章正文在各自文件。模块地图见 [modules.md](modules.md)。
+
 ## 实体
 
-- **Project**：不是全局注册表里的记录，而是 daemon 的不可变作用域：canonical 目录 + `.lush/project.json` + SQLite 中的项目绑定。
-- **Input**：用户原话，逐字持久化，关联一个根 planner Task。入口调用只做短事务和安排调度，不等待 agent。
-- **Task**：goal / role / parent_id / input_id / status / result / error / invocation 次数；worker 另有工作区和 integration 状态。父子关系只在创建时指定，不能变更。verifier 另带 `verifies_task_id`（指向被检验的 worker）与 `baseline_workspace` / `baseline_commit`（目标分支的临时对照检出）；merger 另带 `resolves_task_id`（指向合并冲突的那个 worker）。两者都用关联边而不是父子边，所以「终态任务没有活动后代」这条不变量不被破坏。
-- **Agent**：与 task 终身一对一的身份（`<role>#<task-id>`）。task 创建时它就存在，跨唤醒复用同一个 pi session，记录累计唤醒次数与上次动手时间；但 RPC 凭证每次唤醒重新签发，库里只存 SHA-256，且只在该次 invocation 运行期间可解析。
-- **Message**：持久化收件箱，用户、直接父子 task、子任务结算与 notice 答复共享同一通道。
-- **Notice**：task 请求用户做决定；答复/忽略入收件箱。
-- **Event**：创建、调用、状态转换、消息和 Git 生命周期审计。
+实体逐条原文见 [entities.md](entities.md)。
 
-## 数据流
-
-```text
-CLI / Web → UIClient → JSON-RPC / Unix socket → Project
-                                                   ├── Store / SQLite
-                                                   ├── scheduler → pi subprocess / mock
-                                                   └── Workspaces → serialized Git operations
-```
-
-所有业务校验在 Project / Workspaces，RPC 只检查参数、身份与命令权限，UI 不直接操作数据库。
-
-### 输入和规划
-
-`input.submit` 在一个事务中写 Input、根 planner Task、关联字段和创建事件，然后通过 microtask 启动调度。
-
-每条输入有自己的 planner；不会复用长期被占用的单个根任务。调度器保留一个规划槽，执行任务使用另外 N 个槽。因此一个规划任务派活后等待，不会阻碍其他输入被规划。规划本身不是无限并发，以免大量输入造成不受控模型调用。
-
-每条输入还带一个流程判定（`inputs.flow`，未判定按 develop 处理）：`develop` 照常拆解出 worker/coordinator/research；`explain` 只解答、不产出代码，根 planner 直接把结论写进 result，必要时只派 research。runtime 在 `Project.spawn` 层硬校验 `explain` 子树只允许 research，因此了解类输入不会创建 worktree、不会产生待合并改动。判定与改判由根 planner / 用户经 `input.flow` 写入；改判只影响之后的 spawn，不追溯已建子任务。
-
-### 意图层与拆解队列
-
-用户输入存 `inputs`（意图），它对应一个根 planner task。**planner 与 scheduler 属于 `layer='intent'`，不进任务树/任务列表/时间轴**：`task.list` / `task.tree` / `task.timeline` 只读 `layer='work'`，planner/scheduler 的进度跟着 `input.list` 下发（每条意图带 planner 状态与闸门、拆解计数、scheduler id 与状态）。按 id 仍可 `task.inspect` / `task.tree` 一个 planner 或 scheduler——Web 的意图卡片就是从这跳进去的。work 任务的 `parent_id` 仍是它所属的 scheduler（消息、结算、唤醒都靠这条边），只是在树上被“提上来”当根。
-
-planner 不直接派活：它把每条可独立完成的工作写成一条 spec（`task_specs`，状态 `pending`），scheduler 再把它变成真实 task。一个 planner 的**一轮拆解**（这一次 invocation 里写下的全部 spec）在它停止执行后作为**同一批**交给同一个 scheduler：批次边界是「谁写的」，不是「哪一刻写的」。
-
-- planner 还在跑（`queued` / `running`）时，它写的 spec 一条都不会被取走，所以不会出现只包含前几条的半成品批次；写完一轮直接结束本轮即可。停止执行包括停在 `awaiting`（发 notice 等用户答复）：这一轮已写好的条目不会被别人的答复卡住；答复后醒来补写的 spec 算新的一轮、新的一批。
-- 同一批内没有依赖边的 spec 会同时开工（受并发上限限制）：用户一次提交里的两条独立需求不会被拆成前后两轮。
-- 批次之间串行：同一项目同时只有一个未终态 scheduler，前一批收尾（子任务全部终态）后下一批才出生。`Project.spawn` 校验 scheduler 只能 spawn 自己批里的 spec。
-- planner 或持有该批的 scheduler 可以 `spec drop`；scheduler 结束时未处理的 spec 标为 `dropped`，被取消则退回队列等下一批。
-
-### 计划审批闸门（可选）
-
-planner 判断「影响面大（改架构/公共接口/数据模型/现有行为）」「与已有任务或设计冲突」「没把握完全读懂意图」之一时，可以在写完之后 `plan.propose`（`lush plan propose '标题' --body '…'`）：把 `plan_gate` 置为 `proposed` 并在自己身上开一条 `kind='plan'` 的 notice。`nextSpecPlanner()` 跳过 `proposed` 的条目，所以这一批 spec 会一直待在队列里，直到：
-
-- **批准**（`plan.approve` / Web「批准并开发」）：闸门置 `approved`，notice 关掉，planner 本轮就此结束（计划已定），下一次 `pump` 把这批交给 scheduler。
-- **驳回**（`plan.reject` + 理由）：闸门置 `rejected`，本轮 pending spec 全部标 `dropped`，理由作为消息送进 planner 收件箱并唤醒它重拆；下一轮 invocation 开头清掉闸门（要不要再申请批准由它自己判）。
-
-`plan.propose` 是 agent（planner）专属，`plan.approve` / `plan.reject` 是用户专属；plan notice 不能用 `notice.answer` 回答（会报错并指向这两个命令），否则就绕过了闸门。不申请批准的拆解照旧直接进 scheduler。
-
-### 一次 invocation
-
-1. 按任务 ID 从 queued 中挑选，不超过对应槽限制。
-2. 在 `running` Map 中占位并签发本次 invocation 的 token（库里只写 hash），再异步准备 worker worktree（verifier 则准备目标分支的对照检出）；将 task 标为 running。
-3. 读取此次未消费消息、当前任务/子任务和最近任务摘要，启动 provider。
-4. pi 收到项目/任务/token 环境变量、固定代码路径下的 lush CLI、独立 session 和输入文件。在 cwd 中运行工具循环；Lush 不在 argv 中传入巨大的项目快照。
-5. provider 正常返回后消费**启动时读到的消息**，记录结果。运行期间到达的消息留给下次。
-6. 依次判定：还有未读消息 → queued；有未决 notice → awaiting；有活动子任务 → waiting；否则校验 worker 提交并 completed。
-7. 释放 running 占位并作废 token，再次检查未读消息，防止 child settled 与 parent park/清理之间丢唤醒。
-
-waiting / awaiting 不占 agent 槽，也不运行 sleep/poll 子进程。最终输出是 task result；不提供可被 agent 提前调用的 complete 命令。
-
-### 多级协作
-
-agent 只能从自己的 task 派生子任务、给直接父/子发消息、给自己发 notice。用户可以给任意活动 task 追加输入。子任务结算发送状态、结果与错误给父 task；父 task 重新入队后自己决定继续派活或汇总。角色 planner / coordinator / worker / research 由 agent 自己派生；verifier 只能由用户经 `task.verify` 创建（RPC 层是 USER_ONLY），它以被检验 worktree 为 cwd，用最直观的方式演示结果并在目标分支的对照检出上重跑同一场景，最后把自包含 HTML 报告写到 `.lush/verify/<id>/report.html`。
-
-最大层数、活动任务数上限、调用次数上限和 invocation 超时限制失控分派。默认 maxDepth=8、活动任务上限=1000、maxCalls=24。
+| 实体 | 详述 |
+|---|---|
+| Project | [entities.md#project](entities.md#project) |
+| Input | [entities.md#input](entities.md#input) |
+| Task | [entities.md#task](entities.md#task) |
+| Agent | [entities.md#agent](entities.md#agent) |
+| Message | [entities.md#message](entities.md#message) |
+| Notice | [entities.md#notice](entities.md#notice) |
+| Event | [entities.md#event](entities.md#event) |
 
 ## 生命周期不变量
 
-- 状态：queued / running / waiting / awaiting / completed / failed / cancelled。
-- 一个 task 同时只有一个 invocation，且只有一个 agent 身份；身份跨唤醒不变，凭证只在该 invocation 活动期间有效，重启后全部作废。
-- 终态 task 没有活动子 task。失败和取消会先自底向上取消活动后代，再结算自身。
-- 父子边只由已有父 task 的创建操作建立，不允许环或任意 reparent。
-- 消息只有在一次调用成功返回后才消费，失败后可以在明确重试时再次交付。
-- 取消、notice 答复与 completion 的核心状态变更都在同步短事务中完成；事务内不等待模型或 Git。
-- 重试必须是用户显式动作，且父 task 不能已终态。
-- 不删除任务历史；工作区清理与任务终态是不同操作。
-- `explain` 输入的子树只允许 research；runtime 在 spawn 层拒绝 worker/coordinator，保证了解类输入不产生待合并改动。
-- 内容冲突不当作错误：它进入 `integration=conflict`、开一个 runtime 专属的 `merger` 任务并请求用户决定；解冲突结果只用 `--ff-only` 落地（落地的树＝测过的树），落地期间同一目标分支上的其它合并被冻结。agent 不能自行派 merger，也不能自行合并或解决冲突。
+逐条原文见 [invariants.md](invariants.md)。
 
-## Git 边界
+- 状态集合 → [invariants.md#status](invariants.md#status)
+- 单 invocation / 凭证时效 → [invariants.md#credential](invariants.md#credential)
+- 终态无活动子 task → [invariants.md#terminal](invariants.md#terminal)
+- 父子边只由创建建立 → [invariants.md#parent-edge](invariants.md#parent-edge)
+- 消息消费时机 → [invariants.md#message-consumption](invariants.md#message-consumption)
+- 核心变更在同步短事务 → [invariants.md#transaction](invariants.md#transaction)
+- 重试是用户显式动作 → [invariants.md#retry](invariants.md#retry)
+- 不删任务历史 → [invariants.md#history](invariants.md#history)
+- explain 子树只允许 research → [invariants.md#explain](invariants.md#explain)
+- 内容冲突进入合并冻结 → [invariants.md#conflict](invariants.md#conflict)
 
-所有 runtime 管理的 Git 操作使用 argv 数组、不经 shell 插值，共享异步串行队列。排队等待 Git 不阻塞事件循环、输入提交或已有 RPC。
+## 各章
 
-worker 创建时记录项目 HEAD 与目标分支，创建 `.lush/worktrees/<id>-<name>` 和 `lush/<project-hash>/<id>-<name>` 分支（`name` 是 spawn 时 planner 给的英文短名，见 `src/core/naming.js`）。每个 worker 是独立修改集，不自动继承其他未合并任务成果。`git worktree add` 只读已提交的 HEAD、不碰用户现场，所以**建 worktree 不要求主工作树干净**：spawn 时 main tree 的未提交改动不传递给 worker，这份分歧记进 `workspace.created` 事件，`task.diff` 的 `base_behind` 报告基线落后目标分支的提交数。注意 planner / coordinator / research 的 cwd 就是主工作树，它们读到的是带未提交改动的现场，而 worker 读到的是干净 worktree。
-
-结果提交后进入 `integration=pending`。用户 `task.merge` 检查主工作树/worker 干净（脏工作树的拒绝发生在 `merge`，不在建 worktree 时；错误列出具体文件）、原目标分支、已审阅的 commit 未变化，再持久化批准事件和 `merging`，执行 merge。成功 `merged`。合并优先快进：目标分支顶端是该提交的祖先时用 `--ff-only`，不产生合并提交；只有目标分支已经前进、快进不了时才用 `--no-ff --no-edit` 生成带 merge 信息的合并提交。`merge.approved` 事件里的 `fast_forward` 记录实际采用的策略。
-
-**内容冲突不是异常，是第三种正常结局。** `workspaces.merge` 在真合并失败时先取 `git diff --diff-filter=U` 的冲突文件，再 `merge --abort`，只有在主树确实回到合并前的干净状态时才把结果（而不是错误）交给上层；abort 不成功就保持原来的「主树需人工检查」语义，绝不把卡住的合并现场交给 agent。上层 `Project.approveMerge` 把冲突转成一次用户决定：任务进入 `integration=conflict`，同时开一个 `role=merger`、`resolves_task_id` 指向该任务的解冲突任务（关联边而非父子边，所以「终态任务没有活动后代」不被破坏），并挂一条 notice 请示。解冲突任务先预置成 `awaiting`（不占并发槽、不烧 token），答复即开工、忽略即撤销；它的 worktree 以**目标分支顶端**为基线，agent 把那次审阅过的提交并进来、解冲突、提交成合并提交，因此批准落地时能用 `--ff-only`：成功等价于「main 没被推走」，落地的树就是它测过的那棵树，不会再冲突一次。落地时同时要求解冲突结果真的包含原任务的 `head_commit`（防「解冲突」把对方改动整个丢掉），并把两个任务一起标成 `merged`。
-
-`integration=conflict` 同时就是一把**按目标分支**的合并锁：同一 `target_branch` 上其它任务的合并会被拒绝，直到解冲突落地或撤销。锁从状态派生，不另建表，所以崩溃重启后锁跟着行一起还在，也不会留下无人认领的锁；三条显式解除路径是忽略那条 notice、重试原任务的合并（会作新一轮解冲突）、或让解冲突任务失败/取消（`finish` 把原任务放回 `pending`）。解冲突任务若完成但没落地（例如用户直接往 main 提交，快进失败），重试原任务的合并会把它标成 `superseded`：分支与目录一律保留，只是允许用户单独回收。中断的 merging 仍恢复为 review，不猜测 Git 操作是否完成。
-
-检验不写任何 Git 状态：它用 `git worktree add --detach` 在 `.lush/worktrees/<label>-base` 拉一份目标分支当前的只读对照，在它和被测 worktree 里分别跑同一场景。对照检出是派生状态，检验结算（成功或失败）后立即回收，报告文件保留；重启恢复时也会回收上次崩在中间的对照检出。用户可以用 `task cleanup` 再回收一次。
-
-工作区清理不强制删除；即使 failed/cancelled task 的 integration=none，也检查其 commit 是否已包含在项目 HEAD 中，防止删除未交付成果。任务分支也只在能证明它已经是恢复不必要时才删：分支顶端仍等于审阅过的 `head_commit`，且该提交已经是 `target_branch` 的祖先。删除用 `update-ref -d` 的 compare-and-delete，`head_commit` 之外多出来的任何提交都留得住；拿不准就保留（`reason` 说明原因）。`keepBranch` / `--keep-branch` 可以把分支单独留成恢复点。
-
-Lush 无法锁住用户的编辑器或外部 Git 进程；合并期间不要并发修改主工作树。Agent 工具也不是 OS 沙箱，目录/角色约束不能阻止恶意 shell 命令。
-
-## 项目身份与恢复
-
-项目路径 canonicalize 后决定 `.lush` 和 socket。manifest 与数据库双重校验路径，拒绝跨项目复用。daemon.lock 按项目持有；socket 位于 uid 私有临时目录，权限 0600，目录 0700。
-
-daemon 启动捕获全部运行源码 fingerprint；status 显示 project、home、socket、code_dir、fingerprint。start 遇到已运行 daemon 只报告，不换版本。
-
-正常退出停止接收 RPC，取消正在执行的任务、终止 agent 进程组、等待调用和 Git 队列结束，再关闭数据库和释放锁。queued / waiting / awaiting 持久保留。重启发现 running 时记失败并取消其活动后代，不重放可能已有副作用的工作，并回收中断的检验对照检出；留待用户检查。SIGKILL 可能留下外部进程，需要用户检查后重试。
-
-不提供 exactly-once 文件副作用保证。SQLite 事务只能保护 Lush 记录，不能把任意模型工具与 Git 操作一起纳入事务。
-
-## 界面与传输
-
-CLI 的 task list / history 支持 cursor 分页；task inspect 返回完整任务结果和有界的相关记录。Web 复用 UIClient，轮询快照，采用 textContent 呈现模型输出，不插入 HTML；输入表单和 notice 答复在轮询时保留。
-
-Web 只监听 127.0.0.1，校验 Host / Origin / Sec-Fetch-Site，修改操作要求 JSON；HTTP 只能访问显式允许的方法，不能代理任意 RPC。检验报告在 `/api/task/<id>/report` 以独立文档返回，只允许内联样式/脚本与 `data:` 图片（`default-src 'none'`），因此报告里的脚本不能回调本地 API；非 verifier 任务或不存在的报告不会被当文件读出去。RPC 以本机用户为可信边界；agent token 只约束正常的 agent 调用，不是本机攻击者隔离。`system.status` 报告运行中的 agent 列表与 `agents_total` / `agents_idle`（每个活动 task 一个 agent，含已 park 的），`task.inspect` 报告该 agent 的 id、唤醒次数与上次动手时间。
+- 数据流：[从入口到 Project 的组件结构与校验归属](data-flow.md)。
+- 输入和规划：[一次输入如何落库与规划、`inputs.flow` 判定与改判](inputs-and-planning.md)。
+- 意图层与拆解队列：[`layer='intent'` 的 planner / scheduler、批次边界与 `spec drop`](intent-layer.md)。
+- 计划审批闸门：[`plan.propose` / `plan.approve` / `plan.reject` 的规则与权限](plan-gate.md)。
+- 一次 invocation 与多级协作：[七步流程、派活权限、verifier 与上限](invocation.md)。
+- Git 边界：[Git 原语、worktree / 分支创建、`base_behind`](git-boundary.md)。
+- 批准合并：[批准、快进优先、内容冲突与合并冻结、`superseded`](merge.md)。
+- 检验与对照检出：[不写 Git 状态、只读对照检出与回收时机](verification.md)。
+- 工作区与分支回收：[compare-and-delete 与 `keep-branch` 安全门](cleanup.md)。
+- 项目身份与恢复：[项目身份、锁与 socket、启动 / 退出 / 重启恢复](identity-and-recovery.md)。
+- 界面与传输：[CLI 分页、Web 轮询与 CSP、RPC 信任边界](interface.md)。
+- 模块地图：[`src/` 与 `test/` 的分区与导出签名](modules.md)。
 
 ## 源码布局
 
-| 路径 | 职责 |
-|---|---|
-| `config.js` | 项目发现、配置、绑定 |
-| `persistence/store.js` | schema、事务、事实读写 |
-| `core/project.js` | 任务树、调度、生命周期、消息/notice |
-| `core/workspaces.js` | Git worktree、检验对照检出、批准合并、安全回收 |
-| `agent/guide.js` | 项目开发与各角色的 agent 指令 |
-| `agent/provider.js` | pi 进程与 mock 后端 |
-| `rpc/` | JSON-RPC framing、参数/身份校验、socket |
-| `daemon/` | 单实例锁、装配与停止 |
-| `cli/` | CLI 和 daemon 启停客户端 |
-| `ui/` | 统一客户端与本地 Web |
+每个文件负责什么、导出什么，只有一处权威清单：[模块地图](modules.md)。
 
 维护时优先保持这些小模块，不引入通用服务管理或电脑级能力体系。

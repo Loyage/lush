@@ -1,0 +1,194 @@
+# 模块地图（并行开发的边界）
+
+这份文件是**拆分的契约**：`src/` 与 `test/` 里每个文件的职责与导出签名。目标只有一个——
+让两个并行 worker 尽量去改不同的文件。粒度细到这个程度不是审美，是为了让「谁动哪个文件」可预测。
+
+改名、搬家、换签名都先改这里，再改代码。
+
+## 三条规矩
+
+1. **入口路径不变。** `src/core/project.js`、`src/core/workspaces.js`、`src/persistence/store.js`、
+   `src/rpc/protocol.js`、`src/ui/web/assets/app.js`、`src/cli/main.js` 仍是各自的入口，必须继续
+   导出与今天完全相同的名字（`Project` / `Workspaces` / `Store` / `Dispatcher` / `main` / `HELP`…），
+   所以 `src/index.js`、`bin/`、`test/helpers.js` 与现有测试都不必跟着改。实现细节住进同名目录。
+2. **组装方式是 mixin，不是继承链。** 每个职责模块导出**一个方法对象**，方法体里照旧用 `this`；
+   入口文件把它们的原型属性合并进来，并在合并时查重名（重名＝拆分出错，立刻抛错，不静默覆盖）。
+   这样搬家只是剪切粘贴，方法体一行都不用改，`this.store` / `this.running` 照旧。
+3. **一个分区只改自己分区里的文件。** 分区见下；跨分区要改的东西，先在 `docs/engineering/modules.md`
+   里加一条接口，而不是直接伸手。
+
+## 公共面（拆不动，也不许变）
+
+- RPC 方法名与参数表（`registry.js` 的 `PARAMS`）、`USER_ONLY` / `AGENT_ONLY` 权限集合。
+- CLI 命令与 `lush help` 的语义。
+- SQLite schema、表名、列名与 `meta.task_id_high` 的行为。
+- `src/index.js` 的导出、`bin/*` 的行为。
+- Web 路由与 asset 路径：`server.js` 只按 basename 服务 `assets/` 下的 `.js` / `.css`，
+  所以**新增前端模块不需要改 server.js**。
+- 环境变量与 agent capability 语义（`LUSH_PROJECT` / `LUSH_HOME` / `LUSH_TASK_ID` / `LUSH_AGENT_TOKEN`）。
+
+## 分区总览
+
+| 分区 | 入口 | 细粒度模块 | 独立可并行 |
+|---|---|---|---|
+| 任务编排 | `src/core/project.js` | `src/core/project/`（17 个） | ✅ |
+| Git 边界 | `src/core/workspaces.js` | `src/core/workspaces/`（5 个） | ✅ |
+| 持久化 | `src/persistence/store.js` | `src/persistence/store/`（9 个） | ✅ |
+| 前端 | `src/ui/web/assets/app.js` | `src/ui/web/assets/`（26 个） | ✅ |
+| CLI | `src/cli/main.js` | `src/cli/`（10 个） | ✅ |
+| RPC | `src/rpc/protocol.js` | `src/rpc/`（7 个） | ✅ |
+| 测试 | `test/*.test.js` | `test/<分区>/*.test.js` | 依赖上面六个落定后 |
+
+前六个分区 **互不共享文件**，可以同时开工。测试分区要等它们落地，否则测的是半成品。
+
+---
+
+## 1. 任务编排：`src/core/project.js` + `src/core/project/`
+
+入口 `project.js` 只做装配：`export class Project extends ProjectBase {}`，
+合并各 mixin 时查重名，并继续 `export const FLOWS`。
+
+| 文件 | 职责 | 导出（作为 `Project.prototype` 的方法） |
+|---|---|---|
+| `project/base.js` | 构造与实例状态（`config` / `store` / `provider` / `workspaces` / `running` / `stopping` / `scheduled` / `ancestry`） | `class ProjectBase` |
+| `project/internal.js` | 两个跨模块的私有助手 | `agentView(task, run)`、`tokenHash(token)` |
+| `project/status.js` | 项目级读模型（任务分布、layers、意图、spec、drafts、agents、待合并、合并冻结、notice 计数） | `status()` |
+| `project/deps.js` | 依赖边的读模型与结构校验 | `decorate(tasks)`、`blockedBy(taskId)`、`assertDeps(taskId, parent, edges)` |
+| `project/inputs.js` | 输入与流程判定 | `createInput(content)`、`submit(content)`、`inputs()`、`setInputFlow(taskId, flow)` |
+| `project/drafts.js` | 输入缓存（增删改、整体提交成一批） | `draft`、`drafts`、`dropDraft`、`editDraft`、`commitDrafts` |
+| `project/specs.js` | 拆解队列与批次的出生 | `ensureScheduler()`、`addSpec(plannerTaskId, spec)`、`dropSpec(specId, note, actor)` |
+| `project/plans.js` | 计划审批闸门 | `proposePlan`、`approvePlan`、`rejectPlan`、`planForApproval` |
+| `project/tasks.js` | 派生任务与单任务详情 | `spawn(parentId, goal, role, deps, name, specId)`、`inspect(taskId)` |
+| `project/tree.js` | 任务树读模型（intent 层提上来当根） | `tree(taskId)` |
+| `project/timeline.js` | 并发时间轴（run/wait 区间与原因） | `timeline({limit})` |
+| `project/messages.js` | 收件箱、notice、答复 | `message`、`notice`、`answer` |
+| `project/merge.js` | 批准合并、批量合并、冲突收口与合并阶梯 | `approveMerge`、`approveMergeMany`、`openResolution`、`settleResolution`、`mergeConflictContext`、`ladder()`、`containsCommit` |
+| `project/verify.js` | 检验任务与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
+| `project/transcript.js` | pi 会话记录的只读投影 | `transcript(taskId, after, limit)`、`usage(taskId)` |
+| `project/scheduling.js` | 调度、invocation 生命周期、凭证 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
+| `project/lifecycle.js` | 结算、取消、重试、清空与恢复 | `finish`、`cancel`、`retry`、`clear`、`reclaimThenPurge`、`recover`、`shutdown` |
+
+## 2. Git 边界：`src/core/workspaces.js` + `src/core/workspaces/`
+
+| 文件 | 职责 | 导出 |
+|---|---|---|
+| `workspaces/base.js` | 构造与串行队列状态（`queue` / `busy` / `namespace`） | `class WorkspacesBase` |
+| `workspaces/git.js` | Git 原语与串行队列（无 shell 插值） | `exclusive`、`git`、`gitOutput`、`porcelain`、`clean`、`isAncestor`、`merging`、`unmerged`、`checkedOut` |
+| `workspaces/worktree.js` | worktree / 对照检出的创建与回收 | `ensure(task)`、`finish(task)`、`codeBase(task)`、`removeBaseline(taskId)` |
+| `workspaces/diff.js` | 只读审阅视图（不进写队列） | `diff(task)` |
+| `workspaces/merge.js` | 批准合并的三种结局 | `merge(taskId)` |
+| `workspaces/cleanup.js` | 分支回收与安全清理 | `dropBranch`、`release`、`cleanup`、`reclaim` |
+
+## 3. 持久化：`src/persistence/store.js` + `src/persistence/store/`
+
+| 文件 | 职责 | 导出 |
+|---|---|---|
+| `store/base.js` | 打开数据库、事务与 id 分配 | `class StoreBase`（构造、`run`/`get`/`all`/`transaction`/`close`、`taskIdHigh`/`setTaskIdHigh`/`nextTaskId`） |
+| `store/schema.js` | 全部 DDL 与项目绑定校验 | `SCHEMA`、`bindProject(db, project)` |
+| `store/tasks.js` | tasks 表的读写与生命周期字段 | `task`、`tasks`、`summaries`、`create`、`update`、`children`、`touch`、`armAgent`、`touchAgent`、`agentByToken`、`activeTasks`、`purge` |
+| `store/specs.js` | 拆解队列 | `specDeps`、`addSpec`、`spec`、`specs`、`specStats`、`pendingSpecs`、`specsForBatch`、`specsByPlanner`、`nextSpecPlanner`、`assignSpecs`、`takeSpecs`、`plannedSpec`、`dropSpec`、`releaseBatch`、`discardBatch` |
+| `store/deps.js` | 依赖边 | `addDep`、`deps`、`dependents`、`depsDetail`、`dependentsDetail`、`depMap`、`reaches`、`edgesOf` |
+| `store/messages.js` | 收件箱 | `message`、`unread` |
+| `store/events.js` | 审计事件 | `event`、`history` |
+| `store/verification.js` | 检验与解冲突的关联读模型 | `verifications`、`activeVerification`、`resolutions`、`activeResolver`、`unlandedResolver`、`conflictsOn` |
+| `store/drafts.js` | 输入缓存 | `addDraft`、`draft`、`updateDraft`、`openDrafts`、`draftCount` |
+| `store/timeline.js` | 时间轴原料 | `timelineTasks`、`lifecycleEvents`、`childSpans` |
+
+## 4. 前端：`src/ui/web/assets/`
+
+浏览器端 ES module，无打包器：`index.html` 只加载 `/app.js`，其余模块走 import 图，
+由 `server.js` 的扩展名白名单按 basename 服务。
+
+**两个必须遵守的接缝：**
+
+- **`app.js` 导出 `boot()`**，并在被当作模块加载时执行一次 `await boot()`。
+  `boot()` 先清掉上一次的定时器/监听器，再按当前全局 DOM 重新装配。理由：`bun test`
+  在多个测试文件之间**共享模块注册表**，DOM 测试要给每个文件装自己的 stub，只能靠重复调用 `boot()`。
+- **面板之间不互相 import 实现，只 import 接缝。** 跳转走 `navigate.js`，共享可变状态走 `state.js`，
+  这既断掉循环依赖，也让面板文件之间没有编辑冲突面。
+
+| 文件 | 职责 | 导出 |
+|---|---|---|
+| `app.js` | 唯一入口：装配顶部按钮、hashchange、两个定时器 | `boot()` |
+| `state.js` | 共享可变状态（一个对象，新字段不必改别的文件就能加） | `ui`、`transcriptOpen`、`transcriptCache`、`mergeSelection`、`resetUiState()` |
+| `navigate.js` | 导航间接层（断循环依赖） | `registerNavigation({refresh, detail, overview})`、`refresh()`、`detail(taskId)`、`overview()` |
+| `api.js` | fetch 与用户动作 | `api(url, options)`、`action(method, params)`、`loadHistory(taskId)` |
+| `format.js` | 标签映射与格式化（纯函数） | `STATUS`、`INTEGRATION`、`ROLE`、`EVENTS`、`HOT`、`TERMINAL_STATUS`、`WAIT_REASON`、`PLAN_GATE`、`SPEC_STATUS`、`MERGE_STATUS`、`CHANGE`、`DEP_HELP`、`STEP`、`MD_STEP`、`statusOf`、`relative`、`duration`、`absolute`、`clock`、`tokens`、`money`、`depsOf`、`waitingDeps`、`resolverOf`、`specStatus`、`specTitle`、`edgeLabel`、`lastView`、`short` |
+| `dom.js` | DOM 原语 | `el`、`button`、`syncChildren`、`block`、`kv`、`badge`、`statusBadge` |
+| `text.js` | agent 输出的 Markdown 开关 | `agentText(value, opts)`、`syncMarkdownToggle()`、`toggleMarkdown()` |
+| `gauge.js` | 顶部并发槽表 | `slotGauge(data)` |
+| `filters-ui.js` | 筛选控件与选项工具 | `filterSelect`、`filterToggle`、`filterInput`、`syncSelectOptions`、`withCurrent`、`uniqueValues`、`roleOption`、`statusOption`、`specStatusOption`、`plannerOption`、`filterUi` |
+| `sidebar-ui.js` | 左栏导航 / 折叠 / 计数 | `paintCollapsed`、`setNavCount`、`selectNav`、`navTo` |
+| `sidebar-init.js` | 装配导航与五组筛选条 | `initSidebar()` |
+| `composer.js` | 输入缓存与提交表单 | `buffer()`、`selectedDraftIds()`、`syncComposer()`、`initComposer()` |
+| `render-drafts.js` | 待提交缓存 | `renderDrafts(data)` |
+| `render-intents.js` | 意图面板（planner 闸门 + scheduler 进度） | `renderIntents(data)` |
+| `render-specs.js` | 拆解队列（只读） | `renderSpecs(data)`、`specItem(spec)`、`specDeps(value)` |
+| `render-tree.js` | 任务树、兄弟链、依赖标签、为什么没在跑 | `renderTree(data)` |
+| `render-notices.js` | 待决问题索引与右侧展开 | `renderNotices(data)`、`openNotice(noticeId)`、`noticePanel(notice)` |
+| `render-ladder.js` | 合并阶梯与批量合并 | `renderLadder(data)`、`mergeBatch(ids, candidates)`、`renderMergeResult(entry)` |
+| `render-timeline.js` | 并行时间轴 | `renderTimeline(timeline)` |
+| `render-history.js` | 事件时间线 | `renderHistory(history, opts)` |
+| `render-diff.js` | 改动概览 | `renderDiff(diff)` |
+| `render-agent.js` | Agent 区块与「最近一次执行」 | `renderAgent(task, usage)`、`paintUsageLast(taskId, usage)` |
+| `render-transcript.js` | 执行过程（分页、折叠、增量续读） | `transcriptContent(taskId)`、`paintTranscript(taskId)`、`appendTranscriptSteps(taskId, steps)`、`loadTranscript(taskId)` |
+| `render-verify.js` | 检验区块 | `renderVerifications(task)` |
+| `render-resolutions.js` | 合并冲突处理记录 | `renderResolutions(task)` |
+| `render-detail.js` | 任务详情整页 | `renderDetail(task, history, diff, usage)`、`renderDetailError(taskId, message)` |
+| `render-overview.js` | 项目概览 | `renderOverview(data)` |
+| `detail.js` | 拉取并渲染一个任务详情 | `loadDetail(taskId)` |
+| `refresh.js` | 轮询快照、概览、热任务增量刷新、筛选重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
+
+已存在、这次不动的纯逻辑模块：`markdown.js`、`tree-order.js`、`live.js`、`merge-select.js`、`sidebar.js`。
+它们只在测试文件里有消费者，**不参与这次拆分**。
+
+## 5. CLI：`src/cli/main.js` + `src/cli/`
+
+命令处理器的统一签名：`export async function run(command, args, ctx)`，
+其中 `ctx = { client, json }`；返回 `undefined` 表示「已经自己打印过，主流程不要再 print」。
+`option` / `exact` / `print` 从 `args.js` 直接 import。
+
+| 文件 | 命令 | 导出 |
+|---|---|---|
+| `cli/help.js` | 帮助文本 | `HELP` |
+| `cli/args.js` | 参数解析与两种输出 | `option`、`exact`、`print` |
+| `cli/print.js` | 树 / 阶梯 / 时间轴 / 合并 / 会话 / 用量的渲染 | `printTree`、`printLadder`、`printTimeline`、`printMergeMany`、`printTranscript`、`printUsage` |
+| `cli/commands/intent.js` | `say` / `intent` / `input` | `run` |
+| `cli/commands/draft.js` | `draft` | `run` |
+| `cli/commands/task.js` | `task` | `run` |
+| `cli/commands/spec.js` | `spec` | `run` |
+| `cli/commands/plan.js` | `plan` | `run` |
+| `cli/commands/notice.js` | `notice` | `run` |
+| `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` | `run` |
+| `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒 | `main(argv)`（并 re-export `HELP`） |
+
+## 6. RPC：`src/rpc/protocol.js` + `src/rpc/`
+
+处理器的统一签名：`(project, params, actor) => result | Promise<result>`。
+
+| 文件 | 职责 | 导出 |
+|---|---|---|
+| `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
+| `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
+| `rpc/handlers/system.js` | `system.*` | `handlers` |
+| `rpc/handlers/input.js` | `input.*`、`draft.*` | `handlers` |
+| `rpc/handlers/task.js` | `task.*` | `handlers` |
+| `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |
+| `rpc/handlers/notice.js` | `notice.*` | `handlers` |
+| `rpc/dispatcher.js` | 合并 handler 表（查重名、查漏），校验后分派 | `class Dispatcher` |
+
+## 7. 测试：`test/`
+
+拆分只搬文件、不改断言。测试文件之间共享模块注册表，所以**每个测试文件必须自给自足**
+（自己的 fixture / world / DOM stub），不要靠别的文件先跑过。
+
+| 现在 | 拆成 |
+|---|---|
+| `project.test.js` | `test/project/{intent-layer,plan-gate,specs-queue,agents,lifecycle,recovery,limits,permissions}.test.js` |
+| `drafts-deps.test.js` | `test/drafts/{drafts,deps}.test.js` |
+| `workspaces.test.js` | `test/workspaces/{naming,merge,cleanup}.test.js` |
+| `web-rpc.test.js` | `test/web/{security,assets,read-models,drafts,transcript,specs-intents,maintenance}.test.js` |
+| `web-live-dom.test.js` | `test/web/dom-{merge,detail,drafts,specs-intents,sidebar}.test.js`（各自 `boot()`，见前端接缝） |
+| `integration.test.js` | `test/integration/{daemon,pi,verify,shutdown,merge}.test.js` |
+
+`test/helpers.js`、`test/dom-stub.js` 是被多个文件共用的**公共面**：只增不改，改签名会同时影响所有分区。

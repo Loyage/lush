@@ -29,6 +29,8 @@ bun run stop
 
 任意入口可加 `--project PATH`；操作其他项目时必须显式指定。`bun run lush <command>` 也遵循同一套项目发现规则，没有默认全局 home 的例外。
 
+**daemon 与 web 是两个独立进程，改完代码两个都要重启。** `bun run daemon-restart` 只管 daemon；`bun run web` 起的 Web 进程自己活到被杀为止，不会跟着 daemon 换版本。只重启 daemon 就去刷新页面，会看到旧 Web 进程把**新的** `app.js` 发下来、却对自己白名单之外的模块回 404——模块图断在第一跳，页面直接白屏。改 `src/ui/web/` 下任何东西之后，先重启 Web 再看页面；`bun run doctor` 只校验 daemon 的 fingerprint，报的是 daemon 的身份，不会告诉你 Web 是不是旧进程。
+
 不要在开发测试时默认操纵用户正在开发的项目。测试用临时项目目录和 mock/可控子进程；测试结束停 daemon 并清理自己的临时文件。
 
 ## 安全与持久化
@@ -57,6 +59,8 @@ bun run stop
 - `src/rpc/` / `src/daemon/`：通信、装配、锁与退出。
 - `src/ui/client.js`：CLI / Web 的统一客户端。
 - `src/cli/` / `src/ui/web/`：用户界面。
+
+上面是粗粒度分区；每个文件负责什么、导出什么、哪个分区可以并行改，只有一处权威清单：`docs/engineering/modules.md`。
 
 `src/identity.js` 的 fingerprint 覆盖整个 src、bin 和 package.json。相同路径但 fingerprint 不同表示 daemon 仍运行旧代码；重启正确项目才生效。
 
