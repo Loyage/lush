@@ -1,40 +1,62 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lush · 项目开发</title><link rel="stylesheet" href="/styles.css"><script type="module" src="/app.js"></script></head>
-<body><div class="app">
-<header><div class="brand"><button type="button" id="home" class="home" title="回到项目概览"><strong>Lush</strong></button><span id="project">连接项目…</span></div>
-<button type="button" id="md-toggle" class="ghost" aria-pressed="true" title="按 Markdown 渲染 agent 输出；关闭则显示原文">Markdown 渲染：开</button>
-<button type="button" id="graph-open" class="ghost" title="查看各任务分支 / worktree 与目标分支的关系">分支图</button>
-<span id="agents"></span><span id="connection" role="status">连接中…</span><form class="logout" method="post" action="/logout"><button type="submit" class="ghost">退出</button></form></header>
-<main><aside>
-<div class="side-top">
-<nav id="side-nav" class="side-nav" aria-label="左侧快速导航"></nav>
-<div class="side-sort"><select id="sidebar-sort" class="sort" aria-label="左栏排序方式"></select></div>
-</div>
-<section class="side" id="side-notices" data-side="notices">
-<div class="section-title"><button type="button" class="side-head" id="side-head-notices" data-side="notices" aria-expanded="true" aria-controls="notices"><span class="side-name">待定事项</span><span id="notice-count" class="count"></span></button></div>
-<div class="side-body" id="side-notices-body"><div id="notices"></div></div>
-</section>
-<section class="side" id="side-intents" data-side="intents">
-<div class="section-title"><button type="button" class="side-head" id="side-head-intents" data-side="intents" aria-expanded="true" aria-controls="intents"><span class="side-name">历史输入</span><span id="intent-count" class="count"></span></button></div>
-<div class="side-body" id="side-intents-body"><div class="filters" id="intent-filters"></div><div id="intents"></div></div>
-</section>
-<section class="side" id="side-specs" data-side="specs">
-<div class="section-title"><button type="button" class="side-head" id="side-head-specs" data-side="specs" aria-expanded="true" aria-controls="specs"><span class="side-name">规划任务</span><span id="spec-count" class="count"></span></button></div>
-<div class="side-body" id="side-specs-body"><div class="filters" id="spec-filters"></div><div id="specs"></div></div>
-</section>
-<section class="side" id="side-tasks" data-side="tasks">
-<div class="section-title"><button type="button" class="side-head" id="side-head-tasks" data-side="tasks" aria-expanded="true" aria-controls="tasks"><span class="side-name">行动任务</span><span id="task-count" class="count"></span></button></div>
-<div class="side-body" id="side-tasks-body"><div class="filters" id="task-filters"></div><div id="tasks"></div></div>
-</section>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lush · 项目工作台</title>
+<script src="/appearance.js"></script>
+<link rel="stylesheet" href="/styles.css">
+<script type="module" src="/app.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#detail">跳到主要内容</a>
+<div class="app">
+<header class="app-header">
+  <div class="brand"><button type="button" id="home" class="home" title="回到项目概览" aria-label="Lush · 项目概览"><span class="brand-mark" aria-hidden="true">L</span><strong>Lush<span class="brand-caption">PROJECT STUDIO</span></strong></button></div>
+  <div class="project-context"><span class="eyebrow">当前项目</span><span id="project">连接项目…</span></div>
+  <div class="header-tools">
+    <span id="agents"></span><span id="connection" role="status">连接中…</span>
+    <button type="button" id="theme-toggle" class="ghost theme-toggle" aria-label="切换主题">◐ 主题</button>
+    <button type="button" id="md-toggle" class="ghost" aria-pressed="true" title="按 Markdown 渲染 agent 输出；关闭则显示原文">Markdown 渲染：开</button>
+    <form class="logout" method="post" action="/logout"><button type="submit" class="ghost">退出</button></form>
+  </div>
+</header>
+<main>
+<aside id="sidebar" aria-label="项目导航">
+  <div class="workspace-nav"><button type="button" id="overview-open" class="workspace-link">◈ <span>项目概览</span><span class="nav-arrow">↗</span></button><button type="button" id="graph-open" class="workspace-link" title="查看各任务分支 / worktree 与目标分支的关系">⑂ <span>分支图</span><span class="nav-arrow">↗</span></button></div>
+  <div class="side-top"><div class="sidebar-label"><span class="eyebrow">项目索引</span><button type="button" id="sidebar-toggle" class="ghost" aria-expanded="false" aria-controls="sidebar-content">浏览任务</button></div>
+    <nav id="side-nav" class="side-nav" aria-label="左侧快速导航"></nav>
+    <div class="side-sort"><select id="sidebar-sort" class="sort" aria-label="左栏排序方式"></select></div>
+  </div>
+  <div id="sidebar-content">
+    <section class="side" id="side-notices" data-side="notices">
+      <div class="section-title"><button type="button" class="side-head" id="side-head-notices" data-side="notices" aria-expanded="true" aria-controls="notices"><span class="side-name">待定事项</span><span id="notice-count" class="count"></span></button></div>
+      <div class="side-body" id="side-notices-body"><div id="notices"></div></div>
+    </section>
+    <section class="side" id="side-tasks" data-side="tasks">
+      <div class="section-title"><button type="button" class="side-head" id="side-head-tasks" data-side="tasks" aria-expanded="true" aria-controls="tasks"><span class="side-name">行动任务</span><span id="task-count" class="count"></span></button></div>
+      <div class="side-body" id="side-tasks-body"><div class="filters" id="task-filters"></div><div id="tasks"></div></div>
+    </section>
+    <section class="side" id="side-specs" data-side="specs">
+      <div class="section-title"><button type="button" class="side-head" id="side-head-specs" data-side="specs" aria-expanded="true" aria-controls="specs"><span class="side-name">规划任务</span><span id="spec-count" class="count"></span></button></div>
+      <div class="side-body" id="side-specs-body"><div class="filters" id="spec-filters"></div><div id="specs"></div></div>
+    </section>
+    <section class="side" id="side-intents" data-side="intents">
+      <div class="section-title"><button type="button" class="side-head" id="side-head-intents" data-side="intents" aria-expanded="true" aria-controls="intents"><span class="side-name">历史输入</span><span id="intent-count" class="count"></span></button></div>
+      <div class="side-body" id="side-intents-body"><div class="filters" id="intent-filters"></div><div id="intents"></div></div>
+    </section>
+  </div>
+  <div class="sidebar-footer"><span class="brand-spark">✳</span> 独立工作，并行生长。<span>一个项目 · 一个工作台</span></div>
 </aside>
-<section id="detail"><h2>任务详情</h2><p class="hint">从左侧选择任务或待定事项，查看结果、改动、子任务与事件时间线。</p></section>
+<section id="detail" tabindex="-1" aria-label="项目内容"><div class="loading-state"><span class="brand-spark">✳</span><h1>正在连接你的项目</h1><p class="hint">任务、交付与进展，即将在这里汇合。</p></div></section>
 </main>
 <div class="composer"><form id="input-form">
-<div class="draft-panel" id="draft-panel">
-<button type="button" id="draft-toggle" class="draft-toggle" aria-expanded="false" aria-controls="draft-body" title="展开后可以勾选、就地编辑、移除待提交意图，或者只提交选中的那几条">待提交意图<span id="draft-count" class="count">空</span></button>
-<div class="draft-body" id="draft-body"><div id="drafts"></div></div>
+  <div class="composer-heading"><label for="input">下一步，想做什么？</label><span class="composer-caption">从一个想法开始</span></div>
+  <div class="draft-panel" id="draft-panel">
+    <button type="button" id="draft-toggle" class="draft-toggle" aria-expanded="false" aria-controls="draft-body" title="展开后可以勾选、就地编辑、移除待提交意图，或者只提交选中的那几条">待提交意图<span id="draft-count" class="count">空</span></button>
+    <div class="draft-body" id="draft-body"><div id="drafts"></div></div>
+  </div>
+  <textarea id="input" rows="1" maxlength="32000" aria-label="输入开发需求或研究问题" placeholder="描述一个需求，或提出一个值得研究的问题…"></textarea>
+  <div class="composer-foot"><span class="hint"><kbd>Enter</kbd> 暂存想法 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ↵</kbd> 提交选中项并规划</span><span class="composer-actions"><button type="button" id="draft-add" class="ghost">暂存想法</button><button type="submit" id="draft-commit">提交并规划</button></span></div>
+</form><p id="error" role="alert"></p></div>
 </div>
-<textarea id="input" rows="1" maxlength="32000" placeholder="添加一个登录页面；或者，先研究一下现有鉴权逻辑…（回车加入待提交意图；可编辑、可勾选部分提交）"></textarea>
-<div class="composer-foot"><span class="hint">先攒着：回车加入待提交意图，点正文可改内容，勾选框决定这次提交哪几条；⌘/Ctrl+回车只把勾选的交给一个 planner 拆任务、建依赖，然后才建 worktree。</span><span class="composer-actions"><button type="button" id="draft-add" class="ghost">加入待提交意图</button><button type="submit" id="draft-commit">提交并规划</button></span></div></form>
-<p id="error" role="alert"></p></div>
-</div></body></html>
+</body></html>

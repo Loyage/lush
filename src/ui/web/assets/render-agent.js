@@ -51,7 +51,10 @@ export function renderAgent(task, usage) {
     grid.append(kv('模型请求', `${usage.requests} 次${usage.last_at ? ` · 最近 ${relative(usage.last_at)}` : ''}`));
     grid.append(kv('会话记录', `${usage.files.length} 个文件${usage.compacted ? ` · 上下文压缩 ${usage.compacted} 次` : ''}`, 'mono'));
   }
-  section.append(grid);
+  const metadata = el('details', undefined, 'disclosure agent-metadata');
+  metadata.open = ui.agentMetaOpen;
+  metadata.ontoggle = () => { if (metadata.isConnected) ui.agentMetaOpen = metadata.open; };
+  metadata.append(el('summary', '模型、用量与会话信息'), grid);
 
   const process = block('执行过程');
   const holder = el('div', undefined, 'transcript');
@@ -73,6 +76,7 @@ export function renderAgent(task, usage) {
     holder.append(actions);
   }
   process.append(holder);
-  section.append(process);
+  section.classList.add('agent-panel');
+  section.append(process, metadata);
   return section;
 }

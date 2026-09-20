@@ -81,7 +81,7 @@ function groupBlock(group) {
  * 传 `{ force: true }`（用户点刷新或刚拉到新数据）时无条件重画。
  */
 export function renderGraph(graph, { force = false } = {}) {
-  const panel = $('detail');
+  const panel = $('detail'); panel.dataset.view = 'graph';
   let view = panel.querySelector('div.graph-view');
   if (!view) { panel.replaceChildren(); view = el('div', undefined, 'graph-view'); panel.append(view); force = true; }
   const key = graphRenderKey(graph);

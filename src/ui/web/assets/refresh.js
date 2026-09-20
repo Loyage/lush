@@ -53,7 +53,7 @@ export async function refresh() {
   try {
     const data = await api('/api/snapshot');
     ui.lastSnapshot = data;
-    $('project').textContent = data.status.project;
+    $('project').textContent = data.status.project.split('/').filter(Boolean).at(-1) || data.status.project;
     $('project').title = data.status.project;
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');
     $('agents').replaceChildren(slotGauge(data));

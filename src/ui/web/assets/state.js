@@ -55,6 +55,7 @@ export const ui = {
   lastMergeResult: null,
   overviewKey: null,
   liveBusy: false,
+  agentMetaOpen: false, // 模型 / 用量折叠状态在详情轮询之间保留。
   // `<taskId>:<seq>` -> 用户显式选择的展开状态，重画详情不会丢
   stepToggle: new Map(),
 };
@@ -79,7 +80,7 @@ export function resetUiState() {
   ui.lastSnapshot = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.graphOpen = false; ui.graphFingerprint = null; ui.graphFetchedAt = 0; ui.graphRenderKey = null;
   ui.sideNodes = new Map(); ui.sideHeads = new Map(); ui.navButtons = new Map(); ui.navCounts = new Map();
-  ui.stepToggle = new Map();
+  ui.stepToggle = new Map(); ui.agentMetaOpen = false;
   ui.collapsed = readCollapsedPref(); ui.filters = readFiltersPref(); ui.sidebarSortMode = readSidebarSortPref();
   draftUnchecked.clear(); transcriptOpen.clear(); transcriptCache.clear(); mergeSelection.clear();
 }

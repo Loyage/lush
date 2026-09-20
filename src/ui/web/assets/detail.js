@@ -7,7 +7,8 @@ import { ui } from './state.js';
 export async function loadDetail(taskId) {
   ui.selected = taskId;
   ui.graphOpen = false; ui.graphRenderKey = null;
-  const scrolled = ui.detailTask === taskId ? $('detail').scrollTop : 0;
+  const navigated = ui.detailTask !== taskId;
+  const scrolled = navigated ? 0 : $('detail').scrollTop;
   // window.history: a local `history` binding here would shadow the global and throw a TDZ error on click.
   // pushState（而不是 replace）让浏览器后退能回到概览或上一个任务；hash 没变时不重复压栈。
   if (location.hash !== `#task-${taskId}`) window.history.pushState(null, '', `#task-${taskId}`);
@@ -27,6 +28,12 @@ export async function loadDetail(taskId) {
   ui.selectedRevision = task.updated_at; ui.detailTask = taskId; ui.detailRenderedAt = Date.now(); ui.detailDirty = false;
   renderDetail(task, timeline, diff, usage);
   $('detail').scrollTop = scrolled;
+  if (navigated && window.matchMedia?.('(max-width: 760px)')?.matches) {
+    $('sidebar').classList.remove('mobile-open');
+    $('sidebar-toggle').setAttribute('aria-expanded', 'false');
+    $('sidebar-toggle').textContent = '浏览任务';
+    $('detail').scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }
   const tree = $('tasks').querySelector(`[data-id="${taskId}"]`);
   if (tree) for (const node of $('tasks').children) node.classList.toggle('selected', node === tree);
 }

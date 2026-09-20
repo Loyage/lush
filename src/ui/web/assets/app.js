@@ -55,7 +55,14 @@ export async function boot() {
   syncSidebarSortSelect();
   $('sidebar-sort').addEventListener('change', onSidebarSortChange);
   initComposer();
-  $('home').onclick = () => { overview().catch(error => { $('error').textContent = error.message; }); };
+  const goHome = () => { overview().catch(error => { $('error').textContent = error.message; }); };
+  $('home').onclick = goHome;
+  $('overview-open').onclick = goHome;
+  $('sidebar-toggle').onclick = () => {
+    const open = $('sidebar').classList.toggle('mobile-open');
+    $('sidebar-toggle').setAttribute('aria-expanded', String(open));
+    $('sidebar-toggle').textContent = open ? '收起索引' : '浏览任务';
+  };
   $('graph-open').onclick = () => { location.hash = '#graph'; openGraphView(); };
   initSidebar();
   await refresh();

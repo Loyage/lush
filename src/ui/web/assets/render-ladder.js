@@ -55,8 +55,15 @@ export function renderLadder(data) {
   for (const id of [...mergeSelection]) if (!byId.has(id) || !isMergeable(byId.get(id))) mergeSelection.delete(id);
 
   const section = block('交付队列', candidates.length ? `待处理 ${candidates.length}` : undefined);
-  if (!candidates.length) { section.append(el('p', '没有待交付的变更。', 'hint')); return section; }
-  section.append(el('p', '任务树表示谁在做什么；这里仅表示改动如何进入目标分支。⛓ 代码基线决定必须先落地的变更栈，⏳ 执行依赖不改变合并顺序。一次批量操作只处理一个目标分支。', 'hint'));
+  section.classList.add('delivery-panel');
+  if (!candidates.length) {
+    const empty = el('div', undefined, 'empty-state');
+    empty.append(el('span', '✓', 'empty-icon'), el('strong', '没有待交付的变更。'), el('p', 'Agent 完成的代码变更会在这里等待你审阅与批准。', 'hint'));
+    section.append(empty);
+    if (ui.lastMergeResult) section.append(renderMergeResult(ui.lastMergeResult));
+    return section;
+  }
+  section.append(el('p', '审阅 → 批准 → 进入目标分支。代码基线决定交付顺序，每次只处理一个目标分支。', 'hint'));
 
   const groups = ladder.groups?.length
     ? ladder.groups.map(group => ({ ...group, items: group.items.map(item => byId.get(item.id)).filter(Boolean) }))
@@ -86,16 +93,17 @@ export function renderLadder(data) {
   for (const group of groups) {
     const groupItems = group.items || [];
     const groupBlock = block(`目标分支 ${group.target_branch}`, group.current === true ? '当前检出' : group.current === false ? `当前检出 ${ladder.current_branch || '其它分支'}` : undefined);
+    groupBlock.classList.add('delivery-group');
     const ready = groupItems.filter(isMergeable);
     const actions = el('div', undefined, 'actions pick-actions');
     const selected = button('', () => mergeBatch(ready.filter(item => mergeSelection.has(item.id)).map(item => item.id), candidates));
-    const all = button('', () => mergeBatch(ready.map(item => item.id), candidates));
+    const all = button('', () => mergeBatch(ready.map(item => item.id), candidates), 'ghost');
     const clear = button('清空选择', () => { mergeSelection.clear(); sync(); }, 'ghost');
     controls.push({ items: groupItems, selected, all });
     actions.append(selected, all, clear); groupBlock.append(actions);
 
     for (const candidate of groupItems) {
-      const line = el('div', undefined, `ladder l${Math.min(candidate.level || 0, 5)}`);
+      const line = el('div', undefined, `ladder delivery-card ${candidate.ready ? 'is-ready' : 'is-blocked'} l${Math.min(candidate.level || 0, 5)}`);
       const row = el('div', undefined, 'row');
       const box = el('input', undefined, 'pick');
       box.type = 'checkbox'; box.checked = mergeSelection.has(candidate.id); box.disabled = !isMergeable(candidate);
@@ -113,7 +121,7 @@ export function renderLadder(data) {
       };
       boxes.set(candidate.id, box);
       row.append(box, el('span', `#${candidate.id}`, 'tid'), button(candidate.goal, () => detail(candidate.id), 'link'),
-        el('span', PHASE[candidate.phase] || candidate.phase || candidate.integration, 'when'));
+        el('span', PHASE[candidate.phase] || candidate.phase || candidate.integration, `delivery-phase ${candidate.ready ? 'b-completed' : 'b-awaiting'}`));
       line.append(row);
       if (candidate.merge_id && candidate.merge_id !== candidate.id) {
         line.append(el('span', `↳ 当前落地来源：解冲突任务 #${candidate.merge_id}`, 'meta'));
@@ -121,7 +129,7 @@ export function renderLadder(data) {
       for (const dep of candidate.deps || []) {
         line.append(el('span', `${dep.kind === 'code' ? '⛓ 代码基线' : '⏳ 仅执行依赖'} #${dep.id}${dep.merged ? '（已落地）' : ''}`, 'meta'));
       }
-      for (const blocker of candidate.blockers || []) line.append(el('span', `⛔ ${blocker.message}`, 'meta warn'));
+      for (const blocker of candidate.blockers || []) line.append(el('span', `! ${blocker.message}`, 'delivery-blocker'));
       if (candidate.covered_by?.length) line.append(el('span', `提示：提交也存在于 #${candidate.covered_by.join('、')}；任一分支落地后系统会按 Git 事实自动收口状态。`, 'meta'));
       groupBlock.append(line);
     }

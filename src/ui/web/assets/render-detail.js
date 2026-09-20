@@ -2,7 +2,7 @@ import { $, badge, block, button, el, kv, statusBadge } from './dom.js';
 import { action } from './api.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, statusOf } from './format.js';
 import { freezeBlocker } from './merge-select.js';
-import { detail } from './navigate.js';
+import { detail, overview } from './navigate.js';
 import { renderAgent } from './render-agent.js';
 import { renderDiff } from './render-diff.js';
 import { renderHistory } from './render-history.js';
@@ -38,7 +38,7 @@ function intentBadge(task) {
   const inputId = task.input_id;
   if (inputId === null || inputId === undefined) return null;
   const intent = (ui.lastSnapshot?.inputs || []).find(row => row.id === inputId) || null;
-  const node = badge(`意图 #${inputId}`, 'b-neutral');
+  const node = intent?.task_id ? button(`意图 #${inputId}`, () => { ui.noticeFocus = null; return detail(intent.task_id); }, 'badge b-neutral') : badge(`意图 #${inputId}`, 'b-neutral');
   if (intent?.content) node.title = String(intent.content).slice(0, 200);
   if (intent?.task_id) {
     node.classList.add('intent-link');
@@ -48,19 +48,23 @@ function intentBadge(task) {
   return node;
 }
 export function renderDetail(task, history, diff, usage) {
-  const panel = $('detail'); panel.replaceChildren();
+  const panel = $('detail'); panel.dataset.view = 'task'; panel.replaceChildren();
+  const breadcrumb = el('div', undefined, 'breadcrumb');
+  breadcrumb.append(button('项目概览', () => overview(), 'link'), el('span', '/'), el('span', `${ROLE[task.role] || task.role} #${task.id}`));
+  panel.append(breadcrumb);
+  const hero = el('div', undefined, 'task-hero');
   const head = el('div', undefined, 'head');
   head.append(el('span', `#${task.id}`, 'tid-lg'), statusBadge(task),
     badge(ROLE[task.role] || task.role, 'b-neutral'), intentBadge(task));
   const integration = INTEGRATION[task.integration];
   if (integration) head.append(badge(integration, task.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
   if (task.agent) head.append(badge(`agent ${task.agent.id}${task.agent.active ? ` · pid ${task.agent.pid ?? '待上报'}` : ' · 空闲'}`, 'b-neutral'));
-  panel.append(head);
+  hero.append(head, el('h1', task.goal, 'task-title')); panel.append(hero);
 
   const notice = ui.noticeFocus === null ? null : ui.noticeIndex.get(ui.noticeFocus);
   if (notice && notice.task_id === task.id) panel.prepend(noticePanel(notice, task));
 
-  const actions = el('div', undefined, 'actions');
+  const actions = el('div', undefined, 'actions task-actions');
   const stacked = (task.deps || []).filter(edge => edge.kind === 'code');
   const freeze = freezeOf(task);
   const resolver = resolverOf(task);
@@ -120,9 +124,14 @@ export function renderDetail(task, history, diff, usage) {
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
 
-  const goal = block('目标'); goal.append(el('p', task.goal)); panel.append(goal);
+  // 结果与失败原因优先于调用次数、目录等底层元数据。
+  if (task.result) { const result = block('结果'); result.classList.add('result-panel'); result.append(agentText(task.result, { plain: 'pre' })); panel.append(result); }
+  if (task.error) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); panel.append(error); }
+  if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); panel.append(error); }
 
-  const stats = block('状态');
+  if (task.calls) panel.append(renderAgent(task, usage));
+
+  const stats = block('状态'); stats.classList.add('task-stats');
   const grid = el('div', undefined, 'grid');
   grid.append(kv('调用次数', `${task.calls}（本次尝试）`));
   grid.append(kv(task.status === 'running' ? '本次已运行' : '耗时', duration(task.created_at, task.status === 'running' ? new Date().toISOString() : task.updated_at)));
@@ -133,9 +142,6 @@ export function renderDetail(task, history, diff, usage) {
   panel.append(renderDeps(task));
   if ((task.resolutions || []).length) panel.append(renderResolutions(task));
 
-  if (task.result) { const result = block('结果'); result.append(agentText(task.result, { plain: 'pre' })); panel.append(result); }
-  if (task.error) { const error = block('错误'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); panel.append(error); }
-  if (task.integration_error) { const error = block('合并错误'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); panel.append(error); }
   if (task.branch || task.workspace) {
     const workspace = block('工作区');
     workspace.append(el('p', [task.branch, task.workspace].filter(Boolean).join('\n'), 'mono'));
@@ -164,7 +170,6 @@ export function renderDetail(task, history, diff, usage) {
     }
     panel.append(messages);
   }
-  if (task.calls) panel.append(renderAgent(task, usage));
   if (history?.events?.length) {
     const events = block('事件时间线', String(history.events.length));
     events.append(renderHistory(history.events.slice(-200), { running: task.status === 'running', truncated: history.truncated }));

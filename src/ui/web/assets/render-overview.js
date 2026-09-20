@@ -1,6 +1,7 @@
 import { $, block, button, el, kv } from './dom.js';
 import { action } from './api.js';
 import { HOT, STATUS, absolute, statusOf } from './format.js';
+import { mergeCandidates } from './merge-select.js';
 import { detail, overview } from './navigate.js';
 import { renderLadder } from './render-ladder.js';
 import { openNotice } from './render-notices.js';
@@ -20,20 +21,51 @@ export function renderOverview(data) {
     (data.status.merge_freeze || []).map(row => `${row.task_id}:${row.target_branch}:${row.resolves_task_id ?? '-'}`).join(',')]);
   if (key === ui.overviewKey) return;
   ui.overviewKey = key;
-  const panel = $('detail'); panel.replaceChildren();
-  const head = el('div', undefined, 'head');
-  head.append(el('span', '项目概览', 'tid-lg'));
-  panel.append(head, el('p', '从左侧选择任务，查看结果、改动、子任务与事件时间线。', 'hint'));
+  const panel = $('detail');
+  const expanded = new Set([...panel.querySelectorAll('details[data-fold]')].filter(node => node.open).map(node => node.dataset.fold));
+  panel.dataset.view = 'overview'; panel.replaceChildren();
+  const count = status => data.status.tasks.find(row => row.status === status)?.count ?? 0;
+  const pending = mergeCandidates(data.tasks, { nodes: data.ladder?.nodes || [], groups: data.ladder?.groups || [], freeze: data.status.merge_freeze || [] }).length;
+  const head = el('div', undefined, 'overview-hero');
+  const intro = el('div');
+  intro.append(el('span', 'WORKSPACE / 项目工作台', 'eyebrow'), el('h1', '项目概览'),
+    el('p', open.length ? `有 ${open.length} 个问题等待你的决定。先疏通阻塞，让工作继续向前。`
+      : pending ? `${pending} 个变更等待交付。审阅成果，再让它们进入目标分支。`
+      : count('running') ? 'Agent 正在并行工作。这里汇集进展、决策与交付。' : '一切就绪。写下下一个想法，让项目继续生长。', 'hero-description'));
+  const mark = el('div', '✳', 'hero-mark'); mark.setAttribute('aria-hidden', 'true');
+  head.append(intro, mark); panel.append(head);
 
-  const counts = block('任务');
-  const grid = el('div', undefined, 'grid');
-  for (const status of Object.keys(STATUS)) {
-    const row = data.status.tasks.find(entry => entry.status === status);
-    const cell = kv(`${statusOf({ status }).icon} ${statusOf({ status }).label}`, String(row?.count ?? 0));
-    cell.querySelector('span').className = `c-${status}`;
-    grid.append(cell);
+  const metrics = el('div', undefined, 'metrics');
+  for (const [label, value, note, tone] of [
+    ['正在运行', count('running'), `${data.status.agents.length} 个 agent 在线 · 并发 ${data.status.concurrency}`, 'blue'],
+    ['待你决定', open.length, open.length ? '待决问题 · 需要你的判断' : '没有等待答复的问题', 'amber'],
+    ['待交付', pending, '完成不等于合并 · 审阅后落地', 'violet'],
+    ['已完成', count('completed'), '任务执行完成，交付状态单独追踪', 'green'],
+  ]) {
+    const card = el('div', undefined, `metric tone-${tone}`);
+    card.append(el('span', label, 'metric-label'), el('strong', String(value), 'metric-value'), el('span', note, 'metric-note'));
+    metrics.append(card);
   }
-  counts.append(grid); panel.append(counts);
+  panel.append(metrics);
+  const distribution = el('div', undefined, 'status-distribution');
+  distribution.append(el('span', '任务状态', 'distribution-label'));
+  for (const status of Object.keys(STATUS)) {
+    distribution.append(el('span', `${statusOf({ status }).icon} ${statusOf({ status }).label} ${count(status)}`, `status-chip c-${status}`));
+  }
+  panel.append(distribution);
+
+  const notices = block('需要你的决定', String(open.length));
+  notices.classList.add('attention-panel');
+  if (!open.length) notices.append(el('p', '暂时没有待决问题，可以专注于正在进行的工作。', 'empty-state compact'));
+  for (const notice of open) {
+    const row = button('', () => openNotice(notice.id), 'attention-item');
+    const text = el('span', undefined, 'attention-copy');
+    text.append(el('span', `任务 #${notice.task_id} · 等待答复`, 'eyebrow'), el('strong', notice.title));
+    row.append(el('span', '?', 'attention-icon'), text, el('span', '去处理 →', 'attention-action'));
+    notices.append(row);
+  }
+  panel.append(notices, renderLadder(data));
+  const activity = el('div', undefined, 'activity-grid');
 
   const agents = block('运行中的 agent', `${data.status.agents.length} / ${data.status.agents_total ?? data.status.agents.length}`);
   if (!data.status.agents.length) agents.append(el('p', `并发额度 ${data.status.concurrency}，当前空闲；另有 ${data.status.agents_idle ?? 0} 个 agent 待唤醒。`, 'hint'));
@@ -45,19 +77,8 @@ export function renderOverview(data) {
       el('span', `${agent.pid ? `pid ${agent.pid}` : 'pid 待上报'} · 第 ${agent.wakes} 次唤醒`, 'when'));
     agents.append(row);
   }
-  panel.append(agents);
-
-  panel.append(renderLadder(data));
-  panel.append(renderTimeline(data.timeline));
-
-  const notices = block('待决问题', String(open.length));
-  if (!open.length) notices.append(el('p', '没有等你决定的问题。', 'hint'));
-  for (const notice of open) {
-    const row = el('div', undefined, 'row');
-    row.append(el('span', `#${notice.task_id}`, 'tid'), button(notice.title, () => openNotice(notice.id), 'link'));
-    notices.append(row);
-  }
-  panel.append(notices);
+  agents.classList.add('agents-panel');
+  activity.append(agents, renderTimeline(data.timeline)); panel.append(activity);
 
   const info = block('运行时');
   const meta = el('div', undefined, 'grid');
@@ -65,7 +86,9 @@ export function renderOverview(data) {
     kv('待提交意图', String(data.status.drafts ?? 0)),
     kv('版本', [data.status.version, data.status.fingerprint].filter(Boolean).join(' · ') || '—', 'mono'),
     kv('状态目录', data.status.home || '—', 'mono'), kv('启动', absolute(data.status.started_at) || '—'));
-  info.append(meta); panel.append(info);
+  info.append(meta);
+  const runtime = el('details', undefined, 'disclosure'); runtime.dataset.fold = 'runtime'; runtime.open = expanded.has('runtime');
+  runtime.append(el('summary', '运行时与项目配置'), info); panel.append(runtime);
 
   // 一键清空：删库里的已结束任务，并按 cleanup 的安全门回收 worktree/分支，所以必须二次确认。
   const maintenance = block('维护');
@@ -84,5 +107,6 @@ export function renderOverview(data) {
     }, 'danger'));
     maintenance.append(actions);
   }
-  panel.append(maintenance);
+  const tools = el('details', undefined, 'disclosure maintenance'); tools.dataset.fold = 'maintenance'; tools.open = expanded.has('maintenance');
+  tools.append(el('summary', '维护与安全回收'), maintenance); panel.append(tools);
 }

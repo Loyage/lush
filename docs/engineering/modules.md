@@ -35,7 +35,7 @@
 | 任务编排 | `src/core/project.js` | `src/core/project/`（18 个） | ✅ |
 | Git 边界 | `src/core/workspaces.js` | `src/core/workspaces/`（5 个） | ✅ |
 | 持久化 | `src/persistence/store.js` | `src/persistence/store/`（9 个） | ✅ |
-| 前端 | `src/ui/web/assets/app.js` | `src/ui/web/assets/`（38 个） | ✅ |
+| 前端 | `src/ui/web/assets/app.js` | `src/ui/web/assets/`（见下表） | ✅ |
 | CLI | `src/cli/main.js` | `src/cli/`（10 个） | ✅ |
 | RPC | `src/rpc/protocol.js` | `src/rpc/`（7 个） | ✅ |
 | 测试 | `test/*.test.js` | `test/<分区>/*.test.js` | 依赖上面六个落定后 |
@@ -111,7 +111,9 @@
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `app.js` | 唯一入口：装配顶部按钮、hashchange、两个定时器 | `boot()` |
+| `app.js` | 唯一入口：装配顶部按钮、移动端任务浏览开关、hashchange、两个定时器 | `boot()` |
+| `appearance.js` | head 中同步初始化深浅主题（避免闪屏），装配主题切换；持久化偏好，未指定时跟随系统 | 独立 classic script，无导出 |
+| `styles.css` | 双主题设计 token、应用布局、组件、响应式与 reduced-motion 动效 | CSS |
 | `state.js` | 共享可变状态（一个对象，新字段不必改别的文件就能加） | `ui`、`transcriptOpen`、`transcriptCache`、`mergeSelection`、`resetUiState()` |
 | `navigate.js` | 导航间接层（断循环依赖） | `registerNavigation({refresh, detail, overview})`、`refresh()`、`detail(taskId)`、`overview()` |
 | `api.js` | fetch 与用户动作 | `api(url, options)`、`action(method, params)`、`loadHistory(taskId)` |
@@ -132,15 +134,15 @@
 | `render-timeline.js` | 并行时间轴 | `renderTimeline(timeline)` |
 | `render-history.js` | 事件时间线 | `renderHistory(history, opts)` |
 | `render-diff.js` | 改动概览 | `renderDiff(diff)` |
-| `render-agent.js` | Agent 区块与「最近一次执行」 | `renderAgent(task, usage)`、`paintUsageLast(taskId, usage)` |
+| `render-agent.js` | Agent 区块：执行过程优先，模型与用量折叠展示；增量更新最近一步 | `renderAgent(task, usage)`、`paintUsageLast(taskId, usage)` |
 | `render-transcript.js` | 执行过程（分页、折叠、增量续读） | `transcriptContent(taskId)`、`paintTranscript(taskId)`、`appendTranscriptSteps(taskId, steps)`、`loadTranscript(taskId)` |
 | `render-verify.js` | 检验区块 | `renderVerifications(task)` |
 | `render-resolutions.js` | 合并冲突处理记录 | `renderResolutions(task)` |
-| `render-detail.js` | 任务详情整页 | `renderDetail(task, history, diff, usage)`、`renderDetailError(taskId, message)` |
-| `render-overview.js` | 项目概览 | `renderOverview(data)` |
+| `render-detail.js` | 任务详情整页：目标标题、状态、结果优先的阅读顺序与任务操作 | `renderDetail(task, history, diff, usage)`、`renderDetailError(taskId, message)` |
+| `render-overview.js` | 项目工作台：关键指标、优先待决事项、交付队列、运行与时间轴、折叠运行时维护信息 | `renderOverview(data)` |
 | `graph-layout.js` | 分支图纯逻辑：按目标分支分组、组内 code 层级、标签与廉价结构指纹 | `graphLayout(graph)`、`graphFingerprint(snapshot)`、`graphRenderKey(graph)`、`aheadBehindText(node)`、`nodeMarks(node)` |
 | `render-graph.js` | 分支图视图（拉 `/api/graph`、幂等渲染、节点跳详情） | `openGraph()`、`loadGraph()`、`renderGraph(graph, opts)` |
-| `detail.js` | 拉取并渲染一个任务详情 | `loadDetail(taskId)` |
+| `detail.js` | 拉取并渲染任务详情；窄屏新导航收起索引并定位内容，轮询保留滚动 | `loadDetail(taskId)` |
 | `refresh.js` | 轮询快照、概览、热任务增量刷新、筛选重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
 
 其它纯逻辑模块：`markdown.js`、`tree-order.js`、`live.js`、`sidebar.js`；`merge-select.js` 是交付队列的候选、冻结与 code-only 顺序预览接缝，由 `render-ladder.js` 使用。
@@ -192,6 +194,7 @@
 | `workspaces.test.js` | `test/workspaces/{naming,merge,cleanup}.test.js` |
 | `web-rpc.test.js` | `test/web/{security,assets,read-models,drafts,transcript,specs-intents,maintenance}.test.js` |
 | `web-live-dom.test.js` | `test/web/dom-{merge,detail,drafts,specs-intents,sidebar}.test.js`（各自 `boot()`，见前端接缝） |
+| 工作台与主题 | `test/web/appearance.test.js`（首屏主题、系统偏好、持久化与存储失败）、`test/web/dom-studio.test.js`（信息优先级、折叠保留、移动端索引） |
 | `integration.test.js` | `test/integration/{daemon,pi,verify,shutdown,merge}.test.js` |
 
 `test/helpers.js`、`test/dom-stub.js` 是被多个文件共用的**公共面**：只增不改，改签名会同时影响所有分区。
