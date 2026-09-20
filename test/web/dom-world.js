@@ -36,6 +36,8 @@ export function makeWorld() {
         { kind: 'branch', id: 'branch:lush/demo/input-1-anchor', name: 'lush/demo/input-1-anchor', head_commit: 'abc', current: false, tracked: true, placeholder: false },
         { kind: 'branch', id: 'branch:feature/scratch', name: 'feature/scratch', head_commit: 'aaa', current: false, tracked: false, placeholder: false },
         { kind: 'branch', id: 'branch:feature/gone', name: 'feature/gone', head_commit: null, current: false, tracked: false, placeholder: true },
+        // 落后型：子分支没有独有提交、父分支已前进——可以直接快进跟上（can_catchup）。
+        { kind: 'branch', id: 'branch:lush/demo/behind-only', name: 'lush/demo/behind-only', head_commit: 'aaa', current: false, tracked: true, placeholder: false },
       ],
       edges: [
         { kind: 'code', from: 1, to: 2 },
@@ -48,6 +50,7 @@ export function makeWorld() {
         { kind: 'fork', from: 'branch:lush/demo/1-one', to: 'branch:lush/demo/2-two', status: 'diverged', ahead: 1, behind: 2, blockers: [], can_merge: false, can_sync: true },
         { kind: 'fork', from: 'branch:release', to: 'branch:lush/demo/3-three', status: 'missing', ahead: null, behind: null, blockers: [], can_merge: false, can_sync: false },
         { kind: 'fork', from: 'branch:feature/gone', to: 'branch:feature/scratch', status: 'unknown', ahead: null, behind: null, blockers: [], can_merge: false, can_sync: false },
+        { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/behind-only', status: 'integrated', ahead: 0, behind: 3, blockers: [], can_merge: false, can_sync: false, can_catchup: true },
       ],
     },
     currentBranch: 'main',
@@ -131,6 +134,7 @@ export function makeWorld() {
       state.actions.push(body);
       if (body.method === 'branch.merge') return json({ child: body.params.branch, parent: 'main', status: 'integrated', merged: true });
       if (body.method === 'branch.sync') return json({ branch: body.params.branch, parent: 'main', status: 'queued', task: { id: 88 } });
+      if (body.method === 'branch.catchup') return json({ child: body.params.branch, parent: 'main', caught_up: true, from: 'aaa', to: 'bbb' });
       if (body.method === 'branch.archive') {
         // 归档在真实 daemon 里会删掉 ref 与 worktree，库里只留记录；这里同步这一点，让重拉后的图看得出变化。
         const node = state.graph.nodes.find(row => row.kind === 'branch' && row.name === body.params.branch);

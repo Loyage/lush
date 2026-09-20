@@ -27,6 +27,9 @@ export async function run(command, args, ctx) {
   } else if (verb === 'sync') {
     exact(args, 1);
     value = await client.request('branch.sync', { branch: args[0] });
+  } else if (verb === 'catchup') {
+    exact(args, 1);
+    value = await client.request('branch.catchup', { branch: args[0] });
   } else if (verb === 'archive') {
     const discard = args.includes('--discard');
     if (discard) args.splice(args.indexOf('--discard'), 1);
@@ -34,7 +37,7 @@ export async function run(command, args, ctx) {
     value = await client.request('branch.archive', { branch: args[0], discard });
     if (!json) { printBranchArchive(value); return; }
   } else {
-    check(false, 'unknown branch command; use tree, show, import, merge, sync or archive');
+    check(false, 'unknown branch command; use tree, show, import, merge, sync, catchup or archive');
   }
   return value;
 }

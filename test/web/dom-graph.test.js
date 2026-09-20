@@ -176,3 +176,89 @@ test('分支图：空图沿用原来的提示文案', async () => {
     expect(deepText(dom.node('detail'))).toContain('还没有任何任务分支或 worktree。');
   } finally { world.state.graph = saved; }
 });
+
+test('分支图：关系色按领先 / 相等 / 落后 / 分歧 / 缺失分，动作与禁用原因都画在表头上', async () => {
+  await openGraph();
+  const detail = dom.node('detail');
+  const header = name => detail.querySelectorAll('span.graph-branch-name').find(node => node.textContent.includes(name));
+  const blockOf = name => header(name).parentNode.parentNode;
+  const buttonIn = (name, text) => blockOf(name).querySelectorAll('button').find(node => node.textContent === text);
+
+  // 关系 key 驱动 CSS 的 --rel-ink / --rel-tint（面板底色、左边条、连接线与拐角）。
+  expect(blockOf('lush/demo/1-one').dataset.relation).toBe('ahead');
+  expect(blockOf('lush/demo/behind-only').dataset.relation).toBe('behind');
+  expect(blockOf('lush/demo/2-two').dataset.relation).toBe('diverged');
+  expect(blockOf('lush/demo/input-1-anchor').dataset.relation).toBe('equal');
+  expect(blockOf('lush/demo/3-three').dataset.relation).toBe('missing');
+  expect(blockOf('feature/scratch').dataset.relation).toBe('unknown');
+  // 根分支没有来边：不贴关系色，保持默认强调色。
+  expect(blockOf('main').dataset.relation).toBeUndefined();
+  const text = deepText(detail);
+  for (const label of ['可 fast-forward', '与父分支一致', '落后父分支 3', '父子已分歧', '关系未知']) expect(text).toContain(label);
+
+  // 领先：只有合入父分支。
+  expect(buttonIn('lush/demo/1-one', '合入父分支').disabled).toBe(false);
+  // 落后：只有「让子分支跟上父分支」，走新的 branch.catchup。
+  expect(buttonIn('lush/demo/behind-only', '让子分支跟上父分支').disabled).toBe(false);
+  expect(buttonIn('lush/demo/behind-only', '合入父分支')).toBeUndefined();
+  await buttonIn('lush/demo/behind-only', '让子分支跟上父分支').onclick();
+  expect(world.state.actions).toContainEqual({ method: 'branch.catchup', params: { branch: 'lush/demo/behind-only' } });
+  // 分歧：解决分歧可用，合入父分支同时摆出来但禁用（并在 title 里说清楚为什么）。
+  expect(buttonIn('lush/demo/2-two', '在子分支解决分歧').disabled).toBe(false);
+  expect(buttonIn('lush/demo/2-two', '合入父分支').disabled).toBe(true);
+  expect(buttonIn('lush/demo/2-two', '合入父分支').title).toContain('先在子分支解决分歧');
+  // 相等 / 缺失 / 未登记的关系没有可做的事，不摆按钮。
+  for (const name of ['lush/demo/input-1-anchor', 'lush/demo/3-three', 'feature/scratch']) {
+    expect(blockOf(name).querySelectorAll('button.graph-branch-action').length).toBe(0);
+  }
+
+  // 未收拢的直接子分支：运行时两边都会拒绝，所以按钮禁用并列出 blocker。
+  const edge = world.state.graph.edges.find(row => row.to === 'branch:lush/demo/1-one');
+  const saved = { blockers: edge.blockers, can_merge: edge.can_merge };
+  edge.blockers = ['lush/demo/2-two']; edge.can_merge = false;
+  try {
+    await openGraph();
+    const merge = buttonIn('lush/demo/1-one', '合入父分支');
+    expect(merge.disabled).toBe(true);
+    expect(merge.title).toContain('未收拢的子分支：lush/demo/2-two');
+    expect(deepText(blockOf('lush/demo/1-one'))).toContain('先收拢子分支：lush/demo/2-two');
+  } finally {
+    edge.blockers = saved.blockers; edge.can_merge = saved.can_merge;
+  }
+});
+
+test('分支图：分支子树可折叠，状态写进 localStorage，重画后仍收起', async () => {
+  await openGraph();
+  const detail = dom.node('detail');
+  const header = name => detail.querySelectorAll('span.graph-branch-name').find(node => node.textContent.includes(name));
+  const caretOf = name => header(name).parentNode.querySelector('button.graph-caret');
+  const blockOf = name => header(name).parentNode.parentNode;
+
+  // 默认全展开：箭头朝下、aria-expanded=true，不静默藏东西。
+  expect(caretOf('lush/demo/1-one').textContent).toBe('▼');
+  expect(caretOf('lush/demo/1-one').getAttribute('aria-expanded')).toBe('true');
+  expect(blockOf('lush/demo/1-one').classList.contains('collapsed')).toBe(false);
+  // 自己没任务、也没有子分支的分支不给箭头：收起它没意义。
+  expect(caretOf('feature/scratch')).toBeNull();
+
+  // 收起：整棵子树（任务 #1 + 子分支 2-two 里的 #2）一起进表头，说清楚藏了多少。
+  caretOf('lush/demo/1-one').onclick();
+  expect(blockOf('lush/demo/1-one').classList.contains('collapsed')).toBe(true);
+  expect(caretOf('lush/demo/1-one').textContent).toBe('▶');
+  expect(caretOf('lush/demo/1-one').getAttribute('aria-expanded')).toBe('false');
+  expect(deepText(blockOf('lush/demo/1-one'))).toContain('已收起 1 分支 / 2 任务');
+  expect(JSON.parse(localStorage.getItem('lush.graphCollapsed'))).toEqual(['lush/demo/1-one']);
+
+  // 重画（轮询拿到新数据 / 手动刷新）不会把收起状态丢掉：新节点上仍然是收起的。
+  await openGraph();
+  expect(blockOf('lush/demo/1-one').classList.contains('collapsed')).toBe(true);
+  expect(caretOf('lush/demo/1-one').getAttribute('aria-expanded')).toBe('false');
+  // 收起只藏子孙（靠 .collapsed 的 CSS），谱系本身不动：父分支照旧包着它。
+  expect(deepText(blockOf('main'))).toContain('lush/demo/1-one');
+
+  // 再点一次展开，并把偏好清干净（后面的测试不该继承这次折叠）。
+  caretOf('lush/demo/1-one').onclick();
+  expect(blockOf('lush/demo/1-one').classList.contains('collapsed')).toBe(false);
+  expect(caretOf('lush/demo/1-one').getAttribute('aria-expanded')).toBe('true');
+  expect(JSON.parse(localStorage.getItem('lush.graphCollapsed'))).toEqual([]);
+});

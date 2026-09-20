@@ -7,6 +7,7 @@
 | `branch import` | `branch.import` | `{}` | 用户专属 |
 | `branch merge BRANCH` | `branch.merge` | `{branch}` | 用户专属 |
 | `branch sync BRANCH` | `branch.sync` | `{branch}` | 用户专属 |
+| `branch catchup BRANCH` | `branch.catchup` | `{branch}` | 用户专属 |
 | `branch archive BRANCH [--discard]` | `branch.archive` | `{branch, discard?}` | 用户专属 |
 
 谱系是创建时显式写下的 `parent → child`，不是 commit graph 或任务树。`branch.import` 只登记已有本地分支，parent 为 unknown，不做推断。
@@ -38,6 +39,12 @@
 仅在 direct edge 为 diverged 时可调用。它从 child tip 创建一个 `role=merger` 的独立子分支，让 agent 合入冻结的 parent commit、解决冲突并测试。返回 task；完成后用户先把 merger 分支 FF 回 child，再把 child FF 回 parent。
 
 同一 child 已有活动或待落地 sync task 时返回该 task，不重复创建。
+
+## branch.catchup
+
+反方向：把 parent 已有的提交快进进 child，也就是“让子分支跟上父分支”。它只在 child 没有任何独有提交时成立（`branchState` 的 `integrated` + `behind>0`），因此不会有 merge commit，也不会有冲突：child 有独有提交（`fast_forward`）该用 `branch.merge`，分歧该用 `branch.sync`，两种情况都会被拒绝。父分支一个字都不改；child 有 worktree 时在它里面 `git merge --ff-only <parent-tip>`，否则用带旧值的 `git update-ref` 推进 ref。顶端本来就一致时返回 `{caught_up:false, already_integrated:true}`，不改 ref。
+
+子分支被未收拢的直接子分支或未结束的任务挡住时同样拒绝（与 `branch.merge` 同一套 blockers）。
 
 ## branch.archive
 
@@ -74,8 +81,11 @@ Web 分支图使用 `graph.get`。每个 branch 节点带 `origin` / `title` / `
   "behind": 0,
   "blockers": [],
   "can_merge": true,
-  "can_sync": false
+  "can_sync": false,
+  "can_catchup": false
 }
 ```
+
+`can_merge` / `can_sync` / `can_catchup` 是三个可执行动作：子→父快进、分歧时建子侧 merger、父→子快进，都要求 `blockers` 为空。前端据此决定按钮是可用还是禁用（禁用的按钮照样画出来，并在 title 里写明原因）。
 
 相关：[分支优先架构](../../engineering/branch-first.md)。

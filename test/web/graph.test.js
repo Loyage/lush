@@ -12,8 +12,10 @@ test('graph.get is read-only and readable by both user and agent', async () => {
   expect(AGENT_ONLY.has('graph.get')).toBe(false);
   expect(PARAMS['branch.merge']).toEqual(['branch']);
   expect(PARAMS['branch.sync']).toEqual(['branch']);
+  expect(PARAMS['branch.catchup']).toEqual(['branch']);
   expect(USER_ONLY.has('branch.merge')).toBe(true);
   expect(USER_ONLY.has('branch.sync')).toBe(true);
+  expect(USER_ONLY.has('branch.catchup')).toBe(true);
   expect(PARAMS['branch.archive']).toEqual(['branch', 'discard']);
   expect(USER_ONLY.has('branch.archive')).toBe(true);
   expect(AGENT_ONLY.has('branch.archive')).toBe(false);

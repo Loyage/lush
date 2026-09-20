@@ -36,6 +36,32 @@ export function nodeMarks(node) {
 const byCurrentThenName = (a, b) =>
   Number(b?.current === true) - Number(a?.current === true) || String(a?.name ?? '').localeCompare(String(b?.name ?? ''));
 
+/**
+ * 一条 fork 边对用户意味着什么：把「状态 + ahead/behind」压成一种父子关系。颜色与文案都从这一个 key 出，
+ * 页面各处不会各说各话：
+ * - `ahead`：子分支有独有提交（behind=0）——可以直接 fast-forward 合入父分支；
+ * - `equal`：两端同一个 commit——已经一致，没什么要做；
+ * - `behind`：子分支没有独有提交、父分支已前进——可以直接快进跟上；
+ * - `diverged` / `missing` / `unknown`：分歧 / 缺 ref / 没可信 parent。
+ */
+export function edgeRelation(edge) {
+  if (!edge) return null;
+  const key = edge.status === 'missing' ? 'missing'
+    : edge.status === 'unknown' ? 'unknown'
+    : edge.status === 'diverged' ? 'diverged'
+    : edge.status === 'fast_forward' ? 'ahead'
+    : (edge.behind > 0 ? 'behind' : 'equal');
+  const label = {
+    ahead: '可 fast-forward',
+    equal: '与父分支一致',
+    behind: `落后父分支 ${Number.isFinite(edge.behind) ? edge.behind : '?'}`,
+    diverged: '父子已分歧',
+    missing: '分支缺失',
+    unknown: '关系未知',
+  }[key];
+  return { key, label };
+}
+
 const nameOfBranchId = id => (typeof id === 'string' && id.startsWith('branch:')) ? id.slice('branch:'.length) : null;
 
 /**
@@ -43,6 +69,7 @@ const nameOfBranchId = id => (typeof id === 'string' && id.startsWith('branch:')
  * @returns {{forest:Array, unplaced:Array, current_branch:string|null, git:boolean, truncated:boolean, error:string|null}}
  *   `forest` 是分支根节点数组，每个节点 `{ name, id, head_commit, current, tracked, placeholder, incoming, depth, children, tasks }`；
  *   `tasks` 里的任务节点带 `level` / `upstreams` / `aheadBehind` / `marks`，直接供渲染使用；
+ *   `subtreeBranches` / `subtreeTasks` 是收起这棵子树会藏起来的数量（后代分支数、自己的 + 后代的任务数）；
  *   `unplaced` 是连目标分支节点都没有的任务，按目标分支名分组。
  */
 export function graphLayout(graph = {}) {
@@ -141,7 +168,17 @@ export function graphLayout(graph = {}) {
       marks: nodeMarks(node),
     })).sort((a, b) => a.level - b.level || a.id - b.id);
   };
-  const walk = entry => { entry.tasks = decorate(entry.tasks); for (const child of entry.children) walk(child); };
+  const walk = entry => {
+    entry.tasks = decorate(entry.tasks);
+    // 收起一棵子树时要说清楚藏了什么：分支数只数后代，任务数包含自己的任务（它们一起被收起）。
+    let branches = 0, tasks = entry.tasks.length;
+    for (const child of entry.children) {
+      walk(child);
+      branches += 1 + child.subtreeBranches;
+      tasks += child.subtreeTasks;
+    }
+    entry.subtreeBranches = branches; entry.subtreeTasks = tasks;
+  };
   for (const root of forest) walk(root);
 
   return {
@@ -153,6 +190,25 @@ export function graphLayout(graph = {}) {
     truncated: graph.truncated === true,
     error: graph.error ?? null,
   };
+}
+
+/** 分支图折叠状态的持久化 key：存的是分支名数组——用户看得见的那串名字，比内部 id 稳定也好排查。 */
+export const GRAPH_COLLAPSED_KEY = 'lush.graphCollapsed';
+
+/** localStorage 里的折叠列表 → Set；只保留非空字符串，坏数据当空（宁可全展开，也不静默藏东西）。 */
+export function parseGraphCollapsed(raw) {
+  if (typeof raw !== 'string' || !raw) return new Set();
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { return new Set(); }
+  if (!Array.isArray(parsed)) return new Set();
+  return new Set(parsed.filter(name => typeof name === 'string' && name.length > 0));
+}
+
+/** Set/数组 → localStorage 字符串：排序输出，结果稳定可断言。分支改名 / 删除后的残留名字不清理——
+ *  渲染时对不上名就不生效，下次收起别的分支时顺手写回去。 */
+export function serializeGraphCollapsed(collapsed) {
+  const set = collapsed instanceof Set ? collapsed : new Set(Array.isArray(collapsed) ? collapsed : []);
+  return JSON.stringify([...set].filter(name => typeof name === 'string' && name).sort());
 }
 
 /**

@@ -15,6 +15,8 @@ Lush 的合并单位是分支谱系中的一条 `direct child → parent` 边。
 
 父分支有 worktree 时在该 worktree 运行 `git merge --ff-only <child-tip>`，使 index 与工作目录同步；没有 worktree 时用带旧值的 `git update-ref` compare-and-swap 原子推进 ref。外部进程抢先推进会失败，不覆盖它。
 
+反方向的 `branch.catchup BRANCH`（分支图的「让子分支跟上父分支」）走同一条骨架，只是主角互换：parent 在前、child 没有独有提交时，把 `git merge --ff-only <parent-tip>` 跑在 child 的 worktree 里（或 update-ref 推进 child 的 ref）。门槛同样是 recorded direct parent、blockers 为空、父子 ref 都在；`fast_forward` 与 `diverged` 一律拒绝，因为那两种情形要先把 child 的成果落上去或先在子侧吸收父分支。
+
 成功后，关联 task 的 integration 收敛为 `merged`。输入分支没有 task owner，事件记在该输入的根 planner 上。
 
 新输入产生的 `task.merge` 是兼容入口，走同一套 direct-parent / ff-only 规则。升级前已经存在、或内部测试直接创建且没有 input 的 legacy task 继续按原 `target_branch` 语义落地（可能 no-ff）；这是迁移兼容，不会出现在新输入分支流中。
