@@ -61,8 +61,10 @@ export const ui = {
   noticeFocus: null, noticeIndex: new Map(),
   // 左栏四个列表共用的排序偏好（smart / updated / id）。
   sidebarSortMode: readSidebarSortPref(),
-  /** 分支图视图：打开期间轮询不用概览覆盖它；指纹 + 最小时隔决定要不要重拉 /api/graph。 */
-  graphOpen: false, graphFingerprint: null, graphFetchedAt: 0, graphRenderKey: null,
+  /** 分支图视图：打开期间轮询不用概览覆盖它；指纹 + 最小时隔决定要不要重拉 /api/graph。
+   *  lastGraph 是最近一次拉到的 graph.get 读模型：分支图与概览共用同一份数据，
+   *  概览因此不必新增 RPC，也不会各自打一次 git。 */
+  graphOpen: false, graphFingerprint: null, graphFetchedAt: 0, graphRenderKey: null, lastGraph: null,
   /** 分支图里收起的分支名（Set）：收起的是整棵子树，持久化到 localStorage。
    *  graphExpanded 是用户显式展开的分支名：默认值只在两个集合里都没有时生效。 */
   graphCollapsed: readGraphCollapsedPref(),
@@ -98,7 +100,7 @@ export function resetUiState() {
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeFocus = null; ui.noticeIndex = new Map();
   ui.lastSnapshot = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
-  ui.graphOpen = false; ui.graphFingerprint = null; ui.graphFetchedAt = 0; ui.graphRenderKey = null;
+  ui.graphOpen = false; ui.graphFingerprint = null; ui.graphFetchedAt = 0; ui.graphRenderKey = null; ui.lastGraph = null;
   ui.graphCollapsed = readGraphCollapsedPref();
   ui.graphExpanded = readGraphExpandedPref();
   ui.sideNodes = new Map(); ui.sideHeads = new Map(); ui.navButtons = new Map(); ui.navCounts = new Map();

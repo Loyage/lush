@@ -44,20 +44,27 @@ export async function openGraph() {
   await loadGraph();
 }
 
-/** 重新拉一次图并渲染；同一时刻只允许一个请求在飞，并发调用共享同一个 promise。 */
-export function loadGraph() {
+/** 重新拉一次图；同一时刻只允许一个请求在飞，并发调用共享同一个 promise。
+ *  拿到数据后更新 `ui.lastGraph` / `ui.graphFetchedAt` / `ui.graphFingerprint`，但不碰 DOM——
+ *  「分支图」与「项目概览」都复用这一步，概览因此不必新增 RPC，也不会各自打一遍 git。 */
+export function fetchGraph() {
   if (!pending) {
     pending = (async () => {
       try {
         const graph = await api('/api/graph');
+        ui.lastGraph = graph;
         ui.graphFetchedAt = Date.now();
         ui.graphFingerprint = graphFingerprint(ui.lastSnapshot);
-        renderGraph(graph, { force: true });
         return graph;
       } finally { pending = null; }
     })();
   }
   return pending;
+}
+
+/** 重新拉一次图并渲染到「分支图」视图；单飞语义由 fetchGraph() 保证。 */
+export function loadGraph() {
+  return fetchGraph().then(graph => { renderGraph(graph, { force: true }); return graph; });
 }
 
 const LANE_CLASS = level => `graph-node l${Math.min(Number(level) || 0, 6)}`;

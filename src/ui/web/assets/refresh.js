@@ -6,7 +6,7 @@ import { liveTarget, liveTick } from './live.js';
 import { detail, registerNavigation } from './navigate.js';
 import { syncComposer } from './composer.js';
 import { graphFingerprint } from './graph-layout.js';
-import { loadGraph } from './render-graph.js';
+import { fetchGraph, loadGraph, openGraph } from './render-graph.js';
 import { slotGauge } from './gauge.js';
 import { paintUsageLast } from './render-agent.js';
 import { renderDrafts } from './render-drafts.js';
@@ -51,8 +51,17 @@ export async function overview() {
 // 分支图不在每个 1.5s 轮询里打一遍 git：指纹变了也至少隔 3 秒才重拉一次。
 const GRAPH_MIN_INTERVAL_MS = 3000;
 // 指纹只覆盖任务与交付队列，不覆盖「用户在 UI 外新建的分支」，所以再加一条最长陈旧时间兜底：
-// 到期无条件重拉一次，视图打开期间新分支最多约 10s 内出现，不用手点刷新。
+// 到期无条件重拉一次，分支图 / 概览打开期间新分支最多约 10s 内出现，不用手点刷新。
 const GRAPH_MAX_AGE_MS = 10000;
+
+/** 该不该重拉 /api/graph：和「分支图」共用同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s）——
+ *  概览复用同一份 `ui.lastGraph`，两个视图不会各打一遍 git，也不会每次轮询都打。 */
+function graphStale(data) {
+  const fingerprint = graphFingerprint(data);
+  const changed = Boolean(fingerprint) && fingerprint !== ui.graphFingerprint;
+  const age = Date.now() - ui.graphFetchedAt;
+  return (changed && age >= GRAPH_MIN_INTERVAL_MS) || age >= GRAPH_MAX_AGE_MS;
+}
 
 export async function refresh() {
   if (ui.busy) return; ui.busy = true;
@@ -68,14 +77,16 @@ export async function refresh() {
     const noticeBefore = ui.noticeFocus;
     renderNotices(data); syncComposer();
     // 概览、分支图、文档页共用一个右栏：谁开着，轮询就不把概览画回来。
-    if (ui.selected === null && !ui.graphOpen && !ui.docsOpen) renderOverview(data);
-    // 分支图打开期间：不用概览覆盖它。指纹变了且距上次拉图至少 3 秒才重拉；指纹没变时
-    // 由最长陈旧时间兜底（分支可能在 UI 外被创建），保证新分支约 10s 内出现。
-    if (ui.graphOpen) {
-      const fingerprint = graphFingerprint(data);
-      const changed = Boolean(fingerprint) && fingerprint !== ui.graphFingerprint;
-      const age = Date.now() - ui.graphFetchedAt;
-      if ((changed && age >= GRAPH_MIN_INTERVAL_MS) || age >= GRAPH_MAX_AGE_MS) await loadGraph();
+    const overviewOpen = ui.selected === null && !ui.graphOpen && !ui.docsOpen;
+    if (overviewOpen) renderOverview(data);
+    // 概览与分支图共用同一份 graph.get 读模型，也共用同一条陈旧规则：指纹变了且距上次拉图至少 3 秒
+    // 才重拉，指纹没变时由最长陈旧时间兜底（分支可能在 UI 外被创建）。概览用当前轮询的快照先画，
+    // 后台取图，拿到新图就地重画——不因取图阻塞首屏。
+    if ((overviewOpen || ui.graphOpen) && graphStale(data)) {
+      if (ui.graphOpen) await loadGraph();
+      else fetchGraph().then(() => {
+        if (ui.selected === null && !ui.graphOpen && !ui.docsOpen) renderOverview(ui.lastSnapshot ?? data);
+      }).catch(error => { $('error').textContent = error.message; });
     }
     const current = data.tasks.find(task => task.id === ui.selected);
     const editing = ui.detailDirty || [...$('detail').querySelectorAll('textarea')].some(node => node.value || node === document.activeElement);
@@ -114,4 +125,4 @@ export async function liveRefresh() {
 }
 
 // 装配：把实现注册进导航间接层，面板与 api.js 只认 navigate.js。
-registerNavigation({ refresh, detail: loadDetail, overview });
+registerNavigation({ refresh, detail: loadDetail, overview, graph: openGraph });
