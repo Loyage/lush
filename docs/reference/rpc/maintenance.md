@@ -7,6 +7,8 @@
 | `task cleanup ID [--keep-branch]` | `task.cleanup` | `{id, keep_branch?}` |
 | `task clear` | `task.clear` | `{}` |
 
+这两个入口都是**安全回收**：只有能证明成果已进入目标分支的磁盘状态才会删。用户明确不再要某条分支的代码（允许未合并）时走归档 `branch.archive`：它删 worktree 与本地 ref，但保留谱系行、任务行、消息、事件与 pi 会话文件，见[分支谱系](branches.md)。
+
 `task.cleanup` 回收一个已结束任务占的磁盘状态：worktree 目录、检验对照检出（如果有）与任务分支。只有 `integration` 为 `merged` / `none` / `superseded` 的任务可回收（`superseded` 是「这一轮解冲突已被下一轮取代」，分支仍当恢复点看待）。worktree 仍然不强制删除（干净检查 + commit 已进 HEAD 的检查不变）；分支额外要求**它的顶端就是审阅过的那次提交**，且那次提交已经是 `target_branch` 的祖先——任一条不满足就保留分支，并在返回的 `cleanup.branch` / `cleanup.reason` 里说明。删除用 `git update-ref -d <ref> <tip>` 的 compare-and-delete，不用 `--force`：检查之后分支被谁动过就拒绝，审阅过之外的提交一条也不会丢；`branch` 快照不再存在时库里也会清空。`keep_branch: true`（CLI `--keep-branch`）只回收 worktree，把分支留成恢复点。返回 `{...task, cleanup: {worktree: removed|absent, branch: removed|kept|absent, reason}}`。
 
 `task.clear` 是用户专属的**一键清空**：把全部任务行及 `messages` / `notices` / `task_deps` / `events`，连同 `inputs` 与 `drafts` 一起删掉（这是 `draft.remove` 那条「已提交输入永不删除」的唯一例外，且只在这里）。前置条件是**当前没有活动任务**，并且没有 invocation 正在收尾、没有 worktree 清理在进行：有 `queued`/`running`/`waiting`/`awaiting` 时返回 `#3, #7 still active (2); cancel them or wait until they finish`，不做隐式取消（删掉正在调用中的 task 行会让 agent 收尾时读到不存在的 task）。

@@ -117,9 +117,17 @@ lush task clear
 
 不 force。任务分支 tip 必须仍包含 reviewed commit，且整个 tip 已进入 target；输入分支已推进时也必须先进入其 parent。脏 worktree、未交付 commit 或外部改动都会让 runtime 保留现场并说明原因。
 
+不想再要某条分支的代码时，用归档而不是清理：
+
+```bash
+lush branch archive BRANCH          # 或 lush branch archive BRANCH --discard
+```
+
+归档明知可能未合并也允许删掉 worktree 与本地 ref（用户显式放弃），但保留分支记录（`status=archived`）、任务行、消息、事件与 `.lush/sessions/` 里的 pi 会话文件。默认要求 worktree 干净，`--discard` 才会连未提交改动一起丢。归档与安全回收的区别见[工作区与分支回收](engineering/cleanup.md)。
+
 ## 8. 安全边界
 
-- 用户明确批准每次分支落地；agent 不能调用 `branch.merge/sync` 或 `task.merge`。
+- 用户明确批准每次分支落地；agent 不能调用 `branch.merge/sync/archive` 或 `task.merge`。
 - 所有 runtime Git 写操作串行、无 shell 插值。
 - 外部编辑器 / Git 进程不受 Lush 锁控制；compare-and-swap 与每次重新校验负责避免静默覆盖。
 - 分支谱系在创建时写入，merge 不改 parent；unknown parent 只读，不可用于写操作。
