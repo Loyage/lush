@@ -78,7 +78,7 @@
 | `project/timeline.js` | 并发时间轴（run/wait 区间与原因） | `timeline({limit})` |
 | `project/messages.js` | 收件箱、notice、答复 | `message`、`notice`、`answer` |
 | `project/merge.js` | 批准合并、按目标分支批量交付、冲突收口、随带提交对账与交付队列 | `approveMerge`、`approveMergeMany`、`reconcileIntegrated`、`openResolution`、`settleResolution`、`mergeConflictContext`、`ladder()`、`containsCommit` |
-| `project/graph.js` | 分支图读模型（全部本地分支 + fork 谱系边 + 任务关系）；每条 fork 边实时给出 `fast_forward` / `diverged` / `integrated` / `missing`、ahead/behind、未收拢直接子分支与可执行动作 | `graph()` |
+| `project/graph.js` | 分支图读模型（全部本地分支 + fork 谱系边 + 任务关系）；每个 branch 节点带 `origin`（input / task / registered / local / placeholder）与配套 `title` / `source_id` / `created_at`，以及按自己 + 全部后代分支任务汇总的 `status`（active / failed / merged / ready / empty）与 `tasks` 计数；每条 fork 边实时给出 `fast_forward` / `diverged` / `integrated` / `missing`、ahead/behind、未收拢直接子分支与可执行动作 | `graph()` |
 | `project/branches.js` | 分支谱系读模型与用户批准的直接父子收敛：`branch merge` 只 fast-forward；分歧时 `branch sync` 在子侧创建 merger | `BRANCH_NODE_LIMIT`、`branchNodes`、`branchTree`、`branchShow`、`branchImport`、`approveBranchMerge`、`syncBranch` |
 | `project/verify.js` | 检验任务与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
 | `project/transcript.js` | pi 会话记录的只读投影 | `transcript(taskId, after, limit)`、`usage(taskId)` |

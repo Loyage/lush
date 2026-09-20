@@ -173,3 +173,114 @@ test('graph caps edges at 2000 and marks the result truncated', async () => {
     expect(graph.edges.every(edge => edge.kind === 'order')).toBe(true);
   } finally { await f.close(); }
 });
+
+test('graph labels each branch with origin, title and source', async () => {
+  const f = await setup();
+  try {
+    // 输入锚点：有记录、没有任务，inputs.anchor_branch 指名了它。
+    const inputId = f.store.nextInputId();
+    f.store.run('INSERT INTO inputs(id,content,anchor_branch) VALUES (?,?,?)',
+      inputId, '  修一下分支图：看不见刚创建的分支  \n第二行不该进标题', 'lush/test/input-1-anchor');
+    f.store.recordBranch({ branch: 'lush/test/input-1-anchor', parent: 'main' });
+    // 用户自己拉的本地分支：有 ref、没有记录。
+    await git(f.root, 'branch', 'feature/scratch');
+    // 登记过、没有任务也没有输入锚点：registered。
+    f.store.recordBranch({ branch: 'lush/test/registered', parent: 'main' });
+    // 只被 parent 提到、既无记录也无 ref：占位。
+    f.store.recordBranch({ branch: 'lush/test/orphan', parent: 'lush/test/gone-parent' });
+    // worker 的分支与记录是在第一次派活时才落地的（spawn 本身不建 ref）。
+    await change(f, f.task, 'A\n');
+    const worker = f.store.task(f.task.id);
+
+    const graph = await f.project.graph();
+    const nodes = new Map(graph.nodes.map(node => [node.id, node]));
+
+    // 输入锚点：origin 是 input，标题取输入第一行（压缩空白），source_id 是 input id，created_at 来自记录。
+    expect(nodes.get('branch:lush/test/input-1-anchor')).toMatchObject({
+      origin: 'input', title: '修一下分支图：看不见刚创建的分支', source_id: inputId, tracked: true, placeholder: false,
+    });
+    expect(nodes.get('branch:lush/test/input-1-anchor').created_at)
+      .toBe(f.store.branch('lush/test/input-1-anchor').created_at);
+
+    // worker 分支：origin 是 task，标题来自 goal，source_id 是任务 id。
+    expect(nodes.get(`branch:${worker.branch}`)).toMatchObject({ origin: 'task', title: 'implement', source_id: worker.id });
+
+    // 没有来源的分支不假装有标题。
+    expect(nodes.get('branch:feature/scratch')).toMatchObject({ origin: 'local', title: null, source_id: null, created_at: null, tracked: false });
+    expect(nodes.get('branch:lush/test/gone-parent')).toMatchObject({ origin: 'placeholder', title: null, source_id: null, placeholder: true, tracked: false });
+    expect(nodes.get('branch:lush/test/registered')).toMatchObject({ origin: 'registered', title: null, source_id: null, tracked: true });
+  } finally { await f.close(); }
+});
+
+test('graph truncates long titles and falls back from an empty goal to the task name', async () => {
+  const f = await setup();
+  try {
+    // 记录里的 task_id 优先：标题来自那个任务的 goal，第一行超 60 字就截断加省略号。
+    const long = f.store.create({ input_id: null, role: 'worker', goal: `长${'标题'.repeat(40)}\n第二行不该进标题` });
+    f.store.update(long.id, { branch: 'lush/test/long-title' });
+    f.store.recordBranch({ branch: 'lush/test/long-title', parent: 'main', task_id: long.id });
+    // 没有 task_id 时退到这条分支上最新的任务；goal 为空再退到 name。
+    const named = f.store.create({ input_id: null, role: 'worker', goal: '  ', name: 'slug-fallback' });
+    f.store.update(named.id, { branch: 'lush/test/slug' });
+    f.store.recordBranch({ branch: 'lush/test/slug', parent: 'main' });
+
+    const graph = await f.project.graph();
+    const nodes = new Map(graph.nodes.map(node => [node.id, node]));
+    const title = nodes.get('branch:lush/test/long-title').title;
+    expect(title).toBe(`${`长${'标题'.repeat(40)}`.slice(0, 60)}…`);
+    expect(title.endsWith('…')).toBe(true);
+    expect(nodes.get('branch:lush/test/long-title').source_id).toBe(long.id);
+    expect(nodes.get('branch:lush/test/slug')).toMatchObject({ origin: 'task', title: 'slug-fallback', source_id: named.id });
+  } finally { await f.close(); }
+});
+
+test('graph aggregates branch status over its own tasks and every descendant branch', async () => {
+  const f = await setup();
+  try {
+    // empty：只有记录，没有任务也没有后代。
+    f.store.recordBranch({ branch: 'lush/test/empty', parent: 'main' });
+    // active：任务还在等槽；父分支自己没有任务，状态却来自子分支。
+    f.store.recordBranch({ branch: 'lush/test/active-parent', parent: 'main' });
+    f.store.recordBranch({ branch: 'lush/test/active-child', parent: 'lush/test/active-parent' });
+    const queued = f.store.create({ input_id: null, role: 'worker', goal: 'still queued' });
+    f.store.update(queued.id, { branch: 'lush/test/active-child' });
+    // failed：子树里没有活动任务，但有失败任务。
+    f.store.recordBranch({ branch: 'lush/test/failed', parent: 'main' });
+    const failed = f.store.create({ input_id: null, role: 'worker', goal: 'went wrong' });
+    f.store.update(failed.id, { branch: 'lush/test/failed', status: 'failed' });
+    // ready / merged：worker 自己的分支，交付完成但还没进父分支；合入 main 之后是 merged。
+    await change(f, f.task, 'A\n');
+    const workerBranch = f.store.task(f.task.id).branch;
+
+    const graph = await f.project.graph();
+    const nodes = new Map(graph.nodes.map(node => [node.id, node]));
+    expect(nodes.get('branch:lush/test/empty')).toMatchObject({ status: 'empty', tasks: { total: 0, active: 0, failed: 0, completed: 0 } });
+    // 后代汇总：父分支自己没有任务，却因为子分支的 queued 任务呈 active。
+    expect(nodes.get('branch:lush/test/active-parent')).toMatchObject({ status: 'active', tasks: { total: 1, active: 1, failed: 0, completed: 0 } });
+    expect(nodes.get('branch:lush/test/active-child')).toMatchObject({ status: 'active' });
+    expect(nodes.get('branch:lush/test/failed')).toMatchObject({ status: 'failed', tasks: { total: 1, active: 0, failed: 1, completed: 0 } });
+    expect(nodes.get(`branch:${workerBranch}`)).toMatchObject({ status: 'ready', tasks: { total: 1, active: 0, failed: 0, completed: 1 } });
+
+    await f.project.workspaces.merge(f.task.id);
+    const after = new Map((await f.project.graph()).nodes.map(node => [node.id, node]));
+    expect(after.get(`branch:${workerBranch}`).status).toBe('merged');
+  } finally { await f.close(); }
+});
+
+test('graph counts tasks of descendants hiding behind a placeholder parent', async () => {
+  const f = await setup();
+  try {
+    // 占位父（既无记录也无 ref）自己在链上，子树统计与 fork 边都要穿过它。
+    f.store.recordBranch({ branch: 'lush/test/child-of-placeholder', parent: 'lush/test/missing-parent' });
+    const task = f.store.create({ input_id: null, role: 'worker', goal: 'child work' });
+    f.store.update(task.id, { branch: 'lush/test/child-of-placeholder', status: 'failed' });
+
+    const graph = await f.project.graph();
+    const gone = graph.nodes.find(node => node.id === 'branch:lush/test/missing-parent');
+    expect(gone).toMatchObject({ placeholder: true, origin: 'placeholder', status: 'failed' });
+    expect(gone.tasks).toEqual({ total: 1, active: 0, failed: 1, completed: 0 });
+    expect(graph.edges).toContainEqual(expect.objectContaining({
+      kind: 'fork', from: 'branch:lush/test/missing-parent', to: 'branch:lush/test/child-of-placeholder',
+    }));
+  } finally { await f.close(); }
+});

@@ -10,6 +10,18 @@ const TASK_ROLE_SQL = GRAPH_ROLES.map(role => `'${role}'`).join(',');
 
 const branchId = name => `branch:${name}`;
 
+/** 汇总 status 里算「活动」的口径：任务还占着槽、等槽或等用户。 */
+const ACTIVE_STATUSES = new Set(['running', 'queued', 'waiting', 'awaiting']);
+/** 一句话标题的上限：超出截断加省略号，别让整段 goal 撑爆界面。 */
+const TITLE_LIMIT = 60;
+
+/** 一句话摘要：第一行、压缩空白、按字数截断。没有内容时给 null，不把空串当标题。 */
+function summarize(text) {
+  const line = String(text ?? '').split('\n')[0].replace(/\s+/g, ' ').trim();
+  if (!line) return null;
+  return line.length > TITLE_LIMIT ? `${line.slice(0, TITLE_LIMIT)}…` : line;
+}
+
 /**
  * 分支图读模型：分支谱系（分支节点 + fork 边）+ 任务 -> 分支 / worktree / 目标分支的关系网，
  * 以及任务的堆叠（code）/顺序（order）/解冲突（resolve）/检验（verify）/目标分支（target）边。
@@ -20,6 +32,11 @@ const branchId = name => `branch:${name}`;
  * - 只被某条记录的 `parent` 指针提到、既无记录也无 ref 的占位名（`placeholder:true`），
  *   这样刚创建的分支的父分支不会缺失，子分支不会从图上掉下去。
  * `head_commit` 与 `current` 都按当前 ref 现算，不缓存旧值。
+ *
+ * 每个分支节点另外回答三个问题（只增不改，老字段照旧）：`origin`（这条分支因何存在：输入锚点 /
+ * 任务分支 / import 登记 / 只有本地 ref / 占位名）与配套的 `title`、`source_id`、`created_at`；
+ * `status` + `tasks`（这条分支自己的任务连同全部后代分支任务的汇总口径：active / failed /
+ * merged / ready / empty）。这些都只是读 store 已有事实，不写库、不改 git。
  *
  * 全部只用只读 git（rev-parse / symbolic-ref / for-each-ref / rev-list）与文件系统探测：
  * 不 checkout、不 merge、不改 index、不删 worktree、不写 store（无 update / event），
@@ -75,14 +92,97 @@ export default {
       let truncated = orderedBranchNames.length > branchCapacity || candidates.length > taskCapacity;
       const taskRows = candidates.slice(0, taskCapacity);
 
+      // 分支节点的「为什么 / 是什么 / 现在怎样」全部来自 store 已有事实，不额外写库：
+      // inputs.anchor_branch 回答「因为哪条输入」，tasks.branch 回答「哪个任务」，
+      // branches.task_id 是创建那一刻的绑定，branches.parent 链回答「这条子树现在在干什么」。
+      const inputByAnchor = new Map();
+      for (const input of this.store.all('SELECT id, content, anchor_branch FROM inputs WHERE anchor_branch IS NOT NULL ORDER BY id')) {
+        inputByAnchor.set(input.anchor_branch, input);
+      }
+      const taskById = new Map();
+      const tasksByBranch = new Map();
+      for (const task of this.store.all('SELECT id, name, goal, status, branch FROM tasks ORDER BY id')) {
+        taskById.set(task.id, task);
+        if (!task.branch) continue;
+        if (!tasksByBranch.has(task.branch)) tasksByBranch.set(task.branch, []);
+        tasksByBranch.get(task.branch).push(task);
+      }
+      // 后代链：占位父也在链上，所以子树能穿过占位名继续往下；环用 seen 兜住，宁可少算也不死循环。
+      const childBranches = new Map();
+      for (const row of records.values()) {
+        if (!row.parent) continue;
+        if (!childBranches.has(row.parent)) childBranches.set(row.parent, []);
+        childBranches.get(row.parent).push(row.branch);
+      }
+      const subtreeOf = (name) => {
+        const seen = new Set([name]);
+        const queue = [name];
+        while (queue.length) {
+          for (const child of childBranches.get(queue.pop()) ?? []) if (!seen.has(child)) { seen.add(child); queue.push(child); }
+        }
+        return seen;
+      };
+
+      // 谱系事实先算：branch 节点的汇总 status 要回答「这条分支进父分支了没有」，与 fork 边同源。
+      // 一条 fork 边只跑一次 rev-list；ahead/behind 已足够判断祖先关系：
+      // child ahead=0 => 已进入 parent，behind=0 => parent 可快进到 child，两边都 >0 => 分歧。
+      const branchNodes = orderedBranchNames.slice(0, branchCapacity);
+      const branchNodeIds = new Set(branchNodes.map(branchId));
+      const relations = new Map();
+      for (const row of records.values()) {
+        if (!row.parent || !branchNodeIds.has(branchId(row.parent)) || !branchNodeIds.has(branchId(row.branch))) continue;
+        const childHead = refs.get(row.branch) ?? null, parentHead = refs.get(row.parent) ?? null;
+        let status = 'missing', ahead = null, behind = null;
+        if (childHead && parentHead) {
+          try {
+            const output = await this.workspaces.git(project, 'rev-list', '--left-right', '--count', `${parentHead}...${childHead}`);
+            [behind, ahead] = output.split(/\s+/).map(Number);
+            status = ahead === 0 ? 'integrated' : behind === 0 ? 'fast_forward' : 'diverged';
+          } catch { status = 'unknown'; ahead = null; behind = null; }
+        }
+        relations.set(row.branch, { status, ahead, behind, parent_head: parentHead, child_head: childHead });
+      }
+
       const nodes = [];
-      for (const name of orderedBranchNames.slice(0, branchCapacity)) {
+      for (const name of branchNodes) {
+        const record = records.get(name) ?? null;
+        const placeholder = placeholders.has(name);
+        const input = inputByAnchor.get(name) ?? null;
+        const own = tasksByBranch.get(name) ?? [];
+        // origin 优先级从高到低：占位 > 有 ref 但没记录 > 输入锚点 > 任务分支 > 只登记过。
+        const origin = placeholder ? 'placeholder'
+          : !record ? 'local'
+          : input ? 'input'
+          : record.task_id !== null || own.length ? 'task'
+          : 'registered';
+        // 任务分支的标题取创建它的那个任务：记录里的 task_id 优先，其次这条分支上最新的任务。
+        const owner = origin !== 'task' ? null
+          : (record.task_id === null ? null : taskById.get(record.task_id)) ?? own[own.length - 1] ?? null;
+        // 汇总口径：这条分支自己的任务 + 全部后代分支的任务，占位父也参与统计。
+        const counts = { total: 0, active: 0, failed: 0, completed: 0 };
+        for (const descendant of subtreeOf(name)) {
+          for (const task of tasksByBranch.get(descendant) ?? []) {
+            counts.total += 1;
+            if (ACTIVE_STATUSES.has(task.status)) counts.active += 1;
+            else if (task.status === 'failed') counts.failed += 1;
+            else if (task.status === 'completed') counts.completed += 1;
+          }
+        }
         nodes.push({
           kind: 'branch', id: branchId(name), name,
           head_commit: refs.get(name) ?? null,
           current: name === currentBranch,
-          tracked: records.has(name),
-          placeholder: placeholders.has(name),
+          tracked: record !== null,
+          placeholder,
+          origin,
+          title: origin === 'input' ? summarize(input.content)
+            : origin === 'task' ? (owner ? summarize(owner.goal) ?? owner.name ?? null : null)
+            : null,
+          source_id: origin === 'input' ? input.id : origin === 'task' ? record?.task_id ?? owner?.id ?? null : null,
+          created_at: record?.created_at ?? null,
+          status: counts.active ? 'active' : counts.failed ? 'failed' : !counts.total ? 'empty'
+            : relations.get(name)?.status === 'integrated' ? 'merged' : 'ready',
+          tasks: counts,
         });
       }
 
@@ -130,23 +230,7 @@ export default {
         if (row.target_branch && nodeIds.has(branchId(row.target_branch))) edges.push({ kind: 'target', from: row.id, to: branchId(row.target_branch) });
       }
       // 谱系边：每条记录了 parent 的分支给出「从哪条分支分出来」。两端都在节点集合里才加，
-      // 所以被截断掉的分支不会留下悬空边。
-      // 一条 fork 边只跑一次 rev-list；ahead/behind 已足够判断祖先关系：
-      // child ahead=0 => 已进入 parent，behind=0 => parent 可快进到 child，两边都 >0 => 分歧。
-      const relations = new Map();
-      for (const row of records.values()) {
-        if (!row.parent || !nodeIds.has(branchId(row.parent)) || !nodeIds.has(branchId(row.branch))) continue;
-        const childHead = refs.get(row.branch) ?? null, parentHead = refs.get(row.parent) ?? null;
-        let status = 'missing', ahead = null, behind = null;
-        if (childHead && parentHead) {
-          try {
-            const output = await this.workspaces.git(project, 'rev-list', '--left-right', '--count', `${parentHead}...${childHead}`);
-            [behind, ahead] = output.split(/\s+/).map(Number);
-            status = ahead === 0 ? 'integrated' : behind === 0 ? 'fast_forward' : 'diverged';
-          } catch { status = 'unknown'; ahead = null; behind = null; }
-        }
-        relations.set(row.branch, { status, ahead, behind, parent_head: parentHead, child_head: childHead });
-      }
+      // 所以被截断掉的分支不会留下悬空边。relation 与 branch 节点的汇总 status 同一次计算。
       const childrenByParent = new Map();
       for (const child of records.values()) {
         if (!child.parent) continue;
