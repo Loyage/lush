@@ -4,7 +4,7 @@ lush [--project PATH] [--json] <command>
   daemon start|stop|restart|status  一个项目一个进程
   status                          项目、agent、待合并改动
   doctor                          目录、工具链与代码版本
-  say '你的意图'                    立即持久化并排入规划队列，不等待开发
+  say '你的意图' [--branch NAME]    从指定本地分支创建输入分支并排入规划；省略 NAME 使用当前分支
   intent list                     查看意图：每条输入 + 它的 planner 拆解与 scheduler 编排进度（别名 intents）
   plan propose '标题' [--body '…']   planner 专用：这轮拆解请你先批准（影响面大 / 与现状冲突 / 没把握读懂意图）
   plan approve ID|NOTICE_ID        批准这一轮拆解，交给 scheduler 编排
@@ -15,7 +15,7 @@ lush [--project PATH] [--json] <command>
   draft list                      查看缓存（尚未提交）的输入
   draft edit ID '想法'             改一条缓存输入（别名 update）
   draft rm ID                     丢掉一条缓存输入
-  draft commit [ID...]            把缓存交给意图分析：只提交给定 ID（无参即全部），一个 planner 拆成多个任务并建依赖
+  draft commit [ID...] [--branch NAME] 从指定父分支创建输入分支并提交缓存（无 ID 即全部）
   task list [--after N] [--limit N] 分页任务列表（默认 200 条，只含开发任务；planner/scheduler 见 intent list）
   task tree [ID]                  多级任务树：依赖（⛓ 基线 / ⏳ 顺序）与兄弟间的并行关系
   task ladder                     交付队列：按目标分支分组，显示变更栈、当前来源与阻塞原因
@@ -34,10 +34,9 @@ lush [--project PATH] [--json] <command>
   task message ID '补充说明'       追加输入，不打断当前 invocation
   task cancel|retry ID            取消子树 / 明确重试失败任务
   task wait ID                    仅阻塞此客户端，不占 agent 槽
-  task merge ID [ID...]           用户明确批准交付到原目标分支；批量只接受同一目标分支，
-                                  只按 code 基线排序（order 只影响执行），预检后逐个落地；
-                                  内容冲突会开 resolver 并提问，完成后原任务 id 自动指向其结果；
-                                  运行期遇到第一个冲突或失败即停下，剩余标为跳过。
+  task merge ID [ID...]           用户批准任务分支合回其直接父分支；只允许 fast-forward。
+                                  父子已分歧时创建子侧同步任务，解决并验证后再逐层落地；
+                                  批量只接受同一直接父分支，遇到分歧或失败即停止。
   task verify ID                  为一个已完成的 worker 派只读 verifier：演示 worktree 结果并对照目标分支
   task cleanup ID [--keep-branch] 安全回收 worktree 与任务分支（--keep-branch 只回收 worktree）
   task clear                      删除全部已结束任务及 inputs/drafts/notices/events；有活动任务时拒绝
@@ -46,6 +45,8 @@ lush [--project PATH] [--json] <command>
   branch tree [--verbose]        分支谱系：谁从谁创建出来（不是 commit graph，也不是任务树）
   branch show BRANCH|TASK_ID     一条分支的 parent / fork commit / task / worktree 与祖先链
   branch import                  把现有本地分支登记成记录（只记存在与 worktree，不推断 parent）
+  branch merge BRANCH            把子分支 fast-forward 合入其直接父分支
+  branch sync BRANCH             父子已分歧时，在子侧创建 merger 任务吸收父分支
   notice list                     待决问题与答复
   notice post '问题' [--task ID] [--body '背景']
   notice answer ID '答复'

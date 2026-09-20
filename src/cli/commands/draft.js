@@ -1,5 +1,5 @@
 import { id } from '../../core/types.js';
-import { exact } from '../args.js';
+import { exact, option } from '../args.js';
 
 export async function run(command, args, ctx) {
   const { client } = ctx;
@@ -11,8 +11,9 @@ export async function run(command, args, ctx) {
     else if (verb === 'edit' || verb === 'update') { exact(args, 2); value = await client.request('draft.update', { id: id(args[0]), content: args[1] }); }
     else if (verb === 'rm' || verb === 'remove') { exact(args, 1); value = await client.request('draft.remove', { id: id(args[0]) }); }
     else if (verb === 'commit' || verb === 'submit') {
+      const branch = option(args, '--branch');
       const ids = args.map(value => id(value));
-      value = await client.request('draft.commit', ids.length ? { ids } : {});
+      value = await client.request('draft.commit', { ...(ids.length ? { ids } : {}), ...(branch ? { branch } : {}) });
     }
     else throw new Error('unknown draft command; use add, list, edit, rm or commit');
   }

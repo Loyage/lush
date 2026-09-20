@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { check } from '../types.js';
 import { buildForest, parentOf, childrenOf, ancestorsOf, descendantsOf, chainOf, rootOf } from '../genealogy.js';
+import { slugify } from '../naming.js';
 
 /** 分支谱系一次最多画这么多节点；超过就截断并在结果里说明（只读视图不该拖垮 daemon）。 */
 export const BRANCH_NODE_LIMIT = 500;
@@ -90,6 +91,66 @@ export default {
       current_branch: state.current_branch, truncated: nodes.length > limited.length,
       count: nodes.length, roots: buildForest(limited),
     };
+  },
+
+  /** 用户从分支图批准 direct child -> parent。唯一允许的落地方式是 fast-forward。 */
+  async approveBranchMerge(branch) {
+    const name = String(branch ?? '').trim();
+    check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
+    const record = this.store.branch(name);
+    check(record && record.parent && record.parent_relation === 'recorded', `${name} has no recorded direct parent`);
+    if (record.task_id !== null) {
+      const task = this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
+      check(!task || task.status === 'completed', `branch task #${record.task_id} is not completed`);
+    }
+    const outcome = await this.workspaces.mergeBranch(name);
+    if (!outcome.merged && !outcome.already_integrated) return outcome;
+    const task = record.task_id === null ? null : this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
+    if (task && ['pending','review','conflict','merging'].includes(task.integration)) {
+      this.store.transaction(() => {
+        this.store.update(task.id, { integration: 'merged', integration_error: null });
+        this.store.event(task.id, 'merged', { commit: outcome.child_head, parent: outcome.parent,
+          via: 'branch.graph', already_integrated: outcome.already_integrated === true });
+      });
+      await this.reconcileIntegrated(outcome.parent, task.id);
+    } else {
+      const input = this.store.get('SELECT task_id FROM inputs WHERE anchor_branch=?', name);
+      if (input?.task_id) this.store.event(input.task_id, 'branch.merged', { branch: name, parent: outcome.parent,
+        commit: outcome.child_head, already_integrated: outcome.already_integrated === true });
+    }
+    return outcome;
+  },
+
+  /**
+   * 分歧不在父分支上 no-ff：创建一个以 child 顶端为基线的 merger 分支，让 agent 把冻结的 parent commit
+   * 合进来并测试。它完成后先 ff 回 child，再由用户把 child ff 到 parent，始终逐层沿直接谱系收敛。
+   */
+  async syncBranch(branch) {
+    const name = String(branch ?? '').trim();
+    check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
+    const state = await this.workspaces.branchState(name);
+    check(state.status === 'diverged', `${name} is ${state.status}; branch sync is only needed after divergence`);
+    check(state.blockers.length === 0, `sync ${name} is blocked by unfinished child work: ${state.blockers.join(', ')}`);
+    const existing = this.store.get(`SELECT * FROM tasks WHERE role='merger' AND resolves_task_id IS NULL
+      AND target_branch=? AND (status NOT IN ('completed','failed','cancelled') OR integration IN ('pending','review')) ORDER BY id DESC LIMIT 1`, name);
+    if (existing) return { status: 'existing', task: existing, branch: name, parent: state.parent };
+    const owner = this.store.branch(name);
+    const ownerTask = owner?.task_id === null ? null : this.store.get('SELECT input_id FROM tasks WHERE id=?', owner.task_id);
+    const input = ownerTask?.input_id ?? this.store.get('SELECT id FROM inputs WHERE anchor_branch=?', name)?.id ?? null;
+    const goal = `让子分支 ${name} 跟上它的直接父分支 ${state.parent}。\n`
+      + `你的 worktree 从子分支提交 ${state.child_head} 创建。请执行 git merge ${state.parent_head}，`
+      + `如有冲突，在子分支侧保留双方意图并解决；提交 merge commit，运行相关测试。不要 rebase、不要改父分支。`;
+    const task = this.store.transaction(() => {
+      const created = this.store.create({ parent_id: null, input_id: input, role: 'merger', goal,
+        name: `sync-${slugify(String(state.parent).split('/').at(-1), 28) || 'parent'}` });
+      this.store.update(created.id, { base_commit: state.child_head, target_branch: name });
+      this.store.event(created.id, 'branch.sync.requested', { child: name, parent: state.parent,
+        child_commit: state.child_head, parent_commit: state.parent_head });
+      return this.store.task(created.id);
+    });
+    this.kick();
+    return { status: 'queued', task, branch: name, parent: state.parent,
+      child_commit: state.child_head, parent_commit: state.parent_head };
   },
 
   /** branch.show：一条分支的 parent / fork commit / task / worktree，加上祖先链与后代。 */

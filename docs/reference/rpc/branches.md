@@ -1,27 +1,59 @@
-# 分支谱系
-
-本节管 `branch.tree` / `branch.show` / `branch.import`：**显式记录**的分支创建关系（谁从谁派生），既不是 commit graph，也不是任务树。概念、数据模型与边界见[分支谱系](../engineering/branch-genealogy.md)。
+# 分支谱系与收敛
 
 | CLI | RPC | 参数 | 权限 |
 |---|---|---|---|
-| `branch tree [--verbose]` | `branch.tree` | `{}` | 只读，用户与 agent 都可 |
-| `branch show BRANCH\|TASK_ID` | `branch.show` | `{branch}`（纯数字时按 task id 查它的分支） | 只读，用户与 agent 都可 |
-| `branch import` | `branch.import` | `{}` | 用户专属（写 store） |
+| `branch tree [--verbose]` | `branch.tree` | `{}` | 用户与 agent，只读 |
+| `branch show BRANCH\|TASK_ID` | `branch.show` | `{branch}` | 用户与 agent，只读 |
+| `branch import` | `branch.import` | `{}` | 用户专属 |
+| `branch merge BRANCH` | `branch.merge` | `{branch}` | 用户专属 |
+| `branch sync BRANCH` | `branch.sync` | `{branch}` | 用户专属 |
 
-`branch.tree` 返回：
+谱系是创建时显式写下的 `parent → child`，不是 commit graph 或任务树。`branch.import` 只登记已有本地分支，parent 为 unknown，不做推断。
+
+## branch.tree / branch.show
+
+节点字段包括 branch、parent / parent_relation、created_from_commit、task、worktree、present、head_commit、current、status。分支删除后历史行保留；只有 ref 的旧分支显示 untracked；只被 parent 提及的名称显示 placeholder。
+
+## branch.merge
+
+只允许 `parent_relation=recorded` 的 direct child 合回 parent，只执行 fast-forward。返回示例：
 
 ```json
 {
-  "generated_at": "…", "git": true, "error": null,
-  "current_branch": "main", "truncated": false, "count": 7,
-  "roots": [ { "branch": "main", "parent": null, "parent_relation": "unknown", "children": [ … ] } ]
+  "child": "lush/abc/7-api",
+  "parent": "lush/abc/input-3",
+  "status": "integrated",
+  "ahead": 2,
+  "behind": 0,
+  "merged": true,
+  "new_head": "..."
 }
 ```
 
-每个节点的字段：`branch`（分支短名）、`parent` / `parent_relation`（`recorded` / `inferred` / `unknown`；`parent` 为 `null` 表示没有记录）、`created_from_commit`（创建时的起点，parent 之后往前走也查得到）、`task_id` / `task_role` / `task_name` / `task_goal`（关联的 task，已被 `task clear` 清空时为 `null`，但 `task_id` 留着；输入锚点分支的 `task_id` 本来就是 `null`，它的 `parent` 是提交输入时检出的分支）、`worktree` / `worktree_exists`、`created_at`、`status`（`active` / `deleted`）、`tracked`（store 里有没有这条记录）、`present`（Git ref 现在还在不在；git 不可用时为 `null`）、`head_commit`、`current`（是不是当前检出分支）、`deleted`（`present === false`）、`children`。
+若父子分歧，返回 `status:"diverged", needs_sync:true`，不修改 ref。若 child 还有未收拢的直接子分支则拒绝，并列出 blockers。
 
-读取是只读 git：`rev-parse --git-dir` / `symbolic-ref --short HEAD` / `for-each-ref refs/heads` / `worktree list --porcelain`，不 checkout、不 merge、不改 ref、不写 store。非 Git 项目不报错，只给出 store 里的记录（`git: false` 加 `error`）；节点数超过 500 截断并置 `truncated`。
+## branch.sync
 
-`branch.show` 在此基础上多返回 `parent`（规范化的 parent 名）、`root`、`ancestors`（根在前、不含自己）、`chain`（`ancestors` + 自己）、`children`（直接子分支）、`descendants`（全部后代）。分支既没有记录、也不是本地分支时报 `branch X is neither recorded nor a local branch; 'lush branch import' registers existing branches`。
+仅在 direct edge 为 diverged 时可调用。它从 child tip 创建一个 `role=merger` 的独立子分支，让 agent 合入冻结的 parent commit、解决冲突并测试。返回 task；完成后用户先把 merger 分支 FF 回 child，再把 child FF 回 parent。
 
-`branch.import` 对每条没有记录的本地分支写一行 `parent=NULL` / `parent_relation='unknown'` / `created_from_commit=NULL` / `task_id=NULL`，外加当前 worktree（如果有）。它**不**推断 parent，也**不**覆盖已有记录，可重复执行（第二次 `imported: 0`）。返回 `{imported, branches, local, recorded}`。
+同一 child 已有活动或待落地 sync task 时返回该 task，不重复创建。
+
+## graph.get 的 fork 边
+
+Web 分支图使用 `graph.get`。每条 fork edge 附加：
+
+```json
+{
+  "kind": "fork",
+  "from": "branch:main",
+  "to": "branch:lush/abc/input-3",
+  "status": "fast_forward",
+  "ahead": 4,
+  "behind": 0,
+  "blockers": [],
+  "can_merge": true,
+  "can_sync": false
+}
+```
+
+相关：[分支优先架构](../../engineering/branch-first.md)。

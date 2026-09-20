@@ -52,7 +52,7 @@ test('cleanup reclaims a merged branch, and --keep-branch keeps it as a recovery
   } finally { await f.close(); }
 });
 
-test('a preserved branch that no longer points at the reviewed commit is never deleted', async () => {
+test('a branch with post-review commits is kept until its whole tip reaches the parent', async () => {
   const f = await setup();
   try {
     await change(f, f.task);
@@ -66,7 +66,7 @@ test('a preserved branch that no longer points at the reviewed commit is never d
     const result = await f.project.workspaces.cleanup(f.task.id);
     expect(result.cleanup.worktree).toBe('absent');
     expect(result.cleanup.branch).toBe('kept');
-    expect(result.cleanup.reason).toContain('is not the reviewed commit');
+    expect(result.cleanup.reason).toContain('is not in main yet');
     expect(await git(f.root,'branch','--list',branch)).toContain(branch);
     expect(f.store.task(f.task.id).branch).toBe(branch);
   } finally { await f.close(); }

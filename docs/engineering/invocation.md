@@ -5,7 +5,7 @@
 ## 一次 invocation
 
 1. 按任务 ID 从 queued 中挑选，不超过对应槽限制。
-2. 在 `running` Map 中占位并签发本次 invocation 的 token（库里只写 hash），再异步准备 worker worktree——基线是这条输入在 submit 那一刻的锚点（`base_commit`），不是当时的主树 HEAD（verifier 则准备目标分支的对照检出）；将 task 标为 running。
+2. 在 `running` Map 中占位并签发本次 invocation token，再准备 cwd：根 planner 使用输入分支 worktree；普通 worker 使用输入提交时冻结的 commit、以输入分支为直接父分支；code 下游使用上游任务分支；verifier 准备目标分支对照检出。
 3. 读取此次未消费消息、当前任务/子任务和最近任务摘要，启动 provider。
 4. pi 收到项目/任务/token 环境变量、固定代码路径下的 lush CLI、独立 session 和输入文件。在 cwd 中运行工具循环；Lush 不在 argv 中传入巨大的项目快照。
 5. provider 正常返回后消费**启动时读到的消息**，记录结果。运行期间到达的消息留给下次。

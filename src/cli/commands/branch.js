@@ -21,8 +21,14 @@ export async function run(command, args, ctx) {
     exact(args, 0);
     value = await client.request('branch.import');
     if (!json) { printBranchImport(value); return; }
+  } else if (verb === 'merge') {
+    exact(args, 1);
+    value = await client.request('branch.merge', { branch: args[0] });
+  } else if (verb === 'sync') {
+    exact(args, 1);
+    value = await client.request('branch.sync', { branch: args[0] });
   } else {
-    check(false, 'unknown branch command; use tree, show or import');
+    check(false, 'unknown branch command; use tree, show, import, merge or sync');
   }
   return value;
 }

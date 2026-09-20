@@ -13,16 +13,17 @@ function host(f, { role = 'coordinator', goal = 'host', input_id = null } = {}) 
 }
 
 /** A git project with one finished worker whose branch holds an unmerged change. */
-async function upstreamOnly() {
+async function upstreamOnly({ branchFirst = false } = {}) {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
-  const parent = f.store.create({ input_id: null, role: 'coordinator', goal: 'staged work' });
+  const input = branchFirst ? await f.project.submit('stacked work') : null;
+  const parent = f.store.create({ input_id: input?.id ?? null, role: 'coordinator', goal: 'staged work' });
   const worker = f.project.spawn(parent.id, 'upstream change', 'worker');
   const cwd = await f.project.workspaces.ensure(f.store.task(worker.id));
   fs.writeFileSync(path.join(cwd, 'file.txt'), 'upstream\n');
   await git(cwd, 'add', 'file.txt'); await git(cwd, 'commit', '-m', 'upstream work');
   await f.project.workspaces.finish(f.store.task(worker.id));
   f.store.update(worker.id, { status: 'completed' });
-  return { ...f, parent, upstream: f.store.task(worker.id) };
+  return { ...f, input, parent, upstream: f.store.task(worker.id) };
 }
 
 test('a queued task waits for its dependencies and is released when they settle', async () => {
@@ -175,8 +176,8 @@ test('a cancelled upstream unblocks an order dependency but fails a code depende
   } finally { await f.close(); }
 });
 
-test('a stacked task cannot merge before its upstream', async () => {
-  const f = await upstreamOnly();
+test('a stacked task merges leaf-first into its upstream branch, then the stack moves to the input branch', async () => {
+  const f = await upstreamOnly({ branchFirst: true });
   try {
     const downstream = f.project.spawn(f.parent.id, 'downstream change', 'worker', [{ id: f.upstream.id, kind: 'code' }]);
     const cwd = await f.project.workspaces.ensure(f.store.task(downstream.id));
@@ -184,11 +185,17 @@ test('a stacked task cannot merge before its upstream', async () => {
     await git(cwd, 'add', 'other.txt'); await git(cwd, 'commit', '-m', 'downstream work');
     await f.project.workspaces.finish(f.store.task(downstream.id));
     f.store.update(downstream.id, { status: 'completed' });
-    await expect(f.project.workspaces.merge(downstream.id)).rejects.toThrow(`code dependency #${f.upstream.id} is not merged`);
-    expect(f.store.task(downstream.id).integration).toBe('pending');
-    await f.project.workspaces.merge(f.upstream.id);
+    const upstream = f.store.task(f.upstream.id);
+    expect(f.store.task(downstream.id).target_branch).toBe(upstream.branch);
     await f.project.workspaces.merge(downstream.id);
-    expect(fs.readFileSync(path.join(f.root, 'file.txt'), 'utf8')).toBe('upstream\n');
+    expect(fs.readFileSync(path.join(upstream.workspace, 'other.txt'), 'utf8')).toBe('downstream\n');
+    await f.project.workspaces.merge(f.upstream.id);
+    const input = f.store.get('SELECT * FROM inputs WHERE id=?', upstream.input_id);
+    expect(fs.readFileSync(path.join(input.anchor_workspace, 'file.txt'), 'utf8')).toBe('upstream\n');
+    expect(fs.readFileSync(path.join(input.anchor_workspace, 'other.txt'), 'utf8')).toBe('downstream\n');
+    f.store.update(f.input.task.id, { status: 'completed' });
+    f.store.update(f.parent.id, { status: 'completed' });
+    await f.project.approveBranchMerge(input.anchor_branch);
     expect(fs.readFileSync(path.join(f.root, 'other.txt'), 'utf8')).toBe('downstream\n');
     expect(f.store.task(downstream.id).integration).toBe('merged');
   } finally { await f.close(); }

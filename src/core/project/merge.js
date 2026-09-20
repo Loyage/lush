@@ -32,6 +32,11 @@ export default {
       ? `merging into ${task.target_branch} is frozen by the unresolved conflict on #${blocker.id}; answer its notice, cancel its resolution task, or retry that merge first`
       : '');
     const result = await this.workspaces.merge(task.id);
+    if (result.diverged) {
+      const sync = await this.syncBranch(result.task.branch);
+      return { ...result.task, merge: { status: 'diverged', parent: result.diverged.parent,
+        child: result.diverged.child, sync_task_id: sync.task.id } };
+    }
     if (!result.conflict) {
       const resolvedTaskId = result.task.resolves_task_id;
       // 解冲突任务落地 = 原任务的提交也进了目标分支：两个任务一起收尾，冻结随之消失。
@@ -119,6 +124,10 @@ export default {
           stopped = { id: entry.id, reason: `merge conflict on ${files.length ? files.join(', ') : 'unknown files'}` };
           merges.push({ ...identity, status: 'conflict', integration: result.integration,
             resolution_task_id: result.merge.resolution_task_id, error: stopped.reason });
+        } else if (result.merge?.status === 'diverged') {
+          stopped = { id: entry.id, reason: `branch diverged from ${result.merge.parent}; sync task #${result.merge.sync_task_id} created` };
+          merges.push({ ...identity, status: 'diverged', integration: result.integration,
+            sync_task_id: result.merge.sync_task_id, error: stopped.reason });
         } else {
           merges.push({ ...identity, status: 'merged', integration: result.integration,
             included_task_ids: result.merge?.included_task_ids ?? [] });
@@ -221,13 +230,13 @@ export default {
    * 两个不可变 commit 的包含关系可以缓存；目标分支是否已含 code 上游必须实时询问 Git。
    */
   async ladder() {
-    const rows = this.store.all(`SELECT id, role, status, agent_wakes, resolves_task_id, substr(goal,1,200) AS goal,
+    const rows = this.store.all(`SELECT id, input_id, role, status, agent_wakes, resolves_task_id, substr(goal,1,200) AS goal,
       branch, target_branch, head_commit, integration
       FROM tasks WHERE resolves_task_id IS NULL AND integration IN ('pending','review','conflict') ORDER BY id LIMIT 50`);
     const pendingIds = new Set(rows.map(row => row.id));
     const nodes = new Map(rows.map(row => [row.id, { id: row.id, role: row.role, goal: row.goal, branch: row.branch,
       target_branch: row.target_branch, integration: row.integration, deps: [], covered_by: [] }]));
-    const allTasks = this.store.all(`SELECT id,role,status,agent_wakes,resolves_task_id,branch,target_branch,head_commit,integration
+    const allTasks = this.store.all(`SELECT id,input_id,role,status,agent_wakes,resolves_task_id,branch,target_branch,head_commit,integration
       FROM tasks ORDER BY id`);
     const head = new Map(allTasks.map(row => [row.id, row]));
     const edges = this.store.edgesOf([...pendingIds]);
@@ -279,14 +288,24 @@ export default {
         else phase = 'conflict_decision';
       }
       const blockers = [];
+      // 新输入按 direct-parent 从叶子向根交付；任务还有未收拢 child，或它与 parent 已分歧时，
+      // 交付队列不能沿用旧的“上游先落地”提示。具体收敛动作在分支图上完成。
+      if (source.input_id && source.branch && !readyResolution) {
+        try {
+          const branchState = await this.workspaces.branchState(source.branch);
+          if (branchState.blockers.length) blockers.push({ code: 'branch_children',
+            message: `先收拢直接子分支/任务：${branchState.blockers.join('、')}` });
+          if (branchState.status === 'diverged') blockers.push({ code: 'branch_diverged',
+            message: `与直接父分支 ${branchState.parent} 已分歧；请到分支图在子侧同步` });
+          if (branchState.status === 'missing') blockers.push({ code: 'branch_missing', message: '子分支或直接父分支不存在' });
+        } catch (error) { blockers.push({ code: 'branch_invalid', message: error.message }); }
+      }
       if (phase === 'conflict_decision') blockers.push({ code: 'conflict_decision', task_id: active?.id ?? null,
         message: active ? `决定是否启动解冲突任务 #${active.id}` : '需要重新发起解冲突' });
       if (phase === 'resolving') blockers.push({ code: 'resolution_active', task_id: active.id,
         message: `解冲突任务 #${active.id} 正在处理` });
       if (phase === 'resolution_stale') blockers.push({ code: 'resolution_stale', task_id: readyResolution.id,
         message: `目标分支已前进；废弃解冲突结果 #${readyResolution.id} 后重新处理` });
-      if (source.target_branch && currentBranch !== source.target_branch) blockers.push({ code: 'wrong_branch',
-        message: currentBranch ? `当前检出 ${currentBranch}，需要切换到 ${source.target_branch}` : `当前不是可识别的分支，需要切换到 ${source.target_branch}` });
       const foreign = conflictRows.find(conflict => conflict.target_branch === source.target_branch
         && conflict.id !== row.id && conflict.id !== source.resolves_task_id && conflict.resolves_task_id !== source.id);
       if (foreign) blockers.push({ code: 'frozen', task_id: foreign.id, message: `#${foreign.id} 的冲突冻结了 ${source.target_branch}` });

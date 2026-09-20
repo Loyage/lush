@@ -46,9 +46,17 @@ export const methods = {
     const out = await this.gitOutput(cwd, 'diff', '--name-only', '--diff-filter=U');
     return out.split('\n').map(line => line.trim()).filter(Boolean);
   },
-  /** 分支是否正被某个 worktree 检出：删掉它会让那个检出的 HEAD 失效，所以先问清楚。 */
-  async checkedOut(branch) {
+  /** 返回检出指定分支的 worktree；分支没有被检出时返回 null。 */
+  async workspaceForBranch(branch) {
     const list = await this.git(this.config.project, 'worktree', 'list', '--porcelain');
-    return list.split('\n').some(line => line === `branch refs/heads/${branch}`);
+    let workspace = null;
+    for (const line of list.split('\n')) {
+      if (line.startsWith('worktree ')) workspace = line.slice('worktree '.length);
+      else if (line === `branch refs/heads/${branch}`) return workspace;
+      else if (!line) workspace = null;
+    }
+    return null;
   },
+  /** 分支是否正被某个 worktree 检出：删掉它会让那个检出的 HEAD 失效，所以先问清楚。 */
+  async checkedOut(branch) { return Boolean(await this.workspaceForBranch(branch)); },
 };

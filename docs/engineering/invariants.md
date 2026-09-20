@@ -10,9 +10,10 @@
 <a id="transaction"></a>- 取消、notice 答复与 completion 的核心状态变更都在同步短事务中完成；事务内不等待模型或 Git。
 <a id="retry"></a>- 重试必须是用户显式动作，且父 task 不能已终态。
 <a id="history"></a>- 不删除任务历史；工作区清理与任务终态是不同操作。
-<a id="explain"></a>- `explain` 输入的子树只允许 research；runtime 在 spawn 层拒绝 worker/coordinator，保证了解类输入不产生待合并改动。锚点只是提交时刻的只读快照，不是待交付成果。
-<a id="anchor"></a>- 输入锚点在提交那一刻写入，之后不变：worker 的 `base_commit` / `target_branch` 与分支谱系 `parent` 由它决定，而不是由「worker 什么时候真正开工」决定。锚点分支只由 `task clear` 回收，且只在检出干净、分支顶端仍等于锚定 commit 时才删；缺一条就整份（目录+分支）留着。
-<a id="conflict"></a>- 内容冲突不当作错误：它进入 `integration=conflict`、开一个 runtime 专属的 `merger` 任务并请求用户决定；解冲突结果只用 `--ff-only` 落地（落地的树＝测过的树），落地期间同一目标分支上的其它合并被冻结。agent 不能自行派 merger，也不能自行合并或解决冲突。
-<a id="genealogy"></a>- 分支谱系只在分支被创建那一刻写入，之后不可变：merge 不改写 parent，重试不重写已有记录；分支被删除只把记录标成 `deleted` 并保留行，子分支的 parent 指针继续有效。没有记录的已有分支一律显示为 untracked / `parent: unknown`，runtime 不用 merge-base 事后推断出一个 parent 当成事实。
+<a id="explain"></a>- `explain` 输入的子树只允许 research；输入分支只提供稳定读取上下文，不产生任务子分支或待交付改动。
+<a id="anchor"></a>- 输入提交时从用户指定本地父分支创建独立输入分支与 worktree；planner 在其中运行。`anchor_commit` / 谱系 parent 创建后不变，但输入分支 tip 可以通过直接子分支 fast-forward 推进。
+<a id="conflict"></a>- 所有写入只沿 recorded direct-parent 边、只做 fast-forward。父子分歧时不在父侧 no-ff；用户创建子侧 merger，把冻结的父 commit 合入子侧并测试，再逐层 ff。
+<a id="genealogy"></a>- 分支谱系只在分支被创建那一刻写入，之后不可变：merge 不改写 parent，重试不重写已有记录；分支被删除只标 `deleted`。没有 recorded parent 的分支只能查看，不能作为 `branch.merge/sync` 的依据。
+<a id="leaf-first"></a>- 一条分支还有未进入自己的直接子分支时不得向上合并；代码从叶子向输入聚合分支、再向用户分支逐层收敛。
 
 相关：[实体](entities.md)、[Git 边界](git-boundary.md)、[批准合并](merge.md)、[分支谱系](branch-genealogy.md)。

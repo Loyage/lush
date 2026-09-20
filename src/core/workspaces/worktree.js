@@ -12,29 +12,38 @@ export const methods = {
    * 先落库再动 git：谱系表示「这条分支确实被创建了」，崩溃重试不会重写它。
    * 失败一律抛错——锚不住就不接受输入。
    */
-  anchor(inputId) {
+  anchor(inputId, requestedBranch = null) {
     return this.exclusive(async () => {
       const project = this.config.project;
       // 不是仓库时 `rev-parse` 自己会抛错，但报错要说清「提交输入需要什么」，不甩一行 git 原始输出。
       let root = null;
       try { root = fs.realpathSync(await this.git(project, 'rev-parse', '--show-toplevel')); } catch { /* not a repository */ }
       check(root === project, 'submitting an input requires the project to be a git worktree root');
-      // detached HEAD 上没有「提交输入时所在的分支」，也就没有 worker 可交付的目标分支。
-      let target = null;
-      try { target = await this.git(project, 'symbolic-ref', '--short', 'HEAD'); } catch { /* detached HEAD */ }
-      check(target !== null, 'cannot anchor an input on a detached HEAD; check out a branch before submitting');
-      const commit = await this.git(project, 'rev-parse', 'HEAD');
-      const name = `${inputLabel(inputId)}-anchor`;
+      let current = null;
+      try { current = await this.git(project, 'symbolic-ref', '--short', 'HEAD'); } catch { /* detached HEAD */ }
+      const target = requestedBranch || current;
+      check(target !== null, 'cannot choose an input parent on a detached HEAD; pass --branch or check out a branch');
+      check(typeof target === 'string' && target.length > 0 && target.length <= 512, 'input branch must be non-empty text');
+      // 只接受精确的本地 branch ref，不让 tag、SHA 或 rev 表达式偷偷变成父分支。
+      let commit = null;
+      try {
+        await this.git(project, 'show-ref', '--verify', `refs/heads/${target}`);
+        commit = await this.git(project, 'rev-parse', '--verify', `refs/heads/${target}^{commit}`);
+      } catch { /* missing local branch */ }
+      check(commit, `input parent branch does not exist locally: ${target}`);
+      const name = inputLabel(inputId);
       const branch = `lush/${this.namespace}/${name}`;
       const workspace = path.join(this.config.home, 'worktrees', name);
       check(!(await this.git(project, 'branch', '--list', branch)),
         `${branch} already exists; rename or remove it before submitting`);
-      const source = await this.porcelain(project);
+      // 未提交改动不进入新分支；若父分支正被检出，把那份差异明确记下来。
+      const targetWorkspace = await this.workspaceForBranch(target);
+      const source = targetWorkspace ? await this.porcelain(targetWorkspace) : '';
       this.store.recordBranch({ branch, parent: target, created_from_commit: commit, worktree: workspace });
       fs.mkdirSync(path.dirname(workspace), { recursive: true });
       await this.git(project, 'worktree', 'add', '-b', branch, workspace, commit);
       const dirt = dirtDetail(source);
-      return { branch, commit, workspace, target, dirty_source: dirt.files ? dirt : null };
+      return { branch, commit, workspace, target, dirty_source: dirt.files ? { ...dirt, workspace: targetWorkspace } : null };
     });
   },
 
@@ -55,8 +64,13 @@ export const methods = {
     }
     let tip = null;
     try { tip = await this.git(project, 'rev-parse', `refs/heads/${branch}`); } catch { /* ref 已经不在 */ }
-    if (tip !== null && tip !== anchor.commit) return { branch, status: 'kept',
-      reason: `anchor branch tip ${tip.slice(0, 12)} is not the anchored commit ${String(anchor.commit).slice(0, 12)}` };
+    if (tip !== null && tip !== anchor.commit) {
+      const parent = this.store.branch(branch)?.parent ?? anchor.target;
+      let integrated = false;
+      if (parent) integrated = await this.isAncestor(project, tip, `refs/heads/${parent}`);
+      if (!integrated) return { branch, status: 'kept',
+        reason: `input branch tip ${tip.slice(0, 12)} has not been merged into ${parent ?? 'its parent'}` };
+    }
     if (present) await this.git(project, 'worktree', 'remove', anchor.workspace);
     if (tip === null) return { branch, status: 'absent', reason: null };
     if (await this.checkedOut(branch)) return { branch, status: 'kept', reason: 'branch is checked out in a worktree' };
@@ -98,6 +112,11 @@ export const methods = {
       this.store.event(task.id, 'baseline.created', { workspace: dir, commit, target_branch: target.target_branch });
       return target.workspace;
     });
+    // 根 planner 必须在这条输入自己的分支快照中解析，而不是读取可能已经前进或带有未提交改动的主工作树。
+    if (task.role === 'planner' && task.input_id) {
+      const anchor = this.inputAnchor(task);
+      if (anchor?.workspace && fs.existsSync(anchor.workspace)) return anchor.workspace;
+    }
     if (task.role !== 'worker' && task.role !== 'merger') return this.config.project;
     return this.exclusive(async () => {
       task = this.store.task(task.id);
@@ -122,13 +141,17 @@ export const methods = {
       // 它的产物必须是「目标分支 + 那次已审阅的提交」的合并提交，批准时才能 --ff-only 原样落地。
       const stacked = task.base_commit ? null : this.codeBase(task);
       const resolves = Boolean(task.resolves_task_id);
-      // 没有 code 依赖、也不是解冲突任务时，基线来自这条输入的锚点：submit 那一刻就把代码冻结了，
-      // 所以规划花了多久、用户在主树上又提交了什么，都不改变 worker 看到的基线。
-      const anchor = resolves ? null : this.inputAnchor(task);
+      const branchSync = task.role === 'merger' && !resolves && Boolean(task.base_commit && task.target_branch);
+      // 没有 code 依赖、也不是 merger 时，基线来自这条输入的分支起点。输入分支之后可以聚合子分支，
+      // 但一个已经派出的并行任务仍从输入提交时冻结的 commit 开始，不会随合并时机漂移。
+      const anchor = (resolves || branchSync) ? null : this.inputAnchor(task);
       const base = task.base_commit || (resolves
         ? await this.git(project, 'rev-parse', `refs/heads/${task.target_branch}`)
         : stacked?.head_commit || anchor?.commit || await this.git(project, 'rev-parse', 'HEAD'));
-      const target = task.target_branch || anchor?.target || await this.git(project, 'symbolic-ref', '--short', 'HEAD');
+      // Branch-first：任务只交付给自己的直接父分支。普通任务回到输入分支，code 下游回到上游任务分支；
+      // 输入分支再由用户从分支图批准合回它的父分支。
+      const target = task.target_branch || (task.input_id ? (stacked?.branch || anchor?.branch) : null)
+        || await this.git(project, 'symbolic-ref', '--short', 'HEAD');
       const branch = task.branch || `lush/${this.namespace}/${taskLabel(task.id, task.name)}`;
       let reuse = false;
       if (!task.branch) check(!(await this.git(project, 'branch', '--list', branch)), 'task branch already exists; preserve or rename the old branch before retrying');
@@ -146,7 +169,7 @@ export const methods = {
       // 与上面一样先落库再动 git，且已有记录绝不改写：merge / 重建都不能重写创建时的血缘。
       this.store.recordBranch({
         branch,
-        parent: stacked ? stacked.branch : anchor?.branch ?? target,
+        parent: stacked ? stacked.branch : (branchSync || resolves) ? target : anchor?.branch ?? target,
         created_from_commit: stacked ? stacked.head_commit : base,
         task_id: task.id, worktree: workspace,
       });
@@ -167,9 +190,9 @@ export const methods = {
    */
   inputAnchor(task) {
     if (!task.input_id) return null;
-    const input = this.store.get('SELECT id, anchor_branch, anchor_commit, anchor_target_branch FROM inputs WHERE id=?', task.input_id);
+    const input = this.store.get('SELECT id, anchor_branch, anchor_commit, anchor_workspace, anchor_target_branch FROM inputs WHERE id=?', task.input_id);
     if (!input || !input.anchor_commit) return null;
-    return { id: input.id, branch: input.anchor_branch, commit: input.anchor_commit, target: input.anchor_target_branch };
+    return { id: input.id, branch: input.anchor_branch, commit: input.anchor_commit, workspace: input.anchor_workspace, target: input.anchor_target_branch };
   },
   async finish(task) {
     if (!task.workspace) return;

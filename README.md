@@ -5,7 +5,7 @@
 
 Lush 是项目级的多 agent 开发应用。一个 daemon 绑定一个项目目录；输入、任务、agent 会话、工作区与待决问题都属于这个项目。
 
-你随时描述想法，Lush 立即保存输入并安排规划任务；提交的那一刻先把**当前代码**锚成一条分支与一份检出（`.lush/worktrees/input-<id>-anchor`），所以规划花多久都不会改变这次输入看到的是哪份代码。规划 agent 拆分工作，多级 agent 在后台并行执行；等待子任务或用户决定时释放 agent 槽，不阻塞下一条输入。代码在独立 Git worktree 中实现，**只有用户明确批准才合并**。
+你随时描述想法，并可指定任一本地父分支。Lush 立即创建 `input-<id>` 分支与 worktree，planner 在这份不可漂移的代码上解析；多项任务再从输入分支创建子分支并行工作。结果从叶子向输入分支逐层收敛，最后输入分支合回用户选择的父分支，**每一步都由用户明确批准且只做 fast-forward**。
 
 Bun 1.2+ / JavaScript / SQLite / Unix socket，零第三方运行时依赖，支持 macOS 和 Linux。
 
@@ -23,7 +23,7 @@ bun run tree --project /absolute/path/to/my-project
 bun run web 4318 --project /absolute/path/to/my-project
 ```
 
-`start` 只启动项目 daemon；`say` **立即返回输入和 task ID，不等待模型或开发完成**（提交时先做一次 Git 锚点：在当前分支顶端建 `input-<id>-anchor` 分支与检出，所以它短暂排在 Git 串行队列里）；Web 是独立的界面进程，不隐式启停 daemon，`bun run web` **后台起进程后立刻返回**（日志在 `.lush/web.log`）。Web 离线后会自动重连。默认只监听 `127.0.0.1`；如需从公网访问，在项目的 `.lush/web.json` 写入登录凭证：
+`start` 只启动项目 daemon；`say` **立即返回输入和 task ID，不等待模型或开发完成**（提交时从 `--branch` 指定的本地分支、或当前分支创建 `input-<id>` 分支与检出，所以它短暂排在 Git 串行队列里）；Web 是独立的界面进程，不隐式启停 daemon，`bun run web` **后台起进程后立刻返回**（日志在 `.lush/web.log`）。Web 离线后会自动重连。默认只监听 `127.0.0.1`；如需从公网访问，在项目的 `.lush/web.json` 写入登录凭证：
 
 ```json
 {
@@ -73,7 +73,7 @@ lush daemon stop
 每条输入有一个流程判定（`inputs.flow`），由处理它的根 planner 用 `lush input flow develop|explain` 记录：
 
 - `develop`：需要新增功能或改代码。照常拆解，派 coordinator/worker，可派 research。
-- `explain`：只是了解、询问、解释相关内容。planner 直接把答案写进自己的 result，必要时派 research 去读代码；**runtime 会硬性拒绝它派发 worker/coordinator**（`input #N is classified as explain (了解)`），因此不会产生**任务** worktree、不会产生待合并改动（提交时那份只读的输入锚点仍在，见下）。
+- `explain`：只是了解、询问、解释相关内容。planner 直接把答案写进 result，必要时派 research；runtime 会拒绝 worker/coordinator，因此不会产生任务分支（提交时创建的输入分支仍提供稳定读取上下文）。
 
 未判定（`flow` 为空）的输入按 `develop` 处理。用户随时可以改判：`lush input flow [TASK_ID] develop|explain`（agent 省略 TASK_ID 时判定自己的输入，Web 任务详情里也有「标记为开发/了解」），`lush input list` 会显示当前判定。改判只影响之后的派工，不会追溯取消已经建立的 worker/coordinator 子任务。
 
@@ -87,9 +87,9 @@ lush daemon stop
 
 verifier 与被检验任务是两个 task（worker 已经终态，不能再挂活动子任务），用 `tasks.verifies_task_id` 关联，界面上挂在被检验任务下面。同一任务同时只允许一次检验；`task.verify` 是用户专属命令，agent 不能用。对照基线是派生状态，检验一结算（成功或失败）就回收，报告保留在磁盘上；`task clear` 不会删它。
 
-### 输入锚点：这次输入看到的是哪份代码
+### 输入分支：稳定上下文与聚合点
 
-提交输入时会先从当前检出分支的顶端拉出一条 `lush/<项目哈希>/input-<id>-anchor` 分支，并在 `.lush/worktrees/input-<id>-anchor` 做一份检出。规划要花时间，这期间你可能继续在主树上提交；锚点把这些提交拦在外面：没有 `code` 依赖、也不是解冲突任务的 worker 都以锚点的 commit 为 `base_commit`、以锚点当时的检出分支为 `target_branch`，分支谱系的 `parent` 写锚点分支。它属于**输入**而不是任务（没有 agent 在里面跑，进不了任务树、`task diff` 或分支图），所以 `task clear` 会连同它一起回收；锚点检出干净、分支顶端仍是锚定 commit 才删，被动过就整份留下并在返回值里说明。
+提交输入时可用 `--branch NAME` 选择父分支（省略时用当前分支）。runtime 创建 `lush/<项目哈希>/input-<id>` 与 `.lush/worktrees/input-<id>`；planner 就在这里解析。普通 worker 是它的直接子分支，完成后先合回输入分支；所有子分支收拢后，输入分支再合回最初父分支。字段名为兼容旧库仍叫 `anchor_*`，但分支已经是可推进的聚合分支。
 
 ### 输入缓存与任务依赖
 
@@ -97,7 +97,7 @@ verifier 与被检验任务是两个 task（worker 已经终态，不能再挂�
 
 依赖边由 planner 在派工时声明（`task spawn --depends-on ID[:code|order]`），daemon 只做结构校验：
 
-- `code`（默认）：子任务的 worktree 从上游任务的分支拉出，因此看得到上游**未合并**的改动。代价是合并顺序——上游先合，下游才能合，`task merge` 会拒绝越级合并。
+- `code`（默认）：子任务从上游任务分支拉出，并只合回这个直接父分支；从最深下游开始逐层向输入分支收敛。
 - `order`：只等上游结束，代码仍从这条输入的锚点（提交那一刻冻结的 commit）开始。适合等一个调研结论。
 - 一个任务最多一条 `code` 依赖；依赖不能指向自己的祖先任务——祖先在等子孙结算，双方会互等而死。
 - 依赖未满足的任务保持 `queued`，界面显示「等 #ID」；上游结算时由调度器唤醒，不占 agent 槽。
@@ -108,7 +108,7 @@ verifier 与被检验任务是两个 task（worker 已经终态，不能再挂�
 ### 运行前提
 
 - 默认 agent 是 `pi`，需要在 PATH 中可用且已完成模型认证。可设置 `LUSH_PI_COMMAND`、`LUSH_PI_PROVIDER`、`LUSH_PI_MODEL`。
-- 提交输入需要项目是 **Git worktree 根目录且有初始提交（且不能是 detached HEAD）**：拿不到「当前分支 + 已提交 HEAD」就无从锚定，`say` / `draft commit` 会直接报错且不落库。主工作树可以有未提交改动：worker 基于这条输入在**提交时**冻结的锚点开工（或 `code` 依赖的上游分支），看不到你未提交的编辑。这份分歧记进 `input.anchor` 事件的 `dirty_source`（开工时主树的状态记在 `workspace.created`），`task diff` 的 `base_behind` 给出基线落后目标分支多少提交。把 `.lush/` 加进项目的 `.gitignore`；Lush 不会替你提交、暂存或藏起已有改动，**合并时主工作树必须干净**。
+- 提交输入需要项目是 **Git worktree 根目录且父分支有初始提交**。可用 `--branch NAME` 指定任一本地分支；未指定时 detached HEAD 会被拒绝。未提交改动不进入输入分支，并记录在 `input.anchor.dirty_source`；Lush 不替你提交、暂存或 stash。分支落地时，涉及的 child / parent worktree 都必须干净。
 - 非 Git 项目不能提交输入（也建不了实现 worktree）：提交前先 `git init` 并至少提交一次。
 - `LUSH_PROVIDER=mock bun run start --project ...` 可离线演示调度。Mock 只派调研任务，不调用模型、不修改代码。
 - 改环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。Web 是另一个进程：改完 `src/ui/web/` 用 `bun run web-restart`（它先停掉端口上那个后台 Web，再按当前代码起一个新的）；`daemon-restart` 不会动它，而再跑一次 `bun run web` 只会如实报告「已在运行」。
@@ -148,15 +148,16 @@ planner 不直接派活：它把每条可独立完成的工作写成拆解队列
 ## Worktree 与合并
 
 - 每个 worker 的 worktree 位于 `.lush/worktrees/<id>-<name>/`，分支名为 `lush/<项目路径哈希>/<id>-<name>`（`<name>` 是派工时 planner 给的英文短名，如 `fix-login-composer`）。id 保证唯一，短名说清任务做什么；共享 Git 仓库的不同项目不会争用同名 task 分支。省略 `--name` 时 runtime 从 goal 首行的英文词回退，提不出可用名字（例如纯中文 goal）才回到 `task-<id>`；名字只在 spawn 时定一次，之后不变。
-- 每个 worker 从**提交这条输入时**冻结的锚点 commit 开始（见上面的「输入锚点」），除非它对另一个任务声明了 `code` 依赖：那时它的 worktree 从上游任务的**分支**拉出（stacked），于是能拿到上游尚未合并的改动。兄弟任务不会自动看到彼此的修改；无关的编辑应合在一个 worker 中。
-- **分支谱系**（`lush branch tree`）回答的只有一件事：这条 branch 是从哪条 branch 创建出来的。runtime 在 `git worktree add -b` 的那一刻把它写进 `branches` 表：输入锚点写**提交输入时检出的分支**，`code` 依赖写**上游任务的分支**，解冲突任务写**目标分支**，其余任务写**这条输入的锚点分支**，并记下 fork commit（parent 之后往前走也查得到当时的起点）。**不用 merge-base 事后推断，也不用 commit graph 代替它**；合并永远不改写谱系，分支被删除只把记录标成 `[deleted]`，子分支的 parent 指针照旧有效。引入这个功能前就存在的分支默认显示为 `[?]`，`lush branch import` 只登记它们存在与当前 worktree，**不猜** parent。
+- 普通 worker 从输入提交时冻结的 commit 创建，直接父分支是输入分支；`code` 下游从上游任务分支创建，并只合回这个直接父分支。兄弟任务互不偷看。
+- **分支谱系**在 `git worktree add -b` 时显式记录。输入分支 parent 是用户指定分支，普通任务 parent 是输入分支，`code` 下游 parent 是上游任务分支，sync merger parent 是待同步 child。merge 永不改写谱系；已有但未登记的分支只显示 `[?]`，不能据此执行合并。
 - agent 最终输出作为 result。worker 必须提交改动、保持工作区干净；未提交就结束会失败，文件原样保留供检查和重试。
 - 完成与合并是两个状态：`completed + pending` 表示已产出提交，**尚未进入主工作树**。
-- 项目概览的**交付队列**与任务树分开：任务树回答谁在做什么；交付队列按 `target_branch` 分组，`code` 依赖显示成必须先落地的变更栈，`order` 只影响执行、不改变合并顺序。队列以原 worker 为稳定条目，解冲突 task 只是它的当前落地来源，不会出现原任务与 resolver 两个并列候选。每项明确显示阶段、是否就绪和阻塞原因；批量操作只允许一个目标分支，并在写主树前检查条目资格与集合外的 code 上游。
-- `task merge ID` 检查任务完成、两边工作树干净（脏时错误列出具体文件）、目标分支未切换、待审阅 HEAD 未变化，然后串行执行 merge。**内容冲突不再是一句报错**：主树会 abort 回合并前，任务进入 `integration=conflict`，runtime 立刻开一个专用解冲突任务（`role=merger`）并提一条待决问题。答复即批准它开工（它在自己的 worktree 里以**目标分支顶端**为基线把那次审阅过的提交并进来、解冲突、提交、跑测试），忽略即撤销。原任务有活动 resolver 时不能从旁重试；结果完成后交付队列只允许审阅并落地 resolver。落地只用 `--ff-only`，因此目标树就是它测过的树。冲突未解决期间，同一目标分支上的其它合并被冻结。任何一次成功落地后，runtime 还会把已经随它进入目标分支的其它待交付提交自动对账成 `merged`，不留下“幽灵待合并”条目。
-- merge 中断后标为 `review`，不自动重放。检查 Git 历史、处理遗留冲突并恢复干净工作树后，可重新执行 `task merge ID` 明确批准恢复；若提交已经合入，Git 会确认已包含，不重复改写历史。
-- `task cleanup ID [--keep-branch]` 不使用 `--force`：worktree 拒绝未合并成果和脏工作区，取消/失败任务的提交也必须已经进入项目 HEAD 才允许清理。分支额外要求**顶端就是审阅过的那次提交**且它已经是 `target_branch` 的祖先，然后用 `git update-ref -d <ref> <tip>` 做 compare-and-delete——检查之后分支被谁动过就拒绝，`head_commit` 之外的提交一条也不会丢；不满足就把分支留下，并在返回的 `cleanup.reason` 里说明原因。`--keep-branch` 只回收 worktree，把分支单独留成恢复点。
-- `task clear`（`bun run clear`，Web 项目概览里的「清空任务看板」）一键删掉**全部已结束任务**及其消息、通知、事件与 `inputs` / `drafts` 审计，并先按与 `task cleanup` 相同的安全门回收磁盘状态：能回收的连 `.lush/worktrees/<id>-<name>/`、检验对照检出、任务分支与每条输入的 `input-<id>-anchor` 一起删，返回值 `reclaimed` 给出 `{worktrees, branches, anchors}`。有 `queued`/`running`/`waiting`/`awaiting` 任务、或还有 invocation 在收尾时**拒绝执行**，不会隐式取消。回收不掉的任务（未合并成果、审阅后被改过的分支、脏工作区）连同目录与分支一起保留在磁盘上，`retained.tasks` 列出 `{id, branch, workspace, baseline_workspace, reason}`，被动过的锚点在 `retained.anchors` 里说明原因；`.lush/sessions/` 与检验报告不受影响。因为目录与分支名里带着 task id / input id，清空后 **id 不从 1 重新开始**，新任务与新输入不会撞上保留的旧目录。
+- **分支图是主要交付界面**。每条 fork 连线显示 child 相对 parent 的 ahead/behind，并区分「可 fast-forward」「已分歧」「已进入父分支」「ref 缺失」。一条分支还有未收拢子分支时不能向上落地。
+- `branch merge CHILD`（图上的「合入父分支」）只把 child fast-forward 到 recorded direct parent；父分支未检出时用 compare-and-swap 更新 ref，已检出时要求 worktree 干净并同步 index/工作目录。
+- 父子已分歧时用 `branch sync CHILD`。runtime 从 child tip 创建 merger 子分支，让 agent 合入冻结的 parent commit、在子侧解决冲突并测试；之后先 FF 回 child，再 FF 到 parent。父分支上永不直接 `--no-ff`，最终落地树就是测试过的树。
+- `task merge` / 批量交付保留为兼容入口，最终遵循同一条 direct-parent / ff-only 规则；批量在首个分歧处停止。
+- `task cleanup ID [--keep-branch]` 不使用 `--force`：branch tip 必须仍包含任务审阅提交，并且整个 tip 已进入直接父分支，才用 compare-and-delete 回收。聚合过子分支的任务分支也能安全清理，不会把额外提交当成漂移丢掉。
+- `task clear`（`bun run clear`，Web 项目概览里的「清空任务看板」）一键删掉**全部已结束任务**及其消息、通知、事件与 `inputs` / `drafts` 审计，并先按与 `task cleanup` 相同的安全门回收磁盘状态：能回收的连 `.lush/worktrees/<id>-<name>/`、检验对照检出、任务分支与每条输入的 `input-<id>` 一起删，返回值 `reclaimed` 给出 `{worktrees, branches, anchors}`。有 `queued`/`running`/`waiting`/`awaiting` 任务、或还有 invocation 在收尾时**拒绝执行**，不会隐式取消。回收不掉的任务（未合并成果、审阅后被改过的分支、脏工作区）连同目录与分支一起保留在磁盘上，`retained.tasks` 列出 `{id, branch, workspace, baseline_workspace, reason}`，被动过的锚点在 `retained.anchors` 里说明原因；`.lush/sessions/` 与检验报告不受影响。因为目录与分支名里带着 task id / input id，清空后 **id 不从 1 重新开始**，新任务与新输入不会撞上保留的旧目录。
 
 ## 常用开发命令
 
@@ -164,7 +165,7 @@ planner 不直接派活：它把每条可独立完成的工作写成拆解队列
 bun run help
 bun run doctor
 bun run start
-bun run say '你的原话'       # lush intent '…' 是同义入口，同样不等待
+bun run say '你的原话' --branch main  # 从指定父分支创建输入分支；省略 --branch 使用当前分支
 bun run intents             # 意图列表：每条输入的 planner 拆解 / scheduler 编排进度
 bun run propose '标题' --body '我打算这样拆'   # planner 专用：这轮拆解请你先拍板
 bun run approve 40          # 批准（ID 可以是 planner task id 或那条 notice id）
@@ -185,7 +186,9 @@ bun run cleanup 3           # 回收 worktree 与分支（--keep-branch 只回�
 bun run clear               # 一键清空已结束任务并回收可安全回收的 worktree/分支
 bun run branch tree         # 分支谱系（--verbose 带 task / worktree / fork / parent；见 docs/engineering/branch-genealogy.md）
 bun run branch show 3       # 按 branch 名或 task id 查一条分支的 parent 与祖先链
-bun run branch import       # 把旧项目里已有的本地分支登记成记录（只记存在，不推断 parent）
+bun run branch import       # 把旧项目已有本地分支登记成记录（不推断 parent）
+bun run branch merge lush/…/7-auth-ui  # ff-only 合回直接父分支
+bun run branch sync lush/…/7-auth-ui   # 分歧时在子侧创建 merger
 bun run wait 3              # 只有当前客户端等待，不影响调度
 bun run web                 # 后台起 Web（默认 4318），命令立刻返回
 bun run web-status          # 在不在跑、跑的是不是这份代码、日志在哪
@@ -205,7 +208,7 @@ bun run stop
 project.json       不可跨目录复用的项目绑定
 project.db         SQLite：inputs / tasks / messages / notices / events / branches（task.clear 会清空任务相关的表，并把 task id / input id 高水位记在 meta；branches 是历史事实，不被清空）
 sessions/          每个 task 的独立 pi session 与当前输入文件（thinking / 工具调用的原文）
-worktrees/         worker 工作区、每条输入的锚点检出（input-<id>-anchor），以及检验期间临时的目标分支对照检出
+worktrees/         worker 工作区、每条输入的聚合分支检出（input-<id>），以及检验期间临时对照检出
 verify/            每个 verifier 的自包含 HTML 检验报告
 daemon.lock        项目 daemon 单实例锁
 daemon.log         daemon 日志

@@ -41,7 +41,7 @@ export class StoreBase {
   }
   /**
    * 输入 id 同样只往大走，理由更强：锚点的分支名与检出目录名里带着 input id
-   * （`input-<id>-anchor`），复用 id 会让新输入撞上保留下来的旧目录。
+   * （`input-<id>`），复用 id 会让新输入撞上保留下来的旧目录。
    * 输入行要等锚点建好才写，所以这个 id 必须能在 INSERT 之前就分配出来。
    */
   inputIdHigh() { return Number(this.get("SELECT value FROM meta WHERE key='input_id_high'")?.value ?? 0); }

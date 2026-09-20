@@ -41,9 +41,13 @@ test('待提交意图可勾选部分提交，也可以就地编辑，轮询不�
 
   // 取消勾选 #12：提交按钮仍可用（#11 还选着），提交只带 #11
   boxes[1].checked = false; boxes[1].onchange();
+  dom.node('input-branch').value = 'release/next';
   expect(dom.node('draft-commit').disabled).toBe(false);
   await dom.node('input-form').onsubmit({ preventDefault() {} });
   expect(world.state.commits.at(-1)).toEqual([11]);
+  expect(world.state.actions.findLast(row => row.method === 'draft.commit')).toEqual({
+    method: 'draft.commit', params: { ids: [11], branch: 'release/next' },
+  });
   expect(dom.node('error').textContent).toContain('已提交 1 条输入');
 
   // 剩下的一条可以点正文就地编辑；轮询刷新不重建正在编辑的那条

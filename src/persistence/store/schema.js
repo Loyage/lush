@@ -2,9 +2,8 @@
 export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       -- flow: 'develop'=要改代码, 'explain'=只了解；NULL 表示 planner 还没判定，按 develop 处理。
-      -- anchor_*: 提交这条输入那一刻锚下来的代码（分支 / commit / 检出目录 / 当时检出的分支）。
-      -- 没有 code 依赖、也不是解冲突的 worker 以 anchor_commit 为基线、anchor_target_branch 为目标分支，
-      -- 所以「这次输入看到的是哪份代码」不取决于 worker 什么时候开工。
+      -- anchor_* 为兼容旧库保留名称：它们表示可推进的输入聚合分支 / 初始 commit / worktree / 用户指定父分支。
+      -- planner 在该 worktree 解析；普通 worker 以 anchor_commit 为冻结基线，并以 anchor_branch 为直接父分支。
       CREATE TABLE IF NOT EXISTS inputs (
         id INTEGER PRIMARY KEY, content TEXT NOT NULL, task_id INTEGER, flow TEXT,
         anchor_branch TEXT, anchor_commit TEXT, anchor_workspace TEXT, anchor_target_branch TEXT,

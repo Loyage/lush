@@ -7,7 +7,7 @@
  * 幂等：同一份数据重画不重复建节点、不重建外层容器，所以 1.5s 轮询不会把滚动位置冲掉。
  */
 import { $, button, el } from './dom.js';
-import { api } from './api.js';
+import { api, action } from './api.js';
 import { ROLE, statusOf } from './format.js';
 import { graphLayout, graphFingerprint, graphRenderKey } from './graph-layout.js';
 import { detail, overview } from './navigate.js';
@@ -58,6 +58,37 @@ function taskRow(node) {
 }
 
 /** 一条分支的表头：名字、顶端 commit（或缺失标记）、当前检出、谱系登记状态。 */
+async function runBranchAction(method, branch) {
+  try {
+    const result = await action(method, { branch });
+    $('error').textContent = method === 'branch.sync'
+      ? `已为 ${branch} 创建同步任务 #${result.task.id}`
+      : (result.needs_sync ? `${branch} 已与父分支分歧，请先在子分支侧解决分歧`
+        : result.already_integrated ? `${branch} 已经在 ${result.parent} 中` : `${branch} 已 fast-forward 合入 ${result.parent}`);
+    await loadGraph();
+  } catch (error) { $('error').textContent = error.message; }
+}
+
+/** fork 连线也是操作面：颜色与文案说明能否直接 FF，分歧时从子侧创建同步任务。 */
+function edgeRow(branch) {
+  const edge = branch.incoming;
+  if (!edge) return null;
+  const row = el('div', undefined, `graph-edge is-${edge.status || 'unknown'}`);
+  const parent = String(edge.from || '').replace(/^branch:/, '');
+  const text = edge.status === 'fast_forward' ? '可 fast-forward'
+    : edge.status === 'diverged' ? '父子已分歧'
+    : edge.status === 'integrated' ? '已进入父分支'
+    : edge.status === 'missing' ? '分支缺失'
+    : '关系未知';
+  row.append(el('span', `${parent} → ${branch.name}`, 'graph-edge-path mono'));
+  row.append(el('span', text, `chip ${edge.status === 'fast_forward' || edge.status === 'integrated' ? 'ok' : edge.status === 'diverged' ? 'warn' : ''}`.trim()));
+  if (Number.isFinite(edge.ahead) || Number.isFinite(edge.behind)) row.append(el('span', `子分支 +${edge.ahead ?? '?'} / -${edge.behind ?? '?'}`, 'meta'));
+  if (edge.blockers?.length) row.append(el('span', `先收拢子分支：${edge.blockers.join('、')}`, 'graph-edge-blocker'));
+  if (edge.can_merge) row.append(button('合入父分支', () => runBranchAction('branch.merge', branch.name), 'ghost'));
+  else if (edge.can_sync) row.append(button('在子分支解决分歧', () => runBranchAction('branch.sync', branch.name), 'ghost'));
+  return row;
+}
+
 function branchRow(branch) {
   const row = el('div', undefined, 'graph-branch');
   row.append(el('span', `⎇ ${branch.name}`, 'graph-branch-name mono'));
@@ -78,6 +109,8 @@ function branchRow(branch) {
  */
 function branchBlock(branch) {
   const block = el('div', undefined, 'graph-group');
+  const edge = edgeRow(branch);
+  if (edge) block.append(edge);
   block.append(branchRow(branch));
   const lane = el('div', undefined, 'graph-lane');
   for (const node of branch.tasks) lane.append(taskRow(node));
