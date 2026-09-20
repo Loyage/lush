@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { graphLayout } from '../../src/ui/web/assets/graph-layout.js';
+import { graphLayout, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingTask } from '../../src/ui/web/assets/graph-layout.js';
 
 // graphLayout 的纯逻辑：同一层级的迭代方向必须统一为「新的在前」——
 // 兄弟分支按 created_at 从新到旧（未知时间排在已知时间之后），同一分支下同 level 的任务按 id 降序；
@@ -14,6 +14,7 @@ const task = (id, branchName, extra = {}) => ({
   status: 'completed', integration: 'none', branch: branchName, target_branch: 'main', ...extra,
 });
 const fork = (from, to) => ({ kind: 'fork', from: `branch:${from}`, to: `branch:${to}` });
+const forkEdge = (from, to, status, extra = {}) => ({ kind: 'fork', from: `branch:${from}`, to: `branch:${to}`, status, ahead: 0, behind: 0, ...extra });
 const code = (from, to) => ({ kind: 'code', from, to });
 const names = items => items.map(item => item.name);
 
@@ -93,4 +94,107 @@ test('unplaced 分组内同样 level 升序 + id 降序', () => {
   expect(layout.unplaced).toHaveLength(1);
   expect(layout.unplaced[0].target_branch).toBe('ghost');
   expect(layout.unplaced[0].items.map(node => node.id)).toEqual([3, 2, 1]);
+});
+
+// 「没合进父分支」「正在工作中」的纯判断：强调 class、默认展开、用户显式切换的优先级都只在这里算，
+// DOM 只消费结果（见 test/web/dom-graph.test.js）。
+const layoutIndex = layout => {
+  const byName = new Map();
+  const visit = entry => { byName.set(entry.name, entry); for (const child of entry.children) visit(child); };
+  for (const root of layout.forest) visit(root);
+  return byName;
+};
+
+const emphasisGraph = () => ({
+  current_branch: 'main',
+  nodes: [
+    // 当前检出：自己没任务，下面挂着四种关系的子分支。
+    branch('main', { current: true, status: 'active', tasks: { total: 2, active: 1, failed: 0, completed: 1 } }),
+    // 已合进父分支、任务都结束：不强调，默认收起。
+    branch('lush/x/done', { status: 'ready' }), task(1, 'lush/x/done', { merged: true }),
+    // 没合进父分支：强调 + 默认展开。
+    branch('lush/x/ahead', { status: 'ready' }), task(2, 'lush/x/ahead', { merged: false }),
+    branch('lush/x/diverged', { status: 'ready' }), task(3, 'lush/x/diverged', { merged: false }),
+    // 在跑（汇总 active + running 任务）：强调 + 默认展开。
+    branch('lush/x/busy', { status: 'active', tasks: { total: 1, active: 1, failed: 0, completed: 0 } }),
+    task(4, 'lush/x/busy', { status: 'running', merged: false }),
+    // 另一棵根：自己既没未合并也没在跑，但后代没合进父分支——也要默认展开。
+    branch('feature'), branch('feature/legacy'), task(5, 'feature/legacy', { merged: false }),
+  ],
+  edges: [
+    forkEdge('main', 'lush/x/done', 'integrated'),
+    forkEdge('main', 'lush/x/ahead', 'fast_forward', { ahead: 1 }),
+    forkEdge('main', 'lush/x/diverged', 'diverged', { ahead: 1, behind: 2 }),
+    forkEdge('main', 'lush/x/busy', 'integrated'),
+    forkEdge('feature', 'feature/legacy', 'diverged', { ahead: 1, behind: 1 }),
+  ],
+});
+
+test('强调判断：没合进父分支 / 正在工作的分支强调，根分支与已合进的不强调', () => {
+  const byName = layoutIndex(graphLayout(emphasisGraph()));
+  // 没合进父分支（fast_forward / diverged）强调；integrated 与根分支不强调。
+  expect([byName.get('lush/x/done').unmerged, byName.get('lush/x/done').working]).toEqual([false, false]);
+  expect([byName.get('lush/x/ahead').unmerged, byName.get('lush/x/ahead').working]).toEqual([true, false]);
+  expect([byName.get('lush/x/diverged').unmerged, byName.get('lush/x/diverged').working]).toEqual([true, false]);
+  // 已合进父分支但在跑：只有工作态强调。
+  expect([byName.get('lush/x/busy').unmerged, byName.get('lush/x/busy').working]).toEqual([false, true]);
+  // 根分支没有父分支可合，永远不算「没合进父分支」；但有在跑的后代就是「工作中」。
+  expect([byName.get('main').unmerged, byName.get('main').working]).toEqual([false, true]);
+  expect([byName.get('feature').unmerged, byName.get('feature').working]).toEqual([false, false]);
+  expect(byName.get('feature/legacy').unmerged).toBe(true);
+
+  // 强调 class：可同时命中，顺序固定。
+  expect(emphasisClasses(byName.get('lush/x/done'))).toEqual([]);
+  expect(emphasisClasses(byName.get('lush/x/ahead'))).toEqual(['graph-emphasis-unmerged']);
+  expect(emphasisClasses(byName.get('lush/x/busy'))).toEqual(['graph-emphasis-working']);
+  expect(emphasisClasses(byName.get('main'))).toEqual(['graph-emphasis-working']);
+  // 同时命中：没合进父分支 + 自己就有在跑的任务。
+  expect(emphasisClasses({ unmerged: true, working: true })).toEqual(['graph-emphasis-unmerged', 'graph-emphasis-working']);
+});
+
+test('默认折叠：自己或后代命中强调就默认展开，其余默认收起；用户显式切换优先', () => {
+  const byName = layoutIndex(graphLayout(emphasisGraph()));
+  const collapsed = (name, expanded = new Set(), explicit = new Set()) =>
+    isBranchCollapsed(byName.get(name), expanded, explicit);
+  // 已合进父分支、任务都结束：默认收起。
+  expect(collapsed('lush/x/done')).toBe(true);
+  // 没合进父分支 / 在跑：默认展开。
+  expect(collapsed('lush/x/ahead')).toBe(false);
+  expect(collapsed('lush/x/busy')).toBe(false);
+  // 自己不强调，但后代没合进父分支：也不许收起（否则会把未合并的子树一起藏掉）。
+  expect(collapsed('feature')).toBe(false);
+  expect(byName.get('feature').defaultExpanded).toBe(true);
+  expect(byName.get('lush/x/done').defaultExpanded).toBe(false);
+  // 显式展开一个默认收起的分支：重画后仍然展开。
+  expect(collapsed('lush/x/done', new Set(['lush/x/done']))).toBe(false);
+  // 显式收起一个默认展开的分支：重画后仍然收起。
+  expect(collapsed('lush/x/ahead', new Set(), new Set(['lush/x/ahead']))).toBe(true);
+  // 两个集合同时有时，显式展开优先（最近一次操作会同时维护两个集合）。
+  expect(collapsed('lush/x/ahead', new Set(['lush/x/ahead']), new Set(['lush/x/ahead']))).toBe(false);
+});
+
+test('工作态判定只认 running / queued / waiting / awaiting', () => {
+  for (const status of ['running', 'queued', 'waiting', 'awaiting']) expect(isWorkingTask({ status })).toBe(true);
+  for (const status of ['completed', 'failed', 'cancelled', undefined]) expect(isWorkingTask({ status })).toBe(false);
+});
+
+// 强调与默认折叠都从这几个字段派生：它们一变就必须重画，否则 1.5s 轮询会把旧强调留在页面上。
+test('graphRenderKey 覆盖 incoming status / 分支汇总 status / 任务 status', () => {
+  const build = ({ edgeStatus = 'integrated', branchStatus = 'ready', taskStatus = 'completed' } = {}) => ({
+    nodes: [
+      branch('main', { current: true }),
+      branch('lush/x/a', { status: branchStatus }),
+      task(1, 'lush/x/a', { status: taskStatus }),
+    ],
+    edges: [forkEdge('main', 'lush/x/a', edgeStatus)],
+  });
+  const key = graphRenderKey(build());
+  // 同一份数据指纹相同：重画幂等。
+  expect(graphRenderKey(build())).toBe(key);
+  // fork 边从 integrated 变成 fast_forward：未合并强调与默认展开都要跟着变。
+  expect(graphRenderKey(build({ edgeStatus: 'fast_forward' }))).not.toBe(key);
+  // 分支汇总从 ready 变成 active：工作态强调要跟着变。
+  expect(graphRenderKey(build({ branchStatus: 'active' }))).not.toBe(key);
+  // 任务从 completed 变成 running：任务行与所在分支的工作态强调都要跟着变。
+  expect(graphRenderKey(build({ taskStatus: 'running' }))).not.toBe(key);
 });

@@ -21,11 +21,11 @@ export function aheadBehindText(node) {
   return parts.join(' · ');
 }
 
-/** 节点徽标：合并状态、缺失的 worktree / 分支、是否当前检出。缺失必须显式标出来，不能假装存在。 */
+/** 节点徽标：缺失的 worktree / 分支、是否当前检出。缺失必须显式标出来，不能假装存在。
+ *  合并状态只标「未合并」：已合进目标分支是常态，不再单独占一个标签（分支图靠「未合进父分支」的强调表示异常）。 */
 export function nodeMarks(node) {
   const marks = [];
-  if (node?.merged === true) marks.push({ text: '已合并', className: 'ok' });
-  else if (node?.merged === false) marks.push({ text: '未合并', className: '' });
+  if (node?.merged === false) marks.push({ text: '未合并', className: '' });
   if (node?.workspace_state === 'missing') marks.push({ text: '⚠ 缺失 worktree', className: 'warn' });
   // 归档分支的 ref 已经删掉，但这是预期状态：报「已归档」而不是「缺失分支」。
   if (node?.archived === true) marks.push({ text: '已归档', className: '' });
@@ -57,6 +57,32 @@ const byCurrentThenNewest = (a, b) =>
   Number(b?.current === true) - Number(a?.current === true)
   || byNewestFirst(a, b)
   || String(a?.name ?? '').localeCompare(String(b?.name ?? ''));
+
+/** 「正在工作中」的任务状态：还占着槽、等槽或等用户——这些是该被看见的活。 */
+export const WORKING_STATUSES = new Set(['running', 'queued', 'waiting', 'awaiting']);
+export const isWorkingTask = node => WORKING_STATUSES.has(node?.status);
+
+/** 没有合进父分支：有 incoming fork 边、关系又不是 integrated（fast_forward / diverged / missing / unknown）。
+ *  根分支（没有来边）不算——它没有父分支可合。 */
+export const isUnmergedBranch = entry => Boolean(entry?.incoming) && entry.incoming.status !== 'integrated';
+
+/** 分支节点的强调 class（顺序固定，便于断言）：未合进父分支 / 正在工作中，两个可以同时命中。 */
+export function emphasisClasses(entry) {
+  const classes = [];
+  if (entry?.unmerged) classes.push('graph-emphasis-unmerged');
+  if (entry?.working) classes.push('graph-emphasis-working');
+  return classes;
+}
+
+const NO_NAMES = new Set();
+
+/** 这条分支当前是否收起：用户的显式切换优先于默认值。
+ *  显式展开 > 显式收起 > 默认值（自己或后代未合进父分支 / 在跑的分支默认展开）。 */
+export function isBranchCollapsed(entry, expanded = NO_NAMES, collapsed = NO_NAMES) {
+  if (expanded.has(entry?.name)) return false;
+  if (collapsed.has(entry?.name)) return true;
+  return entry?.defaultExpanded !== true;
+}
 
 /**
  * 一条 fork 边对用户意味着什么：把「状态 + ahead/behind」压成一种父子关系。颜色与文案都从这一个 key 出，
@@ -90,6 +116,8 @@ const nameOfBranchId = id => (typeof id === 'string' && id.startsWith('branch:')
  * @param {object} graph `graph.get` 的返回（{ nodes, edges, current_branch, ... }）
  * @returns {{forest:Array, unplaced:Array, current_branch:string|null, git:boolean, truncated:boolean, error:string|null}}
  *   `forest` 是分支根节点数组，每个节点 `{ name, id, head_commit, current, tracked, placeholder, incoming, depth, children, tasks }`；
+ *   另带 `unmerged`（没合进父分支）、`working`（自己或后代还有在跑的任务）、`defaultExpanded`
+ *   （自己或后代命中前两者——默认展开，不允许把未合并 / 在跑的子树藏在收起的父分支里）；
  *   `tasks` 里的任务节点带 `level` / `upstreams` / `aheadBehind` / `marks`，直接供渲染使用；
  *   `subtreeBranches` / `subtreeTasks` 是收起这棵子树会藏起来的数量（后代分支数、自己的 + 后代的任务数）；
  *   `unplaced` 是连目标分支节点都没有的任务，按目标分支名分组。
@@ -194,11 +222,20 @@ export function graphLayout(graph = {}) {
     entry.tasks = decorate(entry.tasks);
     // 收起一棵子树时要说清楚藏了什么：分支数只数后代，任务数包含自己的任务（它们一起被收起）。
     let branches = 0, tasks = entry.tasks.length;
+    entry.unmerged = isUnmergedBranch(entry);
+    let activeTasks = entry.tasks.some(isWorkingTask);
+    let descendantEmphasis = false;
     for (const child of entry.children) {
       walk(child);
       branches += 1 + child.subtreeBranches;
       tasks += child.subtreeTasks;
+      activeTasks = activeTasks || child.working;
+      if (child.defaultExpanded) descendantEmphasis = true;
     }
+    // 分支汇总 status 的 active 就是「这条子树还有 running/queued/waiting/awaiting 的任务」；
+    // 汇总字段缺省时退回自己看子树里的任务状态，不把在跑的活藏起来。
+    entry.working = entry.status === 'active' || activeTasks;
+    entry.defaultExpanded = entry.unmerged || entry.working || descendantEmphasis;
     entry.subtreeBranches = branches; entry.subtreeTasks = tasks;
   };
   for (const root of forest) walk(root);
@@ -214,8 +251,11 @@ export function graphLayout(graph = {}) {
   };
 }
 
-/** 分支图折叠状态的持久化 key：存的是分支名数组——用户看得见的那串名字，比内部 id 稳定也好排查。 */
+/** 分支图折叠状态的持久化 key：存的是分支名数组——用户看得见的那串名字，比内部 id 稳定也好排查。
+ *  两个 key 分工明确：`lush.graphCollapsed` 是用户显式收起的分支（旧的同名 key 继续生效），
+ *  `lush.graphExpanded` 是用户显式展开的分支。都不写的分支按 `defaultExpanded` 算。 */
 export const GRAPH_COLLAPSED_KEY = 'lush.graphCollapsed';
+export const GRAPH_EXPANDED_KEY = 'lush.graphExpanded';
 
 /** localStorage 里的折叠列表 → Set；只保留非空字符串，坏数据当空（宁可全展开，也不静默藏东西）。 */
 export function parseGraphCollapsed(raw) {

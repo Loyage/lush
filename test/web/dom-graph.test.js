@@ -244,6 +244,90 @@ test('分支图：关系色按领先 / 相等 / 落后 / 分歧 / 缺失分，�
   }
 });
 
+test('分支图：未合进父分支 / 在跑的分支默认展开且带强调，已合进父分支的默认收起，页面不出现「已合并」', async () => {
+  const saved = world.state.graph;
+  const graph = {
+    generated_at: iso(NOW), current_branch: 'main', truncated: false, git: true, error: null,
+    nodes: [
+      { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'aaa', current: true, tracked: false, placeholder: false,
+        status: 'active', tasks: { total: 2, active: 1, failed: 0, completed: 1 }, created_at: iso(NOW - 5000) },
+      // 已合进父分支、任务都结束：不强调，默认收起。
+      { kind: 'branch', id: 'branch:lush/demo/done', name: 'lush/demo/done', head_commit: 'bbb', current: false, tracked: true, placeholder: false,
+        status: 'merged', tasks: { total: 1, active: 0, failed: 0, completed: 1 }, created_at: iso(NOW - 4000) },
+      // 没合进父分支：强调 + 默认展开。
+      { kind: 'branch', id: 'branch:lush/demo/ahead', name: 'lush/demo/ahead', head_commit: 'ccc', current: false, tracked: true, placeholder: false,
+        status: 'ready', tasks: { total: 1, active: 0, failed: 0, completed: 1 }, created_at: iso(NOW - 3000) },
+      // 已合进父分支但还有在跑的任务：工作态强调 + 默认展开。
+      { kind: 'branch', id: 'branch:lush/demo/busy', name: 'lush/demo/busy', head_commit: 'ddd', current: false, tracked: true, placeholder: false,
+        status: 'active', tasks: { total: 1, active: 1, failed: 0, completed: 0 }, created_at: iso(NOW - 2000) },
+      { kind: 'task', id: 1, role: 'worker', name: 'one', goal: '已经合完的活', status: 'completed', integration: 'merged',
+        branch: 'lush/demo/done', workspace: '/tmp/wt/1', workspace_state: 'present', branch_state: 'present',
+        target_branch: 'main', ahead: 0, behind: 0, merged: true, current: false },
+      { kind: 'task', id: 2, role: 'worker', name: 'two', goal: '还没合进去的活', status: 'completed', integration: 'pending',
+        branch: 'lush/demo/ahead', workspace: '/tmp/wt/2', workspace_state: 'present', branch_state: 'present',
+        target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
+      { kind: 'task', id: 3, role: 'worker', name: 'three', goal: '在跑的活', status: 'running', integration: 'none',
+        branch: 'lush/demo/busy', workspace: '/tmp/wt/3', workspace_state: 'present', branch_state: 'present',
+        target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
+    ],
+    edges: [
+      { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/done', status: 'integrated', ahead: 0, behind: 0, blockers: [], can_merge: false, can_sync: false },
+      { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/ahead', status: 'fast_forward', ahead: 1, behind: 0, blockers: [], can_merge: true, can_sync: false },
+      { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/busy', status: 'integrated', ahead: 0, behind: 0, blockers: [], can_merge: false, can_sync: false },
+    ],
+  };
+  world.state.graph = graph;
+  const ui = (await import('../../src/ui/web/assets/state.js')).ui;
+  try {
+    await openGraph();
+    const detail = dom.node('detail');
+    const header = name => detail.querySelectorAll('span.graph-branch-name').find(node => node.textContent.includes(name));
+    const blockOf = name => header(name).parentNode.parentNode;
+    const rowOf = name => header(name).parentNode;
+    const caretOf = name => rowOf(name).querySelector('button.graph-caret');
+
+    // ① 不再有「已合并」：任务上的 merged:true 与分支的汇总 merged 都不再出这四个字；未合并标记保留。
+    const text = deepText(detail);
+    expect(text).not.toContain('已合并');
+    expect(text).toContain('未合并');
+    // 已合进父分支、任务都结束：默认收起，箭头朝右。
+    expect(blockOf('lush/demo/done').classList.contains('collapsed')).toBe(true);
+    expect(caretOf('lush/demo/done').textContent).toBe('▶');
+    expect(caretOf('lush/demo/done').getAttribute('aria-expanded')).toBe('false');
+    // 没合进父分支 / 在跑的：默认展开。
+    expect(blockOf('lush/demo/ahead').classList.contains('collapsed')).toBe(false);
+    expect(blockOf('lush/demo/busy').classList.contains('collapsed')).toBe(false);
+    expect(caretOf('lush/demo/ahead').textContent).toBe('▼');
+    // 父分支因为子树里有未合并 / 在跑的分支，默认也不收起（不把子树藏掉）。
+    expect(blockOf('main').classList.contains('collapsed')).toBe(false);
+
+    // ② 强调 class：未合进父分支为 graph-emphasis-unmerged，在跑的为 graph-emphasis-working。
+    expect(rowOf('lush/demo/done').classList.contains('graph-emphasis-unmerged')).toBe(false);
+    expect(rowOf('lush/demo/done').classList.contains('graph-emphasis-working')).toBe(false);
+    expect(rowOf('lush/demo/ahead').classList.contains('graph-emphasis-unmerged')).toBe(true);
+    expect(rowOf('lush/demo/ahead').classList.contains('graph-emphasis-working')).toBe(false);
+    expect(rowOf('lush/demo/busy').classList.contains('graph-emphasis-working')).toBe(true);
+    expect(rowOf('lush/demo/busy').classList.contains('graph-emphasis-unmerged')).toBe(false);
+    // ③ 在跑的任务行也带同一个工作态 class；已结束的任务行不带。
+    const taskRow = goal => detail.querySelectorAll('div.graph-node').find(row => deepText(row).includes(goal));
+    expect(taskRow('在跑的活').classList.contains('graph-emphasis-working')).toBe(true);
+    expect(taskRow('已经合完的活').classList.contains('graph-emphasis-working')).toBe(false);
+
+    // ④ 点箭头可以展开一个默认收起的分支，并把「显式展开」持久化；重画后仍然展开。
+    caretOf('lush/demo/done').onclick();
+    expect(blockOf('lush/demo/done').classList.contains('collapsed')).toBe(false);
+    expect(JSON.parse(localStorage.getItem('lush.graphExpanded'))).toEqual(['lush/demo/done']);
+    await openGraph();
+    expect(blockOf('lush/demo/done').classList.contains('collapsed')).toBe(false);
+  } finally {
+    world.state.graph = saved;
+    localStorage.removeItem('lush.graphCollapsed');
+    localStorage.removeItem('lush.graphExpanded');
+    ui.graphCollapsed.clear(); ui.graphExpanded.clear();
+    await openGraph();
+  }
+});
+
 test('分支图：分支子树可折叠，状态写进 localStorage，重画后仍收起', async () => {
   await openGraph();
   const detail = dom.node('detail');
@@ -251,7 +335,7 @@ test('分支图：分支子树可折叠，状态写进 localStorage，重画后�
   const caretOf = name => header(name).parentNode.querySelector('button.graph-caret');
   const blockOf = name => header(name).parentNode.parentNode;
 
-  // 默认全展开：箭头朝下、aria-expanded=true，不静默藏东西。
+  // 默认按「未合进父分支 / 在跑」展开：1-one 是 fast_forward 且自己就有在跑的任务，所以默认展开。
   expect(caretOf('lush/demo/1-one').textContent).toBe('▼');
   expect(caretOf('lush/demo/1-one').getAttribute('aria-expanded')).toBe('true');
   expect(blockOf('lush/demo/1-one').classList.contains('collapsed')).toBe(false);
@@ -265,6 +349,7 @@ test('分支图：分支子树可折叠，状态写进 localStorage，重画后�
   expect(caretOf('lush/demo/1-one').getAttribute('aria-expanded')).toBe('false');
   expect(deepText(blockOf('lush/demo/1-one'))).toContain('已收起 1 分支 / 2 任务');
   expect(JSON.parse(localStorage.getItem('lush.graphCollapsed'))).toEqual(['lush/demo/1-one']);
+  expect(JSON.parse(localStorage.getItem('lush.graphExpanded'))).toEqual([]);
 
   // 重画（轮询拿到新数据 / 手动刷新）不会把收起状态丢掉：新节点上仍然是收起的。
   await openGraph();
@@ -273,9 +358,15 @@ test('分支图：分支子树可折叠，状态写进 localStorage，重画后�
   // 收起只藏子孙（靠 .collapsed 的 CSS），谱系本身不动：父分支照旧包着它。
   expect(deepText(blockOf('main'))).toContain('lush/demo/1-one');
 
-  // 再点一次展开，并把偏好清干净（后面的测试不该继承这次折叠）。
+  // 再点一次展开：显式展开与显式收起分两个 key 记（展开进 graphExpanded、graphCollapsed 清空）。
   caretOf('lush/demo/1-one').onclick();
   expect(blockOf('lush/demo/1-one').classList.contains('collapsed')).toBe(false);
   expect(caretOf('lush/demo/1-one').getAttribute('aria-expanded')).toBe('true');
   expect(JSON.parse(localStorage.getItem('lush.graphCollapsed'))).toEqual([]);
+  expect(JSON.parse(localStorage.getItem('lush.graphExpanded'))).toEqual(['lush/demo/1-one']);
+  // 清掉两个 key，后面的测试不该继承这次切换。
+  localStorage.removeItem('lush.graphCollapsed');
+  localStorage.removeItem('lush.graphExpanded');
+  const ui = (await import('../../src/ui/web/assets/state.js')).ui;
+  ui.graphCollapsed.clear(); ui.graphExpanded.clear();
 });

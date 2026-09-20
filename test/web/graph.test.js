@@ -104,3 +104,14 @@ test('nodeMarks reports an archived task instead of a missing branch', () => {
   expect(nodeMarks({ branch: 'lush/x/1-one', branch_state: 'missing' }))
     .toEqual([{ text: '⚠ 缺失分支', className: 'warn' }]);
 });
+
+// 「已合并」是常态，分支图里不再有它的标签；只有「未合并」还留着。
+test('nodeMarks 不再输出「已合并」，未合并标记保留', () => {
+  expect(nodeMarks({ merged: true, branch: 'lush/x/1-one' })).toEqual([]);
+  expect(nodeMarks({ merged: true, current: true, branch: 'lush/x/1-one' }))
+    .toEqual([{ text: '当前检出', className: '' }]);
+  expect(nodeMarks({ merged: false, branch: 'lush/x/1-one' })).toEqual([{ text: '未合并', className: '' }]);
+  // 整张图的标记文本集合里不再有这四个字。
+  const all = [{ merged: true }, { merged: false }, { archived: true }].flatMap(node => nodeMarks(node));
+  expect(all.some(mark => mark.text.includes('已合并'))).toBe(false);
+});

@@ -11,15 +11,14 @@
 import { $, button, el } from './dom.js';
 import { api, action } from './api.js';
 import { ROLE, statusOf } from './format.js';
-import { graphLayout, graphFingerprint, graphRenderKey, edgeRelation } from './graph-layout.js';
+import { graphLayout, graphFingerprint, graphRenderKey, edgeRelation, emphasisClasses, isBranchCollapsed, isWorkingTask } from './graph-layout.js';
 import { detail, overview } from './navigate.js';
-import { saveGraphCollapsedPref, ui } from './state.js';
+import { saveGraphPrefs, ui } from './state.js';
 
-/** 分支状态映射：状态 -> { label, className } */
+/** 分支状态映射：状态 -> { label, className }；已合进父分支是常态，不再单独出一个「已合并」标签。 */
 const BRANCH_STATUS = {
   active: { label: '进行中', className: 'ok' },
   failed: { label: '失败', className: 'warn' },
-  merged: { label: '已合并', className: 'ok' },
   ready: { label: '待合并', className: '' },
   empty: { label: '空', className: '' },
   archived: { label: '已归档', className: '' },
@@ -67,6 +66,8 @@ const LANE_CLASS = level => `graph-node l${Math.min(Number(level) || 0, 6)}`;
  *  只有当任务退到目标分支分组（自己那条分支没有节点）或兜底分组时，分支名才是独有信息，必须画出来。 */
 function taskRow(node, owningBranch = null) {
   const row = el('div', undefined, LANE_CLASS(node.level));
+  // 在跑 / 排队 / 等着的任务同样带上工作态强调，和它所在的分支一起被看见。
+  if (isWorkingTask(node)) row.classList.add('graph-emphasis-working');
   row.append(el('span', `#${node.id}`, 'tid'));
   row.append(button(node.goal || '(无目标)', () => detail(node.id), 'graph-node'));
   row.append(el('span', `${ROLE[node.role] || node.role} · ${statusOf(node).label}`, 'meta'));
@@ -149,20 +150,24 @@ function forkActions(branch, edge) {
 /**
  * 收起整棵子树（自己的任务 + 全部子分支）：只改这一个 block 的 class 与 aria，不重画整张图，
  * 所以滚动位置和键盘焦点都不会丢。约定与左侧区块抽屉一致：`.collapsed` 由 CSS 藏内容，箭头同步翻转。
+ * 初始值来自 isBranchCollapsed：用户的显式切换优先，否则未合进父分支 / 在跑的分支默认展开。
  */
 function collapseCaret(branch, onCollapsed) {
   const caret = el('button', undefined, 'graph-caret');
   caret.type = 'button';
+  const collapsedNow = () => isBranchCollapsed(branch, ui.graphExpanded, ui.graphCollapsed);
   const sync = collapsed => {
     caret.textContent = collapsed ? '▶' : '▼';
     caret.setAttribute('aria-expanded', String(!collapsed));
     caret.title = `${collapsed ? '展开' : '收起'} ${branch.name} 的任务与子分支`;
   };
-  sync(ui.graphCollapsed.has(branch.name));
+  sync(collapsedNow());
   caret.onclick = () => {
-    const collapsed = !ui.graphCollapsed.has(branch.name);
-    if (collapsed) ui.graphCollapsed.add(branch.name); else ui.graphCollapsed.delete(branch.name);
-    saveGraphCollapsedPref();
+    const collapsed = !collapsedNow();
+    // 收起与展开分别记：展开某个默认收起的分支后，重画不能又按默认值把它收回去。
+    if (collapsed) { ui.graphCollapsed.add(branch.name); ui.graphExpanded.delete(branch.name); }
+    else { ui.graphExpanded.add(branch.name); ui.graphCollapsed.delete(branch.name); }
+    saveGraphPrefs();
     onCollapsed(collapsed);
     sync(collapsed);
   };
@@ -171,6 +176,8 @@ function collapseCaret(branch, onCollapsed) {
 
 function branchRow(branch, onCollapsed) {
   const row = el('div', undefined, 'graph-branch');
+  // 未合进父分支 / 正在工作的分支带强调 class（样式见 styles.css）；两者可同时命中。
+  for (const name of emphasisClasses(branch)) row.classList.add(name);
   // 只有真的能藏东西的分支才给箭头：任务和子分支都是空的时候，收起没意义。
   const hideable = branch.subtreeBranches + branch.subtreeTasks > 0;
   if (hideable) row.append(collapseCaret(branch, onCollapsed));
@@ -246,7 +253,7 @@ function branchBlock(branch) {
   // 分支面板的底色与左边条、挂到它的那段连接线与拐角都跟着走。根分支没有来边，保持默认强调色。
   const relation = edgeRelation(branch.incoming);
   if (relation) block.dataset.relation = relation.key;
-  if (ui.graphCollapsed.has(branch.name)) block.classList.add('collapsed');
+  if (isBranchCollapsed(branch, ui.graphExpanded, ui.graphCollapsed)) block.classList.add('collapsed');
   block.append(branchRow(branch, collapsed => block.classList.toggle('collapsed', collapsed)));
   // 空任务车道不画：否则表头下面会拖出一段没有去处的竖线。子分支车道的连接段自己补上这段空隙。
   if (branch.tasks.length) {

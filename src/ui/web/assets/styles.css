@@ -181,6 +181,13 @@ button.step-head{display:flex;align-items:center;gap:7px;font-size:11px;color:va
 .graph-children > .graph-group::after{content:'';position:absolute;left:-36px;top:22px;width:36px;height:12px;border-left:2px solid var(--rel-ink,var(--line));border-bottom:2px solid var(--rel-ink,var(--line));border-bottom-left-radius:8px}.graph-node{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:14px 0;min-width:0;border-bottom:1px solid var(--line-soft)}.graph-node.l1{margin-left:16px}.graph-node.l2{margin-left:32px}.graph-node.l3{margin-left:48px}.graph-node.l4{margin-left:64px}.graph-node.l5{margin-left:80px}.graph-node.l6{margin-left:96px}button.graph-node{background:none;border:0;padding:0;color:var(--accent);font:inherit;font-size:13px;font-weight:600;text-align:left;overflow-wrap:anywhere;max-width:100%}button.graph-node:hover{text-decoration:underline;box-shadow:none}.graph-meta{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px}.graph-meta .meta{margin:0}.graph-path{color:var(--dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}.graph-branch{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 14px;background:var(--rel-tint,var(--panel));border-radius:8px;border-left:3px solid var(--rel-ink,var(--accent))}.graph-branch-name{color:var(--rel-ink,var(--accent));overflow-wrap:anywhere}
 /* 关系 chip 与面板同色；禁用的动作按钮也要在（title 里写清为什么），所以只压暗不隐藏。 */
 .graph-relation{color:var(--rel-ink,var(--muted));border-color:var(--rel-ink,var(--line))}
+/* 强调：未合进父分支（琥珀）与正在工作中（蓝）。两条可同时命中，用不同的视觉通道——
+   左条与底色说「没合进去」，外环说「还在跑」，所以同时命中也不互相盖掉。 */
+.graph-branch.graph-emphasis-unmerged{border-left-color:var(--awaiting);background:color-mix(in srgb,var(--amber-soft) 75%,var(--panel))}
+.graph-branch.graph-emphasis-working{box-shadow:0 0 0 2px color-mix(in srgb,var(--running) 30%,transparent)}
+.graph-branch.graph-emphasis-unmerged.graph-emphasis-working{box-shadow:0 0 0 2px color-mix(in srgb,var(--awaiting) 30%,transparent)}
+/* 在跑的任务行也用同色左边条 + 底色标出来，与所在分支的工作态呼应；用 inset 阴影画条，不挤动文字对齐。 */
+.graph-node.graph-emphasis-working{box-shadow:inset 3px 0 0 var(--running);background:color-mix(in srgb,var(--blue-soft) 40%,transparent)}
 .graph-branch-action:disabled{opacity:.55;cursor:not-allowed}.graph-branch button.graph-branch-action{font-size:10px;margin-left:auto}
 /* 收起一棵子树：箭头翻转，任务与子分支车道整块藏起来，表头里留下「已收起 N 分支 / M 任务」。 */
 .graph-caret{flex:none;width:18px;height:18px;padding:0;font-size:9px;line-height:1;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--muted)}
