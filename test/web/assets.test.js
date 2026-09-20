@@ -34,6 +34,11 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     expect(css).toContain('color-scheme:light');
     expect(css).toContain('@media(prefers-reduced-motion:reduce)');
     expect(css).toContain('@media(max-width:760px)');
+    // 分支图的工作态标识（在跑 / 在等 / 子树）与停下来分支的降噪 class 都在样式表里。
+    expect(css).toContain('.graph-work.run{');
+    expect(css).toContain('.graph-work.pending{');
+    expect(css).toContain('.graph-work.subtree{');
+    expect(css).toContain('.graph-branch.graph-idle{');
     const html = await (await fetch(f.url)).text();
     expect(html.indexOf('/appearance.js')).toBeLessThan(html.indexOf('/styles.css'));
     expect(html).toContain('id="theme-toggle"');

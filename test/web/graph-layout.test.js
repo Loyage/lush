@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { graphLayout, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingTask } from '../../src/ui/web/assets/graph-layout.js';
+import { graphLayout, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingTask, workingState } from '../../src/ui/web/assets/graph-layout.js';
 
 // graphLayout 的纯逻辑：同一层级的迭代方向必须统一为「新的在前」——
 // 兄弟分支按 created_at 从新到旧（未知时间排在已知时间之后），同一分支下同 level 的任务按 id 降序；
@@ -178,6 +178,66 @@ test('工作态判定只认 running / queued / waiting / awaiting', () => {
   for (const status of ['completed', 'failed', 'cancelled', undefined]) expect(isWorkingTask({ status })).toBe(false);
 });
 
+// workingState 只回答「这条分支怎么显示工作态」，不改 working / defaultExpanded / emphasisClasses 的语义。
+const workGraph = () => ({
+  current_branch: 'main',
+  nodes: [
+    branch('main', { current: true, status: 'active' }),
+    // 自己就在跑：最直接的「现在真的在动」。
+    branch('lush/x/run', { status: 'active' }),
+    task(1, 'lush/x/run', { status: 'running' }), task(2, 'lush/x/run', { status: 'running' }),
+    // 自己在等（awaiting + queued）：标签取优先级最高的「等你决定」。
+    branch('lush/x/pending', { status: 'active' }),
+    task(3, 'lush/x/pending', { status: 'awaiting' }), task(4, 'lush/x/pending', { status: 'queued' }),
+    // 自己的任务都结束了，只有子树里的后代在跑。
+    branch('lush/x/parent', { status: 'ready' }),
+    task(5, 'lush/x/parent', { status: 'completed' }),
+    branch('lush/x/parent/sub', { status: 'active' }),
+    task(6, 'lush/x/parent/sub', { status: 'running' }),
+    // 真正停下来的分支：自己与后代都没有工作态任务。
+    branch('lush/x/idle', { status: 'merged' }),
+    task(7, 'lush/x/idle', { status: 'completed' }),
+  ],
+  edges: [
+    forkEdge('main', 'lush/x/run', 'integrated', { ahead: 0 }),
+    forkEdge('main', 'lush/x/pending', 'integrated', { ahead: 0 }),
+    forkEdge('main', 'lush/x/parent', 'integrated', { ahead: 0 }),
+    forkEdge('lush/x/parent', 'lush/x/parent/sub', 'integrated', { ahead: 0 }),
+    forkEdge('main', 'lush/x/idle', 'integrated', { ahead: 0 }),
+  ],
+});
+
+test('workingState：自己 running / 自己在等 / 只有子树在跑 / 停下来了', () => {
+  const byName = layoutIndex(graphLayout(workGraph()));
+  // ① 本分支自己的任务里有 running：label「工作中」，count 是 running 任务数。
+  expect(workingState(byName.get('lush/x/run'))).toEqual({ key: 'running', label: '工作中', count: 2 });
+  // ② 自己没有 running 但在等：label 取优先级最高者，count 是自己的工作态任务数。
+  expect(workingState(byName.get('lush/x/pending'))).toEqual({ key: 'pending', label: '等你决定', count: 2 });
+  // ③ 自己什么都没有、后代子树里有：count 是后代子树里的工作态任务数。
+  expect(workingState(byName.get('lush/x/parent'))).toEqual({ key: 'subtree', label: '子树工作中', count: 1 });
+  // ④ 都没有：null，说明这条分支停下来了。
+  expect(workingState(byName.get('lush/x/idle'))).toBeNull();
+  // 根分支自己没有任务，后代在跑：按子树口径显示。
+  expect(workingState(byName.get('main'))).toEqual({ key: 'subtree', label: '子树工作中', count: 5 });
+  // 原有语义不变：working 仍是「自己或后代有工作态任务」，强调 class 顺序不变。
+  expect(byName.get('lush/x/idle').working).toBe(false);
+  expect(emphasisClasses(byName.get('lush/x/idle'))).toEqual([]);
+  expect(byName.get('lush/x/run').working).toBe(true);
+  expect(emphasisClasses(byName.get('lush/x/run'))).toEqual(['graph-emphasis-working']);
+});
+
+test('workingState：running 优先于在等，在等内部按 等你决定 > 等子任务 > 排队中 取标签', () => {
+  const of = tasks => workingState({ tasks });
+  expect(of([{ status: 'awaiting' }, { status: 'running' }])).toEqual({ key: 'running', label: '工作中', count: 1 });
+  expect(of([{ status: 'awaiting' }, { status: 'waiting' }, { status: 'queued' }])).toEqual({ key: 'pending', label: '等你决定', count: 3 });
+  expect(of([{ status: 'waiting' }, { status: 'queued' }])).toEqual({ key: 'pending', label: '等子任务', count: 2 });
+  expect(of([{ status: 'queued' }])).toEqual({ key: 'pending', label: '排队中', count: 1 });
+  // 停下来的状态一个都不算工作态。
+  expect(of([{ status: 'completed' }, { status: 'failed' }, { status: 'cancelled' }])).toBeNull();
+  // 坏数据不炸：没有 tasks 字段的分支当作停下来。
+  expect(workingState({})).toBeNull();
+});
+
 // 强调与默认折叠都从这几个字段派生：它们一变就必须重画，否则 1.5s 轮询会把旧强调留在页面上。
 test('graphRenderKey 覆盖 incoming status / 分支汇总 status / 任务 status', () => {
   const build = ({ edgeStatus = 'integrated', branchStatus = 'ready', taskStatus = 'completed' } = {}) => ({
@@ -197,4 +257,6 @@ test('graphRenderKey 覆盖 incoming status / 分支汇总 status / 任务 statu
   expect(graphRenderKey(build({ branchStatus: 'active' }))).not.toBe(key);
   // 任务从 completed 变成 running：任务行与所在分支的工作态强调都要跟着变。
   expect(graphRenderKey(build({ taskStatus: 'running' }))).not.toBe(key);
+  // 任务在 awaiting 与 queued 之间切换：工作态文案（等你决定 / 排队中）也要跟着变，不能沿用上一张图。
+  expect(graphRenderKey(build({ taskStatus: 'awaiting' }))).not.toBe(graphRenderKey(build({ taskStatus: 'queued' })));
 });

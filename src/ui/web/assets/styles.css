@@ -188,6 +188,19 @@ button.step-head{display:flex;align-items:center;gap:7px;font-size:11px;color:va
 .graph-branch.graph-emphasis-unmerged.graph-emphasis-working{box-shadow:0 0 0 2px color-mix(in srgb,var(--awaiting) 30%,transparent)}
 /* 在跑的任务行也用同色左边条 + 底色标出来，与所在分支的工作态呼应；用 inset 阴影画条，不挤动文字对齐。 */
 .graph-node.graph-emphasis-working{box-shadow:inset 3px 0 0 var(--running);background:color-mix(in srgb,var(--blue-soft) 40%,transparent)}
+/* 工作态标识：在跑（蓝 chip + 脉冲点）与在等（琥珀 chip）各占一个色，子树里的活只留一行更弱的话。
+   ● 的脉冲复用 .task.s-running .dot 的 breathe；prefers-reduced-motion 下由全局规则关掉。 */
+.graph-work{font-weight:600;display:inline-flex;align-items:center;gap:4px}
+.graph-work.run{color:var(--running);border-color:color-mix(in srgb,var(--running) 40%,transparent);background:color-mix(in srgb,var(--blue-soft) 60%,transparent)}
+.graph-work.pending{color:var(--awaiting);border-color:color-mix(in srgb,var(--awaiting) 40%,transparent);background:color-mix(in srgb,var(--amber-soft) 60%,transparent)}
+.graph-work.subtree{font-weight:400;font-size:10px;color:var(--dim);border:1px dashed var(--line);border-radius:6px;padding:2px 8px}
+.graph-work-dot{font-size:10px;line-height:1;flex:none;color:var(--running);animation:breathe 2s ease-in-out infinite}
+/* 停下来的分支：没有工作态标识，也不再占工作态的强调通道；分支名与元信息降到次级色。降噪不等于藏事实——
+   未合并的琥珀边 / 底色、关系 chip 与状态 chip 的颜色都保留，所以强调 class 不会被 .graph-idle 盖掉。 */
+.graph-branch.graph-idle{box-shadow:none}
+.graph-branch.graph-idle .graph-branch-name{color:var(--muted)}
+.graph-branch.graph-idle .graph-branch-meta{color:var(--dim)}
+.graph-branch.graph-idle .graph-branch-title{color:var(--muted)}
 .graph-branch-action:disabled{opacity:.55;cursor:not-allowed}.graph-branch button.graph-branch-action{font-size:10px;margin-left:auto}
 /* 收起一棵子树：箭头翻转，任务与子分支车道整块藏起来，表头里留下「已收起 N 分支 / M 任务」。 */
 .graph-caret{flex:none;width:18px;height:18px;padding:0;font-size:9px;line-height:1;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--muted)}

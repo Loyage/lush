@@ -11,7 +11,7 @@
 import { $, button, el } from './dom.js';
 import { api, action } from './api.js';
 import { ROLE, statusOf } from './format.js';
-import { graphLayout, graphFingerprint, graphRenderKey, edgeRelation, emphasisClasses, isBranchCollapsed, isWorkingTask } from './graph-layout.js';
+import { graphLayout, graphFingerprint, graphRenderKey, edgeRelation, emphasisClasses, isBranchCollapsed, isWorkingTask, workingState } from './graph-layout.js';
 import { detail, overview } from './navigate.js';
 import { saveGraphPrefs, ui } from './state.js';
 
@@ -68,6 +68,8 @@ function taskRow(node, owningBranch = null) {
   const row = el('div', undefined, LANE_CLASS(node.level));
   // 在跑 / 排队 / 等着的任务同样带上工作态强调，和它所在的分支一起被看见。
   if (isWorkingTask(node)) row.classList.add('graph-emphasis-working');
+  // 在跑的任务行除了左边条再给一个脉冲点：旁边的「运行中」文案有了一眼可见的对应标记。
+  if (node.status === 'running') row.append(el('span', '●', 'graph-work-dot'));
   row.append(el('span', `#${node.id}`, 'tid'));
   row.append(button(node.goal || '(无目标)', () => detail(node.id), 'graph-node'));
   row.append(el('span', `${ROLE[node.role] || node.role} · ${statusOf(node).label}`, 'meta'));
@@ -178,6 +180,11 @@ function branchRow(branch, onCollapsed) {
   const row = el('div', undefined, 'graph-branch');
   // 未合进父分支 / 正在工作的分支带强调 class（样式见 styles.css）；两者可同时命中。
   for (const name of emphasisClasses(branch)) row.classList.add(name);
+  // 工作态标识只回答显示：running / pending 给 chip，subtree 给一行更弱的话，停下来的分支一个都不画。
+  const work = workingState(branch);
+  // 当前没有工作的分支整体降噪（.graph-idle）：分支名与元信息降到次级色，不再占工作态的强调通道。
+  // 只在 `working` 也为 false 时才加，保证强调 class（未合并 / 工作态）永远不会被降噪规则盖掉。
+  if (!work && !branch.working) row.classList.add('graph-idle');
   // 只有真的能藏东西的分支才给箭头：任务和子分支都是空的时候，收起没意义。
   const hideable = branch.subtreeBranches + branch.subtreeTasks > 0;
   if (hideable) row.append(collapseCaret(branch, onCollapsed));
@@ -196,6 +203,22 @@ function branchRow(branch, onCollapsed) {
     if (branch.subtreeBranches) parts.push(`${branch.subtreeBranches} 分支`);
     if (branch.subtreeTasks) parts.push(`${branch.subtreeTasks} 任务`);
     row.append(el('span', `已收起 ${parts.join(' / ')}`, 'meta graph-collapsed-hint'));
+  }
+
+  // 工作态标识放在分支名之后、关系 chip 之前：先看到「这条还在动」，再看它和父分支的关系。
+  // 收起的是任务与子分支，状态属于这条分支本身，所以表头上永远显示。
+  if (work) {
+    if (work.key === 'subtree') {
+      const node = el('span', undefined, 'graph-work subtree');
+      node.append(`${work.label} · ${work.count}`);
+      row.append(node);
+    } else {
+      const chip = el('span', undefined, `chip graph-work ${work.key === 'running' ? 'run' : work.key}`);
+      // ● 用 append 加在最前（浏览器与测试 stub 都支持 append，混入文本节点也一样）。
+      if (work.key === 'running') chip.append(el('span', '●', 'graph-work-dot'));
+      chip.append(work.label);
+      row.append(chip);
+    }
   }
 
   // 与父分支的关系（fork 边）：状态 chip 与 ahead/behind 共用 edgeRelation 的 key（颜色见

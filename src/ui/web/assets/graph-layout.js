@@ -74,6 +74,45 @@ export function emphasisClasses(entry) {
   return classes;
 }
 
+/** 「在等」三种子状态的优先级：等你决定 > 等子任务 > 排队中；标签只取其中最高的那个。 */
+const PENDING_LABELS = [
+  ['awaiting', '等你决定'],
+  ['waiting', '等子任务'],
+  ['queued', '排队中'],
+];
+
+/** 这条分支自己的任务里，还占着槽 / 等槽 / 等用户的任务；含后代的可数版本见 countWorkingTasks。 */
+const ownWorkingTasks = entry => (entry?.tasks || []).filter(isWorkingTask);
+
+/** 一棵子树（含自己）里有多少工作态任务；workingState 的 subtree 分支只数这条分支的显示口径。 */
+const countWorkingTasks = entry => {
+  let total = ownWorkingTasks(entry).length;
+  for (const child of entry?.children || []) total += countWorkingTasks(child);
+  return total;
+};
+
+/**
+ * 一条分支「怎么显示工作态」——只回答显示，不改 `working` / `defaultExpanded` / `emphasisClasses` 的语义
+ * （默认折叠与强调 class 都继续依赖那几个字段）。优先级固定：
+ * - `running`：本分支自己的任务里有在跑的——最直接的「现在真的在动」；
+ * - `pending`：自己没有在跑，但有等用户 / 等子任务 / 排队的任务——在等，同样不是停下来的分支；
+ * - `subtree`：自己什么都没有，后代子树里还有活；
+ * - `null`：这条分支停下来了（当前没有任何工作态任务），可以让 UI 整体降噪。
+ * `count` 一律是这些工作态任务的数量：running / pending 只数自己的，subtree 数后代子树的。
+ * @returns {{key:'running'|'pending'|'subtree', label:string, count:number}|null}
+ */
+export function workingState(entry) {
+  const own = ownWorkingTasks(entry);
+  const running = own.filter(node => node?.status === 'running').length;
+  if (running > 0) return { key: 'running', label: '工作中', count: running };
+  const pending = PENDING_LABELS.find(([status]) => own.some(node => node?.status === status));
+  if (pending) return { key: 'pending', label: pending[1], count: own.length };
+  let descendants = 0;
+  for (const child of entry?.children || []) descendants += countWorkingTasks(child);
+  if (descendants > 0) return { key: 'subtree', label: '子树工作中', count: descendants };
+  return null;
+}
+
 const NO_NAMES = new Set();
 
 /** 这条分支当前是否收起：用户的显式切换优先于默认值。
@@ -118,6 +157,8 @@ const nameOfBranchId = id => (typeof id === 'string' && id.startsWith('branch:')
  *   `forest` 是分支根节点数组，每个节点 `{ name, id, head_commit, current, tracked, placeholder, incoming, depth, children, tasks }`；
  *   另带 `unmerged`（没合进父分支）、`working`（自己或后代还有在跑的任务）、`defaultExpanded`
  *   （自己或后代命中前两者——默认展开，不允许把未合并 / 在跑的子树藏在收起的父分支里）；
+ *   工作态怎么显示由纯函数 `workingState(entry)` 现算（running / pending / subtree / null），
+ *   不改上面几个字段的意义；
  *   `tasks` 里的任务节点带 `level` / `upstreams` / `aheadBehind` / `marks`，直接供渲染使用；
  *   `subtreeBranches` / `subtreeTasks` 是收起这棵子树会藏起来的数量（后代分支数、自己的 + 后代的任务数）；
  *   `unplaced` 是连目标分支节点都没有的任务，按目标分支名分组。
