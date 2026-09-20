@@ -10,4 +10,6 @@
 <a id="notice"></a>- **Notice**：task 请求用户做决定；答复/忽略入收件箱。
 <a id="event"></a>- **Event**：创建、调用、状态转换、消息和 Git 生命周期审计。
 
+分支谱系（`branches` 表）不是第七个实体：它没有生命周期、不参与调度、不会被唤醒，只是分支创建时刻的一条**元数据记录**（`branch` / `parent` / `created_from_commit` / `task_id` / `worktree`）。它与 Task 通过 `task_id` 关联，但那个关联**故意没有外键**：`task clear` 清空 tasks 之后，谱系必须留下（见 [分支谱系](branch-genealogy.md)）。
+
 相关：[生命周期不变量](invariants.md)。

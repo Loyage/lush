@@ -4,6 +4,7 @@ import { handlers as inputHandlers } from './handlers/input.js';
 import { handlers as taskHandlers } from './handlers/task.js';
 import { handlers as specHandlers } from './handlers/spec.js';
 import { handlers as noticeHandlers } from './handlers/notice.js';
+import { handlers as branchHandlers } from './handlers/branch.js';
 
 /** 合并各 handler 表：重名说明两个分区认领了同一个方法，PARAMS 里没有对应 handler 说明拆漏了。 */
 function mergeHandlers(groups) {
@@ -16,7 +17,7 @@ function mergeHandlers(groups) {
   return table;
 }
 
-export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers]);
+export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers]);
 
 export class Dispatcher {
   constructor(project, stopping, identity) { this.project = project; this.stopping = stopping; this.identity = identity; }

@@ -24,6 +24,8 @@ export const methods = {
       return { branch, status: 'kept', reason: `${tip.slice(0, 12)} is not in ${task.target_branch} yet` };
     if (await this.checkedOut(branch)) return { branch, status: 'kept', reason: 'branch is checked out in a worktree' };
     await this.git(project, 'update-ref', '-d', `refs/heads/${branch}`, tip);
+    // 谱系行留着（只标 deleted）：子分支的 parent 指针必须继续有效，C 当初从 B 创建这条事实不因为 B 没了而消失。
+    this.store.markBranchDeleted(branch);
     return { branch, status: 'removed', reason: null };
   },
   /**

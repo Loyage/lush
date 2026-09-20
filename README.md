@@ -61,6 +61,8 @@ lush notice answer 1 '采用方案 A'
 lush task merge 3       # 审阅代码与验证报告后，明确批准这个分支
 lush task merge 3       # 如果冲突：主树回到合并前，并开一个解冲突任务 + 一条待决问题等你决定
 lush task cleanup 3     # 合并后安全回收 worktree 与任务分支（--keep-branch 留分支作恢复点）
+lush branch tree        # 分支谱系：谁从谁创建出来（不是 commit graph，也不是任务树）
+lush branch show lush/…/7-auth-ui   # 一条分支的 parent / fork commit / task / worktree 与祖先链
 lush daemon stop
 ```
 
@@ -143,6 +145,7 @@ planner 不直接派活：它把每条可独立完成的工作写成拆解队列
 
 - 每个 worker 的 worktree 位于 `.lush/worktrees/<id>-<name>/`，分支名为 `lush/<项目路径哈希>/<id>-<name>`（`<name>` 是派工时 planner 给的英文短名，如 `fix-login-composer`）。id 保证唯一，短名说清任务做什么；共享 Git 仓库的不同项目不会争用同名 task 分支。省略 `--name` 时 runtime 从 goal 首行的英文词回退，提不出可用名字（例如纯中文 goal）才回到 `task-<id>`；名字只在 spawn 时定一次，之后不变。
 - 每个 worker 从创建时项目的 **已提交 HEAD** 开始，除非它对另一个任务声明了 `code` 依赖：那时它的 worktree 从上游任务的**分支**拉出（stacked），于是能拿到上游尚未合并的改动。兄弟任务不会自动看到彼此的修改；无关的编辑应合在一个 worker 中。
+- **分支谱系**（`lush branch tree`）回答的只有一件事：这条 branch 是从哪条 branch 创建出来的。runtime 在 `git worktree add -b` 的那一刻把它写进 `branches` 表：`code` 依赖写**上游任务的分支**，解冲突任务写**目标分支**，其余写当时检出的分支，并记下 fork commit（parent 之后往前走也查得到当时的起点）。**不用 merge-base 事后推断，也不用 commit graph 代替它**；合并永远不改写谱系，分支被删除只把记录标成 `[deleted]`，子分支的 parent 指针照旧有效。引入这个功能前就存在的分支默认显示为 `[?]`，`lush branch import` 只登记它们存在与当前 worktree，**不猜** parent。
 - agent 最终输出作为 result。worker 必须提交改动、保持工作区干净；未提交就结束会失败，文件原样保留供检查和重试。
 - 完成与合并是两个状态：`completed + pending` 表示已产出提交，**尚未进入主工作树**。
 - 项目概览的**交付队列**与任务树分开：任务树回答谁在做什么；交付队列按 `target_branch` 分组，`code` 依赖显示成必须先落地的变更栈，`order` 只影响执行、不改变合并顺序。队列以原 worker 为稳定条目，解冲突 task 只是它的当前落地来源，不会出现原任务与 resolver 两个并列候选。每项明确显示阶段、是否就绪和阻塞原因；批量操作只允许一个目标分支，并在写主树前检查条目资格与集合外的 code 上游。
@@ -176,6 +179,9 @@ bun run retry 3             # 检查失败现场之后明确重试
 bun run merge 3
 bun run cleanup 3           # 回收 worktree 与分支（--keep-branch 只回收 worktree）
 bun run clear               # 一键清空已结束任务并回收可安全回收的 worktree/分支
+bun run branch tree         # 分支谱系（--verbose 带 task / worktree / fork / parent；见 docs/engineering/branch-genealogy.md）
+bun run branch show 3       # 按 branch 名或 task id 查一条分支的 parent 与祖先链
+bun run branch import       # 把旧项目里已有的本地分支登记成记录（只记存在，不推断 parent）
 bun run wait 3              # 只有当前客户端等待，不影响调度
 bun run web
 bun run web-restart         # 改完 src/ui/web/ 换掉端口上那个旧 Web 进程（它不会跟着代码换版本）
@@ -191,7 +197,7 @@ bun run stop
 
 ```text
 project.json       不可跨目录复用的项目绑定
-project.db         SQLite：inputs / tasks / messages / notices / events（task.clear 会清空这些表，并把 task id 高水位记在 meta）
+project.db         SQLite：inputs / tasks / messages / notices / events / branches（task.clear 会清空任务相关的表，并把 task id 高水位记在 meta；branches 是历史事实，不被清空）
 sessions/          每个 task 的独立 pi session 与当前输入文件（thinking / 工具调用的原文）
 worktrees/         worker 工作区，以及检验期间临时的目标分支对照检出
 verify/            每个 verifier 的自包含 HTML 检验报告

@@ -111,6 +111,69 @@ export function printLadder(ladder) {
     for (const dep of node.deps) console.log(`${indent(node.level + 1)}${dep.kind === 'code' ? '⛓ 必须先合' : '⏳ 仅执行依赖'} #${dep.id} ${dep.branch ?? ''}${dep.merged ? '（已合并）' : ''}`);
   }
 }
+/* ---------- 分支谱系：记录下来的创建关系，与 commit graph / 任务树都是不同维度 ---------- */
+const shortSha = commit => (commit ? String(commit).slice(0, 12) : null);
+function branchMarks(node) {
+  const marks = [];
+  if (node.tracked === false && node.present === true) marks.push('[?]');   // 有 Git ref，但没有 Lush 记录
+  if (node.present === false) marks.push('[deleted]');                      // Git ref 已不在（记录或父指针仍在）
+  if (node.current) marks.push('*');
+  return marks.length ? ` ${marks.join(' ')}` : '';
+}
+/** 每个节点在 --verbose 下单列出的细节：task / worktree / fork / parent。 */
+function branchDetails(node) {
+  const out = [];
+  if (node.task_id !== null) out.push(`task: ${node.task_role ? `${node.task_role}#${node.task_id}` : `#${node.task_id}`}${node.task_name ? ` ${node.task_name}` : ''}${node.task_goal ? ` · ${oneLine(node.task_goal, 60)}` : ''}`);
+  if (node.worktree) out.push(`worktree: ${node.worktree}${node.worktree_exists === false ? '（已不在磁盘上）' : ''}`);
+  if (node.created_from_commit) out.push(`fork: ${shortSha(node.created_from_commit)}`);
+  out.push(node.parent ? `parent: ${node.parent}（${node.parent_relation ?? 'recorded'}）` : 'parent: unknown');
+  if (node.tracked === false && node.present === true) out.push('记录: 无（lush branch import 只登记存在，不推断 parent）');
+  if (node.tracked === false && node.present === false) out.push('记录: 无 · Git ref 也不在（只被某个子分支的 parent 指针提到）');
+  if (node.created_at) out.push(`created: ${node.created_at}`);
+  return out;
+}
+export function printBranchTree(tree, { verbose = false } = {}) {
+  const nodes = [];
+  const collect = node => { nodes.push(node); for (const child of node.children) collect(child); };
+  (tree.roots || []).forEach(collect);
+  if (tree.error) console.error(`lush: ${tree.error}`);
+  if (!nodes.length) { console.log('（还没有任何分支记录；创建任务时会自动记录，或先跑 lush branch import）'); return; }
+  const tracked = nodes.filter(node => node.tracked).length;
+  const untracked = nodes.filter(node => node.tracked === false && node.present === true).length;
+  const gone = nodes.filter(node => node.present === false).length;
+  console.log(`分支谱系 · 当前 ${tree.current_branch ?? '（detached HEAD）'} · ${nodes.length} 个节点${tree.truncated ? '（已截断）' : ''}`);
+  console.log(`已记录 ${tracked} · 未记录 [?] ${untracked} · ref 已不在 [deleted] ${gone} · * = 当前分支`);
+  const walk = (node, prefix, isLast) => {
+    console.log(`${prefix}${isLast ? '└── ' : '├── '}${node.branch}${branchMarks(node)}`);
+    const inner = prefix + (isLast ? '    ' : '│   ');
+    if (verbose) for (const detail of branchDetails(node)) console.log(`${inner}${detail}`);
+    node.children.forEach((child, index) => walk(child, inner, index === node.children.length - 1));
+  };
+  tree.roots.forEach((root, index) => walk(root, '', index === tree.roots.length - 1));
+  if (tree.truncated) console.error('… 分支太多，只画出前面一部分；用 --json 拿完整数据');
+}
+function printChain(names) {
+  names.forEach((name, index) => console.log(`${'    '.repeat(index)}${index === 0 ? '' : '└── '}${name}`));
+}
+export function printBranchShow(node) {
+  console.log(`branch: ${node.branch}${branchMarks(node)}`);
+  console.log(`parent: ${node.parent ? `${node.parent}（${node.parent_relation ?? 'recorded'}）` : 'unknown'}`);
+  console.log(`fork commit: ${shortSha(node.created_from_commit) ?? '—'}${node.head_commit && node.head_commit !== node.created_from_commit ? ` · 现在 ${shortSha(node.head_commit)}` : ''}`);
+  console.log(`task: ${node.task_id === null ? '—' : `${node.task_role ? `${node.task_role}#${node.task_id}` : `#${node.task_id}（任务已被清理）`}${node.task_name ? ` ${node.task_name}` : ''}`}`);
+  console.log(`worktree: ${node.worktree ?? '—'}${node.worktree_exists === false ? '（已不在磁盘上）' : ''}`);
+  console.log(`status: ${node.tracked ? node.status ?? 'active' : node.present === false ? '只作为 parent 出现' : 'untracked'} · ${node.present === null ? 'git 不可用' : node.present ? 'ref 存在' : 'ref 已不在'}`);
+  console.log(`created: ${node.created_at ?? '—'}`);
+  console.log('\nancestors:');
+  printChain(node.chain);
+  if (node.children.length) { console.log('\nchildren:'); for (const [index, child] of node.children.entries()) console.log(`${index === node.children.length - 1 ? '└── ' : '├── '}${child}`); }
+  if (node.descendants.length > node.children.length) console.log(`\ndescendants: ${node.descendants.length}`);
+}
+export function printBranchImport(result) {
+  if (!result.imported) { console.log(`没有需要登记的分支：${result.local} 条本地分支都已有记录。`); return; }
+  console.log(`登记 ${result.imported} 条分支记录（只记存在与 worktree，不推断 parent）：`);
+  for (const branch of result.branches) console.log(`  ${branch}`);
+  console.log(`本地分支 ${result.local} 条，原有记录 ${result.recorded} 条。`);
+}
 export function printTimeline(page) {
   const start = Date.parse(page.start), end = Date.parse(page.end), span = Math.max(end - start, 1);
   const width = Math.max(24, Math.min((process.stdout.columns || 100) - 34, 96));

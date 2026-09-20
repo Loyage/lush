@@ -34,6 +34,9 @@
   先 SIGTERM、超时才 SIGKILL），`busyPortHint(port)` 在端口被别人占着时把命令行原样报出来。
   `bun run web-restart` 就是「停下旧的 + 前台起一个新的」；Web 进程不会跟着代码换版本，这是换版的正路。
 - 环境变量与 agent capability 语义（`LUSH_PROJECT` / `LUSH_HOME` / `LUSH_TASK_ID` / `LUSH_AGENT_TOKEN`）。
+- `src/core/genealogy.js`（分支谱系的纯逻辑：`buildForest` / `parentOf` / `childrenOf` / `ancestorsOf` /
+  `descendantsOf` / `rootOf` / `chainOf`）与 `types.js` / `naming.js` 一样是共享纯模块：不碰 git、不写盘、
+  不渲染，只被 `project/branches.js` 与 `test/branch-tree.test.js` 使用。
 
 ## 分区总览
 
@@ -72,6 +75,7 @@
 | `project/messages.js` | 收件箱、notice、答复 | `message`、`notice`、`answer` |
 | `project/merge.js` | 批准合并、按目标分支批量交付、冲突收口、随带提交对账与交付队列 | `approveMerge`、`approveMergeMany`、`reconcileIntegrated`、`openResolution`、`settleResolution`、`mergeConflictContext`、`ladder()`、`containsCommit` |
 | `project/graph.js` | 分支图只读读模型（任务 / 分支节点、code/order/resolve/verify/target 边、ahead/behind、merged、workspace/branch 缺失容错与上限截断） | `graph()` |
+| `project/branches.js` | 分支谱系读模型（store 记录 ∪ 只读 git 现状、`branch import` 的登记；概念见 [分支谱系](branch-genealogy.md)） | `BRANCH_NODE_LIMIT`、`branchNodes`、`branchTree`、`branchShow`、`branchImport` |
 | `project/verify.js` | 检验任务与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
 | `project/transcript.js` | pi 会话记录的只读投影 | `transcript(taskId, after, limit)`、`usage(taskId)` |
 | `project/scheduling.js` | 调度、invocation 生命周期、凭证 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
@@ -102,6 +106,7 @@
 | `store/verification.js` | 检验与解冲突的关联读模型 | `verifications`、`activeVerification`、`resolutions`、`activeResolver`、`unlandedResolver`、`conflictsOn` |
 | `store/drafts.js` | 输入缓存 | `addDraft`、`draft`、`updateDraft`、`openDrafts`、`draftCount` |
 | `store/timeline.js` | 时间轴原料 | `timelineTasks`、`lifecycleEvents`、`childSpans` |
+| `store/branches.js` | 分支谱系记录（写入即不可变、删除只标状态） | `PARENT_RELATIONS`、`branch`、`branches`、`recordBranch`、`markBranchDeleted` |
 
 ## 4. 前端：`src/ui/web/assets/`
 
@@ -170,13 +175,14 @@
 |---|---|---|
 | `cli/help.js` | 帮助文本 | `HELP` |
 | `cli/args.js` | 参数解析与两种输出 | `option`、`exact`、`print` |
-| `cli/print.js` | 树 / 阶梯 / 时间轴 / 合并 / 会话 / 用量的渲染 | `printTree`、`printLadder`、`printTimeline`、`printMergeMany`、`printTranscript`、`printUsage` |
+| `cli/print.js` | 树 / 阶梯 / 时间轴 / 合并 / 会话 / 用量 / 分支谱系的渲染 | `printTree`、`printLadder`、`printTimeline`、`printMergeMany`、`printTranscript`、`printUsage`、`printBranchTree`、`printBranchShow`、`printBranchImport` |
 | `cli/commands/intent.js` | `say` / `intent` / `input` | `run` |
 | `cli/commands/draft.js` | `draft` | `run` |
 | `cli/commands/task.js` | `task` | `run` |
 | `cli/commands/spec.js` | `spec` | `run` |
 | `cli/commands/plan.js` | `plan` | `run` |
 | `cli/commands/notice.js` | `notice` | `run` |
+| `cli/commands/branch.js` | `branch`（tree / show / import） | `run` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` / `web-restart` | `run` |
 | `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒 | `main(argv)`（并 re-export `HELP`） |
 
@@ -193,6 +199,7 @@
 | `rpc/handlers/task.js` | `task.*` | `handlers` |
 | `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |
 | `rpc/handlers/notice.js` | `notice.*` | `handlers` |
+| `rpc/handlers/branch.js` | `branch.*` | `handlers` |
 | `rpc/dispatcher.js` | 合并 handler 表（查重名、查漏），校验后分派 | `class Dispatcher` |
 
 ## 7. 测试：`test/`

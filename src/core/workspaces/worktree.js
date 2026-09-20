@@ -60,6 +60,16 @@ export const methods = {
       fs.mkdirSync(path.dirname(workspace), { recursive: true });
       // Save the intended identity before git; a crash never makes the directory invisible.
       this.store.update(task.id, { workspace, branch, base_commit: base, target_branch: target });
+      // 谱系就在分支创建这一刻显式写下：parent 是这次真正分叉出来的那条分支——
+      // code 依赖时是上游任务的分支（stacked），否则是当前检出（解冲突任务是目标分支）；
+      // created_from_commit 就是拉起 worktree 用的那个 commit，所以 parent 后来往前走也查得到当时的起点。
+      // 与上面一样先落库再动 git，且已有记录绝不改写：merge / 重建都不能重写创建时的血缘。
+      this.store.recordBranch({
+        branch,
+        parent: stacked ? stacked.branch : target,
+        created_from_commit: stacked ? stacked.head_commit : base,
+        task_id: task.id, worktree: workspace,
+      });
       // 从冻结的 head_commit 拉起，而不是从上游分支名：分支可能已经被回收，
       // 而下游要看的本来就是审阅过的那次提交。
       await this.git(project, 'worktree', 'add', ...(reuse ? [workspace, branch] : ['-b', branch, workspace, stacked ? stacked.head_commit : base]));

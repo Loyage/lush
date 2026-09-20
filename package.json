@@ -30,6 +30,7 @@
     "tree": "bun ./scripts/ops.js tree",
     "ladder": "bun ./scripts/ops.js ladder",
     "timeline": "bun ./scripts/ops.js timeline",
+    "branch": "bun ./scripts/ops.js branch",
     "inspect": "bun ./scripts/ops.js inspect",
     "transcript": "bun ./scripts/ops.js transcript",
     "usage": "bun ./scripts/ops.js usage",

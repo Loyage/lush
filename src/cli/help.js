@@ -43,6 +43,9 @@ lush [--project PATH] [--json] <command>
   task clear                      删除全部已结束任务及 inputs/drafts/notices/events；有活动任务时拒绝
                                   同时按 cleanup 的安全门回收 worktree/分支，回收不掉的保留在磁盘上并列出原因
                                   分支名带着旧 task id，所以 id 不复用
+  branch tree [--verbose]        分支谱系：谁从谁创建出来（不是 commit graph，也不是任务树）
+  branch show BRANCH|TASK_ID     一条分支的 parent / fork commit / task / worktree 与祖先链
+  branch import                  把现有本地分支登记成记录（只记存在与 worktree，不推断 parent）
   notice list                     待决问题与答复
   notice post '问题' [--task ID] [--body '背景']
   notice answer ID '答复'

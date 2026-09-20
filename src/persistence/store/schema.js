@@ -48,6 +48,17 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       CREATE INDEX IF NOT EXISTS task_specs_status ON task_specs(status);
       CREATE INDEX IF NOT EXISTS task_specs_batch ON task_specs(batch_id);
       CREATE INDEX IF NOT EXISTS task_specs_planner ON task_specs(planner_task_id);
+      -- Branch genealogy: 分支创建时的「从哪条分支拉出来」记录。不是 commit graph、不是 task tree，
+      -- 也不是 git ref 的镜像：只回答创建关系。只在分支被创建那一刻写入，之后不可变（除 status）。
+      -- task_id 故意不加外键：clear 会清空 tasks，但谱系是历史事实，必须比 task 行活得久。
+      -- parent_relation: 'recorded'=runtime 创建时记下 / 'inferred'=import 的启发式推断 / 'unknown'=没有 parent 记录。
+      CREATE TABLE IF NOT EXISTS branches (
+        branch TEXT PRIMARY KEY, parent TEXT, parent_relation TEXT,
+        created_from_commit TEXT, task_id INTEGER, worktree TEXT,
+        status TEXT NOT NULL DEFAULT 'active', deleted_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+      CREATE INDEX IF NOT EXISTS branches_parent ON branches(parent);
+      CREATE INDEX IF NOT EXISTS branches_task ON branches(task_id);
       CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES tasks(id), sender_id INTEGER REFERENCES tasks(id),
         body TEXT NOT NULL, consumed INTEGER NOT NULL DEFAULT 0,
