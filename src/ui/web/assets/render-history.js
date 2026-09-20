@@ -6,9 +6,12 @@ export function renderHistory(history, { running = false, truncated = false } = 
   const list = el('ol', undefined, 'timeline');
   history.forEach((event, index) => {
     const item = el('li', undefined, `e-${event.type.replaceAll('.', '-')}${running && index === history.length - 1 ? ' hot' : ''}`);
-    const head = el('div'); head.append(el('strong', EVENTS[event.type] || event.type), el('span', `${relative(event.created_at)} · ${absolute(event.created_at)}`, 't-when'));
+    const data = event.data || {};
+    // kind='info' 的 notice 是结算提醒，不是「等你决定」的问题；只改这一处标签映射，其它事件语义不变。
+    const label = event.type === 'notice.opened' && data.kind === 'info' ? '提醒' : (EVENTS[event.type] || event.type);
+    const head = el('div'); head.append(el('strong', label), el('span', `${relative(event.created_at)} · ${absolute(event.created_at)}`, 't-when'));
     item.append(head);
-    const data = event.data || {}; let body = '', agent = false;
+    let body = '', agent = false;
     if (event.type === 'invocation.started') body = `第 ${data.call ?? '?'} 次调用${data.cwd ? ` · ${data.cwd}` : ''}`;
     else if (event.type === 'invocation.completed' || event.type === 'completed' || event.type === 'failed') { body = String(data.result || data.error || '').slice(0, 600); agent = true; }
     else if (event.type === 'created') body = `${ROLE[data.role] || data.role}${data.parent_id ? ` ← #${data.parent_id}` : ' · 根任务'}`;

@@ -1,5 +1,34 @@
 import { check, TERMINAL, bounded } from '../types.js';
 
+/**
+ * 结算提醒的文案只由任务事实拼出来：goal 可能很长，只取第一行并截断成「一句话目标」。
+ * integration 口径到「是否已合入父分支 / 是否需要你处理」的映射；未知值不臆造，落回最保守的一句。
+ */
+const SETTLE_LABEL = { completed: '已完成', failed: '失败' };
+const INTEGRATION_REMINDER = {
+  merged: '已合入父分支，不需要你处理',
+  pending: '有改动尚未合入父分支，需要你批准合并',
+  review: '有改动尚未合入父分支，等你复查',
+  merging: '正在合入父分支，暂时不需要你处理',
+  conflict: '与父分支有冲突，需要你处理',
+  superseded: '已被后续合并取代，不需要你处理',
+  none: '没有记录到需要合入父分支的改动，不需要你处理',
+};
+function settlementReminder(task, status) {
+  const label = SETTLE_LABEL[status];
+  const goal = String(task.goal ?? '').split('\n').map(line => line.trim()).find(Boolean) ?? '';
+  const brief = goal.length > 80 ? `${goal.slice(0, 80)}…` : goal;
+  return {
+    title: `分支 ${task.branch}：任务 #${task.id} ${label}`,
+    body: [
+      `任务 #${task.id}（${task.role}：${brief}）结算为「${label}」。`,
+      `分支：${task.branch}`,
+      `直接父分支：${task.target_branch ?? '（未记录）'}`,
+      `integration：${INTEGRATION_REMINDER[task.integration] ?? INTEGRATION_REMINDER.none}。`,
+    ].join('\n'),
+  };
+}
+
 /** 结算、取消、重试、清空与恢复。 */
 export default {
   finish(taskId, status, result = null, error = null) {
@@ -9,6 +38,13 @@ export default {
     this.store.transaction(() => {
       this.store.update(task.id, { status, result, error });
       this.store.run("UPDATE notices SET status='dismissed',answer='task ended' WHERE task_id=? AND status='open'", task.id);
+      // 结算提醒：completed / failed 且任务有自己的分支时落且只落一条纯信息 notice。
+      // 它 kind='info' / status='sent'，与这次结算同一个事务，且顺序在「关掉 open notice」之后；
+      // cancelled 不提醒，没有分支的任务（planner / scheduler / coordinator / research / verifier）也不提醒。
+      if ((status === 'completed' || status === 'failed') && task.branch) {
+        const reminder = settlementReminder(task, status);
+        this.notify(task.id, reminder.title, reminder.body);
+      }
       this.store.event(task.id, status, { result, error });
       // 一个 scheduler 要么把 spec 编成任务，要么明确 drop；取消则把未处理的 spec 还给队列，绝不静默丢弃。
       if (task.role === 'scheduler') {

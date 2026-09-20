@@ -2,7 +2,7 @@
 
 本文件管 CLI 分页、Web 轮询与 CSP、RPC 信任边界与 `system.status` 字段。
 
-CLI 的 task list / history 支持 cursor 分页；task inspect 返回完整任务结果和有界的相关记录。Web 复用 UIClient，轮询快照，采用 textContent 呈现模型输出，不插入 HTML；输入表单和 notice 答复在轮询时保留。
+CLI 的 task list / history 支持 cursor 分页；task inspect 返回完整任务结果和有界的相关记录。Web 复用 UIClient，轮询快照，采用 textContent 呈现模型输出，不插入 HTML；输入表单和 notice 答复在轮询时保留。任务在 `completed` / `failed` 且有自己的分支时会自动落一条 `kind='info'` 的结算提醒；它固定写 `status='sent'`，因此不进 `system.status.notices` 与任何「待决」计数，也不阻塞或唤醒任务。
 
 左栏 workspace-nav 的「文档」在右栏打开随这份代码发布的文档（架构、使用流程、接口参考），与所开发的项目无关。它与「项目概览」「分支图」共用同一个右栏和同一套排他规则：路由是 `#graph` / `#docs` / `#doc-<id>`，视图自己把 `#detail[data-view]` 写对（左栏高亮与进场动画都跟着它走），轮询只画当前开着的那个（`ui.graphOpen` / `ui.docsOpen`）。正文由 `/api/docs` 取回后用同一套 Markdown 渲染器画成 DOM，文档之间的相对链接解析成站内 hash 后走同一个路由。「分支图」（`#graph`）调 `/api/graph`，覆盖所有本地分支：`branches` 表记录 ∪ `refs/heads` 现状，只被父指针提到的名字补占位节点；分支按 fork 谱系嵌套，任务挂在自己的分支下；父子关系靠 CSS 的竖线与拐角画出来（表头与车道连成一条线，最后一个子分支用 `└` 收尾，不重复写父分支名），每个分支表头的 ▼ / ▶ 收起整棵子树（自己的任务 + 全部子分支），收起的分支名存进 `localStorage`，轮询重画不丢。分支面板与连接线的颜色来自该分支与父分支的 commit 关系（`edgeRelation` 的 key 写在 `[data-relation]` 上）：领先 = 绿（可 fast-forward 合入）、一致 = 灰、落后 = 蓝、分歧 = 琥珀、缺失 = 红；表头同时给出这个关系能做的动作（合入父分支 / 让子分支跟上父分支 / 在子分支解决分歧），当前不能做的也画出来但禁用并在 `title` 里说明原因。打开期间不每个 1.5s 轮询都打 git：快照指纹变了至少隔 3 秒才重拉，指纹不覆盖 UI 外新建的分支，因此另有约 10s 的最长陈旧时间兜底，新分支不手点刷新也会出现。
 

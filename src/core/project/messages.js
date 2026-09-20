@@ -24,6 +24,20 @@ export default {
     return this.store.get('SELECT * FROM notices WHERE id=?', Number(row.lastInsertRowid));
   },
 
+  /**
+   * 纯提醒：结算时告知「这一时刻、这条分支发生了什么」，不需要用户回复。
+   * 落库固定 kind='info' / status='sent'（不是 open），因此不进任何「待决」口径，
+   * 也不会让任务停在 awaiting；answer / dismiss 会因为 status 不是 open 而拒绝它。
+   * 允许在终态任务上写：这条提醒本来就是结算的产物，结算之后任务不能再被唤醒。
+   */
+  notify(taskId, title, body = '') {
+    const task = this.store.task(taskId); text(title, 'title');
+    check(typeof body === 'string' && body.length <= 32000, 'invalid notice body');
+    const row = this.store.run("INSERT INTO notices(task_id,title,body,kind,status) VALUES (?,?,?,'info','sent')", task.id, title, body);
+    this.store.event(task.id, 'notice.opened', { notice_id: Number(row.lastInsertRowid), title, kind: 'info' });
+    return this.store.get('SELECT * FROM notices WHERE id=?', Number(row.lastInsertRowid));
+  },
+
   answer(noticeId, answer, dismiss = false) {
     const notice = this.store.get('SELECT * FROM notices WHERE id=?', id(noticeId));
     check(notice && notice.status === 'open', 'notice is not open');
