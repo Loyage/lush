@@ -23,7 +23,7 @@ bun run tree --project /absolute/path/to/my-project
 bun run web 4318 --project /absolute/path/to/my-project
 ```
 
-`start` 只启动项目 daemon；`say` **立即返回输入和 task ID，不等待模型或开发完成**（提交时先做一次 Git 锚点：在当前分支顶端建 `input-<id>-anchor` 分支与检出，所以它短暂排在 Git 串行队列里）；Web 是独立的界面进程，不隐式启停 daemon。Web 离线后会自动重连。默认只监听 `127.0.0.1`；如需从公网访问，在项目的 `.lush/web.json` 写入登录凭证：
+`start` 只启动项目 daemon；`say` **立即返回输入和 task ID，不等待模型或开发完成**（提交时先做一次 Git 锚点：在当前分支顶端建 `input-<id>-anchor` 分支与检出，所以它短暂排在 Git 串行队列里）；Web 是独立的界面进程，不隐式启停 daemon，`bun run web` **后台起进程后立刻返回**（日志在 `.lush/web.log`）。Web 离线后会自动重连。默认只监听 `127.0.0.1`；如需从公网访问，在项目的 `.lush/web.json` 写入登录凭证：
 
 ```json
 {
@@ -33,7 +33,7 @@ bun run web 4318 --project /absolute/path/to/my-project
 }
 ```
 
-文件权限必须是 `600`。`bun run web` 会监听 `0.0.0.0`，首次启动时自动把明文 `password` 原地替换为 scrypt `password_hash`；之后浏览器通过登录页取得 12 小时的 HttpOnly / SameSite 会话 Cookie。密码首尾的空白一律忽略（从终端复制常会带上换行），但大小写与中间字符仍须完全一致：建议选一个**好辨认**的密码，避开 `0/O`、`1/I/l` 这类易混字符；连续输错 5 次会锁 60 秒。登录被拒与被挡的跨站请求都会写进 web 进程自己的日志，是排查的第一站。
+文件权限必须是 `600`。`bun run web` 会监听 `0.0.0.0`，首次启动时自动把明文 `password` 原地替换为 scrypt `password_hash`；之后浏览器通过登录页取得 12 小时的 HttpOnly / SameSite 会话 Cookie。密码首尾的空白一律忽略（从终端复制常会带上换行），但大小写与中间字符仍须完全一致：建议选一个**好辨认**的密码，避开 `0/O`、`1/I/l` 这类易混字符；连续输错 5 次会锁 60 秒。登录被拒与被挡的跨站请求都会写进后台 Web 自己的日志 `.lush/web.log`，是排查的第一站（`bun run web-status` 会告诉你它在哪、跑的是不是这份代码）。
 
 **通过反向代理或域名访问时**，代理默认会把 `Host` 改写成 `127.0.0.1:4318`，而浏览器发出的 `Origin` 是对外地址；两者不一致的提交会被当作跨站拒绝（登录时报 `Cross-site access denied`）。二选一：
 
@@ -111,7 +111,7 @@ verifier 与被检验任务是两个 task（worker 已经终态，不能再挂�
 - 提交输入需要项目是 **Git worktree 根目录且有初始提交（且不能是 detached HEAD）**：拿不到「当前分支 + 已提交 HEAD」就无从锚定，`say` / `draft commit` 会直接报错且不落库。主工作树可以有未提交改动：worker 基于这条输入在**提交时**冻结的锚点开工（或 `code` 依赖的上游分支），看不到你未提交的编辑。这份分歧记进 `input.anchor` 事件的 `dirty_source`（开工时主树的状态记在 `workspace.created`），`task diff` 的 `base_behind` 给出基线落后目标分支多少提交。把 `.lush/` 加进项目的 `.gitignore`；Lush 不会替你提交、暂存或藏起已有改动，**合并时主工作树必须干净**。
 - 非 Git 项目不能提交输入（也建不了实现 worktree）：提交前先 `git init` 并至少提交一次。
 - `LUSH_PROVIDER=mock bun run start --project ...` 可离线演示调度。Mock 只派调研任务，不调用模型、不修改代码。
-- 改环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。Web 是另一个进程：改完 `src/ui/web/` 用 `bun run web-restart`（它会先停掉端口上那个旧 Web）；`daemon-restart` 不会动它，而直接再跑 `bun run web` 只会撞端口。
+- 改环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。Web 是另一个进程：改完 `src/ui/web/` 用 `bun run web-restart`（它先停掉端口上那个后台 Web，再按当前代码起一个新的）；`daemon-restart` 不会动它，而再跑一次 `bun run web` 只会如实报告「已在运行」。
 
 ## 新模型
 
@@ -187,8 +187,10 @@ bun run branch tree         # 分支谱系（--verbose 带 task / worktree / for
 bun run branch show 3       # 按 branch 名或 task id 查一条分支的 parent 与祖先链
 bun run branch import       # 把旧项目里已有的本地分支登记成记录（只记存在，不推断 parent）
 bun run wait 3              # 只有当前客户端等待，不影响调度
-bun run web
-bun run web-restart         # 改完 src/ui/web/ 换掉端口上那个旧 Web 进程（它不会跟着代码换版本）
+bun run web                 # 后台起 Web（默认 4318），命令立刻返回
+bun run web-status          # 在不在跑、跑的是不是这份代码、日志在哪
+bun run web-restart         # 改完 src/ui/web/ 换掉那个后台 Web 进程（它不会跟着代码换版本）
+bun run web-stop            # 停掉后台 Web；只停命令行确实是 Lush Web 的进程，别人的只报告
 bun run daemon-restart
 bun run stop
 ```

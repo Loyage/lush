@@ -50,9 +50,12 @@ lush [--project PATH] [--json] <command>
   notice post '问题' [--task ID] [--body '背景']
   notice answer ID '答复'
   notice dismiss ID
-  web [PORT]                      Web UI（默认仅本机；.lush/web.json 开启公网监听与登录认证）
-  web-restart [PORT]              停掉端口上那个旧 Web 进程再起一个新的：Web 进程不会跟着代码
-                                  换版本，改完 src/ui/web/ 用这条命令；只停命令行确实是 Lush Web 的进程
+  web [PORT]                      后台启动 Web UI（默认仅本机；.lush/web.json 开启公网监听与登录认证）
+  web-restart [PORT]              停掉端口上那个后台 Web，再按当前代码起一个新的：Web 进程不会跟着
+                                  代码换版本，改完 src/ui/web/ 用这条命令；只停命令行确实是 Lush Web 的进程
+  web-stop [PORT]                 停掉后台 Web（只停命令行确实是 Lush Web 的进程，别人的进程只报告）
+  web-status [PORT]               在不在跑、跑的是不是这份代码、日志在哪
+                                  四条命令都立即返回，不等浏览器；日志在 .lush/web.log，--foreground 占住终端（调试用）
 
 默认从当前目录向上发现项目；--project 或 LUSH_PROJECT 显式绑定。
 状态固定保存在 <project>/.lush/，不再支持全局 LUSH_HOME。

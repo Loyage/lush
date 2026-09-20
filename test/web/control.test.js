@@ -1,5 +1,12 @@
 import { test, expect } from 'bun:test';
-import { isLushWebCommand, parsePidList, parseSsPids, stopStaleWeb, stopWebPids } from '../../src/ui/web/control.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { codeIdentity } from '../../src/identity.js';
+import {
+  clearWebState, ensureHome, isLushWebCommand, liveWebState, parsePidList, parseSsPids, portListening,
+  readWebState, recordWebState, stopStaleWeb, stopWebPids, waitForWebState, webCandidatePids, webStateFile,
+} from '../../src/ui/web/control.js';
 
 // 停旧 Web 是一段会杀进程的代码：杀错对象比停不掉更糟。这里固定住两件事——
 // 「什么样的命令行才算 Lush Web」，以及「先 SIGTERM、超时才 SIGKILL」的顺序。
@@ -97,4 +104,77 @@ test('停完再确认端口空出来，而不是杀完就走', async () => {
   expect(zombie.stuck).toEqual([12]);
   expect(zombie.free).toBe(true);
   expect(zombie.reason).toBe('stuck');
+});
+
+/* ---------- 后台 Web 的自我描述：`.lush/web.state.json` ---------- */
+
+// 记录只服务 web-status：它不能自己变成谎言（进程死了还说在跑），也不能被旧进程收尾时误删。
+test('记录只在属于那个进程时删除，指向已退出进程的记录不算“在跑”', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-web-state-'));
+  const config = { home: path.join(root, '.lush') };
+  try {
+    ensureHome(config);
+    expect(fs.statSync(config.home).mode & 0o777).toBe(0o700);
+    expect(readWebState(config)).toBeNull();                       // 还没有记录
+    const state = recordWebState(config, { pid: process.pid, port: 4318 });
+    expect(state.pid).toBe(process.pid);
+    expect(state.port).toBe(4318);
+    expect(readWebState(config).fingerprint).toBe(codeIdentity().fingerprint);
+    expect(liveWebState(config).port).toBe(4318);                  // 自己还活着
+    expect(clearWebState(config, process.pid + 1)).toBe(false);    // 不属于那个 pid：一个字节都不动
+    expect(readWebState(config)).not.toBeNull();
+    expect(clearWebState(config, process.pid)).toBe(true);
+    expect(readWebState(config)).toBeNull();
+    // 崩溃（SIGKILL）留下的记录：文件在，但读不出一个活着的进程
+    fs.writeFileSync(webStateFile(config), JSON.stringify({ version: 1, pid: 999999999, port: 4318 }));
+    expect(readWebState(config)).not.toBeNull();
+    expect(liveWebState(config)).toBeNull();
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('不往符号链接或别人的 .lush 里写记录', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-web-link-'));
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-web-target-'));
+  try {
+    const link = path.join(root, '.lush');
+    fs.symlinkSync(target, link);
+    expect(() => ensureHome({ home: link })).toThrow(/unsafe state directory/);
+    expect(recordWebState({ home: link }, { pid: process.pid, port: 4318 })).toBeNull();
+    expect(fs.readdirSync(target)).toEqual([]);                    // 目标目录没被写进去
+  } finally { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(target, { recursive: true, force: true }); }
+});
+
+test('等后台 Web 就绪：pid 对不上不算就绪，子进程已退出就不再空等', async () => {
+  const config = { home: '/nonexistent' };
+  const ok = await waitForWebState(config, 7, { read: () => ({ pid: 7, port: 4318 }), listening: async () => true, sleep: async () => {} });
+  expect(ok).toEqual({ pid: 7, port: 4318 });
+  // 记录属于别的进程（上一次的残留）：宁可超时，也不能把别人的端口当成自己的
+  expect(await waitForWebState(config, 8, { read: () => ({ pid: 7, port: 4318 }), listening: async () => true, sleep: async () => {}, timeoutMs: 0 })).toBeNull();
+  // 端口上有人听、但记录还没有：还没轮到它说话
+  expect(await waitForWebState(config, 7, { read: () => null, listening: async () => true, sleep: async () => {}, timeoutMs: 0 })).toBeNull();
+  let slept = 0;
+  const aborted = await waitForWebState(config, 9, { read: () => null, listening: async () => true, sleep: async () => { slept += 1; }, abort: () => true });
+  expect(aborted).toBeNull();
+  expect(slept).toBe(0);                                           // 子进程一退就返回，不空等到超时
+});
+
+test('portListening 只认真的在听的端口', async () => {
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('ok') });
+  const { port } = server;
+  try { expect(await portListening(port)).toBe(true); }
+  finally { server.stop(true); }
+  expect(await portListening(port)).toBe(false);
+});
+
+// 记录说的是「我在 4318 上」：问 4400 的时候不能拿它当候选，否则 web-stop 4400 会停掉 4318 上那个。
+test('记录只对自己那个端口负责', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-web-ports-'));
+  const free = () => { const probe = Bun.serve({ port: 0, fetch: () => new Response('p') }); const { port } = probe; probe.stop(true); return port; };
+  const port = free();
+  const other = free();
+  try {
+    recordWebState({ home: path.join(root, '.lush') }, { pid: process.pid, port });
+    expect(webCandidatePids({ home: path.join(root, '.lush') }, port)).toEqual([process.pid]);
+    expect(webCandidatePids({ home: path.join(root, '.lush') }, other)).toEqual([]);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

@@ -1,3 +1,4 @@
 #!/usr/bin/env bun
+// 前台服务进程（Web 版的 lushd）：`bun run web` 后台起的正是它，也可以在终端里直接跑。
 import { main } from '../src/cli/main.js';
-try { await main(['web', ...process.argv.slice(2)]); } catch (error) { console.error(error.message); process.exitCode = 1; }
+try { await main(['web', '--foreground', ...process.argv.slice(2)]); } catch (error) { console.error(error.message); process.exitCode = 1; }

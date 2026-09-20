@@ -21,7 +21,7 @@ export { HELP };
  */
 const COMMANDS = new Map();
 for (const [module, names] of [
-  [system, ['daemon', 'status', 'doctor', 'log', 'web', 'web-restart']],
+  [system, ['daemon', 'status', 'doctor', 'log', 'web', 'web-restart', 'web-stop', 'web-status']],
   [intent, ['say', 'intent', 'input']],
   [draft, ['draft']],
   [task, ['task']],

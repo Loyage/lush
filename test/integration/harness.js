@@ -25,7 +25,7 @@ export async function schedulerOf(client, plannerTaskId) {
   return null;
 }
 
-/* ---------- Web 进程：前台阻塞的命令只能在后台起，靠端口判断它到底在不在 ---------- */
+/* ---------- Web 是后台服务：命令立刻返回，进程的生死只能靠端口与 pid 判断 ---------- */
 
 /** 先占一个端口拿到内核挑的号，再放掉；这点竞态窗口对本地测试足够小。 */
 export function freePort() {
@@ -33,13 +33,6 @@ export function freePort() {
   const { port } = probe;
   probe.stop(true);
   return port;
-}
-
-/** 起一个真的 Web 进程（`web` 或 `web-restart`）；它自己不会退，测试结束时记得 kill。 */
-export function webProcess(root, port, command = 'web') {
-  return Bun.spawn([process.execPath, 'scripts/ops.js', command, String(port), '--project', root], {
-    cwd: ROOT, env: env(), stdout: 'pipe', stderr: 'pipe',
-  });
 }
 
 /** 用 node:http 而不是全局 fetch：它不会跟着机器上的代理跑偏。 */

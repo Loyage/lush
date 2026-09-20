@@ -30,9 +30,12 @@
   只按扫出来的 id 查表命中。认证边界也在 `server.js`：无 `.lush/web.json` 时只监听本机；
   有配置时监听公网，并用 `/login`、`/logout` 与 HttpOnly 会话 Cookie 保护全部页面、资源和 API。
 - Web 进程的生命周期在 `src/ui/web/control.js`：`webListenerPids(port)` 认出端口上的监听者，
-  `stopStaleWeb(port)` 只停命令行确实是 Lush Web 的进程（`ops.js web` / `bin/lush-web` / `ui/web/server.js`，
-  先 SIGTERM、超时才 SIGKILL），`busyPortHint(port)` 在端口被别人占着时把命令行原样报出来。
-  `bun run web-restart` 就是「停下旧的 + 前台起一个新的」；Web 进程不会跟着代码换版本，这是换版的正路。
+  `webOwners(config, port)` 把端口与 `.lush/web.state.json`（后台 Web 自己写的 pid / 端口 / 代码指纹）
+  合起来给出「谁在听、命令行是不是 Lush Web」，`stopStaleWeb(port)` 只停命令行确实是 Lush Web 的进程
+  （`bin/lush-web` / `ops.js web` / `ui/web/server.js`，先 SIGTERM、超时才 SIGKILL），`busyPortHint(port)`
+  在端口被别人占着时把命令行原样报出来。`bun run web` 就是「后台 spawn `bin/lush-web` + 等它占住端口」
+  （`waitForWebState`），`web-restart` 就是「停下旧的 + 后台起一个新的」；Web 进程不会跟着代码换版本，
+  这是换版的正路。
 - 环境变量与 agent capability 语义（`LUSH_PROJECT` / `LUSH_HOME` / `LUSH_TASK_ID` / `LUSH_AGENT_TOKEN`）。
 - `src/core/genealogy.js`（分支谱系的纯逻辑：`buildForest` / `parentOf` / `childrenOf` / `ancestorsOf` /
   `descendantsOf` / `rootOf` / `chainOf`）与 `types.js` / `naming.js` 一样是共享纯模块：不碰 git、不写盘、
@@ -184,7 +187,7 @@
 | `cli/commands/plan.js` | `plan` | `run` |
 | `cli/commands/notice.js` | `notice` | `run` |
 | `cli/commands/branch.js` | `branch`（tree / show / import） | `run` |
-| `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` / `web-restart` | `run` |
+| `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` / `web-restart` / `web-stop` / `web-status` | `run` |
 | `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒 | `main(argv)`（并 re-export `HELP`） |
 
 ## 6. RPC：`src/rpc/protocol.js` + `src/rpc/`

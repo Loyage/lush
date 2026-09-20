@@ -23,14 +23,16 @@ bun run drafts                  # 看缓存里有什么
 bun run draft commit            # 缓存整体交给一个 planner：拆任务 + 建依赖
 bun run tree
 bun run inspect 3
-bun run web                     # 只启动本地 Web，不操作 daemon（前台阻塞）
-bun run web-restart             # 改完 src/ui/web/ 换掉端口上那个旧 Web 进程
+bun run web                     # 后台启动本地 Web，不操作 daemon；等它占住端口就返回，日志在 .lush/web.log
+bun run web-status              # 在不在跑、跑的是不是这份代码、日志在哪
+bun run web-restart             # 改完 src/ui/web/ 停掉那个后台 Web 再按当前代码起一个新的
+bun run web-stop                # 停掉后台 Web（只停命令行确实是 Lush Web 的进程）
 bun run stop
 ```
 
 任意入口可加 `--project PATH`；操作其他项目时必须显式指定。`bun run lush <command>` 也遵循同一套项目发现规则，没有默认全局 home 的例外。
 
-**daemon 与 web 是两个独立进程，改完代码两个都要重启。** `bun run daemon-restart` 只管 daemon；`bun run web` 起的 Web 进程自己活到被杀为止，不会跟着 daemon 换版本。只重启 daemon 就去刷新页面，会看到旧 Web 进程把**新的** `app.js` 发下来、却对自己不认识的 API 路由（例如后来才加的 `/api/docs`）回 404——页面直接「打开失败」。改 `src/ui/web/` 下任何东西之后，先 `bun run web-restart` 再看页面：它停掉端口上那个旧 Web（只认命令行确实是 Lush Web 的进程）再前台起一个新的；直接再跑 `bun run web` 只会撞端口。重启 Web 会清空登录会话，浏览器要重新登录一次。`bun run doctor` 只校验 daemon 的 fingerprint，报的是 daemon 的身份，不会告诉你 Web 是不是旧进程。
+**daemon 与 web 是两个独立进程，改完代码两个都要重启。** `bun run daemon-restart` 只管 daemon；`bun run web` 后台起的 Web 进程自己活到被杀为止，不会跟着 daemon 换版本。只重启 daemon 就去刷新页面，会看到旧 Web 进程把**新的** `app.js` 发下来、却对自己不认识的 API 路由（例如后来才加的 `/api/docs`）回 404——页面直接「打开失败」。改 `src/ui/web/` 下任何东西之后，先 `bun run web-restart` 再看页面：它停掉端口上那个后台 Web（只认命令行确实是 Lush Web 的进程）再按当前代码起一个新的；直接再跑 `bun run web` 只会幂等报告「已在运行」。重启 Web 会清空登录会话，浏览器要重新登录一次；跑的是不是这份代码用 `bun run web-status` 看（它比的是 Web 自己记下的代码指纹），不用靠猜。`bun run doctor` 只校验 daemon 的 fingerprint，报的是 daemon 的身份，不会告诉你 Web 是不是旧进程。
 
 不要在开发测试时默认操纵用户正在开发的项目。测试用临时项目目录和 mock/可控子进程；测试结束停 daemon 并清理自己的临时文件。
 

@@ -21,6 +21,8 @@
     "log": "bun ./scripts/ops.js log",
     "web": "bun ./scripts/ops.js web",
     "web-restart": "bun ./scripts/ops.js web-restart",
+    "web-stop": "bun ./scripts/ops.js web-stop",
+    "web-status": "bun ./scripts/ops.js web-status",
     "say": "bun ./scripts/ops.js say",
     "draft": "bun ./scripts/ops.js draft",
     "drafts": "bun ./scripts/ops.js drafts",

@@ -1,51 +1,63 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import { temp } from '../helpers.js';
-import { freePort, webProcess, waitForWeb } from './harness.js';
+import { cli, freePort, httpStatus, waitForWeb } from './harness.js';
 
-// 「文档打开失败」的真身：Web 进程自己活到被杀为止，不会跟着代码换版本。这里用真的进程量一次——
-// web-restart 把端口上那个旧 Web 停掉，新起的那个立刻能答页面。
-test('web-restart 把端口上的旧 Web 换成新代码，连着重启也认得自己', async () => {
+function alive(pid) {
+  try { process.kill(pid, 0); return true; } catch (error) { return error.code === 'EPERM'; }
+}
+
+// Web 是后台服务：命令立刻返回，端口随后答上。这里用真的进程量一遍——重复启动不换进程，
+// 换代码（web-restart）真的把旧进程换成新的，web-stop 之后端口不再答话。
+test('web 后台起：重复启动幂等、web-restart 换进程、web-stop 收尾', async () => {
   const root = temp();
   const port = freePort();
-  const children = [];
-  const spawn = command => { const child = webProcess(root, port, command); children.push(child); return child; };
   try {
-    const first = spawn('web');
+    const first = await cli(root, ['web', String(port)]);
+    expect(first).toMatchObject({ port, running: true, already_running: false, code_match: true, listeners_known: true });
+    expect(first.pid).toBeGreaterThan(0);
+    expect(first.log).toBe(`${root}/.lush/web.log`);
+    await waitForWeb(port);                       // 命令返回时页面就该能打开
+
+    // 再跑一次：端口上是自己人，如实报告“已在运行”，不再 spawn 第二个
+    const again = await cli(root, ['web', String(port)]);
+    expect(again.already_running).toBe(true);
+    expect(again.pid).toBe(first.pid);
+    expect(await httpStatus(port)).toBe(200);
+
+    const status = await cli(root, ['web-status', String(port)]);
+    expect(status).toMatchObject({ port, running: true, pid: first.pid, code_match: true });
+
+    // 换代码的正路：停掉跑着旧代码的那个进程，再按当前代码起一个新的
+    const restarted = await cli(root, ['web-restart', String(port)]);
+    expect(restarted.stopped).toEqual([first.pid]);
+    expect(restarted.pid).not.toBe(first.pid);
+    expect(restarted.code_match).toBe(true);
+    expect(alive(first.pid)).toBe(false);
     await waitForWeb(port);
-    const second = spawn('web-restart');
-    // 旧的先走：被 SIGTERM 结束，所以 exitCode 为 null、signalCode 有值
-    expect(await first.exited).toBe(143);
-    expect(first.signalCode).toBe('SIGTERM');
-    await waitForWeb(port);                 // 端口重新答上：新的已经在服务
-    expect(second.exitCode).toBeNull();
-    // 第二次重启：新进程的命令行是 `ops.js web-restart`，也必须被认成自己人
-    const third = spawn('web-restart');
-    expect(await second.exited).toBe(143);
-    await waitForWeb(port);
-    expect(third.exitCode).toBeNull();
+
+    const stopped = await cli(root, ['web-stop', String(port)]);
+    expect(stopped.stopped).toEqual([restarted.pid]);
+    await waitForWeb(port, false);
+    expect(alive(restarted.pid)).toBe(false);
+    expect((await cli(root, ['web-status', String(port)])).running).toBe(false);
   } finally {
-    for (const child of children) child.kill();
+    await cli(root, ['web-stop', String(port)]).catch(() => {});
     fs.rmSync(root, { recursive: true, force: true });
   }
-}, 30000);
+}, 60000);
 
-// 直接再起一个 web 只会撞端口；报错里必须给出这条命令，而不是让用户对着
-// "Is port 4318 in use?" 猜是哪个进程、该怎么办。
-test('端口被已有的 Web 占着时，web 的报错直接指向 web-restart', async () => {
+// 端口上是别人的程序（命令行不是 Lush Web）：起和停都不许碰它，只把占用者原样报出来。
+test('端口被别的进程占着时既不起也不停：只报告，不改动它', async () => {
   const root = temp();
   const port = freePort();
-  let served = null, clash = null;
+  const squatter = Bun.serve({ hostname: '127.0.0.1', port, fetch: () => new Response('mine') });
   try {
-    served = webProcess(root, port);
-    await waitForWeb(port);
-    clash = webProcess(root, port);
-    const stderr = await new Response(clash.stderr).text();
-    await clash.exited;
-    expect(clash.exitCode).toBe(1);
-    expect(stderr).toContain(`web-restart ${port}`);
+    await expect(cli(root, ['web', String(port)])).rejects.toThrow(/没有动它/);
+    await expect(cli(root, ['web-stop', String(port)])).rejects.toThrow(/没有动它/);
+    expect(await httpStatus(port)).toBe(200);                  // 占用者一直在服务
   } finally {
-    served?.kill(); clash?.kill();
+    squatter.stop(true);
     fs.rmSync(root, { recursive: true, force: true });
   }
 }, 30000);
