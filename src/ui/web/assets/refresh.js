@@ -48,6 +48,12 @@ export async function overview() {
 }
 
 /* ---------- polling ---------- */
+// 分支图不在每个 1.5s 轮询里打一遍 git：指纹变了也至少隔 3 秒才重拉一次。
+const GRAPH_MIN_INTERVAL_MS = 3000;
+// 指纹只覆盖任务与交付队列，不覆盖「用户在 UI 外新建的分支」，所以再加一条最长陈旧时间兜底：
+// 到期无条件重拉一次，视图打开期间新分支最多约 10s 内出现，不用手点刷新。
+const GRAPH_MAX_AGE_MS = 10000;
+
 export async function refresh() {
   if (ui.busy) return; ui.busy = true;
   try {
@@ -63,10 +69,13 @@ export async function refresh() {
     renderNotices(data); syncComposer();
     // 概览、分支图、文档页共用一个右栏：谁开着，轮询就不把概览画回来。
     if (ui.selected === null && !ui.graphOpen && !ui.docsOpen) renderOverview(data);
-    // 分支图打开期间：不用概览覆盖它；只有结构指纹真的变了、且距上次拉图至少 3 秒，才重拉一次 git 图。
+    // 分支图打开期间：不用概览覆盖它。指纹变了且距上次拉图至少 3 秒才重拉；指纹没变时
+    // 由最长陈旧时间兜底（分支可能在 UI 外被创建），保证新分支约 10s 内出现。
     if (ui.graphOpen) {
       const fingerprint = graphFingerprint(data);
-      if (fingerprint && fingerprint !== ui.graphFingerprint && Date.now() - ui.graphFetchedAt >= 3000) await loadGraph();
+      const changed = Boolean(fingerprint) && fingerprint !== ui.graphFingerprint;
+      const age = Date.now() - ui.graphFetchedAt;
+      if ((changed && age >= GRAPH_MIN_INTERVAL_MS) || age >= GRAPH_MAX_AGE_MS) await loadGraph();
     }
     const current = data.tasks.find(task => task.id === ui.selected);
     const editing = ui.detailDirty || [...$('detail').querySelectorAll('textarea')].some(node => node.value || node === document.activeElement);

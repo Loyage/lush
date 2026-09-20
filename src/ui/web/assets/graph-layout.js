@@ -1,9 +1,11 @@
 /**
- * 分支图的纯逻辑：把 `graph.get` 的平铺 nodes / edges 变成「按目标分支分组的车道 + 组内层级 + 标签」。
+ * 分支图的纯逻辑：把 `graph.get` 的平铺 nodes / edges 变成「分支谱系森林 + 每条分支下的任务」。
  * 无 DOM、无副作用，浏览器里以 ES module 加载，测试里由 bun 直接 import。
  *
- * 层级口径与 `src/core/merge-batch.js` 的 mergeOrder 一致：code 上游在前，并列按 id 升序，
- * 且只看同一目标分支组内的 code 边——跨分支的 code 边不会把两边的层叠关系硬扯到一起。
+ * fork 边（`{ kind:'fork', from:'branch:A', to:'branch:B' }`）就是父子关系：B 从 A 分出来。
+ * 任务挂在它自己那条分支节点下，找不到时退到目标分支节点，两个都没有才进 `unplaced` 兜底分组——
+ * 所以刚创建的分支会作为父分支的子树出现，一眼看得出从哪条分支分出来，而不是给每条分支单开一个车道。
+ * 组内 code 层级口径与 `src/core/merge-batch.js` 的 mergeOrder 一致：上游在前、并列按 id 升序。
  */
 
 /** 领先 / 落后文案；任一侧取不到就不写，而不是假装是 0。 */
@@ -28,11 +30,18 @@ export function nodeMarks(node) {
   return marks;
 }
 
+/** 分支节点的排序：当前检出的最前，其余按名字，保证每次渲染顺序稳定。 */
+const byCurrentThenName = (a, b) =>
+  Number(b?.current === true) - Number(a?.current === true) || String(a?.name ?? '').localeCompare(String(b?.name ?? ''));
+
+const nameOfBranchId = id => (typeof id === 'string' && id.startsWith('branch:')) ? id.slice('branch:'.length) : null;
+
 /**
  * @param {object} graph `graph.get` 的返回（{ nodes, edges, current_branch, ... }）
- * @returns {{groups:Array, current_branch:string|null, git:boolean, truncated:boolean, error:string|null}}
- *   groups 已排序（当前检出的分支最前，其余按名字），每组 `{ target_branch, current, branch, items }`，
- *   items 里的任务节点带 `level` / `upstreams` / `aheadBehind` / `marks`，直接供渲染使用。
+ * @returns {{forest:Array, unplaced:Array, current_branch:string|null, git:boolean, truncated:boolean, error:string|null}}
+ *   `forest` 是分支根节点数组，每个节点 `{ name, id, head_commit, current, tracked, placeholder, depth, children, tasks }`；
+ *   `tasks` 里的任务节点带 `level` / `upstreams` / `aheadBehind` / `marks`，直接供渲染使用；
+ *   `unplaced` 是连目标分支节点都没有的任务，按目标分支名分组。
  */
 export function graphLayout(graph = {}) {
   const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
@@ -40,24 +49,59 @@ export function graphLayout(graph = {}) {
   const byId = new Map(nodes.map(node => [node.id, node]));
   const taskNodes = nodes.filter(node => node.kind === 'task');
   const branchNodes = nodes.filter(node => node.kind === 'branch');
+  const branchByName = new Map(branchNodes.map(node => [node.name, node]));
   const codeEdges = edges.filter(edge => edge.kind === 'code' && byId.has(edge.from) && byId.has(edge.to));
 
-  const grouped = new Map();
-  for (const node of taskNodes) {
-    const key = node.target_branch || '(未知目标分支)';
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key).push(node);
+  // fork 边 -> 直接子分支。一条分支只认第一条 fork 边（坏数据双父时见好就收）；
+  // 成环时环里的节点会在下面作为额外根画出来，绝不落到看不见。
+  const children = new Map(branchNodes.map(node => [node.name, []]));
+  const hasParent = new Set();
+  for (const edge of edges) {
+    if (edge.kind !== 'fork') continue;
+    const from = nameOfBranchId(edge.from);
+    const to = nameOfBranchId(edge.to);
+    if (!from || !to || from === to) continue;
+    if (!branchByName.has(from) || !branchByName.has(to) || hasParent.has(to)) continue;
+    hasParent.add(to); children.get(from).push(to);
   }
-  // 当前检出分支即使没有任何任务，也要有自己的车道。
-  for (const branch of branchNodes) if (!grouped.has(branch.name)) grouped.set(branch.name, []);
 
-  const branchByName = new Map(branchNodes.map(node => [node.name, node]));
-  const groups = [...grouped.entries()].map(([target_branch, items]) => {
+  const order = [...branchNodes].sort(byCurrentThenName);
+  const built = new Map();
+  const visited = new Set();
+  const build = (node, depth) => {
+    const entry = {
+      name: node.name, id: node.id, head_commit: node.head_commit ?? null,
+      current: node.current === true, tracked: node.tracked !== false, placeholder: node.placeholder === true,
+      depth, children: [], tasks: [],
+    };
+    built.set(node.name, entry); visited.add(node.name);
+    const childNames = (children.get(node.name) || [])
+      .sort((a, b) => byCurrentThenName(branchByName.get(a), branchByName.get(b)));
+    for (const childName of childNames) {
+      if (visited.has(childName)) continue;
+      entry.children.push(build(branchByName.get(childName), depth + 1));
+    }
+    return entry;
+  };
+  const forest = [];
+  for (const node of order) if (!hasParent.has(node.name)) forest.push(build(node, 0));
+  for (const node of order) if (!visited.has(node.name)) forest.push(build(node, 0));
+
+  // 任务挂到自己的分支节点下；没有就退到目标分支节点；两个都没有才兜底。
+  const unplaced = new Map();
+  for (const node of taskNodes) {
+    const branch = (node.branch && built.has(node.branch) && node.branch)
+      || (node.target_branch && built.has(node.target_branch) && node.target_branch);
+    if (branch) { built.get(branch).tasks.push(node); continue; }
+    const key = node.target_branch || '(未知目标分支)';
+    if (!unplaced.has(key)) unplaced.set(key, []);
+    unplaced.get(key).push(node);
+  }
+
+  const decorate = items => {
     const ids = new Set(items.map(node => node.id));
     const upstreams = new Map(items.map(node => [node.id, []]));
-    for (const edge of codeEdges) {
-      if (ids.has(edge.to) && ids.has(edge.from)) upstreams.get(edge.to).push(edge.from);
-    }
+    for (const edge of codeEdges) if (ids.has(edge.to) && ids.has(edge.from)) upstreams.get(edge.to).push(edge.from);
     const level = new Map();
     const depth = (id, seen = new Set()) => {
       if (level.has(id)) return level.get(id);
@@ -68,22 +112,21 @@ export function graphLayout(graph = {}) {
       level.set(id, value); return value;
     };
     for (const node of items) depth(node.id);
-    const decorated = items.map(node => ({
+    return items.map(node => ({
       ...node,
       level: level.get(node.id) ?? 0,
       upstreams: [...(upstreams.get(node.id) || [])].sort((a, b) => a - b),
       aheadBehind: aheadBehindText(node),
       marks: nodeMarks(node),
     })).sort((a, b) => a.level - b.level || a.id - b.id);
-    const branch = branchByName.get(target_branch) || null;
-    return {
-      target_branch, branch, items: decorated,
-      current: branch?.current === true || decorated.some(node => node.current),
-    };
-  }).sort((a, b) => Number(b.current) - Number(a.current) || a.target_branch.localeCompare(b.target_branch));
+  };
+  const walk = entry => { entry.tasks = decorate(entry.tasks); for (const child of entry.children) walk(child); };
+  for (const root of forest) walk(root);
 
   return {
-    groups,
+    forest,
+    unplaced: [...unplaced.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([target_branch, items]) => ({ target_branch, items: decorate(items) })),
+    branch_count: branchNodes.length, task_count: taskNodes.length,
     current_branch: graph.current_branch ?? null,
     git: graph.git !== false,
     truncated: graph.truncated === true,
@@ -95,6 +138,7 @@ export function graphLayout(graph = {}) {
  * 廉价结构指纹：从 1.5s 轮询拿到的 snapshot 派生，只用来判断「值不值得再拉一次 /api/graph」。
  * 它不求覆盖分支 / worktree 的全部变化（那些只有 graph 自己知道），但任务状态、合并状态与
  * 交付队列的依赖结构一变就会不同，足以覆盖绝大多数自动刷新场景；用户还可以点视图内刷新。
+ * 分支在 UI 外新建时指纹不会变，所以视图另有一条最长刷新间隔兜底（见 refresh.js）。
  */
 export function graphFingerprint(snapshot) {
   if (!snapshot) return '';
@@ -107,8 +151,9 @@ export function graphFingerprint(snapshot) {
 
 /** 渲染幂等用的图指纹：同一份数据重画不重复建节点，滚动位置也不被冲掉。 */
 export function graphRenderKey(graph) {
-  const nodes = (graph?.nodes || []).map(node => [node.id, node.kind, node.branch_state ?? '-', node.workspace_state ?? '-',
-    node.ahead ?? '-', node.behind ?? '-', node.merged ?? '-', node.current === true].join(':')).join('|');
+  const nodes = (graph?.nodes || []).map(node => [node.id, node.kind, node.name ?? '-', node.head_commit ?? '-',
+    node.branch_state ?? '-', node.workspace_state ?? '-', node.ahead ?? '-', node.behind ?? '-', node.merged ?? '-',
+    node.current === true, node.tracked === false, node.placeholder === true].join(':')).join('|');
   const edges = (graph?.edges || []).map(edge => `${edge.kind}:${edge.from}>${edge.to}`).join('|');
   return `${nodes}#${graph?.truncated === true}#${edges}`;
 }
