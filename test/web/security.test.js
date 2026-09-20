@@ -153,3 +153,18 @@ test('web exposes batch merge through the mutation whitelist', async () => {
     expect((await post('task.merge_many', { ids: [1], _token: 'forged' })).status).toBe(400);
   } finally { await f.close(); }
 });
+
+test('web exposes branch archive through the mutation whitelist', async () => {
+  const f = await setup(); await repo(f.root);
+  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
+  try {
+    // 加的是白名单里的一条具体动作，不是把 /api/action 放宽成通用代理：白名单外的动作仍被同一句话拒绝。
+    const blocked = await post('task.spawn', { role: 'worker', goal: 'x' });
+    expect(blocked.status).toBe(400);
+    expect((await blocked.json()).error).toBe('method not allowed from Web UI');
+    // branch.archive 已越过 Web 白名单、被转发给 daemon：基线上 daemon 还不认识它（unknown method），
+    // 归档 RPC 合并后则是分支不存在的运行时错误或成功结果——两者都不该是上面那句白名单拒绝。
+    const response = await post('branch.archive', { branch: 'lush/x/1-a', discard: true });
+    expect((await response.json()).error ?? '').not.toContain('method not allowed from Web UI');
+  } finally { await f.close(); }
+});

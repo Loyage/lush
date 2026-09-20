@@ -6,7 +6,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
 
 - `GET /`、`/app.js`、`/styles.css`：Web 资源。
 - `GET /api/docs`、`GET /api/docs/<id>`：「文档」视图的目录与正文，读的是随这份代码发布的 `docs/` 与 `README.md`（`src/ui/web/docs.js`），与当前项目目录无关。id 由相对路径推出，只按已扫出的表命中，请求里的路径片段不进文件系统；未命中回 `no such document`。
-- `POST /api/action`：JSON `{method, params}`，只允许用户输入、任务维护、`branch.merge/sync` 和 notice / plan 用户动作。
+- `POST /api/action`：JSON `{method, params}`，只允许用户输入、任务维护、`branch.merge/sync/archive` 和 notice / plan 用户动作。
 
 上面那份动作白名单就是代码里的 `MUTATIONS`。读取路由：
 
