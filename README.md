@@ -63,6 +63,7 @@ lush task merge 3       # 如果冲突：主树回到合并前，并开一个解
 lush task cleanup 3     # 合并后安全回收 worktree 与任务分支（--keep-branch 留分支作恢复点）
 lush branch tree        # 分支谱系：谁从谁创建出来（不是 commit graph，也不是任务树）
 lush branch show lush/…/7-auth-ui   # 一条分支的 parent / fork commit / task / worktree 与祖先链
+lush branch archive lush/…/7-auth-ui  # 不要这条分支了：删 worktree 与本地 ref，任务、事件与会话留在库里
 lush daemon stop
 ```
 
@@ -155,6 +156,7 @@ planner 不直接派活：它把每条可独立完成的工作写成拆解队列
 - **分支图是主要交付界面**。每条 fork 连线显示 child 相对 parent 的 ahead/behind，并区分「可 fast-forward」「已分歧」「已进入父分支」「ref 缺失」。一条分支还有未收拢子分支时不能向上落地。
 - `branch merge CHILD`（图上的「合入父分支」）只把 child fast-forward 到 recorded direct parent；父分支未检出时用 compare-and-swap 更新 ref，已检出时要求 worktree 干净并同步 index/工作目录。
 - 父子已分歧时用 `branch sync CHILD`。runtime 从 child tip 创建 merger 子分支，让 agent 合入冻结的 parent commit、在子侧解决冲突并测试；之后先 FF 回 child，再 FF 到 parent。父分支上永不直接 `--no-ff`，最终落地树就是测试过的树。
+- 不再要某条分支的代码时用 `branch archive BRANCH [--discard]`（图上的「归档」）。它删掉该分支的 worktree 与本地 ref，但保留分支记录（`branches.status` 标 `archived`）、任务行、消息、事件，以及不随 worktree 消失的 pi 会话文件（`.lush/sessions/`）。归档明知可能未合并也允许删，因此是用户专属的显式动作；默认要求 worktree 干净，只有 `--discard` 才会连着未提交改动一起丢。与「证明已进入目标分支才删」的 `task cleanup` 不是一回事。
 - `task merge` / 批量交付保留为兼容入口，最终遵循同一条 direct-parent / ff-only 规则；批量在首个分歧处停止。
 - `task cleanup ID [--keep-branch]` 不使用 `--force`：branch tip 必须仍包含任务审阅提交，并且整个 tip 已进入直接父分支，才用 compare-and-delete 回收。聚合过子分支的任务分支也能安全清理，不会把额外提交当成漂移丢掉。
 - `task clear`（`bun run clear`，Web 项目概览里的「清空任务看板」）一键删掉**全部已结束任务**及其消息、通知、事件与 `inputs` / `drafts` 审计，并先按与 `task cleanup` 相同的安全门回收磁盘状态：能回收的连 `.lush/worktrees/<id>-<name>/`、检验对照检出、任务分支与每条输入的 `input-<id>` 一起删，返回值 `reclaimed` 给出 `{worktrees, branches, anchors}`。有 `queued`/`running`/`waiting`/`awaiting` 任务、或还有 invocation 在收尾时**拒绝执行**，不会隐式取消。回收不掉的任务（未合并成果、审阅后被改过的分支、脏工作区）连同目录与分支一起保留在磁盘上，`retained.tasks` 列出 `{id, branch, workspace, baseline_workspace, reason}`，被动过的锚点在 `retained.anchors` 里说明原因；`.lush/sessions/` 与检验报告不受影响。因为目录与分支名里带着 task id / input id，清空后 **id 不从 1 重新开始**，新任务与新输入不会撞上保留的旧目录。
@@ -189,6 +191,7 @@ bun run branch show 3       # 按 branch 名或 task id 查一条分支的 paren
 bun run branch import       # 把旧项目已有本地分支登记成记录（不推断 parent）
 bun run branch merge lush/…/7-auth-ui  # ff-only 合回直接父分支
 bun run branch sync lush/…/7-auth-ui   # 分歧时在子侧创建 merger
+bun run branch archive lush/…/7-auth-ui  # 归档：删 worktree 与 ref，保留任务、事件与会话（--discard 才丢未提交改动）
 bun run wait 3              # 只有当前客户端等待，不影响调度
 bun run web                 # 后台起 Web（默认 4318），命令立刻返回
 bun run web-status          # 在不在跑、跑的是不是这份代码、日志在哪

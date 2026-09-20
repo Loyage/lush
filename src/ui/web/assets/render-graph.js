@@ -3,9 +3,9 @@
  * 与每条分支下的任务 / worktree / 目标分支关系，以及任务之间的堆叠（code）/顺序（order）/
  * 解冲突（resolve）/检验（verify）关系。
  *
- * 视图本身只读：节点点击只跳任务详情。写操作只有父分支关系上的三个按钮——「合入父分支」、
- * 「让子分支跟上父分支」、「在子分支解决分歧」，分别与 CLI 的 `branch merge` / `branch catchup` /
- * `branch sync` 同源。
+ * 视图只读展示，写操作只有四个按钮：父分支关系上的「合入父分支」/「让子分支跟上父分支」/
+ * 「在子分支解决分歧」，以及可归档分支上的「归档」，分别与 CLI 的 `branch merge` / `branch catchup` /
+ * `branch sync` / `branch archive` 同源；节点点击只跳任务详情。
  * 幂等：同一份数据重画不重复建节点、不重建外层容器，所以 1.5s 轮询不会把滚动位置冲掉。
  */
 import { $, button, el } from './dom.js';
@@ -22,6 +22,7 @@ const BRANCH_STATUS = {
   merged: { label: '已合并', className: 'ok' },
   ready: { label: '待合并', className: '' },
   empty: { label: '空', className: '' },
+  archived: { label: '已归档', className: '' },
 };
 
 /** 分支来源映射：来源 -> 中文描述 */
@@ -90,6 +91,17 @@ async function runBranchAction(method, branch) {
         ? (result.already_integrated ? `${branch} 已经与父分支一致，无需快进` : `${branch} 已 fast-forward 跟上 ${result.parent}`)
       : (result.needs_sync ? `${branch} 已与父分支分歧，请先在子分支侧解决分歧`
         : result.already_integrated ? `${branch} 已经在 ${result.parent} 中` : `${branch} 已 fast-forward 合入 ${result.parent}`);
+    await loadGraph();
+  } catch (error) { $('error').textContent = error.message; }
+}
+
+/** 归档：删掉分支与 worktree，任务与会话留在库里；未提交改动只能连 worktree 一起丢，所以先确认。 */
+async function runBranchArchive(branch) {
+  if (!confirm(`归档 ${branch}？\n会删除分支与 worktree，保留任务与会话，未提交改动会被丢弃。`)) return;
+  try {
+    const result = await action('branch.archive', { branch, discard: true });
+    const dropped = result?.discarded ? '，已丢弃未提交改动' : '';
+    $('error').textContent = `${branch} 已归档（worktree ${result?.worktree ?? 'absent'}、分支 ${result?.ref ?? 'absent'}${dropped}）；任务与会话已保留`;
     await loadGraph();
   } catch (error) { $('error').textContent = error.message; }
 }
@@ -193,7 +205,8 @@ function branchRow(branch, onCollapsed) {
   const meta = el('div', undefined, 'graph-branch-meta');
   // 有子分支还没收拢时不能合并：这条提示只和 fork 边有关，但不适合塞进挤满 chip 的表头行。
   if (edge?.blockers?.length) meta.append(el('span', `先收拢子分支：${edge.blockers.join('、')}`, 'graph-branch-blocker'));
-  const statusInfo = BRANCH_STATUS[branch.status];
+  // 归档分支的状态固定显示「已归档」，不被汇总出来的旧状态盖掉。
+  const statusInfo = branch.archived ? BRANCH_STATUS.archived : BRANCH_STATUS[branch.status];
   if (statusInfo) {
     meta.append(el('span', statusInfo.label, `chip ${statusInfo.className}`.trim()));
   }
@@ -216,6 +229,9 @@ function branchRow(branch, onCollapsed) {
     meta.append(el('span', `任务：${branch.taskCounts.total}（${parts.join('，')}）`, 'meta'));
   }
   if (meta.children.length > 0) row.append(meta);
+
+  // 只有「可归档且尚未归档」的分支才给动作；当前检出、未登记、还有活没完的都不给。
+  if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch.name), 'ghost'));
 
   return row;
 }

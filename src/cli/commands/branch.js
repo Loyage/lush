@@ -1,6 +1,6 @@
 import { check } from '../../core/types.js';
 import { exact } from '../args.js';
-import { printBranchTree, printBranchShow, printBranchImport } from '../print.js';
+import { printBranchTree, printBranchShow, printBranchImport, printBranchArchive } from '../print.js';
 
 /** branch：分支谱系（谁从谁创建出来），与任务树、commit graph 都是不同维度。 */
 export async function run(command, args, ctx) {
@@ -30,8 +30,14 @@ export async function run(command, args, ctx) {
   } else if (verb === 'catchup') {
     exact(args, 1);
     value = await client.request('branch.catchup', { branch: args[0] });
+  } else if (verb === 'archive') {
+    const discard = args.includes('--discard');
+    if (discard) args.splice(args.indexOf('--discard'), 1);
+    exact(args, 1);
+    value = await client.request('branch.archive', { branch: args[0], discard });
+    if (!json) { printBranchArchive(value); return; }
   } else {
-    check(false, 'unknown branch command; use tree, show, import, merge, sync or catchup');
+    check(false, 'unknown branch command; use tree, show, import, merge, sync, catchup or archive');
   }
   return value;
 }

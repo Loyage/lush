@@ -18,6 +18,6 @@ CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 t
 
 `system.status` 里 `agents` 只列运行中的 agent，另有 `agents_total`（每个活动 task 一个 agent）与 `agents_idle`（已 park、未在跑的，含尚未首次唤醒的）。`pending_merges` 以原 worker 为稳定项统计 `integration=pending/review/conflict`，不把它的 resolver 再重复计数；完整交付阶段、实际 `source_task_id` 与 blockers 见 `task.ladder.groups`。`merge_freeze` 列出正被未解决冲突冻结的目标分支。agent 身份本身（id / 唤醒次数 / 上次动手时间）可以跨唤醒读取，但它不是可寻址的执行句柄：用户操作一律按 task ID 进行。
 
-以下操作限用户：system.stop、input.submit、task.cancel/retry/merge/cleanup/clear、branch.import/merge/sync、notice.answer/dismiss。CLI 另禁止 agent 启动 daemon、Web 或阻塞等待。
+以下操作限用户：system.stop、input.submit、task.cancel/retry/merge/cleanup/clear、branch.import/merge/sync/archive、notice.answer/dismiss。CLI 另禁止 agent 启动 daemon、Web 或阻塞等待。
 
 本地用户可以不带 token 调用 RPC，这是明确的信任边界，不是多用户 ACL。能执行任意本机命令的恶意 agent 也能绕过环境约定；需要真正沙箱时应另加 OS 隔离。

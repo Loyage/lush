@@ -36,7 +36,9 @@ function summarize(text) {
  * 每个分支节点另外回答三个问题（只增不改，老字段照旧）：`origin`（这条分支因何存在：输入锚点 /
  * 任务分支 / import 登记 / 只有本地 ref / 占位名）与配套的 `title`、`source_id`、`created_at`；
  * `status` + `tasks`（这条分支自己的任务连同全部后代分支任务的汇总口径：active / failed /
- * merged / ready / empty）。这些都只是读 store 已有事实，不写库、不改 git。
+ * merged / ready / empty）。归档过的分支另带 `archived` / `archived_at` / `deleted`，状态固定为
+ * `archived`（不被汇总口径改写），它名下的任务节点也标 `archived:true`，仍然留在图上。
+ * 这些都只是读 store 已有事实，不写库、不改 git。
  * fork 边在 `status`（fast_forward / diverged / integrated / missing / unknown）与 ahead/behind 之外
  * 再给三个可执行动作：`can_merge`（子→父 fast-forward）/ `can_sync`（分歧时建子侧 merger）/ `can_catchup`
  * （父→子 fast-forward，子分支没有独有提交时才能跟上）。
@@ -72,11 +74,14 @@ export default {
         base_commit, head_commit, target_branch, baseline_workspace, resolves_task_id, verifies_task_id
         FROM tasks WHERE role IN (${TASK_ROLE_SQL}) ORDER BY id DESC`);
       // 没有分支也没有 worktree（含已完整回收）的任务不进图：它没有任何可画的关系。
+      // 归档会把 workspace 清成 null，但 branch 是历史、必须留着，所以归档分支上的任务照旧留在图上。
       const candidates = rows.filter(row => row.branch || row.workspace || row.baseline_workspace);
 
       // 分支节点名：记录 ∪ 现在的 ref ∪ 当前检出 ∪ 占位父名。记录是历史事实，ref 是现状，
       // 两者都不丢；只被 parent 提到的名字补占位节点，否则它的子分支会从树上消失。
       const records = new Map(this.store.branches().map(row => [row.branch, row]));
+      /** 归档分支：branches.status === 'archived'。它的 ref / worktree 已经没了，但任务行还留着。 */
+      const isArchivedBranch = name => Boolean(name) && records.get(name)?.status === 'archived';
       const branchNames = new Set(records.keys());
       if (currentBranch) branchNames.add(currentBranch);
       for (const name of refs.keys()) branchNames.add(name);
@@ -171,6 +176,11 @@ export default {
             else if (task.status === 'completed') counts.completed += 1;
           }
         }
+        // 归档是记录状态，不是 git 现状：ref 已经删掉，但分支记录与工作信息都还在。
+        const archived = record?.status === 'archived';
+        // 分支的 worktree 只在创建那一刻记进 branches 行；目录被归档/清理后就报 missing，不假装还在。
+        const worktree = record?.worktree ?? null;
+        const worktree_state = worktree ? (fs.existsSync(worktree) ? 'present' : 'missing') : 'none';
         nodes.push({
           kind: 'branch', id: branchId(name), name,
           head_commit: refs.get(name) ?? null,
@@ -183,7 +193,15 @@ export default {
             : null,
           source_id: origin === 'input' ? input.id : origin === 'task' ? record?.task_id ?? owner?.id ?? null : null,
           created_at: record?.created_at ?? null,
-          status: counts.active ? 'active' : counts.failed ? 'failed' : !counts.total ? 'empty'
+          worktree,
+          worktree_state,
+          // 归档分支：状态固定为 archived（不被 active/merged 这类汇总口径改写），并带上归档时间。
+          // 时间戳复用 branches.deleted_at——markBranchArchived 与 markBranchDeleted 同口径，不另造一列。
+          archived,
+          archived_at: archived ? record?.deleted_at ?? null : null,
+          deleted: record?.status === 'deleted',
+          status: archived ? 'archived'
+            : counts.active ? 'active' : counts.failed ? 'failed' : !counts.total ? 'empty'
             : relations.get(name)?.status === 'integrated' ? 'merged' : 'ready',
           tasks: counts,
         });
@@ -213,6 +231,8 @@ export default {
           goal: String(row.goal ?? '').slice(0, 120),
           status: row.status, integration: row.integration,
           branch: row.branch ?? null, workspace: workspacePath, workspace_state, branch_state,
+          // 任务的分支已经归档：ref/worktree 都没了，但这是预期状态，节点照旧画在图上。
+          archived: isArchivedBranch(row.branch),
           base_commit: row.base_commit ?? null, head_commit: headCommit ?? null, reviewed_commit: row.head_commit ?? null,
           target_branch: row.target_branch ?? null, ahead, behind, merged,
           current: Boolean(row.branch) && row.branch === currentBranch,

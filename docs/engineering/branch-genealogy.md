@@ -1,6 +1,6 @@
 # 分支谱系（Branch Genealogy）
 
-本文件管「branch 之间的创建 / 派生关系」：数据结构、写入时机、`recorded` 与 `unknown` 的区别、删除后的处理，以及 `lush branch *` 的用法。
+本文件管「branch 之间的创建 / 派生关系」：数据结构、写入时机、`recorded` 与 `unknown` 的区别、删除与归档后的处理，以及 `lush branch *` 的用法。
 
 ## 它是什么，不是什么
 
@@ -36,13 +36,14 @@ Git 不保存「B 是从 A 创建的」这种关系：`merge-base`、reflog、co
 | `created_from_commit` | 创建分支那一刻父分支（或冻结基线）指向的 commit SHA——parent 之后往前走也查得到当时的起点 |
 | `task_id` | 创建它的 task id；故意没有外键。输入聚合分支为 `NULL`（通过 `inputs.anchor_branch` 关联） |
 | `worktree` | 对应的 worktree 路径（创建时写入；现在还在不在由读模型的 `worktree_exists` 回答） |
-| `status` | `active` / `deleted`（`deleted` 只由回收路径写入，见下） |
-| `created_at` / `deleted_at` | 写入与标记删除的时间 |
+| `status` | `active` / `archived` / `deleted`；只有回收（`dropBranch` / `dropAnchor`）与归档（`archiveBranch`）两条路径写它，见下 |
+| `created_at` / `deleted_at` | 写入与标记删除的时间；归档复用 `deleted_at`（都表示「这条分支什么时候从磁盘上消失」），不另加列 |
 
-写入只有两个入口，都在 Git 边界里，没有第二套分支创建机制：
+创建与状态写入都在 Git 边界里，没有第二套分支创建机制；谱系行的写入口只有下面这些：
 
 1. **创建**：`Workspaces#anchor`（输入分支）与 `Workspaces#ensure`（任务 worktree）在 `git worktree add -b <branch> <dir> <commit>` **之前**先落库。输入分支的 `parent` 是用户提交时指定的本地分支；普通任务的 parent 是输入分支，`code` 下游的 parent 是上游任务分支，branch-sync merger 的 parent 是待同步 child。任务 `target_branch` 与这个直接 parent 一致。
-2. **删除**：`Workspaces#dropBranch`（任务分支）与 `Workspaces#dropAnchor`（兼容命名：输入分支）在 compare-and-delete 成功后标 `deleted`，不删谱系行。
+2. **回收**：`Workspaces#dropBranch`（任务分支）与 `Workspaces#dropAnchor`（兼容命名：输入分支）在 compare-and-delete 成功后标 `deleted`，不删谱系行。
+3. **归档**：`Workspaces#archiveBranch`（经 `Project#archiveBranch`）删掉 worktree 与本地 ref 后标 `archived`，同样不删行。它明知分支可能未合并也允许删，保留任务行、消息、事件与 pi 会话文件，是显式放弃代码的路径——与回收的区别见 [工作区与分支回收](cleanup.md)。
 
 `recordBranch` 是幂等的（`ON CONFLICT DO NOTHING`）：崩溃重试撞见已创建的分支不会重写 parent，**merge 也永远不改谱系**。写操作只允许 child 合回这个 recorded direct parent；导入的 unknown parent 只能看，不能据此合并。
 
@@ -53,7 +54,7 @@ Git 不保存「B 是从 A 创建的」这种关系：`merge-base`、reflog、co
 约定：
 
 - **没有记录、但有 ref** 的本地分支也画出来，标 `[?]`（untracked）——旧项目第一次跑不会是一片空白。
-- **有记录、但 ref 已不在** 的节点标 `[deleted]`，子分支照旧挂在它下面。
+- **有记录、但 ref 已不在** 的节点标 `[deleted]`，子分支照旧挂在它下面；`branches.status` 区分它是被回收（`deleted`）还是被归档（`archived`），`branch show` 与 Web 分支图都会报出来。
 - `*` 是当前检出分支；`parent: unknown` 表示**没有** parent 记录，不是「推断不出来所以随便填了一个」。
 
 ## CLI
@@ -62,9 +63,10 @@ Git 不保存「B 是从 A 创建的」这种关系：`merge-base`、reflog、co
 lush branch tree [--verbose]        # 谱系树；--verbose 每节点给出 task / worktree / fork / parent
 lush branch show BRANCH|TASK_ID     # 一条分支的 parent、fork commit、task、worktree、祖先链、子分支
 lush branch import                  # 把现有本地分支登记成记录（只记存在与 worktree，不推断 parent）
+lush branch archive BRANCH [--discard]  # 归档：删 worktree 与本地 ref，保留任务、事件与会话；--discard 才会丢弃未提交改动
 ```
 
-`branch show` 接受分支短名，也接受纯数字 task id。RPC 另有用户专属 `branch.merge`（ff-only 合回直接父分支）与 `branch.sync`（分歧时创建子侧 merger）；交互主入口是 Web 分支图。
+`branch show` 接受分支短名，也接受纯数字 task id。RPC 另有用户专属 `branch.merge`（ff-only 合回直接父分支）、`branch.sync`（分歧时创建子侧 merger）与 `branch.archive`（归档，允许未合并）；交互主入口是 Web 分支图。
 
 ### 已有分支怎么办
 
@@ -75,7 +77,7 @@ lush branch import                  # 把现有本地分支登记成记录（只
 
 要真的引入启发式推断时，写进去的关系必须是 `parent_relation='inferred'`，与 `recorded` 在数据和视图上都分得开。
 
-### 分支被删除之后
+### 分支被删除或归档之后
 
 谱系表示**历史上的创建关系**，不因为 ref 消失就丢：
 
@@ -87,6 +89,8 @@ main
 ```
 
 `dropBranch` 会把 `status` 标成 `deleted`；外部（用户自己 `git branch -D`）删掉的分支，读模型按 ref 现状显示 `[deleted]`，不会去改库。
+
+归档同理：`archived` 是 `status` 的第三个取值，不删行、不动子分支的 `parent` 指针；归档过的节点照旧画出来（Web 分支图显示「已归档」），子分支仍挂在它下面。所以「ref 已不在」与「行已被删」是两回事，读模型永远按 `branches` 行与 git 现状合并出节点。
 
 ## 并发与一致性
 

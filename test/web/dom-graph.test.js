@@ -1,6 +1,6 @@
 import { test, expect, afterAll } from 'bun:test';
 import { installDom, deepText } from '../dom-stub.js';
-import { makeWorld } from './dom-world.js';
+import { makeWorld, iso, NOW } from './dom-world.js';
 
 // 分支图视图：#graph hash、分支谱系嵌套、任务节点、缺失标注、点节点进详情、幂等刷新、轮询不覆盖、
 // 最长陈旧时间自动重拉。每个 DOM 测试文件自给自足：自己建 world、装 stub，再显式装配一次当前 DOM。
@@ -126,6 +126,63 @@ test('分支图：最长陈旧时间到期自动重拉，UI 外新建的分支�
   ui.graphFetchedAt = Date.now() - 10001;
   await dom.intervalFor(1500)();
   expect(deepText(dom.node('detail'))).toContain('lush/demo/2-fresh');
+});
+
+test('分支图：可归档分支才有归档按钮，确认后发 branch.archive 并显示已归档', async () => {
+  await openGraph();
+  const saved = JSON.parse(JSON.stringify(world.state.graph));
+  try {
+    const detail = dom.node('detail');
+    // 分支表头的那一行：嵌套子分支在别的 graph-group 里，不能用 block 去查，否则会看到子分支的按钮。
+    const branchRow = name => detail.querySelectorAll('span.graph-branch-name')
+      .find(node => node.textContent.includes(name)).parentNode;
+    const archiveButton = name => branchRow(name).querySelectorAll('button').find(node => node.textContent === '归档');
+    // 只有 archivable 才给动作：当前检出（main）、未登记（release / feature）、ref 与 worktree 都没了（3-three）都不给。
+    expect(archiveButton('lush/demo/1-one')).toBeTruthy();
+    expect(archiveButton('lush/demo/2-two')).toBeTruthy();
+    expect(archiveButton('lush/demo/input-1-anchor')).toBeTruthy();
+    expect(archiveButton('main')).toBeFalsy();
+    expect(archiveButton('release')).toBeFalsy();
+    expect(archiveButton('feature/scratch')).toBeFalsy();
+    expect(archiveButton('lush/demo/3-three')).toBeFalsy();
+    const button = archiveButton('lush/demo/1-one');
+
+    await button.onclick();
+    // 删除不可撤销，所以先确认，并把代价写清楚。
+    expect(dom.confirms.at(-1)).toContain('会删除分支与 worktree，保留任务与会话，未提交改动会被丢弃');
+    expect(world.state.actions).toContainEqual({ method: 'branch.archive', params: { branch: 'lush/demo/1-one', discard: true } });
+    // 成功后重新拉图：这条分支变成已归档、不再有归档按钮，结果写在 #error。
+    expect(deepText(branchRow('lush/demo/1-one'))).toContain('已归档');
+    expect(archiveButton('lush/demo/1-one')).toBeFalsy();
+    expect(dom.node('error').textContent).toContain('lush/demo/1-one');
+    expect(dom.node('error').textContent).toContain('已归档');
+  } finally { world.state.graph = saved; await openGraph(); }
+});
+
+test('分支图：归档分支下的任务显示已归档而不是缺失分支', async () => {
+  const saved = world.state.graph;
+  world.state.graph = {
+    generated_at: new Date().toISOString(), current_branch: 'main', truncated: false, git: true, error: null,
+    nodes: [
+      { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'aaa', current: true, tracked: false, placeholder: false },
+      { kind: 'branch', id: 'branch:lush/demo/7-old', name: 'lush/demo/7-old', head_commit: null, current: false, tracked: true,
+        placeholder: false, archived: true, archived_at: iso(NOW), status: 'archived', worktree_state: 'missing' },
+      { kind: 'task', id: 7, role: 'worker', name: 'seven', goal: '归档掉的分支工作', status: 'completed', integration: 'none',
+        branch: 'lush/demo/7-old', workspace: null, workspace_state: 'none', branch_state: 'missing', archived: true,
+        base_commit: 'aaa', head_commit: 'bbb', target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
+    ],
+    edges: [],
+  };
+  try {
+    await openGraph();
+    const detail = dom.node('detail');
+    const text = deepText(detail);
+    expect(text).toContain('归档掉的分支工作');
+    expect(text).toContain('已归档');
+    // 归档是预期状态，不该再报「缺失分支」；已归档的分支也不再提供归档动作。
+    expect(text).not.toContain('⚠ 缺失分支');
+    expect(detail.querySelectorAll('button').some(node => node.textContent === '归档')).toBe(false);
+  } finally { world.state.graph = saved; await openGraph(); }
 });
 
 test('分支图：空图沿用原来的提示文案', async () => {
