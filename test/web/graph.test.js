@@ -58,15 +58,16 @@ const branchNode = (name, extra = {}) => ({ kind: 'branch', id: `branch:${name}`
 const layoutOf = nodes => graphLayout({ current_branch: 'main', nodes, edges: [] });
 const entryOf = (nodes, name) => layoutOf(nodes).forest.find(entry => entry.name === name);
 
-test('graphLayout passes archived/archived_at through the way graph.js emits them', () => {
-  const entry = entryOf([
+test('graphLayout 只画没归档的分支：归档记录还在 graph.js 的返回里，但不占分支树', () => {
+  const nodes = [
     branchNode('lush/x/6-old', { archived: true, archived_at: '2024-01-01T00:00:00.000Z', status: 'archived', head_commit: null }),
     branchNode('lush/x/1-fresh', { status: 'ready', head_commit: 'aaa' }),
-  ], 'lush/x/6-old');
-  expect(entry).toMatchObject({ archived: true, archived_at: '2024-01-01T00:00:00.000Z', status: 'archived' });
-  // 没有归档字段的分支不凭空标 archived。
-  expect(entryOf([branchNode('lush/x/1-fresh', { status: 'ready', head_commit: 'aaa' })], 'lush/x/1-fresh'))
-    .toMatchObject({ archived: false, archived_at: null });
+  ];
+  const layout = layoutOf(nodes);
+  // 归档的分支不画（记录在 branch show / 事件 / 任务详情里）。
+  expect(layout.forest.map(entry => entry.name)).toEqual(['lush/x/1-fresh']);
+  // 没归档的分支照旧带 archived: false，渲染器不再需要特判归档。
+  expect(layout.forest[0]).toMatchObject({ archived: false, archived_at: null });
 });
 
 test('graphLayout marks a branch archivable only when nothing blocks the archive', () => {
@@ -94,7 +95,8 @@ test('graphLayout marks a branch archivable only when nothing blocks the archive
   expect(byName.get('lush/x/2-busy').archivable).toBe(false);
   expect(byName.get('lush/x/3-gone').archivable).toBe(false);
   expect(byName.get('lush/x/5-local').archivable).toBe(false);
-  expect(byName.get('lush/x/6-old').archivable).toBe(false);
+  // 已归档：它根本不会画进分支树，所以也谈不上「可归档」。
+  expect(byName.has('lush/x/6-old')).toBe(false);
 });
 
 test('nodeMarks reports an archived task instead of a missing branch', () => {

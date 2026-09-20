@@ -43,6 +43,11 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     expect(html.indexOf('/appearance.js')).toBeLessThan(html.indexOf('/styles.css'));
     expect(html).toContain('id="theme-toggle"');
     expect((await fetch(f.url + '/appearance.js')).status).toBe(200);
+    // 应用内弹窗（dialog.js）要有落点：容器在页面里，样式在样式表里，否则确认框会画不出来。
+    expect(html).toContain('id="modal"');
+    expect(html).toContain('class="modal-root"');
+    expect(css).toContain('.modal-root{position:fixed');
+    expect(css).toContain('.modal-card{');
   } finally { await f.close(); }
 });
 

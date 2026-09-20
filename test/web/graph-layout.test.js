@@ -130,6 +130,46 @@ const emphasisGraph = () => ({
   ],
 });
 
+test('归档的分支不占分支树：自己与名下任务都不画，后代接到最近的可见祖先上', () => {
+  const graph = {
+    current_branch: 'main',
+    nodes: [
+      branch('main', { current: true }),
+      // 归档：ref 是归档时按预期删掉的；这条分支与它名下的任务都不再画在分支树上。
+      branch('lush/x/archived', { head_commit: null, archived: true, archived_at: '2026-09-20T12:39:43.503Z', status: 'archived' }),
+      task(7, 'lush/x/archived'),
+      // 归档分支的后代还活着（历史遗留：归档曾经只删自己一条）：升到最近的非归档祖先下，不跟着消失。
+      branch('lush/x/orphan', { head_commit: 'bbb' }),
+      branch('lush/x/orphan-gone', { head_commit: null }),
+      // 真·缺失：谁都没归档，子分支的 ref 不见了——这种才是要用户去查的。
+      branch('lush/x/broken', { head_commit: null }),
+    ],
+    edges: [
+      { kind: 'fork', from: 'branch:main', to: 'branch:lush/x/archived', status: 'missing', ahead: null, behind: null },
+      { kind: 'fork', from: 'branch:lush/x/archived', to: 'branch:lush/x/orphan', status: 'missing', ahead: null, behind: null },
+      { kind: 'fork', from: 'branch:lush/x/archived', to: 'branch:lush/x/orphan-gone', status: 'missing', ahead: null, behind: null },
+      { kind: 'fork', from: 'branch:main', to: 'branch:lush/x/broken', status: 'missing', ahead: null, behind: null },
+    ],
+  };
+  const layout = graphLayout(graph);
+  const byName = layoutIndex(layout);
+  // 归档节点自己不在森林里，它名下的任务也不画。
+  expect(byName.has('lush/x/archived')).toBe(false);
+  const taskIds = [];
+  const collect = entry => { taskIds.push(...entry.tasks.map(node => node.id)); entry.children.forEach(collect); };
+  layout.forest.forEach(collect);
+  expect(taskIds).not.toContain(7);
+  // 后代升到 main 下，并带着中性的「父分支已归档」，不是红色的「分支缺失」。
+  expect(names(layout.forest[0].children)).toContain('lush/x/orphan');
+  expect(byName.get('lush/x/orphan').relation).toEqual({ key: 'parent_archived', label: '父分支已归档' });
+  expect(byName.get('lush/x/orphan-gone').relation).toEqual({ key: 'parent_archived', label: '父分支已归档' });
+  // 没有可合的对象，就不算「未合进父分支」——强调与默认展开都不该被它触发。
+  expect([byName.get('lush/x/orphan').unmerged, byName.get('lush/x/orphan').defaultExpanded]).toEqual([false, false]);
+  // 谁都没归档、ref 真的不见：保持原来的「分支缺失」。
+  expect(byName.get('lush/x/broken').relation).toEqual({ key: 'missing', label: '分支缺失' });
+  expect(byName.get('lush/x/broken').unmerged).toBe(true);
+});
+
 test('强调判断：没合进父分支 / 正在工作的分支强调，根分支与已合进的不强调', () => {
   const byName = layoutIndex(graphLayout(emphasisGraph()));
   // 没合进父分支（fast_forward / diverged）强调；integrated 与根分支不强调。

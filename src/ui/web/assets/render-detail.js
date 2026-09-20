@@ -1,5 +1,6 @@
 import { $, badge, block, button, el, kv, statusBadge } from './dom.js';
 import { action } from './api.js';
+import { confirmDialog } from './dialog.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, statusOf } from './format.js';
 import { freezeBlocker } from './merge-select.js';
 import { detail, overview } from './navigate.js';
@@ -84,12 +85,17 @@ export function renderDetail(task, history, diff, usage) {
       : retry ? '重新尝试合并' : task.integration === 'review' ? '检查后重新批准合并' : '批准合并';
     const node = button(label, async () => {
       if (readyResolver) return detail(resolver.id);
-      const lines = [retry ? `重新尝试把 ${task.branch} 合并到 ${task.target_branch}？如果还冲突，会再开一轮解冲突任务。`
-        : `将 ${task.branch} 合并到 ${task.target_branch}？请先审阅代码和测试结果。`];
-      if (stacked.length) lines.push(`本任务 stacked 在 #${stacked.map(edge => edge.id).join('、')} 之上，必须先合并上游，否则会把它的改动一起带进来。`);
-      if (task.resolves_task_id) lines.push('这是解冲突任务：落地用 --ff-only，落地的树就是它测过的那棵树。');
-      if (resolver) lines.push(`解冲突任务 #${resolver.id} 还没落地：重新尝试会明确废弃它（分支与目录仍保留）。`);
-      if (!confirm(lines.join('\n\n'))) return;
+      const caveats = [];
+      if (stacked.length) caveats.push(`本任务 stacked 在 #${stacked.map(edge => edge.id).join('、')} 之上，必须先合并上游，否则会把它的改动一起带进来。`);
+      if (task.resolves_task_id) caveats.push('这是解冲突任务：落地用 --ff-only，落地的树就是它测过的那棵树。');
+      if (resolver) caveats.push(`解冲突任务 #${resolver.id} 还没落地：重新尝试会明确废弃它（分支与目录仍保留）。`);
+      const confirmed = await confirmDialog({
+        title: retry ? `重新尝试把 ${task.branch} 合并到 ${task.target_branch}？` : `将 ${task.branch} 合并到 ${task.target_branch}？`,
+        message: retry ? '如果还冲突，会再开一轮解冲突任务。请先审阅代码和测试结果。' : '请先审阅代码和测试结果。',
+        detail: caveats.join('\n\n') || null,
+        confirmLabel: retry ? '重新尝试' : '合并',
+      });
+      if (!confirmed) return;
       const result = await action('task.merge', { id: task.id });
       if (result?.merge?.status === 'conflict') $('error').textContent = `合并冲突：已开解冲突任务 #${result.merge.resolution_task_id}，请处理左侧的待决问题（${task.target_branch} 上的其它合并已冻结）。`;
       else if (result?.merge?.status === 'resolved') $('error').textContent = `冲突已解决：原任务 #${result.merge.resolved_task_id} 也标成已合并。`;
@@ -102,7 +108,14 @@ export function renderDetail(task, history, diff, usage) {
   const reclaimable = task.status === 'completed' && ['merged', 'none', 'superseded'].includes(task.integration) && (task.workspace || task.branch);
   if (reclaimable) actions.append(button('回收工作区与分支', async () => {
     const plan = [task.workspace && `删除 ${task.workspace}`, task.branch && `回收分支 ${task.branch}`].filter(Boolean).join('\n');
-    if (!confirm(`${plan}\n\n只有分支顶端就是审阅过的那次提交、且已经进入 ${task.target_branch} 时才删；否则分支保留并在事件里说明原因。`)) return;
+    const confirmed = await confirmDialog({
+      title: '回收工作区与分支？',
+      message: `只有分支顶端就是审阅过的那次提交、且已经进入 ${task.target_branch} 时才删；否则分支保留并在事件里说明原因。`,
+      detail: plan || null,
+      confirmLabel: '回收',
+      danger: true,
+    });
+    if (!confirmed) return;
     await action('task.cleanup', { id: task.id }); await detail(task.id);
   }, 'ghost'));
   if (reclaimable && task.workspace && task.branch) actions.append(button('只回收 worktree（保留分支）', async () => { await action('task.cleanup', { id: task.id, keep_branch: true }); await detail(task.id); }, 'ghost'));
@@ -115,7 +128,14 @@ export function renderDetail(task, history, diff, usage) {
     actions.append(node);
   }
   if (!['completed', 'failed', 'cancelled'].includes(task.status)) actions.append(button('取消任务树', async () => {
-    if (confirm('取消这个任务及所有子任务？工作区会保留。')) await action('task.cancel', { id: task.id });
+    const confirmed = await confirmDialog({
+      title: '取消这个任务树？',
+      message: '取消这个任务及所有子任务；工作区会保留。',
+      confirmLabel: '取消任务',
+      cancelLabel: '保留',
+      danger: true,
+    });
+    if (confirmed) await action('task.cancel', { id: task.id });
     await detail(task.id);
   }, 'danger'));
   if (task.parent_id === null && task.role === 'planner') actions.append(

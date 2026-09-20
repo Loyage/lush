@@ -1,5 +1,6 @@
 import { $, block, button, el, kv } from './dom.js';
 import { action } from './api.js';
+import { confirmDialog } from './dialog.js';
 import { HOT, STATUS, absolute, statusOf } from './format.js';
 import { mergeCandidates } from './merge-select.js';
 import { detail, overview } from './navigate.js';
@@ -100,8 +101,20 @@ export function renderOverview(data) {
     maintenance.append(el('p', `删除全部 ${data.tasks.length} 个已结束任务，以及 inputs / drafts / notices / events。能安全回收的连 worktree 目录、对照检出与任务分支、输入锚点一起删；有未合并成果或分支被改过的保留在磁盘上，返回值会列出原因。旧 task id 与 input id 不会被复用。`, 'hint'));
     const actions = el('div', undefined, 'actions');
     actions.append(button('清空任务看板', async () => {
-      if (!confirm(`删除全部 ${data.tasks.length} 个已结束任务？`)) return;
-      if (!confirm('再次确认：库里的任务、输入与事件将不可恢复；已进目标分支的 worktree 目录与分支会一并删除，未合并的保留。')) return;
+      const first = await confirmDialog({
+        title: '清空任务看板？',
+        message: `删除全部 ${data.tasks.length} 个已结束任务。`,
+        confirmLabel: '继续',
+        danger: true,
+      });
+      if (!first) return;
+      const second = await confirmDialog({
+        title: '再次确认：清空看板',
+        message: '库里的任务、输入与事件将不可恢复；已进目标分支的 worktree 目录与分支会一并删除，未合并的保留。',
+        confirmLabel: '清空',
+        danger: true,
+      });
+      if (!second) return;
       const result = await action('task.clear');
       await overview();
       $('error').textContent = `已清空 ${result.cleared.tasks} 个任务、${result.cleared.inputs} 条输入；回收 ${result.reclaimed?.worktrees ?? 0} 个 worktree、${result.reclaimed?.branches ?? 0} 个分支、${result.reclaimed?.anchors ?? 0} 个输入锚点，保留 ${result.retained.tasks.length} 个`;

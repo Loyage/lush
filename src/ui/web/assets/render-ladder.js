@@ -1,5 +1,6 @@
 import { $, block, button, el } from './dom.js';
 import { action } from './api.js';
+import { confirmDialog } from './dialog.js';
 import { MERGE_STATUS } from './format.js';
 import { isMergeable, ladderEdges, mergeCandidates, previewMergeOrder } from './merge-select.js';
 import { detail, refresh } from './navigate.js';
@@ -29,7 +30,13 @@ export async function mergeBatch(ids, candidates) {
     const source = candidate?.merge_id && candidate.merge_id !== taskId ? `（落地解冲突结果 #${candidate.merge_id}）` : '';
     return `${index + 1}. #${taskId}${candidate?.goal ? ` ${String(candidate.goal).slice(0, 40)}` : ''}${source}`;
   });
-  if (!confirm(`将向 ${targets[0]} 依次交付 ${order.length} 个变更（只按代码基线排序，遇到冲突或错误就停止；此前已成功的不会回滚）：\n\n${lines.join('\n')}\n\n请先确认代码与测试结果都已审阅。`)) return;
+  const confirmed = await confirmDialog({
+    title: `向 ${targets[0]} 依次交付 ${order.length} 个变更？`,
+    message: '只按代码基线排序，遇到冲突或错误就停止；此前已成功的不会回滚。请先确认代码与测试结果都已审阅。',
+    detail: lines.join('\n'),
+    confirmLabel: '开始交付',
+  });
+  if (!confirmed) return;
   const result = await action('task.merge_many', { ids: picked.map(candidate => candidate.id) });
   ui.lastMergeResult = { requested: order, result };
   ui.overviewKey = null;

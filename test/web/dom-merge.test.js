@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, findByText, deepText } from '../dom-stub.js';
+import { installDom, findByText, deepText, dialogText, answerDialog } from '../dom-stub.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
 // 批量合并：候选过滤、冻结不可选、依赖顺序确认、逐条结果。
@@ -52,10 +52,13 @@ test('批量合并：只列出能合的任务，冻结的不给选，按依赖�
   expect(mergeSelected).toBeTruthy();
   expect(mergeSelected.disabled).toBe(false);
 
-  await mergeSelected.onclick();
-  // 确认框把目标分支、代码基线顺序与“可能部分成功”说清楚。
-  expect(dom.confirms.at(-1)).toContain('向 release 依次交付 1 个变更');
-  expect(dom.confirms.at(-1)).toContain('#3');
+  // 批量交付也走应用内弹窗：确认前不发请求，确认框把目标分支、代码基线顺序与“可能部分成功”说清楚。
+  const pending = mergeSelected.onclick();
+  expect(dialogText(dom)).toContain('向 release 依次交付 1 个变更');
+  expect(dialogText(dom)).toContain('#3');
+  expect(world.state.actions).toEqual([]);
+  await answerDialog(dom, '开始交付');
+  await pending;
   // 请求只带勾选的 id；顺序由运行时按依赖决定。
   expect(world.state.actions).toEqual([{ method: 'task.merge_many', params: { ids: [3] } }]);
   // 结果逐条展示，刷新后仍在页面上。
