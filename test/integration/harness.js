@@ -1,3 +1,4 @@
+import http from 'node:http';
 import { ROOT } from '../../src/identity.js';
 import { env } from '../helpers.js';
 
@@ -22,4 +23,44 @@ export async function schedulerOf(client, plannerTaskId) {
     await Bun.sleep(30);
   }
   return null;
+}
+
+/* ---------- Web 进程：前台阻塞的命令只能在后台起，靠端口判断它到底在不在 ---------- */
+
+/** 先占一个端口拿到内核挑的号，再放掉；这点竞态窗口对本地测试足够小。 */
+export function freePort() {
+  const probe = Bun.serve({ port: 0, fetch: () => new Response('probe') });
+  const { port } = probe;
+  probe.stop(true);
+  return port;
+}
+
+/** 起一个真的 Web 进程（`web` 或 `web-restart`）；它自己不会退，测试结束时记得 kill。 */
+export function webProcess(root, port, command = 'web') {
+  return Bun.spawn([process.execPath, 'scripts/ops.js', command, String(port), '--project', root], {
+    cwd: ROOT, env: env(), stdout: 'pipe', stderr: 'pipe',
+  });
+}
+
+/** 用 node:http 而不是全局 fetch：它不会跟着机器上的代理跑偏。 */
+export function httpStatus(port) {
+  return new Promise((resolve, reject) => {
+    const request = http.request(`http://127.0.0.1:${port}/`, { method: 'GET' }, response => {
+      response.resume();
+      response.on('end', () => resolve(response.statusCode));
+    });
+    request.on('error', reject);
+    request.end();
+  });
+}
+
+/** 等这个端口答一个 200（Web 起来了）或彻底不答（Web 走了）。 */
+export async function waitForWeb(port, expected = true, timeout = 10000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    const status = await httpStatus(port).catch(() => null);
+    if (expected ? status === 200 : status === null) return status;
+    await Bun.sleep(30);
+  }
+  throw new Error(`web on port ${port} did not ${expected ? 'answer' : 'go away'} in ${timeout}ms`);
 }

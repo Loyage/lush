@@ -29,6 +29,10 @@
   `src/ui/web/docs.js`，读的是随代码发布的 `docs/` 与 `README.md`，与当前项目目录无关，
   只按扫出来的 id 查表命中。认证边界也在 `server.js`：无 `.lush/web.json` 时只监听本机；
   有配置时监听公网，并用 `/login`、`/logout` 与 HttpOnly 会话 Cookie 保护全部页面、资源和 API。
+- Web 进程的生命周期在 `src/ui/web/control.js`：`webListenerPids(port)` 认出端口上的监听者，
+  `stopStaleWeb(port)` 只停命令行确实是 Lush Web 的进程（`ops.js web` / `bin/lush-web` / `ui/web/server.js`，
+  先 SIGTERM、超时才 SIGKILL），`busyPortHint(port)` 在端口被别人占着时把命令行原样报出来。
+  `bun run web-restart` 就是「停下旧的 + 前台起一个新的」；Web 进程不会跟着代码换版本，这是换版的正路。
 - 环境变量与 agent capability 语义（`LUSH_PROJECT` / `LUSH_HOME` / `LUSH_TASK_ID` / `LUSH_AGENT_TOKEN`）。
 
 ## 分区总览
@@ -173,7 +177,7 @@
 | `cli/commands/spec.js` | `spec` | `run` |
 | `cli/commands/plan.js` | `plan` | `run` |
 | `cli/commands/notice.js` | `notice` | `run` |
-| `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` | `run` |
+| `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` / `web-restart` | `run` |
 | `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒 | `main(argv)`（并 re-export `HELP`） |
 
 ## 6. RPC：`src/rpc/protocol.js` + `src/rpc/`

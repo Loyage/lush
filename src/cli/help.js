@@ -48,6 +48,8 @@ lush [--project PATH] [--json] <command>
   notice answer ID '答复'
   notice dismiss ID
   web [PORT]                      Web UI（默认仅本机；.lush/web.json 开启公网监听与登录认证）
+  web-restart [PORT]              停掉端口上那个旧 Web 进程再起一个新的：Web 进程不会跟着代码
+                                  换版本，改完 src/ui/web/ 用这条命令；只停命令行确实是 Lush Web 的进程
 
 默认从当前目录向上发现项目；--project 或 LUSH_PROJECT 显式绑定。
 状态固定保存在 <project>/.lush/，不再支持全局 LUSH_HOME。

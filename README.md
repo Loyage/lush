@@ -105,7 +105,7 @@ verifier 与被检验任务是两个 task（worker 已经终态，不能再挂�
 - 实现任务需要项目是 **Git worktree 根目录且有初始提交**。主工作树可以有未提交改动：worker 只基于**已提交**的 HEAD（或 `code` 依赖的上游分支）开工，看不到你未提交的编辑。这份分歧会记进 `workspace.created` 事件，`task diff` 的 `base_behind` 给出基线落后目标分支多少提交。把 `.lush/` 加进项目的 `.gitignore`；Lush 不会替你提交、暂存或藏起已有改动，**合并时主工作树必须干净**。
 - 非 Git 项目也能提交输入和调研，但不能创建实现 worktree。
 - `LUSH_PROVIDER=mock bun run start --project ...` 可离线演示调度。Mock 只派调研任务，不调用模型、不修改代码。
-- 改环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。
+- 改环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。Web 是另一个进程：改完 `src/ui/web/` 用 `bun run web-restart`（它会先停掉端口上那个旧 Web）；`daemon-restart` 不会动它，而直接再跑 `bun run web` 只会撞端口。
 
 ## 新模型
 
@@ -178,6 +178,7 @@ bun run cleanup 3           # 回收 worktree 与分支（--keep-branch 只回�
 bun run clear               # 一键清空已结束任务并回收可安全回收的 worktree/分支
 bun run wait 3              # 只有当前客户端等待，不影响调度
 bun run web
+bun run web-restart         # 改完 src/ui/web/ 换掉端口上那个旧 Web 进程（它不会跟着代码换版本）
 bun run daemon-restart
 bun run stop
 ```

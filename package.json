@@ -20,6 +20,7 @@
     "status": "bun ./scripts/ops.js status",
     "log": "bun ./scripts/ops.js log",
     "web": "bun ./scripts/ops.js web",
+    "web-restart": "bun ./scripts/ops.js web-restart",
     "say": "bun ./scripts/ops.js say",
     "draft": "bun ./scripts/ops.js draft",
     "drafts": "bun ./scripts/ops.js drafts",
