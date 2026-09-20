@@ -20,6 +20,7 @@ const BRANCH_STATUS = {
   merged: { label: '已合并', className: 'ok' },
   ready: { label: '待合并', className: '' },
   empty: { label: '空', className: '' },
+  archived: { label: '已归档', className: '' },
 };
 
 /** 分支来源映射：来源 -> 中文描述 */
@@ -87,6 +88,17 @@ async function runBranchAction(method, branch) {
   } catch (error) { $('error').textContent = error.message; }
 }
 
+/** 归档：删掉分支与 worktree，任务与会话留在库里；未提交改动只能连 worktree 一起丢，所以先确认。 */
+async function runBranchArchive(branch) {
+  if (!confirm(`归档 ${branch}？\n会删除分支与 worktree，保留任务与会话，未提交改动会被丢弃。`)) return;
+  try {
+    const result = await action('branch.archive', { branch, discard: true });
+    const dropped = result?.discarded ? '，已丢弃未提交改动' : '';
+    $('error').textContent = `${branch} 已归档（worktree ${result?.worktree ?? 'absent'}、分支 ${result?.ref ?? 'absent'}${dropped}）；任务与会话已保留`;
+    await loadGraph();
+  } catch (error) { $('error').textContent = error.message; }
+}
+
 /** fork 连线也是操作面：颜色与文案说明能否直接 FF，分歧时从子侧创建同步任务。 */
 function edgeRow(branch) {
   const edge = branch.incoming;
@@ -121,7 +133,8 @@ function branchRow(branch) {
 
   // 分支元数据：状态、标题、来源、创建时间、任务计数
   const meta = el('div', undefined, 'graph-branch-meta');
-  const statusInfo = BRANCH_STATUS[branch.status];
+  // 归档分支的状态固定显示「已归档」，不被汇总出来的旧状态盖掉。
+  const statusInfo = branch.archived ? BRANCH_STATUS.archived : BRANCH_STATUS[branch.status];
   if (statusInfo) {
     meta.append(el('span', statusInfo.label, `chip ${statusInfo.className}`.trim()));
   }
@@ -144,6 +157,9 @@ function branchRow(branch) {
     meta.append(el('span', `任务：${branch.taskCounts.total}（${parts.join('，')}）`, 'meta'));
   }
   if (meta.children.length > 0) row.append(meta);
+
+  // 只有「可归档且尚未归档」的分支才给动作；当前检出、未登记、还有活没完的都不给。
+  if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch.name), 'ghost'));
 
   return row;
 }

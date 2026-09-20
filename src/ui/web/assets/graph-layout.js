@@ -25,7 +25,9 @@ export function nodeMarks(node) {
   if (node?.merged === true) marks.push({ text: '已合并', className: 'ok' });
   else if (node?.merged === false) marks.push({ text: '未合并', className: '' });
   if (node?.workspace_state === 'missing') marks.push({ text: '⚠ 缺失 worktree', className: 'warn' });
-  if (node?.branch_state === 'missing' && node?.branch) marks.push({ text: '⚠ 缺失分支', className: 'warn' });
+  // 归档分支的 ref 已经删掉，但这是预期状态：报「已归档」而不是「缺失分支」。
+  if (node?.archived === true) marks.push({ text: '已归档', className: '' });
+  else if (node?.branch_state === 'missing' && node?.branch) marks.push({ text: '⚠ 缺失分支', className: 'warn' });
   if (node?.current) marks.push({ text: '当前检出', className: '' });
   return marks;
 }
@@ -70,6 +72,13 @@ export function graphLayout(graph = {}) {
   const built = new Map();
   const visited = new Set();
   const build = (node, depth) => {
+    const archived = node.archived === true || node.status === 'archived';
+    const deleted = node.deleted === true || node.status === 'deleted';
+    const activeTasks = Number.isFinite(node.tasks?.active) ? node.tasks.active : 0;
+    // 可归档 = 已登记分支、没归档也没被删、不是当前检出、自己与后代都没有活动任务，
+    // 且还有东西可删（ref 或 worktree 至少存在一个）；已归档的分支永远不再可归档。
+    const archivable = !archived && node.tracked === true && !deleted && node.current !== true
+      && activeTasks === 0 && (Boolean(node.head_commit) || node.worktree_state === 'present');
     const entry = {
       name: node.name, id: node.id, head_commit: node.head_commit ?? null,
       current: node.current === true, tracked: node.tracked !== false, placeholder: node.placeholder === true,
@@ -81,6 +90,10 @@ export function graphLayout(graph = {}) {
       created_at: node.created_at ?? null,
       status: node.status ?? null,
       taskCounts: node.tasks ?? null,
+      // 归档状态与「这条分支现在能不能归档」；render 只消费，判断只在这里。
+      archived,
+      archived_at: node.archived_at ?? null,
+      archivable,
     };
     built.set(node.name, entry); visited.add(node.name);
     const childNames = (children.get(node.name) || [])
@@ -161,7 +174,8 @@ export function graphFingerprint(snapshot) {
 export function graphRenderKey(graph) {
   const nodes = (graph?.nodes || []).map(node => [node.id, node.kind, node.name ?? '-', node.head_commit ?? '-',
     node.branch_state ?? '-', node.workspace_state ?? '-', node.ahead ?? '-', node.behind ?? '-', node.merged ?? '-',
-    node.current === true, node.tracked === false, node.placeholder === true,
+    node.current === true, node.tracked === false, node.placeholder === true, node.archived === true,
+    node.worktree_state ?? '-', node.tasks?.active ?? '-',
     node.origin ?? '-', node.status ?? '-', node.title ?? '-', node.source_id ?? '-'].join(':')).join('|');
   const edges = (graph?.edges || []).map(edge => `${edge.kind}:${edge.from}>${edge.to}:${edge.status ?? '-'}:${edge.ahead ?? '-'}:${edge.behind ?? '-'}:${(edge.blockers || []).join(',')}`).join('|');
   return `${nodes}#${graph?.truncated === true}#${edges}`;

@@ -174,6 +174,28 @@ test('graph caps edges at 2000 and marks the result truncated', async () => {
   } finally { await f.close(); }
 });
 
+test('graph marks archived branches and keeps their tasks on the graph', async () => {
+  const f = await setup();
+  try {
+    await change(f, f.task, 'A\n');
+    const branch = f.store.task(f.task.id).branch;
+    // 归档：worktree 与 ref 都没了，workspace 被清成 null，但 branch 字段与任务行留着。
+    await f.project.archiveBranch(branch);
+    expect(f.store.branch(branch).status).toBe('archived');
+
+    const graph = await f.project.graph();
+    const nodes = new Map(graph.nodes.map(node => [node.id, node]));
+    const branchNode = nodes.get(`branch:${branch}`);
+    // 状态固定为 archived，不被「任务都已完成」的汇总口径改成 ready/merged。
+    expect(branchNode).toMatchObject({ archived: true, status: 'archived', head_commit: null, tracked: true });
+    expect(branchNode.archived_at).toBe(f.store.branch(branch).deleted_at);
+    expect(branchNode.archived_at).toBeTruthy();
+    // 分支仍然画在图上，任务也没有因为 workspace 被清空而掉下去。
+    const taskNode = nodes.get(f.task.id);
+    expect(taskNode).toMatchObject({ archived: true, branch, workspace: null, workspace_state: 'none', branch_state: 'missing' });
+  } finally { await f.close(); }
+});
+
 test('graph labels each branch with origin, title and source', async () => {
   const f = await setup();
   try {
