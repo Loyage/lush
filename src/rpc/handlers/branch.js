@@ -5,4 +5,5 @@ export const handlers = {
   'branch.import'(p, params, actor) { return p.branchImport(); },
   'branch.merge'(p, params, actor) { return p.approveBranchMerge(params.branch); },
   'branch.sync'(p, params, actor) { return p.syncBranch(params.branch); },
+  'branch.catchup'(p, params, actor) { return p.catchupBranch(params.branch); },
 };

@@ -1,4 +1,5 @@
 import { COLLAPSED_KEY, FILTERS_KEY, parseCollapsed, serializeCollapsed, parseFilters } from './sidebar.js';
+import { GRAPH_COLLAPSED_KEY, parseGraphCollapsed, serializeGraphCollapsed } from './graph-layout.js';
 import { SORT_MODES } from './tree-order.js';
 
 /* ---------- 偏好：折叠 / 筛选 / 排序都持久化到 localStorage ---------- */
@@ -14,6 +15,13 @@ export function readSidebarSortPref() {
 }
 export function readCollapsedPref() {
   try { return parseCollapsed(localStorage.getItem(COLLAPSED_KEY)); } catch { return new Set(); }
+}
+/** 分支图的折叠按分支名存：重画（1.5s 轮询 / 手动刷新）后仍然收起。 */
+export function readGraphCollapsedPref() {
+  try { return parseGraphCollapsed(localStorage.getItem(GRAPH_COLLAPSED_KEY)); } catch { return new Set(); }
+}
+export function saveGraphCollapsedPref() {
+  try { localStorage.setItem(GRAPH_COLLAPSED_KEY, serializeGraphCollapsed(ui.graphCollapsed)); } catch { /* 隐私模式里忽略 */ }
 }
 export function readFiltersPref() {
   try { return parseFilters(localStorage.getItem(FILTERS_KEY)); } catch { return parseFilters(null); }
@@ -48,6 +56,8 @@ export const ui = {
   sidebarSortMode: readSidebarSortPref(),
   /** 分支图视图：打开期间轮询不用概览覆盖它；指纹 + 最小时隔决定要不要重拉 /api/graph。 */
   graphOpen: false, graphFingerprint: null, graphFetchedAt: 0, graphRenderKey: null,
+  /** 分支图里收起的分支名（Set）：收起的是整棵子树，持久化到 localStorage。 */
+  graphCollapsed: readGraphCollapsedPref(),
   lastSnapshot: null,   // 切排序模式要立刻重排，不必等下一次轮询
   sideNodes: new Map(),      // section id -> 区块 <section>
   sideHeads: new Map(),      // section id -> 标题按钮
@@ -80,6 +90,7 @@ export function resetUiState() {
   ui.noticeFocus = null; ui.noticeIndex = new Map();
   ui.lastSnapshot = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.graphOpen = false; ui.graphFingerprint = null; ui.graphFetchedAt = 0; ui.graphRenderKey = null;
+  ui.graphCollapsed = readGraphCollapsedPref();
   ui.sideNodes = new Map(); ui.sideHeads = new Map(); ui.navButtons = new Map(); ui.navCounts = new Map();
   ui.stepToggle = new Map();
   ui.collapsed = readCollapsedPref(); ui.filters = readFiltersPref(); ui.sidebarSortMode = readSidebarSortPref();

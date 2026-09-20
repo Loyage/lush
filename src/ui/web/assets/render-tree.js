@@ -65,7 +65,8 @@ export function renderTree(data) {
     if (!fullByParent.has(key)) fullByParent.set(key, []);
     fullByParent.get(key).push(task);
   }
-  const openNoticeIds = new Set((data.notices || []).filter(notice => notice.status === 'open').map(notice => notice.task_id));
+  // 与「待定事项」同口径：计划审批不算「等你回答的问题」，批不批在「历史输入」里做，不该把 planner 任务标成待我处理。
+  const openNoticeIds = new Set((data.notices || []).filter(notice => notice.status === 'open' && notice.kind !== 'plan').map(notice => notice.task_id));
   // 筛选只影响呈现：可见集合 = 命中项 + 命中项的全部祖先（父作为通路保留），子任务被筛掉时父仍可见。
   const query = { ...ui.filters.tasks, openNoticeIds };
   const visible = filterTasks(data.tasks, query);

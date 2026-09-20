@@ -11,8 +11,10 @@ test('graph.get is read-only and readable by both user and agent', async () => {
   expect(AGENT_ONLY.has('graph.get')).toBe(false);
   expect(PARAMS['branch.merge']).toEqual(['branch']);
   expect(PARAMS['branch.sync']).toEqual(['branch']);
+  expect(PARAMS['branch.catchup']).toEqual(['branch']);
   expect(USER_ONLY.has('branch.merge')).toBe(true);
   expect(USER_ONLY.has('branch.sync')).toBe(true);
+  expect(USER_ONLY.has('branch.catchup')).toBe(true);
   const f = await setup();
   try {
     await repo(f.root);

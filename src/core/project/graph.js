@@ -37,6 +37,9 @@ function summarize(text) {
  * 任务分支 / import 登记 / 只有本地 ref / 占位名）与配套的 `title`、`source_id`、`created_at`；
  * `status` + `tasks`（这条分支自己的任务连同全部后代分支任务的汇总口径：active / failed /
  * merged / ready / empty）。这些都只是读 store 已有事实，不写库、不改 git。
+ * fork 边在 `status`（fast_forward / diverged / integrated / missing / unknown）与 ahead/behind 之外
+ * 再给三个可执行动作：`can_merge`（子→父 fast-forward）/ `can_sync`（分歧时建子侧 merger）/ `can_catchup`
+ * （父→子 fast-forward，子分支没有独有提交时才能跟上）。
  *
  * 全部只用只读 git（rev-parse / symbolic-ref / for-each-ref / rev-list）与文件系统探测：
  * 不 checkout、不 merge、不改 index、不删 worktree、不写 store（无 update / event），
@@ -246,7 +249,9 @@ export default {
         edges.push({ kind: 'fork', from: branchId(row.parent), to: branchId(row.branch),
           ...relation, blockers,
           can_merge: relation.status === 'fast_forward' && blockers.length === 0,
-          can_sync: relation.status === 'diverged' && blockers.length === 0 });
+          can_sync: relation.status === 'diverged' && blockers.length === 0,
+          // 子分支没有独有提交、父分支已前进：可以直接快进跟上（见 workspaces.catchupBranch）。
+          can_catchup: relation.status === 'integrated' && relation.behind > 0 && blockers.length === 0 });
       }
       let trimmedEdges = edges;
       if (trimmedEdges.length > GRAPH_EDGE_LIMIT) { truncated = true; trimmedEdges = trimmedEdges.slice(0, GRAPH_EDGE_LIMIT); }

@@ -3,15 +3,17 @@
  * 与每条分支下的任务 / worktree / 目标分支关系，以及任务之间的堆叠（code）/顺序（order）/
  * 解冲突（resolve）/检验（verify）关系。
  *
- * 只读：视图不提供任何写操作，节点点击只跳任务详情。
+ * 视图本身只读：节点点击只跳任务详情。写操作只有父分支关系上的三个按钮——「合入父分支」、
+ * 「让子分支跟上父分支」、「在子分支解决分歧」，分别与 CLI 的 `branch merge` / `branch catchup` /
+ * `branch sync` 同源。
  * 幂等：同一份数据重画不重复建节点、不重建外层容器，所以 1.5s 轮询不会把滚动位置冲掉。
  */
 import { $, button, el } from './dom.js';
 import { api, action } from './api.js';
 import { ROLE, statusOf } from './format.js';
-import { graphLayout, graphFingerprint, graphRenderKey } from './graph-layout.js';
+import { graphLayout, graphFingerprint, graphRenderKey, edgeRelation } from './graph-layout.js';
 import { detail, overview } from './navigate.js';
-import { ui } from './state.js';
+import { saveGraphCollapsedPref, ui } from './state.js';
 
 /** 分支状态映射：状态 -> { label, className } */
 const BRANCH_STATUS = {
@@ -60,14 +62,16 @@ export function loadGraph() {
 
 const LANE_CLASS = level => `graph-node l${Math.min(Number(level) || 0, 6)}`;
 
-function taskRow(node) {
+/** 任务行。`owningBranch` 是包裹它的那条分支：任务就在这条分支上时不再重复写一遍分支名（表头已经写了）；
+ *  只有当任务退到目标分支分组（自己那条分支没有节点）或兜底分组时，分支名才是独有信息，必须画出来。 */
+function taskRow(node, owningBranch = null) {
   const row = el('div', undefined, LANE_CLASS(node.level));
   row.append(el('span', `#${node.id}`, 'tid'));
   row.append(button(node.goal || '(无目标)', () => detail(node.id), 'graph-node'));
   row.append(el('span', `${ROLE[node.role] || node.role} · ${statusOf(node).label}`, 'meta'));
   const meta = el('div', undefined, 'graph-meta');
   if (node.upstreams?.length) meta.append(el('span', `⛓ 基线 #${node.upstreams.join('、#')}`, 'meta'));
-  if (node.branch) meta.append(el('span', node.branch, 'graph-path mono'));
+  if (node.branch && node.branch !== owningBranch) meta.append(el('span', node.branch, 'graph-path mono'));
   if (node.workspace) meta.append(el('span', node.workspace, 'graph-path mono'));
   if (node.aheadBehind) meta.append(el('span', node.aheadBehind, 'meta'));
   for (const mark of node.marks || []) meta.append(el('span', mark.text, `chip ${mark.className}`.trim()));
@@ -75,40 +79,89 @@ function taskRow(node) {
   return row;
 }
 
-/** 一条分支的表头：名字、顶端 commit（或缺失标记）、当前检出、谱系登记状态。 */
+/** 父分支上的三个动作：合入父分支 / 让子分支跟上父分支 / 在子分支解决分歧。
+ *  失败只写进错误栏，不抛到页面上；成功后重拉一次图，颜色与按钮随之更新。 */
 async function runBranchAction(method, branch) {
   try {
     const result = await action(method, { branch });
     $('error').textContent = method === 'branch.sync'
       ? `已为 ${branch} 创建同步任务 #${result.task.id}`
+      : method === 'branch.catchup'
+        ? (result.already_integrated ? `${branch} 已经与父分支一致，无需快进` : `${branch} 已 fast-forward 跟上 ${result.parent}`)
       : (result.needs_sync ? `${branch} 已与父分支分歧，请先在子分支侧解决分歧`
         : result.already_integrated ? `${branch} 已经在 ${result.parent} 中` : `${branch} 已 fast-forward 合入 ${result.parent}`);
     await loadGraph();
   } catch (error) { $('error').textContent = error.message; }
 }
 
-/** fork 连线也是操作面：颜色与文案说明能否直接 FF，分歧时从子侧创建同步任务。 */
-function edgeRow(branch) {
-  const edge = branch.incoming;
-  if (!edge) return null;
-  const row = el('div', undefined, `graph-edge is-${edge.status || 'unknown'}`);
-  const parent = String(edge.from || '').replace(/^branch:/, '');
-  const text = edge.status === 'fast_forward' ? '可 fast-forward'
-    : edge.status === 'diverged' ? '父子已分歧'
-    : edge.status === 'integrated' ? '已进入父分支'
-    : edge.status === 'missing' ? '分支缺失'
-    : '关系未知';
-  row.append(el('span', `${parent} → ${branch.name}`, 'graph-edge-path mono'));
-  row.append(el('span', text, `chip ${edge.status === 'fast_forward' || edge.status === 'integrated' ? 'ok' : edge.status === 'diverged' ? 'warn' : ''}`.trim()));
-  if (Number.isFinite(edge.ahead) || Number.isFinite(edge.behind)) row.append(el('span', `子分支 +${edge.ahead ?? '?'} / -${edge.behind ?? '?'}`, 'meta'));
-  if (edge.blockers?.length) row.append(el('span', `先收拢子分支：${edge.blockers.join('、')}`, 'graph-edge-blocker'));
-  if (edge.can_merge) row.append(button('合入父分支', () => runBranchAction('branch.merge', branch.name), 'ghost'));
-  else if (edge.can_sync) row.append(button('在子分支解决分歧', () => runBranchAction('branch.sync', branch.name), 'ghost'));
-  return row;
+/** 动作按钮：能执行就接上 RPC；暂时不能执行也照画，但禁用并把原因写进 title——
+ *  选项不该因为当前状态不对就整块消失，否则用户只会看到「这里什么都没有」。 */
+function branchAction(label, title, run) {
+  const node = run ? button(label, run, 'ghost graph-branch-action') : el('button', label, 'ghost graph-branch-action');
+  if (!run) { node.type = 'button'; node.disabled = true; }
+  node.title = title;
+  return node;
 }
 
-function branchRow(branch) {
+/**
+ * 父子关系的处理选项（文案与颜色都来自 edgeRelation 的 key）：
+ * - 领先：合入父分支（子 → 父 fast-forward）；
+ * - 落后：让子分支跟上父分支（父 → 子 fast-forward，不产生 merge commit）；
+ * - 分歧：在子分支解决分歧（开一个 merger 任务把父分支合进子分支），合入父分支同时摆出来但禁用；
+ * - 有未收拢的子分支时运行时两边都会拒绝，所以按钮禁用，并在 title 里列出 blocker。
+ */
+function forkActions(branch, edge) {
+  if (!edge) return [];
+  const blocked = edge.blockers?.length ? `未收拢的子分支：${edge.blockers.join('、')}` : null;
+  const why = (reason, extra = null) => [reason, extra, blocked].filter(Boolean).join('\n');
+  const nodes = [];
+  if (edge.status === 'fast_forward') {
+    nodes.push(branchAction('合入父分支', why(`把 ${branch.name} fast-forward 合入父分支；不会在父分支上产生 merge commit。`),
+      edge.can_merge ? () => runBranchAction('branch.merge', branch.name) : null));
+  }
+  if (edge.status === 'diverged') {
+    nodes.push(branchAction('在子分支解决分歧',
+      why(`开一个 merger 任务，把父分支合进 ${branch.name} 并解决冲突；先不动父分支。`,
+        `父分支已有 ${Number.isFinite(edge.behind) ? edge.behind : '?'} 个提交不在本分支。`),
+      edge.can_sync ? () => runBranchAction('branch.sync', branch.name) : null));
+    nodes.push(branchAction('合入父分支', why('父子已分歧：先在子分支解决分歧，之后才能合入。'), null));
+  }
+  if (edge.status === 'integrated' && edge.behind > 0) {
+    nodes.push(branchAction('让子分支跟上父分支',
+      why(`把父分支已有的 ${edge.behind} 个提交 fast-forward 进 ${branch.name}；不产生 merge commit，也不改父分支。`),
+      edge.can_catchup ? () => runBranchAction('branch.catchup', branch.name) : null));
+  }
+  return nodes;
+}
+
+/**
+ * 收起整棵子树（自己的任务 + 全部子分支）：只改这一个 block 的 class 与 aria，不重画整张图，
+ * 所以滚动位置和键盘焦点都不会丢。约定与左侧区块抽屉一致：`.collapsed` 由 CSS 藏内容，箭头同步翻转。
+ */
+function collapseCaret(branch, onCollapsed) {
+  const caret = el('button', undefined, 'graph-caret');
+  caret.type = 'button';
+  const sync = collapsed => {
+    caret.textContent = collapsed ? '▶' : '▼';
+    caret.setAttribute('aria-expanded', String(!collapsed));
+    caret.title = `${collapsed ? '展开' : '收起'} ${branch.name} 的任务与子分支`;
+  };
+  sync(ui.graphCollapsed.has(branch.name));
+  caret.onclick = () => {
+    const collapsed = !ui.graphCollapsed.has(branch.name);
+    if (collapsed) ui.graphCollapsed.add(branch.name); else ui.graphCollapsed.delete(branch.name);
+    saveGraphCollapsedPref();
+    onCollapsed(collapsed);
+    sync(collapsed);
+  };
+  return caret;
+}
+
+function branchRow(branch, onCollapsed) {
   const row = el('div', undefined, 'graph-branch');
+  // 只有真的能藏东西的分支才给箭头：任务和子分支都是空的时候，收起没意义。
+  const hideable = branch.subtreeBranches + branch.subtreeTasks > 0;
+  if (hideable) row.append(collapseCaret(branch, onCollapsed));
   row.append(el('span', `⎇ ${branch.name}`, 'graph-branch-name mono'));
   if (branch.head_commit) row.append(el('span', String(branch.head_commit).slice(0, 7), 'meta mono'));
   // 只被 parent 指针提到、既无记录也无 ref：占位，不假装分支还在。
@@ -118,9 +171,28 @@ function branchRow(branch) {
   if (branch.current) row.append(el('span', '当前检出', 'chip'));
   // 有 ref 但没有 branches 记录：画出来，但标明谱系里没有它。
   if (!branch.tracked && !branch.placeholder) row.append(el('span', '未登记', 'chip'));
+  // 收起时告诉用户藏了什么；展开时这条由 CSS 隐掉（.graph-group:not(.collapsed) > .graph-branch > ...）。
+  if (hideable) {
+    const parts = [];
+    if (branch.subtreeBranches) parts.push(`${branch.subtreeBranches} 分支`);
+    if (branch.subtreeTasks) parts.push(`${branch.subtreeTasks} 任务`);
+    row.append(el('span', `已收起 ${parts.join(' / ')}`, 'meta graph-collapsed-hint'));
+  }
+
+  // 与父分支的关系（fork 边）：状态 chip 与 ahead/behind 共用 edgeRelation 的 key（颜色见
+  // styles.css 的 [data-relation]），后面跟这个关系当前能做的动作。
+  const edge = branch.incoming;
+  const relation = edgeRelation(edge);
+  if (relation) row.append(el('span', relation.label, 'chip graph-relation'));
+  if (edge && (Number.isFinite(edge.ahead) || Number.isFinite(edge.behind))) {
+    row.append(el('span', `子分支 +${edge.ahead ?? '?'} / -${edge.behind ?? '?'}`, 'meta'));
+  }
+  for (const node of forkActions(branch, edge)) row.append(node);
 
   // 分支元数据：状态、标题、来源、创建时间、任务计数
   const meta = el('div', undefined, 'graph-branch-meta');
+  // 有子分支还没收拢时不能合并：这条提示只和 fork 边有关，但不适合塞进挤满 chip 的表头行。
+  if (edge?.blockers?.length) meta.append(el('span', `先收拢子分支：${edge.blockers.join('、')}`, 'graph-branch-blocker'));
   const statusInfo = BRANCH_STATUS[branch.status];
   if (statusInfo) {
     meta.append(el('span', statusInfo.label, `chip ${statusInfo.className}`.trim()));
@@ -149,17 +221,23 @@ function branchRow(branch) {
 }
 
 /**
- * 一条分支子树：自己的表头 + 自己的任务，子分支作为一个缩进的子树块画在下面（复用 `.graph-lane`
- * 的左边框与内缩表示父子关系）。刚创建的分支因此会出现在父分支的子树里，而不是另开一条无关的车道。
+ * 一条分支子树：自己的表头 + 自己的任务，子分支作为一个缩进的子树块画在下面。父子的连接靠 CSS 画的
+ * 竖线与拐角（.graph-children），而不是一块块看起来平级的卡片；收起时整棵子树一起藏进表头里。
  */
 function branchBlock(branch) {
   const block = el('div', undefined, 'graph-group');
-  const edge = edgeRow(branch);
-  if (edge) block.append(edge);
-  block.append(branchRow(branch));
-  const lane = el('div', undefined, 'graph-lane');
-  for (const node of branch.tasks) lane.append(taskRow(node));
-  block.append(lane);
+  // 关系色画在 block 上（--rel-ink / --rel-tint 由 styles.css 的 [data-relation] 定义）：
+  // 分支面板的底色与左边条、挂到它的那段连接线与拐角都跟着走。根分支没有来边，保持默认强调色。
+  const relation = edgeRelation(branch.incoming);
+  if (relation) block.dataset.relation = relation.key;
+  if (ui.graphCollapsed.has(branch.name)) block.classList.add('collapsed');
+  block.append(branchRow(branch, collapsed => block.classList.toggle('collapsed', collapsed)));
+  // 空任务车道不画：否则表头下面会拖出一段没有去处的竖线。子分支车道的连接段自己补上这段空隙。
+  if (branch.tasks.length) {
+    const lane = el('div', undefined, 'graph-lane');
+    for (const node of branch.tasks) lane.append(taskRow(node, branch.name));
+    block.append(lane);
+  }
   if (branch.children.length) {
     const kids = el('div', undefined, 'graph-lane graph-children');
     for (const child of branch.children) kids.append(branchBlock(child));

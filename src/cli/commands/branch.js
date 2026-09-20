@@ -27,8 +27,11 @@ export async function run(command, args, ctx) {
   } else if (verb === 'sync') {
     exact(args, 1);
     value = await client.request('branch.sync', { branch: args[0] });
+  } else if (verb === 'catchup') {
+    exact(args, 1);
+    value = await client.request('branch.catchup', { branch: args[0] });
   } else {
-    check(false, 'unknown branch command; use tree, show, import, merge or sync');
+    check(false, 'unknown branch command; use tree, show, import, merge, sync or catchup');
   }
   return value;
 }

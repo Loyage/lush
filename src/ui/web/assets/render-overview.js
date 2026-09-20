@@ -9,7 +9,8 @@ import { renderTimeline } from './render-timeline.js';
 import { ui } from './state.js';
 
 export function renderOverview(data) {
-  const open = data.notices.filter(notice => notice.status === 'open');
+  // 计划审批（kind='plan'）在「历史输入」的意图行上批，不在这个问答面板里：列出来点开只会是空动作（openNotice 只认非 plan 的 notice）。
+  const open = data.notices.filter(notice => notice.status === 'open' && notice.kind !== 'plan');
   const key = JSON.stringify([data.status.tasks, data.status.agents, data.status.agents_idle, data.status.pending_merges, data.status.drafts, open.map(n => n.id),
     data.tasks.length, data.status.project, data.status.version, data.status.fingerprint, data.status.started_at,
     // 时间轴的开口段一直在长，但只在结构变化或每 15 秒才需要重画一次，免得轮询把滚动位置冲掉。
