@@ -39,7 +39,8 @@ export const methods = {
     else if (await this.isAncestor(project, parentHead, childHead)) status = 'fast_forward';
     else status = 'diverged';
     const blockers = this.branchTaskBlockers(child);
-    for (const descendant of this.store.branches().filter(row => row.parent === child && row.status !== 'deleted')) {
+    // 归档的分支没有本地 ref，不再是任何分支的 blocker；这里显式排除，别名不依赖 rev-parse 失败。
+    for (const descendant of this.store.branches().filter(row => row.parent === child && !['deleted', 'archived'].includes(row.status))) {
       let head = null;
       try { head = await this.git(project, 'rev-parse', '--verify', `refs/heads/${descendant.branch}^{commit}`); } catch { continue; }
       if (!await this.isAncestor(project, head, childHead)) blockers.push(descendant.branch);

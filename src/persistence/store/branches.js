@@ -34,4 +34,13 @@ export const branches = {
   markBranchDeleted(branch) {
     this.run("UPDATE branches SET status='deleted', deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE branch=? AND status<>'deleted'", branch);
   },
+
+  /**
+   * 归档：worktree 与本地 ref 都已删掉，但这条分支的工作信息（任务行、消息、事件、pi 会话文件）都留着。
+   * 时间戳复用 `deleted_at`——它本来就表示「这条分支什么时候从磁盘上消失」，archived 只是删得更有保留价值；
+   * 另加 archived_at 会重复同一含义，还要为老库补一次 schema 演进，所以不这么做。
+   */
+  markBranchArchived(branch) {
+    this.run("UPDATE branches SET status='archived', deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE branch=?", branch);
+  },
 };

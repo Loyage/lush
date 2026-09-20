@@ -1,7 +1,9 @@
 import fs from 'node:fs';
-import { check } from '../types.js';
+import path from 'node:path';
+import { check, TERMINAL } from '../types.js';
 import { buildForest, parentOf, childrenOf, ancestorsOf, descendantsOf, chainOf, rootOf } from '../genealogy.js';
 import { slugify } from '../naming.js';
+import { sessionFiles } from '../transcript.js';
 
 /** 分支谱系一次最多画这么多节点；超过就截断并在结果里说明（只读视图不该拖垮 daemon）。 */
 export const BRANCH_NODE_LIMIT = 500;
@@ -151,6 +153,42 @@ export default {
     this.kick();
     return { status: 'queued', task, branch: name, parent: state.parent,
       child_commit: state.child_head, parent_commit: state.parent_head };
+  },
+
+  /**
+   * 归档一条已登记分支：删掉它的 worktree 与本地 ref，但任务行、分支记录与 pi 会话文件都留着。
+   * 所有安全门在动 Git 之前同步跑完，任一不满足就抛错且无副作用；通过后由 Git 边界做 compare-and-delete。
+   */
+  async archiveBranch(branch, { discard_worktree = false } = {}) {
+    const name = String(branch ?? '').trim();
+    check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
+    const record = this.store.branch(name);
+    check(record, `${name} is not a registered branch; run 'lush branch import' first`);
+    check(record.status !== 'archived' && record.status !== 'deleted', `branch ${name} is already ${record.status}`);
+    const state = await gitState(this.workspaces, this.config.project);
+    check(state.current_branch !== name, `cannot archive the branch currently checked out: ${name}`);
+    // 分支自己 + 全部后代上的任务都必须已终态：归档会把这条分支的工作收起来，活还没完的状态不该被藏掉。
+    const related = [name, ...descendantsOf(this.store.branches(), name)];
+    const placeholders = related.map(() => '?').join(',');
+    const unfinished = this.store.all(`SELECT id, status FROM tasks WHERE branch IN (${placeholders})
+      AND status NOT IN ('completed','failed','cancelled') ORDER BY id`, ...related);
+    check(unfinished.length === 0, `branch ${name} still has unfinished tasks: ${unfinished.map(task => `#${task.id}`).join(', ')}`);
+    const outcome = await this.workspaces.archiveBranch(name, { discard_worktree });
+    // 目录已经删了，tasks.workspace 不能再指着一个不存在的路径；branch 字段是历史，必须留着。
+    const archived = this.store.all('SELECT id, status FROM tasks WHERE branch=? ORDER BY id', name);
+    // pi 会话文件在 <home>/sessions 下，不随 worktree 消失；把位置写进事件，将来 task 行被 clear 掉也能查回。
+    const sessions = [];
+    for (const task of archived) for (const file of sessionFiles(this.config, task.id)) sessions.push(path.join(this.config.home, 'sessions', file));
+    const owner = archived.some(task => task.id === record.task_id) ? record.task_id : archived[0]?.id ?? null;
+    this.store.transaction(() => {
+      for (const task of archived) {
+        this.store.update(task.id, { workspace: null });
+        this.store.event(task.id, 'branch.archived', { branch: name, tip: outcome.tip, task_id: task.id });
+      }
+      this.store.event(owner, 'branch.archived', { branch: name, tip: outcome.tip, sessions });
+    });
+    return { branch: name, archived: true, worktree: outcome.worktree, ref: outcome.ref, tip: outcome.tip,
+      discarded: outcome.discarded, tasks: archived.map(task => ({ id: task.id, status: task.status })), sessions };
   },
 
   /** branch.show：一条分支的 parent / fork commit / task / worktree，加上祖先链与后代。 */

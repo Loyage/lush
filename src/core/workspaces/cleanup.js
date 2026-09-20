@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { check } from '../types.js';
 
 /** 分支回收与安全清理。 */
@@ -27,6 +28,50 @@ export const methods = {
     // 谱系行留着（只标 deleted）：子分支的 parent 指针必须继续有效，C 当初从 B 创建这条事实不因为 B 没了而消失。
     this.store.markBranchDeleted(branch);
     return { branch, status: 'removed', reason: null };
+  },
+
+  /**
+   * 归档一条已登记分支：删掉它的 worktree 与本地 ref，但把分支记录留在库里（标 archived）。
+   * 与 dropBranch/dropAnchor 不同，它**明知可能未合并也允许删**——保留价值转到库里和 pi 会话文件上，
+   * 所以这里是唯一一条「不做祖先检查」的删除路径，调用方（Project#archiveBranch）负责先证明
+   * 「这条分支及其后代的活都收尾了」。仍然不做 force：ref 用 compare-and-delete，只会删掉我们看过的那一个 tip。
+   */
+  archiveBranch(branch, { discard_worktree = false } = {}) {
+    return this.exclusive(async () => {
+      check(typeof branch === 'string' && branch.length > 0 && branch.length <= 512, 'branch name must be non-empty text');
+      const project = this.config.project;
+      // 先把 tip 记下来：后面 update-ref -d 用它做 compare-and-delete，检查之后被谁动过就拒绝。
+      let tip = null;
+      try { tip = await this.git(project, 'rev-parse', `refs/heads/${branch}`); } catch { /* ref 本就不在 */ }
+      const workspace = await this.workspaceForBranch(branch);
+      let worktree = 'absent';
+      let discarded = false;
+      if (workspace && fs.existsSync(workspace)) {
+        // 主检出是用户现场，不是某条分支的临时工作区；即便调用方漏了「当前分支不可归档」也该在这里挡住。
+        check(fs.realpathSync(workspace) !== fs.realpathSync(project), `refusing to archive the project checkout: ${workspace}`);
+        if (discard_worktree) {
+          discarded = (await this.porcelain(workspace)) !== '';
+          await this.git(project, 'worktree', 'remove', '--force', workspace);
+        } else {
+          try { await this.clean(workspace); }
+          catch (error) {
+            // 归档允许连脏工作区一起丢，但必须是调用方明确要求；默认保持与 merge/cleanup 一样的「先提交」门槛。
+            check(false, `${error.message}\narchive keeps ${workspace} unless its changes may be discarded: retry with discard_worktree=true`);
+          }
+          await this.git(project, 'worktree', 'remove', workspace);
+        }
+        worktree = 'removed';
+      }
+      let ref = 'absent';
+      if (tip !== null) {
+        // 走到这里通常已经被上面的 remove 解除了检出；分支被别处检出时不能删，否则那个 HEAD 会失效。
+        check(!(await this.checkedOut(branch)), `branch ${branch} is still checked out in a worktree`);
+        await this.git(project, 'update-ref', '-d', `refs/heads/${branch}`, tip);
+        ref = 'deleted';
+      }
+      this.store.markBranchArchived(branch);
+      return { branch, worktree, ref, tip, discarded, reason: null };
+    });
   },
   /**
    * 回收一个已结束任务的磁盘状态：它自己的 worktree、检验对照检出与任务分支。
