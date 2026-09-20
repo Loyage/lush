@@ -113,8 +113,12 @@ test('web accepts a configured public origin behind a Host-rewriting proxy', asy
     // 内嵌 webview / 沙箱 iframe 会报 Origin: null 却依然是同源：浏览器说不是跨站就照常登录。
     const opaque = await fetch(f.url + '/login', { method: 'POST', headers: { ...headers, Origin: 'null', 'Sec-Fetch-Site': 'same-origin', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' }, body: form });
     expect(opaque.status).toBe(303);
-    // 但旧浏览器没有 Sec-Fetch 可依据时，null origin 仍然按跨站处理。
-    expect((await fetch(f.url + '/login', { method: 'POST', headers: { ...headers, Origin: 'null' }, body: form })).status).toBe(403);
+    // 旧浏览器没有 Sec-Fetch 时 null origin 同样放行：null 是「无法判定」不是「跨站」。
+    expect((await fetch(f.url + '/login', { method: 'POST', headers: { ...headers, Origin: 'null' }, body: form })).status).toBe(303);
+    // 同一台设备登进来的写操作（无 Sec-Fetch + Origin: null）也不能误杀。
+    const noop = await fetch(f.url + '/login', { method: 'POST', headers: { ...headers, Origin: 'null' }, body: form });
+    const noopCookie = noop.headers.get('set-cookie')?.split(';')[0];
+    expect((await fetch(f.url + '/api/action', { method: 'POST', headers: { Cookie: noopCookie, 'Content-Type': 'application/json', Origin: 'null' }, body: JSON.stringify({ method: 'draft.add', params: { content: 'test' } }) })).status).toBe(200);
   } finally { await f.close(); }
 });
 

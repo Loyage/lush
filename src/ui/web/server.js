@@ -118,7 +118,7 @@ function originAllowed(request, url, origins) {
   if (site) return true;
   // 没有 Sec-Fetch（旧浏览器）时退回 Origin 校验。
   const origin = request.headers.get('origin');
-  if (!origin) return true;
+  if (!origin || origin === 'null') return true;
   let parsed;
   try { parsed = new URL(origin); } catch { parsed = null; }
   return Boolean(parsed) && (parsed.host === url.host || origins.includes(parsed.origin));
