@@ -4,12 +4,13 @@ import path from 'node:path';
 import { RPCClient } from '../../src/rpc/client.js';
 import { parseRequest, encode } from '../../src/rpc/protocol.js';
 import { UIClient } from '../../src/ui/client.js';
+import { repo } from '../helpers.js';
 import { fetch, setup } from './harness.js';
 
 // 项目作用域、只读路由白名单、跨源 / 伪造 Host / 非 JSON / 任意 RPC 拒绝。
 
 test('web is project scoped, submits immediately and exposes no Service views', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   try {
     const page = await fetch(f.url); const html = await page.text();
     expect(html).toContain('行动任务'); expect(html).not.toContain('Service');
@@ -27,7 +28,7 @@ test('web is project scoped, submits immediately and exposes no Service views', 
 });
 
 test('web exposes only read-only task routes and rejects other paths', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   try {
     await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'input.submit',params:{content:'read routes'}})});
     expect((await fetch(f.url+'/api/task/1/history')).status).toBe(200);
@@ -43,7 +44,7 @@ test('web exposes only read-only task routes and rejects other paths', async () 
 });
 
 test('web rejects cross-origin requests, forged host, non-JSON and arbitrary RPC', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   try {
     const body = JSON.stringify({method:'input.submit',params:{content:'bad'}});
     expect((await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://evil.invalid'},body})).status).toBe(403);
@@ -56,7 +57,7 @@ test('web rejects cross-origin requests, forged host, non-JSON and arbitrary RPC
 
 test('web auth config enables public hosts and protects every route with a login session', async () => {
   const password = 'correct horse battery staple';
-  const f = await setup({ auth: { username: 'owner', password } });
+  const f = await setup({ auth: { username: 'owner', password } }); await repo(f.root);
   try {
     expect(f.web.hostname).toBe('0.0.0.0');    const config = JSON.parse(fs.readFileSync(path.join(f.config.home, 'web.json'), 'utf8'));
     expect(config.password).toBeUndefined();
@@ -96,7 +97,7 @@ test('web auth config enables public hosts and protects every route with a login
 
 test('web accepts a configured public origin behind a Host-rewriting proxy', async () => {
   const password = 'correct horse battery staple';
-  const f = await setup({ auth: { username: 'owner', password, origin: 'https://lush.example.com' } });
+  const f = await setup({ auth: { username: 'owner', password, origin: 'https://lush.example.com' } }); await repo(f.root);
   try {
     const form = 'username=owner&password=' + encodeURIComponent(password) + '&next=%2F';
     const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
@@ -118,7 +119,7 @@ test('web accepts a configured public origin behind a Host-rewriting proxy', asy
 });
 
 test('RPC rejects invalid frames, unknown params, invalid ids and cross-project tokens', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   try {
     expect(() => parseRequest(Buffer.from('invalid'))).toThrow('parse error');
     expect(() => parseRequest(Buffer.from('{"jsonrpc":"2.0","method":"x","id":{}}'))).toThrow('id');
@@ -137,7 +138,7 @@ test('RPC rejects invalid frames, unknown params, invalid ids and cross-project 
 });
 
 test('web exposes batch merge through the mutation whitelist', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     // 白名单通过后才会到运行时校验：空 ids 报的是「至少一个」，不是「method not allowed from Web UI」。

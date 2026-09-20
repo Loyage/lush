@@ -21,7 +21,7 @@
 
 - RPC 方法名与参数表（`registry.js` 的 `PARAMS`）、`USER_ONLY` / `AGENT_ONLY` 权限集合。
 - CLI 命令与 `lush help` 的语义。
-- SQLite schema、表名、列名与 `meta.task_id_high` 的行为。
+- SQLite schema、表名、列名与 `meta.task_id_high` / `meta.input_id_high` 的行为。加列式演进（只给已有表补缺失的可空列）登记在 `store/base.js` 的 `ADDED_COLUMNS`；它不改类型、不重写任何行。
 - `src/index.js` 的导出、`bin/*` 的行为。
 - Web 路由与 asset 路径：`server.js` 只按 basename 服务 `assets/` 下的 `.js` / `.css`，
   所以**新增前端模块不需要改 server.js**。读取路由里只有几个显式登记的例外：`/api/graph`、检验报告
@@ -36,7 +36,8 @@
 - 环境变量与 agent capability 语义（`LUSH_PROJECT` / `LUSH_HOME` / `LUSH_TASK_ID` / `LUSH_AGENT_TOKEN`）。
 - `src/core/genealogy.js`（分支谱系的纯逻辑：`buildForest` / `parentOf` / `childrenOf` / `ancestorsOf` /
   `descendantsOf` / `rootOf` / `chainOf`）与 `types.js` / `naming.js` 一样是共享纯模块：不碰 git、不写盘、
-  不渲染，只被 `project/branches.js` 与 `test/branch-tree.test.js` 使用。
+  不渲染，只被 `project/branches.js` 与 `test/branch-tree.test.js` 使用。`naming.js` 导出 `slugify` /
+  `taskSlug` / `taskLabel` 与 `inputLabel(id)`（输入锚点的 `<input-id>-anchor` 名）。
 
 ## 分区总览
 
@@ -65,7 +66,7 @@
 | `project/internal.js` | 两个跨模块的私有助手 | `agentView(task, run)`、`tokenHash(token)` |
 | `project/status.js` | 项目级读模型（任务分布、layers、意图、spec、drafts、agents、待合并、合并冻结、notice 计数） | `status()` |
 | `project/deps.js` | 依赖边的读模型与结构校验 | `decorate(tasks)`、`blockedBy(taskId)`、`assertDeps(taskId, parent, edges)` |
-| `project/inputs.js` | 输入与流程判定 | `createInput(content)`、`submit(content)`、`inputs()`、`setInputFlow(taskId, flow)` |
+| `project/inputs.js` | 输入、输入锚点与流程判定（概念见 [输入和规划](inputs-and-planning.md)） | `anchorInput()`、`insertInput(inputId, anchor, content, attach)`、`createInput(content, attach)`、`submit(content)`、`inputs()`、`setInputFlow(taskId, flow)` |
 | `project/drafts.js` | 输入缓存（增删改、整体提交成一批） | `draft`、`drafts`、`dropDraft`、`editDraft`、`commitDrafts` |
 | `project/specs.js` | 拆解队列与批次的出生 | `ensureScheduler()`、`addSpec(plannerTaskId, spec)`、`dropSpec(specId, note, actor)` |
 | `project/plans.js` | 计划审批闸门 | `proposePlan`、`approvePlan`、`rejectPlan`、`planForApproval` |
@@ -79,7 +80,7 @@
 | `project/verify.js` | 检验任务与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
 | `project/transcript.js` | pi 会话记录的只读投影 | `transcript(taskId, after, limit)`、`usage(taskId)` |
 | `project/scheduling.js` | 调度、invocation 生命周期、凭证 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
-| `project/lifecycle.js` | 结算、取消、重试、清空与恢复 | `finish`、`cancel`、`retry`、`clear`、`reclaimThenPurge`、`recover`、`shutdown` |
+| `project/lifecycle.js` | 结算、取消、重试、清空与恢复 | `finish`、`cancel`、`retry`、`clear`、`reclaimThenPurge(tasks, anchors)`、`recover`、`shutdown` |
 
 ## 2. Git 边界：`src/core/workspaces.js` + `src/core/workspaces/`
 
@@ -87,7 +88,7 @@
 |---|---|---|
 | `workspaces/base.js` | 构造与串行队列状态（`queue` / `busy` / `namespace`） | `class WorkspacesBase` |
 | `workspaces/git.js` | Git 原语与串行队列（无 shell 插值） | `exclusive`、`git`、`gitOutput`、`porcelain`、`clean`、`isAncestor`、`merging`、`unmerged`、`checkedOut` |
-| `workspaces/worktree.js` | worktree / 对照检出的创建与回收 | `ensure(task)`、`finish(task)`、`codeBase(task)`、`removeBaseline(taskId)` |
+| `workspaces/worktree.js` | worktree / 对照检出 / 输入锚点的创建与回收 | `anchor(inputId)`、`dropAnchor(anchor)`、`releaseAnchor(anchor)`、`reclaimAnchors(anchors)`、`inputAnchor(task)`、`ensure(task)`、`finish(task)`、`codeBase(task)`、`removeBaseline(taskId)` |
 | `workspaces/diff.js` | 只读审阅视图（不进写队列） | `diff(task)` |
 | `workspaces/merge.js` | 批量只读预检与批准合并的三种结局 | `preflightMerge(tasks)`、`merge(taskId)` |
 | `workspaces/cleanup.js` | 分支回收与安全清理 | `dropBranch`、`release`、`cleanup`、`reclaim` |
@@ -96,7 +97,7 @@
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `store/base.js` | 打开数据库、事务与 id 分配 | `class StoreBase`（构造、`run`/`get`/`all`/`transaction`/`close`、`taskIdHigh`/`setTaskIdHigh`/`nextTaskId`） |
+| `store/base.js` | 打开数据库、事务、id 分配与加列式 schema 演进 | `class StoreBase`（构造、`run`/`get`/`all`/`transaction`/`close`、`taskIdHigh`/`setTaskIdHigh`/`nextTaskId`、`inputIdHigh`/`setInputIdHigh`/`nextInputId`） |
 | `store/schema.js` | 全部 DDL 与项目绑定校验 | `SCHEMA`、`bindProject(db, project)` |
 | `store/tasks.js` | tasks 表的读写与生命周期字段 | `task`、`tasks`、`summaries`、`create`、`update`、`children`、`touch`、`armAgent`、`touchAgent`、`agentByToken`、`activeTasks`、`purge` |
 | `store/specs.js` | 拆解队列 | `specDeps`、`addSpec`、`spec`、`specs`、`specStats`、`pendingSpecs`、`specsForBatch`、`specsByPlanner`、`nextSpecPlanner`、`assignSpecs`、`takeSpecs`、`plannedSpec`、`dropSpec`、`releaseBatch`、`discardBatch` |
@@ -138,7 +139,7 @@
 | `sidebar-init.js` | 装配导航与五组筛选条 | `initSidebar()` |
 | `composer.js` | 输入缓存与提交表单 | `buffer()`、`selectedDraftIds()`、`syncComposer()`、`initComposer()` |
 | `render-drafts.js` | 待提交缓存 | `renderDrafts(data)` |
-| `render-intents.js` | 意图面板（planner 闸门 + scheduler 进度） | `renderIntents(data)` |
+| `render-intents.js` | 意图面板（planner 闸门 + scheduler 进度 + 输入锚点） | `renderIntents(data)` |
 | `render-specs.js` | 拆解队列（只读） | `renderSpecs(data)`、`specItem(spec)`、`specDeps(value)` |
 | `render-tree.js` | 任务树、兄弟链、依赖标签、为什么没在跑 | `renderTree(data)` |
 | `render-notices.js` | 待决问题索引与右侧展开；resolver 首次请示使用明确的开始/暂不处理动作 | `renderNotices(data)`、`openNotice(noticeId)`、`noticePanel(notice, task?)` |
@@ -211,7 +212,7 @@
 |---|---|
 | `project.test.js` | `test/project/{intent-layer,plan-gate,specs-queue,agents,lifecycle,recovery,limits,permissions}.test.js` |
 | `drafts-deps.test.js` | `test/drafts/{drafts,deps}.test.js` |
-| `workspaces.test.js` | `test/workspaces/{naming,merge,cleanup}.test.js` |
+| `workspaces.test.js` | `test/workspaces/{naming,merge,cleanup,genealogy,anchor}.test.js` |
 | `web-rpc.test.js` | `test/web/{security,assets,read-models,drafts,transcript,specs-intents,maintenance}.test.js` |
 | `web-live-dom.test.js` | `test/web/dom-{merge,detail,drafts,specs-intents,sidebar}.test.js`（各自 `boot()`，见前端接缝） |
 | 工作台与主题 | `test/web/appearance.test.js`（首屏主题、系统偏好、持久化与存储失败）、`test/web/dom-studio.test.js`（信息优先级、折叠保留、移动端索引） |

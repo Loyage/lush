@@ -1,11 +1,12 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { temp, until } from '../helpers.js';
+import { temp, repo, until } from '../helpers.js';
 import { cli } from './harness.js';
 
 test('shutdown kills pi process group, preserves task as failed, and restart does not replay it', async () => {
   const root = temp(), fake = path.join(root,'fake-pi');
+  await repo(root);
   fs.writeFileSync(fake, `#!/usr/bin/env bun
 import fs from 'node:fs';
 fs.writeFileSync(process.env.LUSH_HOME+'/child.pid', String(process.pid));

@@ -1,6 +1,6 @@
 import { $, badge, button, el } from './dom.js';
 import { action } from './api.js';
-import { PLAN_GATE, STATUS, relative, statusOf } from './format.js';
+import { PLAN_GATE, STATUS, relative, short, statusOf } from './format.js';
 import { filterUi, statusOption, syncSelectOptions, uniqueValues, withCurrent } from './filters-ui.js';
 import { detail } from './navigate.js';
 import { countText, describeFilters, filterIntents, isFiltering } from './sidebar.js';
@@ -45,6 +45,12 @@ function intentItem(intent) {
     meta.append(scheduler);
   }
   if (PLAN_GATE[intent.plan_gate]) meta.append(badge(PLAN_GATE[intent.plan_gate].label, PLAN_GATE[intent.plan_gate].className));
+  // 锚点在 submit 那一刻写下、之后不变：这条输入派出的 worker 都以它为基线。
+  if (intent.anchor_branch) {
+    const anchor = el('span', `锚点 ${short(intent.anchor_commit)}`, 'tid');
+    anchor.title = `${intent.anchor_branch} @ ${intent.anchor_commit}\nworktree: ${intent.anchor_workspace}\n目标分支: ${intent.anchor_target_branch}`;
+    meta.append(anchor);
+  }
   if (intent.work_tasks) meta.append(el('span', `开发任务 ${intent.work_tasks}`));
   item.append(meta);
   const actions = planActions(intent);

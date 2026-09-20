@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { fixture, until, gate } from '../helpers.js';
+import { fixture, repo, until, gate } from '../helpers.js';
 
 function controlled() {
   const calls = [];
@@ -18,7 +18,7 @@ function host(f, { role = 'coordinator', goal = 'host', input_id = null, run = f
 }
 
 test('depth and invocation limits bound runaway agents', async () => {
-  const f = fixture({ async run({task, api}) { api.message(task.id, 'again'); return 'loop'; } }, {LUSH_TASK_CALLS:'2', LUSH_MAX_DEPTH:'2'});
+  const f = fixture({ async run({task, api}) { api.message(task.id, 'again'); return 'loop'; } }, {LUSH_TASK_CALLS:'2', LUSH_MAX_DEPTH:'2'}); await repo(f.root);
   try {
     const root = host(f, { goal: 'root', run: true });
     f.project.kick();
@@ -30,9 +30,9 @@ test('depth and invocation limits bound runaway agents', async () => {
 });
 
 test('timeout aborts invocation and frees the agent slot', async () => {
-  const provider = controlled(), f = fixture(provider, {LUSH_CALL_TIMEOUT:'1'});
+  const provider = controlled(), f = fixture(provider, {LUSH_CALL_TIMEOUT:'1'}); await repo(f.root);
   try {
-    const task = f.project.submit('timeout').task;
+    const task = (await f.project.submit('timeout')).task;
     await until(() => f.store.task(task.id).status === 'failed');
     expect(provider.calls[0].signal.aborted).toBe(true);
     expect(f.project.running.size).toBe(0);

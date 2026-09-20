@@ -1,11 +1,85 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { check } from '../types.js';
-import { taskLabel } from '../naming.js';
+import { taskLabel, inputLabel } from '../naming.js';
 import { dirtDetail } from './git.js';
 
-/** worktree / 对照检出的创建与回收。 */
+/** worktree / 对照检出 / 输入锚点的创建与回收。 */
 export const methods = {
+  /**
+   * 输入锚点：把「提交这条输入那一刻的代码」固定成一条分支加一个检出。
+   * 它属于输入而不是任务（没有 agent 在这里跑），所以由 Git 边界创建、由调用方落库并负责失败回收。
+   * 先落库再动 git：谱系表示「这条分支确实被创建了」，崩溃重试不会重写它。
+   * 失败一律抛错——锚不住就不接受输入。
+   */
+  anchor(inputId) {
+    return this.exclusive(async () => {
+      const project = this.config.project;
+      // 不是仓库时 `rev-parse` 自己会抛错，但报错要说清「提交输入需要什么」，不甩一行 git 原始输出。
+      let root = null;
+      try { root = fs.realpathSync(await this.git(project, 'rev-parse', '--show-toplevel')); } catch { /* not a repository */ }
+      check(root === project, 'submitting an input requires the project to be a git worktree root');
+      // detached HEAD 上没有「提交输入时所在的分支」，也就没有 worker 可交付的目标分支。
+      let target = null;
+      try { target = await this.git(project, 'symbolic-ref', '--short', 'HEAD'); } catch { /* detached HEAD */ }
+      check(target !== null, 'cannot anchor an input on a detached HEAD; check out a branch before submitting');
+      const commit = await this.git(project, 'rev-parse', 'HEAD');
+      const name = `${inputLabel(inputId)}-anchor`;
+      const branch = `lush/${this.namespace}/${name}`;
+      const workspace = path.join(this.config.home, 'worktrees', name);
+      check(!(await this.git(project, 'branch', '--list', branch)),
+        `${branch} already exists; rename or remove it before submitting`);
+      const source = await this.porcelain(project);
+      this.store.recordBranch({ branch, parent: target, created_from_commit: commit, worktree: workspace });
+      fs.mkdirSync(path.dirname(workspace), { recursive: true });
+      await this.git(project, 'worktree', 'add', '-b', branch, workspace, commit);
+      const dirt = dirtDetail(source);
+      return { branch, commit, workspace, target, dirty_source: dirt.files ? dirt : null };
+    });
+  },
+
+  /**
+   * 回收一条输入锚点。它是提交那一刻的只读快照，没有任何 agent 往里提交，所以只在
+   * 「检出干净 + 分支顶端仍是锚定 commit」时才删；与任务分支一样用 compare-and-delete，不用 --force。
+   * 任何一条不满足就保留并在 reason 里说明原因。
+   */
+  async dropAnchor(anchor) {
+    const project = this.config.project;
+    const branch = anchor.branch;
+    const present = Boolean(anchor.workspace) && fs.existsSync(anchor.workspace);
+    // 先把「这条检出还是不是当初那个快照」问清楚：不干净就整份（目录+分支）保留，
+    // 不先删目录、再发现分支不能删。
+    if (present) {
+      try { await this.clean(anchor.workspace); }
+      catch (error) { return { branch, status: 'kept', reason: `anchor checkout ${anchor.workspace}: ${error.message}` }; }
+    }
+    let tip = null;
+    try { tip = await this.git(project, 'rev-parse', `refs/heads/${branch}`); } catch { /* ref 已经不在 */ }
+    if (tip !== null && tip !== anchor.commit) return { branch, status: 'kept',
+      reason: `anchor branch tip ${tip.slice(0, 12)} is not the anchored commit ${String(anchor.commit).slice(0, 12)}` };
+    if (present) await this.git(project, 'worktree', 'remove', anchor.workspace);
+    if (tip === null) return { branch, status: 'absent', reason: null };
+    if (await this.checkedOut(branch)) return { branch, status: 'kept', reason: 'branch is checked out in a worktree' };
+    await this.git(project, 'update-ref', '-d', `refs/heads/${branch}`, tip);
+    this.store.markBranchDeleted(branch);
+    return { branch, status: 'removed', reason: null };
+  },
+
+  /** 单独回收一条（提交失败回滚时用）：自己进串行队列。 */
+  releaseAnchor(anchor) { return this.exclusive(() => this.dropAnchor(anchor)); },
+
+  /** clear 用：在**同一个** exclusive 块里逐条回收，一条被安全门挡住不影响其余的。 */
+  reclaimAnchors(anchors) {
+    return this.exclusive(async () => {
+      const outcomes = [];
+      for (const anchor of anchors) {
+        try { outcomes.push({ id: anchor.id, ...await this.dropAnchor(anchor) }); }
+        catch (error) { outcomes.push({ id: anchor.id, branch: anchor.branch, status: 'kept', reason: error.message }); }
+      }
+      return outcomes;
+    });
+  },
+
   async ensure(task) {
     // verifier 不修改代码：它站在被检验的 worktree 里演示，另拉一个目标分支的只读对照。
     if (task.role === 'verifier') return this.exclusive(async () => {
@@ -39,16 +113,22 @@ export const methods = {
       // 主工作树脏不再是硬门槛：`git worktree add` 只读已提交的 HEAD、不碰用户现场，所以 Lush
       // 不必为了开工去提交、暂存或藏起已有改动。代价是 worker 看不到未提交改动，这份分歧必须
       // 留痕（dirty_source），否则 review 无从知道 base 与用户当时的现场不同。
+      // 有锚点时基线是**提交输入那一刻**的 commit，那份 divergence 记在 `input.anchor` 事件里；
+      // 这里的 dirty_source 只说明开工时主树是什么状态。
       const source = await this.porcelain(project);
       // A code dependency stacks this task on the upstream branch, so the agent sees work that is not merged yet.
       // base_commit is frozen once: a retry must build the same tree as the review did.
       // 解冲突任务的基线取目标分支的顶端（不是 HEAD：用户可能已经切到别的分支）：
       // 它的产物必须是「目标分支 + 那次已审阅的提交」的合并提交，批准时才能 --ff-only 原样落地。
       const stacked = task.base_commit ? null : this.codeBase(task);
-      const base = task.base_commit || (task.resolves_task_id
+      const resolves = Boolean(task.resolves_task_id);
+      // 没有 code 依赖、也不是解冲突任务时，基线来自这条输入的锚点：submit 那一刻就把代码冻结了，
+      // 所以规划花了多久、用户在主树上又提交了什么，都不改变 worker 看到的基线。
+      const anchor = resolves ? null : this.inputAnchor(task);
+      const base = task.base_commit || (resolves
         ? await this.git(project, 'rev-parse', `refs/heads/${task.target_branch}`)
-        : stacked?.head_commit || await this.git(project, 'rev-parse', 'HEAD'));
-      const target = task.target_branch || await this.git(project, 'symbolic-ref', '--short', 'HEAD');
+        : stacked?.head_commit || anchor?.commit || await this.git(project, 'rev-parse', 'HEAD'));
+      const target = task.target_branch || anchor?.target || await this.git(project, 'symbolic-ref', '--short', 'HEAD');
       const branch = task.branch || `lush/${this.namespace}/${taskLabel(task.id, task.name)}`;
       let reuse = false;
       if (!task.branch) check(!(await this.git(project, 'branch', '--list', branch)), 'task branch already exists; preserve or rename the old branch before retrying');
@@ -61,12 +141,12 @@ export const methods = {
       // Save the intended identity before git; a crash never makes the directory invisible.
       this.store.update(task.id, { workspace, branch, base_commit: base, target_branch: target });
       // 谱系就在分支创建这一刻显式写下：parent 是这次真正分叉出来的那条分支——
-      // code 依赖时是上游任务的分支（stacked），否则是当前检出（解冲突任务是目标分支）；
+      // code 依赖时是上游任务的分支（stacked），解冲突任务是目标分支，其余是这条输入的锚点分支；
       // created_from_commit 就是拉起 worktree 用的那个 commit，所以 parent 后来往前走也查得到当时的起点。
       // 与上面一样先落库再动 git，且已有记录绝不改写：merge / 重建都不能重写创建时的血缘。
       this.store.recordBranch({
         branch,
-        parent: stacked ? stacked.branch : target,
+        parent: stacked ? stacked.branch : anchor?.branch ?? target,
         created_from_commit: stacked ? stacked.head_commit : base,
         task_id: task.id, worktree: workspace,
       });
@@ -75,9 +155,21 @@ export const methods = {
       await this.git(project, 'worktree', 'add', ...(reuse ? [workspace, branch] : ['-b', branch, workspace, stacked ? stacked.head_commit : base]));
       const dirt = dirtDetail(source);
       this.store.event(task.id, 'workspace.created', { workspace, branch, base, stacked_on: stacked ? stacked.id : null,
+        anchored_on: anchor ? { input_id: anchor.id, branch: anchor.branch, commit: anchor.commit } : null,
         dirty_source: dirt.files ? dirt : null });
       return workspace;
     });
+  },
+
+  /**
+   * 这条输入在提交那一刻锚下来的代码：worker 的基线、目标分支与谱系 parent 都从它来。
+   * 返回 null 时（老库里的输入、或没有 input 的 task）退回「spawn 时取 HEAD」的旧行为。
+   */
+  inputAnchor(task) {
+    if (!task.input_id) return null;
+    const input = this.store.get('SELECT id, anchor_branch, anchor_commit, anchor_target_branch FROM inputs WHERE id=?', task.input_id);
+    if (!input || !input.anchor_commit) return null;
+    return { id: input.id, branch: input.anchor_branch, commit: input.anchor_commit, target: input.anchor_target_branch };
   },
   async finish(task) {
     if (!task.workspace) return;

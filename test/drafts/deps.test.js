@@ -83,9 +83,9 @@ test('dependency declaration rejects deadlocks and dependencies that cannot work
 });
 
 test('a planner cannot delegate directly; the queue is its only path', async () => {
-  const f = fixture(); f.project.stopping = true;
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const planner = f.project.submit('plan').task;
+    const planner = (await f.project.submit('plan')).task;
     expect(() => f.project.spawn(planner.id, 'no direct spawn', 'research')).toThrow('planner 不再直接派活');
     const first = f.project.addSpec(planner.id, { goal: '第一次调研', role: 'research', name: 'first-research' });
     const second = f.project.addSpec(planner.id, { goal: '第二次调研', role: 'research', name: 'second-research', deps: [{ spec: first.id, kind: 'order' }] });

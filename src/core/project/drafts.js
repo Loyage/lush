@@ -38,8 +38,9 @@ export default {
   /**
    * Hands buffered drafts to one planner as a single batch. ids omitted: every open draft.
    * With ids: only the selected subset, ascending by id (= input order); unselected drafts stay buffered.
+   * 锚点要等 Git 建好才落库：失败时草稿一条也不动，仍在缓存里等下一次提交。
    */
-  commitDrafts(ids = null) {
+  async commitDrafts(ids = null) {
     let drafts;
     if (ids === null || ids === undefined) {
       drafts = this.store.openDrafts();
@@ -60,16 +61,12 @@ export default {
       });
     }
     check(drafts.length > 0, 'no buffered drafts to submit');
-    const result = this.store.transaction(() => {
-      const content = batchContent(drafts);
-      const row = this.store.run('INSERT INTO inputs(content) VALUES (?)', content);
-      const inputId = Number(row.lastInsertRowid);
-      const task = this.store.create({ input_id: inputId, role: 'planner', goal: content });
-      this.store.run('UPDATE inputs SET task_id=? WHERE id=?', task.id, inputId);
-      for (const draft of drafts) this.store.run('UPDATE drafts SET input_id=? WHERE id=?', inputId, draft.id);
-      return { id: inputId, content, task, drafts: drafts.map(draft => draft.id) };
+    const content = batchContent(drafts);
+    const result = await this.createInput(content, task => {
+      for (const draft of drafts) this.store.run('UPDATE drafts SET input_id=? WHERE id=?', task.input_id, draft.id);
+      this.store.event(task.id, 'input.batch', { draft_ids: drafts.map(draft => draft.id) });
     });
-    this.store.event(result.task.id, 'input.batch', { draft_ids: result.drafts });
-    this.kick(); return result;
+    this.kick();
+    return { ...result, drafts: drafts.map(draft => draft.id) };
   }
 };

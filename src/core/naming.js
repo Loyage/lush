@@ -43,3 +43,6 @@ function goalSlug(goal) {
 export function taskLabel(id, name) {
   return name ? `${id}-${name}` : `task-${id}`;
 }
+
+/** `input-<id>`: 输入锚点的分支与检出目录名。输入没有 slug，id 已经唯一且可读。 */
+export function inputLabel(id) { return `input-${id}`; }

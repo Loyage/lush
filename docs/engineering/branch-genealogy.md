@@ -12,10 +12,13 @@
 核心对象与关系：
 
 ```text
-Task ──(task_id)──> Branch ──(parent)──> Branch
-                       │
-                       └──(worktree)──> .lush/worktrees/<id>-<name>
+Input ──(anchor_branch)──> Branch ──(parent)──> Branch
+                              │
+Task ──(task_id)──────────────┤
+                              └──(worktree)──> .lush/worktrees/<id>-<name>
 ```
+
+锚点分支没有 `task_id`（它属于输入），任务分支的 `task_id` 指向任务自己；两种分支都遵守同一个不可变规则。
 
 ## 为什么不用 Git 事后推断
 
@@ -31,15 +34,15 @@ Git 不保存「B 是从 A 创建的」这种关系：`merge-base`、reflog、co
 | `parent` | 创建时所在的父分支短名；`NULL` 表示没有 parent 记录 |
 | `parent_relation` | `recorded` = 创建时记下；`inferred` = 由 import 的启发式推断（当前 `branch import` **不猜**，所以不会写入）；`unknown` = 没有 parent 记录 |
 | `created_from_commit` | 创建分支那一刻父分支（或冻结基线）指向的 commit SHA——parent 之后往前走也查得到当时的起点 |
-| `task_id` | 创建它的 task id；**故意没有外键**，`task clear` 清空 tasks 后这条记录仍然有效 |
+| `task_id` | 创建它的 task id；**故意没有外键**，`task clear` 清空 tasks 后这条记录仍然有效。输入锚点分支为 `NULL`（它属于输入） |
 | `worktree` | 对应的 worktree 路径（创建时写入；现在还在不在由读模型的 `worktree_exists` 回答） |
 | `status` | `active` / `deleted`（`deleted` 只由回收路径写入，见下） |
 | `created_at` / `deleted_at` | 写入与标记删除的时间 |
 
 写入只有两个入口，都在 Git 边界里，没有第二套分支创建机制：
 
-1. **创建**：`Workspaces#ensure` 在 `git worktree add -b <branch> <dir> <commit>` **之前**先落库（与 `workspace` / `base_commit` 同一套「先落库再动 git」的约定）。`parent` 是这次真正分叉出来的分支：有 `code` 依赖时是**上游任务的分支**（stacked），解冲突任务是**目标分支**，其余是当时检出的分支；`created_from_commit` 就是拉起 worktree 用的那个 commit。
-2. **删除**：`Workspaces#dropBranch` 在 `update-ref -d` 成功后调 `markBranchDeleted`，只把 `status` 改成 `deleted`，**不删行**。
+1. **创建**：`Workspaces#anchor`（输入锚点）与 `Workspaces#ensure`（任务 worktree）在 `git worktree add -b <branch> <dir> <commit>` **之前**先落库（与 `input.anchor_*` / `workspace` / `base_commit` 同一套「先落库再动 git」的约定）。锚点的 `parent` 是提交输入时检出的分支；任务分支的 `parent` 是这次真正分叉出来的分支：有 `code` 依赖时是**上游任务的分支**（stacked），解冲突任务是**目标分支**，其余是**这条输入的锚点分支**；`created_from_commit` 就是拉起 worktree 用的那个 commit。
+2. **删除**：`Workspaces#dropBranch`（任务分支）与 `Workspaces#dropAnchor`（输入锚点）在 `update-ref -d` 成功后调 `markBranchDeleted`，只把 `status` 改成 `deleted`，**不删行**。
 
 `recordBranch` 是幂等的（`ON CONFLICT DO NOTHING`）：崩溃重试撞见已创建的分支不会重写 parent，**merge 也永远不改谱系**——`B` 合并进 `main` 之后，`parent(B)` 还是原来的 `A`。
 

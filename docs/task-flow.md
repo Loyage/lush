@@ -15,6 +15,8 @@
 ```text
 用户输入
   ↓
+输入锚点：当前分支顶端 → input-<id>-anchor 分支 + 检出（提交这一刻的代码）
+  ↓
 Intent：原话 + planner
   ↓
 Spec：planner 写出的拆解条目
@@ -23,7 +25,7 @@ Scheduler：把一批 spec 编排成行动任务
   ↓
 行动任务执行
   ├─ research / coordinator：形成结论或继续委派
-  └─ worker：独立 worktree 中修改、测试、提交
+  └─ worker：独立 worktree（基线＝输入锚点）中修改、测试、提交
   ↓
 任务 completed
   ├─ 没有代码改动：流程结束
@@ -35,8 +37,10 @@ Scheduler：把一批 spec 编排成行动任务
   ├─ 干净合并：进入目标分支
   └─ 内容冲突：resolver 解冲突 → 再审阅 → 落地
   ↓
-安全回收 worktree / 分支
+安全回收 worktree / 输入锚点 / 分支
 ```
+
+输入锚点是提交时就写下来的：规划花多久、你在主树上又提交了什么，都不会改变这次输入看到的是哪份代码。它只给「这次输入的 worker 的基线」定坐标，不属于任务，也不进交付队列；`order` 依赖的 worker 也从锚点开始，`code` 依赖的 worker 则栈叠在上游任务的分支上。
 
 Web 中主要对应三个位置：
 
@@ -70,7 +74,7 @@ planner 负责理解原话并写拆解队列，不直接修改代码。它可能
 
 - 直接写 spec，交给 scheduler；
 - 在影响面大、意图不明确时提出计划审批；
-- 将了解类请求标记为 `explain`，只派 research，不创建代码 worktree。
+- 将了解类请求标记为 `explain`，只派 research，不创建代码（任务）worktree；提交时那份只读的输入锚点仍在。
 
 若出现计划审批，在 Web 的意图卡片上选择“批准并开发”或“驳回”；CLI 对应：
 
@@ -84,7 +88,7 @@ lush plan reject PLANNER_ID '调整理由'
 scheduler 把同一批 spec 编排成真实任务，并声明依赖：
 
 - `code`：下游 worktree 基于上游提交创建；执行和交付都必须保持上游在前；
-- `order`：只要求执行时等待上游结束，不影响交付顺序。
+- `order`：只要求执行时等待上游结束，不影响交付顺序；基线仍是这条输入的锚点。
 
 没有依赖的兄弟任务可以并行执行。被依赖挡住的任务保持 `queued`，不占 agent 槽。
 
@@ -315,7 +319,7 @@ lush task cleanup TASK_ID
 lush task cleanup TASK_ID --keep-branch
 ```
 
-回收不会强制删除。分支被改过、工作区脏、提交尚未进入目标分支时，Lush 会拒绝或保留现场，并说明原因。
+回收不会强制删除。分支被改过、工作区脏、提交尚未进入目标分支时，Lush 会拒绝或保留现场，并说明原因。`lush task clear` 还会额外回收每条输入的锚点检出与 `input-<id>-anchor` 分支（安全门一样：检出干净且分支顶端仍等于锚定 commit），被动过的整份留在磁盘上并写入 `retained.anchors`。
 
 ## 十一、遇到提示时该做什么
 

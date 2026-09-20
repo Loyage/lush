@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { fixture, until, gate } from '../helpers.js';
+import { fixture, repo, until, gate } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { createSignal } from '../../src/signal.js';
 
@@ -20,9 +20,9 @@ function host(f, { role = 'coordinator', goal = 'host', input_id = null, run = f
 }
 
 test('one task keeps one agent identity while its credential rotates every wake', async () => {
-  const provider = controlled(), f = fixture(provider);
+  const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
-    const task = f.project.submit('identity').task;
+    const task = (await f.project.submit('identity')).task;
     await until(() => provider.calls.length === 1);
     const first = f.project.running.get(task.id).token;
     expect(f.project.inspect(task.id).agent).toMatchObject({ id: 'planner#1', task_id: task.id, role: 'planner', wakes: 1, active: true });
@@ -54,7 +54,7 @@ test('one task keeps one agent identity while its credential rotates every wake'
 });
 
 test('every live task owns exactly one agent, parked ancestors included', async () => {
-  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY:'2' });
+  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY:'2' }); await repo(f.root);
   try {
     const parent = host(f, { goal: 'parent', run: true });
     f.project.kick();
@@ -71,9 +71,9 @@ test('every live task owns exactly one agent, parked ancestors included', async 
 });
 
 test('a notice parks only its task, answer wakes it, duplicate answers fail', async () => {
-  const f = fixture({ async run({ task, api }) { if (task.calls === 1) api.notice(task.id, 'Which design?', 'A or B'); return 'waiting'; } });
+  const f = fixture({ async run({ task, api }) { if (task.calls === 1) api.notice(task.id, 'Which design?', 'A or B'); return 'waiting'; } }); await repo(f.root);
   try {
-    const task = f.project.submit('work').task;
+    const task = (await f.project.submit('work')).task;
     await until(() => f.store.task(task.id).status === 'awaiting');
     expect(f.project.running.size).toBe(0);
     const notice = f.store.get('SELECT * FROM notices');
@@ -85,7 +85,7 @@ test('a notice parks only its task, answer wakes it, duplicate answers fail', as
 });
 
 test('agent capabilities cannot approve merges, spoof parents or message siblings', async () => {
-  const provider = controlled(), f = fixture(provider);
+  const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
     const root = host(f, { goal: 'root', run: true });
     f.project.kick();

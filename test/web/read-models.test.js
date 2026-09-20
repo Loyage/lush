@@ -1,11 +1,12 @@
 import { test, expect } from 'bun:test';
 import { RPCClient } from '../../src/rpc/client.js';
+import { repo } from '../helpers.js';
 import { fetch, pageSource, setup } from './harness.js';
 
 // 大结果不进列表、事件分页、input flow 徽章与改判。
 
 test('large results do not inflate task listings and event history stays paginated', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   try {
     f.project.stopping = true;
     const task = f.store.create({ input_id: null, role: 'research', goal: 'large' });
@@ -22,7 +23,7 @@ test('large results do not inflate task listings and event history stays paginat
 });
 
 test('web surfaces the input flow badge and lets the user reclassify an input', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     expect((await post('input.submit',{content:'了解调度器怎么工作'})).status).toBe(200);

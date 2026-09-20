@@ -18,7 +18,7 @@
 }
 ```
 
-每个节点的字段：`branch`（分支短名）、`parent` / `parent_relation`（`recorded` / `inferred` / `unknown`；`parent` 为 `null` 表示没有记录）、`created_from_commit`（创建时的起点，parent 之后往前走也查得到）、`task_id` / `task_role` / `task_name` / `task_goal`（关联的 task，已被 `task clear` 清空时为 `null`，但 `task_id` 留着）、`worktree` / `worktree_exists`、`created_at`、`status`（`active` / `deleted`）、`tracked`（store 里有没有这条记录）、`present`（Git ref 现在还在不在；git 不可用时为 `null`）、`head_commit`、`current`（是不是当前检出分支）、`deleted`（`present === false`）、`children`。
+每个节点的字段：`branch`（分支短名）、`parent` / `parent_relation`（`recorded` / `inferred` / `unknown`；`parent` 为 `null` 表示没有记录）、`created_from_commit`（创建时的起点，parent 之后往前走也查得到）、`task_id` / `task_role` / `task_name` / `task_goal`（关联的 task，已被 `task clear` 清空时为 `null`，但 `task_id` 留着；输入锚点分支的 `task_id` 本来就是 `null`，它的 `parent` 是提交输入时检出的分支）、`worktree` / `worktree_exists`、`created_at`、`status`（`active` / `deleted`）、`tracked`（store 里有没有这条记录）、`present`（Git ref 现在还在不在；git 不可用时为 `null`）、`head_commit`、`current`（是不是当前检出分支）、`deleted`（`present === false`）、`children`。
 
 读取是只读 git：`rev-parse --git-dir` / `symbolic-ref --short HEAD` / `for-each-ref refs/heads` / `worktree list --porcelain`，不 checkout、不 merge、不改 ref、不写 store。非 Git 项目不报错，只给出 store 里的记录（`git: false` 加 `error`）；节点数超过 500 截断并置 `truncated`。
 

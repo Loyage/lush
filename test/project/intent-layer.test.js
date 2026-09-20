@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { fixture, until, gate } from '../helpers.js';
+import { fixture, repo, until, gate } from '../helpers.js';
 
 function controlled() {
   const calls = [];
@@ -11,9 +11,9 @@ function controlled() {
 }
 
 test('raw input persists, creates a planner, and the mock queues a spec without Service', async () => {
-  const f = fixture();
+  const f = fixture(); await repo(f.root);
   try {
-    const input = f.project.submit('  原话\n保留  ');
+    const input = (await f.project.submit('  原话\n保留  '));
     expect(input.content).toBe('  原话\n保留  ');
     await until(() => f.store.task(input.task.id).status === 'completed');
     await until(() => f.store.get("SELECT count(*) AS n FROM tasks WHERE role='scheduler'").n === 1);
@@ -34,9 +34,9 @@ test('raw input persists, creates a planner, and the mock queues a spec without 
 });
 
 test('intent 层：planner 与 scheduler 不进任务树/任务列表/时间轴，只在意图视图里', async () => {
-  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '4' });
+  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '4' }); await repo(f.root);
   try {
-    const planner = f.project.submit('做两件事').task;
+    const planner = (await f.project.submit('做两件事')).task;
     const spec = f.project.addSpec(planner.id, { goal: '写点东西', role: 'worker', name: 'write-something' });
     await until(() => provider.calls.some(call => call.task.id === planner.id));
     provider.calls.find(call => call.task.id === planner.id).done.resolve('planned');

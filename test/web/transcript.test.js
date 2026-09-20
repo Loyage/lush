@@ -1,14 +1,15 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { repo } from '../helpers.js';
 import { fetch, pageSource, setup } from './harness.js';
 
 // 只读 transcript 与 usage 路由。
 
 test('web exposes the read-only agent transcript and keeps sessions out of the read models', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   try {
-    const task = f.project.submit('transcript me').task;
+    const task = (await f.project.submit('transcript me')).task;
     f.project.stopping = true;   // 只造数据，不让 planner 真的跑
     const dir = path.join(f.config.home, 'sessions');
     fs.mkdirSync(dir, { recursive: true });
@@ -42,9 +43,9 @@ test('web exposes the read-only agent transcript and keeps sessions out of the r
 });
 
 test('web exposes agent usage (model, context, cost) next to the transcript', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   try {
-    const task = f.project.submit('usage me').task;
+    const task = (await f.project.submit('usage me')).task;
     f.project.stopping = true;   // 只造数据，不让 planner 真的跑
     const dir = path.join(f.config.home, 'sessions');
     fs.mkdirSync(dir, { recursive: true });

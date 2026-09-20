@@ -1,13 +1,13 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { until } from '../helpers.js';
+import { repo, until } from '../helpers.js';
 import { fetch, pageSource, setup } from './harness.js';
 
 // 校验报告作为自包含文档；task.clear 与有活动任务时的拒绝。
 
 test('web serves the verification report as a self-contained document and nothing else', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   try {
     f.project.stopping = true;   // 只造数据，不让 planner 真的跑
     const worker = f.store.create({ parent_id: null, input_id: null, role: 'worker', goal: 'w', name: 'w' });
@@ -32,7 +32,7 @@ test('web serves the verification report as a self-contained document and nothin
 });
 
 test('web clears the board through task.clear and refuses it while tasks are live', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     expect(await pageSource(f.url)).toContain('清空任务看板');

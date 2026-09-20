@@ -1,14 +1,15 @@
 import { test, expect } from 'bun:test';
+import { repo } from '../helpers.js';
 import { fetch, pageSource, setup } from './harness.js';
 
 // 只读 spec 队列、意图面板、plan.approve。
 
 test('web shows the read-only spec queue and labels scheduler tasks', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     f.project.stopping = true;   // 只造数据，不让 planner / scheduler 真的跑
-    const planner = f.project.submit('重做一个页面').task;
+    const planner = (await f.project.submit('重做一个页面')).task;
     const workerSpec = f.project.addSpec(planner.id, { goal: '写一个页面', role: 'worker', name: 'build-page' });
     const researchSpec = f.project.addSpec(planner.id, { goal: '调研旧实现', role: 'research', name: 'study-old' });
     const droppedSpec = f.project.addSpec(planner.id, { goal: '重复的拆解', role: 'worker', name: 'duplicate' });
@@ -50,11 +51,11 @@ test('web shows the read-only spec queue and labels scheduler tasks', async () =
 });
 
 test('web 意图面板：意图行带 planner 闸门与 scheduler 进度，批准走 plan.approve', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     f.project.stopping = true;   // 只造意图与闸门，不让 planner 真的跑
-    const planner = f.project.submit('做点大事').task;
+    const planner = (await f.project.submit('做点大事')).task;
     const spec = f.project.addSpec(planner.id, { goal: '动架构', role: 'worker', name: 'big-change' });
     f.project.proposePlan(planner.id, '这轮要动架构', '我打算先拆核心再改调用方……');
     // 意图行把 planner 闸门、拆解计数与那条审批 notice 一起下发；任务列表里没有它

@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { fixture, until, gate } from '../helpers.js';
+import { fixture, repo, until, gate } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { createSignal } from '../../src/signal.js';
 
@@ -13,9 +13,9 @@ function controlled() {
 }
 
 test('specs are written, read back through the queue read models, and users cannot write them', async () => {
-  const provider = controlled(), f = fixture(provider);
+  const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
-    const planner = f.project.submit('plan').task;
+    const planner = (await f.project.submit('plan')).task;
     await until(() => f.project.running.has(planner.id));
     const token = f.project.running.get(planner.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});
@@ -40,9 +40,9 @@ test('specs are written, read back through the queue read models, and users cann
 });
 
 test('one scheduler owns a batch of specs and spawns them with explicit spec links', async () => {
-  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '4' });
+  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '4' }); await repo(f.root);
   try {
-    const planner = f.project.submit('plan').task;
+    const planner = (await f.project.submit('plan')).task;
     // 两次写入之间专门让 pump 跑一轮：批次边界是「谁写的」，不是「哪一刻写的」
     const upstream = f.project.addSpec(planner.id, { goal: '上游', role: 'research', name: 'upstream-research' });
     await until(() => !f.project.scheduled);
@@ -72,9 +72,9 @@ test('one scheduler owns a batch of specs and spawns them with explicit spec lin
 });
 
 test('a completed scheduler drops every spec it did not cover but keeps planned ones', async () => {
-  const f = fixture(); f.project.stopping = true;
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const planner = f.project.submit('plan').task;
+    const planner = (await f.project.submit('plan')).task;
     const first = f.project.addSpec(planner.id, { goal: '一', role: 'research', name: 'first-research' });
     const second = f.project.addSpec(planner.id, { goal: '二', role: 'research', name: 'second-research' });
     const scheduler = f.store.create({ input_id: null, role: 'scheduler', goal: 'batch' });
@@ -89,9 +89,9 @@ test('a completed scheduler drops every spec it did not cover but keeps planned 
 });
 
 test('cancelling a scheduler returns its untouched specs to the queue', async () => {
-  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '2' });
+  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '2' }); await repo(f.root);
   try {
-    const planner = f.project.submit('plan').task;
+    const planner = (await f.project.submit('plan')).task;
     const spec = f.project.addSpec(planner.id, { goal: '工作', role: 'research', name: 'some-research' });
     await until(() => provider.calls.some(call => call.task.id === planner.id));
     provider.calls.find(call => call.task.id === planner.id).done.resolve('planned');
@@ -105,9 +105,9 @@ test('cancelling a scheduler returns its untouched specs to the queue', async ()
 });
 
 test('a planner round is one batch, and a later round waits for the live scheduler', async () => {
-  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '4' });
+  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '4' }); await repo(f.root);
   try {
-    const first = f.project.submit('first').task, second = f.project.submit('second').task;
+    const first = (await f.project.submit('first')).task, second = (await f.project.submit('second')).task;
     // 同一轮里隔了几拍才写下的 spec 仍然是一批：边界是「谁写的」，不是「哪一刻写的」
     const a1 = f.project.addSpec(first.id, { goal: 'a1', role: 'research', name: 'a1-research' });
     await until(() => !f.project.scheduled);
@@ -136,9 +136,9 @@ test('a planner round is one batch, and a later round waits for the live schedul
 });
 
 test('a planner parked on a notice still hands its written specs to a scheduler', async () => {
-  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '2' });
+  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '2' }); await repo(f.root);
   try {
-    const planner = f.project.submit('plan').task;
+    const planner = (await f.project.submit('plan')).task;
     const spec = f.project.addSpec(planner.id, { goal: '其余条目', role: 'research', name: 'clear-research' });
     f.project.notice(planner.id, '这条读不懂', '两种可能理解……');
     await until(() => provider.calls.some(call => call.task.id === planner.id));
@@ -156,9 +156,9 @@ test('a planner parked on a notice still hands its written specs to a scheduler'
 });
 
 test('spawning a spec whose dependency was dropped is refused', async () => {
-  const f = fixture(); f.project.stopping = true;
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const planner = f.project.submit('plan').task;
+    const planner = (await f.project.submit('plan')).task;
     const dep = f.project.addSpec(planner.id, { goal: '依赖', role: 'research', name: 'dep-research' });
     const consumer = f.project.addSpec(planner.id, { goal: '消费者', role: 'research', name: 'consumer-research', deps: [{ spec: dep.id, kind: 'order' }] });
     const scheduler = f.store.create({ input_id: null, role: 'scheduler', goal: 'batch' });
@@ -169,10 +169,10 @@ test('spawning a spec whose dependency was dropped is refused', async () => {
 });
 
 test('spec dependencies may only point at specs from the same planner', async () => {
-  const f = fixture(); f.project.stopping = true;
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const first = f.project.submit('first').task;
-    const second = f.project.submit('second').task;
+    const first = (await f.project.submit('first')).task;
+    const second = (await f.project.submit('second')).task;
     const spec = f.project.addSpec(first.id, { goal: '调研', role: 'research', name: 'research' });
     expect(() => f.project.addSpec(second.id, { goal: '接入', role: 'worker', name: 'wire', deps: [{ spec: spec.id, kind: 'order' }] })).toThrow('another planner');
     expect(() => f.project.addSpec(first.id, { goal: '未知', role: 'research', deps: [{ spec: 999 }] })).toThrow('spec 999 not found');

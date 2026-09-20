@@ -1,12 +1,12 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
-import { temp, env } from '../helpers.js';
+import { temp, repo, env } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
 import { cli, done } from './harness.js';
 
 test('real daemons: project isolation, duplicate start, immediate input, restart persistence', async () => {
-  const a = temp(), b = temp();
+  const a = temp(), b = temp(); await repo(a); await repo(b);
   try {
     const sa = await cli(a,['start']), sb = await cli(b,['start']);
     expect(sa.project).toBe(a); expect(sb.project).toBe(b); expect(sa.pid).not.toBe(sb.pid);

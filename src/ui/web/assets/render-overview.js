@@ -96,14 +96,14 @@ export function renderOverview(data) {
   if (live) maintenance.append(el('p', `还有 ${live} 个任务没有结束。取消它们或等它们结束之后，才能清空看板。`, 'hint'));
   else if (!data.tasks.length) maintenance.append(el('p', '任务看板是空的。', 'hint'));
   else {
-    maintenance.append(el('p', `删除全部 ${data.tasks.length} 个已结束任务，以及 inputs / drafts / notices / events。能安全回收的连 worktree 目录、对照检出与任务分支一起删；有未合并成果或分支被改过的保留在磁盘上，返回值会列出原因。旧 task id 不会被新任务复用。`, 'hint'));
+    maintenance.append(el('p', `删除全部 ${data.tasks.length} 个已结束任务，以及 inputs / drafts / notices / events。能安全回收的连 worktree 目录、对照检出与任务分支、输入锚点一起删；有未合并成果或分支被改过的保留在磁盘上，返回值会列出原因。旧 task id 与 input id 不会被复用。`, 'hint'));
     const actions = el('div', undefined, 'actions');
     actions.append(button('清空任务看板', async () => {
       if (!confirm(`删除全部 ${data.tasks.length} 个已结束任务？`)) return;
       if (!confirm('再次确认：库里的任务、输入与事件将不可恢复；已进目标分支的 worktree 目录与分支会一并删除，未合并的保留。')) return;
       const result = await action('task.clear');
       await overview();
-      $('error').textContent = `已清空 ${result.cleared.tasks} 个任务、${result.cleared.inputs} 条输入；回收 ${result.reclaimed?.worktrees ?? 0} 个 worktree、${result.reclaimed?.branches ?? 0} 个分支，保留 ${result.retained.tasks.length} 个`;
+      $('error').textContent = `已清空 ${result.cleared.tasks} 个任务、${result.cleared.inputs} 条输入；回收 ${result.reclaimed?.worktrees ?? 0} 个 worktree、${result.reclaimed?.branches ?? 0} 个分支、${result.reclaimed?.anchors ?? 0} 个输入锚点，保留 ${result.retained.tasks.length} 个`;
     }, 'danger'));
     maintenance.append(actions);
   }

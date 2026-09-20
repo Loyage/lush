@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { temp, env } from '../helpers.js';
+import { temp, repo, env } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
 import { cli, done, schedulerOf } from './harness.js';
@@ -9,6 +9,7 @@ import { cli, done, schedulerOf } from './harness.js';
 test('pi subprocess receives project/task capability, pinned CLI, persistent session path and performs delegation', async () => {
   const root = temp();
   const fake = path.join(root,'fake-pi');
+  await repo(root);
   fs.writeFileSync(fake, `#!/usr/bin/env bun
 import fs from 'node:fs';
 import path from 'node:path';

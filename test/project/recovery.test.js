@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { fixture, until } from '../helpers.js';
+import { fixture, repo, until } from '../helpers.js';
 
 /** planner 只写 spec 队列；测试里用它造一个能直接派活的非 planner 任务。 */
 function host(f, { role = 'coordinator', goal = 'host', input_id = null } = {}) {
@@ -9,7 +9,7 @@ function host(f, { role = 'coordinator', goal = 'host', input_id = null } = {}) 
 }
 
 test('recovery does not replay running tasks or interrupted merges', async () => {
-  const f = fixture();
+  const f = fixture(); await repo(f.root);
   try {
     f.project.stopping = true;
     const root = host(f, { goal: 'root' });
@@ -25,10 +25,10 @@ test('recovery does not replay running tasks or interrupted merges', async () =>
 });
 
 test('recovery repairs a committed inbox message whose wake-up was interrupted', async () => {
-  const f = fixture();
+  const f = fixture(); await repo(f.root);
   try {
     f.project.stopping = true;
-    const root = f.project.submit('waiting root').task;
+    const root = (await f.project.submit('waiting root')).task;
     f.store.update(root.id,{status:'waiting'});
     f.store.message(root.id,'child result committed before daemon died');
     f.project.recover();

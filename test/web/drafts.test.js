@@ -1,10 +1,11 @@
 import { test, expect } from 'bun:test';
+import { repo } from '../helpers.js';
 import { fetch, pageSource, setup } from './harness.js';
 
 // 缓存批次提交与勾选子集。
 
 test('web buffers drafts, commits the whole batch and keeps agents out of the composer', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     const html = await (await fetch(f.url)).text();
@@ -34,7 +35,7 @@ test('web buffers drafts, commits the whole batch and keeps agents out of the co
 });
 
 test('web edits a buffered draft and submits only the picked subset', async () => {
-  const f = await setup();
+  const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   const snapshotNow = async () => (await fetch(f.url+'/api/snapshot')).json();
   try {

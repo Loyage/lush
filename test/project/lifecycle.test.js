@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { fixture, until, gate } from '../helpers.js';
+import { fixture, repo, until, gate } from '../helpers.js';
 
 function controlled() {
   const calls = [];
@@ -18,9 +18,9 @@ function host(f, { role = 'coordinator', goal = 'host', input_id = null, run = f
 }
 
 test('messages arriving during an invocation are delivered exactly on the next invocation', async () => {
-  const provider = controlled(), f = fixture(provider);
+  const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
-    const task = f.project.submit('work').task;
+    const task = (await f.project.submit('work')).task;
     await until(() => provider.calls.length === 1);
     f.project.message(task.id, 'new requirement');
     expect(provider.calls[0].messages).toEqual([]);
@@ -34,7 +34,7 @@ test('messages arriving during an invocation are delivered exactly on the next i
 });
 
 test('cancel cascades and terminal tasks cannot have active descendants', async () => {
-  const provider = controlled(), f = fixture(provider);
+  const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
     const root = host(f, { goal: 'root', run: true });
     f.project.kick();
@@ -70,9 +70,9 @@ test('failure cancels descendants; child failure wakes parent with explicit erro
 
 test('retry is explicit, preserves unconsumed messages and prior audit', async () => {
   let fail = true;
-  const f = fixture({ async run() { if (fail) throw new Error('bad'); return 'ok'; } });
+  const f = fixture({ async run() { if (fail) throw new Error('bad'); return 'ok'; } }); await repo(f.root);
   try {
-    const root = f.project.submit('root').task; f.project.message(root.id,'keep');
+    const root = (await f.project.submit('root')).task; f.project.message(root.id,'keep');
     await until(() => f.store.task(root.id).status === 'failed');
     expect(f.store.unread(root.id)).toHaveLength(1);
     fail = false; f.project.retry(root.id);

@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { fixture, until, gate } from '../helpers.js';
+import { fixture, repo, until, gate } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { createSignal } from '../../src/signal.js';
 
@@ -13,9 +13,9 @@ function controlled() {
 }
 
 test('plan 闸门：planner 申请批准前 spec 不会被编排，批准后才交给 scheduler', async () => {
-  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '2' });
+  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '2' }); await repo(f.root);
   try {
-    const planner = f.project.submit('大改动').task;
+    const planner = (await f.project.submit('大改动')).task;
     const spec = f.project.addSpec(planner.id, { goal: '动架构', role: 'worker', name: 'big-change' });
     await until(() => provider.calls.some(call => call.task.id === planner.id));
     const plan = f.project.proposePlan(planner.id, '这轮要动架构', '我打算先拆核心再改调用方……');
@@ -41,9 +41,9 @@ test('plan 闸门：planner 申请批准前 spec 不会被编排，批准后才�
 });
 
 test('plan 驳回：本轮 spec 作废、理由送到 planner 并唤醒它重拆', async () => {
-  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '2' });
+  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '2' }); await repo(f.root);
   try {
-    const planner = f.project.submit('大改动').task;
+    const planner = (await f.project.submit('大改动')).task;
     const spec = f.project.addSpec(planner.id, { goal: '动架构', role: 'worker', name: 'big-change' });
     await until(() => provider.calls.some(call => call.task.id === planner.id));
     const plan = f.project.proposePlan(planner.id, '这轮要动架构');
@@ -61,9 +61,9 @@ test('plan 驳回：本轮 spec 作废、理由送到 planner 并唤醒它重拆
 });
 
 test('计划审查权限：agent 只能提，批准/驳回是用户专属', async () => {
-  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '2' });
+  const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '2' }); await repo(f.root);
   try {
-    const planner = f.project.submit('大改动').task;
+    const planner = (await f.project.submit('大改动')).task;
     f.project.addSpec(planner.id, { goal: '动架构', role: 'worker', name: 'big-change' });
     await until(() => f.store.task(planner.id).status === 'running');
     const token = f.project.running.get(planner.id).token;

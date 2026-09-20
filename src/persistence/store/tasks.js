@@ -29,6 +29,8 @@ export const tasks = {
     const counts = {};
     return this.transaction(() => {
       this.setTaskIdHigh(Math.max(this.taskIdHigh(), this.get('SELECT COALESCE(MAX(id),0) AS value FROM tasks').value));
+      // 锚点的分支名与目录名带着 input id，所以输入 id 也钉住：清空之后的输入继续往大走。
+      this.setInputIdHigh(Math.max(this.inputIdHigh(), this.get('SELECT COALESCE(MAX(id),0) AS value FROM inputs').value));
       // Children of tasks/inputs go first; foreign keys are on, so the order is not decorative.
       for (const table of ['task_specs','messages','notices','task_deps','events','tasks','drafts','inputs']) {
         counts[table] = this.get(`SELECT count(*) AS value FROM ${table}`).value;

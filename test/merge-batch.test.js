@@ -164,7 +164,7 @@ test('batch preflight rejects an ineligible entry before touching any selected b
 
 test('batch merge validates its ids and rejects agent tokens', async () => {
   const blocking = { run({ signal }) { return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })); } };
-  const f = fixture(blocking);
+  const f = fixture(blocking); await repo(f.root);
   try {
     await expect(f.project.approveMergeMany([])).rejects.toThrow('at least one');
     await expect(f.project.approveMergeMany('7')).rejects.toThrow('array');
@@ -172,7 +172,7 @@ test('batch merge validates its ids and rejects agent tokens', async () => {
     await expect(f.project.approveMergeMany([1.5])).rejects.toThrow('positive');
     await expect(f.project.approveMergeMany(Array.from({ length: 51 }, (_v, index) => index + 1))).rejects.toThrow('at most 50');
     // USER_ONLY：agent 不能替用户批准合并，批量的也不例外。
-    const root = f.project.submit('root').task;
+    const root = (await f.project.submit('root')).task;
     await until(() => f.project.running.has(root.id));
     const token = f.project.running.get(root.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});

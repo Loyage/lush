@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { fixture, until, gate } from './helpers.js';
+import { fixture, repo, git, until, gate } from './helpers.js';
 import { Dispatcher } from '../src/rpc/protocol.js';
 import { createSignal } from '../src/signal.js';
 
@@ -20,9 +20,9 @@ function host(f, input_id) {
 }
 
 test('a root planner records the flow of its input and can reclassify it', async () => {
-  const f = fixture(); f.project.stopping = true;
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const input = f.project.submit('解释一下调度器怎么工作');
+    const input = await f.project.submit('解释一下调度器怎么工作');
     expect(f.project.inputs()[0]).toMatchObject({ id: input.id, flow: null });
     expect(f.project.setInputFlow(input.task.id, 'explain')).toEqual({ input_id: input.id, task_id: input.task.id, flow: 'explain' });
     expect(f.store.get('SELECT flow FROM inputs WHERE id=?', input.id).flow).toBe('explain');
@@ -34,10 +34,10 @@ test('a root planner records the flow of its input and can reclassify it', async
   } finally { await f.close(); }
 });
 
-test('an explain input may delegate research but never worker or coordinator', async () => {
-  const f = fixture(); f.project.stopping = true;
+test('an explain input still anchors its code but never gets task worktrees', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const { task } = f.project.submit('了解调度器怎么工作');
+    const { task } = await f.project.submit('了解调度器怎么工作');
     f.project.setInputFlow(task.id, 'explain');
     const root = host(f, task.input_id);
     expect(() => f.project.spawn(root.id, 'implement it', 'worker')).toThrow('explain');
@@ -47,18 +47,22 @@ test('an explain input may delegate research but never worker or coordinator', a
     expect(research.role).toBe('research');
     // 后代沿用同一个 input_id，所以约束覆盖整棵子树
     expect(() => f.project.spawn(research.id, 'deep worker', 'worker')).toThrow('explain');
-    // research 不创建 worktree，因此 explain 输入不会留下待合并改动
+    // research 不创建 worktree，所以了解类输入不会留下待合并改动；它带的仍是 submit 那一刻的输入锚点。
     await f.project.workspaces.ensure(f.store.task(research.id));
     expect(f.store.task(research.id).workspace).toBeNull();
     expect(f.store.task(research.id).branch).toBeNull();
+    const view = f.project.inputs()[0];
+    expect(view.flow).toBe('explain');
+    expect(view.anchor_commit).toBe(await git(f.root, 'rev-parse', 'HEAD'));
+    expect(view.anchor_workspace).toContain('input-');
   } finally { await f.close(); }
 });
 
 test('develop and undecided inputs keep spawning workers unchanged', async () => {
-  const f = fixture(); f.project.stopping = true;
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const developed = f.project.submit('开发新功能').task;
-    const undecided = f.project.submit('还没判定').task;
+    const developed = (await f.project.submit('开发新功能')).task;
+    const undecided = (await f.project.submit('还没判定')).task;
     f.project.setInputFlow(developed.id, 'develop');
     const developedHost = host(f, developed.input_id), undecidedHost = host(f, undecided.input_id);
     expect(f.project.spawn(developedHost.id, 'implement', 'worker').role).toBe('worker');
@@ -67,9 +71,9 @@ test('develop and undecided inputs keep spawning workers unchanged', async () =>
 });
 
 test('only a root task can classify an input; unknown flows are rejected', async () => {
-  const f = fixture(); f.project.stopping = true;
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const root = f.project.submit('root').task;
+    const root = (await f.project.submit('root')).task;
     const child = f.project.spawn(host(f, root.input_id).id, 'child', 'research');
     expect(() => f.project.setInputFlow(child.id, 'explain')).toThrow('only a root task');
     expect(() => f.project.setInputFlow(root.id, 'maybe')).toThrow('flow must be develop or explain');
@@ -78,10 +82,10 @@ test('only a root task can classify an input; unknown flows are rejected', async
 });
 
 test('users classify and reclassify any root input over RPC without a token', async () => {
-  const f = fixture(); f.project.stopping = true;
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const first = f.project.submit('first');
-    const second = f.project.submit('second');
+    const first = await f.project.submit('first');
+    const second = await f.project.submit('second');
     const rpc = new Dispatcher(f.project, createSignal(), {});
     expect(await rpc.dispatch('input.flow', { id: first.task.id, flow: 'explain' })).toMatchObject({ input_id: first.id, flow: 'explain' });
     expect(await rpc.dispatch('input.flow', { id: second.task.id, flow: 'develop' })).toMatchObject({ flow: 'develop' });
@@ -95,11 +99,11 @@ test('users classify and reclassify any root input over RPC without a token', as
 });
 
 test('an agent classifies only its own root input', async () => {
-  const provider = controlled(), f = fixture(provider);
+  const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
-    const root = f.project.submit('root').task;
+    const root = (await f.project.submit('root')).task;
     await until(() => f.project.running.has(root.id));
-    const other = f.project.submit('other').task;
+    const other = (await f.project.submit('other')).task;
     const token = f.project.running.get(root.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});
     // 省略 id 时判定自己这条输入

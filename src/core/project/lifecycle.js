@@ -63,11 +63,16 @@ export default {
     check(active.length === 0,
       `#${active.slice(0, 20).map(task => task.id).join(', #')} still active (${active.length}); cancel them or wait until they finish`);
     // 分支名、worktree 路径与对照目录都记在即将被删的行里，所以先回收再 purge。
-    return this.reclaimThenPurge(this.store.tasks());
+    const anchors = this.store.all(`SELECT id, anchor_branch, anchor_commit, anchor_workspace FROM inputs
+      WHERE anchor_branch IS NOT NULL ORDER BY id`);
+    return this.reclaimThenPurge(this.store.tasks(), anchors.map(input => ({ id: input.id,
+      branch: input.anchor_branch, commit: input.anchor_commit, workspace: input.anchor_workspace })));
   },
 
-  async reclaimThenPurge(tasks) {
+  async reclaimThenPurge(tasks, anchors = []) {
     const outcomes = await this.workspaces.reclaim(tasks);
+    // 输入锚点是提交那一刻的快照，没有 agent 往里提交：干净就回收，脏或被改过就留着并说明原因。
+    const reclaimedAnchors = anchors.length ? await this.workspaces.reclaimAnchors(anchors) : [];
     const reason = new Map(outcomes.map(row => [row.id, row.reason]));
     const retained = this.store.all(`SELECT id, branch, workspace, baseline_workspace FROM tasks
       WHERE workspace IS NOT NULL OR baseline_workspace IS NOT NULL OR branch IS NOT NULL ORDER BY id`);
@@ -78,10 +83,13 @@ export default {
       reclaimed: {
         worktrees: outcomes.filter(row => row.worktree === 'removed').length,
         branches: outcomes.filter(row => row.branch === 'removed').length,
+        anchors: reclaimedAnchors.filter(row => row.status === 'removed').length,
       },
       retained: { note: 'unmerged work, unreviewed branches and pi sessions stay on disk; remove them by hand',
-        tasks: bounded(retained.map(row => ({ ...row, reason: reason.get(row.id) ?? null })), 200000) },
+        tasks: bounded(retained.map(row => ({ ...row, reason: reason.get(row.id) ?? null })), 200000),
+        anchors: bounded(reclaimedAnchors.filter(row => row.status === 'kept'), 200000) },
       next_task_id: this.store.taskIdHigh() + 1,
+      next_input_id: this.store.inputIdHigh() + 1,
     };
   },
 
