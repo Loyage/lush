@@ -22,4 +22,7 @@
 - [界面与传输](engineering/interface.md)：CLI、Web、RPC 信任边界与 `system.status`。
 - [模块地图](engineering/modules.md)：`src/` 与 `test/` 的分区与导出签名。
 
+Web UI 左栏的「文档」直接读这些文件（随代码发布，不随被开发项目变），目录页就在右栏；
+文档里的相对链接可以直接点开，地址栏是 `#docs` / `#doc-<id>`。
+
 文档只描述当前实现。实体是 Input / Task / Agent / Message / Notice / Event，作用域是单个项目目录 `<project>/.lush/`。

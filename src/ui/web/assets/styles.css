@@ -161,12 +161,23 @@ button.step-head{display:flex;align-items:center;gap:7px;font-size:11px;color:va
 /* Branch graph. */
 .graph-view .head{margin:0 0 26px}.graph-view .head .tid-lg{font-size:28px;letter-spacing:-.03em}.graph-view .head .actions{margin:0 0 0 auto}.graph-group{margin-top:18px;border:1px solid var(--line-soft);border-radius:var(--radius);background:var(--panel);padding:22px;box-shadow:var(--shadow)}.graph-lane{position:relative;border-left:2px solid var(--line);padding:2px 0 2px 16px;margin:14px 0 2px}.graph-node{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:14px 0;min-width:0;border-bottom:1px solid var(--line-soft)}.graph-node.l1{margin-left:16px}.graph-node.l2{margin-left:32px}.graph-node.l3{margin-left:48px}.graph-node.l4{margin-left:64px}.graph-node.l5{margin-left:80px}.graph-node.l6{margin-left:96px}button.graph-node{background:none;border:0;padding:0;color:var(--accent);font:inherit;font-size:13px;font-weight:600;text-align:left;overflow-wrap:anywhere;max-width:100%}button.graph-node:hover{text-decoration:underline;box-shadow:none}.graph-meta{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px}.graph-meta .meta{margin:0}.graph-path{color:var(--dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}.graph-branch{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 14px;background:var(--accent-soft);border-radius:8px;border-left:3px solid var(--accent)}.graph-branch-name{color:var(--accent);overflow-wrap:anywhere}
 
+/* Documentation view: the bundled docs/ tree read in the right pane. */
+.doc-body{max-width:88ch;font-size:14px;line-height:1.85}.doc-body h1,.doc-body h2,.doc-body h3{margin-top:26px}.doc-row .link{flex:1;min-width:0}.doc-row .when{flex:none;max-width:46%;overflow:hidden;text-overflow:ellipsis}.doc-back{margin-left:auto;font-size:12px}.doc-foot{margin-top:18px;padding-top:12px;border-top:1px solid var(--line-soft)}
+.doc-lead{margin:0 0 4px}
+/* GFM tables: architecture docs are mostly tables. display:block lets a wide table scroll instead of
+   blowing out the pane; the rows and cells keep their own table-* display, so the table structure holds. */
+.markdown table{display:block;overflow-x:auto;width:max-content;max-width:100%;border-collapse:collapse;margin:12px 0;font-size:12.5px}
+.markdown th,.markdown td{border:1px solid var(--line-soft);padding:6px 10px;text-align:left;vertical-align:top}
+.markdown th{background:var(--code);color:var(--muted);font-weight:600;white-space:nowrap}
+
 /* Motion is for navigation and intentional expansion, never every polling tick. */
 .app-header,aside,#detail,.composer,.block,.metric,.kv{transition:background-color .2s var(--ease),border-color .2s var(--ease),color .2s var(--ease)}
 body:has(#detail[data-view="graph"]) #overview-open,body:has(#detail[data-view="task"]) #overview-open{background:var(--panel);color:var(--text);border-color:var(--line-soft)}
 body:has(#detail[data-view="graph"]) #graph-open{background:var(--accent-soft);color:var(--accent);border-color:transparent}
-#detail[data-view="overview"]{animation:overview-in .28s var(--ease)}#detail[data-view="task"]{animation:task-in .28s var(--ease)}#detail[data-view="graph"]{animation:graph-in .28s var(--ease)}
-@keyframes overview-in{from{opacity:.4;transform:translateY(6px)}to{opacity:1;transform:none}}@keyframes task-in{from{opacity:.4;transform:translateY(6px)}to{opacity:1;transform:none}}@keyframes graph-in{from{opacity:.4;transform:translateY(6px)}to{opacity:1;transform:none}}
+body:has(#detail[data-view="docs"]) #overview-open{background:var(--panel);color:var(--text);border-color:var(--line-soft)}
+body:has(#detail[data-view="docs"]) #docs-open{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+#detail[data-view="overview"]{animation:overview-in .28s var(--ease)}#detail[data-view="task"]{animation:task-in .28s var(--ease)}#detail[data-view="graph"]{animation:graph-in .28s var(--ease)}#detail[data-view="docs"]{animation:docs-in .28s var(--ease)}
+@keyframes overview-in{from{opacity:.4;transform:translateY(6px)}to{opacity:1;transform:none}}@keyframes task-in{from{opacity:.4;transform:translateY(6px)}to{opacity:1;transform:none}}@keyframes graph-in{from{opacity:.4;transform:translateY(6px)}to{opacity:1;transform:none}}@keyframes docs-in{from{opacity:.4;transform:translateY(6px)}to{opacity:1;transform:none}}
 @keyframes reveal{from{opacity:.4;transform:translateY(-4px)}to{opacity:1;transform:none}}@keyframes breathe{50%{opacity:.35}}
 .loading-state{text-align:center;padding:12vh 20px}.loading-state .brand-spark{display:block;font-size:50px;animation:breathe 2s ease-in-out infinite}.loading-state h1{font-size:24px;margin:12px 0}
 

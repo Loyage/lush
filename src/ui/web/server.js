@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { UIClient } from '../client.js';
+import { docsIndex, readDoc } from './docs.js';
 import { check } from '../../core/types.js';
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
 const AUTH_FILE = 'web.json';
@@ -215,6 +216,14 @@ export function startWeb(config, port = 4318) {
             return json(await client.request('task.inspect', { id: taskId }));
           }
           if (url.pathname === '/favicon.ico') return new Response(null, { status: 204, headers });
+          // 「文档」页：读的是随这份代码发布的 docs/ 与 README.md，与当前项目目录无关。
+          // 只接受已扫出的 id，请求里的字符串不进文件系统路径，未知 id 与非 .md 一律 404。
+          if (url.pathname === '/api/docs') return json({ docs: docsIndex() });
+          const doc = /^\/api\/docs\/([a-z0-9._-]+)$/.exec(url.pathname);
+          if (doc) {
+            const found = readDoc(doc[1]);
+            return found ? json(found) : json({ error: `no such document: ${doc[1]}` }, 404);
+          }
           const file = assetFile(url.pathname);
           if (file && fs.existsSync(file) && fs.statSync(file).isFile()) return new Response(Bun.file(file), { headers });
         }

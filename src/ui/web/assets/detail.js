@@ -6,7 +6,8 @@ import { ui } from './state.js';
 /** 拉取并渲染一个任务详情。 */
 export async function loadDetail(taskId) {
   ui.selected = taskId;
-  ui.graphOpen = false; ui.graphRenderKey = null;
+  // 右栏同一时刻只归一个视图：点进任务就把分支图与文档页的标志一起放掉。
+  ui.graphOpen = false; ui.graphRenderKey = null; ui.docsOpen = false;
   const navigated = ui.detailTask !== taskId;
   const scrolled = navigated ? 0 : $('detail').scrollTop;
   // window.history: a local `history` binding here would shadow the global and throw a TDZ error on click.

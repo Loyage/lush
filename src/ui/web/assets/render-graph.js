@@ -17,6 +17,7 @@ let pending = null;
 /** 打开分支图：清掉选中的任务详情（否则热任务刷新会把图覆盖掉），并把地址栏切到 #graph。 */
 export async function openGraph() {
   ui.graphOpen = true;
+  ui.docsOpen = false;   // 右栏同一时刻只归一个视图
   ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailTask = null;
   if (location.hash !== '#graph') window.history.pushState(null, '', '#graph');
   await loadGraph();

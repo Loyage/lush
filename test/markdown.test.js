@@ -33,7 +33,7 @@ const docHtml = node => {
   if (tag === 'br' || tag === 'hr') return `<${tag}${attrs}>`;
   return `<${tag}${attrs}>${node.childNodes.map(docHtml).join('')}</${tag}>`;
 };
-const html = (markdown, options) => docHtml(renderMarkdown(markdown, doc));
+const html = (markdown, options) => docHtml(renderMarkdown(markdown, doc, options));
 const find = (node, tag) => {
   if (node instanceof FakeElement && node.tagName === tag.toUpperCase()) return node;
   if (node instanceof FakeElement) for (const child of node.childNodes) { const hit = find(child, tag); if (hit) return hit; }
@@ -67,6 +67,37 @@ test('markdown renders headings, lists, quotes, rules and inline code', () => {
   expect(html('**粗** 和 *斜*')).toContain('<strong>粗</strong>');
   expect(html('**粗** 和 *斜*')).toContain('<em>斜</em>');
   expect(html('第一行\n第二行')).toContain('<br>');
+});
+
+test('GFM 表格：对齐行决定表格，单元格里的行内语法照常生效', () => {
+  const out = html('| 项 | 值 |\n| --- | :---: |\n| 依赖 | 零**第三方** |\n| 入口 | `src/a.js` |');
+  expect(out).toContain('<table>');
+  expect(out).toContain('<th>项</th>');
+  expect(out).toContain('<td>依赖</td>');
+  expect(out).toContain('<strong>第三方</strong>');
+  expect(out).toContain('<th style="text-align:center">值</th>');
+  expect(out).toContain('<code>src/a.js</code>');
+  // 只是「一行文本里带竖线」不构成表格，必须紧跟对齐行
+  expect(html('a | b\nc | d')).not.toContain('<table>');
+  expect(html('| 只有表头 |\nnope')).not.toContain('<table>');
+  // 列数不一致时退回普通段落，不把上面的正文吞成表格
+  expect(html('a | b\n| --- |\n| 1 |')).not.toContain('<table>');
+});
+
+test('调用方可以接管链接解析（文档页用它把相对路径接回站内路由）', () => {
+  const link = raw => (raw.endsWith('.md') ? { href: `#doc-${raw}`, external: false } : null);
+  const out = html('[下一篇](next.md) 与 [外链](https://example.com/x) 与 [源码](src/a.js)', { link });
+  // 站内链接：换成自己的 href，不另开标签页
+  expect(out).toContain('<a href="#doc-next.md">下一篇</a>');
+  // 解析器没接管的仍然按默认规则走：http/https 外开，其余降级成纯文本
+  expect(out).toContain('<a href="https://example.com/x" target="_blank" rel="noopener noreferrer">外链</a>');
+  expect(out).toContain('源码 (src/a.js)');
+  expect(out).not.toContain('href="src/a.js"');
+  // 解析器里抛错只影响那一条链接：正文照旧是 Markdown，不整篇回退成纯文本
+  const broken = html('[甲](a.md)', { link: () => { throw new Error('bad'); } });
+  expect(broken).toContain('<div class="markdown">');
+  expect(broken).not.toContain('md-plain');
+  expect(broken).toContain('甲 (a.md)');
 });
 
 test('fenced code keeps newlines and shows a language label', () => {

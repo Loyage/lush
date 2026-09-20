@@ -42,7 +42,7 @@ export function applySort() {
 /** 回到项目概览：清掉选中、分支图与地址栏 hash，再把概览重画一次。入口是左上角的 Lush 标志。 */
 export async function overview() {
   ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.overviewKey = null;
-  ui.graphOpen = false; ui.graphRenderKey = null;
+  ui.graphOpen = false; ui.graphRenderKey = null; ui.docsOpen = false;
   if (location.hash) window.history.replaceState(null, '', location.pathname);
   await refresh();
 }
@@ -61,7 +61,8 @@ export async function refresh() {
     renderDrafts(data); renderIntents(data); renderTree(data); renderSpecs(data);
     const noticeBefore = ui.noticeFocus;
     renderNotices(data); syncComposer();
-    if (ui.selected === null && !ui.graphOpen) renderOverview(data);
+    // 概览、分支图、文档页共用一个右栏：谁开着，轮询就不把概览画回来。
+    if (ui.selected === null && !ui.graphOpen && !ui.docsOpen) renderOverview(data);
     // 分支图打开期间：不用概览覆盖它；只有结构指纹真的变了、且距上次拉图至少 3 秒，才重拉一次 git 图。
     if (ui.graphOpen) {
       const fingerprint = graphFingerprint(data);

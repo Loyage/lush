@@ -34,6 +34,8 @@ export const ui = {
   collapsed: readCollapsedPref(),
   filters: readFiltersPref(),
   selected: null, selectedRevision: null, busy: false, offline: false, detailDirty: false, detailTask: null, detailRenderedAt: 0,
+  /** 「文档」视图：打开期间轮询不用概览覆盖它，与 graphOpen 同一套排他规则。 */
+  docsOpen: false,
   draftSignature: null,
   // 意图面板的重建哨兵：planner 状态、闸门、spec 计数、scheduler 进度变了才重画。
   intentSignature: null,
@@ -73,7 +75,7 @@ export const mergeSelection = new Set();
  */
 export function resetUiState() {
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;
-  ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0;
+  ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0; ui.docsOpen = false;
   ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false;
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeFocus = null; ui.noticeIndex = new Map();

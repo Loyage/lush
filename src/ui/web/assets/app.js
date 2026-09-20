@@ -1,6 +1,7 @@
 // 前端唯一入口：装配顶部按钮、hashchange 与两个定时器；其余职责都在同目录的模块里。
 import { $, el } from './dom.js';
 import { LIVE_INTERVAL } from './live.js';
+import { docsTarget, openDocs } from './docs.js';
 import { detail, overview } from './navigate.js';
 import { liveRefresh, refresh, applySort } from './refresh.js';
 import { openGraph } from './render-graph.js';
@@ -29,12 +30,20 @@ const linked = taskId => /^#task-(\d+)$/.test(taskId) ? Number(taskId.slice(6)) 
 /** 打开分支图：点按钮与 #graph hash 共用；失败只报错，不中断轮询。 */
 function openGraphView() { return openGraph().catch(error => { $('error').textContent = error.message; }); }
 
+/** 打开文档：点左栏「文档」与 #docs / #doc-<id> 共用；同样只报错，不中断轮询。 */
+function openDocsView(id = null) { return openDocs(id).catch(error => { $('error').textContent = error.message; }); }
+
+// 地址栏是唯一的路由源：`#graph` / `#docs` / `#doc-ID` / `#task-ID`，其余回概览。
+// 每个分支都把 promise 返回出去：浏览器不看返回值，但测试能 await 到「画完」为止。
 function onHashChange() {
-  if (location.hash === '#graph') { if (!ui.graphOpen) openGraphView(); return; }
+  const report = error => { $('error').textContent = error.message; };
+  if (location.hash === '#graph') return ui.graphOpen ? undefined : openGraphView();
+  const doc = docsTarget(location.hash);
+  if (doc) return openDocsView(doc.id);
   const next = linked(location.hash);
   // 后退到没有 hash 的地址＝用户想回概览：只画详情不换面板会让合并按钮彻底消失。
-  if (!next) { if (ui.selected !== null || ui.graphOpen) overview().catch(error => { $('error').textContent = error.message; }); return; }
-  if (next !== ui.selected) detail(next).catch(error => { $('error').textContent = error.message; });
+  if (!next) return (ui.selected !== null || ui.graphOpen || ui.docsOpen) ? overview().catch(report) : undefined;
+  return next === ui.selected ? undefined : detail(next).catch(report);
 }
 
 // 上一次注册的定时器与监听器；重复 boot() 前必须先清掉（bun test 在文件之间复用模块注册表）。
@@ -55,7 +64,8 @@ export async function boot() {
   syncSidebarSortSelect();
   $('sidebar-sort').addEventListener('change', onSidebarSortChange);
   initComposer();
-  const goHome = () => { overview().catch(error => { $('error').textContent = error.message; }); };
+  // 这三个入口都返回 promise：浏览器不看返回值，但测试能 await 到「画完」为止。
+  const goHome = () => overview().catch(error => { $('error').textContent = error.message; });
   $('home').onclick = goHome;
   $('overview-open').onclick = goHome;
   $('sidebar-toggle').onclick = () => {
@@ -63,13 +73,16 @@ export async function boot() {
     $('sidebar-toggle').setAttribute('aria-expanded', String(open));
     $('sidebar-toggle').textContent = open ? '收起索引' : '浏览任务';
   };
-  $('graph-open').onclick = () => { location.hash = '#graph'; openGraphView(); };
+  $('graph-open').onclick = () => { location.hash = '#graph'; return openGraphView(); };
+  $('docs-open').onclick = () => { location.hash = '#docs'; return openDocsView(); };
   initSidebar();
   await refresh();
   if (location.hash === '#graph') await openGraphView();
   else {
-    const initial = linked(location.hash);
-    if (initial) { try { await detail(initial); } catch (error) { $('error').textContent = error.message; } }
+    const doc = docsTarget(location.hash);
+    const initial = doc ? null : linked(location.hash);
+    if (doc) await openDocsView(doc.id);
+    else if (initial) { try { await detail(initial); } catch (error) { $('error').textContent = error.message; } }
   }
   hashListener = onHashChange;
   addEventListener('hashchange', hashListener);

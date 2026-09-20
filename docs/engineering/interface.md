@@ -4,6 +4,8 @@
 
 CLI 的 task list / history 支持 cursor 分页；task inspect 返回完整任务结果和有界的相关记录。Web 复用 UIClient，轮询快照，采用 textContent 呈现模型输出，不插入 HTML；输入表单和 notice 答复在轮询时保留。
 
+左栏 workspace-nav 的「文档」在右栏打开随这份代码发布的文档（架构、使用流程、接口参考），与所开发的项目无关。它与「项目概览」「分支图」共用同一个右栏和同一套排他规则：路由是 `#graph` / `#docs` / `#doc-<id>`，视图自己把 `#detail[data-view]` 写对（左栏高亮与进场动画都跟着它走），轮询只画当前开着的那个（`ui.graphOpen` / `ui.docsOpen`）。正文由 `/api/docs` 取回后用同一套 Markdown 渲染器画成 DOM，文档之间的相对链接解析成站内 hash 后走同一个路由。
+
 Web 只监听 127.0.0.1，校验 Host / Origin / Sec-Fetch-Site，修改操作要求 JSON；HTTP 只能访问显式允许的方法，不能代理任意 RPC。检验报告在 `/api/task/<id>/report` 以独立文档返回，只允许内联样式/脚本与 `data:` 图片（`default-src 'none'`），因此报告里的脚本不能回调本地 API；非 verifier 任务或不存在的报告不会被当文件读出去。RPC 以本机用户为可信边界；agent token 只约束正常的 agent 调用，不是本机攻击者隔离。`system.status` 报告运行中的 agent 列表与 `agents_total` / `agents_idle`（每个活动 task 一个 agent，含已 park 的），`task.inspect` 报告该 agent 的 id、唤醒次数与上次动手时间。
 
 相关：[数据流](data-flow.md)。
