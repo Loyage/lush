@@ -5,7 +5,9 @@
  * fork 边（`{ kind:'fork', from:'branch:A', to:'branch:B' }`）就是父子关系：B 从 A 分出来。
  * 任务挂在它自己那条分支节点下，找不到时退到目标分支节点，两个都没有才进 `unplaced` 兜底分组——
  * 所以刚创建的分支会作为父分支的子树出现，一眼看得出从哪条分支分出来，而不是给每条分支单开一个车道。
- * 组内 code 层级口径与 `src/core/merge-batch.js` 的 mergeOrder 一致：上游在前、并列按 id 升序。
+ * 组内 code 层级与 `src/core/merge-batch.js` 的 mergeOrder 同源（上游在前）；差别只在并列面：mergeOrder 决定
+ * 执行次序用 id 升序，这里只决定展示顺序，用 id 降序（新的任务在前）。
+ * 同一层级的迭代方向统一为「新的在前」：兄弟分支按创建时间从新到旧，同一分支下同 level 的任务按 id 降序。
  */
 
 /** 领先 / 落后文案；任一侧取不到就不写，而不是假装是 0。 */
@@ -30,9 +32,29 @@ export function nodeMarks(node) {
   return marks;
 }
 
-/** 分支节点的排序：当前检出的最前，其余按名字，保证每次渲染顺序稳定。 */
-const byCurrentThenName = (a, b) =>
-  Number(b?.current === true) - Number(a?.current === true) || String(a?.name ?? '').localeCompare(String(b?.name ?? ''));
+/** 创建时间 -> 毫秒；取不到（null / 空串 / 坏值）返回 null，排序时当作「未知」排在已知时间之后。 */
+const createdAtMs = value => {
+  if (value === null || value === undefined || value === '') return null;
+  const ms = typeof value === 'number' ? value : Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+};
+
+/** 创建时间新的在前；未知时间一律排在已知时间之后。 */
+const byNewestFirst = (a, b) => {
+  const ta = createdAtMs(a?.created_at);
+  const tb = createdAtMs(b?.created_at);
+  if (ta === tb) return 0;
+  if (ta === null) return 1;
+  if (tb === null) return -1;
+  return tb - ta;
+};
+
+/** 分支节点的排序：当前检出的最前，其余按创建时间从新到旧；没有创建时间的排在已知时间之后，
+ *  再同名时按分支名升序兜底，保证每次渲染顺序稳定、可重复。 */
+const byCurrentThenNewest = (a, b) =>
+  Number(b?.current === true) - Number(a?.current === true)
+  || byNewestFirst(a, b)
+  || String(a?.name ?? '').localeCompare(String(b?.name ?? ''));
 
 /**
  * 一条 fork 边对用户意味着什么：把「状态 + ahead/behind」压成一种父子关系。颜色与文案都从这一个 key 出，
@@ -93,7 +115,7 @@ export function graphLayout(graph = {}) {
     hasParent.add(to); children.get(from).push(to); incoming.set(to, edge);
   }
 
-  const order = [...branchNodes].sort(byCurrentThenName);
+  const order = [...branchNodes].sort(byCurrentThenNewest);
   const built = new Map();
   const visited = new Set();
   const build = (node, depth) => {
@@ -111,7 +133,7 @@ export function graphLayout(graph = {}) {
     };
     built.set(node.name, entry); visited.add(node.name);
     const childNames = (children.get(node.name) || [])
-      .sort((a, b) => byCurrentThenName(branchByName.get(a), branchByName.get(b)));
+      .sort((a, b) => byCurrentThenNewest(branchByName.get(a), branchByName.get(b)));
     for (const childName of childNames) {
       if (visited.has(childName)) continue;
       entry.children.push(build(branchByName.get(childName), depth + 1));
@@ -153,7 +175,7 @@ export function graphLayout(graph = {}) {
       upstreams: [...(upstreams.get(node.id) || [])].sort((a, b) => a - b),
       aheadBehind: aheadBehindText(node),
       marks: nodeMarks(node),
-    })).sort((a, b) => a.level - b.level || a.id - b.id);
+    })).sort((a, b) => a.level - b.level || b.id - a.id);
   };
   const walk = entry => {
     entry.tasks = decorate(entry.tasks);

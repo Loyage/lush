@@ -156,7 +156,7 @@
 | `render-resolutions.js` | 合并冲突处理记录 | `renderResolutions(task)` |
 | `render-detail.js` | 任务详情整页：目标标题、状态、结果优先的阅读顺序与任务操作 | `renderDetail(task, history, diff, usage)`、`renderDetailError(taskId, message)` |
 | `render-overview.js` | 项目工作台：关键指标、优先待决事项、交付队列、运行与时间轴、折叠运行时维护信息 | `renderOverview(data)` |
-| `graph-layout.js` | 分支图纯逻辑：fork 边拼出分支森林（任务挂到自己的分支下并把父分支作为嵌套）、每棵子树的 `subtreeBranches` / `subtreeTasks` 计数（收起时告诉用户藏了什么）、组内 code 层级、标签与廉价结构指纹，以及折叠偏好的 localStorage 形态 | `graphLayout(graph)`、`graphFingerprint(snapshot)`、`graphRenderKey(graph)`、`parseGraphCollapsed(raw)`、`serializeGraphCollapsed(set)`、`aheadBehindText(node)`、`nodeMarks(node)` |
+| `graph-layout.js` | 分支图纯逻辑：fork 边拼出分支森林（任务挂到自己的分支下并把父分支作为嵌套）、每棵子树的 `subtreeBranches` / `subtreeTasks` 计数（收起时告诉用户藏了什么）、组内 code 层级（同层新的在前：任务按 id 降序，兄弟分支按 created_at 降序、未知时间排最后）、标签与廉价结构指纹，以及折叠偏好的 localStorage 形态 | `graphLayout(graph)`、`graphFingerprint(snapshot)`、`graphRenderKey(graph)`、`parseGraphCollapsed(raw)`、`serializeGraphCollapsed(set)`、`aheadBehindText(node)`、`nodeMarks(node)` |
 | `render-graph.js` | 交互式分支流程图：面板与连接线按父子关系着色（领先绿 / 一致灰 / 落后蓝 / 分歧琥珀 / 缺失红），表头给出该关系的动作（合入父分支 / 让子分支跟上父分支 / 在子分支解决分歧），做不了的也画出来但禁用并写明原因；父子关系靠 CSS 画的竖线与拐角表达，整棵子树可收起（状态存 localStorage，重画不丢） | `openGraph()`、`loadGraph()`、`renderGraph(graph, opts)` |
 | `detail.js` | 拉取并渲染任务详情；窄屏新导航收起索引并定位内容，轮询保留滚动 | `loadDetail(taskId)` |
 | `docs.js` | 「文档」视图：路由（`#docs` / `#doc-<id>`）、取数与站内相对链接解析 | `docsTarget(hash)`、`resolveDocPath(from, raw)`、`docLinkResolver(current, docs)`、`openDocs(id)`、`loadDocs(id)`、`DOCS_HASH` |

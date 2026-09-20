@@ -84,6 +84,23 @@ test('分支图：入口走 #graph，画出分支谱系与任务，点节点进�
   expect(detail.querySelector('div.graph-view')).toBeNull();
 });
 
+test('分支图：同一层级的条目新的在前——兄弟分支按创建时间降序，当前检出仍第一', async () => {
+  await openGraph();
+  const view = dom.node('detail').querySelector('div.graph-view');
+  const label = node => node.textContent.replace('⎇ ', '');
+  const rootNames = () => view.children
+    .filter(node => node.classList.contains('graph-group'))
+    .map(node => label(node.querySelector('span.graph-branch-name')));
+  // 根层：当前检出 main 第一；release 有创建时间；feature/gone 是占位分支、没有创建时间，排在最后。
+  expect(rootNames()).toEqual(['main', 'release', 'feature/gone']);
+  const headerOf = name => view.querySelectorAll('span.graph-branch-name').find(node => label(node) === name);
+  const childNames = name => headerOf(name).parentNode.parentNode.querySelector('div.graph-children').children
+    .map(node => label(node.querySelector('span.graph-branch-name')));
+  // main 的直接子分支按 created_at 从新到旧：behind-only(最新) → 1-one → input-1-anchor(最老)。
+  expect(childNames('main')).toEqual(['lush/demo/behind-only', 'lush/demo/1-one', 'lush/demo/input-1-anchor']);
+  expect(childNames('release')).toEqual(['lush/demo/3-three']);
+});
+
 test('分支图：结构指纹没变时，1.5s 轮询不在 3 秒内重复打 git', async () => {
   await openGraph();
   const ui = (await import('../../src/ui/web/assets/state.js')).ui;

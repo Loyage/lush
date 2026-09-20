@@ -28,16 +28,18 @@ export function makeWorld() {
         { kind: 'task', id: 3, role: 'worker', name: 'three', goal: '另一个待合的', status: 'completed', integration: 'review',
           branch: 'lush/demo/3-three', workspace: null, workspace_state: 'none', branch_state: 'missing',
           base_commit: 'eee', head_commit: 'fff', target_branch: 'release', ahead: 2, behind: 1, merged: false, current: false },
-        { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'eee', current: true, tracked: false, placeholder: false },
-        { kind: 'branch', id: 'branch:release', name: 'release', head_commit: 'fff', current: false, tracked: false, placeholder: false },
-        { kind: 'branch', id: 'branch:lush/demo/1-one', name: 'lush/demo/1-one', head_commit: 'bbb', current: false, tracked: true, placeholder: false },
-        { kind: 'branch', id: 'branch:lush/demo/2-two', name: 'lush/demo/2-two', head_commit: 'ddd', current: false, tracked: true, placeholder: false },
-        { kind: 'branch', id: 'branch:lush/demo/3-three', name: 'lush/demo/3-three', head_commit: null, current: false, tracked: true, placeholder: false },
-        { kind: 'branch', id: 'branch:lush/demo/input-1-anchor', name: 'lush/demo/input-1-anchor', head_commit: 'abc', current: false, tracked: true, placeholder: false },
+        // created_at 决定兄弟顺序：新的在前（见 test/web/graph-layout.test.js 的纯逻辑断言）；
+        // feature/scratch 与 feature/gone 是本地未登记 / 占位分支，没有创建时间——排在已知时间之后。
+        { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'eee', current: true, tracked: false, placeholder: false, created_at: iso(NOW - 60000) },
+        { kind: 'branch', id: 'branch:release', name: 'release', head_commit: 'fff', current: false, tracked: false, placeholder: false, created_at: iso(NOW - 50000) },
+        { kind: 'branch', id: 'branch:lush/demo/1-one', name: 'lush/demo/1-one', head_commit: 'bbb', current: false, tracked: true, placeholder: false, created_at: iso(NOW - 30000) },
+        { kind: 'branch', id: 'branch:lush/demo/2-two', name: 'lush/demo/2-two', head_commit: 'ddd', current: false, tracked: true, placeholder: false, created_at: iso(NOW - 20000) },
+        { kind: 'branch', id: 'branch:lush/demo/3-three', name: 'lush/demo/3-three', head_commit: null, current: false, tracked: true, placeholder: false, created_at: iso(NOW - 25000) },
+        { kind: 'branch', id: 'branch:lush/demo/input-1-anchor', name: 'lush/demo/input-1-anchor', head_commit: 'abc', current: false, tracked: true, placeholder: false, created_at: iso(NOW - 40000) },
         { kind: 'branch', id: 'branch:feature/scratch', name: 'feature/scratch', head_commit: 'aaa', current: false, tracked: false, placeholder: false },
         { kind: 'branch', id: 'branch:feature/gone', name: 'feature/gone', head_commit: null, current: false, tracked: false, placeholder: true },
         // 落后型：子分支没有独有提交、父分支已前进——可以直接快进跟上（can_catchup）。
-        { kind: 'branch', id: 'branch:lush/demo/behind-only', name: 'lush/demo/behind-only', head_commit: 'aaa', current: false, tracked: true, placeholder: false },
+        { kind: 'branch', id: 'branch:lush/demo/behind-only', name: 'lush/demo/behind-only', head_commit: 'aaa', current: false, tracked: true, placeholder: false, created_at: iso(NOW - 10000) },
       ],
       edges: [
         { kind: 'code', from: 1, to: 2 },
