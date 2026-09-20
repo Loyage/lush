@@ -40,7 +40,7 @@ export default {
    * With ids: only the selected subset, ascending by id (= input order); unselected drafts stay buffered.
    * 锚点要等 Git 建好才落库：失败时草稿一条也不动，仍在缓存里等下一次提交。
    */
-  async commitDrafts(ids = null) {
+  async commitDrafts(ids = null, branch = null) {
     let drafts;
     if (ids === null || ids === undefined) {
       drafts = this.store.openDrafts();
@@ -65,7 +65,7 @@ export default {
     const result = await this.createInput(content, task => {
       for (const draft of drafts) this.store.run('UPDATE drafts SET input_id=? WHERE id=?', task.input_id, draft.id);
       this.store.event(task.id, 'input.batch', { draft_ids: drafts.map(draft => draft.id) });
-    });
+    }, branch);
     this.kick();
     return { ...result, drafts: drafts.map(draft => draft.id) };
   }

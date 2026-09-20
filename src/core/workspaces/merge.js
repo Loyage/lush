@@ -1,7 +1,118 @@
 import { check, LushError } from '../types.js';
 
-/** 批准合并的预检与三种结局。 */
+/** 分支关系、批准合并的预检与落地。 */
 export const methods = {
+  /** 尚未落成/完成分支、但未来可能改变 child 的任务，也必须阻止 child 提前向上交付。 */
+  branchTaskBlockers(child) {
+    const record = this.store.branch(child);
+    const blockers = [];
+    if (record?.task_id !== null && record?.task_id !== undefined) {
+      const owner = this.store.get('SELECT id,status FROM tasks WHERE id=?', record.task_id);
+      if (owner && !['completed','failed','cancelled'].includes(owner.status)) blockers.push(`task:#${owner.id}`);
+      for (const row of this.store.all(`SELECT tasks.id,tasks.status,tasks.branch FROM task_deps
+        JOIN tasks ON tasks.id=task_deps.task_id WHERE task_deps.depends_on=? AND task_deps.kind='code'`, record.task_id)) {
+        if (!['completed','failed','cancelled'].includes(row.status) && !row.branch) blockers.push(`task:#${row.id}`);
+      }
+    } else {
+      const input = this.store.get('SELECT id FROM inputs WHERE anchor_branch=?', child);
+      if (input) for (const row of this.store.all("SELECT id FROM tasks WHERE input_id=? AND status NOT IN ('completed','failed','cancelled')", input.id)) {
+        blockers.push(`task:#${row.id}`);
+      }
+    }
+    return [...new Set(blockers)];
+  },
+
+  /** 一条已登记的 child -> direct parent 边当前在 commit 图上的状态。 */
+  async branchState(child) {
+    const record = this.store.branch(child);
+    check(record && record.parent && record.parent_relation === 'recorded', `${child} has no recorded direct parent`);
+    const project = this.config.project;
+    let childHead = null, parentHead = null;
+    try { childHead = await this.git(project, 'rev-parse', '--verify', `refs/heads/${child}^{commit}`); } catch { /* missing */ }
+    try { parentHead = await this.git(project, 'rev-parse', '--verify', `refs/heads/${record.parent}^{commit}`); } catch { /* missing */ }
+    if (!childHead || !parentHead) return { child, parent: record.parent, child_head: childHead, parent_head: parentHead,
+      status: 'missing', ahead: null, behind: null, blockers: [] };
+    const counts = await this.git(project, 'rev-list', '--left-right', '--count', `${parentHead}...${childHead}`);
+    const [behind, ahead] = counts.split(/\s+/).map(Number);
+    let status;
+    if (childHead === parentHead || await this.isAncestor(project, childHead, parentHead)) status = 'integrated';
+    else if (await this.isAncestor(project, parentHead, childHead)) status = 'fast_forward';
+    else status = 'diverged';
+    const blockers = this.branchTaskBlockers(child);
+    for (const descendant of this.store.branches().filter(row => row.parent === child && row.status !== 'deleted')) {
+      let head = null;
+      try { head = await this.git(project, 'rev-parse', '--verify', `refs/heads/${descendant.branch}^{commit}`); } catch { continue; }
+      if (!await this.isAncestor(project, head, childHead)) blockers.push(descendant.branch);
+    }
+    return { child, parent: record.parent, child_head: childHead, parent_head: parentHead,
+      status, ahead: Number.isFinite(ahead) ? ahead : null, behind: Number.isFinite(behind) ? behind : null, blockers };
+  },
+
+  /** 在已经持有 Git 串行锁时，将 direct child 快进到 parent；发生分歧时绝不在 parent 上制造 merge commit。 */
+  async mergeBranchUnsafe(child) {
+    const state = await this.branchState(child);
+    check(state.status !== 'missing', `cannot merge ${child}: child or parent branch is missing`);
+    check(state.blockers.length === 0, `merge ${state.child} into ${state.parent} is blocked by unintegrated child branches: ${state.blockers.join(', ')}`);
+    if (state.status === 'integrated') return { ...state, merged: false, already_integrated: true };
+    if (state.status === 'diverged') return { ...state, merged: false, needs_sync: true };
+    const childWorkspace = await this.workspaceForBranch(state.child);
+    if (childWorkspace) await this.clean(childWorkspace);
+    const parentWorkspace = await this.workspaceForBranch(state.parent);
+    if (parentWorkspace) {
+      await this.clean(parentWorkspace);
+      check(await this.git(parentWorkspace, 'symbolic-ref', '--short', 'HEAD') === state.parent,
+        `worktree ${parentWorkspace} is no longer on ${state.parent}`);
+      await this.git(parentWorkspace, 'merge', '--ff-only', state.child_head);
+    } else {
+      // 未检出的父分支没有 index/worktree 要同步；compare-and-swap 更新 ref，外部进程抢先推进就安全失败。
+      await this.git(this.config.project, 'update-ref', `refs/heads/${state.parent}`, state.child_head, state.parent_head);
+    }
+    return { ...state, status: 'integrated', merged: true, new_head: state.child_head };
+  },
+
+  mergeBranch(child) { return this.exclusive(() => this.mergeBranchUnsafe(child)); },
+
+  /** 迁移兼容：旧任务没有 input branch/direct-parent target，继续按旧目标分支语义落地。新任务不走这里。 */
+  async legacyMergeUnsafe(task) {
+    const project = this.config.project;
+    await this.clean(project);
+    await this.clean(task.workspace);
+    check(await this.git(project, 'symbolic-ref', '--short', 'HEAD') === task.target_branch, `switch to ${task.target_branch} before merging`);
+    check(await this.git(task.workspace, 'rev-parse', 'HEAD') === task.head_commit, 'task branch changed after review');
+    const resolved = task.resolves_task_id ? this.store.task(task.resolves_task_id) : null;
+    if (resolved) {
+      check(resolved.head_commit && await this.isAncestor(project, resolved.head_commit, task.head_commit),
+        `resolution #${task.id} does not contain the reviewed commit of #${resolved.id}; land a branch that keeps that work`);
+    }
+    for (const edge of this.store.deps(task.id).filter(edge => edge.kind === 'code')) {
+      const upstream = this.store.task(edge.depends_on);
+      check(upstream.head_commit && await this.isAncestor(project, upstream.head_commit, 'HEAD'),
+        `code dependency #${upstream.id} is not merged into ${task.target_branch} yet; merge #${upstream.id} first so this branch does not carry it along`);
+    }
+    const fastForward = resolved ? true : await this.isAncestor(project, 'HEAD', task.head_commit);
+    this.store.update(task.id, { integration: 'merging', integration_error: null });
+    this.store.event(task.id, 'merge.approved', { commit: task.head_commit, fast_forward: fastForward, legacy: true });
+    try {
+      if (fastForward) await this.git(project, 'merge', '--ff-only', task.head_commit);
+      else await this.git(project, 'merge', '--no-ff', '--no-edit', task.head_commit);
+      this.store.update(task.id, { integration: 'merged' });
+      this.store.event(task.id, 'merged', { commit: task.head_commit, legacy: true });
+      return { task: this.store.task(task.id), conflict: null };
+    } catch (error) {
+      const files = await this.unmerged(project).catch(() => []);
+      let abortError = null;
+      if (await this.merging(project)) {
+        try { await this.git(project, 'merge', '--abort'); } catch (err) { abortError = err.message; }
+      }
+      const detail = `${error.message}${abortError ? `\nCheck repository state: ${abortError}` : ''}`;
+      this.store.update(task.id, { integration: 'pending', integration_error: detail });
+      this.store.event(task.id, 'merge.failed', { error: error.message, files });
+      if (abortError) throw new LushError(detail);
+      if (files.length) return { task: this.store.task(task.id), conflict: { files, output: error.message } };
+      throw error;
+    }
+  },
+
   /** 批量交付的只读预检：在第一项改写主树前把共同分支、脏树、审阅提交漂移与 resolver 完整性一次查完。 */
   preflightMerge(tasks) {
     return this.exclusive(async () => {
@@ -9,16 +120,36 @@ export const methods = {
       const project = this.config.project;
       const targets = [...new Set(tasks.map(task => task.target_branch))];
       check(targets.length === 1 && targets[0], 'merge preflight requires one target branch');
-      await this.clean(project);
-      check(await this.git(project, 'symbolic-ref', '--short', 'HEAD') === targets[0], `switch to ${targets[0]} before merging`);
+      const legacy = tasks.every(task => !this.store.task(task.id).input_id);
+      if (legacy) {
+        await this.clean(project);
+        check(await this.git(project, 'symbolic-ref', '--short', 'HEAD') === targets[0], `switch to ${targets[0]} before merging`);
+        for (const raw of tasks) {
+          const task = this.store.task(raw.id);
+          check(task.status === 'completed' && ['pending','review','conflict'].includes(task.integration), `#${task.id} is not a completed merge candidate`);
+          await this.clean(task.workspace);
+          check(await this.git(task.workspace, 'rev-parse', 'HEAD') === task.head_commit, `task #${task.id} branch changed after review`);
+          if (task.resolves_task_id) {
+            const resolved = this.store.task(task.resolves_task_id);
+            check(resolved.head_commit && await this.isAncestor(project, resolved.head_commit, task.head_commit),
+              `resolution #${task.id} does not contain the reviewed commit of #${resolved.id}; land a branch that keeps that work`);
+          }
+        }
+        return { target_branch: targets[0], tasks: tasks.map(task => task.id) };
+      }
+      const targetWorkspace = await this.workspaceForBranch(targets[0]);
+      if (targetWorkspace) await this.clean(targetWorkspace);
       for (const raw of tasks) {
         const task = this.store.task(raw.id);
         check(task.status === 'completed' && ['pending','review','conflict'].includes(task.integration), `#${task.id} is not a completed merge candidate`);
-        await this.clean(task.workspace);
-        check(await this.git(task.workspace, 'rev-parse', 'HEAD') === task.head_commit, `task #${task.id} branch changed after review`);
+        if (task.workspace) await this.clean(task.workspace);
+        const state = await this.branchState(task.branch);
+        check(state.parent === task.target_branch, `task #${task.id} no longer targets its direct parent`);
+        check(task.head_commit && state.child_head && await this.isAncestor(project, task.head_commit, state.child_head),
+          `task #${task.id} branch no longer contains its reviewed commit`);
         if (task.resolves_task_id) {
           const resolved = this.store.task(task.resolves_task_id);
-          check(resolved.head_commit && await this.isAncestor(project, resolved.head_commit, task.head_commit),
+          check(resolved.head_commit && await this.isAncestor(project, resolved.head_commit, state.child_head),
             `resolution #${task.id} does not contain the reviewed commit of #${resolved.id}; land a branch that keeps that work`);
         }
       }
@@ -35,56 +166,42 @@ export const methods = {
   merge(taskId) {
     return this.exclusive(async () => {
       const task = this.store.task(taskId);
-      // conflict 也在允许之列：那是「合并冲突过、现在重试」——冲突中不解决就永远走不出去。
       check(task.status === 'completed' && ['pending','review','conflict'].includes(task.integration), 'only completed tasks with pending/review/conflict changes can be merged');
+      check(task.branch, `task #${task.id} has no branch`);
+      const record = this.store.branch(task.branch);
+      if (!task.input_id || record?.parent !== task.target_branch) return this.legacyMergeUnsafe(task);
       const project = this.config.project;
-      await this.clean(project);
-      await this.clean(task.workspace);
-      check(await this.git(project, 'symbolic-ref', '--short', 'HEAD') === task.target_branch, `switch to ${task.target_branch} before merging`);
-      check(await this.git(task.workspace, 'rev-parse', 'HEAD') === task.head_commit, 'task branch changed after review');
-      // 解冲突任务不是普通分支：它必须真的含被并进来的那次审阅过的提交（防止「解冲突」把对方改动整个丢掉），
-      // 而且只能用 --ff-only 落地——成功即证明 main 没被推走，落地的树就是 agent 测过的那棵树。
+      const state = await this.branchState(task.branch);
+      check(state.parent === task.target_branch, `task #${task.id} targets ${task.target_branch}, but its recorded parent is ${state.parent}`);
+      // task.head_commit 是 agent 交付时审阅过的提交；分支之后可以聚合直接子分支，但不能把原成果丢掉。
+      check(task.head_commit && state.child_head && await this.isAncestor(project, task.head_commit, state.child_head),
+        `task #${task.id} branch no longer contains its reviewed commit`);
       const resolved = task.resolves_task_id ? this.store.task(task.resolves_task_id) : null;
       if (resolved) {
         check(resolved.head_commit, `#${task.id} resolves #${resolved.id}, which has no reviewed commit`);
-        check(await this.isAncestor(project, resolved.head_commit, task.head_commit),
-          `resolution #${task.id} does not contain the reviewed commit of #${resolved.id}; land a branch that keeps that work`);
+        check(await this.isAncestor(project, resolved.head_commit, state.child_head),
+          `resolution #${task.id} does not contain the reviewed commit of #${resolved.id}`);
       }
-      // A stacked branch carries its upstream's commits. Merging a downstream task first would drag
-      // unmerged work into the target branch, so the upstream has to be an ancestor of the target already.
-      for (const edge of this.store.deps(task.id).filter(edge => edge.kind === 'code')) {
-        const upstream = this.store.task(edge.depends_on);
-        check(upstream.head_commit, `code dependency #${upstream.id} has no commit; inspect it before merging`);
-        check(await this.isAncestor(project, upstream.head_commit, 'HEAD'),
-          `code dependency #${upstream.id} is not merged into ${task.target_branch} yet; merge #${upstream.id} first so this branch does not carry it along`);
-      }
-      // 能快进就快进：不产生合并提交，历史保持线性；只有目标分支已经前进（HEAD 不是该提交的祖先）
-      // 才退回 --no-ff 生成合并提交。解冲突任务恒为快进：它的产物就是「目标分支 + 那次提交」。
-      const fastForward = resolved ? true : await this.isAncestor(project, 'HEAD', task.head_commit);
-      // Persist approval before touching the main tree. On crash, never replay a merge.
       this.store.update(task.id, { integration: 'merging', integration_error: null });
-      this.store.event(task.id, 'merge.approved', { commit: task.head_commit, fast_forward: fastForward });
+      this.store.event(task.id, 'merge.approved', { commit: state.child_head, parent: state.parent,
+        fast_forward: state.status === 'fast_forward' });
       try {
-        if (fastForward) await this.git(project, 'merge', '--ff-only', task.head_commit);
-        else await this.git(project, 'merge', '--no-ff', '--no-edit', task.head_commit);
-        this.store.update(task.id, { integration: 'merged' });
-        this.store.event(task.id, 'merged', { commit: task.head_commit });
-      } catch (error) {
-        // 先取冲突明细，再决定这是「内容冲突」还是「硬失败」，最后一定把主树恢复原状。
-        const files = await this.unmerged(project).catch(() => []);
-        let abortError = null;
-        if (await this.merging(project)) {
-          try { await this.git(project, 'merge', '--abort'); } catch (err) { abortError = err.message; }
+        const outcome = await this.mergeBranchUnsafe(task.branch);
+        if (outcome.needs_sync) {
+          this.store.update(task.id, { integration: 'pending', integration_error: `branch diverged from ${state.parent}` });
+          this.store.event(task.id, 'merge.diverged', outcome);
+          return { task: this.store.task(task.id), conflict: null, diverged: outcome };
         }
-        const detail = `${error.message}${abortError ? `\nCheck repository state: ${abortError}` : ''}`;
-        this.store.update(task.id, { integration: 'pending', integration_error: detail });
-        this.store.event(task.id, 'merge.failed', { error: error.message, files });
-        // abort 没成功表示主树还卡在合并里：不能把这种现场交给解冲突 agent。
-        if (abortError) throw new LushError(detail);
-        if (files.length) return { task: this.store.task(task.id), conflict: { files, output: error.message } };
+        this.store.update(task.id, { integration: 'merged', integration_error: null });
+        this.store.event(task.id, 'merged', { commit: outcome.child_head, parent: outcome.parent,
+          already_integrated: outcome.already_integrated === true });
+        return { task: this.store.task(task.id), conflict: null, branch: outcome };
+      } catch (error) {
+        // 新路径只有 ff-only / compare-and-swap，不会留下需要人工检查的 merge 中间态。
+        this.store.update(task.id, { integration: 'pending', integration_error: error.message });
+        this.store.event(task.id, 'merge.failed', { error: error.message, files: [] });
         throw error;
       }
-      return { task: this.store.task(task.id), conflict: null };
     });
   },
 };

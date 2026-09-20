@@ -39,7 +39,7 @@ const nameOfBranchId = id => (typeof id === 'string' && id.startsWith('branch:')
 /**
  * @param {object} graph `graph.get` 的返回（{ nodes, edges, current_branch, ... }）
  * @returns {{forest:Array, unplaced:Array, current_branch:string|null, git:boolean, truncated:boolean, error:string|null}}
- *   `forest` 是分支根节点数组，每个节点 `{ name, id, head_commit, current, tracked, placeholder, depth, children, tasks }`；
+ *   `forest` 是分支根节点数组，每个节点 `{ name, id, head_commit, current, tracked, placeholder, incoming, depth, children, tasks }`；
  *   `tasks` 里的任务节点带 `level` / `upstreams` / `aheadBehind` / `marks`，直接供渲染使用；
  *   `unplaced` 是连目标分支节点都没有的任务，按目标分支名分组。
  */
@@ -55,6 +55,7 @@ export function graphLayout(graph = {}) {
   // fork 边 -> 直接子分支。一条分支只认第一条 fork 边（坏数据双父时见好就收）；
   // 成环时环里的节点会在下面作为额外根画出来，绝不落到看不见。
   const children = new Map(branchNodes.map(node => [node.name, []]));
+  const incoming = new Map();
   const hasParent = new Set();
   for (const edge of edges) {
     if (edge.kind !== 'fork') continue;
@@ -62,7 +63,7 @@ export function graphLayout(graph = {}) {
     const to = nameOfBranchId(edge.to);
     if (!from || !to || from === to) continue;
     if (!branchByName.has(from) || !branchByName.has(to) || hasParent.has(to)) continue;
-    hasParent.add(to); children.get(from).push(to);
+    hasParent.add(to); children.get(from).push(to); incoming.set(to, edge);
   }
 
   const order = [...branchNodes].sort(byCurrentThenName);
@@ -72,7 +73,7 @@ export function graphLayout(graph = {}) {
     const entry = {
       name: node.name, id: node.id, head_commit: node.head_commit ?? null,
       current: node.current === true, tracked: node.tracked !== false, placeholder: node.placeholder === true,
-      depth, children: [], tasks: [],
+      incoming: incoming.get(node.name) ?? null, depth, children: [], tasks: [],
     };
     built.set(node.name, entry); visited.add(node.name);
     const childNames = (children.get(node.name) || [])
@@ -154,6 +155,6 @@ export function graphRenderKey(graph) {
   const nodes = (graph?.nodes || []).map(node => [node.id, node.kind, node.name ?? '-', node.head_commit ?? '-',
     node.branch_state ?? '-', node.workspace_state ?? '-', node.ahead ?? '-', node.behind ?? '-', node.merged ?? '-',
     node.current === true, node.tracked === false, node.placeholder === true].join(':')).join('|');
-  const edges = (graph?.edges || []).map(edge => `${edge.kind}:${edge.from}>${edge.to}`).join('|');
+  const edges = (graph?.edges || []).map(edge => `${edge.kind}:${edge.from}>${edge.to}:${edge.status ?? '-'}:${edge.ahead ?? '-'}:${edge.behind ?? '-'}:${(edge.blockers || []).join(',')}`).join('|');
   return `${nodes}#${graph?.truncated === true}#${edges}`;
 }

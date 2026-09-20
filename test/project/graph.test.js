@@ -35,8 +35,8 @@ test('graph reports code stacking, ahead/behind and merge state', async () => {
     expect(mainBranch.current).toBe(true);
 
     expect(graph.edges).toContainEqual({ kind: 'code', from: task.id, to: child.id });
-    expect(graph.edges).toContainEqual({ kind: 'target', from: task.id, to: 'branch:main' });
-    expect(graph.edges).toContainEqual({ kind: 'target', from: child.id, to: 'branch:main' });
+    expect(graph.edges).toContainEqual({ kind: 'target', from: task.id, to: `branch:${f.store.task(task.id).target_branch}` });
+    expect(graph.edges).toContainEqual({ kind: 'target', from: child.id, to: `branch:${f.store.task(child.id).target_branch}` });
 
     // 上游落地后：merged=true，ahead 归零；下游仍领先一条自己的提交。
     await f.project.workspaces.merge(task.id);
@@ -106,8 +106,8 @@ test('graph covers recorded branches, untracked refs and placeholder parents wit
     expect(gone).toMatchObject({ kind: 'branch', tracked: false, placeholder: true, head_commit: null });
 
     // 谱系边：记录了 parent 的分支都给出 fork 边，两端都在节点集合里（含占位父）。
-    expect(graph.edges).toContainEqual({ kind: 'fork', from: 'branch:main', to: 'branch:lush/test/input-1-anchor' });
-    expect(graph.edges).toContainEqual({ kind: 'fork', from: 'branch:lush/test/gone-parent', to: 'branch:lush/test/orphan-child' });
+    expect(graph.edges).toContainEqual(expect.objectContaining({ kind: 'fork', from: 'branch:main', to: 'branch:lush/test/input-1-anchor', status: 'missing' }));
+    expect(graph.edges).toContainEqual(expect.objectContaining({ kind: 'fork', from: 'branch:lush/test/gone-parent', to: 'branch:lush/test/orphan-child', status: 'missing' }));
   } finally { await f.close(); }
 });
 

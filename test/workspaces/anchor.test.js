@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, repo, git } from '../helpers.js';
 
-// 输入锚点：submit 那一刻就把代码冻成一条分支加一个检出，worker 的基线不再取决于它何时开工。
+// 输入分支：submit 从指定父分支创建聚合分支与检出，planner/worker 基线不随开工时间漂移。
 // 这里只碰 Git 边界与输入落库的接缝；CLI / Web 的上层行为在 test/input-flow.test.js。
 
 /** planner 只写 spec 队列，所以用 coordinator 充当能派活的父任务。 */
@@ -13,15 +13,16 @@ function host(f, input_id) {
   return task;
 }
 
-test('an input anchors the code it was submitted against, and the anchor is a real checkout', async () => {
+test('an input creates a real aggregate branch checkout and the planner runs there', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const head = await git(f.root, 'rev-parse', 'HEAD');
     const input = await f.project.submit('work');
-    expect(input.anchor).toMatchObject({ branch: `lush/${f.project.workspaces.namespace}/input-${input.id}-anchor`, commit: head, target: 'main' });
+    expect(input.anchor).toMatchObject({ branch: `lush/${f.project.workspaces.namespace}/input-${input.id}`, commit: head, target: 'main' });
     expect(fs.existsSync(input.anchor.workspace)).toBe(true);
-    // 检出真的停在锚点分支上，不是 --detach 的临时树
+    // 检出真的停在输入分支上；根 planner 的 cwd 也固定到这里。
     expect(await git(input.anchor.workspace, 'symbolic-ref', '--short', 'HEAD')).toBe(input.anchor.branch);
+    expect(await f.project.workspaces.ensure(input.task)).toBe(input.anchor.workspace);
     // 谱系在分支创建那一刻写下：parent = 提交输入时的检出分支，created_from_commit = 当时的 HEAD
     expect(f.store.branch(input.anchor.branch)).toMatchObject({ parent: 'main', parent_relation: 'recorded',
       created_from_commit: head, task_id: null, worktree: input.anchor.workspace, status: 'active' });
@@ -58,7 +59,7 @@ test('a worker bases, parents and targets on its input anchor, not on the branch
     const cwd = await f.project.workspaces.ensure(worker);
     const task = f.store.task(worker.id);
     expect(task.base_commit).toBe(anchorCommit);
-    expect(task.target_branch).toBe('main');
+    expect(task.target_branch).toBe(input.anchor.branch);
     expect(fs.existsSync(path.join(cwd, 'later.txt'))).toBe(false);
     // 谱系写锚点分支，而不是「当时检出的分支」——那条分支早就在锚点之后往前走了
     expect(f.store.branch(task.branch)).toMatchObject({ parent: input.anchor.branch, created_from_commit: anchorCommit });
@@ -89,7 +90,19 @@ test('a code dependency still stacks on the upstream branch and beats the anchor
   } finally { await f.close(); }
 });
 
-test('anchoring refuses a detached HEAD, a project that is not a git root, and a taken branch name', async () => {
+test('input submission can choose a local parent branch without checking it out', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    await git(f.root, 'branch', 'release-next');
+    const input = await f.project.submit('release work', 'release-next');
+    expect(input.anchor.target).toBe('release-next');
+    expect(f.store.branch(input.anchor.branch).parent).toBe('release-next');
+    expect(await git(f.root, 'symbolic-ref', '--short', 'HEAD')).toBe('main');
+    await expect(f.project.submit('bad', 'missing-branch')).rejects.toThrow('does not exist locally');
+  } finally { await f.close(); }
+});
+
+test('anchoring refuses a detached HEAD without an explicit parent, a project that is not a git root, and a taken branch name', async () => {
   const plain = fixture(); plain.project.stopping = true;
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
@@ -97,7 +110,7 @@ test('anchoring refuses a detached HEAD, a project that is not a git root, and a
     await git(f.root, 'checkout', '--detach');
     await expect(f.project.workspaces.anchor(1)).rejects.toThrow('detached HEAD');
     await git(f.root, 'checkout', 'main');
-    await git(f.root, 'branch', `lush/${f.project.workspaces.namespace}/input-1-anchor`);
+    await git(f.root, 'branch', `lush/${f.project.workspaces.namespace}/input-1`);
     await expect(f.project.workspaces.anchor(1)).rejects.toThrow('already exists');
     // 三次失败一条都不落库：没有分支记录被写成事实
     expect(f.store.branches()).toEqual([]);
@@ -134,7 +147,7 @@ test('releaseAnchor only drops an untouched checkout, and reclaimAnchors keeps g
       workspace: [first, second, dirty, moved][id - 1].workspace })));
     expect(outcomes.map(row => [row.id, row.status])).toEqual([[1, 'removed'], [2, 'removed'], [3, 'kept'], [4, 'kept']]);
     expect(outcomes[2].reason).toContain('dirty');
-    expect(outcomes[3].reason).toContain('is not the anchored commit');
+    expect(outcomes[3].reason).toContain('has not been merged into main');
     // 干净的回收掉：目录没了、分支没了、谱系行只标 deleted（子分支的 parent 指针要继续有效）
     expect(fs.existsSync(first.workspace)).toBe(false);
     expect(await git(f.root, 'branch', '--list', first.branch)).toBe('');

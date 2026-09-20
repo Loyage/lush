@@ -55,6 +55,7 @@
     <button type="button" id="draft-toggle" class="draft-toggle" aria-expanded="false" aria-controls="draft-body" title="展开后可以勾选、就地编辑、移除待提交意图，或者只提交选中的那几条">待提交意图<span id="draft-count" class="count">空</span></button>
     <div class="draft-body" id="draft-body"><div id="drafts"></div></div>
   </div>
+  <div class="composer-target"><label for="input-branch">父分支</label><input id="input-branch" maxlength="512" placeholder="留空＝当前检出分支" aria-describedby="input-branch-help"><span id="input-branch-help" class="hint">提交时会从该本地分支创建独立输入分支</span></div>
   <textarea id="input" rows="1" maxlength="32000" aria-label="输入开发需求或研究问题" placeholder="描述一个需求，或提出一个值得研究的问题…"></textarea>
   <div class="composer-foot"><span class="hint"><kbd>Enter</kbd> 暂存想法 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ↵</kbd> 提交选中项并规划</span><span class="composer-actions"><button type="button" id="draft-add" class="ghost">暂存想法</button><button type="submit" id="draft-commit">提交并规划</button></span></div>
 </form><p id="error" role="alert"></p></div>

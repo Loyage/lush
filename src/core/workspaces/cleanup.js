@@ -16,9 +16,9 @@ export const methods = {
     catch { return { branch, status: 'absent', reason: null }; }
     const reviewed = task.head_commit || task.base_commit;
     if (!reviewed) return { branch, status: 'kept', reason: 'no reviewed commit is recorded for this task' };
-    if (tip !== reviewed) return { branch, status: 'kept', reason: task.head_commit
-      ? `branch tip ${tip.slice(0, 12)} is not the reviewed commit ${reviewed.slice(0, 12)}`
-      : `branch carries commits the task never recorded (tip ${tip.slice(0, 12)}, base ${reviewed.slice(0, 12)})` };
+    if (!(await this.isAncestor(project, reviewed, tip))) return { branch, status: 'kept', reason: task.head_commit
+      ? `branch tip ${tip.slice(0, 12)} no longer contains the reviewed commit ${reviewed.slice(0, 12)}`
+      : `branch no longer contains its recorded base ${reviewed.slice(0, 12)}` };
     if (!task.target_branch) return { branch, status: 'kept', reason: 'no target branch is recorded for this task' };
     if (!(await this.isAncestor(project, tip, `refs/heads/${task.target_branch}`)))
       return { branch, status: 'kept', reason: `${tip.slice(0, 12)} is not in ${task.target_branch} yet` };
@@ -49,8 +49,12 @@ export const methods = {
       const dir = task.workspace;
       await this.clean(dir);
       const head = await this.git(dir, 'rev-parse', 'HEAD');
-      // Even failed/cancelled tasks may contain valuable committed changes.
-      if (head !== task.base_commit) await this.git(this.config.project, 'merge-base', '--is-ancestor', head, 'HEAD');
+      // Even failed/cancelled tasks may contain valuable committed changes. Branch-first tasks land in their
+      // direct parent, which is often an input/task worktree rather than the project checkout's HEAD.
+      if (head !== task.base_commit) {
+        check(task.target_branch, 'task has committed work but no target branch');
+        await this.git(this.config.project, 'merge-base', '--is-ancestor', head, `refs/heads/${task.target_branch}`);
+      }
       await this.git(this.config.project, 'worktree', 'remove', dir);
       worktree = 'removed';
       this.store.update(task.id, { workspace: null });

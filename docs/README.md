@@ -14,9 +14,10 @@
 - [计划审批闸门](engineering/plan-gate.md)：`plan.propose` / `approve` / `reject`。
 - [一次 invocation 与多级协作](engineering/invocation.md)：七步流程、角色、verifier 与上限。
 - [生命周期不变量](engineering/invariants.md)：逐条不变量清单。
-- [Git 边界](engineering/git-boundary.md)：worktree / 分支创建与 `base_behind`。
+- [分支优先架构](engineering/branch-first.md)：输入聚合分支、direct-parent / ff-only 与子侧同步的不变量。
+- [Git 边界](engineering/git-boundary.md)：worktree / 分支创建、原子推进与回收边界。
 - [分支谱系](engineering/branch-genealogy.md)：显式记录的 branch 创建关系、`recorded` / `unknown` 与删除后的处理。
-- [批准合并](engineering/merge.md)：快进优先、内容冲突、合并冻结与 `superseded`。
+- [分支合并](engineering/merge.md)：流程图连线状态、fast-forward 与父分支进入子侧的分歧收敛。
 - [检验与对照检出](engineering/verification.md)：只读对照检出与回收时机。
 - [工作区与分支回收](engineering/cleanup.md)：清理与回收的安全门。
 - [项目身份与恢复](engineering/identity-and-recovery.md)：身份、锁、socket 与重启恢复。

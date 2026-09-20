@@ -38,7 +38,8 @@ export function initComposer() {
       if ($('input').value.trim()) await buffer();
       const ids = selectedDraftIds();
       if (!ids.length) throw new Error('没有勾选任何待提交意图；勾选要提交的，或者先在输入框里写点什么');
-      const result = await action('draft.commit', { ids });
+      const branch = $('input-branch').value.trim();
+      const result = await action('draft.commit', { ids, ...(branch ? { branch } : {}) });
       $('error').textContent = `已提交 ${result.drafts.length} 条输入；planner #${result.task.id} 正在拆解任务并建依赖`;
     } catch (error) { $('error').textContent = error.message; } finally { syncComposer(); }
   };

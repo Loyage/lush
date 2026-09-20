@@ -3,4 +3,6 @@ export const handlers = {
   'branch.tree'(p, params, actor) { return p.branchTree(); },
   'branch.show'(p, params, actor) { return p.branchShow(params.branch); },
   'branch.import'(p, params, actor) { return p.branchImport(); },
+  'branch.merge'(p, params, actor) { return p.approveBranchMerge(params.branch); },
+  'branch.sync'(p, params, actor) { return p.syncBranch(params.branch); },
 };

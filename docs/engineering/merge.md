@@ -1,55 +1,64 @@
-# 批准合并与交付队列
+# 分支合并与收敛
 
-本文件管批准合并、按目标分支组织的交付队列、快进优先策略、内容冲突与合并冻结、解冲突任务的落地守卫及 `superseded`。
+Lush 的合并单位是分支谱系中的一条 `direct child → parent` 边。Task 仍提供审阅结果和 agent 审计，但代码是否能落地由 Branch + Git commit graph 决定。
 
-worker worktree 与分支的创建见 [Git 边界](git-boundary.md)。
+## 唯一正常路径：fast-forward
 
-## 任务与交付是两套视图
+`branch.merge BRANCH` / 分支图“合入父分支”执行以下门槛：
 
-任务树回答“谁在做什么”；`task.ladder` 返回的交付队列回答“哪个提交将进入哪个目标分支”。队列按 `target_branch` 分组，并以原始 worker task 作为稳定条目：解冲突 task 只是该条目的当前 `source_task_id`，不会与原任务并列成两个可合并候选。
+1. child 在 `branches` 中有 `parent_relation=recorded` 的直接父分支；
+2. child 与 parent ref 都存在；
+3. child 对应 task（若有）已经 completed；
+4. child 自己的 worktree、parent 已检出的 worktree都干净；
+5. child 没有尚未收拢的直接子分支；
+6. parent tip 是 child tip 的祖先。
 
-交付阶段从现有 task、resolver 与依赖边派生，不增加持久化实体：
+父分支有 worktree 时在该 worktree 运行 `git merge --ff-only <child-tip>`，使 index 与工作目录同步；没有 worktree 时用带旧值的 `git update-ref` compare-and-swap 原子推进 ref。外部进程抢先推进会失败，不覆盖它。
 
-- `awaiting_review`：结果完成，待审阅与批准；
-- `review_required`：上次合并中断，需检查仓库后重新批准；
-- `conflict_decision`：等待是否启动解冲突；
-- `resolving`：resolver 正在等待/执行；
-- `resolution_ready`：resolver 已完成，真正落地来源是它的分支；
-- `resolution_stale`：目标分支已前进，resolver 无法再快进落地，需要明确废弃后重开。
+成功后，关联 task 的 integration 收敛为 `merged`。输入分支没有 task owner，事件记在该输入的根 planner 上。
 
-每项另带 `ready`、`selectable` 与结构化 `blockers`。`ready` 表示单项现在即可落地；code 上游尚未落地时它为 false，但只要完整上游栈也在同一目标分支队列里，`selectable` 仍为 true，勾选下游会自动带上上游。错误目标分支、冲突冻结或 resolver 尚未完成属于硬 blocker，不能编入批次。`order` 只约束任务执行；只有 `code`（分支基线）进入交付拓扑。
+新输入产生的 `task.merge` 是兼容入口，走同一套 direct-parent / ff-only 规则。升级前已经存在、或内部测试直接创建且没有 input 的 legacy task 继续按原 `target_branch` 语义落地（可能 no-ff）；这是迁移兼容，不会出现在新输入分支流中。
 
-## 一次批准
+## 分支状态
 
-结果提交后进入 `integration=pending`。用户 `task.merge` 检查主工作树/worker 干净、当前分支等于原目标分支、已审阅的 commit 未变化，并检查 code 上游确实已经是目标分支祖先，再持久化批准事件和 `merging`，执行 merge。成功为 `merged`。
+`Workspaces#branchState(child)` 实时计算：
 
-合并优先快进：目标分支顶端是该提交的祖先时用 `--ff-only`；只有目标分支已经前进、快进不了时才用 `--no-ff --no-edit`。`merge.approved` 事件里的 `fast_forward` 记录实际策略。
+- `fast_forward`：parent 是 child 的祖先；
+- `diverged`：两边都有独有提交；
+- `integrated`：child 已经在 parent 历史里；
+- `missing`：ref 缺失。
 
-每次成功后运行时会检查同目标分支上其它 `pending/review` worker 的已审阅提交是否也已经成为目标分支祖先；若是，则标成 `merged` 并记录 `merge.included`。这样外部 Git 操作或另一条分支携带提交时，不会留下实际上已落地的“待合并”幽灵项。
+同时返回 child 相对 parent 的 `ahead` / `behind` 与未收拢直接子分支 blockers。状态不写库，避免外部 Git 操作后缓存失真。
 
-## 内容冲突
+## 分歧：父分支先进入子侧
 
-内容冲突不是异常。`workspaces.merge` 真合并失败时先取未解决文件，再 `merge --abort`；只有主树确实回到合并前的干净状态时才把冲突结果交给上层。abort 不成功仍是硬错误，绝不把主树中间态交给 agent。
+分歧时 runtime **不会**在 parent 上执行 `--no-ff`，也不会把冲突留在 parent worktree。用户执行 `branch.sync CHILD`（或在图上点“在子分支解决分歧”）：
 
-上层把原任务置为 `integration=conflict`，创建一个 `role=merger`、`resolves_task_id` 指向原任务的解冲突 task，并发 notice 请示。resolver 初始为 `awaiting`，不占槽；答复才开工，忽略则取消并让原任务回到 `pending`。
+1. 冻结当前 child tip 与 parent tip；
+2. 从 child tip 创建一个独立 merger 子分支 / worktree；
+3. merger 执行 `git merge <frozen-parent-tip>`；
+4. 在子侧解决冲突、提交并测试；
+5. 用户批准 merger → child 的 FF；
+6. 用户批准 child → parent 的 FF。
 
-resolver 以目标分支顶端为基线，把原任务已审阅提交并进来、解冲突、提交并测试。落地同时要求：
+这条路径不 rebase，不重写已审阅提交；最终 parent 得到的树就是 merger 测试过的树。parent 在期间再次前进，只会让第 6 步重新显示 diverged，必须再同步，不能偷偷二次合并。
 
-1. resolver 结果确实包含原任务的 `head_commit`；
-2. 只用 `--ff-only` 落地，证明目标分支没被推走，落地树就是测过的树。
+同一 child 同时只允许一个活动或待落地的 branch-sync merger。
 
-原任务有活动 resolver 时，任何入口都不能从旁重试它。resolver 完成且目标分支仍是其祖先时，单任务与批量入口收到原任务 id 都会自动把实际来源映射到 resolver。若目标分支已经前进，映射不再成立，此时显式批准原任务表示“废弃过期 resolver 并开新一轮”；旧分支与 worktree 保留，状态改为 `superseded`。
+## 从叶子向根
 
-`integration=conflict` 同时是按目标分支派生的合并锁。同一目标分支上的其它落地会被拒绝，直到 resolver 落地、被取消/失败，或原任务显式开始新一轮。锁不另建表，重启后不会残留内存锁。
+一条分支还有未进入自己的直接子分支时，向上合并会被拒绝。典型顺序：
 
-## 批量交付
+```text
+code 下游 → 上游任务分支 → 输入分支 → 用户指定父分支
+```
 
-`task.merge_many` 一次最多 50 个稳定的原任务 id：
+并行 sibling 都进入输入分支。因为第一个 sibling 会推进输入分支，后续 sibling 往往显示 diverged；它们按上述子侧同步流程逐个收敛。系统宁可要求显式同步，也不在聚合分支上产生未经独立测试的 merge commit。
 
-- 先做全批次只读预检；不合格条目、混合目标分支、脏主树/任务 worktree、审阅提交漂移、resolver 不完整、集合外未落地的 code 上游都会在写主树前拒绝；
-- 单批只允许一个 `target_branch`；
-- 只按选中集合内的 `code` 边拓扑排序，并列按 id；`order` 不参与交付排序；
-- resolver 完成时把原任务映射到 resolver 作为 `source_task_id`；
-- 真正执行仍逐个走同一个 `approveMerge`，遇到首个运行期冲突或错误停止，已成功的不会回滚，剩余项标为 `skipped`。
+## 批量入口
 
-相关：[工作区与分支回收](cleanup.md)、[生命周期不变量](invariants.md)。
+`task.merge_many` 保留为兼容接口：只接受相同直接父分支，逐项走同一规则。第一项造成父分支前进后，独立 sibling 可能需要同步；批次在首个 `diverged` 或错误处停止，已成功项不回滚。
+
+新的主操作面是分支图，而非按 task 推测交付顺序。
+
+相关：[分支优先架构](branch-first.md) · [Git 边界](git-boundary.md) · [分支谱系](branch-genealogy.md)

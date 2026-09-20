@@ -41,6 +41,17 @@ test('分支图：入口走 #graph，画出分支谱系与任务，点节点进�
   expect(text).toContain('领先 1');
   expect(text).toContain('⚠ 缺失 worktree');
   expect(text).toContain('⚠ 缺失分支');
+  // fork 连线直接表达可 FF / 分歧，并提供相应动作。
+  expect(text).toContain('可 fast-forward');
+  expect(text).toContain('父子已分歧');
+  expect(text).toContain('子分支 +1 / -2');
+  const mergeButton = detail.querySelectorAll('button').find(node => node.textContent === '合入父分支');
+  const syncButton = detail.querySelectorAll('button').find(node => node.textContent === '在子分支解决分歧');
+  expect(mergeButton).toBeTruthy(); expect(syncButton).toBeTruthy();
+  await mergeButton.onclick();
+  await syncButton.onclick();
+  expect(world.state.actions).toContainEqual({ method: 'branch.merge', params: { branch: 'lush/demo/1-one' } });
+  expect(world.state.actions).toContainEqual({ method: 'branch.sync', params: { branch: 'lush/demo/2-two' } });
 
   // 父子嵌套：无任务的锚点分支与 worker 分支挂在 main 的子树里，2-two 挂在 1-one 下，不在 release 下。
   const header = name => detail.querySelectorAll('span.graph-branch-name').find(node => node.textContent.includes(name));

@@ -18,7 +18,7 @@ Task ──(task_id)──────────────┤
                               └──(worktree)──> .lush/worktrees/<id>-<name>
 ```
 
-锚点分支没有 `task_id`（它属于输入），任务分支的 `task_id` 指向任务自己；两种分支都遵守同一个不可变规则。
+输入分支没有 `task_id`（它通过 `inputs.anchor_branch` 属于输入），任务分支的 `task_id` 指向任务自己；两种分支都遵守同一个谱系不可变规则。输入分支本身可推进，用来聚合任务子分支。
 
 ## 为什么不用 Git 事后推断
 
@@ -34,17 +34,17 @@ Git 不保存「B 是从 A 创建的」这种关系：`merge-base`、reflog、co
 | `parent` | 创建时所在的父分支短名；`NULL` 表示没有 parent 记录 |
 | `parent_relation` | `recorded` = 创建时记下；`inferred` = 由 import 的启发式推断（当前 `branch import` **不猜**，所以不会写入）；`unknown` = 没有 parent 记录 |
 | `created_from_commit` | 创建分支那一刻父分支（或冻结基线）指向的 commit SHA——parent 之后往前走也查得到当时的起点 |
-| `task_id` | 创建它的 task id；**故意没有外键**，`task clear` 清空 tasks 后这条记录仍然有效。输入锚点分支为 `NULL`（它属于输入） |
+| `task_id` | 创建它的 task id；故意没有外键。输入聚合分支为 `NULL`（通过 `inputs.anchor_branch` 关联） |
 | `worktree` | 对应的 worktree 路径（创建时写入；现在还在不在由读模型的 `worktree_exists` 回答） |
 | `status` | `active` / `deleted`（`deleted` 只由回收路径写入，见下） |
 | `created_at` / `deleted_at` | 写入与标记删除的时间 |
 
 写入只有两个入口，都在 Git 边界里，没有第二套分支创建机制：
 
-1. **创建**：`Workspaces#anchor`（输入锚点）与 `Workspaces#ensure`（任务 worktree）在 `git worktree add -b <branch> <dir> <commit>` **之前**先落库（与 `input.anchor_*` / `workspace` / `base_commit` 同一套「先落库再动 git」的约定）。锚点的 `parent` 是提交输入时检出的分支；任务分支的 `parent` 是这次真正分叉出来的分支：有 `code` 依赖时是**上游任务的分支**（stacked），解冲突任务是**目标分支**，其余是**这条输入的锚点分支**；`created_from_commit` 就是拉起 worktree 用的那个 commit。
-2. **删除**：`Workspaces#dropBranch`（任务分支）与 `Workspaces#dropAnchor`（输入锚点）在 `update-ref -d` 成功后调 `markBranchDeleted`，只把 `status` 改成 `deleted`，**不删行**。
+1. **创建**：`Workspaces#anchor`（输入分支）与 `Workspaces#ensure`（任务 worktree）在 `git worktree add -b <branch> <dir> <commit>` **之前**先落库。输入分支的 `parent` 是用户提交时指定的本地分支；普通任务的 parent 是输入分支，`code` 下游的 parent 是上游任务分支，branch-sync merger 的 parent 是待同步 child。任务 `target_branch` 与这个直接 parent 一致。
+2. **删除**：`Workspaces#dropBranch`（任务分支）与 `Workspaces#dropAnchor`（兼容命名：输入分支）在 compare-and-delete 成功后标 `deleted`，不删谱系行。
 
-`recordBranch` 是幂等的（`ON CONFLICT DO NOTHING`）：崩溃重试撞见已创建的分支不会重写 parent，**merge 也永远不改谱系**——`B` 合并进 `main` 之后，`parent(B)` 还是原来的 `A`。
+`recordBranch` 是幂等的（`ON CONFLICT DO NOTHING`）：崩溃重试撞见已创建的分支不会重写 parent，**merge 也永远不改谱系**。写操作只允许 child 合回这个 recorded direct parent；导入的 unknown parent 只能看，不能据此合并。
 
 ## 查询
 
@@ -64,7 +64,7 @@ lush branch show BRANCH|TASK_ID     # 一条分支的 parent、fork commit、tas
 lush branch import                  # 把现有本地分支登记成记录（只记存在与 worktree，不推断 parent）
 ```
 
-`branch show` 接受分支短名，也接受纯数字的 task id（分支名形如 `lush/<哈希>/<id>-<name>`，手打太长）。RPC 是 `branch.tree` / `branch.show` / `branch.import`；前两个只读、agent 也能调，`branch.import` 会写 store，因此是用户专属（`USER_ONLY`）。
+`branch show` 接受分支短名，也接受纯数字 task id。RPC 另有用户专属 `branch.merge`（ff-only 合回直接父分支）与 `branch.sync`（分歧时创建子侧 merger）；交互主入口是 Web 分支图。
 
 ### 已有分支怎么办
 

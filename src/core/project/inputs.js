@@ -10,9 +10,9 @@ export default {
    * 再由 Git 边界把「提交这一刻的代码」锚成一条分支加一个检出。
    * 这一步是异步的（要串行走 Git 队列），所以输入提交会短暂等正在进行的 Git 操作。
    */
-  async anchorInput() {
+  async anchorInput(branch = null) {
     const inputId = this.store.nextInputId();
-    const anchor = await this.workspaces.anchor(inputId);
+    const anchor = await this.workspaces.anchor(inputId, branch);
     return { inputId, anchor };
   },
 
@@ -34,9 +34,10 @@ export default {
    * The single place a root planner is created; input.submit and draft.commit both land here.
    * 锚不住就不接受输入：Git 建锚点失败时 inputs 一条都不写，草稿也留在缓存里等下一次提交。
    */
-  async createInput(content, attach = null) {
+  async createInput(content, attach = null, branch = null) {
     text(content, 'input');
-    const { inputId, anchor } = await this.anchorInput();
+    if (branch !== null && branch !== undefined) text(branch, 'branch');
+    const { inputId, anchor } = await this.anchorInput(branch);
     try { return this.insertInput(inputId, anchor, content, attach); }
     catch (error) {
       // 已经落到磁盘上的锚点要跟着回滚，否则同名的分支与目录会挡住之后可能用到这个 id 的提交。
@@ -46,8 +47,8 @@ export default {
     }
   },
 
-  async submit(content) {
-    const result = await this.createInput(content);
+  async submit(content, branch = null) {
+    const result = await this.createInput(content, null, branch);
     this.kick(); return result;
   },
 

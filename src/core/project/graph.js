@@ -91,7 +91,8 @@ export default {
         const workspace_state = workspacePath ? (fs.existsSync(workspacePath) ? 'present' : 'missing') : 'none';
         const knownRef = row.branch ? refs.get(row.branch) ?? null : null;
         const branch_state = row.branch && knownRef ? 'present' : 'missing';
-        const headCommit = row.head_commit || knownRef;
+        // Branch-first 图比较的是分支当前 tip；task.head_commit 只是 agent 最初交付时的 reviewed commit。
+        const headCommit = knownRef || row.head_commit;
         const targetHead = row.target_branch ? refs.get(row.target_branch) ?? null : null;
         let ahead = null, behind = null, merged = null;
         if (headCommit && row.target_branch && targetHead) {
@@ -109,7 +110,7 @@ export default {
           goal: String(row.goal ?? '').slice(0, 120),
           status: row.status, integration: row.integration,
           branch: row.branch ?? null, workspace: workspacePath, workspace_state, branch_state,
-          base_commit: row.base_commit ?? null, head_commit: row.head_commit ?? null,
+          base_commit: row.base_commit ?? null, head_commit: headCommit ?? null, reviewed_commit: row.head_commit ?? null,
           target_branch: row.target_branch ?? null, ahead, behind, merged,
           current: Boolean(row.branch) && row.branch === currentBranch,
         };
@@ -130,11 +131,38 @@ export default {
       }
       // 谱系边：每条记录了 parent 的分支给出「从哪条分支分出来」。两端都在节点集合里才加，
       // 所以被截断掉的分支不会留下悬空边。
+      // 一条 fork 边只跑一次 rev-list；ahead/behind 已足够判断祖先关系：
+      // child ahead=0 => 已进入 parent，behind=0 => parent 可快进到 child，两边都 >0 => 分歧。
+      const relations = new Map();
       for (const row of records.values()) {
-        if (!row.parent) continue;
-        if (nodeIds.has(branchId(row.parent)) && nodeIds.has(branchId(row.branch))) {
-          edges.push({ kind: 'fork', from: branchId(row.parent), to: branchId(row.branch) });
+        if (!row.parent || !nodeIds.has(branchId(row.parent)) || !nodeIds.has(branchId(row.branch))) continue;
+        const childHead = refs.get(row.branch) ?? null, parentHead = refs.get(row.parent) ?? null;
+        let status = 'missing', ahead = null, behind = null;
+        if (childHead && parentHead) {
+          try {
+            const output = await this.workspaces.git(project, 'rev-list', '--left-right', '--count', `${parentHead}...${childHead}`);
+            [behind, ahead] = output.split(/\s+/).map(Number);
+            status = ahead === 0 ? 'integrated' : behind === 0 ? 'fast_forward' : 'diverged';
+          } catch { status = 'unknown'; ahead = null; behind = null; }
         }
+        relations.set(row.branch, { status, ahead, behind, parent_head: parentHead, child_head: childHead });
+      }
+      const childrenByParent = new Map();
+      for (const child of records.values()) {
+        if (!child.parent) continue;
+        if (!childrenByParent.has(child.parent)) childrenByParent.set(child.parent, []);
+        childrenByParent.get(child.parent).push(child);
+      }
+      for (const row of records.values()) {
+        if (!row.parent || !nodeIds.has(branchId(row.parent)) || !nodeIds.has(branchId(row.branch))) continue;
+        const relation = relations.get(row.branch) ?? { status: 'unknown', ahead: null, behind: null };
+        const blockers = [...this.workspaces.branchTaskBlockers(row.branch),
+          ...(childrenByParent.get(row.branch) || []).filter(child => child.status !== 'deleted'
+            && refs.has(child.branch) && relations.get(child.branch)?.status !== 'integrated').map(child => child.branch)];
+        edges.push({ kind: 'fork', from: branchId(row.parent), to: branchId(row.branch),
+          ...relation, blockers,
+          can_merge: relation.status === 'fast_forward' && blockers.length === 0,
+          can_sync: relation.status === 'diverged' && blockers.length === 0 });
       }
       let trimmedEdges = edges;
       if (trimmedEdges.length > GRAPH_EDGE_LIMIT) { truncated = true; trimmedEdges = trimmedEdges.slice(0, GRAPH_EDGE_LIMIT); }

@@ -43,11 +43,11 @@ export function makeWorld() {
         { kind: 'target', from: 2, to: 'branch:main' },
         { kind: 'target', from: 3, to: 'branch:release' },
         // fork：新分支从旧分支分出来，父分支下嵌套。
-        { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/input-1-anchor' },
-        { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/1-one' },
-        { kind: 'fork', from: 'branch:lush/demo/1-one', to: 'branch:lush/demo/2-two' },
-        { kind: 'fork', from: 'branch:release', to: 'branch:lush/demo/3-three' },
-        { kind: 'fork', from: 'branch:feature/gone', to: 'branch:feature/scratch' },
+        { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/input-1-anchor', status: 'integrated', ahead: 0, behind: 0, blockers: [], can_merge: false, can_sync: false },
+        { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/1-one', status: 'fast_forward', ahead: 1, behind: 0, blockers: [], can_merge: true, can_sync: false },
+        { kind: 'fork', from: 'branch:lush/demo/1-one', to: 'branch:lush/demo/2-two', status: 'diverged', ahead: 1, behind: 2, blockers: [], can_merge: false, can_sync: true },
+        { kind: 'fork', from: 'branch:release', to: 'branch:lush/demo/3-three', status: 'missing', ahead: null, behind: null, blockers: [], can_merge: false, can_sync: false },
+        { kind: 'fork', from: 'branch:feature/gone', to: 'branch:feature/scratch', status: 'unknown', ahead: null, behind: null, blockers: [], can_merge: false, can_sync: false },
       ],
     },
     currentBranch: 'main',
@@ -129,6 +129,8 @@ export function makeWorld() {
     if (path === '/api/action') {
       const body = JSON.parse(options.body);
       state.actions.push(body);
+      if (body.method === 'branch.merge') return json({ child: body.params.branch, parent: 'main', status: 'integrated', merged: true });
+      if (body.method === 'branch.sync') return json({ branch: body.params.branch, parent: 'main', status: 'queued', task: { id: 88 } });
       if (body.method === 'task.merge_many') return json({ target_branch: body.params.ids.includes(3) ? 'release' : 'main',
         merges: body.params.ids.map(id => ({ id, status: 'merged', integration: 'merged' })), merged: body.params.ids.length, stopped: null });
       if (body.method === 'draft.update') { const draft = state.drafts.find(row => row.id === body.params.id); if (draft) draft.content = body.params.content; return json({ id: draft?.id, content: draft?.content }); }

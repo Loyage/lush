@@ -90,6 +90,9 @@ export default {
           recent_tasks: this.decorate(this.store.all('SELECT id,parent_id,role,status,substr(goal,1,500) AS goal,integration FROM tasks ORDER BY id DESC LIMIT 100')),
           verification: task.role === 'verifier' ? this.verificationContext(task) : undefined,
           merge_conflict: task.resolves_task_id ? this.mergeConflictContext(task) : undefined,
+          branch_sync: task.role === 'merger' && !task.resolves_task_id
+            ? (() => { const row = this.store.get("SELECT data FROM events WHERE task_id=? AND type='branch.sync.requested' ORDER BY id DESC LIMIT 1", task.id); return row ? JSON.parse(row.data) : undefined; })()
+            : undefined,
         },
       });
       clearTimeout(timer);
