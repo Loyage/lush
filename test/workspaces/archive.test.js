@@ -1,8 +1,20 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { git } from '../helpers.js';
+import { fixture, repo, git, until, gate } from '../helpers.js';
+import { Dispatcher } from '../../src/rpc/protocol.js';
+import { createSignal } from '../../src/signal.js';
 import { setup, change } from './harness.js';
+
+/** 一个停在调用里的 provider：任务保持 running，这样它的 token 才是活着的 agent 身份。 */
+function controlled() {
+  const calls = [];
+  return { calls, run(ctx) {
+    const done = gate(); calls.push({ ...ctx, done });
+    ctx.signal.addEventListener('abort', () => done.resolve('aborted'), { once: true });
+    return done.promise;
+  } };
+}
 
 /** 写一条最小的 pi 会话记录，让归档后的 transcript 真的读得到步骤。 */
 function writeSession(f, taskId) {
@@ -140,5 +152,49 @@ test('archiving a descendant stops it from blocking its parent branch status', a
     const after = await f.project.workspaces.branchState('feat-a');
     expect(after.blockers).not.toContain('feat-b');
     expect(f.store.branch('feat-b').status).toBe('archived');
+  } finally { await f.close(); }
+});
+
+test('branch.archive is user-only: an agent token is rejected', async () => {
+  const provider = controlled(), f = fixture(provider); await repo(f.root);
+  try {
+    await f.project.submit('work');
+    await until(() => provider.calls.length === 1);
+    const rpc = new Dispatcher(f.project, createSignal(), {});
+    // 归档会删 worktree 与本地 ref，是用户专属写操作，agent 不得调用。
+    await expect(rpc.dispatch('branch.archive', { branch: 'anything', _token: provider.calls[0].token }))
+      .rejects.toThrow('user approval');
+    provider.calls[0].done.resolve('done');
+    await until(() => f.project.running.size === 0);
+  } finally { await f.close(); }
+});
+
+test('branch.archive RPC forwards branch and discard and returns archiveBranch result', async () => {
+  const f = await setup();
+  try {
+    const cwd = await change(f, f.task);
+    const branch = f.store.task(f.task.id).branch;
+    fs.writeFileSync(path.join(cwd, 'dirty.txt'), 'uncommitted\n');
+    const rpc = new Dispatcher(f.project, createSignal(), {});
+    await expect(rpc.dispatch('branch.archive', { branch, nope: true })).rejects.toThrow('unknown parameter');
+    // discard 没给时按 false 透传：脏工作区被拒，提示显式 discard。
+    await expect(rpc.dispatch('branch.archive', { branch })).rejects.toThrow(/discard_worktree/);
+    const result = await rpc.dispatch('branch.archive', { branch, discard: true });
+    expect(result).toMatchObject({ branch, archived: true, worktree: 'removed', ref: 'deleted', discarded: true });
+    expect(result.tasks).toEqual([{ id: f.task.id, status: 'completed' }]);
+    expect(fs.existsSync(cwd)).toBe(false);
+  } finally { await f.close(); }
+});
+
+test('an archived branch can no longer be merged or synced', async () => {
+  const f = await setup();
+  try {
+    await change(f, f.task);
+    const branch = f.store.task(f.task.id).branch;
+    await f.project.archiveBranch(branch);
+    // 本地 ref 已经不在，两条路径的前置检查都会以 missing 拒绝，不会去动别的分支。
+    await expect(f.project.approveBranchMerge(branch)).rejects.toThrow(/missing/);
+    await expect(f.project.syncBranch(branch)).rejects.toThrow(/missing/);
+    expect(f.store.branch(branch).status).toBe('archived');
   } finally { await f.close(); }
 });

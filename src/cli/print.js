@@ -174,6 +174,16 @@ export function printBranchImport(result) {
   for (const branch of result.branches) console.log(`  ${branch}`);
   console.log(`本地分支 ${result.local} 条，原有记录 ${result.recorded} 条。`);
 }
+export function printBranchArchive(result) {
+  const worktree = result.worktree === 'removed' ? '已删除' : '本来就不在';
+  const ref = result.ref === 'deleted' ? '已删除' : '本来就不在';
+  console.log(`已归档 ${result.branch}`);
+  console.log(`worktree\t${worktree}${result.discarded ? '（丢弃了未提交改动）' : ''}`);
+  console.log(`本地分支\t${ref}${result.tip ? `（tip ${shortSha(result.tip)}）` : ''}`);
+  console.log(`保留任务\t${result.tasks.length} 个${result.tasks.length ? `：${result.tasks.map(task => `#${task.id} ${task.status}`).join('、')}` : ''}`);
+  console.log(`会话文件\t${result.sessions.length} 个`);
+  for (const file of result.sessions) console.log(`  ${file}`);
+}
 export function printTimeline(page) {
   const start = Date.parse(page.start), end = Date.parse(page.end), span = Math.max(end - start, 1);
   const width = Math.max(24, Math.min((process.stdout.columns || 100) - 34, 96));
