@@ -72,6 +72,34 @@ export const methods = {
 
   mergeBranch(child) { return this.exclusive(() => this.mergeBranchUnsafe(child)); },
 
+  /**
+   * 反方向：把父分支快进进子分支（子分支跟上父分支）。只在子分支没有任何独有提交时才成立——
+   * 这就是 branchState 的 integrated + behind>0；快进不会有 merge commit，也不会有冲突。
+   * 子分支领先走 mergeBranch，父子分歧走 branch.sync（父分支上绝不 no-ff，子分支也不 rebase）。
+   */
+  async catchupBranchUnsafe(child) {
+    const state = await this.branchState(child);
+    check(state.status !== 'missing', `cannot catch up ${child}: child or parent branch is missing`);
+    check(state.blockers.length === 0, `catch up ${state.child} is blocked by unintegrated child branches: ${state.blockers.join(', ')}`);
+    check(state.status === 'integrated', `cannot catch up ${state.child}: it is ${state.status}; catch up only applies when the parent is already ahead`);
+    // 顶端已经一样：没有要快进的东西，当成幂等的成功，不白改一次 ref。
+    if (!(state.behind > 0)) return { ...state, caught_up: false, already_integrated: true, from: state.child_head, to: state.parent_head };
+    const childWorkspace = await this.workspaceForBranch(state.child);
+    if (childWorkspace) {
+      await this.clean(childWorkspace);
+      check(await this.git(childWorkspace, 'symbolic-ref', '--short', 'HEAD') === state.child,
+        `worktree ${childWorkspace} is no longer on ${state.child}`);
+      await this.git(childWorkspace, 'merge', '--ff-only', state.parent_head);
+    } else {
+      // 未检出的子分支没有 index/worktree 要同步；compare-and-swap 保证外部进程抢先推进时安全失败。
+      await this.git(this.config.project, 'update-ref', `refs/heads/${state.child}`, state.parent_head, state.child_head);
+    }
+    return { ...state, caught_up: true, ahead: 0, behind: 0, from: state.child_head, to: state.parent_head,
+      child_head: state.parent_head, new_head: state.parent_head, merged: false };
+  },
+
+  catchupBranch(child) { return this.exclusive(() => this.catchupBranchUnsafe(child)); },
+
   /** 迁移兼容：旧任务没有 input branch/direct-parent target，继续按旧目标分支语义落地。新任务不走这里。 */
   async legacyMergeUnsafe(task) {
     const project = this.config.project;

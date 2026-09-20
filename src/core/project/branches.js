@@ -153,6 +153,24 @@ export default {
       child_commit: state.child_head, parent_commit: state.parent_head };
   },
 
+  /**
+   * 用户从分支图让子分支跟上父分支（只允许 fast-forward）。它不改任何任务的 integration：
+   * 只是把父分支已有的提交带进子分支，让下一次向上交付重新变成可 fast-forward。
+   */
+  async catchupBranch(branch) {
+    const name = String(branch ?? '').trim();
+    check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
+    const record = this.store.branch(name);
+    check(record && record.parent && record.parent_relation === 'recorded', `${name} has no recorded direct parent`);
+    const outcome = await this.workspaces.catchupBranch(name);
+    // 事件挂在「这条分支属于谁」上：有任务记在任务上，否则记在输入锚点的规划任务上（与 branch.merged 同口径）。
+    const owner = record.task_id === null ? null : this.store.get('SELECT id FROM tasks WHERE id=?', record.task_id);
+    const host = owner?.id ?? this.store.get('SELECT task_id FROM inputs WHERE anchor_branch=?', name)?.task_id ?? null;
+    if (host !== null) this.store.event(host, 'branch.caught_up', { branch: name, parent: outcome.parent,
+      from: outcome.from, to: outcome.to, already_integrated: outcome.already_integrated === true });
+    return outcome;
+  },
+
   /** branch.show：一条分支的 parent / fork commit / task / worktree，加上祖先链与后代。 */
   async branchShow(name) {
     const state = await gitState(this.workspaces, this.config.project);

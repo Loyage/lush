@@ -38,6 +38,8 @@ main（用户选择）
 
 `ahead` / `behind` 以 child 相对 parent 计算。连线还列出 child 尚未收拢的直接子分支；有 blocker 时即使 commit 图本可 FF，也不能向上落地。
 
+Web 分支图把 `integrated` 再拆成两种读得出来的情形：`behind=0` 是「与父分支一致」，`behind>0` 是「落后父分支 N」——后者可以直接快进跟上，所以 `branch.catchup BRANCH`（分支图上的「让子分支跟上父分支」）把 parent 已有的提交快速前进进 child。它只推进 child，不产生 merge commit，也不动父分支；child 有独有提交（`fast_forward`）或已经分歧时拒绝，分别该走 `branch.merge` 与 `branch.sync`。
+
 ## 分歧收敛
 
 ```text

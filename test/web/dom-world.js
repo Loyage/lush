@@ -36,6 +36,8 @@ export function makeWorld() {
         { kind: 'branch', id: 'branch:lush/demo/input-1-anchor', name: 'lush/demo/input-1-anchor', head_commit: 'abc', current: false, tracked: true, placeholder: false },
         { kind: 'branch', id: 'branch:feature/scratch', name: 'feature/scratch', head_commit: 'aaa', current: false, tracked: false, placeholder: false },
         { kind: 'branch', id: 'branch:feature/gone', name: 'feature/gone', head_commit: null, current: false, tracked: false, placeholder: true },
+        // 落后型：子分支没有独有提交、父分支已前进——可以直接快进跟上（can_catchup）。
+        { kind: 'branch', id: 'branch:lush/demo/behind-only', name: 'lush/demo/behind-only', head_commit: 'aaa', current: false, tracked: true, placeholder: false },
       ],
       edges: [
         { kind: 'code', from: 1, to: 2 },
@@ -48,6 +50,7 @@ export function makeWorld() {
         { kind: 'fork', from: 'branch:lush/demo/1-one', to: 'branch:lush/demo/2-two', status: 'diverged', ahead: 1, behind: 2, blockers: [], can_merge: false, can_sync: true },
         { kind: 'fork', from: 'branch:release', to: 'branch:lush/demo/3-three', status: 'missing', ahead: null, behind: null, blockers: [], can_merge: false, can_sync: false },
         { kind: 'fork', from: 'branch:feature/gone', to: 'branch:feature/scratch', status: 'unknown', ahead: null, behind: null, blockers: [], can_merge: false, can_sync: false },
+        { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/behind-only', status: 'integrated', ahead: 0, behind: 3, blockers: [], can_merge: false, can_sync: false, can_catchup: true },
       ],
     },
     currentBranch: 'main',
@@ -131,6 +134,7 @@ export function makeWorld() {
       state.actions.push(body);
       if (body.method === 'branch.merge') return json({ child: body.params.branch, parent: 'main', status: 'integrated', merged: true });
       if (body.method === 'branch.sync') return json({ branch: body.params.branch, parent: 'main', status: 'queued', task: { id: 88 } });
+      if (body.method === 'branch.catchup') return json({ child: body.params.branch, parent: 'main', caught_up: true, from: 'aaa', to: 'bbb' });
       if (body.method === 'task.merge_many') return json({ target_branch: body.params.ids.includes(3) ? 'release' : 'main',
         merges: body.params.ids.map(id => ({ id, status: 'merged', integration: 'merged' })), merged: body.params.ids.length, stopped: null });
       if (body.method === 'draft.update') { const draft = state.drafts.find(row => row.id === body.params.id); if (draft) draft.content = body.params.content; return json({ id: draft?.id, content: draft?.content }); }

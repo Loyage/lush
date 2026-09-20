@@ -78,8 +78,8 @@
 | `project/timeline.js` | 并发时间轴（run/wait 区间与原因） | `timeline({limit})` |
 | `project/messages.js` | 收件箱、notice、答复 | `message`、`notice`、`answer` |
 | `project/merge.js` | 批准合并、按目标分支批量交付、冲突收口、随带提交对账与交付队列 | `approveMerge`、`approveMergeMany`、`reconcileIntegrated`、`openResolution`、`settleResolution`、`mergeConflictContext`、`ladder()`、`containsCommit` |
-| `project/graph.js` | 分支图读模型（全部本地分支 + fork 谱系边 + 任务关系）；每个 branch 节点带 `origin`（input / task / registered / local / placeholder）与配套 `title` / `source_id` / `created_at`，以及按自己 + 全部后代分支任务汇总的 `status`（active / failed / merged / ready / empty）与 `tasks` 计数；每条 fork 边实时给出 `fast_forward` / `diverged` / `integrated` / `missing`、ahead/behind、未收拢直接子分支与可执行动作 | `graph()` |
-| `project/branches.js` | 分支谱系读模型与用户批准的直接父子收敛：`branch merge` 只 fast-forward；分歧时 `branch sync` 在子侧创建 merger | `BRANCH_NODE_LIMIT`、`branchNodes`、`branchTree`、`branchShow`、`branchImport`、`approveBranchMerge`、`syncBranch` |
+| `project/graph.js` | 分支图读模型（全部本地分支 + fork 谱系边 + 任务关系）；每条 fork 边带三个可执行动作 `can_merge` / `can_sync` / `can_catchup`；每个 branch 节点带 `origin`（input / task / registered / local / placeholder）与配套 `title` / `source_id` / `created_at`，以及按自己 + 全部后代分支任务汇总的 `status`（active / failed / merged / ready / empty）与 `tasks` 计数；每条 fork 边实时给出 `fast_forward` / `diverged` / `integrated` / `missing`、ahead/behind、未收拢直接子分支 | `graph()` |
+| `project/branches.js` | 分支谱系读模型与用户批准的直接父子收敛：`branch merge` 只 fast-forward；落后时 `branch catchup` 让子分支快进跟上父分支；分歧时 `branch sync` 在子侧创建 merger | `BRANCH_NODE_LIMIT`、`branchNodes`、`branchTree`、`branchShow`、`branchImport`、`approveBranchMerge`、`catchupBranch`、`syncBranch` |
 | `project/verify.js` | 检验任务与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
 | `project/transcript.js` | pi 会话记录的只读投影 | `transcript(taskId, after, limit)`、`usage(taskId)` |
 | `project/scheduling.js` | 调度、invocation 生命周期、凭证 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
@@ -93,7 +93,7 @@
 | `workspaces/git.js` | Git 原语与串行队列（无 shell 插值） | `exclusive`、`git`、`gitOutput`、`porcelain`、`clean`、`isAncestor`、`merging`、`unmerged`、`workspaceForBranch`、`checkedOut` |
 | `workspaces/worktree.js` | worktree / 对照检出 / 可推进输入分支的创建与回收；planner 在输入 worktree 中运行，任务以直接父分支为 target | `anchor(inputId, requestedBranch)`、`dropAnchor(anchor)`、`releaseAnchor(anchor)`、`reclaimAnchors(anchors)`、`inputAnchor(task)`、`ensure(task)`、`finish(task)`、`codeBase(task)`、`removeBaseline(taskId)` |
 | `workspaces/diff.js` | 只读审阅视图（不进写队列） | `diff(task)` |
-| `workspaces/merge.js` | 父子分支关系判定、原子 fast-forward、批量预检与任务兼容入口；绝不在父分支 no-ff | `branchTaskBlockers(child)`、`branchState(child)`、`mergeBranchUnsafe(child)`、`mergeBranch(child)`、`preflightMerge(tasks)`、`merge(taskId)` |
+| `workspaces/merge.js` | 父子分支关系判定、两个方向的原子 fast-forward（子→父、父→子）、批量预检与任务兼容入口；绝不在父分支 no-ff | `branchTaskBlockers(child)`、`branchState(child)`、`mergeBranchUnsafe(child)`、`mergeBranch(child)`、`catchupBranchUnsafe(child)`、`catchupBranch(child)`、`preflightMerge(tasks)`、`merge(taskId)` |
 | `workspaces/cleanup.js` | 分支回收与安全清理 | `dropBranch`、`release`、`cleanup`、`reclaim` |
 
 ## 3. 持久化：`src/persistence/store.js` + `src/persistence/store/`
@@ -156,8 +156,8 @@
 | `render-resolutions.js` | 合并冲突处理记录 | `renderResolutions(task)` |
 | `render-detail.js` | 任务详情整页：目标标题、状态、结果优先的阅读顺序与任务操作 | `renderDetail(task, history, diff, usage)`、`renderDetailError(taskId, message)` |
 | `render-overview.js` | 项目工作台：关键指标、优先待决事项、交付队列、运行与时间轴、折叠运行时维护信息 | `renderOverview(data)` |
-| `graph-layout.js` | 分支图纯逻辑：fork 边拼出分支森林（任务挂到自己的分支下并把父分支作为嵌套）、组内 code 层级、标签与廉价结构指纹 | `graphLayout(graph)`、`graphFingerprint(snapshot)`、`graphRenderKey(graph)`、`aheadBehindText(node)`、`nodeMarks(node)` |
-| `render-graph.js` | 交互式分支流程图：fork 连线按可 FF / 已分歧 / 已进入父分支着色，支持直接合回父分支或在子侧创建同步任务 | `openGraph()`、`loadGraph()`、`renderGraph(graph, opts)` |
+| `graph-layout.js` | 分支图纯逻辑：fork 边拼出分支森林（任务挂到自己的分支下并把父分支作为嵌套）、每棵子树的 `subtreeBranches` / `subtreeTasks` 计数（收起时告诉用户藏了什么）、组内 code 层级、标签与廉价结构指纹，以及折叠偏好的 localStorage 形态 | `graphLayout(graph)`、`graphFingerprint(snapshot)`、`graphRenderKey(graph)`、`parseGraphCollapsed(raw)`、`serializeGraphCollapsed(set)`、`aheadBehindText(node)`、`nodeMarks(node)` |
+| `render-graph.js` | 交互式分支流程图：面板与连接线按父子关系着色（领先绿 / 一致灰 / 落后蓝 / 分歧琥珀 / 缺失红），表头给出该关系的动作（合入父分支 / 让子分支跟上父分支 / 在子分支解决分歧），做不了的也画出来但禁用并写明原因；父子关系靠 CSS 画的竖线与拐角表达，整棵子树可收起（状态存 localStorage，重画不丢） | `openGraph()`、`loadGraph()`、`renderGraph(graph, opts)` |
 | `detail.js` | 拉取并渲染任务详情；窄屏新导航收起索引并定位内容，轮询保留滚动 | `loadDetail(taskId)` |
 | `docs.js` | 「文档」视图：路由（`#docs` / `#doc-<id>`）、取数与站内相对链接解析 | `docsTarget(hash)`、`resolveDocPath(from, raw)`、`docLinkResolver(current, docs)`、`openDocs(id)`、`loadDocs(id)`、`DOCS_HASH` |
 | `render-docs.js` | 「文档」视图的目录、正文与兜底 | `renderDocsIndex(docs, onOpen)`、`renderDoc(doc, resolveLink, onOpen)`、`renderDocError(id, message, onOpen)` |
@@ -186,7 +186,7 @@
 | `cli/commands/spec.js` | `spec` | `run` |
 | `cli/commands/plan.js` | `plan` | `run` |
 | `cli/commands/notice.js` | `notice` | `run` |
-| `cli/commands/branch.js` | `branch`（tree / show / import） | `run` |
+| `cli/commands/branch.js` | `branch`（tree / show / import / merge / sync / catchup） | `run` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` / `web-restart` / `web-stop` / `web-status` | `run` |
 | `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒 | `main(argv)`（并 re-export `HELP`） |
 
