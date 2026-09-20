@@ -13,6 +13,24 @@ import { graphLayout, graphFingerprint, graphRenderKey } from './graph-layout.js
 import { detail, overview } from './navigate.js';
 import { ui } from './state.js';
 
+/** 分支状态映射：状态 -> { label, className } */
+const BRANCH_STATUS = {
+  active: { label: '进行中', className: 'ok' },
+  failed: { label: '失败', className: 'warn' },
+  merged: { label: '已合并', className: 'ok' },
+  ready: { label: '待合并', className: '' },
+  empty: { label: '空', className: '' },
+};
+
+/** 分支来源映射：来源 -> 中文描述 */
+const BRANCH_ORIGIN = {
+  input: '输入锚点',
+  task: '任务分支',
+  registered: '已登记',
+  local: '本地分支',
+  placeholder: '占位',
+};
+
 let pending = null;
 
 /** 打开分支图：清掉选中的任务详情（否则热任务刷新会把图覆盖掉），并把地址栏切到 #graph。 */
@@ -100,6 +118,33 @@ function branchRow(branch) {
   if (branch.current) row.append(el('span', '当前检出', 'chip'));
   // 有 ref 但没有 branches 记录：画出来，但标明谱系里没有它。
   if (!branch.tracked && !branch.placeholder) row.append(el('span', '未登记', 'chip'));
+
+  // 分支元数据：状态、标题、来源、创建时间、任务计数
+  const meta = el('div', undefined, 'graph-branch-meta');
+  const statusInfo = BRANCH_STATUS[branch.status];
+  if (statusInfo) {
+    meta.append(el('span', statusInfo.label, `chip ${statusInfo.className}`.trim()));
+  }
+  if (branch.title) {
+    meta.append(el('span', branch.title, 'graph-branch-title'));
+  }
+  if (branch.origin && branch.origin !== 'placeholder') {
+    const originText = BRANCH_ORIGIN[branch.origin] || branch.origin;
+    const sourceText = branch.source_id ? ` #${branch.source_id}` : '';
+    meta.append(el('span', `${originText}${sourceText}`, 'meta'));
+  }
+  if (branch.created_at) {
+    meta.append(el('span', `创建于 ${new Date(branch.created_at).toLocaleString('zh-CN', { hour12: false })}`, 'meta'));
+  }
+  if (branch.taskCounts && branch.taskCounts.total > 0) {
+    const parts = [];
+    if (branch.taskCounts.active > 0) parts.push(`${branch.taskCounts.active} 活跃`);
+    if (branch.taskCounts.failed > 0) parts.push(`${branch.taskCounts.failed} 失败`);
+    if (branch.taskCounts.completed > 0) parts.push(`${branch.taskCounts.completed} 完成`);
+    meta.append(el('span', `任务：${branch.taskCounts.total}（${parts.join('，')}）`, 'meta'));
+  }
+  if (meta.children.length > 0) row.append(meta);
+
   return row;
 }
 

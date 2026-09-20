@@ -74,6 +74,13 @@ export function graphLayout(graph = {}) {
       name: node.name, id: node.id, head_commit: node.head_commit ?? null,
       current: node.current === true, tracked: node.tracked !== false, placeholder: node.placeholder === true,
       incoming: incoming.get(node.name) ?? null, depth, children: [], tasks: [],
+      // 分支节点的元数据（来自 graph.js 的 origin / title / source_id / created_at / status / tasks）
+      origin: node.origin ?? null,
+      title: node.title ?? null,
+      source_id: node.source_id ?? null,
+      created_at: node.created_at ?? null,
+      status: node.status ?? null,
+      taskCounts: node.tasks ?? null,
     };
     built.set(node.name, entry); visited.add(node.name);
     const childNames = (children.get(node.name) || [])
@@ -154,7 +161,8 @@ export function graphFingerprint(snapshot) {
 export function graphRenderKey(graph) {
   const nodes = (graph?.nodes || []).map(node => [node.id, node.kind, node.name ?? '-', node.head_commit ?? '-',
     node.branch_state ?? '-', node.workspace_state ?? '-', node.ahead ?? '-', node.behind ?? '-', node.merged ?? '-',
-    node.current === true, node.tracked === false, node.placeholder === true].join(':')).join('|');
+    node.current === true, node.tracked === false, node.placeholder === true,
+    node.origin ?? '-', node.status ?? '-', node.title ?? '-', node.source_id ?? '-'].join(':')).join('|');
   const edges = (graph?.edges || []).map(edge => `${edge.kind}:${edge.from}>${edge.to}:${edge.status ?? '-'}:${edge.ahead ?? '-'}:${edge.behind ?? '-'}:${(edge.blockers || []).join(',')}`).join('|');
   return `${nodes}#${graph?.truncated === true}#${edges}`;
 }
