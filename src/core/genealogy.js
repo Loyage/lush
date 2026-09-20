@@ -21,6 +21,27 @@ function rawParent(row) {
 /** parent(branch)：返回记录下来的 parent 名字；parent 行本身可能已经不存在（那时它仍是一个事实）。 */
 export function parentOf(rows, name) { return rawParent(index(rows).get(name)); }
 
+/**
+ * 从 rows 里去掉一批节点（`hidden(row)` 为真），但绝不连带丢掉它们还在的后代：被隐藏节点的后代
+ * 接到它最近的**可见**祖先上（没有就升为根）。用于「归档的分支不再占分支树，但藏着它不能把
+ * 子树里还活着的部分一起藏掉」。坏数据成环时见好就收（当根）。
+ */
+export function pruneHidden(rows, hidden) {
+  const hiddenNames = new Set(rows.filter(row => hidden(row)).map(row => row.branch));
+  if (!hiddenNames.size) return rows;
+  const byName = index(rows);
+  const visibleParent = name => {
+    const seen = new Set([name]);
+    for (let parent = rawParent(byName.get(name)); parent; parent = rawParent(byName.get(parent))) {
+      if (seen.has(parent)) return null;
+      seen.add(parent);
+      if (!hiddenNames.has(parent)) return parent;
+    }
+    return null;
+  };
+  return rows.filter(row => !hiddenNames.has(row.branch)).map(row => ({ ...row, parent: visibleParent(row.branch) }));
+}
+
 /** children(branch)：直接子分支，按创建时间排序。 */
 export function childrenOf(rows, name) {
   return rows.filter(row => rawParent(row) === name).sort(byCreated).map(row => row.branch);

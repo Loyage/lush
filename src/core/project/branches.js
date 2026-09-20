@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { check, TERMINAL } from '../types.js';
-import { buildForest, parentOf, childrenOf, ancestorsOf, descendantsOf, chainOf, rootOf } from '../genealogy.js';
+import { buildForest, parentOf, childrenOf, ancestorsOf, descendantsOf, chainOf, rootOf, pruneHidden } from '../genealogy.js';
 import { slugify } from '../naming.js';
 import { sessionFiles } from '../transcript.js';
 
@@ -83,10 +83,12 @@ export default {
     return nodes;
   },
 
-  /** branch.tree：谱系森林 + git 现状。默认把「有 ref 但没有记录」的分支也画出来（标 untracked）。 */
+  /** branch.tree：谱系森林 + git 现状。默认把「有 ref 但没有记录」的分支也画出来（标 untracked）。
+   *  归档的分支不再占分支树（它们是记录：`branch show` / 事件 / 任务详情里查），但不能连带藏掉它们的后代：
+   *  把后代接到最近的非归档祖先上。 */
   async branchTree() {
     const state = await gitState(this.workspaces, this.config.project);
-    const nodes = this.branchNodes(state);
+    const nodes = pruneHidden(this.branchNodes(state), node => node.status === 'archived');
     const limited = nodes.slice(0, BRANCH_NODE_LIMIT);
     return {
       generated_at: new Date().toISOString(), git: state.git, error: state.error,
@@ -156,8 +158,10 @@ export default {
   },
 
   /**
-   * 归档一条已登记分支：删掉它的 worktree 与本地 ref，但任务行、分支记录与 pi 会话文件都留着。
-   * 所有安全门在动 Git 之前同步跑完，任一不满足就抛错且无副作用；通过后由 Git 边界做 compare-and-delete。
+   * 归档一子树分支：删掉子树里每一条的 worktree 与本地 ref，但任务行、分支记录与 pi 会话文件都留着。
+   * 传进来的那条是子树根：任务分支是从输入锚点长出来的，只删一半会留下一批「父分支已不在」的后代，
+   * 所以归档一条就是归档它整棵子树；已经归档／回收过的后代直接跳过。
+   * 所有安全门在动 Git 之前同步跑完，任一不满足就抛错且无副作用；通过后由 Git 边界两遍执行（先检查、再删）。
    */
   async archiveBranch(branch, { discard_worktree = false } = {}) {
     const name = String(branch ?? '').trim();
@@ -165,30 +169,45 @@ export default {
     const record = this.store.branch(name);
     check(record, `${name} is not a registered branch; run 'lush branch import' first`);
     check(record.status !== 'archived' && record.status !== 'deleted', `branch ${name} is already ${record.status}`);
+    // 已经归档／回收过的分支不再归档一次（记录已是终态），但也不拦着其余的。
+    const targets = [name, ...descendantsOf(this.store.branches(), name)]
+      .filter(target => this.store.branch(target)?.status === 'active');
     const state = await gitState(this.workspaces, this.config.project);
-    check(state.current_branch !== name, `cannot archive the branch currently checked out: ${name}`);
-    // 分支自己 + 全部后代上的任务都必须已终态：归档会把这条分支的工作收起来，活还没完的状态不该被藏掉。
-    const related = [name, ...descendantsOf(this.store.branches(), name)];
-    const placeholders = related.map(() => '?').join(',');
+    check(!targets.includes(state.current_branch), `cannot archive the branch currently checked out: ${state.current_branch}`);
+    // 整棵子树上的任务都必须已终态：归档把这条分支的工作收起来，活还没完的状态不该被藏掉。
+    const placeholders = targets.map(() => '?').join(',');
     const unfinished = this.store.all(`SELECT id, status FROM tasks WHERE branch IN (${placeholders})
-      AND status NOT IN ('completed','failed','cancelled') ORDER BY id`, ...related);
+      AND status NOT IN ('completed','failed','cancelled') ORDER BY id`, ...targets);
     check(unfinished.length === 0, `branch ${name} still has unfinished tasks: ${unfinished.map(task => `#${task.id}`).join(', ')}`);
-    const outcome = await this.workspaces.archiveBranch(name, { discard_worktree });
+    const outcomes = await this.workspaces.archiveBranches(targets, { discard_worktree });
+    const tips = new Map(outcomes.map(outcome => [outcome.branch, outcome.tip]));
     // 目录已经删了，tasks.workspace 不能再指着一个不存在的路径；branch 字段是历史，必须留着。
-    const archived = this.store.all('SELECT id, status FROM tasks WHERE branch=? ORDER BY id', name);
+    const archived = this.store.all(`SELECT id, status, branch FROM tasks WHERE branch IN (${placeholders}) ORDER BY id`, ...targets);
     // pi 会话文件在 <home>/sessions 下，不随 worktree 消失；把位置写进事件，将来 task 行被 clear 掉也能查回。
     const sessions = [];
-    for (const task of archived) for (const file of sessionFiles(this.config, task.id)) sessions.push(path.join(this.config.home, 'sessions', file));
-    const owner = archived.some(task => task.id === record.task_id) ? record.task_id : archived[0]?.id ?? null;
+    const sessionsByBranch = new Map(targets.map(target => [target, []]));
+    for (const task of archived) {
+      const files = sessionFiles(this.config, task.id).map(file => path.join(this.config.home, 'sessions', file));
+      sessions.push(...files);
+      sessionsByBranch.get(task.branch)?.push(...files);
+    }
     this.store.transaction(() => {
       for (const task of archived) {
         this.store.update(task.id, { workspace: null });
-        this.store.event(task.id, 'branch.archived', { branch: name, tip: outcome.tip, task_id: task.id });
+        this.store.event(task.id, 'branch.archived', { branch: task.branch, tip: tips.get(task.branch) ?? null, task_id: task.id });
       }
-      this.store.event(owner, 'branch.archived', { branch: name, tip: outcome.tip, sessions });
+      // 每条被归档的分支各留一条事件（含会话文件位置）：这条分支的原始记录就算以后被 clear 掉也查得回。
+      for (const target of targets) {
+        const own = archived.filter(task => task.branch === target);
+        const owner = own.some(task => task.id === this.store.branch(target)?.task_id) ? this.store.branch(target).task_id : own[0]?.id ?? null;
+        this.store.event(owner, 'branch.archived', { branch: target, tip: tips.get(target) ?? null, sessions: sessionsByBranch.get(target) ?? [] });
+      }
     });
-    return { branch: name, archived: true, worktree: outcome.worktree, ref: outcome.ref, tip: outcome.tip,
-      discarded: outcome.discarded, tasks: archived.map(task => ({ id: task.id, status: task.status })), sessions };
+    const root = outcomes.find(outcome => outcome.branch === name) ?? outcomes[0] ?? {};
+    // 顶层 worktree / ref / tip / discarded 描述的是子树根（调用方问的那条）；整棵子树看 branches。
+    return { branch: name, archived: true, count: outcomes.length, branches: outcomes,
+      worktree: root.worktree ?? 'absent', ref: root.ref ?? 'absent', tip: root.tip ?? null, discarded: root.discarded === true,
+      tasks: archived.map(task => ({ id: task.id, status: task.status })), sessions };
   },
 
   /**

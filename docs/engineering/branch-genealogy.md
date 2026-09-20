@@ -43,18 +43,19 @@ Git 不保存「B 是从 A 创建的」这种关系：`merge-base`、reflog、co
 
 1. **创建**：`Workspaces#anchor`（输入分支）与 `Workspaces#ensure`（任务 worktree）在 `git worktree add -b <branch> <dir> <commit>` **之前**先落库。输入分支的 `parent` 是用户提交时指定的本地分支；普通任务的 parent 是输入分支，`code` 下游的 parent 是上游任务分支，branch-sync merger 的 parent 是待同步 child。任务 `target_branch` 与这个直接 parent 一致。
 2. **回收**：`Workspaces#dropBranch`（任务分支）与 `Workspaces#dropAnchor`（兼容命名：输入分支）在 compare-and-delete 成功后标 `deleted`，不删谱系行。
-3. **归档**：`Workspaces#archiveBranch`（经 `Project#archiveBranch`）删掉 worktree 与本地 ref 后标 `archived`，同样不删行。它明知分支可能未合并也允许删，保留任务行、消息、事件与 pi 会话文件，是显式放弃代码的路径——与回收的区别见 [工作区与分支回收](cleanup.md)。
+3. **归档**：`Workspaces#archiveBranches`（经 `Project#archiveBranch`）删掉**整棵子树**里每一条的 worktree 与本地 ref 后逐条标 `archived`，同样不删行。它明知分支可能未合并也允许删，保留任务行、消息、事件与 pi 会话文件，是显式放弃代码的路径——与回收的区别见 [工作区与分支回收](cleanup.md)。
 
 `recordBranch` 是幂等的（`ON CONFLICT DO NOTHING`）：崩溃重试撞见已创建的分支不会重写 parent，**merge 也永远不改谱系**。写操作只允许 child 合回这个 recorded direct parent；导入的 unknown parent 只能看，不能据此合并。
 
 ## 查询
 
-纯逻辑在 `src/core/genealogy.js`（`buildForest` / `parentOf` / `childrenOf` / `ancestorsOf` / `descendantsOf` / `rootOf` / `chainOf`），不碰 git、不写盘、不渲染；读模型在 `src/core/project/branches.js`，把 store 记录与只读 git（`for-each-ref` / `symbolic-ref` / `worktree list --porcelain`）合成节点表。CLI 只是这份数据的一个 viewer，Web 以后可以复用同一份 JSON 画别的形状。
+纯逻辑在 `src/core/genealogy.js`（`buildForest` / `pruneHidden` / `parentOf` / `childrenOf` / `ancestorsOf` / `descendantsOf` / `rootOf` / `chainOf`），不碰 git、不写盘、不渲染；读模型在 `src/core/project/branches.js`，把 store 记录与只读 git（`for-each-ref` / `symbolic-ref` / `worktree list --porcelain`）合成节点表。CLI 只是这份数据的一个 viewer，Web 以后可以复用同一份 JSON 画别的形状。
 
 约定：
 
 - **没有记录、但有 ref** 的本地分支也画出来，标 `[?]`（untracked）——旧项目第一次跑不会是一片空白。
-- **有记录、但 ref 已不在** 的节点标 `[deleted]`，子分支照旧挂在它下面；`branches.status` 区分它是被回收（`deleted`）还是被归档（`archived`），`branch show` 与 Web 分支图都会报出来。
+- **有记录、但 ref 已不在** 的节点标 `[deleted]`，子分支照旧挂在它下面；`branches.status` 区分它是被回收（`deleted`）还是被归档（`archived`），`branch show` 都会报出来。
+- **归档的节点不画在树上**（Web 分支图与 `branch tree` 都不画）：记录还在，用 `branch show` / `branch.archive` 事件 / 任务详情查；隐藏它们时还在的后代接到最近的可见祖先上，绝不因为隐藏归档节点而把活着的后代一起藏掉（`pruneHidden`）。
 - `*` 是当前检出分支；`parent: unknown` 表示**没有** parent 记录，不是「推断不出来所以随便填了一个」。
 
 ## CLI
@@ -63,7 +64,7 @@ Git 不保存「B 是从 A 创建的」这种关系：`merge-base`、reflog、co
 lush branch tree [--verbose]        # 谱系树；--verbose 每节点给出 task / worktree / fork / parent
 lush branch show BRANCH|TASK_ID     # 一条分支的 parent、fork commit、task、worktree、祖先链、子分支
 lush branch import                  # 把现有本地分支登记成记录（只记存在与 worktree，不推断 parent）
-lush branch archive BRANCH [--discard]  # 归档：删 worktree 与本地 ref，保留任务、事件与会话；--discard 才会丢弃未提交改动
+lush branch archive BRANCH [--discard]  # 归档整棵子树：删每条的 worktree 与本地 ref，保留任务、事件与会话；--discard 才会丢弃未提交改动
 ```
 
 `branch show` 接受分支短名，也接受纯数字 task id。RPC 另有用户专属 `branch.merge`（ff-only 合回直接父分支）、`branch.sync`（分歧时创建子侧 merger）与 `branch.archive`（归档，允许未合并）；交互主入口是 Web 分支图。
@@ -90,7 +91,7 @@ main
 
 `dropBranch` 会把 `status` 标成 `deleted`；外部（用户自己 `git branch -D`）删掉的分支，读模型按 ref 现状显示 `[deleted]`，不会去改库。
 
-归档同理：`archived` 是 `status` 的第三个取值，不删行、不动子分支的 `parent` 指针；归档过的节点照旧画出来（Web 分支图显示「已归档」），子分支仍挂在它下面。所以「ref 已不在」与「行已被删」是两回事，读模型永远按 `branches` 行与 git 现状合并出节点。
+归档同理：`archived` 是 `status` 的第三个取值，不删行、不动子分支的 `parent` 指针；归档过的节点照旧画出来（Web 分支图显示「已归档」，并在元数据里给出归档时间；已归档的分支不再报「分支不存在」），子分支仍挂在它下面，报「父分支已归档」而不是「分支缺失」——归档删掉 ref 是用户自己按的动作，读模型与界面都不把它当成异常。所以「ref 已不在」与「行已被删」是两回事，读模型永远按 `branches` 行与 git 现状合并出节点。
 
 ## 并发与一致性
 

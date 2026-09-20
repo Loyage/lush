@@ -155,6 +155,62 @@ test('archiving a descendant stops it from blocking its parent branch status', a
   } finally { await f.close(); }
 });
 
+test('归档子树：一条分支连同它的后代一起删掉，只留记录', async () => {
+  const f = await setup();
+  try {
+    // 后一个任务 code 依赖前一个：它的分支就是从上游分支长出来的（branches.parent = stacked），
+    // 于是 first -> second 是一条真正的父子分支链，两条各有自己的 worktree。
+    const coordinator = f.store.task(f.task.id).parent_id;
+    const stacked = f.project.spawn(coordinator, 'stacked work', 'worker', [{ id: f.task.id, kind: 'code' }], 'stacked-work');
+    const firstCwd = await change(f, f.task);
+    // 内容与文件名都要跟上游不同：stacked 分支的基线就是上游的顶端，写同一份内容会无东西可提交。
+    const stackedCwd = await change(f, stacked, 'stacked\n', 'stacked.txt');
+    const firstBranch = f.store.task(f.task.id).branch;
+    const stackedBranch = f.store.task(stacked.id).branch;
+    expect(f.store.branch(stackedBranch).parent).toBe(firstBranch);
+
+    const result = await f.project.archiveBranch(firstBranch);
+    expect(result.count).toBe(2);
+    expect(result.branches.map(outcome => outcome.branch).sort()).toEqual([firstBranch, stackedBranch].sort());
+    for (const outcome of result.branches) expect(outcome).toMatchObject({ worktree: 'removed', ref: 'deleted' });
+    // 顶层字段描述的是子树根（调用方问的那一条），整棵子树看 branches。
+    expect(result.worktree).toBe('removed');
+    expect(result.tasks.map(task => task.id).sort()).toEqual([f.task.id, stacked.id].sort());
+
+    // 磁盘与 ref 都没了——这才是「归档」；记录与任务行都留着。
+    expect(fs.existsSync(firstCwd)).toBe(false);
+    expect(fs.existsSync(stackedCwd)).toBe(false);
+    const refs = await git(f.root, 'for-each-ref', '--format=%(refname:short)', 'refs/heads');
+    expect(refs).not.toContain(firstBranch);
+    expect(refs).not.toContain(stackedBranch);
+    expect(f.store.branch(firstBranch).status).toBe('archived');
+    expect(f.store.branch(stackedBranch).status).toBe('archived');
+    expect(f.store.task(stacked.id).branch).toBe(stackedBranch);
+    expect(f.store.task(stacked.id).workspace).toBe(null);
+
+    // 每条被归档的分支各留一条事件，后代不会被漏掉。
+    const events = f.store.all("SELECT data FROM events WHERE type='branch.archived' ORDER BY id").map(row => JSON.parse(row.data));
+    expect(new Set(events.map(data => data.branch))).toEqual(new Set([firstBranch, stackedBranch]));
+  } finally { await f.close(); }
+});
+
+test('子树里有一条后代没干完，整棵子树都不归档、且无副作用', async () => {
+  const f = await setup();
+  try {
+    const coordinator = f.store.task(f.task.id).parent_id;
+    const stacked = f.project.spawn(coordinator, 'stacked work', 'worker', [{ id: f.task.id, kind: 'code' }], 'stacked-work');
+    const firstCwd = await change(f, f.task);
+    // 只建 worktree，下游任务还停在 queued：它的活没干完，整棵子树都不该被收起来。
+    const stackedCwd = await f.project.workspaces.ensure(stacked);
+    const firstBranch = f.store.task(f.task.id).branch;
+
+    await expect(f.project.archiveBranch(firstBranch)).rejects.toThrow(new RegExp(`unfinished tasks: #${stacked.id}`));
+    expect(fs.existsSync(firstCwd)).toBe(true);
+    expect(fs.existsSync(stackedCwd)).toBe(true);
+    expect(f.store.branch(firstBranch).status).toBe('active');
+  } finally { await f.close(); }
+});
+
 test('branch.archive is user-only: an agent token is rejected', async () => {
   const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {

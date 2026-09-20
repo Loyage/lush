@@ -78,7 +78,7 @@ input.submit { content, branch? }
 draft.commit { ids?, branch? }
 branch.merge  { branch }   # direct child -> parent, ff-only
 branch.sync   { branch }   # 仅 diverged 时创建子侧 merger
-branch.archive { branch, discard? }  # 用户显式归档：允许未合并，删 worktree 与本地 ref，保留任务、事件与会话
+branch.archive { branch, discard? }  # 用户显式归档一整棵子树：允许未合并，删每条的 worktree 与本地 ref，保留记录、任务、事件与会话
 ```
 
 CLI：
@@ -88,7 +88,7 @@ lush say '实现搜索' --branch release/next
 lush draft commit --branch release/next
 lush branch merge lush/.../101-api
 lush branch sync lush/.../input-42
-lush branch archive lush/.../101-api   # 归档：worktree 与 ref 删掉，任务与会话留在库里
+lush branch archive lush/.../101-api   # 归档这棵子树：worktree 与 ref 删掉，记录、任务与会话留在库里
 ```
 
 相关：[分支谱系](branch-genealogy.md) · [输入和规划](inputs-and-planning.md) · [Git 边界](git-boundary.md) · [批准合并](merge.md)

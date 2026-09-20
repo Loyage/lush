@@ -123,7 +123,7 @@ lush task clear
 lush branch archive BRANCH          # 或 lush branch archive BRANCH --discard
 ```
 
-归档明知可能未合并也允许删掉 worktree 与本地 ref（用户显式放弃），但保留分支记录（`status=archived`）、任务行、消息、事件与 `.lush/sessions/` 里的 pi 会话文件。默认要求 worktree 干净，`--discard` 才会连未提交改动一起丢。归档与安全回收的区别见[工作区与分支回收](engineering/cleanup.md)。
+归档明知可能未合并也允许删掉 worktree 与本地 ref（用户显式放弃），但保留分支记录（`status=archived`）、任务行、消息、事件与 `.lush/sessions/` 里的 pi 会话文件。**归档一条分支就是归档它整棵子树**（任务分支是从输入锚点长出来的，只删一半会留下没有父分支的后代），默认要求每条 worktree 都干净，任一脏 worktree 都会在动任何东西之前失败，`--discard` 才会连未提交改动一起丢。归档的分支不再画在分支树上（Web 分支图与 `branch tree` 都不画），只在记录里查得到（`branch show` / 归档事件 / 任务详情）。归档与安全回收的区别见[工作区与分支回收](engineering/cleanup.md)。
 
 ## 8. 安全边界
 
