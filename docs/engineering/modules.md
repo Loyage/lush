@@ -75,7 +75,7 @@
 | `project/timeline.js` | 并发时间轴（run/wait 区间与原因） | `timeline({limit})` |
 | `project/messages.js` | 收件箱、notice、答复 | `message`、`notice`、`answer` |
 | `project/merge.js` | 批准合并、按目标分支批量交付、冲突收口、随带提交对账与交付队列 | `approveMerge`、`approveMergeMany`、`reconcileIntegrated`、`openResolution`、`settleResolution`、`mergeConflictContext`、`ladder()`、`containsCommit` |
-| `project/graph.js` | 分支图只读读模型（任务 / 分支节点、code/order/resolve/verify/target 边、ahead/behind、merged、workspace/branch 缺失容错与上限截断） | `graph()` |
+| `project/graph.js` | 分支图只读读模型（所有本地分支 node：`branches` 记录 ∪ `refs/heads` 现状 ∪ 占位父名，`tracked` / `placeholder` 与 `Project#branchTree` 同口径；fork 谱系边 + 任务节点 + code/order/resolve/verify/target 边、ahead/behind、merged、workspace/branch 缺失容错与上限截断） | `graph()` |
 | `project/branches.js` | 分支谱系读模型（store 记录 ∪ 只读 git 现状、`branch import` 的登记；概念见 [分支谱系](branch-genealogy.md)） | `BRANCH_NODE_LIMIT`、`branchNodes`、`branchTree`、`branchShow`、`branchImport` |
 | `project/verify.js` | 检验任务与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
 | `project/transcript.js` | pi 会话记录的只读投影 | `transcript(taskId, after, limit)`、`usage(taskId)` |
@@ -153,8 +153,8 @@
 | `render-resolutions.js` | 合并冲突处理记录 | `renderResolutions(task)` |
 | `render-detail.js` | 任务详情整页：目标标题、状态、结果优先的阅读顺序与任务操作 | `renderDetail(task, history, diff, usage)`、`renderDetailError(taskId, message)` |
 | `render-overview.js` | 项目工作台：关键指标、优先待决事项、交付队列、运行与时间轴、折叠运行时维护信息 | `renderOverview(data)` |
-| `graph-layout.js` | 分支图纯逻辑：按目标分支分组、组内 code 层级、标签与廉价结构指纹 | `graphLayout(graph)`、`graphFingerprint(snapshot)`、`graphRenderKey(graph)`、`aheadBehindText(node)`、`nodeMarks(node)` |
-| `render-graph.js` | 分支图视图（拉 `/api/graph`、幂等渲染、节点跳详情） | `openGraph()`、`loadGraph()`、`renderGraph(graph, opts)` |
+| `graph-layout.js` | 分支图纯逻辑：fork 边拼出分支森林（任务挂到自己的分支下并把父分支作为嵌套）、组内 code 层级、标签与廉价结构指纹 | `graphLayout(graph)`、`graphFingerprint(snapshot)`、`graphRenderKey(graph)`、`aheadBehindText(node)`、`nodeMarks(node)` |
+| `render-graph.js` | 分支图视图（拉 `/api/graph`、按 fork 嵌套画分支子树、幂等渲染、刷新兜底、节点跳详情） | `openGraph()`、`loadGraph()`、`renderGraph(graph, opts)` |
 | `detail.js` | 拉取并渲染任务详情；窄屏新导航收起索引并定位内容，轮询保留滚动 | `loadDetail(taskId)` |
 | `docs.js` | 「文档」视图：路由（`#docs` / `#doc-<id>`）、取数与站内相对链接解析 | `docsTarget(hash)`、`resolveDocPath(from, raw)`、`docLinkResolver(current, docs)`、`openDocs(id)`、`loadDocs(id)`、`DOCS_HASH` |
 | `render-docs.js` | 「文档」视图的目录、正文与兜底 | `renderDocsIndex(docs, onOpen)`、`renderDoc(doc, resolveLink, onOpen)`、`renderDocError(id, message, onOpen)` |

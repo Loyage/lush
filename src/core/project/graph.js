@@ -8,9 +8,18 @@ export const GRAPH_EDGE_LIMIT = 2000;
 const GRAPH_ROLES = ['worker', 'merger', 'verifier'];
 const TASK_ROLE_SQL = GRAPH_ROLES.map(role => `'${role}'`).join(',');
 
+const branchId = name => `branch:${name}`;
+
 /**
- * 分支图读模型：任务 -> 分支 / worktree / 目标分支的关系网，以及任务的堆叠（code）/顺序（order）/
- * 解冲突（resolve）/检验（verify）/目标分支（target）边。
+ * 分支图读模型：分支谱系（分支节点 + fork 边）+ 任务 -> 分支 / worktree / 目标分支的关系网，
+ * 以及任务的堆叠（code）/顺序（order）/解冲突（resolve）/检验（verify）/目标分支（target）边。
+ *
+ * 分支节点覆盖三处事实之和，与 `Project#branchTree` 同口径：
+ * - `branches` 表里的每条记录（含 `task_id IS NULL` 的输入锚点、`branch import` 登记的分支）；
+ * - `refs/heads` 里现在真实存在的每个本地 ref（没有记录时 `tracked:false`）；
+ * - 只被某条记录的 `parent` 指针提到、既无记录也无 ref 的占位名（`placeholder:true`），
+ *   这样刚创建的分支的父分支不会缺失，子分支不会从图上掉下去。
+ * `head_commit` 与 `current` 都按当前 ref 现算，不缓存旧值。
  *
  * 全部只用只读 git（rev-parse / symbolic-ref / for-each-ref / rev-list）与文件系统探测：
  * 不 checkout、不 merge、不改 index、不删 worktree、不写 store（无 update / event），
@@ -45,15 +54,38 @@ export default {
       // 没有分支也没有 worktree（含已完整回收）的任务不进图：它没有任何可画的关系。
       const candidates = rows.filter(row => row.branch || row.workspace || row.baseline_workspace);
 
-      // 先收集分支节点名（每个出现过的 target_branch + 当前检出分支），给它们预留节点额度。
-      const branchNames = new Set();
-      for (const row of candidates) if (row.target_branch) branchNames.add(row.target_branch);
+      // 分支节点名：记录 ∪ 现在的 ref ∪ 当前检出 ∪ 占位父名。记录是历史事实，ref 是现状，
+      // 两者都不丢；只被 parent 提到的名字补占位节点，否则它的子分支会从树上消失。
+      const records = new Map(this.store.branches().map(row => [row.branch, row]));
+      const branchNames = new Set(records.keys());
       if (currentBranch) branchNames.add(currentBranch);
-      const taskCapacity = Math.max(0, GRAPH_NODE_LIMIT - branchNames.size);
-      let truncated = candidates.length > taskCapacity;
+      for (const name of refs.keys()) branchNames.add(name);
+      const placeholders = new Set();
+      for (const row of records.values()) {
+        if (!row.parent) continue;
+        branchNames.add(row.parent);
+        if (!records.has(row.parent) && !refs.has(row.parent)) placeholders.add(row.parent);
+      }
+      // 当前检出最前，其余按名字：超过上限时至少保证当前分支在图上。
+      const orderedBranchNames = [...branchNames].sort((a, b) =>
+        Number(b === currentBranch) - Number(a === currentBranch) || a.localeCompare(b));
+      const branchCapacity = Math.min(orderedBranchNames.length, GRAPH_NODE_LIMIT);
+      // 分支节点先占额度，剩下的才留给任务：分支基础事实比某个任务节点更值得画。
+      const taskCapacity = Math.max(0, GRAPH_NODE_LIMIT - branchCapacity);
+      let truncated = orderedBranchNames.length > branchCapacity || candidates.length > taskCapacity;
       const taskRows = candidates.slice(0, taskCapacity);
 
       const nodes = [];
+      for (const name of orderedBranchNames.slice(0, branchCapacity)) {
+        nodes.push({
+          kind: 'branch', id: branchId(name), name,
+          head_commit: refs.get(name) ?? null,
+          current: name === currentBranch,
+          tracked: records.has(name),
+          placeholder: placeholders.has(name),
+        });
+      }
+
       for (const row of taskRows) {
         const workspacePath = row.workspace || row.baseline_workspace || null;
         const workspace_state = workspacePath ? (fs.existsSync(workspacePath) ? 'present' : 'missing') : 'none';
@@ -83,10 +115,6 @@ export default {
         };
         nodes.push(node);
       }
-
-      for (const name of [...branchNames].sort()) {
-        nodes.push({ kind: 'branch', id: `branch:${name}`, name, head_commit: refs.get(name) ?? null, current: name === currentBranch });
-      }
       if (nodes.length > GRAPH_NODE_LIMIT) { truncated = true; nodes.length = GRAPH_NODE_LIMIT; }
       const nodeIds = new Set(nodes.map(node => node.id));
 
@@ -98,7 +126,15 @@ export default {
       for (const row of taskRows) {
         if (row.resolves_task_id && nodeIds.has(row.resolves_task_id)) edges.push({ kind: 'resolve', from: row.id, to: row.resolves_task_id });
         if (row.verifies_task_id && nodeIds.has(row.verifies_task_id)) edges.push({ kind: 'verify', from: row.id, to: row.verifies_task_id });
-        if (row.target_branch && nodeIds.has(`branch:${row.target_branch}`)) edges.push({ kind: 'target', from: row.id, to: `branch:${row.target_branch}` });
+        if (row.target_branch && nodeIds.has(branchId(row.target_branch))) edges.push({ kind: 'target', from: row.id, to: branchId(row.target_branch) });
+      }
+      // 谱系边：每条记录了 parent 的分支给出「从哪条分支分出来」。两端都在节点集合里才加，
+      // 所以被截断掉的分支不会留下悬空边。
+      for (const row of records.values()) {
+        if (!row.parent) continue;
+        if (nodeIds.has(branchId(row.parent)) && nodeIds.has(branchId(row.branch))) {
+          edges.push({ kind: 'fork', from: branchId(row.parent), to: branchId(row.branch) });
+        }
       }
       let trimmedEdges = edges;
       if (trimmedEdges.length > GRAPH_EDGE_LIMIT) { truncated = true; trimmedEdges = trimmedEdges.slice(0, GRAPH_EDGE_LIMIT); }

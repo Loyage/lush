@@ -76,6 +76,41 @@ test('graph carries resolve and verify edges and tolerates missing worktree/bran
   } finally { await f.close(); }
 });
 
+test('graph covers recorded branches, untracked refs and placeholder parents with fork edges', async () => {
+  const f = await setup();
+  try {
+    // 模拟提交输入时创建的锚点分支：有记录、没有任务、parent 是 main（不调用主树未提交的 anchor）。
+    f.store.recordBranch({ branch: 'lush/test/input-1-anchor', parent: 'main', worktree: path.join(f.config.home, 'worktrees', 'anchor') });
+    // 用户在 git 里新建、既没记录也没任务的本地分支。
+    await git(f.root, 'branch', 'feature/scratch');
+    // 记录里提到、却既无记录也无 ref 的父分支名：补占位节点，不让子分支从图上掉下去。
+    f.store.recordBranch({ branch: 'lush/test/orphan-child', parent: 'lush/test/gone-parent' });
+
+    const graph = await f.project.graph();
+    expect(graph.git).toBe(true);
+    const nodes = new Map(graph.nodes.map(node => [node.id, node]));
+
+    // branches 表的每条记录都有 branch 节点：没有 ref 的锚点也在，head_commit 现算成 null。
+    const anchor = nodes.get('branch:lush/test/input-1-anchor');
+    expect(anchor).toMatchObject({ kind: 'branch', current: false, tracked: true, placeholder: false, head_commit: null });
+    expect(nodes.get('branch:lush/test/orphan-child')).toMatchObject({ kind: 'branch', tracked: true });
+
+    // 有 ref 但没有记录的本地分支：tracked:false，head_commit 与 current 现算。
+    const scratch = nodes.get('branch:feature/scratch');
+    expect(scratch).toMatchObject({ kind: 'branch', tracked: false, placeholder: false, current: false });
+    expect(scratch.head_commit).toBe(await git(f.root, 'rev-parse', 'refs/heads/feature/scratch'));
+    expect(nodes.get('branch:main')).toMatchObject({ current: true, tracked: false });
+
+    // 只被 parent 指针提到的名字：占位节点，不假装分支还在。
+    const gone = nodes.get('branch:lush/test/gone-parent');
+    expect(gone).toMatchObject({ kind: 'branch', tracked: false, placeholder: true, head_commit: null });
+
+    // 谱系边：记录了 parent 的分支都给出 fork 边，两端都在节点集合里（含占位父）。
+    expect(graph.edges).toContainEqual({ kind: 'fork', from: 'branch:main', to: 'branch:lush/test/input-1-anchor' });
+    expect(graph.edges).toContainEqual({ kind: 'fork', from: 'branch:lush/test/gone-parent', to: 'branch:lush/test/orphan-child' });
+  } finally { await f.close(); }
+});
+
 test('graph returns an empty, non-throwing result for a non-git project', async () => {
   const f = fixture();
   try {

@@ -1,6 +1,7 @@
 /**
- * 「分支图」视图：拉 `/api/graph` 画到 `#detail`，展示每个任务的分支 / worktree / 目标分支关系，
- * 以及任务之间的堆叠（code）/顺序（order）/解冲突（resolve）/检验（verify）关系。
+ * 「分支图」视图：拉 `/api/graph` 画到 `#detail`，展示分支谱系（分支节点 + fork 父子嵌套）
+ * 与每条分支下的任务 / worktree / 目标分支关系，以及任务之间的堆叠（code）/顺序（order）/
+ * 解冲突（resolve）/检验（verify）关系。
  *
  * 只读：视图不提供任何写操作，节点点击只跳任务详情。
  * 幂等：同一份数据重画不重复建节点、不重建外层容器，所以 1.5s 轮询不会把滚动位置冲掉。
@@ -56,25 +57,50 @@ function taskRow(node) {
   return row;
 }
 
+/** 一条分支的表头：名字、顶端 commit（或缺失标记）、当前检出、谱系登记状态。 */
 function branchRow(branch) {
   const row = el('div', undefined, 'graph-branch');
   row.append(el('span', `⎇ ${branch.name}`, 'graph-branch-name mono'));
   if (branch.head_commit) row.append(el('span', String(branch.head_commit).slice(0, 7), 'meta mono'));
+  // 只被 parent 指针提到、既无记录也无 ref：占位，不假装分支还在。
+  else if (branch.placeholder) row.append(el('span', '⚠ 仅谱系提及', 'chip warn'));
+  // 记录还在、ref 已经不在：分支被删了，照旧画出来但明说它现在不存在。
+  else row.append(el('span', '⚠ 分支不存在', 'chip warn'));
   if (branch.current) row.append(el('span', '当前检出', 'chip'));
+  // 有 ref 但没有 branches 记录：画出来，但标明谱系里没有它。
+  if (!branch.tracked && !branch.placeholder) row.append(el('span', '未登记', 'chip'));
   return row;
 }
 
-function groupBlock(group) {
-  const lane = el('div', undefined, 'graph-group');
+/**
+ * 一条分支子树：自己的表头 + 自己的任务，子分支作为一个缩进的子树块画在下面（复用 `.graph-lane`
+ * 的左边框与内缩表示父子关系）。刚创建的分支因此会出现在父分支的子树里，而不是另开一条无关的车道。
+ */
+function branchBlock(branch) {
+  const block = el('div', undefined, 'graph-group');
+  block.append(branchRow(branch));
+  const lane = el('div', undefined, 'graph-lane');
+  for (const node of branch.tasks) lane.append(taskRow(node));
+  block.append(lane);
+  if (branch.children.length) {
+    const kids = el('div', undefined, 'graph-lane graph-children');
+    for (const child of branch.children) kids.append(branchBlock(child));
+    block.append(kids);
+  }
+  return block;
+}
+
+/** 兜底分组：连目标分支节点都没有的任务，仍然要画出来，只是明确说明它没落在任何分支节点上。 */
+function unplacedBlock(group) {
+  const block = el('div', undefined, 'graph-group graph-unplaced');
   const title = el('div', undefined, 'section-title');
-  title.append(el('h2', `目标分支 ${group.target_branch}`));
-  if (group.current) title.append(el('span', '当前检出', 'chip'));
-  lane.append(title);
-  if (group.branch) lane.append(branchRow(group.branch));
-  const list = el('div', undefined, 'graph-lane');
-  for (const node of group.items) list.append(taskRow(node));
-  lane.append(list);
-  return lane;
+  title.append(el('h2', '未归属分支的任务'));
+  block.append(title);
+  block.append(el('p', `图上找不到目标分支 ${group.target_branch} 的节点。`, 'hint'));
+  const lane = el('div', undefined, 'graph-lane');
+  for (const node of group.items) lane.append(taskRow(node));
+  block.append(lane);
+  return block;
 }
 
 /**
@@ -102,9 +128,10 @@ export function renderGraph(graph, { force = false } = {}) {
   if (!layout.git) content.push(el('p', `读取 git 失败：${layout.error || '这个项目不是 git 仓库'}`, 'hint warn'));
   else if (layout.error) content.push(el('p', `读取 git 时出错：${layout.error}`, 'hint warn'));
   if (layout.truncated) content.push(el('p', '分支图的节点或边太多，已截断展示；请用 CLI 查看完整状态。', 'hint warn'));
-  if (!layout.groups.length) content.push(el('p', '还没有任何任务分支或 worktree。', 'hint'));
+  if (!layout.forest.length && !layout.unplaced.length) content.push(el('p', '还没有任何任务分支或 worktree。', 'hint'));
 
-  for (const group of layout.groups) content.push(groupBlock(group));
+  for (const branch of layout.forest) content.push(branchBlock(branch));
+  for (const group of layout.unplaced) content.push(unplacedBlock(group));
   view.replaceChildren(...content);
   return view;
 }

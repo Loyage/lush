@@ -13,27 +13,41 @@ export function makeWorld() {
       { seq: 2, kind: 'tool', title: 'bash', at: iso(NOW - 8000), body: '{"command":"ls"}' },
     ],
     freeze: [],
-    // 分支图：给 /api/graph 造数据。测试可以整体替换 state.graph 来模拟截断 / 空图。
+    // 分支图：给 /api/graph 造数据。覆盖「有任务的分支」「无任务的锚点分支」「未登记的新 ref」
+    // 「只有 parent 指针提到的占位分支」，以及一条记录还在、ref 已消失的分支。
+    // 测试可以整体替换 state.graph 来模拟截断 / 空图 / 新分支。
     graph: {
       generated_at: iso(NOW), current_branch: 'main', truncated: false, git: true, error: null,
       nodes: [
         { kind: 'task', id: 1, role: 'worker', name: 'one', goal: '正在改点什么', status: 'running', integration: 'none',
-          branch: 'lush/1-x', workspace: '/tmp/wt/1', workspace_state: 'missing', branch_state: 'present',
+          branch: 'lush/demo/1-one', workspace: '/tmp/wt/1', workspace_state: 'missing', branch_state: 'present',
           base_commit: 'aaa', head_commit: 'bbb', target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
         { kind: 'task', id: 2, role: 'worker', name: 'two', goal: '合并我', status: 'completed', integration: 'pending',
-          branch: 'lush/2-x', workspace: '/tmp/wt/2', workspace_state: 'present', branch_state: 'present',
+          branch: 'lush/demo/2-two', workspace: '/tmp/wt/2', workspace_state: 'present', branch_state: 'present',
           base_commit: 'ccc', head_commit: 'ddd', target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
         { kind: 'task', id: 3, role: 'worker', name: 'three', goal: '另一个待合的', status: 'completed', integration: 'review',
-          branch: 'lush/3-x', workspace: null, workspace_state: 'none', branch_state: 'missing',
+          branch: 'lush/demo/3-three', workspace: null, workspace_state: 'none', branch_state: 'missing',
           base_commit: 'eee', head_commit: 'fff', target_branch: 'release', ahead: 2, behind: 1, merged: false, current: false },
-        { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'eee', current: true },
-        { kind: 'branch', id: 'branch:release', name: 'release', head_commit: 'fff', current: false },
+        { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'eee', current: true, tracked: false, placeholder: false },
+        { kind: 'branch', id: 'branch:release', name: 'release', head_commit: 'fff', current: false, tracked: false, placeholder: false },
+        { kind: 'branch', id: 'branch:lush/demo/1-one', name: 'lush/demo/1-one', head_commit: 'bbb', current: false, tracked: true, placeholder: false },
+        { kind: 'branch', id: 'branch:lush/demo/2-two', name: 'lush/demo/2-two', head_commit: 'ddd', current: false, tracked: true, placeholder: false },
+        { kind: 'branch', id: 'branch:lush/demo/3-three', name: 'lush/demo/3-three', head_commit: null, current: false, tracked: true, placeholder: false },
+        { kind: 'branch', id: 'branch:lush/demo/input-1-anchor', name: 'lush/demo/input-1-anchor', head_commit: 'abc', current: false, tracked: true, placeholder: false },
+        { kind: 'branch', id: 'branch:feature/scratch', name: 'feature/scratch', head_commit: 'aaa', current: false, tracked: false, placeholder: false },
+        { kind: 'branch', id: 'branch:feature/gone', name: 'feature/gone', head_commit: null, current: false, tracked: false, placeholder: true },
       ],
       edges: [
         { kind: 'code', from: 1, to: 2 },
         { kind: 'target', from: 1, to: 'branch:main' },
         { kind: 'target', from: 2, to: 'branch:main' },
         { kind: 'target', from: 3, to: 'branch:release' },
+        // fork：新分支从旧分支分出来，父分支下嵌套。
+        { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/input-1-anchor' },
+        { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/1-one' },
+        { kind: 'fork', from: 'branch:lush/demo/1-one', to: 'branch:lush/demo/2-two' },
+        { kind: 'fork', from: 'branch:release', to: 'branch:lush/demo/3-three' },
+        { kind: 'fork', from: 'branch:feature/gone', to: 'branch:feature/scratch' },
       ],
     },
     currentBranch: 'main',
