@@ -72,6 +72,31 @@ test('详情头部显示对应意图编号，能点开那条意图，input_id �
   expect(deepText(head())).not.toContain('意图 #');
 });
 
+test('Agent 的模型与用量直接可见：没有折叠开关，也没有可点的「模型、用量与会话信息」标题', async () => {
+  const detail = dom.node('detail');
+  dom.location.hash = '#task-1';
+  await dom.fire('hashchange');
+  await until(() => findByText(detail, '会话记录'), 2000);
+
+  const blockByTitle = title => [...detail.querySelectorAll('.block')].find(node => node.querySelector('h2')?.textContent === title);
+  const agent = blockByTitle('Agent');
+  // 用户要求这块永不折叠：DOM 里没有包住它的 <details>/<summary>，标题文本也不再可点。
+  expect(agent.querySelector('details')).toBeNull();
+  expect(findByText(agent, '模型、用量与会话信息')).toBeNull();
+  // agent 身份与唤醒、模型、思考用量、请求、会话记录一次性直接可读。
+  for (const label of ['agent', '唤醒', '模型', '上下文占用', '累计 token', '预计花费', '模型请求', '会话记录']) {
+    expect(findByText(agent, label)).toBeTruthy();
+  }
+  expect(findByText(agent, 'mock/mock-1')).toBeTruthy();
+  // 悬停提示保留（title 挂在整张 kv 上，不是标签上）。
+  const context = [...agent.querySelectorAll('.kv')].find(node => node.querySelector('b')?.textContent === '上下文占用');
+  expect(context.title).toContain('最近一次模型请求');
+  // 「执行过程」仍是原来那个可折叠区块，按钮还在。
+  const process = blockByTitle('执行过程');
+  expect(process.querySelector('[data-live="last"]')).toBeTruthy();
+  expect(findByText(process, '查看执行过程')).toBeTruthy();
+});
+
 test('热任务的详情会自己变新：折叠的执行过程只显示最近一条步骤，展开后随轮询推进', async () => {
   dom.location.hash = '#task-1';
   await dom.fire('hashchange');

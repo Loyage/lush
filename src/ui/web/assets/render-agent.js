@@ -51,11 +51,6 @@ export function renderAgent(task, usage) {
     grid.append(kv('模型请求', `${usage.requests} 次${usage.last_at ? ` · 最近 ${relative(usage.last_at)}` : ''}`));
     grid.append(kv('会话记录', `${usage.files.length} 个文件${usage.compacted ? ` · 上下文压缩 ${usage.compacted} 次` : ''}`, 'mono'));
   }
-  const metadata = el('details', undefined, 'disclosure agent-metadata');
-  metadata.open = ui.agentMetaOpen;
-  metadata.ontoggle = () => { if (metadata.isConnected) ui.agentMetaOpen = metadata.open; };
-  metadata.append(el('summary', '模型、用量与会话信息'), grid);
-
   const process = block('执行过程');
   const holder = el('div', undefined, 'transcript');
   const cached = transcriptCache.get(task.id);
@@ -77,6 +72,8 @@ export function renderAgent(task, usage) {
   }
   process.append(holder);
   section.classList.add('agent-panel');
-  section.append(process, metadata);
+  section.append(process);
+  // 模型 / 用量直接摆出来，不再套折叠：有内容才摆，没有 agent 与用量时不占一块空网格。
+  if (grid.children.length) section.append(grid);
   return section;
 }
