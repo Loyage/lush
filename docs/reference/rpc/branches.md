@@ -62,7 +62,7 @@ CLI 的 `lush branch archive BRANCH [--discard]` 非 JSON 输出由 `printBranch
 
 ## graph.get 的 fork 边
 
-Web 分支图使用 `graph.get`。每条 fork edge 附加：
+Web 分支图使用 `graph.get`。每个 branch 节点带 `origin` / `title` / `source_id` / `created_at`、汇总的 `status` 与 `tasks` 计数，另带 `worktree` / `worktree_state` 与 `deleted`；归档分支的 `status` 固定为 `archived`，带 `archived` / `archived_at`（复用 `branches.deleted_at`，不新增列），`tasks.branch` 指向它的任务节点带 `archived: true` 且仍留在图上。每条 fork edge 附加：
 
 ```json
 {
