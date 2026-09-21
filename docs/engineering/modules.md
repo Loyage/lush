@@ -21,7 +21,7 @@
 
 - RPC 方法名与参数表（`registry.js` 的 `PARAMS`）、`USER_ONLY` / `AGENT_ONLY` 权限集合。
 - CLI 命令与 `lush help` 的语义。
-- SQLite schema、表名、列名与 `meta.task_id_high` / `meta.input_id_high` 的行为。加列式演进（只给已有表补缺失的可空列）登记在 `store/base.js` 的 `ADDED_COLUMNS`；它不改类型、不重写任何行。
+- SQLite schema、表名、列名与 `meta.task_id_high` / `meta.input_id_high` 的行为。加列式演进（只给已有表补缺失的可空列）登记在 `store/base.js` 的 `ADDED_COLUMNS`（目前：`inputs` 的 `anchor_branch` / `anchor_commit` / `anchor_workspace` / `anchor_target_branch`，以及 `branches` 的 `summary`）；它不改类型、不重写任何行。
 - `src/index.js` 的导出、`bin/*` 的行为。
 - Web 路由与 asset 路径：`server.js` 只按 basename 服务 `assets/` 下的 `.js` / `.css`，
   所以**新增前端模块不需要改 server.js**。读取路由里只有几个显式登记的例外：`/api/graph`、检验报告
@@ -78,7 +78,7 @@
 | `project/timeline.js` | 并发时间轴（run/wait 区间与原因） | `timeline({limit})` |
 | `project/messages.js` | 收件箱、notice（question / plan / info 三类）、答复 | `message`、`notice`、`notify`、`answer` |
 | `project/merge.js` | 批准合并、按目标分支批量交付、冲突收口、随带提交对账与交付队列 | `approveMerge`、`approveMergeMany`、`reconcileIntegrated`、`openResolution`、`settleResolution`、`mergeConflictContext`、`ladder()`、`containsCommit` |
-| `project/graph.js` | 分支图读模型（全部本地分支 + fork 谱系边 + 任务关系）；每条 fork 边带三个可执行动作 `can_merge` / `can_sync` / `can_catchup`；每个 branch 节点带 `origin`（input / task / registered / local / placeholder）与配套 `title` / `source_id` / `created_at`，以及按自己 + 全部后代分支任务汇总的 `status`（active / failed / merged / ready / empty）与 `tasks` 计数，另带 `worktree` / `worktree_state`（worktree 路径与它现在还在不在磁盘上）与 `deleted`（该分支记录已被回收）；归档分支的 `status` 固定为 `archived` 并带 `archived` / `archived_at`（时间戳复用 `branches.deleted_at`，不新增列），它名下的任务节点标 `archived:true` 且仍留在图上；每条 fork 边实时给出 `fast_forward` / `diverged` / `integrated` / `missing`、ahead/behind 与未收拢的直接子分支 | `graph()` |
+| `project/graph.js` | 分支图读模型（全部本地分支 + fork 谱系边 + 任务关系）；每条 fork 边带三个可执行动作 `can_merge` / `can_sync` / `can_catchup`；每个 branch 节点带 `origin`（input / task / registered / local / placeholder）与配套 `title` / `summary` / `source_id` / `created_at`，`title` 优先用分支摘要（`branches.summary`），没有摘要才回落输入 / goal 首行截断，以及按自己 + 全部后代分支任务汇总的 `status`（active / failed / merged / ready / empty）与 `tasks` 计数，另带 `worktree` / `worktree_state`（worktree 路径与它现在还在不在磁盘上）与 `deleted`（该分支记录已被回收）；归档分支的 `status` 固定为 `archived` 并带 `archived` / `archived_at`（时间戳复用 `branches.deleted_at`，不新增列），它名下的任务节点标 `archived:true` 且仍留在图上；每条 fork 边实时给出 `fast_forward` / `diverged` / `integrated` / `missing`、ahead/behind 与未收拢的直接子分支 | `graph()` |
 | `project/branches.js` | 分支谱系读模型与用户批准的直接父子收敛：`branch merge` 只 fast-forward；落后时 `branch catchup` 让子分支快进跟上父分支；分歧时 `branch sync` 在子侧创建 merger；`branch tree` 不画归档的分支（记录仍在，用 `branch show` 查），隐藏时把它们的后代接到最近的可见祖先上；`branch archive` 归档一整棵子树（先跑安全门：子树根的登记/状态、当前检出不在子树里、全树没有未终态任务，再由 Git 边界把每条的 worktree / ref 删掉，任务行、消息、事件与 pi 会话文件都留着）；`branch tree` 不再画归档的分支，把它们还活着的后代接到最近的可见祖先上（`pruneHidden`） | `BRANCH_NODE_LIMIT`、`branchNodes`、`branchTree`、`branchShow`、`branchImport`、`approveBranchMerge`、`catchupBranch`、`syncBranch`、`archiveBranch` |
 | `project/verify.js` | 检验任务与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
 | `project/transcript.js` | pi 会话记录的只读投影 | `transcript(taskId, after, limit)`、`usage(taskId)` |
@@ -110,7 +110,7 @@
 | `store/verification.js` | 检验与解冲突的关联读模型 | `verifications`、`activeVerification`、`resolutions`、`activeResolver`、`unlandedResolver`、`conflictsOn` |
 | `store/drafts.js` | 输入缓存 | `addDraft`、`draft`、`updateDraft`、`openDrafts`、`draftCount` |
 | `store/timeline.js` | 时间轴原料 | `timelineTasks`、`lifecycleEvents`、`childSpans` |
-| `store/branches.js` | 分支谱系记录（写入即不可变，删除与归档都只标 `status`、不删行） | `PARENT_RELATIONS`、`branch`、`branches`、`recordBranch`、`markBranchDeleted`、`markBranchArchived` |
+| `store/branches.js` | 分支谱系记录（写入即不可变，删除与归档都只标 `status`、不删行，另存一句人写的 `summary` 作分支标题） | `PARENT_RELATIONS`、`branch`、`branches`、`recordBranch`、`markBranchDeleted`、`markBranchArchived`、`setBranchSummary` |
 
 ## 4. 前端：`src/ui/web/assets/`
 

@@ -43,4 +43,19 @@ export const branches = {
   markBranchArchived(branch) {
     this.run("UPDATE branches SET status='archived', deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE branch=?", branch);
   },
+
+  /**
+   * 一句话摘要：分支图上的标题优先用它，而不是输入 / 目标的原文首行。
+   * 归一化：去首尾空白、内部连续空白压成单空格；长度必须 1..120 字，否则拒绝（含清空——摘要要么是
+   * 人写的一句话，要么就没有）。只改 summary 这一列，不碰 status / deleted_at：摘要是描述，不是生命周期。
+   * 分支必须先登记；返回更新后的行，便于调用方直接读回。
+   */
+  setBranchSummary(branch, summary) {
+    check(typeof branch === 'string' && branch.length > 0, 'branch name must be non-empty text');
+    check(this.branch(branch) !== null, 'branch must be registered before it can carry a summary');
+    const normalized = String(summary ?? '').replace(/\s+/g, ' ').trim();
+    check(normalized.length >= 1 && normalized.length <= 120, 'branch summary must be 1..120 characters');
+    this.run('UPDATE branches SET summary=? WHERE branch=?', normalized, branch);
+    return this.branch(branch);
+  },
 };

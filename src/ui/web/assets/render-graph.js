@@ -268,7 +268,10 @@ function branchRow(branch, onCollapsed) {
     meta.append(el('span', statusInfo.label, `chip ${statusInfo.className}`.trim()));
   }
   if (branch.title) {
-    meta.append(el('span', branch.title, 'graph-branch-title'));
+    const titleNode = el('span', branch.title, 'graph-branch-title');
+    // 摘要可能被分支名等挤窄：悬停时给出完整摘要，不依赖标题文本本身。
+    if (branch.summary) titleNode.title = branch.summary;
+    meta.append(titleNode);
   }
   if (branch.origin && branch.origin !== 'placeholder') {
     const originText = BRANCH_ORIGIN[branch.origin] || branch.origin;

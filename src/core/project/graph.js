@@ -34,7 +34,8 @@ function summarize(text) {
  * `head_commit` 与 `current` 都按当前 ref 现算，不缓存旧值。
  *
  * 每个分支节点另外回答三个问题（只增不改，老字段照旧）：`origin`（这条分支因何存在：输入锚点 /
- * 任务分支 / import 登记 / 只有本地 ref / 占位名）与配套的 `title`、`source_id`、`created_at`；
+ * 任务分支 / import 登记 / 只有本地 ref / 占位名）与配套的 `title`、`summary`、`source_id`、`created_at`；
+ * `title` 优先取 `branches.summary`（人写的简述），没有摘要时才回落输入 / goal 首行截断。
  * `status` + `tasks`（这条分支自己的任务连同全部后代分支任务的汇总口径：active / failed /
  * merged / ready / empty）。归档过的分支另带 `archived` / `archived_at` / `deleted`，状态固定为
  * `archived`（不被汇总口径改写），它名下的任务节点也标 `archived:true`，仍然留在图上。
@@ -178,6 +179,8 @@ export default {
         }
         // 归档是记录状态，不是 git 现状：ref 已经删掉，但分支记录与工作信息都还在。
         const archived = record?.status === 'archived';
+        // 一句话摘要：人写的简述（store 原文）；空 / 缺失时 null，标题才回落派生。
+        const summary = record?.summary && String(record.summary).trim() ? record.summary : null;
         // 分支的 worktree 只在创建那一刻记进 branches 行；目录被归档/清理后就报 missing，不假装还在。
         const worktree = record?.worktree ?? null;
         const worktree_state = worktree ? (fs.existsSync(worktree) ? 'present' : 'missing') : 'none';
@@ -188,9 +191,11 @@ export default {
           tracked: record !== null,
           placeholder,
           origin,
-          title: origin === 'input' ? summarize(input.content)
+          // 标题优先用摘要；没有摘要时完全保持既有派生（输入 / goal 首行压缩并截断）。
+          title: summary ?? (origin === 'input' ? summarize(input.content)
             : origin === 'task' ? (owner ? summarize(owner.goal) ?? owner.name ?? null : null)
-            : null,
+            : null),
+          summary,
           source_id: origin === 'input' ? input.id : origin === 'task' ? record?.task_id ?? owner?.id ?? null : null,
           created_at: record?.created_at ?? null,
           worktree,

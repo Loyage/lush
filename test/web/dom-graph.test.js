@@ -101,6 +101,26 @@ test('分支图：同一层级的条目新的在前——兄弟分支按创建�
   expect(childNames('release')).toEqual(['lush/demo/3-three']);
 });
 
+test('分支图：分支节点显示一句话摘要，完整摘要进悬停提示', async () => {
+  const anchor = world.state.graph.nodes.find(node => node.id === 'branch:lush/demo/input-1-anchor');
+  const before = { title: anchor.title, summary: anchor.summary };
+  // 读模型已经保证 title 优先取摘要；这里只验证渲染层把摘要当标题显示，并把全文放进 title 提示。
+  anchor.title = '一句话摘要：把标题从输入原文换成人写的简述';
+  anchor.summary = '一句话摘要：把标题从输入原文换成人写的简述';
+  try {
+    await openGraph();
+    const titles = [...dom.node('detail').querySelectorAll('span.graph-branch-title')];
+    const node = titles.find(candidate => candidate.textContent === anchor.summary);
+    expect(node).toBeTruthy();
+    expect(node.title).toBe(anchor.summary);
+    // 摘要本身就是显示出来的标题，输入 / goal 的原文首行不再出现在标题位。
+    expect(deepText(dom.node('detail'))).toContain(anchor.summary);
+  } finally {
+    anchor.title = before.title; anchor.summary = before.summary;
+    await openGraph();
+  }
+});
+
 test('分支图：结构指纹没变时，1.5s 轮询不在 3 秒内重复打 git', async () => {
   await openGraph();
   const ui = (await import('../../src/ui/web/assets/state.js')).ui;

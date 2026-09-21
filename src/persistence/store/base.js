@@ -7,6 +7,7 @@ import { SCHEMA, bindProject } from './schema.js';
  */
 const ADDED_COLUMNS = {
   inputs: ['anchor_branch', 'anchor_commit', 'anchor_workspace', 'anchor_target_branch'],
+  branches: ['summary'],
 };
 function addMissingColumns(db) {
   for (const [table, columns] of Object.entries(ADDED_COLUMNS)) {

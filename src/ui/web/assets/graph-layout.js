@@ -250,6 +250,7 @@ export function graphLayout(graph = {}) {
       // 分支节点的元数据（来自 graph.js 的 origin / title / source_id / created_at / status / tasks）
       origin: node.origin ?? null,
       title: node.title ?? null,
+      summary: node.summary ?? null,
       source_id: node.source_id ?? null,
       created_at: node.created_at ?? null,
       status: node.status ?? null,
@@ -384,7 +385,7 @@ export function graphRenderKey(graph) {
     node.branch_state ?? '-', node.workspace_state ?? '-', node.ahead ?? '-', node.behind ?? '-', node.merged ?? '-',
     node.current === true, node.tracked === false, node.placeholder === true, node.archived === true,
     node.worktree_state ?? '-', node.tasks?.active ?? '-',
-    node.origin ?? '-', node.status ?? '-', node.title ?? '-', node.source_id ?? '-'].join(':')).join('|');
+    node.origin ?? '-', node.status ?? '-', node.title ?? '-', node.summary ?? '-', node.source_id ?? '-'].join(':')).join('|');
   const edges = (graph?.edges || []).map(edge => `${edge.kind}:${edge.from}>${edge.to}:${edge.status ?? '-'}:${edge.ahead ?? '-'}:${edge.behind ?? '-'}:${(edge.blockers || []).join(',')}`).join('|');
   return `${nodes}#${graph?.truncated === true}#${edges}`;
 }
