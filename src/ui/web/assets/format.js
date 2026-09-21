@@ -70,6 +70,17 @@ export const SPEC_STATUS = {
   dropped: { label: '已丢弃', className: 'b-failed' },
 };
 export const specStatus = spec => SPEC_STATUS[spec.status] || { label: spec.status, className: 'b-neutral' };
+/** 一句话标题的上限：与后端 graph.js 的 TITLE_LIMIT 同口径，超出截断加省略号。 */
+export const GOAL_TITLE_LIMIT = 60;
+/** 一句话摘要：goal 第一行、压缩空白、按字数截断。没有内容时返回 null，不把空串当标题。
+ *  前端不能 import 后端的 src/core/project/graph.js，这里按同一口径重写。 */
+export function summarizeGoal(goal) {
+  const line = String(goal ?? '').split('\n')[0].replace(/\s+/g, ' ').trim();
+  if (!line) return null;
+  return line.length > GOAL_TITLE_LIMIT ? `${line.slice(0, GOAL_TITLE_LIMIT)}…` : line;
+}
+/** 详情页 hero 的短标题：goal 的摘要；goal 为空时退回 `任务 #id`，标题区永不留空。 */
+export const taskTitle = task => summarizeGoal(task?.goal) ?? `任务 #${task?.id ?? '?'}`;
 /** 一条 spec 的完整可读文本，放进 title，让人 hover 就能看全文与丢弃原因。 */
 export function specTitle(spec) {
   const info = specStatus(spec);
