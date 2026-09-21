@@ -191,10 +191,33 @@ test('task goal becomes the page heading and results precede implementation meta
     goal: '更清晰的项目工作台', result: '已完成主题切换', deps: [], dependents: [] }, null, null, null);
   const panel = dom.node('detail');
   expect(panel.dataset.view).toBe('task');
+  // hero 的 h1 只放一句话短标题。
   expect(panel.querySelector('h1').textContent).toBe('更清晰的项目工作台');
+  // 完整 goal 落在正文的「任务目标」块里，且排在「结果」之前。
+  const goalPanel = panel.querySelector('.goal-panel');
+  expect(goalPanel).toBeTruthy();
+  expect(deepText(goalPanel)).toContain('任务目标');
+  expect(deepText(goalPanel)).toContain('更清晰的项目工作台');
   const text = deepText(panel);
+  expect(text.indexOf('任务目标')).toBeLessThan(text.indexOf('已完成主题切换'));
   expect(text.indexOf('已完成主题切换')).toBeLessThan(text.indexOf('调用次数'));
   expect(panel.querySelector('.breadcrumb')).toBeTruthy();
+});
+
+test('多行 / 超长 goal：hero 只显示首行截断，完整 goal 留在正文块里', () => {
+  const goal = `一句话标题\n\n目标：${'很长的验收标准'.repeat(12)}`;
+  renderDetail({ id: 43, role: 'worker', status: 'completed', integration: 'none', calls: 0,
+    goal, result: '已完成主题切换', deps: [], dependents: [] }, null, null, null);
+  const panel = dom.node('detail');
+  const title = panel.querySelector('h1').textContent;
+  expect(title).toBe('一句话标题');
+  expect(title).not.toContain('很长的验收标准');
+  // 正文块保留完整 goal（markdown 开启时按段落渲染，文字不丢）。
+  const goalPanel = panel.querySelector('.goal-panel');
+  expect(goalPanel).toBeTruthy();
+  const body = deepText(goalPanel).replace(/\s+/g, '');
+  expect(body).toContain('目标：');
+  expect(body).toContain('很长的验收标准'.repeat(12));
 });
 
 test('mobile index toggle exposes its expanded state and is reversible', async () => {

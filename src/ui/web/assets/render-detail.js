@@ -1,7 +1,7 @@
 import { $, badge, block, button, el, kv, statusBadge } from './dom.js';
 import { action } from './api.js';
 import { confirmDialog } from './dialog.js';
-import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, statusOf } from './format.js';
+import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, statusOf, taskTitle } from './format.js';
 import { freezeBlocker } from './merge-select.js';
 import { show } from './messages.js';
 import { detail, overview } from './navigate.js';
@@ -64,7 +64,7 @@ export function renderDetail(task, history, diff, usage) {
   const integration = INTEGRATION[task.integration];
   if (integration) head.append(badge(integration, task.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
   if (task.agent) head.append(badge(`agent ${task.agent.id}${task.agent.active ? ` · pid ${task.agent.pid ?? '待上报'}` : ' · 空闲'}`, 'b-neutral'));
-  hero.append(head, el('h1', task.goal, 'task-title')); panel.append(hero);
+  hero.append(head, el('h1', taskTitle(task), 'task-title')); panel.append(hero);
 
   const notice = ui.noticeFocus === null ? null : ui.noticeIndex.get(ui.noticeFocus);
   if (notice && notice.task_id === task.id) panel.prepend(noticePanel(notice, task));
@@ -148,7 +148,12 @@ export function renderDetail(task, history, diff, usage) {
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
 
-  // 结果与失败原因优先于调用次数、目录等底层元数据。
+  // 结果与失败原因优先于调用次数、目录等底层元数据。完整目标（goal）以 Markdown 正文排在结果之前。
+  if (task.goal) {
+    const goal = block('任务目标'); goal.classList.add('goal-panel');
+    goal.append(agentText(task.goal, { className: 'goal-text', plain: 'div' }));
+    panel.append(goal);
+  }
   if (task.result) {
     const result = block('结果'); result.classList.add('result-panel'); result.append(agentText(task.result, { plain: 'pre' }));
     referenceable(result, { kind: 'result', target: { task_id: task.id, section: 'result' }, label: `任务结果 #${task.id}`,
