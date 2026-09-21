@@ -14,6 +14,7 @@ import { specItem } from './render-specs.js';
 import { renderVerifications } from './render-verify.js';
 import { ui } from './state.js';
 import { agentText } from './text.js';
+import { referenceable } from './context-references.js';
 
 const freezeOf = task => freezeBlocker(task.target_branch, task, ui.lastSnapshot?.status?.merge_freeze || []);
 /** 任务依赖：本任务等谁、谁在等它。 */
@@ -51,6 +52,8 @@ function intentBadge(task) {
 }
 export function renderDetail(task, history, diff, usage) {
   const panel = $('detail'); panel.dataset.view = 'task'; panel.replaceChildren();
+  referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `任务 #${task.id}`,
+    quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-detail', task_id: task.id } });
   const breadcrumb = el('div', undefined, 'breadcrumb');
   breadcrumb.append(button('项目概览', () => overview(), 'link'), el('span', '/'), el('span', `${ROLE[task.role] || task.role} #${task.id}`));
   panel.append(breadcrumb);
@@ -146,7 +149,12 @@ export function renderDetail(task, history, diff, usage) {
   panel.append(actions);
 
   // 结果与失败原因优先于调用次数、目录等底层元数据。
-  if (task.result) { const result = block('结果'); result.classList.add('result-panel'); result.append(agentText(task.result, { plain: 'pre' })); panel.append(result); }
+  if (task.result) {
+    const result = block('结果'); result.classList.add('result-panel'); result.append(agentText(task.result, { plain: 'pre' }));
+    referenceable(result, { kind: 'result', target: { task_id: task.id, section: 'result' }, label: `任务结果 #${task.id}`,
+      quote: task.result, location: { view: 'task-detail', task_id: task.id, section: 'result' } });
+    panel.append(result);
+  }
   if (task.error) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); panel.append(error); }
   if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); panel.append(error); }
 
@@ -168,7 +176,7 @@ export function renderDetail(task, history, diff, usage) {
     workspace.append(el('p', [task.branch, task.workspace].filter(Boolean).join('\n'), 'mono'));
     panel.append(workspace);
   }
-  panel.append(renderDiff(diff));
+  panel.append(renderDiff(diff, task.id));
   if (task.role === 'verifier' || verifications.length || (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit)) panel.append(renderVerifications(task));
 
   if (task.children?.length) {
@@ -178,6 +186,10 @@ export function renderDetail(task, history, diff, usage) {
       row.append(el('span', statusOf(child).icon, `dot c-${child.status}`), el('span', `#${child.id}`, 'tid'));
       const jump = button(`${child.goal}`, () => detail(child.id), 'link');
       row.append(jump, el('span', relative(child.updated_at), 'when'));
+      referenceable(row, [
+        { kind: 'task', target: { task_id: child.id }, label: `任务 #${child.id}`, quote: child.goal, location: { view: 'task-detail', task_id: child.id } },
+        { kind: 'task_subtree', target: { task_id: child.id }, label: `任务子树 #${child.id}`, quote: child.goal, location: { view: 'task-detail', task_id: child.id } },
+      ]);
       children.append(row);
     }
     panel.append(children);
@@ -187,13 +199,15 @@ export function renderDetail(task, history, diff, usage) {
     for (const message of task.messages) {
       const item = el('div', undefined, 'msg');
       item.append(el('small', `${message.sender_id ? `来自 #${message.sender_id}` : '来自你'} · ${absolute(message.created_at)}`), el('p', message.body));
+      referenceable(item, { kind: 'message', target: { task_id: task.id, message_id: message.id }, label: `任务 #${task.id} 的消息`,
+        quote: message.body, location: { view: 'task-detail', task_id: task.id, section: 'messages' } });
       messages.append(item);
     }
     panel.append(messages);
   }
   if (history?.events?.length) {
     const events = block('事件时间线', String(history.events.length));
-    events.append(renderHistory(history.events.slice(-200), { running: task.status === 'running', truncated: history.truncated }));
+    events.append(renderHistory(history.events.slice(-200), { running: task.status === 'running', truncated: history.truncated, taskId: task.id }));
     panel.append(events);
   }
 

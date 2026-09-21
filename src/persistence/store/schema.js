@@ -13,6 +13,16 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         id INTEGER PRIMARY KEY, content TEXT NOT NULL, input_id INTEGER REFERENCES inputs(id),
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS drafts_open ON drafts(input_id);
+      -- 上下文引用是 Input / Draft 的附属元数据，不是独立业务实体。草稿提交时复制到 input_references，
+      -- segment 保留批量提交中“哪一段用户输入引用了什么”的关系；payload 是经过 Project 校验的 versioned JSON。
+      CREATE TABLE IF NOT EXISTS draft_references (
+        draft_id INTEGER NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL, payload TEXT NOT NULL,
+        PRIMARY KEY (draft_id, ordinal));
+      CREATE TABLE IF NOT EXISTS input_references (
+        input_id INTEGER NOT NULL REFERENCES inputs(id) ON DELETE CASCADE,
+        segment INTEGER NOT NULL, ordinal INTEGER NOT NULL, payload TEXT NOT NULL,
+        PRIMARY KEY (input_id, segment, ordinal));
       CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES tasks(id), input_id INTEGER REFERENCES inputs(id),
         role TEXT NOT NULL, goal TEXT NOT NULL, name TEXT, status TEXT NOT NULL DEFAULT 'queued',

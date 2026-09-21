@@ -23,6 +23,7 @@ import { graphLayout, graphFingerprint, graphRenderKey, emphasisClasses, isBranc
 import { detail, overview } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { saveGraphPrefs, ui } from './state.js';
+import { referenceable } from './context-references.js';
 
 /** 分支状态映射：状态 -> { label, className }；已合进父分支是常态，不再单独出一个「已合并」标签。
  *  没有 archived：归档的分支根本不会被画进分支树（看 graphLayout 的 hiddenBranches）。 */
@@ -185,6 +186,10 @@ function taskRow(node, owningBranch = null) {
     row.classList.add('graph-emphasis-awaiting');
     row.append(decisionRow(node));
   }
+  referenceable(row, [
+    { kind: 'task', target: { task_id: node.id }, label: `任务 #${node.id}`, quote: node.goal || '(无目标)', location: { view: 'branch-graph', task_id: node.id } },
+    { kind: 'task_subtree', target: { task_id: node.id }, label: `任务子树 #${node.id}`, quote: node.goal || '(无目标)', location: { view: 'branch-graph', task_id: node.id } },
+  ]);
   return row;
 }
 
@@ -403,6 +408,10 @@ function branchRow(branch, onCollapsed) {
   // 归档一条＝归档它整棵子树（见 runBranchArchive 的确认文案）。
   if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch), 'ghost'));
 
+  referenceable(row, { kind: 'delivery_branch', target: { target_branch: branch.name, section: 'graph' }, label: `分支 ${branch.name}`,
+    quote: [branch.title || branch.name, branch.summary, branch.parent ? `父分支：${branch.parent}` : null,
+      branch.taskCounts ? `任务：${branch.taskCounts.total}` : null].filter(Boolean).join('\n'),
+    location: { view: 'branch-graph', section: branch.name } });
   return row;
 }
 

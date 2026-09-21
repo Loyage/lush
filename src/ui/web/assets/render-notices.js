@@ -5,6 +5,7 @@ import { detail } from './navigate.js';
 import { setNavCount } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
 import { ui } from './state.js';
+import { referenceable } from './context-references.js';
 
 /** 左侧只放索引：点一下才在右侧展开正文与回复框。 */
 export function renderNotices(data) {
@@ -29,6 +30,8 @@ export function renderNotices(data) {
       el('span', relative(notice.created_at), 'when'));
     node.append(row, el('span', notice.title, 'goal'));
     node.title = `${notice.title}\n发布于 ${absolute(notice.created_at)}`;
+    referenceable(node, { kind: 'notice', target: { notice_id: notice.id }, label: `待定事项 #${notice.id}`,
+      quote: `${notice.title}\n${notice.body || ''}`, location: { view: 'notice-list', notice_id: notice.id } });
     return node;
   });
   syncChildren(container, nodes);
@@ -80,5 +83,7 @@ export function noticePanel(notice, task = null) {
     event.preventDefault(); actions.querySelector('button').click();
   });
   section.append(...(answer ? [answer] : []), actions);
+  referenceable(section, { kind: 'notice', target: { notice_id: notice.id }, label: `待定事项 #${notice.id}`,
+    quote: `${notice.title}\n${notice.body || ''}`, location: { view: 'notice-detail', notice_id: notice.id, task_id: notice.task_id } });
   return section;
 }

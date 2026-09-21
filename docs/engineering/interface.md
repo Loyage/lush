@@ -13,6 +13,8 @@
 
 分支图继续提供完整 fork 谱系、ahead/behind、分歧、缺失、worktree、同步与归档动作，但它是高级 Git 诊断页，不是产品主线。任务树回答执行关系；Candidate 页面和报告回答“结果是不是用户想要的”。
 
+页面内容可以通过“上下文引用”聚焦到下一条输入：任务、任务子树、分支图、交付项、Intent、Spec、Notice、Diff、结果、消息、执行步骤、事件和检验记录注册语义引用；其它页面文字可直接选中后引用。只有存在候选时才拦截 `contextmenu`。引用卡片在加入草稿前不受轮询影响，加入后随 Draft / Input 持久化；所有引用文字仍以 `textContent` 渲染。
+
 ## 文档
 
 左栏「文档」读取随代码发布的 `README.md`、`docs/**/*.md` 与受控的 standalone HTML。核心架构文档 `docs/core-architecture.html` 通过 sandbox iframe 与严格 CSP 展示；请求 id 只能命中扫描索引，不拼接任意文件路径。

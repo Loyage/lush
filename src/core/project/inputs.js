@@ -17,16 +17,17 @@ export default {
   },
 
   /** 锚点建好之后的落库：inputs 行 + 根 planner + 调用方自己的关联行，全在一个事务里。 */
-  insertInput(inputId, anchor, content, attach = null) {
+  insertInput(inputId, anchor, content, attach = null, references = []) {
     return this.store.transaction(() => {
       this.store.run(`INSERT INTO inputs(id,content,anchor_branch,anchor_commit,anchor_workspace,anchor_target_branch)
         VALUES (?,?,?,?,?,?)`, inputId, content, anchor.branch, anchor.commit, anchor.workspace, anchor.target);
+      this.store.setInputReferences(inputId, references.map(reference => ({ segment: 1, reference })));
       const task = this.store.create({ input_id: inputId, role: 'planner', goal: content });
       this.store.run('UPDATE inputs SET task_id=? WHERE id=?', task.id, inputId);
       this.store.event(task.id, 'input.anchor', { input_id: inputId, branch: anchor.branch, commit: anchor.commit,
         target_branch: anchor.target, workspace: anchor.workspace, dirty_source: anchor.dirty_source });
       if (attach) attach(task);
-      return { id: inputId, content, task, anchor };
+      return { id: inputId, content, references, task, anchor };
     });
   },
 
@@ -34,11 +35,12 @@ export default {
    * The single place a root planner is created; input.submit and draft.commit both land here.
    * 锚不住就不接受输入：Git 建锚点失败时 inputs 一条都不写，草稿也留在缓存里等下一次提交。
    */
-  async createInput(content, attach = null, branch = null) {
+  async createInput(content, attach = null, branch = null, references = []) {
     text(content, 'input');
+    const normalized = this.normalizeReferences(references);
     if (branch !== null && branch !== undefined) text(branch, 'branch');
     const { inputId, anchor } = await this.anchorInput(branch);
-    try { return this.insertInput(inputId, anchor, content, attach); }
+    try { return this.insertInput(inputId, anchor, content, attach, normalized); }
     catch (error) {
       // 已经落到磁盘上的锚点要跟着回滚，否则同名的分支与目录会挡住之后可能用到这个 id 的提交。
       await this.workspaces.releaseAnchor(anchor)
@@ -47,14 +49,14 @@ export default {
     }
   },
 
-  async submit(content, branch = null) {
-    const result = await this.createInput(content, null, branch);
+  async submit(content, branch = null, references = []) {
+    const result = await this.createInput(content, null, branch, references);
     this.kick(); return result;
   },
 
   /** 意图视图：一条输入 + 它的锚点 + 它的 planner（拆解）与 scheduler（编排）进度，一起喂给界面。 */
   inputs() {
-    return this.store.all(`SELECT inputs.id, inputs.flow, substr(inputs.content,1,2000) AS content, inputs.task_id, inputs.created_at,
+    const rows = this.store.all(`SELECT inputs.id, inputs.flow, substr(inputs.content,1,2000) AS content, inputs.task_id, inputs.created_at,
       inputs.anchor_branch, inputs.anchor_commit, inputs.anchor_workspace, inputs.anchor_target_branch,
       tasks.status, tasks.plan_gate, tasks.agent_wakes, tasks.updated_at AS planner_updated_at,
       (SELECT count(*) FROM drafts WHERE drafts.input_id=inputs.id) AS draft_count,
@@ -72,6 +74,11 @@ export default {
       (SELECT c.status FROM review_candidates c WHERE c.input_id=inputs.id ORDER BY c.version DESC LIMIT 1) AS candidate_status,
       (SELECT c.report_task_id FROM review_candidates c WHERE c.input_id=inputs.id ORDER BY c.version DESC LIMIT 1) AS candidate_report_task_id
       FROM inputs JOIN tasks ON tasks.id=inputs.task_id ORDER BY inputs.id DESC LIMIT 100`);
+    // 快照只回显引用摘要；完整快照留给 planner invocation，避免历史输入撑大 RPC 帧。
+    return rows.map(row => ({ ...row, references: this.store.inputReferences(row.id).map(reference => ({
+      segment: reference.segment, kind: reference.kind, target: reference.target, label: reference.label,
+      quote: reference.quote.slice(0, 200), captured_at: reference.captured_at,
+    })) }));
   },
 
   /** The root planner decides which flow an input takes; runtime only records it and enforces the explain constraint in spawn(). */

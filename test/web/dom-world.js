@@ -85,11 +85,11 @@ export function makeWorld() {
     intents: [
       { id: 1, content: 'demo', flow: 'develop', task_id: 9, status: 'awaiting', plan_gate: 'proposed', plan_notice_id: 7,
         specs_pending: 1, specs_planned: 1, specs_dropped: 0, scheduler_id: 4, scheduler_status: 'queued', work_tasks: 2,
-        draft_count: 0, created_at: iso(NOW - 9000), planner_updated_at: iso(NOW - 1000) },
+        draft_count: 0, references: [], created_at: iso(NOW - 9000), planner_updated_at: iso(NOW - 1000) },
       { id: 2, content: '已批准的那条', flow: 'develop', task_id: 11, status: 'completed', plan_gate: 'approved', plan_notice_id: null,
         specs_pending: 0, specs_planned: 2, specs_dropped: 1, scheduler_id: null, scheduler_status: null, work_tasks: 3,
         work_active: 0, work_failed: 0, candidate_id: 1, candidate_version: 1, candidate_status: 'ready', candidate_report_task_id: 12,
-        draft_count: 0, created_at: iso(NOW - 9500), planner_updated_at: iso(NOW - 2000) },
+        draft_count: 0, references: [], created_at: iso(NOW - 9500), planner_updated_at: iso(NOW - 2000) },
     ],
     // 左侧拆解队列的两条：一条还没被 scheduler 取走，一条已被 scheduler #4 取走并排成了任务 #2。
     specs: [
@@ -199,9 +199,9 @@ export function makeWorld() {
       }
       if (body.method === 'task.merge_many') return json({ target_branch: body.params.ids.includes(3) ? 'release' : 'main',
         merges: body.params.ids.map(id => ({ id, status: 'merged', integration: 'merged' })), merged: body.params.ids.length, stopped: null });
-      if (body.method === 'draft.update') { const draft = state.drafts.find(row => row.id === body.params.id); if (draft) draft.content = body.params.content; return json({ id: draft?.id, content: draft?.content }); }
+      if (body.method === 'draft.update') { const draft = state.drafts.find(row => row.id === body.params.id); if (draft) { draft.content = body.params.content; if (body.params.references !== undefined) draft.references = body.params.references; } return json({ id: draft?.id, content: draft?.content, references: draft?.references || [] }); }
       if (body.method === 'draft.remove') { state.drafts = state.drafts.filter(row => row.id !== body.params.id); return json({ id: body.params.id }); }
-      if (body.method === 'draft.add') { const draft = { id: state.drafts.length ? Math.max(...state.drafts.map(row => row.id)) + 1 : 1, content: body.params.content, created_at: iso(NOW) }; state.drafts = [...state.drafts, draft]; return json(draft); }
+      if (body.method === 'draft.add') { const draft = { id: state.drafts.length ? Math.max(...state.drafts.map(row => row.id)) + 1 : 1, content: body.params.content, references: body.params.references || [], created_at: iso(NOW) }; state.drafts = [...state.drafts, draft]; return json(draft); }
       if (body.method === 'draft.commit') {
         const ids = body.params.ids ?? state.drafts.map(row => row.id);
         state.commits.push(ids);

@@ -60,6 +60,18 @@ function draftItem(draft) {
   body.title = '点击就地编辑这条待提交意图';
   body.onclick = () => startDraftEdit(draft);
   item.append(row, body);
+  if (draft.references?.length) {
+    const references = el('div', undefined, 'draft-references');
+    draft.references.forEach((reference, index) => {
+      const chip = el('span', undefined, 'draft-reference');
+      const label = el('span', reference.label); label.title = reference.quote;
+      const remove = button('×', () => action('draft.update', { id: draft.id, content: draft.content,
+        references: draft.references.filter((_value, at) => at !== index) }), 'context-remove');
+      remove.setAttribute('aria-label', `从待提交意图 #${draft.id} 移除引用：${reference.label}`);
+      chip.append(label, remove); references.append(chip);
+    });
+    item.append(references);
+  }
   item.title = `${draft.content}\n加入于 ${absolute(draft.created_at)}`;
   return item;
 }
@@ -77,7 +89,7 @@ export function renderDrafts(data) {
     ui.draftEditing = null;
   }
   // 只在内容变化时重建，否则轮询会把滚动和正在输入的光标丢掉。
-  const signature = drafts.map(draft => `${draft.id}:${draft.content}`).join('\u0000');
+  const signature = drafts.map(draft => `${draft.id}:${draft.content}:${JSON.stringify(draft.references || [])}`).join('\u0000');
   if (signature === ui.draftSignature) { syncComposer(); return; }
   ui.draftSignature = signature;
   $('drafts').replaceChildren(...drafts.map(draftItem));

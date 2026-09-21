@@ -8,6 +8,7 @@ import { countText, describeFilters, filterIntents, isFiltering } from './sideba
 import { setNavCount } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
 import { ui } from './state.js';
+import { referenceable } from './context-references.js';
 
 /* ---------- Intent workbench: goal → compiled Plan → review candidate ---------- */
 function planActions(intent) {
@@ -93,6 +94,7 @@ function intentItem(intent) {
     meta.append(anchor);
   }
   if (intent.work_tasks) meta.append(el('span', `开发任务 ${intent.work_tasks}`));
+  if (intent.references?.length) meta.append(badge(`引用 ${intent.references.length}`, 'b-neutral'));
   item.append(meta);
   const actions = planActions(intent);
   if (actions) item.append(actions);
@@ -107,6 +109,8 @@ function intentItem(intent) {
       : intent.candidate_status === 'ready' ? '这一版固定 commit 已生成前后对照报告，等待你的验收。'
       : 'Intent 是用户目标中心；开发完成后生成固定 commit 的验收候选。', 'hint'));
   item.onclick = event => { if (event.target === item || event.target.classList.contains('goal')) { ui.noticeFocus = null; return detail(intent.task_id); } };
+  referenceable(item, { kind: 'intent', target: { input_id: intent.id }, label: `意图 #${intent.id}`,
+    quote: intent.content, location: { view: 'intent-list', input_id: intent.id } });
   return item;
 }
 export function renderIntents(data) {

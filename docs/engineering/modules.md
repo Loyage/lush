@@ -48,7 +48,7 @@
 |---|---|---|---|
 | 任务编排 | `src/core/project.js` | `src/core/project/`（含 Plan 编译、Integration、Candidate） | ✅ |
 | Git 边界 | `src/core/workspaces.js` | `src/core/workspaces/`（5 个） | ✅ |
-| 持久化 | `src/persistence/store.js` | `src/persistence/store/`（9 个） | ✅ |
+| 持久化 | `src/persistence/store.js` | `src/persistence/store/`（含分支、run、candidate 与引用元数据） | ✅ |
 | 前端 | `src/ui/web/assets/app.js` | `src/ui/web/assets/`（见下表） | ✅ |
 | CLI | `src/cli/main.js` | `src/cli/`（含 Agent 配置命令） | ✅ |
 | RPC | `src/rpc/protocol.js` | `src/rpc/`（7 个） | ✅ |
@@ -81,8 +81,9 @@
 | `project/agents.js` | 项目级 Agent 配置读写接缝；读取动态生效，按需查询 Pi / Codex 本机模型目录及 Pi 扩展/Skills，写入只允许用户侧 RPC | `agentConfig()`、`agentModels(agent)`、`agentResources()`、`configureAgents(value)` |
 | `project/status.js` | 项目级读模型（任务分布、layers、意图、spec、drafts、agents、待合并、合并冻结、notice 计数），并镜像 daemon 软件配置与当前 `agent_config`；`provider` 表示当前默认 Agent（mock 模式仍为 mock），旧 pi 环境变量字段继续只读返回用于兼容 | `status()` |
 | `project/deps.js` | 依赖边的读模型与结构校验 | `decorate(tasks)`、`blockedBy(taskId)`、`assertDeps(taskId, parent, edges)` |
-| `project/inputs.js` | 从用户指定父分支创建可推进输入分支、在其中规划，以及流程判定 | `anchorInput(branch)`、`insertInput(inputId, anchor, content, attach)`、`createInput(content, attach, branch)`、`submit(content, branch)`、`inputs()`、`setInputFlow(taskId, flow)` |
-| `project/drafts.js` | 输入缓存（增删改、整体提交到指定父分支） | `draft`、`drafts`、`dropDraft`、`editDraft`、`commitDrafts(ids, branch)` |
+| `project/inputs.js` | 从用户指定父分支创建可推进输入分支、在其中规划，以及流程判定 | `anchorInput(branch)`、`insertInput(inputId, anchor, content, attach, references)`、`createInput(content, attach, branch, references)`、`submit(content, branch, references)`、`inputs()`、`setInputFlow(taskId, flow)` |
+| `project/drafts.js` | 输入缓存（增删改、结构化引用、整体提交到指定父分支） | `draft`、`drafts`、`dropDraft`、`editDraft`、`commitDrafts(ids, branch)` |
+| `project/references.js` | Input / Draft 的结构化上下文引用：校验、持久化与 invocation 时实时解析 | `normalizeReferences(references)`、`referencesForInput(inputId)`、`resolveInputReferences(inputId)` |
 | `project/specs.js` | 结构化 Plan 与确定性编译入口；新路径不创建 scheduler agent | `compilePlans()`、兼容别名 `ensureScheduler()`、`addSpec(plannerTaskId, spec)`、`dropSpec(specId, note, actor)` |
 | `project/plans.js` | 计划审批闸门 | `proposePlan`、`approvePlan`、`rejectPlan`、`planForApproval` |
 | `project/tasks.js` | 派生任务与单任务详情 | `spawn(parentId, goal, role, deps, name, specId)`、`inspect(taskId)` |
@@ -123,6 +124,7 @@
 | `store/events.js` | 审计事件 | `event`、`history` |
 | `store/verification.js` | 检验与解冲突的关联读模型 | `verifications`、`activeVerification`、`resolutions`、`activeResolver`、`unlandedResolver`、`conflictsOn` |
 | `store/drafts.js` | 输入缓存 | `addDraft`、`draft`、`updateDraft`、`openDrafts`、`draftCount` |
+| `store/references.js` | Input / Draft 的引用元数据（不是新的业务实体） | `setDraftReferences`、`draftReferences`、`setInputReferences`、`inputReferences`、`referencesForDrafts` |
 | `store/timeline.js` | 时间轴原料 | `timelineTasks`、`lifecycleEvents`、`childSpans` |
 | `store/branches.js` | 分支谱系记录（写入即不可变，删除与归档都只标 `status`、不删行，另存一句人写的 `summary` 作分支标题） | `PARENT_RELATIONS`、`branch`、`branches`、`recordBranch`、`markBranchDeleted`、`markBranchArchived`、`setBranchSummary` |
 | `store/runs.js` | 每次 invocation 的 Run 与结构化 Artifact；Run 固化这一次实际使用的 provider / model / thinking（后续改项目配置不改历史） | `startRun`、`finishRun`、`runsForTask`、`addArtifact`、`artifact`、`artifactsForTask`、`artifactsForInput` |
@@ -165,8 +167,9 @@
 | `sidebar-ui.js` | 左栏纯导航与右侧视图切换：信息页 / 通用内容画布互斥、统一视图栏、计数与兼容折叠状态 | `setViewChrome`、`activateDetailView`、`openResource`、`paintCollapsed`、`setNavCount`、`selectNav`、`navTo` |
 | `sidebar-init.js` | 装配左侧页面导航，以及移到右侧信息页内的筛选 / 排序控件 | `initSidebar()` |
 | `composer.js` | 输入缓存与提交表单；提示统一交给 `messages.js`，不再自己写输入栏底部的 `#error` | `buffer()`、`selectedDraftIds()`、`syncComposer()`、`initComposer()` |
+| `context-references.js` | 页面选区 / 语义元素的右键引用、输入框引用卡片与可引用节点注册 | `referenceable(node, descriptor)`、`initContextReferences()`、`renderComposerReferences()`、`setComposerReferences()` |
 | `messages.js` | 顶部消息提示（toast）：`#error` 从 `.composer` 底部搬进固定浮层，脱离 `.app` 的 grid；停留时长是本地偏好（`lush.toastDuration`，标准档＝信息 4s / 错误 8s），失败 / 错误类带手动关闭按钮，鼠标悬停暂停倒计时，同一段文本反复写入不重置计时（离线错误不闪烁），空文本立即隐藏。错误 `role=alert` / `aria-live=assertive`，信息 `role=status` / `aria-live=polite`；计时器可注入（DOM 测试用假时钟） | `show(value, kind)`、`clear()`、`setTimers(next)` |
-| `render-drafts.js` | 待提交缓存 | `renderDrafts(data)` |
+| `render-drafts.js` | 待提交缓存与引用摘要 | `renderDrafts(data)` |
 | `render-intents.js` | Intent 列表：原始目标、planner 闸门、Plan 计数、最新 Review Candidate 版本与「开始/重新验收 / 打开结果 / 接受并合入 / 要求修改」动作 | `renderIntents(data)` |
 | `render-specs.js` | 拆解队列（只读） | `renderSpecs(data)`、`specItem(spec)`、`specDeps(value)` |
 | `render-tree.js` | 任务树、兄弟链、依赖标签、为什么没在跑 | `renderTree(data)` |

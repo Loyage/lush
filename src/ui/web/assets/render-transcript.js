@@ -4,6 +4,7 @@ import { MD_STEP, STEP, relative } from './format.js';
 import { detail } from './navigate.js';
 import { transcriptCache, ui } from './state.js';
 import { agentText } from './text.js';
+import { referenceable } from './context-references.js';
 
 /* ---------- agent 执行过程：只读投影 pi 会话记录 ---------- */
 /** 单步折叠：默认每步只占一行（类型 + 标题 + 时间），点这一行才看正文；只有大模型的「回答」默认展开。 */
@@ -21,7 +22,12 @@ function stepNode(taskId, step) {
   if (step.at) head.append(el('span', relative(step.at), 'when'));
   item.append(head);
   // 没有正文的步骤（运行时元数据）保持一行，也不做可点的样子。
-  if (!step.body) { head.classList.add('static'); head.tabIndex = -1; return item; }
+  if (!step.body) {
+    head.classList.add('static'); head.tabIndex = -1;
+    referenceable(item, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 #${taskId}:${step.seq}`,
+      quote: `${STEP[step.kind] || step.kind} · ${step.title}`, location: { view: 'task-detail', task_id: taskId, section: 'transcript' } });
+    return item;
+  }
   const body = MD_STEP.has(step.kind) ? agentText(step.body, { className: 'step-body' }) : el('div', step.body, 'step-body');
   const paint = open => {
     item.classList.toggle('open', open);
@@ -33,6 +39,8 @@ function stepNode(taskId, step) {
   head.onclick = () => { const open = !item.classList.contains('open'); ui.stepToggle.set(stepKey(taskId, step), open); paint(open); };
   paint(stepExpanded(taskId, step));
   item.append(body);
+  referenceable(item, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 #${taskId}:${step.seq}`,
+    quote: `${STEP[step.kind] || step.kind} · ${step.title}\n${step.body}`, location: { view: 'task-detail', task_id: taskId, section: 'transcript' } });
   return item;
 }
 

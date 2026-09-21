@@ -4,6 +4,7 @@ import agentMethods from './project/agents.js';
 import depsMethods from './project/deps.js';
 import inputsMethods from './project/inputs.js';
 import draftsMethods from './project/drafts.js';
+import referencesMethods from './project/references.js';
 import specsMethods from './project/specs.js';
 import plansMethods from './project/plans.js';
 import tasksMethods from './project/tasks.js';
@@ -35,7 +36,7 @@ export { FLOWS } from './project/inputs.js';
  * 这是有意为之：运行时与各 mixin 都不依赖可枚举性，故意不为「更像 class」而改成 defineProperty。
  */
 const MIXINS = [
-  ['status', statusMethods], ['agents', agentMethods], ['deps', depsMethods], ['inputs', inputsMethods], ['drafts', draftsMethods],
+  ['status', statusMethods], ['agents', agentMethods], ['deps', depsMethods], ['inputs', inputsMethods], ['drafts', draftsMethods], ['references', referencesMethods],
   ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['tree', treeMethods],
   ['timeline', timelineMethods], ['messages', messagesMethods], ['merge', mergeMethods], ['verify', verifyMethods],
   ['candidates', candidateMethods], ['integration', integrationMethods], ['graph', graphMethods], ['branches', branchesMethods],

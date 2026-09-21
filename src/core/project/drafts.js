@@ -12,13 +12,18 @@ function batchContent(drafts) {
 /** 输入缓存（增删改、整体提交成一批）。 */
 export default {
   /** Buffering is user-only: agents submit work through task.spawn, never through the input buffer. */
-  draft(content) {
+  draft(content, references = []) {
     text(content, 'draft');
+    const normalized = this.normalizeReferences(references);
     check(this.store.draftCount() < MAX_DRAFTS, 'too many buffered drafts; submit or remove some first');
-    return this.store.addDraft(content);
+    return this.store.transaction(() => {
+      const draft = this.store.addDraft(content);
+      this.store.setDraftReferences(draft.id, normalized);
+      return { ...draft, references: normalized };
+    });
   },
 
-  drafts() { return bounded(this.store.openDrafts(), 400000); },
+  drafts() { return bounded(this.store.openDrafts().map(draft => ({ ...draft, references: this.store.draftReferences(draft.id) })), 400000); },
 
   dropDraft(draftId) {
     const draft = this.store.draft(draftId);
@@ -28,11 +33,16 @@ export default {
   },
 
   /** Edit a buffered draft in place. Submitted drafts are the audit chain of an input and never change. */
-  editDraft(draftId, content) {
+  editDraft(draftId, content, references = undefined) {
     text(content, 'draft');
     const draft = this.store.draft(draftId);
     check(draft.input_id === null, `draft ${draft.id} was already submitted as input ${draft.input_id}; inputs are never changed`);
-    return this.store.updateDraft(draft.id, content);
+    const normalized = references === undefined ? null : this.normalizeReferences(references);
+    return this.store.transaction(() => {
+      const updated = this.store.updateDraft(draft.id, content);
+      if (normalized !== null) this.store.setDraftReferences(draft.id, normalized);
+      return { ...updated, references: normalized ?? this.store.draftReferences(draft.id) };
+    });
   },
 
   /**
@@ -62,11 +72,16 @@ export default {
     }
     check(drafts.length > 0, 'no buffered drafts to submit');
     const content = batchContent(drafts);
+    const inputReferences = [];
     const result = await this.createInput(content, task => {
-      for (const draft of drafts) this.store.run('UPDATE drafts SET input_id=? WHERE id=?', task.input_id, draft.id);
+      drafts.forEach((draft, index) => {
+        this.store.run('UPDATE drafts SET input_id=? WHERE id=?', task.input_id, draft.id);
+        for (const reference of this.store.draftReferences(draft.id)) inputReferences.push({ segment: index + 1, reference });
+      });
+      this.store.setInputReferences(task.input_id, inputReferences);
       this.store.event(task.id, 'input.batch', { draft_ids: drafts.map(draft => draft.id) });
     }, branch);
     this.kick();
-    return { ...result, drafts: drafts.map(draft => draft.id) };
+    return { ...result, references: inputReferences.map(value => ({ segment: value.segment, ...value.reference })), drafts: drafts.map(draft => draft.id) };
   }
 };

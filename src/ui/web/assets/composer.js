@@ -2,6 +2,7 @@ import { $ } from './dom.js';
 import { action } from './api.js';
 import { show } from './messages.js';
 import { draftUnchecked, ui } from './state.js';
+import { composerReferences, renderComposerReferences, setComposerReferences } from './context-references.js';
 
 // 待提交意图：只落库不规划；可改、可勾选，只把选中的交给一个 planner 拆解成任务并建依赖。
 /** 面板开合状态画到 DOM：.open 控制展开，aria-expanded 同步给读屏。 */
@@ -18,8 +19,12 @@ export function toggleDraftPanel(force) {
 export async function buffer() {
   const value = $('input').value.trim();
   if (!value) return;
-  await action('draft.add', { content: value });
+  const references = composerReferences();
+  const signature = JSON.stringify(references);
+  await action('draft.add', { content: value, references });
   if ($('input').value.trim() === value) $('input').value = '';
+  // 网络请求期间用户可能又引用了一项；只清掉实际随这条草稿提交的那一组。
+  if (JSON.stringify(composerReferences()) === signature) setComposerReferences([]);
 }
 export const selectedDraftIds = () => ui.draftIds.filter(draftId => !draftUnchecked.has(draftId));
 // 按钮的可用性同时看输入框与勾选：都没内容就没什么可提交的。
@@ -27,7 +32,7 @@ export function syncComposer() { $('draft-commit').disabled = !$('input').value.
 /** 接上输入框与两个按钮：回车=缓存，⌘/Ctrl+回车=整体提交，Shift+回车=换行。 */
 export function initComposer() {
   $('draft-toggle').onclick = () => toggleDraftPanel();
-  paintDraftPanel();
+  paintDraftPanel(); renderComposerReferences();
   $('draft-add').onclick = async event => {
     const target = event.currentTarget; target.disabled = true;
     try { await buffer(); } catch (error) { show(error.message, 'error'); } finally { target.disabled = false; }

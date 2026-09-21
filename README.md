@@ -44,6 +44,8 @@ bun run web 4318 --project /absolute/path/to/my-project
 
 Web UI（默认 `http://127.0.0.1:4318`）是 **Intent 优先**的项目工作台：左栏是导航，首屏是 **Intent 工作台**（目标、Plan 状态、待验收候选版本与结果入口、真正需要你决定的事）；分支图、待你决定、行动任务、Intent 记录、结构化 Plan 与文档分别在右侧独立成页。右侧顶部始终保留返回上一页的入口，页面地址使用 `#graph`、`#settings`、`#notices`、`#tasks`、`#intents`、`#specs`、`#task-ID`、`#docs` / `#doc-<id>`，浏览器前进 / 后退可以在各视图与任务详情之间往返。首页顶部指标按 Intent 计（Intent / 并行执行 / 等待验收 / 需要你决定），并用同一份 `graph.get` 读模型把 Git 交付诊断折叠在成果主线之后；候选行上的「打开结果」直接开 verifier 的 HTML 报告，验收动作用 `candidate.accept` / `candidate.changes`。任务详情以目标为标题，结果与执行过程优先。输入框常驻内容区底部；窄屏用「导航菜单」展开页面入口。右上角可切换**深色 / 浅色主题**。左栏的**设置**页（`#settings`）分为三个页签：**Agent** 管项目默认与 planner / coordinator / worker / research / verifier / merger 六类行为的独立覆盖，可分别选择 Pi / Codex、模型、思考深度并追加项目 Prompt；配置原子写入 `.lush/agent.json`，正在运行的调用不打断，排队任务与后续唤醒立即读取新配置。**界面**管理 Markdown、主题、减少动效、信息列表排序、轮询与消息停留时长，这些偏好只存在当前浏览器；**系统**只读展示 daemon 参数与路径。移动端会压缩页头、导航、工具栏和分支卡片，并在分支诊断 / 设置 / 文档页隐藏底部输入器，把视口优先留给内容。过渡动画尊重系统「减少动态效果」。文档读的是随这份代码发布的 `docs/` 与 `README.md`（不随被开发的项目变），Markdown 相对链接可以直接点开，核心架构是一篇 standalone HTML（sandbox iframe）；刷新不丢已输入的答复。
 
+页面内容可以直接“引用到输入”：右键任务可引用单个任务或整棵任务子树，右键交付项可引用 Git / 目标分支，选中任意文字后右键可引用所选内容。引用以卡片显示在输入框上方，加入待提交意图后随草稿持久化；planner 同时收到引用时快照和 invocation 开始时解析的当前状态，目标已被清空时仍保留快照。引用只帮助聚焦，后续仍走同一条 `develop` / `explain` intent 通道。
+
 若 `bin/` 已在 PATH，在目标项目内可以直接使用：
 
 ```bash

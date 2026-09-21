@@ -18,7 +18,7 @@ Task 的累计 calls / wakes 继续用于兼容读模型，Run 保存每次调�
 1. Dispatcher 按依赖与两条 lane 的容量选择 queued WorkItem。
 2. `running` Map 占位，签发本次 invocation token，创建 `agent_runs` 行。
 3. 准备 cwd：planner 使用 Intent worktree；worker 使用隔离 worktree；Candidate verifier 使用固定 integration commit 与 baseline commit。
-4. 读取启动时未消费消息、相关工作与 Artifact 上下文，启动 provider。
+4. 读取启动时未消费消息、相关工作与 Artifact 上下文；若是 planner，再读取 Input 的引用快照并按稳定目标解析本轮最新状态，组成 `referenced_context` 后启动 provider。
 5. 成功返回后消费启动时消息，保存 Task 兼容 result、结束 Run、写 Artifact。
 6. 判定未读消息、Decision、活动子任务与工作区提交，进入 queued / awaiting / waiting / completed。
 7. 释放 token 和槽，再检查一次收件箱避免 lost wake-up。

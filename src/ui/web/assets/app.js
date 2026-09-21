@@ -14,6 +14,7 @@ import { openResource, paintCollapsed } from './sidebar-ui.js';
 import { resetUiState, ui } from './state.js';
 import { initComposer } from './composer.js';
 import { SORT_MODES } from './tree-order.js';
+import { initContextReferences } from './context-references.js';
 
 /* ---------- 左栏全局排序偏好（与设置页共用 lush.sidebarSort） ---------- */
 function syncSidebarSortSelect() {
@@ -91,6 +92,7 @@ export async function boot() {
   applyReducedMotion(readPref('reduceMotion'));
   syncSidebarSortSelect();
   $('sidebar-sort').addEventListener('change', onSidebarSortChange);
+  initContextReferences();
   initComposer();
   // 分支图是左栏首要工作入口；品牌按钮回到项目概览。所有入口都返回 promise，DOM 测试可以等到画完。
   const goGraph = () => openGraphView();

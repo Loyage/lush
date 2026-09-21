@@ -2,7 +2,7 @@ import { check, id } from '../../core/types.js';
 
 /** input.* / draft.* */
 export const handlers = {
-  'input.submit'(p, params, actor) { return p.submit(params.content, params.branch ?? null); },
+  'input.submit'(p, params, actor) { return p.submit(params.content, params.branch ?? null, params.references ?? []); },
   'input.list'(p, params, actor) { return p.inputs(); },
   'input.flow'(p, params, actor) {
     // Agent 省略 id 时判定自己的输入；用户（无 token）可对任意根 task 判定或改判。
@@ -11,9 +11,9 @@ export const handlers = {
     check(actor === null || id(target) === actor, 'agents may classify only their own input');
     return p.setInputFlow(id(target), params.flow);
   },
-  'draft.add'(p, params, actor) { return p.draft(params.content); },
+  'draft.add'(p, params, actor) { return p.draft(params.content, params.references ?? []); },
   'draft.list'(p, params, actor) { return p.drafts(); },
   'draft.remove'(p, params, actor) { return p.dropDraft(params.id); },
-  'draft.update'(p, params, actor) { return p.editDraft(params.id, params.content); },
+  'draft.update'(p, params, actor) { return p.editDraft(params.id, params.content, params.references); },
   'draft.commit'(p, params, actor) { return p.commitDrafts(params.ids ?? null, params.branch ?? null); },
 };

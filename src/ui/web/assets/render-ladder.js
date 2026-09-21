@@ -5,6 +5,7 @@ import { MERGE_STATUS } from './format.js';
 import { isMergeable, ladderEdges, mergeCandidates, previewMergeOrder } from './merge-select.js';
 import { detail, refresh } from './navigate.js';
 import { mergeSelection, ui } from './state.js';
+import { referenceable } from './context-references.js';
 
 const PHASE = {
   awaiting_review: '待审阅与批准',
@@ -101,6 +102,8 @@ export function renderLadder(data) {
     const groupItems = group.items || [];
     const groupBlock = block(`目标分支 ${group.target_branch}`, group.current === true ? '当前检出' : group.current === false ? `当前检出 ${ladder.current_branch || '其它分支'}` : undefined);
     groupBlock.classList.add('delivery-group');
+    referenceable(groupBlock, { kind: 'delivery_branch', target: { target_branch: group.target_branch }, label: `交付分支 ${group.target_branch}`,
+      quote: `目标分支 ${group.target_branch} · ${groupItems.length} 个交付项`, location: { view: 'delivery-ladder', section: group.target_branch } });
     const ready = groupItems.filter(isMergeable);
     const actions = el('div', undefined, 'actions pick-actions');
     const selected = button('', () => mergeBatch(ready.filter(item => mergeSelection.has(item.id)).map(item => item.id), candidates));
@@ -138,6 +141,9 @@ export function renderLadder(data) {
       }
       for (const blocker of candidate.blockers || []) line.append(el('span', `! ${blocker.message}`, 'delivery-blocker'));
       if (candidate.covered_by?.length) line.append(el('span', `提示：提交也存在于 #${candidate.covered_by.join('、')}；任一分支落地后系统会按 Git 事实自动收口状态。`, 'meta'));
+      referenceable(line, { kind: 'delivery_branch', target: { task_id: candidate.id, target_branch: candidate.target_branch },
+        label: `交付项 #${candidate.id} → ${candidate.target_branch}`, quote: `${candidate.goal}\n阶段：${PHASE[candidate.phase] || candidate.phase || candidate.integration}`,
+        location: { view: 'delivery-ladder', task_id: candidate.id, section: candidate.target_branch } });
       groupBlock.append(line);
     }
     section.append(groupBlock);

@@ -1,5 +1,6 @@
 import { block, el, kv } from './dom.js';
 import { CHANGE, short } from './format.js';
+import { referenceable } from './context-references.js';
 
 function fileList(rows, total) {
   const list = el('ul', undefined, 'difflist');
@@ -13,7 +14,7 @@ function fileList(rows, total) {
   if (total > rows.length) list.append(el('li', `… 另有 ${total - rows.length} 个文件`, 'path'));
   return list;
 }
-export function renderDiff(diff) {
+export function renderDiff(diff, taskId = null) {
   const section = block('改动概览');
   if (!diff) { section.append(el('p', '尚无工作区（规划任务或不改动代码的任务不创建 worktree）。', 'hint')); return section; }
   const grid = el('div', undefined, 'grid');
@@ -32,5 +33,9 @@ export function renderDiff(diff) {
   if (diff.pending?.length) {
     section.append(el('p', '未提交的改动（agent 未提交或失败时留下的）', 'hint'), fileList(diff.pending, diff.pending_total));
   }
+  if (taskId) referenceable(section, { kind: 'diff', target: { task_id: taskId }, label: `改动概览 #${taskId}`,
+    quote: [...(diff.commits || []), ...(diff.files || []).map(file => `${file.path} +${file.added ?? '?'} -${file.deleted ?? '?'}`),
+      ...(diff.pending || []).map(file => `${file.code || ''} ${file.path}`)].join('\n') || '尚无文件改动',
+    location: { view: 'task-detail', task_id: taskId, section: 'diff' } });
   return section;
 }

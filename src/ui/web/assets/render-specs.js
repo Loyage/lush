@@ -6,6 +6,7 @@ import { countText, describeFilters, filterSpecs, isFiltering } from './sidebar.
 import { setNavCount } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
 import { ui } from './state.js';
+import { referenceable } from './context-references.js';
 
 /* ---------- Structured Plan (read-only): planner writes, runtime compiles ---------- */
 // deps 可能是已解析的数组（{spec,kind} 或裸 id），也可能是 JSON 字符串；三种都要兼容。
@@ -37,6 +38,8 @@ export function specItem(spec) {
     item.append(taskRow);
   }
   item.title = specTitle(spec);
+  referenceable(item, { kind: 'spec', target: { spec_id: spec.id }, label: `规划条目 #${spec.id}`,
+    quote: spec.goal, location: { view: 'spec-list', spec_id: spec.id } });
   return item;
 }
 /** Group current Plan revisions by planner; historical scheduler batches stay readable for migration audit. */
