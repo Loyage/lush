@@ -91,6 +91,18 @@ export const CHANGE = { '??': '未跟踪', M: '修改', A: '新增', D: '删除'
 export const edgeLabel = edge => `#${edge.id}（${edge.kind === 'code' ? '代码基线' : '仅顺序'} · ${statusOf(edge).label}）`;
 export const STEP = { input: '输入', text: '回答', thinking: '思考', tool: '工具调用', result: '工具输出', meta: '运行时' };
 export const MD_STEP = new Set(['text', 'result', 'thinking']);   // 这几类步骤正文按 markdown 渲染
+/** 一步占多少上下文（读 src/core/transcript.js 给的 tokens 字段，前端不再自己算差值）：
+ *  精确（exact/turn）＝ pi 记录的这一次模型请求的合计（输入 + 缓存读 + 缓存写 + 输出）；
+ *  估算（estimated/batch）＝ 相邻两次请求的上下文差值，即这一批步骤（工具输出等）推入上下文的量。
+ *  返回 chip 的文案与悬停口径；没有可用的 tokens 时返回 null（调用方据此不渲染 chip）。 */
+export function tokensView(t) {
+  if (!t) return null;
+  if (t.estimated) return { text: `+${tokens(t.context_added)}`,
+    title: '估算：从上一次模型请求到下一次之间，上下文新增的 token（含本批工具输出等），由两次请求的上下文差值推算，不是 pi 记录的数字。' };
+  if (t.exact) return { text: `上下文 ${tokens(t.total)}`,
+    title: '这一次模型请求真的送进模型并收回来的 token：输入 + 缓存读 + 缓存写 + 输出，来自 pi 会话记录，不是估算；同一次回复的多个步骤共享这个合计。' };
+  return null;
+}
 /** 「最近一次执行」＝执行过程最后一条可显示步骤：相对时间（会随轮询自己走）+ 内容单行预览，全文放 title。 */
 export function lastView(last) {
   if (!last) return { value: '—', title: '还没有会话记录：这个任务从未被唤醒，或会话文件已被清理。' };

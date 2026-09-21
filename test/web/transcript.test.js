@@ -69,3 +69,38 @@ test('web exposes agent usage (model, context, cost) next to the transcript', as
     for (const label of ['模型', '上下文占用', '累计 token', '预计花费', '模型请求']) expect(app).toContain(label);
   } finally { await f.close(); }
 });
+
+test('web transcript steps carry per-step tokens: exact for a billed turn, estimated for the batch in between', async () => {
+  const f = await setup(); await repo(f.root);
+  try {
+    const task = (await f.project.submit('token me')).task;
+    f.project.stopping = true;   // 只造数据，不让 planner 真的跑
+    const dir = path.join(f.config.home, 'sessions');
+    fs.mkdirSync(dir, { recursive: true });
+    // 两次带 usage 的请求，中间夹一条工具输出：assistant 步拿到 pi 记录的精确用量，
+    // 两次请求之间的那批步骤拿到上下文差值的估算（725 = 1000+50 − 325）。
+    fs.writeFileSync(path.join(dir, `2026-01-01T00-00-00-000Z_lush-task-${task.id}.jsonl`), [
+      JSON.stringify({ type: 'message', timestamp: 1789749049638, message: { role: 'assistant', provider: 'mock', model: 'mock-1',
+        content: [{ type: 'thinking', thinking: '先看看代码' }, { type: 'toolCall', name: 'bash', arguments: { command: 'ls' } }],
+        usage: { input: 100, output: 20, cacheRead: 200, cacheWrite: 5, reasoning: 7, totalTokens: 325, cost: { total: 0.001 } } } }),
+      JSON.stringify({ type: 'message', timestamp: 1789749049639, message: { role: 'toolResult', toolName: 'bash', isError: false, content: [{ type: 'text', text: 'src\nREADME.md' }] } }),
+      JSON.stringify({ type: 'message', timestamp: 1789749049640, message: { role: 'assistant', provider: 'mock', model: 'mock-1',
+        content: [{ type: 'text', text: '改好了' }],
+        usage: { input: 1000, output: 30, cacheRead: 50, cacheWrite: 0, reasoning: 3, totalTokens: 1080, cost: { total: 0.002 } } } }),
+    ].join('\n') + '\n');
+    const page = await (await fetch(`${f.url}/api/task/${task.id}/transcript`)).json();
+    expect(page.steps.map(step => step.kind)).toEqual(['thinking', 'tool', 'result', 'text']);
+    // 同一次回复的两个 step 共享精确用量，只有首步带 first（前端据此只印一次 chip）
+    expect(page.steps[0].tokens).toMatchObject({ exact: true, turn: true, first: true, total: 325, input: 100, output: 20, cache_read: 200, cache_write: 5 });
+    expect(page.steps[1].tokens).toMatchObject({ exact: true, turn: true, total: 325 });
+    expect(page.steps[1].tokens.first).toBeUndefined();
+    // 两次请求之间的工具输出：估算，只有批首带 first
+    expect(page.steps[2].tokens).toEqual({ context_added: 725, estimated: true, batch: true, first: true });
+    expect(page.steps[3].tokens).toMatchObject({ exact: true, turn: true, first: true, total: 1080 });
+    // 前端渲染只认 tokens.first 才画 chip，估算带 + 前缀
+    const app = await pageSource(f.url);
+    expect(app).toContain('step-tokens');
+    expect(app).toContain('tokensView');
+    expect(app).toContain("t.estimated");
+  } finally { await f.close(); }
+});

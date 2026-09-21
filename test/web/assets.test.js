@@ -50,6 +50,8 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     expect(css).toContain('.graph-node.graph-emphasis-awaiting{');
     expect(css).toContain('.graph-decision{flex-basis:100%');
     expect(css).toContain('.graph-decision-body{');
+    // 执行过程每一步的 token chip：flex:none + 主题弱化色，标题截断时它和时间都不被挤掉。
+    expect(css).toMatch(/\.step-tokens\{flex:none;color:var\(--dim\)/);
     const html = await (await fetch(f.url)).text();
     expect(html.indexOf('/appearance.js')).toBeLessThan(html.indexOf('/styles.css'));
     expect(html).toContain('id="theme-toggle"');

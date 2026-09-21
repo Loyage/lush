@@ -115,28 +115,54 @@ test('热任务的详情会自己变新：折叠的执行过程只显示最近�
   expect(lastRow.querySelector('span').textContent).toContain('ls -la');
   // 折叠态是单行预览，全文放 title，并保留「查看执行过程」按钮。
   expect(lastRow.title).toContain('ls -la');
+  // usage.last 带 tokens：折叠态也用同一口径印精确 chip，口径写在 chip 的悬停里。
+  const lastChip = lastRow.querySelector('.step-tokens');
+  expect(lastChip.textContent).toBe('上下文 9.9k');
+  expect(lastChip.title).toContain('不是估算');
   expect(findByText(process, '查看执行过程')).toBeTruthy();
 
   // 模拟浏览器里每 3 秒跑一次的 liveRefresh：agent 又推进一步，折叠态那一行不用手点就变新。
   world.state.usageLast = { at: iso(NOW), kind: 'text', title: '回答', body: '改好了，正在跑测试' };
   await dom.intervalFor(3000)();
-  const updated = process.querySelector('[data-live="last"]').querySelector('span').textContent;
+  const refreshed = process.querySelector('[data-live="last"]');
+  const updated = refreshed.querySelector('span').textContent;
   expect(updated).toContain('改好了，正在跑测试');
   expect(updated).toContain('回答');
+  // 没有 tokens 的步骤和以前一样：不摆一个空的 chip。
+  expect(refreshed.querySelector('.step-tokens')).toBeNull();
 
   // 展开执行过程：首次全量读，之后按 after=next 增量续读。
   const expand = findByText(detail, '查看执行过程');
   await expand.onclick();
   const list = () => detail.querySelector('[data-live="transcript-steps"]');
-  await until(() => list() && list().children.length === 2, 2000);
+  await until(() => list() && list().children.length === 5, 2000);
   expect(world.state.transcriptAfter).toEqual([0]);
   // 展开后折叠态那一行让位给完整步骤列表。
   expect(blockByTitle('执行过程').querySelector('[data-live="last"]')).toBeFalsy();
 
-  world.state.transcriptSteps.push({ seq: 3, kind: 'text', title: '回答', at: iso(NOW), body: '测试通过' });
+  // 每一步的 token chip：只认组的首步，同一条回复的第二个 step 不重复；估算带 + 前缀。
+  const rendered = list().children;
+  const chipOf = node => node.querySelector('.step-tokens');
+  expect(chipOf(rendered[0])).toBeNull();                       // 首个请求之前没有可比对的上下文
+  expect(chipOf(rendered[1]).textContent).toBe('上下文 9.9k');   // assistant 步：精确
+  expect(chipOf(rendered[2])).toBeNull();                       // 同一次回复的第二个 step 不重复
+  expect(chipOf(rendered[3]).textContent).toBe('+1.2k');        // 工具输出批：估算
+  expect(chipOf(rendered[3]).title).toContain('估算');
+  expect(chipOf(rendered[4])).toBeNull();                       // 同一批的后续步不重复
+  expect(list().querySelectorAll('.step-tokens').length).toBe(2);
+  // chip 插在标题与时间之间，标题被截断时它和时间仍完整可见（flex:none 在样式里）。
+  const head = rendered[1].querySelector('.step-head');
+  const order = [...head.children].map(node => node.className);
+  expect(order.indexOf('step-title')).toBeLessThan(order.indexOf('step-tokens'));
+  expect(order.indexOf('step-tokens')).toBeLessThan(order.indexOf('when'));
+
+  // 续读到的步骤即使属于同一批（没有 first），也不能把已经印过的 chip 再印一遍。
+  world.state.transcriptSteps.push({ seq: 6, kind: 'result', title: 'edit', at: iso(NOW), body: '测试通过',
+    tokens: { context_added: 1200, estimated: true, batch: true } });
   await dom.intervalFor(3000)();
-  expect(list().children.length).toBe(3);
+  expect(list().children.length).toBe(6);
   expect(deepText(list())).toContain('测试通过');
-  // 第二个 tick 用的是游标 2，不是从头再读一遍。
-  expect(world.state.transcriptAfter).toEqual([0, 2]);
+  expect(list().querySelectorAll('.step-tokens').length).toBe(2);
+  // 第二个 tick 用的是游标 5，不是从头再读一遍。
+  expect(world.state.transcriptAfter).toEqual([0, 5]);
 });

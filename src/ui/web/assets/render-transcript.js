@@ -1,6 +1,6 @@
 import { $, button, el } from './dom.js';
 import { api } from './api.js';
-import { MD_STEP, STEP, relative } from './format.js';
+import { MD_STEP, STEP, relative, tokensView } from './format.js';
 import { detail } from './navigate.js';
 import { transcriptCache, ui } from './state.js';
 import { agentText } from './text.js';
@@ -12,6 +12,15 @@ const STEP_OPEN = new Set(['text']);
 const stepKey = (taskId, step) => `${taskId}:${step.seq}`;
 const stepExpanded = (taskId, step) => ui.stepToggle.get(stepKey(taskId, step)) ?? STEP_OPEN.has(step.kind);
 
+/** 一步占用的上下文 chip：精确＝这次请求的合计，估算＝这一批新增（带 + 前缀）。同一组只在 first 那一步印一次。 */
+export function tokensChip(tokens) {
+  const view = tokensView(tokens);
+  if (!view) return null;
+  const chip = el('span', view.text, 'step-tokens');
+  chip.title = view.title;
+  return chip;
+}
+
 /** 一步：折叠状态只改这一个节点，不重建整个执行过程（否则滚动位置会跳）。 */
 function stepNode(taskId, step) {
   const item = el('li', undefined, `step s-${step.kind}`);
@@ -19,6 +28,9 @@ function stepNode(taskId, step) {
   head.type = 'button';
   const caret = el('span', '', 'step-caret');
   head.append(caret, el('span', STEP[step.kind] || step.kind, `step-kind k-${step.kind}`), el('span', step.title, 'step-title'));
+  // 同一组（turn 或 batch）只认 first：翻页增量续读拿到的后续步骤没有 first，chip 不会重复印出来。
+  const chip = step.tokens?.first ? tokensChip(step.tokens) : null;
+  if (chip) head.append(chip);
   if (step.at) head.append(el('span', relative(step.at), 'when'));
   item.append(head);
   // 没有正文的步骤（运行时元数据）保持一行，也不做可点的样子。

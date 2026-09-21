@@ -1,16 +1,18 @@
 import { $, block, button, el, kv } from './dom.js';
 import { lastView, money, relative, tokens } from './format.js';
 import { detail } from './navigate.js';
-import { transcriptContent, loadTranscript } from './render-transcript.js';
+import { transcriptContent, loadTranscript, tokensChip } from './render-transcript.js';
 import { transcriptCache, transcriptOpen, ui } from './state.js';
 
-/** 折叠态的执行过程只摆这一行：相对时间 + 类型/标题 + 正文单行预览，全文在 title。 */
+/** 折叠态的执行过程只摆这一行：相对时间 + 类型/标题 + 正文单行预览，全文在 title；有 tokens 时并排一个同口径 chip。 */
 function lastStepRow(last) {
   const view = lastView(last);
   const row = el('p', undefined, 'last-step');
   row.dataset.live = 'last';
-  row.append(el('span', view.value));
-  row.title = view.title;
+  row.append(el('span', view.value, 'last-text'));
+  const chip = tokensChip(last?.tokens);
+  if (chip) row.append(chip);
+  row.title = chip ? `${view.title}\n${chip.title}` : view.title;
   return row;
 }
 /** 轮询里只重画这一行：不展开执行过程时，「最近一条步骤」不必等整个详情面板重建。 */
@@ -18,9 +20,11 @@ export function paintUsageLast(taskId, usage) {
   if (ui.selected !== taskId) return;
   const row = $('detail').querySelector('[data-live="last"]');
   if (!row) return;
-  const view = lastView(usage?.last ?? null);
-  (row.querySelector('span') || row).textContent = view.value;
-  row.title = view.title;
+  const last = usage?.last ?? null;
+  const view = lastView(last);
+  const chip = tokensChip(last?.tokens);
+  row.replaceChildren(el('span', view.value, 'last-text'), ...(chip ? [chip] : []));
+  row.title = chip ? `${view.title}\n${chip.title}` : view.title;
 }
 /** 一个 agent 的全部信息：身份与唤醒次数（Lush 侧）+ 模型、上下文、花费（pi 会话记录侧）。
  *  执行过程就在同一块里——它就是 agent 这个身份干过的事，不是另一类数据。 */

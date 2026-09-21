@@ -7,10 +7,21 @@ export const iso = ms => new Date(ms).toISOString();
  */
 export function makeWorld() {
   const state = {
-    usageLast: { at: iso(NOW - 1000), kind: 'tool', title: 'bash', body: 'ls -la' },
+    // 折叠态「最近一次执行」：usage.last 带精确 tokens，chip 与执行过程同口径显示。
+    usageLast: { at: iso(NOW - 1000), kind: 'tool', title: 'bash', body: 'ls -la',
+      tokens: { input: 300, output: 40, cache_read: 9600, cache_write: 0, reasoning: 9, total: 9940, cost: 0.001, exact: true, turn: true } },
+    // 执行过程 fixture：无 tokens 的 input 步；同一条 assistant 回复拆出的两个 step（只有首步带 first）；
+    // 两次请求之间的一批工具输出（估算，只有批首带 first，续读到的同批步骤没有 first）。
     transcriptSteps: [
       { seq: 1, kind: 'input', title: '任务上下文', at: iso(NOW - 9000), body: '读任务' },
-      { seq: 2, kind: 'tool', title: 'bash', at: iso(NOW - 8000), body: '{"command":"ls"}' },
+      { seq: 2, kind: 'thinking', title: '思考', at: iso(NOW - 8000), body: '先看看',
+        tokens: { input: 300, output: 40, cache_read: 9600, cache_write: 0, reasoning: 9, total: 9940, cost: 0.001, exact: true, turn: true, first: true } },
+      { seq: 3, kind: 'tool', title: 'bash', at: iso(NOW - 7500), body: '{"command":"ls"}',
+        tokens: { input: 300, output: 40, cache_read: 9600, cache_write: 0, reasoning: 9, total: 9940, cost: 0.001, exact: true, turn: true } },
+      { seq: 4, kind: 'result', title: 'bash', at: iso(NOW - 7000), body: 'src\nREADME.md',
+        tokens: { context_added: 1200, estimated: true, batch: true, first: true } },
+      { seq: 5, kind: 'result', title: 'edit', at: iso(NOW - 6500), body: 'ok',
+        tokens: { context_added: 1200, estimated: true, batch: true } },
     ],
     freeze: [],
     // 分支图：给 /api/graph 造数据。覆盖「有任务的分支」「无任务的锚点分支」「未登记的新 ref」
