@@ -1,13 +1,15 @@
 import { $ } from './dom.js';
 import { api, loadHistory } from './api.js';
 import { renderDetail, renderDetailError } from './render-detail.js';
+import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 
 /** 拉取并渲染一个任务详情。 */
 export async function loadDetail(taskId) {
   ui.selected = taskId;
-  // 右栏同一时刻只归一个视图：点进任务就把分支图与文档页的标志一起放掉。
+  // 右栏同一时刻只归一个视图：点进任务就把分支图、信息页与文档页的标志一起放掉。
   ui.graphOpen = false; ui.graphRenderKey = null; ui.docsOpen = false;
+  activateDetailView({ title: `任务 #${taskId}`, context: '任务详情', hint: '结果优先，过程与运行信息随后' });
   const navigated = ui.detailTask !== taskId;
   const scrolled = navigated ? 0 : $('detail').scrollTop;
   // window.history: a local `history` binding here would shadow the global and throw a TDZ error on click.
@@ -32,7 +34,7 @@ export async function loadDetail(taskId) {
   if (navigated && window.matchMedia?.('(max-width: 760px)')?.matches) {
     $('sidebar').classList.remove('mobile-open');
     $('sidebar-toggle').setAttribute('aria-expanded', 'false');
-    $('sidebar-toggle').textContent = '浏览任务';
+    $('sidebar-toggle').textContent = '导航菜单';
     $('detail').scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
   const tree = $('tasks').querySelector(`[data-id="${taskId}"]`);

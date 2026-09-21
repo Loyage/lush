@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Lush · 项目工作台</title>
+<title>Lush · 分支工作台</title>
 <script src="/appearance.js"></script>
 <link rel="stylesheet" href="/styles.css">
 <script type="module" src="/app.js"></script>
@@ -11,7 +11,7 @@
 <a class="skip-link" href="#detail">跳到主要内容</a>
 <div class="app">
 <header class="app-header">
-  <div class="brand"><button type="button" id="home" class="home" title="回到项目概览" aria-label="Lush · 项目概览"><span class="brand-mark" aria-hidden="true">L</span><strong>Lush<span class="brand-caption">PROJECT STUDIO</span></strong></button></div>
+  <div class="brand"><button type="button" id="home" class="home" title="回到项目概览" aria-label="Lush · 项目概览"><span class="brand-mark" aria-hidden="true">L</span><strong>Lush<span class="brand-caption">BRANCH STUDIO</span></strong></button></div>
   <div class="project-context"><span class="eyebrow">当前项目</span><span id="project">连接项目…</span></div>
   <div class="header-tools">
     <span id="agents"></span><span id="connection" role="status">连接中…</span>
@@ -22,32 +22,64 @@
 </header>
 <main>
 <aside id="sidebar" aria-label="项目导航">
-  <div class="workspace-nav"><button type="button" id="overview-open" class="workspace-link">◈ <span>项目概览</span><span class="nav-arrow">↗</span></button><button type="button" id="graph-open" class="workspace-link" title="查看各任务分支 / worktree 与目标分支的关系">⑂ <span>分支图</span><span class="nav-arrow">↗</span></button><button type="button" id="docs-open" class="workspace-link" title="查看这套软件的架构、使用流程与接口文档">≡ <span>文档</span><span class="nav-arrow">↗</span></button></div>
-  <div class="side-top"><div class="sidebar-label"><span class="eyebrow">项目索引</span><button type="button" id="sidebar-toggle" class="ghost" aria-expanded="false" aria-controls="sidebar-content">浏览任务</button></div>
-    <nav id="side-nav" class="side-nav" aria-label="左侧快速导航"></nav>
-    <div class="side-sort"><select id="sidebar-sort" class="sort" aria-label="左栏排序方式"></select></div>
+  <div class="nav-intro">
+    <span class="eyebrow">PROJECT NAVIGATION</span>
+    <strong>工作空间</strong>
+    <button type="button" id="sidebar-toggle" class="ghost" aria-expanded="false" aria-controls="side-nav">导航菜单</button>
   </div>
-  <div id="sidebar-content">
-    <section class="side" id="side-notices" data-side="notices">
-      <div class="section-title"><button type="button" class="side-head" id="side-head-notices" data-side="notices" aria-expanded="true" aria-controls="notices"><span class="side-name">待定事项</span><span id="notice-count" class="count"></span></button></div>
-      <div class="side-body" id="side-notices-body"><div id="notices"></div></div>
-    </section>
-    <section class="side" id="side-tasks" data-side="tasks">
-      <div class="section-title"><button type="button" class="side-head" id="side-head-tasks" data-side="tasks" aria-expanded="true" aria-controls="tasks"><span class="side-name">行动任务</span><span id="task-count" class="count"></span></button></div>
-      <div class="side-body" id="side-tasks-body"><div class="filters" id="task-filters"></div><div id="tasks"></div></div>
-    </section>
-    <section class="side" id="side-specs" data-side="specs">
-      <div class="section-title"><button type="button" class="side-head" id="side-head-specs" data-side="specs" aria-expanded="true" aria-controls="specs"><span class="side-name">规划任务</span><span id="spec-count" class="count"></span></button></div>
-      <div class="side-body" id="side-specs-body"><div class="filters" id="spec-filters"></div><div id="specs"></div></div>
-    </section>
-    <section class="side" id="side-intents" data-side="intents">
-      <div class="section-title"><button type="button" class="side-head" id="side-head-intents" data-side="intents" aria-expanded="true" aria-controls="intents"><span class="side-name">历史输入</span><span id="intent-count" class="count"></span></button></div>
-      <div class="side-body" id="side-intents-body"><div class="filters" id="intent-filters"></div><div id="intents"></div></div>
-    </section>
-  </div>
-  <div class="sidebar-footer"><span class="brand-spark">✳</span> 独立工作，并行生长。<span>一个项目 · 一个工作台</span></div>
+  <nav class="workspace-nav" aria-label="核心视图">
+    <button type="button" id="graph-open" class="workspace-link primary" title="查看分支谱系、工作状态与收口动作"><span class="nav-icon" aria-hidden="true">⑂</span><span><strong>分支图</strong><small>项目的核心工作视图</small></span><span class="nav-arrow">→</span></button>
+    <button type="button" id="overview-open" class="workspace-link" title="查看项目摘要与需要关注的工作"><span class="nav-icon" aria-hidden="true">◈</span><span><strong>项目概览</strong><small>进度、提醒与运行状态</small></span><span class="nav-arrow">→</span></button>
+  </nav>
+  <div class="nav-divider"><span>信息页面</span></div>
+  <nav id="side-nav" class="side-nav" aria-label="项目信息页面"></nav>
+  <div class="nav-divider"><span>帮助</span></div>
+  <nav class="support-nav">
+    <button type="button" id="docs-open" class="workspace-link" title="查看这套软件的架构、使用流程与接口文档"><span class="nav-icon" aria-hidden="true">≡</span><span><strong>文档</strong><small>使用流程与架构参考</small></span><span class="nav-arrow">→</span></button>
+  </nav>
+  <div class="sidebar-footer"><span class="brand-spark">✳</span> 以分支理解工作。<span>一个项目 · 一条清晰的演进路径</span></div>
 </aside>
-<section id="detail" tabindex="-1" aria-label="项目内容"><div class="loading-state"><span class="brand-spark">✳</span><h1>正在连接你的项目</h1><p class="hint">任务、交付与进展，即将在这里汇合。</p></div></section>
+<div class="content-shell">
+  <div id="view-toolbar" class="view-toolbar">
+    <button type="button" id="view-back" class="view-back" title="返回上一页面" aria-label="返回上一页面">← <span>返回</span></button>
+    <div class="view-identity"><span id="view-context" class="eyebrow">核心视图</span><strong id="view-title">分支图</strong></div>
+    <span id="view-hint" class="view-hint">沿分支查看工作、审阅结果并完成收口</span>
+  </div>
+  <section id="detail" tabindex="-1" aria-label="项目内容"><div class="loading-state"><span class="brand-spark">✳</span><h1>正在连接你的项目</h1><p class="hint">分支、任务与进展，即将在这里汇合。</p></div></section>
+  <section id="resource-panels" class="resource-panels" aria-label="项目信息页面" hidden>
+    <section class="resource-page side" id="side-notices" data-side="notices" hidden>
+      <header class="resource-hero"><span class="resource-kicker">DECISIONS</span><h1>待你决定</h1><p>集中处理会阻塞 agent 或开发流程的问题。点开一项后，会进入所属任务的完整上下文。</p></header>
+      <div class="resource-card">
+        <div class="section-title"><button type="button" class="side-head" id="side-head-notices" data-side="notices" aria-expanded="true" aria-controls="notices"><span class="side-name">未处理事项</span><span id="notice-count" class="count"></span></button></div>
+        <div class="side-body" id="side-notices-body"><div id="notices"></div></div>
+      </div>
+    </section>
+    <section class="resource-page side" id="side-tasks" data-side="tasks" hidden>
+      <header class="resource-hero"><span class="resource-kicker">EXECUTION</span><h1>行动任务</h1><p>按任务树查看执行关系、依赖、状态与交付情况。任务只是分支上的工作明细，最终收口仍在分支图完成。</p></header>
+      <div class="resource-tools"><div class="filters" id="task-filters"></div><label class="sort-label" for="sidebar-sort">排序<select id="sidebar-sort" class="sort" aria-label="左栏排序方式"></select></label></div>
+      <div class="resource-card">
+        <div class="section-title"><button type="button" class="side-head" id="side-head-tasks" data-side="tasks" aria-expanded="true" aria-controls="tasks"><span class="side-name">任务树</span><span id="task-count" class="count"></span></button></div>
+        <div class="side-body" id="side-tasks-body"><div id="tasks"></div></div>
+      </div>
+    </section>
+    <section class="resource-page side" id="side-intents" data-side="intents" hidden>
+      <header class="resource-hero"><span class="resource-kicker">INTENT</span><h1>历史输入</h1><p>回看每一次原始输入、planner 的理解、计划审批与 scheduler 的编排进度。</p></header>
+      <div class="resource-tools"><div class="filters" id="intent-filters"></div></div>
+      <div class="resource-card">
+        <div class="section-title"><button type="button" class="side-head" id="side-head-intents" data-side="intents" aria-expanded="true" aria-controls="intents"><span class="side-name">输入记录</span><span id="intent-count" class="count"></span></button></div>
+        <div class="side-body" id="side-intents-body"><div id="intents"></div></div>
+      </div>
+    </section>
+    <section class="resource-page side" id="side-specs" data-side="specs" hidden>
+      <header class="resource-hero"><span class="resource-kicker">PLANNING</span><h1>规划队列</h1><p>查看 planner 写下的规划任务、拆解条目、依赖与 scheduler 的批次归属。这一页只读，用于理解任务如何产生。</p></header>
+      <div class="resource-tools"><div class="filters" id="spec-filters"></div></div>
+      <div class="resource-card">
+        <div class="section-title"><button type="button" class="side-head" id="side-head-specs" data-side="specs" aria-expanded="true" aria-controls="specs"><span class="side-name">拆解条目</span><span id="spec-count" class="count"></span></button></div>
+        <div class="side-body" id="side-specs-body"><div id="specs"></div></div>
+      </div>
+    </section>
+  </section>
+</div>
 </main>
 <div class="composer"><form id="input-form">
   <div class="composer-heading"><label for="input">下一步，想做什么？</label><span class="composer-caption">从一个想法开始</span></div>

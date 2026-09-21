@@ -17,8 +17,10 @@ function makeNavItem(section) {
   const item = el('button', undefined, 'nav-item');
   item.type = 'button';
   item.dataset.side = section.id;
-  item.title = `跳到「${section.long}」`;
-  item.append(el('span', section.label, 'nav-label'), el('span', '0', 'nav-count'));
+  item.title = `在右侧打开「${section.long}」`;
+  const copy = el('span', undefined, 'nav-copy');
+  copy.append(el('strong', section.label, 'nav-label'), el('small', section.description, 'nav-description'));
+  item.append(el('span', section.icon, 'nav-icon'), copy, el('span', '0', 'nav-count'), el('span', '→', 'nav-arrow'));
   item.onclick = () => navTo(section.id);
   return item;
 }
@@ -34,6 +36,7 @@ export function initSidebar() {
     ui.navButtons.set(section.id, item);
     ui.navCounts.set(section.id, item.querySelector('.nav-count'));
   }
+  // 兼容已有的折叠偏好；控制项保持低调，主要导航仍然只负责打开右侧页面。
   const folds = el('span', undefined, 'nav-fold');
   folds.append(
     makeFoldButton('全部折叠', () => { ui.collapsed = new Set(SIDEBAR_SECTIONS.map(section => section.id)); paintCollapsed(); saveCollapsedPref(); }),

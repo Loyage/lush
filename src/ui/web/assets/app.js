@@ -6,6 +6,7 @@ import { detail, overview } from './navigate.js';
 import { liveRefresh, refresh, applySort } from './refresh.js';
 import { openGraph } from './render-graph.js';
 import { initSidebar } from './sidebar-init.js';
+import { openResource } from './sidebar-ui.js';
 import { SIDEBAR_SORT_KEY, SORT_IDS, resetUiState, ui } from './state.js';
 import { syncMarkdownToggle, toggleMarkdown } from './text.js';
 import { initComposer } from './composer.js';
@@ -16,7 +17,7 @@ function syncSidebarSortSelect() {
   const select = $('sidebar-sort');
   select.replaceChildren(...SORT_MODES.map(mode => { const option = el('option', mode.label); option.value = mode.id; return option; }));
   select.value = ui.sidebarSortMode;
-  select.title = '左栏四个列表共用：智能排序＝每个列表用自己最有用的顺序（行动任务先看未答复问题与运行状态，规划任务保持批次分组，历史输入与待定事项保持时间线顺序）；按最近更新＝最近动过的排最前；按编号＝新在前。';
+  select.title = '四个列表共用：智能排序会为任务、规划、输入与待决事项分别选择最有用的顺序；也可以统一按最近更新或编号排序。';
 }
 function onSidebarSortChange() {
   const value = $('sidebar-sort').value;
@@ -38,11 +39,13 @@ function openDocsView(id = null) { return openDocs(id).catch(error => { $('error
 function onHashChange() {
   const report = error => { $('error').textContent = error.message; };
   if (location.hash === '#graph') return ui.graphOpen ? undefined : openGraphView();
+  const resource = /^#(notices|tasks|intents|specs)$/.exec(location.hash)?.[1];
+  if (resource) return openResource(resource, { push: false });
   const doc = docsTarget(location.hash);
   if (doc) return openDocsView(doc.id);
   const next = linked(location.hash);
-  // 后退到没有 hash 的地址＝用户想回概览：只画详情不换面板会让合并按钮彻底消失。
-  if (!next) return (ui.selected !== null || ui.graphOpen || ui.docsOpen) ? overview().catch(report) : undefined;
+  // 没有 hash 是项目概览；分支图使用显式 #graph，因此浏览器前进 / 后退不会含糊。
+  if (!next) return overview().catch(report);
   return next === ui.selected ? undefined : detail(next).catch(report);
 }
 
@@ -64,25 +67,35 @@ export async function boot() {
   syncSidebarSortSelect();
   $('sidebar-sort').addEventListener('change', onSidebarSortChange);
   initComposer();
-  // 这三个入口都返回 promise：浏览器不看返回值，但测试能 await 到「画完」为止。
-  const goHome = () => overview().catch(error => { $('error').textContent = error.message; });
-  $('home').onclick = goHome;
-  $('overview-open').onclick = goHome;
+  // 分支图是左栏首要工作入口；品牌按钮回到项目概览。所有入口都返回 promise，DOM 测试可以等到画完。
+  const goGraph = () => openGraphView();
+  const goOverview = () => overview().catch(error => { $('error').textContent = error.message; });
+  $('home').onclick = goOverview;
+  $('overview-open').onclick = goOverview;
   $('sidebar-toggle').onclick = () => {
     const open = $('sidebar').classList.toggle('mobile-open');
     $('sidebar-toggle').setAttribute('aria-expanded', String(open));
-    $('sidebar-toggle').textContent = open ? '收起索引' : '浏览任务';
+    $('sidebar-toggle').textContent = open ? '收起菜单' : '导航菜单';
   };
-  $('graph-open').onclick = () => { location.hash = '#graph'; return openGraphView(); };
-  $('docs-open').onclick = () => { location.hash = '#docs'; return openDocsView(); };
+  $('graph-open').onclick = goGraph;
+  $('docs-open').onclick = () => openDocsView();
+  $('view-back').onclick = () => {
+    if ($('view-back').disabled) return;
+    if (typeof window.history.back === 'function') return window.history.back();
+    return goOverview();
+  };
   initSidebar();
   await refresh();
+  const resource = /^#(notices|tasks|intents|specs)$/.exec(location.hash)?.[1];
   if (location.hash === '#graph') await openGraphView();
+  else if (resource) openResource(resource, { push: false });
   else {
     const doc = docsTarget(location.hash);
     const initial = doc ? null : linked(location.hash);
     if (doc) await openDocsView(doc.id);
     else if (initial) { try { await detail(initial); } catch (error) { $('error').textContent = error.message; } }
+    // 无 hash 是项目概览；分支图仍是左栏第一入口和整个信息架构的主线。
+    else { /* refresh() 已画好概览 */ }
   }
   hashListener = onHashChange;
   addEventListener('hashchange', hashListener);

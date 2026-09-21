@@ -12,6 +12,7 @@
  */
 import { api } from './api.js';
 import { renderDoc, renderDocError, renderDocsIndex } from './render-docs.js';
+import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 
 const DOC_HASH = /^#doc-([a-z0-9._-]+)$/;
@@ -56,6 +57,7 @@ export async function openDocs(id = null) {
   ui.docsOpen = true;
   ui.graphOpen = false; ui.graphRenderKey = null;
   ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailTask = null;
+  activateDetailView({ title: id ? '阅读文档' : '文档', context: '帮助与参考', hint: id ? '站内文档 · 相对链接可直接跳转' : '使用流程、架构与接口参考' });
   const hash = id ? `#doc-${id}` : DOCS_HASH;
   if (location.hash !== hash) window.history.pushState(null, '', hash);
   await loadDocs(id);

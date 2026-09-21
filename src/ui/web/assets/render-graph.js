@@ -20,6 +20,7 @@ import { confirmDialog, promptDialog } from './dialog.js';
 import { ROLE, statusOf } from './format.js';
 import { graphLayout, graphFingerprint, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingTask, workingState } from './graph-layout.js';
 import { detail, overview } from './navigate.js';
+import { activateDetailView } from './sidebar-ui.js';
 import { saveGraphPrefs, ui } from './state.js';
 
 /** 分支状态映射：状态 -> { label, className }；已合进父分支是常态，不再单独出一个「已合并」标签。
@@ -47,6 +48,7 @@ export async function openGraph() {
   ui.graphOpen = true;
   ui.docsOpen = false;   // 右栏同一时刻只归一个视图
   ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailTask = null;
+  activateDetailView({ title: '分支图', context: '核心视图', hint: '沿谱系理解工作，并把成果逐层收口' });
   if (location.hash !== '#graph') window.history.pushState(null, '', '#graph');
   await loadGraph();
 }
@@ -454,13 +456,30 @@ export function renderGraph(graph, { force = false } = {}) {
 
   const layout = graphLayout(graph);
   const content = [];
-  const head = el('div', undefined, 'head');
-  head.append(el('span', '分支图', 'tid-lg'));
-  head.append(el('span', layout.current_branch ? `当前检出 ${layout.current_branch}` : '当前未检出分支', 'hint'));
+  const head = el('div', undefined, 'head graph-head');
+  const heading = el('div', undefined, 'graph-heading');
+  heading.append(el('span', 'BRANCH MAP', 'eyebrow'), el('span', '分支图', 'tid-lg'),
+    el('p', '分支是项目演进的主线。顺着父子关系检查工作状态、处理分歧，并将完成的成果逐层合回。', 'hero-description'));
   const actions = el('div', undefined, 'actions');
-  actions.append(button('刷新', () => loadGraph(), 'ghost'), button('返回概览', () => overview(), 'ghost'));
-  head.append(actions);
+  actions.append(button('刷新分支状态', () => loadGraph(), 'ghost'), button('查看概览', () => overview(), 'ghost'));
+  head.append(heading, actions);
   content.push(head);
+
+  const summary = el('div', undefined, 'graph-summary');
+  for (const [label, value] of [
+    ['分支', String(layout.branch_count)],
+    ['任务', String(layout.task_count)],
+    ['当前检出', layout.current_branch || '未检出'],
+  ]) {
+    const item = el('div', undefined, 'graph-summary-item');
+    item.append(el('span', label, 'eyebrow'), el('strong', value)); summary.append(item);
+  }
+  const legend = el('div', undefined, 'graph-legend');
+  legend.append(el('span', '关系', 'eyebrow'));
+  for (const [key, label] of [['ahead', '可合入'], ['equal', '一致'], ['behind', '落后'], ['diverged', '分歧'], ['missing', '缺失']]) {
+    const item = el('span', label, `graph-legend-item relation-${key}`); item.dataset.relation = key; legend.append(item);
+  }
+  summary.append(legend); content.push(summary);
 
   if (!layout.git) content.push(el('p', `读取 git 失败：${layout.error || '这个项目不是 git 仓库'}`, 'hint warn'));
   else if (layout.error) content.push(el('p', `读取 git 时出错：${layout.error}`, 'hint warn'));
