@@ -10,18 +10,19 @@
  */
 import { $, button, el } from './dom.js';
 import { api, action } from './api.js';
+import { confirmDialog } from './dialog.js';
 import { ROLE, statusOf } from './format.js';
-import { graphLayout, graphFingerprint, graphRenderKey, edgeRelation, emphasisClasses, isBranchCollapsed, isWorkingTask } from './graph-layout.js';
+import { graphLayout, graphFingerprint, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingTask, workingState } from './graph-layout.js';
 import { detail, overview } from './navigate.js';
 import { saveGraphPrefs, ui } from './state.js';
 
-/** 分支状态映射：状态 -> { label, className }；已合进父分支是常态，不再单独出一个「已合并」标签。 */
+/** 分支状态映射：状态 -> { label, className }；已合进父分支是常态，不再单独出一个「已合并」标签。
+ *  没有 archived：归档的分支根本不会被画进分支树（看 graphLayout 的 hiddenBranches）。 */
 const BRANCH_STATUS = {
   active: { label: '进行中', className: 'ok' },
   failed: { label: '失败', className: 'warn' },
   ready: { label: '待合并', className: '' },
   empty: { label: '空', className: '' },
-  archived: { label: '已归档', className: '' },
 };
 
 /** 分支来源映射：来源 -> 中文描述 */
@@ -75,6 +76,8 @@ function taskRow(node, owningBranch = null) {
   const row = el('div', undefined, LANE_CLASS(node.level));
   // 在跑 / 排队 / 等着的任务同样带上工作态强调，和它所在的分支一起被看见。
   if (isWorkingTask(node)) row.classList.add('graph-emphasis-working');
+  // 在跑的任务行除了左边条再给一个脉冲点：旁边的「运行中」文案有了一眼可见的对应标记。
+  if (node.status === 'running') row.append(el('span', '●', 'graph-work-dot'));
   row.append(el('span', `#${node.id}`, 'tid'));
   row.append(button(node.goal || '(无目标)', () => detail(node.id), 'graph-node'));
   row.append(el('span', `${ROLE[node.role] || node.role} · ${statusOf(node).label}`, 'meta'));
@@ -103,13 +106,29 @@ async function runBranchAction(method, branch) {
   } catch (error) { $('error').textContent = error.message; }
 }
 
-/** 归档：删掉分支与 worktree，任务与会话留在库里；未提交改动只能连 worktree 一起丢，所以先确认。 */
+/** 归档一子树分支：删掉这条分支与它全部后代的 worktree / 本地 ref，任务、会话与分支记录都留着。
+ *  未提交改动只能连 worktree 一起丢，所以先确认；确认走应用内弹窗（dialog.js）——原生 confirm
+ *  会被浏览器静默吃掉，那时按钮会变成什么都不做。 */
 async function runBranchArchive(branch) {
-  if (!confirm(`归档 ${branch}？\n会删除分支与 worktree，保留任务与会话，未提交改动会被丢弃。`)) return;
+  const descendants = Number(branch.subtreeBranches) || 0;
+  const scope = descendants
+    ? `会删除这条分支与它下面 ${descendants} 条后代分支的 worktree 与本地 ref`
+    : '会删除这条分支的 worktree 与本地 ref';
+  const confirmed = await confirmDialog({
+    title: `归档 ${branch.name}？`,
+    message: `${scope}，保留任务、会话与分支记录（记录仍可在「分支详情」与任务详情里查）；未提交改动会被丢弃。`,
+    confirmLabel: '归档',
+    cancelLabel: '保留',
+    danger: true,
+  });
+  if (!confirmed) return;
   try {
-    const result = await action('branch.archive', { branch, discard: true });
+    const result = await action('branch.archive', { branch: branch.name, discard: true });
+    const count = Number(result?.count) || 1;
     const dropped = result?.discarded ? '，已丢弃未提交改动' : '';
-    $('error').textContent = `${branch} 已归档（worktree ${result?.worktree ?? 'absent'}、分支 ${result?.ref ?? 'absent'}${dropped}）；任务与会话已保留`;
+    $('error').textContent = count > 1
+      ? `已归档 ${branch.name} 及它下面 ${count - 1} 条后代分支（共 ${count} 条）：worktree 与本地 ref 已删${dropped}，任务、会话与分支记录都保留`
+      : `${branch.name} 已归档（worktree ${result?.worktree ?? 'absent'}、分支 ${result?.ref ?? 'absent'}${dropped}）；任务与会话已保留`;
     await loadGraph();
   } catch (error) { $('error').textContent = error.message; }
 }
@@ -124,7 +143,7 @@ function branchAction(label, title, run) {
 }
 
 /**
- * 父子关系的处理选项（文案与颜色都来自 edgeRelation 的 key）：
+ * 父子关系的处理选项（文案与颜色都来自 graphLayout 算好的 relation.key）：
  * - 领先：合入父分支（子 → 父 fast-forward）；
  * - 落后：让子分支跟上父分支（父 → 子 fast-forward，不产生 merge commit）；
  * - 分歧：在子分支解决分歧（开一个 merger 任务把父分支合进子分支），合入父分支同时摆出来但禁用；
@@ -185,6 +204,11 @@ function branchRow(branch, onCollapsed) {
   const row = el('div', undefined, 'graph-branch');
   // 未合进父分支 / 正在工作的分支带强调 class（样式见 styles.css）；两者可同时命中。
   for (const name of emphasisClasses(branch)) row.classList.add(name);
+  // 工作态标识只回答显示：running / pending 给 chip，subtree 给一行更弱的话，停下来的分支一个都不画。
+  const work = workingState(branch);
+  // 当前没有工作的分支整体降噪（.graph-idle）：分支名与元信息降到次级色，不再占工作态的强调通道。
+  // 只在 `working` 也为 false 时才加，保证强调 class（未合并 / 工作态）永远不会被降噪规则盖掉。
+  if (!work && !branch.working) row.classList.add('graph-idle');
   // 只有真的能藏东西的分支才给箭头：任务和子分支都是空的时候，收起没意义。
   const hideable = branch.subtreeBranches + branch.subtreeTasks > 0;
   if (hideable) row.append(collapseCaret(branch, onCollapsed));
@@ -192,7 +216,7 @@ function branchRow(branch, onCollapsed) {
   if (branch.head_commit) row.append(el('span', String(branch.head_commit).slice(0, 7), 'meta mono'));
   // 只被 parent 指针提到、既无记录也无 ref：占位，不假装分支还在。
   else if (branch.placeholder) row.append(el('span', '⚠ 仅谱系提及', 'chip warn'));
-  // 记录还在、ref 已经不在：分支被删了，照旧画出来但明说它现在不存在。
+  // 记录还在、ref 已经不在（又不是归档：归档的分支不会画进分支树）：分支被删了，明说它现在不存在。
   else row.append(el('span', '⚠ 分支不存在', 'chip warn'));
   if (branch.current) row.append(el('span', '当前检出', 'chip'));
   // 有 ref 但没有 branches 记录：画出来，但标明谱系里没有它。
@@ -205,10 +229,27 @@ function branchRow(branch, onCollapsed) {
     row.append(el('span', `已收起 ${parts.join(' / ')}`, 'meta graph-collapsed-hint'));
   }
 
-  // 与父分支的关系（fork 边）：状态 chip 与 ahead/behind 共用 edgeRelation 的 key（颜色见
-  // styles.css 的 [data-relation]），后面跟这个关系当前能做的动作。
+  // 工作态标识放在分支名之后、关系 chip 之前：先看到「这条还在动」，再看它和父分支的关系。
+  // 收起的是任务与子分支，状态属于这条分支本身，所以表头上永远显示。
+  if (work) {
+    if (work.key === 'subtree') {
+      const node = el('span', undefined, 'graph-work subtree');
+      node.append(`${work.label} · ${work.count}`);
+      row.append(node);
+    } else {
+      const chip = el('span', undefined, `chip graph-work ${work.key === 'running' ? 'run' : work.key}`);
+      // ● 用 append 加在最前（浏览器与测试 stub 都支持 append，混入文本节点也一样）。
+      if (work.key === 'running') chip.append(el('span', '●', 'graph-work-dot'));
+      chip.append(work.label);
+      row.append(chip);
+    }
+  }
+
+  // 与父分支的关系（fork 边）：状态 chip 与 ahead/behind 共用 graphLayout 算好的 relation（颜色见
+  // styles.css 的 [data-relation]），后面跟这个关系当前能做的动作。归档把 ref 删掉之后不算「分支缺失」：
+  // 已归档的分支没有关系可谈（relation 为 null），父分支已归档的报「父分支已归档」。
   const edge = branch.incoming;
-  const relation = edgeRelation(edge);
+  const relation = branch.relation;
   if (relation) row.append(el('span', relation.label, 'chip graph-relation'));
   if (edge && (Number.isFinite(edge.ahead) || Number.isFinite(edge.behind))) {
     row.append(el('span', `子分支 +${edge.ahead ?? '?'} / -${edge.behind ?? '?'}`, 'meta'));
@@ -219,9 +260,11 @@ function branchRow(branch, onCollapsed) {
   const meta = el('div', undefined, 'graph-branch-meta');
   // 有子分支还没收拢时不能合并：这条提示只和 fork 边有关，但不适合塞进挤满 chip 的表头行。
   if (edge?.blockers?.length) meta.append(el('span', `先收拢子分支：${edge.blockers.join('、')}`, 'graph-branch-blocker'));
-  // 归档分支的状态固定显示「已归档」，不被汇总出来的旧状态盖掉。
-  const statusInfo = branch.archived ? BRANCH_STATUS.archived : BRANCH_STATUS[branch.status];
-  if (statusInfo) {
+  // 归档分支的状态固定显示「已归档」，不被汇总出来的旧状态盖掉。表头已经报过它（ref 是归档时
+  // 按预期删掉的），所以这里只补归档时间，不把同一个词再说一遍。
+  // 归档分支的状态不需要在这里特判：归档的分支不会被画进分支树（见 graphLayout 的 hiddenBranches）。
+  if (BRANCH_STATUS[branch.status]) {
+    const statusInfo = BRANCH_STATUS[branch.status];
     meta.append(el('span', statusInfo.label, `chip ${statusInfo.className}`.trim()));
   }
   if (branch.title) {
@@ -245,7 +288,8 @@ function branchRow(branch, onCollapsed) {
   if (meta.children.length > 0) row.append(meta);
 
   // 只有「可归档且尚未归档」的分支才给动作；当前检出、未登记、还有活没完的都不给。
-  if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch.name), 'ghost'));
+  // 归档一条＝归档它整棵子树（见 runBranchArchive 的确认文案）。
+  if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch), 'ghost'));
 
   return row;
 }
@@ -257,9 +301,9 @@ function branchRow(branch, onCollapsed) {
 function branchBlock(branch) {
   const block = el('div', undefined, 'graph-group');
   // 关系色画在 block 上（--rel-ink / --rel-tint 由 styles.css 的 [data-relation] 定义）：
-  // 分支面板的底色与左边条、挂到它的那段连接线与拐角都跟着走。根分支没有来边，保持默认强调色。
-  const relation = edgeRelation(branch.incoming);
-  if (relation) block.dataset.relation = relation.key;
+  // 分支面板的底色与左边条、挂到它的那段连接线与拐角都跟着走。根分支与已归档的分支没有关系可谈，
+  // 保持默认强调色。
+  if (branch.relation) block.dataset.relation = branch.relation.key;
   if (isBranchCollapsed(branch, ui.graphExpanded, ui.graphCollapsed)) block.classList.add('collapsed');
   block.append(branchRow(branch, collapsed => block.classList.toggle('collapsed', collapsed)));
   // 空任务车道不画：否则表头下面会拖出一段没有去处的竖线。子分支车道的连接段自己补上这段空隙。

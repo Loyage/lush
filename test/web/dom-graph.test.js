@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, deepText } from '../dom-stub.js';
+import { installDom, deepText, dialogText, answerDialog } from '../dom-stub.js';
 import { makeWorld, iso, NOW } from './dom-world.js';
 
 // 分支图视图：#graph hash、分支谱系嵌套、任务节点、缺失标注、点节点进详情、幂等刷新、轮询不覆盖、
@@ -128,15 +128,15 @@ test('分支图：最长陈旧时间到期自动重拉，UI 外新建的分支�
   expect(deepText(dom.node('detail'))).toContain('lush/demo/2-fresh');
 });
 
-test('分支图：可归档分支才有归档按钮，确认后发 branch.archive 并显示已归档', async () => {
+test('分支图：可归档分支才有归档按钮，确认后整棵子树一起归档并从分支树上消失', async () => {
   await openGraph();
   const saved = JSON.parse(JSON.stringify(world.state.graph));
   try {
     const detail = dom.node('detail');
     // 分支表头的那一行：嵌套子分支在别的 graph-group 里，不能用 block 去查，否则会看到子分支的按钮。
     const branchRow = name => detail.querySelectorAll('span.graph-branch-name')
-      .find(node => node.textContent.includes(name)).parentNode;
-    const archiveButton = name => branchRow(name).querySelectorAll('button').find(node => node.textContent === '归档');
+      .find(node => node.textContent.includes(name))?.parentNode ?? null;
+    const archiveButton = name => branchRow(name)?.querySelectorAll('button').find(node => node.textContent === '归档');
     // 只有 archivable 才给动作：当前检出（main）、未登记（release / feature）、ref 与 worktree 都没了（3-three）都不给。
     expect(archiveButton('lush/demo/1-one')).toBeTruthy();
     expect(archiveButton('lush/demo/2-two')).toBeTruthy();
@@ -147,41 +147,63 @@ test('分支图：可归档分支才有归档按钮，确认后发 branch.archiv
     expect(archiveButton('lush/demo/3-three')).toBeFalsy();
     const button = archiveButton('lush/demo/1-one');
 
-    await button.onclick();
-    // 删除不可撤销，所以先确认，并把代价写清楚。
-    expect(dom.confirms.at(-1)).toContain('会删除分支与 worktree，保留任务与会话，未提交改动会被丢弃');
+    // 归档走应用内弹窗：删除不可撤销，所以先把代价说清楚（包括它下面有几条后代分支）；没点确认之前不能发请求。
+    const pending = button.onclick();
+    expect(dialogText(dom)).toContain('会删除这条分支与它下面 1 条后代分支的 worktree 与本地 ref');
+    expect(dialogText(dom)).toContain('保留任务、会话与分支记录');
+    expect(world.state.actions.some(entry => entry.method === 'branch.archive')).toBe(false);
+    await answerDialog(dom, '归档');
+    await pending;
     expect(world.state.actions).toContainEqual({ method: 'branch.archive', params: { branch: 'lush/demo/1-one', discard: true } });
-    // 成功后重新拉图：这条分支变成已归档、不再有归档按钮，结果写在 #error。
-    expect(deepText(branchRow('lush/demo/1-one'))).toContain('已归档');
-    expect(archiveButton('lush/demo/1-one')).toBeFalsy();
-    expect(dom.node('error').textContent).toContain('lush/demo/1-one');
-    expect(dom.node('error').textContent).toContain('已归档');
+    // 子树根与后代都归档了，结果写在 #error。
+    expect(dom.node('error').textContent).toContain('已归档 lush/demo/1-one 及它下面 1 条后代分支');
+    // 归档的分支不再占分支树：它自己与它的后代分支、以及它们名下的任务都不画了。
+    expect(branchRow('lush/demo/1-one')).toBeFalsy();
+    expect(branchRow('lush/demo/2-two')).toBeFalsy();
+    expect(deepText(detail)).not.toContain('正在改点什么');
+    // 没被归档的邻居照旧在图上。
+    expect(deepText(detail)).toContain('lush/demo/input-1-anchor');
   } finally { world.state.graph = saved; await openGraph(); }
 });
 
-test('分支图：归档分支下的任务显示已归档而不是缺失分支', async () => {
+test('分支图：归档的分支不再占分支树，它还在的后代接到最近的可见祖先上', async () => {
   const saved = world.state.graph;
   world.state.graph = {
     generated_at: new Date().toISOString(), current_branch: 'main', truncated: false, git: true, error: null,
     nodes: [
       { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'aaa', current: true, tracked: false, placeholder: false },
+      // 归档：ref 与 worktree 都按预期删掉了，只剩记录。
       { kind: 'branch', id: 'branch:lush/demo/7-old', name: 'lush/demo/7-old', head_commit: null, current: false, tracked: true,
         placeholder: false, archived: true, archived_at: iso(NOW), status: 'archived', worktree_state: 'missing' },
+      // 它的子分支还活着（历史遗留：归档是后来才变成整棵子树的）：不能因为父分支被藏起来就跟着消失。
+      { kind: 'branch', id: 'branch:lush/demo/8-child', name: 'lush/demo/8-child', head_commit: 'ccc', current: false, tracked: true,
+        placeholder: false, created_at: iso(NOW - 1000) },
       { kind: 'task', id: 7, role: 'worker', name: 'seven', goal: '归档掉的分支工作', status: 'completed', integration: 'none',
         branch: 'lush/demo/7-old', workspace: null, workspace_state: 'none', branch_state: 'missing', archived: true,
         base_commit: 'aaa', head_commit: 'bbb', target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
     ],
-    edges: [],
+    edges: [
+      // 真实形状：归档后 ref 没了，两条 fork 边在 git 里都算不出来（daemon 报 missing）。
+      { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/7-old', status: 'missing', ahead: null, behind: null },
+      { kind: 'fork', from: 'branch:lush/demo/7-old', to: 'branch:lush/demo/8-child', status: 'missing', ahead: null, behind: null },
+    ],
   };
   try {
     await openGraph();
     const detail = dom.node('detail');
     const text = deepText(detail);
-    expect(text).toContain('归档掉的分支工作');
-    expect(text).toContain('已归档');
-    // 归档是预期状态，不该再报「缺失分支」；已归档的分支也不再提供归档动作。
+    const branchRow = name => detail.querySelectorAll('span.graph-branch-name')
+      .find(node => node.textContent.includes(name))?.parentNode ?? null;
+    // 归档的分支与它名下的任务都不画在分支树上（记录在任务列表与详情里看）。
+    expect(branchRow('lush/demo/7-old')).toBeFalsy();
+    expect(text).not.toContain('归档掉的分支工作');
+    expect(text).not.toContain('⚠ 分支不存在');
     expect(text).not.toContain('⚠ 缺失分支');
-    expect(detail.querySelectorAll('button').some(node => node.textContent === '归档')).toBe(false);
+    // 活着的子分支升到最近的非归档祖先（main）下，并说明它的父分支已经归档，而不是报「分支缺失」。
+    expect(branchRow('lush/demo/8-child')).toBeTruthy();
+    expect(deepText(branchRow('lush/demo/8-child'))).toContain('父分支已归档');
+    expect(text).not.toContain('分支缺失');
+    expect(detail.querySelectorAll('button').some(node => node.textContent === '归档')).toBe(true);
   } finally { world.state.graph = saved; await openGraph(); }
 });
 
@@ -369,4 +391,112 @@ test('分支图：分支子树可折叠，状态写进 localStorage，重画后�
   localStorage.removeItem('lush.graphExpanded');
   const ui = (await import('../../src/ui/web/assets/state.js')).ui;
   ui.graphCollapsed.clear(); ui.graphExpanded.clear();
+});
+
+test('分支图：工作中的分支有明确工作态标识，停下来的分支没有且整体降噪', async () => {
+  const saved = world.state.graph;
+  world.state.graph = {
+    generated_at: iso(NOW), current_branch: 'main', truncated: false, git: true, error: null,
+    nodes: [
+      // 根：自己没有任务，子树里有活 → 子树工作中。
+      { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'aaa', current: true, tracked: false, placeholder: false,
+        status: 'active', tasks: { total: 4, active: 3, failed: 0, completed: 1 }, created_at: iso(NOW - 6000) },
+      // 未合进父分支 + 自己就在跑：两条强调通道都要看得见。
+      { kind: 'branch', id: 'branch:lush/demo/hot', name: 'lush/demo/hot', head_commit: 'bbb', current: false, tracked: true, placeholder: false,
+        status: 'active', tasks: { total: 1, active: 1, failed: 0, completed: 0 }, created_at: iso(NOW - 5000) },
+      // 自己在等。
+      { kind: 'branch', id: 'branch:lush/demo/waiting', name: 'lush/demo/waiting', head_commit: 'ccc', current: false, tracked: true, placeholder: false,
+        status: 'active', tasks: { total: 1, active: 1, failed: 0, completed: 0 }, created_at: iso(NOW - 4000) },
+      // 自己结束了，只有子树在跑。
+      { kind: 'branch', id: 'branch:lush/demo/parent', name: 'lush/demo/parent', head_commit: 'ddd', current: false, tracked: true, placeholder: false,
+        status: 'ready', tasks: { total: 2, active: 1, failed: 0, completed: 1 }, created_at: iso(NOW - 3000) },
+      { kind: 'branch', id: 'branch:lush/demo/parent/sub', name: 'lush/demo/parent/sub', head_commit: 'eee', current: false, tracked: true, placeholder: false,
+        status: 'active', tasks: { total: 1, active: 1, failed: 0, completed: 0 }, created_at: iso(NOW - 2000) },
+      // 停下来了：已合进父分支、任务也结束。
+      { kind: 'branch', id: 'branch:lush/demo/idle', name: 'lush/demo/idle', head_commit: 'fff', current: false, tracked: true, placeholder: false,
+        status: 'merged', tasks: { total: 1, active: 0, failed: 0, completed: 1 }, created_at: iso(NOW - 1000) },
+      { kind: 'task', id: 11, role: 'worker', name: 'hot', goal: '在跑的活', status: 'running', integration: 'none',
+        branch: 'lush/demo/hot', workspace: '/tmp/wt/11', workspace_state: 'present', branch_state: 'present',
+        target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
+      { kind: 'task', id: 12, role: 'worker', name: 'waiting', goal: '等你决定的活', status: 'awaiting', integration: 'none',
+        branch: 'lush/demo/waiting', workspace: '/tmp/wt/12', workspace_state: 'present', branch_state: 'present',
+        target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
+      { kind: 'task', id: 13, role: 'worker', name: 'sub', goal: '子树里的活', status: 'running', integration: 'none',
+        branch: 'lush/demo/parent/sub', workspace: '/tmp/wt/13', workspace_state: 'present', branch_state: 'present',
+        target_branch: 'lush/demo/parent', ahead: 1, behind: 0, merged: false, current: false },
+      { kind: 'task', id: 14, role: 'worker', name: 'p', goal: '已经结束的活', status: 'completed', integration: 'merged',
+        branch: 'lush/demo/parent', workspace: '/tmp/wt/14', workspace_state: 'present', branch_state: 'present',
+        target_branch: 'main', ahead: 1, behind: 0, merged: true, current: false },
+      { kind: 'task', id: 15, role: 'worker', name: 'idle', goal: '停下来了的活', status: 'completed', integration: 'merged',
+        branch: 'lush/demo/idle', workspace: '/tmp/wt/15', workspace_state: 'present', branch_state: 'present',
+        target_branch: 'main', ahead: 1, behind: 0, merged: true, current: false },
+    ],
+    edges: [
+      { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/hot', status: 'fast_forward', ahead: 1, behind: 0, blockers: [], can_merge: true, can_sync: false },
+      { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/waiting', status: 'integrated', ahead: 0, behind: 0, blockers: [], can_merge: false, can_sync: false },
+      { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/parent', status: 'integrated', ahead: 0, behind: 0, blockers: [], can_merge: false, can_sync: false },
+      { kind: 'fork', from: 'branch:lush/demo/parent', to: 'branch:lush/demo/parent/sub', status: 'integrated', ahead: 0, behind: 0, blockers: [], can_merge: false, can_sync: false },
+      { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/idle', status: 'integrated', ahead: 0, behind: 0, blockers: [], can_merge: false, can_sync: false },
+    ],
+  };
+  try {
+    await openGraph();
+    const detail = dom.node('detail');
+    const header = name => detail.querySelectorAll('span.graph-branch-name').find(node => node.textContent.includes(name));
+    const rowOf = name => header(name).parentNode;
+    const workOf = name => rowOf(name).querySelectorAll('.graph-work');
+
+    // ② 工作态标识：running 是「● 工作中」chip，pending 是「等你决定」chip，subtree 是更弱的一行话。
+    const hot = workOf('lush/demo/hot');
+    expect(hot.length).toBe(1);
+    expect(hot[0].classList.contains('chip')).toBe(true);
+    expect(hot[0].classList.contains('run')).toBe(true);
+    expect(hot[0].querySelector('.graph-work-dot')).toBeTruthy();
+    expect(deepText(hot[0])).toContain('工作中');
+    const waiting = workOf('lush/demo/waiting');
+    expect(waiting.length).toBe(1);
+    expect(waiting[0].classList.contains('pending')).toBe(true);
+    expect(deepText(waiting[0])).toBe('等你决定');
+    const parent = workOf('lush/demo/parent');
+    expect(parent.length).toBe(1);
+    expect(parent[0].classList.contains('subtree')).toBe(true);
+    expect(deepText(parent[0])).toBe('子树工作中 · 1');
+    // 位置：分支名之后、关系 chip 之前。
+    const row = rowOf('lush/demo/hot');
+    expect([...row.children].indexOf(header('lush/demo/hot'))).toBeLessThan([...row.children].indexOf(hot[0]));
+    expect([...row.children].indexOf(hot[0])).toBeLessThan([...row.children].indexOf(row.querySelector('.graph-relation')));
+
+    // ③ 停下来的分支：没有工作态标识，并且带 graph-idle 降噪；工作中的分支不带。
+    expect(workOf('lush/demo/idle').length).toBe(0);
+    expect(rowOf('lush/demo/idle').classList.contains('graph-idle')).toBe(true);
+    expect(rowOf('lush/demo/hot').classList.contains('graph-idle')).toBe(false);
+
+    // ② 未合进父分支 + 工作中：两个强调 class 同时命中，工作态标识不被盖掉。
+    expect(rowOf('lush/demo/hot').classList.contains('graph-emphasis-unmerged')).toBe(true);
+    expect(rowOf('lush/demo/hot').classList.contains('graph-emphasis-working')).toBe(true);
+
+    // ④ 在跑的任务行有脉冲点，结束的任务行没有。
+    const taskRow = goal => detail.querySelectorAll('div.graph-node').find(node => deepText(node).includes(goal));
+    expect(taskRow('在跑的活').querySelector('.graph-work-dot')).toBeTruthy();
+    expect(taskRow('停下来了的活').querySelector('.graph-work-dot')).toBeNull();
+
+    // ⑤ 收起表头后工作态标识仍在：收起的是任务与子分支，不是这条分支的状态。
+    rowOf('lush/demo/parent').querySelector('button.graph-caret').onclick();
+    expect(rowOf('lush/demo/parent').parentNode.classList.contains('collapsed')).toBe(true);
+    expect(deepText(workOf('lush/demo/parent')[0])).toBe('子树工作中 · 1');
+
+    // ⑤ 幂等：重复重画同一份数据，工作态标识不翻倍；既有语义不回归（页面仍不出现「已合并」）。
+    const workCount = () => detail.querySelectorAll('.graph-work').length;
+    const before = workCount();
+    await openGraph(); await openGraph();
+    expect(workCount()).toBe(before);
+    expect(deepText(detail)).not.toContain('已合并');
+  } finally {
+    world.state.graph = saved;
+    localStorage.removeItem('lush.graphCollapsed');
+    localStorage.removeItem('lush.graphExpanded');
+    const ui = (await import('../../src/ui/web/assets/state.js')).ui;
+    ui.graphCollapsed.clear(); ui.graphExpanded.clear();
+    await openGraph();
+  }
 });

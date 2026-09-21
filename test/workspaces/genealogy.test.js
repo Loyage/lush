@@ -99,3 +99,28 @@ test('merging a branch never rewrites who created it', async () => {
     expect(row.status).toBe('active');   // merge 只让 main 前进，不删分支、不改谱系
   } finally { await f.close(); }
 });
+
+test('branch tree 不再画归档的分支，它的子分支接到最近的可见祖先上', async () => {
+  const f = await setup();
+  try {
+    await change(f, f.task);
+    const upstream = f.store.task(f.task.id);
+    const child = f.project.spawn(f.task.parent_id, 'continue upstream work', 'worker', [{ id: upstream.id, kind: 'code' }], 'stacked-follow-up');
+    await f.project.workspaces.ensure(f.store.task(child.id));
+    const childBranch = f.store.task(child.id).branch;
+    // 老库形态（旧版归档只删自己一条）：父分支已归档、ref 已经不在，子分支还活着。
+    await f.project.workspaces.archiveBranch(upstream.branch);
+    expect(f.store.branch(childBranch).parent).toBe(upstream.branch);
+
+    const tree = await f.project.branchTree();
+    const collect = nodes => nodes.flatMap(node => [node, ...collect(node.children)]);
+    // 归档的分支不占分支树；它的子分支没有被连带藏掉，而是升到可见的父层（这里是 main）。
+    expect(collect(tree.roots).some(node => node.branch === upstream.branch)).toBe(false);
+    const main = tree.roots.find(node => node.branch === 'main');
+    expect(main.children.map(node => node.branch)).toContain(childBranch);
+    // 记录还在：branch show 照旧报出 parent 与归档状态。
+    const shown = await f.project.branchShow(childBranch);
+    expect(shown.parent).toBe(upstream.branch);
+    expect((await f.project.branchShow(upstream.branch)).status).toBe('archived');
+  } finally { await f.close(); }
+});

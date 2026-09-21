@@ -174,12 +174,16 @@ export function printBranchImport(result) {
   for (const branch of result.branches) console.log(`  ${branch}`);
   console.log(`本地分支 ${result.local} 条，原有记录 ${result.recorded} 条。`);
 }
+/** 归档结果：一条分支一行（归档的是整棵子树，所以可能不止一行），后面是保留下来的东西。 */
 export function printBranchArchive(result) {
-  const worktree = result.worktree === 'removed' ? '已删除' : '本来就不在';
-  const ref = result.ref === 'deleted' ? '已删除' : '本来就不在';
-  console.log(`已归档 ${result.branch}`);
-  console.log(`worktree\t${worktree}${result.discarded ? '（丢弃了未提交改动）' : ''}`);
-  console.log(`本地分支\t${ref}${result.tip ? `（tip ${shortSha(result.tip)}）` : ''}`);
+  const branches = Array.isArray(result.branches) && result.branches.length ? result.branches : [result];
+  console.log(`已归档 ${result.branch}${branches.length > 1 ? `（连同 ${branches.length - 1} 条后代分支，共 ${branches.length} 条）` : ''}`);
+  for (const entry of branches) {
+    const worktree = entry.worktree === 'removed' ? '已删除' : '本来就不在';
+    const ref = entry.ref === 'deleted' ? '已删除' : '本来就不在';
+    const name = entry.branch === result.branch ? '' : `  ${entry.branch}  `;
+    console.log(`${name}worktree\t${worktree}${entry.discarded ? '（丢弃了未提交改动）' : ''} · 本地分支\t${ref}${entry.tip ? `（tip ${shortSha(entry.tip)}）` : ''}`);
+  }
   console.log(`保留任务\t${result.tasks.length} 个${result.tasks.length ? `：${result.tasks.map(task => `#${task.id} ${task.status}`).join('、')}` : ''}`);
   console.log(`会话文件\t${result.sessions.length} 个`);
   for (const file of result.sessions) console.log(`  ${file}`);

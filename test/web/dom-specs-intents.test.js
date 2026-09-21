@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, findByText, deepText } from '../dom-stub.js';
+import { installDom, findByText, deepText, dialogText, answerDialog } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 
 // 拆解队列只读展示与分组、意图面板批准 / 驳回。
@@ -80,12 +80,14 @@ test('意图面板：planner/scheduler 不进任务树，批准/驳回走 plan.a
   expect(deepText(dom.node('intents'))).not.toContain('批准并开发');
   expect(findByText(dom.node('intents'), '已批准')).toBeTruthy();
 
-  // 驳回：先问理由，再把理由一起送给 planner 重拆
+  // 驳回：先用应用内输入框问理由，再把理由一起送给 planner 重拆（取消或空理由都不发请求）。
   world.state.intents[0].plan_gate = 'proposed';
   await dom.intervalFor(1500)();
-  dom.setPrompt('别动架构，先加个开关');
-  await findByText(dom.node('intents'), '驳回').onclick();
-  expect(dom.prompts.at(-1)).toContain('驳回理由');
+  const pending = findByText(dom.node('intents'), '驳回').onclick();
+  expect(dialogText(dom)).toContain('驳回理由');
+  expect(dialogText(dom)).toContain('理由会送给 planner');
+  await answerDialog(dom, '驳回并重拆', '别动架构，先加个开关');
+  await pending;
   expect(world.state.actions.at(-1)).toEqual({ method: 'plan.reject', params: { id: 9, reason: '别动架构，先加个开关' } });
   expect(findByText(dom.node('intents'), '已驳回')).toBeTruthy();
 });

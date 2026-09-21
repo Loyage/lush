@@ -140,10 +140,25 @@ export function makeWorld() {
       if (body.method === 'branch.sync') return json({ branch: body.params.branch, parent: 'main', status: 'queued', task: { id: 88 } });
       if (body.method === 'branch.catchup') return json({ child: body.params.branch, parent: 'main', caught_up: true, from: 'aaa', to: 'bbb' });
       if (body.method === 'branch.archive') {
-        // 归档在真实 daemon 里会删掉 ref 与 worktree，库里只留记录；这里同步这一点，让重拉后的图看得出变化。
-        const node = state.graph.nodes.find(row => row.kind === 'branch' && row.name === body.params.branch);
-        if (node) { node.archived = true; node.archived_at = iso(NOW); node.status = 'archived'; node.head_commit = null; node.worktree_state = 'missing'; }
-        return json({ branch: body.params.branch, archived: true, worktree: 'removed', ref: 'deleted', tip: 'ddd', discarded: true, tasks: [], sessions: [] });
+        // 归档在真实 daemon 里会删掉子树每一条的 ref 与 worktree，库里只留记录；这里同步这一点，
+        // 让重拉后的图看得出变化（归档的分支不再占分支树，后代也一起归档）。
+        const subtree = [body.params.branch];
+        for (let index = 0; index < subtree.length; index += 1) {
+          for (const edge of state.graph.edges) {
+            if (edge.kind !== 'fork' || edge.from !== `branch:${subtree[index]}`) continue;
+            const child = edge.to.slice('branch:'.length);
+            if (!subtree.includes(child)) subtree.push(child);
+          }
+        }
+        for (const name of subtree) {
+          const node = state.graph.nodes.find(row => row.kind === 'branch' && row.name === name);
+          if (node) { node.archived = true; node.archived_at = iso(NOW); node.status = 'archived'; node.head_commit = null; node.worktree_state = 'missing'; }
+          const task = state.graph.nodes.find(row => row.kind === 'task' && row.branch === name);
+          if (task) { task.archived = true; task.workspace = null; task.workspace_state = 'none'; }
+        }
+        return json({ branch: body.params.branch, archived: true, count: subtree.length,
+          branches: subtree.map(name => ({ branch: name, worktree: 'removed', ref: 'deleted', tip: 'ddd', discarded: true })),
+          worktree: 'removed', ref: 'deleted', tip: 'ddd', discarded: true, tasks: [], sessions: [] });
       }
       if (body.method === 'task.merge_many') return json({ target_branch: body.params.ids.includes(3) ? 'release' : 'main',
         merges: body.params.ids.map(id => ({ id, status: 'merged', integration: 'merged' })), merged: body.params.ids.length, stopped: null });

@@ -62,9 +62,14 @@ const byCurrentThenNewest = (a, b) =>
 export const WORKING_STATUSES = new Set(['running', 'queued', 'waiting', 'awaiting']);
 export const isWorkingTask = node => WORKING_STATUSES.has(node?.status);
 
-/** 没有合进父分支：有 incoming fork 边、关系又不是 integrated（fast_forward / diverged / missing / unknown）。
- *  根分支（没有来边）不算——它没有父分支可合。 */
-export const isUnmergedBranch = entry => Boolean(entry?.incoming) && entry.incoming.status !== 'integrated';
+/** 没有合进父分支：有 incoming fork 边、关系又不是 integrated，而且不是「归档把这条路取消了」。
+ *  根分支（没有来边）不算——它没有父分支可合；已归档的分支、以及父分支已归档的分支也不算——
+ *  它们根本没有「合进父分支」这条路可走（父分支已不在磁盘上），标成未合并只会误导。 */
+export const isUnmergedBranch = entry => {
+  if (entry?.archived === true || !entry?.incoming) return false;
+  if (entry.incoming.status === 'integrated') return false;
+  return entry?.relation?.key !== 'parent_archived';
+};
 
 /** 分支节点的强调 class（顺序固定，便于断言）：未合进父分支 / 正在工作中，两个可以同时命中。 */
 export function emphasisClasses(entry) {
@@ -72,6 +77,45 @@ export function emphasisClasses(entry) {
   if (entry?.unmerged) classes.push('graph-emphasis-unmerged');
   if (entry?.working) classes.push('graph-emphasis-working');
   return classes;
+}
+
+/** 「在等」三种子状态的优先级：等你决定 > 等子任务 > 排队中；标签只取其中最高的那个。 */
+const PENDING_LABELS = [
+  ['awaiting', '等你决定'],
+  ['waiting', '等子任务'],
+  ['queued', '排队中'],
+];
+
+/** 这条分支自己的任务里，还占着槽 / 等槽 / 等用户的任务；含后代的可数版本见 countWorkingTasks。 */
+const ownWorkingTasks = entry => (entry?.tasks || []).filter(isWorkingTask);
+
+/** 一棵子树（含自己）里有多少工作态任务；workingState 的 subtree 分支只数这条分支的显示口径。 */
+const countWorkingTasks = entry => {
+  let total = ownWorkingTasks(entry).length;
+  for (const child of entry?.children || []) total += countWorkingTasks(child);
+  return total;
+};
+
+/**
+ * 一条分支「怎么显示工作态」——只回答显示，不改 `working` / `defaultExpanded` / `emphasisClasses` 的语义
+ * （默认折叠与强调 class 都继续依赖那几个字段）。优先级固定：
+ * - `running`：本分支自己的任务里有在跑的——最直接的「现在真的在动」；
+ * - `pending`：自己没有在跑，但有等用户 / 等子任务 / 排队的任务——在等，同样不是停下来的分支；
+ * - `subtree`：自己什么都没有，后代子树里还有活；
+ * - `null`：这条分支停下来了（当前没有任何工作态任务），可以让 UI 整体降噪。
+ * `count` 一律是这些工作态任务的数量：running / pending 只数自己的，subtree 数后代子树的。
+ * @returns {{key:'running'|'pending'|'subtree', label:string, count:number}|null}
+ */
+export function workingState(entry) {
+  const own = ownWorkingTasks(entry);
+  const running = own.filter(node => node?.status === 'running').length;
+  if (running > 0) return { key: 'running', label: '工作中', count: running };
+  const pending = PENDING_LABELS.find(([status]) => own.some(node => node?.status === status));
+  if (pending) return { key: 'pending', label: pending[1], count: own.length };
+  let descendants = 0;
+  for (const child of entry?.children || []) descendants += countWorkingTasks(child);
+  if (descendants > 0) return { key: 'subtree', label: '子树工作中', count: descendants };
+  return null;
 }
 
 const NO_NAMES = new Set();
@@ -90,10 +134,16 @@ export function isBranchCollapsed(entry, expanded = NO_NAMES, collapsed = NO_NAM
  * - `ahead`：子分支有独有提交（behind=0）——可以直接 fast-forward 合入父分支；
  * - `equal`：两端同一个 commit——已经一致，没什么要做；
  * - `behind`：子分支没有独有提交、父分支已前进——可以直接快进跟上；
- * - `diverged` / `missing` / `unknown`：分歧 / 缺 ref / 没可信 parent。
+ * - `diverged` / `unknown`：分歧 / 没可信 parent；
+ * - `missing`：ref 真的不见了（又不是归档）——这种才是该让用户去查的「分支缺失」。
+ *
+ * 归档会把 ref 删掉，之后 git 里算不出这条边（daemon 报 `missing`），但那是用户自己按的归档，不是故障：
+ * - 子分支自己归档了：与父分支的关系已经没有意义，返回 `null`（不画关系 chip，也不上色）；
+ * - 父分支归档了：`parent_archived`——两个端点都活着，只是父分支已不在磁盘上。
  */
-export function edgeRelation(edge) {
-  if (!edge) return null;
+export function edgeRelation(edge, { selfArchived = false, parentArchived = false } = {}) {
+  if (!edge || selfArchived) return null;
+  if (parentArchived) return { key: 'parent_archived', label: '父分支已归档' };
   const key = edge.status === 'missing' ? 'missing'
     : edge.status === 'unknown' ? 'unknown'
     : edge.status === 'diverged' ? 'diverged'
@@ -115,9 +165,13 @@ const nameOfBranchId = id => (typeof id === 'string' && id.startsWith('branch:')
 /**
  * @param {object} graph `graph.get` 的返回（{ nodes, edges, current_branch, ... }）
  * @returns {{forest:Array, unplaced:Array, current_branch:string|null, git:boolean, truncated:boolean, error:string|null}}
- *   `forest` 是分支根节点数组，每个节点 `{ name, id, head_commit, current, tracked, placeholder, incoming, depth, children, tasks }`；
+ *   `forest` 是分支根节点数组，每个节点 `{ name, id, head_commit, current, tracked, placeholder, incoming, relation, depth, children, tasks }`；
+ *   `relation` 是 `incoming` 这条边对用户显示的父子关系（`edgeRelation` 的结果，可能是 null），
+ *   归档分支与父分支已归档的分支不再报「分支缺失」；
  *   另带 `unmerged`（没合进父分支）、`working`（自己或后代还有在跑的任务）、`defaultExpanded`
  *   （自己或后代命中前两者——默认展开，不允许把未合并 / 在跑的子树藏在收起的父分支里）；
+ *   工作态怎么显示由纯函数 `workingState(entry)` 现算（running / pending / subtree / null），
+ *   不改上面几个字段的意义；
  *   `tasks` 里的任务节点带 `level` / `upstreams` / `aheadBehind` / `marks`，直接供渲染使用；
  *   `subtreeBranches` / `subtreeTasks` 是收起这棵子树会藏起来的数量（后代分支数、自己的 + 后代的任务数）；
  *   `unplaced` 是连目标分支节点都没有的任务，按目标分支名分组。
@@ -133,6 +187,7 @@ export function graphLayout(graph = {}) {
 
   // fork 边 -> 直接子分支。一条分支只认第一条 fork 边（坏数据双父时见好就收）；
   // 成环时环里的节点会在下面作为额外根画出来，绝不落到看不见。
+  // 归档的节点不画在分支树上，但它们的边要照旧建：可见子分支要靠它认出「父分支已归档」。
   const children = new Map(branchNodes.map(node => [node.name, []]));
   const incoming = new Map();
   const hasParent = new Set();
@@ -145,7 +200,31 @@ export function graphLayout(graph = {}) {
     hasParent.add(to); children.get(from).push(to); incoming.set(to, edge);
   }
 
-  const order = [...branchNodes].sort(byCurrentThenNewest);
+  // 归档的分支不再占分支树：它们只剩记录（`branch show` / 事件 / 任务详情里查），
+  // 磁盘上的 worktree 与 ref 在归档时就删了。隐藏一条归档节点时，它还在的后代接到最近的非归档
+  // 祖先上（没有就升为根）——绝不因为隐藏归档节点而把活着的后代一起藏掉。
+  const hiddenBranches = new Set(branchNodes
+    .filter(node => node.archived === true || node.status === 'archived')
+    .map(node => node.name));
+  const parentNameOf = name => nameOfBranchId(incoming.get(name)?.from);
+  const visibleParentOf = name => {
+    const seen = new Set([name]);
+    for (let parent = parentNameOf(name); parent; parent = parentNameOf(parent)) {
+      if (seen.has(parent)) return null;
+      seen.add(parent);
+      if (!hiddenBranches.has(parent)) return parent;
+    }
+    return null;
+  };
+  const order = [...branchNodes].sort(byCurrentThenNewest).filter(node => !hiddenBranches.has(node.name));
+  const visibleChildren = new Map(order.map(node => [node.name, []]));
+  const roots = [];
+  for (const node of order) {
+    const parent = visibleParentOf(node.name);
+    if (parent && visibleChildren.has(parent)) visibleChildren.get(parent).push(node.name);
+    else roots.push(node);
+  }
+
   const built = new Map();
   const visited = new Set();
   const build = (node, depth) => {
@@ -156,10 +235,18 @@ export function graphLayout(graph = {}) {
     // 且还有东西可删（ref 或 worktree 至少存在一个）；已归档的分支永远不再可归档。
     const archivable = !archived && node.tracked === true && !deleted && node.current !== true
       && activeTasks === 0 && (Boolean(node.head_commit) || node.worktree_state === 'present');
+    const incomingEdge = incoming.get(node.name) ?? null;
+    // 归档删掉了 ref，父子关系在 git 里已经算不出来（daemon 报 missing），但那是用户自己按的归档：
+    // 这条边按「父分支已归档」显示，分支自己归档了就不再谈与父分支的关系（relation 为 null）。
+    const parentNode = incomingEdge ? branchByName.get(nameOfBranchId(incomingEdge.from)) : null;
+    const relation = edgeRelation(incomingEdge, {
+      selfArchived: archived,
+      parentArchived: parentNode?.archived === true || parentNode?.status === 'archived',
+    });
     const entry = {
       name: node.name, id: node.id, head_commit: node.head_commit ?? null,
       current: node.current === true, tracked: node.tracked !== false, placeholder: node.placeholder === true,
-      incoming: incoming.get(node.name) ?? null, depth, children: [], tasks: [],
+      incoming: incomingEdge, relation, depth, children: [], tasks: [],
       // 分支节点的元数据（来自 graph.js 的 origin / title / source_id / created_at / status / tasks）
       origin: node.origin ?? null,
       title: node.title ?? null,
@@ -173,7 +260,7 @@ export function graphLayout(graph = {}) {
       archivable,
     };
     built.set(node.name, entry); visited.add(node.name);
-    const childNames = (children.get(node.name) || [])
+    const childNames = (visibleChildren.get(node.name) || [])
       .sort((a, b) => byCurrentThenNewest(branchByName.get(a), branchByName.get(b)));
     for (const childName of childNames) {
       if (visited.has(childName)) continue;
@@ -181,13 +268,16 @@ export function graphLayout(graph = {}) {
     }
     return entry;
   };
-  const forest = [];
-  for (const node of order) if (!hasParent.has(node.name)) forest.push(build(node, 0));
+  const forest = roots.map(node => build(node, 0));
+  // 兜底：坏数据成环时环里的节点没被任何根领走，也要画出来。
   for (const node of order) if (!visited.has(node.name)) forest.push(build(node, 0));
 
   // 任务挂到自己的分支节点下；没有就退到目标分支节点；两个都没有才兜底。
+  // 归档分支上的任务不再画在图上：分支都不在树上了，它们会掉到目标分支或兜底分组里，
+  // 等于把已经收起来的工作冒充成活着的工作；记录照旧在左侧任务列表与任务详情里。
   const unplaced = new Map();
   for (const node of taskNodes) {
+    if (node.archived === true || (node.branch && hiddenBranches.has(node.branch))) continue;
     const branch = (node.branch && built.has(node.branch) && node.branch)
       || (node.target_branch && built.has(node.target_branch) && node.target_branch);
     if (branch) { built.get(branch).tasks.push(node); continue; }

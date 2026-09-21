@@ -1,5 +1,6 @@
 import { $, badge, button, el } from './dom.js';
 import { action } from './api.js';
+import { promptDialog } from './dialog.js';
 import { PLAN_GATE, STATUS, relative, short, statusOf } from './format.js';
 import { filterUi, statusOption, syncSelectOptions, uniqueValues, withCurrent } from './filters-ui.js';
 import { detail } from './navigate.js';
@@ -14,9 +15,15 @@ function planActions(intent) {
   if (intent.plan_gate !== 'proposed') return null;
   const actions = el('span', undefined, 'intent-actions');
   actions.append(button('批准并开发', () => action('plan.approve', { id: intent.task_id }), 'primary'));
-  actions.append(button('驳回', () => {
-    const reason = prompt('驳回理由（会送给 planner，让它据此重拆）：', '');
-    if (!reason || !reason.trim()) return Promise.resolve();
+  actions.append(button('驳回', async () => {
+    const reason = await promptDialog({
+      title: `驳回 #${intent.id} 的拆解？`,
+      message: '理由会送给 planner，让它据此重拆。',
+      label: '驳回理由',
+      placeholder: '例如：别动架构，先加个开关',
+      confirmLabel: '驳回并重拆',
+    });
+    if (!reason || !reason.trim()) return;
     return action('plan.reject', { id: intent.task_id, reason: reason.trim() });
   }));
   return actions;

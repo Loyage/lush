@@ -71,6 +71,8 @@ class StubNode {
     this.parentNode = null;
   }
   addEventListener(type, handler) { (this.listeners[type] ||= []).push(handler); }
+  // stub 没有真的焦点系统：focus() 只把 document.activeElement 指过来，够断言「焦点落在哪」与「关完还给谁」。
+  focus() { if (globalThis.document) globalThis.document.activeElement = this; }
   querySelector(selector) { return walk(this).find(node => matches(node, selector)) || null; }
   querySelectorAll(selector) { return walk(this).filter(node => matches(node, selector)); }
 }
@@ -99,6 +101,27 @@ export function allByTag(root, tag) { return walk(root).filter(node => node.tagN
 /** 子树里所有叶子的文本拼起来：stub 的容器没有聚合 textContent，断言时用它代替。 */
 export function deepText(root) { return walk(root).map(node => node.textContent).join(' '); }
 
+/* ---------- 应用内弹窗（dialog.js 画进 #modal） ---------- */
+/** 弹窗当前的全部文案：用来断言「确认前把代价说清楚了」。 */
+export const dialogText = dom => deepText(dom.node('modal'));
+/** 按文字找弹窗里的按钮（精确匹配：标题里常常含同一个词，模糊匹配会先撞上标题）。 */
+export const dialogButton = (dom, label) => allByTag(dom.node('modal'), 'button').find(node => node.textContent === label) || null;
+/**
+ * 回答当前弹窗：`answerDialog(dom, '归档')` 点确认，`answerDialog(dom, '取消')` 取消，
+ * 传了 `value` 就先把文字填进输入框（prompt 型弹窗）。没弹窗时直接报错，失败点清楚。
+ */
+export function answerDialog(dom, label = '确定', value = null) {
+  const modal = dom.node('modal');
+  if (value !== null) {
+    const input = modal.querySelector('input');
+    if (!input) throw new Error(`dialog has no input for ${label}`);
+    input.value = String(value);
+  }
+  const node = dialogButton(dom, label);
+  if (!node) throw new Error(`dialog has no "${label}" button; got ${allByTag(modal, 'button').map(button => button.textContent).join(' / ') || '(no buttons)'}`);
+  return node.onclick();
+}
+
 export function installDom({ fetch: fetchImpl } = {}) {
   const byId = new Map();
   const listeners = {};
@@ -114,8 +137,6 @@ export function installDom({ fetch: fetchImpl } = {}) {
   };
   const store = new Map();
   const localStorage = { getItem: key => (store.has(key) ? store.get(key) : null), setItem: (key, value) => store.set(key, String(value)), removeItem: key => store.delete(key) };
-  const confirms = [], prompts = [];
-  let promptReply = '';
   const document = {
     createElement: tag => new StubNode(tag),
     createTextNode: textNode,
@@ -131,15 +152,18 @@ export function installDom({ fetch: fetchImpl } = {}) {
   assign('window', window);
   assign('location', location);
   assign('localStorage', localStorage);
-  assign('confirm', message => { confirms.push(String(message)); return true; });
-  assign('prompt', message => { prompts.push(String(message)); return promptReply; });
+  // 原生弹窗一律封死：它们会被浏览器/内嵌 webview 静默吃掉（confirm 直接返回 false），
+  // 页面看到的就是「点了没反应」。Web UI 的确认与输入走 dialog.js 的应用内弹窗，这里报错就是回归。
+  const banned = name => () => { throw new Error(`native ${name}() is banned in the Web UI; use dialog.js (confirmDialog / promptDialog) instead`); };
+  assign('confirm', banned('confirm'));
+  assign('prompt', banned('prompt'));
+  assign('alert', banned('alert'));
   assign('fetch', fetchImpl);
   assign('addEventListener', (type, handler) => { (listeners[type] ||= []).push(handler); });
   assign('setInterval', (handler, ms) => { intervals.push({ handler, ms }); return intervals.length; });
   return {
-    document, window, location, listeners, intervals, byId, confirms, prompts,
+    document, window, location, listeners, intervals, byId,
     pushed: () => pushed,
-    setPrompt: value => { promptReply = String(value); },
     node: id => document.getElementById(id),
     fire: async (type, event = {}) => { for (const handler of listeners[type] || []) await handler(event); },
     intervalFor: ms => intervals.find(entry => entry.ms === ms)?.handler,
