@@ -267,4 +267,21 @@ export default {
     });
     return { imported: added.length, branches: added, local: state.refs.size, recorded: known.size };
   },
+
+  /**
+   * 一句话摘要：给一条已登记分支写 / 更新人写的简述，分支图上的标题优先用它（没有时才回落派生）。
+   * 只动 `branches.summary` 这一列，不碰 status / deleted_at / ref / worktree，也不改任何任务。
+   * 摘要内容（长度、空白归一）由 store.setBranchSummary 校验；分支没登记就报错，不自动补建记录。
+   * 事件挂在「这条分支属于谁」上：有任务记在任务上，否则记在输入锚点的规划任务上（与 branch.caught_up 同口径）。
+   */
+  setBranchSummary(branch, summary) {
+    const name = String(branch ?? '').trim();
+    check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
+    const record = this.store.branch(name);
+    check(record, `${name} is not a registered branch; run 'lush branch import' first`);
+    const updated = this.store.setBranchSummary(name, summary);
+    const host = record.task_id ?? this.store.get('SELECT task_id FROM inputs WHERE anchor_branch=?', name)?.task_id ?? null;
+    this.store.event(host, 'branch.summary', { branch: name, summary: updated.summary });
+    return updated;
+  },
 };

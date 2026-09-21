@@ -1,6 +1,6 @@
 import { check } from '../../core/types.js';
 import { exact } from '../args.js';
-import { printBranchTree, printBranchShow, printBranchImport, printBranchArchive } from '../print.js';
+import { printBranchTree, printBranchShow, printBranchImport, printBranchArchive, printBranchSummary } from '../print.js';
 
 /** branch：分支谱系（谁从谁创建出来），与任务树、commit graph 都是不同维度。 */
 export async function run(command, args, ctx) {
@@ -36,8 +36,14 @@ export async function run(command, args, ctx) {
     exact(args, 1);
     value = await client.request('branch.archive', { branch: args[0], discard });
     if (!json) { printBranchArchive(value); return; }
+  } else if (verb === 'summary') {
+    // 两种形式：`branch summary "一句话"` 写自己的分支；`branch summary BRANCH "一句话"` 点名分支（用户）。
+    check(args.length === 1 || args.length === 2, 'usage: lush branch summary "一句话" | lush branch summary BRANCH "一句话"');
+    const [summary, branch] = args.length === 2 ? [args[1], args[0]] : [args[0], null];
+    value = await client.request('branch.summary', branch === null ? { summary } : { branch, summary });
+    if (!json) { printBranchSummary(value); return; }
   } else {
-    check(false, 'unknown branch command; use tree, show, import, merge, sync, catchup or archive');
+    check(false, 'unknown branch command; use tree, show, import, merge, sync, catchup, archive or summary');
   }
   return value;
 }

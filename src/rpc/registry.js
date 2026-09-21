@@ -10,7 +10,7 @@ export const PARAMS = {
   'spec.list': [], 'spec.add': ['goal','role','name','deps'], 'spec.drop': ['id','note'],
   'graph.get': [],
   'branch.tree': [], 'branch.show': ['branch'], 'branch.import': [], 'branch.merge': ['branch'], 'branch.sync': ['branch'], 'branch.catchup': ['branch'],
-  'branch.archive': ['branch','discard'],
+  'branch.archive': ['branch','discard'], 'branch.summary': ['branch','summary'],
   'plan.propose': ['title','body'], 'plan.approve': ['id','answer'], 'plan.reject': ['id','reason'],
   'notice.list': [], 'notice.post': ['task','title','body'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
 };

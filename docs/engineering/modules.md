@@ -79,7 +79,7 @@
 | `project/messages.js` | 收件箱、notice（question / plan / info 三类）、答复 | `message`、`notice`、`notify`、`answer` |
 | `project/merge.js` | 批准合并、按目标分支批量交付、冲突收口、随带提交对账与交付队列 | `approveMerge`、`approveMergeMany`、`reconcileIntegrated`、`openResolution`、`settleResolution`、`mergeConflictContext`、`ladder()`、`containsCommit` |
 | `project/graph.js` | 分支图读模型（全部本地分支 + fork 谱系边 + 任务关系）；每条 fork 边带三个可执行动作 `can_merge` / `can_sync` / `can_catchup`；每个 branch 节点带 `origin`（input / task / registered / local / placeholder）与配套 `title` / `summary` / `source_id` / `created_at`，`title` 优先用分支摘要（`branches.summary`），没有摘要才回落输入 / goal 首行截断，以及按自己 + 全部后代分支任务汇总的 `status`（active / failed / merged / ready / empty）与 `tasks` 计数，另带 `worktree` / `worktree_state`（worktree 路径与它现在还在不在磁盘上）与 `deleted`（该分支记录已被回收）；归档分支的 `status` 固定为 `archived` 并带 `archived` / `archived_at`（时间戳复用 `branches.deleted_at`，不新增列），它名下的任务节点标 `archived:true` 且仍留在图上；每条 fork 边实时给出 `fast_forward` / `diverged` / `integrated` / `missing`、ahead/behind 与未收拢的直接子分支 | `graph()` |
-| `project/branches.js` | 分支谱系读模型与用户批准的直接父子收敛：`branch merge` 只 fast-forward；落后时 `branch catchup` 让子分支快进跟上父分支；分歧时 `branch sync` 在子侧创建 merger；`branch tree` 不画归档的分支（记录仍在，用 `branch show` 查），隐藏时把它们的后代接到最近的可见祖先上；`branch archive` 归档一整棵子树（先跑安全门：子树根的登记/状态、当前检出不在子树里、全树没有未终态任务，再由 Git 边界把每条的 worktree / ref 删掉，任务行、消息、事件与 pi 会话文件都留着）；`branch tree` 不再画归档的分支，把它们还活着的后代接到最近的可见祖先上（`pruneHidden`） | `BRANCH_NODE_LIMIT`、`branchNodes`、`branchTree`、`branchShow`、`branchImport`、`approveBranchMerge`、`catchupBranch`、`syncBranch`、`archiveBranch` |
+| `project/branches.js` | 分支谱系读模型与用户批准的直接父子收敛：`branch merge` 只 fast-forward；落后时 `branch catchup` 让子分支快进跟上父分支；分歧时 `branch sync` 在子侧创建 merger；`branch tree` 不画归档的分支（记录仍在，用 `branch show` 查），隐藏时把它们的后代接到最近的可见祖先上；`branch archive` 归档一整棵子树（先跑安全门：子树根的登记/状态、当前检出不在子树里、全树没有未终态任务，再由 Git 边界把每条的 worktree / ref 删掉，任务行、消息、事件与 pi 会话文件都留着）；`branch tree` 不再画归档的分支，把它们还活着的后代接到最近的可见祖先上（`pruneHidden`）；`setBranchSummary` 只写 / 更新这条分支的一句话摘要（分支图标题），不碰 status / ref / worktree / 任务，并落一条 `branch.summary` 事件 | `BRANCH_NODE_LIMIT`、`branchNodes`、`branchTree`、`branchShow`、`branchImport`、`approveBranchMerge`、`catchupBranch`、`syncBranch`、`archiveBranch`、`setBranchSummary` |
 | `project/verify.js` | 检验任务与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
 | `project/transcript.js` | pi 会话记录的只读投影 | `transcript(taskId, after, limit)`、`usage(taskId)` |
 | `project/scheduling.js` | 调度、invocation 生命周期、凭证 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
@@ -192,7 +192,7 @@
 | `cli/commands/spec.js` | `spec` | `run` |
 | `cli/commands/plan.js` | `plan` | `run` |
 | `cli/commands/notice.js` | `notice` | `run` |
-| `cli/commands/branch.js` | `branch`（tree / show / import / merge / sync / catchup / archive） | `run` |
+| `cli/commands/branch.js` | `branch`（tree / show / import / merge / sync / catchup / archive / summary） | `run` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` / `web-restart` / `web-stop` / `web-status` | `run` |
 | `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒 | `main(argv)`（并 re-export `HELP`） |
 
@@ -209,7 +209,7 @@
 | `rpc/handlers/task.js` | `task.*` | `handlers` |
 | `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |
 | `rpc/handlers/notice.js` | `notice.*` | `handlers` |
-| `rpc/handlers/branch.js` | `branch.tree/show/import/merge/sync/archive`（`branch.archive` 参数 `branch` / `discard`，在 `USER_ONLY`） | `handlers` |
+| `rpc/handlers/branch.js` | `branch.tree/show/import/merge/sync/archive/summary`（`branch.archive` 参数 `branch` / `discard`，在 `USER_ONLY`；`branch.summary` 参数 `branch` / `summary`，agent 可写、省略 branch 时写自己的分支，用户必须显式点名） | `handlers` |
 | `rpc/dispatcher.js` | 合并 handler 表（查重名、查漏），校验后分派 | `class Dispatcher` |
 
 ## 7. 测试：`test/`

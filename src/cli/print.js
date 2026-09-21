@@ -168,6 +168,10 @@ export function printBranchShow(node) {
   if (node.children.length) { console.log('\nchildren:'); for (const [index, child] of node.children.entries()) console.log(`${index === node.children.length - 1 ? '└── ' : '├── '}${child}`); }
   if (node.descendants.length > node.children.length) console.log(`\ndescendants: ${node.descendants.length}`);
 }
+/** 摘要结果：分支名 + 刚落下的那句话。 */
+export function printBranchSummary(branch) {
+  console.log(`${branch.branch}\t${branch.summary}`);
+}
 export function printBranchImport(result) {
   if (!result.imported) { console.log(`没有需要登记的分支：${result.local} 条本地分支都已有记录。`); return; }
   console.log(`登记 ${result.imported} 条分支记录（只记存在与 worktree，不推断 parent）：`);
