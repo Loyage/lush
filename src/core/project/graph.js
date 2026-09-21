@@ -10,6 +10,17 @@ export const GRAPH_EDGE_LIMIT = 2000;
 const GRAPH_ROLES = ['worker', 'merger', 'verifier'];
 const TASK_ROLE_SQL = GRAPH_ROLES.map(role => `'${role}'`).join(',');
 
+/** verifier 自己不拥有代码分支，但必须画在它正在验收的分支上：单 worker 检验跟随被检验任务，
+ * Candidate 检验跟随 Candidate 固定的 Intent 集成分支。表达式只接收源码内固定 alias，不含外部输入。 */
+const taskBranchSql = alias => `COALESCE(${alias}.branch,
+  CASE
+    WHEN ${alias}.role='verifier' AND ${alias}.review_candidate_id IS NOT NULL
+      THEN (SELECT branch FROM review_candidates candidate WHERE candidate.id=${alias}.review_candidate_id)
+    WHEN ${alias}.role='verifier' AND ${alias}.verifies_task_id IS NOT NULL
+      THEN (SELECT branch FROM tasks verified WHERE verified.id=${alias}.verifies_task_id)
+    ELSE NULL
+  END)`;
+
 const branchId = name => `branch:${name}`;
 
 /** 汇总 status 里算「活动」的口径：任务还占着槽、等槽或等用户。 */
@@ -76,11 +87,12 @@ export default {
         if (at > 0) refs.set(line.slice(0, at), line.slice(at + 1).trim());
       }
 
-      const rows = this.store.all(`SELECT id, role, name, goal, status, integration, branch, workspace,
+      const rows = this.store.all(`SELECT id, role, name, goal, status, integration,
+        ${taskBranchSql('tasks')} AS branch, workspace,
         base_commit, head_commit, target_branch, baseline_workspace, resolves_task_id, verifies_task_id
         FROM tasks WHERE role IN (${TASK_ROLE_SQL}) ORDER BY id DESC`);
-      // 没有分支也没有 worktree（含已完整回收）的任务不进图：它没有任何可画的关系。
-      // 归档会把 workspace 清成 null，但 branch 是历史、必须留着，所以归档分支上的任务照旧留在图上。
+      // 没有可归属分支也没有 worktree（含已完整回收）的任务不进图。verifier 的 branch 是上面只读派生的
+      // 服务对象分支，所以 Candidate 验收即使清掉 baseline worktree 后也仍留在正确的输入分支下。
       const candidates = rows.filter(row => row.branch || row.workspace || row.baseline_workspace);
 
       // 分支节点名：记录 ∪ 现在的 ref ∪ 当前检出 ∪ 占位父名。记录是历史事实，ref 是现状，
@@ -142,7 +154,8 @@ export default {
         .map(row => ({ ...row, branch: (row.role === 'planner' ? anchorByInput.get(row.input_id) : schedulerAnchor(row.id)) ?? null }));
       const taskById = new Map();
       const tasksByBranch = new Map();
-      for (const task of this.store.all('SELECT id, name, goal, status, branch FROM tasks ORDER BY id')) {
+      for (const task of this.store.all(`SELECT id, name, goal, status, ${taskBranchSql('tasks')} AS branch
+        FROM tasks ORDER BY id`)) {
         taskById.set(task.id, task);
         if (!task.branch) continue;
         if (!tasksByBranch.has(task.branch)) tasksByBranch.set(task.branch, []);

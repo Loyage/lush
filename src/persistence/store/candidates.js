@@ -1,6 +1,6 @@
 import { check, id } from '../../core/types.js';
 
-const STATUSES = new Set(['preparing','ready','accepted','changes_requested','superseded','rejected','integrated','failed']);
+const STATUSES = new Set(['pending','preparing','ready','accepted','changes_requested','superseded','rejected','integrated','failed']);
 
 /** Frozen, user-reviewable intent results backed by an integration branch commit. */
 export const candidates = {
@@ -20,8 +20,10 @@ export const candidates = {
   createCandidate({ input_id, branch, commit, baseline_branch, baseline_commit, summary = null }) {
     const input = id(input_id);
     const version = this.get('SELECT COALESCE(MAX(version),0)+1 AS value FROM review_candidates WHERE input_id=?', input).value;
-    const row = this.run(`INSERT INTO review_candidates(input_id,version,branch,commit_hash,baseline_branch,baseline_commit,summary)
-      VALUES (?,?,?,?,?,?,?)`, input, version, branch, commit, baseline_branch, baseline_commit, summary);
+    // 候选只冻结待审阅的两个 commit；验收任务必须由用户另行显式启动。
+    // 显式写 status，兼容已有数据库仍保留 preparing 默认值的 schema。
+    const row = this.run(`INSERT INTO review_candidates(input_id,version,branch,commit_hash,baseline_branch,baseline_commit,status,summary)
+      VALUES (?,?,?,?,?,?,'pending',?)`, input, version, branch, commit, baseline_branch, baseline_commit, summary);
     return this.candidate(Number(row.lastInsertRowid));
   },
   updateCandidate(candidateId, patch) {

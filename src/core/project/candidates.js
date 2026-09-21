@@ -19,20 +19,22 @@ export default {
     const baseline = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${input.anchor_target_branch}^{commit}`);
     const previous = this.store.latestCandidate(input.id);
     const candidate = this.store.transaction(() => {
-      if (previous && ['preparing','ready','accepted'].includes(previous.status)) this.store.updateCandidate(previous.id, { status: 'superseded' });
+      if (previous && ['pending','preparing','ready','accepted'].includes(previous.status)) this.store.updateCandidate(previous.id, { status: 'superseded' });
       const created = this.store.createCandidate({ input_id: input.id, branch: input.anchor_branch, commit,
         baseline_branch: input.anchor_target_branch, baseline_commit: baseline, summary: summary ?? input.content.split('\n')[0].trim() });
       this.store.event(input.task_id, 'candidate.created', { candidate: created.id, version: created.version,
         branch: created.branch, commit: created.commit_hash, baseline: created.baseline_commit });
       return created;
     });
-    const verifier = this.verifyCandidate(candidate.id);
-    return { ...this.store.candidate(candidate.id), verifier };
+    // 冻结候选不等于启动验收。verifier 会消耗执行槽并暂时阻止输入分支收口，
+    // 只能由用户通过 candidate.verify 显式启动。
+    return this.store.candidate(candidate.id);
   },
 
   verifyCandidate(candidateId) {
     const candidate = this.store.candidate(candidateId);
-    check(['preparing','failed'].includes(candidate.status), `candidate #${candidate.id} is ${candidate.status}; it cannot be verified`);
+    // pending 是新候选等待用户显式验收；preparing 兼容旧数据里尚未真正派 verifier 的候选。
+    check(['pending','preparing','failed'].includes(candidate.status), `candidate #${candidate.id} is ${candidate.status}; it cannot be verified`);
     const active = this.store.get(`SELECT id FROM tasks WHERE review_candidate_id=?
       AND status NOT IN ('completed','failed','cancelled') ORDER BY id DESC LIMIT 1`, candidate.id);
     check(!active, `candidate verification #${active?.id} is still running`);
@@ -92,7 +94,7 @@ export default {
 
   requestCandidateChanges(candidateId, feedback) {
     const candidate = this.store.candidate(candidateId);
-    check(['preparing','ready','accepted'].includes(candidate.status), `candidate #${candidate.id} is ${candidate.status}`);
+    check(['pending','preparing','ready','accepted'].includes(candidate.status), `candidate #${candidate.id} is ${candidate.status}`);
     text(feedback, 'feedback');
     const input = this.store.get('SELECT * FROM inputs WHERE id=?', candidate.input_id);
     return this.store.transaction(() => {

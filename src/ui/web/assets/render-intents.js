@@ -42,7 +42,16 @@ function candidateActions(intent) {
     }
     return actions.children.length ? actions : null;
   }
-  if (intent.candidate_report_task_id) {
+  const waitingForUser = intent.candidate_status === 'pending'
+    || (intent.candidate_status === 'preparing' && !intent.candidate_report_task_id);
+  if (waitingForUser || intent.candidate_status === 'failed') {
+    actions.append(button(intent.candidate_status === 'failed' ? '重新验收' : '开始验收',
+      () => action('candidate.verify', { id: intent.candidate_id }), 'primary'));
+  }
+  if (intent.candidate_report_task_id && intent.candidate_status === 'preparing') {
+    actions.append(button(`查看验收任务 #${intent.candidate_report_task_id}`,
+      () => detail(intent.candidate_report_task_id), 'link'));
+  } else if (intent.candidate_report_task_id && ['ready','accepted','integrated'].includes(intent.candidate_status)) {
     const report = el('a', '打开结果报告', 'link');
     report.href = `/api/task/${intent.candidate_report_task_id}/report`; report.target = '_blank'; report.rel = 'noopener';
     actions.append(report);
@@ -91,7 +100,11 @@ function intentItem(intent) {
   if (review) item.append(review);
   item.append(el('span', intent.plan_gate === 'proposed'
     ? 'planner 认为这次改动风险较高，先请你拍板；批准后由 runtime 直接编译 Work DAG。'
-    : intent.candidate_status === 'ready' ? '这一版固定 commit 已生成前后对照报告，等待你的验收。'
+    : intent.candidate_status === 'pending' || (intent.candidate_status === 'preparing' && !intent.candidate_report_task_id)
+      ? '候选 commit 已冻结；只有你点击“开始验收”才会启动 verifier。'
+      : intent.candidate_status === 'preparing' ? '验收任务正在运行；它会在分支图中挂到这条输入的锚点分支。'
+      : intent.candidate_status === 'failed' ? '上一轮验收失败；你可以检查任务后显式重新验收。'
+      : intent.candidate_status === 'ready' ? '这一版固定 commit 已生成前后对照报告，等待你的验收。'
       : 'Intent 是用户目标中心；开发完成后生成固定 commit 的验收候选。', 'hint'));
   item.onclick = event => { if (event.target === item || event.target.classList.contains('goal')) { ui.noticeFocus = null; return detail(intent.task_id); } };
   return item;

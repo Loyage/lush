@@ -27,7 +27,13 @@ test('review candidate freezes the intent commit, publishes evidence and lands o
     const reviewed = await git(input.anchor.workspace, 'rev-parse', 'HEAD');
 
     const prepared = await f.project.prepareCandidate(input.id, '可以验收的结果');
-    expect(prepared).toMatchObject({ input_id: input.id, version: 1, status: 'preparing', commit_hash: reviewed });
+    expect(prepared).toMatchObject({ input_id: input.id, version: 1, status: 'pending', commit_hash: reviewed });
+    expect(f.store.all("SELECT id FROM tasks WHERE role='verifier' AND review_candidate_id=?", prepared.id)).toEqual([]);
+
+    // 冻结候选不会自动验收；只有用户显式请求才创建 verifier。
+    const verifier = f.project.verifyCandidate(prepared.id);
+    const graph = await f.project.graph();
+    expect(graph.nodes.find(node => node.id === verifier.id)).toMatchObject({ role: 'verifier', branch: input.anchor.branch });
     await until(() => f.store.candidate(prepared.id).status === 'ready');
     const candidate = f.project.candidate(prepared.id);
     expect(candidate.has_report).toBe(true);
@@ -48,6 +54,8 @@ test('candidate acceptance rejects branch drift and feedback starts an increment
     fs.writeFileSync(path.join(input.anchor.workspace, 'page.txt'), 'v1\n');
     await git(input.anchor.workspace, 'add', 'page.txt'); await git(input.anchor.workspace, 'commit', '-m', 'v1');
     const prepared = await f.project.prepareCandidate(input.id);
+    expect(prepared.status).toBe('pending');
+    f.project.verifyCandidate(prepared.id);
     await until(() => f.store.candidate(prepared.id).status === 'ready');
 
     const revision = f.project.requestCandidateChanges(prepared.id, '按钮需要更明显');

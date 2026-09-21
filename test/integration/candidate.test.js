@@ -59,8 +59,19 @@ test('an Intent compiles to work, auto-integrates privately, then a frozen Candi
     }
     expect(fs.existsSync(path.join(root,'greeting.txt'))).toBe(false);
 
-    // The runtime freezes the integration commit and produces a reviewable candidate with a report.
+    // Runtime 只冻结候选，不自动占槽验收。
     let candidate = null;
+    for (let i=0;i<400;i++) {
+      candidate = (await client.request('candidate.list',{input:input.id}))[0] ?? null;
+      if (candidate?.status === 'pending') break;
+      await Bun.sleep(30);
+    }
+    expect(candidate?.status).toBe('pending');
+    expect(candidate.report_task_id).toBeNull();
+    expect((await client.request('task.list')).filter(task => task.role === 'verifier')).toHaveLength(0);
+
+    // 用户显式指定验收后才创建 verifier 与报告。
+    await client.request('candidate.verify', { id: candidate.id });
     for (let i=0;i<400;i++) {
       candidate = (await client.request('candidate.list',{input:input.id}))[0] ?? null;
       if (candidate && ['ready','failed'].includes(candidate.status)) break;
@@ -94,6 +105,13 @@ test('requesting changes keeps the reviewed version and starts a new planner for
     const worker = (await client.request('task.list')).find(task => task.role === 'worker');
     await done(client, worker.id);
     let candidate = null;
+    for (let i=0;i<400;i++) {
+      candidate = (await client.request('candidate.list',{input:input.id}))[0] ?? null;
+      if (candidate?.status === 'pending') break;
+      await Bun.sleep(30);
+    }
+    expect(candidate.status).toBe('pending');
+    await client.request('candidate.verify', { id: candidate.id });
     for (let i=0;i<400;i++) {
       candidate = (await client.request('candidate.list',{input:input.id}))[0] ?? null;
       if (candidate?.status === 'ready') break;

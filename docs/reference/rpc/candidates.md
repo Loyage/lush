@@ -16,9 +16,9 @@
 
 ## 语义
 
-`candidate.prepare` 要求该 Intent 没有活动工作、没有 failed worker、私有 integration branch 没有未收拢子分支，并把它与其他工作聚合完成。runtime 固定 integration commit 与 target baseline commit，创建新版 `review_candidates`（旧版本 `ready`/`accepted` 会被标 `superseded`），然后派只读 verifier。
+`candidate.prepare` 要求该 Intent 没有活动工作、没有 failed worker、私有 integration branch 没有未收拢子分支，并把它与其他工作聚合完成。runtime 只固定 integration commit 与 target baseline commit，创建状态为 `pending` 的新版 `review_candidates`（旧版本 `pending`/`preparing`/`ready`/`accepted` 会被标 `superseded`），**不会自动派验收任务**。
 
-verifier 在固定 integration commit 与固定 baseline commit 上运行同一验收场景，把自包含 HTML 报告写到 `.lush/verify/<verifier-id>/report.html`，通过 `GET /api/task/<id>/report` 打开。报告成功后 Candidate 进入 `ready`。
+只有用户显式调用 `candidate.verify`（Web 的“开始验收”）才会派只读 verifier。verifier 在固定 integration commit 与固定 baseline commit 上运行同一验收场景，把自包含 HTML 报告写到 `.lush/verify/<verifier-id>/report.html`，通过 `GET /api/task/<id>/report` 打开。报告成功后 Candidate 进入 `ready`。
 
 `candidate.accept` 会再次校验当前 branch tip 仍等于被审阅 commit；不等时报错并要求生成新版本，绝不夹带未审阅内容。校验通过后按 direct-parent / ff-only 规则合入 target branch，Candidate 进入 `integrated`。
 
@@ -27,9 +27,9 @@ verifier 在固定 integration commit 与固定 baseline commit 上运行同一�
 状态：
 
 ```text
-preparing → ready → accepted → integrated
+pending → preparing → ready → accepted → integrated
                └→ changes_requested → 新版本
                └→ rejected
-preparing / ready / accepted → superseded
+pending / preparing / ready / accepted → superseded
 verifier 失败 → failed（可 candidate.verify 重试）
 ```

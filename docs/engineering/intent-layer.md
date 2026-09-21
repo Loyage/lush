@@ -66,8 +66,8 @@ planner 一轮写完时，`Project.compilePlans()` 选择已经停止执行且�
 
 1. 固定 Intent integration branch 的 commit；
 2. 固定 target branch 的 baseline commit；
-3. 创建 `review_candidates` 版本；
-4. 派只读 verifier 在两边运行同一验收场景；
+3. 创建状态为 `pending` 的 `review_candidates` 版本，到这里不启动验收任务；
+4. 用户显式调用 `candidate.verify` 后，派只读 verifier 在两边运行同一验收场景；
 5. 保存自包含 HTML 报告；
 6. 报告成功后将 Candidate 标记为 `ready`。
 
@@ -80,10 +80,10 @@ planner 一轮写完时，`Project.compilePlans()` 选择已经停止执行且�
 Candidate 状态：
 
 ```text
-preparing → ready → accepted → integrated
-               └→ changes_requested → Candidate v2
-               └→ rejected
-preparing/ready/accepted → superseded
+pending → preparing → ready → accepted → integrated
+                       └→ changes_requested → Candidate v2
+                       └→ rejected
+pending/preparing/ready/accepted → superseded
 ```
 
 ## Run 与 Artifact
