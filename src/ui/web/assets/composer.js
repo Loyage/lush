@@ -16,6 +16,26 @@ export function toggleDraftPanel(force) {
   ui.draftPanelOpen = force === undefined ? !ui.draftPanelOpen : Boolean(force);
   paintDraftPanel();
 }
+/**
+ * 输入区展开态：默认只留一行输入 + 一行操作；展开后才出现父分支与快捷键说明。
+ * 折叠态仍把非空的父分支写在展开控件上，避免用户在不知情的情况下提交到别的分支。
+ */
+export function paintComposerDetails() {
+  const open = Boolean(ui.composerExpanded);
+  const details = $('composer-details'), shortcuts = $('composer-shortcuts'), toggle = $('composer-expand');
+  if (details) details.hidden = !open;
+  if (shortcuts) shortcuts.hidden = !open;
+  if (!toggle) return;
+  const branch = String($('input-branch')?.value ?? '').trim();
+  toggle.setAttribute('aria-expanded', String(open));
+  toggle.title = open ? '收起：只留一行输入与操作按钮' : `展开：可以指定父分支，并查看键盘快捷键${branch ? `（当前父分支：${branch}）` : ''}`;
+  toggle.textContent = open ? '⌃ 收起' : (branch ? `⌃ 更多 · 父分支：${branch}` : '⌃ 更多');
+}
+/** 默认折叠；force 省略时就是开关。展开状态只在本次会话内保留，不写进本地偏好。 */
+export function toggleComposerDetails(force) {
+  ui.composerExpanded = force === undefined ? !ui.composerExpanded : Boolean(force);
+  paintComposerDetails();
+}
 export async function buffer() {
   const value = $('input').value.trim();
   if (!value) return;
@@ -33,6 +53,10 @@ export function syncComposer() { $('draft-commit').disabled = !$('input').value.
 export function initComposer() {
   $('draft-toggle').onclick = () => toggleDraftPanel();
   paintDraftPanel(); renderComposerReferences();
+  $('composer-expand').onclick = () => toggleComposerDetails();
+  paintComposerDetails();
+  // 父分支值可能在展开态被改动：折叠回去时控件上要显示最新值。
+  $('input-branch').addEventListener('input', paintComposerDetails);
   $('draft-add').onclick = async event => {
     const target = event.currentTarget; target.disabled = true;
     try { await buffer(); } catch (error) { show(error.message, 'error'); } finally { target.disabled = false; }

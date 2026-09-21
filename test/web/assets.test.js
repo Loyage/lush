@@ -115,6 +115,38 @@ test('设置页模块与左栏入口一起发货，样式里带设置与强制�
   } finally { await f.close(); }
 });
 
+test('无顶栏壳：身份区在左栏，内容区不再被头部压住；输入区默认折叠', async () => {
+  const f = await setup();
+  try {
+    const html = await (await fetch(f.url)).text();
+    const css = await (await fetch(f.url + '/styles.css')).text();
+    // 顶栏整条取消：页面里没有 .app-header，grid 里也没有 header 行（两处 .app 定义都不含 header）。
+    expect(html).not.toContain('app-header');
+    expect(css).not.toContain('.app-header');
+    expect(css).not.toContain('grid-template-areas:"header header"');
+    expect(css).toMatch(/\.app\{[^}]*grid-template-areas:"sidebar content" "sidebar composer"/);
+    expect(css).not.toContain('grid-template-areas:"sidebar detail"');
+    expect(css.match(/grid-template-areas:"sidebar content" "sidebar composer"/g)).toHaveLength(2);
+    // 品牌、项目名、并发槽、连接状态、主题切换、退出登录都搬进左栏顶部（<aside> 内）。
+    const rail = html.slice(html.indexOf('<aside id="sidebar"'), html.indexOf('</aside>'));
+    expect(rail).toContain('rail-identity');
+    for (const id of ['home', 'project', 'agents', 'connection', 'theme-toggle']) expect(rail).toContain(`id="${id}"`);
+    expect(rail).toContain('action="/logout"');
+    // 输入区默认折叠（服务端 HTML 就带 hidden，不依赖用户任何操作）：父分支与快捷键展开后才出现。
+    expect(html).toMatch(/<div id="composer-details"[^>]*hidden/);
+    expect(html).toMatch(/id="composer-shortcuts"[^>]*hidden/);
+    expect(html).toMatch(/id="composer-expand"[^>]*aria-expanded="false"[^>]*aria-controls="composer-details"/);
+    expect(html).toContain('id="draft-count"');
+    // 一行输入：rows=1 且样式里的最小高度 ≤36px；展开不把它撑高。
+    expect(html).toMatch(/<textarea id="input" rows="1"/);
+    expect(css).toMatch(/\.composer textarea\{min-height:3[0-6]px/);
+    // 浮层不再给顶栏留 80px 空档。
+    expect(css).toMatch(/\.toast\{position:fixed;top:16px/);
+    // 行为落点原样保留：待提交意图开关、父分支输入框、提交按钮仍在页面里。
+    for (const id of ['draft-toggle', 'input-branch', 'draft-add', 'draft-commit']) expect(html).toContain(`id="${id}"`);
+  } finally { await f.close(); }
+});
+
 test('web serves the sort module and wires the left-column sort dropdown', async () => {
   const f = await setup();
   try {

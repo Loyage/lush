@@ -10,17 +10,17 @@
 <body>
 <a class="skip-link" href="#detail">跳到主要内容</a>
 <div class="app">
-<header class="app-header">
-  <div class="brand"><button type="button" id="home" class="home" title="回到项目概览" aria-label="Lush · 项目概览"><span class="brand-mark" aria-hidden="true">L</span><strong>Lush<span class="brand-caption">INTENT STUDIO</span></strong></button></div>
-  <div class="project-context"><span class="eyebrow">当前项目</span><span id="project">连接项目…</span></div>
-  <div class="header-tools">
-    <span id="agents"></span><span id="connection" role="status">连接中…</span>
-    <button type="button" id="theme-toggle" class="ghost theme-toggle" aria-label="切换主题">◐ 主题</button>
-    <form class="logout" method="post" action="/logout"><button type="submit" class="ghost">退出</button></form>
-  </div>
-</header>
 <main>
 <aside id="sidebar" aria-label="项目导航">
+  <div class="rail-identity">
+    <div class="brand"><button type="button" id="home" class="home" title="回到项目概览" aria-label="Lush · 项目概览"><span class="brand-mark" aria-hidden="true">L</span><strong>Lush<span class="brand-caption">INTENT STUDIO</span></strong></button></div>
+    <div class="rail-context"><span class="eyebrow">当前项目</span><span id="project">连接项目…</span></div>
+    <div class="rail-tools">
+      <span id="agents"></span><span id="connection" role="status">连接中…</span>
+      <button type="button" id="theme-toggle" class="ghost theme-toggle" aria-label="切换主题">◐ 主题</button>
+      <form class="logout" method="post" action="/logout"><button type="submit" class="ghost">退出</button></form>
+    </div>
+  </div>
   <div class="nav-intro">
     <span class="eyebrow">PROJECT NAVIGATION</span>
     <strong>工作空间</strong>
@@ -82,15 +82,24 @@
 </div>
 </main>
 <div class="composer"><form id="input-form">
-  <div class="composer-heading"><label for="input">下一步，想做什么？</label><span class="composer-caption">从一个想法开始</span></div>
+  <div id="composer-details" class="composer-details" hidden>
+    <div class="composer-heading"><label for="input">下一步，想做什么？</label><span class="composer-caption">从一个想法开始</span></div>
+    <div class="composer-target"><label for="input-branch">父分支</label><input id="input-branch" maxlength="512" placeholder="留空＝当前检出分支" aria-describedby="input-branch-help"><span id="input-branch-help" class="hint">提交时会从该本地分支创建独立输入分支</span></div>
+  </div>
+  <div id="composer-references" class="composer-references" aria-label="本条输入引用的上下文" hidden></div>
   <div class="draft-panel" id="draft-panel">
-    <button type="button" id="draft-toggle" class="draft-toggle" aria-expanded="false" aria-controls="draft-body" title="展开后可以勾选、就地编辑、移除待提交意图，或者只提交选中的那几条">待提交意图<span id="draft-count" class="count">空</span></button>
     <div class="draft-body" id="draft-body"><div id="drafts"></div></div>
   </div>
-  <div class="composer-target"><label for="input-branch">父分支</label><input id="input-branch" maxlength="512" placeholder="留空＝当前检出分支" aria-describedby="input-branch-help"><span id="input-branch-help" class="hint">提交时会从该本地分支创建独立输入分支</span></div>
-  <div id="composer-references" class="composer-references" aria-label="本条输入引用的上下文" hidden></div>
   <textarea id="input" rows="1" maxlength="32000" aria-label="输入开发需求或研究问题" placeholder="描述一个需求，或选中/右键页面内容引用到这里…"></textarea>
-  <div class="composer-foot"><span class="hint"><kbd>Enter</kbd> 暂存想法 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ↵</kbd> 提交选中项并规划</span><span class="composer-actions"><button type="button" id="draft-add" class="ghost">暂存想法</button><button type="submit" id="draft-commit">提交并规划</button></span></div>
+  <div class="composer-foot">
+    <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>Enter</kbd> 暂存想法 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ↵</kbd> 提交选中项并规划</span>
+    <span class="composer-actions">
+      <button type="button" id="draft-toggle" class="draft-toggle" aria-expanded="false" aria-controls="draft-body" title="展开后可以勾选、就地编辑、移除待提交意图，或者只提交选中的那几条">待提交意图<span id="draft-count" class="count">空</span></button>
+      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details" title="展开：可以指定父分支，并查看键盘快捷键">⌃ 更多</button>
+      <button type="button" id="draft-add" class="ghost">暂存想法</button>
+      <button type="submit" id="draft-commit">提交并规划</button>
+    </span>
+  </div>
 </form></div>
 </div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden><p id="error"></p><button type="button" id="toast-close" class="toast-close" aria-label="关闭提示" title="关闭提示" hidden>✕</button></div>
