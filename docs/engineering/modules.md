@@ -96,7 +96,7 @@
 | `project/verify.js` | worker / Candidate 检验与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
 | `project/candidates.js` | 固定 commit 的 Review Candidate、验收、反馈与最终接受；`prepareCandidate` 只创建 `pending` 候选，不派任务，只有用户专属的 `candidate.verify` 才显式启动 verifier | `prepareCandidate`、`verifyCandidate`、`candidateContext`、`candidates`、`candidate`、`acceptCandidate`、`requestCandidateChanges`、`rejectCandidate` |
 | `project/integration.js` | Plan worker 在私有 Intent branch 内自动叶子优先聚合；分歧派 merger，不动 target | `scheduleIntentIntegration`、`integrateIntent` |
-| `project/transcript.js` | pi 会话记录的只读投影 | `transcript(taskId, after, limit)`、`usage(taskId)` |
+| `project/transcript.js` | pi 会话记录的只读投影；每个 step 可带 tokens（assistant 步为 pi 记录的精确用量，工具输出/任务上下文步为相邻两次请求的上下文差值估算） | `transcript(taskId, after, limit)`、`usage(taskId)` |
 | `project/scheduling.js` | 调度、invocation 生命周期、凭证 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
 | `project/lifecycle.js` | 结算、取消、重试、清空与恢复 | `finish`、`cancel`、`retry`、`clear`、`reclaimThenPurge(tasks, anchors)`、`recover`、`shutdown` |
 

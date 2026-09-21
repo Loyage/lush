@@ -16,6 +16,11 @@ const message = (role, content, timestamp = 1789749049638) => ({ type: 'message'
 /** assistant 消息带 pi 的用量：模型每次请求都给出 token 与按单价算好的花费。 */
 const billing = (text, usage, timestamp) => ({ type: 'message', timestamp,
   message: { role: 'assistant', provider: 'deepseek', model: 'deepseek-flash', content: [{ type: 'text', text }], usage } });
+/** assistant 消息拆成多个 part，用来断言同一条消息的多个 step 共享同一组精确用量。 */
+const assistant = (parts, usage, timestamp) => ({ type: 'message', timestamp,
+  message: { role: 'assistant', provider: 'deepseek', model: 'deepseek-flash', content: parts, usage } });
+const result = (name, text, timestamp) => ({ type: 'message', timestamp,
+  message: { role: 'toolResult', toolCallId: 'call_1', toolName: name, isError: false, content: [{ type: 'text', text }] } });
 
 test('transcript projects pi session records into ordered steps', () => {
   const f = fixture();
@@ -139,6 +144,125 @@ test('usage reports the last execution step with its time and a short preview', 
     expect(fallback.last.body).toContain('…');
     // 没有任何会话/步骤时为 null
     expect(readUsage(f.config, 98).last).toBeNull();
+  } finally { f.close(); }
+});
+
+test('transcript attaches exact tokens to billed assistant steps and estimates the steps in between', () => {
+  const f = fixture();
+  try {
+    sessionFile(f.root, 20, [
+      { type: 'session', id: 'lush-task-20', cwd: '/tmp/proj' },
+      message('user', [{ type: 'text', text: '任务上下文' }], 1000),
+      assistant([
+        { type: 'thinking', thinking: '先看看' },
+        { type: 'toolCall', name: 'bash', arguments: { command: 'ls' } },
+        { type: 'text', text: '第一次回答' },
+      ], { input: 100, output: 20, cacheRead: 200, cacheWrite: 5, reasoning: 7, totalTokens: 325, cost: { total: 0.001 } }, 2000),
+      result('bash', 'out1', 2500),
+      result('edit', 'out2', 2600),
+      assistant([{ type: 'text', text: '第二次回答' }],
+        { input: 1000, output: 30, cacheRead: 50, cacheWrite: 0, reasoning: 3, totalTokens: 1080, cost: { total: 0.002 } }, 3000),
+      result('bash', 'out3', 3500),
+      assistant([{ type: 'text', text: '第三次回答' }],
+        { input: 1500, output: 10, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 1510, cost: { total: 0.003 } }, 4000),
+    ]);
+    const page = readTranscript(f.config, 20, 0, 100);
+    expect(page.steps.map(step => step.kind)).toEqual(['input', 'thinking', 'tool', 'text', 'result', 'result', 'text', 'result', 'text']);
+    // 首个请求之前的 input 步没有可比对的上下文
+    expect(page.steps[0].tokens).toBeUndefined();
+    // 同一条 assistant 消息拆出的每一步共享同一组精确用量，只有第一个带 first
+    const exactTurn = { input: 100, output: 20, cache_read: 200, cache_write: 5, reasoning: 7, total: 325, cost: 0.001, exact: true, turn: true };
+    expect(page.steps[1].tokens).toEqual({ ...exactTurn, first: true });
+    expect(page.steps[2].tokens).toEqual(exactTurn);
+    expect(page.steps[3].tokens).toEqual(exactTurn);
+    // 两次请求之间的两个 toolResult 属于同一批次：N = (1000+50) - 325 = 725，first 只在批首
+    expect(page.steps[4].tokens).toEqual({ context_added: 725, estimated: true, batch: true, first: true });
+    expect(page.steps[5].tokens).toEqual({ context_added: 725, estimated: true, batch: true });
+    expect(page.steps[6].tokens).toEqual({
+      input: 1000, output: 30, cache_read: 50, cache_write: 0, reasoning: 3, total: 1080, cost: 0.002, exact: true, turn: true, first: true,
+    });
+    // 批量=1 的批次同样得到估算，且 first 在自己这一批
+    expect(page.steps[7].tokens).toEqual({ context_added: 420, estimated: true, batch: true, first: true });
+    expect(page.steps[8].tokens).toEqual({
+      input: 1500, output: 10, cache_read: 0, cache_write: 0, reasoning: 0, total: 1510, cost: 0.003, exact: true, turn: true, first: true,
+    });
+  } finally { f.close(); }
+});
+
+test('transcript leaves steps without a comparison point untokenised', () => {
+  const f = fixture();
+  try {
+    const billed = { input: 600, output: 100, cacheRead: 300, cacheWrite: 0, reasoning: 4, totalTokens: 1000, cost: { total: 0.001 } };
+    sessionFile(f.root, 21, [
+      message('user', [{ type: 'text', text: '任务上下文' }], 1000),
+      assistant([{ type: 'text', text: 'a' }], billed, 2000),
+      result('bash', 'file A 末尾没有下一次请求', 2500),
+    ], '2026-01-01T00-00-00-000Z_lush-task-21.jsonl');
+    sessionFile(f.root, 21, [
+      message('user', [{ type: 'text', text: '第二轮上下文' }], 3000),
+      assistant([{ type: 'text', text: 'b' }], billed, 4000),
+      { type: 'compaction', timestamp: 4100, summary: 'compacted' },
+      result('bash', '压缩之后上下文反而更小', 4200),
+      assistant([{ type: 'text', text: 'c' }],
+        { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 110, cost: { total: 0 } }, 5000),
+    ], '2026-02-01T00-00-00-000Z_lush-task-21.jsonl');
+    const page = readTranscript(f.config, 21, 0, 100);
+    expect(page.steps.map(step => step.kind)).toEqual(['input', 'text', 'result', 'input', 'text', 'meta', 'result', 'text']);
+    expect(page.steps[0].tokens).toBeUndefined();   // 首个请求之前
+    expect(page.steps[1].tokens).toMatchObject({ exact: true, turn: true, first: true });
+    expect(page.steps[2].tokens).toBeUndefined();   // 文件 A 末尾，本文件没有下一次请求，也不跨文件推算
+    expect(page.steps[3].tokens).toBeUndefined();   // 文件边界重置「上一次请求」
+    expect(page.steps[4].tokens).toMatchObject({ exact: true, turn: true, first: true });
+    expect(page.steps[5].tokens).toBeUndefined();   // compaction 让下一次上下文变小（100 - 1000 ≤ 0）
+    expect(page.steps[6].tokens).toBeUndefined();
+    expect(page.steps[7].tokens).toMatchObject({ exact: true, turn: true, first: true });
+  } finally { f.close(); }
+});
+
+test('transcript resolves the window-end batch with the next request past the page', () => {
+  const f = fixture();
+  try {
+    sessionFile(f.root, 22, [
+      assistant([{ type: 'text', text: 'a' }],
+        { input: 400, output: 50, cacheRead: 100, cacheWrite: 0, reasoning: 1, totalTokens: 550, cost: { total: 0.0001 } }, 1000),
+      result('bash', 'r1', 2000),
+      result('bash', 'r2', 2100),
+      assistant([{ type: 'text', text: 'b' }],
+        { input: 900, output: 40, cacheRead: 100, cacheWrite: 0, reasoning: 1, totalTokens: 1040, cost: { total: 0.0002 } }, 3000),
+    ]);
+    const first = readTranscript(f.config, 22, 0, 2);
+    expect(first.steps.map(step => step.seq)).toEqual([1, 2]);
+    expect(first.has_more).toBe(true);
+    // 窗口末尾的批次用窗口之后读到的下一次请求补 N = (900+100) - 550 = 450
+    expect(first.steps[1].tokens).toEqual({ context_added: 450, estimated: true, batch: true, first: true });
+    // 续读时同一组不再重复 first（前端据此不重复印 chip）
+    const second = readTranscript(f.config, 22, first.next, 100);
+    expect(second.steps.map(step => step.seq)).toEqual([3, 4]);
+    expect(second.steps[0].tokens).toEqual({ context_added: 450, estimated: true, batch: true });
+    expect(second.steps[1].tokens).toMatchObject({ exact: true, turn: true, first: true, total: 1040 });
+  } finally { f.close(); }
+});
+
+test('usage previews the last step with exact tokens when it is a billed assistant step', () => {
+  const f = fixture();
+  try {
+    sessionFile(f.root, 23, [
+      message('user', [{ type: 'text', text: 'go' }], 1000),
+      assistant([{ type: 'thinking', thinking: 'hm' }, { type: 'text', text: 'done' }],
+        { input: 300, output: 40, cacheRead: 60, cacheWrite: 0, reasoning: 9, totalTokens: 400, cost: { total: 0.0005 } }, 2000),
+    ]);
+    expect(readUsage(f.config, 23).last).toEqual({
+      at: new Date(2000).toISOString(), kind: 'text', title: '回答', body: 'done',
+      tokens: { input: 300, output: 40, cache_read: 60, cache_write: 0, reasoning: 9, total: 400, cost: 0.0005, exact: true, turn: true },
+    });
+    // 最后一步正好是这条消息的第一个 step 时才带 first（与 transcript 同形）
+    sessionFile(f.root, 24, [
+      assistant([{ type: 'toolCall', name: 'bash', arguments: { command: 'ls' } }],
+        { input: 10, output: 2, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 12, cost: { total: 0 } }, 3000),
+    ]);
+    expect(readUsage(f.config, 24).last.tokens).toEqual({
+      input: 10, output: 2, cache_read: 0, cache_write: 0, reasoning: 0, total: 12, cost: 0, exact: true, turn: true, first: true,
+    });
   } finally { f.close(); }
 });
 
