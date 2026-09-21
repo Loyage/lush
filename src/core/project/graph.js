@@ -41,7 +41,10 @@ function summarize(text) {
  * `status` + `tasks`（这条分支自己的任务连同全部后代分支任务的汇总口径：active / failed /
  * merged / ready / empty）。归档过的分支另带 `archived` / `archived_at` / `deleted`，状态固定为
  * `archived`（不被汇总口径改写），它名下的任务节点也标 `archived:true`，仍然留在图上。
- * 这些都只是读 store 已有事实，不写库、不改 git。
+ * 这些都只是读 store 已有事实，不写库、不改 git。每个 `kind:"task"` 节点（含意图层的 planner / scheduler）
+ * 另带「待你决断」的 notice：`notice`（open 且 kind 为 question / plan 的最新一条，没有则 null）与
+ * `notice_count`（这类 open notice 的总数）。info 提醒（status='sent'）与 answered / dismissed 都不算，
+ * 一次 SELECT 取回后在内存里按 task_id 归并。
  * fork 边在 `status`（fast_forward / diverged / integrated / missing / unknown）与 ahead/behind 之外
  * 再给三个可执行动作：`can_merge`（子→父 fast-forward）/ `can_sync`（分歧时建子侧 merger）/ `can_catchup`
  * （父→子 fast-forward，子分支没有独有提交时才能跟上）。
@@ -102,6 +105,18 @@ export default {
       const taskCapacity = Math.max(0, GRAPH_NODE_LIMIT - branchCapacity);
       let truncated = orderedBranchNames.length > branchCapacity || candidates.length > taskCapacity;
       const taskRows = candidates.slice(0, taskCapacity);
+
+      // 每个任务「待你决断」的 notice：open 且 kind 是 question / plan。info 提醒（status='sent'）
+      // 与 answered / dismissed 的都不算；任务结算时 lifecycle 会把 open 置为 dismissed，所以终态任务不会带。
+      // 一次查询按 id 升序取全部，再在内存里按 task_id 归并：最新一条（id 最大）与总数。
+      const pendingNotices = new Map();
+      for (const row of this.store.all(`SELECT id, task_id, kind, title, body, created_at FROM notices
+        WHERE status='open' AND kind IN ('question','plan') ORDER BY id`)) {
+        const entry = pendingNotices.get(row.task_id);
+        const notice = { id: row.id, kind: row.kind, title: row.title, body: row.body, created_at: row.created_at };
+        if (entry) { entry.notice = notice; entry.count += 1; } else pendingNotices.set(row.task_id, { notice, count: 1 });
+      }
+      const pendingFor = taskId => pendingNotices.get(taskId) ?? { notice: null, count: 0 };
 
       // 分支节点的「为什么 / 是什么 / 现在怎样」全部来自 store 已有事实，不额外写库：
       // inputs.anchor_branch 回答「因为哪条输入」，tasks.branch 回答「哪个任务」，
@@ -255,6 +270,7 @@ export default {
           } catch { /* 任一侧取不到就保持 null */ }
           merged = headCommit === targetHead ? true : await this.containsCommit(headCommit, targetHead);
         }
+        const pending = pendingFor(row.id);
         const node = {
           kind: 'task', id: row.id, role: row.role, name: row.name ?? null,
           goal: String(row.goal ?? '').slice(0, 120),
@@ -265,12 +281,15 @@ export default {
           base_commit: row.base_commit ?? null, head_commit: headCommit ?? null, reviewed_commit: row.head_commit ?? null,
           target_branch: row.target_branch ?? null, ahead, behind, merged,
           current: Boolean(row.branch) && row.branch === currentBranch,
+          // 「待你决断」的最新一条 notice 与总数（口径见上面 pendingNotices）。
+          notice: pending.notice, notice_count: pending.count,
         };
         nodes.push(node);
       }
       // 意图层任务（planner / scheduler）和 worker 任务一样是 kind:task 节点，只是没有自己的
       // worktree / 目标分支：合并信息一律保持 null，绝不臆造 ahead/behind/merged，也不画「缺失分支」。
       for (const row of intentRows) {
+        const pending = pendingFor(row.id);
         nodes.push({
           kind: 'task', id: row.id, role: row.role, name: row.name ?? null,
           goal: String(row.goal ?? '').slice(0, 120),
@@ -281,6 +300,7 @@ export default {
           base_commit: null, head_commit: null, reviewed_commit: null,
           target_branch: null, ahead: null, behind: null, merged: null,
           current: false,
+          notice: pending.notice, notice_count: pending.count,
         });
       }
       if (nodes.length > GRAPH_NODE_LIMIT) { truncated = true; nodes.length = GRAPH_NODE_LIMIT; }

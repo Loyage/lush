@@ -386,3 +386,71 @@ test('graph keeps planner and scheduler on an archived anchor branch, marked arc
     expect(nodes.get('branch:lush/test/input-1-anchor')).toMatchObject({ archived: true, status: 'archived' });
   } finally { await f.close(); }
 });
+
+test('graph carries each task pending notice and its count', async () => {
+  const f = await setup();
+  try {
+    // worker 有分支（ensure 只建分支/worktree，不改任务状态），所以它还在「等你决断」。
+    await f.project.workspaces.ensure(f.store.task(f.task.id));
+    const branch = f.store.task(f.task.id).branch;
+    expect(branch).toBeTruthy();
+    const nodesOf = async () => new Map((await f.project.graph()).nodes.map(node => [node.id, node]));
+
+    // 顶层键不能因为加字段而膨胀：仍然是固定的七个。
+    expect(Object.keys(await f.project.graph()).sort())
+      .toEqual(['current_branch', 'edges', 'error', 'generated_at', 'git', 'nodes', 'truncated']);
+
+    // 纯提醒（kind='info' / status='sent'）不算待决：没有 notice 字段，也不计入 notice_count。
+    f.project.notify(f.task.id, '分支提醒', '只是提醒，不需要回复');
+    let nodes = await nodesOf();
+    expect(nodes.get(f.task.id).notice).toBeNull();
+    expect(nodes.get(f.task.id).notice_count).toBe(0);
+
+    // 第一条 question：节点带上它，count=1。
+    const first = f.project.notice(f.task.id, '先决定这个', '第一件事要你拍板');
+    nodes = await nodesOf();
+    expect(nodes.get(f.task.id).notice).toMatchObject({
+      id: first.id, kind: 'question', title: '先决定这个', body: '第一件事要你拍板',
+    });
+    expect(nodes.get(f.task.id).notice.created_at).toBe(first.created_at);
+    expect(nodes.get(f.task.id).notice_count).toBe(1);
+
+    // 更晚的一条：节点取最新（id 最大），count 累计所有 open 待决。
+    const second = f.project.notice(f.task.id, '再决定这个', '第二件事');
+    nodes = await nodesOf();
+    expect(nodes.get(f.task.id).notice).toMatchObject({ id: second.id, title: '再决定这个', body: '第二件事' });
+    expect(nodes.get(f.task.id).notice_count).toBe(2);
+
+    // 回答较早那条：最新一条仍是 remaining，count 减一；已答复的不再出现。
+    f.project.answer(first.id, '已处理');
+    nodes = await nodesOf();
+    expect(nodes.get(f.task.id).notice).toMatchObject({ id: second.id });
+    expect(nodes.get(f.task.id).notice_count).toBe(1);
+
+    // 分支节点不参与这套字段。
+    expect(nodes.get(`branch:${branch}`)).not.toHaveProperty('notice');
+    expect(nodes.get(`branch:${branch}`)).not.toHaveProperty('notice_count');
+
+    // planner 的 plan 审批与 question 同一口径，挂在锚点分支的 planner 节点上。
+    const inputId = f.store.nextInputId();
+    f.store.run('INSERT INTO inputs(id,content,anchor_branch) VALUES (?,?,?)',
+      inputId, '需要先拍板的拆解', 'lush/test/input-1-anchor');
+    f.store.recordBranch({ branch: 'lush/test/input-1-anchor', parent: 'main' });
+    const planner = f.store.create({ input_id: inputId, role: 'planner', goal: '拆解这条输入' });
+    f.store.addSpec({ input_id: inputId, planner_task_id: planner.id, goal: '做这件事', role: 'worker', name: 'do-it' });
+    f.project.proposePlan(planner.id, '这批改动影响公共面', '请你先拍板');
+    nodes = await nodesOf();
+    expect(nodes.get(planner.id).notice).toMatchObject({ kind: 'plan', title: '这批改动影响公共面' });
+    expect(nodes.get(planner.id).notice_count).toBe(1);
+    // 锚点分支节点上没有 planner 的 plan notice。
+    expect(nodes.get('branch:lush/test/input-1-anchor')).not.toHaveProperty('notice');
+
+    // 结算会把该任务剩下的 open notice 置为 dismissed：终态任务 notice===null，count===0。
+    expect(f.store.get('SELECT status FROM notices WHERE id=?', second.id).status).toBe('open');
+    f.project.finish(f.task.id, 'completed', '做完了');
+    expect(f.store.get('SELECT status FROM notices WHERE id=?', second.id).status).toBe('dismissed');
+    nodes = await nodesOf();
+    expect(nodes.get(f.task.id).notice).toBeNull();
+    expect(nodes.get(f.task.id).notice_count).toBe(0);
+  } finally { await f.close(); }
+});
