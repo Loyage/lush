@@ -72,6 +72,9 @@ export default {
       task = this.store.task(taskId);
       this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, message_ids: messages.map(message => message.id) });
       timer = setTimeout(() => run.controller.abort(), this.config.timeout * 1000);
+      // 引用快照固定在 Input 上；每次 planner 唤醒都重新解析当前状态，避免等待用户期间目标已经变化。
+      const referencedContext = task.role === 'planner' && task.input_id !== null
+        ? await this.resolveInputReferences(task.input_id) : undefined;
       const result = await this.provider.run({ task, cwd, token: run.token, signal: run.controller.signal,
         onSpawn: pid => { run.pid = pid; }, messages, api: this,
         context: {
@@ -86,7 +89,8 @@ export default {
               return { spec: hint.spec, task_id: target ? target.task_id : null, kind: hint.kind };
             }),
           })) } : {}),
-          ...(task.role === 'planner' ? { queued_specs: this.store.specs({ planner_task_id: taskId, status: 'pending', limit: 50 }) } : {}),
+          ...(task.role === 'planner' ? { queued_specs: this.store.specs({ planner_task_id: taskId, status: 'pending', limit: 50 }),
+            referenced_context: referencedContext } : {}),
           recent_tasks: this.decorate(this.store.all('SELECT id,parent_id,role,status,substr(goal,1,500) AS goal,integration FROM tasks ORDER BY id DESC LIMIT 100')),
           verification: task.role === 'verifier' ? this.verificationContext(task) : undefined,
           merge_conflict: task.resolves_task_id ? this.mergeConflictContext(task) : undefined,

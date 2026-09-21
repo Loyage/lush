@@ -1,8 +1,9 @@
 import { el } from './dom.js';
 import { EVENTS, ROLE, absolute, relative, short } from './format.js';
 import { agentText } from './text.js';
+import { referenceable } from './context-references.js';
 
-export function renderHistory(history, { running = false, truncated = false } = {}) {
+export function renderHistory(history, { running = false, truncated = false, taskId = null } = {}) {
   const list = el('ol', undefined, 'timeline');
   history.forEach((event, index) => {
     const item = el('li', undefined, `e-${event.type.replaceAll('.', '-')}${running && index === history.length - 1 ? ' hot' : ''}`);
@@ -26,6 +27,9 @@ export function renderHistory(history, { running = false, truncated = false } = 
     else if (event.type === 'merge.failed') body = data.error || '';
     else body = Object.keys(data).length ? JSON.stringify(data).slice(0, 300) : '';
     if (body) item.append(agent ? agentText(body, { className: 't-body' }) : el('div', body, 't-body'));
+    if (event.id) referenceable(item, { kind: 'history_event', target: { event_id: event.id, ...(taskId ? { task_id: taskId } : {}) },
+      label: `事件 #${event.id} · ${EVENTS[event.type] || event.type}`, quote: `${EVENTS[event.type] || event.type}${body ? `\n${body}` : ''}`,
+      location: { view: 'task-detail', ...(taskId ? { task_id: taskId } : {}), section: 'history' } });
     list.append(item);
   });
   if (truncated) list.append(el('li', '… 更早的事件未显示（每页 100 条）', 't-body'));

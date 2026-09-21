@@ -32,10 +32,10 @@
 
 | 分区 | 入口 | 细粒度模块 | 独立可并行 |
 |---|---|---|---|
-| 任务编排 | `src/core/project.js` | `src/core/project/`（17 个） | ✅ |
+| 任务编排 | `src/core/project.js` | `src/core/project/`（18 个） | ✅ |
 | Git 边界 | `src/core/workspaces.js` | `src/core/workspaces/`（5 个） | ✅ |
-| 持久化 | `src/persistence/store.js` | `src/persistence/store/`（9 个） | ✅ |
-| 前端 | `src/ui/web/assets/app.js` | `src/ui/web/assets/`（26 个） | ✅ |
+| 持久化 | `src/persistence/store.js` | `src/persistence/store/`（10 个） | ✅ |
+| 前端 | `src/ui/web/assets/app.js` | `src/ui/web/assets/`（27 个） | ✅ |
 | CLI | `src/cli/main.js` | `src/cli/`（10 个） | ✅ |
 | RPC | `src/rpc/protocol.js` | `src/rpc/`（7 个） | ✅ |
 | 测试 | `test/*.test.js` | `test/<分区>/*.test.js` | 依赖上面六个落定后 |
@@ -55,8 +55,9 @@
 | `project/internal.js` | 两个跨模块的私有助手 | `agentView(task, run)`、`tokenHash(token)` |
 | `project/status.js` | 项目级读模型（任务分布、layers、意图、spec、drafts、agents、待合并、合并冻结、notice 计数） | `status()` |
 | `project/deps.js` | 依赖边的读模型与结构校验 | `decorate(tasks)`、`blockedBy(taskId)`、`assertDeps(taskId, parent, edges)` |
-| `project/inputs.js` | 输入与流程判定 | `createInput(content)`、`submit(content)`、`inputs()`、`setInputFlow(taskId, flow)` |
-| `project/drafts.js` | 输入缓存（增删改、整体提交成一批） | `draft`、`drafts`、`dropDraft`、`editDraft`、`commitDrafts` |
+| `project/inputs.js` | 输入与流程判定 | `createInput(content, references)`、`submit(content, references)`、`inputs()`、`setInputFlow(taskId, flow)` |
+| `project/references.js` | Input / Draft 的结构化上下文引用：校验、持久化与 invocation 时实时解析 | `normalizeReferences(references)`、`referencesForInput(inputId)`、`resolveInputReferences(inputId)` |
+| `project/drafts.js` | 输入缓存（增删改、结构化引用、整体提交成一批） | `draft`、`drafts`、`dropDraft`、`editDraft`、`commitDrafts` |
 | `project/specs.js` | 拆解队列与批次的出生 | `ensureScheduler()`、`addSpec(plannerTaskId, spec)`、`dropSpec(specId, note, actor)` |
 | `project/plans.js` | 计划审批闸门 | `proposePlan`、`approvePlan`、`rejectPlan`、`planForApproval` |
 | `project/tasks.js` | 派生任务与单任务详情 | `spawn(parentId, goal, role, deps, name, specId)`、`inspect(taskId)` |
@@ -93,6 +94,7 @@
 | `store/events.js` | 审计事件 | `event`、`history` |
 | `store/verification.js` | 检验与解冲突的关联读模型 | `verifications`、`activeVerification`、`resolutions`、`activeResolver`、`unlandedResolver`、`conflictsOn` |
 | `store/drafts.js` | 输入缓存 | `addDraft`、`draft`、`updateDraft`、`openDrafts`、`draftCount` |
+| `store/references.js` | Input / Draft 的引用元数据（不是新的业务实体） | `setDraftReferences`、`draftReferences`、`setInputReferences`、`inputReferences`、`referencesForDrafts` |
 | `store/timeline.js` | 时间轴原料 | `timelineTasks`、`lifecycleEvents`、`childSpans` |
 
 ## 4. 前端：`src/ui/web/assets/`
@@ -122,7 +124,8 @@
 | `sidebar-ui.js` | 左栏导航 / 折叠 / 计数 | `paintCollapsed`、`setNavCount`、`selectNav`、`navTo` |
 | `sidebar-init.js` | 装配导航与五组筛选条 | `initSidebar()` |
 | `composer.js` | 输入缓存与提交表单 | `buffer()`、`selectedDraftIds()`、`syncComposer()`、`initComposer()` |
-| `render-drafts.js` | 待提交缓存 | `renderDrafts(data)` |
+| `context-references.js` | 页面选区 / 语义元素的右键引用、输入框引用卡片与可引用节点注册 | `referenceable(node, descriptor)`、`initContextReferences()`、`renderComposerReferences()`、`setComposerReferences()` |
+| `render-drafts.js` | 待提交缓存与引用摘要 | `renderDrafts(data)` |
 | `render-intents.js` | 意图面板（planner 闸门 + scheduler 进度） | `renderIntents(data)` |
 | `render-specs.js` | 拆解队列（只读） | `renderSpecs(data)`、`specItem(spec)`、`specDeps(value)` |
 | `render-tree.js` | 任务树、兄弟链、依赖标签、为什么没在跑 | `renderTree(data)` |

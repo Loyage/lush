@@ -1,8 +1,8 @@
 import { LushError, check, isPlainObject } from '../core/types.js';
 
 export const PARAMS = {
-  'system.status': [], 'system.stop': [], 'system.timeline': ['limit'], 'input.submit': ['content'], 'input.list': [], 'input.flow': ['id','flow'],
-  'draft.add': ['content'], 'draft.list': [], 'draft.remove': ['id'], 'draft.update': ['id','content'], 'draft.commit': ['ids'],
+  'system.status': [], 'system.stop': [], 'system.timeline': ['limit'], 'input.submit': ['content','references'], 'input.list': [], 'input.flow': ['id','flow'],
+  'draft.add': ['content','references'], 'draft.list': [], 'draft.remove': ['id'], 'draft.update': ['id','content','references'], 'draft.commit': ['ids'],
   'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.diff': ['id'],
   'task.transcript': ['id','after','limit'], 'task.usage': ['id'],
   'task.spawn': ['parent','goal','role','deps','name','spec'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],

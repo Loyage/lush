@@ -8,6 +8,7 @@ import { SIDEBAR_SORT_KEY, SORT_IDS, resetUiState, ui } from './state.js';
 import { syncMarkdownToggle, toggleMarkdown } from './text.js';
 import { initComposer } from './composer.js';
 import { SORT_MODES } from './tree-order.js';
+import { initContextReferences } from './context-references.js';
 
 /* ---------- 左栏全局排序偏好 ---------- */
 function syncSidebarSortSelect() {
@@ -48,6 +49,7 @@ export async function boot() {
   syncMarkdownToggle();
   syncSidebarSortSelect();
   $('sidebar-sort').addEventListener('change', onSidebarSortChange);
+  initContextReferences();
   initComposer();
   $('home').onclick = () => { overview().catch(error => { $('error').textContent = error.message; }); };
   initSidebar();

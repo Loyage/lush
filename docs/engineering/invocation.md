@@ -6,7 +6,7 @@
 
 1. 按任务 ID 从 queued 中挑选，不超过对应槽限制。
 2. 在 `running` Map 中占位并签发本次 invocation 的 token（库里只写 hash），再异步准备 worker worktree（verifier 则准备目标分支的对照检出）；将 task 标为 running。
-3. 读取此次未消费消息、当前任务/子任务和最近任务摘要，启动 provider。
+3. 读取此次未消费消息、当前任务/子任务和最近任务摘要；若是 planner，再读取 Input 的引用快照并按稳定目标解析本轮最新状态，组成 `referenced_context` 后启动 provider。
 4. pi 收到项目/任务/token 环境变量、固定代码路径下的 lush CLI、独立 session 和输入文件。在 cwd 中运行工具循环；Lush 不在 argv 中传入巨大的项目快照。
 5. provider 正常返回后消费**启动时读到的消息**，记录结果。运行期间到达的消息留给下次。
 6. 依次判定：还有未读消息 → queued；有未决 notice → awaiting；有活动子任务 → waiting；否则校验 worker 提交并 completed。

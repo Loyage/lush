@@ -6,6 +6,7 @@ import { countText, describeFilters, filterTasks, isFiltering, matchTask } from 
 import { setNavCount } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { orderSiblings, rankTasks, treeParent } from './tree-order.js';
+import { referenceable } from './context-references.js';
 
 /** 同一个父任务下互相没有依赖的兄弟可以同时跑；有依赖的串成链——这就是树里看不到的并行/串行。 */
 function siblingChain(children) {
@@ -114,6 +115,10 @@ export function renderTree(data) {
       // 已经用一句话说了"等你批准合并"，就不用再挂一个"待合并"标签。
       if (integration && integration !== '待合并') node.append(el('span', integration, 'meta'));
       node.title = `${task.goal}\n更新于 ${absolute(task.updated_at)}`;
+      referenceable(node, [
+        { kind: 'task', target: { task_id: task.id }, label: `任务 #${task.id}`, quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-tree', task_id: task.id } },
+        { kind: 'task_subtree', target: { task_id: task.id }, label: `任务子树 #${task.id}`, quote: `${task.goal}\n从此任务开始的分支`, location: { view: 'task-tree', task_id: task.id } },
+      ]);
       ordered.push(node); walk(task.id, depth + 1);
     }
   };

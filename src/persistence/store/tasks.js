@@ -30,7 +30,7 @@ export const tasks = {
     return this.transaction(() => {
       this.setTaskIdHigh(Math.max(this.taskIdHigh(), this.get('SELECT COALESCE(MAX(id),0) AS value FROM tasks').value));
       // Children of tasks/inputs go first; foreign keys are on, so the order is not decorative.
-      for (const table of ['task_specs','messages','notices','task_deps','events','tasks','drafts','inputs']) {
+      for (const table of ['task_specs','messages','notices','task_deps','events','tasks','draft_references','input_references','drafts','inputs']) {
         counts[table] = this.get(`SELECT count(*) AS value FROM ${table}`).value;
         this.run(`DELETE FROM ${table}`);
       }

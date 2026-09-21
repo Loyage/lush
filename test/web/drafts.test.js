@@ -33,6 +33,24 @@ test('web buffers drafts, commits the whole batch and keeps agents out of the co
   } finally { await f.close(); }
 });
 
+test('web persists structured context references without mixing them into input text', async () => {
+  const f = await setup();
+  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
+  const reference = { version: 1, kind: 'text', target: {}, label: '所选文字', quote: '页面原文',
+    location: { view: 'overview', section: 'selection' }, captured_at: '2026-01-01T00:00:00.000Z' };
+  try {
+    const added = await post('draft.add', { content: '解释它', references: [reference] });
+    expect(added.status).toBe(200);
+    let snapshot = await (await fetch(f.url+'/api/snapshot')).json();
+    expect(snapshot.drafts[0].content).toBe('解释它');
+    expect(snapshot.drafts[0].references[0].quote).toBe('页面原文');
+    expect((await post('draft.commit', { ids: [snapshot.drafts[0].id] })).status).toBe(200);
+    snapshot = await (await fetch(f.url+'/api/snapshot')).json();
+    expect(snapshot.inputs[0].content).toBe('解释它');
+    expect(snapshot.inputs[0].references[0]).toMatchObject({ segment: 1, kind: 'text', quote: '页面原文' });
+  } finally { await f.close(); }
+});
+
 test('web edits a buffered draft and submits only the picked subset', async () => {
   const f = await setup();
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});

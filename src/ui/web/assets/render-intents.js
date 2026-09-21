@@ -7,6 +7,7 @@ import { countText, describeFilters, filterIntents, isFiltering } from './sideba
 import { setNavCount } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
 import { ui } from './state.js';
+import { referenceable } from './context-references.js';
 
 /* ---------- 历史输入（intent）：一条用户输入 + 它的 planner 拆解 / scheduler 编排 ---------- */
 // 意图层不是任务：planner 与 scheduler 不进任务树，只在这里和左栏的「历史输入」区块里露面。
@@ -46,6 +47,7 @@ function intentItem(intent) {
   }
   if (PLAN_GATE[intent.plan_gate]) meta.append(badge(PLAN_GATE[intent.plan_gate].label, PLAN_GATE[intent.plan_gate].className));
   if (intent.work_tasks) meta.append(el('span', `开发任务 ${intent.work_tasks}`));
+  if (intent.references?.length) meta.append(badge(`引用 ${intent.references.length}`, 'b-neutral'));
   item.append(meta);
   const actions = planActions(intent);
   if (actions) item.append(actions);
@@ -53,6 +55,8 @@ function intentItem(intent) {
     ? 'planner 认为这次改动影响面大 / 与现状冲突 / 没把握读准意图，先请你拍板；不批就不进 scheduler。'
     : '点这条看 planner 的拆解与调试详情。', 'hint'));
   item.onclick = event => { if (event.target === item || event.target.classList.contains('goal')) { ui.noticeFocus = null; return detail(intent.task_id); } };
+  referenceable(item, { kind: 'intent', target: { input_id: intent.id }, label: `意图 #${intent.id}`,
+    quote: intent.content, location: { view: 'intent-list', input_id: intent.id } });
   return item;
 }
 export function renderIntents(data) {

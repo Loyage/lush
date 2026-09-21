@@ -108,9 +108,11 @@ export function installDom({ fetch: fetchImpl } = {}) {
   // 「后退能不能回到概览」这条浏览器行为上，所以另外记一个压栈次数让测试能断言。
   let pushed = 0;
   const setUrl = url => { const at = String(url).indexOf('#'); location.hash = at >= 0 ? String(url).slice(at) : ''; };
+  let selectionText = '';
   const window = {
     history: { replaceState: (_state, _title, url) => setUrl(url), pushState: (_state, _title, url) => { pushed += 1; setUrl(url); } },
     open: () => null,
+    getSelection: () => ({ isCollapsed: !selectionText, toString: () => selectionText }),
   };
   const store = new Map();
   const localStorage = { getItem: key => (store.has(key) ? store.get(key) : null), setItem: (key, value) => store.set(key, String(value)), removeItem: key => store.delete(key) };
@@ -135,11 +137,13 @@ export function installDom({ fetch: fetchImpl } = {}) {
   assign('prompt', message => { prompts.push(String(message)); return promptReply; });
   assign('fetch', fetchImpl);
   assign('addEventListener', (type, handler) => { (listeners[type] ||= []).push(handler); });
+  assign('removeEventListener', (type, handler) => { const at = (listeners[type] || []).indexOf(handler); if (at >= 0) listeners[type].splice(at, 1); });
   assign('setInterval', (handler, ms) => { intervals.push({ handler, ms }); return intervals.length; });
   return {
     document, window, location, listeners, intervals, byId, confirms, prompts,
     pushed: () => pushed,
     setPrompt: value => { promptReply = String(value); },
+    setSelection: value => { selectionText = String(value); },
     node: id => document.getElementById(id),
     fire: async (type, event = {}) => { for (const handler of listeners[type] || []) await handler(event); },
     intervalFor: ms => intervals.find(entry => entry.ms === ms)?.handler,
