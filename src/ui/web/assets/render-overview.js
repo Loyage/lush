@@ -5,6 +5,7 @@ import { HOT, absolute, relative } from './format.js';
 import { edgeRelation, graphLayout, graphRenderKey, isWorkingTask } from './graph-layout.js';
 import { detail, graph, overview } from './navigate.js';
 import { openNotice } from './render-notices.js';
+import { show } from './messages.js';
 import { renderTimeline } from './render-timeline.js';
 import { ui } from './state.js';
 
@@ -282,7 +283,7 @@ export function renderOverview(data) {
       if (!second) return;
       const result = await action('task.clear');
       await overview();
-      $('error').textContent = `已清空 ${result.cleared.tasks} 个任务、${result.cleared.inputs} 条输入；回收 ${result.reclaimed?.worktrees ?? 0} 个 worktree、${result.reclaimed?.branches ?? 0} 个分支、${result.reclaimed?.anchors ?? 0} 个输入锚点，保留 ${result.retained.tasks.length} 个`;
+      show(`已清空 ${result.cleared.tasks} 个任务、${result.cleared.inputs} 条输入；回收 ${result.reclaimed?.worktrees ?? 0} 个 worktree、${result.reclaimed?.branches ?? 0} 个分支、${result.reclaimed?.anchors ?? 0} 个输入锚点，保留 ${result.retained.tasks.length} 个`);
     }, 'danger'));
     maintenance.append(actions);
   }

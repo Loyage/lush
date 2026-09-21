@@ -3,6 +3,7 @@ import { action } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, statusOf } from './format.js';
 import { freezeBlocker } from './merge-select.js';
+import { show } from './messages.js';
 import { detail, overview } from './navigate.js';
 import { renderAgent } from './render-agent.js';
 import { renderDiff } from './render-diff.js';
@@ -97,8 +98,8 @@ export function renderDetail(task, history, diff, usage) {
       });
       if (!confirmed) return;
       const result = await action('task.merge', { id: task.id });
-      if (result?.merge?.status === 'conflict') $('error').textContent = `合并冲突：已开解冲突任务 #${result.merge.resolution_task_id}，请处理左侧的待决问题（${task.target_branch} 上的其它合并已冻结）。`;
-      else if (result?.merge?.status === 'resolved') $('error').textContent = `冲突已解决：原任务 #${result.merge.resolved_task_id} 也标成已合并。`;
+      if (result?.merge?.status === 'conflict') show(`合并冲突：已开解冲突任务 #${result.merge.resolution_task_id}，请处理左侧的待决问题（${task.target_branch} 上的其它合并已冻结）。`, 'error');
+      else if (result?.merge?.status === 'resolved') show(`冲突已解决：原任务 #${result.merge.resolved_task_id} 也标成已合并。`);
       await detail(task.id);
     });
     if (live) { node.disabled = true; node.title = `#${resolver.id} 正在解冲突：等它结束，或者先取消它再重试。`; }

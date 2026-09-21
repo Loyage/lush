@@ -1,6 +1,7 @@
 import { $, button, el } from './dom.js';
 import { absolute, relative } from './format.js';
 import { action } from './api.js';
+import { show } from './messages.js';
 import { syncComposer } from './composer.js';
 import { refresh } from './navigate.js';
 import { draftUnchecked, ui } from './state.js';
@@ -22,11 +23,11 @@ function startDraftEdit(draft) {
   const save = async () => {
     if (done) return;
     const value = box.value.trim();
-    if (!value) { $('error').textContent = '草稿不能为空'; box.focus?.(); return; }
+    if (!value) { show('草稿不能为空', 'error'); box.focus?.(); return; }
     done = true; finish();
     if (value === draft.content) { await refresh(); return; }
     try { await action('draft.update', { id: draft.id, content: value }); }
-    catch (error) { $('error').textContent = error.message; await refresh(); }
+    catch (error) { show(error.message, 'error'); await refresh(); }
   };
   box.addEventListener('keydown', event => {
     if (event.isComposing) return;

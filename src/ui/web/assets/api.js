@@ -1,5 +1,5 @@
-import { $ } from './dom.js';
 import { refresh } from './navigate.js';
+import { clear } from './messages.js';
 
 // fetch 与用户动作。
 export async function api(url, options) {
@@ -9,7 +9,7 @@ export async function api(url, options) {
   if (!response.ok) throw new Error(value.error || response.statusText); return value;
 }
 export async function action(method, params) {
-  $('error').textContent = '';
+  clear();
   const result = await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
   await refresh(); return result;
 }

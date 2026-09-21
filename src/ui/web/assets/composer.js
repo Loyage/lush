@@ -1,5 +1,6 @@
 import { $ } from './dom.js';
 import { action } from './api.js';
+import { show } from './messages.js';
 import { draftUnchecked, ui } from './state.js';
 
 // 待提交意图：只落库不规划；可改、可勾选，只把选中的交给一个 planner 拆解成任务并建依赖。
@@ -29,7 +30,7 @@ export function initComposer() {
   paintDraftPanel();
   $('draft-add').onclick = async event => {
     const target = event.currentTarget; target.disabled = true;
-    try { await buffer(); } catch (error) { $('error').textContent = error.message; } finally { target.disabled = false; }
+    try { await buffer(); } catch (error) { show(error.message, 'error'); } finally { target.disabled = false; }
   };
   $('input-form').onsubmit = async event => {
     event.preventDefault();
@@ -40,8 +41,8 @@ export function initComposer() {
       if (!ids.length) throw new Error('没有勾选任何待提交意图；勾选要提交的，或者先在输入框里写点什么');
       const branch = $('input-branch').value.trim();
       const result = await action('draft.commit', { ids, ...(branch ? { branch } : {}) });
-      $('error').textContent = `已提交 ${result.drafts.length} 条输入；planner #${result.task.id} 正在拆解任务并建依赖`;
-    } catch (error) { $('error').textContent = error.message; } finally { syncComposer(); }
+      show(`已提交 ${result.drafts.length} 条输入；planner #${result.task.id} 正在拆解任务并建依赖`);
+    } catch (error) { show(error.message, 'error'); } finally { syncComposer(); }
   };
   $('input').addEventListener('input', syncComposer);
   // 回车=缓存，⌘/Ctrl+回车=整体提交，Shift+回车=换行。

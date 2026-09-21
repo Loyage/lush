@@ -52,6 +52,35 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     expect(html).toContain('class="modal-root"');
     expect(css).toContain('.modal-root{position:fixed');
     expect(css).toContain('.modal-card{');
+    // 消息提示从 composer 底部搬到页头下方的固定浮层：composer 与 .app 的 grid 不再被它撑高。
+    expect(css).not.toContain('.composer #error');
+    expect(css).toMatch(/\.toast\{position:fixed;[^}]*z-index:15/);
+    expect(css).toContain('@keyframes toast-in');
+    expect(html).toMatch(/<div id="toast"[^>]*class="toast"[^>]*>[\s\S]*id="error"/);
+    expect(html).toContain('id="toast-close"');
+    // 结构上确认：composer 到 </form> 就收口，浮层在整个 .app 之外，不再参与 grid 行。
+    expect(html).toMatch(/<div class="composer">[\s\S]*?<\/form><\/div>\s*<\/div>\s*<div id="toast"/);
+    expect(html.indexOf('id="toast"')).toBeLessThan(html.indexOf('id="modal"'));
+  } finally { await f.close(); }
+});
+
+test('消息提示模块可服务，浮层落点与分层在页面里', async () => {
+  const f = await setup();
+  try {
+    const module = await fetch(f.url + '/messages.js');
+    expect(module.status).toBe(200);
+    const source = await module.text();
+    expect(source).toContain('export function show');
+    expect(source).toContain('export function clear');
+    expect(source).toContain('export function setTimers');
+    const css = await (await fetch(f.url + '/styles.css')).text();
+    const html = await (await fetch(f.url)).text();
+    // #error 是浮层里的正文落点，仍是唯一的文本入口（id 与 textContent 语义不变）。
+    expect(html).toContain('<p id="error"></p>');
+    expect(html).not.toContain('id="error" role="alert"');
+    // 浮层级低于应用内弹窗（15 < 20），但高于页头与侧栏。
+    expect(css).toMatch(/\.toast\{position:fixed;[^}]*z-index:15/);
+    expect(css).toMatch(/\.modal-root\{position:fixed;inset:0;z-index:20/);
   } finally { await f.close(); }
 });
 

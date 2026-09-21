@@ -1,6 +1,7 @@
 import { renderMarkdown } from './markdown.js';
 import { $, el } from './dom.js';
 import { detail } from './navigate.js';
+import { show } from './messages.js';
 import { ui } from './state.js';
 
 /* ---------- markdown 渲染开关 ---------- */
@@ -27,5 +28,5 @@ export function toggleMarkdown() {
     markdownEnabled = !markdownEnabled;
     try { localStorage.setItem(MARKDOWN_KEY, markdownEnabled ? '1' : '0'); } catch { /* 隐私模式里忽略 */ }
     syncMarkdownToggle();
-    if (ui.selected !== null) detail(ui.selected).catch(error => { $('error').textContent = error.message; });
+    if (ui.selected !== null) detail(ui.selected).catch(error => { show(error.message, 'error'); });
 }

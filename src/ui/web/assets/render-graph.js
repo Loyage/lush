@@ -17,6 +17,7 @@
 import { $, badge, button, el } from './dom.js';
 import { api, action } from './api.js';
 import { confirmDialog, promptDialog } from './dialog.js';
+import { show } from './messages.js';
 import { ROLE, statusOf } from './format.js';
 import { graphLayout, graphFingerprint, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingTask, workingState } from './graph-layout.js';
 import { detail, overview } from './navigate.js';
@@ -94,7 +95,7 @@ function releaseDecisionInput(input) {
  * 任务行里的决策区（`node.notice` 存在时才有）：徽标 + 正文 + 就地的输入与按钮。
  * 口径来自 graph.get：`notice` 是 open 且 kind 为 question / plan 的最新一条，`notice_count` 是这类 notice 的总数。
  * 动作沿用本文件既有的范式：`await action(...)` 成功后写一句结论并 `await loadGraph()` 重拉这张图；
- * 失败由 dom.js 的 button 统一写进 #error，不抛到页面上。
+ * 失败由 dom.js 的 button 统一写进顶部提示（messages.js），不抛到页面上。
  */
 function decisionRow(node) {
   const notice = node.notice;
@@ -110,7 +111,7 @@ function decisionRow(node) {
   decision.append(el('p', notice.body || '（没有补充说明）', 'graph-decision-body'));
 
   const actions = el('div', undefined, 'actions graph-decision-actions');
-  const done = async message => { $('error').textContent = message; await loadGraph(); };
+  const done = async message => { show(message); await loadGraph(); };
 
   // 计划审批：与 render-intents.js 的 planActions 同一对动作（id 用 planner 任务 id，RPC 也接受这条 notice 的 id）。
   if (notice.kind === 'plan') {
@@ -187,18 +188,18 @@ function taskRow(node, owningBranch = null) {
 }
 
 /** 父分支上的三个动作：合入父分支 / 让子分支跟上父分支 / 在子分支解决分歧。
- *  失败只写进错误栏，不抛到页面上；成功后重拉一次图，颜色与按钮随之更新。 */
+ *  失败只写进顶部提示（messages.js），不抛到页面上；成功后重拉一次图，颜色与按钮随之更新。 */
 async function runBranchAction(method, branch) {
   try {
     const result = await action(method, { branch });
-    $('error').textContent = method === 'branch.sync'
+    show(method === 'branch.sync'
       ? `已为 ${branch} 创建同步任务 #${result.task.id}`
       : method === 'branch.catchup'
         ? (result.already_integrated ? `${branch} 已经与父分支一致，无需快进` : `${branch} 已 fast-forward 跟上 ${result.parent}`)
       : (result.needs_sync ? `${branch} 已与父分支分歧，请先在子分支侧解决分歧`
-        : result.already_integrated ? `${branch} 已经在 ${result.parent} 中` : `${branch} 已 fast-forward 合入 ${result.parent}`);
+        : result.already_integrated ? `${branch} 已经在 ${result.parent} 中` : `${branch} 已 fast-forward 合入 ${result.parent}`));
     await loadGraph();
-  } catch (error) { $('error').textContent = error.message; }
+  } catch (error) { show(error.message, 'error'); }
 }
 
 /** 归档一子树分支：删掉这条分支与它全部后代的 worktree / 本地 ref，任务、会话与分支记录都留着。
@@ -221,11 +222,11 @@ async function runBranchArchive(branch) {
     const result = await action('branch.archive', { branch: branch.name, discard: true });
     const count = Number(result?.count) || 1;
     const dropped = result?.discarded ? '，已丢弃未提交改动' : '';
-    $('error').textContent = count > 1
+    show(count > 1
       ? `已归档 ${branch.name} 及它下面 ${count - 1} 条后代分支（共 ${count} 条）：worktree 与本地 ref 已删${dropped}，任务、会话与分支记录都保留`
-      : `${branch.name} 已归档（worktree ${result?.worktree ?? 'absent'}、分支 ${result?.ref ?? 'absent'}${dropped}）；任务与会话已保留`;
+      : `${branch.name} 已归档（worktree ${result?.worktree ?? 'absent'}、分支 ${result?.ref ?? 'absent'}${dropped}）；任务与会话已保留`);
     await loadGraph();
-  } catch (error) { $('error').textContent = error.message; }
+  } catch (error) { show(error.message, 'error'); }
 }
 
 /** 动作按钮：能执行就接上 RPC；暂时不能执行也照画，但禁用并把原因写进 title——

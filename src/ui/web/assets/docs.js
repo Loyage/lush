@@ -65,7 +65,7 @@ export async function openDocs(id = null) {
 
 /**
  * 取数并渲染。失败在右栏画错误页、不往外抛：面板本身就是给用户看的输出，
- * 抛出去只会让调用方把同一条错误再写一遍到 #error。
+ * 抛出去只会让调用方把同一条错误再写一遍到顶部提示。
  */
 export async function loadDocs(id = null) {
   try {

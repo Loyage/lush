@@ -1,6 +1,7 @@
 // 前端唯一入口：装配顶部按钮、hashchange 与两个定时器；其余职责都在同目录的模块里。
 import { $, el } from './dom.js';
 import { LIVE_INTERVAL } from './live.js';
+import { show } from './messages.js';
 import { docsTarget, openDocs } from './docs.js';
 import { detail, overview } from './navigate.js';
 import { liveRefresh, refresh, applySort } from './refresh.js';
@@ -29,15 +30,15 @@ function onSidebarSortChange() {
 const linked = taskId => /^#task-(\d+)$/.test(taskId) ? Number(taskId.slice(6)) : null;
 
 /** 打开分支图：点按钮与 #graph hash 共用；失败只报错，不中断轮询。 */
-function openGraphView() { return openGraph().catch(error => { $('error').textContent = error.message; }); }
+function openGraphView() { return openGraph().catch(error => { show(error.message, 'error'); }); }
 
 /** 打开文档：点左栏「文档」与 #docs / #doc-<id> 共用；同样只报错，不中断轮询。 */
-function openDocsView(id = null) { return openDocs(id).catch(error => { $('error').textContent = error.message; }); }
+function openDocsView(id = null) { return openDocs(id).catch(error => { show(error.message, 'error'); }); }
 
 // 地址栏是唯一的路由源：`#graph` / `#docs` / `#doc-ID` / `#task-ID`，其余回概览。
 // 每个分支都把 promise 返回出去：浏览器不看返回值，但测试能 await 到「画完」为止。
 function onHashChange() {
-  const report = error => { $('error').textContent = error.message; };
+  const report = error => { show(error.message, 'error'); };
   if (location.hash === '#graph') return ui.graphOpen ? undefined : openGraphView();
   const resource = /^#(notices|tasks|intents|specs)$/.exec(location.hash)?.[1];
   if (resource) return openResource(resource, { push: false });
@@ -69,7 +70,7 @@ export async function boot() {
   initComposer();
   // 分支图是左栏首要工作入口；品牌按钮回到项目概览。所有入口都返回 promise，DOM 测试可以等到画完。
   const goGraph = () => openGraphView();
-  const goOverview = () => overview().catch(error => { $('error').textContent = error.message; });
+  const goOverview = () => overview().catch(error => { show(error.message, 'error'); });
   $('home').onclick = goOverview;
   $('overview-open').onclick = goOverview;
   $('sidebar-toggle').onclick = () => {
@@ -93,7 +94,7 @@ export async function boot() {
     const doc = docsTarget(location.hash);
     const initial = doc ? null : linked(location.hash);
     if (doc) await openDocsView(doc.id);
-    else if (initial) { try { await detail(initial); } catch (error) { $('error').textContent = error.message; } }
+    else if (initial) { try { await detail(initial); } catch (error) { show(error.message, 'error'); } }
     // 无 hash 是项目概览；分支图仍是左栏第一入口和整个信息架构的主线。
     else { /* refresh() 已画好概览 */ }
   }

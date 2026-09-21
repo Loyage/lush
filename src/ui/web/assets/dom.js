@@ -1,11 +1,12 @@
 // DOM 原语：建节点、按钮、区块与徽章。
 import { statusOf } from './format.js';
+import { show } from './messages.js';
 
 export const $ = id => document.getElementById(id);
 export const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
 export function button(text, fn, className) {
   const node = el('button', text, className); node.type = 'button';
-  node.onclick = async () => { node.disabled = true; try { await fn(); } catch (error) { $('error').textContent = error.message; } finally { node.disabled = false; } };
+  node.onclick = async () => { node.disabled = true; try { await fn(); } catch (error) { show(error.message, 'error'); } finally { node.disabled = false; } };
   return node;
 }
 export function syncChildren(container, nodes) {

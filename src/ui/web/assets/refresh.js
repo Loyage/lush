@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { loadDetail } from './detail.js';
 import { HOT } from './format.js';
 import { liveTarget, liveTick } from './live.js';
+import { clear, show } from './messages.js';
 import { detail, registerNavigation } from './navigate.js';
 import { syncComposer } from './composer.js';
 import { graphFingerprint } from './graph-layout.js';
@@ -74,7 +75,7 @@ export async function refresh() {
     $('project').title = data.status.project;
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');
     $('agents').replaceChildren(slotGauge(data));
-    if (ui.offline) { ui.offline = false; $('error').textContent = ''; }
+    if (ui.offline) { ui.offline = false; clear(); }
     renderDrafts(data); renderIntents(data); renderTree(data); renderSpecs(data);
     const noticeBefore = ui.noticeFocus;
     renderNotices(data); syncComposer();
@@ -88,7 +89,7 @@ export async function refresh() {
       if (ui.graphOpen) await loadGraph();
       else fetchGraph().then(() => {
         if (ui.selected === null && !ui.graphOpen && !ui.docsOpen) renderOverview(ui.lastSnapshot ?? data);
-      }).catch(error => { $('error').textContent = error.message; });
+      }).catch(error => { show(error.message, 'error'); });
     }
     const current = data.tasks.find(task => task.id === ui.selected);
     const editing = ui.detailDirty || [...$('detail').querySelectorAll('textarea')].some(node => node.value || node === document.activeElement);
@@ -102,7 +103,7 @@ export async function refresh() {
     if (noticeBefore !== ui.noticeFocus && ui.selected !== null && !editing) await detail(ui.selected);
   } catch (error) {
     $('connection').textContent = '离线 · 自动重连'; $('connection').classList.add('offline');
-    ui.offline = true; $('error').textContent = error.message;
+    ui.offline = true; show(error.message, 'error');
   } finally { ui.busy = false; }
 }
 
