@@ -1,7 +1,7 @@
 import { $, badge, button, el } from './dom.js';
 import { action } from './api.js';
 import { promptDialog } from './dialog.js';
-import { PLAN_GATE, STATUS, relative, short, statusOf } from './format.js';
+import { PLAN_GATE, relative, short, statusOf } from './format.js';
 import { filterUi, statusOption, syncSelectOptions, uniqueValues, withCurrent } from './filters-ui.js';
 import { detail } from './navigate.js';
 import { countText, describeFilters, filterIntents, isFiltering } from './sidebar.js';
@@ -9,8 +9,7 @@ import { setNavCount } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
 import { ui } from './state.js';
 
-/* ---------- 历史输入（intent）：一条用户输入 + 它的 planner 拆解 / scheduler 编排 ---------- */
-// 意图层不是任务：planner 与 scheduler 不进任务树，只在这里和左栏的「历史输入」区块里露面。
+/* ---------- Intent workbench: goal → compiled Plan → review candidate ---------- */
 function planActions(intent) {
   if (intent.plan_gate !== 'proposed') return null;
   const actions = el('span', undefined, 'intent-actions');
@@ -28,7 +27,38 @@ function planActions(intent) {
   }));
   return actions;
 }
-/** 一条意图：输入正文 + planner 状态/闸门 + 拆解条数 + scheduler 编排进度。只读，除了批准/驳回。 */
+function candidateActions(intent) {
+  const actions = el('span', undefined, 'intent-actions');
+  if (!intent.candidate_id) {
+    const blocked = intent.work_active > 0 || intent.work_failed > 0;
+    if (intent.status === 'completed' && intent.flow !== 'explain') {
+      const prepare = button(blocked ? '生成验收候选（等开发收尾）' : '生成验收候选',
+        () => action('candidate.prepare', { input: intent.id }), 'primary');
+      prepare.disabled = Boolean(blocked);
+      prepare.title = intent.work_active > 0 ? '还有开发工作没有结束；全部终态后才能冻结成可验收的一版'
+        : intent.work_failed > 0 ? '有失败的开发任务；先重试或取消，runtime 不会把失败混进候选'
+        : '冻结当前集成分支的 commit，并生成修改前后对照报告';
+      actions.append(prepare);
+    }
+    return actions.children.length ? actions : null;
+  }
+  if (intent.candidate_report_task_id) {
+    const report = el('a', '打开结果报告', 'link');
+    report.href = `/api/task/${intent.candidate_report_task_id}/report`; report.target = '_blank'; report.rel = 'noopener';
+    actions.append(report);
+  }
+  if (intent.candidate_status === 'ready') {
+    actions.append(button('接受并合入', () => action('candidate.accept', { id: intent.candidate_id }), 'primary'));
+    actions.append(button('要求修改', async () => {
+      const feedback = await promptDialog({ title: `候选 v${intent.candidate_version} 需要怎样修改？`,
+        message: '反馈会在同一个 Intent 下启动增量 planner；已审阅版本保持不变。', label: '验收反馈',
+        placeholder: '例如：移动端按钮太靠下，请调整后重新给我看', confirmLabel: '提交修改要求' });
+      if (feedback?.trim()) return action('candidate.changes', { id: intent.candidate_id, feedback: feedback.trim() });
+    }));
+  }
+  return actions.children.length ? actions : null;
+}
+/** One intent row: original goal, deterministic Plan compilation and the latest frozen review candidate. */
 function intentItem(intent) {
   const status = statusOf(intent);
   const item = el('div', undefined, `intent${intent.plan_gate === 'proposed' ? ' needs-approval' : ''}`);
@@ -45,12 +75,7 @@ function intentItem(intent) {
   const counts = [intent.specs_pending ? `待编排 ${intent.specs_pending}` : null, intent.specs_planned ? `已编排 ${intent.specs_planned}` : null,
     intent.specs_dropped ? `已丢弃 ${intent.specs_dropped}` : null].filter(Boolean);
   meta.append(el('span', counts.length ? `拆解 ${counts.join(' · ')}` : '还没拆解'));
-  if (intent.scheduler_id) {
-    const scheduler = el('button', `调度 #${intent.scheduler_id} · ${STATUS[intent.scheduler_status]?.label ?? intent.scheduler_status}`, 'link');
-    scheduler.type = 'button';
-    scheduler.onclick = () => { ui.noticeFocus = null; return detail(intent.scheduler_id); };
-    meta.append(scheduler);
-  }
+  if (intent.candidate_id) meta.append(badge(`候选 v${intent.candidate_version} · ${intent.candidate_status}`, intent.candidate_status === 'ready' ? 'b-completed' : 'b-neutral'));
   if (PLAN_GATE[intent.plan_gate]) meta.append(badge(PLAN_GATE[intent.plan_gate].label, PLAN_GATE[intent.plan_gate].className));
   // 锚点在 submit 那一刻写下、之后不变：这条输入派出的 worker 都以它为基线。
   if (intent.anchor_branch) {
@@ -62,9 +87,12 @@ function intentItem(intent) {
   item.append(meta);
   const actions = planActions(intent);
   if (actions) item.append(actions);
+  const review = candidateActions(intent);
+  if (review) item.append(review);
   item.append(el('span', intent.plan_gate === 'proposed'
-    ? 'planner 认为这次改动影响面大 / 与现状冲突 / 没把握读准意图，先请你拍板；不批就不进 scheduler。'
-    : '点这条看 planner 的拆解与调试详情。', 'hint'));
+    ? 'planner 认为这次改动风险较高，先请你拍板；批准后由 runtime 直接编译 Work DAG。'
+    : intent.candidate_status === 'ready' ? '这一版固定 commit 已生成前后对照报告，等待你的验收。'
+      : 'Intent 是用户目标中心；开发完成后生成固定 commit 的验收候选。', 'hint'));
   item.onclick = event => { if (event.target === item || event.target.classList.contains('goal')) { ui.noticeFocus = null; return detail(intent.task_id); } };
   return item;
 }
@@ -85,7 +113,8 @@ export function renderIntents(data) {
     syncSelectOptions(filterUi.intentStatus, withCurrent(options, ui.filters.intents.status, statusOption), ui.filters.intents.status);
   }
   const signature = [ui.sidebarSortMode, JSON.stringify(query), all.map(intent => [intent.id, intent.status, intent.plan_gate, intent.specs_pending, intent.specs_planned,
-    intent.specs_dropped, intent.scheduler_id, intent.scheduler_status, intent.work_tasks, intent.flow].join(':')).join('\u0000')].join('\u0002');
+    intent.specs_dropped, intent.work_tasks, intent.work_active, intent.work_failed, intent.flow, intent.candidate_id, intent.candidate_version, intent.candidate_status,
+    intent.candidate_report_task_id].join(':')).join('\u0000')].join('\u0002');
   if (signature === ui.intentSignature) return;
   ui.intentSignature = signature;
   const container = $('intents');

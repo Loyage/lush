@@ -20,15 +20,19 @@ export default {
   },
 
   pump() {
-    // 唯一的并发上限就是总池大小：planner 之间可并行，scheduler 与 worker 一样占一个槽。
-    this.ensureScheduler();
+    // Finished planner output is compiled by code, not by a scheduler model invocation.
+    this.compilePlans();
     const dependencies = this.store.depMap();
+    let controlRunning = [...this.running.values()].filter(run => ['planner','scheduler'].includes(run.role)).length;
+    let executionRunning = this.running.size - controlRunning;
     for (const task of this.store.all("SELECT * FROM tasks WHERE status='queued' ORDER BY id")) {
       if (this.running.has(task.id)) continue;
       // A queued task whose dependencies are not settled stays queued; finish() re-kicks when they are.
       if ((dependencies.get(task.id) || []).some(edge => !TERMINAL.has(edge.status))) continue;
-      if (this.running.size >= this.config.concurrency) continue;
-      const run = { role: task.role, controller: new AbortController(), token: randomBytes(32).toString('hex'), pid: null, promise: null };
+      const control = ['planner','scheduler'].includes(task.role);
+      if (control ? controlRunning >= this.config.controlConcurrency : executionRunning >= this.config.concurrency) continue;
+      const run = { role: task.role, controller: new AbortController(), token: randomBytes(32).toString('hex'), pid: null, promise: null, recordId: null };
+      if (control) controlRunning += 1; else executionRunning += 1;
       this.running.set(task.id, run);
       this.store.armAgent(task.id, tokenHash(run.token));
       run.promise = this.invoke(task.id, run).catch(error => {
@@ -63,6 +67,8 @@ export default {
     try {
       let task = this.store.task(taskId);
       check(task.calls < this.config.maxCalls, 'task invocation limit reached');
+      const record = this.store.startRun(task, this.config.provider);
+      run.recordId = record.id;
       this.store.update(taskId, { status: 'running', calls: task.calls + 1, agent_wakes: task.agent_wakes + 1 });
       // 新一轮拆解：上一轮被驳回的闸门清零，这一轮要不要再请你批准由 planner 自己判断。
       if (task.role === 'planner' && task.plan_gate === 'rejected') this.store.update(taskId, { plan_gate: null });
@@ -77,15 +83,6 @@ export default {
         context: {
           children: this.store.summaries().filter(child => child.parent_id === taskId),
           open_notices: this.store.all("SELECT * FROM notices WHERE task_id=? AND status='open'", taskId),
-          // scheduler 拿到整批 spec 全文，并把每条 dep hint 解析成真实 task id，方便直接建依赖。
-          ...(task.role === 'scheduler' ? { specs: this.store.specsForBatch(taskId).map(spec => ({
-            id: spec.id, seq: spec.seq, goal: spec.goal, role: spec.role, name: spec.name, status: spec.status,
-            input_id: spec.input_id, planner_task_id: spec.planner_task_id,
-            deps: spec.deps.map(hint => {
-              const target = this.store.get('SELECT id, task_id FROM task_specs WHERE id=?', hint.spec);
-              return { spec: hint.spec, task_id: target ? target.task_id : null, kind: hint.kind };
-            }),
-          })) } : {}),
           ...(task.role === 'planner' ? { queued_specs: this.store.specs({ planner_task_id: taskId, status: 'pending', limit: 50 }) } : {}),
           recent_tasks: this.decorate(this.store.all('SELECT id,parent_id,role,status,substr(goal,1,500) AS goal,integration FROM tasks ORDER BY id DESC LIMIT 100')),
           verification: task.role === 'verifier' ? this.verificationContext(task) : undefined,
@@ -101,8 +98,12 @@ export default {
       check(typeof result === 'string' && Buffer.byteLength(result) <= 256000, 'agent result exceeds 256000 bytes');
       this.store.transaction(() => {
         for (const message of messages) this.store.run('UPDATE messages SET consumed=1 WHERE id=?', message.id);
-        this.store.event(taskId, 'invocation.completed', { result });
+        this.store.event(taskId, 'invocation.completed', { result, run_id: run.recordId });
         this.store.update(taskId, { result });
+        this.store.finishRun(run.recordId, 'completed', { result });
+        this.store.addArtifact({ task_id: taskId, run_id: run.recordId, input_id: task.input_id, kind: 'run.result',
+          payload: { outcome: 'success', summary: result, changes: [], evidence: [], decisions: [], risks: [], artifacts: [], followups: [] },
+          metadata: { role: task.role, call: task.calls } });
       });
       // Messages that arrived during this invocation are deliberately delivered next time.
       if (this.store.unread(taskId).length) { this.store.update(taskId, { status: 'queued' }); return; }
@@ -124,9 +125,17 @@ export default {
       }
       this.finish(taskId, 'completed', result);
     } catch (error) {
+      if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {
+        this.store.finishRun(run.recordId, run.controller.signal.aborted ? 'cancelled' : 'failed', { error: error.message });
+      }
       if (!TERMINAL.has(this.store.task(taskId).status)) this.cancel(taskId, error.message, 'failed');
     } finally {
       clearTimeout(timer);
+      if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {
+        const task = this.store.task(taskId);
+        this.store.finishRun(run.recordId, task.status === 'cancelled' ? 'cancelled' : task.status === 'failed' ? 'failed' : 'completed',
+          { result: task.result, error: task.error });
+      }
       // 对照基线是派生的只读检出：invocation 一结束就回收，不把每次检验都堆在磁盘上。
       // 失败也不保留——结论/错误已入库，重建一次基线很便宜。
       if (this.store.task(taskId).verifies_task_id) {

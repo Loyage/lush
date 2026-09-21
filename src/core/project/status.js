@@ -6,14 +6,13 @@ export default {
   status() {
     const alive = this.store.get("SELECT count(*) AS count FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").count;
     return { project: this.config.project, home: this.config.home, provider: this.config.provider,
-      concurrency: this.config.concurrency,
-      // 任务链只算 work 层；planner/scheduler 的进度在意图视图里报（layer 单独给计数）。
+      concurrency: this.config.concurrency, control_concurrency: this.config.controlConcurrency,
+      // Work execution and intent planning use separate admission lanes.
       tasks: this.store.all("SELECT status, count(*) AS count FROM tasks WHERE layer='work' GROUP BY status"),
       layers: this.store.all('SELECT layer, status, count(*) AS count FROM tasks GROUP BY layer, status'),
       intents: { total: this.store.get('SELECT count(*) AS count FROM inputs').count,
         waiting_approval: this.store.get("SELECT count(*) AS count FROM tasks WHERE role='planner' AND plan_gate='proposed'").count },
-      specs: { ...this.store.specStats(),
-        batches: bounded(this.store.all("SELECT t.id, t.status, t.role, (SELECT count(*) FROM task_specs s WHERE s.batch_id=t.id) AS count FROM tasks t WHERE t.role='scheduler' ORDER BY t.id DESC LIMIT 100"), 100000) },
+      specs: { ...this.store.specStats(), batches: [], compiler: 'deterministic' },
       drafts: this.store.draftCount(),
       agents: [...this.running].map(([task_id, run]) => agentView(this.store.task(task_id), run)),
       agents_total: alive, agents_idle: alive - this.running.size,

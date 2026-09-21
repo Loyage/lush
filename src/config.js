@@ -29,7 +29,9 @@ export class Config {
     this.env = { ...env, LUSH_PROJECT: this.project, LUSH_HOME: this.home };
     this.provider = env.LUSH_PROVIDER || 'pi';
     check(['pi', 'mock'].includes(this.provider), 'LUSH_PROVIDER must be pi or mock');
+    // Execution and control work have separate admission lanes: long workers can never starve new intent planning.
     this.concurrency = positive(env, 'LUSH_CONCURRENCY', 4, 64);
+    this.controlConcurrency = positive(env, 'LUSH_CONTROL_CONCURRENCY', 2, 16);
     this.timeout = positive(env, 'LUSH_CALL_TIMEOUT', 900, 86400);
     this.maxCalls = positive(env, 'LUSH_TASK_CALLS', 24, 1000);
     this.maxDepth = positive(env, 'LUSH_MAX_DEPTH', 8, 64);

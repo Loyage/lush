@@ -23,9 +23,10 @@ test('web buffers drafts, commits the whole batch and keeps agents out of the co
     expect(snapshot.drafts).toEqual([]);
     expect(snapshot.status.drafts).toBe(0);
     expect(snapshot.inputs[0].content).toBe('第二条');
-    // planner 属于意图层：快照的 inputs 里有它，任务列表里没有
+    // planner 属于 control plane，不在任务列表；mock Plan 已由 runtime 直接编译出 research work。
     expect(snapshot.inputs[0].task_id).toBeGreaterThan(0);
-    expect(snapshot.tasks).toEqual([]);
+    expect(snapshot.tasks.some(task => task.role === 'planner')).toBe(false);
+    expect(snapshot.tasks.some(task => task.role === 'research')).toBe(true);
     // 已提交的输入不能被删；agent token 与非白名单方法都被拒
     expect((await post('draft.remove',{id:1})).status).toBe(400);
     expect((await post('draft.add',{content:'sneak',_token:'forged'})).status).toBe(400);

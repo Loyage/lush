@@ -2,8 +2,10 @@
 
 - [使用说明](../README.md)：安装、运行与常用命令。
 - [行动任务处理流程](task-flow.md)：从输入、规划、执行、审阅到交付、解冲突与回收的完整使用流程。
-- [总体架构](engineering/architecture.md)：索引；实体、不变量、调度与恢复的入口。
+- [核心架构（HTML）](core-architecture.html)：Intent-first、Work DAG、结构化 Artifact、Review Candidate 与从输入到最终验收的完整流程图。
+- [总体架构](engineering/architecture.md)：现有模块、实体、不变量、调度与恢复的详细索引。
 - [CLI / RPC 参考](reference/api.md)：公开接口。
+- [Review Candidate](reference/rpc/candidates.md)：固定 commit 的验收与反馈闭环。
 
 ## 架构各章（`docs/engineering/`）
 
@@ -11,8 +13,7 @@
 - [数据流](engineering/data-flow.md)：入口到 Project 的结构与校验边界。
 - [输入和规划](engineering/inputs-and-planning.md)：输入的落库、规划槽与 `inputs.flow`。
 - [意图层与拆解队列](engineering/intent-layer.md)：`layer='intent'`、spec 批次与 `spec drop`。
-- [计划审批闸门](engineering/plan-gate.md)：`plan.propose` / `approve` / `reject`。
-- [一次 invocation 与多级协作](engineering/invocation.md)：七步流程、角色、verifier 与上限。
+- [计划审批闸门](engineering/plan-gate.md)：`plan.propose` / `approve` / `reject`。- [一次 invocation 与多级协作](engineering/invocation.md)：七步流程、角色、verifier 与上限。
 - [生命周期不变量](engineering/invariants.md)：逐条不变量清单。
 - [分支优先架构](engineering/branch-first.md)：输入聚合分支、direct-parent / ff-only 与子侧同步的不变量。
 - [Git 边界](engineering/git-boundary.md)：worktree / 分支创建、原子推进与回收边界。

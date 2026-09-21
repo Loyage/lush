@@ -29,6 +29,8 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         -- merger task: resolves_task_id 指向合并冲突的那个 worker。冲突处理不在原任务的子树里
         -- （终态任务不允许有活动后代），所以和 verifier 一样用关联边而不是父子边。
         resolves_task_id INTEGER REFERENCES tasks(id),
+        -- candidate verifier: review_candidate_id pins this run to the exact integration commit the user reviews.
+        review_candidate_id INTEGER,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_id);
@@ -77,7 +79,31 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS messages_task ON messages(task_id, consumed);
       CREATE INDEX IF NOT EXISTS events_task ON events(task_id, id);
-      CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash);`;
+      CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash);
+      -- Every provider invocation is a Run. Task remains the compatibility work-item projection while retries/wakes
+      -- get their own durable rows instead of being collapsed into tasks.calls.
+      CREATE TABLE IF NOT EXISTS agent_runs (
+        id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES tasks(id), attempt INTEGER NOT NULL,
+        role TEXT NOT NULL, provider TEXT, status TEXT NOT NULL DEFAULT 'running', result TEXT, error TEXT,
+        started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), ended_at TEXT);
+      CREATE INDEX IF NOT EXISTS agent_runs_task ON agent_runs(task_id,id);
+      -- Structured outputs from a run. payload/metadata are JSON text so the zero-dependency runtime can evolve
+      -- artifact kinds without rewriting the schema.
+      CREATE TABLE IF NOT EXISTS artifacts (
+        id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES tasks(id), run_id INTEGER REFERENCES agent_runs(id),
+        input_id INTEGER REFERENCES inputs(id), kind TEXT NOT NULL, payload TEXT NOT NULL, metadata TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+      CREATE INDEX IF NOT EXISTS artifacts_task ON artifacts(task_id,id);
+      CREATE INDEX IF NOT EXISTS artifacts_input ON artifacts(input_id,id);
+      -- A review candidate is the user-facing delivery unit: a frozen commit backed by the intent integration branch.
+      CREATE TABLE IF NOT EXISTS review_candidates (
+        id INTEGER PRIMARY KEY, input_id INTEGER NOT NULL REFERENCES inputs(id), version INTEGER NOT NULL,
+        branch TEXT NOT NULL, commit_hash TEXT NOT NULL, baseline_branch TEXT NOT NULL, baseline_commit TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'preparing', summary TEXT, feedback TEXT, report_task_id INTEGER REFERENCES tasks(id),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        UNIQUE(input_id,version));
+      CREATE INDEX IF NOT EXISTS review_candidates_input ON review_candidates(input_id,id);`;
 
 /** 打开后的验收：库属于别的项目就先 close 再抛错，错误信息与拆分前逐字相同。 */
 export function bindProject(db, project) {

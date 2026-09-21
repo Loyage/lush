@@ -54,8 +54,16 @@ export default {
       if (task.parent_id && !TERMINAL.has(this.store.task(task.parent_id).status)) {
         this.store.message(task.parent_id, JSON.stringify({ child: task.id, status, result, error }), task.id);
       }
-      // 检验结算后让被检验任务的详情重新渲染，看得到最新结论。
+      // Verification settles either a worker detail or a frozen review candidate.
       if (task.verifies_task_id) this.store.touch(task.verifies_task_id);
+      if (task.review_candidate_id) {
+        this.store.updateCandidate(task.review_candidate_id, {
+          status: status === 'completed' && this.hasReport(task.id) ? 'ready' : 'failed',
+          report_task_id: task.id,
+        });
+        this.store.event(task.id, 'candidate.verified', { candidate: task.review_candidate_id, status,
+          has_report: this.hasReport(task.id) });
+      }
       // 解冲突任务没做成（失败 / 被取消）：原任务回到待合并，冻结随之解除，错误留在解冲突任务上。
       // 分支与 worktree 都保留，用户可以重试或自己处理。
       if (task.resolves_task_id && status !== 'completed') {
@@ -67,6 +75,11 @@ export default {
         }
       }
     });
+    // Work compiled from a Plan is automatically aggregated inside the private Intent branch. The user still
+    // approves only the frozen Review Candidate when it moves from the Intent branch to the target branch.
+    const compiled = status === 'completed' && task.role === 'worker'
+      && Boolean(this.store.get("SELECT id FROM events WHERE task_id=? AND type='plan.materialized' LIMIT 1", task.id));
+    if (task.input_id && task.branch && (compiled || task.role === 'merger')) this.scheduleIntentIntegration(task.input_id);
     if (task.parent_id) this.wake(task.parent_id);
     // A settled dependency releases every queued dependent; still-blocked ones stay queued.
     for (const edge of this.store.dependents(task.id)) this.wake(edge.task_id);

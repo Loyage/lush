@@ -7,7 +7,7 @@ import { setNavCount } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
 import { ui } from './state.js';
 
-/* ---------- 拆解队列（只读）：planner 写、scheduler 取走、Web 只展示 ---------- */
+/* ---------- Structured Plan (read-only): planner writes, runtime compiles ---------- */
 // deps 可能是已解析的数组（{spec,kind} 或裸 id），也可能是 JSON 字符串；三种都要兼容。
 export function specDeps(value) {
   if (Array.isArray(value)) return value;
@@ -39,7 +39,7 @@ export function specItem(spec) {
   item.title = specTitle(spec);
   return item;
 }
-/** 只读展示拆解队列：按批次分组，区分「等 scheduler 编排」与「已被 scheduler #N 取走」。 */
+/** Group current Plan revisions by planner; historical scheduler batches stay readable for migration audit. */
 export function renderSpecs(data) {
   const all = data.specs || [];
   const query = ui.filters.specs;
@@ -66,9 +66,9 @@ export function renderSpecs(data) {
   if (signature === ui.specSignature) return;
   ui.specSignature = signature;
   const container = $('specs');
-  if (!all.length) { container.replaceChildren(el('div', '规划任务空：planner 还没写下可编排的条目；写完由 scheduler 一次性编排本批。', 'spec-empty')); return; }
+  if (!all.length) { container.replaceChildren(el('div', 'Plan 为空：planner 尚未写下工作条目；写完后由 runtime 直接编译 Work DAG。', 'spec-empty')); return; }
   if (!specs.length) { container.replaceChildren(el('div', '没有符合筛选的条目', 'spec-empty')); return; }
-  // 组：batch_id 为空的是还没被 scheduler 取走的一轮拆解（按 planner 分）；否则按 batch（= scheduler 任务 id）分。
+  // Current rows have no batch and group by planner. Non-null batches are historical scheduler-era records.
   const groupKey = spec => (spec.batch_id === null || spec.batch_id === undefined ? `planner:${spec.planner_task_id}` : `batch:${spec.batch_id}`);
   // 每组的总数从全量算：筛选后组标题能给出「匹配 N / 共 M 条」。
   const totalByGroup = new Map();
@@ -98,10 +98,10 @@ export function renderSpecs(data) {
     const count = isFiltering(query) && total !== sorted.length ? `匹配 ${sorted.length} / 共 ${total} 条` : `${sorted.length} 条`;
     let title;
     if (first.batch_id === null || first.batch_id === undefined) {
-      title = `等 scheduler 编排 · planner #${first.planner_task_id} 的一轮拆解（${count}）`;
+      title = `Plan · planner #${first.planner_task_id}（${count}）· runtime 编译`;
     } else {
       const scheduler = tasks.find(task => task.id === first.batch_id);
-      title = `已被 scheduler #${first.batch_id}${scheduler ? `（${statusOf(scheduler).label}）` : ''} 取走 · planner #${first.planner_task_id} 的一轮拆解（${count}）`;
+      title = `历史 batch #${first.batch_id}${scheduler ? `（${statusOf(scheduler).label}）` : ''} · planner #${first.planner_task_id}（${count}）`;
     }
     group.append(el('div', title, 'spec-batch'));
     for (const spec of sorted) group.append(specItem(spec));

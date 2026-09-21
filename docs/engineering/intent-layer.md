@@ -1,14 +1,91 @@
-# 意图层与拆解队列
+# Intent、Plan 编译与验收候选
 
-本文件管 `layer='intent'` 的 planner / scheduler、spec 的批次边界与 `spec drop`。
+本章描述控制面：用户原话如何成为结构化 Plan、runtime 如何编译 Work DAG，以及最终成果如何成为可验收候选。完整视觉流程见[核心架构 HTML](../core-architecture.html)。
 
-用户输入存 `inputs`（意图），它对应一个根 planner task。**planner 与 scheduler 属于 `layer='intent'`，不进任务树/任务列表/时间轴**：`task.list` / `task.tree` / `task.timeline` 只读 `layer='work'`，planner/scheduler 的进度跟着 `input.list` 下发（每条意图带 planner 状态与闸门、拆解计数、scheduler id 与状态）。按 id 仍可 `task.inspect` / `task.tree` 一个 planner 或 scheduler——Web 的意图卡片就是从这跳进去的。它们虽然不进任务树 / 列表 / 时间轴，但会作为任务节点出现在分支图里，挂在对应输入的锚点分支下；planner 待批的 plan notice 也直接画在那条任务行里，用户就地批准 / 驳回（`plan.approve` / `plan.reject`），不必先开意图面板。work 任务的 `parent_id` 仍是它所属的 scheduler（消息、结算、唤醒都靠这条边），只是在树上被“提上来”当根。
+## Intent-first
 
-planner 不直接派活：它把每条可独立完成的工作写成一条 spec（`task_specs`，状态 `pending`），scheduler 再把它变成真实 task。一个 planner 的**一轮拆解**（这一次 invocation 里写下的全部 spec）在它停止执行后作为**同一批**交给同一个 scheduler：批次边界是「谁写的」，不是「哪一刻写的」。
+`inputs` 保存用户原话、flow、目标分支与私有 integration branch。根 planner 属于 `layer='intent'`，不进入执行任务树；它负责语义理解，不修改代码。
 
-- planner 还在跑（`queued` / `running`）时，它写的 spec 一条都不会被取走，所以不会出现只包含前几条的半成品批次；写完一轮直接结束本轮即可。停止执行包括停在 `awaiting`（发 notice 等用户答复）：这一轮已写好的条目不会被别人的答复卡住；答复后醒来补写的 spec 算新的一轮、新的一批。
-- 同一批内没有依赖边的 spec 会同时开工（受并发上限限制）：用户一次提交里的两条独立需求不会被拆成前后两轮。
-- 批次之间串行：同一项目同时只有一个未终态 scheduler，前一批收尾（子任务全部终态）后下一批才出生。`Project.spawn` 校验 scheduler 只能 spawn 自己批里的 spec。
-- planner 或持有该批的 scheduler 可以 `spec drop`；scheduler 结束时未处理的 spec 标为 `dropped`，被取消则退回队列等下一批。
+主流程：
 
-相关：[计划审批闸门](plan-gate.md)、[一次 invocation](invocation.md)。
+```text
+Intent
+  → planner invocation
+  → task_specs（结构化 Plan）
+  → deterministic Plan Compiler
+  → root work tasks + task_deps
+  → agent_runs + artifacts
+  → private Intent integration branch
+  → review_candidates
+```
+
+## 没有 scheduler agent
+
+planner 一轮写完时，`Project.compilePlans()` 选择已经停止执行且不受计划闸门阻挡的 spec。runtime 按依赖顺序直接调用 `materializeSpec()`：
+
+1. 校验 spec 角色、flow 与依赖；
+2. 将 spec 依赖翻译为 task id；
+3. 在事务中创建 root work task；
+4. 写入 `task_deps`；
+5. 将 spec 标为 `planned`；
+6. 写 `plan.materialized` / `plan.compiled` 事件。
+
+不存在 scheduler invocation、全项目 batch 锁或额外模型调用。不同 Intent 的 Plan 可以在已有 worker 仍运行时继续编译。
+
+旧数据库中 `role='scheduler'` 与 `task_specs.batch_id` 仍可读取，用于历史审计；新路径不再创建它们。
+
+## 两条并发车道
+
+- control lane：planner 等控制面调用，容量 `LUSH_CONTROL_CONCURRENCY`（默认 2）；
+- execution lane：worker / coordinator / research / verifier / merger，容量 `LUSH_CONCURRENCY`（默认 4）。
+
+因此长时间 worker 不能占满 planner 的槽。依赖未满足、waiting、awaiting 都不占调用槽。
+
+## 计划审批闸门
+
+默认 Plan 直接编译。planner 只有在影响面大、与现状冲突或意图存在实质歧义时才 `plan.propose`：
+
+- approve：planner 结算，runtime 编译 pending spec；
+- reject：本轮 spec 标为 dropped，理由进入 planner 收件箱，下一轮重拆。
+
+## 自动中间集成
+
+由 Plan 编译产生的 worker 完成后，`IntegrationService` 自动在私有 Intent 分支内部收敛：
+
+1. 从最深后代开始；
+2. 可 fast-forward 的 child 自动进入 direct parent；
+3. 父子分歧时自动创建 child-side merger；
+4. merger 完成后继续逐层 fast-forward；
+5. **Intent branch 不会自动进入用户 target branch。**
+
+仍有活动工作、失败 worker 或未收拢分支时，不创建最终候选。
+
+## Review Candidate
+
+内部工作全部收敛后，runtime：
+
+1. 固定 Intent integration branch 的 commit；
+2. 固定 target branch 的 baseline commit；
+3. 创建 `review_candidates` 版本；
+4. 派只读 verifier 在两边运行同一验收场景；
+5. 保存自包含 HTML 报告；
+6. 报告成功后将 Candidate 标记为 `ready`。
+
+用户可：
+
+- `candidate accept`：再次确认 branch tip 等于被审阅 commit，再合入 target；
+- `candidate changes`：旧版本标为 `changes_requested`，在同一 Intent 下启动增量 planner；
+- `candidate reject`：放弃该版本，历史仍保留。
+
+Candidate 状态：
+
+```text
+preparing → ready → accepted → integrated
+               └→ changes_requested → Candidate v2
+               └→ rejected
+preparing/ready/accepted → superseded
+```
+
+## Run 与 Artifact
+
+每次 provider invocation 写一条 `agent_runs`，结束时写 `run.result` Artifact。Task 目前保留为兼容 WorkItem 投影；Run 负责一次调用的状态、结果与错误，Artifact 负责结构化成果与证据。

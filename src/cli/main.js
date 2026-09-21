@@ -12,6 +12,7 @@ import * as spec from './commands/spec.js';
 import * as plan from './commands/plan.js';
 import * as notice from './commands/notice.js';
 import * as branch from './commands/branch.js';
+import * as candidate from './commands/candidate.js';
 
 export { HELP };
 
@@ -29,6 +30,7 @@ for (const [module, names] of [
   [plan, ['plan']],
   [notice, ['notice']],
   [branch, ['branch']],
+  [candidate, ['candidate']],
 ]) {
   for (const name of names) {
     check(!COMMANDS.has(name), `duplicate command handler: ${name}`);

@@ -21,7 +21,7 @@
 
 - RPC 方法名与参数表（`registry.js` 的 `PARAMS`）、`USER_ONLY` / `AGENT_ONLY` 权限集合。
 - CLI 命令与 `lush help` 的语义。
-- SQLite schema、表名、列名与 `meta.task_id_high` / `meta.input_id_high` 的行为。加列式演进（只给已有表补缺失的可空列）登记在 `store/base.js` 的 `ADDED_COLUMNS`（目前：`inputs` 的 `anchor_branch` / `anchor_commit` / `anchor_workspace` / `anchor_target_branch`，以及 `branches` 的 `summary`）；它不改类型、不重写任何行。
+- SQLite schema、表名、列名与 `meta.task_id_high` / `meta.input_id_high` 的行为。新核心表为 `agent_runs` / `artifacts` / `review_candidates`；`tasks.review_candidate_id` 通过 `store/base.js` 的 `ADDED_COLUMNS` 渐进补齐。其它兼容列仍只加不改，不重写已有行。
 - `src/index.js` 的导出、`bin/*` 的行为。
 - Web 路由与 asset 路径：`server.js` 只按 basename 服务 `assets/` 下的 `.js` / `.css`，
   所以**新增前端模块不需要改 server.js**。读取路由里只有几个显式登记的例外：`/api/graph`、检验报告
@@ -46,7 +46,7 @@
 
 | 分区 | 入口 | 细粒度模块 | 独立可并行 |
 |---|---|---|---|
-| 任务编排 | `src/core/project.js` | `src/core/project/`（18 个） | ✅ |
+| 任务编排 | `src/core/project.js` | `src/core/project/`（含 Plan 编译、Integration、Candidate） | ✅ |
 | Git 边界 | `src/core/workspaces.js` | `src/core/workspaces/`（5 个） | ✅ |
 | 持久化 | `src/persistence/store.js` | `src/persistence/store/`（9 个） | ✅ |
 | 前端 | `src/ui/web/assets/app.js` | `src/ui/web/assets/`（见下表） | ✅ |
@@ -71,7 +71,7 @@
 | `project/deps.js` | 依赖边的读模型与结构校验 | `decorate(tasks)`、`blockedBy(taskId)`、`assertDeps(taskId, parent, edges)` |
 | `project/inputs.js` | 从用户指定父分支创建可推进输入分支、在其中规划，以及流程判定 | `anchorInput(branch)`、`insertInput(inputId, anchor, content, attach)`、`createInput(content, attach, branch)`、`submit(content, branch)`、`inputs()`、`setInputFlow(taskId, flow)` |
 | `project/drafts.js` | 输入缓存（增删改、整体提交到指定父分支） | `draft`、`drafts`、`dropDraft`、`editDraft`、`commitDrafts(ids, branch)` |
-| `project/specs.js` | 拆解队列与批次的出生 | `ensureScheduler()`、`addSpec(plannerTaskId, spec)`、`dropSpec(specId, note, actor)` |
+| `project/specs.js` | 结构化 Plan 与确定性编译入口；新路径不创建 scheduler agent | `compilePlans()`、兼容别名 `ensureScheduler()`、`addSpec(plannerTaskId, spec)`、`dropSpec(specId, note, actor)` |
 | `project/plans.js` | 计划审批闸门 | `proposePlan`、`approvePlan`、`rejectPlan`、`planForApproval` |
 | `project/tasks.js` | 派生任务与单任务详情 | `spawn(parentId, goal, role, deps, name, specId)`、`inspect(taskId)` |
 | `project/tree.js` | 任务树读模型（intent 层提上来当根） | `tree(taskId)` |
@@ -80,7 +80,9 @@
 | `project/merge.js` | 批准合并、按目标分支批量交付、冲突收口、随带提交对账与交付队列 | `approveMerge`、`approveMergeMany`、`reconcileIntegrated`、`openResolution`、`settleResolution`、`mergeConflictContext`、`ladder()`、`containsCommit` |
 | `project/graph.js` | 分支图读模型（全部本地分支 + fork 谱系边 + 任务关系）；每条 fork 边带三个可执行动作 `can_merge` / `can_sync` / `can_catchup`；每个 branch 节点带 `origin`（input / task / registered / local / placeholder）与配套 `title` / `summary` / `source_id` / `created_at`，`title` 优先用分支摘要（`branches.summary`），没有摘要才回落输入 / goal 首行截断，以及按自己 + 全部后代分支任务汇总的 `status`（active / failed / merged / ready / empty）与 `tasks` 计数，另带 `worktree` / `worktree_state`（worktree 路径与它现在还在不在磁盘上）与 `deleted`（该分支记录已被回收）；归档分支的 `status` 固定为 `archived` 并带 `archived` / `archived_at`（时间戳复用 `branches.deleted_at`，不新增列），它名下的任务节点标 `archived:true` 且仍留在图上；意图层的 planner（拆解）与 scheduler（编排）也作为 `kind:'task'` 节点进图并像 worker 一样挂在输入锚点分支下：planner 取自己 `input_id` 对应输入的 `inputs.anchor_branch`，scheduler 取本批 spec（`task_specs.batch_id = scheduler.id`）的 `input_id` 对应锚点，批为空 / 没有锚点时回落该批 planner 的输入锚点，仍找不到才 `branch:null` 走兜底分组；它们没有自己的 worktree / 目标分支，`target_branch` / `ahead` / `behind` / `merged` / `branch_state` 一律 null（不画「未合并 / 缺失分支」），但按同一套派生分支计入锚点分支的 `status` 与 `tasks` 汇总（running 的 planner 让分支从 empty 变 active）；每个 `kind:'task'` 节点（含 planner / scheduler）另带「待你决断」的 notice：`notice` 是 `status='open'` 且 `kind` 为 `question` / `plan` 的最新一条（按 id 最大，没有则 null），`notice_count` 是这类 open notice 的总数；`kind='info'` 的纯提醒（`status='sent'`）与 answered / dismissed 都不算，任务结算时 lifecycle 会把 open 置为 dismissed，所以终态任务不带——一次 SELECT 取回后按 task_id 在内存里归并，只读、不加列；每条 fork 边实时给出 `fast_forward` / `diverged` / `integrated` / `missing`、ahead/behind 与未收拢的直接子分支 | `graph()` |
 | `project/branches.js` | 分支谱系读模型与用户批准的直接父子收敛：`branch merge` 只 fast-forward；落后时 `branch catchup` 让子分支快进跟上父分支；分歧时 `branch sync` 在子侧创建 merger；`branch tree` 不画归档的分支（记录仍在，用 `branch show` 查），隐藏时把它们的后代接到最近的可见祖先上；`branch archive` 归档一整棵子树（先跑安全门：子树根的登记/状态、当前检出不在子树里、全树没有未终态任务，再由 Git 边界把每条的 worktree / ref 删掉，任务行、消息、事件与 pi 会话文件都留着）；`branch tree` 不再画归档的分支，把它们还活着的后代接到最近的可见祖先上（`pruneHidden`）；`setBranchSummary` 只写 / 更新这条分支的一句话摘要（分支图标题），不碰 status / ref / worktree / 任务，并落一条 `branch.summary` 事件 | `BRANCH_NODE_LIMIT`、`branchNodes`、`branchTree`、`branchShow`、`branchImport`、`approveBranchMerge`、`catchupBranch`、`syncBranch`、`archiveBranch`、`setBranchSummary` |
-| `project/verify.js` | 检验任务与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
+| `project/verify.js` | worker / Candidate 检验与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
+| `project/candidates.js` | 固定 commit 的 Review Candidate、验收、反馈与最终接受 | `prepareCandidate`、`verifyCandidate`、`candidateContext`、`candidates`、`candidate`、`acceptCandidate`、`requestCandidateChanges`、`rejectCandidate` |
+| `project/integration.js` | Plan worker 在私有 Intent branch 内自动叶子优先聚合；分歧派 merger，不动 target | `scheduleIntentIntegration`、`integrateIntent` |
 | `project/transcript.js` | pi 会话记录的只读投影 | `transcript(taskId, after, limit)`、`usage(taskId)` |
 | `project/scheduling.js` | 调度、invocation 生命周期、凭证 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
 | `project/lifecycle.js` | 结算、取消、重试、清空与恢复 | `finish`、`cancel`、`retry`、`clear`、`reclaimThenPurge(tasks, anchors)`、`recover`、`shutdown` |
@@ -111,6 +113,8 @@
 | `store/drafts.js` | 输入缓存 | `addDraft`、`draft`、`updateDraft`、`openDrafts`、`draftCount` |
 | `store/timeline.js` | 时间轴原料 | `timelineTasks`、`lifecycleEvents`、`childSpans` |
 | `store/branches.js` | 分支谱系记录（写入即不可变，删除与归档都只标 `status`、不删行，另存一句人写的 `summary` 作分支标题） | `PARENT_RELATIONS`、`branch`、`branches`、`recordBranch`、`markBranchDeleted`、`markBranchArchived`、`setBranchSummary` |
+| `store/runs.js` | 每次 invocation 的 Run 与结构化 Artifact | `startRun`、`finishRun`、`runsForTask`、`addArtifact`、`artifact`、`artifactsForTask`、`artifactsForInput` |
+| `store/candidates.js` | Review Candidate 版本与状态 | `candidate`、`candidates`、`latestCandidate`、`createCandidate`、`updateCandidate` |
 
 ## 4. 前端：`src/ui/web/assets/`
 
@@ -148,7 +152,7 @@
 | `sidebar-init.js` | 装配左侧页面导航，以及移到右侧信息页内的筛选 / 排序控件 | `initSidebar()` |
 | `composer.js` | 输入缓存与提交表单 | `buffer()`、`selectedDraftIds()`、`syncComposer()`、`initComposer()` |
 | `render-drafts.js` | 待提交缓存 | `renderDrafts(data)` |
-| `render-intents.js` | 意图面板（planner 闸门 + scheduler 进度 + 输入分支） | `renderIntents(data)` |
+| `render-intents.js` | Intent 列表：原始目标、planner 闸门、Plan 计数、最新 Review Candidate 版本与「打开结果 / 接受并合入 / 要求修改」动作 | `renderIntents(data)` |
 | `render-specs.js` | 拆解队列（只读） | `renderSpecs(data)`、`specItem(spec)`、`specDeps(value)` |
 | `render-tree.js` | 任务树、兄弟链、依赖标签、为什么没在跑 | `renderTree(data)` |
 | `render-notices.js` | 待决问题索引与右侧展开；resolver 首次请示使用明确的开始/暂不处理动作 | `renderNotices(data)`、`openNotice(noticeId)`、`noticePanel(notice, task?)` |
@@ -161,7 +165,7 @@
 | `render-verify.js` | 检验区块 | `renderVerifications(task)` |
 | `render-resolutions.js` | 合并冲突处理记录 | `renderResolutions(task)` |
 | `render-detail.js` | 任务详情整页：目标标题、状态、结果优先的阅读顺序与任务操作 | `renderDetail(task, history, diff, usage)`、`renderDetailError(taskId, message)` |
-| `render-overview.js` | 项目工作台，以分支为中心：复用 `graph.get` 的 `ui.lastGraph` 指标（分支总数 / 正在工作 / 待收口 / 需要你决定）、待收口分支（可合入父分支 / 分歧 / 落后 / blocker，可跳分支图）、正在工作的分支（来源或标题 + 活跃任务链接）、`kind='info'` 的最近提醒、仍保留的「需要你的决定」、运行中的 agent 与时间轴（排在分支主线之后），以及折叠的运行时与维护信息；图未到时给占位 / 降级提示，不新增 RPC，也不渲染交付队列与任务状态分布 | `renderOverview(data)` |
+| `render-overview.js` | Intent 工作台：指标按 Intent / 并行执行 / 等待验收 / 需要你决定计，Intent 成果主线（含候选报告入口）先于折叠的 Git 交付诊断，任务只作明细；`kind='info'` 提醒、运行中 agent 与时间轴、维护信息照旧（`render-ladder.js` / `merge-select.js` 仍可用，但没有常驻视图） | `renderOverview(data)` |
 | `graph-layout.js` | 分支图纯逻辑：fork 边拼出分支森林（任务挂到自己的分支下并把父分支作为嵌套；planner / scheduler 由 `graph.get` 派生出输入锚点分支后与 worker 任务同样挂载，无需新逻辑）；归档的分支不占分支树——跳过 `archived` 的 branch 节点与它们名下的任务，把它们还在的后代接到最近的可见祖先上（没有就升为根），这种后代的关系标 `parent_archived`（「父分支已归档」，中性色），`missing`（红色「分支缺失」）只留给谁都没归档、ref 真不见了的情况、每棵子树的 `subtreeBranches` / `subtreeTasks` 计数（收起时告诉用户藏了什么）、组内 code 层级（同层新的在前：任务按 id 降序，兄弟分支按 created_at 降序、未知时间排最后）、标签与廉价结构指纹，以及折叠偏好的 localStorage 形态——指纹把「待你决断」的 notice 也算进来（`graphFingerprint(snapshot)` 取 snapshot 里 open 且 question / plan 的 notice 按 id 排序，`graphRenderKey(graph)` 取任务节点的 `notice` id / kind 与 `notice_count`），所以新 notice 出现、被答复 / 忽略或换成另一条都会让分支图在既有 3s / 10s 陈旧规则内重拉重画（`kind='info'` 与 answered / dismissed 不算）；给每个分支算出 `archived` / `archived_at` 与 `archivable`（可归档判断：已登记、未归档也未删除、非当前检出、自己与后代都没有活动任务，且 ref 或 worktree 至少还有一个）；工作态显示口径由 `workingState(entry)` 单独回答（本分支 running / 本分支在等 / 只有子树在跑 / 停下来了）；每个分支另带 `relation`（`edgeRelation` 的结果，可能是 null）：归档把 ref 删掉之后 git 里算不出父子关系（daemon 报 `missing`），但那是用户自己按的归档，不是故障——已归档的分支 `relation` 为 null，父分支已归档的报 `parent_archived`，两者都不算 `unmerged` | `graphLayout(graph)`、`graphFingerprint(snapshot)`、`graphRenderKey(graph)`、`parseGraphCollapsed(raw)`、`serializeGraphCollapsed(set)`、`aheadBehindText(node)`、`nodeMarks(node)`、`workingState(entry)` |
 | `render-graph.js` | 核心交互式分支流程图：顶部先汇总分支 / 任务 / 当前检出与关系图例；面板与连接线按父子关系着色（领先绿 / 一致灰 / 落后蓝 / 分歧琥珀 / 缺失红 / 父分支已归档灰），表头给出该关系的动作（合入父分支 / 让子分支跟上父分支 / 在子分支解决分歧），做不了的也画出来但禁用并写明原因；父子关系靠 CSS 画的竖线与拐角表达，整棵子树可收起（状态存 localStorage，重画不丢）；可归档的分支提供「归档」按钮（确认框写明会连它下面 N 条后代分支一起删，确认后调 `branch.archive`，带 `discard:true`；归档的分支随后不再画在图上）；分支表头按 `workingState` 渲染工作态标识（在跑 / 在等 chip、子树工作中），在跑的任务行带脉冲点，停下来的分支加 `.graph-idle` 整体降噪但保留未合并与关系色；带待决 notice 的任务行（`graph.get` 的 `notice` / `notice_count`）另加 `.graph-emphasis-awaiting` 琥珀强调（可与工作态强调并存）并就地渲染决策区：徽标（`question` →「◔ 等你决定」/ `plan` →「计划待批」）、标题、正文与「另有 N-1 条待决」，`question` 给 textarea +「回复并继续任务」（`notice.answer`）与「忽略」（`notice.dismiss`，⌘/Ctrl+回车与任务详情一致），`plan` 给「批准并开发」（`plan.approve`）与「驳回」（`plan.reject`，沿用 `promptDialog`、空理由不发）；动作与任务详情 / 意图面板同源，成功后 `loadGraph()` 重拉、失败只写 `#error`；有内容或正聚焦的决策输入会让这次 `renderGraph` 跳过重画（`hasPendingDecision`），避免 1.5s 轮询把用户打了一半的字与焦点冲掉。`fetchGraph()` 只拉数与更新 `ui.lastGraph` / `ui.graphFetchedAt` / `ui.graphFingerprint`（单飞），供概览复用，`loadGraph()` 再渲染分支图 | `openGraph()`、`fetchGraph()`、`loadGraph()`、`renderGraph(graph, opts)` |
 | `detail.js` | 拉取并渲染任务详情；窄屏新导航收起索引并定位内容，轮询保留滚动 | `loadDetail(taskId)` |
@@ -194,6 +198,7 @@
 | `cli/commands/notice.js` | `notice` | `run` |
 | `cli/commands/branch.js` | `branch`（tree / show / import / merge / sync / catchup / archive / summary） | `run` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` / `web-restart` / `web-stop` / `web-status` | `run` |
+| `cli/commands/candidate.js` | `candidate list/inspect/prepare/verify/accept/changes/reject` | `run` |
 | `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒 | `main(argv)`（并 re-export `HELP`） |
 
 ## 6. RPC：`src/rpc/protocol.js` + `src/rpc/`
@@ -210,6 +215,7 @@
 | `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |
 | `rpc/handlers/notice.js` | `notice.*` | `handlers` |
 | `rpc/handlers/branch.js` | `branch.tree/show/import/merge/sync/archive/summary`（`branch.archive` 参数 `branch` / `discard`，在 `USER_ONLY`；`branch.summary` 参数 `branch` / `summary`，agent 可写、省略 branch 时写自己的分支，用户必须显式点名） | `handlers` |
+| `rpc/handlers/candidate.js` | `candidate.list/inspect/prepare/verify/accept/changes/reject`；所有变更操作 USER_ONLY | `handlers` |
 | `rpc/dispatcher.js` | 合并 handler 表（查重名、查漏），校验后分派 | `class Dispatcher` |
 
 ## 7. 测试：`test/`

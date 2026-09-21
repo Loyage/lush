@@ -4,7 +4,7 @@ import path from 'node:path';
 import { temp, env, repo, git } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
-import { cli, done, schedulerOf } from './harness.js';
+import { cli, done, workOf } from './harness.js';
 
 // A fake pi that plans two workers: the second one stacks on the first with a code dependency.
 const STACKED_PI = `#!/usr/bin/env bun
@@ -28,6 +28,10 @@ if (context.task.role === 'planner') {
   for (const spec of context.specs.filter(s => s.status === 'pending')) {
     await lush('task','spawn',spec.goal,'--role',spec.role,'--name',spec.name,'--spec',String(spec.id));
   }
+} else if (context.task.role === 'verifier') {
+  const v = context.verification;
+  fs.mkdirSync(path.dirname(v.report_path),{recursive:true});
+  fs.writeFileSync(v.report_path,'<!doctype html><title>candidate</title><p>ok</p>');
 } else if (context.task.goal === 'upstream change') {
   fs.writeFileSync('file.txt','upstream\\n');
   git('add','file.txt'); git('commit','-qm','upstream work');
@@ -82,21 +86,25 @@ test('a diverged input branch resolves on the child side, then lands through two
     await cli(root,['start'], { LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
     const input = await cli(root,['say','改同一个文件']);
     const client = new UIClient(Config.fromEnv(env(),root));
-    // planner 只写 spec；等 scheduler 把整批 spec 编成任务并收尾，这一刻 worker 才是终态。
+    // planner 只写 Plan；runtime 直接编译 worker。
     await done(client,input.task.id);
-    const scheduler = await schedulerOf(client, input.task.id);
-    expect(scheduler).toBeTruthy();
-    expect((await done(client, scheduler.id)).status).toBe('completed');
-    const worker = (await client.request('task.list',{})).find(task => task.role === 'worker');
-    expect(worker.status).toBe('completed');
-    // 主树在同名文件上继续前进：合并必然内容冲突。
+    const worker = (await workOf(client, input.task.id)).find(task => task.role === 'worker');
+    expect(worker).toBeTruthy();
+    expect((await done(client, worker.id)).status).toBe('completed');
+    for (let i=0;i<200 && (await client.request('task.inspect',{id:worker.id})).integration !== 'merged';i++) await Bun.sleep(30);
+    // 自动中间集成完成后会为该 Intent 生成候选与只读 verifier；等它结算（verifier 活着时它算活动工作）。
+    for (let i=0;i<400;i++) {
+      const candidate = (await client.request('candidate.list',{input:input.id}))[0];
+      if (candidate && ['ready','failed'].includes(candidate.status)) break;
+      await Bun.sleep(30);
+    }
+    // 主树在同名文件上继续前进：最终 Candidate 与目标分支必然内容冲突。
     fs.writeFileSync(path.join(root,'file.txt'),'main\n');
     await git(root,'add','-A'); await git(root,'commit','-m','main moves on');
     const mainHead = await git(root,'rev-parse','HEAD');
 
-    // 任务先 FF 到自己的直接父分支（输入分支），主分支完全不动。
-    const merged = await cli(root,['task','merge',String(worker.id)]);
-    expect(merged.integration).toBe('merged');
+    // runtime 已自动把 worker 聚合进私有 Intent 分支；用户目标分支仍完全不动。
+    expect((await client.request('task.inspect',{id:worker.id})).integration).toBe('merged');
     expect(await git(root,'rev-parse','HEAD')).toBe(mainHead);
 
     // 输入分支与 main 已分歧：直接 merge 只报告，不在 main 上 no-ff；sync 在子侧解决冲突。
@@ -129,7 +137,7 @@ test('drafts become one planner, and a code dependency stacks worktrees with an 
     expect(batch.content).toContain('2) 把筛选器抽成组件');
     const client = new UIClient(Config.fromEnv(env(),root));
     expect((await settle(batch.task.id)).status).toBe('completed');
-    // planner 写 spec，scheduler 串行把它们编成任务并在子任务全部终态后收尾（同一轮拆解是同一批）
+    // planner 写 Plan，runtime 直接编译两个带 code 依赖的 WorkItem。
     let workers = [];
     for (let i=0;i<200 && workers.length<2;i++) {
       workers = (await client.request('task.list',{})).filter(task => task.role === 'worker').sort((a,b) => a.id - b.id);
@@ -139,15 +147,7 @@ test('drafts become one planner, and a code dependency stacks worktrees with an 
     const [upstream, downstream] = workers;
     expect((await settle(upstream.id)).status).toBe('completed');
     expect((await settle(downstream.id)).status).toBe('completed');
-    let schedulers = [];
-    for (let i=0;i<200;i++) {
-      const row = (await client.request('input.list')).find(intent => intent.task_id === batch.task.id);
-      schedulers = row?.scheduler_id ? [await client.request('task.inspect',{id:row.scheduler_id})] : [];
-      if (schedulers.length && schedulers.every(task => ['completed','failed'].includes(task.status))) break;
-      await Bun.sleep(30);
-    }
-    expect(schedulers.length).toBeGreaterThanOrEqual(1);
-    expect(schedulers.every(task => task.status === 'completed')).toBe(true);
+    expect((await client.request('task.list')).some(task => task.role === 'scheduler')).toBe(false);
     const [fullUpstream, fullDownstream] = [await client.request('task.inspect',{id:upstream.id}), await client.request('task.inspect',{id:downstream.id})];
     expect(fullDownstream.deps.map(dep => ({ id: dep.id, kind: dep.kind, status: dep.status }))).toEqual([{ id: upstream.id, kind:'code', status:'completed' }]);
     expect(upstream.blocked).toBe(false);
@@ -155,12 +155,22 @@ test('drafts become one planner, and a code dependency stacks worktrees with an 
     // 主工作树没有上游的改动，但下游的 worktree 是从上游分支拉出来的
     expect(fs.readFileSync(path.join(root,'file.txt'),'utf8')).toBe('base\n');
     expect(fs.readFileSync(path.join(root,'.lush','worktrees',`${downstream.id}-stacked-downstream`,'saw.txt'),'utf8')).toBe('upstream');
-    // 叶子优先：下游先 FF 回上游分支，上游再 FF 到输入分支，最后输入分支进入 main。
+    // Integration Service 叶子优先自动聚合下游 → 上游 → Intent branch；最终仍由用户接受 Candidate。
     expect(fullDownstream.target_branch).toBe(fullUpstream.branch);
-    await cli(root,['task','merge',String(downstream.id)]);
-    await cli(root,['task','merge',String(upstream.id)]);
+    for (let i=0;i<200;i++) {
+      const states = await Promise.all([upstream.id,downstream.id].map(id => client.request('task.inspect',{id})));
+      if (states.every(task => task.integration === 'merged')) break;
+      await Bun.sleep(30);
+    }
     expect(fs.existsSync(path.join(root,'other.txt'))).toBe(false);
-    await cli(root,['branch','merge',batch.anchor.branch]);
+    let candidate = null;
+    for (let i=0;i<200;i++) {
+      candidate = (await client.request('candidate.list',{input:batch.id}))[0] ?? null;
+      if (candidate?.status === 'ready') break;
+      await Bun.sleep(30);
+    }
+    expect(candidate?.status).toBe('ready');
+    await cli(root,['candidate','accept',String(candidate.id)]);
     expect(fs.readFileSync(path.join(root,'file.txt'),'utf8')).toBe('upstream\n');
     expect(fs.readFileSync(path.join(root,'other.txt'),'utf8')).toBe('downstream\n');
     expect((await client.request('task.inspect',{id:downstream.id})).integration).toBe('merged');

@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lush 核心架构：Intent 到可验收结果</title>
+<style>
+:root{color-scheme:dark;--bg:#0d1418;--panel:#142025;--panel2:#192a30;--line:#2c4149;--text:#e9f3ef;--muted:#9eb4ac;--green:#83ddb0;--blue:#7bc9ef;--amber:#f1c47d;--violet:#c5a8f3;--red:#f49aa1;font-family:Inter,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#17332d 0,transparent 33%),var(--bg);color:var(--text);line-height:1.7}main{width:min(1180px,calc(100% - 32px));margin:auto;padding:54px 0 90px}h1,h2,h3{line-height:1.25;text-wrap:balance}h1{font-size:clamp(34px,6vw,70px);letter-spacing:-.055em;margin:12px 0 18px;max-width:920px}h2{font-size:clamp(24px,3.4vw,38px);letter-spacing:-.035em;margin:70px 0 20px}h3{font-size:17px;margin:0 0 8px}.eyebrow{color:var(--green);font-size:12px;letter-spacing:.18em;font-weight:700}.lead{font-size:clamp(17px,2vw,22px);color:var(--muted);max-width:860px}.hero{padding:34px 0 30px}.principle{margin:28px 0;padding:18px 22px;border-left:3px solid var(--green);background:linear-gradient(90deg,#173129,transparent);font-size:18px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.card{padding:20px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(145deg,var(--panel),#111b20);min-width:0}.card p{margin:6px 0;color:var(--muted);font-size:14px}.tag{display:inline-flex;padding:2px 8px;border:1px solid currentColor;border-radius:999px;font-size:11px;color:var(--green)}.blue{color:var(--blue)}.amber{color:var(--amber)}.violet{color:var(--violet)}.red{color:var(--red)}.flow{display:flex;align-items:stretch;gap:9px;overflow-x:auto;padding:18px 0 24px}.node{flex:1 0 132px;min-height:116px;padding:15px;border:1px solid var(--line);border-top:3px solid var(--tone,var(--green));border-radius:13px;background:var(--panel)}.node b{display:block;color:var(--tone,var(--green));font-size:14px}.node small{display:block;color:var(--muted);margin-top:8px}.arrow{align-self:center;color:var(--muted);font-size:20px}.lanes{display:grid;grid-template-columns:1fr 1fr;gap:16px}.lane{padding:22px;border:1px solid var(--line);border-radius:16px;background:var(--panel)}.lane ol{padding-left:22px;color:var(--muted)}.diagram{padding:22px;border:1px solid var(--line);border-radius:16px;background:#0a1114;overflow:auto}.diagram pre{margin:0;color:#cfe2da;font:13px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre}.table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:16px;overflow:hidden}.table th,.table td{padding:13px 15px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.table th{color:var(--green);font-size:12px;letter-spacing:.06em}.table td{font-size:14px;color:var(--muted)}.table td:first-child{color:var(--text);font-weight:650}.code{padding:16px 18px;border:1px solid var(--line);border-radius:12px;background:#091013;color:#cfe2da;font:13px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow:auto}.callout{padding:20px;border:1px solid color-mix(in srgb,var(--amber) 45%,var(--line));background:#2c2418;border-radius:14px;color:#f3dfbc}.states{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.state{padding:7px 10px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);font-size:12px}.footer{margin-top:70px;padding-top:24px;border-top:1px solid var(--line);color:var(--muted)}@media(max-width:800px){.grid{grid-template-columns:1fr}.lanes{grid-template-columns:1fr}.flow{flex-direction:column}.arrow{transform:rotate(90deg)}main{width:min(100% - 24px,1180px);padding-top:24px}}
+</style>
+</head>
+<body><main>
+<section class="hero">
+<div class="eyebrow">LUSH CORE ARCHITECTURE · VERSION 2</div>
+<h1>从用户 Intent，走到可以亲眼验收的精确结果</h1>
+<p class="lead">Lush 是项目级多 Agent 开发与信息集成工具。模型负责理解、实现和综合；确定性 runtime 负责编排、依赖、资源、持久化与 Git 安全；用户最终验收固定 commit，而不是模糊的“任务完成”。</p>
+<div class="principle"><strong>核心公式：</strong>Intent-first + Candidate-first，Branch-backed。</div>
+</section>
+
+<section>
+<h2>一、四个中心，各司其职</h2>
+<div class="grid">
+<article class="card"><span class="tag">用户目标中心</span><h3>Intent</h3><p>保存用户原话、目标分支、流程模式与当前交付状态。所有计划、工作、反馈和候选版本都回到同一个 Intent。</p></article>
+<article class="card"><span class="tag blue">执行中心</span><h3>WorkItem + Run</h3><p>WorkItem 是稳定工作节点；Run 是一次真实模型调用。重试、换模型和唤醒形成新的 Run，不覆盖历史。</p></article>
+<article class="card"><span class="tag violet">信息集成中心</span><h3>Artifact</h3><p>代码提交、测试证据、报告、发现、风险和摘要都是结构化 Artifact；用户无需阅读所有 transcript 才能理解成果。</p></article>
+<article class="card"><span class="tag amber">验收中心</span><h3>Review Candidate</h3><p>Candidate 固定 integration branch 上的精确 commit，绑定基线、前后对照、测试证据和 HTML 报告。</p></article>
+<article class="card"><span class="tag blue">代码交付中心</span><h3>Branch + Commit</h3><p>Branch 负责隔离、集成和恢复，Commit 负责不可变身份。Git 是交付基础设施，不要求普通用户用提交拓扑理解目标。</p></article>
+<article class="card"><span class="tag red">人工控制中心</span><h3>Decision</h3><p>只有影响行为、存在歧义、发生冲突或最终交付时才请求用户决策。普通状态更新由 Event 与投影生成。</p></article>
+</div>
+</section>
+
+<section>
+<h2>二、端到端主流程</h2>
+<div class="flow" aria-label="从用户输入到最终结果">
+<div class="node" style="--tone:var(--green)"><b>1 · Intent</b><small>逐字保存用户目标与目标分支，立即返回 ID。</small></div><div class="arrow">→</div>
+<div class="node" style="--tone:var(--blue)"><b>2 · Planner Run</b><small>理解意图，输出结构化 Plan 与验收标准。</small></div><div class="arrow">→</div>
+<div class="node" style="--tone:var(--violet)"><b>3 · Plan Compiler</b><small>runtime 事务化编译 Work DAG，不再调用 scheduler 模型。</small></div><div class="arrow">→</div>
+<div class="node" style="--tone:var(--blue)"><b>4 · Parallel Runs</b><small>Worker / Research / Test 在隔离上下文并行执行。</small></div><div class="arrow">→</div>
+<div class="node" style="--tone:var(--violet)"><b>5 · Artifacts</b><small>收集 commit、证据、结论、风险与后续事项。</small></div><div class="arrow">→</div>
+<div class="node" style="--tone:var(--amber)"><b>6 · Candidate</b><small>冻结 integration commit，生成修改前后验收报告。</small></div><div class="arrow">→</div>
+<div class="node" style="--tone:var(--green)"><b>7 · User Review</b><small>接受、要求修改或放弃。只落地用户看过的 commit。</small></div>
+</div>
+<div class="diagram"><pre>用户输入
+   │
+   ▼
+Intent ──► Planner Run ──► Plan(spec + deps + acceptance)
+                               │
+                               ▼
+                    Deterministic Plan Compiler
+                               │
+               ┌───────────────┼───────────────┐
+               ▼               ▼               ▼
+          WorkItem A       WorkItem B       WorkItem C
+          Worker Run       Research Run     Test Run
+               └───────────────┼───────────────┘
+                               ▼
+                     Structured Artifacts
+                               ▼
+                    Intent Integration Branch
+                               ▼
+                Review Candidate @ exact commit
+                    ├─ before / after
+                    ├─ executable evidence
+                    ├─ test output
+                    ├─ diff and risks
+                    └─ self-contained HTML report
+                               ▼
+                    用户接受 / 修改 / 放弃
+                               ▼
+                  accepted commit → target branch</pre></div>
+</section>
+
+<section>
+<h2>三、为什么不是 Branch-first</h2>
+<div class="lanes">
+<article class="lane"><h3>Branch 能准确回答</h3><ol><li>代码从哪里分出</li><li>有哪些 commit</li><li>是否领先、落后或分歧</li><li>能不能安全合并</li><li>如何恢复工作现场</li></ol></article>
+<article class="lane"><h3>用户验收真正要回答</h3><ol><li>功能是不是我想要的</li><li>修改前后有什么差异</li><li>测试和真实运行是否成立</li><li>有哪些风险和未完成项</li><li>批准的是不是刚刚看过的版本</li></ol></article>
+</div>
+<p class="callout"><strong>结论：</strong>Branch 仍是 Git 子系统的核心，但产品主线以 Intent 和 Review Candidate 为核心。Candidate 使用不可变 commit 防止 branch 在验收后继续移动、夹带用户未看过的内容。</p>
+</section>
+
+<section>
+<h2>四、双轴模型</h2>
+<div class="lanes">
+<article class="lane"><span class="tag">产品轴</span><div class="code">Intent
+  └─ Plan revision
+      └─ Work DAG
+          └─ Artifacts
+              └─ Review Candidate v1/v2/…
+                  └─ Decision</div></article>
+<article class="lane"><span class="tag blue">Git 轴</span><div class="code">Target Branch
+  └─ Intent Integration Branch
+      ├─ Worker Branch A
+      ├─ Worker Branch B
+      └─ Worker Branch C
+
+Candidate → exact integration commit</div></article>
+</div>
+</section>
+
+<section>
+<h2>五、核心实体与边界</h2>
+<table class="table"><thead><tr><th>实体</th><th>负责</th><th>不负责</th></tr></thead><tbody>
+<tr><td>Intent</td><td>原始目标、模式、目标分支、整体状态</td><td>单次模型调用细节</td></tr>
+<tr><td>Plan</td><td>版本化拆解、依赖、验收标准、风险</td><td>调度进程与 Git 操作</td></tr>
+<tr><td>WorkItem</td><td>一块稳定目标及完成条件</td><td>把多次重试压成同一次执行</td></tr>
+<tr><td>Run</td><td>一次 provider invocation、模型、成本、结果和错误</td><td>长期业务身份</td></tr>
+<tr><td>Artifact</td><td>结果、commit、报告、证据、发现和风险</td><td>控制任务生命周期</td></tr>
+<tr><td>Review Candidate</td><td>固定 commit、基线、报告和用户验收状态</td><td>可变 branch 的未来内容</td></tr>
+<tr><td>Decision</td><td>高风险计划、实质歧义、冲突与最终接受</td><td>普通进度通知</td></tr>
+<tr><td>Event</td><td>不可丢失的审计与恢复事实</td><td>直接充当用户摘要</td></tr>
+</tbody></table>
+</section>
+
+<section>
+<h2>六、Plan 编译与并行调度</h2>
+<p>Planner 做语义判断；runtime 做确定性编排。Planner 一轮写完后，Plan Compiler 在事务中建立工作节点和依赖，不再经过 scheduler agent，不消耗额外模型调用，也不存在全项目 scheduler 批次锁。</p>
+<div class="lanes">
+<article class="lane"><h3>Control lane</h3><p>Planner、综合与冲突分析使用独立槽。长时间 worker 无法饿死新输入规划。</p><div class="states"><span class="state">planner</span><span class="state">synthesizer</span><span class="state">conflict analysis</span></div></article>
+<article class="lane"><h3>Execution lane</h3><p>Worker、Research、Test、Verifier 使用执行槽；依赖未满足和等待用户时不占槽。</p><div class="states"><span class="state">worker</span><span class="state">research</span><span class="state">test</span><span class="state">verifier</span></div></article>
+</div>
+<h3 style="margin-top:24px">依赖与代码基线分离</h3>
+<div class="code">depends_on: [work-3, work-5]   // 运行前置条件，可有多个
+code_base: work-3              // 代码从哪里开始，最多一个
+integration_target: intent-42  // 最终聚合到哪里</div>
+</section>
+
+<section>
+<h2>七、结构化信息集成</h2>
+<p>每个 Run 的最后输出形成 Artifact。文本仍保留，但核心投影使用统一 envelope，便于 reducer 持续生成 Intent Digest。</p>
+<div class="code">{
+  "outcome": "success",
+  "summary": "完成了什么",
+  "changes": [{ "area": "src/auth", "description": "新增刷新逻辑" }],
+  "evidence": [{ "command": "bun run test", "exitCode": 0, "summary": "344 passed" }],
+  "decisions": [],
+  "risks": [],
+  "artifacts": [{ "kind": "commit", "value": "abc123" }],
+  "followups": []
+}</div>
+<p>代码 reducer 聚合事实；只有语义冲突、计划重写或最终叙述需要时才启动 synthesizer agent。</p>
+</section>
+
+<section>
+<h2>八、验收候选生命周期</h2>
+<div class="states"><span class="state">preparing</span>→<span class="state">ready</span>→<span class="state">accepted</span>→<span class="state">integrated</span></div>
+<div class="states" style="margin-top:10px"><span class="state">ready</span>→<span class="state">changes_requested</span>→<span class="state">Candidate v2</span></div>
+<div class="states" style="margin-top:10px"><span class="state">ready</span>→<span class="state">rejected / superseded</span></div>
+<p>Candidate 创建时同时固定 integration commit 与 baseline commit。Verifier 在两边运行同一验收场景并生成自包含 HTML 报告。接受前 runtime 再次校验 branch tip 仍等于候选 commit；若已经移动，必须生成新版本。</p>
+</section>
+
+<section>
+<h2>九、反馈闭环</h2>
+<div class="diagram"><pre>Candidate v1 ready
+      │
+      ├─ 接受 ─────────────► 精确 commit 落地
+      │
+      ├─ 要求修改
+      │      └─ feedback artifact
+      │            └─ incremental planner
+      │                  └─ new Work DAG
+      │                        └─ Candidate v2
+      │
+      └─ 放弃 ─────────────► rejected（历史仍保留）</pre></div>
+</section>
+
+<section>
+<h2>十、安全与恢复原则</h2>
+<div class="grid">
+<article class="card"><h3>项目级作用域</h3><p>一个 daemon 绑定一个 canonical 项目目录，状态固定在项目的 .lush。</p></article>
+<article class="card"><h3>短期凭证</h3><p>Agent token 只在当前 invocation 有效，数据库只保存 SHA-256。</p></article>
+<article class="card"><h3>未知副作用不重放</h3><p>崩溃后的 running Run 标记失败，由用户检查现场并明确重试。</p></article>
+<article class="card"><h3>Git 写操作串行</h3><p>不做 shell 插值；compare-and-swap 与每次重新校验防止静默覆盖。</p></article>
+<article class="card"><h3>验收绑定 commit</h3><p>用户接受的是不可变树；branch 漂移后旧批准不得复用。</p></article>
+<article class="card"><h3>历史与磁盘分离</h3><p>Run、Artifact、Event 可长期保留；worktree 和 branch 按安全门独立回收。</p></article>
+</div>
+</section>
+
+<section>
+<h2>十一、界面信息架构</h2>
+<table class="table"><thead><tr><th>视图</th><th>默认用户问题</th></tr></thead><tbody>
+<tr><td>Intent 工作台</td><td>我提出的目标现在怎样？有什么成果需要验收？</td></tr>
+<tr><td>Execution DAG</td><td>哪些工作并行、依赖谁、为什么被阻塞？</td></tr>
+<tr><td>Candidate Review</td><td>实际结果是什么？修改前后怎样？我接受的是哪个 commit？</td></tr>
+<tr><td>Decision Queue</td><td>现在真正需要我决定什么？</td></tr>
+<tr><td>Branch Diagnostics</td><td>底层 Git 为什么分歧、缺失、落后或不能集成？</td></tr>
+</tbody></table>
+</section>
+
+<section>
+<h2>十二、当前实现与演进边界</h2>
+<p>现有 SQLite、项目 daemon、worktree 隔离、事件审计、短期 token、恢复策略和最终用户批准继续保留。迁移采用加表/加列与兼容 RPC：Task 暂时作为 WorkItem 投影，新增 agent_runs、artifacts 与 review_candidates；旧 task/spec/branch 历史仍可读取。</p>
+<p class="callout">架构判断标准不是“层数越少越好”，而是：语义判断交给模型，确定性工作交给 runtime；用户围绕目标和结果行动，Git 围绕安全和恢复行动。</p>
+</section>
+
+<div class="footer">Lush Core Architecture · Intent → Plan → Work DAG → Run → Artifact → Review Candidate → Accepted Commit</div>
+</main></body></html>

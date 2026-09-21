@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 /** 仓库根：本文件在 src/ui/web/ 下，向上三级。 */
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 const MAX_DEPTH = 4;
-const MAX_BYTES = 1024 * 1024;
+const MAX_BYTES = 2 * 1024 * 1024;
 
 /** 目录前缀 → 分组标题。没登记的目录按自己的路径归类，新开文档目录不必先改这里。 */
 const GROUPS = [
@@ -31,13 +31,14 @@ const GROUP_ORDER = ['总览', '架构', '接口参考'];
 const TITLE_OVERRIDES = {
   'README.md': '使用说明（README）',
   'docs/README.md': '文档索引',
+  'docs/core-architecture.html': '核心架构：Intent 到可验收结果',
 };
 
 const toPosix = value => value.split(path.sep).join('/');
 const dirOf = relative => (relative.includes('/') ? relative.slice(0, relative.lastIndexOf('/')) : '');
 
 function docId(relative) {
-  const slug = relative.replace(/\.md$/i, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  const slug = relative.replace(/\.(md|html)$/i, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
   return slug || 'doc';
 }
 
@@ -45,7 +46,8 @@ function titleOf(markdown, relative) {
   const override = TITLE_OVERRIDES[relative];
   if (override) return override;
   const heading = /^ {0,3}#\s+(.+?)\s*#*\s*$/m.exec(markdown);
-  return heading ? heading[1] : path.basename(relative, '.md');
+  const htmlTitle = /<title>([^<]+)<\/title>/i.exec(markdown) || /<h1[^>]*>([^<]+)<\/h1>/i.exec(markdown);
+  return heading ? heading[1] : htmlTitle ? htmlTitle[1].trim() : path.basename(relative, path.extname(relative));
 }
 
 function groupOf(relative) {
@@ -56,7 +58,7 @@ function groupOf(relative) {
   return dir;
 }
 
-/** 只收普通 `.md` 文件；`.isFile()` 对符号链接为 false，链接因此一律被跳过。 */
+/** 只收普通 Markdown / standalone HTML；`.isFile()` 对符号链接为 false。 */
 function collect(dir, depth, out) {
   if (depth > MAX_DEPTH) return;
   let entries;
@@ -65,7 +67,7 @@ function collect(dir, depth, out) {
     if (entry.name.startsWith('.')) continue;
     const file = path.join(dir, entry.name);
     if (entry.isDirectory()) { collect(file, depth + 1, out); continue; }
-    if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== '.md') continue;
+    if (!entry.isFile() || !['.md','.html'].includes(path.extname(entry.name).toLowerCase())) continue;
     out.push(file);
   }
 }
@@ -91,7 +93,8 @@ export function docsIndex() {
     let id = base, suffix = 2;
     while (used.has(id)) id = `${base}-${suffix++}`;
     used.add(id);
-    entries.push({ id, title: titleOf(markdown, relative), group: groupOf(relative), path: relative });
+    entries.push({ id, title: titleOf(markdown, relative), group: groupOf(relative), path: relative,
+      format: path.extname(relative).toLowerCase() === '.html' ? 'html' : 'markdown' });
   }
   const rank = new Map(GROUP_ORDER.map((name, index) => [name, index]));
   const weight = label => rank.get(label) ?? GROUP_ORDER.length;
@@ -104,6 +107,9 @@ export function docsIndex() {
 export function readDoc(id) {
   const entry = docsIndex().find(row => row.id === id);
   if (!entry) return null;
-  try { return { ...entry, markdown: fs.readFileSync(path.join(ROOT, entry.path), 'utf8') }; }
+  try {
+    const body = fs.readFileSync(path.join(ROOT, entry.path), 'utf8');
+    return entry.format === 'html' ? { ...entry, html: body } : { ...entry, markdown: body };
+  }
   catch { return null; }
 }

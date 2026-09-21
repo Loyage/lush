@@ -13,7 +13,7 @@ dom.node('side-nav').replaceChildren();
 await boot();
 afterAll(() => dom.restore());
 
-test('概览：指标以分支为主，分支主线先于运行信息，折叠跨重画保留', () => {
+test('概览：指标以 Intent 为主，Git 诊断退居次级且折叠跨重画保留', () => {
   const data = ui.lastSnapshot;
   data.notices = [{ id: 23, task_id: 1, status: 'open', title: '确认兼容方案' }];
   ui.selected = null; ui.graphOpen = false; ui.docsOpen = false;
@@ -21,16 +21,18 @@ test('概览：指标以分支为主，分支主线先于运行信息，折叠�
   renderOverview(data);
   const panel = dom.node('detail');
   expect(panel.dataset.view).toBe('overview');
-  // 指标改成以分支计，不再是任务中心的四个计数。
+  // 产品指标以 Intent / Candidate 为中心，Branch 留在诊断折叠区。
   expect(panel.querySelectorAll('.metric').length).toBe(4);
   const text = deepText(panel);
-  expect(text).toContain('分支总数');
+  expect(text).toContain('Intent');
+  expect(text).toContain('等待验收');
   expect(text).toContain('需要你决定');
   // 旧结构不再出现：按任务 status 的分布 chips 与按目标分支分组的交付队列。
   expect(text).not.toContain('任务状态');
   expect(text).not.toContain('交付队列');
-  // 分支主线排在运行 / 维护信息之前。
-  expect(text.indexOf('待收口')).toBeLessThan(text.indexOf('运行中的 agent'));
+  // Intent 成果先于 Git 诊断，Git 诊断仍先于运行 / 维护信息。
+  expect(text.indexOf('Intent 与最新成果')).toBeLessThan(text.indexOf('Git 交付诊断'));
+  expect(text.indexOf('Git 交付诊断')).toBeLessThan(text.indexOf('运行中的 agent'));
   const runtime = panel.querySelector('[data-fold="runtime"]');
   expect(runtime.open).toBe(false);
   runtime.open = true;

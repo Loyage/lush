@@ -11,7 +11,7 @@ export const tasks = {
   /** layer 省略时给全部任务（内部用）；'work' 是任务树/任务链的读模型，'intent' 是 planner + scheduler。 */
   summaries(layer = null) {
     return this.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
-      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
+      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
       ...(layer ? [layer] : []));
   },
   /** Tasks the scheduler may still touch: a clear has to wait for all of them. */
@@ -32,7 +32,7 @@ export const tasks = {
       // 锚点的分支名与目录名带着 input id，所以输入 id 也钉住：清空之后的输入继续往大走。
       this.setInputIdHigh(Math.max(this.inputIdHigh(), this.get('SELECT COALESCE(MAX(id),0) AS value FROM inputs').value));
       // Children of tasks/inputs go first; foreign keys are on, so the order is not decorative.
-      for (const table of ['task_specs','messages','notices','task_deps','events','tasks','drafts','inputs']) {
+      for (const table of ['artifacts','agent_runs','review_candidates','task_specs','messages','notices','task_deps','events','tasks','drafts','inputs']) {
         counts[table] = this.get(`SELECT count(*) AS value FROM ${table}`).value;
         this.run(`DELETE FROM ${table}`);
       }
@@ -48,19 +48,19 @@ export const tasks = {
   /** Bump the visible timestamp without touching status; used when a verification starts or settles. */
   touch(taskId) { this.run("UPDATE tasks SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", taskId); },
   update(taskId, patch) {
-    const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit','plan_gate'];
+    const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit','plan_gate','review_candidate_id'];
     check(Object.keys(patch).every(key => allowed.includes(key)), 'invalid task patch');
     this.run(`UPDATE tasks SET ${Object.keys(patch).map(key => `${key}=?`).join(',')}, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, ...Object.values(patch), taskId);
     return this.task(taskId);
   },
   /** name is the task's own short slug; it is written once at spawn and never edited, so a worktree keeps its name. */
-  create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null, resolves_task_id = null }) {
+  create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null, resolves_task_id = null, review_candidate_id = null }) {
     const taskId = this.nextTaskId();
     const layer = layerOf(role);
-    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id,resolves_task_id,layer) VALUES (?,?,?,?,?,?,?,?,?)',
-      taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id, layer);
+    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id,resolves_task_id,review_candidate_id,layer) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer);
     const task = this.task(taskId);
-    this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id, resolves_task_id, layer });
+    this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer });
     return task;
   },
 };

@@ -8,20 +8,48 @@ const MAX_BATCH_SPECS = 200;
 /** 拆解队列与批次的出生。 */
 export default {
   /**
-   * The one place a scheduler task is born: a planner has finished its round and no live scheduler owns the queue.
-   * 批次 = 那个 planner 这一轮写下的全部 spec，所以等待只由「planner 结束」触发，不由写入时刻决定。
+   * Compile every finished planner round directly into work items. Planning is semantic model work; scheduling is
+   * deterministic runtime work, so there is no scheduler agent, global batch lock or extra model invocation.
    */
-  ensureScheduler() {
-    const group = this.store.nextSpecPlanner();
-    if (!group) return null;
-    if (this.store.get("SELECT id FROM tasks WHERE role='scheduler' AND status NOT IN ('completed','failed','cancelled')")) return null;
-    return this.store.transaction(() => {
-      const task = this.store.create({ input_id: null, role: 'scheduler', name: null,
-        goal: `调度拆解队列：planner #${group.planner_task_id} 写下的 ${group.count} 条 spec，一次性编排完本批（不允许遗留）` });
-      this.store.assignSpecs(task.id, MAX_BATCH_SPECS, group.planner_task_id);
-      return task;
-    });
+  compilePlans() {
+    const groups = this.store.readySpecPlanners(MAX_BATCH_SPECS);
+    const compiled = [];
+    for (const group of groups) {
+      const planner = this.store.task(group.planner_task_id);
+      const pending = this.store.specsByPlanner(planner.id).filter(spec => spec.status === 'pending' && spec.batch_id === null);
+      const waiting = new Map(pending.map(spec => [spec.id, spec]));
+      const created = [];
+      while (waiting.size) {
+        let progressed = false;
+        for (const spec of [...waiting.values()]) {
+          const deps = spec.deps.map(hint => this.store.spec(hint.spec));
+          const dropped = deps.find(dep => dep.status === 'dropped');
+          if (dropped) {
+            this.store.dropSpec(spec.id, `依赖 spec #${dropped.id} 已丢弃，无法编译`);
+            waiting.delete(spec.id); progressed = true; continue;
+          }
+          if (deps.some(dep => dep.task_id === null)) continue;
+          try {
+            const task = this.store.transaction(() => this.materializeSpec(planner.id, spec.id));
+            created.push(task);
+          } catch (error) {
+            this.store.dropSpec(spec.id, `计划编译失败：${error.message}`);
+            this.store.event(planner.id, 'plan.compile_failed', { spec: spec.id, error: error.message });
+          }
+          waiting.delete(spec.id); progressed = true;
+        }
+        check(progressed, `planner #${planner.id} has an unresolved spec dependency cycle`);
+      }
+      if (created.length) {
+        this.store.event(planner.id, 'plan.compiled', { specs: pending.map(spec => spec.id), tasks: created.map(task => task.id) });
+        compiled.push({ planner: planner.id, tasks: created });
+      }
+    }
+    return compiled;
   },
+
+  /** Compatibility alias for older embedders; it no longer creates a scheduler task. */
+  ensureScheduler() { return this.compilePlans(); },
 
   /** planner 只写队列：把一条拆解结果变成 task_specs 行，同样只允许引用自己写的 spec。 */
   addSpec(plannerTaskId, spec = {}) {
@@ -30,7 +58,7 @@ export default {
     text(spec.goal, 'goal');
     const role = spec.role ?? null;
     check(role === null || ['worker','coordinator','research'].includes(role), 'spec role must be worker, coordinator or research');
-    // explain 输入只允许写 research 的 spec，否则 scheduler 一定会 spawn 出一个被拒的任务。
+    // explain 输入只允许写 research 的 spec，否则 deterministic compilation would be rejected.
     const flowInput = planner.input_id === null ? null : this.store.get('SELECT id, flow FROM inputs WHERE id=?', planner.input_id);
     check(!flowInput || flowInput.flow !== 'explain' || role === 'research',
       `input #${flowInput?.id} is classified as explain (了解); only research specs are allowed`);
@@ -50,14 +78,14 @@ export default {
       hints.push({ spec: specId, kind });
     }
     const pending = this.store.get("SELECT count(*) AS n FROM task_specs WHERE planner_task_id=? AND status='pending'", planner.id).n;
-    check(pending < MAX_BATCH_SPECS, `a planner may hold at most ${MAX_BATCH_SPECS} pending specs; let the scheduler drain the queue first`);
+    check(pending < MAX_BATCH_SPECS, `a planner may hold at most ${MAX_BATCH_SPECS} pending specs in one round`);
     const row = this.store.addSpec({ input_id: planner.input_id, planner_task_id: planner.id, goal: spec.goal, role, name: slug, deps: hints });
     this.store.event(planner.id, 'spec.added', { spec_id: row.id, role, name: slug, deps: hints });
     this.kick();
     return row;
   },
 
-  /** Only the planner that wrote a pending spec, or the scheduler holding its batch, may drop it. */
+  /** Only the planner that wrote a pending spec may drop it. Historical scheduler batches remain readable. */
   dropSpec(specId, note = null, actor = null) {
     const spec = this.store.spec(specId);
     check(spec.status === 'pending', `spec #${spec.id} is ${spec.status}; only a pending spec can be dropped`);

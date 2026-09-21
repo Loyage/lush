@@ -56,9 +56,9 @@ export class MockProvider {
   async run({ task, messages, signal, api }) {
     if (signal.aborted) throw new Error('aborted');
     if (task.role === 'planner' && !messages.length) {
-      // planner 只写拆解队列；真正的任务由 scheduler 串行编排出来。
+      // planner writes a semantic Plan; runtime deterministically compiles it into runnable work.
       api.addSpec(task.id, { goal: `${task.goal}（离线演示调研）`, role: 'research', name: 'mock-research', deps: [] });
-      return '已把拆解写入拆解队列。';
+      return '已提交结构化 Plan，等待 runtime 编译。';
     }
     return `Mock ${task.role} #${task.id}: ${task.goal}（未调用模型、未修改文件）`;
   }

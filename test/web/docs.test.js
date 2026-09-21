@@ -76,19 +76,21 @@ test('the docs page modules are served as assets and wired into the app entry', 
   } finally { await f.close(); }
 });
 
-test('the docs module resolves only markdown under the repository docs tree', async () => {
+test('the docs module resolves only bundled markdown and standalone HTML', async () => {
   const { docsIndex, readDoc } = await import('../../src/ui/web/docs.js');
   const index = docsIndex();
-  // 索引里每一项都必须真的是仓库内的 .md，且 id 唯一
+  // 索引里每一项都必须真的是仓库内的 .md/.html，且 id 唯一
   const ids = new Set();
   for (const doc of index) {
-    expect(doc.path).toMatch(/^(README|docs\/.*)\.md$/);
+    expect(doc.path).toMatch(/^(README\.md|docs\/.*\.(md|html))$/);
     expect(path.isAbsolute(doc.path)).toBe(false);
     expect(doc.path).not.toContain('..');
     expect(ids.has(doc.id)).toBe(false);
     ids.add(doc.id);
   }
   expect(readDoc('readme').markdown).toContain('# Lush');
+  expect(readDoc('docs-core-architecture')).toMatchObject({ format: 'html' });
+  expect(readDoc('docs-core-architecture').html).toContain('Intent-first + Candidate-first');
   // 任何不在索引里的字符串都读不出东西——请求里的路径永远不会被拼进文件名
   for (const attempt of ['../package.json', 'docs/../package.json', 'package.json', '', 'README']) {
     expect(readDoc(attempt)).toBeNull();

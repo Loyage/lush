@@ -9,8 +9,8 @@ import { renderTimeline } from './render-timeline.js';
 import { ui } from './state.js';
 
 /**
- * 「项目概览」是分支第一的工作台：主线是分支及其父子谱系，突出
- * 「没有合进父分支 / 正在工作 / 分歧 / 落后」的分支，任务只作为分支下的明细。
+ * Intent-first overview: user goals and frozen review candidates are the primary line. Branch data remains a
+ * secondary delivery diagnostic for divergence, recovery and explicit Git operations.
  *
  * 分支事实来自 `graph.get`，与「分支图」共用同一份 `ui.lastGraph`（refresh.js 按同一条陈旧规则
  * 决定要不要重拉），概览不新增 RPC、也不各自打 git；拿不到图时先给占位文案、只画快照支撑得住的部分。
@@ -93,6 +93,11 @@ function workingRow(entry) {
 }
 
 export function renderOverview(data) {
+  const intents = data.inputs || [];
+  const candidates = data.candidates || [];
+  const candidateByInput = new Map(candidates.map(candidate => [candidate.input_id, candidate]));
+  const activeIntentIds = new Set((data.tasks || []).filter(task => HOT.has(task.status)).map(task => task.input_id).filter(Boolean));
+  const reviewReady = candidates.filter(candidate => candidate.status === 'ready');
   // 计划审批（kind='plan'）在「历史输入」的意图行上批，不在这个问答面板里：列出来点开只会是空动作（openNotice 只认非 plan 的 notice）。
   const open = data.notices.filter(notice => notice.status === 'open' && notice.kind !== 'plan');
   // 纯提醒（kind='info'、任务结算时自动落库）不进任何待决口径，这里只读地列最近 10 条。
@@ -113,7 +118,8 @@ export function renderOverview(data) {
     data.status.concurrency, data.status.pending_merges, data.status.drafts, data.status.project, data.status.version,
     data.status.fingerprint, data.status.started_at,
     open.map(notice => notice.id), reminders.map(notice => `${notice.id}:${notice.created_at ?? ''}`),
-    data.tasks.length,
+    intents.map(intent => `${intent.id}:${intent.status}:${intent.candidate_status ?? ''}`).join(','),
+    candidates.map(candidate => `${candidate.id}:${candidate.status}:${candidate.commit_hash}`).join(','), data.tasks.length,
     // 分支主线要跟着图一起重画：指纹 + 生成时间变了就重建，重画不丢折叠与滚动。
     graphData ? graphRenderKey(graphData) : null, ui.graphFetchedAt,
     // 时间轴的开口段一直在长，但只在结构变化或每 15 秒才需要重画一次，免得轮询把滚动位置冲掉。
@@ -126,22 +132,22 @@ export function renderOverview(data) {
   panel.dataset.view = 'overview'; panel.replaceChildren();
   const head = el('div', undefined, 'overview-hero');
   const intro = el('div');
-  const heroText = !layout ? '正在读取分支谱系，稍后这里会按分支汇总需要收口的工作。'
+  const heroText = reviewReady.length ? `${reviewReady.length} 个固定 commit 的候选结果等待你验收。`
     : open.length ? `有 ${open.length} 个问题等待你的决定。先疏通阻塞，让工作继续向前。`
-    : closing.length ? `${closing.length} 条分支等待收口。审阅成果，让它们进入父分支。`
-    : working.length ? '分支正在并行推进。这里汇集需要收口的变更、活跃分支与提醒。'
-    : '分支都收拢好了。写下下一个想法，让项目继续生长。';
-  intro.append(el('span', 'WORKSPACE / 项目工作台', 'eyebrow'), el('h1', '项目概览'), el('p', heroText, 'hero-description'));
+    : activeIntentIds.size ? `${activeIntentIds.size} 个 Intent 正在并行推进；成果会汇总成可验证候选。`
+    : intents.length ? '目标都已停下来。检查候选结果，或写下下一个想法。'
+    : '从一个 Intent 开始：系统会规划、并行执行、汇总证据，并交付可验收结果。';
+  intro.append(el('span', 'INTENT / 目标与成果', 'eyebrow'), el('h1', 'Intent 工作台'), el('p', heroText, 'hero-description'));
   const mark = el('div', '✳', 'hero-mark'); mark.setAttribute('aria-hidden', 'true');
   head.append(intro, mark); panel.append(head);
 
-  // 指标以分支计：分支总数 / 正在工作 / 待收口（待合入、分歧、落后）/ 需要你决定。
+  // Product metrics are Intent/Candidate based. Git branch metrics live in the diagnostic disclosure below.
   const metrics = el('div', undefined, 'metrics');
   for (const [label, value, note, tone] of [
-    ['分支总数', branchesReady ? layout.branch_count : '—', branchesReady ? `${working.length} 条正在工作 · ${closing.length} 条待收口` : '正在读取分支…', 'blue'],
-    ['正在工作', branchesReady ? working.length : '—', branchesReady ? '分支上仍有活跃任务' : '等待分支数据', 'violet'],
-    ['待收口', branchesReady ? closing.length : '—', closing.length ? '待合入 / 分歧 / 落后' : '没有待收口的分支', 'amber'],
-    ['需要你决定', open.length, open.length ? '待决问题 · 需要你的判断' : '没有等待答复的问题', 'green'],
+    ['Intent', intents.length, intents.length ? `${activeIntentIds.size} 个正在推进` : '等待第一个目标', 'blue'],
+    ['并行执行', activeIntentIds.size, `${data.status.agents.length} 个 Run 正在调用`, 'violet'],
+    ['等待验收', reviewReady.length, reviewReady.length ? '固定 commit · 报告已就绪' : '暂无待验收候选', 'amber'],
+    ['需要你决定', open.length, open.length ? '实质问题需要你的判断' : '没有等待答复的问题', 'green'],
   ]) {
     const card = el('div', undefined, `metric tone-${tone}`);
     card.append(el('span', label, 'metric-label'), el('strong', String(value), 'metric-value'), el('span', note, 'metric-note'));
@@ -149,7 +155,26 @@ export function renderOverview(data) {
   }
   panel.append(metrics);
 
-  // 分支主线：待收口的分支 + 正在工作的分支。没有图时给占位 / 错误提示，只画快照撑得住的部分。
+  const intentBlock = block('Intent 与最新成果', String(intents.length));
+  intentBlock.classList.add('intent-overview');
+  if (!intents.length) intentBlock.append(el('p', '还没有 Intent。在底部输入框描述目标即可开始。', 'empty-state compact'));
+  for (const intent of intents.slice(0, 20)) {
+    const candidate = candidateByInput.get(intent.id);
+    const row = el('div', undefined, 'branch-row intent-result-row');
+    row.append(el('span', `#${intent.id}`, 'tid'), button(intent.content, () => detail(intent.task_id), 'link'));
+    if (activeIntentIds.has(intent.id)) row.append(el('span', '执行中', 'chip relation-ahead'));
+    if (candidate) {
+      row.append(el('span', `候选 v${candidate.version} · ${candidate.status}`, `chip ${candidate.status === 'ready' ? 'c-completed' : ''}`));
+      if (candidate.report_task_id) {
+        const report = el('a', '打开结果', 'link'); report.href = `/api/task/${candidate.report_task_id}/report`;
+        report.target = '_blank'; report.rel = 'noopener'; row.append(report);
+      }
+    } else if (intent.flow !== 'explain' && intent.status === 'completed') row.append(el('span', '等待生成候选', 'meta'));
+    intentBlock.append(row);
+  }
+  panel.append(intentBlock);
+
+  // Branch/worktree is a secondary diagnostic, not the product's primary information architecture.
   const branchArea = el('div', undefined, 'branch-overview');
   if (!layout) {
     const box = block('分支'); box.classList.add('branch-loading');
@@ -176,7 +201,10 @@ export function renderOverview(data) {
     for (const entry of working) busy.append(workingRow(entry));
     branchArea.append(busy);
   }
-  panel.append(branchArea);
+  const branchDetails = el('details', undefined, 'disclosure');
+  branchDetails.dataset.fold = 'branches'; branchDetails.open = expanded.has('branches');
+  branchDetails.append(el('summary', `Git 交付诊断 · ${branchesReady ? `${closing.length} 条待收口` : '读取中'}`), branchArea);
+  panel.append(branchDetails);
 
   // 纯提醒：不需要答复，也不进「需要你的决定」。
   const noticeBlock = block('最近提醒', String(reminders.length));

@@ -4,7 +4,7 @@ import { check, id, text, TERMINAL } from '../types.js';
 export default {
   /**
    * planner 认为这一轮拆解需要用户先拍板（影响面大 / 与现状冲突 / 没把握完全读懂意图）时提出的审批。
-   * 提出后这一批 spec 不再被 scheduler 取走，直到 plan.approve / plan.reject。
+   * 提出后这一版 Plan 不会被 runtime 编译，直到 plan.approve / plan.reject。
    */
   proposePlan(plannerId, title, body = '') {
     const planner = this.store.task(plannerId);
@@ -22,7 +22,7 @@ export default {
     });
   },
 
-  /** 用户批准这一轮拆解：闸门放行 → 下次 pump 就会把它交给 scheduler；planner 这一轮就此结束。 */
+  /** 用户批准这一轮拆解：闸门放行 → runtime 直接把 Plan 编译为 Work DAG。 */
   approvePlan(plannerId, answer = '已批准') {
     const planner = this.planForApproval(plannerId);
     const specs = this.store.specsByPlanner(planner.id).filter(spec => spec.status === 'pending');
@@ -32,8 +32,8 @@ export default {
       this.store.message(planner.id, JSON.stringify({ plan: planner.id, approved: true, answer, specs: specs.map(spec => spec.id) }));
       this.store.event(planner.id, 'plan.approved', { answer, specs: specs.map(spec => spec.id) });
     });
-    // 计划被接受 = planner 这一轮的结论已经定了，它不必再跑一轮；编排由 scheduler 接着做。
-    this.finish(planner.id, 'completed', `计划已批准（${specs.length} 条拆解交给 scheduler 编排）`);
+    // 计划被接受 = planner 这一轮的结论已经定了；finish() 会触发确定性 Plan 编译器。
+    this.finish(planner.id, 'completed', `计划已批准（${specs.length} 条工作由 runtime 编译）`);
     return { planner: planner.id, plan_gate: 'approved', specs: specs.map(spec => spec.id) };
   },
 

@@ -5,7 +5,7 @@
 | CLI | RPC | 参数 |
 |---|---|---|
 | `lush say '原话' [--branch NAME]` | `input.submit` | `{content, branch?}` |
-| `lush intent list` | `input.list` | `{}`（每行带 planner 状态/闸门与 scheduler 进度） |
+| `lush intent list` | `input.list` | `{}`（每行带 planner 状态/闸门、Plan 计数与最新候选） |
 | `lush plan propose '标题' [--body '…']` | `plan.propose` | `{title, body?}`（planner 专用） |
 | `lush plan approve ID\|NOTICE_ID` | `plan.approve` | `{id, answer?}`（用户专属） |
 | `lush plan reject ID\|NOTICE_ID '理由'` | `plan.reject` | `{id, reason}`（用户专属） |
@@ -15,6 +15,8 @@
 | `lush draft commit [--branch NAME]` | `draft.commit` | `{ids?, branch?}` |
 | `lush input list` | `input.list` | `{}` |
 | `lush input flow [TASK_ID] develop/explain` | `input.flow` | `{id?, flow: 'develop'/'explain'}` |
+| `lush candidate list [--input ID]` | `candidate.list` | `{input?}` |
+| `lush candidate prepare INPUT [--summary '…']` | `candidate.prepare` | `{input, summary?}`（用户专属） |
 
 `input.submit` 返回 `{id, content, task, anchor}`。`branch` 必须是本地分支；省略时使用当前检出分支。runtime 从它创建 `lush/<项目哈希>/input-<id>` 与 `.lush/worktrees/input-<id>`，planner 在该 worktree 中运行。输入分支既冻结解析上下文，也是任务分支的聚合父分支，最后通过 `branch.merge` 合回用户分支。
 
@@ -26,4 +28,8 @@
 
 ## 规划闸门
 
-`plan.propose` 把 planner 的 `plan_gate` 置为 `proposed` 并开一条 `kind='plan'` 的 notice，`nextSpecPlanner()` 跳过它，直到 `plan.approve`（闸门放行、planner 本轮结束、下一次 pump 交给 scheduler）或 `plan.reject`（本轮 pending spec 全标 `dropped`、理由送进 planner 收件箱并唤醒它重拆）。plan notice 不能用 `notice.answer` 回答。回复 notice 的语义见 [待决问题](notices.md)。
+`plan.propose` 把 planner 的 `plan_gate` 置为 `proposed` 并开一条 `kind='plan'` 的 notice，`readySpecPlanners()` 跳过它，直到 `plan.approve`（闸门放行、planner 本轮结束、runtime 直接编译 Work DAG）或 `plan.reject`（本轮 pending spec 全标 `dropped`、理由送进 planner 收件箱并唤醒它重拆）。plan notice 不能用 `notice.answer` 回答。回复 notice 的语义见 [待决问题](notices.md)。
+
+## Review Candidate
+
+由 Plan 编译出的工作时，runtime 自动在私有 Intent 分支内叶子优先聚合；完成后冻结 integration commit 与 target baseline commit，创建 `review_candidates` 版本并派只读 verifier 生成前后对照 HTML 报告。用户接受的是固定 commit，不是可移动 branch。

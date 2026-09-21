@@ -67,6 +67,34 @@ export default {
     this.kick(); return task;
   },
 
+  /** Deterministic Plan compiler path: turn one planner spec into a root work item without another model call. */
+  materializeSpec(plannerId, specId) {
+    const planner = this.store.task(plannerId);
+    check(planner.role === 'planner', 'only a planner plan can be compiled');
+    const spec = this.store.spec(specId);
+    check(spec.planner_task_id === planner.id, `spec #${spec.id} belongs to another planner`);
+    check(spec.status === 'pending', `spec #${spec.id} is ${spec.status}; only pending specs are compiled`);
+    const role = spec.role ?? 'worker';
+    check(['worker','coordinator','research'].includes(role), `spec #${spec.id} has invalid role ${role}`);
+    const edges = spec.deps.map(hint => {
+      const target = this.store.spec(hint.spec);
+      check(target.status !== 'dropped', `spec #${hint.spec} was dropped; spec #${spec.id} cannot be compiled`);
+      check(target.task_id !== null, `spec #${hint.spec} has not been compiled yet`);
+      return { id: target.task_id, kind: hint.kind };
+    });
+    const input = spec.input_id === null ? null : this.store.get('SELECT id,flow FROM inputs WHERE id=?', spec.input_id);
+    check(!input || input.flow !== 'explain' || role === 'research',
+      `input #${input?.id} is classified as explain (了解); only research work is allowed`);
+    check(this.store.get("SELECT count(*) AS n FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").n < 1000,
+      'too many active tasks');
+    const task = this.store.create({ parent_id: null, input_id: spec.input_id, role, goal: spec.goal, name: spec.name });
+    this.assertDeps(task.id, null, edges);
+    for (const edge of edges) { this.store.addDep(task.id, edge.id, edge.kind); this.store.event(task.id, 'dep.added', edge); }
+    this.store.plannedSpec(spec.id, task.id);
+    this.store.event(task.id, 'plan.materialized', { planner: planner.id, spec: spec.id });
+    return task;
+  },
+
   inspect(taskId) {
     const task = this.store.task(taskId);
     return { ...task, deps: this.store.depsDetail(task.id), dependents: this.store.dependentsDetail(task.id),
@@ -79,6 +107,8 @@ export default {
       verifications: task.role === 'worker' ? bounded(this.store.verifications(task.id).map(row => ({ ...row, has_report: this.hasReport(row.id) })), 200000) : undefined,
       resolutions: task.role === 'worker' ? bounded(this.store.resolutions(task.id), 200000) : undefined,
       report: task.role === 'verifier' && this.hasReport(task.id) ? this.reportPath(task.id) : null,
+      runs: bounded(this.store.runsForTask(task.id), 200000),
+      artifacts: bounded(this.store.artifactsForTask(task.id), 200000),
       agent: agentView(task, this.running.get(task.id) ?? null) };
   },
 

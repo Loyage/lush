@@ -42,5 +42,5 @@ test('右侧固定返回按钮在没有原生 history.back 的宿主里安全回
   expect(dom.node('detail').hidden).toBe(false);
   expect(dom.node('resource-panels').hidden).toBe(true);
   expect(dom.node('detail').dataset.view).toBe('overview');
-  expect(deepText(dom.node('detail'))).toContain('项目概览');
+  expect(deepText(dom.node('detail'))).toContain('Intent 工作台');
 });

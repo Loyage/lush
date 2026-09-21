@@ -4,7 +4,7 @@ import path from 'node:path';
 import { temp, repo, env } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
-import { cli, done, schedulerOf } from './harness.js';
+import { cli, done, workOf } from './harness.js';
 
 test('pi subprocess receives project/task capability, pinned CLI, persistent session path and performs delegation', async () => {
   const root = temp();
@@ -40,16 +40,13 @@ console.log('fake pi completed');
     expect(result.agent).toMatchObject({ id: `planner#${input.task.id}`, role: 'planner', active: false, pid: null });
     expect(result.agent.wakes).toBeGreaterThan(0);
     expect(result.agent.last_seen_at).toBeTruthy();
-    // 等 scheduler 把 spec 编成任务并收尾
-    const scheduler = await schedulerOf(client, input.task.id);
-    expect(scheduler).toBeTruthy();
-    expect((await done(client, scheduler.id)).status).toBe('completed');
-    const research = (await client.request('task.list',{})).find(task => task.role === 'research');
+    // runtime 直接把 Plan 编译成 root research work。
+    const research = (await workOf(client, input.task.id)).find(task => task.role === 'research');
     expect(research.goal).toBe('delegated via pinned CLI');
-    expect(research.parent_id).toBe(scheduler.id);
+    expect(research.parent_id).toBeNull();
     expect((await done(client, research.id)).status).toBe('completed');
     const seen = fs.readFileSync(path.join(root,'.lush','seen.jsonl'),'utf8').trim().split('\n').map(JSON.parse);
-    expect(seen.length).toBeGreaterThanOrEqual(3);
+    expect(seen.length).toBeGreaterThanOrEqual(2);
     expect(seen.every(row => row.project === root && row.token)).toBe(true);
     const sessions = seen.filter(row => row.task.id === input.task.id).map(row => row.args[row.args.indexOf('--session-id')+1]);
     expect(new Set(sessions).size).toBe(1);

@@ -33,7 +33,7 @@ h1,h2,h3{margin:0;line-height:1.35;text-wrap:balance}
 h1{font-size:clamp(25px,2.5vw,36px);font-weight:650;letter-spacing:-.04em}
 h2{font-size:16px;font-weight:650;letter-spacing:-.01em}h3{font-size:15px}
 p{margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere}small{color:var(--muted)}
-.hint{font-size:12px;color:var(--dim);margin:0;line-height:1.7}
+.hint{font-size:12px;color:var(--dim);margin:0;line-height:1.7}.doc-frame{display:block;width:100%;min-height:78vh;border:1px solid var(--line);border-radius:14px;background:#0d1418;margin-top:14px}
 .error,#error{color:var(--failed)}.warn{color:var(--awaiting)}
 code,pre,.mono,kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .mono{font-size:12px}pre{margin:8px 0;padding:16px;background:var(--code);border:1px solid var(--line-soft);border-radius:10px;font-size:12.5px;line-height:1.75;white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto}

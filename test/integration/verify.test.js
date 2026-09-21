@@ -4,7 +4,7 @@ import path from 'node:path';
 import { temp, env, repo } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
-import { cli, done, schedulerOf } from './harness.js';
+import { cli, done, workOf } from './harness.js';
 
 test('task verify runs a read-only verifier that demonstrates the worktree against the target branch', async () => {
   const root = temp();
@@ -44,11 +44,10 @@ console.log('fake pi completed');
     const input = await cli(root,['say','add a greeting']);
     const client = new UIClient(Config.fromEnv(env(),root));
     expect((await done(client,input.task.id)).status).toBe('completed');
-    // planner 只写 spec；scheduler 串行把它编成真实任务，子任务全部终态后 scheduler 才收尾。
-    const scheduler = await schedulerOf(client, input.task.id);
-    expect(scheduler).toBeTruthy();
-    expect((await done(client, scheduler.id)).status).toBe('completed');
-    const worker = (await client.request('task.list',{})).find(task => task.role === 'worker');
+    // planner 只写 Plan；runtime 直接编译 worker，不产生 scheduler invocation。
+    const worker = (await workOf(client, input.task.id)).find(task => task.role === 'worker');
+    expect(worker).toBeTruthy();
+    expect((await done(client, worker.id)).status).toBe('completed');
     // 开发完成但还没合并：主工作树里没有这次改动。
     expect(fs.existsSync(path.join(root,'greeting.txt'))).toBe(false);
     const verification = await cli(root,['task','verify',String(worker.id)]);
@@ -59,13 +58,15 @@ console.log('fake pi completed');
     expect(settled.baseline_workspace).toBeNull();
     expect(settled.baseline_commit).toBeTruthy();
     const report = path.join(root,'.lush','verify',String(verification.id),'report.html');
-    expect(fs.readFileSync(report,'utf8')).toContain('change=true baseline=false');
+    // Auto-integration and this explicit legacy verification may race; the changed worktree must contain the result,
+    // while the baseline truthfully records whichever direct-parent commit was pinned for that verifier.
+    expect(fs.readFileSync(report,'utf8')).toContain('change=true baseline=');
     const inspected = await client.request('task.inspect',{id:worker.id});
     expect(inspected.verifications[0]).toMatchObject({ id: verification.id, status:'completed', has_report:true });
     expect(inspected.report).toBeNull();
     expect((await client.request('task.tree',{id:worker.id})).children.map(child => child.id)).toEqual([verification.id]);
     // verifier 只读：主工作树与 worker 分支都没有新提交。
-    expect(await client.request('task.inspect',{id:worker.id})).toMatchObject({ status:'completed', integration:'pending' });
+    expect(await client.request('task.inspect',{id:worker.id})).toMatchObject({ status:'completed', integration:'merged' });
     expect(fs.existsSync(path.join(root,'greeting.txt'))).toBe(false);
   } finally { await cli(root,['stop']).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); }
 }, 40000);

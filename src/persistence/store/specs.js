@@ -43,15 +43,15 @@ export const specs = {
    * planner 停在 awaiting（等用户答复）也算这一轮结束：它已写好的条目不该被别人的答复卡住。
    * 例外：plan_gate='proposed' 表示 planner 自己觉得这轮拆解需要你先批准，这时一条都不取。
    */
-  nextSpecPlanner() {
-    const rows = this.all(`SELECT s.planner_task_id, count(*) AS count, min(s.id) AS first_spec_id
+  readySpecPlanners(limit = 200) {
+    return this.all(`SELECT s.planner_task_id, count(*) AS count, min(s.id) AS first_spec_id
       FROM task_specs s JOIN tasks p ON p.id = s.planner_task_id
-      WHERE s.status='pending' AND s.batch_id IS NULL AND p.layer='intent'
+      WHERE s.status='pending' AND s.batch_id IS NULL AND p.role='planner'
         AND (p.plan_gate IS NULL OR p.plan_gate='approved')
         AND p.status NOT IN (${[...EXECUTING].map(() => '?').join(',')})
-      GROUP BY s.planner_task_id ORDER BY first_spec_id LIMIT 1`, ...EXECUTING);
-    return rows[0] ?? null;
+      GROUP BY s.planner_task_id ORDER BY first_spec_id LIMIT ?`, ...EXECUTING, limit);
   },
+  nextSpecPlanner() { return this.readySpecPlanners(1)[0] ?? null; },
   /**
    * Take the oldest unclaimed pending specs for a batch; callers that already hold a transaction use this directly.
    * plannerTaskId 把范围收窄到一个 planner 写的条目（正常路径都用它）；省略时按 id 取最老的，供人工/测试造批。

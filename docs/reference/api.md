@@ -11,7 +11,8 @@
 | 命令 | 章节 |
 |---|---|
 | `lush say` / `lush intent` / `lush intent list` / `lush plan *` / `lush draft *` / `lush input *` | [输入、规划与缓存](rpc/inputs.md) |
-| `lush task list` / `tree` / `spawn` / `message` / `cancel` / `retry` | [任务与拆解](rpc/tasks.md) |
+| `lush task list` / `tree` / `spawn` / `message` / `cancel` / `retry` | [任务、Run 与 Artifact](rpc/tasks.md) |
+| `lush candidate list` / `prepare` / `inspect` / `verify` / `accept` / `changes` / `reject` | [Review Candidate](rpc/candidates.md) |
 | `lush task merge ID [ID...]` | [合并](rpc/merge.md) |
 | `lush task inspect` / `history` / `diff` / `transcript` / `usage` / `wait` | [审阅与过程读模型](rpc/inspect.md) |
 | `lush task cleanup` / `clear` | [磁盘回收与清空](rpc/maintenance.md) |

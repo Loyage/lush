@@ -51,6 +51,14 @@ export function renderDoc(doc, resolveLink, onOpen) {
   panel.replaceChildren();
   panel.scrollTop = 0;
   panel.append(docsHead(doc.title, onOpen), el('p', doc.path, 'hint mono'));
+  if (doc.format === 'html') {
+    const frame = el('iframe', undefined, 'doc-frame');
+    frame.src = `/api/docs/${doc.id}/html`;
+    frame.title = doc.title;
+    frame.setAttribute('sandbox', '');
+    panel.append(frame);
+    return;
+  }
   const body = renderMarkdown(doc.markdown, document, { link: resolveLink });
   body.classList.add('doc-body');
   // 每篇都以 `# 标题` 开头，而页面头部已经写了同一个标题：去掉正文的第一个一级标题，

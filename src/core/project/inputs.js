@@ -61,11 +61,16 @@ export default {
       (SELECT count(*) FROM task_specs WHERE task_specs.input_id=inputs.id AND task_specs.status='pending') AS specs_pending,
       (SELECT count(*) FROM task_specs WHERE task_specs.input_id=inputs.id AND task_specs.status='planned') AS specs_planned,
       (SELECT count(*) FROM task_specs WHERE task_specs.input_id=inputs.id AND task_specs.status='dropped') AS specs_dropped,
-      (SELECT s.batch_id FROM task_specs s WHERE s.input_id=inputs.id AND s.batch_id IS NOT NULL ORDER BY s.id DESC LIMIT 1) AS scheduler_id,
-      (SELECT t.status FROM task_specs s JOIN tasks t ON t.id=s.batch_id WHERE s.input_id=inputs.id AND s.batch_id IS NOT NULL
-        ORDER BY s.id DESC LIMIT 1) AS scheduler_status,
+      NULL AS scheduler_id, NULL AS scheduler_status,
       (SELECT n.id FROM notices n WHERE n.task_id=inputs.task_id AND n.status='open' AND n.kind='plan' ORDER BY n.id DESC LIMIT 1) AS plan_notice_id,
-      (SELECT count(*) FROM tasks w WHERE w.input_id=inputs.id AND w.layer='work') AS work_tasks
+      (SELECT count(*) FROM tasks w WHERE w.input_id=inputs.id AND w.layer='work') AS work_tasks,
+      (SELECT count(*) FROM tasks w WHERE w.input_id=inputs.id AND w.layer='work' AND w.role!='verifier'
+        AND w.status NOT IN ('completed','failed','cancelled')) AS work_active,
+      (SELECT count(*) FROM tasks w WHERE w.input_id=inputs.id AND w.role='worker' AND w.status='failed') AS work_failed,
+      (SELECT c.id FROM review_candidates c WHERE c.input_id=inputs.id ORDER BY c.version DESC LIMIT 1) AS candidate_id,
+      (SELECT c.version FROM review_candidates c WHERE c.input_id=inputs.id ORDER BY c.version DESC LIMIT 1) AS candidate_version,
+      (SELECT c.status FROM review_candidates c WHERE c.input_id=inputs.id ORDER BY c.version DESC LIMIT 1) AS candidate_status,
+      (SELECT c.report_task_id FROM review_candidates c WHERE c.input_id=inputs.id ORDER BY c.version DESC LIMIT 1) AS candidate_report_task_id
       FROM inputs JOIN tasks ON tasks.id=inputs.task_id ORDER BY inputs.id DESC LIMIT 100`);
   },
 

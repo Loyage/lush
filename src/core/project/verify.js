@@ -36,6 +36,7 @@ export default {
 
   /** verifier 的上下文：它要演示哪次改动、对照在哪个目录、报告写到哪。 */
   verificationContext(task) {
+    if (task.review_candidate_id) return this.candidateContext(task);
     const target = this.store.task(task.verifies_task_id);
     return {
       verified_task: { id: target.id, goal: target.goal, name: target.name, status: target.status, result: target.result },

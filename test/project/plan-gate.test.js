@@ -12,7 +12,7 @@ function controlled() {
   } };
 }
 
-test('plan 闸门：planner 申请批准前 spec 不会被编排，批准后才交给 scheduler', async () => {
+test('plan 闸门：批准前不编译，批准后 runtime 直接生成 Work DAG', async () => {
   const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '2' }); await repo(f.root);
   try {
     const planner = (await f.project.submit('大改动')).task;
@@ -24,7 +24,7 @@ test('plan 闸门：planner 申请批准前 spec 不会被编排，批准后才�
     provider.calls.find(call => call.task.id === planner.id).done.resolve('等你批准');
     await until(() => f.store.task(planner.id).status === 'awaiting');
     await Bun.sleep(20);
-    // 闸门没开：一条 spec 都不会被取走，也不会建 scheduler
+    // 闸门没开：一条 spec 都不会被编译。
     expect(f.store.get("SELECT count(*) AS n FROM tasks WHERE role='scheduler'").n).toBe(0);
     expect(f.store.spec(spec.id)).toMatchObject({ status: 'pending', batch_id: null });
     expect(f.project.inputs()[0]).toMatchObject({ plan_gate: 'proposed', plan_notice_id: plan.id });
@@ -32,11 +32,12 @@ test('plan 闸门：planner 申请批准前 spec 不会被编排，批准后才�
     expect(() => f.project.answer(plan.id, '好')).toThrow('plan approve|reject');
     const approved = f.project.approvePlan(planner.id);
     expect(approved).toMatchObject({ planner: planner.id, plan_gate: 'approved', specs: [spec.id] });
-    // 计划被接受 = 这一轮的结论定了：planner 本轮结束，编排交给 scheduler
+    // 计划被接受 = planner 结束；deterministic compiler 直接建立 root work item。
     expect(f.store.task(planner.id).status).toBe('completed');
-    await until(() => f.store.get("SELECT count(*) AS n FROM tasks WHERE role='scheduler'").n === 1);
-    const scheduler = f.store.get("SELECT * FROM tasks WHERE role='scheduler'");
-    expect(f.store.specsForBatch(scheduler.id).map(row => row.id)).toEqual([spec.id]);
+    await until(() => f.store.spec(spec.id).status === 'planned');
+    const work = f.store.task(f.store.spec(spec.id).task_id);
+    expect(work).toMatchObject({ role: 'worker', parent_id: null, input_id: planner.input_id });
+    expect(f.store.get("SELECT count(*) AS n FROM tasks WHERE role='scheduler'").n).toBe(0);
   } finally { await f.close(); }
 });
 

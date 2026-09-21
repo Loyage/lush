@@ -17,14 +17,14 @@ await boot();
 
 afterAll(() => dom.restore());
 
-test('拆解队列只读展示：按批次分组、能跳到派生的任务，scheduler 显示成调度，空队列收敛成空态', async () => {
+test('结构化 Plan 只读展示：兼容历史批次、能跳到派生工作，空队列收敛成空态', async () => {
   const specs = dom.node('specs');
   const groups = () => specs.querySelectorAll('.spec-batch').map(node => node.textContent);
-  // 两条分组标题：还没编排的在前，已被 scheduler 取走的次之
+  // 当前 Plan 在前，迁移前留下的历史 batch 次之。
   expect(groups()).toHaveLength(2);
-  expect(groups()[0]).toContain('等 scheduler 编排');
-  expect(groups()[0]).toContain('planner #9');
-  expect(groups()[1]).toContain('已被 scheduler #4');
+  expect(groups()[0]).toContain('Plan · planner #9');
+  expect(groups()[0]).toContain('runtime 编译');
+  expect(groups()[1]).toContain('历史 batch #4');
   expect(groups()[1]).toContain('planner #9');
   const text = deepText(specs);
   expect(text).toContain('#1');
@@ -41,40 +41,33 @@ test('拆解队列只读展示：按批次分组、能跳到派生的任务，sc
   await findByText(specs, '查看任务').onclick();
   expect(deepText(dom.node('detail'))).toContain('合并我');
 
-  // 意图面板把 scheduler 显示成「调度 #4 · 排队」；点它可展开这一批 spec 与依赖（scheduler 不在任务树里）
+  // scheduler 已退出产品模型；历史 batch 仍可在 Plan 读模型中审计，但 Intent 面板不再暴露调度任务。
   const intents = dom.node('intents');
-  expect(deepText(intents)).toContain('调度 #4 · 排队');
+  expect(deepText(intents)).not.toContain('调度 #4');
   expect(dom.node('tasks').querySelector('[data-id="4"]')).toBeFalsy();
-  await findByText(intents, '调度 #4 · 排队').onclick();
-  const detail = dom.node('detail');
-  expect(deepText(detail)).toContain('拆解队列');
-  expect(deepText(detail)).toContain('本任务这一批取走的 spec');
-  expect(deepText(detail)).toContain('还没编排的拆解');
-  expect(deepText(detail)).toContain('已被调度取走的拆解');
-  expect(deepText(detail)).toContain('依赖 spec #1');
 
   // 队列被清空后，轮询把它收敛成空态，不残留旧节点
   world.state.specs = [];
   await dom.intervalFor(1500)();
-  expect(deepText(specs)).toContain('规划任务空');
+  expect(deepText(specs)).toContain('Plan 为空');
   expect(specs.querySelectorAll('.spec')).toHaveLength(0);
   expect(specs.querySelectorAll('.spec-batch')).toHaveLength(0);
 });
 
-test('意图面板：planner/scheduler 不进任务树，批准/驳回走 plan.approve|reject', async () => {
+test('Intent 面板：planner 在 control plane，批准后 runtime 直接编译 Plan', async () => {
   const intents = dom.node('intents');
   const text = deepText(intents);
-  // 意图正文 + 意图层状态：规划 #9（planner）与调度 #4（scheduler）都在这里，不在任务树里
+  // Intent 正文与 planner 状态在这里；scheduler 已从运行模型删除。
   expect(text).toContain('demo');
   expect(text).toContain('规划 #9');
   expect(text).toContain('拆解 待编排 1 · 已编排 1');
-  expect(text).toContain('调度 #4 · 排队');
+  expect(text).not.toContain('调度 #4');
   expect(text).toContain('等你批准');
   expect(text).toContain('已批准');
   expect(dom.node('tasks').querySelector('[data-id="9"]')).toBeFalsy();
   expect(dom.node('tasks').querySelector('[data-id="11"]')).toBeFalsy();
 
-  // 批准：闸门放行交给 scheduler，刷新后按钮消失、徽章变成已批准
+  // 批准：闸门放行给 deterministic compiler，刷新后按钮消失、徽章变成已批准
   await findByText(intents, '批准并开发').onclick();
   expect(world.state.actions.at(-1)).toEqual({ method: 'plan.approve', params: { id: 9 } });
   expect(deepText(dom.node('intents'))).not.toContain('批准并开发');
@@ -90,4 +83,27 @@ test('意图面板：planner/scheduler 不进任务树，批准/驳回走 plan.a
   await pending;
   expect(world.state.actions.at(-1)).toEqual({ method: 'plan.reject', params: { id: 9, reason: '别动架构，先加个开关' } });
   expect(findByText(dom.node('intents'), '已驳回')).toBeTruthy();
+});
+
+test('Intent 面板：待验收候选给出结果入口与接受 / 要求修改，两者走 candidate.*', async () => {
+  const intents = dom.node('intents');
+  const text = deepText(intents);
+  // 候选版本与状态画在 Intent 行上，报告入口是新标签打开 verifier 的 HTML
+  expect(text).toContain('候选 v1 · ready');
+  const report = findByText(intents, '打开结果报告');
+  expect(report).toBeTruthy();
+  expect(report.href).toBe('/api/task/12/report');
+  expect(report.target).toBe('_blank');
+  expect(findByText(intents, '接受并合入')).toBeTruthy();
+
+  // 接受：精确 commit 落到目标分支
+  await findByText(intents, '接受并合入').onclick();
+  expect(world.state.actions.at(-1)).toEqual({ method: 'candidate.accept', params: { id: 1 } });
+
+  // 要求修改：弹窗收集反馈后调 candidate.changes，取消或空反馈都不发请求
+  const pending = findByText(dom.node('intents'), '要求修改').onclick();
+  expect(dialogText(dom)).toContain('需要怎样修改');
+  await answerDialog(dom, '提交修改要求', '按钮再明显一点');
+  await pending;
+  expect(world.state.actions.at(-1)).toEqual({ method: 'candidate.changes', params: { id: 1, feedback: '按钮再明显一点' } });
 });

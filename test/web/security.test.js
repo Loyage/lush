@@ -168,3 +168,40 @@ test('web exposes branch archive through the mutation whitelist', async () => {
     expect((await response.json()).error ?? '').not.toContain('method not allowed from Web UI');
   } finally { await f.close(); }
 });
+
+test('web exposes review candidate actions through the mutation whitelist', async () => {
+  const f = await setup(); await repo(f.root);
+  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
+  try {
+    // 白名单外的方法仍被同一句话拒绝，白名单没有变成通用代理。
+    expect((await post('task.spawn', { role: 'worker', goal: 'x' })).status).toBe(400);
+    // 白名单内的候选动作会被转发给 daemon：不存在时是运行时错误，而不是「method not allowed」。
+    for (const [method, params] of [['candidate.prepare', { input: 99 }], ['candidate.accept', { id: 99 }],
+      ['candidate.changes', { id: 99, feedback: 'x' }], ['candidate.reject', { id: 99 }]]) {
+      const body = await (await post(method, params)).json();
+      expect(body.error ?? '').not.toContain('method not allowed from Web UI');
+    }
+    // agent token 在 Web 层直接被拒
+    expect((await post('candidate.accept', { id: 1, _token: 'forged' })).status).toBe(400);
+  } finally { await f.close(); }
+});
+
+test('web serves the core architecture HTML document as a sandboxed page', async () => {
+  const f = await setup(); await repo(f.root);
+  try {
+    const index = await (await fetch(f.url+'/api/docs')).json();
+    const entry = index.docs.find(doc => doc.id === 'docs-core-architecture');
+    expect(entry).toMatchObject({ format: 'html', group: '总览' });
+    const response = await fetch(f.url+'/api/docs/docs-core-architecture/html');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    const csp = response.headers.get('content-security-policy');
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).toContain("frame-ancestors 'self'");
+    const html = await response.text();
+    expect(html).toContain('Intent-first + Candidate-first');
+    // 只有索引里真实存在的 HTML 文档能被当页面取回
+    expect((await fetch(f.url+'/api/docs/readme/html')).status).toBe(404);
+    expect((await fetch(f.url+'/api/docs/../package/html')).status).toBe(404);
+  } finally { await f.close(); }
+});

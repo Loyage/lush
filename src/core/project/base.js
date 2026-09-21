@@ -9,5 +9,6 @@ export class ProjectBase {
     this.provider = provider || (config.provider === 'mock' ? new MockProvider() : new PiProvider(config));
     this.workspaces = new Workspaces(config, store);
     this.running = new Map(); this.stopping = false; this.scheduled = false; this.ancestry = new Map();
+    this.integratingIntents = new Set();
   }
 }

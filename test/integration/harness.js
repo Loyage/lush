@@ -15,14 +15,16 @@ export async function done(client, taskId) {
   throw new Error('task timeout');
 }
 
-/** scheduler 属于意图层，不在 task.list 里：它的 id 与状态跟着意图行下发。 */
-export async function schedulerOf(client, plannerTaskId) {
+/** Wait for deterministic Plan compilation and return work items belonging to the planner's Intent. */
+export async function workOf(client, plannerTaskId, minimum = 1) {
+  const planner = await client.request('task.inspect', { id: plannerTaskId });
   for (let i=0;i<200;i++) {
-    const row = (await client.request('input.list')).find(intent => intent.task_id === plannerTaskId);
-    if (row?.scheduler_id) return { id: row.scheduler_id, status: row.scheduler_status };
+    const tasks = await client.request('task.list');
+    const work = tasks.filter(task => task.input_id === planner.input_id && task.role !== 'verifier');
+    if (work.length >= minimum) return work;
     await Bun.sleep(30);
   }
-  return null;
+  return [];
 }
 
 /* ---------- Web 是后台服务：命令立刻返回，进程的生死只能靠端口与 pid 判断 ---------- */

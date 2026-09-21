@@ -63,6 +63,12 @@ export function makeWorld() {
     graphFetches: 0,
     drafts: [],
     commits: [],
+    // 一条已冻结、等待验收的 Review Candidate（挂到 Intent #2 上）。
+    candidates: [
+      { id: 1, input_id: 2, version: 1, branch: 'lush/demo/input-2', commit_hash: 'c0ffee123456', baseline_branch: 'main',
+        baseline_commit: 'beef00112233', status: 'ready', summary: '已批准的那条', feedback: null, report_task_id: 12,
+        has_report: true, created_at: iso(NOW - 2000), updated_at: iso(NOW - 1000) },
+    ],
     // 意图层的两条输入：一条的 planner 申请了批准（specs 分两批），一条已经批准。
     intents: [
       { id: 1, content: 'demo', flow: 'develop', task_id: 9, status: 'awaiting', plan_gate: 'proposed', plan_notice_id: 7,
@@ -70,6 +76,7 @@ export function makeWorld() {
         draft_count: 0, created_at: iso(NOW - 9000), planner_updated_at: iso(NOW - 1000) },
       { id: 2, content: '已批准的那条', flow: 'develop', task_id: 11, status: 'completed', plan_gate: 'approved', plan_notice_id: null,
         specs_pending: 0, specs_planned: 2, specs_dropped: 1, scheduler_id: null, scheduler_status: null, work_tasks: 3,
+        work_active: 0, work_failed: 0, candidate_id: 1, candidate_version: 1, candidate_status: 'ready', candidate_report_task_id: 12,
         draft_count: 0, created_at: iso(NOW - 9500), planner_updated_at: iso(NOW - 2000) },
     ],
     // 左侧拆解队列的两条：一条还没被 scheduler 取走，一条已被 scheduler #4 取走并排成了任务 #2。
@@ -116,6 +123,7 @@ export function makeWorld() {
       ] },
     ] },
     tasks: [task1, task2, task3], inputs: state.intents, drafts: state.drafts, notices: state.notices, specs: state.specs,
+    candidates: state.candidates,
   });
   const detail = id => {
     if (id === 1) return { ...task1, branch: 'lush/1-x', workspace: '/tmp/wt/1', head_commit: 'abc1234', target_branch: 'main',

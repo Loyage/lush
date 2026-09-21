@@ -42,7 +42,7 @@ bun run web 4318 --project /absolute/path/to/my-project
 
 公网部署仍应在前面配置 HTTPS 反向代理，否则登录密码会在网络中明文传输。跨站请求判定以浏览器自己填的 `Sec-Fetch-Site` 为准（网页无法伪造它），`Origin` 只在旧浏览器没有这个头时作为回退；内嵌 webview、沙箱页面与部分隐私扩展会报 `Origin: null` 却依然是同源，这类客户端能正常登录。删除 `.lush/web.json` 即恢复仅本机、无需登录的模式。
 
-Web UI（默认 `http://127.0.0.1:4318`）是分支优先的项目工作台：左栏统一为导航，不再塞任务列表；分支图是首要工作入口，项目概览、待你决定、行动任务、历史输入、规划队列与文档分别在右侧独立成页。右侧顶部始终保留返回上一页的入口，页面地址分别使用 `#graph`、`#notices`、`#tasks`、`#intents`、`#specs`、`#task-ID`、`#docs` / `#doc-<id>`，浏览器前进 / 后退可以在列表、分支图和任务详情之间往返。概览与分支图复用同一份读模型，指标按分支计（分支总数 / 正在工作 / 待收口 / 需要你决定）；分支图展示父子谱系、工作态、待决问题以及 fast-forward / 跟上父分支 / 子侧解分歧 / 归档动作，任务只作分支下的工作明细。任务详情以目标为标题，结果与执行过程优先。输入框常驻内容区底部；窄屏用「导航菜单」展开页面入口。右上角可切换**深色 / 浅色主题**，偏好保存在当前浏览器，首次访问跟随系统；过渡动画尊重系统「减少动态效果」。文档读的是随这份代码发布的 `docs/` 与 `README.md`（不随被开发的项目变），文档之间的相对链接可以直接点开；刷新不丢已输入的答复。
+Web UI（默认 `http://127.0.0.1:4318`）是 **Intent 优先**的项目工作台：左栏是导航，首屏是 **Intent 工作台**（目标、Plan 状态、待验收候选版本与结果入口、真正需要你决定的事）；分支图、待你决定、行动任务、Intent 记录、结构化 Plan 与文档分别在右侧独立成页。右侧顶部始终保留返回上一页的入口，页面地址使用 `#graph`、`#notices`、`#tasks`、`#intents`、`#specs`、`#task-ID`、`#docs` / `#doc-<id>`，浏览器前进 / 后退可以在各视图与任务详情之间往返。首页顶部指标按 Intent 计（Intent / 并行执行 / 等待验收 / 需要你决定），并用同一份 `graph.get` 读模型把 Git 交付诊断折叠在成果主线之后；候选行上的「打开结果」直接开 verifier 的 HTML 报告，验收动作用 `candidate.accept` / `candidate.changes`。任务详情以目标为标题，结果与执行过程优先。输入框常驻内容区底部；窄屏用「导航菜单」展开页面入口。右上角可切换**深色 / 浅色主题**，偏好保存在当前浏览器，首次访问跟随系统；过渡动画尊重系统「减少动态效果」。文档读的是随这份代码发布的 `docs/` 与 `README.md`（不随被开发的项目变），Markdown 相对链接可以直接点开，核心架构是一篇 standalone HTML（sandbox iframe）；刷新不丢已输入的答复。
 
 若 `bin/` 已在 PATH，在目标项目内可以直接使用：
 
@@ -78,9 +78,24 @@ lush daemon stop
 
 未判定（`flow` 为空）的输入按 `develop` 处理。用户随时可以改判：`lush input flow [TASK_ID] develop|explain`（agent 省略 TASK_ID 时判定自己的输入，Web 任务详情里也有「标记为开发/了解」），`lush input list` 会显示当前判定。改判只影响之后的派工，不会追溯取消已经建立的 worker/coordinator 子任务。
 
+### 验收候选：Review Candidate
+
+由 Plan 编译出的工作完成后，Integration Service 自动在私有 Intent 集成分支内叶子优先聚合（分歧时自动建 child-side merger），**不动用户目标分支**。收敛后 runtime 冻结 integration commit 与 target baseline commit，创建一版 Review Candidate，并派只读 verifier 在两边跑同一场景生成自包含 HTML 报告。
+
+```bash
+lush candidate list --input 1
+lush candidate prepare 1 --summary '一句话说明这版做了什么'
+lush candidate inspect 2
+lush candidate accept 2                    # 只落地你看过的那个 commit
+lush candidate changes 2 '按钮再明显一点'   # 同一 Intent 下启动增量规划，产出 v2
+lush candidate reject 2 --reason '方向不对'
+```
+
+接受前 runtime 会重新校验集成分支 tip 仍等于被审阅 commit，不再相等就拒绝并要求生成新版本；不会被 branch 漂移夹带未审阅内容。`candidate.*` 全部是用户专属命令。
+
 ### 检验：用最直观的方式看这次改动跑起来是什么样
 
-任务完成后，点 Web 详情里的「检验」（或 `lush task verify ID`）会派一个**只读 verifier**，它不是复查代码，而是想办法让用户直接看到结果：
+单 worker 也可以单独检验（`lush task verify ID`，兼容入口）：派一个**只读 verifier**，它不是复查代码，而是想办法让用户直接看到结果：
 
 - 读被检验任务的 goal 与 diff，自己判断「怎样才能最直观地说明这次改动成立」——跑测试、跑同一个命令对比输出、起服务看界面，方式由它按任务意图决定；可重复的命令与真实输出优先于主观描述。
 - 在任务的 worktree 里跑一遍，再在 daemon 临时拉出的**目标分支对照检出**（`git worktree add --detach` 到 `.lush/worktrees/<id>-verify-N-base`）里跑同一场景，把两边并排呈现；基准本来就失败，就说明那是既有问题。
@@ -88,21 +103,22 @@ lush daemon stop
 
 verifier 与被检验任务是两个 task（worker 已经终态，不能再挂活动子任务），用 `tasks.verifies_task_id` 关联，界面上挂在被检验任务下面。同一任务同时只允许一次检验；`task.verify` 是用户专属命令，agent 不能用。对照基线是派生状态，检验一结算（成功或失败）就回收，报告保留在磁盘上；`task clear` 不会删它。
 
-### 输入分支：稳定上下文与聚合点
+### Intent 分支：稳定上下文与聚合点
 
-提交输入时可用 `--branch NAME` 选择父分支（省略时用当前分支）。runtime 创建 `lush/<项目哈希>/input-<id>` 与 `.lush/worktrees/input-<id>`；planner 就在这里解析。普通 worker 是它的直接子分支，完成后先合回输入分支；所有子分支收拢后，输入分支再合回最初父分支。字段名为兼容旧库仍叫 `anchor_*`，但分支已经是可推进的聚合分支。
+提交输入时可用 `--branch NAME` 选择父分支（省略时用当前分支）。runtime 创建 `lush/<项目哈希>/input-<id>` 与 `.lush/worktrees/input-<id>`；planner 就在这里解析。Plan 编译出的普通 worker 以它为直接父分支，完成后由 Integration Service 自动逐层聚合；全部收拢后才是 Review Candidate 可以出现的时刻。字段名为兼容旧库仍叫 `anchor_*`，但分支已经是可推进的聚合分支。
 
 ### 输入缓存与任务依赖
 
 输入可以先攒着：`lush draft add`（Web 输入框里回车）只写缓存、不规划；`lush draft edit ID '内容'`（Web 里点草稿正文就地编辑）改动某一条；`lush draft commit [ID...]`（Web 的「提交并规划」）把选中的草稿交给一个 planner——省略 ID 即提交整个缓存，给了 ID 就只提交这几条、其余继续留在缓存，由 planner 拆成多个任务、给互有先后的任务建依赖边，然后才创建任务 worktree 开工。缓存存库（`drafts` 表），换浏览器或重启 daemon 都不丢；提交后每条草稿留着 `input_id` 作为审计链（已提交的草稿不可改也不可再提交）。
 
-依赖边由 planner 在派工时声明（`task spawn --depends-on ID[:code|order]`），daemon 只做结构校验：
+依赖边在 Plan 编译时由 runtime 从 planner 的 spec 依赖建立（`task spawn --depends-on ID[:code|order]` 仍是兼容入口），daemon 只做结构校验：
 
 - `code`（默认）：子任务从上游任务分支拉出，并只合回这个直接父分支；从最深下游开始逐层向输入分支收敛。
 - `order`：只等上游结束，代码仍从这条输入的锚点（提交那一刻冻结的 commit）开始。适合等一个调研结论。
 - 一个任务最多一条 `code` 依赖；依赖不能指向自己的祖先任务——祖先在等子孙结算，双方会互等而死。
 - 依赖未满足的任务保持 `queued`，界面显示「等 #ID」；上游结算时由调度器唤醒，不占 agent 槽。
-- 批与批之间不做语义冲突检测（重复劳动、改同一个文件）：那是 planner 读任务树自己判断的事，拿不准就问用户。
+- 一批 Plan 内没有依赖边的 spec 会同时开工；不同 Intent 的 Plan 也互不等待。
+- 语义冲突（重复劳动、改同一个文件）不做自动检测：那是 planner 读任务树自己判断的事，拿不准就问用户。
 
 默认从 cwd 向上找到 `.lush/project.json` 或 `.git`，以那个目录为项目根。`--project PATH` / `LUSH_PROJECT` 可以显式绑定。目录会 canonicalize，符号链接不会创建第二个 daemon。不同 Git worktree 可作为不同项目独立运行；agent 在任务 worktree 内通过注入的 `LUSH_PROJECT` 始终连接所属项目。
 
@@ -114,37 +130,31 @@ verifier 与被检验任务是两个 task（worker 已经终态，不能再挂�
 - `LUSH_PROVIDER=mock bun run start --project ...` 可离线演示调度。Mock 只派调研任务，不调用模型、不修改代码。
 - 改环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。Web 是另一个进程：改完 `src/ui/web/` 用 `bun run web-restart`（它先停掉端口上那个后台 Web，再按当前代码起一个新的）；`daemon-restart` 不会动它，而再跑一次 `bun run web` 只会如实报告「已在运行」。
 
-## 新模型
+## 新模型：Intent-first + Candidate-first，Branch-backed
 
-概念分三层：**意图（intent）→ 拆解（spec）→ 任务（task）**。意图是用户原话加它的 planner 分析，planner 与 scheduler 都属于意图层、**不进任务树**（`task list` / `tree` / `timeline` 只画开发工作）；它们只在 `lush intent list` 与 Web 的「意图 · 待提交缓存」里出现。
+产品主线是 **Intent → Plan → Work DAG → Run → Artifact → Review Candidate**。用户围绕目标和可验收结果行动；Branch / worktree 继续承担代码隔离、集成与恢复，但退回 Git 基础设施层。完整流程图、实体边界和设计原则见[核心架构 HTML](docs/core-architecture.html)。
 
 ```text
-Project / 一个目录 / 一个 daemon
-├── Intent #1（逐字保存用户原话）           ← 意图层（不进任务树）
-│   ├── planner Task   拆解分析 → spec 队列
-│   └── scheduler Task 把这一轮 spec 编排成任务
-├── Intent #2 → 另一个 planner（无需等 #1 完成）
-└── 任务树（只有开发工作）
-    ├── coordinator Task
-    │   ├── worker Task → 独立分支 + worktree
-    │   ├── worker Task → 独立分支 + worktree
-    │   └── research Task
-    └── Notices（某个 task 等你做决定）
+Intent（逐字保存用户目标）
+  └─ planner Run → 结构化 Plan/spec
+       └─ deterministic Plan Compiler（代码，不调用模型）
+            ├─ WorkItem / worker Run → commit artifact
+            ├─ WorkItem / research Run → finding artifact
+            └─ WorkItem / verifier Run → evidence artifact
+                 └─ Intent integration branch
+                      └─ Review Candidate @ exact commit
+                           └─ 用户接受 / 要求修改 / 放弃
 ```
 
-planner 不直接派活：它把每条可独立完成的工作写成拆解队列条目（`lush spec add`）。一个 planner 的**一轮拆解**（它这次 invocation 里写下的全部 spec）在它停下后作为**同一批**交给同一个 scheduler：批内没有依赖边的 spec 同时开工，批次之间串行。planner 觉得这次改动影响面大、与现状冲突、或没把握读准意图时，可以 `lush plan propose` 请用户先拍板——**批准**（`lush plan approve ID` / Web 卡片上的「批准并开发」）才交给 scheduler；**驳回**（`lush plan reject ID '理由'`）会让这一轮 spec 作废、理由送回 planner 并唤醒它重拆。默认不问，直接进入编排。
+planner 一轮写完 spec 后，runtime 在事务中直接编译根 WorkItem 与依赖边：不再创建 scheduler agent，没有全项目串行 batch，也不为机械 ID 翻译消耗模型调用。高风险计划仍可用 `plan propose` 建审批闸门；批准后由 runtime 编译，驳回则让 planner 带反馈重拆。
 
-**Task 自己持有目标、角色、父任务、状态、结果、消息与工作区。**
+每次 provider invocation 都落成独立 `agent_runs` 行；结果同时形成结构化 Artifact。Task 暂时作为兼容的 WorkItem 投影，重试与唤醒不会覆盖 Run 历史。
 
-- `planner`：快速理解意图，参考项目中已有工作，写拆解队列；不实施开发、不直接建任务。
-- `scheduler`：把一批 spec 编排成真实任务（建依赖、建 worktree 基线），自己也不写代码。
-- `coordinator`：拆分多级任务、收集结果、调整计划。
-- `worker`：在独立 worktree 中实现、测试、提交。
-- `research`：只读研究和审查。
+- `LUSH_CONTROL_CONCURRENCY`（默认 2）：planner 等控制面调用；长 worker 不会饿死新输入规划。
+- `LUSH_CONCURRENCY`（默认 4）：worker / research / verifier 等执行面调用。
+- 等依赖、等子任务、等用户时不占槽。
 
-默认并发上限就是一个池：`LUSH_CONCURRENCY`（默认 4）个 agent，planner / scheduler / worker 一视同仁。队列中的任务不占槽；`waiting` / `awaiting` 也不占槽；被依赖挡住的 `queued` 任务同样不占槽。多个输入的规划互不阻塞（各自一个 planner），越界或非法的依赖在**服务端**被拒绝。
-
-子任务完成、父子消息、用户补充、notice 答复都会进入持久化收件箱，**在 invocation 之间交给 agent**，不硬打断正在执行的模型调用。消息只能沿直接父子边传递；用户可以给任一活动任务追加要求。
+开发工作完成后，Integration Service 自动把 Plan 编译出的 worker 分支从叶子向 Intent 私有集成分支聚合；父子分歧时自动创建子侧 merger。目标分支不会自动变化。聚合完成后系统冻结 integration commit 与 baseline commit，创建 Review Candidate 并生成前后对照 HTML 报告。用户最终接受的是这个精确 commit；若 branch 已移动，旧 Candidate 不能复用。
 
 ## Worktree 与合并
 
@@ -153,7 +163,7 @@ planner 不直接派活：它把每条可独立完成的工作写成拆解队列
 - **分支谱系**在 `git worktree add -b` 时显式记录。输入分支 parent 是用户指定分支，普通任务 parent 是输入分支，`code` 下游 parent 是上游任务分支，sync merger parent 是待同步 child。merge 永不改写谱系；已有但未登记的分支只显示 `[?]`，不能据此执行合并。
 - agent 最终输出作为 result。worker 必须提交改动、保持工作区干净；未提交就结束会失败，文件原样保留供检查和重试。
 - 完成与合并是两个状态：`completed + pending` 表示已产出提交，**尚未进入主工作树**。
-- **分支图是主要交付界面**。每条 fork 连线显示 child 相对 parent 的 ahead/behind，并区分「可 fast-forward」「已分歧」「已进入父分支」「ref 缺失」。一条分支还有未收拢子分支时不能向上落地。
+- **Intent 工作台与 Review Candidate 是主要交付界面**；分支图保留为 Git 诊断界面。每条 fork 连线仍显示 ahead/behind、分歧、缺失与恢复动作。
 - `branch merge CHILD`（图上的「合入父分支」）只把 child fast-forward 到 recorded direct parent；父分支未检出时用 compare-and-swap 更新 ref，已检出时要求 worktree 干净并同步 index/工作目录。
 - 父子已分歧时用 `branch sync CHILD`。runtime 从 child tip 创建 merger 子分支，让 agent 合入冻结的 parent commit、在子侧解决冲突并测试；之后先 FF 回 child，再 FF 到 parent。父分支上永不直接 `--no-ff`，最终落地树就是测试过的树。
 - 不再要某条分支的代码时用 `branch archive BRANCH [--discard]`（图上的「归档」）。它删掉该分支的 worktree 与本地 ref，但保留分支记录（`branches.status` 标 `archived`）、任务行、消息、事件，以及不随 worktree 消失的 pi 会话文件（`.lush/sessions/`）。归档明知可能未合并也允许删，因此是用户专属的显式动作；默认要求 worktree 干净，只有 `--discard` 才会连着未提交改动一起丢。与「证明已进入目标分支才删」的 `task cleanup` 不是一回事。
@@ -168,16 +178,20 @@ bun run help
 bun run doctor
 bun run start
 bun run say '你的原话' --branch main  # 从指定父分支创建输入分支；省略 --branch 使用当前分支
-bun run intents             # 意图列表：每条输入的 planner 拆解 / scheduler 编排进度
+bun run intents             # Intent、Plan 编译与候选验收进度
 bun run propose '标题' --body '我打算这样拆'   # planner 专用：这轮拆解请你先拍板
 bun run approve 40          # 批准（ID 可以是 planner task id 或那条 notice id）
 bun run reject 40 '别动架构'  # 驳回：本轮 spec 作废，理由送回 planner 重拆
-bun run specs               # 拆解队列：等 scheduler 编排 / 已编排 / 已丢弃
+bun run specs               # 结构化 Plan：待编译 / 已编译 / 已丢弃
 bun run tasks               # 默认前 200 条，只含开发任务（意图层见 intents）
 bun run tree
 bun run inspect 3
 bun run transcript 3        # 只看不写：agent 的思考、工具调用与输出
 bun run usage 3             # 同一个 agent 的模型、上下文占用与累计花费
+bun run lush candidate list # 查看固定 commit 的验收候选
+bun run lush candidate prepare 1   # 为 Intent #1 生成候选与前后对照报告
+bun run lush candidate accept 2    # 接受 Candidate #2 并合入目标分支
+bun run lush candidate changes 2 '按钮再明显一点'  # 反馈进入同一 Intent 的增量规划
 bun run message 3 '补充要求'
 bun run notices
 bun run answer 1 '我的选择'
@@ -209,7 +223,7 @@ bun run stop
 
 ```text
 project.json       不可跨目录复用的项目绑定
-project.db         SQLite：inputs / tasks / messages / notices / events / branches（task.clear 会清空任务相关的表，并把 task id / input id 高水位记在 meta；branches 是历史事实，不被清空）
+project.db         SQLite：inputs / drafts / tasks / task_specs / task_deps / agent_runs / artifacts / review_candidates / messages / notices / events / branches（task.clear 会清空任务相关的表，并把 task id / input id 高水位记在 meta；branches 是历史事实，不被清空）
 sessions/          每个 task 的独立 pi session 与当前输入文件（thinking / 工具调用的原文）
 worktrees/         worker 工作区、每条输入的聚合分支检出（input-<id>），以及检验期间临时对照检出
 verify/            每个 verifier 的自包含 HTML 检验报告
@@ -221,7 +235,7 @@ socket 放在用户私有临时目录，名字由 canonical 项目路径决定�
 
 任务状态：`queued → running → waiting / awaiting / completed / failed / cancelled`。等待收到新消息后重新排队。终态任务不会保留活动子任务。取消或停止会终止 agent 进程组；重启对未知副作用的运行中任务标记失败，不自动重放；未开始的排队任务、待用户答复和记录保留。重试失败子任务要求父任务仍活动，否则重试父任务或提交新输入。
 
-角色有 planner / coordinator / worker / research / verifier。verifier 是用户点「检验」时才创建的只读任务，它**不是**被检验任务的子任务（终态任务不能再挂活动子任务），而是独立根任务，用 `tasks.verifies_task_id` 指向被检验的 worker；父子不变的不变量不被破坏，界面上依旧挂在被检验任务下面。
+角色有 planner / coordinator / worker / research / verifier / merger。planner 属于 control lane，只写结构化 Plan；没有 scheduler 角色（旧数据里的 `scheduler` 行仍可读）。verifier 有两条来源：用户点「检验」时的单 worker 对照（用 `tasks.verifies_task_id` 指向被检验的 worker），以及自动验收流程为 Review Candidate 创建的对照（用 `tasks.review_candidate_id`）。两者都是独立根任务，不是被检验任务的子任务（终态任务不能再挂活动子任务），父子不变的不变量不被破坏，界面上依旧挂在被检验对象下面。
 
 **Task 与 agent 是终身一对一的身份。** 任务一创建就拥有一个 agent（`<role>#<task-id>`，例如 `worker#7`），跨唤醒不换身份：pi session、累计唤醒次数和上次动手时间都记在这个 agent 上，`task inspect` 与 Web 详情直接展示。但它的 RPC 凭证是每次唤醒重新签发的：daemon 只存 SHA-256，且只在该次 invocation 运行期间可解析，invocation 结束即作废，重启后一律清空。因此 1:1 指的是身份，不是进程或凭证——等待子任务或用户时 agent 依然存在，但不占执行槽、也没有活着的调用。
 
@@ -235,7 +249,8 @@ pi 默认禁用个人 extensions / skills / prompt templates / themes，保留�
 |---|---|---|
 | `LUSH_PROJECT` | 从 cwd 发现 | 显式项目目录 |
 | `LUSH_PROVIDER` | `pi` | `pi` / `mock` |
-| `LUSH_CONCURRENCY` | `4` | 执行 agent 上限，另保留一个规划槽 |
+| `LUSH_CONCURRENCY` | `4` | worker / research / verifier 执行槽 |
+| `LUSH_CONTROL_CONCURRENCY` | `2` | planner 等控制面槽，不被执行面占用 |
 | `LUSH_CALL_TIMEOUT` | `900` | 单次模型调用超时秒数 |
 | `LUSH_TASK_CALLS` | `24` | 单 task invocation 总上限 |
 | `LUSH_MAX_DEPTH` | `8` | 任务树最大层数 |
@@ -252,4 +267,4 @@ bun run test
 
 测试覆盖纯任务树、并发额度、独立规划槽、消息与 notice 唤醒、取消、恢复、任务权限、真实 Git worktree/merge/冲突、检验的对照基线生命周期与报告路由、真实 daemon 的项目隔离、pi 子进程协议与本地 Web 边界。pi 协议测试使用可控的假 pi 可执行文件，不调用付费模型。
 
-[架构](docs/engineering/architecture.md) · [命令与 RPC](docs/reference/api.md) · [文档](docs/README.md)
+[核心架构与完整流程图](docs/core-architecture.html) · [工程架构](docs/engineering/architecture.md) · [命令与 RPC](docs/reference/api.md) · [文档](docs/README.md)

@@ -6,6 +6,8 @@
 
 **输入分支**（`lush/<项目哈希>/input-<id>` 与它的检出）没有 task owner。未推进时可直接回收；若已聚合子分支，只有在 worktree 干净且当前 tip 已进入 recorded parent 后才 compare-and-delete。否则目录与分支一起保留并说明原因。只有 `task clear` 调 `reclaimAnchors`；字段/返回名继续用 anchor 以兼容旧库。
 
+Plan 编译出的工作由 Integration Service 在私有 Intent 分支内自动叶子优先聚合；这不会改变 cleanup 的安全门——回收仍然要求 tip 已进入直接父分支，只是这种工作通常会自然满足该条件（因为它已经 auto-integrate 进了 Intent 分支）。目标分支仍未前进，所以 `Candidate accepted` 之前的输入分支依然会被 cleanup 保留。
+
 分支真的被删掉时，谱系记录只把 `status` 标成 `deleted`，**不删行**：子分支的 parent 指针必须继续有效，所以 `[deleted]` 的节点仍出现在 `lush branch tree` 里，它的子分支照旧挂在下面。外部（用户自己 `git branch -D`）删掉的分支由读模型按 ref 现状显示，不写库。详见 [分支谱系](branch-genealogy.md)。
 
 ## 分支归档

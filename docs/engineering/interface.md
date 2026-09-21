@@ -1,13 +1,34 @@
 # 界面与传输
 
-本文件管 CLI 分页、Web 轮询与 CSP、RPC 信任边界与 `system.status` 字段。
+## 信息架构
 
-CLI 的 task list / history 支持 cursor 分页；task inspect 返回完整任务结果和有界的相关记录。Web 复用 UIClient，轮询快照，采用 textContent 呈现模型输出，不插入 HTML；输入表单和 notice 答复在轮询时保留。任务在 `completed` / `failed` 且有自己的分支时会自动落一条 `kind='info'` 的结算提醒；它固定写 `status='sent'`，因此不进 `system.status.notices` 与任何「待决」计数，也不阻塞或唤醒任务。
+默认 Web 首页是 **Intent 工作台**：
 
-左栏 workspace-nav 的「文档」在右栏打开随这份代码发布的文档（架构、使用流程、接口参考），与所开发的项目无关。它与「项目概览」「分支图」共用同一个右栏和同一套排他规则：路由是 `#graph` / `#docs` / `#doc-<id>`，视图自己把 `#detail[data-view]` 写对（左栏高亮与进场动画都跟着它走），轮询只画当前开着的那个（`ui.graphOpen` / `ui.docsOpen`）。默认右栏「项目概览」（`#detail[data-view=overview]`）以分支为主线：不新增 RPC，复用「分支图」同一份 `graph.get` 读模型（`ui.lastGraph`），按与分支图相同的陈旧规则取图（快照指纹变且距上次 ≥3 秒，或 ≥ 10 秒），先用快照画占位、后台拿到新图就地重画；顶部指标按分支计（分支总数 / 正在工作 / 待收口 / 需要你决定），列出待收口的分支（可合入父分支 / 分歧 / 落后 / 有未收拢子分支，入口跳分支图）、正在工作的分支与 `kind='info'` 的纯提醒（不进待决口径），任务只作分支下的明细；「需要你的决定」仍是 `status='open'` 且 `kind != 'plan'`，运行时与维护信息照旧折叠在分支主线之后。交付队列与任务状态分布不再出现在概览（`render-ladder.js` / `merge-select.js` 仍可用，但没有常驻视图）。正文由 `/api/docs` 取回后用同一套 Markdown 渲染器画成 DOM，文档之间的相对链接解析成站内 hash 后走同一个路由。「分支图」（`#graph`）调 `/api/graph`，覆盖所有本地分支：`branches` 表记录 ∪ `refs/heads` 现状，只被父指针提到的名字补占位节点；分支按 fork 谱系嵌套，任务挂在自己的分支下，意图层的 planner / scheduler 也作为任务节点由 `graph.get` 派生出输入锚点分支后挂在同一条分支下；父子关系靠 CSS 的竖线与拐角画出来（表头与车道连成一条线，最后一个子分支用 `└` 收尾，不重复写父分支名），每个分支表头的 ▼ / ▶ 收起整棵子树（自己的任务 + 全部子分支），收起的分支名存进 `localStorage`，轮询重画不丢。分支面板与连接线的颜色来自该分支与父分支的 commit 关系（`edgeRelation` 的 key 写在 `[data-relation]` 上）：领先 = 绿（可 fast-forward 合入）、一致 = 灰、落后 = 蓝、分歧 = 琥珀、缺失 = 红、「父分支已归档」= 中性灰（同一致）；表头同时给出这个关系能做的动作（合入父分支 / 让子分支跟上父分支 / 在子分支解决分歧），当前不能做的也画出来但禁用并在 `title` 里说明原因。归档的分支不再画在分支树上（记录仍在 `branch show` / 归档事件 / 任务详情里；归档会把整棵子树一起收掉）。它还在的后代接到最近的可见祖先上，并报中性的「父分支已归档」——归档删掉 ref 是用户自己按的动作，不是故障，所以不算「未合进父分支」；只有谁都没归档、ref 真不见了才报红色的「分支缺失」。带待决 notice 的任务行直接在图上摊开这件事的标题与正文并就地处理（`question` 回复 / 忽略、`plan` 批准 / 驳回，与左侧「待定事项」和意图面板同一批 RPC），整行带琥珀强调；快照指纹把待决 notice 也算进来，所以新 notice 出现或答复后会在同一条陈旧规则内重拉重画。打开期间不每个 1.5s 轮询都打 git：快照指纹变了至少隔 3 秒才重拉，指纹不覆盖 UI 外新建的分支，因此另有约 10s 的最长陈旧时间兜底，新分支不手点刷新也会出现。
+1. Intent 总数与正在推进的目标；
+2. 等待验收的 Review Candidate；
+3. Intent 原文、Plan 状态、最新候选版本与 HTML 结果入口；
+4. 真正需要用户处理的 Decision / Notice；
+5. 运行中的 agent 与时间轴；
+6. 折叠的 Git 交付诊断。
 
-页面的确认与输入一律走应用内弹窗（`dialog.js` 画进 `#modal`），不用原生 `confirm` / `prompt`：原生弹窗不属于页面，浏览器可以静默吃掉它（用户勾过「阻止此页面创建更多对话框」、沙箱 iframe、内嵌 webview），那时 `confirm()` 不显示任何东西直接返回 `false`，按钮看起来就是「点了没反应」。弹窗独立于 `#detail`，轮询重画视图不会把它冲掉；同一时刻只留一个弹窗，Esc / 点背景 / 取消＝取消，Enter 与输入框回车＝确认，关闭后焦点还给打开它的那个按钮。
+分支图继续提供完整 fork 谱系、ahead/behind、分歧、缺失、worktree、同步与归档动作，但它是高级 Git 诊断页，不是产品主线。任务树回答执行关系；Candidate 页面和报告回答“结果是不是用户想要的”。
 
-Web 只监听 127.0.0.1，校验 Host / Origin / Sec-Fetch-Site，修改操作要求 JSON；HTTP 只能访问显式允许的方法，不能代理任意 RPC。Web 与 daemon 是两个独立进程，谁都不跟着对方换版本：`bun run daemon-restart` 只管 daemon，`bun run web-restart` 管 Web（停掉端口上那个后台 Web 再按当前代码起一个新的，只认命令行确实是 Lush Web 的进程）。`bun run web` 后台起进程并要求它真的占住端口才返回；Web 的日志与自我描述（pid / 端口 / 代码指纹）在 `.lush/web.log` 与 `.lush/web.state.json`，`web-status` 据此报告跑的是不是这份代码。重启 Web 会清空内存里的登录会话，浏览器需要重新登录。检验报告在 `/api/task/<id>/report` 以独立文档返回，只允许内联样式/脚本与 `data:` 图片（`default-src 'none'`），因此报告里的脚本不能回调本地 API；非 verifier 任务或不存在的报告不会被当文件读出去。RPC 以本机用户为可信边界；agent token 只约束正常的 agent 调用，不是本机攻击者隔离。`system.status` 报告运行中的 agent 列表与 `agents_total` / `agents_idle`（每个活动 task 一个 agent，含已 park 的），`task.inspect` 报告该 agent 的 id、唤醒次数与上次动手时间。
+## 文档
 
-相关：[数据流](data-flow.md)。
+左栏「文档」读取随代码发布的 `README.md`、`docs/**/*.md` 与受控的 standalone HTML。核心架构文档 `docs/core-architecture.html` 通过 sandbox iframe 与严格 CSP 展示；请求 id 只能命中扫描索引，不拼接任意文件路径。
+
+## Web 与 daemon
+
+Web 与 daemon 是两个独立进程。修改 daemon 代码后运行 `bun run daemon-restart`；修改 `src/ui/web/` 后运行 `bun run web-restart`。Web 默认只监听 `127.0.0.1`；公网模式使用 `.lush/web.json`、HttpOnly Cookie、Host / Origin / Sec-Fetch 校验，并应置于 HTTPS 反向代理后。
+
+## RPC 边界
+
+- UI 不直接读 SQLite 或执行 Git；
+- RPC registry 校验方法、参数与 USER_ONLY / AGENT_ONLY；
+- agent token 只在当前 invocation 有效；
+- `candidate.prepare/verify/accept/changes/reject` 都是 USER_ONLY；
+- Candidate HTML 报告与核心 HTML 文档使用独立收紧的 CSP。
+
+## 轮询与读模型
+
+`/api/snapshot` 返回 status、timeline、Intent、Plan、Work tasks、Notice 与 Candidate。`graph.get` 会运行只读 Git，因此按指纹与最长陈旧时间单独刷新，不进入每个 1.5 秒快照。用户正在输入反馈、Decision 或编辑表单时，轮询不得冲掉内容和焦点。

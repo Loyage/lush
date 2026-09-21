@@ -98,19 +98,30 @@ export const methods = {
     // verifier 不修改代码：它站在被检验的 worktree 里演示，另拉一个目标分支的只读对照。
     if (task.role === 'verifier') return this.exclusive(async () => {
       task = this.store.task(task.id);
-      const target = this.store.task(task.verifies_task_id);
-      check(target.workspace && fs.existsSync(target.workspace), `verified task #${target.id} has no worktree to compare`);
-      if (task.baseline_workspace && fs.existsSync(task.baseline_workspace)) return target.workspace;
+      const candidate = task.review_candidate_id ? this.store.candidate(task.review_candidate_id) : null;
+      const target = candidate ? null : this.store.task(task.verifies_task_id);
+      const candidateInput = candidate ? this.store.get('SELECT anchor_workspace FROM inputs WHERE id=?', candidate.input_id) : null;
+      const workspace = candidate ? candidateInput?.anchor_workspace : target.workspace;
+      check(workspace && fs.existsSync(workspace), candidate
+        ? `candidate #${candidate.id} has no integration worktree to compare`
+        : `verified task #${target.id} has no worktree to compare`);
+      if (candidate) {
+        const actual = await this.git(workspace, 'rev-parse', 'HEAD');
+        check(actual === candidate.commit_hash,
+          `candidate #${candidate.id} pins ${candidate.commit_hash.slice(0,12)}, but its worktree moved; prepare a new candidate`);
+      }
+      if (task.baseline_workspace && fs.existsSync(task.baseline_workspace)) return workspace;
       const project = this.config.project;
-      // 对照取目标分支「当前」的顶端：合并时校验的也是同一个分支，所以对比的是它现在会得到什么。
-      const commit = await this.git(project, 'rev-parse', target.target_branch);
+      // Candidate verification pins both sides; legacy task verification compares the target branch's current tip.
+      const targetBranch = candidate ? candidate.baseline_branch : target.target_branch;
+      const commit = candidate ? candidate.baseline_commit : await this.git(project, 'rev-parse', targetBranch);
       const dir = path.join(this.config.home, 'worktrees', `${taskLabel(task.id, task.name)}-base`);
       fs.mkdirSync(path.dirname(dir), { recursive: true });
-      // 先落库再动 git：崩溃后重试看得到自己曾经指向哪个目录。
       this.store.update(task.id, { baseline_workspace: dir, baseline_commit: commit });
       await this.git(project, 'worktree', 'add', '--detach', dir, commit);
-      this.store.event(task.id, 'baseline.created', { workspace: dir, commit, target_branch: target.target_branch });
-      return target.workspace;
+      this.store.event(task.id, 'baseline.created', { workspace: dir, commit, target_branch: targetBranch,
+        review_candidate_id: candidate?.id ?? null });
+      return workspace;
     });
     // 根 planner 必须在这条输入自己的分支快照中解析，而不是读取可能已经前进或带有未提交改动的主工作树。
     if (task.role === 'planner' && task.input_id) {

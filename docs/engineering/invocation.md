@@ -1,23 +1,46 @@
-# 一次 invocation 与多级协作
+# Run、invocation 与多级协作
 
-本文件管一次 invocation 的七步、agent 的派活权限，以及 verifier 与各类上限。
+## WorkItem 与 Run
+
+`tasks` 暂时是兼容的 WorkItem 投影；每次真实 provider 调用都会先写 `agent_runs`：
+
+```text
+WorkItem #42
+├── Run #80（failed）
+├── Run #81（completed，等待用户答复）
+└── Run #85（completed，最终结果）
+```
+
+Task 的累计 calls / wakes 继续用于兼容读模型，Run 保存每次调用自己的 attempt、provider、时间、result 与 error。成功输出同时形成 `run.result` Artifact。
 
 ## 一次 invocation
 
-1. 按任务 ID 从 queued 中挑选，不超过对应槽限制。
-2. 在 `running` Map 中占位并签发本次 invocation token，再准备 cwd：根 planner 使用输入分支 worktree；普通 worker 使用输入提交时冻结的 commit、以输入分支为直接父分支；code 下游使用上游任务分支；verifier 准备目标分支对照检出。
-3. 读取此次未消费消息、当前任务/子任务和最近任务摘要，启动 provider。
-4. pi 收到项目/任务/token 环境变量、固定代码路径下的 lush CLI、独立 session 和输入文件。在 cwd 中运行工具循环；Lush 不在 argv 中传入巨大的项目快照。
-5. provider 正常返回后消费**启动时读到的消息**，记录结果。运行期间到达的消息留给下次。
-6. 依次判定：还有未读消息 → queued；有未决 notice → awaiting；有活动子任务 → waiting；否则校验 worker 提交并 completed。
-7. 释放 running 占位并作废 token，再次检查未读消息，防止 child settled 与 parent park/清理之间丢唤醒。
+1. Dispatcher 按依赖与两条 lane 的容量选择 queued WorkItem。
+2. `running` Map 占位，签发本次 invocation token，创建 `agent_runs` 行。
+3. 准备 cwd：planner 使用 Intent worktree；worker 使用隔离 worktree；Candidate verifier 使用固定 integration commit 与 baseline commit。
+4. 读取启动时未消费消息、相关工作与 Artifact 上下文，启动 provider。
+5. 成功返回后消费启动时消息，保存 Task 兼容 result、结束 Run、写 Artifact。
+6. 判定未读消息、Decision、活动子任务与工作区提交，进入 queued / awaiting / waiting / completed。
+7. 释放 token 和槽，再检查一次收件箱避免 lost wake-up。
 
-waiting / awaiting 不占 agent 槽，也不运行 sleep/poll 子进程。最终输出是 task result；不提供可被 agent 提前调用的 complete 命令。
+失败或取消会结束对应 Run；崩溃恢复不重放未知副作用。
 
-## 多级协作
+## 两条 admission lane
 
-agent 只能从自己的 task 派生子任务、给直接父/子发消息、给自己发 notice。用户可以给任意活动 task 追加输入。子任务结算发送状态、结果与错误给父 task；父 task 重新入队后自己决定继续派活或汇总。角色 planner / coordinator / worker / research 由 agent 自己派生；verifier 只能由用户经 `task.verify` 创建（RPC 层是 USER_ONLY），它以被检验 worktree 为 cwd，用最直观的方式演示结果并在目标分支的对照检出上重跑同一场景，最后把自包含 HTML 报告写到 `.lush/verify/<id>/report.html`。
+- control：planner 和兼容历史 scheduler，`LUSH_CONTROL_CONCURRENCY`；
+- execution：worker / coordinator / research / verifier / merger，`LUSH_CONCURRENCY`。
 
-最大层数、活动任务数上限、调用次数上限和 invocation 超时限制失控分派。默认 maxDepth=8、活动任务上限=1000、maxCalls=24。
+两条 lane 独立计数。waiting / awaiting / 依赖未满足的 queued 不占槽。
 
-相关：[意图层与拆解队列](intent-layer.md)、[检验与对照检出](verification.md)、[生命周期不变量](invariants.md)。
+## Plan 编译
+
+planner 只写结构化 spec。它结束一轮后，runtime 直接创建 root work tasks 和依赖；新路径不会启动 scheduler invocation。不同 Intent 的 Plan 不等待前一批 worker 完成。
+
+## 协作与集成
+
+coordinator 仍可动态派生子任务；Plan compiler 创建的根 worker 完成后由 Integration Service 在私有 Intent branch 内自动叶子优先聚合。分歧时创建 child-side merger，target branch 始终留给最终 Candidate approval。
+
+verifier 有两种来源：
+
+- `task.verify`：兼容的单 worker 对照；
+- Review Candidate：对照固定 integration commit 与固定 target baseline，报告完成后 Candidate 进入 `ready`。
