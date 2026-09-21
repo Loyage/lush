@@ -7,8 +7,14 @@
  *   2. 执行过程只在用户已经展开、有缓存时才用 `after=<next>` 增量续读，没展开就不读整份会话文件；
  *   3. 「最近一次执行」每个 tick 都重新取 usage，相对时间因此会自己往前走。
  * DOM 更新通过 publish 回调注入，测试就能用假实现断言这套行为，不必起浏览器。
+ *
+ * 实时刷新的间隔不再是写死的常量：它随设置页「行为」组的轮询频率偏好（`lush.polling`）变化，
+ * 标准档等于改造前的 3000ms。app.js 在 `boot()` 与偏好变更时重建定时器。
  */
-export const LIVE_INTERVAL = 3000;
+import { pollingIntervals } from './prefs.js';
+
+/** 实时刷新间隔（毫秒）：读当前「轮询频率」偏好，标准档 3000。 */
+export function liveInterval() { return pollingIntervals().live; }
 
 /** 与 app.js 的 HOT 一致：这些状态下的任务随时会有新步骤。 */
 const LIVE_STATUS = new Set(['running', 'awaiting', 'waiting', 'queued']);

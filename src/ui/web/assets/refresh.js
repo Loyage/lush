@@ -20,9 +20,10 @@ import { renderTree } from './render-tree.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { saveFiltersPref, transcriptCache, ui } from './state.js';
 
-/** 条件变了：存回 localStorage，再用最近一次快照就地重画三个列表（筛选条本身不重建）。 */
-export function applyFilters() {
-  saveFiltersPref();
+/** 条件变了：存回 localStorage，再用最近一次快照就地重画三个列表（筛选条本身不重建）。
+ *  `persist:false` 供「恢复默认设置」用：偏好已被删除，只把内存与页面拉回默认，不再把默认值写回存储。 */
+export function applyFilters({ persist = true } = {}) {
+  if (persist) saveFiltersPref();
   if (!ui.lastSnapshot) return;
   renderIntents(ui.lastSnapshot);
   renderTree(ui.lastSnapshot);
@@ -44,7 +45,7 @@ export function applySort() {
 /** 回到项目概览：清掉选中、分支图与地址栏 hash，再把概览重画一次。入口是左上角的 Lush 标志。 */
 export async function overview() {
   ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.overviewKey = null;
-  ui.graphOpen = false; ui.graphRenderKey = null; ui.docsOpen = false;
+  ui.graphOpen = false; ui.graphRenderKey = null; ui.docsOpen = false; ui.settingsOpen = false;
   activateDetailView({ title: '项目概览', context: '工作空间', hint: '先看需要关注的分支、决定与运行状态' });
   if (location.hash) window.history.pushState(null, '', location.pathname);
   await refresh();
@@ -80,7 +81,7 @@ export async function refresh() {
     const noticeBefore = ui.noticeFocus;
     renderNotices(data); syncComposer();
     // 概览、分支图、文档页共用一个右栏：谁开着，轮询就不把概览画回来。
-    const overviewOpen = ui.selected === null && !ui.graphOpen && !ui.docsOpen && !ui.indexOpen;
+    const overviewOpen = ui.selected === null && !ui.graphOpen && !ui.docsOpen && !ui.indexOpen && !ui.settingsOpen;
     if (overviewOpen) renderOverview(data);
     // 概览与分支图共用同一份 graph.get 读模型，也共用同一条陈旧规则：指纹变了且距上次拉图至少 3 秒
     // 才重拉，指纹没变时由最长陈旧时间兜底（分支可能在 UI 外被创建）。概览用当前轮询的快照先画，

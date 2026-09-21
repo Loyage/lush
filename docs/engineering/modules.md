@@ -118,7 +118,7 @@
 
 ## 4. 前端：`src/ui/web/assets/`
 
-浏览器端 ES module，无打包器：`index.html` 只加载 `/app.js`，其余模块走 import 图，
+浏览器端 ES module，无打包器：`index.html` 先以 module 加载 `/appearance.js`（head 中定主题）再加载 `/app.js`，其余模块走 import 图，
 由 `server.js` 的扩展名白名单按 basename 服务。
 
 **三个必须遵守的接缝：**
@@ -127,7 +127,7 @@
   `boot()` 先清掉上一次的定时器/监听器，再按当前全局 DOM 重新装配。理由：`bun test`
   在多个测试文件之间**共享模块注册表**，DOM 测试要给每个文件装自己的 stub，只能靠重复调用 `boot()`。
 - **面板之间不互相 import 实现，只 import 接缝。** 跳转走 `navigate.js`，共享可变状态走 `state.js`，
-  这既断掉循环依赖，也让面板文件之间没有编辑冲突面。
+  本地偏好（键名 / 默认值 / 读写）走 `prefs.js`，这既断掉循环依赖，也让面板文件之间没有编辑冲突面。
 - **确认与输入一律走 `dialog.js` 的应用内弹窗，不用原生 `confirm` / `prompt` / `alert`。**
   原生弹窗不属于页面，浏览器可以静默吃掉它（勾过「阻止此页面创建更多对话框」、沙箱 iframe、
   内嵌 webview 等），那时 `confirm()` 不显示任何东西直接返回 false：调用方以为用户点了取消，
@@ -136,22 +136,24 @@
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `app.js` | 唯一入口：装配顶部按钮、移动端导航、右侧返回按钮、`#graph` / 四个信息页 / 任务 / 文档的 hash 路由与两个定时器 | `boot()` |
-| `appearance.js` | head 中同步初始化深浅主题（避免闪屏），装配主题切换；持久化偏好，未指定时跟随系统 | 独立 classic script，无导出 |
-| `styles.css` | 双主题设计 token、应用布局、组件、响应式与 reduced-motion 动效 | CSS |
-| `state.js` | 共享可变状态（一个对象，新字段不必改别的文件就能加）；`ui.indexOpen` 记录右侧信息页，`ui.lastGraph` 保存最近一次 `graph.get` 读模型，供「分支图」与「项目概览」共用 | `ui`、`transcriptOpen`、`transcriptCache`、`mergeSelection`、`resetUiState()` |
+| `app.js` | 唯一入口：装配顶部按钮、移动端导航、右侧返回按钮、`#graph` / `#settings` / 四个信息页 / 任务 / 文档的 hash 路由与两个定时器；定时器按「轮询频率」偏好重建 | `boot()` |
+| `appearance.js` | head 中初始化深浅主题，装配头部切换按钮；偏好经 prefs.js 读写（`lush.theme`），`system` 跟随系统、显式值覆盖系统，存储不可用时保留会话内选择 | `systemThemeMedia()`、`resolveTheme()`、`effectiveTheme()`、`applyTheme()`、`createAppearance()`、`initAppearance()`、`refreshTheme()` |
+| `prefs.js` | 本地偏好中心：键名 / 默认值 / 解析与序列化、读写与变更通知都在这一份（`markdown` / `theme` / `sidebarSort` / `collapsed` / `filters` / `reduceMotion` / `polling` / `toastDuration`）；坏数据回落默认值，存储不可用不抛异常；老键（`lush.treeSort`、`lush.theme`、`lush.markdown`）继续生效；`resetPrefs()` 删除全部受管键（含历史键）并逐项通知回默认值 | `PREF_DEFS`、`PREF_NAMES`、`MARKDOWN_KEY`、`THEME_KEY`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`REDUCED_MOTION_KEY`、`POLLING_KEY`、`TOAST_DURATION_KEY`、`THEME_VALUES`、`SORT_IDS`、`POLLING_MODES`、`TOAST_MODES`、`pollingIntervals()`、`toastDurations()`、`readPref`、`writePref`、`setPref`、`onPrefChange`、`resetPrefs`、`prefsSnapshot`、`storageAvailable` |
+| `render-settings.js` | 设置视图（阅读 / 外观 / 左栏 / 行为四组本地偏好，每项即时生效并持久化，另有恢复默认）；打开期间轮询不用概览覆盖，与分支图 / 文档 / 信息页同一套排他规则 | `openSettings()`、`renderSettings()` |
+| `styles.css` | 双主题设计 token、应用布局、组件、响应式与 reduced-motion 动效（含设置页与强制减少动效 `[data-reduced-motion="true"]`） | CSS |
+| `state.js` | 共享可变状态（一个对象，新字段不必改别的文件就能加）；`ui.indexOpen` 记录右侧信息页，`ui.lastGraph` 保存最近一次 `graph.get` 读模型，`ui.settingsOpen` 标记设置视图；折叠 / 筛选 / 排序偏好经 prefs.js 读写 | `ui`、`transcriptOpen`、`transcriptCache`、`mergeSelection`、`resetUiState()`、`readSidebarSortPref`、`readCollapsedPref`、`readFiltersPref`、`saveCollapsedPref`、`saveFiltersPref`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`SORT_IDS` |
 | `navigate.js` | 导航间接层（断循环依赖） | `registerNavigation({refresh, detail, overview, graph})`、`refresh()`、`detail(taskId)`、`overview()`、`graph()` |
 | `api.js` | fetch 与用户动作 | `api(url, options)`、`action(method, params)`、`loadHistory(taskId)` |
 | `format.js` | 标签映射与格式化（纯函数） | `STATUS`、`INTEGRATION`、`ROLE`、`EVENTS`、`HOT`、`TERMINAL_STATUS`、`WAIT_REASON`、`PLAN_GATE`、`SPEC_STATUS`、`MERGE_STATUS`、`CHANGE`、`DEP_HELP`、`STEP`、`MD_STEP`、`statusOf`、`relative`、`duration`、`absolute`、`clock`、`tokens`、`money`、`depsOf`、`waitingDeps`、`resolverOf`、`specStatus`、`specTitle`、`edgeLabel`、`lastView`、`short` |
 | `dom.js` | DOM 原语 | `el`、`button`、`syncChildren`、`block`、`kv`、`badge`、`statusBadge` |
 | `dialog.js` | 应用内确认 / 输入弹窗（替代原生 `confirm` / `prompt`）：画进独立于 `#detail` 的 `#modal`，同刻只留一个弹窗，Esc / 点背景 / 取消＝取消，Enter / 输入框回车＝确认，关闭后焦点还给打开者 | `confirmDialog(opts)`、`promptDialog(opts)`、`closeDialog()` |
-| `text.js` | agent 输出的 Markdown 开关 | `agentText(value, opts)`、`syncMarkdownToggle()`、`toggleMarkdown()` |
+| `text.js` | agent 输出的 Markdown 开关（设置页的「阅读」项，偏好键 `lush.markdown`；与头部 `#md-toggle` 共用并互相同步） | `markdownEnabled()`、`agentText(value, opts)`、`syncMarkdownToggle()`、`toggleMarkdown()` |
 | `gauge.js` | 顶部并发槽表 | `slotGauge(data)` |
 | `filters-ui.js` | 筛选控件与选项工具 | `filterSelect`、`filterToggle`、`filterInput`、`syncSelectOptions`、`withCurrent`、`uniqueValues`、`roleOption`、`statusOption`、`specStatusOption`、`plannerOption`、`filterUi` |
 | `sidebar-ui.js` | 左栏纯导航与右侧视图切换：信息页 / 通用内容画布互斥、统一视图栏、计数与兼容折叠状态 | `setViewChrome`、`activateDetailView`、`openResource`、`paintCollapsed`、`setNavCount`、`selectNav`、`navTo` |
 | `sidebar-init.js` | 装配左侧页面导航，以及移到右侧信息页内的筛选 / 排序控件 | `initSidebar()` |
 | `composer.js` | 输入缓存与提交表单；提示统一交给 `messages.js`，不再自己写输入栏底部的 `#error` | `buffer()`、`selectedDraftIds()`、`syncComposer()`、`initComposer()` |
-| `messages.js` | 顶部消息提示（toast）：`#error` 从 `.composer` 底部搬进固定浮层，脱离 `.app` 的 grid；成功 / 信息类约 4s 自动消失、失败 / 错误类约 8s 并带手动关闭按钮，鼠标悬停暂停倒计时，同一段文本反复写入不重置计时（离线错误不闪烁），空文本立即隐藏。错误 `role=alert` / `aria-live=assertive`，信息 `role=status` / `aria-live=polite`；计时器可注入（DOM 测试用假时钟） | `show(value, kind)`、`clear()`、`setTimers(next)` |
+| `messages.js` | 顶部消息提示（toast）：`#error` 从 `.composer` 底部搬进固定浮层，脱离 `.app` 的 grid；停留时长是本地偏好（`lush.toastDuration`，标准档＝信息 4s / 错误 8s），失败 / 错误类带手动关闭按钮，鼠标悬停暂停倒计时，同一段文本反复写入不重置计时（离线错误不闪烁），空文本立即隐藏。错误 `role=alert` / `aria-live=assertive`，信息 `role=status` / `aria-live=polite`；计时器可注入（DOM 测试用假时钟） | `show(value, kind)`、`clear()`、`setTimers(next)` |
 | `render-drafts.js` | 待提交缓存 | `renderDrafts(data)` |
 | `render-intents.js` | Intent 列表：原始目标、planner 闸门、Plan 计数、最新 Review Candidate 版本与「开始/重新验收 / 打开结果 / 接受并合入 / 要求修改」动作 | `renderIntents(data)` |
 | `render-specs.js` | 拆解队列（只读） | `renderSpecs(data)`、`specItem(spec)`、`specDeps(value)` |
@@ -172,9 +174,9 @@
 | `detail.js` | 拉取并渲染任务详情；窄屏新导航收起索引并定位内容，轮询保留滚动 | `loadDetail(taskId)` |
 | `docs.js` | 「文档」视图：路由（`#docs` / `#doc-<id>`）、取数与站内相对链接解析 | `docsTarget(hash)`、`resolveDocPath(from, raw)`、`docLinkResolver(current, docs)`、`openDocs(id)`、`loadDocs(id)`、`DOCS_HASH` |
 | `render-docs.js` | 「文档」视图的目录、正文与兜底 | `renderDocsIndex(docs, onOpen)`、`renderDoc(doc, resolveLink, onOpen)`、`renderDocError(id, message, onOpen)` |
-| `refresh.js` | 轮询快照、概览、热任务增量刷新、筛选重画；右侧信息页打开时不让概览覆盖；「项目概览」与「分支图」共用同一份 `graph.get`（`ui.lastGraph`）与同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s），概览先用快照画、后台取图后就地重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
+| `refresh.js` | 轮询快照、概览、热任务增量刷新、筛选重画；右侧信息页 / 文档 / 设置打开时不让概览覆盖；「项目概览」与「分支图」共用同一份 `graph.get`（`ui.lastGraph`）与同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s），概览先用快照画、后台取图后就地重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
 
-其它纯逻辑模块：`markdown.js`、`tree-order.js`、`live.js`、`sidebar.js`；`merge-select.js` 是交付队列的候选、冻结与 code-only 顺序预览接缝，由 `render-ladder.js` 使用。
+其它纯逻辑模块：`markdown.js`、`tree-order.js`、`live.js`、`sidebar.js`；`merge-select.js` 是交付队列的候选、冻结与 code-only 顺序预览接缝，由 `render-ladder.js` 使用。`live.js` 的实时刷新间隔不再是写死常量：`liveInterval()` 读「轮询频率」偏好，标准档等于改造前的 3000ms。
 
 `markdown.js` 除默认渲染外还有两件「文档」视图需要的能力：`renderMarkdown(text, doc, options)` 里的
 `options.link(raw, label)` 由调用方接管链接解析（返回 `{ href, external }`，返回空或抛错都回落到默认规则：
@@ -231,7 +233,7 @@
 | `workspaces.test.js` | `test/workspaces/{naming,merge,cleanup,genealogy,anchor}.test.js` |
 | `web-rpc.test.js` | `test/web/{security,assets,read-models,drafts,transcript,specs-intents,maintenance}.test.js` |
 | `web-live-dom.test.js` | `test/web/dom-{merge,detail,drafts,specs-intents,sidebar}.test.js`（各自 `boot()`，见前端接缝） |
-| 工作台与主题 | `test/web/appearance.test.js`（首屏主题、系统偏好、持久化与存储失败）、`test/web/dom-studio.test.js`（信息优先级、折叠保留、移动端索引） |
+| 工作台与主题 | `test/web/appearance.test.js`（主题解析、跟随系统、显式覆盖、存储失败）、`test/web/settings.test.js`（设置入口 / `#settings` / 轮询不覆盖、偏好默认值与老键、每项即时生效、恢复默认）、`test/web/dom-studio.test.js`（信息优先级、折叠保留、移动端索引） |
 | `integration.test.js` | `test/integration/{daemon,pi,verify,shutdown,merge}.test.js` |
 
 `test/helpers.js`、`test/dom-stub.js` 是被多个文件共用的**公共面**：只增不改，改签名会同时影响所有分区。

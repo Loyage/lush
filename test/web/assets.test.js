@@ -91,6 +91,30 @@ test('消息提示模块可服务，浮层落点与分层在页面里', async ()
   } finally { await f.close(); }
 });
 
+test('设置页模块与左栏入口一起发货，样式里带设置与强制减少动效', async () => {
+  const f = await setup();
+  try {
+    for (const file of ['/prefs.js', '/render-settings.js']) {
+      const response = await fetch(f.url + file);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-security-policy')).toContain("script-src 'self'");
+    }
+    expect(await (await fetch(f.url + '/prefs.js')).text()).toContain('lush.polling');
+    const app = await pageSource(f.url);
+    expect(app).toContain("from './prefs.js'");
+    expect(app).toContain("from './render-settings.js'");
+    const html = await (await fetch(f.url)).text();
+    expect(html).toContain('id="settings-open"');
+    // appearance.js 是 head 里的 module（经 prefs.js 读写主题）。
+    expect(html).toMatch(/<script src="\/appearance\.js" type="module"><\/script>/);
+    const css = await (await fetch(f.url + '/styles.css')).text();
+    expect(css).toContain('.settings-row{');
+    expect(css).toContain('.settings-row{flex-direction:column');
+    expect(css).toContain(':root[data-reduced-motion="true"]');
+    expect(css).toMatch(/body:has\(#detail\[data-view="settings"\][^{]*#settings-open/);
+  } finally { await f.close(); }
+});
+
 test('web serves the sort module and wires the left-column sort dropdown', async () => {
   const f = await setup();
   try {

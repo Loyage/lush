@@ -35,7 +35,7 @@ export function openResource(id, { push = true } = {}) {
   if (!meta) return false;
   ui.indexOpen = id;
   ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailTask = null;
-  ui.graphOpen = false; ui.graphRenderKey = null; ui.docsOpen = false;
+  ui.graphOpen = false; ui.graphRenderKey = null; ui.docsOpen = false; ui.settingsOpen = false;
   const detail = node('detail'); if (detail) detail.hidden = true;
   const resources = node('resource-panels'); if (resources) resources.hidden = false;
   for (const section of SIDEBAR_SECTIONS) {

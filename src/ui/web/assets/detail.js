@@ -8,7 +8,7 @@ import { ui } from './state.js';
 export async function loadDetail(taskId) {
   ui.selected = taskId;
   // 右栏同一时刻只归一个视图：点进任务就把分支图、信息页与文档页的标志一起放掉。
-  ui.graphOpen = false; ui.graphRenderKey = null; ui.docsOpen = false;
+  ui.graphOpen = false; ui.graphRenderKey = null; ui.docsOpen = false; ui.settingsOpen = false;
   activateDetailView({ title: `任务 #${taskId}`, context: '任务详情', hint: '结果优先，过程与运行信息随后' });
   const navigated = ui.detailTask !== taskId;
   const scrolled = navigated ? 0 : $('detail').scrollTop;

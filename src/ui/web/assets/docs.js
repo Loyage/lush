@@ -55,7 +55,7 @@ export function docLinkResolver(current, docs) {
 /** 打开文档目录（id 为 null）或某一篇：清掉选中的任务（否则热任务刷新会把文档覆盖掉），地址栏切到对应 hash。 */
 export async function openDocs(id = null) {
   ui.docsOpen = true;
-  ui.graphOpen = false; ui.graphRenderKey = null;
+  ui.graphOpen = false; ui.graphRenderKey = null; ui.settingsOpen = false;
   ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailTask = null;
   activateDetailView({ title: id ? '阅读文档' : '文档', context: '帮助与参考', hint: id ? '站内文档 · 相对链接可直接跳转' : '使用流程、架构与接口参考' });
   const hash = id ? `#doc-${id}` : DOCS_HASH;

@@ -48,6 +48,7 @@ let pending = null;
 export async function openGraph() {
   ui.graphOpen = true;
   ui.docsOpen = false;   // 右栏同一时刻只归一个视图
+  ui.settingsOpen = false;
   ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailTask = null;
   activateDetailView({ title: '分支图', context: '核心视图', hint: '沿谱系理解工作，并把成果逐层收口' });
   if (location.hash !== '#graph') window.history.pushState(null, '', '#graph');

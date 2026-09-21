@@ -142,6 +142,7 @@ export function installDom({ fetch: fetchImpl } = {}) {
   const document = {
     createElement: tag => new StubNode(tag),
     createTextNode: textNode,
+    documentElement: new StubNode('html'),
     getElementById: id => { if (!byId.has(id)) byId.set(id, new StubNode(id === 'input-form' ? 'form' : 'div')); return byId.get(id); },
     activeElement: null,
   };

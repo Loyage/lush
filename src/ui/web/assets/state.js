@@ -1,21 +1,11 @@
-import { COLLAPSED_KEY, FILTERS_KEY, parseCollapsed, serializeCollapsed, parseFilters } from './sidebar.js';
 import { GRAPH_COLLAPSED_KEY, GRAPH_EXPANDED_KEY, parseGraphCollapsed, serializeGraphCollapsed } from './graph-layout.js';
-import { SORT_MODES } from './tree-order.js';
+import { readPref, writePref } from './prefs.js';
 
 /* ---------- 偏好：折叠 / 筛选 / 排序都持久化到 localStorage ---------- */
-// 排序以前只作用于任务树（lush.treeSort）；改成左栏全局后换 key，读取时回落旧 key，老用户的选择不丢。
-export const SIDEBAR_SORT_KEY = 'lush.sidebarSort';
-export const LEGACY_TREE_SORT_KEY = 'lush.treeSort';
-export const SORT_IDS = new Set(SORT_MODES.map(mode => mode.id));
-export function readSidebarSortPref() {
-  try {
-    const value = localStorage.getItem(SIDEBAR_SORT_KEY) ?? localStorage.getItem(LEGACY_TREE_SORT_KEY);
-    return SORT_IDS.has(value) ? value : 'smart';
-  } catch { return 'smart'; }
-}
-export function readCollapsedPref() {
-  try { return parseCollapsed(localStorage.getItem(COLLAPSED_KEY)); } catch { return new Set(); }
-}
+// 键名、默认值与解析规则都在 prefs.js；这里只是转发，让老 import 继续可用。
+export { SIDEBAR_SORT_KEY, LEGACY_TREE_SORT_KEY, SORT_IDS } from './prefs.js';
+export function readSidebarSortPref() { return readPref('sidebarSort'); }
+export function readCollapsedPref() { return readPref('collapsed'); }
 /** 分支图的折叠按分支名存：重画（1.5s 轮询 / 手动刷新）后仍然收起。
  *  收起与展开分两个 key 记：默认值由「未合进父分支 / 在跑」决定，用户显式切换优先且不会被重画吞掉。 */
 export function readGraphCollapsedPref() {
@@ -30,15 +20,9 @@ export function saveGraphPrefs() {
     localStorage.setItem(GRAPH_EXPANDED_KEY, serializeGraphCollapsed(ui.graphExpanded));
   } catch { /* 隐私模式里忽略 */ }
 }
-export function readFiltersPref() {
-  try { return parseFilters(localStorage.getItem(FILTERS_KEY)); } catch { return parseFilters(null); }
-}
-export function saveCollapsedPref() {
-  try { localStorage.setItem(COLLAPSED_KEY, serializeCollapsed(ui.collapsed)); } catch { /* 隐私模式里忽略 */ }
-}
-export function saveFiltersPref() {
-  try { localStorage.setItem(FILTERS_KEY, JSON.stringify(ui.filters)); } catch { /* 隐私模式里忽略 */ }
-}
+export function readFiltersPref() { return readPref('filters'); }
+export function saveCollapsedPref() { writePref('collapsed', ui.collapsed); }
+export function saveFiltersPref() { writePref('filters', ui.filters); }
 
 /**
  * 共享可变状态。面板之间只通过这个对象交换状态，不互相 import 实现；
@@ -53,6 +37,8 @@ export const ui = {
   indexOpen: null,
   /** 「文档」视图：打开期间轮询不用概览覆盖它，与 graphOpen 同一套排他规则。 */
   docsOpen: false,
+  /** 「设置」视图：打开期间轮询不用概览覆盖它（设置页只受用户操作驱动）。 */
+  settingsOpen: false,
   draftSignature: null,
   // 意图面板的重建哨兵：planner 状态、闸门、spec 计数、scheduler 进度变了才重画。
   intentSignature: null,
@@ -97,7 +83,7 @@ export const mergeSelection = new Set();
  */
 export function resetUiState() {
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;
-  ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0; ui.indexOpen = null; ui.docsOpen = false;
+  ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0; ui.indexOpen = null; ui.docsOpen = false; ui.settingsOpen = false;
   ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false;
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeFocus = null; ui.noticeIndex = new Map();
