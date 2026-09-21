@@ -2,8 +2,8 @@
  * 「文档」页的渲染：目录页、单篇正文、打不开时的兜底。
  *
  * 纯渲染：取数、路由与相对链接解析在 docs.js，这里只把拿到的数据画进 #detail。
- * 正文一律按 Markdown 渲染，不跟头部的「Markdown 渲染」开关走：那个开关管的是 agent 输出的
- * 可读性，而文档本来就是 Markdown 写的，关掉只会让表格、代码块和标题退化成一片原文。
+ * 正文一律按 Markdown 渲染，不跟界面设置里的「Markdown 渲染」偏好走：那个偏好管的是 agent 输出，
+ * 而文档本来就是 Markdown 写的，关掉只会让表格、代码块和标题退化成一片原文。
  */
 import { $, block, button, el } from './dom.js';
 import { renderMarkdown } from './markdown.js';

@@ -12,7 +12,6 @@ import { openSettings } from './render-settings.js';
 import { initSidebar } from './sidebar-init.js';
 import { openResource, paintCollapsed } from './sidebar-ui.js';
 import { resetUiState, ui } from './state.js';
-import { syncMarkdownToggle, toggleMarkdown } from './text.js';
 import { initComposer } from './composer.js';
 import { SORT_MODES } from './tree-order.js';
 
@@ -42,7 +41,6 @@ onPrefChange('reduceMotion', applyReducedMotion);
 onPrefChange('theme', () => refreshTheme());
 // 轮询频率变了：立刻按新间隔重建两个定时器，不必刷新页面。
 onPrefChange('polling', () => { if (refreshTimer !== null || liveTimer !== null) startTimers(); });
-// markdown 的头部按钮与详情重画由 text.js 注册（它自己读这个偏好）。
 
 const linked = taskId => /^#task-(\d+)$/.test(taskId) ? Number(taskId.slice(6)) : null;
 
@@ -91,8 +89,6 @@ export async function boot() {
   resetUiState();
   initAppearance();                              // 按当前 DOM 重新绑定主题与头部按钮
   applyReducedMotion(readPref('reduceMotion'));
-  $('md-toggle').onclick = toggleMarkdown;
-  syncMarkdownToggle();
   syncSidebarSortSelect();
   $('sidebar-sort').addEventListener('change', onSidebarSortChange);
   initComposer();

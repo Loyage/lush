@@ -42,7 +42,7 @@ bun run web 4318 --project /absolute/path/to/my-project
 
 公网部署仍应在前面配置 HTTPS 反向代理，否则登录密码会在网络中明文传输。跨站请求判定以浏览器自己填的 `Sec-Fetch-Site` 为准（网页无法伪造它），`Origin` 只在旧浏览器没有这个头时作为回退；内嵌 webview、沙箱页面与部分隐私扩展会报 `Origin: null` 却依然是同源，这类客户端能正常登录。删除 `.lush/web.json` 即恢复仅本机、无需登录的模式。
 
-Web UI（默认 `http://127.0.0.1:4318`）是 **Intent 优先**的项目工作台：左栏是导航，首屏是 **Intent 工作台**（目标、Plan 状态、待验收候选版本与结果入口、真正需要你决定的事）；分支图、待你决定、行动任务、Intent 记录、结构化 Plan 与文档分别在右侧独立成页。右侧顶部始终保留返回上一页的入口，页面地址使用 `#graph`、`#settings`、`#notices`、`#tasks`、`#intents`、`#specs`、`#task-ID`、`#docs` / `#doc-<id>`，浏览器前进 / 后退可以在各视图与任务详情之间往返。首页顶部指标按 Intent 计（Intent / 并行执行 / 等待验收 / 需要你决定），并用同一份 `graph.get` 读模型把 Git 交付诊断折叠在成果主线之后；候选行上的「打开结果」直接开 verifier 的 HTML 报告，验收动作用 `candidate.accept` / `candidate.changes`。任务详情以目标为标题，结果与执行过程优先。输入框常驻内容区底部；窄屏用「导航菜单」展开页面入口。右上角可切换**深色 / 浅色主题**。左栏的**设置**页（`#settings`）统一管理本地偏好：阅读（Markdown 渲染，键仍是 `lush.markdown`，头部快捷按钮与它共用）、外观（深色 / 浅色 / 跟随系统，与头部主题按钮共用；减少动态效果，覆盖系统偏好）、左栏默认排序（与左栏下拉共用）、行为（轮询频率快速 / 标准 / 省电，标准即默认的 1.5s 快照 + 3s 实时；消息提示停留时长短 / 标准 / 长，标准即默认的 4s / 8s），每项即时生效并持久化，另有「恢复默认设置」；偏好只存在当前浏览器，不写进项目库。过渡动画尊重系统「减少动态效果」。文档读的是随这份代码发布的 `docs/` 与 `README.md`（不随被开发的项目变），Markdown 相对链接可以直接点开，核心架构是一篇 standalone HTML（sandbox iframe）；刷新不丢已输入的答复。
+Web UI（默认 `http://127.0.0.1:4318`）是 **Intent 优先**的项目工作台：左栏是导航，首屏是 **Intent 工作台**（目标、Plan 状态、待验收候选版本与结果入口、真正需要你决定的事）；分支图、待你决定、行动任务、Intent 记录、结构化 Plan 与文档分别在右侧独立成页。右侧顶部始终保留返回上一页的入口，页面地址使用 `#graph`、`#settings`、`#notices`、`#tasks`、`#intents`、`#specs`、`#task-ID`、`#docs` / `#doc-<id>`，浏览器前进 / 后退可以在各视图与任务详情之间往返。首页顶部指标按 Intent 计（Intent / 并行执行 / 等待验收 / 需要你决定），并用同一份 `graph.get` 读模型把 Git 交付诊断折叠在成果主线之后；候选行上的「打开结果」直接开 verifier 的 HTML 报告，验收动作用 `candidate.accept` / `candidate.changes`。任务详情以目标为标题，结果与执行过程优先。输入框常驻内容区底部；窄屏用「导航菜单」展开页面入口。右上角可切换**深色 / 浅色主题**。左栏的**设置**页（`#settings`）分为三个页签：**Agent** 管项目默认与 planner / coordinator / worker / research / verifier / merger 六类行为的独立覆盖，可分别选择 Pi / Codex、模型、思考深度并追加项目 Prompt；配置原子写入 `.lush/agent.json`，正在运行的调用不打断，排队任务与后续唤醒立即读取新配置。**界面**管理 Markdown、主题、减少动效、信息列表排序、轮询与消息停留时长，这些偏好只存在当前浏览器；**系统**只读展示 daemon 参数与路径。移动端会压缩页头、导航、工具栏和分支卡片，并在分支诊断 / 设置 / 文档页隐藏底部输入器，把视口优先留给内容。过渡动画尊重系统「减少动态效果」。文档读的是随这份代码发布的 `docs/` 与 `README.md`（不随被开发的项目变），Markdown 相对链接可以直接点开，核心架构是一篇 standalone HTML（sandbox iframe）；刷新不丢已输入的答复。
 
 若 `bin/` 已在 PATH，在目标项目内可以直接使用：
 
@@ -125,7 +125,7 @@ verifier 与被检验任务是两个 task（worker 已经终态，不能再挂�
 
 ### 运行前提
 
-- 默认 agent 是 `pi`，需要在 PATH 中可用且已完成模型认证。可设置 `LUSH_PI_COMMAND`、`LUSH_PI_PROVIDER`、`LUSH_PI_MODEL`。
+- 默认 Agent 是 `pi`，也支持 `codex`；对应 CLI 需要在 PATH 中可用且已完成认证。推荐用 `lush agent set ...` 或 Web 设置页写项目级 `.lush/agent.json`；环境变量 `LUSH_PI_COMMAND` / `LUSH_CODEX_COMMAND` 仍可指定可执行文件。
 - 提交输入需要项目是 **Git worktree 根目录且父分支有初始提交**。可用 `--branch NAME` 指定任一本地分支；未指定时 detached HEAD 会被拒绝。未提交改动不进入输入分支，并记录在 `input.anchor.dirty_source`；Lush 不替你提交、暂存或 stash。分支落地时，涉及的 child / parent worktree 都必须干净。
 - 非 Git 项目不能提交输入（也建不了实现 worktree）：提交前先 `git init` 并至少提交一次。
 - `LUSH_PROVIDER=mock bun run start --project ...` 可离线演示调度。Mock 只派调研任务，不调用模型、不修改代码。
@@ -216,7 +216,7 @@ bun run daemon-restart
 bun run stop
 ```
 
-任一命令都可以加 `--project PATH`。`--json` 输出机器可读结果。底层完整命令见 `bun run help`；内置 agent 后端只有 pi 与 mock。
+任一命令都可以加 `--project PATH`。`--json` 输出机器可读结果。底层完整命令见 `bun run help`；真实 Agent 后端支持 Pi 与 Codex，另有只用于离线验证的 mock。
 
 ## 状态、恢复与边界
 
@@ -249,14 +249,18 @@ pi 默认禁用个人 extensions / skills / prompt templates / themes，保留�
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
 | `LUSH_PROJECT` | 从 cwd 发现 | 显式项目目录 |
-| `LUSH_PROVIDER` | `pi` | `pi` / `mock` |
+| `LUSH_PROVIDER` | `pi` | 首次未写项目配置时的 Agent：`pi` / `codex`；`mock` 为离线测试模式 |
 | `LUSH_CONCURRENCY` | `4` | worker / research / verifier 执行槽 |
 | `LUSH_CONTROL_CONCURRENCY` | `2` | planner 等控制面槽，不被执行面占用 |
 | `LUSH_CALL_TIMEOUT` | `900` | 单次模型调用超时秒数 |
 | `LUSH_TASK_CALLS` | `24` | 单 task invocation 总上限 |
 | `LUSH_MAX_DEPTH` | `8` | 任务树最大层数 |
 | `LUSH_PI_COMMAND` | `pi` | pi 可执行文件 |
-| `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL` | pi 默认 | 模型选择 |
+| `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL` / `LUSH_PI_THINKING` | pi 默认 | `.lush/agent.json` 不存在时的 Pi 初始选择；之后由项目配置覆盖 |
+| `LUSH_CODEX_MODEL` / `LUSH_CODEX_THINKING` | codex 默认 | `.lush/agent.json` 不存在时的 Codex 初始选择；之后由项目配置覆盖 |
+| `LUSH_PI_COMMAND` / `LUSH_CODEX_COMMAND` | `pi` / `codex` | Agent CLI 可执行文件 |
+
+项目 Agent 配置保存在 `.lush/agent.json`，可在 Web「设置 → Agent」或 `lush agent set` 中按六类任务行为覆盖。每份配置分别提供“默认 Prompt”和“追加 Prompt”：Web 会显示当前实际生效的 Lush 内置 Prompt，并提供“恢复默认 Prompt”；修改后会完整替换内置协议，可能造成任务 API、权限边界和交付流程失效；追加 Prompt 用于在最终默认规则后补充项目要求。Web 可以按需读取 Pi / Codex CLI 当前可用模型，CLI 对应 `lush agent models pi|codex`，读取失败时仍可使用预设或手工模型 ID。Pi profile 还可从当前用户与项目已安装的扩展和 Skills 中多选，只把勾选项显式加载进后续 invocation；这些资源拥有当前用户权限，Codex profile 会保留选择但不加载。
 
 `tasks.result` 只保存 invocation 的最后一次输出；完整的执行过程（思考、工具调用、工具输出）留在 `.lush/sessions/*.jsonl`，用 `lush task transcript ID`（Web 详情里的「执行过程」）只读查看，agent 的模型、上下文占用与累计花费用 `lush task usage ID` 从同一批文件里读出（Web 详情里的「Agent」块）。截图、过程与结论分开：审阅合并时看 result 与 `task diff`，需要追究 agent 怎么做的时候看 transcript，需要直接看结果跑起来时点「检验」。
 

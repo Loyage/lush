@@ -67,7 +67,9 @@ export default {
     try {
       let task = this.store.task(taskId);
       check(task.calls < this.config.maxCalls, 'task invocation limit reached');
-      const record = this.store.startRun(task, this.config.provider);
+      const agent = this.provider.resolve?.(task) || { agent: this.config.provider, model: '', thinking: '', default_prompt: '', append_prompt: '' };
+      run.agent = agent;
+      const record = this.store.startRun(task, agent);
       run.recordId = record.id;
       this.store.update(taskId, { status: 'running', calls: task.calls + 1, agent_wakes: task.agent_wakes + 1 });
       // 新一轮拆解：上一轮被驳回的闸门清零，这一轮要不要再请你批准由 planner 自己判断。
@@ -76,9 +78,10 @@ export default {
       const cwd = await this.workspaces.ensure(task);
       if (run.controller.signal.aborted) throw new Error('cancelled');
       task = this.store.task(taskId);
-      this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, message_ids: messages.map(message => message.id) });
+      this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, message_ids: messages.map(message => message.id),
+        agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null });
       timer = setTimeout(() => run.controller.abort(), this.config.timeout * 1000);
-      const result = await this.provider.run({ task, cwd, token: run.token, signal: run.controller.signal,
+      const result = await this.provider.run({ task, cwd, token: run.token, signal: run.controller.signal, agent,
         onSpawn: pid => { run.pid = pid; }, messages, api: this,
         context: {
           children: this.store.summaries().filter(child => child.parent_id === taskId),
@@ -103,7 +106,7 @@ export default {
         this.store.finishRun(run.recordId, 'completed', { result });
         this.store.addArtifact({ task_id: taskId, run_id: run.recordId, input_id: task.input_id, kind: 'run.result',
           payload: { outcome: 'success', summary: result, changes: [], evidence: [], decisions: [], risks: [], artifacts: [], followups: [] },
-          metadata: { role: task.role, call: task.calls } });
+          metadata: { role: task.role, call: task.calls, agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null } });
       });
       // Messages that arrived during this invocation are deliberately delivered next time.
       if (this.store.unread(taskId).length) { this.store.update(taskId, { status: 'queued' }); return; }

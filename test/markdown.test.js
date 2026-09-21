@@ -175,8 +175,8 @@ test('web serves the markdown module and keeps the CSP header', async () => {
     expect(loader.status).toBe(200);
     expect(await loader.text()).toContain("from './markdown.js'");
     const page = await (await fetch(f.url)).text();
-    expect(page).toContain('md-toggle');
-    expect(page).toContain('Markdown 渲染');
+    expect(page).not.toContain('md-toggle');
+    expect(page).not.toContain('Markdown 渲染：开');
     // 开关未开启前后端仍拒绝未知路径
     expect((await fetch(`${f.url}/other.js`)).status).toBe(404);
   } finally { await f.close(); }

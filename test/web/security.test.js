@@ -27,6 +27,37 @@ test('web is project scoped, submits immediately and exposes no Service views', 
   } finally { await f.close(); }
 });
 
+test('web saves project Agent profiles through the narrow mutation whitelist', async () => {
+  const f = await setup(); await repo(f.root);
+  try {
+    const config = { version: 1,
+      default: { agent: 'codex', model: 'gpt-5.4-mini', thinking: 'high', default_prompt: '', append_prompt: 'Keep changes reviewable.' },
+      roles: { merger: { agent: 'pi', model: 'openai-codex/gpt-5.4', thinking: 'xhigh', default_prompt: '', append_prompt: '只解决分歧。' } },
+    };
+    const response = await fetch(f.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method: 'agent.configure', params: { config } }) });
+    expect(response.status).toBe(200);
+    const saved = await response.json();
+    expect(saved.resolved.worker.agent).toBe('codex');
+    expect(saved.resolved.merger).toMatchObject({ agent: 'pi', thinking: 'xhigh' });
+    const snapshot = await (await fetch(f.url + '/api/snapshot')).json();
+    expect(snapshot.status.provider).toBe('mock');
+    expect(snapshot.status.agent_config.default.model).toBe('gpt-5.4-mini');
+    expect(fs.existsSync(path.join(f.config.home, 'agent.json'))).toBe(true);
+
+    const fakePi = path.join(f.root, 'fake-pi-models');
+    fs.writeFileSync(fakePi, `#!/usr/bin/env bun\nconsole.log('provider  model  context  max-out  thinking  images');\nconsole.log('demo      current  100K     10K      yes       no');\n`, { mode: 0o755 });
+    f.config.env.LUSH_PI_COMMAND = fakePi;
+    const catalog = await (await fetch(f.url + '/api/agent/models?agent=pi')).json();
+    expect(catalog.source).toBe('cli');
+    expect(catalog.models[0].id).toBe('demo/current');
+    const resources = await (await fetch(f.url + '/api/agent/resources')).json();
+    expect(resources.agent).toBe('pi');
+    expect(Array.isArray(resources.extensions)).toBe(true);
+    expect(Array.isArray(resources.skills)).toBe(true);
+  } finally { await f.close(); }
+});
+
 test('web exposes only read-only task routes and rejects other paths', async () => {
   const f = await setup(); await repo(f.root);
   try {

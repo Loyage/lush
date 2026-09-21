@@ -1,25 +1,27 @@
-/**
- * 「设置」视图：阅读 / 外观 / 左栏 / 行为四组本地偏好，全部经 prefs.js 读写，每项改动立即持久化、立即生效，
- * 另有「恢复默认设置」。设置页只读 localStorage，不依赖 snapshot 也能画出来。
- *
- * 幂等：每次 renderSettings() 只替换 #detail 的内容，重建控件并读回最新偏好。
- * 1.5s 轮询不会碰它——refresh.js 看到 ui.settingsOpen 就不再用概览覆盖（与 graphOpen / docsOpen 同一套排他规则）。
- */
+/** Settings: project Agent profiles, browser-local interface preferences, and read-only daemon information. */
 import { $, block, button, el } from './dom.js';
 import { effectiveTheme, systemThemeMedia } from './appearance.js';
-import { overview } from './navigate.js';
+import { action, api } from './api.js';
+import { confirmDialog } from './dialog.js';
+import { show } from './messages.js';
 import { PREF_NAMES, POLLING_MODES, THEME_VALUES, TOAST_MODES, onPrefChange, readPref, resetPrefs, setPref } from './prefs.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { SORT_MODES } from './tree-order.js';
 
-/** 打开设置：清掉选中的任务详情 / 分支图 / 信息页 / 文档（右栏同一时刻只归一个视图），地址栏切到 #settings。 */
+const TABS = [
+  { id: 'agent', label: 'Agent', note: '任务行为与模型' },
+  { id: 'interface', label: '界面', note: '阅读、外观与行为' },
+  { id: 'system', label: '系统', note: '运行参数与路径' },
+];
+let activeTab = 'agent';
+
 export function openSettings() {
   ui.settingsOpen = true;
   ui.graphOpen = false; ui.graphRenderKey = null;
   ui.docsOpen = false; ui.indexOpen = null;
   ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailTask = null;
-  activateDetailView({ title: '设置', context: '工作空间', hint: '本地偏好：阅读、外观、左栏与行为' });
+  activateDetailView({ title: '设置', context: '工作空间', hint: 'Agent、界面偏好与系统状态' });
   if (location.hash !== '#settings') window.history.pushState(null, '', '#settings');
   renderSettings();
 }
@@ -33,139 +35,344 @@ function row(title, note, control) {
   return container;
 }
 
-/** 勾选式偏好：控件自己读当前值，change 时只调 setPref，重画交给 onPrefChange。 */
 function toggleControl(name, onLabel = '开启', offLabel = '关闭') {
   const wrap = el('label', undefined, 'settings-toggle');
-  const input = el('input');
-  input.type = 'checkbox';
-  input.className = 'pref-toggle';
-  input.dataset.pref = name;
+  const input = el('input'); input.type = 'checkbox'; input.className = 'pref-toggle'; input.dataset.pref = name;
   input.checked = Boolean(readPref(name));
   input.addEventListener('change', () => setPref(name, input.checked));
   wrap.append(input, el('span', input.checked ? onLabel : offLabel));
   return wrap;
 }
 
-/** 单选式枚举偏好（主题）。 */
 function themeControl() {
   const group = el('div', undefined, 'settings-choices');
   const current = readPref('theme');
   const labels = { system: '跟随系统', light: '浅色', dark: '深色' };
   for (const value of THEME_VALUES) {
     const wrap = el('label', undefined, 'settings-choice');
-    const input = el('input');
-    input.type = 'radio';
-    input.name = 'theme-preference';
-    input.className = 'pref-radio';
-    input.dataset.pref = 'theme';
-    input.dataset.value = value;
-    input.checked = current === value;
+    const input = el('input'); input.type = 'radio'; input.name = 'theme-preference'; input.className = 'pref-radio';
+    input.dataset.pref = 'theme'; input.dataset.value = value; input.checked = current === value;
     input.addEventListener('change', () => { if (input.checked) setPref('theme', value); });
-    wrap.append(input, el('span', labels[value] ?? value));
-    group.append(wrap);
+    wrap.append(input, el('span', labels[value] ?? value)); group.append(wrap);
   }
   return group;
 }
 
-/** 下拉式枚举偏好。modes 是 `{ id, label }` 列表；与别处的同名控件共用同一个偏好键。 */
 function selectControl(name, modes, title) {
-  const select = el('select');
-  select.className = 'pref-select';
-  select.dataset.pref = name;
+  const select = el('select'); select.className = 'pref-select'; select.dataset.pref = name;
   if (title) select.title = title;
-  for (const mode of modes) {
-    const option = el('option', mode.label);
-    option.value = mode.id;
-    select.append(option);
-  }
+  for (const mode of modes) { const option = el('option', mode.label); option.value = mode.id; select.append(option); }
   select.value = readPref(name);
-  select.addEventListener('change', () => {
-    const known = modes.some(mode => mode.id === select.value);
-    setPref(name, known ? select.value : modes[0]?.id);
-  });
+  select.addEventListener('change', () => setPref(name, modes.some(mode => mode.id === select.value) ? select.value : modes[0]?.id));
   return select;
 }
 
-/**
- * 「系统信息」组：只读镜像 daemon 的软件配置（system.status），值取自最近一次快照 ui.lastSnapshot。
- * 该组不写回任何东西，也不新增拉取：设置页打开时 refresh.js 仍在更新 lastSnapshot，直接读它即可。
- */
-function systemInfoBlock() {
-  const section = block('系统信息');
-  section.append(el('p',
-    '以下都是 daemon 启动时读取的环境变量与软件配置，本组仅供查看、不提供修改；改变它们需要设置环境变量并重启 daemon 才生效。',
-    'settings-note settings-readonly'));
-  const snapshot = ui.lastSnapshot?.status ?? null;
-  if (!snapshot) {
-    section.append(el('p', '尚未收到 daemon 快照，暂时读不到系统信息；连接建立后会在下一次刷新时显示。',
-      'settings-value settings-placeholder'));
-    return section;
-  }
-  const plain = value => (value === null || value === undefined || value === '') ? '—' : String(value);
-  // pi 的两个覆写参数为空表示用 pi 自己的默认，不在这里猜模型名 / provider 名。
-  const pi = value => (value === null || value === undefined || value === '') ? 'pi 默认' : String(value);
-  const line = (field, title, note, value) => {
-    const node = el('span', value, 'settings-value');
-    node.dataset.systemField = field;
-    return row(title, note, node);
-  };
-  section.append(line('provider', 'Provider', 'Agent 后端（LUSH_PROVIDER）：pi 为真实模型，mock 为离线演示后端。', plain(snapshot.provider)));
-  section.append(line('concurrency', '并发额度',
-    '执行通道（LUSH_CONCURRENCY）与控制通道（LUSH_CONTROL_CONCURRENCY）各自同时在跑的任务上限。',
-    `${plain(snapshot.concurrency)}（控制通道 ${plain(snapshot.control_concurrency)}）`));
-  section.append(line('call_timeout', '单次调用超时', '一次 agent 调用允许的最长秒数（LUSH_CALL_TIMEOUT），超时即中断。', `${plain(snapshot.call_timeout)} 秒`));
-  section.append(line('task_call_limit', '单任务调用上限', '一个任务最多允许的 agent 调用次数（LUSH_TASK_CALLS）。', plain(snapshot.task_call_limit)));
-  section.append(line('max_depth', '最大拆解深度', '任务树允许的最大层数（LUSH_MAX_DEPTH）。', plain(snapshot.max_depth)));
-  section.append(line('pi_model', 'pi 模型', '传给 pi 的 --model（LUSH_PI_MODEL）；未设置时由 pi 自己决定。', pi(snapshot.pi_model)));
-  section.append(line('pi_provider', 'pi provider', '传给 pi 的 --provider（LUSH_PI_PROVIDER）；未设置时由 pi 自己决定。', pi(snapshot.pi_provider)));
-  return section;
-}
-
-/** 设置页整体重画：不依赖快照，纯读 localStorage 里的偏好。 */
-export function renderSettings() {
-  const panel = $('detail');
-  panel.dataset.view = 'settings';
-
-  const view = el('div', undefined, 'settings-view');
-  const head = el('div', undefined, 'settings-head');
-  const intro = el('div');
-  intro.append(el('span', 'PREFERENCES / 本地偏好', 'eyebrow'), el('h1', '设置'),
-    el('p', '这些偏好只保存在当前浏览器，不写进项目库；每项改动立刻生效。', 'hint'));
-  head.append(intro, button('返回概览', () => overview(), 'ghost'));
-  view.append(head);
-
+function interfaceTab() {
+  const content = el('div', undefined, 'settings-tab-panel');
   const reading = block('阅读');
-  reading.append(row('Markdown 渲染', '按 Markdown 渲染 agent 输出；关闭后原样显示纯文本节点。与头部「Markdown 渲染」按钮共用同一偏好。', toggleControl('markdown')));
-  view.append(reading);
+  reading.append(row('Markdown 渲染', '控制 Agent 输出的展示方式。', toggleControl('markdown')));
+  content.append(reading);
 
   const system = systemThemeMedia();
   const appearance = block('外观');
-  appearance.append(row('主题', `深色 / 浅色 / 跟随系统。系统当前${system?.matches ? '深色' : '浅色'}，实际显示${effectiveTheme() === 'dark' ? '深色' : '浅色'}；头部的主题按钮与这里共用同一偏好。`, themeControl()));
-  appearance.append(row('减少动态效果', `勾选后停用过渡与动画，覆盖系统偏好（系统当前${systemThemeMedia()?.matches ? '已要求减少' : '未要求'}）。`, toggleControl('reduceMotion')));
-  view.append(appearance);
+  appearance.append(row('主题', `系统当前${system?.matches ? '深色' : '浅色'}，实际显示${effectiveTheme() === 'dark' ? '深色' : '浅色'}。`, themeControl()));
+  appearance.append(row('减少动态效果', `覆盖系统偏好（系统当前${system?.matches ? '已要求减少' : '未要求'}）。`, toggleControl('reduceMotion')));
+  content.append(appearance);
 
-  const sidebar = block('左栏');
-  sidebar.append(row('默认排序', '左栏四个列表共用；与左栏顶部的排序下拉是同一个偏好。', selectControl('sidebarSort', SORT_MODES, '左栏四个列表共用：与左栏顶部的排序下拉是同一个偏好。')));
-  view.append(sidebar);
+  const navigation = block('导航');
+  navigation.append(row('信息列表排序', '行动任务、Intent、Plan 与待决事项共用。', selectControl('sidebarSort', SORT_MODES, '信息列表排序方式')));
+  content.append(navigation);
 
-  const behavior = block('行为');
-  behavior.append(row('轮询频率', '页面自动刷新的快慢；标准档即默认的 1.5s 快照 + 3s 实时。改动后立刻按新间隔重建定时器，不必刷新页面。',
-    selectControl('polling', POLLING_MODES, '页面自动刷新的快慢')));
-  behavior.append(row('消息提示停留时长', '顶部消息提示自动消失的快慢；标准档即默认的 4s（信息）/ 8s（错误）。对之后出现的提示生效。',
-    selectControl('toastDuration', TOAST_MODES, '顶部消息提示自动消失的快慢')));
-  view.append(behavior);
+  const behavior = block('刷新与提示');
+  behavior.append(row('轮询频率', '控制页面快照与实时状态刷新；修改后立即生效。', selectControl('polling', POLLING_MODES, '页面自动刷新频率')));
+  behavior.append(row('消息停留时长', '控制顶部信息与错误提示自动消失的速度。', selectControl('toastDuration', TOAST_MODES, '消息提示停留时长')));
+  content.append(behavior);
 
-  view.append(systemInfoBlock());
+  const reset = block('恢复界面默认');
+  const resetButton = el('button', '恢复默认设置', 'ghost pref-reset'); resetButton.type = 'button'; resetButton.onclick = () => resetPrefs();
+  reset.append(row('恢复界面默认', '只清除当前浏览器的界面偏好，不改项目 Agent 配置。', resetButton));
+  content.append(reset);
+  return content;
+}
 
-  const reset = block('恢复默认');
-  const resetButton = el('button', '恢复默认设置', 'ghost pref-reset');
-  resetButton.type = 'button';
-  resetButton.onclick = () => { resetPrefs(); };
-  reset.append(row('恢复默认设置', '把上面所有偏好恢复默认：Markdown 开启、主题跟随系统、智能排序、标准轮询与标准提示时长、跟随系统动效。', resetButton));
-  view.append(reset);
+const thinkingLabel = value => value || 'CLI 默认';
+function selectOptions(select, values, selected, label = value => value) {
+  select.replaceChildren(...values.map(value => { const option = el('option', label(value)); option.value = value; return option; }));
+  select.value = values.includes(selected) ? selected : '';
+}
 
+function field(label, control, note = '', extraClass = '') {
+  const wrap = el('label', undefined, `agent-field${extraClass ? ` ${extraClass}` : ''}`);
+  wrap.append(el('span', label, 'agent-field-label'), control);
+  if (note) wrap.append(el('span', note, 'settings-note'));
+  return wrap;
+}
+
+const modelCatalogs = new Map();
+let resourceCatalog = null;
+
+function profileEditor(settings, profile, target, title, subtitle) {
+  const card = el('section', undefined, 'agent-profile'); card.dataset.agentTarget = target;
+  const head = el('div', undefined, 'agent-profile-head');
+  const copy = el('div'); copy.append(el('h3', title), el('p', subtitle, 'settings-note'));
+  head.append(copy, el('span', target === 'default' ? '项目默认' : '独立覆盖', 'badge b-neutral')); card.append(head);
+
+  const form = el('div', undefined, 'agent-form-grid');
+  const backend = el('select'); backend.className = 'agent-select'; backend.dataset.agentField = 'agent';
+  selectOptions(backend, settings.options.agents, profile.agent, value => value === 'pi' ? 'Pi' : 'Codex');
+  const model = el('input'); model.className = 'agent-model'; model.dataset.agentField = 'model'; model.value = profile.model || '';
+  model.maxLength = 256;
+  const thinking = el('select'); thinking.className = 'agent-select'; thinking.dataset.agentField = 'thinking';
+
+  const modelBox = el('div', undefined, 'agent-model-box');
+  const modelLine = el('div', undefined, 'agent-model-line');
+  const loadModels = el('button', '读取 CLI 模型', 'ghost model-load'); loadModels.type = 'button';
+  const choices = el('div', undefined, 'model-choices');
+  modelLine.append(model, loadModels); modelBox.append(modelLine, choices);
+
+  const paintModels = () => {
+    const agent = backend.value;
+    const preset = settings.options.models[agent] || [];
+    const catalog = modelCatalogs.get(agent);
+    const nodes = [];
+    if (preset.length) {
+      const presets = el('div', undefined, 'model-presets');
+      presets.append(el('span', '常用', 'model-choice-label'));
+      for (const value of preset) {
+        const chip = el('button', value, 'model-preset'); chip.type = 'button'; chip.onclick = () => { model.value = value; }; presets.append(chip);
+      }
+      nodes.push(presets);
+    }
+    if (catalog) {
+      const picker = el('select', undefined, 'model-catalog');
+      const first = el('option', `从 ${catalog.models.length} 个可用模型中选择…`); first.value = ''; picker.append(first);
+      for (const entry of catalog.models) {
+        const option = el('option', entry.label && entry.label !== entry.id ? `${entry.label} · ${entry.id}` : entry.id);
+        option.value = entry.id; picker.append(option);
+      }
+      picker.value = '';
+      picker.addEventListener('change', () => { if (picker.value) model.value = picker.value; });
+      nodes.push(picker, el('span', catalog.warning || `已从本机 ${agent} CLI 读取当前可用模型。`, `model-catalog-note${catalog.warning ? ' warning' : ''}`));
+    }
+    choices.replaceChildren(...nodes);
+  };
+
+  const selectedExtensions = new Set(profile.extensions || []);
+  const selectedSkills = new Set(profile.skills || []);
+  const resourcesBox = el('div', undefined, 'agent-resources-box');
+  const resourcesHead = el('div', undefined, 'agent-resources-head');
+  const loadResources = el('button', '读取已安装项', 'ghost resource-load'); loadResources.type = 'button';
+  const resourcesNote = el('span', undefined, 'settings-note');
+  const resourceChoices = el('div', undefined, 'resource-choices');
+  resourcesHead.append(loadResources, resourcesNote); resourcesBox.append(resourcesHead, resourceChoices);
+
+  const paintResourceGroup = (title, entries, selected, kind) => {
+    const group = el('fieldset', undefined, 'resource-group');
+    group.append(el('legend', `${title}（${entries.length}）`));
+    const known = new Set(entries.map(entry => entry.id));
+    const rows = [...entries];
+    for (const id of selected) if (!known.has(id)) rows.push({ id, label: id.split('/').at(-1), source: '已配置但当前未发现', missing: true });
+    if (!rows.length) group.append(el('p', '没有发现可选项。', 'settings-note'));
+    for (const entry of rows) {
+      const wrap = el('label', undefined, `resource-choice${entry.missing ? ' missing' : ''}`);
+      const input = el('input'); input.type = 'checkbox'; input.dataset.resourceKind = kind; input.value = entry.id;
+      input.checked = selected.has(entry.id); input.disabled = backend.value !== 'pi';
+      input.addEventListener('change', () => input.checked ? selected.add(entry.id) : selected.delete(entry.id));
+      const copy = el('span'); copy.append(el('strong', entry.label), el('small', entry.description || entry.source || 'Pi 资源'));
+      wrap.append(input, copy); group.append(wrap);
+    }
+    return group;
+  };
+  const paintResources = () => {
+    const pi = backend.value === 'pi';
+    loadResources.disabled = !pi;
+    if (!pi) {
+      resourcesNote.textContent = 'Pi 扩展与 Skills 不会传给 Codex；选择会保留，切回 Pi 后生效。';
+    } else if (resourceCatalog?.warning) resourcesNote.textContent = resourceCatalog.warning;
+    else resourcesNote.textContent = resourceCatalog ? '只会加载勾选项；扩展拥有当前用户的完整系统权限。' : '按需读取本机 Pi 已安装资源。';
+    resourceChoices.replaceChildren(...(resourceCatalog ? [
+      paintResourceGroup('扩展', resourceCatalog.extensions || [], selectedExtensions, 'extensions'),
+      paintResourceGroup('Skills', resourceCatalog.skills || [], selectedSkills, 'skills'),
+    ] : []));
+  };
+  loadResources.onclick = async () => {
+    loadResources.disabled = true; loadResources.textContent = '读取中…';
+    try { resourceCatalog = await api('/api/agent/resources'); paintResources(); }
+    catch (error) { show(error.message, 'error'); }
+    finally { loadResources.textContent = '重新读取'; loadResources.disabled = backend.value !== 'pi'; }
+  };
+
+  const syncBackend = clear => {
+    const agent = backend.value;
+    if (clear) { model.value = ''; thinking.value = ''; }
+    model.placeholder = `${agent} CLI 默认模型`;
+    selectOptions(thinking, settings.options.thinking[agent] || [''], clear ? '' : profile.thinking, thinkingLabel);
+    paintModels(); paintResources();
+  };
+  backend.addEventListener('change', () => syncBackend(true));
+  loadModels.onclick = async () => {
+    const agent = backend.value;
+    loadModels.disabled = true; loadModels.textContent = '读取中…';
+    try {
+      const catalog = await api(`/api/agent/models?agent=${encodeURIComponent(agent)}`);
+      modelCatalogs.set(agent, catalog); paintModels();
+    } catch (error) { show(error.message, 'error'); }
+    finally { loadModels.disabled = false; loadModels.textContent = '重新读取'; }
+  };
+
+  form.append(field('Agent', backend, '执行该类任务的 CLI。'),
+    field('模型', modelBox, '留空使用所选 CLI 的默认模型；也可以读取 CLI 当前目录或直接填写模型 ID。'),
+    field('思考深度', thinking, '可用等级随 Agent 变化。'),
+    field('插件与 Skills', resourcesBox, '从当前用户已安装的 Pi 资源中选择；每个 Agent 配置独立保存。', 'resource-field'));
+
+  const builtInPrompt = settings.options.default_prompt || '';
+  const defaultPrompt = el('textarea'); defaultPrompt.className = 'agent-prompt'; defaultPrompt.dataset.agentField = 'default_prompt'; defaultPrompt.rows = 12;
+  defaultPrompt.maxLength = 32768; defaultPrompt.value = profile.default_prompt || builtInPrompt;
+  defaultPrompt.placeholder = 'Lush 内置 Prompt';
+  const promptTools = el('div', undefined, 'prompt-field-tools');
+  const promptState = el('span', undefined, 'settings-note');
+  const restorePrompt = button('恢复默认 Prompt', () => {
+    defaultPrompt.value = builtInPrompt;
+    promptState.textContent = '已恢复为 Lush 内置 Prompt；保存后生效。';
+  }, 'ghost prompt-reset');
+  restorePrompt.type = 'button';
+  promptTools.append(promptState, restorePrompt);
+  const syncPromptState = () => {
+    promptState.textContent = defaultPrompt.value.trim() === builtInPrompt.trim()
+      ? '当前显示 Lush 内置 Prompt。'
+      : '当前内容会替换 Lush 内置 Prompt。';
+  };
+  defaultPrompt.addEventListener('input', syncPromptState); syncPromptState();
+  const risk = el('div', undefined, 'prompt-risk');
+  risk.append(el('strong', '修改会替换内置 Prompt'), el('span', 'Agent 可能失去 Lush 的任务协议、权限边界、协作方式和交付要求，导致调用失败或错误操作。需要撤销修改时可恢复默认。'));
+  const defaultPromptBox = el('div', undefined, 'prompt-field-box'); defaultPromptBox.append(defaultPrompt, promptTools, risk);
+  form.append(field('默认 Prompt', defaultPromptBox, '这里显示实际生效的基础 Prompt；保存内置内容时仍以默认配置存储。', 'prompt-field'));
+
+  const appendPrompt = el('textarea'); appendPrompt.className = 'agent-prompt'; appendPrompt.dataset.agentField = 'append_prompt'; appendPrompt.rows = 4;
+  appendPrompt.maxLength = 32768; appendPrompt.value = profile.append_prompt ?? profile.prompt ?? '';
+  appendPrompt.placeholder = '例如：优先保持改动小而可审阅；完成后运行移动端 UI 检查。';
+  form.append(field('追加 Prompt', appendPrompt, '追加在最终默认 Prompt 之后，适合补充项目约定。', 'prompt-field'));
+  card.append(form); syncBackend(false);
+
+  const actions = el('div', undefined, 'agent-profile-actions');
+  actions.append(button('保存配置', async () => {
+    const enteredDefaultPrompt = defaultPrompt.value.trim();
+    const nextDefaultPrompt = enteredDefaultPrompt === builtInPrompt.trim() ? '' : enteredDefaultPrompt;
+    if (nextDefaultPrompt && nextDefaultPrompt !== (profile.default_prompt || '')) {
+      const confirmed = await confirmDialog({ title: '替换 Lush 内置 Prompt？',
+        message: '保存后，下一次 Agent 调用将不再收到 Lush 内置任务规则。',
+        detail: '可能影响：任务 API 使用、权限边界、子任务协作、工作区安全和交付流程。\n请确认你的 Prompt 已完整覆盖这些要求。',
+        confirmLabel: '仍然替换并保存', danger: true });
+      if (!confirmed) return;
+    }
+    const next = {
+      agent: backend.value, model: model.value.trim(), thinking: thinking.value,
+      default_prompt: nextDefaultPrompt, append_prompt: appendPrompt.value.trim(),
+      extensions: [...selectedExtensions], skills: [...selectedSkills],
+    };
+    const roles = { ...settings.roles };
+    const config = target === 'default'
+      ? { version: 1, default: next, roles }
+      : { version: 1, default: settings.default, roles: { ...roles, [target]: next } };
+    const saved = await action('agent.configure', { config });
+    if (ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = saved;
+    show(`${title}已保存；正在运行的调用不受影响，下一次调用使用新配置。`);
+    renderSettings();
+  }));
+  if (target !== 'default') actions.append(button('恢复继承默认', async () => {
+    const roles = { ...settings.roles }; delete roles[target];
+    const saved = await action('agent.configure', { config: { version: 1, default: settings.default, roles } });
+    if (ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = saved;
+    show(`${title}已恢复继承项目默认配置。`); renderSettings();
+  }, 'ghost'));
+  card.append(actions);
+  return card;
+}
+
+function inheritedRole(settings, role) {
+  const meta = settings.options.roles.find(item => item.id === role) || { id: role, label: role };
+  const resolved = settings.resolved[role];
+  const card = el('section', undefined, 'agent-role-summary'); card.dataset.agentTarget = role;
+  const copy = el('div', undefined, 'agent-role-copy');
+  copy.append(el('h3', meta.label), el('p', `${resolved.agent} · ${resolved.model || '默认模型'} · ${thinkingLabel(resolved.thinking)}`, 'settings-note'));
+  card.append(copy, el('span', '继承默认', 'badge b-neutral'), button('单独配置', async () => {
+    const saved = await action('agent.configure', { config: { version: 1, default: settings.default,
+      roles: { ...settings.roles, [role]: { ...resolved } } } });
+    if (ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = saved;
+    renderSettings();
+  }, 'ghost'));
+  return card;
+}
+
+function agentTab() {
+  const content = el('div', undefined, 'settings-tab-panel agent-settings');
+  const settings = ui.lastSnapshot?.status?.agent_config;
+  if (!settings) {
+    const waiting = block('Agent 配置');
+    waiting.append(el('p', '正在等待 daemon 快照。连接建立后可配置 Pi、Codex、模型、思考深度与各任务角色的追加 Prompt。', 'settings-placeholder'));
+    content.append(waiting); return content;
+  }
+  const intro = el('div', undefined, 'agent-callout');
+  intro.append(el('strong', '项目级 · 动态生效'), el('p', `配置保存在 ${settings.file}。正在运行的调用保持不变，排队任务与后续唤醒会读取最新配置。`, 'settings-note'));
+  content.append(intro);
+  content.append(profileEditor(settings, settings.default, 'default', '默认 Agent', '所有未单独配置的任务行为都继承这里。'));
+
+  const roles = block('按任务行为覆盖'); roles.classList.add('agent-roles-block');
+  roles.append(el('p', '只为需要不同模型、思考深度或工作方式的行为建立覆盖；其余保持继承，后续调整默认值时会一起更新。', 'settings-note settings-section-note'));
+  const list = el('div', undefined, 'agent-role-list');
+  for (const item of settings.options.roles) {
+    if (settings.roles[item.id]) list.append(profileEditor(settings, settings.roles[item.id], item.id, item.label, `仅用于 ${item.id} 角色。`));
+    else list.append(inheritedRole(settings, item.id));
+  }
+  roles.append(list); content.append(roles);
+  return content;
+}
+
+function systemTab() {
+  const content = el('div', undefined, 'settings-tab-panel');
+  const snapshot = ui.lastSnapshot?.status ?? null;
+  const section = block('运行状态');
+  section.append(el('p', '这里只展示 daemon 的当前状态。Agent 配置请在 Agent 页修改；并发与调用限制仍由环境变量在 daemon 启动时读取。', 'settings-note settings-readonly'));
+  if (!snapshot) {
+    section.append(el('p', '尚未收到 daemon 快照。', 'settings-value settings-placeholder')); content.append(section); return content;
+  }
+  const plain = value => (value === null || value === undefined || value === '') ? '—' : String(value);
+  const line = (fieldName, title, note, value) => { const node = el('span', value, 'settings-value'); node.dataset.systemField = fieldName; return row(title, note, node); };
+  section.append(line('provider', '默认 Agent', '当前项目未覆盖角色时使用的 Agent。', plain(snapshot.provider)));
+  section.append(line('concurrency', '并发额度', '执行通道 / 控制通道。', `${plain(snapshot.concurrency)} / ${plain(snapshot.control_concurrency)}`));
+  section.append(line('call_timeout', '单次调用超时', 'LUSH_CALL_TIMEOUT。', `${plain(snapshot.call_timeout)} 秒`));
+  section.append(line('task_call_limit', '单任务调用上限', 'LUSH_TASK_CALLS。', plain(snapshot.task_call_limit)));
+  section.append(line('max_depth', '最大拆解深度', 'LUSH_MAX_DEPTH。', plain(snapshot.max_depth)));
+  content.append(section);
+
+  const paths = block('项目路径');
+  paths.append(line('project', '项目', 'daemon 绑定的 canonical 项目目录。', plain(snapshot.project)));
+  paths.append(line('home', '状态目录', '项目数据库、会话、配置与工作区。', plain(snapshot.home)));
+  paths.append(line('agent_config_file', 'Agent 配置', '项目级 Agent 配置文件。', plain(snapshot.agent_config?.file)));
+  content.append(paths);
+  return content;
+}
+
+function tabBar() {
+  const nav = el('div', undefined, 'settings-tabs'); nav.setAttribute('role', 'tablist');
+  for (const tab of TABS) {
+    const node = el('button', undefined, `settings-tab${activeTab === tab.id ? ' active' : ''}`); node.type = 'button'; node.dataset.settingsTab = tab.id;
+    node.setAttribute('role', 'tab'); node.setAttribute('aria-selected', String(activeTab === tab.id));
+    node.append(el('strong', tab.label), el('span', tab.note));
+    node.onclick = () => { activeTab = tab.id; renderSettings(); };
+    nav.append(node);
+  }
+  return nav;
+}
+
+export function renderSettings() {
+  const panel = $('detail'); panel.dataset.view = 'settings';
+  const view = el('div', undefined, 'settings-view');
+  const head = el('div', undefined, 'settings-head');
+  const intro = el('div'); intro.append(el('span', 'PROJECT SETTINGS', 'eyebrow'), el('h1', '设置'), el('p', '项目 Agent 与当前浏览器体验，分开管理。', 'hint'));
+  head.append(intro); view.append(head, tabBar());
+  view.append(activeTab === 'agent' ? agentTab() : activeTab === 'interface' ? interfaceTab() : systemTab());
   panel.replaceChildren(view);
 }
 
-// 任何偏好变了都同步一次设置页（含头部主题按钮与左栏排序下拉写回的值）；不在设置页时不动。
-for (const name of PREF_NAMES) onPrefChange(name, () => { if (ui.settingsOpen) renderSettings(); });
+for (const name of PREF_NAMES) onPrefChange(name, () => { if (ui.settingsOpen && activeTab === 'interface') renderSettings(); });

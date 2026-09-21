@@ -89,7 +89,7 @@ export async function refresh() {
     if ((overviewOpen || ui.graphOpen) && graphStale(data)) {
       if (ui.graphOpen) await loadGraph();
       else fetchGraph().then(() => {
-        if (ui.selected === null && !ui.graphOpen && !ui.docsOpen) renderOverview(ui.lastSnapshot ?? data);
+        if (ui.selected === null && !ui.graphOpen && !ui.docsOpen && !ui.indexOpen && !ui.settingsOpen) renderOverview(ui.lastSnapshot ?? data);
       }).catch(error => { show(error.message, 'error'); });
     }
     const current = data.tasks.find(task => task.id === ui.selected);

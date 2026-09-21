@@ -6,7 +6,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
 
 - `GET /`、`/app.js`、`/styles.css`：Web 资源。
 - `GET /api/docs`、`GET /api/docs/<id>`、`GET /api/docs/<id>/html`：「文档」视图的目录、Markdown 正文与受控 standalone HTML，读的是随这份代码发布的 `docs/` 与 `README.md`（`src/ui/web/docs.js`），与当前项目目录无关。id 由相对路径推出，只按已扫出的表命中，请求里的路径片段不进文件系统；`/html` 只对索引里 `format === 'html'` 的条目生效（核心架构文档），响应带 `default-src 'none'` 的收紧 CSP，未命中回 404。
-- `POST /api/action`：JSON `{method, params}`，只允许用户输入、任务维护、Review Candidate 验收动作、`branch.merge/sync/archive` 和 notice / plan 用户动作。
+- `POST /api/action`：JSON `{method, params}`，只允许项目 Agent 配置（`agent.configure`）、用户输入、任务维护、Review Candidate 验收动作、`branch.merge/sync/archive` 和 notice / plan 用户动作。
 
 上面那份动作白名单就是代码里的 `MUTATIONS`。读取路由：
 
@@ -14,6 +14,8 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
 |---|---|
 | `GET /api/snapshot` | status + input.list + draft.list + notice.list + spec.list + candidate.list + ladder + timeline + 分页 task.list |
 | `GET /api/graph` | 分支节点、fork 连线实时状态与任务关系 |
+| `GET /api/agent/models?agent=pi|codex` | 按需读取所选本机 CLI 当前可用模型目录；失败时带预设与 warning 回退 |
+| `GET /api/agent/resources` | 不执行资源代码地读取当前用户和项目已安装的 Pi 扩展、Skills 与 package 资源，供 Agent profile 多选 |
 | `GET /api/task/ID` | `task.inspect` |
 | `GET /api/task/ID/history?after=N` | `task.history` |
 | `GET /api/task/ID/diff` | `task.diff` |

@@ -28,7 +28,7 @@ export class Config {
       'LUSH_HOME is no longer independent: unset it and select a project with --project or LUSH_PROJECT');
     this.env = { ...env, LUSH_PROJECT: this.project, LUSH_HOME: this.home };
     this.provider = env.LUSH_PROVIDER || 'pi';
-    check(['pi', 'mock'].includes(this.provider), 'LUSH_PROVIDER must be pi or mock');
+    check(['pi', 'codex', 'mock'].includes(this.provider), 'LUSH_PROVIDER must be pi, codex or mock');
     // Execution and control work have separate admission lanes: long workers can never starve new intent planning.
     this.concurrency = positive(env, 'LUSH_CONCURRENCY', 4, 64);
     this.controlConcurrency = positive(env, 'LUSH_CONTROL_CONCURRENCY', 2, 16);

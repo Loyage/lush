@@ -97,6 +97,7 @@ export default {
 
   inspect(taskId) {
     const task = this.store.task(taskId);
+    const runs = this.store.runsForTask(task.id);
     return { ...task, deps: this.store.depsDetail(task.id), dependents: this.store.dependentsDetail(task.id),
       ...(task.role === 'planner' ? { specs: bounded(this.store.specsByPlanner(task.id), 200000) } : {}),
       ...(task.role === 'scheduler' ? { specs: bounded(this.store.specsForBatch(task.id), 200000) } : {}),
@@ -107,9 +108,9 @@ export default {
       verifications: task.role === 'worker' ? bounded(this.store.verifications(task.id).map(row => ({ ...row, has_report: this.hasReport(row.id) })), 200000) : undefined,
       resolutions: task.role === 'worker' ? bounded(this.store.resolutions(task.id), 200000) : undefined,
       report: task.role === 'verifier' && this.hasReport(task.id) ? this.reportPath(task.id) : null,
-      runs: bounded(this.store.runsForTask(task.id), 200000),
+      runs: bounded(runs, 200000),
       artifacts: bounded(this.store.artifactsForTask(task.id), 200000),
-      agent: agentView(task, this.running.get(task.id) ?? null) };
+      agent: agentView(task, this.running.get(task.id) ?? null, runs.at(-1) ?? null) };
   },
 
   diff(taskId) { return this.workspaces.diff(this.store.task(taskId)); }

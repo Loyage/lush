@@ -109,7 +109,7 @@ test('设置页模块与左栏入口一起发货，样式里带设置与强制�
     expect(html).toMatch(/<script src="\/appearance\.js" type="module"><\/script>/);
     const css = await (await fetch(f.url + '/styles.css')).text();
     expect(css).toContain('.settings-row{');
-    expect(css).toContain('.settings-row{flex-direction:column');
+    expect(css).toContain('.settings-row{grid-template-columns:1fr');
     expect(css).toContain(':root[data-reduced-motion="true"]');
     expect(css).toMatch(/body:has\(#detail\[data-view="settings"\][^{]*#settings-open/);
   } finally { await f.close(); }

@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, deepText } from '../dom-stub.js';
+import { installDom, deepText, findByText } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 
 // 设置页：入口 / #settings 路由 / 轮询不覆盖、偏好默认值与老键回落、每项即时生效并持久化、恢复默认。
@@ -17,8 +17,12 @@ afterAll(() => dom.restore());
 
 const panel = () => dom.node('detail');
 const openSettings = () => dom.node('settings-open').onclick();
+const openTab = id => panel().querySelector(`button.settings-tab[data-settings-tab="${id}"]`).onclick();
+const openInterface = () => { openSettings(); openTab('interface'); };
+const openSystem = () => { openSettings(); openTab('system'); };
+const openAgent = () => { openSettings(); openTab('agent'); };
 const systemBlock = () => [...panel().querySelectorAll('.block')]
-  .find(node => node.querySelector('h2')?.textContent === '系统信息') || null;
+  .find(node => node.querySelector('h2')?.textContent === '运行状态') || null;
 
 test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1.5s 轮询不覆盖该视图', async () => {
   await dom.intervalFor(1500)();
@@ -28,6 +32,9 @@ test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1
   expect(dom.location.hash).toBe('#settings');
   expect(panel().dataset.view).toBe('settings');
   expect(deepText(panel())).toContain('设置');
+  expect(deepText(panel())).toContain('默认 Agent');
+  expect(deepText(panel())).toContain('按任务行为覆盖');
+  await openTab('interface');
   expect(deepText(panel())).toContain('Markdown 渲染');
   expect(deepText(panel())).toContain('跟随系统');
 
@@ -81,30 +88,30 @@ test('偏好快照与变更通知：setPref 只通知对应偏好', () => {
   expect(prefs.prefsSnapshot().polling).toBe('standard');
 });
 
-test('Markdown 开关：设置页控件与头部按钮共用同一个偏好', async () => {
+test('Markdown 偏好只在设置页管理，并立即影响 Agent 输出', async () => {
   const { agentText, markdownEnabled } = await import('../../src/ui/web/assets/text.js');
-  openSettings();
-  const toggle = panel().querySelector('input.pref-toggle[data-pref="markdown"]');
+  openInterface();
+  let toggle = panel().querySelector('input.pref-toggle[data-pref="markdown"]');
   expect(toggle.checked).toBe(true);
 
   toggle.checked = false;
   await toggle.listeners.change[0]();
   expect(globalThis.localStorage.getItem(prefs.MARKDOWN_KEY)).toBe('0');
   expect(markdownEnabled()).toBe(false);
-  expect(dom.node('md-toggle').textContent).toContain('关');
   const plain = agentText('**粗** 和 *斜*');
   expect(plain.tagName).toBe('DIV');
   expect(plain.className).toBe('');
   expect(plain.textContent).toBe('**粗** 和 *斜*');
 
-  // 反向：头部按钮翻转 → 设置页控件同步
-  dom.node('md-toggle').onclick();
+  openInterface();
+  toggle = panel().querySelector('input.pref-toggle[data-pref="markdown"]');
+  toggle.checked = true;
+  await toggle.listeners.change[0]();
   expect(markdownEnabled()).toBe(true);
-  expect(panel().querySelector('input.pref-toggle[data-pref="markdown"]').checked).toBe(true);
 });
 
 test('设置项即时生效并持久化：左栏排序、主题、动效、轮询频率', async () => {
-  openSettings();
+  openInterface();
   // 左栏默认排序 = 左栏顶部下拉的同一个偏好。
   const sort = panel().querySelector('select.pref-select[data-pref="sidebarSort"]');
   expect(sort.value).toBe('smart');
@@ -114,7 +121,7 @@ test('设置项即时生效并持久化：左栏排序、主题、动效、轮�
   expect(dom.node('sidebar-sort').value).toBe('updated');
 
   // 外观：选中深色立刻改 <html data-theme> 并落盘。
-  openSettings();
+  openInterface();
   const dark = panel().querySelector('input.pref-radio[data-value="dark"]');
   expect(dark.checked).toBe(false);
   dark.checked = true;
@@ -126,7 +133,7 @@ test('设置项即时生效并持久化：左栏排序、主题、动效、轮�
   expect(globalThis.localStorage.getItem(prefs.THEME_KEY)).toBe('light');
 
   // 动效：覆盖系统偏好，写到 <html> 上让 CSS 生效。
-  openSettings();
+  openInterface();
   const motion = panel().querySelector('input.pref-toggle[data-pref="reduceMotion"]');
   motion.checked = true;
   await motion.listeners.change[0]();
@@ -134,7 +141,7 @@ test('设置项即时生效并持久化：左栏排序、主题、动效、轮�
   expect(dom.document.documentElement.dataset.reducedMotion).toBe('true');
 
   // 轮询频率：改动后立即按新间隔重建定时器（标准 1500/3000 → 快速 800/1600）。
-  openSettings();
+  openInterface();
   const polling = panel().querySelector('select.pref-select[data-pref="polling"]');
   expect(polling.value).toBe('standard');
   polling.value = 'fast';
@@ -155,7 +162,7 @@ test('消息提示停留时长偏好对之后出现的提示生效', async () =>
   });
   const advance = ms => { clock += ms; for (const [id, entry] of [...pending]) if (entry.at <= clock) { pending.delete(id); entry.fn(); } };
   try {
-    openSettings();
+    openInterface();
     const toast = panel().querySelector('select.pref-select[data-pref="toastDuration"]');
     toast.value = 'short';
     await toast.listeners.change[0]();
@@ -187,7 +194,7 @@ test('恢复默认设置：删掉所有偏好键（含历史键）并就地重�
   globalThis.localStorage.setItem(prefs.TOAST_DURATION_KEY, 'long');
   globalThis.localStorage.setItem(prefs.LEGACY_TREE_SORT_KEY, 'updated');
 
-  openSettings();
+  openInterface();
   await panel().querySelector('button.pref-reset').onclick();
 
   for (const name of prefs.PREF_NAMES) expect(globalThis.localStorage.getItem(prefs.PREF_DEFS[name].key)).toBeNull();
@@ -204,55 +211,81 @@ test('恢复默认设置：删掉所有偏好键（含历史键）并就地重�
   expect(panel().querySelector('input.pref-toggle[data-pref="markdown"]').checked).toBe(true);
 });
 
-// 「系统信息」组：只读镜像 system.status，值取自 ui.lastSnapshot（轮询持续更新它），无快照时占位。
-const systemSnapshot = overrides => ({ status: {
-  provider: 'pi', concurrency: 4, control_concurrency: 2,
-  call_timeout: 600, task_call_limit: 12, max_depth: 5, pi_model: '', pi_provider: '',
-  ...overrides,
-} });
+test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可用', async () => {
+  await dom.intervalFor(1500)();
+  openAgent();
+  let card = panel().querySelector('[data-agent-target="default"]');
+  expect(deepText(card)).toContain('修改会替换内置 Prompt');
+  const defaultPrompt = card.querySelector('textarea[data-agent-field="default_prompt"]');
+  expect(defaultPrompt.value).toBe(world.state.agentConfig.options.default_prompt);
+  expect(findByText(card, '恢复默认 Prompt')).toBeTruthy();
+  await findByText(card, '读取已安装项').onclick();
+  const extension = card.querySelector('input[data-resource-kind="extensions"]');
+  const skill = card.querySelector('input[data-resource-kind="skills"]');
+  extension.checked = true; await extension.listeners.change[0]();
+  skill.checked = true; await skill.listeners.change[0]();
+  const backend = card.querySelector('select[data-agent-field="agent"]');
+  const model = card.querySelector('input[data-agent-field="model"]');
+  const thinking = card.querySelector('select[data-agent-field="thinking"]');
+  backend.value = 'codex';
+  await backend.listeners.change[0]();
+  await findByText(card, '读取 CLI 模型').onclick();
+  const catalog = card.querySelector('select.model-catalog');
+  expect(catalog.children).toHaveLength(3);
+  catalog.value = 'gpt-5.4-mini'; await catalog.listeners.change[0]();
+  expect(model.value).toBe('gpt-5.4-mini');
+  thinking.value = 'high';
+  card.querySelector('textarea[data-agent-field="append_prompt"]').value = '保持改动可审阅。';
+  await findByText(card, '保存配置').onclick();
+  expect(world.state.actions.at(-1).method).toBe('agent.configure');
+  expect(world.state.agentConfig.default).toMatchObject({ agent: 'codex', model: 'gpt-5.4-mini', thinking: 'high', append_prompt: '保持改动可审阅。',
+    extensions: ['/tmp/pi/extensions/review.ts'], skills: ['/tmp/pi/skills/browser/SKILL.md'] });
 
-test('系统信息组：只读展示快照字段，pi 覆写未设置时显示「pi 默认」', () => {
-  openSettings();
-  state.ui.lastSnapshot = systemSnapshot();
-  renderSettings();
+  openAgent();
+  card = panel().querySelector('[data-agent-target="default"]');
+  card.querySelector('textarea[data-agent-field="default_prompt"]').value = '完整替代规则。';
+  const saving = findByText(card, '保存配置').onclick();
+  expect(dom.node('modal').hidden).toBe(false);
+  await findByText(dom.node('modal'), '仍然替换并保存').onclick();
+  await saving;
+  expect(world.state.agentConfig.default.default_prompt).toBe('完整替代规则。');
 
+  openAgent();
+  card = panel().querySelector('[data-agent-target="default"]');
+  await findByText(card, '恢复默认 Prompt').onclick();
+  expect(card.querySelector('textarea[data-agent-field="default_prompt"]').value).toBe(world.state.agentConfig.options.default_prompt);
+  await findByText(card, '保存配置').onclick();
+  expect(world.state.agentConfig.default.default_prompt).toBe('');
+
+  openAgent();
+  const planner = panel().querySelector('[data-agent-target="planner"]');
+  await findByText(planner, '单独配置').onclick();
+  expect(world.state.agentConfig.roles.planner).toMatchObject({ agent: 'codex', model: 'gpt-5.4-mini', thinking: 'high' });
+  card = panel().querySelector('[data-agent-target="planner"]');
+  const prompt = card.querySelector('textarea[data-agent-field="append_prompt"]'); prompt.value = '规划时先列风险。';
+  await findByText(card, '保存配置').onclick();
+  expect(world.state.agentConfig.roles.planner.append_prompt).toBe('规划时先列风险。');
+});
+
+test('系统页：只读展示 daemon 状态与项目路径', () => {
+  openSystem();
   const block = systemBlock();
   expect(block).toBeTruthy();
   const value = field => block.querySelector(`[data-system-field="${field}"]`).textContent;
-  expect(value('provider')).toBe('pi');
-  expect(value('concurrency')).toBe('4（控制通道 2）');
-  expect(value('call_timeout')).toBe('600 秒');
-  expect(value('task_call_limit')).toBe('12');
-  expect(value('max_depth')).toBe('5');
-  expect(value('pi_model')).toBe('pi 默认');
-  expect(value('pi_provider')).toBe('pi 默认');
-  // 只读：该组内没有任何可编辑控件或写回按钮（stub 的选择器不支持逗号列表，逐个查）。
+  expect(value('provider')).toBe('mock');
+  expect(value('concurrency')).toBe('2 / 1');
+  expect(value('call_timeout')).toBe('900 秒');
+  expect(value('task_call_limit')).toBe('24');
+  expect(value('max_depth')).toBe('8');
   for (const control of ['input', 'select', 'textarea', 'button']) expect(block.querySelector(control)).toBeNull();
-  // 说明文字点明这些是环境变量、需重启 daemon 才生效、本组仅供查看。
-  const note = deepText(block);
-  expect(note).toContain('环境变量');
-  expect(note).toContain('重启 daemon');
-  expect(note).toContain('仅供查看');
 });
 
-test('系统信息组：pi 模型 / provider 有值时原样显示', () => {
-  openSettings();
-  state.ui.lastSnapshot = systemSnapshot({ pi_model: 'gpt-5', pi_provider: 'openai' });
-  renderSettings();
-  const block = systemBlock();
-  expect(block.querySelector('[data-system-field="pi_model"]').textContent).toBe('gpt-5');
-  expect(block.querySelector('[data-system-field="pi_provider"]').textContent).toBe('openai');
-});
-
-test('系统信息组：没有快照时显示占位、不抛异常也不留空块', () => {
-  openSettings();
-  state.ui.lastSnapshot = null;
+test('系统页：没有快照时显示占位', () => {
+  openSystem(); state.ui.lastSnapshot = null;
   expect(() => renderSettings()).not.toThrow();
   const block = systemBlock();
   expect(block).toBeTruthy();
-  // 组里没有字段值，只剩占位文案（不抛异常、不留空壳）。
   expect(block.querySelector('[data-system-field="provider"]')).toBeNull();
-  expect(block.querySelector('[data-system-field="pi_model"]')).toBeNull();
   expect(block.querySelector('.settings-placeholder')).toBeTruthy();
   expect(deepText(block)).toContain('尚未收到 daemon 快照');
 });

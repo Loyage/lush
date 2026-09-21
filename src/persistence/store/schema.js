@@ -84,7 +84,8 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       -- get their own durable rows instead of being collapsed into tasks.calls.
       CREATE TABLE IF NOT EXISTS agent_runs (
         id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES tasks(id), attempt INTEGER NOT NULL,
-        role TEXT NOT NULL, provider TEXT, status TEXT NOT NULL DEFAULT 'running', result TEXT, error TEXT,
+        role TEXT NOT NULL, provider TEXT, model TEXT, thinking TEXT,
+        status TEXT NOT NULL DEFAULT 'running', result TEXT, error TEXT,
         started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), ended_at TEXT);
       CREATE INDEX IF NOT EXISTS agent_runs_task ON agent_runs(task_id,id);
       -- Structured outputs from a run. payload/metadata are JSON text so the zero-dependency runtime can evolve

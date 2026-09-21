@@ -3,6 +3,13 @@ export const HELP = `Lush — 项目级多 agent 开发
 lush [--project PATH] [--json] <command>
   daemon start|stop|restart|status  一个项目一个进程
   status                          项目、agent、待合并改动
+  agent show                     查看项目默认与各任务角色的 Agent 配置
+  agent models pi|codex          读取本机 Agent CLI 当前可用模型目录
+  agent set default|ROLE [--agent pi|codex] [--model ID] [--thinking LEVEL]
+        [--default-prompt '…'] [--append-prompt '…']
+                                  设置默认或 planner/coordinator/worker/research/verifier/merger；下次调用生效
+                                  default-prompt 会替换 Lush 内置规则，使用前请确保包含完整任务与安全协议
+  agent reset ROLE               删除该角色覆盖，恢复继承项目默认配置
   doctor                          目录、工具链与代码版本
   say '你的意图' [--branch NAME]    从指定本地分支创建输入分支并排入规划；省略 NAME 使用当前分支
   intent list                     查看意图、Plan 编译与验收候选进度（别名 intents）
@@ -73,4 +80,4 @@ lush [--project PATH] [--json] <command>
 依赖：一个任务最多一条 code 依赖。code（默认）把上游分支当作本任务 worktree 的基线，
 因此看得到上游未合并的改动，但必须先合并上游再合并本任务；order 只等上游结束，代码仍从这条输入的锚点开始。
 依赖不能指向自己的祖先任务（祖先在等子孙结束，双方会互相等死）。
-Agent 默认 pi；LUSH_PROVIDER=mock 可离线验证。`;
+Agent 默认 pi；项目级配置保存在 .lush/agent.json，可按任务角色切换 pi / codex、模型、思考深度、默认 prompt 与追加 prompt；LUSH_PROVIDER=mock 可离线验证。`;

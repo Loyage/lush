@@ -5,54 +5,146 @@ import { fileURLToPath } from 'node:url';
 import { GUIDE } from './guide.js';
 
 const BIN = fileURLToPath(new URL('../../bin', import.meta.url));
+const MAX_RESULT = 256000;
+
+function sessionFiles(config, task, context, messages, agent) {
+  const sessions = path.join(config.home, 'sessions');
+  fs.mkdirSync(sessions, { recursive: true, mode: 0o700 });
+  const promptFile = path.join(sessions, `task-${task.id}-input.md`);
+  const systemFile = path.join(sessions, `task-${task.id}-system.md`);
+  fs.writeFileSync(promptFile, JSON.stringify({ task, project: config.project, agent, ...context, messages }), { mode: 0o600 });
+  const base = agent.default_prompt || GUIDE;
+  const custom = agent.append_prompt ? `\n\n# 项目自定义角色要求（追加）\n\n${agent.append_prompt}\n` : '';
+  fs.writeFileSync(systemFile, base + custom, { mode: 0o600 });
+  return { sessions, promptFile, systemFile };
+}
+
+async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, onStdout = null }) {
+  const child = cp.spawn(command, args, {
+    cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...config.env, LUSH_TASK_ID: String(config.taskId ?? ''), LUSH_AGENT_TOKEN: token,
+      PATH: `${BIN}${path.delimiter}${config.env.PATH || ''}` },
+  });
+  onSpawn(child.pid);
+  let output = '', stderr = '', overflow = false;
+  const kill = () => {
+    try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch {} }
+  };
+  child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
+  child.stdout.on('data', chunk => {
+    if (onStdout) onStdout(chunk);
+    else if (output.length + chunk.length > MAX_RESULT) { overflow = true; kill(); }
+    else output += chunk;
+  });
+  child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-12000); });
+  signal.addEventListener('abort', kill, { once: true });
+  if (signal.aborted) kill();
+  try {
+    const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
+    if (signal.aborted) throw new Error('agent invocation interrupted or timed out');
+    if (overflow) throw new Error(`agent output exceeded ${MAX_RESULT} characters`);
+    if (code !== 0) throw new Error(`${path.basename(command)} exited ${code}: ${stderr}`);
+    return output.trim();
+  } finally {
+    signal.removeEventListener('abort', kill);
+    // A task must not leave background grandchildren editing after its invocation ended.
+    kill();
+  }
+}
+
 export class PiProvider {
   constructor(config) { this.config = config; }
-  async run({ task, context, messages, cwd, token, signal, onSpawn }) {
+  async run({ task, context, messages, cwd, token, signal, onSpawn, agent }) {
     const config = this.config;
-    const sessions = path.join(config.home, 'sessions');
-    fs.mkdirSync(sessions, { recursive: true, mode: 0o700 });
-    const prompt = JSON.stringify({ task, project: config.project, ...context, messages });
-    // Use a prompt file rather than argv for arbitrarily large project context.
-    const promptFile = path.join(sessions, `task-${task.id}-input.md`);
-    fs.writeFileSync(promptFile, prompt, { mode: 0o600 });
-    const args = ['--print', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes',
-      '--session-dir', sessions, '--session-id', `lush-task-${task.id}`, '--append-system-prompt', GUIDE,
-      `Read ${promptFile} for your current Lush task and unread messages. Follow the task role and report your result.`];
-    if (config.env.LUSH_PI_MODEL) args.unshift('--model', config.env.LUSH_PI_MODEL);
+    const files = sessionFiles(config, task, context, messages, agent);
+    const args = ['--print', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes'];
+    for (const extension of agent.extensions || []) args.push('--extension', extension);
+    for (const skill of agent.skills || []) args.push('--skill', skill);
+    args.push('--session-dir', files.sessions, '--session-id', `lush-task-${task.id}`, '--append-system-prompt', files.systemFile,
+      `Read ${files.promptFile} for your current Lush task and unread messages. Follow the task role and report your result.`);
+    if (agent.thinking) args.unshift('--thinking', agent.thinking);
+    if (agent.model) args.unshift('--model', agent.model);
+    // Backward-compatible provider override for unqualified pi model IDs.
     if (config.env.LUSH_PI_PROVIDER) args.unshift('--provider', config.env.LUSH_PI_PROVIDER);
-    const child = cp.spawn(config.env.LUSH_PI_COMMAND || 'pi', args, {
-      cwd, detached: true, stdio: ['ignore','pipe','pipe'],
-      env: { ...config.env, LUSH_TASK_ID: String(task.id), LUSH_AGENT_TOKEN: token, PATH: `${BIN}${path.delimiter}${config.env.PATH || ''}` },
+    return spawnAgent(config.env.LUSH_PI_COMMAND || 'pi', args, {
+      config: { ...config, taskId: task.id }, cwd, token, signal, onSpawn,
     });
-    onSpawn(child.pid);
-    let output = '', stderr = '', overflow = false;
-    const kill = () => {
-      try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch {} }
+  }
+}
+
+function readThread(file) {
+  if (!fs.existsSync(file)) return null;
+  try {
+    const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return typeof value.thread_id === 'string' && value.thread_id.length <= 256 ? value.thread_id : null;
+  } catch { return null; }
+}
+function writeThread(file, threadId) {
+  const temporary = `${file}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(temporary, JSON.stringify({ version: 1, thread_id: threadId }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporary, file);
+  } finally { fs.rmSync(temporary, { force: true }); }
+}
+
+export class CodexProvider {
+  constructor(config) { this.config = config; }
+  async run({ task, context, messages, cwd, token, signal, onSpawn, agent }) {
+    const config = this.config;
+    const files = sessionFiles(config, task, context, messages, agent);
+    const stateFile = path.join(files.sessions, `codex-task-${task.id}.json`);
+    const resultFile = path.join(files.sessions, `codex-task-${task.id}-result.md`);
+    fs.rmSync(resultFile, { force: true });
+    const instruction = `Read ${files.systemFile} first and obey it as mandatory Lush runtime instructions. Then read ${files.promptFile} for the current task and unread messages. Follow the task role and report your result.`;
+    const options = ['--dangerously-bypass-approvals-and-sandbox', '--ignore-user-config', '--json', '--output-last-message', resultFile];
+    if (agent.model) options.push('--model', agent.model);
+    if (agent.thinking) options.push('--config', `model_reasoning_effort="${agent.thinking}"`);
+    const previous = readThread(stateFile);
+    const args = previous ? ['exec', 'resume', ...options, previous, instruction] : ['exec', ...options, instruction];
+    let buffer = '', threadId = previous;
+    const onStdout = chunk => {
+      buffer += chunk;
+      const lines = buffer.split('\n'); buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const event = JSON.parse(line);
+          if (event.type === 'thread.started' && typeof event.thread_id === 'string') {
+            threadId = event.thread_id;
+            writeThread(stateFile, threadId);
+          }
+        } catch { /* stderr and exit status carry actionable CLI failures */ }
+      }
+      // A malformed/no-newline stream must not grow without bound.
+      if (buffer.length > 1024 * 1024) buffer = buffer.slice(-65536);
     };
-    child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
-    child.stdout.on('data', chunk => {
-      if (output.length + chunk.length > 256000) { overflow = true; kill(); }
-      else output += chunk;
+    await spawnAgent(config.env.LUSH_CODEX_COMMAND || 'codex', args, {
+      config: { ...config, taskId: task.id }, cwd, token, signal, onSpawn, onStdout,
     });
-    child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-8000); });
-    signal.addEventListener('abort', kill, { once: true });
-    if (signal.aborted) kill();
-    try {
-      const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
-      if (signal.aborted) throw new Error('agent invocation interrupted or timed out');
-      if (overflow) throw new Error('agent output exceeded 256000 characters');
-      if (code !== 0) throw new Error(`pi exited ${code}: ${stderr}`);
-      return output.trim();
-    } finally {
-      signal.removeEventListener('abort', kill);
-      // A task must not leave background grandchildren editing after its invocation ended.
-      kill();
-    }
+    if (!threadId) throw new Error('codex did not report a thread id');
+    if (!fs.existsSync(resultFile)) throw new Error('codex did not write a final response');
+    const stat = fs.statSync(resultFile);
+    if (stat.size > MAX_RESULT) throw new Error(`agent result exceeded ${MAX_RESULT} bytes`);
+    return fs.readFileSync(resultFile, 'utf8').trim();
+  }
+}
+
+/** Dynamic router: role settings are re-read immediately before every invocation. */
+export class AgentProvider {
+  constructor(config, settings) {
+    this.config = config; this.settings = settings;
+    this.backends = { pi: new PiProvider(config), codex: new CodexProvider(config) };
+  }
+  resolve(task) { return this.settings.resolve(task.role); }
+  run(options) {
+    const agent = options.agent || this.resolve(options.task);
+    return this.backends[agent.agent].run({ ...options, agent });
   }
 }
 
 /** Deterministic offline backend: exercises delegation but never pretends to edit code. */
 export class MockProvider {
+  resolve() { return { agent: 'mock', model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }; }
   async run({ task, messages, signal, api }) {
     if (signal.aborted) throw new Error('aborted');
     if (task.role === 'planner' && !messages.length) {

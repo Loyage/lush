@@ -59,6 +59,18 @@ export function makeWorld() {
     notices: [],
     transcriptAfter: [],
     actions: [],
+    agentConfig: {
+      version: 1, file: '/tmp/demo/.lush/agent.json', runtime_agent: 'pi',
+      default: { agent: 'pi', model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }, roles: {},
+      resolved: Object.fromEntries(['planner','coordinator','worker','research','verifier','merger'].map(role => [role, { agent: 'pi', model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }])),
+      options: {
+        agents: ['pi','codex'],
+        roles: [['planner','规划任务'],['coordinator','协调任务'],['worker','开发任务'],['research','调研任务'],['verifier','验收任务'],['merger','分支分歧解决']].map(([id,label]) => ({ id,label })),
+        thinking: { pi: ['', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], codex: ['', 'minimal', 'low', 'medium', 'high', 'xhigh'] },
+        models: { pi: ['openai-codex/gpt-5.4'], codex: ['gpt-5.4','gpt-5.4-mini'] },
+        default_prompt: '你是 Lush 的默认 task agent。\n遵守任务协议与权限边界。',
+      },
+    },
     // 概览打开时不该每 1.5s 打一遍 git：/api/graph 的取数次数记在这里，供测试断言。
     graphFetches: 0,
     drafts: [],
@@ -96,12 +108,13 @@ export function makeWorld() {
   const task4 = { id: 4, parent_id: null, input_id: null, role: 'scheduler', goal: '调度拆解队列', status: 'queued', integration: 'none',
     updated_at: iso(NOW - 500), agent_wakes: 0, agent_last_seen_at: null, verifies_task_id: null, resolves_task_id: null };
   const snapshot = () => ({
-    status: { project: '/tmp/demo', provider: 'mock', concurrency: 2, agents: [], agents_idle: 0, agents_total: 0,
+    status: { project: '/tmp/demo', home: '/tmp/demo/.lush', provider: 'mock', concurrency: 2, control_concurrency: 1,
+      call_timeout: 900, task_call_limit: 24, max_depth: 8, agent_config: state.agentConfig, agents: [], agents_idle: 0, agents_total: 0,
       pending_merges: [{ id: 2, goal: '合并我', branch: 'lush/2-x', integration: 'pending' }], drafts: 0,
       tasks: [{ status: 'running', count: 1 }, { status: 'completed', count: 2 }], merge_freeze: state.freeze, notices: 0,
       // 拆解队列的计数与批次摘要（和 system.status 同形）
       specs: { pending: 1, planned: 1, dropped: 0, batches: [{ id: 4, status: 'queued', role: 'scheduler', count: 1 }] },
-      version: '0.2.0', fingerprint: 'abc', home: '/tmp/demo/.lush', started_at: iso(NOW - 60000) },
+      version: '0.2.0', fingerprint: 'abc', started_at: iso(NOW - 60000) },
     timeline: { now: iso(NOW), concurrency: 2, start: iso(NOW - 60000), end: iso(NOW), clamped: false, truncated: false, tasks: [] },
     ladder: { target_branch: 'main', current_branch: state.currentBranch, truncated: false, nodes: [
       { id: 2, role: 'worker', goal: '合并我', branch: 'lush/2-x', target_branch: 'main', integration: 'pending', deps: [], covered_by: [], level: 0 },
@@ -140,10 +153,26 @@ export function makeWorld() {
     const path = String(url);
     const json = data => ({ ok: true, status: 200, json: async () => data });
     if (path === '/api/snapshot') return json(snapshot());
+    if (path.startsWith('/api/agent/models?agent=')) {
+      const agent = decodeURIComponent(path.split('=').at(-1));
+      return json({ agent, source: 'cli', warning: null, models: agent === 'pi'
+        ? [{ id: 'openai-codex/gpt-5.4', label: 'gpt-5.4', provider: 'openai-codex' }, { id: 'deepseek/deepseek-flash', label: 'deepseek-flash', provider: 'deepseek' }]
+        : [{ id: 'gpt-5.4', label: 'GPT-5.4' }, { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini' }] });
+    }
+    if (path === '/api/agent/resources') return json({ agent: 'pi', warning: null,
+      extensions: [{ id: '/tmp/pi/extensions/review.ts', label: 'review.ts', source: '用户扩展' }],
+      skills: [{ id: '/tmp/pi/skills/browser/SKILL.md', label: 'browser', description: '浏览器自动化', source: '用户 Skills' }],
+    });
     if (path === '/api/graph') { state.graphFetches += 1; return json(state.graph); }
     if (path === '/api/action') {
       const body = JSON.parse(options.body);
       state.actions.push(body);
+      if (body.method === 'agent.configure') {
+        const config = body.params.config;
+        state.agentConfig = { ...state.agentConfig, version: 1, default: config.default, roles: config.roles,
+          resolved: Object.fromEntries(state.agentConfig.options.roles.map(({ id }) => [id, { ...(config.roles[id] || config.default) }])) };
+        return json(state.agentConfig);
+      }
       if (body.method === 'branch.merge') return json({ child: body.params.branch, parent: 'main', status: 'integrated', merged: true });
       if (body.method === 'branch.sync') return json({ branch: body.params.branch, parent: 'main', status: 'queued', task: { id: 88 } });
       if (body.method === 'branch.catchup') return json({ child: body.params.branch, parent: 'main', caught_up: true, from: 'aaa', to: 'bbb' });

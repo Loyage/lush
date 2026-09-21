@@ -30,6 +30,11 @@ export function renderAgent(task, usage) {
   if (task.agent) {
     grid.append(kv('agent', `${task.agent.id} · ${task.agent.active ? `运行中 · pid ${task.agent.pid ?? '待上报'}` : '空闲'}`));
     grid.append(kv('唤醒', `累计 ${task.agent.wakes} 次${task.agent.last_seen_at ? ` · 上次动手 ${relative(task.agent.last_seen_at)}` : ''}`));
+    if (!usage?.files?.length && task.agent.backend) {
+      grid.append(kv('运行后端', task.agent.backend));
+      grid.append(kv('模型', task.agent.model || `${task.agent.backend} 默认`, 'mono'));
+      if (task.agent.thinking) grid.append(kv('思考等级', task.agent.thinking));
+    }
   }
   if (usage?.files?.length) {
     grid.append(kv('模型', usage.model ? [usage.model.provider, usage.model.model_id].filter(Boolean).join('/') : '—', 'mono'));
@@ -56,7 +61,9 @@ export function renderAgent(task, usage) {
   const cached = transcriptCache.get(task.id);
   if (cached) holder.replaceChildren(...transcriptContent(task.id));
   // 会话文件不存在就别摆一个点了没用的按钮，直接说清楚为什么没东西可看。
-  else if (!usage?.files?.length) holder.append(el('p', '这个任务还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。', 'hint'));
+  else if (!usage?.files?.length) holder.append(el('p', task.agent?.backend === 'codex'
+    ? 'Codex 的线程会持续复用；当前版本暂不投影它的本地执行记录。'
+    : '这个任务还没有 Pi 会话记录（可能从未被唤醒，或会话文件已被清理）。', 'hint'));
   else if (transcriptOpen.has(task.id)) holder.append(el('p', '正在读取会话记录…', 'hint'));
   else {
     // 不展开时「只显示最近一条信息」（用户原话）：那一步就是执行过程的最后一条。

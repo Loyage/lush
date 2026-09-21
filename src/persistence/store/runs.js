@@ -2,9 +2,9 @@ import { check, id } from '../../core/types.js';
 
 /** Durable invocation attempts and structured artifacts. */
 export const runs = {
-  startRun(task, provider = null) {
-    const row = this.run(`INSERT INTO agent_runs(task_id,attempt,role,provider) VALUES (?,?,?,?)`,
-      task.id, task.calls + 1, task.role, provider);
+  startRun(task, agent = {}) {
+    const row = this.run(`INSERT INTO agent_runs(task_id,attempt,role,provider,model,thinking) VALUES (?,?,?,?,?,?)`,
+      task.id, task.calls + 1, task.role, agent.agent || null, agent.model || null, agent.thinking || null);
     return this.get('SELECT * FROM agent_runs WHERE id=?', Number(row.lastInsertRowid));
   },
   finishRun(runId, status, { result = null, error = null } = {}) {

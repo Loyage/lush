@@ -19,7 +19,7 @@
 
 ## 公共面（拆不动，也不许变）
 
-- RPC 方法名与参数表（`registry.js` 的 `PARAMS`）、`USER_ONLY` / `AGENT_ONLY` 权限集合。
+- RPC 方法名与参数表（`registry.js` 的 `PARAMS`）、`USER_ONLY` / `AGENT_ONLY` 权限集合。Agent 配置使用 `agent.config`（只读）、`agent.models(agent)`（按需读取本机 CLI 模型目录）、`agent.resources`（按需发现已安装 Pi 扩展与 Skills）与用户专属的 `agent.configure`（整份写入）。
 - CLI 命令与 `lush help` 的语义。
 - SQLite schema、表名、列名与 `meta.task_id_high` / `meta.input_id_high` 的行为。新核心表为 `agent_runs` / `artifacts` / `review_candidates`；`tasks.review_candidate_id` 通过 `store/base.js` 的 `ADDED_COLUMNS` 渐进补齐。其它兼容列仍只加不改，不重写已有行。
 - `src/index.js` 的导出、`bin/*` 的行为。
@@ -36,7 +36,7 @@
   在端口被别人占着时把命令行原样报出来。`bun run web` 就是「后台 spawn `bin/lush-web` + 等它占住端口」
   （`waitForWebState`），`web-restart` 就是「停下旧的 + 后台起一个新的」；Web 进程不会跟着代码换版本，
   这是换版的正路。
-- 环境变量与 agent capability 语义（`LUSH_PROJECT` / `LUSH_HOME` / `LUSH_TASK_ID` / `LUSH_AGENT_TOKEN`）。
+- 环境变量与 agent capability 语义（`LUSH_PROJECT` / `LUSH_HOME` / `LUSH_TASK_ID` / `LUSH_AGENT_TOKEN`）。项目级 Agent 配置固定写在 `<project>/.lush/agent.json`：默认配置 + planner / coordinator / worker / research / verifier / merger 六类角色覆盖；写入原子替换，运行中的 invocation 不打断，下一次调用动态读取并生效。每份 profile 分 `default_prompt` 与 `append_prompt`：前者非空时替换 Lush 内置规则（UI 正常显示内置全文、可恢复默认，并明确警告能力、权限与交付协议可能失效），后者始终追加；旧 `prompt` 字段按 `append_prompt` 兼容读取。profile 另存 `extensions` / `skills` 路径列表，只给 Pi invocation 以显式参数加载，Codex 保留配置但不使用。
 - `src/core/genealogy.js`（分支谱系的纯逻辑：`buildForest` / `pruneHidden` / `parentOf` / `childrenOf` / `ancestorsOf` /
   `descendantsOf` / `rootOf` / `chainOf`）与 `types.js` / `naming.js` 一样是共享纯模块：不碰 git、不写盘、
   不渲染，只被 `project/branches.js` 与 `test/branch-tree.test.js` 使用。`naming.js` 导出 `slugify` /
@@ -50,11 +50,22 @@
 | Git 边界 | `src/core/workspaces.js` | `src/core/workspaces/`（5 个） | ✅ |
 | 持久化 | `src/persistence/store.js` | `src/persistence/store/`（9 个） | ✅ |
 | 前端 | `src/ui/web/assets/app.js` | `src/ui/web/assets/`（见下表） | ✅ |
-| CLI | `src/cli/main.js` | `src/cli/`（10 个） | ✅ |
+| CLI | `src/cli/main.js` | `src/cli/`（含 Agent 配置命令） | ✅ |
 | RPC | `src/rpc/protocol.js` | `src/rpc/`（7 个） | ✅ |
 | 测试 | `test/*.test.js` | `test/<分区>/*.test.js` | 依赖上面六个落定后 |
 
 前六个分区 **互不共享文件**，可以同时开工。测试分区要等它们落地，否则测的是半成品。
+
+### Agent 运行时接缝
+
+| 文件 | 职责 | 导出 |
+|---|---|---|
+| `agent/settings.js` | `.lush/agent.json` 的兼容读取、校验、原子写入、角色继承与 Web 选项（含内置 Prompt）；旧 `prompt` 迁到 `append_prompt`，资源选择存 `extensions` / `skills` | `AGENT_ROLES`、`AGENT_BACKENDS`、`THINKING_LEVELS`、`MODEL_PRESETS`、`normalizeAgentConfig()`、`AgentSettings` |
+| `agent/models.js` | 有界、超时地读取 Pi / Codex CLI 模型目录，只投影安全的模型元数据，失败回退内置预设 | `discoverAgentModels(config, agent)` |
+| `agent/resources.js` | 不执行资源代码地发现用户/项目 Pi 扩展、Skills 与已安装 package 资源；CLI 列表失败时保留本地目录结果 | `discoverAgentResources(config)` |
+| `agent/provider.js` | 动态后端路由、Pi / Codex invocation、Codex thread 恢复；组合默认 Prompt 与追加 Prompt | `PiProvider`、`CodexProvider`、`AgentProvider`、`MockProvider` |
+| `agent/guide.js` | Lush 内置任务、权限与交付协议；profile 未替换默认 Prompt 时使用 | `GUIDE` |
+| `agent/session.js` | Pi 会话 JSONL 的只读解析与用量投影 | 会话解析函数 |
 
 ---
 
@@ -65,9 +76,10 @@
 
 | 文件 | 职责 | 导出（作为 `Project.prototype` 的方法） |
 |---|---|---|
-| `project/base.js` | 构造与实例状态（`config` / `store` / `provider` / `workspaces` / `running` / `stopping` / `scheduled` / `ancestry`） | `class ProjectBase` |
-| `project/internal.js` | 两个跨模块的私有助手 | `agentView(task, run)`、`tokenHash(token)` |
-| `project/status.js` | 项目级读模型（任务分布、layers、意图、spec、drafts、agents、待合并、合并冻结、notice 计数），并在同一份 `status()` 里镜像 daemon 启动时的只读软件配置：`provider` / `concurrency` / `control_concurrency`，以及 `call_timeout`（秒）、`task_call_limit`、`max_depth`，还有 pi 覆写 `pi_model` / `pi_provider`（未设置时为空字符串，由界面显示「pi 默认」，不在后端编造默认值）；这些值都在启动时读一次环境变量，改动需重启 daemon | `status()` |
+| `project/base.js` | 构造与实例状态（`config` / `store` / `agentSettings` / `provider` / `workspaces` / `running` / `stopping` / `scheduled` / `ancestry`） | `class ProjectBase` |
+| `project/internal.js` | 两个跨模块的私有助手 | `agentView(task, run, latestRun)`、`tokenHash(token)` |
+| `project/agents.js` | 项目级 Agent 配置读写接缝；读取动态生效，按需查询 Pi / Codex 本机模型目录及 Pi 扩展/Skills，写入只允许用户侧 RPC | `agentConfig()`、`agentModels(agent)`、`agentResources()`、`configureAgents(value)` |
+| `project/status.js` | 项目级读模型（任务分布、layers、意图、spec、drafts、agents、待合并、合并冻结、notice 计数），并镜像 daemon 软件配置与当前 `agent_config`；`provider` 表示当前默认 Agent（mock 模式仍为 mock），旧 pi 环境变量字段继续只读返回用于兼容 | `status()` |
 | `project/deps.js` | 依赖边的读模型与结构校验 | `decorate(tasks)`、`blockedBy(taskId)`、`assertDeps(taskId, parent, edges)` |
 | `project/inputs.js` | 从用户指定父分支创建可推进输入分支、在其中规划，以及流程判定 | `anchorInput(branch)`、`insertInput(inputId, anchor, content, attach)`、`createInput(content, attach, branch)`、`submit(content, branch)`、`inputs()`、`setInputFlow(taskId, flow)` |
 | `project/drafts.js` | 输入缓存（增删改、整体提交到指定父分支） | `draft`、`drafts`、`dropDraft`、`editDraft`、`commitDrafts(ids, branch)` |
@@ -113,7 +125,7 @@
 | `store/drafts.js` | 输入缓存 | `addDraft`、`draft`、`updateDraft`、`openDrafts`、`draftCount` |
 | `store/timeline.js` | 时间轴原料 | `timelineTasks`、`lifecycleEvents`、`childSpans` |
 | `store/branches.js` | 分支谱系记录（写入即不可变，删除与归档都只标 `status`、不删行，另存一句人写的 `summary` 作分支标题） | `PARENT_RELATIONS`、`branch`、`branches`、`recordBranch`、`markBranchDeleted`、`markBranchArchived`、`setBranchSummary` |
-| `store/runs.js` | 每次 invocation 的 Run 与结构化 Artifact | `startRun`、`finishRun`、`runsForTask`、`addArtifact`、`artifact`、`artifactsForTask`、`artifactsForInput` |
+| `store/runs.js` | 每次 invocation 的 Run 与结构化 Artifact；Run 固化这一次实际使用的 provider / model / thinking（后续改项目配置不改历史） | `startRun`、`finishRun`、`runsForTask`、`addArtifact`、`artifact`、`artifactsForTask`、`artifactsForInput` |
 | `store/candidates.js` | Review Candidate 版本与状态 | `candidate`、`candidates`、`latestCandidate`、`createCandidate`、`updateCandidate` |
 
 ## 4. 前端：`src/ui/web/assets/`
@@ -139,7 +151,7 @@
 | `app.js` | 唯一入口：装配顶部按钮、移动端导航、右侧返回按钮、`#graph` / `#settings` / 四个信息页 / 任务 / 文档的 hash 路由与两个定时器；定时器按「轮询频率」偏好重建 | `boot()` |
 | `appearance.js` | head 中初始化深浅主题，装配头部切换按钮；偏好经 prefs.js 读写（`lush.theme`），`system` 跟随系统、显式值覆盖系统，存储不可用时保留会话内选择 | `systemThemeMedia()`、`resolveTheme()`、`effectiveTheme()`、`applyTheme()`、`createAppearance()`、`initAppearance()`、`refreshTheme()` |
 | `prefs.js` | 本地偏好中心：键名 / 默认值 / 解析与序列化、读写与变更通知都在这一份（`markdown` / `theme` / `sidebarSort` / `collapsed` / `filters` / `reduceMotion` / `polling` / `toastDuration`）；坏数据回落默认值，存储不可用不抛异常；老键（`lush.treeSort`、`lush.theme`、`lush.markdown`）继续生效；`resetPrefs()` 删除全部受管键（含历史键）并逐项通知回默认值 | `PREF_DEFS`、`PREF_NAMES`、`MARKDOWN_KEY`、`THEME_KEY`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`REDUCED_MOTION_KEY`、`POLLING_KEY`、`TOAST_DURATION_KEY`、`THEME_VALUES`、`SORT_IDS`、`POLLING_MODES`、`TOAST_MODES`、`pollingIntervals()`、`toastDurations()`、`readPref`、`writePref`、`setPref`、`onPrefChange`、`resetPrefs`、`prefsSnapshot`、`storageAvailable` |
-| `render-settings.js` | 设置视图（阅读 / 外观 / 左栏 / 行为四组本地偏好，每项即时生效并持久化，另有恢复默认；外加只读的「系统信息」组，展示最近一次快照 `ui.lastSnapshot.status` 里的 provider、并发额度（含控制通道）、调用超时、单任务调用上限、拆解深度与 pi 模型 / provider，无快照时显示占位）；打开期间轮询不用概览覆盖，与分支图 / 文档 / 信息页同一套排他规则 | `openSettings()`、`renderSettings()` |
+| `render-settings.js` | 设置视图，分 Agent / 界面 / 系统三个页签：Agent 页编辑项目默认与六类角色覆盖（agent / model / thinking / 默认 prompt / 追加 prompt / Pi 扩展与 Skills），可按需读 `/api/agent/models` 展示本机 CLI 当前模型目录、读 `/api/agent/resources` 多选已安装资源，经 `agent.configure` 写入项目；默认 prompt 正常显示内置全文并可一键恢复，替换内置 prompt 前显示风险警告并二次确认；界面页管理浏览器本地偏好与恢复默认；系统页只读展示 daemon 配置。打开期间轮询不用概览覆盖 | `openSettings()`、`renderSettings()` |
 | `styles.css` | 双主题设计 token、应用布局、组件、响应式与 reduced-motion 动效（含设置页与强制减少动效 `[data-reduced-motion="true"]`） | CSS |
 | `state.js` | 共享可变状态（一个对象，新字段不必改别的文件就能加）；`ui.indexOpen` 记录右侧信息页，`ui.lastGraph` 保存最近一次 `graph.get` 读模型，`ui.settingsOpen` 标记设置视图；折叠 / 筛选 / 排序偏好经 prefs.js 读写 | `ui`、`transcriptOpen`、`transcriptCache`、`mergeSelection`、`resetUiState()`、`readSidebarSortPref`、`readCollapsedPref`、`readFiltersPref`、`saveCollapsedPref`、`saveFiltersPref`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`SORT_IDS` |
 | `navigate.js` | 导航间接层（断循环依赖） | `registerNavigation({refresh, detail, overview, graph})`、`refresh()`、`detail(taskId)`、`overview()`、`graph()` |
@@ -147,7 +159,7 @@
 | `format.js` | 标签映射与格式化（纯函数） | `STATUS`、`INTEGRATION`、`ROLE`、`EVENTS`、`HOT`、`TERMINAL_STATUS`、`WAIT_REASON`、`PLAN_GATE`、`SPEC_STATUS`、`MERGE_STATUS`、`CHANGE`、`DEP_HELP`、`STEP`、`MD_STEP`、`statusOf`、`relative`、`duration`、`absolute`、`clock`、`tokens`、`money`、`depsOf`、`waitingDeps`、`resolverOf`、`specStatus`、`specTitle`、`edgeLabel`、`lastView`、`short` |
 | `dom.js` | DOM 原语 | `el`、`button`、`syncChildren`、`block`、`kv`、`badge`、`statusBadge` |
 | `dialog.js` | 应用内确认 / 输入弹窗（替代原生 `confirm` / `prompt`）：画进独立于 `#detail` 的 `#modal`，同刻只留一个弹窗，Esc / 点背景 / 取消＝取消，Enter / 输入框回车＝确认，关闭后焦点还给打开者 | `confirmDialog(opts)`、`promptDialog(opts)`、`closeDialog()` |
-| `text.js` | agent 输出的 Markdown 开关（设置页的「阅读」项，偏好键 `lush.markdown`；与头部 `#md-toggle` 共用并互相同步） | `markdownEnabled()`、`agentText(value, opts)`、`syncMarkdownToggle()`、`toggleMarkdown()` |
+| `text.js` | agent 输出的 Markdown 偏好（只在设置页管理，偏好键 `lush.markdown`）；偏好变化时重画当前详情 | `markdownEnabled()`、`agentText(value, opts)` |
 | `gauge.js` | 顶部并发槽表 | `slotGauge(data)` |
 | `filters-ui.js` | 筛选控件与选项工具 | `filterSelect`、`filterToggle`、`filterInput`、`syncSelectOptions`、`withCurrent`、`uniqueValues`、`roleOption`、`statusOption`、`specStatusOption`、`plannerOption`、`filterUi` |
 | `sidebar-ui.js` | 左栏纯导航与右侧视图切换：信息页 / 通用内容画布互斥、统一视图栏、计数与兼容折叠状态 | `setViewChrome`、`activateDetailView`、`openResource`、`paintCollapsed`、`setNavCount`、`selectNav`、`navTo` |
@@ -202,6 +214,7 @@
 | `cli/commands/branch.js` | `branch`（tree / show / import / merge / sync / catchup / archive / summary） | `run` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` / `web-restart` / `web-stop` / `web-status` | `run` |
 | `cli/commands/candidate.js` | `candidate list/inspect/prepare/verify/accept/changes/reject` | `run` |
+| `cli/commands/agent.js` | `agent show/models/set/reset`；`--prompt` 只作旧版 `--append-prompt` 别名 | `run` |
 | `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒 | `main(argv)`（并 re-export `HELP`） |
 
 ## 6. RPC：`src/rpc/protocol.js` + `src/rpc/`
@@ -212,7 +225,7 @@
 |---|---|---|
 | `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
-| `rpc/handlers/system.js` | `system.*`、`graph.get` | `handlers` |
+| `rpc/handlers/system.js` | `system.*`、`graph.get`、`agent.config`、`agent.models`、`agent.resources`、`agent.configure` | `handlers` |
 | `rpc/handlers/input.js` | `input.*`、`draft.*` | `handlers` |
 | `rpc/handlers/task.js` | `task.*` | `handlers` |
 | `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |

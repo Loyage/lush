@@ -9,6 +9,7 @@ const ADDED_COLUMNS = {
   inputs: ['anchor_branch', 'anchor_commit', 'anchor_workspace', 'anchor_target_branch'],
   branches: ['summary'],
   tasks: ['review_candidate_id'],
+  agent_runs: ['model', 'thinking'],
 };
 function addMissingColumns(db) {
   for (const [table, columns] of Object.entries(ADDED_COLUMNS)) {
