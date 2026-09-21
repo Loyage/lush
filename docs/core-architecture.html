@@ -20,7 +20,7 @@
 <h2>一、四个中心，各司其职</h2>
 <div class="grid">
 <article class="card"><span class="tag">用户目标中心</span><h3>Intent</h3><p>保存用户原话、目标分支、流程模式与当前交付状态。所有计划、工作、反馈和候选版本都回到同一个 Intent。</p></article>
-<article class="card"><span class="tag blue">执行中心</span><h3>WorkItem + Run</h3><p>WorkItem 是稳定工作节点；Run 是一次真实模型调用。重试、换模型和唤醒形成新的 Run，不覆盖历史。</p></article>
+<article class="card"><span class="tag blue">执行中心</span><h3>Task + Agent + Run</h3><p>Task 是稳定工作节点，Agent 是与它终身一对一的执行身份；Run 是一次真实模型调用。重试、换模型和唤醒形成新的 Run，不覆盖历史。</p></article>
 <article class="card"><span class="tag violet">信息集成中心</span><h3>Artifact</h3><p>代码提交、测试证据、报告、发现、风险和摘要都是结构化 Artifact；用户无需阅读所有 transcript 才能理解成果。</p></article>
 <article class="card"><span class="tag amber">验收中心</span><h3>Review Candidate</h3><p>Candidate 固定 integration branch 上的精确 commit，绑定基线、前后对照、测试证据和 HTML 报告。</p></article>
 <article class="card"><span class="tag blue">代码交付中心</span><h3>Branch + Commit</h3><p>Branch 负责隔离、集成和恢复，Commit 负责不可变身份。Git 是交付基础设施，不要求普通用户用提交拓扑理解目标。</p></article>
@@ -33,7 +33,7 @@
 <div class="flow" aria-label="从用户输入到最终结果">
 <div class="node" style="--tone:var(--green)"><b>1 · Intent</b><small>逐字保存用户目标与目标分支，立即返回 ID。</small></div><div class="arrow">→</div>
 <div class="node" style="--tone:var(--blue)"><b>2 · Planner Run</b><small>理解意图，输出结构化 Plan 与验收标准。</small></div><div class="arrow">→</div>
-<div class="node" style="--tone:var(--violet)"><b>3 · Plan Compiler</b><small>runtime 事务化编译 Work DAG，不再调用 scheduler 模型。</small></div><div class="arrow">→</div>
+<div class="node" style="--tone:var(--violet)"><b>3 · Plan Compiler</b><small>runtime 事务化编译 Task DAG，不再调用 scheduler 模型。</small></div><div class="arrow">→</div>
 <div class="node" style="--tone:var(--blue)"><b>4 · Parallel Runs</b><small>Worker / Research / Test 在隔离上下文并行执行。</small></div><div class="arrow">→</div>
 <div class="node" style="--tone:var(--violet)"><b>5 · Artifacts</b><small>收集 commit、证据、结论、风险与后续事项。</small></div><div class="arrow">→</div>
 <div class="node" style="--tone:var(--amber)"><b>6 · Candidate</b><small>冻结 integration commit，生成修改前后验收报告。</small></div><div class="arrow">→</div>
@@ -49,7 +49,7 @@ Intent ──► Planner Run ──► Plan(spec + deps + acceptance)
                                │
                ┌───────────────┼───────────────┐
                ▼               ▼               ▼
-          WorkItem A       WorkItem B       WorkItem C
+            Task A           Task B           Task C
           Worker Run       Research Run     Test Run
                └───────────────┼───────────────┘
                                ▼
@@ -70,12 +70,34 @@ Intent ──► Planner Run ──► Plan(spec + deps + acceptance)
 </section>
 
 <section>
-<h2>三、为什么不是 Branch-first</h2>
-<div class="lanes">
-<article class="lane"><h3>Branch 能准确回答</h3><ol><li>代码从哪里分出</li><li>有哪些 commit</li><li>是否领先、落后或分歧</li><li>能不能安全合并</li><li>如何恢复工作现场</li></ol></article>
-<article class="lane"><h3>用户验收真正要回答</h3><ol><li>功能是不是我想要的</li><li>修改前后有什么差异</li><li>测试和真实运行是否成立</li><li>有哪些风险和未完成项</li><li>批准的是不是刚刚看过的版本</li></ol></article>
+<h2>三、Task：让 Agent 成为可持续协作单元</h2>
+<p>在 Lush 中，Task 不是一段 prompt，也不是一个常驻进程，而是 runtime 持久化的工作单元：它保存目标、角色、父子关系、依赖、状态、消息、工作区与结果。Task 创建时即绑定唯一 Agent 身份（如 <code>worker#7</code>）；每次真正调用模型才产生一个 Run。等待结束后可以创建新 Run 继续工作，而 Task 与 Agent 身份不变。</p>
+<table class="table"><thead><tr><th>维度</th><th>裸 Agent</th><th>Task 模型</th></tr></thead><tbody>
+<tr><td>身份</td><td>通常等同于一次进程、会话或模型调用</td><td>稳定 Task ID 与 <code>&lt;role&gt;#&lt;task-id&gt;</code> 身份贯穿多次唤醒</td></tr>
+<tr><td>生命周期</td><td>启动、执行、返回；后续状态由调用方自行保存</td><td><code>queued → running → waiting / awaiting → completed</code> 由 runtime 持久化管理</td></tr>
+<tr><td>协作上下文</td><td>主要依赖 prompt 与 transcript，关系常隐含在文本中</td><td>目标、父子、依赖、消息、工作区和结果均有明确结构</td></tr>
+<tr><td>等待方式</td><td>调用方阻塞、轮询，或让进程持续占用资源</td><td>Task 停在 waiting / awaiting，释放 invocation 与并发槽，由事件再次唤醒</td></tr>
+<tr><td>恢复与审计</td><td>进程退出后容易丢失协作现场</td><td>Task、消息、Event 与每次 Run 都可追溯；失败不会抹掉历史</td></tr>
+</tbody></table>
+<div class="diagram" style="margin-top:16px"><pre>Parent Task / Agent
+      │
+      ├─ spawn Child Task ─────► Child Agent Run
+      │         │                       │
+      │         └─ parent waiting       ├─ message / result 持久化
+      │              释放并发槽         └─ child completed
+      │                                      │
+      ◄──────────── runtime wake ─────────────┘
+      │
+      └─ 新 Run 读取收件箱并继续
+
+Agent 提问 ─► Notice ─► Task awaiting（释放并发槽）
+                         │
+用户回复 ─► durable message ─► runtime wake ─► 新 Run 继续</pre></div>
+<div class="lanes" style="margin-top:16px">
+<article class="lane"><h3>非阻塞的多 Agent 并发</h3><p>等待子任务、依赖或用户时，Task 保留完整身份与现场，但没有活着的模型调用，也不占执行槽。其它可运行 Task 继续推进；条件满足后由 runtime 精确唤醒原 Agent。</p></article>
+<article class="lane"><h3>可交互的持久通信</h3><p>Agent 之间不靠常驻进程互相等待，也不必读取彼此的完整 transcript。消息在 invocation 边界投递到持久收件箱；问题通过 Notice 到达用户，回复再成为下一次 Run 的输入。通信、等待与恢复因此都可观察、可审计。</p></article>
 </div>
-<p class="callout"><strong>结论：</strong>Branch 仍是 Git 子系统的核心，但产品主线以 Intent 和 Review Candidate 为核心。Candidate 使用不可变 commit 防止 branch 在验收后继续移动、夹带用户未看过的内容。</p>
+<p class="callout"><strong>多 Agent 优势：</strong>Task 把一次性的模型能力变成可暂停、可唤醒、可依赖、可通信的协作节点。并行来自就绪 Task 的独立推进，协调来自持久状态与事件，而不是把一组 Agent 进程一直挂在内存里。</p>
 </section>
 
 <section>
@@ -83,7 +105,7 @@ Intent ──► Planner Run ──► Plan(spec + deps + acceptance)
 <div class="lanes">
 <article class="lane"><span class="tag">产品轴</span><div class="code">Intent
   └─ Plan revision
-      └─ Work DAG
+      └─ Task DAG
           └─ Artifacts
               └─ Review Candidate v1/v2/…
                   └─ Decision</div></article>
@@ -102,7 +124,8 @@ Candidate → exact integration commit</div></article>
 <table class="table"><thead><tr><th>实体</th><th>负责</th><th>不负责</th></tr></thead><tbody>
 <tr><td>Intent</td><td>原始目标、模式、目标分支、整体状态</td><td>单次模型调用细节</td></tr>
 <tr><td>Plan</td><td>版本化拆解、依赖、验收标准、风险</td><td>调度进程与 Git 操作</td></tr>
-<tr><td>WorkItem</td><td>一块稳定目标及完成条件</td><td>把多次重试压成同一次执行</td></tr>
+<tr><td>Task</td><td>稳定目标、角色、关系、状态、工作区及完成条件</td><td>等同于某一次模型调用或常驻进程</td></tr>
+<tr><td>Agent</td><td>与 Task 一对一的长期执行身份及连续会话</td><td>充当永久有效的 invocation 凭证</td></tr>
 <tr><td>Run</td><td>一次 provider invocation、模型、成本、结果和错误</td><td>长期业务身份</td></tr>
 <tr><td>Artifact</td><td>结果、commit、报告、证据、发现和风险</td><td>控制任务生命周期</td></tr>
 <tr><td>Review Candidate</td><td>固定 commit、基线、报告和用户验收状态</td><td>可变 branch 的未来内容</td></tr>
@@ -157,7 +180,7 @@ integration_target: intent-42  // 最终聚合到哪里</div>
       ├─ 要求修改
       │      └─ feedback artifact
       │            └─ incremental planner
-      │                  └─ new Work DAG
+      │                  └─ new Task DAG
       │                        └─ Candidate v2
       │
       └─ 放弃 ─────────────► rejected（历史仍保留）</pre></div>
@@ -188,9 +211,9 @@ integration_target: intent-42  // 最终聚合到哪里</div>
 
 <section>
 <h2>十二、当前实现与演进边界</h2>
-<p>现有 SQLite、项目 daemon、worktree 隔离、事件审计、短期 token、恢复策略和最终用户批准继续保留。迁移采用加表/加列与兼容 RPC：Task 暂时作为 WorkItem 投影，新增 agent_runs、artifacts 与 review_candidates；旧 task/spec/branch 历史仍可读取。</p>
+<p>现有 SQLite、项目 daemon、Task / Agent 身份、worktree 隔离、事件审计、短期 token、恢复策略和最终用户批准继续保留。迁移采用加表/加列与兼容 RPC：新增 agent_runs、artifacts 与 review_candidates；旧 task/spec/branch 历史仍可读取。</p>
 <p class="callout">架构判断标准不是“层数越少越好”，而是：语义判断交给模型，确定性工作交给 runtime；用户围绕目标和结果行动，Git 围绕安全和恢复行动。</p>
 </section>
 
-<div class="footer">Lush Core Architecture · Intent → Plan → Work DAG → Run → Artifact → Review Candidate → Accepted Commit</div>
+<div class="footer">Lush Core Architecture · Intent → Plan → Task DAG → Run → Artifact → Review Candidate → Accepted Commit</div>
 </main></body></html>
