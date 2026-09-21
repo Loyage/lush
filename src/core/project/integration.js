@@ -70,7 +70,7 @@ export default {
           const latest = this.store.latestCandidate(input.id);
           if (flow !== 'explain' && (!latest || latest.commit_hash !== commit || ['changes_requested','rejected','superseded','failed'].includes(latest.status))) {
             const candidate = await this.prepareCandidate(input.id);
-            return { input_id: input.id, status: 'review_preparing', merged, remaining, candidate };
+            return { input_id: input.id, status: 'review_pending', merged, remaining, candidate };
           }
         }
         return { input_id: input.id, status, merged, remaining };

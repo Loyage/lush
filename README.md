@@ -80,11 +80,12 @@ lush daemon stop
 
 ### 验收候选：Review Candidate
 
-由 Plan 编译出的工作完成后，Integration Service 自动在私有 Intent 集成分支内叶子优先聚合（分歧时自动建 child-side merger），**不动用户目标分支**。收敛后 runtime 冻结 integration commit 与 target baseline commit，创建一版 Review Candidate，并派只读 verifier 在两边跑同一场景生成自包含 HTML 报告。
+由 Plan 编译出的工作完成后，Integration Service 自动在私有 Intent 集成分支内叶子优先聚合（分歧时自动建 child-side merger），**不动用户目标分支**。收敛后 runtime 只冻结 integration commit 与 target baseline commit，创建一版 `pending` Review Candidate；不会自动派验收任务。只有用户显式执行 `candidate verify`（或在 Web 点击“开始验收”）才会派只读 verifier，在两边跑同一场景并生成自包含 HTML 报告。
 
 ```bash
 lush candidate list --input 1
 lush candidate prepare 1 --summary '一句话说明这版做了什么'
+lush candidate verify 2                    # 用户显式启动验收
 lush candidate inspect 2
 lush candidate accept 2                    # 只落地你看过的那个 commit
 lush candidate changes 2 '按钮再明显一点'   # 同一 Intent 下启动增量规划，产出 v2

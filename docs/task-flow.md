@@ -53,14 +53,15 @@ Plan 编译出的工作完成后，Integration Service 在**私有 Intent 分支
 
 1. 固定 Intent 集成分支的精确 commit；
 2. 固定目标分支的 baseline commit；
-3. 创建一版 Review Candidate；
-4. 派只读 verifier 在两边运行同一验收场景；
+3. 创建一版状态为 `pending` 的 Review Candidate，但不自动验收；
+4. 用户显式执行 `lush candidate verify ID`（或在 Web 点击“开始验收”）后，派只读 verifier 在两边运行同一验收场景；
 5. 把自包含 HTML 报告写到 `.lush/verify/<verifier-id>/report.html`。
 
 报告成功后 Candidate 进入 `ready`。查看：
 
 ```bash
 lush candidate list --input 1
+lush candidate verify 2                  # 用户显式启动验收
 lush candidate inspect 2
 lush task inspect <report_task_id>       # 报告路径与结论
 ```

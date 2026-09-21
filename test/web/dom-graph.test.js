@@ -279,7 +279,7 @@ test('分支图：关系色按领先 / 相等 / 落后 / 分歧 / 缺失分，�
     await openGraph();
     const merge = buttonIn('lush/demo/1-one', '合入父分支');
     expect(merge.disabled).toBe(true);
-    expect(merge.title).toContain('未收拢的子分支：lush/demo/2-two');
+    expect(merge.title).toContain('先收拢子分支：lush/demo/2-two');
     expect(deepText(blockOf('lush/demo/1-one'))).toContain('先收拢子分支：lush/demo/2-two');
   } finally {
     edge.blockers = saved.blockers; edge.can_merge = saved.can_merge;

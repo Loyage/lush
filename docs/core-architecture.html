@@ -165,7 +165,7 @@ integration_target: intent-42  // 最终聚合到哪里</div>
 
 <section>
 <h2>八、验收候选生命周期</h2>
-<div class="states"><span class="state">preparing</span>→<span class="state">ready</span>→<span class="state">accepted</span>→<span class="state">integrated</span></div>
+<div class="states"><span class="state">pending（等用户启动验收）</span>→<span class="state">preparing</span>→<span class="state">ready</span>→<span class="state">accepted</span>→<span class="state">integrated</span></div>
 <div class="states" style="margin-top:10px"><span class="state">ready</span>→<span class="state">changes_requested</span>→<span class="state">Candidate v2</span></div>
 <div class="states" style="margin-top:10px"><span class="state">ready</span>→<span class="state">rejected / superseded</span></div>
 <p>Candidate 创建时同时固定 integration commit 与 baseline commit。Verifier 在两边运行同一验收场景并生成自包含 HTML 报告。接受前 runtime 再次校验 branch tip 仍等于候选 commit；若已经移动，必须生成新版本。</p>

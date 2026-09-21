@@ -31,9 +31,9 @@ lush [--project PATH] [--json] <command>
       planner 专用：写下结构化 Plan；runtime 会在本轮结束后直接编译成 Work DAG。
   spec drop ID [--note '原因']      planner 明确放弃一条 spec
   candidate list [--input ID]       查看固定 commit 的验收候选
-  candidate prepare INPUT [--summary '…']  聚合工作完成后生成候选并启动前后对照检验
+  candidate prepare INPUT [--summary '…']  聚合工作完成后冻结候选（不自动验收）
   candidate inspect ID              查看候选版本、报告与结构化产物
-  candidate verify ID               重新检验失败的候选
+  candidate verify ID               用户显式启动或重新运行候选验收
   candidate accept ID               接受精确 commit，并尝试合入目标分支
   candidate changes ID '反馈'       要求修改，保留旧版本并启动增量 planner
   candidate reject ID [--reason '…'] 放弃这一版结果

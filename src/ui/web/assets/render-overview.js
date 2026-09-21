@@ -61,6 +61,13 @@ function needsClosing(entry) {
   return closingReasons(entry).length > 0 || Boolean(entry?.incoming?.blockers?.length);
 }
 
+function blockerText(blockers = []) {
+  const tasks = blockers.filter(value => String(value).startsWith('task:#')).map(value => String(value).slice('task:'.length));
+  const branches = blockers.filter(value => !String(value).startsWith('task:#'));
+  return [tasks.length ? `等待任务 ${tasks.join('、')} 完成` : null,
+    branches.length ? `先收拢子分支：${branches.join('、')}` : null].filter(Boolean).join('；');
+}
+
 /** 一条待收口分支：分支名、与父分支的关系与 ahead/behind、blocker 文案，以及去分支图处理的入口。 */
 function closingRow(entry) {
   const edge = entry.incoming;
@@ -73,7 +80,7 @@ function closingRow(entry) {
     row.append(el('span', `子分支 +${edge.ahead ?? '?'} / -${edge.behind ?? '?'}`, 'meta'));
   }
   for (const reason of closingReasons(entry)) row.append(el('span', reason.label, `chip reason-${reason.key}`));
-  if (edge?.blockers?.length) row.append(el('span', `先收拢子分支：${edge.blockers.join('、')}`, 'hint warn'));
+  if (edge?.blockers?.length) row.append(el('span', blockerText(edge.blockers), 'hint warn'));
   // 只做导航，不给写动作：合并 / 同步 / 归档都留在分支图上完成。
   row.append(button('去分支图处理', () => graph(), 'link'));
   return row;
@@ -98,6 +105,9 @@ export function renderOverview(data) {
   const candidateByInput = new Map(candidates.map(candidate => [candidate.input_id, candidate]));
   const activeIntentIds = new Set((data.tasks || []).filter(task => HOT.has(task.status)).map(task => task.input_id).filter(Boolean));
   const reviewReady = candidates.filter(candidate => candidate.status === 'ready');
+  const reviewPending = candidates.filter(candidate => candidate.status === 'pending'
+    || (candidate.status === 'preparing' && !candidate.report_task_id));
+  const reviewWaiting = [...reviewPending, ...reviewReady];
   // 计划审批（kind='plan'）在「历史输入」的意图行上批，不在这个问答面板里：列出来点开只会是空动作（openNotice 只认非 plan 的 notice）。
   const open = data.notices.filter(notice => notice.status === 'open' && notice.kind !== 'plan');
   // 纯提醒（kind='info'、任务结算时自动落库）不进任何待决口径，这里只读地列最近 10 条。
@@ -132,7 +142,7 @@ export function renderOverview(data) {
   panel.dataset.view = 'overview'; panel.replaceChildren();
   const head = el('div', undefined, 'overview-hero');
   const intro = el('div');
-  const heroText = reviewReady.length ? `${reviewReady.length} 个固定 commit 的候选结果等待你验收。`
+  const heroText = reviewWaiting.length ? `${reviewWaiting.length} 个固定 commit 的候选结果等待你处理。`
     : open.length ? `有 ${open.length} 个问题等待你的决定。先疏通阻塞，让工作继续向前。`
     : activeIntentIds.size ? `${activeIntentIds.size} 个 Intent 正在并行推进；成果会汇总成可验证候选。`
     : intents.length ? '目标都已停下来。检查候选结果，或写下下一个想法。'
@@ -146,7 +156,7 @@ export function renderOverview(data) {
   for (const [label, value, note, tone] of [
     ['Intent', intents.length, intents.length ? `${activeIntentIds.size} 个正在推进` : '等待第一个目标', 'blue'],
     ['并行执行', activeIntentIds.size, `${data.status.agents.length} 个 Run 正在调用`, 'violet'],
-    ['等待验收', reviewReady.length, reviewReady.length ? '固定 commit · 报告已就绪' : '暂无待验收候选', 'amber'],
+    ['等待验收', reviewWaiting.length, reviewPending.length ? `${reviewPending.length} 个待你启动验收` : reviewReady.length ? '固定 commit · 报告已就绪' : '暂无待验收候选', 'amber'],
     ['需要你决定', open.length, open.length ? '实质问题需要你的判断' : '没有等待答复的问题', 'green'],
   ]) {
     const card = el('div', undefined, `metric tone-${tone}`);
@@ -165,7 +175,13 @@ export function renderOverview(data) {
     if (activeIntentIds.has(intent.id)) row.append(el('span', '执行中', 'chip relation-ahead'));
     if (candidate) {
       row.append(el('span', `候选 v${candidate.version} · ${candidate.status}`, `chip ${candidate.status === 'ready' ? 'c-completed' : ''}`));
-      if (candidate.report_task_id) {
+      if (candidate.status === 'pending' || (candidate.status === 'preparing' && !candidate.report_task_id)) {
+        row.append(button('开始验收', () => action('candidate.verify', { id: candidate.id }), 'primary'));
+      } else if (candidate.status === 'failed') {
+        row.append(button('重新验收', () => action('candidate.verify', { id: candidate.id }), 'primary'));
+      } else if (candidate.status === 'preparing' && candidate.report_task_id) {
+        row.append(button(`查看验收任务 #${candidate.report_task_id}`, () => detail(candidate.report_task_id), 'link'));
+      } else if (candidate.report_task_id && ['ready','accepted','integrated'].includes(candidate.status)) {
         const report = el('a', '打开结果', 'link'); report.href = `/api/task/${candidate.report_task_id}/report`;
         report.target = '_blank'; report.rel = 'noopener'; row.append(report);
       }

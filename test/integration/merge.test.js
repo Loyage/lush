@@ -92,12 +92,13 @@ test('a diverged input branch resolves on the child side, then lands through two
     expect(worker).toBeTruthy();
     expect((await done(client, worker.id)).status).toBe('completed');
     for (let i=0;i<200 && (await client.request('task.inspect',{id:worker.id})).integration !== 'merged';i++) await Bun.sleep(30);
-    // 自动中间集成完成后会为该 Intent 生成候选与只读 verifier；等它结算（verifier 活着时它算活动工作）。
+    // 自动中间集成只冻结 pending 候选，不会擅自启动 verifier。
     for (let i=0;i<400;i++) {
       const candidate = (await client.request('candidate.list',{input:input.id}))[0];
-      if (candidate && ['ready','failed'].includes(candidate.status)) break;
+      if (candidate?.status === 'pending') break;
       await Bun.sleep(30);
     }
+    expect((await client.request('task.list')).filter(task => task.role === 'verifier')).toHaveLength(0);
     // 主树在同名文件上继续前进：最终 Candidate 与目标分支必然内容冲突。
     fs.writeFileSync(path.join(root,'file.txt'),'main\n');
     await git(root,'add','-A'); await git(root,'commit','-m','main moves on');
@@ -164,6 +165,13 @@ test('drafts become one planner, and a code dependency stacks worktrees with an 
     }
     expect(fs.existsSync(path.join(root,'other.txt'))).toBe(false);
     let candidate = null;
+    for (let i=0;i<200;i++) {
+      candidate = (await client.request('candidate.list',{input:batch.id}))[0] ?? null;
+      if (candidate?.status === 'pending') break;
+      await Bun.sleep(30);
+    }
+    expect(candidate?.status).toBe('pending');
+    await cli(root,['candidate','verify',String(candidate.id)]);
     for (let i=0;i<200;i++) {
       candidate = (await client.request('candidate.list',{input:batch.id}))[0] ?? null;
       if (candidate?.status === 'ready') break;

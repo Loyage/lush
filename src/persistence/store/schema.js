@@ -99,7 +99,7 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       CREATE TABLE IF NOT EXISTS review_candidates (
         id INTEGER PRIMARY KEY, input_id INTEGER NOT NULL REFERENCES inputs(id), version INTEGER NOT NULL,
         branch TEXT NOT NULL, commit_hash TEXT NOT NULL, baseline_branch TEXT NOT NULL, baseline_commit TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'preparing', summary TEXT, feedback TEXT, report_task_id INTEGER REFERENCES tasks(id),
+        status TEXT NOT NULL DEFAULT 'pending', summary TEXT, feedback TEXT, report_task_id INTEGER REFERENCES tasks(id),
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         UNIQUE(input_id,version));

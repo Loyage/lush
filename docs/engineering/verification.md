@@ -8,13 +8,13 @@
 
 ## Review Candidate 检验
 
-Candidate 检验是产品主路径：`candidate.prepare`（或自动中间集成完成）会创建 Candidate 并派 verifier，用 `review_candidate_id` 关联。
+Candidate 检验是用户显式动作：`candidate.prepare`（或自动中间集成完成）只创建 `pending` Candidate；只有用户调用 `candidate.verify`（Web 的“开始验收”）才会派 verifier，并用 `review_candidate_id` 关联。
 
 与单 worker 检验的区别：
 
 - 两侧都**固定 commit**：一侧是 Intent 集成分支被审阅的 commit，另一侧是创建 Candidate 时冻结的 target baseline commit；
 - verifier 启动时会校验该 checkout 的 HEAD 仍等于被固定的 commit，漂移就拒绝，避免「审阅的不是报告里的那一版」；
-- 报告成功后 Candidate 进入 `ready`；报告缺失或失败时 Candidate 进入 `failed`，可 `candidate.verify` 重试。
+- 新 Candidate 先停在 `pending`，不占执行槽；用户显式启动后进入 `preparing`；报告成功后进入 `ready`，报告缺失或失败时进入 `failed`，可再次显式 `candidate.verify`。
 
 ## 对照检出生命周期
 

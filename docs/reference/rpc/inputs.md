@@ -32,4 +32,4 @@
 
 ## Review Candidate
 
-由 Plan 编译出的工作时，runtime 自动在私有 Intent 分支内叶子优先聚合；完成后冻结 integration commit 与 target baseline commit，创建 `review_candidates` 版本并派只读 verifier 生成前后对照 HTML 报告。用户接受的是固定 commit，不是可移动 branch。
+由 Plan 编译出的工作时，runtime 自动在私有 Intent 分支内叶子优先聚合；完成后冻结 integration commit 与 target baseline commit，创建状态为 `pending` 的 `review_candidates` 版本，但不自动派验收任务。只有用户显式调用 `candidate.verify` 后才会启动只读 verifier 生成前后对照 HTML 报告。用户接受的是固定 commit，不是可移动 branch。

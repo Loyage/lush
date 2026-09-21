@@ -244,9 +244,16 @@ function branchAction(label, title, run) {
  * - 分歧：在子分支解决分歧（开一个 merger 任务把父分支合进子分支），合入父分支同时摆出来但禁用；
  * - 有未收拢的子分支时运行时两边都会拒绝，所以按钮禁用，并在 title 里列出 blocker。
  */
+function blockerText(blockers = []) {
+  const tasks = blockers.filter(value => String(value).startsWith('task:#')).map(value => String(value).slice('task:'.length));
+  const branches = blockers.filter(value => !String(value).startsWith('task:#'));
+  return [tasks.length ? `等待任务 ${tasks.join('、')} 完成` : null,
+    branches.length ? `先收拢子分支：${branches.join('、')}` : null].filter(Boolean).join('；');
+}
+
 function forkActions(branch, edge) {
   if (!edge) return [];
-  const blocked = edge.blockers?.length ? `未收拢的子分支：${edge.blockers.join('、')}` : null;
+  const blocked = edge.blockers?.length ? blockerText(edge.blockers) : null;
   const why = (reason, extra = null) => [reason, extra, blocked].filter(Boolean).join('\n');
   const nodes = [];
   if (edge.status === 'fast_forward') {
@@ -353,8 +360,8 @@ function branchRow(branch, onCollapsed) {
 
   // 分支元数据：状态、标题、来源、创建时间、任务计数
   const meta = el('div', undefined, 'graph-branch-meta');
-  // 有子分支还没收拢时不能合并：这条提示只和 fork 边有关，但不适合塞进挤满 chip 的表头行。
-  if (edge?.blockers?.length) meta.append(el('span', `先收拢子分支：${edge.blockers.join('、')}`, 'graph-branch-blocker'));
+  // 活动任务或未收拢子分支都会阻止收口；按真实类型说明，不能把 task:#N 冒充成子分支。
+  if (edge?.blockers?.length) meta.append(el('span', blockerText(edge.blockers), 'graph-branch-blocker'));
   // 归档分支的状态固定显示「已归档」，不被汇总出来的旧状态盖掉。表头已经报过它（ref 是归档时
   // 按预期删掉的），所以这里只补归档时间，不把同一个词再说一遍。
   // 归档分支的状态不需要在这里特判：归档的分支不会被画进分支树（见 graphLayout 的 hiddenBranches）。
