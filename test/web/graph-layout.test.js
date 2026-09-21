@@ -278,6 +278,61 @@ test('workingState：running 优先于在等，在等内部按 等你决定 > �
   expect(workingState({})).toBeNull();
 });
 
+// 意图层任务（planner / scheduler）由 graph.get 派生出锚点分支后，和 worker 一样是 kind:task 节点，
+// 所以布局不需要新逻辑：它们自动挂在锚点分支下，running 的 planner 让这条分支按现有 workingState 显示工作态。
+test('planner / scheduler 挂在输入锚点分支下，running 的 planner 让分支显示工作态', () => {
+  const anchor = 'lush/x/input-1-anchor';
+  const intentTask = (id, extra) => task(id, anchor, {
+    target_branch: null, merged: null, branch_state: null,
+    workspace: null, workspace_state: 'none', ...extra,
+  });
+  const graph = {
+    current_branch: 'main',
+    nodes: [
+      branch('main', { current: true }),
+      branch(anchor, { status: 'active', tasks: { total: 2, active: 1, failed: 0, completed: 1 } }),
+      intentTask(11, { role: 'planner', status: 'running' }),
+      intentTask(12, { role: 'scheduler', status: 'completed' }),
+    ],
+    edges: [forkEdge('main', anchor, 'integrated', { ahead: 0 })],
+  };
+  const byName = layoutIndex(graphLayout(graph));
+  const entry = byName.get(anchor);
+  // 两个都挂在锚点分支下，不落进 unplaced。
+  expect(entry.tasks.map(node => node.id).sort((a, b) => a - b)).toEqual([11, 12]);
+  expect(entry.tasks.map(node => node.role)).toEqual(['scheduler', 'planner']);
+  // running 的 planner 复用现有 workingState 口径，让这条分支显示「工作中」。
+  expect(workingState(entry)).toEqual({ key: 'running', label: '工作中', count: 1 });
+  expect(emphasisClasses(entry)).toEqual(['graph-emphasis-working']);
+  // 不臆造合并信息：planner / scheduler 不画「未合并 / 缺失分支」，也不写领先落后。
+  for (const node of entry.tasks) {
+    expect(node.marks).toEqual([]);
+    expect(node.aheadBehind).toBe('');
+  }
+});
+
+test('归档锚点分支上的 planner / scheduler 与其它任务一样不画在分支树上', () => {
+  const anchor = 'lush/x/input-1-anchor';
+  const graph = {
+    current_branch: 'main',
+    nodes: [
+      branch('main', { current: true }),
+      branch(anchor, { head_commit: null, archived: true, status: 'archived' }),
+      task(11, anchor, {
+        role: 'planner', status: 'running', target_branch: null, merged: null, branch_state: null,
+        workspace: null, workspace_state: 'none', archived: true,
+      }),
+    ],
+    edges: [{ kind: 'fork', from: 'branch:main', to: `branch:${anchor}`, status: 'missing', ahead: null, behind: null }],
+  };
+  const layout = graphLayout(graph);
+  expect(layoutIndex(layout).has(anchor)).toBe(false);
+  const ids = [];
+  const collect = entry => { ids.push(...entry.tasks.map(node => node.id)); entry.children.forEach(collect); };
+  layout.forest.forEach(collect);
+  expect(ids).not.toContain(11);
+});
+
 // 强调与默认折叠都从这几个字段派生：它们一变就必须重画，否则 1.5s 轮询会把旧强调留在页面上。
 test('graphRenderKey 覆盖 incoming status / 分支汇总 status / 任务 status', () => {
   const build = ({ edgeStatus = 'integrated', branchStatus = 'ready', taskStatus = 'completed' } = {}) => ({

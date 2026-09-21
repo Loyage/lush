@@ -306,3 +306,83 @@ test('graph counts tasks of descendants hiding behind a placeholder parent', asy
     }));
   } finally { await f.close(); }
 });
+
+test('graph attaches planner and scheduler to the input anchor branch', async () => {
+  const f = await setup();
+  try {
+    // 模拟提交一条输入：inputs.anchor_branch 指名锚点分支，branches 表留下记录。
+    const inputId = f.store.nextInputId();
+    f.store.run('INSERT INTO inputs(id,content,anchor_branch) VALUES (?,?,?)',
+      inputId, '规划任务应该看得见', 'lush/test/input-1-anchor');
+    f.store.recordBranch({ branch: 'lush/test/input-1-anchor', parent: 'main' });
+    // planner 有 input_id；scheduler 自己没有 input_id，关联在本批 spec 的 batch_id 上。
+    const planner = f.store.create({ input_id: inputId, role: 'planner', goal: '拆解这条输入' });
+    f.store.update(planner.id, { status: 'running' });
+    const scheduler = f.store.create({ input_id: null, role: 'scheduler', goal: '编排这一批' });
+    f.store.addSpec({ input_id: inputId, planner_task_id: planner.id, goal: '做这件事', role: 'worker', name: 'do-it' });
+    f.store.assignSpecs(scheduler.id, 10, planner.id);
+    f.store.update(scheduler.id, { status: 'completed' });
+
+    const graph = await f.project.graph();
+    const nodes = new Map(graph.nodes.map(node => [node.id, node]));
+    // planner 与 scheduler 都进了图，且直接挂在输入的锚点分支上，可被布局像 worker 一样挂载。
+    expect(nodes.get(planner.id)).toMatchObject({ kind: 'task', role: 'planner', branch: 'lush/test/input-1-anchor' });
+    expect(nodes.get(scheduler.id)).toMatchObject({ kind: 'task', role: 'scheduler', branch: 'lush/test/input-1-anchor' });
+    // 目标分支是输入里记的真实字段值；用 inputs 表读回来对照，不写死。
+    const anchorBranch = f.store.get('SELECT anchor_branch FROM inputs WHERE id=?', inputId).anchor_branch;
+    expect(nodes.get(planner.id).branch).toBe(anchorBranch);
+    expect(nodes.get(scheduler.id).branch).toBe(anchorBranch);
+    // 意图层没有自己的 worktree / 目标分支：不臆造 ahead/behind/merged，也不画「缺失分支」。
+    for (const node of [nodes.get(planner.id), nodes.get(scheduler.id)]) {
+      expect(node).toMatchObject({
+        target_branch: null, ahead: null, behind: null, merged: null,
+        branch_state: null, workspace: null, workspace_state: 'none',
+      });
+    }
+    // 汇总口径一致：锚点分支自己的任务里就有这两个，running 的 planner 让分支停在 active 而不是 empty。
+    const anchor = nodes.get(`branch:${anchorBranch}`);
+    expect(anchor.tasks).toEqual({ total: 2, active: 1, failed: 0, completed: 1 });
+    expect(anchor.status).toBe('active');
+  } finally { await f.close(); }
+});
+
+test('graph falls back to the batch planner anchor and to null for a scheduler with no anchor', async () => {
+  const f = await setup();
+  try {
+    const inputId = f.store.nextInputId();
+    f.store.run('INSERT INTO inputs(id,content,anchor_branch) VALUES (?,?,?)',
+      inputId, '回落到 planner 的输入', 'lush/test/input-1-anchor');
+    f.store.recordBranch({ branch: 'lush/test/input-1-anchor', parent: 'main' });
+    const planner = f.store.create({ input_id: inputId, role: 'planner', goal: '拆解' });
+    // 批里的 spec 没有输入（老数据 / 释放过的批）：回落该批 planner 的输入锚点。
+    const scheduler = f.store.create({ input_id: null, role: 'scheduler', goal: '编排' });
+    f.store.addSpec({ input_id: null, planner_task_id: planner.id, goal: '老 spec', role: 'worker' });
+    f.store.assignSpecs(scheduler.id, 10, planner.id);
+    // 既没有批 spec 也没有 planner 输入的 scheduler：不猜，branch 保持 null 走兜底分组。
+    const orphan = f.store.create({ input_id: null, role: 'scheduler', goal: '空批' });
+
+    const graph = await f.project.graph();
+    const nodes = new Map(graph.nodes.map(node => [node.id, node]));
+    expect(nodes.get(scheduler.id).branch).toBe('lush/test/input-1-anchor');
+    expect(nodes.get(orphan.id).branch).toBeNull();
+    expect(nodes.get(orphan.id)).toMatchObject({ target_branch: null, merged: null, branch_state: null });
+  } finally { await f.close(); }
+});
+
+test('graph keeps planner and scheduler on an archived anchor branch, marked archived like other tasks', async () => {
+  const f = await setup();
+  try {
+    const inputId = f.store.nextInputId();
+    f.store.run('INSERT INTO inputs(id,content,anchor_branch) VALUES (?,?,?)',
+      inputId, '归档锚点分支', 'lush/test/input-1-anchor');
+    f.store.recordBranch({ branch: 'lush/test/input-1-anchor', parent: 'main' });
+    const planner = f.store.create({ input_id: inputId, role: 'planner', goal: '拆解' });
+    f.store.markBranchArchived('lush/test/input-1-anchor');
+
+    const graph = await f.project.graph();
+    const nodes = new Map(graph.nodes.map(node => [node.id, node]));
+    // 节点仍在图上（与 worker 任务一致），但标 archived，由布局按既有规则隐藏。
+    expect(nodes.get(planner.id)).toMatchObject({ branch: 'lush/test/input-1-anchor', archived: true });
+    expect(nodes.get('branch:lush/test/input-1-anchor')).toMatchObject({ archived: true, status: 'archived' });
+  } finally { await f.close(); }
+});

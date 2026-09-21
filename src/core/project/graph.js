@@ -4,7 +4,9 @@ import fs from 'node:fs';
 export const GRAPH_NODE_LIMIT = 200;
 export const GRAPH_EDGE_LIMIT = 2000;
 
-/** 只有会产出 worktree / 分支的角色进图；planner / scheduler / coordinator 是意图层，不在这里。 */
+/** 会产出 worktree / 分支的角色：候选任务来自这三类。
+ *  planner / scheduler 是意图层，没有自己的分支，但也要按「这条输入的锚点分支」挂进图里，
+ *  由下面的 intentRows 单独取（见 graph() —— 派生锚点分支只在那里做一次）。 */
 const GRAPH_ROLES = ['worker', 'merger', 'verifier'];
 const TASK_ROLE_SQL = GRAPH_ROLES.map(role => `'${role}'`).join(',');
 
@@ -105,13 +107,35 @@ export default {
       // inputs.anchor_branch 回答「因为哪条输入」，tasks.branch 回答「哪个任务」，
       // branches.task_id 是创建那一刻的绑定，branches.parent 链回答「这条子树现在在干什么」。
       const inputByAnchor = new Map();
+      const anchorByInput = new Map();
       for (const input of this.store.all('SELECT id, content, anchor_branch FROM inputs WHERE anchor_branch IS NOT NULL ORDER BY id')) {
         inputByAnchor.set(input.anchor_branch, input);
+        anchorByInput.set(input.id, input.anchor_branch);
       }
+      // planner / scheduler 没有 branch / workspace，但也要像 worker 那样挂到「这条输入」的锚点分支下。
+      // 派生规则只此一处：planner 取自己的 input_id；scheduler 取本批 spec 的 input_id，
+      // 批为空 / 那个输入没有锚点时回落该批 planner 的输入锚点；都找不到才 branch = null（走兜底分组，不瞎猜）。
+      const plannerInput = new Map();
+      for (const planner of this.store.all("SELECT id, input_id FROM tasks WHERE role='planner'")) plannerInput.set(planner.id, planner.input_id);
+      const schedulerAnchor = (schedulerId) => {
+        const spec = this.store.get('SELECT input_id, planner_task_id FROM task_specs WHERE batch_id=? ORDER BY id LIMIT 1', schedulerId);
+        if (!spec) return null;
+        return anchorByInput.get(spec.input_id) ?? anchorByInput.get(plannerInput.get(spec.planner_task_id)) ?? null;
+      };
+      const intentRows = this.store.all(`SELECT id, role, name, goal, status, integration, input_id
+        FROM tasks WHERE role IN ('planner','scheduler') ORDER BY id DESC`)
+        .map(row => ({ ...row, branch: (row.role === 'planner' ? anchorByInput.get(row.input_id) : schedulerAnchor(row.id)) ?? null }));
       const taskById = new Map();
       const tasksByBranch = new Map();
       for (const task of this.store.all('SELECT id, name, goal, status, branch FROM tasks ORDER BY id')) {
         taskById.set(task.id, task);
+        if (!task.branch) continue;
+        if (!tasksByBranch.has(task.branch)) tasksByBranch.set(task.branch, []);
+        tasksByBranch.get(task.branch).push(task);
+      }
+      // 意图层任务按派生出来的锚点分支并入同一个 map：分支汇总（tasks / status）复用同一套派生分支，
+      // 不再另算一份口径，所以 running 的 planner 会让锚点分支从 empty 变成 active。
+      for (const task of intentRows) {
         if (!task.branch) continue;
         if (!tasksByBranch.has(task.branch)) tasksByBranch.set(task.branch, []);
         tasksByBranch.get(task.branch).push(task);
@@ -243,6 +267,21 @@ export default {
           current: Boolean(row.branch) && row.branch === currentBranch,
         };
         nodes.push(node);
+      }
+      // 意图层任务（planner / scheduler）和 worker 任务一样是 kind:task 节点，只是没有自己的
+      // worktree / 目标分支：合并信息一律保持 null，绝不臆造 ahead/behind/merged，也不画「缺失分支」。
+      for (const row of intentRows) {
+        nodes.push({
+          kind: 'task', id: row.id, role: row.role, name: row.name ?? null,
+          goal: String(row.goal ?? '').slice(0, 120),
+          status: row.status, integration: row.integration,
+          branch: row.branch,
+          workspace: null, workspace_state: 'none', branch_state: null,
+          archived: isArchivedBranch(row.branch),
+          base_commit: null, head_commit: null, reviewed_commit: null,
+          target_branch: null, ahead: null, behind: null, merged: null,
+          current: false,
+        });
       }
       if (nodes.length > GRAPH_NODE_LIMIT) { truncated = true; nodes.length = GRAPH_NODE_LIMIT; }
       const nodeIds = new Set(nodes.map(node => node.id));
