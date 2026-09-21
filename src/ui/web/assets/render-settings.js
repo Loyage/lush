@@ -86,6 +86,41 @@ function selectControl(name, modes, title) {
   return select;
 }
 
+/**
+ * 「系统信息」组：只读镜像 daemon 的软件配置（system.status），值取自最近一次快照 ui.lastSnapshot。
+ * 该组不写回任何东西，也不新增拉取：设置页打开时 refresh.js 仍在更新 lastSnapshot，直接读它即可。
+ */
+function systemInfoBlock() {
+  const section = block('系统信息');
+  section.append(el('p',
+    '以下都是 daemon 启动时读取的环境变量与软件配置，本组仅供查看、不提供修改；改变它们需要设置环境变量并重启 daemon 才生效。',
+    'settings-note settings-readonly'));
+  const snapshot = ui.lastSnapshot?.status ?? null;
+  if (!snapshot) {
+    section.append(el('p', '尚未收到 daemon 快照，暂时读不到系统信息；连接建立后会在下一次刷新时显示。',
+      'settings-value settings-placeholder'));
+    return section;
+  }
+  const plain = value => (value === null || value === undefined || value === '') ? '—' : String(value);
+  // pi 的两个覆写参数为空表示用 pi 自己的默认，不在这里猜模型名 / provider 名。
+  const pi = value => (value === null || value === undefined || value === '') ? 'pi 默认' : String(value);
+  const line = (field, title, note, value) => {
+    const node = el('span', value, 'settings-value');
+    node.dataset.systemField = field;
+    return row(title, note, node);
+  };
+  section.append(line('provider', 'Provider', 'Agent 后端（LUSH_PROVIDER）：pi 为真实模型，mock 为离线演示后端。', plain(snapshot.provider)));
+  section.append(line('concurrency', '并发额度',
+    '执行通道（LUSH_CONCURRENCY）与控制通道（LUSH_CONTROL_CONCURRENCY）各自同时在跑的任务上限。',
+    `${plain(snapshot.concurrency)}（控制通道 ${plain(snapshot.control_concurrency)}）`));
+  section.append(line('call_timeout', '单次调用超时', '一次 agent 调用允许的最长秒数（LUSH_CALL_TIMEOUT），超时即中断。', `${plain(snapshot.call_timeout)} 秒`));
+  section.append(line('task_call_limit', '单任务调用上限', '一个任务最多允许的 agent 调用次数（LUSH_TASK_CALLS）。', plain(snapshot.task_call_limit)));
+  section.append(line('max_depth', '最大拆解深度', '任务树允许的最大层数（LUSH_MAX_DEPTH）。', plain(snapshot.max_depth)));
+  section.append(line('pi_model', 'pi 模型', '传给 pi 的 --model（LUSH_PI_MODEL）；未设置时由 pi 自己决定。', pi(snapshot.pi_model)));
+  section.append(line('pi_provider', 'pi provider', '传给 pi 的 --provider（LUSH_PI_PROVIDER）；未设置时由 pi 自己决定。', pi(snapshot.pi_provider)));
+  return section;
+}
+
 /** 设置页整体重画：不依赖快照，纯读 localStorage 里的偏好。 */
 export function renderSettings() {
   const panel = $('detail');
@@ -119,6 +154,8 @@ export function renderSettings() {
   behavior.append(row('消息提示停留时长', '顶部消息提示自动消失的快慢；标准档即默认的 4s（信息）/ 8s（错误）。对之后出现的提示生效。',
     selectControl('toastDuration', TOAST_MODES, '顶部消息提示自动消失的快慢')));
   view.append(behavior);
+
+  view.append(systemInfoBlock());
 
   const reset = block('恢复默认');
   const resetButton = el('button', '恢复默认设置', 'ghost pref-reset');

@@ -8,6 +8,8 @@ const world = makeWorld();
 const dom = installDom({ fetch: world.fetchImpl });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const prefs = await import('../../src/ui/web/assets/prefs.js');
+const state = await import('../../src/ui/web/assets/state.js');
+const { renderSettings } = await import('../../src/ui/web/assets/render-settings.js');
 dom.node('side-nav').replaceChildren();
 await boot();
 
@@ -15,6 +17,8 @@ afterAll(() => dom.restore());
 
 const panel = () => dom.node('detail');
 const openSettings = () => dom.node('settings-open').onclick();
+const systemBlock = () => [...panel().querySelectorAll('.block')]
+  .find(node => node.querySelector('h2')?.textContent === '系统信息') || null;
 
 test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1.5s 轮询不覆盖该视图', async () => {
   await dom.intervalFor(1500)();
@@ -198,4 +202,57 @@ test('恢复默认设置：删掉所有偏好键（含历史键）并就地重�
   expect(dom.node('sidebar-sort').value).toBe('smart');
   expect(dom.document.documentElement.dataset.reducedMotion).toBeUndefined();
   expect(panel().querySelector('input.pref-toggle[data-pref="markdown"]').checked).toBe(true);
+});
+
+// 「系统信息」组：只读镜像 system.status，值取自 ui.lastSnapshot（轮询持续更新它），无快照时占位。
+const systemSnapshot = overrides => ({ status: {
+  provider: 'pi', concurrency: 4, control_concurrency: 2,
+  call_timeout: 600, task_call_limit: 12, max_depth: 5, pi_model: '', pi_provider: '',
+  ...overrides,
+} });
+
+test('系统信息组：只读展示快照字段，pi 覆写未设置时显示「pi 默认」', () => {
+  openSettings();
+  state.ui.lastSnapshot = systemSnapshot();
+  renderSettings();
+
+  const block = systemBlock();
+  expect(block).toBeTruthy();
+  const value = field => block.querySelector(`[data-system-field="${field}"]`).textContent;
+  expect(value('provider')).toBe('pi');
+  expect(value('concurrency')).toBe('4（控制通道 2）');
+  expect(value('call_timeout')).toBe('600 秒');
+  expect(value('task_call_limit')).toBe('12');
+  expect(value('max_depth')).toBe('5');
+  expect(value('pi_model')).toBe('pi 默认');
+  expect(value('pi_provider')).toBe('pi 默认');
+  // 只读：该组内没有任何可编辑控件或写回按钮（stub 的选择器不支持逗号列表，逐个查）。
+  for (const control of ['input', 'select', 'textarea', 'button']) expect(block.querySelector(control)).toBeNull();
+  // 说明文字点明这些是环境变量、需重启 daemon 才生效、本组仅供查看。
+  const note = deepText(block);
+  expect(note).toContain('环境变量');
+  expect(note).toContain('重启 daemon');
+  expect(note).toContain('仅供查看');
+});
+
+test('系统信息组：pi 模型 / provider 有值时原样显示', () => {
+  openSettings();
+  state.ui.lastSnapshot = systemSnapshot({ pi_model: 'gpt-5', pi_provider: 'openai' });
+  renderSettings();
+  const block = systemBlock();
+  expect(block.querySelector('[data-system-field="pi_model"]').textContent).toBe('gpt-5');
+  expect(block.querySelector('[data-system-field="pi_provider"]').textContent).toBe('openai');
+});
+
+test('系统信息组：没有快照时显示占位、不抛异常也不留空块', () => {
+  openSettings();
+  state.ui.lastSnapshot = null;
+  expect(() => renderSettings()).not.toThrow();
+  const block = systemBlock();
+  expect(block).toBeTruthy();
+  // 组里没有字段值，只剩占位文案（不抛异常、不留空壳）。
+  expect(block.querySelector('[data-system-field="provider"]')).toBeNull();
+  expect(block.querySelector('[data-system-field="pi_model"]')).toBeNull();
+  expect(block.querySelector('.settings-placeholder')).toBeTruthy();
+  expect(deepText(block)).toContain('尚未收到 daemon 快照');
 });

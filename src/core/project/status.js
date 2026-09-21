@@ -7,6 +7,10 @@ export default {
     const alive = this.store.get("SELECT count(*) AS count FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").count;
     return { project: this.config.project, home: this.config.home, provider: this.config.provider,
       concurrency: this.config.concurrency, control_concurrency: this.config.controlConcurrency,
+      // 软件配置的只读镜像：全部在 daemon 启动时从环境变量读一次（改环境变量需重启 daemon 才生效）。
+      // pi 的两项覆写未设置时是空字符串，交给界面显示「pi 默认」，不在这里编造 pi 自己的默认模型 / provider。
+      call_timeout: this.config.timeout, task_call_limit: this.config.maxCalls, max_depth: this.config.maxDepth,
+      pi_model: this.config.env.LUSH_PI_MODEL || '', pi_provider: this.config.env.LUSH_PI_PROVIDER || '',
       // Work execution and intent planning use separate admission lanes.
       tasks: this.store.all("SELECT status, count(*) AS count FROM tasks WHERE layer='work' GROUP BY status"),
       layers: this.store.all('SELECT layer, status, count(*) AS count FROM tasks GROUP BY layer, status'),
