@@ -18,35 +18,36 @@ await boot();
 
 afterAll(() => dom.restore());
 
-test('交付队列只长在概览里：点左上角 Lush 回概览，后退到无 hash 也一样', async () => {
+test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash 也一样', async () => {
   const load = () => dom.intervalFor(1500)();
   await load();
   const detail = dom.node('detail');
-  // 批量合并按钮只在概览里，所以「回不去概览」等于功能消失。
-  expect(deepText(detail)).toContain('交付队列');
-  expect(findByText(detail, '合并本分支全部可交付 (1)')).toBeTruthy();
+  // 概览指标「分支总数」只在概览里出现；回不去概览等于工作台入口消失。
+  const onOverview = () => findByText(detail, '分支总数');
+  expect(deepText(detail)).toContain('项目概览');
+  expect(onOverview()).toBeTruthy();
 
-  // 从任务树点进详情（真实的入口）：批量按钮随之消失，回概览只能靠左上角的 Lush，
+  // 从任务树点进详情（真实的入口）：概览标题随之消失，回概览只能靠左上角的 Lush，
   // 并且这次要压栈，否则浏览器后退无处可退。
   const pushedBefore = dom.pushed();
   await dom.node('tasks').querySelector('[data-id="1"]').onclick();
   await until(() => findByText(detail, '追加说明'), 2000);
   expect(dom.location.hash).toBe('#task-1');
   expect(dom.pushed()).toBeGreaterThan(pushedBefore);
-  expect(findByText(detail, '合并本分支全部可交付 (1)')).toBeNull();
+  expect(onOverview()).toBeNull();
 
   await dom.node('home').onclick();
-  await until(() => findByText(detail, '合并本分支全部可交付 (1)'), 2000);
+  await until(onOverview, 2000);
   // hash 一起清掉，刷新页面不会又跳回详情。
   expect(dom.location.hash).toBe('');
 
-  // 浏览器后退到无 hash 的地址：也是回概览，不是停在一个点不到合并按钮的详情上。
+  // 浏览器后退到无 hash 的地址：也是回概览，不是停在一个点不到概览的详情上。
   dom.location.hash = '#task-1';
   await dom.fire('hashchange');
   await until(() => findByText(detail, '追加说明'), 2000);
   dom.location.hash = '';
   await dom.fire('hashchange');
-  await until(() => findByText(detail, '合并本分支全部可交付 (1)'), 2000);
+  await until(onOverview, 2000);
 });
 
 test('详情头部显示对应意图编号，能点开那条意图，input_id 为空时不乱显示', async () => {

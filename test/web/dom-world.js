@@ -59,6 +59,8 @@ export function makeWorld() {
     notices: [],
     transcriptAfter: [],
     actions: [],
+    // 概览打开时不该每 1.5s 打一遍 git：/api/graph 的取数次数记在这里，供测试断言。
+    graphFetches: 0,
     drafts: [],
     commits: [],
     // 意图层的两条输入：一条的 planner 申请了批准（specs 分两批），一条已经批准。
@@ -130,7 +132,7 @@ export function makeWorld() {
     const path = String(url);
     const json = data => ({ ok: true, status: 200, json: async () => data });
     if (path === '/api/snapshot') return json(snapshot());
-    if (path === '/api/graph') return json(state.graph);
+    if (path === '/api/graph') { state.graphFetches += 1; return json(state.graph); }
     if (path === '/api/action') {
       const body = JSON.parse(options.body);
       state.actions.push(body);

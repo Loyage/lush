@@ -1,59 +1,195 @@
 import { $, block, button, el, kv } from './dom.js';
 import { action } from './api.js';
-import { HOT, STATUS, absolute, statusOf } from './format.js';
-import { mergeCandidates } from './merge-select.js';
-import { detail, overview } from './navigate.js';
-import { renderLadder } from './render-ladder.js';
+import { HOT, absolute, relative } from './format.js';
+import { edgeRelation, graphLayout, graphRenderKey, isWorkingTask } from './graph-layout.js';
+import { detail, graph, overview } from './navigate.js';
 import { openNotice } from './render-notices.js';
 import { renderTimeline } from './render-timeline.js';
 import { ui } from './state.js';
 
+/**
+ * 「项目概览」是分支第一的工作台：主线是分支及其父子谱系，突出
+ * 「没有合进父分支 / 正在工作 / 分歧 / 落后」的分支，任务只作为分支下的明细。
+ *
+ * 分支事实来自 `graph.get`，与「分支图」共用同一份 `ui.lastGraph`（refresh.js 按同一条陈旧规则
+ * 决定要不要重拉），概览不新增 RPC、也不各自打 git；拿不到图时先给占位文案、只画快照支撑得住的部分。
+ *
+ * 与任务为中心的旧版相比：不再有任务状态分布 chips 与按目标分支分组的交付队列（renderLadder）；
+ * 「需要你的决定」「运行中的 agent」与时间轴仍保留，但排在分支主线之后，运行时与维护信息照旧折叠。
+ */
+
+/** 分支来源 -> 中文描述（与分支图的 BRANCH_ORIGIN 同口径）。 */
+const BRANCH_ORIGIN = {
+  input: '输入锚点',
+  task: '任务分支',
+  registered: '已登记',
+  local: '本地分支',
+  placeholder: '占位',
+};
+
+const noticeTime = notice => {
+  const ms = Date.parse(notice?.created_at);
+  return Number.isFinite(ms) ? ms : 0;
+};
+
+/** 分支森林按前序摊平：父在前、子在后，保持谱系顺序。 */
+function flattenBranches(forest) {
+  const out = [];
+  const walk = entry => { out.push(entry); for (const child of entry.children) walk(child); };
+  for (const root of forest) walk(root);
+  return out;
+}
+
+/**
+ * 这条分支为什么该被收口（成员判定只看 fork 边上的三个动作标志与 blocker，配合 edgeRelation 的
+ * 关系补文案）：可合入父分支 / 分歧需在子分支解决 / 落后父分支可跟上。
+ */
+function closingReasons(entry) {
+  const edge = entry?.incoming;
+  if (!edge) return [];
+  const relation = edgeRelation(edge);
+  const reasons = [];
+  if (edge.can_merge || relation?.key === 'ahead') reasons.push({ key: 'merge', label: '待合入父分支' });
+  if (edge.can_sync || relation?.key === 'diverged') reasons.push({ key: 'sync', label: '父子已分歧' });
+  if (edge.can_catchup || relation?.key === 'behind') reasons.push({ key: 'catchup', label: '落后父分支' });
+  return reasons;
+}
+
+/** 待收口：三个动作里至少一个可做，或有未收拢的子分支（先收拢子分支）。 */
+function needsClosing(entry) {
+  return closingReasons(entry).length > 0 || Boolean(entry?.incoming?.blockers?.length);
+}
+
+/** 一条待收口分支：分支名、与父分支的关系与 ahead/behind、blocker 文案，以及去分支图处理的入口。 */
+function closingRow(entry) {
+  const edge = entry.incoming;
+  const relation = edgeRelation(edge);
+  const row = el('div', undefined, 'branch-row closing-row');
+  row.dataset.branch = entry.name;
+  row.append(el('span', `⎇ ${entry.name}`, 'branch-name mono'));
+  if (relation) row.append(el('span', relation.label, `chip relation-${relation.key}`));
+  if (edge && (Number.isFinite(edge.ahead) || Number.isFinite(edge.behind))) {
+    row.append(el('span', `子分支 +${edge.ahead ?? '?'} / -${edge.behind ?? '?'}`, 'meta'));
+  }
+  for (const reason of closingReasons(entry)) row.append(el('span', reason.label, `chip reason-${reason.key}`));
+  if (edge?.blockers?.length) row.append(el('span', `先收拢子分支：${edge.blockers.join('、')}`, 'hint warn'));
+  // 只做导航，不给写动作：合并 / 同步 / 归档都留在分支图上完成。
+  row.append(button('去分支图处理', () => graph(), 'link'));
+  return row;
+}
+
+/** 一条正在工作的分支：分支名、来源或一句话标题、活跃任务数与任务链接（点开任务详情）。 */
+function workingRow(entry) {
+  const row = el('div', undefined, 'branch-row working-row');
+  row.dataset.branch = entry.name;
+  row.append(el('span', `⎇ ${entry.name}`, 'branch-name mono'));
+  if (entry.title) row.append(el('span', entry.title, 'branch-title'));
+  else if (entry.origin) row.append(el('span', `${BRANCH_ORIGIN[entry.origin] || entry.origin}${entry.source_id ? ` #${entry.source_id}` : ''}`, 'meta'));
+  const tasks = entry.tasks.filter(isWorkingTask);
+  row.append(el('span', `${tasks.length} 个活跃任务`, 'meta'));
+  for (const task of tasks.slice(0, 8)) row.append(button(`#${task.id}`, () => detail(task.id), 'link'));
+  return row;
+}
+
 export function renderOverview(data) {
   // 计划审批（kind='plan'）在「历史输入」的意图行上批，不在这个问答面板里：列出来点开只会是空动作（openNotice 只认非 plan 的 notice）。
   const open = data.notices.filter(notice => notice.status === 'open' && notice.kind !== 'plan');
-  const key = JSON.stringify([data.status.tasks, data.status.agents, data.status.agents_idle, data.status.pending_merges, data.status.drafts, open.map(n => n.id),
-    data.tasks.length, data.status.project, data.status.version, data.status.fingerprint, data.status.started_at,
+  // 纯提醒（kind='info'、任务结算时自动落库）不进任何待决口径，这里只读地列最近 10 条。
+  const reminders = (data.notices || []).filter(notice => notice.kind === 'info')
+    .sort((a, b) => noticeTime(b) - noticeTime(a) || b.id - a.id).slice(0, 10);
+
+  const graphData = ui.lastGraph;
+  const layout = graphData ? graphLayout(graphData) : null;
+  const branchesReady = Boolean(layout) && layout.git && !layout.error;
+  const entries = branchesReady ? flattenBranches(layout.forest).filter(entry => !entry.archived) : [];
+  const closing = entries.filter(needsClosing);
+  const working = entries.filter(entry => entry.status === 'active');
+  // 提醒行要能写清是哪个分支：任务节点上的 branch / target_branch 是图已知的事实，取不到就不写。
+  const branchByTask = new Map((graphData?.nodes || [])
+    .filter(node => node.kind === 'task').map(node => [node.id, node.branch || node.target_branch || null]));
+
+  const key = JSON.stringify([data.status.tasks, data.status.agents, data.status.agents_idle, data.status.agents_total,
+    data.status.concurrency, data.status.pending_merges, data.status.drafts, data.status.project, data.status.version,
+    data.status.fingerprint, data.status.started_at,
+    open.map(notice => notice.id), reminders.map(notice => `${notice.id}:${notice.created_at ?? ''}`),
+    data.tasks.length,
+    // 分支主线要跟着图一起重画：指纹 + 生成时间变了就重建，重画不丢折叠与滚动。
+    graphData ? graphRenderKey(graphData) : null, ui.graphFetchedAt,
     // 时间轴的开口段一直在长，但只在结构变化或每 15 秒才需要重画一次，免得轮询把滚动位置冲掉。
     Math.floor(Date.now() / 15000),
-    (data.timeline?.tasks || []).map(task => `${task.id}:${task.status}:${task.segments.length}`).join(','),
-    (data.ladder?.nodes || []).map(node => `${node.id}:${node.level}:${node.deps.length}:${node.covered_by.join('|')}`).join(','),
-    (data.ladder?.groups || []).flatMap(group => group.items || []).map(item => `${item.id}:${item.source_task_id}:${item.phase}:${item.ready}:${(item.blockers || []).map(blocker => blocker.code).join('|')}`).join(','),
-    // 冻结状态一变，可合并集合与勾选可用性就跟着变，所以它也必须进 key。
-    (data.status.merge_freeze || []).map(row => `${row.task_id}:${row.target_branch}:${row.resolves_task_id ?? '-'}`).join(',')]);
+    (data.timeline?.tasks || []).map(task => `${task.id}:${task.status}:${task.segments.length}`).join(',')]);
   if (key === ui.overviewKey) return;
   ui.overviewKey = key;
   const panel = $('detail');
   const expanded = new Set([...panel.querySelectorAll('details[data-fold]')].filter(node => node.open).map(node => node.dataset.fold));
   panel.dataset.view = 'overview'; panel.replaceChildren();
-  const count = status => data.status.tasks.find(row => row.status === status)?.count ?? 0;
-  const pending = mergeCandidates(data.tasks, { nodes: data.ladder?.nodes || [], groups: data.ladder?.groups || [], freeze: data.status.merge_freeze || [] }).length;
   const head = el('div', undefined, 'overview-hero');
   const intro = el('div');
-  intro.append(el('span', 'WORKSPACE / 项目工作台', 'eyebrow'), el('h1', '项目概览'),
-    el('p', open.length ? `有 ${open.length} 个问题等待你的决定。先疏通阻塞，让工作继续向前。`
-      : pending ? `${pending} 个变更等待交付。审阅成果，再让它们进入目标分支。`
-      : count('running') ? 'Agent 正在并行工作。这里汇集进展、决策与交付。' : '一切就绪。写下下一个想法，让项目继续生长。', 'hero-description'));
+  const heroText = !layout ? '正在读取分支谱系，稍后这里会按分支汇总需要收口的工作。'
+    : open.length ? `有 ${open.length} 个问题等待你的决定。先疏通阻塞，让工作继续向前。`
+    : closing.length ? `${closing.length} 条分支等待收口。审阅成果，让它们进入父分支。`
+    : working.length ? '分支正在并行推进。这里汇集需要收口的变更、活跃分支与提醒。'
+    : '分支都收拢好了。写下下一个想法，让项目继续生长。';
+  intro.append(el('span', 'WORKSPACE / 项目工作台', 'eyebrow'), el('h1', '项目概览'), el('p', heroText, 'hero-description'));
   const mark = el('div', '✳', 'hero-mark'); mark.setAttribute('aria-hidden', 'true');
   head.append(intro, mark); panel.append(head);
 
+  // 指标以分支计：分支总数 / 正在工作 / 待收口（待合入、分歧、落后）/ 需要你决定。
   const metrics = el('div', undefined, 'metrics');
   for (const [label, value, note, tone] of [
-    ['正在运行', count('running'), `${data.status.agents.length} 个 agent 在线 · 并发 ${data.status.concurrency}`, 'blue'],
-    ['待你决定', open.length, open.length ? '待决问题 · 需要你的判断' : '没有等待答复的问题', 'amber'],
-    ['待交付', pending, '完成不等于合并 · 审阅后落地', 'violet'],
-    ['已完成', count('completed'), '任务执行完成，交付状态单独追踪', 'green'],
+    ['分支总数', branchesReady ? layout.branch_count : '—', branchesReady ? `${working.length} 条正在工作 · ${closing.length} 条待收口` : '正在读取分支…', 'blue'],
+    ['正在工作', branchesReady ? working.length : '—', branchesReady ? '分支上仍有活跃任务' : '等待分支数据', 'violet'],
+    ['待收口', branchesReady ? closing.length : '—', closing.length ? '待合入 / 分歧 / 落后' : '没有待收口的分支', 'amber'],
+    ['需要你决定', open.length, open.length ? '待决问题 · 需要你的判断' : '没有等待答复的问题', 'green'],
   ]) {
     const card = el('div', undefined, `metric tone-${tone}`);
     card.append(el('span', label, 'metric-label'), el('strong', String(value), 'metric-value'), el('span', note, 'metric-note'));
     metrics.append(card);
   }
   panel.append(metrics);
-  const distribution = el('div', undefined, 'status-distribution');
-  distribution.append(el('span', '任务状态', 'distribution-label'));
-  for (const status of Object.keys(STATUS)) {
-    distribution.append(el('span', `${statusOf({ status }).icon} ${statusOf({ status }).label} ${count(status)}`, `status-chip c-${status}`));
+
+  // 分支主线：待收口的分支 + 正在工作的分支。没有图时给占位 / 错误提示，只画快照撑得住的部分。
+  const branchArea = el('div', undefined, 'branch-overview');
+  if (!layout) {
+    const box = block('分支'); box.classList.add('branch-loading');
+    box.append(el('p', '正在读取分支…', 'empty-state compact'));
+    branchArea.append(box);
+  } else if (!layout.git || layout.error) {
+    const box = block('分支'); box.classList.add('branch-error');
+    box.append(el('p', layout.error ? `读取 git 时出错：${layout.error}` : '读取 git 失败：这个项目不是 git 仓库', 'hint warn'));
+    branchArea.append(box);
+  } else if (!entries.length) {
+    const box = block('分支');
+    box.append(el('p', '还没有任何分支或 worktree。', 'empty-state compact'));
+    branchArea.append(box);
+  } else {
+    const pending = block('待收口的分支', String(closing.length));
+    pending.classList.add('closing-branches');
+    if (!closing.length) pending.append(el('p', '没有待收口的分支，分支都已收拢。', 'empty-state compact'));
+    for (const entry of closing) pending.append(closingRow(entry));
+    branchArea.append(pending);
+
+    const busy = block('正在工作的分支', String(working.length));
+    busy.classList.add('working-branches');
+    if (!working.length) busy.append(el('p', '当前没有正在工作的分支。', 'empty-state compact'));
+    for (const entry of working) busy.append(workingRow(entry));
+    branchArea.append(busy);
   }
-  panel.append(distribution);
+  panel.append(branchArea);
+
+  // 纯提醒：不需要答复，也不进「需要你的决定」。
+  const noticeBlock = block('最近提醒', String(reminders.length));
+  noticeBlock.classList.add('reminder-panel');
+  if (!reminders.length) noticeBlock.append(el('p', '暂无提醒。', 'empty-state compact'));
+  for (const notice of reminders) {
+    const row = button('', () => detail(notice.task_id), 'reminder-item');
+    const branch = branchByTask.get(notice.task_id);
+    row.append(el('span', relative(notice.created_at) || absolute(notice.created_at) || '', 'when'));
+    if (branch) row.append(el('span', `⎇ ${branch}`, 'branch-name mono'));
+    row.append(el('strong', notice.title));
+    noticeBlock.append(row);
+  }
+  panel.append(noticeBlock);
 
   const notices = block('需要你的决定', String(open.length));
   notices.classList.add('attention-panel');
@@ -65,9 +201,10 @@ export function renderOverview(data) {
     row.append(el('span', '?', 'attention-icon'), text, el('span', '去处理 →', 'attention-action'));
     notices.append(row);
   }
-  panel.append(notices, renderLadder(data));
-  const activity = el('div', undefined, 'activity-grid');
+  panel.append(notices);
 
+  // 分支主线之后的次要信息：运行中的 agent 与并行时间轴。
+  const activity = el('div', undefined, 'activity-grid');
   const agents = block('运行中的 agent', `${data.status.agents.length} / ${data.status.agents_total ?? data.status.agents.length}`);
   if (!data.status.agents.length) agents.append(el('p', `并发额度 ${data.status.concurrency}，当前空闲；另有 ${data.status.agents_idle ?? 0} 个 agent 待唤醒。`, 'hint'));
   else if (data.status.agents_idle) agents.append(el('p', `另有 ${data.status.agents_idle} 个 agent 空闲待唤醒。`, 'hint'));

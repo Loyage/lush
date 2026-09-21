@@ -130,8 +130,8 @@
 | `app.js` | 唯一入口：装配顶部按钮、移动端任务浏览开关、hashchange、两个定时器 | `boot()` |
 | `appearance.js` | head 中同步初始化深浅主题（避免闪屏），装配主题切换；持久化偏好，未指定时跟随系统 | 独立 classic script，无导出 |
 | `styles.css` | 双主题设计 token、应用布局、组件、响应式与 reduced-motion 动效 | CSS |
-| `state.js` | 共享可变状态（一个对象，新字段不必改别的文件就能加） | `ui`、`transcriptOpen`、`transcriptCache`、`mergeSelection`、`resetUiState()` |
-| `navigate.js` | 导航间接层（断循环依赖） | `registerNavigation({refresh, detail, overview})`、`refresh()`、`detail(taskId)`、`overview()` |
+| `state.js` | 共享可变状态（一个对象，新字段不必改别的文件就能加）；`ui.lastGraph` 保存最近一次 `graph.get` 读模型，供「分支图」与「项目概览」共用 | `ui`、`transcriptOpen`、`transcriptCache`、`mergeSelection`、`resetUiState()` |
+| `navigate.js` | 导航间接层（断循环依赖） | `registerNavigation({refresh, detail, overview, graph})`、`refresh()`、`detail(taskId)`、`overview()`、`graph()` |
 | `api.js` | fetch 与用户动作 | `api(url, options)`、`action(method, params)`、`loadHistory(taskId)` |
 | `format.js` | 标签映射与格式化（纯函数） | `STATUS`、`INTEGRATION`、`ROLE`、`EVENTS`、`HOT`、`TERMINAL_STATUS`、`WAIT_REASON`、`PLAN_GATE`、`SPEC_STATUS`、`MERGE_STATUS`、`CHANGE`、`DEP_HELP`、`STEP`、`MD_STEP`、`statusOf`、`relative`、`duration`、`absolute`、`clock`、`tokens`、`money`、`depsOf`、`waitingDeps`、`resolverOf`、`specStatus`、`specTitle`、`edgeLabel`、`lastView`、`short` |
 | `dom.js` | DOM 原语 | `el`、`button`、`syncChildren`、`block`、`kv`、`badge`、`statusBadge` |
@@ -155,13 +155,13 @@
 | `render-verify.js` | 检验区块 | `renderVerifications(task)` |
 | `render-resolutions.js` | 合并冲突处理记录 | `renderResolutions(task)` |
 | `render-detail.js` | 任务详情整页：目标标题、状态、结果优先的阅读顺序与任务操作 | `renderDetail(task, history, diff, usage)`、`renderDetailError(taskId, message)` |
-| `render-overview.js` | 项目工作台：关键指标、优先待决事项、交付队列、运行与时间轴、折叠运行时维护信息 | `renderOverview(data)` |
+| `render-overview.js` | 项目工作台，以分支为中心：复用 `graph.get` 的 `ui.lastGraph` 指标（分支总数 / 正在工作 / 待收口 / 需要你决定）、待收口分支（可合入父分支 / 分歧 / 落后 / blocker，可跳分支图）、正在工作的分支（来源或标题 + 活跃任务链接）、`kind='info'` 的最近提醒、仍保留的「需要你的决定」、运行中的 agent 与时间轴（排在分支主线之后），以及折叠的运行时与维护信息；图未到时给占位 / 降级提示，不新增 RPC，也不渲染交付队列与任务状态分布 | `renderOverview(data)` |
 | `graph-layout.js` | 分支图纯逻辑：fork 边拼出分支森林（任务挂到自己的分支下并把父分支作为嵌套）、每棵子树的 `subtreeBranches` / `subtreeTasks` 计数（收起时告诉用户藏了什么）、组内 code 层级（同层新的在前：任务按 id 降序，兄弟分支按 created_at 降序、未知时间排最后）、标签与廉价结构指纹，以及折叠偏好的 localStorage 形态；给每个分支算出 `archived` / `archived_at` 与 `archivable`（可归档判断：已登记、未归档也未删除、非当前检出、自己与后代都没有活动任务，且 ref 或 worktree 至少还有一个） | `graphLayout(graph)`、`graphFingerprint(snapshot)`、`graphRenderKey(graph)`、`parseGraphCollapsed(raw)`、`serializeGraphCollapsed(set)`、`aheadBehindText(node)`、`nodeMarks(node)` |
-| `render-graph.js` | 交互式分支流程图：面板与连接线按父子关系着色（领先绿 / 一致灰 / 落后蓝 / 分歧琥珀 / 缺失红），表头给出该关系的动作（合入父分支 / 让子分支跟上父分支 / 在子分支解决分歧），做不了的也画出来但禁用并写明原因；父子关系靠 CSS 画的竖线与拐角表达，整棵子树可收起（状态存 localStorage，重画不丢）；归档分支显示「已归档」状态且不再给动作，可归档的分支提供「归档」按钮（确认后调 `branch.archive`，带 `discard:true`） | `openGraph()`、`loadGraph()`、`renderGraph(graph, opts)` |
+| `render-graph.js` | 交互式分支流程图：面板与连接线按父子关系着色（领先绿 / 一致灰 / 落后蓝 / 分歧琥珀 / 缺失红），表头给出该关系的动作（合入父分支 / 让子分支跟上父分支 / 在子分支解决分歧），做不了的也画出来但禁用并写明原因；父子关系靠 CSS 画的竖线与拐角表达，整棵子树可收起（状态存 localStorage，重画不丢）；归档分支显示「已归档」状态且不再给动作，可归档的分支提供「归档」按钮（确认后调 `branch.archive`，带 `discard:true`）。`fetchGraph()` 只拉数与更新 `ui.lastGraph` / `ui.graphFetchedAt` / `ui.graphFingerprint`（单飞），供概览复用，`loadGraph()` 再渲染分支图 | `openGraph()`、`fetchGraph()`、`loadGraph()`、`renderGraph(graph, opts)` |
 | `detail.js` | 拉取并渲染任务详情；窄屏新导航收起索引并定位内容，轮询保留滚动 | `loadDetail(taskId)` |
 | `docs.js` | 「文档」视图：路由（`#docs` / `#doc-<id>`）、取数与站内相对链接解析 | `docsTarget(hash)`、`resolveDocPath(from, raw)`、`docLinkResolver(current, docs)`、`openDocs(id)`、`loadDocs(id)`、`DOCS_HASH` |
 | `render-docs.js` | 「文档」视图的目录、正文与兜底 | `renderDocsIndex(docs, onOpen)`、`renderDoc(doc, resolveLink, onOpen)`、`renderDocError(id, message, onOpen)` |
-| `refresh.js` | 轮询快照、概览、热任务增量刷新、筛选重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
+| `refresh.js` | 轮询快照、概览、热任务增量刷新、筛选重画；「项目概览」与「分支图」共用同一份 `graph.get`（`ui.lastGraph`）与同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s），概览先用快照画、后台取图后就地重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
 
 其它纯逻辑模块：`markdown.js`、`tree-order.js`、`live.js`、`sidebar.js`；`merge-select.js` 是交付队列的候选、冻结与 code-only 顺序预览接缝，由 `render-ladder.js` 使用。
 
