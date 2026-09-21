@@ -80,7 +80,7 @@
 
 ## graph.get 的 fork 边
 
-Web 分支图使用 `graph.get`。每个 branch 节点带 `origin` / `title` / `source_id` / `created_at`、汇总的 `status` 与 `tasks` 计数，另带 `worktree` / `worktree_state` 与 `deleted`；归档分支的 `status` 固定为 `archived`，带 `archived` / `archived_at`（复用 `branches.deleted_at`，不新增列），`tasks.branch` 指向它的任务节点带 `archived: true`。**归档节点仍在 `graph.get` 的返回里**（读模型不藏事实），但前端不再把它们画进分支树：`graphLayout` 跳过 `archived` 的 branch 节点与它们名下的任务，把它们还在的后代接到最近的可见祖先上，并给这种后代标上 `父分支已归档`（中性色，不是红色的「分支缺失」）。`missing` 只留给「谁都没归档、ref 真的不见了」那条 fork 边。每条 fork edge 附加：
+Web 分支图使用 `graph.get`。每个 branch 节点带 `origin` / `title` / `source_id` / `created_at`、汇总的 `status` 与 `tasks` 计数，另带 `worktree` / `worktree_state` 与 `deleted`；归档分支的 `status` 固定为 `archived`，带 `archived` / `archived_at`（复用 `branches.deleted_at`，不新增列），`tasks.branch` 指向它的任务节点带 `archived: true`。每个 `kind:'task'` 节点（含意图层的 planner / scheduler）另带「待你决断」的 notice：`notice` 是 `status='open'` 且 `kind` 为 `question` / `plan` 的最新一条（按 id 最大，没有则 null），`notice_count` 是这类 open notice 的总数；`kind='info'`（`status='sent'`）与 answered / dismissed 都不算。分支图把这条 notice 画在任务行里并就地处理（`question` 走 `notice.answer` / `notice.dismiss`，`plan` 走 `plan.approve` / `plan.reject`）。**归档节点仍在 `graph.get` 的返回里**（读模型不藏事实），但前端不再把它们画进分支树：`graphLayout` 跳过 `archived` 的 branch 节点与它们名下的任务，把它们还在的后代接到最近的可见祖先上，并给这种后代标上 `父分支已归档`（中性色，不是红色的「分支缺失」）。`missing` 只留给「谁都没归档、ref 真的不见了」那条 fork 边。每条 fork edge 附加：
 
 ```json
 {
@@ -98,5 +98,7 @@ Web 分支图使用 `graph.get`。每个 branch 节点带 `origin` / `title` / `
 ```
 
 `can_merge` / `can_sync` / `can_catchup` 是三个可执行动作：子→父快进、分歧时建子侧 merger、父→子快进，都要求 `blockers` 为空。前端据此决定按钮是可用还是禁用（禁用的按钮照样画出来，并在 title 里写明原因）。
+
+待决 notice 也进分支图的重拉判断：快照指纹（`graphFingerprint`）与渲染指纹（`graphRenderKey`）都把 open 且 kind 为 question / plan 的 notice 算进来，所以新 notice 出现、被答复 / 忽略后，分支图会自动重拉重画；`kind='info'` 的纯提醒与 answered / dismissed 不算。
 
 相关：[分支优先架构](../../engineering/branch-first.md)。
