@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { graphLayout, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingTask, workingState } from '../../src/ui/web/assets/graph-layout.js';
+import { graphLayout, graphFingerprint, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingTask, workingState } from '../../src/ui/web/assets/graph-layout.js';
 
 // graphLayout 的纯逻辑：同一层级的迭代方向必须统一为「新的在前」——
 // 兄弟分支按 created_at 从新到旧（未知时间排在已知时间之后），同一分支下同 level 的任务按 id 降序；
@@ -354,4 +354,58 @@ test('graphRenderKey 覆盖 incoming status / 分支汇总 status / 任务 statu
   expect(graphRenderKey(build({ taskStatus: 'running' }))).not.toBe(key);
   // 任务在 awaiting 与 queued 之间切换：工作态文案（等你决定 / 排队中）也要跟着变，不能沿用上一张图。
   expect(graphRenderKey(build({ taskStatus: 'awaiting' }))).not.toBe(graphRenderKey(build({ taskStatus: 'queued' })));
+});
+
+// 待决 notice 直接画在任务行里（见 render-graph 的 decisionRow），所以它一变这张图就必须重画：
+// 新 notice 出现要长出决策区，答复 / 忽略后要收回去，换成另一条要换文案与动作。
+test('graphRenderKey 把任务节点上的待决 notice（id / kind / 总数）纳入指纹', () => {
+  const build = ({ notice = null, noticeCount = notice ? 1 : 0 } = {}) => ({
+    nodes: [
+      branch('main', { current: true }),
+      branch('lush/x/a', { status: 'active' }),
+      task(1, 'lush/x/a', { status: 'awaiting', notice, notice_count: noticeCount }),
+    ],
+    edges: [forkEdge('main', 'lush/x/a', 'integrated')],
+  });
+  const none = graphRenderKey(build());
+  const question = build({ notice: { id: 5, kind: 'question', title: '要不要动公共面' } });
+  // 同一份数据（连 notice 一起）指纹相同：重画幂等。
+  expect(graphRenderKey(question)).toBe(graphRenderKey(build({ notice: { id: 5, kind: 'question', title: '要不要动公共面' } })));
+  // 新 notice 出现：任务行要长出决策区。
+  expect(graphRenderKey(question)).not.toBe(none);
+  // 换成另一条 notice：正文与动作都要跟着换。
+  expect(graphRenderKey(build({ notice: { id: 6, kind: 'question' } }))).not.toBe(graphRenderKey(question));
+  // question -> plan：徽标与按钮整块不同。
+  expect(graphRenderKey(build({ notice: { id: 5, kind: 'plan' } }))).not.toBe(graphRenderKey(question));
+  // 待决条数变了（又攒了一条）：要重画，并把「另有 N-1 条待决」更新过来。
+  expect(graphRenderKey(build({ notice: { id: 5, kind: 'question' }, noticeCount: 3 }))).not.toBe(graphRenderKey(question));
+  // 被答复 / 忽略后回到没有 notice：决策区收回去。
+  expect(graphRenderKey(build())).toBe(none);
+});
+
+// 1.5s 轮询用 snapshot 派生指纹判断要不要重拉 /api/graph；待决 notice 不在 tasks / ladder 里，
+// 必须单独纳入，否则新 notice 出现或答复后分支图不会自动重拉重画。
+test('graphFingerprint 让待决 notice 的出现与答复触发重拉，info 提醒与已答复的不算', () => {
+  const snapshot = notices => ({
+    tasks: [{ id: 1, status: 'awaiting', integration: 'none', role: 'worker' }],
+    ladder: {}, notices,
+  });
+  const pending = (id, kind, status = 'open', task_id = 1) => ({ id, task_id, kind, status });
+  const none = graphFingerprint(snapshot([]));
+  const question = graphFingerprint(snapshot([pending(5, 'question')]));
+  // 新问题出现：指纹变，视图在 3s 规则内重拉。
+  expect(question).not.toBe(none);
+  // 同一份数据：指纹稳定，轮询不会每 1.5s 白拉一次图。
+  expect(graphFingerprint(snapshot([pending(5, 'question')]))).toBe(question);
+  // 换成另一条（又问了一次）：指纹不同。
+  expect(graphFingerprint(snapshot([pending(6, 'question')]))).not.toBe(question);
+  // 被答复 / 忽略：不再算待决，指纹回到「没有待决」的样子。
+  expect(graphFingerprint(snapshot([pending(5, 'question', 'answered')]))).toBe(none);
+  expect(graphFingerprint(snapshot([pending(5, 'question', 'dismissed')]))).toBe(none);
+  // 计划待批同样算待决；info 纯提醒（status='sent'）不算，它不该把分支图拉起来。
+  expect(graphFingerprint(snapshot([pending(7, 'plan', 'open', 9)]))).not.toBe(none);
+  expect(graphFingerprint(snapshot([pending(8, 'info', 'sent', 2)]))).toBe(none);
+  // 多条待决的顺序不影响指纹：同样一组 notice 只是顺序不同，不该被当成「变了」。
+  expect(graphFingerprint(snapshot([pending(6, 'question'), pending(5, 'plan', 'open', 9)])))
+    .toBe(graphFingerprint(snapshot([pending(5, 'plan', 'open', 9), pending(6, 'question')])));
 });

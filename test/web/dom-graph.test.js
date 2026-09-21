@@ -520,3 +520,148 @@ test('分支图：工作中的分支有明确工作态标识，停下来的分�
     await openGraph();
   }
 });
+
+// 待你决断的 notice 直接画在分支图的任务行里并就地处理：不用先去左侧「待定事项」或意图面板。
+// 数据来自 graph.get 的 notice / notice_count（spec #21），这里只验证渲染层与动作确实接上了 RPC。
+test('分支图：带待决 notice 的任务行显示正文与徽标，能原地答复 / 忽略，无 notice 的行不出现决策区', async () => {
+  const saved = JSON.parse(JSON.stringify(world.state.graph));
+  try {
+    const one = world.state.graph.nodes.find(node => node.kind === 'task' && node.id === 1);
+    one.notice = { id: 5, kind: 'question', title: '这条要不要动公共面', body: '第一行：先问清楚\n第二行：请给出你的决定', created_at: iso(NOW) };
+    one.notice_count = 2;
+    await openGraph();
+    const detail = dom.node('detail');
+    const rowOf = goal => detail.querySelectorAll('div.graph-node').find(node => deepText(node).includes(goal));
+
+    // ① 只有带 notice 的那一行有决策区：徽标 + 标题 + 完整正文（不是只有标题）+ 还有多少条待决。
+    const decisions = detail.querySelectorAll('div.graph-decision');
+    expect(decisions.length).toBe(1);
+    const row = rowOf('#1');
+    expect(row.querySelector('div.graph-decision')).toBe(decisions[0]);
+    const text = deepText(decisions[0]);
+    expect(text).toContain('◔ 等你决定');
+    expect(text).toContain('这条要不要动公共面');
+    expect(text).toContain('第一行：先问清楚');
+    expect(text).toContain('第二行：请给出你的决定');
+    expect(text).toContain('另有 1 条待决');
+    // 任务行带「在等你」强调，与既有的工作态强调同时存在。
+    expect(row.classList.contains('graph-emphasis-awaiting')).toBe(true);
+    expect(rowOf('#2').classList.contains('graph-emphasis-awaiting')).toBe(false);
+    expect(rowOf('#2').querySelector('div.graph-decision')).toBeNull();
+    // 分支行（不是任务行）也不该出现决策区。
+    expect(detail.querySelectorAll('div.graph-branch div.graph-decision').length).toBe(0);
+
+    // ② 输入框占位与详情面板一致；⌘/Ctrl+回车就是提交。
+    const input = decisions[0].querySelector('textarea.graph-decision-input');
+    expect(input).toBeTruthy();
+    expect(input.placeholder).toBe('你的决定；⌘/Ctrl+回车提交');
+    input.value = '先加个开关，不动公共面';
+    await input.listeners.keydown[0]({ key: 'Enter', metaKey: true, preventDefault() {} });
+    expect(world.state.actions).toContainEqual({ method: 'notice.answer', params: { id: 5, answer: '先加个开关，不动公共面' } });
+    expect(dom.node('error').textContent).toContain('已把答复发给任务 #1');
+    // 重拉后这条 notice 已经结算：决策区收回去，输入框也不再留着已提交的内容。
+    expect(detail.querySelectorAll('div.graph-decision').length).toBe(0);
+    expect(rowOf('#1').classList.contains('graph-emphasis-awaiting')).toBe(false);
+
+    // ③ 忽略：同一处还有一个「忽略」按钮，走 notice.dismiss。
+    one.notice = { id: 5, kind: 'question', title: '这条要不要动公共面', body: '正文', created_at: iso(NOW) };
+    one.notice_count = 1;
+    await openGraph();
+    const ignore = dom.node('detail').querySelectorAll('div.graph-decision')[0]
+      .querySelectorAll('button').find(node => node.textContent === '忽略');
+    expect(ignore).toBeTruthy();
+    await ignore.onclick();
+    expect(world.state.actions).toContainEqual({ method: 'notice.dismiss', params: { id: 5 } });
+    expect(dom.node('error').textContent).toContain('已忽略任务 #1 的这条待决事项');
+  } finally {
+    world.state.graph = saved;
+    await openGraph();
+  }
+});
+
+test('分支图：计划待批的任务行能原地批准 / 驳回，驳回与意图面板同文案、空理由不发', async () => {
+  const saved = JSON.parse(JSON.stringify(world.state.graph));
+  try {
+    // planner 任务按现有读模型挂在输入锚点分支下；两条计划各自等你拍板。
+    const planTask = (id, noticeId) => ({
+      kind: 'task', id, role: 'planner', name: `plan-${id}`, goal: `拆解需求 ${id}`, status: 'awaiting', integration: 'none',
+      branch: 'lush/demo/input-1-anchor', workspace: null, workspace_state: 'none', base_commit: null, head_commit: null,
+      target_branch: null, ahead: null, behind: null, merged: null, current: false, archived: false,
+      notice: { id: noticeId, kind: 'plan', title: `这轮拆解想先请你拍板 ${id}`, body: '计划正文', created_at: iso(NOW) },
+      notice_count: 1,
+    });
+    world.state.graph.nodes.push(planTask(21, 7), planTask(22, 8));
+    await openGraph();
+    const decisionOf = id => dom.node('detail').querySelectorAll('div.graph-decision')
+      .find(node => deepText(node).includes(`这轮拆解想先请你拍板 ${id}`));
+    const buttonOf = (id, label) => decisionOf(id).querySelectorAll('button').find(node => node.textContent === label);
+
+    // 徽标与 question 不同：这里是「计划待批」，且没有回复输入框（计划是批 / 驳，不是答话）。
+    expect(deepText(decisionOf(21))).toContain('计划待批');
+    expect(decisionOf(21).querySelector('textarea')).toBeNull();
+
+    // 批准：id 用 planner 任务 id（与意图面板的 plan.approve 同源）。
+    await buttonOf(21, '批准并开发').onclick();
+    expect(world.state.actions).toContainEqual({ method: 'plan.approve', params: { id: 21 } });
+    expect(dom.node('error').textContent).toContain('已批准 #21 的拆解');
+    expect(decisionOf(21)).toBeUndefined();   // 批准后这条计划已结算，决策区消失
+
+    // 驳回：先弹应用内输入框取理由，与 render-intents.js 的 planActions 同文案 / 同校验。
+    const pending = buttonOf(22, '驳回').onclick();
+    expect(dialogText(dom)).toContain('驳回 #22 的拆解？');
+    expect(dialogText(dom)).toContain('理由会送给 planner');
+    expect(dialogText(dom)).toContain('驳回并重拆');
+    // 空理由不发：弹窗收起，什么都不提交。
+    await answerDialog(dom, '驳回并重拆', '');
+    await pending;
+    expect(world.state.actions.some(entry => entry.method === 'plan.reject')).toBe(false);
+    expect(deepText(decisionOf(22))).toContain('计划待批');
+
+    // 有理由才发，理由去掉首尾空白后随请求一起走。
+    const rejected = buttonOf(22, '驳回').onclick();
+    await answerDialog(dom, '驳回并重拆', '  别动架构，先加个开关  ');
+    await rejected;
+    expect(world.state.actions).toContainEqual({ method: 'plan.reject', params: { id: 22, reason: '别动架构，先加个开关' } });
+    expect(dom.node('error').textContent).toContain('已驳回 #22 的拆解：别动架构，先加个开关');
+  } finally {
+    world.state.graph = saved;
+    await openGraph();
+  }
+});
+
+test('分支图：决策输入不被轮询冲掉——有内容或聚焦时跳过重画，提交后按新数据正常重画', async () => {
+  const saved = JSON.parse(JSON.stringify(world.state.graph));
+  try {
+    const one = world.state.graph.nodes.find(node => node.kind === 'task' && node.id === 1);
+    one.notice = { id: 5, kind: 'question', title: '要不要动公共面', body: '正文', created_at: iso(NOW) };
+    one.notice_count = 1;
+    await openGraph();
+    const input = () => dom.node('detail').querySelector('textarea.graph-decision-input');
+    input().value = '打了一半的决定';
+    input().focus();
+    expect(dom.document.activeElement).toBe(input());
+
+    // UI 外新建一条分支：最长陈旧时间到期会无条件重拉图，但用户正在决策区里打字，这次不该重画。
+    world.state.graph.nodes.push({ kind: 'branch', id: 'branch:lush/demo/9-late', name: 'lush/demo/9-late',
+      head_commit: 'f00', current: false, tracked: true, placeholder: false, created_at: iso(NOW) });
+    const ui = (await import('../../src/ui/web/assets/state.js')).ui;
+    ui.graphFetchedAt = Date.now() - 10001;
+    await dom.intervalFor(1500)();
+    // 输入与焦点都还在，图也没有被新数据冲掉（ui.lastGraph 照常更新，只是没画）。
+    expect(input()).toBeTruthy();
+    expect(input().value).toBe('打了一半的决定');
+    expect(dom.document.activeElement).toBe(input());
+    expect(deepText(dom.node('detail'))).not.toContain('lush/demo/9-late');
+    expect(ui.lastGraph.nodes.some(node => node.name === 'lush/demo/9-late')).toBe(true);
+
+    // 提交之后走正常重画：输入被松开，新分支与答复后的图都画出来。
+    const reply = dom.node('detail').querySelectorAll('div.graph-decision')[0]
+      .querySelectorAll('button').find(node => node.textContent === '回复并继续任务');
+    await reply.onclick();
+    expect(deepText(dom.node('detail'))).toContain('lush/demo/9-late');
+    expect(dom.node('detail').querySelectorAll('div.graph-decision').length).toBe(0);
+  } finally {
+    world.state.graph = saved;
+    await openGraph();
+  }
+});

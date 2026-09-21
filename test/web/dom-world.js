@@ -175,7 +175,18 @@ export function makeWorld() {
       if (body.method === 'plan.approve' || body.method === 'plan.reject') {
         const intent = state.intents.find(row => row.task_id === body.params.id);
         if (intent) intent.plan_gate = body.method === 'plan.approve' ? 'approved' : 'rejected';
+        // 批 / 驳之后这条计划 notice 就被结算了：分支图上的决策区要跟着消失（重拉后的图看得出来）。
+        for (const node of state.graph.nodes) {
+          if (node.kind === 'task' && node.id === body.params.id && node.notice?.kind === 'plan') { node.notice = null; node.notice_count = 0; }
+        }
         return json({ planner: body.params.id, plan_gate: intent?.plan_gate ?? null });
+      }
+      if (body.method === 'notice.answer' || body.method === 'notice.dismiss') {
+        // 答复 / 忽略一条待决 notice：把它从图上拿掉，让重拉后的分支图看得出「这件事已经处理了」。
+        for (const node of state.graph.nodes) {
+          if (node.kind === 'task' && node.notice?.id === body.params.id) { node.notice = null; node.notice_count = 0; }
+        }
+        return json({ id: body.params.id, status: body.method === 'notice.dismiss' ? 'dismissed' : 'answered' });
       }
       return json({});
     }

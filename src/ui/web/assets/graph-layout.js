@@ -364,10 +364,22 @@ export function serializeGraphCollapsed(collapsed) {
   return JSON.stringify([...set].filter(name => typeof name === 'string' && name).sort());
 }
 
+/** 「待你决断」的 notice 口径（与 graph.get 一致，UI 各处都按这一个）：status='open' 且 kind 为
+ *  question / plan。info 纯提醒（status='sent'）与 answered / dismissed 都不算。
+ * graph.get 的每个 kind:'task' 节点就带这个口径的 notice / notice_count。 */
+const isPendingNotice = notice =>
+  notice?.status === 'open' && (notice?.kind === 'question' || notice?.kind === 'plan');
+
+/** snapshot 里的待决 notice，按 id 升序（notice.list 的返回顺序已稳定，这里再排一次保证指纹只跟内容有关）。 */
+const pendingNoticesOf = snapshot =>
+  (snapshot?.notices || []).filter(isPendingNotice).sort((a, b) => Number(a.id) - Number(b.id));
+
 /**
  * 廉价结构指纹：从 1.5s 轮询拿到的 snapshot 派生，只用来判断「值不值得再拉一次 /api/graph」。
  * 它不求覆盖分支 / worktree 的全部变化（那些只有 graph 自己知道），但任务状态、合并状态与
  * 交付队列的依赖结构一变就会不同，足以覆盖绝大多数自动刷新场景；用户还可以点视图内刷新。
+ * 「待你决断」的 notice 也在这里：新 notice 出现、被答复 / 忽略、或换了一条，指纹都要跟着变，
+ * 分支图才会在既有的 3s / 10s 陈旧规则内重拉重画（任务行里的决策区见 render-graph 的 taskRow）。
  * 分支在 UI 外新建时指纹不会变，所以视图另有一条最长刷新间隔兜底（见 refresh.js）。
  */
 export function graphFingerprint(snapshot) {
@@ -376,16 +388,20 @@ export function graphFingerprint(snapshot) {
   const ladder = snapshot.ladder || {};
   const nodes = (ladder.nodes || []).map(node => `${node.id}:${node.branch ?? '-'}:${node.target_branch ?? '-'}:${node.level ?? 0}:${node.integration ?? '-'}`).join(',');
   const groups = (ladder.groups || []).map(group => `${group.target_branch}:${(group.items || []).map(item => `${item.id}:${item.phase}`).join('|')}`).join(',');
-  return `${tasks}::${nodes}::${groups}`;
+  const notices = pendingNoticesOf(snapshot).map(notice => `${notice.id}:${notice.task_id}:${notice.kind}`).join(',');
+  return `${tasks}::${nodes}::${groups}::${notices}`;
 }
 
-/** 渲染幂等用的图指纹：同一份数据重画不重复建节点，滚动位置也不被冲掉。 */
+/** 渲染幂等用的图指纹：同一份数据重画不重复建节点，滚动位置也不被冲掉。
+ *  任务节点上的「待你决断」notice（id / kind）与总数也算进来：notice 出现、被答复、或换成另一条时，
+ *  任务行里的决策区（徽标、正文、输入框、按钮）必须跟着重画，而不是沿用上一张图。 */
 export function graphRenderKey(graph) {
   const nodes = (graph?.nodes || []).map(node => [node.id, node.kind, node.name ?? '-', node.head_commit ?? '-',
     node.branch_state ?? '-', node.workspace_state ?? '-', node.ahead ?? '-', node.behind ?? '-', node.merged ?? '-',
     node.current === true, node.tracked === false, node.placeholder === true, node.archived === true,
     node.worktree_state ?? '-', node.tasks?.active ?? '-',
-    node.origin ?? '-', node.status ?? '-', node.title ?? '-', node.summary ?? '-', node.source_id ?? '-'].join(':')).join('|');
+    node.origin ?? '-', node.status ?? '-', node.title ?? '-', node.summary ?? '-', node.source_id ?? '-',
+    node.notice?.id ?? '-', node.notice?.kind ?? '-', node.notice_count ?? '-'].join(':')).join('|');
   const edges = (graph?.edges || []).map(edge => `${edge.kind}:${edge.from}>${edge.to}:${edge.status ?? '-'}:${edge.ahead ?? '-'}:${edge.behind ?? '-'}:${(edge.blockers || []).join(',')}`).join('|');
   return `${nodes}#${graph?.truncated === true}#${edges}`;
 }

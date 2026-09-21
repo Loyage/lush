@@ -39,6 +39,10 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     expect(css).toContain('.graph-work.pending{');
     expect(css).toContain('.graph-work.subtree{');
     expect(css).toContain('.graph-branch.graph-idle{');
+    // 待决 notice 的决策区画在分支图的任务行里，样式必须与 render-graph.js 一起在。
+    expect(css).toContain('.graph-node.graph-emphasis-awaiting{');
+    expect(css).toContain('.graph-decision{flex-basis:100%');
+    expect(css).toContain('.graph-decision-body{');
     const html = await (await fetch(f.url)).text();
     expect(html.indexOf('/appearance.js')).toBeLessThan(html.indexOf('/styles.css'));
     expect(html).toContain('id="theme-toggle"');

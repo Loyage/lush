@@ -73,6 +73,8 @@ class StubNode {
   addEventListener(type, handler) { (this.listeners[type] ||= []).push(handler); }
   // stub 没有真的焦点系统：focus() 只把 document.activeElement 指过来，够断言「焦点落在哪」与「关完还给谁」。
   focus() { if (globalThis.document) globalThis.document.activeElement = this; }
+  // blur() 与 focus() 对称：焦点在自己身上时交还出去（浏览器里 activeElement 会回到 body / 外层元素）。
+  blur() { if (globalThis.document && globalThis.document.activeElement === this) globalThis.document.activeElement = null; }
   querySelector(selector) { return walk(this).find(node => matches(node, selector)) || null; }
   querySelectorAll(selector) { return walk(this).filter(node => matches(node, selector)); }
 }

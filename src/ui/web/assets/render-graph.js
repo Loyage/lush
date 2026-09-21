@@ -6,11 +6,17 @@
  * 视图只读展示，写操作只有四个按钮：父分支关系上的「合入父分支」/「让子分支跟上父分支」/
  * 「在子分支解决分歧」，以及可归档分支上的「归档」，分别与 CLI 的 `branch merge` / `branch catchup` /
  * `branch sync` / `branch archive` 同源；节点点击只跳任务详情。
- * 幂等：同一份数据重画不重复建节点、不重建外层容器，所以 1.5s 轮询不会把滚动位置冲掉。
+ *
+ * 另有一类就地处理：图里任何带「待你决断」notice 的任务行（graph.get 的 `notice` / `notice_count`）
+ * 直接把这件事的正文画出来，并在原地答复 / 忽略 / 批准 / 驳回，不必先去左侧「待定事项」或意图面板。
+ * 动作与别处同源：question 用 `notice.answer` / `notice.dismiss`，plan 用 `plan.approve` / `plan.reject`。
+ *
+ * 幂等：同一份数据重画不重复建节点、不重建外层容器，所以 1.5s 轮询不会把滚动位置冲掉；
+ * 唯一的例外是用户正在决策区里打字：那时整张图都不重画（见 renderGraph 的 hasPendingDecision）。
  */
-import { $, button, el } from './dom.js';
+import { $, badge, button, el } from './dom.js';
 import { api, action } from './api.js';
-import { confirmDialog } from './dialog.js';
+import { confirmDialog, promptDialog } from './dialog.js';
 import { ROLE, statusOf } from './format.js';
 import { graphLayout, graphFingerprint, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingTask, workingState } from './graph-layout.js';
 import { detail, overview } from './navigate.js';
@@ -70,6 +76,87 @@ export function loadGraph() {
 
 const LANE_CLASS = level => `graph-node l${Math.min(Number(level) || 0, 6)}`;
 
+/** 待决 notice 的徽标文案：问题（等你答复）与计划（等你拍板）分开说，与任务详情 / 意图面板一致。 */
+const DECISION_BADGE = { question: '◔ 等你决定', plan: '计划待批' };
+
+/** 提交 / 忽略之后松开输入框：清掉内容，并把焦点还回去。
+ *  renderGraph 会为「有内容或正聚焦的决策输入」跳过这次重画，不松开的话用户已经提交的内容
+ *  还会挂在图上，而且这次重画会被自己挡住。 */
+function releaseDecisionInput(input) {
+  if (!input) return;
+  input.value = '';
+  if (globalThis.document?.activeElement === input) input.blur?.();
+}
+
+/**
+ * 任务行里的决策区（`node.notice` 存在时才有）：徽标 + 正文 + 就地的输入与按钮。
+ * 口径来自 graph.get：`notice` 是 open 且 kind 为 question / plan 的最新一条，`notice_count` 是这类 notice 的总数。
+ * 动作沿用本文件既有的范式：`await action(...)` 成功后写一句结论并 `await loadGraph()` 重拉这张图；
+ * 失败由 dom.js 的 button 统一写进 #error，不抛到页面上。
+ */
+function decisionRow(node) {
+  const notice = node.notice;
+  const decision = el('div', undefined, 'graph-decision');
+  const head = el('div', undefined, 'graph-decision-head');
+  head.append(badge(DECISION_BADGE[notice.kind] || '等你决定', 'b-awaiting'));
+  if (notice.title) head.append(el('span', notice.title, 'graph-decision-title'));
+  const count = Number(node.notice_count) || 0;
+  // 同一任务可以攒下多条（例如又问了一次）：图上给一条最新，但要说清楚还有多少条。
+  if (count > 1) head.append(el('span', `另有 ${count - 1} 条待决`, 'meta graph-decision-more'));
+  decision.append(head);
+  // 正文常常是问题或计划的全部说明：保留换行、限高滚动，不能只给标题或截成看不全。
+  decision.append(el('p', notice.body || '（没有补充说明）', 'graph-decision-body'));
+
+  const actions = el('div', undefined, 'actions graph-decision-actions');
+  const done = async message => { $('error').textContent = message; await loadGraph(); };
+
+  // 计划审批：与 render-intents.js 的 planActions 同一对动作（id 用 planner 任务 id，RPC 也接受这条 notice 的 id）。
+  if (notice.kind === 'plan') {
+    actions.append(button('批准并开发', async () => {
+      await action('plan.approve', { id: node.id });
+      await done(`已批准 #${node.id} 的拆解，交给 scheduler 编排`);
+    }, 'primary'));
+    actions.append(button('驳回', async () => {
+      const reason = await promptDialog({
+        title: `驳回 #${node.id} 的拆解？`,
+        message: '理由会送给 planner，让它据此重拆。',
+        label: '驳回理由',
+        placeholder: '例如：别动架构，先加个开关',
+        confirmLabel: '驳回并重拆',
+      });
+      if (!reason || !reason.trim()) return;   // 空理由不发：与意图面板同一条校验
+      await action('plan.reject', { id: node.id, reason: reason.trim() });
+      await done(`已驳回 #${node.id} 的拆解：${reason.trim()}`);
+    }));
+    decision.append(actions);
+    return decision;
+  }
+
+  // 提问：输入框 + 回复 / 忽略；⌘/Ctrl+回车与任务详情里的同一个提交。
+  const input = el('textarea', undefined, 'graph-decision-input');
+  input.placeholder = '你的决定；⌘/Ctrl+回车提交';
+  input.rows = 3;
+  const reply = button('回复并继续任务', async () => {
+    const answer = input.value;
+    await action('notice.answer', { id: notice.id, answer });
+    releaseDecisionInput(input);
+    await done(`已把答复发给任务 #${node.id}，它会继续跑`);
+  });
+  input.addEventListener('keydown', async event => {
+    if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
+    if (!event.metaKey && !event.ctrlKey) return;
+    event.preventDefault();
+    await reply.onclick();
+  });
+  actions.append(reply, button('忽略', async () => {
+    await action('notice.dismiss', { id: notice.id });
+    releaseDecisionInput(input);
+    await done(`已忽略任务 #${node.id} 的这条待决事项`);
+  }, 'ghost'));
+  decision.append(input, actions);
+  return decision;
+}
+
 /** 任务行。`owningBranch` 是包裹它的那条分支：任务就在这条分支上时不再重复写一遍分支名（表头已经写了）；
  *  只有当任务退到目标分支分组（自己那条分支没有节点）或兜底分组时，分支名才是独有信息，必须画出来。 */
 function taskRow(node, owningBranch = null) {
@@ -88,6 +175,12 @@ function taskRow(node, owningBranch = null) {
   if (node.aheadBehind) meta.append(el('span', node.aheadBehind, 'meta'));
   for (const mark of node.marks || []) meta.append(el('span', mark.text, `chip ${mark.className}`.trim()));
   row.append(meta);
+  // 这件事在等你拍板：整行带琥珀强调（与未合并 / 工作中的强调可同时存在），决策区把正文与
+  // 处理按钮直接摊在这一行里——用户不用先去左侧「待定事项」或别的页面。没有 notice 的任务行一个字段都不加。
+  if (node.notice) {
+    row.classList.add('graph-emphasis-awaiting');
+    row.append(decisionRow(node));
+  }
   return row;
 }
 
@@ -336,14 +429,25 @@ function unplacedBlock(group) {
   return block;
 }
 
+/** 图上还有没提交的决策输入吗：有内容、或正被聚焦的都算。
+ *  重画整张图会把 textarea 连同用户打了一半的字一起换掉，所以拿不到「用户已经写完」的信号时先不画。
+ *  只看决策区里的输入框（图上没有别的 textarea），不影响分支动作的重画。 */
+function hasPendingDecision(view) {
+  return [...view.querySelectorAll('textarea.graph-decision-input')]
+    .some(node => node.value || node === globalThis.document?.activeElement);
+}
+
 /**
  * 渲染一份图。默认幂等：容器还在且图指纹没变时不重画。
- * 传 `{ force: true }`（用户点刷新或刚拉到新数据）时无条件重画。
+ * 传 `{ force: true }`（用户点刷新或刚拉到新数据）时无条件重画——**唯一**的例外是用户正在
+ * 决策区里打字：那时跳过这次渲染，只保留输入（fetchGraph 照常更新 `ui.lastGraph`，所以用户
+ * 提交 / 忽略之后走的那次正常重画看到的是最新数据）。
  */
 export function renderGraph(graph, { force = false } = {}) {
   const panel = $('detail'); panel.dataset.view = 'graph';
   let view = panel.querySelector('div.graph-view');
   if (!view) { panel.replaceChildren(); view = el('div', undefined, 'graph-view'); panel.append(view); force = true; }
+  else if (hasPendingDecision(view)) return view;
   const key = graphRenderKey(graph);
   if (!force && key === ui.graphRenderKey) return view;
   ui.graphRenderKey = key;

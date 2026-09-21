@@ -200,6 +200,18 @@ button.step-head{display:flex;align-items:center;gap:7px;font-size:11px;color:va
 .graph-work.pending{color:var(--awaiting);border-color:color-mix(in srgb,var(--awaiting) 40%,transparent);background:color-mix(in srgb,var(--amber-soft) 60%,transparent)}
 .graph-work.subtree{font-weight:400;font-size:10px;color:var(--dim);border:1px dashed var(--line);border-radius:6px;padding:2px 8px}
 .graph-work-dot{font-size:10px;line-height:1;flex:none;color:var(--running);animation:breathe 2s ease-in-out infinite}
+/* 待你决断的 notice 直接画在任务行里：整行带琥珀左边条（与工作中的蓝条并存时各占 3px），
+   决策区自己一块底。正文保留换行、限高滚动——它常常是问题或计划的全部说明，不能只给标题。 */
+.graph-node.graph-emphasis-awaiting{box-shadow:inset 3px 0 0 var(--awaiting);background:color-mix(in srgb,var(--amber-soft) 45%,transparent)}
+.graph-node.graph-emphasis-working.graph-emphasis-awaiting{box-shadow:inset 3px 0 0 var(--awaiting),inset 6px 0 0 var(--running)}
+.graph-decision{flex-basis:100%;margin:6px 0 4px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--awaiting) 28%,transparent);border-left:3px solid var(--awaiting);border-radius:10px;background:var(--amber-soft)}
+.graph-decision-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.graph-decision-title{font-size:13px;font-weight:600;color:var(--text);overflow-wrap:anywhere;min-width:0}
+.graph-decision-more{margin:0}
+.graph-decision-body{margin:8px 0 0;font-size:13px;line-height:1.75;color:var(--text);max-height:12em;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+.graph-decision .graph-decision-input{margin:10px 0 0;background:var(--panel)}
+.graph-decision-actions{margin-top:10px}
+.graph-decision-actions button{font-size:11px}
 /* 停下来的分支：没有工作态标识，也不再占工作态的强调通道；分支名与元信息降到次级色。降噪不等于藏事实——
    未合并的琥珀边 / 底色、关系 chip 与状态 chip 的颜色都保留，所以强调 class 不会被 .graph-idle 盖掉。 */
 .graph-branch.graph-idle{box-shadow:none}
