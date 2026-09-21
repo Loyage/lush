@@ -99,7 +99,8 @@ const countWorkingTasks = entry => {
 /**
  * 一条分支「怎么显示工作态」——只回答显示，不改 `working` / `defaultExpanded` / `emphasisClasses` 的语义
  * （默认折叠与强调 class 都继续依赖那几个字段）。优先级固定：
- * - `running`：本分支自己的任务里有在跑的——最直接的「现在真的在动」；
+ * - `running`：本分支自己的任务里有在跑的——最直接的「现在真的在动」；分支图只认这一种给分支行加
+ *   `.graph-running` 动效（见 render-graph.js），`.graph-emphasis-working` 与它语义不同，不能互相替代；
  * - `pending`：自己没有在跑，但有等用户 / 等子任务 / 排队的任务——在等，同样不是停下来的分支；
  * - `subtree`：自己什么都没有，后代子树里还有活；
  * - `null`：这条分支停下来了（当前没有任何工作态任务），可以让 UI 整体降噪。

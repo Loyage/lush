@@ -199,6 +199,12 @@ button.step-head{display:flex;align-items:center;gap:7px;font-size:11px;color:va
 .graph-branch.graph-emphasis-unmerged{border-left-color:var(--awaiting);background:color-mix(in srgb,var(--amber-soft) 75%,var(--panel))}
 .graph-branch.graph-emphasis-working{box-shadow:0 0 0 2px color-mix(in srgb,var(--running) 30%,transparent)}
 .graph-branch.graph-emphasis-unmerged.graph-emphasis-working{box-shadow:0 0 0 2px color-mix(in srgb,var(--awaiting) 30%,transparent)}
+/* 真的有任务在本分支上跑（render-graph.js 的 .graph-running）才让整条分支行「活起来」，与停下来的分支一眼可分。
+   动效只做在独立的外环上（向外扩 + 变淡），不位移、不缩放，所以不会抖动布局；颜色只用 --running，深浅主题都看得清。
+   周期 2.4s；在等 / 子树 / 停下来的分支没有这个 class，完全静止；reduced-motion 由文件末尾的全局规则统一关掉。 */
+.graph-branch.graph-running{position:relative}
+.graph-branch.graph-running::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--running) 60%,transparent);animation:graph-running-breathe 2.4s ease-in-out infinite}
+@keyframes graph-running-breathe{50%{opacity:.4;box-shadow:0 0 0 5px color-mix(in srgb,var(--running) 60%,transparent)}}
 /* 在跑的任务行也用同色左边条 + 底色标出来，与所在分支的工作态呼应；用 inset 阴影画条，不挤动文字对齐。 */
 .graph-node.graph-emphasis-working{box-shadow:inset 3px 0 0 var(--running);background:color-mix(in srgb,var(--blue-soft) 40%,transparent)}
 /* 工作态标识：在跑（蓝 chip + 脉冲点）与在等（琥珀 chip）各占一个色，子树里的活只留一行更弱的话。

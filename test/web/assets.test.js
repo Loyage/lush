@@ -39,6 +39,13 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     expect(css).toContain('.graph-work.pending{');
     expect(css).toContain('.graph-work.subtree{');
     expect(css).toContain('.graph-branch.graph-idle{');
+    // 在跑的分支行有专用动效 class：只有它带动画，且动画写在外环伪元素上（周期 2.4s，不位移不缩放）。
+    expect(css).toContain('.graph-branch.graph-running{position:relative}');
+    expect(css).toMatch(/\.graph-branch\.graph-running::after\{[^}]*animation:graph-running-breathe 2\.4s/);
+    expect(css).toContain('@keyframes graph-running-breathe{');
+    // 停下来的分支不得沾上动画；reduced-motion 的全局规则仍然把这些动画一并关掉。
+    expect(css).not.toMatch(/\.graph-branch\.graph-idle\{[^}]*animation/);
+    expect(css).toMatch(/@media\(prefers-reduced-motion:reduce\)\{\*,?\*::before,\*::after\{animation:none!important/);
     // 待决 notice 的决策区画在分支图的任务行里，样式必须与 render-graph.js 一起在。
     expect(css).toContain('.graph-node.graph-emphasis-awaiting{');
     expect(css).toContain('.graph-decision{flex-basis:100%');

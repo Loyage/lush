@@ -309,6 +309,11 @@ function branchRow(branch, onCollapsed) {
   for (const name of emphasisClasses(branch)) row.classList.add(name);
   // 工作态标识只回答显示：running / pending 给 chip，subtree 给一行更弱的话，停下来的分支一个都不画。
   const work = workingState(branch);
+  // 真的有任务在这一条分支上跑（只有 work.key === 'running' 才算）才加 .graph-running：整行做呼吸动效（样式见
+  // styles.css），与 .graph-emphasis-working 的静态外环并存。注意两者语义不同：.graph-emphasis-working 表示
+  // 「自己或后代还有在跑的任务」（含 subtree），在等 / 子树 / 停下来的分支都不能拿到 .graph-running，必须完全静止。
+  // 动效全部由 CSS 承担，这里不加计时器，也不碰分支图的重画指纹。
+  if (work?.key === 'running') row.classList.add('graph-running');
   // 当前没有工作的分支整体降噪（.graph-idle）：分支名与元信息降到次级色，不再占工作态的强调通道。
   // 只在 `working` 也为 false 时才加，保证强调 class（未合并 / 工作态）永远不会被降噪规则盖掉。
   if (!work && !branch.working) row.classList.add('graph-idle');

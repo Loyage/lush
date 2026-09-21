@@ -491,6 +491,15 @@ test('分支图：工作中的分支有明确工作态标识，停下来的分�
     expect(rowOf('lush/demo/idle').classList.contains('graph-idle')).toBe(true);
     expect(rowOf('lush/demo/hot').classList.contains('graph-idle')).toBe(false);
 
+    // ③-b 动效 class（.graph-running）只属于「真的有任务在本分支上跑」的行：在等 / 子树 / 停下来 / 根分支都不带。
+    expect(rowOf('lush/demo/hot').classList.contains('graph-running')).toBe(true);
+    // 子树里在跑的分支自己也带：.graph-running 认的是「本分支自己的任务在跑」，不是 subtree。
+    expect(rowOf('lush/demo/parent/sub').classList.contains('graph-running')).toBe(true);
+    expect(rowOf('lush/demo/parent').classList.contains('graph-running')).toBe(false);
+    for (const still of ['lush/demo/waiting', 'lush/demo/idle', 'main']) {
+      expect(rowOf(still).classList.contains('graph-running')).toBe(false);
+    }
+
     // ② 未合进父分支 + 工作中：两个强调 class 同时命中，工作态标识不被盖掉。
     expect(rowOf('lush/demo/hot').classList.contains('graph-emphasis-unmerged')).toBe(true);
     expect(rowOf('lush/demo/hot').classList.contains('graph-emphasis-working')).toBe(true);
