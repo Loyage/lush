@@ -25,4 +25,15 @@ Plan 编译出的工作由 Integration Service 在私有 Intent 分支内自动�
 
 归档不删行、不动后代与父分支的 `parent` 指针，所以谱系仍是历史；它与「删除」只在 `branches.status` 上分开（`active` / `archived` / `deleted`）。详见 [分支谱系](branch-genealogy.md)。
 
-相关：[批准合并](merge.md)、[检验与对照检出](verification.md)、[分支谱系](branch-genealogy.md)。
+## 任务定向删除
+
+`lush task delete ID`（RPC `task.delete {id}`，用户专属，Web 只在分支图末尾的兜底分组里给按钮）删的是**行**，不是代码：它把这条已结束任务与它的**全部已结束后代**从库里删掉，连同这些任务自己的 `messages` / `notices` / `events` / `agent_runs` / `artifacts` / 两端 `task_deps` 与它们这一批 planner 写的 `task_specs`。这是 `task clear` 之外唯一会丢任务历史的路径，所以安全门比 clear 更细（任一不满足就报错，一行都不删）：
+
+- 子树里任何一条还在 `queued` / `running` / `waiting` / `awaiting`，或它的 invocation 还在收尾、cleanup 正在走它的 worktree：拒绝；
+- 子树里的 planner 还留着未编排的 `pending` spec：拒绝（删掉那些条目等于替用户丢掉还没处理的拆解）；
+- 集合外还有 verifier / resolver / 验收候选用外键指着它（`verifies_task_id` / `resolves_task_id` / `review_candidates.report_task_id`）：拒绝并点名，先删引用方；
+- 磁盘状态（worktree / 对照检出 / 任务分支）先跑与 `task cleanup` 相同的安全门。有一条收不回来就整体不删，把 `#id (reason)` 列出来——绝不为了删一行库而丢未合并的成果。
+
+分支谱系行（`branches.task_id`）与输入行（`inputs.task_id`）刻意没有外键，不跟着清：id 不复用，所以这些历史指针仍指着曾存在的那条任务，读模型按「已清空」处理（见 `project/branches.js`）。删掉的只有行：磁盘上的 pi 会话文件（`.lush/sessions/`）与 `.lush/verify/*/report.html` 不受影响。删除会留一条 `task_id` 为空的 `task.deleted` 项目级事件，把被删的 id / 角色 / 状态与各表行数记在 `data` 里（这条事件没有任务可挂，要查用 SQL）。返回 `{deleted: {root, ids, tasks, messages, notices, events, agent_runs, artifacts, task_deps, task_specs}, reclaimed: {worktrees, branches}, next_task_id}`。
+
+相关：[批准合并](merge.md)、[检验与对照检出](verification.md)、[分支谱系](branch-genealogy.md)、[磁盘回收与清空](../reference/rpc/maintenance.md)。

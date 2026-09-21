@@ -63,6 +63,7 @@ lush notice answer 1 '采用方案 A'
 lush task merge 3       # 审阅代码与验证报告后，明确批准这个分支
 lush task merge 3       # 如果冲突：主树回到合并前，并开一个解冲突任务 + 一条待决问题等你决定
 lush task cleanup 3     # 合并后安全回收 worktree 与任务分支（--keep-branch 留分支作恢复点）
+lush task delete 3      # 只删这一条已结束任务与它的已结束后代的行（消息、事件一并清）；会丢掉这部分任务历史
 lush branch tree        # 分支谱系：谁从谁创建出来（不是 commit graph，也不是任务树）
 lush branch show lush/…/7-auth-ui   # 一条分支的 parent / fork commit / task / worktree 与祖先链
 lush branch archive lush/…/7-auth-ui  # 不要这条分支了：删 worktree 与本地 ref，任务、事件与会话留在库里
@@ -172,6 +173,7 @@ planner 一轮写完 spec 后，runtime 在事务中直接编译根 WorkItem 与
 - 不再要某条分支的代码时用 `branch archive BRANCH [--discard]`（图上的「归档」）。它删掉该分支的 worktree 与本地 ref，但保留分支记录（`branches.status` 标 `archived`）、任务行、消息、事件，以及不随 worktree 消失的 pi 会话文件（`.lush/sessions/`）。归档明知可能未合并也允许删，因此是用户专属的显式动作；默认要求 worktree 干净，只有 `--discard` 才会连着未提交改动一起丢。与「证明已进入目标分支才删」的 `task cleanup` 不是一回事。
 - `task merge` / 批量交付保留为兼容入口，最终遵循同一条 direct-parent / ff-only 规则；批量在首个分歧处停止。
 - `task cleanup ID [--keep-branch]` 不使用 `--force`：branch tip 必须仍包含任务审阅提交，并且整个 tip 已进入直接父分支，才用 compare-and-delete 回收。聚合过子分支的任务分支也能安全清理，不会把额外提交当成漂移丢掉。
+- `task delete ID`（图末兜底分组「未归属分支的任务」里的「删除」）只删**一条**已结束任务及其全部已结束后代的行，连同它们的消息、事件、notice、spec 与两端依赖边；这是除 `task clear` 之外唯一会丢任务历史的路径，所以子树里有活动任务、planner 还有未处理 spec、有 verifier / 候选指着它，或磁盘状态收不回来时**拒绝**，一行都不删（不会像 clear 那样把收不回的成果留在磁盘上）。分支谱系行与输入行故意保留（id 不复用），删时留一条 `task.deleted` 审计事件。
 - `task clear`（`bun run clear`，Web 项目概览里的「清空任务看板」）一键删掉**全部已结束任务**及其消息、通知、事件与 `inputs` / `drafts` 审计，并先按与 `task cleanup` 相同的安全门回收磁盘状态：能回收的连 `.lush/worktrees/<id>-<name>/`、检验对照检出、任务分支与每条输入的 `input-<id>` 一起删，返回值 `reclaimed` 给出 `{worktrees, branches, anchors}`。有 `queued`/`running`/`waiting`/`awaiting` 任务、或还有 invocation 在收尾时**拒绝执行**，不会隐式取消。回收不掉的任务（未合并成果、审阅后被改过的分支、脏工作区）连同目录与分支一起保留在磁盘上，`retained.tasks` 列出 `{id, branch, workspace, baseline_workspace, reason}`，被动过的锚点在 `retained.anchors` 里说明原因；`.lush/sessions/` 与检验报告不受影响。因为目录与分支名里带着 task id / input id，清空后 **id 不从 1 重新开始**，新任务与新输入不会撞上保留的旧目录。
 
 ## 常用开发命令

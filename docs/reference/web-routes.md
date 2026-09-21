@@ -25,4 +25,4 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
 | `GET /api/docs` | 随代码发布的文档索引（分组、标题与 `format`） |
 | `GET /api/docs/ID` | 一篇 Markdown 文档的正文 |
 | `GET /api/docs/ID/html` | 一篇 standalone HTML 文档的原始正文（sandbox iframe 用） |
-| `POST /api/action` | 仅限上方 `MUTATIONS` 中的用户动作（含 `task.clear`、`candidate.*`） |
+| `POST /api/action` | 仅限上方 `MUTATIONS` 中的用户动作（含 `task.delete`、`task.clear`、`candidate.*`） |

@@ -34,5 +34,6 @@ export const handlers = {
     check(!p.running.has(id(params.id)), 'agent is still stopping; cleanup must wait');
     return p.workspaces.cleanup(id(params.id), { keepBranch: params.keep_branch === true });
   },
+  'task.delete'(p, params, actor) { return p.deleteTask(id(params.id)); },
   'task.clear'(p, params, actor) { return p.clear(); },
 };

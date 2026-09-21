@@ -208,6 +208,12 @@ export function makeWorld() {
           branches: subtree.map(name => ({ branch: name, worktree: 'removed', ref: 'deleted', tip: 'ddd', discarded: true })),
           worktree: 'removed', ref: 'deleted', tip: 'ddd', discarded: true, tasks: [], sessions: [] });
       }
+      if (body.method === 'task.delete') {
+        // 删除：被删任务从图上消失，重拉后兜底分组跟着收起来（真实 daemon 侧还有子树与安全门）。
+        state.graph.nodes = state.graph.nodes.filter(node => !(node.kind === 'task' && node.id === body.params.id));
+        return json({ deleted: { root: body.params.id, ids: [body.params.id], tasks: 1 },
+          reclaimed: { worktrees: 0, branches: 0 }, next_task_id: 99 });
+      }
       if (body.method === 'task.merge_many') return json({ target_branch: body.params.ids.includes(3) ? 'release' : 'main',
         merges: body.params.ids.map(id => ({ id, status: 'merged', integration: 'merged' })), merged: body.params.ids.length, stopped: null });
       if (body.method === 'draft.update') { const draft = state.drafts.find(row => row.id === body.params.id); if (draft) { draft.content = body.params.content; if (body.params.references !== undefined) draft.references = body.params.references; } return json({ id: draft?.id, content: draft?.content, references: draft?.references || [] }); }

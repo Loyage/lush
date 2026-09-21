@@ -3,9 +3,11 @@
  * 与每条分支下的任务 / worktree / 目标分支关系，以及任务之间的堆叠（code）/顺序（order）/
  * 解冲突（resolve）/检验（verify）关系。
  *
- * 视图只读展示，写操作只有四个按钮：父分支关系上的「合入父分支」/「让子分支跟上父分支」/
+ * 视图是只读展示，除下面两类动作外没有别的写入：一、父分支关系上的「合入父分支」/「让子分支跟上父分支」/
  * 「在子分支解决分歧」，以及可归档分支上的「归档」，分别与 CLI 的 `branch merge` / `branch catchup` /
  * `branch sync` / `branch archive` 同源；节点点击只跳任务详情。
+ * 二、图末尾兜底分组（`未归属分支的任务`）里任务行上的「删除」：那里的任务既没有分支节点可归档、
+ * 也没有别的去处，所以给一个定向删除（`task.delete`，与 CLI 的 `lush task delete` 同源）。
  *
  * 另有一类就地处理：图里任何带「待你决断」notice 的任务行（graph.get 的 `notice` / `notice_count`）
  * 直接把这件事的正文画出来，并在原地答复 / 忽略 / 批准 / 驳回，不必先去左侧「待定事项」或意图面板。
@@ -235,6 +237,29 @@ async function runBranchArchive(branch) {
   } catch (error) { show(error.message, 'error'); }
 }
 
+/** 删除一条兜底分组里的任务（`task.delete`）：这条任务既挂不上分支节点、也没有别的去处。
+ *  删除比归档更重：任务行与它的全部后代、消息、事件、notice、spec 一起从库里消失，不能撤销，
+ *  所以确认文案把「会丢掉什么」写满；安全门在 runtime 侧（活动任务、未处理 spec、外部引用、
+ *  磁盘状态收不回来都会拒绝），失败原因由 messages.js 原样提示。 */
+async function runTaskDelete(node) {
+  const confirmed = await confirmDialog({
+    title: `删除任务 #${node.id}？`,
+    message: '这条任务与它下面全部已结束后代的任务行会从库里删除（消息、事件、notice、spec 一并清），无法撤销，这部分任务历史不再保留。有分支 / worktree 会先按回收的安全门收尾；收不回来或还有别的任务引用它时会拒绝，什么都不删。',
+    confirmLabel: '删除',
+    cancelLabel: '保留',
+    danger: true,
+  });
+  if (!confirmed) return;
+  try {
+    const result = await action('task.delete', { id: node.id });
+    const ids = result?.deleted?.ids ?? [node.id];
+    show(ids.length > 1
+      ? `已删除任务 #${ids.join('、#')}（共 ${ids.length} 条，含后代）：任务行与它们的消息、事件已清，输入与分支记录保留`
+      : `已删除任务 #${node.id}：任务行与它的消息、事件已清，输入与分支记录保留`);
+    await loadGraph();
+  } catch (error) { show(error.message, 'error'); }
+}
+
 /** 动作按钮：能执行就接上 RPC；暂时不能执行也照画，但禁用并把原因写进 title——
  *  选项不该因为当前状态不对就整块消失，否则用户只会看到「这里什么都没有」。 */
 function branchAction(label, title, run) {
@@ -441,7 +466,9 @@ function branchBlock(branch) {
   return block;
 }
 
-/** 兜底分组：连目标分支节点都没有的任务，仍然要画出来，只是明确说明它没落在任何分支节点上。 */
+/** 兜底分组：连目标分支节点都没有的任务，仍然要画出来，只是明确说明它没落在任何分支节点上。
+ *  这里的任务没有分支可归档，也没别的去处，所以每行多一个「删除」（`task.delete`）；
+ *  它是这个分组唯一的出口，也是页面上唯一会丢任务历史的按钮，确认文案写满了代价。 */
 function unplacedBlock(group) {
   const block = el('div', undefined, 'graph-group graph-unplaced');
   const title = el('div', undefined, 'section-title');
@@ -449,7 +476,11 @@ function unplacedBlock(group) {
   block.append(title);
   block.append(el('p', `图上找不到目标分支 ${group.target_branch} 的节点。`, 'hint'));
   const lane = el('div', undefined, 'graph-lane');
-  for (const node of group.items) lane.append(taskRow(node));
+  for (const node of group.items) {
+    const row = taskRow(node);
+    row.append(button('删除', () => runTaskDelete(node), 'ghost'));
+    lane.append(row);
+  }
   block.append(lane);
   return block;
 }

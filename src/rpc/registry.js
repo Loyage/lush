@@ -7,7 +7,7 @@ export const PARAMS = {
   'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.diff': ['id'],
   'task.transcript': ['id','after','limit'], 'task.usage': ['id'],
   'task.spawn': ['parent','goal','role','deps','name','spec'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
-  'task.merge': ['id'], 'task.merge_many': ['ids'], 'task.cleanup': ['id','keep_branch'], 'task.verify': ['id'], 'task.clear': [], 'task.ladder': [],
+  'task.merge': ['id'], 'task.merge_many': ['ids'], 'task.cleanup': ['id','keep_branch'], 'task.verify': ['id'], 'task.delete': ['id'], 'task.clear': [], 'task.ladder': [],
   'spec.list': [], 'spec.add': ['goal','role','name','deps'], 'spec.drop': ['id','note'],
   'candidate.list': ['input'], 'candidate.inspect': ['id'], 'candidate.prepare': ['input','summary'], 'candidate.verify': ['id'],
   'candidate.accept': ['id'], 'candidate.changes': ['id','feedback'], 'candidate.reject': ['id','reason'],
@@ -17,7 +17,7 @@ export const PARAMS = {
   'plan.propose': ['title','body'], 'plan.approve': ['id','answer'], 'plan.reject': ['id','reason'],
   'notice.list': [], 'notice.post': ['task','title','body'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
 };
-export const USER_ONLY = new Set(['system.stop','agent.configure','input.submit','draft.add','draft.remove','draft.update','draft.commit','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.import','branch.merge','branch.sync','branch.catchup','branch.archive']);
+export const USER_ONLY = new Set(['system.stop','agent.configure','input.submit','draft.add','draft.remove','draft.update','draft.commit','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.delete','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.import','branch.merge','branch.sync','branch.catchup','branch.archive']);
 /** 拆解队列与计划审批由 agent 写入；用户只能查看（lush spec list / lush intents），批不批走 plan.approve|reject。 */
 export const AGENT_ONLY = new Set(['spec.add','spec.drop','plan.propose']);
 /**

@@ -128,8 +128,11 @@ lush task verify ID       # 兼容的单 worker 对照检验
 
 ```bash
 lush task cleanup ID [--keep-branch]
+lush task delete ID
 lush task clear
 ```
+
+`task delete ID` 删掉这条已结束任务与它的全部已结束后代的行（消息、事件、notice、spec 一并清），是唯一会丢任务历史的日常入口：子树里有活动任务、planner 还有未处理 spec、有 verifier / 候选指着它，或磁盘状态收不回来时拒绝，一行都不删。
 
 不 force。任务分支 tip 必须仍包含 reviewed commit，且整个 tip 已进入 target；输入分支已推进时也必须先进入其 parent。脏 worktree、未交付 commit 或外部改动都会让 runtime 保留现场并说明原因。
 

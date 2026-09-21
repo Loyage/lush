@@ -52,6 +52,9 @@ lush [--project PATH] [--json] <command>
                                   批量只接受同一直接父分支，遇到分歧或失败即停止。
   task verify ID                  为一个已完成的 worker 派只读 verifier：演示 worktree 结果并对照目标分支
   task cleanup ID [--keep-branch] 安全回收 worktree 与任务分支（--keep-branch 只回收 worktree）
+  task delete ID                  删除一条已结束任务连同它的全部已结束后代，message/notice/event/spec 一并清；
+                                  有活动任务、未处理 spec、被 verifier 或候选引用、磁盘状态收不回来时拒绝
+                                  会丢掉这部分任务历史；输入与分支谱系记录保留（输入会不再出现在 intent 列表）
   task clear                      删除全部已结束任务及 inputs/drafts/notices/events；有活动任务时拒绝
                                   同时按 cleanup 的安全门回收 worktree/分支，回收不掉的保留在磁盘上并列出原因
                                   分支名带着旧 task id，所以 id 不复用

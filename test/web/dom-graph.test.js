@@ -674,3 +674,38 @@ test('分支图：决策输入不被轮询冲掉——有内容或聚焦时跳�
     await openGraph();
   }
 });
+
+test('分支图：兜底分组里的任务带「删除」，确认后走 task.delete 并从图上收起来', async () => {
+  const saved = JSON.parse(JSON.stringify(world.state.graph));
+  try {
+    // 既没有自己的分支节点、目标分支也不在图上、又没有归档的任务：graphLayout 把它放进兜底分组。
+    world.state.graph.nodes.push({ kind: 'task', id: 41, role: 'planner', name: null, goal: '给 Web 加个设置页',
+      status: 'completed', integration: 'none', branch: null, target_branch: 'ghost', workspace: null,
+      workspace_state: 'none', branch_state: 'none', archived: false });
+    await openGraph();
+    const block = () => dom.node('detail').querySelector('div.graph-unplaced');
+    expect(deepText(block())).toContain('未归属分支的任务');
+    expect(deepText(block())).toContain('给 Web 加个设置页');
+    const remove = () => block().querySelectorAll('button').find(node => node.textContent === '删除');
+
+    // 确认文案必须把代价写清楚（丢任务历史、不可撤销、收不回来就拒绝）；取消＝什么都不发。
+    const cancelled = remove().onclick();
+    expect(dialogText(dom)).toContain('删除任务 #41？');
+    expect(dialogText(dom)).toContain('无法撤销');
+    await answerDialog(dom, '保留');
+    await cancelled;
+    expect(world.state.actions.some(entry => entry.method === 'task.delete')).toBe(false);
+    expect(deepText(block())).toContain('给 Web 加个设置页');
+
+    // 确认后走 task.delete（与 CLI 的 lush task delete 同源），重拉后这条不再出现在兜底分组里。
+    const confirmed = remove().onclick();
+    await answerDialog(dom, '删除');
+    await confirmed;
+    expect(world.state.actions).toContainEqual({ method: 'task.delete', params: { id: 41 } });
+    expect(dom.node('error').textContent).toContain('已删除任务 #41');
+    expect(deepText(dom.node('detail')).includes('给 Web 加个设置页')).toBe(false);
+  } finally {
+    world.state.graph = saved;
+    await openGraph();
+  }
+});

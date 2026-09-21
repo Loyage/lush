@@ -15,7 +15,7 @@
 | `lush candidate list` / `prepare` / `inspect` / `verify` / `accept` / `changes` / `reject` | [Review Candidate](rpc/candidates.md) |
 | `lush task merge ID [ID...]` | [合并](rpc/merge.md) |
 | `lush task inspect` / `history` / `diff` / `transcript` / `usage` / `wait` | [审阅与过程读模型](rpc/inspect.md) |
-| `lush task cleanup` / `clear` | [磁盘回收与清空](rpc/maintenance.md) |
+| `lush task cleanup` / `delete` / `clear` | [磁盘回收与清空](rpc/maintenance.md) |
 | `lush branch tree` / `show` / `import` / `archive` | [分支谱系](rpc/branches.md) |
 | `lush notice list` / `post` / `answer` / `dismiss` | [待决问题](rpc/notices.md) |
 | `lush status` / `lush daemon stop` | [Agent 环境与权限](agent-environment.md) |

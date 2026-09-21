@@ -62,7 +62,7 @@ export async function run(command, args, ctx) {
       while (!TERMINAL.has(value.status));
       if (value.status !== 'completed') process.exitCode = 1;
     } else {
-      check(['inspect','cancel','retry','merge','cleanup','verify','clear'].includes(verb), 'unknown task command');
+      check(['inspect','cancel','retry','merge','cleanup','verify','delete','clear'].includes(verb), 'unknown task command');
       if (verb === 'clear') { exact(args, 0); value = await client.request('task.clear'); }
       else if (verb === 'merge') {
         // 一个 id 保持原有单任务输出语义；多个 id 走批量合并。

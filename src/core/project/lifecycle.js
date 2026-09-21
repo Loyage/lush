@@ -142,6 +142,72 @@ export default {
     };
   },
 
+  /**
+   * 用户专属的定向删除（`task.delete` / `lush task delete`）：把一条已结束任务连同它的全部已结束后代
+   * 从库里删掉。这是除 clear 之外唯一会丢掉任务历史的路径，所以安全门比 clear 更细，范围却只有这一棵子树：
+   * - 子树里任何一条还在跑 / 排队 / 等答复：拒绝，不做隐式取消（同 clear）；
+   * - 它的 invocation 还在收尾、或 cleanup 正在走它的 worktree：拒绝；
+   * - 子树里的 planner 还留着未编排的 pending spec：拒绝——删掉那些条目等于替用户丢掉还没处理的拆解；
+   * - 集合外还有 verifier / resolver / 验收候选用外键指着它：拒绝并点名，先删引用方（它们是独立记录，不跟它一起走）；
+   * - 磁盘状态（worktree / 对照检出 / 已进目标分支的分支）走与 cleanup 相同的安全门回收，有一条收不回来
+   *   就整体不删（已经收掉的保持回收状态）并列出原因，绝不为了删一行库而丢未合并的成果。
+   * 这五条都过了才真删：任务行与它们的子行一起消失，另留一条 `task_id=NULL` 的项目级事件 `task.deleted`，
+   * 把被删的 id / 角色 / 状态与各表行数记在 data 里（那条事件没有任务可挂，要查用 SQL）。id 不复用。
+   * 有意不动 `branches.task_id` / `inputs.task_id` 这类历史指针（它们刻意没有外键）：删掉一条输入锚点的
+   * 根 planner 后，这条输入不再出现在 intent 列表里——那个列表由 `inputs JOIN tasks` 派生。
+   * 状态检查是同步的（调用方立即拿到拒绝），磁盘回收在返回的 Promise 里串行执行。
+   */
+  deleteTask(taskId) {
+    const root = this.store.task(taskId);
+    const subtree = this.subtreeTasks(root.id);
+    const ids = subtree.map(task => task.id);
+    const active = subtree.filter(task => !TERMINAL.has(task.status));
+    check(active.length === 0,
+      `#${active.slice(0, 20).map(task => task.id).join(', #')} still active (${active.length}); cancel them or wait until they finish`);
+    check(ids.every(value => !this.running.has(value)), 'agent is still stopping; delete must wait');
+    check(ids.every(value => !this.workspaces.busy.has(value)), 'worktree cleanup is in progress; delete must wait');
+    const unhandled = subtree.filter(task => task.role === 'planner'
+      && this.store.get("SELECT count(*) AS value FROM task_specs WHERE planner_task_id=? AND status='pending'", task.id).value > 0);
+    check(unhandled.length === 0,
+      `planner #${unhandled[0]?.id} still has pending specs; compile, approve or drop them first`);
+    const referrers = this.store.referringTasks(ids);
+    check(referrers.length === 0, `#${root.id} is still referenced by ${referrers.join(', ')}; delete the referrer first`);
+    return this.forgetTasks(root, subtree, ids);
+  },
+
+  /** 这棵子树的任务（含根）。终态任务不允许有活动后代，但结构归结构，不看 status 猜。 */
+  subtreeTasks(taskId) {
+    const out = [];
+    const queue = [this.store.task(taskId)];
+    while (queue.length) {
+      const task = queue.pop();
+      out.push(task);
+      queue.push(...this.store.children(task.id));
+    }
+    return out;
+  },
+
+  /** deleteTask 的异步尾部：先按 cleanup 的安全门收磁盘，收不干净就整体不删，再清库并留一条审计事件。 */
+  async forgetTasks(root, subtree, ids) {
+    const outcomes = await this.workspaces.reclaim(subtree);
+    // 目录、分支或对照检出收不回来（未合并、脏、被别处检出）：任务行不动，让用户先处理磁盘。
+    const kept = outcomes.filter(row => row.worktree === 'kept' || row.branch === 'kept');
+    check(kept.length === 0,
+      `${kept.map(row => `#${row.id} (${row.reason})`).join('; ')} cannot be reclaimed; finish or clean it up first (lush task cleanup ID)`);
+    const counts = this.store.deleteTasks(ids);
+    this.store.event(null, 'task.deleted', { task_id: root.id,
+      tasks: subtree.map(task => ({ id: task.id, parent_id: task.parent_id, input_id: task.input_id,
+        role: task.role, status: task.status, branch: task.branch })), counts });
+    return {
+      deleted: { root: root.id, ids, ...counts },
+      reclaimed: {
+        worktrees: outcomes.filter(row => row.worktree === 'removed').length,
+        branches: outcomes.filter(row => row.branch === 'removed').length,
+      },
+      next_task_id: this.store.taskIdHigh() + 1,
+    };
+  },
+
   retry(taskId) {
     const task = this.store.task(taskId);
     check(['failed','cancelled'].includes(task.status), 'only failed/cancelled tasks can be retried');

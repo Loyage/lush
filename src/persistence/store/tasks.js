@@ -39,6 +39,58 @@ export const tasks = {
       return counts;
     });
   },
+  /**
+   * 集合外的行还用外键指着这些任务吗（verifier / resolver / 验收候选）。删除前必须先问一遍：
+   * tasks.parent_id 与 task_specs.planner_task_id 是「跟着一起删」的关系，这三个方向不是——
+   * 引用方自己会活下来，所以外键会拦住删除。返回人话，直接进错误信息。
+   */
+  referringTasks(taskIds) {
+    const ids = taskIds.map(value => id(value));
+    const marks = ids.map(() => '?').join(',');
+    return [
+      ...this.all(`SELECT id FROM tasks WHERE verifies_task_id IN (${marks})`, ...ids).map(row => `verifier #${row.id}`),
+      ...this.all(`SELECT id FROM tasks WHERE resolves_task_id IN (${marks})`, ...ids).map(row => `resolver #${row.id}`),
+      ...this.all(`SELECT id FROM review_candidates WHERE report_task_id IN (${marks})`, ...ids).map(row => `candidate #${row.id}`),
+    ];
+  },
+  /**
+   * 定向删除一组任务行：删掉它们自己与任务级的子行，集合外一行都不动。
+   * 这是除 purge 之外唯一一条删 tasks 的路径，调用方（Project#deleteTask）必须已经证明：全部终态、
+   * 没有 invocation 还在收尾、磁盘状态已经按 cleanup 的安全门回收完——这里只再断言一次外键引用。
+   * 各表的收尾口径：子行（artifacts / agent_runs / messages / notices / events / task_deps）跟着删，
+   * 其中 messages 连「被删任务发给别人的」也删（那条消息讲的就是这条任务）；task_specs 只有
+   * planner_task_id 有外键，所以只删这批 planner 写的条目。branches.task_id / inputs.task_id /
+   * task_specs.task_id / batch_id 刻意没有外键，保持原样：id 不复用，历史指针不会指错，
+   * 读模型按「已清空」处理（见 project/branches.js 与 project/inputs.js 的派生口径）。
+   * id 与 purge 一样先钉住 meta.task_id_high：删过的 id 永不复用。
+   */
+  deleteTasks(taskIds) {
+    const ids = [...new Set(taskIds.map(value => id(value)))];
+    check(ids.length > 0, 'deleteTasks needs at least one task id');
+    const marks = ids.map(() => '?').join(',');
+    return this.transaction(() => {
+      const referrers = this.referringTasks(ids);
+      check(referrers.length === 0, `still referenced by ${referrers.join(', ')}`);
+      this.setTaskIdHigh(Math.max(this.taskIdHigh(), ...ids));
+      // 顺序照 purge：先删子行，再删 tasks。args 按 where 里的占位符个数传，两条 IN 的用同一份 id 写两遍。
+      const drop = (table, where, args = ids) => {
+        const rows = this.get(`SELECT count(*) AS value FROM ${table} WHERE ${where}`, ...args).value;
+        this.run(`DELETE FROM ${table} WHERE ${where}`, ...args);
+        return rows;
+      };
+      const twice = [...ids, ...ids];
+      const counts = { tasks: ids.length };
+      counts.artifacts = drop('artifacts', `task_id IN (${marks})`);
+      counts.agent_runs = drop('agent_runs', `task_id IN (${marks})`);
+      counts.messages = drop('messages', `task_id IN (${marks}) OR sender_id IN (${marks})`, twice);
+      counts.notices = drop('notices', `task_id IN (${marks})`);
+      counts.events = drop('events', `task_id IN (${marks})`);
+      counts.task_deps = drop('task_deps', `task_id IN (${marks}) OR depends_on IN (${marks})`, twice);
+      counts.task_specs = drop('task_specs', `planner_task_id IN (${marks})`);
+      this.run(`DELETE FROM tasks WHERE id IN (${marks})`, ...ids);
+      return counts;
+    });
+  },
   /** Credentials exist only while their invocation runs; Project#actor is the only reader. */
   armAgent(taskId, hash) { this.run('UPDATE tasks SET agent_token_hash=? WHERE id=?', hash, taskId); },
   /** Last authenticated agent contact; deliberately does not touch updated_at, so it never reorders the tree. */
