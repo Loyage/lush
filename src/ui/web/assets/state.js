@@ -61,6 +61,8 @@ export const ui = {
   graphCollapsed: readGraphCollapsedPref(),
   graphExpanded: readGraphExpandedPref(),
   lastSnapshot: null,   // 切排序模式要立刻重排，不必等下一次轮询
+  taskHistory: [],      // 用户显式加载的历史任务页；有界轮询不会把它们立刻抹掉
+  taskHistoryPage: null,
   sideNodes: new Map(),      // section id -> 区块 <section>
   sideHeads: new Map(),      // section id -> 标题按钮
   navButtons: new Map(),     // section id -> 导航按钮
@@ -90,7 +92,7 @@ export function resetUiState() {
   ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false; ui.composerExpanded = false; ui.composerReferences = [];
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map();
-  ui.lastSnapshot = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
+  ui.lastSnapshot = null; ui.taskHistory = []; ui.taskHistoryPage = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.graphOpen = false; ui.graphFingerprint = null; ui.graphFetchedAt = 0; ui.graphRenderKey = null; ui.lastGraph = null;
   ui.graphCollapsed = readGraphCollapsedPref();
   ui.graphExpanded = readGraphExpandedPref();

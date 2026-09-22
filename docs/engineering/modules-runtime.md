@@ -36,14 +36,14 @@
 | `project/internal.js` | 两个跨模块的私有助手 | `agentView(task, run, latestRun)`、`tokenHash(token)` |
 | `project/agents.js` | 项目级 Agent 配置与环境文件读写接缝；配置和 env 都动态生效，按需查询 Pi / Codex 本机模型目录及 Pi 扩展/Skills，写入只允许用户侧 RPC；env 读取因含密钥也只允许用户 | `agentConfig()`、`agentModels(agent)`、`agentResources()`、`agentEnvironment(target)`、`configureAgentEnvironment(target,values)`、`configureAgents(value)` |
 | `project/settings.js` | 项目级运行设置接缝：把运行设置的读模型喂给 `system.status`，并把用户侧的 `system.configure` 接到 `Config.configureRuntime` | `runtimeSettings()`、`configureRuntimeSettings(patch)` |
-| `project/status.js` | 项目级读模型（任务分布、layers、意图、spec、drafts、agents、待合并、合并冻结、notice 计数），并镜像 daemon 软件配置与当前 `agent_config`；其中并发额度另给 `settings` 镜像（每个键的生效值 / 环境默认值 / 是否被覆盖与文件路径；写走用户专属的 `system.configure`），顶层 `concurrency` / `control_concurrency` 仍是生效值；`provider` 表示当前默认 Agent（mock 模式仍为 mock），旧 pi 环境变量字段继续只读返回用于兼容 | `status()` |
+| `project/status.js` | 项目级读模型与廉价 `revision`；兼容 `system.status` 仍镜像完整 `agent_config`，首页 `system.summary` 用 `status(false)` 省略它，设置页再按需读取；并发额度另给 `settings` 镜像，顶层并发值仍是生效值 | `overviewRevision()`、`status(includeAgentConfig=true)` |
 | `project/deps.js` | 依赖边的读模型与结构校验 | `decorate(tasks)`、`blockedBy(taskId)`、`assertDeps(taskId, parent, edges)` |
 | `project/inputs.js` | 从用户指定父分支创建可推进输入分支、在其中规划，以及流程判定；`inputs()` 的意图列表由 `inputs JOIN tasks` 内连接派生（任务那一半是输入自己的根 planner），所以根 planner 被 `task.delete` 删掉的输入行仍在库里，但不再出现在这个列表里 | `anchorInput(branch)`、`insertInput(inputId, anchor, content, attach, references)`、`createInput(content, attach, branch, references)`、`submit(content, branch, references)`、`inputs()`、`setInputFlow(taskId, flow)` |
 | `project/drafts.js` | 输入缓存（增删改、结构化引用、整体提交到指定父分支） | `draft`、`drafts`、`dropDraft`、`editDraft`、`commitDrafts(ids, branch)` |
 | `project/references.js` | Input / Draft 的结构化上下文引用：校验、持久化与 invocation 时实时解析 | `normalizeReferences(references)`、`referencesForInput(inputId)`、`resolveInputReferences(inputId)` |
 | `project/specs.js` | 结构化 Plan 与确定性编译入口；新路径不创建 scheduler agent | `compilePlans()`、兼容别名 `ensureScheduler()`、`addSpec(plannerTaskId, spec)`、`dropSpec(specId, note, actor)` |
 | `project/plans.js` | 计划审批闸门 | `proposePlan`、`approvePlan`、`rejectPlan`、`planForApproval` |
-| `project/tasks.js` | 派生任务与单任务详情 | `spawn(parentId, goal, role, deps, name, specId)`、`inspect(taskId)` |
+| `project/tasks.js` | 派生任务、首页活动任务 + 最近历史的有界窗口、历史任务游标页与单任务详情 | `spawn(parentId, goal, role, deps, name, specId)`、`activity(limit)`、`taskPage(before,limit)`、`inspect(taskId)` |
 | `project/progress.js` | task 的 versioned 执行计划投影、整表汇报与按稳定 key 完成；自动记录每步 `started_at` / `completed_at` / `duration_ms`，改计划时同 key 的完成态与计时保留 | `progressView(task)`、`reportProgressPlan(taskId, steps)`、`completeProgressStep(taskId, key)` |
 | `project/tree.js` | 任务树读模型（intent 层提上来当根） | `tree(taskId)` |
 | `project/timeline.js` | 并发时间轴（run/wait 区间与原因） | `timeline({limit})` |
@@ -54,7 +54,7 @@
 | `project/verify.js` | worker / Candidate 检验、报告位置与 version 1 证据文件的严格校验；commit 和报告引用由 runtime 绑定，旧/缺失 Artifact 投影为 `unknown`，正常返回但未交证据为 `unverified` | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`evidencePath(taskId)`、`hasReport(taskId)`、`verificationEvidence(task)`、`verificationResult(taskId)` |
 | `project/candidates.js` | 固定 commit 的 Review Candidate、验收、反馈与最终人工接受；读模型带结构化 `verification`；所有用户动作通过 Store 的集中转换动作，Git 串行区间仍在 Workspaces，自动结论只可进入 `ready` / `failed`、不得合并 | `prepareCandidate`、`verifyCandidate`、`candidateContext`、`candidates`、`candidate`、`acceptCandidate`、`requestCandidateChanges`、`rejectCandidate` |
 | `project/integration.js` | Plan worker 在私有 Intent branch 内自动叶子优先聚合；分歧派 merger，不动 target | `scheduleIntentIntegration`、`integrateIntent` |
-| `project/transcript.js` | pi 会话记录的只读投影；每个 step 可带 tokens（assistant 步为 pi 记录的精确用量，工具输出/任务上下文步为相邻两次请求的上下文差值估算） | `transcript(taskId, after, limit)`、`usage(taskId)` |
+| `project/transcript.js` | pi 会话记录的只读投影；底层按 64 KiB 分块、以 UTF-8 字节执行 8 MiB 预算，按文件身份/大小/mtime 缓存完整 JSONL 行与未完尾行，追加增量读、截断重建，用量在文件签名未变时复用聚合；每个 step 的 token 口径保持不变 | `transcript(taskId, after, limit)`、`usage(taskId)`（测量接缝 `transcriptReadStats`） |
 | `project/scheduling.js` | 调度、invocation 生命周期、凭证；成功返回写 version 2 `run.result`，把 `invocation.status` 与 `verification.status` 分开 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
 | `project/lifecycle.js` | 结算、取消、重试、清空、定向删除与恢复；Candidate verifier 只在当前状态为 `preparing`、`report_task_id` 仍匹配、报告存在且结构化结论为 `pass` 时结算为 `ready`，其余结论为 `failed`；迟到结果保留事件但不改 Candidate | `finish`、`cancel`、`retry`、`clear`、`reclaimThenPurge(tasks, anchors)`、`deleteTask(taskId)`、`subtreeTasks(taskId)`、`forgetTasks(root, subtree, ids)`、`recover`、`shutdown` |
 
@@ -75,11 +75,11 @@
 |---|---|---|
 | `store/base.js` | 打开数据库、事务、id 分配与加列式 schema 演进 | `class StoreBase`（构造、`run`/`get`/`all`/`transaction`/`close`、`taskIdHigh`/`setTaskIdHigh`/`nextTaskId`、`inputIdHigh`/`setInputIdHigh`/`nextInputId`） |
 | `store/schema.js` | 全部 DDL 与项目绑定校验 | `SCHEMA`、`bindProject(db, project)` |
-| `store/tasks.js` | tasks 表的读写与生命周期字段，以及 `tasks.progress_plan` 附属 JSON 的原子替换 | `task`、`tasks`、`summaries`、`create`、`update`、`setProgressPlan`、`children`、`touch`、`armAgent`、`touchAgent`、`agentByToken`、`activeTasks`、`purge`、`referringTasks`、`deleteTasks` |
+| `store/tasks.js` | tasks 表的读写与生命周期字段、有界 work task 页，以及 `tasks.progress_plan` 附属 JSON 的原子替换 | `task`、`tasks`、`summaries`、`summaryPage`、`create`、`update`、`setProgressPlan`、`children`、`touch`、`armAgent`、`touchAgent`、`agentByToken`、`activeTasks`、`purge`、`referringTasks`、`deleteTasks` |
 | `store/specs.js` | 拆解队列 | `specDeps`、`addSpec`、`spec`、`specs`、`specStats`、`pendingSpecs`、`specsForBatch`、`specsByPlanner`、`nextSpecPlanner`、`assignSpecs`、`takeSpecs`、`plannedSpec`、`dropSpec`、`releaseBatch`、`discardBatch` |
-| `store/deps.js` | 依赖边 | `addDep`、`deps`、`dependents`、`depsDetail`、`dependentsDetail`、`depMap`、`reaches`、`edgesOf` |
+| `store/deps.js` | 依赖边；`depMap(taskIds?)` 可只投影当前有界任务窗 | `addDep`、`deps`、`dependents`、`depsDetail`、`dependentsDetail`、`depMap`、`reaches`、`edgesOf` |
 | `store/messages.js` | 收件箱 | `message`、`unread` |
-| `store/events.js` | 审计事件 | `event`、`history` |
+| `store/events.js` | 审计事件；保留旧正向历史，并提供从最近记录向前翻页的游标页 | `event`、`history`、`historyPage` |
 | `store/verification.js` | 检验与解冲突的关联读模型 | `verifications`、`activeVerification`、`resolutions`、`activeResolver`、`unlandedResolver`、`conflictsOn` |
 | `store/drafts.js` | 输入缓存 | `addDraft`、`draft`、`updateDraft`、`openDrafts`、`draftCount` |
 | `store/references.js` | Input / Draft 的引用元数据（不是新的业务实体） | `setDraftReferences`、`draftReferences`、`setInputReferences`、`inputReferences`、`referencesForDrafts` |

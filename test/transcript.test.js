@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture } from './helpers.js';
-import { readTranscript, readUsage, sessionFiles } from '../src/core/transcript.js';
+import { readTranscript, readUsage, sessionFiles, transcriptReadStats } from '../src/core/transcript.js';
 import { LushError } from '../src/core/types.js';
 
 /** pi 的会话记录长这样：一行一条 JSON，消息正文按 part 排列。 */
@@ -263,6 +263,53 @@ test('usage previews the last step with exact tokens when it is a billed assista
     expect(readUsage(f.config, 24).last.tokens).toEqual({
       input: 10, output: 2, cache_read: 0, cache_write: 0, reasoning: 0, total: 12, cost: 0, exact: true, turn: true, first: true,
     });
+  } finally { f.close(); }
+});
+
+test('chunked JSONL reads enforce the UTF-8 byte budget for one huge file', () => {
+  const f = fixture();
+  try {
+    const file = sessionFile(f.root, 31, []);
+    fs.writeFileSync(file, Buffer.alloc(9 * 1024 * 1024, 0x78));
+    const page = readTranscript(f.config, 31, 0, 100);
+    const stats = transcriptReadStats(f.config, 31);
+    expect(page.steps).toEqual([]); expect(page.truncated).toBe(true);
+    expect(stats.bytes).toBe(stats.max_bytes); expect(stats.bytes).toBeLessThan(fs.statSync(file).size);
+  } finally { f.close(); }
+});
+
+test('incremental JSONL cache preserves half lines and UTF-8 across append and truncate', () => {
+  const f = fixture();
+  try {
+    const file = sessionFile(f.root, 32, []);
+    const encoded = Buffer.from(`${JSON.stringify(message('assistant', [{ type: 'text', text: '前🙂后' }]))}\n`);
+    const emoji = encoded.indexOf(Buffer.from('🙂'));
+    fs.writeFileSync(file, encoded.subarray(0, emoji + 2));
+    expect(readTranscript(f.config, 32, 0, 100).steps).toEqual([]);
+    fs.appendFileSync(file, encoded.subarray(emoji + 2));
+    const appended = readTranscript(f.config, 32, 0, 100);
+    expect(appended.steps.map(step => step.body)).toEqual(['前🙂后']);
+    expect(transcriptReadStats(f.config, 32).bytes).toBe(encoded.length - (emoji + 2));
+
+    const replacement = `${JSON.stringify(message('assistant', [{ type: 'text', text: '截断后' }]))}\n`;
+    fs.writeFileSync(file, replacement);
+    const truncated = readTranscript(f.config, 32, 0, 100);
+    expect(truncated.steps.map(step => step.body)).toEqual(['截断后']);
+    // A fresh task/file with identical bytes projects identically to the incrementally refreshed cache.
+    sessionFile(f.root, 33, [message('assistant', [{ type: 'text', text: '截断后' }])]);
+    expect(readTranscript(f.config, 33, 0, 100).steps.map(({ file: _file, ...step }) => step))
+      .toEqual(truncated.steps.map(({ file: _file, ...step }) => step));
+  } finally { f.close(); }
+});
+
+test('usage polling reuses the parsed aggregate when session files are unchanged', () => {
+  const f = fixture();
+  try {
+    sessionFile(f.root, 34, [billing('cached', { input: 5, output: 2, totalTokens: 7, cost: { total: 0 } }, 1000)]);
+    expect(readUsage(f.config, 34).totals.tokens).toBe(7);
+    expect(transcriptReadStats(f.config, 34).bytes).toBeGreaterThan(0);
+    expect(readUsage(f.config, 34).totals.tokens).toBe(7);
+    expect(transcriptReadStats(f.config, 34).bytes).toBe(0);
   } finally { f.close(); }
 });
 

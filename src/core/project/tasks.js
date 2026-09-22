@@ -95,6 +95,34 @@ export default {
     return task;
   },
 
+  /** Homepage task window: every active work item plus a bounded tail of terminal history. */
+  activity(limit = 50) {
+    const size = Number(limit);
+    check(Number.isInteger(size) && size >= 1 && size <= 200, 'activity limit must be 1..200');
+    const active = this.store.summaryPage({ active: true, limit: 1000 });
+    const recent = this.store.summaryPage({ limit: size });
+    const byId = new Map([...active, ...recent].map(task => [task.id, task]));
+    const tasks = this.decorate([...byId.values()].sort((a, b) => a.id - b.id));
+    const cursor = recent.length ? Math.min(...recent.map(task => task.id)) : null;
+    const total = this.store.get("SELECT count(*) AS count FROM tasks WHERE layer='work'").count;
+    const historical = this.store.get("SELECT count(*) AS count FROM tasks WHERE layer='work' AND status IN ('completed','failed','cancelled')").count;
+    return { tasks, page: { limit: size, cursor, has_more: cursor !== null && historical > recent.length,
+      shown: recent.length, total, historical, active: active.length, truncated: historical > recent.length } };
+  },
+
+  /** Older terminal work items, newest page first; callers merge pages by id. */
+  taskPage(before = null, limit = 50) {
+    const cursor = before === null || before === undefined ? null : Number(before);
+    const size = Number(limit);
+    check(cursor === null || (Number.isSafeInteger(cursor) && cursor > 0), 'invalid task history cursor');
+    check(Number.isInteger(size) && size >= 1 && size <= 200, 'task history limit must be 1..200');
+    const rows = this.store.summaryPage({ before: cursor, limit: size + 1 });
+    const hasMore = rows.length > size;
+    const page = rows.slice(0, size);
+    return { tasks: this.decorate(page.sort((a, b) => a.id - b.id)), cursor: page.length ? Math.min(...page.map(task => task.id)) : cursor,
+      has_more: hasMore, limit: size, truncated: hasMore };
+  },
+
   inspect(taskId) {
     const task = this.progressView(this.store.task(taskId));
     const runs = this.store.runsForTask(task.id);

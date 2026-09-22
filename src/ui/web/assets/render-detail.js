@@ -231,7 +231,8 @@ export function renderDetail(task, history, diff, usage) {
   }
   if (history?.events?.length) {
     const events = block('事件时间线', String(history.events.length));
-    events.append(renderHistory(history.events.slice(-200), { running: task.status === 'running', truncated: history.truncated, taskId: task.id }));
+    events.append(renderHistory(history.events, { running: task.status === 'running', truncated: history.truncated,
+      cursor: history.cursor, onMore: history.onMore, taskId: task.id }));
     panel.append(events);
   }
 

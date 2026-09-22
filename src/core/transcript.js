@@ -81,31 +81,99 @@ export function sessionFiles(config, taskId) {
   return fs.readdirSync(dir).filter(name => name.endsWith(`_lush-task-${taskId}.jsonl`)).sort();
 }
 
-/** Records of one session file, lazily; `budget` is charged when the file is read. */
-function* recordsOf(dir, file, budget) {
-  if (budget.bytes > MAX_BYTES) return;
-  const raw = fs.readFileSync(path.join(dir, file), 'utf8');
-  budget.bytes += raw.length;
-  const lines = raw.split('\n');
-  for (let index = 0; index < lines.length; index += 1) {
-    if (!lines[index].trim()) continue;
-    let record;
-    // A killed agent can leave a half-written last line; that is not an error.
-    try { record = JSON.parse(lines[index]); } catch { continue; }
-    yield { file, line: index + 1, record };
-  }
+/** Small synchronous reads keep one giant JSONL file from becoming one giant main-thread pause. */
+const READ_CHUNK = 64 * 1024;
+/** Parsed complete JSONL lines are reused while a live session only appends. */
+const FILE_CACHE = new Map();
+const USAGE_CACHE = new Map();
+const READ_STATS = new Map();
+const statVersion = stat => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+
+function emptyFileState(stat) {
+  return { dev: stat.dev, ino: stat.ino, offset: 0, tailParts: [], tailBytes: 0,
+    line: 0, records: [], version: statVersion(stat) };
 }
 
 /**
- * Records of one task's sessions, oldest first. `budget` carries the byte count across the
- * iteration so one request never reads more than MAX_BYTES of session logs: running out is
- * not an error, the caller reports it as `truncated`.
+ * Records of one session file, lazily. The logical byte budget always starts at byte zero,
+ * even when parsed lines come from cache; therefore warming the cache never widens the public
+ * 8 MiB window. Disk reads only cover the missing suffix and are issued in 64 KiB chunks.
  */
+function* recordsOf(dir, file, budget) {
+  const remaining = MAX_BYTES - budget.bytes;
+  if (remaining <= 0) { budget.truncated = true; return; }
+  const filename = path.join(dir, file);
+  let stat;
+  try { stat = fs.statSync(filename); } catch { return; }
+  const target = Math.min(stat.size, remaining);
+  let state = FILE_CACHE.get(filename);
+  const replaced = !state || state.dev !== stat.dev || state.ino !== stat.ino;
+  const truncated = state && stat.size < state.offset;
+  // Same-size content changes are rewrites, not appends. A mere touch also reparses, which is
+  // conservative and keeps the cache from serving content whose identity changed underneath it.
+  const rewritten = state && stat.size === state.offset && state.version !== statVersion(stat);
+  if (replaced || truncated || rewritten) {
+    state = emptyFileState(stat);
+    FILE_CACHE.set(filename, state);
+  }
+
+  const readTarget = Math.max(state.offset, target);
+  if (state.offset < readTarget) {
+    const descriptor = fs.openSync(filename, 'r');
+    try {
+      while (state.offset < readTarget) {
+        const length = Math.min(READ_CHUNK, readTarget - state.offset);
+        const chunk = Buffer.allocUnsafe(length);
+        const count = fs.readSync(descriptor, chunk, 0, length, state.offset);
+        if (!count) break;
+        budget.readBytes += count;
+        const bytes = chunk.subarray(0, count);
+        let start = 0;
+        for (;;) {
+          const index = bytes.indexOf(0x0a, start);
+          if (index < 0) break;
+          state.line += 1;
+          const suffix = bytes.subarray(start, index);
+          const lineBuffer = state.tailParts.length ? Buffer.concat([...state.tailParts, suffix], state.tailBytes + suffix.length) : suffix;
+          const line = lineBuffer.toString('utf8');
+          const end = state.offset + index + 1;
+          if (line.trim()) {
+            try { state.records.push({ end, file, line: state.line, record: JSON.parse(line) }); }
+            catch { /* killed agents may leave malformed complete lines; skip them */ }
+          }
+          state.tailParts = []; state.tailBytes = 0;
+          start = index + 1;
+        }
+        if (start < bytes.length) {
+          const tail = Buffer.from(bytes.subarray(start));
+          state.tailParts.push(tail); state.tailBytes += tail.length;
+        }
+        state.offset += count;
+      }
+    } finally { fs.closeSync(descriptor); }
+  }
+  state.version = statVersion(stat);
+  budget.bytes += target;
+  if (target < stat.size) budget.truncated = true;
+  for (const item of state.records) if (item.end <= target) yield item;
+}
+
+/** Records across files. Later files are not touched after the shared byte window is full. */
 function* eachRecord(dir, files, budget) {
   for (const file of files) {
-    if (budget.bytes > MAX_BYTES) return;
+    if (budget.bytes >= MAX_BYTES) { budget.truncated = true; return; }
     yield* recordsOf(dir, file, budget);
   }
+}
+
+function rememberReadStats(config, taskId, budget) {
+  READ_STATS.set(`${config.home}\0${taskId}`, { bytes: budget.readBytes, budget_bytes: budget.bytes,
+    max_bytes: MAX_BYTES, truncated: budget.truncated });
+}
+
+/** Test/measurement seam: actual bytes read by the most recent transcript or usage request. */
+export function transcriptReadStats(config, taskId) {
+  return READ_STATS.get(`${config.home}\0${taskId}`) ?? { bytes: 0, budget_bytes: 0, max_bytes: MAX_BYTES, truncated: false };
 }
 
 const num = value => (Number.isFinite(value) ? value : 0);
@@ -154,7 +222,7 @@ export function readTranscript(config, taskId, after = 0, limit = 100) {
   check(Number.isInteger(limit) && limit > 0 && limit <= MAX_STEPS, `transcript limit must be 1..${MAX_STEPS}`);
   const dir = sessionDir(config);
   const files = sessionFiles(config, taskId);
-  const budget = { bytes: 0 };
+  const budget = { bytes: 0, readBytes: 0, truncated: false };
   const steps = [];
   let seq = 0;
   let hasMore = false;
@@ -176,7 +244,7 @@ export function readTranscript(config, taskId, after = 0, limit = 100) {
 
   outer:
   for (const name of files) {
-    if (budget.bytes > MAX_BYTES) break;
+    if (budget.bytes >= MAX_BYTES) { budget.truncated = true; break; }
     prev = null;   // 跨会话文件不推算：文件边界重置「上一次请求」，未完成的批次就此断开
     batch = null;
     for (const item of recordsOf(dir, name, budget)) {
@@ -236,9 +304,10 @@ export function readTranscript(config, taskId, after = 0, limit = 100) {
   }
 
   const window = bounded(steps, 900000);
+  rememberReadStats(config, taskId, budget);
   return {
     task_id: taskId, files, steps: window, next: window.length ? window.at(-1).seq : after,
-    has_more: hasMore, truncated: budget.bytes > MAX_BYTES,
+    has_more: hasMore, truncated: budget.truncated,
   };
 }
 
@@ -249,13 +318,23 @@ export function readTranscript(config, taskId, after = 0, limit = 100) {
  */
 export function readUsage(config, taskId) {
   const files = sessionFiles(config, taskId);
-  const budget = { bytes: 0 };
+  const dir = sessionDir(config);
+  const cacheKey = `${config.home}\0${taskId}`;
+  const signature = files.map(file => {
+    try { return `${file}:${statVersion(fs.statSync(path.join(dir, file)))}`; } catch { return `${file}:missing`; }
+  }).join('|');
+  const cached = USAGE_CACHE.get(cacheKey);
+  if (cached?.signature === signature) {
+    rememberReadStats(config, taskId, { readBytes: 0, bytes: cached.stats.budget_bytes, truncated: cached.result.truncated });
+    return structuredClone(cached.result);
+  }
+  const budget = { bytes: 0, readBytes: 0, truncated: false };
   const totals = { input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, tokens: 0, cost: 0 };
   const usage = {
     task_id: taskId, files, model: null, thinking_level: null, requests: 0,
     context_tokens: 0, compacted: 0, last_at: null, last: null, totals, truncated: false,
   };
-  for (const { record } of eachRecord(sessionDir(config), files, budget)) {
+  for (const { record } of eachRecord(dir, files, budget)) {
     // 「最近一次执行」= 执行过程最后一条可显示步骤（与 transcript 同一套 project()/stamp()）；
     // 若这一步没有时间戳，at 向前回退到最近一条有时间的步骤。
     // 最后一步来自带 usage 的 assistant 消息时，与 transcript 一样带上精确 tokens。
@@ -289,6 +368,8 @@ export function readUsage(config, taskId) {
     usage.context_tokens = tokensOf(row);
     usage.last_at = at;
   }
-  usage.truncated = budget.bytes > MAX_BYTES;
+  usage.truncated = budget.truncated;
+  rememberReadStats(config, taskId, budget);
+  USAGE_CACHE.set(cacheKey, { signature, result: structuredClone(usage), stats: { budget_bytes: budget.bytes } });
   return usage;
 }

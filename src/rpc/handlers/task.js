@@ -7,6 +7,8 @@ export const handlers = {
     check(Number.isSafeInteger(after) && after >= 0 && Number.isInteger(limit) && limit > 0 && limit <= 1000, 'invalid task page');
     return bounded(p.decorate(p.store.summaries('work').filter(task => task.id > after).slice(0, limit)), 900000);
   },
+  'task.activity'(p, params, actor) { return p.activity(Number(params.limit ?? 50)); },
+  'task.page'(p, params, actor) { return p.taskPage(params.before ?? null, Number(params.limit ?? 50)); },
   'task.tree'(p, params, actor) { return p.tree(params.id ?? null); },
   'task.ladder'(p, params, actor) { return p.ladder(); },
   'task.inspect'(p, params, actor) { return p.inspect(params.id); },
@@ -15,6 +17,14 @@ export const handlers = {
     const after = Number(params.after ?? 0);
     check(Number.isSafeInteger(after) && after >= 0, 'invalid history cursor');
     return p.store.history(id(params.id), after);
+  },
+  'task.history_page'(p, params, actor) {
+    const taskId = id(params.id); p.store.task(taskId);
+    const before = params.before === null || params.before === undefined ? null : Number(params.before);
+    const limit = Number(params.limit ?? 100);
+    check(before === null || (Number.isSafeInteger(before) && before > 0), 'invalid history cursor');
+    check(Number.isInteger(limit) && limit > 0 && limit <= 200, 'history limit must be 1..200');
+    return p.store.historyPage(taskId, before, limit);
   },
   'task.diff'(p, params, actor) { return p.diff(params.id); },
   'task.transcript'(p, params, actor) { return p.transcript(id(params.id), Number(params.after ?? 0), Number(params.limit ?? 100)); },

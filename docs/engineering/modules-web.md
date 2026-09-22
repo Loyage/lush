@@ -27,7 +27,7 @@
 | `project-picker.js` | 无项目启动门：读取 `/api/launcher`，首次要求绝对项目路径，有缓存则直接进入；在全局模式显示「切换项目」，Electron 环境可调用 preload 暴露的原生目录选择器；项目未选定前不启动快照轮询 | `ensureProject()`、`openProjectPicker()`、`closeProjectPicker()` |
 | `appearance.js` | head 中初始化深浅主题，装配左栏顶部的主题切换按钮；偏好经 prefs.js 读写（`lush.theme`），`system` 跟随系统、显式值覆盖系统，存储不可用时保留会话内选择 | `systemThemeMedia()`、`resolveTheme()`、`effectiveTheme()`、`applyTheme()`、`createAppearance()`、`initAppearance()`、`refreshTheme()` |
 | `prefs.js` | 本地偏好中心：键名 / 默认值 / 解析与序列化、读写与变更通知都在这一份（`markdown` / `theme` / `sidebarSort` / `collapsed` / `filters` / `reduceMotion` / `polling` / `toastDuration`）；坏数据回落默认值，存储不可用不抛异常；老键（`lush.treeSort`、`lush.theme`、`lush.markdown`）继续生效；`resetPrefs()` 删除全部受管键（含历史键）并逐项通知回默认值 | `PREF_DEFS`、`PREF_NAMES`、`MARKDOWN_KEY`、`THEME_KEY`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`REDUCED_MOTION_KEY`、`POLLING_KEY`、`TOAST_DURATION_KEY`、`THEME_VALUES`、`SORT_IDS`、`POLLING_MODES`、`TOAST_MODES`、`pollingIntervals()`、`toastDurations()`、`readPref`、`writePref`、`setPref`、`onPrefChange`、`resetPrefs`、`prefsSnapshot`、`storageAvailable` |
-| `render-settings.js` | 设置视图，分 Agent / 界面 / 系统三个页签：Agent 页编辑项目默认与六类角色覆盖（agent / model / thinking / 默认 prompt / 追加 prompt / Pi 扩展与 Skills），可按需读 `/api/agent/models` 展示本机 CLI 当前模型目录、读 `/api/agent/resources` 多选已安装资源，经 `agent.configure` 写入项目；同页的环境变量键值表按需读取公共/角色 env（值默认 password 遮罩、逐项可查看），支持新增/删除/保存，拒绝非法、重复与 `LUSH_*` 名称，经 `agent.environment.configure` 写回；默认 prompt 正常显示内置全文并可一键恢复，替换内置 prompt 前显示风险警告并二次确认；界面页管理浏览器本地偏好与恢复默认；系统页展示 daemon 配置与路径，其中并发额度（执行 / 控制通道）是可编辑表单：显示生效值 / 环境默认值 / 来源 / 设置文件，保存 / 恢复环境默认走 `system.configure`，越界或后端报错就地提示，其余参数只读。打开期间轮询不用概览覆盖 | `openSettings()`、`renderSettings()` |
+| `render-settings.js` | 设置视图，分 Agent / 界面 / 系统三个页签：打开设置时才读取 `/api/agent/config` 完整配置；Agent 页编辑项目默认与六类角色覆盖（agent / model / thinking / 默认 prompt / 追加 prompt / Pi 扩展与 Skills），可按需读 `/api/agent/models` 展示本机 CLI 当前模型目录、读 `/api/agent/resources` 多选已安装资源，经 `agent.configure` 写入项目；同页的环境变量键值表按需读取公共/角色 env（值默认 password 遮罩、逐项可查看），支持新增/删除/保存，拒绝非法、重复与 `LUSH_*` 名称，经 `agent.environment.configure` 写回；默认 prompt 正常显示内置全文并可一键恢复，替换内置 prompt 前显示风险警告并二次确认；界面页管理浏览器本地偏好与恢复默认；系统页展示 daemon 配置与路径，其中并发额度（执行 / 控制通道）是可编辑表单：显示生效值 / 环境默认值 / 来源 / 设置文件，保存 / 恢复环境默认走 `system.configure`，越界或后端报错就地提示，其余参数只读。打开期间轮询不用概览覆盖 | `openSettings()`、`renderSettings()` |
 | `styles.css` | 双主题设计 token、应用布局（无应用顶栏：品牌 / 项目名 / 并发槽 / 连接状态 / 主题切换 / 退出登录在左栏顶部的身份区，内容区占满高度）、组件、响应式与 reduced-motion 动效（含设置页与强制减少动效 `[data-reduced-motion="true"]`） | CSS |
 | `state.js` | 共享可变状态（一个对象，新字段不必改别的文件就能加）；`ui.indexOpen` 记录右侧信息页，`ui.lastGraph` 保存最近一次 `graph.get` 读模型，`ui.settingsOpen` 标记设置视图；折叠 / 筛选 / 排序偏好经 prefs.js 读写 | `ui`、`transcriptOpen`、`transcriptCache`、`mergeSelection`、`resetUiState()`、`readSidebarSortPref`、`readCollapsedPref`、`readFiltersPref`、`saveCollapsedPref`、`saveFiltersPref`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`SORT_IDS` |
 | `navigate.js` | 导航间接层（断循环依赖）；注册返回带身份保护的 teardown，DOM 测试用完必须恢复，避免跨文件污染 | `registerNavigation({refresh, detail, overview, graph}) -> restore()`、`refresh()`、`detail(taskId)`、`overview()`、`graph()` |
@@ -46,11 +46,11 @@
 | `render-drafts.js` | 待提交缓存与引用摘要 | `renderDrafts(data)` |
 | `render-intents.js` | Intent 列表：原始目标、planner 闸门、Plan 计数、最新 Review Candidate 版本与「开始/重新验收 / 打开结果 / 接受并合入 / 要求修改」动作 | `renderIntents(data)` |
 | `render-specs.js` | 拆解队列（只读） | `renderSpecs(data)`、`specItem(spec)`、`specDeps(value)` |
-| `render-tree.js` | 任务树、兄弟链、依赖标签、为什么没在跑 | `renderTree(data)` |
+| `render-tree.js` | 任务树、兄弟链、依赖标签、为什么没在跑；首页明确标出“活动 + 最近历史”的截断范围，并通过 `/api/tasks?before=` 按需加载更早页 | `renderTree(data)` |
 | `render-notices.js` | 待决问题索引与右侧展开；resolver 首次请示使用明确的开始/暂不处理动作 | `renderNotices(data)`、`openNotice(noticeId)`、`noticePanel(notice, task?)` |
 | `render-ladder.js` | 按目标分支分组的交付队列、变更栈与批量落地 | `renderLadder(data)`、`mergeBatch(ids, candidates)`、`renderMergeResult(entry)` |
 | `render-timeline.js` | 并行时间轴 | `renderTimeline(timeline)` |
-| `render-history.js` | 事件时间线 | `renderHistory(history, opts)` |
+| `render-history.js` | 事件时间线；默认最近 100 条，明确显示截断并用 `before` 游标逐页加载更早记录 | `renderHistory(history, opts)` |
 | `render-diff.js` | 改动概览 | `renderDiff(diff)` |
 | `render-progress.js` | task 执行计划：防御性统计 versioned `progress`；详情逐步区分“用时”（完成态 serif italic）与“已执行”（当前态 monospace bold）并实时计时，任务树画紧凑摘要，分支诊断画整行进度条并给 running task 显著但尊重 reduced-motion 的扫光 / 流动动效 | `progressStats(progress)`、`formatProgressDuration(ms)`、`refreshProgressDurations(root)`、`renderTaskProgress(progress)`、`renderCompactProgress(progress)`、`renderGraphProgress(progress, opts)` |
 | `render-agent.js` | Agent 区块：执行过程优先，模型与用量直接展开；增量更新最近一步，带 tokens 时并排一个与步骤同口径的 chip | `renderAgent(task, usage)`、`paintUsageLast(taskId, usage)` |
@@ -66,7 +66,7 @@
 | `docs-search.js` | 浏览器全文搜索纯逻辑：NFKC / 小写归一化，中英文子串、多词 AND、字段加权、摘要与稳定排序；Mermaid 仅低权重参与 | `normalizeDocsQuery(value)`、`searchDocs(index, query, limit)` |
 | `render-docs.js` | 「文档」视图的目录、懒加载内容搜索、Markdown 正文、Mermaid 启动与兜底 | `renderDocsIndex(docs, onOpen, options)`、`renderDoc(doc, resolveLink, onOpen)`、`renderDocError(id, message, onOpen)` |
 | `mermaid-docs.js` | 只在文档存在 Mermaid 容器时加载本地固定版本，以 strict 模式逐图校验，并通过显式唯一 id 渲染成隔离的 blob SVG 图片（避免节点/箭头串图，也不用为 Mermaid 放宽主页面的 inline-style CSP）；换文档时回收 blob URL，切换深浅主题时从保留源码串行重绘，超长、超量、加载或语法失败均回退为源码。Agent 输出不走这条路径 | `renderMermaidDiagrams(root)`、`refreshMermaidDiagrams(root)`、`clearMermaidDiagrams(root)` |
-| `refresh.js` | 轮询快照、概览、热任务增量刷新、筛选重画；右侧信息页 / 文档 / 设置打开时不让概览覆盖；「项目概览」与「分支图」共用同一份 `graph.get`（`ui.lastGraph`）与同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s），概览先用快照画、后台取图后就地重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
+| `refresh.js` | 轮询有界 `/api/overview`（revision 未变时不重画；旧 host 回退完整 snapshot）、概览、热任务增量刷新、筛选重画；右侧信息页 / 文档 / 设置打开时不让概览覆盖；「项目概览」与「分支图」共用同一份 `graph.get`（`ui.lastGraph`）与同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s），概览先用快照画、后台取图后就地重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
 
 其它纯逻辑模块：`markdown.js`、`tree-order.js`、`live.js`、`sidebar.js`；`merge-select.js` 是交付队列的候选、冻结与 code-only 顺序预览接缝，由 `render-ladder.js` 使用。`live.js` 的实时刷新间隔不再是写死常量：`liveInterval()` 读「轮询频率」偏好，标准档等于改造前的 3000ms。
 
@@ -74,7 +74,7 @@
 
 | 文件 | 职责 | 导出 / 接缝 |
 |---|---|---|
-| `src/ui/web/server.js` | 单项目与全局 launcher 两种 HTTP host；资源、认证、窄 API 路由、动态项目 binding | `startWeb()`、`createProjectHost()`、`rememberWebProject()` |
+| `src/ui/web/server.js` | 单项目与全局 launcher 两种 HTTP host；资源、认证、窄 API 路由、动态项目 binding；保留 `/api/snapshot`，新增 `/api/overview`、`/api/tasks`、事件历史页与设置页 Agent 配置按需路由 | `startWeb()`、`createProjectHost()`、`rememberWebProject()` |
 | `src/ui/web/control.js` | 后台 Web 进程识别、状态文件、端口探测与安全停止 | `webOwners()`、`stopStaleWeb()`、`recordWebState()` 等 |
 | `src/ui/web/docs.js` | 扫描随代码发布的 Markdown 文档与搜索字段 | `docsIndex()`、`docsSearchIndex()`、`readDoc()` |
 | `src/ui/launcher.js` | 跨项目的最后路径缓存、绝对目录 canonicalize、无项目 Web 控制配置 | `launcherStateDir()`、`readLauncherState()`、`writeLauncherState()`、`canonicalProjectPath()`、`launcherWebConfig()` |
