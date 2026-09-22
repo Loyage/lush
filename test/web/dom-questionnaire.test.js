@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { installDom, deepText, findByText } from '../dom-stub.js';
+import { installDom, deepText, findByText, answerDialog, dialogText } from '../dom-stub.js';
 import { questionnairePanel } from '../../src/ui/web/assets/render-questionnaire.js';
 import { noticePanel, renderNotices } from '../../src/ui/web/assets/render-notices.js';
 import { ui, resetUiState } from '../../src/ui/web/assets/state.js';
@@ -74,7 +74,12 @@ test('incomplete questionnaire cannot submit, custom answer clears selection, di
     await option(root, 'Search').onclick();
     const input = root.querySelector('textarea'); input.value = 'Neither'; input.listeners.input[0]();
     expect(root.querySelectorAll('.selected').length).toBe(0);
-    await click(root, '忽略问卷'); expect(dismissed).toBe(1); expect(submitted).toBe(0); expect(dom.confirms.length).toBe(1);
+    const pending = findByText(root, '忽略问卷').onclick();
+    expect(dialogText(dom)).toContain('不代表批准任何选项');
+    expect(dismissed).toBe(0);
+    await answerDialog(dom, '忽略问卷');
+    await pending;
+    expect(dismissed).toBe(1); expect(submitted).toBe(0);
   } finally { dom.restore(); }
 });
 
@@ -82,7 +87,7 @@ test('different branches share the notice queue and final confirmation advances 
   const first = notice(), second = notice(8, 99), sent = [], navigated = [];
   const dom = installDom({ fetch: async (_url, opts) => { sent.push(JSON.parse(opts.body)); return Response.json({ status: 'answered' }); } });
   resetUiState();
-  registerNavigation({ refresh: async () => renderNotices({ notices: [second] }), detail: async id => navigated.push(id), overview: async () => {} });
+  const restoreNavigation = registerNavigation({ refresh: async () => renderNotices({ notices: [second] }), detail: async id => navigated.push(id), overview: async () => {} });
   try {
     renderNotices({ notices: [first, second] }); ui.noticeFocus = first.id;
     const root = noticePanel(first, { role: 'worker' });
@@ -93,5 +98,5 @@ test('different branches share the notice queue and final confirmation advances 
     const answered = questionnairePanel({ ...first, status: 'answered', answer: JSON.stringify({ answers: [{ question: 'Which layout?', labels: ['Tabs'], custom: '' }] }) });
     expect(deepText(answered)).toContain('已提交选择'); expect(deepText(answered)).toContain('Tabs');
     expect(answered.querySelectorAll('button').length).toBe(0);
-  } finally { dom.restore(); }
+  } finally { restoreNavigation(); dom.restore(); }
 });
