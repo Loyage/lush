@@ -63,7 +63,10 @@ export async function main(argv = process.argv.slice(2)) {
   if (value === undefined) return;
   if (value?.fingerprint) {
     const local = codeIdentity();
-    if (value.fingerprint !== local.fingerprint || value.code_dir !== local.code_dir) console.error('lush: daemon runs different code; restart this project daemon');
+    if (value.fingerprint !== local.fingerprint || value.code_dir !== local.code_dir) {
+      const project = value.project || selectedConfig.project;
+      console.error(`lush: 项目 ${project} 的 daemon 与当前磁盘代码不一致；确认没有活动 invocation 后运行 bun run daemon-restart --project ${JSON.stringify(project)}`);
+    }
   }
   print(value, json);
 }

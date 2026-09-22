@@ -5,11 +5,23 @@
 
 Lush 是项目级的多 agent 开发应用。一个 daemon 绑定一个项目目录；输入、任务、agent 会话、工作区与待决问题都属于这个项目。
 
-你随时描述想法，并可指定任一本地父分支。Lush 立即创建 `input-<id>` 分支与 worktree，planner 在这份不可漂移的代码上解析；多项任务再从输入分支创建子分支并行工作。结果从叶子向输入分支逐层收敛，最后输入分支合回用户选择的父分支，**每一步都由用户明确批准且只做 fast-forward**。
+你随时描述想法，并可指定任一本地父分支。Lush 立即创建 `input-<id>` 分支与 worktree，planner 在这份不可漂移的代码上解析；多项任务再从输入分支创建子分支并行工作。任务结果会在**私有 Intent 分支内自动集成**，但用户选择的目标分支始终不自动变化；只有用户最终接受固定的 Review Candidate，代码才按 fast-forward 规则落地。
 
 Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行时依赖。Web 文档视图随包内置固定版本的 Mermaid 浏览器资源，用于离线绘制流程图。支持 macOS 和 Linux。
 
-第一次接触任务状态、`code` / `order` 依赖、交付队列或 resolver 时，先从[行动任务流程总览](docs/task-flow.md)开始，再按页尾链接连续阅读“提交与规划 → 私有集成与候选 → 验收与回收”。这条短章路线解释“任务完成”和“改动已进入目标分支”的区别，以及普通交付、变更栈、冲突与回收。
+第一次接触任务状态、`code` / `order` 依赖、交付队列或 resolver 时，先从[行动任务流程总览](docs/task-flow.md)开始，再按页尾链接连续阅读“提交与规划 → 私有集成与候选 → 验收与回收”。这条短章路线是交付语义的权威说明；根 README 只保留快速入口与关键边界。
+
+最重要的状态不要混在一起：
+
+```text
+Task completed（任务交付提交）
+  → 私有 Intent 分支自动集成
+  → Candidate pending（固定候选，尚未启动验收）
+  → 用户显式开始验收 → Candidate ready（报告可看，仍未落地）
+  → 用户接受 → Candidate integrated（已进入目标分支）
+```
+
+详见[私有集成与 Review Candidate](docs/task-flow-2-integration.md)和[验收、诊断与安全回收](docs/task-flow-3-delivery.md)。
 
 ## 开始使用
 
@@ -98,31 +110,21 @@ Web / Electron 中：**单选点一下即进入下一题 → 多选点选后继�
 
 未判定（`flow` 为空）的输入按 `develop` 处理。用户随时可以改判：`lush input flow [TASK_ID] develop|explain`（agent 省略 TASK_ID 时判定自己的输入，Web 任务详情里也有「标记为开发/了解」），`lush input list` 会显示当前判定。改判只影响之后的派工，不会追溯取消已经建立的 worker/coordinator 子任务。
 
-### 验收候选：Review Candidate
+### 验收候选与检验
 
-由 Plan 编译出的工作完成后，Integration Service 自动在私有 Intent 集成分支内叶子优先聚合（分歧时自动建 child-side merger），**不动用户目标分支**。收敛后 runtime 只冻结 integration commit 与 target baseline commit，创建一版 `pending` Review Candidate；不会自动派验收任务。只有用户显式执行 `candidate verify`（或在 Web 点击“开始验收”）才会派只读 verifier，在两边跑同一场景并生成自包含 HTML 报告。
+私有集成完成后，`candidate prepare` 只冻结 integration commit 与 target baseline commit，创建 `pending` Candidate；它**不会**生成报告或自动派 verifier。用户执行 `candidate verify`（或在 Web 点击“开始验收”）后才开始对照验收；查看结果后再由用户选择接受、要求修改或放弃。
 
 ```bash
 lush candidate list --input 1
-lush candidate prepare 1 --summary '一句话说明这版做了什么'
-lush candidate verify 2                    # 用户显式启动验收
+lush candidate prepare 1 --summary '一句话说明这版做了什么'  # 只创建待验收候选
+lush candidate verify 2                    # 用户显式启动验收并生成报告
 lush candidate inspect 2
-lush candidate accept 2                    # 只落地你看过的那个 commit
+lush candidate accept 2                    # 最终人工接受后才落地目标分支
 lush candidate changes 2 '按钮再明显一点'   # 同一 Intent 下启动增量规划，产出 v2
 lush candidate reject 2 --reason '方向不对'
 ```
 
-接受前 runtime 会重新校验集成分支 tip 仍等于被审阅 commit，不再相等就拒绝并要求生成新版本；不会被 branch 漂移夹带未审阅内容。`candidate.*` 全部是用户专属命令。
-
-### 检验：用最直观的方式看这次改动跑起来是什么样
-
-单 worker 也可以单独检验（`lush task verify ID`，兼容入口）：派一个**只读 verifier**，它不是复查代码，而是想办法让用户直接看到结果：
-
-- 读被检验任务的 goal 与 diff，自己判断「怎样才能最直观地说明这次改动成立」——跑测试、跑同一个命令对比输出、起服务看界面，方式由它按任务意图决定；可重复的命令与真实输出优先于主观描述。
-- 在任务的 worktree 里跑一遍，再在 daemon 临时拉出的**目标分支对照检出**（`git worktree add --detach` 到 `.lush/worktrees/<id>-verify-N-base`）里跑同一场景，把两边并排呈现；基准本来就失败，就说明那是既有问题。
-- 最后把结论写成一份自包含 HTML 报告（样式/脚本内联，图片内联为 `data:`）落到 `.lush/verify/<verifier-id>/report.html`，Web 详情里的「打开 HTML 报告」在一个新标签打开它。
-
-verifier 与被检验任务是两个 task（worker 已经终态，不能再挂活动子任务），用 `tasks.verifies_task_id` 关联，界面上挂在被检验任务下面。同一任务同时只允许一次检验；`task.verify` 是用户专属命令，agent 不能用。对照基线是派生状态，检验一结算（成功或失败）就回收，报告保留在磁盘上；`task clear` 不会删它。
+单 worker 的兼容入口 `lush task verify ID` 也会派只读 verifier，但不等同于 Candidate 已被接受。完整状态机、固定 commit 校验、报告与回收规则见[私有集成与 Review Candidate](docs/task-flow-2-integration.md)、[验收与回收](docs/task-flow-3-delivery.md)和[Candidate API](docs/reference/rpc/candidates.md)。
 
 ### Intent 分支：稳定上下文与聚合点
 
@@ -149,7 +151,7 @@ verifier 与被检验任务是两个 task（worker 已经终态，不能再挂�
 - 提交输入需要项目是 **Git worktree 根目录且父分支有初始提交**。可用 `--branch NAME` 指定任一本地分支；未指定时 detached HEAD 会被拒绝。未提交改动不进入输入分支，并记录在 `input.anchor.dirty_source`；Lush 不替你提交、暂存或 stash。分支落地时，涉及的 child / parent worktree 都必须干净。
 - 非 Git 项目不能提交输入（也建不了实现 worktree）：提交前先 `git init` 并至少提交一次。
 - `LUSH_PROVIDER=mock bun run start --project ...` 可离线演示调度。Mock 只派调研任务，不调用模型、不修改代码。
-- 改 daemon 自身环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。`.lush/agent/*.env` 与 Prompt 文件补充在每次 invocation 前热加载，不需要重启。Web 是另一个进程：改完 `src/ui/web/` 用 `bun run web-restart`（它先停掉端口上那个后台 Web，再按当前代码起一个新的）；`daemon-restart` 不会动它，而再跑一次 `bun run web` 只会如实报告「已在运行」。
+- 改 daemon 自身环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。`.lush/agent/*.env` 与 Prompt 文件补充在每次 invocation 前热加载，不需要重启。Web 是另一个进程：改完 `src/ui/web/` 用 `bun run web-restart`（它先停掉端口上那个后台 Web，再按当前代码起一个新的）；`daemon-restart` 不会动它，而再跑一次 `bun run web` 只会如实报告「已在运行」。先用 `bun run doctor --project PATH` 区分磁盘 / daemon / 项目绑定 Web，或用 `bun run web-status` 检查全局启动器；诊断只给出精确更新命令，不会自动重启。
 
 ### Agent Prompt：按角色组合并保留项目覆盖
 
@@ -205,7 +207,7 @@ planner 一轮写完 spec 后，runtime 在事务中直接编译根 WorkItem 与
 - 两条车道的容量是**可运行时改写的项目级设置**：环境变量只是默认值，被 `<home>/settings.json` 里显式覆盖的键取代。用 Web「设置 → 系统 → 并发额度」或 `lush config set` 写入，下一次调度立即按新生效值准入，不需要重启 daemon；调低并发不取消已经在跑的任务。
 - 等依赖、等子任务、等用户时不占槽。
 
-开发工作完成后，Integration Service 自动把 Plan 编译出的 worker 分支从叶子向 Intent 私有集成分支聚合；父子分歧时自动创建子侧 merger。目标分支不会自动变化。聚合完成后系统冻结 integration commit 与 baseline commit，创建 Review Candidate 并生成前后对照 HTML 报告。用户最终接受的是这个精确 commit；若 branch 已移动，旧 Candidate 不能复用。
+开发工作完成后，Integration Service 自动把 Plan 编译出的 worker 分支从叶子向 Intent 私有集成分支聚合；父子分歧时自动创建子侧 merger。目标分支不会自动变化。聚合完成后系统只冻结 integration commit 与 baseline commit 并创建 `pending` Review Candidate；用户显式开始验收后才生成前后对照 HTML 报告，最终人工接受这个精确 commit 后才落地。若 branch 已移动，旧 Candidate 不能复用。
 
 ## Worktree 与合并
 
@@ -243,7 +245,7 @@ bun run usage 3             # 同一个 agent 的模型、上下文占用与累�
 lush progress plan inspect:确认现状 implement:实现 test:测试 git_commit:提交改动  # agent 汇报当前 task 的计划
 lush progress complete inspect  # agent 完成一步；同 key 的完成态在计划更新后保留
 bun run lush candidate list # 查看固定 commit 的验收候选
-bun run lush candidate prepare 1   # 为 Intent #1 生成候选与前后对照报告
+bun run lush candidate prepare 1   # 为 Intent #1 冻结待验收候选；不自动生成报告
 bun run lush candidate accept 2    # 接受 Candidate #2 并合入目标分支
 bun run lush candidate changes 2 '按钮再明显一点'  # 反馈进入同一 Intent 的增量规划
 bun run message 3 '补充要求'
@@ -296,7 +298,7 @@ socket 放在用户私有临时目录，名字由 canonical 项目路径决定�
 
 任务状态：`queued → running → waiting / awaiting / completed / failed / cancelled`。等待收到新消息后重新排队（开放的结构化问卷优先挡住唤醒，必须先回答或忽略）。终态任务不会保留活动子任务。取消或停止会终止 agent 进程组；重启对未知副作用的运行中任务标记失败，不自动重放；未开始的排队任务、待用户答复和记录保留。重试失败子任务要求父任务仍活动，否则重试父任务或提交新输入。
 
-角色有 planner / coordinator / worker / research / verifier / merger。planner 属于 control lane，只写结构化 Plan；没有 scheduler 角色（旧数据里的 `scheduler` 行仍可读）。verifier 有两条来源：用户点「检验」时的单 worker 对照（用 `tasks.verifies_task_id` 指向被检验的 worker），以及自动验收流程为 Review Candidate 创建的对照（用 `tasks.review_candidate_id`）。两者都是独立根任务，不是被检验任务的子任务（终态任务不能再挂活动子任务），父子不变的不变量不被破坏，界面上依旧挂在被检验对象下面。
+角色有 planner / coordinator / worker / research / verifier / merger。planner 属于 control lane，只写结构化 Plan；没有 scheduler 角色（旧数据里的 `scheduler` 行仍可读）。verifier 有两条来源：用户点「检验」时的单 worker 对照（用 `tasks.verifies_task_id` 指向被检验的 worker），以及用户显式启动 Candidate 验收后创建的对照（用 `tasks.review_candidate_id`）。两者都是独立根任务，不是被检验任务的子任务（终态任务不能再挂活动子任务），父子不变的不变量不被破坏，界面上依旧挂在被检验对象下面。
 
 **Task 与 agent 是终身一对一的身份。** 任务一创建就拥有一个 agent（`<role>#<task-id>`，例如 `worker#7`），跨唤醒不换身份：pi session、累计唤醒次数和上次动手时间都记在这个 agent 上，`task inspect` 与 Web 详情直接展示。但它的 RPC 凭证是每次唤醒重新签发的：daemon 只存 SHA-256，且只在该次 invocation 运行期间可解析，invocation 结束即作废，重启后一律清空。因此 1:1 指的是身份，不是进程或凭证——等待子任务或用户时 agent 依然存在，但不占执行槽、也没有活着的调用。
 

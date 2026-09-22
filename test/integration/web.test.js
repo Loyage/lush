@@ -17,6 +17,9 @@ test('web 后台起：重复启动幂等、web-restart 换进程、web-stop 收�
     expect(first).toMatchObject({ port, running: true, already_running: false, code_match: true, listeners_known: true });
     expect(first.pid).toBeGreaterThan(0);
     expect(first.log).toBe(`${root}/.lush/web.log`);
+    expect(first.current_code.fingerprint).toBe(first.web_code.fingerprint);
+    expect(first.identities).toEqual({ current: first.current_code, web: first.web_code });
+    expect(first.update_hint).toBeNull();
     await waitForWeb(port);                       // 命令返回时页面就该能打开
 
     // 再跑一次：端口上是自己人，如实报告“已在运行”，不再 spawn 第二个
@@ -27,6 +30,18 @@ test('web 后台起：重复启动幂等、web-restart 换进程、web-stop 收�
 
     const status = await cli(root, ['web-status', String(port)]);
     expect(status).toMatchObject({ port, running: true, pid: first.pid, code_match: true });
+    expect(status.web_code).toMatchObject({ pid: first.pid, fingerprint: status.current_code.fingerprint });
+
+    // 状态文件中的 Web 身份与磁盘代码不一致时，只给准确的项目/端口更新提示，不自动换进程。
+    const stateFile = `${root}/.lush/web.state.json`;
+    const staleState = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    fs.writeFileSync(stateFile, JSON.stringify({ ...staleState, fingerprint: 'stale-code' }));
+    const stale = await cli(root, ['web-status', String(port)]);
+    expect(stale).toMatchObject({ pid: first.pid, code_match: false });
+    expect(stale.current_code.fingerprint).not.toBe(stale.web_code.fingerprint);
+    expect(stale.update_hint).toMatchObject({ process: 'web', project: root, pid: first.pid,
+      command: ['bun', 'run', 'web-restart', String(port), '--project', root] });
+    expect(alive(first.pid)).toBe(true);
 
     // 换代码的正路：停掉跑着旧代码的那个进程，再按当前代码起一个新的
     const restarted = await cli(root, ['web-restart', String(port)]);

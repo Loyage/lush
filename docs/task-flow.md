@@ -4,7 +4,7 @@
 
 > 连续阅读：**流程总览** → [提交与规划](task-flow-1-planning.md) → [集成与候选](task-flow-2-integration.md) → [验收与回收](task-flow-3-delivery.md)
 
-核心区别：**Task completed 只表示 Agent 交付了提交；Candidate ready 表示固定 commit 已有结构化 `pass` 证据与人类报告，但仍须用户显式接受才会交付。**
+核心区别：**Task `completed` 只表示 Agent 交付了提交；Candidate `pending` 表示私有集成已经冻结为待验收结果，但尚未启动验收；`ready` 表示固定 commit 已有结构化 `pass` 证据与人类报告，但仍须用户显式接受；只有 Candidate `integrated` 才表示代码已经进入目标分支。**
 
 ## 流程全景
 
