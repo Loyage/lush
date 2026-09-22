@@ -4,6 +4,7 @@ import { codeIdentity } from '../identity.js';
 import { check } from '../core/types.js';
 import { option, print } from './args.js';
 import { HELP } from './help.js';
+import { launcherWebConfig } from '../ui/launcher.js';
 import * as system from './commands/system.js';
 import * as intent from './commands/intent.js';
 import * as draft from './commands/draft.js';
@@ -50,9 +51,12 @@ export async function main(argv = process.argv.slice(2)) {
   const projectPath = option(args, '--project');
   const json = args.includes('--json'); if (json) args.splice(args.indexOf('--json'), 1);
   if (!args.length || ['help','--help','-h'].includes(args[0])) { console.log(HELP); return; }
-  const config = Config.fromEnv(process.env, process.cwd(), projectPath);
-  const client = new UIClient(config, process.env.LUSH_AGENT_TOKEN || null);
   const command = args.shift();
+  const globalWeb = ['web', 'web-restart', 'web-stop', 'web-status'].includes(command) && !projectPath && !process.env.LUSH_PROJECT;
+  const selectedConfig = globalWeb ? launcherWebConfig(process.env) : Config.fromEnv(process.env, process.cwd(), projectPath);
+  const client = globalWeb
+    ? { config: selectedConfig, token: process.env.LUSH_AGENT_TOKEN || null }
+    : new UIClient(selectedConfig, process.env.LUSH_AGENT_TOKEN || null);
   const handler = COMMANDS.get(command);
   if (!handler) throw new Error(`unknown command: ${command}; run lush help`);
   const value = await handler(command, args, { client, json });

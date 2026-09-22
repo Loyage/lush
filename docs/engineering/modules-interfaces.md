@@ -23,11 +23,11 @@
 | `cli/commands/plan.js` | `plan` | `run` |
 | `cli/commands/notice.js` | `notice` | `run` |
 | `cli/commands/branch.js` | `branch`（tree / show / import / merge / sync / catchup / archive / summary） | `run` |
-| `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` / `web-restart` / `web-stop` / `web-status` | `run` |
+| `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` / `web-restart` / `web-stop` / `web-status`；Web 无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式 | `run` |
 | `cli/commands/candidate.js` | `candidate list/inspect/prepare/verify/accept/changes/reject` | `run` |
 | `cli/commands/agent.js` | `agent show/models/set/reset`；`--prompt` 只作旧版 `--append-prompt` 别名 | `run` |
 | `cli/commands/config.js` | `config`（`show` / `set concurrency|control-concurrency N` / `reset [concurrency|control-concurrency|all]`）：读 `system.status.settings`、写 `system.configure`；用户专属，agent 调用被拒 | `run` |
-| `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒 | `main(argv)`（并 re-export `HELP`） |
+| `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒；仅 Web 四条命令允许在无项目配置下进入 launcher config | `main(argv)`（并 re-export `HELP`） |
 
 ## RPC：`src/rpc/protocol.js` + `src/rpc/`
 
@@ -58,7 +58,7 @@
 | `workspaces.test.js` | `test/workspaces/{naming,merge,cleanup,genealogy,anchor}.test.js` |
 | `web-rpc.test.js` | `test/web/{security,assets,read-models,drafts,transcript,specs-intents,maintenance}.test.js` |
 | `web-live-dom.test.js` | `test/web/dom-{merge,detail,drafts,specs-intents,sidebar}.test.js`（各自 `boot()`，见前端接缝） |
-| 工作台与主题 | `test/web/appearance.test.js`（主题解析、跟随系统、显式覆盖、存储失败）、`test/web/settings.test.js`（设置入口 / `#settings` / 轮询不覆盖、偏好默认值与老键、每项即时生效、恢复默认、系统信息组只读渲染、并发额度表单保存 / 恢复与越界报错）、`test/project/status.test.js`（`system.status` 的只读软件配置镜像与默认值）、`test/web/dom-studio.test.js`（信息优先级、折叠保留、移动端索引） |
+| 启动器与工作台 | `test/web/launcher.test.js`（首次选项目、绝对路径校验、全局最后项目恢复）、`test/web/appearance.test.js`（主题解析、跟随系统、显式覆盖、存储失败）、`test/web/settings.test.js`（设置入口 / `#settings` / 轮询不覆盖、偏好默认值与老键、每项即时生效、恢复默认、系统信息组只读渲染、并发额度表单保存 / 恢复与越界报错）、`test/project/status.test.js`（`system.status` 的只读软件配置镜像与默认值）、`test/web/dom-studio.test.js`（信息优先级、折叠保留、移动端索引） |
 | 运行设置 | `test/runtime-settings.test.js`（存储原子性与权限、覆盖优先于环境、写后 status 与调度准入、agent 不得调用 `system.configure`）、`test/config-cli.test.js`（`lush config` 的 show / set / reset 与 `--json`） |
 | `integration.test.js` | `test/integration/{daemon,pi,verify,shutdown,merge}.test.js` |
 

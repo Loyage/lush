@@ -3,12 +3,16 @@ import fs from 'node:fs';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { UIClient } from '../client.js';
+import { Config } from '../../config.js';
+import { daemon } from '../../cli/daemon.js';
+import { canonicalProjectPath, readLauncherState, writeLauncherState } from '../launcher.js';
 import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
 import { check } from '../../core/types.js';
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
 const AUTH_FILE = 'web.json';
 const SESSION_COOKIE = 'lush_session';
 const SESSION_SECONDS = 12 * 60 * 60;
+const WEB_HOSTS = new WeakMap();
 /**
  * 前端资源按 basename 解析，新增模块只加文件、不改这张表——否则每个拆分 asset 的并行 worker
  * 都要动同一个 server.js，正是我们要消掉的那种冲突。扩展名白名单把目录穿越、dotfile
@@ -124,13 +128,63 @@ function originAllowed(request, url, origins) {
   return Boolean(parsed) && (parsed.host === url.host || origins.includes(parsed.origin));
 }
 
-export function startWeb(config, port = 4318) {
+export function createProjectHost(initialConfig = null, options = {}) {
+  const launcher = !initialConfig;
+  const env = options.env || process.env;
+  const openProject = options.openProject || (async project => {
+    const config = new Config({ project, env });
+    await daemon(config, 'start');
+    return { config, client: new UIClient(config) };
+  });
+  let binding = initialConfig ? { config: initialConfig, client: new UIClient(initialConfig) } : null;
+  let restoreAttempted = Boolean(initialConfig);
+  let lastError = null;
+  let pending = Promise.resolve();
+
+  async function select(value, { remember = true } = {}) {
+    check(launcher, 'this Web UI is bound to one project; restart it without --project to switch projects');
+    const project = canonicalProjectPath(value, env);
+    const operation = pending.then(async () => {
+      const next = await openProject(project);
+      check(next?.config && next?.client, 'project opener returned an invalid binding');
+      binding = next;
+      lastError = null;
+      if (remember) writeLauncherState(project, env);
+      return project;
+    });
+    pending = operation.catch(() => {});
+    return await operation;
+  }
+
+  async function restore() {
+    if (!launcher || binding || restoreAttempted) return;
+    restoreAttempted = true;
+    const last = readLauncherState(env).last_project;
+    if (!last) return;
+    try { await select(last, { remember: false }); }
+    catch (error) { lastError = error.message; }
+  }
+
+  return {
+    launcher,
+    async status() {
+      await restore();
+      return { mode: launcher ? 'launcher' : 'bound', project: binding?.config.project || null,
+        last_project: launcher ? readLauncherState(env).last_project : initialConfig.project, error: lastError };
+    },
+    async select(value) { return await select(value); },
+    async require() { await restore(); check(binding, '请先选择项目目录'); return binding; },
+    rememberCurrent() { if (launcher && binding) writeLauncherState(binding.config.project, env); },
+  };
+}
+
+export function startWeb(config, port = 4318, options = {}) {
   check(Number.isInteger(port) && port >= 0 && port <= 65535, 'invalid web port');
-  const auth = loadAuth(config);
-  const client = new UIClient(config);
+  const projectHost = createProjectHost(config, options);
+  const auth = config ? loadAuth(config) : null;
   const sessions = new Map();
   const failures = new Map();
-  return Bun.serve({
+  const server = Bun.serve({
     hostname: auth ? '0.0.0.0' : '127.0.0.1', port, maxRequestBodySize: 128 * 1024,
     async fetch(request, server) {
       const url = new URL(request.url);
@@ -193,6 +247,17 @@ export function startWeb(config, port = 4318) {
       }
 
       try {
+        if (request.method === 'GET' && url.pathname === '/api/launcher') return json(await projectHost.status());
+        if (request.method === 'POST' && url.pathname === '/api/launcher/select') {
+          check(projectHost.launcher, 'project switching is disabled for this Web UI');
+          check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
+          const body = await request.json();
+          await projectHost.select(body?.project);
+          return json(await projectHost.status());
+        }
+        const projectApi = url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/docs');
+        const binding = projectApi ? await projectHost.require() : null;
+        const client = binding?.client;
         if (request.method === 'GET') {
           if (url.pathname === '/api/snapshot') return json(await client.snapshot());
           if (url.pathname === '/api/agent/models') return json(await client.request('agent.models', { agent: url.searchParams.get('agent') || '' }));
@@ -203,7 +268,7 @@ export function startWeb(config, port = 4318) {
           if (report) {
             const task = await client.request('task.inspect', { id: Number(report[1]) });
             check(task.role === 'verifier', `task #${task.id} is not a verification`);
-            const file = path.join(config.home, 'verify', String(task.id), 'report.html');
+            const file = path.join(binding.config.home, 'verify', String(task.id), 'report.html');
             if (!fs.existsSync(file)) return json({ error: `verification #${task.id} has no report yet` }, 404);
             // 独立顶层文档（新标签打开）：不受主页面 CSP 约束，但仍显式收紧到一个自包含页面。
             return new Response(Bun.file(file), { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': REPORT_CSP } });
@@ -241,4 +306,11 @@ export function startWeb(config, port = 4318) {
       } catch (error) { return json({ error: error.message }, 400); }
     },
   });
+  WEB_HOSTS.set(server, projectHost);
+  return server;
+}
+
+/** 进程正常关闭时再记一次当前项目：Web 与桌面并开时，以最后关闭的实例为准。 */
+export function rememberWebProject(server) {
+  try { WEB_HOSTS.get(server)?.rememberCurrent(); } catch { /* 缓存失败不能阻止进程退出 */ }
 }

@@ -9,7 +9,7 @@
 </head>
 <body>
 <a class="skip-link" href="#detail">跳到主要内容</a>
-<div class="app">
+<div class="app" id="project-app">
 <main>
 <aside id="sidebar" aria-label="项目导航">
   <div class="rail-identity">
@@ -17,6 +17,7 @@
     <div class="rail-context"><span class="eyebrow">当前项目</span><span id="project">连接项目…</span></div>
     <div class="rail-tools">
       <span id="agents"></span><span id="connection" role="status">连接中…</span>
+      <button type="button" id="project-switch" class="ghost" hidden>切换项目</button>
       <button type="button" id="theme-toggle" class="ghost theme-toggle" aria-label="切换主题">◐ 主题</button>
       <form class="logout" method="post" action="/logout"><button type="submit" class="ghost">退出</button></form>
     </div>
@@ -105,4 +106,14 @@
 <div id="toast" class="toast" role="status" aria-live="polite" hidden><p id="error"></p><button type="button" id="toast-close" class="toast-close" aria-label="关闭提示" title="关闭提示" hidden>✕</button></div>
 <div id="modal" class="modal-root" hidden></div>
 <div id="context-menu" class="context-menu" role="menu" hidden></div>
+<section id="project-gate" class="project-gate" aria-hidden="true" hidden>
+  <form id="project-form" class="project-card">
+    <div class="project-brand"><span class="brand-mark" aria-hidden="true">L</span><span><strong>Lush</strong><small>选择一个项目开始工作</small></span></div>
+    <label for="project-path">项目目录</label>
+    <div class="project-path-row"><input id="project-path" name="project" autocomplete="off" spellcheck="false" placeholder="/absolute/path/to/project" required><button type="button" id="project-choose" class="ghost" hidden>选择文件夹…</button></div>
+    <p class="hint">首次打开必须指定绝对路径。之后会自动恢复最后使用的项目，也可以随时切换。</p>
+    <p id="project-error" class="error" role="alert" hidden></p>
+    <div class="project-actions"><button type="button" id="project-cancel" class="ghost" hidden>取消</button><button type="submit" id="project-submit">打开项目</button></div>
+  </form>
+</section>
 </body></html>

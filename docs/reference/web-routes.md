@@ -2,9 +2,11 @@
 
 本节管 Web 进程暴露的读取路由与用户动作白名单；监听与安全约束见 [HTTP](http.md)。
 
-Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
+Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。无 `--project` 的全局模式先通过窄启动器路由选择项目；带 `--project` 的单项目模式固定绑定且拒绝切换：
 
 - `GET /`、`/app.js`、`/styles.css`：Web 资源。
+- `GET /api/launcher`：返回 `mode`、当前项目、上次项目与恢复错误；全局模式会在首次读取时恢复缓存并自动启动/连接 daemon。
+- `POST /api/launcher/select`：仅全局模式可用，JSON `{project}` 必须是现存目录的绝对路径；切换成功后更新全局 `launcher.json`。
 - `GET /api/docs`、`GET /api/docs/<id>`：「文档」视图的目录与 Markdown 正文，读的是随这份代码发布的 `docs/**/*.md` 与 `README.md`（`src/ui/web/docs.js`），与当前项目目录无关。`GET /api/docs/search-index` 只在用户第一次搜索时返回标题、小节、正文、普通代码与低权重 Mermaid 字段，匹配和排序在浏览器完成。id 由相对路径推出，只按已扫出的表命中，请求里的路径片段不进文件系统；流程图由浏览器按需加载本地 Mermaid 渲染，未命中返回 404。
 - `POST /api/action`：JSON `{method, params}`，只允许项目 Agent 配置（`agent.configure`）、运行设置（`system.configure`）、用户输入、任务维护、Review Candidate 验收动作、`branch.merge/sync/archive` 和 notice / plan 用户动作。
 
@@ -12,6 +14,8 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
 
 | 路由 | 底层 |
 |---|---|
+| `GET /api/launcher` | 当前/上次项目与启动器模式 |
+| `POST /api/launcher/select` | 校验绝对目录、启动/连接项目 daemon、更新最后项目缓存；不进入 `MUTATIONS` 通用 RPC 白名单 |
 | `GET /api/snapshot` | status + input.list + draft.list + notice.list + spec.list + candidate.list + ladder + timeline + 分页 task.list |
 | `GET /api/graph` | 分支节点、fork 连线实时状态与任务关系 |
 | `GET /api/agent/models?agent=pi|codex` | 按需读取所选本机 CLI 当前可用模型目录；失败时带预设与 warning 回退 |

@@ -13,17 +13,26 @@ Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行
 
 ## 开始使用
 
-在 Lush 源码仓库内操作统一使用 `bun run`。默认项目是当前仓库；操作其他项目时显式指定路径：
+在 Lush 源码仓库内操作统一使用 `bun run`。Web 与桌面应用都可以先启动、再在界面里选择项目：
+
+```bash
+bun run web                 # 全局启动器；首次选择项目，以后自动恢复上次项目
+bun run desktop             # Electron 桌面版；与 Web UI 可同时打开
+```
+
+选中项目后，界面会自动启动或连接该项目 daemon。全局启动器的最后项目记录在用户配置目录（macOS 为 `~/Library/Application Support/Lush/launcher.json`，Linux 为 `${XDG_CONFIG_HOME:-~/.config}/lush/launcher.json`，Windows 为 `%APPDATA%\\Lush\\launcher.json`）；它不是 `LUSH_HOME`，项目事实仍只写入 `<project>/.lush/`。左栏的「切换项目」可以随时改选。桌面版复用完全相同的 Web UI 与 API，只额外提供原生目录选择器；它使用随机本机端口，因此可以和后台 Web 同时运行。桌面版仍要求 Bun 在 PATH 中可用，首次使用先执行 `bun install` 安装 Electron。
+
+CLI 的项目命令仍默认使用当前仓库；操作其他项目时显式指定路径：
 
 ```bash
 bun run doctor --project /absolute/path/to/my-project
 bun run start --project /absolute/path/to/my-project
 bun run say '实现登录页面，先研究现有认证流程，再拆分实现和测试' --project /absolute/path/to/my-project
 bun run tree --project /absolute/path/to/my-project
-bun run web 4318 --project /absolute/path/to/my-project
+bun run web 4318 --project /absolute/path/to/my-project  # 可选：启动绑定单项目的 Web
 ```
 
-`start` 只启动项目 daemon；`say` **立即返回输入和 task ID，不等待模型或开发完成**（提交时从 `--branch` 指定的本地分支、或当前分支创建 `input-<id>` 分支与检出，所以它短暂排在 Git 串行队列里）；Web 是独立的界面进程，不隐式启停 daemon，`bun run web` **后台起进程后立刻返回**（日志在 `.lush/web.log`）。Web 离线后会自动重连。默认只监听 `127.0.0.1`；如需从公网访问，在项目的 `.lush/web.json` 写入登录凭证：
+`start` 只启动项目 daemon；`say` **立即返回输入和 task ID，不等待模型或开发完成**（提交时从 `--branch` 指定的本地分支、或当前分支创建 `input-<id>` 分支与检出，所以它短暂排在 Git 串行队列里）。无 `--project` 的 `bun run web` 是仅监听 `127.0.0.1` 的全局项目启动器，命令**后台起进程后立刻返回**；带 `--project` 时保留原来的单项目模式，日志在该项目 `.lush/web.log`，且不隐式启停 daemon。Web 离线后会自动重连。单项目模式默认只监听 `127.0.0.1`；如需从公网访问，在项目的 `.lush/web.json` 写入登录凭证：
 
 ```json
 {
@@ -33,7 +42,7 @@ bun run web 4318 --project /absolute/path/to/my-project
 }
 ```
 
-文件权限必须是 `600`。`bun run web` 会监听 `0.0.0.0`，首次启动时自动把明文 `password` 原地替换为 scrypt `password_hash`；之后浏览器通过登录页取得 12 小时的 HttpOnly / SameSite 会话 Cookie。密码首尾的空白一律忽略（从终端复制常会带上换行），但大小写与中间字符仍须完全一致：建议选一个**好辨认**的密码，避开 `0/O`、`1/I/l` 这类易混字符；连续输错 5 次会锁 60 秒。登录被拒与被挡的跨站请求都会写进后台 Web 自己的日志 `.lush/web.log`，是排查的第一站（`bun run web-status` 会告诉你它在哪、跑的是不是这份代码）。
+文件权限必须是 `600`。带 `--project` 启动的单项目 Web 会监听 `0.0.0.0`，首次启动时自动把明文 `password` 原地替换为 scrypt `password_hash`；之后浏览器通过登录页取得 12 小时的 HttpOnly / SameSite 会话 Cookie。密码首尾的空白一律忽略（从终端复制常会带上换行），但大小写与中间字符仍须完全一致：建议选一个**好辨认**的密码，避开 `0/O`、`1/I/l` 这类易混字符；连续输错 5 次会锁 60 秒。登录被拒与被挡的跨站请求都会写进后台 Web 自己的日志 `.lush/web.log`，是排查的第一站（`bun run web-status` 会告诉你它在哪、跑的是不是这份代码）。
 
 **通过反向代理或域名访问时**，代理默认会把 `Host` 改写成 `127.0.0.1:4318`，而浏览器发出的 `Origin` 是对外地址；两者不一致的提交会被当作跨站拒绝（登录时报 `Cross-site access denied`）。二选一：
 
@@ -219,7 +228,9 @@ bun run branch merge lush/…/7-auth-ui  # ff-only 合回直接父分支
 bun run branch sync lush/…/7-auth-ui   # 分歧时在子侧创建 merger
 bun run branch archive lush/…/7-auth-ui  # 归档：删 worktree 与 ref，保留任务、事件与会话（--discard 才丢未提交改动）
 bun run wait 3              # 只有当前客户端等待，不影响调度
-bun run web                 # 后台起 Web（默认 4318），命令立刻返回
+bun run web                 # 全局项目启动器（默认 4318），自动恢复上次项目并启动 daemon
+bun run desktop             # Electron 桌面版；独立随机端口，可与 Web 同时运行
+bun run web --project .     # 兼容的单项目 Web；使用项目内 web.json / web.log
 bun run web-status          # 在不在跑、跑的是不是这份代码、日志在哪
 bun run web-restart         # 改完 src/ui/web/ 换掉那个后台 Web 进程（它不会跟着代码换版本）
 bun run web-stop            # 停掉后台 Web；只停命令行确实是 Lush Web 的进程，别人的只报告
@@ -260,7 +271,7 @@ pi 默认禁用个人 extensions / skills / prompt templates / themes，保留�
 
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
-| `LUSH_PROJECT` | 从 cwd 发现 | 显式项目目录 |
+| `LUSH_PROJECT` | 从 cwd 发现 | 显式项目目录；设置后 Web 也进入单项目绑定模式 |
 | `LUSH_PROVIDER` | `pi` | 首次未写项目配置时的 Agent：`pi` / `codex`；`mock` 为离线测试模式 |
 | `LUSH_CONCURRENCY` | `4` | worker / research / verifier 执行槽的环境默认值，可被 `.lush/settings.json` 覆盖 |
 | `LUSH_CONTROL_CONCURRENCY` | `2` | planner 等控制面槽（不被执行面占用）的环境默认值，可被 `.lush/settings.json` 覆盖 |

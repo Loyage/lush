@@ -330,6 +330,14 @@ body:has(#detail[data-view="docs"]) #docs-open{background:var(--accent-soft);col
   .composer{position:sticky;bottom:0;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px))}.composer-heading label{font-size:12px}.composer-actions{width:100%;justify-content:flex-end}.composer textarea{font-size:16px}.draft-toggle{font-size:10px}.toast{top:54px;left:16px;right:16px;max-width:none}.graph-group{padding:16px}.graph-view .head{gap:12px}.graph-view .head .actions{margin:0}.graph-node.l3,.graph-node.l4,.graph-node.l5,.graph-node.l6{margin-left:32px}.gantt-label{width:85px}.gantt-axis{margin-left:94px}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* 无项目启动器：独立覆盖层在选定项目以前阻止工作台交互；桌面壳可额外提供原生目录选择器。 */
+.project-gate{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:24px;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(14px)}
+.project-gate[hidden]{display:none}.project-card{width:min(620px,100%);padding:28px;background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}
+.project-brand{display:flex;align-items:center;gap:13px;margin-bottom:24px}.project-brand strong{display:block;font-size:22px;letter-spacing:-.04em}.project-brand small{display:block}
+.project-path-row{display:flex;gap:8px;margin-top:7px}.project-path-row input{flex:1;min-width:0;padding:11px 12px;border:1px solid var(--line);border-radius:9px;background:var(--code);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.project-card>.hint{margin-top:9px}.project-card>.error{margin:10px 0}.project-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.project-actions>#project-submit{min-width:140px;padding:10px}
+@media(max-width:600px){.project-path-row{flex-direction:column}.project-path-row button,.project-actions button{width:100%}.project-actions{flex-direction:column-reverse}}
 /* 设置里的「减少动态效果」：勾选后覆盖系统偏好。 */
 :root[data-reduced-motion="true"] *,:root[data-reduced-motion="true"] *::before,:root[data-reduced-motion="true"] *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 

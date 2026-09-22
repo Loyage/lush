@@ -12,7 +12,7 @@ const WEB_COMMANDS = [...WEB_START, 'web-stop', 'web-status'];
 
 /** `.lush/web.json` 存在即公网模式：与 `server.js` 的判据保持一致。 */
 function webUrl(config, port) {
-  return `http://${fs.existsSync(path.join(config.home, 'web.json')) ? '0.0.0.0' : '127.0.0.1'}:${port}`;
+  return `http://${!config.launcher && fs.existsSync(path.join(config.home, 'web.json')) ? '0.0.0.0' : '127.0.0.1'}:${port}`;
 }
 
 function webLog(config) { return path.join(config.home, 'web.log'); }
@@ -29,21 +29,23 @@ function logTail(config, lines = 3) {
  */
 async function serveWeb(config, port) {
   const control = await import('../../ui/web/control.js');
-  const { startWeb } = await import('../../ui/web/server.js');
-  const publicMode = fs.existsSync(path.join(config.home, 'web.json'));
+  const web = await import('../../ui/web/server.js');
+  const publicMode = !config.launcher && fs.existsSync(path.join(config.home, 'web.json'));
   let server;
-  try { server = startWeb(config, port); }
+  try { server = web.startWeb(config.launcher ? null : config, port, { env: config.env }); }
   catch (error) {
     // 端口被占最常见的原因就是上一次的 Web 还活着。Bun 只说「Is port XX in use?」，
     // 这里补上是谁占的、以及换成本地代码的那条命令。
     if (!/in use|EADDRINUSE|address/i.test(error.message)) throw error;
     throw new Error(`${error.message}${await control.busyPortHint(port)}`);
   }
-  control.recordWebState(config, { pid: process.pid, port: server.port });
+  const ephemeral = config.env.LUSH_WEB_EPHEMERAL === '1';
+  if (!ephemeral) control.recordWebState(config, { pid: process.pid, port: server.port });
   // 收到 SIGTERM 时先放开端口再清掉记录：留下的陈旧记录会让下一次 web-status 撒谎。
-  const shutdown = () => { server.stop(true); control.clearWebState(config, process.pid); process.exit(0); };
+  const shutdown = () => { web.rememberWebProject(server); server.stop(true); if (!ephemeral) control.clearWebState(config, process.pid); process.exit(0); };
   process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
-  console.log(`Lush ${config.project}\n${webUrl(config, server.port)}${publicMode ? '\n公网监听，需登录；请在前置代理启用 HTTPS。' : ''}`);
+  if (ephemeral) console.log(`LUSH_WEB_READY ${JSON.stringify({ url: webUrl(config, server.port), port: server.port })}`);
+  else console.log(`Lush ${config.project || '项目启动器'}\n${webUrl(config, server.port)}${publicMode ? '\n公网监听，需登录；请在前置代理启用 HTTPS。' : ''}`);
 }
 
 /**
@@ -55,7 +57,7 @@ async function launchWeb(config, port, extra = {}) {
   control.ensureHome(config);
   const fd = fs.openSync(webLog(config), 'a', 0o600);
   const child = cp.spawn(process.execPath, [path.join(ROOT, 'bin/lush-web'), String(port)], {
-    cwd: config.project, env: config.env, detached: true, stdio: ['ignore', fd, fd],
+    cwd: config.project || ROOT, env: config.env, detached: true, stdio: ['ignore', fd, fd],
   });
   fs.closeSync(fd); child.unref();
   let error = null;

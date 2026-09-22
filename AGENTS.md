@@ -5,7 +5,7 @@ Lush 是**项目级的多 agent 开发应用**。Bun / JavaScript / SQLite；dae
 ## 作用域
 
 - 一个 daemon 对应一个 canonical 项目目录，状态固定在 `<project>/.lush/`。
-- 默认向上发现 `.lush/project.json` 或 `.git`；用 `--project PATH` 显式选择项目。
+- CLI 项目命令默认向上发现 `.lush/project.json` 或 `.git`；用 `--project PATH` 显式选择项目。Web 四条命令无 `--project` / `LUSH_PROJECT` 时进入全局项目启动器。
 - `LUSH_PROJECT` 会传入 agent 子进程，agent 在独立 worktree 中仍连接原项目。
 - `LUSH_HOME` 不许指向独立的全局目录；非空时必须等于 `<project>/.lush`。
 - 实体只有 Input / Task / Agent / Message / Notice / Event。不要引入电脑级调度。
@@ -23,7 +23,9 @@ bun run drafts                  # 看缓存里有什么
 bun run draft commit            # 缓存整体交给一个 planner：拆任务 + 建依赖
 bun run tree
 bun run inspect 3
-bun run web                     # 后台启动本地 Web，不操作 daemon；等它占住端口就返回，日志在 .lush/web.log
+bun run web                     # 后台启动全局 Web 项目选择器；自动恢复上次项目并启动/连接 daemon
+bun run web --project PATH      # 兼容的单项目 Web；日志在该项目 .lush/web.log
+bun run desktop                 # Electron 桌面版；独立随机端口，可与 Web 同时打开
 bun run web-status              # 在不在跑、跑的是不是这份代码、日志在哪
 bun run web-restart             # 改完 src/ui/web/ 停掉那个后台 Web 再按当前代码起一个新的
 bun run web-stop                # 停掉后台 Web（只停命令行确实是 Lush Web 的进程）
@@ -32,7 +34,7 @@ bun run stop
 
 任意入口可加 `--project PATH`；操作其他项目时必须显式指定。`bun run lush <command>` 也遵循同一套项目发现规则，没有默认全局 home 的例外。
 
-**daemon 与 web 是两个独立进程，改完代码两个都要重启。** `bun run daemon-restart` 只管 daemon；`bun run web` 后台起的 Web 进程自己活到被杀为止，不会跟着 daemon 换版本。只重启 daemon 就去刷新页面，会看到旧 Web 进程把**新的** `app.js` 发下来、却对自己不认识的 API 路由（例如后来才加的 `/api/docs`）回 404——页面直接「打开失败」。改 `src/ui/web/` 下任何东西之后，先 `bun run web-restart` 再看页面：它停掉端口上那个后台 Web（只认命令行确实是 Lush Web 的进程）再按当前代码起一个新的；直接再跑 `bun run web` 只会幂等报告「已在运行」。重启 Web 会清空登录会话，浏览器要重新登录一次；跑的是不是这份代码用 `bun run web-status` 看（它比的是 Web 自己记下的代码指纹），不用靠猜。`bun run doctor` 只校验 daemon 的 fingerprint，报的是 daemon 的身份，不会告诉你 Web 是不是旧进程。
+**daemon 与 web 是两个独立进程，改完代码两个都要重启。** 无 `--project` 的 Web/桌面启动器会在选定项目后自动启动或连接 daemon；显式 `--project` 的单项目 Web 不替用户启动 daemon。`bun run daemon-restart` 只管当前项目 daemon；`bun run web` 后台起的 Web 进程自己活到被杀为止，不会跟着 daemon 换版本。只重启 daemon 就去刷新页面，会看到旧 Web 进程把**新的** `app.js` 发下来、却对自己不认识的 API 路由（例如后来才加的 `/api/docs`）回 404——页面直接「打开失败」。改 `src/ui/web/` 下任何东西之后，先 `bun run web-restart` 再看页面：它停掉端口上那个后台 Web（只认命令行确实是 Lush Web 的进程）再按当前代码起一个新的；直接再跑 `bun run web` 只会幂等报告「已在运行」。重启 Web 会清空登录会话，浏览器要重新登录一次；跑的是不是这份代码用 `bun run web-status` 看（它比的是 Web 自己记下的代码指纹），不用靠猜。`bun run doctor` 只校验 daemon 的 fingerprint，报的是 daemon 的身份，不会告诉你 Web 是不是旧进程。
 
 不要在开发测试时默认操纵用户正在开发的项目。测试用临时项目目录和 mock/可控子进程；测试结束停 daemon 并清理自己的临时文件。
 

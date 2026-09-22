@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "description": "Project-scoped, non-blocking multi-agent development",
   "type": "module",
+  "main": "./src/ui/desktop/main.js",
   "private": true,
   "bin": { "lush": "./bin/lush", "lushd": "./bin/lushd", "lush-web": "./bin/lush-web" },
   "exports": { ".": "./src/index.js" },
@@ -24,6 +25,7 @@
     "web-restart": "bun ./scripts/ops.js web-restart",
     "web-stop": "bun ./scripts/ops.js web-stop",
     "web-status": "bun ./scripts/ops.js web-status",
+    "desktop": "electron .",
     "say": "bun ./scripts/ops.js say",
     "draft": "bun ./scripts/ops.js draft",
     "drafts": "bun ./scripts/ops.js drafts",
@@ -47,6 +49,9 @@
     "clear": "bun ./scripts/ops.js clear",
     "notices": "bun ./scripts/ops.js notices",
     "answer": "bun ./scripts/ops.js answer"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0"
   },
   "engines": { "bun": ">=1.2.0" }
 }

@@ -15,6 +15,7 @@ import { resetUiState, ui } from './state.js';
 import { initComposer } from './composer.js';
 import { SORT_MODES } from './tree-order.js';
 import { initContextReferences } from './context-references.js';
+import { ensureProject } from './project-picker.js';
 
 /* ---------- 左栏全局排序偏好（与设置页共用 lush.sidebarSort） ---------- */
 function syncSidebarSortSelect() {
@@ -90,6 +91,7 @@ export async function boot() {
   resetUiState();
   initAppearance();                              // 按当前 DOM 重新绑定主题与头部按钮
   applyReducedMotion(readPref('reduceMotion'));
+  if (!await ensureProject()) return;
   syncSidebarSortSelect();
   $('sidebar-sort').addEventListener('change', onSidebarSortChange);
   initContextReferences();

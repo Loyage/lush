@@ -23,7 +23,8 @@
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `app.js` | 唯一入口：装配左栏顶部身份区按钮（品牌回概览 / 移动端导航 / 右侧返回）、`#graph` / `#settings` / 四个信息页 / 任务 / 文档的 hash 路由与两个定时器；定时器按「轮询频率」偏好重建 | `boot()` |
+| `app.js` | 唯一入口：先经 `project-picker.js` 确认项目，再装配左栏顶部身份区按钮（品牌回概览 / 切换项目 / 移动端导航 / 右侧返回）、`#graph` / `#settings` / 四个信息页 / 任务 / 文档的 hash 路由与两个定时器；定时器按「轮询频率」偏好重建 | `boot()` |
+| `project-picker.js` | 无项目启动门：读取 `/api/launcher`，首次要求绝对项目路径，有缓存则直接进入；在全局模式显示「切换项目」，Electron 环境可调用 preload 暴露的原生目录选择器；项目未选定前不启动快照轮询 | `ensureProject()`、`openProjectPicker()`、`closeProjectPicker()` |
 | `appearance.js` | head 中初始化深浅主题，装配左栏顶部的主题切换按钮；偏好经 prefs.js 读写（`lush.theme`），`system` 跟随系统、显式值覆盖系统，存储不可用时保留会话内选择 | `systemThemeMedia()`、`resolveTheme()`、`effectiveTheme()`、`applyTheme()`、`createAppearance()`、`initAppearance()`、`refreshTheme()` |
 | `prefs.js` | 本地偏好中心：键名 / 默认值 / 解析与序列化、读写与变更通知都在这一份（`markdown` / `theme` / `sidebarSort` / `collapsed` / `filters` / `reduceMotion` / `polling` / `toastDuration`）；坏数据回落默认值，存储不可用不抛异常；老键（`lush.treeSort`、`lush.theme`、`lush.markdown`）继续生效；`resetPrefs()` 删除全部受管键（含历史键）并逐项通知回默认值 | `PREF_DEFS`、`PREF_NAMES`、`MARKDOWN_KEY`、`THEME_KEY`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`REDUCED_MOTION_KEY`、`POLLING_KEY`、`TOAST_DURATION_KEY`、`THEME_VALUES`、`SORT_IDS`、`POLLING_MODES`、`TOAST_MODES`、`pollingIntervals()`、`toastDurations()`、`readPref`、`writePref`、`setPref`、`onPrefChange`、`resetPrefs`、`prefsSnapshot`、`storageAvailable` |
 | `render-settings.js` | 设置视图，分 Agent / 界面 / 系统三个页签：Agent 页编辑项目默认与六类角色覆盖（agent / model / thinking / 默认 prompt / 追加 prompt / Pi 扩展与 Skills），可按需读 `/api/agent/models` 展示本机 CLI 当前模型目录、读 `/api/agent/resources` 多选已安装资源，经 `agent.configure` 写入项目；默认 prompt 正常显示内置全文并可一键恢复，替换内置 prompt 前显示风险警告并二次确认；界面页管理浏览器本地偏好与恢复默认；系统页展示 daemon 配置与路径，其中并发额度（执行 / 控制通道）是可编辑表单：显示生效值 / 环境默认值 / 来源 / 设置文件，保存 / 恢复环境默认走 `system.configure`，越界或后端报错就地提示，其余参数只读。打开期间轮询不用概览覆盖 | `openSettings()`、`renderSettings()` |
@@ -68,6 +69,19 @@
 | `refresh.js` | 轮询快照、概览、热任务增量刷新、筛选重画；右侧信息页 / 文档 / 设置打开时不让概览覆盖；「项目概览」与「分支图」共用同一份 `graph.get`（`ui.lastGraph`）与同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s），概览先用快照画、后台取图后就地重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
 
 其它纯逻辑模块：`markdown.js`、`tree-order.js`、`live.js`、`sidebar.js`；`merge-select.js` 是交付队列的候选、冻结与 code-only 顺序预览接缝，由 `render-ladder.js` 使用。`live.js` 的实时刷新间隔不再是写死常量：`liveInterval()` 读「轮询频率」偏好，标准档等于改造前的 3000ms。
+
+## Web / 桌面宿主
+
+| 文件 | 职责 | 导出 / 接缝 |
+|---|---|---|
+| `src/ui/web/server.js` | 单项目与全局 launcher 两种 HTTP host；资源、认证、窄 API 路由、动态项目 binding | `startWeb()`、`createProjectHost()`、`rememberWebProject()` |
+| `src/ui/web/control.js` | 后台 Web 进程识别、状态文件、端口探测与安全停止 | `webOwners()`、`stopStaleWeb()`、`recordWebState()` 等 |
+| `src/ui/web/docs.js` | 扫描随代码发布的 Markdown 文档与搜索字段 | `docsIndex()`、`docsSearchIndex()`、`readDoc()` |
+| `src/ui/launcher.js` | 跨项目的最后路径缓存、绝对目录 canonicalize、无项目 Web 控制配置 | `launcherStateDir()`、`readLauncherState()`、`writeLauncherState()`、`canonicalProjectPath()`、`launcherWebConfig()` |
+| `src/ui/desktop/main.js` | Electron 主进程：启动随机端口临时 Web host、管理窗口与 host 生命周期 | Electron `main` 入口 |
+| `src/ui/desktop/preload.cjs` | 只向页面暴露原生目录选择 IPC，不开放 Node | `window.lushDesktop.chooseProject()` |
+
+桌面壳不复制任何业务页面或 API。这样桌面版与浏览器版始终使用同一份 assets，并可同时连接同一个项目 daemon。
 
 `markdown.js` 除默认渲染外还有两件「文档」视图需要的能力：`renderMarkdown(text, doc, options)` 里的
 `options.link(raw, label)` 由调用方接管链接解析（返回 `{ href, external }`，返回空或抛错都回落到默认规则：
