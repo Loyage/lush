@@ -44,8 +44,10 @@ lush [--project PATH] [--json] <command>
                                   同时按 cleanup 的安全门回收 worktree/分支，回收不掉的保留在磁盘上并列出原因
                                   分支名带着旧 task id，所以 id 不复用
   notice list                     待决问题与答复
-  notice post '问题' [--task ID] [--body '背景']
+  notice post '问题' [--task ID] [--body '背景'] [--questions-file FILE]
+      FILE 为 {questions:[...]}：结构化选择题，发布后停止本轮 agent，用户提交后唤醒。
   notice answer ID '答复'
+  notice answer ID --answers-file FILE  问卷用 {answers:[{selected:[0],custom:""}]}，按题目顺序一次提交
   notice dismiss ID
   web [PORT]                      Web UI（默认仅本机；.lush/web.json 开启公网监听与登录认证）
 

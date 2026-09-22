@@ -17,4 +17,5 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理：
 | `GET /api/task/ID/diff` | `task.diff` |
 | `GET /api/task/ID/transcript?after=N` | `task.transcript` |
 | `GET /api/task/ID/usage` | `task.usage` |
+| `GET /api/task/T/notice/N/preview/Q/O` | 从 `task.inspect` 已存问卷提取第 Q 题第 O 项的 HTML（零基序号），清洗后以独立 sandbox CSP 返回 |
 | `POST /api/action` | 仅限上方 `MUTATIONS` 中的用户动作（含 `task.clear`） |

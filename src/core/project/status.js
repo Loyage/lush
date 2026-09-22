@@ -26,6 +26,6 @@ export default {
           ORDER BY r.id DESC LIMIT 1) AS resolves_task_id
         FROM tasks WHERE integration='conflict' ORDER BY id LIMIT 50`),
       // 计划审批（kind='plan'）不是「等你回答的问题」，它归意图面板，不在这里计数。
-      notices: this.store.get("SELECT count(*) AS count FROM notices WHERE status='open' AND kind='question'").count };
+      notices: this.store.get("SELECT count(*) AS count FROM notices WHERE status='open' AND kind IN ('question','questionnaire')").count };
   }
 };

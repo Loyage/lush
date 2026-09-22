@@ -28,6 +28,16 @@
   有配置时监听公网，并用 `/login`、`/logout` 与 HttpOnly 会话 Cookie 保护全部页面、资源和 API。
 - 环境变量与 agent capability 语义（`LUSH_PROJECT` / `LUSH_HOME` / `LUSH_TASK_ID` / `LUSH_AGENT_TOKEN`）。
 
+## 结构化决策接口（兼容扩展）
+
+- `notice.post` 新增可选 `questions`（1–4 题，每题 2–4 个选项）；`Project.notice(taskId,title,body,kind,questions)`。普通文字与计划审批不变。
+- 问卷仍是 Notice：`kind='questionnaire'`，`body` 存 `{version:1,body,questions}` JSON；不增加表/列，不迁移旧数据。`src/core/questionnaire.js` 导出 `questionnaire(body,questions)` / `questionnaireAnswer(body,answer)`，负责严格校验与答案规范化。
+- `notice.answer.answer` 对问卷是 `{answers:[{selected:[零基选项序号],custom?:字符串}]}`；逐题完整校验、一次落库；`answer` 列与消息保留问题原文、选项标签和自定义答案。普通文字 notice 仍收字符串。
+- 问卷发布与 `Project.parkForQuestion(taskId,noticeId)` 在同一事务中持久化 awaiting、消费本轮已交付消息；提交后中止 invocation。`questionPending(taskId)` 挡住普通消息/子任务的提前唤醒；最后一个问题答复/忽略后才重新排队。
+- CLI 增加 `notice post … --questions-file FILE`（`{questions:[…]}`）和 `notice answer ID --answers-file FILE`（`{answers:[…]}`）。
+- `assets/render-questionnaire.js` 导出 `questionnairePanel(notice,{settle,dismiss})`：逐题点选、选项预览、自由输入、最终汇总。草稿按项目/notice/正文隔离保存于 sessionStorage。
+- `src/ui/web/notice-preview.js` 导出 `previewResponse(html,headers)`：HTML 白名单清洗 + 无脚本/无网络 CSP + sandbox。只读路由 `/api/task/T/notice/N/preview/Q/O` 从已存 notice 取 HTML；主页面安全策略不放宽，Electron 与浏览器使用同一 iframe。
+
 ## 分区总览
 
 | 分区 | 入口 | 细粒度模块 | 独立可并行 |
@@ -66,7 +76,7 @@
 | `project/merge.js` | 批准合并、按目标分支批量交付、冲突收口、随带提交对账与交付队列 | `approveMerge`、`approveMergeMany`、`reconcileIntegrated`、`openResolution`、`settleResolution`、`mergeConflictContext`、`ladder()`、`containsCommit` |
 | `project/verify.js` | 检验任务与报告位置 | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`hasReport(taskId)` |
 | `project/transcript.js` | pi 会话记录的只读投影 | `transcript(taskId, after, limit)`、`usage(taskId)` |
-| `project/scheduling.js` | 调度、invocation 生命周期、凭证 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
+| `project/scheduling.js` | 调度、invocation 生命周期、凭证 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)`、`questionPending(taskId)`、`parkForQuestion(taskId,noticeId)` |
 | `project/lifecycle.js` | 结算、取消、重试、清空与恢复 | `finish`、`cancel`、`retry`、`clear`、`reclaimThenPurge`、`recover`、`shutdown` |
 
 ## 2. Git 边界：`src/core/workspaces.js` + `src/core/workspaces/`

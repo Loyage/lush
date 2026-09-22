@@ -21,6 +21,26 @@ code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .hint{color:var(--dim);font-size:12px;margin:0}
 .error,#error{color:#ffb4ac}
 
+/* Decision questionnaires: same renderer in browsers and Electron webviews. */
+.questionnaire{margin:16px 0;min-width:0}
+.decision-progress{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px}
+.decision-progress button{font-size:12px}
+.decision-layout{display:grid;gap:16px;margin:14px 0}
+.decision-layout.has-preview{grid-template-columns:minmax(180px,1fr) minmax(240px,1.4fr)}
+.decision-choices{display:flex;flex-direction:column;gap:10px;min-width:0}
+.decision-option-row{display:flex;align-items:stretch;gap:6px}
+button.decision-option{display:flex;flex:1;min-width:0;flex-direction:column;gap:6px;text-align:left;white-space:normal;padding:14px;background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:10px}
+button.decision-option span{font-size:12px;font-weight:400;color:var(--muted);overflow-wrap:anywhere}
+button.decision-option:hover,button.decision-option:focus-visible,button.decision-option.selected{border-color:var(--accent);outline:2px solid var(--accent);outline-offset:1px}
+.decision-preview-button{align-self:center;font-size:12px}
+.decision-preview{border:1px solid var(--line);padding:12px;border-radius:10px;min-width:0;overflow:auto}
+.decision-preview h4{margin:6px 0 12px}
+.decision-preview iframe{display:block;width:100%;height:340px;border:0;border-radius:6px;background:white;color-scheme:light}
+.decision-summary{margin:12px 0;padding:14px;border:1px solid var(--line);border-radius:10px}
+.decision-summary details{margin-top:10px}
+.questionnaire textarea{display:block;width:100%;margin:8px 0}
+@media(max-width:1050px){.decision-layout.has-preview{grid-template-columns:1fr}}
+
 /* shell */
 .app{height:100dvh;display:grid;grid-template-rows:auto minmax(0,1fr) auto}
 header{display:flex;gap:16px;align-items:center;padding:14px 22px;border-bottom:1px solid var(--line);background:var(--panel);min-width:0}

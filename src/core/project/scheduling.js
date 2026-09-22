@@ -4,9 +4,27 @@ import { tokenHash } from './internal.js';
 
 /** 调度、invocation 生命周期、凭证。 */
 export default {
+  questionPending(taskId) {
+    return Boolean(this.store.get("SELECT id FROM notices WHERE task_id=? AND kind='questionnaire' AND status='open'", taskId));
+  },
+
+  // Called inside the notice transaction. Only messages delivered to this invocation are consumed.
+  parkForQuestion(taskId, noticeId) {
+    const run = this.running.get(taskId);
+    const result = `等待用户回答待决问题 #${noticeId}。`;
+    if (run) {
+      run.parked = true;
+      for (const message of run.messages || []) this.store.run('UPDATE messages SET consumed=1 WHERE id=?', message.id);
+      this.store.event(taskId, 'invocation.completed', { result, suspended: true, notice_id: noticeId });
+    }
+    this.store.update(taskId, { status: 'awaiting', result });
+  },
+
   wake(taskId) {
     const task = this.store.task(taskId);
-    if (!TERMINAL.has(task.status) && !this.running.has(task.id)) this.store.update(task.id, { status: 'queued' });
+    if (!TERMINAL.has(task.status) && !this.running.has(task.id)) {
+      this.store.update(task.id, { status: this.questionPending(task.id) ? 'awaiting' : 'queued' });
+    }
     this.kick();
   },
 
@@ -25,6 +43,7 @@ export default {
     const dependencies = this.store.depMap();
     for (const task of this.store.all("SELECT * FROM tasks WHERE status='queued' ORDER BY id")) {
       if (this.running.has(task.id)) continue;
+      if (this.questionPending(task.id)) { this.store.update(task.id, { status: 'awaiting' }); continue; }
       // A queued task whose dependencies are not settled stays queued; finish() re-kicks when they are.
       if ((dependencies.get(task.id) || []).some(edge => !TERMINAL.has(edge.status))) continue;
       if (this.running.size >= this.config.concurrency) continue;
@@ -52,7 +71,7 @@ export default {
     const task = this.store.agentByToken(tokenHash(token));
     const run = task ? this.running.get(task.id) : null;
     if (!run) throw new LushError('invalid or expired agent token');
-    check(!TERMINAL.has(task.status) && !run.controller.signal.aborted, 'agent task is no longer active');
+    check(!TERMINAL.has(task.status) && !run.parked && !run.controller.signal.aborted, 'agent task is no longer active');
     this.store.touchAgent(task.id);
     return task.id;
   },
@@ -72,6 +91,7 @@ export default {
       task = this.store.task(taskId);
       this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, message_ids: messages.map(message => message.id) });
       timer = setTimeout(() => run.controller.abort(), this.config.timeout * 1000);
+      run.messages = messages;
       const result = await this.provider.run({ task, cwd, token: run.token, signal: run.controller.signal,
         onSpawn: pid => { run.pid = pid; }, messages, api: this,
         context: {
@@ -93,7 +113,7 @@ export default {
         },
       });
       clearTimeout(timer);
-      if (TERMINAL.has(this.store.task(taskId).status)) return;
+      if (TERMINAL.has(this.store.task(taskId).status) || run.parked) return;
       if (run.controller.signal.aborted) throw new Error('agent invocation timed out');
       check(typeof result === 'string' && Buffer.byteLength(result) <= 256000, 'agent result exceeds 256000 bytes');
       this.store.transaction(() => {
@@ -121,7 +141,7 @@ export default {
       }
       this.finish(taskId, 'completed', result);
     } catch (error) {
-      if (!TERMINAL.has(this.store.task(taskId).status)) this.cancel(taskId, error.message, 'failed');
+      if (!run.parked && !TERMINAL.has(this.store.task(taskId).status)) this.cancel(taskId, error.message, 'failed');
     } finally {
       clearTimeout(timer);
       // 对照基线是派生的只读检出：invocation 一结束就回收，不把每次检验都堆在磁盘上。

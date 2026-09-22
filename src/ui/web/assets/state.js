@@ -42,6 +42,7 @@ export const ui = {
   draftIds: [], draftEditing: null, draftPanelOpen: false,
   // 左侧「待定事项」只是索引；右侧展开的那条 notice 由 noticeFocus 记住，数据每次都取自最新 snapshot。
   noticeFocus: null, noticeIndex: new Map(),
+  questionDrafts: new Map(), // 当前会话草稿；sessionStorage 可跨刷新恢复
   // 左栏四个列表共用的排序偏好（smart / updated / id）。
   sidebarSortMode: readSidebarSortPref(),
   lastSnapshot: null,   // 切排序模式要立刻重排，不必等下一次轮询
@@ -73,7 +74,7 @@ export function resetUiState() {
   ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0;
   ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false;
   ui.intentSignature = null; ui.specSignature = null;
-  ui.noticeFocus = null; ui.noticeIndex = new Map();
+  ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map();
   ui.lastSnapshot = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.sideNodes = new Map(); ui.sideHeads = new Map(); ui.navButtons = new Map(); ui.navCounts = new Map();
   ui.stepToggle = new Map();

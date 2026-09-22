@@ -14,7 +14,8 @@ export function renderHistory(history, { running = false, truncated = false } = 
     else if (event.type === 'created') body = `${ROLE[data.role] || data.role}${data.parent_id ? ` ← #${data.parent_id}` : ' · 根任务'}`;
     else if (event.type === 'message') { body = String(data.body || '').slice(0, 400); agent = true; }
     else if (event.type === 'notice.opened') body = data.title || '';
-    else if (event.type === 'notice.answered') body = data.dismiss ? '已忽略' : String(data.answer || '');
+    else if (event.type === 'notice.answered') body = data.dismiss ? '已忽略' : Array.isArray(data.answer?.answers)
+      ? data.answer.answers.map(a => `${a.question}：${a.custom || a.labels.join('、')}`).join('\n') : String(data.answer || '');
     else if (event.type === 'workspace.created') body = [data.branch, data.workspace,
       data.dirty_source ? `创建时主树有 ${data.dirty_source.files} 处未提交改动，worker 看不到` : null].filter(Boolean).join(' · ');
     else if (event.type === 'workspace.removed') body = data.branch || '';

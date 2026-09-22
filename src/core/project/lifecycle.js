@@ -116,7 +116,10 @@ export default {
 
   async shutdown() {
     this.stopping = true;
-    for (const taskId of this.running.keys()) this.cancel(taskId, 'daemon stopped; inspect before retrying', 'failed');
+    for (const [taskId, run] of this.running) {
+      if (run.parked) run.controller.abort();
+      else this.cancel(taskId, 'daemon stopped; inspect before retrying', 'failed');
+    }
     await Promise.allSettled([...this.running.values()].map(run => run.promise));
     await this.workspaces.queue;
   }

@@ -5,6 +5,7 @@ import { detail } from './navigate.js';
 import { setNavCount } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
 import { ui } from './state.js';
+import { questionnairePanel } from './render-questionnaire.js';
 
 /** 左侧只放索引：点一下才在右侧展开正文与回复框。 */
 export function renderNotices(data) {
@@ -48,7 +49,25 @@ export function noticePanel(notice, task = null) {
   const head = el('div', undefined, 'notice-head');
   head.append(badge('◔ 等你决定', 'b-awaiting'), el('span', `任务 #${notice.task_id}`, 'tid'),
     el('span', `${relative(notice.created_at)} · ${absolute(notice.created_at)}`, 'when'));
-  section.append(head, el('h3', notice.title), el('p', notice.body || '（没有补充说明）', 'notice-body'));
+  section.append(head, el('h3', notice.title));
+  if (notice.kind === 'questionnaire') {
+    const settled = async (method, params) => {
+      await action(method, params);
+      ui.detailDirty = false;
+      // Continue through the project-wide queue, irrespective of task branch or role.
+      const next = [...ui.noticeIndex.values()].filter(row => row.id !== notice.id).sort((a, b) => a.id - b.id)[0];
+      ui.noticeFocus = next?.id ?? null;
+      try { if (next) await openNotice(next.id); else await detail(notice.task_id); }
+      catch (error) { $('error').textContent = `答案已提交，详情刷新失败：${error.message}`; }
+    };
+    section.append(questionnairePanel(notice, {
+      settle: answer => settled('notice.answer', { id: notice.id, answer }),
+      dismiss: () => settled('notice.dismiss', { id: notice.id }),
+    }));
+    section.append(button('收起，只看任务详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost'));
+    return section;
+  }
+  section.append(el('p', notice.body || '（没有补充说明）', 'notice-body'));
 
   const resolutionDecision = task?.role === 'merger' && task.resolves_task_id && task.agent_wakes === 0;
   const answer = resolutionDecision ? null : el('textarea');

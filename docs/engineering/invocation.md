@@ -12,6 +12,8 @@
 6. 依次判定：还有未读消息 → queued；有未决 notice → awaiting；有活动子任务 → waiting；否则校验 worker 提交并 completed。
 7. 释放 running 占位并作废 token，再次检查未读消息，防止 child settled 与 parent park/清理之间丢唤醒。
 
+结构化问卷是正常返回之外的主动暂停路径：`notice.post` 带 `questions` 时，同一事务保存 notice、消费本轮已交付消息、记一条 `invocation.completed {suspended:true}` 并设置 awaiting；提交后中止进程组。本轮不执行 worker finish、不标失败。调度器的 `questionPending` 闸门阻止普通消息和子任务结果提前唤醒；答复/忽略落收件箱后，在旧 invocation 清理完毕时重新排队，防止 lost-wakeup。已暂停 task 在关闭/重启时保留 awaiting，而不是把主动暂停当异常失败。详见[待决问题](../reference/rpc/notices.md)。
+
 waiting / awaiting 不占 agent 槽，也不运行 sleep/poll 子进程。最终输出是 task result；不提供可被 agent 提前调用的 complete 命令。
 
 ## 多级协作

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { UIClient } from '../client.js';
+import { previewResponse } from './notice-preview.js';
 import { check } from '../../core/types.js';
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
 const AUTH_FILE = 'web.json';
@@ -194,6 +195,15 @@ export function startWeb(config, port = 4318) {
       try {
         if (request.method === 'GET') {
           if (url.pathname === '/api/snapshot') return json(await client.snapshot());
+          const preview = /^\/api\/task\/(\d+)\/notice\/(\d+)\/preview\/(\d+)\/(\d+)$/.exec(url.pathname);
+          if (preview) {
+            const task = await client.request('task.inspect', { id: Number(preview[1]) });
+            const notice = task.notices.find(row => row.id === Number(preview[2]) && row.kind === 'questionnaire');
+            check(notice, 'questionnaire not found');
+            const html = JSON.parse(notice.body).questions?.[Number(preview[3])]?.options?.[Number(preview[4])]?.previewHtml;
+            check(typeof html === 'string', 'HTML preview not found');
+            return previewResponse(html, headers);
+          }
           const report = /^\/api\/task\/(\d+)\/report$/.exec(url.pathname);
           if (report) {
             const task = await client.request('task.inspect', { id: Number(report[1]) });
