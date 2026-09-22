@@ -128,8 +128,15 @@ export default {
         this.store.event(taskId, 'invocation.completed', { result, run_id: run.recordId });
         this.store.update(taskId, { result });
         this.store.finishRun(run.recordId, 'completed', { result });
+        const verification = task.role === 'verifier' ? this.verificationEvidence(task) : {
+          status: 'unverified', tested_commit: null, baseline_commit: null, commands: [],
+          summary: 'This invocation did not perform verification.', report: { task_id: task.id,
+            path: this.reportPath(task.id), available: false }, failures: [],
+          unverified: ['The task role was not verifier.'], baseline_failures: [], residual_risks: [],
+        };
         this.store.addArtifact({ task_id: taskId, run_id: run.recordId, input_id: task.input_id, kind: 'run.result',
-          payload: { outcome: 'success', summary: result, changes: [], evidence: [], decisions: [], risks: [], artifacts: [], followups: [] },
+          payload: { schema_version: 2, invocation: { status: 'completed' }, outcome: 'success', summary: result,
+            changes: [], evidence: [], decisions: [], risks: [], artifacts: [], followups: [], verification },
           metadata: { role: task.role, call: task.calls, agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null } });
       });
       // Messages that arrived during this invocation are deliberately delivered next time.

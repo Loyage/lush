@@ -70,8 +70,8 @@ planner 一轮写完时，`Project.compilePlans()` 选择已经停止执行且�
 2. 固定 target branch 的 baseline commit；
 3. 创建状态为 `pending` 的 `review_candidates` 版本，到这里不启动验收任务；
 4. 用户显式调用 `candidate.verify` 后，派只读 verifier 在两边运行同一验收场景；
-5. 保存自包含 HTML 报告；
-6. 报告成功后将 Candidate 标记为 `ready`。
+5. 保存自包含 HTML 报告和 version 1 结构化证据；
+6. runtime 校验证据并绑定两侧 commit；只有结论 `pass` 且报告存在时将 Candidate 标记为 `ready`。
 
 用户可：
 
@@ -90,4 +90,4 @@ pending/preparing/ready/accepted → superseded
 
 ## Run 与 Artifact
 
-每次 provider invocation 写一条 `agent_runs`，结束时写 `run.result` Artifact。Task 目前保留为兼容 WorkItem 投影；Run 负责一次调用的状态、结果与错误，Artifact 负责结构化成果与证据。
+每次 provider invocation 写一条 `agent_runs`，正常结束时写 version 2 `run.result` Artifact。Task 目前保留为兼容 WorkItem 投影；Run 负责一次调用的状态、结果与错误，Artifact 分开记录 invocation 完成和 verification 的 `pass` / `fail` / `partial` / `unverified`。旧 payload 不重写，缺证据的读模型为 `unknown`。

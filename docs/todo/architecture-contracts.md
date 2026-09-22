@@ -1,39 +1,35 @@
 # 集中状态转换与明确模块契约
 
-本条面向核心架构维护者，讨论在保留现有模块入口和 mixin 组装方式的前提下，减少跨模块状态约束分散的问题。入口为 `src/core/project.js` 及其职责模块。
+本条面向核心架构维护者，记录在保留现有模块入口和 mixin 组装方式的前提下，Candidate 状态转换的第一步集中化。入口为 `src/core/project/candidates.js`、`src/core/project/lifecycle.js` 与 `src/persistence/store/candidates.js`。
 
 ## 状态与优先级
 
 - 优先级：P2。
-- 状态：渐进设计建议，不是已批准的架构重写。
-- 前置：先完成 Candidate 一致性修复，不应等待整体重构。
+- 状态：Candidate 范围已实施；其余 Project 状态按实际需求渐进推进。
+- 范围：没有大规模搬文件，没有修改公开 Project/RPC/CLI 入口或 SQLite schema。
 
-## 当前情况
+## 已实施契约
 
-Project 已按职责拆成多个 mixin，支持不同 worker 修改不同文件，入口也会检查重名方法。这些边界有价值，应保留。
-
-但模块仍共享完整的 `this.store`、`this.running` 等状态，并在不同业务路径直接更新数据库。文件级隔离并不自动保证状态转换规则集中或调用依赖明确。
-
-Candidate 的迟到回调覆盖问题说明，同一个状态的合法转换需要跨用户入口和异步结算路径共同约束。
-
-## 建议方向
-
-- 从 Candidate 开始集中转换规则，而不是先改写整个 Project。
-- 明确每个转换的前置状态、操作者、关联 task / Run，以及需要写入的审计事件。
-- 把异步副作用与同步事务的边界写清楚，避免误以为数据库事务能覆盖 Git 操作。
-- 对关键接口补 JSDoc 类型，评估静态检查对漏 await、参数不匹配和状态字段误用的帮助。
-- 随实际需求逐步明确模块依赖，避免仅为追求形式拆出更多服务层。
-- 保留现有公开入口与 daemon / CLI 零第三方运行时依赖约束。
-
-内部接口变化先更新模块地图；新增检查工具、状态转换 API 或持久化字段须在实施前确认。
+- `store/candidates.js` 保存一份 Candidate 转换图，并提供命名动作 `transitionCandidate`；准备验收、替代、接受、要求修改、拒绝、Git 成功与 Git 失败都通过该入口。
+- 兼容的 `updateCandidate` 仍保留，但 status patch 也必须满足同一转换图；终态回写等非法转换被确定性拒绝。
+- verifier 结算保留单条条件 UPDATE：仅当前 `preparing` 且 `report_task_id` 匹配的回调可写 `ready` / `failed`，迟到回调只留事件。
+- 数据库事务只覆盖 Candidate 状态与事件。Git merge 不伪装在事务里：`accept` 先进入 `accepted`，Workspaces 在既有串行边界交付固定 commit，再以 `integration_succeeded` / `integration_failed` 回报状态机。
+- 自动 verification 只能把 Candidate 结算为 `ready` / `failed`；只有用户调用既有 `candidate.accept` 才会进入 Git 边界。
+- `project.js` / `store.js` 的公开入口、mixin 装配与重名检查保持不变；模块职责和新内部签名已写入 `docs/engineering/modules-runtime.md`。
 
 ## 验收标准
 
-- [ ] Candidate 用户动作与异步回调遵循同一份转换规则。
-- [ ] 非法转换可被确定性拒绝，不依赖调用者自行记住所有限制。
-- [ ] 旧数据和兼容入口仍有明确行为。
-- [ ] 模块依赖、事务边界和 Git 串行边界有可查契约。
-- [ ] 静态检查的引入范围可渐进扩大，不要求一次迁移整个仓库。
-- [ ] 不以大规模搬文件代替实际不变量测试。
+- [x] Candidate 用户动作与异步回调遵循同一份转换规则。
+- [x] 非法转换可被确定性拒绝，不依赖调用者自行记住所有限制。
+- [x] 旧数据和兼容入口仍有明确行为。
+- [x] 模块依赖、事务边界和 Git 串行边界有可查契约。
+- [x] 静态契约通过局部 JSDoc/校验函数渐进增加，不要求一次迁移整个仓库。
+- [x] 不以大规模搬文件代替实际不变量测试。
+
+## 实施证据
+
+- `test/project/verification-evidence.test.js` 覆盖 rejected 终态不能回写 ready、终态不能重新启动 verification。
+- `test/project/candidates.test.js` 覆盖迟到成功/失败回调不能复活 rejected / changes_requested / superseded Candidate，以及 Git 落地失败回到 ready。
+- `src/persistence/store/candidates.js` 的注释明确事务与 Git 串行边界；`docs/engineering/modules-runtime.md` 是模块签名权威地图。
 
 [返回待办索引](README.md)

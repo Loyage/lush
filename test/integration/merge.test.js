@@ -32,6 +32,9 @@ if (context.task.role === 'planner') {
   const v = context.verification;
   fs.mkdirSync(path.dirname(v.report_path),{recursive:true});
   fs.writeFileSync(v.report_path,'<!doctype html><title>candidate</title><p>ok</p>');
+  fs.writeFileSync(v.evidence_path,JSON.stringify({schema_version:1,status:'pass',summary:'candidate verified',
+    commands:[{command:'git diff --check',exit_code:0,baseline_exit_code:0,summary:'both trees are clean'}],
+    failures:[],unverified:[],baseline_failures:[],residual_risks:[]}));
 } else if (context.task.goal === 'upstream change') {
   fs.writeFileSync('file.txt','upstream\\n');
   git('add','file.txt'); git('commit','-qm','upstream work');

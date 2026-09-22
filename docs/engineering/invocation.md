@@ -47,4 +47,4 @@ coordinator 仍可动态派生子任务；Plan compiler 创建的根 worker 完�
 verifier 有两种来源：
 
 - `task.verify`：兼容的单 worker 对照；
-- Review Candidate：对照固定 integration commit 与固定 target baseline，报告完成后 Candidate 进入 `ready`。
+- Review Candidate：对照固定 integration commit 与固定 target baseline；invocation 正常返回与 verification 结论分开记录，只有结构化 `pass` 且 HTML 报告存在时 Candidate 进入 `ready`。

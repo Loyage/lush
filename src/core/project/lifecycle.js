@@ -58,18 +58,21 @@ export default {
       if (task.verifies_task_id) this.store.touch(task.verifies_task_id);
       if (task.review_candidate_id) {
         const hasReport = this.hasReport(task.id);
-        const candidateStatus = status === 'completed' && hasReport ? 'ready' : 'failed';
+        const verification = this.verificationResult(task.id);
+        // Invocation completed 只说明 agent 正常返回；Candidate 仅在固定 commit 的结构化证据明确 pass
+        // 且人类报告存在时进入 ready。fail / partial / unverified / 旧记录 unknown 都保持可见但不放行。
+        const candidateStatus = status === 'completed' && hasReport && verification.status === 'pass' ? 'ready' : 'failed';
         // Candidate 的当前状态和 report_task_id 必须与这个 verifier 同时匹配；一条条件 UPDATE
         // 把检查和写入留在当前事务内，迟到回调不能覆盖拒绝、反馈、替代版本或更新的 verifier。
         const settlement = this.store.settleCandidateVerification(task.review_candidate_id, task.id, candidateStatus);
         if (settlement.applied) {
           this.store.event(task.id, 'candidate.verified', { candidate: task.review_candidate_id, status,
-            candidate_status: candidateStatus, has_report: hasReport });
+            candidate_status: candidateStatus, verification_status: verification.status, has_report: hasReport });
         } else {
           // Task / Run / Artifact 照常保留；另加明确事件说明为什么这份结果没有改变 Candidate。
           this.store.event(task.id, 'candidate.verification_ignored', { candidate: task.review_candidate_id, status,
             candidate_status: settlement.candidate.status, current_report_task_id: settlement.candidate.report_task_id,
-            has_report: hasReport });
+            verification_status: verification.status, has_report: hasReport });
         }
       }
       // 解冲突任务没做成（失败 / 被取消）：原任务回到待合并，冻结随之解除，错误留在解冲突任务上。

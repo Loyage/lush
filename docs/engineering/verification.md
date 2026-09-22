@@ -14,7 +14,7 @@ Candidate 检验是用户显式动作：`candidate.prepare`（或自动中间集
 
 - 两侧都**固定 commit**：一侧是 Intent 集成分支被审阅的 commit，另一侧是创建 Candidate 时冻结的 target baseline commit；
 - verifier 启动时会校验该 checkout 的 HEAD 仍等于被固定的 commit，漂移就拒绝，避免「审阅的不是报告里的那一版」；
-- 新 Candidate 先停在 `pending`，不占执行槽；用户显式启动后进入 `preparing`；只有 Candidate 仍是 `preparing` 且 `report_task_id` 仍指向该 verifier 时，报告成功才进入 `ready`，报告缺失或失败才进入 `failed`，之后可再次显式 `candidate.verify`；
+- 新 Candidate 先停在 `pending`，不占执行槽；用户显式启动后进入 `preparing`；只有 Candidate 仍是 `preparing`、`report_task_id` 仍指向该 verifier、HTML 报告存在且结构化结论为 `pass` 时才进入 `ready`，`fail` / `partial` / `unverified`、报告缺失或 invocation 失败都进入 `failed`，之后可再次显式 `candidate.verify`；
 - 用户在运行期间拒绝、要求修改或用新版替代 Candidate 时，不主动取消已经启动的 verifier。它可以继续形成 Task、Run、Artifact 与报告历史，但结算会写 `candidate.verification_ignored`，不能恢复旧 Candidate 或替换当前 verifier 的结果。
 
 ## 对照检出生命周期
@@ -33,5 +33,6 @@ Candidate 检验是用户显式动作：`candidate.prepare`（或自动中间集
 - 自包含：样式 / 脚本内联，图片内联为 `data:`，不引用外部文件或网络；
 - 路由：`GET /api/task/<id>/report`，独立顶层文档，CSP 收紧到 `default-src 'none'`，且只有 verifier 任务的报告会被读出；
 - Candidate 的 HTML 入口画在 Intent 工作台的候选行上。
+- 同目录的 `evidence.json` 使用 version 1 schema；runtime 校验后复制进 version 2 `run.result` Artifact。commit 与报告引用由 runtime 绑定，证据记录命令/退出码、失败、未验证、基准失败与残余风险；旧 Artifact 缺证据时读作 `unknown`。
 
 相关：[Intent 与 Plan 编译](intent-layer.md) · [Review Candidate RPC](../reference/rpc/candidates.md) · [工作区与分支回收](cleanup.md)。
