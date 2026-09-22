@@ -13,9 +13,9 @@
 | `agent/settings.js` | `.lush/agent.json` 的兼容读取、校验、原子写入、角色继承与 Web 选项（含各角色内置 Prompt）；旧 `prompt` 迁到 `append_prompt`，资源选择存 `extensions` / `skills` | `AGENT_ROLES`、`AGENT_BACKENDS`、`THINKING_LEVELS`、`MODEL_PRESETS`、`normalizeAgentConfig()`、`AgentSettings` |
 | `agent/models.js` | 有界、超时地读取 Pi / Codex CLI 模型目录，只投影安全的模型元数据，失败回退内置预设 | `discoverAgentModels(config, agent)` |
 | `agent/resources.js` | 不执行资源代码地发现用户/项目 Pi 扩展、Skills 与已安装 package 资源；CLI 列表失败时保留本地目录结果 | `discoverAgentResources(config)` |
-| `agent/provider.js` | 动态后端路由、Pi / Codex invocation、Codex thread 恢复；调用 Prompt 与 env 组合器 | `PiProvider`、`CodexProvider`、`AgentProvider`、`MockProvider` |
+| `agent/provider.js` | 动态后端路由、Pi / Codex invocation、Codex thread 恢复与每轮 token 用量留存（不伪造费用）；调用 Prompt 与 env 组合器 | `PiProvider`、`CodexProvider`、`AgentProvider`、`MockProvider` |
 | `agent/guide.js` | 旧调用方兼容出口；内置 Prompt 的事实来源是 `prompts.js` | `GUIDE` |
-| `agent/session.js` | Pi 会话 JSONL 的只读解析与用量投影 | 会话解析函数 |
+| `core/usage-statistics.js` | 项目完整会话的异步流式只读统计；有限 LRU 精简用量缓存、并发扫描单飞、时间过滤、UTC 分桶、provider/model 汇总与覆盖说明 | `readUsageStatistics(config,options)` |
 
 ## 运行设置：`src/core/settings.js`
 
@@ -54,7 +54,7 @@
 | `project/verify.js` | worker / Candidate 检验、报告位置与 version 1 证据文件的严格校验；`pass` 拒绝非空 `failures` / `unverified`，允许记录 `baseline_failures` / `residual_risks`；commit 和报告引用由 runtime 绑定，旧/缺失 Artifact 投影为 `unknown`，正常返回但未交证据为 `unverified` | `verify(taskId)`、`verificationContext(task)`、`reportPath(taskId)`、`evidencePath(taskId)`、`hasReport(taskId)`、`verificationEvidence(task)`、`verificationResult(taskId)` |
 | `project/candidates.js` | 固定 commit 的 Review Candidate、验收、反馈与最终人工接受；读模型带结构化 `verification`；所有用户动作通过 Store 的集中转换动作，进入 `accepted` 后拒绝 reject / changes / supersede 且不支持取消接受，Git 串行区间仍在 Workspaces，自动结论只可进入 `ready` / `failed`、不得合并 | `prepareCandidate`、`verifyCandidate`、`candidateContext`、`candidates`、`candidate`、`acceptCandidate`、`requestCandidateChanges`、`rejectCandidate` |
 | `project/integration.js` | Plan worker 在私有 Intent branch 内自动叶子优先聚合；分歧派 merger，不动 target | `scheduleIntentIntegration`、`integrateIntent` |
-| `project/transcript.js` | pi 会话记录的只读投影；底层按 64 KiB 分块、以 UTF-8 字节执行 8 MiB 预算，按文件身份/版本缓存完整 JSONL 行与未完尾行，并用头部/旧追加边界的有界字节守卫区分纯追加与同 inode truncate 后快速长回，替换/截断重建；用量在文件签名未变时复用聚合，每个 step 的 token 口径保持不变 | `transcript(taskId, after, limit)`、`usage(taskId)`（测量接缝 `transcriptReadStats`） |
+| `project/transcript.js` | pi 会话记录的只读投影；底层按 64 KiB 分块、以 UTF-8 字节执行 8 MiB 预算，按文件身份/版本缓存完整 JSONL 行与未完尾行，并用头部/旧追加边界的有界字节守卫区分纯追加与同 inode truncate 后快速长回，替换/截断重建；用量在文件签名未变时复用聚合，每个 step 的 token 口径保持不变 | `transcript(taskId, after, limit)`、`usage(taskId)`、`usageStatistics(options)`（项目统计走独立全量流式读面；测量接缝 `transcriptReadStats`） |
 | `project/scheduling.js` | 调度、invocation 生命周期、凭证；成功返回写 version 2 `run.result`，把 `invocation.status` 与 `verification.status` 分开 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
 | `project/lifecycle.js` | 结算、取消、重试、清空、定向删除与恢复；Candidate verifier 只在当前状态为 `preparing`、`report_task_id` 仍匹配、报告存在且结构化结论为 `pass` 时结算为 `ready`，其余结论为 `failed`；迟到结果保留事件但不改 Candidate | `finish`、`cancel`、`retry`、`clear`、`reclaimThenPurge(tasks, anchors)`、`deleteTask(taskId)`、`subtreeTasks(taskId)`、`forgetTasks(root, subtree, ids)`、`recover`、`shutdown` |
 

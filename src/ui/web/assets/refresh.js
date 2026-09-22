@@ -102,7 +102,7 @@ export async function refresh() {
       renderNotices(data); syncComposer();
     }
     // 概览、分支图、文档页共用一个右栏：谁开着，轮询就不把概览画回来。
-    const overviewOpen = ui.selected === null && !ui.graphOpen && !ui.docsOpen && !ui.indexOpen && !ui.settingsOpen;
+    const overviewOpen = ui.selected === null && !ui.graphOpen && !ui.docsOpen && !ui.indexOpen && !ui.settingsOpen && !ui.statisticsOpen;
     if (changed && overviewOpen) renderOverview(data);
     // 概览与分支图共用同一份 graph.get 读模型，也共用同一条陈旧规则：指纹变了且距上次拉图至少 3 秒
     // 才重拉，指纹没变时由最长陈旧时间兜底（分支可能在 UI 外被创建）。概览用当前轮询的快照先画，
@@ -110,7 +110,7 @@ export async function refresh() {
     if ((overviewOpen || ui.graphOpen) && graphStale(data)) {
       if (ui.graphOpen) await loadGraph();
       else fetchGraph().then(() => {
-        if (ui.selected === null && !ui.graphOpen && !ui.docsOpen && !ui.indexOpen && !ui.settingsOpen) renderOverview(ui.lastSnapshot ?? data);
+        if (ui.selected === null && !ui.graphOpen && !ui.docsOpen && !ui.indexOpen && !ui.settingsOpen && !ui.statisticsOpen) renderOverview(ui.lastSnapshot ?? data);
       }).catch(error => { show(error.message, 'error'); });
     }
     const current = data.tasks.find(task => task.id === ui.selected);

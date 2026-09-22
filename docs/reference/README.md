@@ -6,4 +6,5 @@
 - [Agent 环境](agent-environment.md)
 - [HTTP 与认证](http.md)
 - [Web 路由](web-routes.md)
+- [统计面板与用量口径](statistics.md)
 - [RPC 分项参考](rpc/README.md)

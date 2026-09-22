@@ -1,4 +1,5 @@
 import cp from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -102,6 +103,9 @@ export class CodexProvider {
     if (agent.thinking) options.push('--config', `model_reasoning_effort="${agent.thinking}"`);
     const previous = readThread(stateFile);
     const args = previous ? ['exec', 'resume', ...options, previous, instruction] : ['exec', ...options, instruction];
+    // One file per invocation: resumed threads report per-turn usage, never a thread-total replay.
+    // Keep the same read-only message format as Pi; Codex does not supply estimated prices.
+    const usageFile = path.join(files.sessions, `${new Date().toISOString().replaceAll(':', '-')}-codex-${randomUUID()}_lush-task-${task.id}.jsonl`);
     let buffer = '', threadId = previous;
     const onStdout = chunk => {
       buffer += chunk;
@@ -110,6 +114,18 @@ export class CodexProvider {
         if (!line.trim()) continue;
         try {
           const event = JSON.parse(line);
+          if (event.type === 'turn.completed' && event.usage) {
+            const value = n => typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null;
+            const input = value(event.usage.input_tokens), output = value(event.usage.output_tokens);
+            const cached = input === null ? 0 : Math.min(input, value(event.usage.cached_input_tokens) ?? 0);
+            const usage = {
+              ...(input === null ? {} : { input: input - cached, cacheRead: cached }),
+              ...(output === null ? {} : { output }),
+              ...(input === null || output === null ? {} : { totalTokens: input + output }),
+            };
+            fs.appendFileSync(usageFile, JSON.stringify({ type: 'message', timestamp: new Date().toISOString(),
+              message: { role: 'assistant', provider: 'codex', model: agent.model || 'unknown', content: [], usage } }) + '\n', { mode: 0o600 });
+          }
           if (event.type === 'thread.started' && typeof event.thread_id === 'string') {
             threadId = event.thread_id;
             writeThread(stateFile, threadId);

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { Config } from '../src/config.js';
 import { AgentSettings } from '../src/agent/settings.js';
 import { CodexProvider, PiProvider } from '../src/agent/provider.js';
+import { readUsageStatistics } from '../src/core/usage-statistics.js';
 import { discoverAgentModels } from '../src/agent/models.js';
 import { discoverAgentResources } from '../src/agent/resources.js';
 import { GUIDE } from '../src/agent/guide.js';
@@ -143,6 +144,7 @@ const out = args[args.indexOf('--output-last-message') + 1];
 fs.writeFileSync(out, 'codex finished');
 fs.appendFileSync(path.join(process.env.LUSH_HOME, 'codex-seen.jsonl'), JSON.stringify({ args, task: process.env.LUSH_TASK_ID, token: !!process.env.LUSH_AGENT_TOKEN }) + '\\n');
 console.log(JSON.stringify({ type: 'thread.started', thread_id: 'thread-test-1' }));
+console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100, cached_input_tokens: 40, output_tokens: 20 } }));
 `, { mode: 0o755 });
   const config = new Config({ project: root, env: env({ LUSH_PROVIDER: 'codex', LUSH_CODEX_COMMAND: fake }) });
   config.prepare();
@@ -167,5 +169,11 @@ console.log(JSON.stringify({ type: 'thread.started', thread_id: 'thread-test-1' 
     expect(seen[1].args.slice(0, 3)).toEqual(['exec', 'resume', '--dangerously-bypass-approvals-and-sandbox']);
     expect(seen[1].args).toContain('thread-test-1');
     expect(seen.every(row => row.task === '7' && row.token)).toBe(true);
+    const usage = await readUsageStatistics(config);
+    expect(usage.totals).toMatchObject({ requests: 2, tokens: 240, input: 120, cache_read: 80, output: 40, unknown_cost: 2, unknown_tokens: 0 });
+    expect(usage.models[0]).toMatchObject({ provider: 'codex', model: 'gpt-5.4-mini' });
+    const files = fs.readdirSync(path.join(config.home, 'sessions')).filter(name => name.endsWith('_lush-task-7.jsonl'));
+    expect(files.length).toBe(2);
+    expect(fs.statSync(path.join(config.home, 'sessions', files[0])).mode & 0o777).toBe(0o600);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

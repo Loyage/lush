@@ -37,7 +37,7 @@
 |---|---|---|
 | `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
-| `rpc/handlers/system.js` | `system.*`（兼容完整 `system.status`、首页走持久 revision/索引聚合且无 Agent 全配置的 `system.summary`、用户专属的 `system.configure`）、`graph.get`、Agent 配置与资源接口；环境文件的 `agent.environment` / `agent.environment.configure` 因可能含密钥，读写都为用户专属 | `handlers` |
+| `rpc/handlers/system.js` | `system.*`（兼容完整 `system.status`、首页走持久 revision/索引聚合且无 Agent 全配置的 `system.summary`、用户专属的 `system.configure` 与只读 `system.usage`）、`graph.get`、Agent 配置与资源接口；环境文件的 `agent.environment` / `agent.environment.configure` 因可能含密钥，读写都为用户专属 | `handlers` |
 | `rpc/handlers/input.js` | `input.*`、`draft.*` | `handlers` |
 | `rpc/handlers/task.js` | `task.*`（旧 `task.list/history` 保留；新增 `task.activity`、`task.page`、`task.history_page` 有界读接口）、agent-only 的 `progress.plan` / `progress.complete` | `handlers` |
 | `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |
@@ -59,6 +59,7 @@
 | `web-rpc.test.js` | `test/web/{security,assets,read-models,drafts,transcript,specs-intents,maintenance}.test.js` |
 | `web-live-dom.test.js` | `test/web/dom-{merge,detail,drafts,specs-intents,sidebar}.test.js`（各自 `boot()`，见前端接缝） |
 | 启动器与工作台 | `test/web/launcher.test.js`（首次选项目、绝对路径校验、全局最后项目恢复）、`test/web/appearance.test.js`（主题解析、跟随系统、显式覆盖、存储失败）、`test/web/settings.test.js`（设置入口 / `#settings` / 轮询不覆盖、偏好默认值与老键、每项即时生效、恢复默认、Agent 环境变量按需读取/遮罩/键值编辑/校验、系统信息组只读渲染、并发额度表单保存 / 恢复与越界报错）、`test/project/status.test.js`（`system.status` 的只读软件配置镜像与默认值）、`test/web/dom-studio.test.js`（信息优先级、折叠保留、移动端索引） |
+| 统计面板 | `test/usage-statistics.test.js`（全量、时间边界、UTC 分桶、模型切换、缺价、损坏与缓存失效）、`test/web/usage-statistics.test.js`（认证 API）、`test/web/dom-statistics.test.js`（双视图入口、独立筛选、SVG 即时浮层、错误与导航竞态）、`test/web/statistics-range.test.js`（UTC 日期快捷范围、闰日／跨年与日内小时边界）；Codex 用量留存由 `test/agent-settings.test.js` 覆盖 |
 | 运行设置 | `test/runtime-settings.test.js`（存储原子性与权限、覆盖优先于环境、写后 status 与调度准入、agent 不得调用 `system.configure`）、`test/config-cli.test.js`（`lush config` 的 show / set / reset 与 `--json`） |
 | `integration.test.js` | `test/integration/{daemon,pi,verify,shutdown,merge}.test.js` |
 
