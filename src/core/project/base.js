@@ -10,6 +10,8 @@ export class ProjectBase {
     this.agentSettings = new AgentSettings(config);
     this.provider = provider || (config.provider === 'mock' ? new MockProvider() : new AgentProvider(config, this.agentSettings));
     this.workspaces = new Workspaces(config, store);
+    // 运行设置（并发上限）写盘后由 Config 回调这里重新 pump。
+    this.config.onKick = () => this.kick();
     this.running = new Map(); this.stopping = false; this.scheduled = false; this.ancestry = new Map();
     this.integratingIntents = new Set();
   }

@@ -3,6 +3,8 @@ export const handlers = {
   'system.status'(p, params, actor) { return { ...p.status(), ...this.identity, pid: process.pid }; },
   'system.stop'(p, params, actor) { this.stopping.request(); return { stopping: true }; },
   'system.timeline'(p, params, actor) { return p.timeline({ limit: params.limit }); },
+  // 用户专属写操作：把运行设置（并发上限）的热更新暴露给 CLI / Web，agent 不得调用。
+  'system.configure'(p, params, actor) { return p.configureRuntimeSettings(params.settings); },
   'agent.config'(p, params, actor) { return p.agentConfig(); },
   'agent.models'(p, params, actor) { return p.agentModels(params.agent); },
   'agent.resources'(p, params, actor) { return p.agentResources(); },

@@ -18,6 +18,7 @@ import verifyMethods from './project/verify.js';
 import candidateMethods from './project/candidates.js';
 import integrationMethods from './project/integration.js';
 import transcriptMethods from './project/transcript.js';
+import settingMethods from './project/settings.js';
 import schedulingMethods from './project/scheduling.js';
 import lifecycleMethods from './project/lifecycle.js';
 
@@ -40,7 +41,7 @@ const MIXINS = [
   ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['tree', treeMethods],
   ['timeline', timelineMethods], ['messages', messagesMethods], ['merge', mergeMethods], ['verify', verifyMethods],
   ['candidates', candidateMethods], ['integration', integrationMethods], ['graph', graphMethods], ['branches', branchesMethods],
-  ['transcript', transcriptMethods], ['scheduling', schedulingMethods], ['lifecycle', lifecycleMethods],
+  ['transcript', transcriptMethods], ['settings', settingMethods], ['scheduling', schedulingMethods], ['lifecycle', lifecycleMethods],
 ];
 
 export class Project extends ProjectBase {}

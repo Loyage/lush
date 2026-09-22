@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
 import { check } from './core/types.js';
+import { RuntimeSettings } from './core/settings.js';
 
 export function discoverProject(cwd) {
   let current = fs.realpathSync(cwd);
@@ -30,8 +31,15 @@ export class Config {
     this.provider = env.LUSH_PROVIDER || 'pi';
     check(['pi', 'codex', 'mock'].includes(this.provider), 'LUSH_PROVIDER must be pi, codex or mock');
     // Execution and control work have separate admission lanes: long workers can never starve new intent planning.
-    this.concurrency = positive(env, 'LUSH_CONCURRENCY', 4, 64);
-    this.controlConcurrency = positive(env, 'LUSH_CONTROL_CONCURRENCY', 2, 16);
+    // 环境变量仍是默认值（构造时严格校验，非法直接抛错）；<home>/settings.json 里被显式覆盖的键优先于它。
+    this.concurrencyDefault = positive(env, 'LUSH_CONCURRENCY', 4, 64);
+    this.controlConcurrencyDefault = positive(env, 'LUSH_CONTROL_CONCURRENCY', 2, 16);
+    this.runtimeSettings = new RuntimeSettings(this);
+    const runtime = this.runtimeSettings.get();
+    this.concurrency = runtime.concurrency.value;
+    this.controlConcurrency = runtime.control_concurrency.value;
+    // 宿主（Project）注册的回调：运行设置写盘后重新 pump，让调高的并发立即对排队任务生效。
+    this.onKick = null;
     this.timeout = positive(env, 'LUSH_CALL_TIMEOUT', 900, 86400);
     this.maxCalls = positive(env, 'LUSH_TASK_CALLS', 24, 1000);
     this.maxDepth = positive(env, 'LUSH_MAX_DEPTH', 8, 64);
@@ -41,6 +49,23 @@ export class Config {
   }
   static fromEnv(env = process.env, cwd = process.cwd(), project = null) {
     return new Config({ project: project || env.LUSH_PROJECT || discoverProject(cwd), env });
+  }
+
+  /** 运行设置写盘完成后通知宿主重新准入；没有宿主（如 CLI 客户端）时是空操作。 */
+  kick() {
+    if (typeof this.onKick === 'function') this.onKick();
+  }
+
+  /**
+   * 运行时改写并发上限：校验并原子写盘，成功后同步内存里的生效值，再 kick 一次。
+   * 调低并发不取消任何在跑任务——它们自然结束，pump() 只是不再准入新任务。
+   */
+  configureRuntime(patch) {
+    const model = this.runtimeSettings.save(patch);
+    this.concurrency = model.concurrency.value;
+    this.controlConcurrency = model.control_concurrency.value;
+    this.kick();
+    return model;
   }
   prepare() {
     for (const dir of [this.home, this.socketDir]) {
