@@ -38,6 +38,15 @@ test('分支图：入口走 #graph，画出分支谱系与任务，点节点进�
   // 三个任务节点，带领先 / 落后与缺失标注。
   const nodes = () => detail.querySelectorAll('button.graph-node');
   expect(nodes().length).toBe(3);
+  // running task 的计划是一整条横向进度：显示当前步骤与完成数，并挂显著动效 class。
+  const taskProgress = detail.querySelector('.graph-task-progress');
+  expect(taskProgress).toBeTruthy();
+  expect(taskProgress.classList.contains('is-running')).toBe(true);
+  expect(deepText(taskProgress)).toContain('实现功能');
+  expect(deepText(taskProgress)).toContain('1/3');
+  expect(deepText(taskProgress)).toContain('已执行 1 分');
+  expect(taskProgress.querySelector('.is-running-duration')).toBeTruthy();
+  expect(taskProgress.querySelector('progress').value).toBe(1);
   expect(text).toContain('领先 1');
   expect(text).toContain('⚠ 缺失 worktree');
   expect(text).toContain('⚠ 缺失分支');

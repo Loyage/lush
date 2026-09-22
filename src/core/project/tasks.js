@@ -96,12 +96,12 @@ export default {
   },
 
   inspect(taskId) {
-    const task = this.store.task(taskId);
+    const task = this.progressView(this.store.task(taskId));
     const runs = this.store.runsForTask(task.id);
     return { ...task, deps: this.store.depsDetail(task.id), dependents: this.store.dependentsDetail(task.id),
       ...(task.role === 'planner' ? { specs: bounded(this.store.specsByPlanner(task.id), 200000) } : {}),
       ...(task.role === 'scheduler' ? { specs: bounded(this.store.specsForBatch(task.id), 200000) } : {}),
-      children: bounded(this.store.summaries().filter(child => child.parent_id === task.id), 100000),
+      children: bounded(this.decorate(this.store.summaries().filter(child => child.parent_id === task.id)), 100000),
       messages: bounded(this.store.all('SELECT * FROM messages WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
       notices: bounded(this.store.all('SELECT * FROM notices WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
       // worker 带着自己的检验记录与合并冲突处理记录；verifier 带着自己的报告路径。都是只读投影。

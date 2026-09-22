@@ -124,7 +124,7 @@ verifier 与被检验任务是两个 task（worker 已经终态，不能再挂�
 - 一批 Plan 内没有依赖边的 spec 会同时开工；不同 Intent 的 Plan 也互不等待。
 - 语义冲突（重复劳动、改同一个文件）不做自动检测：那是 planner 读任务树自己判断的事，拿不准就问用户。
 
-默认从 cwd 向上找到 `.lush/project.json` 或 `.git`，以那个目录为项目根。`--project PATH` / `LUSH_PROJECT` 可以显式绑定。目录会 canonicalize，符号链接不会创建第二个 daemon。不同 Git worktree 可作为不同项目独立运行；agent 在任务 worktree 内通过注入的 `LUSH_PROJECT` 始终连接所属项目。
+默认从 cwd 向上找到 `.lush/project.json` 或 `.git`，以那个目录为项目根。`--project PATH` / `LUSH_PROJECT` 可以显式绑定。目录会 canonicalize，符号链接不会创建第二个 daemon。不同 Git worktree 可作为不同项目独立运行；agent 在任务 worktree 内通过注入的 `LUSH_PROJECT` 始终连接所属项目。每次 invocation 还注入 `LUSH_TASK_ID`（与当前 agent 直接绑定的 task）与一次性 `LUSH_AGENT_TOKEN`；`lush progress …` 不接收 task ID，而是由 token 安全绑定同一个 task。
 
 ### 运行前提
 
@@ -193,6 +193,8 @@ bun run tree
 bun run inspect 3
 bun run transcript 3        # 只看不写：agent 的思考、工具调用与输出
 bun run usage 3             # 同一个 agent 的模型、上下文占用与累计花费
+lush progress plan inspect:确认现状 implement:实现 test:测试 git_commit:提交改动  # agent 汇报当前 task 的计划
+lush progress complete inspect  # agent 完成一步；同 key 的完成态在计划更新后保留
 bun run lush candidate list # 查看固定 commit 的验收候选
 bun run lush candidate prepare 1   # 为 Intent #1 生成候选与前后对照报告
 bun run lush candidate accept 2    # 接受 Candidate #2 并合入目标分支

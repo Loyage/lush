@@ -28,6 +28,8 @@ lush [--project PATH] [--json] <command>
   task ladder                     交付队列：按目标分支分组，显示变更栈、当前来源与阻塞原因
   task timeline [--limit N]       并行时间轴：每个任务什么时候真的在跑，排队是在等依赖、等槽还是等子任务
   task inspect ID                 结果、agent、子任务、消息与工作区
+  progress plan KEY[:LABEL]...     agent 汇报自己的有序执行计划；重复汇报时同 key 的完成态保留
+  progress complete KEY            agent 汇报一个计划步骤已完成；身份自动绑定当前 task
   task history ID [--after N]      分页事件记录
   task transcript ID [--after N]   只读查看 agent 的思考、工具调用与工具输出（来自 pi 会话记录）
   task usage ID                   只读查看这个 agent 的模型、上下文占用与累计花费（同一批会话记录）

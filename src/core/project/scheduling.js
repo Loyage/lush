@@ -84,7 +84,7 @@ export default {
       // 引用快照固定在 Input 上；每次 planner 唤醒都重新解析当前状态。
       const referencedContext = task.role === 'planner' && task.input_id !== null
         ? await this.resolveInputReferences(task.input_id) : undefined;
-      const result = await this.provider.run({ task, cwd, token: run.token, signal: run.controller.signal, agent,
+      const result = await this.provider.run({ task: this.progressView(task), cwd, token: run.token, signal: run.controller.signal, agent,
         onSpawn: pid => { run.pid = pid; }, messages, api: this,
         context: {
           children: this.store.summaries().filter(child => child.parent_id === taskId),

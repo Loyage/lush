@@ -7,7 +7,7 @@ export default {
     const edges = this.store.depMap();
     return tasks.map(task => {
       const deps = edges.get(task.id) || [];
-      return { ...task, deps, blocked: deps.some(edge => !TERMINAL.has(edge.status)) };
+      return { ...this.progressView(task), deps, blocked: deps.some(edge => !TERMINAL.has(edge.status)) };
     });
   },
 

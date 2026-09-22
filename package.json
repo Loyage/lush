@@ -37,6 +37,7 @@
     "inspect": "bun ./scripts/ops.js inspect",
     "transcript": "bun ./scripts/ops.js transcript",
     "usage": "bun ./scripts/ops.js usage",
+    "progress": "bun ./scripts/ops.js progress",
     "message": "bun ./scripts/ops.js message",
     "cancel": "bun ./scripts/ops.js cancel",
     "retry": "bun ./scripts/ops.js retry",

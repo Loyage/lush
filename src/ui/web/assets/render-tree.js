@@ -7,6 +7,7 @@ import { setNavCount } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { orderSiblings, rankTasks, treeParent } from './tree-order.js';
 import { referenceable } from './context-references.js';
+import { renderCompactProgress } from './render-progress.js';
 
 /** 同一个父任务下互相没有依赖的兄弟可以同时跑；有依赖的串成链——这就是树里看不到的并行/串行。 */
 function siblingChain(children) {
@@ -111,6 +112,10 @@ export function renderTree(data) {
       for (const chip of depChips(task)) row.append(chip);
       row.append(el('span', relative(task.updated_at), 'when'));
       node.append(row, el('span', task.goal, 'goal'));
+      if (HOT.has(task.status)) {
+        const progress = renderCompactProgress(task.progress);
+        if (progress) node.append(progress);
+      }
       const why = whyLine(task, index);
       if (why) node.append(el('span', why, 'meta reason'));
       // 已经用一句话说了"等你批准合并"，就不用再挂一个"待合并"标签。

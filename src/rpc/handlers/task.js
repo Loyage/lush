@@ -19,6 +19,8 @@ export const handlers = {
   'task.diff'(p, params, actor) { return p.diff(params.id); },
   'task.transcript'(p, params, actor) { return p.transcript(id(params.id), Number(params.after ?? 0), Number(params.limit ?? 100)); },
   'task.usage'(p, params, actor) { return p.usage(id(params.id)); },
+  'progress.plan'(p, params, actor) { return p.reportProgressPlan(actor, params.steps); },
+  'progress.complete'(p, params, actor) { return p.completeProgressStep(actor, params.step); },
   'task.spawn'(p, params, actor) {
     const parent = params.parent ?? actor;
     check(actor === null || id(parent) === actor, 'agents may delegate only from their own task');

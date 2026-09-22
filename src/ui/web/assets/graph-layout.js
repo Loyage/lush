@@ -375,6 +375,11 @@ const isPendingNotice = notice =>
 const pendingNoticesOf = snapshot =>
   (snapshot?.notices || []).filter(isPendingNotice).sort((a, b) => Number(a.id) - Number(b.id));
 
+/** task 进度的稳定指纹：计划、标签或完成态任一变化都要触发分支诊断重拉 / 重画。 */
+const progressKey = progress => Array.isArray(progress?.items)
+  ? JSON.stringify(progress.items.map(item => [item.key, item.label, item.status]))
+  : JSON.stringify([progress?.completed ?? '-', progress?.total ?? '-', progress?.current?.key ?? '-', progress?.current?.label ?? '-']);
+
 /**
  * 廉价结构指纹：从 1.5s 轮询拿到的 snapshot 派生，只用来判断「值不值得再拉一次 /api/graph」。
  * 它不求覆盖分支 / worktree 的全部变化（那些只有 graph 自己知道），但任务状态、合并状态与
@@ -385,12 +390,13 @@ const pendingNoticesOf = snapshot =>
  */
 export function graphFingerprint(snapshot) {
   if (!snapshot) return '';
-  const tasks = (snapshot.tasks || []).map(task => `${task.id}:${task.status}:${task.integration}:${task.role}`).join(',');
+  const tasks = (snapshot.tasks || []).map(task => `${task.id}:${task.status}:${task.integration}:${task.role}:${progressKey(task.progress)}`).join(',');
+  const intents = (snapshot.inputs || []).map(input => `${input.task_id}:${input.status}:${input.planner_updated_at ?? '-'}`).join(',');
   const ladder = snapshot.ladder || {};
   const nodes = (ladder.nodes || []).map(node => `${node.id}:${node.branch ?? '-'}:${node.target_branch ?? '-'}:${node.level ?? 0}:${node.integration ?? '-'}`).join(',');
   const groups = (ladder.groups || []).map(group => `${group.target_branch}:${(group.items || []).map(item => `${item.id}:${item.phase}`).join('|')}`).join(',');
   const notices = pendingNoticesOf(snapshot).map(notice => `${notice.id}:${notice.task_id}:${notice.kind}`).join(',');
-  return `${tasks}::${nodes}::${groups}::${notices}`;
+  return `${tasks}::${intents}::${nodes}::${groups}::${notices}`;
 }
 
 /** 渲染幂等用的图指纹：同一份数据重画不重复建节点，滚动位置也不被冲掉。
@@ -402,7 +408,7 @@ export function graphRenderKey(graph) {
     node.current === true, node.tracked === false, node.placeholder === true, node.archived === true,
     node.worktree_state ?? '-', node.tasks?.active ?? '-',
     node.origin ?? '-', node.status ?? '-', node.title ?? '-', node.summary ?? '-', node.source_id ?? '-',
-    node.notice?.id ?? '-', node.notice?.kind ?? '-', node.notice_count ?? '-'].join(':')).join('|');
+    node.notice?.id ?? '-', node.notice?.kind ?? '-', node.notice_count ?? '-', progressKey(node.progress)].join(':')).join('|');
   const edges = (graph?.edges || []).map(edge => `${edge.kind}:${edge.from}>${edge.to}:${edge.status ?? '-'}:${edge.ahead ?? '-'}:${edge.behind ?? '-'}:${(edge.blockers || []).join(',')}`).join('|');
   return `${nodes}#${graph?.truncated === true}#${edges}`;
 }

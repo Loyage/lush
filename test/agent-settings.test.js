@@ -116,18 +116,19 @@ test('Pi resource discovery lists installed extensions and skills without loadin
 
 test('Pi provider disables discovery and explicitly loads only the selected extensions and skills', async () => {
   const root = temp(), fake = path.join(root, 'fake-pi');
-  fs.writeFileSync(fake, `#!/usr/bin/env bun\nimport fs from 'node:fs';\nfs.writeFileSync(process.env.LUSH_HOME + '/pi-args.json', JSON.stringify(process.argv.slice(2)));\nconsole.log('pi finished');\n`, { mode: 0o755 });
+  fs.writeFileSync(fake, `#!/usr/bin/env bun\nimport fs from 'node:fs';\nfs.writeFileSync(process.env.LUSH_HOME + '/pi-args.json', JSON.stringify(process.argv.slice(2)));\nfs.writeFileSync(process.env.LUSH_HOME + '/pi-env.json', JSON.stringify({ task: process.env.LUSH_TASK_ID }));\nconsole.log('pi finished');\n`, { mode: 0o755 });
   const config = new Config({ project: root, env: env({ LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake }) });
   config.prepare();
   try {
     const provider = new PiProvider(config);
-    expect(await provider.run({ task: { id: 8, role: 'worker', goal: 'test' }, context: {}, messages: [], cwd: root, token: 'secret',
+    expect(await provider.run({ task: { id: 8, parent_id: 3, role: 'worker', goal: 'test' }, context: {}, messages: [], cwd: root, token: 'secret',
       signal: new AbortController().signal, onSpawn() {}, agent: { agent: 'pi', model: '', thinking: '', default_prompt: '', append_prompt: '',
         extensions: ['/tmp/selected-extension.ts'], skills: ['/tmp/selected-skill/SKILL.md'] } })).toBe('pi finished');
     const args = JSON.parse(fs.readFileSync(path.join(root, '.lush', 'pi-args.json'), 'utf8'));
     expect(args).toContain('--no-extensions'); expect(args).toContain('--no-skills');
     expect(args.slice(args.indexOf('--extension'), args.indexOf('--extension') + 2)).toEqual(['--extension', '/tmp/selected-extension.ts']);
     expect(args.slice(args.indexOf('--skill'), args.indexOf('--skill') + 2)).toEqual(['--skill', '/tmp/selected-skill/SKILL.md']);
+    expect(JSON.parse(fs.readFileSync(path.join(root, '.lush', 'pi-env.json'), 'utf8'))).toEqual({ task: '8' });
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

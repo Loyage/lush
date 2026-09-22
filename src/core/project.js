@@ -8,6 +8,7 @@ import referencesMethods from './project/references.js';
 import specsMethods from './project/specs.js';
 import plansMethods from './project/plans.js';
 import tasksMethods from './project/tasks.js';
+import progressMethods from './project/progress.js';
 import treeMethods from './project/tree.js';
 import timelineMethods from './project/timeline.js';
 import messagesMethods from './project/messages.js';
@@ -38,7 +39,7 @@ export { FLOWS } from './project/inputs.js';
  */
 const MIXINS = [
   ['status', statusMethods], ['agents', agentMethods], ['deps', depsMethods], ['inputs', inputsMethods], ['drafts', draftsMethods], ['references', referencesMethods],
-  ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['tree', treeMethods],
+  ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['progress', progressMethods], ['tree', treeMethods],
   ['timeline', timelineMethods], ['messages', messagesMethods], ['merge', mergeMethods], ['verify', verifyMethods],
   ['candidates', candidateMethods], ['integration', integrationMethods], ['graph', graphMethods], ['branches', branchesMethods],
   ['transcript', transcriptMethods], ['settings', settingMethods], ['scheduling', schedulingMethods], ['lifecycle', lifecycleMethods],

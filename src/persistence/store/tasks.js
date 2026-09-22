@@ -11,7 +11,7 @@ export const tasks = {
   /** layer 省略时给全部任务（内部用）；'work' 是任务树/任务链的读模型，'intent' 是 planner + scheduler。 */
   summaries(layer = null) {
     return this.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
-      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
+      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
       ...(layer ? [layer] : []));
   },
   /** Tasks the scheduler may still touch: a clear has to wait for all of them. */
@@ -103,6 +103,11 @@ export const tasks = {
     const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit','plan_gate','review_candidate_id'];
     check(Object.keys(patch).every(key => allowed.includes(key)), 'invalid task patch');
     this.run(`UPDATE tasks SET ${Object.keys(patch).map(key => `${key}=?`).join(',')}, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, ...Object.values(patch), taskId);
+    return this.task(taskId);
+  },
+  /** Agent 计划是 task 附属元数据；Project 层负责校验与保留同 key 的完成态。 */
+  setProgressPlan(taskId, value) {
+    this.run("UPDATE tasks SET progress_plan=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", JSON.stringify(value), taskId);
     return this.task(taskId);
   },
   /** name is the task's own short slug; it is written once at spawn and never edited, so a worktree keeps its name. */
