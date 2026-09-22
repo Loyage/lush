@@ -153,7 +153,8 @@ export function renderDetail(task, history, diff, usage) {
     goal.append(agentText(task.goal, { className: 'goal-text', plain: 'div' }));
     panel.append(goal);
   }
-  const progress = renderTaskProgress(task.progress);
+  const endedAt = [...(task.runs || [])].reverse().find(run => run.ended_at)?.ended_at ?? task.updated_at;
+  const progress = renderTaskProgress(task.progress, { status: task.status, endedAt });
   if (progress) panel.append(progress);
   if (task.role === 'showcase') panel.append(renderShowcase(task));
   if (task.result) {

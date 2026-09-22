@@ -102,6 +102,24 @@ test('运行中 task 在任务树和详情显示计划完成度与当前步骤',
   expect(runningDuration.textContent).toContain('已执行 2 分');
 });
 
+test('终态 task 冻结未完成步骤，不再挂持续上涨的 live tick', async () => {
+  const { renderTaskProgress, renderGraphProgress } = await import('../../src/ui/web/assets/render-progress.js');
+  const progress = { version: 1, items: [
+    { key: 'inspect', label: '确认现状', status: 'completed', started_at: iso(NOW - 9000), completed_at: iso(NOW - 2000), duration_ms: 7000 },
+    { key: 'report', label: '交付报告', status: 'pending', started_at: iso(NOW - 65000), completed_at: null, duration_ms: null },
+    { key: 'finish', label: '最终答复', status: 'pending', started_at: null, completed_at: null, duration_ms: null },
+  ] };
+  const panel = renderTaskProgress(progress, { status: 'failed', endedAt: iso(NOW - 5000) });
+  expect(deepText(panel)).toContain('失败时中止 · 已执行 1 分 0 秒');
+  expect(deepText(panel)).toContain('未执行');
+  expect(panel.querySelector('.is-interrupted')).toBeTruthy();
+  expect(panel.querySelector('.is-running-duration')).toBeNull();
+
+  const graph = renderGraphProgress(progress, { status: 'failed', running: false });
+  expect(deepText(graph)).toContain('交付报告 · 失败时中止');
+  expect(graph.querySelector('.is-running-duration')).toBeNull();
+});
+
 test('Agent 的模型与用量直接可见：没有折叠开关，也没有可点的「模型、用量与会话信息」标题', async () => {
   const detail = dom.node('detail');
   dom.location.hash = '#task-1';

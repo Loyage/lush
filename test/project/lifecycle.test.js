@@ -45,6 +45,7 @@ test('cancel cascades and terminal tasks cannot have active descendants', async 
     f.project.cancel(root.id);
     await until(() => f.project.running.size === 0);
     expect(f.store.tasks().map(t => t.status)).toEqual(['cancelled','cancelled','cancelled']);
+    expect(f.store.runsForTask(root.id).at(-1)).toMatchObject({ status: 'cancelled', error: 'cancelled by user' });
     expect(f.store.get('SELECT status FROM notices').status).toBe('dismissed');
     expect(() => f.project.spawn(root.id,'no')).toThrow('terminal');
     expect(() => f.project.message(root.id,'no')).toThrow('ended');

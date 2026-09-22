@@ -35,6 +35,10 @@ test('timeout aborts invocation and frees the agent slot', async () => {
     const task = (await f.project.submit('timeout')).task;
     await until(() => f.store.task(task.id).status === 'failed');
     expect(provider.calls[0].signal.aborted).toBe(true);
+    expect(f.store.task(task.id).error).toBe('agent invocation timed out after 1 second');
+    expect(f.store.runsForTask(task.id).at(-1)).toMatchObject({
+      status: 'failed', error: 'agent invocation timed out after 1 second',
+    });
     expect(f.project.running.size).toBe(0);
   } finally { await f.close(); }
 });

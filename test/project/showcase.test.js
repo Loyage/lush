@@ -82,6 +82,8 @@ test('dedicated showcase invocation delivers HTML and artifact, never a verifica
     expect(f.store.all("SELECT * FROM notices WHERE task_id=? AND kind='info'", task.id)).toHaveLength(1);
     expect(AGENT_ROLES).toContain('showcase');
     expect(builtInPrompt('showcase')).toContain('不是验收员');
+    expect(builtInPrompt('showcase')).toContain('先在 report_path 建立最低可用的自包含报告');
+    expect(builtInPrompt('showcase')).toContain('localhost URL 纯文本是允许的');
     expect(f.project.agentConfig().options.roles.some(role => role.value === 'showcase' || role.id === 'showcase')).toBe(true);
   } finally { await f.close(); }
 });

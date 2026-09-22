@@ -56,7 +56,11 @@ test('showcase detail embeds sandboxed report, renders safe loopback preview, st
     expect(findByText(renderShowcase(task), '打开可操作预览 ↗')).toBeFalsy();
     task.showcase.preview = { status: 'stopped', url: null };
     expect(deepText(renderShowcase(task))).toContain('未运行');
-    task.report = null; task.status = 'failed';
+    task.status = 'failed';
+    const partial = renderShowcase(task);
+    expect(deepText(partial)).toContain('中断前写入的未确认展示页');
+    expect(partial.querySelector('iframe')).toBeTruthy();
+    task.report = null;
     expect(deepText(renderShowcase(task))).toContain('未生成展示页');
   } finally { f.close(); }
 });

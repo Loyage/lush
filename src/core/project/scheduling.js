@@ -81,7 +81,12 @@ export default {
   },
 
   async invoke(taskId, run) {
-    let timer;
+    let timer, timedOut = false;
+    const timeoutMessage = `agent invocation timed out after ${this.config.timeout} second${this.config.timeout === 1 ? '' : 's'}`;
+    const abortMessage = () => run.controller.signal.reason instanceof Error
+      ? run.controller.signal.reason.message
+      : typeof run.controller.signal.reason === 'string' && run.controller.signal.reason
+        ? run.controller.signal.reason : 'agent invocation interrupted';
     const messages = this.store.unread(taskId);
     try {
       let task = this.store.task(taskId);
@@ -100,7 +105,10 @@ export default {
       if (task.role === 'showcase') this.prepareShowcaseReport(task, run.recordId);
       this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, message_ids: messages.map(message => message.id),
         agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null });
-      timer = setTimeout(() => run.controller.abort(), this.config.timeout * 1000);
+      timer = setTimeout(() => {
+        timedOut = true;
+        run.controller.abort(new Error(timeoutMessage));
+      }, this.config.timeout * 1000);
       run.messages = messages;
       // 引用快照固定在 Input 上；每次 planner 唤醒都重新解析当前状态。
       const referencedContext = task.role === 'planner' && task.input_id !== null
@@ -123,7 +131,7 @@ export default {
       });
       clearTimeout(timer);
       if (TERMINAL.has(this.store.task(taskId).status) || run.parked) return;
-      if (run.controller.signal.aborted) throw new Error('agent invocation timed out');
+      if (run.controller.signal.aborted) throw new Error(timedOut ? timeoutMessage : abortMessage());
       check(typeof result === 'string' && Buffer.byteLength(result) <= 256000, 'agent result exceeds 256000 bytes');
       this.store.transaction(() => {
         for (const message of messages) this.store.run('UPDATE messages SET consumed=1 WHERE id=?', message.id);
@@ -166,10 +174,13 @@ export default {
       }
       this.finish(taskId, 'completed', result);
     } catch (error) {
+      // Provider adapters may only know that their AbortSignal fired. The scheduler owns the deadline,
+      // so normalize that generic interruption into an exact timeout and keep user cancellation distinct.
+      const message = timedOut ? timeoutMessage : run.controller.signal.aborted ? abortMessage() : error.message;
       if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {
-        this.store.finishRun(run.recordId, run.controller.signal.aborted ? 'cancelled' : 'failed', { error: error.message });
+        this.store.finishRun(run.recordId, timedOut ? 'failed' : run.controller.signal.aborted ? 'cancelled' : 'failed', { error: message });
       }
-      if (!run.parked && !TERMINAL.has(this.store.task(taskId).status)) this.cancel(taskId, error.message, 'failed');
+      if (!run.parked && !TERMINAL.has(this.store.task(taskId).status)) this.cancel(taskId, message, 'failed');
     } finally {
       clearTimeout(timer);
       if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {

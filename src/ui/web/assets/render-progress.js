@@ -33,6 +33,16 @@ function liveDuration(startedAt, className = 'task-progress-duration is-running-
   return node;
 }
 
+const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+const STOPPED_LABEL = { completed: '任务结束时未完成', failed: '失败时中止', cancelled: '取消时中止' };
+
+function stoppedDuration(startedAt, endedAt, status) {
+  const started = Date.parse(startedAt), ended = Date.parse(endedAt);
+  const label = STOPPED_LABEL[status] || '任务结束时中止';
+  return Number.isFinite(started) && Number.isFinite(ended)
+    ? `${label} · 已执行 ${formatProgressDuration(Math.max(0, ended - started))}` : label;
+}
+
 /** 不重画计划，只更新正在执行步骤的计时文本；由全局 live tick 驱动。 */
 export function refreshProgressDurations(root = globalThis.document) {
   if (!root?.querySelectorAll) return;
@@ -53,14 +63,17 @@ export function renderCompactProgress(progress) {
   return node;
 }
 
-export function renderGraphProgress(progress, { running = false } = {}) {
+export function renderGraphProgress(progress, { running = false, status = null } = {}) {
   const stats = progressStats(progress);
   if (!stats.total && !running) return null;
+  const terminal = TERMINAL.has(status);
   const indeterminate = !stats.total;
-  const node = el('div', undefined, `graph-task-progress${running ? ' is-running' : ''}${indeterminate ? ' is-indeterminate' : ''}`);
+  const node = el('div', undefined, `graph-task-progress${running ? ' is-running' : ''}${terminal ? ' is-terminal' : ''}${indeterminate ? ' is-indeterminate' : ''}`);
   const caption = el('div', undefined, 'graph-task-progress-caption');
-  caption.append(el('span', indeterminate ? '等待 Agent 汇报计划' : stats.current ? stats.current.label : '计划已全部完成', 'graph-task-progress-label'));
-  if (!indeterminate && stats.current) caption.append(liveDuration(stats.current.started_at, 'graph-task-progress-duration is-running-duration'));
+  const label = indeterminate ? '等待 Agent 汇报计划'
+    : stats.current ? `${stats.current.label}${terminal ? ` · ${STOPPED_LABEL[status] || '已中止'}` : ''}` : '计划已全部完成';
+  caption.append(el('span', label, 'graph-task-progress-label'));
+  if (!indeterminate && stats.current && !terminal) caption.append(liveDuration(stats.current.started_at, 'graph-task-progress-duration is-running-duration'));
   caption.append(el('span', indeterminate ? '进行中' : `${stats.completed}/${stats.total}`, 'graph-task-progress-count'));
   const track = el('div', undefined, 'graph-task-progress-track');
   const meter = el('progress', undefined, 'graph-task-progress-meter');
@@ -69,11 +82,13 @@ export function renderGraphProgress(progress, { running = false } = {}) {
   return node;
 }
 
-export function renderTaskProgress(progress) {
+export function renderTaskProgress(progress, { status = null, endedAt = null } = {}) {
   const stats = progressStats(progress);
   if (!stats.total) return null;
+  const terminal = TERMINAL.has(status);
   const section = block('任务计划', `${stats.completed}/${stats.total}`);
   section.classList.add('task-progress-panel');
+  if (terminal) section.classList.add('is-terminal', `is-terminal-${status}`);
   const meter = el('progress', undefined, 'task-progress-meter'); meter.max = stats.total; meter.value = stats.completed;
   section.append(meter);
   const list = el('ol', undefined, 'task-progress-list');
@@ -82,13 +97,16 @@ export function renderTaskProgress(progress) {
     const done = item.status === 'completed';
     const current = !done && !reachedCurrent;
     if (current) reachedCurrent = true;
-    const row = el('li', undefined, `task-progress-step ${done ? 'is-complete' : current ? 'is-current' : 'is-pending'}`);
-    row.append(el('span', done ? '✓' : current ? '●' : '○', 'task-progress-icon'),
+    const state = done ? 'is-complete' : current ? (terminal ? 'is-interrupted' : 'is-current') : 'is-pending';
+    const row = el('li', undefined, `task-progress-step ${state}`);
+    row.append(el('span', done ? '✓' : current ? (terminal ? '×' : '●') : '○', 'task-progress-icon'),
       el('span', item.label, 'task-progress-label'), el('code', item.key, 'task-progress-key'));
     if (done) row.append(el('span', item.duration_ms === null ? '用时未知' : `用时 ${formatProgressDuration(item.duration_ms)}`,
       'task-progress-duration is-complete-duration'));
+    else if (current && terminal) row.append(el('span', stoppedDuration(item.started_at, endedAt, status),
+      'task-progress-duration is-stopped-duration'));
     else if (current) row.append(liveDuration(item.started_at));
-    else row.append(el('span', '尚未开始', 'task-progress-duration is-pending-duration'));
+    else row.append(el('span', terminal ? '未执行' : '尚未开始', 'task-progress-duration is-pending-duration'));
     list.append(row);
   }
   section.append(list);

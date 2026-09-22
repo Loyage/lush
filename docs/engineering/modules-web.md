@@ -55,10 +55,10 @@
 | `render-timeline.js` | 并行时间轴 | `renderTimeline(timeline)` |
 | `render-history.js` | 事件时间线；默认最近 100 条，明确显示截断并用 `before` 游标逐页加载更早记录 | `renderHistory(history, opts)` |
 | `render-diff.js` | 改动概览 | `renderDiff(diff)` |
-| `render-progress.js` | task 执行计划：防御性统计 versioned `progress`；详情逐步区分“用时”（完成态 serif italic）与“已执行”（当前态 monospace bold）并实时计时，任务树画紧凑摘要，分支诊断画整行进度条并给 running task 显著但尊重 reduced-motion 的扫光 / 流动动效 | `progressStats(progress)`、`formatProgressDuration(ms)`、`refreshProgressDurations(root)`、`renderTaskProgress(progress)`、`renderCompactProgress(progress)`、`renderGraphProgress(progress, opts)` |
+| `render-progress.js` | task 执行计划：防御性统计 versioned `progress`；详情逐步区分“用时”（完成态 serif italic）与“已执行”（当前态 monospace bold）并实时计时；终态 task 不再挂 live tick，而按最后 Run 结束时间冻结当前步骤并标明失败 / 取消 / 结束时中止，后续步骤显示未执行；任务树画紧凑摘要，分支诊断画整行进度条并给 running task 显著但尊重 reduced-motion 的扫光 / 流动动效 | `progressStats(progress)`、`formatProgressDuration(ms)`、`refreshProgressDurations(root)`、`renderTaskProgress(progress, opts)`、`renderCompactProgress(progress)`、`renderGraphProgress(progress, opts)` |
 | `render-agent.js` | Agent 区块：执行过程优先，模型与用量直接展开；增量更新最近一步，带 tokens 时并排一个与步骤同口径的 chip | `renderAgent(task, usage)`、`paintUsageLast(taskId, usage)` |
 | `render-transcript.js` | 执行过程（分页、折叠、增量续读）；每一步按 `tokens.first` 印一次占用 chip（精确 `上下文 X` / 估算 `+X`） | `transcriptContent(taskId)`、`paintTranscript(taskId)`、`appendTranscriptSteps(taskId, steps)`、`loadTranscript(taskId)`、`tokensChip(tokens)` |
-| `render-showcase.js` | 分支展示启动弹窗、基线选择、展示详情（静态 HTML sandbox、预览链接及停止） | `startBranchShowcase`、`renderShowcase` |
+| `render-showcase.js` | 分支展示启动弹窗、基线选择、展示详情（静态 HTML sandbox、预览链接及停止）；失败 / 取消后若磁盘已有报告，明确标成中断前写入的未确认部分产物，不冒充完整交付 | `startBranchShowcase`、`renderShowcase` |
 | `render-verify.js` | 检验区块 | `renderVerifications(task)` |
 | `render-resolutions.js` | 合并冲突处理记录 | `renderResolutions(task)` |
 | `render-detail.js` | 任务详情整页：一句话短标题（`taskTitle`）、完整 goal 以 Markdown 正文排在结果之前、状态、结果优先的阅读顺序与任务操作 | `renderDetail(task, history, diff, usage)`、`renderDetailError(taskId, message)` |

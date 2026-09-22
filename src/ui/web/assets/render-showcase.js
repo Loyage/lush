@@ -40,6 +40,9 @@ export function renderShowcase(task) {
   section.append(kv('展示分支', value.branch), kv('固定提交', value.commit), kv('对比起点', value.baseline_commit));
   section.append(el('p', '展示完成 ≠ 检验通过。未提交修改不在展示中；合并仍需你明确批准。', 'hint'));
   if (task.report) {
+    if (['failed','cancelled'].includes(task.status)) section.append(el('p',
+      `本次调用${task.status === 'failed' ? '失败' : '已取消'}；下方是中断前写入的未确认展示页，可能不完整。请结合错误与执行过程检查，必要时重试。`,
+      'hint warn showcase-partial'));
     const report = el('a', '新窗口打开展示页', 'link');
     report.href = `/api/task/${task.id}/report`; report.target = '_blank'; report.rel = 'noopener noreferrer';
     const frame = el('iframe');

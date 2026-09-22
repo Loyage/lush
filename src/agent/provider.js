@@ -43,7 +43,11 @@ async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, 
   if (signal.aborted) kill();
   try {
     const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
-    if (signal.aborted) throw new Error('agent invocation interrupted or timed out');
+    if (signal.aborted) {
+      const reason = signal.reason;
+      throw reason instanceof Error ? reason
+        : new Error(typeof reason === 'string' && reason ? reason : 'agent invocation interrupted');
+    }
     if (overflow) throw new Error(`agent output exceeded ${MAX_RESULT} characters`);
     if (code !== 0) throw new Error(`${path.basename(command)} exited ${code}: ${stderr}`);
     return output.trim();

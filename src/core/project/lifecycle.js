@@ -107,7 +107,7 @@ export default {
     if (TERMINAL.has(task.status)) return task;
     // Children first; the event loop cannot schedule their parents until this synchronous cascade ends.
     for (const child of this.store.children(task.id)) if (!TERMINAL.has(child.status)) this.cancel(child.id, reason);
-    this.running.get(task.id)?.controller.abort();
+    this.running.get(task.id)?.controller.abort(new Error(reason));
     return this.finish(task.id, status, null, reason);
   },
 

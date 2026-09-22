@@ -184,7 +184,7 @@ function taskRow(node, owningBranch = null) {
   if (node.aheadBehind) meta.append(el('span', node.aheadBehind, 'meta'));
   for (const mark of node.marks || []) meta.append(el('span', mark.text, `chip ${mark.className}`.trim()));
   row.append(meta);
-  const progress = renderGraphProgress(node.progress, { running: node.status === 'running' });
+  const progress = renderGraphProgress(node.progress, { running: node.status === 'running', status: node.status });
   if (progress) row.append(progress);
   // 这件事在等你拍板：整行带琥珀强调（与未合并 / 工作中的强调可同时存在），决策区把正文与
   // 处理按钮直接摊在这一行里——用户不用先去左侧「待定事项」或别的页面。没有 notice 的任务行一个字段都不加。
