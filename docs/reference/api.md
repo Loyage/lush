@@ -2,7 +2,9 @@
 
 完整 CLI 帮助：`bun run help`。全局参数 `--project PATH`、`--json` 可放在命令前后。
 
-`daemon start/restart` 是客户端工作流，不是 RPC。`doctor` 检查本地项目配置与 daemon 身份。无 `--project` 的 `web [port]` 后台启动全局项目选择器：首次要求绝对目录，之后从用户配置目录恢复上次项目，并自动启动或连接所选项目 daemon；带 `--project` / `LUSH_PROJECT` 时保持单项目绑定模式（日志 `.lush/web.log`，不替用户启动 daemon）。命令等 Web 真的占住端口就返回；同一端口已经有 Lush Web 时幂等报告「已在运行」，不换进程。全局模式始终只监听本机；单项目模式默认只监听本机，存在 `.lush/web.json` 时改为公网监听并启用登录认证。`web-restart [port]` 先停掉端口上那个后台 Web 再按当前代码起一个新的：Web 不跟着代码换版本，改完 `src/ui/web/` 之后用它。`web-stop [port]` 停掉后台 Web，`web-status [port]` 报告它在不在跑、跑的是不是这份代码与日志路径。停只能停命令行确实是 Lush Web 的进程，别的程序占着端口时报出它的命令行交还给你。`web --foreground`（即 `bin/lush-web`）占住终端，只在调试时用。
+`daemon start/restart` 是客户端工作流，不是 RPC。`doctor` 检查本地项目配置，并把当前磁盘代码、该项目 daemon、以及该项目状态目录记录的后台 Web 三份身份分别列在 `identities.current/daemon/web`；保留旧的顶层 `fingerprint` / `code_match` 字段供脚本兼容。发现代码不一致时只返回 `update_hints` 并在 stderr 给出带正确 `--project` 的命令，绝不自动重启。项目 `doctor` 不猜测无项目启动器的 Web；诊断全局启动器请运行无 `--project` 的 `web-status`。
+
+无 `--project` 的 `web [port]` 后台启动全局项目选择器：首次要求绝对目录，之后从用户配置目录恢复上次项目，并自动启动或连接所选项目 daemon；带 `--project` / `LUSH_PROJECT` 时保持单项目绑定模式（日志 `.lush/web.log`，不替用户启动 daemon）。命令等 Web 真的占住端口就返回；同一端口已经有 Lush Web 时幂等报告「已在运行」，不换进程。全局模式始终只监听本机；单项目模式默认只监听本机，存在 `.lush/web.json` 时改为公网监听并启用登录认证。`web-restart [port]` 先停掉端口上那个后台 Web 再按当前代码起一个新的：Web 不跟着代码换版本，改完 `src/ui/web/` 之后用它。`web-stop [port]` 停掉后台 Web，`web-status [port]` 通过 `current_code` / `web_code`（以及同义的 `identities.current/web`）分别报告磁盘与进程的目录、版本和指纹；不一致时 `update_hint.command` 精确包含端口及项目作用域，但命令本身不会执行。停只能停命令行确实是 Lush Web 的进程，别的程序占着端口时报出它的命令行交还给你。`web --foreground`（即 `bin/lush-web`）占住终端，只在调试时用。
 
 本页是索引：CLI 与 RPC 表格、返回值和错误信息都在下面各章里。若要先理解从输入到交付的实际操作顺序，请读[行动任务处理流程](../task-flow.md)。
 

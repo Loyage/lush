@@ -17,7 +17,7 @@ lush [--project PATH] [--json] <command>
   config set concurrency N        执行通道并发上限（1..64），写回项目设置并立即生效
   config set control-concurrency N 控制通道并发上限（1..16）
   config reset [concurrency|control-concurrency|all]  清除覆盖，回到环境默认
-  doctor                          目录、工具链与代码版本
+  doctor                          分列磁盘、项目 daemon 与项目绑定 Web 的代码身份；差异只提示，不重启
   say '你的意图' [--branch NAME]    从指定本地分支创建输入分支并排入规划；省略 NAME 使用当前分支
   intent list                     查看意图、Plan 编译与验收候选进度（别名 intents）
   plan propose '标题' [--body '…']   planner 专用：这轮拆解请你先批准（影响面大 / 与现状冲突 / 没把握读懂意图）
@@ -86,7 +86,7 @@ lush [--project PATH] [--json] <command>
   web-restart [PORT]              停掉端口上那个后台 Web，再按当前代码起一个新的：Web 进程不会跟着
                                   代码换版本，改完 src/ui/web/ 用这条命令；只停命令行确实是 Lush Web 的进程
   web-stop [PORT]                 停掉后台 Web（只停命令行确实是 Lush Web 的进程，别人的进程只报告）
-  web-status [PORT]               在不在跑、跑的是不是这份代码、日志在哪
+  web-status [PORT]               分列磁盘与 Web 进程的代码目录 / 版本 / 指纹；差异只给更新命令
                                   四条命令都立即返回；项目绑定模式日志在 .lush/web.log，全局模式在用户配置目录
 
 除 Web 启动器外，默认从当前目录向上发现项目；--project 或 LUSH_PROJECT 显式绑定。

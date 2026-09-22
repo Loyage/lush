@@ -10,6 +10,15 @@ test('real daemons: project isolation, duplicate start, immediate input, restart
   try {
     const sa = await cli(a,['start']), sb = await cli(b,['start']);
     expect(sa.project).toBe(a); expect(sb.project).toBe(b); expect(sa.pid).not.toBe(sb.pid);
+    const diagnosis = await cli(a, ['doctor']);
+    expect(diagnosis.daemon_code_match).toBe(true);
+    expect(diagnosis.identities.current.fingerprint).toBe(diagnosis.identities.daemon.fingerprint);
+    expect(diagnosis.daemon_code).toEqual(diagnosis.identities.daemon);
+    expect(diagnosis.identities.daemon).toMatchObject({ pid: sa.pid, project: a });
+    expect(diagnosis.web_code).toBeNull();
+    expect(diagnosis.identities.web).toBeNull();
+    expect(diagnosis.web).toMatchObject({ running: false, code_match: null });
+    expect(diagnosis.update_hints).toEqual([]);
     expect((await cli(a,['start'])).already_running).toBe(true);
     const input = await cli(a,['say','original input']);
     const ca = new UIClient(Config.fromEnv(env(),a)), cb = new UIClient(Config.fromEnv(env(),b));

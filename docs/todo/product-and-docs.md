@@ -5,8 +5,8 @@
 ## 状态与优先级
 
 - 优先级：P2；事实性文档纠错可以先行。
-- 状态：待处理。
-- 依据：审查时的文档内容及 `bun run doctor` 输出。
+- 状态：已完成。
+- 依据：根 README 与流程专题已统一交付口径；`doctor` / `web-status` 的结构化身份诊断及集成测试已经落地。
 
 ## 文档口径冲突
 
@@ -43,11 +43,18 @@
 
 ## 验收标准
 
-- [ ] 文档对私有自动集成、显式验收和最终人工接受的描述一致。
-- [ ] `candidate prepare` 的示例不再暗示必然生成验收报告。
-- [ ] 主流程能明确区分任务完成、候选待验收与代码已落地。
-- [ ] README 的详细规则通过链接指向权威专题，减少重复维护。
-- [ ] 版本提示能分别识别 daemon 与 Web，不静默替用户重启。
-- [ ] `bun run docs:check` 通过；涉及 UI 或命令改动时补对应测试。
+- [x] 文档对私有自动集成、显式验收和最终人工接受的描述一致。
+- [x] `candidate prepare` 的示例不再暗示必然生成验收报告。
+- [x] 主流程能明确区分任务完成、候选待验收与代码已落地。
+- [x] README 的详细规则通过链接指向权威专题，减少重复维护。
+- [x] 版本提示能分别识别 daemon 与 Web，不静默替用户重启。
+- [x] `bun run docs:check` 通过；涉及 UI 或命令改动时补对应测试。
+
+## 完成证据
+
+- `README.md` 与 `docs/task-flow.md` 明列 `Task completed → Candidate pending/ready → Candidate integrated`，并链接权威的集成、验收与 Candidate API 专题。
+- `src/cli/commands/system.js` 保留旧 `fingerprint` / `code_match` 字段，同时新增 `identities`、`current_code` / `daemon_code` / `web_code` 与作用域明确的 `update_hint(s)`；诊断路径只读，不调用 restart。
+- `test/integration/daemon.test.js` 覆盖 doctor 的磁盘 / daemon / Web 分离身份；`test/integration/web.test.js` 覆盖 Web 身份、旧指纹提示、正确项目与端口命令，以及诊断不换进程。
+- `bun run test`：469 项通过；`bun run docs:check`：54 个 Markdown 文件通过。
 
 [返回待办索引](README.md)

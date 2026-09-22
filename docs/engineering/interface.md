@@ -21,7 +21,7 @@
 
 ## Web 与 daemon
 
-Web 与 daemon 是两个独立进程。修改 daemon 代码后运行 `bun run daemon-restart`；修改 `src/ui/web/` 后运行 `bun run web-restart`。Web 默认只监听 `127.0.0.1`；公网模式使用 `.lush/web.json`、HttpOnly Cookie、Host / Origin / Sec-Fetch 校验，并应置于 HTTPS 反向代理后。
+Web 与 daemon 是两个独立进程。`bun run doctor --project PATH` 分别列出当前磁盘、该项目 daemon 和项目绑定 Web 的代码目录 / 版本 / 指纹；无项目的全局启动器用 `bun run web-status` 单独检查。`web-status` 同样把当前磁盘与 Web 进程身份分开，不拿 daemon 正常代替 Web 已更新。发现差异时两条命令只给出指向正确项目、端口和进程的 `update_hint(s)`，不会自动重启；修改 daemon 代码后由用户运行 `bun run daemon-restart --project PATH`，修改 `src/ui/web/` 后由用户运行对应作用域的 `bun run web-restart`（这会清空 Web 登录会话）。Web 默认只监听 `127.0.0.1`；公网模式使用 `.lush/web.json`、HttpOnly Cookie、Host / Origin / Sec-Fetch 校验，并应置于 HTTPS 反向代理后。
 
 ## RPC 边界
 

@@ -17,6 +17,37 @@ function webUrl(config, port) {
 
 function webLog(config) { return path.join(config.home, 'web.log'); }
 
+function codeView(value, extra = {}) {
+  if (!value || typeof value !== 'object' || !value.fingerprint || !value.code_dir) return null;
+  return { ...extra, code_dir: value.code_dir, version: value.code_version ?? value.version ?? null, fingerprint: value.fingerprint };
+}
+
+function commandText(parts) {
+  return parts.map(part => (/^[A-Za-z0-9_./:-]+$/.test(String(part)) ? String(part) : JSON.stringify(String(part)))).join(' ');
+}
+
+function webUpdateHint(config, report) {
+  if (report.code_match !== false) return null;
+  const command = ['bun', 'run', 'web-restart', String(report.port), ...(!config.launcher && config.project ? ['--project', config.project] : [])];
+  return { process: 'web', reason: 'code_mismatch', project: config.project ?? null, pid: report.pid, command,
+    message: `端口 ${report.port} 上的 Web 与当前磁盘代码不一致；只在准备好清空 Web 登录会话时运行 ${commandText(command)}` };
+}
+
+function daemonUpdateHint(config, status, current) {
+  if (!status || status.fingerprint === current.fingerprint && status.code_dir === current.code_dir) return null;
+  const command = ['bun', 'run', 'daemon-restart', '--project', config.project];
+  return { process: 'daemon', reason: 'code_mismatch', project: config.project, pid: status.pid ?? null, command,
+    message: `项目 ${config.project} 的 daemon 与当前磁盘代码不一致；确认没有活动 invocation 后运行 ${commandText(command)}` };
+}
+
+function withWebDiagnostics(config, report, state, current = codeIdentity()) {
+  const webCode = codeView(state, state ? { pid: state.pid, started_at: state.started_at ?? null } : {});
+  const value = { ...report, state_file: path.join(config.home, 'web.state.json'), current_code: codeView(current), web_code: webCode,
+    identities: { current: codeView(current), web: webCode } };
+  value.update_hint = webUpdateHint(config, value);
+  return value;
+}
+
 /** 启动失败时把日志尾巴带进报错：Bun 只会在日志里说「Is port XX in use?」。 */
 function logTail(config, lines = 3) {
   try { return fs.readFileSync(webLog(config), 'utf8').trimEnd().split('\n').slice(-lines).join(' | ').slice(0, 300); }
@@ -69,22 +100,22 @@ async function launchWeb(config, port, extra = {}) {
 
 /** 记录 → 报告：刚起完的进程不必再问一遍端口（容器里可能根本没有 lsof）。 */
 function stateReport(config, state) {
-  return {
+  const current = codeIdentity();
+  return withWebDiagnostics(config, {
     project: config.project, port: state.port, url: webUrl(config, state.port),
     running: true, pid: state.pid, pids: [state.pid], others: [],
-    log: webLog(config), started_at: state.started_at, code_match: codeMatches(state), listeners_known: true,
-  };
+    log: webLog(config), started_at: state.started_at, code_match: codeMatches(state, current), listeners_known: true,
+  }, state, current);
 }
 
 /** 在跑的 Web 是不是这份代码：Web 进程不会跟着代码换版本，这是它唯一会骗人的地方。 */
-function codeMatches(state) {
-  const local = codeIdentity();
+function codeMatches(state, local = codeIdentity()) {
   return state.fingerprint === local.fingerprint && state.code_dir === local.code_dir;
 }
 
 /** 后台 Web 跑的是别的代码：页面「打开失败」最常见的成因，在报告里直接点出来。 */
 function noteStaleCode(value) {
-  if (value?.code_match === false) console.error(`lush: 端口 ${value.port} 上的 Web 跑的不是当前代码；用 bun run web-restart ${value.port} 换掉它（日志 ${value.log}）`);
+  if (value?.update_hint) console.error(`lush: ${value.update_hint.message}（日志 ${value.log}）`);
 }
 
 /** 端口上的 Web 现状：谁在听、跑的是不是这份代码、日志在哪。 */
@@ -94,14 +125,15 @@ async function webReport(config, port) {
   const state = control.liveWebState(config);
   const lush = (owners ?? []).filter(owner => owner.lush);
   const served = state && lush.some(owner => owner.pid === state.pid) ? state : null;
-  return {
+  const current = codeIdentity();
+  return withWebDiagnostics(config, {
     project: config.project, port, url: webUrl(config, port),
     running: lush.length > 0, pid: lush[0]?.pid ?? null, pids: lush.map(owner => owner.pid),
     others: (owners ?? []).filter(owner => !owner.lush).map(owner => ({ pid: owner.pid, command: owner.command })),
     log: webLog(config), started_at: served?.started_at ?? null,
-    code_match: served ? codeMatches(served) : null,
+    code_match: served ? codeMatches(served, current) : null,
     listeners_known: owners !== null,
-  };
+  }, served, current);
 }
 
 /** `web`：已经在跑就如实报告（幂等），否则后台起一个新的；别人的进程只报告、不碰。 */
@@ -190,9 +222,31 @@ export async function run(command, args, ctx) {
     check(!client.token, 'agents cannot control daemons'); exact(args, 1); value = await daemon(config, args[0]);
   } else if (command === 'doctor') {
     exact(args, 0);
-    value = { bun: Bun.version, project: config.project, home: config.home, socket: config.socket, provider: config.provider, ...codeIdentity() };
-    try { value.daemon = await client.request('system.status'); value.code_match = value.daemon.fingerprint === value.fingerprint && value.daemon.code_dir === value.code_dir; }
-    catch (error) { value.daemon = error.message; }
+    const current = codeIdentity();
+    value = { bun: Bun.version, project: config.project, home: config.home, socket: config.socket, provider: config.provider, ...current,
+      current_code: codeView(current) };
+    let daemonStatus = null;
+    try {
+      daemonStatus = await client.request('system.status');
+      value.daemon = daemonStatus;
+      value.code_match = daemonStatus.fingerprint === current.fingerprint && daemonStatus.code_dir === current.code_dir;
+      value.daemon_code_match = value.code_match;
+    } catch (error) { value.daemon = error.message; value.daemon_code_match = null; }
+    const control = await import('../../ui/web/control.js');
+    const state = control.liveWebState(config);
+    value.web = state
+      ? await webReport(config, state.port)
+      : withWebDiagnostics(config, { project: config.project, port: null, url: null, running: false, pid: null, pids: [], others: [],
+        log: webLog(config), started_at: null, code_match: null, listeners_known: false }, null, current);
+    const daemonCode = codeView(daemonStatus, daemonStatus ? { pid: daemonStatus.pid ?? null, project: daemonStatus.project ?? null,
+      started_at: daemonStatus.started_at ?? null } : {});
+    value.daemon_code = daemonCode;
+    value.web_code = value.web.web_code;
+    value.web_code_match = value.web.code_match;
+    value.identities = { current: codeView(current), daemon: daemonCode, web: value.web.web_code };
+    value.update_hints = [daemonUpdateHint(config, daemonStatus, current), value.web.update_hint].filter(Boolean);
+    if (value.update_hints[0]?.process === 'daemon') console.error(`lush: ${value.update_hints[0].message}`);
+    noteStaleCode(value.web);
   } else if (command === 'status') { exact(args, 0); value = await client.request('system.status');
   }
   else if (command === 'log') {
