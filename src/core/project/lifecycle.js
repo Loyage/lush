@@ -57,12 +57,20 @@ export default {
       // Verification settles either a worker detail or a frozen review candidate.
       if (task.verifies_task_id) this.store.touch(task.verifies_task_id);
       if (task.review_candidate_id) {
-        this.store.updateCandidate(task.review_candidate_id, {
-          status: status === 'completed' && this.hasReport(task.id) ? 'ready' : 'failed',
-          report_task_id: task.id,
-        });
-        this.store.event(task.id, 'candidate.verified', { candidate: task.review_candidate_id, status,
-          has_report: this.hasReport(task.id) });
+        const hasReport = this.hasReport(task.id);
+        const candidateStatus = status === 'completed' && hasReport ? 'ready' : 'failed';
+        // Candidate 的当前状态和 report_task_id 必须与这个 verifier 同时匹配；一条条件 UPDATE
+        // 把检查和写入留在当前事务内，迟到回调不能覆盖拒绝、反馈、替代版本或更新的 verifier。
+        const settlement = this.store.settleCandidateVerification(task.review_candidate_id, task.id, candidateStatus);
+        if (settlement.applied) {
+          this.store.event(task.id, 'candidate.verified', { candidate: task.review_candidate_id, status,
+            candidate_status: candidateStatus, has_report: hasReport });
+        } else {
+          // Task / Run / Artifact 照常保留；另加明确事件说明为什么这份结果没有改变 Candidate。
+          this.store.event(task.id, 'candidate.verification_ignored', { candidate: task.review_candidate_id, status,
+            candidate_status: settlement.candidate.status, current_report_task_id: settlement.candidate.report_task_id,
+            has_report: hasReport });
+        }
       }
       // 解冲突任务没做成（失败 / 被取消）：原任务回到待合并，冻结随之解除，错误留在解冲突任务上。
       // 分支与 worktree 都保留，用户可以重试或自己处理。

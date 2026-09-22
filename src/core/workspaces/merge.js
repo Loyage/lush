@@ -49,13 +49,28 @@ export const methods = {
       status, ahead: Number.isFinite(ahead) ? ahead : null, behind: Number.isFinite(behind) ? behind : null, blockers };
   },
 
-  /** 在已经持有 Git 串行锁时，将 direct child 快进到 parent；发生分歧时绝不在 parent 上制造 merge commit。 */
-  async mergeBranchUnsafe(child) {
+  /**
+   * 在已经持有 Git 串行锁时，将 direct child 快进到 parent；发生分歧时绝不在 parent 上制造 merge commit。
+   * 传了 expected 就交付这个固定 commit，而不是可变的 child tip：Candidate 审阅过的提交与
+   * 落地的提交是同一个对象，两次读取之间分支前进既不扩大交付范围，也不会悄悄换成别的树。
+   * 校验与落地都在这个串行区间内完成；expected 已经进入 parent 时是幂等成功。
+   */
+  async mergeBranchUnsafe(child, expected = null) {
     const state = await this.branchState(child);
     check(state.status !== 'missing', `cannot merge ${child}: child or parent branch is missing`);
     check(state.blockers.length === 0, `merge ${state.child} into ${state.parent} is blocked by unintegrated child branches: ${state.blockers.join(', ')}`);
-    if (state.status === 'integrated') return { ...state, merged: false, already_integrated: true };
-    if (state.status === 'diverged') return { ...state, merged: false, needs_sync: true };
+    const project = this.config.project;
+    if (expected) {
+      // 固定提交只有两种合法结局：已经在父分支里（幂等），或者能从父分支 fast-forward 过去。
+      if (await this.isAncestor(project, expected, state.parent_head))
+        return { ...state, merged: false, already_integrated: true, landed: expected };
+      check(await this.isAncestor(project, state.parent_head, expected),
+        `cannot land ${expected.slice(0, 12)} into ${state.parent}: ${state.child} moved and that commit is no longer a fast-forward from ${state.parent_head.slice(0, 12)}; re-review the frozen commit before landing`);
+    } else {
+      if (state.status === 'integrated') return { ...state, merged: false, already_integrated: true };
+      if (state.status === 'diverged') return { ...state, merged: false, needs_sync: true };
+    }
+    const landed = expected ?? state.child_head;
     const childWorkspace = await this.workspaceForBranch(state.child);
     if (childWorkspace) await this.clean(childWorkspace);
     const parentWorkspace = await this.workspaceForBranch(state.parent);
@@ -63,15 +78,15 @@ export const methods = {
       await this.clean(parentWorkspace);
       check(await this.git(parentWorkspace, 'symbolic-ref', '--short', 'HEAD') === state.parent,
         `worktree ${parentWorkspace} is no longer on ${state.parent}`);
-      await this.git(parentWorkspace, 'merge', '--ff-only', state.child_head);
+      await this.git(parentWorkspace, 'merge', '--ff-only', landed);
     } else {
       // 未检出的父分支没有 index/worktree 要同步；compare-and-swap 更新 ref，外部进程抢先推进就安全失败。
-      await this.git(this.config.project, 'update-ref', `refs/heads/${state.parent}`, state.child_head, state.parent_head);
+      await this.git(this.config.project, 'update-ref', `refs/heads/${state.parent}`, landed, state.parent_head);
     }
-    return { ...state, status: 'integrated', merged: true, new_head: state.child_head };
+    return { ...state, status: 'integrated', merged: true, new_head: landed, landed };
   },
 
-  mergeBranch(child) { return this.exclusive(() => this.mergeBranchUnsafe(child)); },
+  mergeBranch(child, expected = null) { return this.exclusive(() => this.mergeBranchUnsafe(child, expected)); },
 
   /**
    * 反方向：把父分支快进进子分支（子分支跟上父分支）。只在子分支没有任何独有提交时才成立——

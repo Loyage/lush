@@ -15,6 +15,31 @@ function provider() {
   } };
 }
 
+/** Candidate-focused fixture: freeze one commit without scheduling a verifier. */
+async function frozenCandidate(f, target = null) {
+  const input = await f.project.submit('交付固定候选提交', target);
+  await until(() => f.store.task(input.task.id).status === 'completed');
+  fs.writeFileSync(path.join(input.anchor.workspace, 'reviewed.txt'), 'reviewed\n');
+  await git(input.anchor.workspace, 'add', 'reviewed.txt');
+  await git(input.anchor.workspace, 'commit', '-m', 'reviewed candidate');
+  const reviewed = await git(input.anchor.workspace, 'rev-parse', 'HEAD');
+  const candidate = await f.project.prepareCandidate(input.id, '固定候选提交');
+  return { input, candidate, reviewed };
+}
+
+/** Acceptance-focused fixture: mark the frozen candidate's already-tested review as ready. */
+async function readyCandidate(f, target = null) {
+  const frozen = await frozenCandidate(f, target);
+  f.store.updateCandidate(frozen.candidate.id, { status: 'ready' });
+  return { ...frozen, candidate: f.store.candidate(frozen.candidate.id) };
+}
+
+function writeReport(f, taskId) {
+  const file = f.project.reportPath(taskId);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '<!doctype html><title>late candidate report</title><h1>ok</h1>');
+}
+
 test('review candidate freezes the intent commit, publishes evidence and lands only the reviewed tree', async () => {
   const f = fixture(provider()); await repo(f.root);
   try {
@@ -63,5 +88,212 @@ test('candidate acceptance rejects branch drift and feedback starts an increment
     expect(revision.planner.role).toBe('planner');
     expect(f.store.get('SELECT task_id FROM inputs WHERE id=?', input.id).task_id).toBe(revision.planner.id);
     await until(() => f.store.task(revision.planner.id).status === 'completed');
+  } finally { await f.close(); }
+});
+
+test('candidate acceptance rejects drift that happened before its tip validation', async () => {
+  const f = fixture(provider()); await repo(f.root);
+  try {
+    const { input, candidate, reviewed } = await readyCandidate(f);
+    fs.writeFileSync(path.join(input.anchor.workspace, 'unreviewed.txt'), 'unreviewed\n');
+    await git(input.anchor.workspace, 'add', 'unreviewed.txt');
+    await git(input.anchor.workspace, 'commit', '-m', 'advance after review');
+
+    await expect(f.project.acceptCandidate(candidate.id)).rejects.toThrow(/moved to .*prepare a new candidate/);
+    expect(await git(f.root, 'rev-parse', 'main')).not.toBe(reviewed);
+    expect(f.store.candidate(candidate.id).status).toBe('ready');
+    expect(fs.existsSync(path.join(f.root, 'unreviewed.txt'))).toBe(false);
+  } finally { await f.close(); }
+});
+
+test('candidate acceptance lands the pinned commit when its branch advances after validation', async () => {
+  const f = fixture(provider()); await repo(f.root);
+  try {
+    const { input, candidate, reviewed } = await readyCandidate(f);
+    const workspaces = f.project.workspaces;
+    const mergeBranchUnsafe = workspaces.mergeBranchUnsafe.bind(workspaces);
+    let injected = false;
+    let expected = null;
+    // Deterministic interleave: mergeBranch has acquired the Git queue, but has not read branchState yet.
+    workspaces.mergeBranchUnsafe = async (branch, pinned) => {
+      expected = pinned;
+      if (!injected) {
+        injected = true;
+        fs.writeFileSync(path.join(input.anchor.workspace, 'unreviewed.txt'), 'unreviewed\n');
+        await git(input.anchor.workspace, 'add', 'unreviewed.txt');
+        await git(input.anchor.workspace, 'commit', '-m', 'advance inside merge queue');
+      }
+      return mergeBranchUnsafe(branch, pinned);
+    };
+
+    const outcome = await f.project.acceptCandidate(candidate.id);
+    expect(injected).toBe(true);
+    expect(expected).toBe(reviewed);
+    expect(outcome.candidate.status).toBe('integrated');
+    expect(outcome.integration.landed).toBe(reviewed);
+    expect(await git(f.root, 'rev-parse', 'main')).toBe(reviewed);
+    expect(fs.readFileSync(path.join(f.root, 'reviewed.txt'), 'utf8')).toBe('reviewed\n');
+    expect(fs.existsSync(path.join(f.root, 'unreviewed.txt'))).toBe(false);
+    expect(await git(input.anchor.workspace, 'rev-parse', 'HEAD')).not.toBe(reviewed);
+    const history = f.store.history(input.task.id);
+    expect(history.find(row => row.type === 'branch.merged')?.data.commit).toBe(reviewed);
+    expect(history.find(row => row.type === 'candidate.integrated')?.data.commit).toBe(reviewed);
+  } finally { await f.close(); }
+});
+
+test('candidate acceptance updates an unchecked parent ref to exactly the pinned commit', async () => {
+  const f = fixture(provider()); await repo(f.root);
+  try {
+    // main remains a local ref but is not checked out in any worktree, so landing uses update-ref CAS.
+    await git(f.root, 'checkout', '-b', 'parked');
+    const { input, candidate, reviewed } = await readyCandidate(f, 'main');
+    const workspaces = f.project.workspaces;
+    const mergeBranchUnsafe = workspaces.mergeBranchUnsafe.bind(workspaces);
+    workspaces.mergeBranchUnsafe = async (branch, pinned) => {
+      fs.writeFileSync(path.join(input.anchor.workspace, 'unreviewed.txt'), 'unreviewed\n');
+      await git(input.anchor.workspace, 'add', 'unreviewed.txt');
+      await git(input.anchor.workspace, 'commit', '-m', 'advance before update-ref');
+      return mergeBranchUnsafe(branch, pinned);
+    };
+
+    const outcome = await f.project.acceptCandidate(candidate.id);
+    expect(outcome.candidate.status).toBe('integrated');
+    expect(outcome.integration.landed).toBe(reviewed);
+    expect(await git(f.root, 'rev-parse', 'main')).toBe(reviewed);
+    expect(await git(input.anchor.workspace, 'rev-parse', 'HEAD')).not.toBe(reviewed);
+    await expect(git(f.root, 'show', 'main:unreviewed.txt')).rejects.toThrow();
+    expect(await git(f.root, 'symbolic-ref', '--short', 'HEAD')).toBe('parked');
+    expect(fs.existsSync(path.join(f.root, 'reviewed.txt'))).toBe(false);
+  } finally { await f.close(); }
+});
+
+test('candidate acceptance treats the pinned commit already in the parent as integrated', async () => {
+  const f = fixture(provider()); await repo(f.root);
+  try {
+    const { candidate, reviewed } = await readyCandidate(f);
+    await git(f.root, 'merge', '--ff-only', reviewed);
+
+    const outcome = await f.project.acceptCandidate(candidate.id);
+    expect(outcome.candidate.status).toBe('integrated');
+    expect(outcome.integration).toMatchObject({ merged: false, already_integrated: true, landed: reviewed });
+    expect(await git(f.root, 'rev-parse', 'main')).toBe(reviewed);
+  } finally { await f.close(); }
+});
+
+test('candidate acceptance failure returns to ready and records the merge error', async () => {
+  const f = fixture(provider()); await repo(f.root);
+  try {
+    const { input, candidate } = await readyCandidate(f);
+    fs.writeFileSync(path.join(f.root, 'dirty.txt'), 'dirty\n');
+
+    await expect(f.project.acceptCandidate(candidate.id)).rejects.toThrow('working tree is dirty');
+    expect(f.store.candidate(candidate.id).status).toBe('ready');
+    const event = f.store.history(input.task.id).find(row => row.type === 'candidate.accept_failed');
+    expect(event?.data).toMatchObject({ candidate: candidate.id, target: 'main' });
+    expect(event?.data.error).toContain('working tree is dirty');
+  } finally { await f.close(); }
+});
+
+test('late successful and failed verifiers cannot revive a rejected candidate', async () => {
+  for (const terminal of ['completed', 'failed']) {
+    const f = fixture(provider()); await repo(f.root);
+    try {
+      const { candidate } = await frozenCandidate(f);
+      f.project.stopping = true;
+      const verifier = f.project.verifyCandidate(candidate.id);
+      const rejected = f.project.rejectCandidate(candidate.id, `reject before ${terminal}`);
+      if (terminal === 'completed') writeReport(f, verifier.id);
+
+      f.project.finish(verifier.id, terminal, terminal === 'completed' ? 'late success' : null,
+        terminal === 'failed' ? 'late failure' : null);
+      expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'rejected',
+        report_task_id: verifier.id, feedback: rejected.feedback });
+      expect(f.store.task(verifier.id)).toMatchObject({ status: terminal,
+        result: terminal === 'completed' ? 'late success' : null });
+      const events = f.store.history(verifier.id);
+      expect(events.some(row => row.type === 'candidate.verified')).toBe(false);
+      expect(events.find(row => row.type === 'candidate.verification_ignored')?.data)
+        .toMatchObject({ candidate: candidate.id, status: terminal, candidate_status: 'rejected',
+          current_report_task_id: verifier.id, has_report: terminal === 'completed' });
+    } finally { await f.close(); }
+  }
+});
+
+test('late verifier result cannot overwrite changes_requested', async () => {
+  const f = fixture(provider()); await repo(f.root);
+  try {
+    const { candidate } = await frozenCandidate(f);
+    f.project.stopping = true;
+    const verifier = f.project.verifyCandidate(candidate.id);
+    const revision = f.project.requestCandidateChanges(candidate.id, '用户已经要求修改');
+    writeReport(f, verifier.id);
+
+    f.project.finish(verifier.id, 'completed', 'obsolete review');
+    expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'changes_requested',
+      report_task_id: verifier.id, feedback: '用户已经要求修改' });
+    expect(f.store.task(revision.planner.id).role).toBe('planner');
+    expect(f.store.history(verifier.id).find(row => row.type === 'candidate.verification_ignored')?.data)
+      .toMatchObject({ candidate_status: 'changes_requested', current_report_task_id: verifier.id });
+  } finally { await f.close(); }
+});
+
+test('late verifier result cannot overwrite a superseded candidate', async () => {
+  const f = fixture(provider()); await repo(f.root);
+  try {
+    const { candidate } = await frozenCandidate(f);
+    f.project.stopping = true;
+    const verifier = f.project.verifyCandidate(candidate.id);
+    // Simulate the replacement transaction directly so callback authority is independent of branch blockers.
+    const replacement = f.store.transaction(() => {
+      f.store.updateCandidate(candidate.id, { status: 'superseded' });
+      return f.store.createCandidate({ input_id: candidate.input_id, branch: candidate.branch,
+        commit: candidate.commit_hash, baseline_branch: candidate.baseline_branch,
+        baseline_commit: candidate.baseline_commit, summary: '替代版本' });
+    });
+    writeReport(f, verifier.id);
+
+    f.project.finish(verifier.id, 'completed', 'obsolete review');
+    expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'superseded', report_task_id: verifier.id });
+    expect(f.store.candidate(replacement.id).status).toBe('pending');
+    expect(f.store.history(verifier.id).find(row => row.type === 'candidate.verification_ignored')?.data)
+      .toMatchObject({ candidate_status: 'superseded', current_report_task_id: verifier.id });
+  } finally { await f.close(); }
+});
+
+test('only the currently registered verifier can settle a preparing candidate', async () => {
+  const f = fixture(provider()); await repo(f.root);
+  try {
+    const { candidate } = await frozenCandidate(f);
+    f.project.stopping = true;
+    const obsolete = f.project.verifyCandidate(candidate.id);
+    const current = f.store.create({ parent_id: null, input_id: candidate.input_id, role: 'verifier',
+      goal: 'current candidate verification', name: `candidate-${candidate.id}-current`, review_candidate_id: candidate.id });
+    f.store.updateCandidate(candidate.id, { status: 'preparing', report_task_id: current.id });
+    writeReport(f, obsolete.id);
+
+    f.project.finish(obsolete.id, 'completed', 'obsolete result');
+    expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'preparing', report_task_id: current.id });
+    expect(f.store.history(obsolete.id).find(row => row.type === 'candidate.verification_ignored')?.data)
+      .toMatchObject({ candidate_status: 'preparing', current_report_task_id: current.id });
+
+    writeReport(f, current.id);
+    f.project.finish(current.id, 'completed', 'current result');
+    expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'ready', report_task_id: current.id });
+    expect(f.store.history(current.id).find(row => row.type === 'candidate.verified')?.data)
+      .toMatchObject({ candidate_status: 'ready', has_report: true });
+  } finally { await f.close(); }
+});
+
+test('the current verifier still marks the candidate failed when its evidence is incomplete', async () => {
+  const f = fixture(provider()); await repo(f.root);
+  try {
+    const { candidate } = await frozenCandidate(f);
+    f.project.stopping = true;
+    const verifier = f.project.verifyCandidate(candidate.id);
+
+    f.project.finish(verifier.id, 'completed', 'no report produced');
+    expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'failed', report_task_id: verifier.id });
+    expect(f.store.history(verifier.id).find(row => row.type === 'candidate.verified')?.data)
+      .toMatchObject({ candidate_status: 'failed', has_report: false });
   } finally { await f.close(); }
 });
