@@ -26,6 +26,7 @@
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` / `web-restart` / `web-stop` / `web-status` | `run` |
 | `cli/commands/candidate.js` | `candidate list/inspect/prepare/verify/accept/changes/reject` | `run` |
 | `cli/commands/agent.js` | `agent show/models/set/reset`；`--prompt` 只作旧版 `--append-prompt` 别名 | `run` |
+| `cli/commands/config.js` | `config`（`show` / `set concurrency|control-concurrency N` / `reset [concurrency|control-concurrency|all]`）：读 `system.status.settings`、写 `system.configure`；用户专属，agent 调用被拒 | `run` |
 | `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒 | `main(argv)`（并 re-export `HELP`） |
 
 ## RPC：`src/rpc/protocol.js` + `src/rpc/`
@@ -36,7 +37,7 @@
 |---|---|---|
 | `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
-| `rpc/handlers/system.js` | `system.*`、`graph.get`、`agent.config`、`agent.models`、`agent.resources`、`agent.configure` | `handlers` |
+| `rpc/handlers/system.js` | `system.*`（含用户专属的 `system.configure`）、`graph.get`、`agent.config`、`agent.models`、`agent.resources`、`agent.configure` | `handlers` |
 | `rpc/handlers/input.js` | `input.*`、`draft.*` | `handlers` |
 | `rpc/handlers/task.js` | `task.*`、agent-only 的 `progress.plan` / `progress.complete` | `handlers` |
 | `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |
@@ -57,7 +58,8 @@
 | `workspaces.test.js` | `test/workspaces/{naming,merge,cleanup,genealogy,anchor}.test.js` |
 | `web-rpc.test.js` | `test/web/{security,assets,read-models,drafts,transcript,specs-intents,maintenance}.test.js` |
 | `web-live-dom.test.js` | `test/web/dom-{merge,detail,drafts,specs-intents,sidebar}.test.js`（各自 `boot()`，见前端接缝） |
-| 工作台与主题 | `test/web/appearance.test.js`（主题解析、跟随系统、显式覆盖、存储失败）、`test/web/settings.test.js`（设置入口 / `#settings` / 轮询不覆盖、偏好默认值与老键、每项即时生效、恢复默认、系统信息组只读渲染与无快照占位）、`test/project/status.test.js`（`system.status` 的只读软件配置镜像与默认值）、`test/web/dom-studio.test.js`（信息优先级、折叠保留、移动端索引） |
+| 工作台与主题 | `test/web/appearance.test.js`（主题解析、跟随系统、显式覆盖、存储失败）、`test/web/settings.test.js`（设置入口 / `#settings` / 轮询不覆盖、偏好默认值与老键、每项即时生效、恢复默认、系统信息组只读渲染、并发额度表单保存 / 恢复与越界报错）、`test/project/status.test.js`（`system.status` 的只读软件配置镜像与默认值）、`test/web/dom-studio.test.js`（信息优先级、折叠保留、移动端索引） |
+| 运行设置 | `test/runtime-settings.test.js`（存储原子性与权限、覆盖优先于环境、写后 status 与调度准入、agent 不得调用 `system.configure`）、`test/config-cli.test.js`（`lush config` 的 show / set / reset 与 `--json`） |
 | `integration.test.js` | `test/integration/{daemon,pi,verify,shutdown,merge}.test.js` |
 
 `test/helpers.js`、`test/dom-stub.js` 是被多个文件共用的**公共面**：只增不改，改签名会同时影响所有分区。

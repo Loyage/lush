@@ -42,7 +42,7 @@ bun run web 4318 --project /absolute/path/to/my-project
 
 公网部署仍应在前面配置 HTTPS 反向代理，否则登录密码会在网络中明文传输。跨站请求判定以浏览器自己填的 `Sec-Fetch-Site` 为准（网页无法伪造它），`Origin` 只在旧浏览器没有这个头时作为回退；内嵌 webview、沙箱页面与部分隐私扩展会报 `Origin: null` 却依然是同源，这类客户端能正常登录。删除 `.lush/web.json` 即恢复仅本机、无需登录的模式。
 
-Web UI（默认 `http://127.0.0.1:4318`）是 **Intent 优先**的项目工作台：左栏是导航，首屏是 **Intent 工作台**（目标、Plan 状态、待验收候选版本与结果入口、真正需要你决定的事）；分支图、待你决定、行动任务、Intent 记录、结构化 Plan 与文档分别在右侧独立成页。右侧顶部始终保留返回上一页的入口，页面地址使用 `#graph`、`#settings`、`#notices`、`#tasks`、`#intents`、`#specs`、`#task-ID`、`#docs` / `#doc-<id>`，浏览器前进 / 后退可以在各视图与任务详情之间往返。首页顶部指标按 Intent 计（Intent / 并行执行 / 等待验收 / 需要你决定），并用同一份 `graph.get` 读模型把 Git 交付诊断折叠在成果主线之后；候选行上的「打开结果」直接开 verifier 的 HTML 报告，验收动作用 `candidate.accept` / `candidate.changes`。任务详情以目标为标题，结果与执行过程优先。输入框常驻内容区底部（默认折叠，只留一行输入与一行操作，点「更多」展开父分支与快捷键）。窄屏用「导航菜单」展开页面入口。左栏顶部可切换**深色 / 浅色主题**，并集中显示项目名、并发槽、连接状态与退出登录——应用没有整条顶栏，内容区从最上面开始。左栏的**设置**页（`#settings`）分为三个页签：**Agent** 管项目默认与 planner / coordinator / worker / research / verifier / merger 六类行为的独立覆盖，可分别选择 Pi / Codex、模型、思考深度并追加项目 Prompt；配置原子写入 `.lush/agent.json`，正在运行的调用不打断，排队任务与后续唤醒立即读取新配置。**界面**管理 Markdown、主题、减少动效、信息列表排序、轮询与消息停留时长，这些偏好只存在当前浏览器；**系统**只读展示 daemon 参数与路径。移动端会压缩导航、工具栏和分支卡片，并让左栏（含品牌 / 项目名 / 连接 / 退出）排在内容与输入区之前；分支诊断 / 设置 / 文档页隐藏底部输入器，把视口优先留给内容。过渡动画尊重系统「减少动态效果」。文档读的是随这份代码发布的 `docs/` 与 `README.md`（不随被开发的项目变），Markdown 相对链接可以直接点开，Mermaid 流程图从同一份 Markdown 源码按需渲染；刷新不丢已输入的答复。
+Web UI（默认 `http://127.0.0.1:4318`）是 **Intent 优先**的项目工作台：左栏是导航，首屏是 **Intent 工作台**（目标、Plan 状态、待验收候选版本与结果入口、真正需要你决定的事）；分支图、待你决定、行动任务、Intent 记录、结构化 Plan 与文档分别在右侧独立成页。右侧顶部始终保留返回上一页的入口，页面地址使用 `#graph`、`#settings`、`#notices`、`#tasks`、`#intents`、`#specs`、`#task-ID`、`#docs` / `#doc-<id>`，浏览器前进 / 后退可以在各视图与任务详情之间往返。首页顶部指标按 Intent 计（Intent / 并行执行 / 等待验收 / 需要你决定），并用同一份 `graph.get` 读模型把 Git 交付诊断折叠在成果主线之后；候选行上的「打开结果」直接开 verifier 的 HTML 报告，验收动作用 `candidate.accept` / `candidate.changes`。任务详情以目标为标题，结果与执行过程优先。输入框常驻内容区底部（默认折叠，只留一行输入与一行操作，点「更多」展开父分支与快捷键）。窄屏用「导航菜单」展开页面入口。左栏顶部可切换**深色 / 浅色主题**，并集中显示项目名、并发槽、连接状态与退出登录——应用没有整条顶栏，内容区从最上面开始。左栏的**设置**页（`#settings`）分为三个页签：**Agent** 管项目默认与 planner / coordinator / worker / research / verifier / merger 六类行为的独立覆盖，可分别选择 Pi / Codex、模型、思考深度并追加项目 Prompt；配置原子写入 `.lush/agent.json`，正在运行的调用不打断，排队任务与后续唤醒立即读取新配置。**界面**管理 Markdown、主题、减少动效、信息列表排序、轮询与消息停留时长，这些偏好只存在当前浏览器；**系统**展示 daemon 参数与路径，其中**并发额度**（执行通道 / 控制通道）可直接编辑、保存即对排队任务生效，「恢复环境默认」清除覆盖，其余参数只读。移动端会压缩导航、工具栏和分支卡片，并让左栏（含品牌 / 项目名 / 连接 / 退出）排在内容与输入区之前；分支诊断 / 设置 / 文档页隐藏底部输入器，把视口优先留给内容。过渡动画尊重系统「减少动态效果」。文档读的是随这份代码发布的 `docs/` 与 `README.md`（不随被开发的项目变），Markdown 相对链接可以直接点开，Mermaid 流程图从同一份 Markdown 源码按需渲染；刷新不丢已输入的答复。
 
 页面内容可以直接“引用到输入”：右键任务可引用单个任务或整棵任务子树，右键交付项可引用 Git / 目标分支，选中任意文字后右键可引用所选内容。引用以卡片显示在输入框上方，加入待提交意图后随草稿持久化；planner 同时收到引用时快照和 invocation 开始时解析的当前状态，目标已被清空时仍保留快照。引用只帮助聚焦，后续仍走同一条 `develop` / `explain` intent 通道。
 
@@ -154,8 +154,9 @@ planner 一轮写完 spec 后，runtime 在事务中直接编译根 WorkItem 与
 
 每次 provider invocation 都落成独立 `agent_runs` 行；结果同时形成结构化 Artifact。Task 暂时作为兼容的 WorkItem 投影，重试与唤醒不会覆盖 Run 历史。
 
-- `LUSH_CONTROL_CONCURRENCY`（默认 2）：planner 等控制面调用；长 worker 不会饿死新输入规划。
-- `LUSH_CONCURRENCY`（默认 4）：worker / research / verifier 等执行面调用。
+- control lane：planner 等控制面调用，容量默认取 `LUSH_CONTROL_CONCURRENCY`（2）；长 worker 不会饿死新输入规划。
+- execution lane：worker / research / verifier 等执行面调用，容量默认取 `LUSH_CONCURRENCY`（4）。
+- 两条车道的容量是**可运行时改写的项目级设置**：环境变量只是默认值，被 `<home>/settings.json` 里显式覆盖的键取代。用 Web「设置 → 系统 → 并发额度」或 `lush config set` 写入，下一次调度立即按新生效值准入，不需要重启 daemon；调低并发不取消已经在跑的任务。
 - 等依赖、等子任务、等用户时不占槽。
 
 开发工作完成后，Integration Service 自动把 Plan 编译出的 worker 分支从叶子向 Intent 私有集成分支聚合；父子分歧时自动创建子侧 merger。目标分支不会自动变化。聚合完成后系统冻结 integration commit 与 baseline commit，创建 Review Candidate 并生成前后对照 HTML 报告。用户最终接受的是这个精确 commit；若 branch 已移动，旧 Candidate 不能复用。
@@ -207,6 +208,10 @@ bun run retry 3             # 检查失败现场之后明确重试
 bun run merge 3
 bun run cleanup 3           # 回收 worktree 与分支（--keep-branch 只回收 worktree）
 bun run clear               # 一键清空已结束任务并回收可安全回收的 worktree/分支
+bun run lush config         # 看并发额度：生效值、环境默认值、来源与设置文件（--json 输出结构化读模型）
+bun run lush config set concurrency 8           # 执行通道并发上限（1..64），写回项目设置并立即生效
+bun run lush config set control-concurrency 4   # 控制通道并发上限（1..16）
+bun run lush config reset all                   # 清除覆盖，回到环境默认
 bun run branch tree         # 分支谱系（--verbose 带 task / worktree / fork / parent；见 docs/engineering/branch-genealogy.md）
 bun run branch show 3       # 按 branch 名或 task id 查一条分支的 parent 与祖先链
 bun run branch import       # 把旧项目已有本地分支登记成记录（不推断 parent）
@@ -230,6 +235,7 @@ bun run stop
 
 ```text
 project.json       不可跨目录复用的项目绑定
+settings.json      运行设置（并发额度）的覆盖；不存在表示全部使用环境默认
 project.db         SQLite：inputs / drafts / tasks / task_specs / task_deps / agent_runs / artifacts / review_candidates / messages / notices / events / branches（task.clear 会清空任务相关的表，并把 task id / input id 高水位记在 meta；branches 是历史事实，不被清空）
 sessions/          每个 task 的独立 pi session 与当前输入文件（thinking / 工具调用的原文）
 worktrees/         worker 工作区、每条输入的聚合分支检出（input-<id>），以及检验期间临时对照检出
@@ -256,8 +262,8 @@ pi 默认禁用个人 extensions / skills / prompt templates / themes，保留�
 |---|---|---|
 | `LUSH_PROJECT` | 从 cwd 发现 | 显式项目目录 |
 | `LUSH_PROVIDER` | `pi` | 首次未写项目配置时的 Agent：`pi` / `codex`；`mock` 为离线测试模式 |
-| `LUSH_CONCURRENCY` | `4` | worker / research / verifier 执行槽 |
-| `LUSH_CONTROL_CONCURRENCY` | `2` | planner 等控制面槽，不被执行面占用 |
+| `LUSH_CONCURRENCY` | `4` | worker / research / verifier 执行槽的环境默认值，可被 `.lush/settings.json` 覆盖 |
+| `LUSH_CONTROL_CONCURRENCY` | `2` | planner 等控制面槽（不被执行面占用）的环境默认值，可被 `.lush/settings.json` 覆盖 |
 | `LUSH_CALL_TIMEOUT` | `900` | 单次模型调用超时秒数 |
 | `LUSH_TASK_CALLS` | `24` | 单 task invocation 总上限 |
 | `LUSH_MAX_DEPTH` | `8` | 任务树最大层数 |
@@ -265,6 +271,8 @@ pi 默认禁用个人 extensions / skills / prompt templates / themes，保留�
 | `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL` / `LUSH_PI_THINKING` | pi 默认 | `.lush/agent.json` 不存在时的 Pi 初始选择；之后由项目配置覆盖 |
 | `LUSH_CODEX_MODEL` / `LUSH_CODEX_THINKING` | codex 默认 | `.lush/agent.json` 不存在时的 Codex 初始选择；之后由项目配置覆盖 |
 | `LUSH_PI_COMMAND` / `LUSH_CODEX_COMMAND` | `pi` / `codex` | Agent CLI 可执行文件 |
+
+两条并发上限是唯一可在运行时改写的软件设置，存储在 `.lush/settings.json`（version 1，权限 `600`）：环境变量仍是默认值，文件里显式覆盖的键优先，`null` / 删键即回到环境默认。`lush config`（等价 `lush config show`）打印生效值、环境默认值、是否被覆盖与设置文件路径；`lush config set concurrency N`（1..64）与 `lush config set control-concurrency N`（1..16）写回并立即生效，`lush config reset [concurrency|control-concurrency|all]` 清除覆盖。Web 的「设置 → 系统 → 并发额度」提供同一读模型与保存 / 恢复动作（走 `system.configure`）。读取是 `system.status.settings`；读写两端都是用户专属，agent 调用会被拒绝。
 
 项目 Agent 配置保存在 `.lush/agent.json`，可在 Web「设置 → Agent」或 `lush agent set` 中按六类任务行为覆盖。每份配置分别提供“默认 Prompt”和“追加 Prompt”：Web 会显示当前实际生效的 Lush 内置 Prompt，并提供“恢复默认 Prompt”；修改后会完整替换内置协议，可能造成任务 API、权限边界和交付流程失效；追加 Prompt 用于在最终默认规则后补充项目要求。Web 可以按需读取 Pi / Codex CLI 当前可用模型，CLI 对应 `lush agent models pi|codex`，读取失败时仍可使用预设或手工模型 ID。Pi profile 还可从当前用户与项目已安装的扩展和 Skills 中多选，只把勾选项显式加载进后续 invocation；这些资源拥有当前用户权限，Codex profile 会保留选择但不加载。
 

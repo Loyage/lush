@@ -36,8 +36,10 @@ planner 一轮写完时，`Project.compilePlans()` 选择已经停止执行且�
 
 ## 两条并发车道
 
-- control lane：planner 等控制面调用，容量 `LUSH_CONTROL_CONCURRENCY`（默认 2）；
-- execution lane：worker / coordinator / research / verifier / merger，容量 `LUSH_CONCURRENCY`（默认 4）。
+- control lane：planner 等控制面调用，容量默认 `LUSH_CONTROL_CONCURRENCY`（2）；
+- execution lane：worker / coordinator / research / verifier / merger，容量默认 `LUSH_CONCURRENCY`（4）。
+
+两条车道的容量由项目级运行设置给出：上面两个环境变量只是默认值，被 `<home>/settings.json` 里显式覆盖的键取代。Web「设置 → 系统 → 并发额度」与 `lush config` 可以在运行时改写；写入内存并重新准入，下一次调度即按新生效值准入，不需要重启 daemon（调低并发不取消已经在跑的任务）。读取面见[agent 环境与权限](../reference/agent-environment.md)。
 
 因此长时间 worker 不能占满 planner 的槽。依赖未满足、waiting、awaiting 都不占调用槽。
 

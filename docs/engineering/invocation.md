@@ -27,10 +27,10 @@ Task 的累计 calls / wakes 继续用于兼容读模型，Run 保存每次调�
 
 ## 两条 admission lane
 
-- control：planner 和兼容历史 scheduler，`LUSH_CONTROL_CONCURRENCY`；
-- execution：worker / coordinator / research / verifier / merger，`LUSH_CONCURRENCY`。
+- control：planner 和兼容历史 scheduler，容量默认 `LUSH_CONTROL_CONCURRENCY`（2）；
+- execution：worker / coordinator / research / verifier / merger，容量默认 `LUSH_CONCURRENCY`（4）。
 
-两条 lane 独立计数。waiting / awaiting / 依赖未满足的 queued 不占槽。
+两条 lane 独立计数。容量是可在运行时改写的项目级设置（`<home>/settings.json` 覆盖环境默认值，Web「设置 → 系统」与 `lush config` 可改）；写盘后同步内存并重新 pump，下一次调度立即按新生效值准入，不需要重启 daemon。waiting / awaiting / 依赖未满足的 queued 不占槽。
 
 ## Plan 编译
 

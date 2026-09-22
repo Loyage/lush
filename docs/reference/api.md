@@ -18,6 +18,6 @@
 | `lush task cleanup` / `delete` / `clear` | [磁盘回收与清空](rpc/maintenance.md) |
 | `lush branch tree` / `show` / `import` / `archive` | [分支谱系](rpc/branches.md) |
 | `lush notice list` / `post` / `answer` / `dismiss` | [待决问题](rpc/notices.md) |
-| `lush status` / `lush daemon stop` | [Agent 环境与权限](agent-environment.md) |
+| `lush status` / `lush config show` / `lush config set|reset` / `lush daemon stop` | [Agent 环境与权限](agent-environment.md) |
 | Web 读取路由与 `POST /api/action` | [Web 路由](web-routes.md) |
 | HTTP 监听与安全约束 | [HTTP](http.md) |

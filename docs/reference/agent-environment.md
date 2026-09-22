@@ -1,6 +1,6 @@
 # Agent 环境与权限
 
-本节管 Pi / Codex 从 daemon 拿到的环境变量与 capability、项目级 Agent 配置、用户专属操作与信任边界，以及 `system.status` 里的 agent / 合并字段。
+本节管 Pi / Codex 从 daemon 拿到的环境变量与 capability、项目级 Agent 配置与运行设置、用户专属操作与信任边界，以及 `system.status` 里的 agent / 合并字段。
 
 | CLI | RPC | 参数 |
 |---|---|---|
@@ -8,9 +8,14 @@
 | `lush agent show` | `agent.config` | `{}` |
 | `lush agent models pi|codex` | `agent.models` | `{agent}` |
 | `lush agent set/reset …` | `agent.configure` | `{config}`（用户专属） |
+| `lush config [show]` | `system.status`（读 `settings`） | `{}` |
+| `lush config set concurrency|control-concurrency N` | `system.configure` | `{settings}`，只带要改的键（用户专属） |
+| `lush config reset [concurrency|control-concurrency|all]` | `system.configure` | `{settings}`，被重置的键传 `null`（用户专属） |
 | `lush daemon stop` | `system.stop` | `{}` |
 | `lush progress plan KEY[:LABEL]...` | `progress.plan` | `{steps:[{key,label}]}`（agent-only） |
 | `lush progress complete KEY` | `progress.complete` | `{step}`（agent-only） |
+
+项目级运行设置（并发额度）存在 `.lush/settings.json`（version 1，权限 `600`）：环境变量 `LUSH_CONCURRENCY` / `LUSH_CONTROL_CONCURRENCY` 只是默认值，被文件里显式覆盖的键取代，范围分别是 1..64 与 1..16；写盘后同步内存并重新准入，下一次调度立即生效，不需要重启 daemon。命令面用连字符（`control-concurrency`），设置文件与 RPC 里是下划线（`control_concurrency`）。
 
 Pi / Codex 每次 invocation 都从 daemon 获得：
 
@@ -25,8 +30,8 @@ CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 t
 
 `agent.models` 按需调用本机 CLI：Pi 使用 `pi --list-models`，Codex 使用 `codex debug models`。接口只返回筛选后的模型元数据，不暴露 CLI 的原始目录；读取失败时返回内置预设与 `warning`，模型 ID 仍可手工输入。
 
-`system.status` 的 `agent_config` 返回规范化配置、每类角色的 resolved profile 与 Web 可用选项；`agents` 只列运行中的 agent，并显示该次实际 backend / model / thinking，另有 `agents_total`（每个活动 task 一个 agent）与 `agents_idle`（已 park、未在跑的，含尚未首次唤醒的）。`pending_merges` 以原 worker 为稳定项统计 `integration=pending/review/conflict`，不把它的 resolver 再重复计数；完整交付阶段、实际 `source_task_id` 与 blockers 见 `task.ladder.groups`。`merge_freeze` 列出正被未解决冲突冻结的目标分支。agent 身份本身（id / 唤醒次数 / 上次动手时间）可以跨唤醒读取，但它不是可寻址的执行句柄：用户操作一律按 task ID 进行。
+`system.status` 的 `agent_config` 返回规范化配置、每类角色的 resolved profile 与 Web 可用选项；`settings` 是并发额度的读写镜像（读自 `system.status`，写走用户专属的 `system.configure`）：`{file, concurrency:{value,default,overridden}, control_concurrency:{value,default,overridden}}`，顶层 `concurrency` / `control_concurrency` 仍是生效值，环境变量只提供默认值。`agents` 只列运行中的 agent，并显示该次实际 backend / model / thinking，另有 `agents_total`（每个活动 task 一个 agent）与 `agents_idle`（已 park、未在跑的，含尚未首次唤醒的）。`pending_merges` 以原 worker 为稳定项统计 `integration=pending/review/conflict`，不把它的 resolver 再重复计数；完整交付阶段、实际 `source_task_id` 与 blockers 见 `task.ladder.groups`。`merge_freeze` 列出正被未解决冲突冻结的目标分支。agent 身份本身（id / 唤醒次数 / 上次动手时间）可以跨唤醒读取，但它不是可寻址的执行句柄：用户操作一律按 task ID 进行。
 
-以下操作限用户：system.stop、agent.configure、input.submit、task.cancel/retry/merge/cleanup/clear、branch.import/merge/sync/archive、notice.answer/dismiss。CLI 另禁止 agent 启动 daemon、Web 或阻塞等待。
+以下操作限用户：system.stop、system.configure、agent.configure、input.submit、task.cancel/retry/merge/cleanup/clear、branch.import/merge/sync/archive、notice.answer/dismiss。CLI 另禁止 agent 启动 daemon、Web 或阻塞等待。
 
 本地用户可以不带 token 调用 RPC，这是明确的信任边界，不是多用户 ACL。能执行任意本机命令的恶意 agent 也能绕过环境约定；需要真正沙箱时应另加 OS 隔离。

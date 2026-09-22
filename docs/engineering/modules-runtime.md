@@ -15,6 +15,14 @@
 | `agent/guide.js` | Lush 内置任务、权限与交付协议；profile 未替换默认 Prompt 时使用 | `GUIDE` |
 | `agent/session.js` | Pi 会话 JSONL 的只读解析与用量投影 | 会话解析函数 |
 
+## 运行设置：`src/core/settings.js`
+
+并发上限是唯一可在运行时改写的软件设置，存储在 `<home>/settings.json`（version 1，权限 `600`）。`src/config.js` 构造时先校验环境变量得到默认值，再用这里的覆盖值算出生效的 `config.concurrency` / `config.controlConcurrency`；`configureRuntime(patch)` 写盘后同步内存并调用宿主的 `onKick` 重新准入。
+
+| 文件 | 职责 | 导出 |
+|---|---|---|
+| `core/settings.js` | 运行设置的存储与校验：只接受 `concurrency`（1..64）与 `control_concurrency`（1..16），`null` 清除该键；读时校验 uid / symlink / 大小 / 字段，写用临时文件加 rename 原子替换（`0600`）；`get()` 给出生效值 / 环境默认值 / 是否被覆盖与文件路径，`save(patch)` 先校验再落盘 | `RUNTIME_SETTINGS_KEYS`、`RUNTIME_SETTINGS_LIMITS`、`normalizeRuntimeSettings()`、`RuntimeSettings` |
+
 ## 任务编排：`src/core/project.js` + `src/core/project/`
 
 入口 `project.js` 只做装配：`export class Project extends ProjectBase {}`，
@@ -25,7 +33,8 @@
 | `project/base.js` | 构造与实例状态（`config` / `store` / `agentSettings` / `provider` / `workspaces` / `running` / `stopping` / `scheduled` / `ancestry`） | `class ProjectBase` |
 | `project/internal.js` | 两个跨模块的私有助手 | `agentView(task, run, latestRun)`、`tokenHash(token)` |
 | `project/agents.js` | 项目级 Agent 配置读写接缝；读取动态生效，按需查询 Pi / Codex 本机模型目录及 Pi 扩展/Skills，写入只允许用户侧 RPC | `agentConfig()`、`agentModels(agent)`、`agentResources()`、`configureAgents(value)` |
-| `project/status.js` | 项目级读模型（任务分布、layers、意图、spec、drafts、agents、待合并、合并冻结、notice 计数），并镜像 daemon 软件配置与当前 `agent_config`；`provider` 表示当前默认 Agent（mock 模式仍为 mock），旧 pi 环境变量字段继续只读返回用于兼容 | `status()` |
+| `project/settings.js` | 项目级运行设置接缝：把运行设置的读模型喂给 `system.status`，并把用户侧的 `system.configure` 接到 `Config.configureRuntime` | `runtimeSettings()`、`configureRuntimeSettings(patch)` |
+| `project/status.js` | 项目级读模型（任务分布、layers、意图、spec、drafts、agents、待合并、合并冻结、notice 计数），并镜像 daemon 软件配置与当前 `agent_config`；其中并发额度另给 `settings` 镜像（每个键的生效值 / 环境默认值 / 是否被覆盖与文件路径；写走用户专属的 `system.configure`），顶层 `concurrency` / `control_concurrency` 仍是生效值；`provider` 表示当前默认 Agent（mock 模式仍为 mock），旧 pi 环境变量字段继续只读返回用于兼容 | `status()` |
 | `project/deps.js` | 依赖边的读模型与结构校验 | `decorate(tasks)`、`blockedBy(taskId)`、`assertDeps(taskId, parent, edges)` |
 | `project/inputs.js` | 从用户指定父分支创建可推进输入分支、在其中规划，以及流程判定；`inputs()` 的意图列表由 `inputs JOIN tasks` 内连接派生（任务那一半是输入自己的根 planner），所以根 planner 被 `task.delete` 删掉的输入行仍在库里，但不再出现在这个列表里 | `anchorInput(branch)`、`insertInput(inputId, anchor, content, attach, references)`、`createInput(content, attach, branch, references)`、`submit(content, branch, references)`、`inputs()`、`setInputFlow(taskId, flow)` |
 | `project/drafts.js` | 输入缓存（增删改、结构化引用、整体提交到指定父分支） | `draft`、`drafts`、`dropDraft`、`editDraft`、`commitDrafts(ids, branch)` |
