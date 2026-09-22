@@ -4,6 +4,9 @@ lush [--project PATH] [--json] <command>
   daemon start|stop|restart|status  一个项目一个进程
   status                          项目、agent、待合并改动
   doctor                          目录、工具链与代码版本
+  agent prompt ROLE               按段查看该角色最终 prompt；--json 可看组成与来源
+  agent init [ROLE] [--local]      创建可提交的 .lush-agent/ 补充；--local 写本机 .lush/agent/
+  agent env ROLE                  查看该角色热加载的 env 文件和变量名（值不显示）
   say '你的意图'                    立即持久化并排入规划队列，不等待开发
   intent list                     查看意图：每条输入 + 它的 planner 拆解与 scheduler 编排进度（别名 intents）
   plan propose '标题' [--body '…']   planner 专用：这轮拆解请你先批准（影响面大 / 与现状冲突 / 没把握读懂意图）
@@ -57,4 +60,6 @@ lush [--project PATH] [--json] <command>
 依赖：一个任务最多一条 code 依赖。code（默认）把上游分支当作本任务 worktree 的基线，
 因此看得到上游未合并的改动，但必须先合并上游再合并本任务；order 只等上游结束，代码仍从 HEAD 开始。
 依赖不能指向自己的祖先任务（祖先在等子孙结束，双方会互相等死）。
-Agent 默认 pi；LUSH_PROVIDER=mock 可离线验证。`;
+Agent 默认 pi；LUSH_PROVIDER=mock 可离线验证。
+Prompt 由内置公共片段 + 角色片段 + .lush-agent/{common,ROLE}.md + 本机 .lush/agent/{common,ROLE}.md 组成。
+额外环境变量从 .lush/agent/agent.env 与 .lush/agent/ROLE.env 每轮热加载；角色文件覆盖公共文件，LUSH_* 保留。`;

@@ -46,11 +46,12 @@
 | Git 边界 | `src/core/workspaces.js` | `src/core/workspaces/`（5 个） | ✅ |
 | 持久化 | `src/persistence/store.js` | `src/persistence/store/`（9 个） | ✅ |
 | 前端 | `src/ui/web/assets/app.js` | `src/ui/web/assets/`（26 个） | ✅ |
-| CLI | `src/cli/main.js` | `src/cli/`（10 个） | ✅ |
+| CLI | `src/cli/main.js` | `src/cli/`（11 个） | ✅ |
 | RPC | `src/rpc/protocol.js` | `src/rpc/`（7 个） | ✅ |
-| 测试 | `test/*.test.js` | `test/<分区>/*.test.js` | 依赖上面六个落定后 |
+| Agent 运行时 | `src/agent/provider.js` | `src/agent/`（prompt 组合、环境覆盖） | ✅ |
+| 测试 | `test/*.test.js` | `test/<分区>/*.test.js` | 依赖上面七个落定后 |
 
-前六个分区 **互不共享文件**，可以同时开工。测试分区要等它们落地，否则测的是半成品。
+前七个分区 **互不共享文件**，可以同时开工。测试分区要等它们落地，否则测的是半成品。
 
 ---
 
@@ -170,6 +171,7 @@
 | `cli/commands/plan.js` | `plan` | `run` |
 | `cli/commands/notice.js` | `notice` | `run` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` | `run` |
+| `cli/commands/agent.js` | `agent prompt/env/init`：查看组合、环境来源与创建补充文件 | `run` |
 | `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒 | `main(argv)`（并 re-export `HELP`） |
 
 ## 6. RPC：`src/rpc/protocol.js` + `src/rpc/`
@@ -187,7 +189,15 @@
 | `rpc/handlers/notice.js` | `notice.*` | `handlers` |
 | `rpc/dispatcher.js` | 合并 handler 表（查重名、查漏），校验后分派 | `class Dispatcher` |
 
-## 7. 测试：`test/`
+## 7. Agent 运行时：`src/agent/`
+
+| 文件 | 职责 | 导出 |
+|---|---|---|
+| `agent/prompts.js` | 命名 prompt 片段、按角色组合、读取可提交与本地补充 | `AGENT_ROLES`、`PROMPT_PARTS`、`ROLE_PROMPT_PARTS`、`agentPrompt(config,role)` |
+| `agent/environment.js` | 每次 invocation 热加载 `.lush/agent/*.env`，校验并叠加全局/角色环境 | `agentEnvironment(config,role)`、`parseAgentEnv(source,file)` |
+| `agent/provider.js` | pi / mock provider；把组合后的 role prompt 与环境交给子进程 | `PiProvider`、`MockProvider` |
+
+## 8. 测试：`test/`
 
 拆分只搬文件、不改断言。测试文件之间共享模块注册表，所以**每个测试文件必须自给自足**
 （自己的 fixture / world / DOM stub），不要靠别的文件先跑过。

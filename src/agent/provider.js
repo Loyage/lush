@@ -2,7 +2,8 @@ import cp from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GUIDE } from './guide.js';
+import { agentPrompt } from './prompts.js';
+import { agentEnvironment } from './environment.js';
 
 const BIN = fileURLToPath(new URL('../../bin', import.meta.url));
 export class PiProvider {
@@ -15,14 +16,17 @@ export class PiProvider {
     // Use a prompt file rather than argv for arbitrarily large project context.
     const promptFile = path.join(sessions, `task-${task.id}-input.md`);
     fs.writeFileSync(promptFile, prompt, { mode: 0o600 });
+    const guide = agentPrompt(config, task.role).text;
+    const extraEnv = agentEnvironment(config, task.role).values;
     const args = ['--print', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes',
-      '--session-dir', sessions, '--session-id', `lush-task-${task.id}`, '--append-system-prompt', GUIDE,
-      `Read ${promptFile} for your current Lush task and unread messages. Follow the task role and report your result.`];
+      '--session-dir', sessions, '--session-id', `lush-task-${task.id}`, '--append-system-prompt', guide,
+      `Read ${promptFile} for your current Lush task and unread messages. Follow the assembled ${task.role} instructions and report your result.`];
     if (config.env.LUSH_PI_MODEL) args.unshift('--model', config.env.LUSH_PI_MODEL);
     if (config.env.LUSH_PI_PROVIDER) args.unshift('--provider', config.env.LUSH_PI_PROVIDER);
     const child = cp.spawn(config.env.LUSH_PI_COMMAND || 'pi', args, {
       cwd, detached: true, stdio: ['ignore','pipe','pipe'],
-      env: { ...config.env, LUSH_TASK_ID: String(task.id), LUSH_AGENT_TOKEN: token, PATH: `${BIN}${path.delimiter}${config.env.PATH || ''}` },
+      env: { ...config.env, ...extraEnv, LUSH_TASK_ID: String(task.id), LUSH_AGENT_TOKEN: token,
+        PATH: `${BIN}${path.delimiter}${extraEnv.PATH ?? config.env.PATH ?? ''}` },
     });
     onSpawn(child.pid);
     let output = '', stderr = '', overflow = false;

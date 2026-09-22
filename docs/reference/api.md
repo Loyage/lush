@@ -16,6 +16,6 @@
 | `lush task inspect` / `history` / `diff` / `transcript` / `usage` / `wait` | [审阅与过程读模型](rpc/inspect.md) |
 | `lush task cleanup` / `clear` | [磁盘回收与清空](rpc/maintenance.md) |
 | `lush notice list` / `post` / `answer` / `dismiss` | [待决问题](rpc/notices.md) |
-| `lush status` / `lush daemon stop` | [Agent 环境与权限](agent-environment.md) |
+| `lush status` / `lush daemon stop` / `lush agent prompt/env/init` | [Agent 环境与权限](agent-environment.md) |
 | Web 读取路由与 `POST /api/action` | [Web 路由](web-routes.md) |
 | HTTP 监听与安全约束 | [HTTP](http.md) |

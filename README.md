@@ -113,7 +113,36 @@ verifier 与被检验任务是两个 task（worker 已经终态，不能再挂�
 - 实现任务需要项目是 **Git worktree 根目录且有初始提交**。主工作树可以有未提交改动：worker 只基于**已提交**的 HEAD（或 `code` 依赖的上游分支）开工，看不到你未提交的编辑。这份分歧会记进 `workspace.created` 事件，`task diff` 的 `base_behind` 给出基线落后目标分支多少提交。把 `.lush/` 加进项目的 `.gitignore`；Lush 不会替你提交、暂存或藏起已有改动，**合并时主工作树必须干净**。
 - 非 Git 项目也能提交输入和调研，但不能创建实现 worktree。
 - `LUSH_PROVIDER=mock bun run start --project ...` 可离线演示调度。Mock 只派调研任务，不调用模型、不修改代码。
-- 改环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。
+- 改 daemon 自身环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。`.lush/agent/*.env` 与 prompt 补充则在每次 invocation 前热加载，不需要重启。
+
+### Agent prompt：公共片段、角色片段与项目补充
+
+所有角色不再共用一整份大提示词。内置 prompt 是有名字的片段：每个角色只组合自己的职责、所需协作知识、相关 CLI、决策规则和完成规则。planner 只看到“可委派角色”的短目录，不会收到 worker / verifier / merger 的完整操作细节；这样既保留正确拆解所需的信息，又减少噪声和互相矛盾的指令。
+
+```bash
+lush agent prompt planner          # 按标题显示最终 prompt、组成顺序与来源
+lush --json agent prompt worker    # 机器可读：parts / source / content / text
+lush agent init planner            # 创建可提交的 .lush-agent/common.md、planner.md
+lush agent init worker --local     # 创建本机私有的 .lush/agent/common.md、worker.md
+```
+
+最终顺序是：**内置公共/角色片段 → `.lush-agent/common.md` → `.lush-agent/<role>.md` → `.lush/agent/common.md` → `.lush/agent/<role>.md`**。`.lush-agent/` 可提交给团队；`.lush/agent/` 跟随已经被忽略的状态目录，适合个人偏好。空文件不进入 prompt。项目 `AGENTS.md` 仍由 pi 作为代码库约定加载；角色行为应写在 `.lush-agent/`，不要把七种角色的详细规则都塞进 `AGENTS.md`。
+
+### Agent 专用环境变量
+
+启动 daemon 的 shell 环境仍会被所有 agent 继承。临时或角色专用配置放在本机状态目录，每次 invocation 启动前重新读取：
+
+```dotenv
+# .lush/agent/agent.env：所有角色
+HTTP_PROXY=http://127.0.0.1:7897
+HTTPS_PROXY=http://127.0.0.1:7897
+ALL_PROXY=socks5://127.0.0.1:7897
+
+# .lush/agent/research.env：只覆盖 research
+SEARCH_ENDPOINT=https://example.invalid
+```
+
+角色文件覆盖 `agent.env`，两者都覆盖 daemon 继承环境；`PATH` 也可设置，但 Lush 自己的 `bin/` 永远前置。为避免破坏项目绑定和临时 capability，所有 `LUSH_*` 名称都拒绝加载。env 文件是字面量 `NAME=value`（支持单/双引号和 `export NAME=value`），不做 shell 展开；密钥不要放进可提交的 `.lush-agent/`。用 `lush agent env research` 查看实际加载了哪些文件和变量名，值会被隐藏。
 
 ## 新模型
 
@@ -210,7 +239,7 @@ socket 放在用户私有临时目录，名字由 canonical 项目路径决定�
 
 任务状态：`queued → running → waiting / awaiting / completed / failed / cancelled`。等待收到新消息后重新排队（开放的结构化问卷优先挡住唤醒，必须先回答或忽略）。终态任务不会保留活动子任务。取消或停止会终止 agent 进程组；重启对未知副作用的运行中任务标记失败，不自动重放；未开始的排队任务、待用户答复和记录保留。重试失败子任务要求父任务仍活动，否则重试父任务或提交新输入。
 
-角色有 planner / coordinator / worker / research / verifier。verifier 是用户点「检验」时才创建的只读任务，它**不是**被检验任务的子任务（终态任务不能再挂活动子任务），而是独立根任务，用 `tasks.verifies_task_id` 指向被检验的 worker；父子不变的不变量不被破坏，界面上依旧挂在被检验任务下面。
+角色有 planner / scheduler / coordinator / worker / research / verifier / merger。scheduler 属于意图层；verifier 是用户点「检验」时才创建的只读任务，它**不是**被检验任务的子任务（终态任务不能再挂活动子任务），而是独立根任务，用 `tasks.verifies_task_id` 指向被检验的 worker；merger 只由 runtime 在用户批准的内容冲突流程中创建。父子不变的不变量不被破坏，界面上 verifier 依旧挂在被检验任务下面。
 
 **Task 与 agent 是终身一对一的身份。** 任务一创建就拥有一个 agent（`<role>#<task-id>`，例如 `worker#7`），跨唤醒不换身份：pi session、累计唤醒次数和上次动手时间都记在这个 agent 上，`task inspect` 与 Web 详情直接展示。但它的 RPC 凭证是每次唤醒重新签发的：daemon 只存 SHA-256，且只在该次 invocation 运行期间可解析，invocation 结束即作废，重启后一律清空。因此 1:1 指的是身份，不是进程或凭证——等待子任务或用户时 agent 依然存在，但不占执行槽、也没有活着的调用。
 
@@ -230,6 +259,8 @@ pi 默认禁用个人 extensions / skills / prompt templates / themes，保留�
 | `LUSH_MAX_DEPTH` | `8` | 任务树最大层数 |
 | `LUSH_PI_COMMAND` | `pi` | pi 可执行文件 |
 | `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL` | pi 默认 | 模型选择 |
+
+角色 prompt 补充在 `.lush-agent/*.md`（可提交）与 `.lush/agent/*.md`（本机）；agent 子进程环境补充在 `.lush/agent/agent.env` 和 `.lush/agent/<role>.env`。它们按 invocation 热加载，不属于 daemon 配置环境变量。
 
 `tasks.result` 只保存 invocation 的最后一次输出；完整的执行过程（思考、工具调用、工具输出）留在 `.lush/sessions/*.jsonl`，用 `lush task transcript ID`（Web 详情里的「执行过程」）只读查看，agent 的模型、上下文占用与累计花费用 `lush task usage ID` 从同一批文件里读出（Web 详情里的「Agent」块）。截图、过程与结论分开：审阅合并时看 result 与 `task diff`，需要追究 agent 怎么做的时候看 transcript，需要直接看结果跑起来时点「检验」。
 
