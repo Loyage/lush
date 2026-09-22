@@ -10,6 +10,10 @@ lush [--project PATH] [--json] <command>
                                   设置默认或 planner/coordinator/worker/research/verifier/merger；下次调用生效
                                   default-prompt 会替换 Lush 内置规则，使用前请确保包含完整任务与安全协议
   agent reset ROLE               删除该角色覆盖，恢复继承项目默认配置
+  config [show]                   查看并发额度：生效值、环境默认值、来源与设置文件
+  config set concurrency N        执行通道并发上限（1..64），写回项目设置并立即生效
+  config set control-concurrency N 控制通道并发上限（1..16）
+  config reset [concurrency|control-concurrency|all]  清除覆盖，回到环境默认
   doctor                          目录、工具链与代码版本
   say '你的意图' [--branch NAME]    从指定本地分支创建输入分支并排入规划；省略 NAME 使用当前分支
   intent list                     查看意图、Plan 编译与验收候选进度（别名 intents）

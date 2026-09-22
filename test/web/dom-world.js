@@ -69,6 +69,12 @@ export function makeWorld() {
       ],
     },
     currentBranch: 'main',
+    // 运行设置（并发上限）：system.status.settings 的镜像；/api/action 的 system.configure 改写它。
+    runtimeSettings: {
+      file: '/tmp/demo/.lush/settings.json',
+      concurrency: { value: 2, default: 2, overridden: false },
+      control_concurrency: { value: 1, default: 1, overridden: false },
+    },
     notices: [],
     transcriptAfter: [],
     actions: [],
@@ -126,7 +132,9 @@ export function makeWorld() {
   const task4 = { id: 4, parent_id: null, input_id: null, role: 'scheduler', goal: '调度拆解队列', status: 'queued', integration: 'none',
     updated_at: iso(NOW - 500), agent_wakes: 0, agent_last_seen_at: null, verifies_task_id: null, resolves_task_id: null };
   const snapshot = () => ({
-    status: { project: '/tmp/demo', home: '/tmp/demo/.lush', provider: 'mock', concurrency: 2, control_concurrency: 1,
+    status: { project: '/tmp/demo', home: '/tmp/demo/.lush', provider: 'mock',
+      concurrency: state.runtimeSettings.concurrency.value, control_concurrency: state.runtimeSettings.control_concurrency.value,
+      settings: state.runtimeSettings,
       call_timeout: 900, task_call_limit: 24, max_depth: 8, agent_config: state.agentConfig, agents: [], agents_idle: 0, agents_total: 0,
       pending_merges: [{ id: 2, goal: '合并我', branch: 'lush/2-x', integration: 'pending' }], drafts: 0,
       tasks: [{ status: 'running', count: 1 }, { status: 'completed', count: 2 }], merge_freeze: state.freeze, notices: 0,
@@ -190,6 +198,19 @@ export function makeWorld() {
         state.agentConfig = { ...state.agentConfig, version: 1, default: config.default, roles: config.roles,
           resolved: Object.fromEntries(state.agentConfig.options.roles.map(({ id }) => [id, { ...(config.roles[id] || config.default) }])) };
         return json(state.agentConfig);
+      }
+      if (body.method === 'system.configure') {
+        // 并发上限的热更新：null 清除覆盖（回退环境默认），数字写为覆盖值；与核心同语义。
+        const patch = body.params.settings || {};
+        const next = { ...state.runtimeSettings };
+        for (const key of ['concurrency', 'control_concurrency']) {
+          if (!Object.hasOwn(patch, key)) continue;
+          next[key] = patch[key] === null
+            ? { ...next[key], value: next[key].default, overridden: false }
+            : { ...next[key], value: patch[key], overridden: true };
+        }
+        state.runtimeSettings = next;
+        return json({ file: next.file, concurrency: next.concurrency, control_concurrency: next.control_concurrency });
       }
       if (body.method === 'branch.merge') return json({ child: body.params.branch, parent: 'main', status: 'integrated', merged: true });
       if (body.method === 'branch.sync') return json({ branch: body.params.branch, parent: 'main', status: 'queued', task: { id: 88 } });

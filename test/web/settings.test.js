@@ -23,6 +23,8 @@ const openSystem = () => { openSettings(); openTab('system'); };
 const openAgent = () => { openSettings(); openTab('agent'); };
 const systemBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '运行状态') || null;
+const runtimeBlock = () => [...panel().querySelectorAll('.block')]
+  .find(node => node.querySelector('h2')?.textContent === '并发额度') || null;
 
 test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1.5s 轮询不覆盖该视图', async () => {
   await dom.intervalFor(1500)();
@@ -267,17 +269,85 @@ test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可�
   expect(world.state.agentConfig.roles.planner.append_prompt).toBe('规划时先列风险。');
 });
 
-test('系统页：只读展示 daemon 状态与项目路径', () => {
+test('系统页：只读展示 daemon 状态与项目路径，并发额度改为可编辑表单', () => {
   openSystem();
   const block = systemBlock();
   expect(block).toBeTruthy();
   const value = field => block.querySelector(`[data-system-field="${field}"]`).textContent;
   expect(value('provider')).toBe('mock');
-  expect(value('concurrency')).toBe('2 / 1');
   expect(value('call_timeout')).toBe('900 秒');
   expect(value('task_call_limit')).toBe('24');
   expect(value('max_depth')).toBe('8');
-  for (const control of ['input', 'select', 'textarea', 'button']) expect(block.querySelector(control)).toBeNull();
+  // 并发额度不再是只读行；那句「并发与调用限制仍由环境变量在 daemon 启动时读取」也不再出现。
+  expect(block.querySelector('[data-system-field="concurrency"]')).toBeNull();
+  expect(deepText(block)).not.toContain('仍由环境变量在 daemon 启动时读取');
+
+  const runtime = runtimeBlock();
+  expect(runtime).toBeTruthy();
+  const input = key => runtime.querySelector(`input[data-runtime-input="${key}"]`);
+  const stateText = key => runtime.querySelector(`[data-runtime-state="${key}"]`).textContent;
+  expect(input('concurrency').value).toBe('2');
+  expect(input('control_concurrency').value).toBe('1');
+  expect(input('concurrency').max).toBe('64');
+  expect(input('control_concurrency').max).toBe('16');
+  expect(stateText('concurrency')).toContain('生效 2');
+  expect(stateText('concurrency')).toContain('环境默认 2');
+  expect(runtime.querySelector('[data-runtime-source="concurrency"]').textContent).toBe('环境默认');
+  expect(runtime.querySelector('[data-runtime-source="control_concurrency"]').textContent).toBe('环境默认');
+  expect(runtime.querySelector('.settings-path').textContent).toBe('/tmp/demo/.lush/settings.json');
+  expect(runtime.querySelector('button[data-runtime-action="save"]')).toBeTruthy();
+  expect(runtime.querySelector('button[data-runtime-action="reset"]')).toBeTruthy();
+});
+
+test('系统页：保存写回并发额度并立即反映到快照；越界或非整数在页面报错且不落盘', async () => {
+  openSystem();
+  let runtime = runtimeBlock();
+  runtime.querySelector('input[data-runtime-input="concurrency"]').value = '8';
+  runtime.querySelector('input[data-runtime-input="control_concurrency"]').value = '5';
+  await runtime.querySelector('button[data-runtime-action="save"]').onclick();
+
+  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { settings: { concurrency: 8, control_concurrency: 5 } } });
+  expect(world.state.runtimeSettings.concurrency).toEqual({ value: 8, default: 2, overridden: true });
+  expect(world.state.runtimeSettings.control_concurrency).toEqual({ value: 5, default: 1, overridden: true });
+  // 内存里立刻镜像到快照，不必等下一次轮询。
+  expect(state.ui.lastSnapshot.status.concurrency).toBe(8);
+  expect(state.ui.lastSnapshot.status.settings.concurrency.overridden).toBe(true);
+  runtime = runtimeBlock();
+  expect(runtime.querySelector('input[data-runtime-input="concurrency"]').value).toBe('8');
+  expect(runtime.querySelector('[data-runtime-source="concurrency"]').textContent).toBe('已覆盖');
+
+  // 越界（65 > 64）：页面报错、不发写请求、磁盘状态保持上一次成功写入的值。
+  const before = world.state.actions.length;
+  runtime.querySelector('input[data-runtime-input="concurrency"]').value = '65';
+  await runtime.querySelector('button[data-runtime-action="save"]').onclick();
+  expect(world.state.actions.length).toBe(before);
+  expect(world.state.runtimeSettings.concurrency.value).toBe(8);
+  expect(runtimeBlock().querySelector('.settings-error').hidden).toBe(false);
+  expect(runtimeBlock().querySelector('.settings-error').textContent).toContain('1 到 64');
+
+  // 非整数同样被拦下（先把上一个越界值改回合法值，否则先撞上执行通道的错）。
+  const blocked = runtimeBlock();
+  blocked.querySelector('input[data-runtime-input="concurrency"]').value = '8';
+  blocked.querySelector('input[data-runtime-input="control_concurrency"]').value = '2.5';
+  await blocked.querySelector('button[data-runtime-action="save"]').onclick();
+  expect(world.state.actions.length).toBe(before);
+  expect(world.state.runtimeSettings.control_concurrency.value).toBe(5);
+  expect(runtimeBlock().querySelector('.settings-error').textContent).toContain('1 到 16');
+});
+
+test('系统页：恢复环境默认清除两个覆盖', async () => {
+  openSystem();
+  const runtime = runtimeBlock();
+  runtime.querySelector('input[data-runtime-input="concurrency"]').value = '7';
+  await runtime.querySelector('button[data-runtime-action="save"]').onclick();
+  expect(world.state.runtimeSettings.concurrency.overridden).toBe(true);
+
+  await runtimeBlock().querySelector('button[data-runtime-action="reset"]').onclick();
+  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { settings: { concurrency: null, control_concurrency: null } } });
+  expect(world.state.runtimeSettings.concurrency).toEqual({ value: 2, default: 2, overridden: false });
+  expect(world.state.runtimeSettings.control_concurrency).toEqual({ value: 1, default: 1, overridden: false });
+  expect(state.ui.lastSnapshot.status.control_concurrency).toBe(1);
+  expect(runtimeBlock().querySelector('[data-runtime-source="concurrency"]').textContent).toBe('环境默认');
 });
 
 test('系统页：没有快照时显示占位', () => {
