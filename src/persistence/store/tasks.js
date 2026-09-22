@@ -14,6 +14,16 @@ export const tasks = {
       agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
       ...(layer ? [layer] : []));
   },
+  /** Bounded work-task pages for the Web overview; the legacy summaries() surface stays unchanged. */
+  summaryPage({ active = false, before = null, limit = 50 } = {}) {
+    const where = ["layer='work'"]; const params = [];
+    if (active) where.push("status NOT IN ('completed','failed','cancelled')");
+    else where.push("status IN ('completed','failed','cancelled')");
+    if (before !== null) { where.push('id<?'); params.push(before); }
+    return this.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
+      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan FROM tasks
+      WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?`, ...params, limit);
+  },
   /** Tasks the scheduler may still touch: a clear has to wait for all of them. */
   activeTasks() {
     return this.all("SELECT id,status FROM tasks WHERE status NOT IN ('completed','failed','cancelled') ORDER BY id");

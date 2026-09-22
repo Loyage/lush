@@ -28,6 +28,7 @@ export async function loadDetail(taskId) {
     throw error;
   }
   if (ui.selected !== taskId) return;
+  timeline.onMore = before => loadHistory(taskId, before);
   ui.selectedRevision = task.updated_at; ui.detailTask = taskId; ui.detailRenderedAt = Date.now(); ui.detailDirty = false;
   renderDetail(task, timeline, diff, usage);
   $('detail').scrollTop = scrolled;

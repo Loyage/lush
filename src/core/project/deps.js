@@ -4,7 +4,7 @@ import { check, TERMINAL } from '../types.js';
 export default {
   /** Task rows plus their dependency edges, so every read model shows what a queued task waits for. */
   decorate(tasks) {
-    const edges = this.store.depMap();
+    const edges = this.store.depMap(tasks.map(task => task.id));
     return tasks.map(task => {
       const deps = edges.get(task.id) || [];
       return { ...this.progressView(task), deps, blocked: deps.some(edge => !TERMINAL.has(edge.status)) };

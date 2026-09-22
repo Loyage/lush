@@ -1,4 +1,5 @@
 import { $, badge, button, el, syncChildren } from './dom.js';
+import { api } from './api.js';
 import { DEP_HELP, HOT, INTEGRATION, ROLE, TERMINAL_STATUS, absolute, depsOf, relative, statusOf, waitingDeps } from './format.js';
 import { filterUi, roleOption, syncSelectOptions, uniqueValues, withCurrent } from './filters-ui.js';
 import { detail } from './navigate.js';
@@ -130,6 +131,31 @@ export function renderTree(data) {
   };
   walk(0, 0);
   if (isFiltering(query) && !visible.length) ordered.push(el('div', '没有符合筛选的条目', 'filter-empty'));
+  const page = data.task_page;
+  if (page) {
+    const paging = el('div', undefined, 'task-pagination');
+    paging.append(el('span', page.truncated
+      ? `当前显示全部 ${page.active} 个活动任务和最近 ${page.shown} / ${page.historical} 个历史任务（列表已截断）`
+      : `已显示全部 ${page.total} 个任务`, 'hint'));
+    if (page.has_more) {
+      const more = button('加载更早 50 个', async () => {
+        more.disabled = true; more.textContent = '加载中…';
+        try {
+          const next = await api(`/api/tasks?before=${page.cursor}&limit=50`);
+          const loaded = new Map([...ui.taskHistory, ...next.tasks].map(task => [task.id, task]));
+          ui.taskHistory = [...loaded.values()];
+          ui.taskHistoryPage = { ...page, cursor: next.cursor, has_more: next.has_more, truncated: next.has_more,
+            shown: page.shown + next.tasks.length };
+          const all = new Map([...data.tasks, ...next.tasks].map(task => [task.id, task]));
+          data.tasks = [...all.values()].sort((a, b) => a.id - b.id);
+          data.task_page = ui.taskHistoryPage;
+          renderTree(data);
+        } catch (error) { more.disabled = false; more.textContent = '加载更早 50 个'; more.title = error.message; }
+      }, 'ghost');
+      more.type = 'button'; paging.append(more);
+    }
+    ordered.push(paging);
+  }
   syncChildren(container, ordered);
   const active = data.tasks.filter(task => HOT.has(task.status)).length;
   const matched = isFiltering(query) ? data.tasks.filter(task => matchTask(task, query)).length : data.tasks.length;
@@ -138,5 +164,5 @@ export function renderTree(data) {
   $('task-count').textContent = isFiltering(query)
     ? `${countText(matched, data.tasks.length)}${paths > 0 ? `（含 ${paths} 个父级）` : ''}${summary ? ` · ${summary}` : ''}`
     : `${data.tasks.length} 个 · ${active} 进行中`;
-  setNavCount('tasks', data.tasks.length);
+  setNavCount('tasks', page?.total ?? data.tasks.length);
 }

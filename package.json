@@ -10,6 +10,7 @@
   "scripts": {
     "test": "bun test",
     "docs:check": "bun ./scripts/docs-check.js",
+    "measure:read-performance": "bun ./scripts/measure-read-performance.js",
     "lush": "bun ./bin/lush",
     "lushd": "bun ./bin/lushd",
     "help": "bun ./scripts/ops.js help",

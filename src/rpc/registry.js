@@ -1,10 +1,10 @@
 import { LushError, check, isPlainObject } from '../core/types.js';
 
 export const PARAMS = {
-  'system.status': [], 'system.stop': [], 'system.timeline': ['limit'], 'system.configure': ['settings'], 'agent.config': [], 'agent.models': ['agent'], 'agent.resources': [], 'agent.environment': ['target'], 'agent.environment.configure': ['target','values'], 'agent.configure': ['config'],
+  'system.status': [], 'system.summary': [], 'system.stop': [], 'system.timeline': ['limit'], 'system.configure': ['settings'], 'agent.config': [], 'agent.models': ['agent'], 'agent.resources': [], 'agent.environment': ['target'], 'agent.environment.configure': ['target','values'], 'agent.configure': ['config'],
   'input.submit': ['content','branch','references'], 'input.list': [], 'input.flow': ['id','flow'],
   'draft.add': ['content','references'], 'draft.list': [], 'draft.remove': ['id'], 'draft.update': ['id','content','references'], 'draft.commit': ['ids','branch'],
-  'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.diff': ['id'],
+  'task.list': ['after','limit'], 'task.activity': ['limit'], 'task.page': ['before','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.history_page': ['id','before','limit'], 'task.diff': ['id'],
   'task.transcript': ['id','after','limit'], 'task.usage': ['id'],
   'progress.plan': ['steps'], 'progress.complete': ['step'],
   'task.spawn': ['parent','goal','role','deps','name','spec'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],

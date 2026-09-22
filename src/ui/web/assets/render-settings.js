@@ -15,6 +15,7 @@ const TABS = [
   { id: 'system', label: '系统', note: '运行参数与路径' },
 ];
 let activeTab = 'agent';
+let agentConfigPromise = null;
 
 export function openSettings() {
   ui.settingsOpen = true;
@@ -24,6 +25,13 @@ export function openSettings() {
   activateDetailView({ title: '设置', context: '工作空间', hint: 'Agent、界面偏好与系统状态' });
   if (location.hash !== '#settings') window.history.pushState(null, '', '#settings');
   renderSettings();
+  // The overview summary intentionally omits this large profile; only the settings view asks for it.
+  if (!ui.lastSnapshot?.status?.agent_config && !agentConfigPromise) {
+    agentConfigPromise = api('/api/agent/config').then(config => {
+      if (ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = config;
+      if (ui.settingsOpen) renderSettings();
+    }).catch(error => show(error.message, 'error')).finally(() => { agentConfigPromise = null; });
+  }
 }
 
 function row(title, note, control) {

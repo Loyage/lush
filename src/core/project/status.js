@@ -1,13 +1,31 @@
+import { createHash } from 'node:crypto';
 import { bounded } from '../types.js';
 import { agentView } from './internal.js';
 
 /** 项目级读模型：任务分布、layers、意图、spec、drafts、agents、待合并、合并冻结、notice 计数。 */
 export default {
-  status() {
+  /** Cheap opaque cursor for Web polling; details still have their own updated_at revision. */
+  overviewRevision() {
+    const facts = [
+      this.store.get('SELECT count(*) AS n, COALESCE(max(id),0) AS id, COALESCE(max(updated_at),\'\') AS updated FROM tasks'),
+      this.store.get('SELECT count(*) AS n, COALESCE(max(id),0) AS id FROM events'),
+      this.store.get("SELECT count(*) AS n, COALESCE(max(id),0) AS id, sum(status='open') AS open FROM notices"),
+      this.store.all('SELECT id,content,input_id FROM drafts ORDER BY id'),
+      this.store.all('SELECT draft_id,ordinal,payload FROM draft_references ORDER BY draft_id,ordinal'),
+      this.store.get('SELECT count(*) AS n, COALESCE(max(id),0) AS id, COALESCE(max(updated_at),\'\') AS updated FROM task_specs'),
+      this.store.get('SELECT count(*) AS n, COALESCE(max(id),0) AS id, COALESCE(max(updated_at),\'\') AS updated FROM review_candidates'),
+      [...this.running.keys()].sort((a, b) => a - b), this.config.concurrency, this.config.controlConcurrency,
+    ];
+    return createHash('sha256').update(JSON.stringify(facts)).digest('base64url').slice(0, 22);
+  },
+
+  status(includeAgentConfig = true) {
     const alive = this.store.get("SELECT count(*) AS count FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").count;
     const agent_config = this.agentConfig();
     return { project: this.config.project, home: this.config.home,
-      provider: this.config.provider === 'mock' ? 'mock' : agent_config.default.agent, agent_config,
+      revision: this.overviewRevision(),
+      provider: this.config.provider === 'mock' ? 'mock' : agent_config.default.agent,
+      ...(includeAgentConfig ? { agent_config } : {}),
       concurrency: this.config.concurrency, control_concurrency: this.config.controlConcurrency,
       // 并发上限是可在运行时改写的项目级设置：这里给出存储 / 生效值的只读镜像。
       // 顶层 concurrency / control_concurrency 仍表示当前生效值。

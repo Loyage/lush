@@ -261,6 +261,12 @@ export function startWeb(config, port = 4318, options = {}) {
         const client = binding?.client;
         if (request.method === 'GET') {
           if (url.pathname === '/api/snapshot') return json(await client.snapshot());
+          if (url.pathname === '/api/overview') return json(await client.overview(url.searchParams.get('revision')));
+          if (url.pathname === '/api/tasks') return json(await client.request('task.page', {
+            before: url.searchParams.has('before') ? Number(url.searchParams.get('before')) : null,
+            limit: Number(url.searchParams.get('limit') ?? 50),
+          }));
+          if (url.pathname === '/api/agent/config') return json(await client.request('agent.config'));
           if (url.pathname === '/api/agent/models') return json(await client.request('agent.models', { agent: url.searchParams.get('agent') || '' }));
           if (url.pathname === '/api/agent/resources') return json(await client.request('agent.resources'));
           if (url.pathname === '/api/agent/environment') return json(await client.request('agent.environment', { target: url.searchParams.get('target') || '' }));
@@ -284,6 +290,11 @@ export function startWeb(config, port = 4318, options = {}) {
             // 独立顶层文档（新标签打开）：不受主页面 CSP 约束，但仍显式收紧到一个自包含页面。
             return new Response(Bun.file(file), { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': REPORT_CSP } });
           }
+          const historyPage = /^\/api\/task\/(\d+)\/history-page$/.exec(url.pathname);
+          if (historyPage) return json(await client.request('task.history_page', {
+            id: Number(historyPage[1]), before: url.searchParams.has('before') ? Number(url.searchParams.get('before')) : null,
+            limit: Number(url.searchParams.get('limit') ?? 100),
+          }));
           const read = /^\/api\/task\/(\d+)(\/(history|diff|transcript|usage))?$/.exec(url.pathname);
           if (read) {
             const taskId = Number(read[1]);

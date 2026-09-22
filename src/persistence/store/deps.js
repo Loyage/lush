@@ -19,11 +19,13 @@ export const deps = {
     const holes = taskIds.map(() => '?').join(',');
     return this.all(`SELECT task_id, depends_on, kind FROM task_deps WHERE task_id IN (${holes}) ORDER BY task_id, depends_on`, ...taskIds);
   },
-  /** One query for the whole read model: task id -> edges carrying the upstream status. */
-  depMap() {
+  /** One query for a read model: task id -> edges carrying the upstream status. */
+  depMap(taskIds = null) {
+    if (Array.isArray(taskIds) && !taskIds.length) return new Map();
+    const where = Array.isArray(taskIds) ? ` WHERE d.task_id IN (${taskIds.map(() => '?').join(',')})` : '';
     const map = new Map();
     for (const row of this.all(`SELECT d.task_id, d.depends_on AS id, d.kind, t.status
-      FROM task_deps d JOIN tasks t ON t.id=d.depends_on ORDER BY d.task_id, d.depends_on`)) {
+      FROM task_deps d JOIN tasks t ON t.id=d.depends_on${where} ORDER BY d.task_id, d.depends_on`, ...(taskIds || []))) {
       if (!map.has(row.task_id)) map.set(row.task_id, []);
       map.get(row.task_id).push({ id: row.id, kind: row.kind, status: row.status });
     }

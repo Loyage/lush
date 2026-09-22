@@ -1,6 +1,8 @@
 /** system.* */
 export const handlers = {
   'system.status'(p, params, actor) { return { ...p.status(), ...this.identity, pid: process.pid }; },
+  // Polling summary deliberately omits the full agent profile; settings loads agent.config on demand.
+  'system.summary'(p, params, actor) { return { ...p.status(false), ...this.identity, pid: process.pid }; },
   'system.stop'(p, params, actor) { this.stopping.request(); return { stopping: true }; },
   'system.timeline'(p, params, actor) { return p.timeline({ limit: params.limit }); },
   // 用户专属写操作：把运行设置（并发上限）的热更新暴露给 CLI / Web，agent 不得调用。
