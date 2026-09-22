@@ -102,7 +102,8 @@ export default {
    */
   async acceptCandidate(candidateId) {
     const candidate = this.store.candidate(candidateId);
-    check(['ready','accepted'].includes(candidate.status), `candidate #${candidate.id} is ${candidate.status}; review it before accepting`);
+    check(candidate.status === 'ready',
+      `candidate #${candidate.id} is ${candidate.status}; only a ready candidate can start acceptance`);
     const tip = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${candidate.branch}^{commit}`);
     check(tip === candidate.commit_hash,
       `candidate #${candidate.id} pins ${candidate.commit_hash.slice(0,12)}, but ${candidate.branch} moved to ${tip.slice(0,12)}; prepare a new candidate`);
@@ -129,7 +130,9 @@ export default {
 
   requestCandidateChanges(candidateId, feedback) {
     const candidate = this.store.candidate(candidateId);
-    check(['pending','preparing','ready','accepted'].includes(candidate.status), `candidate #${candidate.id} is ${candidate.status}`);
+    check(candidate.status !== 'accepted',
+      `candidate #${candidate.id} is accepted; an accepted candidate cannot be changed`);
+    check(['pending','preparing','ready'].includes(candidate.status), `candidate #${candidate.id} is ${candidate.status}`);
     text(feedback, 'feedback');
     const input = this.store.get('SELECT * FROM inputs WHERE id=?', candidate.input_id);
     return this.store.transaction(() => {
@@ -146,6 +149,8 @@ export default {
 
   rejectCandidate(candidateId, reason = '用户放弃这版结果') {
     const candidate = this.store.candidate(candidateId);
+    check(candidate.status !== 'accepted',
+      `candidate #${candidate.id} is accepted; an accepted candidate cannot be rejected`);
     check(!['integrated','rejected','superseded'].includes(candidate.status), `candidate #${candidate.id} is ${candidate.status}`);
     if (reason !== null && reason !== undefined) text(reason, 'reason');
     return this.store.transitionCandidate(candidate.id, 'reject', { feedback: reason });

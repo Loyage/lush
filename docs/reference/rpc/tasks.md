@@ -21,6 +21,6 @@ spawn 必须关联一个活动父 task；根任务只能由用户输入创建，
 
 ## Run 与 Artifact
 
-每次 provider invocation 先写一条 `agent_runs` 行（attempt / role / provider / started_at / ended_at / result / error），正常结束时写 version 2 `run.result` Artifact。Envelope 保留 outcome / summary / changes / evidence / decisions / risks / artifacts / followups，并用独立的 `invocation.status` 与 `verification.status` 区分“调用正常返回”和 `pass` / `fail` / `partial` / `unverified`；旧 payload 不重写，缺少结构化证据时读作 `unknown`。`task.inspect` 返回该任务的 `runs` 与 `artifacts`；`candidate.inspect` 返回该 Intent 的 Artifacts。Task 的 `calls` / `agent_wakes` 仍用于兼容读模型。
+每次 provider invocation 先写一条 `agent_runs` 行（attempt / role / provider / started_at / ended_at / result / error），正常结束时写 version 2 `run.result` Artifact。Envelope 保留 outcome / summary / changes / evidence / decisions / risks / artifacts / followups，并用独立的 `invocation.status` 与 `verification.status` 区分“调用正常返回”和 `pass` / `fail` / `partial` / `unverified`。`pass` 必须没有 `failures` / `unverified`，但允许记录 `baseline_failures` / `residual_risks`；旧 payload 不重写，缺少或包含矛盾结构化证据时读作 `unknown`。`task.inspect` 返回该任务的 `runs` 与 `artifacts`；`candidate.inspect` 返回该 Intent 的 Artifacts。Task 的 `calls` / `agent_wakes` 仍用于兼容读模型。
 
 合并这批任务见 [合并](merge.md)。

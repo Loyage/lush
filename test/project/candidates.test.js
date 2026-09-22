@@ -125,6 +125,46 @@ test('candidate acceptance pins the reviewed commit inside the Git queue', async
   } finally { await f.close(); }
 });
 
+test('accepted candidate rejects concurrent rejection, feedback and replacement until Git settles', async () => {
+  const f = fixture(provider()); await repo(f.root);
+  const hold = gate();
+  let blocker = null;
+  let accepting = null;
+  try {
+    const { input, candidate, reviewed } = await readyCandidate(f);
+    blocker = f.project.workspaces.exclusive(() => hold.promise);
+    accepting = f.project.acceptCandidate(candidate.id);
+    await until(() => f.store.candidate(candidate.id).status === 'accepted');
+    const plannerCount = f.store.get("SELECT count(*) AS value FROM tasks WHERE input_id=? AND role='planner'", input.id).value;
+
+    await expect(f.project.acceptCandidate(candidate.id)).rejects.toThrow('only a ready candidate can start acceptance');
+    expect(() => f.project.rejectCandidate(candidate.id, 'too late')).toThrow(/accepted candidate cannot be rejected/);
+    expect(() => f.project.requestCandidateChanges(candidate.id, 'too late')).toThrow(/accepted candidate cannot be changed/);
+    await expect(f.project.prepareCandidate(input.id, 'too late')).rejects.toThrow('cannot supersede');
+    expect(() => f.store.updateCandidate(candidate.id, { status: 'ready' }))
+      .toThrow('only an integration outcome can change its status');
+    expect(() => f.store.createCandidate({ input_id: candidate.input_id, branch: candidate.branch,
+      commit: candidate.commit_hash, baseline_branch: candidate.baseline_branch,
+      baseline_commit: candidate.baseline_commit, summary: 'bypass prepare' }))
+      .toThrow('cannot prepare a replacement until Git settles');
+    expect(f.store.candidates(input.id)).toHaveLength(1);
+    expect(f.store.get("SELECT count(*) AS value FROM tasks WHERE input_id=? AND role='planner'", input.id).value)
+      .toBe(plannerCount);
+    expect(f.store.candidate(candidate.id).status).toBe('accepted');
+
+    hold.resolve(); await blocker;
+    const outcome = await accepting;
+    expect(outcome.candidate.status).toBe('integrated');
+    expect(await git(f.root, 'rev-parse', 'main')).toBe(reviewed);
+    expect(f.store.candidate(candidate.id).status).toBe('integrated');
+  } finally {
+    hold.resolve();
+    if (blocker) await blocker.catch(() => {});
+    if (accepting) await accepting.catch(() => {});
+    await f.close();
+  }
+});
+
 test('candidate acceptance updates an unconnected parent ref to exactly the reviewed commit', async () => {
   const f = fixture(provider()); await repo(f.root);
   try {

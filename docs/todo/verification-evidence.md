@@ -13,6 +13,8 @@
 - 新 `run.result` 使用 `schema_version: 2`，`invocation.status` 单独表示 provider 正常返回，`verification.status` 严格限定为 `pass` / `fail` / `partial` / `unverified`。
 - verifier 在 runtime 给定的 `evidence_path` 写 version 1 JSON。runtime 校验版本、枚举、文本/数组/文件大小、命令与退出码；格式错误使 invocation 失败，不包装成成功结论。
 - runtime 自己绑定 tested commit、baseline commit 与报告引用，不信任 agent 自述的 commit/path。证据同时保存命令、两边退出码、摘要、失败项、未验证项、基准失败和残余风险。
+- `status=pass` 必须没有 `failures` 或 `unverified`；runtime 的 version 1 文件校验与持久层 version 2 Artifact 校验执行同一结论规则。`baseline_failures` 与 `residual_risks` 可以非空：前者描述冻结基线，后者是在已测断言通过时仍需向用户披露的风险，不伪装成全无风险。
+- 已有矛盾 version 2 行不重写，读取时降级为 `verification.status=unknown`，因此仍可查看历史但不能使 Candidate 进入 `ready`。
 - HTML 报告仍是人类阅读入口；只有报告存在且结构化结论为 `pass` 时 Candidate 才进入 `ready`。正常返回但没有证据是 `unverified`，`fail` / `partial` / `unverified` 都不会放行。
 - Artifact 仍存入原 `artifacts.payload` JSON 文本列。旧 `run.result` 原样留在磁盘，读模型补出 `verification.status: unknown`；旧 Candidate 或没有验收任务的 Candidate 同样显示 `unknown`。
 - `candidate.accept` 仍是唯一交付入口；自动验收最多改变 Candidate 的待人工审阅状态，不会触发目标分支合并。
@@ -22,14 +24,18 @@
 - [x] 用户能区分执行完成、验证通过、验证失败和未验证。
 - [x] 每份证据明确绑定被测提交与基准，不能被分支后续推进替代。
 - [x] 仅有报告文件不再被展示成“测试通过”的充分依据。
-- [x] 失败或不完整证据不会被统一包装成成功结论。
+- [x] 失败或不完整证据不会被统一包装成成功结论；`pass + failures/unverified` 在两层写入口都被拒绝。
+- [x] `pass + residual_risks` 保持合法且风险不丢失。
+- [x] 历史矛盾 payload 可读但只投影为 `unknown`，不能让 Candidate ready。
 - [x] 旧 Artifact 和旧 Candidate 仍可读，缺少证据时明确显示未知。
 - [x] 补齐通过、失败、部分验证、无报告和基准失败场景的测试。
 
 ## 实施证据
 
-- `test/project/verification-evidence.test.js` 覆盖 pass / fail / partial / unverified、报告缺失、基准失败、旧 Artifact 与非法 payload。
+- `test/project/verification-evidence.test.js` 覆盖 pass / fail / partial / unverified、报告缺失、基准失败、允许的 residual risk、`pass + failures/unverified` 矛盾 payload、旧 Artifact 降级与 Candidate 不 ready。
 - `test/project/candidates.test.js` 覆盖固定 commit/baseline 的读模型与人工接受。
 - `test/integration/candidate.test.js` 覆盖真实 provider 脚本写报告和 evidence、Candidate ready 后再由用户接受交付。
+- `bun test test/project/candidates.test.js test/project/verification-evidence.test.js`：21 通过；相关 CLI、integration、verify、merge、lifecycle 与 recovery 定向回归 19 通过。
+- `bun run docs:check`：检查 54 个 Markdown 文件；`bun run test`：481 通过、0 失败（94 个文件）。
 
 [返回待办索引](README.md)

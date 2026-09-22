@@ -49,6 +49,22 @@ export function validateRunResultPayload(payload) {
     shortText(command.summary, `verification commands[${index}].summary`, 4000);
   });
   for (const field of LIST_FIELDS) stringList(verification[field], `verification ${field}`);
+  if (verification.status !== 'unverified') check(verification.commands.length > 0,
+    `${verification.status} verification must include at least one command`);
+  if (verification.status === 'pass') {
+    check(verification.commands.every(command => command.exit_code === 0),
+      'pass verification cannot contain a failing tested exit code');
+    check(verification.failures.length === 0, 'pass verification cannot contain failures');
+    check(verification.unverified.length === 0, 'pass verification cannot contain unverified items');
+    // A passing candidate may still record failures on the frozen baseline and acknowledged residual risks.
+  }
+  if (verification.status === 'fail') check(verification.failures.length > 0,
+    'fail verification must describe at least one failure');
+  if (verification.status === 'partial') check(
+    verification.failures.length + verification.unverified.length + verification.residual_risks.length > 0,
+    'partial verification must describe incomplete coverage or risk');
+  if (verification.status === 'unverified') check(verification.unverified.length > 0,
+    'unverified verification must describe what was not verified');
   check(isPlainObject(verification.report)
     && Number.isSafeInteger(verification.report.task_id) && verification.report.task_id > 0
     && typeof verification.report.path === 'string' && verification.report.path.length > 0

@@ -71,11 +71,11 @@ planner 一轮写完时，`Project.compilePlans()` 选择已经停止执行且�
 3. 创建状态为 `pending` 的 `review_candidates` 版本，到这里不启动验收任务；
 4. 用户显式调用 `candidate.verify` 后，派只读 verifier 在两边运行同一验收场景；
 5. 保存自包含 HTML 报告和 version 1 结构化证据；
-6. runtime 校验证据并绑定两侧 commit；只有结论 `pass` 且报告存在时将 Candidate 标记为 `ready`。
+6. runtime 校验证据并绑定两侧 commit；只有没有 `failures` / `unverified` 的 `pass` 且报告存在时将 Candidate 标记为 `ready`，`baseline_failures` / `residual_risks` 仍可如实披露。
 
 用户可：
 
-- `candidate accept`：再次确认 branch tip 等于被审阅 commit，再合入 target；
+- `candidate accept`：再次确认 branch tip 等于被审阅 commit，进入不可取消的 `accepted` 决策边界，再合入 target；
 - `candidate changes`：旧版本标为 `changes_requested`，在同一 Intent 下启动增量 planner；
 - `candidate reject`：放弃该版本，历史仍保留。
 
@@ -85,9 +85,10 @@ Candidate 状态：
 pending → preparing → ready → accepted → integrated
                        └→ changes_requested → Candidate v2
                        └→ rejected
-pending/preparing/ready/accepted → superseded
+pending/preparing/ready → superseded
+accepted → 只由 Git 结算为 integrated 或失败回到 ready
 ```
 
 ## Run 与 Artifact
 
-每次 provider invocation 写一条 `agent_runs`，正常结束时写 version 2 `run.result` Artifact。Task 目前保留为兼容 WorkItem 投影；Run 负责一次调用的状态、结果与错误，Artifact 分开记录 invocation 完成和 verification 的 `pass` / `fail` / `partial` / `unverified`。旧 payload 不重写，缺证据的读模型为 `unknown`。
+每次 provider invocation 写一条 `agent_runs`，正常结束时写 version 2 `run.result` Artifact。Task 目前保留为兼容 WorkItem 投影；Run 负责一次调用的状态、结果与错误，Artifact 分开记录 invocation 完成和 verification 的 `pass` / `fail` / `partial` / `unverified`。旧 payload 不重写，缺证据或结论自相矛盾的读模型为 `unknown`。

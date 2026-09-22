@@ -59,6 +59,7 @@ test('candidate settlement preserves pass/fail/partial/unverified, missing-repor
     expect(baselineFailure).toMatchObject({ status: 'ready', verification: {
       status: 'pass', tested_commit: baselineFailure.commit_hash, baseline_commit: baselineFailure.baseline_commit,
       baseline_failures: ['the same suite already fails on the frozen baseline'],
+      residual_risks: ['baseline remains unhealthy'],
     } });
 
     const invalidCandidate = await f.project.prepareCandidate(input.id);
@@ -67,6 +68,25 @@ test('candidate settlement preserves pass/fail/partial/unverified, missing-repor
     fs.writeFileSync(f.project.evidencePath(invalidTask.id), JSON.stringify({ ...base('pass'), status: 'success' }));
     expect(() => f.project.verificationEvidence(f.store.task(invalidTask.id)))
       .toThrow('verification evidence status must be pass, fail, partial or unverified');
+  } finally { await f.close(); }
+});
+
+test('pass evidence rejects failures and unverified items, so the candidate cannot become ready', async () => {
+  const { f, input } = await candidateFixture();
+  try {
+    for (const [field, message] of [['failures', 'pass verification evidence cannot contain failures'],
+      ['unverified', 'pass verification evidence cannot contain unverified items']]) {
+      const candidate = await f.project.prepareCandidate(input.id);
+      const task = f.project.verifyCandidate(candidate.id);
+      const reportPath = f.project.reportPath(task.id);
+      fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+      fs.writeFileSync(reportPath, '<!doctype html><title>contradictory verification</title>');
+      fs.writeFileSync(f.project.evidencePath(task.id), JSON.stringify(base('pass', { [field]: ['contradiction'] })));
+
+      expect(() => f.project.verificationEvidence(f.store.task(task.id))).toThrow(message);
+      f.project.finish(task.id, 'failed', null, message);
+      expect(f.project.candidate(candidate.id)).toMatchObject({ status: 'failed', verification: { status: 'unknown' } });
+    }
   } finally { await f.close(); }
 });
 
@@ -83,6 +103,40 @@ test('run.result read model marks historical artifacts without evidence unknown 
       schema_version: 2, invocation: { status: 'completed' }, summary: 'bad',
       verification: { status: 'pass' },
     } })).toThrow(/tested_commit|verification/);
+
+    const contradictory = { schema_version: 2, invocation: { status: 'completed' }, summary: 'contradictory',
+      verification: { status: 'pass', tested_commit: 'a'.repeat(40), baseline_commit: 'b'.repeat(40),
+        commands: [{ command: 'bun run test', exit_code: 0, baseline_exit_code: 0, summary: 'passed' }],
+        summary: 'claims pass and failure', report: { task_id: task.id, path: '/tmp/report.html', available: true },
+        failures: ['real failure'], unverified: [], baseline_failures: [], residual_risks: ['still allowed on pass'] } };
+    expect(() => f.store.addArtifact({ task_id: task.id, kind: 'run.result', payload: contradictory }))
+      .toThrow('pass verification cannot contain failures');
+    const historical = f.store.run(`INSERT INTO artifacts(task_id,kind,payload,metadata) VALUES (?,?,?,?)`,
+      task.id, 'run.result', JSON.stringify(contradictory), '{}');
+    expect(f.store.artifact(Number(historical.lastInsertRowid)).payload)
+      .toMatchObject({ summary: 'contradictory', verification: { status: 'unknown' } });
+  } finally { await f.close(); }
+});
+
+test('historical contradictory pass artifacts stay readable but cannot make a candidate ready', async () => {
+  const { f, input } = await candidateFixture();
+  try {
+    const candidate = await f.project.prepareCandidate(input.id);
+    const task = f.project.verifyCandidate(candidate.id);
+    const reportPath = f.project.reportPath(task.id);
+    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+    fs.writeFileSync(reportPath, '<!doctype html><title>historical report</title>');
+    const payload = { schema_version: 2, invocation: { status: 'completed' }, summary: 'historical contradiction',
+      verification: { status: 'pass', tested_commit: candidate.commit_hash, baseline_commit: candidate.baseline_commit,
+        commands: [{ command: 'bun run test', exit_code: 0, baseline_exit_code: 0, summary: 'passed' }],
+        summary: 'pass with unverified work', report: { task_id: task.id, path: reportPath, available: true },
+        failures: [], unverified: ['important scenario was not run'], baseline_failures: [], residual_risks: [] } };
+    f.store.run(`INSERT INTO artifacts(task_id,input_id,kind,payload,metadata) VALUES (?,?,?,?,?)`,
+      task.id, input.id, 'run.result', JSON.stringify(payload), '{}');
+
+    expect(f.project.verificationResult(task.id)).toMatchObject({ status: 'unknown' });
+    f.project.finish(task.id, 'completed', 'legacy verifier returned normally');
+    expect(f.project.candidate(candidate.id)).toMatchObject({ status: 'failed', verification: { status: 'unknown' } });
   } finally { await f.close(); }
 });
 
