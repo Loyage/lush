@@ -19,7 +19,7 @@
 |---|---|---|
 | P0（已完成） | [Candidate 接受时固定被审阅提交](candidate-acceptance.md) | 固定提交在 Git 串行区间内校验并落地 |
 | P0（已完成） | [防止迟到验收覆盖用户决定](candidate-state.md) | 条件结算拒绝迟到 verifier 覆盖用户状态 |
-| P1（已完成） | [恢复可靠测试基线与持续集成](testing.md) | 最终集成基线 478/478 通过；GitHub 必需检查已启用 |
+| P1（已完成） | [恢复可靠测试基线与持续集成](testing.md) | 最终集成基线 482/482 通过；GitHub 必需检查已启用 |
 | P1（已完成） | [结构化验收证据](verification-evidence.md) | version 2 结果、固定提交证据、旧数据兼容与完整结论回归已落地 |
 | P2（已完成） | [控制快照与日志读取成本](read-performance.md) | 有界首页、历史分页、8 MiB 日志预算与增量缓存已通过测量 |
 | P2（Candidate 范围已完成） | [集中状态转换与明确模块契约](architecture-contracts.md) | Candidate 转换图、条件结算、事务与 Git 边界已有契约和回归 |
