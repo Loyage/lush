@@ -49,7 +49,7 @@ export const ui = {
   // 尚未加入草稿的输入框引用；引用随 draft.add 持久化，轮询不能清掉本地选择。
   composerReferences: [],
   // 左侧「待定事项」只是索引；右侧展开的那条 notice 由 noticeFocus 记住，数据每次都取自最新 snapshot。
-  noticeFocus: null, noticeIndex: new Map(),
+  noticeFocus: null, noticeIndex: new Map(), noticeRecords: null, loadNoticeRecords: null,
   questionDrafts: new Map(), // 当前会话草稿；sessionStorage 可跨刷新恢复
   // 左栏四个列表共用的排序偏好（smart / updated / id）。
   sidebarSortMode: readSidebarSortPref(),
@@ -93,7 +93,7 @@ export function resetUiState() {
   ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0; ui.indexOpen = null; ui.docsOpen = false; ui.docsQuery = ''; ui.settingsOpen = false;
   ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false; ui.composerExpanded = false; ui.composerReferences = [];
   ui.intentSignature = null; ui.specSignature = null;
-  ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map();
+  ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.noticeRecords = null; ui.loadNoticeRecords = null;
   ui.lastSnapshot = null; ui.taskHistory = []; ui.taskHistoryPage = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.graphOpen = false; ui.graphFingerprint = null; ui.graphFetchedAt = 0; ui.graphRenderKey = null; ui.lastGraph = null;
   ui.graphCollapsed = readGraphCollapsedPref();

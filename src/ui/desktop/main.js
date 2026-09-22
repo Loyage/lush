@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, Notification } from 'electron';
+import fs from 'node:fs';
 import cp from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +11,19 @@ let host = null;
 let hostUrl = null;
 let mainWindow = null;
 let quitting = false;
+const noticeBanners = new Map();
+const notificationFile = () => path.join(app.getPath('userData'), 'notifications.json');
+function notificationsEnabled() {
+  try { return JSON.parse(fs.readFileSync(notificationFile(), 'utf8')).enabled === true; } catch { return false; }
+}
+function trustedNoticeSender(event) {
+  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== event.sender.mainFrame
+    || !hostUrl || new URL(event.senderFrame.url).origin !== new URL(hostUrl).origin) throw new Error('untrusted notification sender');
+}
+function closeNoticeBanners() {
+  for (const banner of noticeBanners.values()) banner.close();
+  noticeBanners.clear();
+}
 
 function stopHost() {
   if (host && !host.killed) host.kill('SIGTERM');
@@ -61,6 +75,9 @@ async function createWindow() {
     },
   });
   const localOrigin = new URL(url).origin;
+  mainWindow.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) closeNoticeBanners();
+  });
   mainWindow.webContents.setWindowOpenHandler(({ url: target }) => {
     try {
       if (new URL(target).origin === localOrigin) return { action: 'allow', overrideBrowserWindowOptions: { width: 1100, height: 800, title: 'Lush · 检验报告' } };
@@ -68,7 +85,7 @@ async function createWindow() {
     if (/^https?:/.test(target)) void shell.openExternal(target);
     return { action: 'deny' };
   });
-  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('closed', () => { closeNoticeBanners(); mainWindow = null; });
   await mainWindow.loadURL(url);
 }
 
@@ -83,6 +100,38 @@ else {
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });
   app.whenReady().then(async () => {
+    ipcMain.handle('lush:notification-settings', (event, enabled) => {
+      trustedNoticeSender(event);
+      const supported = Notification.isSupported();
+      if (enabled !== undefined) {
+        if (typeof enabled !== 'boolean') throw new Error('invalid notification preference');
+        fs.mkdirSync(app.getPath('userData'), { recursive: true });
+        const file = notificationFile();
+        fs.writeFileSync(`${file}.tmp`, JSON.stringify({ enabled: enabled && supported }), { mode: 0o600 });
+        fs.renameSync(`${file}.tmp`, file);
+        if (!enabled) closeNoticeBanners();
+      }
+      return { enabled: supported && notificationsEnabled(), supported };
+    });
+    ipcMain.handle('lush:notice', (event, payload) => {
+      trustedNoticeSender(event);
+      if (!notificationsEnabled() || !Notification.isSupported()) return false;
+      if (!payload || !['title','body','tag'].every(key => typeof payload[key] === 'string' && payload[key].length <= 4000)) throw new Error('invalid notification');
+      const { title, body, tag } = payload;
+      noticeBanners.get(tag)?.close();
+      const banner = new Notification({ title, body });
+      noticeBanners.set(tag, banner);
+      const remove = () => { if (noticeBanners.get(tag) === banner) noticeBanners.delete(tag); };
+      banner.on('close', remove); banner.on('failed', remove);
+      banner.on('click', () => {
+        if (!mainWindow) return;
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show(); mainWindow.focus();
+        mainWindow.webContents.send('lush:notice-open');
+        banner.close();
+      });
+      banner.show(); return true;
+    });
     ipcMain.handle('lush:choose-project', async () => {
       const result = await dialog.showOpenDialog(mainWindow, { title: '选择 Lush 项目目录', properties: ['openDirectory', 'createDirectory'] });
       return result.canceled ? null : result.filePaths[0];

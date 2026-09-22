@@ -12,8 +12,16 @@ export function openProjectPicker(status = {}) {
   const gate = node('project-gate');
   if (!gate) return;
   const input = node('project-path');
-  const project = status.project || status.last_project || '';
+  const project = status.project || status.last_project || status.allowed_projects?.[0] || '';
   if (input) input.value = project;
+  const list = node('project-options');
+  if (list) list.replaceChildren(...(status.allowed_projects || []).map(value => {
+    const option = list.ownerDocument.createElement('option'); option.value = value; return option;
+  }));
+  const hint = node('project-hint');
+  if (hint) hint.textContent = status.allowed_projects
+    ? '公网启动器只能打开全局 web.json 白名单中的项目。'
+    : '首次打开必须指定绝对路径。之后会自动恢复最后使用的项目，也可以随时切换。';
   setError(status.error || '');
   const cancel = node('project-cancel');
   if (cancel) { cancel.hidden = !status.project; cancel.onclick = () => closeProjectPicker(); }

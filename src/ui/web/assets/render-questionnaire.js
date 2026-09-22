@@ -52,6 +52,17 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
   const content = el('div'); root.append(content);
   if (notice.status !== 'open') {
     content.append(el('p', notice.status === 'answered' ? '已提交选择' : '已忽略 · 不代表同意任何选项', 'hint'));
+    const original = el('details'); original.append(el('summary', '查看原始问题与选项'));
+    questions.forEach((q, i) => {
+      original.append(el('h4', q.question));
+      q.options.forEach((o, n) => {
+        original.append(el('p', `${o.label}：${o.description}`));
+        if (o.preview || o.previewHtml) {
+          const fold = el('details'); fold.append(el('summary', `${o.label} · 原始预览`), preview(notice, i, n, o)); original.append(fold);
+        }
+      });
+    });
+    content.append(original);
     if (notice.status === 'answered') {
       try {
         for (const answer of JSON.parse(notice.answer).answers) {

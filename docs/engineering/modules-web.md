@@ -26,7 +26,7 @@
 | `app.js` | 唯一入口：先经 `project-picker.js` 确认项目，再装配左栏顶部身份区按钮（品牌回概览 / 切换项目 / 移动端导航 / 右侧返回）、`#graph` / `#settings` / `#statistics` / 四个信息页 / 任务 / 文档的 hash 路由与两个定时器；定时器按「轮询频率」偏好重建 | `boot()` |
 | `project-picker.js` | 无项目启动门：读取 `/api/launcher`，首次要求绝对项目路径，有缓存则直接进入；在全局模式显示「切换项目」，Electron 环境可调用 preload 暴露的原生目录选择器；项目未选定前不启动快照轮询 | `ensureProject()`、`openProjectPicker()`、`closeProjectPicker()` |
 | `appearance.js` | head 中初始化深浅主题，装配左栏顶部的主题切换按钮；偏好经 prefs.js 读写（`lush.theme`），`system` 跟随系统、显式值覆盖系统，存储不可用时保留会话内选择 | `systemThemeMedia()`、`resolveTheme()`、`effectiveTheme()`、`applyTheme()`、`createAppearance()`、`initAppearance()`、`refreshTheme()` |
-| `prefs.js` | 本地偏好中心：键名 / 默认值 / 解析与序列化、读写与变更通知都在这一份（`markdown` / `theme` / `sidebarSort` / `collapsed` / `filters` / `reduceMotion` / `polling` / `toastDuration`）；坏数据回落默认值，存储不可用不抛异常；老键（`lush.treeSort`、`lush.theme`、`lush.markdown`）继续生效；`resetPrefs()` 删除全部受管键（含历史键）并逐项通知回默认值 | `PREF_DEFS`、`PREF_NAMES`、`MARKDOWN_KEY`、`THEME_KEY`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`REDUCED_MOTION_KEY`、`POLLING_KEY`、`TOAST_DURATION_KEY`、`THEME_VALUES`、`SORT_IDS`、`POLLING_MODES`、`TOAST_MODES`、`pollingIntervals()`、`toastDurations()`、`readPref`、`writePref`、`setPref`、`onPrefChange`、`resetPrefs`、`prefsSnapshot`、`storageAvailable` |
+| `prefs.js` | 本地偏好中心：键名 / 默认值 / 解析与序列化、读写与变更通知都在这一份（`markdown` / `theme` / `sidebarSort` / `collapsed` / `filters` / `reduceMotion` / `polling` / `toastDuration` / `noticeNotifications`）；坏数据回落默认值，存储不可用不抛异常；老键（`lush.treeSort`、`lush.theme`、`lush.markdown`）继续生效；`resetPrefs()` 删除全部受管键（含历史键）并逐项通知回默认值 | `PREF_DEFS`、`PREF_NAMES`、`MARKDOWN_KEY`、`THEME_KEY`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`REDUCED_MOTION_KEY`、`POLLING_KEY`、`TOAST_DURATION_KEY`、`THEME_VALUES`、`SORT_IDS`、`POLLING_MODES`、`TOAST_MODES`、`pollingIntervals()`、`toastDurations()`、`readPref`、`writePref`、`setPref`、`onPrefChange`、`resetPrefs`、`prefsSnapshot`、`storageAvailable` |
 | `render-settings.js` | 设置视图，分 Agent / 界面 / 系统三个页签：打开设置时才读取 `/api/agent/config` 完整配置；Agent 页编辑项目默认与七类角色覆盖（agent / model / thinking / 默认 prompt / 追加 prompt / Pi 扩展与 Skills），可按需读 `/api/agent/models` 展示本机 CLI 当前模型目录、读 `/api/agent/resources` 多选已安装资源，经 `agent.configure` 写入项目；同页的环境变量键值表按需读取公共/角色 env（值默认 password 遮罩、逐项可查看），支持新增/删除/保存，拒绝非法、重复与 `LUSH_*` 名称，经 `agent.environment.configure` 写回；默认 prompt 正常显示内置全文并可一键恢复，替换内置 prompt 前显示风险警告并二次确认；界面页管理浏览器本地偏好与恢复默认；系统页展示 daemon 配置与路径，其中并发额度（执行 / 控制通道）是可编辑表单：显示生效值 / 环境默认值 / 来源 / 设置文件，保存 / 恢复环境默认走 `system.configure`，越界或后端报错就地提示，其余参数只读。打开期间轮询不用概览覆盖 | `openSettings()`、`renderSettings()` |
 | `statistics-range.js` | 日间／日内独立筛选的默认值、UTC 日历快捷范围、含首尾日期到半开 API 时间段的转换与小时校验 | `statisticsDefaults()`、`statisticsToday(now?)`、`statisticsDates(filters,now?)`、`statisticsQuery(filters,now?)` |
 | `render-statistics.js` | `#statistics` 的日间（日历／7 天／30 天／本月／全部）与日内（今天／昨天／日历＋小时区间）双视图及独立筛选、累计 token / 预计 USD、UTC SVG 柱状图（全高时段命中区、即时鼠标／键盘数值浮层，以 SVG 属性定位且约束在滚动视口内）、provider/model 费用表、缺失数据说明与手动刷新；迟到响应不能覆盖其他视图 | `openStatistics()`、`renderStatistics(data)` |
@@ -50,7 +50,8 @@
 | `render-intents.js` | Intent 列表：原始目标、planner 闸门、Plan 计数、分支效果展示 / 最近展示任务，以及历史 Review Candidate 的「打开结果 / 接受并合入 / 要求修改」动作 | `renderIntents(data)` |
 | `render-specs.js` | 拆解队列（只读） | `renderSpecs(data)`、`specItem(spec)`、`specDeps(value)` |
 | `render-tree.js` | 任务树、兄弟链、依赖标签、为什么没在跑；首页明确标出“活动 + 最近历史”的截断范围，并通过 `/api/tasks?before=` 按需加载更早页 | `renderTree(data)` |
-| `render-notices.js` | 待决问题索引与右侧展开；resolver 首次请示使用明确的开始/暂不处理动作 | `renderNotices(data)`、`openNotice(noticeId)`、`noticePanel(notice, task?)` |
+| `render-notices.js` | 待决计数、按状态分页记录、面板内答复与 Plan 审批、只读历史；resolver 首次请示使用明确动作；轮询保留输入与已加载历史 | `initNoticeRecords()`、`loadNoticeRecords({more?,preserve?})`、`renderNotices(data)`、`openNotice(noticeId)`、`noticePanel(notice, task?)` |
+| `notice-notifications.js` | 默认关闭的客户端提醒：用户授权、开关状态、按项目建立首屏基线、增量通知与去重；浏览器 Notification / Electron IPC 适配 | `initNoticeNotifications()`、`notificationStatus()`、`setNoticeNotifications(enabled)`、`notificationControl()`、`createNoticeNotifier(options)`、`resetNoticeNotifier()`、`observeNotices(data)` |
 | `render-ladder.js` | 按目标分支分组的交付队列、变更栈与批量落地 | `renderLadder(data)`、`mergeBatch(ids, candidates)`、`renderMergeResult(entry)` |
 | `render-timeline.js` | 并行时间轴 | `renderTimeline(timeline)` |
 | `render-history.js` | 事件时间线；默认最近 100 条，明确显示截断并用 `before` 游标逐页加载更早记录 | `renderHistory(history, opts)` |
@@ -82,8 +83,8 @@
 | `src/ui/web/control.js` | 后台 Web 进程识别、状态文件、端口探测与安全停止 | `webOwners()`、`stopStaleWeb()`、`recordWebState()` 等 |
 | `src/ui/web/docs.js` | 扫描随代码发布的 Markdown 文档与搜索字段 | `docsIndex()`、`docsSearchIndex()`、`readDoc()` |
 | `src/ui/launcher.js` | 跨项目的最后路径缓存、绝对目录 canonicalize、无项目 Web 控制配置 | `launcherStateDir()`、`readLauncherState()`、`writeLauncherState()`、`canonicalProjectPath()`、`launcherWebConfig()` |
-| `src/ui/desktop/main.js` | Electron 主进程：启动随机端口临时 Web host、管理窗口与 host 生命周期 | Electron `main` 入口 |
-| `src/ui/desktop/preload.cjs` | 只向页面暴露原生目录选择 IPC，不开放 Node | `window.lushDesktop.chooseProject()` |
+| `src/ui/desktop/main.js` | Electron 主进程：启动随机端口临时 Web host、管理窗口与 host 生命周期；校验主窗口 IPC 来源、持久化本端提醒开关、发送原生通知并聚焦待决面板 | Electron `main` 入口 |
+| `src/ui/desktop/preload.cjs` | 原生目录选择与窄通知 IPC，不开放 Node；通知点击只导航到固定 `#notices` | `window.lushDesktop.chooseProject()`、`notificationSettings(enabled?)`、`notifyNotice(payload)` |
 
 桌面壳不复制任何业务页面或 API。这样桌面版与浏览器版始终使用同一份 assets，并可同时连接同一个项目 daemon。
 

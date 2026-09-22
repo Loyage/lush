@@ -51,9 +51,9 @@
   <section id="detail" tabindex="-1" aria-label="项目内容"><div class="loading-state"><span class="brand-spark">✳</span><h1>正在连接你的项目</h1><p class="hint">分支、任务与进展，即将在这里汇合。</p></div></section>
   <section id="resource-panels" class="resource-panels" aria-label="项目信息页面" hidden>
     <section class="resource-page side" id="side-notices" data-side="notices" hidden>
-      <header class="resource-hero"><span class="resource-kicker">DECISIONS</span><h1>待你决定</h1><p>集中处理会阻塞 agent 或开发流程的问题。点开一项后，会进入所属任务的完整上下文。</p></header>
+      <header class="resource-hero"><span class="resource-kicker">DECISIONS</span><h1>待你决定</h1><p>查看全部 notice 记录与处理结果，点开未处理事项即可答复或审批。系统提醒可独立开启或关闭，不影响留档。</p></header>
       <div class="resource-card">
-        <div class="section-title"><button type="button" class="side-head" id="side-head-notices" data-side="notices" aria-expanded="true" aria-controls="notices"><span class="side-name">未处理事项</span><span id="notice-count" class="count"></span></button></div>
+        <div class="section-title"><button type="button" class="side-head" id="side-head-notices" data-side="notices" aria-expanded="true" aria-controls="notices"><span class="side-name">事项与决策记录</span><span id="notice-count" class="count"></span></button></div>
         <div class="side-body" id="side-notices-body"><div id="notices"></div></div>
       </div>
     </section>
@@ -112,8 +112,8 @@
   <form id="project-form" class="project-card">
     <div class="project-brand"><span class="brand-mark" aria-hidden="true">L</span><span><strong>Lush</strong><small>选择一个项目开始工作</small></span></div>
     <label for="project-path">项目目录</label>
-    <div class="project-path-row"><input id="project-path" name="project" autocomplete="off" spellcheck="false" placeholder="/absolute/path/to/project" required><button type="button" id="project-choose" class="ghost" hidden>选择文件夹…</button></div>
-    <p class="hint">首次打开必须指定绝对路径。之后会自动恢复最后使用的项目，也可以随时切换。</p>
+    <div class="project-path-row"><input id="project-path" name="project" list="project-options" autocomplete="off" spellcheck="false" placeholder="/absolute/path/to/project" required><datalist id="project-options"></datalist><button type="button" id="project-choose" class="ghost" hidden>选择文件夹…</button></div>
+    <p id="project-hint" class="hint">首次打开必须指定绝对路径。之后会自动恢复最后使用的项目，也可以随时切换。</p>
     <p id="project-error" class="error" role="alert" hidden></p>
     <div class="project-actions"><button type="button" id="project-cancel" class="ghost" hidden>取消</button><button type="submit" id="project-submit">打开项目</button></div>
   </form>

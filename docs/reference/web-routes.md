@@ -16,6 +16,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。无 `--p
 |---|---|
 | `GET /api/launcher` | 当前/上次项目与启动器模式 |
 | `POST /api/launcher/select` | 校验绝对目录、启动/连接项目 daemon、更新最后项目缓存；不进入 `MUTATIONS` 通用 RPC 白名单 |
+| `GET /api/notices?status=all&before=ID&limit=30` | `notice.page`：全部类型事项与处理结果的按需分页，不受快照 200 条上限限制；参数和留档语义见[待决问题](rpc/notices.md) |
 | `GET /api/snapshot` | status + input.list + draft.list + notice.list + spec.list + candidate.list + ladder + timeline + 分页 task.list |
 | `GET /api/usage?start=...&end=...&interval=auto` | 用户专属 `system.usage`，当前项目的 token、预计 USD、时间柱状图与模型分组；详见[统计口径](statistics.md) |
 | `GET /api/graph` | 分支节点、fork 连线实时状态与任务关系 |
@@ -27,7 +28,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。无 `--p
 | `GET /api/task/ID/diff` | `task.diff` |
 | `GET /api/task/ID/transcript?after=N` | `task.transcript` |
 | `GET /api/task/ID/usage` | `task.usage` |
-| `GET /api/task/T/notice/N/preview/Q/O` | 从 `task.inspect` 已存问卷提取第 Q 题第 O 项的 HTML（零基序号），清洗后以独立 sandbox CSP 返回 |
+| `GET /api/task/T/notice/N/preview/Q/O` | 按 notice ID 从已存问卷提取（校验所属 task，不受 task.inspect 历史上限影响）第 Q 题第 O 项的 HTML（零基序号），清洗后以独立 sandbox CSP 返回 |
 | `GET /api/task/ID/report` | verifier 的自包含 HTML 报告（独立文档，独立 CSP） |
 | `GET /api/docs` | 随代码发布的 Markdown 文档索引（分组、标题与仓库路径） |
 | `GET /api/docs/search-index` | 浏览器按需使用的全文搜索字段（标题 / 小节 / 正文 / 代码 / Mermaid） |

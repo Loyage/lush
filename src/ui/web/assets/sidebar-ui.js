@@ -44,6 +44,7 @@ export function openResource(id, { push = true } = {}) {
     const page = node(`side-${section.id}`); if (page) page.hidden = section.id !== id;
   }
   selectNav(id);
+  if (id === 'notices') void ui.loadNoticeRecords?.();
   setViewChrome(meta.long, '项目信息', meta.description);
   const hash = `#${id}`;
   if (push && globalThis.location?.hash !== hash) globalThis.window?.history?.pushState?.(null, '', hash);

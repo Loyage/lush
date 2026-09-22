@@ -44,7 +44,7 @@ bun run tree --project /absolute/path/to/my-project
 bun run web 4318 --project /absolute/path/to/my-project  # 可选：启动绑定单项目的 Web
 ```
 
-`start` 只启动项目 daemon；`say` **立即返回输入和 task ID，不等待模型或开发完成**（提交时从 `--branch` 指定的本地分支、或当前分支创建 `input-<id>` 分支与检出，所以它短暂排在 Git 串行队列里）。无 `--project` 的 `bun run web` 是仅监听 `127.0.0.1` 的全局项目启动器，命令**后台起进程后立刻返回**；带 `--project` 时保留原来的单项目模式，日志在该项目 `.lush/web.log`，且不隐式启停 daemon。Web 离线后会自动重连。单项目模式默认只监听 `127.0.0.1`；如需从公网访问，在项目的 `.lush/web.json` 写入登录凭证：
+`start` 只启动项目 daemon；`say` **立即返回输入和 task ID，不等待模型或开发完成**（提交时从 `--branch` 指定的本地分支、或当前分支创建 `input-<id>` 分支与检出，所以它短暂排在 Git 串行队列里）。无 `--project` 的 `bun run web` 是全局项目启动器；带 `--project` 时保留原来的单项目模式，日志在该项目 `.lush/web.log`，且不隐式启停 daemon。命令都在后台起进程后立即返回，Web 离线后会自动重连。两种模式默认只监听 `127.0.0.1`；单项目模式如需从公网访问，在项目的 `.lush/web.json` 写入登录凭证：
 
 ```json
 {
@@ -54,14 +54,27 @@ bun run web 4318 --project /absolute/path/to/my-project  # 可选：启动绑定
 }
 ```
 
-文件权限必须是 `600`。带 `--project` 启动的单项目 Web 会监听 `0.0.0.0`，首次启动时自动把明文 `password` 原地替换为 scrypt `password_hash`；之后浏览器通过登录页取得 12 小时的 HttpOnly / SameSite 会话 Cookie。密码首尾的空白一律忽略（从终端复制常会带上换行），但大小写与中间字符仍须完全一致：建议选一个**好辨认**的密码，避开 `0/O`、`1/I/l` 这类易混字符；连续输错 5 次会锁 60 秒。登录被拒与被挡的跨站请求都会写进后台 Web 自己的日志 `.lush/web.log`，是排查的第一站（`bun run web-status` 会告诉你它在哪、跑的是不是这份代码）。
+全局启动器的公网配置写在用户配置目录的 `web.json`（macOS：`~/Library/Application Support/Lush/web.json`；Linux：`${XDG_CONFIG_HOME:-~/.config}/lush/web.json`；Windows：`%APPDATA%\\Lush\\web.json`），并且必须用 `projects` 列出允许远程打开的项目：
+
+```json
+{
+  "version": 1,
+  "username": "your-name",
+  "password": "a-strong-password-at-least-12-characters",
+  "projects": ["/absolute/path/to/project"]
+}
+```
+
+本地、无认证的全局启动器仍可输入任意现存绝对目录；配置公网认证后，路径规范化后必须命中白名单，最后使用的项目不在白名单时也不会自动恢复。Electron 桌面版始终只监听回环地址，不读取这份公网配置。
+
+两类 `web.json` 的文件权限都必须是 `600`。对应 Web 会监听 `0.0.0.0`，首次启动时自动把明文 `password` 原地替换为 scrypt `password_hash`；之后浏览器通过登录页取得 12 小时的 HttpOnly / SameSite 会话 Cookie。密码首尾的空白一律忽略（从终端复制常会带上换行），但大小写与中间字符仍须完全一致：建议选一个**好辨认**的密码，避开 `0/O`、`1/I/l` 这类易混字符；连续输错 5 次会锁 60 秒。登录被拒与被挡的跨站请求都会写进后台 Web 自己的日志：项目模式为 `.lush/web.log`，全局模式为同一用户配置目录下的 `web.log`；`bun run web-status` 会告诉你日志位置以及运行的是否是当前代码。
 
 **通过反向代理或域名访问时**，代理默认会把 `Host` 改写成 `127.0.0.1:4318`，而浏览器发出的 `Origin` 是对外地址；两者不一致的提交会被当作跨站拒绝（登录时报 `Cross-site access denied`）。二选一：
 
 - 让代理保留原始 Host（推荐，nginx 写 `proxy_set_header Host $host;`）；
-- 或在 `.lush/web.json` 里登记对外地址：`"origin": "https://lush.example.com"`（多个用 `"origins": [...]`）。
+- 或在当前模式的 `web.json` 里登记对外地址：`"origin": "https://lush.example.com"`（多个用 `"origins": [...]`）。
 
-公网部署仍应在前面配置 HTTPS 反向代理，否则登录密码会在网络中明文传输。跨站请求判定以浏览器自己填的 `Sec-Fetch-Site` 为准（网页无法伪造它），`Origin` 只在旧浏览器没有这个头时作为回退；内嵌 webview、沙箱页面与部分隐私扩展会报 `Origin: null` 却依然是同源，这类客户端能正常登录。删除 `.lush/web.json` 即恢复仅本机、无需登录的模式。
+公网部署仍应在前面配置 HTTPS 反向代理，否则登录密码会在网络中明文传输。跨站请求判定以浏览器自己填的 `Sec-Fetch-Site` 为准（网页无法伪造它），`Origin` 只在旧浏览器没有这个头时作为回退；内嵌 webview、沙箱页面与部分隐私扩展会报 `Origin: null` 却依然是同源，这类客户端能正常登录。删除对应模式的 `web.json` 即恢复仅本机、无需登录的模式。
 
 Web UI（默认 `http://127.0.0.1:4318`）是 **Intent 优先**的项目工作台：左栏是导航，首屏是 **Intent 工作台**（目标、Plan 状态、效果展示与历史检验结果、真正需要你决定的事）；分支图、待你决定、行动任务、Intent 记录、结构化 Plan 与文档分别在右侧独立成页。右侧顶部始终保留返回上一页的入口，页面地址使用 `#graph`、`#settings`、`#notices`、`#tasks`、`#intents`、`#specs`、`#task-ID`、`#docs` / `#doc-<id>`，浏览器前进 / 后退可以在各视图与任务详情之间往返。首页顶部指标按 Intent 计（Intent / 并行执行 / 效果展示 / 需要你决定），并用同一份 `graph.get` 读模型把 Git 交付诊断折叠在成果主线之后；「效果展示」从指定分支派专用 agent，任务详情内嵌展示页并提供可操作预览入口；历史候选的报告与 `candidate.accept` / `candidate.changes` 仍保留。任务详情以目标为标题，结果与执行过程优先。输入框常驻内容区底部（默认折叠，只留一行输入与一行操作，点「更多」展开父分支与快捷键）。窄屏用「导航菜单」展开页面入口。左栏顶部可切换**深色 / 浅色主题**，并集中显示项目名、并发槽、连接状态与退出登录——应用没有整条顶栏，内容区从最上面开始。左栏的**设置**页（`#settings`）分为三个页签：**Agent** 管项目默认与 planner / coordinator / worker / research / verifier / merger / showcase 七类行为的独立覆盖，可分别选择 Pi / Codex、模型、思考深度并追加项目 Prompt；配置原子写入 `.lush/agent.json`，正在运行的调用不打断，排队任务与后续唤醒立即读取新配置。**界面**管理 Markdown、主题、减少动效、信息列表排序、轮询与消息停留时长，这些偏好只存在当前浏览器；**系统**展示 daemon 参数与路径，其中**并发额度**（执行通道 / 控制通道）可直接编辑、保存即对排队任务生效，「恢复环境默认」清除覆盖，其余参数只读。移动端会压缩导航、工具栏和分支卡片，并让左栏（含品牌 / 项目名 / 连接 / 退出）排在内容与输入区之前；分支诊断 / 设置 / 文档页隐藏底部输入器，把视口优先留给内容。过渡动画尊重系统「减少动态效果」。文档读的是随这份代码发布的 `docs/` 与 `README.md`（不随被开发的项目变），Markdown 相对链接可以直接点开，Mermaid 流程图从同一份 Markdown 源码按需渲染；刷新不丢已输入的答复。
 
@@ -306,7 +319,7 @@ socket 放在用户私有临时目录，名字由 canonical 项目路径决定�
 
 **Task 与 agent 是终身一对一的身份。** 任务一创建就拥有一个 agent（`<role>#<task-id>`，例如 `worker#7`），跨唤醒不换身份：pi session、累计唤醒次数和上次动手时间都记在这个 agent 上，`task inspect` 与 Web 详情直接展示。但它的 RPC 凭证是每次唤醒重新签发的：daemon 只存 SHA-256，且只在该次 invocation 运行期间可解析，invocation 结束即作废，重启后一律清空。因此 1:1 指的是身份，不是进程或凭证——等待子任务或用户时 agent 依然存在，但不占执行槽、也没有活着的调用。
 
-**这是可信用户工具，不是沙箱。** 目录绑定隔离的是 Lush 的数据库、RPC、调度和工作区管理，不是 OS 文件权限。pi 的 bash 仍拥有当前用户权限，角色约束主要依赖 agent 指令；应审阅改动，不向不可信用户暴露 socket，也不要让其他程序同时修改正在合并的工作树。公网 Web 必须启用 `.lush/web.json` 登录认证并使用 HTTPS，但这仍不把 agent 或宿主机变成面向恶意用户的安全沙箱。Agent RPC 用属于活动 invocation 的 token 限制所属任务，不能通过正常 agent 命令批准合并；这不是针对恶意本机进程的安全边界。
+**这是可信用户工具，不是沙箱。** 目录绑定隔离的是 Lush 的数据库、RPC、调度和工作区管理，不是 OS 文件权限。pi 的 bash 仍拥有当前用户权限，角色约束主要依赖 agent 指令；应审阅改动，不向不可信用户暴露 socket，也不要让其他程序同时修改正在合并的工作树。公网 Web 必须启用对应作用域的 `web.json` 登录认证并使用 HTTPS，但这仍不把 agent 或宿主机变成面向恶意用户的安全沙箱。Agent RPC 用属于活动 invocation 的 token 限制所属任务，不能通过正常 agent 命令批准合并；这不是针对恶意本机进程的安全边界。
 
 pi 默认禁用个人 extensions / skills / prompt templates / themes，保留上下文文件加载以遵循项目开发约定。daemon 意外被 SIGKILL 时可能留下外部进程；恢复不会重放任务，但仍应检查进程和工作区后再重试。
 

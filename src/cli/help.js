@@ -87,7 +87,8 @@ lush [--project PATH] [--json] <command>
   notice answer ID --answers-file FILE  问卷用 {answers:[{selected:[0],custom:""}]}，按题目顺序一次提交
   notice dismiss ID
   web [PORT]                      无 --project 时启动全局项目选择器，并自动恢复上次项目、启动其 daemon
-                                  带 --project 时绑定单个项目；.lush/web.json 可开启公网监听与登录认证
+                                  全局配置目录 web.json（需 projects 白名单）或项目 .lush/web.json
+                                  可为对应模式开启公网监听与登录认证
   web-restart [PORT]              停掉端口上那个后台 Web，再按当前代码起一个新的：Web 进程不会跟着
                                   代码换版本，改完 src/ui/web/ 用这条命令；只停命令行确实是 Lush Web 的进程
   web-stop [PORT]                 停掉后台 Web（只停命令行确实是 Lush Web 的进程，别人的进程只报告）

@@ -8,6 +8,7 @@ import { PREF_NAMES, POLLING_MODES, THEME_VALUES, TOAST_MODES, onPrefChange, rea
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { SORT_MODES } from './tree-order.js';
+import { notificationControl } from './notice-notifications.js';
 
 const TABS = [
   { id: 'agent', label: 'Agent', note: '任务行为与模型' },
@@ -94,6 +95,7 @@ function interfaceTab() {
   const behavior = block('刷新与提示');
   behavior.append(row('轮询频率', '控制页面快照与实时状态刷新；修改后立即生效。', selectControl('polling', POLLING_MODES, '页面自动刷新频率')));
   behavior.append(row('消息停留时长', '控制顶部信息与错误提示自动消失的速度。', selectControl('toastDuration', TOAST_MODES, '消息提示停留时长')));
+  behavior.append(row('待决事项系统提醒', '默认关闭，仅当前客户端生效。窗口打开期间提醒新事项；关闭提醒不影响记录和决策。', notificationControl()));
   content.append(behavior);
 
   const reset = block('恢复界面默认');

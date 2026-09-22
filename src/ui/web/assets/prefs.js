@@ -72,6 +72,7 @@ const enumPref = (key, values, fallback) => ({
  * `default` 可以是值或工厂（集合 / 对象每次都要新的，避免调用方改到共享默认值）。
  */
 export const PREF_DEFS = {
+  noticeNotifications: { key: 'lush.noticeNotifications', default: false, parse: raw => raw === '1', format: value => value ? '1' : '0' },
   markdown: boolPref(MARKDOWN_KEY, true),
   theme: enumPref(THEME_KEY, THEME_VALUES, 'system'),
   sidebarSort: {

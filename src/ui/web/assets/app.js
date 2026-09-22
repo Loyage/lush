@@ -17,6 +17,8 @@ import { initComposer } from './composer.js';
 import { SORT_MODES } from './tree-order.js';
 import { initContextReferences } from './context-references.js';
 import { ensureProject } from './project-picker.js';
+import { initNoticeNotifications, resetNoticeNotifier } from './notice-notifications.js';
+import { initNoticeRecords } from './render-notices.js';
 
 /* ---------- 左栏全局排序偏好（与设置页共用 lush.sidebarSort） ---------- */
 function syncSidebarSortSelect() {
@@ -91,6 +93,8 @@ export async function boot() {
   if (hashListener !== null && typeof removeEventListener === 'function') removeEventListener('hashchange', hashListener);
   refreshTimer = null; liveTimer = null; hashListener = null;
   resetUiState();
+  resetNoticeNotifier();
+  await initNoticeNotifications();
   initAppearance();                              // 按当前 DOM 重新绑定主题与头部按钮
   applyReducedMotion(readPref('reduceMotion'));
   if (!await ensureProject()) return;
@@ -118,6 +122,7 @@ export async function boot() {
     return goOverview();
   };
   initSidebar();
+  initNoticeRecords();
   await refresh();
   const resource = /^#(notices|tasks|intents|specs)$/.exec(location.hash)?.[1];
   if (location.hash === '#statistics') await openStatistics();

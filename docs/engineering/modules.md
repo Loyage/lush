@@ -29,11 +29,8 @@
   并把最后项目写入用户配置目录；带 `--project` 的单项目 Web 会拒绝切换。读取路由里其余显式例外是 `/api/graph`、检验报告
   `/api/task/<id>/report`，以及「文档」视图的 `/api/docs`、`/api/docs/search-index` 与 `/api/docs/<id>`——数据源是
   `src/ui/web/docs.js`，只读随代码发布的 `docs/**/*.md` 与 `README.md`，与当前项目目录无关，
-  只按扫出来的 id 查表命中；另保留兼容 `/api/snapshot`，首页轮询走带 revision 的 `/api/overview`，历史任务与事件分别走 `/api/tasks`、`/api/task/<id>/history-page`，完整 Agent 配置只由设置页请求 `/api/agent/config`；搜索索引按需返回、在浏览器匹配，Mermaid 流程图由浏览器按需加载本地固定版本渲染。认证边界也在 `server.js`：无 `.lush/web.json` 时只监听本机；
-  有配置时监听公网，并用 `/login`、`/logout` 与 HttpOnly 会话 Cookie 保护全部页面、资源和 API。
-- 全局项目启动状态在 `src/ui/launcher.js`：只存 `launcher.json` 的 `last_project`，不是业务事实也不是
-  `LUSH_HOME`；macOS / Linux / Windows 分别遵循各自用户配置目录。Electron 桌面壳使用独立随机端口复用同一
-  Web server 与 assets，关闭时只停自己的临时 Web host，不停项目 daemon，因此可与后台 Web 同时打开。
+  只按扫出来的 id 查表命中；另保留兼容 `/api/snapshot`，首页轮询走带 revision 的 `/api/overview`，历史任务与事件分别走 `/api/tasks`、`/api/task/<id>/history-page`，完整 Agent 配置只由设置页请求 `/api/agent/config`；搜索索引按需返回、在浏览器匹配，Mermaid 流程图由浏览器按需加载本地固定版本渲染。认证边界也在 `server.js`：项目绑定模式读取 `.lush/web.json`，全局启动器读取用户配置目录的 `web.json`；无对应配置时只监听本机，有配置时监听公网，并用 `/login`、`/logout` 与 HttpOnly 会话 Cookie 保护全部页面、资源和 API。全局公网配置必须额外提供 `projects` 绝对路径白名单，启动器只允许打开规范化后命中的目录；本地无认证启动器仍可输入任意现存绝对目录。
+- 全局项目启动状态在 `src/ui/launcher.js`：用户配置目录中的 `launcher.json` 只存 `last_project`，同目录的可选 `web.json` 独立保存全局启动器认证、可信 Origin 与项目白名单；两者都不是业务事实也不是 `LUSH_HOME`。macOS / Linux / Windows 分别遵循各自用户配置目录。Electron 桌面壳使用独立随机端口复用同一 Web server 与 assets，始终只监听回环且不读取全局公网认证；关闭时只停自己的临时 Web host，不停项目 daemon，因此可与后台 Web 同时打开。
 - Web 进程的生命周期在 `src/ui/web/control.js`：`webListenerPids(port)` 认出端口上的监听者，
   `webOwners(config, port)` 把端口与 `.lush/web.state.json`（后台 Web 自己写的 pid / 端口 / 代码指纹）
   合起来给出「谁在听、命令行是不是 Lush Web」，`stopStaleWeb(port)` 只停命令行确实是 Lush Web 的进程
@@ -63,6 +60,12 @@
 - `core/usage-statistics.js` 的 `readUsageStatistics(config,options)` 异步流式读取项目 sessions 的全部 Lush JSONL，独立于任务详情的 8 MiB 窗口；只缓存精简用量，不改写历史文件或 SQLite。返回总量、时间段、provider/model 分组与缺失数据说明；缺价与真实零价分开，全部金额为会话记录的预计 USD。
 - `project/transcript.js` 暴露 `usageStatistics(options)`；`agent/provider.js` 为后续 Codex `turn.completed` 追加 Pi 兼容的 token 用量记录（费用未知），旧 Codex thread 文件只用于提示历史覆盖缺失。
 - Web `render-statistics.js` 提供 `openStatistics()` / `renderStatistics(data)`，`#statistics` 与左栏入口共享；面板按日间／日内双视图选择日期或小时范围，`statistics-range.js` 统一将 UTC 日历选择转换为 API 半开时间段；快捷按钮立即查询，两种视图独立保留条件，不进入首页轮询。
+
+## Notice 提醒与历史接缝
+
+- 保留 `notice.list` 兼容读面，新增 `notice.page(status?,before?,limit?)` 与 `GET /api/notices`：按 ID 降序分页，status 为 `all|open|answered|dismissed|sent`，返回 `{notices,cursor,has_more,limit}`。不删除或重写既有 Notice。
+- 「待我决定」按需查询全部类型的 Notice，未处理项可直接答复／审批，历史只读；首页仍用有界快照。通知仅针对新增的 open 决策事项，首次加载不补发历史。
+- `notice-notifications.js` 负责浏览器 Notification 与桌面 IPC 适配，默认关闭；授权只由用户开启时触发，失败不影响轮询和留档。开关属于当前客户端，桌面保存在 Electron userData（不受随机端口影响）。窗口关闭后不提醒，不引入 daemon 后台推送。
 
 ## 分区总览
 

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { UIClient } from '../client.js';
 import { Config } from '../../config.js';
 import { daemon } from '../../cli/daemon.js';
-import { canonicalProjectPath, readLauncherState, writeLauncherState } from '../launcher.js';
+import { canonicalProjectPath, launcherWebConfig, readLauncherState, writeLauncherState } from '../launcher.js';
 import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
 import { previewResponse } from './notice-preview.js';
 import { check } from '../../core/types.js';
@@ -52,8 +52,9 @@ function verifyPassword(password, encoded) {
   const actual = scryptSync(password, salt, expected.length);
   return expected.length > 0 && timingSafeEqual(actual, expected);
 }
-/** web.json 出现即表示显式开启公网模式；首次启动会把临时明文密码原地换成 scrypt hash。 */
-function loadAuth(config) {
+/** web.json 出现即表示显式开启公网模式；首次启动会把临时明文密码原地换成 scrypt hash。
+ *  全局启动器还必须列出可打开的项目，避免一个公网入口变成任意本机目录选择器。 */
+function loadAuth(config, { launcher = false } = {}) {
   const file = path.join(config.home, AUTH_FILE);
   if (!fs.existsSync(file)) return null;
   const stat = fs.lstatSync(file);
@@ -67,6 +68,11 @@ function loadAuth(config) {
     `${file} username must be 1-128 characters without surrounding whitespace`);
   check(value.origin === undefined || typeof value.origin === 'string', `${file} origin must be a string`);
   check(value.origins === undefined || Array.isArray(value.origins), `${file} origins must be an array of strings`);
+  let projects = null;
+  if (launcher) {
+    check(Array.isArray(value.projects) && value.projects.length > 0, `${file} projects must be a non-empty array of allowed project paths`);
+    projects = [...new Set(value.projects.map(entry => canonicalProjectPath(entry, config.env)))];
+  }
   // 反向代理把 Host 改写成 127.0.0.1 时，浏览器发出的 Origin 是对外地址：这里把对外地址登记成可信源。
   const origins = [...(value.origin ? [value.origin] : []), ...(value.origins || [])].map(entry => {
     let parsed;
@@ -84,7 +90,7 @@ function loadAuth(config) {
     const secret = value.password.trim();
     check(secret.length >= 12 && secret.length <= 1024, `${file} password must be 12-1024 characters`);
     password_hash = passwordHash(secret);
-    const replacement = JSON.stringify({ version: 1, username: value.username, ...(origins.length ? { origin: origins[0], ...(origins.length > 1 ? { origins: origins.slice(1) } : {}) } : {}), password_hash }, null, 2) + '\n';
+    const replacement = JSON.stringify({ version: 1, username: value.username, ...(projects ? { projects } : {}), ...(origins.length ? { origin: origins[0], ...(origins.length > 1 ? { origins: origins.slice(1) } : {}) } : {}), password_hash }, null, 2) + '\n';
     const temporary = `${file}.${process.pid}.tmp`;
     try {
       fs.writeFileSync(temporary, replacement, { mode: 0o600, flag: 'wx' });
@@ -92,7 +98,8 @@ function loadAuth(config) {
       fs.chmodSync(file, 0o600);
     } finally { fs.rmSync(temporary, { force: true }); }
   } else check(/^scrypt\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/.test(password_hash), `${file} has an invalid password_hash`);
-  return { username: value.username, password_hash, origins };
+  return { username: value.username, password_hash, origins, projects,
+    config_hint: launcher ? '全局 Web 配置 web.json' : '.lush/web.json' };
 }
 function cookieValue(request, name) {
   for (const part of (request.headers.get('cookie') || '').split(';')) {
@@ -132,6 +139,7 @@ function originAllowed(request, url, origins) {
 export function createProjectHost(initialConfig = null, options = {}) {
   const launcher = !initialConfig;
   const env = options.env || process.env;
+  const allowedProjects = options.allowedProjects ? new Set(options.allowedProjects) : null;
   const openProject = options.openProject || (async project => {
     const config = new Config({ project, env });
     await daemon(config, 'start');
@@ -141,10 +149,15 @@ export function createProjectHost(initialConfig = null, options = {}) {
   let restoreAttempted = Boolean(initialConfig);
   let lastError = null;
   let pending = Promise.resolve();
+  const rememberedProject = () => {
+    const last = readLauncherState(env).last_project;
+    return !allowedProjects || allowedProjects.has(last) ? last : null;
+  };
 
   async function select(value, { remember = true } = {}) {
     check(launcher, 'this Web UI is bound to one project; restart it without --project to switch projects');
     const project = canonicalProjectPath(value, env);
+    check(!allowedProjects || allowedProjects.has(project), `项目不在全局 Web 白名单中：${project}`);
     const operation = pending.then(async () => {
       const next = await openProject(project);
       check(next?.config && next?.client, 'project opener returned an invalid binding');
@@ -160,7 +173,7 @@ export function createProjectHost(initialConfig = null, options = {}) {
   async function restore() {
     if (!launcher || binding || restoreAttempted) return;
     restoreAttempted = true;
-    const last = readLauncherState(env).last_project;
+    const last = rememberedProject();
     if (!last) return;
     try { await select(last, { remember: false }); }
     catch (error) { lastError = error.message; }
@@ -171,7 +184,8 @@ export function createProjectHost(initialConfig = null, options = {}) {
     async status() {
       await restore();
       return { mode: launcher ? 'launcher' : 'bound', project: binding?.config.project || null,
-        last_project: launcher ? readLauncherState(env).last_project : initialConfig.project, error: lastError };
+        last_project: launcher ? rememberedProject() : initialConfig.project, error: lastError,
+        ...(launcher && allowedProjects ? { allowed_projects: [...allowedProjects] } : {}) };
     },
     async select(value) { return await select(value); },
     async require() { await restore(); check(binding, '请先选择项目目录'); return binding; },
@@ -181,8 +195,10 @@ export function createProjectHost(initialConfig = null, options = {}) {
 
 export function startWeb(config, port = 4318, options = {}) {
   check(Number.isInteger(port) && port >= 0 && port <= 65535, 'invalid web port');
-  const projectHost = createProjectHost(config, options);
-  const auth = config ? loadAuth(config) : null;
+  const launcher = !config;
+  const authConfig = options.authConfig === undefined ? (config || launcherWebConfig(options.env || process.env)) : options.authConfig;
+  const auth = authConfig ? loadAuth(authConfig, { launcher }) : null;
+  const projectHost = createProjectHost(config, { ...options, allowedProjects: launcher ? auth?.projects : null });
   const sessions = new Map();
   const failures = new Map();
   const server = Bun.serve({
@@ -199,7 +215,7 @@ export function startWeb(config, port = 4318, options = {}) {
         const seen = ['origin', 'sec-fetch-site', 'referer'].map(name => `${name}=${request.headers.get(name) ?? '-'}`).join(' ');
         console.warn(`[web] blocked cross-site ${request.method} ${url.pathname} (host=${host} ${seen})`);
         // 登录提交被挡最容易发生在反向代理后面：直接告诉用户去哪儿改，而不是甩一行 403 文本。
-        if (request.method === 'POST' && url.pathname === '/login') return new Response(loginPage(`请求被判定为跨站（host=${host}）。如果通过反向代理/域名访问，请在 .lush/web.json 里写上对外地址，例如 "origin": "https://lush.example.com"。`), { status: 403, headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': LOGIN_CSP } });
+        if (request.method === 'POST' && url.pathname === '/login') return new Response(loginPage(`请求被判定为跨站（host=${host}）。如果通过反向代理/域名访问，请在${auth?.config_hint || '.lush/web.json'}里写上对外地址，例如 "origin": "https://lush.example.com"。`), { status: 403, headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': LOGIN_CSP } });
         return new Response('Cross-site access denied', { status: 403 });
       }
       const token = cookieValue(request, SESSION_COOKIE);
@@ -265,6 +281,11 @@ export function startWeb(config, port = 4318, options = {}) {
           }));
           if (url.pathname === '/api/snapshot') return json(await client.snapshot());
           if (url.pathname === '/api/overview') return json(await client.overview(url.searchParams.get('revision')));
+          if (url.pathname === '/api/notices') return json(await client.request('notice.page', {
+            status: url.searchParams.get('status') ?? 'all',
+            before: url.searchParams.get('before'),
+            limit: Number(url.searchParams.get('limit') ?? 30),
+          }));
           if (url.pathname === '/api/tasks') return json(await client.request('task.page', {
             before: url.searchParams.has('before') ? Number(url.searchParams.get('before')) : null,
             limit: Number(url.searchParams.get('limit') ?? 50),
@@ -278,8 +299,8 @@ export function startWeb(config, port = 4318, options = {}) {
           if (url.pathname === '/api/showcases') return json(await client.request('showcase.list', { branch: url.searchParams.get('branch') }));
           const preview = /^\/api\/task\/(\d+)\/notice\/(\d+)\/preview\/(\d+)\/(\d+)$/.exec(url.pathname);
           if (preview) {
-            const task = await client.request('task.inspect', { id: Number(preview[1]) });
-            const notice = task.notices.find(row => row.id === Number(preview[2]) && row.kind === 'questionnaire');
+            const page = await client.request('notice.page', { before: Number(preview[2]) + 1, limit: 1 });
+            const notice = page.notices.find(row => row.id === Number(preview[2]) && row.task_id === Number(preview[1]) && row.kind === 'questionnaire');
             check(notice, 'questionnaire not found');
             const html = JSON.parse(notice.body).questions?.[Number(preview[3])]?.options?.[Number(preview[4])]?.previewHtml;
             check(typeof html === 'string', 'HTML preview not found');

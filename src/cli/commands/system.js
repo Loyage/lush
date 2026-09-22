@@ -10,9 +10,12 @@ const DEFAULT_WEB_PORT = 4318;
 const WEB_START = ['web', 'web-restart'];
 const WEB_COMMANDS = [...WEB_START, 'web-stop', 'web-status'];
 
-/** `.lush/web.json` 存在即公网模式：与 `server.js` 的判据保持一致。 */
+/** 对应作用域的 web.json 存在即公网模式；Electron 临时 host 永远只监听回环。 */
+function publicWeb(config) {
+  return config.env?.LUSH_WEB_EPHEMERAL !== '1' && fs.existsSync(path.join(config.home, 'web.json'));
+}
 function webUrl(config, port) {
-  return `http://${!config.launcher && fs.existsSync(path.join(config.home, 'web.json')) ? '0.0.0.0' : '127.0.0.1'}:${port}`;
+  return `http://${publicWeb(config) ? '0.0.0.0' : '127.0.0.1'}:${port}`;
 }
 
 function webLog(config) { return path.join(config.home, 'web.log'); }
@@ -61,9 +64,9 @@ function logTail(config, lines = 3) {
 async function serveWeb(config, port) {
   const control = await import('../../ui/web/control.js');
   const web = await import('../../ui/web/server.js');
-  const publicMode = !config.launcher && fs.existsSync(path.join(config.home, 'web.json'));
+  const publicMode = publicWeb(config);
   let server;
-  try { server = web.startWeb(config.launcher ? null : config, port, { env: config.env }); }
+  try { server = web.startWeb(config.launcher ? null : config, port, { env: config.env, authConfig: publicMode ? config : null }); }
   catch (error) {
     // 端口被占最常见的原因就是上一次的 Web 还活着。Bun 只说「Is port XX in use?」，
     // 这里补上是谁占的、以及换成本地代码的那条命令。
