@@ -340,6 +340,9 @@ function collapseCaret(branch, onCollapsed) {
 
 function branchRow(branch, onCollapsed) {
   const row = el('div', undefined, 'graph-branch');
+  // main 是项目主干，不是 Lush 管理的交付分支：graph.get 仍如实返回它的 tracked / origin / status / tasks，
+  // 这里只过滤会把「未登记」或后代任务汇总误说成 main 自身诊断的表头信息。
+  const isMain = branch.name === 'main';
   // 未合进父分支 / 正在工作的分支带强调 class（样式见 styles.css）；两者可同时命中。
   for (const name of emphasisClasses(branch)) row.classList.add(name);
   // 工作态标识只回答显示：running / pending 给 chip，subtree 给一行更弱的话，停下来的分支一个都不画。
@@ -363,7 +366,7 @@ function branchRow(branch, onCollapsed) {
   else row.append(el('span', '⚠ 分支不存在', 'chip warn'));
   if (branch.current) row.append(el('span', '当前检出', 'chip'));
   // 有 ref 但没有 branches 记录：画出来，但标明谱系里没有它。
-  if (!branch.tracked && !branch.placeholder) row.append(el('span', '未登记', 'chip'));
+  if (!isMain && !branch.tracked && !branch.placeholder) row.append(el('span', '未登记', 'chip'));
   // 收起时告诉用户藏了什么；展开时这条由 CSS 隐掉（.graph-group:not(.collapsed) > .graph-branch > ...）。
   if (hideable) {
     const parts = [];
@@ -406,7 +409,7 @@ function branchRow(branch, onCollapsed) {
   // 归档分支的状态固定显示「已归档」，不被汇总出来的旧状态盖掉。表头已经报过它（ref 是归档时
   // 按预期删掉的），所以这里只补归档时间，不把同一个词再说一遍。
   // 归档分支的状态不需要在这里特判：归档的分支不会被画进分支树（见 graphLayout 的 hiddenBranches）。
-  if (BRANCH_STATUS[branch.status]) {
+  if (!isMain && BRANCH_STATUS[branch.status]) {
     const statusInfo = BRANCH_STATUS[branch.status];
     meta.append(el('span', statusInfo.label, `chip ${statusInfo.className}`.trim()));
   }
@@ -416,7 +419,7 @@ function branchRow(branch, onCollapsed) {
     if (branch.summary) titleNode.title = branch.summary;
     meta.append(titleNode);
   }
-  if (branch.origin && branch.origin !== 'placeholder') {
+  if (!isMain && branch.origin && branch.origin !== 'placeholder') {
     const originText = BRANCH_ORIGIN[branch.origin] || branch.origin;
     const sourceText = branch.source_id ? ` #${branch.source_id}` : '';
     meta.append(el('span', `${originText}${sourceText}`, 'meta'));
@@ -424,7 +427,7 @@ function branchRow(branch, onCollapsed) {
   if (branch.created_at) {
     meta.append(el('span', `创建于 ${new Date(branch.created_at).toLocaleString('zh-CN', { hour12: false })}`, 'meta'));
   }
-  if (branch.taskCounts && branch.taskCounts.total > 0) {
+  if (!isMain && branch.taskCounts && branch.taskCounts.total > 0) {
     const parts = [];
     if (branch.taskCounts.active > 0) parts.push(`${branch.taskCounts.active} 活跃`);
     if (branch.taskCounts.failed > 0) parts.push(`${branch.taskCounts.failed} 失败`);

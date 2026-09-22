@@ -93,6 +93,47 @@ test('分支图：入口走 #graph，画出分支谱系与任务，点节点进�
   expect(detail.querySelector('div.graph-view')).toBeNull();
 });
 
+test('分支图：main 行隐藏登记、来源与后代失败汇总，其他分支保留诊断', async () => {
+  const saved = world.state.graph;
+  world.state.graph = {
+    generated_at: iso(NOW), current_branch: 'main', truncated: false, git: true, error: null,
+    nodes: [
+      { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'aaa', current: true, tracked: false, placeholder: false,
+        origin: 'local', status: 'failed', tasks: { total: 2, active: 0, failed: 1, completed: 1 } },
+      { kind: 'branch', id: 'branch:feature/broken', name: 'feature/broken', head_commit: 'bbb', current: false, tracked: false, placeholder: false,
+        origin: 'local', status: 'failed', tasks: { total: 1, active: 0, failed: 1, completed: 0 } },
+      { kind: 'task', id: 90, role: 'planner', name: 'failed-plan', goal: '主干下的失败任务仍然可见', status: 'failed', integration: 'none',
+        branch: null, target_branch: 'main', workspace: null, workspace_state: 'none', branch_state: null,
+        ahead: null, behind: null, merged: null, current: false },
+    ],
+    edges: [
+      { kind: 'fork', from: 'branch:main', to: 'branch:feature/broken', status: 'fast_forward', ahead: 1, behind: 0,
+        blockers: [], can_merge: false, can_sync: false },
+    ],
+  };
+  try {
+    await openGraph();
+    const detail = dom.node('detail');
+    const rowOf = name => detail.querySelectorAll('span.graph-branch-name')
+      .find(node => node.textContent === `⎇ ${name}`)?.parentNode ?? null;
+    const mainText = deepText(rowOf('main'));
+    expect(mainText).not.toContain('未登记');
+    expect(mainText).not.toContain('本地分支');
+    expect(mainText).not.toContain('失败');
+    // 只过滤 main 的表头诊断，挂在 main 下的任务内容照旧显示。
+    expect(deepText(detail)).toContain('主干下的失败任务仍然可见');
+
+    const brokenText = deepText(rowOf('feature/broken'));
+    expect(brokenText).toContain('未登记');
+    expect(brokenText).toContain('本地分支');
+    expect(brokenText).toContain('失败');
+    expect(brokenText).toContain('任务：1（1 失败）');
+  } finally {
+    world.state.graph = saved;
+    await openGraph();
+  }
+});
+
 test('分支图：同一层级的条目新的在前——兄弟分支按创建时间降序，当前检出仍第一', async () => {
   await openGraph();
   const view = dom.node('detail').querySelector('div.graph-view');
