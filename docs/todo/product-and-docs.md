@@ -55,6 +55,6 @@
 - `README.md` 与 `docs/task-flow.md` 明列 `Task completed → Candidate pending/ready → Candidate integrated`，并链接权威的集成、验收与 Candidate API 专题。
 - `src/cli/commands/system.js` 保留旧 `fingerprint` / `code_match` 字段，同时新增 `identities`、`current_code` / `daemon_code` / `web_code` 与作用域明确的 `update_hint(s)`；诊断路径只读，不调用 restart。
 - `test/integration/daemon.test.js` 覆盖 doctor 的磁盘 / daemon / Web 分离身份；`test/integration/web.test.js` 覆盖 Web 身份、旧指纹提示、正确项目与端口命令，以及诊断不换进程。
-- `bun run test`：469 项通过；`bun run docs:check`：54 个 Markdown 文件通过。
+- 三个后续分支集成后复验：`bun run test` 478 项通过（94 个测试文件）；`bun run docs:check` 通过 54 个 Markdown 文件。
 
 [返回待办索引](README.md)
