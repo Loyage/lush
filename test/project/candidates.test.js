@@ -9,6 +9,10 @@ function provider() {
     if (task.role === 'verifier' && context.verification?.candidate) {
       fs.mkdirSync(path.dirname(context.verification.report_path), { recursive: true });
       fs.writeFileSync(context.verification.report_path, '<!doctype html><title>candidate report</title><h1>ok</h1>');
+      fs.writeFileSync(context.verification.evidence_path, JSON.stringify({ schema_version: 1, status: 'pass',
+        summary: '候选结果与基线对照完成，符合原始意图。',
+        commands: [{ command: 'bun run test', exit_code: 0, baseline_exit_code: 0, summary: '两边命令均正常完成' }],
+        failures: [], unverified: [], baseline_failures: [], residual_risks: [] }));
       return '候选结果与基线对照完成，符合原始意图。';
     }
     return 'done';
@@ -27,17 +31,34 @@ async function frozenCandidate(f, target = null) {
   return { input, candidate, reviewed };
 }
 
-/** Acceptance-focused fixture: mark the frozen candidate's already-tested review as ready. */
+/** Acceptance-focused fixture: settle an already-tested review through the Candidate state contract. */
+function markCandidateReady(f, candidate) {
+  const reportTask = f.store.get('SELECT task_id FROM inputs WHERE id=?', candidate.input_id).task_id;
+  f.store.transitionCandidate(candidate.id, 'verification_requested', { report_task_id: reportTask });
+  f.store.settleCandidateVerification(candidate.id, reportTask, 'ready');
+  return f.store.candidate(candidate.id);
+}
 async function readyCandidate(f, target = null) {
   const frozen = await frozenCandidate(f, target);
-  f.store.updateCandidate(frozen.candidate.id, { status: 'ready' });
-  return { ...frozen, candidate: f.store.candidate(frozen.candidate.id) };
+  return { ...frozen, candidate: markCandidateReady(f, frozen.candidate) };
 }
 
 function writeReport(f, taskId) {
   const file = f.project.reportPath(taskId);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, '<!doctype html><title>late candidate report</title><h1>ok</h1>');
+}
+
+function writePassingArtifact(f, taskId) {
+  const task = f.store.task(taskId);
+  const candidate = f.store.candidate(task.review_candidate_id);
+  f.store.addArtifact({ task_id: task.id, input_id: task.input_id, kind: 'run.result', payload: {
+    schema_version: 2, invocation: { status: 'completed' }, outcome: 'success', summary: 'verified',
+    verification: { status: 'pass', tested_commit: candidate.commit_hash, baseline_commit: candidate.baseline_commit,
+      commands: [{ command: 'bun run test', exit_code: 0, baseline_exit_code: 0, summary: 'passed' }],
+      summary: 'passed', report: { task_id: task.id, path: f.project.reportPath(task.id), available: true },
+      failures: [], unverified: [], baseline_failures: [], residual_risks: [] },
+  } });
 }
 
 test('review candidate freezes the intent commit, publishes evidence and lands only the reviewed tree', async () => {
@@ -62,6 +83,8 @@ test('review candidate freezes the intent commit, publishes evidence and lands o
     await until(() => f.store.candidate(prepared.id).status === 'ready');
     const candidate = f.project.candidate(prepared.id);
     expect(candidate.has_report).toBe(true);
+    expect(candidate.verification).toMatchObject({ status: 'pass', tested_commit: reviewed,
+      baseline_commit: prepared.baseline_commit });
     expect(candidate.artifacts.some(artifact => artifact.kind === 'run.result')).toBe(true);
 
     const outcome = await f.project.acceptCandidate(candidate.id);
@@ -79,8 +102,7 @@ test('candidate acceptance pins the reviewed commit inside the Git queue', async
     fs.writeFileSync(path.join(input.anchor.workspace, 'reviewed.txt'), 'reviewed\n');
     await git(input.anchor.workspace, 'add', 'reviewed.txt');
     await git(input.anchor.workspace, 'commit', '-m', 'reviewed candidate');
-    const candidate = await f.project.prepareCandidate(input.id);
-    f.store.updateCandidate(candidate.id, { status: 'ready' });
+    const candidate = markCandidateReady(f, await f.project.prepareCandidate(input.id));
 
     // 抢先占住 Lush 的 Git 队列：accept 已记录用户决定、尚未进入实际 merge 时推进候选分支。
     const hold = gate();
@@ -111,8 +133,7 @@ test('candidate acceptance updates an unconnected parent ref to exactly the revi
     fs.writeFileSync(path.join(input.anchor.workspace, 'pinned.txt'), 'pinned\n');
     await git(input.anchor.workspace, 'add', 'pinned.txt');
     await git(input.anchor.workspace, 'commit', '-m', 'pinned candidate');
-    const candidate = await f.project.prepareCandidate(input.id);
-    f.store.updateCandidate(candidate.id, { status: 'ready' });
+    const candidate = markCandidateReady(f, await f.project.prepareCandidate(input.id));
     await git(f.root, 'checkout', '-b', 'parking');
 
     const accepted = await f.project.acceptCandidate(candidate.id);
@@ -372,6 +393,7 @@ test('only the currently registered verifier can settle a preparing candidate', 
       .toMatchObject({ candidate_status: 'preparing', current_report_task_id: current.id });
 
     writeReport(f, current.id);
+    writePassingArtifact(f, current.id);
     f.project.finish(current.id, 'completed', 'current result');
     expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'ready', report_task_id: current.id });
     expect(f.store.history(current.id).find(row => row.type === 'candidate.verified')?.data)

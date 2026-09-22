@@ -28,6 +28,10 @@ if (task.role === 'planner' && task.calls === 1) {
   const baseline = fs.existsSync(path.join(v.baseline_workspace,'greeting.txt'));
   fs.mkdirSync(path.dirname(v.report_path),{recursive:true});
   fs.writeFileSync(v.report_path, '<!doctype html><title>candidate</title><p>changed='+changed+' baseline='+baseline+'</p>');
+  fs.writeFileSync(v.evidence_path, JSON.stringify({schema_version:1,status:changed&&!baseline?'pass':'fail',
+    summary:'candidate comparison',commands:[{command:'test -f greeting.txt',exit_code:changed?0:1,
+      baseline_exit_code:baseline?0:1,summary:'compared greeting file'}],failures:changed&&!baseline?[]:['candidate mismatch'],
+    unverified:[],baseline_failures:[],residual_risks:[]}));
 }
 console.log('candidate pi done ' + task.role);
 `;

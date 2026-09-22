@@ -1,4 +1,90 @@
-import { check, id } from '../../core/types.js';
+import { check, id, isPlainObject } from '../../core/types.js';
+
+const VERIFICATION_STATUSES = new Set(['pass','fail','partial','unverified']);
+const LIST_FIELDS = ['failures','unverified','baseline_failures','residual_risks'];
+
+function shortText(value, name, limit = 32000) {
+  check(typeof value === 'string' && value.trim().length > 0 && value.length <= limit,
+    `${name} must be non-empty text (max ${limit} characters)`);
+  return value;
+}
+function stringList(value, name) {
+  check(Array.isArray(value) && value.length <= 100, `${name} must be an array (max 100 items)`);
+  return value.map((item, index) => shortText(item, `${name}[${index}]`, 4000));
+}
+function exitCode(value, name) {
+  check(Number.isInteger(value) && value >= -1 && value <= 65535, `${name} must be an integer between -1 and 65535`);
+  return value;
+}
+
+/**
+ * Validate the versioned run.result payload at the persistence boundary.
+ * Invocation completion and verification conclusions deliberately use different fields.
+ * @param {object} payload
+ * @returns {object}
+ */
+export function validateRunResultPayload(payload) {
+  check(isPlainObject(payload) && payload.schema_version === 2, 'run.result payload schema_version must be 2');
+  check(isPlainObject(payload.invocation) && payload.invocation.status === 'completed',
+    'run.result invocation status must be completed');
+  shortText(payload.summary, 'run.result summary', 256000);
+  check(isPlainObject(payload.verification), 'run.result verification must be an object');
+  const verification = payload.verification;
+  check(VERIFICATION_STATUSES.has(verification.status),
+    'verification status must be pass, fail, partial or unverified');
+  for (const field of ['tested_commit','baseline_commit']) {
+    check(verification[field] === null || (typeof verification[field] === 'string' && /^[0-9a-f]{40,64}$/i.test(verification[field])),
+      `verification ${field} must be a commit hash or null`);
+  }
+  shortText(verification.summary, 'verification summary', 32000);
+  check(Array.isArray(verification.commands) && verification.commands.length <= 100,
+    'verification commands must be an array (max 100 items)');
+  verification.commands.forEach((command, index) => {
+    check(isPlainObject(command), `verification commands[${index}] must be an object`);
+    shortText(command.command, `verification commands[${index}].command`, 4000);
+    exitCode(command.exit_code, `verification commands[${index}].exit_code`);
+    if (command.baseline_exit_code !== null && command.baseline_exit_code !== undefined) {
+      exitCode(command.baseline_exit_code, `verification commands[${index}].baseline_exit_code`);
+    }
+    shortText(command.summary, `verification commands[${index}].summary`, 4000);
+  });
+  for (const field of LIST_FIELDS) stringList(verification[field], `verification ${field}`);
+  check(isPlainObject(verification.report)
+    && Number.isSafeInteger(verification.report.task_id) && verification.report.task_id > 0
+    && typeof verification.report.path === 'string' && verification.report.path.length > 0
+    && typeof verification.report.available === 'boolean', 'verification report reference is invalid');
+  return payload;
+}
+
+function unknownVerification() {
+  return { status: 'unknown', tested_commit: null, baseline_commit: null, commands: [],
+    summary: 'This historical artifact has no structured verification evidence.', report: null,
+    failures: [], unverified: [], baseline_failures: [], residual_risks: [] };
+}
+
+/**
+ * Parse the Artifact payload for callers without rewriting historical rows.
+ * @param {string} kind
+ * @param {string|object} source
+ * @returns {object}
+ */
+export function artifactPayload(kind, source) {
+  let value = source;
+  if (typeof source === 'string') {
+    try { value = JSON.parse(source); } catch { value = { summary: source }; }
+  }
+  if (!isPlainObject(value)) value = { summary: String(value ?? '') };
+  if (kind !== 'run.result') return value;
+  if (value.schema_version === 2) {
+    try { return validateRunResultPayload(value); } catch { /* malformed historical rows remain readable below */ }
+  }
+  return { ...value, schema_version: value.schema_version ?? 1,
+    invocation: isPlainObject(value.invocation) ? value.invocation
+      : { status: value.outcome === 'success' ? 'completed' : 'unknown' },
+    // Only a fully validated version 2 envelope can carry a trusted conclusion. Historical or malformed
+    // payloads remain readable, but cannot accidentally promote a Candidate.
+    verification: unknownVerification() };
+}
 
 /** Durable invocation attempts and structured artifacts. */
 export const runs = {
@@ -16,6 +102,7 @@ export const runs = {
   runsForTask(taskId) { return this.all('SELECT * FROM agent_runs WHERE task_id=? ORDER BY id', id(taskId)); },
   addArtifact({ task_id, run_id = null, input_id = null, kind, payload, metadata = {} }) {
     check(typeof kind === 'string' && kind.length > 0 && kind.length <= 64, 'artifact kind must be non-empty text');
+    if (kind === 'run.result') validateRunResultPayload(payload);
     const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
     check(Buffer.byteLength(body) <= 512000, 'artifact payload exceeds 512000 bytes');
     const row = this.run(`INSERT INTO artifacts(task_id,run_id,input_id,kind,payload,metadata) VALUES (?,?,?,?,?,?)`,
@@ -27,7 +114,7 @@ export const runs = {
     check(row, `artifact ${artifactId} not found`);
     let metadata = {};
     try { metadata = JSON.parse(row.metadata || '{}'); } catch { /* preserve malformed historical metadata as empty */ }
-    return { ...row, metadata };
+    return { ...row, payload: artifactPayload(row.kind, row.payload), metadata };
   },
   artifactsForTask(taskId) { return this.all('SELECT id FROM artifacts WHERE task_id=? ORDER BY id', id(taskId)).map(row => this.artifact(row.id)); },
   artifactsForInput(inputId) { return this.all('SELECT id FROM artifacts WHERE input_id=? ORDER BY id', id(inputId)).map(row => this.artifact(row.id)); },

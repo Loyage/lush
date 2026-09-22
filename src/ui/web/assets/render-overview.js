@@ -130,7 +130,7 @@ export function renderOverview(data) {
     data.status.fingerprint, data.status.started_at,
     open.map(notice => notice.id), reminders.map(notice => `${notice.id}:${notice.created_at ?? ''}`),
     intents.map(intent => `${intent.id}:${intent.status}:${intent.candidate_status ?? ''}`).join(','),
-    candidates.map(candidate => `${candidate.id}:${candidate.status}:${candidate.commit_hash}`).join(','), data.tasks.length,
+    candidates.map(candidate => `${candidate.id}:${candidate.status}:${candidate.verification?.status ?? 'unknown'}:${candidate.commit_hash}`).join(','), data.tasks.length,
     // 分支主线要跟着图一起重画：指纹 + 生成时间变了就重建，重画不丢折叠与滚动。
     graphData ? graphRenderKey(graphData) : null, ui.graphFetchedAt,
     // 时间轴的开口段一直在长，但只在结构变化或每 15 秒才需要重画一次，免得轮询把滚动位置冲掉。
@@ -176,6 +176,7 @@ export function renderOverview(data) {
     if (activeIntentIds.has(intent.id)) row.append(el('span', '执行中', 'chip relation-ahead'));
     if (candidate) {
       row.append(el('span', `候选 v${candidate.version} · ${candidate.status}`, `chip ${candidate.status === 'ready' ? 'c-completed' : ''}`));
+      row.append(el('span', `验证 ${candidate.verification?.status ?? 'unknown'}`, 'chip'));
       if (candidate.status === 'pending' || (candidate.status === 'preparing' && !candidate.report_task_id)) {
         row.append(button('开始验收', () => action('candidate.verify', { id: candidate.id }), 'primary'));
       } else if (candidate.status === 'failed') {

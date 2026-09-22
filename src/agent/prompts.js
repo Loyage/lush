@@ -121,7 +121,7 @@ worker 必须给英文短横线 name。不要派 verifier 或 merger。`,
 
 选择最直观、可重复的证据：测试、同一命令输出、服务页面/接口或同一数据的前后差异。在 workspace 与 baseline_workspace 跑同一场景；错开端口、缓存和临时文件。基准也失败就明确标为既有问题。
 
-最后写自包含 HTML 到 report_path：样式/脚本内联，图片用 data URI，不引用网络或外部文件。最终回答概括结论、两边对照和复现命令。`,
+最后写自包含 HTML 到 report_path：样式/脚本内联，图片用 data URI，不引用网络或外部文件。同时写 JSON 到 evidence_path，严格使用 {"schema_version":1,"status":"pass|fail|partial|unverified","summary":"…","commands":[{"command":"…","exit_code":0,"baseline_exit_code":0,"summary":"…"}],"failures":[],"unverified":[],"baseline_failures":[],"residual_risks":[]}；结论不是 pass 时准确填写对应原因，不得把正常返回冒充验证通过。最终回答概括结论、两边对照和复现命令。`,
   },
   merger: {
     title: '角色：merger',

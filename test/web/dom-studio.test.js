@@ -27,6 +27,7 @@ test('概览：指标以 Intent 为主，Git 诊断退居次级且折叠跨重�
   expect(text).toContain('Intent');
   expect(text).toContain('等待验收');
   expect(text).toContain('需要你决定');
+  expect(text).toContain('验证 unknown'); // 兼容旧 Candidate：没有结构化证据时明确显示未知。
   // 旧结构不再出现：按任务 status 的分布 chips 与按目标分支分组的交付队列。
   expect(text).not.toContain('任务状态');
   expect(text).not.toContain('交付队列');

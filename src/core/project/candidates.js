@@ -6,7 +6,7 @@ import { check, id, text, bounded } from '../types.js';
  */
 function recordAcceptFailure(project, candidate, reason) {
   project.store.transaction(() => {
-    project.store.updateCandidate(candidate.id, { status: 'ready' });
+    project.store.transitionCandidate(candidate.id, 'integration_failed');
     const input = project.store.get('SELECT task_id FROM inputs WHERE id=?', candidate.input_id);
     project.store.event(input?.task_id ?? null, 'candidate.accept_failed', { candidate: candidate.id,
       commit: candidate.commit_hash, target: candidate.baseline_branch, error: reason });
@@ -33,7 +33,7 @@ export default {
     const baseline = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${input.anchor_target_branch}^{commit}`);
     const previous = this.store.latestCandidate(input.id);
     const candidate = this.store.transaction(() => {
-      if (previous && ['pending','preparing','ready','accepted'].includes(previous.status)) this.store.updateCandidate(previous.id, { status: 'superseded' });
+      if (previous && ['pending','preparing','ready','accepted'].includes(previous.status)) this.store.transitionCandidate(previous.id, 'supersede');
       const created = this.store.createCandidate({ input_id: input.id, branch: input.anchor_branch, commit,
         baseline_branch: input.anchor_target_branch, baseline_commit: baseline, summary: summary ?? input.content.split('\n')[0].trim() });
       this.store.event(input.task_id, 'candidate.created', { candidate: created.id, version: created.version,
@@ -57,7 +57,7 @@ export default {
     const task = this.store.transaction(() => {
       const created = this.store.create({ parent_id: null, input_id: candidate.input_id, role: 'verifier', goal,
         name: `candidate-${candidate.id}`, review_candidate_id: candidate.id });
-      this.store.updateCandidate(candidate.id, { status: 'preparing', report_task_id: created.id });
+      this.store.transitionCandidate(candidate.id, 'verification_requested', { report_task_id: created.id });
       this.store.event(created.id, 'candidate.verify_requested', { candidate: candidate.id, commit: candidate.commit_hash });
       return created;
     });
@@ -74,18 +74,23 @@ export default {
       branch: candidate.branch, target_branch: candidate.baseline_branch,
       workspace: input?.anchor_workspace, baseline_workspace: task.baseline_workspace,
       baseline_commit: candidate.baseline_commit, report_path: this.reportPath(task.id),
+      evidence_path: this.evidencePath(task.id),
     };
   },
 
   candidates(inputId = null) {
     return bounded(this.store.candidates(inputId).map(candidate => ({ ...candidate,
-      has_report: Boolean(candidate.report_task_id && this.hasReport(candidate.report_task_id)) })), 500000);
+      has_report: Boolean(candidate.report_task_id && this.hasReport(candidate.report_task_id)),
+      verification: candidate.report_task_id ? this.verificationResult(candidate.report_task_id)
+        : { status: 'unknown', summary: 'No verification has been recorded.' } })), 500000);
   },
 
   candidate(candidateId) {
     const candidate = this.store.candidate(candidateId);
     return { ...candidate,
       has_report: Boolean(candidate.report_task_id && this.hasReport(candidate.report_task_id)),
+      verification: candidate.report_task_id ? this.verificationResult(candidate.report_task_id)
+        : { status: 'unknown', summary: 'No verification has been recorded.' },
       artifacts: bounded(this.store.artifactsForInput(candidate.input_id), 300000) };
   },
 
@@ -101,7 +106,7 @@ export default {
     const tip = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${candidate.branch}^{commit}`);
     check(tip === candidate.commit_hash,
       `candidate #${candidate.id} pins ${candidate.commit_hash.slice(0,12)}, but ${candidate.branch} moved to ${tip.slice(0,12)}; prepare a new candidate`);
-    this.store.updateCandidate(candidate.id, { status: 'accepted' });
+    this.store.transitionCandidate(candidate.id, 'accept');
     let outcome;
     try {
       outcome = await this.approveBranchMerge(candidate.branch, candidate.commit_hash);
@@ -110,7 +115,7 @@ export default {
       throw error;
     }
     if (outcome.merged || outcome.already_integrated) {
-      this.store.updateCandidate(candidate.id, { status: 'integrated' });
+      this.store.transitionCandidate(candidate.id, 'integration_succeeded');
       const input = this.store.get('SELECT task_id FROM inputs WHERE id=?', candidate.input_id);
       this.store.event(input?.task_id ?? null, 'candidate.integrated', { candidate: candidate.id,
         commit: outcome.landed ?? candidate.commit_hash, target: candidate.baseline_branch });
@@ -128,7 +133,7 @@ export default {
     text(feedback, 'feedback');
     const input = this.store.get('SELECT * FROM inputs WHERE id=?', candidate.input_id);
     return this.store.transaction(() => {
-      this.store.updateCandidate(candidate.id, { status: 'changes_requested', feedback });
+      this.store.transitionCandidate(candidate.id, 'request_changes', { feedback });
       const planner = this.store.create({ input_id: input.id, role: 'planner',
         goal: `${input.content}\n\n候选 v${candidate.version} 的验收反馈：\n${feedback}` });
       this.store.run('UPDATE inputs SET task_id=? WHERE id=?', planner.id, input.id);
@@ -143,6 +148,6 @@ export default {
     const candidate = this.store.candidate(candidateId);
     check(!['integrated','rejected','superseded'].includes(candidate.status), `candidate #${candidate.id} is ${candidate.status}`);
     if (reason !== null && reason !== undefined) text(reason, 'reason');
-    return this.store.updateCandidate(candidate.id, { status: 'rejected', feedback: reason });
+    return this.store.transitionCandidate(candidate.id, 'reject', { feedback: reason });
   },
 };
