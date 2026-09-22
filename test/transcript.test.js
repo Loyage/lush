@@ -289,7 +289,9 @@ test('incremental JSONL cache preserves half lines and UTF-8 across append and t
     fs.appendFileSync(file, encoded.subarray(emoji + 2));
     const appended = readTranscript(f.config, 32, 0, 100);
     expect(appended.steps.map(step => step.body)).toEqual(['前🙂后']);
-    expect(transcriptReadStats(f.config, 32).bytes).toBe(encoded.length - (emoji + 2));
+    const appendedBytes = transcriptReadStats(f.config, 32).bytes;
+    expect(appendedBytes).toBeGreaterThanOrEqual(encoded.length - (emoji + 2));
+    expect(appendedBytes).toBeLessThanOrEqual(encoded.length - (emoji + 2) + 2 * 4096);
 
     const replacement = `${JSON.stringify(message('assistant', [{ type: 'text', text: '截断后' }]))}\n`;
     fs.writeFileSync(file, replacement);
@@ -299,6 +301,38 @@ test('incremental JSONL cache preserves half lines and UTF-8 across append and t
     sessionFile(f.root, 33, [message('assistant', [{ type: 'text', text: '截断后' }])]);
     expect(readTranscript(f.config, 33, 0, 100).steps.map(({ file: _file, ...step }) => step))
       .toEqual(truncated.steps.map(({ file: _file, ...step }) => step));
+  } finally { f.close(); }
+});
+
+test('same-path truncate and fast regrow invalidates transcript and usage caches', () => {
+  const f = fixture();
+  try {
+    const old = billing('旧记录🙂', { input: 5, output: 2, totalTokens: 7, cost: { total: 0 } }, 1000);
+    const tail = Buffer.from(`${JSON.stringify(message('assistant', [{ type: 'text', text: '尾半行🙂' }], 1500))}\n`);
+    const split = tail.indexOf(Buffer.from('🙂')) + 2;
+    const file = sessionFile(f.root, 35, [old]);
+    fs.appendFileSync(file, tail.subarray(0, split));
+    expect(readTranscript(f.config, 35, 0, 100).steps.map(step => step.body)).toEqual(['旧记录🙂']);
+    fs.appendFileSync(file, tail.subarray(split));
+    expect(readTranscript(f.config, 35, 0, 100).steps.map(step => step.body)).toEqual(['旧记录🙂', '尾半行🙂']);
+    expect(readUsage(f.config, 35).totals.tokens).toBe(7);
+    expect(readUsage(f.config, 35).totals.tokens).toBe(7);
+    expect(transcriptReadStats(f.config, 35).bytes).toBe(0);
+
+    const replacement = [
+      billing('新记录甲🙂', { input: 20, output: 3, totalTokens: 23, cost: { total: 0 } }, 2000),
+      billing(`新记录乙${'长'.repeat(200)}`, { input: 30, output: 4, totalTokens: 34, cost: { total: 0 } }, 3000),
+    ];
+    const replacementBytes = Buffer.from(replacement.map(JSON.stringify).join('\n') + '\n');
+    expect(replacementBytes.length).toBeGreaterThan(fs.statSync(file).size);
+    fs.writeFileSync(file, replacementBytes); // truncate and regrow past the cached offset between polls
+    const refreshed = readTranscript(f.config, 35, 0, 100);
+    expect(refreshed.steps.map(step => step.body)).toEqual(['新记录甲🙂', `新记录乙${'长'.repeat(200)}`]);
+    expect(refreshed.steps.some(step => step.body.includes('旧记录'))).toBe(false);
+    expect(transcriptReadStats(f.config, 35).budget_bytes).toBe(replacementBytes.length);
+    expect(readUsage(f.config, 35).totals.tokens).toBe(57);
+    // Transcript already reparsed the replacement; usage aggregation consumes cached records without disk I/O.
+    expect(transcriptReadStats(f.config, 35).bytes).toBe(0);
   } finally { f.close(); }
 });
 

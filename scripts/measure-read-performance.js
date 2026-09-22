@@ -5,12 +5,13 @@ import { performance } from 'node:perf_hooks';
 import { Config } from '../src/config.js';
 import { Store } from '../src/persistence/store.js';
 import { Project } from '../src/core/project.js';
+import { Dispatcher } from '../src/rpc/dispatcher.js';
+import { UIClient } from '../src/ui/client.js';
 import { readUsage, transcriptReadStats } from '../src/core/transcript.js';
-import { installDom } from '../test/dom-stub.js';
+import { installDom, deepText } from '../test/dom-stub.js';
 
 const dom = installDom({ fetch: async () => ({ ok: false, status: 404, json: async () => ({ error: 'measurement has no network' }) }) });
 const { renderTree } = await import('../src/ui/web/assets/render-tree.js');
-// Module/style-independent warm-up; measurements below represent recurring browser refreshes.
 renderTree({ tasks: [], inputs: [], notices: [], status: { concurrency: 1 }, task_page: { total: 0, active: 0, historical: 0, shown: 0, truncated: false, has_more: false } });
 
 const cleanEnv = () => {
@@ -19,6 +20,7 @@ const cleanEnv = () => {
   return env;
 };
 const timed = fn => { const start = performance.now(); const value = fn(); return { value, ms: performance.now() - start }; };
+const timedAsync = async fn => { const start = performance.now(); const value = await fn(); return { value, ms: performance.now() - start }; };
 const bytes = value => Buffer.byteLength(JSON.stringify(value));
 
 function fixture() {
@@ -26,10 +28,14 @@ function fixture() {
   const config = new Config({ project: root, env: cleanEnv() }); config.prepare();
   const store = new Store(path.join(config.home, 'project.db'), root);
   const project = new Project(config, store);
-  return { root, config, store, project, close() { store.close(); fs.rmSync(root, { recursive: true, force: true }); } };
+  const dispatcher = new Dispatcher(project, { request() {} }, { version: 'measure', fingerprint: 'measure' });
+  const client = new UIClient(config);
+  client.request = (method, params = {}) => dispatcher.dispatch(method, params);
+  return { root, config, store, project, client,
+    close() { store.close(); fs.rmSync(root, { recursive: true, force: true }); } };
 }
 
-function taskDataset(count) {
+async function taskDataset(count) {
   const f = fixture();
   try {
     f.store.transaction(() => {
@@ -38,17 +44,17 @@ function taskDataset(count) {
         f.store.update(task.id, { status: 'completed', result: 'done' });
       }
     });
-    const shared = () => ({ timeline: f.project.timeline({ limit: 40 }), ladder: { nodes: [], groups: [], truncated: false },
-      inputs: f.project.inputs(), drafts: f.project.drafts(),
-      notices: f.store.all("SELECT * FROM notices ORDER BY (status='open') DESC, id DESC LIMIT 200"),
-      specs: f.store.specs({ limit: 1000 }), candidates: f.project.candidates() });
-    const bounded = timed(() => { const activity = f.project.activity(50); return { status: f.project.status(false),
-      tasks: activity.tasks, task_page: activity.page, ...shared() }; });
-    const legacy = timed(() => ({ status: f.project.status(), tasks: f.project.decorate(f.store.summaries('work')), ...shared() }));
-    const renderData = bounded.value;
-    const render = timed(() => renderTree(renderData));
-    return { tasks: count, overview_bytes: bytes(bounded.value), legacy_bytes: bytes(legacy.value),
-      overview_ms: +bounded.ms.toFixed(3), legacy_ms: +legacy.ms.toFixed(3), render_ms: +render.ms.toFixed(3) };
+    // These are the real homepage and compatibility client paths, including summary, ladder and activity.
+    const overview = await timedAsync(() => f.client.overview());
+    const legacy = await timedAsync(() => f.client.snapshot());
+    renderTree(overview.value); // warm this data shape before measuring recurring refresh work
+    const render = timed(() => renderTree(overview.value));
+    const treeText = deepText(dom.node('tasks'));
+    return { tasks: count, overview_bytes: bytes(overview.value), legacy_bytes: bytes(legacy.value),
+      overview_ms: +overview.ms.toFixed(3), legacy_ms: +legacy.ms.toFixed(3), render_ms: +render.ms.toFixed(3),
+      shown: overview.value.tasks.length, historical: overview.value.task_page.historical,
+      truncated: overview.value.task_page.truncated, has_more: overview.value.task_page.has_more,
+      ui_truncation: treeText.includes('列表已截断'), ui_paging: treeText.includes('加载更早 50 个') };
   } finally { f.close(); }
 }
 
@@ -76,11 +82,32 @@ async function logDataset(label, size) {
   } finally { f.close(); }
 }
 
+const thresholds = { overview: 100, render: 50, large_log_cold: 100, unchanged_usage: 10, other_rpc_timer_delay: 150 };
+const taskSets = [];
+for (const count of [20, 1000, 10000]) taskSets.push(await taskDataset(count));
+const logSets = [];
+for (const [label, size] of [['small', 64 * 1024], ['medium', 2 * 1024 * 1024], ['large', 12 * 1024 * 1024]]) {
+  logSets.push(await logDataset(label, size));
+}
 const report = {
   environment: { bun: Bun.version, platform: `${process.platform}/${process.arch}` },
-  task_sets: [taskDataset(20), taskDataset(1000), taskDataset(10000)],
-  log_sets: [await logDataset('small', 64 * 1024), await logDataset('medium', 2 * 1024 * 1024), await logDataset('large', 12 * 1024 * 1024)],
-  thresholds_ms: { overview: 100, render: 50, large_log_cold: 100, unchanged_usage: 10, other_rpc_timer_delay: 150 },
+  task_sets: taskSets, log_sets: logSets, thresholds_ms: thresholds,
 };
+const violations = [];
+for (const set of report.task_sets) {
+  if (set.overview_ms > thresholds.overview) violations.push(`${set.tasks} tasks overview ${set.overview_ms}ms > ${thresholds.overview}ms`);
+  if (set.render_ms > thresholds.render) violations.push(`${set.tasks} tasks render ${set.render_ms}ms > ${thresholds.render}ms`);
+  if (set.tasks >= 1000 && (set.shown !== 50 || !set.truncated || !set.has_more || !set.ui_truncation || !set.ui_paging)) {
+    violations.push(`${set.tasks} tasks did not expose the bounded UI truncation/page controls`);
+  }
+}
+const large = report.log_sets.find(set => set.label === 'large');
+if (large.cold_ms > thresholds.large_log_cold) violations.push(`large log cold ${large.cold_ms}ms > ${thresholds.large_log_cold}ms`);
+if (large.warm_ms > thresholds.unchanged_usage) violations.push(`unchanged usage ${large.warm_ms}ms > ${thresholds.unchanged_usage}ms`);
+if (large.timer_delay_ms > thresholds.other_rpc_timer_delay) violations.push(`timer delay ${large.timer_delay_ms}ms > ${thresholds.other_rpc_timer_delay}ms`);
+if (large.bytes_read > 8 * 1024 * 1024) violations.push(`large log read ${large.bytes_read} bytes > 8 MiB`);
+report.ok = violations.length === 0;
+report.violations = violations;
 console.log(JSON.stringify(report, null, 2));
 dom.restore();
+if (violations.length) process.exitCode = 1;

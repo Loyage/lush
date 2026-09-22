@@ -104,6 +104,8 @@ export const candidates = {
     assertTransition('preparing', status);
     const result = this.run(`UPDATE review_candidates SET status=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
       WHERE id=? AND status='preparing' AND report_task_id=?`, status, candidate, verifier);
-    return { applied: Number(result.changes) === 1, candidate: this.candidate(candidate) };
+    // SQLite wrappers may include AFTER-trigger maintenance writes in `changes`; the guarded
+    // candidate row contributes at least one change, while a stale verifier still contributes zero.
+    return { applied: Number(result.changes) >= 1, candidate: this.candidate(candidate) };
   },
 };

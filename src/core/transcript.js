@@ -87,11 +87,47 @@ const READ_CHUNK = 64 * 1024;
 const FILE_CACHE = new Map();
 const USAGE_CACHE = new Map();
 const READ_STATS = new Map();
+const CACHE_GUARD_BYTES = 4096;
 const statVersion = stat => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
 
 function emptyFileState(stat) {
   return { dev: stat.dev, ino: stat.ino, offset: 0, tailParts: [], tailBytes: 0,
-    line: 0, records: [], version: statVersion(stat) };
+    headGuard: Buffer.alloc(0), endGuard: Buffer.alloc(0), line: 0, records: [], version: statVersion(stat) };
+}
+
+/** Keep two bounded witnesses of the bytes already parsed, without rereading them after an append. */
+function extendGuards(state, bytes) {
+  if (state.headGuard.length < CACHE_GUARD_BYTES) {
+    const needed = CACHE_GUARD_BYTES - state.headGuard.length;
+    state.headGuard = Buffer.concat([state.headGuard, bytes.subarray(0, needed)]);
+  }
+  const end = Buffer.concat([state.endGuard, bytes]);
+  state.endGuard = Buffer.from(end.subarray(Math.max(0, end.length - CACHE_GUARD_BYTES)));
+}
+
+/**
+ * size/mtime cannot distinguish append from truncate+regrow on the same inode. Before accepting
+ * a changed, longer file as an append, verify both the beginning and the old append boundary.
+ * If the whole old prefix is shorter than one guard these ranges collapse to one exact comparison.
+ */
+function cachedPrefixMatches(filename, state, budget) {
+  if (!state.offset) return true;
+  const ranges = [{ offset: 0, expected: state.headGuard }];
+  const endOffset = state.offset - state.endGuard.length;
+  if (endOffset >= state.headGuard.length) ranges.push({ offset: endOffset, expected: state.endGuard });
+  let descriptor;
+  try {
+    descriptor = fs.openSync(filename, 'r');
+    for (const range of ranges) {
+      if (range.expected.length > MAX_BYTES - budget.readBytes) return false;
+      const actual = Buffer.allocUnsafe(range.expected.length);
+      const count = fs.readSync(descriptor, actual, 0, actual.length, range.offset);
+      budget.readBytes += count;
+      if (count !== actual.length || !actual.equals(range.expected)) return false;
+    }
+    return true;
+  } catch { return false; }
+  finally { if (descriptor !== undefined) fs.closeSync(descriptor); }
 }
 
 /**
@@ -107,11 +143,13 @@ function* recordsOf(dir, file, budget) {
   try { stat = fs.statSync(filename); } catch { return; }
   const target = Math.min(stat.size, remaining);
   let state = FILE_CACHE.get(filename);
+  const version = statVersion(stat);
   const replaced = !state || state.dev !== stat.dev || state.ino !== stat.ino;
   const truncated = state && stat.size < state.offset;
-  // Same-size content changes are rewrites, not appends. A mere touch also reparses, which is
-  // conservative and keeps the cache from serving content whose identity changed underneath it.
-  const rewritten = state && stat.size === state.offset && state.version !== statVersion(stat);
+  // A changed same-size file is a rewrite. For a changed larger file, size alone is ambiguous:
+  // truncate+fast-regrow can pass the old offset between polls, so verify cached-prefix guards.
+  const rewritten = state && state.version !== version && (stat.size === state.offset
+    || (stat.size > state.offset && !cachedPrefixMatches(filename, state, budget)));
   if (replaced || truncated || rewritten) {
     state = emptyFileState(stat);
     FILE_CACHE.set(filename, state);
@@ -121,13 +159,14 @@ function* recordsOf(dir, file, budget) {
   if (state.offset < readTarget) {
     const descriptor = fs.openSync(filename, 'r');
     try {
-      while (state.offset < readTarget) {
-        const length = Math.min(READ_CHUNK, readTarget - state.offset);
+      while (state.offset < readTarget && budget.readBytes < MAX_BYTES) {
+        const length = Math.min(READ_CHUNK, readTarget - state.offset, MAX_BYTES - budget.readBytes);
         const chunk = Buffer.allocUnsafe(length);
         const count = fs.readSync(descriptor, chunk, 0, length, state.offset);
         if (!count) break;
         budget.readBytes += count;
         const bytes = chunk.subarray(0, count);
+        extendGuards(state, bytes);
         let start = 0;
         for (;;) {
           const index = bytes.indexOf(0x0a, start);
@@ -153,9 +192,12 @@ function* recordsOf(dir, file, budget) {
     } finally { fs.closeSync(descriptor); }
   }
   state.version = statVersion(stat);
-  budget.bytes += target;
-  if (target < stat.size) budget.truncated = true;
-  for (const item of state.records) if (item.end <= target) yield item;
+  // Prefix guards are real I/O too: a replacement rebuild may therefore expose slightly less than
+  // the logical 8 MiB window, but the request's measured disk reads never exceed that hard budget.
+  const availableTarget = Math.min(target, state.offset);
+  budget.bytes += availableTarget;
+  if (availableTarget < stat.size) budget.truncated = true;
+  for (const item of state.records) if (item.end <= availableTarget) yield item;
 }
 
 /** Records across files. Later files are not touched after the shared byte window is full. */

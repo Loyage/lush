@@ -104,8 +104,9 @@ export default {
     const byId = new Map([...active, ...recent].map(task => [task.id, task]));
     const tasks = this.decorate([...byId.values()].sort((a, b) => a.id - b.id));
     const cursor = recent.length ? Math.min(...recent.map(task => task.id)) : null;
-    const total = this.store.get("SELECT count(*) AS count FROM tasks WHERE layer='work'").count;
-    const historical = this.store.get("SELECT count(*) AS count FROM tasks WHERE layer='work' AND status IN ('completed','failed','cancelled')").count;
+    const counts = this.store.all("SELECT status,count FROM overview_task_counts WHERE layer='work' AND count>0");
+    const total = counts.reduce((sum, row) => sum + row.count, 0);
+    const historical = counts.filter(row => TERMINAL.has(row.status)).reduce((sum, row) => sum + row.count, 0);
     return { tasks, page: { limit: size, cursor, has_more: cursor !== null && historical > recent.length,
       shown: recent.length, total, historical, active: active.length, truncated: historical > recent.length } };
   },

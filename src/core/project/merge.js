@@ -236,10 +236,15 @@ export default {
     const pendingIds = new Set(rows.map(row => row.id));
     const nodes = new Map(rows.map(row => [row.id, { id: row.id, role: row.role, goal: row.goal, branch: row.branch,
       target_branch: row.target_branch, integration: row.integration, deps: [], covered_by: [] }]));
-    const allTasks = this.store.all(`SELECT id,input_id,role,status,agent_wakes,resolves_task_id,branch,target_branch,head_commit,integration
-      FROM tasks ORDER BY id`);
-    const head = new Map(allTasks.map(row => [row.id, row]));
     const edges = this.store.edgesOf([...pendingIds]);
+    const upstreamIds = [...new Set(edges.map(edge => edge.depends_on))];
+    const related = pendingIds.size ? this.store.all(`SELECT id,input_id,role,status,agent_wakes,resolves_task_id,branch,target_branch,head_commit,integration
+      FROM tasks WHERE (resolves_task_id IN (${[...pendingIds].map(() => '?').join(',')})
+        AND (status NOT IN ('completed','failed','cancelled') OR (status='completed' AND integration IN ('pending','review'))))${upstreamIds.length
+        ? ` OR id IN (${upstreamIds.map(() => '?').join(',')})` : ''} ORDER BY id`, ...pendingIds, ...upstreamIds) : [];
+    // The delivery queue needs only its bounded pending rows, their resolver attempts and direct dependency heads.
+    const allTasks = [...new Map([...rows, ...related].map(task => [task.id, task])).values()];
+    const head = new Map(allTasks.map(row => [row.id, row]));
     for (const id of pendingIds) {
       const node = nodes.get(id);
       for (const edge of edges.filter(row => row.task_id === id)) {
@@ -271,10 +276,16 @@ export default {
     // 这层完全从现有 task/关联边派生，不引入新的持久化实体。
     let currentBranch = null;
     try { currentBranch = await this.workspaces.git(this.config.project, 'symbolic-ref', '--short', 'HEAD'); } catch { /* 非 Git 项目 */ }
-    const conflictRows = allTasks.filter(task => task.integration === 'conflict');
+    const conflictRows = rows.filter(task => task.integration === 'conflict');
+    const attemptsByTarget = new Map();
+    for (const task of related.filter(task => task.resolves_task_id !== null)) {
+      if (!attemptsByTarget.has(task.resolves_task_id)) attemptsByTarget.set(task.resolves_task_id, []);
+      attemptsByTarget.get(task.resolves_task_id).push(task);
+    }
+    for (const attempts of attemptsByTarget.values()) attempts.sort((a, b) => b.id - a.id);
     const items = [];
     for (const row of rows.filter(task => !task.resolves_task_id)) {
-      const attempts = allTasks.filter(task => task.resolves_task_id === row.id).sort((a, b) => b.id - a.id);
+      const attempts = attemptsByTarget.get(row.id) ?? [];
       const active = attempts.find(task => !['completed','failed','cancelled'].includes(task.status)) ?? null;
       const readyResolution = attempts.find(task => task.status === 'completed' && ['pending','review'].includes(task.integration)) ?? null;
       const source = readyResolution ?? row;
@@ -348,8 +359,10 @@ export default {
       ready: groupItems.filter(item => item.ready).length,
       selectable: groupItems.filter(item => item.selectable).length,
     }));
-    const pending = this.store.get("SELECT count(*) AS count FROM tasks WHERE resolves_task_id IS NULL AND integration IN ('pending','review','conflict')").count;
-    return { target_branch: rows[0]?.target_branch ?? null, current_branch: currentBranch, truncated: pending > rows.length,
+    const last = rows.at(-1)?.id ?? null;
+    const truncated = rows.length === 50 && Boolean(this.store.get(`SELECT id FROM tasks
+      WHERE resolves_task_id IS NULL AND integration IN ('pending','review','conflict') AND id>? ORDER BY id LIMIT 1`, last));
+    return { target_branch: rows[0]?.target_branch ?? null, current_branch: currentBranch, truncated,
       nodes: legacyNodes, groups };
   },
 
