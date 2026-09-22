@@ -2,7 +2,8 @@ import cp from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GUIDE } from './guide.js';
+import { agentPrompt } from './prompts.js';
+import { agentEnvironment } from './environment.js';
 
 const BIN = fileURLToPath(new URL('../../bin', import.meta.url));
 const MAX_RESULT = 256000;
@@ -13,17 +14,17 @@ function sessionFiles(config, task, context, messages, agent) {
   const promptFile = path.join(sessions, `task-${task.id}-input.md`);
   const systemFile = path.join(sessions, `task-${task.id}-system.md`);
   fs.writeFileSync(promptFile, JSON.stringify({ task, project: config.project, agent, ...context, messages }), { mode: 0o600 });
-  const base = agent.default_prompt || GUIDE;
-  const custom = agent.append_prompt ? `\n\n# 项目自定义角色要求（追加）\n\n${agent.append_prompt}\n` : '';
-  fs.writeFileSync(systemFile, base + custom, { mode: 0o600 });
-  return { sessions, promptFile, systemFile };
+  const prompt = agentPrompt(config, task.role, agent);
+  fs.writeFileSync(systemFile, prompt.text, { mode: 0o600 });
+  const environment = agentEnvironment(config, task.role);
+  return { sessions, promptFile, systemFile, environment };
 }
 
-async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, onStdout = null }) {
+async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, onStdout = null, extraEnv = {} }) {
   const child = cp.spawn(command, args, {
     cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...config.env, LUSH_TASK_ID: String(config.taskId ?? ''), LUSH_AGENT_TOKEN: token,
-      PATH: `${BIN}${path.delimiter}${config.env.PATH || ''}` },
+    env: { ...config.env, ...extraEnv, LUSH_TASK_ID: String(config.taskId ?? ''), LUSH_AGENT_TOKEN: token,
+      PATH: `${BIN}${path.delimiter}${extraEnv.PATH ?? config.env.PATH ?? ''}` },
   });
   onSpawn(child.pid);
   let output = '', stderr = '', overflow = false;
@@ -67,7 +68,7 @@ export class PiProvider {
     // Backward-compatible provider override for unqualified pi model IDs.
     if (config.env.LUSH_PI_PROVIDER) args.unshift('--provider', config.env.LUSH_PI_PROVIDER);
     return spawnAgent(config.env.LUSH_PI_COMMAND || 'pi', args, {
-      config: { ...config, taskId: task.id }, cwd, token, signal, onSpawn,
+      config: { ...config, taskId: task.id }, cwd, token, signal, onSpawn, extraEnv: files.environment.values,
     });
   }
 }
@@ -119,7 +120,7 @@ export class CodexProvider {
       if (buffer.length > 1024 * 1024) buffer = buffer.slice(-65536);
     };
     await spawnAgent(config.env.LUSH_CODEX_COMMAND || 'codex', args, {
-      config: { ...config, taskId: task.id }, cwd, token, signal, onSpawn, onStdout,
+      config: { ...config, taskId: task.id }, cwd, token, signal, onSpawn, onStdout, extraEnv: files.environment.values,
     });
     if (!threadId) throw new Error('codex did not report a thread id');
     if (!fs.existsSync(resultFile)) throw new Error('codex did not write a final response');

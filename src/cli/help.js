@@ -10,6 +10,9 @@ lush [--project PATH] [--json] <command>
                                   设置默认或 planner/coordinator/worker/research/verifier/merger；下次调用生效
                                   default-prompt 会替换 Lush 内置规则，使用前请确保包含完整任务与安全协议
   agent reset ROLE               删除该角色覆盖，恢复继承项目默认配置
+  agent prompt ROLE              按段查看该角色最终 Prompt（含 agent.json 与文件补充）
+  agent env ROLE                 查看该角色热加载的 env 文件和变量名（值不显示）
+  agent init [ROLE] [--local]     创建可提交的 .lush-agent/ 补充；--local 写本机 .lush/agent/
   config [show]                   查看并发额度：生效值、环境默认值、来源与设置文件
   config set concurrency N        执行通道并发上限（1..64），写回项目设置并立即生效
   config set control-concurrency N 控制通道并发上限（1..16）
@@ -92,4 +95,6 @@ lush [--project PATH] [--json] <command>
 依赖：一个任务最多一条 code 依赖。code（默认）把上游分支当作本任务 worktree 的基线，
 因此看得到上游未合并的改动，但必须先合并上游再合并本任务；order 只等上游结束，代码仍从这条输入的锚点开始。
 依赖不能指向自己的祖先任务（祖先在等子孙结束，双方会互相等死）。
-Agent 默认 pi；项目级配置保存在 .lush/agent.json，可按任务角色切换 pi / codex、模型、思考深度、默认 prompt 与追加 prompt；LUSH_PROVIDER=mock 可离线验证。`;
+Agent 默认 pi；项目级配置保存在 .lush/agent.json，可按任务角色切换 pi / codex、模型、思考深度、默认 prompt 与追加 prompt。
+Prompt 由角色内置片段、.lush-agent/{common,ROLE}.md、.lush/agent/{common,ROLE}.md 与 agent.json 追加项组成。
+额外环境变量从 .lush/agent/agent.env 与 .lush/agent/ROLE.env 每轮热加载；角色文件覆盖公共文件，LUSH_* 保留。LUSH_PROVIDER=mock 可离线验证。`;

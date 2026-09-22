@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { check, isPlainObject } from '../core/types.js';
 import { GUIDE } from './guide.js';
+import { AGENT_ROLES as PROMPT_ROLES, builtInPrompt } from './prompts.js';
 
-export const AGENT_ROLES = ['planner', 'coordinator', 'worker', 'research', 'verifier', 'merger'];
+export const AGENT_ROLES = [...PROMPT_ROLES];
 export const AGENT_BACKENDS = ['pi', 'codex'];
 export const THINKING_LEVELS = {
   pi: ['', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
@@ -108,7 +109,9 @@ export class AgentSettings {
         roles: AGENT_ROLES.map(id => ({ id, label: ROLE_LABELS[id] })),
         thinking: Object.fromEntries(Object.entries(THINKING_LEVELS).map(([key, values]) => [key, [...values]])),
         models: Object.fromEntries(Object.entries(MODEL_PRESETS).map(([key, values]) => [key, [...values]])),
+        // Compatibility field for older clients; role-aware clients use default_prompts.
         default_prompt: GUIDE,
+        default_prompts: Object.fromEntries(AGENT_ROLES.map(role => [role, builtInPrompt(role)])),
       },
     };
   }

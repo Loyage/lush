@@ -8,6 +8,9 @@
 | `lush agent show` | `agent.config` | `{}` |
 | `lush agent models pi|codex` | `agent.models` | `{agent}` |
 | `lush agent set/reset …` | `agent.configure` | `{config}`（用户专属） |
+| `lush agent prompt ROLE` | 本地命令 | 按片段查看最终 Prompt 与来源 |
+| `lush agent env ROLE` | 本地命令 | 查看 env 文件与变量名（值隐藏） |
+| `lush agent init [ROLE] [--local]` | 本地命令 | 创建共享或本机 Prompt 补充文件 |
 | `lush config [show]` | `system.status`（读 `settings`） | `{}` |
 | `lush config set concurrency|control-concurrency N` | `system.configure` | `{settings}`，只带要改的键（用户专属） |
 | `lush config reset [concurrency|control-concurrency|all]` | `system.configure` | `{settings}`，被重置的键传 `null`（用户专属） |
@@ -24,9 +27,11 @@ Pi / Codex 每次 invocation 都从 daemon 获得：
 - `LUSH_AGENT_TOKEN`：当前 invocation 的临时 capability。同一 task 每次唤醒重新签发，daemon 只存 SHA-256，invocation 结束或 daemon 重启后即失效；泄漏的旧 token 不能被下一轮使用。
 - `PATH` 前置 daemon 所属 checkout 的 `bin/`。
 
+daemon 环境先整体继承给 Agent；每次 invocation 随后加载 `.lush/agent/agent.env`，再加载 `.lush/agent/<role>.env`。角色文件覆盖公共文件；自定义 `PATH` 时 Lush `bin/` 仍会前置。env 使用字面量 `NAME=value`，支持引号和 `export` 前缀，不做 shell 展开。所有 `LUSH_*` 保留给 runtime 并拒绝覆盖。`agent env` 只报告变量名，不暴露值。
+
 CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 task，并要求该 task 仍是活动 invocation（在 `running` 中且未被 abort），否则报 invalid or expired agent token。agent spawn 的 parent / notice 的 task 缺省为自己的 task，不能伪造其他父任务；message 只能沿直接父子边。进度接口不接受 task ID，始终写 token 所属 task：`progress plan` 整表替换时保留同 key 的完成态与既有计时，`progress complete` 只完成当前计划中已存在的 key。runtime 自动记录当前步骤的 `started_at`，完成时写入 `completed_at` / `duration_ms`，并开始下一条待办的计时。
 
-项目级配置固定为 `.lush/agent.json`，含一个 `default` 与 planner / coordinator / worker / research / verifier / merger 六类角色覆盖。每份 profile 是 `{agent, model, thinking, default_prompt, append_prompt, extensions, skills}`。`default_prompt` 为空时使用 Lush 内置规则；Web 会直接显示该内置全文并提供“恢复默认 Prompt”。非空时完整替换内置规则，可能让 Agent 失去任务 API、权限边界、协作和交付协议，因此 Web 保存前会明确警告并再次确认；`append_prompt` 追加在最终默认 Prompt 之后。`extensions` / `skills` 是从已安装 Pi 资源中选择的路径，只给 Pi invocation 显式加载，Codex 不使用。旧版 `prompt` 字段继续按 `append_prompt` 读取。daemon 在每次 invocation 开始前重读文件，所以运行中的调用不变，下一次调用立即生效。每条 `agent_runs` 固化当次实际的 provider / model / thinking，后续改配置不改历史。
+项目级配置固定为 `.lush/agent.json`，含一个 `default` 与 planner / coordinator / worker / research / verifier / merger 六类角色覆盖。每份 profile 是 `{agent, model, thinking, default_prompt, append_prompt, extensions, skills}`。`default_prompt` 为空时，`PROMPT_PARTS` 按 role 组合内置规则；非空时完整替换内置组合，可能让 Agent 失去任务 API、权限边界、协作和交付协议，因此 Web 保存前会明确警告并再次确认。随后依次追加可提交的 `.lush-agent/common.md` / `<role>.md`、本机 `.lush/agent/common.md` / `<role>.md`，最后追加 `append_prompt`。`lush agent prompt ROLE` 展示这条最终链路及每段来源。`extensions` / `skills` 是从已安装 Pi 资源中选择的路径，只给 Pi invocation 显式加载，Codex 不使用。旧版 `prompt` 字段继续按 `append_prompt` 读取。daemon 在每次 invocation 开始前重读文件，所以运行中的调用不变，下一次调用立即生效。每条 `agent_runs` 固化当次实际的 provider / model / thinking，后续改配置不改历史。
 
 `agent.models` 按需调用本机 CLI：Pi 使用 `pi --list-models`，Codex 使用 `codex debug models`。接口只返回筛选后的模型元数据，不暴露 CLI 的原始目录；读取失败时返回内置预设与 `warning`，模型 ID 仍可手工输入。
 

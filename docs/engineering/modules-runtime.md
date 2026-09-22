@@ -8,11 +8,13 @@
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `agent/settings.js` | `.lush/agent.json` 的兼容读取、校验、原子写入、角色继承与 Web 选项（含内置 Prompt）；旧 `prompt` 迁到 `append_prompt`，资源选择存 `extensions` / `skills` | `AGENT_ROLES`、`AGENT_BACKENDS`、`THINKING_LEVELS`、`MODEL_PRESETS`、`normalizeAgentConfig()`、`AgentSettings` |
+| `agent/prompts.js` | 命名内置 Prompt 片段、按角色组合，并叠加可提交、本机与 `agent.json` 补充 | `AGENT_ROLES`、`PROMPT_PARTS`、`ROLE_PROMPT_PARTS`、`builtInPrompt(role)`、`agentPrompt(config,role,profile)` |
+| `agent/environment.js` | 每次 invocation 热加载 `.lush/agent/agent.env` 与角色 env，校验并叠加环境 | `parseAgentEnv(source,file)`、`agentEnvironment(config,role)` |
+| `agent/settings.js` | `.lush/agent.json` 的兼容读取、校验、原子写入、角色继承与 Web 选项（含各角色内置 Prompt）；旧 `prompt` 迁到 `append_prompt`，资源选择存 `extensions` / `skills` | `AGENT_ROLES`、`AGENT_BACKENDS`、`THINKING_LEVELS`、`MODEL_PRESETS`、`normalizeAgentConfig()`、`AgentSettings` |
 | `agent/models.js` | 有界、超时地读取 Pi / Codex CLI 模型目录，只投影安全的模型元数据，失败回退内置预设 | `discoverAgentModels(config, agent)` |
 | `agent/resources.js` | 不执行资源代码地发现用户/项目 Pi 扩展、Skills 与已安装 package 资源；CLI 列表失败时保留本地目录结果 | `discoverAgentResources(config)` |
-| `agent/provider.js` | 动态后端路由、Pi / Codex invocation、Codex thread 恢复；组合默认 Prompt 与追加 Prompt | `PiProvider`、`CodexProvider`、`AgentProvider`、`MockProvider` |
-| `agent/guide.js` | Lush 内置任务、权限与交付协议；profile 未替换默认 Prompt 时使用 | `GUIDE` |
+| `agent/provider.js` | 动态后端路由、Pi / Codex invocation、Codex thread 恢复；调用 Prompt 与 env 组合器 | `PiProvider`、`CodexProvider`、`AgentProvider`、`MockProvider` |
+| `agent/guide.js` | 旧调用方兼容出口；内置 Prompt 的事实来源是 `prompts.js` | `GUIDE` |
 | `agent/session.js` | Pi 会话 JSONL 的只读解析与用量投影 | 会话解析函数 |
 
 ## 运行设置：`src/core/settings.js`

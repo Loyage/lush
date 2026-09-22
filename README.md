@@ -149,7 +149,36 @@ verifier 与被检验任务是两个 task（worker 已经终态，不能再挂�
 - 提交输入需要项目是 **Git worktree 根目录且父分支有初始提交**。可用 `--branch NAME` 指定任一本地分支；未指定时 detached HEAD 会被拒绝。未提交改动不进入输入分支，并记录在 `input.anchor.dirty_source`；Lush 不替你提交、暂存或 stash。分支落地时，涉及的 child / parent worktree 都必须干净。
 - 非 Git 项目不能提交输入（也建不了实现 worktree）：提交前先 `git init` 并至少提交一次。
 - `LUSH_PROVIDER=mock bun run start --project ...` 可离线演示调度。Mock 只派调研任务，不调用模型、不修改代码。
-- 改环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。Web 是另一个进程：改完 `src/ui/web/` 用 `bun run web-restart`（它先停掉端口上那个后台 Web，再按当前代码起一个新的）；`daemon-restart` 不会动它，而再跑一次 `bun run web` 只会如实报告「已在运行」。
+- 改 daemon 自身环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。`.lush/agent/*.env` 与 Prompt 文件补充在每次 invocation 前热加载，不需要重启。Web 是另一个进程：改完 `src/ui/web/` 用 `bun run web-restart`（它先停掉端口上那个后台 Web，再按当前代码起一个新的）；`daemon-restart` 不会动它，而再跑一次 `bun run web` 只会如实报告「已在运行」。
+
+### Agent Prompt：按角色组合并保留项目覆盖
+
+内置 Prompt 是有名字的公共/角色片段，每个角色只组合自己的职责、相关 CLI、协作知识和安全边界。planner 只收到选择 worker / coordinator / research 所需的短目录，不再携带其它角色的完整操作细节。
+
+```bash
+lush agent prompt planner          # 显示最终 Prompt、组成顺序与来源
+lush --json agent prompt worker    # 机器可读 parts / source / content / text
+lush agent init planner            # 创建可提交的 .lush-agent/common.md、planner.md
+lush agent init worker --local     # 创建本机私有的 .lush/agent/common.md、worker.md
+```
+
+组合顺序为：角色内置片段（或 `.lush/agent.json` 的 `default_prompt` 替代内容）→ `.lush-agent/common.md` → `.lush-agent/<role>.md` → `.lush/agent/common.md` → `.lush/agent/<role>.md` → `agent.json` 的 `append_prompt`。`.lush-agent/` 可提交给团队，`.lush/agent/` 适合个人偏好。项目 `AGENTS.md` 继续负责代码库约定；角色行为放在 `.lush-agent/`，不要把六种角色的完整协议重新塞回公共上下文。
+
+### Agent 专用环境变量
+
+启动 daemon 的环境仍由所有 agent 继承。额外变量每轮从本机状态目录读取：
+
+```dotenv
+# .lush/agent/agent.env：所有角色
+HTTP_PROXY=http://127.0.0.1:7897
+HTTPS_PROXY=http://127.0.0.1:7897
+ALL_PROXY=socks5://127.0.0.1:7897
+
+# .lush/agent/research.env：只覆盖 research
+SEARCH_ENDPOINT=https://example.invalid
+```
+
+角色文件覆盖 `agent.env`，两者覆盖 daemon 继承环境；若设置 `PATH`，Lush 自己的 `bin/` 仍前置。所有 `LUSH_*` 保留给 runtime，配置时会拒绝。env 使用字面量 `NAME=value`，支持单/双引号与 `export` 前缀，不做 shell 展开。用 `lush agent env research` 查看加载文件和变量名，值始终隐藏。
 
 ## 新模型：Intent-first + Candidate-first，Branch-backed
 
@@ -291,9 +320,11 @@ pi 默认禁用个人 extensions / skills / prompt templates / themes，保留�
 | `LUSH_CODEX_MODEL` / `LUSH_CODEX_THINKING` | codex 默认 | `.lush/agent.json` 不存在时的 Codex 初始选择；之后由项目配置覆盖 |
 | `LUSH_PI_COMMAND` / `LUSH_CODEX_COMMAND` | `pi` / `codex` | Agent CLI 可执行文件 |
 
+角色 Prompt 文件位于 `.lush-agent/*.md`（可提交）与 `.lush/agent/*.md`（本机）；Agent 子进程环境补充位于 `.lush/agent/agent.env` 和 `.lush/agent/<role>.env`。它们按 invocation 热加载。
+
 两条并发上限是唯一可在运行时改写的软件设置，存储在 `.lush/settings.json`（version 1，权限 `600`）：环境变量仍是默认值，文件里显式覆盖的键优先，`null` / 删键即回到环境默认。`lush config`（等价 `lush config show`）打印生效值、环境默认值、是否被覆盖与设置文件路径；`lush config set concurrency N`（1..64）与 `lush config set control-concurrency N`（1..16）写回并立即生效，`lush config reset [concurrency|control-concurrency|all]` 清除覆盖。Web 的「设置 → 系统 → 并发额度」提供同一读模型与保存 / 恢复动作（走 `system.configure`）。读取是 `system.status.settings`；读写两端都是用户专属，agent 调用会被拒绝。
 
-项目 Agent 配置保存在 `.lush/agent.json`，可在 Web「设置 → Agent」或 `lush agent set` 中按六类任务行为覆盖。每份配置分别提供“默认 Prompt”和“追加 Prompt”：Web 会显示当前实际生效的 Lush 内置 Prompt，并提供“恢复默认 Prompt”；修改后会完整替换内置协议，可能造成任务 API、权限边界和交付流程失效；追加 Prompt 用于在最终默认规则后补充项目要求。Web 可以按需读取 Pi / Codex CLI 当前可用模型，CLI 对应 `lush agent models pi|codex`，读取失败时仍可使用预设或手工模型 ID。Pi profile 还可从当前用户与项目已安装的扩展和 Skills 中多选，只把勾选项显式加载进后续 invocation；这些资源拥有当前用户权限，Codex profile 会保留选择但不加载。
+项目 Agent 配置保存在 `.lush/agent.json`，可在 Web「设置 → Agent」或 `lush agent set` 中按六类任务行为覆盖。每份配置分别提供“默认 Prompt”和“追加 Prompt”：项目默认留空时，各角色使用自己的内置组合；角色覆盖页会显示该角色内置 Prompt，并可恢复默认。非空默认 Prompt 会完整替换内置协议，可能造成任务 API、权限边界和交付流程失效；追加 Prompt 用于在文件补充之后追加项目要求。`lush agent prompt ROLE` 是查看最终生效组成的权威入口。Web 可以按需读取 Pi / Codex CLI 当前可用模型，CLI 对应 `lush agent models pi|codex`，读取失败时仍可使用预设或手工模型 ID。Pi profile 还可从当前用户与项目已安装的扩展和 Skills 中多选，只把勾选项显式加载进后续 invocation；这些资源拥有当前用户权限，Codex profile 会保留选择但不加载。
 
 `tasks.result` 只保存 invocation 的最后一次输出；完整的执行过程（思考、工具调用、工具输出）留在 `.lush/sessions/*.jsonl`，用 `lush task transcript ID`（Web 详情里的「执行过程」）只读查看，agent 的模型、上下文占用与累计花费用 `lush task usage ID` 从同一批文件里读出（Web 详情里的「Agent」块）。截图、过程与结论分开：审阅合并时看 result 与 `task diff`，需要追究 agent 怎么做的时候看 transcript，需要直接看结果跑起来时点「检验」。
 

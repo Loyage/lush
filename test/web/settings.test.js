@@ -219,7 +219,8 @@ test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可�
   let card = panel().querySelector('[data-agent-target="default"]');
   expect(deepText(card)).toContain('修改会替换内置 Prompt');
   const defaultPrompt = card.querySelector('textarea[data-agent-field="default_prompt"]');
-  expect(defaultPrompt.value).toBe(world.state.agentConfig.options.default_prompt);
+  expect(defaultPrompt.value).toBe('');
+  expect(defaultPrompt.placeholder).toContain('每个角色');
   expect(findByText(card, '恢复默认 Prompt')).toBeTruthy();
   await findByText(card, '读取已安装项').onclick();
   const extension = card.querySelector('input[data-resource-kind="extensions"]');
@@ -255,7 +256,7 @@ test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可�
   openAgent();
   card = panel().querySelector('[data-agent-target="default"]');
   await findByText(card, '恢复默认 Prompt').onclick();
-  expect(card.querySelector('textarea[data-agent-field="default_prompt"]').value).toBe(world.state.agentConfig.options.default_prompt);
+  expect(card.querySelector('textarea[data-agent-field="default_prompt"]').value).toBe('');
   await findByText(card, '保存配置').onclick();
   expect(world.state.agentConfig.default.default_prompt).toBe('');
 

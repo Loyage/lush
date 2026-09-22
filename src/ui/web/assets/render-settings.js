@@ -225,28 +225,32 @@ function profileEditor(settings, profile, target, title, subtitle) {
     field('思考深度', thinking, '可用等级随 Agent 变化。'),
     field('插件与 Skills', resourcesBox, '从当前用户已安装的 Pi 资源中选择；每个 Agent 配置独立保存。', 'resource-field'));
 
-  const builtInPrompt = settings.options.default_prompt || '';
+  const roleDefaults = settings.options.default_prompts || null;
+  const builtInPrompt = target === 'default' && roleDefaults ? '' : (roleDefaults?.[target] || settings.options.default_prompt || '');
   const defaultPrompt = el('textarea'); defaultPrompt.className = 'agent-prompt'; defaultPrompt.dataset.agentField = 'default_prompt'; defaultPrompt.rows = 12;
   defaultPrompt.maxLength = 32768; defaultPrompt.value = profile.default_prompt || builtInPrompt;
-  defaultPrompt.placeholder = 'Lush 内置 Prompt';
+  defaultPrompt.placeholder = target === 'default' && roleDefaults ? '留空：每个角色使用自己的内置组合' : 'Lush 内置角色 Prompt';
   const promptTools = el('div', undefined, 'prompt-field-tools');
   const promptState = el('span', undefined, 'settings-note');
   const restorePrompt = button('恢复默认 Prompt', () => {
     defaultPrompt.value = builtInPrompt;
-    promptState.textContent = '已恢复为 Lush 内置 Prompt；保存后生效。';
+    promptState.textContent = target === 'default' && roleDefaults
+      ? '已恢复为按角色组合内置 Prompt；保存后生效。' : '已恢复为该角色的内置 Prompt；保存后生效。';
   }, 'ghost prompt-reset');
   restorePrompt.type = 'button';
   promptTools.append(promptState, restorePrompt);
   const syncPromptState = () => {
     promptState.textContent = defaultPrompt.value.trim() === builtInPrompt.trim()
-      ? '当前显示 Lush 内置 Prompt。'
+      ? (target === 'default' && roleDefaults ? '当前按角色使用各自的内置 Prompt。' : '当前显示该角色的内置 Prompt。')
       : '当前内容会替换 Lush 内置 Prompt。';
   };
   defaultPrompt.addEventListener('input', syncPromptState); syncPromptState();
   const risk = el('div', undefined, 'prompt-risk');
   risk.append(el('strong', '修改会替换内置 Prompt'), el('span', 'Agent 可能失去 Lush 的任务协议、权限边界、协作方式和交付要求，导致调用失败或错误操作。需要撤销修改时可恢复默认。'));
   const defaultPromptBox = el('div', undefined, 'prompt-field-box'); defaultPromptBox.append(defaultPrompt, promptTools, risk);
-  form.append(field('默认 Prompt', defaultPromptBox, '这里显示实际生效的基础 Prompt；保存内置内容时仍以默认配置存储。', 'prompt-field'));
+  form.append(field('默认 Prompt', defaultPromptBox, target === 'default' && roleDefaults
+    ? '留空时每个角色使用自己的内置组合；填写后会用同一内容替换所有继承角色。'
+    : '这里显示该角色实际生效的基础 Prompt；保存内置内容时仍以默认配置存储。', 'prompt-field'));
 
   const appendPrompt = el('textarea'); appendPrompt.className = 'agent-prompt'; appendPrompt.dataset.agentField = 'append_prompt'; appendPrompt.rows = 4;
   appendPrompt.maxLength = 32768; appendPrompt.value = profile.append_prompt ?? profile.prompt ?? '';
