@@ -7,7 +7,7 @@ lush [--project PATH] [--json] <command>
   agent models pi|codex          读取本机 Agent CLI 当前可用模型目录
   agent set default|ROLE [--agent pi|codex] [--model ID] [--thinking LEVEL]
         [--default-prompt '…'] [--append-prompt '…']
-                                  设置默认或 planner/coordinator/worker/research/verifier/merger；下次调用生效
+                                  设置默认或 planner/coordinator/worker/research/verifier/merger/showcase；下次调用生效
                                   default-prompt 会替换 Lush 内置规则，使用前请确保包含完整任务与安全协议
   agent reset ROLE               删除该角色覆盖，恢复继承项目默认配置
   agent prompt ROLE              按段查看该角色最终 Prompt（含 agent.json 与文件补充）
@@ -46,6 +46,11 @@ lush [--project PATH] [--json] <command>
   spec add '目标与验收标准' [--role worker|coordinator|research] [--name short-kebab-name] [--depends-on SPEC_ID[:code|order]]
       planner 专用：写下结构化 Plan；runtime 会在本轮结束后直接编译成 Work DAG。
   spec drop ID [--note '原因']      planner 明确放弃一条 spec
+  showcase start BRANCH [--baseline BRANCH]  冻结本地分支，派效果展示 agent（普通分支必须指定基线）
+  showcase list [--branch BRANCH]    最近展示及本机预览状态
+  showcase stop ID                  停止该展示的托管预览，不删除展示页
+  showcase preview --file JSON      当前展示 agent 专属：启动 argv 预览（{port} / HOST / PORT）
+
   candidate list [--input ID]       查看固定 commit 的验收候选
   candidate prepare INPUT [--summary '…']  聚合工作完成后冻结候选（不自动验收）
   candidate inspect ID              查看候选版本、报告与结构化产物

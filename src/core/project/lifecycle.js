@@ -34,6 +34,7 @@ export default {
   finish(taskId, status, result = null, error = null) {
     const task = this.store.task(taskId);
     if (TERMINAL.has(task.status)) return task;
+    if (task.role === 'showcase' && status !== 'completed') void this.stopShowcasePreview(task.id);
     check(this.store.children(task.id).every(child => TERMINAL.has(child.status)), 'cannot finish with active children');
     this.store.transaction(() => {
       this.store.update(task.id, { status, result, error });
@@ -56,6 +57,8 @@ export default {
       }
       // Verification settles either a worker detail or a frozen review candidate.
       if (task.verifies_task_id) this.store.touch(task.verifies_task_id);
+      if (task.role === 'showcase' && status === 'completed') this.notify(task.id, `效果展示已就绪 #${task.id}`,
+        `${JSON.parse(task.showcase).branch} 的展示页已生成。展示不代表检验通过，也没有自动合并。`);
       if (task.review_candidate_id) {
         const hasReport = this.hasReport(task.id);
         const verification = this.verificationResult(task.id);
@@ -224,6 +227,7 @@ export default {
     check(['failed','cancelled'].includes(task.status), 'only failed/cancelled tasks can be retried');
     check(!this.running.has(task.id), 'agent is still stopping; retry shortly');
     check(!this.workspaces.busy.has(task.id), 'worktree cleanup is in progress; retry shortly');
+    if (task.role === 'showcase') check(!this.workspaces.previewActive(task.id), 'preview is still stopping; retry shortly');
     if (task.parent_id) check(!TERMINAL.has(this.store.task(task.parent_id).status), 'parent has ended; retry the parent or submit a new input');
     this.store.update(task.id, { status: 'queued', error: null, result: null, calls: 0 });
     this.store.event(task.id, 'retry', {}); this.kick(); return this.store.task(task.id);
@@ -241,7 +245,7 @@ export default {
     }
     // 中断的检验已经标成失败；对照基线是派生状态，顺手回收掉。
     for (const task of this.store.tasks()) {
-      if (task.baseline_workspace && TERMINAL.has(task.status)) {
+      if (task.role !== 'showcase' && task.baseline_workspace && TERMINAL.has(task.status)) {
         this.workspaces.removeBaseline(task.id).catch(error => console.error(`verification ${task.id}: baseline cleanup failed: ${error.message}`));
       }
     }
@@ -254,6 +258,10 @@ export default {
       if (run.parked) run.controller.abort();
       else this.cancel(taskId, 'daemon stopped; inspect before retrying', 'failed');
     }
+    const startingPreviews = [...this.previewStarting.values()];
+    for (const controller of startingPreviews) controller.abort();
+    await Promise.allSettled(startingPreviews.map(controller => controller.promise));
+    await Promise.allSettled([...this.previews.values()].map(entry => entry.stop()));
     await Promise.allSettled([...this.running.values()].map(run => run.promise));
     await this.workspaces.queue;
   }

@@ -97,6 +97,7 @@ export default {
       const cwd = await this.workspaces.ensure(task);
       if (run.controller.signal.aborted) throw new Error('cancelled');
       task = this.store.task(taskId);
+      if (task.role === 'showcase') this.prepareShowcaseReport(task, run.recordId);
       this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, message_ids: messages.map(message => message.id),
         agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null });
       timer = setTimeout(() => run.controller.abort(), this.config.timeout * 1000);
@@ -113,6 +114,7 @@ export default {
             referenced_context: referencedContext } : {}),
           recent_tasks: this.decorate(this.store.all('SELECT id,parent_id,role,status,substr(goal,1,500) AS goal,integration FROM tasks ORDER BY id DESC LIMIT 100')),
           verification: task.role === 'verifier' ? this.verificationContext(task) : undefined,
+          showcase: task.role === 'showcase' ? this.showcaseContext(task) : undefined,
           merge_conflict: task.resolves_task_id ? this.mergeConflictContext(task) : undefined,
           branch_sync: task.role === 'merger' && !task.resolves_task_id
             ? (() => { const row = this.store.get("SELECT data FROM events WHERE task_id=? AND type='branch.sync.requested' ORDER BY id DESC LIMIT 1", task.id); return row ? JSON.parse(row.data) : undefined; })()
@@ -156,6 +158,11 @@ export default {
       }
       if (this.store.children(taskId).some(child => !TERMINAL.has(child.status))) {
         this.store.update(taskId, { status: 'waiting' }); return;
+      }
+      if (task.role === 'showcase') {
+        const payload = this.showcaseReport(this.store.task(taskId));
+        this.store.addArtifact({ task_id: taskId, run_id: run.recordId, input_id: task.input_id,
+          kind: 'showcase.result', payload, metadata: { role: 'showcase' } });
       }
       this.finish(taskId, 'completed', result);
     } catch (error) {

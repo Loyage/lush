@@ -12,6 +12,8 @@
 4. [私有集成与 Review Candidate](task-flow-2-integration.md)：理解并行成果如何收敛。
 5. [验收、诊断与安全回收](task-flow-3-delivery.md)：接受、修改、证据、分支诊断和清理。
 
+用户侧的手动验收主入口现已替换为[分支效果展示](showcase.md)：专用 agent 分析、设计并执行展示；上述 Candidate / verifier 章节描述仍保留的底层兼容机制。展示不自动放行检验或批准合并。
+
 ## 理解系统：按架构阅读
 
 1. [核心架构](core-architecture.md)：四个中心、主链与实体边界。

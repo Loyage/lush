@@ -5,7 +5,7 @@
 
 Lush 是项目级的多 agent 开发应用。一个 daemon 绑定一个项目目录；输入、任务、agent 会话、工作区与待决问题都属于这个项目。
 
-你随时描述想法，并可指定任一本地父分支。Lush 立即创建 `input-<id>` 分支与 worktree，planner 在这份不可漂移的代码上解析；多项任务再从输入分支创建子分支并行工作。任务结果会在**私有 Intent 分支内自动集成**，但用户选择的目标分支始终不自动变化；只有用户最终接受固定的 Review Candidate，代码才按 fast-forward 规则落地。
+你随时描述想法，并可指定任一本地父分支。Lush 立即创建 `input-<id>` 分支与 worktree，planner 在这份不可漂移的代码上解析；多项任务再从输入分支创建子分支并行工作。任务结果会在**私有 Intent 分支内自动集成**，但用户选择的目标分支始终不自动变化；用户可先指定任意本地分支进行[效果展示](docs/showcase.md)，再明确批准分支合并；底层 Review Candidate 检验与接受接口兼容保留。
 
 Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行时依赖。Web 文档视图随包内置固定版本的 Mermaid 浏览器资源，用于离线绘制流程图。支持 macOS 和 Linux。
 
@@ -16,9 +16,9 @@ Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行
 ```text
 Task completed（任务交付提交）
   → 私有 Intent 分支自动集成
-  → Candidate pending（固定候选，尚未启动验收）
-  → 用户显式开始验收 → Candidate ready（报告可看，仍未落地）
-  → 用户接受 → Candidate integrated（已进入目标分支）
+  → 用户选择分支 → 效果展示 agent 分析、设计并执行展示
+  → 展示页 / 本机预览（不等于检验通过，仍未落地）
+  → 审阅代码与检验结果 → 用户明确批准合并
 ```
 
 详见[私有集成与 Review Candidate](docs/task-flow-2-integration.md)和[验收、诊断与安全回收](docs/task-flow-3-delivery.md)。
@@ -63,7 +63,7 @@ bun run web 4318 --project /absolute/path/to/my-project  # 可选：启动绑定
 
 公网部署仍应在前面配置 HTTPS 反向代理，否则登录密码会在网络中明文传输。跨站请求判定以浏览器自己填的 `Sec-Fetch-Site` 为准（网页无法伪造它），`Origin` 只在旧浏览器没有这个头时作为回退；内嵌 webview、沙箱页面与部分隐私扩展会报 `Origin: null` 却依然是同源，这类客户端能正常登录。删除 `.lush/web.json` 即恢复仅本机、无需登录的模式。
 
-Web UI（默认 `http://127.0.0.1:4318`）是 **Intent 优先**的项目工作台：左栏是导航，首屏是 **Intent 工作台**（目标、Plan 状态、待验收候选版本与结果入口、真正需要你决定的事）；分支图、待你决定、行动任务、Intent 记录、结构化 Plan 与文档分别在右侧独立成页。右侧顶部始终保留返回上一页的入口，页面地址使用 `#graph`、`#settings`、`#notices`、`#tasks`、`#intents`、`#specs`、`#task-ID`、`#docs` / `#doc-<id>`，浏览器前进 / 后退可以在各视图与任务详情之间往返。首页顶部指标按 Intent 计（Intent / 并行执行 / 等待验收 / 需要你决定），并用同一份 `graph.get` 读模型把 Git 交付诊断折叠在成果主线之后；候选行上的「打开结果」直接开 verifier 的 HTML 报告，验收动作用 `candidate.accept` / `candidate.changes`。任务详情以目标为标题，结果与执行过程优先。输入框常驻内容区底部（默认折叠，只留一行输入与一行操作，点「更多」展开父分支与快捷键）。窄屏用「导航菜单」展开页面入口。左栏顶部可切换**深色 / 浅色主题**，并集中显示项目名、并发槽、连接状态与退出登录——应用没有整条顶栏，内容区从最上面开始。左栏的**设置**页（`#settings`）分为三个页签：**Agent** 管项目默认与 planner / coordinator / worker / research / verifier / merger 六类行为的独立覆盖，可分别选择 Pi / Codex、模型、思考深度并追加项目 Prompt；配置原子写入 `.lush/agent.json`，正在运行的调用不打断，排队任务与后续唤醒立即读取新配置。**界面**管理 Markdown、主题、减少动效、信息列表排序、轮询与消息停留时长，这些偏好只存在当前浏览器；**系统**展示 daemon 参数与路径，其中**并发额度**（执行通道 / 控制通道）可直接编辑、保存即对排队任务生效，「恢复环境默认」清除覆盖，其余参数只读。移动端会压缩导航、工具栏和分支卡片，并让左栏（含品牌 / 项目名 / 连接 / 退出）排在内容与输入区之前；分支诊断 / 设置 / 文档页隐藏底部输入器，把视口优先留给内容。过渡动画尊重系统「减少动态效果」。文档读的是随这份代码发布的 `docs/` 与 `README.md`（不随被开发的项目变），Markdown 相对链接可以直接点开，Mermaid 流程图从同一份 Markdown 源码按需渲染；刷新不丢已输入的答复。
+Web UI（默认 `http://127.0.0.1:4318`）是 **Intent 优先**的项目工作台：左栏是导航，首屏是 **Intent 工作台**（目标、Plan 状态、效果展示与历史检验结果、真正需要你决定的事）；分支图、待你决定、行动任务、Intent 记录、结构化 Plan 与文档分别在右侧独立成页。右侧顶部始终保留返回上一页的入口，页面地址使用 `#graph`、`#settings`、`#notices`、`#tasks`、`#intents`、`#specs`、`#task-ID`、`#docs` / `#doc-<id>`，浏览器前进 / 后退可以在各视图与任务详情之间往返。首页顶部指标按 Intent 计（Intent / 并行执行 / 效果展示 / 需要你决定），并用同一份 `graph.get` 读模型把 Git 交付诊断折叠在成果主线之后；「效果展示」从指定分支派专用 agent，任务详情内嵌展示页并提供可操作预览入口；历史候选的报告与 `candidate.accept` / `candidate.changes` 仍保留。任务详情以目标为标题，结果与执行过程优先。输入框常驻内容区底部（默认折叠，只留一行输入与一行操作，点「更多」展开父分支与快捷键）。窄屏用「导航菜单」展开页面入口。左栏顶部可切换**深色 / 浅色主题**，并集中显示项目名、并发槽、连接状态与退出登录——应用没有整条顶栏，内容区从最上面开始。左栏的**设置**页（`#settings`）分为三个页签：**Agent** 管项目默认与 planner / coordinator / worker / research / verifier / merger / showcase 七类行为的独立覆盖，可分别选择 Pi / Codex、模型、思考深度并追加项目 Prompt；配置原子写入 `.lush/agent.json`，正在运行的调用不打断，排队任务与后续唤醒立即读取新配置。**界面**管理 Markdown、主题、减少动效、信息列表排序、轮询与消息停留时长，这些偏好只存在当前浏览器；**系统**展示 daemon 参数与路径，其中**并发额度**（执行通道 / 控制通道）可直接编辑、保存即对排队任务生效，「恢复环境默认」清除覆盖，其余参数只读。移动端会压缩导航、工具栏和分支卡片，并让左栏（含品牌 / 项目名 / 连接 / 退出）排在内容与输入区之前；分支诊断 / 设置 / 文档页隐藏底部输入器，把视口优先留给内容。过渡动画尊重系统「减少动态效果」。文档读的是随这份代码发布的 `docs/` 与 `README.md`（不随被开发的项目变），Markdown 相对链接可以直接点开，Mermaid 流程图从同一份 Markdown 源码按需渲染；刷新不丢已输入的答复。
 
 页面内容可以直接“引用到输入”：右键任务可引用单个任务或整棵任务子树，右键交付项可引用 Git / 目标分支，选中任意文字后右键可引用所选内容。引用以卡片显示在输入框上方，加入待提交意图后随草稿持久化；planner 同时收到引用时快照和 invocation 开始时解析的当前状态，目标已被清空时仍保留快照。引用只帮助聚焦，后续仍走同一条 `develop` / `explain` intent 通道。
 
@@ -78,7 +78,9 @@ lush draft commit 1 2   # 只提交选中的几条（无参即全部）交给一
 lush task tree
 lush task inspect 3
 lush task message 3 '还要考虑中文输入法'
-lush task verify 3      # 派一个只读 verifier：先演示它的 worktree 结果，再对照目标分支
+lush showcase start feature/ui --baseline main  # 分析分支并实际展示效果
+lush showcase stop 12   # 停止任务 #12 的托管预览，静态展示页保留
+lush task verify 3      # 兼容的底层只读检验入口
 lush notice list
 lush notice answer 1 '采用方案 A'
 lush task merge 3       # 审阅代码与验证报告后，明确批准这个分支
@@ -110,9 +112,11 @@ Web / Electron 中：**单选点一下即进入下一题 → 多选点选后继�
 
 未判定（`flow` 为空）的输入按 `develop` 处理。用户随时可以改判：`lush input flow [TASK_ID] develop|explain`（agent 省略 TASK_ID 时判定自己的输入，Web 任务详情里也有「标记为开发/了解」），`lush input list` 会显示当前判定。改判只影响之后的派工，不会追溯取消已经建立的 worker/coordinator 子任务。
 
-### 验收候选与检验
+### 效果展示与底层检验
 
-私有集成完成后，`candidate prepare` 只冻结 integration commit 与 target baseline commit，创建 `pending` Candidate；它**不会**生成报告或自动派 verifier。用户执行 `candidate verify`（或在 Web 点击“开始验收”）后才开始对照验收；查看结果后再由用户选择接受、要求修改或放弃。
+Web 的手动验收入口已由效果展示替代：从概览、分支图或任务详情选择分支，专用 agent 在冻结提交的隔离 worktree 中分析变化、设计并执行展示，交付图文页面和适合的本机预览。展示不代表检验通过，不自动合并。预览成功后保留到用户停止或 daemon 退出，重启不自动重放。基线选择、权限与使用方法见[分支效果展示](docs/showcase.md)。
+
+以下 Candidate 流程作为底层兼容接口保留。私有集成完成后，`candidate prepare` 只冻结 integration commit 与 target baseline commit，创建 `pending` Candidate；它**不会**生成报告或自动派 verifier。用户执行 `candidate verify`（CLI / RPC 兼容入口）后才开始对照验收；查看结果后再由用户选择接受、要求修改或放弃。
 
 ```bash
 lush candidate list --input 1
@@ -164,7 +168,7 @@ lush agent init planner            # 创建可提交的 .lush-agent/common.md、
 lush agent init worker --local     # 创建本机私有的 .lush/agent/common.md、worker.md
 ```
 
-组合顺序为：角色内置片段（或 `.lush/agent.json` 的 `default_prompt` 替代内容）→ `.lush-agent/common.md` → `.lush-agent/<role>.md` → `.lush/agent/common.md` → `.lush/agent/<role>.md` → `agent.json` 的 `append_prompt`。`.lush-agent/` 可提交给团队，`.lush/agent/` 适合个人偏好。项目 `AGENTS.md` 继续负责代码库约定；角色行为放在 `.lush-agent/`，不要把六种角色的完整协议重新塞回公共上下文。
+组合顺序为：角色内置片段（或 `.lush/agent.json` 的 `default_prompt` 替代内容）→ `.lush-agent/common.md` → `.lush-agent/<role>.md` → `.lush/agent/common.md` → `.lush/agent/<role>.md` → `agent.json` 的 `append_prompt`。`.lush-agent/` 可提交给团队，`.lush/agent/` 适合个人偏好。项目 `AGENTS.md` 继续负责代码库约定；角色行为放在 `.lush-agent/`，不要把所有角色的完整协议重新塞回公共上下文。
 
 ### Agent 专用环境变量
 

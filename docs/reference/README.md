@@ -4,6 +4,7 @@
 
 - [CLI / RPC 总览](api.md)
 - [Agent 环境](agent-environment.md)
+- [效果展示：CLI / RPC 与预览](../showcase.md)
 - [HTTP 与认证](http.md)
 - [Web 路由](web-routes.md)
 - [RPC 分项参考](rpc/README.md)

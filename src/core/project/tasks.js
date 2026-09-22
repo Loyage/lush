@@ -24,6 +24,7 @@ export default {
   spawn(parentId, goal, role = 'worker', deps = [], name = null, specId = null) {
     const parent = this.store.task(parentId);
     check(!TERMINAL.has(parent.status), 'cannot delegate from a terminal task');
+    check(parent.role !== 'showcase', 'showcase agents cannot delegate development work');
     check(parent.role !== 'planner', 'planner 不再直接派活；用 lush spec add 写拆解队列，由 scheduler 编排');
     text(goal, 'goal'); check(['worker','coordinator','research'].includes(role), 'role must be worker, coordinator or research');
     const edges = normalizeDeps(deps);
@@ -136,7 +137,8 @@ export default {
       // worker 带着自己的检验记录与合并冲突处理记录；verifier 带着自己的报告路径。都是只读投影。
       verifications: task.role === 'worker' ? bounded(this.store.verifications(task.id).map(row => ({ ...row, has_report: this.hasReport(row.id) })), 200000) : undefined,
       resolutions: task.role === 'worker' ? bounded(this.store.resolutions(task.id), 200000) : undefined,
-      report: task.role === 'verifier' && this.hasReport(task.id) ? this.reportPath(task.id) : null,
+      report: ['verifier','showcase'].includes(task.role) && this.hasReport(task.id) ? this.reportPath(task.id) : null,
+      ...(task.role === 'showcase' ? { showcase: this.showcaseContext(task) } : {}),
       runs: bounded(runs, 200000),
       artifacts: bounded(this.store.artifactsForTask(task.id), 200000),
       agent: agentView(task, this.running.get(task.id) ?? null, runs.at(-1) ?? null) };

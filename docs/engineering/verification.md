@@ -8,7 +8,7 @@
 
 ## Review Candidate 检验
 
-Candidate 检验是用户显式动作：`candidate.prepare`（或自动中间集成完成）只创建 `pending` Candidate；只有用户调用 `candidate.verify`（Web 的“开始验收”）才会派 verifier，并用 `review_candidate_id` 关联。
+Candidate 检验是用户显式动作：`candidate.prepare`（或自动中间集成完成）只创建 `pending` Candidate；只有用户调用 `candidate.verify`（CLI / RPC 兼容入口，Web 主入口现为[效果展示](../showcase.md)）才会派 verifier，并用 `review_candidate_id` 关联。
 
 与单 worker 检验的区别：
 

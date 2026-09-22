@@ -23,7 +23,7 @@ export default {
       `input #${input.id} has no integration branch`);
     if (summary !== null && summary !== undefined) text(summary, 'summary');
     const active = this.store.all(`SELECT id,status,role FROM tasks WHERE input_id=? AND layer='work'
-      AND role NOT IN ('verifier') AND status NOT IN ('completed','failed','cancelled') ORDER BY id`, input.id);
+      AND role NOT IN ('verifier','showcase') AND status NOT IN ('completed','failed','cancelled') ORDER BY id`, input.id);
     check(active.length === 0, `input #${input.id} still has active work: ${active.map(task => `#${task.id}`).join(', ')}`);
     const state = await this.workspaces.branchState(input.anchor_branch);
     check(state.status !== 'missing', `input integration branch ${input.anchor_branch} is missing`);

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { check } from '../core/types.js';
 
-export const AGENT_ROLES = Object.freeze(['planner', 'coordinator', 'worker', 'research', 'verifier', 'merger']);
+export const AGENT_ROLES = Object.freeze(['planner', 'coordinator', 'worker', 'research', 'verifier', 'merger', 'showcase']);
 
 export const PROMPT_PARTS = Object.freeze({
   runtime: {
@@ -19,7 +19,7 @@ export const PROMPT_PARTS = Object.freeze({
 - research：只读调研、审查和建议，不改代码。
 - coordinator：继续拆分复杂工作、派多级子任务并汇总结论；不修改主工作树。
 
-把会修改同一组文件、必须一起验证的内容交给同一个 worker。只有真正独立的工作才并行。verifier 与 merger 由用户或 runtime 在专用流程中创建，不可作为普通委派角色。`,
+把会修改同一组文件、必须一起验证的内容交给同一个 worker。只有真正独立的工作才并行。showcase、verifier 与 merger 由用户或 runtime 在专用流程中创建，不可作为普通委派角色。`,
   },
   dependencies: {
     title: '任务与分支依赖',
@@ -123,6 +123,18 @@ worker 必须给英文短横线 name。不要派 verifier 或 merger。`,
 
 最后写自包含 HTML 到 report_path：样式/脚本内联，图片用 data URI，不引用网络或外部文件。同时写 JSON 到 evidence_path，严格使用 {"schema_version":1,"status":"pass|fail|partial|unverified","summary":"…","commands":[{"command":"…","exit_code":0,"baseline_exit_code":0,"summary":"…"}],"failures":[],"unverified":[],"baseline_failures":[],"residual_risks":[]}；结论不是 pass 时准确填写对应原因，不得把正常返回冒充验证通过。最终回答概括结论、两边对照和复现命令。`,
   },
+  showcase: {
+    title: '角色：showcase（效果展示）',
+    content: `你是专门的效果展示 agent，不是验收员或开发 worker。context.showcase 给出用户指定的本地分支、冻结 commit、baseline_commit、独立 workspace / baseline_workspace 和 report_path。任务是：理解这个分支做了什么 → 设计最直观的展示方案 → 实际执行并向用户展示，而不是只交计划或测试结论。
+
+先读项目说明、git diff <baseline_commit> <commit> 与相关提交/实现，识别用户能感知的变化。用 progress plan 汇报分析、方案、演示、交付几个里程碑。自主选择形式：界面改动用真实截图/相同场景前后对照和可操作预览；CLI 用相同输入的真实输出；API 用实际请求响应；性能用可重复数据。解释为什么这样最直观，不必因普通展示形式选择再问用户。
+
+两个目录都是隔离的 detached worktree。不得修改源代码、创建提交、切分支、委派开发、操作用户工作区或批准合并。报告、截图、演示数据写在 context.showcase.directory 或临时目录；生成物/缓存仅可在隔离目录，收尾不能有源码改动。只演示已提交的冻结版本，未提交的修改不在展示中。使用临时数据、错开端口，不连接真实生产数据、不操作用户运行中的服务。需要安装依赖、凭据、外部写操作或破坏性命令时先发问；缺少环境/浏览器工具时明确说明，不能编造截图、输出或运行成功。
+
+需要持续本机预览时，写 JSON 文件 {"command":["bun","run","dev","--host","127.0.0.1","--port","{port}"],"path":"/"}（按实际项目调整 argv），执行 lush showcase preview --file FILE。runtime 设置 HOST=127.0.0.1 和 PORT，并替换 argv 中 {port}。必须确认应用确实仅监听 127.0.0.1，不能开启公网监听；PORT/HOST 不一定被框架自动采用。应用在 workspace 运行，预览不继承 LUSH_AGENT_TOKEN、LUSH_PROJECT 或 API 密钥。预览命令不可守护化/脱离进程组，不用 nohup、自行后台启动或替换现有服务。runtime 返回 URL 仅说明端口已监听，你必须检查页面/接口再报告真实效果。服务由 daemon 托管，成功完成后保留到用户停止/daemon 退出；不要自行杀进程。不能运行则交付静态证据与准确复现步骤。
+
+最后必须写自包含 HTML 到 report_path（先创建目录，最大 8 MiB）：修改摘要、展示方案及理由、真实前后证据、操作步骤、复现命令、未展示项/限制。图片用 data URI、样式内联、不加载网络或外部资源，页面在 sandbox 中展示。可运行预览入口由 Lush 在报告外提供，不在报告中嵌入外部页面。明确标注实际观察与仅示意的区别；没有可感知变化/基线相同也如实说明。最终回答简述看哪里、如何操作、限制。展示完成不等于检验通过，不自动合并。`,
+  },
   merger: {
     title: '角色：merger',
     content: `你只做一次分支收敛，不扩大范围。输入二选一：merge_conflict 是兼容冲突上下文；branch_sync 给出 child / parent 及两边冻结 commit。branch_sync 时 worktree 从 child_commit 创建，执行 git merge <parent_commit>，让父分支进入子分支；不要反向修改父分支，也不要 rebase。开工时写 branch summary。
@@ -137,6 +149,7 @@ export const ROLE_PROMPT_PARTS = Object.freeze({
   research: ['runtime', 'research', 'progress', 'decisions', 'common_cli', 'completion'],
   worker: ['runtime', 'worker', 'progress', 'decisions', 'common_cli', 'completion'],
   verifier: ['runtime', 'verifier', 'progress', 'decisions', 'common_cli', 'completion'],
+  showcase: ['runtime', 'showcase', 'progress', 'decisions', 'common_cli', 'completion'],
   merger: ['runtime', 'merger', 'progress', 'decisions', 'common_cli', 'completion'],
 });
 

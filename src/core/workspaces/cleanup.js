@@ -93,6 +93,22 @@ export const methods = {
    * 任何一步不安全就抛错——cleanup 把它报给用户，clear 记下原因并保留那条任务。
    */
   async release(task, { keepBranch = false } = {}) {
+    if (task.role === 'showcase') {
+      check(!this.previewActive?.(task.id), 'stop the showcase preview before cleanup');
+      const snapshot = JSON.parse(task.showcase);
+      let removed = false;
+      for (const [field, commit] of [['workspace', snapshot.commit], ['baseline_workspace', snapshot.baseline_commit]]) {
+        const dir = task[field];
+        if (!dir) continue;
+        if (fs.existsSync(dir)) {
+          await this.assertShowcaseCheckout(dir, commit);
+          await this.git(this.config.project, 'worktree', 'remove', dir);
+          removed = true;
+        }
+        this.store.update(task.id, { [field]: null });
+      }
+      return { id: task.id, worktree: removed ? 'removed' : 'absent', branch: 'absent', reason: null };
+    }
     // 检验任务没有 branch/integration，只有派生出来的对照检出。
     if (task.verifies_task_id) {
       if (!task.baseline_workspace) return { id: task.id, worktree: 'absent', branch: 'absent', reason: null };

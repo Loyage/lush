@@ -15,6 +15,7 @@ import * as plan from './commands/plan.js';
 import * as notice from './commands/notice.js';
 import * as branch from './commands/branch.js';
 import * as candidate from './commands/candidate.js';
+import * as showcase from './commands/showcase.js';
 import * as agent from './commands/agent.js';
 import * as config from './commands/config.js';
 
@@ -36,6 +37,7 @@ for (const [module, names] of [
   [notice, ['notice']],
   [branch, ['branch']],
   [candidate, ['candidate']],
+  [showcase, ['showcase']],
   [agent, ['agent']],
   [config, ['config']],
 ]) {

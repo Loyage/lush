@@ -38,7 +38,7 @@ const STATUS_LABEL = { queued: '排队', running: '运行中', waiting: '等子�
   completed: '已完成', failed: '失败', cancelled: '已取消' };
 const SPEC_STATUS_LABEL = { pending: '排队中', planned: '已排期', dropped: '已丢弃' };
 const ROLE_LABEL = { planner: '规划', scheduler: '调度', worker: '执行', coordinator: '协调',
-  research: '调研', verifier: '检验', merger: '解冲突' };
+  research: '调研', verifier: '检验', merger: '解冲突', showcase: '效果展示' };
 const FLOW_LABEL = { develop: '开发', explain: '了解' };
 const INTEGRATION_LABEL = { unmerged: '待合并', merged: '已合并' };
 

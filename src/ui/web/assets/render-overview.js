@@ -8,6 +8,7 @@ import { openNotice } from './render-notices.js';
 import { show } from './messages.js';
 import { renderTimeline } from './render-timeline.js';
 import { ui } from './state.js';
+import { startBranchShowcase } from './render-showcase.js';
 
 /**
  * Intent-first overview: user goals and frozen review candidates are the primary line. Branch data remains a
@@ -103,12 +104,9 @@ function workingRow(entry) {
 export function renderOverview(data) {
   const intents = data.inputs || [];
   const candidates = data.candidates || [];
+  const showcases = data.showcases || [];
   const candidateByInput = new Map(candidates.map(candidate => [candidate.input_id, candidate]));
   const activeIntentIds = new Set((data.tasks || []).filter(task => HOT.has(task.status)).map(task => task.input_id).filter(Boolean));
-  const reviewReady = candidates.filter(candidate => candidate.status === 'ready');
-  const reviewPending = candidates.filter(candidate => candidate.status === 'pending'
-    || (candidate.status === 'preparing' && !candidate.report_task_id));
-  const reviewWaiting = [...reviewPending, ...reviewReady];
   // 计划审批（kind='plan'）在「历史输入」的意图行上批，不在这个问答面板里：列出来点开只会是空动作（openNotice 只认非 plan 的 notice）。
   const open = data.notices.filter(notice => notice.status === 'open' && notice.kind !== 'plan');
   // 纯提醒（kind='info'、任务结算时自动落库）不进任何待决口径，这里只读地列最近 10 条。
@@ -127,7 +125,7 @@ export function renderOverview(data) {
 
   const key = JSON.stringify([data.status.tasks, data.status.agents, data.status.agents_idle, data.status.agents_total,
     data.status.concurrency, data.status.pending_merges, data.status.drafts, data.status.project, data.status.version,
-    data.status.fingerprint, data.status.started_at,
+    data.status.fingerprint, data.status.started_at, showcases,
     open.map(notice => notice.id), reminders.map(notice => `${notice.id}:${notice.created_at ?? ''}`),
     intents.map(intent => `${intent.id}:${intent.status}:${intent.candidate_status ?? ''}`).join(','),
     candidates.map(candidate => `${candidate.id}:${candidate.status}:${candidate.verification?.status ?? 'unknown'}:${candidate.commit_hash}`).join(','), data.tasks.length,
@@ -143,13 +141,14 @@ export function renderOverview(data) {
   panel.dataset.view = 'overview'; panel.replaceChildren();
   const head = el('div', undefined, 'overview-hero');
   const intro = el('div');
-  const heroText = reviewWaiting.length ? `${reviewWaiting.length} 个固定 commit 的候选结果等待你处理。`
+  const heroText = showcases.length ? '选择分支查看修改后的实际效果；展示与检验、人工合并彼此独立。'
     : open.length ? `有 ${open.length} 个问题等待你的决定。先疏通阻塞，让工作继续向前。`
     : activeIntentIds.size ? `${activeIntentIds.size} 个 Intent 正在并行推进；成果会汇总成可验证候选。`
     : intents.length ? '目标都已停下来。检查候选结果，或写下下一个想法。'
     : '从一个 Intent 开始：系统会规划、并行执行、汇总证据，并交付可验收结果。';
   intro.append(el('span', 'INTENT / 目标与成果', 'eyebrow'), el('h1', 'Intent 工作台'), el('p', heroText, 'hero-description'));
   const mark = el('div', '✳', 'hero-mark'); mark.setAttribute('aria-hidden', 'true');
+  intro.append(button('效果展示 · 选择分支', () => startBranchShowcase(), 'primary'));
   head.append(intro, mark); panel.append(head);
 
   // Product metrics are Intent/Candidate based. Git branch metrics live in the diagnostic disclosure below.
@@ -157,7 +156,7 @@ export function renderOverview(data) {
   for (const [label, value, note, tone] of [
     ['Intent', intents.length, intents.length ? `${activeIntentIds.size} 个正在推进` : '等待第一个目标', 'blue'],
     ['并行执行', activeIntentIds.size, `${data.status.agents.length} 个 Run 正在调用`, 'violet'],
-    ['等待验收', reviewWaiting.length, reviewPending.length ? `${reviewPending.length} 个待你启动验收` : reviewReady.length ? '固定 commit · 报告已就绪' : '暂无待验收候选', 'amber'],
+    ['效果展示', showcases.length, `${showcases.filter(item => HOT.has(item.status)).length} 个进行中 · 最近 50 条`, 'amber'],
     ['需要你决定', open.length, open.length ? '实质问题需要你的判断' : '没有等待答复的问题', 'green'],
   ]) {
     const card = el('div', undefined, `metric tone-${tone}`);
@@ -165,6 +164,18 @@ export function renderOverview(data) {
     metrics.append(card);
   }
   panel.append(metrics);
+
+  const showcaseBlock = block('最近效果展示', String(showcases.length));
+  if (!showcases.length) showcaseBlock.append(el('p', '从任意本地分支开始：agent 分析修改、制定展示方案并执行，提供图文证据或可操作预览。', 'hint'));
+  for (const item of showcases.slice(0, 20)) {
+    const row = el('div', undefined, 'branch-row');
+    row.append(button(`#${item.id} · ${item.branch}`, () => detail(item.id), 'link'),
+      el('span', `${item.status} · ${item.commit.slice(0, 12)}`, 'meta'));
+    if (item.has_report) row.append(button('查看展示', () => detail(item.id), 'primary'));
+    if (item.preview?.status === 'running') row.append(el('span', '预览运行中', 'chip'));
+    showcaseBlock.append(row);
+  }
+  panel.append(showcaseBlock);
 
   const intentBlock = block('Intent 与最新成果', String(intents.length));
   intentBlock.classList.add('intent-overview');
@@ -177,17 +188,15 @@ export function renderOverview(data) {
     if (candidate) {
       row.append(el('span', `候选 v${candidate.version} · ${candidate.status}`, `chip ${candidate.status === 'ready' ? 'c-completed' : ''}`));
       row.append(el('span', `验证 ${candidate.verification?.status ?? 'unknown'}`, 'chip'));
-      if (candidate.status === 'pending' || (candidate.status === 'preparing' && !candidate.report_task_id)) {
-        row.append(button('开始验收', () => action('candidate.verify', { id: candidate.id }), 'primary'));
-      } else if (candidate.status === 'failed') {
-        row.append(button('重新验收', () => action('candidate.verify', { id: candidate.id }), 'primary'));
-      } else if (candidate.status === 'preparing' && candidate.report_task_id) {
-        row.append(button(`查看验收任务 #${candidate.report_task_id}`, () => detail(candidate.report_task_id), 'link'));
+      if (candidate.status === 'preparing' && candidate.report_task_id) {
+        row.append(button(`查看历史检验任务 #${candidate.report_task_id}`, () => detail(candidate.report_task_id), 'link'));
       } else if (candidate.report_task_id && ['ready','accepted','integrated'].includes(candidate.status)) {
         const report = el('a', '打开结果', 'link'); report.href = `/api/task/${candidate.report_task_id}/report`;
         report.target = '_blank'; report.rel = 'noopener'; row.append(report);
       }
-    } else if (intent.flow !== 'explain' && intent.status === 'completed') row.append(el('span', '等待生成候选', 'meta'));
+    }
+    if (intent.anchor_branch) row.append(button('效果展示', () => startBranchShowcase(intent.anchor_branch), 'primary'));
+    if (intent.showcase_task_id) row.append(button(`查看展示 #${intent.showcase_task_id}`, () => detail(intent.showcase_task_id), 'link'));
     intentBlock.append(row);
   }
   panel.append(intentBlock);

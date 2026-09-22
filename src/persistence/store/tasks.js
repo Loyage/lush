@@ -122,11 +122,11 @@ export const tasks = {
     return this.task(taskId);
   },
   /** name is the task's own short slug; it is written once at spawn and never edited, so a worktree keeps its name. */
-  create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null, resolves_task_id = null, review_candidate_id = null }) {
+  create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null, resolves_task_id = null, review_candidate_id = null, showcase = null }) {
     const taskId = this.nextTaskId();
     const layer = layerOf(role);
-    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id,resolves_task_id,review_candidate_id,layer) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer);
+    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id,resolves_task_id,review_candidate_id,layer,showcase) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer, showcase ? JSON.stringify(showcase) : null);
     const task = this.task(taskId);
     this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer });
     return task;

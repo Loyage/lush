@@ -9,6 +9,7 @@ import { setNavCount } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
 import { ui } from './state.js';
 import { referenceable } from './context-references.js';
+import { startBranchShowcase } from './render-showcase.js';
 
 /* ---------- Intent workbench: goal → compiled Plan → review candidate ---------- */
 function planActions(intent) {
@@ -30,27 +31,16 @@ function planActions(intent) {
 }
 function candidateActions(intent) {
   const actions = el('span', undefined, 'intent-actions');
-  if (!intent.candidate_id) {
-    const blocked = intent.work_active > 0 || intent.work_failed > 0;
-    if (intent.status === 'completed' && intent.flow !== 'explain') {
-      const prepare = button(blocked ? '生成验收候选（等开发收尾）' : '生成验收候选',
-        () => action('candidate.prepare', { input: intent.id }), 'primary');
-      prepare.disabled = Boolean(blocked);
-      prepare.title = intent.work_active > 0 ? '还有开发工作没有结束；全部终态后才能冻结成可验收的一版'
-        : intent.work_failed > 0 ? '有失败的开发任务；先重试或取消，runtime 不会把失败混进候选'
-        : '冻结当前集成分支的 commit，并生成修改前后对照报告';
-      actions.append(prepare);
-    }
-    return actions.children.length ? actions : null;
+  if (intent.anchor_branch) {
+    const active = intent.showcase_task_id && !['completed','failed','cancelled'].includes(intent.showcase_status);
+    actions.append(button(active ? `展示进行中 #${intent.showcase_task_id}` : '效果展示',
+      () => active ? detail(intent.showcase_task_id) : startBranchShowcase(intent.anchor_branch), 'primary'));
   }
-  const waitingForUser = intent.candidate_status === 'pending'
-    || (intent.candidate_status === 'preparing' && !intent.candidate_report_task_id);
-  if (waitingForUser || intent.candidate_status === 'failed') {
-    actions.append(button(intent.candidate_status === 'failed' ? '重新验收' : '开始验收',
-      () => action('candidate.verify', { id: intent.candidate_id }), 'primary'));
-  }
+  if (intent.showcase_task_id) actions.append(button(`查看效果展示 #${intent.showcase_task_id}`,
+    () => detail(intent.showcase_task_id), 'link'));
+  if (!intent.candidate_id) return actions.children.length ? actions : null;
   if (intent.candidate_report_task_id && intent.candidate_status === 'preparing') {
-    actions.append(button(`查看验收任务 #${intent.candidate_report_task_id}`,
+    actions.append(button(`查看历史检验任务 #${intent.candidate_report_task_id}`,
       () => detail(intent.candidate_report_task_id), 'link'));
   } else if (intent.candidate_report_task_id && ['ready','accepted','integrated'].includes(intent.candidate_status)) {
     const report = el('a', '打开结果报告', 'link');
@@ -102,12 +92,7 @@ function intentItem(intent) {
   if (review) item.append(review);
   item.append(el('span', intent.plan_gate === 'proposed'
     ? 'planner 认为这次改动风险较高，先请你拍板；批准后由 runtime 直接编译 Work DAG。'
-    : intent.candidate_status === 'pending' || (intent.candidate_status === 'preparing' && !intent.candidate_report_task_id)
-      ? '候选 commit 已冻结；只有你点击“开始验收”才会启动 verifier。'
-      : intent.candidate_status === 'preparing' ? '验收任务正在运行；它会在分支图中挂到这条输入的锚点分支。'
-      : intent.candidate_status === 'failed' ? '上一轮验收失败；你可以检查任务后显式重新验收。'
-      : intent.candidate_status === 'ready' ? '这一版固定 commit 已生成前后对照报告，等待你的验收。'
-      : 'Intent 是用户目标中心；开发完成后生成固定 commit 的验收候选。', 'hint'));
+    : '选择分支启动效果展示：agent 会分析已提交修改、设计并执行展示方案。展示不代表检验通过，合并仍由你批准。', 'hint'));
   item.onclick = event => { if (event.target === item || event.target.classList.contains('goal')) { ui.noticeFocus = null; return detail(intent.task_id); } };
   referenceable(item, { kind: 'intent', target: { input_id: intent.id }, label: `意图 #${intent.id}`,
     quote: intent.content, location: { view: 'intent-list', input_id: intent.id } });
@@ -131,7 +116,7 @@ export function renderIntents(data) {
   }
   const signature = [ui.sidebarSortMode, JSON.stringify(query), all.map(intent => [intent.id, intent.status, intent.plan_gate, intent.specs_pending, intent.specs_planned,
     intent.specs_dropped, intent.work_tasks, intent.work_active, intent.work_failed, intent.flow, intent.candidate_id, intent.candidate_version, intent.candidate_status,
-    intent.candidate_report_task_id].join(':')).join('\u0000')].join('\u0002');
+    intent.candidate_report_task_id, intent.showcase_task_id, intent.showcase_status].join(':')).join('\u0000')].join('\u0002');
   if (signature === ui.intentSignature) return;
   ui.intentSignature = signature;
   const container = $('intents');

@@ -16,6 +16,7 @@ import mergeMethods from './project/merge.js';
 import graphMethods from './project/graph.js';
 import branchesMethods from './project/branches.js';
 import verifyMethods from './project/verify.js';
+import showcaseMethods from './project/showcase.js';
 import candidateMethods from './project/candidates.js';
 import integrationMethods from './project/integration.js';
 import transcriptMethods from './project/transcript.js';
@@ -41,7 +42,7 @@ const MIXINS = [
   ['status', statusMethods], ['agents', agentMethods], ['deps', depsMethods], ['inputs', inputsMethods], ['drafts', draftsMethods], ['references', referencesMethods],
   ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['progress', progressMethods], ['tree', treeMethods],
   ['timeline', timelineMethods], ['messages', messagesMethods], ['merge', mergeMethods], ['verify', verifyMethods],
-  ['candidates', candidateMethods], ['integration', integrationMethods], ['graph', graphMethods], ['branches', branchesMethods],
+  ['showcase', showcaseMethods], ['candidates', candidateMethods], ['integration', integrationMethods], ['graph', graphMethods], ['branches', branchesMethods],
   ['transcript', transcriptMethods], ['settings', settingMethods], ['scheduling', schedulingMethods], ['lifecycle', lifecycleMethods],
 ];
 

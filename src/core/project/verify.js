@@ -23,7 +23,10 @@ function evidenceExit(value, name) {
 /** 检验任务、结构化证据与报告位置。 */
 export default {
   /** 自包含 HTML 检验报告：由 verifier 自己写文件，runtime 只决定它在哪。 */
-  reportPath(taskId) { return path.join(this.config.home, 'verify', String(taskId), 'report.html'); },
+  reportPath(taskId) {
+    const role = this.store.get('SELECT role FROM tasks WHERE id=?', taskId)?.role;
+    return path.join(this.config.home, role === 'showcase' ? 'showcase' : 'verify', String(taskId), 'report.html');
+  },
 
   /** 与报告同目录的机器可读证据；runtime 校验后复制进 versioned run.result Artifact。 */
   evidencePath(taskId) { return path.join(this.config.home, 'verify', String(taskId), 'evidence.json'); },

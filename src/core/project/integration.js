@@ -56,7 +56,7 @@ export default {
           const state = await this.workspaces.branchState(branch.branch);
           if (state.status !== 'integrated') remaining.push({ branch: branch.branch, status: state.status, blockers: state.blockers });
         }
-        const active = this.store.all(`SELECT id,status FROM tasks WHERE input_id=? AND layer='work' AND role!='verifier'
+        const active = this.store.all(`SELECT id,status FROM tasks WHERE input_id=? AND layer='work' AND role NOT IN ('verifier','showcase')
           AND status NOT IN ('completed','failed','cancelled') ORDER BY id`, input.id);
         for (const task of active) remaining.push({ task: task.id, status: task.status, blockers: ['active_work'] });
         for (const task of this.store.all("SELECT id,status FROM tasks WHERE input_id=? AND role='worker' AND status='failed' ORDER BY id", input.id)) {

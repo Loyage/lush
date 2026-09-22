@@ -27,6 +27,7 @@ import { activateDetailView } from './sidebar-ui.js';
 import { saveGraphPrefs, ui } from './state.js';
 import { referenceable } from './context-references.js';
 import { renderGraphProgress } from './render-progress.js';
+import { startBranchShowcase } from './render-showcase.js';
 
 /** 分支状态映射：状态 -> { label, className }；已合进父分支是常态，不再单独出一个「已合并」标签。
  *  没有 archived：归档的分支根本不会被画进分支树（看 graphLayout 的 hiddenBranches）。 */
@@ -434,6 +435,7 @@ function branchRow(branch, onCollapsed) {
 
   // 只有「可归档且尚未归档」的分支才给动作；当前检出、未登记、还有活没完的都不给。
   // 归档一条＝归档它整棵子树（见 runBranchArchive 的确认文案）。
+  if (branch.head_commit && !branch.archived) row.append(button('效果展示', () => startBranchShowcase(branch.name), 'primary'));
   if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch), 'ghost'));
 
   referenceable(row, { kind: 'delivery_branch', target: { target_branch: branch.name, section: 'graph' }, label: `分支 ${branch.name}`,

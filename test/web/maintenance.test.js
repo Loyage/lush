@@ -26,7 +26,8 @@ test('web serves the verification report as a self-contained document and nothin
     expect((await fetch(`${f.url}/api/task/${worker.id}/report`)).status).toBe(400);
     expect((await fetch(`${f.url}/api/task/9999/report`)).status).toBe(400);
     const app = await pageSource(f.url);
-    expect(app).toContain('检验中…');
+    expect(app).toContain('效果展示');
+    expect(app).not.toContain("action('task.verify'");
     expect(app).toContain('打开 HTML 报告');
   } finally { await f.close(); }
 });

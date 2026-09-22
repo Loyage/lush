@@ -14,6 +14,7 @@ import { questionnairePanel } from './render-questionnaire.js';
 import { renderResolutions } from './render-resolutions.js';
 import { specItem } from './render-specs.js';
 import { renderVerifications } from './render-verify.js';
+import { startBranchShowcase, renderShowcase } from './render-showcase.js';
 import { ui } from './state.js';
 import { agentText } from './text.js';
 import { referenceable } from './context-references.js';
@@ -126,12 +127,8 @@ export function renderDetail(task, history, diff, usage) {
   }, 'ghost'));
   if (reclaimable && task.workspace && task.branch) actions.append(button('只回收 worktree（保留分支）', async () => { await action('task.cleanup', { id: task.id, keep_branch: true }); await detail(task.id); }, 'ghost'));
   const verifications = task.verifications || [];
-  const activeVerification = verifications.find(item => !TERMINAL_STATUS.has(item.status));
-  if (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit) {
-    const node = button(activeVerification ? `检验中… #${activeVerification.id}` : (verifications.length ? '重新检验' : '检验'),
-      async () => { await action('task.verify', { id: task.id }); await detail(task.id); });
-    if (activeVerification) node.disabled = true;
-    actions.append(node);
+  if (task.branch && ['worker','merger'].includes(task.role)) {
+    actions.append(button('效果展示', () => startBranchShowcase(task.branch), 'primary'));
   }
   if (!['completed', 'failed', 'cancelled'].includes(task.status)) actions.append(button('取消任务树', async () => {
     const confirmed = await confirmDialog({
@@ -158,6 +155,7 @@ export function renderDetail(task, history, diff, usage) {
   }
   const progress = renderTaskProgress(task.progress);
   if (progress) panel.append(progress);
+  if (task.role === 'showcase') panel.append(renderShowcase(task));
   if (task.result) {
     const result = block('结果'); result.classList.add('result-panel'); result.append(agentText(task.result, { plain: 'pre' }));
     referenceable(result, { kind: 'result', target: { task_id: task.id, section: 'result' }, label: `任务结果 #${task.id}`,

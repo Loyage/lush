@@ -15,8 +15,8 @@ export class UIClient {
   }
   /** Compatibility snapshot: intentionally retains the complete historical task walk. */
   async snapshot() {
-    const [status, timeline, ladder, inputs, drafts, notices, specs, candidates] = await Promise.all(
-      ['system.status','system.timeline','task.ladder','input.list','draft.list','notice.list','spec.list','candidate.list'].map(method => this.request(method)));
+    const [status, timeline, ladder, inputs, drafts, notices, specs, candidates, showcases] = await Promise.all(
+      ['system.status','system.timeline','task.ladder','input.list','draft.list','notice.list','spec.list','candidate.list','showcase.list'].map(method => this.request(method)));
     check(status.project === this.config.project, 'daemon project mismatch');
     const tasks = []; let after = 0;
     for (;;) {
@@ -26,7 +26,7 @@ export class UIClient {
       after = page.at(-1).id;
       if (page.length < 200) break;
     }
-    return { status, timeline, ladder, tasks, inputs, drafts, notices, specs, candidates };
+    return { status, timeline, ladder, tasks, inputs, drafts, notices, specs, candidates, showcases };
   }
 
   /** Bounded homepage model. A matching revision turns the poll into one cheap status request. */
@@ -34,12 +34,12 @@ export class UIClient {
     const status = await this.request('system.summary');
     check(status.project === this.config.project, 'daemon project mismatch');
     if (revision && revision === status.revision) return { unchanged: true, revision };
-    const [timeline, ladder, activity, inputs, drafts, notices, specs, candidates] = await Promise.all([
+    const [timeline, ladder, activity, inputs, drafts, notices, specs, candidates, showcases] = await Promise.all([
       this.request('system.timeline'), this.request('task.ladder'), this.request('task.activity', { limit: 50 }),
       this.request('input.list'), this.request('draft.list'), this.request('notice.list'),
-      this.request('spec.list'), this.request('candidate.list'),
+      this.request('spec.list'), this.request('candidate.list'), this.request('showcase.list'),
     ]);
     return { revision: status.revision, status, timeline, ladder, tasks: activity.tasks, task_page: activity.page,
-      inputs, drafts, notices, specs, candidates };
+      inputs, drafts, notices, specs, candidates, showcases };
   }
 }

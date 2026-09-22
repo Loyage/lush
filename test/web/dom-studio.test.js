@@ -21,11 +21,12 @@ test('概览：指标以 Intent 为主，Git 诊断退居次级且折叠跨重�
   renderOverview(data);
   const panel = dom.node('detail');
   expect(panel.dataset.view).toBe('overview');
-  // 产品指标以 Intent / Candidate 为中心，Branch 留在诊断折叠区。
+  // 产品指标以 Intent / 效果展示为中心，Branch 留在诊断折叠区。
   expect(panel.querySelectorAll('.metric').length).toBe(4);
   const text = deepText(panel);
   expect(text).toContain('Intent');
-  expect(text).toContain('等待验收');
+  expect(text).toContain('效果展示');
+  expect(text).not.toContain('开始验收');
   expect(text).toContain('需要你决定');
   expect(text).toContain('验证 unknown'); // 兼容旧 Candidate：没有结构化证据时明确显示未知。
   // 旧结构不再出现：按任务 status 的分布 chips 与按目标分支分组的交付队列。

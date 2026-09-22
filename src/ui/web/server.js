@@ -27,10 +27,10 @@ function assetFile(pathname) {
   if (!ASSET_NAME.test(name) || !ASSET_EXTENSIONS.has(path.extname(name))) return null;
   return path.join(ASSETS, name);
 }
-const MUTATIONS = new Set(['agent.configure','agent.environment.configure','system.configure','input.submit','input.flow','draft.add','draft.remove','draft.update','draft.commit','task.message','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.delete','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.merge','branch.sync','branch.catchup','branch.archive']);
+const MUTATIONS = new Set(['showcase.start','showcase.stop','agent.configure','agent.environment.configure','system.configure','input.submit','input.flow','draft.add','draft.remove','draft.update','draft.commit','task.message','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.delete','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.merge','branch.sync','branch.catchup','branch.archive']);
 /** 检验报告是 agent 写的自包含 HTML：只允许内联样式/脚本与 data: 图片，禁止任何外部加载与表单提交。
  *  主页面 CSP 不会作用于这个独立文档，所以这里必须自己收紧。 */
-const REPORT_CSP = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'";
+const REPORT_CSP = "sandbox allow-scripts; frame-ancestors 'self'; default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'";
 const PAGE_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const LOGIN_CSP = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
@@ -272,6 +272,7 @@ export function startWeb(config, port = 4318, options = {}) {
           if (url.pathname === '/api/agent/environment') return json(await client.request('agent.environment', { target: url.searchParams.get('target') || '' }));
           // 分支图跑 git，不进 1.5s 的 /api/snapshot：只有打开视图时才单独取一次。
           if (url.pathname === '/api/graph') return json(await client.request('graph.get'));
+          if (url.pathname === '/api/showcases') return json(await client.request('showcase.list', { branch: url.searchParams.get('branch') }));
           const preview = /^\/api\/task\/(\d+)\/notice\/(\d+)\/preview\/(\d+)\/(\d+)$/.exec(url.pathname);
           if (preview) {
             const task = await client.request('task.inspect', { id: Number(preview[1]) });
@@ -284,9 +285,11 @@ export function startWeb(config, port = 4318, options = {}) {
           const report = /^\/api\/task\/(\d+)\/report$/.exec(url.pathname);
           if (report) {
             const task = await client.request('task.inspect', { id: Number(report[1]) });
-            check(task.role === 'verifier', `task #${task.id} is not a verification`);
-            const file = path.join(binding.config.home, 'verify', String(task.id), 'report.html');
-            if (!fs.existsSync(file)) return json({ error: `verification #${task.id} has no report yet` }, 404);
+            check(['verifier','showcase'].includes(task.role), `task #${task.id} is not a verification or showcase`);
+            const file = path.join(binding.config.home, task.role === 'showcase' ? 'showcase' : 'verify', String(task.id), 'report.html');
+            if (!fs.existsSync(file)) return json({ error: `task #${task.id} has no report yet` }, 404);
+            const stat = fs.lstatSync(file);
+            check(stat.isFile() && !stat.isSymbolicLink() && fs.realpathSync(file) === file && stat.size <= 8 * 1024 * 1024, 'unsafe report file');
             // 独立顶层文档（新标签打开）：不受主页面 CSP 约束，但仍显式收紧到一个自包含页面。
             return new Response(Bun.file(file), { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': REPORT_CSP } });
           }

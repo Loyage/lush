@@ -17,7 +17,7 @@ export const MODEL_PRESETS = {
 
 const ROLE_LABELS = {
   planner: '规划任务', coordinator: '协调任务', worker: '开发任务', research: '调研任务',
-  verifier: '验收任务', merger: '分支分歧解决',
+  verifier: '检验任务', merger: '分支分歧解决', showcase: '效果展示',
 };
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_PROMPT_BYTES = 32 * 1024;

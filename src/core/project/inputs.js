@@ -66,9 +66,11 @@ export default {
       NULL AS scheduler_id, NULL AS scheduler_status,
       (SELECT n.id FROM notices n WHERE n.task_id=inputs.task_id AND n.status='open' AND n.kind='plan' ORDER BY n.id DESC LIMIT 1) AS plan_notice_id,
       (SELECT count(*) FROM tasks w WHERE w.input_id=inputs.id AND w.layer='work') AS work_tasks,
-      (SELECT count(*) FROM tasks w WHERE w.input_id=inputs.id AND w.layer='work' AND w.role!='verifier'
+      (SELECT count(*) FROM tasks w WHERE w.input_id=inputs.id AND w.layer='work' AND w.role NOT IN ('verifier','showcase')
         AND w.status NOT IN ('completed','failed','cancelled')) AS work_active,
       (SELECT count(*) FROM tasks w WHERE w.input_id=inputs.id AND w.role='worker' AND w.status='failed') AS work_failed,
+      (SELECT s.id FROM tasks s WHERE s.input_id=inputs.id AND s.role='showcase' ORDER BY s.id DESC LIMIT 1) AS showcase_task_id,
+      (SELECT s.status FROM tasks s WHERE s.input_id=inputs.id AND s.role='showcase' ORDER BY s.id DESC LIMIT 1) AS showcase_status,
       (SELECT c.id FROM review_candidates c WHERE c.input_id=inputs.id ORDER BY c.version DESC LIMIT 1) AS candidate_id,
       (SELECT c.version FROM review_candidates c WHERE c.input_id=inputs.id ORDER BY c.version DESC LIMIT 1) AS candidate_version,
       (SELECT c.status FROM review_candidates c WHERE c.input_id=inputs.id ORDER BY c.version DESC LIMIT 1) AS candidate_status,
@@ -86,6 +88,7 @@ export default {
     const task = this.store.task(taskId);
     check(FLOWS.has(flow), 'flow must be develop or explain');
     check(task.parent_id === null, 'only a root task can classify an input');
+    check(task.role !== 'showcase', 'showcase agents cannot classify inputs');
     check(task.input_id !== null, 'task belongs to no input');
     this.store.transaction(() => {
       this.store.run('UPDATE inputs SET flow=? WHERE id=?', flow, task.input_id);

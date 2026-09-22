@@ -95,6 +95,7 @@ export const methods = {
   },
 
   async ensure(task) {
+    if (task.role === 'showcase') return this.ensureShowcase(task);
     // verifier 不修改代码：它站在被检验的 worktree 里演示，另拉一个目标分支的只读对照。
     if (task.role === 'verifier') return this.exclusive(async () => {
       task = this.store.task(task.id);
@@ -206,6 +207,13 @@ export const methods = {
     return { id: input.id, branch: input.anchor_branch, commit: input.anchor_commit, workspace: input.anchor_workspace, target: input.anchor_target_branch };
   },
   async finish(task) {
+    if (task.role === 'showcase') {
+      const snapshot = JSON.parse(task.showcase);
+      for (const [dir, commit] of [[task.workspace, snapshot.commit], [task.baseline_workspace, snapshot.baseline_commit]]) {
+        await this.assertShowcaseCheckout(dir, commit);
+      }
+      return;
+    }
     if (!task.workspace) return;
     await this.clean(task.workspace);
     const branch = await this.git(task.workspace, 'symbolic-ref', '--short', 'HEAD');

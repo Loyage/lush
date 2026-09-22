@@ -85,18 +85,19 @@ test('Intent 面板：planner 在 control plane，批准后 runtime 直接编译
   expect(findByText(dom.node('intents'), '已驳回')).toBeTruthy();
 });
 
-test('Intent 面板：pending 候选只有用户点击后才启动验收', async () => {
+test('Intent 面板：以分支效果展示替换 pending 候选手动验收入口', async () => {
   world.state.candidates[0].status = 'pending';
   world.state.candidates[0].report_task_id = null;
   world.state.intents[1].candidate_status = 'pending';
   world.state.intents[1].candidate_report_task_id = null;
+  world.state.intents[1].anchor_branch = 'lush/demo/2-two';
   await dom.intervalFor(1500)();
 
   const intents = dom.node('intents');
-  expect(deepText(intents)).toContain('只有你点击“开始验收”才会启动 verifier');
+  expect(deepText(intents)).toContain('展示不代表检验通过');
   expect(findByText(intents, '打开结果报告')).toBeFalsy();
-  await findByText(intents, '开始验收').onclick();
-  expect(world.state.actions.at(-1)).toEqual({ method: 'candidate.verify', params: { id: 1 } });
+  expect(findByText(intents, '开始验收')).toBeFalsy();
+  expect(findByText(intents, '效果展示')).toBeTruthy();
 });
 
 test('Intent 面板：待验收候选给出结果入口与接受 / 要求修改，两者走 candidate.*', async () => {

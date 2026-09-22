@@ -24,6 +24,7 @@
 | `cli/commands/notice.js` | `notice` | `run` |
 | `cli/commands/branch.js` | `branch`（tree / show / import / merge / sync / catchup / archive / summary） | `run` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` / `web-restart` / `web-stop` / `web-status`；Web 无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式；`doctor` / `web-status` 分列磁盘、daemon、Web 身份并只给显式更新提示 | `run` |
+| `cli/commands/showcase.js` | `showcase start/list/stop/preview`，preview 文件含 argv 数组 `command` 和可选 URL `path` | `run` |
 | `cli/commands/candidate.js` | `candidate list/inspect/prepare/verify/accept/changes/reject` | `run` |
 | `cli/commands/agent.js` | `agent show/models/set/reset` 配置 profile；`prompt/env` 查看最终组合和环境来源，`init` 创建共享/本机补充；`--prompt` 只作旧版 `--append-prompt` 别名 | `run` |
 | `cli/commands/config.js` | `config`（`show` / `set concurrency|control-concurrency N` / `reset [concurrency|control-concurrency|all]`）：读 `system.status.settings`、写 `system.configure`；用户专属，agent 调用被拒 | `run` |
@@ -43,6 +44,7 @@
 | `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |
 | `rpc/handlers/notice.js` | `notice.*` | `handlers` |
 | `rpc/handlers/branch.js` | `branch.tree/show/import/merge/sync/archive/summary`（`branch.archive` 参数 `branch` / `discard`，在 `USER_ONLY`；`branch.summary` 参数 `branch` / `summary`，agent 可写、省略 branch 时写自己的分支，用户必须显式点名） | `handlers` |
+| `rpc/handlers/showcase.js` | `showcase.start/list/stop/preview`；start/stop 用户专属，preview 仅当前展示 agent | `handlers` |
 | `rpc/handlers/candidate.js` | `candidate.list/inspect/prepare/verify/accept/changes/reject`；所有变更操作 USER_ONLY | `handlers` |
 | `rpc/dispatcher.js` | 合并 handler 表（查重名、查漏），校验后分派 | `class Dispatcher` |
 
