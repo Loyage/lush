@@ -97,8 +97,9 @@ export default {
     };
   },
 
-  /** 用户从分支图批准 direct child -> parent。唯一允许的落地方式是 fast-forward。 */
-  async approveBranchMerge(branch) {
+  /** 用户从分支图批准 direct child -> parent。唯一允许的落地方式是 fast-forward。
+   * expectedCommit 只供 Candidate 传入，把固定提交一路带到 Git 串行边界。 */
+  async approveBranchMerge(branch, expectedCommit = null) {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
     const record = this.store.branch(name);
@@ -107,7 +108,7 @@ export default {
       const task = this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
       check(!task || task.status === 'completed', `branch task #${record.task_id} is not completed`);
     }
-    const outcome = await this.workspaces.mergeBranch(name);
+    const outcome = await this.workspaces.mergeBranch(name, expectedCommit);
     if (!outcome.merged && !outcome.already_integrated) return outcome;
     const task = record.task_id === null ? null : this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
     if (task && ['pending','review','conflict','merging'].includes(task.integration)) {

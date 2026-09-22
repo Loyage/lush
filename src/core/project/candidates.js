@@ -78,11 +78,9 @@ export default {
   async acceptCandidate(candidateId) {
     const candidate = this.store.candidate(candidateId);
     check(['ready','accepted'].includes(candidate.status), `candidate #${candidate.id} is ${candidate.status}; review it before accepting`);
-    const tip = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${candidate.branch}^{commit}`);
-    check(tip === candidate.commit_hash,
-      `candidate #${candidate.id} pins ${candidate.commit_hash.slice(0,12)}, but ${candidate.branch} moved to ${tip.slice(0,12)}; prepare a new candidate`);
     this.store.updateCandidate(candidate.id, { status: 'accepted' });
-    const outcome = await this.approveBranchMerge(candidate.branch);
+    // 固定提交的校验和实际 fast-forward 必须在同一个 Git 串行区间内；外面的预检会留下 TOCTOU 窗口。
+    const outcome = await this.approveBranchMerge(candidate.branch, candidate.commit_hash);
     if (outcome.merged || outcome.already_integrated) {
       this.store.updateCandidate(candidate.id, { status: 'integrated' });
       const input = this.store.get('SELECT task_id FROM inputs WHERE id=?', candidate.input_id);

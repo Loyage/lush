@@ -34,4 +34,13 @@ export const candidates = {
       updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, ...Object.values(patch), id(candidateId));
     return this.candidate(candidateId);
   },
+  /** 只有仍处于 preparing 且仍绑定本 verifier 的候选能接收结算；用户决定与后续验收不会被迟到结果覆盖。 */
+  settleCandidateVerification(candidateId, taskId, status) {
+    check(status === 'ready' || status === 'failed', 'invalid candidate verification status');
+    const candidate = id(candidateId), task = id(taskId);
+    const result = this.run(`UPDATE review_candidates SET status=?,
+      updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE id=? AND status='preparing' AND report_task_id=?`, status, candidate, task);
+    return { candidate: this.candidate(candidate), applied: result.changes === 1 };
+  },
 };

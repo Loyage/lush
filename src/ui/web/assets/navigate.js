@@ -5,7 +5,12 @@
 let navigation = { refresh: async () => {}, detail: async () => {}, overview: async () => {}, graph: async () => {} };
 
 export function registerNavigation({ refresh, detail, overview, graph }) {
-  navigation = { refresh, detail, overview, graph };
+  const previous = navigation;
+  const registered = { refresh, detail, overview, graph };
+  navigation = registered;
+  // DOM tests replace this singleton with controlled handlers. Return an identity-guarded teardown so
+  // one file cannot leave its handlers installed for another file that already booted the application.
+  return () => { if (navigation === registered) navigation = previous; };
 }
 
 export function refresh() { return navigation.refresh(); }

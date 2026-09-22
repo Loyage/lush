@@ -57,12 +57,11 @@ export default {
       // Verification settles either a worker detail or a frozen review candidate.
       if (task.verifies_task_id) this.store.touch(task.verifies_task_id);
       if (task.review_candidate_id) {
-        this.store.updateCandidate(task.review_candidate_id, {
-          status: status === 'completed' && this.hasReport(task.id) ? 'ready' : 'failed',
-          report_task_id: task.id,
-        });
+        const hasReport = this.hasReport(task.id);
+        const settled = this.store.settleCandidateVerification(task.review_candidate_id, task.id,
+          status === 'completed' && hasReport ? 'ready' : 'failed');
         this.store.event(task.id, 'candidate.verified', { candidate: task.review_candidate_id, status,
-          has_report: this.hasReport(task.id) });
+          has_report: hasReport, applied: settled.applied, candidate_status: settled.candidate.status });
       }
       // 解冲突任务没做成（失败 / 被取消）：原任务回到待合并，冻结随之解除，错误留在解冲突任务上。
       // 分支与 worktree 都保留，用户可以重试或自己处理。

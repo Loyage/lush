@@ -1,4 +1,5 @@
 import { button, el } from './dom.js';
+import { confirmDialog } from './dialog.js';
 import { renderMarkdown } from './markdown.js';
 import { ui } from './state.js';
 
@@ -71,7 +72,12 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
   const send = async discard => {
     if (busy) return;
     if (!discard && !questions.every((q, i) => complete(q, draft.answers[i]))) return;
-    if (discard && !confirm('忽略整份问卷？这不代表批准任何选项，任务会收到“未做决定”的消息。')) return;
+    if (discard && !await confirmDialog({
+      title: '忽略整份问卷？',
+      message: '这不代表批准任何选项，任务会收到“未做决定”的消息。',
+      confirmLabel: '忽略问卷',
+      danger: true,
+    })) return;
     busy = true; error = ''; paint();
     try {
       if (discard) await dismiss();

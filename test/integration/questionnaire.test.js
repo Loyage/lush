@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { temp, env, until } from '../helpers.js';
+import { temp, env, repo, until } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
 import { cli, done } from './harness.js';
@@ -25,6 +25,7 @@ if (context.task.calls === 1) {
 } else console.log('resumed with '+JSON.stringify(context.messages));
 `, { mode: 0o755 });
   try {
+    await repo(root);
     await cli(root, ['start'], { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake });
     const { task } = await cli(root, ['say', 'choose a layout']);
     let client = new UIClient(Config.fromEnv(env(), root));
