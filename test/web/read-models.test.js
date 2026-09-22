@@ -22,24 +22,30 @@ test('large results do not inflate task listings and event history stays paginat
   } finally { await f.close(); }
 });
 
-test('bounded overview skips unchanged polls while legacy snapshot and explicit history pages stay complete', async () => {
+test('10k history stays bounded, reports UI truncation and cursor-pages while legacy snapshot remains complete', async () => {
   const f = await setup(); await repo(f.root);
   try {
     f.project.stopping = true;
-    for (let index = 0; index < 70; index += 1) {
-      const task = f.store.create({ input_id: null, role: 'research', goal: `history ${index}` });
-      f.store.update(task.id, { status: 'completed', result: `done ${index}` });
-    }
+    f.store.run(`WITH RECURSIVE seq(id) AS (SELECT 1 UNION ALL SELECT id+1 FROM seq WHERE id<10000)
+      INSERT INTO tasks(id,role,goal,status,result) SELECT id,'research','history '||id,'completed','done '||id FROM seq`);
+    f.store.setTaskIdHigh(10000);
+    // system.summary must not touch Agent settings; that full profile belongs to system.status/settings only.
+    const agentConfig = f.project.agentConfig;
+    f.project.agentConfig = () => { throw new Error('overview opened full Agent config'); };
     const first = await (await fetch(f.url + '/api/overview')).json();
     expect(first.tasks).toHaveLength(50);
-    expect(first.task_page).toMatchObject({ active: 0, historical: 70, shown: 50, has_more: true, truncated: true });
+    expect(first.task_page).toMatchObject({ active: 0, historical: 10000, shown: 50, has_more: true, truncated: true });
     expect(first.status.agent_config).toBeUndefined();
+    expect(first.ladder).toMatchObject({ nodes: [], groups: [], truncated: false });
     const unchanged = await (await fetch(f.url + `/api/overview?revision=${encodeURIComponent(first.revision)}`)).json();
     expect(unchanged).toEqual({ unchanged: true, revision: first.revision });
     const older = await (await fetch(f.url + `/api/tasks?before=${first.task_page.cursor}&limit=50`)).json();
-    expect(older.tasks).toHaveLength(20); expect(older.has_more).toBe(false);
+    expect(older.tasks).toHaveLength(50); expect(older.has_more).toBe(true);
+    const oldest = await (await fetch(f.url + '/api/tasks?before=51&limit=50')).json();
+    expect(oldest.tasks).toHaveLength(50); expect(oldest.cursor).toBe(1); expect(oldest.has_more).toBe(false);
+    f.project.agentConfig = agentConfig;
     const legacy = await (await fetch(f.url + '/api/snapshot')).json();
-    expect(legacy.tasks).toHaveLength(70); expect(legacy.status.agent_config.default).toBeTruthy();
+    expect(legacy.tasks).toHaveLength(10000); expect(legacy.status.agent_config.default).toBeTruthy();
   } finally { await f.close(); }
 });
 

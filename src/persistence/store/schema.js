@@ -47,6 +47,12 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_id);
       CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);
+      CREATE INDEX IF NOT EXISTS tasks_layer_status ON tasks(layer,status,id);
+      CREATE INDEX IF NOT EXISTS tasks_layer_id_status ON tasks(layer,id DESC,status);
+      CREATE INDEX IF NOT EXISTS tasks_integration_resolver ON tasks(integration,resolves_task_id,id);
+      CREATE INDEX IF NOT EXISTS tasks_resolver ON tasks(resolves_task_id,id);
+      CREATE INDEX IF NOT EXISTS tasks_input_role_status ON tasks(input_id,role,status,id);
+      CREATE INDEX IF NOT EXISTS tasks_role_plan_gate ON tasks(role,plan_gate);
       -- 依赖边只在 spawn 时写入，之后不可变。kind: code=从上游分支继续, order=只等它结束。
       CREATE TABLE IF NOT EXISTS task_deps (
         task_id INTEGER NOT NULL REFERENCES tasks(id), depends_on INTEGER NOT NULL REFERENCES tasks(id),
@@ -65,6 +71,7 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       CREATE INDEX IF NOT EXISTS task_specs_status ON task_specs(status);
       CREATE INDEX IF NOT EXISTS task_specs_batch ON task_specs(batch_id);
       CREATE INDEX IF NOT EXISTS task_specs_planner ON task_specs(planner_task_id);
+      CREATE INDEX IF NOT EXISTS task_specs_input_status ON task_specs(input_id,status);
       -- Branch genealogy: 分支创建时的「从哪条分支拉出来」记录。不是 commit graph、不是 task tree，
       -- 也不是 git ref 的镜像：只回答创建关系。只在分支被创建那一刻写入，之后不可变（除 status）。
       -- task_id 故意不加外键：clear 会清空 tasks，但谱系是历史事实，必须比 task 行活得久。
@@ -89,6 +96,8 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY, task_id INTEGER REFERENCES tasks(id), type TEXT NOT NULL, data TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+      CREATE INDEX IF NOT EXISTS notices_task_status_kind ON notices(task_id,status,kind,id);
+      CREATE INDEX IF NOT EXISTS notices_status_kind ON notices(status,kind,id);
       CREATE INDEX IF NOT EXISTS messages_task ON messages(task_id, consumed);
       CREATE INDEX IF NOT EXISTS events_task ON events(task_id, id);
       CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash);
@@ -116,7 +125,51 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         UNIQUE(input_id,version));
-      CREATE INDEX IF NOT EXISTS review_candidates_input ON review_candidates(input_id,id);`;
+      CREATE INDEX IF NOT EXISTS review_candidates_input ON review_candidates(input_id,id);
+
+      -- O(1) homepage invalidation cursor and exact task counters. Opening an old database seeds
+      -- the technical aggregate once; triggers keep it current without changing task semantics.
+      CREATE TABLE IF NOT EXISTS overview_task_counts (
+        layer TEXT NOT NULL, status TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(layer,status));
+      DELETE FROM overview_task_counts;
+      INSERT INTO overview_task_counts(layer,status,count) SELECT layer,status,count(*) FROM tasks GROUP BY layer,status;
+      INSERT OR IGNORE INTO meta(key,value) VALUES ('overview_revision','0');
+      CREATE TRIGGER IF NOT EXISTS overview_tasks_insert AFTER INSERT ON tasks BEGIN
+        UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision';
+        INSERT INTO overview_task_counts(layer,status,count) VALUES (NEW.layer,NEW.status,1)
+          ON CONFLICT(layer,status) DO UPDATE SET count=count+1;
+      END;
+      CREATE TRIGGER IF NOT EXISTS overview_tasks_update AFTER UPDATE ON tasks BEGIN
+        UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision';
+        UPDATE overview_task_counts SET count=count-1 WHERE layer=OLD.layer AND status=OLD.status;
+        INSERT INTO overview_task_counts(layer,status,count) VALUES (NEW.layer,NEW.status,1)
+          ON CONFLICT(layer,status) DO UPDATE SET count=count+1;
+      END;
+      CREATE TRIGGER IF NOT EXISTS overview_tasks_delete AFTER DELETE ON tasks BEGIN
+        UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision';
+        UPDATE overview_task_counts SET count=count-1 WHERE layer=OLD.layer AND status=OLD.status;
+      END;
+      CREATE TRIGGER IF NOT EXISTS overview_events_insert AFTER INSERT ON events BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_events_update AFTER UPDATE ON events BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_events_delete AFTER DELETE ON events BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_inputs_insert AFTER INSERT ON inputs BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_inputs_update AFTER UPDATE ON inputs BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_inputs_delete AFTER DELETE ON inputs BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_drafts_insert AFTER INSERT ON drafts BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_drafts_update AFTER UPDATE ON drafts BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_drafts_delete AFTER DELETE ON drafts BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_draft_refs_insert AFTER INSERT ON draft_references BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_draft_refs_update AFTER UPDATE ON draft_references BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_draft_refs_delete AFTER DELETE ON draft_references BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_notices_insert AFTER INSERT ON notices BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_notices_update AFTER UPDATE ON notices BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_notices_delete AFTER DELETE ON notices BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_specs_insert AFTER INSERT ON task_specs BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_specs_update AFTER UPDATE ON task_specs BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_specs_delete AFTER DELETE ON task_specs BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_candidates_insert AFTER INSERT ON review_candidates BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_candidates_update AFTER UPDATE ON review_candidates BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      CREATE TRIGGER IF NOT EXISTS overview_candidates_delete AFTER DELETE ON review_candidates BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;`;
 
 /** 打开后的验收：库属于别的项目就先 close 再抛错，错误信息与拆分前逐字相同。 */
 export function bindProject(db, project) {

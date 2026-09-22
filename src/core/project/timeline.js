@@ -72,8 +72,9 @@ export default {
     });
     const floor = Date.parse(now) - TIMELINE_WINDOW_MS;
     const earliest = Math.min(...rows.map(row => Date.parse(row.created_at)), Date.parse(now));
+    const oldest = tasks[0]?.id ?? null;
+    const truncated = oldest !== null && Boolean(this.store.get('SELECT id FROM tasks WHERE id<? ORDER BY id DESC LIMIT 1', oldest));
     return { now, concurrency: this.config.concurrency, start: new Date(Math.max(earliest, floor)).toISOString(), end: now,
-      clamped: earliest < floor, truncated: this.store.get('SELECT count(*) AS count FROM tasks').count > rows.length,
-      tasks: bounded(rows, 300000) };
+      clamped: earliest < floor, truncated, tasks: bounded(rows, 300000) };
   }
 };
