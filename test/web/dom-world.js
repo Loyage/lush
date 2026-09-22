@@ -78,6 +78,10 @@ export function makeWorld() {
     notices: [],
     transcriptAfter: [],
     actions: [],
+    agentEnvironments: {
+      common: { HTTP_PROXY: 'http://127.0.0.1:7897', API_KEY: 'secret-value' },
+      planner: {}, coordinator: {}, worker: {}, research: {}, verifier: {}, merger: {},
+    },
     agentConfig: {
       version: 1, file: '/tmp/demo/.lush/agent.json', runtime_agent: 'pi',
       default: { agent: 'pi', model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }, roles: {},
@@ -190,6 +194,11 @@ export function makeWorld() {
       extensions: [{ id: '/tmp/pi/extensions/review.ts', label: 'review.ts', source: '用户扩展' }],
       skills: [{ id: '/tmp/pi/skills/browser/SKILL.md', label: 'browser', description: '浏览器自动化', source: '用户 Skills' }],
     });
+    if (path.startsWith('/api/agent/environment?target=')) {
+      const target = decodeURIComponent(path.split('=').at(-1));
+      const values = { ...(state.agentEnvironments[target] || {}) };
+      return json({ target, file: `/tmp/demo/.lush/agent/${target === 'common' ? 'agent' : target}.env`, exists: Object.keys(values).length > 0, values });
+    }
     if (path === '/api/graph') { state.graphFetches += 1; return json(state.graph); }
     if (path === '/api/action') {
       const body = JSON.parse(options.body);
@@ -199,6 +208,11 @@ export function makeWorld() {
         state.agentConfig = { ...state.agentConfig, version: 1, default: config.default, roles: config.roles,
           resolved: Object.fromEntries(state.agentConfig.options.roles.map(({ id }) => [id, { ...(config.roles[id] || config.default) }])) };
         return json(state.agentConfig);
+      }
+      if (body.method === 'agent.environment.configure') {
+        const { target, values } = body.params;
+        state.agentEnvironments[target] = { ...values };
+        return json({ target, file: `/tmp/demo/.lush/agent/${target === 'common' ? 'agent' : target}.env`, exists: Object.keys(values).length > 0, values: { ...values } });
       }
       if (body.method === 'system.configure') {
         // 并发上限的热更新：null 清除覆盖（回退环境默认），数字写为覆盖值；与核心同语义。

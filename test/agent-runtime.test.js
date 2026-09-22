@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Config } from '../src/config.js';
 import { AGENT_ROLES, agentPrompt, builtInPrompt } from '../src/agent/prompts.js';
-import { agentEnvironment, parseAgentEnv } from '../src/agent/environment.js';
+import { agentEnvironment, parseAgentEnv, readAgentEnvironment, saveAgentEnvironment } from '../src/agent/environment.js';
 import { temp, env } from './helpers.js';
 
 test('agent prompts are composed from role-specific named parts', () => {
@@ -57,6 +57,24 @@ INLINE=value # comment
   });
   expect(() => parseAgentEnv('bad line', 'x.env')).toThrow('x.env:1');
   expect(() => parseAgentEnv('LUSH_PROJECT=/tmp/other', 'x.env')).toThrow('reserved by Lush');
+});
+
+test('agent env editor storage validates, round-trips and writes owner-only files', () => {
+  const root = temp();
+  try {
+    const config = new Config({ project: root, env: env() }); config.prepare();
+    const saved = saveAgentEnvironment(config, 'common', { Z_LAST: 'hash # and "quote"', API_KEY: 'line 1\nline 2', EMPTY: '' });
+    expect(saved.exists).toBe(true);
+    expect(saved.values).toEqual({ API_KEY: 'line 1\nline 2', EMPTY: '', Z_LAST: 'hash # and "quote"' });
+    expect(fs.statSync(saved.file).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(path.dirname(saved.file)).mode & 0o777).toBe(0o700);
+    expect(readAgentEnvironment(config, 'common').values.API_KEY).toBe('line 1\nline 2');
+    expect(() => saveAgentEnvironment(config, 'worker', { LUSH_PROJECT: '/tmp/no' })).toThrow('reserved by Lush');
+    expect(() => readAgentEnvironment(config, 'unknown')).toThrow('target must be one of');
+    const cleared = saveAgentEnvironment(config, 'common', {});
+    expect(cleared.exists).toBe(false);
+    expect(fs.existsSync(saved.file)).toBe(false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('role env hot-load layer overrides common env', () => {

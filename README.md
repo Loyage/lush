@@ -178,7 +178,7 @@ ALL_PROXY=socks5://127.0.0.1:7897
 SEARCH_ENDPOINT=https://example.invalid
 ```
 
-角色文件覆盖 `agent.env`，两者覆盖 daemon 继承环境；若设置 `PATH`，Lush 自己的 `bin/` 仍前置。所有 `LUSH_*` 保留给 runtime，配置时会拒绝。env 使用字面量 `NAME=value`，支持单/双引号与 `export` 前缀，不做 shell 展开。用 `lush agent env research` 查看加载文件和变量名，值始终隐藏。
+角色文件覆盖 `agent.env`，两者覆盖 daemon 继承环境；若设置 `PATH`，Lush 自己的 `bin/` 仍前置。所有 `LUSH_*` 保留给 runtime，配置时会拒绝。env 使用字面量 `NAME=value`，支持单/双引号与 `export` 前缀，不做 shell 展开。用 `lush agent env research` 查看加载文件和变量名，值始终隐藏；也可在 Web「设置 → Agent → 环境变量」按公共/角色文件编辑，读取后值默认遮罩，下一次调用立即生效。
 
 ## 新模型：Intent-first + Candidate-first，Branch-backed
 
@@ -320,7 +320,7 @@ pi 默认禁用个人 extensions / skills / prompt templates / themes，保留�
 | `LUSH_CODEX_MODEL` / `LUSH_CODEX_THINKING` | codex 默认 | `.lush/agent.json` 不存在时的 Codex 初始选择；之后由项目配置覆盖 |
 | `LUSH_PI_COMMAND` / `LUSH_CODEX_COMMAND` | `pi` / `codex` | Agent CLI 可执行文件 |
 
-角色 Prompt 文件位于 `.lush-agent/*.md`（可提交）与 `.lush/agent/*.md`（本机）；Agent 子进程环境补充位于 `.lush/agent/agent.env` 和 `.lush/agent/<role>.env`。它们按 invocation 热加载。
+角色 Prompt 文件位于 `.lush-agent/*.md`（可提交）与 `.lush/agent/*.md`（本机）；Agent 子进程环境补充位于 `.lush/agent/agent.env` 和 `.lush/agent/<role>.env`。它们按 invocation 热加载。Web Agent 设置页提供键值编辑器：公共/角色文件分开读取，值默认遮罩、逐项可显示；保存会规范化文件并使用 `600` 权限，原注释与排序不会保留。
 
 两条并发上限是唯一可在运行时改写的软件设置，存储在 `.lush/settings.json`（version 1，权限 `600`）：环境变量仍是默认值，文件里显式覆盖的键优先，`null` / 删键即回到环境默认。`lush config`（等价 `lush config show`）打印生效值、环境默认值、是否被覆盖与设置文件路径；`lush config set concurrency N`（1..64）与 `lush config set control-concurrency N`（1..16）写回并立即生效，`lush config reset [concurrency|control-concurrency|all]` 清除覆盖。Web 的「设置 → 系统 → 并发额度」提供同一读模型与保存 / 恢复动作（走 `system.configure`）。读取是 `system.status.settings`；读写两端都是用户专属，agent 调用会被拒绝。
 

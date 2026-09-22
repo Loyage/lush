@@ -25,6 +25,8 @@ const systemBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '运行状态') || null;
 const runtimeBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '并发额度') || null;
+const environmentBlock = () => [...panel().querySelectorAll('.block')]
+  .find(node => node.querySelector('h2')?.textContent === '环境变量') || null;
 
 test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1.5s 轮询不覆盖该视图', async () => {
   await dom.intervalFor(1500)();
@@ -268,6 +270,59 @@ test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可�
   const prompt = card.querySelector('textarea[data-agent-field="append_prompt"]'); prompt.value = '规划时先列风险。';
   await findByText(card, '保存配置').onclick();
   expect(world.state.agentConfig.roles.planner.append_prompt).toBe('规划时先列风险。');
+});
+
+test('Agent 页：环境变量按公共/角色文件读取，默认遮罩并可用键值表保存', async () => {
+  openAgent();
+  let env = environmentBlock();
+  expect(env).toBeTruthy();
+  expect(deepText(env)).toContain('尚未把变量值读入浏览器');
+  expect(env.querySelector('select.agent-env-target').value).toBe('common');
+
+  await findByText(env, '读取变量').onclick();
+  env = environmentBlock();
+  const values = env.querySelectorAll('input.agent-env-value');
+  expect(values).toHaveLength(2);
+  expect(values.every(input => input.type === 'password')).toBe(true);
+  const reveal = env.querySelector('button.agent-env-reveal');
+  await reveal.onclick();
+  expect(values[0].type).toBe('text');
+  expect(reveal.textContent).toBe('隐藏');
+
+  await env.querySelector('button[data-env-action="add"]').onclick();
+  env = environmentBlock();
+  const names = env.querySelectorAll('input.agent-env-name');
+  const nextValues = env.querySelectorAll('input.agent-env-value');
+  const addedName = names.at(-1), addedValue = nextValues.at(-1);
+  addedName.value = 'EXTRA_FLAG'; await addedName.listeners.input[0]();
+  addedValue.value = 'enabled'; await addedValue.listeners.input[0]();
+  await env.querySelector('button[data-env-action="save"]').onclick();
+  expect(world.state.actions.at(-1).method).toBe('agent.environment.configure');
+  expect(world.state.actions.at(-1).params.target).toBe('common');
+  expect(world.state.agentEnvironments.common).toMatchObject({ API_KEY: 'secret-value', EXTRA_FLAG: 'enabled' });
+
+  env = environmentBlock();
+  const target = env.querySelector('select.agent-env-target'); target.value = 'worker'; await target.listeners.change[0]();
+  env = environmentBlock();
+  expect(deepText(env)).toContain('尚未把变量值读入浏览器');
+  await findByText(env, '读取变量').onclick();
+  expect(deepText(environmentBlock())).toContain('这个文件还没有变量');
+});
+
+test('Agent 页：环境变量拒绝保留名，不发送写请求', async () => {
+  openAgent();
+  let env = environmentBlock();
+  const target = env.querySelector('select.agent-env-target'); target.value = 'verifier'; await target.listeners.change[0]();
+  env = environmentBlock();
+  if (findByText(env, '读取变量')) await findByText(env, '读取变量').onclick();
+  env = environmentBlock();
+  await env.querySelector('button[data-env-action="add"]').onclick();
+  env = environmentBlock();
+  const name = env.querySelector('input.agent-env-name'); name.value = 'LUSH_PROJECT'; await name.listeners.input[0]();
+  const before = world.state.actions.length;
+  await env.querySelector('button[data-env-action="save"]').onclick();
+  expect(world.state.actions.length).toBe(before);
+  expect(env.querySelector('.settings-error').textContent).toContain('由 Lush 保留');
 });
 
 test('系统页：只读展示 daemon 状态与项目路径，并发额度改为可编辑表单', () => {

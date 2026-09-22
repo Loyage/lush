@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { RPCClient } from '../../src/rpc/client.js';
 import { parseRequest, encode } from '../../src/rpc/protocol.js';
+import { PARAMS, USER_ONLY } from '../../src/rpc/registry.js';
 import { UIClient } from '../../src/ui/client.js';
 import { repo } from '../helpers.js';
 import { fetch, setup } from './harness.js';
@@ -55,6 +56,34 @@ test('web saves project Agent profiles through the narrow mutation whitelist', a
     expect(resources.agent).toBe('pi');
     expect(Array.isArray(resources.extensions)).toBe(true);
     expect(Array.isArray(resources.skills)).toBe(true);
+  } finally { await f.close(); }
+});
+
+test('web reads and saves per-target Agent environment through user-only narrow methods', async () => {
+  const f = await setup(); await repo(f.root);
+  const post = (method, params) => fetch(f.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
+  try {
+    expect(PARAMS['agent.environment']).toEqual(['target']);
+    expect(PARAMS['agent.environment.configure']).toEqual(['target', 'values']);
+    expect(USER_ONLY.has('agent.environment')).toBe(true);
+    expect(USER_ONLY.has('agent.environment.configure')).toBe(true);
+
+    let response = await fetch(f.url + '/api/agent/environment?target=common');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ target: 'common', exists: false, values: {} });
+
+    response = await post('agent.environment.configure', { target: 'common', values: { API_KEY: 'top secret', HTTP_PROXY: 'http://proxy' } });
+    expect(response.status).toBe(200);
+    const saved = await response.json();
+    expect(saved).toMatchObject({ target: 'common', exists: true, values: { API_KEY: 'top secret', HTTP_PROXY: 'http://proxy' } });
+    expect(fs.statSync(saved.file).mode & 0o777).toBe(0o600);
+    expect((await (await fetch(f.url + '/api/agent/environment?target=common')).json()).values.API_KEY).toBe('top secret');
+
+    const reserved = await post('agent.environment.configure', { target: 'worker', values: { LUSH_PROJECT: '/tmp/other' } });
+    expect(reserved.status).toBe(400);
+    expect((await reserved.json()).error).toContain('reserved by Lush');
+    expect((await fetch(f.url + '/api/agent/environment?target=unknown')).status).toBe(400);
+    expect((await post('agent.environment.configure', { target: 'common', values: {}, _token: 'forged' })).status).toBe(400);
   } finally { await f.close(); }
 });
 

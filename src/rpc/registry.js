@@ -1,7 +1,7 @@
 import { LushError, check, isPlainObject } from '../core/types.js';
 
 export const PARAMS = {
-  'system.status': [], 'system.stop': [], 'system.timeline': ['limit'], 'system.configure': ['settings'], 'agent.config': [], 'agent.models': ['agent'], 'agent.resources': [], 'agent.configure': ['config'],
+  'system.status': [], 'system.stop': [], 'system.timeline': ['limit'], 'system.configure': ['settings'], 'agent.config': [], 'agent.models': ['agent'], 'agent.resources': [], 'agent.environment': ['target'], 'agent.environment.configure': ['target','values'], 'agent.configure': ['config'],
   'input.submit': ['content','branch','references'], 'input.list': [], 'input.flow': ['id','flow'],
   'draft.add': ['content','references'], 'draft.list': [], 'draft.remove': ['id'], 'draft.update': ['id','content','references'], 'draft.commit': ['ids','branch'],
   'task.list': ['after','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.diff': ['id'],
@@ -18,7 +18,7 @@ export const PARAMS = {
   'plan.propose': ['title','body'], 'plan.approve': ['id','answer'], 'plan.reject': ['id','reason'],
   'notice.list': [], 'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
 };
-export const USER_ONLY = new Set(['system.stop','system.configure','agent.configure','input.submit','draft.add','draft.remove','draft.update','draft.commit','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.delete','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.import','branch.merge','branch.sync','branch.catchup','branch.archive']);
+export const USER_ONLY = new Set(['system.stop','system.configure','agent.configure','agent.environment','agent.environment.configure','input.submit','draft.add','draft.remove','draft.update','draft.commit','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.delete','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.import','branch.merge','branch.sync','branch.catchup','branch.archive']);
 /** 拆解队列与计划审批由 agent 写入；用户只能查看（lush spec list / lush intents），批不批走 plan.approve|reject。 */
 export const AGENT_ONLY = new Set(['spec.add','spec.drop','plan.propose','progress.plan','progress.complete']);
 /**

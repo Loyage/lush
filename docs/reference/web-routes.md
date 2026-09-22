@@ -8,7 +8,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。无 `--p
 - `GET /api/launcher`：返回 `mode`、当前项目、上次项目与恢复错误；全局模式会在首次读取时恢复缓存并自动启动/连接 daemon。
 - `POST /api/launcher/select`：仅全局模式可用，JSON `{project}` 必须是现存目录的绝对路径；切换成功后更新全局 `launcher.json`。
 - `GET /api/docs`、`GET /api/docs/<id>`：「文档」视图的目录与 Markdown 正文，读的是随这份代码发布的 `docs/**/*.md` 与 `README.md`（`src/ui/web/docs.js`），与当前项目目录无关。`GET /api/docs/search-index` 只在用户第一次搜索时返回标题、小节、正文、普通代码与低权重 Mermaid 字段，匹配和排序在浏览器完成。id 由相对路径推出，只按已扫出的表命中，请求里的路径片段不进文件系统；流程图由浏览器按需加载本地 Mermaid 渲染，未命中返回 404。
-- `POST /api/action`：JSON `{method, params}`，只允许项目 Agent 配置（`agent.configure`）、运行设置（`system.configure`）、用户输入、任务维护、Review Candidate 验收动作、`branch.merge/sync/archive` 和 notice / plan 用户动作。
+- `POST /api/action`：JSON `{method, params}`，只允许项目 Agent 配置（`agent.configure`）、Agent 环境文件写入（`agent.environment.configure`）、运行设置（`system.configure`）、用户输入、任务维护、Review Candidate 验收动作、`branch.merge/sync/archive` 和 notice / plan 用户动作。
 
 上面那份动作白名单就是代码里的 `MUTATIONS`。读取路由：
 
@@ -20,6 +20,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。无 `--p
 | `GET /api/graph` | 分支节点、fork 连线实时状态与任务关系 |
 | `GET /api/agent/models?agent=pi|codex` | 按需读取所选本机 CLI 当前可用模型目录；失败时带预设与 warning 回退 |
 | `GET /api/agent/resources` | 不执行资源代码地读取当前用户和项目已安装的 Pi 扩展、Skills 与 package 资源，供 Agent profile 多选 |
+| `GET /api/agent/environment?target=common\|ROLE` | 按需读取公共或单角色 env 文件，包含明文值；底层 `agent.environment` 为用户专属，公网模式必须先登录，页面默认遮罩 |
 | `GET /api/task/ID` | `task.inspect` |
 | `GET /api/task/ID/history?after=N` | `task.history` |
 | `GET /api/task/ID/diff` | `task.diff` |
