@@ -57,6 +57,13 @@
 - 展示 HTML 写在 `<home>/showcase/<task>/report.html`，复用认证后的 `/api/task/<id>/report`，使用 sandbox CSP。`task.inspect.showcase` 给出冻结上下文、报告与托管预览状态。完成不等于检验通过、不批准合并；现有 verifier / Candidate API 与历史报告兼容保留，Web 的手动验收创建入口改为展示。
 - 预览由 daemon 托管：运行于展示 worktree，动态分配本机端口，argv 中 `{port}` 替换，环境 `HOST=127.0.0.1` / `PORT`，不传 agent token；agent 须显式配置应用监听本机。完成后保留，失败/取消/用户停止/daemon 退出时停止进程组。守护子进程观察父进程 stdin 关闭以处理 daemon 崩溃；重启不自动重放。运行预览期间禁止回收 worktree。入口仅面向同机浏览器，不反向代理不可信应用。
 
+## 统计面板接缝
+
+- 新增用户只读 RPC `system.usage(start?,end?,interval?)` 与 `GET /api/usage`；时间为带时区 ISO，范围 `[start,end)`，省略边界分别表示历史起点 / 本次查询时间。interval 为 `auto|hour|day|month`，柱按 UTC 日历分段，显式粒度最多 1500 段，超限要求放宽粒度。
+- `core/usage-statistics.js` 的 `readUsageStatistics(config,options)` 异步流式读取项目 sessions 的全部 Lush JSONL，独立于任务详情的 8 MiB 窗口；只缓存精简用量，不改写历史文件或 SQLite。返回总量、时间段、provider/model 分组与缺失数据说明；缺价与真实零价分开，全部金额为会话记录的预计 USD。
+- `project/transcript.js` 暴露 `usageStatistics(options)`；`agent/provider.js` 为后续 Codex `turn.completed` 追加 Pi 兼容的 token 用量记录（费用未知），旧 Codex thread 文件只用于提示历史覆盖缺失。
+- Web `render-statistics.js` 提供 `openStatistics()` / `renderStatistics(data)`，`#statistics` 与左栏入口共享；面板按日间／日内双视图选择日期或小时范围，`statistics-range.js` 统一将 UTC 日历选择转换为 API 半开时间段；快捷按钮立即查询，两种视图独立保留条件，不进入首页轮询。
+
 ## 分区总览
 
 | 分区 | 入口 | 细粒度模块 | 独立可并行 |

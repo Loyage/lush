@@ -17,6 +17,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。无 `--p
 | `GET /api/launcher` | 当前/上次项目与启动器模式 |
 | `POST /api/launcher/select` | 校验绝对目录、启动/连接项目 daemon、更新最后项目缓存；不进入 `MUTATIONS` 通用 RPC 白名单 |
 | `GET /api/snapshot` | status + input.list + draft.list + notice.list + spec.list + candidate.list + ladder + timeline + 分页 task.list |
+| `GET /api/usage?start=...&end=...&interval=auto` | 用户专属 `system.usage`，当前项目的 token、预计 USD、时间柱状图与模型分组；详见[统计口径](statistics.md) |
 | `GET /api/graph` | 分支节点、fork 连线实时状态与任务关系 |
 | `GET /api/agent/models?agent=pi|codex` | 按需读取所选本机 CLI 当前可用模型目录；失败时带预设与 warning 回退 |
 | `GET /api/agent/resources` | 不执行资源代码地读取当前用户和项目已安装的 Pi 扩展、Skills 与 package 资源，供 Agent profile 多选 |

@@ -3,8 +3,8 @@
  *
  * A task's agent process (thinking, tool calls, tool output) is written by pi as
  * JSONL under `<home>/sessions`, never into SQLite: the daemon only stores the
- * final stdout as `tasks.result`. This module is the only reader of those files
- * and it never writes, moves or deletes them — the session file stays the
+ * final stdout as `tasks.result`. This module projects task details; usage-statistics.js
+ * separately streams project-wide totals. Neither writes, moves or deletes them — the session file stays the
  * agent's own record, and the task's `result` stays the review artifact.
  */
 import fs from 'node:fs';

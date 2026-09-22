@@ -20,6 +20,7 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
 /** 切回通用内容画布（分支图 / 概览 / 任务 / 文档）。 */
 export function activateDetailView({ title = '项目', context = '工作空间', hint = '', root = false } = {}) {
   ui.indexOpen = null;
+  ui.statisticsOpen = false;
   const detail = node('detail'); if (detail) detail.hidden = false;
   const resources = node('resource-panels'); if (resources) resources.hidden = true;
   for (const section of SIDEBAR_SECTIONS) {
@@ -34,6 +35,7 @@ export function openResource(id, { push = true } = {}) {
   const meta = RESOURCE_META.get(id);
   if (!meta) return false;
   ui.indexOpen = id;
+  ui.statisticsOpen = false;
   ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailTask = null;
   ui.graphOpen = false; ui.graphRenderKey = null; ui.docsOpen = false; ui.settingsOpen = false;
   const detail = node('detail'); if (detail) detail.hidden = true;

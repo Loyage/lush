@@ -23,11 +23,14 @@
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `app.js` | 唯一入口：先经 `project-picker.js` 确认项目，再装配左栏顶部身份区按钮（品牌回概览 / 切换项目 / 移动端导航 / 右侧返回）、`#graph` / `#settings` / 四个信息页 / 任务 / 文档的 hash 路由与两个定时器；定时器按「轮询频率」偏好重建 | `boot()` |
+| `app.js` | 唯一入口：先经 `project-picker.js` 确认项目，再装配左栏顶部身份区按钮（品牌回概览 / 切换项目 / 移动端导航 / 右侧返回）、`#graph` / `#settings` / `#statistics` / 四个信息页 / 任务 / 文档的 hash 路由与两个定时器；定时器按「轮询频率」偏好重建 | `boot()` |
 | `project-picker.js` | 无项目启动门：读取 `/api/launcher`，首次要求绝对项目路径，有缓存则直接进入；在全局模式显示「切换项目」，Electron 环境可调用 preload 暴露的原生目录选择器；项目未选定前不启动快照轮询 | `ensureProject()`、`openProjectPicker()`、`closeProjectPicker()` |
 | `appearance.js` | head 中初始化深浅主题，装配左栏顶部的主题切换按钮；偏好经 prefs.js 读写（`lush.theme`），`system` 跟随系统、显式值覆盖系统，存储不可用时保留会话内选择 | `systemThemeMedia()`、`resolveTheme()`、`effectiveTheme()`、`applyTheme()`、`createAppearance()`、`initAppearance()`、`refreshTheme()` |
 | `prefs.js` | 本地偏好中心：键名 / 默认值 / 解析与序列化、读写与变更通知都在这一份（`markdown` / `theme` / `sidebarSort` / `collapsed` / `filters` / `reduceMotion` / `polling` / `toastDuration`）；坏数据回落默认值，存储不可用不抛异常；老键（`lush.treeSort`、`lush.theme`、`lush.markdown`）继续生效；`resetPrefs()` 删除全部受管键（含历史键）并逐项通知回默认值 | `PREF_DEFS`、`PREF_NAMES`、`MARKDOWN_KEY`、`THEME_KEY`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`REDUCED_MOTION_KEY`、`POLLING_KEY`、`TOAST_DURATION_KEY`、`THEME_VALUES`、`SORT_IDS`、`POLLING_MODES`、`TOAST_MODES`、`pollingIntervals()`、`toastDurations()`、`readPref`、`writePref`、`setPref`、`onPrefChange`、`resetPrefs`、`prefsSnapshot`、`storageAvailable` |
 | `render-settings.js` | 设置视图，分 Agent / 界面 / 系统三个页签：打开设置时才读取 `/api/agent/config` 完整配置；Agent 页编辑项目默认与七类角色覆盖（agent / model / thinking / 默认 prompt / 追加 prompt / Pi 扩展与 Skills），可按需读 `/api/agent/models` 展示本机 CLI 当前模型目录、读 `/api/agent/resources` 多选已安装资源，经 `agent.configure` 写入项目；同页的环境变量键值表按需读取公共/角色 env（值默认 password 遮罩、逐项可查看），支持新增/删除/保存，拒绝非法、重复与 `LUSH_*` 名称，经 `agent.environment.configure` 写回；默认 prompt 正常显示内置全文并可一键恢复，替换内置 prompt 前显示风险警告并二次确认；界面页管理浏览器本地偏好与恢复默认；系统页展示 daemon 配置与路径，其中并发额度（执行 / 控制通道）是可编辑表单：显示生效值 / 环境默认值 / 来源 / 设置文件，保存 / 恢复环境默认走 `system.configure`，越界或后端报错就地提示，其余参数只读。打开期间轮询不用概览覆盖 | `openSettings()`、`renderSettings()` |
+| `statistics-range.js` | 日间／日内独立筛选的默认值、UTC 日历快捷范围、含首尾日期到半开 API 时间段的转换与小时校验 | `statisticsDefaults()`、`statisticsToday(now?)`、`statisticsDates(filters,now?)`、`statisticsQuery(filters,now?)` |
+| `render-statistics.js` | `#statistics` 的日间（日历／7 天／30 天／本月／全部）与日内（今天／昨天／日历＋小时区间）双视图及独立筛选、累计 token / 预计 USD、UTC SVG 柱状图（全高时段命中区、即时鼠标／键盘数值浮层，以 SVG 属性定位且约束在滚动视口内）、provider/model 费用表、缺失数据说明与手动刷新；迟到响应不能覆盖其他视图 | `openStatistics()`、`renderStatistics(data)` |
+| `styles-statistics.css` | 统计面板的响应式卡片、表格与 SVG 主题样式；不使用内联 style，不放宽 CSP | CSS |
 | `styles.css` | 双主题设计 token、应用布局（无应用顶栏：品牌 / 项目名 / 并发槽 / 连接状态 / 主题切换 / 退出登录在左栏顶部的身份区，内容区占满高度）、组件、响应式与 reduced-motion 动效（含设置页与强制减少动效 `[data-reduced-motion="true"]`） | CSS |
 | `state.js` | 共享可变状态（一个对象，新字段不必改别的文件就能加）；`ui.indexOpen` 记录右侧信息页，`ui.lastGraph` 保存最近一次 `graph.get` 读模型，`ui.settingsOpen` 标记设置视图；折叠 / 筛选 / 排序偏好经 prefs.js 读写 | `ui`、`transcriptOpen`、`transcriptCache`、`mergeSelection`、`resetUiState()`、`readSidebarSortPref`、`readCollapsedPref`、`readFiltersPref`、`saveCollapsedPref`、`saveFiltersPref`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`SORT_IDS` |
 | `navigate.js` | 导航间接层（断循环依赖）；注册返回带身份保护的 teardown，DOM 测试用完必须恢复，避免跨文件污染 | `registerNavigation({refresh, detail, overview, graph}) -> restore()`、`refresh()`、`detail(taskId)`、`overview()`、`graph()` |
@@ -67,7 +70,7 @@
 | `docs-search.js` | 浏览器全文搜索纯逻辑：NFKC / 小写归一化，中英文子串、多词 AND、字段加权、摘要与稳定排序；Mermaid 仅低权重参与 | `normalizeDocsQuery(value)`、`searchDocs(index, query, limit)` |
 | `render-docs.js` | 「文档」视图的目录、懒加载内容搜索、Markdown 正文、Mermaid 启动与兜底 | `renderDocsIndex(docs, onOpen, options)`、`renderDoc(doc, resolveLink, onOpen)`、`renderDocError(id, message, onOpen)` |
 | `mermaid-docs.js` | 只在文档存在 Mermaid 容器时加载本地固定版本，以 strict 模式逐图校验，并通过显式唯一 id 渲染成隔离的 blob SVG 图片（避免节点/箭头串图，也不用为 Mermaid 放宽主页面的 inline-style CSP）；换文档时回收 blob URL，切换深浅主题时从保留源码串行重绘，超长、超量、加载或语法失败均回退为源码。Agent 输出不走这条路径 | `renderMermaidDiagrams(root)`、`refreshMermaidDiagrams(root)`、`clearMermaidDiagrams(root)` |
-| `refresh.js` | 轮询有界 `/api/overview`（revision 未变时不重画；旧 host 回退完整 snapshot）、概览、热任务增量刷新、筛选重画；右侧信息页 / 文档 / 设置打开时不让概览覆盖；「项目概览」与「分支图」共用同一份 `graph.get`（`ui.lastGraph`）与同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s），概览先用快照画、后台取图后就地重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
+| `refresh.js` | 轮询有界 `/api/overview`（revision 未变时不重画；旧 host 回退完整 snapshot）、概览、热任务增量刷新、筛选重画；右侧信息页 / 文档 / 设置 / 统计打开时不让概览覆盖；「项目概览」与「分支图」共用同一份 `graph.get`（`ui.lastGraph`）与同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s），概览先用快照画、后台取图后就地重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
 
 其它纯逻辑模块：`markdown.js`、`tree-order.js`、`live.js`、`sidebar.js`；`merge-select.js` 是交付队列的候选、冻结与 code-only 顺序预览接缝，由 `render-ladder.js` 使用。`live.js` 的实时刷新间隔不再是写死常量：`liveInterval()` 读「轮询频率」偏好，标准档等于改造前的 3000ms。
 

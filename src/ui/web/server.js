@@ -260,6 +260,9 @@ export function startWeb(config, port = 4318, options = {}) {
         const binding = projectApi ? await projectHost.require() : null;
         const client = binding?.client;
         if (request.method === 'GET') {
+          if (url.pathname === '/api/usage') return json(await client.request('system.usage', {
+            start: url.searchParams.get('start'), end: url.searchParams.get('end'), interval: url.searchParams.get('interval') ?? 'auto',
+          }));
           if (url.pathname === '/api/snapshot') return json(await client.snapshot());
           if (url.pathname === '/api/overview') return json(await client.overview(url.searchParams.get('revision')));
           if (url.pathname === '/api/tasks') return json(await client.request('task.page', {

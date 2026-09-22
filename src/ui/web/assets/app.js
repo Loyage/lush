@@ -9,6 +9,7 @@ import { onPrefChange, pollingIntervals, readPref, setPref } from './prefs.js';
 import { liveRefresh, refresh, applySort, applyFilters } from './refresh.js';
 import { openGraph } from './render-graph.js';
 import { openSettings } from './render-settings.js';
+import { openStatistics } from './render-statistics.js';
 import { initSidebar } from './sidebar-init.js';
 import { openResource, paintCollapsed } from './sidebar-ui.js';
 import { resetUiState, ui } from './state.js';
@@ -56,6 +57,7 @@ function openDocsView(id = null) { return openDocs(id).catch(error => { show(err
 // 每个分支都把 promise 返回出去：浏览器不看返回值，但测试能 await 到「画完」为止。
 function onHashChange() {
   const report = error => { show(error.message, 'error'); };
+  if (location.hash === '#statistics') return ui.statisticsOpen ? undefined : openStatistics();
   if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
   if (location.hash === '#graph') return ui.graphOpen ? undefined : openGraphView();
   const resource = /^#(notices|tasks|intents|specs)$/.exec(location.hash)?.[1];
@@ -102,6 +104,7 @@ export async function boot() {
   $('home').onclick = goOverview;
   $('overview-open').onclick = goOverview;
   $('settings-open').onclick = () => openSettings();
+  $('statistics-open').onclick = () => openStatistics();
   $('sidebar-toggle').onclick = () => {
     const open = $('sidebar').classList.toggle('mobile-open');
     $('sidebar-toggle').setAttribute('aria-expanded', String(open));
@@ -117,7 +120,8 @@ export async function boot() {
   initSidebar();
   await refresh();
   const resource = /^#(notices|tasks|intents|specs)$/.exec(location.hash)?.[1];
-  if (location.hash === '#settings') openSettings();
+  if (location.hash === '#statistics') await openStatistics();
+  else if (location.hash === '#settings') openSettings();
   else if (location.hash === '#graph') await openGraphView();
   else if (resource) openResource(resource, { push: false });
   else {

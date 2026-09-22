@@ -1,5 +1,6 @@
 /** system.* */
 export const handlers = {
+  'system.usage'(p, params) { return p.usageStatistics(params); },
   'system.status'(p, params, actor) { return { ...p.status(), ...this.identity, pid: process.pid }; },
   // Polling summary has its own indexed/persistent-cursor path and never opens the full Agent profile.
   'system.summary'(p, params, actor) { return { ...p.summary(), ...this.identity, pid: process.pid }; },
