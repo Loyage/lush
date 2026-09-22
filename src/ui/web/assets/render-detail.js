@@ -8,6 +8,7 @@ import { detail, overview } from './navigate.js';
 import { renderAgent } from './render-agent.js';
 import { renderDiff } from './render-diff.js';
 import { renderHistory } from './render-history.js';
+import { renderTaskProgress } from './render-progress.js';
 import { noticePanel } from './render-notices.js';
 import { renderResolutions } from './render-resolutions.js';
 import { specItem } from './render-specs.js';
@@ -154,6 +155,8 @@ export function renderDetail(task, history, diff, usage) {
     goal.append(agentText(task.goal, { className: 'goal-text', plain: 'div' }));
     panel.append(goal);
   }
+  const progress = renderTaskProgress(task.progress);
+  if (progress) panel.append(progress);
   if (task.result) {
     const result = block('结果'); result.classList.add('result-panel'); result.append(agentText(task.result, { plain: 'pre' }));
     referenceable(result, { kind: 'result', target: { task_id: task.id, section: 'result' }, label: `任务结果 #${task.id}`,

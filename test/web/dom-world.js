@@ -32,7 +32,9 @@ export function makeWorld() {
       nodes: [
         { kind: 'task', id: 1, role: 'worker', name: 'one', goal: '正在改点什么', status: 'running', integration: 'none',
           branch: 'lush/demo/1-one', workspace: '/tmp/wt/1', workspace_state: 'missing', branch_state: 'present',
-          base_commit: 'aaa', head_commit: 'bbb', target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
+          base_commit: 'aaa', head_commit: 'bbb', target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false,
+          progress: { version: 1, updated_at: iso(NOW - 500), completed: 1, total: 3,
+            current: { key: 'implement', label: '实现功能', started_at: iso(NOW - 65000) } } },
         { kind: 'task', id: 2, role: 'worker', name: 'two', goal: '合并我', status: 'completed', integration: 'pending',
           branch: 'lush/demo/2-two', workspace: '/tmp/wt/2', workspace_state: 'present', branch_state: 'present',
           base_commit: 'ccc', head_commit: 'ddd', target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
@@ -111,7 +113,12 @@ export function makeWorld() {
     ],
   };
   const task1 = { id: 1, parent_id: null, input_id: 1, role: 'worker', goal: '正在改点什么', status: 'running', integration: 'none',
-    updated_at: iso(NOW - 1000), agent_wakes: 2, agent_last_seen_at: iso(NOW - 1000), verifies_task_id: null, resolves_task_id: null };
+    updated_at: iso(NOW - 1000), agent_wakes: 2, agent_last_seen_at: iso(NOW - 1000), verifies_task_id: null, resolves_task_id: null,
+    progress: { version: 1, updated_at: iso(NOW - 500), items: [
+      { key: 'inspect', label: '确认现状', status: 'completed', started_at: iso(NOW - 9000), completed_at: iso(NOW - 2000), duration_ms: 7000 },
+      { key: 'implement', label: '实现功能', status: 'pending', started_at: iso(NOW - 65000), completed_at: null, duration_ms: null },
+      { key: 'test', label: '运行测试', status: 'pending', started_at: null, completed_at: null, duration_ms: null },
+    ] } };
   const task2 = { id: 2, parent_id: null, input_id: 1, role: 'worker', goal: '合并我', status: 'completed', integration: 'pending',
     updated_at: iso(NOW - 2000), agent_wakes: 1, agent_last_seen_at: iso(NOW - 2000), verifies_task_id: null, resolves_task_id: null };
   const task3 = { id: 3, parent_id: null, input_id: 1, role: 'worker', goal: '另一个待合的', status: 'completed', integration: 'review',

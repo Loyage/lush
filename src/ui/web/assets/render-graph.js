@@ -26,6 +26,7 @@ import { detail, overview } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { saveGraphPrefs, ui } from './state.js';
 import { referenceable } from './context-references.js';
+import { renderGraphProgress } from './render-progress.js';
 
 /** 分支状态映射：状态 -> { label, className }；已合进父分支是常态，不再单独出一个「已合并」标签。
  *  没有 archived：归档的分支根本不会被画进分支树（看 graphLayout 的 hiddenBranches）。 */
@@ -182,6 +183,8 @@ function taskRow(node, owningBranch = null) {
   if (node.aheadBehind) meta.append(el('span', node.aheadBehind, 'meta'));
   for (const mark of node.marks || []) meta.append(el('span', mark.text, `chip ${mark.className}`.trim()));
   row.append(meta);
+  const progress = renderGraphProgress(node.progress, { running: node.status === 'running' });
+  if (progress) row.append(progress);
   // 这件事在等你拍板：整行带琥珀强调（与未合并 / 工作中的强调可同时存在），决策区把正文与
   // 处理按钮直接摊在这一行里——用户不用先去左侧「待定事项」或别的页面。没有 notice 的任务行一个字段都不加。
   if (node.notice) {

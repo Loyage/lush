@@ -8,6 +8,7 @@ import * as system from './commands/system.js';
 import * as intent from './commands/intent.js';
 import * as draft from './commands/draft.js';
 import * as task from './commands/task.js';
+import * as progress from './commands/progress.js';
 import * as spec from './commands/spec.js';
 import * as plan from './commands/plan.js';
 import * as notice from './commands/notice.js';
@@ -27,6 +28,7 @@ for (const [module, names] of [
   [intent, ['say', 'intent', 'input']],
   [draft, ['draft']],
   [task, ['task']],
+  [progress, ['progress']],
   [spec, ['spec']],
   [plan, ['plan']],
   [notice, ['notice']],

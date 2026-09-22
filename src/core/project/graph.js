@@ -53,7 +53,7 @@ function summarize(text) {
  * merged / ready / empty）。归档过的分支另带 `archived` / `archived_at` / `deleted`，状态固定为
  * `archived`（不被汇总口径改写），它名下的任务节点也标 `archived:true`，仍然留在图上。
  * 这些都只是读 store 已有事实，不写库、不改 git。每个 `kind:"task"` 节点（含意图层的 planner / scheduler）
- * 另带「待你决断」的 notice：`notice`（open 且 kind 为 question / plan 的最新一条，没有则 null）与
+ * 带解析后的 task `progress`，并另带「待你决断」的 notice：`notice`（open 且 kind 为 question / plan 的最新一条，没有则 null）与
  * `notice_count`（这类 open notice 的总数）。info 提醒（status='sent'）与 answered / dismissed 都不算，
  * 一次 SELECT 取回后在内存里按 task_id 归并。
  * fork 边在 `status`（fast_forward / diverged / integrated / missing / unknown）与 ahead/behind 之外
@@ -89,7 +89,7 @@ export default {
 
       const rows = this.store.all(`SELECT id, role, name, goal, status, integration,
         ${taskBranchSql('tasks')} AS branch, workspace,
-        base_commit, head_commit, target_branch, baseline_workspace, resolves_task_id, verifies_task_id
+        base_commit, head_commit, target_branch, baseline_workspace, resolves_task_id, verifies_task_id, progress_plan
         FROM tasks WHERE role IN (${TASK_ROLE_SQL}) ORDER BY id DESC`);
       // 没有可归属分支也没有 worktree（含已完整回收）的任务不进图。verifier 的 branch 是上面只读派生的
       // 服务对象分支，所以 Candidate 验收即使清掉 baseline worktree 后也仍留在正确的输入分支下。
@@ -129,6 +129,15 @@ export default {
         if (entry) { entry.notice = notice; entry.count += 1; } else pendingNotices.set(row.task_id, { notice, count: 1 });
       }
       const pendingFor = taskId => pendingNotices.get(taskId) ?? { notice: null, count: 0 };
+      // 分支诊断只需要横条所需的有界摘要，不把每个 task 最多 32 条的完整计划塞进 1 MiB graph 帧。
+      const progressFor = row => {
+        const progress = this.progressView(row).progress;
+        if (!progress) return null;
+        const completed = progress.items.filter(item => item.status === 'completed').length;
+        const current = progress.items.find(item => item.status !== 'completed') || null;
+        return { version: 1, completed, total: progress.items.length,
+          current: current ? { key: current.key, label: current.label, started_at: current.started_at } : null, updated_at: progress.updated_at };
+      };
 
       // 分支节点的「为什么 / 是什么 / 现在怎样」全部来自 store 已有事实，不额外写库：
       // inputs.anchor_branch 回答「因为哪条输入」，tasks.branch 回答「哪个任务」，
@@ -149,7 +158,7 @@ export default {
         if (!spec) return null;
         return anchorByInput.get(spec.input_id) ?? anchorByInput.get(plannerInput.get(spec.planner_task_id)) ?? null;
       };
-      const intentRows = this.store.all(`SELECT id, role, name, goal, status, integration, input_id
+      const intentRows = this.store.all(`SELECT id, role, name, goal, status, integration, input_id, progress_plan
         FROM tasks WHERE role IN ('planner','scheduler') ORDER BY id DESC`)
         .map(row => ({ ...row, branch: (row.role === 'planner' ? anchorByInput.get(row.input_id) : schedulerAnchor(row.id)) ?? null }));
       const taskById = new Map();
@@ -296,6 +305,7 @@ export default {
           current: Boolean(row.branch) && row.branch === currentBranch,
           // 「待你决断」的最新一条 notice 与总数（口径见上面 pendingNotices）。
           notice: pending.notice, notice_count: pending.count,
+          progress: progressFor(row),
         };
         nodes.push(node);
       }
@@ -314,6 +324,7 @@ export default {
           target_branch: null, ahead: null, behind: null, merged: null,
           current: false,
           notice: pending.notice, notice_count: pending.count,
+          progress: progressFor(row),
         });
       }
       if (nodes.length > GRAPH_NODE_LIMIT) { truncated = true; nodes.length = GRAPH_NODE_LIMIT; }

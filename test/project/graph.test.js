@@ -11,6 +11,10 @@ test('graph reports code stacking, ahead/behind and merge state', async () => {
   const f = await setup();
   try {
     const task = f.task;
+    f.project.reportProgressPlan(task.id, [
+      { key: 'inspect', label: '确认现状' }, { key: 'implement', label: '实现功能' }, { key: 'test', label: '运行测试' },
+    ]);
+    f.project.completeProgressStep(task.id, 'inspect');
     await change(f, task, 'A\n');
     const child = f.project.spawn(task.parent_id, 'continue on top', 'worker', [{ id: task.id, kind: 'code' }], 'stacked');
     await change(f, child, 'B\n');
@@ -23,6 +27,9 @@ test('graph reports code stacking, ahead/behind and merge state', async () => {
     const upstream = nodes.get(task.id);
     const downstream = nodes.get(child.id);
     expect(upstream.kind).toBe('task');
+    expect(upstream.progress).toMatchObject({ completed: 1, total: 3, current: { key: 'implement', label: '实现功能' } });
+    expect(upstream.progress.current.started_at).toBeTruthy();
+    expect(upstream.progress_plan).toBeUndefined();
     expect(upstream.branch_state).toBe('present');
     expect(upstream.workspace_state).toBe('present');
     expect(upstream.ahead).toBe(1); expect(upstream.behind).toBe(0); expect(upstream.merged).toBe(false);

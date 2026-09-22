@@ -18,6 +18,7 @@
 | `cli/commands/intent.js` | `say` / `intent` / `input` | `run` |
 | `cli/commands/draft.js` | `draft` | `run` |
 | `cli/commands/task.js` | `task` | `run` |
+| `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 agent task） | `run` |
 | `cli/commands/spec.js` | `spec` | `run` |
 | `cli/commands/plan.js` | `plan` | `run` |
 | `cli/commands/notice.js` | `notice` | `run` |
@@ -37,7 +38,7 @@
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
 | `rpc/handlers/system.js` | `system.*`、`graph.get`、`agent.config`、`agent.models`、`agent.resources`、`agent.configure` | `handlers` |
 | `rpc/handlers/input.js` | `input.*`、`draft.*` | `handlers` |
-| `rpc/handlers/task.js` | `task.*` | `handlers` |
+| `rpc/handlers/task.js` | `task.*`、agent-only 的 `progress.plan` / `progress.complete` | `handlers` |
 | `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |
 | `rpc/handlers/notice.js` | `notice.*` | `handlers` |
 | `rpc/handlers/branch.js` | `branch.tree/show/import/merge/sync/archive/summary`（`branch.archive` 参数 `branch` / `discard`，在 `USER_ONLY`；`branch.summary` 参数 `branch` / `summary`，agent 可写、省略 branch 时写自己的分支，用户必须显式点名） | `handlers` |

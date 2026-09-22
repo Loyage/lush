@@ -43,6 +43,15 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     expect(css).toContain('.graph-branch.graph-running{position:relative}');
     expect(css).toMatch(/\.graph-branch\.graph-running::after\{[^}]*animation:graph-running-breathe 2\.4s/);
     expect(css).toContain('@keyframes graph-running-breathe{');
+    // task 计划在分支诊断里是一整条进度条；running 时有轨道扫光、填充流动与外框脉冲三层动效。
+    expect(css).toContain('.graph-task-progress{flex-basis:100%');
+    expect(css).toContain('.graph-task-progress.is-running .graph-task-progress-track::after{');
+    expect(css).toContain('@keyframes graph-progress-sweep{');
+    expect(css).toContain('@keyframes graph-progress-stripes{');
+    expect(css).toContain('@keyframes graph-progress-pulse{');
+    // 完成步骤与当前步骤的耗时使用明显不同的字形，不能只靠文案猜状态。
+    expect(css).toMatch(/\.is-complete-duration\{[^}]*font-family:Georgia/);
+    expect(css).toMatch(/\.is-running-duration\{[^}]*font-family:ui-monospace/);
     // 停下来的分支不得沾上动画；reduced-motion 的全局规则仍然把这些动画一并关掉。
     expect(css).not.toMatch(/\.graph-branch\.graph-idle\{[^}]*animation/);
     expect(css).toMatch(/@media\(prefers-reduced-motion:reduce\)\{\*,?\*::before,\*::after\{animation:none!important/);

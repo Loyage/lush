@@ -41,6 +41,8 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         resolves_task_id INTEGER REFERENCES tasks(id),
         -- candidate verifier: review_candidate_id pins this run to the exact integration commit the user reviews.
         review_candidate_id INTEGER,
+        -- Agent 汇报的执行里程碑；versioned JSON，属于 task 附属元数据而非新实体。
+        progress_plan TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_id);

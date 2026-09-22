@@ -14,6 +14,7 @@ import { renderDrafts } from './render-drafts.js';
 import { renderIntents } from './render-intents.js';
 import { renderNotices } from './render-notices.js';
 import { renderOverview } from './render-overview.js';
+import { refreshProgressDurations } from './render-progress.js';
 import { renderSpecs } from './render-specs.js';
 import { appendTranscriptSteps } from './render-transcript.js';
 import { renderTree } from './render-tree.js';
@@ -110,6 +111,7 @@ export async function refresh() {
 
 /* ---------- 热任务的实时刷新：页面自己变新，不用手点 ---------- */
 export async function liveRefresh() {
+  refreshProgressDurations();
   if (ui.busy || ui.liveBusy) return;
   const task = liveTarget(ui.lastSnapshot?.tasks || [], ui.selected);
   if (!task) return;

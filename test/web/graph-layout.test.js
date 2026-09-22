@@ -356,6 +356,17 @@ test('graphRenderKey 覆盖 incoming status / 分支汇总 status / 任务 statu
   expect(graphRenderKey(build({ taskStatus: 'awaiting' }))).not.toBe(graphRenderKey(build({ taskStatus: 'queued' })));
 });
 
+test('进度变化会触发分支诊断重拉与重画', () => {
+  const progress = status => ({ version: 1, items: [
+    { key: 'inspect', label: '确认现状', status }, { key: 'test', label: '运行测试', status: 'pending' },
+  ] });
+  const graph = status => ({ nodes: [branch('main', { current: true }), task(1, 'main', { status: 'running', progress: progress(status) })], edges: [] });
+  expect(graphRenderKey(graph('pending'))).not.toBe(graphRenderKey(graph('completed')));
+
+  const snapshot = status => ({ tasks: [task(1, 'main', { status: 'running', progress: progress(status) })], ladder: {}, notices: [] });
+  expect(graphFingerprint(snapshot('pending'))).not.toBe(graphFingerprint(snapshot('completed')));
+});
+
 // 待决 notice 直接画在任务行里（见 render-graph 的 decisionRow），所以它一变这张图就必须重画：
 // 新 notice 出现要长出决策区，答复 / 忽略后要收回去，换成另一条要换文案与动作。
 test('graphRenderKey 把任务节点上的待决 notice（id / kind / 总数）纳入指纹', () => {

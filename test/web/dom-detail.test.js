@@ -73,6 +73,35 @@ test('详情头部显示对应意图编号，能点开那条意图，input_id �
   expect(deepText(head())).not.toContain('意图 #');
 });
 
+test('运行中 task 在任务树和详情显示计划完成度与当前步骤', async () => {
+  await dom.intervalFor(1500)();
+  const task = dom.node('tasks').querySelector('[data-id="1"]');
+  const compact = task.querySelector('.task-progress-compact');
+  expect(deepText(compact)).toContain('1/3');
+  expect(deepText(compact)).toContain('当前：实现功能');
+
+  dom.location.hash = '#task-1';
+  await dom.fire('hashchange');
+  const detail = dom.node('detail');
+  await until(() => findByText(detail, '任务计划'), 2000);
+  const panel = detail.querySelector('.task-progress-panel');
+  expect(deepText(panel)).toContain('1/3');
+  expect(deepText(panel)).toContain('确认现状');
+  expect(deepText(panel)).toContain('实现功能');
+  expect(panel.querySelector('.is-complete')).toBeTruthy();
+  expect(panel.querySelector('.is-current')).toBeTruthy();
+  const completedDuration = panel.querySelector('.is-complete-duration');
+  const runningDuration = panel.querySelector('.is-running-duration');
+  expect(completedDuration.textContent).toContain('用时 7 秒');
+  expect(runningDuration.textContent).toContain('已执行 1 分');
+  expect(completedDuration.className).not.toBe(runningDuration.className);
+  // 不重画整块计划，live tick 也会推进正在执行步骤的计时文字。
+  runningDuration.dataset.progressStartedAt = new Date(Date.now() - 125000).toISOString();
+  const { refreshProgressDurations } = await import('../../src/ui/web/assets/render-progress.js');
+  refreshProgressDurations(panel);
+  expect(runningDuration.textContent).toContain('已执行 2 分');
+});
+
 test('Agent 的模型与用量直接可见：没有折叠开关，也没有可点的「模型、用量与会话信息」标题', async () => {
   const detail = dom.node('detail');
   dom.location.hash = '#task-1';
