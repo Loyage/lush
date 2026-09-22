@@ -4,9 +4,27 @@ import { tokenHash } from './internal.js';
 
 /** 调度、invocation 生命周期、凭证。 */
 export default {
+  questionPending(taskId) {
+    return Boolean(this.store.get("SELECT id FROM notices WHERE task_id=? AND kind='questionnaire' AND status='open'", taskId));
+  },
+
+  // Called inside the notice transaction. Only messages delivered to this invocation are consumed.
+  parkForQuestion(taskId, noticeId) {
+    const run = this.running.get(taskId);
+    const result = `等待用户回答待决问题 #${noticeId}。`;
+    if (run) {
+      run.parked = true;
+      for (const message of run.messages || []) this.store.run('UPDATE messages SET consumed=1 WHERE id=?', message.id);
+      this.store.event(taskId, 'invocation.completed', { result, suspended: true, notice_id: noticeId });
+    }
+    this.store.update(taskId, { status: 'awaiting', result });
+  },
+
   wake(taskId) {
     const task = this.store.task(taskId);
-    if (!TERMINAL.has(task.status) && !this.running.has(task.id)) this.store.update(task.id, { status: 'queued' });
+    if (!TERMINAL.has(task.status) && !this.running.has(task.id)) {
+      this.store.update(task.id, { status: this.questionPending(task.id) ? 'awaiting' : 'queued' });
+    }
     this.kick();
   },
 
@@ -27,6 +45,7 @@ export default {
     let executionRunning = this.running.size - controlRunning;
     for (const task of this.store.all("SELECT * FROM tasks WHERE status='queued' ORDER BY id")) {
       if (this.running.has(task.id)) continue;
+      if (this.questionPending(task.id)) { this.store.update(task.id, { status: 'awaiting' }); continue; }
       // A queued task whose dependencies are not settled stays queued; finish() re-kicks when they are.
       if ((dependencies.get(task.id) || []).some(edge => !TERMINAL.has(edge.status))) continue;
       const control = ['planner','scheduler'].includes(task.role);
@@ -56,7 +75,7 @@ export default {
     const task = this.store.agentByToken(tokenHash(token));
     const run = task ? this.running.get(task.id) : null;
     if (!run) throw new LushError('invalid or expired agent token');
-    check(!TERMINAL.has(task.status) && !run.controller.signal.aborted, 'agent task is no longer active');
+    check(!TERMINAL.has(task.status) && !run.parked && !run.controller.signal.aborted, 'agent task is no longer active');
     this.store.touchAgent(task.id);
     return task.id;
   },
@@ -81,6 +100,7 @@ export default {
       this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, message_ids: messages.map(message => message.id),
         agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null });
       timer = setTimeout(() => run.controller.abort(), this.config.timeout * 1000);
+      run.messages = messages;
       // 引用快照固定在 Input 上；每次 planner 唤醒都重新解析当前状态。
       const referencedContext = task.role === 'planner' && task.input_id !== null
         ? await this.resolveInputReferences(task.input_id) : undefined;
@@ -100,7 +120,7 @@ export default {
         },
       });
       clearTimeout(timer);
-      if (TERMINAL.has(this.store.task(taskId).status)) return;
+      if (TERMINAL.has(this.store.task(taskId).status) || run.parked) return;
       if (run.controller.signal.aborted) throw new Error('agent invocation timed out');
       check(typeof result === 'string' && Buffer.byteLength(result) <= 256000, 'agent result exceeds 256000 bytes');
       this.store.transaction(() => {
@@ -135,7 +155,7 @@ export default {
       if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {
         this.store.finishRun(run.recordId, run.controller.signal.aborted ? 'cancelled' : 'failed', { error: error.message });
       }
-      if (!TERMINAL.has(this.store.task(taskId).status)) this.cancel(taskId, error.message, 'failed');
+      if (!run.parked && !TERMINAL.has(this.store.task(taskId).status)) this.cancel(taskId, error.message, 'failed');
     } finally {
       clearTimeout(timer);
       if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {

@@ -81,6 +81,14 @@ lush daemon stop
 
 单条输入也可以用 `lush say '原话'` 立即提交，不等缓存。
 
+### 需要你拍板时：选择题与效果预览
+
+Agent 遇到架构、产品行为、UX、接口或需求歧义等关键取舍，会把相关决定合成结构化问卷，放入项目统一的「待定事项」，所有任务分支共用一个入口。发布后 runtime 主动停止该轮 agent，task 标为等待输入，不占执行槽；普通消息和子任务结果不能绕过这份未决问卷。用户提交答案后，通过收件箱唤醒原 task 的下一轮 agent。
+
+Web / Electron 中：**单选点一下即进入下一题 → 多选点选后继续 → 汇总全部选择 → 一次确认并继续任务**。每题支持自定义答案，提交前可返回修改；提交成功自动打开下一个待决问题，结果留在任务「决策记录」。可先查看 Markdown / 静态 HTML 方案预览；HTML 经白名单清洗，在无脚本、无网络、无宿主权限的 iframe 中显示。选择草稿在当前标签页保存，刷新再打开仍在；忽略不等于同意推荐项。
+
+调用方式、JSON 示例及安全边界见[待决问题](docs/reference/rpc/notices.md)。无需安装 pi ask 插件，不迁移已有数据库，旧文字 notice 与计划审批保持兼容。
+
 ### 两类输入：develop 与 explain
 
 每条输入有一个流程判定（`inputs.flow`），由处理它的根 planner 用 `lush input flow develop|explain` 记录：
@@ -257,7 +265,7 @@ daemon.log         daemon 日志
 
 socket 放在用户私有临时目录，名字由 canonical 项目路径决定，以避免长项目路径超过 Unix socket 限制。它只是通信端点；持久状态仍在项目内。`LUSH_HOME` 不是独立作用域：若保留该变量，必须恰好等于所选项目的 `.lush`，否则拒绝运行。
 
-任务状态：`queued → running → waiting / awaiting / completed / failed / cancelled`。等待收到新消息后重新排队。终态任务不会保留活动子任务。取消或停止会终止 agent 进程组；重启对未知副作用的运行中任务标记失败，不自动重放；未开始的排队任务、待用户答复和记录保留。重试失败子任务要求父任务仍活动，否则重试父任务或提交新输入。
+任务状态：`queued → running → waiting / awaiting / completed / failed / cancelled`。等待收到新消息后重新排队（开放的结构化问卷优先挡住唤醒，必须先回答或忽略）。终态任务不会保留活动子任务。取消或停止会终止 agent 进程组；重启对未知副作用的运行中任务标记失败，不自动重放；未开始的排队任务、待用户答复和记录保留。重试失败子任务要求父任务仍活动，否则重试父任务或提交新输入。
 
 角色有 planner / coordinator / worker / research / verifier / merger。planner 属于 control lane，只写结构化 Plan；没有 scheduler 角色（旧数据里的 `scheduler` 行仍可读）。verifier 有两条来源：用户点「检验」时的单 worker 对照（用 `tasks.verifies_task_id` 指向被检验的 worker），以及自动验收流程为 Review Candidate 创建的对照（用 `tasks.review_candidate_id`）。两者都是独立根任务，不是被检验任务的子任务（终态任务不能再挂活动子任务），父子不变的不变量不被破坏，界面上依旧挂在被检验对象下面。
 

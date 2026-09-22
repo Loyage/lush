@@ -7,6 +7,7 @@ import { Config } from '../../config.js';
 import { daemon } from '../../cli/daemon.js';
 import { canonicalProjectPath, readLauncherState, writeLauncherState } from '../launcher.js';
 import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
+import { previewResponse } from './notice-preview.js';
 import { check } from '../../core/types.js';
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
 const AUTH_FILE = 'web.json';
@@ -264,6 +265,15 @@ export function startWeb(config, port = 4318, options = {}) {
           if (url.pathname === '/api/agent/resources') return json(await client.request('agent.resources'));
           // 分支图跑 git，不进 1.5s 的 /api/snapshot：只有打开视图时才单独取一次。
           if (url.pathname === '/api/graph') return json(await client.request('graph.get'));
+          const preview = /^\/api\/task\/(\d+)\/notice\/(\d+)\/preview\/(\d+)\/(\d+)$/.exec(url.pathname);
+          if (preview) {
+            const task = await client.request('task.inspect', { id: Number(preview[1]) });
+            const notice = task.notices.find(row => row.id === Number(preview[2]) && row.kind === 'questionnaire');
+            check(notice, 'questionnaire not found');
+            const html = JSON.parse(notice.body).questions?.[Number(preview[3])]?.options?.[Number(preview[4])]?.previewHtml;
+            check(typeof html === 'string', 'HTML preview not found');
+            return previewResponse(html, headers);
+          }
           const report = /^\/api\/task\/(\d+)\/report$/.exec(url.pathname);
           if (report) {
             const task = await client.request('task.inspect', { id: Number(report[1]) });

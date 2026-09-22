@@ -16,7 +16,7 @@ export const PARAMS = {
   'branch.tree': [], 'branch.show': ['branch'], 'branch.import': [], 'branch.merge': ['branch'], 'branch.sync': ['branch'], 'branch.catchup': ['branch'],
   'branch.archive': ['branch','discard'], 'branch.summary': ['branch','summary'],
   'plan.propose': ['title','body'], 'plan.approve': ['id','answer'], 'plan.reject': ['id','reason'],
-  'notice.list': [], 'notice.post': ['task','title','body'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
+  'notice.list': [], 'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
 };
 export const USER_ONLY = new Set(['system.stop','system.configure','agent.configure','input.submit','draft.add','draft.remove','draft.update','draft.commit','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.delete','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.import','branch.merge','branch.sync','branch.catchup','branch.archive']);
 /** 拆解队列与计划审批由 agent 写入；用户只能查看（lush spec list / lush intents），批不批走 plan.approve|reject。 */

@@ -73,8 +73,10 @@ lush [--project PATH] [--json] <command>
   branch archive BRANCH [--discard] 归档分支：删除 worktree 与本地分支，保留任务与会话；--discard 才会丢弃未提交改动
   branch summary [BRANCH] '一句话' 写 / 更新分支的一句话摘要（分支图上的标题）；省略 BRANCH 时写自己的分支
   notice list                     待决问题与答复
-  notice post '问题' [--task ID] [--body '背景']
+  notice post '问题' [--task ID] [--body '背景'] [--questions-file FILE]
+      FILE 为 {questions:[...]}：结构化选择题，发布后停止本轮 agent，用户提交后唤醒。
   notice answer ID '答复'
+  notice answer ID --answers-file FILE  问卷用 {answers:[{selected:[0],custom:""}]}，按题目顺序一次提交
   notice dismiss ID
   web [PORT]                      无 --project 时启动全局项目选择器，并自动恢复上次项目、启动其 daemon
                                   带 --project 时绑定单个项目；.lush/web.json 可开启公网监听与登录认证

@@ -25,6 +25,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。无 `--p
 | `GET /api/task/ID/diff` | `task.diff` |
 | `GET /api/task/ID/transcript?after=N` | `task.transcript` |
 | `GET /api/task/ID/usage` | `task.usage` |
+| `GET /api/task/T/notice/N/preview/Q/O` | 从 `task.inspect` 已存问卷提取第 Q 题第 O 项的 HTML（零基序号），清洗后以独立 sandbox CSP 返回 |
 | `GET /api/task/ID/report` | verifier 的自包含 HTML 报告（独立文档，独立 CSP） |
 | `GET /api/docs` | 随代码发布的 Markdown 文档索引（分组、标题与仓库路径） |
 | `GET /api/docs/search-index` | 浏览器按需使用的全文搜索字段（标题 / 小节 / 正文 / 代码 / Mermaid） |

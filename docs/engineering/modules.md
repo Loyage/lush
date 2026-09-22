@@ -62,6 +62,8 @@
 
 前六个分区 **互不共享文件**，可以同时开工。测试分区要等它们落地，否则测的是半成品。
 
+问卷决策沿用 Notice，不新增表或实体：`src/core/questionnaire.js` 负责严格校验与答案规范化，`Project.notice` 保存 `kind='questionnaire'`，调度器通过 `questionPending` / `parkForQuestion` 暂停并恢复 invocation；Web 端由 `render-questionnaire.js` 渲染，预览路由使用 `notice-preview.js` 的独立 CSP 清洗 HTML。
+
 ## 分章地图
 
 模块清单仍以本页为唯一入口，细表拆成三篇短章：

@@ -10,6 +10,7 @@ import { renderDiff } from './render-diff.js';
 import { renderHistory } from './render-history.js';
 import { renderTaskProgress } from './render-progress.js';
 import { noticePanel } from './render-notices.js';
+import { questionnairePanel } from './render-questionnaire.js';
 import { renderResolutions } from './render-resolutions.js';
 import { specItem } from './render-specs.js';
 import { renderVerifications } from './render-verify.js';
@@ -201,6 +202,21 @@ export function renderDetail(task, history, diff, usage) {
       children.append(row);
     }
     panel.append(children);
+  }
+  const decisions = (task.notices || []).filter(notice => notice.kind === 'questionnaire');
+  if (decisions.length) {
+    const record = block('决策记录', String(decisions.length));
+    for (const notice of decisions) {
+      if (notice.status === 'open') record.append(button(`待回答：${notice.title}`, () => {
+        ui.noticeIndex.set(notice.id, notice); ui.noticeFocus = notice.id; return detail(task.id);
+      }, 'ghost'));
+      else {
+        const fold = el('details');
+        fold.append(el('summary', `${notice.title} · ${notice.status === 'answered' ? '已回答' : '已忽略'}`), questionnairePanel(notice));
+        record.append(fold);
+      }
+    }
+    panel.append(record);
   }
   if (task.messages?.length) {
     const messages = block('消息', String(task.messages.length));
