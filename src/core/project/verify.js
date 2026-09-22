@@ -69,8 +69,16 @@ export default {
       ...Object.fromEntries(EVIDENCE_LISTS.map(field => [field, evidenceList(value[field], `verification evidence ${field}`)])) };
     if (normalized.status !== 'unverified') check(normalized.commands.length > 0,
       `${normalized.status} verification evidence must include at least one command`);
-    if (normalized.status === 'pass') check(normalized.commands.every(command => command.exit_code === 0),
-      'pass verification evidence cannot contain a failing tested exit code');
+    if (normalized.status === 'pass') {
+      check(normalized.commands.every(command => command.exit_code === 0),
+        'pass verification evidence cannot contain a failing tested exit code');
+      check(normalized.failures.length === 0,
+        'pass verification evidence cannot contain failures');
+      check(normalized.unverified.length === 0,
+        'pass verification evidence cannot contain unverified items');
+      // baseline_failures and residual_risks describe the comparison baseline and acknowledged
+      // remaining risk; they do not contradict a pass for the tested candidate assertions.
+    }
     if (normalized.status === 'fail') check(normalized.failures.length > 0,
       'fail verification evidence must describe at least one failure');
     if (normalized.status === 'partial') check(normalized.failures.length + normalized.unverified.length + normalized.residual_risks.length > 0,

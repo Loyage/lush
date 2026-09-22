@@ -6,7 +6,7 @@
 
 - 优先级：P0。
 - 状态：已修复。
-- 依据：确定性交错回归测试覆盖校验前漂移、校验后推进、固定提交落地与失败恢复。
+- 依据：确定性交错回归测试覆盖校验前漂移、校验后推进、固定提交落地、失败恢复，以及接受期间拒绝／反馈／替代版本的并发冲突。
 
 ## 当前问题
 
@@ -28,6 +28,8 @@
 - parent 已检出时执行 `git merge --ff-only <expected>`；未检出时用 `git update-ref <parent> <expected> <old-parent>` compare-and-swap。
 - child 在前置校验后继续前进不会扩大交付范围，返回结果用 `landed` 明确记录实际交付提交。
 - 合并抛错或返回未落地结果时 Candidate 回到 `ready`，并写入 `candidate.accept_failed` 事件；只有固定提交已落地或已集成才进入 `integrated`。
+- Candidate 一旦写入 `accepted`，集中状态机不再允许重复 accept、reject、request_changes 或 supersede；不提供取消接受。prepare 新版本会尝试 supersede 当前版本，因此同样在创建新版前确定性失败。
+- 所有冲突入口失败时不创建 planner / Candidate，Git 结算仍把状态收敛到 `integrated` 或失败回到 `ready`，避免目标分支事实与 Candidate 状态相反。
 - 未增加用户命令、持久化实体或 schema。
 
 ## 验收标准
@@ -37,16 +39,16 @@
 - [x] 校验与合并之间发生分支漂移时，不得把未审阅提交合入目标。
 - [x] 成功交付只能落地固定提交，或确认该提交已集成；不能因 child 漂移扩大交付范围。
 - [x] 覆盖父分支已检出、未检出和并发推进情形。
+- [x] 接受进入 `accepted` 并等待 Git 队列时，重复 accept、reject、changes 和 prepare/supersede 全部拒绝且没有附带写入。
+- [x] 冲突动作失败后，接受仍可正常落地并使 Git 与 Candidate 同为已集成。
 - [x] 既有 Candidate、分支合并及 worktree 安全测试通过。
 
 ## 验证记录
 
-- `bun test test/project/candidates.test.js`：7 通过，覆盖前置漂移、确定性交错、已检出／未检出 parent、已集成与失败事件。
-- `bun test test/workspaces`：44 通过。
-- `bun test test/merge-ff.test.js test/merge-batch.test.js test/merge-conflict.test.js test/merge-select.test.js test/drafts/deps.test.js`：37 通过。
-- `bun test test/integration/candidate.test.js`：2 通过；`bun test test/candidate-cli.test.js`：3 通过。
+- `bun test test/project/candidates.test.js test/project/verification-evidence.test.js`：21 通过；包含 accepted 等待 Git 队列时重复 accept、reject、changes、prepare/supersede 与持久层绕行入口的确定性拒绝。
+- Candidate CLI、integration、verify、merge、lifecycle 与 recovery 定向回归：19 通过。
 - `bun run docs:check`：通过，检查 54 个 Markdown 文件。
-- `bun run test`：461 个测试中 453 通过、8 失败；失败项与[测试基线](testing.md)记录的 questionnaire / Web 用例一致，本次相关测试全部通过。
+- `bun run test`：481 通过、0 失败（94 个文件）。
 
 ## 剩余限制
 

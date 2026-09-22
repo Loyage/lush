@@ -49,9 +49,9 @@ stateDiagram-v2
     ready --> superseded: 新版本替代
 ```
 
-Candidate 创建时同时固定 integration commit 与 baseline commit。Verifier 在两边运行同一验收场景，生成自包含 HTML 报告和 version 1 结构化证据；runtime 把固定 commit、命令/退出码、失败、未验证、基准失败、残余风险与报告引用写入 version 2 `run.result`。Invocation 正常返回与 verification 结论是两个字段，只有 `pass` 加报告才放行 `ready`。Verifier 结算用事务内的条件更新同时核验 Candidate 仍为 `preparing` 且 `report_task_id` 仍属于自己；用户已经拒绝、要求修改、准备替代版本或启动更新的 verifier 时，迟到结果只记录 `candidate.verification_ignored`，不能恢复旧状态。当前实现不主动取消已经启动的 verifier，其 Task、Run、Artifact 与报告仍可追溯。
+Candidate 创建时同时固定 integration commit 与 baseline commit。Verifier 在两边运行同一验收场景，生成自包含 HTML 报告和 version 1 结构化证据；runtime 把固定 commit、命令/退出码、失败、未验证、基准失败、残余风险与报告引用写入 version 2 `run.result`。Invocation 正常返回与 verification 结论是两个字段；`pass` 必须没有 Candidate 侧的 `failures` 或 `unverified`，但可以如实保留基线失败与已知 `residual_risks`，只有这类一致的 `pass` 加报告才放行 `ready`。Verifier 结算用事务内的条件更新同时核验 Candidate 仍为 `preparing` 且 `report_task_id` 仍属于自己；用户已经拒绝、要求修改、准备替代版本或启动更新的 verifier 时，迟到结果只记录 `candidate.verification_ignored`，不能恢复旧状态。当前实现不主动取消已经启动的 verifier，其 Task、Run、Artifact 与报告仍可追溯。
 
-接受前 runtime 再次校验分支 tip 仍等于候选 commit；如果在这次校验前已经移动，旧批准不得复用，必须生成新版本。通过校验后，固定 commit 会继续传到 Git 串行边界：边界在同一串行区间内判断该提交已集成或把目标分支 fast-forward 到它，实际命令不再读取可变的 child tip。落地失败时 Candidate 回到 `ready`，并记录 `candidate.accept_failed` 事件；只有固定提交落地或已在目标分支中才进入 `integrated`。
+接受前 runtime 再次校验分支 tip 仍等于候选 commit；如果在这次校验前已经移动，旧批准不得复用，必须生成新版本。通过校验并进入 `accepted` 后，接受决定不可取消：并发的 reject、changes 或新 Candidate prepare/supersede 都会被集中状态机确定性拒绝。固定 commit 会继续传到 Git 串行边界：边界在同一串行区间内判断该提交已集成或把目标分支 fast-forward 到它，实际命令不再读取可变的 child tip。落地失败时 Candidate 回到 `ready`，并记录 `candidate.accept_failed` 事件；只有固定提交落地或已在目标分支中才进入 `integrated`。
 
 ## 反馈闭环
 

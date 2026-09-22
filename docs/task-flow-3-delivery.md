@@ -12,7 +12,7 @@ lush candidate changes 2 '按钮再明显一点'  # 要求修改：保留旧版�
 lush candidate reject 2 --reason '方向不对' # 放弃这版结果
 ```
 
-`accept` 会再次校验当前集成分支 tip 仍等于被审阅 commit；不等时报错并要求生成新版本，绝不夹带用户没看过的内容。校验通过后按 direct-parent / ff-only 规则合入目标分支。
+`accept` 会再次校验当前集成分支 tip 仍等于被审阅 commit；不等时报错并要求生成新版本，绝不夹带用户没看过的内容。校验通过并进入 `accepted` 后不支持取消接受，并发的 reject、changes 或 prepare 新版本会被拒绝；随后按 direct-parent / ff-only 规则合入目标分支，Git 失败才回到 `ready`。
 
 `changes` 把旧版本标为 `changes_requested`，新 planner 拿到反馈后写增量 Plan，产出 Candidate v2；旧 commit 与旧报告都保留。
 

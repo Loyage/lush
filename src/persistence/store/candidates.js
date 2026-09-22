@@ -8,7 +8,9 @@ const TRANSITIONS = Object.freeze({
   pending: new Set(['preparing','changes_requested','superseded','rejected']),
   preparing: new Set(['preparing','ready','failed','changes_requested','superseded','rejected']),
   ready: new Set(['accepted','changes_requested','superseded','rejected']),
-  accepted: new Set(['accepted','ready','integrated','changes_requested','superseded','rejected']),
+  // accepted is the irreversible decision boundary. Only the serialized Git outcome may leave it;
+  // reject, feedback and replacement cannot cancel an acceptance already in flight.
+  accepted: new Set(['ready','integrated']),
   failed: new Set(['preparing','rejected']),
   changes_requested: new Set(['rejected']),
   superseded: new Set(), rejected: new Set(), integrated: new Set(),
@@ -16,12 +18,12 @@ const TRANSITIONS = Object.freeze({
 
 const ACTIONS = Object.freeze({
   verification_requested: { from: new Set(['pending','preparing','failed']), to: 'preparing' },
-  supersede: { from: new Set(['pending','preparing','ready','accepted']), to: 'superseded' },
-  accept: { from: new Set(['ready','accepted']), to: 'accepted' },
+  supersede: { from: new Set(['pending','preparing','ready']), to: 'superseded' },
+  accept: { from: new Set(['ready']), to: 'accepted' },
   integration_succeeded: { from: new Set(['accepted']), to: 'integrated' },
   integration_failed: { from: new Set(['accepted']), to: 'ready' },
-  request_changes: { from: new Set(['pending','preparing','ready','accepted']), to: 'changes_requested' },
-  reject: { from: new Set(['pending','preparing','ready','accepted','failed','changes_requested']), to: 'rejected' },
+  request_changes: { from: new Set(['pending','preparing','ready']), to: 'changes_requested' },
+  reject: { from: new Set(['pending','preparing','ready','failed','changes_requested']), to: 'rejected' },
 });
 
 function patchKeys(patch) {
@@ -50,6 +52,9 @@ export const candidates = {
   },
   createCandidate({ input_id, branch, commit, baseline_branch, baseline_commit, summary = null }) {
     const input = id(input_id);
+    const latest = this.latestCandidate(input);
+    check(latest?.status !== 'accepted',
+      `candidate #${latest?.id} is accepted; cannot prepare a replacement until Git settles`);
     const version = this.get('SELECT COALESCE(MAX(version),0)+1 AS value FROM review_candidates WHERE input_id=?', input).value;
     // 候选只冻结待审阅的两个 commit；验收任务必须由用户另行显式启动。
     // 显式写 status，兼容已有数据库仍保留 preparing 默认值的 schema。
@@ -59,8 +64,9 @@ export const candidates = {
   },
 
   /**
-   * Compatibility patch entry. Status writes are still checked by the same centralized transition graph;
-   * new orchestration code should use transitionCandidate(action) so actor intent is explicit.
+   * Compatibility patch entry. Status writes are checked by the centralized transition graph, but accepted
+   * may only be settled through named integration actions; new orchestration code should always use
+   * transitionCandidate(action) so actor intent is explicit.
    */
   updateCandidate(candidateId, patch) {
     check(Object.keys(patch).length > 0, 'invalid candidate patch');
@@ -68,7 +74,11 @@ export const candidates = {
     const status = patch.status;
     const rest = { ...patch }; delete rest.status;
     patchKeys(rest);
-    if (status !== undefined) assertTransition(candidate.status, status);
+    if (status !== undefined) {
+      check(candidate.status !== 'accepted',
+        `candidate #${candidate.id} is accepted; only an integration outcome can change its status`);
+      assertTransition(candidate.status, status);
+    }
     this.run(`UPDATE review_candidates SET ${Object.keys(patch).map(key => `${key}=?`).join(',')},
       updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, ...Object.values(patch), candidate.id);
     return this.candidate(candidate.id);
@@ -76,8 +86,9 @@ export const candidates = {
 
   /**
    * Candidate state-machine entry used by every user action and asynchronous Git outcome.
-   * This SQL transaction cannot cover later Git work; accept first records `accepted`, then the serialized Git
-   * boundary reports integration_succeeded/integration_failed through this same contract.
+   * This SQL transaction cannot cover later Git work; accept first records the irreversible `accepted` decision,
+   * then the serialized Git boundary reports integration_succeeded/integration_failed through this same contract.
+   * While accepted, rejection, feedback and replacement are deliberately forbidden rather than treated as cancellation.
    * @param {number|string} candidateId
    * @param {'verification_requested'|'supersede'|'accept'|'integration_succeeded'|'integration_failed'|'request_changes'|'reject'} action
    * @param {{summary?: string, feedback?: string, report_task_id?: number}} [patch]

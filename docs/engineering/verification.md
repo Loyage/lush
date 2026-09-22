@@ -33,6 +33,6 @@ Candidate 检验是用户显式动作：`candidate.prepare`（或自动中间集
 - 自包含：样式 / 脚本内联，图片内联为 `data:`，不引用外部文件或网络；
 - 路由：`GET /api/task/<id>/report`，独立顶层文档，CSP 收紧到 `default-src 'none'`，且只有 verifier 任务的报告会被读出；
 - Candidate 的 HTML 入口画在 Intent 工作台的候选行上。
-- 同目录的 `evidence.json` 使用 version 1 schema；runtime 校验后复制进 version 2 `run.result` Artifact。commit 与报告引用由 runtime 绑定，证据记录命令/退出码、失败、未验证、基准失败与残余风险；旧 Artifact 缺证据时读作 `unknown`。
+- 同目录的 `evidence.json` 使用 version 1 schema；runtime 校验后复制进 version 2 `run.result` Artifact。commit 与报告引用由 runtime 绑定，证据记录命令/退出码、失败、未验证、基准失败与残余风险。`status=pass` 要求 tested 命令退出码全为 0，并且 `failures` / `unverified` 都为空；`baseline_failures` 与 `residual_risks` 可以非空，分别表示冻结基线自身的问题和通过结论下仍需知悉的风险。持久层写入执行同一语义校验；旧 Artifact 缺证据或结论自相矛盾时仍可读取，但只投影为 `unknown`，不能放行 Candidate。
 
 相关：[Intent 与 Plan 编译](intent-layer.md) · [Review Candidate RPC](../reference/rpc/candidates.md) · [工作区与分支回收](cleanup.md)。

@@ -42,16 +42,14 @@
 
 ## 验证记录
 
-- `bun test test/project/candidates.test.js`：12 通过；包含迟到成功／失败、拒绝、反馈、替代版本、旧／当前 verifier 和缺失报告。
-- `bun test test/verify.test.js test/integration/verify.test.js test/integration/candidate.test.js`：8 通过。
-- `bun test test/project/lifecycle.test.js test/project/recovery.test.js test/project/status.test.js`：8 通过。
-- `bun test test/candidate-cli.test.js`：3 通过。
+- `bun test test/project/candidates.test.js test/project/verification-evidence.test.js`：21 通过；包含迟到成功／失败、拒绝、反馈、替代版本、旧／当前 verifier、缺失报告，以及 accepted 决策边界的并发回归。
+- Candidate CLI、integration、verify、merge、lifecycle 与 recovery 定向回归：19 通过。
 - `bun run docs:check`：通过，检查 54 个 Markdown 文件。
-- `bun run test`：466 个测试中 458 通过、8 失败；失败项与[测试基线](testing.md)记录的 questionnaire / Web 用例一致，本次相关测试全部通过。
+- `bun run test`：481 通过、0 失败（94 个文件）。
 
 ## 剩余限制
 
-- Candidate 其它用户动作仍通过各自入口写状态；本次只把 verifier 的结算权限集中到持久化条件更新，没有扩展成完整状态机重构。
+- 后续工作已把 Candidate 用户动作集中到命名状态转换，并把 `accepted` 设为不可取消的决策边界；各 Project 入口仍负责自己的输入校验和附带事件／planner 创建。
 - 不主动终止失效 verifier，可能继续消耗已经开始的 invocation；这是为了保留现有产品行为，结果会被审计但不会影响 Candidate。
 
 [返回待办索引](README.md)
