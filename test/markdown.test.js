@@ -111,6 +111,17 @@ test('fenced code keeps newlines and shows a language label', () => {
   expect(html('~~~\nplain\n~~~')).toContain('plain');
 });
 
+test('Mermaid is opt-in for documentation and stays code in agent output', () => {
+  const source = '```mermaid\nflowchart LR\n  A --> B\n```';
+  const plain = renderMarkdown(source, doc);
+  expect(find(plain, 'code').textContent).toContain('flowchart LR');
+  expect(html(source)).toContain('language-mermaid');
+  const docs = html(source, { diagrams: true });
+  expect(docs).toContain('class="mermaid md-mermaid"');
+  expect(docs).toContain('data-mermaid-state="pending"');
+  expect(docs).not.toContain('<pre>');
+});
+
 test('links only allow http/https with safe rel/target', () => {
   const out = html('[示例](https://example.com/a?b=1)');
   expect(out).toContain('<a href="https://example.com/a?b=1" target="_blank" rel="noopener noreferrer">示例</a>');

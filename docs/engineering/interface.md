@@ -17,7 +17,7 @@
 
 ## 文档
 
-左栏「文档」读取随代码发布的 `README.md`、`docs/**/*.md` 与受控的 standalone HTML。核心架构文档 `docs/core-architecture.html` 通过 sandbox iframe 与严格 CSP 展示；请求 id 只能命中扫描索引，不拼接任意文件路径。
+左栏「文档」只读取随代码发布的 `README.md` 与 `docs/**/*.md`。目录搜索第一次输入时才拉轻量全文索引，在浏览器做中英文子串与多词 AND 匹配；标题、小节、普通代码、正文与 Mermaid 采用不同权重，不引入搜索依赖。流程图以 Mermaid fence 保存在 Markdown 源文档中，浏览器只在文档实际含图时按需加载本地固定版本，并使用 `securityLevel: strict`；生成的 SVG 以允许 `blob:` 的隔离图片显示，主页面仍禁止 inline style；宽图保留可读尺寸并横向滚动，切换深浅主题时从源码重绘。Agent 输出里的 Mermaid 仍按普通代码显示。请求 id 只能命中扫描索引，不拼接任意文件路径。
 
 ## Web 与 daemon
 

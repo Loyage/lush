@@ -1,6 +1,6 @@
 # Intent、Plan 编译与验收候选
 
-本章描述控制面：用户原话如何成为结构化 Plan、runtime 如何编译 Work DAG，以及最终成果如何成为可验收候选。完整视觉流程见[核心架构 HTML](../core-architecture.html)。
+本章描述控制面：用户原话如何成为结构化 Plan、runtime 如何编译 Work DAG，以及最终成果如何成为可验收候选。视觉总览与连续阅读入口见[核心架构](../core-architecture.md)。
 
 ## Intent-first
 

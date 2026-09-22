@@ -8,6 +8,7 @@
   "exports": { ".": "./src/index.js" },
   "scripts": {
     "test": "bun test",
+    "docs:check": "bun ./scripts/docs-check.js",
     "lush": "bun ./bin/lush",
     "lushd": "bun ./bin/lushd",
     "help": "bun ./scripts/ops.js help",

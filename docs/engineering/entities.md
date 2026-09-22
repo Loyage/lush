@@ -1,6 +1,6 @@
 # 核心实体
 
-视觉版与完整流程见[核心架构 HTML](../core-architecture.html)。当前实现采用渐进迁移：`Task` 仍是兼容的 WorkItem 投影，同时新增 Run、Artifact 与 Review Candidate。
+视觉总览与连续阅读入口见[核心架构](../core-architecture.md)。当前实现采用渐进迁移：`Task` 仍是兼容的 WorkItem 投影，同时新增 Run、Artifact 与 Review Candidate。
 
 - **Project**：daemon 的不可变作用域：canonical 目录 + `.lush/project.json` + SQLite 项目绑定。
 - **Intent / Input**：用户原话、flow、目标分支和私有 integration branch。可附带结构化上下文引用；引用是 Input / Draft 的元数据，不是新的顶层实体。每条引用保留用户当时所见快照和稳定目标，planner invocation 再解析目标当前状态。所有 Plan、Work、Artifact、反馈与 Candidate 都归属同一 Intent。

@@ -1,6 +1,6 @@
 # Lush 开发约定
 
-Lush 是**项目级的多 agent 开发应用**。Bun / JavaScript / SQLite，零第三方运行时依赖。
+Lush 是**项目级的多 agent 开发应用**。Bun / JavaScript / SQLite；daemon 与 CLI 零第三方运行时依赖。Web 文档视图内置固定版本的 Mermaid 浏览器资源，仅在文档含图时按需加载。
 
 ## 作用域
 
@@ -63,8 +63,8 @@ bun run stop
 - `src/ui/client.js`：CLI / Web 的统一客户端。
 - `src/cli/` / `src/ui/web/`：用户界面。
 
-上面是粗粒度分区；每个文件负责什么、导出什么、哪个分区可以并行改，只有一处权威清单：`docs/engineering/modules.md`。
+上面是粗粒度分区；每个文件负责什么、导出什么、哪个分区可以并行改，权威入口只有 `docs/engineering/modules.md`，细表按它链接的 Runtime、Web、CLI / RPC / 测试短章维护。
 
 `src/identity.js` 的 fingerprint 覆盖整个 src、bin 和 package.json。相同路径但 fingerprint 不同表示 daemon 仍运行旧代码；重启正确项目才生效。
 
-更多见 `README.md` 与 `docs/README.md`。
+更多见 `README.md` 与 `docs/README.md`；文档格式、分层、链接与 Mermaid 约定见 `docs/contributing/documentation.md`。

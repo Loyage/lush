@@ -36,7 +36,7 @@ export const ui = {
   /** 右侧信息页（notices / tasks / intents / specs）；左栏只做导航。 */
   indexOpen: null,
   /** 「文档」视图：打开期间轮询不用概览覆盖它，与 graphOpen 同一套排他规则。 */
-  docsOpen: false,
+  docsOpen: false, docsQuery: '',
   /** 「设置」视图：打开期间轮询不用概览覆盖它（设置页只受用户操作驱动）。 */
   settingsOpen: false,
   draftSignature: null,
@@ -85,7 +85,7 @@ export const mergeSelection = new Set();
  */
 export function resetUiState() {
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;
-  ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0; ui.indexOpen = null; ui.docsOpen = false; ui.settingsOpen = false;
+  ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0; ui.indexOpen = null; ui.docsOpen = false; ui.docsQuery = ''; ui.settingsOpen = false;
   ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false; ui.composerExpanded = false; ui.composerReferences = [];
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeFocus = null; ui.noticeIndex = new Map();

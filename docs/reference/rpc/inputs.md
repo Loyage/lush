@@ -20,7 +20,7 @@
 
 `input.submit` 返回 `{id, content, references, task, anchor}`。Web 可以额外提交结构化 `references`，正文不会被插入隐藏标记。`branch` 必须是本地分支；省略时使用当前检出分支。runtime 从它创建 `lush/<项目哈希>/input-<id>` 与 `.lush/worktrees/input-<id>`，planner 在该 worktree 中运行。输入分支既冻结解析上下文，也是任务分支的聚合父分支，最后通过 `branch.merge` 合回用户分支。
 
-字段为兼容已有数据库仍叫 `anchor_branch` / `anchor_commit` / `anchor_workspace` / `anchor_target_branch`。失败时整条输入不落库，草稿不动；input id 永不复用。详见 [输入和规划](../engineering/inputs-and-planning.md)。
+字段为兼容已有数据库仍叫 `anchor_branch` / `anchor_commit` / `anchor_workspace` / `anchor_target_branch`。失败时整条输入不落库，草稿不动；input id 永不复用。详见 [输入和规划](../../engineering/inputs-and-planning.md)。
 
 `draft.*` 是输入缓存：`draft.add` 只落 `drafts` 行（`input_id` 为空），可带最多 12 条结构化引用；`draft.update` 的 `{references?}` 省略时保留原引用，给出时整体替换。`draft.commit` 把当前全部未提交草稿**在一个事务里**拼成一条 `inputs`、按原草稿段落复制引用、建一个 planner、并回写每条草稿的 `input_id`，返回 `{id, content, references, task, anchor, drafts:[...]}`（锚点语义与 `input.submit` 完全一致，失败时草稿一条不动）。单条草稿提交时原话逐字不变；多条带编号列表头。`draft.remove` 只删未提交的草稿，已提交的输入永不删除（返回错误）。`input.list` 额外给出 `draft_count`。缓存上限 500 条。这四个方法与 `input.submit` 一样是**用户专属**，agent 调用会被拒绝。
 

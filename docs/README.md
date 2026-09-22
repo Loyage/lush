@@ -1,31 +1,31 @@
-# 文档
+# Lush 文档
 
-- [使用说明](../README.md)：安装、运行与常用命令。
-- [行动任务处理流程](task-flow.md)：从输入、规划、执行、审阅到交付、解冲突与回收的完整使用流程。
-- [核心架构（HTML）](core-architecture.html)：Intent-first、Work DAG、结构化 Artifact、Review Candidate 与从输入到最终验收的完整流程图。
-- [总体架构](engineering/architecture.md)：现有模块、实体、不变量、调度与恢复的详细索引。
-- [CLI / RPC 参考](reference/api.md)：公开接口。
-- [Review Candidate](reference/rpc/candidates.md)：固定 commit 的验收与反馈闭环。
+这里是随 Lush 代码发布的文档入口。仓库文档统一使用 Markdown，流程图使用 Mermaid；同一份源文件可以由 Agent、GitHub 和 Lush Web 阅读。
 
-## 架构各章（`docs/engineering/`）
+文档分成两种：**连续阅读的短章**负责建立心智模型，**主题参考**负责回答具体实现与接口问题。每条连续阅读线都在页首标出当前位置、页尾提供上一篇与下一篇。
 
-- [实体](engineering/entities.md)：Project / Input / Task / Agent / Message / Notice / Event。
-- [数据流](engineering/data-flow.md)：入口到 Project 的结构与校验边界。
-- [输入和规划](engineering/inputs-and-planning.md)：输入的落库、规划槽与 `inputs.flow`。
-- [意图层与拆解队列](engineering/intent-layer.md)：`layer='intent'`、spec 批次与 `spec drop`。
-- [计划审批闸门](engineering/plan-gate.md)：`plan.propose` / `approve` / `reject`。- [一次 invocation 与多级协作](engineering/invocation.md)：七步流程、角色、verifier 与上限。
-- [生命周期不变量](engineering/invariants.md)：逐条不变量清单。
-- [分支优先架构](engineering/branch-first.md)：输入聚合分支、direct-parent / ff-only 与子侧同步的不变量。
-- [Git 边界](engineering/git-boundary.md)：worktree / 分支创建、原子推进与回收边界。
-- [分支谱系](engineering/branch-genealogy.md)：显式记录的 branch 创建关系、`recorded` / `unknown` 与删除后的处理。
-- [分支合并](engineering/merge.md)：流程图连线状态、fast-forward 与父分支进入子侧的分歧收敛。
-- [检验与对照检出](engineering/verification.md)：只读对照检出与回收时机。
-- [工作区与分支回收](engineering/cleanup.md)：清理与回收的安全门。
-- [项目身份与恢复](engineering/identity-and-recovery.md)：身份、锁、socket 与重启恢复。
-- [界面与传输](engineering/interface.md)：CLI、Web、RPC 信任边界与 `system.status`。
-- [模块地图](engineering/modules.md)：`src/` 与 `test/` 的分区与导出签名。
+## 第一次使用：按流程阅读
 
-Web UI 左栏的「文档」直接读这些文件（随代码发布，不随被开发项目变），目录页就在右栏；
-文档里的相对链接可以直接点开，地址栏是 `#docs` / `#doc-<id>`。
+1. [使用说明](../README.md)：安装、启动和最短操作路径。
+2. [流程总览](task-flow.md)：先看一张从 Intent 到验收的全景图。
+3. [提交 Intent 与编译 Plan](task-flow-1-planning.md)：理解冻结基线与 Work DAG。
+4. [私有集成与 Review Candidate](task-flow-2-integration.md)：理解并行成果如何收敛。
+5. [验收、诊断与安全回收](task-flow-3-delivery.md)：接受、修改、证据、分支诊断和清理。
 
-文档只描述当前实现。实体是 Input / Task / Agent / Message / Notice / Event，作用域是单个项目目录 `<project>/.lush/`。
+## 理解系统：按架构阅读
+
+1. [核心架构](core-architecture.md)：四个中心、主链与实体边界。
+2. [执行模型](engineering/execution-model.md)：Task、Agent、Run、Plan Compiler 与 Artifact。
+3. [验收闭环](engineering/review-loop.md)：产品轴、Git 轴、Candidate 与反馈。
+4. [工程架构索引](engineering/architecture.md)：按源码主题继续深入。
+
+## 按需查阅
+
+- [工程文档](engineering/README.md)：源码边界、生命周期不变量、调度、Git 和恢复机制。
+- [接口参考](reference/README.md)：CLI、RPC、HTTP、Agent 环境与 Web 路由。
+- [贡献指南](contributing/README.md)：开发入口和文档写作约定。
+- [模块地图](engineering/modules.md)：并行开发边界；细表拆为 Runtime、Web、CLI / RPC / 测试三章。
+
+Web UI 读取随当前代码发布的 `README.md` 与 `docs/**/*.md`，不读取正在被 Lush 开发的目标项目。文档路径先经过扫描索引，请求只能按已知 ID 命中，不会拼接任意文件路径。
+
+文档只描述当前实现。运行时业务实体仍为 Input / Task / Agent / Message / Notice / Event；Run、Artifact 与 Review Candidate 是围绕执行和验收持久化的结构化事实。

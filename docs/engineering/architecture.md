@@ -1,6 +1,8 @@
 # 工程架构索引
 
-面向产品与系统设计的核心文档是[《Intent 到可验收结果》](../core-architecture.html)。本目录补充源码边界、不变量和实现细节。
+面向产品与系统设计的核心文档是[《Lush 核心架构》](../core-architecture.md)。本目录补充源码边界、不变量和实现细节。
+
+> 连续阅读：[架构总览](../core-architecture.md) → [执行模型](execution-model.md) → [验收闭环](review-loop.md) → **工程索引**
 
 ## 主链
 
@@ -32,6 +34,8 @@ CLI / Web
 ## 实现入口
 
 - [实体](entities.md)
+- [执行模型：Task、Run 与 Artifact](execution-model.md)
+- [验收闭环：Candidate、反馈与安全落地](review-loop.md)
 - [数据流](data-flow.md)
 - [Intent、Plan 编译与 Candidate](intent-layer.md)
 - [invocation 与 Run](invocation.md)
@@ -45,3 +49,7 @@ CLI / Web
 - [模块地图](modules.md)
 
 Branch-first 文档现在只描述 Git 子系统的不变量；默认产品入口已经是 Intent 工作台，分支图是高级诊断视图。
+
+---
+
+[← 上一篇：验收闭环](review-loop.md) · [返回文档入口](../README.md)

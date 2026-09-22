@@ -17,6 +17,14 @@ import { ui } from './state.js';
 
 const DOC_HASH = /^#doc-([a-z0-9._-]+)$/;
 export const DOCS_HASH = '#docs';
+let searchIndexPromise = null;
+
+/** 全文索引只在第一次输入查询时取一次；失败会清掉 Promise，下一次输入可以重试。 */
+export function loadDocsSearchIndex() {
+  if (!searchIndexPromise) searchIndexPromise = api('/api/docs/search-index').then(value => value.docs)
+    .catch(error => { searchIndexPromise = null; throw error; });
+  return searchIndexPromise;
+}
 
 /** 地址栏 hash → 文档目标：null 表示这不是文档路由；`{ id: null }` 表示文档目录。 */
 export function docsTarget(hash) {
@@ -70,7 +78,14 @@ export async function openDocs(id = null) {
 export async function loadDocs(id = null) {
   try {
     const index = await api('/api/docs');
-    if (!id) { renderDocsIndex(index.docs, openDocs); return; }
+    if (!id) {
+      renderDocsIndex(index.docs, openDocs, {
+        loadSearch: loadDocsSearchIndex,
+        query: ui.docsQuery || '',
+        onQuery: value => { ui.docsQuery = value; },
+      });
+      return;
+    }
     const entry = index.docs.find(row => row.id === id);
     if (!entry) { renderDocError(id, `没有这篇文档（${id}）`, openDocs); return; }
     const doc = await api(`/api/docs/${id}`);

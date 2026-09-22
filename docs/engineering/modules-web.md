@@ -1,0 +1,78 @@
+# 模块地图：Web 前端
+
+本章是 `src/ui/web/assets/` 的职责与导出清单。浏览器端使用原生 ES module，不经过打包。
+
+> 模块地图：[总览](modules.md) → [Runtime 与持久化](modules-runtime.md) → **Web 前端** → [CLI、RPC 与测试](modules-interfaces.md)
+
+
+浏览器端 ES module，无打包器：`index.html` 先以 module 加载 `/appearance.js`（head 中定主题）再加载 `/app.js`，其余模块走 import 图，
+由 `server.js` 的扩展名白名单按 basename 服务。
+
+**三个必须遵守的接缝：**
+
+- **`app.js` 导出 `boot()`**，并在被当作模块加载时执行一次 `await boot()`。
+  `boot()` 先清掉上一次的定时器/监听器，再按当前全局 DOM 重新装配。理由：`bun test`
+  在多个测试文件之间**共享模块注册表**，DOM 测试要给每个文件装自己的 stub，只能靠重复调用 `boot()`。
+- **面板之间不互相 import 实现，只 import 接缝。** 跳转走 `navigate.js`，共享可变状态走 `state.js`，
+  本地偏好（键名 / 默认值 / 读写）走 `prefs.js`，这既断掉循环依赖，也让面板文件之间没有编辑冲突面。
+- **确认与输入一律走 `dialog.js` 的应用内弹窗，不用原生 `confirm` / `prompt` / `alert`。**
+  原生弹窗不属于页面，浏览器可以静默吃掉它（勾过「阻止此页面创建更多对话框」、沙箱 iframe、
+  内嵌 webview 等），那时 `confirm()` 不显示任何东西直接返回 false：调用方以为用户点了取消，
+  用户看到的是「点了没反应」（分支图的「归档」就这样变成过死按钮）。`test/dom-stub.js` 把三个原生
+  函数换成抛错，UI 一旦退回去测试就失败。
+
+| 文件 | 职责 | 导出 |
+|---|---|---|
+| `app.js` | 唯一入口：装配左栏顶部身份区按钮（品牌回概览 / 移动端导航 / 右侧返回）、`#graph` / `#settings` / 四个信息页 / 任务 / 文档的 hash 路由与两个定时器；定时器按「轮询频率」偏好重建 | `boot()` |
+| `appearance.js` | head 中初始化深浅主题，装配左栏顶部的主题切换按钮；偏好经 prefs.js 读写（`lush.theme`），`system` 跟随系统、显式值覆盖系统，存储不可用时保留会话内选择 | `systemThemeMedia()`、`resolveTheme()`、`effectiveTheme()`、`applyTheme()`、`createAppearance()`、`initAppearance()`、`refreshTheme()` |
+| `prefs.js` | 本地偏好中心：键名 / 默认值 / 解析与序列化、读写与变更通知都在这一份（`markdown` / `theme` / `sidebarSort` / `collapsed` / `filters` / `reduceMotion` / `polling` / `toastDuration`）；坏数据回落默认值，存储不可用不抛异常；老键（`lush.treeSort`、`lush.theme`、`lush.markdown`）继续生效；`resetPrefs()` 删除全部受管键（含历史键）并逐项通知回默认值 | `PREF_DEFS`、`PREF_NAMES`、`MARKDOWN_KEY`、`THEME_KEY`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`REDUCED_MOTION_KEY`、`POLLING_KEY`、`TOAST_DURATION_KEY`、`THEME_VALUES`、`SORT_IDS`、`POLLING_MODES`、`TOAST_MODES`、`pollingIntervals()`、`toastDurations()`、`readPref`、`writePref`、`setPref`、`onPrefChange`、`resetPrefs`、`prefsSnapshot`、`storageAvailable` |
+| `render-settings.js` | 设置视图，分 Agent / 界面 / 系统三个页签：Agent 页编辑项目默认与六类角色覆盖（agent / model / thinking / 默认 prompt / 追加 prompt / Pi 扩展与 Skills），可按需读 `/api/agent/models` 展示本机 CLI 当前模型目录、读 `/api/agent/resources` 多选已安装资源，经 `agent.configure` 写入项目；默认 prompt 正常显示内置全文并可一键恢复，替换内置 prompt 前显示风险警告并二次确认；界面页管理浏览器本地偏好与恢复默认；系统页只读展示 daemon 配置。打开期间轮询不用概览覆盖 | `openSettings()`、`renderSettings()` |
+| `styles.css` | 双主题设计 token、应用布局（无应用顶栏：品牌 / 项目名 / 并发槽 / 连接状态 / 主题切换 / 退出登录在左栏顶部的身份区，内容区占满高度）、组件、响应式与 reduced-motion 动效（含设置页与强制减少动效 `[data-reduced-motion="true"]`） | CSS |
+| `state.js` | 共享可变状态（一个对象，新字段不必改别的文件就能加）；`ui.indexOpen` 记录右侧信息页，`ui.lastGraph` 保存最近一次 `graph.get` 读模型，`ui.settingsOpen` 标记设置视图；折叠 / 筛选 / 排序偏好经 prefs.js 读写 | `ui`、`transcriptOpen`、`transcriptCache`、`mergeSelection`、`resetUiState()`、`readSidebarSortPref`、`readCollapsedPref`、`readFiltersPref`、`saveCollapsedPref`、`saveFiltersPref`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`SORT_IDS` |
+| `navigate.js` | 导航间接层（断循环依赖） | `registerNavigation({refresh, detail, overview, graph})`、`refresh()`、`detail(taskId)`、`overview()`、`graph()` |
+| `api.js` | fetch 与用户动作 | `api(url, options)`、`action(method, params)`、`loadHistory(taskId)` |
+| `format.js` | 标签映射与格式化（纯函数） | `STATUS`、`INTEGRATION`、`ROLE`、`EVENTS`、`HOT`、`TERMINAL_STATUS`、`WAIT_REASON`、`PLAN_GATE`、`SPEC_STATUS`、`MERGE_STATUS`、`CHANGE`、`DEP_HELP`、`STEP`、`MD_STEP`、`GOAL_TITLE_LIMIT`、`statusOf`、`relative`、`duration`、`absolute`、`clock`、`tokens`、`tokensView`、`money`、`depsOf`、`waitingDeps`、`resolverOf`、`specStatus`、`specTitle`、`summarizeGoal`、`taskTitle`、`edgeLabel`、`lastView`、`short` |
+| `dom.js` | DOM 原语 | `el`、`button`、`syncChildren`、`block`、`kv`、`badge`、`statusBadge` |
+| `dialog.js` | 应用内确认 / 输入弹窗（替代原生 `confirm` / `prompt`）：画进独立于 `#detail` 的 `#modal`，同刻只留一个弹窗，Esc / 点背景 / 取消＝取消，Enter / 输入框回车＝确认，关闭后焦点还给打开者 | `confirmDialog(opts)`、`promptDialog(opts)`、`closeDialog()` |
+| `text.js` | agent 输出的 Markdown 偏好（只在设置页管理，偏好键 `lush.markdown`）；偏好变化时重画当前详情 | `markdownEnabled()`、`agentText(value, opts)` |
+| `gauge.js` | 左栏身份区并发槽表 | `slotGauge(data)` |
+| `filters-ui.js` | 筛选控件与选项工具 | `filterSelect`、`filterToggle`、`filterInput`、`syncSelectOptions`、`withCurrent`、`uniqueValues`、`roleOption`、`statusOption`、`specStatusOption`、`plannerOption`、`filterUi` |
+| `sidebar-ui.js` | 左栏纯导航与右侧视图切换：信息页 / 通用内容画布互斥、统一视图栏、计数与兼容折叠状态 | `setViewChrome`、`activateDetailView`、`openResource`、`paintCollapsed`、`setNavCount`、`selectNav`、`navTo` |
+| `sidebar-init.js` | 装配左侧页面导航，以及移到右侧信息页内的筛选 / 排序控件 | `initSidebar()` |
+| `composer.js` | 输入缓存与提交表单；默认折叠只留一行输入 + 一行操作（父分支字段与快捷键说明点开「展开」才出现，折叠态在控件上标出非空父分支；展开状态只在会话内）；提示统一交给 `messages.js`，不再自己写输入栏底部的 `#error` | `buffer()`、`selectedDraftIds()`、`syncComposer()`、`paintDraftPanel()`、`toggleDraftPanel()`、`paintComposerDetails()`、`toggleComposerDetails()`、`initComposer()` |
+| `context-references.js` | 页面选区 / 语义元素的右键引用、输入框引用卡片与可引用节点注册 | `referenceable(node, descriptor)`、`initContextReferences()`、`renderComposerReferences()`、`setComposerReferences()` |
+| `messages.js` | 顶部消息提示（toast）：`#error` 从 `.composer` 底部搬进固定浮层，脱离 `.app` 的 grid；停留时长是本地偏好（`lush.toastDuration`，标准档＝信息 4s / 错误 8s），失败 / 错误类带手动关闭按钮，鼠标悬停暂停倒计时，同一段文本反复写入不重置计时（离线错误不闪烁），空文本立即隐藏。错误 `role=alert` / `aria-live=assertive`，信息 `role=status` / `aria-live=polite`；计时器可注入（DOM 测试用假时钟） | `show(value, kind)`、`clear()`、`setTimers(next)` |
+| `render-drafts.js` | 待提交缓存与引用摘要 | `renderDrafts(data)` |
+| `render-intents.js` | Intent 列表：原始目标、planner 闸门、Plan 计数、最新 Review Candidate 版本与「开始/重新验收 / 打开结果 / 接受并合入 / 要求修改」动作 | `renderIntents(data)` |
+| `render-specs.js` | 拆解队列（只读） | `renderSpecs(data)`、`specItem(spec)`、`specDeps(value)` |
+| `render-tree.js` | 任务树、兄弟链、依赖标签、为什么没在跑 | `renderTree(data)` |
+| `render-notices.js` | 待决问题索引与右侧展开；resolver 首次请示使用明确的开始/暂不处理动作 | `renderNotices(data)`、`openNotice(noticeId)`、`noticePanel(notice, task?)` |
+| `render-ladder.js` | 按目标分支分组的交付队列、变更栈与批量落地 | `renderLadder(data)`、`mergeBatch(ids, candidates)`、`renderMergeResult(entry)` |
+| `render-timeline.js` | 并行时间轴 | `renderTimeline(timeline)` |
+| `render-history.js` | 事件时间线 | `renderHistory(history, opts)` |
+| `render-diff.js` | 改动概览 | `renderDiff(diff)` |
+| `render-agent.js` | Agent 区块：执行过程优先，模型与用量直接展开；增量更新最近一步，带 tokens 时并排一个与步骤同口径的 chip | `renderAgent(task, usage)`、`paintUsageLast(taskId, usage)` |
+| `render-transcript.js` | 执行过程（分页、折叠、增量续读）；每一步按 `tokens.first` 印一次占用 chip（精确 `上下文 X` / 估算 `+X`） | `transcriptContent(taskId)`、`paintTranscript(taskId)`、`appendTranscriptSteps(taskId, steps)`、`loadTranscript(taskId)`、`tokensChip(tokens)` |
+| `render-verify.js` | 检验区块 | `renderVerifications(task)` |
+| `render-resolutions.js` | 合并冲突处理记录 | `renderResolutions(task)` |
+| `render-detail.js` | 任务详情整页：一句话短标题（`taskTitle`）、完整 goal 以 Markdown 正文排在结果之前、状态、结果优先的阅读顺序与任务操作 | `renderDetail(task, history, diff, usage)`、`renderDetailError(taskId, message)` |
+| `render-overview.js` | Intent 工作台：指标按 Intent / 并行执行 / 等待验收 / 需要你决定计，`pending` 候选提供用户显式“开始验收”动作，Intent 成果主线（含候选报告入口）先于折叠的 Git 交付诊断，任务只作明细；`kind='info'` 提醒、运行中 agent 与时间轴、维护信息照旧（`render-ladder.js` / `merge-select.js` 仍可用，但没有常驻视图） | `renderOverview(data)` |
+| `graph-layout.js` | 分支图纯逻辑：fork 边拼出分支森林（任务挂到自己的分支下并把父分支作为嵌套；planner / scheduler 由 `graph.get` 派生出输入锚点分支后与 worker 任务同样挂载，无需新逻辑）；归档的分支不占分支树——跳过 `archived` 的 branch 节点与它们名下的任务，把它们还在的后代接到最近的可见祖先上（没有就升为根），这种后代的关系标 `parent_archived`（「父分支已归档」，中性色），`missing`（红色「分支缺失」）只留给谁都没归档、ref 真不见了的情况、每棵子树的 `subtreeBranches` / `subtreeTasks` 计数（收起时告诉用户藏了什么）、组内 code 层级（同层新的在前：任务按 id 降序，兄弟分支按 created_at 降序、未知时间排最后）、标签与廉价结构指纹，以及折叠偏好的 localStorage 形态——指纹把「待你决断」的 notice 也算进来（`graphFingerprint(snapshot)` 取 snapshot 里 open 且 question / plan 的 notice 按 id 排序，`graphRenderKey(graph)` 取任务节点的 `notice` id / kind 与 `notice_count`），所以新 notice 出现、被答复 / 忽略或换成另一条都会让分支图在既有 3s / 10s 陈旧规则内重拉重画（`kind='info'` 与 answered / dismissed 不算）；给每个分支算出 `archived` / `archived_at` 与 `archivable`（可归档判断：已登记、未归档也未删除、非当前检出、自己与后代都没有活动任务，且 ref 或 worktree 至少还有一个）；工作态显示口径由 `workingState(entry)` 单独回答（本分支 running / 本分支在等 / 只有子树在跑 / 停下来了）；每个分支另带 `relation`（`edgeRelation` 的结果，可能是 null）：归档把 ref 删掉之后 git 里算不出父子关系（daemon 报 `missing`），但那是用户自己按的归档，不是故障——已归档的分支 `relation` 为 null，父分支已归档的报 `parent_archived`，两者都不算 `unmerged` | `graphLayout(graph)`、`graphFingerprint(snapshot)`、`graphRenderKey(graph)`、`parseGraphCollapsed(raw)`、`serializeGraphCollapsed(set)`、`aheadBehindText(node)`、`nodeMarks(node)`、`workingState(entry)` |
+| `render-graph.js` | 核心交互式分支流程图：顶部先汇总分支 / 任务 / 当前检出与关系图例；面板与连接线按父子关系着色（领先绿 / 一致灰 / 落后蓝 / 分歧琥珀 / 缺失红 / 父分支已归档灰），表头给出该关系的动作（合入父分支 / 让子分支跟上父分支 / 在子分支解决分歧），做不了的也画出来但禁用并写明原因；父子关系靠 CSS 画的竖线与拐角表达，整棵子树可收起（状态存 localStorage，重画不丢）；可归档的分支提供「归档」按钮（确认框写明会连它下面 N 条后代分支一起删，确认后调 `branch.archive`，带 `discard:true`；归档的分支随后不再画在图上）；图末的兜底分组（「未归属分支的任务」——`branch` 与 `target_branch` 在图上都找不到节点的任务）每行多一个「删除」按钮，走用户专属的 `task.delete`（与 CLI 的 `lush task delete` 同源），确认框写明「任务行与它的后代、消息、事件、notice、spec 一起删且不可撤销」，成功后重拉图；这是页面上唯一会丢任务历史的按钮，别处的任务行不给（那些先走归档 / 回收）。分支表头按 `workingState` 渲染工作态标识（在跑 / 在等 chip、子树工作中），在跑的任务行带脉冲点，停下来的分支加 `.graph-idle` 整体降噪但保留未合并与关系色；真的有任务在本分支上跑（`workingState(...).key === 'running'`，不含仅子树在跑）的分支行另加 `.graph-running`：整行外环呼吸动效（只动外环的扩散与不透明度、周期 2.4s，不位移不缩放；在等 / 子树 / 停下来的分支都没有这个 class，保持静止；`prefers-reduced-motion` 下随全局规则关闭）；带待决 notice 的任务行（`graph.get` 的 `notice` / `notice_count`）另加 `.graph-emphasis-awaiting` 琥珀强调（可与工作态强调并存）并就地渲染决策区：徽标（`question` →「◔ 等你决定」/ `plan` →「计划待批」）、标题、正文与「另有 N-1 条待决」，`question` 给 textarea +「回复并继续任务」（`notice.answer`）与「忽略」（`notice.dismiss`，⌘/Ctrl+回车与任务详情一致），`plan` 给「批准并开发」（`plan.approve`）与「驳回」（`plan.reject`，沿用 `promptDialog`、空理由不发）；动作与任务详情 / 意图面板同源，成功后 `loadGraph()` 重拉、失败写顶部提示（`messages.js`）；有内容或正聚焦的决策输入会让这次 `renderGraph` 跳过重画（`hasPendingDecision`），避免 1.5s 轮询把用户打了一半的字与焦点冲掉。`fetchGraph()` 只拉数与更新 `ui.lastGraph` / `ui.graphFetchedAt` / `ui.graphFingerprint`（单飞），供概览复用，`loadGraph()` 再渲染分支图 | `openGraph()`、`fetchGraph()`、`loadGraph()`、`renderGraph(graph, opts)` |
+| `detail.js` | 拉取并渲染任务详情；窄屏新导航收起索引并定位内容，轮询保留滚动 | `loadDetail(taskId)` |
+| `docs.js` | 「文档」视图：路由（`#docs` / `#doc-<id>`）、取数、搜索索引懒加载与站内相对链接解析 | `docsTarget(hash)`、`resolveDocPath(from, raw)`、`docLinkResolver(current, docs)`、`loadDocsSearchIndex()`、`openDocs(id)`、`loadDocs(id)`、`DOCS_HASH` |
+| `docs-search.js` | 浏览器全文搜索纯逻辑：NFKC / 小写归一化，中英文子串、多词 AND、字段加权、摘要与稳定排序；Mermaid 仅低权重参与 | `normalizeDocsQuery(value)`、`searchDocs(index, query, limit)` |
+| `render-docs.js` | 「文档」视图的目录、懒加载内容搜索、Markdown 正文、Mermaid 启动与兜底 | `renderDocsIndex(docs, onOpen, options)`、`renderDoc(doc, resolveLink, onOpen)`、`renderDocError(id, message, onOpen)` |
+| `mermaid-docs.js` | 只在文档存在 Mermaid 容器时加载本地固定版本，以 strict 模式逐图校验，并通过显式唯一 id 渲染成隔离的 blob SVG 图片（避免节点/箭头串图，也不用为 Mermaid 放宽主页面的 inline-style CSP）；换文档时回收 blob URL，切换深浅主题时从保留源码串行重绘，超长、超量、加载或语法失败均回退为源码。Agent 输出不走这条路径 | `renderMermaidDiagrams(root)`、`refreshMermaidDiagrams(root)`、`clearMermaidDiagrams(root)` |
+| `refresh.js` | 轮询快照、概览、热任务增量刷新、筛选重画；右侧信息页 / 文档 / 设置打开时不让概览覆盖；「项目概览」与「分支图」共用同一份 `graph.get`（`ui.lastGraph`）与同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s），概览先用快照画、后台取图后就地重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
+
+其它纯逻辑模块：`markdown.js`、`tree-order.js`、`live.js`、`sidebar.js`；`merge-select.js` 是交付队列的候选、冻结与 code-only 顺序预览接缝，由 `render-ladder.js` 使用。`live.js` 的实时刷新间隔不再是写死常量：`liveInterval()` 读「轮询频率」偏好，标准档等于改造前的 3000ms。
+
+`markdown.js` 除默认渲染外还有两件「文档」视图需要的能力：`renderMarkdown(text, doc, options)` 里的
+`options.link(raw, label)` 由调用方接管链接解析（返回 `{ href, external }`，返回空或抛错都回落到默认规则：
+只有 http/https 成链接）、GFM 表格，以及只在 `options.diagrams === true` 时把 `mermaid` fence 标成待渲染容器。
+不传 options 时 Mermaid 仍是普通代码，因此 Agent 输出不会加载或执行图表。
+
+---
+
+[← 上一篇：Runtime 与持久化](modules-runtime.md) · [下一篇：CLI、RPC 与测试 →](modules-interfaces.md)

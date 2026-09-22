@@ -21,6 +21,9 @@ const fetchImpl = async (url, options = {}) => {
   const path = String(url);
   const json = data => ({ ok: true, status: 200, json: async () => data });
   if (path === '/api/docs') return json({ docs: DOCS });
+  if (path === '/api/docs/search-index') return json({ docs: DOCS.map(entry => ({ ...entry,
+    headings: entry.id === 'docs-engineering-data-flow' ? 'Project 入口' : '',
+    body: BODY[entry.id], code: '', diagram: '' })) });
   const match = /^\/api\/docs\/([a-z0-9._-]+)$/.exec(path);
   if (match) {
     const entry = DOCS.find(row => row.id === match[1]);
@@ -59,6 +62,19 @@ test('文档视图：左栏入口进目录，点条目读正文，相对链接�
   expect(index).toContain('架构');
   expect(index).toContain('使用说明（README）');
   expect(index).toContain('docs/engineering/modules.md');
+
+  // 搜索索引第一次输入时才加载；中文/英文正文命中后只显示结果，清空恢复目录。
+  const search = dom.node('detail').querySelector('input');
+  expect(search.placeholder).toContain('搜索');
+  search.value = 'Project 入口';
+  search.listeners.input[0]();
+  await Bun.sleep(5);
+  expect(deepText(dom.node('detail'))).toContain('找到 1 篇相关文档');
+  expect(deepText(dom.node('detail'))).toContain('数据流');
+  search.value = '';
+  search.listeners.input[0]();
+  await Promise.resolve();
+  expect(deepText(dom.node('detail'))).toContain('使用说明（README）');
 
   await clickButton('模块地图（并行开发的边界）');
   expect(dom.location.hash).toBe('#doc-docs-engineering-modules');

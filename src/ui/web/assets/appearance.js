@@ -25,7 +25,12 @@ export function effectiveTheme(media = systemThemeMedia()) {
 export function applyTheme(theme, { root, toggle } = {}) {
   const host = root ?? (typeof document !== 'undefined' ? document.documentElement : null);
   const button = toggle === undefined ? (typeof document !== 'undefined' ? document.getElementById('theme-toggle') : null) : toggle;
+  const previous = host?.dataset?.theme;
   if (host?.dataset) host.dataset.theme = theme;
+  if (previous && previous !== theme && typeof host?.dispatchEvent === 'function') {
+    const EventType = host.ownerDocument?.defaultView?.CustomEvent || globalThis.CustomEvent;
+    if (EventType) host.dispatchEvent(new EventType('lush-themechange', { detail: { theme } }));
+  }
   if (!button) return theme;
   button.textContent = theme === 'dark' ? '☀ 浅色' : '☾ 深色';
   button.title = `当前为${theme === 'dark' ? '深色' : '浅色'}主题，点击切换`;

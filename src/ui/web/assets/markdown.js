@@ -1,5 +1,6 @@
 // 极简 Markdown 渲染器：纯解析 + createElement/textContent 构建 DOM。
-// 不引入任何第三方依赖，不使用 innerHTML，所有文本都经过 DOM 文本节点。
+// 不使用 innerHTML，所有 Markdown 文本都经过 DOM 文本节点；文档视图可把 mermaid fence 标成
+// 待渲染容器，再由 mermaid-docs.js 按需加载本地 Mermaid。Agent 输出默认仍显示普通代码块。
 // 解析失败或输入异常时回退为纯文本 <pre>，绝不抛错。
 
 export const MAX_MARKDOWN_LENGTH = 50000;
@@ -157,7 +158,13 @@ function parseBlocks(lines, options = {}) {
         if (close && close[1][0] === marker && !close[2]) { closed = true; break; }
         body.push(lines[j]); j++;
       }
-      if (closed) { blocks.push({ type: 'code', lang, text: body.join('\n') }); i = j + 1; continue; }
+      if (closed) {
+        const text = body.join('\n');
+        blocks.push(options.diagrams === true && lang.toLowerCase() === 'mermaid'
+          ? { type: 'diagram', lang: 'mermaid', text }
+          : { type: 'code', lang, text });
+        i = j + 1; continue;
+      }
       // 围栏未闭合：当作普通段落继续往下走，不抛错也不吞掉后续内容
     }
     if (HR.test(line)) { blocks.push({ type: 'hr' }); i++; continue; }
@@ -240,6 +247,15 @@ function renderBlock(block, doc, options) {
       if (lang) code.setAttribute('class', `language-${lang}`);
       code.append(doc.createTextNode(block.text));
       pre.append(code); box.append(pre);
+      return box;
+    }
+    case 'diagram': {
+      const box = doc.createElement('div');
+      box.setAttribute('class', 'mermaid md-mermaid');
+      box.setAttribute('data-mermaid-state', 'pending');
+      box.setAttribute('role', 'img');
+      box.setAttribute('aria-label', '流程图');
+      box.append(doc.createTextNode(block.text));
       return box;
     }
     case 'list': {

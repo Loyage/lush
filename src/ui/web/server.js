@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { UIClient } from '../client.js';
-import { docsIndex, readDoc } from './docs.js';
+import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
 import { check } from '../../core/types.js';
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
 const AUTH_FILE = 'web.json';
@@ -26,8 +26,7 @@ const MUTATIONS = new Set(['agent.configure','input.submit','input.flow','draft.
 /** 检验报告是 agent 写的自包含 HTML：只允许内联样式/脚本与 data: 图片，禁止任何外部加载与表单提交。
  *  主页面 CSP 不会作用于这个独立文档，所以这里必须自己收紧。 */
 const REPORT_CSP = "default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'";
-const DOC_HTML_CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'";
-const PAGE_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+const PAGE_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const LOGIN_CSP = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 function secretEqual(left, right) {
@@ -219,16 +218,10 @@ export function startWeb(config, port = 4318) {
             return json(await client.request('task.inspect', { id: taskId }));
           }
           if (url.pathname === '/favicon.ico') return new Response(null, { status: 204, headers });
-          // 「文档」页：读的是随这份代码发布的 docs/ 与 README.md，与当前项目目录无关。
+          // 「文档」页：读的是随这份代码发布的 docs/**/*.md 与 README.md，与当前项目目录无关。
           // 只接受已扫出的 id，请求里的字符串不进文件系统路径，未知 id 与非 .md 一律 404。
           if (url.pathname === '/api/docs') return json({ docs: docsIndex() });
-          const htmlDoc = /^\/api\/docs\/([a-z0-9._-]+)\/html$/.exec(url.pathname);
-          if (htmlDoc) {
-            const found = readDoc(htmlDoc[1]);
-            if (!found || found.format !== 'html') return json({ error: `no such HTML document: ${htmlDoc[1]}` }, 404);
-            return new Response(found.html, { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8',
-              'Content-Security-Policy': DOC_HTML_CSP } });
-          }
+          if (url.pathname === '/api/docs/search-index') return json({ docs: docsSearchIndex() });
           const doc = /^\/api\/docs\/([a-z0-9._-]+)$/.exec(url.pathname);
           if (doc) {
             const found = readDoc(doc[1]);

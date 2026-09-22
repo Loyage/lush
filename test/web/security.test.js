@@ -217,22 +217,23 @@ test('web exposes review candidate actions through the mutation whitelist', asyn
   } finally { await f.close(); }
 });
 
-test('web serves the core architecture HTML document as a sandboxed page', async () => {
+test('web serves core architecture as Markdown and has no standalone documentation HTML route', async () => {
   const f = await setup(); await repo(f.root);
   try {
     const index = await (await fetch(f.url+'/api/docs')).json();
     const entry = index.docs.find(doc => doc.id === 'docs-core-architecture');
-    expect(entry).toMatchObject({ format: 'html', group: '总览' });
-    const response = await fetch(f.url+'/api/docs/docs-core-architecture/html');
+    expect(entry).toMatchObject({ format: 'markdown', group: '总览', path: 'docs/core-architecture.md' });
+    const response = await fetch(f.url+'/api/docs/docs-core-architecture');
     expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toContain('text/html');
-    const csp = response.headers.get('content-security-policy');
-    expect(csp).toContain("default-src 'none'");
-    expect(csp).toContain("frame-ancestors 'self'");
-    const html = await response.text();
-    expect(html).toContain('Intent-first + Candidate-first');
-    // 只有索引里真实存在的 HTML 文档能被当页面取回
+    const body = await response.json();
+    expect(body.markdown).toContain('Intent-first + Candidate-first');
+    expect(body.markdown).toContain('```mermaid');
+    // 文档系统不再暴露 authored HTML；运行时 verifier 报告仍走独立的 task report 路由。
+    expect((await fetch(f.url+'/api/docs/docs-core-architecture/html')).status).toBe(404);
     expect((await fetch(f.url+'/api/docs/readme/html')).status).toBe(404);
-    expect((await fetch(f.url+'/api/docs/../package/html')).status).toBe(404);
+    const mermaid = await fetch(f.url+'/mermaid.min.js');
+    expect(mermaid.status).toBe(200);
+    expect(mermaid.headers.get('content-security-policy')).toContain("script-src 'self'");
+    expect(mermaid.headers.get('content-security-policy')).toContain("img-src 'self' blob:");
   } finally { await f.close(); }
 });

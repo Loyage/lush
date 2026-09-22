@@ -1,6 +1,6 @@
 # 生命周期不变量
 
-本文件是生命周期不变量清单，逐条原样。产品主链与设计原则见[核心架构 HTML](../core-architecture.html)。
+本文件是生命周期不变量清单，逐条原样。产品主链与设计原则见[核心架构](../core-architecture.md)。
 
 <a id="status"></a>- 状态：queued / running / waiting / awaiting / completed / failed / cancelled。
 <a id="credential"></a>- 一个 task 同时只有一个 invocation，且只有一个 agent 身份；身份跨唤醒不变，凭证只在该 invocation 活动期间有效，重启后全部作废。

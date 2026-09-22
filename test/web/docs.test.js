@@ -14,6 +14,7 @@ test('docs index lists the bundled documentation, grouped for reading', async ()
     expect(ids).toContain('docs-task-flow');
     expect(ids).toContain('docs-engineering-modules');
     expect(docs.find(doc => doc.id === 'readme').group).toBe('总览');
+    expect(docs.find(doc => doc.id === 'docs-contributing-documentation').group).toBe('贡献指南');
     const modules = docs.find(doc => doc.id === 'docs-engineering-modules');
     expect(modules.group).toBe('架构');
     expect(modules.path).toBe('docs/engineering/modules.md');
@@ -45,6 +46,22 @@ test('each document is delivered as markdown with its repository path', async ()
   } finally { await f.close(); }
 });
 
+test('the lazy search index contains headings, prose and code without mixing Mermaid into prose', async () => {
+  const f = await setup();
+  try {
+    const response = await fetch(f.url + '/api/docs/search-index');
+    expect(response.status).toBe(200);
+    const { docs } = await response.json();
+    const core = docs.find(doc => doc.id === 'docs-core-architecture');
+    const execution = docs.find(doc => doc.id === 'docs-engineering-execution-model');
+    expect(core.headings).toContain('一条主链');
+    expect(core.body).toContain('模型理解语义');
+    expect(execution.code).toContain('depends_on');
+    expect(core.diagram).toContain('flowchart LR');
+    expect(core.body).not.toContain('flowchart LR');
+  } finally { await f.close(); }
+});
+
 test('docs routes only reach the bundled markdown files', async () => {
   const f = await setup();
   try {
@@ -64,10 +81,15 @@ test('docs routes only reach the bundled markdown files', async () => {
 test('the docs page modules are served as assets and wired into the app entry', async () => {
   const f = await setup();
   try {
-    for (const file of ['/docs.js', '/render-docs.js']) {
+    for (const file of ['/docs.js', '/docs-search.js', '/render-docs.js', '/mermaid-docs.js', '/mermaid.min.js']) {
       const response = await fetch(f.url + file);
       expect(response.status).toBe(200);
-      expect(await response.text()).toContain('export function');
+      const body = await response.text();
+      if (file !== '/mermaid.min.js') expect(body).toContain('export ');
+      else {
+        expect(body.length).toBeGreaterThan(1_000_000);
+        expect(body).toContain('globalThis["mermaid"]');
+      }
     }
     const html = await (await fetch(f.url)).text();
     // 入口在左栏 workspace-nav，与「项目概览 / 分支图」并列
@@ -76,21 +98,23 @@ test('the docs page modules are served as assets and wired into the app entry', 
   } finally { await f.close(); }
 });
 
-test('the docs module resolves only bundled markdown and standalone HTML', async () => {
+test('the docs module resolves only bundled Markdown', async () => {
   const { docsIndex, readDoc } = await import('../../src/ui/web/docs.js');
   const index = docsIndex();
-  // 索引里每一项都必须真的是仓库内的 .md/.html，且 id 唯一
+  // 索引里每一项都必须真的是仓库内的 .md，且 id 唯一
   const ids = new Set();
   for (const doc of index) {
-    expect(doc.path).toMatch(/^(README\.md|docs\/.*\.(md|html))$/);
+    expect(doc.path).toMatch(/^(README\.md|docs\/.*\.md)$/);
+    expect(doc.format).toBe('markdown');
     expect(path.isAbsolute(doc.path)).toBe(false);
     expect(doc.path).not.toContain('..');
     expect(ids.has(doc.id)).toBe(false);
     ids.add(doc.id);
   }
   expect(readDoc('readme').markdown).toContain('# Lush');
-  expect(readDoc('docs-core-architecture')).toMatchObject({ format: 'html' });
-  expect(readDoc('docs-core-architecture').html).toContain('Intent-first + Candidate-first');
+  expect(readDoc('docs-core-architecture')).toMatchObject({ format: 'markdown' });
+  expect(readDoc('docs-core-architecture').markdown).toContain('Intent-first + Candidate-first');
+  expect(readDoc('docs-core-architecture').markdown).toContain('```mermaid');
   // 任何不在索引里的字符串都读不出东西——请求里的路径永远不会被拼进文件名
   for (const attempt of ['../package.json', 'docs/../package.json', 'package.json', '', 'README']) {
     expect(readDoc(attempt)).toBeNull();
