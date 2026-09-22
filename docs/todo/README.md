@@ -4,12 +4,13 @@
 
 ## 审查基线
 
-初始审查基于含未提交改动的工作区，Bun 为 1.4.2：456 个测试中 448 通过、8 失败。四个后续条目集成后重新建立了可复验基线（Bun 1.4.2、darwin/arm64）：
+初始审查基于含未提交改动的工作区，Bun 为 1.4.2：456 个测试中 448 通过、8 失败。后续条目与审查修复组合后重新建立了可复验基线（Bun 1.4.2、darwin/arm64）：
 
-- `bun run test`：478 个测试全部通过，覆盖 94 个测试文件。
+- `bun run test`：482 个测试全部通过，覆盖 94 个测试文件。
 - `bun run docs:check`：通过，检查 54 个 Markdown 文件。
-- `bun run measure:read-performance`：20 / 1,000 / 10,000 条任务的有界首页读取分别为 4.475 / 1.995 / 16.082 ms，12 MiB 日志实际只读取 8 MiB，冷读 13.442 ms、热读 0.109 ms、timer 延迟 13.463 ms；均低于条目记录的阈值。
-- Candidate 的一致性修复、结构化验收证据与集中转换契约都有临时 Git 仓库中的确定性回归测试。
+- `bun run measure:read-performance`：20 / 1,000 / 10,000 条任务的真实 `UIClient.overview()` 分别为 9.355 / 6.110 / 17.311 ms（渲染 0.936 / 2.482 / 1.393 ms）；10,000 条历史任务只返回 50 条任务窗口，首页 ladder 只查有界待交付项、resolver 与直接依赖，不再读取全任务表。12 MiB 日志实际只读取 8 MiB，冷读 11.844 ms、热读 0.106 ms、timer 延迟 11.871 ms；脚本会汇总 violations 并在任一阈值超限时以非零状态退出，本次 `ok: true`。
+- `accepted` 后并发 reject / changes / prepare 被集中转换契约拒绝，并由占住 Git 队列的确定性回归覆盖；`pass` 携带 `failures` / `unverified` 在证据文件与新 Artifact 写入时都会被拒绝，历史矛盾 Artifact 投影为 `unknown` 且不能让 Candidate 进入 `ready`。
+- 同路径日志 truncate 后在两次轮询间快速长回、且长度超过旧 offset 的回归同时校验 transcript 与 usage 缓存，确保丢弃旧前缀并重建。
 - GitHub `main` 要求 `Bun tests and docs` 状态检查成功；不强制 PR 审核。
 
 ## 推荐顺序
