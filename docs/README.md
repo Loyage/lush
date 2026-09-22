@@ -25,7 +25,8 @@
 - [接口参考](reference/README.md)：CLI、RPC、HTTP、Agent 环境与 Web 路由。
 - [贡献指南](contributing/README.md)：开发入口和文档写作约定。
 - [模块地图](engineering/modules.md)：并行开发边界；细表拆为 Runtime、Web、CLI / RPC / 测试三章。
+- [改进待办](todo/README.md)：审查发现、建议优先级与验收标准，不代表已实现功能。
 
 Web UI 读取随当前代码发布的 `README.md` 与 `docs/**/*.md`，不读取正在被 Lush 开发的目标项目。文档路径先经过扫描索引，请求只能按已知 ID 命中，不会拼接任意文件路径。
 
-文档只描述当前实现。运行时业务实体仍为 Input / Task / Agent / Message / Notice / Event；Run、Artifact 与 Review Candidate 是围绕执行和验收持久化的结构化事实。
+除明确标注为建议的改进待办外，文档只描述当前实现。运行时业务实体仍为 Input / Task / Agent / Message / Notice / Event；Run、Artifact 与 Review Candidate 是围绕执行和验收持久化的结构化事实。
