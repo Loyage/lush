@@ -34,18 +34,24 @@ flowchart LR
 stateDiagram-v2
     [*] --> pending: integration commit 已冻结
     pending --> preparing: 用户启动验收
-    preparing --> ready: verifier 报告完成
-    preparing --> failed: 验收失败
+    preparing --> ready: 当前 verifier 报告完成
+    preparing --> failed: 当前 verifier 验收失败
+    preparing --> changes_requested: 用户要求修改
+    preparing --> rejected: 用户放弃
+    preparing --> superseded: 新版本替代
     failed --> preparing: 重新验收
     ready --> accepted: 用户接受
-    accepted --> integrated: fast-forward 到目标分支
+    accepted --> integrated: 固定 commit 已落地或已集成
+    accepted --> ready: 落地失败并记录原因
     ready --> changes_requested: 用户要求修改
     changes_requested --> pending: 增量 Plan 产出 v2
     ready --> rejected: 用户放弃
     ready --> superseded: 新版本替代
 ```
 
-Candidate 创建时同时固定 integration commit 与 baseline commit。Verifier 在两边运行同一验收场景，生成自包含 HTML 报告。接受前 runtime 再次校验分支 tip 仍等于候选 commit；如果已经移动，旧批准不得复用，必须生成新版本。
+Candidate 创建时同时固定 integration commit 与 baseline commit。Verifier 在两边运行同一验收场景，生成自包含 HTML 报告。Verifier 结算用事务内的条件更新同时核验 Candidate 仍为 `preparing` 且 `report_task_id` 仍属于自己；用户已经拒绝、要求修改、准备替代版本或启动更新的 verifier 时，迟到结果只记录 `candidate.verification_ignored`，不能恢复旧状态。当前实现不主动取消已经启动的 verifier，其 Task、Run、Artifact 与报告仍可追溯。
+
+接受前 runtime 再次校验分支 tip 仍等于候选 commit；如果在这次校验前已经移动，旧批准不得复用，必须生成新版本。通过校验后，固定 commit 会继续传到 Git 串行边界：边界在同一串行区间内判断该提交已集成或把目标分支 fast-forward 到它，实际命令不再读取可变的 child tip。落地失败时 Candidate 回到 `ready`，并记录 `candidate.accept_failed` 事件；只有固定提交落地或已在目标分支中才进入 `integrated`。
 
 ## 反馈闭环
 
@@ -68,7 +74,7 @@ flowchart TD
 - **短期凭证**：Agent token 只在当前 invocation 有效，数据库只保存 SHA-256。
 - **未知副作用不重放**：崩溃后的 running Run 标记失败，由用户检查现场并明确重试。
 - **Git 写操作串行**：不做 shell 插值；compare-and-swap 与每次重新校验避免静默覆盖。
-- **验收绑定 commit**：用户接受不可变的树；branch 漂移后旧批准不得复用。
+- **验收绑定 commit**：用户接受不可变的树；校验前的 branch 漂移拒绝旧批准，校验后的并发前进也只能落地固定 commit。
 - **历史与磁盘分离**：Run、Artifact、Event 可长期保留；worktree 与 branch 按安全门独立回收。
 
 ## 界面信息架构

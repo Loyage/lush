@@ -22,12 +22,14 @@
 
 `branchState(child)` 用 commit graph 实时判断 direct parent 与 child：fast-forward / diverged / integrated / missing，并检查 child 的直接子分支是否都已收拢。
 
+普通分支操作默认把实时的 child tip 作为交付提交。Candidate 接受则把 `commit_hash` 作为 `expected` 一路传到 Git 边界；Git 串行区间内重新读取父子状态，并只接受两种结果：父分支已经包含该固定提交，或父分支能 fast-forward 到该固定提交。实际 Git 命令不再引用可变的 child tip，因此接受前置校验通过后即使 child 又前进，也不会扩大交付范围。
+
 落地时：
 
-- parent 已检出：要求 parent / child worktree 干净，在 parent worktree 执行 `git merge --ff-only <child-tip>`；
-- parent 未检出：执行 `git update-ref refs/heads/<parent> <child-tip> <old-parent-tip>`，用 compare-and-swap 防止覆盖外部推进。
+- parent 已检出：要求 parent / child worktree 干净，在 parent worktree 执行 `git merge --ff-only <landed-commit>`；
+- parent 未检出：执行 `git update-ref refs/heads/<parent> <landed-commit> <old-parent-tip>`，用 compare-and-swap 防止覆盖外部推进。
 
-runtime 不在 parent 上执行 `--no-ff`，也不让 parent worktree进入冲突状态。分歧改由独立子侧 merger 处理。
+runtime 不在 parent 上执行 `--no-ff`，也不让 parent worktree进入冲突状态。分歧改由独立子侧 merger 处理；Candidate 固定提交若已不能从 parent fast-forward，则拒绝落地并保留错误记录。
 
 ## 回收
 

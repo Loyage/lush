@@ -34,4 +34,13 @@ export const candidates = {
       updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, ...Object.values(patch), id(candidateId));
     return this.candidate(candidateId);
   },
+  /** 只有当前 preparing Candidate 自己登记的 verifier 才能结算；检查与写入由一条 SQL 原子完成。 */
+  settleCandidateVerification(candidateId, reportTaskId, status) {
+    const candidate = id(candidateId);
+    const verifier = id(reportTaskId);
+    check(status === 'ready' || status === 'failed', 'candidate verification must settle as ready or failed');
+    const result = this.run(`UPDATE review_candidates SET status=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE id=? AND status='preparing' AND report_task_id=?`, status, candidate, verifier);
+    return { applied: Number(result.changes) === 1, candidate: this.candidate(candidate) };
+  },
 };

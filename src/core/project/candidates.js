@@ -1,5 +1,19 @@
 import { check, id, text, bounded } from '../types.js';
 
+/**
+ * 接受失败不是静默状态：候选回到 ready 继续可审阅，这次失败留在事件里；
+ * 分支已经漂移的候选下次仍会在校验阶段被拒，用户需要重新 freeze 一版。
+ */
+function recordAcceptFailure(project, candidate, reason) {
+  project.store.transaction(() => {
+    project.store.updateCandidate(candidate.id, { status: 'ready' });
+    const input = project.store.get('SELECT task_id FROM inputs WHERE id=?', candidate.input_id);
+    project.store.event(input?.task_id ?? null, 'candidate.accept_failed', { candidate: candidate.id,
+      commit: candidate.commit_hash, target: candidate.baseline_branch, error: reason });
+  });
+  return project.store.candidate(candidate.id);
+}
+
 /** Intent-first delivery: freeze an integration commit and attach preview/evidence before final approval. */
 export default {
   async prepareCandidate(inputId, summary = null) {
@@ -75,6 +89,12 @@ export default {
       artifacts: bounded(this.store.artifactsForInput(candidate.input_id), 300000) };
   },
 
+  /**
+   * 用户接受：交付的必须是候选冻结的那个 commit，而不是接受那一刻的分支 tip。
+   * 校验一（tip 是否还等于冻结提交）发生在写操作前，给同步调用者快速失败；
+   * 校验二在 Git 串行区间内完成（见 workspaces.mergeBranch 的 expected），
+   * 所以「校验通过 → 分支被别的操作推走 → 合并」这个交错只会落地固定提交，不会扩大交付范围。
+   */
   async acceptCandidate(candidateId) {
     const candidate = this.store.candidate(candidateId);
     check(['ready','accepted'].includes(candidate.status), `candidate #${candidate.id} is ${candidate.status}; review it before accepting`);
@@ -82,12 +102,22 @@ export default {
     check(tip === candidate.commit_hash,
       `candidate #${candidate.id} pins ${candidate.commit_hash.slice(0,12)}, but ${candidate.branch} moved to ${tip.slice(0,12)}; prepare a new candidate`);
     this.store.updateCandidate(candidate.id, { status: 'accepted' });
-    const outcome = await this.approveBranchMerge(candidate.branch);
+    let outcome;
+    try {
+      outcome = await this.approveBranchMerge(candidate.branch, candidate.commit_hash);
+    } catch (error) {
+      recordAcceptFailure(this, candidate, error.message);
+      throw error;
+    }
     if (outcome.merged || outcome.already_integrated) {
       this.store.updateCandidate(candidate.id, { status: 'integrated' });
       const input = this.store.get('SELECT task_id FROM inputs WHERE id=?', candidate.input_id);
       this.store.event(input?.task_id ?? null, 'candidate.integrated', { candidate: candidate.id,
-        commit: candidate.commit_hash, target: candidate.baseline_branch });
+        commit: outcome.landed ?? candidate.commit_hash, target: candidate.baseline_branch });
+    } else {
+      // 没有落地也没有抛错（例如父分支已分歧）：把这次接受明确记为失败，候选回到 ready。
+      recordAcceptFailure(this, candidate,
+        `candidate #${candidate.id} was not integrated: ${candidate.branch} is ${outcome.status} with respect to ${candidate.baseline_branch}`);
     }
     return { candidate: this.store.candidate(candidate.id), integration: outcome };
   },

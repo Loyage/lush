@@ -10,14 +10,14 @@
 - `bun run docs:check`：通过，当时检查 46 个 Markdown 文件。
 - `bun run doctor`：`code_match: false`，运行中的 daemon 与磁盘源码指纹不同。
 - Candidate 的两项一致性问题在临时 Git 仓库中通过受控执行顺序复现；没有修改用户项目的分支或业务状态。
-- 本目录只记录分析，不包含功能修复。优先级表示建议实施顺序，不表示已经批准产品或架构变更。
+- 除条目内明确标注“已修复”并附验证记录的项目外，本目录只记录分析。优先级表示建议实施顺序，不表示已经批准产品或架构变更。
 
 ## 推荐顺序
 
 | 优先级 | 待办 | 依据 |
 |---|---|---|
-| P0 | [Candidate 接受时固定被审阅提交](candidate-acceptance.md) | 隔离复现：实际落地提交与候选提交不同 |
-| P0 | [防止迟到验收覆盖用户决定](candidate-state.md) | 隔离复现：rejected 被改回 ready |
+| P0 | [Candidate 接受时固定被审阅提交（已修复）](candidate-acceptance.md) | 固定提交贯穿 Git 串行边界；确定性交错回归已通过 |
+| P0 | [防止迟到验收覆盖用户决定（已修复）](candidate-state.md) | verifier 结算改为事务内条件更新；迟到结果仅留审计事件 |
 | P1 | [恢复可靠测试基线与持续集成](testing.md) | 全量失败、部分单文件通过 |
 | P1 | [结构化验收证据](verification-evidence.md) | 当前结果字段和候选状态判定的源码审查 |
 | P2 | [控制快照与日志读取成本](read-performance.md) | 全量轮询与同步整文件读取的源码审查，尚无压力测试 |

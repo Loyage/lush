@@ -97,8 +97,12 @@ export default {
     };
   },
 
-  /** 用户从分支图批准 direct child -> parent。唯一允许的落地方式是 fast-forward。 */
-  async approveBranchMerge(branch) {
+  /**
+   * 用户从分支图批准 direct child -> parent。唯一允许的落地方式是 fast-forward。
+   * expected 传入时交付内容由这个固定 commit 决定：Candidate 接受走的就是这条路，
+   * 分支在读到 tip 之后又前进也不会把未审阅的提交一起带上目标分支。
+   */
+  async approveBranchMerge(branch, expected = null) {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
     const record = this.store.branch(name);
@@ -107,20 +111,20 @@ export default {
       const task = this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
       check(!task || task.status === 'completed', `branch task #${record.task_id} is not completed`);
     }
-    const outcome = await this.workspaces.mergeBranch(name);
+    const outcome = await this.workspaces.mergeBranch(name, expected);
     if (!outcome.merged && !outcome.already_integrated) return outcome;
     const task = record.task_id === null ? null : this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
     if (task && ['pending','review','conflict','merging'].includes(task.integration)) {
       this.store.transaction(() => {
         this.store.update(task.id, { integration: 'merged', integration_error: null });
-        this.store.event(task.id, 'merged', { commit: outcome.child_head, parent: outcome.parent,
+        this.store.event(task.id, 'merged', { commit: outcome.landed ?? outcome.child_head, parent: outcome.parent,
           via: 'branch.graph', already_integrated: outcome.already_integrated === true });
       });
       await this.reconcileIntegrated(outcome.parent, task.id);
     } else {
       const input = this.store.get('SELECT task_id FROM inputs WHERE anchor_branch=?', name);
       if (input?.task_id) this.store.event(input.task_id, 'branch.merged', { branch: name, parent: outcome.parent,
-        commit: outcome.child_head, already_integrated: outcome.already_integrated === true });
+        commit: outcome.landed ?? outcome.child_head, already_integrated: outcome.already_integrated === true });
     }
     return outcome;
   },

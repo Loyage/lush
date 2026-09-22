@@ -14,7 +14,8 @@ Candidate 检验是用户显式动作：`candidate.prepare`（或自动中间集
 
 - 两侧都**固定 commit**：一侧是 Intent 集成分支被审阅的 commit，另一侧是创建 Candidate 时冻结的 target baseline commit；
 - verifier 启动时会校验该 checkout 的 HEAD 仍等于被固定的 commit，漂移就拒绝，避免「审阅的不是报告里的那一版」；
-- 新 Candidate 先停在 `pending`，不占执行槽；用户显式启动后进入 `preparing`；报告成功后进入 `ready`，报告缺失或失败时进入 `failed`，可再次显式 `candidate.verify`。
+- 新 Candidate 先停在 `pending`，不占执行槽；用户显式启动后进入 `preparing`；只有 Candidate 仍是 `preparing` 且 `report_task_id` 仍指向该 verifier 时，报告成功才进入 `ready`，报告缺失或失败才进入 `failed`，之后可再次显式 `candidate.verify`；
+- 用户在运行期间拒绝、要求修改或用新版替代 Candidate 时，不主动取消已经启动的 verifier。它可以继续形成 Task、Run、Artifact 与报告历史，但结算会写 `candidate.verification_ignored`，不能恢复旧 Candidate 或替换当前 verifier 的结果。
 
 ## 对照检出生命周期
 
