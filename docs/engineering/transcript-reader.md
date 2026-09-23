@@ -17,6 +17,15 @@
 
 `seq` 在正常追加下稳定；会话清理或改写可能让旧编号失效。解释历史独立保存当时快照，不依赖源文件一直存在。
 
+### 最新读取
+
+需要优先看到尾部时走 `task.transcript_latest`：它不复用快速视图的 8 MiB 头窗口，而是对任务全部会话做一次完整的异步流式扫描，返回满足 `seq > after` 且（`before === 0` 或 `seq < before`）的最新 `limit` 步，按 `seq` 升序。`after` 是已读下界，`before` 是向回翻页的上界；两者默认 0 表示不设边界。
+
+- 每步的字段、4,000 字符裁剪与 token 口径与 `task.transcript` 完全一致：精确请求带 `exact/turn`，两次请求之间的批次带 `context_added/estimated/batch`，批首 `first` 只落在该批第一步；窗口从批次中间开始时不会误添 `first`，文件边界仍不跨文件推算。
+- 返回 `next`（窗口最大 `seq`）/`oldest`（窗口最小 `seq`）/`has_older`（`(after, oldest)` 内是否还有步骤）供 `before` 连续往回翻页；空窗口的 `next` 回退到 `after`、`oldest` 回退到 `before`。
+- 内存有界：只保留窗口与当前 token 批次，不缓存全部正文；不改写会话文件。全量扫描与全文搜索同级，超长历史不是恒定时间。单行超过 16 MiB 时置 `truncated` 并跳过该行，不冒充无数据；坏 JSON 行同快速读面一样跳过。
+- 与快速读面的区别：快速读面从头读、受每请求前 8 MiB 预算限制，适合先看开始；最新读取为保证尾部可达会读完整个任务记录，适合轮询最新步骤或从尾部向回翻找。
+
 ## 正文优先与因果配对
 
 `transcript-body.js` 是快速视图与查找正文的共享渲染器：工具参数按命令、文件、起始行、修改前后等标签直接展示；未知参数保留字段名；命令与输出使用保留真实换行的代码块，思考／回答按 Markdown 偏好渲染。普通长内容默认显示前 10 行／1,000 字符，就地展开当前已加载内容；命令与失败文本不预折叠。参数最多预览 40 个字段、20 处修改，超限明确指向原文。
@@ -67,16 +76,17 @@
 | RPC | 参数 | 返回 |
 |---|---|---|
 | `task.transcript_search` | `id, query?, kind?, tool?, errors?, after?, limit?` | `steps, next, has_more, files, scope`；limit 默认 50，最大 100 |
+| `task.transcript_latest` | `id, after?, before?, limit?`（默认 0 / 0 / 100） | `steps, next, oldest, has_older, files, truncated`；最新优先窗口，limit 最大 200 |
 | `task.transcript_page` | `id, seq?, offset?`（默认 1 / 0） | `steps, next_seq, next_offset, has_more, files, scope` |
 | `task.transcript_step` | `id, seq, offset?` | `step, offset, next_offset, has_more, related, context` 与配对限制标记 |
 | `explanation.start` | `id, seq, quote` | 新解释任务的状态、来源快照 |
 | `explanation.list` | 源任务 `id, before?` | `explanations, next, has_more`，每页 50 条 |
 | `explanation.get` | 解释任务 `id` | `id, status, result, error, source` |
 
-GET 路由：`/api/task/<id>/transcript-page`、`/api/task/<id>/transcript-search`、`/api/task/<id>/transcript-step`、`/api/task/<id>/explanations`、`/api/explanation/<id>`。创建走现有 `POST /api/action` 的 `explanation.start` 白名单；没有新增直连模型的浏览器入口。
+GET 路由：`/api/task/<id>/transcript-latest`、`/api/task/<id>/transcript-page`、`/api/task/<id>/transcript-search`、`/api/task/<id>/transcript-step`、`/api/task/<id>/explanations`、`/api/explanation/<id>`。创建走现有 `POST /api/action` 的 `explanation.start` 白名单；没有新增直连模型的浏览器入口。
 
 ## 验证入口
 
-`test/transcript-reader.test.js` 覆盖全量范围、截断后命中、配对、分页与文件边界；`test/project/explanations.test.js` 覆盖快照、无分支和权限；`test/explainer-provider.test.js` 使用可控子进程检查禁用工具的参数与凭证。
+`test/transcript-reader.test.js` 覆盖全量范围、截断后命中、配对、分页与文件边界；`test/transcript-latest.test.js` 覆盖最新窗口、`before` 往回翻页、`after` 只看新增、token／裁剪与 head 读面一致、超过 8 MiB 仍取到尾部、坏行跳过与超长行标记；`test/project/explanations.test.js` 覆盖快照、无分支和权限；`test/explainer-provider.test.js` 使用可控子进程检查禁用工具的参数与凭证。
 
 Web 路由与 DOM 交互见 `test/web/transcript-reader.test.js`、`test/web/dom-transcript-reader.test.js`、`test/web/dom-transcript-terminal.test.js`。测试只使用临时项目和 Mock／可控进程，不发送真实项目内容给模型。

@@ -318,7 +318,7 @@ export function startWeb(config, port = 4318, options = {}) {
             // 独立顶层文档（新标签打开）：不受主页面 CSP 约束，但仍显式收紧到一个自包含页面。
             return new Response(Bun.file(file), { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': REPORT_CSP } });
           }
-          const reading = /^\/api\/task\/(\d+)\/(transcript-search|transcript-step|transcript-page|explanations)$/.exec(url.pathname);
+          const reading = /^\/api\/task\/(\d+)\/(transcript-search|transcript-step|transcript-page|transcript-latest|explanations)$/.exec(url.pathname);
           if (reading) {
             const id = Number(reading[1]), q = url.searchParams;
             if (reading[2] === 'transcript-search') return json(await client.request('task.transcript_search', {
@@ -326,6 +326,9 @@ export function startWeb(config, port = 4318, options = {}) {
               after: Number(q.get('after') ?? 0), limit: Number(q.get('limit') ?? 50),
             }));
             if (reading[2] === 'transcript-page') return json(await client.request('task.transcript_page', { id, seq: Number(q.get('seq') ?? 1), offset: Number(q.get('offset') ?? 0) }));
+            if (reading[2] === 'transcript-latest') return json(await client.request('task.transcript_latest', {
+              id, after: Number(q.get('after') ?? 0), before: Number(q.get('before') ?? 0), limit: Number(q.get('limit') ?? 100),
+            }));
             if (reading[2] === 'transcript-step') return json(await client.request('task.transcript_step', { id, seq: Number(q.get('seq')), offset: Number(q.get('offset') ?? 0) }));
             return json(await client.request('explanation.list', { id, before: q.has('before') ? Number(q.get('before')) : null }));
           }

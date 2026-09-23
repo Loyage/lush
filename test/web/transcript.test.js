@@ -105,3 +105,27 @@ test('web transcript steps carry per-step tokens: exact for a billed turn, estim
     expect(app).toContain("t.estimated");
   } finally { await f.close(); }
 });
+
+test('web exposes the newest transcript window and validates its cursors', async () => {
+  const f = await setup(); await repo(f.root);
+  try {
+    const task = (await f.project.submit('latest me')).task;
+    f.project.stopping = true;   // 只造数据，不让 planner 真的跑
+    const dir = path.join(f.config.home, 'sessions');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `2026-01-01T00-00-00-000Z_lush-task-${task.id}.jsonl`), Array.from({ length: 5 }, (_v, index) =>
+      JSON.stringify({ type: 'message', timestamp: 1789749049000 + index, message: { role: 'assistant', content: [{ type: 'text', text: `step ${index}` }] } })).join('\n') + '\n');
+    const latest = await (await fetch(`${f.url}/api/task/${task.id}/transcript-latest?limit=2`)).json();
+    expect(latest.steps.map(step => [step.seq, step.body])).toEqual([[4, 'step 3'], [5, 'step 4']]);
+    expect(latest).toMatchObject({ task_id: task.id, next: 5, oldest: 4, has_older: true, truncated: false });
+    // before 往回翻页
+    const older = await (await fetch(`${f.url}/api/task/${task.id}/transcript-latest?before=4&limit=10`)).json();
+    expect(older.steps.map(step => step.seq)).toEqual([1, 2, 3]);
+    expect(older.has_older).toBe(false);
+    // 越界游标、未知任务、超限 limit 都是 400，不是空结果或服务器错误
+    for (const query of ['after=-1', 'before=-1', 'limit=0', 'limit=201']) {
+      expect((await fetch(`${f.url}/api/task/${task.id}/transcript-latest?${query}`)).status).toBe(400);
+    }
+    expect((await fetch(`${f.url}/api/task/99/transcript-latest`)).status).toBe(400);
+  } finally { await f.close(); }
+});

@@ -1,4 +1,4 @@
-import { readTranscript, readUsage } from '../transcript.js';
+import { readTranscript, readTranscriptLatest, readUsage } from '../transcript.js';
 import { readUsageStatistics } from '../usage-statistics.js';
 import { searchTranscript, transcriptStep, transcriptPage } from '../transcript-reader.js';
 
@@ -8,6 +8,11 @@ export default {
   transcript(taskId, after = 0, limit = 100) {
     this.store.task(taskId);
     return readTranscript(this.config, taskId, after, limit);
+  },
+
+  transcriptLatest(taskId, after = 0, before = 0, limit = 100) {
+    this.store.task(taskId);
+    return readTranscriptLatest(this.config, taskId, { after, before, limit });
   },
 
   transcriptPage(taskId, seq, offset) { this.store.task(taskId); return transcriptPage(this.config, taskId, seq, offset); },

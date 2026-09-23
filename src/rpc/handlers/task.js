@@ -28,6 +28,9 @@ export const handlers = {
   },
   'task.diff'(p, params, actor) { return p.diff(params.id); },
   'task.transcript'(p, params, actor) { return p.transcript(id(params.id), Number(params.after ?? 0), Number(params.limit ?? 100)); },
+  'task.transcript_latest'(p, params) {
+    return p.transcriptLatest(id(params.id), Number(params.after ?? 0), Number(params.before ?? 0), Number(params.limit ?? 100));
+  },
   'task.usage'(p, params, actor) { return p.usage(id(params.id)); },
   'task.transcript_search'(p, params) {
     const { id: taskId, _token, ...options } = params;

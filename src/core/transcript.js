@@ -17,6 +17,8 @@ const MAX_BODY = 4000;
 export const MAX_STEPS = 200;
 /** Total bytes read from one task's session files per request. */
 const MAX_BYTES = 8 * 1024 * 1024;
+/** Full-scan bound for one JSONL line: a bigger line cannot be projected without unbounded memory. */
+const MAX_LATEST_LINE = 16 * 1024 * 1024;
 /** 「最近一次执行内容」是给 UI 单行展示的预览，不重复 step 里可达 4000 字符的正文。 */
 const MAX_PREVIEW = 200;
 
@@ -357,6 +359,115 @@ export function readTranscript(config, taskId, after = 0, limit = 100) {
     task_id: taskId, files, steps: window, next: window.length ? window.at(-1).seq : after,
     has_more: hasMore, truncated: budget.truncated,
   };
+}
+
+/**
+ * Complete records of one session file, streamed in order without the compatibility reader's
+ * 8 MiB window. A line longer than MAX_LATEST_LINE is skipped and the scan is marked truncated,
+ * never silently reported as an empty tail. An unfinished trailing line waits for the next append.
+ */
+async function* sessionRecords(dir, file, state) {
+  let handle;
+  try { handle = await fs.promises.open(path.join(dir, file), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW); }
+  catch { state.truncated = true; return; }
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || !stat.size) return;
+    const stream = handle.createReadStream({ autoClose: false, start: 0, end: stat.size - 1, highWaterMark: READ_CHUNK });
+    let fragments = [], size = 0, line = 0, skipping = false;
+    for await (const chunk of stream) {
+      let start = 0;
+      for (let at = 0; at < chunk.length; at++) {
+        if (chunk[at] !== 10) continue;
+        const tail = chunk.subarray(start, at);
+        line += 1; start = at + 1;
+        if (skipping) { skipping = false; fragments = []; size = 0; continue; }
+        if (size + tail.length > MAX_LATEST_LINE) { state.truncated = true; fragments = []; size = 0; continue; }
+        const text = Buffer.concat([...fragments, tail], size + tail.length).toString('utf8');
+        fragments = []; size = 0;
+        if (!text.trim()) continue;
+        try { yield { record: JSON.parse(text), file, line }; } catch { /* killed agents may leave malformed complete lines; skip them */ }
+      }
+      if (start < chunk.length) {
+        if (skipping) continue;
+        const tail = Buffer.from(chunk.subarray(start));
+        size += tail.length; fragments.push(tail);
+        if (size > MAX_LATEST_LINE) { state.truncated = true; skipping = true; fragments = []; size = 0; }
+      }
+    }
+  } finally { await handle.close(); }
+}
+
+/**
+ * Newest steps of a task's agent process, read by a complete streaming scan so the tail stays
+ * reachable even when the transcript exceeds the compatibility reader's 8 MiB head window.
+ *
+ * The window is the latest `limit` steps with `seq > after` and (`before === 0` or `seq < before`),
+ * returned oldest-first. Step shape, the 4,000-character clipping and the token shapes are identical
+ * to `readTranscript`; only the read direction differs. `oldest` / `has_older` let the caller page
+ * backwards with `before`, `next` is the newest cursor, and `truncated` reports an over-long line
+ * instead of faking an empty result. Memory stays bounded: a `limit`-sized ring plus the current
+ * token batch, never the full bodies. Session files are never rewritten.
+ */
+export async function readTranscriptLatest(config, taskId, { after = 0, before = 0, limit = 100 } = {}) {
+  check(Number.isSafeInteger(after) && after >= 0, 'invalid transcript cursor');
+  check(Number.isSafeInteger(before) && before >= 0, 'invalid transcript cursor');
+  check(Number.isInteger(limit) && limit > 0 && limit <= MAX_STEPS, `transcript limit must be 1..${MAX_STEPS}`);
+  const dir = sessionDir(config);
+  const files = sessionFiles(config, taskId);
+  const state = { truncated: false };
+  const steps = [];
+  let seq = 0, hasOlder = false, prev = null, batchStart = null;
+
+  // 与 readTranscript 同口径：下一次请求的输入侧 − 上一次请求的总量，赋给两次请求之间的步骤。
+  // 这里只在有界的环形窗口上赋 token，逐出的旧步骤不再关心。
+  const resolveBatch = row => {
+    if (batchStart === null) return;
+    const added = contextOf(row) - prev;
+    if (added > 0) {
+      for (const step of steps) if (step.seq >= batchStart) {
+        step.tokens = { context_added: added, estimated: true, batch: true, ...(step.seq === batchStart ? { first: true } : {}) };
+      }
+    }
+    batchStart = null;
+  };
+
+  for (const file of files) {
+    prev = null;   // 跨会话文件不推算式批次：文件边界重置「上一次请求」
+    batchStart = null;
+    for await (const { record, line } of sessionRecords(dir, file, state)) {
+      const row = usageRow(record);
+      const projected = projectRecord(record);
+      if (row) {
+        resolveBatch(row);
+        let first = true;
+        for (const step of projected) {
+          seq += 1;
+          const out = { seq, file, line, ...step, tokens: exactTokens(row, first) };
+          first = false;
+          if (seq <= after || (before !== 0 && seq >= before)) continue;
+          steps.push(out);
+          if (steps.length > limit) { steps.shift(); hasOlder = true; }
+        }
+        prev = tokensOf(row);
+        batchStart = null;
+        continue;
+      }
+      const untokened = prev === null;   // 首个请求之前没有可比对的上下文，不给 tokens
+      for (const step of projected) {
+        seq += 1;
+        const out = { seq, file, line, ...step };
+        if (!untokened && batchStart === null) batchStart = seq;
+        if (seq <= after || (before !== 0 && seq >= before)) continue;
+        steps.push(out);
+        if (steps.length > limit) { steps.shift(); hasOlder = true; }
+      }
+    }
+  }
+
+  const next = steps.length ? steps.at(-1).seq : after;
+  const oldest = steps.length ? steps[0].seq : before || 0;
+  return { task_id: taskId, steps, files, next, oldest, has_older: hasOlder, truncated: state.truncated };
 }
 
 /**
