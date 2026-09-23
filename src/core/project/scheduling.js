@@ -105,7 +105,10 @@ export default {
     try {
       let task = this.store.task(taskId);
       check(task.calls < this.config.maxCalls, 'task invocation limit reached');
-      const agent = this.provider.resolve?.(task) || { agent: this.config.provider, model: '', thinking: '', default_prompt: '', append_prompt: '' };
+      // An explicit retry may freeze a complete task-local profile. It wins over dynamic
+      // project defaults for every invocation in this attempt and is cleared at settlement.
+      const retryProfile = task.retry_profile ? this.agentSettings.retryProfile(task.role, JSON.parse(task.retry_profile)) : null;
+      const agent = retryProfile || this.provider.resolve?.(task) || { agent: this.config.provider, model: '', thinking: '', default_prompt: '', append_prompt: '' };
       run.agent = agent;
       const record = this.store.startRun(task, agent);
       run.recordId = record.id;
@@ -126,7 +129,10 @@ export default {
       run.messages = messages;
       const context = await this.invocationContext(task, run);
       if (run.controller.signal.aborted) throw new Error(abortMessage());
-      const result = await this.provider.run({ task: this.progressView(task), cwd, token: run.token, signal: run.controller.signal, agent,
+      // retry_profile contains system instructions and local resource paths. It is runtime
+      // configuration, not task data, so do not copy it into the provider's untrusted input JSON.
+      const { retry_profile: _retryProfile, ...providerTask } = this.progressView(task);
+      const result = await this.provider.run({ task: providerTask, cwd, token: run.token, signal: run.controller.signal, agent,
         onSpawn: pid => { run.pid = pid; }, messages, api: this,
         context,
       });

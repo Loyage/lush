@@ -9,7 +9,7 @@ export const PARAMS = {
   'task.transcript_search': ['id','query','kind','tool','errors','after','limit'], 'task.transcript_step': ['id','seq','offset'],
   'explanation.start': ['id','seq','quote'], 'explanation.list': ['id','before'], 'explanation.get': ['id'],
   'progress.plan': ['steps'], 'progress.complete': ['step'],
-  'task.spawn': ['parent','goal','role','deps','name','spec'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id'],
+  'task.spawn': ['parent','goal','role','deps','name','spec'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id','profile'],
   'task.merge': ['id'], 'task.merge_many': ['ids'], 'task.cleanup': ['id','keep_branch'], 'task.verify': ['id'], 'task.delete': ['id'], 'task.clear': [], 'task.ladder': [],
   'spec.list': [], 'spec.add': ['goal','role','name','deps'], 'spec.drop': ['id','note'],
   'candidate.list': ['input'], 'candidate.inspect': ['id'], 'candidate.prepare': ['input','summary'], 'candidate.verify': ['id'],

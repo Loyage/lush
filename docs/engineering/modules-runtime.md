@@ -10,7 +10,7 @@
 |---|---|---|
 | `agent/prompts.js` | 命名内置 Prompt 片段、按角色组合，并叠加可提交、本机与 `agent.json` 补充 | `AGENT_ROLES`、`PROMPT_PARTS`、`ROLE_PROMPT_PARTS`、`builtInPrompt(role)`、`agentPrompt(config,role,profile)` |
 | `agent/environment.js` | 每次 invocation 热加载 `.lush/agent/agent.env` 与角色 env，校验并叠加环境；为 Web/RPC 提供按公共/角色文件读取与 owner-only 原子写入，空表删除文件 | `AGENT_ENV_TARGETS`、`parseAgentEnv(source,file)`、`readAgentEnvironment(config,target)`、`saveAgentEnvironment(config,target,values)`、`agentEnvironment(config,role)` |
-| `agent/settings.js` | `.lush/agent.json` 的兼容读取、校验、原子写入、角色继承与 Web 选项（含各角色内置 Prompt）；旧 `prompt` 迁到 `append_prompt`，资源选择存 `extensions` / `skills` | `AGENT_ROLES`、`AGENT_BACKENDS`、`THINKING_LEVELS`、`MODEL_PRESETS`、`normalizeAgentConfig()`、`normalizeSoftBudget(value)`、`AgentSettings` |
+| `agent/settings.js` | `.lush/agent.json` 的兼容读取、校验、原子写入、角色继承与 Web 选项（含各角色内置 Prompt）；旧 `prompt` 迁到 `append_prompt`，资源选择存 `extensions` / `skills` | `AGENT_ROLES`、`AGENT_BACKENDS`、`THINKING_LEVELS`、`MODEL_PRESETS`、`normalizeAgentConfig()`、`normalizeAgentProfile()`、`normalizeSoftBudget(value)`、`AgentSettings` |
 | `agent/models.js` | 有界、超时地读取 Pi / Codex CLI 模型目录，只投影安全的模型元数据，失败回退内置预设 | `discoverAgentModels(config, agent)` |
 | `agent/resources.js` | 不执行资源代码地发现用户/项目 Pi 扩展、Skills 与已安装 package 资源；CLI 列表失败时保留本地目录结果 | `discoverAgentResources(config)` |
 | `agent/provider.js` | 动态后端路由、Pi / Codex invocation、Codex thread 恢复与每轮 token 用量留存（不伪造费用）；调用 Prompt 与 env 组合器；子进程因 AbortSignal 结束时保留 scheduler / lifecycle 写入的具体超时或取消原因 | `PiProvider`、`CodexProvider`、`AgentProvider`、`MockProvider` |
@@ -64,7 +64,7 @@
 | `project/transcript.js` | pi 会话记录的只读投影；底层按 64 KiB 分块、以 UTF-8 字节执行 8 MiB 预算，按文件身份/版本缓存完整 JSONL 行与未完尾行，并用头部/旧追加边界的有界字节守卫区分纯追加与同 inode truncate 后快速长回，替换/截断重建；用量在文件签名未变时复用聚合，每个 step 的 token 口径保持不变 | `transcript(taskId, after, limit)`、`searchTranscript(taskId,options)`、`transcriptStep(taskId,seq,offset)`、`usage(taskId)`、`usageStatistics(options)`（项目统计走独立全量流式读面；测量接缝 `transcriptReadStats`） |
 | `project/context.js` | 按角色和因果关系提供有界启动上下文；不注入全局任务历史 | `invocationContext(task,run)` |
 | `project/scheduling.js` | 调度、invocation 生命周期、凭证；成功返回写 version 2 `run.result`，把 `invocation.status` 与 `verification.status` 分开；scheduler 持有调用截止时间并把超时规范化为带秒数的 failed Run，与用户取消的 cancelled Run 区分 | `kick()`、`pump()`、`actor(token)`、`hasActionableMessages(taskId)`、`wake(taskId)`、`invoke(taskId, run)` |
-| `project/lifecycle.js` | 结算、取消、重试、清空、定向删除与恢复；Candidate verifier 只在当前状态为 `preparing`、`report_task_id` 仍匹配、报告存在且结构化结论为 `pass` 时结算为 `ready`，其余结论为 `failed`；迟到结果保留事件但不改 Candidate | `finish`、`cancel`、`retry`、`clear`、`reclaimThenPurge(tasks, anchors)`、`deleteTask(taskId)`、`subtreeTasks(taskId)`、`forgetTasks(root, subtree, ids)`、`recover`、`shutdown` |
+| `project/lifecycle.js` | 结算、取消、重试（可冻结仅本轮生效的完整 task-local Agent profile）、清空、定向删除与恢复；Candidate verifier 只在当前状态为 `preparing`、`report_task_id` 仍匹配、报告存在且结构化结论为 `pass` 时结算为 `ready`，其余结论为 `failed`；迟到结果保留事件但不改 Candidate | `finish`、`cancel`、`retry`、`clear`、`reclaimThenPurge(tasks, anchors)`、`deleteTask(taskId)`、`subtreeTasks(taskId)`、`forgetTasks(root, subtree, ids)`、`recover`、`shutdown` |
 
 `project/graph.js` 另把 Git 边界的 `branchDiagnostics()` 结果投影到 branch 节点的 `diagnostics`，不改变既有任务计数与父子关系口径。
 
@@ -86,7 +86,7 @@
 |---|---|---|
 | `store/base.js` | 打开数据库、事务、id 分配与加列式 schema 演进 | `class StoreBase`（构造、`run`/`get`/`all`/`transaction`/`close`、`taskIdHigh`/`setTaskIdHigh`/`nextTaskId`、`inputIdHigh`/`setInputIdHigh`/`nextInputId`） |
 | `store/schema.js` | 全部 DDL、项目绑定校验，以及首页持久 revision / 技术计数表 `overview_task_counts` 的触发器维护（旧库打开时一次性播种） | `SCHEMA`、`bindProject(db, project)` |
-| `store/tasks.js` | tasks 表的读写与生命周期字段、有界 work task 页，以及 `tasks.progress_plan` 附属 JSON 的原子替换 | `task`、`tasks`、`summaries`、`summaryPage`、`create`、`update`、`setProgressPlan`、`children`、`touch`、`armAgent`、`touchAgent`、`agentByToken`、`activeTasks`、`purge`、`referringTasks`、`deleteTasks` |
+| `store/tasks.js` | tasks 表的读写与生命周期字段、有界 work task 页，以及 `tasks.progress_plan` 附属 JSON 的原子替换；`tasks.retry_profile` 保存已校验的本轮重试 Profile 并在终态清除 | `task`、`tasks`、`summaries`、`summaryPage`、`create`、`update`、`setProgressPlan`、`children`、`touch`、`armAgent`、`touchAgent`、`agentByToken`、`activeTasks`、`purge`、`referringTasks`、`deleteTasks` |
 | `store/specs.js` | 拆解队列 | `specDeps`、`addSpec`、`spec`、`specs`、`specStats`、`pendingSpecs`、`specsForBatch`、`specsByPlanner`、`nextSpecPlanner`、`assignSpecs`、`takeSpecs`、`plannedSpec`、`dropSpec`、`releaseBatch`、`discardBatch` |
 | `store/deps.js` | 依赖边；`depMap(taskIds?)` 可只投影当前有界任务窗 | `addDep`、`deps`、`dependents`、`depsDetail`、`dependentsDetail`、`depMap`、`reaches`、`edgesOf` |
 | `store/messages.js` | 收件箱 | `message`、`unread` |

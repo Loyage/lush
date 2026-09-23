@@ -51,7 +51,7 @@ function resourceList(value, name) {
     .filter(entry => entry && !seen.has(entry) && seen.add(entry));
 }
 
-function normalizeProfile(value, name) {
+export function normalizeAgentProfile(value, name = 'profile') {
   check(isPlainObject(value), `${name} must be an object`);
   check(Object.keys(value).every(key => PROFILE_KEYS.has(key)), `${name} has an unknown field`);
   const agent = text(value.agent ?? '', `${name}.agent`, 32);
@@ -85,13 +85,13 @@ export function normalizeAgentConfig(value, fallback) {
   check(isPlainObject(value), 'agent config must be an object');
   check(value.version === undefined || value.version === 1, 'agent config version must be 1');
   check(Object.keys(value).every(key => ['version', 'default', 'roles'].includes(key)), 'agent config has an unknown field');
-  const base = normalizeProfile(value.default ?? fallback, 'default');
+  const base = normalizeAgentProfile(value.default ?? fallback, 'default');
   const roles = value.roles ?? {};
   check(isPlainObject(roles), 'roles must be an object');
   check(Object.keys(roles).every(role => AGENT_ROLES.includes(role)), 'agent config has an unknown role');
   const normalizedRoles = {};
   for (const role of AGENT_ROLES) if (roles[role] !== undefined && roles[role] !== null) {
-    normalizedRoles[role] = normalizeProfile(roles[role], `roles.${role}`);
+    normalizedRoles[role] = normalizeAgentProfile(roles[role], `roles.${role}`);
   }
   return { version: 1, default: base, roles: normalizedRoles };
 }
@@ -141,6 +141,13 @@ export class AgentSettings {
   resolve(role) {
     const config = this.get();
     return { ...(config.resolved[role === 'scheduler' ? 'planner' : role] || config.default) };
+  }
+
+  /** Validate and freeze a task-local profile for one explicit retry attempt. */
+  retryProfile(role, value) {
+    const resolvedRole = role === 'scheduler' ? 'planner' : role;
+    check(AGENT_ROLES.includes(resolvedRole), `unknown agent role: ${role}`);
+    return normalizeAgentProfile(value, `roles.${resolvedRole}`);
   }
 
   save(value) {

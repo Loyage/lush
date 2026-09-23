@@ -82,3 +82,41 @@ test('retry is explicit, preserves unconsumed messages and prior audit', async (
     expect(f.store.history(root.id).some(e => e.type === 'failed')).toBe(true);
   } finally { await f.close(); }
 });
+
+test('retry can freeze a complete task-local Agent profile without changing project defaults', async () => {
+  let fail = true;
+  const seen = [];
+  const provider = {
+    resolve() { return { agent: 'mock', model: 'project-default', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }; },
+    async run({ agent }) { seen.push(agent); if (fail) throw new Error('first attempt failed'); return 'ok'; },
+  };
+  const f = fixture(provider); await repo(f.root);
+  try {
+    const task = (await f.project.submit('retry with another model')).task;
+    await until(() => f.store.task(task.id).status === 'failed');
+    fail = false;
+    const profile = { agent: 'pi', model: 'openai-codex/gpt-5.4-mini', thinking: 'high',
+      default_prompt: 'custom role rules', append_prompt: 'focus on the previous failure',
+      extensions: ['/tmp/extension.js'], skills: ['/tmp/skill'], soft_budget: { responses: 8, tokens: 12000 } };
+    f.project.retry(task.id, profile);
+    expect(JSON.parse(f.store.task(task.id).retry_profile)).toEqual(profile);
+    await until(() => f.store.task(task.id).status === 'completed');
+    expect(seen.at(-1)).toEqual(profile);
+    expect(f.store.task(task.id).retry_profile).toBeNull();
+    expect(f.project.agentSettings.resolve('planner').model).not.toBe(profile.model);
+    const event = f.store.history(task.id).find(row => row.type === 'retry');
+    expect(event.data).toMatchObject({ profile_override: true, agent: 'pi', model: profile.model,
+      default_prompt_overridden: true, extensions: 1, skills: 1 });
+  } finally { await f.close(); }
+});
+
+test('invalid retry profile does not queue or mutate a stopped task', async () => {
+  const f = fixture({ async run() { throw new Error('stop'); } }); await repo(f.root);
+  try {
+    const task = (await f.project.submit('invalid retry')).task;
+    await until(() => f.store.task(task.id).status === 'failed');
+    expect(() => f.project.retry(task.id, { agent: 'codex', model: '', thinking: '', default_prompt: '', append_prompt: '',
+      extensions: [], skills: [], soft_budget: { responses: 1 } })).toThrow('supported only by Pi');
+    expect(f.store.task(task.id)).toMatchObject({ status: 'failed', retry_profile: null });
+  } finally { await f.close(); }
+});
