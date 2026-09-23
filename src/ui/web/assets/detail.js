@@ -3,7 +3,7 @@ import { api, loadHistory } from './api.js';
 import { renderDetail, renderDetailError } from './render-detail.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { transcriptCache, transcriptOpen, ui } from './state.js';
-import { appendTranscriptSteps, loadTranscript } from './render-transcript.js';
+import { appendTranscriptSteps, fetchTranscriptAfter, loadTranscript } from './render-transcript.js';
 import { HOT } from './format.js';
 
 let detailRequest = 0;
@@ -42,11 +42,12 @@ export async function loadDetail(taskId) {
       // A terminal task no longer gets live ticks. Read its final tail once, without resetting the reader.
       const after = cached.next;
       try {
-        const page = await api(`/api/task/${taskId}/transcript?after=${after}`);
+        const page = await fetchTranscriptAfter(taskId, after);
         if (cached.next === after && transcriptCache.get(taskId) === cached) {
-          cached.steps.push(...page.steps); cached.next = page.next; cached.has_more = page.has_more;
+          cached.steps.push(...(page.steps || [])); cached.next = page.next ?? cached.next;
+          if (cached.order !== 'desc') cached.has_more = page.has_more ?? false;
           cached.truncated = Boolean(cached.truncated || page.truncated); cached.settled = true;
-          appendTranscriptSteps(taskId, page.steps);
+          appendTranscriptSteps(taskId, page.steps || []);
         }
       } catch { /* Keep readable history; the next detail refresh can retry. */ }
       if (!current()) return;

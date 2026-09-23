@@ -20,6 +20,7 @@ export const LEGACY_TREE_SORT_KEY = 'lush.treeSort';
 export const REDUCED_MOTION_KEY = 'lush.reduceMotion';
 export const POLLING_KEY = 'lush.polling';
 export const TOAST_DURATION_KEY = 'lush.toastDuration';
+export const TRANSCRIPT_ORDER_KEY = 'lush.transcriptOrder';
 
 export const SORT_IDS = new Set(SORT_MODES.map(mode => mode.id));
 export const THEME_VALUES = ['system', 'light', 'dark'];
@@ -42,6 +43,16 @@ export const TOAST_MODES = [
   { id: 'long', label: '长', info: 8000, error: 16000 },
 ];
 export const TOAST_IDS = new Set(TOAST_MODES.map(mode => mode.id));
+
+/**
+ * 「阅读」组的执行过程排序：默认倒序（最新在前），可切回按时间正序。
+ * 只影响任务详情的快速查看；终端模式始终从最早读，不受这里影响。
+ */
+export const TRANSCRIPT_ORDER_MODES = [
+  { id: 'desc', label: '最新在前（倒序）' },
+  { id: 'asc', label: '最早在前（正序）' },
+];
+export const TRANSCRIPT_ORDER_IDS = new Set(TRANSCRIPT_ORDER_MODES.map(mode => mode.id));
 
 /** 轮询频率对应的两个定时器间隔；未知值回落标准档。 */
 export function pollingIntervals(id = readPref('polling')) {
@@ -85,6 +96,7 @@ export const PREF_DEFS = {
   reduceMotion: boolPref(REDUCED_MOTION_KEY, false),
   polling: enumPref(POLLING_KEY, [...POLLING_IDS], 'standard'),
   toastDuration: enumPref(TOAST_DURATION_KEY, [...TOAST_IDS], 'standard'),
+  transcriptOrder: enumPref(TRANSCRIPT_ORDER_KEY, [...TRANSCRIPT_ORDER_IDS], 'desc'),
 };
 export const PREF_NAMES = Object.keys(PREF_DEFS);
 

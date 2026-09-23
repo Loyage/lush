@@ -17,7 +17,7 @@ import { observeNotices } from './notice-notifications.js';
 import { renderOverview } from './render-overview.js';
 import { refreshProgressDurations } from './render-progress.js';
 import { renderSpecs } from './render-specs.js';
-import { appendTranscriptSteps } from './render-transcript.js';
+import { appendTranscriptSteps, fetchTranscriptAfter } from './render-transcript.js';
 import { renderTree } from './render-tree.js';
 import { activateDetailView, openResource } from './sidebar-ui.js';
 import { saveFiltersPref, transcriptCache, transcriptOpen, ui } from './state.js';
@@ -148,7 +148,7 @@ export async function liveRefresh() {
       // 仅显式展开时续读；收起后不继续加载正文。
       transcript: transcriptOpen.has(taskId) ? transcriptCache.get(taskId) ?? null : null,
       fetchUsage: id => api(`/api/task/${id}/usage`).catch(() => null),
-      fetchTranscript: (id, after) => api(`/api/task/${id}/transcript?after=${after}`),
+      fetchTranscript: fetchTranscriptAfter,
       publish: { usage: paintUsageLast, steps: appendTranscriptSteps },
     });
   } catch { /* 网络抖动交给主 refresh 的离线提示，live tick 不弹错 */ }

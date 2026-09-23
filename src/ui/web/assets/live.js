@@ -52,7 +52,8 @@ export async function liveTick({ task, transcript = null, fetchUsage, fetchTrans
     if (steps.length) {
       transcript.steps.push(...steps);
       transcript.next = page.next ?? transcript.next;
-      transcript.has_more = page.has_more ?? false;
+      // desc 增量只推进最新游标；向旧翻页的边界（has_older/oldest）不由「更新的一页」改变。
+      if (transcript.order !== 'desc') transcript.has_more = page.has_more ?? false;
       transcript.truncated = Boolean(transcript.truncated || page.truncated);
       updated.steps = steps;
       if (publish.steps) publish.steps(task.id, steps);

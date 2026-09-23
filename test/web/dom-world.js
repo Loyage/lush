@@ -77,6 +77,7 @@ export function makeWorld() {
     },
     notices: [],
     transcriptAfter: [],
+    transcriptLatest: [],
     actions: [],
     agentEnvironments: {
       common: { HTTP_PROXY: 'http://127.0.0.1:7897', API_KEY: 'secret-value' },
@@ -311,6 +312,18 @@ export function makeWorld() {
     if (/^\/api\/task\/\d+\/history/.test(path)) return json([]);
     if (/^\/api\/task\/\d+\/diff$/.test(path)) return json(null);
     if (/^\/api\/task\/\d+\/usage$/.test(path)) return json(usage());
+    match = /^\/api\/task\/\d+\/transcript-latest\?(.*)$/.exec(path);
+    if (match) {
+      const params = new URLSearchParams(match[1]);
+      const after = Number(params.get('after') ?? 0), before = Number(params.get('before') ?? 0), limit = Number(params.get('limit') ?? 100);
+      state.transcriptAfter.push(after);
+      state.transcriptLatest.push({ after, before, limit });
+      let steps = state.transcriptSteps.filter(step => step.seq > after && (before === 0 || step.seq < before));
+      const hasOlder = steps.length > limit;
+      if (hasOlder) steps = steps.slice(-limit);
+      return json({ task_id: 1, files: ['s1.jsonl'], steps, next: steps.at(-1)?.seq ?? after,
+        oldest: steps[0]?.seq ?? (before || 0), has_older: hasOlder, truncated: false });
+    }
     match = /^\/api\/task\/\d+\/transcript\?after=(\d+)$/.exec(path);
     if (match) {
       const after = Number(match[1]);

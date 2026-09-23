@@ -40,6 +40,7 @@ test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1
   expect(deepText(panel())).toContain('按任务行为覆盖');
   await openTab('interface');
   expect(deepText(panel())).toContain('Markdown 渲染');
+  expect(deepText(panel())).toContain('执行过程排序');
   expect(deepText(panel())).toContain('跟随系统');
 
   // 轮询照旧更新左栏与连接状态，但不把设置页换成概览。
@@ -61,6 +62,13 @@ test('偏好默认值与老键值：全部走默认，旧键继续生效，坏�
   expect(prefs.readPref('reduceMotion')).toBe(false);
   expect(prefs.readPref('polling')).toBe('standard');
   expect(prefs.readPref('toastDuration')).toBe('standard');
+  // 执行过程排序默认倒序（最新在前）；坏值回落 desc，显式值被认出。
+  expect(prefs.readPref('transcriptOrder')).toBe('desc');
+  globalThis.localStorage.setItem(prefs.TRANSCRIPT_ORDER_KEY, 'sideways');
+  expect(prefs.readPref('transcriptOrder')).toBe('desc');
+  globalThis.localStorage.setItem(prefs.TRANSCRIPT_ORDER_KEY, 'asc');
+  expect(prefs.readPref('transcriptOrder')).toBe('asc');
+  globalThis.localStorage.removeItem(prefs.TRANSCRIPT_ORDER_KEY);
   // 标准档严格等于改造前写死的间隔
   expect(prefs.pollingIntervals('standard')).toMatchObject({ snapshot: 1500, live: 3000 });
   expect(prefs.toastDurations('standard')).toMatchObject({ info: 4000, error: 8000 });
@@ -112,6 +120,26 @@ test('Markdown 偏好只在设置页管理，并立即影响 Agent 输出', asyn
   toggle.checked = true;
   await toggle.listeners.change[0]();
   expect(markdownEnabled()).toBe(true);
+});
+
+test('执行过程排序：默认最新在前，设置行切正序并持久化', async () => {
+  openInterface();
+  let select = panel().querySelector('select.pref-select[data-pref="transcriptOrder"]');
+  expect(select.value).toBe('desc');
+  const labels = [...select.children].map(option => option.textContent);
+  expect(labels).toContain('最新在前（倒序）');
+  expect(labels).toContain('最早在前（正序）');
+  const row = [...panel().querySelectorAll('.settings-row')].find(node => deepText(node).includes('执行过程排序'));
+  expect(row).toBeTruthy();
+  expect(deepText(row)).toContain('终端模式');
+
+  select.value = 'asc';
+  await select.listeners.change[0]();
+  expect(globalThis.localStorage.getItem(prefs.TRANSCRIPT_ORDER_KEY)).toBe('asc');
+  expect(prefs.readPref('transcriptOrder')).toBe('asc');
+  openInterface();
+  expect(panel().querySelector('select.pref-select[data-pref="transcriptOrder"]').value).toBe('asc');
+  prefs.setPref('transcriptOrder', 'desc');
 });
 
 test('设置项即时生效并持久化：左栏排序、主题、动效、轮询频率', async () => {
@@ -209,6 +237,7 @@ test('恢复默认设置：删掉所有偏好键（含历史键）并就地重�
   expect(prefs.readPref('reduceMotion')).toBe(false);
   expect(prefs.readPref('polling')).toBe('standard');
   expect(prefs.readPref('toastDuration')).toBe('standard');
+  expect(prefs.readPref('transcriptOrder')).toBe('desc');
   // 重画把控件与页面同步回默认值。
   expect(dom.node('sidebar-sort').value).toBe('smart');
   expect(dom.document.documentElement.dataset.reducedMotion).toBeUndefined();

@@ -1,7 +1,8 @@
 import { $, button, el } from './dom.js';
 import { api } from './api.js';
 import { STEP, relative, tokensView } from './format.js';
-import { transcriptCache, ui } from './state.js';
+import { onPrefChange, readPref } from './prefs.js';
+import { transcriptCache, transcriptOpen, ui } from './state.js';
 import { transcriptBody } from './transcript-body.js';
 import { referenceable } from './context-references.js';
 import { callKey, groupSteps, stepSummary } from './transcript-model.js';
@@ -12,6 +13,9 @@ import { transcriptReader, openTranscriptStep } from './transcript-reader.js';
 const STEP_OPEN = new Set(['input', 'text', 'thinking', 'tool', 'result']);
 const stepKey = (taskId, step) => `${taskId}:${step.seq}`;
 const stepExpanded = (taskId, step) => ui.stepToggle.get(stepKey(taskId, step)) ?? STEP_OPEN.has(step.kind);
+
+/** 当前快速查看的阅读方向：默认倒序（最新在前），设置里可切回正序。 */
+export const transcriptOrder = () => readPref('transcriptOrder');
 
 /** 一步占用的上下文 chip：精确＝这次请求的合计，估算＝这一批新增（带 + 前缀）。同一组只在 first 那一步印一次。 */
 export function tokensChip(tokens) {
@@ -101,6 +105,85 @@ function stepNode(taskId, step) {
   return item;
 }
 
+/** 已加载的唯一步骤节点（配对结果挂在调用里，用 data-result-seq，不在此列）。 */
+function nodeBySeq(container, seq) {
+  for (const child of container.children) if (child.dataset?.seq === String(seq)) return child;
+  return null;
+}
+
+/** 结果步按 (file, call_id) 找到唯一的已加载调用步；重复身份不猜配。 */
+function callStepFor(state, step) {
+  if (step.kind !== 'result') return null;
+  const key = callKey(step);
+  if (!key) return null;
+  const calls = state.steps.filter(value => value.kind === 'tool' && callKey(value) === key);
+  return calls.length === 1 ? calls[0] : null;
+}
+
+/** 增量续读：更新的一页合并到列表尾部（asc）或顶部（desc），结果并入已加载的调用节点。 */
+function insertNewer(taskId, list, state, steps) {
+  const desc = state.order === 'desc';
+  for (const step of steps) {
+    const call = callStepFor(state, step);
+    const node = call ? nodeBySeq(list, call.seq) : null;
+    if (node) attachResult(taskId, node, step);
+    else if (desc) list.prepend(stepNode(taskId, step));
+    else list.append(stepNode(taskId, step));
+  }
+}
+
+/** 向旧翻页：一页更早的步骤插到列表顶部（asc）或底部（desc），跨边界配对不重复、不错配。 */
+function insertOlder(taskId, list, state, steps) {
+  if (state.order !== 'desc') { insertNewer(taskId, list, state, steps); return; }
+  const staged = el('ol', undefined, 'steps');
+  for (const step of steps) {   // 窗口内升序构建，调用先于结果，窗口内配对成立
+    const call = callStepFor(state, step);
+    const node = call ? nodeBySeq(staged, call.seq) : null;
+    if (node) attachResult(taskId, node, step);
+    else staged.append(stepNode(taskId, step));
+  }
+  // 边界配对：这一页加载的调用，其结果可能已经作为独立节点渲染在上方；折进调用，不留重复。
+  // 重复的 (file, call_id) 身份不猜配，与 groupSteps 保持一致。
+  for (const item of staged.children) {
+    const callStep = state.steps.find(value => value.seq === Number(item.dataset.seq));
+    if (!callStep || callStep.kind !== 'tool' || !callKey(callStep)) continue;
+    const calls = state.steps.filter(value => value.kind === 'tool' && callKey(value) === callKey(callStep));
+    if (calls.length !== 1) continue;
+    for (const result of state.steps) {
+      if (result.kind !== 'result' || callKey(result) !== callKey(callStep)) continue;
+      const standalone = nodeBySeq(list, result.seq);
+      if (standalone) { standalone.remove(); attachResult(taskId, item, result); }
+    }
+  }
+  list.append(...[...staged.children].reverse());
+}
+
+const transcriptMetaText = state => state.steps.length
+  ? `已加载 ${state.steps.length} 条记录 · 按调用关联输入输出 · 长内容可就地展开${(state.order === 'desc' ? state.has_older : state.has_more) ? ' · 尚有未加载记录' : ''}`
+  : (state.files.length ? '会话记录里还没有可显示的步骤。' : '这个任务还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。');
+
+/** 只替换执行过程区块，避免为了追加一页步骤重建整个详情面板。 */
+export function paintTranscript(taskId) {
+  if (ui.selected !== taskId) return;
+  const holder = $('detail').querySelector('.transcript');
+  if (holder) { holder.transcriptState = transcriptCache.get(taskId); holder.replaceChildren(...transcriptContent(taskId)); }
+}
+
+/** 只刷新过程区块之外的计数与翻页入口，不重建已渲染节点。 */
+function syncTranscriptChrome(taskId, state) {
+  if (ui.selected !== taskId) return;
+  const holder = $('detail').querySelector('.transcript');
+  if (!holder) return;
+  const meta = holder.querySelector('[data-live="transcript-meta"]');
+  if (meta) meta.textContent = transcriptMetaText(state);
+  const more = holder.querySelector('[data-live="transcript-more"]');
+  if (more) {
+    const desc = state.order === 'desc';
+    more.textContent = `${desc ? '加载更早' : '加载更多'}（已有 ${state.steps.length} 步）`;
+    more.hidden = desc ? !state.has_older : !state.has_more;
+  }
+}
+
 export function transcriptContent(taskId) {
   const state = transcriptCache.get(taskId);
   if (!state) return [el('p', '正在读取会话记录…', 'hint')];
@@ -109,10 +192,13 @@ export function transcriptContent(taskId) {
   const meta = el('p', transcriptMetaText(state), 'hint');
   meta.dataset.live = 'transcript-meta';
   if (!state.steps.length) return [meta, transcriptReader(taskId)];
+  const desc = state.order === 'desc';
+  const grouped = groupSteps(state.steps);
   const list = el('ol', undefined, 'steps');
   list.dataset.live = 'transcript-steps';
-  for (const step of groupSteps(state.steps)) list.append(stepNode(taskId, step));
-  const foldable = groupSteps(state.steps).filter(step => step.body || step.results.length);
+  // state.steps 始终按 seq 升序保存为规范态；倒序只在渲染层反转。
+  for (const step of desc ? [...grouped].reverse() : grouped) list.append(stepNode(taskId, step));
+  const foldable = grouped.filter(step => step.body || step.results.length);
   const actions = el('div', undefined, 'actions');
   // 一步一行，但轮到要看全文时不该点几十次：一个按钮把整段过程一次摊开或收起。
   if (foldable.length > 1) {
@@ -122,37 +208,62 @@ export function transcriptContent(taskId) {
       paintTranscript(taskId);
     }, 'ghost'));
   }
-  if (state.has_more) { const more = button(`加载更多（已有 ${state.steps.length} 步）`, async () => {
-    more.disabled = true;
-    try {
-      const after = state.next;
-      const page = await api(`/api/task/${taskId}/transcript?after=${after}`);
-      if (state.next !== after || transcriptCache.get(taskId) !== state) return;
-      state.steps.push(...page.steps); state.next = page.next; state.has_more = page.has_more;
-      state.truncated = Boolean(state.truncated || page.truncated);
-      appendTranscriptSteps(taskId, page.steps);
-    } finally { more.disabled = false; }
-  }, 'ghost'); more.dataset.live = 'transcript-more'; actions.append(more); }
+  const pager = desc ? olderButton(taskId, state) : newerButton(taskId, state);
+  if (pager) actions.append(pager);
   actions.append(button('重新加载', () => loadTranscript(taskId), 'ghost'));
-  const latest = button('有新记录 · 跳到末尾', () => {
-    list.lastElementChild?.scrollIntoView?.({ block: 'nearest' }); latest.hidden = true;
+  const latest = button(desc ? '有新记录 · 跳到最新' : '有新记录 · 跳到末尾', () => {
+    const target = desc ? list.firstElementChild : list.lastElementChild;
+    target?.scrollIntoView?.({ block: 'nearest' }); latest.hidden = true;
   }, 'ghost transcript-new');
   latest.hidden = true; latest.dataset.live = 'transcript-new';
   const sources = el('details', undefined, 'transcript-sources');
   sources.append(el('summary', `记录来源 · ${state.files.length} 个会话文件`), el('pre', state.files.join('\n'), 'raw-value'));
   return [transcriptReader(taskId), meta, latest, list, actions, sources, state.truncated ? el('p', '快速视图只读取了前面一部分；顶部全文搜索可访问后续会话与完整原文。', 'hint') : null].filter(Boolean);
 }
-/** 只替换执行过程区块，避免为了追加一页步骤重建整个详情面板。 */
-export function paintTranscript(taskId) {
-  if (ui.selected !== taskId) return;
-  const holder = $('detail').querySelector('.transcript');
-  if (holder) { holder.transcriptState = transcriptCache.get(taskId); holder.replaceChildren(...transcriptContent(taskId)); }
+
+/** asc「加载更多」：向后读更新的一页，追加到末尾。 */
+function newerButton(taskId, state) {
+  if (!state.has_more) return null;
+  const more = button(`加载更多（已有 ${state.steps.length} 步）`, async () => {
+    more.disabled = true;
+    try {
+      const after = state.next;
+      const page = await api(`/api/task/${taskId}/transcript?after=${after}`);
+      if (state.next !== after || transcriptCache.get(taskId) !== state) return;
+      state.steps.push(...(page.steps || [])); state.next = page.next; state.has_more = page.has_more;
+      state.truncated = Boolean(state.truncated || page.truncated);
+      appendTranscriptSteps(taskId, page.steps || []);
+    } finally { more.disabled = false; }
+  }, 'ghost'); more.dataset.live = 'transcript-more';
+  return more;
 }
-const transcriptMetaText = state => state.steps.length
-  ? `已加载 ${state.steps.length} 条记录 · 按调用关联输入输出 · 长内容可就地展开${state.has_more ? ' · 尚有未加载记录' : ''}`
-  : (state.files.length ? '会话记录里还没有可显示的步骤。' : '这个任务还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。');
+
+/** desc「加载更早」：用 before=oldest 取上一页，合并到 state.steps 前部并追加到列表底部。 */
+function olderButton(taskId, state) {
+  if (!state.has_older) return null;
+  const more = button(`加载更早（已有 ${state.steps.length} 步）`, async () => {
+    more.disabled = true;
+    try {
+      const before = state.oldest;
+      const page = await api(`/api/task/${taskId}/transcript-latest?before=${before}&limit=100`);
+      if (state.oldest !== before || transcriptCache.get(taskId) !== state) return;
+      state.steps.unshift(...(page.steps || []));
+      state.oldest = page.oldest ?? state.oldest;
+      state.has_older = Boolean(page.has_older);
+      state.truncated = Boolean(state.truncated || page.truncated);
+      if (ui.selected === taskId) {
+        const holder = $('detail').querySelector('.transcript');
+        const list = holder?.querySelector('[data-live="transcript-steps"]');
+        if (list) insertOlder(taskId, list, state, page.steps || []);
+      }
+      syncTranscriptChrome(taskId, state);
+    } finally { more.disabled = false; }
+  }, 'ghost'); more.dataset.live = 'transcript-more';
+  return more;
+}
+
 /**
- * 热任务轮询的增量续读：只往现有 <ol> 后面接新步骤，不重建列表、不动 #detail 的滚动位置，
+ * 热任务轮询与终态补读的增量续读：只往现有 <ol> 里接新步骤，不重建列表、不动 #detail 的滚动位置，
  * 也不碰用户正在输入的 textarea。列表还没画出来（刚展开/之前没有步骤）时才整体重画那一个区块。
  */
 export function appendTranscriptSteps(taskId, steps) {
@@ -161,22 +272,38 @@ export function appendTranscriptSteps(taskId, steps) {
   const holder = $('detail').querySelector('.transcript');
   if (!state || !holder) return;
   const list = holder.querySelector('[data-live="transcript-steps"]');
-  if (list) for (const step of steps) {
-    const calls = step.kind === 'result' && callKey(step) ? state.steps.filter(value => value.kind === 'tool' && callKey(value) === callKey(step)) : [];
-    const call = calls.length === 1 ? list.querySelector(`[data-seq="${calls[0].seq}"]`) : null;
-    if (call) attachResult(taskId, call, step);
-    else list.append(stepNode(taskId, step));
-  }
+  if (list) insertNewer(taskId, list, state, steps);
   else paintTranscript(taskId);
-  const meta = holder.querySelector('[data-live="transcript-meta"]');
-  if (meta) meta.textContent = transcriptMetaText(state);
-  const more = holder.querySelector('[data-live="transcript-more"]');
-  if (more) { more.textContent = `加载更多（已有 ${state.steps.length} 步）`; more.hidden = !state.has_more; }
+  syncTranscriptChrome(taskId, state);
   const latest = holder.querySelector('[data-live="transcript-new"]');
   if (latest && steps.length) latest.hidden = false;
 }
+
+/** 按当前阅读方向取「更新的一页」：asc 用前向端点，desc 用最新端点（after=已知最大 seq）。 */
+export async function fetchTranscriptAfter(taskId, after) {
+  return transcriptOrder() === 'desc'
+    ? api(`/api/task/${taskId}/transcript-latest?after=${after}`)
+    : api(`/api/task/${taskId}/transcript?after=${after}`);
+}
+
 export async function loadTranscript(taskId) {
-  const page = await api(`/api/task/${taskId}/transcript?after=0`);
-  transcriptCache.set(taskId, { steps: page.steps || [], files: page.files || [], next: page.next ?? 0, has_more: page.has_more, truncated: page.truncated });
+  const order = transcriptOrder();
+  if (order === 'desc') {
+    const page = await api(`/api/task/${taskId}/transcript-latest?limit=100`);
+    transcriptCache.set(taskId, { order, steps: page.steps || [], files: page.files || [], next: page.next ?? 0,
+      oldest: page.oldest ?? 0, has_older: Boolean(page.has_older), truncated: page.truncated });
+  } else {
+    const page = await api(`/api/task/${taskId}/transcript?after=0`);
+    transcriptCache.set(taskId, { order, steps: page.steps || [], files: page.files || [], next: page.next ?? 0,
+      has_more: page.has_more, truncated: page.truncated });
+  }
   paintTranscript(taskId);
 }
+
+// 阅读方向切换：已展开的任务按新方向重新加载；未展开的只丢弃旧方向缓存，等下次展开再请求。
+onPrefChange('transcriptOrder', () => {
+  const order = transcriptOrder();
+  for (const [id, state] of transcriptCache) if (state.order !== order) transcriptCache.delete(id);
+  const taskId = ui.selected;
+  if (taskId !== null && transcriptOpen.has(taskId)) loadTranscript(taskId).catch(() => { /* 网络抖动交给主刷新提示 */ });
+});

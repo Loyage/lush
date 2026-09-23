@@ -169,13 +169,15 @@ test('热任务点击才加载执行正文，轮询增量续读并保留阅读�
 
   // 每一步的 token chip：只认组的首步，同一条回复的第二个 step 不重复；估算带 + 前缀。
   const rendered = list().children;
+  // 默认倒序：最新步骤在最上，最早的在最下。
+  expect([...rendered].map(node => node.dataset.seq)).toEqual(['5', '4', '3', '2', '1']);
   const chipOf = node => node.querySelector('.step-tokens');
-  expect(chipOf(rendered[0])).toBeNull();                       // 首个请求之前没有可比对的上下文
-  expect(chipOf(rendered[1]).textContent).toBe('上下文 9.9k');   // assistant 步：精确
-  expect(chipOf(rendered[2])).toBeNull();                       // 同一次回复的第二个 step 不重复
-  expect(chipOf(rendered[3]).textContent).toBe('+1.2k');        // 工具输出批：估算
-  expect(chipOf(rendered[3]).title).toContain('估算');
-  expect(chipOf(rendered[4])).toBeNull();                       // 同一批的后续步不重复
+  expect(chipOf(rendered[0])).toBeNull();                       // seq5：同一批的后续步不重复
+  expect(chipOf(rendered[1]).textContent).toBe('+1.2k');        // seq4 工具输出批：估算
+  expect(chipOf(rendered[1]).title).toContain('估算');
+  expect(chipOf(rendered[2])).toBeNull();                       // seq3：同一次回复的第二个 step 不重复
+  expect(chipOf(rendered[3]).textContent).toBe('上下文 9.9k');   // seq2 assistant 步：精确
+  expect(chipOf(rendered[4])).toBeNull();                       // seq1：首个请求之前没有可比对的上下文
   expect(list().querySelectorAll('.step-tokens').length).toBe(2);
   // chip 插在标题与时间之间，标题被截断时它和时间仍完整可见（flex:none 在样式里）。
   const head = rendered[1].querySelector('.step-head');
@@ -188,6 +190,8 @@ test('热任务点击才加载执行正文，轮询增量续读并保留阅读�
     tokens: { context_added: 1200, estimated: true, batch: true } });
   await dom.intervalFor(3000)();
   expect(list().children.length).toBe(6);
+  // desc 增量把新步骤放在顶部。
+  expect(list().children[0].dataset.seq).toBe('6');
   expect(deepText(list())).toContain('测试通过');
   expect(list().querySelectorAll('.step-tokens').length).toBe(2);
   // 第二个 tick 用的是游标 5，不是从头再读一遍。

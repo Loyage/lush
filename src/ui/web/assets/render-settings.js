@@ -4,7 +4,7 @@ import { effectiveTheme, systemThemeMedia } from './appearance.js';
 import { action, api } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { show } from './messages.js';
-import { PREF_NAMES, POLLING_MODES, THEME_VALUES, TOAST_MODES, onPrefChange, readPref, resetPrefs, setPref } from './prefs.js';
+import { PREF_NAMES, POLLING_MODES, THEME_VALUES, TOAST_MODES, TRANSCRIPT_ORDER_MODES, onPrefChange, readPref, resetPrefs, setPref } from './prefs.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { SORT_MODES } from './tree-order.js';
@@ -75,6 +75,7 @@ function interfaceTab() {
   const content = el('div', undefined, 'settings-tab-panel');
   const reading = block('阅读');
   reading.append(row('Markdown 渲染', '控制 Agent 输出的展示方式。', toggleControl('markdown')));
+  reading.append(row('执行过程排序', '普通查看默认最新在前，可切换为按时间正序；终端模式始终从最早按时间正序阅读。', selectControl('transcriptOrder', TRANSCRIPT_ORDER_MODES, '执行过程阅读顺序')));
   content.append(reading);
 
   const system = systemThemeMedia();

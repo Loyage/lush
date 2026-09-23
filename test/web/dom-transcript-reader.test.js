@@ -3,9 +3,9 @@ import { installDom, deepText, findByText } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { structuredValue } from '../../src/ui/web/assets/structured-value.js';
 import { transcriptBody } from '../../src/ui/web/assets/transcript-body.js';
-import { writePref } from '../../src/ui/web/assets/prefs.js';
+import { setPref, writePref } from '../../src/ui/web/assets/prefs.js';
 import { transcriptContent, appendTranscriptSteps } from '../../src/ui/web/assets/render-transcript.js';
-import { transcriptCache, ui } from '../../src/ui/web/assets/state.js';
+import { transcriptCache, transcriptOpen, ui } from '../../src/ui/web/assets/state.js';
 import { transcriptReader, resetTranscriptReaders } from '../../src/ui/web/assets/transcript-reader.js';
 import { initContextReferences, referenceable } from '../../src/ui/web/assets/context-references.js';
 import { closeTranscriptTerminal } from '../../src/ui/web/assets/transcript-terminal.js';
@@ -174,4 +174,123 @@ test('failed paired output is visible, keeps provenance, and a manual collapse s
     expect(item.querySelector('.step-body').hidden).toBe(true);
     expect(item.querySelector('.step-call-status').textContent).toBe('失败');
   } finally { resetTranscriptReaders(); transcriptCache.delete(taskId); ui.stepToggle.delete(`${taskId}:1`); ui.selected = null; dom.restore(); }
+});
+
+test('desc reading puts newest first, asc restores chronological order and pager wording', () => {
+  const dom = installDom(); resetTranscriptReaders();
+  try {
+    const taskId = 980;
+    const steps = [{ seq: 1, file: 'a', kind: 'thinking', title: '思考', body: '第一步' },
+      { seq: 2, file: 'a', kind: 'text', title: '回答', body: '第二步' },
+      { seq: 3, file: 'a', kind: 'text', title: '回答', body: '第三步' }];
+    ui.selected = taskId;
+    const render = state => {
+      transcriptCache.set(taskId, { ...state, steps: [...steps] });
+      const holder = dom.document.createElement('div'); holder.className = 'transcript';
+      holder.append(...transcriptContent(taskId)); dom.node('detail').append(holder);
+      return holder;
+    };
+    const desc = render({ order: 'desc', files: ['a'], next: 3, oldest: 1, has_older: true });
+    const descList = desc.querySelector('[data-live="transcript-steps"]');
+    expect([...descList.children].map(node => node.dataset.seq)).toEqual(['3', '2', '1']);
+    expect(desc.querySelector('[data-live="transcript-more"]').textContent).toContain('加载更早');
+    expect(findByText(desc, '有新记录 · 跳到最新')).toBeTruthy();
+
+    transcriptCache.delete(taskId); dom.node('detail').replaceChildren();
+    const asc = render({ order: 'asc', files: ['a'], next: 3, has_more: true });
+    const ascList = asc.querySelector('[data-live="transcript-steps"]');
+    expect([...ascList.children].map(node => node.dataset.seq)).toEqual(['1', '2', '3']);
+    expect(asc.querySelector('[data-live="transcript-more"]').textContent).toContain('加载更多');
+    expect(findByText(asc, '有新记录 · 跳到末尾')).toBeTruthy();
+  } finally { transcriptCache.delete(980); ui.selected = null; resetTranscriptReaders(); dom.restore(); }
+});
+
+test('desc loads older pages with before=oldest and folds a boundary result into its call', async () => {
+  const calls = [];
+  const dom = installDom({ fetch: async url => { calls.push(String(url));
+    // 更早的一页只有调用步：它的结果在新窗口里已经作为独立节点渲染。
+    return response({ task_id: 981, files: ['a'], next: 3, oldest: 3, has_older: false, truncated: false,
+      steps: [{ seq: 3, file: 'a', kind: 'tool', title: 'bash', call_id: 'x', body: '{"command":"ls"}' }] });
+  } });
+  resetTranscriptReaders();
+  try {
+    const taskId = 981;
+    const steps = [{ seq: 4, file: 'a', kind: 'result', title: 'bash', call_id: 'x', body: 'src' },
+      { seq: 5, file: 'a', kind: 'text', title: '回答', body: '完成' }];
+    transcriptCache.set(taskId, { order: 'desc', steps, files: ['a'], next: 5, oldest: 4, has_older: true });
+    ui.selected = taskId;
+    const holder = dom.document.createElement('div'); holder.className = 'transcript';
+    holder.append(...transcriptContent(taskId)); dom.node('detail').append(holder);
+    const list = holder.querySelector('[data-live="transcript-steps"]');
+    expect([...list.children].map(node => node.dataset.seq)).toEqual(['5', '4']);
+
+    await holder.querySelector('[data-live="transcript-more"]').onclick();
+    expect(calls[0]).toContain('/transcript-latest?before=4');
+    expect(transcriptCache.get(taskId).steps.map(step => step.seq)).toEqual([3, 4, 5]);
+    expect(transcriptCache.get(taskId).oldest).toBe(3);
+    // 更早的一页追加在底部；边界上的独立结果节点被折进调用，不重复、不错配。
+    expect([...list.children].map(node => node.dataset.seq)).toEqual(['5', '3']);
+    const call = list.querySelector('[data-seq="3"]');
+    expect(call.querySelectorAll('[data-result-seq="4"]').length).toBe(1);
+    expect(call.querySelector('[data-result-seq="4"]')).toBeTruthy();
+    expect(list.querySelector('[data-seq="4"]')).toBeNull();
+    expect(holder.querySelector('[data-live="transcript-more"]').hidden).toBe(true);
+  } finally { transcriptCache.delete(981); ui.selected = null; resetTranscriptReaders(); dom.restore(); }
+});
+
+test('desc live increments prepend new steps and preserve the call expansion state', () => {
+  const dom = installDom(); resetTranscriptReaders();
+  try {
+    const taskId = 982;
+    const steps = [{ seq: 1, file: 'a', kind: 'tool', title: 'bash', call_id: 'x', body: '{"command":"ls"}' },
+      { seq: 2, file: 'a', kind: 'result', title: 'bash', call_id: 'x', body: 'old' }];
+    transcriptCache.set(taskId, { order: 'desc', steps, files: ['a'], next: 2, oldest: 1, has_older: false });
+    ui.selected = taskId;
+    const holder = dom.document.createElement('div'); holder.className = 'transcript';
+    holder.append(...transcriptContent(taskId)); dom.node('detail').append(holder);
+    const list = holder.querySelector('[data-live="transcript-steps"]');
+    expect(list.children).toHaveLength(1);
+    const call = list.children[0];
+    call.querySelector('.step-head').onclick();
+    expect(call.classList.contains('open')).toBe(false);
+
+    const result = { seq: 3, file: 'a', kind: 'result', title: 'bash', call_id: 'x', body: 'new' };
+    steps.push(result); appendTranscriptSteps(taskId, [result]);
+    expect(list.children).toHaveLength(1);
+    expect(call.querySelector('[data-result-seq="3"]')).toBeTruthy();
+    expect(call.classList.contains('open')).toBe(false);
+
+    const text = { seq: 4, file: 'a', kind: 'text', title: '回答', body: 'done' };
+    steps.push(text); appendTranscriptSteps(taskId, [text]);
+    expect(list.children[0].dataset.seq).toBe('4');
+    expect(list.children[1]).toBe(call);
+    expect(holder.querySelector('[data-live="transcript-new"]').hidden).toBe(false);
+  } finally { transcriptCache.delete(982); ui.selected = null; resetTranscriptReaders(); dom.restore(); }
+});
+
+test('switching transcriptOrder reloads an expanded process by the new direction', async () => {
+  const calls = [];
+  const steps = [{ seq: 1, file: 'a', kind: 'thinking', title: '思考', body: '第一步' },
+    { seq: 2, file: 'a', kind: 'text', title: '回答', body: '第二步' }];
+  const dom = installDom({ fetch: async url => { const path = String(url); calls.push(path);
+    return path.includes('/transcript-latest')
+      ? response({ task_id: 983, files: ['a'], steps, next: 2, oldest: 1, has_older: false, truncated: false })
+      : response({ task_id: 983, files: ['a'], steps, next: 2, has_more: false, truncated: false });
+  } });
+  resetTranscriptReaders();
+  try {
+    const taskId = 983;
+    writePref('transcriptOrder', 'asc');
+    transcriptCache.set(taskId, { order: 'asc', steps: [...steps], files: ['a'], next: 2, has_more: false });
+    transcriptOpen.add(taskId); ui.selected = taskId;
+    const holder = dom.document.createElement('div'); holder.className = 'transcript';
+    holder.append(...transcriptContent(taskId)); dom.node('detail').append(holder);
+    expect([...holder.querySelector('[data-live="transcript-steps"]').children].map(node => node.dataset.seq)).toEqual(['1', '2']);
+
+    setPref('transcriptOrder', 'desc');
+    await until(() => calls.some(path => path.includes('/transcript-latest?limit=100')));
+    await until(() => transcriptCache.get(taskId)?.order === 'desc');
+    expect([...holder.querySelector('[data-live="transcript-steps"]').children].map(node => node.dataset.seq)).toEqual(['2', '1']);
+  } finally { transcriptOpen.delete(983); writePref('transcriptOrder', 'desc');
+    transcriptCache.delete(983); ui.selected = null; resetTranscriptReaders(); dom.restore(); }
 });
