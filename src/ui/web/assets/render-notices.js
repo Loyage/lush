@@ -10,6 +10,7 @@ import { orderList } from './tree-order.js';
 import { ui } from './state.js';
 import { referenceable } from './context-references.js';
 import { questionnairePanel } from './render-questionnaire.js';
+import { sleepChoiceCard } from './sleep-ui.js';
 
 const STATUS = { open: '待处理', answered: '已回答', dismissed: '已忽略', sent: '已发送' };
 
@@ -19,12 +20,14 @@ export function initNoticeRecords() {
   const state = ui.noticeRecords = { status: 'open', rows: [], page: null, request: 0, selected: null, task: null, signature: null };
   const tools = el('div', undefined, 'resource-tools');
   const filters = el('div', undefined, 'filters');
-  for (const [value, label] of [['open','未处理'],['answered','已回答'],['dismissed','已忽略'],['all','全部记录']]) {
+  for (const [value, label] of [['open','未处理'],['answered','已回答'],['dismissed','已忽略'],['all','全部记录'],['butler','管家选择']]) {
     const tab = button(label, () => {
-      state.status = value; state.page = null; state.rows = [];
+      state.status = value; state.page = null; state.rows = []; state.choices = []; state.selected = null;
+      $('notice-record-detail')?.replaceChildren();
       for (const node of filters.children) node.setAttribute('aria-pressed', String(node === tab));
       return loadNoticeRecords();
     }, 'ghost');
+    tab.dataset.noticeFilter = value;
     tab.setAttribute('aria-pressed', String(value === 'open')); filters.append(tab);
   }
   tools.append(filters, notificationControl());
@@ -44,6 +47,7 @@ async function readNoticeRecord(id) {
 export async function loadNoticeRecords({ more = false, preserve = false } = {}) {
   const state = ui.noticeRecords;
   if (!state) return;
+  if (state.status === 'butler') return loadButlerChoices(state, { more, preserve });
   const request = ++state.request;
   state.pending = true;
   const cursor = more && state.page?.has_more ? `&before=${state.page.cursor}` : '';
@@ -78,10 +82,31 @@ export async function loadNoticeRecords({ more = false, preserve = false } = {})
   } finally { if (request === state.request) state.pending = false; }
 }
 
+async function loadButlerChoices(state, { more, preserve }) {
+  const request = ++state.request;
+  state.pending = true;
+  try {
+    const cursor = more && state.page?.has_more ? `?before=${state.page.cursor}` : '';
+    const page = await api(`/api/sleep/choices${cursor}`);
+    if (ui.noticeRecords !== state || request !== state.request || state.status !== 'butler') return;
+    state.choices = more || preserve
+      ? [...new Map([...(state.choices || []), ...page.choices].map(row => [row.id, row])).values()].sort((a, b) => b.id - a.id)
+      : page.choices;
+    if (!preserve || !state.page) state.page = page;
+    $('notices').replaceChildren(...state.choices.map(sleepChoiceCard));
+    $('notice-record-detail').replaceChildren();
+    const footer = $('notice-pagination');
+    footer.replaceChildren(el('p', `已显示 ${state.choices.length} 条管家选择；代理决定不等于你亲自确认。`, 'hint'));
+    if (state.page.has_more) footer.append(button('加载更早选择', () => loadNoticeRecords({ more: true }), 'ghost'));
+  } catch (error) {
+    if (request === state.request) $('notice-pagination').replaceChildren(el('p', `管家选择加载失败：${error.message}`, 'error'));
+  } finally { if (request === state.request) state.pending = false; }
+}
+
 function paintRecordFocus() {
   const state = ui.noticeRecords;
   const target = $('notice-record-detail');
-  if (!target || !state?.selected) return;
+  if (!target || !state?.selected || state.status === 'butler') return;
   const notice = ui.noticeIndex.get(state.selected);
   if (!notice) return;
   const signature = JSON.stringify(notice);
@@ -120,6 +145,10 @@ export function renderNotices(data) {
   if (ui.noticeFocus !== null && ui.noticeIndex.get(ui.noticeFocus)?.status !== 'open') ui.noticeFocus = null;
   $('notice-count').textContent = open.length ? String(open.length) : '无';
   setNavCount('notices', open.length);
+  if (ui.indexOpen === 'notices' && ui.noticeRecords?.status === 'butler') {
+    if (!ui.noticeRecords.pending) void loadNoticeRecords({ preserve: true });
+    return;
+  }
   paintRecordFocus();
   if (ui.indexOpen === 'notices' && ui.noticeRecords) {
     // Preserve loaded older pages. Snapshot updates their status without discarding history.
@@ -141,6 +170,13 @@ export function openNotice(noticeId) {
   if (!notice) return Promise.resolve();
   if (ui.indexOpen === 'notices' && ui.noticeRecords) {
     const state = ui.noticeRecords;
+    if (state.status === 'butler') {
+      state.status = 'open'; state.page = null; state.rows = [];
+      $('side-notices-body').querySelectorAll('button').forEach(node => {
+        if (node.dataset.noticeFilter) node.setAttribute('aria-pressed', String(node.dataset.noticeFilter === 'open'));
+      });
+      void loadNoticeRecords();
+    }
     state.selected = noticeId; state.signature = null;
     return Promise.all([api(`/api/task/${notice.task_id}`), readNoticeRecord(noticeId)]).then(([task, current]) => {
       if (ui.noticeRecords !== state || state.selected !== noticeId || ui.indexOpen !== 'notices') return;

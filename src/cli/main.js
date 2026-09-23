@@ -18,6 +18,7 @@ import * as candidate from './commands/candidate.js';
 import * as showcase from './commands/showcase.js';
 import * as agent from './commands/agent.js';
 import * as config from './commands/config.js';
+import * as sleep from './commands/sleep.js';
 
 export { HELP };
 
@@ -40,6 +41,7 @@ for (const [module, names] of [
   [showcase, ['showcase']],
   [agent, ['agent']],
   [config, ['config']],
+  [sleep, ['sleep']],
 ]) {
   for (const name of names) {
     check(!COMMANDS.has(name), `duplicate command handler: ${name}`);

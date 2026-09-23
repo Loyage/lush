@@ -27,6 +27,8 @@
 
 ## 按需查阅
 
+- [我去睡觉了](sleep-mode.md)：授权管家自动处理 Notice、项目 token 预算、关闭与选择留档。
+
 - [工程文档](engineering/README.md)：源码边界、生命周期不变量、调度、Git 和恢复机制。
 - [接口参考](reference/README.md)：CLI、RPC、HTTP、Agent 环境与 Web 路由。
 - [贡献指南](contributing/README.md)：开发入口和文档写作约定。

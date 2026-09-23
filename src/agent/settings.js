@@ -17,7 +17,7 @@ export const MODEL_PRESETS = {
 
 const ROLE_LABELS = {
   planner: '规划任务', coordinator: '协调任务', worker: '开发任务', research: '调研任务',
-  verifier: '检验任务', merger: '分支分歧解决', showcase: '效果展示', explainer: '执行过程介绍（Pi 无工具）',
+  verifier: '检验任务', merger: '分支分歧解决', showcase: '效果展示', explainer: '执行过程介绍（Pi 无工具）', butler: '睡觉模式管家（Pi 无工具）',
 };
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_PROMPT_BYTES = 32 * 1024;
@@ -67,7 +67,7 @@ export function normalizeAgentProfile(value, name = 'profile') {
   const soft_budget = normalizeSoftBudget(value.soft_budget);
   const enabled = Object.keys(soft_budget).length > 0;
   check(!enabled || agent === 'pi', 'soft_budget is supported only by Pi');
-  check(!enabled || name !== 'roles.explainer', 'explainer does not support soft_budget');
+  check(!enabled || !['roles.explainer','roles.butler'].includes(name), 'explainer/butler does not support soft_budget');
   return { agent, model, thinking, default_prompt, append_prompt, extensions, skills, ...(enabled ? { soft_budget } : {}) };
 }
 
@@ -122,7 +122,7 @@ export class AgentSettings {
     for (const role of AGENT_ROLES) {
       resolved[role] = { ...(stored.roles[role] || stored.default) };
       // The isolated, no-extension explainer never inherits a development budget.
-      if (role === 'explainer') delete resolved[role].soft_budget;
+      if (['explainer','butler'].includes(role)) delete resolved[role].soft_budget;
     }
     return {
       ...stored, resolved, file: this.file, runtime_agent: this.config.provider === 'mock' ? 'mock' : stored.default.agent,

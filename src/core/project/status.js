@@ -16,6 +16,7 @@ function statusView(project, agentConfig = null) {
     // 并发上限是可在运行时改写的项目级设置：这里给出存储 / 生效值的只读镜像。
     // 顶层 concurrency / control_concurrency 仍表示当前生效值。
     settings: project.runtimeSettings(),
+    sleep: project.sleepStatus(),
     // 软件配置的只读镜像：除并发上限可在运行时改写外，其余在 daemon 启动时从环境变量读一次。
     // pi 的两项覆写未设置时是空字符串，交给界面显示「pi 默认」，不在这里编造 pi 自己的默认模型 / provider。
     call_timeout: project.config.timeout, task_call_limit: project.config.maxCalls, max_depth: project.config.maxDepth,
@@ -43,7 +44,7 @@ export default {
   overviewRevision() {
     const cursor = this.store.get("SELECT value FROM meta WHERE key='overview_revision'")?.value ?? '0';
     const facts = [cursor, [...this.running.keys()].sort((a, b) => a - b),
-      this.config.concurrency, this.config.controlConcurrency];
+      this.config.concurrency, this.config.controlConcurrency, this.sleepStatus()];
     return createHash('sha256').update(JSON.stringify(facts)).digest('base64url').slice(0, 22);
   },
 
