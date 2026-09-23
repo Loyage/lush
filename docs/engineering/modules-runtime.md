@@ -36,7 +36,7 @@
 
 | 文件 | 职责 | 导出（作为 `Project.prototype` 的方法） |
 |---|---|---|
-| `project/sleep.js` | 项目级睡觉模式授权、预算采样与暂停、单并发管家调度、重新校验后执行、不可变 Event 审计与恢复 | `sleepStatus`、`startSleep`、`stopSleep`、`resumeSleepDevelopment`、`sleepTick`、`sleepChoices`、`butlerContext`、`completeButler`、`recoverSleep`（内部辅助同模块） |
+| `project/sleep.js` | 项目级睡觉模式授权、预算采样与暂停、单并发管家调度、重新校验后执行、不可变 Event 审计、本会话进度汇总与恢复 | `sleepStatus`、`sleepProgress`、`startSleep`、`stopSleep`、`resumeSleepDevelopment`、`sleepTick`、`sleepChoices`、`butlerContext`、`completeButler`、`recoverSleep`（内部辅助同模块） |
 | `core/sleep-policy.js` | 开启选项及结构化决策校验、确定性推荐策略与共享风险说明 | `SLEEP_WARNING`、`sleepOptions`、`recommendedChoice`、`validateSleepChoice` |
 | `project/base.js` | 构造与实例状态（`config` / `store` / `agentSettings` / `provider` / `workspaces` / `running` / `stopping` / `scheduled` / `ancestry`） | `class ProjectBase` |
 | `project/internal.js` | 两个跨模块的私有助手 | `agentView(task, run, latestRun)`、`tokenHash(token)` |

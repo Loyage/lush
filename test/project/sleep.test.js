@@ -38,6 +38,7 @@ test('rule mode selects recommendation once and retains the exact decision snaps
     const task = owner(f), notice = f.project.notice(task.id, '选设计', '补充', 'question', questions);
     f.project.startSleep(options, true);
     await Promise.all([f.project.sleepTick(), f.project.sleepTick(), f.project.sleepTick()]); await applied(f);
+    expect(f.project.sleepStatus()).toMatchObject({ handled: 1, decisions: 1 });
     const row = f.store.get('SELECT * FROM notices WHERE id=?', notice.id);
     expect(JSON.parse(row.answer).answers[0].selected).toEqual([1]);
     expect(f.store.tasks().some(t => t.role === 'butler')).toBe(false);
@@ -47,6 +48,22 @@ test('rule mode selects recommendation once and retains the exact decision snaps
     expect(f.project.sleepChoices().choices).toHaveLength(1);
     expect(f.project.sleepStatus().enabled).toBe(false);
     expect(f.project.sleepPreferenceHistory()[0].decided_by).toBe('butler');
+  } finally { await f.close(); }
+});
+
+test('session progress counts a finished info reminder as handled but not as a choice', async () => {
+  const f = fixture();
+  try {
+    const question = f.project.notice(owner(f).id, '选设计', '补充', 'question', questions);
+    f.project.startSleep(options, true);
+    await applied(f);
+    expect(f.project.sleepStatus()).toMatchObject({ handled: 1, decisions: 1 });
+    f.project.notify(owner(f).id, '开发完成', '供参考');
+    await until(() => { void f.project.sleepTick(); return f.project.sleepStatus().handled === 2; });
+    expect(f.project.sleepStatus()).toMatchObject({ handled: 2, decisions: 1 });
+    const info = f.project.sleepChoices().choices.find(choice => choice.notice.title === '开发完成');
+    expect(info.result).toMatchObject({ status: 'applied', decision: { action: 'acknowledge' } });
+    expect(f.store.get('SELECT status FROM notices WHERE id=?', question.id).status).toBe('answered');
   } finally { await f.close(); }
 });
 

@@ -5,15 +5,29 @@ import { sleepOptions, recommendedChoice, validateSleepChoice, SLEEP_WARNING } f
 
 const STATE_KEY = 'sleep_mode_v1';
 const read = row => row ? JSON.parse(row.data) : null;
+// 只有这些动作才算「管家作出选择」；acknowledge 是信息已阅，只进 handled 不进 decisions。
+const DECISION_ACTION_SQL = ['approve','reject','answer','dismiss','merge'].map(action => `'${action}'`).join(',');
 
 export default {
   sleepStatus() {
-    return { enabled: false, paused: false, used_tokens: 0,
-      ...JSON.parse(this.store.get('SELECT value FROM meta WHERE key=?', STATE_KEY)?.value || '{}'), warning: SLEEP_WARNING };
+    const state = JSON.parse(this.store.get('SELECT value FROM meta WHERE key=?', STATE_KEY)?.value || '{}');
+    return { enabled: false, paused: false, used_tokens: 0, ...state, ...this.sleepProgress(state), warning: SLEEP_WARNING };
+  },
+
+  /** 本会话进度：已给出结果（有 sleep.choice.finished）的 Notice 条数与其中作出实质选择的条数。
+      只读既有 sleep.choice 事件，借 events_type_id 与 sleep.started 的 Event ID 限定扫描范围。 */
+  sleepProgress(state) {
+    if (!state?.session) return { handled: 0, decisions: 0 };
+    const row = this.store.get(`SELECT count(*) AS handled,
+      coalesce(sum(CASE WHEN json_extract(f.data,'$.decision.action') IN (${DECISION_ACTION_SQL}) THEN 1 ELSE 0 END),0) AS decisions
+      FROM events e JOIN events f ON f.type='sleep.choice.finished' AND json_extract(f.data,'$.choice_id')=e.id
+      WHERE e.type='sleep.choice.started' AND json_extract(e.data,'$.session')=? AND e.id>?`,
+      state.session, state.after_event ?? 0);
+    return { handled: row.handled, decisions: row.decisions };
   },
 
   saveSleepState(state) {
-    const { warning, ...stored } = state;
+    const { warning, handled, decisions, ...stored } = state;
     this.store.run('INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', STATE_KEY, JSON.stringify(stored));
     return this.sleepStatus();
   },

@@ -17,7 +17,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。无 `--p
 | `GET /api/launcher` | 当前/上次项目与启动器模式 |
 | `POST /api/launcher/select` | 校验绝对目录、启动/连接项目 daemon、更新最后项目缓存；不进入 `MUTATIONS` 通用 RPC 白名单 |
 | `GET /api/notices?status=all&before=ID&limit=30` | `notice.page`：全部类型事项与处理结果的按需分页，不受快照 200 条上限限制；参数和留档语义见[待决问题](rpc/notices.md) |
-| `GET /api/sleep` | 用户专属 `sleep.status`，授权、预算与暂停状态；见[睡觉模式](../sleep-mode.md) |
+| `GET /api/sleep` | 用户专属 `sleep.status`，授权、预算与暂停状态及本会话进度 `handled` / `decisions`；见[睡觉模式](../sleep-mode.md) |
 | `GET /api/sleep/choices?before=ID&limit=30` | 用户专属 `sleep.choices`，管家决定的快照、理由、执行结果游标页 |
 | `GET /api/snapshot` | status + input.list + draft.list + notice.list + spec.list + candidate.list + ladder + timeline + 分页 task.list |
 | `GET /api/usage?start=...&end=...&interval=auto` | 用户专属 `system.usage`，当前项目的 token、预计 USD、时间柱状图与模型分组；详见[统计口径](statistics.md) |
