@@ -1,6 +1,7 @@
 import { $, block, button, el } from './dom.js';
 import { api, action } from './api.js';
 import { confirmDialog } from './dialog.js';
+import { agentHelp } from './help.js';
 import { ui } from './state.js';
 import { absolute } from './format.js';
 
@@ -12,7 +13,8 @@ async function stop() {
   renderSleepBanner(state);
 }
 async function resume() {
-  if (!await confirmDialog({ title: '恢复开发调度？', message: '只恢复排队任务，不重新开启睡觉模式。因预算中止的任务保留现场，需要检查后逐个重试。', confirmLabel: '恢复排队任务' })) return;
+  if (!await confirmDialog({ title: '恢复开发调度？', message: '只恢复排队任务，不重新开启睡觉模式。因预算中止的任务保留现场，需要检查后逐个重试。', confirmLabel: '恢复排队任务',
+    agent: true, confirmHelp: agentHelp('恢复排队任务，它们对应的 Agent 会重新开始运行。') })) return;
   renderSleepBanner(await action('sleep.resume', {}));
 }
 
@@ -27,8 +29,10 @@ export function renderSleepBanner(state) {
   host.replaceChildren(el('strong', state.enabled ? '☾ 我去睡觉了 · 管家正在值守' : '开发已暂停 · 管家已停止'),
     el('p', usageLabel(state), 'hint'));
   if (state.reason) host.append(el('p', state.reason, 'hint'));
-  if (state.enabled) host.append(button('立即关闭睡觉模式', stop, 'danger'));
-  if (state.paused) host.append(button('恢复排队任务', resume, 'ghost'));
+  if (state.enabled) host.append(button('立即关闭睡觉模式', stop, 'danger',
+    { help: '立即停止管家值守；排队中的任务不会恢复，需要你自己处理。' }));
+  if (state.paused) host.append(button('恢复排队任务', resume, 'ghost',
+    { agent: true, help: agentHelp('只恢复排队任务，不重新开启睡觉模式；它们对应的 Agent 会重新开始运行。') }));
 }
 
 export function sleepSettings() {
@@ -36,8 +40,10 @@ export function sleepSettings() {
   const state = ui.lastSnapshot?.status?.sleep;
   const status = el('p', state?.enabled ? `已开启 · ${modeLabel(state.mode)} · ${usageLabel(state)}` : state?.paused ? '预算保护：开发已暂停' : '未开启', 'hint');
   host.append(status, el('p', '离开界面后仍持续运行，直到你主动关闭或预算保护触发。每次代理决定都会留在「待我处理 → 管家选择」。'));
-  if (state?.enabled) { host.append(button('立即关闭睡觉模式', async () => { await stop(); status.textContent = '已关闭；历史选择仍保留'; }, 'danger')); return host; }
-  if (state?.paused) { host.append(button('恢复排队任务', resume)); return host; }
+  if (state?.enabled) { host.append(button('立即关闭睡觉模式', async () => { await stop(); status.textContent = '已关闭；历史选择仍保留'; }, 'danger',
+    { help: '立即停止管家值守；排队中的任务不会恢复，需要你自己处理。' })); return host; }
+  if (state?.paused) { host.append(button('恢复排队任务', resume, undefined,
+    { agent: true, help: agentHelp('只恢复排队任务，不重新开启睡觉模式；它们对应的 Agent 会重新开始运行。') })); return host; }
   const mode = el('select'); mode.setAttribute('aria-label', '管家模式'); mode.dataset.sleepField = 'mode';
   for (const [value, label] of [['recommended','全通过／推荐（无推荐时由管家判断）'],['preferences','参考以往选择，推断我的偏好']]) {
     const option = el('option', label); option.value = value; mode.append(option);
@@ -62,13 +68,15 @@ export function sleepSettings() {
       if (!await confirmDialog({ title: '确认开启「我去睡觉了」？', danger: true,
         message: fresh.warning,
         detail: `${modeLabel(options.mode)}\n预算：${tokens ?? '不限额'} token\n已有 Notice：${options.include_existing ? '处理' : '不处理'}\n自动合并：${options.allow_merge ? '允许' : '不允许'}`,
-        confirmLabel: '我了解风险，授权管家开启' })) return;
+        confirmLabel: '我了解风险，授权管家开启',
+        agent: true, confirmHelp: agentHelp('授权管家代理处理 Notice，它可能自动批准计划或合并。') })) return;
       const next = await action('sleep.start', { options, confirmed: true });
       if (ui.lastSnapshot?.status) ui.lastSnapshot.status.sleep = next;
       renderSleepBanner(next);
-      host.replaceChildren(el('h2', '我去睡觉了 · 已开启'), el('p', usageLabel(next)), button('立即关闭睡觉模式', stop, 'danger'));
+      host.replaceChildren(el('h2', '我去睡觉了 · 已开启'), el('p', usageLabel(next)), button('立即关闭睡觉模式', stop, 'danger',
+        { help: '立即停止管家值守；排队中的任务不会恢复，需要你自己处理。' }));
     } finally { enable.disabled = false; }
-  });
+  }, undefined, { agent: true, help: agentHelp('开启睡觉模式后，管家会代理你处理 Notice，可能自动批准计划或合并。') });
   host.append(enable); return host;
 }
 

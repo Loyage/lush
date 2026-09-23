@@ -5,6 +5,7 @@ import { show } from './messages.js';
 import { notificationControl } from './notice-notifications.js';
 import { absolute, relative } from './format.js';
 import { detail } from './navigate.js';
+import { agentHelp } from './help.js';
 import { setNavCount } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
 import { ui } from './state.js';
@@ -224,10 +225,11 @@ export function noticePanel(notice, task = null) {
       try { await action(method, params); await refreshRecord(); }
       finally { actions.querySelectorAll('button').forEach(node => { node.disabled = false; }); }
     };
-    actions.append(button('批准并开发', () => send('plan.approve', { id: notice.id })), button('驳回', async () => {
+    actions.append(button('批准并开发', () => send('plan.approve', { id: notice.id }), undefined,
+      { agent: true, help: agentHelp('批准这份拆解并交给 scheduler 编排成真实任务，随后会启动开发 Agent 执行。') }), button('驳回', async () => {
       const reason = await promptDialog({ title: '驳回计划', message: '说明需要调整的地方。', confirmLabel: '驳回' });
       if (reason?.trim()) await send('plan.reject', { id: notice.id, reason: reason.trim() });
-    }, 'ghost'));
+    }, 'ghost', { agent: true, help: agentHelp('把驳回理由送给 planner，让它据此重新拆解计划。') }));
     section.append(actions); return section;
   }
   if (notice.kind === 'questionnaire') {
@@ -244,7 +246,8 @@ export function noticePanel(notice, task = null) {
       settle: answer => settled('notice.answer', { id: notice.id, answer }),
       dismiss: () => settled('notice.dismiss', { id: notice.id }),
     }));
-    if (!inRecords) section.append(button('收起，只看任务详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost'));
+    if (!inRecords) section.append(button('收起，只看任务详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
+      { help: '收起这条待决提醒，回到任务详情；待决事项仍保留在列表里。' }));
     referenceable(section, { kind: 'notice', target: { notice_id: notice.id }, label: `待定事项 #${notice.id}`,
       quote: `${notice.title}\n${notice.body || ''}`, location: { view: 'notice-detail', notice_id: notice.id, task_id: notice.task_id } });
     return section;
@@ -275,10 +278,15 @@ export function noticePanel(notice, task = null) {
     } finally { actions.querySelectorAll('button').forEach(node => { node.disabled = false; }); }
   };
   if (resolutionDecision) actions.append(
-    button('开始解冲突', () => settle('批准，开始解冲突')),
-    button('暂不处理', dismiss, 'ghost'));
-  else actions.append(button('回复并继续任务', () => settle(answer.value)), button('忽略', dismiss, 'ghost'));
-  actions.append(button(inRecords ? '查看任务上下文' : '收起，只看任务详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost'));
+    button('开始解冲突', () => settle('批准，开始解冲突'), undefined,
+      { agent: true, help: agentHelp('批准并启动解冲突 Agent，把父分支合进当前分支并处理合并冲突。') }),
+    button('暂不处理', dismiss, 'ghost', { help: '忽略这条待决事项，不代表批准；它不会再出现在待处理列表。' }));
+  else actions.append(
+    button('回复并继续任务', () => settle(answer.value), undefined,
+      { agent: true, help: agentHelp('把你的答复发给该任务的 Agent，它会继续当前工作。') }),
+    button('忽略', dismiss, 'ghost', { help: '忽略这条待决事项，不代表批准；它不会再出现在待处理列表。' }));
+  actions.append(button(inRecords ? '查看任务上下文' : '收起，只看任务详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
+    inRecords ? undefined : { help: '收起这条待决提醒，回到任务详情；待决事项仍保留在列表里。' }));
   if (answer) answer.addEventListener('keydown', event => {
     if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
     if (!event.metaKey && !event.ctrlKey) return;

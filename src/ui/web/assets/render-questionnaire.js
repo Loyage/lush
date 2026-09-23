@@ -1,5 +1,6 @@
 import { button, el } from './dom.js';
 import { confirmDialog } from './dialog.js';
+import { agentHelp } from './help.js';
 import { renderMarkdown } from './markdown.js';
 import { ui } from './state.js';
 
@@ -125,8 +126,12 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
         }
         content.append(item);
       });
-      const submit = button(busy ? '正在提交…' : '确认全部选择并继续任务', () => send(false));
-      submit.disabled = !questions.every((q, i) => complete(q, draft.answers[i])); content.append(submit);
+      const submit = button(busy ? '正在提交…' : '确认全部选择并继续任务', () => send(false), undefined,
+        { agent: true, help: agentHelp('把整份问卷一次性提交，原任务 Agent 会带着你的选择继续。') });
+      submit.disabled = !questions.every((q, i) => complete(q, draft.answers[i]));
+      // 未答完时按钮禁用，data-help 放外层 span.help-host 才能悬停看到。
+      const submitHost = el('span', undefined, 'help-host');
+      submitHost.append(submit); content.append(submitHost);
     } else {
       const i = draft.step, q = questions[i], a = draft.answers[i];
       content.append(el('h3', q.question), el('p', q.multiSelect ? '可多选 · 点选后按“下一题”' : '单选 · 点击选项即完成本题；悬停、聚焦或点“预览”先看效果', 'hint'));
@@ -163,7 +168,8 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
     }
     const controls = el('div', undefined, 'actions');
     if (draft.step > 0) controls.append(button('上一题', () => { draft.step--; save(); paint(); }, 'ghost'));
-    controls.append(button('忽略问卷', () => send(true), 'ghost'));
+    controls.append(button('忽略问卷', () => send(true), 'ghost',
+      { help: '忽略整份问卷，不代表批准任何选项；任务会收到「未做决定」的消息。' }));
     content.append(controls);
     if (error) { const message = el('p', error, 'error'); message.setAttribute('role', 'alert'); content.append(message); }
     if (busy) content.querySelectorAll('button').forEach(node => { node.disabled = true; });

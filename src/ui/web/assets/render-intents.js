@@ -4,6 +4,7 @@ import { promptDialog } from './dialog.js';
 import { PLAN_GATE, relative, short, statusOf } from './format.js';
 import { filterUi, statusOption, syncSelectOptions, uniqueValues, withCurrent } from './filters-ui.js';
 import { detail } from './navigate.js';
+import { agentHelp } from './help.js';
 import { countText, describeFilters, filterIntents, isFiltering } from './sidebar.js';
 import { setNavCount } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
@@ -14,7 +15,8 @@ import { referenceable } from './context-references.js';
 function planActions(intent) {
   if (intent.plan_gate !== 'proposed') return null;
   const actions = el('span', undefined, 'intent-actions');
-  actions.append(button('批准并开发', () => action('plan.approve', { id: intent.task_id }), 'primary'));
+  actions.append(button('批准并开发', () => action('plan.approve', { id: intent.task_id }), 'primary',
+    { agent: true, help: agentHelp('批准这份拆解并交给 scheduler 编排成真实任务，随后会启动开发 Agent 执行。') }));
   actions.append(button('驳回', async () => {
     const reason = await promptDialog({
       title: `驳回 #${intent.id} 的拆解？`,
@@ -25,7 +27,7 @@ function planActions(intent) {
     });
     if (!reason || !reason.trim()) return;
     return action('plan.reject', { id: intent.task_id, reason: reason.trim() });
-  }));
+  }, undefined, { agent: true, help: agentHelp('把驳回理由送给 planner，让它据此重新拆解计划。') }));
   return actions;
 }
 function candidateActions(intent) {
@@ -42,13 +44,14 @@ function candidateActions(intent) {
     actions.append(report);
   }
   if (intent.candidate_status === 'ready') {
-    actions.append(button('接受并合入', () => action('candidate.accept', { id: intent.candidate_id }), 'primary'));
+    actions.append(button('接受并合入', () => action('candidate.accept', { id: intent.candidate_id }), 'primary',
+      { help: '把候选合入目标分支；合入后不可撤销，请先审阅代码与测试结果。' }));
     actions.append(button('要求修改', async () => {
       const feedback = await promptDialog({ title: `候选 v${intent.candidate_version} 需要怎样修改？`,
         message: '反馈会在同一个 Intent 下启动增量 planner；已审阅版本保持不变。', label: '验收反馈',
         placeholder: '例如：移动端按钮太靠下，请调整后重新给我看', confirmLabel: '提交修改要求' });
       if (feedback?.trim()) return action('candidate.changes', { id: intent.candidate_id, feedback: feedback.trim() });
-    }));
+    }, undefined, { agent: true, help: agentHelp('在同一个 Intent 下启动增量 planner，按验收反馈产出新候选；已审阅版本保持不变。') }));
   }
   return actions.children.length ? actions : null;
 }
