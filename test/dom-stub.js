@@ -10,7 +10,9 @@ class StubNode {
     this.parentNode = null;
     this.textContent = '';
     this.dataset = {};
-    this.style = {};
+    // 浏览器里 style 同时支持直接赋属性（style.left）与 CSSOM（setProperty，用于 --var）；
+    // stub 两者都留：测试既能读 style.left，也能断言 --graph-depth 这类自定义属性。
+    this.style = { setProperty(name, value) { this[name] = String(value); }, getPropertyValue(name) { return this[name] ?? ''; } };
     this.attributes = {};
     this.listeners = {};
     this.value = '';

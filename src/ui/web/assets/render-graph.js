@@ -536,6 +536,17 @@ function branchBlock(branch) {
   return block;
 }
 
+/** 分支森林里最深的嵌套层数（根为 0）。窄屏靠这个数决定分支树至少要留多宽，才不会被逐层挤成窄条。 */
+function forestDepth(forest) {
+  let max = 0;
+  const visit = (node, depth) => {
+    if (depth > max) max = depth;
+    for (const child of node.children) visit(child, depth + 1);
+  };
+  for (const root of forest) visit(root, 0);
+  return max;
+}
+
 /** 兜底分组：连目标分支节点都没有的任务，仍然要画出来，只是明确说明它没落在任何分支节点上。
  *  这里的任务没有分支可归档，也没别的去处，所以每行多一个「删除」（`task.delete`）；
  *  它是这个分组唯一的出口，也是页面上唯一会丢任务历史的按钮，确认文案写满了代价。 */
@@ -610,7 +621,15 @@ export function renderGraph(graph, { force = false } = {}) {
   if (layout.truncated) content.push(el('p', '分支图的节点或边太多，已截断展示；请用 CLI 查看完整状态。', 'hint warn'));
   if (!layout.forest.length && !layout.unplaced.length) content.push(el('p', '还没有任何任务分支或 worktree。', 'hint'));
 
-  for (const branch of layout.forest) content.push(branchBlock(branch));
+  // 把所有根分支包进一个整体容器：窄屏下它就是唯一的横向滚动区，桌面端只是个普通块。
+  // `--graph-depth` 记下森林的最大嵌套深度（根为 0），窄屏 CSS 用它算出分支树的最小宽度，
+  // 保证最深层卡片仍有可读宽度；unplaced 兜底分组不属于分支森林，留在容器外。
+  if (layout.forest.length) {
+    const tree = el('div', undefined, 'graph-tree');
+    tree.style.setProperty('--graph-depth', String(forestDepth(layout.forest)));
+    for (const branch of layout.forest) tree.append(branchBlock(branch));
+    content.push(tree);
+  }
   for (const group of layout.unplaced) content.push(unplacedBlock(group));
   view.replaceChildren(...content);
   return view;

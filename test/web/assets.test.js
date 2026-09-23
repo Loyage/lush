@@ -63,6 +63,12 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     expect(css).toContain('.graph-node.graph-emphasis-awaiting{');
     expect(css).toContain('.graph-decision{flex-basis:100%');
     expect(css).toContain('.graph-decision-body{');
+    // 手机端分支树不再逐层压窄卡片：.graph-tree 横向滚动，并按最大嵌套深度给出随深度增长的最小宽度。
+    expect(css).toMatch(/\.graph-tree\{--graph-indent:[^}]*overflow-x:auto/);
+    expect(css).toMatch(/\.graph-tree\{--graph-indent:[^}]*overscroll-behavior-x:contain/);
+    expect(css).toContain('.graph-tree>.graph-group{min-width:calc(var(--graph-card-min) + (var(--graph-depth,0) * var(--graph-indent)))}');
+    expect(css).toContain('.graph-children{padding-left:22px}');
+    expect(css).toContain('.graph-children>.graph-group::before,.graph-children>.graph-group::after{left:-24px}');
     // 执行过程每一步的 token chip：flex:none + 主题弱化色，标题截断时它和时间都不被挤掉。
     expect(css).toMatch(/\.step-tokens\{flex:none;color:var\(--dim\)/);
     const html = await (await fetch(f.url)).text();

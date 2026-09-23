@@ -64,6 +64,14 @@ test('分支图：入口走 #graph，画出分支谱系与任务，点节点进�
 
   const detail = dom.node('detail');
   expect(detail.querySelector('div.graph-view')).toBeTruthy();
+  // 分支森林包在 .graph-tree 里，容器上记下最大嵌套深度（world 图最深 main → 1-one → 2-two，depth 2）；
+  // 兜底分组不在这个滚动容器里，所以直接子节点全是根分支。
+  const tree = detail.querySelector('div.graph-tree');
+  expect(tree).toBeTruthy();
+  expect(tree.style.getPropertyValue('--graph-depth')).toBe('2');
+  expect([...tree.children].length).toBeGreaterThan(0);
+  expect([...tree.children].every(node => node.classList.contains('graph-group'))).toBe(true);
+  expect(detail.querySelector('div.graph-view').children.some(node => node.classList.contains('graph-group'))).toBe(false);
   const text = deepText(detail);
   expect(text).toContain('分支与合并');
   expect(text).toContain('当前检出 main');
@@ -180,7 +188,7 @@ test('分支图：同一层级的条目新的在前——兄弟分支按创建�
   await openGraph();
   const view = dom.node('detail').querySelector('div.graph-view');
   const label = node => node.textContent.replace('⎇ ', '');
-  const rootNames = () => view.children
+  const rootNames = () => view.querySelector('div.graph-tree').children
     .filter(node => node.classList.contains('graph-group'))
     .map(node => label(node.querySelector('span.graph-branch-name')));
   // 根层：当前检出 main 第一；release 有创建时间；feature/gone 是占位分支、没有创建时间，排在最后。
