@@ -67,8 +67,14 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     expect(css).toMatch(/\.graph-tree\{--graph-indent:[^}]*overflow-x:auto/);
     expect(css).toMatch(/\.graph-tree\{--graph-indent:[^}]*overscroll-behavior-x:contain/);
     expect(css).toContain('.graph-tree>.graph-group{min-width:calc(var(--graph-card-min) + (var(--graph-depth,0) * var(--graph-indent)))}');
-    expect(css).toContain('.graph-children{padding-left:22px}');
-    expect(css).toContain('.graph-children>.graph-group::before,.graph-children>.graph-group::after{left:-24px}');
+    // 缩进只有一个来源：--graph-indent；实际 padding-left 与连接线几何都由它推导，避免两处硬编码漂移。
+    expect(css).toContain('--graph-indent:16px');
+    expect(css).toContain('.graph-children{padding-left:var(--graph-indent)}');
+    expect(css).toContain('.graph-children>.graph-group::before,.graph-children>.graph-group::after{left:calc(-1 * (var(--graph-indent) + 2px))}');
+    expect(css).toContain('.graph-children>.graph-group::after{width:calc(var(--graph-indent) + 2px)');
+    // 手机端拍平嵌套卡片：子分支的 .graph-group 透明、无边框、无内边距、无圆角/阴影，只留最外层一张卡片，
+    // 层级改由缩进与连接线表达（关系底色仍保留在 .graph-branch 表头上）。
+    expect(css).toContain('.graph-children .graph-group{border:0;background:transparent;box-shadow:none;padding:0;border-radius:0}');
     // 执行过程每一步的 token chip：flex:none + 主题弱化色，标题截断时它和时间都不被挤掉。
     expect(css).toMatch(/\.step-tokens\{flex:none;color:var\(--dim\)/);
     const html = await (await fetch(f.url)).text();
