@@ -36,6 +36,8 @@
 
 | 文件 | 职责 | 导出（作为 `Project.prototype` 的方法） |
 |---|---|---|
+| `project/sleep.js` | 项目级睡觉模式授权、预算采样与暂停、单并发管家调度、重新校验后执行、不可变 Event 审计与恢复 | `sleepStatus`、`startSleep`、`stopSleep`、`resumeSleepDevelopment`、`sleepTick`、`sleepChoices`、`butlerContext`、`completeButler`、`recoverSleep`（内部辅助同模块） |
+| `core/sleep-policy.js` | 开启选项及结构化决策校验、确定性推荐策略与共享风险说明 | `SLEEP_WARNING`、`sleepOptions`、`recommendedChoice`、`validateSleepChoice` |
 | `project/base.js` | 构造与实例状态（`config` / `store` / `agentSettings` / `provider` / `workspaces` / `running` / `stopping` / `scheduled` / `ancestry`） | `class ProjectBase` |
 | `project/internal.js` | 两个跨模块的私有助手 | `agentView(task, run, latestRun)`、`tokenHash(token)` |
 | `project/agents.js` | 项目级 Agent 配置与环境文件读写接缝；配置和 env 都动态生效，按需查询 Pi / Codex 本机模型目录及 Pi 扩展/Skills，写入只允许用户侧 RPC；env 读取因含密钥也只允许用户 | `agentConfig()`、`agentModels(agent)`、`agentResources()`、`agentEnvironment(target)`、`configureAgentEnvironment(target,values)`、`configureAgents(value)` |
@@ -90,7 +92,7 @@
 | `store/specs.js` | 拆解队列 | `specDeps`、`addSpec`、`spec`、`specs`、`specStats`、`pendingSpecs`、`specsForBatch`、`specsByPlanner`、`nextSpecPlanner`、`assignSpecs`、`takeSpecs`、`plannedSpec`、`dropSpec`、`releaseBatch`、`discardBatch` |
 | `store/deps.js` | 依赖边；`depMap(taskIds?)` 可只投影当前有界任务窗 | `addDep`、`deps`、`dependents`、`depsDetail`、`dependentsDetail`、`depMap`、`reaches`、`edgesOf` |
 | `store/messages.js` | 收件箱 | `message`、`unread` |
-| `store/events.js` | 审计事件；保留旧正向历史，并提供从最近记录向前翻页的游标页 | `event`、`history`、`historyPage` |
+| `store/events.js` | 审计事件；保留旧正向历史，并提供从最近记录向前翻页的游标页 | `event`（返回新增 ID）、`history`、`historyPage` |
 | `store/verification.js` | 检验与解冲突的关联读模型 | `verifications`、`activeVerification`、`resolutions`、`activeResolver`、`unlandedResolver`、`conflictsOn` |
 | `store/drafts.js` | 输入缓存 | `addDraft`、`draft`、`updateDraft`、`openDrafts`、`draftCount` |
 | `store/references.js` | Input / Draft 的引用元数据（不是新的业务实体） | `setDraftReferences`、`draftReferences`、`setInputReferences`、`inputReferences`、`referencesForDrafts` |

@@ -276,7 +276,9 @@ export function makeWorld() {
       if (body.method === 'plan.approve' || body.method === 'plan.reject') {
         const intent = state.intents.find(row => row.task_id === body.params.id);
         if (intent) intent.plan_gate = body.method === 'plan.approve' ? 'approved' : 'rejected';
-        // 批 / 驳之后这条计划 notice 就被结算了：分支图上的决策区要跟着消失（重拉后的图看得出来）。
+        // 批 / 驳之后这条计划 notice 就被结算了：快照与分支图上的决策区都要跟着消失（重拉后看得出来）。
+        const planNotice = state.notices.find(row => row.task_id === body.params.id && row.kind === 'plan' && row.status === 'open');
+        if (planNotice) planNotice.status = body.method === 'plan.approve' ? 'answered' : 'dismissed';
         for (const node of state.graph.nodes) {
           if (node.kind === 'task' && node.id === body.params.id && node.notice?.kind === 'plan') { node.notice = null; node.notice_count = 0; }
         }
@@ -294,11 +296,15 @@ export function makeWorld() {
         return json(explanation);
       }
       if (body.method === 'notice.answer' || body.method === 'notice.dismiss') {
-        // 答复 / 忽略一条待决 notice：把它从图上拿掉，让重拉后的分支图看得出「这件事已经处理了」。
+        // 答复 / 忽略一条待决 notice：状态回写到快照，重拉后左栏、提醒条与待我处理都看得出这件事已处理。
+        const status = body.method === 'notice.dismiss' ? 'dismissed' : 'answered';
+        const row = state.notices.find(notice => notice.id === body.params.id);
+        if (row) row.status = status;
+        // 同时把它从图上拿掉，让重拉后的分支图看得出「这件事已经处理了」。
         for (const node of state.graph.nodes) {
           if (node.kind === 'task' && node.notice?.id === body.params.id) { node.notice = null; node.notice_count = 0; }
         }
-        return json({ id: body.params.id, status: body.method === 'notice.dismiss' ? 'dismissed' : 'answered' });
+        return json({ id: body.params.id, status });
       }
       return json({});
     }
@@ -306,6 +312,21 @@ export function makeWorld() {
     if (match) {
       const explanation = state.explanations.get(Number(match[1]));
       return explanation ? json(explanation) : { ok: false, status: 404, json: async () => ({ error: 'explanation not found' }) };
+    }
+    match = /^\/api\/notices(\?|$)/.exec(path);
+    if (match) {
+      // 待我处理 / 提醒条点击后的分页读取：按 status / before / limit 返回 {notices, cursor, has_more}。
+      const url = new URL(path, 'http://world.test');
+      const status = url.searchParams.get('status');
+      const before = url.searchParams.get('before');
+      const limit = Number(url.searchParams.get('limit') || '0') || 200;
+      let rows = [...state.notices].sort((a, b) => b.id - a.id);
+      if (status && status !== 'all') rows = rows.filter(row => row.status === status);
+      if (before) rows = rows.filter(row => row.id < Number(before));
+      const has_more = rows.length > limit;
+      const notices = rows.slice(0, limit);
+      const cursor = notices.length ? notices.at(-1).id : (before ? Number(before) : null);
+      return json({ notices, cursor, has_more });
     }
     match = /^\/api\/task\/(\d+)$/.exec(path);
     if (match) return json(detail(Number(match[1])));

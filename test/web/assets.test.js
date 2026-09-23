@@ -24,6 +24,24 @@ test('web serves the live-refresh and batch-merge modules alongside app.js', asy
   } finally { await f.close(); }
 });
 
+test('全局待决提醒条模块可服务，样式与容器一起发货', async () => {
+  const f = await setup();
+  try {
+    const module = await fetch(f.url + '/notice-banner.js');
+    expect(module.status).toBe(200);
+    expect(module.headers.get('content-security-policy')).toContain("script-src 'self'");
+    expect(await module.text()).toContain('export function renderNoticeBanner');
+    const html = await (await fetch(f.url)).text();
+    expect(html).toContain('id="notice-banner"');
+    const css = await (await fetch(f.url + '/styles.css')).text();
+    expect(css).toContain('.notice-banner');
+    expect(css).toContain('.notice-banner[hidden]{display:none}');
+    // refresh.js 轮询改版后仍把提醒条接回去（沿 import 图读整张模块图）。
+    const app = await pageSource(f.url);
+    expect(app).toContain('renderNoticeBanner');
+  } finally { await f.close(); }
+});
+
 test('studio styles provide dual themes, readable headings and reduced-motion support', async () => {
   const f = await setup();
   try {

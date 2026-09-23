@@ -9,8 +9,10 @@ import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { SORT_MODES } from './tree-order.js';
 import { notificationControl } from './notice-notifications.js';
+import { sleepSettings } from './sleep-ui.js';
 
 const TABS = [
+  { id: 'sleep', label: '我去睡觉了', note: '离开期间由管家决策' },
   { id: 'agent', label: 'Agent', note: '任务行为与模型' },
   { id: 'interface', label: '界面', note: '阅读、外观与行为' },
   { id: 'system', label: '系统', note: '运行参数与路径' },
@@ -133,7 +135,7 @@ function profileEditor(settings, profile, target, title, subtitle) {
   for (const [key, max] of [['responses', 10000], ['tokens', 1000000000]]) {
     const input = el('input'); input.type = 'number'; input.min = '1'; input.max = String(max); input.step = '1';
     input.dataset.agentField = `budget_${key}`; input.value = String(profile.soft_budget?.[key] ?? '');
-    input.placeholder = '关闭'; input.disabled = target === 'explainer'; budgetControls[key] = input;
+    input.placeholder = '关闭'; input.disabled = ['explainer','butler'].includes(target); budgetControls[key] = input;
   }
 
   const modelBox = el('div', undefined, 'agent-model-box');
@@ -557,7 +559,7 @@ export function renderSettings() {
   const head = el('div', undefined, 'settings-head');
   const intro = el('div'); intro.append(el('span', 'PROJECT SETTINGS', 'eyebrow'), el('h1', '设置'), el('p', '项目 Agent 与当前浏览器体验，分开管理。', 'hint'));
   head.append(intro); view.append(head, tabBar());
-  view.append(activeTab === 'agent' ? agentTab() : activeTab === 'interface' ? interfaceTab() : systemTab());
+  view.append(activeTab === 'sleep' ? sleepSettings() : activeTab === 'agent' ? agentTab() : activeTab === 'interface' ? interfaceTab() : systemTab());
   panel.replaceChildren(view);
 }
 

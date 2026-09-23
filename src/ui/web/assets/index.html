@@ -6,6 +6,7 @@
 <script src="/appearance.js" type="module"></script>
 <link rel="stylesheet" href="/styles.css">
 <link rel="stylesheet" href="/styles-statistics.css">
+<link rel="stylesheet" href="/styles-sleep.css">
 <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -23,6 +24,7 @@
       <form class="logout" method="post" action="/logout"><button type="submit" class="ghost">退出</button></form>
     </div>
   </div>
+  <section id="sleep-banner" class="sleep-banner" aria-live="polite" hidden></section>
   <div class="nav-intro">
     <span class="eyebrow">PROJECT NAVIGATION</span>
     <strong>工作空间</strong>
@@ -51,6 +53,7 @@
     <div class="view-identity"><span id="view-context" class="eyebrow">工作</span><strong id="view-title">项目概览</strong></div>
     <span id="view-hint" class="view-hint">从用户目标到固定 commit 的可验证成果</span>
   </div>
+  <section id="notice-banner" class="notice-banner" role="status" aria-live="polite" hidden></section>
   <section id="detail" tabindex="-1" aria-label="项目内容"><div class="loading-state"><span class="brand-spark">✳</span><h1>正在连接你的项目</h1><p class="hint">分支、任务与进展，即将在这里汇合。</p></div></section>
   <section id="resource-panels" class="resource-panels" aria-label="项目信息页面" hidden>
     <section class="resource-page side" id="side-notices" data-side="notices" hidden>
