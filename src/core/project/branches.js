@@ -182,8 +182,15 @@ export default {
     const placeholders = targets.map(() => '?').join(',');
     const unfinished = this.store.all(`SELECT id, status FROM tasks WHERE branch IN (${placeholders})
       AND status NOT IN ('completed','failed','cancelled') ORDER BY id`, ...targets);
+    // Showcase tasks have no tasks.branch: their source branch lives in immutable JSON metadata. They still use
+    // detached worktrees, so an active invocation must block archive and terminal ones must be reclaimed with it.
+    const showcases = this.store.all(`SELECT * FROM tasks WHERE role='showcase'
+      AND json_extract(showcase,'$.branch') IN (${placeholders}) ORDER BY id`, ...targets);
+    unfinished.push(...showcases.filter(task => !TERMINAL.has(task.status) || this.running.has(task.id)));
     check(unfinished.length === 0, `branch ${name} still has unfinished tasks: ${unfinished.map(task => `#${task.id}`).join(', ')}`);
-    const outcomes = await this.workspaces.archiveBranches(targets, { discard_worktree });
+    const showcaseCleanup = showcases.map(task => ({ id: task.id, status: task.status,
+      worktrees: [task.workspace, task.baseline_workspace].filter(dir => dir && fs.existsSync(dir)).length }));
+    const outcomes = await this.workspaces.archiveBranches(targets, { discard_worktree, showcases });
     const tips = new Map(outcomes.map(outcome => [outcome.branch, outcome.tip]));
     // 目录已经删了，tasks.workspace 不能再指着一个不存在的路径；branch 字段是历史，必须留着。
     const archived = this.store.all(`SELECT id, status, branch FROM tasks WHERE branch IN (${placeholders}) ORDER BY id`, ...targets);
@@ -211,7 +218,8 @@ export default {
     // 顶层 worktree / ref / tip / discarded 描述的是子树根（调用方问的那条）；整棵子树看 branches。
     return { branch: name, archived: true, count: outcomes.length, branches: outcomes,
       worktree: root.worktree ?? 'absent', ref: root.ref ?? 'absent', tip: root.tip ?? null, discarded: root.discarded === true,
-      tasks: archived.map(task => ({ id: task.id, status: task.status })), sessions };
+      tasks: archived.map(task => ({ id: task.id, status: task.status })), sessions,
+      showcases: showcaseCleanup, showcase_worktrees: showcaseCleanup.reduce((sum, task) => sum + task.worktrees, 0) };
   },
 
   /**

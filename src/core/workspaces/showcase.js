@@ -81,13 +81,13 @@ export const methods = {
     return { version: 1, branch, commit, tree, baseline_branch: baselineBranch, baseline_commit: baselineCommit };
   },
 
-  async assertShowcaseCheckout(dir, commit) {
+  async assertShowcaseCheckout(dir, commit, { allowDirty = false } = {}) {
     check(fs.realpathSync(await this.git(dir, 'rev-parse', '--show-toplevel')) === fs.realpathSync(dir), 'showcase workspace is not a worktree root');
     check(await this.git(dir, 'rev-parse', 'HEAD') === commit, 'showcase checkout changed; preserve and inspect it before retrying or cleanup');
     let branch = null;
     try { branch = await this.git(dir, 'symbolic-ref', '--short', 'HEAD'); } catch { /* detached */ }
     check(!branch, 'showcase checkout must remain detached');
-    await this.clean(dir);
+    if (!allowDirty) await this.clean(dir);
   },
 
   ensureShowcase(task) {

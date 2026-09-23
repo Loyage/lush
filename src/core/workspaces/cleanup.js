@@ -39,7 +39,7 @@ export const methods = {
    * 两遍走：第一遍只读地收集 tip / worktree 并把所有会失败的事检查完（脏 worktree、主检出），
    * 第二遍才开始删。这样「子树里有脏 worktree」不会留下归档了一半的分支。
    */
-  archiveBranches(branches, { discard_worktree = false } = {}) {
+  archiveBranches(branches, { discard_worktree = false, showcases = [] } = {}) {
     return this.exclusive(async () => {
       const project = this.config.project;
       const names = [...new Set(branches.map(branch => String(branch ?? '').trim()))];
@@ -64,6 +64,44 @@ export const methods = {
         }
         plan.push({ branch, tip, workspace, present, worktree: 'absent', ref: 'absent', discarded: false });
       }
+
+      // 展示任务不拥有源分支，但会留下两个 detached worktree（展示提交与对照提交）。归档源分支时
+      // 一并回收；先把所有目录的身份、固定提交与干净状态检查完，再停预览、开始任何删除。
+      const detached = [];
+      for (const task of showcases) {
+        check(task.role === 'showcase' && ['completed','failed','cancelled'].includes(task.status),
+          `showcase #${task.id} must be stopped before its branch can be archived`);
+        const snapshot = JSON.parse(task.showcase);
+        check(names.includes(snapshot.branch), `showcase #${task.id} does not belong to an archived branch`);
+        for (const [field, commit] of [['workspace', snapshot.commit], ['baseline_workspace', snapshot.baseline_commit]]) {
+          const dir = task[field];
+          if (!dir) continue;
+          const present = fs.existsSync(dir);
+          if (present) await this.assertShowcaseCheckout(dir, commit, { allowDirty: discard_worktree });
+          detached.push({ task_id: task.id, branch: snapshot.branch, field, commit, dir, present });
+        }
+      }
+      for (const task of showcases) {
+        if (!this.previewActive?.(task.id)) continue;
+        check(typeof this.stopPreview === 'function', `showcase #${task.id} preview must be stopped before archive`);
+        await this.stopPreview(task.id);
+        check(!this.previewActive?.(task.id), `showcase #${task.id} preview is still stopping`);
+      }
+      for (const entry of detached) {
+        let removed = false, discarded = false;
+        if (entry.present && fs.existsSync(entry.dir)) {
+          // A preview may have written files after the first preflight. Recheck after it has stopped.
+          await this.assertShowcaseCheckout(entry.dir, entry.commit, { allowDirty: discard_worktree });
+          if (discard_worktree) discarded = (await this.porcelain(entry.dir)) !== '';
+          await this.git(project, 'worktree', 'remove', ...(discard_worktree ? ['--force'] : []), entry.dir);
+          removed = true;
+        }
+        this.store.update(entry.task_id, { [entry.field]: null });
+        this.store.event(entry.task_id, 'showcase.worktree_archived', {
+          branch: entry.branch, workspace: entry.dir, kind: entry.field === 'workspace' ? 'showcase' : 'baseline', removed, discarded,
+        });
+      }
+
       const outcomes = [];
       for (const entry of plan) {
         if (entry.present) {

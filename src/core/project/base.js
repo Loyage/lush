@@ -16,5 +16,6 @@ export class ProjectBase {
     this.integratingIntents = new Set();
     this.previews = new Map(); this.previewStarting = new Map();
     this.workspaces.previewActive = id => this.previewStarting.has(id) || ['running','starting','stopping'].includes(this.previews.get(id)?.status);
+    this.workspaces.stopPreview = id => this.stopShowcasePreview(id);
   }
 }

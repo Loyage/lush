@@ -82,7 +82,7 @@ lush [--project PATH] [--json] <command>
   branch merge BRANCH            把子分支 fast-forward 合入其直接父分支
   branch sync BRANCH             父子已分歧时，在子侧创建 merger 任务吸收父分支
   branch catchup BRANCH          子分支没有独有提交时，让它 fast-forward 跟上父分支
-  branch archive BRANCH [--discard] 归档分支：删除 worktree 与本地分支，保留任务与会话；--discard 才会丢弃未提交改动
+  branch archive BRANCH [--discard] 归档分支：删除分支及关联展示 worktree，保留任务与会话；--discard 才丢未提交改动
   branch summary [BRANCH] '一句话' 写 / 更新分支的一句话摘要（分支图上的标题）；省略 BRANCH 时写自己的分支
   notice list                     待决问题与答复
   notice post '问题' [--task ID] [--body '背景'] [--questions-file FILE]

@@ -236,7 +236,7 @@ planner 一轮写完 spec 后，runtime 在事务中直接编译根 WorkItem 与
 - **Intent 工作台与 Review Candidate 是主要交付界面**；分支图保留为 Git 诊断界面。每条 fork 连线仍显示 ahead/behind、分歧、缺失与恢复动作。
 - `branch merge CHILD`（图上的「合入父分支」）只把 child fast-forward 到 recorded direct parent；父分支未检出时用 compare-and-swap 更新 ref，已检出时要求 worktree 干净并同步 index/工作目录。
 - 父子已分歧时用 `branch sync CHILD`。runtime 从 child tip 创建 merger 子分支，让 agent 合入冻结的 parent commit、在子侧解决冲突并测试；之后先 FF 回 child，再 FF 到 parent。父分支上永不直接 `--no-ff`，最终落地树就是测试过的树。
-- 不再要某条分支的代码时用 `branch archive BRANCH [--discard]`（图上的「归档」）。它删掉该分支的 worktree 与本地 ref，但保留分支记录（`branches.status` 标 `archived`）、任务行、消息、事件，以及不随 worktree 消失的 pi 会话文件（`.lush/sessions/`）。归档明知可能未合并也允许删，因此是用户专属的显式动作；默认要求 worktree 干净，只有 `--discard` 才会连着未提交改动一起丢。与「证明已进入目标分支才删」的 `task cleanup` 不是一回事。
+- 不再要某条分支的代码时用 `branch archive BRANCH [--discard]`（图上的「归档」）。它删掉该分支的 worktree、本地 ref，以及关联终态效果展示的展示／基线 detached worktree（仍在运行的托管预览会先停止），但保留分支记录（`branches.status` 标 `archived`）、任务行、展示报告、消息、事件，以及不随 worktree 消失的 pi 会话文件（`.lush/sessions/`）。归档明知可能未合并也允许删，因此是用户专属的显式动作；默认要求 worktree 干净，只有 `--discard` 才会连着未提交改动一起丢。与「证明已进入目标分支才删」的 `task cleanup` 不是一回事。
 - `task merge` / 批量交付保留为兼容入口，最终遵循同一条 direct-parent / ff-only 规则；批量在首个分歧处停止。
 - `task cleanup ID [--keep-branch]` 不使用 `--force`：branch tip 必须仍包含任务审阅提交，并且整个 tip 已进入直接父分支，才用 compare-and-delete 回收。聚合过子分支的任务分支也能安全清理，不会把额外提交当成漂移丢掉。
 - `task delete ID`（图末兜底分组「未归属分支的任务」里的「删除」）只删**一条**已结束任务及其全部已结束后代的行，连同它们的消息、事件、notice、spec 与两端依赖边；这是除 `task clear` 之外唯一会丢任务历史的路径，所以子树里有活动任务、planner 还有未处理 spec、有 verifier / 候选指着它，或磁盘状态收不回来时**拒绝**，一行都不删（不会像 clear 那样把收不回的成果留在磁盘上）。分支谱系行与输入行故意保留（id 不复用），删时留一条 `task.deleted` 审计事件。

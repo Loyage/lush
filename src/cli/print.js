@@ -189,6 +189,7 @@ export function printBranchArchive(result) {
     console.log(`${name}worktree\t${worktree}${entry.discarded ? '（丢弃了未提交改动）' : ''} · 本地分支\t${ref}${entry.tip ? `（tip ${shortSha(entry.tip)}）` : ''}`);
   }
   console.log(`保留任务\t${result.tasks.length} 个${result.tasks.length ? `：${result.tasks.map(task => `#${task.id} ${task.status}`).join('、')}` : ''}`);
+  if (result.showcases?.length) console.log(`效果展示\t保留 ${result.showcases.length} 条记录，删除 ${result.showcase_worktrees ?? 0} 个 detached worktree`);
   console.log(`会话文件\t${result.sessions.length} 个`);
   for (const file of result.sessions) console.log(`  ${file}`);
 }

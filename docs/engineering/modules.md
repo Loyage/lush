@@ -76,7 +76,7 @@
 - `Project.showcaseEligibility(branch,baseline?,excludeTaskId?)` 是 graph 与创建/重试共用的准入读面；Git 校验与树解析由 Workspaces 提供。`graph.get` 的 branch 节点增量带 `showcase:{allowed,reason,latest_task_id}`，前端只在分支详情展示合格分支的次要启动按钮；首页、Intent 列表和任务详情不提供启动入口。已有展示仍可查看。在独立 detached worktree 执行，不切换/提交用户分支。
 - RPC `showcase.list(branch?)` 读最近 50 条；`showcase.start` / `showcase.stop(id)` 为用户专属；`showcase.preview(command,path?)` 为当前 showcase invocation 专属，以 argv 数组启动预览。CLI `showcase start BRANCH [--baseline BRANCH]` / `list [--branch BRANCH]` / `stop ID` / `preview --file JSON`。
 - 展示 HTML 写在 `<home>/showcase/<task>/report.html`，复用认证后的 `/api/task/<id>/report`，使用 sandbox CSP。`task.inspect.showcase` 给出冻结上下文、报告与托管预览状态。完成不等于检验通过、不批准合并；现有 verifier / Candidate API 与历史报告兼容保留，Web 的手动验收创建入口改为展示。
-- 预览由 daemon 托管：运行于展示 worktree，动态分配本机端口，argv 中 `{port}` 替换，环境 `HOST=127.0.0.1` / `PORT`，不传 agent token；agent 须显式配置应用监听本机。完成后保留，失败/取消/用户停止/daemon 退出时停止进程组。守护子进程观察父进程 stdin 关闭以处理 daemon 崩溃；重启不自动重放。运行预览期间禁止回收 worktree。入口仅面向同机浏览器，不反向代理不可信应用。
+- 预览由 daemon 托管：运行于展示 worktree，动态分配本机端口，argv 中 `{port}` 替换，环境 `HOST=127.0.0.1` / `PORT`，不传 agent token；agent 须显式配置应用监听本机。完成后保留，失败/取消/用户停止/daemon 退出时停止进程组。守护子进程观察父进程 stdin 关闭以处理 daemon 崩溃；重启不自动重放。运行预览期间禁止普通任务回收 worktree；归档来源分支会先停关联预览，再删除该分支历史展示的两个 detached worktree，但保留展示任务、报告与执行记录。入口仅面向同机浏览器，不反向代理不可信应用。
 
 ## 统计面板接缝
 

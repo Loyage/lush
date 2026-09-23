@@ -131,6 +131,32 @@ test('preview remains live after completion, strips credentials, blocks cleanup,
   } finally { await f.close(); }
 });
 
+test('archiving a showcased branch stops its preview and removes both detached worktrees', async () => {
+  const f = fixture({ async run({ api, task, context }) {
+    await api.startShowcasePreview(task.id, serve); page(context); return 'preview ready';
+  } });
+  try {
+    await feature(f);
+    const task = await f.project.startShowcase('feature', 'main'); await ended(f);
+    const stored = f.store.task(task.id);
+    const preview = f.project.inspect(task.id).showcase.preview;
+    expect(preview.status).toBe('running');
+    expect(fs.existsSync(stored.workspace)).toBe(true);
+    expect(fs.existsSync(stored.baseline_workspace)).toBe(true);
+
+    const result = await f.project.archiveBranch('feature');
+    expect(result.showcases).toEqual([{ id: task.id, status: 'completed', worktrees: 2 }]);
+    expect(result.showcase_worktrees).toBe(2);
+    await expect(fetch(preview.url)).rejects.toThrow();
+    expect(fs.existsSync(stored.workspace)).toBe(false);
+    expect(fs.existsSync(stored.baseline_workspace)).toBe(false);
+    expect(f.store.task(task.id).workspace).toBeNull();
+    expect(f.store.task(task.id).baseline_workspace).toBeNull();
+    expect(f.project.hasReport(task.id)).toBe(true);
+    expect(await git(f.root, 'branch', '--list', 'feature')).toBe('');
+  } finally { await f.close(); }
+});
+
 test('failed/cancelled showcases stop previews; normal daemon shutdown stops completed previews and recovery never replays', async () => {
   let fail = true;
   const f = fixture({ async run({ api, task, context }) {
