@@ -2,6 +2,7 @@ import { $, badge, block, button, el, kv, statusBadge } from './dom.js';
 import { action } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, statusOf, taskTitle } from './format.js';
+import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
 import { show } from './messages.js';
 import { detail, overview } from './navigate.js';
@@ -84,8 +85,11 @@ export function renderDetail(task, history, diff, usage) {
     // 同一目标分支上有没解决的冲突：这里点合并只会失败，所以禁用并指向那个任务。
     const node = button('合并已被冻结', () => {}, 'ghost');
     node.disabled = true;
-    node.title = `#${freeze.task_id} 的合并冲突还没解决：先处理它的待决问题（或让它的解冲突任务作废），${task.target_branch} 上的合并才能继续。`;
-    actions.append(node);
+    // 禁用的按钮不派发指针事件，data-help 放外层 span.help-host。
+    const host = el('span', undefined, 'help-host');
+    host.setAttribute('data-help', `#${freeze.task_id} 的合并冲突还没解决：先处理它的待决问题（或让它的解冲突任务作废），${task.target_branch} 上的合并才能继续。`);
+    host.append(node);
+    actions.append(host);
   } else if (task.status === 'completed' && ['pending', 'review', 'conflict'].includes(task.integration)) {
     const live = resolver && !TERMINAL_STATUS.has(resolver.status);
     const readyResolver = resolver && resolver.status === 'completed' && ['pending', 'review'].includes(resolver.integration)
@@ -111,8 +115,13 @@ export function renderDetail(task, history, diff, usage) {
       else if (result?.merge?.status === 'resolved') show(`冲突已解决：原任务 #${result.merge.resolved_task_id} 也标成已合并。`);
       await detail(task.id);
     });
-    if (live) { node.disabled = true; node.title = `#${resolver.id} 正在解冲突：等它结束，或者先取消它再重试。`; }
-    actions.append(node);
+    if (live) {
+      node.disabled = true;
+      const host = el('span', undefined, 'help-host');
+      host.setAttribute('data-help', `#${resolver.id} 正在解冲突：等它结束，或者先取消它再重试。`);
+      host.append(node);
+      actions.append(host);
+    } else actions.append(node);
   }
   if (['failed', 'cancelled'].includes(task.status)) actions.append(button('检查后重试', async () => {
     if (await retryTask(task)) await detail(task.id);
@@ -129,8 +138,9 @@ export function renderDetail(task, history, diff, usage) {
     });
     if (!confirmed) return;
     await action('task.cleanup', { id: task.id }); await detail(task.id);
-  }, 'ghost'));
-  if (reclaimable && task.workspace && task.branch) actions.append(button('只回收 worktree（保留分支）', async () => { await action('task.cleanup', { id: task.id, keep_branch: true }); await detail(task.id); }, 'ghost'));
+  }, 'ghost', { help: '删除这条任务的 worktree 与本地分支；只有分支已进入目标分支且顶端就是审阅过的提交时才真删，否则保留并在事件里说明原因。' }));
+  if (reclaimable && task.workspace && task.branch) actions.append(button('只回收 worktree（保留分支）', async () => { await action('task.cleanup', { id: task.id, keep_branch: true }); await detail(task.id); }, 'ghost',
+    { help: '只删除 worktree、保留本地分支；未提交的改动会随 worktree 一起丢失。' }));
   const verifications = task.verifications || [];
   if (!['completed', 'failed', 'cancelled'].includes(task.status)) actions.append(button('取消任务树', async () => {
     const confirmed = await confirmDialog({
@@ -142,10 +152,12 @@ export function renderDetail(task, history, diff, usage) {
     });
     if (confirmed) await action('task.cancel', { id: task.id });
     await detail(task.id);
-  }, 'danger'));
+  }, 'danger', { help: '取消这个任务及它下面的全部子任务，工作区与分支保留；取消后无法恢复。' }));
   if (task.parent_id === null && task.role === 'planner') actions.append(
-    button('标记为开发', async () => { await action('input.flow', { id: task.id, flow: 'develop' }); await detail(task.id); }, 'ghost'),
-    button('标记为了解', async () => { await action('input.flow', { id: task.id, flow: 'explain' }); await detail(task.id); }, 'ghost'));
+    button('标记为开发', async () => { await action('input.flow', { id: task.id, flow: 'develop' }); await detail(task.id); }, 'ghost',
+      { help: '把这条输入改判为「开发」：之后它派生的工作任务会建独立 worktree 与分支。' }),
+    button('标记为了解', async () => { await action('input.flow', { id: task.id, flow: 'explain' }); await detail(task.id); }, 'ghost',
+      { help: '把这条输入改判为「了解」：之后不再从它派生工作任务或 worktree。' }));
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
 
@@ -242,7 +254,8 @@ export function renderDetail(task, history, diff, usage) {
     const form = el('form'), input = el('textarea');
     input.placeholder = '追加要求，不打断当前 agent'; input.required = true; input.rows = 3;
     input.addEventListener('input', () => { ui.detailDirty = true; });
-    form.append(input, button('追加说明', async () => { await action('task.message', { id: task.id, body: input.value }); ui.detailDirty = false; await detail(task.id); }));
+    form.append(input, button('追加说明', async () => { await action('task.message', { id: task.id, body: input.value }); ui.detailDirty = false; await detail(task.id); }, undefined,
+      { agent: true, help: agentHelp('把这条补充说明发给该任务的 Agent，它会据此继续当前工作。') }));
     form.onsubmit = event => { event.preventDefault(); form.querySelector('button').click(); };
     follow.append(form); panel.append(follow);
   }

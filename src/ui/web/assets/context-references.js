@@ -3,6 +3,7 @@ import { show } from './messages.js';
 import { detail, graph, resource } from './navigate.js';
 import { transcriptOpen, ui } from './state.js';
 import { startExplanation, startSelectionExplanation } from './explanations.js';
+import { agentHelp } from './help.js';
 
 const MAX_REFERENCES = 12;
 const MAX_QUOTE = 8192;
@@ -224,7 +225,8 @@ function showMenu(event, values, introduce = null) {
   const menu = $('context-menu');
   if (!menu || !values.length) return;
   menu.replaceChildren(...values.map(value => button(`引用：${value.label}`, () => { addComposerReference(value); hideMenu(); }, 'context-action')));
-  if (introduce) menu.prepend(button(introduce.label, () => { hideMenu(); void introduce.run(); }, 'context-action'));
+  if (introduce) menu.prepend(button(introduce.label, () => { hideMenu(); void introduce.run(); }, 'context-action',
+    { agent: true, help: introduce.help }));
   const width = Number(globalThis.innerWidth || 0), height = Number(globalThis.innerHeight || 0);
   const left = width ? Math.min(event.clientX ?? 0, Math.max(8, width - 370)) : (event.clientX ?? 0);
   const top = height ? Math.min(event.clientY ?? 0, Math.max(8, height - 260)) : (event.clientY ?? 0);
@@ -242,8 +244,8 @@ function onContextMenu(event) {
   // 任意非空选区都能「介绍」：落在执行步骤里仍走原步骤解释，其余走通用只读解释。
   const introduce = !selected ? null
     : step && selectedText.length <= MAX_QUOTE
-      ? { label: '介绍：目的、原理与结果含义', run: () => startExplanation(step.target.task_id, step.target.seq, selectedText) }
-      : { label: '介绍所选文字：是什么、为何如此', run: () => startSelectionExplanation(selected.quote, selected.location) };
+      ? { label: '介绍：目的、原理与结果含义', help: agentHelp('用只读的解释 Agent 说明这个执行步骤的目的、原理与结果含义。'), run: () => startExplanation(step.target.task_id, step.target.seq, selectedText) }
+      : { label: '介绍所选文字：是什么、为何如此', help: agentHelp('用只读的解释 Agent 说明所选文字是什么、为何如此。'), run: () => startSelectionExplanation(selected.quote, selected.location) };
   if (values.length) showMenu(event, values, introduce); else hideMenu();
 }
 function onClick(event) { if (!inside(event.target, $('context-menu'))) hideMenu(); }

@@ -26,6 +26,7 @@ import { detail, overview } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { saveGraphPrefs, ui } from './state.js';
 import { referenceable } from './context-references.js';
+import { agentHelp } from './help.js';
 import { renderGraphProgress } from './render-progress.js';
 import { startBranchShowcase } from './render-showcase.js';
 
@@ -183,7 +184,7 @@ function decisionRow(node) {
     actions.append(button('批准并开发', async () => {
       await action('plan.approve', { id: node.id });
       await done(`已批准 #${node.id} 的拆解，交给 scheduler 编排`);
-    }, 'primary'));
+    }, 'primary', { agent: true, help: agentHelp('批准这份拆解并交给 scheduler 编排成真实任务，随后会启动开发 Agent 执行。') }));
     actions.append(button('驳回', async () => {
       const reason = await promptDialog({
         title: `驳回 #${node.id} 的拆解？`,
@@ -195,7 +196,7 @@ function decisionRow(node) {
       if (!reason || !reason.trim()) return;   // 空理由不发：与意图面板同一条校验
       await action('plan.reject', { id: node.id, reason: reason.trim() });
       await done(`已驳回 #${node.id} 的拆解：${reason.trim()}`);
-    }));
+    }, undefined, { agent: true, help: agentHelp('把驳回理由送给 planner，让它据此重新拆解计划。') }));
     decision.append(actions);
     return decision;
   }
@@ -209,7 +210,7 @@ function decisionRow(node) {
     await action('notice.answer', { id: notice.id, answer });
     releaseDecisionInput(input);
     await done(`已把答复发给任务 #${node.id}，它会继续跑`);
-  });
+  }, undefined, { agent: true, help: agentHelp('把你的答复发给该任务的 Agent，它会继续当前工作。') });
   input.addEventListener('keydown', async event => {
     if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
     if (!event.metaKey && !event.ctrlKey) return;
@@ -220,7 +221,7 @@ function decisionRow(node) {
     await action('notice.dismiss', { id: notice.id });
     releaseDecisionInput(input);
     await done(`已忽略任务 #${node.id} 的这条待决事项`);
-  }, 'ghost'));
+  }, 'ghost', { help: '忽略这条待决事项，不代表批准；任务不会继续处理它。' }));
   decision.append(input, actions);
   return decision;
 }
@@ -327,8 +328,16 @@ async function runTaskDelete(node) {
  *  选项不该因为当前状态不对就整块消失，否则用户只会看到「这里什么都没有」。 */
 function branchAction(label, title, run) {
   const node = run ? button(label, run, 'ghost graph-branch-action') : el('button', label, 'ghost graph-branch-action');
-  if (!run) { node.type = 'button'; node.disabled = true; }
-  node.title = title;
+  if (!run) {
+    node.type = 'button';
+    node.disabled = true;
+    // 禁用的按钮不派发指针事件，data-help 放外层 span.help-host。
+    const host = el('span', undefined, 'help-host');
+    host.setAttribute('data-help', title);
+    host.append(node);
+    return host;
+  }
+  node.setAttribute('data-help', title);
   return node;
 }
 
@@ -382,7 +391,7 @@ function collapseCaret(branch, onCollapsed) {
   const sync = collapsed => {
     caret.textContent = collapsed ? '▶' : '▼';
     caret.setAttribute('aria-expanded', String(!collapsed));
-    caret.title = `${collapsed ? '展开' : '收起'} ${branch.name} 的任务与子分支`;
+    caret.setAttribute('data-help', `${collapsed ? '展开' : '收起'} ${branch.name} 的任务与子分支`);
   };
   sync(collapsedNow());
   caret.onclick = () => {
@@ -499,9 +508,11 @@ function branchRow(branch, onCollapsed) {
 
   // 只有「可归档且尚未归档」的分支才给动作；当前检出、未登记、还有活没完的都不给。
   // 归档一条＝归档它整棵子树（见 runBranchArchive 的确认文案）。
-  if (branch.showcase?.allowed === true) row.append(button('效果展示', () => startBranchShowcase(branch.name), 'ghost'));
+  if (branch.showcase?.allowed === true) row.append(button('效果展示', () => startBranchShowcase(branch.name), 'ghost',
+    { agent: true, help: agentHelp('启动专用展示 Agent，在隔离工作区分析修改、设计并生成可运行的效果展示。') }));
   if (branch.showcase?.latest_task_id) row.append(button('查看已有展示', () => detail(branch.showcase.latest_task_id), 'link'));
-  if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch), 'ghost'));
+  if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch), 'ghost',
+    { help: '归档这条分支及它下面的全部后代分支：删除 worktree 与本地 ref，未提交改动会丢失；任务与会话记录保留。' }));
 
   referenceable(row, { kind: 'delivery_branch', target: { target_branch: branch.name, section: 'graph' }, label: `分支 ${branch.name}`,
     quote: [branch.title || branch.name, branch.summary, branch.parent ? `父分支：${branch.parent}` : null,
@@ -559,7 +570,8 @@ function unplacedBlock(group) {
   const lane = el('div', undefined, 'graph-lane');
   for (const node of group.items) {
     const row = taskRow(node);
-    row.append(button('删除', () => runTaskDelete(node), 'ghost'));
+    row.append(button('删除', () => runTaskDelete(node), 'ghost',
+      { help: '删除这条任务与它已结束的后代任务：任务行、消息、事件与 notice 一并清除，无法撤销。' }));
     lane.append(row);
   }
   block.append(lane);

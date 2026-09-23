@@ -1,6 +1,7 @@
 import { action, api } from './api.js';
 import { button, el } from './dom.js';
 import { confirmDialog, formDialog } from './dialog.js';
+import { agentHelp } from './help.js';
 import { show } from './messages.js';
 
 const roleProfile = (settings, role) => {
@@ -150,6 +151,7 @@ export async function retryTask(task) {
       title: `检查后重试任务 #${task.id}`,
       message: `任务因“${task.status === 'cancelled' ? '已取消' : '失败'}”停止。请检查并调整 ${task.role} Agent；这些设置只用于本轮重试。`,
       content: form, confirmLabel: '使用这些设置重试', cancelLabel: '暂不重试', cardClass: 'retry-modal',
+      agent: true, confirmHelp: agentHelp('用上面选定的 Agent 设置重新启动这个任务。'),
     });
     if (!confirmed) return false;
 
@@ -161,6 +163,7 @@ export async function retryTask(task) {
         message: '自定义内容会替换 Lush 内置任务规则，仅本轮重试生效。',
         detail: '可能影响：任务 API 使用、权限边界、子任务协作、工作区安全和交付流程。',
         confirmLabel: '仍然重试', cancelLabel: '取消重试', danger: true,
+        agent: true, confirmHelp: agentHelp('用这份自定义 Prompt 重新启动这个任务。'),
       });
       if (!accepted) return false;
     }
