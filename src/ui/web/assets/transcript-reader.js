@@ -24,7 +24,8 @@ function readerState(taskId) {
   const tool = el('input'); tool.placeholder = '工具名，例如 bash'; tool.setAttribute('aria-label', '工具名'); tool.maxLength = 100;
   const errors = el('input'); errors.type = 'checkbox'; const errorLabel = el('label', '只看失败'); errorLabel.prepend(errors);
   const submit = button('搜索完整记录', () => {}, 'ghost'); submit.type = 'submit';
-  form.append(query, kind, tool, errorLabel, submit, button('解释历史', () => explanationHistory(taskId), 'ghost'));
+  form.append(query, kind, tool, errorLabel, submit, button('解释历史', () => explanationHistory(taskId), 'ghost',
+    { help: '打开这个任务的解释历史面板，查看此前的选区与引用解释' }));
   const results = el('div');
   root.append(form, results);
   const state = { root, version: 0 }; readers.set(taskId, state);

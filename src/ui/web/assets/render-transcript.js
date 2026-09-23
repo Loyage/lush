@@ -95,7 +95,7 @@ function stepNode(taskId, step) {
     body.hidden = !open;
     head.setAttribute('aria-expanded', String(open));
   };
-  head.title = '点击展开／收起这一步的正文';
+  head.setAttribute('data-help', '点击展开／收起这一步的正文');
   head.onclick = () => { const open = !item.classList.contains('open'); ui.stepToggle.set(stepKey(taskId, step), open); paint(open); };
   paint(stepExpanded(taskId, step));
   item.append(body);

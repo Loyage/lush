@@ -49,12 +49,13 @@ function draftItem(draft) {
   pick.type = 'checkbox'; pick.className = 'pick';
   pick.checked = !draftUnchecked.has(draft.id);
   pick.setAttribute('aria-label', `选中待提交意图 #${draft.id} 一起提交`);
-  pick.title = '勾选后「提交并规划」只提交选中的；不勾的继续留在待提交意图里';
+  pick.setAttribute('data-help', '勾选后「提交并规划」只提交选中的；不勾的继续留在待提交意图里');
   pick.onchange = () => { if (pick.checked) draftUnchecked.delete(draft.id); else draftUnchecked.add(draft.id); syncComposer(); };
   const edit = button('编辑', () => startDraftEdit(draft), 'edit');
   edit.setAttribute('aria-label', `编辑待提交意图 #${draft.id}`);
   const drop = button('移除', () => action('draft.remove', { id: draft.id }), 'drop');
-  drop.setAttribute('aria-label', `从待提交意图里移除 #${draft.id}`); drop.title = '从待提交意图里移除这条输入（已提交的输入不可删）';
+  drop.setAttribute('aria-label', `从待提交意图里移除 #${draft.id}`);
+  drop.setAttribute('data-help', '从待提交意图里移除这条输入（已提交的输入不可删）');
   row.append(pick, el('span', '○', 'dot c-queued'), el('span', `#${draft.id}`, 'tid'), el('span', '待规划'),
     el('span', relative(draft.created_at), 'when'), edit, drop);
   const body = el('span', draft.content, 'goal');
@@ -67,10 +68,11 @@ function draftItem(draft) {
       const chip = el('span', undefined, 'draft-reference');
       const canLocate = locatable(reference);
       const label = canLocate ? button(reference.label, () => locateReference(reference), 'draft-reference-label') : el('span', reference.label);
-      label.title = canLocate ? `${reference.quote}\n点击定位到来源` : reference.quote;
+      label.setAttribute('data-help', canLocate ? `${reference.quote}\n点击定位到来源` : reference.quote);
       const remove = button('×', () => action('draft.update', { id: draft.id, content: draft.content,
         references: draft.references.filter((_value, at) => at !== index) }), 'context-remove');
       remove.setAttribute('aria-label', `从待提交意图 #${draft.id} 移除引用：${reference.label}`);
+      remove.setAttribute('data-help', '从这条待提交意图移除该引用，不改动输入原文');
       chip.append(label, remove); references.append(chip);
     });
     item.append(references);

@@ -18,7 +18,7 @@ function makeNavItem(section) {
   const item = el('button', undefined, 'nav-item');
   item.type = 'button';
   item.dataset.side = section.id;
-  item.title = `在右侧打开「${section.long}」`;
+  item.setAttribute('data-help', `在右侧打开「${section.long}」`);
   const copy = el('span', undefined, 'nav-copy');
   copy.append(el('strong', section.label, 'nav-label'), el('small', section.description, 'nav-description'));
   item.append(el('span', section.icon, 'nav-icon'), copy, el('span', '0', 'nav-count'), el('span', '→', 'nav-arrow'));

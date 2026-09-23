@@ -252,7 +252,7 @@ function profileEditor(settings, profile, target, title, subtitle) {
     defaultPrompt.value = builtInPrompt;
     promptState.textContent = target === 'default' && roleDefaults
       ? '已恢复为按角色组合内置 Prompt；保存后生效。' : '已恢复为该角色的内置 Prompt；保存后生效。';
-  }, 'ghost prompt-reset');
+  }, 'ghost prompt-reset', { help: '用 Lush 内置 Prompt 覆盖输入框里的现有内容；需要保存配置才真正生效' });
   restorePrompt.type = 'button';
   promptTools.append(promptState, restorePrompt);
   const syncPromptState = () => {
@@ -306,7 +306,7 @@ function profileEditor(settings, profile, target, title, subtitle) {
     const saved = await action('agent.configure', { config: { version: 1, default: settings.default, roles } });
     if (ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = saved;
     show(`${title}已恢复继承项目默认配置。`); renderSettings();
-  }, 'ghost'));
+  }, 'ghost', { help: '删除这个角色的单独配置，立即改回继承项目默认 Agent 配置' }));
   card.append(actions);
   return card;
 }
@@ -322,7 +322,7 @@ function inheritedRole(settings, role) {
       roles: { ...settings.roles, [role]: { ...resolved } } } });
     if (ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = saved;
     renderSettings();
-  }, 'ghost'));
+  }, 'ghost', { help: '为这个角色建立独立配置；保存后不再跟随默认配置一起变化' }));
   return card;
 }
 
@@ -382,8 +382,9 @@ function environmentEditor(settings) {
     value.addEventListener('input', () => { entry.value = value.value; });
     const reveal = button(entry.visible ? '隐藏' : '显示', () => {
       entry.visible = !entry.visible; value.type = entry.visible ? 'text' : 'password'; reveal.textContent = entry.visible ? '隐藏' : '显示';
-    }, 'ghost agent-env-reveal'); reveal.type = 'button';
-    const remove = button('删除', () => { rows.splice(index, 1); renderSettings(); }, 'ghost agent-env-remove'); remove.type = 'button';
+    }, 'ghost agent-env-reveal', { help: entry.visible ? '重新遮罩这条环境变量的值；不改变保存内容' : '以明文显示这条环境变量的值；不改变保存内容' }); reveal.type = 'button';
+    const remove = button('删除', () => { rows.splice(index, 1); renderSettings(); }, 'ghost agent-env-remove',
+      { help: '从编辑列表移除这条变量；保存环境变量后才会真正删除' }); remove.type = 'button';
     line.append(name, value, reveal, remove); list.append(line);
   });
   section.append(list);
@@ -499,7 +500,7 @@ function concurrencyEditor(runtime, plain) {
     applyRuntimeSettings(saved);
     show('并发额度已恢复环境默认。');
     renderSettings();
-  }, 'ghost settings-runtime-reset');
+  }, 'ghost settings-runtime-reset', { help: '清除两项并发额度的覆盖值，立即恢复环境默认' });
   reset.dataset.runtimeAction = 'reset';
   actions.append(save, reset);
   box.append(grid, actions, errorBox);

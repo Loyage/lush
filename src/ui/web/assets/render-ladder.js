@@ -107,7 +107,9 @@ export function renderLadder(data) {
     const ready = groupItems.filter(isMergeable);
     const actions = el('div', undefined, 'actions pick-actions');
     const selected = button('', () => mergeBatch(ready.filter(item => mergeSelection.has(item.id)).map(item => item.id), candidates));
+    selected.setAttribute('aria-label', '合并本分支中勾选的任务到目标分支');
     const all = button('', () => mergeBatch(ready.map(item => item.id), candidates), 'ghost');
+    all.setAttribute('aria-label', '合并本分支全部可交付任务到目标分支');
     const clear = button('清空选择', () => { mergeSelection.clear(); sync(); }, 'ghost');
     controls.push({ items: groupItems, selected, all });
     actions.append(selected, all, clear); groupBlock.append(actions);
@@ -118,9 +120,9 @@ export function renderLadder(data) {
       const box = el('input', undefined, 'pick');
       box.type = 'checkbox'; box.checked = mergeSelection.has(candidate.id); box.disabled = !isMergeable(candidate);
       box.setAttribute('aria-label', `选择任务 #${candidate.id} 参与批量合并`);
-      box.title = isMergeable(candidate)
+      box.setAttribute('data-help', isMergeable(candidate)
         ? ((candidate.blockers || []).some(item => item.code === 'code_upstream') ? '勾选时会自动带上同一变更栈的 code 上游' : '勾选后合并到本目标分支')
-        : (candidate.blockers || []).map(item => item.message).join('\n');
+        : (candidate.blockers || []).map(item => item.message).join('\n'));
       box.onchange = () => {
         if (box.checked) {
           // 选择另一个目标分支时清掉旧选择，避免界面制造跨分支批次。
