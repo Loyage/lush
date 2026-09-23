@@ -75,6 +75,9 @@ export default {
     return normalized;
   },
 
+  /** Selection snapshots reuse the reference location shape; keys and lengths stay in sync with normalizeReferences. */
+  normalizeLocation(location = {}) { return compactObject(location, LOCATION_FIELDS, 'location'); },
+
   referencesForInput(inputId) { return this.store.inputReferences(inputId); },
 
   async resolveInputReferences(inputId) {

@@ -8,7 +8,7 @@ export const PARAMS = {
   'task.transcript': ['id','after','limit'], 'task.usage': ['id'],
   'task.transcript_page': ['id','seq','offset'],
   'task.transcript_search': ['id','query','kind','tool','errors','after','limit'], 'task.transcript_step': ['id','seq','offset'],
-  'explanation.start': ['id','seq','quote'], 'explanation.list': ['id','before'], 'explanation.get': ['id'],
+  'explanation.start': ['id','seq','quote'], 'explanation.selection': ['quote','location'], 'explanation.list': ['id','before'], 'explanation.get': ['id'],
   'progress.plan': ['steps'], 'progress.complete': ['step'],
   'task.spawn': ['parent','goal','role','deps','name','spec'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id','profile'],
   'task.merge': ['id'], 'task.merge_many': ['ids'], 'task.cleanup': ['id','keep_branch'], 'task.verify': ['id'], 'task.delete': ['id'], 'task.clear': [], 'task.ladder': [],
@@ -22,7 +22,7 @@ export const PARAMS = {
   'plan.propose': ['title','body'], 'plan.approve': ['id','answer'], 'plan.reject': ['id','reason'],
   'notice.list': [], 'notice.page': ['status','before','limit'], 'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
 };
-export const USER_ONLY = new Set(['task.transcript_page','task.transcript_search','task.transcript_step','explanation.start','explanation.list','explanation.get','showcase.start','showcase.stop','system.usage','system.stop','system.configure','agent.configure','agent.environment','agent.environment.configure','input.submit','draft.add','draft.remove','draft.update','draft.commit','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.delete','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.import','branch.merge','branch.sync','branch.catchup','branch.archive']);
+export const USER_ONLY = new Set(['task.transcript_page','task.transcript_search','task.transcript_step','explanation.start','explanation.selection','explanation.list','explanation.get','showcase.start','showcase.stop','system.usage','system.stop','system.configure','agent.configure','agent.environment','agent.environment.configure','input.submit','draft.add','draft.remove','draft.update','draft.commit','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.delete','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.import','branch.merge','branch.sync','branch.catchup','branch.archive']);
 /** 拆解队列与计划审批由 agent 写入；用户只能查看（lush spec list / lush intents），批不批走 plan.approve|reject。 */
 export const AGENT_ONLY = new Set(['showcase.preview','spec.add','spec.drop','plan.propose','progress.plan','progress.complete']);
 /**

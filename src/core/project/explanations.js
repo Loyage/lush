@@ -4,9 +4,8 @@ export default {
   async startExplanation(taskId, seq, quote) {
     check(!this.stopping, 'daemon is stopping');
     const source = this.store.task(id(taskId));
-    check(typeof quote === 'string' && quote.trim().length > 0 && quote.length <= 8192, '请选择 1–8192 字的文字');
-    const profile = this.provider.resolve?.({ role: 'explainer' });
-    check(!profile || ['pi', 'mock'].includes(profile.agent), '解释 agent 需要 Pi 的无工具模式；请在 Agent 设置中为 explainer 选择 Pi');
+    this.checkExplanationInput(quote);
+    this.checkExplanationProvider();
     const record = await this.transcriptStep(taskId, seq, 0);
     const snapshot = { version: 1, task_id: taskId, seq, quote, goal: source.goal.slice(0, 12000),
       captured_at: new Date().toISOString(), step: record.step, related: record.related,
@@ -21,6 +20,35 @@ export default {
     });
     this.kick();
     return this.explanation(task.id);
+  },
+
+  /** Read-only explanation of any page selection; no task/step source, so the snapshot carries kind=selection. */
+  async startSelectionExplanation(quote, location) {
+    check(!this.stopping, 'daemon is stopping');
+    this.checkExplanationInput(quote);
+    const normalized = this.normalizeLocation(location);
+    this.checkExplanationProvider();
+    const snapshot = { version: 1, kind: 'selection', quote,
+      location: normalized, captured_at: new Date().toISOString() };
+    check(!this.stopping, 'daemon is stopping');
+    check(this.store.activeTasks().length < 1000, 'too many active tasks');
+    const task = this.store.transaction(() => {
+      const created = this.store.create({ role: 'explainer', input_id: null, name: 'explanation',
+        goal: `介绍所选页面文字：${quote.slice(0, 180)}` });
+      this.store.event(created.id, 'explanation.requested', snapshot);
+      return created;
+    });
+    this.kick();
+    return this.explanation(task.id);
+  },
+
+  checkExplanationInput(quote) {
+    check(typeof quote === 'string' && quote.trim().length > 0 && quote.length <= 8192, '请选择 1–8192 字的文字');
+  },
+
+  checkExplanationProvider() {
+    const profile = this.provider.resolve?.({ role: 'explainer' });
+    check(!profile || ['pi', 'mock'].includes(profile.agent), '解释 agent 需要 Pi 的无工具模式；请在 Agent 设置中为 explainer 选择 Pi');
   },
 
   explanationContext(taskId) {

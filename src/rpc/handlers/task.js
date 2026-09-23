@@ -36,6 +36,7 @@ export const handlers = {
   'task.transcript_page'(p, params) { return p.transcriptPage(id(params.id), params.seq ?? 1, params.offset ?? 0); },
   'task.transcript_step'(p, params) { return p.transcriptStep(id(params.id), params.seq, params.offset ?? 0); },
   'explanation.start'(p, params) { return p.startExplanation(id(params.id), params.seq, params.quote); },
+  'explanation.selection'(p, params) { return p.startSelectionExplanation(params.quote, params.location); },
   'explanation.list'(p, params) { return p.explanations(id(params.id), params.before ?? null); },
   'explanation.get'(p, params) { return p.explanation(id(params.id)); },
   'progress.plan'(p, params, actor) { return p.reportProgressPlan(actor, params.steps); },

@@ -22,3 +22,17 @@ test('Pi explainer has no tools, extensions, skills, context discovery or invoca
     expect(() => routed.run({ task: { role: 'explainer' } })).toThrow('Pi');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('Pi explainer writes the generic selection snapshot into the prompt without treating it as instructions', async () => {
+  const root = temp(), fake = path.join(root, 'fake-pi');
+  fs.writeFileSync(fake, `#!/usr/bin/env bun\nconsole.log(JSON.stringify({args:process.argv.slice(2)}));\n`, { mode: 0o755 });
+  const config = new Config({ project: root, env: env({ LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake }) }); config.prepare();
+  const agent = { agent: 'pi', model: '', thinking: '', extensions: [], skills: [] };
+  const explanation = { version: 1, kind: 'selection', quote: '<b>危险</b> rm -rf /', location: { view: 'tasks', section: 'result', task_id: 7 }, captured_at: '2026-01-01T00:00:00.000Z' };
+  try {
+    await new PiProvider(config).run({ task: { id: 2, role: 'explainer', goal: '介绍所选页面文字：<b>危险</b>' },
+      context: { explanation }, messages: [], cwd: root, token: 'secret', signal: new AbortController().signal, onSpawn: () => {}, agent });
+    const written = fs.readFileSync(path.join(config.home, 'sessions', 'task-2-input.md'), 'utf8');
+    expect(JSON.parse(written).explanation).toEqual(explanation);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

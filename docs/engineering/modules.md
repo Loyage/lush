@@ -13,7 +13,8 @@
 - 新增用户只读 `task.transcript_page(id,seq?,offset?)` / `GET /api/task/<id>/transcript-page`，从 `(seq,offset)` 连续读取未裁剪的步骤文字；每页最多 50 段、96,000 字符正文，单段最多 24,000 字符，返回 `next_seq/next_offset/has_more`。终端模式只读回放，不启动 Pi 或 PTY，不执行终端控制序列；旧搜索与步骤 API 兼容保留。
 - 原 `task.transcript` 保持兼容，步骤增量保留 `call_id` / `tool_name` / `is_error`；同一会话内按调用 ID 配对。
 - 新增用户只读 `task.transcript_search(id,query?,kind?,tool?,errors?,after?,limit?)` 与 `task.transcript_step(id,seq,offset?)`：前者跨完整任务会话检索、分页摘要，后者按步骤读取分段原文及关联上下文；HTTP 用 `/api/task/<id>/transcript-search`、`transcript-step`。
-- 新增用户专属 `explanation.start(id,seq,quote)` / `explanation.list(id,before?)` / `explanation.get(id)`。专用 `explainer` 根 Task 无输入分支、无 worktree、无派工；来源快照保存为既有 Event，结果仍是 Task.result，无新业务实体或表。
+- 新增用户专属 `explanation.start(id,seq,quote)` / `explanation.list(id,before?)` / `explanation.get(id)` 与 `explanation.selection(quote,location)`。专用 `explainer` 根 Task 无输入分支、无 worktree、无派工；来源快照保存为既有 Event，结果仍是 Task.result，无新业务实体或表。`explanation.selection` 介绍任意页面选区，不绑定 task/seq；其 `location` 只允许 `view` / `section` / `task_id` / `input_id` / `spec_id` / `notice_id` / `path`（与引用 location 同一套字段与长度约束）。
+- `explanation.requested` 的 version 1 快照分两种：执行步骤含 `task_id` / `seq` / `goal` / 配对 `related`，页面选区含 `kind:"selection"` / `quote` / `location` / `captured_at`。通用快照没有 `task_id`，因此不进入 `explanation.list` 的任务历史，只能按 id 用 `explanation.get` 读取。
 - `explainer` 只接受运行时提供的资料；Pi 以无工具、无扩展、无 Skills、无上下文文件模式运行；不能保证同等限制的 backend 明确拒绝，不静默降级权限。
 
 ## 三条规矩
