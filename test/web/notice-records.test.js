@@ -90,6 +90,10 @@ test('closed questionnaires retain original options and normalized answers, with
       answer: JSON.stringify({ answers: [{ question: '采用哪种布局？', labels: ['方案 A'], custom: '' }] }),
     });
     expect(deepText(panel)).toContain('方案 A'); expect(deepText(panel)).toContain('方案 B');
-    expect(panel.querySelector('textarea')).toBeNull(); expect(panel.querySelector('button')).toBeNull();
+    expect(panel.querySelector('textarea')).toBeNull();
+    // 结算后只重放选项卡片供查看，不再出现决定 / 提交控件。
+    expect(panel.querySelectorAll('.actions').length).toBe(0);
+    expect(panel.querySelectorAll('.decision-progress').length).toBe(0);
+    expect(panel.querySelectorAll('button').every(node => !/提交|继续|忽略|批准|驳回/.test(node.textContent))).toBe(true);
   } finally { dom.restore(); }
 });

@@ -1,4 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { installDom } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
@@ -56,6 +57,8 @@ test('待提交意图可勾选部分提交，也可以就地编辑，轮询不�
   const box = drafts.querySelector('textarea.draft-edit');
   expect(box).toBeTruthy();
   expect(box.value).toBe('第二条');
+  // 点正文进入编辑后焦点真的落在文本框上（手机端光标可落进文本）。
+  expect(dom.document.activeElement).toBe(box);
   await dom.intervalFor(1500)();
   expect(drafts.querySelector('textarea.draft-edit')).toBe(box);
 
@@ -64,4 +67,22 @@ test('待提交意图可勾选部分提交，也可以就地编辑，轮询不�
   await box.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
   await until(() => world.state.drafts[0]?.content === '第二条（改过）');
   await until(() => dom.node('drafts').querySelector('.goal')?.textContent === '第二条（改过）');
+});
+
+test('点「编辑」也获得焦点；窄屏字号与最小高度是稳定接缝', async () => {
+  world.state.drafts = [{ id: 21, content: '移动端编辑', created_at: iso(NOW) }];
+  await dom.intervalFor(1500)();
+  if (!dom.node('draft-panel').classList.contains('open')) await dom.node('draft-toggle').onclick();
+  const edit = dom.node('drafts').querySelector('button.edit');
+  await edit.onclick();
+  const box = dom.node('drafts').querySelector('textarea.draft-edit');
+  expect(box).toBeTruthy();
+  expect(dom.document.activeElement).toBe(box);
+  expect(box.value).toBe('移动端编辑');
+  // Esc 取消，不留编辑态。
+  await box.listeners.keydown[0]({ key: 'Escape', preventDefault() {} });
+  // 窄屏下字号 ≥16px（防 iOS 自动放大），并有随内容增长前的最小高度。
+  const css = readFileSync(new URL('../../src/ui/web/assets/styles.css', import.meta.url), 'utf8');
+  expect(css).toMatch(/\.draft-edit\{[^}]*min-height:\d+px/);
+  expect(css).toMatch(/@media\(max-width:760px\)\{[\s\S]*?\.draft-edit\{font-size:16px;min-height:\d+px/);
 });

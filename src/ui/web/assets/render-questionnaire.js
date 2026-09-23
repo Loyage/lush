@@ -41,6 +41,59 @@ function preview(notice, question, option, value) {
 const complete = (q, answer) => Boolean(answer.custom.trim()) || (answer.selected.length > 0
   && (q.multiSelect || answer.selected.length === 1) && answer.selected.every(i => i >= 0 && i < q.options.length));
 
+/** Line a stored answer back up with its question: prefer position, fall back to wording. */
+function answerForQuestion(answers, question, index) {
+  const byIndex = answers[index];
+  if (byIndex?.question === question.question) return byIndex;
+  return answers.find(answer => answer?.question === question.question) || byIndex || null;
+}
+/** Recover selected option indices from `selected` (indices) or legacy `labels` (wording). */
+function answeredIndices(question, answer) {
+  const selected = answer?.selected;
+  if (Array.isArray(selected) && selected.length) {
+    const valid = [...new Set(selected.filter(n => Number.isInteger(n) && n >= 0 && n < question.options.length))];
+    if (valid.length) return valid.sort((a, b) => a - b);
+  }
+  const labels = Array.isArray(answer?.labels) ? answer.labels : [];
+  const found = [];
+  for (const label of labels) {
+    const at = question.options.findIndex(option => option.label === label);
+    if (at >= 0 && !found.includes(at)) found.push(at);
+  }
+  return found.sort((a, b) => a - b);
+}
+/** Read-only replay of one answered question: same option cards and previews, no write path. */
+function settledQuestion(notice, index, question, answer) {
+  const box = el('div', undefined, 'decision-summary settled-question');
+  box.append(el('strong', question.question), el('span', question.multiSelect ? '多选' : '单选', 'hint'));
+  const custom = (answer?.custom || '').trim();
+  const selected = custom ? [] : answeredIndices(question, answer);
+  const recorded = custom ? [] : (Array.isArray(answer?.labels) ? answer.labels.filter(label => typeof label === 'string' && label.trim()) : []);
+  if (custom) box.append(el('p', `自定义答案：${custom}`, 'decision-custom'));
+  else if (selected.length) box.append(el('p', `已选：${selected.map(n => question.options[n]?.label).filter(Boolean).join('、')}`, 'decision-picked'));
+  else if (recorded.length) box.append(el('p', `已选：${recorded.join('、')}（未能匹配到当前选项）`, 'decision-picked'));
+  else box.append(el('p', '未选择任何选项', 'hint'));
+  const hasPreview = question.options.some(option => option.preview || option.previewHtml);
+  const layout = el('div', undefined, `decision-layout${hasPreview ? ' has-preview' : ''}`);
+  const choices = el('div', undefined, 'decision-choices'), pane = el('div', undefined, 'decision-preview-pane');
+  const show = n => { if (hasPreview && question.options[n]) pane.replaceChildren(preview(notice, index, n, question.options[n])); };
+  question.options.forEach((option, n) => {
+    const picked = selected.includes(n);
+    const choice = button('', () => show(n), `decision-option${picked ? ' selected' : ''}`);
+    choice.setAttribute('aria-pressed', String(picked));
+    choice.append(el('strong', option.label), el('span', option.description));
+    const row = el('div', undefined, 'decision-option-row'); row.append(choice);
+    if (picked) row.append(el('span', '已选', 'decision-picked-mark'));
+    choices.append(row);
+  });
+  layout.append(choices);
+  // Only the chosen option preloads its preview; the rest stay behind a click, so a settled
+  // notice does not fan out one iframe per option.
+  if (hasPreview) { if (selected.length) show(selected[0]); layout.append(pane); }
+  box.append(layout);
+  return box;
+}
+
 /** Click-through questions; no network mutation until the final review is confirmed. */
 export function questionnairePanel(notice, { settle, dismiss } = {}) {
   const root = el('div', undefined, 'questionnaire');
@@ -51,26 +104,19 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
   if (form.body) root.append(renderMarkdown(form.body));
   const content = el('div'); root.append(content);
   if (notice.status !== 'open') {
-    content.append(el('p', notice.status === 'answered' ? '已提交选择' : '已忽略 · 不代表同意任何选项', 'hint'));
-    const original = el('details'); original.append(el('summary', '查看原始问题与选项'));
-    questions.forEach((q, i) => {
-      original.append(el('h4', q.question));
-      q.options.forEach((o, n) => {
-        original.append(el('p', `${o.label}：${o.description}`));
-        if (o.preview || o.previewHtml) {
-          const fold = el('details'); fold.append(el('summary', `${o.label} · 原始预览`), preview(notice, i, n, o)); original.append(fold);
-        }
-      });
-    });
-    content.append(original);
+    content.append(el('p', notice.status === 'answered' ? '已提交选择' : '已忽略 · 未选择任何选项', 'hint'));
+    let answers = null, broken = false;
     if (notice.status === 'answered') {
-      try {
-        for (const answer of JSON.parse(notice.answer).answers) {
-          const item = el('div', undefined, 'decision-summary');
-          item.append(el('strong', answer.question), el('p', answer.custom || answer.labels.join('、'))); content.append(item);
-        }
-      } catch { content.append(el('pre', notice.answer || '')); }
+      try { const parsed = JSON.parse(notice.answer); answers = Array.isArray(parsed?.answers) ? parsed.answers : null; }
+      catch { answers = null; }
+      broken = !answers;
     }
+    questions.forEach((question, i) => {
+      // Dismissal carries no answer: every question must read as explicitly unselected.
+      const answer = answers ? answerForQuestion(answers, question, i) : null;
+      content.append(settledQuestion(notice, i, question, answer));
+    });
+    if (broken) content.append(el('p', '无法解析已提交的答案，原始内容如下：', 'hint'), el('pre', notice.answer || ''));
     return root;
   }
   const draft = loadDraft(notice, questions);
