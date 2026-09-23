@@ -85,7 +85,7 @@ test('Intent 面板：planner 在 control plane，批准后 runtime 直接编译
   expect(findByText(dom.node('intents'), '已驳回')).toBeTruthy();
 });
 
-test('Intent 面板：以分支效果展示替换 pending 候选手动验收入口', async () => {
+test('Intent 面板：不提供效果展示或 pending 候选手动验收入口', async () => {
   world.state.candidates[0].status = 'pending';
   world.state.candidates[0].report_task_id = null;
   world.state.intents[1].candidate_status = 'pending';
@@ -94,10 +94,10 @@ test('Intent 面板：以分支效果展示替换 pending 候选手动验收入�
   await dom.intervalFor(1500)();
 
   const intents = dom.node('intents');
-  expect(deepText(intents)).toContain('展示不代表检验通过');
+  expect(deepText(intents)).toContain('合并仍由你明确批准');
   expect(findByText(intents, '打开结果报告')).toBeFalsy();
   expect(findByText(intents, '开始验收')).toBeFalsy();
-  expect(findByText(intents, '效果展示')).toBeTruthy();
+  expect(findByText(intents, '效果展示')).toBeFalsy();
 });
 
 test('Intent 面板：待验收候选给出结果入口与接受 / 要求修改，两者走 candidate.*', async () => {

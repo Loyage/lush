@@ -19,15 +19,17 @@ async function feature(f) {
   await git(f.root, 'commit', '-am', 'feature');
   const commit = await git(f.root, 'rev-parse', 'HEAD');
   await git(f.root, 'checkout', 'main');
+  f.store.recordBranch({ branch: 'feature', parent: 'main', created_from_commit: base });
   return { base, commit };
 }
 
-test('showcase pins arbitrary local branches, requires unknown baseline, and never owns the source ref', async () => {
+test('showcase pins eligible registered branches and never owns the source ref', async () => {
   const f = fixture(); f.project.kick = () => {};
   try {
     const { base, commit } = await feature(f);
     fs.writeFileSync(path.join(f.root, 'file.txt'), 'user unsaved work\n');
-    await expect(f.project.startShowcase('feature')).rejects.toThrow('baseline');
+    await git(f.root, 'branch', 'unregistered', commit);
+    await expect(f.project.startShowcase('unregistered', 'main')).rejects.toThrow('已登记');
     await expect(f.project.startShowcase('feature~1', 'main')).rejects.toThrow();
     await expect(f.project.startShowcase(commit, 'main')).rejects.toThrow();
     await expect(f.project.startShowcase('feature', '--all')).rejects.toThrow();
@@ -54,7 +56,8 @@ test('showcase pins arbitrary local branches, requires unknown baseline, and nev
     await f.project.workspaces.cleanup(first.id);
     expect(await git(f.root, 'rev-parse', 'refs/heads/feature')).toBe(base);
     expect(f.store.task(first.id).workspace).toBeNull();
-    f.store.recordBranch({ branch: 'feature', parent: 'main', created_from_commit: base });
+    await expect(f.project.startShowcase('feature')).rejects.toThrow('没有实际文件改动');
+    await git(f.root, 'update-ref', 'refs/heads/feature', commit, base);
     const second = await f.project.startShowcase('feature');
     expect(second.showcase.baseline_commit).toBe(base);
     expect(f.project.showcases('feature').map(row => row.id)).toEqual([second.id, first.id]);
@@ -96,8 +99,7 @@ test('no HTML cannot masquerade as delivered showcase, retries preserve but cann
     const task = await f.project.startShowcase('feature', 'main'); await ended(f);
     expect(f.store.task(task.id).status).toBe('failed'); expect(f.project.hasReport(task.id)).toBe(true);
     const pinned = f.project.inspect(task.id).showcase.commit;
-    await git(f.root, 'update-ref', 'refs/heads/feature', await git(f.root, 'rev-parse', 'main'));
-    f.project.retry(task.id); await ended(f);
+    await f.project.retry(task.id); await ended(f);
     expect(f.store.task(task.id).status).toBe('failed');
     expect(f.store.task(task.id).error).toContain('must deliver report.html');
     expect(f.project.hasReport(task.id)).toBe(false);
@@ -142,7 +144,7 @@ test('failed/cancelled showcases stop previews; normal daemon shutdown stops com
     expect(f.store.task(task.id).status).toBe('failed');
     await until(() => f.project.inspect(task.id).showcase.preview.status === 'stopped');
     fail = false;
-    f.project.retry(task.id); await ended(f);
+    await f.project.retry(task.id); await ended(f);
     expect(f.store.task(task.id).error).toBeNull();
     const url = f.project.inspect(task.id).showcase.preview.url;
     const baseline = f.store.task(task.id).baseline_workspace;

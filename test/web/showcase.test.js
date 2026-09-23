@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { repo, until } from '../helpers.js';
+import { repo, git, until } from '../helpers.js';
 import { fetch, setup } from './harness.js';
 
 const post = (f, method, params) => fetch(`${f.url}/api/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
@@ -10,8 +10,14 @@ test('Web starts a showcase, serves sandboxed report and rejects symlink files a
   const f = await setup();
   try {
     await repo(f.root);
+    const base = await git(f.root, 'rev-parse', 'HEAD');
+    await git(f.root, 'checkout', '-b', 'feature');
+    fs.writeFileSync(path.join(f.root, 'file.txt'), 'feature\n');
+    await git(f.root, 'commit', '-am', 'feature');
+    f.store.recordBranch({ branch: 'feature', parent: 'main', created_from_commit: base });
+    expect((await post(f, 'showcase.start', { branch: 'main', baseline: 'main' })).status).toBe(400);
     f.project.provider = { async run({ context }) { fs.writeFileSync(context.showcase.report_path, '<!doctype html><h1>效果展示</h1>'); return 'shown'; } };
-    const response = await post(f, 'showcase.start', { branch: 'main', baseline: 'main' });
+    const response = await post(f, 'showcase.start', { branch: 'feature' });
     expect(response.status).toBe(200);
     const task = await response.json();
     await until(() => f.store.task(task.id).status === 'completed');
@@ -23,7 +29,7 @@ test('Web starts a showcase, serves sandboxed report and rejects symlink files a
     expect(await report.text()).toContain('效果展示');
     const overview = await (await fetch(`${f.url}/api/overview`)).json();
     expect(overview.showcases[0].id).toBe(task.id);
-    expect((await (await fetch(`${f.url}/api/showcases?branch=main`)).json())[0].has_report).toBe(true);
+    expect((await (await fetch(`${f.url}/api/showcases?branch=feature`)).json())[0].has_report).toBe(true);
     expect((await post(f, 'showcase.preview', { command: ['echo', 'unsafe'] })).status).toBe(400);
     expect((await post(f, 'showcase.start', { branch: 'main', baseline: 'main', _token: 'forged' })).status).toBe(400);
     const file = f.project.reportPath(task.id);

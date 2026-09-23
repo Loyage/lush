@@ -229,7 +229,7 @@ export default {
     check(['failed','cancelled'].includes(task.status), 'only failed/cancelled tasks can be retried');
     check(!this.running.has(task.id), 'agent is still stopping; retry shortly');
     check(!this.workspaces.busy.has(task.id), 'worktree cleanup is in progress; retry shortly');
-    if (task.role === 'showcase') check(!this.workspaces.previewActive(task.id), 'preview is still stopping; retry shortly');
+    if (task.role === 'showcase') return this.retryShowcase(task.id);
     if (task.parent_id) check(!TERMINAL.has(this.store.task(task.parent_id).status), 'parent has ended; retry the parent or submit a new input');
     this.store.update(task.id, { status: 'queued', error: null, result: null, calls: 0 });
     this.store.event(task.id, 'retry', {}); this.kick(); return this.store.task(task.id);

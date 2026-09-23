@@ -21,11 +21,13 @@ test('概览：指标以 Intent 为主，Git 诊断退居次级且折叠跨重�
   renderOverview(data);
   const panel = dom.node('detail');
   expect(panel.dataset.view).toBe('overview');
-  // 产品指标以 Intent / 效果展示为中心，Branch 留在诊断折叠区。
-  expect(panel.querySelectorAll('.metric').length).toBe(4);
+  // 展示不再占据首页指标和主操作，Branch 留在诊断折叠区。
+  expect(panel.querySelectorAll('.metric').length).toBe(3);
   const text = deepText(panel);
   expect(text).toContain('Intent');
-  expect(text).toContain('效果展示');
+  expect(text).not.toContain('效果展示 · 选择分支');
+  expect(text).not.toContain('最近效果展示');
+  expect(deepText(panel.querySelector('.metrics'))).not.toContain('效果展示');
   expect(text).not.toContain('开始验收');
   expect(text).toContain('需要你决定');
   expect(text).toContain('验证 unknown'); // 兼容旧 Candidate：没有结构化证据时明确显示未知。
@@ -85,7 +87,7 @@ test('概览：待收口 / 正在工作 / 提醒各归其位，info 提醒不进
     renderOverview(data);
     const panel = dom.node('detail');
     expect(panel.dataset.view).toBe('overview');
-    expect(panel.querySelectorAll('.metric').length).toBe(4);
+    expect(panel.querySelectorAll('.metric').length).toBe(3);
 
     // ① 待收口分支按 can_merge / can_sync / can_catchup / blocker 分类出现。
     const closing = panel.querySelector('.closing-branches');

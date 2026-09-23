@@ -50,7 +50,7 @@ lush [--project PATH] [--json] <command>
   spec add '目标与验收标准' [--role worker|coordinator|research] [--name short-kebab-name] [--depends-on SPEC_ID[:code|order]]
       planner 专用：写下结构化 Plan；runtime 会在本轮结束后直接编译成 Work DAG。
   spec drop ID [--note '原因']      planner 明确放弃一条 spec
-  showcase start BRANCH [--baseline BRANCH]  冻结本地分支，派效果展示 agent（普通分支必须指定基线）
+  showcase start BRANCH [--baseline BRANCH]  展示稳定的已登记非主干分支（有实际改动且该代码未成功展示）
   showcase list [--branch BRANCH]    最近展示及本机预览状态
   showcase stop ID                  停止该展示的托管预览，不删除展示页
   showcase preview --file JSON      当前展示 agent 专属：启动 argv 预览（{port} / HOST / PORT）

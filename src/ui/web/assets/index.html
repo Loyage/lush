@@ -29,7 +29,7 @@
     <button type="button" id="sidebar-toggle" class="ghost" aria-expanded="false" aria-controls="side-nav">导航菜单</button>
   </div>
   <nav class="workspace-nav" aria-label="核心视图">
-    <button type="button" id="overview-open" class="workspace-link primary" title="按用户目标查看计划、并行执行与效果展示"><span class="nav-icon" aria-hidden="true">◈</span><span><strong>Intent 工作台</strong><small>目标、成果与展示</small></span><span class="nav-arrow">→</span></button>
+    <button type="button" id="overview-open" class="workspace-link primary" title="按用户目标查看计划、并行执行与交付结果"><span class="nav-icon" aria-hidden="true">◈</span><span><strong>Intent 工作台</strong><small>目标、执行与交付</small></span><span class="nav-arrow">→</span></button>
     <button type="button" id="graph-open" class="workspace-link" title="查看底层分支谱系、工作状态与收口动作"><span class="nav-icon" aria-hidden="true">⑂</span><span><strong>分支诊断</strong><small>Git 交付与冲突处理</small></span><span class="nav-arrow">→</span></button>
     <button type="button" id="statistics-open" class="workspace-link" title="统计当前项目的 token 用量与预计花费"><span class="nav-icon" aria-hidden="true">▥</span><span><strong>统计面板</strong><small>用量与预计花费</small></span><span class="nav-arrow">→</span></button>
     <button type="button" id="settings-open" class="workspace-link" title="配置项目 Agent、模型、思考深度、角色 Prompt 与界面偏好"><span class="nav-icon" aria-hidden="true">⚙</span><span><strong>设置</strong><small>Agent 与界面</small></span><span class="nav-arrow">→</span></button>
@@ -40,7 +40,7 @@
   <nav class="support-nav">
     <button type="button" id="docs-open" class="workspace-link" title="查看这套软件的架构、使用流程与接口文档"><span class="nav-icon" aria-hidden="true">≡</span><span><strong>文档</strong><small>使用流程与架构参考</small></span><span class="nav-arrow">→</span></button>
   </nav>
-  <div class="sidebar-footer"><span class="brand-spark">✳</span> 以 Intent 组织成果。<span>并行执行 · 效果展示 · 人工合并</span></div>
+  <div class="sidebar-footer"><span class="brand-spark">✳</span> 以 Intent 组织成果。<span>规划 · 并行执行 · 人工合并</span></div>
 </aside>
 <div class="content-shell">
   <div id="view-toolbar" class="view-toolbar">
@@ -66,7 +66,7 @@
       </div>
     </section>
     <section class="resource-page side" id="side-intents" data-side="intents" hidden>
-      <header class="resource-hero"><span class="resource-kicker">INTENT</span><h1>Intent 与效果展示</h1><p>回看原始目标、规划与执行；选择分支，让专用 agent 展示固定版本的修改效果。</p></header>
+      <header class="resource-hero"><span class="resource-kicker">INTENT</span><h1>Intent 与交付结果</h1><p>回看原始目标、规划与执行，查看成果并决定如何交付。</p></header>
       <div class="resource-tools"><div class="filters" id="intent-filters"></div></div>
       <div class="resource-card">
         <div class="section-title"><button type="button" class="side-head" id="side-head-intents" data-side="intents" aria-expanded="true" aria-controls="intents"><span class="side-name">输入记录</span><span id="intent-count" class="count"></span></button></div>
