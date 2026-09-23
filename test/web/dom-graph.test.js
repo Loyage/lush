@@ -362,10 +362,11 @@ test('分支图：关系色按领先 / 相等 / 落后 / 分歧 / 缺失分，�
   expect(buttonIn('lush/demo/behind-only', '合入父分支')).toBeUndefined();
   await buttonIn('lush/demo/behind-only', '让子分支跟上父分支').onclick();
   expect(world.state.actions).toContainEqual({ method: 'branch.catchup', params: { branch: 'lush/demo/behind-only' } });
-  // 分歧：解决分歧可用，合入父分支同时摆出来但禁用（并在 title 里说清楚为什么）。
+  // 分歧：解决分歧可用，合入父分支同时摆出来但禁用（并在外层 span.help-host 的 data-help 里说清楚为什么）。
   expect(buttonIn('lush/demo/2-two', '在子分支解决分歧').disabled).toBe(false);
-  expect(buttonIn('lush/demo/2-two', '合入父分支').disabled).toBe(true);
-  expect(buttonIn('lush/demo/2-two', '合入父分支').title).toContain('先在子分支解决分歧');
+  const divergedMerge = buttonIn('lush/demo/2-two', '合入父分支');
+  expect(divergedMerge.disabled).toBe(true);
+  expect(divergedMerge.parentNode.getAttribute('data-help')).toContain('先在子分支解决分歧');
   // 相等 / 缺失 / 未登记的关系没有可做的事，不摆按钮。
   for (const name of ['lush/demo/input-1-anchor', 'lush/demo/3-three', 'feature/scratch']) {
     expect(blockOf(name).querySelectorAll('button.graph-branch-action').length).toBe(0);
@@ -379,7 +380,7 @@ test('分支图：关系色按领先 / 相等 / 落后 / 分歧 / 缺失分，�
     await openGraph();
     const merge = buttonIn('lush/demo/1-one', '合入父分支');
     expect(merge.disabled).toBe(true);
-    expect(merge.title).toContain('先收拢子分支：lush/demo/2-two');
+    expect(merge.parentNode.getAttribute('data-help')).toContain('先收拢子分支：lush/demo/2-two');
     expect(deepText(blockOf('lush/demo/1-one'))).toContain('先收拢子分支：lush/demo/2-two');
   } finally {
     edge.blockers = saved.blockers; edge.can_merge = saved.can_merge;
