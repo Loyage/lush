@@ -40,7 +40,7 @@ function normalize(record, model, invocation, taskId) {
   const owned = attribution?.task_id === taskId;
   return {
     run_id: owned && Number.isSafeInteger(attribution.run_id) && attribution.run_id > 0 ? attribution.run_id : null,
-    role: owned && ['planner','scheduler','coordinator','worker','research','verifier','merger','showcase','explainer'].includes(attribution.role) ? attribution.role : null,
+    role: owned && ['planner','scheduler','coordinator','worker','research','verifier','merger','showcase','explainer','butler'].includes(attribution.role) ? attribution.role : null,
     at: timestamp(record.timestamp) ?? timestamp(m.timestamp),
     provider: typeof m.provider === 'string' ? m.provider.slice(0, 256) : model.provider,
     model: typeof m.model === 'string' ? m.model.slice(0, 256) : model.model,

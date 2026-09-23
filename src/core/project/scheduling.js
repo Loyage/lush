@@ -51,20 +51,26 @@ export default {
   },
 
   pump() {
+    const sleep = this.sleepStatus();
+    if (this.stopping || sleep.paused) return;
+    if (sleep.enabled && !this.sleepAdmitted) { void this.sleepTick(); return; }
     // Finished planner output is compiled by code, not by a scheduler model invocation.
     this.compilePlans();
     const dependencies = this.store.depMap();
     let controlRunning = [...this.running.values()].filter(run => ['planner','scheduler'].includes(run.role)).length;
-    let executionRunning = this.running.size - controlRunning;
+    let butlerRunning = [...this.running.values()].filter(run => run.role === 'butler').length;
+    let executionRunning = this.running.size - controlRunning - butlerRunning;
     for (const task of this.store.all("SELECT * FROM tasks WHERE status='queued' ORDER BY id")) {
       if (this.running.has(task.id)) continue;
       if (this.questionPending(task.id)) { this.store.update(task.id, { status: 'awaiting' }); continue; }
       // A queued task whose dependencies are not settled stays queued; finish() re-kicks when they are.
       if ((dependencies.get(task.id) || []).some(edge => !TERMINAL.has(edge.status))) continue;
       const control = ['planner','scheduler'].includes(task.role);
-      if (control ? controlRunning >= this.config.controlConcurrency : executionRunning >= this.config.concurrency) continue;
+      const butler = task.role === 'butler';
+      if (butler && !sleep.enabled) continue;
+      if (butler ? butlerRunning >= 1 : control ? controlRunning >= this.config.controlConcurrency : executionRunning >= this.config.concurrency) continue;
       const run = { role: task.role, controller: new AbortController(), token: randomBytes(32).toString('hex'), pid: null, promise: null, recordId: null };
-      if (control) controlRunning += 1; else executionRunning += 1;
+      if (butler) butlerRunning += 1; else if (control) controlRunning += 1; else executionRunning += 1;
       this.running.set(task.id, run);
       this.store.armAgent(task.id, tokenHash(run.token));
       run.promise = this.invoke(task.id, run).catch(error => {
@@ -88,7 +94,7 @@ export default {
     const task = this.store.agentByToken(tokenHash(token));
     const run = task ? this.running.get(task.id) : null;
     if (!run) throw new LushError('invalid or expired agent token');
-    check(task.role !== 'explainer', 'explanation agents have no RPC capability');
+    check(!['explainer','butler'].includes(task.role), 'isolated agents have no RPC capability');
     check(!TERMINAL.has(task.status) && !run.parked && !run.controller.signal.aborted, 'agent task is no longer active');
     this.store.touchAgent(task.id);
     return task.id;
@@ -156,6 +162,8 @@ export default {
             changes: [], evidence: [], decisions: [], risks: [], artifacts: [], followups: [], verification },
           metadata: { role: task.role, call: task.calls, agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null } });
       });
+      if (task.role === 'butler') await this.completeButler(taskId, result);
+      if (TERMINAL.has(this.store.task(taskId).status)) return;
       // Deliver actionable arrivals next time; ordinary coordinator receipts wait for the wave.
       if (this.hasActionableMessages(taskId)) { this.store.update(taskId, { status: 'queued' }); return; }
       if (this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open'", taskId)) {

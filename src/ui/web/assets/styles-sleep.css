@@ -1,0 +1,7 @@
+.sleep-banner { margin: 8px 12px; padding: 12px; border: 2px solid var(--accent, #b88727); border-radius: 12px; background: var(--panel, transparent); }
+.sleep-banner strong { display: block; }
+.sleep-banner button { width: 100%; margin-top: 6px; white-space: normal; }
+.sleep-field { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 18px 0; flex-wrap: wrap; }
+.sleep-field input[type="number"], .sleep-field select { max-width: 100%; padding: 8px; }
+.sleep-choice { margin-bottom: 16px; overflow-wrap: anywhere; }
+.sleep-choice .notice-body { white-space: pre-wrap; }

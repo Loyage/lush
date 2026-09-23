@@ -12,6 +12,7 @@ const summary = (row, includeResult = false) => {
 /** Only causal neighbours enter the prompt; global history stays on demand. */
 export default {
   async invocationContext(task, run) {
+    if (task.role === 'butler') return { butler: this.butlerContext(task.id), invocation: { run_id: run.recordId, task_id: task.id, role: task.role } };
     if (task.role === 'explainer') return { explanation: this.explanationContext(task.id) };
     const children = this.store.all(`SELECT ${SUMMARY_COLUMNS} FROM tasks t WHERE parent_id=? ORDER BY id LIMIT ?`, task.id, SUMMARY_LIMIT + 1);
     const dependencies = this.store.all(`SELECT ${SUMMARY_COLUMNS}, d.kind FROM task_deps d JOIN tasks t ON t.id=d.depends_on

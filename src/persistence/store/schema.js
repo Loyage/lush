@@ -103,6 +103,9 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       CREATE INDEX IF NOT EXISTS notices_status_kind ON notices(status,kind,id);
       CREATE INDEX IF NOT EXISTS messages_task ON messages(task_id, consumed);
       CREATE INDEX IF NOT EXISTS events_task ON events(task_id, id);
+      CREATE INDEX IF NOT EXISTS events_type_id ON events(type, id);
+      CREATE INDEX IF NOT EXISTS sleep_choice_notice ON events(json_extract(data,'$.notice.id'),json_extract(data,'$.notice.task_id')) WHERE type='sleep.choice.started';
+      CREATE INDEX IF NOT EXISTS sleep_choice_result ON events(json_extract(data,'$.choice_id')) WHERE type='sleep.choice.finished';
       CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash);
       -- Every provider invocation is a Run. Task remains the compatibility work-item projection while retries/wakes
       -- get their own durable rows instead of being collapsed into tasks.calls.

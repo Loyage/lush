@@ -1,5 +1,10 @@
 /** system.* */
 export const handlers = {
+  'sleep.start'(p, params) { return p.startSleep(params.options, params.confirmed); },
+  'sleep.stop'(p) { return p.stopSleep(); },
+  'sleep.resume'(p) { return p.resumeSleepDevelopment(); },
+  'sleep.status'(p) { return p.sleepStatus(); },
+  'sleep.choices'(p, params) { return p.sleepChoices(params.before, params.limit); },
   'system.usage'(p, params) { return p.usageStatistics(params); },
   'system.status'(p, params, actor) { return { ...p.status(), ...this.identity, pid: process.pid }; },
   // Polling summary has its own indexed/persistent-cursor path and never opens the full Agent profile.

@@ -8,7 +8,7 @@ import { daemon } from '../../cli/daemon.js';
 import { canonicalProjectPath, launcherWebConfig, readLauncherState, writeLauncherState } from '../launcher.js';
 import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
 import { previewResponse } from './notice-preview.js';
-import { check } from '../../core/types.js';
+import { check, id } from '../../core/types.js';
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
 const AUTH_FILE = 'web.json';
 const SESSION_COOKIE = 'lush_session';
@@ -27,7 +27,7 @@ function assetFile(pathname) {
   if (!ASSET_NAME.test(name) || !ASSET_EXTENSIONS.has(path.extname(name))) return null;
   return path.join(ASSETS, name);
 }
-const MUTATIONS = new Set(['explanation.start','explanation.selection','showcase.start','showcase.stop','agent.configure','agent.environment.configure','system.configure','input.submit','input.flow','draft.add','draft.remove','draft.update','draft.commit','task.message','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.delete','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.merge','branch.sync','branch.catchup','branch.archive']);
+const MUTATIONS = new Set(['sleep.start','sleep.stop','sleep.resume','explanation.start','explanation.selection','showcase.start','showcase.stop','agent.configure','agent.environment.configure','system.configure','input.submit','input.flow','draft.add','draft.remove','draft.update','draft.commit','task.message','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.delete','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.merge','branch.sync','branch.catchup','branch.archive']);
 /** 检验报告是 agent 写的自包含 HTML：只允许内联样式/脚本与 data: 图片，禁止任何外部加载与表单提交。
  *  主页面 CSP 不会作用于这个独立文档，所以这里必须自己收紧。 */
 const REPORT_CSP = "sandbox allow-scripts; frame-ancestors 'self'; default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'";
@@ -276,6 +276,11 @@ export function startWeb(config, port = 4318, options = {}) {
         const binding = projectApi ? await projectHost.require() : null;
         const client = binding?.client;
         if (request.method === 'GET') {
+          if (url.pathname === '/api/sleep') return json(await client.request('sleep.status'));
+          if (url.pathname === '/api/sleep/choices') return json(await client.request('sleep.choices', {
+            before: url.searchParams.has('before') ? id(url.searchParams.get('before')) : null,
+            limit: Number(url.searchParams.get('limit') ?? 30),
+          }));
           if (url.pathname === '/api/usage') return json(await client.request('system.usage', {
             start: url.searchParams.get('start'), end: url.searchParams.get('end'), interval: url.searchParams.get('interval') ?? 'auto',
           }));

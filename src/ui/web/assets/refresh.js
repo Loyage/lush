@@ -1,4 +1,5 @@
 import { $ } from './dom.js';
+import { renderSleepBanner } from './sleep-ui.js';
 import { api } from './api.js';
 import { loadDetail } from './detail.js';
 import { HOT } from './format.js';
@@ -95,6 +96,7 @@ export async function refresh() {
     $('project').title = data.status.project;
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');
     if (ui.offline) { ui.offline = false; clear(); }
+    renderSleepBanner(data.status.sleep);
     const noticeBefore = ui.noticeFocus;
     if (changed) {
       $('agents').replaceChildren(slotGauge(data));

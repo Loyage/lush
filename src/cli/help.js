@@ -3,12 +3,18 @@ export const HELP = `Lush — 项目级多 agent 开发
 lush [--project PATH] [--json] <command>
   daemon start|stop|restart|status  一个项目一个进程
   status                          项目、agent、待合并改动
+  sleep on --mode recommended|preferences [--budget TOKENS] --existing yes|no --merge yes|no --confirm
+                                  阅读风险并显式授权管家；预算覆盖全项目，留空不限额
+  sleep off                       立即关闭「我去睡觉了」（不撤销已执行操作）
+  sleep status                    查看开启、预算与暂停状态
+  sleep resume                    预算暂停后恢复排队任务，中止任务需检查后重试
+  sleep choices [--before ID]      分页查看管家选择、理由与执行结果
   agent show                     查看项目默认与各任务角色的 Agent 配置
   agent models pi|codex          读取本机 Agent CLI 当前可用模型目录
   agent set default|ROLE [--agent pi|codex] [--model ID] [--thinking LEVEL]
         [--default-prompt '…'] [--append-prompt '…'] [--budget-responses N|off] [--budget-tokens N|off]
-                                  可选软预算仅 Pi 非 explainer 支持；默认关闭，达到后提醒收尾，不强停或换模型
-                                  设置默认或 planner/coordinator/worker/research/verifier/merger/showcase/explainer；下次调用生效
+                                  可选软预算仅 Pi 非 explainer/butler 支持；默认关闭，达到后提醒收尾，不强停或换模型
+                                  设置默认或 planner/coordinator/worker/research/verifier/merger/showcase/explainer/butler；下次调用生效
                                   default-prompt 会替换 Lush 内置规则，使用前请确保包含完整任务与安全协议
   agent reset ROLE               删除该角色覆盖，恢复继承项目默认配置
   agent prompt ROLE              按段查看该角色最终 Prompt（含 agent.json 与文件补充）
