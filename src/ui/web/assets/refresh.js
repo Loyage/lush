@@ -115,7 +115,12 @@ export async function refresh() {
       }).catch(error => { show(error.message, 'error'); });
     }
     const current = data.tasks.find(task => task.id === ui.selected);
-    const editing = ui.detailDirty || [...$('detail').querySelectorAll('textarea')].some(node => node.value || node === document.activeElement);
+    let readingFocused = false;
+    for (let node = document.activeElement; node; node = node.parentNode) {
+      if (node.classList?.contains('transcript')) { readingFocused = true; break; }
+    }
+    const selecting = Boolean(window.getSelection?.()?.toString());
+    const editing = selecting || readingFocused || ui.detailDirty || [...$('detail').querySelectorAll('textarea')].some(node => node.value || node === document.activeElement);
     if (current && !editing) {
       // Live tasks also refresh on a slow tick so elapsed time and agent pid stay honest.
       const changed = current.updated_at !== ui.selectedRevision;
@@ -141,7 +146,7 @@ export async function liveRefresh() {
   try {
     await liveTick({
       task,
-      // 只有用户已经展开、有缓存时才增量续读；没展开就不读整份会话文件。
+      // 详情已自动加载的记录按游标续读；不重建阅读节点。
       transcript: transcriptCache.get(taskId) ?? null,
       fetchUsage: id => api(`/api/task/${id}/usage`).catch(() => null),
       fetchTranscript: (id, after) => api(`/api/task/${id}/transcript?after=${after}`),

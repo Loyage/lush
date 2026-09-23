@@ -54,7 +54,9 @@ function intentBadge(task) {
   return node;
 }
 export function renderDetail(task, history, diff, usage) {
-  const panel = $('detail'); panel.dataset.view = 'task'; panel.replaceChildren();
+  const panel = $('detail');
+  const reading = panel.dataset.taskId === String(task.id) ? panel.querySelector('.transcript') : null;
+  panel.dataset.view = 'task'; panel.dataset.taskId = String(task.id); panel.replaceChildren();
   referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `任务 #${task.id}`,
     quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-detail', task_id: task.id } });
   const breadcrumb = el('div', undefined, 'breadcrumb');
@@ -166,7 +168,7 @@ export function renderDetail(task, history, diff, usage) {
   if (task.error) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); panel.append(error); }
   if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); panel.append(error); }
 
-  if (task.calls) panel.append(renderAgent(task, usage));
+  if (task.calls) panel.append(renderAgent(task, usage, reading));
 
   const stats = block('状态'); stats.classList.add('task-stats');
   const grid = el('div', undefined, 'grid');

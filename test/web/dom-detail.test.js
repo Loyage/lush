@@ -128,8 +128,8 @@ test('Agent 的模型与用量直接可见：没有折叠开关，也没有可�
 
   const blockByTitle = title => [...detail.querySelectorAll('.block')].find(node => node.querySelector('h2')?.textContent === title);
   const agent = blockByTitle('Agent');
-  // 用户要求这块永不折叠：DOM 里没有包住它的 <details>/<summary>，标题文本也不再可点。
-  expect(agent.querySelector('details')).toBeNull();
+  // 模型用量仍直接可见；执行正文自身可有来源折叠，不包住信息网格。
+  expect([...agent.children].filter(node => node.tagName === 'DETAILS')).toHaveLength(0);
   expect(findByText(agent, '模型、用量与会话信息')).toBeNull();
   // agent 身份与唤醒、模型、思考用量、请求、会话记录一次性直接可读。
   for (const label of ['agent', '唤醒', '模型', '上下文占用', '累计 token', '预计花费', '模型请求', '会话记录']) {
@@ -139,53 +139,30 @@ test('Agent 的模型与用量直接可见：没有折叠开关，也没有可�
   // 悬停提示保留（title 挂在整张 kv 上，不是标签上）。
   const context = [...agent.querySelectorAll('.kv')].find(node => node.querySelector('b')?.textContent === '上下文占用');
   expect(context.title).toContain('最近一次模型请求');
-  // 「执行过程」仍是原来那个可折叠区块，按钮还在。
+  // 执行过程无需额外点击，已加载正文与搜索直接可读。
   const process = blockByTitle('执行过程');
-  expect(process.querySelector('[data-live="last"]')).toBeTruthy();
-  expect(findByText(process, '查看执行过程')).toBeTruthy();
+  expect(process.querySelector('[data-live="transcript-steps"]')).toBeTruthy();
+  expect(process.querySelector('.transcript-search')).toBeTruthy();
+  expect(findByText(process, '查看执行过程')).toBeNull();
 });
 
-test('热任务的详情会自己变新：折叠的执行过程只显示最近一条步骤，展开后随轮询推进', async () => {
+test('热任务自动加载执行正文，轮询增量续读并保留阅读节点', async () => {
   dom.location.hash = '#task-1';
   await dom.fire('hashchange');
   const detail = dom.node('detail');
-  await until(() => detail.querySelector('[data-live="last"]'), 2000);
-
-  const blockByTitle = title => [...detail.querySelectorAll('.block')].find(node => node.querySelector('h2')?.textContent === title);
-  // 用户要求：最近一次执行不要在 Agent 信息的方格区，而是放进执行过程区块。
-  expect(blockByTitle('Agent').querySelector('.grid').querySelector('[data-live="last"]')).toBeFalsy();
-  const process = blockByTitle('执行过程');
-  const lastRow = process.querySelector('[data-live="last"]');
-  expect(lastRow).toBeTruthy();
-  expect(lastRow.querySelector('span').textContent).toContain('bash');
-  expect(lastRow.querySelector('span').textContent).toContain('刚刚');
-  expect(lastRow.querySelector('span').textContent).toContain('ls -la');
-  // 折叠态是单行预览，全文放 title，并保留「查看执行过程」按钮。
-  expect(lastRow.title).toContain('ls -la');
-  // usage.last 带 tokens：折叠态也用同一口径印精确 chip，口径写在 chip 的悬停里。
-  const lastChip = lastRow.querySelector('.step-tokens');
-  expect(lastChip.textContent).toBe('上下文 9.9k');
-  expect(lastChip.title).toContain('不是估算');
-  expect(findByText(process, '查看执行过程')).toBeTruthy();
-
-  // 模拟浏览器里每 3 秒跑一次的 liveRefresh：agent 又推进一步，折叠态那一行不用手点就变新。
-  world.state.usageLast = { at: iso(NOW), kind: 'text', title: '回答', body: '改好了，正在跑测试' };
-  await dom.intervalFor(3000)();
-  const refreshed = process.querySelector('[data-live="last"]');
-  const updated = refreshed.querySelector('span').textContent;
-  expect(updated).toContain('改好了，正在跑测试');
-  expect(updated).toContain('回答');
-  // 没有 tokens 的步骤和以前一样：不摆一个空的 chip。
-  expect(refreshed.querySelector('.step-tokens')).toBeNull();
-
-  // 展开执行过程：首次全量读，之后按 after=next 增量续读。
-  const expand = findByText(detail, '查看执行过程');
-  await expand.onclick();
   const list = () => detail.querySelector('[data-live="transcript-steps"]');
   await until(() => list() && list().children.length === 5, 2000);
-  expect(world.state.transcriptAfter).toEqual([0]);
-  // 展开后折叠态那一行让位给完整步骤列表。
-  expect(blockByTitle('执行过程').querySelector('[data-live="last"]')).toBeFalsy();
+  expect(world.state.transcriptAfter.every(after => after === 0)).toBe(true);
+  const initialReads = [...world.state.transcriptAfter];
+  const originalList = list();
+  const search = detail.querySelector('.transcript-search');
+  search.querySelector('input').value = '保留搜索内容';
+  // 同一个任务的慢刷新也复用实际阅读节点，不只保存几枚布尔开关。
+  await dom.fire('hashchange');
+  await until(() => detail.querySelector('.transcript-search'), 2000);
+  expect(list()).toBe(originalList);
+  expect(detail.querySelector('.transcript-search')).toBe(search);
+  expect(search.querySelector('input').value).toBe('保留搜索内容');
 
   // 每一步的 token chip：只认组的首步，同一条回复的第二个 step 不重复；估算带 + 前缀。
   const rendered = list().children;
@@ -211,5 +188,5 @@ test('热任务的详情会自己变新：折叠的执行过程只显示最近�
   expect(deepText(list())).toContain('测试通过');
   expect(list().querySelectorAll('.step-tokens').length).toBe(2);
   // 第二个 tick 用的是游标 5，不是从头再读一遍。
-  expect(world.state.transcriptAfter).toEqual([0, 5]);
+  expect(world.state.transcriptAfter).toEqual([...initialReads, 5]);
 });

@@ -2,6 +2,8 @@ import { test, expect } from 'bun:test';
 import { installDom, deepText, findByText } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { structuredValue } from '../../src/ui/web/assets/structured-value.js';
+import { transcriptBody } from '../../src/ui/web/assets/transcript-body.js';
+import { writePref } from '../../src/ui/web/assets/prefs.js';
 import { transcriptContent, appendTranscriptSteps } from '../../src/ui/web/assets/render-transcript.js';
 import { transcriptCache, ui } from '../../src/ui/web/assets/state.js';
 import { transcriptReader, resetTranscriptReaders } from '../../src/ui/web/assets/transcript-reader.js';
@@ -10,7 +12,7 @@ import { closeExplanationPanel } from '../../src/ui/web/assets/explanations.js';
 
 const response = value => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });
 
-test('compact rows show content and live paired results update the same node without losing expansion', () => {
+test('body-first rows show operations immediately and live paired results preserve reading nodes', () => {
   const dom = installDom(); resetTranscriptReaders();
   try {
     const taskId = 970;
@@ -20,14 +22,18 @@ test('compact rows show content and live paired results update the same node wit
     const holder = dom.document.createElement('div'); holder.className = 'transcript';
     holder.append(...transcriptContent(taskId)); dom.node('detail').append(holder);
     const list = holder.querySelector('[data-live="transcript-steps"]');
-    expect(list.children[0].querySelector('.step-title').textContent).toContain('先检查现有实现');
-    const tool = list.children[1]; expect(tool.querySelector('.step-title').textContent).toContain('bun run test');
-    tool.querySelector('.step-head').onclick(); expect(tool.classList.contains('open')).toBe(true);
+    expect(deepText(list.children[0].querySelector('.step-body'))).toContain('先检查现有实现');
+    expect(list.children[0].querySelector('.step-body').hidden).toBe(false);
+    const tool = list.children[1]; expect(tool.querySelector('.readable-value').textContent).toBe('bun run test');
+    expect(tool.classList.contains('open')).toBe(true);
+    const input = tool.querySelector('.step-source');
     const output = { seq: 3, file: 'a', kind: 'result', title: 'bash', call_id: 'x', body: 'all tests passed' };
     steps.push(output); appendTranscriptSteps(taskId, [output]);
     expect(list.children).toHaveLength(2); expect(list.children[1]).toBe(tool);
     expect(tool.classList.contains('open')).toBe(true); expect(deepText(tool)).toContain('all tests passed');
     expect(tool.querySelector('.step-call-status').textContent).toBe('已有结果');
+    expect(tool.querySelector('.step-source')).toBe(input);
+    expect(holder.querySelector('[data-live="transcript-new"]').hidden).toBe(false);
   } finally { resetTranscriptReaders(); transcriptCache.delete(970); ui.selected = null; dom.restore(); }
 });
 
@@ -59,9 +65,15 @@ test('full-record search sends filters, navigates matches and opens original sou
     form.querySelector('select').value = 'result'; form.onsubmit({ preventDefault() {} });
     await until(() => root.querySelector('.search-hit'));
     expect(calls[0]).toContain('query=needle'); expect(calls[0]).toContain('tool=bash'); expect(calls[0]).toContain('errors=true');
-    await root.querySelector('.search-hit').querySelector('button').onclick();
+    const hit = root.querySelector('.search-hit').querySelector('button'); hit.focus();
+    await hit.onclick();
     expect(calls[1]).toContain('seq=88'); expect(deepText(root)).toContain('old:77');
     expect(root.querySelector('mark').textContent).toBe('needle');
+    expect(root.tagName).toBe('SECTION');
+    expect(root.querySelector('.transcript-original').hidden).toBe(false);
+    findByText(root, '返回阅读位置').onclick();
+    expect(root.querySelector('.transcript-original').hidden).toBe(true);
+    expect(dom.document.activeElement).toBe(hit);
   } finally { resetTranscriptReaders(); dom.restore(); }
 });
 
@@ -82,4 +94,83 @@ test('selected transcript text offers direct introduction, preserves quote and d
     expect(deepText(dom.document.body)).toContain('不是执行事实');
     expect(ui.composerReferences).toHaveLength(0);
   } finally { closeExplanationPanel(); dom.restore(); }
+});
+
+test('semantic tool body decodes real newlines, exposes edit pairs and keeps literal escapes and HTML inert', () => {
+  const dom = installDom();
+  try {
+    const command = 'printf "first"\nprintf "second"';
+    const body = transcriptBody({ kind: 'tool', body: JSON.stringify({ command, path: 'src/example.js',
+      edits: [{ oldText: 'a\nb', newText: '<script>evil()</script>\nc' }], literal: String.raw`keep\nthis` }) });
+    expect(body.querySelector('.readable-value').textContent).toBe(command);
+    expect(deepText(body.querySelector('.change-before'))).toContain('a\nb');
+    expect(deepText(body.querySelector('.change-after'))).toContain('<script>evil()</script>\nc');
+    expect(deepText(body)).toContain(String.raw`keep\nthis`);
+    expect(body.querySelector('script')).toBeNull();
+    const partial = '{"command":"unterminated';
+    expect(transcriptBody({ kind: 'tool', body: partial }).querySelector('pre').textContent).toBe(partial);
+    const prefix = '{"command":"partial"}';
+    const clipped = transcriptBody({ kind: 'tool', body: prefix, body_length: 5000 });
+    expect(clipped.querySelector('.tool-field')).toBeNull();
+    expect(clipped.querySelector('pre').textContent).toBe(prefix);
+  } finally { dom.restore(); }
+});
+
+test('long prose has an explicit local preview, expansion survives repaint, and errors default to full text', () => {
+  const dom = installDom();
+  const key = 'preview-test';
+  try {
+    writePref('markdown', false);
+    const text = Array.from({ length: 15 }, (_, i) => `line ${i + 1}`).join('\n');
+    const step = { kind: 'thinking', body: text };
+    const root = transcriptBody(step, { key });
+    expect(root.querySelector('pre').textContent).toBe(text.split('\n').slice(0, 10).join('\n'));
+    expect(root.querySelector('pre').classList.contains('transcript-prose')).toBe(true);
+    root.querySelector('.content-expand').onclick();
+    expect(root.querySelector('pre').textContent).toBe(text);
+    expect(transcriptBody(step, { key }).querySelector('pre').textContent).toBe(text);
+    expect(transcriptBody({ kind: 'result', is_error: true, body: text }).querySelector('pre').textContent).toBe(text);
+    const command = transcriptBody({ kind: 'tool', body: JSON.stringify({ command: text }) });
+    expect(command.querySelector('pre').textContent).toBe(text);
+    expect(command.querySelector('.content-expand')).toBeNull();
+  } finally { ui.stepToggle.delete(`${key}:body`); dom.restore(); }
+});
+
+test('structured outputs expose root fields and multiline strings without losing exact source', () => {
+  const dom = installDom();
+  try {
+    const text = JSON.stringify({ output: 'line one\nline two', nested: { count: 2 } });
+    const root = transcriptBody({ kind: 'result', body: text });
+    expect(root.querySelector('.json-branch').open).toBe(true);
+    expect(root.querySelector('.json-value').textContent).toBe('line one\nline two');
+    expect(root.querySelectorAll('.json-branch')[1].open).not.toBe(true);
+    findByText(root, '查看原文').onclick();
+    expect(root.querySelector('.raw-value').textContent).toBe(text);
+  } finally { dom.restore(); }
+});
+
+test('failed paired output is visible, keeps provenance, and a manual collapse survives later output', () => {
+  const dom = installDom(); resetTranscriptReaders(); const taskId = 975;
+  try {
+    const steps = [{ seq: 1, file: 'a', kind: 'tool', title: 'bash', call_id: 'x', body: '{"command":"test"}' }];
+    transcriptCache.set(taskId, { steps, files: ['a'], next: 1, has_more: false }); ui.selected = taskId;
+    const holder = dom.document.createElement('div'); holder.className = 'transcript';
+    holder.append(...transcriptContent(taskId)); dom.node('detail').append(holder);
+    const item = holder.querySelector('.step');
+    const output = { seq: 2, file: 'a', kind: 'result', title: 'bash', call_id: 'x', is_error: true, body: 'error\nreason' };
+    steps.push(output); appendTranscriptSteps(taskId, [output]);
+    expect(item.querySelector('.step-body').hidden).toBe(false);
+    expect(item.classList.contains('step-failed')).toBe(true);
+    expect(item.querySelector('.step-call-status').textContent).toBe('失败');
+    const result = item.querySelector('[data-result-seq="2"]');
+    expect(result.querySelector('pre').textContent).toBe('error\nreason');
+    const raw = result.querySelector('.step-original'); raw.open = true; raw.listeners.toggle[0]();
+    expect(raw.querySelector('.raw-value').textContent).toBe(output.body);
+    expect(deepText(raw)).toContain('a');
+    item.querySelector('.step-head').onclick();
+    const more = { ...output, seq: 3, is_error: false, body: 'more output' };
+    steps.push(more); appendTranscriptSteps(taskId, [more]);
+    expect(item.querySelector('.step-body').hidden).toBe(true);
+    expect(item.querySelector('.step-call-status').textContent).toBe('失败');
+  } finally { resetTranscriptReaders(); transcriptCache.delete(taskId); ui.stepToggle.delete(`${taskId}:1`); ui.selected = null; dom.restore(); }
 });

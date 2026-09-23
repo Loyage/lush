@@ -2,7 +2,7 @@ import { el, button } from './dom.js';
 import { api } from './api.js';
 import { STEP } from './format.js';
 import { referenceable } from './context-references.js';
-import { structuredValue } from './structured-value.js';
+import { transcriptBody } from './transcript-body.js';
 import { stepSummary } from './transcript-model.js';
 import { explanationHistory } from './explanations.js';
 
@@ -14,7 +14,14 @@ export function resetTranscriptReaders() {
 function sourceNode(taskId, step) {
   const node = el('section', undefined, 'original-step');
   node.append(el('h4', `#${step.seq} · ${STEP[step.kind] || step.kind} · ${step.title}`),
-    el('p', `${step.file}:${step.line}${step.body_truncated ? ' · 摘要已截断' : ''}`, 'hint'), structuredValue(step.body));
+    el('p', `${step.file}:${step.line}${step.body_truncated ? ' · 摘要已截断' : ''}`, 'hint'),
+    transcriptBody(step, { key: `reader:${taskId}:${step.seq}`, preview: false }));
+  const raw = el('details', undefined, 'step-original');
+  raw.append(el('summary', '查看本段原文'));
+  raw.addEventListener('toggle', () => {
+    if (raw.open && !raw.dataset.loaded) { raw.dataset.loaded = 'true'; raw.append(el('pre', step.body, 'raw-value')); }
+  });
+  node.append(raw);
   referenceable(node, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 #${taskId}:${step.seq}`,
     quote: step.body, location: { task_id: taskId, section: 'transcript' } });
   return node;
@@ -22,12 +29,17 @@ function sourceNode(taskId, step) {
 
 export async function openTranscriptStep(taskId, seq) {
   const state = readerState(taskId), version = ++state.readVersion;
-  state.root.open = true;
-  state.viewer.replaceChildren(el('p', '正在读取原文与关联记录…', 'hint'));
+  if (!state.viewer.contains?.(document.activeElement)) state.returnTarget = document.activeElement;
+  state.viewer.hidden = false;
+  const back = button('返回阅读位置', () => {
+    state.readVersion++; state.viewer.hidden = true;
+    state.returnTarget?.focus?.({ preventScroll: true }); state.returnTarget?.scrollIntoView?.({ block: 'nearest' });
+  }, 'ghost');
+  state.viewer.replaceChildren(back, el('p', '正在读取原文与关联记录…', 'hint'));
   try {
     const data = await api(`/api/task/${taskId}/transcript-step?seq=${seq}`);
     if (version !== state.readVersion) return;
-    state.viewer.replaceChildren(el('h3', '步骤原文与上下文'));
+    state.viewer.replaceChildren(back, el('h3', '步骤正文与上下文'));
     const main = sourceNode(taskId, data.step); state.viewer.append(main);
     if (data.pairing_ambiguous) state.viewer.append(el('p', '调用 ID 重复，无法可靠配对；未合并输入输出。', 'hint'));
     if (data.related_truncated) state.viewer.append(el('p', '关联输出超过 8 条，仅展示前 8 条；其余可全文检索。', 'hint'));
@@ -55,13 +67,13 @@ export async function openTranscriptStep(taskId, seq) {
       }
     }
     state.viewer.scrollIntoView?.({ block: 'nearest' });
-  } catch (error) { if (version === state.readVersion) state.viewer.replaceChildren(el('p', error.message, 'error')); }
+  } catch (error) { if (version === state.readVersion) state.viewer.replaceChildren(back, el('p', error.message, 'error')); }
 }
 
 function readerState(taskId) {
   if (readers.has(taskId)) return readers.get(taskId);
-  const root = el('details', undefined, 'transcript-reader');
-  root.append(el('summary', '翻找完整记录 / 原文 / 解释历史'));
+  const root = el('section', undefined, 'transcript-reader');
+  root.setAttribute('aria-label', '执行记录全文查找');
   const form = el('form', undefined, 'transcript-search');
   const query = el('input'); query.placeholder = '全文关键词（包含未加载记录）'; query.setAttribute('aria-label', '执行记录全文关键词'); query.maxLength = 500;
   const kind = el('select'); kind.setAttribute('aria-label', '消息类型');
@@ -71,6 +83,7 @@ function readerState(taskId) {
   const submit = button('搜索完整记录', () => {}, 'ghost'); submit.type = 'submit';
   form.append(query, kind, tool, errorLabel, submit, button('解释历史', () => explanationHistory(taskId), 'ghost'));
   const results = el('div'), viewer = el('div', undefined, 'transcript-original');
+  viewer.hidden = true;
   root.append(form, results, viewer);
   const state = { root, viewer, version: 0, readVersion: 0 }; readers.set(taskId, state);
   let criteria = null, cursors = [0], pageIndex = 0;

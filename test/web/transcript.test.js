@@ -29,11 +29,12 @@ test('web exposes the read-only agent transcript and keeps sessions out of the r
     // 越界游标、未知任务、超限 limit 都是 400，不当成服务器错误
     expect((await fetch(`${f.url}/api/task/${task.id}/transcript?after=-1`)).status).toBe(400);
     expect((await fetch(`${f.url}/api/task/99/transcript`)).status).toBe(400);
-    // 执行过程默认一步一行：默认展开的只有「回答」，其余（思考/工具调用/工具输出）要点开才看正文
+    // 正文优先：思考与工具默认可读，长内容在原处展开，搜索入口不再折叠。
     const app = await pageSource(f.url);
-    expect(app).toMatch(/STEP_OPEN = new Set\(\['text'\]\)/);
+    expect(app).toContain("STEP_OPEN = new Set(['input', 'text', 'thinking', 'tool', 'result'])");
     expect(app).toContain('展开全部步骤');
-    expect(app).toContain('默认折叠成一行');
+    expect(app).toContain('展开剩余内容');
+    expect(app).toContain("el('section', undefined, 'transcript-reader')");
     // 过程不进快照/列表，只有 transcript 路由才读会话文件；快照只带 work 层任务
     const snapshot = await (await fetch(f.url + '/api/snapshot')).json();
     expect(JSON.stringify(snapshot)).not.toContain('先看看代码');

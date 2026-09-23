@@ -33,7 +33,7 @@ test('只有展示中的热任务才会被实时刷新', () => {
   expect(liveTarget(tasks, null)).toBeNull();
 });
 
-test('一个 tick 刷 usage 且只对已展开的 transcript 增量续读', async () => {
+test('一个 tick 刷 usage 且只对已加载的 transcript 增量续读', async () => {
   const calls = { usage: [], transcript: [] };
   const pages = [
     { steps: [{ seq: 3, kind: 'tool', title: 'bash' }], next: 3, has_more: false },
@@ -60,7 +60,7 @@ test('一个 tick 刷 usage 且只对已展开的 transcript 增量续读', asyn
   expect(publish.steps).toEqual([[3], [4]]);
 });
 
-test('没展开执行过程时不读 transcript，只刷 usage', async () => {
+test('尚未加载执行过程时不读 transcript，只刷 usage', async () => {
   let transcriptCalls = 0;
   const updated = await liveTick({
     task: { id: 2, status: 'running' }, transcript: null,
@@ -68,6 +68,19 @@ test('没展开执行过程时不读 transcript，只刷 usage', async () => {
   });
   expect(transcriptCalls).toBe(0);
   expect(updated).toEqual({ usage: null, steps: [] });
+});
+
+test('manual pagination winning a race does not duplicate the live page', async () => {
+  const transcript = { steps: [{ seq: 1 }], next: 1 };
+  let finish, started;
+  const requested = new Promise(resolve => { started = resolve; });
+  const pending = liveTick({ task: { id: 2 }, transcript, fetchUsage: async () => null,
+    fetchTranscript: () => { started(); return new Promise(resolve => { finish = resolve; }); } });
+  await requested;
+  transcript.steps.push({ seq: 2 }); transcript.next = 2;
+  finish({ steps: [{ seq: 2 }], next: 2 });
+  expect((await pending).steps).toEqual([]);
+  expect(transcript.steps.map(step => step.seq)).toEqual([1, 2]);
 });
 
 /**

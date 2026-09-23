@@ -1,8 +1,8 @@
 import { $, block, button, el, kv } from './dom.js';
 import { lastView, money, relative, tokens } from './format.js';
-import { detail } from './navigate.js';
 import { transcriptContent, loadTranscript, tokensChip } from './render-transcript.js';
-import { transcriptCache, transcriptOpen, ui } from './state.js';
+import { transcriptCache, ui } from './state.js';
+import { markdownEnabled } from './text.js';
 
 /** 折叠态的执行过程只摆这一行：相对时间 + 类型/标题 + 正文单行预览，全文在 title；有 tokens 时并排一个同口径 chip。 */
 function lastStepRow(last) {
@@ -28,7 +28,7 @@ export function paintUsageLast(taskId, usage) {
 }
 /** 一个 agent 的全部信息：身份与唤醒次数（Lush 侧）+ 模型、上下文、花费（pi 会话记录侧）。
  *  执行过程就在同一块里——它就是 agent 这个身份干过的事，不是另一类数据。 */
-export function renderAgent(task, usage) {
+export function renderAgent(task, usage, reading = null) {
   const section = block('Agent');
   const grid = el('div', undefined, 'grid');
   if (task.agent) {
@@ -61,30 +61,25 @@ export function renderAgent(task, usage) {
     grid.append(kv('会话记录', `${usage.files.length} 个文件${usage.compacted ? ` · 上下文压缩 ${usage.compacted} 次` : ''}`, 'mono'));
   }
   const process = block('执行过程');
-  const holder = el('div', undefined, 'transcript');
   const cached = transcriptCache.get(task.id);
-  if (cached) holder.replaceChildren(...transcriptContent(task.id));
+  const markdown = markdownEnabled();
+  const reusable = reading && cached && reading.transcriptState === cached && reading.transcriptMarkdown === markdown;
+  const holder = reusable ? reading : el('div', undefined, 'transcript');
+  holder.transcriptState = cached; holder.transcriptMarkdown = markdown;
+  if (reusable) { /* Preserve previews, source nodes and search across detail refreshes. */ }
+  else if (cached) holder.replaceChildren(...transcriptContent(task.id));
   // 会话文件不存在就别摆一个点了没用的按钮，直接说清楚为什么没东西可看。
   else if (!usage?.files?.length) holder.append(el('p', task.agent?.backend === 'codex'
     ? 'Codex 的线程会持续复用；当前版本暂不投影它的本地执行记录。'
     : '这个任务还没有 Pi 会话记录（可能从未被唤醒，或会话文件已被清理）。', 'hint'));
-  else if (transcriptOpen.has(task.id)) holder.append(el('p', '正在读取会话记录…', 'hint'));
   else {
-    // 不展开时「只显示最近一条信息」（用户原话）：那一步就是执行过程的最后一条。
     if (usage.last) holder.append(lastStepRow(usage.last));
-    else holder.append(el('p', '思考、工具调用与工具输出保存在 pi 会话记录里，默认不展开。', 'hint'));
-    const actions = el('div', undefined, 'actions');
-    actions.append(button('查看执行过程', async () => {
-      transcriptOpen.add(task.id);
-      try { await loadTranscript(task.id); } catch (error) { transcriptOpen.delete(task.id); throw error; }
-      if (ui.selected === task.id) await detail(task.id);
-    }, 'ghost'));
-    holder.append(actions);
+    holder.append(el('p', '正在读取执行记录…', 'hint'), button('重试读取', () => loadTranscript(task.id), 'ghost'));
   }
   process.append(holder);
   section.classList.add('agent-panel');
   section.append(process);
-  // 模型 / 用量直接摆出来，不再套折叠：有内容才摆，没有 agent 与用量时不占一块空网格。
+  // Auxiliary information follows the reading area, without hiding existing model/usage data.
   if (grid.children.length) section.append(grid);
   return section;
 }

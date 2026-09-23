@@ -4,7 +4,7 @@
  * 为什么单拎出来：详情面板过去只在 `tasks.updated_at` 变化时才重画，而 agent 跑一次调用期间
  * 事件与 pi 会话都追加在别处，`updated_at` 不动——页面看起来就是冻住的。这里固定住三件事：
  *   1. 只对热任务（running/awaiting/waiting/queued）请求；
- *   2. 执行过程只在用户已经展开、有缓存时才用 `after=<next>` 增量续读，没展开就不读整份会话文件；
+ *   2. 执行过程在详情自动加载、有缓存后用 `after=<next>` 增量续读，不重建阅读正文；
  *   3. 「最近一次执行」每个 tick 都重新取 usage，相对时间因此会自己往前走。
  * DOM 更新通过 publish 回调注入，测试就能用假实现断言这套行为，不必起浏览器。
  *
@@ -43,8 +43,11 @@ export async function liveTick({ task, transcript = null, fetchUsage, fetchTrans
     updated.usage = usage;
     if (publish.usage) publish.usage(task.id, usage);
   }
-  if (transcript) {
-    const page = await fetchTranscript(task.id, transcript.next ?? 0);
+  if (transcript && !transcript.error) {
+    const after = transcript.next ?? 0;
+    const page = await fetchTranscript(task.id, after);
+    // Manual pagination may finish while this request is in flight; never append that page twice.
+    if ((transcript.next ?? 0) !== after) return updated;
     const steps = page?.steps || [];
     if (steps.length) {
       transcript.steps.push(...steps);

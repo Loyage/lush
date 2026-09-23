@@ -2,7 +2,9 @@ import { $ } from './dom.js';
 import { api, loadHistory } from './api.js';
 import { renderDetail, renderDetailError } from './render-detail.js';
 import { activateDetailView } from './sidebar-ui.js';
-import { ui } from './state.js';
+import { transcriptCache, ui } from './state.js';
+import { appendTranscriptSteps, loadTranscript } from './render-transcript.js';
+import { HOT } from './format.js';
 
 /** 拉取并渲染一个任务详情。 */
 export async function loadDetail(taskId) {
@@ -28,6 +30,28 @@ export async function loadDetail(taskId) {
     throw error;
   }
   if (ui.selected !== taskId) return;
+  if (!transcriptCache.has(taskId) && usage?.files?.length) {
+    try { await loadTranscript(taskId); transcriptCache.get(taskId).settled = !HOT.has(task.status); }
+    catch (error) { transcriptCache.set(taskId, { steps: [], files: usage.files, error: error.message }); }
+    if (ui.selected !== taskId) return;
+  }
+  const cached = transcriptCache.get(taskId);
+  if (cached && !cached.error) {
+    if (HOT.has(task.status)) cached.settled = false;
+    else if (!cached.settled) {
+      // A terminal task no longer gets live ticks. Read its final tail once, without resetting the reader.
+      const after = cached.next;
+      try {
+        const page = await api(`/api/task/${taskId}/transcript?after=${after}`);
+        if (cached.next === after && transcriptCache.get(taskId) === cached) {
+          cached.steps.push(...page.steps); cached.next = page.next; cached.has_more = page.has_more;
+          cached.truncated = Boolean(cached.truncated || page.truncated); cached.settled = true;
+          appendTranscriptSteps(taskId, page.steps);
+        }
+      } catch { /* Keep readable history; the next detail refresh can retry. */ }
+      if (ui.selected !== taskId) return;
+    }
+  }
   timeline.onMore = before => loadHistory(taskId, before);
   ui.selectedRevision = task.updated_at; ui.detailTask = taskId; ui.detailRenderedAt = Date.now(); ui.detailDirty = false;
   renderDetail(task, timeline, diff, usage);
