@@ -16,6 +16,8 @@
 
 开启后左栏常驻状态及 **立即关闭睡觉模式** 按钮；关闭不需要再次确认。关闭后不再执行新决定，会停止未完成的管家调用，但不会撤销已提交的答案、已经开始的 Git 操作或停止所有普通开发调用。
 
+横幅在开启或预算暂停时同时显示本次值守的进度：**已处理** 是本次会话内已经给出结果（有 `sleep.choice.finished`）的 Notice 条数，包含纯信息提醒的已阅；**由管家作出选择** 是其中 `decision.action` 属于 `approve` / `reject` / `answer` / `dismiss` / `merge` 的条数，纯 `acknowledge` 不计入。计数随轮询实时增长，按会话归零（关闭后再开启是新会话），预算暂停后保留。
+
 CLI 同样可以控制（操作别的项目时加 `--project PATH`）：
 
 ```bash
@@ -66,5 +68,7 @@ Agent 仅输出严格校验的结构化建议，由运行时重新检查授权�
 | `sleep.resume` | `{}` |
 | `sleep.status` | `{}` |
 | `sleep.choices` | `{before?:正整数,limit?:1..50}`，默认 30 |
+
+`sleep.status`（以及镜像到 `system.status.sleep` / `system.summary.sleep`）在授权、预算与暂停状态外，返回本次会话的进度字段 `handled`（已处理的 Notice 条数）与 `decisions`（其中作出实质选择的条数）。两者只由既有 `sleep.choice.started` / `sleep.choice.finished` 事件按当前 `session` 汇总，不新增 Event、表或列。
 
 Web 读取 `GET /api/sleep` 与 `GET /api/sleep/choices?before=ID&limit=30`；变更经既有认证及同源保护的 `POST /api/action`。状态也镜像到 `system.status.sleep` / `system.summary.sleep`。选择页返回 `{choices,cursor,has_more}`，有字节上限但不丢续页游标。

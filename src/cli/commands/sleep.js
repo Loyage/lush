@@ -33,6 +33,7 @@ export async function run(command, args, { client, json }) {
 }
 function printState(state) {
   console.log(`我去睡觉了：${state.enabled ? '已开启' : '已关闭'}${state.paused ? ' · 开发已暂停' : ''}`);
+  console.log(`本会话进度：已处理 ${state.handled || 0} 项事项 · 其中 ${state.decisions || 0} 道由管家作出选择`);
   console.log(`项目累计 token：${state.used_tokens || 0} / ${state.budget_tokens ?? '不限'}`);
   if (state.reason) console.log(state.reason);
   console.log('立即关闭：bun run lush sleep off');
