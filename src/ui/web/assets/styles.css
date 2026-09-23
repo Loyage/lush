@@ -6,6 +6,7 @@
   --accent:#147457; --accent-ink:#fff; --accent-soft:#e5f2e9;
   --queued:#386ca5; --running:#287ba6; --waiting:#946619; --awaiting:#aa621a;
   --completed:#25794f; --failed:#bd4147; --cancelled:#718076; --violet:#7955b4;
+  --violet-ink:#7955b4; --violet-on:#fff;
   --blue-soft:#e9f2fb; --amber-soft:#fff4e3; --violet-soft:#f1ecfa; --green-soft:#e9f5ec; --red-soft:#fcecee;
   --shadow:0 2px 3px #18372603,0 12px 36px #18372605;
   --radius:14px; --ease:cubic-bezier(.2,.75,.25,1); --sidebar-width:320px;
@@ -19,6 +20,7 @@
   --accent:#8ddbb4; --accent-ink:#102d21; --accent-soft:#203d32;
   --queued:#8db8ee; --running:#79c9f0; --waiting:#e5c784; --awaiting:#f0bc79;
   --completed:#8dd4a3; --failed:#f4959d; --cancelled:#90a199; --violet:#c1a4f3;
+  --violet-ink:#c1a4f3; --violet-on:#221636;
   --blue-soft:#20323f; --amber-soft:#3b3022; --violet-soft:#302a42; --green-soft:#21382b; --red-soft:#3d292e;
   --shadow:0 2px 3px #0000000a,0 12px 32px #00000010;
 }
@@ -436,3 +438,25 @@ button.notice-banner-main:hover{background:var(--accent-soft);border-color:var(-
    层级只靠 --graph-indent 的缩进与连接线表达。子分支表头 .graph-branch 自己的关系底色与左侧色条保留。 */
 .graph-children{padding-left:var(--graph-indent)}.graph-children .graph-group{border:0;background:transparent;box-shadow:none;padding:0;border-radius:0}.graph-children>.graph-group::before,.graph-children>.graph-group::after{left:calc(-1 * (var(--graph-indent) + 2px))}.graph-children>.graph-group::after{width:calc(var(--graph-indent) + 2px);top:14px}.graph-node{padding:8px 5px;gap:5px}.graph-node.l1,.graph-node.l2,.graph-node.l3,.graph-node.l4,.graph-node.l5,.graph-node.l6{margin-left:0}.graph-path{display:none}.graph-decision{padding:9px}.graph-decision-body{font-size:11px}body:has(#detail[data-view="graph"]) .composer,body:has(#detail[data-view="settings"]) .composer,body:has(#detail[data-view="docs"]) .composer{display:none}.composer{position:sticky;bottom:0;padding:7px 10px calc(7px + env(safe-area-inset-bottom,0px))}.composer-heading{margin-bottom:3px}.composer-heading label{font-size:10px}.composer-target{gap:4px}.composer-target label,.composer-target .hint{display:none}.composer-target input{min-width:0;max-width:none;padding:4px 7px;font-size:9px}.composer textarea{min-height:34px;max-height:16vh;margin:4px 0 5px;padding:7px 9px}.composer-actions{width:auto;flex:0 1 auto;flex-wrap:nowrap;min-width:0;max-width:100%}.composer-actions button{font-size:9px;padding:5px 7px;min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.composer-expand{max-width:34vw}.draft-toggle{font-size:9px;min-width:0;max-width:34vw;overflow:hidden;text-overflow:ellipsis}
 }
+
+/* ---------- 统一按钮帮助提示与 Agent 触发标识（help.js / dom.js / dialog.js） ---------- */
+/* 可能 disabled 的按钮不派发鼠标事件，所以约定用外层 span.help-host 承载 data-help；
+   display:contents 让它不参与布局，视觉上按钮还是原样。 */
+.help-host{display:contents}
+/* document.body 下唯一的提示浮层。z-index 40 高于 toast(15) 与 modal(20)，但不拦点击。 */
+.help-tip{position:fixed;z-index:40;max-width:min(340px,calc(100vw - 24px));padding:8px 11px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-left:3px solid var(--violet-ink);border-radius:9px;box-shadow:var(--shadow);font-size:12px;line-height:1.6;white-space:pre-line;overflow-wrap:anywhere;pointer-events:none;animation:help-tip-in .16s var(--ease)}
+.help-tip[hidden]{display:none}
+@keyframes help-tip-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+/* Agent 触发标识：紫色强调 + ⚡。实心（默认）、ghost 透明底、link / 菜单项只用文字色。
+   规则放在文件末尾，保证同特异性的 .danger / .context-action 等不会把它盖掉。 */
+button.agent-call{background:var(--violet-ink);color:var(--violet-on);border-color:transparent}
+button.agent-call::before{content:'⚡ '}
+button.agent-call:hover{filter:brightness(1.06)}
+button.agent-call.ghost{background:transparent;color:var(--violet-ink);border-color:color-mix(in srgb,var(--violet-ink) 55%,transparent)}
+button.agent-call.ghost:hover{background:var(--violet-soft);color:var(--violet-ink);border-color:var(--violet-ink)}
+button.agent-call.link{background:none;border:0;padding:0;color:var(--violet-ink)}
+button.agent-call.link:hover{color:var(--violet-ink);box-shadow:none}
+button.context-action.agent-call{background:transparent;color:var(--violet-ink)}
+button.context-action.agent-call:hover{background:var(--violet-soft)}
+button.agent-call:disabled{opacity:.55;background:var(--violet-ink);color:var(--violet-on)}
+button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}

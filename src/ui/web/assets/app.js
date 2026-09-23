@@ -16,6 +16,7 @@ import { resetUiState, ui } from './state.js';
 import { initComposer } from './composer.js';
 import { SORT_MODES } from './tree-order.js';
 import { initContextReferences } from './context-references.js';
+import { hideHelp, initHelp } from './help.js';
 import { resetTranscriptReaders } from './transcript-reader.js';
 import { closeTranscriptTerminal } from './transcript-terminal.js';
 import { closeExplanationPanel } from './explanations.js';
@@ -61,6 +62,7 @@ function openDocsView(id = null) { return openDocs(id).catch(error => { show(err
 // 地址栏是唯一的路由源：`#settings` / `#graph` / `#docs` / `#doc-ID` / `#task-ID`，其余回概览。
 // 每个分支都把 promise 返回出去：浏览器不看返回值，但测试能 await 到「画完」为止。
 function onHashChange() {
+  hideHelp(); // 换页前先把上一页的按钮提示收掉，避免固定浮层跨页残留。
   const report = error => { show(error.message, 'error'); };
   if (location.hash === '#statistics') return ui.statisticsOpen ? undefined : openStatistics();
   if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
@@ -107,6 +109,7 @@ export async function boot() {
   syncSidebarSortSelect();
   $('sidebar-sort').addEventListener('change', onSidebarSortChange);
   initContextReferences();
+  initHelp();                                    // 统一按钮帮助提示（document 级委托，可重复装配）
   initComposer();
   // 平级页面共享切换接缝；品牌回概览。入口返回 promise，测试可等到画完。
   const goGraph = () => openGraphView();

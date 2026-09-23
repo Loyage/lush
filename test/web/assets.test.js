@@ -211,3 +211,40 @@ test('web serves the sort module and wires the left-column sort dropdown', async
     expect(html).not.toContain('id="tree-sort"');
   } finally { await f.close(); }
 });
+
+test('统一按钮帮助模块可服务，Agent 触发标识与提示样式一起发货', async () => {
+  const f = await setup();
+  try {
+    // help.js 按 basename 白名单自动可服务；app.js 必须真的装配它。
+    const module = await fetch(f.url + '/help.js');
+    expect(module.status).toBe(200);
+    expect(module.headers.get('content-security-policy')).toContain("script-src 'self'");
+    const source = await module.text();
+    expect(source).toContain('export function initHelp');
+    expect(source).toContain('export function agentHelp');
+    expect(source).toContain('export const AGENT_NOTE');
+    const app = await pageSource(f.url);
+    expect(app).toContain("from './help.js'");
+    expect(app).toContain('initHelp()');
+
+    // 提示浮层、help-host 约定与 agent-call 的三态样式都在样式表里。
+    const css = await (await fetch(f.url + '/styles.css')).text();
+    expect(css).toContain('.help-tip{position:fixed');
+    expect(css).toContain('.help-tip[hidden]{display:none}');
+    expect(css).toContain('.help-host{display:contents}');
+    expect(css).toContain('button.agent-call{');
+    expect(css).toContain('button.agent-call.ghost{');
+    expect(css).toContain('button.context-action.agent-call{');
+    // 两个主题都必须有 --violet-ink，深浅各一套对比色。
+    const light = css.slice(0, css.indexOf(':root[data-theme="dark"]'));
+    const dark = css.slice(css.indexOf(':root[data-theme="dark"]'));
+    expect(light).toContain('--violet-ink:#7955b4');
+    expect(dark).toContain('--violet-ink:#c1a4f3');
+
+    // 页面入口：规划提交按钮带 agent-call，禁用的「直接执行」用 help-host 承载 data-help。
+    const html = await (await fetch(f.url)).text();
+    expect(html).toMatch(/id="draft-commit"[^>]*class="agent-call"/);
+    expect(html).toContain('class="help-host" data-help=');
+    expect(html).toContain('id="input-direct"');
+  } finally { await f.close(); }
+});

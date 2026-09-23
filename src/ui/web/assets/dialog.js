@@ -25,7 +25,7 @@ export function closeDialog() { if (active) active(null); }
  * @returns {Promise<true|string|null>} 确认时是 `true`；有输入框时是输入的字符串；取消时是 `null`。
  */
 function open({ title, message = null, detail = null, confirmLabel, cancelLabel, danger = false, field = null,
-  content = null, cardClass = '' }) {
+  content = null, cardClass = '', agent = false, confirmHelp = null }) {
   if (active) active(null);
   const previous = globalThis.document?.activeElement ?? null;
   const root = $('modal');
@@ -75,7 +75,7 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
 
   const actions = el('div', undefined, 'modal-actions');
   const cancel = button(cancelLabel, () => active?.(null), 'ghost');
-  const confirm = button(confirmLabel, () => active?.(field ? String(input.value) : true), danger ? 'danger' : undefined);
+  const confirm = button(confirmLabel, () => active?.(field ? String(input.value) : true), danger ? 'danger' : undefined, { agent, help: confirmHelp });
   actions.append(cancel, confirm);
   card.append(actions);
 
@@ -105,19 +105,20 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
 /**
  * 应用内确认框：`await confirmDialog({...})` 为真才继续。
  * 文案分两层：`message` 是一句话的后果，`detail` 是需要逐行核对的长清单（命令、路径、批次顺序）。
+ * `agent: true` 时确认按钮加 `agent-call` 紫色标识，`confirmHelp` 写进 `data-help`（应经 help.js 的 agentHelp 生成）。
  */
-export function confirmDialog({ title, message = null, detail = null, confirmLabel = '确定', cancelLabel = '取消', danger = false }) {
-  return open({ title, message, detail, confirmLabel, cancelLabel, danger, field: null }).then(value => value === true);
+export function confirmDialog({ title, message = null, detail = null, confirmLabel = '确定', cancelLabel = '取消', danger = false, agent = false, confirmHelp = null }) {
+  return open({ title, message, detail, confirmLabel, cancelLabel, danger, field: null, agent, confirmHelp }).then(value => value === true);
 }
 
 /** 应用内输入框：确认返回输入内容（可能是空串），取消返回 `null`。 */
-export function promptDialog({ title, message = null, value = '', label = '内容', placeholder = '', confirmLabel = '确定', cancelLabel = '取消' }) {
-  return open({ title, message, detail: null, confirmLabel, cancelLabel, danger: false, field: { label, value, placeholder } })
+export function promptDialog({ title, message = null, value = '', label = '内容', placeholder = '', confirmLabel = '确定', cancelLabel = '取消', agent = false, confirmHelp = null }) {
+  return open({ title, message, detail: null, confirmLabel, cancelLabel, danger: false, field: { label, value, placeholder }, agent, confirmHelp })
     .then(result => (typeof result === 'string' ? result : null));
 }
 
 /** 应用内表单弹窗：调用方拥有表单节点，确认后自行读取和校验字段。 */
-export function formDialog({ title, message = null, content, confirmLabel = '确定', cancelLabel = '取消', danger = false, cardClass = '' }) {
-  return open({ title, message, detail: null, confirmLabel, cancelLabel, danger, content, cardClass, field: null })
+export function formDialog({ title, message = null, content, confirmLabel = '确定', cancelLabel = '取消', danger = false, cardClass = '', agent = false, confirmHelp = null }) {
+  return open({ title, message, detail: null, confirmLabel, cancelLabel, danger, content, cardClass, field: null, agent, confirmHelp })
     .then(value => value === true);
 }

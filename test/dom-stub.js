@@ -40,6 +40,11 @@ class StubNode {
     if (name === 'class') this.className = value;
     else if (name.startsWith('data-')) this.dataset[dataKey(name)] = String(value);
   }
+  removeAttribute(name) {
+    delete this.attributes[name];
+    if (name === 'class') this.className = '';
+    else if (name.startsWith('data-')) delete this.dataset[dataKey(name)];
+  }
   getAttribute(name) { return this.attributes[name] ?? null; }
   append(...nodes) {
     for (const node of nodes) {

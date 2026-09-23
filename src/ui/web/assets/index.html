@@ -15,7 +15,7 @@
 <main>
 <aside id="sidebar" aria-label="项目导航">
   <div class="rail-identity">
-    <div class="brand"><button type="button" id="home" class="home" title="回到项目概览" aria-label="Lush · 项目概览"><span class="brand-mark" aria-hidden="true">L</span><strong>Lush<span class="brand-caption">INTENT STUDIO</span></strong></button></div>
+    <div class="brand"><button type="button" id="home" class="home" data-help="回到项目概览" aria-label="Lush · 项目概览"><span class="brand-mark" aria-hidden="true">L</span><strong>Lush<span class="brand-caption">INTENT STUDIO</span></strong></button></div>
     <div class="rail-context"><span class="eyebrow">当前项目</span><span id="project">连接项目…</span></div>
     <div class="rail-tools">
       <span id="agents"></span><span id="connection" role="status">连接中…</span>
@@ -32,24 +32,24 @@
   </div>
   <div class="nav-divider"><span>工作</span></div>
   <nav class="workspace-nav" aria-label="工作概览">
-    <button type="button" id="overview-open" class="workspace-link" title="查看需求、执行进展与最新成果"><span class="nav-icon" aria-hidden="true">◈</span><span><strong>项目概览</strong><small>需求、进展与成果</small></span><span class="nav-arrow">→</span></button>
+    <button type="button" id="overview-open" class="workspace-link" data-help="查看需求、执行进展与最新成果"><span class="nav-icon" aria-hidden="true">◈</span><span><strong>项目概览</strong><small>需求、进展与成果</small></span><span class="nav-arrow">→</span></button>
   </nav>
   <nav id="side-nav" class="side-nav" aria-label="工作页面"></nav>
   <div class="nav-divider"><span>交付与用量</span></div>
   <nav class="workspace-nav" aria-label="交付与用量">
-    <button type="button" id="graph-open" class="workspace-link" title="查看底层分支谱系、工作状态与收口动作"><span class="nav-icon" aria-hidden="true">⑂</span><span><strong>分支与合并</strong><small>Git 交付与冲突处理</small></span><span class="nav-arrow">→</span></button>
-    <button type="button" id="statistics-open" class="workspace-link" title="统计当前项目的 token 用量与预计花费"><span class="nav-icon" aria-hidden="true">▥</span><span><strong>用量统计</strong><small>用量与预计花费</small></span><span class="nav-arrow">→</span></button>
+    <button type="button" id="graph-open" class="workspace-link" data-help="查看底层分支谱系、工作状态与收口动作"><span class="nav-icon" aria-hidden="true">⑂</span><span><strong>分支与合并</strong><small>Git 交付与冲突处理</small></span><span class="nav-arrow">→</span></button>
+    <button type="button" id="statistics-open" class="workspace-link" data-help="统计当前项目的 token 用量与预计花费"><span class="nav-icon" aria-hidden="true">▥</span><span><strong>用量统计</strong><small>用量与预计花费</small></span><span class="nav-arrow">→</span></button>
   </nav>
   <div class="nav-divider"><span>其他</span></div>
   <nav class="support-nav" aria-label="设置与帮助">
-    <button type="button" id="settings-open" class="workspace-link" title="配置项目 Agent、模型、思考深度、角色 Prompt 与界面偏好"><span class="nav-icon" aria-hidden="true">⚙</span><span><strong>设置</strong><small>Agent 与界面</small></span><span class="nav-arrow">→</span></button>
-    <button type="button" id="docs-open" class="workspace-link" title="查看这套软件的架构、使用流程与接口文档"><span class="nav-icon" aria-hidden="true">≡</span><span><strong>帮助文档</strong><small>使用流程与架构参考</small></span><span class="nav-arrow">→</span></button>
+    <button type="button" id="settings-open" class="workspace-link" data-help="配置项目 Agent、模型、思考深度、角色 Prompt 与界面偏好"><span class="nav-icon" aria-hidden="true">⚙</span><span><strong>设置</strong><small>Agent 与界面</small></span><span class="nav-arrow">→</span></button>
+    <button type="button" id="docs-open" class="workspace-link" data-help="查看这套软件的架构、使用流程与接口文档"><span class="nav-icon" aria-hidden="true">≡</span><span><strong>帮助文档</strong><small>使用流程与架构参考</small></span><span class="nav-arrow">→</span></button>
   </nav>
   <div class="sidebar-footer"><span class="brand-spark">✳</span> 以 Intent 组织成果。<span>规划 · 并行执行 · 人工合并</span></div>
 </aside>
 <div class="content-shell">
   <div id="view-toolbar" class="view-toolbar">
-    <button type="button" id="view-back" class="view-back" title="返回上一页面" aria-label="返回上一页面">← <span>返回</span></button>
+    <button type="button" id="view-back" class="view-back" data-help="返回上一页面" aria-label="返回上一页面">← <span>返回</span></button>
     <div class="view-identity"><span id="view-context" class="eyebrow">工作</span><strong id="view-title">项目概览</strong></div>
     <span id="view-hint" class="view-hint">从用户目标到固定 commit 的可验证成果</span>
   </div>
@@ -103,16 +103,16 @@
   <div class="composer-foot">
     <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>Enter</kbd> 暂存想法 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ↵</kbd> 提交选中项并规划</span>
     <span class="composer-actions">
-      <button type="button" id="draft-toggle" class="draft-toggle" aria-expanded="false" aria-controls="draft-body" title="展开后可以勾选、就地编辑、移除待提交意图，或者只提交选中的那几条">待提交意图<span id="draft-count" class="count">空</span></button>
-      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details" title="展开：可以指定父分支，并查看键盘快捷键">⌃ 更多</button>
+      <button type="button" id="draft-toggle" class="draft-toggle" aria-expanded="false" aria-controls="draft-body" data-help="展开后可以勾选、就地编辑、移除待提交意图，或者只提交选中的那几条">待提交意图<span id="draft-count" class="count">空</span></button>
+      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details" data-help="展开：可以指定父分支，并查看键盘快捷键">⌃ 更多</button>
       <button type="button" id="draft-add" class="ghost">暂存想法</button>
-      <button type="button" id="input-direct" class="ghost" disabled title="仅提交当前输入，跳过规划模型直接创建一个 worker；不提交草稿，合并仍需批准">直接执行</button>
-      <button type="submit" id="draft-commit">提交并规划</button>
+      <span class="help-host" data-help="仅提交当前输入，跳过规划模型直接创建一个 worker；不提交草稿，合并仍需批准 会调用 Agent：需要较长时间并消耗 token"><button type="button" id="input-direct" class="ghost agent-call" disabled>直接执行</button></span>
+      <button type="submit" id="draft-commit" class="agent-call" data-help="提交后启动规划 Agent 拆解计划 会调用 Agent：需要较长时间并消耗 token">提交并规划</button>
     </span>
   </div>
 </form></div>
 </div>
-<div id="toast" class="toast" role="status" aria-live="polite" hidden><p id="error"></p><button type="button" id="toast-close" class="toast-close" aria-label="关闭提示" title="关闭提示" hidden>✕</button></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden><p id="error"></p><button type="button" id="toast-close" class="toast-close" aria-label="关闭提示" data-help="关闭提示" hidden>✕</button></div>
 <div id="modal" class="modal-root" hidden></div>
 <div id="context-menu" class="context-menu" role="menu" hidden></div>
 <section id="project-gate" class="project-gate" aria-hidden="true" hidden>

@@ -4,8 +4,11 @@ import { show } from './messages.js';
 
 export const $ = id => document.getElementById(id);
 export const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
-export function button(text, fn, className) {
+export function button(text, fn, className, options = {}) {
   const node = el('button', text, className); node.type = 'button';
+  // 帮助与 Agent 触发标识是可选的第 4 参：老的三参调用完全不受影响。
+  if (options.help) node.setAttribute('data-help', options.help);
+  if (options.agent) node.classList.add('agent-call');
   node.onclick = async () => { node.disabled = true; try { await fn(); } catch (error) { show(error.message, 'error'); } finally { node.disabled = false; } };
   return node;
 }

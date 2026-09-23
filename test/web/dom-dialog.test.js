@@ -114,3 +114,24 @@ test('同一时刻只有一个弹窗：打开新的会把上一个按取消收�
   closeDialog();
   expect(await second).toBe(false);
 });
+
+test('Agent 确认动作：确认按钮带 agent-call 与经 agentHelp 生成的 data-help', async () => {
+  const { agentHelp, AGENT_NOTE } = await import('../../src/ui/web/assets/help.js');
+  const help = agentHelp('使用这些设置重新启动 Agent');
+  const confirmed = confirmDialog({ title: '使用这些设置重试？', confirmLabel: '重试', agent: true, confirmHelp: help });
+  const confirm = dom.node('modal').querySelectorAll('button').find(node => node.textContent === '重试');
+  expect(confirm).toBeTruthy();
+  expect(confirm.classList.contains('agent-call')).toBe(true);
+  expect(confirm.getAttribute('data-help')).toBe(help);
+  expect(confirm.getAttribute('data-help')).toContain(AGENT_NOTE);
+  await dialogButton(dom, '重试').onclick();
+  expect(await confirmed).toBe(true);
+
+  // 不带 agent 选项的普通确认框不受影响。
+  const plain = confirmDialog({ title: '普通确认', confirmLabel: '保存' });
+  const plainConfirm = dialogButton(dom, '保存');
+  expect(plainConfirm.classList.contains('agent-call')).toBe(false);
+  expect(plainConfirm.getAttribute('data-help')).toBe(null);
+  await answerDialog(dom, '保存');
+  expect(await plain).toBe(true);
+});
