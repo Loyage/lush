@@ -38,9 +38,9 @@ test('web shows the read-only Plan and deterministic compilation state', async (
     expect((await post('spec.add', { goal: 'nope', role: 'worker' })).status).toBe(400);
     expect((await post('spec.drop', { id: researchSpec.id })).status).toBe(400);
 
-    // 页面把它称为结构化 Plan，写清由 runtime 编译。
+    // 执行计划是业务页面，不是任务类型，写清由 runtime 编译。
     const html = await (await fetch(f.url)).text();
-    expect(html).toContain('结构化 Plan');
+    expect(html).toContain('执行计划');
     expect(await pageSource(f.url)).toContain('runtime');
   } finally { await f.close(); }
 });

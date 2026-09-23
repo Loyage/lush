@@ -29,6 +29,7 @@ export function saveFiltersPref() { writePref('filters', ui.filters); }
  * 新字段加在这里就行，不用改别的文件。
  */
 export const ui = {
+  view: null, // 当前页面身份；仅 sidebar-ui.js 写入，异步响应据此判断是否仍拥有画布。
   /** 左栏：折叠状态（Set of section id）与三组筛选条件，都持久化到 localStorage。 */
   collapsed: readCollapsedPref(),
   filters: readFiltersPref(),
@@ -89,6 +90,7 @@ export const mergeSelection = new Set();
  * 上一个文件留下的哨兵（signature）会让新 DOM 上的第一次轮询直接 return，什么都不画。
  */
 export function resetUiState() {
+  ui.view = null;
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;
   ui.statisticsOpen = false; ui.statisticsFilters = null;
   ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0; ui.indexOpen = null; ui.docsOpen = false; ui.docsQuery = ''; ui.settingsOpen = false;

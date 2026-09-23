@@ -146,7 +146,7 @@ export function renderOverview(data) {
     : activeIntentIds.size ? `${activeIntentIds.size} 个 Intent 正在并行推进；成果会汇总成可验证候选。`
     : intents.length ? '目标都已停下来。检查候选结果，或写下下一个想法。'
     : '从一个 Intent 开始：系统会规划、并行执行、汇总证据，并交付可验收结果。';
-  intro.append(el('span', 'INTENT / 目标与成果', 'eyebrow'), el('h1', 'Intent 工作台'), el('p', heroText, 'hero-description'));
+  intro.append(el('span', 'INTENT / 目标与成果', 'eyebrow'), el('h1', '项目概览'), el('p', heroText, 'hero-description'));
   const mark = el('div', '✳', 'hero-mark'); mark.setAttribute('aria-hidden', 'true');
   intro.append(button('效果展示 · 选择分支', () => startBranchShowcase(), 'primary'));
   head.append(intro, mark); panel.append(head);

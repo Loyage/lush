@@ -46,10 +46,9 @@ export function applySort() {
 
 /** 回到项目概览：清掉选中、分支图与地址栏 hash，再把概览重画一次。入口是左上角的 Lush 标志。 */
 export async function overview() {
-  ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.overviewKey = null;
-  ui.graphOpen = false; ui.graphRenderKey = null; ui.docsOpen = false; ui.settingsOpen = false;
-  activateDetailView({ title: '项目概览', context: '工作空间', hint: '先看需要关注的分支、决定与运行状态' });
-  if (location.hash) window.history.pushState(null, '', location.pathname);
+  activateDetailView({ view: 'overview' });
+  ui.overviewKey = null;
+  if (ui.lastSnapshot) renderOverview(ui.lastSnapshot);
   await refresh();
 }
 
@@ -86,7 +85,7 @@ export async function refresh() {
     if (changed) {
       // Keep explicitly loaded historical pages visible across bounded polling refreshes.
       if (ui.taskHistory?.length) {
-        const byId = new Map([...response.tasks, ...ui.taskHistory].map(task => [task.id, task]));
+        const byId = new Map([...ui.taskHistory, ...response.tasks].map(task => [task.id, task]));
         response.tasks = [...byId.values()].sort((a, b) => a.id - b.id);
         response.task_page = ui.taskHistoryPage ?? response.task_page;
       } else ui.taskHistoryPage = response.task_page;
@@ -103,15 +102,15 @@ export async function refresh() {
       renderNotices(data); observeNotices(data); syncComposer();
     }
     // 概览、分支图、文档页共用一个右栏：谁开着，轮询就不把概览画回来。
-    const overviewOpen = ui.selected === null && !ui.graphOpen && !ui.docsOpen && !ui.indexOpen && !ui.settingsOpen && !ui.statisticsOpen;
-    if (changed && overviewOpen) renderOverview(data);
+    const overviewOpen = ui.view?.id === 'overview';
+    if (overviewOpen) renderOverview(data);
     // 概览与分支图共用同一份 graph.get 读模型，也共用同一条陈旧规则：指纹变了且距上次拉图至少 3 秒
     // 才重拉，指纹没变时由最长陈旧时间兜底（分支可能在 UI 外被创建）。概览用当前轮询的快照先画，
     // 后台取图，拿到新图就地重画——不因取图阻塞首屏。
     if ((overviewOpen || ui.graphOpen) && graphStale(data)) {
       if (ui.graphOpen) await loadGraph();
       else fetchGraph().then(() => {
-        if (ui.selected === null && !ui.graphOpen && !ui.docsOpen && !ui.indexOpen && !ui.settingsOpen && !ui.statisticsOpen) renderOverview(ui.lastSnapshot ?? data);
+        if (ui.view?.id === 'overview') renderOverview(ui.lastSnapshot ?? data);
       }).catch(error => { show(error.message, 'error'); });
     }
     const current = data.tasks.find(task => task.id === ui.selected);

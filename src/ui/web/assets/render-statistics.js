@@ -149,15 +149,9 @@ export function renderStatistics(data) {
 }
 
 export async function openStatistics() {
-  ui.selected = null; ui.selectedRevision = null; ui.detailTask = null; ui.detailDirty = false;
-  ui.graphOpen = false; ui.graphRenderKey = null; ui.docsOpen = false; ui.settingsOpen = false;
-  activateDetailView({ title: '统计面板', context: '当前项目', hint: 'Token 用量与预计花费 · 非实际账单' });
-  ui.statisticsOpen = true;
-  if (location.hash !== '#statistics') window.history.pushState(null, '', '#statistics');
-  $('sidebar')?.classList.remove('mobile-open');
-  const toggle = $('sidebar-toggle'); if (toggle) { toggle.setAttribute('aria-expanded', 'false'); toggle.textContent = '导航菜单'; }
+  const view = activateDetailView({ view: 'statistics' });
   const page = el('div', undefined, 'statistics-page');
-  page.append(el('h1', '统计面板'), el('p', '当前项目所有保留会话（含已归档／已删除任务）。不设置时间即统计迄今为止的全部记录；费用来自调用时的估价，不是实际账单。', 'hint'));
+  page.append(el('h1', '用量统计'), el('p', '当前项目所有保留会话（含已归档／已删除任务）。不设置时间即统计迄今为止的全部记录；费用来自调用时的估价，不是实际账单。', 'hint'));
   const filters = ui.statisticsFilters ??= statisticsDefaults();
   const modes = el('div', undefined, 'usage-modes'); modes.setAttribute('role', 'group'); modes.setAttribute('aria-label', '统计视图');
   const form = el('form', undefined, 'usage-filters');
@@ -242,10 +236,10 @@ export async function openStatistics() {
       syncFilters(); markSelection();
       const params = statisticsQuery(filters);
       const data = await api(`/api/usage?${params}`);
-      if (id !== requestId || !ui.statisticsOpen) return;
+      if (id !== requestId || ui.view !== view) return;
       results.replaceChildren(renderStatistics(data));
     } catch (cause) {
-      if (id !== requestId || !ui.statisticsOpen) return;
+      if (id !== requestId || ui.view !== view) return;
       results.replaceChildren(); error.textContent = `统计失败：${cause.message}`;
     } finally { if (id === requestId) submit.disabled = false; }
   };

@@ -6,17 +6,16 @@ import { transcriptCache, ui } from './state.js';
 import { appendTranscriptSteps, loadTranscript } from './render-transcript.js';
 import { HOT } from './format.js';
 
+let detailRequest = 0;
 /** 拉取并渲染一个任务详情。 */
 export async function loadDetail(taskId) {
   ui.selected = taskId;
-  // 右栏同一时刻只归一个视图：点进任务就把分支图、信息页与文档页的标志一起放掉。
-  ui.graphOpen = false; ui.graphRenderKey = null; ui.docsOpen = false; ui.settingsOpen = false;
-  activateDetailView({ title: `任务 #${taskId}`, context: '任务详情', hint: '结果优先，过程与运行信息随后' });
+  const view = activateDetailView({ view: 'task', key: `task-${taskId}`, hash: `#task-${taskId}`,
+    title: `任务 #${taskId}`, context: '任务列表', hint: '结果优先，过程与运行信息随后' });
+  const request = ++detailRequest;
+  const current = () => ui.view === view && request === detailRequest;
   const navigated = ui.detailTask !== taskId;
   const scrolled = navigated ? 0 : $('detail').scrollTop;
-  // window.history: a local `history` binding here would shadow the global and throw a TDZ error on click.
-  // pushState（而不是 replace）让浏览器后退能回到概览或上一个任务；hash 没变时不重复压栈。
-  if (location.hash !== `#task-${taskId}`) window.history.pushState(null, '', `#task-${taskId}`);
   let task, timeline, diff, usage;
   try {
     [task, timeline, diff, usage] = await Promise.all([
@@ -26,14 +25,15 @@ export async function loadDetail(taskId) {
       api(`/api/task/${taskId}/usage`).catch(() => null),
     ]);
   } catch (error) {
-    if (ui.selected === taskId) renderDetailError(taskId, error.message);
+    if (!current()) return;
+    renderDetailError(taskId, error.message);
     throw error;
   }
-  if (ui.selected !== taskId) return;
+  if (!current()) return;
   if (!transcriptCache.has(taskId) && usage?.files?.length) {
     try { await loadTranscript(taskId); transcriptCache.get(taskId).settled = !HOT.has(task.status); }
     catch (error) { transcriptCache.set(taskId, { steps: [], files: usage.files, error: error.message }); }
-    if (ui.selected !== taskId) return;
+    if (!current()) return;
   }
   const cached = transcriptCache.get(taskId);
   if (cached && !cached.error) {
@@ -49,7 +49,7 @@ export async function loadDetail(taskId) {
           appendTranscriptSteps(taskId, page.steps);
         }
       } catch { /* Keep readable history; the next detail refresh can retry. */ }
-      if (ui.selected !== taskId) return;
+      if (!current()) return;
     }
   }
   timeline.onMore = before => loadHistory(taskId, before);

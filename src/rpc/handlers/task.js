@@ -7,8 +7,8 @@ export const handlers = {
     check(Number.isSafeInteger(after) && after >= 0 && Number.isInteger(limit) && limit > 0 && limit <= 1000, 'invalid task page');
     return bounded(p.decorate(p.store.summaries('work').filter(task => task.id > after).slice(0, limit)), 900000);
   },
-  'task.activity'(p, params, actor) { return p.activity(Number(params.limit ?? 50)); },
-  'task.page'(p, params, actor) { return p.taskPage(params.before ?? null, Number(params.limit ?? 50)); },
+  'task.activity'(p, params, actor) { return p.activity(Number(params.limit ?? 50), params.scope ?? 'work'); },
+  'task.page'(p, params, actor) { return p.taskPage(params.before ?? null, Number(params.limit ?? 50), params.scope ?? 'work'); },
   'task.tree'(p, params, actor) { return p.tree(params.id ?? null); },
   'task.ladder'(p, params, actor) { return p.ladder(); },
   'task.inspect'(p, params, actor) { return p.inspect(params.id); },

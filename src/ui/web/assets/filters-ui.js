@@ -46,7 +46,8 @@ export const plannerOption = value => ({ value: String(value), label: `planner #
 /** 角色 / planner 这类选项随数据出现：把当前值补进去，免得筛选值从选项里消失、select 被清空。 */
 export function withCurrent(options, current, label) {
   if (current === 'all' || options.some(option => option.value === current)) return options;
-  return [...options, { value: current, label: label(current) }];
+  const option = label(current);
+  return [...options, typeof option === 'object' ? option : { value: current, label: option }];
 }
 export function uniqueValues(rows, field) {
   return [...new Set((rows || []).map(row => row[field]).filter(value => value !== null && value !== undefined))]

@@ -40,7 +40,7 @@ test('web serves the branch-graph modules and wires the header entry', async () 
   try {
     const html = await (await fetch(f.url)).text();
     expect(html).toContain('id="graph-open"');
-    expect(html).toContain('分支图');
+    expect(html).toContain('分支与合并');
     for (const file of ['/graph-layout.js', '/render-graph.js']) {
       const response = await fetch(f.url + file);
       expect(response.status).toBe(200);

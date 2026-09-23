@@ -287,6 +287,7 @@ export function startWeb(config, port = 4318, options = {}) {
             limit: Number(url.searchParams.get('limit') ?? 30),
           }));
           if (url.pathname === '/api/tasks') return json(await client.request('task.page', {
+            scope: url.searchParams.get('scope') ?? 'work',
             before: url.searchParams.has('before') ? Number(url.searchParams.get('before')) : null,
             limit: Number(url.searchParams.get('limit') ?? 50),
           }));

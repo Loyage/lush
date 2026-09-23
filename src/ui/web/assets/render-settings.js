@@ -19,12 +19,7 @@ let activeTab = 'agent';
 let agentConfigPromise = null;
 
 export function openSettings() {
-  ui.settingsOpen = true;
-  ui.graphOpen = false; ui.graphRenderKey = null;
-  ui.docsOpen = false; ui.indexOpen = null;
-  ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailTask = null;
-  activateDetailView({ title: '设置', context: '工作空间', hint: 'Agent、界面偏好与系统状态' });
-  if (location.hash !== '#settings') window.history.pushState(null, '', '#settings');
+  activateDetailView({ view: 'settings' });
   renderSettings();
   // The overview summary intentionally omits this large profile; only the settings view asks for it.
   if (!ui.lastSnapshot?.status?.agent_config && !agentConfigPromise) {
@@ -555,6 +550,7 @@ function tabBar() {
 }
 
 export function renderSettings() {
+  if (!ui.settingsOpen) return; // 保存或读取配置的迟到回调不能抢回其他页面。
   const panel = $('detail'); panel.dataset.view = 'settings';
   const view = el('div', undefined, 'settings-view');
   const head = el('div', undefined, 'settings-head');

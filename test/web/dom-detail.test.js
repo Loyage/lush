@@ -24,7 +24,7 @@ test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash �
   const detail = dom.node('detail');
   // Intent 成果区只在概览出现；回不去概览等于工作台入口消失。
   const onOverview = () => findByText(detail, 'Intent 与最新成果');
-  expect(deepText(detail)).toContain('Intent 工作台');
+  expect(deepText(detail)).toContain('项目概览');
   expect(onOverview()).toBeTruthy();
 
   // 从任务树点进详情（真实的入口）：概览标题随之消失，回概览只能靠左上角的 Lush，

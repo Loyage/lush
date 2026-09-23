@@ -106,13 +106,13 @@ let pending = null;
 
 /** 打开分支图：清掉选中的任务详情（否则热任务刷新会把图覆盖掉），并把地址栏切到 #graph。 */
 export async function openGraph() {
-  ui.graphOpen = true;
-  ui.docsOpen = false;   // 右栏同一时刻只归一个视图
-  ui.settingsOpen = false;
-  ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailTask = null;
-  activateDetailView({ title: '分支图', context: '核心视图', hint: '沿谱系理解工作，并把成果逐层收口' });
-  if (location.hash !== '#graph') window.history.pushState(null, '', '#graph');
-  await loadGraph();
+  const view = activateDetailView({ view: 'graph' });
+  if (ui.lastGraph) renderGraph(ui.lastGraph, { force: true });
+  try { await loadGraph(); }
+  catch (error) {
+    if (ui.view === view && !ui.lastGraph) $('detail').textContent = `分支加载失败：${error.message}。点击「分支与合并」重试。`;
+    if (ui.view === view) throw error;
+  }
 }
 
 /** 重新拉一次图；同一时刻只允许一个请求在飞，并发调用共享同一个 promise。
@@ -135,7 +135,11 @@ export function fetchGraph() {
 
 /** 重新拉一次图并渲染到「分支图」视图；单飞语义由 fetchGraph() 保证。 */
 export function loadGraph() {
-  return fetchGraph().then(graph => { renderGraph(graph, { force: true }); return graph; });
+  const view = ui.view;
+  return fetchGraph().then(graph => {
+    if (ui.view === view && ui.graphOpen) renderGraph(graph, { force: true });
+    return graph;
+  });
 }
 
 const LANE_CLASS = level => `graph-node l${Math.min(Number(level) || 0, 6)}`;
@@ -577,7 +581,7 @@ export function renderGraph(graph, { force = false } = {}) {
   const content = [];
   const head = el('div', undefined, 'head graph-head');
   const heading = el('div', undefined, 'graph-heading');
-  heading.append(el('span', 'BRANCH MAP', 'eyebrow'), el('span', '分支图', 'tid-lg'),
+  heading.append(el('span', 'BRANCH MAP', 'eyebrow'), el('span', '分支与合并', 'tid-lg'),
     el('p', '分支是项目演进的主线。顺着父子关系检查工作状态、处理分歧，并将完成的成果逐层合回。', 'hero-description'));
   const actions = el('div', undefined, 'actions');
   actions.append(button('刷新分支状态', () => loadGraph(), 'ghost'), button('查看概览', () => overview(), 'ghost'));

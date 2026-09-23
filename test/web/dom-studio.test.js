@@ -133,7 +133,7 @@ test('概览：待收口 / 正在工作 / 提醒各归其位，info 提醒不进
 test('概览：打开期间不会每 1.5s 打 /api/graph', async () => {
   // 先让上一轮取图落地，计数基线才稳定。
   await new Promise(resolve => setTimeout(resolve, 0));
-  ui.selected = null; ui.graphOpen = false; ui.docsOpen = false;
+  await dom.node('home').onclick();
   const before = world.state.graphFetches;
   // 把陈旧时间推远：下一次轮询会补拉一次图。
   ui.graphFetchedAt = Date.now() - 20000;

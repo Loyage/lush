@@ -3,6 +3,7 @@ import { $, el } from './dom.js';
 import { filterInput, filterSelect, filterToggle, filterUi, plannerOption, roleOption, specStatusOption, statusOption, syncSelectOptions, withCurrent } from './filters-ui.js';
 import { applyFilters } from './refresh.js';
 import { navTo, paintCollapsed } from './sidebar-ui.js';
+import { ROLE } from './format.js';
 import { saveCollapsedPref, ui } from './state.js';
 
 /* ---------- 左侧栏：快速导航、可折叠区块、三个列表的筛选 ---------- */
@@ -30,6 +31,7 @@ export function initSidebar() {
     ui.sideHeads.set(section.id, $(`side-head-${section.id}`));
   }
   const nav = $('side-nav');
+  nav.replaceChildren();
   for (const section of SIDEBAR_SECTIONS) {
     const item = makeNavItem(section);
     nav.append(item);
@@ -52,7 +54,7 @@ export function initSidebar() {
   const taskStatus = filterSelect('状态', [{ value: 'all', label: '全部状态' },
     ...['queued', 'running', 'waiting', 'awaiting', 'completed', 'failed', 'cancelled'].map(statusOption)],
     ui.filters.tasks.status, value => { ui.filters.tasks.status = value; applyFilters(); });
-  const taskRole = filterSelect('角色', withCurrent([{ value: 'all', label: '全部角色' }], ui.filters.tasks.role, roleOption), ui.filters.tasks.role,
+  const taskRole = filterSelect('任务类型', withCurrent([{ value: 'all', label: '全部类型' }, ...Object.keys(ROLE).map(roleOption)], ui.filters.tasks.role, roleOption), ui.filters.tasks.role,
     value => { ui.filters.tasks.role = value; applyFilters(); });
   const taskIntegration = filterSelect('合并', [{ value: 'all', label: '全部' }, { value: 'unmerged', label: '待合并' }, { value: 'merged', label: '已合并' }],
     ui.filters.tasks.integration, value => { ui.filters.tasks.integration = value; applyFilters(); });

@@ -62,12 +62,8 @@ export function docLinkResolver(current, docs) {
 
 /** 打开文档目录（id 为 null）或某一篇：清掉选中的任务（否则热任务刷新会把文档覆盖掉），地址栏切到对应 hash。 */
 export async function openDocs(id = null) {
-  ui.docsOpen = true;
-  ui.graphOpen = false; ui.graphRenderKey = null; ui.settingsOpen = false;
-  ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailTask = null;
-  activateDetailView({ title: id ? '阅读文档' : '文档', context: '帮助与参考', hint: id ? '站内文档 · 相对链接可直接跳转' : '使用流程、架构与接口参考' });
   const hash = id ? `#doc-${id}` : DOCS_HASH;
-  if (location.hash !== hash) window.history.pushState(null, '', hash);
+  activateDetailView({ view: 'docs', key: hash, hash });
   await loadDocs(id);
 }
 
@@ -75,9 +71,13 @@ export async function openDocs(id = null) {
  * 取数并渲染。失败在右栏画错误页、不往外抛：面板本身就是给用户看的输出，
  * 抛出去只会让调用方把同一条错误再写一遍到顶部提示。
  */
+let docsRequest = 0;
 export async function loadDocs(id = null) {
+  const view = ui.view, request = ++docsRequest;
+  const current = () => ui.view === view && request === docsRequest;
   try {
     const index = await api('/api/docs');
+    if (!current()) return;
     if (!id) {
       renderDocsIndex(index.docs, openDocs, {
         loadSearch: loadDocsSearchIndex,
@@ -89,8 +89,10 @@ export async function loadDocs(id = null) {
     const entry = index.docs.find(row => row.id === id);
     if (!entry) { renderDocError(id, `没有这篇文档（${id}）`, openDocs); return; }
     const doc = await api(`/api/docs/${id}`);
+    if (!current()) return;
     renderDoc(doc, docLinkResolver(doc, index.docs), openDocs);
   } catch (error) {
+    if (!current()) return;
     renderDocError(id, error.message, openDocs);
   }
 }

@@ -1,6 +1,6 @@
 # 统计面板
 
-Web 与桌面左栏的「统计面板」（`#statistics`）展示当前项目的累计 token、预计花费、分时柱状图及模型费用明细。实现入口为 `src/core/usage-statistics.js` 与 `src/ui/web/assets/render-statistics.js`。
+Web 与桌面左栏的「用量统计」（`#statistics`，位于「交付与用量」分组）展示当前项目的累计 token、预计花费、分时柱状图及模型费用明细。实现入口为 `src/core/usage-statistics.js` 与 `src/ui/web/assets/render-statistics.js`。
 
 ## 使用
 

@@ -5,6 +5,36 @@ import { fetch, pageSource, setup } from './harness.js';
 
 // 大结果不进列表、事件分页、input flow 徽章与改判。
 
+test('Web 全类型窗口与历史分页包含两层任务，旧 RPC 默认口径不变', async () => {
+  const f = await setup();
+  try {
+    f.project.stopping = true;
+    const roles = ['planner', 'scheduler', 'worker', 'coordinator', 'research', 'verifier', 'merger', 'showcase', 'explainer'];
+    const history = [];
+    for (let round = 0; round < 8; round++) for (const role of roles) {
+      const task = f.store.create({ input_id: null, role, goal: `${role} ${round}` });
+      f.store.update(task.id, { status: 'completed' }); history.push(task.id);
+    }
+    const active = roles.map(role => f.store.create({ input_id: null, role, goal: `active ${role}` }));
+    const first = await (await fetch(f.url + '/api/overview')).json();
+    expect(first.task_page).toMatchObject({ active: 9, historical: 72, total: 81, shown: 50, has_more: true });
+    expect(first.tasks).toHaveLength(59);
+    for (const task of active) expect(first.tasks.some(row => row.id === task.id)).toBe(true);
+    const older = await (await fetch(f.url + `/api/tasks?scope=all&before=${first.task_page.cursor}&limit=50`)).json();
+    expect(older.tasks).toHaveLength(22);
+    expect(older.has_more).toBe(false);
+    const allIds = [...first.tasks, ...older.tasks].map(task => task.id);
+    expect(new Set(allIds).size).toBe(81);
+    expect([...allIds].sort((a, b) => a - b)).toEqual([...history, ...active.map(task => task.id)]);
+    const client = new RPCClient(f.config.socket);
+    const legacy = await client.request('task.activity');
+    expect(legacy.tasks.every(task => task.layer === 'work')).toBe(true);
+    expect(legacy.page.total).toBe(63);
+    expect((await fetch(f.url + '/api/tasks?scope=invalid')).status).toBe(400);
+    expect((await client.request('task.page', { scope: 'all', limit: 1 })).tasks).toHaveLength(1);
+  } finally { await f.close(); }
+});
+
 test('large results do not inflate task listings and event history stays paginated', async () => {
   const f = await setup(); await repo(f.root);
   try {

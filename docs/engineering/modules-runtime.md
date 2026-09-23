@@ -47,7 +47,7 @@
 | `project/references.js` | Input / Draft 的结构化上下文引用：校验、持久化与 invocation 时实时解析 | `normalizeReferences(references)`、`referencesForInput(inputId)`、`resolveInputReferences(inputId)` |
 | `project/specs.js` | 结构化 Plan 与确定性编译入口；新路径不创建 scheduler agent | `compilePlans()`、兼容别名 `ensureScheduler()`、`addSpec(plannerTaskId, spec)`、`dropSpec(specId, note, actor)` |
 | `project/plans.js` | 计划审批闸门 | `proposePlan`、`approvePlan`、`rejectPlan`、`planForApproval` |
-| `project/tasks.js` | 派生任务、首页活动任务 + 最近历史的有界窗口、历史任务游标页与单任务详情 | `spawn(parentId, goal, role, deps, name, specId)`、`activity(limit)`、`taskPage(before,limit)`、`inspect(taskId)` |
+| `project/tasks.js` | 派生任务、首页活动任务 + 最近历史的有界窗口、历史任务游标页与单任务详情 | `spawn(parentId, goal, role, deps, name, specId)`、`activity(limit,scope='work')`、`taskPage(before,limit,scope='work')`（Web 显式用 all 包含两层任务）、`inspect(taskId)` |
 | `project/progress.js` | task 的 versioned 执行计划投影、整表汇报与按稳定 key 完成；自动记录每步 `started_at` / `completed_at` / `duration_ms`，改计划时同 key 的完成态与计时保留 | `progressView(task)`、`reportProgressPlan(taskId, steps)`、`completeProgressStep(taskId, key)` |
 | `project/tree.js` | 任务树读模型（intent 层提上来当根） | `tree(taskId)` |
 | `project/timeline.js` | 并发时间轴（run/wait 区间与原因） | `timeline({limit})` |
@@ -86,7 +86,7 @@
 |---|---|---|
 | `store/base.js` | 打开数据库、事务、id 分配与加列式 schema 演进 | `class StoreBase`（构造、`run`/`get`/`all`/`transaction`/`close`、`taskIdHigh`/`setTaskIdHigh`/`nextTaskId`、`inputIdHigh`/`setInputIdHigh`/`nextInputId`） |
 | `store/schema.js` | 全部 DDL、项目绑定校验，以及首页持久 revision / 技术计数表 `overview_task_counts` 的触发器维护（旧库打开时一次性播种） | `SCHEMA`、`bindProject(db, project)` |
-| `store/tasks.js` | tasks 表的读写与生命周期字段、有界 work task 页，以及 `tasks.progress_plan` 附属 JSON 的原子替换 | `task`、`tasks`、`summaries`、`summaryPage`、`create`、`update`、`setProgressPlan`、`children`、`touch`、`armAgent`、`touchAgent`、`agentByToken`、`activeTasks`、`purge`、`referringTasks`、`deleteTasks` |
+| `store/tasks.js` | tasks 表的读写与生命周期字段、有界 task 页（scope 默认 work，all 包含 intent/work），以及 `tasks.progress_plan` 附属 JSON 的原子替换 | `task`、`tasks`、`summaries`、`summaryPage`、`create`、`update`、`setProgressPlan`、`children`、`touch`、`armAgent`、`touchAgent`、`agentByToken`、`activeTasks`、`purge`、`referringTasks`、`deleteTasks` |
 | `store/specs.js` | 拆解队列 | `specDeps`、`addSpec`、`spec`、`specs`、`specStats`、`pendingSpecs`、`specsForBatch`、`specsByPlanner`、`nextSpecPlanner`、`assignSpecs`、`takeSpecs`、`plannedSpec`、`dropSpec`、`releaseBatch`、`discardBatch` |
 | `store/deps.js` | 依赖边；`depMap(taskIds?)` 可只投影当前有界任务窗 | `addDep`、`deps`、`dependents`、`depsDetail`、`dependentsDetail`、`depMap`、`reaches`、`edgesOf` |
 | `store/messages.js` | 收件箱 | `message`、`unread` |

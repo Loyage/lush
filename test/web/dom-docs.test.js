@@ -110,11 +110,11 @@ test('文档视图打开时轮询不覆盖它，切到别的视图后让位', as
   // 轮询一次：右栏必须还是文档，而不是被 renderOverview 顶掉
   await dom.intervalFor(1500)();
   expect(deepText(dom.node('detail'))).toContain('模块地图');
-  expect(deepText(dom.node('detail'))).not.toContain('Intent 工作台');
+  expect(deepText(dom.node('detail'))).not.toContain('项目概览');
 
   // 点 Lush 标志回概览：右栏换回概览，文档标志让位
   await dom.node('home').onclick();
-  expect(deepText(dom.node('detail'))).toContain('Intent 工作台');
+  expect(deepText(dom.node('detail'))).toContain('项目概览');
   expect(dom.node('detail').dataset.view).toBe('overview');
 
   // 从文档视图点进任务详情：右栏归任务，随后轮询也不会把文档画回来

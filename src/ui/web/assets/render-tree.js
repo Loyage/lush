@@ -68,8 +68,8 @@ export function renderTree(data) {
     if (!fullByParent.has(key)) fullByParent.set(key, []);
     fullByParent.get(key).push(task);
   }
-  // 与「待定事项」同口径：计划审批不算「等你回答的问题」，批不批在「历史输入」里做，不该把 planner 任务标成待我处理。
-  const openNoticeIds = new Set((data.notices || []).filter(notice => notice.status === 'open' && notice.kind !== 'plan').map(notice => notice.task_id));
+  // 全类型任务列表包含 planner，计划审批同样属于待我处理。
+  const openNoticeIds = new Set((data.notices || []).filter(notice => notice.status === 'open').map(notice => notice.task_id));
   // 筛选只影响呈现：可见集合 = 命中项 + 命中项的全部祖先（父作为通路保留），子任务被筛掉时父仍可见。
   const query = { ...ui.filters.tasks, openNoticeIds };
   const visible = filterTasks(data.tasks, query);
@@ -83,7 +83,8 @@ export function renderTree(data) {
   }
   // 角色选项随任务出现：轮询里只换 option 节点，不换 select，不打断正在选择的人。
   if (filterUi.taskRole) {
-    const options = [{ value: 'all', label: '全部角色' }, ...uniqueValues(data.tasks, 'role').map(roleOption)];
+    const roles = [...new Set([...Object.keys(ROLE), ...uniqueValues(data.tasks, 'role')])];
+    const options = [{ value: 'all', label: '全部类型' }, ...roles.map(roleOption)];
     syncSelectOptions(filterUi.taskRole, withCurrent(options, ui.filters.tasks.role, roleOption), ui.filters.tasks.role);
   }
   const ranks = rankTasks(visible, openNoticeIds);
@@ -130,7 +131,9 @@ export function renderTree(data) {
     }
   };
   walk(0, 0);
-  if (isFiltering(query) && !visible.length) ordered.push(el('div', '没有符合筛选的条目', 'filter-empty'));
+  if (isFiltering(query) && !visible.length) ordered.push(el('div', data.task_page?.has_more
+    ? '已加载任务中没有符合筛选的条目；更早记录尚未加载，请继续加载历史。'
+    : '没有符合筛选的条目', 'filter-empty'));
   const page = data.task_page;
   if (page) {
     const paging = el('div', undefined, 'task-pagination');
@@ -141,7 +144,7 @@ export function renderTree(data) {
       const more = button('加载更早 50 个', async () => {
         more.disabled = true; more.textContent = '加载中…';
         try {
-          const next = await api(`/api/tasks?before=${page.cursor}&limit=50`);
+          const next = await api(`/api/tasks?scope=all&before=${page.cursor}&limit=50`);
           const loaded = new Map([...ui.taskHistory, ...next.tasks].map(task => [task.id, task]));
           ui.taskHistory = [...loaded.values()];
           ui.taskHistoryPage = { ...page, cursor: next.cursor, has_more: next.has_more, truncated: next.has_more,

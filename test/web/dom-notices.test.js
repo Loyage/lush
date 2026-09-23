@@ -32,14 +32,14 @@ test('待定事项包含 plan，概览保留原有普通问题入口', async () 
   expect(dom.location.hash).toBe('#task-4');
 });
 
-test('「只看待我处理」不把 plan notice 算成待我处理', async () => {
+test('「只看待我处理」包含计划审批，与待决页面一致', async () => {
   await dom.intervalFor(1500)();
   // #1 只有那条 plan notice；#2 / #3 是「已完成待批准合并」，本来就命中
   expect(tasks()).toEqual(['正在改点什么', '合并我', '另一个待合的']);
   const toggle = dom.node('task-filters').querySelector('.filter-toggle');
   toggle.checked = true;
   await toggle.listeners.change[0]();
-  expect(tasks()).toEqual(['合并我', '另一个待合的']);
+  expect(tasks()).toEqual(['正在改点什么', '合并我', '另一个待合的']);
   toggle.checked = false;
   await toggle.listeners.change[0]();
 });

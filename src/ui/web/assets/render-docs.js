@@ -36,7 +36,7 @@ export function renderDocsIndex(docs, onOpen, options = {}) {
   panel.replaceChildren();
   panel.scrollTop = 0;
   const head = el('div', undefined, 'head');
-  head.append(el('span', '文档', 'tid-lg'));
+  head.append(el('span', '帮助文档', 'tid-lg'));
   panel.append(head, el('p', '这些是随当前代码发布的文档：先看总体架构与使用说明，再按需查任务流程与接口参考。文档之间的相对链接可以直接点开。', 'hint'));
 
   const search = el('div', undefined, 'doc-search');

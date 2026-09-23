@@ -31,6 +31,10 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     expect(css).toContain('.section-title .side-name{color:var(--muted);font-size:14px');
     expect(css).toContain('.section-title h2{color:var(--text);font-size:15px');
     expect(css).toContain(':root[data-theme="dark"]');
+    expect(css).toContain('.workspace-link.selected');
+    expect(css).not.toContain('.workspace-link:first-child');
+    expect(css).not.toContain('.workspace-link.primary');
+    expect(css).not.toMatch(/body:has\([^\n]+#(?:overview|graph|statistics|settings|docs)-open/);
     expect(css).toContain('color-scheme:light');
     expect(css).toContain('@media(prefers-reduced-motion:reduce)');
     expect(css).toContain('@media(max-width:760px)');
@@ -122,7 +126,7 @@ test('设置页模块与左栏入口一起发货，样式里带设置与强制�
     expect(css).toContain('.settings-row{');
     expect(css).toContain('.settings-row{grid-template-columns:1fr');
     expect(css).toContain(':root[data-reduced-motion="true"]');
-    expect(css).toMatch(/body:has\(#detail\[data-view="settings"\][^{]*#settings-open/);
+    expect(css).toContain('.workspace-link.selected{');
   } finally { await f.close(); }
 });
 
@@ -172,7 +176,7 @@ test('web serves the sort module and wires the left-column sort dropdown', async
     expect(app).toContain('sidebar-sort');
     const html = await (await fetch(f.url)).text();
     expect(html).toContain('id="sidebar-sort"');
-    expect(html).toContain('aria-label="左栏排序方式"');
+    expect(html).toContain('aria-label="列表排序方式"');
     // 排序控件已经从行动任务区块移到左栏顶部，旧的 #tree-sort 不再存在
     expect(html).not.toContain('id="tree-sort"');
   } finally { await f.close(); }

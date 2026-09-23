@@ -65,7 +65,7 @@ test('分支图：入口走 #graph，画出分支谱系与任务，点节点进�
   const detail = dom.node('detail');
   expect(detail.querySelector('div.graph-view')).toBeTruthy();
   const text = deepText(detail);
-  expect(text).toContain('分支图');
+  expect(text).toContain('分支与合并');
   expect(text).toContain('当前检出 main');
   // 分支是节点：不再给每条分支单开一个「目标分支 X」车道。
   expect(text).not.toContain('目标分支');

@@ -35,7 +35,7 @@ export class UIClient {
     check(status.project === this.config.project, 'daemon project mismatch');
     if (revision && revision === status.revision) return { unchanged: true, revision };
     const [timeline, ladder, activity, inputs, drafts, notices, specs, candidates, showcases] = await Promise.all([
-      this.request('system.timeline'), this.request('task.ladder'), this.request('task.activity', { limit: 50 }),
+      this.request('system.timeline'), this.request('task.ladder'), this.request('task.activity', { limit: 50, scope: 'all' }),
       this.request('input.list'), this.request('draft.list'), this.request('notice.list'),
       this.request('spec.list'), this.request('candidate.list'), this.request('showcase.list'),
     ]);

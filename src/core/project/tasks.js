@@ -96,29 +96,31 @@ export default {
     return task;
   },
 
-  /** Homepage task window: every active work item plus a bounded tail of terminal history. */
-  activity(limit = 50) {
+  /** Task window: active items plus a bounded terminal tail; all includes control-plane roles. */
+  activity(limit = 50, scope = 'work') {
+    check(['work', 'all'].includes(scope), 'invalid task scope');
     const size = Number(limit);
     check(Number.isInteger(size) && size >= 1 && size <= 200, 'activity limit must be 1..200');
-    const active = this.store.summaryPage({ active: true, limit: 1000 });
-    const recent = this.store.summaryPage({ limit: size });
+    const active = this.store.summaryPage({ active: true, limit: 1000, scope });
+    const recent = this.store.summaryPage({ limit: size, scope });
     const byId = new Map([...active, ...recent].map(task => [task.id, task]));
     const tasks = this.decorate([...byId.values()].sort((a, b) => a.id - b.id));
     const cursor = recent.length ? Math.min(...recent.map(task => task.id)) : null;
-    const counts = this.store.all("SELECT status,count FROM overview_task_counts WHERE layer='work' AND count>0");
+    const counts = this.store.all(`SELECT status,count FROM overview_task_counts WHERE ${scope === 'all' ? "layer IN ('work','intent')" : "layer='work'"} AND count>0`);
     const total = counts.reduce((sum, row) => sum + row.count, 0);
     const historical = counts.filter(row => TERMINAL.has(row.status)).reduce((sum, row) => sum + row.count, 0);
     return { tasks, page: { limit: size, cursor, has_more: cursor !== null && historical > recent.length,
       shown: recent.length, total, historical, active: active.length, truncated: historical > recent.length } };
   },
 
-  /** Older terminal work items, newest page first; callers merge pages by id. */
-  taskPage(before = null, limit = 50) {
+  /** Older terminal items within the requested scope; callers merge pages by id. */
+  taskPage(before = null, limit = 50, scope = 'work') {
+    check(['work', 'all'].includes(scope), 'invalid task scope');
     const cursor = before === null || before === undefined ? null : Number(before);
     const size = Number(limit);
     check(cursor === null || (Number.isSafeInteger(cursor) && cursor > 0), 'invalid task history cursor');
     check(Number.isInteger(size) && size >= 1 && size <= 200, 'task history limit must be 1..200');
-    const rows = this.store.summaryPage({ before: cursor, limit: size + 1 });
+    const rows = this.store.summaryPage({ before: cursor, limit: size + 1, scope });
     const hasMore = rows.length > size;
     const page = rows.slice(0, size);
     return { tasks: this.decorate(page.sort((a, b) => a.id - b.id)), cursor: page.length ? Math.min(...page.map(task => task.id)) : cursor,

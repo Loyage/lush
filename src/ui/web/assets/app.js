@@ -106,7 +106,7 @@ export async function boot() {
   $('sidebar-sort').addEventListener('change', onSidebarSortChange);
   initContextReferences();
   initComposer();
-  // 分支图是左栏首要工作入口；品牌按钮回到项目概览。所有入口都返回 promise，DOM 测试可以等到画完。
+  // 平级页面共享切换接缝；品牌回概览。入口返回 promise，测试可等到画完。
   const goGraph = () => openGraphView();
   const goOverview = () => overview().catch(error => { show(error.message, 'error'); });
   $('home').onclick = goOverview;
@@ -127,22 +127,14 @@ export async function boot() {
   };
   initSidebar();
   initNoticeRecords();
-  await refresh();
-  const resource = /^#(notices|tasks|intents|specs)$/.exec(location.hash)?.[1];
-  if (location.hash === '#statistics') await openStatistics();
-  else if (location.hash === '#settings') openSettings();
-  else if (location.hash === '#graph') await openGraphView();
-  else if (resource) openResource(resource, { push: false });
-  else {
-    const doc = docsTarget(location.hash);
-    const initial = doc ? null : linked(location.hash);
-    if (doc) await openDocsView(doc.id);
-    else if (initial) { try { await detail(initial); } catch (error) { show(error.message, 'error'); } }
-    // 无 hash 是项目概览；分支图仍是左栏第一入口和整个信息架构的主线。
-    else { /* refresh() 已画好概览 */ }
-  }
   hashListener = onHashChange;
   addEventListener('hashchange', hashListener);
+  // 先确定页面归属，再开始取数；首次加载期间的导航也不会被启动逻辑抢回。
+  const initialView = onHashChange();
+  await refresh();
+  await initialView;
+  // 深链接设置页可能先于概览摘要到达；摘要就绪后补画配置与系统信息。
+  if (ui.settingsOpen) openSettings();
   startTimers();
 }
 

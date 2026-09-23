@@ -7,6 +7,7 @@
  *
  * 默认（空查询、无折叠）必须与改造前完全一致：三个 filter* 在没有任何条件时原样返回入参数组。
  */
+import { ROLE } from './format.js';
 import { treeParent } from './tree-order.js';
 
 /**
@@ -15,10 +16,10 @@ import { treeParent } from './tree-order.js';
  * 顺序即优先级：先看要人拍板的（待定事项），再回看输入与拆解，最后才是正在跑的行动任务。
  */
 export const SIDEBAR_SECTIONS = [
-  { id: 'notices', label: '待你决定', long: '待你决定', icon: '◔', description: '问题与计划审批' },
-  { id: 'intents', label: '历史输入', long: '历史输入', icon: '⌁', description: '原始需求与规划过程' },
-  { id: 'specs', label: '规划队列', long: '规划队列', icon: '◇', description: '拆解条目与编排批次' },
-  { id: 'tasks', label: '行动任务', long: '行动任务', icon: '✓', description: '执行、依赖与结果' },
+  { id: 'notices', label: '待我处理', long: '待我处理', icon: '◔', description: '问题、审批与处理记录' },
+  { id: 'intents', label: '需求记录', long: '需求记录', icon: '⌁', description: '原始需求、规划与成果' },
+  { id: 'specs', label: '执行计划', long: '执行计划', icon: '◇', description: '计划条目、依赖与关联任务' },
+  { id: 'tasks', label: '任务列表', long: '任务列表', icon: '✓', description: '全部类型、状态与执行过程' },
 ];
 export const COLLAPSED_KEY = 'lush.sidebar.collapsed';
 export const FILTERS_KEY = 'lush.sidebar.filters';
@@ -37,8 +38,7 @@ const SECTION_IDS = new Set(SIDEBAR_SECTIONS.map(section => section.id));
 const STATUS_LABEL = { queued: '排队', running: '运行中', waiting: '等子任务', awaiting: '等你决定',
   completed: '已完成', failed: '失败', cancelled: '已取消' };
 const SPEC_STATUS_LABEL = { pending: '排队中', planned: '已排期', dropped: '已丢弃' };
-const ROLE_LABEL = { planner: '规划', scheduler: '调度', worker: '执行', coordinator: '协调',
-  research: '调研', verifier: '检验', merger: '解冲突', showcase: '效果展示' };
+const ROLE_LABEL = ROLE;
 const FLOW_LABEL = { develop: '开发', explain: '了解' };
 const INTEGRATION_LABEL = { unmerged: '待合并', merged: '已合并' };
 
@@ -128,7 +128,7 @@ export function matchTask(task, query = {}) {
   if (roles.length && !roles.includes(task.role)) return false;
   if (query.integration === 'unmerged' && !UNMERGED.has(task.integration)) return false;
   if (query.integration === 'merged' && task.integration !== 'merged') return false;
-  // 只看待我处理 = 有未答复问题，或已完成且等你批准合并（pending / review）。
+  // 只看待我处理 = 有未处理问题/审批，或已完成且等你批准合并（pending / review）。
   if (query.mine) {
     const open = noticeIds(query.openNoticeIds);
     const pendingMerge = task.status === 'completed' && (task.integration === 'pending' || task.integration === 'review');
