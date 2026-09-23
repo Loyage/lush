@@ -30,6 +30,7 @@
 - [工程文档](engineering/README.md)：源码边界、生命周期不变量、调度、Git 和恢复机制。
 - [接口参考](reference/README.md)：CLI、RPC、HTTP、Agent 环境与 Web 路由。
 - [贡献指南](contributing/README.md)：开发入口和文档写作约定。
+- [改进候选清单](todo/README.md)：并行审查发现、证据与建议优先级；供评审，不代表已批准或已实现。
 - [模块地图](engineering/modules.md)：并行开发边界；细表拆为 Runtime、Web、CLI / RPC / 测试三章。
 
 Web UI 读取随当前代码发布的 `README.md` 与 `docs/**/*.md`，不读取正在被 Lush 开发的目标项目。文档路径先经过扫描索引，请求只能按已知 ID 命中，不会拼接任意文件路径。
