@@ -21,6 +21,10 @@
 3. [验收闭环](engineering/review-loop.md)：产品轴、Git 轴、Candidate 与反馈。
 4. [工程架构索引](engineering/architecture.md)：按源码主题继续深入。
 
+## 设计理念：修改模块前阅读
+
+[模块设计理念](design/README.md)解释长期目标与设计取舍，首篇是[Agent 执行过程](design/agent-process.md)。它不是功能完成清单；具体能力仍看工程与接口文档。
+
 ## 按需查阅
 
 - [工程文档](engineering/README.md)：源码边界、生命周期不变量、调度、Git 和恢复机制。
@@ -30,4 +34,4 @@
 
 Web UI 读取随当前代码发布的 `README.md` 与 `docs/**/*.md`，不读取正在被 Lush 开发的目标项目。文档路径先经过扫描索引，请求只能按已知 ID 命中，不会拼接任意文件路径。
 
-文档只描述当前实现。运行时业务实体仍为 Input / Task / Agent / Message / Notice / Event；Run、Artifact 与 Review Candidate 是围绕执行和验收持久化的结构化事实。
+工程与接口文档描述当前实现；设计理念章节描述长期方向，不能用来声称功能已实现。运行时业务实体仍为 Input / Task / Agent / Message / Notice / Event；Run、Artifact 与 Review Candidate 是围绕执行和验收持久化的结构化事实。

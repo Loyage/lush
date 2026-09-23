@@ -1,5 +1,6 @@
 import { $, button, el } from './dom.js';
 import { ui } from './state.js';
+import { startExplanation } from './explanations.js';
 
 const MAX_REFERENCES = 12;
 const MAX_QUOTE = 8192;
@@ -104,10 +105,13 @@ export function renderComposerReferences() {
   holder.hidden = ui.composerReferences.length === 0;
 }
 function hideMenu() { const menu = $('context-menu'); if (menu) menu.hidden = true; }
-function showMenu(event, values) {
+function showMenu(event, values, explanation = null) {
   const menu = $('context-menu');
   if (!menu || !values.length) return;
   menu.replaceChildren(...values.map(value => button(`引用：${value.label}`, () => { addComposerReference(value); hideMenu(); }, 'context-action')));
+  if (explanation) menu.prepend(button('介绍：目的、原理与结果含义', () => {
+    hideMenu(); void startExplanation(explanation.taskId, explanation.seq, explanation.quote);
+  }, 'context-action'));
   const width = Number(globalThis.innerWidth || 0), height = Number(globalThis.innerHeight || 0);
   const left = width ? Math.min(event.clientX ?? 0, Math.max(8, width - 370)) : (event.clientX ?? 0);
   const top = height ? Math.min(event.clientY ?? 0, Math.max(8, height - 260)) : (event.clientY ?? 0);
@@ -120,7 +124,11 @@ function onContextMenu(event) {
   const generic = genericReference(event.target);
   const values = selected ? [selected, ...semantic] : [...semantic];
   if (generic && !values.some(value => value.kind === 'text' && value.quote === generic.quote)) values.push(generic);
-  if (values.length) showMenu(event, values); else hideMenu();
+  const step = semantic.find(value => value.kind === 'transcript_step');
+  const selectedText = String(window.getSelection?.()?.toString?.() || '').trim();
+  const explanation = selected && step && selectedText.length <= MAX_QUOTE
+    ? { taskId: step.target.task_id, seq: step.target.seq, quote: selectedText } : null;
+  if (values.length) showMenu(event, values, explanation); else hideMenu();
 }
 function onClick(event) { if (!inside(event.target, $('context-menu'))) hideMenu(); }
 function onKeydown(event) { if (event.key === 'Escape') hideMenu(); }

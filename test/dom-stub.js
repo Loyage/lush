@@ -47,6 +47,9 @@ class StubNode {
       this.children.push(child);
     }
   }
+  prepend(...nodes) {
+    for (const node of [...nodes].reverse()) this.insertBefore(typeof node === 'string' ? textNode(node) : node, this.children[0] ?? null);
+  }
   replaceChildren(...nodes) {
     for (const child of this.children) child.parentNode = null;
     this.children = [];
@@ -145,6 +148,7 @@ export function installDom({ fetch: fetchImpl } = {}) {
     createElement: tag => new StubNode(tag),
     createTextNode: textNode,
     documentElement: new StubNode('html'),
+    body: new StubNode('body'),
     getElementById: id => { if (!byId.has(id)) byId.set(id, new StubNode(id === 'input-form' ? 'form' : 'div')); return byId.get(id); },
     activeElement: null,
   };

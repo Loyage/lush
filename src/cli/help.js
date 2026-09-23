@@ -7,7 +7,7 @@ lush [--project PATH] [--json] <command>
   agent models pi|codex          读取本机 Agent CLI 当前可用模型目录
   agent set default|ROLE [--agent pi|codex] [--model ID] [--thinking LEVEL]
         [--default-prompt '…'] [--append-prompt '…']
-                                  设置默认或 planner/coordinator/worker/research/verifier/merger/showcase；下次调用生效
+                                  设置默认或 planner/coordinator/worker/research/verifier/merger/showcase/explainer；下次调用生效
                                   default-prompt 会替换 Lush 内置规则，使用前请确保包含完整任务与安全协议
   agent reset ROLE               删除该角色覆盖，恢复继承项目默认配置
   agent prompt ROLE              按段查看该角色最终 Prompt（含 agent.json 与文件补充）

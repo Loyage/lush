@@ -25,11 +25,11 @@ function preview(value) {
   return text.length > MAX_PREVIEW ? `${text.slice(0, MAX_PREVIEW - 1)}…` : text;
 }
 
-function clip(value) {
+function clip(value, max = MAX_BODY) {
   if (value === undefined || value === null) return '';
   const text = typeof value === 'string' ? value : JSON.stringify(value);
   if (text === undefined) return '';
-  return text.length > MAX_BODY ? `${text.slice(0, MAX_BODY)}\n…（已截断 ${text.length - MAX_BODY} 字符）` : text;
+  return text.length > max ? `${text.slice(0, max)}\n…（已截断 ${text.length - max} 字符）` : text;
 }
 
 /** pi writes epoch milliseconds on messages and ISO strings on its own records. */
@@ -42,34 +42,37 @@ function stamp(value) {
 const parts = content => (Array.isArray(content) ? content : typeof content === 'string' ? [{ type: 'text', text: content }] : []);
 const textOf = content => parts(content).map(part => part.text ?? part.thinking ?? '').filter(Boolean).join('\n');
 
-function meta(record, at) {
+function meta(record, at, max = MAX_BODY) {
   if (record.type === 'session') return [];
   if (record.type === 'model_change') return [{ kind: 'meta', title: `${record.provider}/${record.modelId}`, at, body: '' }];
   if (record.type === 'thinking_level_change') return [{ kind: 'meta', title: `思考等级 ${record.thinkingLevel}`, at, body: '' }];
-  return [{ kind: 'meta', title: record.type, at, body: clip(Object.keys(record).filter(key => key !== 'type').join(', ')) }];
+  return [{ kind: 'meta', title: record.type, at, body: max === Infinity ? JSON.stringify(record) : clip(Object.keys(record).filter(key => key !== 'type').join(', ')) }];
 }
 
-function fromMessage(record, at) {
+function fromMessage(record, at, max = MAX_BODY) {
+  const bodyOf = value => clip(value, max);
   const message = record.message;
   if (!message || typeof message !== 'object') return [];
-  if (message.role === 'user') return [{ kind: 'input', title: '任务上下文', at, body: clip(textOf(message.content)) }];
+  if (message.role === 'user') return [{ kind: 'input', title: '任务上下文', at, body: bodyOf(textOf(message.content)) }];
   if (message.role === 'toolResult') {
-    return [{ kind: 'result', title: `${message.toolName}${message.isError ? '（失败）' : ''}`, at, body: clip(textOf(message.content)) }];
+    return [{ kind: 'result', title: `${message.toolName || 'tool'}${message.isError ? '（失败）' : ''}`, at,
+      call_id: message.toolCallId ?? null, tool_name: message.toolName ?? null, is_error: Boolean(message.isError), body: bodyOf(textOf(message.content)) }];
   }
-  if (message.role !== 'assistant') return [{ kind: 'meta', title: `消息 ${message.role}`, at, body: clip(textOf(message.content)) }];
+  if (message.role !== 'assistant') return [{ kind: 'meta', title: `消息 ${message.role}`, at, body: bodyOf(textOf(message.content)) }];
   return parts(message.content).map(part => {
-    if (part.type === 'thinking') return { kind: 'thinking', title: '思考', at, body: clip(part.thinking) };
-    if (part.type === 'toolCall') return { kind: 'tool', title: part.name || 'tool', at, body: clip(part.arguments ?? {}) };
-    return { kind: 'text', title: '回答', at, body: clip(part.text) };
+    if (part.type === 'thinking') return { kind: 'thinking', title: '思考', at, body: bodyOf(part.thinking) };
+    if (part.type === 'toolCall') return { kind: 'tool', title: part.name || 'tool', at, call_id: part.id ?? null,
+      tool_name: part.name || 'tool', body: bodyOf(part.arguments ?? {}) };
+    return { kind: 'text', title: '回答', at, body: bodyOf(part.text) };
   }).filter(step => step.body || step.kind === 'meta');
 }
 
 /** One JSONL record becomes zero or more steps; an unparseable line is skipped, never fatal. */
-function project(record) {
+export function projectRecord(record, max = MAX_BODY) {
   if (!record || typeof record !== 'object') return [];
   const at = stamp(record.timestamp);
-  if (record.type !== 'message') return meta(record, at);
-  return fromMessage(record, at);
+  if (record.type !== 'message') return meta(record, at, max);
+  return fromMessage(record, at, max);
 }
 
 const sessionDir = config => path.join(config.home, 'sessions');
@@ -296,7 +299,7 @@ export function readTranscript(config, taskId, after = 0, limit = 100) {
         if (row) { resolveBatch(row); break outer; } // 补上窗口末尾批次的 N 后收工
         continue;                                    // 同一文件里继续找下一次请求
       }
-      const projected = project(item.record);
+      const projected = projectRecord(item.record);
       if (row) {
         resolveBatch(row);
         let full = false;
@@ -381,7 +384,7 @@ export function readUsage(config, taskId) {
     // 若这一步没有时间戳，at 向前回退到最近一条有时间的步骤。
     // 最后一步来自带 usage 的 assistant 消息时，与 transcript 一样带上精确 tokens。
     const row = usageRow(record);
-    const projected = project(record);
+    const projected = projectRecord(record);
     for (let index = 0; index < projected.length; index += 1) {
       const step = projected[index];
       usage.last = {

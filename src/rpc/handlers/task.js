@@ -29,6 +29,14 @@ export const handlers = {
   'task.diff'(p, params, actor) { return p.diff(params.id); },
   'task.transcript'(p, params, actor) { return p.transcript(id(params.id), Number(params.after ?? 0), Number(params.limit ?? 100)); },
   'task.usage'(p, params, actor) { return p.usage(id(params.id)); },
+  'task.transcript_search'(p, params) {
+    const { id: taskId, _token, ...options } = params;
+    return p.searchTranscript(id(taskId), options);
+  },
+  'task.transcript_step'(p, params) { return p.transcriptStep(id(params.id), params.seq, params.offset ?? 0); },
+  'explanation.start'(p, params) { return p.startExplanation(id(params.id), params.seq, params.quote); },
+  'explanation.list'(p, params) { return p.explanations(id(params.id), params.before ?? null); },
+  'explanation.get'(p, params) { return p.explanation(id(params.id)); },
   'progress.plan'(p, params, actor) { return p.reportProgressPlan(actor, params.steps); },
   'progress.complete'(p, params, actor) { return p.completeProgressStep(actor, params.step); },
   'task.spawn'(p, params, actor) {

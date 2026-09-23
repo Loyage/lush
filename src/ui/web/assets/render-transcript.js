@@ -5,6 +5,9 @@ import { detail } from './navigate.js';
 import { transcriptCache, ui } from './state.js';
 import { agentText } from './text.js';
 import { referenceable } from './context-references.js';
+import { callKey, groupSteps, stepSummary } from './transcript-model.js';
+import { structuredValue } from './structured-value.js';
+import { transcriptReader, openTranscriptStep } from './transcript-reader.js';
 
 /* ---------- agent 执行过程：只读投影 pi 会话记录 ---------- */
 /** 单步折叠：默认每步只占一行（类型 + 标题 + 时间），点这一行才看正文；只有大模型的「回答」默认展开。 */
@@ -21,13 +24,39 @@ export function tokensChip(tokens) {
   return chip;
 }
 
+function sourceBody(taskId, step) {
+  const body = el('div', undefined, 'step-source');
+  // Tool data is data, never Markdown instructions or executable HTML.
+  body.append(['tool', 'result'].includes(step.kind) ? structuredValue(step.body)
+    : MD_STEP.has(step.kind) ? agentText(step.body) : el('pre', step.body));
+  body.append(button('原文与上下文', () => openTranscriptStep(taskId, step.seq), 'ghost'));
+  referenceable(body, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 #${taskId}:${step.seq}`,
+    quote: step.body, location: { task_id: taskId, section: 'transcript' } });
+  return body;
+}
+function attachResult(taskId, item, step) {
+  const results = item.querySelector('.step-results');
+  if (!results || results.querySelector(`[data-result-seq="${step.seq}"]`)) return;
+  const part = sourceBody(taskId, step); part.dataset.resultSeq = String(step.seq);
+  part.prepend(el('h4', `输出 #${step.seq}${step.is_error ? ' · 失败' : ''}`));
+  const chip = step.tokens?.first ? tokensChip(step.tokens) : null;
+  if (chip) part.prepend(chip);
+  results.append(part);
+  const status = item.querySelector('.step-call-status');
+  if (status) { status.textContent = step.is_error || status.dataset.failed ? '失败' : '已有结果'; if (step.is_error) status.dataset.failed = 'true'; }
+}
+
 /** 一步：折叠状态只改这一个节点，不重建整个执行过程（否则滚动位置会跳）。 */
 function stepNode(taskId, step) {
   const item = el('li', undefined, `step s-${step.kind}`);
+  item.dataset.seq = String(step.seq);
   const head = el('button', undefined, 'step-head');
   head.type = 'button';
   const caret = el('span', '', 'step-caret');
-  head.append(caret, el('span', STEP[step.kind] || step.kind, `step-kind k-${step.kind}`), el('span', step.title, 'step-title'));
+  const summary = stepSummary(step);
+  const title = el('span', summary, 'step-title'); title.title = summary;
+  head.append(caret, el('span', STEP[step.kind] || step.kind, `step-kind k-${step.kind}`), title);
+  if (step.kind === 'tool') head.append(el('span', '尚未见到结果', 'step-call-status'));
   // 同一组（turn 或 batch）只认 first：翻页增量续读拿到的后续步骤没有 first，chip 不会重复印出来。
   const chip = step.tokens?.first ? tokensChip(step.tokens) : null;
   if (chip) head.append(chip);
@@ -40,7 +69,10 @@ function stepNode(taskId, step) {
       quote: `${STEP[step.kind] || step.kind} · ${step.title}`, location: { view: 'task-detail', task_id: taskId, section: 'transcript' } });
     return item;
   }
-  const body = MD_STEP.has(step.kind) ? agentText(step.body, { className: 'step-body' }) : el('div', step.body, 'step-body');
+  const body = el('div', undefined, 'step-body');
+  if (step.kind === 'tool') body.append(el('h4', `输入 #${step.seq}`));
+  body.append(sourceBody(taskId, step));
+  if (step.kind === 'tool') body.append(el('div', undefined, 'step-results'));
   const paint = open => {
     item.classList.toggle('open', open);
     caret.textContent = open ? '▾' : '▸';
@@ -51,6 +83,7 @@ function stepNode(taskId, step) {
   head.onclick = () => { const open = !item.classList.contains('open'); ui.stepToggle.set(stepKey(taskId, step), open); paint(open); };
   paint(stepExpanded(taskId, step));
   item.append(body);
+  for (const result of step.results || []) attachResult(taskId, item, result);
   referenceable(item, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 #${taskId}:${step.seq}`,
     quote: `${STEP[step.kind] || step.kind} · ${step.title}\n${step.body}`, location: { view: 'task-detail', task_id: taskId, section: 'transcript' } });
   return item;
@@ -61,10 +94,10 @@ export function transcriptContent(taskId) {
   if (!state) return [el('p', '正在读取会话记录…', 'hint')];
   const meta = el('p', transcriptMetaText(state), 'hint');
   meta.dataset.live = 'transcript-meta';
-  if (!state.steps.length) return [meta];
+  if (!state.steps.length) return [meta, transcriptReader(taskId)];
   const list = el('ol', undefined, 'steps');
   list.dataset.live = 'transcript-steps';
-  for (const step of state.steps) list.append(stepNode(taskId, step));
+  for (const step of groupSteps(state.steps)) list.append(stepNode(taskId, step));
   const foldable = state.steps.filter(step => step.body);
   const actions = el('div', undefined, 'actions');
   // 一步一行，但轮到要看全文时不该点几十次：一个按钮把整段过程一次摊开或收起。
@@ -81,7 +114,7 @@ export function transcriptContent(taskId) {
     paintTranscript(taskId);
   }, 'ghost'); more.dataset.live = 'transcript-more'; actions.append(more); }
   actions.append(button('重新加载', async () => { await loadTranscript(taskId); await detail(taskId); }, 'ghost'));
-  return [meta, list, actions, state.truncated ? el('p', '会话记录过大，只读取了前面一部分。', 'hint') : null].filter(Boolean);
+  return [meta, transcriptReader(taskId), list, actions, state.truncated ? el('p', '快速视图只读取了前面一部分；用“翻找完整记录”访问后续会话与全文。', 'hint') : null].filter(Boolean);
 }
 /** 只替换执行过程区块，避免为了追加一页步骤重建整个详情面板。 */
 export function paintTranscript(taskId) {
@@ -102,7 +135,12 @@ export function appendTranscriptSteps(taskId, steps) {
   const holder = $('detail').querySelector('.transcript');
   if (!state || !holder) return;
   const list = holder.querySelector('[data-live="transcript-steps"]');
-  if (list) for (const step of steps) list.append(stepNode(taskId, step));
+  if (list) for (const step of steps) {
+    const calls = step.kind === 'result' && callKey(step) ? state.steps.filter(value => value.kind === 'tool' && callKey(value) === callKey(step)) : [];
+    const call = calls.length === 1 ? list.querySelector(`[data-seq="${calls[0].seq}"]`) : null;
+    if (call) attachResult(taskId, call, step);
+    else list.append(stepNode(taskId, step));
+  }
   else paintTranscript(taskId);
   const meta = holder.querySelector('[data-live="transcript-meta"]');
   if (meta) meta.textContent = transcriptMetaText(state);

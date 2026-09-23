@@ -1,6 +1,6 @@
 # 模块地图：Web 前端
 
-本章是 `src/ui/web/assets/` 的职责与导出清单。浏览器端使用原生 ES module，不经过打包。
+本章是 `src/ui/web/assets/` 的职责与导出清单。浏览器端使用原生 ES module，不经过打包。修改执行过程相关模块前，必须先读[设计理念](../design/agent-process.md)与[阅读器边界](transcript-reader.md)。
 
 > 模块地图：[总览](modules.md) → [Runtime 与持久化](modules-runtime.md) → **Web 前端** → [CLI、RPC 与测试](modules-interfaces.md)
 
@@ -27,7 +27,7 @@
 | `project-picker.js` | 无项目启动门：读取 `/api/launcher`，首次要求绝对项目路径，有缓存则直接进入；在全局模式显示「切换项目」，Electron 环境可调用 preload 暴露的原生目录选择器；项目未选定前不启动快照轮询 | `ensureProject()`、`openProjectPicker()`、`closeProjectPicker()` |
 | `appearance.js` | head 中初始化深浅主题，装配左栏顶部的主题切换按钮；偏好经 prefs.js 读写（`lush.theme`），`system` 跟随系统、显式值覆盖系统，存储不可用时保留会话内选择 | `systemThemeMedia()`、`resolveTheme()`、`effectiveTheme()`、`applyTheme()`、`createAppearance()`、`initAppearance()`、`refreshTheme()` |
 | `prefs.js` | 本地偏好中心：键名 / 默认值 / 解析与序列化、读写与变更通知都在这一份（`markdown` / `theme` / `sidebarSort` / `collapsed` / `filters` / `reduceMotion` / `polling` / `toastDuration` / `noticeNotifications`）；坏数据回落默认值，存储不可用不抛异常；老键（`lush.treeSort`、`lush.theme`、`lush.markdown`）继续生效；`resetPrefs()` 删除全部受管键（含历史键）并逐项通知回默认值 | `PREF_DEFS`、`PREF_NAMES`、`MARKDOWN_KEY`、`THEME_KEY`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`REDUCED_MOTION_KEY`、`POLLING_KEY`、`TOAST_DURATION_KEY`、`THEME_VALUES`、`SORT_IDS`、`POLLING_MODES`、`TOAST_MODES`、`pollingIntervals()`、`toastDurations()`、`readPref`、`writePref`、`setPref`、`onPrefChange`、`resetPrefs`、`prefsSnapshot`、`storageAvailable` |
-| `render-settings.js` | 设置视图，分 Agent / 界面 / 系统三个页签：打开设置时才读取 `/api/agent/config` 完整配置；Agent 页编辑项目默认与七类角色覆盖（agent / model / thinking / 默认 prompt / 追加 prompt / Pi 扩展与 Skills），可按需读 `/api/agent/models` 展示本机 CLI 当前模型目录、读 `/api/agent/resources` 多选已安装资源，经 `agent.configure` 写入项目；同页的环境变量键值表按需读取公共/角色 env（值默认 password 遮罩、逐项可查看），支持新增/删除/保存，拒绝非法、重复与 `LUSH_*` 名称，经 `agent.environment.configure` 写回；默认 prompt 正常显示内置全文并可一键恢复，替换内置 prompt 前显示风险警告并二次确认；界面页管理浏览器本地偏好与恢复默认；系统页展示 daemon 配置与路径，其中并发额度（执行 / 控制通道）是可编辑表单：显示生效值 / 环境默认值 / 来源 / 设置文件，保存 / 恢复环境默认走 `system.configure`，越界或后端报错就地提示，其余参数只读。打开期间轮询不用概览覆盖 | `openSettings()`、`renderSettings()` |
+| `render-settings.js` | 设置视图，分 Agent / 界面 / 系统三个页签：打开设置时才读取 `/api/agent/config` 完整配置；Agent 页编辑项目默认与八类角色覆盖（agent / model / thinking / 默认 prompt / 追加 prompt / Pi 扩展与 Skills），可按需读 `/api/agent/models` 展示本机 CLI 当前模型目录、读 `/api/agent/resources` 多选已安装资源，经 `agent.configure` 写入项目；同页的环境变量键值表按需读取公共/角色 env（值默认 password 遮罩、逐项可查看），支持新增/删除/保存，拒绝非法、重复与 `LUSH_*` 名称，经 `agent.environment.configure` 写回；默认 prompt 正常显示内置全文并可一键恢复，替换内置 prompt 前显示风险警告并二次确认；界面页管理浏览器本地偏好与恢复默认；系统页展示 daemon 配置与路径，其中并发额度（执行 / 控制通道）是可编辑表单：显示生效值 / 环境默认值 / 来源 / 设置文件，保存 / 恢复环境默认走 `system.configure`，越界或后端报错就地提示，其余参数只读。打开期间轮询不用概览覆盖 | `openSettings()`、`renderSettings()` |
 | `statistics-range.js` | 日间／日内独立筛选的默认值、UTC 日历快捷范围、含首尾日期到半开 API 时间段的转换与小时校验 | `statisticsDefaults()`、`statisticsToday(now?)`、`statisticsDates(filters,now?)`、`statisticsQuery(filters,now?)` |
 | `render-statistics.js` | `#statistics` 的日间（日历／7 天／30 天／本月／全部）与日内（今天／昨天／日历＋小时区间）双视图及独立筛选、累计 token / 预计 USD、UTC SVG 柱状图（全高时段命中区、即时鼠标／键盘数值浮层，以 SVG 属性定位且约束在滚动视口内）、provider/model 费用表、缺失数据说明与手动刷新；迟到响应不能覆盖其他视图 | `openStatistics()`、`renderStatistics(data)` |
 | `styles-statistics.css` | 统计面板的响应式卡片、表格与 SVG 主题样式；不使用内联 style，不放宽 CSP | CSS |
@@ -44,7 +44,7 @@
 | `sidebar-ui.js` | 左栏纯导航与右侧视图切换：信息页 / 通用内容画布互斥、统一视图栏、计数与兼容折叠状态 | `setViewChrome`、`activateDetailView`、`openResource`、`paintCollapsed`、`setNavCount`、`selectNav`、`navTo` |
 | `sidebar-init.js` | 装配左侧页面导航，以及移到右侧信息页内的筛选 / 排序控件 | `initSidebar()` |
 | `composer.js` | 输入缓存与提交表单；默认折叠只留一行输入 + 一行操作（父分支字段与快捷键说明点开「展开」才出现，折叠态在控件上标出非空父分支；展开状态只在会话内）；提示统一交给 `messages.js`，不再自己写输入栏底部的 `#error` | `buffer()`、`selectedDraftIds()`、`syncComposer()`、`paintDraftPanel()`、`toggleDraftPanel()`、`paintComposerDetails()`、`toggleComposerDetails()`、`initComposer()` |
-| `context-references.js` | 页面选区 / 语义元素的右键引用、输入框引用卡片与可引用节点注册 | `referenceable(node, descriptor)`、`initContextReferences()`、`renderComposerReferences()`、`setComposerReferences()` |
+| `context-references.js` | 页面选区 / 语义元素的右键引用、执行步骤选区的“介绍”入口、输入框引用卡片与可引用节点注册 | `referenceable(node, descriptor)`、`initContextReferences()`、`renderComposerReferences()`、`setComposerReferences()` |
 | `messages.js` | 顶部消息提示（toast）：`#error` 从 `.composer` 底部搬进固定浮层，脱离 `.app` 的 grid；停留时长是本地偏好（`lush.toastDuration`，标准档＝信息 4s / 错误 8s），失败 / 错误类带手动关闭按钮，鼠标悬停暂停倒计时，同一段文本反复写入不重置计时（离线错误不闪烁），空文本立即隐藏。错误 `role=alert` / `aria-live=assertive`，信息 `role=status` / `aria-live=polite`；计时器可注入（DOM 测试用假时钟） | `show(value, kind)`、`clear()`、`setTimers(next)` |
 | `render-drafts.js` | 待提交缓存与引用摘要 | `renderDrafts(data)` |
 | `render-intents.js` | Intent 列表：原始目标、planner 闸门、Plan 计数、分支效果展示 / 最近展示任务，以及历史 Review Candidate 的「打开结果 / 接受并合入 / 要求修改」动作 | `renderIntents(data)` |
@@ -58,7 +58,11 @@
 | `render-diff.js` | 改动概览 | `renderDiff(diff)` |
 | `render-progress.js` | task 执行计划：防御性统计 versioned `progress`；详情逐步区分“用时”（完成态 serif italic）与“已执行”（当前态 monospace bold）并实时计时；终态 task 不再挂 live tick，而按最后 Run 结束时间冻结当前步骤并标明失败 / 取消 / 结束时中止，后续步骤显示未执行；任务树画紧凑摘要，分支诊断画整行进度条并给 running task 显著但尊重 reduced-motion 的扫光 / 流动动效 | `progressStats(progress)`、`formatProgressDuration(ms)`、`refreshProgressDurations(root)`、`renderTaskProgress(progress, opts)`、`renderCompactProgress(progress)`、`renderGraphProgress(progress, opts)` |
 | `render-agent.js` | Agent 区块：执行过程优先，模型与用量直接展开；增量更新最近一步，带 tokens 时并排一个与步骤同口径的 chip | `renderAgent(task, usage)`、`paintUsageLast(taskId, usage)` |
-| `render-transcript.js` | 执行过程（分页、折叠、增量续读）；每一步按 `tokens.first` 印一次占用 chip（精确 `上下文 X` / 估算 `+X`） | `transcriptContent(taskId)`、`paintTranscript(taskId)`、`appendTranscriptSteps(taskId, steps)`、`loadTranscript(taskId)`、`tokensChip(tokens)` |
+| `transcript-model.js` | 紧凑摘要与会话／调用 ID 配对的纯阅读投影；不改变原步骤 | `stepSummary(step)`、`callKey(step)`、`groupSteps(steps)` |
+| `structured-value.js` | 文本安全的惰性 JSON 树、节点／深度限额及原文回退 | `structuredValue(text)` |
+| `transcript-reader.js` | 当前任务完整记录全文检索、筛选、分页命中跳转、分段原文与配对／前后上下文；独立于 live 列表，boot 时清理旧请求 | `transcriptReader(taskId)`、`openTranscriptStep(taskId,seq)`、`resetTranscriptReaders()` |
+| `explanations.js` | 选区直达无工具解释 Agent 的旁侧面板、状态读取与来源快照／历史；关闭不取消任务，boot 清理计时器 | `startExplanation(taskId,seq,quote)`、`openExplanation(id)`、`explanationHistory(taskId)`、`closeExplanationPanel()` |
+| `render-transcript.js` | 执行过程（分页、内容摘要、折叠、按调用身份聚合输入输出、增量续读）；每一步按 `tokens.first` 印一次占用 chip（精确 `上下文 X` / 估算 `+X`） | `transcriptContent(taskId)`、`paintTranscript(taskId)`、`appendTranscriptSteps(taskId, steps)`、`loadTranscript(taskId)`、`tokensChip(tokens)` |
 | `render-showcase.js` | 分支展示启动弹窗、基线选择、展示详情（静态 HTML sandbox、预览链接及停止）；失败 / 取消后若磁盘已有报告，明确标成中断前写入的未确认部分产物，不冒充完整交付 | `startBranchShowcase`、`renderShowcase` |
 | `render-verify.js` | 检验区块 | `renderVerifications(task)` |
 | `render-resolutions.js` | 合并冲突处理记录 | `renderResolutions(task)` |

@@ -27,7 +27,7 @@ function assetFile(pathname) {
   if (!ASSET_NAME.test(name) || !ASSET_EXTENSIONS.has(path.extname(name))) return null;
   return path.join(ASSETS, name);
 }
-const MUTATIONS = new Set(['showcase.start','showcase.stop','agent.configure','agent.environment.configure','system.configure','input.submit','input.flow','draft.add','draft.remove','draft.update','draft.commit','task.message','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.delete','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.merge','branch.sync','branch.catchup','branch.archive']);
+const MUTATIONS = new Set(['explanation.start','showcase.start','showcase.stop','agent.configure','agent.environment.configure','system.configure','input.submit','input.flow','draft.add','draft.remove','draft.update','draft.commit','task.message','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.delete','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.merge','branch.sync','branch.catchup','branch.archive']);
 /** 检验报告是 agent 写的自包含 HTML：只允许内联样式/脚本与 data: 图片，禁止任何外部加载与表单提交。
  *  主页面 CSP 不会作用于这个独立文档，所以这里必须自己收紧。 */
 const REPORT_CSP = "sandbox allow-scripts; frame-ancestors 'self'; default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'";
@@ -317,6 +317,18 @@ export function startWeb(config, port = 4318, options = {}) {
             // 独立顶层文档（新标签打开）：不受主页面 CSP 约束，但仍显式收紧到一个自包含页面。
             return new Response(Bun.file(file), { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': REPORT_CSP } });
           }
+          const reading = /^\/api\/task\/(\d+)\/(transcript-search|transcript-step|explanations)$/.exec(url.pathname);
+          if (reading) {
+            const id = Number(reading[1]), q = url.searchParams;
+            if (reading[2] === 'transcript-search') return json(await client.request('task.transcript_search', {
+              id, query: q.get('query') ?? '', kind: q.get('kind') ?? '', tool: q.get('tool') ?? '', errors: q.get('errors') === 'true',
+              after: Number(q.get('after') ?? 0), limit: Number(q.get('limit') ?? 50),
+            }));
+            if (reading[2] === 'transcript-step') return json(await client.request('task.transcript_step', { id, seq: Number(q.get('seq')), offset: Number(q.get('offset') ?? 0) }));
+            return json(await client.request('explanation.list', { id, before: q.has('before') ? Number(q.get('before')) : null }));
+          }
+          const explanation = /^\/api\/explanation\/(\d+)$/.exec(url.pathname);
+          if (explanation) return json(await client.request('explanation.get', { id: Number(explanation[1]) }));
           const historyPage = /^\/api\/task\/(\d+)\/history-page$/.exec(url.pathname);
           if (historyPage) return json(await client.request('task.history_page', {
             id: Number(historyPage[1]), before: url.searchParams.has('before') ? Number(url.searchParams.get('before')) : null,

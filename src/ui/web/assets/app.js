@@ -16,6 +16,8 @@ import { resetUiState, ui } from './state.js';
 import { initComposer } from './composer.js';
 import { SORT_MODES } from './tree-order.js';
 import { initContextReferences } from './context-references.js';
+import { resetTranscriptReaders } from './transcript-reader.js';
+import { closeExplanationPanel } from './explanations.js';
 import { ensureProject } from './project-picker.js';
 import { initNoticeNotifications, resetNoticeNotifier } from './notice-notifications.js';
 import { initNoticeRecords } from './render-notices.js';
@@ -93,6 +95,8 @@ export async function boot() {
   if (hashListener !== null && typeof removeEventListener === 'function') removeEventListener('hashchange', hashListener);
   refreshTimer = null; liveTimer = null; hashListener = null;
   resetUiState();
+  resetTranscriptReaders();
+  closeExplanationPanel();
   resetNoticeNotifier();
   await initNoticeNotifications();
   initAppearance();                              // 按当前 DOM 重新绑定主题与头部按钮

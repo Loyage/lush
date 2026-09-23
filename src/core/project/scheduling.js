@@ -75,6 +75,7 @@ export default {
     const task = this.store.agentByToken(tokenHash(token));
     const run = task ? this.running.get(task.id) : null;
     if (!run) throw new LushError('invalid or expired agent token');
+    check(task.role !== 'explainer', 'explanation agents have no RPC capability');
     check(!TERMINAL.has(task.status) && !run.parked && !run.controller.signal.aborted, 'agent task is no longer active');
     this.store.touchAgent(task.id);
     return task.id;
@@ -123,6 +124,7 @@ export default {
           recent_tasks: this.decorate(this.store.all('SELECT id,parent_id,role,status,substr(goal,1,500) AS goal,integration FROM tasks ORDER BY id DESC LIMIT 100')),
           verification: task.role === 'verifier' ? this.verificationContext(task) : undefined,
           showcase: task.role === 'showcase' ? this.showcaseContext(task) : undefined,
+          explanation: task.role === 'explainer' ? this.explanationContext(taskId) : undefined,
           merge_conflict: task.resolves_task_id ? this.mergeConflictContext(task) : undefined,
           branch_sync: task.role === 'merger' && !task.resolves_task_id
             ? (() => { const row = this.store.get("SELECT data FROM events WHERE task_id=? AND type='branch.sync.requested' ORDER BY id DESC LIMIT 1", task.id); return row ? JSON.parse(row.data) : undefined; })()

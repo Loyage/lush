@@ -24,7 +24,7 @@ export default {
   spawn(parentId, goal, role = 'worker', deps = [], name = null, specId = null) {
     const parent = this.store.task(parentId);
     check(!TERMINAL.has(parent.status), 'cannot delegate from a terminal task');
-    check(parent.role !== 'showcase', 'showcase agents cannot delegate development work');
+    check(!['showcase', 'explainer'].includes(parent.role), 'showcase and explanation agents cannot delegate development work');
     check(parent.role !== 'planner', 'planner 不再直接派活；用 lush spec add 写拆解队列，由 scheduler 编排');
     text(goal, 'goal'); check(['worker','coordinator','research'].includes(role), 'role must be worker, coordinator or research');
     const edges = normalizeDeps(deps);
