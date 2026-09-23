@@ -33,7 +33,7 @@
 | `styles-statistics.css` | 统计面板的响应式卡片、表格与 SVG 主题样式；不使用内联 style，不放宽 CSP | CSS |
 | `styles.css` | 双主题设计 token、应用布局（无应用顶栏：品牌 / 项目名 / 并发槽 / 连接状态 / 主题切换 / 退出登录在左栏顶部的身份区，内容区占满高度）、组件、响应式与 reduced-motion 动效（含设置页与强制减少动效 `[data-reduced-motion="true"]`） | CSS |
 | `state.js` | 共享可变状态（一个对象，新字段不必改别的文件就能加）；`ui.view` 为唯一页面身份（id/key），导航接缝集中更新兼容读标记；`ui.indexOpen` 记录右侧信息页，`ui.lastGraph` 保存最近一次 `graph.get` 读模型，`ui.settingsOpen` 标记设置视图；折叠 / 筛选 / 排序偏好经 prefs.js 读写 | `ui`、`transcriptOpen`、`transcriptCache`、`mergeSelection`、`resetUiState()`、`readSidebarSortPref`、`readCollapsedPref`、`readFiltersPref`、`saveCollapsedPref`、`saveFiltersPref`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`SORT_IDS` |
-| `navigate.js` | 导航间接层（断循环依赖）；注册返回带身份保护的 teardown，DOM 测试用完必须恢复，避免跨文件污染 | `registerNavigation({refresh, detail, overview, graph}) -> restore()`、`refresh()`、`detail(taskId)`、`overview()`、`graph()` |
+| `navigate.js` | 导航间接层（断循环依赖）；注册返回带身份保护的 teardown，DOM 测试用完必须恢复，避免跨文件污染 | `registerNavigation({refresh, detail, overview, graph, resource}) -> restore()`、`refresh()`、`detail(taskId)`、`overview()`、`graph()`、`resource(id)` |
 | `api.js` | fetch 与用户动作 | `api(url, options)`、`action(method, params)`、`loadHistory(taskId)` |
 | `format.js` | 标签映射与格式化（纯函数） | `STATUS`、`INTEGRATION`、`ROLE`、`EVENTS`、`HOT`、`TERMINAL_STATUS`、`WAIT_REASON`、`PLAN_GATE`、`SPEC_STATUS`、`MERGE_STATUS`、`CHANGE`、`DEP_HELP`、`STEP`、`MD_STEP`、`GOAL_TITLE_LIMIT`、`statusOf`、`relative`、`duration`、`absolute`、`clock`、`tokens`、`tokensView`、`money`、`depsOf`、`waitingDeps`、`resolverOf`、`specStatus`、`specTitle`、`summarizeGoal`、`taskTitle`、`edgeLabel`、`lastView`、`short` |
 | `dom.js` | DOM 原语 | `el`、`button`、`syncChildren`、`block`、`kv`、`badge`、`statusBadge` |
@@ -44,7 +44,7 @@
 | `sidebar-ui.js` | 统一页面导航：页面元数据、hash 写入、身份令牌、互斥画布、唯一 selected/aria-current、加载占位、视图栏、移动端收起、计数与兼容折叠状态 | `setViewChrome`、`activateDetailView({view,key?,hash?,title?,context?,hint?}) -> identity`、`openResource`、`paintCollapsed`、`setNavCount`、`selectNav`、`navTo` |
 | `sidebar-init.js` | 装配左侧页面导航，以及移到右侧信息页内的筛选 / 排序控件 | `initSidebar()` |
 | `composer.js` | 输入缓存与提交表单；默认折叠只留一行输入 + 一行操作（父分支字段与快捷键说明点开「展开」才出现，折叠态在控件上标出非空父分支；展开状态只在会话内）；提示统一交给 `messages.js`，不再自己写输入栏底部的 `#error` | `buffer()`、`selectedDraftIds()`、`syncComposer()`、`paintDraftPanel()`、`toggleDraftPanel()`、`paintComposerDetails()`、`toggleComposerDetails()`、`initComposer()` |
-| `context-references.js` | 页面选区 / 语义元素的右键引用、执行步骤选区的“介绍”入口、输入框引用卡片与可引用节点注册 | `referenceable(node, descriptor)`、`initContextReferences()`、`renderComposerReferences()`、`setComposerReferences()` |
+| `context-references.js` | 页面选区 / 语义元素的右键引用、任意选区的“介绍”入口、输入框与草稿引用卡片、可引用节点注册及 `data-ref` 定位索引（卡片点击导航 + 一次性闪烁，找不到给顶部提示；text 引用不定位） | `referenceable(node, descriptor)`、`initContextReferences()`、`renderComposerReferences()`、`setComposerReferences()`、`locateReference(reference)`、`locatable(reference)`、`clearLocateFlash()` |
 | `messages.js` | 顶部消息提示（toast）：`#error` 从 `.composer` 底部搬进固定浮层，脱离 `.app` 的 grid；停留时长是本地偏好（`lush.toastDuration`，标准档＝信息 4s / 错误 8s），失败 / 错误类带手动关闭按钮，鼠标悬停暂停倒计时，同一段文本反复写入不重置计时（离线错误不闪烁），空文本立即隐藏。错误 `role=alert` / `aria-live=assertive`，信息 `role=status` / `aria-live=polite`；计时器可注入（DOM 测试用假时钟） | `show(value, kind)`、`clear()`、`setTimers(next)` |
 | `render-drafts.js` | 待提交缓存与引用摘要 | `renderDrafts(data)` |
 | `render-intents.js` | Intent 列表：原始目标、planner 闸门、Plan 计数、最近展示任务的只读链接，以及历史 Review Candidate 的「打开结果 / 接受并合入 / 要求修改」动作 | `renderIntents(data)` |
@@ -63,7 +63,7 @@
 | `transcript-body.js` | 执行正文共享渲染：工具参数语义标签、修改前后、命令／输出换行、长内容就地预览展开；原文不改写 | `transcriptBody(step, {key?,preview?})` |
 | `transcript-reader.js` | 展开过程后的全文检索、筛选、分页；命中在终端阅读器定位，boot 时清理旧请求 | `transcriptReader(taskId)`、`openTranscriptStep(taskId,seq)`、`resetTranscriptReaders()` |
 | `transcript-terminal.js` | Pi 风格的只读全宽终端阅读器：连续正文、会话分隔、分段续读、搜索定位后向前翻页、手动读取新记录、关闭恢复位置与焦点；无 Pi/PTY 依赖 | `openTranscriptTerminal(taskId,seq?)`、`closeTranscriptTerminal()` |
-| `explanations.js` | 选区直达无工具解释 Agent 的旁侧面板、状态读取与来源快照／历史；终端模式下挂在其 dialog 顶层内，Esc 只关闭解释；关闭不取消任务，boot 清理计时器 | `startExplanation(taskId,seq,quote)`、`openExplanation(id)`、`explanationHistory(taskId)`、`closeExplanationPanel()` |
+| `explanations.js` | 选区直达无工具解释 Agent 的旁侧面板、状态读取与来源快照／历史（执行步骤与通用选区两种 v1 快照都能渲染，不出现 `undefined`）；终端模式下挂在其 dialog 顶层内，Esc 只关闭解释；关闭不取消任务，boot 清理计时器 | `startExplanation(taskId,seq,quote)`、`startSelectionExplanation(quote,location)`、`openExplanation(id)`、`explanationHistory(taskId)`、`closeExplanationPanel()` |
 | `render-transcript.js` | 用户展开后的正文优先执行过程（分页、按调用身份聚合输入输出、增量续读、跳到新内容）；每一步按 `tokens.first` 印一次占用 chip（精确 `上下文 X` / 估算 `+X`） | `transcriptContent(taskId)`、`paintTranscript(taskId)`、`appendTranscriptSteps(taskId, steps)`、`loadTranscript(taskId)`、`tokensChip(tokens)` |
 | `render-showcase.js` | 合格分支的展示启动确认（重查后端准入）、展示详情（静态 HTML sandbox、预览链接及停止）；失败 / 取消后若磁盘已有报告，明确标成中断前写入的未确认部分产物，不冒充完整交付 | `startBranchShowcase`、`renderShowcase` |
 | `render-verify.js` | 检验区块 | `renderVerifications(task)` |

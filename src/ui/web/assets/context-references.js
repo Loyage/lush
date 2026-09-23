@@ -1,6 +1,8 @@
 import { $, button, el } from './dom.js';
-import { ui } from './state.js';
-import { startExplanation } from './explanations.js';
+import { show } from './messages.js';
+import { detail, graph, resource } from './navigate.js';
+import { transcriptOpen, ui } from './state.js';
+import { startExplanation, startSelectionExplanation } from './explanations.js';
 
 const MAX_REFERENCES = 12;
 const MAX_QUOTE = 8192;
@@ -15,20 +17,71 @@ const inside = (node, target) => { for (let at = node; at; at = parentOf(at)) if
 const excluded = node => {
   for (let at = node; at; at = parentOf(at)) {
     const tag = String(at.tagName || '').toLowerCase();
-    if (['textarea','input','select','option'].includes(tag) || hasClass(at, 'composer') || hasClass(at, 'context-menu')) return true;
+    if (['textarea','input','select','option'].includes(tag)) return true;
+    if (at.id === 'project-gate' || at.id === 'context-menu' || hasClass(at, 'composer') || hasClass(at, 'context-menu')) return true;
   }
   return false;
 };
+// 页面内容＝`main` 之内：composer、右键菜单、项目启动门都在 main 之外，天然不作为引用来源。
+const inPage = node => {
+  const main = typeof document?.querySelector === 'function' ? document.querySelector('main') : null;
+  return !main || inside(node, main);
+};
 const pageLocation = extra => ({ view: ui.graphOpen ? 'branch-graph' : ui.docsOpen ? 'docs' : ui.settingsOpen ? 'settings'
+  : ui.statisticsOpen ? 'statistics'
   : ui.indexOpen ? `${ui.indexOpen}-index` : ui.selected === null ? 'overview' : 'task-detail',
   ...(ui.selected === null ? {} : { task_id: ui.selected }), ...extra });
 const referenceKey = value => `${value.kind}:${JSON.stringify(value.target || {})}:${value.quote}`;
 
+/**
+ * 定位索引：把语义引用折成稳定的 `data-ref` 记号。语义元素经 `referenceable` 注册时会把记号写到
+ * 节点上，卡片点击后按记号找元素、滚动并闪烁。`text` 引用没有稳定目标，不参与定位。
+ */
+function locateToken(kind, target = {}) {
+  switch (kind) {
+    case 'task': case 'task_subtree': return target.task_id == null ? null : `task-${target.task_id}`;
+    case 'result': return target.task_id == null ? null : `result-${target.task_id}`;
+    case 'diff': return target.task_id == null ? null : `diff-${target.task_id}`;
+    case 'message': return target.message_id == null ? null : `message-${target.message_id}`;
+    case 'transcript_step': return target.task_id == null || target.seq == null ? null : `step-${target.task_id}-${target.seq}`;
+    case 'verification': return target.verification_id == null ? null : `verification-${target.verification_id}`;
+    case 'history_event': return target.event_id == null ? null : `event-${target.event_id}`;
+    case 'delivery_branch': return target.target_branch ? `branch:${target.target_branch}` : null;
+    case 'intent': return target.input_id == null ? null : `intent-${target.input_id}`;
+    case 'spec': return target.spec_id == null ? null : `spec-${target.spec_id}`;
+    case 'notice': return target.notice_id == null ? null : `notice-${target.notice_id}`;
+    default: return null;
+  }
+}
+export const locatable = reference => Boolean(locateToken(reference?.kind, reference?.target));
+const LOCATE_ROOTS = { intent: 'side-intents', spec: 'side-specs', notice: 'side-notices' };
+function findByRef(root, token) {
+  if (!root || !token) return null;
+  const stack = [root];
+  while (stack.length) {
+    const node = stack.pop();
+    const refs = node?.dataset?.ref;
+    if (refs && String(refs).split(/\s+/).includes(token)) return node;
+    for (const child of node?.children || []) stack.push(child);
+  }
+  return null;
+}
+
 /** Register one or more semantic references on a rendered node. Re-registering replaces the old descriptor. */
 export function referenceable(node, descriptor) {
   if (!node) return node;
-  descriptors.set(node, Array.isArray(descriptor) ? descriptor : [descriptor]);
+  const list = Array.isArray(descriptor) ? descriptor : [descriptor];
+  descriptors.set(node, list);
   node.classList?.add?.('referenceable');
+  if (node.dataset) {
+    const tokens = new Set();
+    for (const value of list) {
+      const token = locateToken(value?.kind, value?.target);
+      if (token) tokens.add(token);
+    }
+    if (tokens.size) node.dataset.ref = [...tokens].join(' ');
+    else if ('ref' in node.dataset) delete node.dataset.ref;
+  }
   return node;
 }
 
@@ -60,9 +113,7 @@ function selectionReference(target) {
     quote: quote.slice(0, MAX_QUOTE), location: pageLocation({ section: 'selection' }), captured_at: new Date().toISOString() };
 }
 function genericReference(target) {
-  if (excluded(target)) return null;
-  const main = typeof document?.querySelector === 'function' ? document.querySelector('main') : null;
-  if (main && !inside(target, main)) return null;
+  if (excluded(target) || !inPage(target)) return null;
   let node = target;
   while (node && !textOf(node)) node = parentOf(node);
   const quote = textOf(node);
@@ -93,8 +144,12 @@ export function renderComposerReferences() {
   if (!holder) return;
   holder.replaceChildren(...ui.composerReferences.map((reference, index) => {
     const chip = el('span', undefined, 'context-chip');
-    const label = el('span', reference.label, 'context-chip-label');
-    label.title = reference.quote;
+    const canLocate = locatable(reference);
+    // Locatable cards navigate back to the source; plain text references stay inert.
+    const label = canLocate
+      ? button(reference.label, () => locateReference(reference), 'context-chip-label')
+      : el('span', reference.label, 'context-chip-label');
+    label.title = canLocate ? `${reference.quote}\n点击定位到来源` : reference.quote;
     const remove = button('×', () => {
       ui.composerReferences.splice(index, 1);
       renderComposerReferences();
@@ -104,14 +159,72 @@ export function renderComposerReferences() {
   }));
   holder.hidden = ui.composerReferences.length === 0;
 }
+
+let flashNode = null, flashTimer = null;
+/** Clear the one-time locate highlight (boot / re-locate must not leave stale classes behind). */
+export function clearLocateFlash() {
+  if (flashTimer !== null) { globalThis.clearTimeout?.(flashTimer); flashTimer = null; }
+  flashNode?.classList?.remove?.('locate-flash');
+  flashNode = null;
+}
+const prefersReducedMotion = () => Boolean(
+  globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
+  || globalThis.document?.documentElement?.dataset?.reducedMotion === 'true');
+function flashLocated(node) {
+  clearLocateFlash();
+  node.classList?.add?.('locate-flash');
+  flashNode = node;
+  node.scrollIntoView?.({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  flashTimer = globalThis.setTimeout?.(() => {
+    if (flashNode === node) { node.classList?.remove?.('locate-flash'); flashNode = null; }
+    flashTimer = null;
+  }, 1500);
+}
+async function navigateForReference(reference) {
+  const kind = reference?.kind, target = reference?.target || {};
+  if (kind === 'delivery_branch') { await graph(); return $('detail'); }
+  if (kind === 'intent' || kind === 'spec' || kind === 'notice') {
+    resource(kind === 'intent' ? 'intents' : kind === 'spec' ? 'specs' : 'notices');
+    return $(LOCATE_ROOTS[kind]);
+  }
+  if (['task','task_subtree','result','diff','message','verification','history_event','transcript_step'].includes(kind)) {
+    // 检验 / 历史事件的 target 只有实体 id，所属任务在 location.task_id。
+    const taskId = target.task_id ?? reference?.location?.task_id;
+    if (taskId === null || taskId === undefined) return null;
+    // 执行步骤只在展开的执行过程里渲染；定位先展开它，否则只能报找不到。
+    if (kind === 'transcript_step') transcriptOpen.add(taskId);
+    await detail(taskId);
+    return $('detail');
+  }
+  return null;
+}
+async function waitForRef(root, token, attempts = 15) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const found = findByRef(root, token);
+    if (found) return found;
+    // 信息页列表按需加载：给异步渲染一点时间，找不到再如实报错。
+    await new Promise(resolve => globalThis.setTimeout(resolve, 80));
+  }
+  return null;
+}
+/** 点击引用卡片：跳到对应页面，用 data-ref 找元素、滚动并做一次性闪烁。text 引用不定位。 */
+export async function locateReference(reference) {
+  const token = locateToken(reference?.kind, reference?.target);
+  if (!token) return false;
+  let root = null;
+  try { root = await navigateForReference(reference); }
+  catch (error) { show(`定位失败：${error.message}`, 'error'); return false; }
+  const found = await waitForRef(root, token);
+  if (!found) { show(`找不到这条引用的目标：${reference.label || token}。它可能已被移除或归档。`, 'error'); return false; }
+  flashLocated(found);
+  return true;
+}
 function hideMenu() { const menu = $('context-menu'); if (menu) menu.hidden = true; }
-function showMenu(event, values, explanation = null) {
+function showMenu(event, values, introduce = null) {
   const menu = $('context-menu');
   if (!menu || !values.length) return;
   menu.replaceChildren(...values.map(value => button(`引用：${value.label}`, () => { addComposerReference(value); hideMenu(); }, 'context-action')));
-  if (explanation) menu.prepend(button('介绍：目的、原理与结果含义', () => {
-    hideMenu(); void startExplanation(explanation.taskId, explanation.seq, explanation.quote);
-  }, 'context-action'));
+  if (introduce) menu.prepend(button(introduce.label, () => { hideMenu(); void introduce.run(); }, 'context-action'));
   const width = Number(globalThis.innerWidth || 0), height = Number(globalThis.innerHeight || 0);
   const left = width ? Math.min(event.clientX ?? 0, Math.max(8, width - 370)) : (event.clientX ?? 0);
   const top = height ? Math.min(event.clientY ?? 0, Math.max(8, height - 260)) : (event.clientY ?? 0);
@@ -125,10 +238,13 @@ function onContextMenu(event) {
   const values = selected ? [selected, ...semantic] : [...semantic];
   if (generic && !values.some(value => value.kind === 'text' && value.quote === generic.quote)) values.push(generic);
   const step = semantic.find(value => value.kind === 'transcript_step');
-  const selectedText = String(window.getSelection?.()?.toString?.() || '').trim();
-  const explanation = selected && step && selectedText.length <= MAX_QUOTE
-    ? { taskId: step.target.task_id, seq: step.target.seq, quote: selectedText } : null;
-  if (values.length) showMenu(event, values, explanation); else hideMenu();
+  const selectedText = selected ? String(window.getSelection?.()?.toString?.() || '').trim() : '';
+  // 任意非空选区都能「介绍」：落在执行步骤里仍走原步骤解释，其余走通用只读解释。
+  const introduce = !selected ? null
+    : step && selectedText.length <= MAX_QUOTE
+      ? { label: '介绍：目的、原理与结果含义', run: () => startExplanation(step.target.task_id, step.target.seq, selectedText) }
+      : { label: '介绍所选文字：是什么、为何如此', run: () => startSelectionExplanation(selected.quote, selected.location) };
+  if (values.length) showMenu(event, values, introduce); else hideMenu();
 }
 function onClick(event) { if (!inside(event.target, $('context-menu'))) hideMenu(); }
 function onKeydown(event) { if (event.key === 'Escape') hideMenu(); }
@@ -140,5 +256,6 @@ export function initContextReferences() {
   }
   handlers = { contextmenu: onContextMenu, click: onClick, keydown: onKeydown };
   addEventListener('contextmenu', handlers.contextmenu); addEventListener('click', handlers.click); addEventListener('keydown', handlers.keydown);
+  clearLocateFlash();
   hideMenu(); renderComposerReferences();
 }

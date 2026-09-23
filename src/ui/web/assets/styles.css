@@ -339,7 +339,7 @@ body:has(#detail[data-view="settings"]) .composer{display:none}
   #detail{overflow:visible;padding:24px 16px 28px;min-height:40vh;flex:1}#detail>*{max-width:100%}.overview-hero{margin-bottom:20px}.hero-mark{width:48px;height:48px;border-radius:16px;font-size:39px}.hero-description{font-size:12px}.metrics{gap:10px}.metric{padding:14px}.metric-note{font-size:10px}.status-distribution{gap:7px 10px}.distribution-label{display:none}.block{padding:18px;margin-top:16px}.attention-panel{margin-top:4px}.attention-action{font-size:0}.attention-action::after{content:'→';font-size:18px}.attention-item{padding:12px;gap:10px}.attention-copy strong{font-size:13px}.activity-grid{gap:0}.activity-grid .block{height:auto}.task-title{font-size:23px}.task-actions{margin-bottom:18px}.delivery-card{padding:12px}.delivery-phase{margin-left:22px}.delivery-card .row>.link{min-width:65%;font-size:13px}.ladder.l3,.ladder.l4,.ladder.l5{margin-left:32px}.delivery-card .meta,.delivery-blocker{margin-left:0}.pick-actions{gap:6px}.pick-actions button{font-size:10px;padding:7px 9px}.grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}.kv{padding:10px}
   .composer{position:sticky;bottom:0;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px))}.composer-heading label{font-size:12px}.composer-actions{width:100%;justify-content:flex-end}.composer textarea{font-size:16px}.draft-toggle{font-size:10px}.toast{top:54px;left:16px;right:16px;max-width:none}.graph-group{padding:16px}.graph-view .head{gap:12px}.graph-view .head .actions{margin:0}.graph-node.l3,.graph-node.l4,.graph-node.l5,.graph-node.l6{margin-left:32px}.gantt-label{width:85px}.gantt-axis{margin-left:94px}
 }
-@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}.locate-flash{outline:2px solid var(--accent);outline-offset:2px;background-color:var(--accent-soft)}}
 
 /* 无项目启动器：独立覆盖层在选定项目以前阻止工作台交互；桌面壳可额外提供原生目录选择器。 */
 .project-gate{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:24px;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(14px)}
@@ -350,6 +350,7 @@ body:has(#detail[data-view="settings"]) .composer{display:none}
 @media(max-width:600px){.project-path-row{flex-direction:column}.project-path-row button,.project-actions button{width:100%}.project-actions{flex-direction:column-reverse}}
 /* 设置里的「减少动态效果」：勾选后覆盖系统偏好。 */
 :root[data-reduced-motion="true"] *,:root[data-reduced-motion="true"] *::before,:root[data-reduced-motion="true"] *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+:root[data-reduced-motion="true"] .locate-flash{outline:2px solid var(--accent);outline-offset:2px;background-color:var(--accent-soft)}
 
 /* ---------- Branch-first application shell (2025 navigation reset) ---------- */
 [hidden]{display:none!important}
@@ -384,7 +385,12 @@ aside{padding:20px 14px 16px;display:flex;flex-direction:column;overflow-y:auto}
 /* 上下文引用：输入卡片与只在有候选时出现的右键菜单。 */
 .composer-references{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px}.composer-references[hidden]{display:none}
 .context-chip{display:inline-flex;align-items:center;max-width:min(100%,360px);border:1px solid var(--accent);border-radius:99px;background:var(--accent-soft);color:var(--accent);font-size:10px}.context-chip-label{padding:2px 3px 2px 9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button.context-chip-label,button.draft-reference-label{background:transparent;color:inherit;border:0;border-radius:99px;font:inherit;font-size:inherit;font-weight:400;line-height:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}button.context-chip-label:hover,button.draft-reference-label:hover{box-shadow:none;filter:none;text-decoration:underline;text-underline-offset:2px}
 button.context-remove{background:transparent;color:var(--muted);border:0;border-radius:99px;padding:1px 7px;font-size:14px;line-height:1.2}button.context-remove:hover{box-shadow:none;color:var(--failed)}
+
+/* One-time locate highlight after jumping from a reference card; removed by JS, never persistent. */
+.locate-flash{animation:locate-flash 1.4s var(--ease)}
+@keyframes locate-flash{0%{box-shadow:0 0 0 2px var(--accent);background-color:var(--accent-soft)}100%{box-shadow:0 0 0 2px transparent;background-color:transparent}}
 .context-menu{position:fixed;z-index:90;min-width:190px;max-width:min(360px,calc(100vw - 16px));padding:5px;background:var(--panel);border:1px solid var(--line);border-radius:9px;box-shadow:0 12px 36px rgba(0,0,0,.3)}.context-menu[hidden]{display:none}
 button.context-action{display:block;width:100%;background:transparent;color:var(--text);text-align:left;padding:7px 9px;font-size:11px;font-weight:400}button.context-action:hover{box-shadow:none;background:var(--accent-soft)}
 .draft-references{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}.draft-reference{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:99px;color:var(--muted);font-size:9px;padding-left:7px;max-width:260px}.draft-reference>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.draft-reference button{padding:0 6px}

@@ -19,7 +19,7 @@ import { refreshProgressDurations } from './render-progress.js';
 import { renderSpecs } from './render-specs.js';
 import { appendTranscriptSteps } from './render-transcript.js';
 import { renderTree } from './render-tree.js';
-import { activateDetailView } from './sidebar-ui.js';
+import { activateDetailView, openResource } from './sidebar-ui.js';
 import { saveFiltersPref, transcriptCache, transcriptOpen, ui } from './state.js';
 
 /** 条件变了：存回 localStorage，再用最近一次快照就地重画三个列表（筛选条本身不重建）。
@@ -156,4 +156,4 @@ export async function liveRefresh() {
 }
 
 // 装配：把实现注册进导航间接层，面板与 api.js 只认 navigate.js。
-registerNavigation({ refresh, detail: loadDetail, overview, graph: openGraph });
+registerNavigation({ refresh, detail: loadDetail, overview, graph: openGraph, resource: openResource });

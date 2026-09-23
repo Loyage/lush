@@ -99,6 +99,8 @@ export function makeWorld() {
     graphFetches: 0,
     drafts: [],
     commits: [],
+    // explanation.start / explanation.selection 的返回与 /api/explanation/:id 读取。
+    explanations: new Map(), explanationSeq: 0,
     // 一条已冻结、等待验收的 Review Candidate（挂到 Intent #2 上）。
     candidates: [
       { id: 1, input_id: 2, version: 1, branch: 'lush/demo/input-2', commit_hash: 'c0ffee123456', baseline_branch: 'main',
@@ -172,7 +174,8 @@ export function makeWorld() {
   const detail = id => {
     if (id === 1) return { ...task1, branch: 'lush/1-x', workspace: '/tmp/wt/1', head_commit: 'abc1234', target_branch: 'main',
       calls: 1, agent: { id: 'worker#1', wakes: 2, active: true, pid: 4242, last_seen_at: iso(NOW - 1000) },
-      deps: [], dependents: [], verifications: [], resolutions: [], children: [], messages: [], result: null, error: null, integration_error: null };
+      deps: [], dependents: [], verifications: [{ id: 2, status: 'completed', result: '检验通过', updated_at: iso(NOW - 500) }],
+      resolutions: [], children: [], messages: [], result: null, error: null, integration_error: null };
     if (id === 4) return { ...task4, calls: 0, deps: [], dependents: [], children: [], messages: [], notices: [], result: null, error: null,
       integration_error: null, specs: state.specs };
     return { ...task2, calls: 1 };
@@ -278,6 +281,17 @@ export function makeWorld() {
         }
         return json({ planner: body.params.id, plan_gate: intent?.plan_gate ?? null });
       }
+      if (body.method === 'explanation.selection' || body.method === 'explanation.start') {
+        const selection = body.method === 'explanation.selection';
+        const source = selection
+          ? { version: 1, kind: 'selection', quote: body.params.quote, location: body.params.location, captured_at: iso(NOW) }
+          : { version: 1, task_id: body.params.id, seq: body.params.seq, quote: body.params.quote, goal: 'demo',
+              captured_at: iso(NOW), step: { seq: body.params.seq, title: 'bash', body: body.params.quote }, related: [] };
+        const id = ++state.explanationSeq;
+        const explanation = { id, status: 'completed', result: selection ? '这是对所选文字的解释示例。' : '这是对执行步骤的解释示例。', error: null, source };
+        state.explanations.set(id, explanation);
+        return json(explanation);
+      }
       if (body.method === 'notice.answer' || body.method === 'notice.dismiss') {
         // 答复 / 忽略一条待决 notice：把它从图上拿掉，让重拉后的分支图看得出「这件事已经处理了」。
         for (const node of state.graph.nodes) {
@@ -287,7 +301,12 @@ export function makeWorld() {
       }
       return json({});
     }
-    let match = /^\/api\/task\/(\d+)$/.exec(path);
+    let match = /^\/api\/explanation\/(\d+)$/.exec(path);
+    if (match) {
+      const explanation = state.explanations.get(Number(match[1]));
+      return explanation ? json(explanation) : { ok: false, status: 404, json: async () => ({ error: 'explanation not found' }) };
+    }
+    match = /^\/api\/task\/(\d+)$/.exec(path);
     if (match) return json(detail(Number(match[1])));
     if (/^\/api\/task\/\d+\/history/.test(path)) return json([]);
     if (/^\/api\/task\/\d+\/diff$/.test(path)) return json(null);

@@ -4,6 +4,7 @@ import { action } from './api.js';
 import { show } from './messages.js';
 import { syncComposer } from './composer.js';
 import { refresh } from './navigate.js';
+import { locateReference, locatable } from './context-references.js';
 import { draftUnchecked, ui } from './state.js';
 
 /* ---------- 待提交意图（底部 composer 面板） ---------- */
@@ -64,7 +65,9 @@ function draftItem(draft) {
     const references = el('div', undefined, 'draft-references');
     draft.references.forEach((reference, index) => {
       const chip = el('span', undefined, 'draft-reference');
-      const label = el('span', reference.label); label.title = reference.quote;
+      const canLocate = locatable(reference);
+      const label = canLocate ? button(reference.label, () => locateReference(reference), 'draft-reference-label') : el('span', reference.label);
+      label.title = canLocate ? `${reference.quote}\n点击定位到来源` : reference.quote;
       const remove = button('×', () => action('draft.update', { id: draft.id, content: draft.content,
         references: draft.references.filter((_value, at) => at !== index) }), 'context-remove');
       remove.setAttribute('aria-label', `从待提交意图 #${draft.id} 移除引用：${reference.label}`);
