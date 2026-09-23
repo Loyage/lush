@@ -56,7 +56,7 @@ bun run stop
 
 ## 模块
 
-修改模块前必须先读 `docs/design/README.md` 中的对应设计理念；执行记录、工具渲染、检索与选区解释必须先读 `docs/design/agent-process.md`。理念指导取舍，模块地图规定职责与接口，不得只看功能清单而忽略用户目标。
+修改模块前必须先读 `docs/design/README.md` 中的对应设计理念；执行记录、工具渲染、检索与选区解释必须先读 `docs/design/agent-process.md`；引用、选区引用、引用卡片定位与快照/现状取舍必须先读 `docs/design/references.md`。理念指导取舍，模块地图规定职责与接口，不得只看功能清单而忽略用户目标。
 
 - `src/config.js`：项目发现与不可变绑定。
 - `src/persistence/store.js`：SQLite 事实来源。
