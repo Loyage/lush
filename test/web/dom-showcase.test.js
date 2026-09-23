@@ -3,12 +3,14 @@ import { installDom, deepText, findByText, dialogText, answerDialog } from '../d
 import { startBranchShowcase, renderShowcase } from '../../src/ui/web/assets/render-showcase.js';
 import { registerNavigation } from '../../src/ui/web/assets/navigate.js';
 import { until } from '../helpers.js';
+import { renderGraph } from '../../src/ui/web/assets/render-graph.js';
+import { ui } from '../../src/ui/web/assets/state.js';
 
 function setup() {
   const actions = [], details = [];
   const dom = installDom({ fetch: async (url, options) => {
     if (url === '/api/graph') return Response.json({ current_branch: 'main', nodes: [
-      { kind: 'branch', name: 'feature', head_commit: 'abc', created_from_commit: 'def' },
+      { kind: 'branch', name: 'feature', head_commit: 'abc', created_from_commit: 'def', showcase: { allowed: true } },
       { kind: 'branch', name: 'main', head_commit: 'def' },
     ] });
     if (url === '/api/action') { actions.push(JSON.parse(options.body)); return Response.json({ id: 42 }); }
@@ -18,7 +20,7 @@ function setup() {
   return { dom, actions, details, close() { restore(); dom.restore(); } };
 }
 
-test('known fork uses confirmation and showcase.start, unknown local branch asks baseline, cancellation sends nothing', async () => {
+test('eligible branch confirms, ineligible or unknown branch cannot start, cancellation sends nothing', async () => {
   const f = setup();
   try {
     const known = startBranchShowcase('feature');
@@ -27,17 +29,40 @@ test('known fork uses confirmation and showcase.start, unknown local branch asks
     await answerDialog(f.dom, '开始效果展示'); await known;
     expect(f.actions).toEqual([{ method: 'showcase.start', params: { branch: 'feature', baseline: null } }]);
     expect(f.details).toEqual([42]);
-    const unknown = startBranchShowcase('main');
-    await until(() => dialogText(f.dom).includes('选择对比基线'));
-    await answerDialog(f.dom, '下一步', 'feature');
-    await until(() => dialogText(f.dom).includes('展示 main'));
-    await answerDialog(f.dom, '开始效果展示'); await unknown;
-    expect(f.actions.at(-1)).toEqual({ method: 'showcase.start', params: { branch: 'main', baseline: 'feature' } });
+    await startBranchShowcase('main');
+    await startBranchShowcase('missing');
+    expect(f.actions).toHaveLength(1);
     const cancel = startBranchShowcase('feature');
     await until(() => dialogText(f.dom).includes('展示 feature'));
     await answerDialog(f.dom, '取消'); await cancel;
-    expect(f.actions).toHaveLength(2);
+    expect(f.actions).toHaveLength(1);
   } finally { f.close(); }
+});
+
+test('only eligible branch details show a secondary entry; gate changes repaint and history remains accessible', async () => {
+  const f = setup();
+  const oldKey = ui.graphRenderKey;
+  try {
+    const branch = (name, showcase) => ({ kind: 'branch', id: `branch:${name}`, name, head_commit: 'abc', showcase });
+    const graph = { git: true, nodes: [branch('main'), branch('feature', { allowed: true, latest_task_id: 41 }),
+      branch('busy', { allowed: false, reason: 'busy' })], edges: [] };
+    renderGraph(graph, { force: true });
+    const panel = f.dom.node('detail');
+    const buttons = [...panel.querySelectorAll('button')].filter(node => node.textContent === '效果展示');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].classList.contains('primary')).toBe(false);
+    expect(buttons[0].classList.contains('ghost')).toBe(true);
+    await findByText(panel, '查看已有展示').onclick();
+    expect(f.details).toEqual([41]);
+    graph.nodes[1].showcase.allowed = false;
+    graph.nodes[1].showcase.reason = 'already shown';
+    renderGraph(graph); // only eligibility changed, not commits, diagnostics or generated_at
+    expect(findByText(panel, '效果展示')).toBeFalsy();
+    expect(findByText(panel, '查看已有展示')).toBeTruthy();
+    graph.nodes[1].showcase.allowed = true;
+    renderGraph(graph);
+    expect(findByText(panel, '效果展示')).toBeTruthy();
+  } finally { ui.graphRenderKey = oldKey; f.close(); }
 });
 
 test('showcase detail embeds sandboxed report, renders safe loopback preview, stops it and rejects malicious URLs', async () => {

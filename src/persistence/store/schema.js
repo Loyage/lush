@@ -44,6 +44,8 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         -- Agent 汇报的执行里程碑；versioned JSON，属于 task 附属元数据而非新实体。
         progress_plan TEXT,
         showcase TEXT,
+        -- 完整且已校验的 task-local Agent profile；只在一次显式重试到下次终态之间生效。
+        retry_profile TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_id);

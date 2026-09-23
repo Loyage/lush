@@ -1,74 +1,17 @@
 import { el, button } from './dom.js';
 import { api } from './api.js';
 import { STEP } from './format.js';
-import { referenceable } from './context-references.js';
-import { transcriptBody } from './transcript-body.js';
+import { openTranscriptTerminal } from './transcript-terminal.js';
 import { stepSummary } from './transcript-model.js';
 import { explanationHistory } from './explanations.js';
 
 const readers = new Map();
 export function resetTranscriptReaders() {
-  for (const state of readers.values()) { state.version++; state.readVersion++; }
+  for (const state of readers.values()) state.version++;
   readers.clear();
 }
-function sourceNode(taskId, step) {
-  const node = el('section', undefined, 'original-step');
-  node.append(el('h4', `#${step.seq} · ${STEP[step.kind] || step.kind} · ${step.title}`),
-    el('p', `${step.file}:${step.line}${step.body_truncated ? ' · 摘要已截断' : ''}`, 'hint'),
-    transcriptBody(step, { key: `reader:${taskId}:${step.seq}`, preview: false }));
-  const raw = el('details', undefined, 'step-original');
-  raw.append(el('summary', '查看本段原文'));
-  raw.addEventListener('toggle', () => {
-    if (raw.open && !raw.dataset.loaded) { raw.dataset.loaded = 'true'; raw.append(el('pre', step.body, 'raw-value')); }
-  });
-  node.append(raw);
-  referenceable(node, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 #${taskId}:${step.seq}`,
-    quote: step.body, location: { task_id: taskId, section: 'transcript' } });
-  return node;
-}
-
-export async function openTranscriptStep(taskId, seq) {
-  const state = readerState(taskId), version = ++state.readVersion;
-  if (!state.viewer.contains?.(document.activeElement)) state.returnTarget = document.activeElement;
-  state.viewer.hidden = false;
-  const back = button('返回阅读位置', () => {
-    state.readVersion++; state.viewer.hidden = true;
-    state.returnTarget?.focus?.({ preventScroll: true }); state.returnTarget?.scrollIntoView?.({ block: 'nearest' });
-  }, 'ghost');
-  state.viewer.replaceChildren(back, el('p', '正在读取原文与关联记录…', 'hint'));
-  try {
-    const data = await api(`/api/task/${taskId}/transcript-step?seq=${seq}`);
-    if (version !== state.readVersion) return;
-    state.viewer.replaceChildren(back, el('h3', '步骤正文与上下文'));
-    const main = sourceNode(taskId, data.step); state.viewer.append(main);
-    if (data.pairing_ambiguous) state.viewer.append(el('p', '调用 ID 重复，无法可靠配对；未合并输入输出。', 'hint'));
-    if (data.related_truncated) state.viewer.append(el('p', '关联输出超过 8 条，仅展示前 8 条；其余可全文检索。', 'hint'));
-    if (data.has_more) {
-      let offset = data.next_offset;
-      const more = button('继续读取原文', async () => {
-        more.disabled = true;
-        try {
-          const page = await api(`/api/task/${taskId}/transcript-step?seq=${seq}&offset=${offset}`);
-          if (version !== state.readVersion) return;
-          // Do not join arbitrarily large output into one DOM text or pretend partial JSON is complete.
-          main.append(el('pre', page.step.body, 'raw-value')); offset = page.next_offset;
-          if (!page.has_more) more.remove();
-        } catch (error) { if (version === state.readVersion) main.append(el('p', error.message, 'error')); }
-        finally { more.disabled = false; }
-      }, 'ghost');
-      main.append(el('p', `原文共 ${data.step.body_length} 字符，按段读取。`, 'hint'), more);
-    }
-    for (const [label, entries] of [['配对输入／输出', data.related], ['前后上下文', data.context]]) {
-      if (!entries.length) continue;
-      state.viewer.append(el('h4', label));
-      for (const step of entries) {
-        const node = sourceNode(taskId, step);
-        node.append(button('读取此步骤完整原文', () => openTranscriptStep(taskId, step.seq), 'ghost')); state.viewer.append(node);
-      }
-    }
-    state.viewer.scrollIntoView?.({ block: 'nearest' });
-  } catch (error) { if (version === state.readVersion) state.viewer.replaceChildren(back, el('p', error.message, 'error')); }
-}
+// Compatibility entry point: search hits and clipped quick-view steps share one continuous reader.
+export function openTranscriptStep(taskId, seq) { return openTranscriptTerminal(taskId, seq); }
 
 function readerState(taskId) {
   if (readers.has(taskId)) return readers.get(taskId);
@@ -82,10 +25,9 @@ function readerState(taskId) {
   const errors = el('input'); errors.type = 'checkbox'; const errorLabel = el('label', '只看失败'); errorLabel.prepend(errors);
   const submit = button('搜索完整记录', () => {}, 'ghost'); submit.type = 'submit';
   form.append(query, kind, tool, errorLabel, submit, button('解释历史', () => explanationHistory(taskId), 'ghost'));
-  const results = el('div'), viewer = el('div', undefined, 'transcript-original');
-  viewer.hidden = true;
-  root.append(form, results, viewer);
-  const state = { root, viewer, version: 0, readVersion: 0 }; readers.set(taskId, state);
+  const results = el('div');
+  root.append(form, results);
+  const state = { root, version: 0 }; readers.set(taskId, state);
   let criteria = null, cursors = [0], pageIndex = 0;
   const search = async after => {
     const version = ++state.version;

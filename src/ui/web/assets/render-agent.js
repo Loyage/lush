@@ -1,8 +1,9 @@
 import { $, block, button, el, kv } from './dom.js';
 import { lastView, money, relative, tokens } from './format.js';
 import { transcriptContent, loadTranscript, tokensChip } from './render-transcript.js';
-import { transcriptCache, ui } from './state.js';
+import { transcriptCache, transcriptOpen, ui } from './state.js';
 import { markdownEnabled } from './text.js';
+import { openTranscriptTerminal } from './transcript-terminal.js';
 
 /** 折叠态的执行过程只摆这一行：相对时间 + 类型/标题 + 正文单行预览，全文在 title；有 tokens 时并排一个同口径 chip。 */
 function lastStepRow(last) {
@@ -63,19 +64,46 @@ export function renderAgent(task, usage, reading = null) {
   const process = block('执行过程');
   const cached = transcriptCache.get(task.id);
   const markdown = markdownEnabled();
-  const reusable = reading && cached && reading.transcriptState === cached && reading.transcriptMarkdown === markdown;
+  const reusable = reading && reading.transcriptState === cached && reading.transcriptMarkdown === markdown;
   const holder = reusable ? reading : el('div', undefined, 'transcript');
   holder.transcriptState = cached; holder.transcriptMarkdown = markdown;
+  const expanded = transcriptOpen.has(task.id);
+  holder.hidden = !expanded;
   if (reusable) { /* Preserve previews, source nodes and search across detail refreshes. */ }
-  else if (cached) holder.replaceChildren(...transcriptContent(task.id));
-  // 会话文件不存在就别摆一个点了没用的按钮，直接说清楚为什么没东西可看。
+  else if (cached && expanded) holder.replaceChildren(...transcriptContent(task.id));
+  // 未展开时不加载正文；缺失记录的原因在展开后说明。
   else if (!usage?.files?.length) holder.append(el('p', task.agent?.backend === 'codex'
     ? 'Codex 的线程会持续复用；当前版本暂不投影它的本地执行记录。'
     : '这个任务还没有 Pi 会话记录（可能从未被唤醒，或会话文件已被清理）。', 'hint'));
   else {
-    if (usage.last) holder.append(lastStepRow(usage.last));
-    holder.append(el('p', '正在读取执行记录…', 'hint'), button('重试读取', () => loadTranscript(task.id), 'ghost'));
+    holder.append(el('p', '点击展开后读取执行记录。', 'hint'));
   }
+  const toggle = button(expanded ? '收起执行过程' : '展开执行过程', async () => {
+    const open = !transcriptOpen.has(task.id);
+    if (open) transcriptOpen.add(task.id); else transcriptOpen.delete(task.id);
+    holder.hidden = !open;
+    toggle.textContent = open ? '收起执行过程' : '展开执行过程';
+    toggle.setAttribute('aria-expanded', String(open));
+    if (!open) return;
+    if (transcriptCache.has(task.id)) {
+      if (holder.transcriptState !== transcriptCache.get(task.id) || !holder.querySelector('.transcript-reader')) {
+        holder.transcriptState = transcriptCache.get(task.id);
+        holder.replaceChildren(...transcriptContent(task.id));
+      }
+    } else {
+      holder.replaceChildren(el('p', '正在读取执行记录…', 'hint'));
+      try { await loadTranscript(task.id); }
+      catch (error) {
+        transcriptCache.set(task.id, { steps: [], files: usage?.files || [], error: error.message });
+        holder.replaceChildren(...transcriptContent(task.id));
+      }
+    }
+  }, 'ghost');
+  toggle.setAttribute('aria-expanded', String(expanded));
+  const controls = el('div', undefined, 'actions');
+  controls.append(toggle, button('终端模式', () => openTranscriptTerminal(task.id), 'ghost'));
+  process.append(controls);
+  if (usage?.last) process.append(lastStepRow(usage.last));
   process.append(holder);
   section.classList.add('agent-panel');
   section.append(process);

@@ -139,18 +139,21 @@ test('Agent 的模型与用量直接可见：没有折叠开关，也没有可�
   // 悬停提示保留（title 挂在整张 kv 上，不是标签上）。
   const context = [...agent.querySelectorAll('.kv')].find(node => node.querySelector('b')?.textContent === '上下文占用');
   expect(context.title).toContain('最近一次模型请求');
-  // 执行过程无需额外点击，已加载正文与搜索直接可读。
+  // 默认收起且不请求正文，模型用量不受影响。
   const process = blockByTitle('执行过程');
-  expect(process.querySelector('[data-live="transcript-steps"]')).toBeTruthy();
-  expect(process.querySelector('.transcript-search')).toBeTruthy();
-  expect(findByText(process, '查看执行过程')).toBeNull();
+  expect(process.querySelector('.transcript').hidden).toBe(true);
+  expect(process.querySelector('[data-live="transcript-steps"]')).toBeNull();
+  expect(world.state.transcriptAfter).toEqual([]);
+  expect(findByText(process, '展开执行过程')).toBeTruthy();
+  expect(findByText(process, '终端模式')).toBeTruthy();
 });
 
-test('热任务自动加载执行正文，轮询增量续读并保留阅读节点', async () => {
+test('热任务点击才加载执行正文，轮询增量续读并保留阅读节点，收起停止续读', async () => {
   dom.location.hash = '#task-1';
   await dom.fire('hashchange');
   const detail = dom.node('detail');
   const list = () => detail.querySelector('[data-live="transcript-steps"]');
+  await findByText(detail, '展开执行过程').onclick();
   await until(() => list() && list().children.length === 5, 2000);
   expect(world.state.transcriptAfter.every(after => after === 0)).toBe(true);
   const initialReads = [...world.state.transcriptAfter];
@@ -188,5 +191,9 @@ test('热任务自动加载执行正文，轮询增量续读并保留阅读节�
   expect(deepText(list())).toContain('测试通过');
   expect(list().querySelectorAll('.step-tokens').length).toBe(2);
   // 第二个 tick 用的是游标 5，不是从头再读一遍。
+  expect(world.state.transcriptAfter).toEqual([...initialReads, 5]);
+  await findByText(detail, '收起执行过程').onclick();
+  expect(detail.querySelector('.transcript').hidden).toBe(true);
+  await dom.intervalFor(3000)();
   expect(world.state.transcriptAfter).toEqual([...initialReads, 5]);
 });

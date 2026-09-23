@@ -9,7 +9,6 @@ import { setNavCount } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
 import { ui } from './state.js';
 import { referenceable } from './context-references.js';
-import { startBranchShowcase } from './render-showcase.js';
 
 /* ---------- Intent workbench: goal → compiled Plan → review candidate ---------- */
 function planActions(intent) {
@@ -31,11 +30,6 @@ function planActions(intent) {
 }
 function candidateActions(intent) {
   const actions = el('span', undefined, 'intent-actions');
-  if (intent.anchor_branch) {
-    const active = intent.showcase_task_id && !['completed','failed','cancelled'].includes(intent.showcase_status);
-    actions.append(button(active ? `展示进行中 #${intent.showcase_task_id}` : '效果展示',
-      () => active ? detail(intent.showcase_task_id) : startBranchShowcase(intent.anchor_branch), 'primary'));
-  }
   if (intent.showcase_task_id) actions.append(button(`查看效果展示 #${intent.showcase_task_id}`,
     () => detail(intent.showcase_task_id), 'link'));
   if (!intent.candidate_id) return actions.children.length ? actions : null;
@@ -93,7 +87,7 @@ function intentItem(intent) {
   if (review) item.append(review);
   item.append(el('span', intent.plan_gate === 'proposed'
     ? 'planner 认为这次改动风险较高，先请你拍板；批准后由 runtime 直接编译 Work DAG。'
-    : '选择分支启动效果展示：agent 会分析已提交修改、设计并执行展示方案。展示不代表检验通过，合并仍由你批准。', 'hint'));
+    : '回看规划、执行与交付结果；合并仍由你明确批准。', 'hint'));
   item.onclick = event => { if (event.target === item || event.target.classList.contains('goal')) { ui.noticeFocus = null; return detail(intent.task_id); } };
   referenceable(item, { kind: 'intent', target: { input_id: intent.id }, label: `意图 #${intent.id}`,
     quote: intent.content, location: { view: 'intent-list', input_id: intent.id } });

@@ -4,7 +4,7 @@
 
 ## 两条读路径
 
-快速视图沿用 `task.transcript`：从任务的 Pi 兼容 JSONL 投影步骤，进入任务详情后自动读取，默认展开思考、回答、工具及结果的正文，仅运行时元数据默认折叠。兼容读面保留单条 4,000 字符、每请求前 8 MiB 的限制与既有 token 口径，不重写会话或数据库。
+快速视图沿用 `task.transcript`：从任务的 Pi 兼容 JSONL 投影步骤，执行过程默认收起，仅用户点击展开后读取；展开后直接展示思考、回答、工具及结果的正文，仅运行时元数据默认折叠。任务之间独立记忆本次会话的展开选择；刷新与新记录不会自动展开，收起后停止快速正文续读。兼容读面保留单条 4,000 字符、每请求前 8 MiB 的限制与既有 token 口径，不重写会话或数据库。
 
 完整阅读走 `core/transcript-reader.js`：
 
@@ -29,9 +29,17 @@
 
 ## 全文翻找与原文
 
-执行过程顶部常驻全文搜索、类型、工具与失败筛选及解释历史入口；结果按页浏览，关键词命中高亮，点击进入步骤正文及关联上下文，并可返回触发位置。快速视图中的“完整原文与上下文”也进入同一阅读区；每一步可就地查看当前段原文与来源。
+展开后的执行过程顶部提供全文搜索、类型、工具与失败筛选及解释历史入口；结果按页浏览，关键词命中高亮，点击在终端模式中从命中步骤开始阅读。删除旧“完整原文与上下文”阅读区，不再把相同正文与相邻记录重复堆到过程顶部；快速视图仍可就地查看当前段原文与来源。
 
-大正文按段续读，不将任意大输出一次塞入 DOM；配对与前后记录显示摘要，并提供完整原文入口。检索状态与原文区独立于执行列表的实时追加；过期请求不能覆盖新的查询或步骤。增量续读不重建已有步骤，慢详情刷新复用阅读节点；选区或阅读控件聚焦时暂停整页刷新。新记录仅提示“跳到末尾”，不自动移动阅读位置。
+### 只读终端模式
+
+`transcript-terminal.js` 是 Pi 风格的独立全宽阅读视图，**不是 Pi 原生 TUI 或可交互终端**：不启动 Pi、PTY 或模型，不执行日志中的命令／ANSI 控制序列，无新增运行时依赖。沿用已保存的文字投影，按文件顺序与步骤编号展示输入、思考、回答、工具调用、输出及会话信息；图片只保留既有投影中的占位，不声称重放完整终端画面或未保存的流式内容。
+
+任务页的“终端模式”从头读取；搜索／截断正文入口从该步骤开始，可“前 50 步”或“从头阅读”。调用与结果保留调用 ID，不按邻接猜配，不另外复制前后上下文。命令字符串显示真实换行、回答按 Markdown 偏好渲染，分段 JSON／Markdown 回退精确文本；每段可查看来源与原文。
+
+连续读取走 `task.transcript_page`：每页至多 50 段、96,000 字符正文、700,000 字节步骤 JSON，单段至多 24,000 字符，不截断 Unicode 代理对；返回 `(next_seq,next_offset)`，超长单步骤也可续读。接口复用全量流式扫描，不受快速视图的 8 MiB／4,000 字符裁剪影响，不对每一步重复查询上下文。每页仍从头扫描，超长历史后页不是恒定时间读取。
+
+仅打开和用户点击续读时加载有界页面，已加载段落连续保留；内存随用户手动续读增长，不自动预取全部记录。到末尾可“检查新记录”，不会自动滚动或重建已读节点。打开期间暂停任务详情重画与快速列表续读；关闭／Esc 恢复原任务页位置与焦点，关闭、导航、切换读取位置与 boot 都使旧请求失效。原搜索／步骤 API 继续兼容，解释仍使用原步骤和可靠配对快照。
 
 ## 专用解释 Agent
 
@@ -59,15 +67,16 @@
 | RPC | 参数 | 返回 |
 |---|---|---|
 | `task.transcript_search` | `id, query?, kind?, tool?, errors?, after?, limit?` | `steps, next, has_more, files, scope`；limit 默认 50，最大 100 |
+| `task.transcript_page` | `id, seq?, offset?`（默认 1 / 0） | `steps, next_seq, next_offset, has_more, files, scope` |
 | `task.transcript_step` | `id, seq, offset?` | `step, offset, next_offset, has_more, related, context` 与配对限制标记 |
 | `explanation.start` | `id, seq, quote` | 新解释任务的状态、来源快照 |
 | `explanation.list` | 源任务 `id, before?` | `explanations, next, has_more`，每页 50 条 |
 | `explanation.get` | 解释任务 `id` | `id, status, result, error, source` |
 
-GET 路由：`/api/task/<id>/transcript-search`、`/api/task/<id>/transcript-step`、`/api/task/<id>/explanations`、`/api/explanation/<id>`。创建走现有 `POST /api/action` 的 `explanation.start` 白名单；没有新增直连模型的浏览器入口。
+GET 路由：`/api/task/<id>/transcript-page`、`/api/task/<id>/transcript-search`、`/api/task/<id>/transcript-step`、`/api/task/<id>/explanations`、`/api/explanation/<id>`。创建走现有 `POST /api/action` 的 `explanation.start` 白名单；没有新增直连模型的浏览器入口。
 
 ## 验证入口
 
 `test/transcript-reader.test.js` 覆盖全量范围、截断后命中、配对、分页与文件边界；`test/project/explanations.test.js` 覆盖快照、无分支和权限；`test/explainer-provider.test.js` 使用可控子进程检查禁用工具的参数与凭证。
 
-Web 路由与 DOM 交互见 `test/web/transcript-reader.test.js`、`test/web/dom-transcript-reader.test.js`。测试只使用临时项目和 Mock／可控进程，不发送真实项目内容给模型。
+Web 路由与 DOM 交互见 `test/web/transcript-reader.test.js`、`test/web/dom-transcript-reader.test.js`、`test/web/dom-transcript-terminal.test.js`。测试只使用临时项目和 Mock／可控进程，不发送真实项目内容给模型。

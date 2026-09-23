@@ -17,6 +17,7 @@ import { initComposer } from './composer.js';
 import { SORT_MODES } from './tree-order.js';
 import { initContextReferences } from './context-references.js';
 import { resetTranscriptReaders } from './transcript-reader.js';
+import { closeTranscriptTerminal } from './transcript-terminal.js';
 import { closeExplanationPanel } from './explanations.js';
 import { ensureProject } from './project-picker.js';
 import { initNoticeNotifications, resetNoticeNotifier } from './notice-notifications.js';
@@ -94,6 +95,7 @@ export async function boot() {
   if (liveTimer !== null && typeof clearInterval === 'function') clearInterval(liveTimer);
   if (hashListener !== null && typeof removeEventListener === 'function') removeEventListener('hashchange', hashListener);
   refreshTimer = null; liveTimer = null; hashListener = null;
+  closeTranscriptTerminal();
   resetUiState();
   resetTranscriptReaders();
   closeExplanationPanel();

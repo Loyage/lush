@@ -10,9 +10,11 @@ function shell(title) {
   panel = el('aside', undefined, 'reading-panel');
   panel.setAttribute('aria-label', title);
   const close = button('关闭', closeExplanationPanel, 'ghost');
-  panel.onkeydown = event => { if (event.key === 'Escape') close.onclick(); };
+  panel.onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation?.(); close.onclick(); } };
   panel.append(el('h3', title), close);
-  const content = el('div'); panel.append(content); document.body.append(panel);
+  const content = el('div'); panel.append(content);
+  (document.body.querySelector('.terminal-dialog') || document.body).append(panel);
+  close.focus?.({ preventScroll: true });
   return { content, version: generation };
 }
 function paint(content, data) {

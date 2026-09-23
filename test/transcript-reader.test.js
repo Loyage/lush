@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture } from './helpers.js';
-import { searchTranscript, transcriptStep } from '../src/core/transcript-reader.js';
+import { searchTranscript, transcriptStep, transcriptPage } from '../src/core/transcript-reader.js';
 import { readTranscript } from '../src/core/transcript.js';
 import { groupSteps, stepSummary } from '../src/ui/web/assets/transcript-model.js';
 
@@ -27,6 +27,10 @@ test('full transcript search reaches beyond 8 MiB and clipped bodies, with filte
     expect(page.steps[0].seq).toBe(752); expect(page.steps[0].excerpt).toContain('needle-tail'); expect(page.has_more).toBe(true);
     const next = await searchTranscript(f.config, 1, { query: 'needle', after: page.next, limit: 1 });
     expect(next.steps[0].seq).toBe(753); expect(next.has_more).toBe(false);
+    const continuous = await transcriptPage(f.config, 1, 751);
+    expect(continuous.steps.map(step => step.seq)).toEqual([751, 752, 752, 753]);
+    expect(continuous.steps.filter(step => step.seq === 752).map(step => step.body).join('')).toBe('x'.repeat(30000) + 'needle-tail');
+    expect(continuous).toMatchObject({ next_seq: 754, next_offset: 0, has_more: false });
     const errors = await searchTranscript(f.config, 1, { tool: 'bash', errors: true, kind: 'result' });
     expect(errors.steps.map(step => step.seq)).toEqual([752]);
     const detail = await transcriptStep(f.config, 1, 752);
@@ -34,6 +38,39 @@ test('full transcript search reaches beyond 8 MiB and clipped bodies, with filte
     expect(detail.related[0].seq).toBe(751); expect(detail.related[0].body).toContain('echo hello');
     const tail = await transcriptStep(f.config, 1, 752, detail.next_offset);
     expect(tail.step.body).toEndWith('needle-tail'); expect(tail.has_more).toBe(false);
+  } finally { await f.close(); }
+});
+
+test('terminal pages preserve every character, Unicode boundaries and cursors across segments and appended sessions', async () => {
+  const f = fixture();
+  try {
+    const text = 'x'.repeat(23999) + '😀' + '填'.repeat(180000);
+    session(f, '001', [assistant([{ type: 'text', text }])]);
+    let seq = 1, offset = 0, restored = '', pages = 0;
+    do {
+      const page = await transcriptPage(f.config, 1, seq, offset); pages++;
+      expect(page.steps.length).toBeLessThanOrEqual(50);
+      expect(page.steps.reduce((sum, step) => sum + step.body.length, 0)).toBeLessThanOrEqual(96000);
+      expect(Buffer.byteLength(JSON.stringify(page.steps))).toBeLessThan(701000);
+      for (const part of page.steps) {
+        expect(part.offset).toBe(restored.length);
+        expect(part.body.length).toBeLessThanOrEqual(24000);
+        expect(/[\uD800-\uDBFF]$/.test(part.body)).toBe(false);
+        expect(/^[\uDC00-\uDFFF]/.test(part.body)).toBe(false);
+        restored += part.body;
+      }
+      seq = page.next_seq; offset = page.next_offset;
+      if (!page.has_more) break;
+    } while (pages < 10);
+    expect(restored).toBe(text); expect(pages).toBe(3);
+    expect(await transcriptPage(f.config, 1, seq, offset)).toMatchObject({ steps: [], next_seq: 2, next_offset: 0 });
+    session(f, '002', Array.from({ length: 51 }, (_, i) => assistant([{ type: 'text', text: `next-${i}` }])));
+    const appended = await transcriptPage(f.config, 1, seq, offset);
+    expect(appended.steps).toHaveLength(50); expect(appended.has_more).toBe(true);
+    expect((await transcriptPage(f.config, 1, appended.next_seq, appended.next_offset)).steps[0].body).toBe('next-50');
+    await expect(transcriptPage(f.config, 1, 1, text.length + 1)).rejects.toThrow('offset');
+    await expect(transcriptPage(f.config, 1, 1000, 1)).rejects.toThrow('不存在');
+    await expect(transcriptPage(f.config, 1, 0)).rejects.toThrow('seq');
   } finally { await f.close(); }
 });
 

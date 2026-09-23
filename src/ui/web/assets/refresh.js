@@ -20,7 +20,7 @@ import { renderSpecs } from './render-specs.js';
 import { appendTranscriptSteps } from './render-transcript.js';
 import { renderTree } from './render-tree.js';
 import { activateDetailView } from './sidebar-ui.js';
-import { saveFiltersPref, transcriptCache, ui } from './state.js';
+import { saveFiltersPref, transcriptCache, transcriptOpen, ui } from './state.js';
 
 /** 条件变了：存回 localStorage，再用最近一次快照就地重画三个列表（筛选条本身不重建）。
  *  `persist:false` 供「恢复默认设置」用：偏好已被删除，只把内存与页面拉回默认，不再把默认值写回存储。 */
@@ -119,7 +119,7 @@ export async function refresh() {
       if (node.classList?.contains('transcript')) { readingFocused = true; break; }
     }
     const selecting = Boolean(window.getSelection?.()?.toString());
-    const editing = selecting || readingFocused || ui.detailDirty || [...$('detail').querySelectorAll('textarea')].some(node => node.value || node === document.activeElement);
+    const editing = ui.terminalOpen || selecting || readingFocused || ui.detailDirty || [...$('detail').querySelectorAll('textarea')].some(node => node.value || node === document.activeElement);
     if (current && !editing) {
       // Live tasks also refresh on a slow tick so elapsed time and agent pid stay honest.
       const changed = current.updated_at !== ui.selectedRevision;
@@ -137,7 +137,7 @@ export async function refresh() {
 /* ---------- 热任务的实时刷新：页面自己变新，不用手点 ---------- */
 export async function liveRefresh() {
   refreshProgressDurations();
-  if (ui.busy || ui.liveBusy) return;
+  if (ui.busy || ui.liveBusy || ui.terminalOpen) return;
   const task = liveTarget(ui.lastSnapshot?.tasks || [], ui.selected);
   if (!task) return;
   const taskId = task.id;
@@ -145,8 +145,8 @@ export async function liveRefresh() {
   try {
     await liveTick({
       task,
-      // 详情已自动加载的记录按游标续读；不重建阅读节点。
-      transcript: transcriptCache.get(taskId) ?? null,
+      // 仅显式展开时续读；收起后不继续加载正文。
+      transcript: transcriptOpen.has(taskId) ? transcriptCache.get(taskId) ?? null : null,
       fetchUsage: id => api(`/api/task/${id}/usage`).catch(() => null),
       fetchTranscript: (id, after) => api(`/api/task/${id}/transcript?after=${after}`),
       publish: { usage: paintUsageLast, steps: appendTranscriptSteps },

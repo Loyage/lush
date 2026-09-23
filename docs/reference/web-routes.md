@@ -28,6 +28,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。无 `--p
 | `GET /api/task/ID/diff` | `task.diff` |
 | `GET /api/task/ID/transcript?after=N` | `task.transcript` |
 | `GET /api/task/ID/transcript-search` | 用户专属 `task.transcript_search`，当前任务完整记录检索／筛选／分页；参数见[执行记录阅读器](../engineering/transcript-reader.md) |
+| `GET /api/task/ID/transcript-page?seq=1&offset=0` | 用户专属 `task.transcript_page`，终端模式的连续完整文字分页；界限与游标见[执行记录阅读器](../engineering/transcript-reader.md) |
 | `GET /api/task/ID/transcript-step?seq=N&offset=0` | 用户专属 `task.transcript_step`，分段原文、配对及前后上下文 |
 | `GET /api/task/ID/explanations?before=N` | 用户专属 `explanation.list`，源任务的解释历史 |
 | `GET /api/explanation/ID` | 用户专属 `explanation.get`，解释状态、结果与来源快照 |

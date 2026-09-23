@@ -1,6 +1,6 @@
 import { readTranscript, readUsage } from '../transcript.js';
 import { readUsageStatistics } from '../usage-statistics.js';
-import { searchTranscript, transcriptStep } from '../transcript-reader.js';
+import { searchTranscript, transcriptStep, transcriptPage } from '../transcript-reader.js';
 
 /** pi 会话记录的只读投影。 */
 export default {
@@ -10,6 +10,7 @@ export default {
     return readTranscript(this.config, taskId, after, limit);
   },
 
+  transcriptPage(taskId, seq, offset) { this.store.task(taskId); return transcriptPage(this.config, taskId, seq, offset); },
   searchTranscript(taskId, options) { this.store.task(taskId); return searchTranscript(this.config, taskId, options); },
   transcriptStep(taskId, seq, offset) { this.store.task(taskId); return transcriptStep(this.config, taskId, seq, offset); },
 

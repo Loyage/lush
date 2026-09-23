@@ -5,7 +5,7 @@ import { installDom, dialogText, dialogButton, answerDialog } from '../dom-stub.
 // 东西、直接返回 false，用户看到的就是「点了没反应」。所以弹窗自己画在 #modal 里，而且确认、取消、
 // Esc、点背景、输入框回车都必须真的把 Promise 收尾，不能有永远悬着的 await。
 const dom = installDom({ fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
-const { confirmDialog, promptDialog, closeDialog } = await import('../../src/ui/web/assets/dialog.js');
+const { confirmDialog, promptDialog, formDialog, closeDialog } = await import('../../src/ui/web/assets/dialog.js');
 const modal = () => dom.node('modal');
 
 afterAll(() => dom.restore());
@@ -89,6 +89,20 @@ test('焦点：确认键收到焦点，输入框优先；关闭后还给打开�
   expect(dom.document.activeElement).toBe(modal().querySelector('input'));
   closeDialog();
   await typed;
+});
+
+test('表单弹窗承载调用方节点并让 Tab 在字段和按钮间循环', async () => {
+  const content = dom.document.createElement('div');
+  const select = dom.document.createElement('select'), textarea = dom.document.createElement('textarea');
+  content.append(select, textarea);
+  const result = formDialog({ title: '调整 Agent', content, confirmLabel: '重试', cardClass: 'retry-modal' });
+  expect(modal().querySelector('.retry-modal')).toBeTruthy();
+  expect(modal().querySelector('textarea')).toBe(textarea);
+  select.focus();
+  modal().onkeydown({ key: 'Tab', preventDefault() {} });
+  expect(dom.document.activeElement).toBe(textarea);
+  await dialogButton(dom, '重试').onclick();
+  expect(await result).toBe(true);
 });
 
 test('同一时刻只有一个弹窗：打开新的会把上一个按取消收尾', async () => {

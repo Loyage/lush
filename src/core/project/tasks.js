@@ -128,7 +128,10 @@ export default {
   },
 
   inspect(taskId) {
-    const task = this.progressView(this.store.task(taskId));
+    // retry_profile may contain a replacement system prompt and local resource paths. It is
+    // runtime configuration, not part of the task read model (agents can call task.inspect).
+    const { retry_profile: _retryProfile, ...storedTask } = this.store.task(taskId);
+    const task = this.progressView(storedTask);
     const runs = this.store.runsForTask(task.id);
     return { ...task, deps: this.store.depsDetail(task.id), dependents: this.store.dependentsDetail(task.id),
       ...(task.role === 'planner' ? { specs: bounded(this.store.specsByPlanner(task.id), 200000) } : {}),
