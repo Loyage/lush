@@ -74,6 +74,40 @@ export async function searchTranscript(config, taskId, { query = '', kind = '', 
     files: sessionFiles(config, taskId), scope: 'all-complete-records', truncated: false };
 }
 
+/** Continuous read-only terminal pages: one scan per page, no per-step context scans or clipped summaries. */
+export async function transcriptPage(config, taskId, seq = 1, offset = 0) {
+  check(Number.isSafeInteger(seq) && seq > 0, 'invalid step seq');
+  check(Number.isSafeInteger(offset) && offset >= 0, 'invalid body offset');
+  const steps = [];
+  let remaining = 96000, responseBytes = 0, next_seq = seq, next_offset = offset, has_more = false, found = false;
+  for await (const step of stepsOf(config, taskId)) {
+    if (step.seq < seq) continue;
+    if (steps.length >= 50 || remaining === 0) { has_more = true; break; }
+    const body = step.body || '';
+    let start = step.seq === seq ? offset : 0;
+    check(start <= body.length, 'body offset exceeds original text');
+    found = true;
+    do {
+      let end = Math.min(body.length, start + BODY_PAGE, start + remaining);
+      // Never split a UTF-16 surrogate pair across separately rendered segments.
+      if (end < body.length && /[\uD800-\uDBFF]/.test(body[end - 1])) end--;
+      if (end === start && body.length > start) { has_more = true; break; }
+      const segment = { ...step, body: body.slice(start, end), body_length: body.length, offset: start };
+      const bytes = Buffer.byteLength(JSON.stringify(segment));
+      if (responseBytes + bytes > 700000) { has_more = true; break; }
+      steps.push(segment); responseBytes += bytes;
+      remaining -= end - start;
+      next_seq = end < body.length ? step.seq : step.seq + 1;
+      next_offset = end < body.length ? end : 0;
+      start = end;
+      if (start < body.length && (steps.length >= 50 || remaining === 0)) { has_more = true; break; }
+    } while (start < body.length);
+    if (has_more) break;
+  }
+  check(found || offset === 0, '执行步骤已不存在，可能会话文件已被清理');
+  return { task_id: taskId, steps, next_seq, next_offset, has_more, files: sessionFiles(config, taskId), scope: 'all-complete-records' };
+}
+
 /** Read one original step in bounded character pages; associated bodies are explicitly bounded snapshots. */
 export async function transcriptStep(config, taskId, seq, offset = 0) {
   check(Number.isSafeInteger(seq) && seq > 0, 'invalid step seq');

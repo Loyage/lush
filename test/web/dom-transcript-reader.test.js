@@ -8,6 +8,7 @@ import { transcriptContent, appendTranscriptSteps } from '../../src/ui/web/asset
 import { transcriptCache, ui } from '../../src/ui/web/assets/state.js';
 import { transcriptReader, resetTranscriptReaders } from '../../src/ui/web/assets/transcript-reader.js';
 import { initContextReferences, referenceable } from '../../src/ui/web/assets/context-references.js';
+import { closeTranscriptTerminal } from '../../src/ui/web/assets/transcript-terminal.js';
 import { closeExplanationPanel } from '../../src/ui/web/assets/explanations.js';
 
 const response = value => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });
@@ -56,7 +57,7 @@ test('full-record search sends filters, navigates matches and opens original sou
   const calls = [], step = { seq: 88, file: 'old', line: 77, kind: 'result', title: 'bash', body: 'needle', excerpt: 'needle in old output' };
   const dom = installDom({ fetch: async url => {
     calls.push(String(url));
-    if (String(url).includes('transcript-step')) return response({ step, related: [], context: [], has_more: false });
+    if (String(url).includes('transcript-page')) return response({ steps: [{ ...step, offset: 0, body_length: step.body.length }], files: ['old'], next_seq: 89, next_offset: 0, has_more: false });
     return response({ steps: [step], files: ['old'], has_more: false, next: 88 });
   } }); resetTranscriptReaders();
   try {
@@ -67,14 +68,14 @@ test('full-record search sends filters, navigates matches and opens original sou
     expect(calls[0]).toContain('query=needle'); expect(calls[0]).toContain('tool=bash'); expect(calls[0]).toContain('errors=true');
     const hit = root.querySelector('.search-hit').querySelector('button'); hit.focus();
     await hit.onclick();
-    expect(calls[1]).toContain('seq=88'); expect(deepText(root)).toContain('old:77');
+    expect(calls[1]).toContain('seq=88'); expect(deepText(dom.document.body)).toContain('old:77');
     expect(root.querySelector('mark').textContent).toBe('needle');
     expect(root.tagName).toBe('SECTION');
-    expect(root.querySelector('.transcript-original').hidden).toBe(false);
-    findByText(root, '返回阅读位置').onclick();
-    expect(root.querySelector('.transcript-original').hidden).toBe(true);
+    expect(dom.document.body.querySelector('.terminal-dialog')).toBeTruthy();
+    await findByText(dom.document.body, '返回任务').onclick();
+    expect(dom.document.body.querySelector('.terminal-dialog')).toBeNull();
     expect(dom.document.activeElement).toBe(hit);
-  } finally { resetTranscriptReaders(); dom.restore(); }
+  } finally { closeTranscriptTerminal(); resetTranscriptReaders(); dom.restore(); }
 });
 
 test('selected transcript text offers direct introduction, preserves quote and displays retained source in side panel', async () => {

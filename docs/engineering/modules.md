@@ -10,6 +10,7 @@
 修改模块前必须阅读[模块设计理念](../design/README.md)中的对应主题；执行记录相关改动先读[Agent 执行过程](../design/agent-process.md)。职责表回答“改哪里”，理念回答“为什么这样改”。
 
 执行记录增量接口（具体约束见[阅读器](transcript-reader.md)）：
+- 新增用户只读 `task.transcript_page(id,seq?,offset?)` / `GET /api/task/<id>/transcript-page`，从 `(seq,offset)` 连续读取未裁剪的步骤文字；每页最多 50 段、96,000 字符正文，单段最多 24,000 字符，返回 `next_seq/next_offset/has_more`。终端模式只读回放，不启动 Pi 或 PTY，不执行终端控制序列；旧搜索与步骤 API 兼容保留。
 - 原 `task.transcript` 保持兼容，步骤增量保留 `call_id` / `tool_name` / `is_error`；同一会话内按调用 ID 配对。
 - 新增用户只读 `task.transcript_search(id,query?,kind?,tool?,errors?,after?,limit?)` 与 `task.transcript_step(id,seq,offset?)`：前者跨完整任务会话检索、分页摘要，后者按步骤读取分段原文及关联上下文；HTTP 用 `/api/task/<id>/transcript-search`、`transcript-step`。
 - 新增用户专属 `explanation.start(id,seq,quote)` / `explanation.list(id,before?)` / `explanation.get(id)`。专用 `explainer` 根 Task 无输入分支、无 worktree、无派工；来源快照保存为既有 Event，结果仍是 Task.result，无新业务实体或表。

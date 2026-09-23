@@ -40,6 +40,7 @@ export const ui = {
   /** 「设置」视图：打开期间轮询不用概览覆盖它（设置页只受用户操作驱动）。 */
   settingsOpen: false,
   statisticsOpen: false, statisticsFilters: null,
+  terminalOpen: false,
   draftSignature: null,
   // 意图面板的重建哨兵：planner 状态、闸门、spec 计数、scheduler 进度变了才重画。
   intentSignature: null,
@@ -90,7 +91,7 @@ export const mergeSelection = new Set();
  */
 export function resetUiState() {
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;
-  ui.statisticsOpen = false; ui.statisticsFilters = null;
+  ui.statisticsOpen = false; ui.statisticsFilters = null; ui.terminalOpen = false;
   ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0; ui.indexOpen = null; ui.docsOpen = false; ui.docsQuery = ''; ui.settingsOpen = false;
   ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false; ui.composerExpanded = false; ui.composerSubmitting = false; ui.composerReferences = [];
   ui.intentSignature = null; ui.specSignature = null;

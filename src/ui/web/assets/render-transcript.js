@@ -31,10 +31,10 @@ function sourceBody(taskId, step) {
     if (!source.open || source.dataset.loaded) return;
     source.dataset.loaded = 'true';
     source.append(el('p', `${step.file || '会话记录'}${step.line ? `:${step.line}` : ''}`, 'hint'), el('pre', step.body, 'raw-value'),
-      button('完整原文与上下文', () => openTranscriptStep(taskId, step.seq), 'ghost'));
+      button('在终端模式中查看', () => openTranscriptStep(taskId, step.seq), 'ghost'));
   });
   body.append(source);
-  if (/…（已截断 \d+ 字符）$/.test(step.body || '')) body.append(button('本段已截断 · 读取完整原文', () => openTranscriptStep(taskId, step.seq), 'ghost'));
+  if (/…（已截断 \d+ 字符）$/.test(step.body || '')) body.append(button('本段已截断 · 在终端模式中继续阅读', () => openTranscriptStep(taskId, step.seq), 'ghost'));
   referenceable(body, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 #${taskId}:${step.seq}`,
     quote: step.body, location: { task_id: taskId, section: 'transcript' } });
   return body;

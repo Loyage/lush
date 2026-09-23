@@ -40,7 +40,7 @@
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
 | `rpc/handlers/system.js` | `system.*`（兼容完整 `system.status`、首页走持久 revision/索引聚合且无 Agent 全配置的 `system.summary`、用户专属的 `system.configure` 与只读 `system.usage`）、`graph.get`、Agent 配置与资源接口；环境文件的 `agent.environment` / `agent.environment.configure` 因可能含密钥，读写都为用户专属 | `handlers` |
 | `rpc/handlers/input.js` | `input.*`、`draft.*` | `handlers` |
-| `rpc/handlers/task.js` | `task.*`（旧 `task.list/history` 保留；新增 `task.activity`、`task.page`、`task.history_page` 有界读接口，以及用户专属的 `task.transcript_search` / `task.transcript_step`）、用户专属 `explanation.start/list/get`、agent-only 的 `progress.plan` / `progress.complete` | `handlers` |
+| `rpc/handlers/task.js` | `task.*`（旧 `task.list/history` 保留；新增 `task.activity`、`task.page`、`task.history_page` 有界读接口，以及用户专属的 `task.transcript_search` / `task.transcript_step` / `task.transcript_page`）、用户专属 `explanation.start/list/get`、agent-only 的 `progress.plan` / `progress.complete` | `handlers` |
 | `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |
 | `rpc/handlers/notice.js` | `notice.*` | `handlers` |
 | `rpc/handlers/branch.js` | `branch.tree/show/import/merge/sync/archive/summary`（`branch.archive` 参数 `branch` / `discard`，在 `USER_ONLY`；`branch.summary` 参数 `branch` / `summary`，agent 可写、省略 branch 时写自己的分支，用户必须显式点名） | `handlers` |

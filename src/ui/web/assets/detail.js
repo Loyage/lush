@@ -2,7 +2,7 @@ import { $ } from './dom.js';
 import { api, loadHistory } from './api.js';
 import { renderDetail, renderDetailError } from './render-detail.js';
 import { activateDetailView } from './sidebar-ui.js';
-import { transcriptCache, ui } from './state.js';
+import { transcriptCache, transcriptOpen, ui } from './state.js';
 import { appendTranscriptSteps, loadTranscript } from './render-transcript.js';
 import { HOT } from './format.js';
 
@@ -30,13 +30,13 @@ export async function loadDetail(taskId) {
     throw error;
   }
   if (ui.selected !== taskId) return;
-  if (!transcriptCache.has(taskId) && usage?.files?.length) {
+  if (transcriptOpen.has(taskId) && !transcriptCache.has(taskId) && usage?.files?.length) {
     try { await loadTranscript(taskId); transcriptCache.get(taskId).settled = !HOT.has(task.status); }
     catch (error) { transcriptCache.set(taskId, { steps: [], files: usage.files, error: error.message }); }
     if (ui.selected !== taskId) return;
   }
   const cached = transcriptCache.get(taskId);
-  if (cached && !cached.error) {
+  if (transcriptOpen.has(taskId) && cached && !cached.error) {
     if (HOT.has(task.status)) cached.settled = false;
     else if (!cached.settled) {
       // A terminal task no longer gets live ticks. Read its final tail once, without resetting the reader.
@@ -52,6 +52,7 @@ export async function loadDetail(taskId) {
       if (ui.selected !== taskId) return;
     }
   }
+  if (ui.terminalOpen) return;
   timeline.onMore = before => loadHistory(taskId, before);
   ui.selectedRevision = task.updated_at; ui.detailTask = taskId; ui.detailRenderedAt = Date.now(); ui.detailDirty = false;
   renderDetail(task, timeline, diff, usage);
