@@ -14,7 +14,12 @@ export default {
   transcriptStep(taskId, seq, offset) { this.store.task(taskId); return transcriptStep(this.config, taskId, seq, offset); },
 
   /** Read-only agent usage (model, context, cost) from the same session files, without the bodies. */
-  usageStatistics(options) { return readUsageStatistics(this.config, options); },
+  usageStatistics(options) {
+    return readUsageStatistics(this.config, options, {
+      tasks: this.store.all('SELECT id,role,status,integration,substr(goal,1,160) AS goal FROM tasks'),
+      runs: this.store.all('SELECT id,task_id,role,status,started_at,ended_at FROM agent_runs'),
+    });
+  },
 
   usage(taskId) {
     this.store.task(taskId);

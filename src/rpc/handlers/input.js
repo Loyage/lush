@@ -2,7 +2,7 @@ import { check, id } from '../../core/types.js';
 
 /** input.* / draft.* */
 export const handlers = {
-  'input.submit'(p, params, actor) { return p.submit(params.content, params.branch ?? null, params.references ?? []); },
+  'input.submit'(p, params, actor) { return p.submit(params.content, params.branch ?? null, params.references ?? [], params.direct ?? false); },
   'input.list'(p, params, actor) { return p.inputs(); },
   'input.flow'(p, params, actor) {
     // Agent 省略 id 时判定自己的输入；用户（无 token）可对任意根 task 判定或改判。

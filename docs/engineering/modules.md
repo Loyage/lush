@@ -72,7 +72,7 @@
 ## 统计面板接缝
 
 - 新增用户只读 RPC `system.usage(start?,end?,interval?)` 与 `GET /api/usage`；时间为带时区 ISO，范围 `[start,end)`，省略边界分别表示历史起点 / 本次查询时间。interval 为 `auto|hour|day|month`，柱按 UTC 日历分段，显式粒度最多 1500 段，超限要求放宽粒度。
-- `core/usage-statistics.js` 的 `readUsageStatistics(config,options)` 异步流式读取项目 sessions 的全部 Lush JSONL，独立于任务详情的 8 MiB 窗口；只缓存精简用量，不改写历史文件或 SQLite。返回总量、时间段、provider/model 分组与缺失数据说明；缺价与真实零价分开，全部金额为会话记录的预计 USD。
+- `core/usage-statistics.js` 的 `readUsageStatistics(config,options,metadata?)` 异步流式读取项目 sessions 的全部 Lush JSONL，独立于任务详情的 8 MiB 窗口；只缓存精简用量，不改写历史文件或 SQLite。返回总量、时间段、provider/model 分组与缺失数据说明；缺价与真实零价分开，全部金额为会话记录的预计 USD。
 - `project/transcript.js` 暴露 `usageStatistics(options)`；`agent/provider.js` 为后续 Codex `turn.completed` 追加 Pi 兼容的 token 用量记录（费用未知），旧 Codex thread 文件只用于提示历史覆盖缺失。
 - Web `render-statistics.js` 提供 `openStatistics()` / `renderStatistics(data)`，`#statistics` 与左栏入口共享；面板按日间／日内双视图选择日期或小时范围，`statistics-range.js` 统一将 UTC 日历选择转换为 API 半开时间段；快捷按钮立即查询，两种视图独立保留条件，不进入首页轮询。
 
@@ -81,6 +81,17 @@
 - 保留 `notice.list` 兼容读面，新增 `notice.page(status?,before?,limit?)` 与 `GET /api/notices`：按 ID 降序分页，status 为 `all|open|answered|dismissed|sent`，返回 `{notices,cursor,has_more,limit}`。不删除或重写既有 Notice。
 - 「待我决定」按需查询全部类型的 Notice，未处理项可直接答复／审批，历史只读；首页仍用有界快照。通知仅针对新增的 open 决策事项，首次加载不补发历史。
 - `notice-notifications.js` 负责浏览器 Notification 与桌面 IPC 适配，默认关闭；授权只由用户开启时触发，失败不影响轮询和留档。开关属于当前客户端，桌面保存在 Electron userData（不受随机端口影响）。窗口关闭后不提醒，不引入 daemon 后台推送。
+
+## Token 效率接缝
+
+实现约束、配置示例与历史归因口径见 [Token 效率与用量归因](token-efficiency.md)。
+
+- `input.submit` 增加可选布尔 `direct`（默认 false），CLI `say --direct` 与 Web 单条「直接执行」显式启用。保留 Input、输入分支与 completed/零 invocation 的 planner 占位，事务内直接物化一个 worker；草稿批量提交不变，不绕过 worker 决策提问与人工最终合并。
+- `project/context.js` 的 `invocationContext(task,run)` 只投影直接父子、依赖、用户引用与专用角色上下文；不注入全局最近任务。关联摘要有界且明确截断，完整内容通过既有 `task inspect` 读取。`provider.js` 启动 JSON 使用多行格式，剔除凭证 hash 与重复 prompt 配置。
+- coordinator 的普通子任务成功结算只在全部子任务终态后唤醒；失败、取消、显式消息仍及时处理。延迟消息保留未读，所有收尾/恢复路径共用 `hasActionableMessages(taskId)`，避免空转和 lost-wakeup。
+- Agent profile 增加可选 `soft_budget:{responses?,tokens?}`：正整数，空对象/缺省关闭。仅普通 Pi 支持；Codex 和 explainer 明确拒绝启用。内置 `agent/pi-runtime.js` 扩展记录 invocation 身份，按本次响应累计用量，在达到阈值后下一次自然模型调用前仅提醒一次收尾；不强制停止、不额外启动模型轮次、不把历史用量算进新 invocation。
+- `system.usage` 增量返回 `roles` / `tasks` / `invocations` 归因表（按费用排序，任务与 invocation 各最多 100 条，明确总组数与截断），历史不能可靠归因的记录进入 unknown。新 Pi custom entry 与 Codex usage 行固化 task/run/role，旧记录仅在唯一 Run 时间区间匹配时归因；不改写历史。
+- CLI `task list --brief` 返回短目标与分页提示；`progress` 默认只回简短确认，`--json` 保留完整读模型；`doctor` 默认省略完整 daemon 配置，`--verbose` 恢复详细输出。原 RPC 读面保持兼容。
 
 ## 分区总览
 

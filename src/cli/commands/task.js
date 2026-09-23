@@ -8,8 +8,18 @@ export async function run(command, args, ctx) {
   if (command === 'task') {
     const verb = args.shift();
     if (verb === 'list') {
-      const after = Number(option(args, '--after', '0')), limit = Number(option(args, '--limit', '200'));
-      exact(args, 0); value = await client.request('task.list', { after, limit });
+      const brief = args.includes('--brief');
+      if (brief) args.splice(args.indexOf('--brief'), 1);
+      const after = Number(option(args, '--after', '0')), limit = Number(option(args, '--limit', brief ? '30' : '200'));
+      exact(args, 0);
+      if (brief) check(Number.isInteger(limit) && limit > 0 && limit <= 200, '--brief limit must be 1..200');
+      value = await client.request('task.list', { after, limit: brief ? limit + 1 : limit });
+      if (brief) {
+        const tasks = value.slice(0, limit).map(({ id, parent_id, role, status, integration, goal }) => ({ id, parent_id, role, status, integration,
+          goal: goal.replace(/\s+/g, ' ').slice(0, 160), goal_truncated: goal.length >= 160 }));
+        value = { tasks, has_more: value.length > limit, next_after: tasks.at(-1)?.id ?? after,
+          note: '短摘要；完整目标与结果用 task inspect ID。' };
+      }
     }
     else if (verb === 'tree') {
       check(args.length <= 1, 'tree accepts an optional ID');

@@ -4,7 +4,7 @@
 
 ## 提交顺序
 
-`input.submit {content, branch?}` 与 `draft.commit {ids?, branch?}` 先分配永不复用的 input id，再走 Git 串行队列：
+`input.submit {content, branch?, references?, direct?}` 与 `draft.commit {ids?, branch?}` 先分配永不复用的 input id，再走 Git 串行队列：
 
 1. 校验项目是 Git worktree 根；
 2. `branch` 必须是精确存在的本地 `refs/heads/*`；省略时使用当前检出分支；
@@ -39,7 +39,9 @@
 
 ## 规划与 flow
 
-每条输入有独立 planner。planner 的 cwd 是输入 worktree，不是主工作树；父分支之后前进、主工作树脏或用户切换分支都不会改变分析上下文。
+每条输入保留独立 planner 身份。默认提交会调用规划模型；显式 `direct: true` 不调用模型，而是在同一事务中将 flow 设为 develop，创建一条 worker spec 并编译为一个根 worker，再将 planner 标为 completed（calls / agent_wakes 都是 0）。`input.direct` 事件区分这种占位与真实规划结果，原始输入、引用、输入分支和 Work DAG 仍完整保留。草稿批量提交不支持 direct，仍必须经过规划；直接执行不放宽人工合并批准。
+
+planner 的 cwd 是输入 worktree，不是主工作树；父分支之后前进、主工作树脏或用户切换分支都不会改变分析上下文。
 
 `inputs.flow`：
 

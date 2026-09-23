@@ -10,7 +10,9 @@ export async function run(command, args, ctx) {
     else {
       if (['submit','add'].includes(args[0])) args.shift();
       const branch = option(args, '--branch');
-      exact(args, 1); value = await client.request('input.submit', { content: args[0], ...(branch ? { branch } : {}) });
+      const direct = args.includes('--direct');
+      if (direct) args.splice(args.indexOf('--direct'), 1);
+      exact(args, 1); value = await client.request('input.submit', { content: args[0], ...(branch ? { branch } : {}), ...(direct ? { direct: true } : {}) });
     }
   } else if (command === 'input') {
     const verb = args.shift();

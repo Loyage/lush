@@ -21,7 +21,21 @@ const ROLE_LABELS = {
 };
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_PROMPT_BYTES = 32 * 1024;
-const PROFILE_KEYS = new Set(['agent', 'model', 'thinking', 'prompt', 'default_prompt', 'append_prompt', 'extensions', 'skills']);
+const PROFILE_KEYS = new Set(['agent', 'model', 'thinking', 'prompt', 'default_prompt', 'append_prompt', 'extensions', 'skills', 'soft_budget']);
+
+export function normalizeSoftBudget(value) {
+  if (value === undefined || value === null) return {};
+  check(isPlainObject(value), 'soft_budget must be an object');
+  check(Object.keys(value).every(key => ['responses', 'tokens'].includes(key)), 'unknown soft_budget field');
+  const result = {};
+  for (const key of ['responses', 'tokens']) {
+    if (value[key] === undefined || value[key] === null) continue;
+    const max = key === 'responses' ? 10000 : 1000000000;
+    check(Number.isSafeInteger(value[key]) && value[key] > 0 && value[key] <= max, `soft_budget.${key} must be 1..${max}`);
+    result[key] = value[key];
+  }
+  return result;
+}
 
 function text(value, name, maxBytes) {
   check(typeof value === 'string', `${name} must be text`);
@@ -50,7 +64,11 @@ function normalizeProfile(value, name) {
   const append_prompt = text(value.append_prompt ?? value.prompt ?? '', `${name}.append_prompt`, MAX_PROMPT_BYTES).trim();
   const extensions = resourceList(value.extensions ?? [], `${name}.extensions`);
   const skills = resourceList(value.skills ?? [], `${name}.skills`);
-  return { agent, model, thinking, default_prompt, append_prompt, extensions, skills };
+  const soft_budget = normalizeSoftBudget(value.soft_budget);
+  const enabled = Object.keys(soft_budget).length > 0;
+  check(!enabled || agent === 'pi', 'soft_budget is supported only by Pi');
+  check(!enabled || name !== 'roles.explainer', 'explainer does not support soft_budget');
+  return { agent, model, thinking, default_prompt, append_prompt, extensions, skills, ...(enabled ? { soft_budget } : {}) };
 }
 
 function envDefault(config) {
@@ -101,7 +119,11 @@ export class AgentSettings {
   get() {
     const stored = this.readStored();
     const resolved = {};
-    for (const role of AGENT_ROLES) resolved[role] = { ...(stored.roles[role] || stored.default) };
+    for (const role of AGENT_ROLES) {
+      resolved[role] = { ...(stored.roles[role] || stored.default) };
+      // The isolated, no-extension explainer never inherits a development budget.
+      if (role === 'explainer') delete resolved[role].soft_budget;
+    }
     return {
       ...stored, resolved, file: this.file, runtime_agent: this.config.provider === 'mock' ? 'mock' : stored.default.agent,
       options: {

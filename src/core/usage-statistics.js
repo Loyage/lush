@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { check } from './types.js';
+import { usageAttribution } from './usage-attribution.js';
 
 const SESSION = /_lush-task-\d+\.jsonl$/;
 const MAX_LINE = 16 * 1024 * 1024;
@@ -29,13 +30,17 @@ function boundary(value, name) {
   check(month >= 1 && month <= 12 && day >= 1 && day <= date.getUTCDate(), `invalid ${name}`);
   return n;
 }
-function normalize(record, model) {
+function normalize(record, model, invocation, taskId) {
   const m = record?.type === 'message' ? record.message : null;
   if (m?.role !== 'assistant') return null;
   const u = m.usage ?? {};
   const fields = ['input', 'output', 'cacheRead', 'cacheWrite'];
   const knownTokens = validNumber(u.totalTokens) || fields.some(key => validNumber(u[key]));
+  const attribution = record.lush ?? invocation;
+  const owned = attribution?.task_id === taskId;
   return {
+    run_id: owned && Number.isSafeInteger(attribution.run_id) && attribution.run_id > 0 ? attribution.run_id : null,
+    role: owned && ['planner','scheduler','coordinator','worker','research','verifier','merger','showcase','explainer'].includes(attribution.role) ? attribution.role : null,
     at: timestamp(record.timestamp) ?? timestamp(m.timestamp),
     provider: typeof m.provider === 'string' ? m.provider.slice(0, 256) : model.provider,
     model: typeof m.model === 'string' ? m.model.slice(0, 256) : model.model,
@@ -54,7 +59,8 @@ async function readFile(file, stat) {
     cache.delete(file); cache.set(file, previous);
     return previous;
   }
-  const result = { signature: key, rows: [], malformed: 0, incomplete: 0 };
+  const result = { signature: key, task_id: Number(file.match(/_lush-task-(\d+)\.jsonl$/)[1]), rows: [], malformed: 0, incomplete: 0 };
+  let invocation = null;
   let model = { provider: 'unknown', model: 'unknown' };
   let tail = '', skipping = false;
   const parse = line => {
@@ -64,7 +70,8 @@ async function readFile(file, stat) {
     if (record?.type === 'model_change') {
       model = { provider: String(record.provider ?? 'unknown').slice(0, 256), model: String(record.modelId ?? 'unknown').slice(0, 256) };
     }
-    const row = normalize(record, model);
+    if (record?.type === 'custom' && record.customType === 'lush.invocation') invocation = record.data;
+    const row = normalize(record, model, invocation, result.task_id);
     if (row) result.rows.push(row);
   };
   // Snapshot the size: a live agent can keep appending, but one request must still finish.
@@ -135,7 +142,7 @@ function bucketStarts(start, end, interval) {
   return out;
 }
 
-export async function readUsageStatistics(config, options = {}) {
+export async function readUsageStatistics(config, options = {}, metadata = {}) {
   const start = boundary(options.start, 'start');
   const generated = Date.now();
   // Explicit ranges are half-open; the default includes records written in this same millisecond.
@@ -149,6 +156,7 @@ export async function readUsageStatistics(config, options = {}) {
   if (!pending.has(dir)) pending.set(dir, scan(dir).finally(() => pending.delete(dir)));
   const source = await pending.get(dir);
   const totals = empty(), models = new Map();
+  const attribution = usageAttribution(metadata);
   const coverage = { files: source.files.length, unreadable_files: source.unreadable, malformed_lines: 0, incomplete_files: 0,
     undated_requests: 0, codex_threads: source.codex_threads };
   const unbounded = start === null && (options.end === undefined || options.end === null || options.end === '');
@@ -161,6 +169,7 @@ export async function readUsageStatistics(config, options = {}) {
       if (!included(row)) continue;
       if (row.at !== null && (first === null || row.at < first)) first = row.at;
       add(totals, row);
+      attribution.add(file.task_id, row);
       const key = JSON.stringify([row.provider, row.model]);
       if (!models.has(key)) models.set(key, { provider: row.provider, model: row.model, ...empty() });
       const group = models.get(key);
@@ -187,5 +196,5 @@ export async function readUsageStatistics(config, options = {}) {
   }
   return { project: config.project, currency: 'USD', estimated: true, timezone: 'UTC', generated_at: new Date(generated).toISOString(),
     range: { start: rangeStart === null ? null : new Date(rangeStart).toISOString(), end: new Date(end).toISOString() },
-    interval, totals, buckets: [...buckets.values()], models: [...models.values()].sort((a, b) => b.cost - a.cost || a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model)), coverage };
+    ...attribution.result(), interval, totals, buckets: [...buckets.values()], models: [...models.values()].sort((a, b) => b.cost - a.cost || a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model)), coverage };
 }

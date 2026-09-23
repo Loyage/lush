@@ -49,8 +49,18 @@ export default {
     }
   },
 
-  async submit(content, branch = null, references = []) {
-    const result = await this.createInput(content, null, branch, references);
+  async submit(content, branch = null, references = [], direct = false) {
+    check(typeof direct === 'boolean', 'direct must be a boolean');
+    let worker;
+    const result = await this.createInput(content, direct ? planner => {
+      this.store.run("UPDATE inputs SET flow='develop' WHERE id=?", planner.input_id);
+      const spec = this.addSpec(planner.id, { goal: content, role: 'worker', name: `direct-${planner.input_id}` });
+      worker = this.materializeSpec(planner.id, spec.id);
+      this.store.update(planner.id, { status: 'completed', result: '用户选择直接执行：未调用规划模型。' });
+      this.store.event(planner.id, 'input.direct', { worker: worker.id, spec: spec.id });
+      this.store.event(planner.id, 'completed', { result: '用户选择直接执行：未调用规划模型。', direct: true });
+    } : null, branch, references);
+    if (direct) { result.task = this.store.task(result.task.id); result.worker = worker; result.direct = true; }
     this.kick(); return result;
   },
 
@@ -59,6 +69,7 @@ export default {
     const rows = this.store.all(`SELECT inputs.id, inputs.flow, substr(inputs.content,1,2000) AS content, inputs.task_id, inputs.created_at,
       inputs.anchor_branch, inputs.anchor_commit, inputs.anchor_workspace, inputs.anchor_target_branch,
       tasks.status, tasks.plan_gate, tasks.agent_wakes, tasks.updated_at AS planner_updated_at,
+      EXISTS(SELECT 1 FROM events e WHERE e.task_id=tasks.id AND e.type='input.direct') AS direct,
       (SELECT count(*) FROM drafts WHERE drafts.input_id=inputs.id) AS draft_count,
       (SELECT count(*) FROM task_specs WHERE task_specs.input_id=inputs.id AND task_specs.status='pending') AS specs_pending,
       (SELECT count(*) FROM task_specs WHERE task_specs.input_id=inputs.id AND task_specs.status='planned') AS specs_planned,

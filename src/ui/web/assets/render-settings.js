@@ -133,6 +133,12 @@ function profileEditor(settings, profile, target, title, subtitle) {
   const model = el('input'); model.className = 'agent-model'; model.dataset.agentField = 'model'; model.value = profile.model || '';
   model.maxLength = 256;
   const thinking = el('select'); thinking.className = 'agent-select'; thinking.dataset.agentField = 'thinking';
+  const budgetControls = {};
+  for (const [key, max] of [['responses', 10000], ['tokens', 1000000000]]) {
+    const input = el('input'); input.type = 'number'; input.min = '1'; input.max = String(max); input.step = '1';
+    input.dataset.agentField = `budget_${key}`; input.value = String(profile.soft_budget?.[key] ?? '');
+    input.placeholder = '关闭'; input.disabled = target === 'explainer'; budgetControls[key] = input;
+  }
 
   const modelBox = el('div', undefined, 'agent-model-box');
   const modelLine = el('div', undefined, 'agent-model-line');
@@ -233,6 +239,8 @@ function profileEditor(settings, profile, target, title, subtitle) {
   form.append(field('Agent', backend, '执行该类任务的 CLI。'),
     field('模型', modelBox, '留空使用所选 CLI 的默认模型；也可以读取 CLI 当前目录或直接填写模型 ID。'),
     field('思考深度', thinking, '可用等级随 Agent 变化。'),
+    field('软预算：模型响应数', budgetControls.responses, '每次 invocation 单独计数；达到阈值提醒收尾，不强制终止。仅 Pi；解释角色不继承。'),
+    field('软预算：累计 token', budgetControls.tokens, '包含缓存读取，非上下文长度；留空关闭。Codex 不支持，切换前需清空。'),
     field('插件与 Skills', resourcesBox, '从当前用户已安装的 Pi 资源中选择；每个 Agent 配置独立保存。', 'resource-field'));
 
   const roleDefaults = settings.options.default_prompts || null;
@@ -283,6 +291,8 @@ function profileEditor(settings, profile, target, title, subtitle) {
       agent: backend.value, model: model.value.trim(), thinking: thinking.value,
       default_prompt: nextDefaultPrompt, append_prompt: appendPrompt.value.trim(),
       extensions: [...selectedExtensions], skills: [...selectedSkills],
+      soft_budget: Object.fromEntries(Object.entries(budgetControls).filter(([, input]) => input.value.trim() !== '')
+        .map(([key, input]) => [key, Number(input.value)])),
     };
     const roles = { ...settings.roles };
     const config = target === 'default'

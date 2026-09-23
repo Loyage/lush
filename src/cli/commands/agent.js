@@ -97,10 +97,13 @@ export async function run(command, args, { client, json }) {
   const backend = option(args, '--agent');
   const model = option(args, '--model');
   const thinking = option(args, '--thinking');
+  const budgetResponses = option(args, '--budget-responses');
+  const budgetTokens = option(args, '--budget-tokens');
+  const hasBudget = budgetResponses !== null || budgetTokens !== null;
   const defaultPrompt = option(args, '--default-prompt');
   const appendPrompt = hasExplicitAppend ? option(args, '--append-prompt') : option(args, '--prompt');
   exact(args, 0);
-  check(hasAgent || hasModel || hasThinking || hasDefaultPrompt || hasAppendPrompt, 'agent set requires at least one setting');
+  check(hasAgent || hasModel || hasThinking || hasDefaultPrompt || hasAppendPrompt || hasBudget, 'agent set requires at least one setting');
   const base = target === 'default' ? current.default : (current.roles[target] || current.resolved[target]);
   const next = { ...base };
   if (hasAgent) next.agent = backend;
@@ -111,6 +114,14 @@ export async function run(command, args, { client, json }) {
   if (hasAgent && backend !== base.agent) {
     if (!hasModel) next.model = '';
     if (!hasThinking) next.thinking = '';
+  }
+  if (hasBudget) {
+    next.soft_budget = { ...base.soft_budget };
+    for (const [key, value] of [['responses', budgetResponses], ['tokens', budgetTokens]]) {
+      if (value === null) continue;
+      if (value === 'off') delete next.soft_budget[key];
+      else next.soft_budget[key] = Number(value);
+    }
   }
   const roles = { ...current.roles };
   if (target === 'default') return client.request('agent.configure', { config: { version: 1, default: next, roles } });

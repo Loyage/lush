@@ -44,6 +44,9 @@ const textOf = content => parts(content).map(part => part.text ?? part.thinking 
 
 function meta(record, at, max = MAX_BODY) {
   if (record.type === 'session') return [];
+  if (record.type === 'custom' && record.customType === 'lush.soft_budget') {
+    return [{ kind: 'meta', title: '软预算提醒', at, body: clip(record.data?.content ?? record.data, max) }];
+  }
   if (record.type === 'model_change') return [{ kind: 'meta', title: `${record.provider}/${record.modelId}`, at, body: '' }];
   if (record.type === 'thinking_level_change') return [{ kind: 'meta', title: `思考等级 ${record.thinkingLevel}`, at, body: '' }];
   return [{ kind: 'meta', title: record.type, at, body: max === Infinity ? JSON.stringify(record) : clip(Object.keys(record).filter(key => key !== 'type').join(', ')) }];

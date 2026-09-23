@@ -37,6 +37,8 @@ Web 与桌面左栏的「统计面板」（`#statistics`）展示当前项目的
 - `totals`：`requests`（用量记录数，不保证等于底层 HTTP 请求数）、`input`、`output`、`cache_read`、`cache_write`、`tokens`、`cost`、`unknown_cost`、`unknown_tokens`；
 - `buckets`：UTC 日历时间段的 `start/end` 加同口径累计字段，首尾柱只累计查询范围内的记录；
 - `models`：按 `provider/model` 分组的累计字段，按已知费用降序；
+- `roles` / `tasks` / `invocations`：相同筛选范围的归因累计字段；任务含 `task_id/role/status/integration/goal`，调用含 `task_id/run_id/role/status`。未知 ID 为 null、未知角色为 `unknown`。任务与调用表各最多 100 组；
+- `attribution`：`limit`、`task_groups`、`invocation_groups`、`tasks_truncated`、`invocations_truncated`、`unknown_role_requests`、`unknown_run_requests`；历史身份的可信匹配规则见[Token 效率与用量归因](../engineering/token-efficiency.md#归因与历史兼容)；
 - `coverage`：文件数、不可读文件、损坏行、未完成文件、无时间记录和 Codex thread 数。文件覆盖问题是全历史扫描结果，不代表仅发生在所选时间段。
 
 零记录返回零合计与空模型列表；若指定完整时间范围，柱状图仍补零。非法时间、起止倒置、未知粒度或过多分段返回校验错误。

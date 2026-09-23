@@ -6,7 +6,7 @@
 
 | CLI | RPC | 参数 |
 |---|---|---|
-| `task list [--after N] [--limit N]` | `task.list` | `{after?: 0, limit?: 200}`，limit 最大 1000，只含 work 层 |
+| `task list [--after N] [--limit N] [--brief]` | `task.list` | `{after?: 0, limit?: 200}`，limit 最大 1000，只含 work 层；CLI `--brief` 默认 30 条、最多 200 条短摘要及 `has_more/next_after`，RPC 本身不变 |
 | `task tree [ID]` | `task.tree` | `{id?}` |
 | `task spawn 'goal' --parent ID --role worker [--name short-kebab-name] [--depends-on ID[:kind]]` | `task.spawn` | `{parent, goal, role?: 'worker', deps?: [{id, kind: 'code'|'order'}], name?}` |
 | `task message ID 'body'` | `task.message` | `{id, body}` |

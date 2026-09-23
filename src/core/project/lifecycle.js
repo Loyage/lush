@@ -53,7 +53,9 @@ export default {
         else if (status === 'completed' || status === 'failed') this.store.discardBatch(task.id, `scheduler 未覆盖该 spec（${status}）`);
       }
       if (task.parent_id && !TERMINAL.has(this.store.task(task.parent_id).status)) {
-        this.store.message(task.parent_id, JSON.stringify({ child: task.id, status, result, error }), task.id);
+        const messageId = this.store.message(task.parent_id, JSON.stringify({ child: task.id, status,
+          result: result?.slice(0, 2000) ?? null, error, result_truncated: (result?.length ?? 0) > 2000 }), task.id);
+        if (status === 'completed') this.store.event(task.parent_id, 'child.completed', { child: task.id, message_id: messageId });
       }
       // Verification settles either a worker detail or a frozen review candidate.
       if (task.verifies_task_id) this.store.touch(task.verifies_task_id);
@@ -241,7 +243,7 @@ export default {
     this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging'");
     // A crash can land between committing an inbox message and queueing its owner.
     for (const task of this.store.tasks()) {
-      if (!TERMINAL.has(task.status) && this.store.unread(task.id).length) this.wake(task.id);
+      if (!TERMINAL.has(task.status) && this.hasActionableMessages(task.id)) this.wake(task.id);
     }
     // 中断的检验已经标成失败；对照基线是派生状态，顺手回收掉。
     for (const task of this.store.tasks()) {

@@ -20,10 +20,23 @@ export default {
     this.store.update(taskId, { status: 'awaiting', result });
   },
 
+  hasActionableMessages(taskId) {
+    if (!this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', taskId)) return false;
+    const task = this.store.get('SELECT role FROM tasks WHERE id=?', taskId);
+    if (task.role !== 'coordinator' || !this.store.get(`SELECT id FROM tasks WHERE parent_id=?
+      AND status NOT IN ('completed','failed','cancelled') LIMIT 1`, taskId)) return true;
+    // Only runtime-attested success receipts wait; explicit messages remain urgent.
+    return Boolean(this.store.get(`SELECT m.id FROM messages m WHERE m.task_id=? AND m.consumed=0
+      AND NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id=m.task_id AND e.type='child.completed'
+        AND json_extract(e.data,'$.message_id')=m.id) LIMIT 1`, taskId));
+  },
+
   wake(taskId) {
     const task = this.store.task(taskId);
     if (!TERMINAL.has(task.status) && !this.running.has(task.id)) {
-      this.store.update(task.id, { status: this.questionPending(task.id) ? 'awaiting' : 'queued' });
+      const deferred = task.role === 'coordinator' && this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', task.id)
+        && !this.hasActionableMessages(task.id);
+      this.store.update(task.id, { status: this.questionPending(task.id) ? 'awaiting' : deferred ? 'waiting' : 'queued' });
     }
     this.kick();
   },
@@ -62,7 +75,7 @@ export default {
         this.store.armAgent(task.id, null);
         // A child can settle after its parent parked but before this cleanup.
         // Recheck the inbox after releasing ownership to avoid a lost wake-up.
-        if (!TERMINAL.has(this.store.task(task.id).status) && this.store.unread(task.id).length) this.wake(task.id);
+        if (!TERMINAL.has(this.store.task(task.id).status) && this.hasActionableMessages(task.id)) this.wake(task.id);
         this.kick();
       });
     }
@@ -111,25 +124,11 @@ export default {
         run.controller.abort(new Error(timeoutMessage));
       }, this.config.timeout * 1000);
       run.messages = messages;
-      // 引用快照固定在 Input 上；每次 planner 唤醒都重新解析当前状态。
-      const referencedContext = task.role === 'planner' && task.input_id !== null
-        ? await this.resolveInputReferences(task.input_id) : undefined;
+      const context = await this.invocationContext(task, run);
+      if (run.controller.signal.aborted) throw new Error(abortMessage());
       const result = await this.provider.run({ task: this.progressView(task), cwd, token: run.token, signal: run.controller.signal, agent,
         onSpawn: pid => { run.pid = pid; }, messages, api: this,
-        context: {
-          children: this.store.summaries().filter(child => child.parent_id === taskId),
-          open_notices: this.store.all("SELECT * FROM notices WHERE task_id=? AND status='open'", taskId),
-          ...(task.role === 'planner' ? { queued_specs: this.store.specs({ planner_task_id: taskId, status: 'pending', limit: 50 }),
-            referenced_context: referencedContext } : {}),
-          recent_tasks: this.decorate(this.store.all('SELECT id,parent_id,role,status,substr(goal,1,500) AS goal,integration FROM tasks ORDER BY id DESC LIMIT 100')),
-          verification: task.role === 'verifier' ? this.verificationContext(task) : undefined,
-          showcase: task.role === 'showcase' ? this.showcaseContext(task) : undefined,
-          explanation: task.role === 'explainer' ? this.explanationContext(taskId) : undefined,
-          merge_conflict: task.resolves_task_id ? this.mergeConflictContext(task) : undefined,
-          branch_sync: task.role === 'merger' && !task.resolves_task_id
-            ? (() => { const row = this.store.get("SELECT data FROM events WHERE task_id=? AND type='branch.sync.requested' ORDER BY id DESC LIMIT 1", task.id); return row ? JSON.parse(row.data) : undefined; })()
-            : undefined,
-        },
+        context,
       });
       clearTimeout(timer);
       if (TERMINAL.has(this.store.task(taskId).status) || run.parked) return;
@@ -151,8 +150,8 @@ export default {
             changes: [], evidence: [], decisions: [], risks: [], artifacts: [], followups: [], verification },
           metadata: { role: task.role, call: task.calls, agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null } });
       });
-      // Messages that arrived during this invocation are deliberately delivered next time.
-      if (this.store.unread(taskId).length) { this.store.update(taskId, { status: 'queued' }); return; }
+      // Deliver actionable arrivals next time; ordinary coordinator receipts wait for the wave.
+      if (this.hasActionableMessages(taskId)) { this.store.update(taskId, { status: 'queued' }); return; }
       if (this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open'", taskId)) {
         this.store.update(taskId, { status: 'awaiting' }); return;
       }
@@ -162,7 +161,7 @@ export default {
       await this.workspaces.finish(this.store.task(taskId));
       // git is asynchronous: input, cancellation or delegation may have arrived meanwhile.
       if (TERMINAL.has(this.store.task(taskId).status)) return;
-      if (this.store.unread(taskId).length) { this.store.update(taskId, { status: 'queued' }); return; }
+      if (this.hasActionableMessages(taskId)) { this.store.update(taskId, { status: 'queued' }); return; }
       if (this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open'", taskId)) {
         this.store.update(taskId, { status: 'awaiting' }); return;
       }

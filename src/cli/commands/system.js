@@ -224,6 +224,8 @@ export async function run(command, args, ctx) {
   if (command === 'daemon') {
     check(!client.token, 'agents cannot control daemons'); exact(args, 1); value = await daemon(config, args[0]);
   } else if (command === 'doctor') {
+    const verbose = args.includes('--verbose');
+    if (verbose) args.splice(args.indexOf('--verbose'), 1);
     exact(args, 0);
     const current = codeIdentity();
     value = { bun: Bun.version, project: config.project, home: config.home, socket: config.socket, provider: config.provider, ...current,
@@ -231,7 +233,9 @@ export async function run(command, args, ctx) {
     let daemonStatus = null;
     try {
       daemonStatus = await client.request('system.status');
-      value.daemon = daemonStatus;
+      value.daemon = verbose ? daemonStatus : { project: daemonStatus.project, pid: daemonStatus.pid,
+        code_dir: daemonStatus.code_dir, fingerprint: daemonStatus.fingerprint, started_at: daemonStatus.started_at,
+        note: '完整配置使用 doctor --verbose 或 agent show。' };
       value.code_match = daemonStatus.fingerprint === current.fingerprint && daemonStatus.code_dir === current.code_dir;
       value.daemon_code_match = value.code_match;
     } catch (error) { value.daemon = error.message; value.daemon_code_match = null; }

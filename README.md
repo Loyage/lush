@@ -106,7 +106,7 @@ lush branch archive lush/…/7-auth-ui  # 不要这条分支了：删 worktree �
 lush daemon stop
 ```
 
-单条输入也可以用 `lush say '原话'` 立即提交，不等缓存。
+单条输入也可以用 `lush say '原话'` 立即提交，不等缓存。目标已经足够明确时，用 `bun run say '明确的小任务' --direct` 或 Web「直接执行」跳过规划模型，交给单个 worker；仍保留输入分支、零调用的 planner 占位与人工合并批准，已有草稿不受影响。上下文裁剪、用量归因和默认关闭的 Pi 软预算见 [Token 效率](docs/engineering/token-efficiency.md)。
 
 ### 需要你拍板时：选择题与效果预览
 

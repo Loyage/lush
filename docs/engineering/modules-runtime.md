@@ -10,14 +10,16 @@
 |---|---|---|
 | `agent/prompts.js` | 命名内置 Prompt 片段、按角色组合，并叠加可提交、本机与 `agent.json` 补充 | `AGENT_ROLES`、`PROMPT_PARTS`、`ROLE_PROMPT_PARTS`、`builtInPrompt(role)`、`agentPrompt(config,role,profile)` |
 | `agent/environment.js` | 每次 invocation 热加载 `.lush/agent/agent.env` 与角色 env，校验并叠加环境；为 Web/RPC 提供按公共/角色文件读取与 owner-only 原子写入，空表删除文件 | `AGENT_ENV_TARGETS`、`parseAgentEnv(source,file)`、`readAgentEnvironment(config,target)`、`saveAgentEnvironment(config,target,values)`、`agentEnvironment(config,role)` |
-| `agent/settings.js` | `.lush/agent.json` 的兼容读取、校验、原子写入、角色继承与 Web 选项（含各角色内置 Prompt）；旧 `prompt` 迁到 `append_prompt`，资源选择存 `extensions` / `skills` | `AGENT_ROLES`、`AGENT_BACKENDS`、`THINKING_LEVELS`、`MODEL_PRESETS`、`normalizeAgentConfig()`、`AgentSettings` |
+| `agent/settings.js` | `.lush/agent.json` 的兼容读取、校验、原子写入、角色继承与 Web 选项（含各角色内置 Prompt）；旧 `prompt` 迁到 `append_prompt`，资源选择存 `extensions` / `skills` | `AGENT_ROLES`、`AGENT_BACKENDS`、`THINKING_LEVELS`、`MODEL_PRESETS`、`normalizeAgentConfig()`、`normalizeSoftBudget(value)`、`AgentSettings` |
 | `agent/models.js` | 有界、超时地读取 Pi / Codex CLI 模型目录，只投影安全的模型元数据，失败回退内置预设 | `discoverAgentModels(config, agent)` |
 | `agent/resources.js` | 不执行资源代码地发现用户/项目 Pi 扩展、Skills 与已安装 package 资源；CLI 列表失败时保留本地目录结果 | `discoverAgentResources(config)` |
 | `agent/provider.js` | 动态后端路由、Pi / Codex invocation、Codex thread 恢复与每轮 token 用量留存（不伪造费用）；调用 Prompt 与 env 组合器；子进程因 AbortSignal 结束时保留 scheduler / lifecycle 写入的具体超时或取消原因 | `PiProvider`、`CodexProvider`、`AgentProvider`、`MockProvider` |
+| `agent/pi-runtime.js` | 内置 Pi extension；记录 invocation 身份，达到可选软预算后在下一次自然请求提醒一次，不强停或制造新轮次 | 默认导出 `lushRuntime(pi)` |
 | `agent/guide.js` | 旧调用方兼容出口；内置 Prompt 的事实来源是 `prompts.js` | `GUIDE` |
 | `core/transcript-reader.js` | 完整任务会话的流式检索、按类型／工具／失败过滤、步骤分段原文与同会话调用 ID 配对；单行超过 16 MiB 明确报不完整，不受快速视图前 8 MiB 的范围限制 | `searchTranscript(config,taskId,options)`、`transcriptStep(config,taskId,seq,offset)` |
 | `core/transcript.js` | 兼容快速记录与用量投影；保留调用身份；与全文读面共享步骤投影 | `projectRecord(record,max?)`、`readTranscript`、`readUsage`、`sessionFiles`、`transcriptReadStats` |
-| `core/usage-statistics.js` | 项目完整会话的异步流式只读统计；有限 LRU 精简用量缓存、并发扫描单飞、时间过滤、UTC 分桶、provider/model 汇总与覆盖说明 | `readUsageStatistics(config,options)` |
+| `core/usage-statistics.js` | 项目完整会话的异步流式只读统计；有限 LRU 精简用量缓存、并发扫描单飞、时间过滤、UTC 分桶、provider/model 汇总与覆盖说明 | `readUsageStatistics(config,options,metadata?)` |
+| `core/usage-attribution.js` | 使用显式身份或唯一 Run 时间区间生成有界 task / role / invocation 统计，无法确认时保留 unknown | `usageAttribution(metadata)` |
 
 ## 运行设置：`src/core/settings.js`
 
@@ -40,7 +42,7 @@
 | `project/settings.js` | 项目级运行设置接缝：把运行设置的读模型喂给 `system.status`，并把用户侧的 `system.configure` 接到 `Config.configureRuntime` | `runtimeSettings()`、`configureRuntimeSettings(patch)` |
 | `project/status.js` | 项目级读模型与廉价 `revision`；首页 `system.summary` 走独立的 `summary()`，用持久 `meta.overview_revision` 与覆盖索引聚合且不打开 Agent 配置，兼容 `system.status` 仍镜像完整 `agent_config`，设置页再按需读取；并发额度另给 `settings` 镜像，顶层并发值仍是生效值 | `overviewRevision()`、`summary()`、`status(includeAgentConfig=true)` |
 | `project/deps.js` | 依赖边的读模型与结构校验 | `decorate(tasks)`、`blockedBy(taskId)`、`assertDeps(taskId, parent, edges)` |
-| `project/inputs.js` | 从用户指定父分支创建可推进输入分支、在其中规划，以及流程判定；`inputs()` 的意图列表由 `inputs JOIN tasks` 内连接派生（任务那一半是输入自己的根 planner），所以根 planner 被 `task.delete` 删掉的输入行仍在库里，但不再出现在这个列表里 | `anchorInput(branch)`、`insertInput(inputId, anchor, content, attach, references)`、`createInput(content, attach, branch, references)`、`submit(content, branch, references)`、`inputs()`、`setInputFlow(taskId, flow)` |
+| `project/inputs.js` | 从用户指定父分支创建可推进输入分支、在其中规划，以及流程判定；`inputs()` 的意图列表由 `inputs JOIN tasks` 内连接派生（任务那一半是输入自己的根 planner），所以根 planner 被 `task.delete` 删掉的输入行仍在库里，但不再出现在这个列表里 | `anchorInput(branch)`、`insertInput(inputId, anchor, content, attach, references)`、`createInput(content, attach, branch, references)`、`submit(content, branch, references, direct=false)`、`inputs()`、`setInputFlow(taskId, flow)` |
 | `project/drafts.js` | 输入缓存（增删改、结构化引用、整体提交到指定父分支） | `draft`、`drafts`、`dropDraft`、`editDraft`、`commitDrafts(ids, branch)` |
 | `project/references.js` | Input / Draft 的结构化上下文引用：校验、持久化与 invocation 时实时解析 | `normalizeReferences(references)`、`referencesForInput(inputId)`、`resolveInputReferences(inputId)` |
 | `project/specs.js` | 结构化 Plan 与确定性编译入口；新路径不创建 scheduler agent | `compilePlans()`、兼容别名 `ensureScheduler()`、`addSpec(plannerTaskId, spec)`、`dropSpec(specId, note, actor)` |
@@ -60,7 +62,8 @@
 | `project/candidates.js` | 固定 commit 的 Review Candidate、验收、反馈与最终人工接受；读模型带结构化 `verification`；所有用户动作通过 Store 的集中转换动作，进入 `accepted` 后拒绝 reject / changes / supersede 且不支持取消接受，Git 串行区间仍在 Workspaces，自动结论只可进入 `ready` / `failed`、不得合并 | `prepareCandidate`、`verifyCandidate`、`candidateContext`、`candidates`、`candidate`、`acceptCandidate`、`requestCandidateChanges`、`rejectCandidate` |
 | `project/integration.js` | Plan worker 在私有 Intent branch 内自动叶子优先聚合；分歧派 merger，不动 target | `scheduleIntentIntegration`、`integrateIntent` |
 | `project/transcript.js` | pi 会话记录的只读投影；底层按 64 KiB 分块、以 UTF-8 字节执行 8 MiB 预算，按文件身份/版本缓存完整 JSONL 行与未完尾行，并用头部/旧追加边界的有界字节守卫区分纯追加与同 inode truncate 后快速长回，替换/截断重建；用量在文件签名未变时复用聚合，每个 step 的 token 口径保持不变 | `transcript(taskId, after, limit)`、`searchTranscript(taskId,options)`、`transcriptStep(taskId,seq,offset)`、`usage(taskId)`、`usageStatistics(options)`（项目统计走独立全量流式读面；测量接缝 `transcriptReadStats`） |
-| `project/scheduling.js` | 调度、invocation 生命周期、凭证；成功返回写 version 2 `run.result`，把 `invocation.status` 与 `verification.status` 分开；scheduler 持有调用截止时间并把超时规范化为带秒数的 failed Run，与用户取消的 cancelled Run 区分 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
+| `project/context.js` | 按角色和因果关系提供有界启动上下文；不注入全局任务历史 | `invocationContext(task,run)` |
+| `project/scheduling.js` | 调度、invocation 生命周期、凭证；成功返回写 version 2 `run.result`，把 `invocation.status` 与 `verification.status` 分开；scheduler 持有调用截止时间并把超时规范化为带秒数的 failed Run，与用户取消的 cancelled Run 区分 | `kick()`、`pump()`、`actor(token)`、`hasActionableMessages(taskId)`、`wake(taskId)`、`invoke(taskId, run)` |
 | `project/lifecycle.js` | 结算、取消、重试、清空、定向删除与恢复；Candidate verifier 只在当前状态为 `preparing`、`report_task_id` 仍匹配、报告存在且结构化结论为 `pass` 时结算为 `ready`，其余结论为 `failed`；迟到结果保留事件但不改 Candidate | `finish`、`cancel`、`retry`、`clear`、`reclaimThenPurge(tasks, anchors)`、`deleteTask(taskId)`、`subtreeTasks(taskId)`、`forgetTasks(root, subtree, ids)`、`recover`、`shutdown` |
 
 `project/graph.js` 另把 Git 边界的 `branchDiagnostics()` 结果投影到 branch 节点的 `diagnostics`，不改变既有任务计数与父子关系口径。

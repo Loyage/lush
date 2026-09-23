@@ -122,6 +122,29 @@ export function renderStatistics(data) {
     body.append(tr);
   }
   table.append(body); scroll.append(table); section.append(scroll); root.append(section);
+  for (const [key, title] of [['roles', '按角色归因'], ['tasks', '按任务归因'], ['invocations', '按 invocation 归因']]) {
+    if (!data[key]) continue;
+    const group = block(title), wrap = el('div', undefined, 'usage-table-scroll'), table = el('table', undefined, 'usage-table');
+    const head = el('tr');
+    for (const label of ['对象 / 状态', '响应记录', '非缓存输入', '缓存读取', '缓存写入', '输出', '预计 USD']) head.append(el('th', label));
+    const thead = el('thead'); thead.append(head); table.append(thead);
+    const body = el('tbody');
+    for (const entry of data[key]) {
+      const name = key === 'roles' ? entry.role : `#${entry.task_id} · ${entry.role}${key === 'invocations' ? ` · run ${entry.run_id ?? '未知'}` : ''}`;
+      const row = el('tr');
+      const status = [entry.status, entry.integration, entry.unknown_tokens ? `${entry.unknown_tokens} 条用量未知` : null].filter(Boolean).join(' / ');
+      row.append(el('th', `${name}${status ? ` / ${status}` : ''}`), el('td', number(entry.requests)),
+        el('td', number(entry.input)), el('td', number(entry.cache_read)), el('td', number(entry.cache_write)), el('td', number(entry.output)), el('td', expense(entry)));
+      if (entry.goal) row.title = entry.goal;
+      body.append(row);
+    }
+    table.append(body); wrap.append(table); group.append(wrap);
+    if (data.attribution?.[`${key}_truncated`]) group.append(el('p', `仅显示预计费用最高的 ${data.attribution.limit} 组；总量仍包含全部记录。`, 'hint'));
+    root.append(group);
+  }
+  if (data.attribution?.unknown_role_requests || data.attribution?.unknown_run_requests) {
+    root.append(el('p', `历史归因不完整：${data.attribution.unknown_role_requests} 条角色未知，${data.attribution.unknown_run_requests} 条 invocation 未知。未知记录仍计入总量，不按相邻任务猜测。`, 'usage-warning'));
+  }
   return root;
 }
 

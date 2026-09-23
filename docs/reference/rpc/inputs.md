@@ -4,7 +4,7 @@
 
 | CLI | RPC | 参数 |
 |---|---|---|
-| `lush say '原话' [--branch NAME]` | `input.submit` | `{content, branch?, references?}` |
+| `lush say '原话' [--branch NAME] [--direct]` | `input.submit` | `{content, branch?, references?, direct?:false}` |
 | `lush intent list` | `input.list` | `{}`（每行带 planner 状态/闸门、Plan 计数与最新候选） |
 | `lush plan propose '标题' [--body '…']` | `plan.propose` | `{title, body?}`（planner 专用） |
 | `lush plan approve ID\|NOTICE_ID` | `plan.approve` | `{id, answer?}`（用户专属） |
@@ -18,7 +18,7 @@
 | `lush candidate list [--input ID]` | `candidate.list` | `{input?}` |
 | `lush candidate prepare INPUT [--summary '…']` | `candidate.prepare` | `{input, summary?}`（用户专属） |
 
-`input.submit` 返回 `{id, content, references, task, anchor}`。Web 可以额外提交结构化 `references`，正文不会被插入隐藏标记。`branch` 必须是本地分支；省略时使用当前检出分支。runtime 从它创建 `lush/<项目哈希>/input-<id>` 与 `.lush/worktrees/input-<id>`，planner 在该 worktree 中运行。输入分支既冻结解析上下文，也是任务分支的聚合父分支，最后通过 `branch.merge` 合回用户分支。
+`input.submit` 返回 `{id, content, references, task, anchor}`。显式 `direct:true` 时额外返回 `{direct:true, worker}`；保留零调用的 completed planner 占位，不运行规划模型，直接创建单个 worker，仍需人工批准合并。普通提交不受影响。`input.list` 的 `direct` 标记由既有事件派生，无新表或历史数据迁移。Web 可以额外提交结构化 `references`，正文不会被插入隐藏标记。`branch` 必须是本地分支；省略时使用当前检出分支。runtime 从它创建 `lush/<项目哈希>/input-<id>` 与 `.lush/worktrees/input-<id>`，planner 在该 worktree 中运行。输入分支既冻结解析上下文，也是任务分支的聚合父分支，最后通过 `branch.merge` 合回用户分支。
 
 字段为兼容已有数据库仍叫 `anchor_branch` / `anchor_commit` / `anchor_workspace` / `anchor_target_branch`。失败时整条输入不落库，草稿不动；input id 永不复用。详见 [输入和规划](../../engineering/inputs-and-planning.md)。
 

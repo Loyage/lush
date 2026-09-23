@@ -2,7 +2,7 @@ import { LushError, check, isPlainObject } from '../core/types.js';
 
 export const PARAMS = {
   'system.usage': ['start','end','interval'], 'system.status': [], 'system.summary': [], 'system.stop': [], 'system.timeline': ['limit'], 'system.configure': ['settings'], 'agent.config': [], 'agent.models': ['agent'], 'agent.resources': [], 'agent.environment': ['target'], 'agent.environment.configure': ['target','values'], 'agent.configure': ['config'],
-  'input.submit': ['content','branch','references'], 'input.list': [], 'input.flow': ['id','flow'],
+  'input.submit': ['content','branch','references','direct'], 'input.list': [], 'input.flow': ['id','flow'],
   'draft.add': ['content','references'], 'draft.list': [], 'draft.remove': ['id'], 'draft.update': ['id','content','references'], 'draft.commit': ['ids','branch'],
   'task.list': ['after','limit'], 'task.activity': ['limit'], 'task.page': ['before','limit'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.history_page': ['id','before','limit'], 'task.diff': ['id'],
   'task.transcript': ['id','after','limit'], 'task.usage': ['id'],

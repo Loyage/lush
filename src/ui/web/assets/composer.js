@@ -48,7 +48,12 @@ export async function buffer() {
 }
 export const selectedDraftIds = () => ui.draftIds.filter(draftId => !draftUnchecked.has(draftId));
 // 按钮的可用性同时看输入框与勾选：都没内容就没什么可提交的。
-export function syncComposer() { $('draft-commit').disabled = !$('input').value.trim() && selectedDraftIds().length === 0; }
+export function syncComposer() {
+  const busy = Boolean(ui.composerSubmitting);
+  $('draft-commit').disabled = busy || (!$('input').value.trim() && selectedDraftIds().length === 0);
+  $('draft-add').disabled = busy;
+  if ($('input-direct')) $('input-direct').disabled = busy || !$('input').value.trim();
+}
 /** 接上输入框与两个按钮：回车=缓存，⌘/Ctrl+回车=整体提交，Shift+回车=换行。 */
 export function initComposer() {
   $('draft-toggle').onclick = () => toggleDraftPanel();
@@ -57,13 +62,31 @@ export function initComposer() {
   paintComposerDetails();
   // 父分支值可能在展开态被改动：折叠回去时控件上要显示最新值。
   $('input-branch').addEventListener('input', paintComposerDetails);
-  $('draft-add').onclick = async event => {
-    const target = event.currentTarget; target.disabled = true;
-    try { await buffer(); } catch (error) { show(error.message, 'error'); } finally { target.disabled = false; }
+  $('draft-add').onclick = async () => {
+    if (ui.composerSubmitting) return;
+    ui.composerSubmitting = true; syncComposer();
+    try { await buffer(); } catch (error) { show(error.message, 'error'); }
+    finally { ui.composerSubmitting = false; syncComposer(); }
+  };
+  if ($('input-direct')) $('input-direct').onclick = async () => {
+    if (ui.composerSubmitting) return;
+    const content = $('input').value.trim();
+    if (!content) return;
+    const references = composerReferences(), signature = JSON.stringify(references);
+    const branch = $('input-branch').value.trim();
+    ui.composerSubmitting = true; syncComposer();
+    try {
+      const result = await action('input.submit', { content, references, direct: true, ...(branch ? { branch } : {}) });
+      if ($('input').value.trim() === content) $('input').value = '';
+      if (JSON.stringify(composerReferences()) === signature) setComposerReferences([]);
+      show(`已直接创建 worker #${result.worker.id}；未调用规划模型，合并仍需批准。待提交草稿未变。`);
+    } catch (error) { show(error.message, 'error'); }
+    finally { ui.composerSubmitting = false; syncComposer(); }
   };
   $('input-form').onsubmit = async event => {
     event.preventDefault();
-    const submit = $('draft-commit'); submit.disabled = true;
+    if (ui.composerSubmitting) return;
+    ui.composerSubmitting = true; syncComposer();
     try {
       if ($('input').value.trim()) await buffer();
       const ids = selectedDraftIds();
@@ -71,7 +94,7 @@ export function initComposer() {
       const branch = $('input-branch').value.trim();
       const result = await action('draft.commit', { ids, ...(branch ? { branch } : {}) });
       show(`已提交 ${result.drafts.length} 条输入；planner #${result.task.id} 正在拆解任务并建依赖`);
-    } catch (error) { show(error.message, 'error'); } finally { syncComposer(); }
+    } catch (error) { show(error.message, 'error'); } finally { ui.composerSubmitting = false; syncComposer(); }
   };
   $('input').addEventListener('input', syncComposer);
   // 回车=缓存，⌘/Ctrl+回车=整体提交，Shift+回车=换行。

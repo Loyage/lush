@@ -18,7 +18,7 @@ Task 的累计 calls / wakes 继续用于兼容读模型，Run 保存每次调�
 1. Dispatcher 按依赖与两条 lane 的容量选择 queued WorkItem。
 2. `running` Map 占位，签发本次 invocation token，创建 `agent_runs` 行。
 3. 准备 cwd：planner 使用 Intent worktree；worker 使用隔离 worktree；Candidate verifier 使用固定 integration commit 与 baseline commit。
-4. 读取启动时未消费消息、相关工作与 Artifact 上下文；若是 planner，再读取 Input 的引用快照并按稳定目标解析本轮最新状态，组成 `referenced_context`。provider 按 role 组合命名 Prompt 片段，叠加 `agent.json`、项目/本机补充并热加载公共/角色 env 后启动 Pi 或 Codex。
+4. 读取启动时未消费消息、相关工作与 Artifact 上下文；对带 Input 的普通任务读取其引用快照并按稳定目标解析本轮最新状态，组成 `referenced_context`。provider 按 role 组合命名 Prompt 片段，叠加 `agent.json`、项目/本机补充并热加载公共/角色 env 后启动 Pi 或 Codex。
 5. 成功返回后消费启动时消息，保存 Task 兼容 result、结束 Run、写 Artifact。
 6. 判定未读消息、Decision、活动子任务与工作区提交，进入 queued / awaiting / waiting / completed。
 7. 释放 token 和槽，再检查一次收件箱避免 lost wake-up。
@@ -42,7 +42,7 @@ planner 只写结构化 spec。它结束一轮后，runtime 直接创建 root wo
 
 ## 协作与集成
 
-coordinator 仍可动态派生子任务；Plan compiler 创建的根 worker 完成后由 Integration Service 在私有 Intent branch 内自动叶子优先聚合。分歧时创建 child-side merger，target branch 始终留给最终 Candidate approval。
+coordinator 仍可动态派生子任务；普通子任务成功收据在本波直接子任务全部终态后合并唤醒，失败、取消与显式消息仍及时可调度，详见[合并唤醒](token-efficiency.md#coordinator-合并唤醒)。Plan compiler 创建的根 worker 完成后由 Integration Service 在私有 Intent branch 内自动叶子优先聚合。分歧时创建 child-side merger，target branch 始终留给最终 Candidate approval。
 
 verifier 有两种来源：
 

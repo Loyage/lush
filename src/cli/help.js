@@ -6,7 +6,8 @@ lush [--project PATH] [--json] <command>
   agent show                     查看项目默认与各任务角色的 Agent 配置
   agent models pi|codex          读取本机 Agent CLI 当前可用模型目录
   agent set default|ROLE [--agent pi|codex] [--model ID] [--thinking LEVEL]
-        [--default-prompt '…'] [--append-prompt '…']
+        [--default-prompt '…'] [--append-prompt '…'] [--budget-responses N|off] [--budget-tokens N|off]
+                                  可选软预算仅 Pi 非 explainer 支持；默认关闭，达到后提醒收尾，不强停或换模型
                                   设置默认或 planner/coordinator/worker/research/verifier/merger/showcase/explainer；下次调用生效
                                   default-prompt 会替换 Lush 内置规则，使用前请确保包含完整任务与安全协议
   agent reset ROLE               删除该角色覆盖，恢复继承项目默认配置
@@ -17,8 +18,9 @@ lush [--project PATH] [--json] <command>
   config set concurrency N        执行通道并发上限（1..64），写回项目设置并立即生效
   config set control-concurrency N 控制通道并发上限（1..16）
   config reset [concurrency|control-concurrency|all]  清除覆盖，回到环境默认
-  doctor                          分列磁盘、项目 daemon 与项目绑定 Web 的代码身份；差异只提示，不重启
-  say '你的意图' [--branch NAME]    从指定本地分支创建输入分支并排入规划；省略 NAME 使用当前分支
+  doctor [--verbose]              默认仅身份摘要；--verbose 含完整 daemon 状态；差异只提示，不重启
+  say '你的意图' [--branch NAME] [--direct]  创建输入分支；默认规划，--direct 跳过规划模型直接交一个 worker
+                                  直接执行保留 completed planner 占位（零 invocation），仍需人工合并批准
   intent list                     查看意图、Plan 编译与验收候选进度（别名 intents）
   plan propose '标题' [--body '…']   planner 专用：这轮拆解请你先批准（影响面大 / 与现状冲突 / 没把握读懂意图）
   plan approve ID|NOTICE_ID        批准这一轮拆解，由 runtime 编译成 Work DAG
@@ -30,13 +32,15 @@ lush [--project PATH] [--json] <command>
   draft edit ID '想法'             改一条缓存输入（别名 update）
   draft rm ID                     丢掉一条缓存输入
   draft commit [ID...] [--branch NAME] 从指定父分支创建输入分支并提交缓存（无 ID 即全部）
-  task list [--after N] [--limit N] 分页任务列表（默认 200 条，只含开发工作；planner 见 intent list）
+  task list [--after N] [--limit N] [--brief] 分页任务列表；--brief 默认 30 条摘要及继续读取标记
+                                  普通列表默认 200 条；只含开发工作，planner 见 intent list
   task tree [ID]                  多级任务树：依赖（⛓ 基线 / ⏳ 顺序）与兄弟间的并行关系
   task ladder                     交付队列：按目标分支分组，显示变更栈、当前来源与阻塞原因
   task timeline [--limit N]       并行时间轴：每个任务什么时候真的在跑，排队是在等依赖、等槽还是等子任务
   task inspect ID                 结果、agent、子任务、消息与工作区
   progress plan KEY[:LABEL]...     agent 汇报自己的有序执行计划；重复汇报时同 key 的完成态保留
   progress complete KEY            agent 汇报一个计划步骤已完成；身份自动绑定当前 task
+                                  progress 默认短确认，--json 返回完整进度对象
   task history ID [--after N]      分页事件记录
   task transcript ID [--after N]   只读查看 agent 的思考、工具调用与工具输出（来自 pi 会话记录）
   task usage ID                   只读查看这个 agent 的模型、上下文占用与累计花费（同一批会话记录）
