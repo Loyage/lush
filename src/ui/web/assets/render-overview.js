@@ -292,7 +292,7 @@ export function renderOverview(data) {
       const result = await action('task.clear');
       await overview();
       show(`已清空 ${result.cleared.tasks} 个任务、${result.cleared.inputs} 条输入；回收 ${result.reclaimed?.worktrees ?? 0} 个 worktree、${result.reclaimed?.branches ?? 0} 个分支、${result.reclaimed?.anchors ?? 0} 个输入锚点，保留 ${result.retained.tasks.length} 个`);
-    }, 'danger'));
+    }, 'danger', { help: '删除全部已结束任务及其输入、草稿与事件，并按安全门回收可回收的 worktree 与分支；不可撤销' }));
     maintenance.append(actions);
   }
   const tools = el('details', undefined, 'disclosure maintenance'); tools.dataset.fold = 'maintenance'; tools.open = expanded.has('maintenance');

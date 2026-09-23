@@ -52,12 +52,15 @@ export function notificationControl() {
     paintControl(root); toggle.disabled = false;
   }, 'ghost');
   toggle.dataset.pref = 'noticeNotifications';
+  toggle.setAttribute('data-help', '开启后新的待你处理问题会发系统通知；关闭后只保留页面内提醒');
   root.append(toggle, status); paintControl(root); return root;
 }
 function paintControl(root) {
   const toggle = root.querySelector('button');
-  toggle.textContent = readPref('noticeNotifications') ? '关闭系统提醒' : '开启系统提醒';
-  toggle.setAttribute('aria-pressed', String(readPref('noticeNotifications')));
+  const on = readPref('noticeNotifications');
+  toggle.textContent = on ? '关闭系统提醒' : '开启系统提醒';
+  toggle.setAttribute('aria-label', on ? '关闭系统提醒' : '开启系统提醒');
+  toggle.setAttribute('aria-pressed', String(on));
   root.querySelector('span').textContent = notificationStatus();
 }
 

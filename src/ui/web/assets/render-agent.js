@@ -101,7 +101,8 @@ export function renderAgent(task, usage, reading = null) {
   }, 'ghost');
   toggle.setAttribute('aria-expanded', String(expanded));
   const controls = el('div', undefined, 'actions');
-  controls.append(toggle, button('终端模式', () => openTranscriptTerminal(task.id), 'ghost'));
+  controls.append(toggle, button('终端模式', () => openTranscriptTerminal(task.id), 'ghost',
+    { help: '打开全宽只读终端，按会话顺序阅读完整执行记录；不执行命令，也不自动滚动' }));
   process.append(controls);
   if (usage?.last) process.append(lastStepRow(usage.last));
   process.append(holder);

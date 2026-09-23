@@ -26,7 +26,7 @@ export function renderNoticeBanner(data) {
   host.dataset.signature = signature;
   const main = el('button', undefined, 'notice-banner-main');
   main.type = 'button';
-  main.title = `最新：${newest.title}`;
+  main.setAttribute('data-help', '最新待决提醒；点击打开处理页');
   main.append(
     el('span', undefined, 'notice-banner-dot'),
     el('span', `${open.length} 条待你处理`, 'notice-banner-count'),
