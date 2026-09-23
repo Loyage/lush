@@ -13,6 +13,7 @@ import { paintUsageLast } from './render-agent.js';
 import { renderDrafts } from './render-drafts.js';
 import { renderIntents } from './render-intents.js';
 import { renderNotices } from './render-notices.js';
+import { renderNoticeBanner } from './notice-banner.js';
 import { observeNotices } from './notice-notifications.js';
 import { renderOverview } from './render-overview.js';
 import { refreshProgressDurations } from './render-progress.js';
@@ -99,7 +100,7 @@ export async function refresh() {
     if (changed) {
       $('agents').replaceChildren(slotGauge(data));
       renderDrafts(data); renderIntents(data); renderTree(data); renderSpecs(data);
-      renderNotices(data); observeNotices(data); syncComposer();
+      renderNotices(data); renderNoticeBanner(data); observeNotices(data); syncComposer();
     }
     // 概览、分支图、文档页共用一个右栏：谁开着，轮询就不把概览画回来。
     const overviewOpen = ui.view?.id === 'overview';

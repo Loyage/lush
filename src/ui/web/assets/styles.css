@@ -410,6 +410,19 @@ button.context-action{display:block;width:100%;background:transparent;color:var(
 #side-notices .filters{display:flex;gap:6px;flex-wrap:wrap}#side-notices .filters button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
 #notice-record-detail:not(:empty){margin-top:20px}#notice-pagination{margin-top:10px}#notice-record-detail textarea{width:100%}
 
+/* 全局常驻待决提醒条：任何页面可见，点击进入「待我处理」并定位最新一条。
+   与左栏计数同口径（status==="open"）；脉冲只做点缀，文案本身已经说明「有待决」。 */
+.notice-banner{display:flex;justify-content:center;padding:8px clamp(22px,3.5vw,64px);background:color-mix(in srgb,var(--awaiting) 13%,var(--panel));border-bottom:1px solid var(--line-soft);z-index:3}
+.notice-banner[hidden]{display:none}
+button.notice-banner-main{display:flex;align-items:center;gap:10px;width:100%;max-width:1180px;margin:0 auto;padding:9px 14px;background:var(--panel);color:var(--text);border:1px solid color-mix(in srgb,var(--awaiting) 45%,var(--line));border-radius:11px;text-align:left;box-shadow:var(--shadow)}
+button.notice-banner-main:hover{background:var(--accent-soft);border-color:var(--awaiting);filter:none}
+.notice-banner-dot{width:9px;height:9px;flex:none;border-radius:50%;background:var(--awaiting);animation:notice-banner-pulse 2s var(--ease) infinite}
+.notice-banner-count{flex:none;font-size:12px;font-weight:650;color:var(--awaiting)}
+.notice-banner-title{flex:1;min-width:0;font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.notice-banner-go{flex:none;font-size:11px;color:var(--muted)}
+@keyframes notice-banner-pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--awaiting) 55%,transparent)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@media(max-width:760px){.notice-banner{position:sticky;top:42px;padding:6px 10px}button.notice-banner-main{padding:8px 10px;gap:7px}.notice-banner-go{display:none}}
+
 /* Decision questionnaires: same renderer in browsers and Electron webviews. */
 .questionnaire{margin:16px 0;min-width:0}.decision-progress{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px}.decision-progress button{font-size:12px}.decision-layout{display:grid;gap:16px;margin:14px 0}.decision-layout.has-preview{grid-template-columns:minmax(180px,1fr) minmax(240px,1.4fr)}.decision-choices{display:flex;flex-direction:column;gap:10px;min-width:0}.decision-option-row{display:flex;align-items:stretch;gap:6px}button.decision-option{display:flex;flex:1;min-width:0;flex-direction:column;gap:6px;text-align:left;white-space:normal;padding:14px;background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:10px}button.decision-option span{font-size:12px;font-weight:400;color:var(--muted);overflow-wrap:anywhere}button.decision-option:hover,button.decision-option:focus-visible,button.decision-option.selected{border-color:var(--accent);outline:2px solid var(--accent);outline-offset:1px}.decision-preview-button{align-self:center;font-size:12px}.decision-preview{border:1px solid var(--line);padding:12px;border-radius:10px;min-width:0;overflow:auto}.decision-preview h4{margin:6px 0 12px}.decision-preview iframe{display:block;width:100%;height:340px;border:0;border-radius:6px;background:white;color-scheme:light}.decision-summary{margin:12px 0;padding:14px;border:1px solid var(--line);border-radius:10px}.decision-summary details{margin-top:10px}.questionnaire textarea{display:block;width:100%;margin:8px 0}@media(max-width:1050px){.decision-layout.has-preview{grid-template-columns:1fr}}
 

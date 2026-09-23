@@ -52,6 +52,7 @@
 | `render-tree.js` | 全类型任务列表与任务树（含规划、历史调度、展示与执行介绍）；固定完整类型筛选、兄弟链、依赖标签、为什么没在跑；明确标出“活动 + 最近历史”的截断范围，通过 `/api/tasks?scope=all&before=` 按需加载更早页，筛选只针对已加载记录 | `renderTree(data)` |
 | `render-notices.js` | 待决计数、按状态分页记录、面板内答复与 Plan 审批、只读历史；resolver 首次请示使用明确动作；轮询保留输入与已加载历史 | `initNoticeRecords()`、`loadNoticeRecords({more?,preserve?})`、`renderNotices(data)`、`openNotice(noticeId)`、`noticePanel(notice, task?)` |
 | `notice-notifications.js` | 默认关闭的客户端提醒：用户授权、开关状态、按项目建立首屏基线、增量通知与去重；浏览器 Notification / Electron IPC 适配 | `initNoticeNotifications()`、`notificationStatus()`、`setNoticeNotifications(enabled)`、`notificationControl()`、`createNoticeNotifier(options)`、`resetNoticeNotifier()`、`observeNotices(data)` |
+| `notice-banner.js` | 全局常驻待决提醒条：汇总快照里全部 `status==="open"` 的 notice（问卷 / 计划审批 / 普通提问），与左栏「待我处理」、`renderNotices` 同口径；节点在 `.content-shell` 内、`#detail` / `#resource-panels` 之外，因此概览、任务详情、设置、统计、分支图、文档与四个信息页都可见（桌面常驻，移动端 sticky 在 `.view-toolbar` 下方）；宿主是 `role="status"` 的 `<section id="notice-banner">`，内容为一个可点、可键盘聚焦的 `<button>`，点击 `openResource("notices")` 后 `openNotice(最新 id)`（必须在 `renderNotices` 之后调用，保证 `ui.noticeIndex` 已更新）；用 `host.dataset` 签名幂等，轮询不重画、不抢焦点、不触发系统通知 | `renderNoticeBanner(data)` |
 | `render-ladder.js` | 按目标分支分组的交付队列、变更栈与批量落地 | `renderLadder(data)`、`mergeBatch(ids, candidates)`、`renderMergeResult(entry)` |
 | `render-timeline.js` | 并行时间轴 | `renderTimeline(timeline)` |
 | `render-history.js` | 事件时间线；默认最近 100 条，明确显示截断并用 `before` 游标逐页加载更早记录 | `renderHistory(history, opts)` |
@@ -78,7 +79,7 @@
 | `docs-search.js` | 浏览器全文搜索纯逻辑：NFKC / 小写归一化，中英文子串、多词 AND、字段加权、摘要与稳定排序；Mermaid 仅低权重参与 | `normalizeDocsQuery(value)`、`searchDocs(index, query, limit)` |
 | `render-docs.js` | 「文档」视图的目录、懒加载内容搜索、Markdown 正文、Mermaid 启动与兜底 | `renderDocsIndex(docs, onOpen, options)`、`renderDoc(doc, resolveLink, onOpen)`、`renderDocError(id, message, onOpen)` |
 | `mermaid-docs.js` | 只在文档存在 Mermaid 容器时加载本地固定版本，以 strict 模式逐图校验，并通过显式唯一 id 渲染成隔离的 blob SVG 图片（避免节点/箭头串图，也不用为 Mermaid 放宽主页面的 inline-style CSP）；换文档时回收 blob URL，切换深浅主题时从保留源码串行重绘，超长、超量、加载或语法失败均回退为源码。Agent 输出不走这条路径 | `renderMermaidDiagrams(root)`、`refreshMermaidDiagrams(root)`、`clearMermaidDiagrams(root)` |
-| `refresh.js` | 轮询有界 `/api/overview`（revision 未变时不重画；旧 host 回退完整 snapshot）、概览、热任务增量刷新、筛选重画；右侧信息页 / 文档 / 设置 / 统计打开时不让概览覆盖；切回概览立即用缓存绘制，不等 revision 变化或轮询空闲；「项目概览」与「分支图」共用同一份 `graph.get`（`ui.lastGraph`）与同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s），概览先用快照画、后台取图后就地重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
+| `refresh.js` | 轮询有界 `/api/overview`（revision 未变时不重画；旧 host 回退完整 snapshot）、概览、热任务增量刷新、筛选重画；右侧信息页 / 文档 / 设置 / 统计打开时不让概览覆盖；切回概览立即用缓存绘制，不等 revision 变化或轮询空闲；「项目概览」与「分支图」共用同一份 `graph.get`（`ui.lastGraph`）与同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s），概览先用快照画、后台取图后就地重画；changed 时在 `renderNotices(data)` 之后同步调用 `renderNoticeBanner(data)` | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
 
 分支 `showcase` 准入读面经 `graph-layout.js` 透传并纳入 `graphRenderKey`，仅 `allowed === true` 时在分支详情显示次要展示按钮；旧 daemon 无字段时不开放，历史展示仍给查看链接。
 
