@@ -495,7 +495,8 @@ function branchRow(branch, onCollapsed) {
 
   // 只有「可归档且尚未归档」的分支才给动作；当前检出、未登记、还有活没完的都不给。
   // 归档一条＝归档它整棵子树（见 runBranchArchive 的确认文案）。
-  if (branch.head_commit && !branch.archived) row.append(button('效果展示', () => startBranchShowcase(branch.name), 'primary'));
+  if (branch.showcase?.allowed === true) row.append(button('效果展示', () => startBranchShowcase(branch.name), 'ghost'));
+  if (branch.showcase?.latest_task_id) row.append(button('查看已有展示', () => detail(branch.showcase.latest_task_id), 'link'));
   if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch), 'ghost'));
 
   referenceable(row, { kind: 'delivery_branch', target: { target_branch: branch.name, section: 'graph' }, label: `分支 ${branch.name}`,

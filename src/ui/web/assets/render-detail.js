@@ -14,7 +14,8 @@ import { questionnairePanel } from './render-questionnaire.js';
 import { renderResolutions } from './render-resolutions.js';
 import { specItem } from './render-specs.js';
 import { renderVerifications } from './render-verify.js';
-import { startBranchShowcase, renderShowcase } from './render-showcase.js';
+import { renderShowcase } from './render-showcase.js';
+import { retryTask } from './retry-dialog.js';
 import { ui } from './state.js';
 import { agentText } from './text.js';
 import { referenceable } from './context-references.js';
@@ -113,7 +114,9 @@ export function renderDetail(task, history, diff, usage) {
     if (live) { node.disabled = true; node.title = `#${resolver.id} 正在解冲突：等它结束，或者先取消它再重试。`; }
     actions.append(node);
   }
-  if (['failed', 'cancelled'].includes(task.status)) actions.append(button('检查后重试', async () => { await action('task.retry', { id: task.id }); await detail(task.id); }));
+  if (['failed', 'cancelled'].includes(task.status)) actions.append(button('检查后重试', async () => {
+    if (await retryTask(task)) await detail(task.id);
+  }));
   const reclaimable = task.status === 'completed' && ['merged', 'none', 'superseded'].includes(task.integration) && (task.workspace || task.branch);
   if (reclaimable) actions.append(button('回收工作区与分支', async () => {
     const plan = [task.workspace && `删除 ${task.workspace}`, task.branch && `回收分支 ${task.branch}`].filter(Boolean).join('\n');
@@ -129,9 +132,6 @@ export function renderDetail(task, history, diff, usage) {
   }, 'ghost'));
   if (reclaimable && task.workspace && task.branch) actions.append(button('只回收 worktree（保留分支）', async () => { await action('task.cleanup', { id: task.id, keep_branch: true }); await detail(task.id); }, 'ghost'));
   const verifications = task.verifications || [];
-  if (task.branch && ['worker','merger'].includes(task.role)) {
-    actions.append(button('效果展示', () => startBranchShowcase(task.branch), 'primary'));
-  }
   if (!['completed', 'failed', 'cancelled'].includes(task.status)) actions.append(button('取消任务树', async () => {
     const confirmed = await confirmDialog({
       title: '取消这个任务树？',

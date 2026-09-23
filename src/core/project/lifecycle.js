@@ -37,7 +37,9 @@ export default {
     if (task.role === 'showcase' && status !== 'completed') void this.stopShowcasePreview(task.id);
     check(this.store.children(task.id).every(child => TERMINAL.has(child.status)), 'cannot finish with active children');
     this.store.transaction(() => {
-      this.store.update(task.id, { status, result, error });
+      // A retry profile is scoped to this attempt. Terminal settlement removes it so a later
+      // explicit retry starts from the then-current project/role profile unless the user adjusts it again.
+      this.store.update(task.id, { status, result, error, retry_profile: null });
       this.store.run("UPDATE notices SET status='dismissed',answer='task ended' WHERE task_id=? AND status='open'", task.id);
       // 结算提醒：completed / failed 且任务有自己的分支时落且只落一条纯信息 notice。
       // 它 kind='info' / status='sent'，与这次结算同一个事务，且顺序在「关掉 open notice」之后；
@@ -224,15 +226,23 @@ export default {
     };
   },
 
-  retry(taskId) {
+  retry(taskId, profile = null) {
     const task = this.store.task(taskId);
     check(['failed','cancelled'].includes(task.status), 'only failed/cancelled tasks can be retried');
     check(!this.running.has(task.id), 'agent is still stopping; retry shortly');
     check(!this.workspaces.busy.has(task.id), 'worktree cleanup is in progress; retry shortly');
-    if (task.role === 'showcase') check(!this.workspaces.previewActive(task.id), 'preview is still stopping; retry shortly');
+    if (task.role === 'showcase') return this.retryShowcase(task.id);
     if (task.parent_id) check(!TERMINAL.has(this.store.task(task.parent_id).status), 'parent has ended; retry the parent or submit a new input');
-    this.store.update(task.id, { status: 'queued', error: null, result: null, calls: 0 });
-    this.store.event(task.id, 'retry', {}); this.kick(); return this.store.task(task.id);
+    const retryProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile(task.role, profile);
+    this.store.update(task.id, { status: 'queued', error: null, result: null, calls: 0,
+      retry_profile: retryProfile ? JSON.stringify(retryProfile) : null });
+    this.store.event(task.id, 'retry', retryProfile ? {
+      profile_override: true, agent: retryProfile.agent, model: retryProfile.model || null,
+      thinking: retryProfile.thinking || null, default_prompt_overridden: Boolean(retryProfile.default_prompt),
+      append_prompt: Boolean(retryProfile.append_prompt), extensions: retryProfile.extensions.length,
+      skills: retryProfile.skills.length, soft_budget: retryProfile.soft_budget || null,
+    } : { profile_override: false });
+    this.kick(); return this.store.task(task.id);
   },
 
   recover() {

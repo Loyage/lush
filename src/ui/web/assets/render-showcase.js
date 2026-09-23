@@ -1,33 +1,21 @@
 import { el, block, button, kv } from './dom.js';
 import { api, action } from './api.js';
-import { confirmDialog, promptDialog } from './dialog.js';
+import { confirmDialog } from './dialog.js';
+import { show } from './messages.js';
 import { detail } from './navigate.js';
 
-export async function startBranchShowcase(branch = null) {
+export async function startBranchShowcase(branch) {
   const graph = await api('/api/graph');
-  const branches = (graph.nodes || []).filter(node => node.kind === 'branch' && node.head_commit && !node.archived);
-  if (!branch) {
-    branch = await promptDialog({ title: '选择效果展示分支', label: '本地分支',
-      message: '展示已提交的固定版本，不包含未提交修改。', detail: branches.map(node => node.name).join('\n'),
-      placeholder: graph.current_branch || 'feature/my-change', confirmLabel: '下一步' });
-    if (!branch?.trim()) return;
-    branch = branch.trim();
-  }
-  const node = branches.find(item => item.name === branch);
-  let baseline = null;
-  if (!node?.created_from_commit) {
-    baseline = await promptDialog({ title: `为 ${branch} 选择对比基线`, label: '本地对比分支',
-      message: '这条分支没有记录的分叉起点。将以两条分支的共同祖先为起点分析变化。',
-      detail: branches.filter(item => item.name !== branch).map(item => item.name).join('\n'),
-      placeholder: 'main', confirmLabel: '下一步' });
-    if (!baseline?.trim()) return;
-    baseline = baseline.trim();
+  const node = (graph.nodes || []).find(item => item.kind === 'branch' && item.name === branch);
+  if (node?.showcase?.allowed !== true) {
+    show(node?.showcase?.reason || '该分支暂不满足效果展示条件，请刷新分支详情。', 'error');
+    return;
   }
   if (!await confirmDialog({ title: `展示 ${branch} 的效果？`,
     message: '专用 agent 会在隔离工作区分析修改、设计并执行展示方案。可能运行项目代码与本机预览；展示不代表检验通过，不自动合并。',
-    detail: `对比起点：${baseline ? `与 ${baseline} 的共同祖先` : node.created_from_commit}\n预览保留到你停止或 daemon 退出；不改变用户当前分支。`,
+    detail: `对比起点：${node.created_from_commit}\n预览保留到你停止或 daemon 退出；不改变用户当前分支。`,
     confirmLabel: '开始效果展示' })) return;
-  const task = await action('showcase.start', { branch, baseline });
+  const task = await action('showcase.start', { branch, baseline: null });
   if (task?.id) await detail(task.id);
   return task;
 }

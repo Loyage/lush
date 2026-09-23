@@ -47,7 +47,7 @@ export const handlers = {
   },
   'task.message'(p, params, actor) { return p.message(params.id, params.body, actor); },
   'task.cancel'(p, params, actor) { return p.cancel(params.id); },
-  'task.retry'(p, params, actor) { return p.retry(params.id); },
+  'task.retry'(p, params, actor) { return p.retry(params.id, params.profile ?? null); },
   'task.merge'(p, params, actor) { return p.approveMerge(id(params.id)); },
   'task.merge_many'(p, params, actor) { return p.approveMergeMany(params.ids); },
   'task.verify'(p, params, actor) { return p.verify(id(params.id)); },

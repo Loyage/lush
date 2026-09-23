@@ -251,8 +251,10 @@ export default {
         // 分支的 worktree 只在创建那一刻记进 branches 行；目录被归档/清理后就报 missing，不假装还在。
         const worktree = record?.worktree ?? null;
         const worktree_state = worktree ? (fs.existsSync(worktree) ? 'present' : 'missing') : 'none';
+        const { allowed, reason, latest_task_id } = await this.showcaseEligibility(name);
         nodes.push({
           kind: 'branch', id: branchId(name), name,
+          showcase: { allowed, reason, latest_task_id },
           head_commit: refs.get(name) ?? null,
           current: name === currentBranch,
           tracked: record !== null,

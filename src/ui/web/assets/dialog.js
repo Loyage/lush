@@ -24,7 +24,8 @@ export function closeDialog() { if (active) active(null); }
  * 打开一个弹窗并等用户作答。`field` 非空时多一个文本输入框。
  * @returns {Promise<true|string|null>} 确认时是 `true`；有输入框时是输入的字符串；取消时是 `null`。
  */
-function open({ title, message = null, detail = null, confirmLabel, cancelLabel, danger = false, field = null }) {
+function open({ title, message = null, detail = null, confirmLabel, cancelLabel, danger = false, field = null,
+  content = null, cardClass = '' }) {
   if (active) active(null);
   const previous = globalThis.document?.activeElement ?? null;
   const root = $('modal');
@@ -40,7 +41,7 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
   };
 
   root.hidden = false;
-  const card = el('div', undefined, 'modal-card');
+  const card = el('div', undefined, `modal-card${cardClass ? ` ${cardClass}` : ''}`);
   card.setAttribute('role', 'dialog');
   card.setAttribute('aria-modal', 'true');
   const heading = el('h2', title, 'modal-title');
@@ -49,6 +50,7 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
   card.setAttribute('aria-labelledby', 'modal-title');
   if (message) card.append(el('p', message, 'modal-message'));
   if (detail) card.append(el('pre', detail, 'modal-detail'));
+  if (content) card.append(content);
 
   let input = null;
   if (field) {
@@ -82,7 +84,8 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
   root.onkeydown = event => {
     if (event.key === 'Escape') { event.preventDefault?.(); active?.(null); return; }
     if (event.key !== 'Tab') return;
-    const stops = [input, cancel, confirm].filter(node => node && !node.disabled);
+    const contentStops = content ? ['input','select','textarea','button'].flatMap(tag => [...content.querySelectorAll(tag)]) : [];
+    const stops = [input, ...contentStops, cancel, confirm].filter(node => node && !node.disabled);
     const index = stops.indexOf(globalThis.document?.activeElement ?? null);
     // 焦点不在弹窗里（或已经跑到外面）时，Tab 从首/尾接上，不让它漏出去。
     const next = index < 0
@@ -111,4 +114,10 @@ export function confirmDialog({ title, message = null, detail = null, confirmLab
 export function promptDialog({ title, message = null, value = '', label = '内容', placeholder = '', confirmLabel = '确定', cancelLabel = '取消' }) {
   return open({ title, message, detail: null, confirmLabel, cancelLabel, danger: false, field: { label, value, placeholder } })
     .then(result => (typeof result === 'string' ? result : null));
+}
+
+/** 应用内表单弹窗：调用方拥有表单节点，确认后自行读取和校验字段。 */
+export function formDialog({ title, message = null, content, confirmLabel = '确定', cancelLabel = '取消', danger = false, cardClass = '' }) {
+  return open({ title, message, detail: null, confirmLabel, cancelLabel, danger, content, cardClass, field: null })
+    .then(value => value === true);
 }
