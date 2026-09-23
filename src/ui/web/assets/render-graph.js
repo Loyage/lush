@@ -47,6 +47,61 @@ const BRANCH_ORIGIN = {
   placeholder: '占位',
 };
 
+/** 已提交规模与工作区脏活分开，不把未知或未检出说成干净 / 零改动。 */
+function branchDiagnostics(branch) {
+  const data = branch.diagnostics;
+  if (!data) return null; // 兼容旧 daemon。
+  const box = el('div', undefined, 'graph-diagnostics');
+  const changes = data.changes;
+  if (changes?.status === 'ok') {
+    const scale = el('div', undefined, 'graph-change-scale');
+    scale.append(el('strong', `已提交：${changes.files_total} 个文件`),
+      el('span', `+${changes.added}`, 'plus mono'), el('span', `−${changes.deleted} 行`, 'minus mono'));
+    if (changes.binary_files) scale.append(el('span', `含 ${changes.binary_files} 个二进制文件（不计行数）`, 'meta'));
+    box.append(scale, el('div', `相对创建起点 ${changes.base_commit.slice(0, 7)} → ${changes.head_commit.slice(0, 7)} · 累计净改动，不含未提交内容`, 'meta'));
+    if (changes.files_total) {
+      const body = el('div', undefined, 'graph-change-files');
+      const list = el('ul', undefined, 'difflist');
+      for (const file of changes.files || []) {
+        const item = el('li');
+        const name = file.previous_path ? `${file.previous_path} → ${file.path}` : file.path;
+        item.append(el('span', name, 'path'), el('span', file.added === null ? '二进制' : `+${file.added} / −${file.deleted}`, 'stat'));
+        list.append(item);
+      }
+      body.append(list);
+      if (changes.truncated) body.append(el('p', `仅列出前 ${changes.files.length} / ${changes.files_total} 个文件；汇总包含全部文件。`, 'hint'));
+      const toggle = button('文件改动列表', () => {
+        if (ui.graphFilesExpanded.has(branch.name)) ui.graphFilesExpanded.delete(branch.name);
+        else ui.graphFilesExpanded.add(branch.name);
+        paint();
+      }, 'ghost');
+      const paint = () => {
+        const open = ui.graphFilesExpanded.has(branch.name);
+        body.hidden = !open;
+        toggle.setAttribute('aria-expanded', String(open));
+        toggle.textContent = `${open ? '收起' : '展开'}文件改动列表`;
+      };
+      paint(); box.append(toggle, body);
+    }
+  } else {
+    const reason = { missing_head: '分支不存在', missing_baseline: '没有记录创建起点', read_failed: '无法读取起点或提交差异' }[changes?.reason] || '读取失败';
+    box.append(el('div', `改动规模不可用：${reason}`, 'meta'));
+  }
+  const working = data.working_tree;
+  if (working?.status === 'dirty' || working?.status === 'clean') {
+    const text = working.files_total ? `未提交：${working.files_total} 个文件` : '工作区干净：无未提交文件';
+    const counts = working.files_total ? ` · 暂存 ${working.staged} / 未暂存 ${working.unstaged} / 未跟踪 ${working.untracked} / 冲突 ${working.conflicts}` : '';
+    const node = el('div', text + counts, working.files_total ? 'graph-pending warn' : 'meta');
+    node.title = `${working.path}\n按文件去重计总数，分类可能重叠；不含忽略文件及 .lush 运行时目录。`;
+    box.append(node);
+  } else box.append(el('div', working?.status === 'not_checked_out' ? '未提交：未检出工作区' : '未提交：工作区状态未知', 'meta'));
+  const latest = data.latest_commit;
+  box.append(el('div', latest
+    ? `最近提交：${new Date(latest.committed_at).toLocaleString('zh-CN', { hour12: false })} · ${latest.subject}`
+    : '最近提交：不可用', 'graph-latest meta'));
+  return box;
+}
+
 let pending = null;
 
 /** 打开分支图：清掉选中的任务详情（否则热任务刷新会把图覆盖掉），并把地址栏切到 #graph。 */
@@ -435,6 +490,8 @@ function branchRow(branch, onCollapsed) {
     meta.append(el('span', `任务：${branch.taskCounts.total}（${parts.join('，')}）`, 'meta'));
   }
   if (meta.children.length > 0) row.append(meta);
+  const diagnostics = branchDiagnostics(branch);
+  if (diagnostics) row.append(diagnostics);
 
   // 只有「可归档且尚未归档」的分支才给动作；当前检出、未登记、还有活没完的都不给。
   // 归档一条＝归档它整棵子树（见 runBranchArchive 的确认文案）。

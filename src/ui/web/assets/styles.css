@@ -188,6 +188,12 @@ button.step-head{display:flex;align-items:center;gap:7px;font-size:11px;color:va
 .gantt{margin:10px 0 0;border:1px solid var(--line-soft);border-radius:10px;background:var(--bg);padding:12px}.gantt-row{display:flex;align-items:center;gap:9px;height:25px}.gantt-label{flex:none;width:95px;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gantt-track{position:relative;flex:1;min-width:0;height:10px;background:var(--panel-2);border-radius:5px}.gantt-seg{position:absolute;top:0;height:10px;border-radius:5px}.gantt-seg.run{background:var(--completed)}.gantt-seg.run.open{background:var(--running)}.gantt-seg.wait{top:2px;height:6px;background:transparent;border:1px dashed var(--dim)}.gantt-seg.wait.r-dep{border-color:var(--awaiting)}.gantt-seg.wait.r-children{border-color:var(--queued)}.gantt-seg.wait.r-user,.gantt-seg.wait.r-setup{border-color:var(--failed)}.gantt-track.slot-track{height:6px;margin-top:5px}.gantt-seg.slot-idle{background:var(--line-soft)}.gantt-seg.slot-busy{background:var(--queued)}.gantt-seg.slot-full{background:var(--accent)}.gantt-axis{display:flex;justify-content:space-between;margin:6px 0 0 104px;font-size:10px;color:var(--dim)}
 
 /* Branch graph. */
+.graph-diagnostics{flex-basis:100%;min-width:0;display:grid;gap:7px;padding-top:10px;border-top:1px solid var(--line-soft);font-size:12px}
+.graph-change-scale{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;font-variant-numeric:tabular-nums}
+.graph-diagnostics>.meta{margin:0;overflow-wrap:anywhere}.graph-diagnostics>button{justify-self:start}
+.graph-change-files{max-height:280px;overflow:auto}.graph-change-files[hidden]{display:none}
+.graph-change-files .path{white-space:pre-wrap}.graph-pending{color:var(--awaiting);overflow-wrap:anywhere}
+
 .graph-view .head{margin:0 0 26px}.graph-view .head .tid-lg{font-size:28px;letter-spacing:-.03em}.graph-view .head .actions{margin:0 0 0 auto}.graph-group{position:relative;margin-top:18px;border:1px solid var(--line-soft);border-radius:var(--radius);background:var(--panel);padding:22px;box-shadow:var(--shadow)}/* 父子关系色：一个 key 决定面板底色（--rel-tint）、左边条与连接线（--rel-ink）。
    领先 = 可合入的绿，相等 = 中性灰，落后 = 蓝（父分支已前进），分歧 = 琥珀，缺失 = 红。
    父分支归档不是故障：同中性灰，不让用户自己按的归档看起来像报错。 */

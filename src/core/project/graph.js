@@ -61,7 +61,8 @@ function summarize(text) {
  * 再给三个可执行动作：`can_merge`（子→父 fast-forward）/ `can_sync`（分歧时建子侧 merger）/ `can_catchup`
  * （父→子 fast-forward，子分支没有独有提交时才能跟上）。
  *
- * 全部只用只读 git（rev-parse / symbolic-ref / for-each-ref / rev-list）与文件系统探测：
+ * branch.diagnostics 另提供起点→tip 的改动规模、有界文件列表、最近提交与独立的未提交统计。
+ * 全部只用只读 git（含 diff / log / status）与文件系统探测：
  * 不 checkout、不 merge、不改 index、不删 worktree、不写 store（无 update / event），
  * 所以 `project.stopping === true` 时也能安全跑。非 git 项目或 git 命令失败返回空图并带
  * `git:false` / `error`，不抛错——图是给人看的辅助视图，不该把 daemon 的轮询打断。
@@ -214,6 +215,10 @@ export default {
         relations.set(row.branch, { status, ahead, behind, parent_head: parentHead, child_head: childHead });
       }
 
+      const diagnostics = await this.workspaces.branchDiagnostics(branchNodes
+        .filter(name => records.get(name)?.status !== 'archived')
+        .map(name => ({ name, head_commit: refs.get(name) ?? null,
+          created_from_commit: records.get(name)?.created_from_commit ?? null })));
       const nodes = [];
       for (const name of branchNodes) {
         const record = records.get(name) ?? null;
@@ -252,6 +257,7 @@ export default {
           current: name === currentBranch,
           tracked: record !== null,
           created_from_commit: record?.created_from_commit ?? null,
+          diagnostics: diagnostics.get(name) ?? null,
           placeholder,
           origin,
           // 标题优先用摘要；没有摘要时完全保持既有派生（输入 / goal 首行压缩并截断）。

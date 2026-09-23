@@ -40,6 +40,10 @@ test('graph reports code stacking, ahead/behind and merge state', async () => {
     const mainBranch = graph.nodes.find(node => node.kind === 'branch' && node.name === 'main');
     expect(mainBranch.id).toBe('branch:main');
     expect(mainBranch.current).toBe(true);
+    const branchChanges = graph.nodes.find(node => node.name === upstream.branch)?.diagnostics?.changes;
+    expect(branchChanges).toMatchObject({ status: 'ok', files_total: 1, added: 1, deleted: 1 });
+    expect(branchChanges.base_commit).toBe(f.store.branch(upstream.branch).created_from_commit);
+    expect(mainBranch.diagnostics.changes.reason).toBe('missing_baseline');
 
     expect(graph.edges).toContainEqual({ kind: 'code', from: task.id, to: child.id });
     expect(graph.edges).toContainEqual({ kind: 'target', from: task.id, to: `branch:${f.store.task(task.id).target_branch}` });
@@ -53,6 +57,8 @@ test('graph reports code stacking, ahead/behind and merge state', async () => {
     expect(byId.get(task.id).ahead).toBe(0); expect(byId.get(task.id).behind).toBe(0);
     expect(byId.get(child.id).merged).toBe(false);
     expect(byId.get(child.id).ahead).toBe(1);
+    // 合入父分支后仍是创建以来的规模，不随着 ahead 归零。
+    expect(after.nodes.find(node => node.name === upstream.branch)?.diagnostics?.changes).toEqual(branchChanges);
   } finally { await f.close(); }
 });
 

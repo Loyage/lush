@@ -63,6 +63,8 @@
 | `project/scheduling.js` | 调度、invocation 生命周期、凭证；成功返回写 version 2 `run.result`，把 `invocation.status` 与 `verification.status` 分开；scheduler 持有调用截止时间并把超时规范化为带秒数的 failed Run，与用户取消的 cancelled Run 区分 | `kick()`、`pump()`、`actor(token)`、`wake(taskId)`、`invoke(taskId, run)` |
 | `project/lifecycle.js` | 结算、取消、重试、清空、定向删除与恢复；Candidate verifier 只在当前状态为 `preparing`、`report_task_id` 仍匹配、报告存在且结构化结论为 `pass` 时结算为 `ready`，其余结论为 `failed`；迟到结果保留事件但不改 Candidate | `finish`、`cancel`、`retry`、`clear`、`reclaimThenPurge(tasks, anchors)`、`deleteTask(taskId)`、`subtreeTasks(taskId)`、`forgetTasks(root, subtree, ids)`、`recover`、`shutdown` |
 
+`project/graph.js` 另把 Git 边界的 `branchDiagnostics()` 结果投影到 branch 节点的 `diagnostics`，不改变既有任务计数与父子关系口径。
+
 ## Git 边界：`src/core/workspaces.js` + `src/core/workspaces/`
 
 | 文件 | 职责 | 导出 |
@@ -71,7 +73,7 @@
 | `workspaces/git.js` | Git 原语与串行队列（无 shell 插值） | `exclusive`、`git`、`gitOutput`、`porcelain`、`clean`、`isAncestor`、`merging`、`unmerged`、`workspaceForBranch`、`checkedOut` |
 | `workspaces/worktree.js` | worktree / 对照检出 / 可推进输入分支的创建与回收；planner 在输入 worktree 中运行，任务以直接父分支为 target | `anchor(inputId, requestedBranch)`、`dropAnchor(anchor)`、`releaseAnchor(anchor)`、`reclaimAnchors(anchors)`、`inputAnchor(task)`、`ensure(task)`、`finish(task)`、`codeBase(task)`、`removeBaseline(taskId)` |
 | `workspaces/showcase.js` | 精确本地 ref / 起点解析、隔离 detached 检出及复用校验；不拥有或删除源分支 | `showcaseSnapshot`、`assertShowcaseCheckout`、`ensureShowcase` |
-| `workspaces/diff.js` | 只读审阅视图（不进写队列） | `diff(task)` |
+| `workspaces/diff.js` | 只读审阅视图（不进写队列）；分支诊断批量读取创建起点到 tip 的改动、最近提交与实际 worktree 未提交数，固定提交有界缓存；字段与限制见[分支诊断接缝](modules.md#分支诊断增量读面) | `diff(task)`、`branchDiagnostics(branches)` |
 | `workspaces/merge.js` | 父子分支关系判定、两个方向的原子 fast-forward（子→父、父→子）、批量预检与任务兼容入口；绝不在父分支 no-ff | `branchTaskBlockers(child)`、`branchState(child)`、`mergeBranchUnsafe(child,expected)`、`mergeBranch(child,expected)`、`catchupBranchUnsafe(child)`、`catchupBranch(child)`、`preflightMerge(tasks)`、`merge(taskId)` |
 | `workspaces/cleanup.js` | 分支回收与安全清理（`dropBranch` / `dropAnchor` 走祖先检查；`archiveBranches` 归档一整棵子树，是唯一一条明知未合并也允许的 compare-and-delete，两遍走：先把全树的 tip / worktree 与脏活检查完，再开始删，不留归档了一半的子树） | `dropBranch`、`archiveBranch`、`archiveBranches`、`release`、`cleanup`、`reclaim` |
 

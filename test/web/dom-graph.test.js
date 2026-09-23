@@ -13,6 +13,48 @@ await boot();
 
 afterAll(() => dom.restore());
 
+test('分支诊断：规模、文件列表、未提交及最近提交，刷新保留展开且更新脏活', async () => {
+  const saved = world.state.graph;
+  const { renderGraph } = await import('../../src/ui/web/assets/render-graph.js');
+  const diagnostics = {
+    changes: { status: 'ok', base_commit: '123456789', head_commit: 'abcdefghi', files_total: 3,
+      added: 8, deleted: 2, binary_files: 1, truncated: true,
+      files: [{ path: '<img src=x>', previous_path: 'old.txt', added: 8, deleted: 2 }, { path: 'image.png', added: null, deleted: null }] },
+    latest_commit: { committed_at: iso(NOW), subject: '<script>summary</script>' },
+    working_tree: { status: 'dirty', files_total: 2, staged: 1, unstaged: 1, untracked: 1, conflicts: 0, path: '/tmp/worktree' },
+  };
+  world.state.graph = { git: true, nodes: [{ kind: 'branch', id: 'branch:stats', name: 'stats', head_commit: 'abcdefghi', diagnostics }], edges: [] };
+  try {
+    await openGraph();
+    const panel = dom.node('detail');
+    let text = deepText(panel);
+    for (const value of ['已提交：3 个文件', '+8', '−2 行', '1 个二进制文件', '相对创建起点 1234567 → abcdefg',
+      '未提交：2 个文件', '暂存 1 / 未暂存 1 / 未跟踪 1 / 冲突 0', '最近提交：', '<script>summary</script>', '仅列出前 2 / 3 个文件']) expect(text).toContain(value);
+    expect(panel.querySelector('script')).toBeNull(); expect(panel.querySelector('img')).toBeNull();
+    const toggle = () => panel.querySelectorAll('button').find(node => node.textContent.includes('文件改动列表'));
+    expect(panel.querySelector('.graph-change-files').hidden).toBe(true);
+    toggle().onclick();
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    expect(panel.querySelector('.graph-change-files').hidden).toBe(false);
+    diagnostics.working_tree.files_total = 3;
+    renderGraph(world.state.graph); // 只有磁盘状态变化也触发重画。
+    expect(deepText(panel)).toContain('未提交：3 个文件');
+    expect(panel.querySelector('.graph-change-files').hidden).toBe(false);
+    expect(deepText(panel)).toContain('old.txt → <img src=x>');
+    toggle().onclick();
+    diagnostics.changes = { status: 'unavailable', reason: 'missing_baseline' };
+    diagnostics.working_tree = { status: 'not_checked_out' };
+    diagnostics.latest_commit = null;
+    renderGraph(world.state.graph);
+    text = deepText(panel);
+    expect(text).toContain('改动规模不可用：没有记录创建起点');
+    expect(text).toContain('未提交：未检出工作区');
+    expect(text).toContain('最近提交：不可用');
+    expect(text).not.toContain('0 个文件');
+    expect(panel.querySelector('.graph-change-files')).toBeNull();
+  } finally { world.state.graph = saved; }
+});
+
 test('分支图：入口走 #graph，画出分支谱系与任务，点节点进详情，刷新幂等，轮询不覆盖', async () => {
   // 顶部入口把地址栏切到 #graph。
   expect(dom.node('graph-open')).toBeTruthy();

@@ -101,4 +101,15 @@ Web 分支图使用 `graph.get`。每个 branch 节点带 `origin` / `title` / `
 
 待决 notice 也进分支图的重拉判断：快照指纹（`graphFingerprint`）与渲染指纹（`graphRenderKey`）都把 open 且 kind 为 question / plan 的 notice 算进来，所以新 notice 出现、被答复 / 忽略后，分支图会自动重拉重画；`kind='info'` 的纯提醒与 answered / dismissed 不算。
 
+### branch 节点的 diagnostics
+
+未归档分支另带 `diagnostics`（归档分支为 `null`）：
+
+- `changes.status='ok'`：`base_commit` / `head_commit` 固定本次比较的两端，`files_total` / `added` / `deleted` / `binary_files` 是完整汇总；`files` 内各项为 `{path,added,deleted,previous_path?}`，二进制行数为 `null`。列表有界且由 `truncated` 标记，具体限额见[模块接缝](../../engineering/modules.md#分支诊断增量读面)。
+- `changes.status='unavailable'`：`reason` 为 `missing_head` / `missing_baseline` / `read_failed`，不返回虚假的零计数。
+- `latest_commit`：`{commit,committed_at,subject}`，时间为提交者时间、摘要最多 240 字符；读取失败或无 ref 时为 `null`。
+- `working_tree.status`：`clean` / `dirty` 时带 `path` 与 `files_total` / `staged` / `unstaged` / `untracked` / `conflicts`；总数按文件去重，分类可重叠。`not_checked_out` 表示无实际检出，`unknown` 表示工作区读取失败或检出发生变化。
+
+统计口径及界面说明见[分支诊断](../../task-flow-3-delivery.md#分支诊断高级)。只读、不写库；每次重新读取工作区状态，固定提交的差异与摘要有界缓存。
+
 相关：[分支优先架构](../../engineering/branch-first.md)。

@@ -256,6 +256,7 @@ export function graphLayout(graph = {}) {
       created_at: node.created_at ?? null,
       status: node.status ?? null,
       taskCounts: node.tasks ?? null,
+      diagnostics: node.diagnostics ?? null,
       // 归档状态与「这条分支现在能不能归档」；render 只消费，判断只在这里。
       archived,
       archived_at: node.archived_at ?? null,
@@ -408,7 +409,8 @@ export function graphRenderKey(graph) {
     node.current === true, node.tracked === false, node.placeholder === true, node.archived === true,
     node.worktree_state ?? '-', node.tasks?.active ?? '-',
     node.origin ?? '-', node.status ?? '-', node.title ?? '-', node.summary ?? '-', node.source_id ?? '-',
-    node.notice?.id ?? '-', node.notice?.kind ?? '-', node.notice_count ?? '-', progressKey(node.progress)].join(':')).join('|');
+    node.notice?.id ?? '-', node.notice?.kind ?? '-', node.notice_count ?? '-', progressKey(node.progress),
+    JSON.stringify(node.diagnostics ?? null)].join(':')).join('|');
   const edges = (graph?.edges || []).map(edge => `${edge.kind}:${edge.from}>${edge.to}:${edge.status ?? '-'}:${edge.ahead ?? '-'}:${edge.behind ?? '-'}:${(edge.blockers || []).join(',')}`).join('|');
   return `${nodes}#${graph?.truncated === true}#${edges}`;
 }

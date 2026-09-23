@@ -77,6 +77,8 @@
 | `mermaid-docs.js` | 只在文档存在 Mermaid 容器时加载本地固定版本，以 strict 模式逐图校验，并通过显式唯一 id 渲染成隔离的 blob SVG 图片（避免节点/箭头串图，也不用为 Mermaid 放宽主页面的 inline-style CSP）；换文档时回收 blob URL，切换深浅主题时从保留源码串行重绘，超长、超量、加载或语法失败均回退为源码。Agent 输出不走这条路径 | `renderMermaidDiagrams(root)`、`refreshMermaidDiagrams(root)`、`clearMermaidDiagrams(root)` |
 | `refresh.js` | 轮询有界 `/api/overview`（revision 未变时不重画；旧 host 回退完整 snapshot）、概览、热任务增量刷新、筛选重画；右侧信息页 / 文档 / 设置 / 统计打开时不让概览覆盖；「项目概览」与「分支图」共用同一份 `graph.get`（`ui.lastGraph`）与同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s），概览先用快照画、后台取图后就地重画 | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
 
+分支诊断的 `diagnostics` 经 `graph-layout.js` 透传并纳入 `graphRenderKey`；`render-graph.js` 展示已提交文件数 / 文本增删行、基线、独立未提交统计、最近提交与可展开文件明细。`state.js` 的 `graphFilesExpanded` 保留会话内展开状态，重置时清空；没有统计基线或读取失败明确显示不可用，旧 daemon 无字段时兼容不画。接口与列表限额见[分支诊断接缝](modules.md#分支诊断增量读面)。
+
 其它纯逻辑模块：`markdown.js`、`tree-order.js`、`live.js`、`sidebar.js`；`merge-select.js` 是交付队列的候选、冻结与 code-only 顺序预览接缝，由 `render-ladder.js` 使用。`live.js` 的实时刷新间隔不再是写死常量：`liveInterval()` 读「轮询频率」偏好，标准档等于改造前的 3000ms。
 
 ## Web / 桌面宿主

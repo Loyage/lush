@@ -61,6 +61,7 @@
 | `web-rpc.test.js` | `test/web/{security,assets,read-models,drafts,transcript,specs-intents,maintenance}.test.js` |
 | `web-live-dom.test.js` | `test/web/dom-{merge,detail,drafts,specs-intents,sidebar}.test.js`（各自 `boot()`，见前端接缝） |
 | 启动器与工作台 | `test/web/launcher.test.js`（首次选项目、绝对路径校验、全局最后项目恢复）、`test/web/appearance.test.js`（主题解析、跟随系统、显式覆盖、存储失败）、`test/web/settings.test.js`（设置入口 / `#settings` / 轮询不覆盖、偏好默认值与老键、每项即时生效、恢复默认、Agent 环境变量按需读取/遮罩/键值编辑/校验、系统信息组只读渲染、并发额度表单保存 / 恢复与越界报错）、`test/project/status.test.js`（`system.status` 的只读软件配置镜像与默认值）、`test/web/dom-studio.test.js`（信息优先级、折叠保留、移动端索引） |
+| 分支诊断统计 | `test/workspaces/branch-diagnostics.test.js`（净改动、二进制、重命名及特殊文件名、工作区未提交去重、只读与缓存、失败降级、明细字节限额）；`test/project/graph.test.js` 覆盖图投影与合入后保留累计规模；`test/web/dom-graph.test.js` 覆盖统计渲染、文本安全、脏活刷新与明细展开保留 |
 | 统计面板 | `test/usage-statistics.test.js`（全量、时间边界、UTC 分桶、模型切换、缺价、损坏与缓存失效）、`test/web/usage-statistics.test.js`（认证 API）、`test/web/dom-statistics.test.js`（双视图入口、独立筛选、SVG 即时浮层、错误与导航竞态）、`test/web/statistics-range.test.js`（UTC 日期快捷范围、闰日／跨年与日内小时边界）；Codex 用量留存由 `test/agent-settings.test.js` 覆盖 |
 | Notice 记录与提醒 | `test/project/notice-page.test.js`（超过 200 条历史、筛选与字节预算游标）、`test/web/notice-records.test.js`（HTTP 参数、分页、面板内答复／审批与只读问卷）、`test/web/notice-notifications.test.js`（默认关闭、权限、首屏基线、去重与桌面开关恢复） |
 | 执行过程阅读与解释 | `test/transcript-reader.test.js`（全量搜索、截断后命中、过滤、配对、原文与文件边界）、`test/explainer-provider.test.js`（无工具参数及凭证隔离）、`test/project/explanations.test.js`（来源快照、无分支与权限）、`test/web/transcript-reader.test.js`（HTTP/RPC）、`test/web/dom-transcript-reader.test.js`（摘要、增量配对、JSON、检索与选区介绍） |

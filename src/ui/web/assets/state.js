@@ -61,6 +61,7 @@ export const ui = {
    *  graphExpanded 是用户显式展开的分支名：默认值只在两个集合里都没有时生效。 */
   graphCollapsed: readGraphCollapsedPref(),
   graphExpanded: readGraphExpandedPref(),
+  graphFilesExpanded: new Set(), // 文件明细只记会话内展开，轮询保留。
   lastSnapshot: null,   // 切排序模式要立刻重排，不必等下一次轮询
   taskHistory: [],      // 用户显式加载的历史任务页；有界轮询不会把它们立刻抹掉
   taskHistoryPage: null,
@@ -98,6 +99,7 @@ export function resetUiState() {
   ui.graphOpen = false; ui.graphFingerprint = null; ui.graphFetchedAt = 0; ui.graphRenderKey = null; ui.lastGraph = null;
   ui.graphCollapsed = readGraphCollapsedPref();
   ui.graphExpanded = readGraphExpandedPref();
+  ui.graphFilesExpanded = new Set();
   ui.sideNodes = new Map(); ui.sideHeads = new Map(); ui.navButtons = new Map(); ui.navCounts = new Map();
   ui.stepToggle = new Map();
   ui.collapsed = readCollapsedPref(); ui.filters = readFiltersPref(); ui.sidebarSortMode = readSidebarSortPref();
