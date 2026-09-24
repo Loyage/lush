@@ -25,6 +25,8 @@ const systemBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '运行状态') || null;
 const runtimeBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '并发额度') || null;
+const routesBlock = () => [...panel().querySelectorAll('.block')]
+  .find(node => node.querySelector('h2')?.textContent === '输入前缀（快速路由）') || null;
 const environmentBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '环境变量') || null;
 
@@ -435,7 +437,7 @@ test('系统页：恢复环境默认清除两个覆盖', async () => {
   expect(runtimeBlock().querySelector('[data-runtime-source="concurrency"]').textContent).toBe('环境默认');
 });
 
-test('系统页：没有快照时显示占位', () => {
+test('系统页：没有快照时显示占位', async () => {
   openSystem(); state.ui.lastSnapshot = null;
   expect(() => renderSettings()).not.toThrow();
   const block = systemBlock();
@@ -443,4 +445,58 @@ test('系统页：没有快照时显示占位', () => {
   expect(block.querySelector('[data-system-field="provider"]')).toBeNull();
   expect(block.querySelector('.settings-placeholder')).toBeTruthy();
   expect(deepText(block)).toContain('尚未收到 daemon 快照');
+  // 后面的前缀用例需要快照回来，重新拉一次。
+  await dom.intervalFor(1500)();
+});
+
+test('系统页：快速路由前缀块列出、增删并按整表保存', async () => {
+  openSystem();
+  const routes = routesBlock();
+  expect(routes).toBeTruthy();
+  expect(routes.querySelectorAll('input.settings-route-prefix').map(node => node.value)).toEqual(['开发', '解释']);
+  expect(routes.querySelectorAll('select.settings-route-target').map(node => node.value)).toEqual(['worker', 'research']);
+  expect(deepText(routes)).toContain('默认前缀');
+
+  // 删掉第一行，新增一行并填 调研 / research。
+  await routes.querySelector('[data-route-action="remove"]').onclick();
+  await routes.querySelector('[data-route-action="add"]').onclick();
+  const rows = routesBlock();
+  expect(rows.querySelectorAll('.settings-route-row').length).toBe(2);
+  rows.querySelectorAll('input.settings-route-prefix')[1].value = '调研';
+  rows.querySelectorAll('select.settings-route-target')[1].value = 'research';
+  await rows.querySelector('[data-route-action="save"]').onclick();
+
+  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { settings: {
+    input_routes: [{ prefix: '解释', target: 'research' }, { prefix: '调研', target: 'research' }] } } });
+  expect(world.state.runtimeSettings.input_routes.overridden).toBe(true);
+  expect(state.ui.lastSnapshot.status.settings.input_routes.overridden).toBe(true);
+  expect(deepText(routesBlock())).toContain('已覆盖项目默认');
+});
+
+test('系统页：恢复默认前缀送 null 并回退默认表', async () => {
+  openSystem();
+  await routesBlock().querySelector('[data-route-action="reset"]').onclick();
+  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { settings: { input_routes: null } } });
+  expect(world.state.runtimeSettings.input_routes.overridden).toBe(false);
+  expect(world.state.runtimeSettings.input_routes.value).toEqual([{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }]);
+  expect(state.ui.lastSnapshot.status.settings.input_routes.overridden).toBe(false);
+  expect(deepText(routesBlock())).toContain('默认前缀');
+});
+
+test('系统页：前缀为空或重复时拦住，不发写请求', async () => {
+  openSystem();
+  const routes = routesBlock();
+  await routes.querySelector('[data-route-action="add"]').onclick();
+  const before = world.state.actions.length;
+  // 新增行还没有前缀：保存被拦住。
+  await routesBlock().querySelector('[data-route-action="save"]').onclick();
+  expect(world.state.actions.length).toBe(before);
+  expect(routesBlock().querySelector('[data-route-error=""]').textContent).toContain('为空');
+
+  // 与前一行重复的前缀同样拦住。
+  const rows = routesBlock();
+  rows.querySelectorAll('input.settings-route-prefix')[2].value = '开发';
+  await rows.querySelector('[data-route-action="save"]').onclick();
+  expect(world.state.actions.length).toBe(before);
+  expect(routesBlock().querySelector('[data-route-error=""]').textContent).toContain('重复');
 });

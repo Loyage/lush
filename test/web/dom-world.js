@@ -74,6 +74,8 @@ export function makeWorld() {
       file: '/tmp/demo/.lush/settings.json',
       concurrency: { value: 2, default: 2, overridden: false },
       control_concurrency: { value: 1, default: 1, overridden: false },
+      input_routes: { value: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }],
+        default: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }], overridden: false },
     },
     notices: [],
     transcriptAfter: [],
@@ -219,7 +221,7 @@ export function makeWorld() {
         return json({ target, file: `/tmp/demo/.lush/agent/${target === 'common' ? 'agent' : target}.env`, exists: Object.keys(values).length > 0, values: { ...values } });
       }
       if (body.method === 'system.configure') {
-        // 并发上限的热更新：null 清除覆盖（回退环境默认），数字写为覆盖值；与核心同语义。
+        // 运行设置的热更新：null 清除覆盖（回退环境默认），数字/前缀表写为覆盖值；与核心同语义。
         const patch = body.params.settings || {};
         const next = { ...state.runtimeSettings };
         for (const key of ['concurrency', 'control_concurrency']) {
@@ -228,8 +230,13 @@ export function makeWorld() {
             ? { ...next[key], value: next[key].default, overridden: false }
             : { ...next[key], value: patch[key], overridden: true };
         }
+        if (Object.hasOwn(patch, 'input_routes')) {
+          next.input_routes = patch.input_routes === null
+            ? { ...next.input_routes, value: next.input_routes.default.map(route => ({ ...route })), overridden: false }
+            : { value: patch.input_routes.map(route => ({ ...route })), default: next.input_routes.default.map(route => ({ ...route })), overridden: true };
+        }
         state.runtimeSettings = next;
-        return json({ file: next.file, concurrency: next.concurrency, control_concurrency: next.control_concurrency });
+        return json(next);
       }
       if (body.method === 'branch.merge') return json({ child: body.params.branch, parent: 'main', status: 'integrated', merged: true });
       if (body.method === 'branch.sync') return json({ branch: body.params.branch, parent: 'main', status: 'queued', task: { id: 88 } });

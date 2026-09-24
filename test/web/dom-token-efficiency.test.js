@@ -11,6 +11,10 @@ const dom = installDom({ fetch: async (url, options) => {
     if (body.method === 'input.submit') {
       directCalls.push(body);
       if (pending) await pending.promise;
+      // 命中快速路由前缀时返回 route 形状（没有 direct/worker 的普通形状），让页面必须按 route 分支处理。
+      if (String(body.params.content).startsWith('开发')) {
+        return Response.json({ route: { prefix: '开发', target: 'worker' }, worker: { id: 77 }, task: { id: 5 } }, { status: 200 });
+      }
       return Response.json(fail ? { error: 'direct failed' } : { worker: { id: 42 }, direct: true }, { status: fail ? 400 : 200 });
     }
   }
@@ -45,6 +49,13 @@ test('direct execution submits only current input, prevents double sends, preser
   await dom.node('input-direct').onclick();
   expect(dom.node('input').value).toBe('new thought'); expect(dom.node('input-direct').disabled).toBe(false);
   expect(dom.node('error').textContent).toContain('direct failed'); fail = false;
+});
+
+test('direct execution surfaces a route hit instead of assuming a worker shape', async () => {
+  dom.node('input').value = '开发 做一个登录页';
+  await dom.node('input-direct').onclick();
+  expect(dom.node('error').textContent).toContain('前缀 开发 命中，已创建 worker #77');
+  expect(dom.node('input').value).toBe('');
 });
 
 test('statistics shows bounded attribution and unknown groups without rendering injected HTML', () => {

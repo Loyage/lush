@@ -1,8 +1,9 @@
-import { $ } from './dom.js';
+import { $, el } from './dom.js';
 import { action } from './api.js';
 import { show } from './messages.js';
 import { draftUnchecked, ui } from './state.js';
 import { composerReferences, renderComposerReferences, setComposerReferences } from './context-references.js';
+import { matchInputRoute } from './input-routes.js';
 
 // 待提交意图：只落库不规划；可改、可勾选，只把选中的交给一个 planner 拆解成任务并建依赖。
 /** 面板开合状态画到 DOM：.open 控制展开，aria-expanded 同步给读屏。 */
@@ -53,6 +54,29 @@ export function syncComposer() {
   $('draft-commit').disabled = busy || (!$('input').value.trim() && selectedDraftIds().length === 0);
   $('draft-add').disabled = busy;
   if ($('input-direct')) $('input-direct').disabled = busy || !$('input').value.trim();
+  paintInputHighlight();
+}
+
+/**
+ * 输入框就地高亮命中的快速路由前缀：从当前运行设置读前缀表，用与 core 一致的规则匹配，
+ * 只在命中时把前缀那段文本包进 <mark class="input-prefix">。全部用 textContent / createElement
+ * 构造，绝不拼 innerHTML。前缀之后的空白与标点不被高亮（那不属于前缀本身）。
+ * 未命中或没装好 DOM 时清空 overlay；textarea 滚动时同步偏移，避免长文本错位。
+ */
+export function paintInputHighlight() {
+  const input = $('input'), highlight = $('input-highlight');
+  if (!input || !highlight) return;
+  const value = input.value;
+  const routes = ui.lastSnapshot?.status?.settings?.input_routes?.value || [];
+  const match = value ? matchInputRoute(routes, value) : null;
+  if (!match) { highlight.replaceChildren(); highlight.hidden = true; return; }
+  const offset = value.length - value.replace(/^\s+/u, '').length;
+  const end = offset + match.prefix.length;
+  const mark = el('mark', value.slice(offset, end), 'input-prefix');
+  highlight.replaceChildren(value.slice(0, offset), mark, value.slice(end));
+  highlight.hidden = false;
+  highlight.scrollTop = input.scrollTop;
+  highlight.scrollLeft = input.scrollLeft;
 }
 /** 接上输入框与两个按钮：回车=缓存，⌘/Ctrl+回车=整体提交，Shift+回车=换行。 */
 export function initComposer() {
@@ -79,7 +103,14 @@ export function initComposer() {
       const result = await action('input.submit', { content, references, direct: true, ...(branch ? { branch } : {}) });
       if ($('input').value.trim() === content) $('input').value = '';
       if (JSON.stringify(composerReferences()) === signature) setComposerReferences([]);
-      show(`已直接创建 worker #${result.worker.id}；未调用规划模型，合并仍需批准。待提交草稿未变。`);
+      if (result.route) {
+        const target = result.route.target;
+        const task = target === 'worker' ? result.worker : result.research;
+        show(`前缀 ${result.route.prefix} 命中，已创建 ${target} #${task.id}；未调用规划模型。待提交草稿未变。`);
+      } else {
+        show(`已直接创建 worker #${result.worker.id}；未调用规划模型，合并仍需批准。待提交草稿未变。`);
+      }
+      paintInputHighlight();
     } catch (error) { show(error.message, 'error'); }
     finally { ui.composerSubmitting = false; syncComposer(); }
   };
@@ -93,10 +124,23 @@ export function initComposer() {
       if (!ids.length) throw new Error('没有勾选任何待提交意图；勾选要提交的，或者先在输入框里写点什么');
       const branch = $('input-branch').value.trim();
       const result = await action('draft.commit', { ids, ...(branch ? { branch } : {}) });
-      show(`已提交 ${result.drafts.length} 条输入；planner #${result.task.id} 正在拆解任务并建依赖`);
+      if (result.route) {
+        const target = result.route.target;
+        const task = target === 'worker' ? result.worker : result.research;
+        show(`前缀 ${result.route.prefix} 命中，已创建 ${target} #${task.id}；未调用规划模型。`);
+      } else {
+        show(`已提交 ${result.drafts.length} 条输入；planner #${result.task.id} 正在拆解任务并建依赖`);
+      }
     } catch (error) { show(error.message, 'error'); } finally { ui.composerSubmitting = false; syncComposer(); }
   };
   $('input').addEventListener('input', syncComposer);
+  // textarea 变高滚动时 overlay 不跟着动，会把高亮留在原处；这里只同步偏移，不改样式。
+  $('input').addEventListener('scroll', () => {
+    const highlight = $('input-highlight');
+    if (!highlight) return;
+    highlight.scrollTop = $('input').scrollTop;
+    highlight.scrollLeft = $('input').scrollLeft;
+  });
   // 回车=缓存，⌘/Ctrl+回车=整体提交，Shift+回车=换行。
   $('input').addEventListener('keydown', event => {
     if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;

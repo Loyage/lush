@@ -10,6 +10,8 @@ import { ui } from './state.js';
 import { SORT_MODES } from './tree-order.js';
 import { notificationControl } from './notice-notifications.js';
 import { sleepSettings } from './sleep-ui.js';
+import { DEFAULT_INPUT_ROUTES, ROUTE_TARGETS } from './input-routes.js';
+import { paintInputHighlight } from './composer.js';
 
 const TABS = [
   { id: 'sleep', label: '我去睡觉了', note: '离开期间由管家决策' },
@@ -507,6 +509,88 @@ function concurrencyEditor(runtime, plain) {
   return box;
 }
 
+/**
+ * 「输入前缀（快速路由）」编辑器：列出命中后直接派活的前缀与目标，可增删。
+ * 保存写 system.configure 的 input_routes，恢复默认送 null 清除项目覆盖；保存后立即重画输入框高亮。
+ * 只读 fast path：这里只是把同一套结构交给核心，真正的匹配规则在 core 与浏览器 input-routes.js。
+ */
+const ROUTE_TARGET_LABELS = { worker: 'worker · 开发', research: 'research · 调研' };
+
+function inputRoutesEditor(runtime) {
+  const fallback = { value: DEFAULT_INPUT_ROUTES.map(route => ({ ...route })), default: DEFAULT_INPUT_ROUTES.map(route => ({ ...route })), overridden: false };
+  const entry = runtime.input_routes || fallback;
+  const section = block('输入前缀（快速路由）');
+  section.append(el('p', '以这些前缀开头的输入不调用规划模型，直接按目标创建根任务：worker 会进入开发流程，research 只做调研。保存后立即生效，输入框会高亮命中的前缀。', 'settings-note settings-section-note'));
+
+  const list = el('div', undefined, 'settings-route-list'); list.dataset.routeList = '';
+  const addRow = (prefix = '', target = 'worker') => {
+    const line = el('div', undefined, 'settings-route-row');
+    const prefixInput = el('input'); prefixInput.type = 'text'; prefixInput.className = 'settings-route-prefix';
+    prefixInput.maxLength = 32; prefixInput.value = prefix; prefixInput.placeholder = '例如：开发'; prefixInput.spellcheck = false;
+    prefixInput.setAttribute('aria-label', '快速路由前缀'); prefixInput.dataset.routePrefix = '';
+    const select = el('select'); select.className = 'settings-route-target'; select.setAttribute('aria-label', '命中后的派活目标');
+    for (const value of ROUTE_TARGETS) { const option = el('option', ROUTE_TARGET_LABELS[value] || value); option.value = value; select.append(option); }
+    select.value = ROUTE_TARGETS.includes(target) ? target : 'worker'; select.dataset.routeTarget = '';
+    const remove = button('删除', () => { line.remove(); paintState(); }, 'ghost settings-route-remove',
+      { help: '从列表移除这个前缀；点「保存前缀」后才会真正删除' });
+    remove.dataset.routeAction = 'remove';
+    line.append(prefixInput, select, remove); list.append(line); return line;
+  };
+  for (const route of entry.value) addRow(route.prefix, route.target);
+
+  const stateNote = el('span', '', 'settings-note'); stateNote.dataset.routeState = '';
+  const paintState = () => {
+    stateNote.textContent = `共 ${list.children.length} 个前缀 · ${entry.overridden ? '已覆盖项目默认' : '默认前缀'}`;
+  };
+  paintState();
+
+  const errorBox = el('p', undefined, 'settings-error'); errorBox.hidden = true; errorBox.dataset.routeError = '';
+  const fail = message => { errorBox.textContent = message; errorBox.hidden = false; show(message, 'error'); };
+
+  const collect = () => {
+    const routes = [], seen = new Set();
+    for (const [index, line] of [...list.children].entries()) {
+      const prefix = line.querySelector('.settings-route-prefix').value.trim();
+      const target = line.querySelector('.settings-route-target').value;
+      if (!prefix) { fail(`第 ${index + 1} 个前缀为空；填写前缀或先删除该行。`); return null; }
+      if (prefix.length > 32 || /\s/u.test(prefix)) { fail(`前缀「${prefix}」不能包含空白，且最多 32 个字符。`); return null; }
+      if (seen.has(prefix.toLowerCase())) { fail(`前缀「${prefix}」重复；每个前缀只能配一个目标。`); return null; }
+      seen.add(prefix.toLowerCase());
+      routes.push({ prefix, target });
+    }
+    if (routes.length > 32) { fail('前缀最多 32 个。'); return null; }
+    return routes;
+  };
+
+  const actions = el('div', undefined, 'settings-route-actions');
+  const add = button('新增前缀', () => {
+    const line = addRow(); paintState(); line.querySelector('.settings-route-prefix').focus();
+  }, 'ghost settings-route-add');
+  add.dataset.routeAction = 'add';
+  const save = button('保存前缀', async () => {
+    const routes = collect(); if (!routes) return;
+    errorBox.hidden = true;
+    const saved = await action('system.configure', { settings: { input_routes: routes } });
+    applyRuntimeSettings(saved);
+    paintInputHighlight();
+    show(routes.length ? `已保存 ${routes.length} 个快速路由前缀，立即生效。` : '已清空快速路由前缀；所有输入都会走规划模型。');
+    renderSettings();
+  }, 'primary settings-route-save');
+  save.dataset.routeAction = 'save';
+  const reset = button('恢复默认前缀', async () => {
+    errorBox.hidden = true;
+    const saved = await action('system.configure', { settings: { input_routes: null } });
+    applyRuntimeSettings(saved);
+    paintInputHighlight();
+    show('已恢复默认快速路由前缀（开发 / 解释）。');
+    renderSettings();
+  }, 'ghost settings-route-reset', { help: '清除项目覆盖的前缀表，恢复内置默认（开发 / 解释）；点击后立即写入项目设置' });
+  reset.dataset.routeAction = 'reset';
+  actions.append(add, save, reset, stateNote);
+  section.append(list, actions, errorBox);
+  return section;
+}
+
 function systemTab() {
   const content = el('div', undefined, 'settings-tab-panel');
   const snapshot = ui.lastSnapshot?.status ?? null;
@@ -532,6 +616,8 @@ function systemTab() {
   concurrency.append(concurrencyEditor(runtime, plain));
   concurrency.append(row('设置文件', '运行设置的保存位置；文件不存在表示全部使用环境默认。', el('code', plain(runtime.file), 'settings-path')));
   content.append(concurrency);
+
+  content.append(inputRoutesEditor(runtime));
 
   const paths = block('项目路径');
   paths.append(line('project', '项目', 'daemon 绑定的 canonical 项目目录。', plain(snapshot.project)));

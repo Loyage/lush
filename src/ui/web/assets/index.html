@@ -99,7 +99,10 @@
   <div class="draft-panel" id="draft-panel">
     <div class="draft-body" id="draft-body"><div id="drafts"></div></div>
   </div>
-  <textarea id="input" rows="1" maxlength="32000" aria-label="输入开发需求或研究问题" placeholder="描述一个需求，或选中/右键页面内容引用到这里…"></textarea>
+  <div class="composer-input">
+    <div id="input-highlight" class="composer-highlight" aria-hidden="true"></div>
+    <textarea id="input" rows="1" maxlength="32000" aria-label="输入开发需求或研究问题" placeholder="描述一个需求，或选中/右键页面内容引用到这里…"></textarea>
+  </div>
   <div class="composer-foot">
     <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>Enter</kbd> 暂存想法 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ↵</kbd> 提交选中项并规划</span>
     <span class="composer-actions">
