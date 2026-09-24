@@ -17,6 +17,8 @@ test('Web 全类型窗口与历史分页包含两层任务，旧 RPC 默认口�
     }
     const active = roles.map(role => f.store.create({ input_id: null, role, goal: `active ${role}` }));
     const first = await (await fetch(f.url + '/api/overview')).json();
+    // Web 概览不再携带并行时间轴字段（后端 read model 与 /api/snapshot 保留）。
+    expect(first.timeline).toBeUndefined();
     expect(first.task_page).toMatchObject({ active: 9, historical: 72, total: 81, shown: 50, has_more: true });
     expect(first.tasks).toHaveLength(59);
     for (const task of active) expect(first.tasks.some(row => row.id === task.id)).toBe(true);

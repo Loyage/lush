@@ -20,8 +20,6 @@ export const EVENTS = {
 };
 export const HOT = new Set(['running', 'awaiting', 'waiting', 'queued']);
 export const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
-/** 时间轴里「没在跑」的四种原因：前两种是结构造成的串行，后两种是资源与人的等待。 */
-export const WAIT_REASON = { dep: '等依赖', children: '等子任务', user: '等你决定', slot: '等并发槽', setup: '没跑起来' };
 export const short = value => (typeof value === 'string' ? value.slice(0, 7) : '');
 export const statusOf = task => STATUS[task.status] || { label: task.status, icon: '·' };
 export function relative(iso) {

@@ -6,7 +6,6 @@ import { edgeRelation, graphLayout, graphRenderKey, isWorkingTask } from './grap
 import { detail, graph, overview } from './navigate.js';
 import { openNotice } from './render-notices.js';
 import { show } from './messages.js';
-import { renderTimeline } from './render-timeline.js';
 import { ui } from './state.js';
 
 /**
@@ -17,7 +16,7 @@ import { ui } from './state.js';
  * 决定要不要重拉），概览不新增 RPC、也不各自打 git；拿不到图时先给占位文案、只画快照支撑得住的部分。
  *
  * 与任务为中心的旧版相比：不再有任务状态分布 chips 与按目标分支分组的交付队列（renderLadder）；
- * 「需要你的决定」「运行中的 agent」与时间轴仍保留，但排在分支主线之后，运行时与维护信息照旧折叠。
+ * 「需要你的决定」与「运行中的 agent」仍保留，但排在分支主线之后，运行时与维护信息照旧折叠。
  */
 
 /** 分支来源 -> 中文描述（与分支图的 BRANCH_ORIGIN 同口径）。 */
@@ -128,10 +127,7 @@ export function renderOverview(data) {
     intents.map(intent => `${intent.id}:${intent.status}:${intent.candidate_status ?? ''}:${intent.showcase_task_id ?? ''}`).join(','),
     candidates.map(candidate => `${candidate.id}:${candidate.status}:${candidate.verification?.status ?? 'unknown'}:${candidate.commit_hash}`).join(','), data.tasks.length,
     // 分支主线要跟着图一起重画：指纹 + 生成时间变了就重建，重画不丢折叠与滚动。
-    graphData ? graphRenderKey(graphData) : null, ui.graphFetchedAt,
-    // 时间轴的开口段一直在长，但只在结构变化或每 15 秒才需要重画一次，免得轮询把滚动位置冲掉。
-    Math.floor(Date.now() / 15000),
-    (data.timeline?.tasks || []).map(task => `${task.id}:${task.status}:${task.segments.length}`).join(',')]);
+    graphData ? graphRenderKey(graphData) : null, ui.graphFetchedAt]);
   if (key === ui.overviewKey) return;
   ui.overviewKey = key;
   const panel = $('detail');
@@ -241,7 +237,7 @@ export function renderOverview(data) {
   }
   panel.append(notices);
 
-  // 分支主线之后的次要信息：运行中的 agent 与并行时间轴。
+  // 分支主线之后的次要信息：运行中的 agent。
   const activity = el('div', undefined, 'activity-grid');
   const agents = block('运行中的 agent', `${data.status.agents.length} / ${data.status.agents_total ?? data.status.agents.length}`);
   if (!data.status.agents.length) agents.append(el('p', `并发额度 ${data.status.concurrency}，当前空闲；另有 ${data.status.agents_idle ?? 0} 个 agent 待唤醒。`, 'hint'));
@@ -254,7 +250,7 @@ export function renderOverview(data) {
     agents.append(row);
   }
   agents.classList.add('agents-panel');
-  activity.append(agents, renderTimeline(data.timeline)); panel.append(activity);
+  activity.append(agents); panel.append(activity);
 
   const info = block('运行时');
   const meta = el('div', undefined, 'grid');

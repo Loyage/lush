@@ -34,12 +34,12 @@ export class UIClient {
     const status = await this.request('system.summary');
     check(status.project === this.config.project, 'daemon project mismatch');
     if (revision && revision === status.revision) return { unchanged: true, revision };
-    const [timeline, ladder, activity, inputs, drafts, notices, specs, candidates, showcases] = await Promise.all([
-      this.request('system.timeline'), this.request('task.ladder'), this.request('task.activity', { limit: 50, scope: 'all' }),
+    const [ladder, activity, inputs, drafts, notices, specs, candidates, showcases] = await Promise.all([
+      this.request('task.ladder'), this.request('task.activity', { limit: 50, scope: 'all' }),
       this.request('input.list'), this.request('draft.list'), this.request('notice.list'),
       this.request('spec.list'), this.request('candidate.list'), this.request('showcase.list'),
     ]);
-    return { revision: status.revision, status, timeline, ladder, tasks: activity.tasks, task_page: activity.page,
+    return { revision: status.revision, status, ladder, tasks: activity.tasks, task_page: activity.page,
       inputs, drafts, notices, specs, candidates, showcases };
   }
 }

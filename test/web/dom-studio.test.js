@@ -21,6 +21,9 @@ test('概览：指标以 Intent 为主，Git 诊断退居次级且折叠跨重�
   renderOverview(data);
   const panel = dom.node('detail');
   expect(panel.dataset.view).toBe('overview');
+  // 并行时间轴已从 Web 移除：概览不再渲染该面板与 .gantt。
+  expect(deepText(panel)).not.toContain('并行时间轴');
+  expect(panel.querySelector('.gantt')).toBeNull();
   // 展示不再占据首页指标和主操作，Branch 留在诊断折叠区。
   expect(panel.querySelectorAll('.metric').length).toBe(3);
   const text = deepText(panel);
