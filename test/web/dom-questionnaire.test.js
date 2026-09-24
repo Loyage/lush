@@ -83,6 +83,52 @@ test('incomplete questionnaire cannot submit, custom answer clears selection, di
   } finally { dom.restore(); }
 });
 
+test('answered questionnaire replays chosen options and previews with no submit path', async () => {
+  const dom = installDom(); resetUiState();
+  try {
+    const answered = questionnairePanel({ ...notice(), status: 'answered', answer: JSON.stringify({ version: 1, answers: [
+      { question: 'Which layout?', header: 'Layout', selected: [0], labels: ['Sidebar'], custom: '' },
+      { question: 'Which features?', header: 'Features', selected: [1], labels: ['Shortcuts'], custom: '' },
+    ] }) });
+    expect(deepText(answered)).toContain('已提交选择');
+    // 选中项被明确标出，previewHtml 选中项默认渲染 sandbox iframe 预览。
+    const sidebar = option(answered, 'Sidebar');
+    expect(sidebar.classList.contains('selected')).toBe(true);
+    expect(sidebar.getAttribute('aria-pressed')).toBe('true');
+    expect(answered.querySelectorAll('.decision-picked-mark').length).toBe(2);
+    const frame = answered.querySelector('iframe');
+    expect(frame.getAttribute('sandbox')).toBe('');
+    expect(frame.getAttribute('src')).toBe('/api/task/22/notice/7/preview/0/0');
+    // 未选中项不冒充选择，但点它仍能看到自己的预览（Tabs 走 Markdown 预览）。
+    const tabs = option(answered, 'Tabs');
+    expect(tabs.classList.contains('selected')).toBe(false);
+    expect(tabs.getAttribute('aria-pressed')).toBe('false');
+    await tabs.onclick();
+    expect(deepText(answered)).toContain('Account | Security');
+    // 只读回放：不出现提交 / 回写按钮。
+    expect(answered.querySelectorAll('.actions').length).toBe(0);
+    expect(answered.querySelectorAll('button').every(node => !/提交|继续|忽略/.test(node.textContent))).toBe(true);
+  } finally { dom.restore(); }
+});
+
+test('label-only answers backfill to options; dismissed notices never fake a selection', () => {
+  const dom = installDom(); resetUiState();
+  try {
+    const legacy = questionnairePanel({ ...notice(), status: 'answered', answer: JSON.stringify({ answers: [
+      { question: 'Which layout?', labels: ['Tabs'], custom: '' },
+    ] }) });
+    expect(option(legacy, 'Tabs').classList.contains('selected')).toBe(true);
+    expect(deepText(legacy)).toContain('已选：Tabs');
+    const dismissed = questionnairePanel({ ...notice(), status: 'dismissed', answer: null });
+    expect(deepText(dismissed)).toContain('已忽略');
+    expect(deepText(dismissed)).toContain('未选择任何选项');
+    expect(dismissed.querySelectorAll('.decision-option').filter(node => node.classList.contains('selected')).length).toBe(0);
+    expect(dismissed.querySelectorAll('.decision-picked-mark').length).toBe(0);
+    // 忽略不默认加载任何预览。
+    expect(dismissed.querySelectorAll('iframe').length).toBe(0);
+  } finally { dom.restore(); }
+});
+
 test('different branches share the notice queue and final confirmation advances to the next task', async () => {
   const first = notice(), second = notice(8, 99), sent = [], navigated = [];
   const dom = installDom({ fetch: async (_url, opts) => { sent.push(JSON.parse(opts.body)); return Response.json({ status: 'answered' }); } });
@@ -97,6 +143,8 @@ test('different branches share the notice queue and final confirmation advances 
     expect(navigated).toEqual([99]); expect(ui.noticeFocus).toBe(8);
     const answered = questionnairePanel({ ...first, status: 'answered', answer: JSON.stringify({ answers: [{ question: 'Which layout?', labels: ['Tabs'], custom: '' }] }) });
     expect(deepText(answered)).toContain('已提交选择'); expect(deepText(answered)).toContain('Tabs');
-    expect(answered.querySelectorAll('button').length).toBe(0);
+    // 回放只提供预览切换，不出现提交 / 回写按钮。
+    expect(answered.querySelectorAll('.actions').length).toBe(0);
+    expect(answered.querySelectorAll('button').every(node => !/提交|继续|忽略/.test(node.textContent))).toBe(true);
   } finally { restoreNavigation(); dom.restore(); }
 });

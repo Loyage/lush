@@ -39,7 +39,10 @@ function startDraftEdit(draft) {
   ui.draftEditing = draft.id;
   body.remove();
   item.append(box);
-  box.focus?.();
+  // Focus after the node is in the document, then drop the caret at the end so a tap lands
+  // inside the text instead of on a blank box; preventScroll keeps the mobile viewport put.
+  box.focus?.({ preventScroll: true });
+  try { box.setSelectionRange?.(box.value.length, box.value.length); } catch { /* unsupported */ }
 }
 function draftItem(draft) {
   const item = el('article', undefined, 'draft');

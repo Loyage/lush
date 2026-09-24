@@ -51,8 +51,14 @@ test('settings shows risk confirmation before activation; banner gives immediate
     await until(() => deepText(dom.node('modal')).includes('测试风险'));
     await findByText(dom.node('modal'), '我了解风险，授权管家开启').onclick(); await confirmed;
     expect(calls[0].params.options).toMatchObject({ budget_tokens: 1234, include_existing: true, allow_merge: false });
+    state = { ...state, handled: 3, decisions: 2 };
     renderSleepBanner(state);
     expect(banner.hidden).toBe(false); expect(deepText(banner)).toContain('管家正在值守');
+    expect(deepText(banner)).toContain('已处理 3 项事项 · 其中 2 道由管家作出选择');
+    renderSleepBanner({ ...state, enabled: false, paused: true, reason: '预算保护：开发已暂停' });
+    expect(banner.hidden).toBe(false);
+    expect(deepText(banner)).toContain('已处理 3 项事项 · 其中 2 道由管家作出选择');
+    renderSleepBanner(state);
     await findByText(banner, '立即关闭睡觉模式').onclick();
     expect(calls.at(-1).method).toBe('sleep.stop'); expect(banner.hidden).toBe(true);
   } finally { restore(); dom.restore(); }

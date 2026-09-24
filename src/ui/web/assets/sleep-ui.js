@@ -7,6 +7,7 @@ import { absolute } from './format.js';
 
 const modeLabel = mode => mode === 'preferences' ? '参考以往选择' : '全通过／推荐';
 const usageLabel = state => `项目全部 Agent：${state?.used_tokens || 0} / ${state?.budget_tokens ?? '不限'} token`;
+const progressLabel = state => `已处理 ${state?.handled || 0} 项事项 · 其中 ${state?.decisions || 0} 道由管家作出选择`;
 
 async function stop() {
   const state = await action('sleep.stop', {});
@@ -27,6 +28,7 @@ export function renderSleepBanner(state) {
   host.hidden = !state?.enabled && !state?.paused;
   if (host.hidden) { host.replaceChildren(); return; }
   host.replaceChildren(el('strong', state.enabled ? '☾ 我去睡觉了 · 管家正在值守' : '开发已暂停 · 管家已停止'),
+    el('p', progressLabel(state), 'hint'),
     el('p', usageLabel(state), 'hint'));
   if (state.reason) host.append(el('p', state.reason, 'hint'));
   if (state.enabled) host.append(button('立即关闭睡觉模式', stop, 'danger',

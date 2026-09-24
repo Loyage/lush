@@ -91,7 +91,7 @@
 ## “我去睡觉了”接缝
 
 - 用户专属 `sleep.start(options,confirmed)` / `sleep.stop()` / `sleep.resume()` / `sleep.status()` / `sleep.choices(before?,limit?)`；Web 设置开启，左栏常驻关闭；CLI `sleep on/off/status/resume/choices`。options 显式包含 `mode=recommended|preferences`、可空正整数 `budget_tokens`、`include_existing`、`allow_merge`。confirmed 必须为 true，UI/CLI 先显示风险。
-- `project/sleep.js` 用既有 meta 保存项目授权/预算/暂停状态，既有 Event（task_id=null）保存不可变决策快照、执行意图及结果；不引入业务表，不改写旧 Notice。Event 新增 type/id 与两类管家 JSON 引用的部分索引；`Store.event()` 增量返回 event ID。关闭不删除选择记录。重启保留授权与预算，已开始的选择绝不自动重放。
+- `project/sleep.js` 用既有 meta 保存项目授权/预算/暂停状态，既有 Event（task_id=null）保存不可变决策快照、执行意图及结果；不引入业务表，不改写旧 Notice。Event 新增 type/id 与两类管家 JSON 引用的部分索引；`Store.event()` 增量返回 event ID。关闭不删除选择记录。重启保留授权与预算，已开始的选择绝不自动重放。`sleepStatus()` 额外按当前 `session` 汇总既有 `sleep.choice.started`/`sleep.choice.finished`，返回本会话进度 `handled`（已给出结果的 Notice 条数，含纯信息已阅）与 `decisions`（其中 `approve`/`reject`/`answer`/`dismiss`/`merge` 的条数）；查询借 `events_type_id` 与 `sleep.started` 的事件 ID 限定扫描范围，不新增表。
 - `butler` 专用 Task 无 Input/worktree，无工具、扩展、Skills、上下文文件和 RPC capability，仅 Pi（mock 用于测试）；每次处理一条 Notice，独立单并发槽。规则模式优先批准 Plan、选择唯一推荐项；其余与偏好模式交由 Agent。偏好上下文区分人类答案与管家答案。
 - 预算累计开启后全项目会话新增 input/output/cache token，每秒及调度/决策前检查；缺失用量/读取故障保守暂停。到限停止管家及新调度，中止活动 invocation 为失败、保留现场且不自动重放；在途请求可能超额。关闭不解除预算暂停，`sleep.resume` 单独恢复排队任务，中止任务仍需显式 retry。
 - 自动合并仅在显式授权后响应已登记任务的交付 Notice，通过既有安全合并 API，不把自然语言答案当作 Git 指令；禁止绕过依赖、干净工作区与最终 Candidate 验收门。关闭后迟到 Agent 结果不执行；已经开始的 Git 操作可能完成，记录保留。
