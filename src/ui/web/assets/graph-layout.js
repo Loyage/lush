@@ -262,6 +262,9 @@ export function graphLayout(graph = {}) {
       archived,
       archived_at: node.archived_at ?? null,
       archivable,
+      // 写冻结与进行中的一键合并运行：render 只消费，判断在 daemon（branch-freeze.js / merge-all.js）。
+      freeze: node.freeze ?? null,
+      merge_run: node.merge_run ?? null,
     };
     built.set(node.name, entry); visited.add(node.name);
     const childNames = (visibleChildren.get(node.name) || [])
@@ -398,7 +401,9 @@ export function graphFingerprint(snapshot) {
   const nodes = (ladder.nodes || []).map(node => `${node.id}:${node.branch ?? '-'}:${node.target_branch ?? '-'}:${node.level ?? 0}:${node.integration ?? '-'}`).join(',');
   const groups = (ladder.groups || []).map(group => `${group.target_branch}:${(group.items || []).map(item => `${item.id}:${item.phase}`).join('|')}`).join(',');
   const notices = pendingNoticesOf(snapshot).map(notice => `${notice.id}:${notice.task_id}:${notice.kind}`).join(',');
-  return `${tasks}::${intents}::${nodes}::${groups}::${notices}`;
+  const freeze = (snapshot.branch_freeze || []).map(row => `${row.branch}:${row.kind}:${row.target ?? '-'}:${row.task_id ?? '-'}`).join(',');
+  const runs = (snapshot.merge_runs || []).map(run => `${run.target_branch}:${run.status}:${run.done?.length ?? 0}:${run.waiting_task_id ?? '-'}`).join(',');
+  return `${tasks}::${intents}::${nodes}::${groups}::${notices}::${freeze}::${runs}`;
 }
 
 /** 渲染幂等用的图指纹：同一份数据重画不重复建节点，滚动位置也不被冲掉。
@@ -411,7 +416,8 @@ export function graphRenderKey(graph) {
     node.worktree_state ?? '-', node.tasks?.active ?? '-',
     node.origin ?? '-', node.status ?? '-', node.title ?? '-', node.summary ?? '-', node.source_id ?? '-',
     node.notice?.id ?? '-', node.notice?.kind ?? '-', node.notice_count ?? '-', progressKey(node.progress),
-    JSON.stringify(node.diagnostics ?? null), JSON.stringify(node.showcase ?? null)].join(':')).join('|');
+    JSON.stringify(node.diagnostics ?? null), JSON.stringify(node.showcase ?? null),
+    JSON.stringify(node.freeze ?? null), JSON.stringify(node.merge_run ?? null)].join(':')).join('|');
   const edges = (graph?.edges || []).map(edge => `${edge.kind}:${edge.from}>${edge.to}:${edge.status ?? '-'}:${edge.ahead ?? '-'}:${edge.behind ?? '-'}:${(edge.blockers || []).join(',')}`).join('|');
   return `${nodes}#${graph?.truncated === true}#${edges}`;
 }

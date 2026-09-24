@@ -87,6 +87,9 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         summary TEXT,
         -- 效果展示预约：分支附属的可空 versioned JSON（pending 等待准入 / 启动后清除），不是独立业务实体。
         showcase_reservation TEXT,
+        -- 一键合并运行：目标分支附属的可空 versioned JSON（status/order/index/done/skipped/waiting_task_id）。
+        -- 它不是独立业务实体，只记录这条分支当前正在收拢哪些后代、合并到哪里了；终态后清空。
+        merge_run TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS branches_parent ON branches(parent);
       CREATE INDEX IF NOT EXISTS branches_task ON branches(task_id);

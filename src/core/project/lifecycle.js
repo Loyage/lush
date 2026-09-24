@@ -102,6 +102,8 @@ export default {
     const compiled = status === 'completed' && task.role === 'worker'
       && Boolean(this.store.get("SELECT id FROM events WHERE task_id=? AND type='plan.materialized' LIMIT 1", task.id));
     if (task.input_id && task.branch && (compiled || task.role === 'merger')) this.scheduleIntentIntegration(task.input_id);
+    // 一键合并若正等这个 merger 子任务，结算后自动继续下一步。
+    if (task.role === 'merger') this.resumeMergeRun(task.id);
     if (task.parent_id) this.wake(task.parent_id);
     // A settled dependency releases every queued dependent; still-blocked ones stay queued.
     for (const edge of this.store.dependents(task.id)) this.wake(edge.task_id);
@@ -132,6 +134,7 @@ export default {
   clear() {
     check(!this.sleepStatus().enabled && !this.sleepTickPromise, '请先关闭托管模式并等待管家操作结束，再清空项目');
     check(this.running.size === 0, 'an agent invocation is still unwinding; clear must wait');
+    check(this.store.activeBranchMergeRuns().length === 0, 'a one-click merge is in progress; finish or cancel it before clearing');
     check(this.workspaces.busy.size === 0, 'worktree cleanup is in progress; clear must wait');
     const active = this.store.activeTasks();
     check(active.length === 0,
@@ -191,6 +194,8 @@ export default {
       `#${active.slice(0, 20).map(task => task.id).join(', #')} still active (${active.length}); cancel them or wait until they finish`);
     check(ids.every(value => !this.running.has(value)), 'agent is still stopping; delete must wait');
     check(ids.every(value => !this.workspaces.busy.has(value)), 'worktree cleanup is in progress; delete must wait');
+    // 冻结中的分支（一键合并 / 未结束的 merger）不允许删任务：删除会连带走它的分支与 worktree。
+    for (const task of subtree) if (task.branch) this.assertBranchWritable(task.branch, 'delete a task on it');
     const unhandled = subtree.filter(task => task.role === 'planner'
       && this.store.get("SELECT count(*) AS value FROM task_specs WHERE planner_task_id=? AND status='pending'", task.id).value > 0);
     check(unhandled.length === 0,
@@ -239,6 +244,8 @@ export default {
     check(!this.running.has(task.id), 'agent is still stopping; retry shortly');
     check(!this.workspaces.busy.has(task.id), 'worktree cleanup is in progress; retry shortly');
     check(task.role !== 'butler', '管家决定不允许重放；请手动处理原 Notice');
+    // 冻结中的分支不接受重试：重试会重新产出提交、推进分支，扰动正在进行的合并。
+    if (task.branch) this.assertBranchWritable(task.branch, 'retry a task on it');
     if (task.role === 'showcase') return this.retryShowcase(task.id);
     if (task.parent_id) check(!TERMINAL.has(this.store.task(task.parent_id).status), 'parent has ended; retry the parent or submit a new input');
     const retryProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile(task.role, profile);

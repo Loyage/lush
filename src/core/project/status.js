@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { agentView } from './internal.js';
+import { branchFreezeList } from '../branch-freeze.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
@@ -36,6 +37,9 @@ function statusView(project, agentConfig = null, introConfig = null) {
       (SELECT r.id FROM tasks r WHERE r.resolves_task_id = tasks.id AND r.status NOT IN ('failed','cancelled')
         ORDER BY r.id DESC LIMIT 1) AS resolves_task_id
       FROM tasks WHERE integration='conflict' ORDER BY id LIMIT 50`),
+    // 分支写冻结（一键合并 + 未结束的 merger）与进行中的一键合并运行：只读投影，界面据此禁用写按钮。
+    branch_freeze: branchFreezeList(project.store),
+    merge_runs: project.store.activeBranchMergeRuns().map(({ target, run }) => ({ target_branch: target, ...run })),
     notices: project.store.get("SELECT count(*) AS count FROM notices WHERE status='open' AND kind IN ('question','questionnaire')").count };
 }
 

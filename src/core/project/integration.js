@@ -39,12 +39,12 @@ export default {
         const state = await this.workspaces.branchState(branch.branch);
         if (state.blockers.length) continue;
         if (state.status === 'fast_forward') {
-          const outcome = await this.approveBranchMerge(branch.branch);
+          const outcome = await this.approveBranchMerge(branch.branch, null, { internal: true });
           if (outcome.merged || outcome.already_integrated) {
             merged.push(branch.branch); progressed = true;
           }
         } else if (state.status === 'diverged') {
-          const sync = await this.syncBranch(branch.branch);
+          const sync = await this.syncBranch(branch.branch, { internal: true });
           this.store.event(input.task_id, 'intent.integration_sync', { input_id: input.id, branch: branch.branch,
             task: sync.task?.id ?? null, status: sync.status });
           return { input_id: input.id, status: 'syncing', merged, sync };

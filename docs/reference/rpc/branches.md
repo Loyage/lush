@@ -8,6 +8,9 @@
 | `branch merge BRANCH` | `branch.merge` | `{branch}` | 用户专属 |
 | `branch sync BRANCH` | `branch.sync` | `{branch}` | 用户专属 |
 | `branch catchup BRANCH` | `branch.catchup` | `{branch}` | 用户专属 |
+| `branch merge-plan BRANCH` | `branch.merge_plan` | `{branch}` | 用户与 agent，只读 |
+| `branch merge-all BRANCH` | `branch.merge_all` | `{branch}` | 用户专属 |
+| `branch merge-cancel BRANCH` | `branch.merge_cancel` | `{branch}` | 用户专属 |
 | `branch archive BRANCH [--discard]` | `branch.archive` | `{branch, discard?}` | 用户专属 |
 
 谱系是创建时显式写下的 `parent → child`，不是 commit graph 或任务树。`branch.import` 只登记已有本地分支，parent 为 unknown，不做推断。
@@ -77,6 +80,14 @@
 ```
 
 顶层的 `worktree` / `ref` / `tip` / `discarded` 描述的是**子树根**（调用方问的那一条），整棵子树逐条看 `branches`，`count` 是这次一共归档了几条分支。`showcases` 列出保留记录但已清理 detached worktree 的展示任务，`showcase_worktrees` 是实际存在并被删除的目录数。CLI 的 `lush branch archive BRANCH [--discard]` 非 JSON 输出由 `printBranchArchive` 打印，每条分支一行。
+
+## branch.merge_plan / branch.merge_all / branch.merge_cancel
+
+`branch.merge_plan BRANCH` 是只读面：返回目标分支的整棵后代子树，`items[]` 按「叶子在前」排序（`depth` 降序，其次创建时间、名字），每条给 `status`（`fast_forward` / `diverged` / `integrated` / `missing` / `unknown`）、`action`（`merge` / `sync` / `skip`）、`ready` 与 `blockers`；`order` 是要执行的分支名序列（含此刻被未收拢子分支阻塞、但叶子先合后会自动就绪的父分支）。`active_run` 是当前进行中的运行（没有则 null），`frozen` 表示目标是否已被冻结。目标分支不必先 `branch import`：不存在记录但本地有 ref 时，`branch.merge_all` 会按 `branch.import` 同一口径补一条根记录。
+
+`branch.merge_all BRANCH` 在用户确认这份计划后开始：把运行写入目标分支的 `merge_run`，异步逐条 ff-only 收拢；分歧时自动建子侧 merger 并暂停，merger 结算后自动继续。返回 `{target_branch, status, plan, run}`；没有可执行项时返回 `{status:"empty"}` 且不写运行。同目标已有运行在跑时拒绝。
+
+`branch.merge_cancel BRANCH` 清除运行、取消正在等待的 merger，并释放冻结；已落地的合并不回滚。三个方法均为用户专属写操作（`merge_plan` 只读）。冻结语义见[分支合并](../../engineering/merge.md#一键合并)。
 
 归档后的分支不再出现在分支图上（它们是记录：`branch show` / `branch.archive` 事件 / 任务详情）：归档分支名下的任务节点也不再画出来，免得掉到目标分支或兜底分组里冒充成活着的工作。
 

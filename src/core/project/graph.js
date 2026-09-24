@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { branchFreeze } from '../branch-freeze.js';
 
 /** 分支图的规模上限：只读视图不该为了画全图把 daemon 拖垮，超限截断并在结果里说明。 */
 export const GRAPH_NODE_LIMIT = 200;
@@ -222,6 +223,13 @@ export default {
         .filter(name => records.get(name)?.status !== 'archived')
         .map(name => ({ name, head_commit: refs.get(name) ?? null,
           created_from_commit: records.get(name)?.created_from_commit ?? null })));
+      // 写冻结与一键合并运行都是现算的只读投影：图只负责展示“为什么这条分支现在不能动”。
+      const freezeMap = branchFreeze(this.store);
+      const mergeRunOf = name => {
+        const raw = records.get(name)?.merge_run;
+        if (!raw) return null;
+        try { const run = JSON.parse(raw); return run && ['running', 'paused'].includes(run.status) ? run : null; } catch { return null; }
+      };
       const nodes = [];
       for (const name of branchNodes) {
         const record = records.get(name) ?? null;
@@ -288,10 +296,13 @@ export default {
           archived,
           archived_at: archived ? record?.deleted_at ?? null : null,
           deleted: record?.status === 'deleted',
+          // 冻结与进行中的一键合并：界面用它禁用写按钮并解释原因。
           status: archived ? 'archived'
             : counts.active ? 'active' : counts.failed ? 'failed' : !counts.total ? 'empty'
             : relations.get(name)?.status === 'integrated' ? 'merged' : 'ready',
           tasks: counts,
+          freeze: freezeMap.get(name) ?? null,
+          merge_run: mergeRunOf(name),
         });
       }
 

@@ -63,4 +63,15 @@ code 下游 → 上游任务分支 → 输入分支 → 用户指定父分支
 
 新的主操作面是分支图，而非按 task 推测交付顺序。
 
+## 一键合并
+
+`branch.merge_all BRANCH`（Web 分支图的「一键合并全部子分支」、CLI `lush branch merge-all BRANCH`）把一条分支（典型是 main）的整棵后代子树从叶子向根自动收拢：
+
+1. 只读的 `branch.merge_plan BRANCH` 列出全部后代，按「叶子在前」（谱系深度降序，其次创建时间、名字）给每条分支当前状态与将要执行的动作（`merge` / `sync` / `skip`）和阻塞原因；
+2. 用户确认一次（Web 确认框展示这份顺序），`branch.merge_all` 开始执行，之后不再逐条确认；
+3. runtime 逐条复用 `branch.merge` 的 ff-only 门槛；父子分歧时自动在该子分支下创建子侧 merger，运行置为 `paused` 并停住，merger 结算后自动落回它的直接父分支并继续；目标分支永不产生 merge commit；
+4. 运行在「全部完成 / 遇到失败 / 用户取消」时结束，已成功落地的不回滚。
+
+运行本身是目标分支附属的 versioned JSON（`branches.merge_run`），不是新业务实体；终态即清空。运行期间按「目标分支 + 它的全部后代」冻结写操作；此外，任何未结束的 merger 任务同样冻结「它处理的分支 + 它的全部后代 + 它的直接父分支」。冻结拦截新建 intent（`input.submit` / `draft.commit`）、`branch.merge` / `branch.sync` / `branch.catchup` / `branch.archive`、`task.retry` / `task.cleanup` / `task.delete` 与 `task.clear`；`branch.merge_cancel BRANCH` 清除运行、取消正在等待的 merger 并释放冻结，已落地提交保留。冻结计算见 `src/core/branch-freeze.js`。
+
 相关：[分支优先架构](branch-first.md) · [Git 边界](git-boundary.md) · [分支谱系](branch-genealogy.md)

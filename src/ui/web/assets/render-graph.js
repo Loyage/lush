@@ -357,6 +357,52 @@ function blockerText(blockers = []) {
     branches.length ? `先收拢子分支：${branches.join('、')}` : null].filter(Boolean).join('；');
 }
 
+/** 描述一键合并顺序：与 daemon 的 mergeAllPlan 同一份字段，不在前端另算一套规则。 */
+const MERGE_ALL_ACTION = { merge: '快进合入', sync: '子侧解法', skip: '不处理' };
+
+/** 一键合并：先拉只读计划给用户确认顺序与阻塞，再开始；运行期间冻结目标与全部后代。 */
+async function runMergeAll(branch) {
+  try {
+    const plan = await action('branch.merge_plan', { branch: branch.name });
+    if (!plan.order?.length) {
+      show(`${branch.name} 现在没有可以一键合并的后代分支。`, 'warn');
+      return;
+    }
+    const lines = plan.items.map(item =>
+      `${item.ready ? '→' : '·'} ${item.branch}（${MERGE_ALL_ACTION[item.action] || item.action}）${item.blockers?.length ? ` · 阻塞：${item.blockers.join('、')}` : ''}`).join('\n');
+    const confirmed = await confirmDialog({
+      title: `一键合并 ${branch.name} 的全部子分支？`,
+      message: `按叶子到根自动收拢 ${plan.order.length} 条分支；遇分歧自动开子侧 merger 并暂停等你处理，已完成的不回滚。运行期间 ${branch.name} 及其全部后代被冻结，不能新建输入 / 编辑 / 合并，直到完成或你在图上取消。`,
+      detail: lines,
+      confirmLabel: '开始一键合并',
+      cancelLabel: '取消',
+      agent: true,
+      confirmHelp: agentHelp('一键合并会按叶子到根自动快进合并，并在分歧 / 冲突时启动 merger Agent；耗时较长并消耗 token。'),
+    });
+    if (!confirmed) return;
+    await action('branch.merge_all', { branch: branch.name });
+    show(`${branch.name} 的一键合并已开始，按序处理 ${plan.order.length} 条分支。`);
+    await loadGraph();
+  } catch (error) { show(error.message, 'error'); }
+}
+
+/** 取消一键合并：释放冻结，已完成的合并保留不回滚。 */
+async function runMergeCancel(branch) {
+  const confirmed = await confirmDialog({
+    title: `取消 ${branch.name} 的一键合并？`,
+    message: '取消后释放冻结；已完成的合并保留、不回滚，正在等待的 merger 子任务会被取消。',
+    confirmLabel: '取消合并',
+    cancelLabel: '继续合并',
+    danger: true,
+  });
+  if (!confirmed) return;
+  try {
+    await action('branch.merge_cancel', { branch: branch.name });
+    show(`已取消 ${branch.name} 的一键合并，已完成的合并保留。`);
+    await loadGraph();
+  } catch (error) { show(error.message, 'error'); }
+}
+
 function forkActions(branch, edge) {
   if (!edge) return [];
   const blocked = edge.blockers?.length ? blockerText(edge.blockers) : null;
@@ -471,6 +517,26 @@ function branchRow(branch, onCollapsed) {
     row.append(el('span', `子分支 +${edge.ahead ?? '?'} / -${edge.behind ?? '?'}`, 'meta'));
   }
   for (const node of forkActions(branch, edge)) row.append(node);
+  // 一键合并：有后代分支才给入口。运行中显示进度 + 取消；被冻结（别的 merger / 一键合并）时禁用并说明。
+  if (branch.merge_run) {
+    const run = branch.merge_run;
+    const done = run.done?.length ?? 0;
+    row.append(el('span', `一键合并中 · ${done}/${run.order?.length ?? 0}${run.status === 'paused' ? '（等待子任务）' : ''}`,
+      'chip graph-work run'));
+    row.append(button('取消一键合并', () => runMergeCancel(branch), 'ghost graph-branch-action',
+      { help: '停止这条分支的一键合并并释放冻结；已完成的合并保留、不回滚。' }));
+  } else if (branch.subtreeBranches > 0) {
+    if (branch.freeze) {
+      const disabled = el('button', '一键合并全部子分支', 'ghost graph-branch-action');
+      disabled.type = 'button'; disabled.disabled = true;
+      const host = el('span', undefined, 'help-host');
+      host.setAttribute('data-help', `一键合并暂时不可用：${branch.freeze.reason}。`);
+      host.append(disabled); row.append(host);
+    } else {
+      row.append(button('一键合并全部子分支', () => runMergeAll(branch), 'ghost graph-branch-action',
+        { agent: true, help: agentHelp('一键合并会按叶子到根自动快进收拢后代分支，并在分歧 / 冲突时启动 merger Agent；运行期间冻结这条分支及其全部后代，耗时较长并消耗 token。') }));
+    }
+  }
 
   // 分支元数据：状态、标题、来源、创建时间、任务计数
   const meta = el('div', undefined, 'graph-branch-meta');

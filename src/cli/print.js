@@ -32,6 +32,29 @@ export function printMergeMany(result) {
   }
   console.log(`共 ${result.merges.length} 个：已合并 ${result.merged}${result.stopped ? `；在 #${result.stopped.id} 停止（${result.stopped.reason}）` : ''}`);
 }
+/** 一键合并的只读计划：逐条分支给出动作与阻塞，供确认前预览。 */
+export function printMergeAllPlan(plan) {
+  const items = plan?.items ?? [];
+  if (!items.length) { console.log(`（${plan?.target_branch ?? '目标分支'} 没有可收拢的后代分支）`); return; }
+  console.log(`目标分支 ${plan.target_branch} · 可执行 ${plan.order?.length ?? 0} / 共 ${items.length}${plan.active_run ? ' · 已有运行在进行' : ''}`);
+  const ORDER = { merge: '快进合入', sync: '子侧解法', skip: '不处理' };
+  for (const item of items) {
+    const mark = item.ready ? '→' : '·';
+    const detail = [`${ORDER[item.action] || item.action}`,
+      item.blockers?.length ? `阻塞：${item.blockers.join('、')}` : ''].filter(Boolean).join(' · ');
+    console.log(`${mark} ${item.branch}\t${item.depth}层\t${detail}`);
+  }
+  if (!plan.order?.length) console.log('没有此刻可执行的合并。');
+}
+/** 一键合并启动结果：给一句人话，进度看分支图。 */
+export function printMergeAllResult(result) {
+  if (result.status === 'empty') { console.log(`目标分支 ${result.target_branch}：没有待合并的后代分支。`); return; }
+  console.log(`已在 ${result.target_branch} 开始一键合并，按序处理 ${result.plan.order.length} 条分支；进度看 lush branch tree。`);
+}
+/** 取消结果：明确已完成的不会回滚。 */
+export function printMergeCancel(result) {
+  console.log(`已取消 ${result.target_branch} 的一键合并；已完成的 ${result.done?.length ?? 0} 条保留，不回滚。`);
+}
 /* ---------- 并行/串行关系：任务树、交付队列、时间轴 ---------- */
 const DEP_MARK = { code: '⛓', order: '⏳' };
 const DEP_WORD = { code: '基线', order: '顺序' };

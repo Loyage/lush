@@ -61,6 +61,8 @@ export const handlers = {
   'task.verify'(p, params, actor) { return p.verify(id(params.id)); },
   'task.cleanup'(p, params, actor) {
     check(!p.running.has(id(params.id)), 'agent is still stopping; cleanup must wait');
+    const task = p.store.task(id(params.id));
+    if (task.branch) p.assertBranchWritable(task.branch, 'clean up its workspace');
     return p.workspaces.cleanup(id(params.id), { keepBranch: params.keep_branch === true });
   },
   'task.delete'(p, params, actor) { return p.deleteTask(id(params.id)); },

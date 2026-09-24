@@ -42,6 +42,10 @@ export const handlers = {
   'branch.merge'(p, params, actor) { return p.approveBranchMerge(params.branch); },
   'branch.sync'(p, params, actor) { return p.syncBranch(params.branch); },
   'branch.catchup'(p, params, actor) { return p.catchupBranch(params.branch); },
+  // 一键合并：plan 是只读预览（确认对话框用），merge_all 在用户确认后开始，merge_cancel 停止并释放冻结。
+  'branch.merge_plan'(p, params, actor) { return p.mergeAllPlan(params.branch); },
+  'branch.merge_all'(p, params, actor) { return p.mergeAll(params.branch); },
+  'branch.merge_cancel'(p, params, actor) { return p.cancelMergeAll(params.branch); },
   // 归档会删 worktree 与本地 ref，是用户专属写操作；discard 只在明确要求时才丢弃脏工作区。
   'branch.archive'(p, params, actor) { return p.archiveBranch(params.branch, { discard_worktree: params.discard === true }); },
   /**

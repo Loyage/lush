@@ -1,6 +1,6 @@
 import { check } from '../../core/types.js';
 import { exact } from '../args.js';
-import { printBranchTree, printBranchShow, printBranchImport, printBranchArchive, printBranchSummary } from '../print.js';
+import { printBranchTree, printBranchShow, printBranchImport, printBranchArchive, printBranchSummary, printMergeAllPlan, printMergeAllResult, printMergeCancel } from '../print.js';
 
 /** branch：分支谱系（谁从谁创建出来），与任务树、commit graph 都是不同维度。 */
 export async function run(command, args, ctx) {
@@ -30,6 +30,18 @@ export async function run(command, args, ctx) {
   } else if (verb === 'catchup') {
     exact(args, 1);
     value = await client.request('branch.catchup', { branch: args[0] });
+  } else if (verb === 'merge-plan') {
+    exact(args, 1);
+    value = await client.request('branch.merge_plan', { branch: args[0] });
+    if (!json) { printMergeAllPlan(value); return; }
+  } else if (verb === 'merge-all') {
+    exact(args, 1);
+    value = await client.request('branch.merge_all', { branch: args[0] });
+    if (!json) { printMergeAllResult(value); return; }
+  } else if (verb === 'merge-cancel') {
+    exact(args, 1);
+    value = await client.request('branch.merge_cancel', { branch: args[0] });
+    if (!json) { printMergeCancel(value); return; }
   } else if (verb === 'archive') {
     const discard = args.includes('--discard');
     if (discard) args.splice(args.indexOf('--discard'), 1);
@@ -43,7 +55,7 @@ export async function run(command, args, ctx) {
     value = await client.request('branch.summary', branch === null ? { summary } : { branch, summary });
     if (!json) { printBranchSummary(value); return; }
   } else {
-    check(false, 'unknown branch command; use tree, show, import, merge, sync, catchup, archive or summary');
+    check(false, 'unknown branch command; use tree, show, import, merge, sync, catchup, merge-plan, merge-all, merge-cancel, archive or summary');
   }
   return value;
 }

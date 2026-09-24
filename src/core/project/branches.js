@@ -102,9 +102,10 @@ export default {
    * expected 传入时交付内容由这个固定 commit 决定：Candidate 接受走的就是这条路，
    * 分支在读到 tip 之后又前进也不会把未审阅的提交一起带上目标分支。
    */
-  async approveBranchMerge(branch, expected = null) {
+  async approveBranchMerge(branch, expected = null, options = {}) {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
+    if (options.internal !== true) this.assertBranchWritable(name, 'merge it into its parent');
     const record = this.store.branch(name);
     check(record && record.parent && record.parent_relation === 'recorded', `${name} has no recorded direct parent`);
     if (record.task_id !== null) {
@@ -135,7 +136,7 @@ export default {
    * 分歧不在父分支上 no-ff：创建一个以 child 顶端为基线的 merger 分支，让 agent 把冻结的 parent commit
    * 合进来并测试。它完成后先 ff 回 child，再由用户把 child ff 到 parent，始终逐层沿直接谱系收敛。
    */
-  async syncBranch(branch) {
+  async syncBranch(branch, options = {}) {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
     const state = await this.workspaces.branchState(name);
@@ -143,7 +144,10 @@ export default {
     check(state.blockers.length === 0, `sync ${name} is blocked by unfinished child work: ${state.blockers.join(', ')}`);
     const existing = this.store.get(`SELECT * FROM tasks WHERE role='merger' AND resolves_task_id IS NULL
       AND target_branch=? AND (status NOT IN ('completed','failed','cancelled') OR integration IN ('pending','review')) ORDER BY id DESC LIMIT 1`, name);
+    // 已有的子侧 merger 就是这场解分歧本身：幂等地把它还回去，不再当「又发一次写操作」。
     if (existing) return { status: 'existing', task: existing, branch: name, parent: state.parent };
+    // 要新开一场解分歧才算写操作：冻结中的分支拒绝，一键合并自己走 internal 绕过。
+    if (options.internal !== true) this.assertBranchWritable(name, 'sync it with its parent');
     const owner = this.store.branch(name);
     const ownerTask = owner?.task_id === null ? null : this.store.get('SELECT input_id FROM tasks WHERE id=?', owner.task_id);
     const input = ownerTask?.input_id ?? this.store.get('SELECT id FROM inputs WHERE anchor_branch=?', name)?.id ?? null;
@@ -178,6 +182,7 @@ export default {
     // 已经归档／回收过的分支不再归档一次（记录已是终态），但也不拦着其余的。
     const targets = [name, ...descendantsOf(this.store.branches(), name)]
       .filter(target => this.store.branch(target)?.status === 'active');
+    for (const target of targets) this.assertBranchWritable(target, 'archive it');
     const state = await gitState(this.workspaces, this.config.project);
     check(!targets.includes(state.current_branch), `cannot archive the branch currently checked out: ${state.current_branch}`);
     // 整棵子树上的任务都必须已终态：归档把这条分支的工作收起来，活还没完的状态不该被藏掉。
@@ -230,9 +235,10 @@ export default {
    * 用户从分支图让子分支跟上父分支（只允许 fast-forward）。它不改任何任务的 integration：
    * 只是把父分支已有的提交带进子分支，让下一次向上交付重新变成可 fast-forward。
    */
-  async catchupBranch(branch) {
+  async catchupBranch(branch, options = {}) {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
+    if (options.internal !== true) this.assertBranchWritable(name, 'catch it up with its parent');
     const record = this.store.branch(name);
     check(record && record.parent && record.parent_relation === 'recorded', `${name} has no recorded direct parent`);
     const outcome = await this.workspaces.catchupBranch(name);

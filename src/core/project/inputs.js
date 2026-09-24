@@ -38,6 +38,13 @@ export default {
    */
   async createInput(content, attach = null, branch = null, references = []) {
     text(content, 'input');
+    // 冻结中的分支不接受新的 intent：一键合并 / 解冲突期间在目标分支及其子树上建新输入会扰动合并。
+    let effectiveBranch = branch;
+    if (effectiveBranch === null || effectiveBranch === undefined) {
+      try { effectiveBranch = await this.workspaces.git(this.config.project, 'symbolic-ref', '--short', 'HEAD'); }
+      catch { effectiveBranch = null; }
+    }
+    if (effectiveBranch) this.assertBranchWritable(effectiveBranch, 'create a new intent on it');
     const normalized = this.normalizeReferences(references);
     if (branch !== null && branch !== undefined) text(branch, 'branch');
     const { inputId, anchor } = await this.anchorInput(branch);

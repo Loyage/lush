@@ -90,4 +90,34 @@ export const branches = {
     }
     return out;
   },
+
+  /**
+   * 一键合并运行是分支附属的运行态元数据，不新增表 / 实体：只在目标分支这一列上写 versioned JSON。
+   * 传 null 清空（终态 / 取消）。分支必须先登记。
+   */
+  setBranchMergeRun(branch, value) {
+    check(typeof branch === 'string' && branch.length > 0, 'branch name must be non-empty text');
+    check(this.branch(branch) !== null, 'branch must be registered before it can carry a merge run');
+    check(value === null || (typeof value === 'object' && !Array.isArray(value)), 'merge run must be an object or null');
+    this.run('UPDATE branches SET merge_run=? WHERE branch=?', value === null ? null : JSON.stringify(value), branch);
+    return this.branch(branch);
+  },
+
+  /** 读一条分支的合并运行；JSON 损坏时安全返回 null，不让坏值拦住整条读写路径。 */
+  branchMergeRun(branch) {
+    const raw = this.get('SELECT merge_run FROM branches WHERE branch=?', branch)?.merge_run;
+    if (!raw) return null;
+    try { const value = JSON.parse(raw); return value && typeof value === 'object' ? value : null; } catch { return null; }
+  },
+
+  /** 全部仍在跑 / 暂停的合并运行；终态记录已被清空，不会出现在这里。 */
+  activeBranchMergeRuns() {
+    const out = [];
+    for (const row of this.all("SELECT branch, merge_run FROM branches WHERE merge_run IS NOT NULL AND status='active' ORDER BY rowid")) {
+      let value;
+      try { value = JSON.parse(row.merge_run); } catch { continue; }
+      if (value && typeof value === 'object' && ['running', 'paused'].includes(value.status)) out.push({ target: row.branch, run: value });
+    }
+    return out;
+  },
 };
