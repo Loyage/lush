@@ -79,8 +79,7 @@ export const ui = {
   stepToggle: new Map(),
 };
 
-// 勾选与编辑态都按草稿 id 记，这样轮询重建时不会丢用户的意图；默认全选。
-export const draftUnchecked = new Set();
+// 编辑态按草稿 id 记，这样轮询重建时不会丢用户的意图。
 export const transcriptOpen = new Set();    // 用户展开过「执行过程」的任务
 export const transcriptCache = new Map();   // taskId -> 已加载的步骤窗口
 /** 勾选状态按 id 存：任务树 / 阶梯每次重画都从它取，轮询不会把勾选丢掉。 */
@@ -106,5 +105,5 @@ export function resetUiState() {
   ui.sideNodes = new Map(); ui.sideHeads = new Map(); ui.navButtons = new Map(); ui.navCounts = new Map();
   ui.stepToggle = new Map();
   ui.collapsed = readCollapsedPref(); ui.filters = readFiltersPref(); ui.sidebarSortMode = readSidebarSortPref();
-  draftUnchecked.clear(); transcriptOpen.clear(); transcriptCache.clear(); mergeSelection.clear();
+  transcriptOpen.clear(); transcriptCache.clear(); mergeSelection.clear();
 }

@@ -274,11 +274,14 @@ export function makeWorld() {
       if (body.method === 'draft.remove') { state.drafts = state.drafts.filter(row => row.id !== body.params.id); return json({ id: body.params.id }); }
       if (body.method === 'draft.add') { const draft = { id: state.drafts.length ? Math.max(...state.drafts.map(row => row.id)) + 1 : 1, content: body.params.content, references: body.params.references || [], created_at: iso(NOW) }; state.drafts = [...state.drafts, draft]; return json(draft); }
       if (body.method === 'draft.commit') {
+        // 逐条提交：每条草稿各成一条独立输入，返回 {inputs, drafts}（与 core commitDrafts 同形状）。
         const ids = body.params.ids ?? state.drafts.map(row => row.id);
         state.commits.push(ids);
         const chosen = state.drafts.filter(row => ids.includes(row.id));
         state.drafts = state.drafts.filter(row => !ids.includes(row.id));
-        return json({ id: 1, content: chosen.map(row => row.content).join('\n'), task: { id: 99 }, drafts: ids });
+        const inputs = chosen.map((row, index) => ({ id: index + 1, content: row.content, references: row.references || [],
+          task: { id: 99 + index }, anchor: null, draft: row.id }));
+        return json({ inputs, drafts: ids });
       }
       if (body.method === 'plan.approve' || body.method === 'plan.reject') {
         const intent = state.intents.find(row => row.task_id === body.params.id);

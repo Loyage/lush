@@ -62,7 +62,6 @@ function intentItem(intent) {
   const row = el('span', undefined, 'row');
   row.append(el('span', `#${intent.id}`, 'tid'), badge(`${status.icon} ${status.label}`, `b-${intent.status}`));
   if (intent.flow) row.append(badge(intent.flow === 'explain' ? '了解' : '开发', 'b-neutral'));
-  if (intent.direct) row.append(badge('直接执行 · 无规划调用', 'b-neutral'));
   if (intent.route) row.append(routeBadge());
   row.append(el('span', relative(intent.created_at), 'when'));
   item.append(row);
@@ -70,7 +69,7 @@ function intentItem(intent) {
   goal.title = intent.content;
   item.append(goal);
   const meta = el('span', undefined, 'meta');
-  meta.append(el('span', `${intent.direct ? '规划占位' : '规划'} #${intent.task_id}`, 'tid'));
+  meta.append(el('span', `规划 #${intent.task_id}`, 'tid'));
   const counts = [intent.specs_pending ? `待编排 ${intent.specs_pending}` : null, intent.specs_planned ? `已编排 ${intent.specs_planned}` : null,
     intent.specs_dropped ? `已丢弃 ${intent.specs_dropped}` : null].filter(Boolean);
   meta.append(el('span', counts.length ? `拆解 ${counts.join(' · ')}` : '还没拆解'));
@@ -114,7 +113,7 @@ export function renderIntents(data) {
     syncSelectOptions(filterUi.intentStatus, withCurrent(options, ui.filters.intents.status, statusOption), ui.filters.intents.status);
   }
   const signature = [ui.sidebarSortMode, JSON.stringify(query), all.map(intent => [intent.id, intent.status, intent.plan_gate, intent.specs_pending, intent.specs_planned,
-    intent.specs_dropped, intent.work_tasks, intent.work_active, intent.work_failed, intent.flow, intent.direct, intent.route, intent.candidate_id, intent.candidate_version, intent.candidate_status,
+    intent.specs_dropped, intent.work_tasks, intent.work_active, intent.work_failed, intent.flow, intent.route, intent.candidate_id, intent.candidate_version, intent.candidate_status,
     intent.candidate_report_task_id, intent.showcase_task_id, intent.showcase_status].join(':')).join('\u0000')].join('\u0002');
   if (signature === ui.intentSignature) return;
   ui.intentSignature = signature;

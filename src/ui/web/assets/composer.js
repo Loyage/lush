@@ -1,11 +1,11 @@
 import { $, el } from './dom.js';
 import { action } from './api.js';
 import { show } from './messages.js';
-import { draftUnchecked, ui } from './state.js';
+import { ui } from './state.js';
 import { composerReferences, renderComposerReferences, setComposerReferences } from './context-references.js';
 import { matchInputRoute } from './input-routes.js';
 
-// 待提交意图：只落库不规划；可改、可勾选，只把选中的交给一个 planner 拆解成任务并建依赖。
+// 待提交意图：只落库不规划；可改、可移除，可单条执行，也可一次性全部逐条执行。
 /** 面板开合状态画到 DOM：.open 控制展开，aria-expanded 同步给读屏。 */
 export function paintDraftPanel() {
   const open = Boolean(ui.draftPanelOpen);
@@ -47,13 +47,11 @@ export async function buffer() {
   // 网络请求期间用户可能又引用了一项；只清掉实际随这条草稿提交的那一组。
   if (JSON.stringify(composerReferences()) === signature) setComposerReferences([]);
 }
-export const selectedDraftIds = () => ui.draftIds.filter(draftId => !draftUnchecked.has(draftId));
-// 按钮的可用性同时看输入框与勾选：都没内容就没什么可提交的。
+// 按钮的可用性同时看输入框与待提交意图：都没内容就没什么可执行的。
 export function syncComposer() {
   const busy = Boolean(ui.composerSubmitting);
-  $('draft-commit').disabled = busy || (!$('input').value.trim() && selectedDraftIds().length === 0);
+  $('draft-commit').disabled = busy || (!$('input').value.trim() && ui.draftIds.length === 0);
   $('draft-add').disabled = busy;
-  if ($('input-direct')) $('input-direct').disabled = busy || !$('input').value.trim();
   paintInputHighlight();
 }
 
@@ -78,7 +76,7 @@ export function paintInputHighlight() {
   highlight.scrollTop = input.scrollTop;
   highlight.scrollLeft = input.scrollLeft;
 }
-/** 接上输入框与两个按钮：回车=缓存，⌘/Ctrl+回车=整体提交，Shift+回车=换行。 */
+/** 接上输入框与操作按钮：回车=缓存，⌘/Ctrl+回车=全部执行，Shift+回车=换行。 */
 export function initComposer() {
   $('draft-toggle').onclick = () => toggleDraftPanel();
   paintDraftPanel(); renderComposerReferences();
@@ -92,45 +90,27 @@ export function initComposer() {
     try { await buffer(); } catch (error) { show(error.message, 'error'); }
     finally { ui.composerSubmitting = false; syncComposer(); }
   };
-  if ($('input-direct')) $('input-direct').onclick = async () => {
-    if (ui.composerSubmitting) return;
-    const content = $('input').value.trim();
-    if (!content) return;
-    const references = composerReferences(), signature = JSON.stringify(references);
-    const branch = $('input-branch').value.trim();
-    ui.composerSubmitting = true; syncComposer();
-    try {
-      const result = await action('input.submit', { content, references, direct: true, ...(branch ? { branch } : {}) });
-      if ($('input').value.trim() === content) $('input').value = '';
-      if (JSON.stringify(composerReferences()) === signature) setComposerReferences([]);
-      if (result.route) {
-        const target = result.route.target;
-        const task = target === 'worker' ? result.worker : result.research;
-        show(`前缀 ${result.route.prefix} 命中，已创建 ${target} #${task.id}；未调用规划模型。待提交草稿未变。`);
-      } else {
-        show(`已直接创建 worker #${result.worker.id}；未调用规划模型，合并仍需批准。待提交草稿未变。`);
-      }
-      paintInputHighlight();
-    } catch (error) { show(error.message, 'error'); }
-    finally { ui.composerSubmitting = false; syncComposer(); }
-  };
   $('input-form').onsubmit = async event => {
     event.preventDefault();
     if (ui.composerSubmitting) return;
     ui.composerSubmitting = true; syncComposer();
     try {
+      // 正文先暂存：不带 ids 的整体执行会把刚缓存的这条一起逐条提交。
       if ($('input').value.trim()) await buffer();
-      const ids = selectedDraftIds();
-      if (!ids.length) throw new Error('没有勾选任何待提交意图；勾选要提交的，或者先在输入框里写点什么');
       const branch = $('input-branch').value.trim();
-      const result = await action('draft.commit', { ids, ...(branch ? { branch } : {}) });
-      if (result.route) {
-        const target = result.route.target;
-        const task = target === 'worker' ? result.worker : result.research;
-        show(`前缀 ${result.route.prefix} 命中，已创建 ${target} #${task.id}；未调用规划模型。`);
-      } else {
-        show(`已提交 ${result.drafts.length} 条输入；planner #${result.task.id} 正在拆解任务并建依赖`);
-      }
+      const result = await action('draft.commit', { ...(branch ? { branch } : {}) });
+      const inputs = result.inputs || [];
+      const routed = inputs.filter(input => input.route);
+      const hits = routed.map(input => {
+        const target = input.route.target;
+        const task = input[target] ?? input.task;
+        return `${input.route.prefix} → ${target} #${task.id}`;
+      });
+      const planners = inputs.length - routed.length;
+      const summary = [`已逐条执行 ${inputs.length} 条`];
+      if (hits.length) summary.push(`快速路由命中 ${hits.length} 条（${hits.join('、')}）`);
+      if (planners) summary.push(`${planners} 条交给 planner 拆解任务并建依赖`);
+      show(summary.join('；'));
     } catch (error) { show(error.message, 'error'); } finally { ui.composerSubmitting = false; syncComposer(); }
   };
   $('input').addEventListener('input', syncComposer);
@@ -141,7 +121,7 @@ export function initComposer() {
     highlight.scrollTop = $('input').scrollTop;
     highlight.scrollLeft = $('input').scrollLeft;
   });
-  // 回车=缓存，⌘/Ctrl+回车=整体提交，Shift+回车=换行。
+  // 回车=缓存，⌘/Ctrl+回车=全部执行，Shift+回车=换行。
   $('input').addEventListener('keydown', event => {
     if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
     event.preventDefault();

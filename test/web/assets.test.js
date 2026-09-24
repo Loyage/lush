@@ -250,10 +250,13 @@ test('统一按钮帮助模块可服务，Agent 触发标识与提示样式一�
     expect(light).toContain('--violet-ink:#7955b4');
     expect(dark).toContain('--violet-ink:#c1a4f3');
 
-    // 页面入口：规划提交按钮带 agent-call，禁用的「直接执行」用 help-host 承载 data-help。
+    // 页面入口：「全部执行」是唯一的提交按钮，带 agent-call 与 agentHelp 口径的 data-help；
+    // 「直接执行」与勾选框已随统一执行移除。
     const html = await (await fetch(f.url)).text();
     expect(html).toMatch(/id="draft-commit"[^>]*class="agent-call"/);
-    expect(html).toContain('class="help-host" data-help=');
-    expect(html).toContain('id="input-direct"');
+    expect(html).toContain('全部执行');
+    expect(html).not.toContain('id="input-direct"');
+    expect(html).not.toContain('直接执行');
+    expect(html).not.toContain('提交并规划');
   } finally { await f.close(); }
 });

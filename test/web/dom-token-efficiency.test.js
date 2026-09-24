@@ -4,18 +4,27 @@ import { gate, until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
 const world = makeWorld();
 let pending = null, fail = false;
-const directCalls = [];
+const commitCalls = [];
 const dom = installDom({ fetch: async (url, options) => {
   if (String(url) === '/api/action') {
     const body = JSON.parse(options.body);
-    if (body.method === 'input.submit') {
-      directCalls.push(body);
+    if (body.method === 'draft.commit') {
+      const ids = body.params.ids ?? world.state.drafts.map(row => row.id);
+      const contents = world.state.drafts.filter(row => ids.includes(row.id)).map(row => row.content);
+      commitCalls.push(body);
       if (pending) await pending.promise;
-      // 命中快速路由前缀时返回 route 形状（没有 direct/worker 的普通形状），让页面必须按 route 分支处理。
-      if (String(body.params.content).startsWith('开发')) {
-        return Response.json({ route: { prefix: '开发', target: 'worker' }, worker: { id: 77 }, task: { id: 5 } }, { status: 200 });
-      }
-      return Response.json(fail ? { error: 'direct failed' } : { worker: { id: 42 }, direct: true }, { status: fail ? 400 : 200 });
+      if (fail) return Response.json({ error: 'commit failed' }, { status: 400 });
+      const response = await world.fetchImpl(url, options);
+      const data = await response.json();
+      // 模拟逐条执行：每条草稿一个 input；命中快速路由前缀时返回 route + 对应 target 字段，
+      // 让页面必须按 target 取 worker/research，而不是假定 worker。
+      const inputs = contents.map((content, index) => {
+        const base = { id: index + 1, content, task: { id: 5 + index }, draft: ids[index] };
+        if (content.startsWith('开发')) return { ...base, route: { prefix: '开发', target: 'worker' }, worker: { id: 77 } };
+        if (content.startsWith('调研')) return { ...base, route: { prefix: '调研', target: 'research' }, research: { id: 88 } };
+        return base;
+      });
+      return Response.json({ inputs, drafts: data.drafts ?? ids });
     }
   }
   return world.fetchImpl(url, options);
@@ -28,34 +37,50 @@ const { openSettings } = await import('../../src/ui/web/assets/render-settings.j
 await boot();
 afterAll(() => dom.restore());
 
-test('direct execution submits only current input, prevents double sends, preserves concurrent typing and drafts', async () => {
-  world.state.drafts = [{ id: 11, content: 'keep draft' }];
+test('全部执行先暂存正文再逐条提交：防重复、保留并发输入与草稿', async () => {
+  world.state.drafts = [{ id: 11, content: 'keep draft', references: [] }];
   await dom.intervalFor(1500)();
   dom.node('input').value = 'small fix'; dom.node('input-branch').value = 'release/next'; syncComposer();
   pending = gate();
-  const sent = dom.node('input-direct').onclick();
-  await until(() => directCalls.length === 1);
-  expect(dom.node('input-direct').disabled).toBe(true);
+  const sent = dom.node('input-form').onsubmit({ preventDefault() {} });
+  await until(() => commitCalls.length === 1);
   expect(dom.node('draft-commit').disabled).toBe(true);
-  await dom.node('input-direct').onclick();
+  // 提交期间重复提交被忽略
   await dom.node('input-form').onsubmit({ preventDefault() {} });
+  // 提交期间继续打字不被覆盖
   dom.node('input').value = 'new thought';
   pending.resolve(); await sent; pending = null;
-  expect(directCalls).toEqual([{ method: 'input.submit', params: { content: 'small fix', branch: 'release/next', references: [], direct: true } }]);
+  expect(commitCalls).toHaveLength(1);
+  // 先 buffer 正文，再不带 ids 提交全部未提交草稿
+  expect(commitCalls[0]).toEqual({ method: 'draft.commit', params: { branch: 'release/next' } });
   expect(dom.node('input').value).toBe('new thought');
-  expect(world.state.drafts).toHaveLength(1); expect(world.state.commits).toHaveLength(0);
-  expect(dom.node('error').textContent).toContain('未调用规划模型');
+  expect(world.state.drafts).toHaveLength(0);
+  expect(dom.node('error').textContent).toContain('已逐条执行 2 条');
+  // 失败时草稿保留、错误提示出来
+  world.state.drafts = [{ id: 41, content: 'uncommitted', references: [] }];
+  dom.node('input').value = '';
+  await dom.intervalFor(1500)();
   fail = true;
-  await dom.node('input-direct').onclick();
-  expect(dom.node('input').value).toBe('new thought'); expect(dom.node('input-direct').disabled).toBe(false);
-  expect(dom.node('error').textContent).toContain('direct failed'); fail = false;
+  await dom.node('input-form').onsubmit({ preventDefault() {} });
+  expect(dom.node('error').textContent).toContain('commit failed');
+  expect(world.state.drafts.map(row => row.id)).toEqual([41]);
+  fail = false;
 });
 
-test('direct execution surfaces a route hit instead of assuming a worker shape', async () => {
-  dom.node('input').value = '开发 做一个登录页';
-  await dom.node('input-direct').onclick();
-  expect(dom.node('error').textContent).toContain('前缀 开发 命中，已创建 worker #77');
-  expect(dom.node('input').value).toBe('');
+test('全部执行按快速路由结果提示，不假定 worker', async () => {
+  world.state.drafts = [
+    { id: 51, content: '开发 做一个登录页', references: [] },
+    { id: 52, content: '调研 竞品', references: [] },
+  ];
+  await dom.intervalFor(1500)();
+  syncComposer();
+  await dom.node('input-form').onsubmit({ preventDefault() {} });
+  const text = dom.node('error').textContent;
+  expect(text).toContain('已逐条执行 2 条');
+  expect(text).toContain('快速路由命中 2 条');
+  expect(text).toContain('开发 → worker #77');
+  expect(text).toContain('调研 → research #88');
+  expect(world.state.drafts).toHaveLength(0);
 });
 
 test('statistics shows bounded attribution and unknown groups without rendering injected HTML', () => {

@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { repo } from '../helpers.js';
 import { fetch, pageSource, setup } from './harness.js';
 
-// 缓存批次提交与勾选子集。
+// 缓存逐条提交：不带 ids = 全部，带 ids = 指定子集。
 
 test('web buffers drafts, commits the whole batch and keeps agents out of the composer', async () => {
   const f = await setup(); await repo(f.root);
@@ -10,7 +10,7 @@ test('web buffers drafts, commits the whole batch and keeps agents out of the co
   try {
     const html = await (await fetch(f.url)).text();
     expect(html).toContain('暂存想法');
-    expect(html).toContain('提交并规划');
+    expect(html).toContain('全部执行');
     expect(html).toContain('待提交意图');
     expect((await post('draft.add',{content:'第一条'})).status).toBe(200);
     expect((await post('draft.add',{content:'第二条'})).status).toBe(200);
@@ -68,8 +68,13 @@ test('web edits a buffered draft and submits only the picked subset', async () =
     snapshot = await snapshotNow();
     expect(snapshot.drafts.map(draft => draft.content)).toEqual(['第一条（改过）','第二条']);
 
-    // 只提交选中的一条：input 里只有它，未选中的留在缓存
-    expect((await post('draft.commit',{ids:[second.id]})).status).toBe(200);
+    // 只提交指定的一条：返回逐条 input，input 里只有它，未提交的留在缓存
+    const committed = await post('draft.commit',{ids:[second.id]});
+    expect(committed.status).toBe(200);
+    const batch = await committed.json();
+    expect(Array.isArray(batch.inputs)).toBe(true);
+    expect(batch.inputs.map(input => input.content)).toEqual(['第二条']);
+    expect(batch.drafts).toEqual([second.id]);
     snapshot = await snapshotNow();
     expect(snapshot.drafts.map(draft => draft.content)).toEqual(['第一条（改过）']);
     expect(snapshot.inputs[0].content).toBe('第二条');
@@ -80,9 +85,11 @@ test('web edits a buffered draft and submits only the picked subset', async () =
     expect((await post('draft.commit',{ids:[9999]})).status).toBe(400);
     expect((await post('draft.commit',{ids:[]})).status).toBe(400);
 
-    // 页面真的带上了勾选框与就地编辑
+    // 页面真的带上了逐条「执行」与就地编辑，且不再有勾选框
     const app = await pageSource(f.url);
-    expect(app).toContain("pick.type = 'checkbox'");
+    expect(app).toContain("'draft.commit', { ids: [draft.id] }");
+    expect(app).toContain("agentHelp");
+    expect(app).not.toContain("pick.type = 'checkbox'");
     expect(app).toContain("'draft.update'");
   } finally { await f.close(); }
 });

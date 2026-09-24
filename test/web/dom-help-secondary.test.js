@@ -5,7 +5,8 @@ import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
 // 其余 Web 面板的按钮帮助标注（spec #176 基础设施之后的逐按钮应用）。
-// 本范围没有 Agent 启动按钮：只断言 data-help / aria-label，不出现 agent-call。
+// 本 SCOPE 里的模块没有 Agent 启动按钮：只断言 data-help / aria-label，不出现 agent-call。
+// （render-drafts.js 现在每条的「执行」会调用 Agent，已从这份「不出现 agent-call」清单移出。）
 // 每个 DOM 测试文件都自给自足：先装自己的 world / DOM，再显式 boot 一次（模块注册表在文件之间共享）。
 const world = makeWorld();
 const baseFetch = world.fetchImpl;
@@ -30,7 +31,7 @@ const buttonOf = (root, text) => allByTag(root, 'button').find(node => node.text
 
 /** 本 spec 负责的文件：帮助标注只加在这里，且不得出现 Agent 触发标识。 */
 const SCOPE = [
-  'render-overview.js', 'render-drafts.js', 'render-ladder.js', 'render-tree.js', 'render-history.js',
+  'render-overview.js', 'render-ladder.js', 'render-tree.js', 'render-history.js',
   'render-agent.js', 'render-transcript.js', 'transcript-reader.js', 'transcript-terminal.js', 'transcript-body.js',
   'structured-value.js', 'render-settings.js', 'render-docs.js', 'render-specs.js', 'render-verify.js',
   'render-resolutions.js', 'notice-banner.js', 'notice-notifications.js', 'render-statistics.js',
@@ -80,12 +81,15 @@ test('左栏导航、待提交意图与批量交付的标注：迁移 title、�
   const nav = dom.node('side-nav').querySelector('.nav-item');
   expect(nav.getAttribute('data-help')).toContain('在右侧打开');
 
-  // 待提交意图：勾选框与「移除」迁移 title；「×」是符号按钮，补 data-help
+  // 待提交意图：每条的「执行」是 Agent 触发按钮（agent-call + agentHelp 说明）；「移除」与「×」补 data-help
   const { renderDrafts } = await import('../../src/ui/web/assets/render-drafts.js');
   renderDrafts({ drafts: [{ id: 21, content: '草稿', created_at: iso(NOW),
     references: [{ kind: 'task', target: { task_id: 1 }, label: '任务 #1', quote: '引文' }] }] });
   const drafts = dom.node('drafts');
-  expect(drafts.querySelector('.pick').getAttribute('data-help')).toContain('提交并规划');
+  const execute = buttonOf(drafts, '执行');
+  expect(execute.classList.contains('agent-call')).toBe(true);
+  expect(execute.getAttribute('data-help')).toContain('会调用 Agent');
+  expect(drafts.querySelector('.pick')).toBeNull();
   expect(buttonOf(drafts, '移除').getAttribute('data-help')).toContain('不可删');
   expect(drafts.querySelector('.context-remove').getAttribute('data-help')).toContain('不改动输入原文');
 
