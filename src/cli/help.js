@@ -20,10 +20,14 @@ lush [--project PATH] [--json] <command>
   agent prompt ROLE              按段查看该角色最终 Prompt（含 agent.json 与文件补充）
   agent env ROLE                 查看该角色热加载的 env 文件和变量名（值不显示）
   agent init [ROLE] [--local]     创建可提交的 .lush-agent/ 补充；--local 写本机 .lush/agent/
-  config [show]                   查看并发额度：生效值、环境默认值、来源与设置文件
+  config [show]                   查看并发额度与快速路由前缀：生效值、环境默认值、来源与设置文件
   config set concurrency N        执行通道并发上限（1..64），写回项目设置并立即生效
   config set control-concurrency N 控制通道并发上限（1..16）
   config reset [concurrency|control-concurrency|all]  清除覆盖，回到环境默认
+  config route list              查看快速路由前缀（prefix → target 与整表来源）
+  config route add PREFIX [--target worker|research]  新增前缀并整表写回（默认 worker）
+  config route remove PREFIX     删除一个前缀，不存在则报错
+  config route reset             清除前缀覆盖，回到默认表
   doctor [--verbose]              默认仅身份摘要；--verbose 含完整 daemon 状态；差异只提示，不重启
   say '你的意图' [--branch NAME] [--direct]  创建输入分支；默认规划，--direct 跳过规划模型直接交一个 worker
                                   直接执行保留 completed planner 占位（零 invocation），仍需人工合并批准
