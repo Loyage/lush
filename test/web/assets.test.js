@@ -185,6 +185,10 @@ test('无顶栏壳：身份区在左栏，内容区不再被头部压住；输�
     // 一行输入：rows=1 且样式里的最小高度 ≤36px；展开不把它撑高。
     expect(html).toMatch(/<textarea id="input" rows="1"/);
     expect(css).toMatch(/\.composer textarea\{min-height:3[0-6]px/);
+    // 高亮 overlay 必须垫在 textarea 文本层之下、textarea 背景透明，否则 accent-soft 色块会把「开发」两个字盖成纯色块。
+    expect(css).toMatch(/\.composer-input textarea\{[^}]*z-index:1[^}]*background:transparent/);
+    expect(css).toMatch(/\.composer-highlight\{[^}]*z-index:0/);
+    expect(css).not.toMatch(/\.composer textarea\{[^}]*background:/);
     // 浮层不再给顶栏留 80px 空档。
     expect(css).toMatch(/\.toast\{position:fixed;top:16px/);
     // 行为落点原样保留：待提交意图开关、父分支输入框、提交按钮仍在页面里。
