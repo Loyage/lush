@@ -68,7 +68,7 @@
 | `transcript-terminal.js` | Pi 风格的只读全宽终端阅读器：连续正文、会话分隔、分段续读、搜索定位后向前翻页、手动读取新记录、关闭恢复位置与焦点；无 Pi/PTY 依赖 | `openTranscriptTerminal(taskId,seq?)`、`closeTranscriptTerminal()` |
 | `explanations.js` | 选区直达无工具解释 Agent 的旁侧面板、状态读取与来源快照／历史（执行步骤与通用选区两种 v1 快照都能渲染，不出现 `undefined`）；终端模式下挂在其 dialog 顶层内，Esc 只关闭解释；关闭不取消任务，boot 清理计时器 | `startExplanation(taskId,seq,quote)`、`startSelectionExplanation(quote,location)`、`openExplanation(id)`、`explanationHistory(taskId)`、`closeExplanationPanel()` |
 | `render-transcript.js` | 用户展开后的正文优先执行过程：阅读方向默认最新在前（`transcriptOrder` 可切回时间正序），asc 走 `task.transcript`、desc 走 `task.transcript_latest`（初次取尾窗、`before=oldest` 加载更早、`after=next` 增量续读），按调用身份聚合输入输出、跨翻页边界配对并保留展开与阅读位置、跳到新内容；每一步按 `tokens.first` 印一次占用 chip（精确 `上下文 X` / 估算 `+X`） | `transcriptContent(taskId)`、`paintTranscript(taskId)`、`appendTranscriptSteps(taskId, steps)`、`loadTranscript(taskId)`、`fetchTranscriptAfter(taskId, after)`、`transcriptOrder()`、`tokensChip(tokens)` |
-| `render-showcase.js` | 合格分支的展示启动确认（重查后端准入）、展示详情（静态 HTML sandbox、预览链接及停止）；失败 / 取消后若磁盘已有报告，明确标成中断前写入的未确认部分产物，不冒充完整交付 | `startBranchShowcase`、`renderShowcase` |
+| `render-showcase.js` | 分支「预约效果展示」的重查与确认（`reserve_allowed`，确认后 `showcase.reserve`，已满足准入则后端立即启动并跳详情）、取消预约（`showcase.unreserve`），以及展示详情（静态 HTML sandbox、预览链接及停止）；失败 / 取消后若磁盘已有报告，明确标成中断前写入的未确认部分产物，不冒充完整交付 | `reserveBranchShowcase`、`unreserveBranchShowcase`、`renderShowcase` |
 | `render-verify.js` | 检验区块 | `renderVerifications(task)` |
 | `render-resolutions.js` | 合并冲突处理记录 | `renderResolutions(task)` |
 | `retry-dialog.js` | 失败 / 取消任务的「检查后重试」完整 Profile 编辑器：读取该角色当前生效配置、模型目录与 Pi 资源，提交 task-local 覆盖且不改项目配置 | `retryTask(task)` |
@@ -83,7 +83,7 @@
 | `mermaid-docs.js` | 只在文档存在 Mermaid 容器时加载本地固定版本，以 strict 模式逐图校验，并通过显式唯一 id 渲染成隔离的 blob SVG 图片（避免节点/箭头串图，也不用为 Mermaid 放宽主页面的 inline-style CSP）；换文档时回收 blob URL，切换深浅主题时从保留源码串行重绘，超长、超量、加载或语法失败均回退为源码。Agent 输出不走这条路径 | `renderMermaidDiagrams(root)`、`refreshMermaidDiagrams(root)`、`clearMermaidDiagrams(root)` |
 | `refresh.js` | 轮询有界 `/api/overview`（revision 未变时不重画；旧 host 回退完整 snapshot）、概览、热任务增量刷新、筛选重画；右侧信息页 / 文档 / 设置 / 统计打开时不让概览覆盖；切回概览立即用缓存绘制，不等 revision 变化或轮询空闲；「项目概览」与「分支图」共用同一份 `graph.get`（`ui.lastGraph`）与同一条陈旧规则（指纹变且距上次 ≥3s，或 ≥10s），概览先用快照画、后台取图后就地重画；changed 时在 `renderNotices(data)` 之后同步调用 `renderNoticeBanner(data)` | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
 
-分支 `showcase` 准入读面经 `graph-layout.js` 透传并纳入 `graphRenderKey`，仅 `allowed === true` 时在分支详情显示次要展示按钮；旧 daemon 无字段时不开放，历史展示仍给查看链接。
+分支 `showcase` 读面经 `graph-layout.js` 透传并纳入 `graphRenderKey`：`reserve_allowed` 决定是否给「预约效果展示」，`reserved` 决定「已预约效果展示」与「取消预约」；`allowed` 只影响确认键文案与是否立即开始，不再决定入口有无。旧 daemon 无字段时不显示入口，历史展示仍给查看链接。
 
 分支诊断的 `diagnostics` 经 `graph-layout.js` 透传并纳入 `graphRenderKey`；`render-graph.js` 展示已提交文件数 / 文本增删行、基线、独立未提交统计、最近提交与可展开文件明细。`state.js` 的 `graphFilesExpanded` 保留会话内展开状态，重置时清空；没有统计基线或读取失败明确显示不可用，旧 daemon 无字段时兼容不画。接口与列表限额见[分支诊断接缝](modules.md#分支诊断增量读面)。
 

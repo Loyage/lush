@@ -4,7 +4,7 @@
 
 ## 从哪里开始
 
-- Web / 桌面：仅在合格分支的分支图详情中显示次要「效果展示」按钮。首页、Intent 列表和任务详情不提供启动入口；已有展示仍可从分支、关联 Intent 或展示任务查看。
+- Web / 桌面：分支图里对**可预约**的本地分支显示次要「预约效果展示」按钮，入口不要求当前已满足完整准入。首页、Intent 列表和任务详情不提供启动入口；已有展示仍可从分支、关联 Intent 或展示任务查看。
 - 仅允许已登记、有明确父分支和创建基线的非主干本地分支；排除 main / master、远端默认分支、无父分支的根、归档/删除/缺失分支。相关规划/开发/合并任务必须成功完成，子分支已收拢，相关工作区干净、无冲突或 Git 操作中间态，相对基线有实际文件改动。检验通过和批准合并不是前提；无法确认状态时不开放。
 - 同一分支有活动展示时不开放；成功展示过相同文件树时不开放，实际文件内容变化后才重新开放。空提交、只改提交信息或换基线不算内容变化；历史失败/取消不算成功，可在稳定且代码未变时重试。
 - 默认对比创建时的提交。CLI 可显式覆盖对比基线（使用共同祖先），但不能绕过上述准入规则；普通未登记分支不能通过指定基线直接展示。RPC 与 Web 使用同一套后端校验。
@@ -18,6 +18,19 @@ bun run lush showcase stop 12
 ```
 
 Web 不再提供创建/启动手动验收的主入口。底层 `task verify`、`candidate prepare/verify`、历史检验报告与 Candidate 接受/反馈接口仍兼容保留；**效果展示不设置检验 pass、不把 Candidate 变为 ready，也不自动合并**。看完后仍需审阅代码与检验结果，并在分支图明确批准合并。
+
+## 预约效果展示
+
+「效果展示」入口在开发型分支创建后就亮起：点击是**预约**，不是立即启动。
+
+- **入口范围**：`graph.get` 的分支节点用 `reserve_allowed` / `reserve_reason` 回答「现在能不能预约」——已登记、有明确父分支和创建基线的非主干本地分支即可预约，不要求已经完成开发、检验通过或批准合并。准入暂未满足时仍然可预约。
+- **持久化与取消**：预约存成 `branches.showcase_reservation`（versioned JSON，`pending`），不是新实体；重复预约幂等。Web 上已预约的分支显示「已预约效果展示」与「取消预约」，取消后回到预约入口；已经开始的展示任务不受取消影响，那是 `showcase.stop` 的职责。
+- **满足准入时自动启动**：预约只是一个触发器。每次分支结算、daemon 恢复、合并或跟上父分支后，后端重跑现有 `showcaseEligibility`；一旦满足完整准入就清除预约并自动创建展示任务，Web 会跳到任务详情。预约期间分支上一直显示当前阻塞原因。
+- **归档自动取消**：分支归档或删除时，它的预约一并清除（并留 `showcase.unreserved` 事件），不会对已不存在的分支启动展示。
+- **不绕过准入**：预约不改变任何准入规则，只是把 `showcase.start` 推迟到准入满足之后；用户仍可直接用 CLI 手动启动。
+- **不自动合并**：自动启动的展示与手动启动一样，只产出报告与可选预览，不设置检验 pass、不把 Candidate 变为 ready，也不自动合并。
+
+RPC：`showcase.reserve(branch)` 挂起预约（当前已满足准入时立即创建展示 Task），`showcase.unreserve(branch)` 取消；两者都是用户专属。
 
 ## agent 实际做什么
 
@@ -57,11 +70,13 @@ Web 不再提供创建/启动手动验收的主入口。底层 `task verify`、`
 | RPC | 参数 | 权限 / 结果 |
 |---|---|---|
 | `showcase.start` | `branch`, 可选 `baseline` | 仅用户；返回新 showcase Task 详情 |
+| `showcase.reserve` | `branch` | 仅用户；挂起预约；已满足准入时立即创建展示 Task 并返回 `task_id` |
+| `showcase.unreserve` | `branch` | 仅用户；取消预约，已开始的展示任务不受影响 |
 | `showcase.list` | 可选 `branch` | 最近 50 条，有报告标志与当前预览状态 |
 | `showcase.preview` | argv 数组 `command`, 可选 URL `path` | 仅当前有效 showcase invocation，不接受 task id |
 | `showcase.stop` | `id` | 仅用户；停止预览，不删除报告或取消整个任务 |
 
-`graph.get` 的分支节点提供 `showcase.allowed`、拒绝原因 `reason` 和最近展示 `latest_task_id`；前端只在 `allowed === true` 时给出启动入口，点击和提交时重新检查。`task.inspect.showcase` 提供固定提交、文件树、两个目录、报告位置和实时预览状态。`GET /api/showcases?branch=...` 返回列表；`GET /api/task/<id>/report` 复用认证和独立 sandbox CSP。展示结果保存为 `showcase.result` Artifact，与 `run.result.verification` 分开。
+`graph.get` 的分支节点提供 `showcase.reserve_allowed` / `reserve_reason`（现在能不能预约）、`reserved` / `reserved_at`（是否已预约）以及 `allowed` / `reason` / `latest_task_id`（完整准入与最近展示）；前端按 `reserve_allowed` 给预约入口、按 `reserved` 给取消入口，`allowed` 只用于确认键文案（现在已满足则写「开始展示」）与是否立即开始，不再决定入口有无。点击与提交时都重新检查。`task.inspect.showcase` 提供固定提交、文件树、两个目录、报告位置和实时预览状态。`GET /api/showcases?branch=...` 返回列表；`GET /api/task/<id>/report` 复用认证和独立 sandbox CSP。展示结果保存为 `showcase.result` Artifact，与 `run.result.verification` 分开。
 
 Agent 设置、模型、Prompt、扩展、Skills 和环境文件都支持 `showcase` 角色。可以在设置页配置浏览器/截图所需能力；工具未安装时 agent 必须明确降低展示范围。详见 [Agent 环境](reference/agent-environment.md)。
 

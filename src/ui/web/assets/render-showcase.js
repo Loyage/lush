@@ -3,23 +3,39 @@ import { api, action } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { show } from './messages.js';
-import { detail } from './navigate.js';
+import { detail, graph } from './navigate.js';
 
-export async function startBranchShowcase(branch) {
-  const graph = await api('/api/graph');
-  const node = (graph.nodes || []).find(item => item.kind === 'branch' && item.name === branch);
-  if (node?.showcase?.allowed !== true) {
-    show(node?.showcase?.reason || '该分支暂不满足效果展示条件，请刷新分支详情。', 'error');
+/**
+ * 预约一条分支的效果展示。先重查后端读面（`reserve_allowed` 是静态条件，不跑 Git）：现在能不能预约；
+ * 不通过就照实说原因，不再画确认框。通过后确认：已经满足完整准入时后端会立即创建展示任务并返回
+ * `task_id`，于是跳任务详情；否则只挂起预约，重画分支图等它满足展示条件后自动启动。
+ */
+export async function reserveBranchShowcase(branch) {
+  const snapshot = await api('/api/graph');
+  const node = (snapshot.nodes || []).find(item => item.kind === 'branch' && item.name === branch);
+  if (node?.showcase?.reserve_allowed !== true) {
+    show(node?.showcase?.reserve_reason || '该分支暂不可预约效果展示，请刷新分支详情。', 'error');
     return;
   }
-  if (!await confirmDialog({ title: `展示 ${branch} 的效果？`,
-    message: '专用 agent 会在隔离工作区分析修改、设计并执行展示方案。可能运行项目代码与本机预览；展示不代表检验通过，不自动合并。',
-    detail: `对比起点：${node.created_from_commit}\n预览保留到你停止或 daemon 退出；不改变用户当前分支。`,
-    confirmLabel: '开始效果展示',
-    agent: true, confirmHelp: agentHelp('启动专用展示 Agent 分析修改并生成可运行的效果展示。') })) return;
-  const task = await action('showcase.start', { branch, baseline: null });
-  if (task?.id) await detail(task.id);
-  return task;
+  const allowedNow = node.showcase.allowed === true;
+  if (!await confirmDialog({ title: `预约展示 ${branch} 的效果？`,
+    message: '预约后，等这条分支满足展示条件时会自动启动专用展示 agent；现在已满足就立即开始。展示不代表检验通过，也不自动合并。',
+    confirmLabel: allowedNow ? '开始展示' : '预约',
+    agent: true, confirmHelp: agentHelp('预约后，等分支满足展示条件时自动启动专用展示 Agent 分析修改并生成可运行的效果展示。') })) return;
+  const result = await action('showcase.reserve', { branch });
+  // 立即启动时返回 task_id（`reserveShowcase` 的形状）；兼容只返回任务对象的旧读面。
+  const taskId = result?.task_id ?? result?.id;
+  if (taskId) { await detail(taskId); return result; }
+  show('已预约：满足展示条件后自动开始');
+  await graph();
+  return result;
+}
+
+/** 取消一条分支的效果展示预约，成功后重画分支图回到预约入口。已经开始的展示任务不受影响。 */
+export async function unreserveBranchShowcase(branch) {
+  const result = await action('showcase.unreserve', { branch });
+  await graph();
+  return result;
 }
 
 export function renderShowcase(task) {

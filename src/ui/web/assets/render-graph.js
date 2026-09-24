@@ -28,7 +28,7 @@ import { saveGraphPrefs, ui } from './state.js';
 import { referenceable } from './context-references.js';
 import { agentHelp } from './help.js';
 import { renderGraphProgress } from './render-progress.js';
-import { startBranchShowcase } from './render-showcase.js';
+import { reserveBranchShowcase, unreserveBranchShowcase } from './render-showcase.js';
 
 /** 分支状态映射：状态 -> { label, className }；已合进父分支是常态，不再单独出一个「已合并」标签。
  *  没有 archived：归档的分支根本不会被画进分支树（看 graphLayout 的 hiddenBranches）。 */
@@ -508,11 +508,22 @@ function branchRow(branch, onCollapsed) {
   const diagnostics = branchDiagnostics(branch);
   if (diagnostics) row.append(diagnostics);
 
-  // 只有「可归档且尚未归档」的分支才给动作；当前检出、未登记、还有活没完的都不给。
+  // 效果展示入口按「预约」而不是「立即启动」：`reserve_allowed` 只问现在能不能预约（已登记、有父分支与基线的非主干分支），
+  // 而 `allowed` 才是完整准入。未满足准入的开发分支也应当在创建后就亮起入口；点了先挂预约，等分支满足展示条件后由后端自动启动。
+  const showcase = branch.showcase;
+  if (showcase?.reserved === true) {
+    row.append(el('span', '已预约效果展示', 'chip graph-showcase-reserved'));
+    // 预约后还没跑起来：把当前准入阻塞原因就地说清楚，用户不必自己去猜还要等什么。
+    if (showcase.allowed !== true && showcase.reason) row.append(el('span', showcase.reason, 'meta graph-showcase-blocker'));
+    row.append(button('取消预约', () => unreserveBranchShowcase(branch.name), 'ghost',
+      { help: '取消这条分支的自动效果展示预约；已开始的展示不受影响。' }));
+  } else if (showcase?.reserve_allowed === true) {
+    row.append(button('预约效果展示', () => reserveBranchShowcase(branch.name), 'ghost',
+      { agent: true, help: agentHelp('预约后，等这条分支满足展示条件时自动启动专用展示 Agent；当前已满足则立即开始。') }));
+  }
+  if (showcase?.latest_task_id) row.append(button('查看已有展示', () => detail(showcase.latest_task_id), 'link'));
+  // 只有「可归档且尚未归档」的分支才给归档；当前检出、未登记、还有活没完的都不给。
   // 归档一条＝归档它整棵子树（见 runBranchArchive 的确认文案）。
-  if (branch.showcase?.allowed === true) row.append(button('效果展示', () => startBranchShowcase(branch.name), 'ghost',
-    { agent: true, help: agentHelp('启动专用展示 Agent，在隔离工作区分析修改、设计并生成可运行的效果展示。') }));
-  if (branch.showcase?.latest_task_id) row.append(button('查看已有展示', () => detail(branch.showcase.latest_task_id), 'link'));
   if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch), 'ghost',
     { help: '归档这条分支及它下面的全部后代分支：删除 worktree 与本地 ref，未提交改动会丢失；任务与会话记录保留。' }));
 
