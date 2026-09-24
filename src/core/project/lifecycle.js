@@ -257,6 +257,8 @@ export default {
     this.recoverSleep();
     // A credential dies with the invocation that issued it; nothing survives a restart.
     this.store.run('UPDATE tasks SET agent_token_hash=NULL');
+    // 快速介绍的直连调用也随进程结束，遗留在 running 的记录如实落成失败。
+    this.store.introFailRunning('daemon interrupted; retry the quick intro');
     // Never replay an invocation with unknown filesystem side effects.
     for (const task of this.store.tasks()) if (task.status === 'running') this.cancel(task.id, 'daemon interrupted; inspect worktree and explicitly retry', 'failed');
     this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging'");
@@ -288,6 +290,8 @@ export default {
     for (const controller of startingPreviews) controller.abort();
     await Promise.allSettled(startingPreviews.map(controller => controller.promise));
     await Promise.allSettled([...this.previews.values()].map(entry => entry.stop()));
+    for (const entry of this.introRunning.values()) entry.controller.abort(new Error('daemon stopped; retry the quick intro'));
+    await Promise.allSettled([...this.introRunning.values()].map(entry => entry.promise));
     await Promise.allSettled([...this.running.values()].map(run => run.promise));
     await this.workspaces.queue;
   }

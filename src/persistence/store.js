@@ -11,6 +11,7 @@ import { branches } from './store/branches.js';
 import { runs } from './store/runs.js';
 import { candidates } from './store/candidates.js';
 import { references } from './store/references.js';
+import { introductions } from './store/introductions.js';
 
 /**
  * 持久化入口：只做装配，实现按职责住在 src/persistence/store/ 下。
@@ -19,7 +20,7 @@ import { references } from './store/references.js';
  */
 export class Store extends StoreBase {}
 
-for (const [module, mixin] of Object.entries({ tasks, specs, deps, messages, events, verification, drafts, references, timeline, branches, runs, candidates })) {
+for (const [module, mixin] of Object.entries({ tasks, specs, deps, messages, events, verification, drafts, references, introductions, timeline, branches, runs, candidates })) {
   for (const name of Object.keys(mixin)) {
     if (Object.prototype.hasOwnProperty.call(Store.prototype, name)) {
       throw new Error(`duplicate Store method ${name} (${module}.js)`);

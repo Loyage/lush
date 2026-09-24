@@ -6,6 +6,7 @@
  * - 任何带 `data-help` 的元素（按钮、菜单项、外层 `span.help-host`）在悬停、键盘聚焦、触屏长按时
  *   显示同一个 `#help-tip`（role="tooltip"），Esc / 滚动 / 点别处隐藏，屏幕阅读器经 `aria-describedby` 读到；
  * - `agentHelp()` 统一给会启动 Agent 的按钮补上代价说明，`button.agent-call` 用紫色 ⚡ 把它们标出来。
+ *   直连模型 API 的按钮（如「快速介绍」）用 `modelHelp()`，同样带 `agent-call` 紫色标识以提示这是一次模型调用。
  *
  * 监听挂在 document 级做事件委托，按钮随视图重画也不必逐个重绑；`initHelp()` 可重复调用，
  * 重复装配前会先摘掉上一轮监听。计时器可注入（`setHelpTimers`），DOM 测试用假时钟推进长按判定。
@@ -19,6 +20,13 @@ export const AGENT_NOTE = '会调用 Agent：需要较长时间并消耗 token';
 export function agentHelp(text) {
   const clean = text === undefined || text === null ? '' : String(text).trim();
   return clean ? `${clean} ${AGENT_NOTE}` : AGENT_NOTE;
+}
+
+/** 直连模型 API（不经过 Agent）的按钮代价说明；同样用 `agent-call` 紫色标识提示这是一次模型调用。 */
+export const MODEL_NOTE = '会直连你配置的模型：需要几秒并消耗 token';
+export function modelHelp(text) {
+  const clean = text === undefined || text === null ? '' : String(text).trim();
+  return clean ? `${clean} ${MODEL_NOTE}` : MODEL_NOTE;
 }
 
 const TIP_ID = 'help-tip';

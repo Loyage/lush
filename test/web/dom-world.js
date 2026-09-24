@@ -102,8 +102,11 @@ export function makeWorld() {
     graphFetches: 0,
     drafts: [],
     commits: [],
-    // explanation.start / explanation.selection 的返回与 /api/explanation/:id 读取。
+    // explanation.start 的返回与 /api/explanation/:id 读取。
     explanations: new Map(), explanationSeq: 0,
+    // 快速介绍：/api/intro/config 与 /api/task/:id/intros、/api/intro/:id。
+    intros: new Map(), introSeq: 0,
+    introConfig: { file: '/tmp/demo/.lush/quick-intro.json', base_url: '', model: '', has_key: false, key_hint: '', ready: false },
     // 一条已冻结、等待验收的 Review Candidate（挂到 Intent #2 上）。
     candidates: [
       { id: 1, input_id: 2, version: 1, branch: 'lush/demo/input-2', commit_hash: 'c0ffee123456', baseline_branch: 'main',
@@ -145,7 +148,7 @@ export function makeWorld() {
     status: { project: '/tmp/demo', home: '/tmp/demo/.lush', provider: 'mock',
       concurrency: state.runtimeSettings.concurrency.value, control_concurrency: state.runtimeSettings.control_concurrency.value,
       settings: state.runtimeSettings,
-      call_timeout: 900, task_call_limit: 24, max_depth: 8, agent_config: state.agentConfig, agents: [], agents_idle: 0, agents_total: 0,
+      call_timeout: 900, task_call_limit: 24, max_depth: 8, agent_config: state.agentConfig, intro_config: state.introConfig, agents: [], agents_idle: 0, agents_total: 0,
       pending_merges: [{ id: 2, goal: '合并我', branch: 'lush/2-x', integration: 'pending' }], drafts: 0,
       tasks: [{ status: 'running', count: 1 }, { status: 'completed', count: 2 }], merge_freeze: state.freeze, notices: 0,
       // 拆解队列的计数与批次摘要（和 system.status 同形）
@@ -294,16 +297,30 @@ export function makeWorld() {
         }
         return json({ planner: body.params.id, plan_gate: intent?.plan_gate ?? null });
       }
-      if (body.method === 'explanation.selection' || body.method === 'explanation.start') {
-        const selection = body.method === 'explanation.selection';
-        const source = selection
-          ? { version: 1, kind: 'selection', quote: body.params.quote, location: body.params.location, captured_at: iso(NOW) }
-          : { version: 1, task_id: body.params.id, seq: body.params.seq, quote: body.params.quote, goal: 'demo',
-              captured_at: iso(NOW), step: { seq: body.params.seq, title: 'bash', body: body.params.quote }, related: [] };
+      if (body.method === 'explanation.start') {
+        const source = { version: 1, task_id: body.params.id, seq: body.params.seq, quote: body.params.quote, goal: 'demo',
+          captured_at: iso(NOW), step: { seq: body.params.seq, title: 'bash', body: body.params.quote }, related: [] };
         const id = ++state.explanationSeq;
-        const explanation = { id, status: 'completed', result: selection ? '这是对所选文字的解释示例。' : '这是对执行步骤的解释示例。', error: null, source };
+        const explanation = { id, status: 'completed', result: '这是对执行步骤的解释示例。', error: null, source };
         state.explanations.set(id, explanation);
         return json(explanation);
+      }
+      if (body.method === 'intro.configure') {
+        const patch = body.params.config || {};
+        const next = { ...state.introConfig };
+        for (const key of ['base_url', 'model']) if (Object.hasOwn(patch, key)) next[key] = patch[key] || '';
+        if (Object.hasOwn(patch, 'api_key')) { const key = patch.api_key || ''; next.has_key = Boolean(key); next.key_hint = key ? `••••${key.slice(-4)}` : ''; }
+        next.ready = Boolean(next.base_url && next.model);
+        state.introConfig = next;
+        return json(next);
+      }
+      if (body.method === 'intro.start') {
+        const id = ++state.introSeq;
+        const intro = { id, kind: 'quick', status: 'completed', result: '这是对所选文字的快速介绍示例。', error: null,
+          quote: body.params.quote, location: body.params.location, model: state.introConfig.model || 'demo-model',
+          created_at: iso(NOW), updated_at: iso(NOW) };
+        state.intros.set(id, intro);
+        return json(intro);
       }
       if (body.method === 'notice.answer' || body.method === 'notice.dismiss') {
         // 答复 / 忽略一条待决 notice：状态回写到快照，重拉后左栏、提醒条与待我处理都看得出这件事已处理。
@@ -318,7 +335,19 @@ export function makeWorld() {
       }
       return json({});
     }
-    let match = /^\/api\/explanation\/(\d+)$/.exec(path);
+    let match;
+    if (path === '/api/intro/config') return json(state.introConfig);
+    match = /^\/api\/intro\/(\d+)$/.exec(path);
+    if (match) {
+      const intro = state.intros.get(Number(match[1]));
+      return intro ? json(intro) : { ok: false, status: 404, json: async () => ({ error: 'introduction not found' }) };
+    }
+    match = /^\/api\/task\/(\d+)\/intros$/.exec(path);
+    if (match) {
+      const rows = [...state.intros.values()].filter(row => (row.location?.task_id ?? null) === Number(match[1]));
+      return json({ introductions: rows, has_more: false, next: null });
+    }
+    match = /^\/api\/explanation\/(\d+)$/.exec(path);
     if (match) {
       const explanation = state.explanations.get(Number(match[1]));
       return explanation ? json(explanation) : { ok: false, status: 404, json: async () => ({ error: 'explanation not found' }) };

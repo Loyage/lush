@@ -41,7 +41,7 @@
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
 | `rpc/handlers/system.js` | 用户专属 `sleep.start/stop/resume/status/choices`；`system.*`（兼容完整 `system.status`、首页走持久 revision/索引聚合且无 Agent 全配置的 `system.summary`、用户专属的 `system.configure` 与只读 `system.usage`）、`graph.get`、Agent 配置与资源接口；环境文件的 `agent.environment` / `agent.environment.configure` 因可能含密钥，读写都为用户专属 | `handlers` |
 | `rpc/handlers/input.js` | `input.*`、`draft.*` | `handlers` |
-| `rpc/handlers/task.js` | `task.*`（`task.retry(id,profile?)` 可带仅本轮生效的完整 Agent Profile；旧 `task.list/history` 保留；新增 `task.activity`、`task.page`、`task.history_page` 有界读接口，以及用户专属的 `task.transcript_search` / `task.transcript_step` / `task.transcript_page` / `task.transcript_latest`）、用户专属 `explanation.start/list/get`、agent-only 的 `progress.plan` / `progress.complete` | `handlers` |
+| `rpc/handlers/task.js` | `task.*`（`task.retry(id,profile?)` 可带仅本轮生效的完整 Agent Profile；旧 `task.list/history` 保留；新增 `task.activity`、`task.page`、`task.history_page` 有界读接口，以及用户专属的 `task.transcript_search` / `task.transcript_step` / `task.transcript_page` / `task.transcript_latest`）、用户专属 `explanation.start/list/get` 与 `intro.start/list/get/config/configure`、agent-only 的 `progress.plan` / `progress.complete` | `handlers` |
 | `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |
 | `rpc/handlers/notice.js` | `notice.*` | `handlers` |
 | `rpc/handlers/branch.js` | `branch.tree/show/import/merge/sync/archive/summary`（`branch.archive` 参数 `branch` / `discard`，在 `USER_ONLY`；`branch.summary` 参数 `branch` / `summary`，agent 可写、省略 branch 时写自己的分支，用户必须显式点名） | `handlers` |
@@ -68,7 +68,7 @@
 | 统计面板 | `test/usage-statistics.test.js`（全量、时间边界、UTC 分桶、模型切换、缺价、损坏与缓存失效）、`test/web/usage-statistics.test.js`（认证 API）、`test/web/dom-statistics.test.js`（双视图入口、独立筛选、SVG 即时浮层、错误与导航竞态）、`test/web/statistics-range.test.js`（UTC 日期快捷范围、闰日／跨年与日内小时边界）；Codex 用量留存由 `test/agent-settings.test.js` 覆盖 |
 | 托管模式 | `test/project/sleep.test.js`（授权、作用域、规则/偏好、关闭竞态、人工答案优先、预算、恢复和审计分页）；`test/butler-provider.test.js`（无工具边界）；`test/sleep-cli.test.js`（确认和参数）；`test/web/sleep.test.js`（HTTP、开启确认、显著关闭、管家选择留档） |
 | Notice 记录与提醒 | `test/project/notice-page.test.js`（超过 200 条历史、筛选与字节预算游标）、`test/web/notice-records.test.js`（HTTP 参数、分页、面板内答复／审批与只读问卷）、`test/web/notice-notifications.test.js`（默认关闭、权限、首屏基线、去重与桌面开关恢复） |
-| 执行过程阅读与解释 | `test/transcript-reader.test.js`（全量搜索、截断后命中、过滤、配对、原文与文件边界）、`test/explainer-provider.test.js`（无工具参数及凭证隔离）、`test/project/explanations.test.js`（来源快照、无分支与权限）、`test/web/transcript-reader.test.js`（HTTP/RPC）、`test/web/dom-transcript-reader.test.js`（摘要、增量配对、JSON、检索与选区介绍） |
+| 执行过程阅读与解释 | `test/transcript-reader.test.js`（全量搜索、截断后命中、过滤、配对、原文与文件边界）、`test/explainer-provider.test.js`（无工具参数及凭证隔离）、`test/project/explanations.test.js`（来源快照、无分支与权限）、`test/project/intro.test.js`（快速介绍配置遮蔽、直连与失败、恢复、不建任务）、`test/web/transcript-reader.test.js`（HTTP/RPC）、`test/web/intro.test.js`（快速介绍路由）、`test/web/dom-transcript-reader.test.js`（摘要、增量配对、JSON、检索与选区介绍） |
 | 运行设置 | `test/runtime-settings.test.js`（存储原子性与权限、覆盖优先于环境、写后 status 与调度准入、agent 不得调用 `system.configure`）、`test/config-cli.test.js`（`lush config` 的 show / set / reset 与 `--json`） |
 | `integration.test.js` | `test/integration/{daemon,pi,verify,shutdown,merge}.test.js` |
 

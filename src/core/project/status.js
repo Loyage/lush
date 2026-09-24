@@ -4,7 +4,7 @@ import { agentView } from './internal.js';
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
 /** Shared status projection. Its task aggregates are served by covering indexes, never task rows. */
-function statusView(project, agentConfig = null) {
+function statusView(project, agentConfig = null, introConfig = null) {
   const layers = project.store.all('SELECT layer,status,count FROM overview_task_counts WHERE count>0 ORDER BY layer,status');
   const tasks = layers.filter(row => row.layer === 'work').map(({ status, count }) => ({ status, count }));
   const alive = layers.filter(row => !TERMINAL.has(row.status)).reduce((sum, row) => sum + row.count, 0);
@@ -12,6 +12,7 @@ function statusView(project, agentConfig = null) {
     revision: project.overviewRevision(),
     provider: project.config.provider === 'mock' ? 'mock' : (agentConfig?.default?.agent ?? project.config.provider),
     ...(agentConfig ? { agent_config: agentConfig } : {}),
+    ...(introConfig ? { intro_config: introConfig } : {}),
     concurrency: project.config.concurrency, control_concurrency: project.config.controlConcurrency,
     // 并发上限是可在运行时改写的项目级设置：这里给出存储 / 生效值的只读镜像。
     // 顶层 concurrency / control_concurrency 仍表示当前生效值。
@@ -53,6 +54,7 @@ export default {
 
   /** Compatibility status retains its complete historical Agent configuration shape. */
   status(includeAgentConfig = true) {
-    return statusView(this, includeAgentConfig ? this.agentConfig() : null);
+    // 完整状态投影带上 Agent 与快速介绍配置；概览 summary() 不带，设置页按需单独取。
+    return statusView(this, includeAgentConfig ? this.agentConfig() : null, includeAgentConfig ? this.introConfig() : null);
   }
 };

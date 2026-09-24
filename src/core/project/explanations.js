@@ -22,26 +22,6 @@ export default {
     return this.explanation(task.id);
   },
 
-  /** Read-only explanation of any page selection; no task/step source, so the snapshot carries kind=selection. */
-  async startSelectionExplanation(quote, location) {
-    check(!this.stopping, 'daemon is stopping');
-    this.checkExplanationInput(quote);
-    const normalized = this.normalizeLocation(location);
-    this.checkExplanationProvider();
-    const snapshot = { version: 1, kind: 'selection', quote,
-      location: normalized, captured_at: new Date().toISOString() };
-    check(!this.stopping, 'daemon is stopping');
-    check(this.store.activeTasks().length < 1000, 'too many active tasks');
-    const task = this.store.transaction(() => {
-      const created = this.store.create({ role: 'explainer', input_id: null, name: 'explanation',
-        goal: `介绍所选页面文字：${quote.slice(0, 180)}` });
-      this.store.event(created.id, 'explanation.requested', snapshot);
-      return created;
-    });
-    this.kick();
-    return this.explanation(task.id);
-  },
-
   checkExplanationInput(quote) {
     check(typeof quote === 'string' && quote.trim().length > 0 && quote.length <= 8192, '请选择 1–8192 字的文字');
   },

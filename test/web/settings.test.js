@@ -508,3 +508,26 @@ test('设置页签：睡觉模式改名为托管模式且不再出现旧称', ()
   expect(deepText(tab)).toContain('托管模式');
   expect(deepText(tab)).not.toContain('睡觉');
 });
+
+test('系统页：快速介绍配置可保存、读模型遮蔽 API Key 且能清除', async () => {
+  openSystem();
+  const block = () => [...panel().querySelectorAll('.block')]
+    .find(node => node.querySelector('h2')?.textContent === '快速介绍') || null;
+  expect(block()).toBeTruthy();
+  const before = world.state.actions.length;
+  block().querySelector('[data-intro-input="base_url"]').value = 'https://api.example.com/v1';
+  block().querySelector('[data-intro-input="model"]').value = 'demo-model';
+  block().querySelector('[data-intro-input="api_key"]').value = 'sk-secret-1234';
+  await block().querySelector('[data-intro-action="save"]').onclick();
+  const call = world.state.actions.slice(before).find(entry => entry.method === 'intro.configure');
+  expect(call.params.config).toEqual({ base_url: 'https://api.example.com/v1', model: 'demo-model', api_key: 'sk-secret-1234' });
+  expect(world.state.introConfig).toMatchObject({ base_url: 'https://api.example.com/v1', model: 'demo-model', has_key: true, key_hint: '••••1234', ready: true });
+  // 只写不显：输入框留空，占位显示已保存的尾号。
+  openSystem();
+  expect(block().querySelector('[data-intro-input="api_key"]').value).toBe('');
+  expect(block().querySelector('[data-intro-input="api_key"]').placeholder).toContain('••••1234');
+  expect(block().querySelector('[data-intro-source=""]').textContent).toContain('可调用');
+  await block().querySelector('[data-intro-action="clear-key"]').onclick();
+  expect(world.state.introConfig.has_key).toBe(false);
+  expect(block().querySelector('[data-intro-action="clear-key"]').disabled).toBe(true);
+});

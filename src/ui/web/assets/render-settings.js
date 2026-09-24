@@ -21,6 +21,9 @@ const TABS = [
 ];
 let activeTab = 'agent';
 let agentConfigPromise = null;
+let introConfigPromise = null;
+// 快速介绍配置不进 1.5s 轮询快照；这里保留一份模块级读模型，轮询换掉 lastSnapshot 后仍能重画。
+let introConfigCache = null;
 
 export function openSettings() {
   activateDetailView({ view: 'settings' });
@@ -31,6 +34,14 @@ export function openSettings() {
       if (ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = config;
       if (ui.settingsOpen) renderSettings();
     }).catch(error => show(error.message, 'error')).finally(() => { agentConfigPromise = null; });
+  }
+  // 快速介绍配置同样不进 1.5s 快照，进入设置时单独取一次；密钥只拿到遮罩后的读模型。
+  if (!ui.lastSnapshot?.status?.intro_config && !introConfigCache && !introConfigPromise) {
+    introConfigPromise = api('/api/intro/config').then(config => {
+      introConfigCache = config;
+      if (ui.lastSnapshot?.status) ui.lastSnapshot.status.intro_config = config;
+      if (ui.settingsOpen) renderSettings();
+    }).catch(error => show(error.message, 'error')).finally(() => { introConfigPromise = null; });
   }
 }
 
@@ -591,6 +602,65 @@ function inputRoutesEditor(runtime) {
   return section;
 }
 
+/**
+ * 「快速介绍」编辑器：选中文字直连的 OpenAI 兼容接口，不经过 Agent。
+ * 读模型里 API Key 只有 `has_key` / `key_hint`；这里也只写不显，留空表示保持原值。
+ */
+function quickIntroEditor(config, plain) {
+  const section = block('快速介绍');
+  section.append(el('p', '选中文字后「快速介绍」直连这里配置的模型，不经过 Agent；会调用「API 地址」/chat/completions。保存后立即生效。', 'settings-note settings-section-note'));
+  if (!config) { section.append(el('p', '正在读取快速介绍配置…', 'settings-note')); return section; }
+  const grid = el('div', undefined, 'settings-runtime-grid');
+  const specs = [
+    { key: 'base_url', label: 'API 地址', placeholder: 'https://api.openai.com/v1', note: 'OpenAI 兼容接口地址。' },
+    { key: 'model', label: '模型', placeholder: 'gpt-4o-mini' },
+    { key: 'api_key', label: 'API Key', placeholder: config.has_key ? `已保存 ${config.key_hint}` : 'sk-…', note: '留空表示不修改；本地服务常不需要。' },
+  ];
+  const inputs = {};
+  for (const spec of specs) {
+    const cell = el('label', undefined, 'settings-runtime-field'); cell.dataset.introField = spec.key;
+    const input = el('input'); input.type = spec.key === 'api_key' ? 'password' : 'text';
+    input.className = 'settings-number'; input.autocomplete = 'off'; input.spellcheck = false;
+    input.placeholder = spec.placeholder || ''; input.value = spec.key === 'api_key' ? '' : (config[spec.key] || '');
+    input.setAttribute('aria-label', spec.label); input.dataset.introInput = spec.key;
+    cell.append(el('span', spec.label, 'settings-field-label'), input);
+    if (spec.note) cell.append(el('span', spec.note, 'settings-note'));
+    grid.append(cell); inputs[spec.key] = input;
+  }
+  const source = el('span', config.ready ? `可调用 · ${config.model}` : '未配置完成', `settings-source${config.ready ? ' overridden' : ''}`);
+  source.dataset.introSource = '';
+  const errorBox = el('p', undefined, 'settings-error'); errorBox.hidden = true; errorBox.dataset.introError = '';
+  const fail = message => { errorBox.textContent = message; errorBox.hidden = false; show(message, 'error'); };
+  const actions = el('div', undefined, 'settings-runtime-actions');
+  const save = button('保存', async () => {
+    const patch = { base_url: inputs.base_url.value.trim() || null, model: inputs.model.value.trim() || null };
+    const key = inputs.api_key.value.trim();
+    if (key) patch.api_key = key;
+    errorBox.hidden = true;
+    try {
+      const saved = await action('intro.configure', { config: patch });
+      introConfigCache = saved;
+      if (ui.lastSnapshot?.status) ui.lastSnapshot.status.intro_config = saved;
+      show('快速介绍配置已保存，立即生效。'); renderSettings();
+    } catch (error) { fail(error.message); }
+  }, 'primary settings-intro-save');
+  save.dataset.introAction = 'save';
+  const clearKey = button('清除 API Key', async () => {
+    errorBox.hidden = true;
+    try {
+      const saved = await action('intro.configure', { config: { api_key: null } });
+      introConfigCache = saved;
+      if (ui.lastSnapshot?.status) ui.lastSnapshot.status.intro_config = saved;
+      show('已清除 API Key。'); renderSettings();
+    } catch (error) { fail(error.message); }
+  }, 'ghost settings-intro-clear-key');
+  clearKey.dataset.introAction = 'clear-key';
+  clearKey.disabled = !config.has_key;
+  actions.append(save, clearKey, source);
+  section.append(grid, actions, el('span', `配置文件 ${plain(config.file)}`, 'settings-note'), errorBox);
+  return section;
+}
+
 function systemTab() {
   const content = el('div', undefined, 'settings-tab-panel');
   const snapshot = ui.lastSnapshot?.status ?? null;
@@ -618,6 +688,7 @@ function systemTab() {
   content.append(concurrency);
 
   content.append(inputRoutesEditor(runtime));
+  content.append(quickIntroEditor(snapshot.intro_config ?? introConfigCache, plain));
 
   const paths = block('项目路径');
   paths.append(line('project', '项目', 'daemon 绑定的 canonical 项目目录。', plain(snapshot.project)));

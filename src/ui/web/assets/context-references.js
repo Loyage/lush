@@ -2,8 +2,8 @@ import { $, button, el } from './dom.js';
 import { show } from './messages.js';
 import { detail, graph, resource } from './navigate.js';
 import { transcriptOpen, ui } from './state.js';
-import { startExplanation, startSelectionExplanation } from './explanations.js';
-import { agentHelp } from './help.js';
+import { startExplanation, startIntro } from './explanations.js';
+import { agentHelp, modelHelp } from './help.js';
 
 const MAX_REFERENCES = 12;
 const MAX_QUOTE = 8192;
@@ -241,11 +241,11 @@ function onContextMenu(event) {
   if (generic && !values.some(value => value.kind === 'text' && value.quote === generic.quote)) values.push(generic);
   const step = semantic.find(value => value.kind === 'transcript_step');
   const selectedText = selected ? String(window.getSelection?.()?.toString?.() || '').trim() : '';
-  // 任意非空选区都能「介绍」：落在执行步骤里仍走原步骤解释，其余走通用只读解释。
+  // 任意非空选区都能「介绍」：落在执行步骤里仍走只读解释 Agent；其余走直连模型的快速介绍。
   const introduce = !selected ? null
     : step && selectedText.length <= MAX_QUOTE
       ? { label: '介绍：目的、原理与结果含义', help: agentHelp('用只读的解释 Agent 说明这个执行步骤的目的、原理与结果含义。'), run: () => startExplanation(step.target.task_id, step.target.seq, selectedText) }
-      : { label: '介绍所选文字：是什么、为何如此', help: agentHelp('用只读的解释 Agent 说明所选文字是什么、为何如此。'), run: () => startSelectionExplanation(selected.quote, selected.location) };
+      : { label: '快速介绍所选文字：是什么、为何如此', help: modelHelp('用设置里配置的模型直接解释所选文字是什么、为何如此，不启动 Agent。'), run: () => startIntro(selected.quote, selected.location) };
   if (values.length) showMenu(event, values, introduce); else hideMenu();
 }
 function onClick(event) { if (!inside(event.target, $('context-menu'))) hideMenu(); }

@@ -42,22 +42,23 @@ test('任务、任务子树与任意选中文字可以经右键加入输入引�
   expect(dom.node('composer-references').children).toHaveLength(0);
 });
 
-test('任意选中文字可以就地介绍，通用快照不显示 undefined', async () => {
+test('任意选中文字可以就地快速介绍，直连模型且不显示 undefined', async () => {
   const target = dom.document.createElement('p');
   target.textContent = '普通页面里的一段说明文字，用来测试通用选区解释。';
   dom.node('detail').append(target);
   dom.setSelection('一段说明文字');
   await dom.fire('contextmenu', { target, clientX: 30, clientY: 40, preventDefault() {} });
-  const intro = findByText(dom.node('context-menu'), '介绍所选文字');
+  const intro = findByText(dom.node('context-menu'), '快速介绍所选文字');
   expect(intro).toBeTruthy();
   await intro.onclick();
-  await until(() => deepText(dom.document.body).includes('这是对所选文字的解释示例'));
-  const call = world.state.actions.find(entry => entry.method === 'explanation.selection');
+  await until(() => deepText(dom.document.body).includes('这是对所选文字的快速介绍示例'));
+  const call = world.state.actions.find(entry => entry.method === 'intro.start');
   expect(call.params.quote).toBe('一段说明文字');
   expect(call.params.location.section).toBe('selection');
   const panel = dom.document.body.querySelector('.reading-panel');
   expect(panel).toBeTruthy();
-  expect(deepText(panel)).toContain('当时的来源快照');
+  expect(deepText(panel)).toContain('快速介绍');
+  expect(deepText(panel)).toContain('模型：');
   expect(deepText(panel)).not.toContain('undefined');
   closeExplanationPanel();
 });

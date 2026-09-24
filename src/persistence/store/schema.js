@@ -106,6 +106,16 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       CREATE INDEX IF NOT EXISTS messages_task ON messages(task_id, consumed);
       CREATE INDEX IF NOT EXISTS events_task ON events(task_id, id);
       CREATE INDEX IF NOT EXISTS events_type_id ON events(type, id);
+      -- 「快速介绍」记录：选中任意页面文字后直连 OpenAI 兼容 API 的只读结果。它不是 Task（没有分支、
+      -- 没有 worktree、不参与调度），只是为「解释历史」保留的一份带来源快照的模型输出。task_id 可空，
+      -- 只用于把发生在某个任务详情页上的记录归到该任务的历史里，不加外键：删任务不连带删这条阅读记录。
+      CREATE TABLE IF NOT EXISTS introductions (
+        id INTEGER PRIMARY KEY, task_id INTEGER, quote TEXT NOT NULL, location TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running', result TEXT, error TEXT,
+        base_url TEXT, model TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+      CREATE INDEX IF NOT EXISTS introductions_task ON introductions(task_id, id);
       CREATE INDEX IF NOT EXISTS sleep_choice_notice ON events(json_extract(data,'$.notice.id'),json_extract(data,'$.notice.task_id')) WHERE type='sleep.choice.started';
       CREATE INDEX IF NOT EXISTS sleep_choice_result ON events(json_extract(data,'$.choice_id')) WHERE type='sleep.choice.finished';
       CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash);
