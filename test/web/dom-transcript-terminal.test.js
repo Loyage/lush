@@ -94,3 +94,21 @@ test('continuous transcript read is user-only', () => {
   expect(() => assertAllowed('task.transcript_page', { id: 1, seq: 1, offset: 0 }, 7)).toThrow('not an agent');
   expect(() => assertAllowed('task.transcript_page', { id: 1, seq: 1, offset: 0 }, null)).not.toThrow();
 });
+
+test('agent panel shows the follow command inline and copies it from a button', async () => {
+  const dom = installDom();
+  const copied = [];
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async text => { copied.push(text); } } }, configurable: true });
+  try {
+    const panel = renderAgent({ id: 77, agent: { id: 5, active: true, pid: 1, wakes: 2, backend: 'pi' } }, { files: [] });
+    const row = panel.querySelector('.terminal-command');
+    expect(row).toBeTruthy();
+    expect(deepText(row)).toContain('lush task transcript 77 --follow');
+    await findByText(row, '复制命令').onclick();
+    expect(copied).toEqual(['lush task transcript 77 --follow']);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'navigator', original); else delete globalThis.navigator;
+    dom.restore();
+  }
+});

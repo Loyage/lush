@@ -78,7 +78,7 @@ bun run web 4318 --project /absolute/path/to/my-project  # 可选：启动绑定
 
 公网部署仍应在前面配置 HTTPS 反向代理，否则登录密码会在网络中明文传输。跨站请求判定以浏览器自己填的 `Sec-Fetch-Site` 为准（网页无法伪造它），`Origin` 只在旧浏览器没有这个头时作为回退；内嵌 webview、沙箱页面与部分隐私扩展会报 `Origin: null` 却依然是同源，这类客户端能正常登录。删除对应模式的 `web.json` 即恢复仅本机、无需登录的模式。
 
-Web UI（默认 `http://127.0.0.1:4318`）是 **Intent 优先**的项目工作台：左栏是导航，首屏是 **Intent 工作台**（目标、Plan 状态、交付与历史检验结果、真正需要你决定的事）；分支图、待你决定、行动任务、Intent 记录、结构化 Plan 与文档分别在右侧独立成页。右侧顶部始终保留返回上一页的入口，页面地址使用 `#graph`、`#settings`、`#notices`、`#tasks`、`#intents`、`#specs`、`#task-ID`、`#docs` / `#doc-<id>`，浏览器前进 / 后退可以在各视图与任务详情之间往返。首页顶部指标按 Intent 计（Intent / 并行执行 / 需要你决定），并用同一份 `graph.get` 读模型把 Git 交付诊断折叠在成果主线之后；「效果展示」仅在合格分支详情提供次要启动入口，已有展示的任务详情内嵌展示页并提供可操作预览入口；历史候选的报告与 `candidate.accept` / `candidate.changes` 仍保留。任务详情以目标为标题，结果与执行过程优先。执行过程支持内容摘要、工具输入输出配对、完整记录检索和 JSON 结构视图；选中文字右键“介绍”可启动专用无工具解释 Agent，在旁侧阅读结果并保留历史（当前需 Pi，详见[执行记录阅读器](docs/engineering/transcript-reader.md)）。输入框常驻内容区底部（默认折叠，只留一行输入与一行操作，点「更多」展开父分支与快捷键）。窄屏用「导航菜单」展开页面入口。左栏顶部可切换**深色 / 浅色主题**，并集中显示项目名、并发槽、连接状态与退出登录——应用没有整条顶栏，内容区从最上面开始。左栏的**设置**页（`#settings`）分为四个页签：**托管模式** 管理无人值守授权与预算；**Agent** 管项目默认与 planner / coordinator / worker / research / verifier / merger / showcase / explainer / butler 九类行为的独立覆盖，可分别选择 Pi / Codex、模型、思考深度并追加项目 Prompt；配置原子写入 `.lush/agent.json`，正在运行的调用不打断，排队任务与后续唤醒立即读取新配置。**界面**管理 Markdown、主题、减少动效、信息列表排序、轮询与消息停留时长，这些偏好只存在当前浏览器；**系统**展示 daemon 参数与路径，其中**并发额度**（执行通道 / 控制通道）可直接编辑、保存即对排队任务生效，「恢复环境默认」清除覆盖，其余参数只读。移动端会压缩导航、工具栏和分支卡片，并让左栏（含品牌 / 项目名 / 连接 / 退出）排在内容与输入区之前；分支诊断 / 设置 / 文档页隐藏底部输入器，把视口优先留给内容。过渡动画尊重系统「减少动态效果」。文档读的是随这份代码发布的 `docs/` 与 `README.md`（不随被开发的项目变），Markdown 相对链接可以直接点开，Mermaid 流程图从同一份 Markdown 源码按需渲染；刷新不丢已输入的答复。
+Web UI（默认 `http://127.0.0.1:4318`）是 **Intent 优先**的项目工作台：左栏是导航，首屏是 **Intent 工作台**（目标、Plan 状态、交付与历史检验结果、真正需要你决定的事）；分支图、待你决定、行动任务、Intent 记录、结构化 Plan 与文档分别在右侧独立成页。右侧顶部始终保留返回上一页的入口，页面地址使用 `#graph`、`#settings`、`#notices`、`#tasks`、`#intents`、`#specs`、`#task-ID`、`#docs` / `#doc-<id>`，浏览器前进 / 后退可以在各视图与任务详情之间往返。首页顶部指标按 Intent 计（Intent / 并行执行 / 需要你决定），并用同一份 `graph.get` 读模型把 Git 交付诊断折叠在成果主线之后；「效果展示」仅在合格分支详情提供次要启动入口，已有展示的任务详情内嵌展示页并提供可操作预览入口；历史候选的报告与 `candidate.accept` / `candidate.changes` 仍保留。任务详情以目标为标题，结果与执行过程优先。执行过程支持内容摘要、工具输入输出配对、完整记录检索和 JSON 结构视图；「Agent」块内联展示并可直接复制在真实终端跟随的 `lush task transcript ID --follow`；选中文字右键“介绍”可启动专用无工具解释 Agent，在旁侧阅读结果并保留历史（当前需 Pi，详见[执行记录阅读器](docs/engineering/transcript-reader.md)）。输入框常驻内容区底部（默认折叠，只留一行输入与一行操作，点「更多」展开父分支与快捷键）。窄屏用「导航菜单」展开页面入口。左栏顶部可切换**深色 / 浅色主题**，并集中显示项目名、并发槽、连接状态与退出登录——应用没有整条顶栏，内容区从最上面开始。左栏的**设置**页（`#settings`）分为四个页签：**托管模式** 管理无人值守授权与预算；**Agent** 管项目默认与 planner / coordinator / worker / research / verifier / merger / showcase / explainer / butler 九类行为的独立覆盖，可分别选择 Pi / Codex、模型、思考深度并追加项目 Prompt；配置原子写入 `.lush/agent.json`，正在运行的调用不打断，排队任务与后续唤醒立即读取新配置。**界面**管理 Markdown、主题、减少动效、信息列表排序、轮询与消息停留时长，这些偏好只存在当前浏览器；**系统**展示 daemon 参数与路径，其中**并发额度**（执行通道 / 控制通道）可直接编辑、保存即对排队任务生效，「恢复环境默认」清除覆盖，其余参数只读。移动端会压缩导航、工具栏和分支卡片，并让左栏（含品牌 / 项目名 / 连接 / 退出）排在内容与输入区之前；分支诊断 / 设置 / 文档页隐藏底部输入器，把视口优先留给内容。过渡动画尊重系统「减少动态效果」。文档读的是随这份代码发布的 `docs/` 与 `README.md`（不随被开发的项目变），Markdown 相对链接可以直接点开，Mermaid 流程图从同一份 Markdown 源码按需渲染；刷新不丢已输入的答复。
 
 页面内容可以直接“引用到输入”：右键任务可引用单个任务或整棵任务子树，右键交付项可引用 Git / 目标分支，选中任意文字后右键可引用所选内容。引用以卡片显示在输入框上方，加入待提交意图后随草稿持久化；planner 同时收到引用时快照和 invocation 开始时解析的当前状态，目标已被清空时仍保留快照。引用只帮助聚焦，后续仍走同一条 `develop` / `explain` intent 通道。
 
@@ -260,6 +260,7 @@ bun run tasks               # 默认前 200 条，只含开发任务（意图层
 bun run tree
 bun run inspect 3
 bun run transcript 3        # 只看不写：agent 的思考、工具调用与输出
+bun run transcript 3 --follow  # 先打印已有记录，再持续跟随新步骤；Ctrl-C 退出
 bun run usage 3             # 同一个 agent 的模型、上下文占用与累计花费
 lush progress plan inspect:确认现状 implement:实现 test:测试 git_commit:提交改动  # agent 汇报当前 task 的计划
 lush progress complete inspect  # agent 完成一步；同 key 的完成态在计划更新后保留
@@ -347,7 +348,7 @@ pi 默认禁用个人 extensions / skills / prompt templates / themes，保留�
 
 项目 Agent 配置保存在 `.lush/agent.json`，可在 Web「设置 → Agent」或 `lush agent set` 中按六类任务行为覆盖。每份配置分别提供“默认 Prompt”和“追加 Prompt”：项目默认留空时，各角色使用自己的内置组合；角色覆盖页会显示该角色内置 Prompt，并可恢复默认。非空默认 Prompt 会完整替换内置协议，可能造成任务 API、权限边界和交付流程失效；追加 Prompt 用于在文件补充之后追加项目要求。`lush agent prompt ROLE` 是查看最终生效组成的权威入口。Web 可以按需读取 Pi / Codex CLI 当前可用模型，CLI 对应 `lush agent models pi|codex`，读取失败时仍可使用预设或手工模型 ID。Pi profile 还可从当前用户与项目已安装的扩展和 Skills 中多选，只把勾选项显式加载进后续 invocation；这些资源拥有当前用户权限，Codex profile 会保留选择但不加载。
 
-`tasks.result` 只保存 invocation 的最后一次输出；完整的执行过程（思考、工具调用、工具输出）留在 `.lush/sessions/*.jsonl`，用 `lush task transcript ID`（Web 详情里的「执行过程」）只读查看，agent 的模型、上下文占用与累计花费用 `lush task usage ID` 从同一批文件里读出（Web 详情里的「Agent」块）。截图、过程与结论分开：审阅合并时看 result 与 `task diff`，需要追究 agent 怎么做的时候看 transcript，需要直接看结果跑起来时点「检验」。
+`tasks.result` 只保存 invocation 的最后一次输出；完整的执行过程（思考、工具调用、工具输出）留在 `.lush/sessions/*.jsonl`，用 `lush task transcript ID`（Web 详情里的「执行过程」）只读查看，加 `--follow` 可在终端持续跟随新步骤直到 Ctrl-C；Web「Agent」块的「复制命令」直接给出这条命令。agent 的模型、上下文占用与累计花费用 `lush task usage ID` 从同一批文件里读出（Web 详情里的「Agent」块）。截图、过程与结论分开：审阅合并时看 result 与 `task diff`，需要追究 agent 怎么做的时候看 transcript，需要直接看结果跑起来时点「检验」。
 
 ## 验证与文档
 

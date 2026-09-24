@@ -1,8 +1,10 @@
 import { TERMINAL } from '../core/types.js';
 
+/** 一步的终端文本：与 `task transcript` 的既有格式一致，多行正文原样换行。 */
+export const transcriptStepText = step => `[${step.seq}] ${step.kind}\t${step.title}${step.at ? `\t${step.at}` : ''}\n${step.body}\n`;
 export function printTranscript(page) {
   if (!page.steps.length) { console.log(page.files.length ? '(会话记录里没有可显示的步骤)' : '(这个任务还没有 pi 会话记录)'); return; }
-  for (const step of page.steps) console.log(`[${step.seq}] ${step.kind}\t${step.title}${step.at ? `\t${step.at}` : ''}\n${step.body}\n`);
+  for (const step of page.steps) console.log(transcriptStepText(step));
   if (page.has_more) console.error(`… 还有更多步骤；用 --after ${page.next} 继续`);
   if (page.truncated) console.error('… 会话记录过大，只读取了前面一部分');
 }

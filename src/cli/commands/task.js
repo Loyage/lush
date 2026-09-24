@@ -1,6 +1,55 @@
 import { check, id, TERMINAL } from '../../core/types.js';
 import { option, exact } from '../args.js';
-import { printTree, printLadder, printTimeline, printMergeMany, printTranscript, printUsage } from '../print.js';
+import { printTree, printLadder, printTimeline, printMergeMany, printTranscript, transcriptStepText, printUsage } from '../print.js';
+
+/** `task transcript --follow` 的默认轮询间隔；一处定义，测试与体验都按它来。 */
+export const FOLLOW_INTERVAL_MS = 1500;
+/** 每次向前读取与轮询的步骤上限；与兼容读面的 `MAX_STEPS` 一致。 */
+const FOLLOW_LIMIT = 200;
+
+/**
+ * `task transcript ID --follow`：先把已有记录按 `task transcript` 的既有分页读出来打印，
+ * 再用文档推荐的轮询端点 `task.transcript_latest` 持续打印游标之后的新步骤，直到 `signal` 中止。
+ *
+ * 只读、不执行日志里的命令。`sleep` / `print` / `note` / `signal` 全部可注入，
+ * 让跟随循环能在测试里推进而不必真的等待或等到进程被 Ctrl-C。
+ */
+export async function followTranscript(client, taskId, {
+  after = 0, interval = FOLLOW_INTERVAL_MS, limit = FOLLOW_LIMIT, signal = null,
+  print = text => process.stdout.write(text),
+  note = text => process.stderr.write(text),
+  sleep = ms => Bun.sleep(ms),
+} = {}) {
+  let cursor = after;
+  let sawFile = false;
+  let truncated = false;
+  // 1) 已有记录沿用兼容读面分页，输出与一次性的 `lush task transcript ID` 完全一致。
+  for (;;) {
+    const page = await client.request('task.transcript', { id: taskId, after: cursor, limit });
+    sawFile = sawFile || page.files.length > 0;
+    truncated = truncated || Boolean(page.truncated);
+    if (!page.steps.length) break;
+    for (const step of page.steps) print(transcriptStepText(step));
+    cursor = page.steps.at(-1).seq;
+    if (!page.has_more) break;
+  }
+  if (!sawFile) { note('(这个任务还没有 pi 会话记录)\n'); return; }
+  if (truncated) note('… 会话记录过大，已只读取前面一部分；跟随从最新记录继续，中间可能有未显示的步骤\n');
+  note(`─ 以上是已有记录；正在跟随新步骤（每 ${Math.max(1, Math.round(interval / 1000))} 秒检查一次，Ctrl-C 退出）\n`);
+  // 2) 跟随：轮询最新步骤，只打印 cursor 之后的新内容；步骤没到时安静等待。
+  let notedTruncated = false;
+  for (;;) {
+    if (signal?.aborted) break;
+    await sleep(interval);
+    if (signal?.aborted) break;
+    const page = await client.request('task.transcript_latest', { id: taskId, after: cursor, before: 0, limit });
+    if (page.truncated && !notedTruncated) { notedTruncated = true; note('… 会话中存在超过 16 MiB 的单行，该行无法读取\n'); }
+    for (const step of page.steps) print(transcriptStepText(step));
+    if (page.steps.length === limit) note('… 一次检查读到整页新步骤，中间可能还有未显示的记录；可用 `lush task transcript ID` 查看完整现状\n');
+    if (page.steps.length) cursor = page.next;
+  }
+  note('（已停止跟随）\n');
+}
 
 export async function run(command, args, ctx) {
   const { client, json } = ctx;
@@ -54,8 +103,21 @@ export async function run(command, args, ctx) {
       exact(args, 1);
       value = await client.request('task.spawn', { parent: id(parent), role, goal: args[0], deps, name, spec: spec === null ? null : id(spec) });
     } else if (verb === 'transcript') {
+      const follow = args.includes('--follow');
+      if (follow) args.splice(args.indexOf('--follow'), 1);
       const after = Number(option(args, '--after', '0')); exact(args, 1);
-      value = await client.request('task.transcript', { id: id(args[0]), after });
+      const taskId = id(args[0]);
+      if (follow) {
+        check(!client.token, 'agents must end their invocation rather than follow; use `lush task transcript ID`');
+        check(!json, '--follow is a live human-readable stream; --json is not supported');
+        const controller = new AbortController();
+        const stop = () => controller.abort();
+        process.once('SIGINT', stop);
+        try { await followTranscript(client, taskId, { after, signal: controller.signal }); }
+        finally { process.off('SIGINT', stop); }
+        return;
+      }
+      value = await client.request('task.transcript', { id: taskId, after });
       if (!json) { printTranscript(value); return; }
     } else if (verb === 'usage') {
       exact(args, 1);

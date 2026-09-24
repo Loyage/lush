@@ -14,10 +14,10 @@
 |---|---|---|
 | `cli/help.js` | 帮助文本 | `HELP` |
 | `cli/args.js` | 参数解析与两种输出 | `option`、`exact`、`print` |
-| `cli/print.js` | 树 / 阶梯 / 时间轴 / 合并 / 会话 / 用量 / 分支谱系的渲染 | `printTree`、`printLadder`、`printTimeline`、`printMergeMany`、`printTranscript`、`printUsage`、`printBranchTree`、`printBranchShow`、`printBranchImport`、`printBranchArchive` |
+| `cli/print.js` | 树 / 阶梯 / 时间轴 / 合并 / 会话 / 用量 / 分支谱系的渲染 | `printTree`、`printLadder`、`printTimeline`、`printMergeMany`、`printTranscript`、`transcriptStepText`、`printUsage`、`printBranchTree`、`printBranchShow`、`printBranchImport`、`printBranchArchive` |
 | `cli/commands/intent.js` | `say` / `intent` / `input` | `run` |
 | `cli/commands/draft.js` | `draft` | `run` |
-| `cli/commands/task.js` | `task` | `run` |
+| `cli/commands/task.js` | `task` | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
 | `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 agent task） | `run` |
 | `cli/commands/spec.js` | `spec` | `run` |
 | `cli/commands/plan.js` | `plan` | `run` |

@@ -60,7 +60,7 @@
 | `render-history.js` | 事件时间线；默认最近 100 条，明确显示截断并用 `before` 游标逐页加载更早记录 | `renderHistory(history, opts)` |
 | `render-diff.js` | 改动概览 | `renderDiff(diff)` |
 | `render-progress.js` | task 执行计划：防御性统计 versioned `progress`；详情逐步区分“用时”（完成态 serif italic）与“已执行”（当前态 monospace bold）并实时计时；终态 task 不再挂 live tick，而按最后 Run 结束时间冻结当前步骤并标明失败 / 取消 / 结束时中止，后续步骤显示未执行；任务树画紧凑摘要，分支诊断画整行进度条并给 running task 显著但尊重 reduced-motion 的扫光 / 流动动效 | `progressStats(progress)`、`formatProgressDuration(ms)`、`refreshProgressDurations(root)`、`renderTaskProgress(progress, opts)`、`renderCompactProgress(progress)`、`renderGraphProgress(progress, opts)` |
-| `render-agent.js` | Agent 区块：执行过程默认收起、显式点击才加载与展开，提供终端模式入口；模型与用量直接展开；增量更新最近一步，带 tokens 时并排一个与步骤同口径的 chip | `renderAgent(task, usage, reading?)`、`paintUsageLast(taskId, usage)` |
+| `render-agent.js` | Agent 区块：执行过程默认收起、显式点击才加载与展开，提供终端模式入口与可复制的 `lush task transcript ID --follow` 终端命令；模型与用量直接展开；增量更新最近一步，带 tokens 时并排一个与步骤同口径的 chip | `renderAgent(task, usage, reading?)`、`paintUsageLast(taskId, usage)` |
 | `transcript-model.js` | 紧凑摘要与会话／调用 ID 配对的纯阅读投影；不改变原步骤 | `stepSummary(step)`、`callKey(step)`、`groupSteps(steps)` |
 | `structured-value.js` | 文本安全的惰性 JSON 树、节点／深度限额及原文回退；字符串保留换行，支持默认展开根节点 | `structuredValue(text, {openRoot?,preview?})` |
 | `transcript-body.js` | 执行正文共享渲染：工具参数语义标签、修改前后、命令／输出换行、长内容就地预览展开；原文不改写 | `transcriptBody(step, {key?,preview?})` |

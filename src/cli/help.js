@@ -53,7 +53,8 @@ lush [--project PATH] [--json] <command>
   progress complete KEY            agent 汇报一个计划步骤已完成；身份自动绑定当前 task
                                   progress 默认短确认，--json 返回完整进度对象
   task history ID [--after N]      分页事件记录
-  task transcript ID [--after N]   只读查看 agent 的思考、工具调用与工具输出（来自 pi 会话记录）
+  task transcript ID [--after N] [--follow] 只读查看 agent 的思考、工具调用与工具输出（来自 pi 会话记录）
+                                   --follow 先打印已有记录，再持续跟随新步骤直到 Ctrl-C
   task usage ID                   只读查看这个 agent 的模型、上下文占用与累计花费（同一批会话记录）
   task spawn '目标' [--parent ID] [--role worker|coordinator|research] [--name short-kebab-name] [--depends-on ID[:code|order]]
       --name 是任务的英文短名，决定 worktree 目录与分支 <id>-<name>；省略时按 goal 里的英文词回退。

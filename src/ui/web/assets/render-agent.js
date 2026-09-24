@@ -3,7 +3,23 @@ import { lastView, money, relative, tokens } from './format.js';
 import { transcriptContent, loadTranscript, tokensChip } from './render-transcript.js';
 import { transcriptCache, transcriptOpen, ui } from './state.js';
 import { markdownEnabled } from './text.js';
+import { show } from './messages.js';
 import { openTranscriptTerminal } from './transcript-terminal.js';
+
+/** 把文本写进剪贴板；优先用 async clipboard，非安全上下文回退到临时 textarea。 */
+async function copyText(text) {
+  const clipboard = globalThis.navigator?.clipboard;
+  if (clipboard?.writeText) { await clipboard.writeText(text); return true; }
+  try {
+    const area = document.createElement('textarea');
+    area.value = text; area.setAttribute('readonly', '');
+    area.style.position = 'fixed'; area.style.top = '-1000px';
+    document.body.append(area); area.select();
+    const ok = document.execCommand?.('copy') ?? false;
+    area.remove();
+    return ok;
+  } catch { return false; }
+}
 
 /** 折叠态的执行过程只摆这一行：相对时间 + 类型/标题 + 正文单行预览，全文在 title；有 tokens 时并排一个同口径 chip。 */
 function lastStepRow(last) {
@@ -104,6 +120,15 @@ export function renderAgent(task, usage, reading = null) {
   controls.append(toggle, button('终端模式', () => openTranscriptTerminal(task.id), 'ghost',
     { help: '打开全宽只读终端，按会话顺序阅读完整执行记录；不执行命令，也不自动滚动' }));
   process.append(controls);
+  // 终端里观看执行过程的等价命令：展示出来并可复制，真正跟随由 CLI 负责，不只是复制一串提示。
+  const command = `lush task transcript ${task.id} --follow`;
+  const commandRow = el('div', undefined, 'terminal-command');
+  commandRow.append(el('span', '终端命令', 'hint'), el('code', command, 'mono'),
+    button('复制命令', async () => {
+      const ok = await copyText(command);
+      show(ok ? '已复制终端命令；在终端运行即可跟随执行过程' : '复制失败，请手动选中命令复制', ok ? 'info' : 'error');
+    }, 'ghost', { help: '把这条命令复制到剪贴板；它只读取执行记录，不会在页面里执行，也不会调用 Agent' }));
+  process.append(commandRow);
   if (usage?.last) process.append(lastStepRow(usage.last));
   process.append(holder);
   section.classList.add('agent-panel');
