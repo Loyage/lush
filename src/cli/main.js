@@ -54,7 +54,11 @@ export async function main(argv = process.argv.slice(2)) {
   const args = [...argv];
   const projectPath = option(args, '--project');
   const json = args.includes('--json'); if (json) args.splice(args.indexOf('--json'), 1);
-  if (!args.length || ['help','--help','-h'].includes(args[0])) { console.log(HELP); return; }
+  // --help / -h 在任意位置都只印帮助：子命令会把裸 --help 当成必填正文落库（spec add / branch summary / notice post 等）。
+  // 必须在构造 Config / UIClient 之前返回，保证不解析命令、不发任何 RPC、不做 fingerprint 提醒。
+  if (!args.length || ['help','--help','-h'].includes(args[0]) || args.includes('--help') || args.includes('-h')) {
+    console.log(HELP); return;
+  }
   const command = args.shift();
   const globalWeb = ['web', 'web-restart', 'web-stop', 'web-status'].includes(command) && !projectPath && !process.env.LUSH_PROJECT;
   const selectedConfig = globalWeb ? launcherWebConfig(process.env) : Config.fromEnv(process.env, process.cwd(), projectPath);

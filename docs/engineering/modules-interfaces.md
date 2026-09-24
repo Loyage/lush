@@ -29,7 +29,7 @@
 | `cli/commands/agent.js` | `agent show/models/set/reset` 配置 profile；`prompt/env` 查看最终组合和环境来源，`init` 创建共享/本机补充；`--prompt` 只作旧版 `--append-prompt` 别名 | `run` |
 | `cli/commands/sleep.js` | `auto-manage on/off/status/resume/choices`（旧别名 `sleep`）：风险警告、显式 scope 与确认、项目管家状态及预算/选择历史 | `run` |
 | `cli/commands/config.js` | `config`（`show` / `set concurrency|control-concurrency N` / `reset [concurrency|control-concurrency|all]`）：读 `system.status.settings`、写 `system.configure`；用户专属，agent 调用被拒 | `run` |
-| `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒；仅 Web 四条命令允许在无项目配置下进入 launcher config | `main(argv)`（并 re-export `HELP`） |
+| `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒；任意位置出现独立的 `--help` / `-h` 先打印帮助并返回（不构造 Config / client、不发 RPC）；仅 Web 四条命令允许在无项目配置下进入 launcher config | `main(argv)`（并 re-export `HELP`） |
 
 ## RPC：`src/rpc/protocol.js` + `src/rpc/`
 
