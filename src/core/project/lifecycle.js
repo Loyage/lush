@@ -128,7 +128,7 @@ export default {
    * 状态检查是同步的（调用方立即拿到拒绝），磁盘回收在返回的 Promise 里串行执行。
    */
   clear() {
-    check(!this.sleepStatus().enabled && !this.sleepTickPromise, '请先关闭睡觉模式并等待管家操作结束，再清空项目');
+    check(!this.sleepStatus().enabled && !this.sleepTickPromise, '请先关闭托管模式并等待管家操作结束，再清空项目');
     check(this.running.size === 0, 'an agent invocation is still unwinding; clear must wait');
     check(this.workspaces.busy.size === 0, 'worktree cleanup is in progress; clear must wait');
     const active = this.store.activeTasks();

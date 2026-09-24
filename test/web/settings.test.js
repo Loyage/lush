@@ -444,3 +444,11 @@ test('系统页：没有快照时显示占位', () => {
   expect(block.querySelector('.settings-placeholder')).toBeTruthy();
   expect(deepText(block)).toContain('尚未收到 daemon 快照');
 });
+
+test('设置页签：睡觉模式改名为托管模式且不再出现旧称', () => {
+  openSettings();
+  const tab = panel().querySelector('button.settings-tab[data-settings-tab="sleep"]');
+  expect(tab).toBeTruthy();
+  expect(deepText(tab)).toContain('托管模式');
+  expect(deepText(tab)).not.toContain('睡觉');
+});

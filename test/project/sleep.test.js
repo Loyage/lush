@@ -248,7 +248,7 @@ test('budget uncertainty fails closed and clearing an enabled project is forbidd
   const f = fixture();
   try {
     f.project.startSleep({ ...options, budget_tokens: 50 }, true);
-    expect(() => f.project.clear()).toThrow('睡觉模式');
+    expect(() => f.project.clear()).toThrow('托管模式');
     const dir = path.join(f.config.home, 'sessions'); fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'unknown_lush-task-1.jsonl'), JSON.stringify({ type: 'message', timestamp: new Date().toISOString(), message: { role: 'assistant' } }) + '\n');
     await f.project.sleepTick();
