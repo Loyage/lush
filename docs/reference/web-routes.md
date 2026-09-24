@@ -8,7 +8,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。无 `--p
 - `GET /api/launcher`：返回 `mode`、当前项目、上次项目与恢复错误；全局模式会在首次读取时恢复缓存并自动启动/连接 daemon。
 - `POST /api/launcher/select`：仅全局模式可用，JSON `{project}` 必须是现存目录的绝对路径；切换成功后更新全局 `launcher.json`。
 - `GET /api/docs`、`GET /api/docs/<id>`：「文档」视图的目录与 Markdown 正文，读的是随这份代码发布的 `docs/**/*.md` 与 `README.md`（`src/ui/web/docs.js`），与当前项目目录无关。`GET /api/docs/search-index` 只在用户第一次搜索时返回标题、小节、正文、普通代码与低权重 Mermaid 字段，匹配和排序在浏览器完成。id 由相对路径推出，只按已扫出的表命中，请求里的路径片段不进文件系统；流程图由浏览器按需加载本地 Mermaid 渲染，未命中返回 404。
-- `POST /api/action`：JSON `{method, params}`，只允许项目 Agent 配置（`agent.configure`）、Agent 环境文件写入（`agent.environment.configure`）、运行设置（`system.configure`）、睡觉模式（`sleep.start/stop/resume`）、选区解释（`explanation.start`）、用户输入、任务维护、Review Candidate 验收动作、`branch.merge/sync/archive` 和 notice / plan 用户动作。
+- `POST /api/action`：JSON `{method, params}`，只允许项目 Agent 配置（`agent.configure`）、Agent 环境文件写入（`agent.environment.configure`）、运行设置（`system.configure`）、托管模式（`sleep.start/stop/resume`）、选区解释（`explanation.start`）、用户输入、任务维护、Review Candidate 验收动作、`branch.merge/sync/archive` 和 notice / plan 用户动作。
 
 上面那份动作白名单就是代码里的 `MUTATIONS`。读取路由：
 
@@ -17,7 +17,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。无 `--p
 | `GET /api/launcher` | 当前/上次项目与启动器模式 |
 | `POST /api/launcher/select` | 校验绝对目录、启动/连接项目 daemon、更新最后项目缓存；不进入 `MUTATIONS` 通用 RPC 白名单 |
 | `GET /api/notices?status=all&before=ID&limit=30` | `notice.page`：全部类型事项与处理结果的按需分页，不受快照 200 条上限限制；参数和留档语义见[待决问题](rpc/notices.md) |
-| `GET /api/sleep` | 用户专属 `sleep.status`，授权、预算与暂停状态及本会话进度 `handled` / `decisions`；见[睡觉模式](../sleep-mode.md) |
+| `GET /api/sleep` | 用户专属 `sleep.status`，授权、预算与暂停状态及本会话进度 `handled` / `decisions`；见[托管模式](../sleep-mode.md) |
 | `GET /api/sleep/choices?before=ID&limit=30` | 用户专属 `sleep.choices`，管家决定的快照、理由、执行结果游标页 |
 | `GET /api/snapshot` | status + input.list + draft.list + notice.list + spec.list + candidate.list + ladder + timeline + 分页 task.list |
 | `GET /api/usage?start=...&end=...&interval=auto` | 用户专属 `system.usage`，当前项目的 token、预计 USD、时间柱状图与模型分组；详见[统计口径](statistics.md) |

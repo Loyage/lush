@@ -27,7 +27,7 @@
 | `cli/commands/showcase.js` | `showcase start/list/stop/preview`，preview 文件含 argv 数组 `command` 和可选 URL `path` | `run` |
 | `cli/commands/candidate.js` | `candidate list/inspect/prepare/verify/accept/changes/reject` | `run` |
 | `cli/commands/agent.js` | `agent show/models/set/reset` 配置 profile；`prompt/env` 查看最终组合和环境来源，`init` 创建共享/本机补充；`--prompt` 只作旧版 `--append-prompt` 别名 | `run` |
-| `cli/commands/sleep.js` | `sleep on/off/status/resume/choices`：风险警告、显式 scope 与确认、项目管家状态及预算/选择历史 | `run` |
+| `cli/commands/sleep.js` | `auto-manage on/off/status/resume/choices`（旧别名 `sleep`）：风险警告、显式 scope 与确认、项目管家状态及预算/选择历史 | `run` |
 | `cli/commands/config.js` | `config`（`show` / `set concurrency|control-concurrency N` / `reset [concurrency|control-concurrency|all]`）：读 `system.status.settings`、写 `system.configure`；用户专属，agent 调用被拒 | `run` |
 | `cli/main.js` | 全局参数、命令分发表、fingerprint 提醒；仅 Web 四条命令允许在无项目配置下进入 launcher config | `main(argv)`（并 re-export `HELP`） |
 
@@ -66,7 +66,7 @@
 | 分支诊断统计 | `test/workspaces/branch-diagnostics.test.js`（净改动、二进制、重命名及特殊文件名、工作区未提交去重、只读与缓存、失败降级、明细字节限额）；`test/project/graph.test.js` 覆盖图投影与合入后保留累计规模；`test/web/dom-graph.test.js` 覆盖统计渲染、文本安全、脏活刷新与明细展开保留 |
 | Token 效率 | `test/project/token-efficiency.test.js`（相关上下文、直接执行事务与权限、唤醒竞态/恢复/取消）；`test/soft-budget.test.js`（预算配置、Pi hook 与 provider 边界）；`test/usage-attribution.test.js`（身份、历史区间、unknown、缓存与上限）；`test/token-cli.test.js`（直接入口及短输出）；`test/web/dom-token-efficiency.test.js`（直接提交锁、草稿与输入保留、配置与归因展示） |
 | 统计面板 | `test/usage-statistics.test.js`（全量、时间边界、UTC 分桶、模型切换、缺价、损坏与缓存失效）、`test/web/usage-statistics.test.js`（认证 API）、`test/web/dom-statistics.test.js`（双视图入口、独立筛选、SVG 即时浮层、错误与导航竞态）、`test/web/statistics-range.test.js`（UTC 日期快捷范围、闰日／跨年与日内小时边界）；Codex 用量留存由 `test/agent-settings.test.js` 覆盖 |
-| 睡觉模式 | `test/project/sleep.test.js`（授权、作用域、规则/偏好、关闭竞态、人工答案优先、预算、恢复和审计分页）；`test/butler-provider.test.js`（无工具边界）；`test/sleep-cli.test.js`（确认和参数）；`test/web/sleep.test.js`（HTTP、开启确认、显著关闭、管家选择留档） |
+| 托管模式 | `test/project/sleep.test.js`（授权、作用域、规则/偏好、关闭竞态、人工答案优先、预算、恢复和审计分页）；`test/butler-provider.test.js`（无工具边界）；`test/sleep-cli.test.js`（确认和参数）；`test/web/sleep.test.js`（HTTP、开启确认、显著关闭、管家选择留档） |
 | Notice 记录与提醒 | `test/project/notice-page.test.js`（超过 200 条历史、筛选与字节预算游标）、`test/web/notice-records.test.js`（HTTP 参数、分页、面板内答复／审批与只读问卷）、`test/web/notice-notifications.test.js`（默认关闭、权限、首屏基线、去重与桌面开关恢复） |
 | 执行过程阅读与解释 | `test/transcript-reader.test.js`（全量搜索、截断后命中、过滤、配对、原文与文件边界）、`test/explainer-provider.test.js`（无工具参数及凭证隔离）、`test/project/explanations.test.js`（来源快照、无分支与权限）、`test/web/transcript-reader.test.js`（HTTP/RPC）、`test/web/dom-transcript-reader.test.js`（摘要、增量配对、JSON、检索与选区介绍） |
 | 运行设置 | `test/runtime-settings.test.js`（存储原子性与权限、覆盖优先于环境、写后 status 与调度准入、agent 不得调用 `system.configure`）、`test/config-cli.test.js`（`lush config` 的 show / set / reset 与 `--json`） |

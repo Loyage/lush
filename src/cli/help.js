@@ -3,12 +3,13 @@ export const HELP = `Lush — 项目级多 agent 开发
 lush [--project PATH] [--json] <command>
   daemon start|stop|restart|status  一个项目一个进程
   status                          项目、agent、待合并改动
-  sleep on --mode recommended|preferences [--budget TOKENS] --existing yes|no --merge yes|no --confirm
+  auto-manage on --mode recommended|preferences [--budget TOKENS] --existing yes|no --merge yes|no --confirm
                                   阅读风险并显式授权管家；预算覆盖全项目，留空不限额
-  sleep off                       立即关闭「我去睡觉了」（不撤销已执行操作）
-  sleep status                    查看开启、预算与暂停状态
-  sleep resume                    预算暂停后恢复排队任务，中止任务需检查后重试
-  sleep choices [--before ID]      分页查看管家选择、理由与执行结果
+  auto-manage off                 立即关闭「托管模式」（不撤销已执行操作）
+  auto-manage status              查看开启、预算与暂停状态
+  auto-manage resume              预算暂停后恢复排队任务，中止任务需检查后重试
+  auto-manage choices [--before ID]  分页查看管家选择、理由与执行结果
+                                  （旧别名：sleep，参数与输出相同）
   agent show                     查看项目默认与各任务角色的 Agent 配置
   agent models pi|codex          读取本机 Agent CLI 当前可用模型目录
   agent set default|ROLE [--agent pi|codex] [--model ID] [--thinking LEVEL]
