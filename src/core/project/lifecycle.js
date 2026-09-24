@@ -107,6 +107,8 @@ export default {
     for (const edge of this.store.dependents(task.id)) this.wake(edge.task_id);
     // 一个没有父子/依赖边的 planner（根任务）也要在自己结束时把这一轮拆解交给 scheduler。
     this.kick();
+    // 结算可能正好满足某条分支的效果展示预约，重扫一次（只在触发点调度，不挂进每次 kick）。
+    this.scheduleShowcaseSweep();
     return this.store.task(task.id);
   },
 
@@ -269,6 +271,8 @@ export default {
       }
     }
     this.kick();
+    // 重启后重扫全部预约：资格可能已经满足，或者需要在新的准入下重新挂起。
+    this.scheduleShowcaseSweep();
   },
 
   async shutdown() {

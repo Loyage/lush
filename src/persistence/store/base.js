@@ -7,7 +7,7 @@ import { SCHEMA, bindProject } from './schema.js';
  */
 const ADDED_COLUMNS = {
   inputs: ['anchor_branch', 'anchor_commit', 'anchor_workspace', 'anchor_target_branch'],
-  branches: ['summary'],
+  branches: ['summary', 'showcase_reservation'],
   tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile'],
   agent_runs: ['model', 'thinking'],
 };

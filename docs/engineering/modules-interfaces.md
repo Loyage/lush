@@ -45,7 +45,7 @@
 | `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |
 | `rpc/handlers/notice.js` | `notice.*` | `handlers` |
 | `rpc/handlers/branch.js` | `branch.tree/show/import/merge/sync/archive/summary`（`branch.archive` 参数 `branch` / `discard`，在 `USER_ONLY`；`branch.summary` 参数 `branch` / `summary`，agent 可写、省略 branch 时写自己的分支，用户必须显式点名） | `handlers` |
-| `rpc/handlers/showcase.js` | `showcase.start/list/stop/preview`；start/stop 用户专属，preview 仅当前展示 agent | `handlers` |
+| `rpc/handlers/showcase.js` | `showcase.start/reserve/unreserve/list/stop/preview`；start/reserve/unreserve/stop 用户专属，preview 仅当前展示 agent | `handlers` |
 | `rpc/handlers/candidate.js` | `candidate.list/inspect/prepare/verify/accept/changes/reject`；所有变更操作 USER_ONLY | `handlers` |
 | `rpc/dispatcher.js` | 合并 handler 表（查重名、查漏），校验后分派 | `class Dispatcher` |
 

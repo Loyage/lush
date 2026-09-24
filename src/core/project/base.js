@@ -14,6 +14,8 @@ export class ProjectBase {
     this.config.onKick = () => this.kick();
     this.running = new Map(); this.stopping = false; this.scheduled = false; this.ancestry = new Map();
     this.integratingIntents = new Set();
+    // 效果展示预约重扫的单飞状态：sweeping 表示一轮在跑，sweepAgain 表示跑到一半又收到了触发。
+    this.showcaseSweeping = false; this.showcaseSweepAgain = false;
     this.previews = new Map(); this.previewStarting = new Map();
     this.workspaces.previewActive = id => this.previewStarting.has(id) || ['running','starting','stopping'].includes(this.previews.get(id)?.status);
     this.workspaces.stopPreview = id => this.stopShowcasePreview(id);

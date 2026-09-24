@@ -85,6 +85,8 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         status TEXT NOT NULL DEFAULT 'active', deleted_at TEXT,
         -- 一句话摘要：分支图上的标题优先用它（人写的简述），没有时才回落输入 / 目标的原文首行。
         summary TEXT,
+        -- 效果展示预约：分支附属的可空 versioned JSON（pending 等待准入 / 启动后清除），不是独立业务实体。
+        showcase_reservation TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS branches_parent ON branches(parent);
       CREATE INDEX IF NOT EXISTS branches_task ON branches(task_id);

@@ -68,6 +68,116 @@ export default {
     }
   },
 
+  /** 已解析的分支预约记录（损坏 / 缺失时为 null）。 */
+  showcaseReservation(branch) {
+    const raw = this.store.branch(branch)?.showcase_reservation;
+    if (!raw) return null;
+    try { const value = JSON.parse(raw); return value && typeof value === 'object' ? value : null; } catch { return null; }
+  },
+
+  /** 预约事件挂到哪个 task 上：优先分支原属任务，否则输入锚点的规划任务（与 branch.merged 同口径）。 */
+  showcaseEventHost(branch) {
+    const owner = this.store.branch(branch)?.task_id ?? null;
+    if (owner !== null && this.store.get('SELECT id FROM tasks WHERE id=?', owner)) return owner;
+    return this.store.get('SELECT task_id FROM inputs WHERE anchor_branch=? ORDER BY id DESC LIMIT 1', branch)?.task_id ?? null;
+  },
+
+  /**
+   * 预约的静态可预约面：只看 store，不跑 Git。真实的准入（ref、脏工作区、代码树去重等）留给
+   * showcaseEligibility 在启动前复核，所以这里只回答「是否值得先记下预约」。
+   */
+  showcaseReservable(branch) {
+    if (typeof branch !== 'string' || branch.length === 0 || branch.length > 512) return { allowed: false, reason: 'invalid showcase branch' };
+    const record = this.store.branch(branch);
+    if (!record) return { allowed: false, reason: '效果展示仅开放给已登记且有明确父分支和基线的分支' };
+    if (record.status !== 'active') return { allowed: false, reason: '已归档或删除的分支不能预约效果展示' };
+    if (!record.parent || record.parent_relation !== 'recorded' || !record.created_from_commit) {
+      return { allowed: false, reason: '效果展示仅开放给已登记且有明确父分支和基线的分支' };
+    }
+    if (['main', 'master'].includes(branch)) return { allowed: false, reason: '主干分支不开放效果展示' };
+    const history = this.store.all(`SELECT id,status FROM tasks WHERE role='showcase'
+      AND json_extract(showcase,'$.branch')=? ORDER BY id DESC`, branch);
+    const active = history.find(task => !TERMINAL.has(task.status) || this.running.has(task.id));
+    if (active) return { allowed: false, reason: `showcase #${active.id} is still active` };
+    return { allowed: true, reason: null };
+  },
+
+  /**
+   * 预约一条分支的效果展示。重复预约幂等（已有 pending 预约就直接返回，不报错、不重复写事件）。
+   * 写入后若当前就已通过完整准入，立即转入 startShowcase；否则挂起，由 sweep 在触发点重扫。
+   */
+  async reserveShowcase(branch) {
+    check(typeof branch === 'string' && branch.length > 0 && branch.length <= 512, 'invalid showcase branch');
+    const existing = this.showcaseReservation(branch);
+    if (existing?.status === 'pending') return { branch, reserved: true, task_id: null, reason: null };
+    const reservable = this.showcaseReservable(branch);
+    check(reservable.allowed, reservable.reason);
+    const reservation = { version: 1, created_at: new Date().toISOString(), status: 'pending' };
+    this.store.setBranchShowcaseReservation(branch, reservation);
+    this.store.event(this.showcaseEventHost(branch), 'showcase.reserved', { branch, created_at: reservation.created_at });
+    const eligibility = await this.showcaseEligibility(branch);
+    if (!eligibility.allowed) {
+      this.scheduleShowcaseSweep();
+      return { branch, reserved: true, task_id: null, reason: eligibility.reason };
+    }
+    try {
+      const task = await this.startShowcase(branch);
+      return { branch, reserved: true, task_id: task.id, reason: null };
+    } catch (error) {
+      // 与初审之间的竞态（准入变化等）：保留预约，交给下一次触发重扫。
+      this.scheduleShowcaseSweep();
+      return { branch, reserved: true, task_id: null, reason: error.message };
+    }
+  },
+
+  /** 清除预约并留一条 `showcase.unreserved` 事件；没有预约时幂等空操作。 */
+  unreserveShowcase(branch) {
+    check(typeof branch === 'string' && branch.length > 0 && branch.length <= 512, 'invalid showcase branch');
+    if (!this.store.branch(branch)) return { branch, reserved: false };
+    if (!this.showcaseReservation(branch)) return { branch, reserved: false };
+    this.store.setBranchShowcaseReservation(branch, null);
+    this.store.event(this.showcaseEventHost(branch), 'showcase.unreserved', { branch });
+    return { branch, reserved: false };
+  },
+
+  /**
+   * 单飞调度一次预约重扫：已有 sweep 在跑就只记一个「再来一次」，跑完再补一轮。
+   * 不挂在 pump 的每次调用上——只有明确的触发点（结算、预约、恢复、归档、合并/跟上）才调度。
+   */
+  scheduleShowcaseSweep() {
+    if (this.stopping) return;
+    if (this.showcaseSweeping) { this.showcaseSweepAgain = true; return; }
+    this.showcaseSweeping = true;
+    queueMicrotask(() => this.sweepShowcaseReservations()
+      .catch(error => {
+        this.store.event(null, 'showcase.sweep_failed', { error: error.message });
+        console.error(`showcase reservation sweep: ${error.stack || error}`);
+      })
+      .finally(() => {
+        this.showcaseSweeping = false;
+        if (this.showcaseSweepAgain) { this.showcaseSweepAgain = false; this.scheduleShowcaseSweep(); }
+      }));
+  },
+
+  /** 遍历全部 pending 预约：通过完整准入的清除预约并启动展示，其余保持 pending（阻塞原因由 graph 现算）。 */
+  async sweepShowcaseReservations() {
+    const started = [], pending = [];
+    if (this.stopping) return { started, pending };
+    for (const { branch } of this.store.branchShowcaseReservations()) {
+      if (this.stopping) break;
+      if (!this.showcaseReservation(branch)) continue; // 已被手动启动或取消
+      const eligibility = await this.showcaseEligibility(branch);
+      if (!eligibility.allowed) { pending.push({ branch, reason: eligibility.reason }); continue; }
+      try {
+        const task = await this.startShowcase(branch);
+        started.push({ branch, task_id: task.id });
+      } catch (error) {
+        pending.push({ branch, reason: error.message });
+      }
+    }
+    return { started, pending };
+  },
+
   async retryShowcase(taskId) {
     const task = await this.workspaces.exclusive(async () => {
       const current = this.store.task(taskId);
@@ -97,10 +207,14 @@ export default {
       const { snapshot } = eligibility;
       check(this.store.activeTasks().length < 1000, 'too many active tasks');
       const input = this.store.get('SELECT id FROM inputs WHERE anchor_branch=? ORDER BY id DESC LIMIT 1', branch);
+      const reservation = this.showcaseReservation(branch);
       return this.store.transaction(() => {
         const created = this.store.create({ role: 'showcase', input_id: input?.id ?? null, name: 'showcase', showcase: snapshot,
           goal: `效果展示：${branch}\n分析固定提交 ${snapshot.commit} 相对 ${snapshot.baseline_commit} 的修改，设计最直观的展示方案并实际执行，交付展示页和适合的可运行预览。展示不是验收通过，不自动合并。` });
+        if (reservation?.status === 'pending') this.store.setBranchShowcaseReservation(branch, null);
         this.store.event(created.id, 'showcase.requested', snapshot);
+        // 预约触发的展示：预约已消费，另留一条事件串起原始预约时间。
+        if (reservation?.status === 'pending') this.store.event(created.id, 'showcase.reservation_started', { branch, created_at: reservation.created_at });
         return created;
       });
     });

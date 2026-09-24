@@ -113,6 +113,8 @@ export default {
     }
     const outcome = await this.workspaces.mergeBranch(name, expected);
     if (!outcome.merged && !outcome.already_integrated) return outcome;
+    // 合并把父分支推进了，原先卡在「相关任务未完成 / 子分支未收拢」的预约可能已可启动。
+    this.scheduleShowcaseSweep();
     const task = record.task_id === null ? null : this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
     if (task && ['pending','review','conflict','merging'].includes(task.integration)) {
       this.store.transaction(() => {
@@ -209,6 +211,8 @@ export default {
       }
       // 每条被归档的分支各留一条事件（含会话文件位置）：这条分支的原始记录就算以后被 clear 掉也查得回。
       for (const target of targets) {
+        // 归档即取消这条分支的效果展示预约；unreserveShowcase 自己写 showcase.unreserved。
+        this.unreserveShowcase(target);
         const own = archived.filter(task => task.branch === target);
         const owner = own.some(task => task.id === this.store.branch(target)?.task_id) ? this.store.branch(target).task_id : own[0]?.id ?? null;
         this.store.event(owner, 'branch.archived', { branch: target, tip: tips.get(target) ?? null, sessions: sessionsByBranch.get(target) ?? [] });
@@ -237,6 +241,8 @@ export default {
     const host = owner?.id ?? this.store.get('SELECT task_id FROM inputs WHERE anchor_branch=?', name)?.task_id ?? null;
     if (host !== null) this.store.event(host, 'branch.caught_up', { branch: name, parent: outcome.parent,
       from: outcome.from, to: outcome.to, already_integrated: outcome.already_integrated === true });
+    // 跟上父分支后，子分支上的预约可能重新变得可展示。
+    this.scheduleShowcaseSweep();
     return outcome;
   },
 

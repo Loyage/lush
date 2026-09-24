@@ -255,9 +255,18 @@ export default {
         const worktree = record?.worktree ?? null;
         const worktree_state = worktree ? (fs.existsSync(worktree) ? 'present' : 'missing') : 'none';
         const { allowed, reason, latest_task_id } = await this.showcaseEligibility(name);
+        // 预约只是分支附属元数据：reserved 取当前 pending 记录，reserve_allowed 回答「现在能不能预约」
+        // （静态条件，不跑 Git）；阻塞原因由 reserve_reason 现算，不落库。
+        let reservation = null;
+        if (record?.showcase_reservation) {
+          try { const parsed = JSON.parse(record.showcase_reservation); if (parsed && typeof parsed === 'object') reservation = parsed; } catch { /* 损坏值当没有预约 */ }
+        }
+        const pendingReservation = reservation?.status === 'pending' ? reservation : null;
+        const reservable = this.showcaseReservable(name);
         nodes.push({
           kind: 'branch', id: branchId(name), name,
-          showcase: { allowed, reason, latest_task_id },
+          showcase: { allowed, reason, latest_task_id, reserved: pendingReservation !== null,
+            reserved_at: pendingReservation?.created_at ?? null, reserve_allowed: reservable.allowed, reserve_reason: reservable.reason },
           head_commit: refs.get(name) ?? null,
           current: name === currentBranch,
           tracked: record !== null,
