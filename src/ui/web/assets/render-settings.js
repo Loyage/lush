@@ -14,7 +14,7 @@ import { DEFAULT_INPUT_ROUTES, ROUTE_TARGETS } from './input-routes.js';
 import { paintInputHighlight } from './composer.js';
 
 const TABS = [
-  { id: 'sleep', label: '我去睡觉了', note: '离开期间由管家决策' },
+  { id: 'sleep', label: '托管模式', note: '离开期间由管家决策' },
   { id: 'agent', label: 'Agent', note: '任务行为与模型' },
   { id: 'interface', label: '界面', note: '阅读、外观与行为' },
   { id: 'system', label: '系统', note: '运行参数与路径' },

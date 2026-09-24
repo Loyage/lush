@@ -36,7 +36,7 @@ export default {
     check(confirmed === true, `请先阅读并确认：${SLEEP_WARNING}`);
     check(!this.stopping, 'daemon is stopping');
     const previous = this.sleepStatus();
-    check(!previous.enabled && !previous.paused, '先关闭当前睡觉模式；预算暂停需要显式恢复');
+    check(!previous.enabled && !previous.paused, '先关闭当前托管模式；预算暂停需要显式恢复');
     const normalized = sleepOptions(options);
     const profile = this.provider.resolve?.({ role: 'butler' });
     check(!profile || ['pi','mock'].includes(profile.agent), '管家需要 Pi 无工具模式；请为 butler 配置 Pi');
@@ -60,14 +60,14 @@ export default {
     }
     clearInterval(this.sleepTimer); this.sleepTimer = null;
     for (const task of this.store.all("SELECT id FROM tasks WHERE role='butler' AND status NOT IN ('completed','failed','cancelled')")) {
-      this.cancel(task.id, '睡觉模式已关闭，未执行的管家决定作废');
+      this.cancel(task.id, '托管模式已关闭，未执行的管家决定作废');
     }
     this.kick();
     return this.sleepStatus();
   },
 
   resumeSleepDevelopment() {
-    check(!this.sleepStatus().enabled, '请先关闭睡觉模式再恢复开发');
+    check(!this.sleepStatus().enabled, '请先关闭托管模式再恢复开发');
     this.saveSleepState({ ...this.sleepStatus(), paused: false, reason: null });
     this.store.event(null, 'sleep.resumed', { note: '仅恢复排队任务；中止的任务不自动重试' });
     this.kick(); return this.sleepStatus();
@@ -114,7 +114,7 @@ export default {
         this.pauseSleep('无法可靠读取 token 用量，已保守暂停开发'); return false;
       }
       if (state.used_tokens >= state.budget_tokens) {
-        this.pauseSleep(`睡觉模式预算已耗尽（${state.used_tokens}/${state.budget_tokens} token）`); return false;
+        this.pauseSleep(`托管模式预算已耗尽（${state.used_tokens}/${state.budget_tokens} token）`); return false;
       }
     }
     return true;

@@ -41,7 +41,7 @@ for (const [module, names] of [
   [showcase, ['showcase']],
   [agent, ['agent']],
   [config, ['config']],
-  [sleep, ['sleep']],
+  [sleep, ['auto-manage', 'sleep']],
 ]) {
   for (const name of names) {
     check(!COMMANDS.has(name), `duplicate command handler: ${name}`);

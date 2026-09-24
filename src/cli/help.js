@@ -3,12 +3,13 @@ export const HELP = `Lush — 项目级多 agent 开发
 lush [--project PATH] [--json] <command>
   daemon start|stop|restart|status  一个项目一个进程
   status                          项目、agent、待合并改动
-  sleep on --mode recommended|preferences [--budget TOKENS] --existing yes|no --merge yes|no --confirm
+  auto-manage on --mode recommended|preferences [--budget TOKENS] --existing yes|no --merge yes|no --confirm
                                   阅读风险并显式授权管家；预算覆盖全项目，留空不限额
-  sleep off                       立即关闭「我去睡觉了」（不撤销已执行操作）
-  sleep status                    查看开启、预算与暂停状态
-  sleep resume                    预算暂停后恢复排队任务，中止任务需检查后重试
-  sleep choices [--before ID]      分页查看管家选择、理由与执行结果
+  auto-manage off                 立即关闭「托管模式」（不撤销已执行操作）
+  auto-manage status              查看开启、预算与暂停状态
+  auto-manage resume              预算暂停后恢复排队任务，中止任务需检查后重试
+  auto-manage choices [--before ID]  分页查看管家选择、理由与执行结果
+                                  （旧别名：sleep，参数与输出相同）
   agent show                     查看项目默认与各任务角色的 Agent 配置
   agent models pi|codex          读取本机 Agent CLI 当前可用模型目录
   agent set default|ROLE [--agent pi|codex] [--model ID] [--thinking LEVEL]
@@ -20,10 +21,14 @@ lush [--project PATH] [--json] <command>
   agent prompt ROLE              按段查看该角色最终 Prompt（含 agent.json 与文件补充）
   agent env ROLE                 查看该角色热加载的 env 文件和变量名（值不显示）
   agent init [ROLE] [--local]     创建可提交的 .lush-agent/ 补充；--local 写本机 .lush/agent/
-  config [show]                   查看并发额度：生效值、环境默认值、来源与设置文件
+  config [show]                   查看并发额度与快速路由前缀：生效值、环境默认值、来源与设置文件
   config set concurrency N        执行通道并发上限（1..64），写回项目设置并立即生效
   config set control-concurrency N 控制通道并发上限（1..16）
   config reset [concurrency|control-concurrency|all]  清除覆盖，回到环境默认
+  config route list              查看快速路由前缀（prefix → target 与整表来源）
+  config route add PREFIX [--target worker|research]  新增前缀并整表写回（默认 worker）
+  config route remove PREFIX     删除一个前缀，不存在则报错
+  config route reset             清除前缀覆盖，回到默认表
   doctor [--verbose]              默认仅身份摘要；--verbose 含完整 daemon 状态；差异只提示，不重启
   say '你的意图' [--branch NAME] [--direct]  创建输入分支；默认规划，--direct 跳过规划模型直接交一个 worker
                                   直接执行保留 completed planner 占位（零 invocation），仍需人工合并批准

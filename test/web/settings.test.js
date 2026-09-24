@@ -500,3 +500,11 @@ test('系统页：前缀为空或重复时拦住，不发写请求', async () =>
   expect(world.state.actions.length).toBe(before);
   expect(routesBlock().querySelector('[data-route-error=""]').textContent).toContain('重复');
 });
+
+test('设置页签：睡觉模式改名为托管模式且不再出现旧称', () => {
+  openSettings();
+  const tab = panel().querySelector('button.settings-tab[data-settings-tab="sleep"]');
+  expect(tab).toBeTruthy();
+  expect(deepText(tab)).toContain('托管模式');
+  expect(deepText(tab)).not.toContain('睡觉');
+});

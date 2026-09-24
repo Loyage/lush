@@ -40,6 +40,9 @@ test('settings shows risk confirmation before activation; banner gives immediate
   try {
     const banner = dom.node('sleep-banner');
     const host = sleepSettings(); dom.node('detail').append(host);
+    const title = host.querySelector('h2');
+    expect(title.textContent).toContain('托管模式');
+    expect(deepText(host)).toContain('（也有人叫它「我去睡觉了」——反正它不睡。）');
     const budget = host.querySelector('[data-sleep-field="budget"]'); budget.value = '1234';
     host.querySelector('[data-sleep-field="existing"]').checked = true;
     const enabling = findByText(host, '阅读风险并开启…').onclick();
@@ -51,6 +54,9 @@ test('settings shows risk confirmation before activation; banner gives immediate
     await until(() => deepText(dom.node('modal')).includes('测试风险'));
     await findByText(dom.node('modal'), '我了解风险，授权管家开启').onclick(); await confirmed;
     expect(calls[0].params.options).toMatchObject({ budget_tokens: 1234, include_existing: true, allow_merge: false });
+    const heading = host.querySelector('h2');
+    expect(heading.textContent).toContain('托管模式');
+    expect(heading.textContent).not.toContain('睡觉');
     state = { ...state, handled: 3, decisions: 2 };
     renderSleepBanner(state);
     expect(banner.hidden).toBe(false); expect(deepText(banner)).toContain('管家正在值守');
@@ -59,7 +65,11 @@ test('settings shows risk confirmation before activation; banner gives immediate
     expect(banner.hidden).toBe(false);
     expect(deepText(banner)).toContain('已处理 3 项事项 · 其中 2 道由管家作出选择');
     renderSleepBanner(state);
-    await findByText(banner, '立即关闭睡觉模式').onclick();
+    const closeButton = findByText(banner, '立即关闭托管模式');
+    expect(closeButton).not.toBeNull();
+    expect(closeButton.textContent).toContain('托管模式');
+    expect(closeButton.textContent).not.toContain('睡觉');
+    await closeButton.onclick();
     expect(calls.at(-1).method).toBe('sleep.stop'); expect(banner.hidden).toBe(true);
   } finally { restore(); dom.restore(); }
 });
