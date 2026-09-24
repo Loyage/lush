@@ -32,28 +32,12 @@ test('context contains only causal neighbours and bounded summaries, not project
   } finally { await f.close(); }
 });
 
-test('direct submit preserves input lineage and references but never invokes a planner; RPC remains user-only', async () => {
-  const provider = controlled(), f = fixture(provider); await repo(f.root);
+test('input.submit rejects the removed direct parameter as unknown', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const rpc = new Dispatcher(f.project, createSignal(), {});
-    const before = await git(f.root, 'rev-parse', 'main');
-    f.project.draft('leave this for later planning');
-    const references = [{ version: 1, kind: 'text', target: {}, label: 'evidence', quote: 'user-selected evidence',
-      location: { view: 'overview' }, captured_at: '2026-01-01T00:00:00.000Z' }];
-    const result = await rpc.dispatch('input.submit', { content: 'change exactly one thing', direct: true, references });
-    expect(result.task).toMatchObject({ role: 'planner', status: 'completed', calls: 0, agent_wakes: 0 });
-    expect(result.worker).toMatchObject({ role: 'worker', input_id: result.id, parent_id: null });
-    expect(f.project.inputs()[0]).toMatchObject({ flow: 'develop', direct: 1, specs_planned: 1 });
-    expect(f.project.drafts()).toHaveLength(1);
-    await until(() => provider.calls.length === 1);
-    expect(provider.calls[0].task.role).toBe('worker');
-    expect(f.store.task(result.worker.id).target_branch).toBe(result.anchor.branch);
-    expect(await git(f.root, 'rev-parse', 'main')).toBe(before);
-    const token = f.project.running.get(result.worker.id).token;
-    await expect(rpc.dispatch('input.submit', { _token: token, content: 'cannot bypass', direct: true })).rejects.toThrow('requires user approval');
-    await expect(rpc.dispatch('input.submit', { content: 'invalid', direct: 'yes' })).rejects.toThrow('boolean');
-    expect(provider.calls[0].context.referenced_context[0].reference.quote).toBe('user-selected evidence');
-    expect(provider.calls[0].context.invocation.task_id).toBe(result.worker.id);
+    await expect(rpc.dispatch('input.submit', { content: 'change exactly one thing', direct: true })).rejects.toThrow('unknown parameter');
+    expect(f.project.inputs()).toHaveLength(0);
   } finally { await f.close(); }
 });
 
@@ -153,11 +137,11 @@ test('cancellation while resolving startup context cannot launch a provider with
   } finally { ready.resolve(); await f.close(); }
 });
 
-test('direct materialization failure rolls back input, specs and tasks', async () => {
+test('a route materialization failure rolls back input, specs and tasks', async () => {
   const f = fixture(); await repo(f.root); f.project.stopping = true;
   f.project.materializeSpec = () => { throw new Error('controlled compile failure'); };
   try {
-    await expect(f.project.submit('cannot materialize', undefined, [], true)).rejects.toThrow('controlled compile failure');
+    await expect(f.project.submit('开发 cannot materialize')).rejects.toThrow('controlled compile failure');
     expect(f.project.inputs()).toHaveLength(0); expect(f.store.tasks()).toHaveLength(0);
     expect(f.store.all('SELECT * FROM task_specs')).toHaveLength(0);
   } finally { await f.close(); }

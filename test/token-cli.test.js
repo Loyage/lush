@@ -5,12 +5,12 @@ import { run as system } from '../src/cli/commands/system.js';
 import { fixture } from './helpers.js';
 import { codeIdentity } from '../src/identity.js';
 
-test('say --direct is explicit and ordinary say keeps its existing payload', async () => {
+test('ordinary say submits content and branch without extra flags', async () => {
   const calls = [], client = { request: async (method, params) => { calls.push({ method, params }); return params; } };
-  await intent('say', ['fix it', '--direct', '--branch', 'main'], { client });
+  await intent('say', ['fix it', '--branch', 'main'], { client });
   await intent('say', ['plan it'], { client });
   expect(calls).toEqual([
-    { method: 'input.submit', params: { content: 'fix it', branch: 'main', direct: true } },
+    { method: 'input.submit', params: { content: 'fix it', branch: 'main' } },
     { method: 'input.submit', params: { content: 'plan it' } },
   ]);
 });

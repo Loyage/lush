@@ -50,27 +50,20 @@ export default {
     }
   },
 
-  async submit(content, branch = null, references = [], direct = false) {
-    check(typeof direct === 'boolean', 'direct must be a boolean');
-    // 快速路由前缀优先于「直接执行」：命中前缀就按前缀的目标派活，不再看 direct。
+  /**
+   * 输入的唯一提交路径：命中快速路由前缀就直接派活，未命中就交给规划模型。
+   * 命中前缀时同一次事务里走 routeInput，未命中时 planner 保持 queued 等被调度。
+   */
+  async submit(content, branch = null, references = []) {
     const match = matchInputRoute(this.config.inputRoutes, content);
     let worker = null;
     const result = await this.createInput(content, planner => {
-      if (match) { worker = this.routeInput(planner, match); return; }
-      if (!direct) return;
-      this.store.run("UPDATE inputs SET flow='develop' WHERE id=?", planner.input_id);
-      const spec = this.addSpec(planner.id, { goal: content, role: 'worker', name: `direct-${planner.input_id}` });
-      worker = this.materializeSpec(planner.id, spec.id);
-      this.store.update(planner.id, { status: 'completed', result: '用户选择直接执行：未调用规划模型。' });
-      this.store.event(planner.id, 'input.direct', { worker: worker.id, spec: spec.id });
-      this.store.event(planner.id, 'completed', { result: '用户选择直接执行：未调用规划模型。', direct: true });
+      if (match) worker = this.routeInput(planner, match);
     }, branch, references);
     if (match) {
       result.task = this.store.task(result.task.id);
       result.route = { prefix: match.prefix, target: match.target };
       if (match.target === 'worker') result.worker = worker; else result.research = worker;
-    } else if (direct) {
-      result.task = this.store.task(result.task.id); result.worker = worker; result.direct = true;
     }
     this.kick(); return result;
   },
@@ -78,7 +71,7 @@ export default {
   /**
    * 快速路由前缀的短路动作：不调用规划模型，直接把 planner 结算为 completed，
    * 并按前缀目标（worker→develop / research→explain）在同一事务里创建一条根任务。
-   * 与 direct 一样保留 input.anchor / 原始输入 / 引用 / 输入分支，只是多一条 input.route 事件可追溯。
+   * 保留 input.anchor / 原始输入 / 引用 / 输入分支，并写一条 input.route 事件可追溯。
    */
   routeInput(planner, match) {
     const flow = match.target === 'worker' ? 'develop' : 'explain';
@@ -99,7 +92,6 @@ export default {
     const rows = this.store.all(`SELECT inputs.id, inputs.flow, substr(inputs.content,1,2000) AS content, inputs.task_id, inputs.created_at,
       inputs.anchor_branch, inputs.anchor_commit, inputs.anchor_workspace, inputs.anchor_target_branch,
       tasks.status, tasks.plan_gate, tasks.agent_wakes, tasks.updated_at AS planner_updated_at,
-      EXISTS(SELECT 1 FROM events e WHERE e.task_id=tasks.id AND e.type='input.direct') AS direct,
       EXISTS(SELECT 1 FROM events e WHERE e.task_id=tasks.id AND e.type='input.route') AS route,
       (SELECT count(*) FROM drafts WHERE drafts.input_id=inputs.id) AS draft_count,
       (SELECT count(*) FROM task_specs WHERE task_specs.input_id=inputs.id AND task_specs.status='pending') AS specs_pending,

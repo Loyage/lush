@@ -125,7 +125,7 @@ test('a diverged input branch resolves on the child side, then lands through two
   } finally { await cli(root,['stop']).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); }
 }, 40000);
 
-test('drafts become one planner, and a code dependency stacks worktrees with an ordered merge', async () => {
+test('a draft becomes a planner, and a code dependency stacks worktrees with an ordered merge', async () => {
   const root = temp();
   const fake = path.join(root,'fake-pi');
   fs.writeFileSync(fake, STACKED_PI, { mode:0o755 });
@@ -133,14 +133,13 @@ test('drafts become one planner, and a code dependency stacks worktrees with an 
   const settle = async id => { for (let i=0;i<200;i++) { const task = await (new UIClient(Config.fromEnv(env(),root))).request('task.inspect',{id}); if (['completed','failed'].includes(task.status)) return task; await Bun.sleep(50); } throw new Error('task timeout'); };
   try {
     await cli(root,['start'], { LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
-    await cli(root,['draft','add','实现搜索键盘导航']);
-    await cli(root,['draft','add','把筛选器抽成组件']);
-    const batch = await cli(root,['draft','commit']);
-    expect(batch.content).toContain('用户在一次提交中给了 2 条');
-    expect(batch.content).toContain('1) 实现搜索键盘导航');
-    expect(batch.content).toContain('2) 把筛选器抽成组件');
+    await cli(root,['draft','add','实现搜索键盘导航与筛选器组件']);
+    const committed = await cli(root,['draft','commit']);
+    expect(committed.inputs).toHaveLength(1);
+    expect(committed.inputs[0].content).toBe('实现搜索键盘导航与筛选器组件');
+    const inputId = committed.inputs[0].id;
     const client = new UIClient(Config.fromEnv(env(),root));
-    expect((await settle(batch.task.id)).status).toBe('completed');
+    expect((await settle(committed.inputs[0].task.id)).status).toBe('completed');
     // planner 写 Plan，runtime 直接编译两个带 code 依赖的 WorkItem。
     let workers = [];
     for (let i=0;i<200 && workers.length<2;i++) {
@@ -169,14 +168,14 @@ test('drafts become one planner, and a code dependency stacks worktrees with an 
     expect(fs.existsSync(path.join(root,'other.txt'))).toBe(false);
     let candidate = null;
     for (let i=0;i<200;i++) {
-      candidate = (await client.request('candidate.list',{input:batch.id}))[0] ?? null;
+      candidate = (await client.request('candidate.list',{input:inputId}))[0] ?? null;
       if (candidate?.status === 'pending') break;
       await Bun.sleep(30);
     }
     expect(candidate?.status).toBe('pending');
     await cli(root,['candidate','verify',String(candidate.id)]);
     for (let i=0;i<200;i++) {
-      candidate = (await client.request('candidate.list',{input:batch.id}))[0] ?? null;
+      candidate = (await client.request('candidate.list',{input:inputId}))[0] ?? null;
       if (candidate?.status === 'ready') break;
       await Bun.sleep(30);
     }
@@ -191,9 +190,9 @@ test('drafts become one planner, and a code dependency stacks worktrees with an 
     const edited = await cli(root,['draft','edit',String(pick.id),'只提交这条（改过）']);
     expect(edited).toMatchObject({ id: pick.id, content: '只提交这条（改过）' });
     const partial = await cli(root,['draft','commit',String(pick.id)]);
-    expect(partial.content).toBe('只提交这条（改过）');
+    expect(partial.inputs[0].content).toBe('只提交这条（改过）');
     expect(partial.drafts).toEqual([pick.id]);
     expect((await cli(root,['draft','list'])).map(draft => draft.id)).toEqual([keep.id]);
-    await settle(partial.task.id);
+    await settle(partial.inputs[0].task.id);
   } finally { await cli(root,['stop']).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); }
 }, 40000);

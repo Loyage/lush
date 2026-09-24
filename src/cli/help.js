@@ -30,8 +30,8 @@ lush [--project PATH] [--json] <command>
   config route remove PREFIX     删除一个前缀，不存在则报错
   config route reset             清除前缀覆盖，回到默认表
   doctor [--verbose]              默认仅身份摘要；--verbose 含完整 daemon 状态；差异只提示，不重启
-  say '你的意图' [--branch NAME] [--direct]  创建输入分支；默认规划，--direct 跳过规划模型直接交一个 worker
-                                  直接执行保留 completed planner 占位（零 invocation），仍需人工合并批准
+  say '你的意图' [--branch NAME]            创建输入分支并交给规划模型；命中快速路由前缀则直接派活
+                                  命中前缀时保留 completed planner 占位（零 invocation），仍需人工合并批准
   intent list                     查看意图、Plan 编译与验收候选进度（别名 intents）
   plan propose '标题' [--body '…']   planner 专用：这轮拆解请你先批准（影响面大 / 与现状冲突 / 没把握读懂意图）
   plan approve ID|NOTICE_ID        批准这一轮拆解，由 runtime 编译成 Work DAG

@@ -3,7 +3,7 @@ import { fixture, repo, until } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { createSignal } from '../../src/signal.js';
 
-test('drafts buffer, drop and commit as one numbered batch to a single planner', async () => {
+test('drafts buffer, drop and commit one input per draft', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     expect(() => f.project.draft('   ')).toThrow('draft must be non-empty');
@@ -14,30 +14,35 @@ test('drafts buffer, drop and commit as one numbered batch to a single planner',
     expect(f.project.dropDraft(second.id)).toEqual({ id: second.id });
     expect(f.project.drafts()).toHaveLength(2);
 
-    const batch = await f.project.commitDrafts();
-    expect(batch.drafts).toEqual([first.id, third.id]);
-    expect(batch.task.role).toBe('planner');
-    expect(batch.task.goal).toBe(batch.content);
-    expect(f.project.inspect(batch.task.id).goal).toContain('用户在一次提交中给了 2 条');
-    expect(batch.content).toContain('1) 第一条 想法');
-    expect(batch.content).toContain('2) 第三条');
-    // 每条原话逐字留在 drafts 行上，提交过的回写 input_id 作为审计链；被移除的草稿不留行
+    const committed = await f.project.commitDrafts();
+    expect(committed.drafts).toEqual([first.id, third.id]);
+    expect(committed.inputs).toHaveLength(2);
+    // 每条草稿各成一条输入，正文逐字，不再有批次引导语。
+    expect(committed.inputs.map(row => row.content)).toEqual(['第一条 想法', '第三条']);
+    expect(committed.inputs.map(row => row.task.role)).toEqual(['planner', 'planner']);
+    expect(committed.inputs.map(row => row.task.goal)).toEqual(['第一条 想法', '第三条']);
+    expect(committed.inputs.map(row => row.draft)).toEqual([first.id, third.id]);
+    for (const row of committed.inputs) expect(row.content).not.toContain('用户在一次提交中给了');
+    // 每条草稿各自回写 input_id 作为审计链；被移除的草稿不留行
     expect(f.store.all('SELECT content,input_id FROM drafts ORDER BY id').map(row => [row.content, row.input_id]))
-      .toEqual([['第一条 想法', batch.id], ['第三条', batch.id]]);
+      .toEqual([['第一条 想法', committed.inputs[0].id], ['第三条', committed.inputs[1].id]]);
     expect(f.store.draftCount()).toBe(0);
-    expect(f.project.inputs()[0].draft_count).toBe(2);
+    expect(f.project.inputs().map(row => row.draft_count)).toEqual([1, 1]);
+    // direct 字段已从读模型移除。
+    expect(f.project.inputs()[0].direct).toBeUndefined();
     expect(() => f.project.dropDraft(first.id)).toThrow('already submitted');
     await expect(f.project.commitDrafts()).rejects.toThrow('no buffered drafts');
   } finally { await f.close(); }
 });
 
-test('a single buffered draft reaches the planner verbatim', async () => {
+test('a single buffered draft reaches its own planner verbatim', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    f.project.draft('  原话\n保留  ');
-    const batch = await f.project.commitDrafts();
-    expect(batch.content).toBe('  原话\n保留  ');
-    expect(batch.task.goal).toBe('  原话\n保留  ');
+    const draft = f.project.draft('  原话\n保留  ');
+    const committed = await f.project.commitDrafts();
+    expect(committed.inputs).toHaveLength(1);
+    expect(committed.inputs[0].content).toBe('  原话\n保留  ');
+    expect(committed.inputs[0].task.goal).toBe('  原话\n保留  ');
   } finally { await f.close(); }
 });
 
@@ -55,19 +60,17 @@ test('drafts can be edited in place and submitted as a chosen subset', async () 
     expect(() => f.project.editDraft(second.id, '   ')).toThrow('draft must be non-empty');
     expect(() => f.project.editDraft(999, 'x')).toThrow('draft 999 not found');
 
-    // 只提交选中的子集，且按草稿 id 升序拼接；未选中的继续留在缓存
-    const batch = await f.project.commitDrafts([second.id, first.id]);
-    expect(batch.drafts).toEqual([first.id, second.id]);
-    expect(batch.content).toContain('1) 第一条');
-    expect(batch.content).toContain('2) 第二条（改过）');
-    expect(batch.content).not.toContain('第三条');
-    expect(f.store.draft(first.id).input_id).toBe(batch.id);
-    expect(f.store.draft(second.id).input_id).toBe(batch.id);
+    // 只提交选中的子集，且按草稿 id 升序逐条提交；未选中的继续留在缓存
+    const committed = await f.project.commitDrafts([second.id, first.id]);
+    expect(committed.drafts).toEqual([first.id, second.id]);
+    expect(committed.inputs.map(row => row.content)).toEqual(['第一条', '第二条（改过）']);
+    expect(f.store.draft(first.id).input_id).toBe(committed.inputs[0].id);
+    expect(f.store.draft(second.id).input_id).toBe(committed.inputs[1].id);
     expect(f.store.draft(third.id).input_id).toBeNull();
     expect(f.project.drafts().map(draft => draft.id)).toEqual([third.id]);
 
     // 已提交的草稿既不能改也不能再提交；未知 / 重复 / 空数组都在提交前拒绝
-    expect(() => f.project.editDraft(first.id, 'x')).toThrow(`draft ${first.id} was already submitted as input ${batch.id}`);
+    expect(() => f.project.editDraft(first.id, 'x')).toThrow(`draft ${first.id} was already submitted as input ${committed.inputs[0].id}`);
     await expect(f.project.commitDrafts([first.id])).rejects.toThrow('already submitted');
     await expect(f.project.commitDrafts([999])).rejects.toThrow('draft 999 not found');
     await expect(f.project.commitDrafts([third.id, third.id])).rejects.toThrow(`draft ${third.id} listed twice`);
@@ -77,8 +80,27 @@ test('drafts can be edited in place and submitted as a chosen subset', async () 
     // 省略 ids 时行为不变：提交全部 open drafts
     const rest = await f.project.commitDrafts();
     expect(rest.drafts).toEqual([third.id]);
-    expect(rest.content).toBe('第三条');
+    expect(rest.inputs.map(row => row.content)).toEqual(['第三条']);
     expect(f.store.draftCount()).toBe(0);
+  } finally { await f.close(); }
+});
+
+test('a failure midway keeps earlier inputs and leaves the failed draft and later ones buffered', async () => {
+  const f = fixture(); await repo(f.root); f.project.stopping = true;
+  const original = f.project.materializeSpec.bind(f.project);
+  let seen = 0;
+  f.project.materializeSpec = (...args) => { seen += 1; if (seen === 2) throw new Error('controlled compile failure'); return original(...args); };
+  try {
+    const first = f.project.draft('开发 第一条');
+    const second = f.project.draft('开发 第二条');
+    const third = f.project.draft('开发 第三条');
+    await expect(f.project.commitDrafts()).rejects.toThrow('controlled compile failure');
+    // 第一条已落库；第二条失败、第三条未提交，都还在缓存里。
+    expect(f.project.inputs().map(row => row.content)).toEqual(['开发 第一条']);
+    expect(f.store.draft(first.id).input_id).not.toBeNull();
+    expect(f.store.draft(second.id).input_id).toBeNull();
+    expect(f.store.draft(third.id).input_id).toBeNull();
+    expect(f.project.drafts().map(row => row.id)).toEqual([second.id, third.id]);
   } finally { await f.close(); }
 });
 

@@ -16,7 +16,7 @@
 - [输入和规划](inputs-and-planning.md)
 - [Intent、Plan 编译与验收候选](intent-layer.md)
 - [一次 invocation 与多级协作](invocation.md)
-- [Token 效率与用量归因](token-efficiency.md)：有界上下文、直接执行、合并唤醒与可选软预算。
+- [Token 效率与用量归因](token-efficiency.md)：有界上下文、快速路由、合并唤醒与可选软预算。
 - [项目身份与恢复](identity-and-recovery.md)
 
 ## Git 子系统

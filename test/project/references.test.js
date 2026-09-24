@@ -14,7 +14,7 @@ const taskReference = task => ({ version: 1, kind: 'task', target: { task_id: ta
 const textReference = quote => ({ version: 1, kind: 'text', target: {}, label: '所选文字', quote,
   location: { view: 'overview', section: 'result' }, captured_at: '2026-01-01T00:00:00.000Z' });
 
-test('结构化引用随草稿持久化、按批量输入段落复制，并注入 planner 的快照与当前状态', async () => {
+test('结构化引用随草稿持久化、逐条复制到各自输入，并注入 planner 的快照与当前状态', async () => {
   const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
     const target = f.store.create({ input_id: null, role: 'research', goal: '研究 Web UI' });
@@ -24,16 +24,20 @@ test('结构化引用随草稿持久化、按批量输入段落复制，并注�
     expect(f.project.drafts().map(row => row.references.length)).toEqual([1, 1]);
 
     const committed = await f.project.commitDrafts([first.id, second.id]);
-    expect(committed.references.map(row => row.segment)).toEqual([1, 2]);
-    expect(f.project.inputs()[0].references.map(row => row.segment)).toEqual([1, 2]);
-    await until(() => provider.calls.some(call => call.task.id === committed.task.id));
-    const call = provider.calls.find(entry => entry.task.id === committed.task.id);
-    expect(call.context.referenced_context).toHaveLength(2);
-    expect(call.context.referenced_context[0].reference.quote).toBe('研究 Web UI');
-    expect(call.context.referenced_context[0].current.result).toBe('现有结论');
-    expect(call.context.referenced_context[0].stale).toBe(false);
-    expect(call.context.referenced_context[1].current).toBeNull();
-    expect(call.context.referenced_context[1].stale).toBe(false);
+    expect(committed.inputs).toHaveLength(2);
+    // 每条草稿的引用复制到自己输入里，segment 仍是 1。
+    expect(committed.inputs.map(row => row.references.map(reference => reference.segment))).toEqual([[1], [1]]);
+    expect(f.project.inputs().map(row => row.references.map(reference => reference.segment))).toEqual([[1], [1]]);
+    for (const row of committed.inputs) await until(() => provider.calls.some(call => call.task.id === row.task.id));
+    const firstCall = provider.calls.find(entry => entry.task.id === committed.inputs[0].task.id);
+    expect(firstCall.context.referenced_context).toHaveLength(1);
+    expect(firstCall.context.referenced_context[0].reference.quote).toBe('研究 Web UI');
+    expect(firstCall.context.referenced_context[0].current.result).toBe('现有结论');
+    expect(firstCall.context.referenced_context[0].stale).toBe(false);
+    const secondCall = provider.calls.find(entry => entry.task.id === committed.inputs[1].task.id);
+    expect(secondCall.context.referenced_context).toHaveLength(1);
+    expect(secondCall.context.referenced_context[0].current).toBeNull();
+    expect(secondCall.context.referenced_context[0].stale).toBe(false);
   } finally { await f.close(); }
 });
 

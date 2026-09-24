@@ -32,8 +32,7 @@ test('a develop prefix short-circuits the planner and creates the routed worker'
     const route = events.find(event => event.type === 'input.route');
     expect(route.data).toMatchObject({ prefix: '开发', target: 'worker', flow: 'develop', task: result.worker.id });
     expect(events.some(event => event.type === 'completed' && event.data.route === true)).toBe(true);
-    // 走的是 route，不是旧的 direct 占位。
-    expect(events.some(event => event.type === 'input.direct')).toBe(false);
+    // 走的是 route，不是任何直接执行占位。
     expect(f.project.inputs().find(input => input.id === result.id).route).toBe(1);
   } finally { await f.close(); }
 });
@@ -56,7 +55,7 @@ test('an explain prefix creates a read-only research root and never a worktree o
   } finally { await f.close(); }
 });
 
-test('a non-prefix input still goes to the planner, and direct follows the prefix when both apply', async () => {
+test('a non-prefix input still goes to the planner', async () => {
   const provider = controlled(), f = fixture(provider); f.project.stopping = true; await repo(f.root);
   try {
     const plain = await f.project.submit('做一个登录页');
@@ -66,20 +65,6 @@ test('a non-prefix input still goes to the planner, and direct follows the prefi
     expect(plain.task.role).toBe('planner');
     expect(plain.task.status).toBe('queued');
     expect(provider.calls).toHaveLength(0);
-
-    // direct=true 且前缀命中：按前缀目标（解释→research），而不是 direct 的 worker。
-    const routed = await f.project.submit('解释：直接解释一下', null, [], true);
-    expect(routed.route).toEqual({ prefix: '解释', target: 'research' });
-    expect(routed.research.role).toBe('research');
-    expect(routed.worker).toBeUndefined();
-    expect(routed.direct).toBeUndefined();
-    expect(f.store.history(routed.task.id).some(event => event.type === 'input.direct')).toBe(false);
-
-    // direct=true 且没有前缀：仍是旧的直接 worker 行为。
-    const direct = await f.project.submit('直接做一个页面', null, [], true);
-    expect(direct.route).toBeUndefined();
-    expect(direct.direct).toBe(true);
-    expect(direct.worker.goal).toBe('直接做一个页面');
   } finally { await f.close(); }
 });
 
@@ -107,23 +92,29 @@ test('task read models and the branch graph flag a fast-routed input', async () 
   } finally { await f.close(); }
 });
 
-test('a single buffered draft can short-circuit, while a multi-draft batch still plans', async () => {
+test('a single buffered draft can short-circuit, while multiple drafts each plan', async () => {
   const provider = controlled(), f = fixture(provider); f.project.stopping = true; await repo(f.root);
   try {
     const draftId = f.project.draft('开发 会话里的登录页');
-    const batch = await f.project.commitDrafts();
-    expect(batch.drafts).toEqual([draftId.id]);
-    expect(batch.route).toEqual({ prefix: '开发', target: 'worker' });
-    expect(batch.worker.goal).toBe('会话里的登录页');
-    expect(flowOf(f, batch.id)).toBe('develop');
+    const committed = await f.project.commitDrafts();
+    expect(committed.drafts).toEqual([draftId.id]);
+    expect(committed.inputs).toHaveLength(1);
+    const single = committed.inputs[0];
+    expect(single.draft).toBe(draftId.id);
+    expect(single.route).toEqual({ prefix: '开发', target: 'worker' });
+    expect(single.worker.goal).toBe('会话里的登录页');
+    expect(flowOf(f, single.id)).toBe('develop');
 
-    // 多草稿批次以固定引导语开头，不会被前缀命中，仍交给 planner。
+    // 多条草稿逐条提交：每条各自成为一个输入，不再拼批次引导语。
     f.project.draft('开发 第一条');
     f.project.draft('解释 第二条');
     const multi = await f.project.commitDrafts();
-    expect(multi.route).toBeUndefined();
-    expect(flowOf(f, multi.id)).toBeNull();
-    expect(multi.task.status).toBe('queued');
+    expect(multi.drafts).toHaveLength(2);
+    expect(multi.inputs).toHaveLength(2);
+    expect(flowOf(f, multi.inputs[0].id)).toBe('develop');
+    expect(multi.inputs[0].worker.goal).toBe('第一条');
+    expect(flowOf(f, multi.inputs[1].id)).toBe('explain');
+    expect(multi.inputs[1].research.goal).toBe('第二条');
     expect(provider.calls).toHaveLength(0);
   } finally { await f.close(); }
 });

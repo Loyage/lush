@@ -3,14 +3,8 @@ import { matchInputRoute } from '../input-routes.js';
 
 /** Buffered drafts are a cache, not a queue: bounded so a forgotten tab cannot grow the db forever. */
 const MAX_DRAFTS = 500;
-/** A batch keeps every utterance identifiable; a single draft stays verbatim. */
-function batchContent(drafts) {
-  if (drafts.length === 1) return drafts[0].content;
-  return [`用户在一次提交中给了 ${drafts.length} 条，按输入顺序：`,
-    ...drafts.map((draft, index) => `${index + 1}) ${draft.content}`)].join('\n');
-}
 
-/** 输入缓存（增删改、整体提交成一批）。 */
+/** 输入缓存（增删改、逐条提交）。 */
 export default {
   /** Buffering is user-only: agents submit work through task.spawn, never through the input buffer. */
   draft(content, references = []) {
@@ -47,9 +41,11 @@ export default {
   },
 
   /**
-   * Hands buffered drafts to one planner as a single batch. ids omitted: every open draft.
-   * With ids: only the selected subset, ascending by id (= input order); unselected drafts stay buffered.
-   * 锚点要等 Git 建好才落库：失败时草稿一条也不动，仍在缓存里等下一次提交。
+   * 逐条提交缓存草稿，每条各自成为一个独立输入与 planner。ids 省略：全部 open drafts。
+   * 有 ids：只提交选中的子集，按 id 升序（= 输入顺序），未选中的继续留在缓存。
+   * 每条草稿正文逐字提交、引用以 segment 1 复制、单独建输入并回写它的 input_id；
+   * 命中快速路由前缀的那条不再建 planner 而按前缀派活。锚点要等 Git 建好才落库：
+   * 任一条创建失败即抛出，已提交的前几条保留，失败的及之后的草稿仍未提交。
    */
   async commitDrafts(ids = null, branch = null) {
     let drafts;
@@ -72,27 +68,26 @@ export default {
       });
     }
     check(drafts.length > 0, 'no buffered drafts to submit');
-    const content = batchContent(drafts);
-    // 多草稿批次以固定引导语开头，几乎不会命中前缀；单条草稿原文提交则与 input.submit 一样短路。
-    const match = matchInputRoute(this.config.inputRoutes, content);
-    let worker = null;
-    const inputReferences = [];
-    const result = await this.createInput(content, task => {
-      drafts.forEach((draft, index) => {
+    const inputs = [];
+    for (const draft of drafts) {
+      const references = this.store.draftReferences(draft.id).map(reference => ({ segment: 1, reference }));
+      const match = matchInputRoute(this.config.inputRoutes, draft.content);
+      let worker = null;
+      const result = await this.createInput(draft.content, task => {
         this.store.run('UPDATE drafts SET input_id=? WHERE id=?', task.input_id, draft.id);
-        for (const reference of this.store.draftReferences(draft.id)) inputReferences.push({ segment: index + 1, reference });
-      });
-      this.store.setInputReferences(task.input_id, inputReferences);
-      this.store.event(task.id, 'input.batch', { draft_ids: drafts.map(draft => draft.id) });
-      if (match) worker = this.routeInput(task, match);
-    }, branch);
-    this.kick();
-    const output = { ...result, references: inputReferences.map(value => ({ segment: value.segment, ...value.reference })), drafts: drafts.map(draft => draft.id) };
-    if (match) {
-      output.task = this.store.task(output.task.id);
-      output.route = { prefix: match.prefix, target: match.target };
-      if (match.target === 'worker') output.worker = worker; else output.research = worker;
+        this.store.setInputReferences(task.input_id, references);
+        this.store.event(task.id, 'input.draft', { draft_ids: [draft.id] });
+        if (match) worker = this.routeInput(task, match);
+      }, branch);
+      const output = { ...result, references: references.map(value => ({ segment: value.segment, ...value.reference })), draft: draft.id };
+      if (match) {
+        output.task = this.store.task(output.task.id);
+        output.route = { prefix: match.prefix, target: match.target };
+        if (match.target === 'worker') output.worker = worker; else output.research = worker;
+      }
+      inputs.push(output);
     }
-    return output;
+    this.kick();
+    return { inputs, drafts: drafts.map(draft => draft.id) };
   }
 };

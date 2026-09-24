@@ -44,8 +44,8 @@
 | `project/settings.js` | 项目级运行设置接缝：把运行设置的读模型喂给 `system.status`，并把用户侧的 `system.configure` 接到 `Config.configureRuntime` | `runtimeSettings()`、`configureRuntimeSettings(patch)` |
 | `project/status.js` | 项目级读模型与廉价 `revision`；首页 `system.summary` 走独立的 `summary()`，用持久 `meta.overview_revision` 与覆盖索引聚合且不打开 Agent 配置，兼容 `system.status` 仍镜像完整 `agent_config`，设置页再按需读取；并发额度另给 `settings` 镜像，顶层并发值仍是生效值 | `overviewRevision()`、`summary()`、`status(includeAgentConfig=true)` |
 | `project/deps.js` | 依赖边的读模型与结构校验；`decorate` 同时按 `input_id` 命中 `routedInputIds()` 给出 `route` 布尔（快速路由任务标记） | `decorate(tasks)`、`blockedBy(taskId)`、`assertDeps(taskId, parent, edges)` |
-| `project/inputs.js` | 从用户指定父分支创建可推进输入分支、在其中规划，以及流程判定；`inputs()` 的意图列表由 `inputs JOIN tasks` 内连接派生（任务那一半是输入自己的根 planner），所以根 planner 被 `task.delete` 删掉的输入行仍在库里，但不再出现在这个列表里 | `anchorInput(branch)`、`insertInput(inputId, anchor, content, attach, references)`、`createInput(content, attach, branch, references)`、`submit(content, branch, references, direct=false)`、`inputs()`、`setInputFlow(taskId, flow)` |
-| `project/drafts.js` | 输入缓存（增删改、结构化引用、整体提交到指定父分支） | `draft`、`drafts`、`dropDraft`、`editDraft`、`commitDrafts(ids, branch)` |
+| `project/inputs.js` | 从用户指定父分支创建可推进输入分支、在其中规划，以及流程判定；`inputs()` 的意图列表由 `inputs JOIN tasks` 内连接派生（任务那一半是输入自己的根 planner），所以根 planner 被 `task.delete` 删掉的输入行仍在库里，但不再出现在这个列表里 | `anchorInput(branch)`、`insertInput(inputId, anchor, content, attach, references)`、`createInput(content, attach, branch, references)`、`submit(content, branch, references)`、`inputs()`、`setInputFlow(taskId, flow)` |
+| `project/drafts.js` | 输入缓存（增删改、结构化引用、逐条提交到指定父分支） | `draft`、`drafts`、`dropDraft`、`editDraft`、`commitDrafts(ids, branch)` |
 | `project/references.js` | Input / Draft 的结构化上下文引用：校验、持久化与 invocation 时实时解析 | `normalizeReferences(references)`、`referencesForInput(inputId)`、`resolveInputReferences(inputId)` |
 | `project/specs.js` | 结构化 Plan 与确定性编译入口；新路径不创建 scheduler agent | `compilePlans()`、兼容别名 `ensureScheduler()`、`addSpec(plannerTaskId, spec)`、`dropSpec(specId, note, actor)` |
 | `project/plans.js` | 计划审批闸门 | `proposePlan`、`approvePlan`、`rejectPlan`、`planForApproval` |
