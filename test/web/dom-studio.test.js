@@ -211,6 +211,19 @@ test('task goal becomes the page heading and results precede implementation meta
   expect(panel.querySelector('.breadcrumb')).toBeTruthy();
 });
 
+test('详情头部：角色胶囊按类型着色，快速路由任务另带徽章', () => {
+  renderDetail({ id: 44, role: 'research', status: 'completed', integration: 'none', calls: 0, route: true,
+    goal: '解释快速路由', result: '已解释', deps: [], dependents: [] }, null, null, null);
+  const panel = dom.node('detail');
+  expect(panel.querySelector('.role-badge').className).toContain('role-research');
+  expect(panel.querySelector('.route-badge').textContent).toContain('快速路由');
+
+  renderDetail({ id: 45, role: 'merger', status: 'completed', integration: 'none', calls: 0, route: false,
+    goal: '解一个冲突', result: '已解决', deps: [], dependents: [] }, null, null, null);
+  expect(panel.querySelector('.role-badge').className).toContain('role-merger');
+  expect(panel.querySelector('.route-badge')).toBeNull();
+});
+
 test('多行 / 超长 goal：hero 只显示首行截断，完整 goal 留在正文块里', () => {
   const goal = `一句话标题\n\n目标：${'很长的验收标准'.repeat(12)}`;
   renderDetail({ id: 43, role: 'worker', status: 'completed', integration: 'none', calls: 0,

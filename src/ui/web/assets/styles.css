@@ -8,6 +8,9 @@
   --completed:#25794f; --failed:#bd4147; --cancelled:#718076; --violet:#7955b4;
   --violet-ink:#7955b4; --violet-on:#fff;
   --blue-soft:#e9f2fb; --amber-soft:#fff4e3; --violet-soft:#f1ecfa; --green-soft:#e9f5ec; --red-soft:#fcecee;
+  --role-planner:#7a52c7; --role-scheduler:#4a5fc1; --role-worker:#1f7a52; --role-coordinator:#0f8080;
+  --role-research:#2a6fb0; --role-verifier:#9c6a12; --role-merger:#c0464d; --role-showcase:#b0459a;
+  --role-explainer:#5c7285; --role-butler:#8a6d2f; --route:#a21caf; --route-soft:#fbe9fd;
   --shadow:0 2px 3px #18372603,0 12px 36px #18372605;
   --radius:14px; --ease:cubic-bezier(.2,.75,.25,1); --sidebar-width:320px;
   font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
@@ -22,6 +25,9 @@
   --completed:#8dd4a3; --failed:#f4959d; --cancelled:#90a199; --violet:#c1a4f3;
   --violet-ink:#c1a4f3; --violet-on:#221636;
   --blue-soft:#20323f; --amber-soft:#3b3022; --violet-soft:#302a42; --green-soft:#21382b; --red-soft:#3d292e;
+  --role-planner:#b79df0; --role-scheduler:#96a8f2; --role-worker:#6fd3a0; --role-coordinator:#5fd0cf;
+  --role-research:#82b8ee; --role-verifier:#e6c37a; --role-merger:#f2969d; --role-showcase:#efa0d4;
+  --role-explainer:#adc2d2; --role-butler:#d6b877; --route:#e879f9; --route-soft:#3a2040;
   --shadow:0 2px 3px #0000000a,0 12px 32px #00000010;
 }
 *{box-sizing:border-box}
@@ -106,6 +112,8 @@ aside{grid-area:sidebar;overflow-y:auto;min-width:0;background:var(--sidebar);bo
 .c-queued,.b-queued{color:var(--queued)}.c-running,.b-running{color:var(--running)}.c-waiting,.b-waiting{color:var(--waiting)}.c-awaiting,.b-awaiting{color:var(--awaiting)}.c-completed,.b-completed{color:var(--completed)}.c-failed,.b-failed{color:var(--failed)}.c-cancelled,.b-cancelled{color:var(--cancelled)}
 .badge{display:inline-flex;align-items:center;font-size:10px;font-weight:550;line-height:1.65;border-radius:6px;padding:2px 7px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);background:color-mix(in srgb,currentColor 6%,transparent);white-space:nowrap}
 .b-neutral{color:var(--muted);border-color:var(--line);background:transparent}.badge.intent-link{cursor:pointer}.badge.intent-link:hover{color:var(--accent);border-color:var(--accent)}
+/* 任务类型胶囊：颜色只按角色，不动状态色；.badge 的边框 / 底色由 currentColor 派生，所以这里只设 color。 */
+.role-badge{font-weight:550}.role-planner{color:var(--role-planner)}.role-scheduler{color:var(--role-scheduler)}.role-worker{color:var(--role-worker)}.role-coordinator{color:var(--role-coordinator)}.role-research{color:var(--role-research)}.role-verifier{color:var(--role-verifier)}.role-merger{color:var(--role-merger)}.role-showcase{color:var(--role-showcase)}.role-explainer{color:var(--role-explainer)}.role-butler{color:var(--role-butler)}.role-unknown{color:var(--muted)}
 .task .dep{font-size:9px;border:1px solid color-mix(in srgb,currentColor 30%,transparent);border-radius:4px;padding:1px 4px;white-space:nowrap}.dep-code{color:var(--queued)}.dep-order{color:var(--dim)}.dep-wait{background:var(--panel-2)}.meta.reason{color:var(--muted)}.meta.warn{color:var(--awaiting)}
 .task-progress-compact{display:grid;grid-template-columns:minmax(48px,72px) auto minmax(0,1fr) auto;align-items:center;gap:7px;margin-top:7px;color:var(--dim);font-size:10px}.task-progress-count{font-variant-numeric:tabular-nums}.task-progress-current{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-progress-meter{display:block;width:100%;height:6px;border:0;border-radius:999px;overflow:hidden;background:var(--line-soft);accent-color:var(--completed)}.task-progress-meter::-webkit-progress-bar{background:var(--line-soft);border-radius:999px}.task-progress-meter::-webkit-progress-value{background:var(--completed);border-radius:999px}.task-progress-meter::-moz-progress-bar{background:var(--completed);border-radius:999px}
 .band{border-left:1px dashed var(--line);color:var(--dim);font-size:10px;padding:4px 8px;margin:2px 0 5px}
@@ -254,6 +262,10 @@ button.step-head{display:flex;align-items:center;flex-wrap:wrap;gap:7px;font-siz
    决策区自己一块底。正文保留换行、限高滚动——它常常是问题或计划的全部说明，不能只给标题。 */
 .graph-node.graph-emphasis-awaiting{box-shadow:inset 3px 0 0 var(--awaiting);background:color-mix(in srgb,var(--amber-soft) 45%,transparent)}
 .graph-node.graph-emphasis-working.graph-emphasis-awaiting{box-shadow:inset 3px 0 0 var(--awaiting),inset 6px 0 0 var(--running)}
+/* 快速路由：一个高饱和徽章 + 整行一层淡底色。底色用 background-image 叠在现有 background-color 上，
+   不覆盖状态色，也不抢状态左边条。放在状态与工作态规则之后，保证不被它们的 background 简写清掉。 */
+.route-badge{color:var(--route);font-weight:650;letter-spacing:.02em;background:color-mix(in srgb,var(--route) 10%,transparent);border-color:color-mix(in srgb,var(--route) 45%,transparent)}
+.task.route-flagged,.graph-node.route-flagged{background-image:linear-gradient(color-mix(in srgb,var(--route-soft) 70%,transparent),color-mix(in srgb,var(--route-soft) 70%,transparent))}
 .graph-decision{flex-basis:100%;margin:6px 0 4px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--awaiting) 28%,transparent);border-left:3px solid var(--awaiting);border-radius:10px;background:var(--amber-soft)}
 .graph-decision-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .graph-decision-title{font-size:13px;font-weight:600;color:var(--text);overflow-wrap:anywhere;min-width:0}

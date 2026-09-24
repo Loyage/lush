@@ -163,6 +163,29 @@ test('全部现行角色和历史调度类型始终可选，未知类型也不�
   expect(select.querySelectorAll('option').map(node => node.value)).toEqual(['all', ...Object.keys(ROLE)]);
 });
 
+test('任务树：角色胶囊带 role-<role> 类，快速路由任务整行标记并显示徽章', async () => {
+  await dom.node('home').onclick();
+  const snapshot = ui.lastSnapshot;
+  ui.lastSnapshot = { ...snapshot, tasks: [
+    { id: 301, parent_id: null, input_id: 1, role: 'worker', goal: '路由出来的任务', status: 'running', integration: 'none', route: true, updated_at: new Date().toISOString() },
+    { id: 302, parent_id: null, input_id: 2, role: 'verifier', goal: '普通验收任务', status: 'completed', integration: 'none', route: false, updated_at: new Date().toISOString() },
+  ] };
+  try {
+    renderTree(ui.lastSnapshot);
+    const routed = dom.node('tasks').querySelector('[data-id="301"]');
+    const plain = dom.node('tasks').querySelector('[data-id="302"]');
+    expect(routed.classList.contains('route-flagged')).toBe(true);
+    expect(routed.querySelector('.role-badge').className).toContain('role-worker');
+    expect(routed.querySelector('.route-badge').textContent).toContain('快速路由');
+    expect(plain.classList.contains('route-flagged')).toBe(false);
+    expect(plain.querySelector('.role-badge').className).toContain('role-verifier');
+    expect(plain.querySelector('.route-badge')).toBeNull();
+  } finally {
+    ui.lastSnapshot = snapshot;
+    renderTree(ui.lastSnapshot);
+  }
+});
+
 test('直接链接启动复用同一路由，重复 boot 不复制导航', async () => {
   for (const id of ['graph', 'statistics', 'settings', 'tasks']) {
     dom.location.hash = `#${id}`;

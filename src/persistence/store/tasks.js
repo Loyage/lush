@@ -14,6 +14,14 @@ export const tasks = {
       agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
       ...(layer ? [layer] : []));
   },
+  /**
+   * 快速路由输入集合：planner 上带 `input.route` 事件（前缀命中、未调用规划模型）的 input id。
+   * 任务读模型按 `input_id` 命中它来标「快速路由」，不新增表 / 列，也不改历史数据。
+   */
+  routedInputIds() {
+    return new Set(this.all(`SELECT inputs.id AS id FROM inputs JOIN events ON events.task_id=inputs.task_id
+      WHERE events.type='input.route'`).map(row => row.id));
+  },
   /** Bounded task pages; all includes planning/control roles without changing stored layers. */
   summaryPage({ active = false, before = null, limit = 50, scope = 'work' } = {}) {
     check(['work', 'all'].includes(scope), 'invalid task scope');

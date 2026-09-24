@@ -16,11 +16,11 @@
  * 幂等：同一份数据重画不重复建节点、不重建外层容器，所以 1.5s 轮询不会把滚动位置冲掉；
  * 唯一的例外是用户正在决策区里打字：那时整张图都不重画（见 renderGraph 的 hasPendingDecision）。
  */
-import { $, badge, button, el } from './dom.js';
+import { $, badge, button, el, roleBadge, routeBadge } from './dom.js';
 import { api, action } from './api.js';
 import { confirmDialog, promptDialog } from './dialog.js';
 import { show } from './messages.js';
-import { ROLE, statusOf } from './format.js';
+import { statusOf } from './format.js';
 import { graphLayout, graphFingerprint, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingTask, workingState } from './graph-layout.js';
 import { detail, overview } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
@@ -232,11 +232,13 @@ function taskRow(node, owningBranch = null) {
   const row = el('div', undefined, LANE_CLASS(node.level));
   // 在跑 / 排队 / 等着的任务同样带上工作态强调，和它所在的分支一起被看见。
   if (isWorkingTask(node)) row.classList.add('graph-emphasis-working');
+  // 快速路由的任务整行加一层底色，滚动时不会被淹没；徽章在下方角色旁。
+  if (node.route) row.classList.add('route-flagged');
   // 在跑的任务行除了左边条再给一个脉冲点：旁边的「运行中」文案有了一眼可见的对应标记。
   if (node.status === 'running') row.append(el('span', '●', 'graph-work-dot'));
   row.append(el('span', `#${node.id}`, 'tid'));
   row.append(button(node.goal || '(无目标)', () => detail(node.id), 'graph-node'));
-  row.append(el('span', `${ROLE[node.role] || node.role} · ${statusOf(node).label}`, 'meta'));
+  row.append(roleBadge(node.role), el('span', statusOf(node).label, 'meta'), ...(node.route ? [routeBadge()] : []));
   const meta = el('div', undefined, 'graph-meta');
   if (node.upstreams?.length) meta.append(el('span', `⛓ 基线 #${node.upstreams.join('、#')}`, 'meta'));
   if (node.branch && node.branch !== owningBranch) meta.append(el('span', node.branch, 'graph-path mono'));

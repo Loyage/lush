@@ -83,6 +83,30 @@ test('a non-prefix input still goes to the planner, and direct follows the prefi
   } finally { await f.close(); }
 });
 
+test('task read models and the branch graph flag a fast-routed input', async () => {
+  const provider = controlled(), f = fixture(provider); f.project.stopping = true; await repo(f.root);
+  try {
+    const routed = await f.project.submit('开发 路由出来的任务');
+    const plain = await f.project.submit('交给规划器的普通任务');
+
+    // 任务树 / 概览共用的 activity 读模型：派生的 worker 与它的 planner 都带上 route。
+    const activity = new Map(f.project.activity(50, 'all').tasks.map(task => [task.id, task]));
+    expect(activity.get(routed.worker.id).route).toBe(true);
+    expect(activity.get(routed.task.id).route).toBe(true);
+    expect(activity.get(plain.task.id).route).toBe(false);
+
+    // 任务详情单读模型同一口径。
+    expect(f.project.inspect(routed.worker.id).route).toBe(true);
+    expect(f.project.inspect(plain.task.id).route).toBe(false);
+
+    // 分支图：快速路由的 planner 挂在输入锚点分支上，节点同样标 route。
+    const graph = await f.project.graph();
+    const byId = new Map(graph.nodes.map(node => [node.id, node]));
+    expect(byId.get(routed.task.id).route).toBe(true);
+    expect(byId.get(plain.task.id).route).toBe(false);
+  } finally { await f.close(); }
+});
+
 test('a single buffered draft can short-circuit, while a multi-draft batch still plans', async () => {
   const provider = controlled(), f = fixture(provider); f.project.stopping = true; await repo(f.root);
   try {

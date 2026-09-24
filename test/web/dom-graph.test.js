@@ -810,3 +810,29 @@ test('分支图：兜底分组里的任务带「删除」，确认后走 task.de
     await openGraph();
   }
 });
+
+test('分支图：任务行按类型着色，快速路由任务整行强调并带徽章', async () => {
+  const saved = JSON.parse(JSON.stringify(world.state.graph));
+  try {
+    world.state.graph.nodes.push({ kind: 'task', id: 51, role: 'verifier', name: null, goal: '验收一下',
+      status: 'running', integration: 'none', route: true, branch: null, target_branch: 'ghost',
+      workspace: null, workspace_state: 'none', branch_state: 'none', archived: false });
+    world.state.graph.nodes.push({ kind: 'task', id: 52, role: 'coordinator', name: null, goal: '协调一下',
+      status: 'completed', integration: 'none', route: false, branch: null, target_branch: 'ghost',
+      workspace: null, workspace_state: 'none', branch_state: 'none', archived: false });
+    await openGraph();
+    const unplaced = () => dom.node('detail').querySelector('div.graph-unplaced');
+    const rowFor = id => [...unplaced().querySelectorAll('div.graph-node')]
+      .find(node => node.querySelector('.tid')?.textContent === `#${id}`);
+    const routed = rowFor(51), plain = rowFor(52);
+    expect(routed.classList.contains('route-flagged')).toBe(true);
+    expect(routed.querySelector('.role-badge').className).toContain('role-verifier');
+    expect(routed.querySelector('.route-badge').textContent).toContain('快速路由');
+    expect(plain.classList.contains('route-flagged')).toBe(false);
+    expect(plain.querySelector('.role-badge').className).toContain('role-coordinator');
+    expect(plain.querySelector('.route-badge')).toBeNull();
+  } finally {
+    world.state.graph = saved;
+    await openGraph();
+  }
+});

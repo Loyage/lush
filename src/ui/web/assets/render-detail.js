@@ -1,4 +1,4 @@
-import { $, badge, block, button, el, kv, statusBadge } from './dom.js';
+import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } from './dom.js';
 import { action } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, statusOf, taskTitle } from './format.js';
@@ -67,7 +67,7 @@ export function renderDetail(task, history, diff, usage) {
   const hero = el('div', undefined, 'task-hero');
   const head = el('div', undefined, 'head');
   head.append(el('span', `#${task.id}`, 'tid-lg'), statusBadge(task),
-    badge(ROLE[task.role] || task.role, 'b-neutral'), intentBadge(task));
+    roleBadge(task.role), ...(task.route ? [routeBadge()] : []), intentBadge(task));
   const integration = INTEGRATION[task.integration];
   if (integration) head.append(badge(integration, task.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
   if (task.agent) head.append(badge(`agent ${task.agent.id}${task.agent.active ? ` · pid ${task.agent.pid ?? '待上报'}` : ' · 空闲'}`, 'b-neutral'));

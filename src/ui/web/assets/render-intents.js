@@ -1,4 +1,4 @@
-import { $, badge, button, el } from './dom.js';
+import { $, badge, button, el, routeBadge } from './dom.js';
 import { action } from './api.js';
 import { promptDialog } from './dialog.js';
 import { PLAN_GATE, relative, short, statusOf } from './format.js';
@@ -63,6 +63,7 @@ function intentItem(intent) {
   row.append(el('span', `#${intent.id}`, 'tid'), badge(`${status.icon} ${status.label}`, `b-${intent.status}`));
   if (intent.flow) row.append(badge(intent.flow === 'explain' ? '了解' : '开发', 'b-neutral'));
   if (intent.direct) row.append(badge('直接执行 · 无规划调用', 'b-neutral'));
+  if (intent.route) row.append(routeBadge());
   row.append(el('span', relative(intent.created_at), 'when'));
   item.append(row);
   const goal = el('span', intent.content, 'goal intent-goal');
@@ -113,7 +114,7 @@ export function renderIntents(data) {
     syncSelectOptions(filterUi.intentStatus, withCurrent(options, ui.filters.intents.status, statusOption), ui.filters.intents.status);
   }
   const signature = [ui.sidebarSortMode, JSON.stringify(query), all.map(intent => [intent.id, intent.status, intent.plan_gate, intent.specs_pending, intent.specs_planned,
-    intent.specs_dropped, intent.work_tasks, intent.work_active, intent.work_failed, intent.flow, intent.direct, intent.candidate_id, intent.candidate_version, intent.candidate_status,
+    intent.specs_dropped, intent.work_tasks, intent.work_active, intent.work_failed, intent.flow, intent.direct, intent.route, intent.candidate_id, intent.candidate_version, intent.candidate_status,
     intent.candidate_report_task_id, intent.showcase_task_id, intent.showcase_status].join(':')).join('\u0000')].join('\u0002');
   if (signature === ui.intentSignature) return;
   ui.intentSignature = signature;

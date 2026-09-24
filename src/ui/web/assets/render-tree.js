@@ -1,4 +1,4 @@
-import { $, badge, button, el, syncChildren } from './dom.js';
+import { $, badge, button, el, roleBadge, routeBadge, syncChildren } from './dom.js';
 import { api } from './api.js';
 import { DEP_HELP, HOT, INTEGRATION, ROLE, TERMINAL_STATUS, absolute, depsOf, relative, statusOf, waitingDeps } from './format.js';
 import { filterUi, roleOption, syncSelectOptions, uniqueValues, withCurrent } from './filters-ui.js';
@@ -104,11 +104,12 @@ export function renderTree(data) {
       const node = known.get(task.id) || button('', () => { ui.noticeFocus = null; return detail(task.id); }, 'task');
       const integration = INTEGRATION[task.integration];
       node.dataset.id = task.id;
-      node.className = `task d${Math.min(depth, 5)} s-${task.status}${ui.selected === task.id ? ' selected' : ''}`;
+      node.className = `task d${Math.min(depth, 5)} s-${task.status}${ui.selected === task.id ? ' selected' : ''}${task.route ? ' route-flagged' : ''}`;
       node.replaceChildren();
       const row = el('span', undefined, 'row');
       row.append(el('span', statusOf(task).icon, `dot c-${task.status}`), el('span', `#${task.id}`, 'tid'),
-        el('span', `${statusOf(task).label} · ${ROLE[task.role] || task.role}`));
+        el('span', statusOf(task).label), roleBadge(task.role));
+      if (task.route) row.append(routeBadge());
       const flow = task.parent_id === null && !task.verifies_task_id && !task.resolves_task_id ? flows.get(task.input_id) : null;
       if (flow) row.append(badge(flow === 'explain' ? '了解' : '开发', flow === 'explain' ? 'b-neutral' : 'b-completed'));
       for (const chip of depChips(task)) row.append(chip);

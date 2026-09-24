@@ -89,7 +89,7 @@ export default {
         if (at > 0) refs.set(line.slice(0, at), line.slice(at + 1).trim());
       }
 
-      const rows = this.store.all(`SELECT id, role, name, goal, status, integration,
+      const rows = this.store.all(`SELECT id, role, name, goal, status, integration, input_id,
         ${taskBranchSql('tasks')} AS branch, workspace,
         base_commit, head_commit, target_branch, baseline_workspace, resolves_task_id, verifies_task_id, progress_plan
         FROM tasks WHERE role IN (${TASK_ROLE_SQL}) ORDER BY id DESC`);
@@ -123,6 +123,9 @@ export default {
       // 每个任务「待你决断」的 notice：open 且 kind 是 question / plan。info 提醒（status='sent'）
       // 与 answered / dismissed 的都不算；任务结算时 lifecycle 会把 open 置为 dismissed，所以终态任务不会带。
       // 一次查询按 id 升序取全部，再在内存里按 task_id 归并：最新一条（id 最大）与总数。
+      // 快速路由（前缀短路）：按 input_id 命中 input.route 事件，任务节点与意图层一样标注。
+      const routedInputs = this.store.routedInputIds();
+      const isRouted = inputId => inputId !== null && inputId !== undefined && routedInputs.has(inputId);
       const pendingNotices = new Map();
       for (const row of this.store.all(`SELECT id, task_id, kind, title, body, created_at FROM notices
         WHERE status='open' AND kind IN ('question','plan') ORDER BY id`)) {
@@ -306,7 +309,7 @@ export default {
         const node = {
           kind: 'task', id: row.id, role: row.role, name: row.name ?? null,
           goal: String(row.goal ?? '').slice(0, 120),
-          status: row.status, integration: row.integration,
+          status: row.status, integration: row.integration, route: isRouted(row.input_id),
           branch: row.branch ?? null, workspace: workspacePath, workspace_state, branch_state: row.role === 'showcase' ? null : branch_state,
           // 任务的分支已经归档：ref/worktree 都没了，但这是预期状态，节点照旧画在图上。
           archived: isArchivedBranch(row.branch),
@@ -326,7 +329,7 @@ export default {
         nodes.push({
           kind: 'task', id: row.id, role: row.role, name: row.name ?? null,
           goal: String(row.goal ?? '').slice(0, 120),
-          status: row.status, integration: row.integration,
+          status: row.status, integration: row.integration, route: isRouted(row.input_id),
           branch: row.branch,
           workspace: null, workspace_state: 'none', branch_state: null,
           archived: isArchivedBranch(row.branch),

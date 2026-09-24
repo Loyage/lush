@@ -132,6 +132,8 @@ export default {
     // runtime configuration, not part of the task read model (agents can call task.inspect).
     const { retry_profile: _retryProfile, ...storedTask } = this.store.task(taskId);
     const task = this.progressView(storedTask);
+    // 与任务树 / 分支图同一口径：这条输入的 planner 带 input.route 事件就是快速路由。
+    task.route = storedTask.input_id !== null && this.store.routedInputIds().has(storedTask.input_id);
     const runs = this.store.runsForTask(task.id);
     return { ...task, deps: this.store.depsDetail(task.id), dependents: this.store.dependentsDetail(task.id),
       ...(task.role === 'planner' ? { specs: bounded(this.store.specsByPlanner(task.id), 200000) } : {}),

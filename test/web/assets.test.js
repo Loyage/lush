@@ -189,6 +189,11 @@ test('无顶栏壳：身份区在左栏，内容区不再被头部压住；输�
     expect(css).toMatch(/\.composer-input textarea\{[^}]*z-index:1[^}]*background:transparent/);
     expect(css).toMatch(/\.composer-highlight\{[^}]*z-index:0/);
     expect(css).not.toMatch(/\.composer textarea\{[^}]*background:/);
+    // 任务类型胶囊按 role-<role> 取色；快速路由是独立一套（徽章 + 整行底色），不覆盖状态色。
+    expect(css).toMatch(/\.role-worker\{color:var\(--role-worker\)\}/);
+    expect(css).toMatch(/\.role-planner\{color:var\(--role-planner\)\}/);
+    expect(css).toMatch(/\.route-badge\{[^}]*color:var\(--route\)/);
+    expect(css).toMatch(/\.task\.route-flagged,\.graph-node\.route-flagged\{background-image:/);
     // 浮层不再给顶栏留 80px 空档。
     expect(css).toMatch(/\.toast\{position:fixed;top:16px/);
     // 行为落点原样保留：待提交意图开关、父分支输入框、提交按钮仍在页面里。

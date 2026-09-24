@@ -1,5 +1,5 @@
 // DOM 原语：建节点、按钮、区块与徽章。
-import { statusOf } from './format.js';
+import { ROLE, statusOf } from './format.js';
 import { show } from './messages.js';
 
 export const $ = id => document.getElementById(id);
@@ -28,3 +28,20 @@ export function block(title, count) {
 export const kv = (label, value, className) => { const node = el('div', undefined, 'kv'); node.append(el('b', label), el('span', value, className)); return node; };
 export const badge = (text, className) => el('span', text, `badge ${className}`);
 export const statusBadge = task => badge(`${statusOf(task).icon} ${statusOf(task).label}`, `b-${task.status}`);
+/**
+ * 任务类型胶囊：角色文字 + `role-<role>` 类，颜色由 styles.css 的角色调色板给出。
+ * 未知角色兜底成 `role-unknown`，不掷错也不丢标签。
+ */
+export const roleBadge = role => {
+  const key = String(role ?? '').replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'unknown';
+  const label = ROLE[role] || String(role ?? '未知');
+  const node = el('span', label, `badge role-badge role-${key}`);
+  node.title = `任务类型：${label}`;
+  return node;
+};
+/** 快速路由标记：前缀短路、未调用规划模型创建的 task。文案与悬停说明是全站唯一口径。 */
+export const routeBadge = () => {
+  const node = el('span', '⚡ 快速路由', 'badge route-badge');
+  node.title = '这条输入的快速路由前缀在提交时命中：未调用规划模型，直接创建了任务。';
+  return node;
+};
