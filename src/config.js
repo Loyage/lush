@@ -38,6 +38,8 @@ export class Config {
     const runtime = this.runtimeSettings.get();
     this.concurrency = runtime.concurrency.value;
     this.controlConcurrency = runtime.control_concurrency.value;
+    // 快速路由前缀：提交输入时按这份生效值做匹配，不需要重启 daemon。
+    this.inputRoutes = runtime.input_routes.value.map(route => ({ ...route }));
     // 宿主（Project）注册的回调：运行设置写盘后重新 pump，让调高的并发立即对排队任务生效。
     this.onKick = null;
     this.timeout = positive(env, 'LUSH_CALL_TIMEOUT', 900, 86400);
@@ -64,6 +66,7 @@ export class Config {
     const model = this.runtimeSettings.save(patch);
     this.concurrency = model.concurrency.value;
     this.controlConcurrency = model.control_concurrency.value;
+    this.inputRoutes = model.input_routes.value.map(route => ({ ...route }));
     this.kick();
     return model;
   }

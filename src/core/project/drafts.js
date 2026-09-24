@@ -1,4 +1,5 @@
 import { check, id, text, bounded } from '../types.js';
+import { matchInputRoute } from '../input-routes.js';
 
 /** Buffered drafts are a cache, not a queue: bounded so a forgotten tab cannot grow the db forever. */
 const MAX_DRAFTS = 500;
@@ -72,6 +73,9 @@ export default {
     }
     check(drafts.length > 0, 'no buffered drafts to submit');
     const content = batchContent(drafts);
+    // 多草稿批次以固定引导语开头，几乎不会命中前缀；单条草稿原文提交则与 input.submit 一样短路。
+    const match = matchInputRoute(this.config.inputRoutes, content);
+    let worker = null;
     const inputReferences = [];
     const result = await this.createInput(content, task => {
       drafts.forEach((draft, index) => {
@@ -80,8 +84,15 @@ export default {
       });
       this.store.setInputReferences(task.input_id, inputReferences);
       this.store.event(task.id, 'input.batch', { draft_ids: drafts.map(draft => draft.id) });
+      if (match) worker = this.routeInput(task, match);
     }, branch);
     this.kick();
-    return { ...result, references: inputReferences.map(value => ({ segment: value.segment, ...value.reference })), drafts: drafts.map(draft => draft.id) };
+    const output = { ...result, references: inputReferences.map(value => ({ segment: value.segment, ...value.reference })), drafts: drafts.map(draft => draft.id) };
+    if (match) {
+      output.task = this.store.task(output.task.id);
+      output.route = { prefix: match.prefix, target: match.target };
+      if (match.target === 'worker') output.worker = worker; else output.research = worker;
+    }
+    return output;
   }
 };

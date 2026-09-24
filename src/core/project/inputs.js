@@ -1,4 +1,5 @@
 import { check, text } from '../types.js';
+import { matchInputRoute } from '../input-routes.js';
 
 /** 两类用户输入：develop 会派生 worker 产码，explain 只出结论、不产生待合并改动。 */
 export const FLOWS = new Set(['develop', 'explain']);
@@ -51,17 +52,46 @@ export default {
 
   async submit(content, branch = null, references = [], direct = false) {
     check(typeof direct === 'boolean', 'direct must be a boolean');
-    let worker;
-    const result = await this.createInput(content, direct ? planner => {
+    // 快速路由前缀优先于「直接执行」：命中前缀就按前缀的目标派活，不再看 direct。
+    const match = matchInputRoute(this.config.inputRoutes, content);
+    let worker = null;
+    const result = await this.createInput(content, planner => {
+      if (match) { worker = this.routeInput(planner, match); return; }
+      if (!direct) return;
       this.store.run("UPDATE inputs SET flow='develop' WHERE id=?", planner.input_id);
       const spec = this.addSpec(planner.id, { goal: content, role: 'worker', name: `direct-${planner.input_id}` });
       worker = this.materializeSpec(planner.id, spec.id);
       this.store.update(planner.id, { status: 'completed', result: '用户选择直接执行：未调用规划模型。' });
       this.store.event(planner.id, 'input.direct', { worker: worker.id, spec: spec.id });
       this.store.event(planner.id, 'completed', { result: '用户选择直接执行：未调用规划模型。', direct: true });
-    } : null, branch, references);
-    if (direct) { result.task = this.store.task(result.task.id); result.worker = worker; result.direct = true; }
+    }, branch, references);
+    if (match) {
+      result.task = this.store.task(result.task.id);
+      result.route = { prefix: match.prefix, target: match.target };
+      if (match.target === 'worker') result.worker = worker; else result.research = worker;
+    } else if (direct) {
+      result.task = this.store.task(result.task.id); result.worker = worker; result.direct = true;
+    }
     this.kick(); return result;
+  },
+
+  /**
+   * 快速路由前缀的短路动作：不调用规划模型，直接把 planner 结算为 completed，
+   * 并按前缀目标（worker→develop / research→explain）在同一事务里创建一条根任务。
+   * 与 direct 一样保留 input.anchor / 原始输入 / 引用 / 输入分支，只是多一条 input.route 事件可追溯。
+   */
+  routeInput(planner, match) {
+    const flow = match.target === 'worker' ? 'develop' : 'explain';
+    this.store.run('UPDATE inputs SET flow=? WHERE id=?', flow, planner.input_id);
+    const spec = this.addSpec(planner.id, { goal: match.content, role: match.target, name: `${flow}-${planner.input_id}` });
+    const task = this.materializeSpec(planner.id, spec.id);
+    const result = `前缀 ${match.prefix} 命中：未调用规划模型，直接创建 ${match.target} #${task.id}`;
+    this.store.update(planner.id, { status: 'completed', result });
+    this.store.event(planner.id, 'input.route', { input_id: planner.input_id, prefix: match.prefix, target: match.target,
+      flow, task: task.id, spec: spec.id });
+    this.store.event(planner.id, 'completed', { result, route: true, prefix: match.prefix, target: match.target,
+      task: task.id, spec: spec.id });
+    return task;
   },
 
   /** 意图视图：一条输入 + 它的锚点 + 它的 planner（拆解）与 scheduler（编排）进度，一起喂给界面。 */
@@ -70,6 +100,7 @@ export default {
       inputs.anchor_branch, inputs.anchor_commit, inputs.anchor_workspace, inputs.anchor_target_branch,
       tasks.status, tasks.plan_gate, tasks.agent_wakes, tasks.updated_at AS planner_updated_at,
       EXISTS(SELECT 1 FROM events e WHERE e.task_id=tasks.id AND e.type='input.direct') AS direct,
+      EXISTS(SELECT 1 FROM events e WHERE e.task_id=tasks.id AND e.type='input.route') AS route,
       (SELECT count(*) FROM drafts WHERE drafts.input_id=inputs.id) AS draft_count,
       (SELECT count(*) FROM task_specs WHERE task_specs.input_id=inputs.id AND task_specs.status='pending') AS specs_pending,
       (SELECT count(*) FROM task_specs WHERE task_specs.input_id=inputs.id AND task_specs.status='planned') AS specs_planned,

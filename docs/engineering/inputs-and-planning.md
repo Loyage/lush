@@ -41,6 +41,23 @@
 
 每条输入保留独立 planner 身份。默认提交会调用规划模型；显式 `direct: true` 不调用模型，而是在同一事务中将 flow 设为 develop，创建一条 worker spec 并编译为一个根 worker，再将 planner 标为 completed（calls / agent_wakes 都是 0）。`input.direct` 事件区分这种占位与真实规划结果，原始输入、引用、输入分支和 Work DAG 仍完整保留。草稿批量提交不支持 direct，仍必须经过规划；直接执行不放宽人工合并批准。
 
+## 快速路由前缀
+
+运行设置里有一张前缀表，提交输入时先做一次确定性的前缀匹配；命中就不再调用规划模型，直接把 planner 结算为 completed，并按前缀目标创建根任务。它是 `direct` 之外的另一条短路路径，区别是目标由前缀决定而不是固定 worker。
+
+匹配规则（`src/core/input-routes.js`，纯函数）：
+
+1. 去掉正文开头的空白；
+2. 把前缀表按 prefix 长度降序，做大小写不敏感的最左匹配；
+3. 前缀之后必须是输入结束或一个非字母非数字字符（Unicode `\p{L}` / `\p{N}`，u 标志）——所以「开发：做一个登录页」命中「开发」，而「开发文档」不会；
+4. 命中后去掉前缀及其后连续的空白与标点（`\s` 与 `\p{P}`），再 trim，作为根任务的目标。
+
+默认表：`开发` → worker（flow develop，可写代码），`解释` → research（flow explain，只读调研，不创建分支 / worktree）。前缀表是项目级运行设置 `input_routes`（`<home>/settings.json`，`system.configure` 读写），热生效，无需重启；缺省时回退到默认表，写 `null` 清除覆盖。每项恰为 `{prefix,target}`，prefix 非空、≤32 字符且不含空白，target 只能是 worker / research，prefix 大小写不敏感去重，最多 32 项。
+
+命中时 planner 在同一事务里写 `input.route` 事件（含 prefix / target / flow / task / spec），随后标 completed；`request` 结果带 `result.route = {prefix,target}`，`target=worker` 时给 `result.worker`，`target=research` 时给 `result.research`；`inputs()` 读模型用 `route` 布尔字段标出这类输入。`direct: true` 与命中同时出现时，前缀目标优先。
+
+边界：`draft.commit` 对整批正文算一次匹配。单条草稿的正文原样提交，因此可以命中；多条草稿会拼成以「用户在一次提交中给了 N 条…」开头的批次正文，通常不命中，仍走规划。`research` 沿用主项目目录、只读，不创建 worktree 或分支。
+
 planner 的 cwd 是输入 worktree，不是主工作树；父分支之后前进、主工作树脏或用户切换分支都不会改变分析上下文。
 
 `inputs.flow`：

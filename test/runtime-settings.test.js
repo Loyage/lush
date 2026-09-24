@@ -27,7 +27,9 @@ test('runtime settings file is atomic, owner-only, and falls back to env default
     // 没有覆盖时读模型给出环境默认值，且不创建文件（不造假值）。
     expect(settings.get()).toEqual({ file,
       concurrency: { value: 6, default: 6, overridden: false },
-      control_concurrency: { value: 3, default: 3, overridden: false } });
+      control_concurrency: { value: 3, default: 3, overridden: false },
+      input_routes: { value: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }],
+        default: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }], overridden: false } });
     expect(fs.existsSync(file)).toBe(false);
 
     const saved = settings.save({ concurrency: 8 });
@@ -135,4 +137,61 @@ test('system.configure is user-only and only accepts a settings patch', () => {
   expect(() => assertAllowed('system.configure', { settings: { concurrency: 3 } }, 7)).toThrow('user approval');
   expect(assertAllowed('system.configure', { settings: { concurrency: 3 } }, null)).toBe(null);
   expect(() => assertAllowed('system.configure', { concurrency: 3 }, null)).toThrow('unknown parameter');
+});
+
+test('input_routes defaults, overrides, null clearing and validation', () => {
+  const root = temp();
+  const config = new Config({ project: root, env: env() });
+  config.prepare();
+  try {
+    const settings = new RuntimeSettings(config);
+    const file = path.join(root, '.lush', 'settings.json');
+    const defaults = [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }];
+    // 默认值是核心默认表，且读模型返回拷贝：改它不影响后续读取。
+    expect(settings.get().input_routes).toEqual({ value: defaults, default: defaults, overridden: false });
+    settings.get().input_routes.value.push({ prefix: 'x', target: 'worker' });
+    expect(settings.get().input_routes.value).toEqual(defaults);
+
+    const routes = [{ prefix: 'Build', target: 'worker' }, { prefix: '解释', target: 'research' }];
+    const saved = settings.save({ input_routes: routes });
+    expect(saved.input_routes).toEqual({ value: routes, default: defaults, overridden: true });
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, input_routes: routes });
+    expect(new RuntimeSettings(config).get().input_routes.value).toEqual(routes);
+    // 保存后改调用方手里的数组不影响已落盘内容。
+    routes.push({ prefix: 'noop', target: 'worker' });
+    expect(new RuntimeSettings(config).get().input_routes.value).toEqual([{ prefix: 'Build', target: 'worker' }, { prefix: '解释', target: 'research' }]);
+
+    // null 清除该键，回退默认，且不写进文件。
+    const cleared = settings.save({ input_routes: null });
+    expect(cleared.input_routes).toEqual({ value: defaults, default: defaults, overridden: false });
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1 });
+
+    // 非法配置：坏 target、重复 prefix（大小写不敏感）、空 prefix、含空白、非数组、超 32、缺字段、多余字段。
+    const bad = [
+      'nope',
+      Array.from({ length: 33 }, (_, index) => ({ prefix: `p${index}`, target: 'worker' })),
+      [{ prefix: 'x', target: 'nope' }],
+      [{ prefix: 'Dup', target: 'worker' }, { prefix: 'dup', target: 'research' }],
+      [{ prefix: '', target: 'worker' }],
+      [{ prefix: 'a b', target: 'worker' }],
+      [{ prefix: 'x' }],
+      [{ prefix: 'x', target: 'worker', extra: 1 }],
+    ];
+    for (const value of bad) expect(() => settings.save({ input_routes: value })).toThrow();
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1 });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('config mirrors input_routes from storage and runtime updates', () => {
+  const root = temp();
+  try {
+    const config = new Config({ project: root, env: env() });
+    const defaults = [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }];
+    expect(config.inputRoutes).toEqual(defaults);
+    config.prepare();
+    const model = config.configureRuntime({ input_routes: [{ prefix: 'Build', target: 'research' }] });
+    expect(model.input_routes).toEqual({ value: [{ prefix: 'Build', target: 'research' }], default: defaults, overridden: true });
+    expect(config.inputRoutes).toEqual([{ prefix: 'Build', target: 'research' }]);
+    expect(new Config({ project: root, env: env() }).inputRoutes).toEqual([{ prefix: 'Build', target: 'research' }]);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
