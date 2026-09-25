@@ -4,7 +4,7 @@
 
 ## Intent-first
 
-`inputs` 保存用户原话、flow、目标分支与私有 integration branch。根 planner 属于 `layer='intent'`，不进入执行任务树；它负责语义理解，不修改代码。
+`inputs` 保存用户原话、目标分支与私有 integration branch。根 planner 属于 `layer='intent'`，不进入执行任务树；它负责语义理解，不修改代码。
 
 主流程：
 
@@ -23,7 +23,7 @@ Intent
 
 planner 一轮写完时，`Project.compilePlans()` 选择已经停止执行且不受计划闸门阻挡的 spec。runtime 按依赖顺序直接调用 `materializeSpec()`：
 
-1. 校验 spec 角色、flow 与依赖；
+1. 校验 spec 角色与依赖；
 2. 将 spec 依赖翻译为 task id；
 3. 在事务中创建 root work task；
 4. 写入 `task_deps`；

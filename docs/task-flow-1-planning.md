@@ -21,7 +21,7 @@ lush draft commit --branch release/next
 
 父分支之后前进、主工作树切换或有未提交修改，都不会改变这条输入看到的代码。未提交修改不会被复制进集成分支。
 
-`input flow explain` 只产生答案 / research；`develop` 才产生修改代码的工作。
+能直接回答的输入不派生任务；需要只读调研时写 research spec，改代码的工作才建 worktree / 分支。
 
 ## Plan 编译
 

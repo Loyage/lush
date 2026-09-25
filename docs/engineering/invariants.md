@@ -10,7 +10,6 @@
 <a id="transaction"></a>- 取消、notice 答复与 completion 的核心状态变更都在同步短事务中完成；事务内不等待模型或 Git。
 <a id="retry"></a>- 重试必须是用户显式动作，且父 task 不能已终态。
 <a id="history"></a>- 不删除任务历史；工作区清理与任务终态是不同操作。唯一例外是用户显式的定向删除（`task.delete` / `lush task delete`，只删一条已结束任务及其已结束后代）与项目级清空（`task clear`）：两者都只由用户触发，都先过工作区回收的安全门，都不复用 task id，并把被删的任务 id / 角色 / 状态写进一条 `task_id` 为空的 `task.deleted` 事件。Agent 不能删任务。
-<a id="explain"></a>- `explain` 输入的子树只允许 research；输入分支只提供稳定读取上下文，不产生任务子分支或待交付改动。
 <a id="anchor"></a>- 输入提交时从用户指定本地父分支创建独立输入分支与 worktree；planner 在其中运行。`anchor_commit` / 谱系 parent 创建后不变，但输入分支 tip 可以通过直接子分支 fast-forward 推进。
 <a id="conflict"></a>- 所有写入只沿 recorded direct-parent 边、只做 fast-forward。父子分歧时不在父侧 no-ff；用户创建子侧 merger，把冻结的父 commit 合入子侧并测试，再逐层 ff。
 <a id="genealogy"></a>- 分支谱系只在分支被创建那一刻写入，之后不可变：merge 不改写 parent，重试不重写已有记录；分支被删除只标 `deleted`。没有 recorded parent 的分支只能查看，不能作为 `branch.merge/sync` 的依据。
