@@ -6,6 +6,7 @@
 
 - 根 `README.md`：项目定位、最短启动路径和主要入口。
 - `docs/README.md`：完整文档地图与推荐阅读顺序。
+- `docs/deployment/`：安装、启动、远程访问、Agent 配置与验证；面向部署者与 AI coding agent，不等于功能参考。
 - `docs/design/`：模块目标、设计理念与取舍；修改模块前的阅读入口，不等于已实现能力。
 - `docs/engineering/`：源码边界、不变量和实现设计。
 - `docs/reference/`：CLI、RPC、HTTP 与 Web 路由参考。
