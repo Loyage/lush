@@ -3,9 +3,9 @@ import { action } from './api.js';
 import { show } from './messages.js';
 import { ui } from './state.js';
 import { composerReferences, renderComposerReferences, setComposerReferences } from './context-references.js';
-import { matchInputRoute } from './input-routes.js';
+import { agentHelp } from './help.js';
 
-// 待提交意图：只落库不规划；可改、可移除，可单条执行，也可一次性全部逐条执行。
+// 草稿只缓存；输入框发送仅提交当前正文，绝不连带发送其它草稿。
 /** 面板开合状态画到 DOM：.open 控制展开，aria-expanded 同步给读屏。 */
 export function paintDraftPanel() {
   const open = Boolean(ui.draftPanelOpen);
@@ -47,37 +47,15 @@ export async function buffer() {
   // 网络请求期间用户可能又引用了一项；只清掉实际随这条草稿提交的那一组。
   if (JSON.stringify(composerReferences()) === signature) setComposerReferences([]);
 }
-// 按钮的可用性同时看输入框与待提交意图：都没内容就没什么可执行的。
+// 发送按钮只看当前输入框；草稿只能从各自的发送按钮提交。
 export function syncComposer() {
   const busy = Boolean(ui.composerSubmitting);
-  $('draft-commit').disabled = busy || (!$('input').value.trim() && ui.draftIds.length === 0);
+  $('draft-commit').disabled = busy || !$('input').value.trim();
   $('draft-add').disabled = busy;
-  paintInputHighlight();
 }
-
-/**
- * 输入框就地高亮命中的快速路由前缀：从当前运行设置读前缀表，用与 core 一致的规则匹配，
- * 只在命中时把前缀那段文本包进 <mark class="input-prefix">。全部用 textContent / createElement
- * 构造，绝不拼 innerHTML。前缀之后的空白与标点不被高亮（那不属于前缀本身）。
- * 未命中或没装好 DOM 时清空 overlay；textarea 滚动时同步偏移，避免长文本错位。
- */
-export function paintInputHighlight() {
-  const input = $('input'), highlight = $('input-highlight');
-  if (!input || !highlight) return;
-  const value = input.value;
-  const routes = ui.lastSnapshot?.status?.settings?.input_routes?.value || [];
-  const match = value ? matchInputRoute(routes, value) : null;
-  if (!match) { highlight.replaceChildren(); highlight.hidden = true; return; }
-  const offset = value.length - value.replace(/^\s+/u, '').length;
-  const end = offset + match.prefix.length;
-  const mark = el('mark', value.slice(offset, end), 'input-prefix');
-  highlight.replaceChildren(value.slice(0, offset), mark, value.slice(end));
-  highlight.hidden = false;
-  highlight.scrollTop = input.scrollTop;
-  highlight.scrollLeft = input.scrollLeft;
-}
-/** 接上输入框与操作按钮：回车=缓存，⌘/Ctrl+回车=全部执行，Shift+回车=换行。 */
+/** 接上输入框与操作按钮：回车=存草稿，⌘/Ctrl+回车=发送当前正文，Shift+回车=换行。 */
 export function initComposer() {
+  $('draft-commit').setAttribute('data-help', agentHelp('只发送输入框中的这一条，不会连带发送缓存的草稿。'));
   $('draft-toggle').onclick = () => toggleDraftPanel();
   paintDraftPanel(); renderComposerReferences();
   $('composer-expand').onclick = () => toggleComposerDetails();
@@ -95,33 +73,19 @@ export function initComposer() {
     if (ui.composerSubmitting) return;
     ui.composerSubmitting = true; syncComposer();
     try {
-      // 正文先暂存：不带 ids 的整体执行会把刚缓存的这条一起逐条提交。
-      if ($('input').value.trim()) await buffer();
+      const value = $('input').value.trim();
+      if (!value) return;
+      const references = composerReferences();
+      const signature = JSON.stringify(references);
       const branch = $('input-branch').value.trim();
-      const result = await action('draft.commit', { ...(branch ? { branch } : {}) });
-      const inputs = result.inputs || [];
-      const routed = inputs.filter(input => input.route);
-      const hits = routed.map(input => {
-        const target = input.route.target;
-        const task = input[target] ?? input.task;
-        return `${input.route.prefix} → ${target} #${task.id}`;
-      });
-      const planners = inputs.length - routed.length;
-      const summary = [`已逐条执行 ${inputs.length} 条`];
-      if (hits.length) summary.push(`快速路由命中 ${hits.length} 条（${hits.join('、')}）`);
-      if (planners) summary.push(`${planners} 条交给 planner 拆解任务并建依赖`);
-      show(summary.join('；'));
+      const result = await action('say.submit', { content: value, references, ...(branch ? { branch } : {}) });
+      if ($('input').value.trim() === value) $('input').value = '';
+      if (JSON.stringify(composerReferences()) === signature) setComposerReferences([]);
+      show(`已发送输入 #${result.id}；其它草稿仍在缓存中`);
     } catch (error) { show(error.message, 'error'); } finally { ui.composerSubmitting = false; syncComposer(); }
   };
   $('input').addEventListener('input', syncComposer);
-  // textarea 变高滚动时 overlay 不跟着动，会把高亮留在原处；这里只同步偏移，不改样式。
-  $('input').addEventListener('scroll', () => {
-    const highlight = $('input-highlight');
-    if (!highlight) return;
-    highlight.scrollTop = $('input').scrollTop;
-    highlight.scrollLeft = $('input').scrollLeft;
-  });
-  // 回车=缓存，⌘/Ctrl+回车=全部执行，Shift+回车=换行。
+  // 回车=存草稿，⌘/Ctrl+回车=发送当前正文，Shift+回车=换行。
   $('input').addEventListener('keydown', event => {
     if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
     event.preventDefault();

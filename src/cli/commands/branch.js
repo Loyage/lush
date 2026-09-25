@@ -21,6 +21,9 @@ export async function run(command, args, ctx) {
     exact(args, 0);
     value = await client.request('branch.import');
     if (!json) { printBranchImport(value); return; }
+  } else if (verb === 'bind') {
+    exact(args, 2);
+    value = await client.request('branch.bind', { branch: args[0], commit: args[1] });
   } else if (verb === 'merge') {
     exact(args, 1);
     value = await client.request('branch.merge', { branch: args[0] });
@@ -55,7 +58,7 @@ export async function run(command, args, ctx) {
     value = await client.request('branch.summary', branch === null ? { summary } : { branch, summary });
     if (!json) { printBranchSummary(value); return; }
   } else {
-    check(false, 'unknown branch command; use tree, show, import, merge, sync, catchup, merge-plan, merge-all, merge-cancel, archive or summary');
+    check(false, 'unknown branch command; use tree, show, import, bind, merge, sync, catchup, merge-plan, merge-all, merge-cancel, archive or summary');
   }
   return value;
 }

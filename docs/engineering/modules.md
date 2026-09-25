@@ -77,7 +77,7 @@
 ## 一键合并与分支写冻结
 
 - 用户确认后的一次编排在 `project/merge-all.js`：`branch.merge_plan` 只读列出目标分支整棵后代子树（叶子在前：谱系深度降序，其次创建时间、名字），每条给状态、动作（`merge` / `sync` / `skip`）、`ready` 与 blockers；`order` 包含有工作要交付的全部后代（含此刻被未收拢子分支阻塞、叶子先合后会自动就绪的父级）。`branch.merge_all` 落一条目标分支附属的 `branches.merge_run`（versioned JSON：status/order/index/done/skipped/waiting_task_id），异步逐条复用 ff-only 门槛；分歧时建子侧 merger、置为 `paused` 等待，merger 结算时由 `lifecycle.finish` 调 `resumeMergeRun` 自动继续。`branch.merge_cancel` 清运行、取消等待中的 merger 并释放冻结。不新增表 / 实体；终态清空。
-- `src/core/branch-freeze.js` 从两处已有事实现算分支写冻结：目标分支上 active 的 `merge_run` 冻结目标 + 全部后代；任何未结束的 merger 任务冻结其 `target_branch` + 全部后代 + 其直接父分支。冻结拦截新建 intent（`input.submit` / `draft.commit`）、`branch.merge` / `branch.sync` / `branch.catchup` / `branch.archive`、`task.retry` / `task.cleanup` / `task.delete` 与 `task.clear`；`task.cancel` 保持可用（释放路径）。一键合并运行与冻结经 `status.branch_freeze` / `status.merge_runs` 与 `graph.get` 的 branch 节点 `freeze` / `merge_run` 下发，Web 据此给「一键合并全部子分支」/「取消一键合并」入口并在冻结时禁用写按钮。
+- `src/core/branch-freeze.js` 从三处已有事实现算分支写冻结：目标分支上 active 的 `merge_run` 冻结目标 + 全部后代；任何未结束的 merger 任务冻结其 `target_branch` + 全部后代 + 其直接父分支；已发出但尚未集成的 say 合并请求（`reservation` 里 `kind=merge`、`status=requested`）冻结其 `target_branch` **本身**（不冻结请求者与兄弟 say 自己的分支）——请求已经把父分支基线固定成那个 commit，父分支再前进就只能作废重做。交付锁同时保证同一个父分支一次只接受一个未集成请求：`settleReservedMerge` 见到别人的交付锁就保持 pending 并记 `parent_locked`，`integrateChild` / `approveReservedMerge` 只允许锁持有者自己落地。冻结拦截新建 intent（`input.submit` / `draft.commit`）、`branch.merge` / `branch.sync` / `branch.catchup` / `branch.archive`、`task.retry` / `task.cleanup` / `task.delete` 与 `task.clear`；`task.cancel` 保持可用（释放路径）；另外源分支带着未集成请求时 `branch.archive` 也拒绝（删了它父分支的交付锁就永远没有落地对象）。一键合并运行与冻结经 `status.branch_freeze` / `status.merge_runs` 与 `graph.get` 的 branch 节点 `freeze` / `merge_run` 下发，Web 据此给「一键合并全部子分支」/「取消一键合并」入口并在冻结时禁用写按钮。
 - planner / scheduler 不受影响；`task.cancel` 不受冻结限制，所以用户总能把卡住的子任务停掉再取消整场合并。
 
 ## 效果展示增量接口
@@ -119,6 +119,7 @@
 
 - `input.submit` 提交时先按运行设置的快速路由前缀做确定性匹配：命中就不调用规划模型，按前缀 target 创建 worker 或 research（只读、不建 worktree / 分支）根任务，并在同一事务把 planner 标 completed、写 `input.route` 事件；未命中才走规划模型。命中前缀仍保留 Input、输入分支与 completed/零 invocation 的 planner 占位；`draft.commit` 逐条提交，每条正文各自匹配一次前缀，未命中的仍走规划；不绕过 worker 决策提问与人工最终合并。
 - `project/context.js` 的 `invocationContext(task,run)` 只投影直接父子、依赖、用户引用与专用角色上下文；不注入全局最近任务。关联摘要有界且明确截断，完整内容通过既有 `task inspect` 读取。`provider.js` 启动 JSON 使用多行格式，剔除凭证 hash 与重复 prompt 配置。
+- 安全抢占（`scheduling.requestPreempt`）：**只由用户追加输入触发**（`task.message` 且 `sender===null`），且只在有可验证安全边界的后端生效（目前只有 Pi）。它杀进程，而是在 `<home>/preempt/` 写一次性 request；`agent/pi-runtime.js` 在 `turn_end`——本轮工具都结束、不会再有并行 `tool_call` 正在跑的边界——写 stop 标记并让本轮收尾（不用 `tool_call`：同一条 assistant message 的工具调用可能并行）。`provider.js` 关进程后读一次双向标记（无论采纳与否都立即清掉）并抛 `AgentPreempted`；`invoke` 据此把这次 run 记成 `preempted`（与 completed/failed/cancelled 并列，见 `store/runs.js`）并把 Task 放回 `queued`/`waiting`，写 `invocation.preempted` 事件，**不**调 `cancel()`：不算失败、不重建工作区、下一轮先读那条输入。超时与 `task.cancel` 仍走硬杀路径并如实标成失败/取消，两类不混用。Codex 与未声明边界的后端保持轮末投递，只记 `preempt.requested` 而不假装能抢占；安全边界只覆盖 Agent 的工具循环，后台孙进程照旧在 invocation 结束时回收。
 - coordinator 的普通子任务成功结算只在全部子任务终态后唤醒；失败、取消、显式消息仍及时处理。延迟消息保留未读，所有收尾/恢复路径共用 `hasActionableMessages(taskId)`，避免空转和 lost-wakeup。
 - Agent profile 增加可选 `soft_budget:{responses?,tokens?}`：正整数，空对象/缺省关闭。仅普通 Pi 支持；Codex 和 explainer 明确拒绝启用。内置 `agent/pi-runtime.js` 扩展记录 invocation 身份，按本次响应累计用量，在达到阈值后下一次自然模型调用前仅提醒一次收尾；不强制停止、不额外启动模型轮次、不把历史用量算进新 invocation。
 - `system.usage` 增量返回 `roles` / `tasks` / `invocations` 归因表（按费用排序，任务与 invocation 各最多 100 条，明确总组数与截断），历史不能可靠归因的记录进入 unknown。新 Pi custom entry 与 Codex usage 行固化 task/run/role，旧记录仅在唯一 Run 时间区间匹配时归因；不改写历史。
@@ -137,6 +138,20 @@
 | 测试 | `test/*.test.js` | `test/<分区>/*.test.js` | 依赖上面六个落定后 |
 
 前六个分区 **互不共享文件**，可以同时开工。测试分区要等它们落地，否则测的是半成品。
+
+新 Task 的预约是 `tasks.reservation` 可空 versioned JSON 附属状态：仅 say Task 可设置 `showcase` 或 `merge` 的一个 pending 意图，同类重复幂等、异类拒绝并要求显式撤销；User-only `task.reserve` / `task.unreserve` 与 Event 同事务。`merge` 预约只在 say 静息、工作区可检验且子任务已结算时冻结提交与直接父基线，在结算事务内写一次父 Task 信号并结束源 Task；用户另用固定 commit + baseline 批准 main/owner 的快进，Git 串行区内复核双方 ref。`showcase` 在静息且安全准入后按固定源/对照提交启动专用展示子 Task，原 say 用预约阶段 `started` 表示开发已完成但未终结；展示子 Task 结算后原 Task 才结算，失败仍留现场与原因；未批准的合并请求绝不移动父分支。同类重复 `task.reserve` 不重建预约，而是显式重查 pending 状态：执行屏障、未读消息和子任务等待原因也记在 `blocked_reason`，成功后由结算事务清掉；Web 的「复查预约」与 CLI 原命令共享此路径，不自动轮询外部 Git 变化。
+
+daemon 启动在 project identity/Store 建立后、RPC 开放前幂等执行 `Project.bootstrapMain()`：只有本地 main ref 存在才确立唯一静息 main Task；无 main 时保持 daemon 可用、首次新 say 给明确错误，不自动造 ref，也不触发 provider。恢复仍保留未知副作用不重放。
+
+显式分支绑定：用户选定本地 `BRANCH` 与当时的 `HEAD COMMIT` 后，`branch.bind` 为非 main 且尚无新 Task 所有者的分支创建独立、永不执行不受限 provider 的静息 `task_kind='owner'` 根 Task。旧分支记录和旧 Task 不回写；`branch.tree/show` 派生的新 owner 投影覆盖旧 task_id 的当前所有者显示，历史仍可按旧 task id 查看。无绑定的新 say 继续拒绝，不猜祖先。
+
+main/owner 的**受限按需分析**：用户 `task.analyze {id,question}`（用户专属，`lush task analyze ID '问题'`）在分支所有者下建一个 `task_kind='analysis'` 子 Task，答案成为它的 `result`，结算时另落一条 `kind='info'` 提醒（带截断结论与详情指引）。它**不建分支**：工作区是该分支提交的分离检出（`baseline_workspace`，与 verifier 对照检出同一套路，invocation 结束即回收，下次调用按当时分支顶端重建），Task 的 `branch` 为 null、不记 `head_commit`/integration，所以既推不了任何 ref 也交付不了代码；`target_branch` / `base_commit` 只记录“分析哪条分支的哪个提交”。提示词按 `task_kind='analysis'` 换成只读组合（不切分支、不写 ref、不派工、不合并、不说已交付，结论需带证据并自陈未知），工具不限（可在隔离检出里跑命令取证）；`task.spawn` 明确拒绝分析 Task，`task.cleanup` / `task.delete` 对它不等“未合并”门槛，也不需要归档分支。
+
+新 say 入口增量：`say.submit(content?,draft_id?,branch?,references?)` 与旧 `input.submit` 分开，后者仍供历史调用方安全收尾；新 Input 直连 `role='agent'`、`task_kind='say'` 的 Task，main 是 `task_kind='main'` 的静息根 Task。`tasks.task_kind` 只加列不重写历史；新提交必须先校验父分支有明确的 Task 所有者。实现职责放 `src/core/project/say.js`、现有 Git 边界与 Store，不新增全局调度器。
+
+新 Task 子代码只允许执行中的直接父 Agent 经 `task.integrate {id,commit}` 确认固定 child HEAD 并在 Git 串行锁下 ff-only 快进至父分支；旧 `task.merge` / `branch.merge` 拒绝新 Task 分支。新 say 的 pending merge 请求若与直接父分支分歧，用户可 `task.resolve_divergence {id}` 在源 say 下创建一个独立 child（基线固定为源 tip，目标固定为源 say 分支，任务目标要求合入当时固定的父 tip 并测试）；只派生不推进父分支/源分支。父 say Agent 收到子任务完成信号后用 `task.integrate` 确认固定 child commit；该确认额外校验 child commit 同时含最初源/父 tip，之后用户复查预约或自然轮末重新按最新父 tip 准入。重复请求返回未集成的同一活动 child；已完成但不合格或已失败/取消的 child 需用户检查并显式归档其仍活动的旧分支（保留 Task/事件/会话，未提交文件必须另行确认丢弃）后才可重新派独立 child；没有创建分支的失败任务可直接新派。解分歧 child 不走旧 `task.retry`，不暗中豁免子分支阻塞或重写已完成 Task。兄弟子任务先落地或父分支自己提交后，已完普通子任务的固定提交同样不再能快进：执行中的直接父 Agent 用 `task.resolve_child_divergence {id}` 从该固定提交拉起同构的解分歧子 Task（记录 `task.divergence_resolution_requested`，固定当时的父分支顶端），解分歧子 Task 合入父分支新提交并测试后，仍由 `task.integrate` 确认（同时校验它含固定子提交与固定父顶端，成功后一并结算被修复的子任务并记 `child.integrated_via_resolution`）；父分支有未集成 say 请求时先拒。`task.integrate` 不能推进 main；父分支不干净、HEAD 漂移、子任务未结算或有未集成后代时保留现场并拒绝。实现放 `src/core/project/say.js`，Git 写入复用 `workspaces.mergeBranchUnsafe`。
+
+Task 中心输入的持久信号增量：`messages` 增加可空 `signal_type` / `signal_key`（旧自由文本消息不变），`(task_id,sender_id,signal_key)` 部分唯一索引保证子→父同一次信号只写一条；`Store.signal()` 与 `Project.sendTaskSignal()` 只供 runtime 内部使用，事务同写 Event/Message，先落库后唤醒。此接缝目前只提供信号事实与去重，不声称实现安全点抢占或新 say Task 的生命周期；目标设计见[Task 中心输入架构](task-centered-input-design.md)。
 
 问卷决策沿用 Notice，不新增表或实体：`src/core/questionnaire.js` 负责严格校验与答案规范化，`Project.notice` 保存 `kind='questionnaire'`，调度器通过 `questionPending` / `parkForQuestion` 暂停并恢复 invocation；Web 端由 `render-questionnaire.js` 渲染，预览路由使用 `notice-preview.js` 的独立 CSP 清洗 HTML。
 

@@ -10,6 +10,36 @@ const BIN = fileURLToPath(new URL('../../bin', import.meta.url));
 const MAX_RESULT = 256000;
 const PI_RUNTIME = fileURLToPath(new URL('./pi-runtime.js', import.meta.url));
 
+/** 在可验证的安全边界上被抢占的 invocation：不是失败、也不是超时/取消，调度器按此单独记账。 */
+export class AgentPreempted extends Error {
+  constructor(details = {}) {
+    super(`agent invocation preempted${details.safe_point ? ` at ${details.safe_point}` : ''}`);
+    this.name = 'AgentPreempted';
+    this.details = details;
+  }
+}
+
+/** 抢占通道：daemon 写 request，Agent 侧的 pi 扩展只在安全边界写 stop。两边都只认这一次 invocation。 */
+export function preemptPaths(config) {
+  if (!config.taskId) return null;
+  const dir = path.join(config.home, 'preempt');
+  return { dir, request: path.join(dir, `task-${config.taskId}.request.json`),
+    stop: path.join(dir, `task-${config.taskId}.stop.json`) };
+}
+
+/** 读一次本轮的双向标记，然后无条件清掉它们：迟到的标记不允许再影响下一次 invocation。 */
+function takePreemptMark(paths) {
+  if (!paths) return null;
+  const read = file => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
+  const request = read(paths.request), stop = read(paths.stop);
+  fs.rmSync(paths.request, { force: true }); fs.rmSync(paths.stop, { force: true });
+  if (!request || !stop) return null;
+  if (request.run_id && stop.run_id && request.run_id !== stop.run_id) return null;
+  return { task_id: stop.task_id ?? request.task_id ?? null, run_id: stop.run_id ?? null,
+    safe_point: stop.safe_point ?? 'turn_end', reason: request.reason ?? null,
+    requested_at: request.requested_at ?? null, stopped_at: stop.stopped_at ?? null };
+}
+
 function sessionFiles(config, task, context, messages, agent) {
   const sessions = path.join(config.home, 'sessions');
   fs.mkdirSync(sessions, { recursive: true, mode: 0o700 });
@@ -21,7 +51,7 @@ function sessionFiles(config, task, context, messages, agent) {
   }
   const profile = { agent: agent.agent, model: agent.model, thinking: agent.thinking, soft_budget: agent.soft_budget };
   fs.writeFileSync(promptFile, JSON.stringify({ task: safeTask, project: config.project, agent: profile, ...context, messages }, null, 2) + '\n', { mode: 0o600 });
-  const prompt = agentPrompt(config, task.role, agent);
+  const prompt = agentPrompt(config, task.role, agent, task.task_kind ?? null);
   fs.writeFileSync(systemFile, prompt.text, { mode: 0o600 });
   const environment = agentEnvironment(config, task.role);
   return { sessions, promptFile, systemFile, environment };
@@ -47,6 +77,7 @@ async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, 
   child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-12000); });
   signal.addEventListener('abort', kill, { once: true });
   if (signal.aborted) kill();
+  const preempt = preemptPaths(config);
   try {
     const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
     if (signal.aborted) {
@@ -54,11 +85,16 @@ async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, 
       throw reason instanceof Error ? reason
         : new Error(typeof reason === 'string' && reason ? reason : 'agent invocation interrupted');
     }
+    // 进程自己退出了，而且这一轮在声明的安全边界（本轮工具都结束后）留了标记：按抢占而不是完成/失败处理。
+    const mark = takePreemptMark(preempt);
+    if (mark) throw new AgentPreempted(mark);
     if (overflow) throw new Error(`agent output exceeded ${MAX_RESULT} characters`);
     if (code !== 0) throw new Error(`${path.basename(command)} exited ${code}: ${stderr}`);
     return output.trim();
   } finally {
     signal.removeEventListener('abort', kill);
+    // 没被采纳的请求也必须清掉：否则下一次 invocation 会在第一个边界上被误停。
+    if (preempt) { fs.rmSync(preempt.request, { force: true }); fs.rmSync(preempt.stop, { force: true }); }
     // A task must not leave background grandchildren editing after its invocation ended.
     kill();
   }
@@ -90,7 +126,7 @@ export class PiProvider {
     return spawnAgent(config.env.LUSH_PI_COMMAND || 'pi', args, {
       config: { ...config, taskId: task.id }, cwd, token: isolated ? '' : token, signal, onSpawn,
       extraEnv: { ...files.environment.values, LUSH_RUNTIME_CONTEXT: JSON.stringify({ ...context.invocation,
-        task_id: task.id, role: task.role, soft_budget: agent.soft_budget }) },
+        task_id: task.id, role: task.role, soft_budget: agent.soft_budget, preempt_dir: path.join(config.home, 'preempt') }) },
     });
   }
 }

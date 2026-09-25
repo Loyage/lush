@@ -95,6 +95,35 @@ export const methods = {
   },
 
   async ensure(task) {
+    if (task.task_kind === 'main') return this.config.project;
+    // 只读分析：分支最新提交的分离检出，**不创建也不占用任何分支**，所以分析师无法推进任何 ref。
+    // 与 verifier 的对照检出同一套路：目录是派生的，invocation 结束就回收。
+    if (task.task_kind === 'analysis') return this.exclusive(async () => {
+      task = this.store.task(task.id);
+      const project = this.config.project;
+      check(task.target_branch, `analysis #${task.id} has no branch to analyze`);
+      const commit = await this.git(project, 'rev-parse', '--verify', `refs/heads/${task.target_branch}^{commit}`);
+      if (task.baseline_workspace && fs.existsSync(task.baseline_workspace)) {
+        const root = fs.realpathSync(await this.git(task.baseline_workspace, 'rev-parse', '--show-toplevel'));
+        check(root === task.baseline_workspace, 'analysis checkout is not a git worktree root');
+        return task.baseline_workspace;
+      }
+      const dir = path.join(this.config.home, 'worktrees', `${taskLabel(task.id, task.name)}-analysis`);
+      fs.mkdirSync(path.dirname(dir), { recursive: true });
+      this.store.update(task.id, { baseline_workspace: dir, base_commit: commit });
+      await this.git(project, 'worktree', 'add', '--detach', dir, commit);
+      this.store.event(task.id, 'analysis.checkout', { workspace: dir, commit, branch: task.target_branch });
+      return dir;
+    });
+    if (task.task_kind === 'say') {
+      // A say Task owns the input branch itself. Never create a second worker branch for it.
+      const anchor = this.inputAnchor(task);
+      check(anchor?.workspace && fs.existsSync(anchor.workspace), `say #${task.id} has no worktree; inspect before retrying`);
+      const root = fs.realpathSync(await this.git(anchor.workspace, 'rev-parse', '--show-toplevel'));
+      check(root === anchor.workspace && task.workspace === anchor.workspace, 'say worktree identity changed');
+      check(await this.git(anchor.workspace, 'symbolic-ref', '--short', 'HEAD') === task.branch, 'say branch changed');
+      return anchor.workspace;
+    }
     if (task.role === 'showcase') return this.ensureShowcase(task);
     // verifier 不修改代码：它站在被检验的 worktree 里演示，另拉一个目标分支的只读对照。
     if (task.role === 'verifier') return this.exclusive(async () => {
@@ -129,7 +158,7 @@ export const methods = {
       const anchor = this.inputAnchor(task);
       if (anchor?.workspace && fs.existsSync(anchor.workspace)) return anchor.workspace;
     }
-    if (task.role !== 'worker' && task.role !== 'merger') return this.config.project;
+    if (task.role !== 'worker' && task.role !== 'merger' && task.task_kind !== 'child') return this.config.project;
     return this.exclusive(async () => {
       task = this.store.task(task.id);
       if (task.workspace && fs.existsSync(task.workspace)) {
@@ -156,13 +185,17 @@ export const methods = {
       const branchSync = task.role === 'merger' && !resolves && Boolean(task.base_commit && task.target_branch);
       // 没有 code 依赖、也不是 merger 时，基线来自这条输入的分支起点。输入分支之后可以聚合子分支，
       // 但一个已经派出的并行任务仍从输入提交时冻结的 commit 开始，不会随合并时机漂移。
-      const anchor = (resolves || branchSync) ? null : this.inputAnchor(task);
-      const base = task.base_commit || (resolves
+      const owner = task.task_kind === 'child' ? this.store.task(task.parent_id) : null;
+      check(!owner || owner.branch, 'new child Task has no parent branch');
+      const anchor = (resolves || branchSync || owner) ? null : this.inputAnchor(task);
+      const base = task.base_commit || (owner
+        ? await this.git(project, 'rev-parse', '--verify', `refs/heads/${owner.branch}^{commit}`)
+        : resolves
         ? await this.git(project, 'rev-parse', `refs/heads/${task.target_branch}`)
         : stacked?.head_commit || anchor?.commit || await this.git(project, 'rev-parse', 'HEAD'));
       // Branch-first：任务只交付给自己的直接父分支。普通任务回到输入分支，code 下游回到上游任务分支；
       // 输入分支再由用户从分支图批准合回它的父分支。
-      const target = task.target_branch || (task.input_id ? (stacked?.branch || anchor?.branch) : null)
+      const target = task.target_branch || owner?.branch || (task.input_id ? (stacked?.branch || anchor?.branch) : null)
         || await this.git(project, 'symbolic-ref', '--short', 'HEAD');
       const branch = task.branch || `lush/${this.namespace}/${taskLabel(task.id, task.name)}`;
       let reuse = false;

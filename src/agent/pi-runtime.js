@@ -1,4 +1,6 @@
 /** Trusted, dependency-free Pi extension. No tools, processes or background timers. */
+import fs from 'node:fs';
+
 export default function lushRuntime(pi) {
   let settings;
   try { settings = JSON.parse(process.env.LUSH_RUNTIME_CONTEXT || '{}'); }
@@ -29,5 +31,23 @@ export default function lushRuntime(pi) {
     pi.appendEntry('lush.soft_budget', { ...details, content });
     return { messages: [...event.messages, { role: 'custom', customType: 'lush.soft_budget', content,
       display: true, details, timestamp: Date.now() }] };
+  });
+  // 安全抢占：daemon 在用户追加输入时写一个 request，这里只在 `turn_end`——本轮工具都已结束的边界——
+  // 留一个 stop 标记并让本轮就此收尾（不返回 continue，进程正常退出，由 daemon 记成 preempted）。
+  // 不能用 `tool_call`：同一条 assistant message 的工具调用可能并行，那里不是“没有文件操作在跑”的边界。
+  const preempt = typeof settings.preempt_dir === 'string' && settings.preempt_dir && settings.task_id
+    ? { request: `${settings.preempt_dir}/task-${settings.task_id}.request.json`,
+        stop: `${settings.preempt_dir}/task-${settings.task_id}.stop.json` }
+    : null;
+  if (preempt) pi.on('turn_end', () => {
+    let request = null;
+    try { request = JSON.parse(fs.readFileSync(preempt.request, 'utf8')); } catch { return; }
+    try {
+      fs.writeFileSync(preempt.stop, JSON.stringify({ task_id: settings.task_id, run_id: settings.run_id ?? null,
+        safe_point: 'turn_end', reason: request.reason ?? null, requested_at: request.requested_at ?? null,
+        stopped_at: new Date().toISOString() }) + '\n', { mode: 0o600 });
+    } catch { return; }
+    pi.appendEntry('lush.preempted', { run_id: settings.run_id ?? null, safe_point: 'turn_end',
+      reason: request.reason ?? null });
   });
 }

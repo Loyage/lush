@@ -1,4 +1,5 @@
 import { exact, option } from '../args.js';
+import { id } from '../../core/types.js';
 
 export async function run(command, args, ctx) {
   const { client } = ctx;
@@ -9,7 +10,14 @@ export async function run(command, args, ctx) {
     else {
       if (['submit','add'].includes(args[0])) args.shift();
       const branch = option(args, '--branch');
-      exact(args, 1); value = await client.request('input.submit', { content: args[0], ...(branch ? { branch } : {}) });
+      const draft = option(args, '--draft');
+      if (draft !== null) {
+        exact(args, 0);
+        value = await client.request('say.submit', { draft_id: id(draft), ...(branch ? { branch } : {}) });
+      } else {
+        exact(args, 1);
+        value = await client.request('say.submit', { content: args[0], ...(branch ? { branch } : {}) });
+      }
     }
   } else if (command === 'input') {
     const verb = args.shift();

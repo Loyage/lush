@@ -4,6 +4,7 @@ import sleepMethods from './project/sleep.js';
 import agentMethods from './project/agents.js';
 import depsMethods from './project/deps.js';
 import inputsMethods from './project/inputs.js';
+import sayMethods from './project/say.js';
 import draftsMethods from './project/drafts.js';
 import referencesMethods from './project/references.js';
 import specsMethods from './project/specs.js';
@@ -37,7 +38,7 @@ import lifecycleMethods from './project/lifecycle.js';
  * 这是有意为之：运行时与各 mixin 都不依赖可枚举性，故意不为「更像 class」而改成 defineProperty。
  */
 const MIXINS = [
-  ['sleep', sleepMethods], ['status', statusMethods], ['agents', agentMethods], ['deps', depsMethods], ['inputs', inputsMethods], ['drafts', draftsMethods], ['references', referencesMethods],
+  ['sleep', sleepMethods], ['status', statusMethods], ['agents', agentMethods], ['deps', depsMethods], ['inputs', inputsMethods], ['say', sayMethods], ['drafts', draftsMethods], ['references', referencesMethods],
   ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['progress', progressMethods], ['tree', treeMethods],
   ['timeline', timelineMethods], ['messages', messagesMethods], ['merge', mergeMethods], ['mergeAll', mergeAllMethods], ['verify', verifyMethods],
   ['explanations', explanationMethods], ['intro', introMethods], ['showcase', showcaseMethods], ['candidates', candidateMethods], ['integration', integrationMethods], ['graph', graphMethods], ['branches', branchesMethods],

@@ -9,9 +9,9 @@ test('web buffers drafts, commits the whole batch and keeps agents out of the co
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     const html = await (await fetch(f.url)).text();
-    expect(html).toContain('暂存想法');
-    expect(html).toContain('全部执行');
-    expect(html).toContain('待提交意图');
+    expect(html).toContain('存草稿');
+    expect(html).toContain('>发送</button>');
+    expect(html).toContain('>草稿<span');
     expect((await post('draft.add',{content:'第一条'})).status).toBe(200);
     expect((await post('draft.add',{content:'第二条'})).status).toBe(200);
     let snapshot = await (await fetch(f.url+'/api/snapshot')).json();
@@ -31,7 +31,32 @@ test('web buffers drafts, commits the whole batch and keeps agents out of the co
     expect((await post('draft.remove',{id:1})).status).toBe(400);
     expect((await post('draft.add',{content:'sneak',_token:'forged'})).status).toBe(400);
     expect((await post('draft.clear',{})).status).toBe(400);
+    const divergence = await (await post('task.resolve_divergence',{id:9999})).json();
+    expect(divergence.error).toContain('task 9999'); // routed to daemon, not rejected by Web mutation whitelist
     expect((await post('input.submit',{content:'raw',_token:'forged'})).status).toBe(400);
+  } finally { await f.close(); }
+});
+
+test('input.submit accepts one draft id or direct text, never mixes both or consumes unrelated drafts', async () => {
+  const f = await setup(); await repo(f.root);
+  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
+  try {
+    const first = await (await post('draft.add', { content: 'first' })).json();
+    const second = await (await post('draft.add', { content: 'second' })).json();
+    expect((await post('input.submit', { draft_id: first.id, content: 'override' })).status).toBe(400);
+    expect((await post('input.submit', { draft_id: second.id, references: [] })).status).toBe(400);
+    expect((await post('input.submit', { draft_id: 9999 })).status).toBe(400);
+    let snapshot = await (await fetch(f.url+'/api/snapshot')).json();
+    expect(snapshot.drafts.map(draft => draft.id)).toEqual([first.id, second.id]);
+    const sent = await (await post('input.submit', { draft_id: second.id })).json();
+    expect(sent.content).toBe('second'); expect(sent.draft).toBe(second.id);
+    expect((await post('input.submit', { draft_id: second.id })).status).toBe(400);
+    snapshot = await (await fetch(f.url+'/api/snapshot')).json();
+    expect(snapshot.drafts.map(draft => draft.id)).toEqual([first.id]);
+    const direct = await (await post('input.submit', { content: 'direct' })).json();
+    expect(direct.content).toBe('direct');
+    snapshot = await (await fetch(f.url+'/api/snapshot')).json();
+    expect(snapshot.drafts.map(draft => draft.id)).toEqual([first.id]);
   } finally { await f.close(); }
 });
 
@@ -85,9 +110,9 @@ test('web edits a buffered draft and submits only the picked subset', async () =
     expect((await post('draft.commit',{ids:[9999]})).status).toBe(400);
     expect((await post('draft.commit',{ids:[]})).status).toBe(400);
 
-    // 页面真的带上了逐条「执行」与就地编辑，且不再有勾选框
+    // 页面真的带上了单条发送与就地编辑，且不再有勾选框
     const app = await pageSource(f.url);
-    expect(app).toContain("'draft.commit', { ids: [draft.id] }");
+    expect(app).toContain("'say.submit', { draft_id: draft.id");
     expect(app).toContain("agentHelp");
     expect(app).not.toContain("pick.type = 'checkbox'");
     expect(app).toContain("'draft.update'");

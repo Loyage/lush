@@ -4,27 +4,14 @@ import { gate, until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
 const world = makeWorld();
 let pending = null, fail = false;
-const commitCalls = [];
+const submitCalls = [];
 const dom = installDom({ fetch: async (url, options) => {
   if (String(url) === '/api/action') {
     const body = JSON.parse(options.body);
-    if (body.method === 'draft.commit') {
-      const ids = body.params.ids ?? world.state.drafts.map(row => row.id);
-      const contents = world.state.drafts.filter(row => ids.includes(row.id)).map(row => row.content);
-      commitCalls.push(body);
+    if (body.method === 'say.submit') {
+      submitCalls.push(body);
       if (pending) await pending.promise;
-      if (fail) return Response.json({ error: 'commit failed' }, { status: 400 });
-      const response = await world.fetchImpl(url, options);
-      const data = await response.json();
-      // 模拟逐条执行：每条草稿一个 input；命中快速路由前缀时返回 route + 对应 target 字段，
-      // 让页面必须按 target 取 worker/research，而不是假定 worker。
-      const inputs = contents.map((content, index) => {
-        const base = { id: index + 1, content, task: { id: 5 + index }, draft: ids[index] };
-        if (content.startsWith('开发')) return { ...base, route: { prefix: '开发', target: 'worker' }, worker: { id: 77 } };
-        if (content.startsWith('调研')) return { ...base, route: { prefix: '调研', target: 'research' }, research: { id: 88 } };
-        return base;
-      });
-      return Response.json({ inputs, drafts: data.drafts ?? ids });
+      if (fail) return Response.json({ error: 'send failed' }, { status: 400 });
     }
   }
   return world.fetchImpl(url, options);
@@ -37,50 +24,37 @@ const { openSettings } = await import('../../src/ui/web/assets/render-settings.j
 await boot();
 afterAll(() => dom.restore());
 
-test('全部执行先暂存正文再逐条提交：防重复、保留并发输入与草稿', async () => {
+test('Web 直接发送只发当前正文：防重复、保留并发编辑与其它草稿', async () => {
   world.state.drafts = [{ id: 11, content: 'keep draft', references: [] }];
   await dom.intervalFor(1500)();
   dom.node('input').value = 'small fix'; dom.node('input-branch').value = 'release/next'; syncComposer();
   pending = gate();
   const sent = dom.node('input-form').onsubmit({ preventDefault() {} });
-  await until(() => commitCalls.length === 1);
+  await until(() => submitCalls.length === 1);
   expect(dom.node('draft-commit').disabled).toBe(true);
-  // 提交期间重复提交被忽略
   await dom.node('input-form').onsubmit({ preventDefault() {} });
-  // 提交期间继续打字不被覆盖
   dom.node('input').value = 'new thought';
   pending.resolve(); await sent; pending = null;
-  expect(commitCalls).toHaveLength(1);
-  // 先 buffer 正文，再不带 ids 提交全部未提交草稿
-  expect(commitCalls[0]).toEqual({ method: 'draft.commit', params: { branch: 'release/next' } });
+  expect(submitCalls).toHaveLength(1);
+  expect(submitCalls[0]).toEqual({ method: 'say.submit', params: { content: 'small fix', references: [], branch: 'release/next' } });
   expect(dom.node('input').value).toBe('new thought');
-  expect(world.state.drafts).toHaveLength(0);
-  expect(dom.node('error').textContent).toContain('已逐条执行 2 条');
-  // 失败时草稿保留、错误提示出来
-  world.state.drafts = [{ id: 41, content: 'uncommitted', references: [] }];
-  dom.node('input').value = '';
-  await dom.intervalFor(1500)();
+  expect(world.state.drafts.map(row => row.id)).toEqual([11]);
+  expect(dom.node('error').textContent).toContain('其它草稿仍在缓存中');
   fail = true;
   await dom.node('input-form').onsubmit({ preventDefault() {} });
-  expect(dom.node('error').textContent).toContain('commit failed');
-  expect(world.state.drafts.map(row => row.id)).toEqual([41]);
+  expect(dom.node('error').textContent).toContain('send failed');
+  expect(dom.node('input').value).toBe('new thought');
+  expect(world.state.drafts.map(row => row.id)).toEqual([11]);
   fail = false;
 });
 
-test('全部执行按快速路由结果提示，不假定 worker', async () => {
-  world.state.drafts = [
-    { id: 51, content: '开发 做一个登录页', references: [] },
-    { id: 52, content: '调研 竞品', references: [] },
-  ];
-  await dom.intervalFor(1500)();
-  syncComposer();
+test('空输入不发送，草稿仍可从单条按钮发送', async () => {
+  dom.node('input').value = ''; syncComposer();
+  const count = submitCalls.length;
+  expect(dom.node('draft-commit').disabled).toBe(true);
   await dom.node('input-form').onsubmit({ preventDefault() {} });
-  const text = dom.node('error').textContent;
-  expect(text).toContain('已逐条执行 2 条');
-  expect(text).toContain('快速路由命中 2 条');
-  expect(text).toContain('开发 → worker #77');
-  expect(text).toContain('调研 → research #88');
-  expect(world.state.drafts).toHaveLength(0);
+  expect(submitCalls).toHaveLength(count);
+  expect(world.state.drafts.map(row => row.id)).toEqual([11]);
 });
 
 test('statistics shows bounded attribution and unknown groups without rendering injected HTML', () => {

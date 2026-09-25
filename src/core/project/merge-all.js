@@ -92,6 +92,12 @@ export default {
   async mergeAll(targetBranch) {
     const name = String(targetBranch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
+    const descendants = descendantsOf(this.store.branches(), name);
+    const branches = [name, ...descendants];
+    const placeholders = branches.map(() => '?').join(',');
+    check(!this.store.get(`SELECT id FROM tasks WHERE branch IN (${placeholders})
+      AND (task_kind IN ('owner','say','child') OR (task_kind='main' AND branch<>?)) LIMIT 1`, ...branches, name),
+      'new Task branches cannot use legacy branch.merge_all; merge old branches individually');
     const existing = this.store.branchMergeRun(name);
     check(!existing || !['running', 'paused'].includes(existing.status),
       `${name} already has a one-click merge in progress`);

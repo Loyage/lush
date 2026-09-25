@@ -10,6 +10,24 @@ export async function cli(root, args, extra = {}) {
   return JSON.parse(stdout);
 }
 
+/** Explicitly exercise the retained planner protocol; normal CLI say uses say.submit. */
+export async function legacySay(root, content, branch = null) {
+  const { Config } = await import('../../src/config.js');
+  const { UIClient } = await import('../../src/ui/client.js');
+  const client = new UIClient(Config.fromEnv(env(), root));
+  return client.request('input.submit', { content, ...(branch ? { branch } : {}) });
+}
+
+/** New say Agents release their invocation slot instead of becoming terminal on ordinary returns. */
+export async function idle(client, taskId, calls = 1) {
+  for (let i = 0; i < 100; i++) {
+    const task = await client.request('task.inspect', { id: taskId });
+    if (task.status === 'waiting' && task.calls >= calls && !task.agent.active) return task;
+    await Bun.sleep(30);
+  }
+  throw new Error('task did not become idle');
+}
+
 export async function done(client, taskId) {
   for (let i=0;i<100;i++) { const task = await client.request('task.inspect',{id:taskId}); if (['completed','failed'].includes(task.status)) return task; await Bun.sleep(30); }
   throw new Error('task timeout');

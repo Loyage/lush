@@ -100,16 +100,15 @@
     <div class="draft-body" id="draft-body"><div id="drafts"></div></div>
   </div>
   <div class="composer-input">
-    <div id="input-highlight" class="composer-highlight" aria-hidden="true"></div>
     <textarea id="input" rows="1" maxlength="32000" aria-label="输入开发需求或研究问题" placeholder="描述一个需求，或选中/右键页面内容引用到这里…"></textarea>
   </div>
   <div class="composer-foot">
-    <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>Enter</kbd> 暂存想法 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ↵</kbd> 全部执行</span>
+    <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>Enter</kbd> 存草稿 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ↵</kbd> 发送当前输入</span>
     <span class="composer-actions">
-      <button type="button" id="draft-toggle" class="draft-toggle" aria-expanded="false" aria-controls="draft-body" data-help="展开后可以就地编辑、移除待提交意图，或对某一条单独执行">待提交意图<span id="draft-count" class="count">空</span></button>
+      <button type="button" id="draft-toggle" class="draft-toggle" aria-expanded="false" aria-controls="draft-body" data-help="展开后可以就地编辑、移除草稿，或单独发送指定草稿">草稿<span id="draft-count" class="count">空</span></button>
       <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details" data-help="展开：可以指定父分支，并查看键盘快捷键">⌃ 更多</button>
-      <button type="button" id="draft-add" class="ghost">暂存想法</button>
-      <button type="submit" id="draft-commit" class="agent-call" data-help="先暂存输入框里的正文，再把当前输入与全部待提交意图逐条提交、各成一条独立输入；未命中快速路由的交给规划 Agent 拆解 会调用 Agent：需要较长时间并消耗 token">全部执行</button>
+      <button type="button" id="draft-add" class="ghost">存草稿</button>
+      <button type="submit" id="draft-commit" class="agent-call">发送</button>
     </span>
   </div>
 </form></div>

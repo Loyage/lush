@@ -8,7 +8,7 @@ export const GRAPH_EDGE_LIMIT = 2000;
 /** 会产出 worktree / 分支的角色：候选任务来自这三类。
  *  planner / scheduler 是意图层，没有自己的分支，但也要按「这条输入的锚点分支」挂进图里，
  *  由下面的 intentRows 单独取（见 graph() —— 派生锚点分支只在那里做一次）。 */
-const GRAPH_ROLES = ['worker', 'merger', 'verifier', 'showcase'];
+const GRAPH_ROLES = ['worker', 'merger', 'verifier', 'showcase', 'agent'];
 const TASK_ROLE_SQL = GRAPH_ROLES.map(role => `'${role}'`).join(',');
 
 /** verifier 自己不拥有代码分支，但必须画在它正在验收的分支上：单 worker 检验跟随被检验任务，
@@ -91,12 +91,14 @@ export default {
       }
 
       const rows = this.store.all(`SELECT id, role, name, goal, status, integration, input_id,
-        ${taskBranchSql('tasks')} AS branch, workspace,
+        ${taskBranchSql('tasks')} AS branch, workspace, parent_id, task_kind, reservation,
+        (SELECT p.task_kind FROM tasks p WHERE p.id=tasks.parent_id) AS parent_task_kind,
         base_commit, head_commit, target_branch, baseline_workspace, resolves_task_id, verifies_task_id, progress_plan
         FROM tasks WHERE role IN (${TASK_ROLE_SQL}) ORDER BY id DESC`);
       // 没有可归属分支也没有 worktree（含已完整回收）的任务不进图。verifier 的 branch 是上面只读派生的
       // 服务对象分支，所以 Candidate 验收即使清掉 baseline worktree 后也仍留在正确的输入分支下。
-      const candidates = rows.filter(row => row.branch || row.workspace || row.baseline_workspace);
+      const candidates = rows.filter(row => (row.role !== 'agent' || row.task_kind === 'say')
+        && (row.branch || row.workspace || row.baseline_workspace));
 
       // 分支节点名：记录 ∪ 现在的 ref ∪ 当前检出 ∪ 占位父名。记录是历史事实，ref 是现状，
       // 两者都不丢；只被 parent 提到的名字补占位节点，否则它的子分支会从树上消失。
@@ -328,6 +330,9 @@ export default {
         const pending = pendingFor(row.id);
         const node = {
           kind: 'task', id: row.id, role: row.role, name: row.name ?? null,
+          task_kind: row.task_kind ?? null, parent_id: row.parent_id ?? null,
+          parent_task_kind: row.parent_task_kind ?? null,
+          reservation: row.task_kind === 'say' ? this.progressView(row).reservation : null,
           goal: String(row.goal ?? '').slice(0, 120),
           status: row.status, integration: row.integration, route: isRouted(row.input_id),
           branch: row.branch ?? null, workspace: workspacePath, workspace_state, branch_state: row.role === 'showcase' ? null : branch_state,

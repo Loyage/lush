@@ -39,6 +39,7 @@ export const handlers = {
   'branch.tree'(p, params, actor) { return p.branchTree(); },
   'branch.show'(p, params, actor) { return p.branchShow(params.branch); },
   'branch.import'(p, params, actor) { return p.branchImport(); },
+  'branch.bind'(p, params, actor) { return p.bindBranch(params.branch, params.commit); },
   'branch.merge'(p, params, actor) { return p.approveBranchMerge(params.branch); },
   'branch.sync'(p, params, actor) { return p.syncBranch(params.branch); },
   'branch.catchup'(p, params, actor) { return p.catchupBranch(params.branch); },

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { temp, env, repo, git } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
-import { cli, done } from './harness.js';
+import { cli, legacySay, done } from './harness.js';
 
 // End-to-end proof of the new main line: Intent → Plan → compiled Work → auto integration inside the
 // private Intent branch → frozen Review Candidate → user acceptance into the target branch.
@@ -43,7 +43,7 @@ test('an Intent compiles to work, auto-integrates privately, then a frozen Candi
   await repo(root);
   try {
     await cli(root,['start'], { LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
-    const input = await cli(root,['say','add greeting']);
+    const input = await legacySay(root, 'add greeting');
     const client = new UIClient(Config.fromEnv(env(),root));
     expect((await done(client,input.task.id)).status).toBe('completed');
 
@@ -103,7 +103,7 @@ test('requesting changes keeps the reviewed version and starts a new planner for
   await repo(root);
   try {
     await cli(root,['start'], { LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
-    const input = await cli(root,['say','add greeting']);
+    const input = await legacySay(root, 'add greeting');
     const client = new UIClient(Config.fromEnv(env(),root));
     await done(client,input.task.id);
     const worker = (await client.request('task.list')).find(task => task.role === 'worker');

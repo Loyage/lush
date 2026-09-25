@@ -30,6 +30,16 @@ function decode(raw) {
   } catch { return null; }
 }
 
+function decodeReservation(raw) {
+  if (!raw) return null;
+  try {
+    const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!isPlainObject(value) || value.version !== 1 || !['merge','showcase'].includes(value.kind)
+      || !['pending','requested','started','integrated','failed'].includes(value.status)) return { status: 'invalid' };
+    return value;
+  } catch { return { status: 'invalid' }; }
+}
+
 function normalizeSteps(steps) {
   check(Array.isArray(steps) && steps.length > 0, 'progress plan needs at least one step');
   check(steps.length <= MAX_STEPS, `progress plan accepts at most ${MAX_STEPS} steps`);
@@ -48,10 +58,10 @@ function normalizeSteps(steps) {
 
 /** task 执行计划：附属 JSON 的读模型与 agent 汇报入口。 */
 export default {
-  /** Hide the storage column and expose one stable, parsed `progress` field to every public task read model. */
+  /** Hide serialized storage columns and expose structured task read models. */
   progressView(task) {
-    const { progress_plan, ...row } = task;
-    return { ...row, progress: decode(progress_plan) };
+    const { progress_plan, reservation, ...row } = task;
+    return { ...row, progress: decode(progress_plan), reservation: decodeReservation(reservation) };
   },
 
   reportProgressPlan(taskId, steps) {

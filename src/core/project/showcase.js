@@ -7,7 +7,7 @@ const previewView = entry => entry ? { status: entry.status, url: entry.status =
   command: entry.command, log_path: entry.log_path, error: entry.error } : { status: 'stopped', url: null };
 
 export default {
-  async showcaseEligibility(branch, baseline = null, excludeTaskId = null) {
+  async showcaseEligibility(branch, baseline = null, excludeTaskId = null, ownerSayId = null) {
     const history = this.store.all(`SELECT id,status,showcase FROM tasks WHERE role='showcase'
       AND json_extract(showcase,'$.branch')=? ORDER BY id DESC`, branch);
     const latest_task_id = history[0]?.id ?? null;
@@ -25,7 +25,7 @@ export default {
       const inputs = new Set(this.store.all('SELECT id,anchor_branch FROM inputs').filter(input => subtree.has(input.anchor_branch)).map(input => input.id));
       const assertStable = () => {
         const owners = new Set(records.filter(row => subtree.has(row.branch)).map(row => row.task_id).filter(Boolean));
-        const related = this.store.all('SELECT id,parent_id,input_id,role,status,branch,target_branch,integration,plan_gate FROM tasks');
+        const related = this.store.all('SELECT id,parent_id,input_id,role,status,branch,target_branch,integration,plan_gate,task_kind FROM tasks');
         for (const task of related) if (subtree.has(task.branch) || inputs.has(task.input_id)) owners.add(task.id);
         // Queued descendants may not yet have a branch. Recompute after asynchronous Git reads too.
         let changed = true;
@@ -36,13 +36,26 @@ export default {
         for (const task of related) {
           if (['showcase', 'explainer'].includes(task.role)) continue;
           if (!owners.has(task.id) && !subtree.has(task.target_branch)) continue;
+          // The sole reserved say owner is deliberately development-done but not terminal:
+          // it must remain alive while its new showcase child runs. Legacy callers pass no ownerSayId.
+          if (task.id === ownerSayId && task.branch === branch && task.status === 'waiting'
+            && !this.running.has(task.id) && !this.workspaces.busy.has(task.id)) {
+            const reserved = this.store.task(task.id).reservation;
+            if (task.role === 'agent' && task.task_kind === 'say' && reserved) {
+              const value = JSON.parse(reserved);
+              if (value.kind === 'showcase' && value.status === 'pending') continue;
+            }
+          }
           check(task.role === 'verifier' ? TERMINAL.has(task.status) : task.status === 'completed',
             `相关任务 #${task.id} 尚未成功完成，分支暂不稳定`);
           check(!this.running.has(task.id) && !this.workspaces.busy.has(task.id), `相关任务 #${task.id} 仍在收尾`);
           check(!['merging', 'conflict'].includes(task.integration) && task.plan_gate !== 'proposed', `相关任务 #${task.id} 仍有待处理的规划或合并`);
         }
         for (const id of inputs) check(!this.store.get("SELECT id FROM task_specs WHERE input_id=? AND status='pending' LIMIT 1", id), '输入仍有未编排的开发计划');
-        for (const name of subtree) check(this.workspaces.branchTaskBlockers(name).length === 0, '分支仍有待完成的关联任务');
+        for (const name of subtree) {
+          const blockers = this.workspaces.branchTaskBlockers(name).filter(item => !(name === branch && item === `task:#${ownerSayId}`));
+          check(blockers.length === 0, '分支仍有待完成的关联任务');
+        }
       };
       assertStable();
       const snapshot = await this.workspaces.showcaseSnapshot(branch, baseline);
@@ -181,6 +194,7 @@ export default {
   async retryShowcase(taskId) {
     const task = await this.workspaces.exclusive(async () => {
       const current = this.store.task(taskId);
+      check(current.task_kind !== 'showcase', 'a reserved say showcase cannot be retried under its ended parent; submit a new say');
       check(['failed', 'cancelled'].includes(current.status), 'only failed/cancelled tasks can be retried');
       check(!this.running.has(taskId) && !this.workspaces.busy.has(taskId), 'showcase is still stopping; retry shortly');
       check(!this.workspaces.previewActive(taskId), 'preview is still stopping; retry shortly');

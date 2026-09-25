@@ -8,7 +8,8 @@ import { SCHEMA, bindProject } from './schema.js';
 const ADDED_COLUMNS = {
   inputs: ['anchor_branch', 'anchor_commit', 'anchor_workspace', 'anchor_target_branch'],
   branches: ['summary', 'showcase_reservation', 'merge_run'],
-  tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile'],
+  messages: ['signal_type', 'signal_key'],
+  tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation'],
   agent_runs: ['model', 'thinking'],
 };
 function addMissingColumns(db) {
@@ -16,6 +17,11 @@ function addMissingColumns(db) {
     const present = new Set(db.query(`PRAGMA table_info(${table})`).all().map(row => row.name));
     for (const column of columns) if (!present.has(column)) db.query(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`).run();
   }
+  // Old free-text messages have NULL keys, so a partial unique index adds no new restriction to history.
+  db.query(`CREATE UNIQUE INDEX IF NOT EXISTS messages_signal_once ON messages(task_id,sender_id,signal_key)
+    WHERE signal_key IS NOT NULL`).run();
+  db.query(`CREATE UNIQUE INDEX IF NOT EXISTS tasks_new_branch_owner ON tasks(branch)
+    WHERE task_kind IN ('main','say','owner') AND branch IS NOT NULL`).run();
 }
 
 /** 打开数据库、事务与 id 分配。 */

@@ -1,6 +1,23 @@
+import { check } from '../../core/types.js';
+
 /** input.* / draft.* */
 export const handlers = {
-  'input.submit'(p, params, actor) { return p.submit(params.content, params.branch ?? null, params.references ?? []); },
+  'say.submit'(p, params) {
+    if (Object.hasOwn(params, 'draft_id')) {
+      check(!Object.hasOwn(params, 'content') && !Object.hasOwn(params, 'references'),
+        'draft_id cannot be combined with content or references');
+      return p.say(undefined, params.branch ?? null, [], params.draft_id);
+    }
+    return p.say(params.content, params.branch ?? null, params.references ?? []);
+  },
+  'input.submit'(p, params, actor) {
+    if (Object.hasOwn(params, 'draft_id')) {
+      check(!Object.hasOwn(params, 'content') && !Object.hasOwn(params, 'references'),
+        'draft_id cannot be combined with content or references');
+      return p.submitDraft(params.draft_id, params.branch ?? null);
+    }
+    return p.submit(params.content, params.branch ?? null, params.references ?? []);
+  },
   'input.list'(p, params, actor) { return p.inputs(); },
   'draft.add'(p, params, actor) { return p.draft(params.content, params.references ?? []); },
   'draft.list'(p, params, actor) { return p.drafts(); },

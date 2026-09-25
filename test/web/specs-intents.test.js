@@ -60,7 +60,7 @@ test('web Intent 面板：planner 闸门批准后交给 deterministic compiler',
     expect(snapshot.tasks.some(task => task.id === planner.id)).toBe(false);
     // 页面画出 Intent 及审批动作。
     const html = await (await fetch(f.url)).text();
-    expect(html).toContain('意图');
+    expect(html).toContain('草稿');
     expect(await pageSource(f.url)).toContain('plan.approve');
     // 用户批准：白名单放行；这里 stopping，所以 compiler 暂不运行。
     expect((await post('plan.approve', { id: planner.id })).status).toBe(200);

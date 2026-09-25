@@ -1,6 +1,9 @@
 import { randomBytes } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { check, TERMINAL, LushError } from '../types.js';
 import { tokenHash } from './internal.js';
+import { AgentPreempted } from '../../agent/provider.js';
 
 /** 调度、invocation 生命周期、凭证。 */
 export default {
@@ -33,6 +36,8 @@ export default {
 
   wake(taskId) {
     const task = this.store.task(taskId);
+    if (['main','owner'].includes(task.task_kind)) return; // No unrestricted provider in a bound parent worktree.
+    if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') return;
     if (!TERMINAL.has(task.status) && !this.running.has(task.id)) {
       const deferred = task.role === 'coordinator' && this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', task.id)
         && !this.hasActionableMessages(task.id);
@@ -61,6 +66,8 @@ export default {
     let butlerRunning = [...this.running.values()].filter(run => run.role === 'butler').length;
     let executionRunning = this.running.size - controlRunning - butlerRunning;
     for (const task of this.store.all("SELECT * FROM tasks WHERE status='queued' ORDER BY id")) {
+      if (['main','owner'].includes(task.task_kind)) continue; // Bound parent roots do not run unrestricted providers.
+      if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') continue;
       if (this.running.has(task.id)) continue;
       if (this.questionPending(task.id)) { this.store.update(task.id, { status: 'awaiting' }); continue; }
       // A queued task whose dependencies are not settled stays queued; finish() re-kicks when they are.
@@ -75,16 +82,40 @@ export default {
       this.store.armAgent(task.id, tokenHash(run.token));
       run.promise = this.invoke(task.id, run).catch(error => {
         console.error(`task ${task.id}: ${error.stack || error}`);
-      }).finally(() => {
+      }).finally(async () => {
         this.running.delete(task.id);
         // The credential is valid only while this invocation owns the task.
         this.store.armAgent(task.id, null);
         // A child can settle after its parent parked but before this cleanup.
         // Recheck the inbox after releasing ownership to avoid a lost wake-up.
         if (!TERMINAL.has(this.store.task(task.id).status) && this.hasActionableMessages(task.id)) this.wake(task.id);
+        const settled = this.store.task(task.id);
+        if (!this.stopping && settled.task_kind === 'say' && settled.status === 'waiting' && settled.reservation) {
+          const kind = JSON.parse(settled.reservation).kind;
+          if (kind === 'merge') await this.settleReservedMerge(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+          if (kind === 'showcase') await this.startReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+        }
         this.kick();
       });
     }
+  },
+
+  /**
+   * 安全抢占请求：用户给运行中的 Task 追加输入时，请 Agent 在**下一个安全边界**收尾，而不是杀进程。
+   * 只有 pi 后端有可验证的边界（扩展在 `turn_end` 落 stop 标记，见 `agent/pi-runtime.js`）；
+   * 其它后端保持“轮末投递”，不假装能抢占。真正的记账发生在 invoke 的 catch 里。
+   */
+  requestPreempt(taskId, reason = 'new user input') {
+    const task = this.store.task(taskId);
+    const run = this.running.get(task.id);
+    if (!run || TERMINAL.has(task.status)) return false;
+    if (run.agent?.agent !== 'pi') return false;
+    const dir = path.join(this.config.home, 'preempt');
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(dir, `task-${task.id}.request.json`), JSON.stringify({ task_id: task.id,
+      run_id: run.recordId ?? null, reason, requested_at: new Date().toISOString() }) + '\n', { mode: 0o600 });
+    this.store.event(task.id, 'preempt.requested', { run_id: run.recordId ?? null, reason });
+    return true;
   },
 
   /** Resolve an agent credential to its task. Only the invocation that was issued the token is an actor. */
@@ -182,6 +213,18 @@ export default {
       if (this.store.children(taskId).some(child => !TERMINAL.has(child.status))) {
         this.store.update(taskId, { status: 'waiting' }); return;
       }
+      if (task.task_kind === 'say') {
+        // A say Task keeps ownership of its branch between invocations. Only an explicit
+        // later reservation/termination may close it; a normal provider return is not completion.
+        // 这条分支自己前进了（本轮新提交）：挂在它上面的未集成请求要如实变成失效状态，
+        // 而不是继续显示“等待集成”。daemon 阻止不了这次提交，所以只如实记录检查结果。
+        await this.noteBranchAdvance(taskId);
+        this.store.transaction(() => {
+          this.store.update(taskId, { status: 'waiting' });
+          this.store.event(taskId, 'task.idle', { run_id: run.recordId, head_commit: this.store.task(taskId).head_commit });
+        });
+        return;
+      }
       if (task.role === 'showcase') {
         const payload = this.showcaseReport(this.store.task(taskId));
         this.store.addArtifact({ task_id: taskId, run_id: run.recordId, input_id: task.input_id,
@@ -189,6 +232,21 @@ export default {
       }
       this.finish(taskId, 'completed', result);
     } catch (error) {
+      // 安全抢占：Agent 在本轮工具都结束后自行收尾，不是失败、不是超时也不是取消。
+      // 工作区按现状保留，这条输入下一轮就会被读到；不重建、不重放本轮已发生的副作用。
+      if (error instanceof AgentPreempted) {
+        if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {
+          this.store.finishRun(run.recordId, 'preempted', { error: error.details?.reason ?? 'preempted by new input' });
+        }
+        if (!run.parked && !TERMINAL.has(this.store.task(taskId).status)) {
+          this.store.transaction(() => {
+            this.store.event(taskId, 'invocation.preempted', { run_id: run.recordId, ...error.details });
+            this.store.update(taskId, { status: this.hasActionableMessages(taskId) ? 'queued' : 'waiting' });
+          });
+          this.kick();
+        }
+        return;
+      }
       // Provider adapters may only know that their AbortSignal fired. The scheduler owns the deadline,
       // so normalize that generic interruption into an exact timeout and keep user cancellation distinct.
       const message = timedOut ? timeoutMessage : run.controller.signal.aborted ? abortMessage() : error.message;
@@ -203,10 +261,11 @@ export default {
         this.store.finishRun(run.recordId, task.status === 'cancelled' ? 'cancelled' : task.status === 'failed' ? 'failed' : 'completed',
           { result: task.result, error: task.error });
       }
-      // 对照基线是派生的只读检出：invocation 一结束就回收，不把每次检验都堆在磁盘上。
-      // 失败也不保留——结论/错误已入库，重建一次基线很便宜。
-      if (this.store.task(taskId).verifies_task_id) {
-        await this.workspaces.removeBaseline(taskId).catch(error => console.error(`verification ${taskId}: ${error.message}`));
+      // 对照基线 / 只读分析检出都是派生的只读检出：invocation 一结束就回收，不把每次调用都堆在磁盘上。
+      // 失败也不保留——结论/错误已入库，重建一次很便宜；下次调用会在那时的分支顶端重建。
+      const settled = this.store.task(taskId);
+      if (settled.verifies_task_id || settled.task_kind === 'analysis') {
+        await this.workspaces.removeBaseline(taskId).catch(error => console.error(`derived checkout ${taskId}: ${error.message}`));
       }
     }
   }

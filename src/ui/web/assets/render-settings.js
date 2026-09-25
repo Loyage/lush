@@ -11,7 +11,6 @@ import { SORT_MODES } from './tree-order.js';
 import { notificationControl } from './notice-notifications.js';
 import { sleepSettings } from './sleep-ui.js';
 import { DEFAULT_INPUT_ROUTES, ROUTE_TARGETS } from './input-routes.js';
-import { paintInputHighlight } from './composer.js';
 
 const TABS = [
   { id: 'sleep', label: '托管模式', note: '离开期间由管家决策' },
@@ -521,8 +520,9 @@ function concurrencyEditor(runtime, plain) {
 }
 
 /**
- * 「输入前缀（快速路由）」编辑器：列出命中后直接派活的前缀与目标，可增删。
- * 保存写 system.configure 的 input_routes，恢复默认送 null 清除项目覆盖；保存后立即重画输入框高亮。
+ * 「输入前缀（仅旧提交路径）」编辑器：列出命中后直接派活的前缀与目标，可增删。
+ * 新 say 不走快速路由，输入框也不再高亮前缀；这张表只影响旧客户端提交（`input.submit` / 旧批量 `draft.commit`）。
+ * 保存写 system.configure 的 input_routes，恢复默认送 null 清除项目覆盖。
  * 只读 fast path：这里只是把同一套结构交给核心，真正的匹配规则在 core 与浏览器 input-routes.js。
  */
 const ROUTE_TARGET_LABELS = { worker: 'worker · 开发', research: 'research · 调研' };
@@ -530,8 +530,8 @@ const ROUTE_TARGET_LABELS = { worker: 'worker · 开发', research: 'research ·
 function inputRoutesEditor(runtime) {
   const fallback = { value: DEFAULT_INPUT_ROUTES.map(route => ({ ...route })), default: DEFAULT_INPUT_ROUTES.map(route => ({ ...route })), overridden: false };
   const entry = runtime.input_routes || fallback;
-  const section = block('输入前缀（快速路由）');
-  section.append(el('p', '以这些前缀开头的输入不调用规划模型，直接按目标创建根任务：worker 会进入开发流程，research 只做调研。保存后立即生效，输入框会高亮命中的前缀。', 'settings-note settings-section-note'));
+  const section = block('输入前缀（仅旧提交路径）');
+  section.append(el('p', '以这些前缀开头的旧提交（`input.submit` / 旧批量 `draft.commit`）不调用规划模型，直接按目标创建根任务：worker 进入开发流程，research 只做调研。新 say 不走快速路由，输入框也不再高亮前缀。', 'settings-note settings-section-note'));
 
   const list = el('div', undefined, 'settings-route-list'); list.dataset.routeList = '';
   const addRow = (prefix = '', target = 'worker') => {
@@ -583,8 +583,7 @@ function inputRoutesEditor(runtime) {
     errorBox.hidden = true;
     const saved = await action('system.configure', { settings: { input_routes: routes } });
     applyRuntimeSettings(saved);
-    paintInputHighlight();
-    show(routes.length ? `已保存 ${routes.length} 个快速路由前缀，立即生效。` : '已清空快速路由前缀；所有输入都会走规划模型。');
+    show(routes.length ? `已保存 ${routes.length} 个快速路由前缀（仅旧提交路径生效）。` : '已清空快速路由前缀；旧提交路径不再前缀直派。');
     renderSettings();
   }, 'primary settings-route-save');
   save.dataset.routeAction = 'save';
@@ -592,8 +591,7 @@ function inputRoutesEditor(runtime) {
     errorBox.hidden = true;
     const saved = await action('system.configure', { settings: { input_routes: null } });
     applyRuntimeSettings(saved);
-    paintInputHighlight();
-    show('已恢复默认快速路由前缀（开发 / 解释）。');
+    show('已恢复默认快速路由前缀（开发 / 解释）；仅旧提交路径生效。');
     renderSettings();
   }, 'ghost settings-route-reset', { help: '清除项目覆盖的前缀表，恢复内置默认（开发 / 解释）；点击后立即写入项目设置' });
   reset.dataset.routeAction = 'reset';

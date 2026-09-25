@@ -74,7 +74,7 @@ test('只有独立 token 才算帮助：正文里的 --help 不触发拦截', as
       // 整段引号文本是单个 argv token，不该被当成帮助；落入真实命令路径后由被替换的 request 抛错。
       await expect(main(['say', '说明 --help 的用法', '--project', f.root])).rejects.toThrow('unexpected RPC');
     });
-    expect(rpc.calls).toEqual([['input.submit', { content: '说明 --help 的用法' }]]);
+    expect(rpc.calls).toEqual([['say.submit', { content: '说明 --help 的用法' }]]);
   } finally {
     rpc.restore();
     await f.close();

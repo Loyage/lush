@@ -110,7 +110,7 @@ export const runs = {
     return this.get('SELECT * FROM agent_runs WHERE id=?', Number(row.lastInsertRowid));
   },
   finishRun(runId, status, { result = null, error = null } = {}) {
-    check(['completed','failed','cancelled'].includes(status), 'invalid run status');
+    check(['completed','failed','cancelled','preempted'].includes(status), 'invalid run status');
     this.run(`UPDATE agent_runs SET status=?,result=?,error=?,ended_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,
       status, result, error, id(runId));
     return this.get('SELECT * FROM agent_runs WHERE id=?', id(runId));

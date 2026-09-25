@@ -4,7 +4,7 @@ import path from 'node:path';
 import { temp, repo, env } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
-import { cli, done, workOf } from './harness.js';
+import { cli, legacySay, done, workOf } from './harness.js';
 
 test('pi subprocess receives project/task capability, pinned CLI, persistent session path and performs delegation', async () => {
   const root = temp();
@@ -38,7 +38,7 @@ console.log('fake pi completed');
     fs.writeFileSync(path.join(agentDir, 'agent.env'), 'TEST_SHARED=common\n');
     fs.writeFileSync(path.join(agentDir, 'planner.env'), 'TEST_ROLE=planner-only\n');
     await cli(root,['start'], { LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
-    const input = await cli(root,['say','run']);
+    const input = await legacySay(root, 'run');
     const client = new UIClient(Config.fromEnv(env(),root));
     const result = await done(client,input.task.id);
     expect(result.status).toBe('completed');

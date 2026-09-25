@@ -21,13 +21,21 @@ function normalizeDeps(deps) {
 /** 派生任务与单任务详情。 */
 export default {
   /** name is the planner's short slug for the work; it becomes the branch/worktree name and stays fixed for the task's life. */
-  spawn(parentId, goal, role = 'worker', deps = [], name = null, specId = null) {
+  spawn(parentId, goal, role = undefined, deps = [], name = null, specId = null) {
     const parent = this.store.task(parentId);
+    check(!['main','owner'].includes(parent.task_kind), 'branch owner Tasks accept new say Tasks, not unrestricted spawned work');
+    check(parent.task_kind !== 'analysis', 'read-only analysis Tasks do not delegate; ask a new question instead');
+    const taskKind = ['say','child'].includes(parent.task_kind) ? 'child' : null;
+    role = role ?? (taskKind ? 'agent' : 'worker');
     check(!TERMINAL.has(parent.status), 'cannot delegate from a terminal task');
     check(!['showcase', 'explainer', 'butler'].includes(parent.role), 'showcase and explanation agents cannot delegate development work');
     check(parent.role !== 'planner', 'planner 不再直接派活；用 lush spec add 写拆解队列，由 scheduler 编排');
-    text(goal, 'goal'); check(['worker','coordinator','research'].includes(role), 'role must be worker, coordinator or research');
+    text(goal, 'goal');
+    check(taskKind ? role === 'agent' : ['worker','coordinator','research'].includes(role),
+      taskKind ? 'new Task agents can only delegate a Task agent' : 'role must be worker, coordinator or research');
+    check(!taskKind || specId === null, 'new Task agents do not compile planner specs');
     const edges = normalizeDeps(deps);
+    check(!taskKind || edges.length === 0, 'new Task children use parent signals, not legacy dependency edges');
     const resolved = new Map(edges.map(edge => [edge.id, edge.kind]));
     let spec = null;
     if (specId !== null && specId !== undefined) {
@@ -54,7 +62,7 @@ export default {
     check(this.store.get("SELECT count(*) AS n FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").n < 1000, 'too many active tasks');
     const slug = taskSlug(name, goal);
     const task = this.store.transaction(() => {
-      const created = this.store.create({ parent_id: parent.id, input_id: inheritedInput, role, goal, name: slug });
+      const created = this.store.create({ parent_id: parent.id, input_id: inheritedInput, role, goal, name: slug, task_kind: taskKind });
       this.assertDeps(created.id, parent, merged);
       for (const edge of merged) { this.store.addDep(created.id, edge.id, edge.kind); this.store.event(created.id, 'dep.added', edge); }
       if (spec) this.store.plannedSpec(spec.id, created.id);
@@ -127,7 +135,12 @@ export default {
     // 与任务树 / 分支图同一口径：这条输入的 planner 带 input.route 事件就是快速路由。
     task.route = storedTask.input_id !== null && this.store.routedInputIds().has(storedTask.input_id);
     const runs = this.store.runsForTask(task.id);
-    return { ...task, deps: this.store.depsDetail(task.id), dependents: this.store.dependentsDetail(task.id),
+    const resolution = task.task_kind === 'child' ? this.store.get(
+      "SELECT data FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1", task.id) : null;
+    return { ...task, parent_task_kind: task.parent_id ? this.store.task(task.parent_id).task_kind : null,
+      ...(resolution ? { divergence_resolution: { ...JSON.parse(resolution.data),
+        branch_status: task.branch ? this.store.branch(task.branch)?.status ?? null : null } } : {}),
+      deps: this.store.depsDetail(task.id), dependents: this.store.dependentsDetail(task.id),
       ...(task.role === 'planner' ? { specs: bounded(this.store.specsByPlanner(task.id), 200000) } : {}),
       ...(task.role === 'scheduler' ? { specs: bounded(this.store.specsForBatch(task.id), 200000) } : {}),
       children: bounded(this.decorate(this.store.summaries().filter(child => child.parent_id === task.id)), 100000),

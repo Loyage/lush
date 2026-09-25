@@ -40,6 +40,12 @@ export default {
     });
   },
 
+  /** say --draft / Web 草稿行：一次只发送选中的草稿，不触碰其它缓存。 */
+  async submitDraft(draftId, branch = null) {
+    const result = await this.commitDrafts([draftId], branch);
+    return result.inputs[0];
+  },
+
   /**
    * 逐条提交缓存草稿，每条各自成为一个独立输入与 planner。ids 省略：全部 open drafts。
    * 有 ids：只提交选中的子集，按 id 升序（= 输入顺序），未选中的继续留在缓存。
@@ -70,10 +76,17 @@ export default {
     check(drafts.length > 0, 'no buffered drafts to submit');
     const inputs = [];
     for (const draft of drafts) {
-      const references = this.store.draftReferences(draft.id).map(reference => ({ segment: 1, reference }));
+      const currentReferences = this.store.draftReferences(draft.id);
+      const references = currentReferences.map(reference => ({ segment: 1, reference }));
       const match = matchInputRoute(this.config.inputRoutes, draft.content);
       let worker = null;
       const result = await this.createInput(draft.content, task => {
+        // Git anchoring is asynchronous: a user can edit/remove/send this draft while it waits.
+        // Recheck inside the input transaction rather than associating a stale snapshot (or a deleted draft).
+        const live = this.store.draft(draft.id);
+        check(live.input_id === null && live.content === draft.content
+          && JSON.stringify(this.store.draftReferences(draft.id)) === JSON.stringify(currentReferences),
+          `draft ${draft.id} changed while being submitted; retry with its latest contents`);
         this.store.run('UPDATE drafts SET input_id=? WHERE id=?', task.input_id, draft.id);
         this.store.setInputReferences(task.input_id, references);
         this.store.event(task.id, 'input.draft', { draft_ids: [draft.id] });

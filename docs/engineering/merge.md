@@ -72,6 +72,6 @@ code 下游 → 上游任务分支 → 输入分支 → 用户指定父分支
 3. runtime 逐条复用 `branch.merge` 的 ff-only 门槛；父子分歧时自动在该子分支下创建子侧 merger，运行置为 `paused` 并停住，merger 结算后自动落回它的直接父分支并继续；目标分支永不产生 merge commit；
 4. 运行在「全部完成 / 遇到失败 / 用户取消」时结束，已成功落地的不回滚。
 
-运行本身是目标分支附属的 versioned JSON（`branches.merge_run`），不是新业务实体；终态即清空。运行期间按「目标分支 + 它的全部后代」冻结写操作；此外，任何未结束的 merger 任务同样冻结「它处理的分支 + 它的全部后代 + 它的直接父分支」。冻结拦截新建 intent（`input.submit` / `draft.commit`）、`branch.merge` / `branch.sync` / `branch.catchup` / `branch.archive`、`task.retry` / `task.cleanup` / `task.delete` 与 `task.clear`；`branch.merge_cancel BRANCH` 清除运行、取消正在等待的 merger 并释放冻结，已落地提交保留。冻结计算见 `src/core/branch-freeze.js`。
+运行本身是目标分支附属的 versioned JSON（`branches.merge_run`），不是新业务实体；终态即清空。运行期间按「目标分支 + 它的全部后代」冻结写操作；此外，任何未结束的 merger 任务同样冻结「它处理的分支 + 它的全部后代 + 它的直接父分支」；已发出但尚未集成的 say 合并请求冻结其父分支**本身**（不冻结请求者与兄弟 say 自己的分支），保证固定基线在请求悬而未决时不会因别的交付而失效（见[任务接口](../reference/rpc/tasks.md)的交付锁）。冻结拦截新建 intent（`input.submit` / `draft.commit`）、`branch.merge` / `branch.sync` / `branch.catchup` / `branch.archive`、`task.retry` / `task.cleanup` / `task.delete` 与 `task.clear`；`branch.merge_cancel BRANCH` 清除运行、取消正在等待的 merger 并释放冻结，已落地提交保留。冻结计算见 `src/core/branch-freeze.js`。
 
 相关：[分支优先架构](branch-first.md) · [Git 边界](git-boundary.md) · [分支谱系](branch-genealogy.md)

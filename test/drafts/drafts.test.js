@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { fixture, repo, until } from '../helpers.js';
+import { fixture, repo, until, gate } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { createSignal } from '../../src/signal.js';
 
@@ -102,6 +102,24 @@ test('a failure midway keeps earlier inputs and leaves the failed draft and late
     expect(f.store.draft(third.id).input_id).toBeNull();
     expect(f.project.drafts().map(row => row.id)).toEqual([second.id, third.id]);
   } finally { await f.close(); }
+});
+
+test('editing a draft while its worktree is being created never sends stale content', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  const waiting = gate(), started = gate();
+  const original = f.project.workspaces.anchor.bind(f.project.workspaces);
+  f.project.workspaces.anchor = async (...args) => { started.resolve(); await waiting.promise; return original(...args); };
+  try {
+    const draft = f.project.draft('before');
+    const sending = f.project.submitDraft(draft.id);
+    await started.promise;
+    f.project.editDraft(draft.id, 'after');
+    waiting.resolve();
+    await expect(sending).rejects.toThrow('changed while being submitted');
+    expect(f.store.draft(draft.id).input_id).toBeNull();
+    expect(f.project.inputs()).toEqual([]);
+    expect((await f.project.workspaces.git(f.root, 'branch', '--list', `lush/${f.project.workspaces.namespace}/input-*`))).toBe('');
+  } finally { waiting.resolve(); await f.close(); }
 });
 
 test('the draft cache is bounded', async () => {

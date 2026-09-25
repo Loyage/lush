@@ -49,9 +49,11 @@ function draftItem(draft) {
   const item = el('article', undefined, 'draft');
   item.dataset.id = draft.id;
   const row = el('span', undefined, 'row');
-  const run = button('执行', () => action('draft.commit', { ids: [draft.id] }), 'run',
-    { agent: true, help: agentHelp(`只执行待提交意图 #${draft.id}：先提交这条，未命中快速路由时交给 planner 拆解任务并建依赖。`) });
-  run.setAttribute('aria-label', `执行待提交意图 #${draft.id}`);
+  const run = button('发送', () => {
+    const branch = $('input-branch').value.trim();
+    return action('say.submit', { draft_id: draft.id, ...(branch ? { branch } : {}) });
+  }, 'run', { agent: true, help: agentHelp(`只发送草稿 #${draft.id}，不触碰输入框或其它草稿。`) });
+  run.setAttribute('aria-label', `发送草稿 #${draft.id}`);
   const edit = button('编辑', () => startDraftEdit(draft), 'edit');
   edit.setAttribute('aria-label', `编辑待提交意图 #${draft.id}`);
   const drop = button('移除', () => action('draft.remove', { id: draft.id }), 'drop');

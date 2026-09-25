@@ -55,8 +55,10 @@ export const methods = {
    * 落地的提交是同一个对象，两次读取之间分支前进既不扩大交付范围，也不会悄悄换成别的树。
    * 校验与落地都在这个串行区间内完成；expected 已经进入 parent 时是幂等成功。
    */
-  async mergeBranchUnsafe(child, expected = null) {
+  async mergeBranchUnsafe(child, expected = null, expectedParent = null) {
     const state = await this.branchState(child);
+    if (expectedParent) check(state.parent_head === expectedParent,
+      `parent ${state.parent} moved since its fixed baseline; inspect before approving`);
     check(state.status !== 'missing', `cannot merge ${child}: child or parent branch is missing`);
     check(state.blockers.length === 0, `merge ${state.child} into ${state.parent} is blocked by unintegrated child branches: ${state.blockers.join(', ')}`);
     const project = this.config.project;
@@ -78,10 +80,12 @@ export const methods = {
       await this.clean(parentWorkspace);
       check(await this.git(parentWorkspace, 'symbolic-ref', '--short', 'HEAD') === state.parent,
         `worktree ${parentWorkspace} is no longer on ${state.parent}`);
+      if (expectedParent) check(await this.git(parentWorkspace, 'rev-parse', 'HEAD') === expectedParent,
+        `parent ${state.parent} moved during approval; inspect before approving`);
       await this.git(parentWorkspace, 'merge', '--ff-only', landed);
     } else {
       // 未检出的父分支没有 index/worktree 要同步；compare-and-swap 更新 ref，外部进程抢先推进就安全失败。
-      await this.git(this.config.project, 'update-ref', `refs/heads/${state.parent}`, landed, state.parent_head);
+      await this.git(this.config.project, 'update-ref', `refs/heads/${state.parent}`, landed, expectedParent ?? state.parent_head);
     }
     return { ...state, status: 'integrated', merged: true, new_head: landed, landed };
   },

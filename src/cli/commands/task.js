@@ -88,7 +88,7 @@ export async function run(command, args, ctx) {
     }
     else if (verb === 'spawn') {
       const parent = option(args, '--parent', process.env.LUSH_TASK_ID);
-      const role = option(args, '--role', 'worker');
+      const role = option(args, '--role');
       const name = option(args, '--name');
       const spec = option(args, '--spec');
       const defaultKind = option(args, '--dep-kind', 'code');
@@ -134,9 +134,30 @@ export async function run(command, args, ctx) {
       while (!TERMINAL.has(value.status));
       if (value.status !== 'completed') process.exitCode = 1;
     } else {
-      check(['inspect','cancel','retry','merge','cleanup','verify','delete','clear'].includes(verb), 'unknown task command');
+      check(['inspect','cancel','retry','merge','integrate','reserve','resolve-divergence','resolve-child-divergence','analyze','unreserve','approve-merge','cleanup','verify','delete','clear'].includes(verb), 'unknown task command');
       if (verb === 'clear') { exact(args, 0); value = await client.request('task.clear'); }
-      else if (verb === 'merge') {
+      else if (verb === 'integrate') {
+        exact(args, 2);
+        value = await client.request('task.integrate', { id: id(args[0]), commit: args[1] });
+      } else if (verb === 'reserve') {
+        exact(args, 2);
+        value = await client.request('task.reserve', { id: id(args[0]), kind: args[1] });
+      } else if (verb === 'analyze') {
+        exact(args, 2);
+        value = await client.request('task.analyze', { id: id(args[0]), question: args[1] });
+      } else if (verb === 'resolve-child-divergence') {
+        exact(args, 1);
+        value = await client.request('task.resolve_child_divergence', { id: id(args[0]) });
+      } else if (verb === 'resolve-divergence') {
+        exact(args, 1);
+        value = await client.request('task.resolve_divergence', { id: id(args[0]) });
+      } else if (verb === 'unreserve') {
+        exact(args, 1);
+        value = await client.request('task.unreserve', { id: id(args[0]) });
+      } else if (verb === 'approve-merge') {
+        exact(args, 3);
+        value = await client.request('task.approve_merge', { id: id(args[0]), commit: args[1], baseline: args[2] });
+      } else if (verb === 'merge') {
         // 一个 id 保持原有单任务输出语义；多个 id 走批量合并。
         check(args.length >= 1, 'merge needs at least one task id');
         const ids = args.map(value$1 => id(value$1));

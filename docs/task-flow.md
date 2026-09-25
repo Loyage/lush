@@ -1,5 +1,7 @@
 # 从 Intent 到可验收结果
 
+> 本文描述**历史链**：旧客户端（`input.submit` / 旧批量 `draft.commit`）与旧项目已存在的数据。当前输入路径（一条输入直连一个拥有独立分支的 Task）见 [Task 中心输入架构](engineering/task-centered-input-design.md)；旧数据仍可按本文的规则安全收尾。
+
 这条阅读线按实际使用顺序解释：**用户目标 → structured Plan → 并行 Work → Review Candidate → 用户验收**。每篇只覆盖一个阶段，可从本页连续读完。
 
 > 连续阅读：**流程总览** → [提交与规划](task-flow-1-planning.md) → [集成与候选](task-flow-2-integration.md) → [验收与回收](task-flow-3-delivery.md)

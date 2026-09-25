@@ -4,7 +4,7 @@ import path from 'node:path';
 import { temp, env, repo, until } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
-import { cli, done } from './harness.js';
+import { cli, idle } from './harness.js';
 
 // A real process that intentionally never exits after posting: runtime, not model compliance, must stop it.
 test('pi CLI questionnaire stops process group, survives daemon restart, and resumes via answers-file', async () => {
@@ -47,8 +47,8 @@ if (context.task.calls === 1) {
     const answers = path.join(root, 'answers.json');
     fs.writeFileSync(answers, JSON.stringify({ answers: [{ selected: [1] }] }));
     await cli(root, ['answer', String(notice.id), '--answers-file', answers]);
-    const result = await done(client, task.id);
-    expect(result.status).toBe('completed'); expect(result.calls).toBe(2);
+    const result = await idle(client, task.id, 2);
+    expect(result.status).toBe('waiting'); expect(result.calls).toBe(2);
     const seen = fs.readFileSync(seenFile, 'utf8').trim().split('\n').map(JSON.parse);
     expect(seen.length).toBe(2);
     expect(JSON.parse(seen[1].messages[0].body).answer.answers[0].labels).toEqual(['Tabs']);

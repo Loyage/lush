@@ -20,6 +20,8 @@ export async function serve(config) {
     fs.rmSync(config.socket, { force: true });
     store = new Store(path.join(config.home, 'project.db'), config.project);
     project = new Project(config, store);
+    // Establish the logical main owner before RPC accepts new say; this never starts an Agent.
+    await project.bootstrapMain();
     const identity = { ...codeIdentity(), socket: config.socket, started_at: new Date().toISOString() };
     server = new RPCServer(config.socket, new Dispatcher(project, stopping, identity));
     await server.start();

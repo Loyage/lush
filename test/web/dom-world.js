@@ -81,6 +81,7 @@ export function makeWorld() {
     transcriptAfter: [],
     transcriptLatest: [],
     actions: [],
+    resolveOutcome: null,
     agentEnvironments: {
       common: { HTTP_PROXY: 'http://127.0.0.1:7897', API_KEY: 'secret-value' },
       planner: {}, coordinator: {}, worker: {}, research: {}, verifier: {}, merger: {},
@@ -276,8 +277,18 @@ export function makeWorld() {
       if (body.method === 'draft.update') { const draft = state.drafts.find(row => row.id === body.params.id); if (draft) { draft.content = body.params.content; if (body.params.references !== undefined) draft.references = body.params.references; } return json({ id: draft?.id, content: draft?.content, references: draft?.references || [] }); }
       if (body.method === 'draft.remove') { state.drafts = state.drafts.filter(row => row.id !== body.params.id); return json({ id: body.params.id }); }
       if (body.method === 'draft.add') { const draft = { id: state.drafts.length ? Math.max(...state.drafts.map(row => row.id)) + 1 : 1, content: body.params.content, references: body.params.references || [], created_at: iso(NOW) }; state.drafts = [...state.drafts, draft]; return json(draft); }
+      if (body.method === 'say.submit') {
+        const draft = body.params.draft_id === undefined ? null : state.drafts.find(row => row.id === body.params.draft_id);
+        if (draft) state.drafts = state.drafts.filter(row => row.id !== draft.id);
+        const input = { id: state.actions.length, content: draft?.content ?? body.params.content,
+          references: draft?.references ?? body.params.references ?? [], draft: draft?.id ?? null,
+          task: { id: 99 }, anchor: null };
+        return json(input);
+      }
+      if (body.method === 'task.resolve_divergence') return json(state.resolveOutcome ?? { status: 'queued', task: { id: 92 } });
+      if (body.method === 'task.analyze') return json({ status: 'queued', task: { id: 91 }, branch: 'main', commit: 'f'.repeat(40) });
       if (body.method === 'draft.commit') {
-        // 逐条提交：每条草稿各成一条独立输入，返回 {inputs, drafts}（与 core commitDrafts 同形状）。
+        // 旧批量提交兼容路径。
         const ids = body.params.ids ?? state.drafts.map(row => row.id);
         state.commits.push(ids);
         const chosen = state.drafts.filter(row => ids.includes(row.id));

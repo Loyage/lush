@@ -10,6 +10,7 @@ export default {
    */
   async approveMerge(taskId) {
     const task = this.store.task(taskId);
+    check(!task.task_kind, 'new Task branches require parent confirmation or fixed-commit main approval; legacy task.merge is unavailable');
     // 原 worker 是稳定的交付身份：resolver 已完成且仍可快进时，单任务入口也自动落地 resolver。
     // 若目标分支已经前进则不映射，继续走原任务重试语义：旧 resolver 会被标为 superseded，再开新一轮。
     if (task.integration === 'conflict' && !task.resolves_task_id) {
@@ -61,6 +62,8 @@ export default {
     check(ids.length > 0, 'batch merge needs at least one task id');
     const requested = [...new Set(ids.map(value => id(value)))];
     check(requested.length <= 50, 'at most 50 tasks per batch merge');
+    for (const taskId of requested) check(!this.store.task(taskId).task_kind,
+      'new Task branches cannot use legacy task.merge_many');
 
     // 批量入口接收稳定的“原任务 id”。若它已有完成但未落地的 resolver，真正应落地的是
     // resolver 的分支，而不是按较小的原任务 id 先重试并作废已有成果。

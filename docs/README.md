@@ -22,6 +22,8 @@
 3. [验收闭环](engineering/review-loop.md)：产品轴、Git 轴、Candidate 与反馈。
 4. [工程架构索引](engineering/architecture.md)：按源码主题继续深入。
 
+下一代输入与 Task 的目标方案见[Task 中心输入架构（待实施）](engineering/task-centered-input-design.md)和[实施与验收](engineering/task-centered-input-rollout.md)；它们不是当前功能说明。
+
 ## 设计理念：修改模块前阅读
 
 [模块设计理念](design/README.md)解释长期目标与设计取舍，首篇是[Agent 执行过程](design/agent-process.md)。它不是功能完成清单；具体能力仍看工程与接口文档。

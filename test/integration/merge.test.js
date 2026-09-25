@@ -4,7 +4,7 @@ import path from 'node:path';
 import { temp, env, repo, git } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
-import { cli, done, workOf } from './harness.js';
+import { cli, legacySay, done, workOf } from './harness.js';
 
 // A fake pi that plans two workers: the second one stacks on the first with a code dependency.
 const STACKED_PI = `#!/usr/bin/env bun
@@ -87,7 +87,7 @@ test('a diverged input branch resolves on the child side, then lands through two
   try {
     await repo(root);
     await cli(root,['start'], { LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
-    const input = await cli(root,['say','改同一个文件']);
+    const input = await legacySay(root, '改同一个文件');
     const client = new UIClient(Config.fromEnv(env(),root));
     // planner 只写 Plan；runtime 直接编译 worker。
     await done(client,input.task.id);

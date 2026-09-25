@@ -416,6 +416,7 @@ export function graphRenderKey(graph) {
     node.worktree_state ?? '-', node.tasks?.active ?? '-',
     node.origin ?? '-', node.status ?? '-', node.title ?? '-', node.summary ?? '-', node.source_id ?? '-',
     node.notice?.id ?? '-', node.notice?.kind ?? '-', node.notice_count ?? '-', progressKey(node.progress),
+    node.task_kind ?? '-', node.parent_task_kind ?? '-', JSON.stringify(node.reservation ?? null),
     JSON.stringify(node.diagnostics ?? null), JSON.stringify(node.showcase ?? null),
     JSON.stringify(node.freeze ?? null), JSON.stringify(node.merge_run ?? null)].join(':')).join('|');
   const edges = (graph?.edges || []).map(edge => `${edge.kind}:${edge.from}>${edge.to}:${edge.status ?? '-'}:${edge.ahead ?? '-'}:${edge.behind ?? '-'}:${(edge.blockers || []).join(',')}`).join('|');

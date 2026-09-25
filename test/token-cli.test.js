@@ -10,9 +10,37 @@ test('ordinary say submits content and branch without extra flags', async () => 
   await intent('say', ['fix it', '--branch', 'main'], { client });
   await intent('say', ['plan it'], { client });
   expect(calls).toEqual([
-    { method: 'input.submit', params: { content: 'fix it', branch: 'main' } },
-    { method: 'input.submit', params: { content: 'plan it' } },
+    { method: 'say.submit', params: { content: 'fix it', branch: 'main' } },
+    { method: 'say.submit', params: { content: 'plan it' } },
   ]);
+});
+
+test('say --draft sends exactly one chosen draft and rejects mixing text or missing ids', async () => {
+  const calls = [], client = { request: async (method, params) => { calls.push({ method, params }); return { id: 9 }; } };
+  expect(await intent('say', ['--draft', '12', '--branch', 'main'], { client })).toEqual({ id: 9 });
+  expect(calls).toEqual([{ method: 'say.submit', params: { draft_id: 12, branch: 'main' } }]);
+  await expect(intent('say', ['text', '--draft', '12'], { client })).rejects.toThrow();
+  await expect(intent('say', ['--draft', '0'], { client })).rejects.toThrow();
+  await expect(intent('say', ['--draft'], { client })).rejects.toThrow();
+  expect(calls).toHaveLength(1);
+});
+
+test('task reserve and unreserve pass one explicit say Task and kind', async () => {
+  const calls = [], client = { request: async (method, params) => { calls.push({ method, params }); return params; } };
+  await task('task', ['reserve', '7', 'merge'], { client, json: true });
+  await task('task', ['resolve-divergence', '7'], { client, json: true });
+  await task('task', ['resolve-child-divergence', '9'], { client, json: true });
+  await task('task', ['unreserve', '7'], { client, json: true });
+  await task('task', ['approve-merge', '7', 'a'.repeat(40), 'b'.repeat(40)], { client, json: true });
+  expect(calls).toEqual([
+    { method: 'task.reserve', params: { id: 7, kind: 'merge' } },
+    { method: 'task.resolve_divergence', params: { id: 7 } },
+    { method: 'task.resolve_child_divergence', params: { id: 9 } },
+    { method: 'task.unreserve', params: { id: 7 } },
+    { method: 'task.approve_merge', params: { id: 7, commit: 'a'.repeat(40), baseline: 'b'.repeat(40) } },
+  ]);
+  await expect(task('task', ['reserve', '7'], { client, json: true })).rejects.toThrow();
+  expect(calls).toHaveLength(5);
 });
 
 test('brief tasks use bounded rows and retain a continuation cursor; ordinary list stays compatible', async () => {

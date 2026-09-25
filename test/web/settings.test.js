@@ -26,7 +26,7 @@ const systemBlock = () => [...panel().querySelectorAll('.block')]
 const runtimeBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '并发额度') || null;
 const routesBlock = () => [...panel().querySelectorAll('.block')]
-  .find(node => node.querySelector('h2')?.textContent === '输入前缀（快速路由）') || null;
+  .find(node => node.querySelector('h2')?.textContent === '输入前缀（仅旧提交路径）') || null;
 const environmentBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '环境变量') || null;
 
@@ -449,7 +449,7 @@ test('系统页：没有快照时显示占位', async () => {
   await dom.intervalFor(1500)();
 });
 
-test('系统页：快速路由前缀块列出、增删并按整表保存', async () => {
+test('系统页：旧提交路径的前缀块列出、增删并按整表保存', async () => {
   openSystem();
   const routes = routesBlock();
   expect(routes).toBeTruthy();

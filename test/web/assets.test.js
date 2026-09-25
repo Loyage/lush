@@ -185,9 +185,10 @@ test('无顶栏壳：身份区在左栏，内容区不再被头部压住；输�
     // 一行输入：rows=1 且样式里的最小高度 ≤36px；展开不把它撑高。
     expect(html).toMatch(/<textarea id="input" rows="1"/);
     expect(css).toMatch(/\.composer textarea\{min-height:3[0-6]px/);
-    // 高亮 overlay 必须垫在 textarea 文本层之下、textarea 背景透明，否则 accent-soft 色块会把「开发」两个字盖成纯色块。
-    expect(css).toMatch(/\.composer-input textarea\{[^}]*z-index:1[^}]*background:transparent/);
-    expect(css).toMatch(/\.composer-highlight\{[^}]*z-index:0/);
+    // 输入区文本层保持干净：没有前缀高亮 overlay（新 say 不走快速路由，不再假装会按前缀派活）。
+    expect(html).not.toContain('input-highlight');
+    expect(css).not.toMatch(/\.composer-highlight/);
+    expect(css).toMatch(/\.composer-input textarea\{[^}]*background:transparent/);
     expect(css).not.toMatch(/\.composer textarea\{[^}]*background:/);
     // 任务类型胶囊按 role-<role> 取色；快速路由是独立一套（徽章 + 整行底色），不覆盖状态色。
     expect(css).toMatch(/\.role-worker\{color:var\(--role-worker\)\}/);
@@ -250,11 +251,10 @@ test('统一按钮帮助模块可服务，Agent 触发标识与提示样式一�
     expect(light).toContain('--violet-ink:#7955b4');
     expect(dark).toContain('--violet-ink:#c1a4f3');
 
-    // 页面入口：「全部执行」是唯一的提交按钮，带 agent-call 与 agentHelp 口径的 data-help；
-    // 「直接执行」与勾选框已随统一执行移除。
+    // 页面入口：发送当前输入带 agent-call；提示由 JS 的 agentHelp 写入。
     const html = await (await fetch(f.url)).text();
     expect(html).toMatch(/id="draft-commit"[^>]*class="agent-call"/);
-    expect(html).toContain('全部执行');
+    expect(html).toContain('>发送</button>');
     expect(html).not.toContain('id="input-direct"');
     expect(html).not.toContain('直接执行');
     expect(html).not.toContain('提交并规划');

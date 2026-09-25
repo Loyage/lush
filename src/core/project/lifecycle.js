@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { check, TERMINAL, bounded } from '../types.js';
 
 /**
@@ -18,22 +20,64 @@ function settlementReminder(task, status) {
   const label = SETTLE_LABEL[status];
   const goal = String(task.goal ?? '').split('\n').map(line => line.trim()).find(Boolean) ?? '';
   const brief = goal.length > 80 ? `${goal.slice(0, 80)}…` : goal;
+  // 只读分析：结论就是这个 Task 的 result，没有分支 / 集成可说；直接把结论带到提醒里。
+  if (task.task_kind === 'analysis') {
+    const answer = String(task.result ?? '').trim();
+    return {
+      title: `分支 ${task.target_branch} 的分析 #${task.id} ${label}`,
+      body: [
+        `问题：${brief}`,
+        `分支：${task.target_branch}（只读分析，没有分支改动）`,
+        status === 'completed'
+          ? `结论：${answer.length > 1200 ? `${answer.slice(0, 1200)}…` : answer || '（空回答）'}`
+          : `分析未完成：${String(task.error ?? '').slice(0, 500) || '没有记录到原因'}`,
+        `完整回答见任务 #${task.id} 详情。`,
+      ].join('\n'),
+    };
+  }
+  const reservation = task.task_kind === 'say' && task.reservation ? JSON.parse(task.reservation) : null;
   return {
     title: `分支 ${task.branch}：任务 #${task.id} ${label}`,
     body: [
       `任务 #${task.id}（${task.role}：${brief}）结算为「${label}」。`,
       `分支：${task.branch}`,
       `直接父分支：${task.target_branch ?? '（未记录）'}`,
-      `integration：${INTEGRATION_REMINDER[task.integration] ?? INTEGRATION_REMINDER.none}。`,
+      reservation?.kind === 'merge' && reservation.status === 'requested'
+        ? `固定提交 ${reservation.commit} 的合并请求已发给父 Task #${reservation.parent_id}；当前尚未合入，须由父 Agent 或用户确认。`
+        : reservation?.kind === 'showcase' && ['completed','failed','cancelled'].includes(reservation.status)
+          ? `展示子 Task #${reservation.child_id} 已${reservation.status === 'completed' ? '交付' : reservation.status === 'cancelled' ? '取消' : '失败'}；展示不代表验收，也没有自动合并。`
+          : `integration：${INTEGRATION_REMINDER[task.integration] ?? INTEGRATION_REMINDER.none}。`,
     ].join('\n'),
   };
 }
 
 /** 结算、取消、重试、清空与恢复。 */
 export default {
-  finish(taskId, status, result = null, error = null) {
+  finish(taskId, status, result = null, error = null, options = {}) {
     const task = this.store.task(taskId);
     if (TERMINAL.has(task.status)) return task;
+    const request = options.mergeRequest ?? null;
+    const showcaseSettlement = options.showcaseSettlement ?? null;
+    check(!request || !showcaseSettlement, 'a say Task cannot merge and showcase together');
+    if (task.task_kind === 'say' && (status === 'completed' || showcaseSettlement)) {
+      const reservation = task.reservation ? JSON.parse(task.reservation) : null;
+      if (request) {
+        check(reservation?.kind === 'merge' && reservation.status === 'pending'
+          && task.status === 'waiting' && task.head_commit === request.commit && task.parent_id === request.parent_id,
+        'a new say Task completes only with its pinned merge request');
+        const parent = this.store.task(task.parent_id);
+        check(['main','owner','say'].includes(parent.task_kind) && !TERMINAL.has(parent.status),
+          'merge request parent is no longer active');
+      } else {
+        const child = showcaseSettlement ? this.store.task(showcaseSettlement) : null;
+        check(reservation?.kind === 'showcase' && reservation.status === 'started'
+          && reservation.child_id === child?.id && child.parent_id === task.id
+          && child.role === 'showcase' && child.task_kind === 'showcase' && TERMINAL.has(child.status)
+          && task.status === 'waiting'
+          && status === (child.status === 'completed' ? 'completed' : child.status === 'cancelled' ? 'cancelled' : 'failed'),
+        'a new say Task completes only after its reserved showcase child settles');
+      }
+    } else check(!request && !showcaseSettlement, 'delivery settlement belongs to a say Task');
     if (task.role === 'butler' && status !== 'completed') {
       const source = this.butlerContext(task.id);
       this.finishSleepChoice(source.choice_id, { status: 'interrupted', reason: error || '管家中断，未执行选择' });
@@ -43,25 +87,62 @@ export default {
     this.store.transaction(() => {
       // A retry profile is scoped to this attempt. Terminal settlement removes it so a later
       // explicit retry starts from the then-current project/role profile unless the user adjusts it again.
+      if (showcaseSettlement) {
+        const reservation = JSON.parse(task.reservation);
+        const { blocked_reason: _previousReason, blocked_code: _previousCode, ...cleanReservation } = reservation;
+        this.store.update(task.id, { reservation: JSON.stringify({ ...cleanReservation, status,
+          settled_at: new Date().toISOString() }) });
+        this.store.event(task.id, 'task.showcase_settled', { child_id: showcaseSettlement, status });
+      }
+      if (request) {
+        const reservation = JSON.parse(task.reservation);
+        const { blocked_reason: _previousReason, blocked_code: _previousCode, ...cleanReservation } = reservation;
+        const requested = { ...cleanReservation, status: 'requested', commit: request.commit, baseline: request.baseline,
+          parent_id: request.parent_id, requested_at: new Date().toISOString() };
+        const key = `merge:${task.id}:${request.commit}`;
+        const payload = { branch: task.branch, commit: request.commit, baseline: request.baseline };
+        const body = JSON.stringify({ version: 1, signal: 'merge.requested', key, source_task_id: task.id,
+          target_task_id: request.parent_id, payload });
+        const row = this.store.signal(request.parent_id, task.id, 'merge.requested', key, body);
+        this.store.event(task.id, 'task.merge_requested', { ...payload, parent_id: request.parent_id, message_id: row.id });
+        if (row.inserted) this.store.event(request.parent_id, 'task.signal', { message_id: row.id,
+          source_task_id: task.id, signal: 'merge.requested', key });
+        this.store.update(task.id, { reservation: JSON.stringify(requested) });
+      }
       this.store.update(task.id, { status, result, error, retry_profile: null });
       this.store.run("UPDATE notices SET status='dismissed',answer='task ended' WHERE task_id=? AND status='open'", task.id);
-      // 结算提醒：completed / failed 且任务有自己的分支时落且只落一条纯信息 notice。
+      // 结算提醒：completed / failed 且任务有自己的分支或是一次只读分析时落且只落一条纯信息 notice。
       // 它 kind='info' / status='sent'，与这次结算同一个事务，且顺序在「关掉 open notice」之后；
       // cancelled 不提醒，没有分支的任务（planner / scheduler / coordinator / research / verifier）也不提醒。
-      if ((status === 'completed' || status === 'failed') && task.branch) {
-        const reminder = settlementReminder(task, status);
+      if ((status === 'completed' || status === 'failed') && (task.branch || task.task_kind === 'analysis')) {
+        const reminder = settlementReminder(this.store.task(task.id), status);
         this.notify(task.id, reminder.title, reminder.body);
       }
-      this.store.event(task.id, status, { result, error });
+      const settlementEvent = this.store.event(task.id, status, { result, error });
       // 一个 scheduler 要么把 spec 编成任务，要么明确 drop；取消则把未处理的 spec 还给队列，绝不静默丢弃。
       if (task.role === 'scheduler') {
         if (status === 'cancelled') this.store.releaseBatch(task.id, 'scheduler 被取消，spec 回到 pending');
         else if (status === 'completed' || status === 'failed') this.store.discardBatch(task.id, `scheduler 未覆盖该 spec（${status}）`);
       }
-      if (task.parent_id && !TERMINAL.has(this.store.task(task.parent_id).status)) {
-        const messageId = this.store.message(task.parent_id, JSON.stringify({ child: task.id, status,
-          result: result?.slice(0, 2000) ?? null, error, result_truncated: (result?.length ?? 0) > 2000 }), task.id);
-        if (status === 'completed') this.store.event(task.parent_id, 'child.completed', { child: task.id, message_id: messageId });
+      if (task.parent_id && !request && !TERMINAL.has(this.store.task(task.parent_id).status)
+        && !(['say','analysis'].includes(task.task_kind) && ['main','owner'].includes(this.store.task(task.parent_id).task_kind))) {
+        const parent = this.store.task(task.parent_id);
+        if ((task.task_kind === 'child' && ['say','child'].includes(parent.task_kind))
+          || (task.task_kind === 'showcase' && parent.task_kind === 'say')) {
+          const key = `${task.task_kind}:${task.id}:settlement:${settlementEvent}`;
+          const type = `${task.task_kind}.${status}`;
+          const payload = { result: result?.slice(0, 2000) ?? null, error,
+            result_truncated: (result?.length ?? 0) > 2000, commit: this.store.task(task.id).head_commit };
+          const body = JSON.stringify({ version: 1, signal: type, key, source_task_id: task.id,
+            target_task_id: parent.id, payload });
+          const row = this.store.signal(parent.id, task.id, type, key, body);
+          if (row.inserted) this.store.event(parent.id, 'task.signal', { message_id: row.id,
+            source_task_id: task.id, signal: type, key });
+        } else {
+          const messageId = this.store.message(task.parent_id, JSON.stringify({ child: task.id, status,
+            result: result?.slice(0, 2000) ?? null, error, result_truncated: (result?.length ?? 0) > 2000 }), task.id);
+          if (status === 'completed') this.store.event(task.parent_id, 'child.completed', { child: task.id, message_id: messageId });
+        }
       }
       // Verification settles either a worker detail or a frozen review candidate.
       if (task.verifies_task_id) this.store.touch(task.verifies_task_id);
@@ -97,6 +178,9 @@ export default {
         }
       }
     });
+    // A reserved showcase child closes the original say only after its own terminal fact is committed.
+    // If we crash here, recover() repeats this DB-only, idempotent step.
+    if (task.task_kind === 'showcase' && task.parent_id) this.settleReservedShowcase(task.parent_id);
     // Work compiled from a Plan is automatically aggregated inside the private Intent branch. The user still
     // approves only the frozen Review Candidate when it moves from the Intent branch to the target branch.
     const compiled = status === 'completed' && task.role === 'worker'
@@ -104,7 +188,8 @@ export default {
     if (task.input_id && task.branch && (compiled || task.role === 'merger')) this.scheduleIntentIntegration(task.input_id);
     // 一键合并若正等这个 merger 子任务，结算后自动继续下一步。
     if (task.role === 'merger') this.resumeMergeRun(task.id);
-    if (task.parent_id) this.wake(task.parent_id);
+    if (task.parent_id && !(task.task_kind === 'say' && ['main','owner'].includes(this.store.task(task.parent_id).task_kind)))
+      this.wake(task.parent_id);
     // A settled dependency releases every queued dependent; still-blocked ones stay queued.
     for (const edge of this.store.dependents(task.id)) this.wake(edge.task_id);
     // 一个没有父子/依赖边的 planner（根任务）也要在自己结束时把这一轮拆解交给 scheduler。
@@ -116,6 +201,7 @@ export default {
 
   cancel(taskId, reason = 'cancelled by user', status = 'cancelled') {
     const task = this.store.task(taskId);
+    check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; cancel individual say Tasks instead');
     if (TERMINAL.has(task.status)) return task;
     // Children first; the event loop cannot schedule their parents until this synchronous cascade ends.
     for (const child of this.store.children(task.id)) if (!TERMINAL.has(child.status)) this.cancel(child.id, reason);
@@ -244,9 +330,17 @@ export default {
     check(!this.running.has(task.id), 'agent is still stopping; retry shortly');
     check(!this.workspaces.busy.has(task.id), 'worktree cleanup is in progress; retry shortly');
     check(task.role !== 'butler', '管家决定不允许重放；请手动处理原 Notice');
+    const divergenceChild = task.task_kind === 'child' && this.store.get(
+      "SELECT id FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' LIMIT 1", task.id);
+    check(!divergenceChild, '解分歧子 Task 不重放未知文件副作用：先检查现场，显式归档旧分支，再从源 say 重新派独立子任务');
     // 冻结中的分支不接受重试：重试会重新产出提交、推进分支，扰动正在进行的合并。
     if (task.branch) this.assertBranchWritable(task.branch, 'retry a task on it');
     if (task.role === 'showcase') return this.retryShowcase(task.id);
+    if (task.task_kind === 'say' && task.reservation) {
+      const reservation = JSON.parse(task.reservation);
+      check(reservation.kind !== 'showcase' || !['completed','failed','cancelled'].includes(reservation.status),
+        'a settled showcase and its parent cannot be retried separately; submit a new say');
+    }
     if (task.parent_id) check(!TERMINAL.has(this.store.task(task.parent_id).status), 'parent has ended; retry the parent or submit a new input');
     const retryProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile(task.role, profile);
     this.store.update(task.id, { status: 'queued', error: null, result: null, calls: 0,
@@ -262,6 +356,9 @@ export default {
 
   recover() {
     this.recoverSleep();
+    // 抢占通道是进程内运行时状态：重启后不可能还有 invocation 在跑，残留请求必须清掉，
+    // 否则下一次调用会在第一个安全边界被一条早已失效的请求误停。
+    fs.rmSync(path.join(this.config.home, 'preempt'), { recursive: true, force: true });
     // A credential dies with the invocation that issued it; nothing survives a restart.
     this.store.run('UPDATE tasks SET agent_token_hash=NULL');
     // 快速介绍的直连调用也随进程结束，遗留在 running 的记录如实落成失败。
@@ -280,6 +377,29 @@ export default {
       }
     }
     this.kick();
+    // 只续推已经静息的预约；running invocation 的未知文件副作用仍保留现场，不自动重播。
+    for (const task of this.store.tasks()) if (task.task_kind === 'say' && task.status === 'waiting' && task.reservation) {
+      let pendingMerge = false;
+      try { const value = JSON.parse(task.reservation); pendingMerge = value.kind === 'merge' && value.status === 'pending'; }
+      catch { /* invalid state remains visible for inspection */ }
+      if (pendingMerge) void this.settleReservedMerge(task.id).catch(error =>
+        this.noteReservationBlocked(task.id, error.message));
+    }
+    // 已发出的请求也要复查：重启期间父分支可能被推进、源分支可能被外部改动，而 pending 复查不覆盖它。
+    for (const task of this.store.tasks()) if (task.task_kind === 'say' && task.reservation) {
+      let requested = false;
+      try { requested = JSON.parse(task.reservation)?.status === 'requested'; } catch { /* leave corrupt state visible */ }
+      if (requested) void this.recheckRequestedMerge(task.id).catch(error =>
+        this.noteReservationBlocked(task.id, error.message));
+    }
+    for (const task of this.store.tasks()) if (task.task_kind === 'say' && task.reservation) {
+      let reservation = null;
+      try { reservation = JSON.parse(task.reservation); } catch { /* leave corrupt state visible */ }
+      if (reservation?.kind === 'showcase' && reservation.status === 'started') this.settleReservedShowcase(task.id);
+      if (reservation?.kind === 'showcase' && reservation.status === 'pending' && task.status === 'waiting') {
+        void this.startReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+      }
+    }
     // 重启后重扫全部预约：资格可能已经满足，或者需要在新的准入下重新挂起。
     this.scheduleShowcaseSweep();
   },

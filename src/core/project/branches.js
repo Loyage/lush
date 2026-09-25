@@ -46,10 +46,14 @@ async function gitState(workspaces, project) {
 export default {
   /** store 里的记录 ∪ 现在真实存在的本地分支，合成一个节点表；再交给纯逻辑拼森林。 */
   branchNodes(state) {
-    const rows = this.store.branches();
+    const owners = new Map(this.store.all("SELECT id,branch FROM tasks WHERE task_kind IN ('main','owner') AND branch IS NOT NULL")
+      .map(task => [task.branch, task.id]));
+    // A legacy branch row remains immutable; the explicit new owner is a current-view overlay.
+    const rows = this.store.branches().map(row => owners.has(row.branch) ? { ...row, task_id: owners.get(row.branch) } : row);
     // 任务可能已经被 clear 清空：谱系记录留着，任务那一半信息就显示成「已清空」而不是消失。
-    const tasks = new Map(rows.filter(row => row.task_id !== null).map(row => [row.task_id,
-      this.store.get('SELECT id, role, name, goal FROM tasks WHERE id=?', row.task_id) ?? null]));
+    const taskIds = new Set([...rows.map(row => row.task_id), ...owners.values()].filter(id => id !== null));
+    const tasks = new Map([...taskIds].map(id => [id,
+      this.store.get('SELECT id, role, name, goal FROM tasks WHERE id=?', id) ?? null]));
     const nodes = [];
     const seen = new Set();
     const push = (row, tracked) => {
@@ -76,7 +80,7 @@ export default {
       });
     };
     for (const row of rows) push(row, true);
-    if (state.git) for (const name of state.refs.keys()) push({ branch: name }, false);
+    if (state.git) for (const name of state.refs.keys()) push({ branch: name, task_id: owners.get(name) ?? null }, false);
     // 只被 parent 指针提到、自己既没记录也没 ref 的名字：也补一个节点，子分支不会从树上掉下去。
     // git 事实照旧现算（present=false），不替 git 编一个「还在」。
     for (const name of new Set(nodes.map(node => node.parent).filter(name => name && !seen.has(name)))) push({ branch: name }, false);
@@ -108,8 +112,11 @@ export default {
     if (options.internal !== true) this.assertBranchWritable(name, 'merge it into its parent');
     const record = this.store.branch(name);
     check(record && record.parent && record.parent_relation === 'recorded', `${name} has no recorded direct parent`);
+    check(!this.store.get("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say','child')", name),
+      'new Task branch cannot use legacy branch.merge');
     if (record.task_id !== null) {
       const task = this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
+      check(!task?.task_kind, 'new Task branches require parent confirmation or fixed-commit main approval; legacy branch.merge is unavailable');
       check(!task || task.status === 'completed', `branch task #${record.task_id} is not completed`);
     }
     const outcome = await this.workspaces.mergeBranch(name, expected);
@@ -139,6 +146,8 @@ export default {
   async syncBranch(branch, options = {}) {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
+    check(!this.store.get("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say','child')", name),
+      'new Task branch cannot use legacy branch.sync');
     const state = await this.workspaces.branchState(name);
     check(state.status === 'diverged', `${name} is ${state.status}; branch sync is only needed after divergence`);
     check(state.blockers.length === 0, `sync ${name} is blocked by unfinished child work: ${state.blockers.join(', ')}`);
@@ -183,6 +192,12 @@ export default {
     const targets = [name, ...descendantsOf(this.store.branches(), name)]
       .filter(target => this.store.branch(target)?.status === 'active');
     for (const target of targets) this.assertBranchWritable(target, 'archive it');
+    // 已发出未集成的请求：源分支就是那次交付本身，归档它会让父分支的交付锁永远没有落地对象。
+    const requested = this.store.all(`SELECT t.id,t.branch,t.reservation FROM tasks t
+      WHERE t.task_kind='say' AND t.reservation IS NOT NULL AND t.branch IN (${targets.map(() => '?').join(',')})`, ...targets)
+      .filter(row => { try { const value = JSON.parse(row.reservation); return value?.kind === 'merge' && value.status === 'requested'; } catch { return false; } });
+    check(requested.length === 0,
+      `branch ${requested[0]?.branch} still has an outstanding merge request from say #${requested[0]?.id}; integrate or withdraw it before archiving`);
     const state = await gitState(this.workspaces, this.config.project);
     check(!targets.includes(state.current_branch), `cannot archive the branch currently checked out: ${state.current_branch}`);
     // 整棵子树上的任务都必须已终态：归档把这条分支的工作收起来，活还没完的状态不该被藏掉。
@@ -239,6 +254,8 @@ export default {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
     if (options.internal !== true) this.assertBranchWritable(name, 'catch it up with its parent');
+    check(!this.store.get("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say','child')", name),
+      'new Task branch cannot use legacy branch.catchup');
     const record = this.store.branch(name);
     check(record && record.parent && record.parent_relation === 'recorded', `${name} has no recorded direct parent`);
     const outcome = await this.workspaces.catchupBranch(name);

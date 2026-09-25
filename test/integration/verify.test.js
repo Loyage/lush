@@ -4,7 +4,7 @@ import path from 'node:path';
 import { temp, env, repo } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
-import { cli, done, workOf } from './harness.js';
+import { cli, legacySay, done, workOf } from './harness.js';
 
 test('task verify runs a read-only verifier that demonstrates the worktree against the target branch', async () => {
   const root = temp();
@@ -41,7 +41,7 @@ console.log('fake pi completed');
   await repo(root);
   try {
     await cli(root,['start'], { LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
-    const input = await cli(root,['say','add a greeting']);
+    const input = await legacySay(root, 'add a greeting');
     const client = new UIClient(Config.fromEnv(env(),root));
     expect((await done(client,input.task.id)).status).toBe('completed');
     // planner 只写 Plan；runtime 直接编译 worker，不产生 scheduler invocation。

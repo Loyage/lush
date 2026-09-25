@@ -1,6 +1,6 @@
 # 任务交付兼容接口
 
-新架构以 `branch.merge` / `branch.sync` 和 Web 分支图为主要交付入口。`task.merge` / `task.merge_many` 继续服务任务详情与旧项目。
+本节仅描述旧 planner/worker 协议的兼容交付：`branch.merge` / `branch.sync` 和 Web 分支图，以及 `task.merge` / `task.merge_many`。`say.submit` 创建的 `task_kind='say'` / `'child'` 分支拒绝这些旧合并入口；新子代码由运行中的直接父 Agent 用 `task.integrate` 固定提交确认。新 say 的合并预约会冻结源 commit 与父 baseline、向直接父发请求，并在此期间把父分支锁住（同一父分支只接受一个未集成请求）；父为 main/owner 时由用户用 `task.approve_merge` 按固定值批准快进（见[任务接口](tasks.md)），不经过以下旧接口。
 
 | CLI | RPC | 参数 | 权限 |
 |---|---|---|---|
@@ -8,11 +8,11 @@
 | `task merge ID` | `task.merge` | `{id}` | 用户专属 |
 | `task merge ID...` | `task.merge_many` | `{ids}` | 用户专属 |
 
-## 新输入任务
+## 旧协议的输入任务
 
 任务分支的 `target_branch` 等于谱系 direct parent：普通 worker → 输入分支，code 下游 → 上游任务分支，branch-sync merger → 待同步 child。
 
-`task.merge` 对新输入执行与 `branch.merge` 相同的 ff-only 门槛。父子分歧时返回：
+`task.merge` 对旧协议的输入执行与 `branch.merge` 相同的 ff-only 门槛。父子分歧时返回：
 
 ```json
 {

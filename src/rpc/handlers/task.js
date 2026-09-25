@@ -53,6 +53,13 @@ export const handlers = {
     check(actor === null || id(parent) === actor, 'agents may delegate only from their own task');
     return p.spawn(parent, params.goal, params.role, params.deps ?? [], params.name ?? null, params.spec ?? null);
   },
+  'task.integrate'(p, params, actor) { return p.integrateChild(actor, params.id, params.commit); },
+  'task.reserve'(p, params) { return p.reserveTask(params.id, params.kind); },
+  'task.resolve_divergence'(p, params) { return p.resolveSayDivergence(params.id); },
+  'task.analyze'(p, params) { return p.analyze(params.id, params.question); },
+  'task.resolve_child_divergence'(p, params, actor) { return p.resolveChildDivergence(actor, params.id); },
+  'task.unreserve'(p, params) { return p.unreserveTask(params.id); },
+  'task.approve_merge'(p, params) { return p.approveReservedMerge(params.id, params.commit, params.baseline); },
   'task.message'(p, params, actor) { return p.message(params.id, params.body, actor); },
   'task.cancel'(p, params, actor) { return p.cancel(params.id); },
   'task.retry'(p, params, actor) { return p.retry(params.id, params.profile ?? null); },

@@ -28,6 +28,7 @@ import { saveGraphPrefs, ui } from './state.js';
 import { referenceable } from './context-references.js';
 import { agentHelp } from './help.js';
 import { renderGraphProgress } from './render-progress.js';
+import { deliveryControls } from './render-delivery.js';
 import { reserveBranchShowcase, unreserveBranchShowcase } from './render-showcase.js';
 
 /** 分支状态映射：状态 -> { label, className }；已合进父分支是常态，不再单独出一个「已合并」标签。
@@ -245,6 +246,10 @@ function taskRow(node, owningBranch = null) {
   if (node.workspace) meta.append(el('span', node.workspace, 'graph-path mono'));
   if (node.aheadBehind) meta.append(el('span', node.aheadBehind, 'meta'));
   for (const mark of node.marks || []) meta.append(el('span', mark.text, `chip ${mark.className}`.trim()));
+  if (node.task_kind === 'say' && node.reservation) meta.append(badge({
+    pending: '交付待就绪', started: '展示中', requested: '待确认合并', integrated: '已合入',
+    completed: '展示已交付', failed: '展示失败', cancelled: '展示已取消',
+  }[node.reservation.status] || '预约需检查', 'b-awaiting'));
   row.append(meta);
   const progress = renderGraphProgress(node.progress, { running: node.status === 'running', status: node.status });
   if (progress) row.append(progress);
@@ -456,6 +461,10 @@ function collapseCaret(branch, onCollapsed) {
 
 function branchRow(branch, onCollapsed) {
   const row = el('div', undefined, 'graph-branch');
+  const ownerSay = branch.tasks.find(task => task.task_kind === 'say' && task.branch === branch.name) || null;
+  const newSayBelow = branch.children.some(function hasSay(child) {
+    return child.tasks.some(task => task.task_kind === 'say') || child.children.some(hasSay);
+  });
   // main 是项目主干，不是 Lush 管理的交付分支：graph.get 仍如实返回它的 tracked / origin / status / tasks，
   // 这里只过滤会把「未登记」或后代任务汇总误说成 main 自身诊断的表头信息。
   const isMain = branch.name === 'main';
@@ -516,7 +525,7 @@ function branchRow(branch, onCollapsed) {
   if (edge && (Number.isFinite(edge.ahead) || Number.isFinite(edge.behind))) {
     row.append(el('span', `子分支 +${edge.ahead ?? '?'} / -${edge.behind ?? '?'}`, 'meta'));
   }
-  for (const node of forkActions(branch, edge)) row.append(node);
+  if (!ownerSay) for (const node of forkActions(branch, edge)) row.append(node);
   // 一键合并：有后代分支才给入口。运行中显示进度 + 取消；被冻结（别的 merger / 一键合并）时禁用并说明。
   if (branch.merge_run) {
     const run = branch.merge_run;
@@ -526,7 +535,13 @@ function branchRow(branch, onCollapsed) {
     row.append(button('取消一键合并', () => runMergeCancel(branch), 'ghost graph-branch-action',
       { help: '停止这条分支的一键合并并释放冻结；已完成的合并保留、不回滚。' }));
   } else if (branch.subtreeBranches > 0) {
-    if (branch.freeze) {
+    if (newSayBelow || ownerSay) {
+      const disabled = el('button', '一键合并全部子分支', 'ghost graph-branch-action');
+      disabled.type = 'button'; disabled.disabled = true;
+      const host = el('span', undefined, 'help-host');
+      host.setAttribute('data-help', '此子树含新 say Task，不能用旧分支一键合并；请按每条 say 的固定提交请求逐一批准。');
+      host.append(disabled); row.append(host);
+    } else if (branch.freeze) {
       const disabled = el('button', '一键合并全部子分支', 'ghost graph-branch-action');
       disabled.type = 'button'; disabled.disabled = true;
       const host = el('span', undefined, 'help-host');
@@ -577,17 +592,18 @@ function branchRow(branch, onCollapsed) {
   // 效果展示入口按「预约」而不是「立即启动」：`reserve_allowed` 只问现在能不能预约（已登记、有父分支与基线的非主干分支），
   // 而 `allowed` 才是完整准入。未满足准入的开发分支也应当在创建后就亮起入口；点了先挂预约，等分支满足展示条件后由后端自动启动。
   const showcase = branch.showcase;
-  if (showcase?.reserved === true) {
+  if (!ownerSay && showcase?.reserved === true) {
     row.append(el('span', '已预约效果展示', 'chip graph-showcase-reserved'));
     // 预约后还没跑起来：把当前准入阻塞原因就地说清楚，用户不必自己去猜还要等什么。
     if (showcase.allowed !== true && showcase.reason) row.append(el('span', showcase.reason, 'meta graph-showcase-blocker'));
     row.append(button('取消预约', () => unreserveBranchShowcase(branch.name), 'ghost',
       { help: '取消这条分支的自动效果展示预约；已开始的展示不受影响。' }));
-  } else if (showcase?.reserve_allowed === true) {
+  } else if (!ownerSay && showcase?.reserve_allowed === true) {
     row.append(button('预约效果展示', () => reserveBranchShowcase(branch.name), 'ghost',
       { agent: true, help: agentHelp('预约后，等这条分支满足展示条件时自动启动专用展示 Agent；当前已满足则立即开始。') }));
   }
-  if (showcase?.latest_task_id) row.append(button('查看已有展示', () => detail(showcase.latest_task_id), 'link'));
+  if (!ownerSay && showcase?.latest_task_id) row.append(button('查看已有展示', () => detail(showcase.latest_task_id), 'link'));
+  if (ownerSay) row.append(deliveryControls(ownerSay, { refresh: loadGraph }));
   // 只有「可归档且尚未归档」的分支才给归档；当前检出、未登记、还有活没完的都不给。
   // 归档一条＝归档它整棵子树（见 runBranchArchive 的确认文案）。
   if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch), 'ghost',

@@ -17,7 +17,7 @@
 | `cli/print.js` | 树 / 阶梯 / 时间轴 / 合并 / 会话 / 用量 / 分支谱系的渲染 | `printTree`、`printLadder`、`printTimeline`、`printMergeMany`、`printTranscript`、`transcriptStepText`、`printUsage`、`printBranchTree`、`printBranchShow`、`printBranchImport`、`printBranchArchive` |
 | `cli/commands/intent.js` | `say` / `intent` / `input` | `run` |
 | `cli/commands/draft.js` | `draft` | `run` |
-| `cli/commands/task.js` | `task` | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
+| `cli/commands/task.js` | `task`（含用户专属 `resolve-divergence ID`：pending merge 新 say 在源侧派解分歧 child；agent-only `resolve-child-divergence CHILD_ID`：直接父 Agent 修已完子任务的分歧） | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
 | `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 agent task） | `run` |
 | `cli/commands/spec.js` | `spec` | `run` |
 | `cli/commands/plan.js` | `plan` | `run` |
@@ -41,7 +41,7 @@
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
 | `rpc/handlers/system.js` | 用户专属 `sleep.start/stop/resume/status/choices`；`system.*`（兼容完整 `system.status`、首页走持久 revision/索引聚合且无 Agent 全配置的 `system.summary`、用户专属的 `system.configure` 与只读 `system.usage`）、`graph.get`、Agent 配置与资源接口；环境文件的 `agent.environment` / `agent.environment.configure` 因可能含密钥，读写都为用户专属 | `handlers` |
 | `rpc/handlers/input.js` | `input.*`、`draft.*` | `handlers` |
-| `rpc/handlers/task.js` | `task.*`（`task.retry(id,profile?)` 可带仅本轮生效的完整 Agent Profile；旧 `task.list/history` 保留；新增 `task.activity`、`task.page`、`task.history_page` 有界读接口，以及用户专属的 `task.transcript_search` / `task.transcript_step` / `task.transcript_page` / `task.transcript_latest`）、用户专属 `explanation.start/list/get` 与 `intro.start/list/get/config/configure`、agent-only 的 `progress.plan` / `progress.complete` | `handlers` |
+| `rpc/handlers/task.js` | `task.*`（用户专属 `task.reserve/unreserve/approve_merge` 管理新 say 的展示/合并预约与固定提交批准；用户专属 `task.resolve_divergence` 派源侧解分歧 child，不授权合并；终态未集成分支需先显式归档再新派，不使用 `task.retry`；agent-only `task.resolve_child_divergence` 派同构子 Task 吸收父分支新提交，仍由 `task.integrate` 确认并一并结算被修子任务；`task.retry(id,profile?)` 可带仅本轮生效的完整 Agent Profile；旧 `task.list/history` 保留；新增 `task.activity`、`task.page`、`task.history_page` 有界读接口，以及用户专属的 `task.transcript_search` / `task.transcript_step` / `task.transcript_page` / `task.transcript_latest`）、用户专属 `explanation.start/list/get` 与 `intro.start/list/get/config/configure`、agent-only 的 `progress.plan` / `progress.complete` | `handlers` |
 | `rpc/handlers/spec.js` | `spec.*`、`plan.*` | `handlers` |
 | `rpc/handlers/notice.js` | `notice.*` | `handlers` |
 | `rpc/handlers/branch.js` | `branch.tree/show/import/merge/sync/archive/summary`（`branch.archive` 参数 `branch` / `discard`，在 `USER_ONLY`；`branch.summary` 参数 `branch` / `summary`，agent 可写、省略 branch 时写自己的分支，用户必须显式点名） | `handlers` |
@@ -64,6 +64,8 @@
 | 启动器与工作台 | `test/web/launcher.test.js`（首次选项目、绝对路径校验、全局最后项目恢复）、`test/web/appearance.test.js`（主题解析、跟随系统、显式覆盖、存储失败）、`test/web/settings.test.js`（设置入口 / `#settings` / 轮询不覆盖、偏好默认值与老键、每项即时生效、恢复默认、Agent 环境变量按需读取/遮罩/键值编辑/校验、系统信息组只读渲染、并发额度表单保存 / 恢复与越界报错）、`test/project/status.test.js`（`system.status` 的只读软件配置镜像与默认值）、`test/web/dom-studio.test.js`（信息优先级、折叠保留、移动端索引） |
 | 效果展示准入 | `test/project/showcase-eligibility.test.js`（稳定性、主干/登记/脏工作区/Git 操作/子分支、历史文件树去重、并发启动与重试）；`test/project/showcase.test.js` 保留执行隔离/预览覆盖；`test/web/dom-showcase.test.js`、`test/web/dom-studio.test.js` 覆盖低调入口与不合格隐藏 |
 | 分支诊断统计 | `test/workspaces/branch-diagnostics.test.js`（净改动、二进制、重命名及特殊文件名、工作区未提交去重、只读与缓存、失败降级、明细字节限额）；`test/project/graph.test.js` 覆盖图投影与合入后保留累计规模；`test/web/dom-graph.test.js` 覆盖统计渲染、文本安全、脏活刷新与明细展开保留 |
+| Task 直连 say | `test/project/say.test.js`（main 根、Input→Task/worktree、单条草稿、分支绑定拒绝、子任务与展示信号、源侧固定双 tip 解分歧、预约/固定提交批准及旧协议兼容）；`test/web/dom-delivery.test.js`（Task 详情与分支图共用预约/审批、安全确认、Agent 标识和旧动作隔离） |
+| Task 持久信号 | `test/project/task-signals.test.js`（子→父信号去重、权限、旧库加列且旧消息不变） |
 | Token 效率 | `test/project/token-efficiency.test.js`（相关上下文、快速路由事务与回滚、唤醒竞态/恢复/取消）；`test/soft-budget.test.js`（预算配置、Pi hook 与 provider 边界）；`test/usage-attribution.test.js`（身份、历史区间、unknown、缓存与上限）；`test/token-cli.test.js`（say 入口及短输出）；`test/web/dom-token-efficiency.test.js`（直接提交锁、草稿与输入保留、配置与归因展示） |
 | 统计面板 | `test/usage-statistics.test.js`（全量、时间边界、UTC 分桶、模型切换、缺价、损坏与缓存失效）、`test/web/usage-statistics.test.js`（认证 API）、`test/web/dom-statistics.test.js`（双视图入口、独立筛选、SVG 即时浮层、错误与导航竞态）、`test/web/statistics-range.test.js`（UTC 日期快捷范围、闰日／跨年与日内小时边界）；Codex 用量留存由 `test/agent-settings.test.js` 覆盖 |
 | 托管模式 | `test/project/sleep.test.js`（授权、作用域、规则/偏好、关闭竞态、人工答案优先、预算、恢复和审计分页）；`test/butler-provider.test.js`（无工具边界）；`test/sleep-cli.test.js`（确认和参数）；`test/web/sleep.test.js`（HTTP、开启确认、显著关闭、管家选择留档） |

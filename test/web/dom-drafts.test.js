@@ -4,7 +4,7 @@ import { installDom } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
-// 待提交意图（底部 composer 面板）逐条执行 / 全部执行、就地编辑、轮询不打断编辑。
+// 草稿面板逐条发送、输入框直接发送、就地编辑、轮询不打断编辑。
 // 每个 DOM 测试文件都自给自足：bun test 在文件之间共享模块注册表，只有本进程里第一个 dom 文件会走到
 // app.js 顶部那次 boot()，其余文件 import 到的是缓存模块。所以这里自己建 world、装 stub，再显式装配
 // 一次当前 DOM。
@@ -19,7 +19,7 @@ await boot();
 
 afterAll(() => dom.restore());
 
-test('待提交意图不再有勾选框：单条「执行」只提交该条，全部执行不带 ids', async () => {
+test('草稿单独发送，输入框直接发送且不连带其它草稿', async () => {
   world.state.drafts = [
     { id: 11, content: '第一条', created_at: iso(NOW - 5000) },
     { id: 12, content: '第二条', created_at: iso(NOW - 4000) },
@@ -36,29 +36,29 @@ test('待提交意图不再有勾选框：单条「执行」只提交该条，�
 
   const drafts = dom.node('drafts');
   expect(drafts.querySelectorAll('.draft')).toHaveLength(2);
-  // 勾选框已随「统一执行」移除；每条草稿有一个「执行」按钮。
+  // 每条草稿有一个「发送」按钮；没有批量选中。
   expect(drafts.querySelectorAll('.pick')).toHaveLength(0);
   expect(drafts.querySelectorAll('button.run')).toHaveLength(2);
 
-  // 单条执行：只提交这一条（不带 branch 时参数只有 ids）。
+  // 单条发送：只提交指定草稿。
   const second = drafts.querySelectorAll('.draft')[1];
   await second.querySelector('button.run').onclick();
-  expect(world.state.actions.findLast(row => row.method === 'draft.commit')).toEqual({
-    method: 'draft.commit', params: { ids: [12] },
+  expect(world.state.actions.findLast(row => row.method === 'say.submit')).toEqual({
+    method: 'say.submit', params: { draft_id: 12 },
   });
   await dom.intervalFor(1500)();
   expect(dom.node('draft-count').textContent).toBe('1 条');
 
-  // 全部执行：先暂存输入框正文，再不带 ids 提交所有未提交草稿。
+  // 输入框立即发送：保留尚未发出的草稿。
   dom.node('input-branch').value = 'release/next';
   dom.node('input').value = '草稿之外的正文';
+  dom.node('input').listeners.input[0]({});
   expect(dom.node('draft-commit').disabled).toBe(false);
   await dom.node('input-form').onsubmit({ preventDefault() {} });
-  const commit = world.state.actions.findLast(row => row.method === 'draft.commit');
-  expect(commit).toEqual({ method: 'draft.commit', params: { branch: 'release/next' } });
-  expect(commit.params.ids).toBeUndefined();
-  expect(dom.node('error').textContent).toContain('已逐条执行 2 条');
-  expect(world.state.drafts).toHaveLength(0);
+  const sent = world.state.actions.findLast(row => row.method === 'say.submit');
+  expect(sent).toEqual({ method: 'say.submit', params: { content: '草稿之外的正文', references: [], branch: 'release/next' } });
+  expect(dom.node('error').textContent).toContain('其它草稿仍在缓存中');
+  expect(world.state.drafts.map(row => row.id)).toEqual([11]);
 });
 
 test('点正文就此地编辑，轮询刷新不重建正在编辑的那条', async () => {

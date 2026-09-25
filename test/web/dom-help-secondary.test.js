@@ -81,12 +81,12 @@ test('左栏导航、待提交意图与批量交付的标注：迁移 title、�
   const nav = dom.node('side-nav').querySelector('.nav-item');
   expect(nav.getAttribute('data-help')).toContain('在右侧打开');
 
-  // 待提交意图：每条的「执行」是 Agent 触发按钮（agent-call + agentHelp 说明）；「移除」与「×」补 data-help
+  // 草稿：每条的「发送」是 Agent 触发按钮（agent-call + agentHelp 说明）；「移除」与「×」补 data-help
   const { renderDrafts } = await import('../../src/ui/web/assets/render-drafts.js');
   renderDrafts({ drafts: [{ id: 21, content: '草稿', created_at: iso(NOW),
     references: [{ kind: 'task', target: { task_id: 1 }, label: '任务 #1', quote: '引文' }] }] });
   const drafts = dom.node('drafts');
-  const execute = buttonOf(drafts, '执行');
+  const execute = buttonOf(drafts, '发送');
   expect(execute.classList.contains('agent-call')).toBe(true);
   expect(execute.getAttribute('data-help')).toContain('会调用 Agent');
   expect(drafts.querySelector('.pick')).toBeNull();

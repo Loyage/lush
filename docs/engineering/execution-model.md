@@ -34,6 +34,8 @@ sequenceDiagram
 
 多 Agent 的并行来自“所有就绪 Task 独立推进”，协调来自持久状态、依赖和事件，而不是把一组 Agent 进程一直挂在内存里。
 
+一次 invocation 有四种结局，runtime 分开记账，不互相冒充：正常返回（`completed`）、超时（`failed`）、用户取消（`cancelled`，必要时硬杀进程组）、以及**安全抢占**（`preempted`）。安全抢占只在后端能声明一个“已经没有任何工具在跑”的边界时启用（当前是 Pi 的 `turn_end`）：用户追加输入时 runtime 写一次性请求，Agent 侧扩展在该边界主动收尾，Run 记成 `preempted`，Task 回到 `queued`/`waiting` 而不算失败，也不重建工作区；新一轮会先读到那条输入。没有这种边界的后端继续在轮末投递，不强行杀进程冒充安全点。
+
 ## Plan 编译与并行调度
 
 Planner 做语义判断，runtime 做确定性编排。Planner 写完结构化 spec 后，Plan Compiler 在事务中建立工作节点与依赖，不再经过 scheduler agent，不消耗额外模型调用，也不存在全项目 scheduler 批次锁。

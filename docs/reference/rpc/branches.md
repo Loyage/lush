@@ -5,6 +5,7 @@
 | `branch tree [--verbose]` | `branch.tree` | `{}` | 用户与 agent，只读 |
 | `branch show BRANCH\|TASK_ID` | `branch.show` | `{branch}` | 用户与 agent，只读 |
 | `branch import` | `branch.import` | `{}` | 用户专属 |
+| `branch bind BRANCH COMMIT` | `branch.bind` | `{branch, commit}`（本地分支的固定 HEAD） | 用户专属 |
 | `branch merge BRANCH` | `branch.merge` | `{branch}` | 用户专属 |
 | `branch sync BRANCH` | `branch.sync` | `{branch}` | 用户专属 |
 | `branch catchup BRANCH` | `branch.catchup` | `{branch}` | 用户专属 |
@@ -13,7 +14,7 @@
 | `branch merge-cancel BRANCH` | `branch.merge_cancel` | `{branch}` | 用户专属 |
 | `branch archive BRANCH [--discard]` | `branch.archive` | `{branch, discard?}` | 用户专属 |
 
-谱系是创建时显式写下的 `parent → child`，不是 commit graph 或任务树。`branch.import` 只登记已有本地分支，parent 为 unknown，不做推断。
+谱系是创建时显式写下的 `parent → child`，不是 commit graph 或任务树。`branch.import` 只登记已有本地分支，parent 为 unknown，不做推断。`branch.bind` 另行确认一条非 main 的本地分支及当前固定 HEAD，为它新建静息 `owner` 根 Task；重复绑定、错误 HEAD、缺失 ref、相关旧任务仍活动或已归档/删除的历史记录均拒绝。已有旧 Task 与 `branches.task_id` 均不改写；`branch.tree/show` 当前所有者投影显示新 owner，但旧 Task 仍可按 id 查看。只有绑定后，新 say 才能挂到那条分支；owner 不接受任意消息或运行不受限 Agent。daemon 启动时已有本地 main ref 则自动确保同一个静息根；无 ref 时不会凭空造 main。
 
 ## branch.tree / branch.show
 
@@ -22,6 +23,8 @@
 **归档的节点不画在树上**（记录仍在库里）：`branch.tree` 会跳过 `status=archived` 的节点，把它们还在的后代接到最近的可见祖先上（没有就升为根），不会连带藏掉活着的后代。要看某条归档分支本身用 `branch.show`（它读的是完整记录，不受这层裁剪影响）。
 
 ## branch.merge
+
+本节 merge/sync/catchup 与 merge_all 仅用于旧协议分支；新 say/child/owner/main 分支不能经这些入口越过父确认或用户固定 commit 授权。旧分支若已显式绑定 owner，同样不能再按旧分支合并入口推进。
 
 只允许 `parent_relation=recorded` 的 direct child 合回 parent，只执行 fast-forward。返回示例：
 

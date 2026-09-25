@@ -156,6 +156,16 @@ export const methods = {
       this.store.event(task.id, 'baseline.removed', { workspace: dir });
       return { id: task.id, worktree: 'removed', branch: 'absent', reason: null };
     }
+    // 只读分析 Task：没有分支、没有可交付改动，只有调用期的分离检出（通常在 invocation 结束时就已回收）。
+    if (task.task_kind === 'analysis') {
+      if (task.baseline_workspace && fs.existsSync(task.baseline_workspace)) {
+        const dir = task.baseline_workspace;
+        await this.git(this.config.project, 'worktree', 'remove', '--force', dir);
+        this.store.update(task.id, { baseline_workspace: null });
+        this.store.event(task.id, 'baseline.removed', { workspace: dir });
+      }
+      return { id: task.id, worktree: 'absent', branch: 'absent', reason: null };
+    }
     // merged/none：这条线已经收尾；superseded：这一轮解冲突被下一轮取代，分支留作恢复点，不强留工作区。
     check(['merged','none','superseded'].includes(task.integration), 'unmerged work must be kept');
     let worktree = 'absent';

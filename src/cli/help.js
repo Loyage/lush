@@ -25,13 +25,13 @@ lush [--project PATH] [--json] <command>
   config set concurrency N        执行通道并发上限（1..64），写回项目设置并立即生效
   config set control-concurrency N 控制通道并发上限（1..16）
   config reset [concurrency|control-concurrency|all]  清除覆盖，回到环境默认
-  config route list              查看快速路由前缀（prefix → target 与整表来源）
+  config route list              查看旧 input.submit 的快速路由前缀（新 say 不使用）
   config route add PREFIX [--target worker|research]  新增前缀并整表写回（默认 worker）
   config route remove PREFIX     删除一个前缀，不存在则报错
   config route reset             清除前缀覆盖，回到默认表
   doctor [--verbose]              默认仅身份摘要；--verbose 含完整 daemon 状态；差异只提示，不重启
-  say '你的意图' [--branch NAME]            创建输入分支并交给规划模型；命中快速路由前缀则直接派活
-                                  命中前缀时保留 completed planner 占位（零 invocation），仍需人工合并批准
+  say '你的意图' [--branch NAME]            立即创建直连 Task（main 或已绑定 Task 分支；不经 planner）
+  say --draft ID [--branch NAME]         只发送指定草稿（不发送其它草稿）
   intent list                     查看意图、Plan 编译与验收候选进度（别名 intents）
   plan propose '标题' [--body '…']   planner 专用：这轮拆解请你先批准（影响面大 / 与现状冲突 / 没把握读懂意图）
   plan approve ID|NOTICE_ID        批准这一轮拆解，由 runtime 编译成 Work DAG
@@ -41,7 +41,7 @@ lush [--project PATH] [--json] <command>
   draft list                      查看缓存（尚未提交）的输入
   draft edit ID '想法'             改一条缓存输入（别名 update）
   draft rm ID                     丢掉一条缓存输入
-  draft commit [ID...] [--branch NAME] 从指定父分支创建输入分支并提交缓存（无 ID 即全部）
+  draft commit [ID...] [--branch NAME] 旧版批量提交入口（无 ID 即全部）；日常使用 say --draft ID
   task list [--after N] [--limit N] [--brief] 分页任务列表；--brief 默认 30 条摘要及继续读取标记
                                   普通列表默认 200 条；只含开发工作，planner 见 intent list
   task tree [ID]                  多级任务树：依赖（⛓ 基线 / ⏳ 顺序）与兄弟间的并行关系
@@ -55,7 +55,7 @@ lush [--project PATH] [--json] <command>
   task transcript ID [--after N] [--follow] 只读查看 agent 的思考、工具调用与工具输出（来自 pi 会话记录）
                                    --follow 先打印已有记录，再持续跟随新步骤直到 Ctrl-C
   task usage ID                   只读查看这个 agent 的模型、上下文占用与累计花费（同一批会话记录）
-  task spawn '目标' [--parent ID] [--role worker|coordinator|research] [--name short-kebab-name] [--depends-on ID[:code|order]]
+  task spawn '目标' [--parent ID] [--role agent|worker|coordinator|research] [--name short-kebab-name] [--depends-on ID[:code|order]]
       --name 是任务的英文短名，决定 worktree 目录与分支 <id>-<name>；省略时按 goal 里的英文词回退。
   spec list [--status pending|planned|dropped]  查看结构化 Plan；planner 结束后由 runtime 直接编译
   spec add '目标与验收标准' [--role worker|coordinator|research] [--name short-kebab-name] [--depends-on SPEC_ID[:code|order]]
@@ -73,10 +73,17 @@ lush [--project PATH] [--json] <command>
   candidate accept ID               接受精确 commit，并尝试合入目标分支
   candidate changes ID '反馈'       要求修改，保留旧版本并启动增量 planner
   candidate reject ID [--reason '…'] 放弃这一版结果
-  task message ID '补充说明'       追加输入，不打断当前 invocation
+  task message ID '补充说明'       追加输入；Agent 正在调用时在本轮工具都结束后收尾，下一轮先读它
   task cancel|retry ID            取消子树 / 明确重试失败任务
   task wait ID                    仅阻塞此客户端，不占 agent 槽
-  task merge ID [ID...]           用户批准任务分支合回其直接父分支；只允许 fast-forward。
+  task integrate CHILD_ID CHILD_HEAD_COMMIT  新 Task 执行中的直接父 Agent 确认固定子提交，快进进父分支
+  task resolve-child-divergence CHILD_ID   直接父 Agent 在已完子任务与自己的分支分歧时派解分歧子任务（不重写原子分支）
+  task analyze ID '问题'                    对分支所有者（main/owner）跑一次只读分析：答案成为该 Task 的结果，不建分支
+  task reserve ID merge|showcase   新 say 预约交付；同类再发会复查 pending 阻塞条件（展示就绪后可启动 Agent）
+  task resolve-divergence ID      pending merge 分歧时在源 say 下派独立 Agent 子任务，先解冲突、再由 say Agent 确认集成
+  task unreserve ID               撤销尚未启动的预约
+  task approve-merge ID COMMIT BASELINE   用户确认固定提交及父分支基线后快进 main/owner
+  task merge ID [ID...]           用户批准旧任务分支合回其直接父分支；只允许 fast-forward。
                                   父子已分歧时创建子侧同步任务，解决并验证后再逐层落地；
                                   批量只接受同一直接父分支，遇到分歧或失败即停止。
   task verify ID                  为一个已完成的 worker 派只读 verifier：演示 worktree 结果并对照目标分支
@@ -90,7 +97,8 @@ lush [--project PATH] [--json] <command>
   branch tree [--verbose]        分支谱系：谁从谁创建出来（不是 commit graph，也不是任务树）
   branch show BRANCH|TASK_ID     一条分支的 parent / fork commit / task / worktree 与祖先链
   branch import                  把现有本地分支登记成记录（只记存在与 worktree，不推断 parent）
-  branch merge BRANCH            把子分支 fast-forward 合入其直接父分支
+  branch bind BRANCH COMMIT      你确认本地分支固定 HEAD；为旧/外部分支新建静息 owner Task
+  branch merge BRANCH            旧任务：把子分支 fast-forward 合入其直接父分支
   branch sync BRANCH             父子已分歧时，在子侧创建 merger 任务吸收父分支
   branch catchup BRANCH          子分支没有独有提交时，让它 fast-forward 跟上父分支
   branch archive BRANCH [--discard] 归档分支：删除分支及关联展示 worktree，保留任务与会话；--discard 才丢未提交改动

@@ -1,18 +1,46 @@
-import { check, id, text, TERMINAL } from '../types.js';
+import { check, id, text, TERMINAL, isPlainObject } from '../types.js';
 import { questionnaire, questionnaireAnswer } from '../questionnaire.js';
 
 /** 收件箱、notice、答复。 */
 export default {
   message(taskId, body, sender = null) {
     const target = this.store.task(taskId); text(body, 'message');
+    check(!['main','owner'].includes(target.task_kind), 'branch owner Task is not an unrestricted Agent inbox; use an approved merge request');
     check(!TERMINAL.has(target.status), 'task has ended; retry it or submit a new input');
+    check(target.task_kind !== 'say' || !target.reservation || JSON.parse(target.reservation).status !== 'started',
+      'say Task has finished development and is presenting; submit a new say instead');
     if (sender !== null) {
       const from = this.store.task(sender);
       check(target.parent_id === from.id || from.parent_id === target.id, 'agents may message only a direct parent or child');
     }
     this.store.message(target.id, body, sender);
     this.store.event(target.id, 'message', { sender, body });
+    // 用户追加的输入不被动等到轮末：请求在下一个安全边界收尾（Agent 侧自行收尾，不杀进程）。
+    // Agent 之间的信号/消息保持原样：它们是例行交接，不值得打断正在进行的工具。
+    if (sender === null) this.requestPreempt(target.id, 'user message');
     this.wake(target.id); return this.store.task(target.id);
+  },
+
+  /** Runtime-only: commit a typed child→parent signal once, then wake the parent. */
+  sendTaskSignal(sourceId, targetId, type, key, payload = {}) {
+    const source = this.store.task(sourceId), target = this.store.task(targetId);
+    check(source.parent_id === target.id, 'task signals must go from a child to its direct parent');
+    check(!['main','owner'].includes(target.task_kind), 'branch owner only receives pinned reserved merge requests');
+    check(!TERMINAL.has(target.status), 'a terminal parent cannot receive a new signal');
+    check(typeof type === 'string' && /^[a-z][a-z0-9_.-]{0,63}$/.test(type), 'invalid task signal type');
+    check(typeof key === 'string' && key.length > 0 && key.length <= 128 && !/\s/u.test(key), 'invalid task signal key');
+    check(isPlainObject(payload), 'task signal payload must be an object');
+    check(Buffer.byteLength(JSON.stringify(payload)) <= 16384, 'task signal payload exceeds 16384 bytes');
+    const body = JSON.stringify({ version: 1, signal: type, key, source_task_id: source.id,
+      target_task_id: target.id, payload });
+    const signal = this.store.transaction(() => {
+      const row = this.store.signal(target.id, source.id, type, key, body);
+      if (row.inserted) this.store.event(target.id, 'task.signal', { message_id: row.id,
+        source_task_id: source.id, signal: type, key });
+      return row;
+    });
+    if (signal.inserted) this.wake(target.id);
+    return signal;
   },
 
   notice(taskId, title, body = '', kind = 'question', questions = undefined) {

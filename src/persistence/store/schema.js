@@ -31,6 +31,10 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         integration TEXT NOT NULL DEFAULT 'none', target_branch TEXT, integration_error TEXT,
         -- layer: 'intent'（planner 拆解 / scheduler 编排）不进任务树；'work' 才是用户要的开发任务链。
         layer TEXT NOT NULL DEFAULT 'work',
+        -- NULL/legacy=旧任务；main/owner 是静息根；say 直接管理输入，showcase 是其专用展示子节点。
+        task_kind TEXT,
+        -- 新 say Task 的互斥展示/合并预约；versioned JSON，NULL 表示未预约。
+        reservation TEXT,
         -- plan_gate: planner 这一轮拆解的审批闸门：NULL=没申请批准（直接编排）/ proposed=等你批准 / approved / rejected。
         plan_gate TEXT,
         -- verifier task: verifies_task_id 指向被检验的 worker；baseline_* 是目标分支的对照检出。
@@ -95,6 +99,7 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES tasks(id), sender_id INTEGER REFERENCES tasks(id),
         body TEXT NOT NULL, consumed INTEGER NOT NULL DEFAULT 0,
+        signal_type TEXT, signal_key TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE TABLE IF NOT EXISTS notices (
         id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES tasks(id), title TEXT NOT NULL, body TEXT NOT NULL,

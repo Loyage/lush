@@ -1,6 +1,6 @@
 import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } from './dom.js';
 import { action } from './api.js';
-import { confirmDialog } from './dialog.js';
+import { confirmDialog, promptDialog } from './dialog.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, statusOf, taskTitle } from './format.js';
 import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
@@ -8,6 +8,7 @@ import { show } from './messages.js';
 import { detail, overview } from './navigate.js';
 import { renderAgent } from './render-agent.js';
 import { renderDiff } from './render-diff.js';
+import { deliveryControls } from './render-delivery.js';
 import { renderHistory } from './render-history.js';
 import { renderTaskProgress } from './render-progress.js';
 import { noticePanel } from './render-notices.js';
@@ -70,6 +71,7 @@ export function renderDetail(task, history, diff, usage) {
     roleBadge(task.role), ...(task.route ? [routeBadge()] : []), intentBadge(task));
   const integration = INTEGRATION[task.integration];
   if (integration) head.append(badge(integration, task.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
+  if (task.task_kind === 'analysis') head.append(badge('只读分析', 'b-neutral'));
   if (task.agent) head.append(badge(`agent ${task.agent.id}${task.agent.active ? ` · pid ${task.agent.pid ?? '待上报'}` : ' · 空闲'}`, 'b-neutral'));
   hero.append(head, el('h1', taskTitle(task), 'task-title')); panel.append(hero);
 
@@ -81,7 +83,7 @@ export function renderDetail(task, history, diff, usage) {
   const freeze = freezeOf(task);
   const resolver = resolverOf(task);
   const deliveryItem = (ui.lastSnapshot?.ladder?.groups || []).flatMap(group => group.items || []).find(item => item.id === task.id) || null;
-  if (freeze) {
+  if (!task.task_kind && freeze) {
     // 同一目标分支上有没解决的冲突：这里点合并只会失败，所以禁用并指向那个任务。
     const node = button('合并已被冻结', () => {}, 'ghost');
     node.disabled = true;
@@ -90,7 +92,7 @@ export function renderDetail(task, history, diff, usage) {
     host.setAttribute('data-help', `#${freeze.task_id} 的合并冲突还没解决：先处理它的待决问题（或让它的解冲突任务作废），${task.target_branch} 上的合并才能继续。`);
     host.append(node);
     actions.append(host);
-  } else if (task.status === 'completed' && ['pending', 'review', 'conflict'].includes(task.integration)) {
+  } else if (!task.task_kind && task.status === 'completed' && ['pending', 'review', 'conflict'].includes(task.integration)) {
     const live = resolver && !TERMINAL_STATUS.has(resolver.status);
     const readyResolver = resolver && resolver.status === 'completed' && ['pending', 'review'].includes(resolver.integration)
       && deliveryItem?.phase !== 'resolution_stale';
@@ -123,7 +125,10 @@ export function renderDetail(task, history, diff, usage) {
       actions.append(host);
     } else actions.append(node);
   }
-  if (['failed', 'cancelled'].includes(task.status)) actions.append(button('检查后重试', async () => {
+  const settledShowcase = task.task_kind === 'say' && task.reservation?.kind === 'showcase'
+    && ['completed','failed','cancelled'].includes(task.reservation.status);
+  if (['failed', 'cancelled'].includes(task.status) && task.task_kind !== 'showcase' && !settledShowcase
+    && !task.divergence_resolution) actions.append(button('检查后重试', async () => {
     if (await retryTask(task)) await detail(task.id);
   }));
   const reclaimable = task.status === 'completed' && ['merged', 'none', 'superseded'].includes(task.integration) && (task.workspace || task.branch);
@@ -153,8 +158,41 @@ export function renderDetail(task, history, diff, usage) {
     if (confirmed) await action('task.cancel', { id: task.id });
     await detail(task.id);
   }, 'danger', { help: '取消这个任务及它下面的全部子任务，工作区与分支保留；取消后无法恢复。' }));
+  if (task.divergence_resolution) {
+    actions.append(button(`查看源 say #${task.parent_id}`, () => detail(task.parent_id), 'link'));
+  }
+  // 分支所有者（main/owner）没有自己的 Agent，但可以按需跑一次**只读分析**：不建分支，答案成为新 Task 的结果。
+  if (['main','owner'].includes(task.task_kind) && !['completed','failed','cancelled'].includes(task.status)) {
+    actions.append(button('问这条分支', async () => {
+      const question = await promptDialog({
+        title: `向 ${task.branch} 提一个只读问题`,
+        message: '会新建一个只读分析子 Task：工作区是这条分支最新提交的分离检出，不创建分支、不产生待合并改动。',
+        label: '问题', placeholder: '例如：现在这条分支上最大的回归风险是什么？', confirmLabel: '开始分析',
+        agent: true,
+        confirmHelp: agentHelp('启动一次受限的分析 Agent：能在隔离检出里读文件、跑命令取证，但没有分支可写、不能派工或合并；答案成为新 Task 的结果。'),
+      });
+      if (!question) return;
+      const created = await action('task.analyze', { id: task.id, question });
+      show(`已开始分析 #${created.task.id}`);
+      await detail(created.task.id);
+    }, 'ghost', { agent: true, help: agentHelp('对这条分支跑一次只读分析（不建分支、不改提交）；结论存成一个子 Task 的结果，另留一条提醒。') }));
+  }
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
+  if (task.divergence_resolution && TERMINAL_STATUS.has(task.status) && task.integration !== 'merged') {
+    const archived = task.divergence_resolution.branch_status === 'archived';
+    // 两种来源：修的是父 say 自己的合并请求（用户驱动），或一个已完子任务的固定提交（父 Agent 驱动）。
+    const repairsSay = task.divergence_resolution.source_task_id === task.parent_id;
+    const retry = repairsSay
+      ? '返回源 say，在静息且分歧仍存在时可重新派独立子任务。'
+      : `由直接父 Agent #${task.parent_id} 再派一个以同一固定提交为基线的解分歧子任务（task resolve-child-divergence）。`;
+    panel.append(el('p', archived
+      ? `解分歧子任务已归档，Task、固定提交记录和会话仍保留。${retry}`
+      : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在分支图显式归档这条子分支（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,
+    'hint delivery-reason'));
+  }
+  const delivery = deliveryControls(task, { refresh: () => detail(task.id) });
+  if (delivery) panel.append(delivery);
 
   // 结果与失败原因优先于调用次数、目录等底层元数据。完整目标（goal）以 Markdown 正文排在结果之前。
   if (task.goal) {
@@ -247,10 +285,10 @@ export function renderDetail(task, history, diff, usage) {
   if (!['completed', 'failed', 'cancelled'].includes(task.status)) {
     const follow = block('追加说明');
     const form = el('form'), input = el('textarea');
-    input.placeholder = '追加要求，不打断当前 agent'; input.required = true; input.rows = 3;
+    input.placeholder = '追加要求；Agent 正在调用时会在本轮结束后立即读到'; input.required = true; input.rows = 3;
     input.addEventListener('input', () => { ui.detailDirty = true; });
     form.append(input, button('追加说明', async () => { await action('task.message', { id: task.id, body: input.value }); ui.detailDirty = false; await detail(task.id); }, undefined,
-      { agent: true, help: agentHelp('把这条补充说明发给该任务的 Agent，它会据此继续当前工作。') }));
+      { agent: true, help: agentHelp('把这条补充说明发给该任务的 Agent。若它正在调用，会请它在当前一轮工具都结束后收尾（不杀进程、不打断正在执行的命令），下一轮先看这条说明。') }));
     form.onsubmit = event => { event.preventDefault(); form.querySelector('button').click(); };
     follow.append(form); panel.append(follow);
   }

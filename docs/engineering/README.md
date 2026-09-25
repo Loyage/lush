@@ -14,6 +14,7 @@
 
 - [数据流](data-flow.md)
 - [输入和规划](inputs-and-planning.md)
+- [Task 中心输入架构（待实施设计）](task-centered-input-design.md) → [实施与验收](task-centered-input-rollout.md)：新 say、子任务、信号、预约与旧库兼容；不是当前功能说明。
 - [Intent、Plan 编译与验收候选](intent-layer.md)
 - [一次 invocation 与多级协作](invocation.md)
 - [Token 效率与用量归因](token-efficiency.md)：有界上下文、快速路由、合并唤醒与可选软预算。
