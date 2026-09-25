@@ -30,13 +30,6 @@ import contextMethods from './project/context.js';
 import lifecycleMethods from './project/lifecycle.js';
 
 /**
- * 两类用户输入：develop 会派生 worker 产码，explain 只出结论、不产生待合并改动。
- * FLOWS 定义在 project/inputs.js（输入与流程判定的唯一使用者），入口照旧导出它：
- * 这样 mixin 不必反过来 import 入口，直接 import 任一 project/*.js 都不会撞上循环依赖。
- */
-export { FLOWS } from './project/inputs.js';
-
-/**
  * Project 由若干职责模块拼装：每个模块（`src/core/project/*.js`）导出一个方法对象，
  * 方法体里照旧用 `this`，这里把它们的原型属性合并进来，所以搬家时方法体一行都不用改。
  * 合并时查重名：重名＝拆分出错，立刻抛错，绝不静默覆盖。

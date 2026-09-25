@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fixture, repo, git } from '../helpers.js';
 
 // 输入分支：submit 从指定父分支创建聚合分支与检出，planner/worker 基线不随开工时间漂移。
-// 这里只碰 Git 边界与输入落库的接缝；CLI / Web 的上层行为在 test/input-flow.test.js。
+// 这里只碰 Git 边界与输入落库的接缝；CLI / Web 的上层行为在 test/route-shortcut.test.js。
 
 /** planner 只写 spec 队列，所以用 coordinator 充当能派活的父任务。 */
 function host(f, input_id) {

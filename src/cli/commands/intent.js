@@ -1,4 +1,3 @@
-import { check, id } from '../../core/types.js';
 import { exact, option } from '../args.js';
 
 export async function run(command, args, ctx) {
@@ -15,12 +14,7 @@ export async function run(command, args, ctx) {
   } else if (command === 'input') {
     const verb = args.shift();
     if (verb === 'list') { exact(args, 0); value = await client.request('input.list'); }
-    else if (verb === 'flow') {
-      check(args.length === 1 || args.length === 2, 'use input flow [TASK_ID] develop|explain');
-      const flow = args.length === 2 ? args[1] : args[0];
-      const task = args.length === 2 ? args[0] : process.env.LUSH_TASK_ID;
-      value = await client.request('input.flow', task ? { id: id(task), flow } : { flow });
-    } else throw new Error('unknown input command; use list or flow');
+    else throw new Error('unknown input command; use list');
   }
   return value;
 }

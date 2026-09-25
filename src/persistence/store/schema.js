@@ -1,11 +1,10 @@
 /** 全部 DDL 与项目绑定校验：schema 与列名是公共面，改动必须同步 docs/engineering/modules.md。 */
 export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      -- flow: 'develop'=要改代码, 'explain'=只了解；NULL 表示 planner 还没判定，按 develop 处理。
       -- anchor_* 为兼容旧库保留名称：它们表示可推进的输入聚合分支 / 初始 commit / worktree / 用户指定父分支。
       -- planner 在该 worktree 解析；普通 worker 以 anchor_commit 为冻结基线，并以 anchor_branch 为直接父分支。
       CREATE TABLE IF NOT EXISTS inputs (
-        id INTEGER PRIMARY KEY, content TEXT NOT NULL, task_id INTEGER, flow TEXT,
+        id INTEGER PRIMARY KEY, content TEXT NOT NULL, task_id INTEGER,
         anchor_branch TEXT, anchor_commit TEXT, anchor_workspace TEXT, anchor_target_branch TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       -- 用户输入先落成草稿；input_id IS NULL 表示还没提交。提交时整批拼成一条 inputs。

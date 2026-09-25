@@ -3,7 +3,7 @@ import { RPCClient } from '../../src/rpc/client.js';
 import { repo } from '../helpers.js';
 import { fetch, pageSource, setup } from './harness.js';
 
-// 大结果不进列表、事件分页、input flow 徽章与改判。
+// 大结果不进列表、事件分页、input 快照不再携带已删除的 flow 判定。
 
 test('Web 全类型窗口与历史分页包含两层任务，旧 RPC 默认口径不变', async () => {
   const f = await setup();
@@ -98,17 +98,19 @@ test('recent event history is cursor-paged and explicitly reports truncation', a
   } finally { await f.close(); }
 });
 
-test('web surfaces the input flow badge and lets the user reclassify an input', async () => {
+test('web no longer exposes the removed input flow judgement', async () => {
   const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     expect((await post('input.submit',{content:'了解调度器怎么工作'})).status).toBe(200);
-    expect((await post('input.flow',{id:1,flow:'explain'})).status).toBe(200);
     const snapshot = await (await fetch(f.url+'/api/snapshot')).json();
-    expect(snapshot.inputs[0].flow).toBe('explain');
-    expect(await pageSource(f.url)).toContain('标记为了解');
-    // 非法取值与非根 task 都在 Web 层报错
-    expect((await post('input.flow',{id:1,flow:'maybe'})).status).toBe(400);
-    expect((await post('input.flow',{id:99,flow:'develop'})).status).toBe(400);
+    expect(snapshot.inputs[0]).not.toHaveProperty('flow');
+    const page = await pageSource(f.url);
+    // 旧名称在此拼接：既验证页面与接口不再暴露它们，又不给仓库留下已移除的字面量。
+    const removedMethod = ['input', 'flow'].join('.');
+    const removedLabels = [['标记为', '开发'].join(''), ['标记为', '了解'].join('')];
+    for (const label of removedLabels) expect(page).not.toContain(label);
+    // handler 与 MUTATIONS 都已删除：未知方法在 Web 层被拒为 400
+    expect((await post(removedMethod,{id:1,flow:'explain'})).status).toBe(400);
   } finally { await f.close(); }
 });

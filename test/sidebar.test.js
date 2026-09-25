@@ -21,7 +21,7 @@ test('空查询原样返回：三个 filter 连数组引用都不换，默认行
   expect(filterSpecs([])).toEqual([]);
   const specs = [{ id: 1, status: 'pending' }];
   expect(filterSpecs(specs, {})).toBe(specs);
-  const intents = [{ id: 1, flow: 'develop' }];
+  const intents = [{ id: 1 }];
   expect(filterIntents(intents, {})).toBe(intents);
   // 'all' / 空关键字 / mine=false 都不算条件。
   expect(filterTasks(tree, { status: 'all', role: 'all', integration: 'all', mine: false, text: '   ' })).toBe(tree);
@@ -75,26 +75,25 @@ test('拆解队列筛选：状态 / planner / 角色 / 关键字', () => {
   expect(filterSpecs(specs, { text: '没有这个' })).toEqual([]);
 });
 
-test('意图筛选：流程 / 闸门 / 状态 / 关键字', () => {
+test('意图筛选：闸门 / 状态 / 关键字', () => {
   const intents = [
-    { id: 1, flow: 'develop', plan_gate: 'proposed', status: 'awaiting', content: '做左边栏' },
-    { id: 2, flow: 'explain', plan_gate: 'approved', status: 'completed', content: '解释一下鉴权' },
-    { id: 3, flow: 'develop', plan_gate: 'rejected', status: 'failed', content: 'Fix LOGIN' },
+    { id: 1, plan_gate: 'proposed', status: 'awaiting', content: '做左边栏' },
+    { id: 2, plan_gate: 'approved', status: 'completed', content: '解释一下鉴权' },
+    { id: 3, plan_gate: 'rejected', status: 'failed', content: 'Fix LOGIN' },
   ];
   expect(ids(filterIntents(intents, {}))).toEqual([1, 2, 3]);
-  expect(ids(filterIntents(intents, { flow: 'develop' }))).toEqual([1, 3]);
   expect(ids(filterIntents(intents, { gate: 'proposed' }))).toEqual([1]);
   expect(ids(filterIntents(intents, { status: 'completed' }))).toEqual([2]);
   expect(ids(filterIntents(intents, { text: 'login' }))).toEqual([3]);
-  expect(ids(filterIntents(intents, { flow: 'develop', text: '左边栏' }))).toEqual([1]);
-  expect(ids(filterIntents(intents, { flow: 'explain', status: 'failed' }))).toEqual([]);
+  expect(ids(filterIntents(intents, { gate: 'proposed', text: '左边栏' }))).toEqual([1]);
+  expect(ids(filterIntents(intents, { status: 'failed', text: '左边栏' }))).toEqual([]);
 });
 
 test('matchX / isFiltering：单个条目判断与「有没有生效条件」', () => {
   expect(matchTask(tree[2], { status: 'running' })).toBe(true);
   expect(matchTask(tree[2], { status: 'completed' })).toBe(false);
   expect(matchSpec({ status: 'pending', planner_task_id: 9, role: 'worker', goal: 'x' }, { planner: '9' })).toBe(true);
-  expect(matchIntent({ flow: 'develop', plan_gate: 'proposed', status: 'awaiting', content: 'x' }, { gate: 'proposed' })).toBe(true);
+  expect(matchIntent({ plan_gate: 'proposed', status: 'awaiting', content: 'x' }, { gate: 'proposed' })).toBe(true);
   expect(isFiltering({})).toBe(false);
   expect(isFiltering({ status: 'all', mine: false, text: '   ', integration: 'all', gate: 'all' })).toBe(false);
   expect(isFiltering({ status: 'running' })).toBe(true);
@@ -111,8 +110,8 @@ test('筛选摘要：计数与条件各拼一句，顺序稳定', () => {
   expect(describeFilters({ status: ['pending', 'planned'] })).toBe('状态：排队中/已排期');
   expect(describeFilters({ role: 'worker', integration: 'unmerged', mine: true, text: 'ab' }))
     .toBe('角色：执行 · 合并：待合并 · 只看待我处理 · 关键字“ab”');
-  expect(describeFilters({ planner: 9, flow: 'develop', gate: 'proposed', text: 'X' }))
-    .toBe('planner #9 · 流程：开发 · 等你批准 · 关键字“x”');
+  expect(describeFilters({ planner: 9, gate: 'proposed', text: 'X' }))
+    .toBe('planner #9 · 等你批准 · 关键字“x”');
   // 文本摘要会 trim 并小写，与匹配用的关键字一致
   expect(describeFilters({ text: '  LOGIN  ' })).toBe('关键字“login”');
 });
@@ -136,7 +135,7 @@ test('筛选状态：解析出规整对象，类型不符的字段回落成默�
   expect(parseFilters(null)).toEqual({
     tasks: { status: 'all', role: 'all', integration: 'all', mine: false, text: '' },
     specs: { status: 'all', planner: 'all', role: 'all', text: '' },
-    intents: { flow: 'all', gate: 'all', status: 'all', text: '' },
+    intents: { gate: 'all', status: 'all', text: '' },
   });
   const parsed = parseFilters(JSON.stringify({ tasks: { status: 'running', mine: 'yes', nope: 1 }, specs: { planner: '9' } }));
   expect(parsed.tasks).toMatchObject({ status: 'running', mine: false, role: 'all' });

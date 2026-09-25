@@ -11,7 +11,6 @@ export function print(value, json) {
   if (json || !Array.isArray(value)) { console.log(JSON.stringify(value, null, 2)); return; }
   if (!value.length) { console.log('(empty)'); return; }
   for (const row of value) {
-    const flow = Object.hasOwn(row, 'flow') && row.flow ? `\t${row.flow}` : '';
-    console.log(`${row.id ?? '-'}\t${row.status || row.role || ''}${flow}\t${(row.goal || row.content || row.title || JSON.stringify(row)).replaceAll('\n',' ').slice(0, 180)}`);
+    console.log(`${row.id ?? '-'}\t${row.status || row.role || ''}\t${(row.goal || row.content || row.title || JSON.stringify(row)).replaceAll('\n',' ').slice(0, 180)}`);
   }
 }

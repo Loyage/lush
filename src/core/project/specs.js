@@ -58,10 +58,6 @@ export default {
     text(spec.goal, 'goal');
     const role = spec.role ?? null;
     check(role === null || ['worker','coordinator','research'].includes(role), 'spec role must be worker, coordinator or research');
-    // explain 输入只允许写 research 的 spec，否则 deterministic compilation would be rejected.
-    const flowInput = planner.input_id === null ? null : this.store.get('SELECT id, flow FROM inputs WHERE id=?', planner.input_id);
-    check(!flowInput || flowInput.flow !== 'explain' || role === 'research',
-      `input #${flowInput?.id} is classified as explain (了解); only research specs are allowed`);
     const name = spec.name ?? null;
     const slug = taskSlug(name, spec.goal);
     const deps = spec.deps ?? [];

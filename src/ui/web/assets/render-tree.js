@@ -58,7 +58,6 @@ function whyLine(task, index) {
 }
 export function renderTree(data) {
   const container = $('tasks');
-  const flows = new Map((data.inputs || []).map(input => [input.id, input.flow]));
   const known = new Map([...container.children].map(node => [Number(node.dataset.id), node]));
   const allIds = new Set(data.tasks.map(task => task.id));
   // 完整父子索引：whyLine 说「等子任务」时要数全部子任务，不能因为筛选把它们藏掉。
@@ -110,8 +109,6 @@ export function renderTree(data) {
       row.append(el('span', statusOf(task).icon, `dot c-${task.status}`), el('span', `#${task.id}`, 'tid'),
         el('span', statusOf(task).label), roleBadge(task.role));
       if (task.route) row.append(routeBadge());
-      const flow = task.parent_id === null && !task.verifies_task_id && !task.resolves_task_id ? flows.get(task.input_id) : null;
-      if (flow) row.append(badge(flow === 'explain' ? '了解' : '开发', flow === 'explain' ? 'b-neutral' : 'b-completed'));
       for (const chip of depChips(task)) row.append(chip);
       row.append(el('span', relative(task.updated_at), 'when'));
       node.append(row, el('span', task.goal, 'goal'));

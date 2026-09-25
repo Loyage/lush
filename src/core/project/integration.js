@@ -65,10 +65,9 @@ export default {
         const status = remaining.length ? 'blocked' : 'integrated';
         this.store.event(input.task_id, 'intent.integration', { input_id: input.id, status, merged, remaining });
         if (status === 'integrated') {
-          const flow = this.store.get('SELECT flow FROM inputs WHERE id=?', input.id)?.flow;
           const commit = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${input.anchor_branch}^{commit}`);
           const latest = this.store.latestCandidate(input.id);
-          if (flow !== 'explain' && (!latest || latest.commit_hash !== commit || ['changes_requested','rejected','superseded','failed'].includes(latest.status))) {
+          if (!latest || latest.commit_hash !== commit || ['changes_requested','rejected','superseded','failed'].includes(latest.status)) {
             const candidate = await this.prepareCandidate(input.id);
             return { input_id: input.id, status: 'review_pending', merged, remaining, candidate };
           }

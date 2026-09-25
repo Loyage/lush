@@ -13,10 +13,10 @@ const dom = installDom({ fetch: world.fetchImpl });
 // 历史输入 smart 按接口顺序（id 升序），updated 按 planner 最近动过的时间倒序；
 // 规划任务 smart 组内编号升序，updated / id 只翻组内次序；待定事项同理；行动任务 id 倒序最直观。
 world.state.intents = [
-  { id: 1, content: '老输入', flow: 'develop', task_id: 9, status: 'completed', plan_gate: 'approved', plan_notice_id: null,
+  { id: 1, content: '老输入', task_id: 9, status: 'completed', plan_gate: 'approved', plan_notice_id: null,
     specs_pending: 0, specs_planned: 1, specs_dropped: 0, scheduler_id: null, scheduler_status: null, work_tasks: 1,
     draft_count: 0, created_at: iso(NOW - 9000), planner_updated_at: iso(NOW - 9000) },
-  { id: 2, content: '新输入', flow: 'develop', task_id: 11, status: 'completed', plan_gate: 'approved', plan_notice_id: null,
+  { id: 2, content: '新输入', task_id: 11, status: 'completed', plan_gate: 'approved', plan_notice_id: null,
     specs_pending: 0, specs_planned: 1, specs_dropped: 0, scheduler_id: null, scheduler_status: null, work_tasks: 1,
     draft_count: 0, created_at: iso(NOW - 9500), planner_updated_at: iso(NOW - 1000) },
 ];

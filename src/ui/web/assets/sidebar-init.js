@@ -73,15 +73,13 @@ export function initSidebar() {
   $('spec-filters').replaceChildren(specStatus.wrap, specPlanner.wrap, specRole.wrap, specText.wrap);
   filterUi.specPlanner = specPlanner.select;
   filterUi.specRole = specRole.select;
-  // 历史输入：流程 / 闸门 / 状态 / 关键字
-  const intentFlow = filterSelect('流程', [{ value: 'all', label: '全部' }, { value: 'develop', label: '开发' }, { value: 'explain', label: '了解' }],
-    ui.filters.intents.flow, value => { ui.filters.intents.flow = value; applyFilters(); });
+  // 历史输入：闸门 / 状态 / 关键字
   const intentGate = filterSelect('闸门', [{ value: 'all', label: '全部' }, { value: 'proposed', label: '等你批准' }],
     ui.filters.intents.gate, value => { ui.filters.intents.gate = value; applyFilters(); });
   const intentStatus = filterSelect('状态', withCurrent([{ value: 'all', label: '全部状态' }], ui.filters.intents.status, statusOption), ui.filters.intents.status,
     value => { ui.filters.intents.status = value; applyFilters(); });
   const intentText = filterInput(ui.filters.intents.text, value => { ui.filters.intents.text = value; applyFilters(); });
-  $('intent-filters').replaceChildren(intentFlow.wrap, intentGate.wrap, intentStatus.wrap, intentText.wrap);
+  $('intent-filters').replaceChildren(intentGate.wrap, intentStatus.wrap, intentText.wrap);
   filterUi.intentStatus = intentStatus.select;
   paintCollapsed();
 }

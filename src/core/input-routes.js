@@ -6,8 +6,8 @@ import { check, isPlainObject } from './types.js';
  * 这里只有确定性的字符串规则，没有副作用，也没有数据库依赖：运行设置读它来校验配置，
  * 输入提交读它来匹配，Web 对齐时也读同一份规则，不会出现两套行为。
  *
- * - target `worker`：可写代码，流程设为 develop；
- * - target `research`：只读调研，流程设为 explain（不创建分支 / worktree）。
+ * - target `worker`：可写代码；
+ * - target `research`：只读调研（不创建分支 / worktree）。
  */
 export const ROUTE_TARGETS = ['worker', 'research'];
 

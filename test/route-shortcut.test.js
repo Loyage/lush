@@ -10,14 +10,11 @@ function controlled() {
   } };
 }
 
-const flowOf = (f, inputId) => f.store.get('SELECT flow FROM inputs WHERE id=?', inputId).flow;
-
 test('a develop prefix short-circuits the planner and creates the routed worker', async () => {
   const provider = controlled(), f = fixture(provider); f.project.stopping = true; await repo(f.root);
   try {
     const result = await f.project.submit('开发 做一个登录页');
     expect(result.route).toEqual({ prefix: '开发', target: 'worker' });
-    expect(flowOf(f, result.id)).toBe('develop');
     // 规划模型一次都没被调用，planner 直接结算为 completed。
     expect(provider.calls).toHaveLength(0);
     expect(f.project.running.size).toBe(0);
@@ -30,7 +27,7 @@ test('a develop prefix short-circuits the planner and creates the routed worker'
 
     const events = f.store.history(result.task.id);
     const route = events.find(event => event.type === 'input.route');
-    expect(route.data).toMatchObject({ prefix: '开发', target: 'worker', flow: 'develop', task: result.worker.id });
+    expect(route.data).toMatchObject({ prefix: '开发', target: 'worker', task: result.worker.id });
     expect(events.some(event => event.type === 'completed' && event.data.route === true)).toBe(true);
     // 走的是 route，不是任何直接执行占位。
     expect(f.project.inputs().find(input => input.id === result.id).route).toBe(1);
@@ -42,7 +39,6 @@ test('an explain prefix creates a read-only research root and never a worktree o
   try {
     const result = await f.project.submit('解释：调度器怎么工作');
     expect(result.route).toEqual({ prefix: '解释', target: 'research' });
-    expect(flowOf(f, result.id)).toBe('explain');
     expect(provider.calls).toHaveLength(0);
     expect(result.research.role).toBe('research');
     expect(result.research.goal).toBe('调度器怎么工作');
@@ -61,7 +57,6 @@ test('a non-prefix input still goes to the planner', async () => {
     const plain = await f.project.submit('做一个登录页');
     expect(plain.route).toBeUndefined();
     expect(plain.worker).toBeUndefined();
-    expect(flowOf(f, plain.id)).toBeNull();
     expect(plain.task.role).toBe('planner');
     expect(plain.task.status).toBe('queued');
     expect(provider.calls).toHaveLength(0);
@@ -103,7 +98,6 @@ test('a single buffered draft can short-circuit, while multiple drafts each plan
     expect(single.draft).toBe(draftId.id);
     expect(single.route).toEqual({ prefix: '开发', target: 'worker' });
     expect(single.worker.goal).toBe('会话里的登录页');
-    expect(flowOf(f, single.id)).toBe('develop');
 
     // 多条草稿逐条提交：每条各自成为一个输入，不再拼批次引导语。
     f.project.draft('开发 第一条');
@@ -111,9 +105,7 @@ test('a single buffered draft can short-circuit, while multiple drafts each plan
     const multi = await f.project.commitDrafts();
     expect(multi.drafts).toHaveLength(2);
     expect(multi.inputs).toHaveLength(2);
-    expect(flowOf(f, multi.inputs[0].id)).toBe('develop');
     expect(multi.inputs[0].worker.goal).toBe('第一条');
-    expect(flowOf(f, multi.inputs[1].id)).toBe('explain');
     expect(multi.inputs[1].research.goal).toBe('第二条');
     expect(provider.calls).toHaveLength(0);
   } finally { await f.close(); }

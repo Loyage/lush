@@ -36,8 +36,7 @@ lush [--project PATH] [--json] <command>
   plan propose '标题' [--body '…']   planner 专用：这轮拆解请你先批准（影响面大 / 与现状冲突 / 没把握读懂意图）
   plan approve ID|NOTICE_ID        批准这一轮拆解，由 runtime 编译成 Work DAG
   plan reject ID|NOTICE_ID '理由'   驳回：本轮 spec 作废，理由送回 planner 重拆
-  input list                      查看用户输入（含 develop/explain 判定）
-  input flow [TASK_ID] develop|explain  记录这条输入走哪条流程（agent 省略 TASK_ID 时用自己的任务）
+  input list                      查看用户输入
   draft add '想法'                 先放进缓存，不规划
   draft list                      查看缓存（尚未提交）的输入
   draft edit ID '想法'             改一条缓存输入（别名 update）

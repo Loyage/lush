@@ -115,10 +115,10 @@ export function makeWorld() {
     ],
     // 意图层的两条输入：一条的 planner 申请了批准（specs 分两批），一条已经批准。
     intents: [
-      { id: 1, content: 'demo', flow: 'develop', task_id: 9, status: 'awaiting', plan_gate: 'proposed', plan_notice_id: 7,
+      { id: 1, content: 'demo', task_id: 9, status: 'awaiting', plan_gate: 'proposed', plan_notice_id: 7,
         specs_pending: 1, specs_planned: 1, specs_dropped: 0, scheduler_id: 4, scheduler_status: 'queued', work_tasks: 2,
         draft_count: 0, references: [], created_at: iso(NOW - 9000), planner_updated_at: iso(NOW - 1000) },
-      { id: 2, content: '已批准的那条', flow: 'develop', task_id: 11, status: 'completed', plan_gate: 'approved', plan_notice_id: null,
+      { id: 2, content: '已批准的那条', task_id: 11, status: 'completed', plan_gate: 'approved', plan_notice_id: null,
         specs_pending: 0, specs_planned: 2, specs_dropped: 1, scheduler_id: null, scheduler_status: null, work_tasks: 3,
         work_active: 0, work_failed: 0, candidate_id: 1, candidate_version: 1, candidate_status: 'ready', candidate_report_task_id: 12,
         draft_count: 0, references: [], created_at: iso(NOW - 9500), planner_updated_at: iso(NOW - 2000) },

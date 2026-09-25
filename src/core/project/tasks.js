@@ -47,12 +47,7 @@ export default {
       check(parent.role !== 'scheduler', 'a scheduler must spawn every spec with --spec SPEC_ID; the spec queue is its only input');
     }
     const merged = [...resolved].map(([edgeId, kind]) => ({ id: edgeId, kind }));
-    // 硬约束：了解类输入只能派生只读的 research，不能产生 worker/coordinator（因此不会创建 worktree 或待合并改动）。
-    // scheduler 自己没有 input，所以它 spawn 的 spec 要把 spec 的 input_id 接过来，explain 约束才能覆盖整棵子树。
     const inheritedInput = parent.input_id ?? (spec ? spec.input_id : null);
-    const input = inheritedInput === null ? null : this.store.get('SELECT id, flow FROM inputs WHERE id=?', inheritedInput);
-    check(!input || input.flow !== 'explain' || role === 'research',
-      `input #${input?.id} is classified as explain (了解); delegate research or answer directly, not ${role}`);
     let depth = 1, ancestor = parent;
     while (ancestor.parent_id) { ancestor = this.store.task(ancestor.parent_id); depth++; }
     check(depth < this.config.maxDepth, 'task nesting limit reached');
@@ -83,9 +78,6 @@ export default {
       check(target.task_id !== null, `spec #${hint.spec} has not been compiled yet`);
       return { id: target.task_id, kind: hint.kind };
     });
-    const input = spec.input_id === null ? null : this.store.get('SELECT id,flow FROM inputs WHERE id=?', spec.input_id);
-    check(!input || input.flow !== 'explain' || role === 'research',
-      `input #${input?.id} is classified as explain (了解); only research work is allowed`);
     check(this.store.get("SELECT count(*) AS n FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").n < 1000,
       'too many active tasks');
     const task = this.store.create({ parent_id: null, input_id: spec.input_id, role, goal: spec.goal, name: spec.name });

@@ -1,10 +1,7 @@
-import { check, text } from '../types.js';
+import { text } from '../types.js';
 import { matchInputRoute } from '../input-routes.js';
 
-/** 两类用户输入：develop 会派生 worker 产码，explain 只出结论、不产生待合并改动。 */
-export const FLOWS = new Set(['develop', 'explain']);
-
-/** 输入与流程判定。 */
+/** 输入。 */
 export default {
   /**
    * 输入落库前的唯一准备：id 先定（只往大走、永不复用，锚点的分支名与目录名跟着它），
@@ -77,18 +74,16 @@ export default {
 
   /**
    * 快速路由前缀的短路动作：不调用规划模型，直接把 planner 结算为 completed，
-   * 并按前缀目标（worker→develop / research→explain）在同一事务里创建一条根任务。
+   * 并按前缀目标（worker / research）在同一事务里创建一条根任务。
    * 保留 input.anchor / 原始输入 / 引用 / 输入分支，并写一条 input.route 事件可追溯。
    */
   routeInput(planner, match) {
-    const flow = match.target === 'worker' ? 'develop' : 'explain';
-    this.store.run('UPDATE inputs SET flow=? WHERE id=?', flow, planner.input_id);
-    const spec = this.addSpec(planner.id, { goal: match.content, role: match.target, name: `${flow}-${planner.input_id}` });
+    const spec = this.addSpec(planner.id, { goal: match.content, role: match.target, name: `${match.target}-${planner.input_id}` });
     const task = this.materializeSpec(planner.id, spec.id);
     const result = `前缀 ${match.prefix} 命中：未调用规划模型，直接创建 ${match.target} #${task.id}`;
     this.store.update(planner.id, { status: 'completed', result });
     this.store.event(planner.id, 'input.route', { input_id: planner.input_id, prefix: match.prefix, target: match.target,
-      flow, task: task.id, spec: spec.id });
+      task: task.id, spec: spec.id });
     this.store.event(planner.id, 'completed', { result, route: true, prefix: match.prefix, target: match.target,
       task: task.id, spec: spec.id });
     return task;
@@ -96,7 +91,7 @@ export default {
 
   /** 意图视图：一条输入 + 它的锚点 + 它的 planner（拆解）与 scheduler（编排）进度，一起喂给界面。 */
   inputs() {
-    const rows = this.store.all(`SELECT inputs.id, inputs.flow, substr(inputs.content,1,2000) AS content, inputs.task_id, inputs.created_at,
+    const rows = this.store.all(`SELECT inputs.id, substr(inputs.content,1,2000) AS content, inputs.task_id, inputs.created_at,
       inputs.anchor_branch, inputs.anchor_commit, inputs.anchor_workspace, inputs.anchor_target_branch,
       tasks.status, tasks.plan_gate, tasks.agent_wakes, tasks.updated_at AS planner_updated_at,
       EXISTS(SELECT 1 FROM events e WHERE e.task_id=tasks.id AND e.type='input.route') AS route,
@@ -123,18 +118,4 @@ export default {
       quote: reference.quote.slice(0, 200), captured_at: reference.captured_at,
     })) }));
   },
-
-  /** The root planner decides which flow an input takes; runtime only records it and enforces the explain constraint in spawn(). */
-  setInputFlow(taskId, flow) {
-    const task = this.store.task(taskId);
-    check(FLOWS.has(flow), 'flow must be develop or explain');
-    check(task.parent_id === null, 'only a root task can classify an input');
-    check(task.role !== 'showcase', 'showcase agents cannot classify inputs');
-    check(task.input_id !== null, 'task belongs to no input');
-    this.store.transaction(() => {
-      this.store.run('UPDATE inputs SET flow=? WHERE id=?', flow, task.input_id);
-      this.store.event(task.id, 'input.flow', { input_id: task.input_id, flow });
-    });
-    return { input_id: task.input_id, task_id: task.id, flow };
-  }
 };

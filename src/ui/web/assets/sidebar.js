@@ -30,7 +30,7 @@ export const UNMERGED = new Set(['pending', 'review', 'conflict']);
 export const DEFAULT_FILTERS = Object.freeze({
   tasks: { status: 'all', role: 'all', integration: 'all', mine: false, text: '' },
   specs: { status: 'all', planner: 'all', role: 'all', text: '' },
-  intents: { flow: 'all', gate: 'all', status: 'all', text: '' },
+  intents: { gate: 'all', status: 'all', text: '' },
 });
 
 const SECTION_IDS = new Set(SIDEBAR_SECTIONS.map(section => section.id));
@@ -39,7 +39,6 @@ const STATUS_LABEL = { queued: '排队', running: '运行中', waiting: '等子�
   completed: '已完成', failed: '失败', cancelled: '已取消' };
 const SPEC_STATUS_LABEL = { pending: '排队中', planned: '已排期', dropped: '已丢弃' };
 const ROLE_LABEL = ROLE;
-const FLOW_LABEL = { develop: '开发', explain: '了解' };
 const INTEGRATION_LABEL = { unmerged: '待合并', merged: '已合并' };
 
 /* ---------- 持久化形态 ---------- */
@@ -155,8 +154,6 @@ export function matchSpec(spec, query = {}) {
 }
 
 export function matchIntent(intent, query = {}) {
-  const flows = pick(query.flow);
-  if (flows.length && !flows.includes(intent.flow)) return false;
   if (query.gate === 'proposed' && intent.plan_gate !== 'proposed') return false;
   const statuses = pick(query.status);
   if (statuses.length && !statuses.includes(intent.status)) return false;
@@ -169,7 +166,6 @@ export function matchIntent(intent, query = {}) {
 export function isFiltering(query = {}) {
   if (!query || typeof query !== 'object') return false;
   return pick(query.status).length > 0 || pick(query.role).length > 0 || pick(query.planner).length > 0
-    || pick(query.flow).length > 0
     || (typeof query.integration === 'string' && query.integration !== '' && query.integration !== 'all')
     || (typeof query.gate === 'string' && query.gate !== '' && query.gate !== 'all')
     || query.mine === true || keyword(query.text) !== '';
@@ -231,8 +227,6 @@ export function describeFilters(query = {}) {
   if (query.integration === 'unmerged' || query.integration === 'merged') parts.push(`合并：${INTEGRATION_LABEL[query.integration]}`);
   const planners = pick(query.planner);
   if (planners.length) parts.push(`planner #${planners.join('、#')}`);
-  const flows = pick(query.flow);
-  if (flows.length) parts.push(`流程：${flows.map(value => FLOW_LABEL[value] || value).join('/')}`);
   if (query.gate === 'proposed') parts.push('等你批准');
   if (query.mine === true) parts.push('只看待我处理');
   const needle = keyword(query.text);
