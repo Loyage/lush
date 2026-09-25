@@ -13,13 +13,13 @@ Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行
 
 你输入的是目标，不是任务清单。这条目标直接成为一个拥有独立分支与 worktree 的 Task：它先理解现状，再决定亲自完成还是派生并发子 Task；子 Task 完成后由直接父 Task 的 Agent 确认固定提交并快进集成。历史路径里的规划 Agent、结构化 Plan 与依赖图仍适用于旧项目，按原规则安全收尾。
 
-### Intent 优先：围绕目标，而不是围绕任务
+### 输入与任务相连：围绕目标，而不是任务清单
 
-一次输入连同它的目标分支与整体交付状态一起保存为 Intent。你可以随时回看“我当初想做的是什么”，而不是在一堆任务标题里猜。
+每条 say 输入保存原话、引用及其 Task，便于回看目标和结果，而不必从 Git 分支名猜测。旧协议的 Intent / Plan 仍可审阅。
 
 ### 精确的 commit，而不是笼统的“完成了”
 
-并行成果在私有分支内自动聚合，冻结成 Review Candidate（一份不可变的 integration commit 与基线）；新路径下交付同样冻结源 commit 与父分支基线，并在集成或撤销前不让父分支被别的交付推进。无论哪条路径，你接受或批准的是一个精确 commit，而不是仍会移动的分支名。
+新路径的合并请求冻结源 commit 与父分支基线，并在集成或撤销前防止其他 Lush 交付推进父分支；旧路径则使用 Review Candidate 固定 integration commit 与基线。无论哪条路径，你接受或批准的是一个精确 commit，而不是仍会移动的分支名。
 
 ### Branch 支撑：Git 只做基础设施
 
@@ -40,7 +40,7 @@ Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行
 - **交付**：Task 可以预约**展示**或**合并请求**（二选一）。合并请求冻结源 commit 与父分支基线并把父分支锁住，直到父 Agent 确认集成或你显式撤销；main 只在你按固定 commit + 基线批准后才前进。`completed` 不等于已合并。
 - **了解类问题**：对 main/owner 的 `task analyze ID '问题'` 会跑一次只读分析（分离检出、无分支），结论成为该 Task 的结果，不产生待合并改动。
 
-以上是当前输入路径。历史 Intent → Plan → Candidate 链（旧客户端与已存在数据）见[行动任务流程](docs/task-flow.md)；设计取舍与实施进度见 [Task 中心输入架构](docs/engineering/task-centered-input-design.md) 与[分段实施与验收](docs/engineering/task-centered-input-rollout.md)。
+以上是当前输入路径。完整操作过程见[一条 say 输入如何交付](docs/task-flow.md)；设计边界见[Task 中心输入](docs/engineering/task-centered-input-design.md)。旧客户端与存量任务的 Intent → Plan → Candidate 链见[历史流程](docs/task-flow-1-planning.md)。
 
 ## 部署方式
 
@@ -62,6 +62,7 @@ Lush 提供两种图形化使用方式，两者复用同一份 Web UI 与 API：
 ## 接下来读什么
 
 - [文档总览](docs/README.md)：完整文档地图与推荐阅读顺序。
-- [Task 中心输入架构](docs/engineering/task-centered-input-design.md)：当前输入路径（say / Task / 预约 / 固定提交批准）的设计与限制。
-- [行动任务流程](docs/task-flow.md)：历史 Intent → Plan → Candidate 链（旧客户端与旧数据的安全收尾）。
-- [核心架构](docs/core-architecture.md)：四个中心与实体边界。
+- [一条 say 输入如何交付](docs/task-flow.md)：当前输入与交付流程。
+- [Task 中心输入](docs/engineering/task-centered-input-design.md)：say / 子任务 / 预约的设计边界。
+- [历史流程](docs/task-flow-1-planning.md)：旧 Intent → Plan → Candidate 链的安全收尾。
+- [核心架构](docs/core-architecture.md)：Task、Agent 与 Git 交付边界。

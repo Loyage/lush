@@ -1,6 +1,6 @@
 # 计划审批闸门（可选）
 
-本文件管 `plan.propose` / `plan.approve` / `plan.reject` 的全部规则与权限。
+本文件只管旧规划协议的 `plan.propose` / `plan.approve` / `plan.reject`；新 say 没有 planner 或 Plan gate，实质歧义使用[结构化 Notice](../reference/rpc/notices.md)请用户决定。
 
 planner 判断「影响面大（改架构/公共接口/数据模型/现有行为）」「与已有任务或设计冲突」「没把握完全读懂意图」之一时，可以在写完之后 `plan.propose`（`lush plan propose '标题' --body '…'`）：把 `plan_gate` 置为 `proposed` 并在自己身上开一条 `kind='plan'` 的 notice。`nextSpecPlanner()` 跳过 `proposed` 的条目，所以这一批 spec 会一直待在队列里，直到：
 

@@ -1,8 +1,8 @@
 # 分支优先架构
 
-Lush 的代码状态以 **Branch + worktree** 为核心；Task / Agent 继续负责执行、消息、审计与生命周期，但不再决定代码如何归并。
+Git 分支与 worktree 承载代码事实，Task / Agent 承载执行与交付确认。本章的「一条输入的分支流」及 `input.submit`、planner、worker 示例只描述旧协议；新 say 直接拥有输入分支，子提交由父 Agent 确认，main/owner 需用户批准，见[当前流程](../task-flow.md)和[Task RPC](../reference/rpc/tasks.md)。
 
-## 核心不变量
+## 旧输入链的核心不变量
 
 1. 用户提交输入时显式选择一个本地父分支；省略时使用项目当前检出分支。
 2. runtime 立即从父分支已提交的顶端创建 `lush/<project>/input-<id>` 与独立 worktree。planner 在这个 worktree 中解析输入，因此之后父分支前进、其它 worktree 有未提交内容，都不会改变它看到的代码。
@@ -13,7 +13,7 @@ Lush 的代码状态以 **Branch + worktree** 为核心；Task / Agent 继续负
 7. 一条分支还有未收拢的直接子分支，或仍有会在它下面产码但尚未建分支的活动 task 时，不能提前合入父分支。这样不会把并行工作的某一部分静默遗漏。
 8. `branches.parent` 与 `created_from_commit` 只在创建时写入；merge 不改谱系。分支当前能否 FF 由 Git commit 图实时计算，不持久化猜测。
 
-## 一条输入的分支流
+## 旧协议：一条输入的分支流
 
 ```text
 main（用户选择）
@@ -69,7 +69,7 @@ C:   C1  \
 - Task：goal、role、agent session、消息、notice、执行状态、结果与审计事件。
 - Branch：父分支、fork commit、worktree、当前 tip、ahead/behind、是否可合并、是否已进入父分支。
 - `tasks.head_commit` 仍表示 agent 交付时审阅过的提交。分支之后可能通过子分支聚合而前进；向上合并前必须证明 branch tip 仍包含该 reviewed commit。
-- 输入分支没有 task owner；它通过 `inputs.anchor_branch` 关联根 planner。字段名为兼容现有数据库保留 `anchor_*`，语义已经是可推进的输入分支，而非只读锚点。
+- 旧输入分支没有 Task owner，通过 `inputs.anchor_branch` 关联根 planner；新 say 的输入分支直接由 Task 拥有。兼容字段仍叫 `anchor_*`。
 
 ## 接口
 

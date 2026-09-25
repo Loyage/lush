@@ -1,8 +1,10 @@
-# 提交 Intent 与编译 Plan
+# 历史流程：提交 Intent 与编译 Plan
 
 本章覆盖一条需求进入 Lush 后的前半程：固定代码基线、保存用户原话，并把结构化 Plan 确定性编译为 Work DAG。
 
-> 连续阅读：[流程总览](task-flow.md) → **提交与规划** → [集成与候选](task-flow-2-integration.md) → [验收与回收](task-flow-3-delivery.md)
+> 本章仅适用于旧 `input.submit` / 批量 `draft.commit` 和存量任务；当前 say 见[当前流程](task-flow.md)。
+
+> 历史流程：**提交与规划** → [集成与候选](task-flow-2-integration.md) → [验收与回收](task-flow-3-delivery.md)
 
 ## 提交 Intent
 
@@ -39,4 +41,4 @@ planner 只写结构化 Plan（`lush spec add`）。它结束一轮后，runtime
 
 ---
 
-[← 上一篇：流程总览](task-flow.md) · [下一篇：集成与候选 →](task-flow-2-integration.md)
+[返回当前流程](task-flow.md) · [下一篇：集成与候选 →](task-flow-2-integration.md)

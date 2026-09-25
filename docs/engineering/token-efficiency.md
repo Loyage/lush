@@ -15,15 +15,13 @@
 
 内置 prompt 要求按需读取、缩小搜索范围并排除生成物；成功测试只报告命令、范围、计数和日志路径，失败保留相关错误。它们是模型指导，不是删除工具输出或日志的硬过滤器。
 
-## 快速路由与轻量规划
+## 当前 say 与旧快速路由
 
-运行设置里的快速路由前缀表让明确的小任务不必先调用规划模型：正文命中前缀时，runtime 直接创建 worker 或 research 根任务，并保留零 invocation 的 completed planner 占位。前缀规则、默认表与事务细节见[输入和规划](inputs-and-planning.md)。
+当前 `say` 一条输入直接创建 Task，不经过 planner 或快速路由；Agent 自行判断亲做还是派子任务。旧 `input.submit` / 批量 `draft.commit` 才按运行设置里的前缀表跳过规划模型、创建 worker/research 根任务及零 invocation 的 planner 占位；规则见[旧输入和规划](inputs-and-planning.md)。旧 planner 的 prompt 鼓励轻量规划，不重复执行者的代码调研。
 
-普通 planner 的 prompt 鼓励小任务轻量规划，不重复 worker 的完整代码调研；同一文件内的实现、测试和文档不为形式拆成多个 worker。这是指导，不由 runtime 猜测任务大小，也不自动替用户命中前缀。
+## 父任务合并唤醒
 
-## Coordinator 合并唤醒
-
-普通成功子任务的结算消息仍立即落库，但 coordinator 在还有非终态直接子任务时不因此再调用模型。最后一个子任务终态后，一次性投递未读收据。
+普通成功子任务的结算消息仍立即落库，但父任务在还有非终态直接子任务时不因此再调用模型。最后一个子任务终态后，一次性投递未读收据。
 
 - runtime 写入 `child.completed` 事件，并记录对应 message ID；只有这类认证收据允许延后。
 - 显式用户/agent 消息、失败与取消结算仍及时变成可调度；正在运行的 invocation 不被强行插入消息。

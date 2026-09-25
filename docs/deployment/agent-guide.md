@@ -42,7 +42,7 @@ bun run desktop                                        # Electron 桌面版；�
 | 全局启动器 | 本机多个项目来回切换 | 最后项目记在用户配置目录，不写入项目 `.lush/` |
 | 命令行 | 脚本化、服务器、无图形环境 | 完整命令见 [CLI 与 RPC](../reference/api.md) |
 
-其余命令（提交输入、查看任务、合并、回收）见 [CLI 与 RPC](../reference/api.md)；官方操作路线见[行动任务流程](../task-flow.md)。
+其余命令（提交输入、查看任务、合并、回收）见 [CLI 与 RPC](../reference/api.md)；当前 say 操作路线见[一条 say 输入如何交付](../task-flow.md)。
 
 ## 3. 配置 Agent
 

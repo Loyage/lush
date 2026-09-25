@@ -1,6 +1,6 @@
 # 检验、对照检出与 Review Candidate
 
-本文件管两类只读检验、派生的对照检出及其回收时机。
+本文件管旧 worker / Review Candidate 的兼容只读检验、对照检出及其回收；新 say 的展示预约见[效果展示](../showcase.md)，不以 Candidate 检验放行。
 
 ## 单 worker 检验（兼容）
 

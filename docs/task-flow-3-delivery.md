@@ -1,8 +1,10 @@
-# 验收、诊断与安全回收
+# 历史流程：验收、诊断与安全回收
 
 本章从 Candidate ready 开始，覆盖最终接受、要求修改、分支诊断、证据查看和历史回收。
 
-> 连续阅读：[流程总览](task-flow.md) → [提交与规划](task-flow-1-planning.md) → [集成与候选](task-flow-2-integration.md) → **验收与回收**
+> Candidate 验收只适用于旧客户端和存量任务；当前 say 的预约与固定提交批准见[当前流程](task-flow.md)。本章其余 Git 审阅/安全回收入口须按任务协议区分使用。
+
+> 历史流程：[提交与规划](task-flow-1-planning.md) → [集成与候选](task-flow-2-integration.md) → **验收与回收**
 
 ## 用户验收
 
@@ -57,7 +59,7 @@ lush branch catchup CHILD    # 子分支没有独有提交时快进跟上父分�
 
 ```bash
 lush task inspect ID      # 结果、Run 历史、Artifacts、依赖、工作区
-lush task diff ID         # 当前改动
+# 已提交与未提交改动可在 Web 分支图查看；RPC task.diff 为只读审阅接口
 lush task transcript ID   # agent 的思考、工具调用与输出（追溯用）
 lush task usage ID        # 模型、上下文占用与累计花费
 lush task verify ID       # 兼容的单 worker 对照检验

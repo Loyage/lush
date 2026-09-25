@@ -54,9 +54,9 @@ test('the lazy search index contains headings, prose and code without mixing Mer
     const { docs } = await response.json();
     const core = docs.find(doc => doc.id === 'docs-core-architecture');
     const execution = docs.find(doc => doc.id === 'docs-engineering-execution-model');
-    expect(core.headings).toContain('一条主链');
-    expect(core.body).toContain('模型理解语义');
-    expect(execution.code).toContain('depends_on');
+    expect(core.headings).toContain('项目、输入与任务');
+    expect(core.body).toContain('直接关联的 Task');
+    expect(execution.body).toContain('Plan Compiler');
     expect(core.diagram).toContain('flowchart LR');
     expect(core.body).not.toContain('flowchart LR');
   } finally { await f.close(); }
@@ -113,7 +113,7 @@ test('the docs module resolves only bundled Markdown', async () => {
   }
   expect(readDoc('readme').markdown).toContain('# Lush');
   expect(readDoc('docs-core-architecture')).toMatchObject({ format: 'markdown' });
-  expect(readDoc('docs-core-architecture').markdown).toContain('Intent-first + Candidate-first');
+  expect(readDoc('docs-core-architecture').markdown).toContain('新 `say` 保存 Input');
   expect(readDoc('docs-core-architecture').markdown).toContain('```mermaid');
   // 任何不在索引里的字符串都读不出东西——请求里的路径永远不会被拼进文件名
   for (const attempt of ['../package.json', 'docs/../package.json', 'package.json', '', 'README']) {

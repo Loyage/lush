@@ -4,18 +4,17 @@
 
 ## 推荐阅读顺序
 
-1. [工程架构索引](architecture.md)：原则与实现入口。
-2. [核心实体](entities.md)：Intent、Task、Run、Artifact 与 Candidate 的边界。
-3. [执行模型](execution-model.md)：Task、Run、Plan Compiler 与 Artifact。
-4. [验收闭环](review-loop.md)：Candidate、反馈与安全落地。
+1. [核心架构](../core-architecture.md)：当前 say 主链和旧协议边界。
+2. [执行模型](execution-model.md)：Task、Agent、Run 与唤醒。
+3. [交付与验收](review-loop.md)：父确认、预约与人工批准。
+4. [工程架构索引](architecture.md)：源码主题入口。
 5. [生命周期不变量](invariants.md)：实现必须守住的状态约束。
 
 ## 运行时与数据
 
 - [数据流](data-flow.md)
-- [输入和规划](inputs-and-planning.md)
-- [Task 中心输入架构（待实施设计）](task-centered-input-design.md) → [实施与验收](task-centered-input-rollout.md)：新 say、子任务、信号、预约与旧库兼容；不是当前功能说明。
-- [Intent、Plan 编译与验收候选](intent-layer.md)
+- [Task 中心输入](task-centered-input-design.md)：当前 say 的约束。
+- [输入和规划](inputs-and-planning.md)、[Intent、Plan 编译与验收候选](intent-layer.md)：旧提交协议的兼容收尾。
 - [一次 invocation 与多级协作](invocation.md)
 - [Token 效率与用量归因](token-efficiency.md)：有界上下文、快速路由、合并唤醒与可选软预算。
 - [项目身份与恢复](identity-and-recovery.md)

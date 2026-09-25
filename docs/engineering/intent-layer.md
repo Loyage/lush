@@ -1,6 +1,6 @@
 # Intent、Plan 编译与验收候选
 
-本章描述控制面：用户原话如何成为结构化 Plan、runtime 如何编译 Work DAG，以及最终成果如何成为可验收候选。视觉总览与连续阅读入口见[核心架构](../core-architecture.md)。
+本章仅描述旧 `input.submit` / 批量 `draft.commit` 的控制面：结构化 Plan、Work DAG 与 Review Candidate。供旧客户端和存量数据安全收尾；当前 `say` 直接创建 Task，不走这条链。当前流程见[一条 say 输入如何交付](../task-flow.md)。
 
 ## Intent-first
 

@@ -255,7 +255,7 @@ test('web serves core architecture as Markdown and has no standalone documentati
     const response = await fetch(f.url+'/api/docs/docs-core-architecture');
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.markdown).toContain('Intent-first + Candidate-first');
+    expect(body.markdown).toContain('新 `say` 保存 Input');
     expect(body.markdown).toContain('```mermaid');
     // 文档系统不再暴露 authored HTML；运行时 verifier 报告仍走独立的 task report 路由。
     expect((await fetch(f.url+'/api/docs/docs-core-architecture/html')).status).toBe(404);

@@ -1,8 +1,10 @@
-# 私有集成与 Review Candidate
+# 历史流程：私有集成与 Review Candidate
 
 本章解释并行工作如何在不触碰用户目标分支的前提下收敛，以及何时产生可以开始验收的固定候选。
 
-> 连续阅读：[流程总览](task-flow.md) → [提交与规划](task-flow-1-planning.md) → **集成与候选** → [验收与回收](task-flow-3-delivery.md)
+> 本章仅适用于旧客户端和存量任务的 Intent / Plan / Candidate 链；当前 say 见[当前流程](task-flow.md)。
+
+> 历史流程：[提交与规划](task-flow-1-planning.md) → **集成与候选** → [验收与回收](task-flow-3-delivery.md)
 
 ## 自动中间集成
 

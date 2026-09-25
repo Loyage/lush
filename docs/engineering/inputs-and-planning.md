@@ -1,6 +1,6 @@
 # 输入和规划
 
-本文件管输入如何选择父分支、创建输入分支、落库并被规划。
+本文件只描述旧 `input.submit` / 批量 `draft.commit` 的输入分支与规划，用于旧客户端和存量任务安全收尾。当前默认 `say` 直接创建 Task，不经过 planner、快速路由或这里的自动聚合；见[当前流程](../task-flow.md)和[输入 RPC](../reference/rpc/inputs.md)。
 
 ## 提交顺序
 
