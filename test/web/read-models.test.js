@@ -3,7 +3,7 @@ import { RPCClient } from '../../src/rpc/client.js';
 import { repo } from '../helpers.js';
 import { fetch, pageSource, setup } from './harness.js';
 
-// 大结果不进列表、事件分页、input flow 徽章与改判。
+// 大结果不进列表、事件分页、input flow 徽章；改判入口只保留在 CLI / RPC。
 
 test('Web 全类型窗口与历史分页包含两层任务，旧 RPC 默认口径不变', async () => {
   const f = await setup();
@@ -98,7 +98,7 @@ test('recent event history is cursor-paged and explicitly reports truncation', a
   } finally { await f.close(); }
 });
 
-test('web surfaces the input flow badge and lets the user reclassify an input', async () => {
+test('web surfaces the input flow badge without offering reclassification buttons', async () => {
   const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
@@ -106,7 +106,9 @@ test('web surfaces the input flow badge and lets the user reclassify an input', 
     expect((await post('input.flow',{id:1,flow:'explain'})).status).toBe(200);
     const snapshot = await (await fetch(f.url+'/api/snapshot')).json();
     expect(snapshot.inputs[0].flow).toBe('explain');
-    expect(await pageSource(f.url)).toContain('标记为了解');
+    const page = await pageSource(f.url);
+    expect(page).not.toContain('标记为开发');
+    expect(page).not.toContain('标记为了解');
     // 非法取值与非根 task 都在 Web 层报错
     expect((await post('input.flow',{id:1,flow:'maybe'})).status).toBe(400);
     expect((await post('input.flow',{id:99,flow:'develop'})).status).toBe(400);

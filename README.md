@@ -125,7 +125,7 @@ Web / Electron 中：**单选点一下即进入下一题 → 多选点选后继�
 - `develop`：需要新增功能或改代码。照常拆解，派 coordinator/worker，可派 research。
 - `explain`：只是了解、询问、解释相关内容。planner 直接把答案写进 result，必要时派 research；runtime 会拒绝 worker/coordinator，因此不会产生任务分支（提交时创建的输入分支仍提供稳定读取上下文）。
 
-未判定（`flow` 为空）的输入按 `develop` 处理。用户随时可以改判：`lush input flow [TASK_ID] develop|explain`（agent 省略 TASK_ID 时判定自己的输入，Web 任务详情里也有「标记为开发/了解」），`lush input list` 会显示当前判定。改判只影响之后的派工，不会追溯取消已经建立的 worker/coordinator 子任务。
+未判定（`flow` 为空）的输入按 `develop` 处理。用户随时可以改判：`lush input flow [TASK_ID] develop|explain`（agent 省略 TASK_ID 时判定自己的输入），`lush input list` 会显示当前判定。改判只影响之后的派工，不会追溯取消已经建立的 worker/coordinator 子任务。
 
 ### 效果展示与底层检验
 

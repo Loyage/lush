@@ -153,11 +153,6 @@ export function renderDetail(task, history, diff, usage) {
     if (confirmed) await action('task.cancel', { id: task.id });
     await detail(task.id);
   }, 'danger', { help: '取消这个任务及它下面的全部子任务，工作区与分支保留；取消后无法恢复。' }));
-  if (task.parent_id === null && task.role === 'planner') actions.append(
-    button('标记为开发', async () => { await action('input.flow', { id: task.id, flow: 'develop' }); await detail(task.id); }, 'ghost',
-      { help: '把这条输入改判为「开发」：之后它派生的工作任务会建独立 worktree 与分支。' }),
-    button('标记为了解', async () => { await action('input.flow', { id: task.id, flow: 'explain' }); await detail(task.id); }, 'ghost',
-      { help: '把这条输入改判为「了解」：之后不再从它派生工作任务或 worktree。' }));
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
 
