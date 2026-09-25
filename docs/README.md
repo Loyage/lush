@@ -6,11 +6,12 @@
 
 ## 第一次使用：按流程阅读
 
-1. [使用说明](../README.md)：安装、启动和最短操作路径。
-2. [流程总览](task-flow.md)：先看一张从 Intent 到验收的全景图。
-3. [提交 Intent 与编译 Plan](task-flow-1-planning.md)：理解冻结基线与 Work DAG。
-4. [私有集成与 Review Candidate](task-flow-2-integration.md)：理解并行成果如何收敛。
-5. [验收、诊断与安全回收](task-flow-3-delivery.md)：接受、修改、证据、分支诊断和清理。
+1. [使用说明](../README.md)：项目定位、设计理念与部署方式概览。
+2. [部署](deployment/README.md)：把 Lush 装起来、跑起来并验证；Agent 部署指导文件见[部署指导](deployment/agent-guide.md)。
+3. [流程总览](task-flow.md)：先看一张从 Intent 到验收的全景图。
+4. [提交 Intent 与编译 Plan](task-flow-1-planning.md)：理解冻结基线与 Work DAG。
+5. [私有集成与 Review Candidate](task-flow-2-integration.md)：理解并行成果如何收敛。
+6. [验收、诊断与安全回收](task-flow-3-delivery.md)：接受、修改、证据、分支诊断和清理。
 
 用户侧的手动验收主入口现已替换为[分支效果展示](showcase.md)：专用 agent 分析、设计并执行展示；上述 Candidate / verifier 章节描述仍保留的底层兼容机制。展示不自动放行检验或批准合并。
 
@@ -28,7 +29,7 @@
 ## 按需查阅
 
 - [托管模式](sleep-mode.md)：授权管家自动处理 Notice、项目 token 预算、关闭与选择留档。
-
+- [部署](deployment/README.md)：安装、启动、远程访问、Agent 配置与安全边界。
 - [工程文档](engineering/README.md)：源码边界、生命周期不变量、调度、Git 和恢复机制。
 - [接口参考](reference/README.md)：CLI、RPC、HTTP、Agent 环境与 Web 路由。
 - [贡献指南](contributing/README.md)：开发入口和文档写作约定。

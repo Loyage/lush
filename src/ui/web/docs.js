@@ -23,11 +23,12 @@ const GROUPS = [
   ['docs/engineering', '架构'],
   ['docs/reference', '接口参考'],
   ['docs/contributing', '贡献指南'],
+  ['docs/deployment', '部署'],
   ['docs', '总览'],
   ['', '总览'],
 ];
 /** 索引页的分组顺序；没登记的分组排在后面，彼此按名字排。 */
-const GROUP_ORDER = ['总览', '架构', '接口参考', '贡献指南'];
+const GROUP_ORDER = ['总览', '部署', '架构', '接口参考', '贡献指南'];
 
 /** 少数入口的正文标题是项目名或太笼统，目录条目给一个更直白的名字。 */
 const TITLE_OVERRIDES = {
