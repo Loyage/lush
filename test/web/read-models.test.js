@@ -3,7 +3,7 @@ import { RPCClient } from '../../src/rpc/client.js';
 import { repo } from '../helpers.js';
 import { fetch, pageSource, setup } from './harness.js';
 
-// 大结果不进列表、事件分页、input 快照不再携带已删除的 flow 判定。
+// 大结果不进列表、事件分页、input 快照不再携带已删除的 flow 判定；Web 也不再提供改判入口。
 
 test('Web 全类型窗口与历史分页包含两层任务，旧 RPC 默认口径不变', async () => {
   const f = await setup();
