@@ -1,6 +1,6 @@
 # 输入、规划与缓存
 
-本节管输入的提交、缓存与分流：`input.submit` / `input.list` / `input.flow`、`draft.*` 的缓存语义，以及 `plan.propose` / `plan.approve` / `plan.reject` 这道规划闸门。
+本节管输入的提交、缓存与分流：`input.submit` / `input.list`、`draft.*` 的缓存语义，以及 `plan.propose` / `plan.approve` / `plan.reject` 这道规划闸门。
 
 | CLI | RPC | 参数 |
 |---|---|---|
@@ -14,7 +14,6 @@
 | `lush draft rm ID` | `draft.remove` | `{id}` |
 | `lush draft commit [--branch NAME]` | `draft.commit` | `{ids?, branch?}` |
 | `lush input list` | `input.list` | `{}` |
-| `lush input flow [TASK_ID] develop/explain` | `input.flow` | `{id?, flow: 'develop'/'explain'}` |
 | `lush candidate list [--input ID]` | `candidate.list` | `{input?}` |
 | `lush candidate prepare INPUT [--summary '…']` | `candidate.prepare` | `{input, summary?}`（用户专属） |
 
@@ -25,8 +24,6 @@
 `draft.*` 是输入缓存：`draft.add` 只落 `drafts` 行（`input_id` 为空），可带最多 12 条结构化引用；`draft.update` 的 `{references?}` 省略时保留原引用，给出时整体替换。`draft.commit` 把选中的草稿按 id 升序**逐条提交**：每条正文原样成为一条独立 `inputs`、各自复制引用（segment 1）、各建一个 planner（命中快速路由前缀则短路为 worker / research 根任务）并回写该草稿的 `input_id`，返回 `{inputs:[{id, content, references, task, anchor, draft, route?, worker?/research?}], drafts:[...]}`（锚点语义与 `input.submit` 完全一致）。任一条 Git / 创建失败即抛出：已提交的前几条保留，失败的及之后的草稿仍未提交，不是整批回滚。`draft.remove` 只删未提交的草稿，已提交的输入永不删除（返回错误）。`input.list` 额外给出 `draft_count`。缓存上限 500 条。这四个方法与 `input.submit` 一样是**用户专属**，agent 调用会被拒绝。
 
 引用格式为 `{version:1, kind, target, label, quote, location, captured_at}`。支持任务、任务子树、分支、Intent、Spec、Notice、Diff、消息、结果、执行步骤、事件、检验和普通文字。单条快照最多 8192 字符，一条输入最多 12 项且总计不超过 48 KiB；实时解析结果每项最多 64 KiB、合计最多 256 KiB，超出带 `truncated=true`。planner 每次 invocation 都收到 `referenced_context`：`reference` 是引用时快照，`current` 是本轮解析的当前状态，目标已消失时 `stale=true`。
-
-`input.flow` 记录这条输入走哪条流程：`develop`（要新增功能或改代码）或 `explain`（只了解相关内容），其他取值报 `flow must be develop or explain`。`id` 是根 planner 的 task id：用户（不带 token）可以判定或改判任意根 task，省略 `id` 又没有 agent token 时报明确错误；agent（带 `_token`）省略 `id` 时判定自己那条输入，指定别人的 task 会被拒绝，而且只能判定 `parent_id` 为空的根 task（否则报 `only a root task can classify an input`）。`input.list` 每行带 `flow`，未判定为 `null`（视为 `develop`）。强制约束在 `task.spawn`：`explain` 输入的子树里只允许 `research`，请求 worker/coordinator 会得到 `input #N is classified as explain (了解)`；改判只影响之后的 spawn，不追溯取消已建子任务。
 
 ## 规划闸门
 
