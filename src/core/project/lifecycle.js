@@ -175,12 +175,17 @@ export default {
           this.store.update(target.id, { integration: 'pending',
             integration_error: `resolution task #${task.id} ${status}${error ? `: ${error}` : ''}` });
           this.store.event(target.id, 'merge.conflict.abandoned', { resolution: task.id, status });
+        } else {
+          // 终态 say 的独立解分歧子 Task 没做成：把预约落回可分派的 diverged，保留失败现场。
+          this.noteTerminalDivergenceFailure(task, status, error);
         }
       }
     });
     // A reserved showcase child closes the original say only after its own terminal fact is committed.
     // If we crash here, recover() repeats this DB-only, idempotent step.
     if (task.task_kind === 'showcase' && task.parent_id) this.settleReservedShowcase(task.parent_id);
+    // 终态 say 的独立解分歧子 Task 完成：由 runtime 把产物推进回 say 分支并重新发合并请求。
+    if (task.resolves_task_id && status === 'completed') this.scheduleTerminalDivergenceFinalize(task.id);
     // Work compiled from a Plan is automatically aggregated inside the private Intent branch. The user still
     // approves only the frozen Review Candidate when it moves from the Intent branch to the target branch.
     const compiled = status === 'completed' && task.role === 'worker'
@@ -399,6 +404,10 @@ export default {
       try { requested = JSON.parse(task.reservation)?.status === 'requested'; } catch { /* leave corrupt state visible */ }
       if (requested) void this.recheckRequestedMerge(task.id).catch(error =>
         this.noteReservationBlocked(task.id, error.message));
+    }
+    // 崩溃可能落在「独立解分歧子 Task 已结算」与「runtime 推进 say 分支」之间：重启后补跑收尾。
+    for (const task of this.store.tasks()) {
+      if (task.status === 'completed' && task.resolves_task_id !== null) this.scheduleTerminalDivergenceFinalize(task.id);
     }
     for (const task of this.store.tasks()) if (task.task_kind === 'say' && task.reservation) {
       let reservation = null;

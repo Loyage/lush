@@ -164,6 +164,21 @@ test('a diverged merge offers a source-side Agent child, but does not call legac
   world.state.resolveOutcome = null;
 });
 
+test('a terminal say with a diverged merge reservation still offers the standalone divergence child', async () => {
+  renderGraph(graphFor({ version: 1, kind: 'merge', status: 'pending', blocked_code: 'diverged',
+    blocked_reason: '分支与直接父分支已分歧；先派独立解分歧子 Task 吸收固定的父提交，再重新发合并请求。' },
+  { status: 'completed' }), { force: true });
+  const row = sourceRow();
+  expect(deepText(row)).not.toContain('不能直接复查预约');
+  const resolve = buttonOf(row, '派子任务解决分歧');
+  expect(resolve).toBeTruthy();
+  expect(resolve.classList.contains('agent-call')).toBe(true);
+  const start = resolve.onclick();
+  expect(dialogText(dom)).toContain('由 runtime 快进推进 say 分支');
+  await answerDialog(dom, '派解分歧子任务'); await start;
+  expect(world.state.actions.at(-1)).toEqual({ method: 'task.resolve_divergence', params: { id: say.id } });
+});
+
 test('failed resolution child links back to say and explains archive rather than offering replay', () => {
   const child = { ...say, id: 92, task_kind: 'child', parent_id: 70, parent_task_kind: 'say',
     branch: 'lush/resolution/92', target_branch: branch, status: 'failed', error: 'conflict not resolved',

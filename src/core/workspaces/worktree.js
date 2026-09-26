@@ -188,7 +188,8 @@ export const methods = {
       const branchSync = task.role === 'merger' && !resolves && Boolean(task.base_commit && task.target_branch);
       // 没有 code 依赖、也不是 merger 时，基线来自这条输入的分支起点。输入分支之后可以聚合子分支，
       // 但一个已经派出的并行任务仍从输入提交时冻结的 commit 开始，不会随合并时机漂移。
-      const owner = task.task_kind === 'child' ? this.store.task(task.parent_id) : null;
+      // 终态 say 的独立解分歧子 Task 也是 task_kind='child'，但没有父任务（用 resolves_task_id 关联）。
+      const owner = task.task_kind === 'child' && task.parent_id ? this.store.task(task.parent_id) : null;
       check(!owner || owner.branch, 'new child Task has no parent branch');
       const anchor = (resolves || branchSync || owner) ? null : this.inputAnchor(task);
       const base = task.base_commit || (owner

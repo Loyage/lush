@@ -181,11 +181,16 @@ export function renderDetail(task, history, diff, usage) {
   panel.append(actions);
   if (task.divergence_resolution && TERMINAL_STATUS.has(task.status) && task.integration !== 'merged') {
     const archived = task.divergence_resolution.branch_status === 'archived';
-    // 两种来源：修的是父 say 自己的合并请求（用户驱动），或一个已完子任务的固定提交（父 Agent 驱动）。
+    // 三种来源：终态 say 的独立解分歧（runtime 驱动）、活动 say 自己的合并请求（用户驱动），
+    // 或一个已完子任务的固定提交（直接父 Agent 驱动）。
+    const terminalSay = task.resolves_task_id !== null
+      && task.resolves_task_id === task.divergence_resolution.source_task_id;
     const repairsSay = task.divergence_resolution.source_task_id === task.parent_id;
-    const retry = repairsSay
-      ? '返回源 say，在静息且分歧仍存在时可重新派独立子任务。'
-      : `由直接父 Agent #${task.parent_id} 再派一个以同一固定提交为基线的解分歧子任务（task resolve-child-divergence）。`;
+    const retry = terminalSay
+      ? `返回源 say #${task.divergence_resolution.source_task_id}，在分歧仍存在且预约可分派时可重新派独立子任务。`
+      : repairsSay
+        ? '返回源 say，在静息且分歧仍存在时可重新派独立子任务。'
+        : `由直接父 Agent #${task.parent_id} 再派一个以同一固定提交为基线的解分歧子任务（task resolve-child-divergence）。`;
     panel.append(el('p', archived
       ? `解分歧子任务已归档，Task、固定提交记录和会话仍保留。${retry}`
       : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在分支图显式归档这条子分支（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,

@@ -758,6 +758,69 @@ test('a delivered showcase leaves the completed say able to issue a fixed merge 
   } finally { await f.close(); }
 });
 
+test('a diverged delivered showcase resolves through a standalone child, then re-requests the fixed merge', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const say = await f.project.say('present then diverge');
+    fs.writeFileSync(path.join(say.task.workspace, 'screen.txt'), 'ready\n');
+    await git(say.task.workspace, 'add', 'screen.txt');
+    await git(say.task.workspace, 'commit', '-m', 'screen');
+    const sourceCommit = await git(say.task.workspace, 'rev-parse', 'HEAD');
+    // 让展示交付并把原 say 结算为 completed（不跑一次真实展示）。
+    f.store.update(say.task.id, { status: 'waiting' });
+    const booked = await f.project.reserveTask(say.task.id, 'showcase');
+    const showcaseChild = f.store.task(booked.reservation.child_id);
+    f.store.update(showcaseChild.id, { status: 'completed', result: 'report ready' });
+    expect(f.project.settleReservedShowcase(say.task.id).status).toBe('completed');
+    // 展示之后 main 自己前进：终态 say 的分支与直接父分支分歧。
+    await git(f.root, 'commit', '--allow-empty', '-m', 'parent changed');
+    const parentCommit = await git(f.root, 'rev-parse', 'main');
+
+    // 「请求合并」不再直接抛错，而是留下 pending/diverged 预约，等用户派独立解分歧子任务。
+    const blocked = await f.project.reserveTask(say.task.id, 'merge');
+    expect(blocked).toMatchObject({ changed: true,
+      reservation: { kind: 'merge', status: 'pending', blocked_code: 'diverged' } });
+    expect(f.project.branchFreeze('main')).toBeNull();
+    expect(await git(f.root, 'rev-parse', 'main')).toBe(parentCommit);
+
+    // 独立子任务不在终态 say 的子树里，用 resolves_task_id 关联。
+    f.project.stopping = false; f.project.kick = () => {};
+    const started = await f.project.resolveSayDivergence(say.task.id);
+    expect(started).toMatchObject({ status: 'queued', source_commit: sourceCommit, parent_commit: parentCommit });
+    const repair = f.store.task(started.task.id);
+    expect(repair).toMatchObject({ parent_id: null, task_kind: 'child', role: 'agent',
+      resolves_task_id: say.task.id, base_commit: sourceCommit, target_branch: say.task.branch });
+    expect(f.store.children(say.task.id).some(child => child.id === repair.id)).toBe(false);
+    expect(await f.project.resolveSayDivergence(say.task.id)).toMatchObject({ status: 'existing', task: { id: repair.id } });
+
+    // 子任务把固定的父提交合进以固定源提交为基线的工作区，测试后提交。
+    const cwd = await f.project.workspaces.ensure(repair);
+    expect(await git(cwd, 'rev-parse', 'HEAD')).toBe(sourceCommit);
+    await git(cwd, 'merge', '--no-ff', '--no-edit', parentCommit);
+    await f.project.workspaces.finish(f.store.task(repair.id));
+    const resolvedCommit = f.store.task(repair.id).head_commit;
+    expect(await f.project.workspaces.isAncestor(f.root, sourceCommit, resolvedCommit)).toBe(true);
+    expect(await f.project.workspaces.isAncestor(f.root, parentCommit, resolvedCommit)).toBe(true);
+    f.project.finish(repair.id, 'completed', 'both commits tested');
+
+    // runtime 收尾：快进 say 分支到同时含两端固定提交的提交，并按当前父基线重新发请求。
+    await until(() => {
+      const value = JSON.parse(f.store.task(say.task.id).reservation);
+      return value.status === 'requested' || value.blocked_code !== 'resolving';
+    });
+    const ready = JSON.parse(f.store.task(say.task.id).reservation);
+    expect(ready).toMatchObject({ kind: 'merge', status: 'requested', commit: resolvedCommit, baseline: parentCommit });
+    expect(f.store.task(repair.id).integration).toBe('merged');
+    expect(await git(f.root, 'rev-parse', say.task.branch)).toBe(resolvedCommit);
+    expect(await git(f.root, 'rev-parse', 'main')).toBe(parentCommit);
+    expect(f.store.unread(say.task.parent_id).some(row => row.signal_type === 'merge.requested')).toBe(true);
+
+    await f.project.approveReservedMerge(say.task.id, ready.commit, ready.baseline);
+    expect(f.store.task(say.task.id).integration).toBe('merged');
+    expect(await git(f.root, 'rev-parse', 'main')).toBe(resolvedCommit);
+  } finally { await f.close(); }
+});
+
 test('showcase booking creates the child immediately and signals only once code and worktree are ready', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
