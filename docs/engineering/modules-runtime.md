@@ -105,7 +105,7 @@
 | `store/specs.js` | 拆解队列 | `specDeps`、`addSpec`、`spec`、`specs`、`specStats`、`pendingSpecs`、`specsForBatch`、`specsByPlanner`、`nextSpecPlanner`、`assignSpecs`、`takeSpecs`、`plannedSpec`、`dropSpec`、`releaseBatch`、`discardBatch` |
 | `store/deps.js` | 依赖边；`depMap(taskIds?)` 可只投影当前有界任务窗 | `addDep`、`deps`、`dependents`、`depsDetail`、`dependentsDetail`、`depMap`、`reaches`、`edgesOf` |
 | `store/messages.js` | 收件箱 | `message`、`signal`（有键去重的 Task 信号）、`unread` |
-| `store/events.js` | 审计事件；保留旧正向历史，并提供从最近记录向前翻页的游标页 | `event`（返回新增 ID）、`history`、`historyPage` |
+| `store/events.js` | 审计事件；保留旧正向历史，并提供从最近记录向前翻页的游标页；事件只带 `message_id` 时一并附上被引用的消息正文（`event.message`） | `event`（返回新增 ID）、`history`、`historyPage` |
 | `store/verification.js` | 检验与解冲突的关联读模型 | `verifications`、`activeVerification`、`resolutions`、`activeResolver`、`unlandedResolver`、`conflictsOn` |
 | `store/drafts.js` | 输入缓存 | `addDraft`、`draft`、`updateDraft`、`openDrafts`、`draftCount` |
 | `store/references.js` | Input / Draft 的引用元数据（不是新的业务实体） | `setDraftReferences`、`draftReferences`、`setInputReferences`、`inputReferences`、`referencesForDrafts` |

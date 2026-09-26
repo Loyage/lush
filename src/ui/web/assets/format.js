@@ -10,6 +10,8 @@ export const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', 
 export const EVENTS = {
   created: '创建任务', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
+  'task.signal': '任务信号', 'child.completed': '子任务完成', 'child.integrated': '子任务已集成',
+  'task.merge_requested': '请求合并', 'task.showcase_settled': '展示结算',
   'progress.plan': '更新任务计划', 'progress.completed': '完成计划步骤',
   'workspace.created': '创建 worktree', 'workspace.removed': '回收 worktree', 'branch.removed': '回收分支',
   'verify.requested': '请求检验', 'baseline.created': '创建对照基线', 'baseline.removed': '回收对照基线',
