@@ -33,7 +33,11 @@ export default {
    * The single place a root planner is created; input.submit and draft.commit both land here.
    * 锚不住就不接受输入：Git 建锚点失败时 inputs 一条都不写，草稿也留在缓存里等下一次提交。
    */
-  async createInput(content, attach = null, branch = null, references = []) {
+  createInput(content, attach = null, branch = null, references = []) {
+    return this.write('submit an input', () => this.submitInput(content, attach, branch, references));
+  },
+
+  async submitInput(content, attach = null, branch = null, references = []) {
     text(content, 'input');
     // 冻结中的分支不接受新的 intent：一键合并 / 解冲突期间在目标分支及其子树上建新输入会扰动合并。
     let effectiveBranch = branch;
@@ -45,7 +49,11 @@ export default {
     const normalized = this.normalizeReferences(references);
     if (branch !== null && branch !== undefined) text(branch, 'branch');
     const { inputId, anchor } = await this.anchorInput(branch);
-    try { return this.insertInput(inputId, anchor, content, attach, normalized); }
+    try {
+      // Git was asynchronous: a clear may have started while the anchor was being created.
+      this.assertWritable('submit an input');
+      return this.insertInput(inputId, anchor, content, attach, normalized);
+    }
     catch (error) {
       // 已经落到磁盘上的锚点要跟着回滚，否则同名的分支与目录会挡住之后可能用到这个 id 的提交。
       await this.workspaces.releaseAnchor(anchor)

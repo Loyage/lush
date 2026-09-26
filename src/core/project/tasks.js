@@ -22,6 +22,7 @@ function normalizeDeps(deps) {
 export default {
   /** name is the planner's short slug for the work; it becomes the branch/worktree name and stays fixed for the task's life. */
   spawn(parentId, goal, role = undefined, deps = [], name = null, specId = null) {
+    this.assertWritable('delegate a task');
     const parent = this.store.task(parentId);
     check(!['main','owner'].includes(parent.task_kind), 'branch owner Tasks accept new say Tasks, not unrestricted spawned work');
     check(parent.task_kind !== 'analysis', 'read-only analysis Tasks do not delegate; ask a new question instead');

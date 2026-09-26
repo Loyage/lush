@@ -140,3 +140,46 @@ test('clear refuses while a cleanup is walking a worktree', async () => {
     expect(() => f.project.clear()).toThrow('cleanup is in progress');
   } finally { await f.close(); }
 });
+
+test('clear refuses new writes while its disk reclaim is in flight', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const held = gate(), started = gate();
+    const original = f.project.workspaces.reclaim.bind(f.project.workspaces);
+    f.project.workspaces.reclaim = async tasks => { started.resolve(); await held.promise; return original(tasks); };
+    const clearing = f.project.clear();
+    await started.promise;
+    expect(f.project.clearing).toBe(true);
+    expect(() => f.project.draft('buffered later')).toThrow('clear is in progress');
+    expect(() => f.project.retry(1)).toThrow('clear is in progress');
+    await expect(f.project.submit('created while clearing')).rejects.toThrow('clear is in progress');
+    await expect(f.project.say('also created while clearing')).rejects.toThrow('clear is in progress');
+    held.resolve();
+    await clearing;
+    expect(f.project.clearing).toBe(false);
+    // Nothing the rejected entries tried to create survived or was silently removed after success.
+    expect(f.store.get('SELECT count(*) AS n FROM drafts').n).toBe(0);
+    expect(f.store.get('SELECT count(*) AS n FROM tasks').n).toBe(0);
+    expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
+  } finally { await f.close(); }
+});
+
+test('an input whose Git anchor is in flight re-checks the clear gate instead of inserting after purge', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const held = gate(), started = gate();
+    const originalAnchor = f.project.workspaces.anchor.bind(f.project.workspaces);
+    f.project.workspaces.anchor = async (...args) => { started.resolve(); await held.promise; return originalAnchor(...args); };
+    const pending = f.project.submit('in flight');
+    await started.promise;
+    // No input row exists yet, so clear's synchronous checks pass and the gate closes.
+    const clearing = f.project.clear();
+    expect(f.project.clearing).toBe(true);
+    held.resolve();
+    await expect(pending).rejects.toThrow('clear is in progress');
+    await clearing;
+    expect(f.project.clearing).toBe(false);
+    expect(f.store.get('SELECT count(*) AS n FROM tasks').n).toBe(0);
+    expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
+  } finally { await f.close(); }
+});

@@ -578,7 +578,12 @@ export default {
   },
 
   /** Every new say is one Input and one branch-owning Task, regardless of whether it writes code. */
-  async say(content = undefined, branch = null, references = [], draftId = null) {
+  say(content = undefined, branch = null, references = [], draftId = null) {
+    return this.write('send this say', () => this.sendSay(content, branch, references, draftId));
+  },
+
+  /** The body of say(); runs under the clear gate so an anchor created before a clear cannot commit after its purge. */
+  async sendSay(content = undefined, branch = null, references = [], draftId = null) {
     let draft = null, draftReferences = null;
     if (draftId !== null && draftId !== undefined) {
       check(content === undefined && references.length === 0, 'draft_id cannot be combined with content or references');
@@ -604,6 +609,8 @@ export default {
     // anchorInput always passes the chosen ref, never the possibly changed process HEAD.
     const { inputId, anchor } = await this.anchorInput(target);
     try {
+      // Git was asynchronous: a clear may have started while the anchor was being created.
+      this.assertWritable('send this say');
       const result = this.store.transaction(() => {
         const current = this.store.task(parent.id);
         check(!TERMINAL.has(current.status) && current.branch === target, 'parent task changed while creating the worktree');

@@ -218,6 +218,7 @@ export default {
    * 状态检查是同步的（调用方立即拿到拒绝），磁盘回收在返回的 Promise 里串行执行。
    */
   clear() {
+    check(!this.clearing, 'clear is already in progress');
     check(!this.sleepStatus().enabled && !this.sleepTickPromise, '请先关闭托管模式并等待管家操作结束，再清空项目');
     check(this.running.size === 0, 'an agent invocation is still unwinding; clear must wait');
     check(this.store.activeBranchMergeRuns().length === 0, 'a one-click merge is in progress; finish or cancel it before clearing');
@@ -228,11 +229,17 @@ export default {
     // 分支名、worktree 路径与对照目录都记在即将被删的行里，所以先回收再 purge。
     const anchors = this.store.all(`SELECT id, anchor_branch, anchor_commit, anchor_workspace FROM inputs
       WHERE anchor_branch IS NOT NULL ORDER BY id`);
+    // The checks above are synchronous, so from here on every new write is refused until purge is done.
+    // A write already in flight re-checks this flag after its asynchronous Git step (see inputs/say).
+    this.clearing = true;
     return this.reclaimThenPurge(this.store.tasks(), anchors.map(input => ({ id: input.id,
-      branch: input.anchor_branch, commit: input.anchor_commit, workspace: input.anchor_workspace })));
+      branch: input.anchor_branch, commit: input.anchor_commit, workspace: input.anchor_workspace })))
+      .finally(() => { this.clearing = false; });
   },
 
   async reclaimThenPurge(tasks, anchors = []) {
+    // Writes admitted before the gate closed finish first; new ones are already refused.
+    await this.drainWrites();
     const outcomes = await this.workspaces.reclaim(tasks);
     // 输入锚点是提交那一刻的快照，没有 agent 往里提交：干净就回收，脏或被改过就留着并说明原因。
     const reclaimedAnchors = anchors.length ? await this.workspaces.reclaimAnchors(anchors) : [];
@@ -325,6 +332,7 @@ export default {
   },
 
   retry(taskId, profile = null) {
+    this.assertWritable('retry a task');
     const task = this.store.task(taskId);
     check(['failed','cancelled'].includes(task.status), 'only failed/cancelled tasks can be retried');
     check(!this.running.has(task.id), 'agent is still stopping; retry shortly');

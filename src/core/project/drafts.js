@@ -8,6 +8,7 @@ const MAX_DRAFTS = 500;
 export default {
   /** Buffering is user-only: agents submit work through task.spawn, never through the input buffer. */
   draft(content, references = []) {
+    this.assertWritable('buffer a draft');
     text(content, 'draft');
     const normalized = this.normalizeReferences(references);
     check(this.store.draftCount() < MAX_DRAFTS, 'too many buffered drafts; submit or remove some first');
@@ -21,6 +22,7 @@ export default {
   drafts() { return bounded(this.store.openDrafts().map(draft => ({ ...draft, references: this.store.draftReferences(draft.id) })), 400000); },
 
   dropDraft(draftId) {
+    this.assertWritable('remove a draft');
     const draft = this.store.draft(draftId);
     check(draft.input_id === null, `draft ${draft.id} was already submitted as input ${draft.input_id}; inputs are never removed`);
     this.store.run('DELETE FROM drafts WHERE id=?', draft.id);
@@ -29,6 +31,7 @@ export default {
 
   /** Edit a buffered draft in place. Submitted drafts are the audit chain of an input and never change. */
   editDraft(draftId, content, references = undefined) {
+    this.assertWritable('edit a draft');
     text(content, 'draft');
     const draft = this.store.draft(draftId);
     check(draft.input_id === null, `draft ${draft.id} was already submitted as input ${draft.input_id}; inputs are never changed`);
@@ -54,6 +57,7 @@ export default {
    * 任一条创建失败即抛出，已提交的前几条保留，失败的及之后的草稿仍未提交。
    */
   async commitDrafts(ids = null, branch = null) {
+    this.assertWritable('submit drafts');
     let drafts;
     if (ids === null || ids === undefined) {
       drafts = this.store.openDrafts();
