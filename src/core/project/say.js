@@ -307,6 +307,11 @@ export default {
     const reservation = storedReservation(say.reservation);
     if (reservation?.kind !== 'merge' || reservation.status !== 'pending'
       || reservation.blocked_code !== 'resolving' || reservation.resolution_child_id !== resolution.id) return null;
+    // 合并编排在源侧派的解分歧子 Task 由 orchestrate driver 自己收尾（见 project/orchestrate.js），
+    // 不走这条「终态 say + 用户批准」路径，避免双重处理。
+    const requestEvent = this.store.get("SELECT data FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1", resolution.id);
+    try { if (requestEvent && JSON.parse(requestEvent.data).orchestrated === true) return null; }
+    catch { /* 损坏快照留给后续校验处理 */ }
     return this.workspaces.exclusive(async () => {
       const liveResolution = this.store.task(resolution.id);
       const liveSay = this.store.task(say.id);

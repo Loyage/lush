@@ -1,6 +1,6 @@
 import { check } from '../../core/types.js';
 import { exact } from '../args.js';
-import { printBranchTree, printBranchShow, printBranchImport, printBranchArchive, printBranchSummary, printMergeAllPlan, printMergeAllResult, printMergeCancel } from '../print.js';
+import { printBranchTree, printBranchShow, printBranchImport, printBranchArchive, printBranchSummary, printMergeAllPlan, printMergeAllResult, printMergeCancel, printOrchestratePlan, printOrchestrateResult, printOrchestrateCancel } from '../print.js';
 
 /** branch：分支谱系（谁从谁创建出来），与任务树、commit graph 都是不同维度。 */
 export async function run(command, args, ctx) {
@@ -45,6 +45,18 @@ export async function run(command, args, ctx) {
     exact(args, 1);
     value = await client.request('branch.merge_cancel', { branch: args[0] });
     if (!json) { printMergeCancel(value); return; }
+  } else if (verb === 'orchestrate-plan') {
+    exact(args, 1);
+    value = await client.request('branch.orchestrate_plan', { branch: args[0] });
+    if (!json) { printOrchestratePlan(value); return; }
+  } else if (verb === 'orchestrate') {
+    exact(args, 1);
+    value = await client.request('branch.orchestrate', { branch: args[0] });
+    if (!json) { printOrchestrateResult(value); return; }
+  } else if (verb === 'orchestrate-cancel') {
+    exact(args, 1);
+    value = await client.request('branch.orchestrate_cancel', { branch: args[0] });
+    if (!json) { printOrchestrateCancel(value); return; }
   } else if (verb === 'archive') {
     const discard = args.includes('--discard');
     if (discard) args.splice(args.indexOf('--discard'), 1);
@@ -58,7 +70,7 @@ export async function run(command, args, ctx) {
     value = await client.request('branch.summary', branch === null ? { summary } : { branch, summary });
     if (!json) { printBranchSummary(value); return; }
   } else {
-    check(false, 'unknown branch command; use tree, show, import, bind, merge, sync, catchup, merge-plan, merge-all, merge-cancel, archive or summary');
+    check(false, 'unknown branch command; use tree, show, import, bind, merge, sync, catchup, merge-plan, merge-all, merge-cancel, orchestrate-plan, orchestrate, orchestrate-cancel, archive or summary');
   }
   return value;
 }

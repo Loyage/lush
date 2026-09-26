@@ -36,7 +36,7 @@ export default {
 
   wake(taskId) {
     const task = this.store.task(taskId);
-    if (['main','owner'].includes(task.task_kind)) return; // No unrestricted provider in a bound parent worktree.
+    if (['main','owner','merge'].includes(task.task_kind)) return; // runtime-driven roots and merge orchestration never run providers
     if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') return;
     if (!TERMINAL.has(task.status) && !this.running.has(task.id)) {
       const deferred = task.role === 'coordinator' && this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', task.id)
@@ -66,7 +66,7 @@ export default {
     let butlerRunning = [...this.running.values()].filter(run => run.role === 'butler').length;
     let executionRunning = this.running.size - controlRunning - butlerRunning;
     for (const task of this.store.all("SELECT * FROM tasks WHERE status='queued' ORDER BY id")) {
-      if (['main','owner'].includes(task.task_kind)) continue; // Bound parent roots do not run unrestricted providers.
+      if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.
       if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') continue;
       if (this.running.has(task.id)) continue;
       if (this.questionPending(task.id)) { this.store.update(task.id, { status: 'awaiting' }); continue; }
