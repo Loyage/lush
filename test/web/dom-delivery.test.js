@@ -248,3 +248,23 @@ test('nested say requests await the parent Agent; failed showcase offers a repor
   expect(buttonOf(dom.node('detail'), '检查后重试')).toBeUndefined();
   expect(buttonOf(dom.node('detail'), '查看展示 #81')).toBeTruthy();
 });
+
+test('no-change say gets an 已解决 button distinct from cancel; committed or showcase work does not', async () => {
+  renderDetail({ ...say, head_commit: null, base_commit: baseline, integration: 'none' }, null, null, null);
+  const panel = dom.node('detail');
+  const resolve = buttonOf(panel, '已解决');
+  expect(resolve).toBeDefined();
+  // 语义不直观但不调用 Agent：只带 data-help，不带 agent-call。
+  expect(resolve.classList.contains('agent-call')).toBe(false);
+  expect(resolve.getAttribute('data-help')).toContain('取消任务树');
+  const pending = resolve.onclick();
+  expect(dialogText(dom)).toContain('已解决');
+  await answerDialog(dom, '标记已解决'); await pending;
+  expect(world.state.actions).toContainEqual({ method: 'task.resolve', params: { id: say.id } });
+
+  renderDetail({ ...say, head_commit: commit, base_commit: baseline, integration: 'pending' }, null, null, null);
+  expect(buttonOf(dom.node('detail'), '已解决')).toBeUndefined();
+  renderDetail({ ...say, head_commit: null, base_commit: baseline,
+    reservation: { version: 1, kind: 'showcase', status: 'preparing', child_id: 5 } }, null, null, null);
+  expect(buttonOf(dom.node('detail'), '已解决')).toBeUndefined();
+});

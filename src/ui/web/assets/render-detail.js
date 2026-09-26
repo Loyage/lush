@@ -147,6 +147,21 @@ export function renderDetail(task, history, diff, usage) {
   if (reclaimable && task.workspace && task.branch) actions.append(button('只回收 worktree（保留分支）', async () => { await action('task.cleanup', { id: task.id, keep_branch: true }); await detail(task.id); }, 'ghost',
     { help: '只删除 worktree、保留本地分支；未提交的改动会随 worktree 一起丢失。' }));
   const verifications = task.verifications || [];
+  // 没有代码改动的 say 给一个与「取消」区分的收尾：已解决=没有别的需求，取消=因别的原因放弃。
+  const noCommittedChange = !task.head_commit || !task.base_commit || task.head_commit === task.base_commit;
+  if (task.task_kind === 'say' && !TERMINAL_STATUS.has(task.status) && noCommittedChange
+    && task.reservation?.kind !== 'showcase') actions.append(button('已解决', async () => {
+    const confirmed = await confirmDialog({
+      title: `把 say #${task.id} 标记为已解决？`,
+      message: '适用于这次输入只是想了解/确认、没有代码改动的情况：任务结算为「已完成」，答案作为结果保留，并解除它占用的唤醒。它与「取消任务树」不同——那是因别的原因放弃正在进行的工作；这里代表你确认没有别的需求了。如需继续追问，请在标记前直接给这个任务发消息；标记后请作为新的 say 发送。',
+      confirmLabel: '标记已解决',
+      confirmHelp: '仅在没有提交、工作区干净时允许；任务变为已完成，不发起合并请求，也不删除分支与工作区。',
+    });
+    if (!confirmed) return;
+    try { await action('task.resolve', { id: task.id }); show(`say #${task.id} 已标记为已解决`); }
+    catch (error) { show(error.message, 'error'); }
+    await detail(task.id);
+  }, 'ghost', { help: '把没有代码改动的 say 结算为已完成（保留答案），用来区分「没有别的要求」和「取消任务树」；有提交时请改用请求合并或取消。' }));
   if (!['completed', 'failed', 'cancelled'].includes(task.status)) actions.append(button('取消任务树', async () => {
     const confirmed = await confirmDialog({
       title: '取消这个任务树？',
