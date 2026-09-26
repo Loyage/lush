@@ -139,6 +139,9 @@ export const methods = {
         const actual = await this.git(workspace, 'rev-parse', 'HEAD');
         check(actual === candidate.commit_hash,
           `candidate #${candidate.id} pins ${candidate.commit_hash.slice(0,12)}, but its worktree moved; prepare a new candidate`);
+        // G-02: a dirty tree would let the verifier read files that are not in the frozen commit.
+        const dirty = await this.porcelain(workspace);
+        check(!dirty, `candidate #${candidate.id} worktree has uncommitted changes; verification must read the pinned commit\n${dirty}`);
       }
       if (task.baseline_workspace && fs.existsSync(task.baseline_workspace)) return workspace;
       const project = this.config.project;

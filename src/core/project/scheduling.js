@@ -177,6 +177,11 @@ export default {
       if (TERMINAL.has(this.store.task(taskId).status) || run.parked) return;
       if (run.controller.signal.aborted) throw new Error(timedOut ? timeoutMessage : abortMessage());
       check(typeof result === 'string' && Buffer.byteLength(result) <= 256000, 'agent result exceeds 256000 bytes');
+      // G-02: re-check the pinned tree after the invocation. Drift or dirt means the evidence no longer
+      // describes the frozen commit, so the invocation fails instead of being recorded as a pass.
+      if (task.role === 'verifier' && task.review_candidate_id) {
+        await this.assertCandidateVerification(this.store.candidate(task.review_candidate_id), task);
+      }
       this.store.transaction(() => {
         for (const message of messages) this.store.run('UPDATE messages SET consumed=1 WHERE id=?', message.id);
         this.store.event(taskId, 'invocation.completed', { result, run_id: run.recordId });

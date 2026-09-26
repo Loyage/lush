@@ -454,3 +454,85 @@ test('the current verifier still marks the candidate failed when its evidence is
       .toMatchObject({ candidate_status: 'failed', has_report: false });
   } finally { await f.close(); }
 });
+
+/** G-02: pass evidence must never describe uncommitted or drifted content as the pinned commit. */
+function evidenceProvider(onRun) {
+  return { async run({ task, context }) {
+    if (task.role === 'planner') return '计划完成';
+    if (task.role === 'verifier' && context.verification?.candidate) {
+      if (onRun) await onRun(context.verification);
+      fs.mkdirSync(path.dirname(context.verification.report_path), { recursive: true });
+      fs.writeFileSync(context.verification.report_path, '<!doctype html><title>candidate report</title><h1>ok</h1>');
+      fs.writeFileSync(context.verification.evidence_path, JSON.stringify({ schema_version: 1, status: 'pass',
+        summary: '固定提交上的命令全部通过。',
+        commands: [{ command: 'bun run test', exit_code: 0, baseline_exit_code: 0, summary: '两边都通过' }],
+        failures: [], unverified: [], baseline_failures: [], residual_risks: [] }));
+      return '固定提交上的命令全部通过。';
+    }
+    return 'done';
+  } };
+}
+
+async function failedCandidate(f, input, candidate, verifier, needle) {
+  await until(() => ['completed','failed','cancelled'].includes(f.store.task(verifier.id).status));
+  expect(f.store.task(verifier.id).status).toBe('failed');
+  expect(String(f.store.task(verifier.id).error)).toContain(needle);
+  expect(f.store.candidate(candidate.id).status).toBe('failed');
+}
+
+test('candidate verification refuses a dirty pinned worktree before the verifier runs', async () => {
+  const calls = [];
+  const f = fixture({ async run({ task }) { calls.push(task.role); return 'ran'; } }); await repo(f.root);
+  try {
+    const input = await f.project.submit('验收必须读固定提交');
+    await until(() => f.store.task(input.task.id).status === 'completed');
+    fs.writeFileSync(path.join(input.anchor.workspace, 'reviewed.txt'), 'reviewed\n');
+    await git(input.anchor.workspace, 'add', 'reviewed.txt');
+    await git(input.anchor.workspace, 'commit', '-m', 'reviewed candidate');
+    const candidate = await f.project.prepareCandidate(input.id);
+    // Uncommitted content that the verifier would otherwise read as if it were the frozen tree.
+    fs.writeFileSync(path.join(input.anchor.workspace, 'uncommitted.txt'), 'not in the candidate\n');
+
+    const verifier = f.project.verifyCandidate(candidate.id);
+    await failedCandidate(f, input, candidate, verifier, 'uncommitted changes');
+    expect(calls).not.toContain('verifier');
+  } finally { await f.close(); }
+});
+
+test('candidate verification fails when the tested worktree is committed during the run', async () => {
+  const f = fixture(evidenceProvider(async verification => {
+    fs.writeFileSync(path.join(verification.workspace, 'drift.txt'), 'drift\n');
+    await git(verification.workspace, 'add', 'drift.txt');
+    await git(verification.workspace, 'commit', '-m', 'drift during verification');
+  }));
+  await repo(f.root);
+  try {
+    const input = await f.project.submit('运行期间推移的候选');
+    await until(() => f.store.task(input.task.id).status === 'completed');
+    fs.writeFileSync(path.join(input.anchor.workspace, 'reviewed.txt'), 'reviewed\n');
+    await git(input.anchor.workspace, 'add', 'reviewed.txt');
+    await git(input.anchor.workspace, 'commit', '-m', 'reviewed candidate');
+    const candidate = await f.project.prepareCandidate(input.id);
+
+    const verifier = f.project.verifyCandidate(candidate.id);
+    await failedCandidate(f, input, candidate, verifier, 'worktree moved');
+  } finally { await f.close(); }
+});
+
+test('candidate verification fails when the comparison checkout is dirty', async () => {
+  const f = fixture(evidenceProvider(async verification => {
+    fs.writeFileSync(path.join(verification.baseline_workspace, 'baseline-dirty.txt'), 'edited by hand\n');
+  }));
+  await repo(f.root);
+  try {
+    const input = await f.project.submit('对照检出被改动');
+    await until(() => f.store.task(input.task.id).status === 'completed');
+    fs.writeFileSync(path.join(input.anchor.workspace, 'reviewed.txt'), 'reviewed\n');
+    await git(input.anchor.workspace, 'add', 'reviewed.txt');
+    await git(input.anchor.workspace, 'commit', '-m', 'reviewed candidate');
+    const candidate = await f.project.prepareCandidate(input.id);
+
+    const verifier = f.project.verifyCandidate(candidate.id);
+    await failedCandidate(f, input, candidate, verifier, 'baseline checkout has uncommitted changes');
+  } finally { await f.close(); }
+});

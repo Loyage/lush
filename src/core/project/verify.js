@@ -91,6 +91,30 @@ export default {
     return normalized;
   },
 
+  /**
+   * G-02：Candidate 验收必须在固定提交、干净的检出上进行。脏文件或漂移的 HEAD 说明证据
+   * 对应的不是冻结提交，开始与结算都会拒绝，绝不把它记成该 commit 的通过证据。
+   * 同时校验只读对照检出仍停在 baseline 提交且干净。
+   */
+  async assertCandidateVerification(candidate, task = null) {
+    const input = this.store.get('SELECT anchor_workspace FROM inputs WHERE id=?', candidate.input_id);
+    const workspace = input?.anchor_workspace;
+    check(workspace && fs.existsSync(workspace), `candidate #${candidate.id} has no integration worktree to compare`);
+    const head = await this.workspaces.git(workspace, 'rev-parse', 'HEAD');
+    check(head === candidate.commit_hash,
+      `candidate #${candidate.id} pins ${candidate.commit_hash.slice(0, 12)}, but its worktree moved to ${head.slice(0, 12)}; prepare a new candidate`);
+    const dirty = await this.workspaces.porcelain(workspace);
+    check(!dirty, `candidate #${candidate.id} worktree has uncommitted changes; verification must read the pinned commit\n${dirty}`);
+    if (task?.baseline_workspace && fs.existsSync(task.baseline_workspace)) {
+      const baseHead = await this.workspaces.git(task.baseline_workspace, 'rev-parse', 'HEAD');
+      check(baseHead === candidate.baseline_commit,
+        `candidate #${candidate.id} baseline checkout moved to ${baseHead.slice(0, 12)}; recreate it before verifying`);
+      const baseDirty = await this.workspaces.porcelain(task.baseline_workspace);
+      check(!baseDirty, `candidate #${candidate.id} baseline checkout has uncommitted changes\n${baseDirty}`);
+    }
+    return workspace;
+  },
+
   /** Latest structured conclusion for a verification task; old/missing artifacts stay unknown. */
   verificationResult(taskId) {
     const artifact = this.store.artifactsForTask(taskId).filter(row => row.kind === 'run.result').at(-1);
