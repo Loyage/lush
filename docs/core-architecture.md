@@ -4,9 +4,20 @@
 
 > 连续阅读：**架构总览** → [执行模型](engineering/execution-model.md) → [交付与验收](engineering/review-loop.md) → [工程索引](engineering/architecture.md)
 
+## 为什么以 Task 为中心
+
+Lush 的中心对象是 **Task**。用户写下的是目标，而不是任务清单；这条目标立即成为一个 Task，而不是 planner 临时编译出来的 worker。理解这一选择，后面的输入、Agent、Git 与交付设计才讲得通。
+
+- **目标是持久的，模型调用是短暂的**：Task 保存目标、父子关系、状态、消息、工作区与分支；Agent 与 Task 一对一，但只在被唤醒时占用一次模型调用（Run）。等待用户或子任务时 Task 释放执行槽，下一轮仍以同一身份继续。一次调用返回不等于 Task 终结。
+- **每个 Task 有独立的代码边界**：Task 从父分支的已提交 tip 创建自己的分支与 worktree，并行工作互不覆盖。代码事实留在 Git，业务与调度事实留在 SQLite，二者不互相冒充。
+- **Task 可以递归分解，但子任务不是等待式调用**：Agent 判断亲自完成还是派独立子 Task；子 Task 有自己的 Task 身份与 worktree。它完成后只发持久信号，是否把它的固定提交集成进父分支由父 Agent 或用户决定。
+- **交付以 Task 为单位，人类把关**：合并请求冻结精确 commit 与父分支基线，父分支在请求未决时受保护；结算一个 Task 与把它的代码推进父分支是两件事，默认必须由人或父 Agent 明确确认，不自动推进父分支。
+
+因此 Task 同时是身份、目标、协作单元与交付单元；Plan、Candidate 等结构只是历史协议的产物，不是新 say 必经的前置对象。Task 的字段与状态约束见[核心实体](engineering/entities.md)与[生命周期不变量](engineering/invariants.md)，一次工作如何跨轮继续见[执行模型](engineering/execution-model.md)。
+
 ## 项目、输入与任务
 
-一个 daemon 绑定一个 canonical 项目，数据库状态在 `<project>/.lush/`。业务实体是 Input、Task、Agent、Message、Notice、Event；Git 分支与 worktree 承载代码隔离。一次新 `say` 保存 Input（原话、引用）并创建与它直接关联的 Task；Task 拥有自己的分支和工作区，而非由 Plan 编译出来的 worker。main 或显式绑定的分支所有者 Task 是它的父节点。Task 可以再派独立子 Task，也可以不改代码直接回答。
+一个 daemon 绑定一个 canonical 项目，数据库状态在 `<project>/.lush/`。业务实体是 Input、Task、Agent、Message、Notice、Event；Git 分支与 worktree 承载代码隔离。一次新 `say` 保存 Input（原话、引用）并创建与它直接关联的 Task；Task 拥有自己的分支和工作区。main 或显式绑定的分支所有者 Task 是它的父节点。Task 可以再派独立子 Task，也可以不改代码直接回答。
 
 ```mermaid
 flowchart LR
