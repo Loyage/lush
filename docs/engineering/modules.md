@@ -64,7 +64,7 @@
 
 ## Task 图与固定输入规则
 
-`task.graph` / `/api/task-graph` 是以 Task 父子关系为边的有界读面；Web 的 `#task-graph` 为主视角，原 `#graph` 分支图保持独立入口与原操作。新 say 从已提交 fork 读取 `.lush-task/input.mjs` 并冻结在项目 `.lush/task-rules/`；用户后续消息由固定规则返回 `message` 或安全点软抢占的 `interrupt`，失败回退并留事件。子 Task 继承直接父的规则快照。实现范围、可信代码风险与未完成的旧数据只读迁移见 [Task 图与固定输入规则](task-graph.md)。
+`task.graph` / `/api/task-graph` 是以 Task 父子关系为边的有界读面；Web 的 `#task-graph` 为主视角，原 `#graph` 分支图保持独立入口与原操作。Task 卡片按真实状态配色，并把「有子 say 分支就可在 Task 上发起合并编排」搬到主视角：读面多投影 `branch_info.subtree_say` / `branch_info.merge_run`，执行仍复用 `branch.orchestrate_plan` / `branch.orchestrate`，不新增 RPC、表或实体。新 say 从已提交 fork 读取 `.lush-task/input.mjs` 并冻结在项目 `.lush/task-rules/`；用户后续消息由固定规则返回 `message` 或安全点软抢占的 `interrupt`，失败回退并留事件。子 Task 继承直接父的规则快照。实现范围、可信代码风险与未完成的旧数据只读迁移见 [Task 图与固定输入规则](task-graph.md)。
 
 ## 页面导航与全类型任务列表
 

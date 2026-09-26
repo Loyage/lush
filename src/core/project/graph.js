@@ -69,7 +69,15 @@ function summarize(text) {
  * `git:false` / `error`，不抛错——图是给人看的辅助视图，不该把 daemon 的轮询打断。
  */
 export default {
-  /** Task is the identity and parent/child relation; branches/worktrees are attributes, not graph nodes. */
+  /**
+   * Task 图读模型：Task 是身份与父子关系，分支 / worktree 只是属性，不画成节点。全程只读 store 既有事实，
+   * 不写库、不改 git，所以轮询与 `project.stopping` 期间也能安全跑。
+   *
+   * 每个节点的 `branch_info` 除了实时 ref 与 Git 诊断，还投影这条 Task 自己的分支上「合并编排」所需的
+   * 两个只读字段：`subtree_say`（分支谱系里还有多少条 say 子分支，决定是否值得给编排入口）与
+   * `merge_run`（该分支仍在跑的合并运行摘要 `{mode,status,done,total,task_id}`，没有则 null）。
+   * 两者只读 `branches` / `branches.merge_run`，不触发任何执行。
+   */
   async taskGraph() {
     const limit = GRAPH_NODE_LIMIT;
     const rows = this.store.all(`SELECT id, parent_id, input_id, task_kind, role, name, goal, status,
@@ -99,6 +107,32 @@ export default {
       try { resolutions.set(entry.task_id, JSON.parse(entry.data).source_task_id); } catch { /* legacy event */ }
     }
     const freezes = new Map(this.branchFreeze().map(item => [item.branch, item]));
+    // Task 卡片的合并编排入口只读投影：目标就是这条 Task 自己的分支。只读 store / branches，不碰 git、不写库。
+    const activeBranches = this.store.branches().filter(row => row.status === 'active');
+    const activeRuns = new Map(this.store.activeBranchMergeRuns().map(({ target, run }) => [target, run]));
+    const sayBranches = new Set(this.store.all("SELECT branch FROM tasks WHERE task_kind='say' AND branch IS NOT NULL")
+      .map(row => row.branch));
+    // 一次把分支树拼好并记忆化「分支下的 say 子分支数」，避免每个 Task 节点各扫一遍全部分支。
+    const branchChildren = new Map();
+    for (const row of activeBranches) {
+      const parent = row.parent && row.parent !== row.branch ? row.parent : null;
+      if (!parent) continue;
+      if (!branchChildren.has(parent)) branchChildren.set(parent, []);
+      branchChildren.get(parent).push(row.branch);
+    }
+    const sayDescendants = new Map();
+    const countSayDescendants = (name, seen = new Set()) => {
+      if (sayDescendants.has(name)) return sayDescendants.get(name);
+      if (seen.has(name)) return 0; // 坏数据成环时见好就收，不让计数卡死。
+      seen.add(name);
+      let total = 0;
+      for (const child of branchChildren.get(name) || []) {
+        if (sayBranches.has(child)) total += 1;
+        total += countSayDescendants(child, seen);
+      }
+      sayDescendants.set(name, total);
+      return total;
+    };
     const branchNames = [...new Set(selected.map(row => row.branch).filter(Boolean))];
     const records = new Map(branchNames.length ? this.store.all(`SELECT branch, parent, status, created_from_commit
       FROM branches WHERE branch IN (${branchNames.map(() => '?').join(',')})`, ...branchNames)
@@ -134,6 +168,9 @@ export default {
         : row.status === 'queued' ? '等待 Agent 调用槽'
         : row.status === 'waiting' ? '静息 · 等待新输入或子 Task 信号' : null;
       const branch = row.branch ? records.get(row.branch) : null;
+      // 这条分支下还有多少个 say 子分支：决定卡片上「编排合并全部子 Task」入口是否有意义。
+      const subtree_say = row.branch ? countSayDescendants(row.branch) : 0;
+      const mergeRun = row.branch ? activeRuns.get(row.branch) ?? null : null;
       return { ...row, kind: 'task', title: summarize(goal) || row.name || `Task #${row.id}`,
         goal_preview: String(goal ?? '').slice(0, 600),
         progress: plan, notice: notice.notice, notice_count: notice.count,
@@ -143,7 +180,9 @@ export default {
         reservation: delivery, delivery: delivery ? { kind: delivery.kind, status: delivery.status,
           blocked_reason: delivery.blocked_reason ?? null } : null,
         branch_info: row.branch ? { parent: branch?.parent ?? null, archived: branch?.status === 'archived',
-          current_head: refs.get(row.branch) ?? null, diagnostics: diagnostics.get(row.branch) ?? null } : null,
+          current_head: refs.get(row.branch) ?? null, diagnostics: diagnostics.get(row.branch) ?? null,
+          subtree_say, merge_run: mergeRun ? { mode: mergeRun.mode ?? 'merge_all', status: mergeRun.status,
+            done: mergeRun.done?.length ?? 0, total: mergeRun.order?.length ?? 0, task_id: mergeRun.task_id ?? null } : null } : null,
         workspace_state: row.workspace ? (fs.existsSync(row.workspace) ? 'present' : 'missing') : 'none',
         has_result: Boolean(row.has_result),
         has_rule: fs.existsSync(`${this.config.home}/task-rules/task-${row.id}.mjs`) };

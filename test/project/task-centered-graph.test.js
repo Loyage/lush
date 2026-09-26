@@ -50,6 +50,31 @@ test('Task graph projects current Git diagnostics, compact progress, waiting and
   } finally { hold.resolve(); await f.close(); }
 });
 
+test('Task graph projects branch-level merge orchestration state read-only', async () => {
+  const f = fixture({ run: async () => 'done' }); await repo(f.root);
+  try {
+    const input = await f.project.say('work');
+    const graph = await f.project.taskGraph();
+    const main = graph.nodes.find(node => node.task_kind === 'main');
+    const say = graph.nodes.find(node => node.id === input.task.id);
+    // 主 Task 的分支下挂着 1 条 say 子分支；say 自己没有子分支，不冒充有。
+    expect(main.branch_info.subtree_say).toBe(1);
+    expect(say.branch_info.subtree_say).toBe(0);
+    // 没有活动编排运行时不编造一个。
+    expect(main.branch_info.merge_run).toBeNull();
+
+    const before = f.store.all('SELECT count(*) AS n FROM events')[0].n;
+    if (!f.store.branch('main')) f.store.recordBranch({ branch: 'main' });
+    f.store.setBranchMergeRun('main', { version: 1, mode: 'orchestrate', task_id: 99, status: 'paused',
+      order: ['a', 'b'], done: ['a'] });
+    const after = (await f.project.taskGraph()).nodes.find(node => node.task_kind === 'main');
+    expect(after.branch_info.merge_run).toEqual({ mode: 'orchestrate', status: 'paused', done: 1, total: 2, task_id: 99 });
+    // 读面只投影，不写事件、不改运行态。
+    expect(f.store.all('SELECT count(*) AS n FROM events')[0].n).toBe(before);
+    expect(f.store.branchMergeRun('main')).toMatchObject({ status: 'paused', task_id: 99 });
+  } finally { await f.close(); }
+});
+
 test('Task input rule is frozen from committed fork, chooses delivery, and falls back without losing input', async () => {
   const paused = gate();
   const f = fixture({ run: async () => { await paused.promise; return 'done'; } }); await repo(f.root);

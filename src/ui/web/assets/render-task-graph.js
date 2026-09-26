@@ -9,26 +9,71 @@ import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { scopedKey } from './prefs.js';
 import { taskForest } from './task-graph-layout.js';
-import { branchDiagnostics, decisionRow } from './render-graph.js';
+import { branchDiagnostics, decisionRow, runOrchestrate, runOrchestrateCancel } from './render-graph.js';
 import { renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
 
 const KEY = 'lush.taskGraph.collapsed';
 const ACTIVE = new Set(['running', 'queued', 'waiting', 'awaiting']);
 const ENDED = new Set(['completed', 'failed', 'cancelled']);
+/** 状态计数 / 图例的固定顺序：先是活动态，再到终结态；只画出现过的。 */
+const STATUS_ORDER = ['running', 'queued', 'waiting', 'awaiting', 'completed', 'failed', 'cancelled'];
 function collapsed() {
   try { const saved = JSON.parse(localStorage.getItem(scopedKey(KEY))); return new Set(Array.isArray(saved) ? saved : []); }
   catch { return new Set(); }
 }
 function save(set) { try { localStorage.setItem(scopedKey(KEY), JSON.stringify([...set])); } catch { /* storage unavailable */ } }
 
+/** 卡片颜色口径：running 最醒目，其余按真实状态各自一色（排队 / 在等 / 待你 / 完成 / 失败 / 取消）；
+ *  只有既非活动也没有明确终结语义的才落到 idle。看板一眼能分清「正在跑」和「停下来了」。 */
+function taskVisualState(node) {
+  if (node.status === 'running') return 'running';
+  if (node.status === 'awaiting' || node.notice) return 'awaiting';
+  if (node.status === 'failed') return 'failed';
+  if (node.status === 'queued') return 'queued';
+  if (node.status === 'waiting') return 'waiting';
+  if (node.status === 'completed') return 'completed';
+  if (node.status === 'cancelled') return 'cancelled';
+  return 'idle';
+}
+
+/** Task 级的合并编排入口：目标就是这条 Task 自己的分支，复用分支图同一份只读计划与 runtime。
+ *  没有子 say 分支就没有可收拢的对象，不给入口；已有运行改显进度 + 取消；被别的 merger / 一键合并
+ *  冻结时禁用并写明原因。delivery 冻结正是「有待集成的合并请求」，不挡编排。 */
+function taskOrchestration(node) {
+  const info = node.branch_info;
+  if (!info || info.archived) return null;
+  const run = info.merge_run;
+  const box = el('section', undefined, 'task-graph-orchestrate');
+  if (run) {
+    const done = run.done ?? 0;
+    const total = run.total ?? 0;
+    box.append(el('span', `合并编排中 · ${done}/${total}${run.status === 'paused' ? '（源侧解分歧中）' : ''}`,
+      'chip graph-work run'));
+    box.append(button('取消合并编排', () => runOrchestrateCancel({ name: node.branch },
+      { refresh: loadTaskGraph, scope: `Task #${node.id}` }), 'ghost',
+      { help: '停止这条 Task 分支的合并编排并释放冻结；已落地的合并不回滚，等待中的解分歧子任务会被取消。' }));
+    return box;
+  }
+  if (!info.subtree_say) return null;
+  if (node.freeze && node.freeze.kind !== 'delivery') {
+    const disabled = el('button', '编排合并全部子 Task', 'ghost');
+    disabled.type = 'button'; disabled.disabled = true;
+    const host = el('span', undefined, 'help-host');
+    host.setAttribute('data-help', `合并编排暂时不可用：${node.freeze.reason}。`);
+    host.append(disabled); box.append(host);
+    return box;
+  }
+  box.append(button('编排合并全部子 Task', () => runOrchestrate({ name: node.branch },
+    { refresh: loadTaskGraph, label: '子 Task', taskLabel: 'Task', scope: `Task #${node.id}` }), 'ghost',
+    { agent: true, help: agentHelp(`按叶子到根自动把 Task #${node.id} 下所有已固定提交的子 Task 合并请求 ff-only 收拢进 ${node.branch}；没有请求但符合条件的会先自动补发固定提交请求；遇分歧自动派源侧解分歧子任务；运行期间冻结 ${node.branch} 及其全部后代，耗时较长并消耗 token。`) }));
+  return box;
+}
+
 function taskCard(node, folded, refresh) {
   const row = el('article', undefined, 'task-graph-card');
   row.dataset.taskId = String(node.id);
-  if (node.status === 'running') row.classList.add('task-graph-running');
-  else if (node.status === 'awaiting' || node.notice) row.classList.add('task-graph-awaiting');
-  else if (node.status === 'failed') row.classList.add('task-graph-failed');
-  else if (!ACTIVE.has(node.status)) row.classList.add('task-graph-idle');
+  row.classList.add(`task-graph-${taskVisualState(node)}`);
   const head = el('div', undefined, 'task-graph-head');
   if (node.children.length) {
     const toggle = button(folded.has(node.id) ? '▸' : '▾', () => {
@@ -42,7 +87,7 @@ function taskCard(node, folded, refresh) {
   const title = button(`#${node.id} ${node.title}`, () => detail(node.id), 'ghost');
   title.classList.add('task-graph-title');
   head.append(title, roleBadge(node.role), badge(node.status === 'waiting' && !node.children_active ? '静息' : statusOf(node).label,
-    node.status === 'failed' ? 'warn' : ''));
+    `b-${node.status}`));
   if (node.task_kind) head.append(badge(node.task_kind));
   if (node.freeze && node.freeze.task_id !== node.id) head.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
@@ -92,6 +137,9 @@ function taskCard(node, folded, refresh) {
     row.append(git);
   }
 
+  const orchestration = taskOrchestration(node);
+  if (orchestration) row.append(orchestration);
+
   if (node.notice) {
     if (['question', 'plan'].includes(node.notice.kind)) {
       // Same decision controls as the branch graph, but refresh this Task view after a response.
@@ -129,11 +177,21 @@ export function renderTaskGraph(graph) {
   ui.taskGraphIds = new Set(graph.nodes.map(node => node.id));
   const box = el('div', undefined, 'task-graph');
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
-  hero.append(el('h1', 'Task 图'), el('p', 'Task 包裹 Agent、分支与 worktree；连线表示父子关系。分支归档与 Git 合并编排仍在「分支与合并」。'));
+  hero.append(el('h1', 'Task 图'), el('p', 'Task 包裹 Agent、分支与 worktree；连线表示父子关系。有子 Task 的分支可就地发起合并编排；分支归档仍在「分支与合并」。'));
   const summary = el('div', undefined, 'task-graph-summary');
   const active = graph.nodes.filter(node => ACTIVE.has(node.status)).length;
   const decisions = graph.nodes.reduce((count, node) => count + (node.notice_count || 0), 0);
-  summary.append(badge(`图中 ${graph.nodes.length} / ${graph.total} Task`), badge(`${active} 活动`), badge(`${decisions} 待决`));
+  const counts = new Map();
+  for (const node of graph.nodes) counts.set(node.status, (counts.get(node.status) || 0) + 1);
+  summary.append(badge(`图中 ${graph.nodes.length} / ${graph.total} Task`), badge(`${active} 活动`));
+  // 状态计数本身兼作图例：running 的活动色与卡片左边条同源，扫一眼就知道每种颜色代表什么。
+  for (const status of STATUS_ORDER) {
+    const count = counts.get(status) || 0;
+    if (!count) continue;
+    const info = statusOf({ status });
+    summary.append(badge(`${info.icon} ${info.label} ${count}`, `b-${status}`));
+  }
+  if (decisions) summary.append(badge(`${decisions} 待决`, 'b-awaiting'));
   hero.append(summary, button('刷新', () => loadTaskGraph(), 'ghost'));
   box.append(hero);
   if (graph.truncated) box.append(el('p', `只显示最近及活动的 ${graph.nodes.length} / ${graph.total} 条 Task；父节点可能在截断范围外。`, 'hint'));

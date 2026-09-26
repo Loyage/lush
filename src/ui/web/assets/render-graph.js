@@ -410,42 +410,48 @@ async function runMergeCancel(branch) {
   } catch (error) { show(error.message, 'error'); }
 }
 
-/** 合并编排：先拉只读计划给用户确认固定顺序与每条固定提交，再开始；之后 runtime 不再逐条问。 */
-async function runOrchestrate(branch) {
+/** 合并编排计划的一行文本；分支图与 Task 图共用同一份只读计划字段，不在前端另算一套规则。
+ *  `taskLabel` 只影响任务编号前缀（分支图说「say」，Task 图说「Task」），固定提交、动作与阻塞口径一致。 */
+export function orchestratePlanLines(plan, { taskLabel = 'say' } = {}) {
+  return (plan.items || []).map(item => {
+    const commit = item.commit ? ` · 固定 ${String(item.commit).slice(0, 12)}` : '';
+    const auto = item.auto_request ? ' · 将自动补发合并请求' : '';
+    return `${item.ready ? '→' : '·'} ${item.branch}${item.task_id ? `（${taskLabel} #${item.task_id}）` : ''}${commit} · ${ORCHESTRATE_ACTION[item.action] || item.action}${auto}${item.blockers?.length ? ` · 阻塞：${item.blockers.join('、')}` : ''}`;
+  }).join('\n');
+}
+
+/** 合并编排：先拉只读计划给用户确认固定顺序与每条固定提交，再开始；之后 runtime 不再逐条问。
+ *  分支图与 Task 图共用这份实现，只通过 `refresh` / 文案口径区分（Task 图的目标就是 Task 自己的分支）。 */
+export async function runOrchestrate(branch, { refresh = loadGraph, label = 'say 子分支', taskLabel = 'say', scope = branch.name } = {}) {
   try {
     const plan = await action('branch.orchestrate_plan', { branch: branch.name });
     if (!plan.order?.length) {
       // 没有可编排项时把原因说清楚：可能是还没点「请求合并」、分支已合入、或仍有任务在跑。
       const why = plan.items.filter(item => item.blockers?.length)
         .map(item => `${item.branch}：${item.blockers.join('、')}`).join('；');
-      show(`${branch.name} 现在没有可编排的 say 子分支${why ? `（${why}）` : ''}。`, 'warn');
+      show(`${scope} 现在没有可编排的 ${label}${why ? `（${why}）` : ''}。`, 'warn');
       return;
     }
-    const lines = plan.items.map(item => {
-      const commit = item.commit ? ` · 固定 ${String(item.commit).slice(0, 12)}` : '';
-      const auto = item.auto_request ? ' · 将自动补发合并请求' : '';
-      return `${item.ready ? '→' : '·'} ${item.branch}${item.task_id ? `（say #${item.task_id}）` : ''}${commit} · ${ORCHESTRATE_ACTION[item.action] || item.action}${auto}${item.blockers?.length ? ` · 阻塞：${item.blockers.join('、')}` : ''}`;
-    }).join('\n');
     const confirmed = await confirmDialog({
-      title: `编排合并 ${branch.name} 的全部 say 子分支？`,
-      message: `按叶子到根自动把 ${plan.order.length} 条固定提交的 say 合并请求 ff-only 收拢进 ${branch.name}；没有请求但符合条件的 say 分支会先由 runtime 自动补发固定提交请求；遇分歧自动在源侧派解分歧子任务，完成后自动继续；已完成的不回滚。运行期间 ${branch.name} 及其全部后代被冻结，直到完成或你在图上取消。确认一次后不再逐条批准。`,
-      detail: lines,
+      title: `编排合并 ${scope} 的全部 ${label}？`,
+      message: `按叶子到根自动把 ${plan.order.length} 条固定提交的合并请求 ff-only 收拢进 ${branch.name}；没有请求但符合条件的 ${taskLabel} 分支会先由 runtime 自动补发固定提交请求；遇分歧自动在源侧派解分歧子任务，完成后自动继续；已完成的不回滚。运行期间 ${branch.name} 及其全部后代被冻结，直到完成或你在图上取消。确认一次后不再逐条批准。`,
+      detail: orchestratePlanLines(plan, { taskLabel }),
       confirmLabel: '开始合并编排',
       cancelLabel: '取消',
       agent: true,
-      confirmHelp: agentHelp('合并编排会按叶子到根自动 ff-only 收拢已固定提交的 say 合并请求，并在分歧时派源侧解分歧子任务；没有请求但符合条件的 say 分支会先自动补发固定提交请求。耗时较长并消耗 token。'),
+      confirmHelp: agentHelp('合并编排会按叶子到根自动 ff-only 收拢已固定提交的合并请求，并在分歧时派源侧解分歧子任务；没有请求但符合条件的分支会先自动补发固定提交请求。耗时较长并消耗 token。'),
     });
     if (!confirmed) return;
     const started = await action('branch.orchestrate', { branch: branch.name });
-    show(`${branch.name} 的合并编排已开始（任务 #${started.task?.id ?? '?'}），按序处理 ${plan.order.length} 条 say 分支。`);
-    await loadGraph();
+    show(`${scope} 的合并编排已开始（任务 #${started.task?.id ?? '?'}），按序处理 ${plan.order.length} 条 ${taskLabel} 分支。`);
+    await refresh();
   } catch (error) { show(error.message, 'error'); }
 }
 
-/** 取消合并编排：释放冻结，已落地的合并保留不回滚。 */
-async function runOrchestrateCancel(branch) {
+/** 取消合并编排：释放冻结，已落地的合并保留不回滚；分支图与 Task 图共用。 */
+export async function runOrchestrateCancel(branch, { refresh = loadGraph, scope = branch.name } = {}) {
   const confirmed = await confirmDialog({
-    title: `取消 ${branch.name} 的合并编排？`,
+    title: `取消 ${scope} 的合并编排？`,
     message: '取消后释放冻结；已落地的合并保留、不回滚，正在等待的解分歧子任务会被取消。',
     confirmLabel: '取消编排',
     cancelLabel: '继续编排',
@@ -454,8 +460,8 @@ async function runOrchestrateCancel(branch) {
   if (!confirmed) return;
   try {
     await action('branch.orchestrate_cancel', { branch: branch.name });
-    show(`已取消 ${branch.name} 的合并编排，已落地的合并保留。`);
-    await loadGraph();
+    show(`已取消 ${scope} 的合并编排，已落地的合并保留。`);
+    await refresh();
   } catch (error) { show(error.message, 'error'); }
 }
 
