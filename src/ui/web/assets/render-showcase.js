@@ -43,8 +43,9 @@ export function renderShowcase(task) {
   const section = block('效果展示');
   section.classList.add('showcase-panel');
   if (!value) return section;
-  section.append(kv('展示分支', value.branch), kv('固定提交', value.commit), kv('对比起点', value.baseline_commit));
-  section.append(el('p', '展示完成 ≠ 检验通过。未提交修改不在展示中；合并仍需你明确批准。', 'hint'));
+  section.append(kv('展示分支', value.branch), kv('固定提交', value.commit), kv('对比起点', value.baseline_commit),
+    kv('检出', 'detached worktree'));
+  section.append(el('p', '展示在隔离的 detached worktree 中运行，不切换、不提交源分支。展示完成 ≠ 检验通过。未提交修改不在展示中；合并仍需你明确批准。', 'hint'));
   if (task.report) {
     if (['failed','cancelled'].includes(task.status)) section.append(el('p',
       `本次调用${task.status === 'failed' ? '失败' : '已取消'}；下方是中断前写入的未确认展示页，可能不完整。请结合错误与执行过程检查，必要时重试。`,

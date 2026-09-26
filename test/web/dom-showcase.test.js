@@ -199,6 +199,8 @@ test('showcase detail embeds sandboxed report, renders safe loopback preview, st
       preview: { status: 'running', url: 'http://127.0.0.1:43210/demo' } } };
     const panel = renderShowcase(task);
     expect(deepText(panel)).toContain('展示完成 ≠ 检验通过');
+    // 展示跑在隔离的 detached worktree 里，不是源分支检出：面板必须显式写明。
+    expect(deepText(panel)).toContain('detached worktree');
     expect(panel.querySelector('iframe').getAttribute('sandbox')).toBe('allow-scripts');
     expect(panel.querySelector('iframe').src).toBe('/api/task/42/report');
     expect(findByText(panel, '打开可操作预览 ↗').rel).toBe('noopener noreferrer');
