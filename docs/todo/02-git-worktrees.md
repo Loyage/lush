@@ -15,8 +15,9 @@
 
 ## G-01 归档准入漏掉实际使用输入工作区的活动任务
 
-**P1 · 已复现 · 预估 M**
+**P1 · 已复现 · 预估 M · 已完成（2026-09-26，提交 `a8c1699`）**
 
+- **完成口径**：`branchResourceUsers()` 统一「谁在用这些 worktree / ref」：拥有分支的任务、输入锚点下的 planner/worker/merger 与 say、引用被检验任务或候选的 verifier、以这些分支为目标的进行中工作，以及 running 中未收尾或正在 cleanup 的任务。任一活动使用者即拒绝且无副作用。回归：`test/workspaces/archive.test.js`（running planner、queued branchless worker、活动 verifier、终态未收尾四例）。
 - **依据**：`src/core/project/branches.js`，`archiveBranch()`，170–186 行，仅按 `tasks.branch IN (...)` 查未终态任务；`src/core/workspaces/worktree.js`，`ensure()`，127–132 行，planner 实际使用输入 anchor，而 task 本身没有 branch。归档前也没有 `running` / `busy` 收尾检查。
 - **触发与影响**：让 mock planner 停在 `run()`（状态 running、branch=null），归档其输入分支；调用返回 `archived=true`，planner cwd 已被删除。尚未建分支的 worker、共享源目录的 verifier 同样需要关联准入，不能仅凭任务 branch 判断资源无人使用；会中断执行，`--discard` 情况下还可能删除活动产物。
 - **建议与取舍**：归档安全门覆盖 input anchor、任务依赖/后代、verifier 服务对象与实际工作区使用者，并在 Git 串行区间内重检；为待归档分支建立短期操作保留，避免排队后又准入新任务。可复用 Showcase 的关联检查思路，但归档允许 failed/cancelled，不能照抄“全部成功”的产品条件。
@@ -24,8 +25,9 @@
 
 ## G-02 Candidate 固定的是 HEAD，实际验收仍可读取脏文件树
 
-**P1 · 已复现 · 预估 M**
+**P1 · 已复现 · 预估 M · 已完成（2026-09-26，提交 `0dc36ef`）**
 
+- **完成口径**：采用「开始/结算核验」而非独立检出。`ensure()` 与结算前都调用 `assertCandidateVerification()`：锚点 worktree 必须 HEAD 等于固定提交且干净，对照检出必须停在 baseline 提交且干净；不符即 invocation 失败、候选标 failed，不记为该 commit 的通过证据。回归：`test/project/candidates.test.js`（开始前脏、运行中提交漂移、对照检出被改动）。
 - **依据**：`src/core/workspaces/worktree.js`，`ensure()`，100–128 行，只核对源工作区 HEAD 等于 `candidate.commit_hash`，不检查脏树；`finish()`，209–225 行，对没有 `task.workspace` 的 verifier 直接返回。`src/core/project/verify.js`，`verificationEvidence()`，43–48 行，把 Candidate 元数据直接标为 `tested_commit`。
 - **触发与影响**：冻结 Candidate 后将 anchor 的 `file.txt` 从已提交的 `base` 改成未提交的 `dirty candidate content`；mock verifier 确实读取并断言后者，再提交合规 pass evidence/report，Candidate 仍进入 **ready**，证据却绑定原 commit。接受时 clean 门槛能暂时阻止合并，但恢复干净文件后并不会让这份旧验收失效。
 - **建议与取舍**：最低限度在开始、结算时核验两侧 HEAD、工作树及 Git 中间态，变化就降为未验证；更强方案为 Candidate 单独创建固定提交 detached worktree，避免与输入工作区共用。两次核验不能证明期间从未变动，隔离方案更可靠但增加磁盘与清理成本；具体方案需用户确认。
