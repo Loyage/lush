@@ -4,7 +4,7 @@
 
 ## 范围、基线与验证
 
-- HEAD：`99fcbc993640c057488532a19ca08814ab60b73e`，与指定基线一致；起始工作树干净。只新增本文件，不 commit / merge / push。
+- 原审查基线：`99fcbc993640c057488532a19ca08814ab60b73e`；当前版本已包含 say / Task 中心输入及交付流程变更，以上旧基线的代码行与行为结论不应直接视为当前事实。原审查时起始工作树干净，仅新增本文件。
 - 静态审查：`src/ui/web/assets/` 的导航、输入、Notice、图、统计、执行记录及 `src/ui/desktop/`；认证 / IPC 安全不在本报告范围。
 - 已执行：`git rev-parse HEAD`、`git status --short`；临时目录下 `bun run doctor --project "$tmp"` 返回本 worktree 代码身份，临时项目无 daemon / Web，随后清理目录，未接触真实项目运行状态。
 - 已执行：`bun run test` 后附 `test/web/` 下 `dom-{composer,drafts,token-efficiency,navigation,dialog,graph,statistics,transcript-reader,transcript-terminal,notices}.test.js` 与 `notice-notifications.test.js` 的展开路径，61 通过 / 0 失败；另跑 `bun run test test/web/notice-records.test.js`，3 通过 / 0 失败。
@@ -13,9 +13,9 @@
 - **未做真实浏览器、读屏器或 Electron 桌面验证，也未测实际帧率 / 内存峰值。** DOM 复现证明控制流与节点行为，不等价于端到端观感；现有测试通过不代表下列边界已覆盖。
 - 已确认现有保护：页面读取有身份令牌、直接提交有单飞与并发输入保留、问卷有草稿恢复、通知默认关闭 / 首屏静默 / 去重、统计有有界分桶、完整执行记录仅手动续读。人工批准、重启不重放和读取限额不作为缺陷。
 
-## U-01 · 批量提交依赖轮询副作用，可能漏掉当前输入
+## U-01 · 旧批量草稿提交可能漏掉当前输入（需按现行 say 流程复核）
 
-- **P2 · 已复现（DOM / mock）· S**。证据：`src/ui/web/assets/composer.js` `buffer` / `selectedDraftIds` / `initComposer`，39–49、86–97 行；`src/ui/web/assets/api.js` `action`，11–14 行；`src/ui/web/assets/refresh.js` `refresh`，71–72 行。
+- **状态：可能已过时；P2 · 基线时已复现（DOM / mock）· S**。当前主输入已改为 say、草稿逐条执行，且有结果的 say 会直接发起合并请求；原复现针对旧“当前输入 + 批量规划”路径。需在当前 UI 找到仍可触发该完整路径后，才保留为现行问题。原基线证据：`src/ui/web/assets/composer.js` `buffer` / `selectedDraftIds` / `initComposer`，39–49、86–97 行；`src/ui/web/assets/api.js` `action`，11–14 行；`src/ui/web/assets/refresh.js` `refresh`，71–72 行。
 - 问题与触发：已有草稿 #1 时挂起一个快照轮询，再输入新要求并「提交并规划」；`draft.add` 返回新草稿，但 `action` 的刷新遇到 `ui.busy` 直接返回，提交 ID 仍来自旧 `ui.draftIds`。复现结果只提交 `[1]`，新要求留在 #2，输入框却已清空；无旧草稿时则报“没有勾选”。
 - 影响与反例：不会删除已入库草稿，但用户以为一起交付的当前要求没有进入该 planner；直接执行的并发输入保护测试通过，不能覆盖这条两阶段路径。
 - 建议与取舍：`buffer` 返回已创建草稿 ID，不把轮询当提交集合的数据依赖；建议本次提交采用点击时选中 ID 加本次新增 ID。等待期间勾选 / 父分支修改究竟影响本次还是下次，应先确认，再决定冻结快照或禁用控件；不要求新增自动重试或重放机制。
@@ -23,7 +23,7 @@
 
 ## U-02 · 草稿编辑保存失败后，本地修改失去恢复机会
 
-- **P2 · 已复现（DOM / mock）· S**。证据：`src/ui/web/assets/render-drafts.js` `startDraftEdit/save`，11–38 行；`renderDrafts`，77–96 行。
+- **状态：需按当前草稿编辑 UI 复核；P2 · 基线时已复现（DOM / mock）· S**。原证据来自 `src/ui/web/assets/render-drafts.js` `startDraftEdit/save`，11–38 行；`renderDrafts`，77–96 行。
 - 问题与触发：保存前先 `done=true; finish()`，清掉编辑锁；令 `draft.update` 返回 500，再提供一份含旧正文的变化快照，编辑框会被重建移除。复现中“unsaved replacement”完全从页面消失，服务端仍是旧正文。
 - 影响与反例：轮询期间正在编辑的保护已经存在，但不覆盖保存失败；即使 revision 未变暂时留下 textarea，`done` 已为 true，原保存闭包不能再次提交。
 - 建议与取舍：仅成功后退出编辑；失败保留值、引用与可重试状态，并就地显示错误。若记录已被其它客户端提交 / 删除，应显示冲突并提供复制内容，而非默认覆盖远端。
