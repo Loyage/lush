@@ -1036,6 +1036,24 @@ test('new say Task can spawn independent agent child and its settlement sends a 
   } finally { await f.close(); }
 });
 
+test('graph plots a spawned agent child as its own task node, but not the main root', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const say = await f.project.say('develop');
+    const child = f.project.spawn(say.task.id, 'review changes', 'agent', [], 'review');
+    await f.project.workspaces.ensure(child);
+    const stored = f.store.task(child.id);
+    const graph = await f.project.graph();
+    // child 有自己的分支与 worktree，必须像 say 一样画成任务行，否则分支节点报有任务却点不进去。
+    expect(graph.nodes.find(node => node.kind === 'task' && node.id === child.id)).toMatchObject({
+      role: 'agent', task_kind: 'child', parent_id: say.task.id, branch: stored.branch,
+    });
+    expect(graph.nodes.find(node => node.kind === 'branch' && node.name === stored.branch).tasks.total).toBe(1);
+    // main/owner 根 Task 是分支所有者而不是工作分支：信息在 branch 节点上，不重复画成任务行。
+    expect(graph.nodes.find(node => node.kind === 'task' && node.id === say.task.parent_id)).toBeUndefined();
+  } finally { await f.close(); }
+});
+
 test('only the running direct parent Agent can integrate a frozen completed child with ff-only', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {

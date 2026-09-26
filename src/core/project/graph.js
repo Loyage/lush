@@ -97,7 +97,10 @@ export default {
         FROM tasks WHERE role IN (${TASK_ROLE_SQL}) ORDER BY id DESC`);
       // 没有可归属分支也没有 worktree（含已完整回收）的任务不进图。verifier 的 branch 是上面只读派生的
       // 服务对象分支，所以 Candidate 验收即使清掉 baseline worktree 后也仍留在正确的输入分支下。
-      const candidates = rows.filter(row => (row.role !== 'agent' || row.task_kind === 'say')
+      // role='agent' 里只有 say 与新派生的 child 是「自己拥有分支与 worktree」的工作 Task，必须画成任务行；
+      // main/owner 是分支所有者（同样的信息已经落在 branch 节点的 title / source_id 上，不重复画），
+      // analysis 是只读分离检出（无分支），都不进任务节点。
+      const candidates = rows.filter(row => (row.role !== 'agent' || row.task_kind === 'say' || row.task_kind === 'child')
         && (row.branch || row.workspace || row.baseline_workspace));
 
       // 分支节点名：记录 ∪ 现在的 ref ∪ 当前检出 ∪ 占位父名。记录是历史事实，ref 是现状，
