@@ -83,6 +83,25 @@ test('markdown 代码块与工具命令都按语言着色，纯文本终端模�
   } finally { dom.restore(); }
 });
 
+test('真实 highlight.js：bash 命令正文一个字符都不能丢（回归：Element.children 只含元素）', async () => {
+  const dom = installDom();
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'hljs');
+  try {
+    const source = await Bun.file(new URL('../../src/ui/web/assets/highlight.min.js', import.meta.url)).text();
+    const hljs = new Function(`${source}\nreturn hljs;`)();
+    Object.defineProperty(globalThis, 'hljs', { value: hljs, configurable: true, writable: true });
+    const command = 'cd /repo && rg -n "highlight" src/ui/web/assets --glob "*.js"';
+    const pre = transcriptBody({ kind: 'tool', body: JSON.stringify({ command }) }).querySelector('.readable-value');
+    const flat = node => (node.tagName === '#TEXT' ? node.textContent : node.childNodes.map(flat).join(''));
+    expect(flat(pre)).toBe(command);
+    expect(deepText(pre)).toContain('rg -n');
+    expect(deepText(pre)).toContain('--glob');
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'hljs', previous); else delete globalThis.hljs;
+    resetCodeHighlight(); dom.restore();
+  }
+});
+
 test('语言归一化与按路径推断只认已知语言', () => {
   expect(normalizeLanguage('sh')).toBe('bash');
   expect(normalizeLanguage('Language-JS')).toBe('javascript');
@@ -105,7 +124,8 @@ test('与真实 highlight.js 资源集成：common 构建的输出能落成受�
     expect(code.classList.contains('hljs')).toBe(true);
     expect(deepText(code.querySelector('.hljs-keyword'))).toBe('const');
     // token 只重排文本节点，原文一个字符都不能丢。
-    const flat = node => (node.tagName === '#TEXT' ? node.textContent : node.children.map(flat).join(''));
+    // 用 childNodes（含文本）而不是 children（只含元素）：后者正是浏览器里丢文本的根源。
+    const flat = node => (node.tagName === '#TEXT' ? node.textContent : node.childNodes.map(flat).join(''));
     expect(flat(code)).toBe('const x = 1; // c\nfunction f(a){ return a + 2; }');
     expect(code.querySelector('script')).toBeNull();
   } finally {
