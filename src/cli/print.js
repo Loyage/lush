@@ -55,6 +55,30 @@ export function printMergeAllResult(result) {
 export function printMergeCancel(result) {
   console.log(`已取消 ${result.target_branch} 的一键合并；已完成的 ${result.done?.length ?? 0} 条保留，不回滚。`);
 }
+/** 合并编排的只读计划：逐条 say 分支给出固定提交、当前状态与动作。 */
+export function printOrchestratePlan(plan) {
+  const items = plan?.items ?? [];
+  if (!items.length) { console.log(`（${plan?.target_branch ?? '目标分支'} 没有 say 子分支待合并）`); return; }
+  console.log(`目标分支 ${plan.target_branch} · 可执行 ${plan.order?.length ?? 0} / 共 ${items.length}${plan.active_run ? ' · 已有运行在进行' : ''}`);
+  const ORDER = { merge: '快进合入', resolve: '源侧解分歧', skip: '不处理' };
+  for (const item of items) {
+    const mark = item.ready ? '→' : '·';
+    const detail = [ORDER[item.action] || item.action, item.task_id ? `say #${item.task_id}` : '',
+      item.commit ? `固定 ${String(item.commit).slice(0, 12)}` : '',
+      item.blockers?.length ? `阻塞：${item.blockers.join('、')}` : ''].filter(Boolean).join(' · ');
+    console.log(`${mark} ${item.branch}\t${item.depth}层\t${detail}`);
+  }
+  if (!plan.order?.length) console.log('没有此刻可执行的合并。');
+}
+/** 合并编排启动结果：给一句人话，进度看分支图或任务详情。 */
+export function printOrchestrateResult(result) {
+  if (result.status === 'empty') { console.log(`目标分支 ${result.target_branch}：没有待合并的 say 子分支。`); return; }
+  console.log(`已在 ${result.target_branch} 开始合并编排（任务 #${result.task?.id ?? '?'}），按序处理 ${result.plan.order.length} 条 say 分支；进度看 lush branch tree 或 lush inspect。`);
+}
+/** 编排取消结果：已落地的合并不回滚。 */
+export function printOrchestrateCancel(result) {
+  console.log(`已取消 ${result.target_branch} 的合并编排；已完成的 ${result.done?.length ?? 0} 条保留，不回滚。`);
+}
 /* ---------- 并行/串行关系：任务树、交付队列、时间轴 ---------- */
 const DEP_MARK = { code: '⛓', order: '⏳' };
 const DEP_WORD = { code: '基线', order: '顺序' };

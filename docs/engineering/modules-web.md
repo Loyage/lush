@@ -92,7 +92,7 @@
 
 分支诊断的 `diagnostics` 经 `graph-layout.js` 透传并纳入 `graphRenderKey`；`render-graph.js` 展示已提交文件数 / 文本增删行、基线、独立未提交统计、最近提交与可展开文件明细。`state.js` 的 `graphFilesExpanded` 保留会话内展开状态，重置时清空；没有统计基线或读取失败明确显示不可用，旧 daemon 无字段时兼容不画。接口与列表限额见[分支诊断接缝](modules.md#分支诊断增量读面)。
 
-一键合并读面：`graph.get` 的 branch 节点带 `freeze`（当前写冻结及原因）与 `merge_run`（进行中的运行），两者经 `graph-layout.js` 透传并纳入 `graphRenderKey` / `graphFingerprint`；有后代的分支给「一键合并全部子分支」入口（带 `agent-call` 与 `agentHelp`，因为会在分歧时启动 merger Agent），点击先拉只读 `branch.merge_plan` 在确认框里列出顺序与阻塞，确认后调 `branch.merge_all`；被冻结时按钮禁用并用 `.help-host` 写明原因；运行中改为显示进度与「取消一键合并」（`branch.merge_cancel`）。
+一键合并读面：`graph.get` 的 branch 节点带 `freeze`（当前写冻结及原因）与 `merge_run`（进行中的运行），两者经 `graph-layout.js` 透传并纳入 `graphRenderKey` / `graphFingerprint`；有后代的分支给「一键合并全部子分支」入口（带 `agent-call` 与 `agentHelp`，因为会在分歧时启动 merger Agent），点击先拉只读 `branch.merge_plan` 在确认框里列出顺序与阻塞，确认后调 `branch.merge_all`；被冻结时按钮禁用并用 `.help-host` 写明原因；运行中改为显示进度与「取消一键合并」（`branch.merge_cancel`）。新 say 子树改用同一读面下的**合并编排**：`render-graph.js` 检测 `merge_run.mode === 'orchestrate'` 时显示编排进度与「取消合并编排」（`branch.orchestrate_cancel`）；含新 say 子分支且未在运行时给「编排合并全部 say 子分支」入口（同样带 `agent-call` 与 `agentHelp`），点击先拉只读 `branch.orchestrate_plan` 在确认框里列出固定提交、父基线与动作，确认后调 `branch.orchestrate`。
 
 其它纯逻辑模块：`markdown.js`、`tree-order.js`、`live.js`、`sidebar.js`；`merge-select.js` 是交付队列的候选、冻结与 code-only 顺序预览接缝，由 `render-ladder.js` 使用。`live.js` 的实时刷新间隔不再是写死常量：`liveInterval()` 读「轮询频率」偏好，标准档等于改造前的 3000ms。
 

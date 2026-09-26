@@ -23,9 +23,10 @@ export function branchFreeze(store) {
   const add = (branch, info) => { if (branch && !frozen.has(branch)) frozen.set(branch, info); };
 
   for (const { target, run } of store.activeBranchMergeRuns()) {
+    const label = run.mode === 'orchestrate' ? '合并编排' : '一键合并';
     for (const branch of [target, ...descendantsOf(rows, target)]) {
-      add(branch, { kind: 'merge_all', target, run_status: run.status ?? null,
-        reason: `一键合并正在收拢 ${target}${run.status === 'paused' ? '（等待子任务）' : ''}` });
+      add(branch, { kind: 'merge_all', target, run_status: run.status ?? null, run_mode: run.mode ?? null,
+        reason: `${label}正在收拢 ${target}${run.status === 'paused' ? '（等待子任务）' : ''}` });
     }
   }
 

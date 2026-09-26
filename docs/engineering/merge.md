@@ -75,3 +75,17 @@ code 下游 → 上游任务分支 → 输入分支 → 用户指定父分支
 运行本身是目标分支附属的 versioned JSON（`branches.merge_run`），不是新业务实体；终态即清空。运行期间按「目标分支 + 它的全部后代」冻结写操作；此外，任何未结束的 merger 任务同样冻结「它处理的分支 + 它的全部后代 + 它的直接父分支」；已发出但尚未集成的 say 合并请求冻结其父分支**本身**（不冻结请求者与兄弟 say 自己的分支），保证固定基线在请求悬而未决时不会因别的交付而失效（见[任务接口](../reference/rpc/tasks.md)的交付锁）。冻结拦截新建 intent（`input.submit` / `draft.commit`）、`branch.merge` / `branch.sync` / `branch.catchup` / `branch.archive`、`task.retry` / `task.cleanup` / `task.delete` 与 `task.clear`；`branch.merge_cancel BRANCH` 清除运行、取消正在等待的 merger 并释放冻结，已落地提交保留。冻结计算见 `src/core/branch-freeze.js`。
 
 相关：[分支优先架构](branch-first.md) · [Git 边界](git-boundary.md) · [分支谱系](branch-genealogy.md)
+
+## 合并编排
+
+新交付模型下，一条输入对应一个拥有分支的 `task_kind='say'` Task；子提交由直接父 Agent 确认，main/owner 需用户逐条批准。当用户希望把 main 下所有待合并 say 子分支一次安排完时，用**合并编排**而不是旧一键合并：
+
+1. `branch.orchestrate_plan BRANCH` 只读列出目标分支后代子树里每个 say 子分支的固定提交、父基线、实时分支状态（`fast_forward` / `diverged` / `integrated` / `missing`）、动作（`merge` / `resolve` / `skip`）与 blockers，按叶子在前（深度降序、其次创建时间、名字）；
+2. 用户确认一次完整顺序与每条固定提交后，`branch.orchestrate BRANCH` 在目标分支的 main/owner Task 下创建一个 `task_kind='merge'` 的**编排 Task**，把运行写入目标分支的 `merge_run`（`mode:'orchestrate'`，带 `task_id`），之后由 runtime 自动推进，不再逐条批准；
+3. 可直接落地的请求按内部路径（等价于 `task.approve_merge` 的核心，但跳过用户逐条批准）把**固定 commit** ff-only 落进其直接父分支；**绝不 no-ff、绝不 rebase**，也绝不经旧 `branch.merge` / `branch.sync` 绕过固定提交与基线校验；
+4. 遇到分歧时自动在源侧派一个不挂在原 say 子树下、用 `resolves_task_id` 关联的独立解分歧子 Task：它把当时固定的父 tip 合入固定源提交并测试；结算后由 runtime 校验产物同时含两端固定提交，把 say 分支快进到产物、重新固定 requested，再自动继续落地；原 say Agent 不参与；
+5. 运行在「全部完成 / 遇到失败 / 用户取消」时结束，已落地的不回滚。
+
+编排 Task 有可见 status / result，可 `lush inspect` 查看，可 `branch.orchestrate_cancel BRANCH`（或分支图按钮）取消。运行期间按「目标分支 + 它的全部后代」冻结写操作（与一键合并同一套 `branch-freeze.js` 现算），取消先清运行释放冻结、再取消等待中的解分歧子任务。运行态仍是目标分支附属的 versioned JSON，不新增表 / 列 / 业务实体。
+
+与旧一键合并的边界：旧 `branch.merge_all` 对含新 say 子树的派生仍拒绝，并且不会绕过固定提交；编排是用户确认一次后的 runtime 行为，main Agent 自己不能悄悄发起，也不能用它绕过固定的 `commit + baseline` 校验。

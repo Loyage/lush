@@ -125,7 +125,7 @@ export default {
         else if (status === 'completed' || status === 'failed') this.store.discardBatch(task.id, `scheduler 未覆盖该 spec（${status}）`);
       }
       if (task.parent_id && !request && !TERMINAL.has(this.store.task(task.parent_id).status)
-        && !(['say','analysis'].includes(task.task_kind) && ['main','owner'].includes(this.store.task(task.parent_id).task_kind))) {
+        && !(['say','analysis','merge'].includes(task.task_kind) && ['main','owner'].includes(this.store.task(task.parent_id).task_kind))) {
         const parent = this.store.task(task.parent_id);
         if ((task.task_kind === 'child' && ['say','child'].includes(parent.task_kind))
           || (task.task_kind === 'showcase' && parent.task_kind === 'say')) {
@@ -191,8 +191,8 @@ export default {
     const compiled = status === 'completed' && task.role === 'worker'
       && Boolean(this.store.get("SELECT id FROM events WHERE task_id=? AND type='plan.materialized' LIMIT 1", task.id));
     if (task.input_id && task.branch && (compiled || task.role === 'merger')) this.scheduleIntentIntegration(task.input_id);
-    // 一键合并若正等这个 merger 子任务，结算后自动继续下一步。
-    if (task.role === 'merger') this.resumeMergeRun(task.id);
+    // 一键合并 / 合并编排若正等这个 merger 或解分歧子任务，结算后自动继续下一步。
+    if (task.role === 'merger' || task.resolves_task_id !== null) this.resumeMergeRun(task.id);
     if (task.parent_id && !(task.task_kind === 'say' && ['main','owner'].includes(this.store.task(task.parent_id).task_kind)))
       this.wake(task.parent_id);
     // A settled dependency releases every queued dependent; still-blocked ones stay queued.
@@ -208,6 +208,20 @@ export default {
     const task = this.store.task(taskId);
     check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; cancel individual say Tasks instead');
     if (TERMINAL.has(task.status)) return task;
+    // 合并编排 Task 直接经 task.cancel 取消时，也要先清运行释放冻结、取消等待中的解分歧子任务，
+    // 与 branch.orchestrate_cancel 同一收尾；否则残留 run 会继续驱动并冻结目标分支。
+    if (task.task_kind === 'merge') {
+      for (const { target, run } of this.store.activeBranchMergeRuns()) {
+        if (run.mode !== 'orchestrate' || run.task_id !== task.id) continue;
+        this.store.transaction(() => {
+          this.store.setBranchMergeRun(target, null);
+          this.store.event(task.id, 'merge.orchestrate.cancelled', { target, done: run.done ?? [], via: 'task.cancel' });
+        });
+        const waiting = run.waiting_task_id ? this.store.task(run.waiting_task_id) : null;
+        if (waiting && !TERMINAL.has(waiting.status)) this.cancel(waiting.id, reason);
+        break;
+      }
+    }
     // Children first; the event loop cannot schedule their parents until this synchronous cascade ends.
     for (const child of this.store.children(task.id)) if (!TERMINAL.has(child.status)) this.cancel(child.id, reason);
     this.running.get(task.id)?.controller.abort(new Error(reason));
@@ -408,6 +422,10 @@ export default {
     // 崩溃可能落在「独立解分歧子 Task 已结算」与「runtime 推进 say 分支」之间：重启后补跑收尾。
     for (const task of this.store.tasks()) {
       if (task.status === 'completed' && task.resolves_task_id !== null) this.scheduleTerminalDivergenceFinalize(task.id);
+    }
+    // 合并编排是 runtime 驱动、Task 静息（waiting），重启不会被 cancel；恢复时按目标分支重新驱动。
+    for (const { target, run } of this.store.activeBranchMergeRuns()) {
+      if (run.mode === 'orchestrate') this.scheduleMergeRun(target);
     }
     for (const task of this.store.tasks()) if (task.task_kind === 'say' && task.reservation) {
       let reservation = null;

@@ -364,6 +364,8 @@ function blockerText(blockers = []) {
 
 /** 描述一键合并顺序：与 daemon 的 mergeAllPlan 同一份字段，不在前端另算一套规则。 */
 const MERGE_ALL_ACTION = { merge: '快进合入', sync: '子侧解法', skip: '不处理' };
+/** 描述合并编排顺序：与 daemon 的 orchestratePlan 同一份字段。 */
+const ORCHESTRATE_ACTION = { merge: '快进合入', resolve: '源侧解分歧', skip: '不处理' };
 
 /** 一键合并：先拉只读计划给用户确认顺序与阻塞，再开始；运行期间冻结目标与全部后代。 */
 async function runMergeAll(branch) {
@@ -404,6 +406,51 @@ async function runMergeCancel(branch) {
   try {
     await action('branch.merge_cancel', { branch: branch.name });
     show(`已取消 ${branch.name} 的一键合并，已完成的合并保留。`);
+    await loadGraph();
+  } catch (error) { show(error.message, 'error'); }
+}
+
+/** 合并编排：先拉只读计划给用户确认固定顺序与每条固定提交，再开始；之后 runtime 不再逐条问。 */
+async function runOrchestrate(branch) {
+  try {
+    const plan = await action('branch.orchestrate_plan', { branch: branch.name });
+    if (!plan.order?.length) {
+      show(`${branch.name} 现在没有待合并的 say 子分支。`, 'warn');
+      return;
+    }
+    const lines = plan.items.map(item => {
+      const commit = item.commit ? ` · 固定 ${String(item.commit).slice(0, 12)}` : '';
+      return `${item.ready ? '→' : '·'} ${item.branch}${item.task_id ? `（say #${item.task_id}）` : ''}${commit} · ${ORCHESTRATE_ACTION[item.action] || item.action}${item.blockers?.length ? ` · 阻塞：${item.blockers.join('、')}` : ''}`;
+    }).join('\n');
+    const confirmed = await confirmDialog({
+      title: `编排合并 ${branch.name} 的全部 say 子分支？`,
+      message: `按叶子到根自动把 ${plan.order.length} 条固定提交的 say 合并请求 ff-only 收拢进 ${branch.name}；遇分歧自动在源侧派解分歧子任务，完成后自动继续；已完成的不回滚。运行期间 ${branch.name} 及其全部后代被冻结，直到完成或你在图上取消。确认一次后不再逐条批准。`,
+      detail: lines,
+      confirmLabel: '开始合并编排',
+      cancelLabel: '取消',
+      agent: true,
+      confirmHelp: agentHelp('合并编排会按叶子到根自动 ff-only 收拢已固定提交的 say 合并请求，并在分歧时派源侧解分歧子任务；耗时较长并消耗 token。'),
+    });
+    if (!confirmed) return;
+    const started = await action('branch.orchestrate', { branch: branch.name });
+    show(`${branch.name} 的合并编排已开始（任务 #${started.task?.id ?? '?'}），按序处理 ${plan.order.length} 条 say 分支。`);
+    await loadGraph();
+  } catch (error) { show(error.message, 'error'); }
+}
+
+/** 取消合并编排：释放冻结，已落地的合并保留不回滚。 */
+async function runOrchestrateCancel(branch) {
+  const confirmed = await confirmDialog({
+    title: `取消 ${branch.name} 的合并编排？`,
+    message: '取消后释放冻结；已落地的合并保留、不回滚，正在等待的解分歧子任务会被取消。',
+    confirmLabel: '取消编排',
+    cancelLabel: '继续编排',
+    danger: true,
+  });
+  if (!confirmed) return;
+  try {
+    await action('branch.orchestrate_cancel', { branch: branch.name });
+    show(`已取消 ${branch.name} 的合并编排，已落地的合并保留。`);
     await loadGraph();
   } catch (error) { show(error.message, 'error'); }
 }
@@ -526,21 +573,35 @@ function branchRow(branch, onCollapsed) {
     row.append(el('span', `子分支 +${edge.ahead ?? '?'} / -${edge.behind ?? '?'}`, 'meta'));
   }
   if (!ownerSay) for (const node of forkActions(branch, edge)) row.append(node);
-  // 一键合并：有后代分支才给入口。运行中显示进度 + 取消；被冻结（别的 merger / 一键合并）时禁用并说明。
+  // 一键合并 / 合并编排：有后代分支才给入口。运行中显示进度 + 取消；被冻结（别的 merger）时禁用并说明。
   if (branch.merge_run) {
     const run = branch.merge_run;
     const done = run.done?.length ?? 0;
-    row.append(el('span', `一键合并中 · ${done}/${run.order?.length ?? 0}${run.status === 'paused' ? '（等待子任务）' : ''}`,
-      'chip graph-work run'));
-    row.append(button('取消一键合并', () => runMergeCancel(branch), 'ghost graph-branch-action',
-      { help: '停止这条分支的一键合并并释放冻结；已完成的合并保留、不回滚。' }));
+    const total = run.order?.length ?? 0;
+    if (run.mode === 'orchestrate') {
+      row.append(el('span', `合并编排中 · ${done}/${total}${run.status === 'paused' ? '（源侧解分歧中）' : ''}`,
+        'chip graph-work run'));
+      row.append(button('取消合并编排', () => runOrchestrateCancel(branch), 'ghost graph-branch-action',
+        { help: '停止这条分支的合并编排并释放冻结；已落地的合并不回滚，等待中的解分歧子任务会被取消。' }));
+    } else {
+      row.append(el('span', `一键合并中 · ${done}/${total}${run.status === 'paused' ? '（等待子任务）' : ''}`,
+        'chip graph-work run'));
+      row.append(button('取消一键合并', () => runMergeCancel(branch), 'ghost graph-branch-action',
+        { help: '停止这条分支的一键合并并释放冻结；已完成的合并保留、不回滚。' }));
+    }
   } else if (branch.subtreeBranches > 0) {
     if (newSayBelow || ownerSay) {
-      const disabled = el('button', '一键合并全部子分支', 'ghost graph-branch-action');
-      disabled.type = 'button'; disabled.disabled = true;
-      const host = el('span', undefined, 'help-host');
-      host.setAttribute('data-help', '此子树含新 say Task，不能用旧分支一键合并；请按每条 say 的固定提交请求逐一批准。');
-      host.append(disabled); row.append(host);
+      // 新 say 子树不能用旧一键合并（会越过固定提交与父确认）；改用合并编排：用户确认一次计划，runtime 全自动。
+      if (branch.freeze) {
+        const disabled = el('button', '编排合并全部 say 子分支', 'ghost graph-branch-action');
+        disabled.type = 'button'; disabled.disabled = true;
+        const host = el('span', undefined, 'help-host');
+        host.setAttribute('data-help', `合并编排暂时不可用：${branch.freeze.reason}。`);
+        host.append(disabled); row.append(host);
+      } else {
+        row.append(button('编排合并全部 say 子分支', () => runOrchestrate(branch), 'ghost graph-branch-action',
+          { agent: true, help: agentHelp('合并编排会按叶子到根自动把已固定提交的 say 合并请求 ff-only 收拢进这条分支，遇分歧自动派源侧解分歧子任务；运行期间冻结这条分支及其全部后代，耗时较长并消耗 token。') }));
+      }
     } else if (branch.freeze) {
       const disabled = el('button', '一键合并全部子分支', 'ghost graph-branch-action');
       disabled.type = 'button'; disabled.disabled = true;

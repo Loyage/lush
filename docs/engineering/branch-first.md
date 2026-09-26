@@ -80,6 +80,9 @@ branch.merge  { branch }   # direct child -> parent, ff-only
 branch.sync   { branch }   # 仅 diverged 时创建子侧 merger
 branch.merge_all { branch }   # 一键合并：叶子到根自动收拢整棵后代子树（用户确认一次）
 branch.merge_cancel { branch }  # 取消一键合并并释放冻结
+branch.orchestrate_plan { branch }  # 新 say 交付模型：只读列出待合并 say 子分支的固定提交与动作
+branch.orchestrate { branch }  # 用户确认一次后，在 main/owner 下派 runtime 驱动的合并编排 Task
+branch.orchestrate_cancel { branch }  # 取消合并编排并释放冻结；已落地的合并不回滚
 branch.archive { branch, discard? }  # 用户显式归档一整棵子树：允许未合并，删每条的 worktree 与本地 ref，保留记录、任务、事件与会话
 ```
 
@@ -92,9 +95,12 @@ lush branch merge lush/.../101-api
 lush branch sync lush/.../input-42
 lush branch merge-all main       # 一键合并 main 的全部后代分支（确认一次后全自动）
 lush branch merge-cancel main    # 取消并释放冻结
+lush branch orchestrate-plan main  # 只读：列出 main 下待合并 say 子分支的固定提交与动作
+lush branch orchestrate main     # 确认一次计划后，派合并编排 Task 自动 ff-only 收拢 say 子分支
+lush branch orchestrate-cancel main  # 取消合并编排并释放冻结
 lush branch archive lush/.../101-api   # 归档这棵子树：worktree 与 ref 删掉，记录、任务与会话留在库里
 ```
 
-一键合并与解冲突期间的冻结语义（目标分支及其全部后代，冲突时再加父分支）见[分支合并](merge.md#一键合并)。
+一键合并与解冲突期间的冻结语义（目标分支及其全部后代，冲突时再加父分支）见[分支合并](merge.md#一键合并)。新交付模型下的合并编排（固定提交 + 父基线的 say 请求、分歧时源侧自动解分歧）见[分支合并](merge.md#合并编排)。
 
 相关：[分支谱系](branch-genealogy.md) · [输入和规划](inputs-and-planning.md) · [Git 边界](git-boundary.md) · [批准合并](merge.md)
