@@ -6,7 +6,7 @@ export const PARAMS = {
   'say.submit': ['content','draft_id','branch','references'],
   'input.submit': ['content','draft_id','branch','references'], 'input.list': [],
   'draft.add': ['content','references'], 'draft.list': [], 'draft.remove': ['id'], 'draft.update': ['id','content','references'], 'draft.commit': ['ids','branch'],
-  'task.list': ['after','limit'], 'task.activity': ['limit','scope'], 'task.page': ['before','limit','scope'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.history_page': ['id','before','limit'], 'task.diff': ['id'],
+  'task.graph': [], 'task.list': ['after','limit'], 'task.activity': ['limit','scope'], 'task.page': ['before','limit','scope'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.history_page': ['id','before','limit'], 'task.diff': ['id'],
   'task.transcript': ['id','after','limit'], 'task.usage': ['id'],
   'task.transcript_latest': ['id','after','before','limit'],
   'task.transcript_page': ['id','seq','offset'],

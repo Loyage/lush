@@ -56,6 +56,9 @@ export default {
   finish(taskId, status, result = null, error = null, options = {}) {
     const task = this.store.task(taskId);
     if (TERMINAL.has(task.status)) return task;
+    const resolutionEvent = task.task_kind === 'child' ? this.store.get(`SELECT data FROM events WHERE task_id=?
+      AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1`, task.id) : null;
+    const resolutionSource = resolutionEvent ? JSON.parse(resolutionEvent.data).source_task_id : task.resolves_task_id;
     const request = options.mergeRequest ?? null;
     const showcaseSettlement = options.showcaseSettlement ?? null;
     check(!request || !showcaseSettlement, 'a say Task cannot merge and showcase together');
@@ -124,7 +127,7 @@ export default {
         if (status === 'cancelled') this.store.releaseBatch(task.id, 'scheduler 被取消，spec 回到 pending');
         else if (status === 'completed' || status === 'failed') this.store.discardBatch(task.id, `scheduler 未覆盖该 spec（${status}）`);
       }
-      if (task.parent_id && !request && !TERMINAL.has(this.store.task(task.parent_id).status)
+      if (task.parent_id && !resolutionEvent && !request && !TERMINAL.has(this.store.task(task.parent_id).status)
         && !(['say','analysis','merge'].includes(task.task_kind) && ['main','owner'].includes(this.store.task(task.parent_id).task_kind))) {
         const parent = this.store.task(task.parent_id);
         if ((task.task_kind === 'child' && ['say','child'].includes(parent.task_kind))
@@ -169,15 +172,15 @@ export default {
       }
       // 解冲突任务没做成（失败 / 被取消）：原任务回到待合并，冻结随之解除，错误留在解冲突任务上。
       // 分支与 worktree 都保留，用户可以重试或自己处理。
-      if (task.resolves_task_id && status !== 'completed') {
-        const target = this.store.task(task.resolves_task_id);
+      if (resolutionSource && status !== 'completed') {
+        const target = this.store.task(resolutionSource);
         if (target.integration === 'conflict') {
           this.store.update(target.id, { integration: 'pending',
             integration_error: `resolution task #${task.id} ${status}${error ? `: ${error}` : ''}` });
           this.store.event(target.id, 'merge.conflict.abandoned', { resolution: task.id, status });
         } else {
           // 终态 say 的独立解分歧子 Task 没做成：把预约落回可分派的 diverged，保留失败现场。
-          this.noteTerminalDivergenceFailure(task, status, error);
+          this.noteTerminalDivergenceFailure({ ...task, resolves_task_id: resolutionSource }, status, error);
         }
       }
     });
@@ -185,7 +188,7 @@ export default {
     // If we crash here, recover() repeats this DB-only, idempotent step.
     if (task.task_kind === 'showcase' && task.parent_id) this.settleReservedShowcase(task.parent_id);
     // 终态 say 的独立解分歧子 Task 完成：由 runtime 把产物推进回 say 分支并重新发合并请求。
-    if (task.resolves_task_id && status === 'completed') this.scheduleTerminalDivergenceFinalize(task.id);
+    if (resolutionSource && status === 'completed') this.scheduleTerminalDivergenceFinalize(task.id);
     // Work compiled from a Plan is automatically aggregated inside the private Intent branch. The user still
     // approves only the frozen Review Candidate when it moves from the Intent branch to the target branch.
     const compiled = status === 'completed' && task.role === 'worker'
@@ -193,7 +196,8 @@ export default {
     if (task.input_id && task.branch && (compiled || task.role === 'merger')) this.scheduleIntentIntegration(task.input_id);
     // 一键合并 / 合并编排若正等这个 merger 或解分歧子任务，结算后自动继续下一步。
     if (task.role === 'merger' || task.resolves_task_id !== null) this.resumeMergeRun(task.id);
-    if (task.parent_id && !(task.task_kind === 'say' && ['main','owner'].includes(this.store.task(task.parent_id).task_kind)))
+    if (task.parent_id && !resolutionEvent
+      && !(task.task_kind === 'say' && ['main','owner'].includes(this.store.task(task.parent_id).task_kind)))
       this.wake(task.parent_id);
     // A settled dependency releases every queued dependent; still-blocked ones stay queued.
     for (const edge of this.store.dependents(task.id)) this.wake(edge.task_id);
@@ -421,7 +425,9 @@ export default {
     }
     // 崩溃可能落在「独立解分歧子 Task 已结算」与「runtime 推进 say 分支」之间：重启后补跑收尾。
     for (const task of this.store.tasks()) {
-      if (task.status === 'completed' && task.resolves_task_id !== null) this.scheduleTerminalDivergenceFinalize(task.id);
+      if (task.status === 'completed' && (task.resolves_task_id !== null
+        || (task.task_kind === 'child' && this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' LIMIT 1", task.id))))
+        this.scheduleTerminalDivergenceFinalize(task.id);
     }
     // 合并编排是 runtime 驱动、Task 静息（waiting），重启不会被 cancel；恢复时按目标分支重新驱动。
     for (const { target, run } of this.store.activeBranchMergeRuns()) {

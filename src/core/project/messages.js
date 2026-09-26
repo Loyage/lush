@@ -1,5 +1,6 @@
 import { check, id, text, TERMINAL, isPlainObject } from '../types.js';
 import { questionnaire, questionnaireAnswer } from '../questionnaire.js';
+import { decideTaskInput } from '../task-input-rule.js';
 
 /** 收件箱、notice、答复。 */
 export default {
@@ -13,11 +14,20 @@ export default {
       const from = this.store.task(sender);
       check(target.parent_id === from.id || from.parent_id === target.id, 'agents may message only a direct parent or child');
     }
-    this.store.message(target.id, body, sender);
-    this.store.event(target.id, 'message', { sender, body });
-    // 用户追加的输入不被动等到轮末：请求在下一个安全边界收尾（Agent 侧自行收尾，不杀进程）。
-    // Agent 之间的信号/消息保持原样：它们是例行交接，不值得打断正在进行的工具。
-    if (sender === null) this.requestPreempt(target.id, 'user message');
+    // Rules are frozen when a say Task is created. Failure is visible, but never discards the input.
+    let decision = { delivery: 'message', source: 'agent' }, ruleError = null;
+    if (sender === null && ['say', 'child'].includes(target.task_kind)) {
+      try { decision = decideTaskInput(this.config.home, target, body); }
+      catch (error) { ruleError = error.message; decision = { delivery: 'interrupt', source: 'fallback' }; }
+    } else if (sender === null) decision = { delivery: 'interrupt', source: 'default' };
+    this.store.transaction(() => {
+      this.store.message(target.id, body, sender);
+      this.store.event(target.id, 'message', { sender, body });
+      if (sender === null) this.store.event(target.id, 'task.input_routed', { delivery: decision.delivery,
+        source: decision.source, error: ruleError });
+    });
+    // Soft preemption only at a backend-attested safe point; otherwise deliver at the end of the turn.
+    if (sender === null && decision.delivery === 'interrupt') this.requestPreempt(target.id, 'user message');
     this.wake(target.id); return this.store.task(target.id);
   },
 

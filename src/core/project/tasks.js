@@ -1,6 +1,8 @@
 import { check, id, text, TERMINAL, bounded, isPlainObject } from '../types.js';
 import { taskSlug } from '../naming.js';
 import { agentView } from './internal.js';
+import fs from 'node:fs';
+import { saveInputRule, snapshotPath } from '../task-input-rule.js';
 
 export const DEP_KINDS = new Set(['code', 'order']);
 function normalizeDeps(deps) {
@@ -27,6 +29,7 @@ export default {
     check(!['main','owner'].includes(parent.task_kind), 'branch owner Tasks accept new say Tasks, not unrestricted spawned work');
     check(parent.task_kind !== 'analysis', 'read-only analysis Tasks do not delegate; ask a new question instead');
     const taskKind = ['say','child'].includes(parent.task_kind) ? 'child' : null;
+    if (taskKind && parent.branch) this.assertBranchWritable(parent.branch, 'delegate more work while resolving divergence');
     role = role ?? (taskKind ? 'agent' : 'worker');
     check(!TERMINAL.has(parent.status), 'cannot delegate from a terminal task');
     check(!['showcase', 'explainer', 'butler'].includes(parent.role), 'showcase and explanation agents cannot delegate development work');
@@ -62,13 +65,25 @@ export default {
     check(depth < this.config.maxDepth, 'task nesting limit reached');
     check(this.store.get("SELECT count(*) AS n FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").n < 1000, 'too many active tasks');
     const slug = taskSlug(name, goal);
-    const task = this.store.transaction(() => {
+    const parentRule = taskKind && fs.existsSync(snapshotPath(this.config.home, parent.id))
+      ? fs.readFileSync(snapshotPath(this.config.home, parent.id), 'utf8') : null;
+    let ruleTaskId = null;
+    let task;
+    try { task = this.store.transaction(() => {
       const created = this.store.create({ parent_id: parent.id, input_id: inheritedInput, role, goal, name: slug, task_kind: taskKind });
       this.assertDeps(created.id, parent, merged);
+      if (parentRule !== null) {
+        ruleTaskId = created.id;
+        saveInputRule(this.config.home, created.id, parentRule);
+        this.store.event(created.id, 'task.input_rule_frozen', { inherited_from: parent.id });
+      }
       for (const edge of merged) { this.store.addDep(created.id, edge.id, edge.kind); this.store.event(created.id, 'dep.added', edge); }
       if (spec) this.store.plannedSpec(spec.id, created.id);
       return created;
-    });
+    }); } catch (error) {
+      if (ruleTaskId !== null) fs.rmSync(snapshotPath(this.config.home, ruleTaskId), { force: true });
+      throw error;
+    }
     this.kick(); return task;
   },
 

@@ -62,6 +62,10 @@
   不渲染，只被 `project/branches.js` 与 `test/branch-tree.test.js` 使用。`naming.js` 导出 `slugify` /
   `taskSlug` / `taskLabel` 与 `inputLabel(id)`（输入聚合分支的 `input-<id>` 名）。
 
+## Task 图与固定输入规则
+
+`task.graph` / `/api/task-graph` 是以 Task 父子关系为边的有界读面；Web 的 `#task-graph` 为主视角，原 `#graph` 分支图保持独立入口与原操作。新 say 从已提交 fork 读取 `.lush-task/input.mjs` 并冻结在项目 `.lush/task-rules/`；用户后续消息由固定规则返回 `message` 或安全点软抢占的 `interrupt`，失败回退并留事件。子 Task 继承直接父的规则快照。实现范围、可信代码风险与未完成的旧数据只读迁移见 [Task 图与固定输入规则](task-graph.md)。
+
 ## 页面导航与全类型任务列表
 
 - Web 采用平级页面，分组只组织导航：工作（项目概览、待我处理、需求记录、执行计划、任务列表）、交付与用量（分支与合并、用量统计）、其他（设置、帮助文档）。任务详情归属任务列表，文档正文归属帮助文档。

@@ -50,7 +50,7 @@ const BRANCH_ORIGIN = {
 };
 
 /** 已提交规模与工作区脏活分开，不把未知或未检出说成干净 / 零改动。 */
-function branchDiagnostics(branch) {
+export function branchDiagnostics(branch) {
   const data = branch.diagnostics;
   if (!data) return null; // 兼容旧 daemon。
   const box = el('div', undefined, 'graph-diagnostics');
@@ -164,7 +164,7 @@ function releaseDecisionInput(input) {
  * 动作沿用本文件既有的范式：`await action(...)` 成功后写一句结论并 `await loadGraph()` 重拉这张图；
  * 失败由 dom.js 的 button 统一写进顶部提示（messages.js），不抛到页面上。
  */
-function decisionRow(node) {
+export function decisionRow(node, refresh = loadGraph) {
   const notice = node.notice;
   const decision = el('div', undefined, 'graph-decision');
   const head = el('div', undefined, 'graph-decision-head');
@@ -178,7 +178,7 @@ function decisionRow(node) {
   decision.append(el('p', notice.body || '（没有补充说明）', 'graph-decision-body'));
 
   const actions = el('div', undefined, 'actions graph-decision-actions');
-  const done = async message => { show(message); await loadGraph(); };
+  const done = async message => { show(message); await refresh(); };
 
   // 计划审批：与 render-intents.js 的 planActions 同一对动作（id 用 planner 任务 id，RPC 也接受这条 notice 的 id）。
   if (notice.kind === 'plan') {

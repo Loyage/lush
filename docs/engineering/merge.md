@@ -83,8 +83,10 @@ code 下游 → 上游任务分支 → 输入分支 → 用户指定父分支
 1. `branch.orchestrate_plan BRANCH` 只读列出目标分支后代子树里每个 say 子分支的固定提交、父基线、实时分支状态（`fast_forward` / `diverged` / `integrated` / `missing`）、动作（`merge` / `resolve` / `skip`）、`auto_request`（没有合并预约但已静息、有已提交改动且无未收拢子分支，将由编排代发固定提交请求）与 blockers，按叶子在前（深度降序、其次创建时间、名字）；
 2. 用户确认一次完整顺序与每条固定提交后，`branch.orchestrate BRANCH` 在目标分支的 main/owner Task 下创建一个 `task_kind='merge'` 的**编排 Task**，把运行写入目标分支的 `merge_run`（`mode:'orchestrate'`，带 `task_id`），之后由 runtime 自动推进，不再逐条批准；对 `auto_request` 的分支，runtime 代发固定提交请求（等价于用户点一次「请求合并」的第一步），再走后续落地；仍在跑、等待用户答复、没有已提交改动或已合入的分支跳过并给出原因；
 3. 可直接落地的请求按内部路径（等价于 `task.approve_merge` 的核心，但跳过用户逐条批准）把**固定 commit** ff-only 落进其直接父分支；**绝不 no-ff、绝不 rebase**，也绝不经旧 `branch.merge` / `branch.sync` 绕过固定提交与基线校验；
-4. 遇到分歧时自动在源侧派一个不挂在原 say 子树下、用 `resolves_task_id` 关联的独立解分歧子 Task：它把当时固定的父 tip 合入固定源提交并测试；结算后由 runtime 校验产物同时含两端固定提交，把 say 分支快进到产物、重新固定 requested，再自动继续落地；原 say Agent 不参与；
+4. 遇到分歧时，先在持久运行态冻结目标分支及其后代，等待相关 Agent 当前调用的安全点，再在**编排 Task 下**派源侧解分歧子 Task（`resolves_task_id` 另关联原 say，不改其终态）。它把固定父 tip 合入固定源提交并测试；结算后由 runtime 校验产物同时含两端固定提交，把 say 分支快进到产物、重新固定 requested，再自动继续落地；原 say Agent 不参与；
 5. 运行在「全部完成 / 遇到失败 / 用户取消」时结束，已落地的不回滚。
+
+单次新式解分歧也先在同一事务固定两端提交、创建 Task 与冻结来源事件：源分支及后代、直接父分支在 Task 运行（或已完成但未落地）期间拒绝新的 Lush 写入/Agent 准入，冻结范围外的兄弟分支可继续独立工作。已终结 say 的解分歧 Task 挂在仍活动的目标分支 owner 下；活动 say 的解分歧挂在其下，父 Agent 本轮安全结束后由 runtime 校验、快进并固定请求；已完 child 的分歧由 runtime 在父 Agent 安全结束后依次快进源 child 与父 Task 分支。完成但无效的结果保留冻结与现场，需显式归档解分歧分支；失败/取消释放冻结但仍保留分支与工作区，不自动重放未知副作用。外部 Git 写入无法被 daemon 阻止，开工及落地前均复核冻结两端，漂移时拒绝落地。
 
 编排 Task 有可见 status / result，可 `lush inspect` 查看，可 `branch.orchestrate_cancel BRANCH`（或分支图按钮）取消。运行期间按「目标分支 + 它的全部后代」冻结写操作（与一键合并同一套 `branch-freeze.js` 现算），取消先清运行释放冻结、再取消等待中的解分歧子任务。运行态仍是目标分支附属的 versioned JSON，不新增表 / 列 / 业务实体。
 

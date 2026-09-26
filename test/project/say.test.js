@@ -246,7 +246,7 @@ test('a request whose commit is already contained in the parent closes idempoten
   } finally { await f.close(); }
 });
 
-test('a diverged completed child is absorbed by a repair child the parent Agent starts, and lands only with both tips', async () => {
+test('a diverged completed child is repaired from both tips and runtime lands it after the parent reaches a safe point', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const parent = await f.project.say('parent with two children');
@@ -288,15 +288,15 @@ test('a diverged completed child is absorbed by a repair child the parent Agent 
     await git(cwd, 'merge', '--no-ff', '--no-edit', firstCommit);
     await f.project.workspaces.finish(f.store.task(repair.id));
     const resolved = f.store.task(repair.id).head_commit;
+    f.store.update(parent.task.id, { status: 'waiting' }); // 父 Agent 到安全点，runtime 才能原样落地固定产物
+    f.project.stopping = false; f.project.kick = () => {};
     f.project.finish(repair.id, 'completed', 'both commits tested');
-    f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', parent.task.id);
-    f.store.update(parent.task.id, { status: 'running' });
-    const landed = await f.project.integrateChild(parent.task.id, repair.id, resolved);
-    expect(landed.child.integration).toBe('merged');
+    await until(() => f.store.task(second.id).integration === 'merged');
+    expect(f.store.task(repair.id).integration).toBe('merged');
     expect(await git(f.root, 'rev-parse', parent.task.branch)).toBe(resolved);
     // 被修复的子任务一并结算，且两个固定提交都在父分支里。
-    expect(f.store.task(second.id)).toMatchObject({ status: 'completed', integration: 'merged', head_commit: secondCommit });
-    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='child.integrated_via_resolution'", second.id)).toHaveLength(1);
+    expect(f.store.task(second.id)).toMatchObject({ status: 'completed', integration: 'merged', head_commit: resolved });
+    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='task.divergence_integrated'", second.id)).toHaveLength(1);
     expect(await f.project.workspaces.isAncestor(f.root, secondCommit, resolved)).toBe(true);
     expect(await f.project.workspaces.isAncestor(f.root, firstCommit, resolved)).toBe(true);
     f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', parent.task.id);
@@ -470,7 +470,7 @@ test('pending merge can be explicitly rechecked without duplicate bookings or sk
   } finally { await f.close(); }
 });
 
-test('a diverged pending say starts one source-side child; only its running parent can integrate both frozen tips', async () => {
+test('a diverged pending say freezes both branches and runtime lands its source-side repair', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const say = await f.project.say('deliver despite a moving parent');
@@ -492,6 +492,10 @@ test('a diverged pending say starts one source-side child; only its running pare
       base_commit: sourceCommit, target_branch: say.task.branch });
     const repeated = await f.project.resolveSayDivergence(say.task.id);
     expect(repeated).toMatchObject({ status: 'existing', task: { id: child.id } });
+    expect(f.project.branchFreeze('main')).toMatchObject({ kind: 'resolution', task_id: child.id });
+    expect(f.project.branchFreeze(say.task.branch)).toMatchObject({ kind: 'resolution', task_id: child.id });
+    expect(() => f.project.spawn(say.task.id, '不能在冻结时派新子任务')).toThrow('frozen');
+    await expect(f.project.say('不能在冻结时创建 main 子任务')).rejects.toThrow('frozen');
     expect(f.store.children(say.task.id)).toHaveLength(1);
     expect(() => assertAllowed('task.resolve_divergence', { id: say.task.id }, say.task.id)).toThrow('requires user approval');
     expect(() => assertAllowed('task.integrate', { id: child.id, commit: sourceCommit }, null)).toThrow('agent only');
@@ -502,18 +506,107 @@ test('a diverged pending say starts one source-side child; only its running pare
     await f.project.workspaces.finish(f.store.task(child.id));
     const resolvedCommit = f.store.task(child.id).head_commit;
     f.project.finish(child.id, 'completed', 'both commits tested');
-    f.store.update(say.task.id, { status: 'running' });
-    const integrated = await f.project.integrateChild(say.task.id, child.id, resolvedCommit);
-    expect(integrated.child.integration).toBe('merged');
+    await until(() => JSON.parse(f.store.task(say.task.id).reservation).status === 'requested');
+    expect(f.store.task(child.id).integration).toBe('merged');
     expect(await git(say.task.workspace, 'rev-parse', 'HEAD')).toBe(resolvedCommit);
     expect(await git(f.root, 'rev-parse', 'main')).toBe(parentCommit);
-    f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', say.task.id); // mock the parent invocation consuming the child signal
-    f.store.update(say.task.id, { status: 'waiting' });
-    const ready = await f.project.reserveTask(say.task.id, 'merge');
+    const ready = { reservation: JSON.parse(f.store.task(say.task.id).reservation) };
     expect(ready.reservation).toMatchObject({ status: 'requested', commit: resolvedCommit, baseline: parentCommit });
     expect(await git(f.root, 'rev-parse', 'main')).toBe(parentCommit);
     await f.project.approveReservedMerge(say.task.id, ready.reservation.commit, ready.reservation.baseline);
     expect(await git(f.root, 'rev-parse', 'main')).toBe(resolvedCommit);
+  } finally { await f.close(); }
+});
+
+test('a resolution freezes affected Task scheduling while an unrelated sibling keeps working', async () => {
+  const hold = gate();
+  const f = fixture({ run: async () => { await hold.promise; return 'done'; } });
+  f.project.stopping = true; await repo(f.root);
+  try {
+    const source = await f.project.say('source');
+    await git(source.task.workspace, 'commit', '--allow-empty', '-m', 'source');
+    await git(f.root, 'commit', '--allow-empty', '-m', 'main moved');
+    const sibling = await f.project.say('unrelated sibling');
+    f.store.update(source.task.id, { status: 'waiting' });
+    await f.project.reserveTask(source.task.id, 'merge');
+    f.project.stopping = false; f.project.kick = () => {};
+    const { task: repair } = await f.project.resolveSayDivergence(source.task.id);
+    const freeze = f.project.branchFreeze();
+    expect(freeze).toContainEqual(expect.objectContaining({ branch: 'main', kind: 'resolution', task_id: repair.id }));
+    expect(freeze).toContainEqual(expect.objectContaining({ branch: source.task.branch, kind: 'resolution', task_id: repair.id }));
+    expect(freeze.some(row => row.branch === sibling.task.branch)).toBe(false);
+    const graph = await f.project.taskGraph();
+    expect(graph.nodes.find(node => node.id === source.task.id).waiting_reason).toContain('冻结');
+    f.project.pump();
+    await until(() => f.project.running.has(repair.id) && f.project.running.has(sibling.task.id));
+    expect(f.project.running.has(source.task.id)).toBe(false);
+    expect(f.store.task(repair.id).status).toBe('running');
+  } finally { hold.resolve(); await f.close(); }
+});
+
+test('resolution waits for a writable parent Agent safe point before freezing fixed tips', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const parent = await f.project.say('parent');
+    const child = await f.project.say('nested say', parent.task.branch);
+    await git(child.task.workspace, 'commit', '--allow-empty', '-m', 'source');
+    await git(parent.task.workspace, 'commit', '--allow-empty', '-m', 'parent');
+    f.store.update(child.task.id, { status: 'waiting' });
+    await f.project.reserveTask(child.task.id, 'merge');
+    f.store.update(parent.task.id, { status: 'running' });
+    await expect(f.project.resolveSayDivergence(child.task.id)).rejects.toThrow('安全点');
+    expect(f.project.branchFreeze(parent.task.branch)).toBeNull();
+    f.store.update(parent.task.id, { status: 'waiting' });
+    f.project.stopping = false; f.project.kick = () => {};
+    const repair = await f.project.resolveSayDivergence(child.task.id);
+    expect(repair.task.parent_id).toBe(child.task.id);
+    expect(f.project.branchFreeze(parent.task.branch)).toMatchObject({ kind: 'resolution', task_id: repair.task.id });
+  } finally { await f.close(); }
+});
+
+test('resolution recovery reconciles an already fast-forwarded source without replaying Agent work', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const source = await f.project.say('source');
+    await git(source.task.workspace, 'commit', '--allow-empty', '-m', 'source');
+    await git(f.root, 'commit', '--allow-empty', '-m', 'parent');
+    const fixedParent = await git(f.root, 'rev-parse', 'main');
+    f.store.update(source.task.id, { status: 'waiting' });
+    await f.project.reserveTask(source.task.id, 'merge');
+    f.project.stopping = false; f.project.kick = () => {};
+    const { task: repair } = await f.project.resolveSayDivergence(source.task.id);
+    const cwd = await f.project.workspaces.ensure(repair);
+    await git(cwd, 'merge', '--no-ff', '--no-edit', fixedParent);
+    await f.project.workspaces.finish(f.store.task(repair.id));
+    const resolved = f.store.task(repair.id).head_commit;
+    f.project.stopping = true; f.project.finish(repair.id, 'completed', 'tested');
+    await f.project.workspaces.fastForwardBranch(source.task.branch, resolved); // Git 已写、DB 尚未记账
+    f.project.stopping = false;
+    await f.project.finalizeTerminalDivergence(repair.id);
+    expect(JSON.parse(f.store.task(source.task.id).reservation)).toMatchObject({
+      status: 'requested', commit: resolved, baseline: fixedParent });
+    expect(f.store.task(repair.id).integration).toBe('merged');
+    expect(await git(f.root, 'rev-parse', 'main')).toBe(fixedParent);
+  } finally { await f.close(); }
+});
+
+test('resolution refuses a moved frozen tip before invoking its Agent and preserves the worktree', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const source = await f.project.say('source');
+    await git(source.task.workspace, 'commit', '--allow-empty', '-m', 'source');
+    await git(f.root, 'commit', '--allow-empty', '-m', 'parent moved');
+    f.store.update(source.task.id, { status: 'waiting' });
+    await f.project.reserveTask(source.task.id, 'merge');
+    f.project.stopping = false; f.project.kick = () => {};
+    const { task: repair } = await f.project.resolveSayDivergence(source.task.id);
+    await git(f.root, 'commit', '--allow-empty', '-m', 'external parent drift');
+    f.project.pump();
+    await until(() => f.store.task(repair.id).status === 'failed');
+    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='invocation.started'", repair.id)).toHaveLength(0);
+    expect(f.store.task(repair.id).workspace).not.toBeNull();
+    expect(f.project.branchFreeze('main')).toBeNull();
+    expect(JSON.parse(f.store.task(source.task.id).reservation).blocked_code).toBe('diverged');
   } finally { await f.close(); }
 });
 
@@ -551,9 +644,9 @@ test('an invalid completed resolution keeps its branch until explicit archive, t
     await git(cwd, 'commit', '--allow-empty', '-m', 'did not merge parent');
     await f.project.workspaces.finish(f.store.task(child.id));
     f.project.finish(child.id, 'completed', 'incomplete');
-    f.store.update(say.task.id, { status: 'running' });
-    await expect(f.project.integrateChild(say.task.id, child.id, f.store.task(child.id).head_commit))
-      .rejects.toThrow('both frozen source and parent commits');
+    await until(() => f.store.all("SELECT id FROM events WHERE task_id=? AND type='resolution.finalize_failed'", child.id).length > 0);
+    expect(f.store.task(child.id).integration).not.toBe('merged');
+    expect(f.project.branchFreeze(say.task.branch)).toMatchObject({ kind: 'resolution', task_id: child.id });
     const held = await f.project.resolveSayDivergence(say.task.id);
     expect(held.status).toBe('needs_review');
     expect(held.task.id).toBe(child.id);
@@ -788,8 +881,11 @@ test('a diverged delivered showcase resolves through a standalone child, then re
     const started = await f.project.resolveSayDivergence(say.task.id);
     expect(started).toMatchObject({ status: 'queued', source_commit: sourceCommit, parent_commit: parentCommit });
     const repair = f.store.task(started.task.id);
-    expect(repair).toMatchObject({ parent_id: null, task_kind: 'child', role: 'agent',
+    expect(repair).toMatchObject({ parent_id: say.task.parent_id, task_kind: 'child', role: 'agent',
       resolves_task_id: say.task.id, base_commit: sourceCommit, target_branch: say.task.branch });
+    const graph = await f.project.taskGraph();
+    expect(graph.edges).toContainEqual({ from: say.task.parent_id, to: repair.id });
+    expect(graph.nodes.find(node => node.id === repair.id).resolves_task_id).toBe(say.task.id);
     expect(f.store.children(say.task.id).some(child => child.id === repair.id)).toBe(false);
     expect(await f.project.resolveSayDivergence(say.task.id)).toMatchObject({ status: 'existing', task: { id: repair.id } });
 

@@ -88,6 +88,11 @@ export default {
         if (autoBlockers.length) blockers.push(...autoBlockers);
         else { autoRequest = true; action = state.status === 'diverged' ? 'resolve' : 'merge'; }
       }
+      if (action === 'resolve' && say?.parent_id) {
+        const owner = this.store.task(say.parent_id);
+        if (this.running.has(owner.id) || owner.status === 'running')
+          blockers.push(`父 Task #${owner.id} 正在调用；编排先冻结，等安全点再派解分歧`);
+      }
       const ready = action !== 'skip' && blockers.length === 0;
       items.push({ branch, task_id: say?.id ?? null, parent: state.parent ?? byBranch.get(branch)?.parent ?? null,
         depth: depth(branch), status: state.status, commit, baseline, action, ready, auto_request: autoRequest,
@@ -189,6 +194,15 @@ export default {
       for (let pass = 0; pass <= (this.store.branchMergeRun(target)?.order?.length ?? 0) + 3; pass++) {
         const run = this.store.branchMergeRun(target);
         if (!run || run.mode !== 'orchestrate' || !RESUMABLE.has(run.status)) return;
+        // 目标分支的父 Agent 还在原调用时，先冻结并等待安全点，不能并发开解分歧子任务。
+        if (run.waiting_safe_task_id) {
+          const owner = this.store.task(run.waiting_safe_task_id);
+          if (this.running.has(owner.id) || owner.status === 'running') return;
+          run.waiting_safe_task_id = null;
+          run.status = 'running';
+          run.updated_at = new Date().toISOString();
+          this.store.setBranchMergeRun(target, run);
+        }
         // 暂停中：等解分歧子任务。完成则由 runtime 把它同时含两端固定提交的产物快进回 say 分支；否则整场失败。
         if (run.waiting_task_id !== null && run.waiting_task_id !== undefined) {
           const waited = this.store.task(run.waiting_task_id);
@@ -216,6 +230,19 @@ export default {
           if (item.status === 'integrated' || item.status === 'landed') { done.add(branch); skipped.delete(branch); progressed = true; continue; }
           if (item.status === 'requested') { progressed = true; continue; }
           if (item.status === 'diverged') {
+            const say = this.store.get("SELECT parent_id FROM tasks WHERE task_kind='say' AND branch=? ORDER BY id DESC LIMIT 1", branch);
+            const parent = say?.parent_id ? this.store.task(say.parent_id) : null;
+            if (parent && (this.running.has(parent.id) || parent.status === 'running')) {
+              run.waiting_safe_task_id = parent.id;
+              run.status = 'paused';
+              run.done = [...done];
+              run.skipped = [...skipped].map(([name, reason]) => ({ branch: name, reason }));
+              run.updated_at = new Date().toISOString();
+              this.store.setBranchMergeRun(target, run);
+              this.requestPreempt(parent.id, '合并编排已冻结目标分支，等待本轮安全结束');
+              paused = true;
+              break;
+            }
             const child = await this.spawnOrchestratedResolution(branch);
             if (!child) { skipped.set(branch, 'diverged; no resolution child could be created'); continue; }
             run.waiting_task_id = child.id;
@@ -488,7 +515,14 @@ export default {
       check(live.task_kind === 'say' && reservation?.kind === 'merge'
         && ['pending', 'requested'].includes(reservation.status), '只有带合并预约的 say 才能解分歧');
       const parent = this.store.task(live.parent_id);
-      check(parent && ['main', 'owner', 'say'].includes(parent.task_kind), 'say 的直接父 Task 已不存在或不可合并');
+      check(parent && ['main', 'owner', 'say'].includes(parent.task_kind) && !TERMINAL.has(parent.status),
+        'say 的直接父 Task 已结束或不可合并');
+      const run = this.store.activeBranchMergeRuns().find(({ run: entry }) => entry.mode === 'orchestrate'
+        && entry.task_id && (entry.order ?? []).includes(branch));
+      const coordinator = run ? this.store.task(run.run.task_id) : null;
+      check(coordinator?.task_kind === 'merge' && !TERMINAL.has(coordinator.status), '解分歧需要仍在运行的编排 Task');
+      check(!this.running.has(parent.id) && parent.status !== 'running',
+        `父 Task #${parent.id} 尚未到安全点；等待本轮调用结束后再解分歧`);
       const state = await this.workspaces.branchState(live.branch);
       check(state.status === 'diverged', `源分支现在是 ${state.status}，不需要解分歧`);
       check(state.child_head === (reservation.commit ?? live.head_commit),
@@ -506,8 +540,13 @@ export default {
         check(current?.kind === 'merge' && ['pending', 'requested'].includes(current.status)
           && liveNow.head_commit === state.child_head && liveNow.parent_id === parent.id,
         'say 预约在启动解分歧时发生变化');
+        const activeRun = this.store.branchMergeRun(run.target);
+        check(activeRun?.mode === 'orchestrate' && activeRun.task_id === coordinator.id
+          && !TERMINAL.has(this.store.task(coordinator.id).status), '合并编排已结束，不能再派解分歧 Task');
         check(this.store.activeTasks().length < 1000, 'too many active tasks');
-        const created = this.store.create({ parent_id: null, input_id: liveNow.input_id, role: 'agent',
+        check(!this.running.has(parent.id) && this.store.task(parent.id).status !== 'running',
+          `父 Task #${parent.id} 尚未到安全点；等待本轮调用结束后再解分歧`);
+        const created = this.store.create({ parent_id: coordinator.id, input_id: liveNow.input_id, role: 'agent',
           task_kind: 'child', name: `resolve-${liveNow.id}`, goal, resolves_task_id: liveNow.id });
         this.store.update(created.id, { base_commit: state.child_head, target_branch: liveNow.branch });
         this.store.event(created.id, 'task.divergence_resolution_requested', { source_task_id: liveNow.id,
@@ -553,9 +592,11 @@ export default {
         && await this.workspaces.isAncestor(this.config.project, fixed.parent_commit, liveResolution.head_commit),
         '解分歧产物必须同时包含固定的源提交与父提交');
       const state = await this.workspaces.branchState(liveSay.branch);
-      check(state.parent === liveSay.target_branch && state.child_head === fixed.source_commit,
-        'say 分支在收尾解分歧前移动；检查现场');
-      await this.workspaces.fastForwardBranchUnsafe(liveSay.branch, liveResolution.head_commit);
+      check(state.parent === liveSay.target_branch && state.parent_head === fixed.parent_commit
+        && (state.child_head === fixed.source_commit || state.child_head === liveResolution.head_commit),
+        '解分歧两端提交在收尾前移动；检查现场');
+      if (state.child_head !== liveResolution.head_commit)
+        await this.workspaces.fastForwardBranchUnsafe(liveSay.branch, liveResolution.head_commit);
       this.store.transaction(() => {
         const { blocked_reason: _reason, blocked_code: _code, resolution_child_id: _child, ...clean } = current;
         this.store.update(liveSay.id, { head_commit: liveResolution.head_commit, integration: 'pending',

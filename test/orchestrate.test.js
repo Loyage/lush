@@ -218,6 +218,33 @@ test('un-requested say that is still running or awaiting the user is skipped wit
   } finally { await f.close(); }
 });
 
+test('orchestration holds the freeze until a running target Agent reaches a safe point', async () => {
+  const f = await setup();
+  try {
+    const main = await f.project.ensureMainTask();
+    const initial = await git(f.root, 'rev-parse', 'HEAD');
+    const parent = await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: initial, parentId: main.id,
+      filename: 'a.txt', content: 'A\n', status: 'waiting', reservationStatus: null });
+    const source = await makeSay(f, { branch: 'say-B', parentBranch: 'say-A', from: parent.commit, parentId: parent.task.id,
+      filename: 'b.txt', content: 'B\n' });
+    const moved = await commitOn(f, 'temporary-tip', parent.commit, 'other.txt', 'other\n');
+    await git(f.root, 'update-ref', 'refs/heads/say-A', moved);
+    const started = await f.project.orchestrate('main');
+    f.store.update(parent.task.id, { status: 'running' });
+    f.project.running.set(parent.task.id, { agent: { agent: 'mock' } });
+    await f.project.driveOrchestrate('main');
+    const paused = f.store.branchMergeRun('main');
+    expect(paused).toMatchObject({ status: 'paused', waiting_safe_task_id: parent.task.id, waiting_task_id: null });
+    expect(f.project.branchFreeze(source.task.branch)).toBeTruthy();
+    expect(f.store.get("SELECT id FROM tasks WHERE resolves_task_id=?", source.task.id)).toBeNull();
+    f.project.running.delete(parent.task.id); f.store.update(parent.task.id, { status: 'waiting' });
+    await f.project.driveOrchestrate('main');
+    const ready = f.store.branchMergeRun('main');
+    expect(ready.status).toBe('paused');
+    expect(f.store.task(ready.waiting_task_id).parent_id).toBe(started.task.id);
+  } finally { await f.close(); }
+});
+
 test('a diverged say spawns a source-side resolution child; the runtime finalizes it and lands the commit', async () => {
   const f = await setup();
   try {
@@ -240,7 +267,8 @@ test('a diverged say spawns a source-side resolution child; the runtime finalize
     const resolution = f.store.task(paused.waiting_task_id);
     expect(resolution.task_kind).toBe('child');
     expect(resolution.resolves_task_id).toBe(a.task.id);
-    expect(resolution.parent_id).toBeNull();
+    expect(resolution.parent_id).toBe(f.store.branchMergeRun('main').task_id);
+    expect(f.project.branchFreeze(a.task.branch)).toBeTruthy();
     // 编排派的解分歧子任务被标记，走 runtime 收尾而不是旧的终态 say 路径。
     const event = f.store.get("SELECT data FROM events WHERE task_id=? AND type='task.divergence_resolution_requested'", resolution.id);
     expect(JSON.parse(event.data).orchestrated).toBe(true);
@@ -250,6 +278,8 @@ test('a diverged say spawns a source-side resolution child; the runtime finalize
     await git(cwd, 'merge', moved);
     await f.project.workspaces.finish(f.store.task(resolution.id));
     f.project.finish(resolution.id, 'completed');
+    await f.project.workspaces.fastForwardBranch('say-A', f.store.task(resolution.id).head_commit);
+    // 模拟 Git 已快进、DB 仍在 resolving 的重启窗口：driver 必须复核后幂等收尾。
     await f.project.driveOrchestrate('main');
 
     expect(f.store.branchMergeRun('main')).toBeNull();

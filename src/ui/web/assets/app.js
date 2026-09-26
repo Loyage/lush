@@ -8,6 +8,7 @@ import { liveInterval } from './live.js';
 import { onPrefChange, pollingIntervals, readPref, setPref } from './prefs.js';
 import { liveRefresh, refresh, applySort, applyFilters } from './refresh.js';
 import { openGraph } from './render-graph.js';
+import { openTaskGraph } from './render-task-graph.js';
 import { openSettings } from './render-settings.js';
 import { openStatistics } from './render-statistics.js';
 import { initSidebar } from './sidebar-init.js';
@@ -67,6 +68,7 @@ function onHashChange() {
   if (location.hash === '#statistics') return ui.statisticsOpen ? undefined : openStatistics();
   if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
   if (location.hash === '#graph') return ui.graphOpen ? undefined : openGraphView();
+  if (location.hash === '#task-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
   const resource = /^#(notices|tasks|intents|specs)$/.exec(location.hash)?.[1];
   if (resource) return openResource(resource, { push: false });
   const doc = docsTarget(location.hash);
@@ -131,6 +133,7 @@ export async function boot() {
     $('sidebar-toggle').textContent = open ? '收起菜单' : '导航菜单';
   };
   $('graph-open').onclick = goGraph;
+  $('task-graph-open').onclick = () => openTaskGraph().catch(error => { show(error.message, 'error'); });
   $('docs-open').onclick = () => openDocsView();
   $('view-back').onclick = () => {
     if ($('view-back').disabled) return;

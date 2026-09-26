@@ -407,6 +407,7 @@ export function startWeb(config, port = 4318, options = {}) {
           if (url.pathname === '/api/agent/environment') return json(await client.request('agent.environment', { target: url.searchParams.get('target') || '' }));
           // 分支图跑 git，不进 1.5s 的 /api/snapshot：只有打开视图时才单独取一次。
           if (url.pathname === '/api/graph') return json(await client.request('graph.get'));
+           if (url.pathname === '/api/task-graph') return json(await client.request('task.graph'));
           if (url.pathname === '/api/showcases') return json(await client.request('showcase.list', { branch: url.searchParams.get('branch') }));
           const preview = /^\/api\/task\/(\d+)\/notice\/(\d+)\/preview\/(\d+)\/(\d+)$/.exec(url.pathname);
           if (preview) {

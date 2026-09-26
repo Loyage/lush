@@ -9,6 +9,7 @@ import { detail, registerNavigation } from './navigate.js';
 import { syncComposer } from './composer.js';
 import { graphFingerprint } from './graph-layout.js';
 import { fetchGraph, loadGraph, openGraph } from './render-graph.js';
+import { loadTaskGraph } from './render-task-graph.js';
 import { slotGauge } from './gauge.js';
 import { paintUsageLast } from './render-agent.js';
 import { renderDrafts } from './render-drafts.js';
@@ -115,6 +116,11 @@ export async function refresh() {
       else fetchGraph().then(() => {
         if (ui.view?.id === 'overview') renderOverview(ui.lastSnapshot ?? data);
       }).catch(error => { show(error.message, 'error'); });
+    }
+    const taskGraphAge = Date.now() - ui.taskGraphFetchedAt;
+    if (ui.view?.id === 'task-graph' && (taskGraphAge >= GRAPH_MAX_AGE_MS || (changed && taskGraphAge >= GRAPH_MIN_INTERVAL_MS))
+      && ![...$('detail').querySelectorAll('textarea')].some(node => node === document.activeElement || node.value)) {
+      await loadTaskGraph();
     }
     const current = data.tasks.find(task => task.id === ui.selected);
     let readingFocused = false;
