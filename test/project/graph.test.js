@@ -154,10 +154,12 @@ test('graph is read-only: it never changes the main tree, its HEAD, or the event
 test('graph caps nodes at 200 and marks the result truncated', async () => {
   const f = await setup();
   try {
-    for (let index = 0; index < 205; index += 1) {
-      const task = f.store.create({ input_id: null, role: 'worker', goal: `task ${index}` });
-      f.store.update(task.id, { branch: `lush/test/${task.id}-node` });
-    }
+    f.store.transaction(() => {
+      for (let index = 0; index < 205; index += 1) {
+        const task = f.store.create({ input_id: null, role: 'worker', goal: `task ${index}` });
+        f.store.update(task.id, { branch: `lush/test/${task.id}-node` });
+      }
+    });
     const graph = await f.project.graph();
     expect(graph.truncated).toBe(true);
     expect(graph.nodes.length).toBe(200);

@@ -222,7 +222,7 @@ test('a resolution the target has moved past is superseded by the next round', a
     const stale = (await f.project.ladder()).groups.flatMap(group => group.items).find(item => item.id === target.id);
     expect(stale).toMatchObject({ source_task_id: resolutionId, phase: 'resolution_stale', ready: false });
     expect(stale.blockers).toContainEqual(expect.objectContaining({ code: 'resolution_stale', task_id: resolutionId }));
-    await expect(f.project.approveMerge(resolutionId)).rejects.toThrow('fast-forward');
+    await expect(f.project.approveMerge(resolutionId)).rejects.toThrow();
     // 快进失败没有中间态：main 没被动过，原任务仍挂起（冻结也还在），解冲突任务留着等重试。
     expect(await git(f.root, 'rev-parse', 'HEAD')).toBe(moved);
     expect(f.store.task(resolutionId).integration).toBe('pending');

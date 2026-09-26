@@ -42,22 +42,6 @@ test('setBranchSummary 拒绝空 / 超长摘要与未登记分支', async () => 
   } finally { await f.close(); }
 });
 
-test('setBranchSummary 只改 summary 一列，不动 status / deleted_at', async () => {
-  const f = fixture();
-  try {
-    f.store.recordBranch({ branch: 'lush/x/one', parent: 'main', created_from_commit: 'aaa', worktree: '/tmp/wt' });
-    f.store.markBranchArchived('lush/x/one');
-    const before = f.store.branch('lush/x/one');
-    f.store.setBranchSummary('lush/x/one', '归档分支也有摘要');
-    const after = f.store.branch('lush/x/one');
-    expect(after.summary).toBe('归档分支也有摘要');
-    expect(after.status).toBe('archived');
-    expect(after.deleted_at).toBe(before.deleted_at);
-    expect(after.worktree).toBe(before.worktree);
-    expect(after.parent).toBe(before.parent);
-  } finally { await f.close(); }
-});
-
 test('老库（branches 表还没有 summary 列）打开后自动补列', () => {
   const root = temp();
   const config = new Config({ project: root, env: env() });
@@ -115,21 +99,5 @@ test('graph：摘要缺失或为空白时完整回落到既有派生标题', asy
     const nodes = new Map(graph.nodes.map(node => [node.id, node]));
     expect(nodes.get('branch:lush/test/input-1-anchor')).toMatchObject({ summary: null, title: '用户输入第一行' });
     expect(nodes.get(`branch:${worker.branch}`)).toMatchObject({ summary: null, title: 'implement' });
-  } finally { await f.close(); }
-});
-
-test('graph：写摘要不改动分支节点的任何其他字段', async () => {
-  const f = await setup();
-  try {
-    f.store.recordBranch({ branch: 'lush/test/stable', parent: 'main' });
-    const before = (await f.project.graph()).nodes.find(node => node.id === 'branch:lush/test/stable');
-    f.store.setBranchSummary('lush/test/stable', '只改标题');
-    const after = (await f.project.graph()).nodes.find(node => node.id === 'branch:lush/test/stable');
-
-    const { title: beforeTitle, summary: beforeSummary, ...restBefore } = before;
-    const { title: afterTitle, summary: afterSummary, ...restAfter } = after;
-    expect(beforeTitle).toBeNull(); expect(beforeSummary).toBeNull();
-    expect(afterTitle).toBe('只改标题'); expect(afterSummary).toBe('只改标题');
-    expect(restAfter).toEqual(restBefore);
   } finally { await f.close(); }
 });

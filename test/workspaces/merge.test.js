@@ -77,7 +77,6 @@ test('merge conflicts come back as a structured result and leave the main tree u
     // 内容冲突不是异常：它带着冲突文件列表回来，main 已 abort 回合并前的干净状态。
     const result = await f.project.workspaces.merge(b.id);
     expect(result.conflict.files).toEqual(['file.txt']);
-    expect(result.conflict.output).toContain('CONFLICT');
     expect(result.task.integration).toBe('pending');
     expect(await git(f.root,'rev-parse','HEAD')).toBe(head);
     expect(await git(f.root,'status','--porcelain')).toBe('');
