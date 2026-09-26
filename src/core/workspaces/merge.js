@@ -93,6 +93,32 @@ export const methods = {
   mergeBranch(child, expected = null) { return this.exclusive(() => this.mergeBranchUnsafe(child, expected)); },
 
   /**
+   * 把一条分支快进到一个已经包含它当前顶端的提交（例如独立解分歧子任务的产物）。
+   * 有检出的 worktree 就在里面 `git merge --ff-only`，否则 compare-and-swap ref；不产生 merge commit，
+   * 也不接受非快进的移动。终态 say 吸收解分歧固定提交后重新发合并请求时用到。
+   */
+  async fastForwardBranchUnsafe(branch, to) {
+    const project = this.config.project;
+    check(typeof to === 'string' && /^[0-9a-f]{40,64}$/.test(to), 'fast-forward target must be a commit');
+    const head = await this.git(project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`)
+      .catch(() => { throw new Error(`local branch ${branch} does not exist`); });
+    check(await this.isAncestor(project, head, to),
+      `cannot fast-forward ${branch}: ${String(to).slice(0, 12)} does not contain ${String(head).slice(0, 12)}`);
+    if (head === to) return { branch, from: head, to, already_at: true };
+    const workspace = await this.workspaceForBranch(branch);
+    if (workspace) {
+      await this.clean(workspace);
+      check(await this.git(workspace, 'symbolic-ref', '--short', 'HEAD') === branch,
+        `worktree ${workspace} is no longer on ${branch}`);
+      await this.git(workspace, 'merge', '--ff-only', to);
+    } else {
+      await this.git(project, 'update-ref', `refs/heads/${branch}`, to, head);
+    }
+    return { branch, from: head, to, already_at: false };
+  },
+
+
+  /**
    * 反方向：把父分支快进进子分支（子分支跟上父分支）。只在子分支没有任何独有提交时才成立——
    * 这就是 branchState 的 integrated + behind>0；快进不会有 merge commit，也不会有冲突。
    * 子分支领先走 mergeBranch，父子分歧走 branch.sync（父分支上绝不 no-ff，子分支也不 rebase）。
@@ -119,6 +145,8 @@ export const methods = {
   },
 
   catchupBranch(child) { return this.exclusive(() => this.catchupBranchUnsafe(child)); },
+
+  fastForwardBranch(branch, to) { return this.exclusive(() => this.fastForwardBranchUnsafe(branch, to)); },
 
   /** 迁移兼容：旧任务没有 input branch/direct-parent target，继续按旧目标分支语义落地。新任务不走这里。 */
   async legacyMergeUnsafe(task) {

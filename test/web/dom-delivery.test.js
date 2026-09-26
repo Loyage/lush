@@ -16,12 +16,13 @@ const say = { id: 70, role: 'agent', task_kind: 'say', parent_id: 1, parent_task
   goal: 'ship a view', status: 'waiting', integration: 'pending', calls: 0, branch, target_branch: 'main',
   deps: [], dependents: [], children: [], messages: [], notices: [], reservation: null };
 const buttonOf = (root, label) => root.querySelectorAll('button').find(node => node.textContent === label);
-const graphFor = (reservation, { done = false } = {}) => ({ git: true, current_branch: 'main', nodes: [
+const graphFor = (reservation, { done = false, status = null } = {}) => ({ git: true, current_branch: 'main', nodes: [
   { kind: 'branch', id: 'branch:main', name: 'main', head_commit: baseline, current: true, tracked: true },
   { kind: 'branch', id: `branch:${branch}`, name: branch, head_commit: commit, tracked: true,
     showcase: { reserved: false, reserve_allowed: true } },
   { kind: 'task', id: say.id, role: 'agent', task_kind: 'say', parent_id: 1, parent_task_kind: 'main',
-    goal: say.goal, branch, target_branch: 'main', status: reservation?.status === 'requested' ? 'completed' : 'waiting',
+    goal: say.goal, branch, target_branch: 'main',
+    status: status ?? (reservation?.status === 'requested' ? 'completed' : 'waiting'),
     integration: 'pending', reservation, base_commit: baseline, head_commit: commit,
     has_result: done, workspace: '/tmp/lush-new-say' },
 ], edges: [{ kind: 'fork', from: 'branch:main', to: `branch:${branch}`,
@@ -121,6 +122,21 @@ test('branch graph uses the same fixed approval, never legacy branch.merge or br
   expect(buttonOf(sourceRow(), '预约效果展示')).toBeUndefined();
 });
 
+test('a delivered showcase leaves the completed say a fixed merge request in the graph, never legacy branch.merge', async () => {
+  const reservation = { version: 1, kind: 'showcase', status: 'completed', child_id: 5, commit, baseline };
+  renderGraph(graphFor(reservation, { done: true, status: 'completed' }), { force: true });
+  const row = sourceRow();
+  expect(buttonOf(row, '合入父分支')).toBeUndefined();
+  expect(deepText(row)).toContain('展示已交付');
+  const request = buttonOf(row, '请求合并');
+  expect(request).toBeTruthy();
+  expect(request.classList.contains('agent-call')).toBe(false);
+  const pending = request.onclick();
+  expect(dialogText(dom)).toContain('原 Task 已结算');
+  await answerDialog(dom, '发起请求'); await pending;
+  expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
+});
+
 test('a diverged merge offers a source-side Agent child, but does not call legacy sync or approve the parent', async () => {
   renderGraph(graphFor({ version: 1, kind: 'merge', status: 'pending', blocked_code: 'diverged',
     blocked_reason: 'cannot request a merge from a diverged branch; resolve it first' }), { force: true });
@@ -146,6 +162,21 @@ test('a diverged merge offers a source-side Agent child, but does not call legac
   await answerDialog(dom, '派解分歧子任务'); await again;
   expect(dom.node('error').textContent).toContain('显式归档旧分支');
   world.state.resolveOutcome = null;
+});
+
+test('a terminal say with a diverged merge reservation still offers the standalone divergence child', async () => {
+  renderGraph(graphFor({ version: 1, kind: 'merge', status: 'pending', blocked_code: 'diverged',
+    blocked_reason: '分支与直接父分支已分歧；先派独立解分歧子 Task 吸收固定的父提交，再重新发合并请求。' },
+  { status: 'completed' }), { force: true });
+  const row = sourceRow();
+  expect(deepText(row)).not.toContain('不能直接复查预约');
+  const resolve = buttonOf(row, '派子任务解决分歧');
+  expect(resolve).toBeTruthy();
+  expect(resolve.classList.contains('agent-call')).toBe(true);
+  const start = resolve.onclick();
+  expect(dialogText(dom)).toContain('由 runtime 快进推进 say 分支');
+  await answerDialog(dom, '派解分歧子任务'); await start;
+  expect(world.state.actions.at(-1)).toEqual({ method: 'task.resolve_divergence', params: { id: say.id } });
 });
 
 test('failed resolution child links back to say and explains archive rather than offering replay', () => {
