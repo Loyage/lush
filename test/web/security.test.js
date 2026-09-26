@@ -229,6 +229,20 @@ test('web exposes branch archive through the mutation whitelist', async () => {
   } finally { await f.close(); }
 });
 
+test('web exposes one-click merge and merge orchestration through the mutation whitelist', async () => {
+  const f = await setup(); await repo(f.root);
+  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
+  try {
+    // 分支图这几个入口（一键合并的 plan/all/cancel 与合并编排的 plan/orchestrate/cancel）必须越过 Web
+    // 白名单被转发给 daemon；用不存在的分支只验证「不是白名单拒绝」，运行时错误/成功都不算漏白名单。
+    for (const method of ['branch.merge_plan', 'branch.merge_all', 'branch.merge_cancel',
+      'branch.orchestrate_plan', 'branch.orchestrate', 'branch.orchestrate_cancel']) {
+      const body = await (await post(method, { branch: 'no-such-branch' })).json();
+      expect(body.error ?? '').not.toContain('method not allowed from Web UI');
+    }
+  } finally { await f.close(); }
+});
+
 test('web exposes review candidate actions through the mutation whitelist', async () => {
   const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
