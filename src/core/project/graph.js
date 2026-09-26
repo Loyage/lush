@@ -90,6 +90,8 @@ export default {
         WHEN status IN ('running','queued','waiting','awaiting') THEN 1 ELSE 2 END, id DESC LIMIT ?`, limit + 1);
     const selected = rows.slice(0, limit);
     const ids = selected.map(row => row.id);
+    // 一批取回调用区间：任务图上的紧凑进度也要把等待排除在 Agent 工作用时之外。
+    const runs = this.store.runsForTasks(ids);
     const pending = new Map();
     if (ids.length) for (const notice of this.store.all(`SELECT id, task_id, kind, title, substr(body,1,1000) AS body
       FROM notices WHERE status='open' AND task_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`, ...ids)) {
@@ -149,7 +151,7 @@ export default {
       .map(name => ({ name, head_commit: refs.get(name) ?? null,
         created_from_commit: records.get(name)?.created_from_commit ?? null }))) : new Map();
     const nodes = selected.map(({ goal, progress_plan, reservation, ...row }) => {
-      const view = this.progressView({ progress_plan, reservation });
+      const view = this.progressView({ progress_plan, reservation }, runs.get(row.id) ?? []);
       const delivery = view.reservation;
       const progress = view.progress;
       const current = progress?.items?.find(item => item.status !== 'completed');
@@ -265,7 +267,7 @@ export default {
       const pendingFor = taskId => pendingNotices.get(taskId) ?? { notice: null, count: 0 };
       // 分支诊断只需要横条所需的有界摘要，不把每个 task 最多 32 条的完整计划塞进 1 MiB graph 帧。
       const progressFor = row => {
-        const progress = this.progressView(row).progress;
+        const progress = this.progressView(row, runs.get(row.id) ?? []).progress;
         if (!progress) return null;
         const completed = progress.items.filter(item => item.status === 'completed').length;
         const current = progress.items.find(item => item.status !== 'completed') || null;
@@ -295,6 +297,8 @@ export default {
       const intentRows = this.store.all(`SELECT id, role, name, goal, status, integration, input_id, progress_plan
         FROM tasks WHERE role IN ('planner','scheduler') ORDER BY id DESC`)
         .map(row => ({ ...row, branch: (row.role === 'planner' ? anchorByInput.get(row.input_id) : schedulerAnchor(row.id)) ?? null }));
+      // 同一次读模型里的任务节点共用一次批量查询：紧凑进度横条的当前步骤时长也要排除等待。
+      const runs = this.store.runsForTasks([...taskRows.map(row => row.id), ...intentRows.map(row => row.id)]);
       const taskById = new Map();
       const tasksByBranch = new Map();
       for (const task of this.store.all(`SELECT id, name, goal, status, ${taskBranchSql('tasks')} AS branch

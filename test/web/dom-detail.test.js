@@ -120,6 +120,34 @@ test('终态 task 冻结未完成步骤，不再挂持续上涨的 live tick', a
   expect(graph.querySelector('.is-running-duration')).toBeNull();
 });
 
+test('等待时间单独成条：不计入 Agent 工作用时，并实时计时', async () => {
+  const { renderTaskProgress, renderCompactProgress, renderGraphProgress, refreshProgressDurations } =
+    await import('../../src/ui/web/assets/render-progress.js');
+  const progress = { version: 1, updated_at: iso(NOW - 1000), items: [
+    { key: 'inspect', label: '确认现状', kind: 'step', status: 'completed', started_at: iso(NOW - 9000), completed_at: iso(NOW - 2000), duration_ms: 7000, work_ms: 7000 },
+    { key: '__wait__', label: '等待子 Task 信号', kind: 'wait', reason: 'waiting', status: 'pending', started_at: iso(NOW - 60000), completed_at: null, duration_ms: null, wait_ms: 30000, waiting_since: iso(NOW - 30000) },
+    { key: 'implement', label: '实现功能', kind: 'step', status: 'pending', started_at: iso(NOW - 60000), completed_at: null, duration_ms: null, work_ms: 4000, active_since: null },
+  ] };
+  const panel = renderTaskProgress(progress, { status: 'waiting' });
+  expect(deepText(panel)).toContain('等待子 Task 信号');
+  expect(deepText(panel)).toContain('用时 7 秒');
+  expect(panel.querySelector('.is-wait.is-current')).toBeTruthy();
+  const waitDuration = panel.querySelector('.is-wait-duration');
+  refreshProgressDurations(panel);
+  expect(waitDuration.textContent).toContain('已等待 1 分');
+  // 被等待打断的步骤显示冻结的工作用时，而不是「尚未开始」。
+  expect(deepText(panel)).toContain('已执行 4 秒');
+  // 等待条不占计划完成度：2 个 Agent 步骤里完成 1 个。
+  const meter = panel.querySelector('.task-progress-meter');
+  expect(meter.max).toBe(2);
+  expect(meter.value).toBe(1);
+
+  const compact = renderCompactProgress(progress);
+  expect(deepText(compact)).toContain('当前：等待子 Task 信号');
+  const graph = renderGraphProgress(progress, { running: false, status: 'waiting' });
+  expect(deepText(graph)).toContain('等待子 Task 信号');
+});
+
 test('Agent 的模型与用量直接可见：没有折叠开关，也没有可点的「模型、用量与会话信息」标题', async () => {
   const detail = dom.node('detail');
   dom.location.hash = '#task-1';

@@ -1,7 +1,7 @@
 import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } from './dom.js';
 import { action } from './api.js';
 import { confirmDialog, promptDialog } from './dialog.js';
-import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, statusOf, taskTitle } from './format.js';
+import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, runWorkMs, statusOf, taskTitle } from './format.js';
 import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
 import { show } from './messages.js';
@@ -10,7 +10,7 @@ import { renderAgent } from './render-agent.js';
 import { renderDiff } from './render-diff.js';
 import { deliveryControls } from './render-delivery.js';
 import { renderHistory } from './render-history.js';
-import { renderTaskProgress } from './render-progress.js';
+import { formatProgressDuration, renderTaskProgress } from './render-progress.js';
 import { noticePanel } from './render-notices.js';
 import { questionnairePanel } from './render-questionnaire.js';
 import { renderResolutions } from './render-resolutions.js';
@@ -223,7 +223,14 @@ export function renderDetail(task, history, diff, usage) {
   const stats = block('状态'); stats.classList.add('task-stats');
   const grid = el('div', undefined, 'grid');
   grid.append(kv('调用次数', `${task.calls}（本次尝试）`));
-  grid.append(kv(task.status === 'running' ? '本次已运行' : '耗时', duration(task.created_at, task.status === 'running' ? new Date().toISOString() : task.updated_at)));
+  // 墙钟耗时包含静息等待，单看它会把等待算成 Agent 的处理时间；有 run 时同时给出工作与等待拆分。
+  const wallEnd = task.status === 'running' ? new Date().toISOString() : task.updated_at;
+  const workMs = runWorkMs(task.runs);
+  const wallMs = Date.parse(wallEnd) - Date.parse(task.created_at);
+  const waited = Number.isFinite(wallMs) ? Math.max(0, wallMs - workMs) : 0;
+  grid.append(kv(task.status === 'running' ? '本次已运行' : '耗时', workMs > 0 && waited > 0
+    ? `${duration(task.created_at, wallEnd)}（工作 ${formatProgressDuration(workMs)} · 等待 ${formatProgressDuration(waited)}）`
+    : duration(task.created_at, wallEnd)));
   grid.append(kv('创建', `${absolute(task.created_at)}`, 'mono'));
   grid.append(kv('最后更新', `${absolute(task.updated_at)} · ${relative(task.updated_at)}`));
   stats.append(grid); panel.append(stats);

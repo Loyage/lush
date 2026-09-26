@@ -38,6 +38,16 @@ export function duration(from, to) {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
   return `${Math.floor(seconds / 3600)} 小时 ${Math.floor((seconds % 3600) / 60)} 分`;
 }
+/** 任务墙钟耗时里的「工作用时」：各轮调用的时长之和（未结束的 run 算到 now）。 */
+export function runWorkMs(runs, now = Date.now()) {
+  let total = 0;
+  for (const run of runs || []) {
+    const start = Date.parse(run?.started_at);
+    const end = run?.ended_at ? Date.parse(run.ended_at) : now;
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) total += end - start;
+  }
+  return total;
+}
 export const absolute = iso => { const at = Date.parse(iso); return Number.isFinite(at) ? new Date(at).toLocaleString('zh-CN', { hour12: false }) : ''; };
 export const clock = iso => { const at = Date.parse(iso); return Number.isFinite(at) ? new Date(at).toTimeString().slice(0, 8) : ''; };
 /** token 只让人比大小，不让人数位数：7.2k / 1.34M。 */
