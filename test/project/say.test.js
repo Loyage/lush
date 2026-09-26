@@ -1229,3 +1229,56 @@ test('say Agent becomes idle after a call, can wake again, and can own another s
     expect(f.store.get("SELECT count(*) AS n FROM tasks WHERE role='planner'").n).toBe(0);
   } finally { await f.close(); }
 });
+
+test('user marks a no-change say resolved: completed + integration none, answer kept, one info notice', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const sent = await f.project.say('只是想了解：预约是怎么工作的？');
+    f.store.update(sent.task.id, { status: 'waiting', result: '预约是 say 上的一种互斥意图。' });
+    const before = f.store.task(sent.task.id);
+    const resolved = await new Dispatcher(f.project).dispatch('task.resolve', { id: sent.task.id });
+    expect(resolved).toMatchObject({ status: 'completed', integration: 'none', reservation: null,
+      result: '预约是 say 上的一种互斥意图。', branch: before.branch, base_commit: before.base_commit });
+    expect(resolved.head_commit).toBe(before.base_commit);
+    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='task.resolved'", sent.task.id)).toHaveLength(1);
+    const notices = f.store.all("SELECT * FROM notices WHERE task_id=? AND kind='info'", sent.task.id);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].title).toContain(`分支 ${before.branch}`);
+    expect(notices[0].body).toContain('没有记录到需要合入父分支的改动');
+    // 终态不能重复结算，也不能再被 message 唤醒。
+    await expect(f.project.resolveTask(sent.task.id)).rejects.toThrow('already ended');
+  } finally { await f.close(); }
+});
+
+test('resolving a say refuses committed work, in-flight delivery, and active invocations; user-only', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const committed = await f.project.say('写点东西');
+    f.store.update(committed.task.id, { status: 'waiting' });
+    fs.writeFileSync(path.join(committed.task.workspace, 'work.txt'), 'work\n');
+    await git(committed.task.workspace, 'add', 'work.txt');
+    await git(committed.task.workspace, 'commit', '-m', 'work');
+    await expect(f.project.resolveTask(committed.task.id)).rejects.toThrow('已经有提交');
+    expect(f.store.task(committed.task.id).status).toBe('waiting');
+
+    // 先建好全部 say，再伪造各态：requested 预约会冻结 main，之后就不能再往 main 发 say。
+    const requested = await f.project.say('已经请求合并');
+    const shown = await f.project.say('预约了展示');
+    const busy = await f.project.say('正在调用');
+
+    f.store.update(requested.task.id, { status: 'waiting', reservation: JSON.stringify({ version: 1, kind: 'merge',
+      status: 'requested', commit: 'a'.repeat(40), baseline: 'b'.repeat(40), parent_id: 1 }) });
+    await expect(f.project.resolveTask(requested.task.id)).rejects.toThrow('合并请求');
+
+    f.store.update(shown.task.id, { status: 'waiting', reservation: JSON.stringify({ version: 1, kind: 'showcase',
+      status: 'preparing', child_id: 1 }) });
+    await expect(f.project.resolveTask(shown.task.id)).rejects.toThrow('展示预约');
+
+    f.store.update(busy.task.id, { status: 'running' });
+    f.project.running.set(busy.task.id, { controller: new AbortController() });
+    try { await expect(f.project.resolveTask(busy.task.id)).rejects.toThrow('正在调用'); }
+    finally { f.project.running.delete(busy.task.id); }
+
+    expect(() => assertAllowed('task.resolve', { id: busy.task.id }, busy.task.id)).toThrow('requires user approval');
+  } finally { await f.close(); }
+});
