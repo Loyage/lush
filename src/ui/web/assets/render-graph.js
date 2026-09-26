@@ -592,7 +592,9 @@ function branchRow(branch, onCollapsed) {
   } else if (branch.subtreeBranches > 0) {
     if (newSayBelow || ownerSay) {
       // 新 say 子树不能用旧一键合并（会越过固定提交与父确认）；改用合并编排：用户确认一次计划，runtime 全自动。
-      if (branch.freeze) {
+      // delivery 冻结正是「有待集成的 say 合并请求」，编排就是用来一次确认后收拢它们的，不能因此禁用；
+      // 只有别的 merger / 一键合并运行造成的冻结才该挡住编排。
+      if (branch.freeze && branch.freeze.kind !== 'delivery') {
         const disabled = el('button', '编排合并全部 say 子分支', 'ghost graph-branch-action');
         disabled.type = 'button'; disabled.disabled = true;
         const host = el('span', undefined, 'help-host');
