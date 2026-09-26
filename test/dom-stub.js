@@ -6,7 +6,9 @@
 class StubNode {
   constructor(tag) {
     this.tagName = String(tag).toUpperCase();
-    this.children = [];
+    // 与浏览器一致：childNodes 含全部子节点（文本在内），children 只含元素节点。
+    // 之前两者混为一谈，会让「只搬 Element.children」这类真实丢文本的 bug 在测试里蒙混过关。
+    this._children = [];
     this.parentNode = null;
     this.textContent = '';
     this.dataset = {};
@@ -33,6 +35,8 @@ class StubNode {
       },
     };
   }
+  get childNodes() { return this._children; }
+  get children() { return this._children.filter(node => node.tagName !== '#TEXT'); }
   get className() { return [...this._classes].join(' '); }
   set className(value) { this._classes = new Set(String(value ?? '').split(/\s+/).filter(Boolean)); }
   setAttribute(name, value) {
@@ -51,33 +55,33 @@ class StubNode {
       if (node === null || node === undefined || node === false) continue;
       const child = typeof node === 'string' ? textNode(node) : node;
       child.parentNode = this;
-      this.children.push(child);
+      this._children.push(child);
     }
   }
   prepend(...nodes) {
     for (const node of [...nodes].reverse()) this.insertBefore(typeof node === 'string' ? textNode(node) : node, this.children[0] ?? null);
   }
   replaceChildren(...nodes) {
-    for (const child of this.children) child.parentNode = null;
-    this.children = [];
+    for (const child of this._children) child.parentNode = null;
+    this._children = [];
     this.append(...nodes);
   }
   insertBefore(node, reference) {
     // 与浏览器一致：把节点从原位置摘下来再插到 reference 之前，否则同一父节点下换位
     // 会把自己复制成两个（syncChildren 重排列表时就会踩到）。
     if (node.parentNode) {
-      const old = node.parentNode.children.indexOf(node);
-      if (old >= 0) node.parentNode.children.splice(old, 1);
+      const old = node.parentNode._children.indexOf(node);
+      if (old >= 0) node.parentNode._children.splice(old, 1);
     }
-    const at = reference ? this.children.indexOf(reference) : -1;
+    const at = reference ? this._children.indexOf(reference) : -1;
     node.parentNode = this;
-    if (at < 0) this.children.push(node); else this.children.splice(at, 0, node);
+    if (at < 0) this._children.push(node); else this._children.splice(at, 0, node);
     return node;
   }
   remove() {
     if (!this.parentNode) return;
-    const at = this.parentNode.children.indexOf(this);
-    if (at >= 0) this.parentNode.children.splice(at, 1);
+    const at = this.parentNode._children.indexOf(this);
+    if (at >= 0) this.parentNode._children.splice(at, 1);
     this.parentNode = null;
   }
   addEventListener(type, handler) { (this.listeners[type] ||= []).push(handler); }
@@ -90,7 +94,7 @@ class StubNode {
 }
 function textNode(value) { const node = new StubNode('#text'); node.textContent = String(value); return node; }
 const dataKey = name => name.slice(5).replace(/-([a-z])/g, (_m, char) => char.toUpperCase());
-function walk(node, out = []) { for (const child of node.children) { out.push(child); walk(child, out); } return out; }
+function walk(node, out = []) { for (const child of node.childNodes) { out.push(child); walk(child, out); } return out; }
 function matches(node, selector) {
   const attr = /\[([^=\]]+)="([^"]*)"\]/.exec(selector);
   const cls = /\.([\w-]+)/.exec(selector);

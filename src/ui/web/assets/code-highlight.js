@@ -82,10 +82,17 @@ function decodeEntities(text) {
 
 // highlight.js 的输出是受控子集：已转义的文本与 <span class="hljs-...">。只复制 span 与文本，
 // class 只保留合法 token；任何意外标签都按字面文本处理，不执行、不注入。
+//
+// 返回的是「所有顶层节点」的数组，而不是包装元素：浏览器里 Element.children 只含元素节点，
+// 若直接搬 .children，token 之间的纯文本会全部丢失，只剩高亮 span，正文含义被彻底改变。
 function parseHighlighted(html, doc) {
-  const root = doc.createElement('span');
-  const stack = [root];
-  const pushText = text => { if (text) stack[stack.length - 1].append(doc.createTextNode(decodeEntities(text))); };
+  const opened = [];   // 当前打开的内层 span；为空表示这段还在顶层
+  const top = [];      // 按出现顺序排列的顶层节点，文本节点与 token span 都在内
+  const append = node => {
+    const parent = opened[opened.length - 1];
+    if (parent) parent.append(node); else top.push(node);
+  };
+  const pushText = text => { if (text) append(doc.createTextNode(decodeEntities(text))); };
   let index = 0;
   while (index < html.length) {
     const open = html.indexOf('<', index);
@@ -98,15 +105,15 @@ function parseHighlighted(html, doc) {
       const classes = /class="([^"]*)"/.exec(tag);
       const span = doc.createElement('span');
       if (classes) span.className = classes[1].split(/\s+/).filter(token => /^[A-Za-z0-9_-]+$/.test(token)).join(' ');
-      stack[stack.length - 1].append(span); stack.push(span);
+      append(span); opened.push(span);
     } else if (/^\/span\s*$/i.test(tag)) {
-      if (stack.length > 1) stack.pop();
+      opened.pop();
     } else {
       pushText(html.slice(open, close + 1));
     }
     index = close + 1;
   }
-  return root;
+  return top;
 }
 
 function apply(hljs, target, text, language) {
@@ -118,7 +125,7 @@ function apply(hljs, target, text, language) {
   if (typeof html !== 'string') return;
   const doc = target.ownerDocument || globalThis.document;
   if (!doc?.createElement) return;
-  target.replaceChildren(...parseHighlighted(html, doc).children);
+  target.replaceChildren(...parseHighlighted(html, doc));
   target.classList?.add('hljs');
 }
 
