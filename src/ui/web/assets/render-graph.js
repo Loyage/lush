@@ -415,21 +415,25 @@ async function runOrchestrate(branch) {
   try {
     const plan = await action('branch.orchestrate_plan', { branch: branch.name });
     if (!plan.order?.length) {
-      show(`${branch.name} 现在没有待合并的 say 子分支。`, 'warn');
+      // 没有可编排项时把原因说清楚：可能是还没点「请求合并」、分支已合入、或仍有任务在跑。
+      const why = plan.items.filter(item => item.blockers?.length)
+        .map(item => `${item.branch}：${item.blockers.join('、')}`).join('；');
+      show(`${branch.name} 现在没有可编排的 say 子分支${why ? `（${why}）` : ''}。`, 'warn');
       return;
     }
     const lines = plan.items.map(item => {
       const commit = item.commit ? ` · 固定 ${String(item.commit).slice(0, 12)}` : '';
-      return `${item.ready ? '→' : '·'} ${item.branch}${item.task_id ? `（say #${item.task_id}）` : ''}${commit} · ${ORCHESTRATE_ACTION[item.action] || item.action}${item.blockers?.length ? ` · 阻塞：${item.blockers.join('、')}` : ''}`;
+      const auto = item.auto_request ? ' · 将自动补发合并请求' : '';
+      return `${item.ready ? '→' : '·'} ${item.branch}${item.task_id ? `（say #${item.task_id}）` : ''}${commit} · ${ORCHESTRATE_ACTION[item.action] || item.action}${auto}${item.blockers?.length ? ` · 阻塞：${item.blockers.join('、')}` : ''}`;
     }).join('\n');
     const confirmed = await confirmDialog({
       title: `编排合并 ${branch.name} 的全部 say 子分支？`,
-      message: `按叶子到根自动把 ${plan.order.length} 条固定提交的 say 合并请求 ff-only 收拢进 ${branch.name}；遇分歧自动在源侧派解分歧子任务，完成后自动继续；已完成的不回滚。运行期间 ${branch.name} 及其全部后代被冻结，直到完成或你在图上取消。确认一次后不再逐条批准。`,
+      message: `按叶子到根自动把 ${plan.order.length} 条固定提交的 say 合并请求 ff-only 收拢进 ${branch.name}；没有请求但符合条件的 say 分支会先由 runtime 自动补发固定提交请求；遇分歧自动在源侧派解分歧子任务，完成后自动继续；已完成的不回滚。运行期间 ${branch.name} 及其全部后代被冻结，直到完成或你在图上取消。确认一次后不再逐条批准。`,
       detail: lines,
       confirmLabel: '开始合并编排',
       cancelLabel: '取消',
       agent: true,
-      confirmHelp: agentHelp('合并编排会按叶子到根自动 ff-only 收拢已固定提交的 say 合并请求，并在分歧时派源侧解分歧子任务；耗时较长并消耗 token。'),
+      confirmHelp: agentHelp('合并编排会按叶子到根自动 ff-only 收拢已固定提交的 say 合并请求，并在分歧时派源侧解分歧子任务；没有请求但符合条件的 say 分支会先自动补发固定提交请求。耗时较长并消耗 token。'),
     });
     if (!confirmed) return;
     const started = await action('branch.orchestrate', { branch: branch.name });
@@ -602,7 +606,7 @@ function branchRow(branch, onCollapsed) {
         host.append(disabled); row.append(host);
       } else {
         row.append(button('编排合并全部 say 子分支', () => runOrchestrate(branch), 'ghost graph-branch-action',
-          { agent: true, help: agentHelp('合并编排会按叶子到根自动把已固定提交的 say 合并请求 ff-only 收拢进这条分支，遇分歧自动派源侧解分歧子任务；运行期间冻结这条分支及其全部后代，耗时较长并消耗 token。') }));
+          { agent: true, help: agentHelp('合并编排会按叶子到根自动把已固定提交的 say 合并请求 ff-only 收拢进这条分支；没有请求但符合条件的 say 会先自动补发固定提交请求；遇分歧自动派源侧解分歧子任务；运行期间冻结这条分支及其全部后代，耗时较长并消耗 token。') }));
       }
     } else if (branch.freeze) {
       const disabled = el('button', '一键合并全部子分支', 'ghost graph-branch-action');

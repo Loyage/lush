@@ -99,9 +99,9 @@
 
 面向新交付模型的合并编排（旧 `merge_*` 对含新 say 子树的派生仍拒绝）。
 
-`branch.orchestrate_plan BRANCH` 是只读面：返回目标分支后代子树里每个 say 子分支的 `task_id`、固定 `commit`、父 `baseline`、`status`（`fast_forward` / `diverged` / `integrated` / `missing` / `unknown`）、`action`（`merge` / `resolve` / `skip`）、`ready` 与 `blockers`，按叶子在前（谱系深度降序，其次创建时间、名字）。`order` 是要执行的分支名序列（含此刻被未收拢子分支阻塞、叶子先合后会自动就绪的父级）。目标分支不必先 `branch import`：不存在记录但本地有 ref 时，`branch.orchestrate` 会按 `branch.import` 同一口径补一条根记录。
+`branch.orchestrate_plan BRANCH` 是只读面：返回目标分支后代子树里每个 say 子分支的 `task_id`、固定 `commit`、父 `baseline`、`status`（`fast_forward` / `diverged` / `integrated` / `missing` / `unknown`）、`action`（`merge` / `resolve` / `skip`）、`ready`、`auto_request`（没有合并预约但符合条件、将由编排代发固定提交请求）与 `blockers`，按叶子在前（谱系深度降序，其次创建时间、名字）。`order` 是要执行的分支名序列（含此刻被未收拢子分支阻塞、叶子先合后会自动就绪的父级）。目标分支不必先 `branch import`：不存在记录但本地有 ref 时，`branch.orchestrate` 会按 `branch.import` 同一口径补一条根记录。
 
-`branch.orchestrate BRANCH` 在用户确认这份计划后开始：在目标分支的 `main` / `owner` Task 下创建一个 `task_kind='merge'` 的 runtime 驱动编排 Task（有 status / result，可 `task.inspect`，可取消），把运行写入目标分支的 `merge_run`（`mode:'orchestrate'`，带 `task_id`），之后按序自动 ff-only 落地固定提交；分歧时在源侧派独立解分歧子 Task，结算后自动继续。返回 `{target_branch, status, task, plan, run}`；没有可执行项时返回 `{status:"empty"}` 且不写运行、不建 Task。同目标已有运行在跑时拒绝。
+`branch.orchestrate BRANCH` 在用户确认这份计划后开始：在目标分支的 `main` / `owner` Task 下创建一个 `task_kind='merge'` 的 runtime 驱动编排 Task（有 status / result，可 `task.inspect`，可取消），把运行写入目标分支的 `merge_run`（`mode:'orchestrate'`，带 `task_id`），之后按序自动 ff-only 落地固定提交；对 `auto_request` 的 say 分支先代发固定提交请求（等价于用户点一次「请求合并」的第一步），分歧时在源侧派独立解分歧子 Task，结算后自动继续。返回 `{target_branch, status, task, plan, run}`；没有可执行项时返回 `{status:"empty"}` 且不写运行、不建 Task。同目标已有运行在跑时拒绝。
 
 `branch.orchestrate_cancel BRANCH` 清除运行、取消等待中的解分歧子任务、把编排 Task 结算为 `cancelled` 并释放冻结；已落地的合并不回滚。`merge_cancel` 对编排运行会明确拒绝，要求改用 `orchestrate_cancel`。三个方法中 `orchestrate_plan` 只读（agent 也能查），`orchestrate` / `orchestrate_cancel` 用户专属。冻结与固定提交语义见[分支合并](../../engineering/merge.md#合并编排)。
 

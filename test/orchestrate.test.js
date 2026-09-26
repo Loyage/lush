@@ -33,10 +33,12 @@ async function makeSay(f, { branch, parentBranch, from, parentId, filename, cont
   f.store.recordBranch({ branch, parent: parentBranch, created_from_commit: from });
   const task = f.store.create({ parent_id: parentId, role: 'agent', task_kind: 'say', goal: `say ${branch}`, name: `say-${branch}` });
   f.store.update(task.id, { status, branch, target_branch: parentBranch, base_commit: from, head_commit: commit, integration: 'pending' });
-  const reservation = { version: 1, kind: 'merge', status: reservationStatus, created_at: new Date().toISOString() };
-  if (reservationStatus === 'requested') { reservation.commit = commit; reservation.baseline = from; reservation.parent_id = parentId; }
-  if (blockedCode) reservation.blocked_code = blockedCode;
-  f.store.update(task.id, { reservation: JSON.stringify(reservation) });
+  if (reservationStatus !== null) {
+    const reservation = { version: 1, kind: 'merge', status: reservationStatus, created_at: new Date().toISOString() };
+    if (reservationStatus === 'requested') { reservation.commit = commit; reservation.baseline = from; reservation.parent_id = parentId; }
+    if (blockedCode) reservation.blocked_code = blockedCode;
+    f.store.update(task.id, { reservation: JSON.stringify(reservation) });
+  }
   return { task: f.store.task(task.id), commit };
 }
 
@@ -132,6 +134,87 @@ test('a pending fast-forward say is settled to requested then landed by the orch
     expect(say.status).toBe('completed');
     expect(JSON.parse(say.reservation).status).toBe('integrated');
     expect(f.store.task(started.task.id).status).toBe('completed');
+  } finally { await f.close(); }
+});
+
+test('plan marks un-requested eligible say branches for an automatic merge request', async () => {
+  const f = await setup();
+  try {
+    const main = await f.project.ensureMainTask();
+    const mainHead = await git(f.root, 'rev-parse', 'HEAD');
+    const a = await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id,
+      filename: 'a.txt', content: 'A\n', status: 'waiting', reservationStatus: null });
+    const plan = await f.project.orchestratePlan('main');
+    const item = plan.items.find(row => row.branch === 'say-A');
+    expect(item).toMatchObject({ action: 'merge', auto_request: true, ready: true, commit: a.commit });
+    expect(plan.order).toEqual(['say-A']);
+    // 只读计划不写预约、不落地、不建编排 Task。
+    expect(f.store.task(a.task.id).reservation).toBeNull();
+    expect(f.store.branchMergeRun('main')).toBeNull();
+    expect(f.store.all("SELECT id FROM tasks WHERE task_kind='merge'")).toHaveLength(0);
+  } finally { await f.close(); }
+});
+
+test('orchestration auto-requests and lands an un-requested fast-forward say', async () => {
+  const f = await setup();
+  try {
+    const main = await f.project.ensureMainTask();
+    const mainHead = await git(f.root, 'rev-parse', 'HEAD');
+    const a = await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id,
+      filename: 'a.txt', content: 'A\n', status: 'waiting', reservationStatus: null });
+    const started = await f.project.orchestrate('main');
+    expect(started.status).toBe('running');
+    await f.project.driveOrchestrate('main');
+    expect(await git(f.root, 'rev-parse', 'HEAD')).toBe(a.commit);
+    const say = f.store.task(a.task.id);
+    expect(say.status).toBe('completed');
+    expect(JSON.parse(say.reservation)).toMatchObject({ kind: 'merge', status: 'integrated' });
+    expect(f.store.task(started.task.id).status).toBe('completed');
+    // 代发请求留痕，事件标 via=orchestrate。
+    const reserved = f.store.get("SELECT data FROM events WHERE task_id=? AND type='task.reserved'", a.task.id);
+    expect(JSON.parse(reserved.data).via).toBe('orchestrate');
+  } finally { await f.close(); }
+});
+
+test('orchestration auto-requests a diverged un-requested say and spawns a resolution child', async () => {
+  const f = await setup();
+  try {
+    const main = await f.project.ensureMainTask();
+    const mainHead = await git(f.root, 'rev-parse', 'HEAD');
+    const a = await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id,
+      filename: 'a.txt', content: 'A\n', status: 'waiting', reservationStatus: null });
+    fs.writeFileSync(path.join(f.root, 'main.txt'), 'M\n');
+    await git(f.root, 'add', 'main.txt'); await git(f.root, 'commit', '-m', 'main moves');
+    const plan = await f.project.orchestratePlan('main');
+    expect(plan.items.find(row => row.branch === 'say-A')).toMatchObject({ action: 'resolve', auto_request: true });
+    await f.project.orchestrate('main');
+    await f.project.driveOrchestrate('main');
+    const paused = f.store.branchMergeRun('main');
+    expect(paused.status).toBe('paused');
+    expect(f.store.task(paused.waiting_task_id).resolves_task_id).toBe(a.task.id);
+    expect(JSON.parse(f.store.task(a.task.id).reservation).kind).toBe('merge');
+  } finally { await f.close(); }
+});
+
+test('un-requested say that is still running or awaiting the user is skipped with a reason', async () => {
+  const f = await setup();
+  try {
+    const main = await f.project.ensureMainTask();
+    const mainHead = await git(f.root, 'rev-parse', 'HEAD');
+    const running = await makeSay(f, { branch: 'say-run', parentBranch: 'main', from: mainHead, parentId: main.id,
+      filename: 'r.txt', content: 'R\n', status: 'running', reservationStatus: null });
+    const awaiting = await makeSay(f, { branch: 'say-ask', parentBranch: 'main', from: mainHead, parentId: main.id,
+      filename: 'q.txt', content: 'Q\n', status: 'awaiting', reservationStatus: null });
+    const plan = await f.project.orchestratePlan('main');
+    expect(plan.items.find(row => row.branch === 'say-run')).toMatchObject({ action: 'skip', auto_request: false });
+    expect(plan.items.find(row => row.branch === 'say-run').blockers.join(' ')).toMatch(/仍在 running/);
+    expect(plan.items.find(row => row.branch === 'say-ask')).toMatchObject({ action: 'skip', auto_request: false });
+    expect(plan.items.find(row => row.branch === 'say-ask').blockers.join(' ')).toMatch(/等待用户答复/);
+    const result = await f.project.orchestrate('main');
+    expect(result.status).toBe('empty');
+    expect(f.store.branchMergeRun('main')).toBeNull();
+    expect(f.store.task(running.task.id).reservation).toBeNull();
+    expect(f.store.task(awaiting.task.id).reservation).toBeNull();
   } finally { await f.close(); }
 });
 

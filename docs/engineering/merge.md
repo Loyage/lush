@@ -80,8 +80,8 @@ code 下游 → 上游任务分支 → 输入分支 → 用户指定父分支
 
 新交付模型下，一条输入对应一个拥有分支的 `task_kind='say'` Task；子提交由直接父 Agent 确认，main/owner 需用户逐条批准。当用户希望把 main 下所有待合并 say 子分支一次安排完时，用**合并编排**而不是旧一键合并：
 
-1. `branch.orchestrate_plan BRANCH` 只读列出目标分支后代子树里每个 say 子分支的固定提交、父基线、实时分支状态（`fast_forward` / `diverged` / `integrated` / `missing`）、动作（`merge` / `resolve` / `skip`）与 blockers，按叶子在前（深度降序、其次创建时间、名字）；
-2. 用户确认一次完整顺序与每条固定提交后，`branch.orchestrate BRANCH` 在目标分支的 main/owner Task 下创建一个 `task_kind='merge'` 的**编排 Task**，把运行写入目标分支的 `merge_run`（`mode:'orchestrate'`，带 `task_id`），之后由 runtime 自动推进，不再逐条批准；
+1. `branch.orchestrate_plan BRANCH` 只读列出目标分支后代子树里每个 say 子分支的固定提交、父基线、实时分支状态（`fast_forward` / `diverged` / `integrated` / `missing`）、动作（`merge` / `resolve` / `skip`）、`auto_request`（没有合并预约但已静息、有已提交改动且无未收拢子分支，将由编排代发固定提交请求）与 blockers，按叶子在前（深度降序、其次创建时间、名字）；
+2. 用户确认一次完整顺序与每条固定提交后，`branch.orchestrate BRANCH` 在目标分支的 main/owner Task 下创建一个 `task_kind='merge'` 的**编排 Task**，把运行写入目标分支的 `merge_run`（`mode:'orchestrate'`，带 `task_id`），之后由 runtime 自动推进，不再逐条批准；对 `auto_request` 的分支，runtime 代发固定提交请求（等价于用户点一次「请求合并」的第一步），再走后续落地；仍在跑、等待用户答复、没有已提交改动或已合入的分支跳过并给出原因；
 3. 可直接落地的请求按内部路径（等价于 `task.approve_merge` 的核心，但跳过用户逐条批准）把**固定 commit** ff-only 落进其直接父分支；**绝不 no-ff、绝不 rebase**，也绝不经旧 `branch.merge` / `branch.sync` 绕过固定提交与基线校验；
 4. 遇到分歧时自动在源侧派一个不挂在原 say 子树下、用 `resolves_task_id` 关联的独立解分歧子 Task：它把当时固定的父 tip 合入固定源提交并测试；结算后由 runtime 校验产物同时含两端固定提交，把 say 分支快进到产物、重新固定 requested，再自动继续落地；原 say Agent 不参与；
 5. 运行在「全部完成 / 遇到失败 / 用户取消」时结束，已落地的不回滚。

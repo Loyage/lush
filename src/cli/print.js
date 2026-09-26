@@ -63,7 +63,8 @@ export function printOrchestratePlan(plan) {
   const ORDER = { merge: '快进合入', resolve: '源侧解分歧', skip: '不处理' };
   for (const item of items) {
     const mark = item.ready ? '→' : '·';
-    const detail = [ORDER[item.action] || item.action, item.task_id ? `say #${item.task_id}` : '',
+    const detail = [ORDER[item.action] || item.action, item.auto_request ? '将自动补发请求' : '',
+      item.task_id ? `say #${item.task_id}` : '',
       item.commit ? `固定 ${String(item.commit).slice(0, 12)}` : '',
       item.blockers?.length ? `阻塞：${item.blockers.join('、')}` : ''].filter(Boolean).join(' · ');
     console.log(`${mark} ${item.branch}\t${item.depth}层\t${detail}`);
@@ -72,8 +73,13 @@ export function printOrchestratePlan(plan) {
 }
 /** 合并编排启动结果：给一句人话，进度看分支图或任务详情。 */
 export function printOrchestrateResult(result) {
-  if (result.status === 'empty') { console.log(`目标分支 ${result.target_branch}：没有待合并的 say 子分支。`); return; }
-  console.log(`已在 ${result.target_branch} 开始合并编排（任务 #${result.task?.id ?? '?'}），按序处理 ${result.plan.order.length} 条 say 分支；进度看 lush branch tree 或 lush inspect。`);
+  if (result.status === 'empty') {
+    const why = (result.plan?.items ?? []).filter(item => item.blockers?.length)
+      .map(item => `${item.branch}：${item.blockers.join('、')}`).join('；');
+    console.log(`目标分支 ${result.target_branch}：没有可编排的 say 子分支${why ? `（${why}）` : ''}。`);
+    return;
+  }
+  console.log(`已在 ${result.target_branch} 开始合并编排（任务 #${result.task?.id ?? '?'}），按序处理 ${result.plan.order.length} 条 say 分支（没有请求但符合条件的会先自动补发固定提交请求）；进度看 lush branch tree 或 lush inspect。`);
 }
 /** 编排取消结果：已落地的合并不回滚。 */
 export function printOrchestrateCancel(result) {
