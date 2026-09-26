@@ -4,13 +4,14 @@ import { ROUTE_TARGETS, normalizeInputRoutes } from '../../core/input-routes.js'
 import { exact, option } from '../args.js';
 
 /**
- * `lush config`：项目级「运行设置」（目前是两条并发上限）的用户接口。
+ * `lush config`：项目级「运行设置」（两条并发上限 + 三条调用 / 拆解限额）的用户接口。
  *
  * 读模型来自 `system.status.settings`（核心在写盘后同步的内存镜像），写走 `system.configure`。
- * 二者都是用户专属：agent 调用直接被拒，避免某次任务调用顺手改掉整个项目的并发。
+ * 二者都是用户专属：agent 调用直接被拒，避免某次任务调用顺手改掉整个项目的并发与限额。
  *
  * 命令面用连字符（`control-concurrency`）与 help 一致；RPC / 设置文件里是下划线
- * （`control_concurrency` / `input_routes`）。范围与核心共用 `RUNTIME_SETTINGS_LIMITS`，避免两份数字漂移。
+ * （`control_concurrency` / `call_timeout` / `task_call_limit` / `max_depth` / `input_routes`）。
+ * 范围与核心共用 `RUNTIME_SETTINGS_LIMITS`，避免两份数字漂移。
  *
  * `config route` 在同一份运行设置上管理快速路由前缀表：读当前生效表后整表写回，校验直接复用
  * `core/input-routes.js` 的 `normalizeInputRoutes`，因此与核心对前缀 / 目标的报错完全一致。
@@ -18,6 +19,9 @@ import { exact, option } from '../args.js';
 const FIELDS = [
   { flag: 'concurrency', key: 'concurrency', label: '执行通道' },
   { flag: 'control-concurrency', key: 'control_concurrency', label: '控制通道' },
+  { flag: 'call-timeout', key: 'call_timeout', label: '单次调用超时（秒）' },
+  { flag: 'task-call-limit', key: 'task_call_limit', label: '单任务调用上限' },
+  { flag: 'max-depth', key: 'max_depth', label: '最大拆解深度' },
 ];
 const byFlag = new Map(FIELDS.map(field => [field.flag, field]));
 const FLAGS = FIELDS.map(field => field.flag);
@@ -67,7 +71,7 @@ function reportRoutes(settings, json) {
 
 /** 统一出口：--json 返回结构化读模型，否则打印后返回 undefined（主流程不再 print）。 */
 function report(settings, json) {
-  check(settings?.concurrency && settings?.control_concurrency && settings?.input_routes,
+  check(settings?.input_routes && FIELDS.every(field => settings?.[field.key]),
     'daemon did not return runtime settings; restart this project daemon');
   if (!json) { printConfig(settings); return; }
   return settings;

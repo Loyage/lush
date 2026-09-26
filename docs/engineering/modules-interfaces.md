@@ -61,7 +61,7 @@
 | `workspaces.test.js` | `test/workspaces/{naming,merge,cleanup,genealogy,anchor}.test.js` |
 | `web-rpc.test.js` | `test/web/{security,assets,read-models,drafts,transcript,specs-intents,maintenance}.test.js` |
 | `web-live-dom.test.js` | `test/web/dom-{merge,detail,drafts,specs-intents,sidebar}.test.js`（各自 `boot()`，见前端接缝） |
-| 启动器与工作台 | `test/web/launcher.test.js`（首次选项目、绝对路径校验、全局最后项目恢复）、`test/web/appearance.test.js`（主题解析、跟随系统、显式覆盖、存储失败）、`test/web/settings.test.js`（设置入口 / `#settings` / 轮询不覆盖、偏好默认值与老键、每项即时生效、恢复默认、Agent 环境变量按需读取/遮罩/键值编辑/校验、系统信息组只读渲染、并发额度表单保存 / 恢复与越界报错）、`test/project/status.test.js`（`system.status` 的只读软件配置镜像与默认值）、`test/web/dom-studio.test.js`（信息优先级、折叠保留、移动端索引） |
+| 启动器与工作台 | `test/web/launcher.test.js`（首次选项目、绝对路径校验、全局最后项目恢复）、`test/web/appearance.test.js`（主题解析、跟随系统、显式覆盖、存储失败）、`test/web/settings.test.js`（设置入口 / `#settings` / 轮询不覆盖、偏好默认值与老键、每项即时生效、恢复默认、Agent 环境变量按需读取/遮罩/键值编辑/校验、系统信息组只读渲染、并发额度与调用 / 拆解限额表单保存 / 恢复与越界报错）、`test/project/status.test.js`（`system.status` 的只读软件配置镜像与默认值）、`test/web/dom-studio.test.js`（信息优先级、折叠保留、移动端索引） |
 | 效果展示准入 | `test/project/showcase-eligibility.test.js`（稳定性、主干/登记/脏工作区/Git 操作/子分支、历史文件树去重、并发启动与重试）；`test/project/showcase.test.js` 保留执行隔离/预览覆盖；`test/web/dom-showcase.test.js`、`test/web/dom-studio.test.js` 覆盖低调入口与不合格隐藏 |
 | 分支诊断统计 | `test/workspaces/branch-diagnostics.test.js`（净改动、二进制、重命名及特殊文件名、工作区未提交去重、只读与缓存、失败降级、明细字节限额）；`test/project/graph.test.js` 覆盖图投影与合入后保留累计规模；`test/web/dom-graph.test.js` 覆盖统计渲染、文本安全、脏活刷新与明细展开保留 |
 | Task 直连 say | `test/project/say.test.js`（main 根、Input→Task/worktree、单条草稿、分支绑定拒绝、子任务与展示信号、源侧固定双 tip 解分歧、预约/固定提交批准及旧协议兼容）；`test/web/dom-delivery.test.js`（Task 详情与分支图共用预约/审批、安全确认、Agent 标识和旧动作隔离） |
@@ -71,7 +71,7 @@
 | 托管模式 | `test/project/sleep.test.js`（授权、作用域、规则/偏好、关闭竞态、人工答案优先、预算、恢复和审计分页）；`test/butler-provider.test.js`（无工具边界）；`test/sleep-cli.test.js`（确认和参数）；`test/web/sleep.test.js`（HTTP、开启确认、显著关闭、管家选择留档） |
 | Notice 记录与提醒 | `test/project/notice-page.test.js`（超过 200 条历史、筛选与字节预算游标）、`test/web/notice-records.test.js`（HTTP 参数、分页、面板内答复／审批与只读问卷）、`test/web/notice-notifications.test.js`（默认关闭、权限、首屏基线、去重与桌面开关恢复） |
 | 执行过程阅读与解释 | `test/transcript-reader.test.js`（全量搜索、截断后命中、过滤、配对、原文与文件边界）、`test/explainer-provider.test.js`（无工具参数及凭证隔离）、`test/project/explanations.test.js`（来源快照、无分支与权限）、`test/project/intro.test.js`（快速介绍配置遮蔽、直连与失败、恢复、不建任务）、`test/web/transcript-reader.test.js`（HTTP/RPC）、`test/web/intro.test.js`（快速介绍路由）、`test/web/dom-transcript-reader.test.js`（摘要、增量配对、JSON、检索与选区介绍） |
-| 运行设置 | `test/runtime-settings.test.js`（存储原子性与权限、覆盖优先于环境、写后 status 与调度准入、agent 不得调用 `system.configure`）、`test/config-cli.test.js`（`lush config` 的 show / set / reset 与 `--json`） |
+| 运行设置 | `test/runtime-settings.test.js`（存储原子性与权限、覆盖优先于环境、并发与调用 / 拆解限额的写后 status 与调度准入、agent 不得调用 `system.configure`）、`test/config-cli.test.js`（`lush config` 的 show / set / reset 与 `--json`） |
 | `integration.test.js` | `test/integration/{daemon,pi,verify,shutdown,merge}.test.js` |
 
 `test/helpers.js`、`test/dom-stub.js` 是被多个文件共用的**公共面**：只增不改，改签名会同时影响所有分区。

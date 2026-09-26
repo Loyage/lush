@@ -74,6 +74,9 @@ export function makeWorld() {
       file: '/tmp/demo/.lush/settings.json',
       concurrency: { value: 2, default: 2, overridden: false },
       control_concurrency: { value: 1, default: 1, overridden: false },
+      call_timeout: { value: 900, default: 900, overridden: false },
+      task_call_limit: { value: 24, default: 24, overridden: false },
+      max_depth: { value: 8, default: 8, overridden: false },
       input_routes: { value: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }],
         default: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }], overridden: false },
     },
@@ -149,7 +152,8 @@ export function makeWorld() {
     status: { project: '/tmp/demo', home: '/tmp/demo/.lush', provider: 'mock',
       concurrency: state.runtimeSettings.concurrency.value, control_concurrency: state.runtimeSettings.control_concurrency.value,
       settings: state.runtimeSettings,
-      call_timeout: 900, task_call_limit: 24, max_depth: 8, agent_config: state.agentConfig, intro_config: state.introConfig, agents: [], agents_idle: 0, agents_total: 0,
+      call_timeout: state.runtimeSettings.call_timeout.value, task_call_limit: state.runtimeSettings.task_call_limit.value,
+      max_depth: state.runtimeSettings.max_depth.value, agent_config: state.agentConfig, intro_config: state.introConfig, agents: [], agents_idle: 0, agents_total: 0,
       pending_merges: [{ id: 2, goal: '合并我', branch: 'lush/2-x', integration: 'pending' }], drafts: 0,
       tasks: [{ status: 'running', count: 1 }, { status: 'completed', count: 2 }], merge_freeze: state.freeze, notices: 0,
       // 拆解队列的计数与批次摘要（和 system.status 同形）
@@ -228,7 +232,7 @@ export function makeWorld() {
         // 运行设置的热更新：null 清除覆盖（回退环境默认），数字/前缀表写为覆盖值；与核心同语义。
         const patch = body.params.settings || {};
         const next = { ...state.runtimeSettings };
-        for (const key of ['concurrency', 'control_concurrency']) {
+        for (const key of ['concurrency', 'control_concurrency', 'call_timeout', 'task_call_limit', 'max_depth']) {
           if (!Object.hasOwn(patch, key)) continue;
           next[key] = patch[key] === null
             ? { ...next[key], value: next[key].default, overridden: false }

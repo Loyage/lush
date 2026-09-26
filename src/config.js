@@ -43,17 +43,21 @@ export class Config {
     // 环境变量仍是默认值（构造时严格校验，非法直接抛错）；<home>/settings.json 里被显式覆盖的键优先于它。
     this.concurrencyDefault = positive(env, 'LUSH_CONCURRENCY', 4, 64);
     this.controlConcurrencyDefault = positive(env, 'LUSH_CONTROL_CONCURRENCY', 2, 16);
+    // 调用超时 / 单任务调用上限 / 最大拆解深度同样是「环境默认 + 运行时可覆盖」的项目设置。
+    this.timeoutDefault = positive(env, 'LUSH_CALL_TIMEOUT', 900, 86400);
+    this.maxCallsDefault = positive(env, 'LUSH_TASK_CALLS', 24, 1000);
+    this.maxDepthDefault = positive(env, 'LUSH_MAX_DEPTH', 8, 64);
     this.runtimeSettings = new RuntimeSettings(this);
     const runtime = this.runtimeSettings.get();
     this.concurrency = runtime.concurrency.value;
     this.controlConcurrency = runtime.control_concurrency.value;
+    this.timeout = runtime.call_timeout.value;
+    this.maxCalls = runtime.task_call_limit.value;
+    this.maxDepth = runtime.max_depth.value;
     // 快速路由前缀：提交输入时按这份生效值做匹配，不需要重启 daemon。
     this.inputRoutes = runtime.input_routes.value.map(route => ({ ...route }));
     // 宿主（Project）注册的回调：运行设置写盘后重新 pump，让调高的并发立即对排队任务生效。
     this.onKick = null;
-    this.timeout = positive(env, 'LUSH_CALL_TIMEOUT', 900, 86400);
-    this.maxCalls = positive(env, 'LUSH_TASK_CALLS', 24, 1000);
-    this.maxDepth = positive(env, 'LUSH_MAX_DEPTH', 8, 64);
     const hash = createHash('sha256').update(this.project).digest('hex').slice(0, 24);
     this.socketDir = path.join(os.tmpdir(), `lush-${process.getuid()}`);
     this.socket = path.join(this.socketDir, `${hash}.sock`);
@@ -75,6 +79,9 @@ export class Config {
     const model = this.runtimeSettings.save(patch);
     this.concurrency = model.concurrency.value;
     this.controlConcurrency = model.control_concurrency.value;
+    this.timeout = model.call_timeout.value;
+    this.maxCalls = model.task_call_limit.value;
+    this.maxDepth = model.max_depth.value;
     this.inputRoutes = model.input_routes.value.map(route => ({ ...route }));
     this.kick();
     return model;

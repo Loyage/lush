@@ -19,7 +19,8 @@ function statusView(project, agentConfig = null, introConfig = null) {
     // 顶层 concurrency / control_concurrency 仍表示当前生效值。
     settings: project.runtimeSettings(),
     sleep: project.sleepStatus(),
-    // 软件配置的只读镜像：除并发上限可在运行时改写外，其余在 daemon 启动时从环境变量读一次。
+    // 软件配置的只读镜像：并发与调用 / 拆解限额都可在运行时改写；顶层仍是当前生效值，
+    // 来源（环境默认 / 是否被覆盖 / 设置文件）在 settings 里。
     // pi 的两项覆写未设置时是空字符串，交给界面显示「pi 默认」，不在这里编造 pi 自己的默认模型 / provider。
     call_timeout: project.config.timeout, task_call_limit: project.config.maxCalls, max_depth: project.config.maxDepth,
     pi_model: project.config.env.LUSH_PI_MODEL || '', pi_provider: project.config.env.LUSH_PI_PROVIDER || '',

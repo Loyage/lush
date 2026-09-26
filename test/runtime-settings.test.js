@@ -28,6 +28,9 @@ test('runtime settings file is atomic, owner-only, and falls back to env default
     expect(settings.get()).toEqual({ file,
       concurrency: { value: 6, default: 6, overridden: false },
       control_concurrency: { value: 3, default: 3, overridden: false },
+      call_timeout: { value: 900, default: 900, overridden: false },
+      task_call_limit: { value: 24, default: 24, overridden: false },
+      max_depth: { value: 8, default: 8, overridden: false },
       input_routes: { value: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }],
         default: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }], overridden: false } });
     expect(fs.existsSync(file)).toBe(false);
@@ -61,6 +64,54 @@ test('runtime settings file is atomic, owner-only, and falls back to env default
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('call timeout / task call limit / max depth are runtime-overridable and validated', () => {
+  const root = temp();
+  const config = new Config({ project: root, env: env({ LUSH_CALL_TIMEOUT: '600', LUSH_TASK_CALLS: '12', LUSH_MAX_DEPTH: '5' }) });
+  config.prepare();
+  try {
+    const settings = new RuntimeSettings(config);
+    const file = path.join(root, '.lush', 'settings.json');
+    expect(settings.get()).toMatchObject({
+      call_timeout: { value: 600, default: 600, overridden: false },
+      task_call_limit: { value: 12, default: 12, overridden: false },
+      max_depth: { value: 5, default: 5, overridden: false },
+    });
+    // 写盘后生效值同步进 Config，调度 / 拆解立即读到。
+    const saved = config.configureRuntime({ call_timeout: 1200, task_call_limit: 40, max_depth: 10 });
+    expect(saved.call_timeout).toEqual({ value: 1200, default: 600, overridden: true });
+    expect(config.timeout).toBe(1200);
+    expect(config.maxCalls).toBe(40);
+    expect(config.maxDepth).toBe(10);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, call_timeout: 1200, task_call_limit: 40, max_depth: 10 });
+    // null 清除该键，回退环境默认。
+    const cleared = config.configureRuntime({ call_timeout: null });
+    expect(cleared.call_timeout).toEqual({ value: 600, default: 600, overridden: false });
+    expect(config.timeout).toBe(600);
+    // 越界 / 非整数不落盘。
+    expect(() => config.configureRuntime({ call_timeout: 0 })).toThrow('call_timeout');
+    expect(() => config.configureRuntime({ call_timeout: 86401 })).toThrow('call_timeout');
+    expect(() => config.configureRuntime({ task_call_limit: 1001 })).toThrow('task_call_limit');
+    expect(() => config.configureRuntime({ max_depth: 65 })).toThrow('max_depth');
+    expect(() => config.configureRuntime({ call_timeout: 2.5 })).toThrow('integer');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('runtime max_depth override reaches later spawns without restart', async () => {
+  const f = fixture(controlled(), { LUSH_MAX_DEPTH: '2' });
+  await repo(f.root);
+  try {
+    const root = f.store.create({ input_id: null, role: 'coordinator', goal: 'root' });
+    f.store.update(root.id, { status: 'waiting' });
+    const child = f.project.spawn(root.id, 'child', 'research');
+    expect(() => f.project.spawn(child.id, 'too deep', 'research')).toThrow('nesting');
+    // 调高后同一个 daemon 立即允许更深的派生，不需要重启。
+    expect(f.project.configureRuntimeSettings({ max_depth: 4 }).max_depth).toEqual({ value: 4, default: 2, overridden: true });
+    const grandchild = f.project.spawn(child.id, 'grandchild', 'research');
+    const great = f.project.spawn(grandchild.id, 'great', 'research');
+    expect(great.parent_id).toBe(grandchild.id);
+  } finally { await f.close(); }
+});
+
 test('corrupt or unsafe runtime settings fail loudly with the file path', () => {
   const root = temp();
   const config = new Config({ project: root, env: env() });
@@ -84,15 +135,26 @@ test('stored settings win over env defaults, and invalid env still fails at star
   const root = temp();
   try {
     fs.mkdirSync(path.join(root, '.lush'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.lush', 'settings.json'), JSON.stringify({ version: 1, concurrency: 9, control_concurrency: 1 }), { mode: 0o600 });
-    const config = new Config({ project: root, env: env({ LUSH_CONCURRENCY: '5', LUSH_CONTROL_CONCURRENCY: '3' }) });
+    fs.writeFileSync(path.join(root, '.lush', 'settings.json'),
+      JSON.stringify({ version: 1, concurrency: 9, control_concurrency: 1, call_timeout: 42, task_call_limit: 7, max_depth: 3 }), { mode: 0o600 });
+    const config = new Config({ project: root, env: env({ LUSH_CONCURRENCY: '5', LUSH_CONTROL_CONCURRENCY: '3',
+      LUSH_CALL_TIMEOUT: '600', LUSH_TASK_CALLS: '12', LUSH_MAX_DEPTH: '5' }) });
     expect(config.concurrency).toBe(9);
     expect(config.controlConcurrency).toBe(1);
+    expect(config.timeout).toBe(42);
+    expect(config.maxCalls).toBe(7);
+    expect(config.maxDepth).toBe(3);
     expect(config.concurrencyDefault).toBe(5);
     expect(config.controlConcurrencyDefault).toBe(3);
+    expect(config.timeoutDefault).toBe(600);
+    expect(config.maxCallsDefault).toBe(12);
+    expect(config.maxDepthDefault).toBe(5);
     // 环境变量仍是启动时的硬校验：非整数直接抛错。
     expect(() => new Config({ project: root, env: env({ LUSH_CONCURRENCY: '2x' }) })).toThrow('integer');
     expect(() => new Config({ project: root, env: env({ LUSH_CONTROL_CONCURRENCY: '0' }) })).toThrow('integer');
+    expect(() => new Config({ project: root, env: env({ LUSH_CALL_TIMEOUT: '0' }) })).toThrow('integer');
+    expect(() => new Config({ project: root, env: env({ LUSH_TASK_CALLS: '1001' }) })).toThrow('integer');
+    expect(() => new Config({ project: root, env: env({ LUSH_MAX_DEPTH: 'x' }) })).toThrow('integer');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

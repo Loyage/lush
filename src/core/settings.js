@@ -4,19 +4,23 @@ import { check, isPlainObject, LushError } from './types.js';
 import { DEFAULT_INPUT_ROUTES, normalizeInputRoutes } from './input-routes.js';
 
 /**
- * 项目级「运行设置」：两条并发上限 + 快速路由前缀表。
+ * 项目级「运行设置」：两条并发上限、三条调用 / 拆解限额 + 快速路由前缀表。
  *
  * 与 AgentSettings 同风格：值存在 <home>/settings.json，0600，临时文件加 rename 原子替换，
  * 读时校验 uid / symlink / 大小 / 字段。区别是运行设置是**热更新**的——写盘成功后调用方
- * 把有效值同步进内存并重新 pump，所以调高并发不需要重启 daemon。
+ * 把有效值同步进内存并重新 kick，所以调高并发、放宽超时不需要重启 daemon。
  *
- * 有效值 = 存储值 ?? 环境默认值（LUSH_CONCURRENCY / LUSH_CONTROL_CONCURRENCY 的启动值）；
+ * 有效值 = 存储值 ?? 环境默认值（LUSH_CONCURRENCY / LUSH_CONTROL_CONCURRENCY /
+ * LUSH_CALL_TIMEOUT / LUSH_TASK_CALLS / LUSH_MAX_DEPTH 的启动值）；
  * 未被覆盖的键不写进文件，也不用假值填充。
  */
-export const RUNTIME_SETTINGS_KEYS = ['concurrency', 'control_concurrency', 'input_routes'];
+export const RUNTIME_SETTINGS_KEYS = ['concurrency', 'control_concurrency', 'call_timeout', 'task_call_limit', 'max_depth', 'input_routes'];
 export const RUNTIME_SETTINGS_LIMITS = {
   concurrency: { env: 'LUSH_CONCURRENCY', fallback: 4, max: 64 },
   control_concurrency: { env: 'LUSH_CONTROL_CONCURRENCY', fallback: 2, max: 16 },
+  call_timeout: { env: 'LUSH_CALL_TIMEOUT', fallback: 900, max: 86400 },
+  task_call_limit: { env: 'LUSH_TASK_CALLS', fallback: 24, max: 1000 },
+  max_depth: { env: 'LUSH_MAX_DEPTH', fallback: 8, max: 64 },
 };
 /** 非整数字段：值本身是结构化的（快速路由前缀表），由 normalizeInputRoutes 负责校验。 */
 const STRUCTURED_KEYS = new Set(['input_routes']);
@@ -57,6 +61,9 @@ export class RuntimeSettings {
     this.defaults = {
       concurrency: config.concurrencyDefault,
       control_concurrency: config.controlConcurrencyDefault,
+      call_timeout: config.timeoutDefault,
+      task_call_limit: config.maxCallsDefault,
+      max_depth: config.maxDepthDefault,
       input_routes: DEFAULT_INPUT_ROUTES.map(route => ({ ...route })),
     };
   }

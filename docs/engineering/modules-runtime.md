@@ -23,11 +23,11 @@
 
 ## 运行设置：`src/core/settings.js`
 
-并发上限是唯一可在运行时改写的软件设置，存储在 `<home>/settings.json`（version 1，权限 `600`）。`src/config.js` 构造时先校验环境变量得到默认值，再用这里的覆盖值算出生效的 `config.concurrency` / `config.controlConcurrency`；`configureRuntime(patch)` 写盘后同步内存并调用宿主的 `onKick` 重新准入。
+并发上限与调用 / 拆解限额是可在运行时改写的软件设置，存储在 `<home>/settings.json`（version 1，权限 `600`）。`src/config.js` 构造时先校验环境变量得到默认值，再用这里的覆盖值算出生效的 `config.concurrency` / `config.controlConcurrency` / `config.timeout` / `config.maxCalls` / `config.maxDepth`；`configureRuntime(patch)` 写盘后同步内存并调用宿主的 `onKick` 重新准入。
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `core/settings.js` | 运行设置的存储与校验：只接受 `concurrency`（1..64）与 `control_concurrency`（1..16），`null` 清除该键；读时校验 uid / symlink / 大小 / 字段，写用临时文件加 rename 原子替换（`0600`）；`get()` 给出生效值 / 环境默认值 / 是否被覆盖与文件路径，`save(patch)` 先校验再落盘 | `RUNTIME_SETTINGS_KEYS`、`RUNTIME_SETTINGS_LIMITS`、`normalizeRuntimeSettings()`、`RuntimeSettings` |
+| `core/settings.js` | 运行设置的存储与校验：数字键 `concurrency`（1..64）、`control_concurrency`（1..16）、`call_timeout`（1..86400）、`task_call_limit`（1..1000）、`max_depth`（1..64），以及结构化 `input_routes`，`null` 清除该键；读时校验 uid / symlink / 大小 / 字段，写用临时文件加 rename 原子替换（`0600`）；`get()` 给出生效值 / 环境默认值 / 是否被覆盖与文件路径，`save(patch)` 先校验再落盘 | `RUNTIME_SETTINGS_KEYS`、`RUNTIME_SETTINGS_LIMITS`、`normalizeRuntimeSettings()`、`RuntimeSettings` |
 
 ## 快速介绍设置：`src/core/quick-intro.js`
 
@@ -50,7 +50,7 @@
 | `project/internal.js` | 两个跨模块的私有助手 | `agentView(task, run, latestRun)`、`tokenHash(token)` |
 | `project/agents.js` | 项目级 Agent 配置与环境文件读写接缝；配置和 env 都动态生效，按需查询 Pi / Codex 本机模型目录及 Pi 扩展/Skills，写入只允许用户侧 RPC；env 读取因含密钥也只允许用户 | `agentConfig()`、`agentModels(agent)`、`agentResources()`、`agentEnvironment(target)`、`configureAgentEnvironment(target,values)`、`configureAgents(value)` |
 | `project/settings.js` | 项目级运行设置接缝：把运行设置的读模型喂给 `system.status`，并把用户侧的 `system.configure` 接到 `Config.configureRuntime` | `runtimeSettings()`、`configureRuntimeSettings(patch)` |
-| `project/status.js` | 项目级读模型与廉价 `revision`；首页 `system.summary` 走独立的 `summary()`，用持久 `meta.overview_revision` 与覆盖索引聚合且不打开 Agent / 快速介绍配置，兼容 `system.status` 仍镜像完整 `agent_config` / `intro_config`，设置页再按需读取；并发额度另给 `settings` 镜像，顶层并发值仍是生效值 | `overviewRevision()`、`summary()`、`status(includeAgentConfig=true)` |
+| `project/status.js` | 项目级读模型与廉价 `revision`；首页 `system.summary` 走独立的 `summary()`，用持久 `meta.overview_revision` 与覆盖索引聚合且不打开 Agent / 快速介绍配置，兼容 `system.status` 仍镜像完整 `agent_config` / `intro_config`，设置页再按需读取；运行设置另给 `settings` 镜像（并发额度 + 调用 / 拆解限额），顶层同名字段仍是生效值 | `overviewRevision()`、`summary()`、`status(includeAgentConfig=true)` |
 | `project/deps.js` | 依赖边的读模型与结构校验；`decorate` 同时按 `input_id` 命中 `routedInputIds()` 给出 `route` 布尔（快速路由任务标记） | `decorate(tasks)`、`blockedBy(taskId)`、`assertDeps(taskId, parent, edges)` |
 | `project/say.js` | 新 say 的父分支所有者解析、daemon 启动/main say 幂等建立静息根 Task与输入/草稿直接生成 Task（不触碰历史 planner 路径） | `bootstrapMain()`、`ensureMainTask()`、`bindBranch(branch,commit)`、`say(content?,branch?,references?,draftId?)`、`reserveTask(taskId,kind)`（同类 pending 重查并记录阶段性阻塞）、`reservationWaitReason(task)`、`settleReservedMerge(taskId)`（父分支有别人的交付锁时保持 pending 并记 `parent_locked`）、`unreserveTask(taskId)`（pending 可撤；已发出未集成的 merge 请求可撤——解除交付锁、不删分支与提交、另记 `task.request_withdrawn`）、`noteBranchAdvance(taskId)`（父分支自己提交后把失效请求记成 `parent_moved`）、`recheckRequestedMerge(taskId)` 与 `clearReservationBlocked(taskId)`（已发出请求的只读复查：`source_moved` / `contained` / `parent_moved` / 清掉过期诊断；重启恢复与 `task.reserve` 复查共用）、`approveReservedMerge(taskId,commit,baseline)`（固定提交已在父分支内时退化为幂等关闭）、`integrateChild(parentId,childId,commit)`（只有交付锁持有者能写锁住的父分支；确认解分歧子 Task 时额外要求它包含固定的源与父两个提交，并一并结算被修复的已完子任务）、`resolveSayDivergence(taskId)`（用户触发源侧独立子 Task，固定两端 tip；未集成的完成分支须用户显式归档后才可重派；不自动集成）、`resolveChildDivergence(parentId,childId)`（执行中的直接父 Agent 对已完、未集成且与父分支分歧的子任务派同构的解分歧子 Task，父分支有交付锁时先拒）、`analyze(taskId,question)`（用户专属：在 main/owner 下建 `task_kind='analysis'` 只读分析子 Task，不建分支） |
 | `project/inputs.js` | 从用户指定父分支创建可推进输入分支、在其中规划；`inputs()` 的意图列表由 `inputs JOIN tasks` 内连接派生（任务那一半是输入自己的根 planner），所以根 planner 被 `task.delete` 删掉的输入行仍在库里，但不再出现在这个列表里 | `anchorInput(branch)`、`insertInput(inputId, anchor, content, attach, references)`、`createInput(content, attach, branch, references)`、`submit(content, branch, references)`、`inputs()` |

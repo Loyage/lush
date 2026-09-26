@@ -93,7 +93,7 @@ lush agent init worker --local        # 创建本机私有的 .lush/agent/ 补�
 
 ## 5. 运行配置
 
-环境变量只提供默认值；并发额度可被 `<project>/.lush/settings.json` 覆盖，改后立即生效、不需要重启。
+环境变量只提供默认值；并发额度与调用 / 拆解限额可被 `<project>/.lush/settings.json` 覆盖，改后立即生效、不需要重启。
 
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
@@ -112,9 +112,12 @@ lush agent init worker --local        # 创建本机私有的 .lush/agent/ 补�
 `LUSH_HOME` 不是独立作用域：若保留该变量，必须恰好等于所选项目的 `.lush`，否则拒绝运行。
 
 ```bash
-lush config                                  # 并发额度：生效值、环境默认值、来源与设置文件
+lush config                                  # 运行设置：生效值、环境默认值、来源与设置文件
 lush config set concurrency 8                # 执行通道并发上限（1..64）
 lush config set control-concurrency 4        # 控制通道并发上限（1..16）
+lush config set call-timeout 1800            # 单次模型调用超时秒数（1..86400）
+lush config set task-call-limit 40           # 单任务 invocation 总上限（1..1000）
+lush config set max-depth 12                 # 任务树最大层数（1..64）
 lush config reset all                        # 清除覆盖，回到环境默认
 ```
 
@@ -125,7 +128,7 @@ lush config reset all                        # 清除覆盖，回到环境默认
 ```text
 <project>/.lush/
 ├── project.json       不可跨目录复用的项目绑定
-├── settings.json      运行设置（并发额度、快速路由前缀）的覆盖；不存在表示全部使用环境默认
+├── settings.json      运行设置（并发额度、调用/拆解限额、快速路由前缀）的覆盖；不存在表示全部使用环境默认
 ├── project.db         SQLite：inputs / drafts / tasks / task_specs / task_deps / agent_runs / artifacts / review_candidates / messages / notices / events / branches
 ├── sessions/          每个 task 的独立 pi session 与当前输入文件
 ├── worktrees/         worker 工作区、每条输入的聚合分支检出、检验期间临时对照检出

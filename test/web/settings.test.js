@@ -30,6 +30,8 @@ const systemBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '运行状态') || null;
 const runtimeBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '并发额度') || null;
+const limitsBlock = () => [...panel().querySelectorAll('.block')]
+  .find(node => node.querySelector('h2')?.textContent === '调用与拆解限额') || null;
 const routesBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '输入前缀（仅旧提交路径）') || null;
 const environmentBlock = () => [...panel().querySelectorAll('.block')]
@@ -361,18 +363,16 @@ test('Agent 页：环境变量拒绝保留名，不发送写请求', async () =>
   expect(env.querySelector('.settings-error').textContent).toContain('由 Lush 保留');
 });
 
-test('系统页：只读展示 daemon 状态与项目路径，并发额度改为可编辑表单', () => {
+test('系统页：只读展示 daemon 状态与项目路径，运行设置改为可编辑表单', () => {
   openSystem();
   const block = systemBlock();
   expect(block).toBeTruthy();
   const value = field => block.querySelector(`[data-system-field="${field}"]`).textContent;
   expect(value('provider')).toBe('mock');
-  expect(value('call_timeout')).toBe('900 秒');
-  expect(value('task_call_limit')).toBe('24');
-  expect(value('max_depth')).toBe('8');
-  // 并发额度不再是只读行；那句「并发与调用限制仍由环境变量在 daemon 启动时读取」也不再出现。
+  // 调用超时 / 调用上限 / 拆解深度不再是只读行；那句「其余参数在 daemon 启动时从环境变量读取」也不再出现。
+  expect(block.querySelector('[data-system-field="call_timeout"]')).toBeNull();
   expect(block.querySelector('[data-system-field="concurrency"]')).toBeNull();
-  expect(deepText(block)).not.toContain('仍由环境变量在 daemon 启动时读取');
+  expect(deepText(block)).not.toContain('daemon 启动时从环境变量读取');
 
   const runtime = runtimeBlock();
   expect(runtime).toBeTruthy();
@@ -389,6 +389,21 @@ test('系统页：只读展示 daemon 状态与项目路径，并发额度改为
   expect(runtime.querySelector('.settings-path').textContent).toBe('/tmp/demo/.lush/settings.json');
   expect(runtime.querySelector('button[data-runtime-action="save"]')).toBeTruthy();
   expect(runtime.querySelector('button[data-runtime-action="reset"]')).toBeTruthy();
+
+  const limits = limitsBlock();
+  expect(limits).toBeTruthy();
+  const limitInput = key => limits.querySelector(`input[data-runtime-input="${key}"]`);
+  expect(limitInput('call_timeout').value).toBe('900');
+  expect(limitInput('task_call_limit').value).toBe('24');
+  expect(limitInput('max_depth').value).toBe('8');
+  expect(limitInput('call_timeout').max).toBe('86400');
+  expect(limitInput('task_call_limit').max).toBe('1000');
+  expect(limitInput('max_depth').max).toBe('64');
+  expect(limits.querySelector('[data-runtime-state="call_timeout"]').textContent).toContain('生效 900 秒');
+  expect(limits.querySelector('[data-runtime-state="call_timeout"]').textContent).toContain('环境默认 900 秒');
+  expect(limits.querySelector('[data-runtime-source="max_depth"]').textContent).toBe('环境默认');
+  expect(limits.querySelector('button[data-runtime-action="save"]')).toBeTruthy();
+  expect(limits.querySelector('button[data-runtime-action="reset"]')).toBeTruthy();
 });
 
 test('系统页：保存写回并发额度并立即反映到快照；越界或非整数在页面报错且不落盘', async () => {
@@ -440,6 +455,42 @@ test('系统页：恢复环境默认清除两个覆盖', async () => {
   expect(world.state.runtimeSettings.control_concurrency).toEqual({ value: 1, default: 1, overridden: false });
   expect(state.ui.lastSnapshot.status.control_concurrency).toBe(1);
   expect(runtimeBlock().querySelector('[data-runtime-source="concurrency"]').textContent).toBe('环境默认');
+});
+
+test('系统页：保存写回调用与拆解限额并立即反映到快照；越界在页面报错且不落盘', async () => {
+  openSystem();
+  let limits = limitsBlock();
+  limits.querySelector('input[data-runtime-input="call_timeout"]').value = '1200';
+  limits.querySelector('input[data-runtime-input="task_call_limit"]').value = '40';
+  limits.querySelector('input[data-runtime-input="max_depth"]').value = '10';
+  await limits.querySelector('button[data-runtime-action="save"]').onclick();
+  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { settings: { call_timeout: 1200, task_call_limit: 40, max_depth: 10 } } });
+  expect(world.state.runtimeSettings.call_timeout).toEqual({ value: 1200, default: 900, overridden: true });
+  expect(world.state.runtimeSettings.task_call_limit).toEqual({ value: 40, default: 24, overridden: true });
+  // 内存里立刻镜像到快照，不必等下一次轮询。
+  expect(state.ui.lastSnapshot.status.call_timeout).toBe(1200);
+  limits = limitsBlock();
+  expect(limits.querySelector('input[data-runtime-input="call_timeout"]').value).toBe('1200');
+  expect(limits.querySelector('[data-runtime-source="max_depth"]').textContent).toBe('已覆盖');
+
+  const before = world.state.actions.length;
+  limits.querySelector('input[data-runtime-input="call_timeout"]').value = '86401';
+  await limits.querySelector('button[data-runtime-action="save"]').onclick();
+  expect(world.state.actions.length).toBe(before);
+  expect(world.state.runtimeSettings.call_timeout.value).toBe(1200);
+  expect(limitsBlock().querySelector('.settings-error').textContent).toContain('1 到 86400');
+});
+
+test('系统页：调用与拆解限额可恢复环境默认', async () => {
+  openSystem();
+  const limits = limitsBlock();
+  limits.querySelector('input[data-runtime-input="max_depth"]').value = '20';
+  await limits.querySelector('button[data-runtime-action="save"]').onclick();
+  expect(world.state.runtimeSettings.max_depth.overridden).toBe(true);
+  await limitsBlock().querySelector('button[data-runtime-action="reset"]').onclick();
+  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { settings: { call_timeout: null, task_call_limit: null, max_depth: null } } });
+  expect(world.state.runtimeSettings.call_timeout).toEqual({ value: 900, default: 900, overridden: false });
+  expect(world.state.runtimeSettings.max_depth).toEqual({ value: 8, default: 8, overridden: false });
 });
 
 test('系统页：没有快照时显示占位', async () => {

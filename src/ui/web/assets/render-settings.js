@@ -452,10 +452,15 @@ function agentTab() {
   return content;
 }
 
-// 并发上限是唯一可以在浏览器里改写的运行设置；范围与核心 RUNTIME_SETTINGS_LIMITS 一致。
-const RUNTIME_FIELDS = [
-  { key: 'concurrency', label: '执行通道', max: 64 },
-  { key: 'control_concurrency', label: '控制通道', max: 16 },
+// 运行设置可在浏览器里改写；范围与核心 RUNTIME_SETTINGS_LIMITS 一致，单位只用于展示。
+const CONCURRENCY_FIELDS = [
+  { key: 'concurrency', label: '执行通道', max: 64, unit: '' },
+  { key: 'control_concurrency', label: '控制通道', max: 16, unit: '' },
+];
+const LIMIT_FIELDS = [
+  { key: 'call_timeout', label: '单次调用超时', max: 86400, unit: '秒' },
+  { key: 'task_call_limit', label: '单任务调用上限', max: 1000, unit: '次' },
+  { key: 'max_depth', label: '最大拆解深度', max: 64, unit: '层' },
 ];
 
 /** 候选状态回写快照：保存 / 恢复成功后，不依赖下一次轮询就能重画出新值。 */
@@ -463,24 +468,24 @@ function applyRuntimeSettings(settings) {
   const status = ui.lastSnapshot?.status;
   if (!status || !settings) return;
   status.settings = settings;
-  status.concurrency = settings.concurrency?.value;
-  status.control_concurrency = settings.control_concurrency?.value;
+  for (const field of [...CONCURRENCY_FIELDS, ...LIMIT_FIELDS]) status[field.key] = settings[field.key]?.value;
 }
 
-/** 「并发额度」编辑器：两个数字输入 + 保存 / 恢复环境默认；越界与后端报错都在页面上说清。 */
-function concurrencyEditor(runtime, plain) {
+/** 运行设置数字字段编辑器：输入 + 保存 / 恢复环境默认；越界与后端报错都在页面上说清。 */
+function runtimeFieldsEditor(runtime, fields, plain, note) {
   const box = el('div', undefined, 'settings-runtime');
   const grid = el('div', undefined, 'settings-runtime-grid');
   const inputs = {};
-  for (const spec of RUNTIME_FIELDS) {
+  for (const spec of fields) {
     const entry = runtime[spec.key] || {};
+    const unit = spec.unit ? ` ${spec.unit}` : '';
     const cell = el('label', undefined, 'settings-runtime-field'); cell.dataset.runtimeField = spec.key;
     const input = el('input'); input.type = 'number'; input.min = '1'; input.max = String(spec.max); input.step = '1';
     input.className = 'settings-number'; input.dataset.runtimeInput = spec.key; input.value = plain(entry.value);
-    input.setAttribute('aria-label', `${spec.label}并发上限（1..${spec.max}）`);
+    input.setAttribute('aria-label', `${spec.label}（1..${spec.max}${spec.unit ? `，单位${spec.unit}` : ''}）`);
     const source = el('span', entry.overridden ? '已覆盖' : '环境默认', `settings-source${entry.overridden ? ' overridden' : ''}`);
     source.dataset.runtimeSource = spec.key;
-    const state = el('span', `生效 ${plain(entry.value)} · 环境默认 ${plain(entry.default)} · ${entry.overridden ? '已覆盖' : '环境默认'}`, 'settings-note');
+    const state = el('span', `生效 ${plain(entry.value)}${unit} · 环境默认 ${plain(entry.default)}${unit} · ${entry.overridden ? '已覆盖' : '环境默认'}`, 'settings-note');
     state.dataset.runtimeState = spec.key;
     cell.append(el('span', spec.label, 'settings-field-label'), input, source, state);
     grid.append(cell); inputs[spec.key] = input;
@@ -490,29 +495,30 @@ function concurrencyEditor(runtime, plain) {
   const actions = el('div', undefined, 'settings-runtime-actions');
   const save = button('保存', async () => {
     const patch = {};
-    for (const spec of RUNTIME_FIELDS) {
+    for (const spec of fields) {
       const raw = String(inputs[spec.key].value).trim();
       const value = Number(raw);
+      const unit = spec.unit ? `（${spec.unit}）` : '';
       if (!/^\d+$/.test(raw) || !Number.isInteger(value) || value < 1 || value > spec.max) {
-        fail(`${spec.label}需要 1 到 ${spec.max} 之间的整数。`); return;
+        fail(`${spec.label}${unit}需要 1 到 ${spec.max} 之间的整数。`); return;
       }
       patch[spec.key] = value;
     }
     errorBox.hidden = true;
     const saved = await action('system.configure', { settings: patch });
     applyRuntimeSettings(saved);
-    show('并发额度已保存，立即对排队任务生效。');
+    show(`${note}已保存，立即对排队任务生效。`);
     renderSettings();
   }, 'primary settings-runtime-save');
   save.dataset.runtimeAction = 'save';
   const reset = button('恢复环境默认', async () => {
     errorBox.hidden = true;
-    const settings = {}; for (const spec of RUNTIME_FIELDS) settings[spec.key] = null;
+    const settings = {}; for (const spec of fields) settings[spec.key] = null;
     const saved = await action('system.configure', { settings });
     applyRuntimeSettings(saved);
-    show('并发额度已恢复环境默认。');
+    show(`${note}已恢复环境默认。`);
     renderSettings();
-  }, 'ghost settings-runtime-reset', { help: '清除两项并发额度的覆盖值，立即恢复环境默认' });
+  }, 'ghost settings-runtime-reset', { help: `清除${note}的覆盖值，立即恢复环境默认` });
   reset.dataset.runtimeAction = 'reset';
   actions.append(save, reset);
   box.append(grid, actions, errorBox);
@@ -663,27 +669,32 @@ function systemTab() {
   const content = el('div', undefined, 'settings-tab-panel');
   const snapshot = ui.lastSnapshot?.status ?? null;
   const section = block('运行状态');
-  section.append(el('p', '这里展示 daemon 的当前状态。Agent 配置请在 Agent 页修改；并发额度可在下方改写并立即生效，其余参数在 daemon 启动时从环境变量读取。', 'settings-note settings-readonly'));
+  section.append(el('p', '这里展示 daemon 的当前状态。Agent 配置请在 Agent 页修改；并发额度与调用 / 拆解限额可在下方改写并立即生效，不需要重启 daemon。', 'settings-note settings-readonly'));
   if (!snapshot) {
     section.append(el('p', '尚未收到 daemon 快照。', 'settings-value settings-placeholder')); content.append(section); return content;
   }
   const plain = value => (value === null || value === undefined || value === '') ? '—' : String(value);
   const line = (fieldName, title, note, value) => { const node = el('span', value, 'settings-value'); node.dataset.systemField = fieldName; return row(title, note, node); };
   section.append(line('provider', '默认 Agent', '当前项目未覆盖角色时使用的 Agent。', plain(snapshot.provider)));
-  section.append(line('call_timeout', '单次调用超时', 'LUSH_CALL_TIMEOUT。', `${plain(snapshot.call_timeout)} 秒`));
-  section.append(line('task_call_limit', '单任务调用上限', 'LUSH_TASK_CALLS。', plain(snapshot.task_call_limit)));
-  section.append(line('max_depth', '最大拆解深度', 'LUSH_MAX_DEPTH。', plain(snapshot.max_depth)));
   content.append(section);
 
   // 核心总是给出 settings；缺失时退回顶层生效值，至少不编造来源。
   const runtime = snapshot.settings ?? { file: null,
     concurrency: { value: snapshot.concurrency, default: null, overridden: false },
-    control_concurrency: { value: snapshot.control_concurrency, default: null, overridden: false } };
+    control_concurrency: { value: snapshot.control_concurrency, default: null, overridden: false },
+    call_timeout: { value: snapshot.call_timeout, default: null, overridden: false },
+    task_call_limit: { value: snapshot.task_call_limit, default: null, overridden: false },
+    max_depth: { value: snapshot.max_depth, default: null, overridden: false } };
   const concurrency = block('并发额度');
   concurrency.append(el('p', '执行通道与控制通道的并发上限；保存后写入项目设置文件，排队任务立即重新准入，不需要重启 daemon。', 'settings-note settings-section-note'));
-  concurrency.append(concurrencyEditor(runtime, plain));
+  concurrency.append(runtimeFieldsEditor(runtime, CONCURRENCY_FIELDS, plain, '并发额度'));
   concurrency.append(row('设置文件', '运行设置的保存位置；文件不存在表示全部使用环境默认。', el('code', plain(runtime.file), 'settings-path')));
   content.append(concurrency);
+
+  const limits = block('调用与拆解限额');
+  limits.append(el('p', '单次模型调用超时、单任务 invocation 总上限与任务树最大层数；保存后写入同一份项目设置文件，在下一次调度 / 调用 / 拆解时生效。', 'settings-note settings-section-note'));
+  limits.append(runtimeFieldsEditor(runtime, LIMIT_FIELDS, plain, '调用与拆解限额'));
+  content.append(limits);
 
   content.append(inputRoutesEditor(runtime));
   content.append(quickIntroEditor(snapshot.intro_config ?? introConfigCache, plain));

@@ -13,6 +13,12 @@ test('system.status mirrors read-only software config from daemon startup env', 
       // 未设置的 pi 覆写项是空字符串，由界面显示「pi 默认」，不编造默认模型 / provider 名。
       pi_model: '', pi_provider: '',
     });
+    // settings 是运行设置的读写镜像：调用 / 拆解限额与并发一样给出生效值、环境默认与来源。
+    expect(f.project.status().settings).toMatchObject({
+      call_timeout: { value: 600, default: 600, overridden: false },
+      task_call_limit: { value: 12, default: 12, overridden: false },
+      max_depth: { value: 5, default: 5, overridden: false },
+    });
   } finally { await f.close(); }
 });
 

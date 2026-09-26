@@ -21,10 +21,13 @@ lush [--project PATH] [--json] <command>
   agent prompt ROLE              按段查看该角色最终 Prompt（含 agent.json 与文件补充）
   agent env ROLE                 查看该角色热加载的 env 文件和变量名（值不显示）
   agent init [ROLE] [--local]     创建可提交的 .lush-agent/ 补充；--local 写本机 .lush/agent/
-  config [show]                   查看并发额度与快速路由前缀：生效值、环境默认值、来源与设置文件
+  config [show]                   查看运行设置与快速路由前缀：生效值、环境默认值、来源与设置文件
   config set concurrency N        执行通道并发上限（1..64），写回项目设置并立即生效
   config set control-concurrency N 控制通道并发上限（1..16）
-  config reset [concurrency|control-concurrency|all]  清除覆盖，回到环境默认
+  config set call-timeout N       单次模型调用超时秒数（1..86400）
+  config set task-call-limit N    单任务 invocation 总上限（1..1000）
+  config set max-depth N          任务树最大层数（1..64）
+  config reset [concurrency|control-concurrency|call-timeout|task-call-limit|max-depth|all]  清除覆盖，回到环境默认
   config route list              查看旧 input.submit 的快速路由前缀（新 say 不使用）
   config route add PREFIX [--target worker|research]  新增前缀并整表写回（默认 worker）
   config route remove PREFIX     删除一个前缀，不存在则报错

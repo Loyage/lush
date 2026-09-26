@@ -8,6 +8,9 @@ const routes = (value, overridden = false) => ({ value: value.map(r => ({ ...r }
 const statusModel = (overrides = {}) => ({ file: '/tmp/demo/.lush/settings.json',
   concurrency: { value: 4, default: 4, overridden: false },
   control_concurrency: { value: 2, default: 2, overridden: false },
+  call_timeout: { value: 900, default: 900, overridden: false },
+  task_call_limit: { value: 24, default: 24, overridden: false },
+  max_depth: { value: 8, default: 8, overridden: false },
   input_routes: routes(DEFAULT_ROUTES),
   ...overrides });
 
@@ -69,12 +72,29 @@ test('config set 写回对应通道，--json 给结构化读模型', async () =>
   expect(control.calls).toEqual([{ method: 'system.configure', params: { settings: { control_concurrency: 6 } } }]);
 });
 
+test('config set 调用与拆解限额写回对应键，--json 给结构化读模型', async () => {
+  const client = fakeClient();
+  const value = await runConfigCommand('config', ['set', 'call-timeout', '1200'], { client, json: true });
+  expect(client.calls).toEqual([{ method: 'system.configure', params: { settings: { call_timeout: 1200 } } }]);
+  expect(value.call_timeout).toEqual({ value: 1200, default: 900, overridden: true });
+
+  const calls = fakeClient();
+  await runConfigCommand('config', ['set', 'task-call-limit', '40'], { client: calls, json: true });
+  expect(calls.calls).toEqual([{ method: 'system.configure', params: { settings: { task_call_limit: 40 } } }]);
+
+  const depth = fakeClient();
+  await runConfigCommand('config', ['set', 'max-depth', '10'], { client: depth, json: true });
+  expect(depth.calls).toEqual([{ method: 'system.configure', params: { settings: { max_depth: 10 } } }]);
+});
+
 test('config set 越界或非整数报错，且不发出写请求', async () => {
-  for (const [flag, raw] of [['concurrency', '65'], ['concurrency', '0'], ['concurrency', '2.5'],
-    ['concurrency', 'abc'], ['control-concurrency', '17'], ['control-concurrency', 'x']]) {
+  for (const [flag, raw, range] of [['concurrency', '65', '1 to 64'], ['concurrency', '0', '1 to 64'],
+    ['concurrency', '2.5', '1 to 64'], ['concurrency', 'abc', '1 to 64'],
+    ['control-concurrency', '17', '1 to 16'], ['control-concurrency', 'x', '1 to 16'],
+    ['call-timeout', '86401', '1 to 86400'], ['call-timeout', '0', '1 to 86400'],
+    ['task-call-limit', '1001', '1 to 1000'], ['max-depth', '65', '1 to 64']]) {
     const client = fakeClient();
-    await expect(runConfigCommand('config', ['set', flag, raw], { client, json: true }))
-      .rejects.toThrow(flag === 'concurrency' ? '1 to 64' : '1 to 16');
+    await expect(runConfigCommand('config', ['set', flag, raw], { client, json: true })).rejects.toThrow(range);
     expect(client.calls).toEqual([]);
   }
 });
@@ -90,11 +110,18 @@ test('config reset 清除指定键或全部，回到环境默认', async () => {
 
   const both = fakeClient({ settings: statusModel({
     concurrency: { value: 8, default: 4, overridden: true },
-    control_concurrency: { value: 6, default: 2, overridden: true } }) });
+    control_concurrency: { value: 6, default: 2, overridden: true },
+    call_timeout: { value: 1200, default: 900, overridden: true },
+    task_call_limit: { value: 40, default: 24, overridden: true },
+    max_depth: { value: 10, default: 8, overridden: true } }) });
   const all = await runConfigCommand('config', ['reset'], { client: both, json: true });
-  expect(both.calls).toEqual([{ method: 'system.configure', params: { settings: { concurrency: null, control_concurrency: null } } }]);
+  expect(both.calls).toEqual([{ method: 'system.configure', params: { settings: {
+    concurrency: null, control_concurrency: null, call_timeout: null, task_call_limit: null, max_depth: null } } }]);
   expect(all.concurrency).toEqual({ value: 4, default: 4, overridden: false });
   expect(all.control_concurrency).toEqual({ value: 2, default: 2, overridden: false });
+  expect(all.call_timeout).toEqual({ value: 900, default: 900, overridden: false });
+  expect(all.task_call_limit).toEqual({ value: 24, default: 24, overridden: false });
+  expect(all.max_depth).toEqual({ value: 8, default: 8, overridden: false });
 });
 
 test('config 参数错误与未知子命令、未知键都被拒绝', async () => {
@@ -212,6 +239,9 @@ test('config 是用户专属：带 agent token 调用被拒', async () => {
 test('help 列出 config 的并发与 route 子命令', () => {
   expect(HELP).toContain('config set concurrency');
   expect(HELP).toContain('config set control-concurrency');
+  expect(HELP).toContain('config set call-timeout');
+  expect(HELP).toContain('config set task-call-limit');
+  expect(HELP).toContain('config set max-depth');
   expect(HELP).toContain('config reset');
   expect(HELP).toContain('config route list');
   expect(HELP).toContain('config route add PREFIX [--target worker|research]');
