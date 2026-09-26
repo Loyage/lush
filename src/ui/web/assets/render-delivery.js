@@ -16,6 +16,12 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
   const readyToRequestMerge = task.status === 'waiting' && task.integration === 'pending'
     && Boolean(task.head_commit && task.base_commit && task.head_commit !== task.base_commit)
     && (task.has_result === true || task.result != null);
+  // 展示交付后原 say 已终结，pending 合并预约永远等不到；只要还有未集成的提交，
+  // 就允许补发一次固定提交的合并请求（含撤销请求后 reservation 为空的情况）。
+  const settledShowcaseMerge = task.status === 'completed' && task.integration === 'pending'
+    && Boolean(task.head_commit && task.base_commit && task.head_commit !== task.base_commit)
+    && (task.has_result === true || task.result != null)
+    && (!reservation || (reservation.kind === 'showcase' && reservation.status === 'completed'));
   const actions = el('div', undefined, 'actions delivery-actions');
   const update = async (method, params, message) => {
     await action(method, params);
@@ -142,6 +148,19 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
       }, 'ghost', { help: '撤销尚未集成的请求：解除父分支的交付锁，分支与提交保留，但不会合入父分支。' }));
     }
   }
+  if (settledShowcaseMerge) actions.append(button('请求合并', async () => {
+    const confirmed = await confirmDialog({
+      title: `为已交付展示的 say #${task.id} 发起合并请求？`,
+      message: '展示已经交付、原 Task 已结算。这里会把展示时的固定提交与当前父分支基线固定下来并发一次合并请求；不会自动推进父分支，main/owner 仍需你按固定提交批准。工作区、子任务或快进条件不满足时会直接报出原因。',
+      confirmLabel: '发起请求',
+      confirmHelp: '只冻结当前分支 tip 与父基线并通知父 Task；请求不等于合并批准，不会自动合入。',
+    });
+    if (!confirmed) return;
+    try {
+      await update('task.reserve', { id: task.id, kind: 'merge' },
+        `已提交 say #${task.id} 的合并请求意图（请查看请求状态）`);
+    } catch (error) { show(error.message, 'error'); }
+  }, 'ghost', { help: '已交付展示的终态 say 补发固定提交的合并请求；不会自动合入父分支，条件不满足会说明原因。' }));
   if (actions.children.length) panel.append(actions);
   return panel;
 }

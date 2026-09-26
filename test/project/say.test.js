@@ -727,6 +727,37 @@ test('showcase booking creates a detached child and finishes the say only after 
   } finally { show.resolve(); await f.close(); }
 });
 
+test('a delivered showcase leaves the completed say able to issue a fixed merge request, which a user then approves', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const say = await f.project.say('present then merge');
+    fs.writeFileSync(path.join(say.task.workspace, 'screen.txt'), 'ready\n');
+    await git(say.task.workspace, 'add', 'screen.txt');
+    await git(say.task.workspace, 'commit', '-m', 'screen');
+    const commit = await git(say.task.workspace, 'rev-parse', 'HEAD');
+    const baseline = await git(f.root, 'rev-parse', 'main');
+    f.store.update(say.task.id, { status: 'waiting' });
+    const booked = await f.project.reserveTask(say.task.id, 'showcase');
+    const child = f.store.task(booked.reservation.child_id);
+    // 直接让展示子任务结算；这里只验证原 say 终结后的合并补口，不跑一次真实展示。
+    f.store.update(child.id, { status: 'completed', result: 'report ready' });
+    expect(f.project.settleReservedShowcase(say.task.id).status).toBe('completed');
+    expect(JSON.parse(f.store.task(say.task.id).reservation)).toMatchObject({ kind: 'showcase', status: 'completed' });
+
+    // 终态 say 永远等不到 pending 预约；展示交付后应直接补发固定提交的 requested 请求。
+    const requested = await f.project.reserveTask(say.task.id, 'merge');
+    expect(requested).toMatchObject({ changed: true,
+      reservation: { version: 1, kind: 'merge', status: 'requested', commit, baseline } });
+    expect(f.store.unread(say.task.parent_id)).toMatchObject([{ signal_type: 'merge.requested', sender_id: say.task.id }]);
+    expect(await git(f.root, 'rev-parse', 'main')).toBe(baseline);
+
+    const approved = await f.project.approveReservedMerge(say.task.id, commit, baseline);
+    expect(approved.merge.merged).toBe(true);
+    expect(f.store.task(say.task.id).integration).toBe('merged');
+    expect(await git(f.root, 'rev-parse', 'main')).toBe(commit);
+  } finally { await f.close(); }
+});
+
 test('showcase booking creates the child immediately and signals only once code and worktree are ready', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {

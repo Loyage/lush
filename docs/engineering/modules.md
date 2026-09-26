@@ -138,7 +138,7 @@
 
 前六个分区 **互不共享文件**，可以同时开工。测试分区要等它们落地，否则测的是半成品。
 
-新 Task 的预约是 `tasks.reservation` 可空 versioned JSON 附属状态：仅 say Task 可设置 `showcase` 或 `merge` 的一个 pending 意图，同类重复幂等、异类拒绝并要求显式撤销；User-only `task.reserve` / `task.unreserve` 与 Event 同事务。`merge` 预约只在 say 静息、工作区可检验且子任务已结算时冻结提交与直接父基线，在结算事务内写一次父 Task 信号并结束源 Task；用户另用固定 commit + baseline 批准 main/owner 的快进，Git 串行区内复核双方 ref。`showcase` 在静息且安全准入后按固定源/对照提交启动专用展示子 Task，原 say 用预约阶段 `started` 表示开发已完成但未终结；展示子 Task 结算后原 Task 才结算，失败仍留现场与原因；未批准的合并请求绝不移动父分支。同类重复 `task.reserve` 不重建预约，而是显式重查 pending 状态：执行屏障、未读消息和子任务等待原因也记在 `blocked_reason`，成功后由结算事务清掉；Web 的「复查预约」与 CLI 原命令共享此路径，不自动轮询外部 Git 变化。
+新 Task 的预约是 `tasks.reservation` 可空 versioned JSON 附属状态：仅 say Task 可设置 `showcase` 或 `merge` 的一个 pending 意图，同类重复幂等、异类拒绝并要求显式撤销；User-only `task.reserve` / `task.unreserve` 与 Event 同事务。`merge` 预约只在 say 静息、工作区可检验且子任务已结算时冻结提交与直接父基线，在结算事务内写一次父 Task 信号并结束源 Task；用户另用固定 commit + baseline 批准 main/owner 的快进，Git 串行区内复核双方 ref。`showcase` 在静息且安全准入后按固定源/对照提交启动专用展示子 Task，原 say 用预约阶段 `started` 表示开发已完成但未终结；展示子 Task 结算后原 Task 才结算，失败仍留现场与原因；未批准的合并请求绝不移动父分支。展示交付把原 say 结算为 `completed` 后，`task.reserve merge` 不再新建 pending 意图（终态 Task 等不到 pending 阶段），而是直接固定当前源 tip 与父基线、补写一次 `requested` 请求并给父 Task 发一次信号；撤销请求后再请求同样走这条补口，其余安全门与普通请求同源。同类重复 `task.reserve` 不重建预约，而是显式重查 pending 状态：执行屏障、未读消息和子任务等待原因也记在 `blocked_reason`，成功后由结算事务清掉；Web 的「复查预约」与 CLI 原命令共享此路径，不自动轮询外部 Git 变化。
 
 daemon 启动在 project identity/Store 建立后、RPC 开放前幂等执行 `Project.bootstrapMain()`：只有本地 main ref 存在才确立唯一静息 main Task；无 main 时保持 daemon 可用、首次新 say 给明确错误，不自动造 ref，也不触发 provider。恢复仍保留未知副作用不重放。
 

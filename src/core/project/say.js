@@ -110,6 +110,17 @@ export default {
   async reserveTask(taskId, kind) {
     check(kind === 'merge' || kind === 'showcase', 'reservation kind must be merge or showcase');
     if (kind === 'showcase') return this.bookShowcase(taskId);
+    // 展示交付后原 say 已终结，但「看完后仍需在分支图批准合并」这条路还缺一张固定提交的合并请求。
+    // 这类终态 say 不能再等一个 pending 预约，直接补发 requested；若它之前撤销过请求（reservation 为空），
+    // 同样允许重新请求，不必复活 Task。
+    const settledSay = this.store.task(id(taskId));
+    if (settledSay.task_kind === 'say' && settledSay.status === 'completed') {
+      const settledReservation = storedReservation(settledSay.reservation);
+      if (settledReservation === null
+        || (settledReservation.kind === 'showcase' && settledReservation.status === 'completed')) {
+        return this.requestSettledShowcaseMerge(taskId);
+      }
+    }
     const accepted = this.store.transaction(() => {
       const task = this.store.task(id(taskId));
       check(task.task_kind === 'say', 'only new say Tasks support delivery reservations');
@@ -385,6 +396,60 @@ export default {
         mergeRequest: { commit: state.child_head, baseline: state.parent_head, parent_id: parent.id },
       });
       return true;
+    });
+  },
+
+  /**
+   * 展示交付后原 say 已经终结，但交付流程还差一步：用户仍需要一张固定提交的合并请求才能在分支图批准。
+   * `merge` 预约的 pending 阶段依赖 say 静息等待，终态 Task 永远等不到，所以这里直接固定源 tip 与父基线、
+   * 在事务里写一次 requested 并给父 Task 发 `merge.requested` 信号；不改动已经终结的生命周期。
+   * 分支/工作区/父分支交付锁仍走与 `settleReservedMerge` 同一套安全门；不满足时抛错，让调用方看到原因。
+   */
+  async requestSettledShowcaseMerge(taskId) {
+    return this.workspaces.exclusive(async () => {
+      const current = this.store.task(id(taskId));
+      const reservation = storedReservation(current.reservation);
+      check(current.task_kind === 'say' && current.status === 'completed'
+        && (reservation === null || (reservation.kind === 'showcase' && reservation.status === 'completed')),
+      'only a completed say whose showcase settled can request a merge after settlement');
+      check(current.integration !== 'merged', 'this say is already integrated into its parent');
+      const parent = this.store.task(current.parent_id);
+      check(['main','owner','say'].includes(parent.task_kind) && !TERMINAL.has(parent.status),
+        'merge request needs a live directly bound parent Task');
+      // 交付锁与普通合并请求同源：同一父分支同时只允许一个未集成的请求。
+      const lock = this.branchFreeze(parent.branch);
+      check(!lock || lock.task_id === current.id,
+        lock ? `父分支 ${parent.branch} 已被 ${lock.reason}；先集成或撤销那个请求` : '');
+      await this.workspaces.finish(current); // 清理工作区并复核任务分支仍是自己的分支
+      let task = this.store.task(current.id);
+      check(task.head_commit && task.base_commit && task.head_commit !== task.base_commit,
+        'no committed source changes to request a merge for');
+      const state = await this.workspaces.branchState(task.branch);
+      check(state.parent === parent.branch && state.child_head === task.head_commit,
+        'say branch moved while preparing its fixed merge request');
+      check(state.status === 'fast_forward', `cannot request a merge from a ${state.status} branch; resolve it first`);
+      const blockers = state.blockers.filter(item => item !== `task:#${task.id}`);
+      check(blockers.length === 0, `unintegrated child branches block merge request: ${blockers.join(', ')}`);
+      task = this.store.task(current.id);
+      check(task.head_commit === state.child_head, 'say branch moved while preparing its fixed merge request');
+      const requested = { version: 1, kind: 'merge', status: 'requested', created_at: new Date().toISOString(),
+        commit: state.child_head, baseline: state.parent_head, parent_id: parent.id,
+        requested_at: new Date().toISOString() };
+      const key = `merge:${task.id}:${state.child_head}`;
+      const payload = { branch: task.branch, commit: state.child_head, baseline: state.parent_head };
+      const body = JSON.stringify({ version: 1, signal: 'merge.requested', key, source_task_id: task.id,
+        target_task_id: parent.id, payload });
+      this.store.transaction(() => {
+        const live = this.store.task(task.id);
+        check(live.status === 'completed' && live.head_commit === state.child_head,
+          'say changed while preparing its fixed merge request');
+        const row = this.store.signal(parent.id, task.id, 'merge.requested', key, body);
+        this.store.event(task.id, 'task.merge_requested', { ...payload, parent_id: parent.id, message_id: row.id });
+        if (row.inserted) this.store.event(parent.id, 'task.signal', { message_id: row.id,
+          source_task_id: task.id, signal: 'merge.requested', key });
+        this.store.update(task.id, { reservation: JSON.stringify(requested) });
+      });
+      return { task_id: task.id, reservation: storedReservation(this.store.task(task.id).reservation), changed: true };
     });
   },
 
