@@ -121,6 +121,7 @@ export default {
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
     const run = this.store.branchMergeRun(name);
     check(run && ['running', 'paused'].includes(run.status), `${name} has no active one-click merge to cancel`);
+    check(run.mode !== 'orchestrate', `${name} has an active merge orchestration; cancel it with branch.orchestrate_cancel`);
     this.store.transaction(() => {
       this.store.setBranchMergeRun(name, null);
       this.store.event(this.branchHost(name), 'merge.run.cancelled', { target: name, done: run.done ?? [],
@@ -131,15 +132,21 @@ export default {
     return { target_branch: name, status: 'cancelled', done: run.done ?? [] };
   },
 
-  /** 单飞的异步驱动入口：同一目标同时只有一个驱动在跑。 */
+  /** 单飞的异步驱动入口：同一目标同时只有一个驱动在跑。按运行 mode 分派旧一键合并或合并编排。 */
   scheduleMergeRun(target) {
     if (this.stopping) return;
     if (this.mergeRunsDriving.has(target)) return;
     queueMicrotask(() => {
       if (this.stopping) return;
-      this.driveMergeRun(target).catch(error => {
+      const run = this.store.branchMergeRun(target);
+      const drive = run?.mode === 'orchestrate' ? () => this.driveOrchestrate(target) : () => this.driveMergeRun(target);
+      drive().catch(error => {
         console.error(`merge run ${target}: ${error.stack || error}`);
-        try { this.finishMergeRun(target, 'failed', error.message); } catch { /* 终态清理失败不再递归 */ }
+        try {
+          const current = this.store.branchMergeRun(target);
+          if (current?.mode === 'orchestrate') this.finishOrchestrate(target, 'failed', null, error.message);
+          else this.finishMergeRun(target, 'failed', error.message);
+        } catch { /* 终态清理失败不再递归 */ }
       });
     });
   },
@@ -155,6 +162,7 @@ export default {
       for (let pass = 0; pass <= (this.store.branchMergeRun(target)?.order?.length ?? 0) + 2; pass++) {
         const run = this.store.branchMergeRun(target);
         if (!run || !['running', 'paused'].includes(run.status)) return;
+        if (run.mode === 'orchestrate') return; // 合并编排有自己的 driver
         // 暂停中：等待子任务。完成则先把 merger 落回它的直接父分支，取消 / 失败则整场失败。
         if (run.waiting_task_id) {
           const waited = this.store.task(run.waiting_task_id);

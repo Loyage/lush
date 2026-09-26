@@ -2,6 +2,7 @@ import { check, id, bounded } from '../../core/types.js';
 
 /** task.* */
 export const handlers = {
+  'task.graph'(p) { return p.taskGraph(); },
   'task.list'(p, params, actor) {
     const after = Number(params.after ?? 0), limit = Number(params.limit ?? 200);
     check(Number.isSafeInteger(after) && after >= 0 && Number.isInteger(limit) && limit > 0 && limit <= 1000, 'invalid task page');

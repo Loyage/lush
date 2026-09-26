@@ -81,6 +81,8 @@ export function makeWorld() {
         default: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }], overridden: false },
     },
     notices: [],
+    // 合并编排：默认给一份只有一条 say 子分支的只读计划，测试可整体替换。
+    orchestratePlan: null,
     transcriptAfter: [],
     transcriptLatest: [],
     actions: [],
@@ -246,6 +248,14 @@ export function makeWorld() {
         state.runtimeSettings = next;
         return json(next);
       }
+      if (body.method === 'branch.orchestrate_plan') return json(state.orchestratePlan ?? {
+        target_branch: body.params.branch, order: ['say-1'],
+        items: [{ branch: 'say-1', task_id: 7, commit: 'b'.repeat(40), baseline: 'a'.repeat(40),
+          action: 'merge', ready: true, auto_request: false, blockers: [] }],
+      });
+      if (body.method === 'branch.orchestrate') return json({ target_branch: body.params.branch, status: 'running',
+        task: { id: 93 }, plan: { order: ['say-1'] } });
+      if (body.method === 'branch.orchestrate_cancel') return json({ target_branch: body.params.branch, status: 'cancelled', done: [] });
       if (body.method === 'branch.merge') return json({ child: body.params.branch, parent: 'main', status: 'integrated', merged: true });
       if (body.method === 'branch.sync') return json({ branch: body.params.branch, parent: 'main', status: 'queued', task: { id: 88 } });
       if (body.method === 'branch.catchup') return json({ child: body.params.branch, parent: 'main', caught_up: true, from: 'aaa', to: 'bbb' });

@@ -35,6 +35,22 @@ test('graph.get is read-only and readable by both user and agent', async () => {
   } finally { await f.close(); }
 });
 
+test('task.graph is a project-scoped read model and keeps branch graph independent', async () => {
+  expect(PARAMS['task.graph']).toEqual([]);
+  expect(USER_ONLY.has('task.graph')).toBe(false);
+  const f = await setup();
+  try {
+    await repo(f.root);
+    const result = await fetch(f.url + '/api/task-graph');
+    expect(result.status).toBe(200);
+    const graph = await result.json();
+    expect(Object.keys(graph).sort()).toEqual(['nodes','edges','truncated','total'].sort());
+    expect(graph.nodes).toEqual([]);
+    expect(graph.edges).toEqual([]);
+    expect((await fetch(f.url + '/api/graph')).status).toBe(200);
+  } finally { await f.close(); }
+});
+
 test('web serves the branch-graph modules and wires the header entry', async () => {
   const f = await setup();
   try {

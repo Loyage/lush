@@ -12,7 +12,7 @@
 ## 理解与修改系统
 
 - [核心架构](core-architecture.md) → [执行模型](engineering/execution-model.md) → [交付与验收](engineering/review-loop.md) → [工程架构索引](engineering/architecture.md)：当前主链的连续阅读。
-- [Task 中心输入](engineering/task-centered-input-design.md)：新输入的设计约束；[工程文档](engineering/README.md)和[模块地图](engineering/modules.md)用于查实现入口。
+- [Task 图与固定输入规则](engineering/task-graph.md)：实现、可信代码风险与未完成的旧路径迁移。[Task 中心输入](engineering/task-centered-input-design.md)：新输入的设计约束；[工程文档](engineering/README.md)和[模块地图](engineering/modules.md)用于查实现入口。
 - [模块设计理念](design/README.md)：修改相关模块前了解目标与取舍，不当作已实现功能清单。
 - [接口参考](reference/README.md)：CLI / RPC / HTTP / Web；[贡献指南](contributing/README.md)说明开发及文档写法。
 - [托管模式](sleep-mode.md)、[改进候选清单](todo/README.md)：独立主题；候选清单不代表批准实施。

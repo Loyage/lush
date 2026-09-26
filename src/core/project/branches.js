@@ -226,7 +226,13 @@ export default {
     // 已经归档／回收过的分支不再归档一次（记录已是终态），但也不拦着其余的。
     const targets = [name, ...descendantsOf(this.store.branches(), name)]
       .filter(target => this.store.branch(target)?.status === 'active');
-    for (const target of targets) this.assertBranchWritable(target, 'archive it');
+    for (const target of targets) {
+      const frozen = this.branchFreeze(target);
+      // 允许用户显式归档一条已结束但未落地的解分歧分支：这是释放它留下的冻结的唯一清理动作。
+      const own = frozen?.kind === 'resolution' && this.store.branch(target)?.task_id === frozen.task_id;
+      const repair = own ? this.store.task(frozen.task_id) : null;
+      if (!(own && TERMINAL.has(repair.status))) this.assertBranchWritable(target, 'archive it');
+    }
     // 已发出未集成的请求：源分支就是那次交付本身，归档它会让父分支的交付锁永远没有落地对象。
     const requested = this.store.all(`SELECT t.id,t.branch,t.reservation FROM tasks t
       WHERE t.task_kind='say' AND t.reservation IS NOT NULL AND t.branch IN (${targets.map(() => '?').join(',')})`, ...targets)
@@ -285,6 +291,7 @@ export default {
     });
     const root = outcomes.find(outcome => outcome.branch === name) ?? outcomes[0] ?? {};
     // 顶层 worktree / ref / tip / discarded 描述的是子树根（调用方问的那条）；整棵子树看 branches。
+    this.kick(); // 被冻结的 queued Agent 可以在归档释放冻结后重新准入。
     return { branch: name, archived: true, count: outcomes.length, branches: outcomes,
       worktree: root.worktree ?? 'absent', ref: root.ref ?? 'absent', tip: root.tip ?? null, discarded: root.discarded === true,
       tasks: archived.map(task => ({ id: task.id, status: task.status })), sessions,

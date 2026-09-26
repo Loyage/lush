@@ -14,6 +14,7 @@
 
 - [数据流](data-flow.md)
 - [Task 中心输入](task-centered-input-design.md)：当前 say 的约束。
+- [Task 图与固定输入规则](task-graph.md)：Task 视角、可信规则执行与尚未完成的旧路径迁移。
 - [输入和规划](inputs-and-planning.md)、[Intent、Plan 编译与验收候选](intent-layer.md)：旧提交协议的兼容收尾。
 - [一次 invocation 与多级协作](invocation.md)
 - [Token 效率与用量归因](token-efficiency.md)：有界上下文、快速路由、合并唤醒与可选软预算。

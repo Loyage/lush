@@ -106,6 +106,9 @@ lush [--project PATH] [--json] <command>
   branch catchup BRANCH          子分支没有独有提交时，让它 fast-forward 跟上父分支
   branch archive BRANCH [--discard] 归档分支：删除分支及关联展示 worktree，保留任务与会话；--discard 才丢未提交改动
   branch summary [BRANCH] '一句话' 写 / 更新分支的一句话摘要（分支图上的标题）；省略 BRANCH 时写自己的分支
+  branch orchestrate-plan BRANCH   只读列出目标分支下全部待合并 say 子分支的固定提交、状态与动作
+  branch orchestrate BRANCH      确认一次计划后，在 main/owner 下派 runtime 驱动的合并编排 Task 自动收拢
+  branch orchestrate-cancel BRANCH 取消合并编排：释放冻结；已落地的合并不回滚
   notice list                     待决问题与答复
   notice post '问题' [--task ID] [--body '背景'] [--questions-file FILE]
       FILE 为 {questions:[...]}：结构化选择题，发布后停止本轮 agent，用户提交后唤醒。

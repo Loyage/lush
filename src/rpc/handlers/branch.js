@@ -47,6 +47,10 @@ export const handlers = {
   'branch.merge_plan'(p, params, actor) { return p.mergeAllPlan(params.branch); },
   'branch.merge_all'(p, params, actor) { return p.mergeAll(params.branch); },
   'branch.merge_cancel'(p, params, actor) { return p.cancelMergeAll(params.branch); },
+  // 合并编排：plan 只读；orchestrate 在用户确认计划一次后派 runtime 驱动的编排 Task；orchestrate_cancel 取消并释放冻结。
+  'branch.orchestrate_plan'(p, params, actor) { return p.orchestratePlan(params.branch); },
+  'branch.orchestrate'(p, params, actor) { return p.orchestrate(params.branch); },
+  'branch.orchestrate_cancel'(p, params, actor) { return p.cancelOrchestrate(params.branch); },
   // 归档会删 worktree 与本地 ref，是用户专属写操作；discard 只在明确要求时才丢弃脏工作区。
   'branch.archive'(p, params, actor) { return p.archiveBranch(params.branch, { discard_worktree: params.discard === true }); },
   /**

@@ -496,3 +496,28 @@ button.context-action.agent-call{background:transparent;color:var(--violet-ink)}
 button.context-action.agent-call:hover{background:var(--violet-soft)}
 button.agent-call:disabled{opacity:.55;background:var(--violet-ink);color:var(--violet-on)}
 button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
+
+/* Task 图：父子连线与详细 Task 卡片；分支图仍是 Git 操作的独立视图。 */
+.task-graph{max-width:1200px;margin:auto;overflow-x:auto}.task-graph .resource-hero{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.task-graph .resource-hero p{flex-basis:100%}.task-graph-summary{display:flex;flex-wrap:wrap;align-items:center;gap:7px}
+.task-graph-node{margin:10px 0;min-width:300px}.task-graph-children{margin-left:19px;padding-left:18px;border-left:2px solid var(--line)}
+.task-graph-children>.task-graph-node{position:relative}.task-graph-children>.task-graph-node::before{content:'';position:absolute;left:-18px;top:24px;width:17px;border-top:2px solid var(--line)}
+.task-graph-card{padding:13px 15px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--dim);border-radius:10px;overflow-wrap:anywhere}
+.task-graph-card.task-graph-running{border-left-color:var(--running);box-shadow:0 0 0 1px color-mix(in srgb,var(--running) 22%,transparent);animation:task-graph-breathe 2.4s ease-in-out infinite}
+@keyframes task-graph-breathe{50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--running) 30%,transparent)}}
+.task-graph-card.task-graph-queued{border-left-color:var(--queued)}
+.task-graph-card.task-graph-waiting{border-left-color:var(--waiting)}
+.task-graph-card.task-graph-awaiting{border-left-color:var(--awaiting);background:color-mix(in srgb,var(--amber-soft) 24%,var(--panel))}
+.task-graph-card.task-graph-completed{border-left-color:var(--completed)}
+.task-graph-card.task-graph-failed{border-left-color:var(--failed)}
+.task-graph-card.task-graph-cancelled{border-left-color:var(--cancelled);opacity:.75}
+.task-graph-card.task-graph-idle{border-left-color:var(--line)}
+.task-graph-orchestrate{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:9px}
+.task-graph-head,.task-graph-facts{display:flex;align-items:center;flex-wrap:wrap;gap:7px}.task-graph-head{margin-bottom:8px}
+.task-graph-title{text-align:left;font-weight:700;min-width:0;overflow-wrap:anywhere}.task-graph-facts{padding-top:8px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--muted)}
+.task-graph-goal,.task-graph-result{margin:6px 0;white-space:pre-wrap;line-height:1.6}.task-graph-result{color:var(--muted)}
+.task-graph-reason{margin:5px 0 9px;font-size:12px;color:var(--awaiting)}.task-graph-facts .mono{overflow-wrap:anywhere}
+.task-graph-git{margin:10px 0;padding:10px 12px;border:1px solid var(--line-soft);border-radius:9px}.task-graph-git-head{display:flex;flex-wrap:wrap;gap:8px;font-weight:600;font-size:11px}
+.task-graph-git .graph-diagnostics{margin-top:8px}.task-graph-card>.delivery-controls,.task-graph-card>.graph-decision{margin-top:10px}
+.task-graph-card>.agent-call{margin-top:9px}
+@media(max-width:640px){.task-graph-children{margin-left:6px;padding-left:10px}.task-graph-children>.task-graph-node::before{left:-10px;width:9px}.task-graph-card{padding:9px 11px}}

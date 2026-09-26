@@ -1,4 +1,6 @@
 import { check, id, text, TERMINAL } from '../types.js';
+import fs from 'node:fs';
+import { readInputRule, saveInputRule, snapshotPath } from '../task-input-rule.js';
 
 function storedReservation(raw) {
   if (raw === null) return null;
@@ -12,6 +14,11 @@ function storedReservation(raw) {
 }
 
 /** 请求失效的唯一诊断文案：三个触发点（父分支自己提交 / 集成 / 批准）说同一句话，才不会被去重成多条事件。 */
+function assertQuietResolutionParent(project, parent) {
+  check(!project.running.has(parent.id) && !['running', 'queued'].includes(parent.status),
+    `父 Task #${parent.id} 尚未到安全点；等待当前 Agent 调用结束后再冻结并派解分歧 Task`);
+}
+
 function parentMovedReason(branch, parentHead, commit) {
   return `父分支 ${branch} 在本请求发出后被推进到 ${String(parentHead).slice(0, 12)}，`
     + `固定提交 ${String(commit).slice(0, 12)} 已不能快进：撤销这个请求（任务、分支与提交保留），`
@@ -250,6 +257,7 @@ export default {
       const parent = this.store.task(source.parent_id);
       check(['main','owner','say'].includes(parent.task_kind) && !TERMINAL.has(parent.status),
         'the directly bound parent is no longer active');
+      assertQuietResolutionParent(this, parent);
       const state = await this.workspaces.branchState(source.branch);
       check(state.parent === parent.branch && state.child_head === source.head_commit,
         'say branch moved during divergence check; inspect its current HEAD');
@@ -262,7 +270,7 @@ export default {
         + `不可修改 say 分支或父分支；`
         + (terminal
           ? `完成后由 runtime 检查产物含两端固定提交，把它快进推进回 say 分支，再重新发出固定提交的合并请求。`
-          : `完成后由 say #${source.id} Agent 检查固定子提交并另行确认集成。`);
+          : `完成后由 runtime 检查产物含两端固定提交、推进 say 分支，再发固定合并请求；原 say Agent 在冻结期间不调用。`);
       const created = this.store.transaction(() => {
         const live = this.store.task(source.id);
         const currentReservation = storedReservation(live.reservation);
@@ -270,8 +278,9 @@ export default {
           && live.status === (terminal ? 'completed' : 'waiting')
           && live.head_commit === state.child_head && live.parent_id === parent.id,
           'say reservation changed while starting divergence work');
+        assertQuietResolutionParent(this, this.store.task(parent.id));
         check(this.store.activeTasks().length < 1000, 'too many active tasks');
-        const child = this.store.create({ parent_id: terminal ? null : live.id, input_id: live.input_id,
+        const child = this.store.create({ parent_id: terminal ? parent.id : live.id, input_id: live.input_id,
           role: 'agent', task_kind: 'child', name: `resolve-${live.id}`, goal,
           ...(terminal ? { resolves_task_id: live.id } : {}) });
         this.store.update(child.id, { base_commit: state.child_head, target_branch: live.branch });
@@ -294,46 +303,82 @@ export default {
   },
 
   /**
-   * 独立解分歧子 Task 结算后，把它同时包含 say 固定提交与父分支固定提交的产物快进推进回 say 分支，
-   * 再按最新 Git 事实重新发一次固定提交合并请求。终态 say 没有可唤醒的 Agent，这一步由 runtime 完成；
-   * 重复调用只处理仍处于 resolving 状态的预约，天然幂等。
+   * 新式解分歧统一由 runtime 收尾：验证两端固定 tip，先把源分支快进到解分歧产物。
+   * say 重新固定合并请求，child 继续把源 child ff-only 收入父分支；不唤醒被冻结的 Agent 去写父分支。
+   * 中途 Git 已快进而库尚未结算时从固定提交核对后补记，不重放 Agent 工作。
    */
   async finalizeTerminalDivergence(resolutionId) {
     const resolution = this.store.task(id(resolutionId));
-    if (!resolution || resolution.resolves_task_id === null || resolution.status !== 'completed'
-      || !resolution.head_commit) return null;
-    const say = this.store.task(resolution.resolves_task_id);
-    if (!say || say.task_kind !== 'say' || say.status !== 'completed') return null;
-    const reservation = storedReservation(say.reservation);
-    if (reservation?.kind !== 'merge' || reservation.status !== 'pending'
-      || reservation.blocked_code !== 'resolving' || reservation.resolution_child_id !== resolution.id) return null;
+    if (!resolution || resolution.status !== 'completed' || !resolution.head_commit) return null;
+    const requestEvent = this.store.get("SELECT data FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1", resolution.id);
+    if (!requestEvent) return null;
+    const fixed = JSON.parse(requestEvent.data);
+    if (fixed.orchestrated === true) return null; // 编排 driver 自己收尾
+    const say = this.store.task(fixed.source_task_id);
+    if (!say || !['say','child'].includes(say.task_kind)) return null;
+    if (say.task_kind === 'child') {
+      if (say.status !== 'completed' || say.integration === 'merged') return null;
+    } else {
+      if (!['waiting','completed'].includes(say.status)) return null;
+      const reservation = storedReservation(say.reservation);
+      if (reservation?.kind !== 'merge' || reservation.status !== 'pending'
+        || reservation.blocked_code !== 'resolving' || reservation.resolution_child_id !== resolution.id) return null;
+    }
     return this.workspaces.exclusive(async () => {
       const liveResolution = this.store.task(resolution.id);
       const liveSay = this.store.task(say.id);
-      const current = storedReservation(liveSay.reservation);
-      if (liveResolution.status !== 'completed' || !liveResolution.head_commit
-        || liveSay.status !== 'completed' || current?.resolution_child_id !== liveResolution.id
-        || current.blocked_code !== 'resolving') return null;
-      const event = this.store.get("SELECT data FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1", liveResolution.id);
-      check(event, 'terminal divergence resolution is missing its frozen request');
-      const fixed = JSON.parse(event.data);
+      const current = liveSay.task_kind === 'say' ? storedReservation(liveSay.reservation) : null;
+      if (liveResolution.status !== 'completed' || !liveResolution.head_commit) return null;
+      if (liveSay.task_kind === 'child') {
+        if (liveSay.status !== 'completed' || liveSay.integration === 'merged') return null;
+      } else if (!['waiting','completed'].includes(liveSay.status)
+        || current?.resolution_child_id !== liveResolution.id || current.blocked_code !== 'resolving') return null;
       check(fixed.source_task_id === liveSay.id, 'terminal divergence resolution targets the wrong say');
       check(await this.workspaces.isAncestor(this.config.project, fixed.source_commit, liveResolution.head_commit)
         && await this.workspaces.isAncestor(this.config.project, fixed.parent_commit, liveResolution.head_commit),
         'terminal divergence resolution must contain both frozen commits before it can be finalized');
       const state = await this.workspaces.branchState(liveSay.branch);
-      check(state.parent === liveSay.target_branch && state.child_head === fixed.source_commit,
-        'say branch moved before its terminal divergence resolution was finalized; inspect the branch');
-      await this.workspaces.fastForwardBranchUnsafe(liveSay.branch, liveResolution.head_commit);
-      this.store.transaction(() => {
+      const advanced = state.child_head === liveResolution.head_commit;
+      check(state.parent === liveSay.target_branch
+        && (state.child_head === fixed.source_commit || advanced)
+        && (state.parent_head === fixed.parent_commit
+          || (liveSay.task_kind === 'child' && advanced && state.parent_head === liveResolution.head_commit)),
+        'source or parent branch moved before divergence resolution was finalized; inspect the branch');
+      if (!advanced) await this.workspaces.fastForwardBranchUnsafe(liveSay.branch, liveResolution.head_commit);
+      if (liveSay.head_commit !== liveResolution.head_commit) this.store.transaction(() => {
         this.store.update(liveSay.id, { head_commit: liveResolution.head_commit, integration: 'pending',
           integration_error: null });
-        this.store.update(liveResolution.id, { integration: 'merged', integration_error: null });
-        this.store.event(liveResolution.id, 'resolution.merged', { commit: liveResolution.head_commit,
-          source_task_id: liveSay.id, source_commit: fixed.source_commit, parent_commit: fixed.parent_commit });
         this.store.event(liveSay.id, 'task.divergence_resolved', { resolution: liveResolution.id,
           commit: liveResolution.head_commit, source_commit: fixed.source_commit, parent_commit: fixed.parent_commit });
       });
+      if (liveSay.task_kind === 'child') {
+        const owner = this.store.task(liveSay.parent_id);
+        check(!this.running.has(owner.id) && !['running','queued'].includes(owner.status),
+          '父 Agent 尚未到安全点，不能落地解分歧结果');
+        if (state.parent_head === fixed.parent_commit) await this.workspaces.mergeBranchUnsafe(
+          liveSay.branch, liveResolution.head_commit, fixed.parent_commit);
+        this.store.transaction(() => {
+          this.store.update(liveResolution.id, { integration: 'merged', integration_error: null });
+          this.store.event(liveResolution.id, 'resolution.merged', { commit: liveResolution.head_commit,
+            source_task_id: liveSay.id, source_commit: fixed.source_commit, parent_commit: fixed.parent_commit });
+          this.store.update(liveSay.id, { integration: 'merged', integration_error: null });
+          this.store.event(liveSay.id, 'task.divergence_integrated', { resolution: liveResolution.id,
+            commit: liveResolution.head_commit, parent_commit: fixed.parent_commit });
+        });
+        this.kick();
+        return this.store.task(liveSay.id);
+      }
+      if (liveResolution.integration !== 'merged') this.store.transaction(() => {
+        this.store.update(liveResolution.id, { integration: 'merged', integration_error: null });
+        this.store.event(liveResolution.id, 'resolution.merged', { commit: liveResolution.head_commit,
+          source_task_id: liveSay.id, source_commit: fixed.source_commit, parent_commit: fixed.parent_commit });
+      });
+      if (liveSay.status === 'waiting') {
+        // 活动 say 的 Agent 不在被冻结的父分支上重新执行；runtime 校验并结算固定请求。
+        return this.finish(liveSay.id, 'completed', liveSay.result, null, {
+          mergeRequest: { commit: liveResolution.head_commit, baseline: fixed.parent_commit, parent_id: liveSay.parent_id },
+        });
+      }
       return this.requestSettledShowcaseMergeUnsafe(liveSay.id).catch(error => {
         this.noteReservationBlocked(liveSay.id, error.message);
         return null;
@@ -341,7 +386,7 @@ export default {
     });
   },
 
-  /** 独立解分歧子 Task 结算后调度一次收尾；失败只记事件，不影响子任务自己的结算。 */
+  /** 解分歧子 Task 结算后调度一次收尾；失败只记事件并保留冻结/现场供检查。 */
   scheduleTerminalDivergenceFinalize(resolutionId) {
     if (this.stopping) return;
     queueMicrotask(() => this.finalizeTerminalDivergence(resolutionId).catch(error => {
@@ -353,7 +398,7 @@ export default {
   /** 终态 say 的独立解分歧子 Task 失败/取消：把预约落回可分派的 diverged 状态，保留失败现场。 */
   noteTerminalDivergenceFailure(resolution, status, error) {
     const say = this.store.task(resolution.resolves_task_id);
-    if (!say || say.task_kind !== 'say' || say.status !== 'completed') return false;
+    if (!say || say.task_kind !== 'say' || !['waiting','completed'].includes(say.status)) return false;
     const reservation = storedReservation(say.reservation);
     if (reservation?.kind !== 'merge' || reservation.status !== 'pending'
       || reservation.resolution_child_id !== resolution.id) return false;
@@ -388,6 +433,7 @@ export default {
       // 交付锁：父分支上还有未集成的 say 请求时，先集成或撤销它，再分派新的分支工作。
       const lock = this.branchFreeze(parent.branch);
       check(!lock, lock ? `branch ${parent.branch} is frozen: ${lock.reason}; integrate or withdraw that request first` : '');
+      // 此入口由正在运行的父 Agent 调用：先固定请求并阻止新的写入，等它本轮安全结束后才准许解分歧子 Task 开始。
       await this.workspaces.finish(child);
       const live = this.store.task(child.id);
       const state = await this.workspaces.branchState(live.branch);
@@ -398,7 +444,7 @@ export default {
       const goal = `在独立子任务工作区解决子 Task #${live.id} 与直接父分支 ${parent.branch} 的分歧。\n`
         + `基线是固定子提交 ${state.child_head}。请将固定父提交 ${state.parent_head} 合入本工作区（不要合入会移动的分支名）；`
         + `如有冲突，保留双方意图并解决，运行相关测试，再提交结果。只改自己的子任务分支，`
-        + `不可修改 #${live.id} 或 ${parent.branch}；完成后由 #${parent.id} Agent 用 task.integrate 确认固定子提交，集成会自动结算 #${live.id}。`;
+        + `不可修改 #${live.id} 或 ${parent.branch}；完成后由 runtime 核对两端固定提交，依次快进 #${live.id} 与 #${parent.id} 的分支。`;
       const created = this.store.transaction(() => {
         const current = this.store.task(live.id), owner = this.store.task(parent.id);
         check(owner.status === 'running' && current.status === 'completed' && current.integration !== 'merged'
@@ -415,6 +461,7 @@ export default {
           source_commit: state.child_head, parent_commit: state.parent_head });
         return repair;
       });
+      this.requestPreempt(parent.id, '解分歧已冻结父子分支，等待本轮安全结束');
       this.kick();
       return { status: 'queued', task: this.progressView(created), source_commit: state.child_head,
         parent_commit: state.parent_head };
@@ -440,7 +487,8 @@ export default {
     const ready = () => {
       const task = this.store.task(taskId);
       const reservation = storedReservation(task.reservation);
-      if (task.task_kind !== 'say' || reservation?.kind !== 'merge' || reservation.status !== 'pending') return null;
+      if (task.task_kind !== 'say' || reservation?.kind !== 'merge' || reservation.status !== 'pending'
+        || reservation.blocked_code === 'resolving') return null;
       const reason = this.reservationWaitReason(task);
       if (reason) { this.noteReservationBlocked(task.id, reason); return null; }
       return task;
@@ -718,6 +766,12 @@ export default {
       check(task.task_kind === 'say', 'only new say Tasks support delivery reservations');
       if (task.reservation === null) return { task_id: task.id, reservation: null, changed: false };
       const previous = storedReservation(task.reservation);
+      if (previous.blocked_code === 'resolving' && previous.resolution_child_id) {
+        const resolution = this.store.task(previous.resolution_child_id);
+        check(TERMINAL.has(resolution.status) && (resolution.integration === 'merged'
+          || !resolution.branch || this.store.branch(resolution.branch)?.status === 'archived'),
+        `解分歧 Task #${resolution.id} 仍占用冻结；先等待它落地，或取消并显式归档其分支`);
+      }
       // 已发出但尚未集成的合并请求可以撤销：否则父分支会被一个不再成立的请求一直冻住。
       // 展示预约在准备阶段仍可撤销：随之取消那个还没交付任何东西的 prep 子 Task。
       const withdrawable = previous.version === 1 && (['pending','preparing'].includes(previous.status)
@@ -885,7 +939,9 @@ export default {
       'parent say Task is presenting its frozen commit; select another bound branch');
     // anchorInput always passes the chosen ref, never the possibly changed process HEAD.
     const { inputId, anchor } = await this.anchorInput(target);
+    let ruleTaskId = null;
     try {
+      const rule = await readInputRule(this.workspaces, this.config.project, anchor.commit);
       // Git was asynchronous: a clear may have started while the anchor was being created.
       this.assertWritable('send this say');
       const result = this.store.transaction(() => {
@@ -904,6 +960,11 @@ export default {
           name: `say-${inputId}`, task_kind: 'say' });
         this.store.update(task.id, { branch: anchor.branch, workspace: anchor.workspace,
           base_commit: anchor.commit, target_branch: target });
+        if (rule !== null) {
+          ruleTaskId = task.id;
+          saveInputRule(this.config.home, task.id, rule);
+          this.store.event(task.id, 'task.input_rule_frozen', { source: '.lush-task/input.mjs', commit: anchor.commit });
+        }
         this.store.run('UPDATE inputs SET task_id=? WHERE id=?', task.id, inputId);
         const attached = this.store.run('UPDATE branches SET task_id=? WHERE branch=? AND task_id IS NULL', task.id, anchor.branch);
         check(attached.changes === 1, 'input branch already belongs to another task');
@@ -919,6 +980,7 @@ export default {
       this.kick();
       return result;
     } catch (error) {
+      if (ruleTaskId !== null) fs.rmSync(snapshotPath(this.config.home, ruleTaskId), { force: true });
       await this.workspaces.releaseAnchor(anchor)
         .catch(failure => console.error(`say ${inputId}: anchor cleanup failed: ${failure.message}`));
       throw error;

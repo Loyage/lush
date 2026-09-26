@@ -9,7 +9,9 @@ import { descendantsOf, parentOf } from './genealogy.js';
  * 2. 尚未结束的 merger 任务（分歧时在子侧建的 sync merger，或冲突收口的 resolver）——按
  *    「被指定处理合并的 branch，其所有子分支和它的父分支都不能变动」冻结那个分支、它的全部
  *    后代、以及它的直接父分支。
- * 3. 已发出但尚未集成的 say 合并请求（`tasks.reservation` 里 kind=merge、status=requested）——请求已经
+ * 3. 新式解分歧 Task 固定了两端 tip：活动中以及已完成但未落地时冻结源分支、它的后代和直接父分支；
+ *    失败/取消释放，未落地的完成分支要显式归档或成功落地才能释放。
+ * 4. 已发出但尚未集成的 say 合并请求（`tasks.reservation` 里 kind=merge、status=requested）——请求已经
  *    把父分支基线固定成那个 commit；父分支再前进（另一个子任务落地、用户批准别的请求、外部 git）
  *    就会让固定提交不再能快进，请求只能重做。所以只冻结**父分支本身**：请求者的分支已终态，
  *    兄弟 say 自己的分支仍要能继续工作。解除只有两条路——集成这个请求，或用户明确撤销它；
@@ -23,9 +25,25 @@ export function branchFreeze(store) {
   const add = (branch, info) => { if (branch && !frozen.has(branch)) frozen.set(branch, info); };
 
   for (const { target, run } of store.activeBranchMergeRuns()) {
+    const label = run.mode === 'orchestrate' ? '合并编排' : '一键合并';
     for (const branch of [target, ...descendantsOf(rows, target)]) {
-      add(branch, { kind: 'merge_all', target, run_status: run.status ?? null,
-        reason: `一键合并正在收拢 ${target}${run.status === 'paused' ? '（等待子任务）' : ''}` });
+      add(branch, { kind: 'merge_all', target, run_status: run.status ?? null, run_mode: run.mode ?? null,
+        reason: `${label}正在收拢 ${target}${run.status === 'paused' ? '（等待子任务）' : ''}` });
+    }
+  }
+
+  // 新式解分歧 child 不使用 merger 角色。它创建时即在同一事务里写固定两端提交的事件；
+  // 完成但尚未落地仍保持冻结，失败/取消释放（失败分支必须检查/归档后才能重派）。
+  for (const task of store.all(`SELECT t.id, t.target_branch, t.status, t.integration, t.branch
+    FROM tasks t WHERE t.task_kind='child' AND t.target_branch IS NOT NULL
+      AND (t.status NOT IN ('completed','failed','cancelled') OR (t.status='completed' AND t.integration!='merged'))
+      AND EXISTS (SELECT 1 FROM events e WHERE e.task_id=t.id AND e.type='task.divergence_resolution_requested')
+    ORDER BY t.id`)) {
+    if (task.status === 'completed' && (!task.branch || store.branch(task.branch)?.status !== 'active')) continue;
+    const branch = task.target_branch;
+    for (const name of [branch, parentOf(rows, branch), ...descendantsOf(rows, branch)]) {
+      add(name, { kind: 'resolution', task_id: task.id, target: branch,
+        reason: `解分歧 Task #${task.id} 正在固定 ${branch} 与其父分支（完成后须先落地或显式归档）` });
     }
   }
 

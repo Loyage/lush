@@ -69,6 +69,129 @@ function summarize(text) {
  * `git:false` / `error`，不抛错——图是给人看的辅助视图，不该把 daemon 的轮询打断。
  */
 export default {
+  /**
+   * Task 图读模型：Task 是身份与父子关系，分支 / worktree 只是属性，不画成节点。全程只读 store 既有事实，
+   * 不写库、不改 git，所以轮询与 `project.stopping` 期间也能安全跑。
+   *
+   * 每个节点的 `branch_info` 除了实时 ref 与 Git 诊断，还投影这条 Task 自己的分支上「合并编排」所需的
+   * 两个只读字段：`subtree_say`（分支谱系里还有多少条 say 子分支，决定是否值得给编排入口）与
+   * `merge_run`（该分支仍在跑的合并运行摘要 `{mode,status,done,total,task_id}`，没有则 null）。
+   * 两者只读 `branches` / `branches.merge_run`，不触发任何执行。
+   */
+  async taskGraph() {
+    const limit = GRAPH_NODE_LIMIT;
+    const rows = this.store.all(`SELECT id, parent_id, input_id, task_kind, role, name, goal, status,
+      integration, integration_error, branch, workspace, target_branch, base_commit, head_commit, resolves_task_id,
+      reservation, progress_plan, created_at, updated_at, calls, agent_wakes,
+      (SELECT p.task_kind FROM tasks p WHERE p.id=tasks.parent_id) AS parent_task_kind,
+      CASE WHEN result IS NULL THEN 0 ELSE 1 END AS has_result,
+      substr(result, 1, 320) AS result_preview
+      FROM tasks ORDER BY CASE WHEN task_kind IN ('main','owner') THEN 0
+        WHEN status IN ('running','queued','waiting','awaiting') THEN 1 ELSE 2 END, id DESC LIMIT ?`, limit + 1);
+    const selected = rows.slice(0, limit);
+    const ids = selected.map(row => row.id);
+    const pending = new Map();
+    if (ids.length) for (const notice of this.store.all(`SELECT id, task_id, kind, title, substr(body,1,1000) AS body
+      FROM notices WHERE status='open' AND task_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`, ...ids)) {
+      const item = pending.get(notice.task_id) ?? { count: 0, notice: null };
+      item.count++; item.notice = notice; pending.set(notice.task_id, item);
+    }
+    const children = new Map();
+    if (ids.length) for (const child of this.store.all(`SELECT parent_id, count(*) AS total,
+      sum(CASE WHEN status IN ('running','queued','waiting','awaiting') THEN 1 ELSE 0 END) AS active
+      FROM tasks WHERE parent_id IN (${ids.map(() => '?').join(',')}) GROUP BY parent_id`, ...ids)) children.set(child.parent_id, child);
+    const dependencies = this.store.depMap(ids);
+    const resolutions = new Map();
+    if (ids.length) for (const entry of this.store.all(`SELECT task_id, data FROM events
+      WHERE type='task.divergence_resolution_requested' AND task_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`, ...ids)) {
+      try { resolutions.set(entry.task_id, JSON.parse(entry.data).source_task_id); } catch { /* legacy event */ }
+    }
+    const freezes = new Map(this.branchFreeze().map(item => [item.branch, item]));
+    // Task 卡片的合并编排入口只读投影：目标就是这条 Task 自己的分支。只读 store / branches，不碰 git、不写库。
+    const activeBranches = this.store.branches().filter(row => row.status === 'active');
+    const activeRuns = new Map(this.store.activeBranchMergeRuns().map(({ target, run }) => [target, run]));
+    const sayBranches = new Set(this.store.all("SELECT branch FROM tasks WHERE task_kind='say' AND branch IS NOT NULL")
+      .map(row => row.branch));
+    // 一次把分支树拼好并记忆化「分支下的 say 子分支数」，避免每个 Task 节点各扫一遍全部分支。
+    const branchChildren = new Map();
+    for (const row of activeBranches) {
+      const parent = row.parent && row.parent !== row.branch ? row.parent : null;
+      if (!parent) continue;
+      if (!branchChildren.has(parent)) branchChildren.set(parent, []);
+      branchChildren.get(parent).push(row.branch);
+    }
+    const sayDescendants = new Map();
+    const countSayDescendants = (name, seen = new Set()) => {
+      if (sayDescendants.has(name)) return sayDescendants.get(name);
+      if (seen.has(name)) return 0; // 坏数据成环时见好就收，不让计数卡死。
+      seen.add(name);
+      let total = 0;
+      for (const child of branchChildren.get(name) || []) {
+        if (sayBranches.has(child)) total += 1;
+        total += countSayDescendants(child, seen);
+      }
+      sayDescendants.set(name, total);
+      return total;
+    };
+    const branchNames = [...new Set(selected.map(row => row.branch).filter(Boolean))];
+    const records = new Map(branchNames.length ? this.store.all(`SELECT branch, parent, status, created_from_commit
+      FROM branches WHERE branch IN (${branchNames.map(() => '?').join(',')})`, ...branchNames)
+      .map(row => [row.branch, row]) : []);
+    const refs = new Map();
+    try {
+      const output = await this.workspaces.git(this.config.project, 'for-each-ref', '--format=%(refname:short) %(objectname)', 'refs/heads');
+      for (const line of output.split('\n')) {
+        const at = line.indexOf(' '); if (at > 0) refs.set(line.slice(0, at), line.slice(at + 1).trim());
+      }
+    } catch { /* no Git: mark head and diagnostics unknown, not clean */ }
+    const candidates = branchNames.filter(name => records.get(name)?.status !== 'archived');
+    const diagnostics = candidates.length ? await this.workspaces.branchDiagnostics(candidates
+      .map(name => ({ name, head_commit: refs.get(name) ?? null,
+        created_from_commit: records.get(name)?.created_from_commit ?? null }))) : new Map();
+    const nodes = selected.map(({ goal, progress_plan, reservation, ...row }) => {
+      const view = this.progressView({ progress_plan, reservation });
+      const delivery = view.reservation;
+      const progress = view.progress;
+      const current = progress?.items?.find(item => item.status !== 'completed');
+      const plan = progress?.items?.length ? { total: progress.items.length,
+        completed: progress.items.filter(item => item.status === 'completed').length,
+        current: current ? { label: current.label, started_at: current.started_at } : null } : null;
+      const notice = pending.get(row.id) ?? { count: 0, notice: null };
+      const child = children.get(row.id) ?? { total: 0, active: 0 };
+      const blockers = (dependencies.get(row.id) ?? []).filter(edge => !['completed','failed','cancelled'].includes(edge.status));
+      const freeze = freezes.get(row.branch ?? row.target_branch) ?? null;
+      const waiting_reason = freeze && row.status !== 'running' && row.id !== freeze.task_id
+        ? `冻结 · ${freeze.reason}`
+        : row.status === 'awaiting' && notice.count ? `${notice.count} 条待你处理`
+        : row.status === 'waiting' && child.active ? `等待 ${child.active} 个子 Task`
+        : row.status === 'queued' && blockers.length ? `等待依赖 Task #${blockers.map(edge => edge.id).join('、#')}`
+        : row.status === 'queued' ? '等待 Agent 调用槽'
+        : row.status === 'waiting' ? '静息 · 等待新输入或子 Task 信号' : null;
+      const branch = row.branch ? records.get(row.branch) : null;
+      // 这条分支下还有多少个 say 子分支：决定卡片上「编排合并全部子 Task」入口是否有意义。
+      const subtree_say = row.branch ? countSayDescendants(row.branch) : 0;
+      const mergeRun = row.branch ? activeRuns.get(row.branch) ?? null : null;
+      return { ...row, kind: 'task', title: summarize(goal) || row.name || `Task #${row.id}`,
+        goal_preview: String(goal ?? '').slice(0, 600),
+        progress: plan, notice: notice.notice, notice_count: notice.count,
+        children_total: child.total, children_active: child.active, waiting_reason,
+        freeze: freeze ? { kind: freeze.kind, task_id: freeze.task_id ?? null, reason: freeze.reason } : null,
+        resolves_task_id: row.resolves_task_id ?? resolutions.get(row.id) ?? null,
+        reservation: delivery, delivery: delivery ? { kind: delivery.kind, status: delivery.status,
+          blocked_reason: delivery.blocked_reason ?? null } : null,
+        branch_info: row.branch ? { parent: branch?.parent ?? null, archived: branch?.status === 'archived',
+          current_head: refs.get(row.branch) ?? null, diagnostics: diagnostics.get(row.branch) ?? null,
+          subtree_say, merge_run: mergeRun ? { mode: mergeRun.mode ?? 'merge_all', status: mergeRun.status,
+            done: mergeRun.done?.length ?? 0, total: mergeRun.order?.length ?? 0, task_id: mergeRun.task_id ?? null } : null } : null,
+        workspace_state: row.workspace ? (fs.existsSync(row.workspace) ? 'present' : 'missing') : 'none',
+        has_result: Boolean(row.has_result),
+        has_rule: fs.existsSync(`${this.config.home}/task-rules/task-${row.id}.mjs`) };
+    });
+    const visible = new Set(ids);
+    const edges = nodes.filter(node => visible.has(node.parent_id)).map(node => ({ from: node.parent_id, to: node.id }));
+    return { nodes, edges, truncated: rows.length > limit, total: this.store.get('SELECT count(*) AS n FROM tasks').n };
+  },
+
   async graph() {
     const generated_at = new Date().toISOString();
     const empty = { generated_at, current_branch: null, truncated: false, git: false, error: null, nodes: [], edges: [] };
@@ -97,7 +220,10 @@ export default {
         FROM tasks WHERE role IN (${TASK_ROLE_SQL}) ORDER BY id DESC`);
       // 没有可归属分支也没有 worktree（含已完整回收）的任务不进图。verifier 的 branch 是上面只读派生的
       // 服务对象分支，所以 Candidate 验收即使清掉 baseline worktree 后也仍留在正确的输入分支下。
-      const candidates = rows.filter(row => (row.role !== 'agent' || row.task_kind === 'say')
+      // role='agent' 里只有 say 与新派生的 child 是「自己拥有分支与 worktree」的工作 Task，必须画成任务行；
+      // main/owner 是分支所有者（同样的信息已经落在 branch 节点的 title / source_id 上，不重复画），
+      // analysis 是只读分离检出（无分支），都不进任务节点。
+      const candidates = rows.filter(row => (row.role !== 'agent' || row.task_kind === 'say' || row.task_kind === 'child')
         && (row.branch || row.workspace || row.baseline_workspace));
 
       // 分支节点名：记录 ∪ 现在的 ref ∪ 当前检出 ∪ 占位父名。记录是历史事实，ref 是现状，

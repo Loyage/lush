@@ -836,3 +836,44 @@ test('分支图：任务行按类型着色，快速路由任务整行强调并�
     await openGraph();
   }
 });
+
+test('分支图：含 say 子树给编排入口；delivery 冻结不挡编排，merger 冻结才禁用', async () => {
+  const saved = world.state.graph;
+  const mainNode = { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'aaa', current: true,
+    tracked: false, placeholder: false, created_at: iso(NOW - 1000), status: 'active' };
+  world.state.graph = {
+    generated_at: iso(NOW), current_branch: 'main', truncated: false, git: true, error: null,
+    nodes: [
+      mainNode,
+      { kind: 'branch', id: 'branch:say-1', name: 'say-1', head_commit: 'bbb', current: false, tracked: true,
+        placeholder: false, created_at: iso(NOW), status: 'ready' },
+      { kind: 'task', id: 7, role: 'agent', task_kind: 'say', name: 'say-1', goal: '待合的 say', status: 'completed',
+        integration: 'pending', branch: 'say-1', workspace: '/tmp/wt/7', workspace_state: 'present',
+        branch_state: 'present', target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
+    ],
+    edges: [
+      { kind: 'fork', from: 'branch:main', to: 'branch:say-1', status: 'fast_forward', ahead: 1, behind: 0,
+        blockers: [], can_merge: false, can_sync: false },
+    ],
+  };
+  const blockOf = name => dom.node('detail').querySelectorAll('span.graph-branch-name')
+    .find(node => node.textContent.includes(name)).parentNode.parentNode;
+  const orchestrateButton = () => blockOf('main').querySelectorAll('button')
+    .find(node => node.textContent === '编排合并全部 say 子分支');
+  try {
+    // delivery 冻结 = 有待集成的 say 合并请求，正是编排要处理的：按钮必须在且可用。
+    mainNode.freeze = { kind: 'delivery', task_id: 7, commit: 'bbb', reason: 'say #7 的合并请求已固定基线' };
+    await openGraph();
+    expect(orchestrateButton()).toBeTruthy();
+    expect(orchestrateButton().disabled).toBe(false);
+
+    // 别的 merger / 一键合并造成的冻结仍然禁用编排。
+    mainNode.freeze = { kind: 'merger', task_id: 9, reason: '合并/解冲突任务 #9 正在处理 say-1' };
+    await openGraph();
+    expect(orchestrateButton().disabled).toBe(true);
+    expect(orchestrateButton().parentNode.getAttribute('data-help')).toContain('合并编排暂时不可用');
+  } finally {
+    world.state.graph = saved;
+    await openGraph();
+  }
+});

@@ -36,7 +36,7 @@ export default {
 
   wake(taskId) {
     const task = this.store.task(taskId);
-    if (['main','owner'].includes(task.task_kind)) return; // No unrestricted provider in a bound parent worktree.
+    if (['main','owner','merge'].includes(task.task_kind)) return; // runtime-driven roots and merge orchestration never run providers
     if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') return;
     if (!TERMINAL.has(task.status) && !this.running.has(task.id)) {
       const deferred = task.role === 'coordinator' && this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', task.id)
@@ -62,13 +62,32 @@ export default {
     // Finished planner output is compiled by code, not by a scheduler model invocation.
     this.compilePlans();
     const dependencies = this.store.depMap();
+    const freezes = new Map(this.branchFreeze().map(info => [info.branch, info]));
+    const taskBranch = task => {
+      if (task.branch || task.target_branch) return task.branch ?? task.target_branch;
+      const seen = new Set([task.id]);
+      for (let parentId = task.parent_id; parentId && !seen.has(parentId);) {
+        seen.add(parentId);
+        const parent = this.store.task(parentId);
+        if (parent.branch || parent.target_branch) return parent.branch ?? parent.target_branch;
+        parentId = parent.parent_id;
+      }
+      return null;
+    };
     let controlRunning = [...this.running.values()].filter(run => ['planner','scheduler'].includes(run.role)).length;
     let butlerRunning = [...this.running.values()].filter(run => run.role === 'butler').length;
     let executionRunning = this.running.size - controlRunning - butlerRunning;
     for (const task of this.store.all("SELECT * FROM tasks WHERE status='queued' ORDER BY id")) {
-      if (['main','owner'].includes(task.task_kind)) continue; // Bound parent roots do not run unrestricted providers.
+      if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.
       if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') continue;
       if (this.running.has(task.id)) continue;
+      const frozen = freezes.get(taskBranch(task));
+      // 仅允许本次解分歧 Task 在隔离 worktree 内运行；所有其它 Agent 留在 queued，消息不丢。
+      const resolution = frozen && this.store.get(`SELECT data FROM events WHERE task_id=?
+        AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1`, task.id);
+      if (frozen && !(resolution && (frozen.task_id === task.id || frozen.kind === 'merge_all'))
+        && !(task.role === 'merger' && (frozen.task_id === task.id || frozen.kind === 'merge_all'))) continue;
+      if (resolution && this.running.has(JSON.parse(resolution.data).parent_task_id)) continue;
       if (this.questionPending(task.id)) { this.store.update(task.id, { status: 'awaiting' }); continue; }
       // A queued task whose dependencies are not settled stays queued; finish() re-kicks when they are.
       if ((dependencies.get(task.id) || []).some(edge => !TERMINAL.has(edge.status))) continue;
@@ -84,6 +103,10 @@ export default {
         console.error(`task ${task.id}: ${error.stack || error}`);
       }).finally(async () => {
         this.running.delete(task.id);
+        // 已冻结的编排此时才能按安全点重新核对两端 tip，并派隔离的解分歧 Task。
+        for (const { target, run: mergeRun } of this.store.activeBranchMergeRuns()) {
+          if (mergeRun.mode === 'orchestrate' && mergeRun.waiting_safe_task_id === task.id) this.scheduleMergeRun(target);
+        }
         // The credential is valid only while this invocation owns the task.
         this.store.armAgent(task.id, null);
         // A child can settle after its parent parked but before this cleanup.
@@ -172,6 +195,15 @@ export default {
       if (task.role === 'planner' && task.plan_gate === 'rejected') this.store.update(taskId, { plan_gate: null });
       this.store.touchAgent(taskId);
       const cwd = await this.workspaces.ensure(task);
+      // 已冻结的两端 tip 必须仍成立；父 Agent 的上一轮可能恰在建立冻结前提交，外部 Git 也不受 daemon 控制。
+      const fixedEvent = task.task_kind === 'child' ? this.store.get(`SELECT data FROM events WHERE task_id=?
+        AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1`, task.id) : null;
+      if (fixedEvent) {
+        const fixed = JSON.parse(fixedEvent.data);
+        const state = await this.workspaces.branchState(task.target_branch);
+        check(state.child_head === fixed.source_commit && state.parent_head === fixed.parent_commit,
+          `解分歧两端提交在 Task #${task.id} 开工前已移动；保留现场，检查后再派`);
+      }
       if (run.controller.signal.aborted) throw new Error('cancelled');
       task = this.store.task(taskId);
       if (task.role === 'showcase') this.prepareShowcaseReport(task, run.recordId);
