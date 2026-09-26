@@ -9,11 +9,20 @@ export function discoverProject(cwd) {
   let current = fs.realpathSync(cwd);
   const start = current;
   for (;;) {
-    if (fs.existsSync(path.join(current, '.lush', 'project.json')) || fs.existsSync(path.join(current, '.git'))) return current;
+    if (fs.existsSync(path.join(current, '.lush', 'project.json')) || isGitCheckout(current)) return current;
     const parent = path.dirname(current);
     if (parent === current) return start;
     current = parent;
   }
+}
+/** 只有真正的 Git 工作区才算项目边界：`.git` 文件（worktree / submodule）或含 `HEAD` 的 `.git` 目录。
+ *  空 `.git` 目录不是仓库，不能把上层无关目录劫持成项目根（例如共享 `/tmp` 下的残留）。 */
+function isGitCheckout(dir) {
+  try {
+    const stat = fs.lstatSync(path.join(dir, '.git'));
+    if (stat.isFile()) return true;
+    return stat.isDirectory() && fs.existsSync(path.join(dir, '.git', 'HEAD'));
+  } catch { return false; }
 }
 function positive(env, key, fallback, max) {
   const value = Number(env[key] ?? fallback);

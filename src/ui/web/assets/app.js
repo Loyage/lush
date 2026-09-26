@@ -20,7 +20,7 @@ import { hideHelp, initHelp } from './help.js';
 import { resetTranscriptReaders } from './transcript-reader.js';
 import { closeTranscriptTerminal } from './transcript-terminal.js';
 import { closeExplanationPanel } from './explanations.js';
-import { ensureProject } from './project-picker.js';
+import { ensureProject, refreshProjectList } from './project-picker.js';
 import { initNoticeNotifications, resetNoticeNotifier } from './notice-notifications.js';
 import { initNoticeRecords } from './render-notices.js';
 
@@ -78,7 +78,9 @@ function onHashChange() {
 }
 
 // 上一次注册的定时器与监听器；重复 boot() 前必须先清掉（bun test 在文件之间复用模块注册表）。
-let refreshTimer = null, liveTimer = null, hashListener = null;
+let refreshTimer = null, liveTimer = null, hashListener = null, projectTimer = null, projectVisibilityListener = null;
+// 项目列表摘要不是热数据：低频刷新，且只对已经连接的项目读一次 system.summary。
+const PROJECT_LIST_INTERVAL_MS = 20000;
 
 /** 按当前「轮询频率」偏好重建两个定时器；标准档＝快照 1500ms + 实时 3000ms。 */
 function startTimers() {
@@ -95,8 +97,10 @@ function startTimers() {
 export async function boot() {
   if (refreshTimer !== null && typeof clearInterval === 'function') clearInterval(refreshTimer);
   if (liveTimer !== null && typeof clearInterval === 'function') clearInterval(liveTimer);
+  if (projectTimer !== null && typeof clearInterval === 'function') clearInterval(projectTimer);
   if (hashListener !== null && typeof removeEventListener === 'function') removeEventListener('hashchange', hashListener);
-  refreshTimer = null; liveTimer = null; hashListener = null;
+  if (projectVisibilityListener !== null && typeof removeEventListener === 'function') removeEventListener('visibilitychange', projectVisibilityListener);
+  refreshTimer = null; liveTimer = null; hashListener = null; projectTimer = null; projectVisibilityListener = null;
   closeTranscriptTerminal();
   resetUiState();
   resetTranscriptReaders();
@@ -108,6 +112,9 @@ export async function boot() {
   if (!await ensureProject()) return;
   syncSidebarSortSelect();
   $('sidebar-sort').addEventListener('change', onSidebarSortChange);
+  projectTimer = setInterval(() => { void refreshProjectList(); }, PROJECT_LIST_INTERVAL_MS);
+  projectVisibilityListener = () => { if (document.visibilityState === 'visible') void refreshProjectList(); };
+  addEventListener('visibilitychange', projectVisibilityListener);
   initContextReferences();
   initHelp();                                    // 统一按钮帮助提示（document 级委托，可重复装配）
   initComposer();

@@ -1,4 +1,5 @@
 import { button, el } from './dom.js';
+import { projectApi } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { renderMarkdown } from './markdown.js';
@@ -33,7 +34,7 @@ function preview(notice, question, option, value) {
     frame.setAttribute('sandbox', '');
     frame.setAttribute('referrerpolicy', 'no-referrer');
     frame.setAttribute('title', `${value.label} · 静态效果预览`);
-    frame.setAttribute('src', `/api/task/${notice.task_id}/notice/${notice.id}/preview/${question}/${option}`);
+    frame.setAttribute('src', projectApi(`/api/task/${notice.task_id}/notice/${notice.id}/preview/${question}/${option}`));
     pane.append(frame);
   }
   if (!value.preview && !value.previewHtml) pane.append(el('p', value.description));

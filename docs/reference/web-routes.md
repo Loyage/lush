@@ -2,11 +2,15 @@
 
 本节管 Web 进程暴露的读取路由与用户动作白名单；监听与安全约束见 [HTTP](http.md)。
 
-Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。无 `--project` 的全局模式先通过窄启动器路由选择项目；带 `--project` 的单项目模式固定绑定且拒绝切换：
+Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局工作台（无 `--project`）为**每个项目**给出一条稳定身份路由 `/p/<project-id>/**`；带 `--project` 的单项目模式固定绑定且拒绝切换，并保留无前缀的兼容路径。
 
-- `GET /`、`/app.js`、`/styles.css`：Web 资源。
-- `GET /api/launcher`：返回 `mode`、当前项目、上次项目与恢复错误；全局模式会在首次读取时恢复缓存并自动启动/连接 daemon。
-- `POST /api/launcher/select`：仅全局模式可用，JSON `{project}` 必须是现存目录的绝对路径；切换成功后更新全局 `launcher.json`。
+**项目身份来自路由。** 全局模式下页面、读取路由、report、preview 与 `POST /api/action` 都必须走 `/p/<project-id>/`；服务端用不透明 ID 在已登记集合（本地启动器列表或公网 `web.json.projects` 白名单）里反查 canonical 路径，URL 片段永远不会被当作文件路径。无前缀的项目读写一律拒绝并提示刷新，**绝不回退到某个「当前项目」**；未知／已移除的身份返回错误（页面请求回项目列表）。下表在全局模式下均加 `/p/<project-id>` 前缀，单项目模式则用原路径。
+
+- `GET /`、`/app.js`、`/styles.css`：Web 资源（宿主级，无项目前缀）。全局模式下 `/` 是项目启动器与列表，`/p/<id>/` 是该项目的工作台。
+- `GET /api/launcher`：返回 `mode`、上次打开的项目（`last_project` / `last_project_id`）与已登记项目列表（`projects`，含 `connected` / `last`）。只报告上次落点，不因此自动启动或连接任何 daemon。
+- `GET /api/launcher/projects`：项目列表再加**仅对已经连接的项目**读一次 `system.summary` 的有界摘要（状态 revision、待决数、执行中与待合并数）；不会为列表面板启动没打开过的 daemon，单个项目失败只脏它自己那一行。
+- `POST /api/launcher/select`：仅全局模式可用，JSON `{project}` 必须是现存目录的绝对路径（公网模式还必须在白名单内）；登记该项目、按需启动 / 连接 daemon，返回该项目稳定路由 ID（`id`）。它不再设置全局「当前项目」，页面归属由前端跳到 `/p/<id>/` 决定。
+- `POST /api/launcher/remove`：仅全局模式可用，JSON `{id}` 只从列表移除入口并断开这个 Web 连接，**不停止 daemon**；停 daemon 仍走显式项目命令。
 - `GET /api/docs`、`GET /api/docs/<id>`：「文档」视图的目录与 Markdown 正文，读的是随这份代码发布的 `docs/**/*.md` 与 `README.md`（`src/ui/web/docs.js`），与当前项目目录无关。`GET /api/docs/search-index` 只在用户第一次搜索时返回标题、小节、正文、普通代码与低权重 Mermaid 字段，匹配和排序在浏览器完成。id 由相对路径推出，只按已扫出的表命中，请求里的路径片段不进文件系统；流程图由浏览器按需加载本地 Mermaid 渲染，未命中返回 404。
 - `POST /api/action`：JSON `{method, params}`，只允许项目 Agent 配置（`agent.configure`）、Agent 环境文件写入（`agent.environment.configure`）、运行设置（`system.configure`）、托管模式（`sleep.start/stop/resume`）、选区解释（`explanation.start`）、用户输入、任务维护、Review Candidate 验收动作、`branch.merge/sync/archive` 和 notice / plan 用户动作。
 
@@ -14,8 +18,10 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。无 `--p
 
 | 路由 | 底层 |
 |---|---|
-| `GET /api/launcher` | 当前/上次项目与启动器模式 |
-| `POST /api/launcher/select` | 校验绝对目录、启动/连接项目 daemon、更新最后项目缓存；不进入 `MUTATIONS` 通用 RPC 白名单 |
+| `GET /api/launcher` | 模式、上次打开与已登记项目列表（不自动连接） |
+| `GET /api/launcher/projects` | 项目列表 + 已连接项目的有界 `system.summary` 摘要 |
+| `POST /api/launcher/select` | 校验绝对目录（公网校验白名单）、登记、启动/连接项目 daemon、返回路由 ID；不设全局当前项目，也不进入 `MUTATIONS` 通用 RPC 白名单 |
+| `POST /api/launcher/remove` | 只从列表移除入口并断开 Web 连接，不停止 daemon |
 | `GET /api/notices?status=all&before=ID&limit=30` | `notice.page`：全部类型事项与处理结果的按需分页，不受快照 200 条上限限制；参数和留档语义见[待决问题](rpc/notices.md) |
 | `GET /api/sleep` | 用户专属 `sleep.status`，授权、预算与暂停状态及本会话进度 `handled` / `decisions`；见[托管模式](../sleep-mode.md) |
 | `GET /api/sleep/choices?before=ID&limit=30` | 用户专属 `sleep.choices`，管家决定的快照、理由、执行结果游标页 |

@@ -17,6 +17,10 @@
   <div class="rail-identity">
     <div class="brand"><button type="button" id="home" class="home" data-help="回到项目概览" aria-label="Lush · 项目概览"><span class="brand-mark" aria-hidden="true">L</span><strong>Lush<span class="brand-caption">INTENT STUDIO</span></strong></button></div>
     <div class="rail-context"><span class="eyebrow">当前项目</span><span id="project">连接项目…</span></div>
+    <section id="project-list-panel" class="project-list-panel" aria-label="项目列表" hidden>
+      <div class="project-list-head"><span class="eyebrow">项目</span><button type="button" id="project-list-refresh" class="ghost" data-help="重新读取项目列表与已打开项目的状态摘要">刷新</button></div>
+      <ul id="project-list" class="project-list"></ul>
+    </section>
     <div class="rail-tools">
       <span id="agents"></span><span id="connection" role="status">连接中…</span>
       <button type="button" id="project-switch" class="ghost" hidden>切换项目</button>
@@ -123,6 +127,10 @@
     <div class="project-path-row"><input id="project-path" name="project" list="project-options" autocomplete="off" spellcheck="false" placeholder="/absolute/path/to/project" required><datalist id="project-options"></datalist><button type="button" id="project-choose" class="ghost" hidden>选择文件夹…</button></div>
     <p id="project-hint" class="hint">首次打开必须指定绝对路径。之后会自动恢复最后使用的项目，也可以随时切换。</p>
     <p id="project-error" class="error" role="alert" hidden></p>
+    <div class="project-recent" id="project-recent" hidden>
+      <span class="eyebrow">已登记项目</span>
+      <ul id="project-recent-list" class="project-list"></ul>
+    </div>
     <div class="project-actions"><button type="button" id="project-cancel" class="ghost" hidden>取消</button><button type="submit" id="project-submit">打开项目</button></div>
   </form>
 </section>

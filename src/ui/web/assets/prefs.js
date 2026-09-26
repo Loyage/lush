@@ -12,6 +12,7 @@
  */
 import { COLLAPSED_KEY, FILTERS_KEY, parseCollapsed, parseFilters, serializeCollapsed } from './sidebar.js';
 import { SORT_MODES } from './tree-order.js';
+import { projectRoute } from './route.js';
 
 export const MARKDOWN_KEY = 'lush.markdown';
 export const THEME_KEY = 'lush.theme';
@@ -87,12 +88,12 @@ export const PREF_DEFS = {
   markdown: boolPref(MARKDOWN_KEY, true),
   theme: enumPref(THEME_KEY, THEME_VALUES, 'system'),
   sidebarSort: {
-    key: SIDEBAR_SORT_KEY, legacy: [LEGACY_TREE_SORT_KEY], default: 'smart',
+    key: SIDEBAR_SORT_KEY, legacy: [LEGACY_TREE_SORT_KEY], default: 'smart', scope: true,
     parse: raw => (SORT_IDS.has(raw) ? raw : 'smart'),
     format: value => (SORT_IDS.has(value) ? value : 'smart'),
   },
-  collapsed: { key: COLLAPSED_KEY, default: () => new Set(), parse: parseCollapsed, format: serializeCollapsed },
-  filters: { key: FILTERS_KEY, default: () => parseFilters(null), parse: parseFilters, format: value => JSON.stringify(value) },
+  collapsed: { key: COLLAPSED_KEY, default: () => new Set(), parse: parseCollapsed, format: serializeCollapsed, scope: true },
+  filters: { key: FILTERS_KEY, default: () => parseFilters(null), parse: parseFilters, format: value => JSON.stringify(value), scope: true },
   reduceMotion: boolPref(REDUCED_MOTION_KEY, false),
   polling: enumPref(POLLING_KEY, [...POLLING_IDS], 'standard'),
   toastDuration: enumPref(TOAST_DURATION_KEY, [...TOAST_IDS], 'standard'),
@@ -103,6 +104,21 @@ export const PREF_NAMES = Object.keys(PREF_DEFS);
 function readRaw(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function removeRaw(key) { try { localStorage.removeItem(key); } catch { /* 隐私模式里忽略 */ } }
 function defaultValue(def) { return typeof def.default === 'function' ? def.default() : def.default; }
+
+/**
+ * 项目相关偏好（折叠 / 筛选 / 排序）按项目隔离：同一浏览器里 A 的视图状态不会带到 B，
+ * 全局外观偏好（主题 / Markdown / 轮询 / 提醒）继续共享。单项目模式与全局项目列表下无前缀，键保持原样。
+ */
+function prefKey(def) {
+  if (!def.scope) return def.key;
+  return scopedKey(def.key);
+}
+
+/** 把一个 localStorage 键挂到当前项目下；单项目模式 / 全局根保持原键。供 prefs 以外的模块（分支图折叠等）复用。 */
+export function scopedKey(base) {
+  const id = projectRoute();
+  return id ? `${base}:${id}` : base;
+}
 
 /** localStorage 是否可写：隐私模式 / 内嵌 webview 里写不进去，调用方切换到内存兜底。 */
 export function storageAvailable() {
@@ -119,7 +135,7 @@ export function storageAvailable() {
 export function readPref(name) {
   const def = PREF_DEFS[name];
   if (!def) throw new Error(`unknown preference: ${name}`);
-  let raw = readRaw(def.key);
+  let raw = readRaw(prefKey(def));
   if (raw === null) for (const legacy of def.legacy ?? []) { raw = readRaw(legacy); if (raw !== null) break; }
   return raw === null ? defaultValue(def) : def.parse(raw);
 }
@@ -129,7 +145,7 @@ export function writePref(name, value) {
   const def = PREF_DEFS[name];
   if (!def) throw new Error(`unknown preference: ${name}`);
   const raw = def.format(value);
-  try { localStorage.setItem(def.key, raw); } catch { /* 隐私模式里忽略 */ }
+  try { localStorage.setItem(prefKey(def), raw); } catch { /* 隐私模式里忽略 */ }
   return def.parse(raw);
 }
 
@@ -159,7 +175,7 @@ export function setPref(name, value) {
 export function resetPrefs() {
   for (const name of PREF_NAMES) {
     const def = PREF_DEFS[name];
-    removeRaw(def.key);
+    removeRaw(prefKey(def));
     for (const legacy of def.legacy ?? []) removeRaw(legacy);
   }
   for (const name of PREF_NAMES) notify(name, readPref(name));

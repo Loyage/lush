@@ -2,6 +2,8 @@
 
 本篇承接[身份与边界](01-boundaries.md)，为实施者列出依赖顺序、涉及文件和每阶段的可验收结果；尚未确定的产品语义必须先与用户确认。现有模块职责入口见 [Web 模块地图](../../engineering/modules-web.md) 与 [CLI／RPC 模块地图](../../engineering/modules-interfaces.md)。
 
+**实施状态（2026-09-26）**：第 0～2 阶段已实施并附回归（`test/web/multi-project.test.js`、`test/web/project-route.test.js`，以及更新后的 `test/web/launcher.test.js`）；第 3 阶段只实施了项目列表的有界摘要与通知保持「按项目、首屏不补发、默认关闭」，**不做**跨项目总待办 / 跨项目执行按钮。下面各阶段保留原验收标准作为回归口径。
+
 ## 第 0 阶段：冻结契约、先补危险场景的测试
 
 - 明确项目路由 ID、全局／单项目路由共存规则、旧页面过期行为、项目注册与移除语义；先更新接口设计，不凭 UI 草图直接改后端。

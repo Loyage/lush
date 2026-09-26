@@ -1,5 +1,5 @@
 import { $, block, button, el, kv } from './dom.js';
-import { action } from './api.js';
+import { action, projectApi } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { HOT, absolute, relative } from './format.js';
 import { edgeRelation, graphLayout, graphRenderKey, isWorkingTask } from './graph-layout.js';
@@ -170,7 +170,7 @@ export function renderOverview(data) {
       if (candidate.status === 'preparing' && candidate.report_task_id) {
         row.append(button(`查看历史检验任务 #${candidate.report_task_id}`, () => detail(candidate.report_task_id), 'link'));
       } else if (candidate.report_task_id && ['ready','accepted','integrated'].includes(candidate.status)) {
-        const report = el('a', '打开结果', 'link'); report.href = `/api/task/${candidate.report_task_id}/report`;
+        const report = el('a', '打开结果', 'link'); report.href = projectApi(`/api/task/${candidate.report_task_id}/report`);
         report.target = '_blank'; report.rel = 'noopener'; row.append(report);
       }
     }

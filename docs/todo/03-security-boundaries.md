@@ -15,14 +15,14 @@
 
 ## S-01 · 全局项目切换会把旧页面操作送到另一个项目
 
-**P1 · 已复现（mock HTTP 路由）· 预估 M · 本次明确暂不实施（2026-09-26，用户选择）**
+**P1 · 已修复（多项目工作台改造，2026-09-26）· 历史条目与修复证据并存**
 
-- **状态**：2026-09-26 审查后修复批次中用户明确「暂时不做 S-01」；项目身份模型（窗口同步切换 vs 标签页独立绑定）仍未定，条目保持候选。
-- **依据**：`src/ui/web/server.js`，`createProjectHost/select/require`，139–193 行，所有客户端共用可变 `binding`；`startWeb.fetch`，268–277、361–366 行，动作只取当前 binding，无请求所属项目校验。`src/ui/web/assets/api.js`，`action`，11–14 行，仅发送 method／params。
-- **触发／影响**：同一启动器的两个标签页／设备分别操作项目 A、B；B 切换后，A 已打开的任务详情仍可能提交 A 的任务 ID，实际命中 B 同 ID 的取消、删除或合并入口。这不是白名单外越权，而是白名单内跨项目误操作，单用户多标签页即可发生。
-- **复现／反例**：临时 opener 记录目标；依次 select A、select B，再模拟 A 旧页面发 `task.cancel {id:1}`，HTTP 200，记录目标为 B。未执行真实取消。现有 canonical 白名单和 select 串行队列有效，但均不绑定发起页面；显式单项目 host 不受此切换问题影响。
-- **建议／取舍**：先让读写请求携带预期项目身份／binding 版本，不一致时拒绝并提示刷新；不要只靠下一次轮询修正标题。需用户确认继续采用“所有窗口同步切项目”，还是改成“每个标签页独立绑定”；后者涉及会话与路由设计，不能直接当既定需求。
-- **验收**：A、B 各有 ID=1，B 切换后 A 的旧 cancel／merge／delete 均不能触达 B；过期响应不能覆盖另一项目界面；同项目并发和 canonical 别名仍正常。
+- **状态**：已按[多项目工作台改造规划](multi_proj/README.md)实施，用户确认「标签页各自独立保持当前项目、打开项目按需启动、移除只隐藏入口、初版只做有界摘要、路径边界保持现状」。下面「依据／触发／复现」保留审查时的原始记录，仅作历史，不代表当前实现。
+- **依据（历史）**：`src/ui/web/server.js`，`createProjectHost/select/require`，139–193 行，所有客户端共用可变 `binding`；`startWeb.fetch`，268–277、361–366 行，动作只取当前 binding，无请求所属项目校验。`src/ui/web/assets/api.js`，`action`，11–14 行，仅发送 method／params。
+- **触发／影响（历史）**：同一启动器的两个标签页／设备分别操作项目 A、B；B 切换后，A 已打开的任务详情仍可能提交 A 的任务 ID，实际命中 B 同 ID 的取消、删除或合并入口。这不是白名单外越权，而是白名单内跨项目误操作，单用户多标签页即可发生。
+- **复现／反例（历史）**：临时 opener 记录目标；依次 select A、select B，再模拟 A 旧页面发 `task.cancel {id:1}`，HTTP 200，记录目标为 B。未执行真实取消。现有 canonical 白名单和 select 串行队列有效，但均不绑定发起页面；显式单项目 host 不受此切换问题影响。
+- **修复**：全局工作台改为每项目一条稳定身份路由 `/p/<project-id>/`（ID 由 canonical 路径派生，服务端只在已登记集合里反查，不把 URL 片段当路径）；`createProjectHost` 用按 canonical 路径索引的连接集合 + single-flight 取代单一可变 `binding`，每个请求的项目身份在一次请求内冻结。`src/ui/web/assets/route.js` 从 `location.pathname` 取当前项目，`api.js` 据此给所有项目 API 加前缀；页面地址成为当前项目的唯一来源，标签页之间不再共享可变的「当前项目」。全局模式下无前缀的项目读写、未知／已移除身份都被拒绝，绝不回退到别的项目；`/api/launcher/select` 只登记并返回路由 ID，不再设置全局当前项目。
+- **验收（现行测试）**：`test/web/multi-project.test.js` 用临时 A／B 项目与记录目标的 mock 客户端锁住：A 的 `task.cancel` / `task.approve_merge` 只落到 A；无前缀写请求被拒且不触达任何项目；`/p/<id>/api/snapshot` 分别读到自己项目；伪造／已移除身份被拒；并发打开只连接一次；公网模式不把登记列表当白名单。`test/web/project-route.test.js` 锁住前端前缀与按项目隔离的筛选／折叠／排序。单项目 Web、CLI 与人工合并约束保持原样（`test/web/security.test.js` 等原有用例不删不改）。
 
 ## S-02 · same-site 被等同于 same-origin，退出入口可跨源触发
 

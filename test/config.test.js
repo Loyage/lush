@@ -15,6 +15,17 @@ test('project discovery finds git root and canonicalizes symlinks', async () => 
   } finally { fs.rmSync(root,{recursive:true,force:true}); }
 });
 
+test('空的 .git 目录不是项目边界，发现会继续到真正的仓库根', async () => {
+  const outer = temp();
+  try {
+    await repo(outer);
+    const inner = path.join(outer, 'inner');
+    fs.mkdirSync(path.join(inner, '.git'), { recursive: true });   // 空目录，不是仓库
+    fs.mkdirSync(path.join(inner, 'nested'));
+    expect(discoverProject(path.join(inner, 'nested'))).toBe(outer);
+  } finally { fs.rmSync(outer, { recursive: true, force: true }); }
+});
+
 test('git worktrees are independent project boundaries', async () => {
   const root = temp(), other = temp();
   try {

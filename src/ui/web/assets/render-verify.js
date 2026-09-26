@@ -1,9 +1,10 @@
 import { $, block, button, el, statusBadge } from './dom.js';
+import { projectApi } from './api.js';
 import { absolute, relative, short } from './format.js';
 import { detail } from './navigate.js';
 import { referenceable } from './context-references.js';
 
-const reportButton = taskId => button('打开 HTML 报告', () => { window.open(`/api/task/${taskId}/report`, '_blank', 'noopener'); }, 'ghost');
+const reportButton = taskId => button('打开 HTML 报告', () => { window.open(projectApi(`/api/task/${taskId}/report`), '_blank', 'noopener'); }, 'ghost');
 /** 检验区块：worker 看自己的历次检验，verifier 看自己的报告。 */
 export function renderVerifications(task) {
   if (task.role === 'verifier') {

@@ -1,5 +1,5 @@
 import { $, badge, button, el, routeBadge } from './dom.js';
-import { action } from './api.js';
+import { action, projectApi } from './api.js';
 import { promptDialog } from './dialog.js';
 import { PLAN_GATE, relative, short, statusOf } from './format.js';
 import { filterUi, statusOption, syncSelectOptions, uniqueValues, withCurrent } from './filters-ui.js';
@@ -40,7 +40,7 @@ function candidateActions(intent) {
       () => detail(intent.candidate_report_task_id), 'link'));
   } else if (intent.candidate_report_task_id && ['ready','accepted','integrated'].includes(intent.candidate_status)) {
     const report = el('a', '打开结果报告', 'link');
-    report.href = `/api/task/${intent.candidate_report_task_id}/report`; report.target = '_blank'; report.rel = 'noopener';
+    report.href = projectApi(`/api/task/${intent.candidate_report_task_id}/report`); report.target = '_blank'; report.rel = 'noopener';
     actions.append(report);
   }
   if (intent.candidate_status === 'ready') {

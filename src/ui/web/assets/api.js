@@ -1,9 +1,12 @@
 import { refresh } from './navigate.js';
 import { clear } from './messages.js';
+import { projectApi } from './route.js';
 
-// fetch 与用户动作。
+export { projectApi };
+
+// fetch 与用户动作。项目来源由 route.js 从地址推出，绝不从别处取「当前项目」。
 export async function api(url, options) {
-  const response = await fetch(url, options);
+  const response = await fetch(projectApi(url), options);
   if (response.status === 401 && typeof globalThis.location?.assign === 'function') { location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`); throw new Error('登录已失效'); }
   const value = await response.json();
   if (!response.ok) throw new Error(value.error || response.statusText); return value;

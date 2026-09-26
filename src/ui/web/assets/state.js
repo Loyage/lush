@@ -1,5 +1,5 @@
 import { GRAPH_COLLAPSED_KEY, GRAPH_EXPANDED_KEY, parseGraphCollapsed, serializeGraphCollapsed } from './graph-layout.js';
-import { readPref, writePref } from './prefs.js';
+import { readPref, scopedKey, writePref } from './prefs.js';
 
 /* ---------- 偏好：折叠 / 筛选 / 排序都持久化到 localStorage ---------- */
 // 键名、默认值与解析规则都在 prefs.js；这里只是转发，让老 import 继续可用。
@@ -9,15 +9,15 @@ export function readCollapsedPref() { return readPref('collapsed'); }
 /** 分支图的折叠按分支名存：重画（1.5s 轮询 / 手动刷新）后仍然收起。
  *  收起与展开分两个 key 记：默认值由「未合进父分支 / 在跑」决定，用户显式切换优先且不会被重画吞掉。 */
 export function readGraphCollapsedPref() {
-  try { return parseGraphCollapsed(localStorage.getItem(GRAPH_COLLAPSED_KEY)); } catch { return new Set(); }
+  try { return parseGraphCollapsed(localStorage.getItem(scopedKey(GRAPH_COLLAPSED_KEY))); } catch { return new Set(); }
 }
 export function readGraphExpandedPref() {
-  try { return parseGraphCollapsed(localStorage.getItem(GRAPH_EXPANDED_KEY)); } catch { return new Set(); }
+  try { return parseGraphCollapsed(localStorage.getItem(scopedKey(GRAPH_EXPANDED_KEY))); } catch { return new Set(); }
 }
 export function saveGraphPrefs() {
   try {
-    localStorage.setItem(GRAPH_COLLAPSED_KEY, serializeGraphCollapsed(ui.graphCollapsed));
-    localStorage.setItem(GRAPH_EXPANDED_KEY, serializeGraphCollapsed(ui.graphExpanded));
+    localStorage.setItem(scopedKey(GRAPH_COLLAPSED_KEY), serializeGraphCollapsed(ui.graphCollapsed));
+    localStorage.setItem(scopedKey(GRAPH_EXPANDED_KEY), serializeGraphCollapsed(ui.graphExpanded));
   } catch { /* 隐私模式里忽略 */ }
 }
 export function readFiltersPref() { return readPref('filters'); }

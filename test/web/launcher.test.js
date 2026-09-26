@@ -4,12 +4,13 @@ import path from 'node:path';
 import { temp } from '../helpers.js';
 import { fetch } from './harness.js';
 import { createProjectHost, startWeb } from '../../src/ui/web/server.js';
-import { launcherStateFile, readLauncherState } from '../../src/ui/launcher.js';
+import { launcherStateFile, readLauncherState, projectRouteId } from '../../src/ui/launcher.js';
 
 function opener(calls) {
   return async project => {
     calls.push(project);
-    return { config: { project, home: path.join(project, '.lush') }, client: {} };
+    return { config: { project, home: path.join(project, '.lush') },
+      client: { snapshot: async () => ({ status: { project } }) } };
   };
 }
 
@@ -78,7 +79,7 @@ test('全局公网 Web 缺少项目白名单时拒绝启动', () => {
   } finally { fs.rmSync(global, { recursive: true, force: true }); }
 });
 
-test('无项目 Web 首次要求选择绝对路径，并在下一次启动自动恢复', async () => {
+test('无项目 Web 首次要求选择绝对路径，登记后按项目身份路由与恢复', async () => {
   const root = temp();
   const global = temp();
   const env = { ...process.env, LUSH_GLOBAL_CONFIG: global };
@@ -89,22 +90,32 @@ test('无项目 Web 首次要求选择绝对路径，并在下一次启动自动
     expect((await fetch(url + '/')).status).toBe(200);
     expect(await (await fetch(url + '/')).text()).toContain('id="project-gate"');
     expect((await fetch(url + '/project-picker.js')).status).toBe(200);
-    expect(await (await fetch(url + '/api/launcher')).json()).toMatchObject({ mode: 'launcher', project: null, last_project: null });
+    expect(await (await fetch(url + '/api/launcher')).json()).toMatchObject({ mode: 'launcher', project: null, last_project: null, projects: [] });
     const relative = await fetch(url + '/api/launcher/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: 'relative' }) });
     expect(relative.status).toBe(400);
 
     const selected = await fetch(url + '/api/launcher/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: root }) });
     expect(selected.status).toBe(200);
-    expect(await selected.json()).toMatchObject({ mode: 'launcher', project: fs.realpathSync(root), last_project: fs.realpathSync(root) });
+    const id = projectRouteId(fs.realpathSync(root));
+    expect(await selected.json()).toMatchObject({ mode: 'launcher', project: fs.realpathSync(root), last_project: fs.realpathSync(root), id });
     expect(calls).toEqual([fs.realpathSync(root)]);
-    expect(JSON.parse(fs.readFileSync(launcherStateFile(env), 'utf8')).last_project).toBe(fs.realpathSync(root));
+    // 无前缀写路由在全局模式下一律拒绝：旧页面不能靠「最后选中的项目」落到另一个项目。
+    const legacy = await fetch(url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'input.submit', params: { content: 'legacy' } }) });
+    expect(legacy.status).toBe(400);
+    expect((await legacy.json()).error).toContain('缺少项目身份');
+    const state = JSON.parse(fs.readFileSync(launcherStateFile(env), 'utf8'));
+    expect(state).toMatchObject({ version: 2, last_project: fs.realpathSync(root), projects: [fs.realpathSync(root)] });
   } finally { web.stop(true); }
 
   const restoredCalls = [];
   const restored = startWeb(null, 0, { env, openProject: opener(restoredCalls) });
   try {
     const status = await (await fetch(`http://127.0.0.1:${restored.port}/api/launcher`)).json();
-    expect(status.project).toBe(fs.realpathSync(root));
+    const id = projectRouteId(fs.realpathSync(root));
+    // 只报告「上次打开」供新窗口决定落点；不因此自动连接或启动 daemon。
+    expect(status).toMatchObject({ project: null, last_project: fs.realpathSync(root), last_project_id: id, projects: [{ id, project: fs.realpathSync(root), }] });
+    expect(restoredCalls).toEqual([]);
+    expect((await fetch(`http://127.0.0.1:${restored.port}/p/${id}/api/snapshot`)).status).toBe(200);
     expect(restoredCalls).toEqual([fs.realpathSync(root)]);
   } finally {
     restored.stop(true);

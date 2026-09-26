@@ -1,5 +1,5 @@
 import { el, block, button, kv } from './dom.js';
-import { api, action } from './api.js';
+import { api, action, projectApi } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { show } from './messages.js';
@@ -50,7 +50,7 @@ export function renderShowcase(task) {
       `本次调用${task.status === 'failed' ? '失败' : '已取消'}；下方是中断前写入的未确认展示页，可能不完整。请结合错误与执行过程检查，必要时重试。`,
       'hint warn showcase-partial'));
     const report = el('a', '新窗口打开展示页', 'link');
-    report.href = `/api/task/${task.id}/report`; report.target = '_blank'; report.rel = 'noopener noreferrer';
+    report.href = projectApi(`/api/task/${task.id}/report`); report.target = '_blank'; report.rel = 'noopener noreferrer';
     const frame = el('iframe');
     frame.title = `效果展示 #${task.id}`; frame.src = report.href;
     frame.setAttribute('sandbox', 'allow-scripts'); frame.setAttribute('referrerpolicy', 'no-referrer');
