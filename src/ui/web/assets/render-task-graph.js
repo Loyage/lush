@@ -88,6 +88,10 @@ function taskCard(node, folded, refresh) {
   title.classList.add('task-graph-title');
   head.append(title, roleBadge(node.role), badge(node.status === 'waiting' && !node.children_active ? '静息' : statusOf(node).label,
     `b-${node.status}`));
+  // 分支合并状态放进卡片首行的标签：与任务状态并排，一眼看清这条 Task 的改动合进父分支没有。
+  // 用与任务详情同一份 INTEGRATION 文案与配色；none（没有独有提交）/ 未知值不占位。
+  const merge = INTEGRATION[node.integration];
+  if (merge) head.append(badge(merge, node.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
   if (node.task_kind) head.append(badge(node.task_kind));
   if (node.freeze && node.freeze.task_id !== node.id) head.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
@@ -110,7 +114,6 @@ function taskCard(node, folded, refresh) {
   if (node.workspace_state === 'missing') facts.append(badge('⚠ worktree 缺失', 'warn'));
   if (!node.branch && !node.workspace) facts.append(el('span', '无独立分支 / worktree', 'meta'));
   if (node.branch_info?.archived) facts.append(badge('分支已归档'));
-  if (node.integration) facts.append(badge(`集成：${INTEGRATION[node.integration] || node.integration}`));
   if (node.delivery) facts.append(badge(`交付：${node.delivery.kind} · ${node.delivery.status}`));
   if (node.has_rule) facts.append(badge('固定输入规则'));
   if (node.children_total) facts.append(el('span', `子 Task：${node.children_total}${node.children_active ? `（${node.children_active} 活动）` : ''}`, 'meta'));

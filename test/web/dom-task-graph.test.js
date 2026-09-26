@@ -116,3 +116,39 @@ test('Task 图：主 Task 给子 Task 合并编排入口，运行中改显进度
     await dom.node('task-graph-open').onclick();
   }
 });
+
+test('Task 图：分支合并状态进卡片首行标签，facts 行不再重复', async () => {
+  const saved = { integration: graph.nodes[1].integration };
+  const headBadges = card => [...card.querySelector('.task-graph-head').querySelectorAll('.badge')]
+    .map(node => node.textContent);
+  try {
+    // 待合并：和任务状态一起出现在卡片最上面一行。
+    graph.nodes[1].integration = 'pending';
+    await dom.node('task-graph-open').onclick();
+    let card = dom.node('detail').querySelector('[data-task-id="2"]');
+    expect(headBadges(card)).toContain('待合并');
+    // 原来的「集成：…」从下方 facts 行移除，不在两处重复。
+    expect(deepText(card.querySelector('.task-graph-facts'))).not.toContain('集成：');
+    expect(deepText(card.querySelector('.task-graph-facts'))).not.toContain('待合并');
+
+    // 配色与任务详情同源：已合并用完成色，其余用待处理色。
+    graph.nodes[1].integration = 'merged';
+    await dom.node('task-graph-open').onclick();
+    card = dom.node('detail').querySelector('[data-task-id="2"]');
+    expect(headBadges(card)).toContain('已合并');
+    const mergedBadge = [...card.querySelector('.task-graph-head').querySelectorAll('.badge')]
+      .find(node => node.textContent === '已合并');
+    expect(mergedBadge.classList.contains('b-completed')).toBe(true);
+
+    // none（没有独有提交）不占位，也不再以「集成：none」的形式出现在 facts 行。
+    graph.nodes[1].integration = 'none';
+    await dom.node('task-graph-open').onclick();
+    card = dom.node('detail').querySelector('[data-task-id="2"]');
+    expect(headBadges(card)).not.toContain('待合并');
+    expect(deepText(card)).not.toContain('集成：');
+    expect(deepText(card)).not.toContain('集成：none');
+  } finally {
+    graph.nodes[1].integration = saved.integration;
+    await dom.node('task-graph-open').onclick();
+  }
+});
