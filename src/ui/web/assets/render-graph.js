@@ -20,7 +20,7 @@ import { $, badge, button, el, roleBadge, routeBadge } from './dom.js';
 import { api, action } from './api.js';
 import { confirmDialog, promptDialog } from './dialog.js';
 import { show } from './messages.js';
-import { statusOf } from './format.js';
+import { statusOf, worktreeLabel } from './format.js';
 import { graphLayout, graphFingerprint, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingTask, workingState } from './graph-layout.js';
 import { detail, overview } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
@@ -243,7 +243,7 @@ function taskRow(node, owningBranch = null) {
   const meta = el('div', undefined, 'graph-meta');
   if (node.upstreams?.length) meta.append(el('span', `⛓ 基线 #${node.upstreams.join('、#')}`, 'meta'));
   if (node.branch && node.branch !== owningBranch) meta.append(el('span', node.branch, 'graph-path mono'));
-  if (node.workspace) meta.append(el('span', node.workspace, 'graph-path mono'));
+  if (node.workspace) meta.append(el('span', node.role === 'showcase' ? `${worktreeLabel(node)}：${node.workspace}` : node.workspace, 'graph-path mono'));
   if (node.aheadBehind) meta.append(el('span', node.aheadBehind, 'meta'));
   for (const mark of node.marks || []) meta.append(el('span', mark.text, `chip ${mark.className}`.trim()));
   if (node.task_kind === 'say' && node.reservation) meta.append(badge({

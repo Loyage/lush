@@ -2,7 +2,7 @@ import { $, badge, button, el, roleBadge } from './dom.js';
 import { api, action } from './api.js';
 import { promptDialog } from './dialog.js';
 import { agentHelp } from './help.js';
-import { absolute, INTEGRATION, statusOf } from './format.js';
+import { absolute, INTEGRATION, statusOf, worktreeLabel } from './format.js';
 import { show } from './messages.js';
 import { detail } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
@@ -106,7 +106,7 @@ function taskCard(node, folded, refresh) {
   if (node.target_branch) facts.append(el('span', `父分支：${node.target_branch}`, 'mono'));
   if (node.base_commit) facts.append(el('span', `任务基线：${node.base_commit.slice(0, 12)}`, 'mono'));
   if (node.head_commit) facts.append(el('span', `固定提交：${node.head_commit.slice(0, 12)}`, 'mono'));
-  if (node.workspace) facts.append(el('span', `worktree：${node.workspace}`, 'mono'));
+  if (node.workspace) facts.append(el('span', `${worktreeLabel(node)}：${node.workspace}`, 'mono'));
   if (node.workspace_state === 'missing') facts.append(badge('⚠ worktree 缺失', 'warn'));
   if (!node.branch && !node.workspace) facts.append(el('span', '无独立分支 / worktree', 'meta'));
   if (node.branch_info?.archived) facts.append(badge('分支已归档'));

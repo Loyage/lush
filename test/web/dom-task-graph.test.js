@@ -32,6 +32,24 @@ test('Task 图以 Task 为节点；原分支图仍可切换，折叠与刷新不
   expect(deepText(dom.node('detail'))).toContain('实现功能');
 });
 
+test('Task 图：效果展示子 Task 的隔离检出显式标注 detached worktree，普通分支仍写 worktree', async () => {
+  const showcase = { id: 3, parent_id: 2, task_kind: 'showcase', role: 'showcase', status: 'waiting', title: '展示效果',
+    branch: null, workspace: '/tmp/showcase-3', children: [] };
+  graph.nodes.push(showcase);
+  try {
+    await dom.node('task-graph-open').onclick();
+    const showcaseCard = dom.node('detail').querySelector('[data-task-id="3"]');
+    expect(deepText(showcaseCard)).toContain('detached worktree：/tmp/showcase-3');
+    // 普通有分支的 Task 不应被误标。
+    const sayCard = dom.node('detail').querySelector('[data-task-id="2"]');
+    expect(deepText(sayCard)).toContain('worktree：/tmp/task-2');
+    expect(deepText(sayCard)).not.toContain('detached worktree');
+  } finally {
+    graph.nodes.pop();
+    await dom.node('task-graph-open').onclick();
+  }
+});
+
 test('Task 卡片同屏展示工作状态、进度、结果、Git 诊断、待决与交付入口', async () => {
   graph.nodes[0].freeze = { kind: 'resolution', task_id: 2, reason: '正在固定源 Task 与父分支' };
   Object.assign(graph.nodes[1], {

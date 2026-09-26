@@ -55,6 +55,32 @@ test('分支诊断：规模、文件列表、未提交及最近提交，刷新�
   } finally { world.state.graph = saved; }
 });
 
+test('分支图：效果展示任务的隔离检出显式标注 detached worktree，普通任务只写路径', async () => {
+  const saved = world.state.graph;
+  const { renderGraph } = await import('../../src/ui/web/assets/render-graph.js');
+  world.state.graph = { git: true, nodes: [
+    { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'aaa', current: true, tracked: true, placeholder: false,
+      status: 'active', tasks: { total: 2, active: 2, failed: 0, completed: 0 } },
+    { kind: 'branch', id: 'branch:lush/demo/say', name: 'lush/demo/say', head_commit: 'bbb', current: false, tracked: true, placeholder: false,
+      status: 'active', tasks: { total: 2, active: 2, failed: 0, completed: 0 } },
+    { kind: 'task', id: 7, role: 'showcase', task_kind: 'showcase', goal: '效果展示', status: 'running', integration: 'none',
+      branch: 'lush/demo/say', workspace: '/tmp/showcase-7', workspace_state: 'present', branch_state: null,
+      target_branch: 'main', ahead: 0, behind: 0, merged: false, current: false },
+    { kind: 'task', id: 8, role: 'worker', goal: '普通任务', status: 'running', integration: 'none',
+      branch: 'lush/demo/say', workspace: '/tmp/wt/8', workspace_state: 'present', branch_state: 'present',
+      target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
+  ], edges: [
+    { kind: 'fork', from: 'branch:main', to: 'branch:lush/demo/say', status: 'fast_forward', ahead: 1, behind: 0, blockers: [], can_merge: false, can_sync: false },
+  ] };
+  try {
+    await openGraph();
+    const text = deepText(dom.node('detail'));
+    expect(text).toContain('detached worktree：/tmp/showcase-7');
+    expect(text).toContain('/tmp/wt/8');
+    expect(text).not.toContain('detached worktree：/tmp/wt/8');
+  } finally { world.state.graph = saved; }
+});
+
 test('分支图：入口走 #graph，画出分支谱系与任务，点节点进详情，刷新幂等，轮询不覆盖', async () => {
   // 顶部入口把地址栏切到 #graph。
   expect(dom.node('graph-open')).toBeTruthy();

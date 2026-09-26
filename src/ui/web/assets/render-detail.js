@@ -1,7 +1,7 @@
 import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } from './dom.js';
 import { action } from './api.js';
 import { confirmDialog, promptDialog } from './dialog.js';
-import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, statusOf, taskTitle } from './format.js';
+import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, statusOf, taskTitle, worktreeLabel } from './format.js';
 import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
 import { show } from './messages.js';
@@ -233,7 +233,11 @@ export function renderDetail(task, history, diff, usage) {
 
   if (task.branch || task.workspace) {
     const workspace = block('工作区');
-    workspace.append(el('p', [task.branch, task.workspace].filter(Boolean).join('\n'), 'mono'));
+    // 展示任务的检出是 detached worktree，不是分支工作区：这里必须写明，不能让一行裸路径被误认成源分支。
+    const text = task.role === 'showcase' && task.workspace
+      ? `${worktreeLabel(task)}：${task.workspace}`
+      : [task.branch, task.workspace].filter(Boolean).join('\n');
+    workspace.append(el('p', text, 'mono'));
     panel.append(workspace);
   }
   panel.append(renderDiff(diff, task.id));
