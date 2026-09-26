@@ -10,6 +10,113 @@ const elapsed = (startedAt, completedAt) => {
   return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : null;
 };
 
+/**
+ * 等待行是运行时生成的读模型条目，不是 Agent 汇报的里程碑：key 用下划线开头，和 Agent 的稳定 key 空间天然隔离。
+ * 它把任务所有非 running（等子 Task / 等用户 / 排队）的时间单独累计，让 Agent 步骤只保留真正执行的时间。
+ */
+const WAIT_KEY = '__wait__';
+const WAIT_LABEL = { waiting: '等待子 Task 信号', awaiting: '等待你答复', queued: '排队等待调用槽' };
+const millis = value => { const at = Date.parse(value); return Number.isFinite(at) ? at : null; };
+
+/** Agent 实际被调用的区间（run 起止；未结束的 run 以 now 收口），合并重叠避免重复累计。 */
+function runIntervals(runs, now) {
+  const spans = [];
+  for (const run of runs) {
+    const start = millis(run.started_at);
+    if (start === null) continue;
+    const end = millis(run.ended_at) ?? now;
+    if (end > start) spans.push([start, end]);
+  }
+  spans.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const [start, end] of spans) {
+    const last = merged[merged.length - 1];
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else merged.push([start, end]);
+  }
+  return merged;
+}
+
+/** [start,end] 与调用区间的重叠毫秒数；这就是步骤的「工作用时」。 */
+function overlapMs(start, end, spans) {
+  let total = 0;
+  for (const [spanStart, spanEnd] of spans) {
+    const lo = Math.max(start, spanStart), hi = Math.min(end, spanEnd);
+    if (hi > lo) total += hi - lo;
+  }
+  return total;
+}
+
+/** 调用区间之间的空隙（非 running），按时间顺序给出每段等待的起止。 */
+function waitGaps(spans, start, end) {
+  const gaps = [];
+  let cursor = start;
+  for (const [spanStart, spanEnd] of spans) {
+    if (spanStart > cursor) gaps.push([cursor, Math.min(spanStart, end)]);
+    cursor = Math.max(cursor, spanEnd);
+  }
+  if (cursor < end) gaps.push([cursor, end]);
+  return gaps.filter(([from, to]) => to > from);
+}
+
+/**
+ * 用 agent_runs 把存储的计划投影成「工作用时 + 等待行」的读模型：步骤 duration_ms 只含真正被调用的时间，
+ * 非 running 的等待单独成一条 kind='wait' 条目插在已完成步骤与当前步骤之间。历史与进行中的任务用同一套重算，
+ * 所以旧计划也会按同样口径显示，不再把等待算成 Agent 的工作时间。
+ */
+export function projectProgress(progress, runs, status, now = Date.now()) {
+  if (!progress || !Array.isArray(runs) || !runs.length) return progress;
+  const spans = runIntervals(runs, now);
+  const openRun = runs.find(run => !run.ended_at) ?? null;
+  const openStart = openRun ? millis(openRun.started_at) : null;
+  const terminal = TERMINAL.has(status);
+  const stepStartTimes = progress.items.map(item => millis(item.started_at)).filter(value => value !== null);
+  const planStart = stepStartTimes.length ? Math.min(...stepStartTimes) : now;
+  const stepEndTimes = progress.items.map(item => item.status === 'completed' ? millis(item.completed_at) : null).filter(value => value !== null);
+  const runEndTimes = runs.map(run => millis(run.ended_at)).filter(value => value !== null);
+  // 终态任务的结束时间取最后一次调用 / 完成步骤，不能用 now：否则结算之后的空闲会被当成等待，且越看越大。
+  const planEnd = terminal
+    ? Math.max(planStart, ...stepEndTimes, ...runEndTimes)
+    : now;
+
+  const steps = progress.items.map(item => {
+    const stepStart = millis(item.started_at);
+    if (stepStart === null) return { ...item, kind: 'step', work_ms: 0, active_since: null, wait_ms: 0 };
+    const stepEnd = item.status === 'completed' ? (millis(item.completed_at) ?? stepStart) : now;
+    // 正在进行且此刻真有 run 在跑：把这条未结束的 run 交给前端自己推进，避免读模型每一帧都变。
+    if (!terminal && openStart !== null && item.status !== 'completed' && stepEnd === now) {
+      const activeSince = Math.max(stepStart, openStart);
+      const work = overlapMs(stepStart, activeSince, spans);
+      return { ...item, kind: 'step', work_ms: work, active_since: new Date(activeSince).toISOString(),
+        wait_ms: Math.max(0, activeSince - stepStart - work), duration_ms: null };
+    }
+    const work = overlapMs(stepStart, stepEnd, spans);
+    return { ...item, kind: 'step', work_ms: work, active_since: null, wait_ms: Math.max(0, (stepEnd - stepStart) - work),
+      duration_ms: item.status === 'completed' ? work : null };
+  });
+
+  const gaps = waitGaps(spans, planStart, planEnd);
+  const totalWait = gaps.reduce((sum, [from, to]) => sum + (to - from), 0);
+  if (totalWait <= 0) return { ...progress, items: steps, updated_at: progress.updated_at };
+  // 当前仍在等：最后一段空隙还开着，等待行本身是要持续计时的当前步骤。
+  const last = gaps[gaps.length - 1];
+  const waiting = !terminal && last[1] >= planEnd;
+  const waitItem = {
+    key: WAIT_KEY, kind: 'wait',
+    label: waiting ? (WAIT_LABEL[status] ?? '等待信号') : '等待信号',
+    reason: waiting ? status : null,
+    status: waiting ? 'pending' : 'completed',
+    started_at: new Date(gaps[0][0]).toISOString(),
+    completed_at: waiting ? null : new Date(planEnd).toISOString(),
+    duration_ms: waiting ? null : totalWait,
+    wait_ms: waiting ? totalWait - (planEnd - last[0]) : totalWait,
+    waiting_since: waiting ? new Date(last[0]).toISOString() : null,
+  };
+  const currentIndex = steps.findIndex(item => item.status !== 'completed');
+  const at = currentIndex === -1 ? steps.length : currentIndex;
+  return { ...progress, items: [...steps.slice(0, at), waitItem, ...steps.slice(at)], updated_at: progress.updated_at };
+}
+
 function decode(raw) {
   if (!raw) return null;
   try {
@@ -59,9 +166,12 @@ function normalizeSteps(steps) {
 /** task 执行计划：附属 JSON 的读模型与 agent 汇报入口。 */
 export default {
   /** Hide serialized storage columns and expose structured task read models. */
-  progressView(task) {
+  progressView(task, runs) {
     const { progress_plan, reservation, ...row } = task;
-    return { ...row, progress: decode(progress_plan), reservation: decodeReservation(reservation) };
+    const progress = decode(progress_plan);
+    return { ...row,
+      progress: Array.isArray(runs) ? projectProgress(progress, runs, task.status) : progress,
+      reservation: decodeReservation(reservation) };
   },
 
   reportProgressPlan(taskId, steps) {
