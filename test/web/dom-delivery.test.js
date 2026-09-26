@@ -16,13 +16,14 @@ const say = { id: 70, role: 'agent', task_kind: 'say', parent_id: 1, parent_task
   goal: 'ship a view', status: 'waiting', integration: 'pending', calls: 0, branch, target_branch: 'main',
   deps: [], dependents: [], children: [], messages: [], notices: [], reservation: null };
 const buttonOf = (root, label) => root.querySelectorAll('button').find(node => node.textContent === label);
-const graphFor = reservation => ({ git: true, current_branch: 'main', nodes: [
+const graphFor = (reservation, { done = false } = {}) => ({ git: true, current_branch: 'main', nodes: [
   { kind: 'branch', id: 'branch:main', name: 'main', head_commit: baseline, current: true, tracked: true },
   { kind: 'branch', id: `branch:${branch}`, name: branch, head_commit: commit, tracked: true,
     showcase: { reserved: false, reserve_allowed: true } },
   { kind: 'task', id: say.id, role: 'agent', task_kind: 'say', parent_id: 1, parent_task_kind: 'main',
     goal: say.goal, branch, target_branch: 'main', status: reservation?.status === 'requested' ? 'completed' : 'waiting',
-    integration: 'pending', reservation, head_commit: commit, workspace: '/tmp/lush-new-say' },
+    integration: 'pending', reservation, base_commit: baseline, head_commit: commit,
+    has_result: done, workspace: '/tmp/lush-new-say' },
 ], edges: [{ kind: 'fork', from: 'branch:main', to: `branch:${branch}`,
   status: 'fast_forward', ahead: 1, behind: 0, blockers: [], can_merge: true }] });
 
@@ -59,6 +60,34 @@ test('Task detail offers mutually exclusive booking; only showcase marks the Age
   renderDetail({ ...say, reservation: { version: 1, kind: 'showcase', status: 'pending', blocked_reason: '工作区有未提交改动' } }, null, null, null);
   await buttonOf(dom.node('detail'), '撤销预约').onclick();
   expect(world.state.actions).toContainEqual({ method: 'task.unreserve', params: { id: say.id } });
+});
+
+test('idle say with a completed invocation and committed changes offers a merge request, not a future booking', async () => {
+  const done = { ...say, calls: 1, result: '已提交并测试', base_commit: baseline, head_commit: commit };
+  renderDetail(done, null, null, null);
+  let panel = dom.node('detail');
+  expect(buttonOf(panel, '预约展示')).toBeUndefined();
+  expect(buttonOf(panel, '预约合并请求')).toBeUndefined();
+  const request = buttonOf(panel, '请求合并');
+  expect(request).toBeTruthy();
+  const pending = request.onclick();
+  expect(dialogText(dom)).toContain('不会自动推进父分支');
+  expect(world.state.actions.some(action => action.method === 'task.approve_merge')).toBe(false);
+  await answerDialog(dom, '发起请求'); await pending;
+  expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
+
+  renderGraph(graphFor(null, { done: true }), { force: true });
+  expect(buttonOf(sourceRow(), '请求合并')).toBeTruthy();
+  expect(buttonOf(sourceRow(), '预约展示')).toBeUndefined();
+  renderDetail({ ...done, reservation: { kind: 'merge', status: 'pending', blocked_reason: '工作区有未提交改动' } }, null, null, null);
+  panel = dom.node('detail');
+  expect(deepText(panel)).toContain('合并请求待就绪');
+  expect(buttonOf(panel, '复查合并请求')).toBeTruthy();
+  expect(buttonOf(panel, '撤销合并请求意图')).toBeTruthy();
+  renderDetail({ ...done, head_commit: baseline }, null, null, null);
+  expect(buttonOf(dom.node('detail'), '请求合并')).toBeUndefined();
+  renderDetail({ ...done, status: 'running' }, null, null, null);
+  expect(buttonOf(dom.node('detail'), '请求合并')).toBeUndefined();
 });
 
 test('branch graph uses the same fixed approval, never legacy branch.merge or branch showcase for new say', async () => {

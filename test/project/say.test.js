@@ -114,7 +114,9 @@ test('merge reservation pins source and parent tips, signals once, then requires
     await git(say.task.workspace, 'commit', '-m', 'release');
     const commit = await git(say.task.workspace, 'rev-parse', 'HEAD');
     const baseline = await git(f.root, 'rev-parse', 'main');
-    f.store.update(say.task.id, { status: 'waiting' }); // provider has yielded; no running invocation
+    f.store.update(say.task.id, { status: 'waiting', result: '已提交并测试' }); // provider has yielded; no running invocation
+    expect((await f.project.graph()).nodes.find(node => node.kind === 'task' && node.id === say.task.id))
+      .toMatchObject({ status: 'waiting', has_result: true, reservation: null });
     const booked = await new Dispatcher(f.project).dispatch('task.reserve', { id: say.task.id, kind: 'merge' });
     expect(booked.reservation).toMatchObject({ status: 'requested', commit, baseline, parent_id: root.id });
     expect((await f.project.graph()).nodes.find(node => node.kind === 'task' && node.id === say.task.id))

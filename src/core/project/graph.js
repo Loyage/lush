@@ -333,6 +333,7 @@ export default {
           task_kind: row.task_kind ?? null, parent_id: row.parent_id ?? null,
           parent_task_kind: row.parent_task_kind ?? null,
           reservation: row.task_kind === 'say' ? this.progressView(row).reservation : null,
+          has_result: row.task_kind === 'say' && row.result !== null,
           goal: String(row.goal ?? '').slice(0, 120),
           status: row.status, integration: row.integration, route: isRouted(row.input_id),
           branch: row.branch ?? null, workspace: workspacePath, workspace_state, branch_state: row.role === 'showcase' ? null : branch_state,

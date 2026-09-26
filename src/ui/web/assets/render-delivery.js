@@ -12,6 +12,10 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
   if (task.task_kind !== 'say') return null;
   const panel = el('div', undefined, 'delivery-controls');
   const reservation = task.reservation;
+  // say 在一次成功调用后仍保持 waiting；有待交付提交时，入口应是「请求合并」而非预约未来的工作。
+  const readyToRequestMerge = task.status === 'waiting' && task.integration === 'pending'
+    && Boolean(task.head_commit && task.base_commit && task.head_commit !== task.base_commit)
+    && (task.has_result === true || task.result != null);
   const actions = el('div', undefined, 'actions delivery-actions');
   const update = async (method, params, message) => {
     await action(method, params);
@@ -20,7 +24,7 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
   };
 
   if (!reservation && !['completed', 'failed', 'cancelled'].includes(task.status)) {
-    actions.append(button('预约展示', async () => {
+    if (!readyToRequestMerge) actions.append(button('预约展示', async () => {
       const confirmed = await confirmDialog({
         title: `为 say #${task.id} 预约效果展示？`,
         message: '开发与子任务收敛、代码满足展示准入后，将从固定提交创建专用展示子 Task；原 Task 在展示结束前不会终结。展示不代表验收，也不会合并。',
@@ -29,19 +33,27 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
       });
       if (confirmed) await update('task.reserve', { id: task.id, kind: 'showcase' }, `已预约 say #${task.id} 的展示`);
     }, 'ghost', { agent: true, help: agentHelp('预约固定提交的展示子任务；满足准入后会调用展示 Agent，原 say 完成前等待它结算。') }));
-    actions.append(button('预约合并请求', async () => {
+    actions.append(button(readyToRequestMerge ? '请求合并' : '预约合并请求', async () => {
       const confirmed = await confirmDialog({
-        title: `为 say #${task.id} 预约合并请求？`,
-        message: '工作区干净、提交可快进且子任务收敛后，将固定源提交与父分支基线、发出合并请求并结束原 Task；不会自动推进父分支，main/owner 仍需你批准固定提交。',
-        confirmLabel: '预约请求',
-        confirmHelp: '这是预约，不是合并批准；条件满足后源 say 可能立即终结，但父分支保持不变。',
+        title: readyToRequestMerge ? `为 say #${task.id} 发起合并请求？` : `为 say #${task.id} 预约合并请求？`,
+        message: readyToRequestMerge
+          ? '将检查工作区、子任务及 Git 快进条件；满足时固定源提交与父分支基线，结束原 Task 并发出合并请求。不会自动推进父分支，main/owner 仍需你批准固定提交；条件不满足时会保留请求意图并显示阻塞原因。'
+          : '工作区干净、提交可快进且子任务收敛后，将固定源提交与父分支基线、发出合并请求并结束原 Task；不会自动推进父分支，main/owner 仍需你批准固定提交。',
+        confirmLabel: readyToRequestMerge ? '发起请求' : '预约请求',
+        confirmHelp: readyToRequestMerge
+          ? '只发起固定提交的合并请求；不批准合并，条件不满足时保留意图等待复查。'
+          : '这是预约，不是合并批准；条件满足后源 say 可能立即终结，但父分支保持不变。',
       });
-      if (confirmed) await update('task.reserve', { id: task.id, kind: 'merge' }, `已预约 say #${task.id} 的合并请求`);
-    }, 'ghost', { help: '条件满足时冻结源提交与父分支基线并发送一次请求；不会自动合并，不能与展示预约并存。' }));
+      if (confirmed) await update('task.reserve', { id: task.id, kind: 'merge' },
+        readyToRequestMerge ? `已提交 say #${task.id} 的合并请求意图（请查看请求状态）` : `已预约 say #${task.id} 的合并请求`);
+    }, 'ghost', { help: readyToRequestMerge
+      ? '检查交付条件并尝试发出固定提交的合并请求；条件不满足会显示原因，不会自动合入父分支。'
+      : '条件满足时冻结源提交与父分支基线并发送一次请求；不会自动合并，不能与展示预约并存。' }));
   } else if (reservation) {
     const kind = reservation.kind === 'showcase' ? '展示' : '合并';
     const state = {
-      pending: `已预约${kind} · 等待条件`, started: '展示中 · 原 say 尚未完成',
+      pending: reservation.kind === 'merge' && readyToRequestMerge ? '合并请求待就绪' : `已预约${kind} · 等待条件`,
+      started: '展示中 · 原 say 尚未完成',
       requested: '合并请求已发送 · 父分支未推进', integrated: '已确认合入父分支',
       completed: '展示已交付 · 未自动合并', failed: '展示失败 · 工作区保留',
       cancelled: '展示已取消 · 工作区保留',
@@ -54,7 +66,7 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
       const ended = ['completed','failed','cancelled'].includes(task.status);
       if (ended) panel.append(el('span', 'Task 已终结，不能直接复查预约；先检查失败现场，再在 Task 详情中决定是否可重试。', 'hint delivery-reason'));
       const startsAgent = reservation.kind === 'showcase';
-      if (!ended) actions.append(button('复查预约', async () => {
+      if (!ended) actions.append(button(reservation.kind === 'merge' && readyToRequestMerge ? '复查合并请求' : '复查预约', async () => {
         if (startsAgent) {
           const confirmed = await confirmDialog({
             title: `复查 say #${task.id} 的展示预约？`,
@@ -83,7 +95,7 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
             : `已派解分歧子任务 #${result.task.id}；不会自动推进源 say 或父分支。`);
         await refresh();
       }, 'ghost', { agent: true, help: agentHelp('固定源与父分支提交后启动独立子 Agent 处理分歧；完成后仍需直接父 say Agent 确认集成。') }));
-      actions.append(button('撤销预约', async () => {
+      actions.append(button(reservation.kind === 'merge' && readyToRequestMerge ? '撤销合并请求意图' : '撤销预约', async () => {
         await update('task.unreserve', { id: task.id }, `已撤销 say #${task.id} 的预约`);
       }, 'ghost', { help: '只撤销尚未开始的预约；不会取消正在运行的 Agent，也不会删除提交。' }));
     }
