@@ -147,10 +147,11 @@ export default {
     // retry_profile may contain a replacement system prompt and local resource paths. It is
     // runtime configuration, not part of the task read model (agents can call task.inspect).
     const { retry_profile: _retryProfile, ...storedTask } = this.store.task(taskId);
-    const task = this.progressView(storedTask);
+    // 详情页要显示工作用时与等待行：先取这一轮的调用区间，计划时长才能只算真正运行的时间。
+    const runs = this.store.runsForTask(storedTask.id);
+    const task = this.progressView(storedTask, runs);
     // 与任务树 / 分支图同一口径：这条输入的 planner 带 input.route 事件就是快速路由。
     task.route = storedTask.input_id !== null && this.store.routedInputIds().has(storedTask.input_id);
-    const runs = this.store.runsForTask(task.id);
     const resolution = task.task_kind === 'child' ? this.store.get(
       "SELECT data FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1", task.id) : null;
     return { ...task, parent_task_kind: task.parent_id ? this.store.task(task.parent_id).task_kind : null,

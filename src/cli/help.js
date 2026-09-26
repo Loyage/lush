@@ -83,6 +83,7 @@ lush [--project PATH] [--json] <command>
   task resolve-child-divergence CHILD_ID   直接父 Agent 在已完子任务与自己的分支分歧时派解分歧子任务（不重写原子分支）
   task analyze ID '问题'                    对分支所有者（main/owner）跑一次只读分析：答案成为该 Task 的结果，不建分支
   task reserve ID merge|showcase   新 say 预约交付；同类再发会复查 pending 阻塞条件（展示就绪后可启动 Agent）
+  task resolve ID                 把无代码改动的 say 标记为已解决（保留答案，区别于取消）；有提交时改用 reserve 或 cancel
   task resolve-divergence ID      pending merge 分歧时在源 say 下派独立 Agent 子任务，先解冲突、再由 say Agent 确认集成
   task unreserve ID               撤销尚未启动的预约
   task approve-merge ID COMMIT BASELINE   用户确认固定提交及父分支基线后快进 main/owner

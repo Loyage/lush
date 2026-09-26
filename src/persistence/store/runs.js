@@ -116,6 +116,20 @@ export const runs = {
     return this.get('SELECT * FROM agent_runs WHERE id=?', id(runId));
   },
   runsForTask(taskId) { return this.all('SELECT * FROM agent_runs WHERE task_id=? ORDER BY id', id(taskId)); },
+  /** 批量取回每轮的起止，供任务读模型一次性把「工作用时 / 等待」投影出来；分块避免 IN 列表过长。 */
+  runsForTasks(taskIds) {
+    const ids = [...new Set(taskIds.filter(value => value !== null && value !== undefined))];
+    const byTask = new Map();
+    for (let offset = 0; offset < ids.length; offset += 400) {
+      const chunk = ids.slice(offset, offset + 400);
+      for (const row of this.all(`SELECT task_id, started_at, ended_at FROM agent_runs
+        WHERE task_id IN (${chunk.map(() => '?').join(',')}) ORDER BY id`, ...chunk)) {
+        if (!byTask.has(row.task_id)) byTask.set(row.task_id, []);
+        byTask.get(row.task_id).push(row);
+      }
+    }
+    return byTask;
+  },
   addArtifact({ task_id, run_id = null, input_id = null, kind, payload, metadata = {} }) {
     check(typeof kind === 'string' && kind.length > 0 && kind.length <= 64, 'artifact kind must be non-empty text');
     if (kind === 'run.result') validateRunResultPayload(payload);

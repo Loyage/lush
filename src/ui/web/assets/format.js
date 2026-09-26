@@ -10,6 +10,8 @@ export const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', 
 export const EVENTS = {
   created: '创建任务', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
+  'task.signal': '任务信号', 'child.completed': '子任务完成', 'child.integrated': '子任务已集成',
+  'task.merge_requested': '请求合并', 'task.showcase_settled': '展示结算',
   'progress.plan': '更新任务计划', 'progress.completed': '完成计划步骤',
   'workspace.created': '创建 worktree', 'workspace.removed': '回收 worktree', 'branch.removed': '回收分支',
   'verify.requested': '请求检验', 'baseline.created': '创建对照基线', 'baseline.removed': '回收对照基线',
@@ -37,6 +39,16 @@ export function duration(from, to) {
   if (seconds < 60) return `${seconds} 秒`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
   return `${Math.floor(seconds / 3600)} 小时 ${Math.floor((seconds % 3600) / 60)} 分`;
+}
+/** 任务墙钟耗时里的「工作用时」：各轮调用的时长之和（未结束的 run 算到 now）。 */
+export function runWorkMs(runs, now = Date.now()) {
+  let total = 0;
+  for (const run of runs || []) {
+    const start = Date.parse(run?.started_at);
+    const end = run?.ended_at ? Date.parse(run.ended_at) : now;
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) total += end - start;
+  }
+  return total;
 }
 export const absolute = iso => { const at = Date.parse(iso); return Number.isFinite(at) ? new Date(at).toLocaleString('zh-CN', { hour12: false }) : ''; };
 export const clock = iso => { const at = Date.parse(iso); return Number.isFinite(at) ? new Date(at).toTimeString().slice(0, 8) : ''; };
