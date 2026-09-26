@@ -90,6 +90,15 @@ export const methods = {
     if (!allowDirty) await this.clean(dir);
   },
 
+  /** 收到「工作完成」信号后，把既有 prep 检出移到新的冻结提交；保留未跟踪的依赖/缓存，强制更新跟踪文件。 */
+  async showcaseRepin(task, previous, snapshot) {
+    for (const [dir, from, to] of [[task.workspace, previous?.commit, snapshot.commit],
+      [task.baseline_workspace, previous?.baseline_commit, snapshot.baseline_commit]]) {
+      if (!dir || from === to || !fs.existsSync(dir)) continue;
+      await this.git(dir, 'checkout', '--detach', '--force', to);
+    }
+  },
+
   ensureShowcase(task) {
     return this.exclusive(async () => {
       task = this.store.task(task.id);

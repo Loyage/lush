@@ -70,7 +70,7 @@ export default {
           'merge request parent is no longer active');
       } else {
         const child = showcaseSettlement ? this.store.task(showcaseSettlement) : null;
-        check(reservation?.kind === 'showcase' && reservation.status === 'started'
+        check(reservation?.kind === 'showcase' && ['preparing','started'].includes(reservation.status)
           && reservation.child_id === child?.id && child.parent_id === task.id
           && child.role === 'showcase' && child.task_kind === 'showcase' && TERMINAL.has(child.status)
           && task.status === 'waiting'
@@ -406,6 +406,9 @@ export default {
       if (reservation?.kind === 'showcase' && reservation.status === 'started') this.settleReservedShowcase(task.id);
       if (reservation?.kind === 'showcase' && reservation.status === 'pending' && task.status === 'waiting') {
         void this.startReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+      }
+      if (reservation?.kind === 'showcase' && reservation.status === 'preparing' && task.status === 'waiting') {
+        void this.signalReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
       }
     }
     // 重启后重扫全部预约：资格可能已经满足，或者需要在新的准入下重新挂起。

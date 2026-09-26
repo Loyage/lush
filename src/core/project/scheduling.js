@@ -89,11 +89,29 @@ export default {
         // A child can settle after its parent parked but before this cleanup.
         // Recheck the inbox after releasing ownership to avoid a lost wake-up.
         if (!TERMINAL.has(this.store.task(task.id).status) && this.hasActionableMessages(task.id)) this.wake(task.id);
-        const settled = this.store.task(task.id);
-        if (!this.stopping && settled.task_kind === 'say' && settled.status === 'waiting' && settled.reservation) {
-          const kind = JSON.parse(settled.reservation).kind;
-          if (kind === 'merge') await this.settleReservedMerge(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
-          if (kind === 'showcase') await this.startReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+        if (!this.stopping) {
+          const settled = this.store.task(task.id);
+          let reservation = null;
+          try { reservation = settled.task_kind === 'say' && settled.reservation ? JSON.parse(settled.reservation) : null; }
+          catch { /* invalid state stays visible for inspection */ }
+          if (settled.status === 'waiting' && reservation?.kind === 'merge') {
+            await this.settleReservedMerge(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+          }
+          if (settled.status === 'waiting' && reservation?.kind === 'showcase' && reservation.status === 'preparing') {
+            await this.signalReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+          }
+          if (settled.status === 'waiting' && reservation?.kind === 'showcase' && reservation.status === 'pending') {
+            await this.startReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+          }
+          // 展示准备阶段完成：若原 say 已真正完成且满足准入，立刻补发信号让它进入交付。
+          if (settled.role === 'showcase' && settled.status === 'waiting' && settled.parent_id) {
+            let phase = null;
+            try { phase = settled.showcase ? JSON.parse(settled.showcase).phase : null; } catch { /* leave visible */ }
+            if (phase === 'preparing') {
+              await this.signalReservedShowcase(settled.parent_id)
+                .catch(error => this.noteReservationBlocked(settled.parent_id, error.message));
+            }
+          }
         }
         this.kick();
       });
@@ -231,6 +249,15 @@ export default {
         return;
       }
       if (task.role === 'showcase') {
+        const snapshot = JSON.parse(this.store.task(taskId).showcase);
+        if (snapshot.phase === 'preparing') {
+          // 第一阶段只做准备：不要求 report，也不结算展示 Task；保留现场等原 say 的工作完成信号。
+          this.store.transaction(() => {
+            this.store.update(taskId, { status: 'waiting' });
+            this.store.event(taskId, 'showcase.preparation_done', { run_id: run.recordId });
+          });
+          return;
+        }
         const payload = this.showcaseReport(this.store.task(taskId));
         this.store.addArtifact({ task_id: taskId, run_id: run.recordId, input_id: task.input_id,
           kind: 'showcase.result', payload, metadata: { role: 'showcase' } });

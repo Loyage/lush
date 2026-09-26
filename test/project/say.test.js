@@ -690,6 +690,7 @@ test('showcase booking creates a detached child and finishes the say only after 
   const show = gate();
   const f = fixture({ run: async ({ task, cwd, context }) => {
     if (task.role === 'showcase') {
+      if (context.showcase.phase === 'preparing') return 'prepared';
       await show.promise;
       fs.writeFileSync(context.showcase.report_path, '<!doctype html><h1>Ready</h1>');
       return 'preview ready';
@@ -703,7 +704,7 @@ test('showcase booking creates a detached child and finishes the say only after 
     const say = await f.project.say('show new screen');
     const baseline = await git(f.root, 'rev-parse', 'main');
     const booked = await f.project.reserveTask(say.task.id, 'showcase');
-    expect(['pending','started']).toContain(booked.reservation.status);
+    expect(['preparing','started']).toContain(booked.reservation.status);
     await until(() => JSON.parse(f.store.task(say.task.id).reservation).status === 'started');
     const current = f.store.task(say.task.id), reservation = JSON.parse(current.reservation);
     const child = f.store.task(reservation.child_id);
@@ -726,39 +727,47 @@ test('showcase booking creates a detached child and finishes the say only after 
   } finally { show.resolve(); await f.close(); }
 });
 
-test('showcase booking remains pending with a visible reason until code and clean worktree are ready', async () => {
+test('showcase booking creates the child immediately and signals only once code and worktree are ready', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const say = await f.project.say('present later');
     f.store.update(say.task.id, { status: 'waiting' });
-    f.project.stopping = false; f.project.kick = () => {}; // admit showcase, but do not start a mock invocation
+    f.project.stopping = false; f.project.kick = () => {}; // create the child, but do not start a mock invocation
     const first = await f.project.reserveTask(say.task.id, 'showcase');
-    expect(first.reservation).toMatchObject({ status: 'pending' });
-    expect(first.reservation.blocked_reason).toContain('没有实际文件改动');
-    expect(f.store.children(say.task.id)).toHaveLength(0);
+    expect(first.reservation).toMatchObject({ kind: 'showcase', status: 'preparing' });
+    expect(typeof first.reservation.child_id).toBe('number');
+    const child = f.store.task(first.reservation.child_id);
+    expect(child).toMatchObject({ parent_id: say.task.id, role: 'showcase', task_kind: 'showcase', status: 'queued' });
+    // 准备阶段完成（这里直接置为 waiting，不跑 mock 调用）后才会尝试发信号。
+    f.store.update(child.id, { status: 'waiting' });
+    expect(await f.project.signalReservedShowcase(say.task.id)).toBe(false);
+    expect(JSON.parse(f.store.task(say.task.id).reservation).blocked_reason).toContain('没有实际文件改动');
     fs.writeFileSync(path.join(say.task.workspace, 'ready.txt'), 'ready\n');
     await git(say.task.workspace, 'add', 'ready.txt'); await git(say.task.workspace, 'commit', '-m', 'ready');
     const scratch = path.join(say.task.workspace, 'uncommitted.tmp');
     fs.writeFileSync(scratch, 'user changes');
-    await f.project.startReservedShowcase(say.task.id);
+    await f.project.signalReservedShowcase(say.task.id);
     expect(JSON.parse(f.store.task(say.task.id).reservation).blocked_reason).toContain('未提交修改');
-    expect(f.store.children(say.task.id)).toHaveLength(0);
     fs.unlinkSync(scratch); // only our temporary test project file
-    f.project.recover();
-    await until(() => JSON.parse(f.store.task(say.task.id).reservation).status === 'started');
+    const signaled = await f.project.signalReservedShowcase(say.task.id);
+    expect(signaled.id).toBe(first.reservation.child_id);
+    expect(JSON.parse(f.store.task(say.task.id).reservation)).toMatchObject({ kind: 'showcase', status: 'started',
+      child_id: first.reservation.child_id });
     expect(f.store.children(say.task.id)).toHaveLength(1);
     expect(f.store.task(say.task.id).status).toBe('waiting');
   } finally { await f.close(); }
 });
 
-test('pending showcase rechecks only after safe admission and never duplicates a child', async () => {
+test('showcase reservation rechecks never duplicate a child and only signal after admission', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const say = await f.project.say('present once');
     f.store.update(say.task.id, { status: 'waiting' });
     f.project.stopping = false; f.project.kick = () => {};
-    const blocked = await f.project.reserveTask(say.task.id, 'showcase');
-    expect(blocked.reservation.blocked_reason).toContain('没有实际文件改动');
+    const booked = await f.project.reserveTask(say.task.id, 'showcase');
+    f.store.update(booked.reservation.child_id, { status: 'waiting' });
+    await f.project.signalReservedShowcase(say.task.id);
+    expect(JSON.parse(f.store.task(say.task.id).reservation).blocked_reason).toContain('没有实际文件改动');
     fs.writeFileSync(path.join(say.task.workspace, 'view.txt'), 'new view\n');
     await git(say.task.workspace, 'add', 'view.txt'); await git(say.task.workspace, 'commit', '-m', 'view');
     const retried = await f.project.reserveTask(say.task.id, 'showcase');
@@ -798,8 +807,8 @@ test('a failed showcase leaves the say and its worktree as visible failed delive
 
 test('cancelling a presenting say cancels its showcase child before ending the parent', async () => {
   const go = gate();
-  const f = fixture({ run: async ({ task, cwd }) => {
-    if (task.role === 'showcase') { await go.promise; return 'cancelled'; }
+  const f = fixture({ run: async ({ task, cwd, context }) => {
+    if (task.role === 'showcase') { if (context.showcase.phase === 'preparing') return 'prepared'; await go.promise; return 'cancelled'; }
     fs.writeFileSync(path.join(cwd, 'cancel.txt'), 'ready\n');
     await git(cwd, 'add', 'cancel.txt'); await git(cwd, 'commit', '-m', 'cancel');
     return 'built';
@@ -818,10 +827,33 @@ test('cancelling a presenting say cancels its showcase child before ending the p
   } finally { go.resolve(); await f.close(); }
 });
 
+test('a preparation-phase showcase failure settles the say instead of leaving it preparing', async () => {
+  const f = fixture({ run: async ({ task, cwd, context }) => {
+    if (task.role === 'showcase') {
+      if (context.showcase.phase === 'preparing') throw new Error('prep blew up');
+      return 'unreachable';
+    }
+    fs.writeFileSync(path.join(cwd, 'prep.txt'), 'ready\n');
+    await git(cwd, 'add', 'prep.txt'); await git(cwd, 'commit', '-m', 'prep');
+    return 'built';
+  } });
+  await repo(f.root);
+  try {
+    const say = await f.project.say('fail prep');
+    await f.project.reserveTask(say.task.id, 'showcase');
+    await until(() => f.store.task(say.task.id).status === 'failed');
+    const reservation = JSON.parse(f.store.task(say.task.id).reservation);
+    expect(reservation.status).toBe('failed');
+    expect(f.store.task(reservation.child_id).status).toBe('failed');
+    expect(f.store.task(say.task.id).error).toContain('prep blew up');
+  } finally { await f.close(); }
+});
+
 test('recovery closes a say left in showcase started after its child committed settlement', async () => {
   const go = gate();
   const f = fixture({ run: async ({ task, cwd, context }) => {
     if (task.role === 'showcase') {
+      if (context.showcase.phase === 'preparing') return 'prepared';
       await go.promise;
       fs.writeFileSync(context.showcase.report_path, '<!doctype html><p>Done</p>');
       return 'done';

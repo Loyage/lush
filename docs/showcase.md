@@ -32,6 +32,8 @@ Web 不再提供创建/启动手动验收的主入口。底层 `task verify`、`
 
 RPC：`showcase.reserve(branch)` 挂起预约（当前已满足准入时立即创建展示 Task），`showcase.unreserve(branch)` 取消；两者都是用户专属。
 
+say Task 详情的「预约展示」是任务级预约，与分支图的分支级预约并存：点击即创建展示子 Task 并先做 `preparing` 准备；原 say 真正完成且通过展示准入后，runtime 发一次信号，展示子 Task 重新固定最终提交与工作区并交付，原 say 保持非终态直到展示子 Task 结算。只有任务级预约有准备/交付两阶段；CLI `showcase.start` 与分支图预约仍是一次性冻结提交。
+
 ## agent 实际做什么
 
 1. runtime 固定展示提交和对比起点，各创建一个独立 detached worktree；不切换用户分支，不提交或暂存用户修改。

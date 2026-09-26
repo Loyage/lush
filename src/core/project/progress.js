@@ -35,7 +35,7 @@ function decodeReservation(raw) {
   try {
     const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (!isPlainObject(value) || value.version !== 1 || !['merge','showcase'].includes(value.kind)
-      || !['pending','requested','started','integrated','failed'].includes(value.status)) return { status: 'invalid' };
+      || !['pending','preparing','requested','started','integrated','completed','failed','cancelled'].includes(value.status)) return { status: 'invalid' };
     return value;
   } catch { return { status: 'invalid' }; }
 }

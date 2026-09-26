@@ -43,7 +43,7 @@ export default {
             const reserved = this.store.task(task.id).reservation;
             if (task.role === 'agent' && task.task_kind === 'say' && reserved) {
               const value = JSON.parse(reserved);
-              if (value.kind === 'showcase' && value.status === 'pending') continue;
+              if (value.kind === 'showcase' && ['pending','preparing'].includes(value.status)) continue;
             }
           }
           check(task.role === 'verifier' ? TERMINAL.has(task.status) : task.status === 'completed',
@@ -113,6 +113,25 @@ export default {
     const active = history.find(task => !TERMINAL.has(task.status) || this.running.has(task.id));
     if (active) return { allowed: false, reason: `showcase #${active.id} is still active` };
     return { allowed: true, reason: null };
+  },
+
+  /**
+   * 预约展示的第一阶段快照：只固定「现在」这条分支的提交，供展示 Agent 提前理解代码与准备方案。
+   * 不做完整准入（允许暂无文件改动、允许相关任务仍在跑），最终提交与准入留给 showcaseEligibility 在信号时复核。
+   */
+  async showcasePreparation(branch) {
+    check(typeof branch === 'string' && branch.length > 0 && branch.length <= 512, 'invalid showcase branch');
+    const record = this.store.branch(branch);
+    check(record?.parent && record.parent_relation === 'recorded' && record.created_from_commit,
+      '效果展示仅开放给已登记且有明确父分支和基线的分支');
+    check(record.status === 'active', '已归档或删除的分支不能预约效果展示');
+    check(!['main', 'master'].includes(branch), '主干分支不开放效果展示');
+    const project = this.config.project;
+    await this.workspaces.git(project, 'check-ref-format', `refs/heads/${branch}`);
+    await this.workspaces.git(project, 'show-ref', '--verify', `refs/heads/${branch}`);
+    const commit = await this.workspaces.git(project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`);
+    return { version: 1, branch, commit, tree: await this.workspaces.showcaseTree(commit),
+      baseline_branch: record.parent, baseline_commit: record.created_from_commit };
   },
 
   /**

@@ -27,12 +27,12 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
     if (!readyToRequestMerge) actions.append(button('预约展示', async () => {
       const confirmed = await confirmDialog({
         title: `为 say #${task.id} 预约效果展示？`,
-        message: '开发与子任务收敛、代码满足展示准入后，将从固定提交创建专用展示子 Task；原 Task 在展示结束前不会终结。展示不代表验收，也不会合并。',
+        message: '点击即创建专用展示子 Task 并开始准备；say 完成工作且满足展示准入后会向它发信号，展示按最终固定提交交付。原 Task 在展示结束前不会终结。展示不代表验收，也不会合并。',
         confirmLabel: '预约展示', agent: true,
-        confirmHelp: agentHelp('满足准入后启动隔离的展示 Agent 生成报告；预约本身不会合并代码。'),
+        confirmHelp: agentHelp('预约时即创建展示子 Task 并让它先做准备；say 完成工作后自动发信号，展示按最终提交交付。'),
       });
-      if (confirmed) await update('task.reserve', { id: task.id, kind: 'showcase' }, `已预约 say #${task.id} 的展示`);
-    }, 'ghost', { agent: true, help: agentHelp('预约固定提交的展示子任务；满足准入后会调用展示 Agent，原 say 完成前等待它结算。') }));
+      if (confirmed) await update('task.reserve', { id: task.id, kind: 'showcase' }, `已创建 say #${task.id} 的展示子任务并开始准备`);
+    }, 'ghost', { agent: true, help: agentHelp('点击即创建展示子 Task 并开始准备；say 完成工作后自动发信号，展示按最终提交交付，原 say 等展示结算。') }));
     actions.append(button(readyToRequestMerge ? '请求合并' : '预约合并请求', async () => {
       const confirmed = await confirmDialog({
         title: readyToRequestMerge ? `为 say #${task.id} 发起合并请求？` : `为 say #${task.id} 预约合并请求？`,
@@ -53,16 +53,17 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
     const kind = reservation.kind === 'showcase' ? '展示' : '合并';
     const state = {
       pending: reservation.kind === 'merge' && readyToRequestMerge ? '合并请求待就绪' : `已预约${kind} · 等待条件`,
+      preparing: '已预约展示 · 展示准备中',
       started: '展示中 · 原 say 尚未完成',
       requested: '合并请求已发送 · 父分支未推进', integrated: '已确认合入父分支',
       completed: '展示已交付 · 未自动合并', failed: '展示失败 · 工作区保留',
       cancelled: '展示已取消 · 工作区保留',
     }[reservation.status] || '预约状态需检查';
     panel.append(badge(state, reservation.status === 'failed' ? 'b-failed' : 'b-awaiting'));
-    if (reservation.blocked_reason) panel.append(el('span', reservation.status === 'pending'
+    if (reservation.blocked_reason) panel.append(el('span', ['pending','preparing'].includes(reservation.status)
       ? `上次检查未满足：${reservation.blocked_reason}`
       : `请求状态：${reservation.blocked_reason}`, 'hint delivery-reason'));
-    if (reservation.status === 'pending') {
+    if (['pending','preparing'].includes(reservation.status)) {
       const ended = ['completed','failed','cancelled'].includes(task.status);
       if (ended) panel.append(el('span', 'Task 已终结，不能直接复查预约；先检查失败现场，再在 Task 详情中决定是否可重试。', 'hint delivery-reason'));
       const startsAgent = reservation.kind === 'showcase';
@@ -70,16 +71,22 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
         if (startsAgent) {
           const confirmed = await confirmDialog({
             title: `复查 say #${task.id} 的展示预约？`,
-            message: '将重查静息状态、工作区与展示准入；若已满足条件，会立即创建并启动展示子 Agent。不会自动合并。',
+            message: reservation.status === 'preparing'
+              ? '将重查 say 静息状态、工作区与展示准入；若已满足条件，会向已创建的展示子 Agent 发信号，让它按最终提交交付。不会自动合并。'
+              : '将重查静息状态、工作区与展示准入；若已满足条件，会立即创建并启动展示子 Agent。不会自动合并。',
             confirmLabel: '复查展示', agent: true,
-            confirmHelp: agentHelp('复查已持久化的展示预约；如果条件满足，立即启动展示 Agent。'),
+            confirmHelp: agentHelp(reservation.status === 'preparing'
+              ? '复查展示准备与准入；满足时给已创建的展示子 Agent 发完成信号。'
+              : '复查已持久化的展示预约；如果条件满足，立即启动展示 Agent。'),
           });
           if (!confirmed) return;
         }
         await update('task.reserve', { id: task.id, kind: reservation.kind }, `已复查 say #${task.id} 的预约`);
       }, 'ghost', { agent: startsAgent,
         help: startsAgent
-          ? agentHelp('重查安全准入，符合条件就启动展示子 Agent；不清理用户改动或推进父分支。')
+          ? agentHelp(reservation.status === 'preparing'
+            ? '重查安全准入，符合条件就向已创建的展示子 Agent 补发完成信号；不清理用户改动或推进父分支。'
+            : '重查安全准入，符合条件就启动展示子 Agent；不清理用户改动或推进父分支。')
           : '重查已有合并预约的静息状态、工作区与 Git 快进条件；不会直接推进父分支。' }));
       if (!ended && reservation.kind === 'merge' && reservation.blocked_code === 'diverged') actions.append(button('派子任务解决分歧', async () => {
         const confirmed = await confirmDialog({
@@ -97,7 +104,9 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
       }, 'ghost', { agent: true, help: agentHelp('固定源与父分支提交后启动独立子 Agent 处理分歧；完成后仍需直接父 say Agent 确认集成。') }));
       actions.append(button(reservation.kind === 'merge' && readyToRequestMerge ? '撤销合并请求意图' : '撤销预约', async () => {
         await update('task.unreserve', { id: task.id }, `已撤销 say #${task.id} 的预约`);
-      }, 'ghost', { help: '只撤销尚未开始的预约；不会取消正在运行的 Agent，也不会删除提交。' }));
+      }, 'ghost', { help: reservation.status === 'preparing'
+        ? '撤销展示预约并取消尚未交付的准备中子 Task；不会删除分支或提交。'
+        : '只撤销尚未开始的预约；不会取消正在运行的 Agent，也不会删除提交。' }));
     }
     if (reservation.resolution_child_id) actions.append(button(`查看解分歧 #${reservation.resolution_child_id}`,
       () => detail(reservation.resolution_child_id), 'link'));
