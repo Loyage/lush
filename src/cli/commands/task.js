@@ -134,7 +134,7 @@ export async function run(command, args, ctx) {
       while (!TERMINAL.has(value.status));
       if (value.status !== 'completed') process.exitCode = 1;
     } else {
-      check(['inspect','cancel','retry','merge','integrate','reserve','resolve-divergence','resolve-child-divergence','analyze','unreserve','approve-merge','cleanup','verify','delete','clear'].includes(verb), 'unknown task command');
+      check(['inspect','cancel','retry','merge','integrate','reserve','resolve','resolve-divergence','resolve-child-divergence','analyze','unreserve','approve-merge','cleanup','verify','delete','clear'].includes(verb), 'unknown task command');
       if (verb === 'clear') { exact(args, 0); value = await client.request('task.clear'); }
       else if (verb === 'integrate') {
         exact(args, 2);

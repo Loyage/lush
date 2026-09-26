@@ -113,6 +113,35 @@ export default {
     });
   },
 
+  /**
+   * 用户专属：把一个**没有代码改动**的 say 标记为「已解决」。它与「取消任务树」区分开：
+   * 前者表示这次输入只是想了解/确认、你已经没有别的需求；后者是因为别的原因放弃正在进行的工作。
+   * 只有分支没有新提交、工作区干净、没有正在调用的 Agent，且没有发出的合并请求或进行中的展示交付时才允许；
+   * 有提交的 say 请走「请求合并」交付，或直接「取消任务树」。结算后照常落一条完成提醒。
+   */
+  async resolveTask(taskId) {
+    const target = id(taskId);
+    const task = this.store.task(target);
+    check(task.task_kind === 'say', 'only a new say Task can be marked resolved');
+    check(!TERMINAL.has(task.status), 'task already ended; retry it or send a new input');
+    check(!this.running.has(task.id), 'Agent 正在调用，等本轮安全结束后再标记已解决');
+    const reservation = storedReservation(task.reservation);
+    check(reservation?.kind !== 'merge' || reservation.status !== 'requested',
+      '这条 say 已经有发出的合并请求；请先批准或撤销请求，再标记已解决');
+    check(reservation?.kind !== 'showcase',
+      '这条 say 预约了展示交付；请先撤销展示预约，再标记已解决');
+    check(!task.head_commit || !task.base_commit || task.head_commit === task.base_commit,
+      '这条 say 已经有提交；请用「请求合并」交付，或用「取消任务树」放弃');
+    return this.workspaces.exclusive(async () => {
+      // 清理工作区并复核任务分支与顶端提交；有未提交改动或换过分支会在这里拒绝。
+      await this.workspaces.finish(task);
+      const current = this.store.task(task.id);
+      check(current.head_commit === current.base_commit,
+        '这条 say 已经有提交；请用「请求合并」交付，或用「取消任务树」放弃');
+      return this.finish(current.id, 'completed', current.result, null, { resolvedByUser: true });
+    });
+  },
+
   /** Persistent, mutually exclusive user intention; not a merge/showcase authorization. */
   async reserveTask(taskId, kind) {
     check(kind === 'merge' || kind === 'showcase', 'reservation kind must be merge or showcase');

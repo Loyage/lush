@@ -61,8 +61,13 @@ export default {
     const resolutionSource = resolutionEvent ? JSON.parse(resolutionEvent.data).source_task_id : task.resolves_task_id;
     const request = options.mergeRequest ?? null;
     const showcaseSettlement = options.showcaseSettlement ?? null;
+    // 用户对一次「只想了解」的 say 显式收尾：没有代码改动，也不产生合并请求。
+    const resolvedByUser = options.resolvedByUser === true;
     check(!request || !showcaseSettlement, 'a say Task cannot merge and showcase together');
-    if (task.task_kind === 'say' && (status === 'completed' || showcaseSettlement)) {
+    if (resolvedByUser) {
+      check(task.task_kind === 'say' && status === 'completed' && !request && !showcaseSettlement,
+        'a user-resolved settlement belongs to a new say Task');
+    } else if (task.task_kind === 'say' && (status === 'completed' || showcaseSettlement)) {
       const reservation = task.reservation ? JSON.parse(task.reservation) : null;
       if (request) {
         check(reservation?.kind === 'merge' && reservation.status === 'pending'
@@ -112,7 +117,9 @@ export default {
           source_task_id: task.id, signal: 'merge.requested', key });
         this.store.update(task.id, { reservation: JSON.stringify(requested) });
       }
-      this.store.update(task.id, { status, result, error, retry_profile: null });
+      this.store.update(task.id, { status, result, error, retry_profile: null,
+        ...(resolvedByUser ? { reservation: null } : {}) });
+      if (resolvedByUser) this.store.event(task.id, 'task.resolved', { head_commit: task.head_commit ?? null });
       this.store.run("UPDATE notices SET status='dismissed',answer='task ended' WHERE task_id=? AND status='open'", task.id);
       // 结算提醒：completed / failed 且任务有自己的分支或是一次只读分析时落且只落一条纯信息 notice。
       // 它 kind='info' / status='sent'，与这次结算同一个事务，且顺序在「关掉 open notice」之后；
