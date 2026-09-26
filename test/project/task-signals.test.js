@@ -19,6 +19,10 @@ test('child signals are durable, typed, source-bound and delivered once after th
     expect(inbox).toHaveLength(1);
     expect(inbox[0]).toMatchObject({ id: first.id, sender_id: child.id, signal_type: 'child.completed', signal_key: `child:${child.id}:completed` });
     expect(JSON.parse(inbox[0].body).payload).toEqual({ result: 'done' });
+    // 历史事件默认只存 message_id；读取历史时把被引用的消息正文一并带上，时间线才看得到通信内容。
+    const signalEvent = f.store.historyPage(parent.id).events.find(event => event.type === 'task.signal');
+    expect(signalEvent.message).toMatchObject({ id: first.id, task_id: parent.id, sender_id: child.id, signal_type: 'child.completed' });
+    expect(JSON.parse(signalEvent.message.body).payload).toEqual({ result: 'done' });
     expect(f.store.all("SELECT type FROM events WHERE task_id=? AND type='task.signal'", parent.id)).toHaveLength(1);
     expect(f.project.sendTaskSignal(child.id, parent.id, 'child.completed', `child:${child.id}:completed`, { result: 'done' }))
       .toEqual({ id: first.id, inserted: false });
@@ -30,6 +34,19 @@ test('child signals are durable, typed, source-bound and delivered once after th
     f.store.run('UPDATE messages SET consumed=1 WHERE id=?', first.id);
     expect(f.store.unread(parent.id)).toEqual([]);
     expect(f.store.get('SELECT id FROM messages WHERE id=?', first.id)).toBeTruthy();
+  } finally { await f.close(); }
+});
+
+test('普通文本消息事件正文内联在 data.body，不重复挂 event.message', async () => {
+  const f = fixture(); f.project.stopping = true;
+  try {
+    const parent = f.store.create({ role: 'coordinator', goal: 'parent' });
+    const child = f.store.create({ parent_id: parent.id, role: 'research', goal: 'child' });
+    f.store.update(parent.id, { status: 'waiting' });
+    f.project.message(parent.id, 'a plain note', child.id);
+    const messageEvent = f.store.history(parent.id).find(event => event.type === 'message');
+    expect(messageEvent.data.body).toBe('a plain note');
+    expect(messageEvent.message).toBeUndefined();
   } finally { await f.close(); }
 });
 
