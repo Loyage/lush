@@ -182,6 +182,41 @@ export default {
    * 所以归档一条就是归档它整棵子树；已经归档／回收过的后代直接跳过。
    * 所有安全门在动 Git 之前同步跑完，任一不满足就抛错且无副作用；通过后由 Git 边界两遍执行（先检查、再删）。
    */
+  /**
+   * G-01：一条分支（及它的子树）当前真正的使用者。任务不一定拥有 branch 字段——输入锚点由它的
+   * planner 与尚未建分支的 queued worker 使用，verifier / candidate verifier 站在被检验对象的检出里。
+   * 归档前用统一口径把「谁还在用这些 worktree / ref」问清楚，而不是只查 tasks.branch。
+   */
+  branchResourceUsers(targets) {
+    const names = [...new Set(targets)];
+    const users = new Set();
+    if (!names.length) return [...users];
+    const placeholders = names.map(() => '?').join(',');
+    for (const row of this.store.all(`SELECT id FROM tasks WHERE branch IN (${placeholders})`, ...names)) users.add(row.id);
+    for (const input of this.store.all(`SELECT id, task_id FROM inputs WHERE anchor_branch IN (${placeholders})`, ...names)) {
+      if (input.task_id !== null && input.task_id !== undefined) users.add(input.task_id);
+      // Only roles whose worktree is the input anchor actually hold it; coordinators/research run in the project root.
+      for (const row of this.store.all(`SELECT id FROM tasks WHERE input_id=?
+        AND (role IN ('planner','worker','merger') OR task_kind='say')`, input.id)) users.add(row.id);
+    }
+    // 检验别的任务或候选：被检验对象落在这些分支上时，verifier 的检出/对照都在用它们。
+    for (const row of this.store.all(`SELECT id, verifies_task_id, review_candidate_id FROM tasks
+      WHERE verifies_task_id IS NOT NULL OR review_candidate_id IS NOT NULL`)) {
+      if (row.verifies_task_id) {
+        const verified = this.store.get('SELECT branch FROM tasks WHERE id=?', row.verifies_task_id);
+        if (verified && names.includes(verified.branch)) users.add(row.id);
+      }
+      if (row.review_candidate_id) {
+        const candidate = this.store.get('SELECT branch FROM review_candidates WHERE id=?', row.review_candidate_id);
+        if (candidate && names.includes(candidate.branch)) users.add(row.id);
+      }
+    }
+    // 还把这条分支当作目标 / 对照的工作（merger、verifier）。
+    for (const row of this.store.all(`SELECT id FROM tasks WHERE target_branch IN (${placeholders})
+      AND status NOT IN ('completed','failed','cancelled')`, ...names)) users.add(row.id);
+    return [...users];
+  },
+
   async archiveBranch(branch, { discard_worktree = false } = {}) {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
@@ -209,6 +244,16 @@ export default {
     const showcases = this.store.all(`SELECT * FROM tasks WHERE role='showcase'
       AND json_extract(showcase,'$.branch') IN (${placeholders}) ORDER BY id`, ...targets);
     unfinished.push(...showcases.filter(task => !TERMINAL.has(task.status) || this.running.has(task.id)));
+    // G-01: branchless users (input-anchor planners, queued workers, verifiers) and terminal tasks whose
+    // invocation is still unwinding also hold the worktrees; archiving them would delete a live checkout.
+    const users = new Set(this.branchResourceUsers(targets));
+    for (const id of users) {
+      const task = this.store.get('SELECT id, status FROM tasks WHERE id=?', id);
+      if (task && (!TERMINAL.has(task.status) || this.running.has(task.id))
+        && !unfinished.some(row => row.id === task.id)) unfinished.push(task);
+    }
+    const cleaning = [...this.workspaces.busy].filter(id => users.has(id));
+    check(cleaning.length === 0, `branch ${name} is being cleaned up (task #${cleaning[0]})`);
     check(unfinished.length === 0, `branch ${name} still has unfinished tasks: ${unfinished.map(task => `#${task.id}`).join(', ')}`);
     const showcaseCleanup = showcases.map(task => ({ id: task.id, status: task.status,
       worktrees: [task.workspace, task.baseline_workspace].filter(dir => dir && fs.existsSync(dir)).length }));

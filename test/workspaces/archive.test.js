@@ -254,3 +254,56 @@ test('an archived branch can no longer be merged or synced', async () => {
     expect(f.store.branch(branch).status).toBe('archived');
   } finally { await f.close(); }
 });
+
+test('archiving an input anchor used by a running planner is refused without side effects', async () => {
+  const provider = controlled(), f = fixture(provider); await repo(f.root);
+  try {
+    const input = await f.project.submit('plan while archiving');
+    await until(() => provider.calls.length === 1);
+    const branch = input.anchor.branch, cwd = input.anchor.workspace;
+    await expect(f.project.archiveBranch(branch)).rejects.toThrow(new RegExp(`unfinished tasks: #${input.task.id}`));
+    expect(fs.existsSync(cwd)).toBe(true);
+    expect(await git(f.root, 'branch', '--list', branch)).toContain(branch);
+    expect(f.store.branch(branch).status).toBe('active');
+    provider.calls[0].done.resolve('done');
+    await until(() => f.project.running.size === 0);
+  } finally { await f.close(); }
+});
+
+test('archiving an input anchor with a queued branchless worker is refused', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const input = await f.project.submit('intent with queued worker');
+    f.store.update(input.task.id, { status: 'completed' });
+    const host = f.store.create({ input_id: input.id, role: 'coordinator', goal: 'host' });
+    const worker = f.project.spawn(host.id, 'queued work', 'worker', [], 'queued-work');
+    expect(f.store.task(worker.id).branch).toBe(null);
+    await expect(f.project.archiveBranch(input.anchor.branch)).rejects.toThrow(new RegExp(`unfinished tasks: #${worker.id}`));
+    expect(fs.existsSync(input.anchor.workspace)).toBe(true);
+    expect(f.store.branch(input.anchor.branch).status).toBe('active');
+  } finally { await f.close(); }
+});
+
+test('archiving a worker branch watched by an active verifier is refused', async () => {
+  const f = await setup();
+  try {
+    const cwd = await change(f, f.task);
+    const branch = f.store.task(f.task.id).branch;
+    const verifier = f.project.verify(f.task.id);
+    await expect(f.project.archiveBranch(branch)).rejects.toThrow(new RegExp(`unfinished tasks: #${verifier.id}`));
+    expect(fs.existsSync(cwd)).toBe(true);
+    expect(f.store.branch(branch).status).toBe('active');
+  } finally { await f.close(); }
+});
+
+test('a terminal task whose invocation is still unwinding blocks archiving', async () => {
+  const f = await setup();
+  try {
+    const cwd = await change(f, f.task);
+    const branch = f.store.task(f.task.id).branch;
+    f.project.running.set(f.task.id, {});
+    await expect(f.project.archiveBranch(branch)).rejects.toThrow(new RegExp(`unfinished tasks: #${f.task.id}`));
+    expect(fs.existsSync(cwd)).toBe(true);
+    f.project.running.delete(f.task.id);
+  } finally { await f.close(); }
+});
