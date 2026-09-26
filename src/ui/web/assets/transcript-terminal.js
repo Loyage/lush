@@ -1,7 +1,7 @@
 import { $, el, button } from './dom.js';
 import { api } from './api.js';
 import { ui } from './state.js';
-import { agentText } from './text.js';
+import { transcriptBody } from './transcript-body.js';
 import { referenceable } from './context-references.js';
 import { closeExplanationPanel } from './explanations.js';
 
@@ -23,15 +23,6 @@ export function closeTranscriptTerminal() {
   $('detail').scrollTop = state.returnScroll;
 }
 
-/** Decode tool strings without a collapsed JSON tree; bound formatting work, never drop fields. */
-function toolValue(value, depth = 0, budget = { left: 500 }) {
-  if (typeof value === 'string') return value;
-  if (value === null || typeof value !== 'object' || depth >= 12 || --budget.left < 0) return JSON.stringify(value, null, 2);
-  const entries = Object.entries(value);
-  if (!entries.length) return Array.isArray(value) ? '[]' : '{}';
-  return entries.map(([key, item]) => `${Array.isArray(value) ? `[${key}]` : key}:\n${toolValue(item, depth + 1, budget).split('\n').map(line => `  ${line}`).join('\n')}`).join('\n');
-}
-
 /** A document reader, not a terminal emulator: never interprets ANSI or starts a process. */
 function recordNode(taskId, step) {
   const node = el('article', undefined, `terminal-record terminal-${step.kind}${step.is_error ? ' terminal-failed' : ''}`);
@@ -43,20 +34,10 @@ function recordNode(taskId, step) {
     el('span', `#${step.seq}${step.offset ? ' · 续段' : ''}${step.call_id ? ` · ${step.call_id}` : ''}`, 'hint'));
   node.append(head);
   const body = step.body || '';
-  if (partial) node.append(el('p', `原文分段 · 字符 ${step.offset + 1}–${step.offset + body.length} / ${step.body_length}（未裁剪）`, 'hint'));
-  // Partial Markdown/JSON is faithfully rendered as text, not guessed or repaired.
-  if (!partial && ['text', 'thinking'].includes(step.kind)) node.append(agentText(body, { plain: 'pre' }));
-  else if (!partial && step.kind === 'tool') {
-    let args;
-    try { args = JSON.parse(body); } catch { /* keep raw */ }
-    if (args && typeof args === 'object' && !Array.isArray(args) && Object.keys(args).length <= 100) {
-      for (const [name, value] of Object.entries(args)) {
-        node.append(el('div', name === 'command' ? '$ command' : name, 'terminal-field'),
-          el('pre', toolValue(value), 'terminal-text'));
-      }
-      if (!Object.keys(args).length) node.append(el('pre', body, 'terminal-text'));
-    } else node.append(el('pre', body, 'terminal-text'));
-  } else node.append(el('pre', body, 'terminal-text'));
+  // 与富文本执行过程共用 transcript-body.js，只传 plain：终端保留原始文本，不渲染 Markdown/JSON 树/代码着色。
+  if (partial) node.append(el('p', `原文分段 · 字符 ${step.offset + 1}–${step.offset + body.length} / ${step.body_length}（未裁剪）`, 'hint'),
+    el('pre', body, 'terminal-text'));
+  else node.append(transcriptBody(step, { plain: true, preview: false }));
   const source = el('details', undefined, 'terminal-source');
   source.append(el('summary', `来源 · ${step.file}:${step.line}`));
   source.addEventListener('toggle', () => {

@@ -2,6 +2,7 @@
 // 不使用 innerHTML，所有 Markdown 文本都经过 DOM 文本节点；文档视图可把 mermaid fence 标成
 // 待渲染容器，再由 mermaid-docs.js 按需加载本地 Mermaid。Agent 输出默认仍显示普通代码块。
 // 解析失败或输入异常时回退为纯文本 <pre>，绝不抛错。
+import { enhanceCode } from './code-highlight.js';
 
 export const MAX_MARKDOWN_LENGTH = 50000;
 
@@ -247,6 +248,8 @@ function renderBlock(block, doc, options) {
       if (lang) code.setAttribute('class', `language-${lang}`);
       code.append(doc.createTextNode(block.text));
       pre.append(code); box.append(pre);
+      // 有语言标记才按需着色；未知语言与加载失败都由 code-highlight.js 原位回退纯文本。
+      if (lang) enhanceCode(code, block.text, lang);
       return box;
     }
     case 'diagram': {

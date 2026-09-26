@@ -260,3 +260,19 @@ test('统一按钮帮助模块可服务，Agent 触发标识与提示样式一�
     expect(html).not.toContain('提交并规划');
   } finally { await f.close(); }
 });
+
+test('代码高亮资源随代码发布、按扩展名服务并登记版本与哈希', async () => {
+  const f = await setup();
+  try {
+    const asset = await fetch(f.url + '/highlight.min.js');
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get('content-security-policy')).toContain("script-src 'self'");
+    expect(await asset.text()).toContain('Highlight.js v11.11.1');
+    const module = await fetch(f.url + '/code-highlight.js');
+    expect(module.status).toBe(200);
+    expect(await module.text()).toContain('export function enhanceCode');
+    const license = await Bun.file(new URL('../../src/ui/web/assets/highlight-LICENSE.txt', import.meta.url)).text();
+    expect(license).toContain('Highlight.js 11.11.1');
+    expect(license).toContain('c4a399dd6f488bc97a3546e3476747b3e714c99c57b9473154c6fb8d259b9381');
+  } finally { await f.close(); }
+});

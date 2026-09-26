@@ -64,11 +64,12 @@
 | `render-agent.js` | Agent 区块：执行过程默认收起、显式点击才加载与展开，提供终端模式入口与可复制的 `lush task transcript ID --follow` 终端命令；模型与用量直接展开；增量更新最近一步，带 tokens 时并排一个与步骤同口径的 chip | `renderAgent(task, usage, reading?)`、`paintUsageLast(taskId, usage)` |
 | `transcript-model.js` | 紧凑摘要与会话／调用 ID 配对的纯阅读投影；不改变原步骤 | `stepSummary(step)`、`callKey(step)`、`groupSteps(steps)` |
 | `structured-value.js` | 文本安全的惰性 JSON 树、节点／深度限额及原文回退；字符串保留换行，支持默认展开根节点 | `structuredValue(text, {openRoot?,preview?})` |
-| `transcript-body.js` | 执行正文共享渲染：工具参数语义标签、修改前后、命令／输出换行、长内容就地预览展开；原文不改写 | `transcriptBody(step, {key?,preview?})` |
-| `transcript-reader.js` | 展开过程后的全文检索、筛选、分页；命中在终端阅读器定位，boot 时清理旧请求 | `transcriptReader(taskId)`、`openTranscriptStep(taskId,seq)`、`resetTranscriptReaders()` |
-| `transcript-terminal.js` | Pi 风格的只读全宽终端阅读器：连续正文、会话分隔、分段续读、搜索定位后向前翻页、手动读取新记录、关闭恢复位置与焦点；无 Pi/PTY 依赖 | `openTranscriptTerminal(taskId,seq?)`、`closeTranscriptTerminal()` |
+| `transcript-body.js` | 执行正文共享渲染，富文本／纯文本只差 `plain`：富文本给工具参数语义标签、修改前后、结构化 JSON、按语言给命令与文件正文着色、长内容就地预览展开；`plain` 给终端保留原始换行与扁平字段，不渲染 Markdown／JSON 树／着色。原文不改写 | `transcriptBody(step, {key?,preview?,plain?})` |
+| `code-highlight.js` | 按需加载固定版本 highlight.js（common 构建，见同目录 `highlight-LICENSE.txt`）：只在出现带语言代码时拉取，用受控 DOM 构建器把输出落成 token span，不把 HTML 字符串 innerHTML 进页面；加载失败／未知语言／超长正文静默回退纯文本。另提供语言名归一化与按文件扩展名推断语言 | `enhanceCode(target, text, language)`、`normalizeLanguage(value)`、`languageFromPath(value)`、`resetCodeHighlight()` |
+| `transcript-reader.js` | 展开过程后的全文检索、筛选、分页；搜索命中交回调用方注入的定位器（`render-transcript.js` 传富文本定位，独立使用时回退终端模式），boot 时清理旧请求 | `transcriptReader(taskId,{locate?})`、`openTranscriptStep(taskId,seq)`、`resetTranscriptReaders()` |
+| `transcript-terminal.js` | Pi 风格的只读全宽终端阅读器：连续正文、会话分隔、分段续读、手动读取新记录、关闭恢复位置与焦点；正文复用 `transcriptBody(...,{plain:true})`，始终原始文本、不渲染 Markdown／代码着色；无 Pi/PTY 依赖 | `openTranscriptTerminal(taskId,seq?)`、`closeTranscriptTerminal()` |
 | `explanations.js` | 旁侧阅读面板：执行步骤直达无工具解释 Agent，选中文字直达模型 API 的「快速介绍」（直连结果与来源快照、按 `POST /api/action` + 轮询 `/api/intro/:id` 读取），以及两者合并在一个面板里的解释历史（快速介绍与执行步骤分两组，不出现 `undefined`）；终端模式下挂在其 dialog 顶层内，Esc 只关闭解释；关闭不取消任务，boot 清理计时器 | `startExplanation(taskId,seq,quote)`、`startIntro(quote,location)`、`openExplanation(id)`、`openIntro(id)`、`explanationHistory(taskId)`、`closeExplanationPanel()` |
-| `render-transcript.js` | 用户展开后的正文优先执行过程：阅读方向默认最新在前（`transcriptOrder` 可切回时间正序），asc 走 `task.transcript`、desc 走 `task.transcript_latest`（初次取尾窗、`before=oldest` 加载更早、`after=next` 增量续读），按调用身份聚合输入输出、跨翻页边界配对并保留展开与阅读位置、跳到新内容；每一步按 `tokens.first` 印一次占用 chip（精确 `上下文 X` / 估算 `+X`） | `transcriptContent(taskId)`、`paintTranscript(taskId)`、`appendTranscriptSteps(taskId, steps)`、`loadTranscript(taskId)`、`fetchTranscriptAfter(taskId, after)`、`transcriptOrder()`、`tokensChip(tokens)` |
+| `render-transcript.js` | 用户展开后的正文优先执行过程：阅读方向默认最新在前（`transcriptOrder` 可切回时间正序），初次加载 asc 走 `task.transcript`、desc 走 `task.transcript_latest`，两个阅读方向都提供有界翻页入口（`加载更早` 用 `before=oldest`、`加载更多` 用 `after=next`），按调用身份聚合输入输出、跨翻页边界配对并保留展开与阅读位置、跳到新内容；搜索命中经 `locateTranscriptStep` 取以目标 `seq` 为中心的有界窗口（前/后各 100 步）并在富文本视图就地展开滚动，不切到终端模式；每一步按 `tokens.first` 印一次占用 chip（精确 `上下文 X` / 估算 `+X`） | `transcriptContent(taskId)`、`paintTranscript(taskId)`、`appendTranscriptSteps(taskId, steps)`、`loadTranscript(taskId)`、`loadTranscriptWindow(taskId, seq)`、`locateTranscriptStep(taskId, seq)`、`fetchTranscriptAfter(taskId, after)`、`transcriptOrder()`、`tokensChip(tokens)` |
 | `render-showcase.js` | 分支「预约效果展示」的重查与确认（`reserve_allowed`，确认后 `showcase.reserve`，已满足准入则后端立即启动并跳详情）、取消预约（`showcase.unreserve`），以及展示详情（静态 HTML sandbox、预览链接及停止）；失败 / 取消后若磁盘已有报告，明确标成中断前写入的未确认部分产物，不冒充完整交付 | `reserveBranchShowcase`、`unreserveBranchShowcase`、`renderShowcase` |
 | `render-verify.js` | 检验区块 | `renderVerifications(task)` |
 | `render-resolutions.js` | 合并冲突处理记录 | `renderResolutions(task)` |
@@ -111,7 +112,8 @@
 `markdown.js` 除默认渲染外还有两件「文档」视图需要的能力：`renderMarkdown(text, doc, options)` 里的
 `options.link(raw, label)` 由调用方接管链接解析（返回 `{ href, external }`，返回空或抛错都回落到默认规则：
 只有 http/https 成链接）、GFM 表格，以及只在 `options.diagrams === true` 时把 `mermaid` fence 标成待渲染容器。
-不传 options 时 Mermaid 仍是普通代码，因此 Agent 输出不会加载或执行图表。
+不传 options 时 Mermaid 仍是普通代码，因此 Agent 输出不会加载或执行图表。带语言标记的 Markdown fence 交给
+`code-highlight.js` 按需着色；未知语言与加载失败都回退原纯文本。
 
 ---
 

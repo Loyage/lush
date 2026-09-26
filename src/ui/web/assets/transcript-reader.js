@@ -28,7 +28,8 @@ function readerState(taskId) {
     { help: '打开这个任务的解释历史面板，查看此前的选区与引用解释' }));
   const results = el('div');
   root.append(form, results);
-  const state = { root, version: 0 }; readers.set(taskId, state);
+  // locate 由 render-transcript.js 注入，让命中停在富文本执行过程里；单独使用时的回退是终端模式。
+  const state = { root, version: 0, locate: null }; readers.set(taskId, state);
   let criteria = null, cursors = [0], pageIndex = 0;
   const search = async after => {
     const version = ++state.version;
@@ -42,7 +43,7 @@ function readerState(taskId) {
       else if (!data.steps.length) results.append(el('p', '没有命中。未写完的记录不参与检索。', 'hint'));
       for (const step of data.steps) {
         const row = el('div', undefined, 'search-hit');
-        row.append(button(`#${step.seq} · ${STEP[step.kind] || step.kind} · ${stepSummary(step)}`, () => openTranscriptStep(taskId, step.seq), 'ghost'));
+        row.append(button(`#${step.seq} · ${STEP[step.kind] || step.kind} · ${stepSummary(step)}`, () => (state.locate || openTranscriptStep)(taskId, step.seq), 'ghost'));
         const excerpt = el('p');
         const text = step.excerpt || '', needle = criteria.query, at = needle ? text.toLocaleLowerCase().indexOf(needle.toLocaleLowerCase()) : -1;
         if (at < 0) excerpt.textContent = text;
@@ -62,4 +63,8 @@ function readerState(taskId) {
   };
   return state;
 }
-export function transcriptReader(taskId) { return readerState(taskId).root; }
+export function transcriptReader(taskId, { locate } = {}) {
+  const state = readerState(taskId);
+  if (typeof locate === 'function') state.locate = locate;
+  return state.root;
+}

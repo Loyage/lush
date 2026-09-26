@@ -134,7 +134,6 @@ function insertNewer(taskId, list, state, steps) {
 
 /** 向旧翻页：一页更早的步骤插到列表顶部（asc）或底部（desc），跨边界配对不重复、不错配。 */
 function insertOlder(taskId, list, state, steps) {
-  if (state.order !== 'desc') { insertNewer(taskId, list, state, steps); return; }
   const staged = el('ol', undefined, 'steps');
   for (const step of steps) {   // 窗口内升序构建，调用先于结果，窗口内配对成立
     const call = callStepFor(state, step);
@@ -142,7 +141,7 @@ function insertOlder(taskId, list, state, steps) {
     if (node) attachResult(taskId, node, step);
     else staged.append(stepNode(taskId, step));
   }
-  // 边界配对：这一页加载的调用，其结果可能已经作为独立节点渲染在上方；折进调用，不留重复。
+  // 边界配对：这一页加载的调用，其结果可能已经作为独立节点渲染在另一侧；折进调用，不留重复。
   // 重复的 (file, call_id) 身份不猜配，与 groupSteps 保持一致。
   for (const item of staged.children) {
     const callStep = state.steps.find(value => value.seq === Number(item.dataset.seq));
@@ -155,11 +154,13 @@ function insertOlder(taskId, list, state, steps) {
       if (standalone) { standalone.remove(); attachResult(taskId, item, result); }
     }
   }
-  list.append(...[...staged.children].reverse());
+  // desc 列表最新在上，更早的页追加到底部并按倒序排列；asc 列表最早在上，整页前插并保持升序。
+  if (state.order === 'desc') list.append(...[...staged.children].reverse());
+  else list.prepend(...staged.children);
 }
 
 const transcriptMetaText = state => state.steps.length
-  ? `已加载 ${state.steps.length} 条记录 · 按调用关联输入输出 · 长内容可就地展开${(state.order === 'desc' ? state.has_older : state.has_more) ? ' · 尚有未加载记录' : ''}`
+  ? `已加载 ${state.steps.length} 条记录 · 按调用关联输入输出 · 长内容可就地展开${(state.has_older || state.has_more) ? ' · 尚有未加载记录' : ''}`
   : (state.files.length ? '会话记录里还没有可显示的步骤。' : '这个任务还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。');
 
 /** 只替换执行过程区块，避免为了追加一页步骤重建整个详情面板。 */
@@ -176,22 +177,20 @@ function syncTranscriptChrome(taskId, state) {
   if (!holder) return;
   const meta = holder.querySelector('[data-live="transcript-meta"]');
   if (meta) meta.textContent = transcriptMetaText(state);
-  const more = holder.querySelector('[data-live="transcript-more"]');
-  if (more) {
-    const desc = state.order === 'desc';
-    more.textContent = `${desc ? '加载更早' : '加载更多'}（已有 ${state.steps.length} 步）`;
-    more.hidden = desc ? !state.has_older : !state.has_more;
-  }
+  const older = holder.querySelector('[data-live="transcript-older"]');
+  if (older) { older.textContent = `加载更早（已有 ${state.steps.length} 步）`; older.hidden = !state.has_older; }
+  const newer = holder.querySelector('[data-live="transcript-newer"]');
+  if (newer) { newer.textContent = `加载更多（已有 ${state.steps.length} 步）`; newer.hidden = !state.has_more; }
 }
 
 export function transcriptContent(taskId) {
   const state = transcriptCache.get(taskId);
   if (!state) return [el('p', '正在读取会话记录…', 'hint')];
-  if (state.error) return [transcriptReader(taskId), el('p', `读取执行记录失败：${state.error}`, 'error'),
+  if (state.error) return [transcriptReader(taskId, { locate: locateTranscriptStep }), el('p', `读取执行记录失败：${state.error}`, 'error'),
     button('重试读取', () => loadTranscript(taskId), 'ghost')];
   const meta = el('p', transcriptMetaText(state), 'hint');
   meta.dataset.live = 'transcript-meta';
-  if (!state.steps.length) return [meta, transcriptReader(taskId)];
+  if (!state.steps.length) return [meta, transcriptReader(taskId, { locate: locateTranscriptStep })];
   const desc = state.order === 'desc';
   const grouped = groupSteps(state.steps);
   const list = el('ol', undefined, 'steps');
@@ -208,8 +207,11 @@ export function transcriptContent(taskId) {
       paintTranscript(taskId);
     }, 'ghost'));
   }
-  const pager = desc ? olderButton(taskId, state) : newerButton(taskId, state);
-  if (pager) actions.append(pager);
+  // 两个方向都给出明确的翻页入口：搜索定位后窗口两侧都可能有未加载记录。
+  const older = olderButton(taskId, state);
+  const newer = newerButton(taskId, state);
+  if (older) actions.append(older);
+  if (newer) actions.append(newer);
   actions.append(button('重新加载', () => loadTranscript(taskId), 'ghost'));
   const latest = button(desc ? '有新记录 · 跳到最新' : '有新记录 · 跳到末尾', () => {
     const target = desc ? list.firstElementChild : list.lastElementChild;
@@ -218,10 +220,10 @@ export function transcriptContent(taskId) {
   latest.hidden = true; latest.dataset.live = 'transcript-new';
   const sources = el('details', undefined, 'transcript-sources');
   sources.append(el('summary', `记录来源 · ${state.files.length} 个会话文件`), el('pre', state.files.join('\n'), 'raw-value'));
-  return [transcriptReader(taskId), meta, latest, list, actions, sources, state.truncated ? el('p', '快速视图只读取了前面一部分；顶部全文搜索可访问后续会话与完整原文。', 'hint') : null].filter(Boolean);
+  return [transcriptReader(taskId, { locate: locateTranscriptStep }), meta, latest, list, actions, sources, state.truncated ? el('p', '快速视图只读取了前面一部分；顶部全文搜索可访问后续会话与完整原文。', 'hint') : null].filter(Boolean);
 }
 
-/** asc「加载更多」：向后读更新的一页，追加到末尾。 */
+/** 「加载更多」：向后读更新的一页，asc 追加到末尾、desc 前插到顶部。 */
 function newerButton(taskId, state) {
   if (!state.has_more) return null;
   const more = button(`加载更多（已有 ${state.steps.length} 步）`, async () => {
@@ -234,11 +236,11 @@ function newerButton(taskId, state) {
       state.truncated = Boolean(state.truncated || page.truncated);
       appendTranscriptSteps(taskId, page.steps || []);
     } finally { more.disabled = false; }
-  }, 'ghost'); more.dataset.live = 'transcript-more';
+  }, 'ghost'); more.dataset.live = 'transcript-newer';
   return more;
 }
 
-/** desc「加载更早」：用 before=oldest 取上一页，合并到 state.steps 前部并追加到列表底部。 */
+/** 「加载更早」：用 before=oldest 取上一页，asc 前插到顶部、desc 追加到底部。 */
 function olderButton(taskId, state) {
   if (!state.has_older) return null;
   const more = button(`加载更早（已有 ${state.steps.length} 步）`, async () => {
@@ -258,7 +260,7 @@ function olderButton(taskId, state) {
       }
       syncTranscriptChrome(taskId, state);
     } finally { more.disabled = false; }
-  }, 'ghost'); more.dataset.live = 'transcript-more';
+  }, 'ghost'); more.dataset.live = 'transcript-older';
   return more;
 }
 
@@ -284,6 +286,68 @@ export async function fetchTranscriptAfter(taskId, after) {
   return transcriptOrder() === 'desc'
     ? api(`/api/task/${taskId}/transcript-latest?after=${after}`)
     : api(`/api/task/${taskId}/transcript?after=${after}`);
+}
+
+/**
+ * 搜索命中定位：以目标 seq 为中心取一个有界窗口（前 100 + 后 100），两侧都保留「是否还有更多」的
+ * 真实边界，之后在富文本执行过程里展开并滚动到该步，不切到终端模式。
+ */
+export async function loadTranscriptWindow(taskId, seq) {
+  const [backward, forward] = await Promise.all([
+    api(`/api/task/${taskId}/transcript-latest?before=${seq + 1}&limit=100`),
+    api(`/api/task/${taskId}/transcript?after=${seq}&limit=100`),
+  ]);
+  const merged = [];
+  const seen = new Set();
+  for (const step of [...(backward.steps || []), ...(forward.steps || [])]) {
+    if (seen.has(step.seq)) continue;
+    seen.add(step.seq); merged.push(step);
+  }
+  merged.sort((a, b) => a.seq - b.seq);
+  transcriptCache.set(taskId, {
+    order: transcriptOrder(),
+    steps: merged,
+    files: (forward.files?.length ? forward.files : backward.files) || [],
+    next: merged.length ? merged[merged.length - 1].seq : seq,
+    oldest: merged.length ? merged[0].seq : seq,
+    has_more: Boolean(forward.has_more),
+    has_older: Boolean(backward.has_older),
+    truncated: Boolean(forward.truncated || backward.truncated),
+  });
+  return transcriptCache.get(taskId);
+}
+
+/** 找到承载 seq 的步骤节点：直接是它自己，或配对结果所在的调用步。 */
+function stepTarget(root, seq) {
+  const direct = root.querySelector(`[data-seq="${seq}"]`);
+  const result = root.querySelector(`[data-result-seq="${seq}"]`);
+  if (!result) return direct ? { step: direct, inner: direct } : null;
+  let step = result;
+  while (step && !step.classList?.contains?.('step')) step = step.parentNode;
+  return { step: step || result, inner: result };
+}
+
+function revealStep({ step, inner }) {
+  const head = step.querySelector?.('.step-head');
+  if (head && !step.classList?.contains('open')) head.onclick?.();
+  (inner || step).scrollIntoView?.({ block: 'center' });
+  const nodes = [step, inner].filter(Boolean);
+  for (const node of nodes) node.classList?.add('step-located');
+  setTimeout(() => { for (const node of nodes) node.classList?.remove('step-located'); }, 2000);
+}
+
+/** 点搜索命中：停在富文本执行过程里定位该步；终端模式仍是显式的「不看渲染」入口。 */
+export async function locateTranscriptStep(taskId, seq) {
+  if (ui.selected !== taskId) return;
+  const holder = $('detail').querySelector('.transcript');
+  if (!holder) return;
+  const state = transcriptCache.get(taskId);
+  if (!state || !state.steps.some(step => step.seq === seq)) {
+    await loadTranscriptWindow(taskId, seq);
+    paintTranscript(taskId);
+  }
+  const target = stepTarget($('detail'), seq);
+  if (target) revealStep(target);
 }
 
 export async function loadTranscript(taskId) {

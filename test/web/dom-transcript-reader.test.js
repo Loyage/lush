@@ -4,7 +4,7 @@ import { until } from '../helpers.js';
 import { structuredValue } from '../../src/ui/web/assets/structured-value.js';
 import { transcriptBody } from '../../src/ui/web/assets/transcript-body.js';
 import { setPref, writePref } from '../../src/ui/web/assets/prefs.js';
-import { transcriptContent, appendTranscriptSteps } from '../../src/ui/web/assets/render-transcript.js';
+import { transcriptContent, appendTranscriptSteps, locateTranscriptStep } from '../../src/ui/web/assets/render-transcript.js';
 import { transcriptCache, transcriptOpen, ui } from '../../src/ui/web/assets/state.js';
 import { transcriptReader, resetTranscriptReaders } from '../../src/ui/web/assets/transcript-reader.js';
 import { initContextReferences, referenceable } from '../../src/ui/web/assets/context-references.js';
@@ -53,29 +53,52 @@ test('JSON renderer lazily expands safe text, preserves exact raw and falls back
   } finally { dom.restore(); }
 });
 
-test('full-record search sends filters, navigates matches and opens original source independently of loaded steps', async () => {
-  const calls = [], step = { seq: 88, file: 'old', line: 77, kind: 'result', title: 'bash', body: 'needle', excerpt: 'needle in old output' };
+test('full-record search sends filters and the hit invokes the injected rich locator', async () => {
+  const calls = [], located = [], step = { seq: 88, file: 'old', line: 77, kind: 'result', title: 'bash', body: 'needle', excerpt: 'needle in old output' };
   const dom = installDom({ fetch: async url => {
     calls.push(String(url));
-    if (String(url).includes('transcript-page')) return response({ steps: [{ ...step, offset: 0, body_length: step.body.length }], files: ['old'], next_seq: 89, next_offset: 0, has_more: false });
     return response({ steps: [step], files: ['old'], has_more: false, next: 88 });
   } }); resetTranscriptReaders();
   try {
-    const root = transcriptReader(971), form = root.querySelector('form'), inputs = form.querySelectorAll('input');
+    const root = transcriptReader(971, { locate: (id, seq) => { located.push([id, seq]); } }), form = root.querySelector('form'), inputs = form.querySelectorAll('input');
     inputs[0].value = 'needle'; inputs[1].value = 'bash'; inputs[2].checked = true;
     form.querySelector('select').value = 'result'; form.onsubmit({ preventDefault() {} });
     await until(() => root.querySelector('.search-hit'));
     expect(calls[0]).toContain('query=needle'); expect(calls[0]).toContain('tool=bash'); expect(calls[0]).toContain('errors=true');
     const hit = root.querySelector('.search-hit').querySelector('button'); hit.focus();
     await hit.onclick();
-    expect(calls[1]).toContain('seq=88'); expect(deepText(dom.document.body)).toContain('old:77');
+    expect(located).toEqual([[971, 88]]);
     expect(root.querySelector('mark').textContent).toBe('needle');
     expect(root.tagName).toBe('SECTION');
-    expect(dom.document.body.querySelector('.terminal-dialog')).toBeTruthy();
-    await findByText(dom.document.body, '返回任务').onclick();
     expect(dom.document.body.querySelector('.terminal-dialog')).toBeNull();
-    expect(dom.document.activeElement).toBe(hit);
   } finally { closeTranscriptTerminal(); resetTranscriptReaders(); dom.restore(); }
+});
+
+test('locating a search hit loads a centered window, keeps both boundaries and reveals the step in place', async () => {
+  const calls = [];
+  const dom = installDom({ fetch: async url => {
+    const path = String(url); calls.push(path);
+    if (path.includes('transcript-latest')) return response({ steps: [{ seq: 49, file: 'a', kind: 'text', body: 'before' }, { seq: 50, file: 'a', kind: 'text', body: 'target' }], files: ['a'], next: 50, oldest: 49, has_older: true });
+    return response({ steps: [{ seq: 51, file: 'a', kind: 'text', body: 'after' }, { seq: 52, file: 'a', kind: 'text', body: 'later' }], files: ['a'], next: 52, has_more: true });
+  } }); resetTranscriptReaders();
+  try {
+    const taskId = 973;
+    transcriptCache.set(taskId, { order: 'desc', steps: [{ seq: 1, file: 'a', kind: 'text', body: 'old' }], files: ['a'], next: 1, oldest: 1, has_older: false, has_more: false });
+    ui.selected = taskId;
+    const holder = dom.document.createElement('div'); holder.className = 'transcript';
+    holder.append(...transcriptContent(taskId)); dom.node('detail').append(holder);
+    await locateTranscriptStep(taskId, 50);
+    const state = transcriptCache.get(taskId);
+    expect(state.steps.map(step => step.seq)).toEqual([49, 50, 51, 52]);
+    expect(state.has_older).toBe(true); expect(state.has_more).toBe(true);
+    expect(calls.some(path => path.includes('/transcript-latest?before=51'))).toBe(true);
+    expect(calls.some(path => path.includes('/transcript?after=50'))).toBe(true);
+    const node = holder.querySelector('[data-seq="50"]');
+    expect(node).toBeTruthy();
+    expect(node.classList.contains('step-located')).toBe(true);
+    expect(holder.querySelector('[data-live="transcript-older"]')).toBeTruthy();
+    expect(holder.querySelector('[data-live="transcript-newer"]')).toBeTruthy();
+  } finally { transcriptCache.delete(973); ui.selected = null; resetTranscriptReaders(); dom.restore(); }
 });
 
 test('selected transcript text offers direct introduction, preserves quote and displays retained source in side panel', async () => {
@@ -193,14 +216,16 @@ test('desc reading puts newest first, asc restores chronological order and pager
     const desc = render({ order: 'desc', files: ['a'], next: 3, oldest: 1, has_older: true });
     const descList = desc.querySelector('[data-live="transcript-steps"]');
     expect([...descList.children].map(node => node.dataset.seq)).toEqual(['3', '2', '1']);
-    expect(desc.querySelector('[data-live="transcript-more"]').textContent).toContain('加载更早');
+    expect(desc.querySelector('[data-live="transcript-older"]').textContent).toContain('加载更早');
+    expect(desc.querySelector('[data-live="transcript-newer"]')).toBeNull();
     expect(findByText(desc, '有新记录 · 跳到最新')).toBeTruthy();
 
     transcriptCache.delete(taskId); dom.node('detail').replaceChildren();
     const asc = render({ order: 'asc', files: ['a'], next: 3, has_more: true });
     const ascList = asc.querySelector('[data-live="transcript-steps"]');
     expect([...ascList.children].map(node => node.dataset.seq)).toEqual(['1', '2', '3']);
-    expect(asc.querySelector('[data-live="transcript-more"]').textContent).toContain('加载更多');
+    expect(asc.querySelector('[data-live="transcript-newer"]').textContent).toContain('加载更多');
+    expect(asc.querySelector('[data-live="transcript-older"]')).toBeNull();
     expect(findByText(asc, '有新记录 · 跳到末尾')).toBeTruthy();
   } finally { transcriptCache.delete(980); ui.selected = null; resetTranscriptReaders(); dom.restore(); }
 });
@@ -224,7 +249,7 @@ test('desc loads older pages with before=oldest and folds a boundary result into
     const list = holder.querySelector('[data-live="transcript-steps"]');
     expect([...list.children].map(node => node.dataset.seq)).toEqual(['5', '4']);
 
-    await holder.querySelector('[data-live="transcript-more"]').onclick();
+    await holder.querySelector('[data-live="transcript-older"]').onclick();
     expect(calls[0]).toContain('/transcript-latest?before=4');
     expect(transcriptCache.get(taskId).steps.map(step => step.seq)).toEqual([3, 4, 5]);
     expect(transcriptCache.get(taskId).oldest).toBe(3);
@@ -234,7 +259,7 @@ test('desc loads older pages with before=oldest and folds a boundary result into
     expect(call.querySelectorAll('[data-result-seq="4"]').length).toBe(1);
     expect(call.querySelector('[data-result-seq="4"]')).toBeTruthy();
     expect(list.querySelector('[data-seq="4"]')).toBeNull();
-    expect(holder.querySelector('[data-live="transcript-more"]').hidden).toBe(true);
+    expect(holder.querySelector('[data-live="transcript-older"]').hidden).toBe(true);
   } finally { transcriptCache.delete(981); ui.selected = null; resetTranscriptReaders(); dom.restore(); }
 });
 
