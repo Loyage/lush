@@ -13,7 +13,12 @@ const { renderSettings } = await import('../../src/ui/web/assets/render-settings
 dom.node('side-nav').replaceChildren();
 await boot();
 
-afterAll(() => dom.restore());
+afterAll(() => {
+  // activeTab 是模块级的，跨测试文件共享：离开前切回 Agent 页，别让后面的文件从系统页开始。
+  const tab = panel().querySelector('button.settings-tab[data-settings-tab="agent"]');
+  if (tab) tab.onclick();
+  dom.restore();
+});
 
 const panel = () => dom.node('detail');
 const openSettings = () => dom.node('settings-open').onclick();
@@ -34,7 +39,7 @@ test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1
   await dom.intervalFor(1500)();
   expect(panel().dataset.view).toBe('overview');
 
-  openSettings();
+  openAgent();
   expect(dom.location.hash).toBe('#settings');
   expect(panel().dataset.view).toBe('settings');
   expect(deepText(panel())).toContain('设置');

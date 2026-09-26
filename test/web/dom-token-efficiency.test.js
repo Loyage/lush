@@ -70,7 +70,10 @@ test('statistics shows bounded attribution and unknown groups without rendering 
 
 test('settings saves optional Pi soft budgets and preserves blank as disabled', async () => {
   await openSettings();
-  const profile = dom.node('detail').querySelector('[data-agent-target="default"]');
+  const detail = dom.node('detail');
+  // activeTab 是模块级的，跨测试文件共享：别的文件可能把它留在别的页，先显式切回 Agent。
+  detail.querySelector('button.settings-tab[data-settings-tab="agent"]').onclick();
+  const profile = detail.querySelector('[data-agent-target="default"]');
   const responses = profile.querySelector('[data-agent-field="budget_responses"]');
   const tokens = profile.querySelector('[data-agent-field="budget_tokens"]');
   expect(responses.value).toBe('');

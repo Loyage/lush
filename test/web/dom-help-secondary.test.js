@@ -109,6 +109,8 @@ test('设置页的 Agent / 系统按钮按标准补 data-help', async () => {
   openSettings();
   const panel = dom.node('detail');
   const tabOf = id => [...panel.querySelectorAll('button')].find(node => node.dataset.settingsTab === id);
+  // activeTab 是模块级的，跨测试文件共享：别的文件可能把它留在系统页，先显式切回 Agent 再断言。
+  tabOf('agent').onclick();
   expect(buttonOf(panel, '恢复默认 Prompt').getAttribute('data-help')).toContain('保存');
   expect(buttonOf(panel, '恢复继承默认').getAttribute('data-help')).toContain('继承项目默认');
   expect(buttonOf(panel, '单独配置').getAttribute('data-help')).toContain('独立配置');
