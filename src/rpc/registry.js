@@ -9,7 +9,7 @@ export const PARAMS = {
   'say.submit': ['content','branch','references'],
   'task.graph': [], 'task.list': ['after','limit'], 'task.activity': ['limit','scope'],
   'task.page': ['before','limit','scope'], 'task.tree': ['id'], 'task.inspect': ['id'],
-  'task.history': ['id','after'], 'task.history_page': ['id','before','limit'], 'task.diff': ['id'],
+  'task.history': ['id','after'], 'task.history_page': ['id','before','limit'], 'task.diff': ['id'], 'task.usage': ['id'],
   'task.transcript': ['id','after','limit'], 'task.transcript_latest': ['id','after','before','limit'],
   'task.transcript_page': ['id','seq','offset'], 'task.transcript_step': ['id','seq','offset'],
   'task.transcript_search': ['id','query','kind','tool','errors','after','limit'],

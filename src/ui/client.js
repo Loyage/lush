@@ -13,33 +13,22 @@ export class UIClient {
       throw error;
     }
   }
-  /** Compatibility snapshot: intentionally retains the complete historical task walk. */
-  async snapshot() {
-    const [status, timeline, ladder, inputs, drafts, notices, specs, candidates, showcases] = await Promise.all(
-      ['system.status','system.timeline','task.ladder','input.list','draft.list','notice.list','spec.list','candidate.list','showcase.list'].map(method => this.request(method)));
-    check(status.project === this.config.project, 'daemon project mismatch');
-    const tasks = []; let after = 0;
-    for (;;) {
-      const page = await this.request('task.list', { after });
-      tasks.push(...page);
-      if (!page.length) break;
-      after = page.at(-1).id;
-      if (page.length < 200) break;
-    }
-    return { status, timeline, ladder, tasks, inputs, drafts, notices, specs, candidates, showcases };
-  }
+  /** Compatibility URL for the Web bootstrap; the payload is the same bounded core overview. */
+  async snapshot() { return this.overview(); }
 
-  /** Bounded homepage model. A matching revision turns the poll into one cheap status request. */
+  /** Task-centred homepage: no legacy planner, draft or showcase RPC calls. */
   async overview(revision = null) {
     const status = await this.request('system.summary');
     check(status.project === this.config.project, 'daemon project mismatch');
     if (revision && revision === status.revision) return { unchanged: true, revision };
-    const [ladder, activity, inputs, drafts, notices, specs, candidates, showcases] = await Promise.all([
-      this.request('task.ladder'), this.request('task.activity', { limit: 50, scope: 'all' }),
-      this.request('input.list'), this.request('draft.list'), this.request('notice.list'),
-      this.request('spec.list'), this.request('candidate.list'), this.request('showcase.list'),
+    const [activity, page] = await Promise.all([
+      this.request('task.activity', { limit: 100, scope: 'work' }),
+      this.request('notice.page', { status: 'all', limit: 100 }),
     ]);
-    return { revision: status.revision, status, ladder, tasks: activity.tasks, task_page: activity.page,
-      inputs, drafts, notices, specs, candidates, showcases };
+    const tasks = activity.tasks.filter(task => ['say','child','main','owner'].includes(task.task_kind));
+    const ids = new Set(tasks.map(task => task.id));
+    return { revision: status.revision, status, tasks, task_page: activity.page,
+      notices: page.notices.filter(notice => ids.has(notice.task_id)),
+      ladder: { groups: [] }, inputs: [], drafts: [], specs: [], candidates: [], showcases: [] };
   }
 }

@@ -1,0 +1,2 @@
+/* Preserve the studio layout while retiring legacy product entries. */
+#sleep-banner,#side-intents,#side-specs,#draft-panel,#draft-add,#draft-toggle,#statistics-open{display:none!important}

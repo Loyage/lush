@@ -12,14 +12,11 @@ import { fetchGraph, loadGraph, openGraph } from './render-graph.js';
 import { loadTaskGraph } from './render-task-graph.js';
 import { slotGauge } from './gauge.js';
 import { paintUsageLast } from './render-agent.js';
-import { renderDrafts } from './render-drafts.js';
-import { renderIntents } from './render-intents.js';
 import { renderNotices } from './render-notices.js';
 import { renderNoticeBanner } from './notice-banner.js';
 import { observeNotices } from './notice-notifications.js';
 import { renderOverview } from './render-overview.js';
 import { refreshProgressDurations } from './render-progress.js';
-import { renderSpecs } from './render-specs.js';
 import { appendTranscriptSteps, fetchTranscriptAfter } from './render-transcript.js';
 import { renderTree } from './render-tree.js';
 import { activateDetailView, openResource } from './sidebar-ui.js';
@@ -30,9 +27,7 @@ import { saveFiltersPref, transcriptCache, transcriptOpen, ui } from './state.js
 export function applyFilters({ persist = true } = {}) {
   if (persist) saveFiltersPref();
   if (!ui.lastSnapshot) return;
-  renderIntents(ui.lastSnapshot);
   renderTree(ui.lastSnapshot);
-  renderSpecs(ui.lastSnapshot);
 }
 
 /**
@@ -42,8 +37,6 @@ export function applyFilters({ persist = true } = {}) {
 export function applySort() {
   if (!ui.lastSnapshot) return;
   renderNotices(ui.lastSnapshot);
-  renderIntents(ui.lastSnapshot);
-  renderSpecs(ui.lastSnapshot);
   renderTree(ui.lastSnapshot);
 }
 
@@ -89,7 +82,7 @@ export async function refresh() {
       // Keep explicitly loaded historical pages visible across bounded polling refreshes.
       if (ui.taskHistory?.length) {
         const byId = new Map([...ui.taskHistory, ...response.tasks].map(task => [task.id, task]));
-        response.tasks = [...byId.values()].sort((a, b) => a.id - b.id);
+        response.tasks = [...byId.values()].filter(task => ['say','child','main','owner'].includes(task.task_kind)).sort((a, b) => a.id - b.id);
         response.task_page = ui.taskHistoryPage ?? response.task_page;
       } else ui.taskHistoryPage = response.task_page;
       ui.lastSnapshot = response;
@@ -102,8 +95,7 @@ export async function refresh() {
     const noticeBefore = ui.noticeFocus;
     if (changed) {
       $('agents').replaceChildren(slotGauge(data));
-      renderDrafts(data); renderIntents(data); renderTree(data); renderSpecs(data);
-      renderNotices(data); renderNoticeBanner(data); observeNotices(data); syncComposer();
+      renderTree(data); renderNotices(data); renderNoticeBanner(data); observeNotices(data); syncComposer();
     }
     // 概览、分支图、文档页共用一个右栏：谁开着，轮询就不把概览画回来。
     const overviewOpen = ui.view?.id === 'overview';

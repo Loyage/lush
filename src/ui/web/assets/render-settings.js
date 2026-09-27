@@ -9,20 +9,16 @@ import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { SORT_MODES } from './tree-order.js';
 import { notificationControl } from './notice-notifications.js';
-import { sleepSettings } from './sleep-ui.js';
 import { DEFAULT_INPUT_ROUTES, ROUTE_TARGETS } from './input-routes.js';
 
 const TABS = [
-  { id: 'sleep', label: '托管模式', note: '离开期间由管家决策' },
   { id: 'agent', label: 'Agent', note: '任务行为与模型' },
   { id: 'interface', label: '界面', note: '阅读、外观与行为' },
   { id: 'system', label: '系统', note: '运行参数与路径' },
 ];
 let activeTab = 'agent';
 let agentConfigPromise = null;
-let introConfigPromise = null;
-// 快速介绍配置不进 1.5s 轮询快照；这里保留一份模块级读模型，轮询换掉 lastSnapshot 后仍能重画。
-let introConfigCache = null;
+
 
 export function openSettings() {
   activateDetailView({ view: 'settings' });
@@ -33,14 +29,6 @@ export function openSettings() {
       if (ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = config;
       if (ui.settingsOpen) renderSettings();
     }).catch(error => show(error.message, 'error')).finally(() => { agentConfigPromise = null; });
-  }
-  // 快速介绍配置同样不进 1.5s 快照，进入设置时单独取一次；密钥只拿到遮罩后的读模型。
-  if (!ui.lastSnapshot?.status?.intro_config && !introConfigCache && !introConfigPromise) {
-    introConfigPromise = api('/api/intro/config').then(config => {
-      introConfigCache = config;
-      if (ui.lastSnapshot?.status) ui.lastSnapshot.status.intro_config = config;
-      if (ui.settingsOpen) renderSettings();
-    }).catch(error => show(error.message, 'error')).finally(() => { introConfigPromise = null; });
   }
 }
 
@@ -363,7 +351,7 @@ function environmentEditor(settings) {
 
   const toolbar = el('div', undefined, 'agent-env-toolbar');
   const target = el('select'); target.className = 'agent-env-target'; target.dataset.envTarget = '';
-  const targets = [{ id: 'common', label: '公共 · agent.env' }, ...settings.options.roles.map(item => ({ id: item.id, label: `${item.label} · ${item.id}.env` }))];
+  const targets = [{ id: 'common', label: '公共 · agent.env' }, ...settings.options.roles.filter(item => item.id === 'agent').map(item => ({ id: item.id, label: `${item.label} · ${item.id}.env` }))];
   for (const item of targets) { const option = el('option', item.label); option.value = item.id; target.append(option); }
   target.value = environmentTarget;
   target.addEventListener('change', () => { environmentTarget = target.value; renderSettings(); });
@@ -444,7 +432,7 @@ function agentTab() {
   const roles = block('按任务行为覆盖'); roles.classList.add('agent-roles-block');
   roles.append(el('p', '只为需要不同模型、思考深度或工作方式的行为建立覆盖；其余保持继承，后续调整默认值时会一起更新。', 'settings-note settings-section-note'));
   const list = el('div', undefined, 'agent-role-list');
-  for (const item of settings.options.roles) {
+  for (const item of settings.options.roles.filter(item => item.id === 'agent')) {
     if (settings.roles[item.id]) list.append(profileEditor(settings, settings.roles[item.id], item.id, item.label, `仅用于 ${item.id} 角色。`));
     else list.append(inheritedRole(settings, item.id));
   }
@@ -696,8 +684,6 @@ function systemTab() {
   limits.append(runtimeFieldsEditor(runtime, LIMIT_FIELDS, plain, '调用与拆解限额'));
   content.append(limits);
 
-  content.append(inputRoutesEditor(runtime));
-  content.append(quickIntroEditor(snapshot.intro_config ?? introConfigCache, plain));
 
   const paths = block('项目路径');
   paths.append(line('project', '项目', 'daemon 绑定的 canonical 项目目录。', plain(snapshot.project)));
@@ -726,7 +712,7 @@ export function renderSettings() {
   const head = el('div', undefined, 'settings-head');
   const intro = el('div'); intro.append(el('span', 'PROJECT SETTINGS', 'eyebrow'), el('h1', '设置'), el('p', '项目 Agent 与当前浏览器体验，分开管理。', 'hint'));
   head.append(intro); view.append(head, tabBar());
-  view.append(activeTab === 'sleep' ? sleepSettings() : activeTab === 'agent' ? agentTab() : activeTab === 'interface' ? interfaceTab() : systemTab());
+  view.append(activeTab === 'agent' ? agentTab() : activeTab === 'interface' ? interfaceTab() : systemTab());
   panel.replaceChildren(view);
 }
 

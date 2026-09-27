@@ -17,7 +17,6 @@ import { renderResolutions } from './render-resolutions.js';
 import { specItem } from './render-specs.js';
 import { renderVerifications } from './render-verify.js';
 import { renderShowcase } from './render-showcase.js';
-import { retryTask } from './retry-dialog.js';
 import { ui } from './state.js';
 import { agentText } from './text.js';
 import { referenceable } from './context-references.js';
@@ -127,10 +126,14 @@ export function renderDetail(task, history, diff, usage) {
   }
   const settledShowcase = task.task_kind === 'say' && task.reservation?.kind === 'showcase'
     && ['completed','failed','cancelled'].includes(task.reservation.status);
-  if (['failed', 'cancelled'].includes(task.status) && task.task_kind !== 'showcase' && !settledShowcase
-    && !task.divergence_resolution) actions.append(button('检查后重试', async () => {
-    if (await retryTask(task)) await detail(task.id);
-  }));
+  if (['failed', 'cancelled'].includes(task.status) && ['say','child'].includes(task.task_kind)
+    && !settledShowcase && !task.divergence_resolution) actions.append(button('检查后重试', async () => {
+    const confirmed = await confirmDialog({ title: `重试 Task #${task.id}？`,
+      message: '先检查失败工作区与提交。重试不会回滚此前 Agent 的文件副作用。', confirmLabel: '重试',
+      agent: true, confirmHelp: agentHelp('重新启动这条 Task 的 Agent；已有工作区和历史保留。') });
+    if (!confirmed) return;
+    await action('task.retry', { id: task.id }); await detail(task.id);
+  }, 'ghost', { agent: true, help: agentHelp('检查失败现场后再启动一次 Agent，不清理历史或用户改动。') }));
   const reclaimable = task.status === 'completed' && ['merged', 'none', 'superseded'].includes(task.integration) && (task.workspace || task.branch);
   if (reclaimable) actions.append(button('回收工作区与分支', async () => {
     const plan = [task.workspace && `删除 ${task.workspace}`, task.branch && `回收分支 ${task.branch}`].filter(Boolean).join('\n');
@@ -162,7 +165,7 @@ export function renderDetail(task, history, diff, usage) {
     catch (error) { show(error.message, 'error'); }
     await detail(task.id);
   }, 'ghost', { help: '把没有代码改动的 say 结算为已完成（保留答案），用来区分「没有别的要求」和「取消任务树」；有提交时请改用请求合并或取消。' }));
-  if (!['completed', 'failed', 'cancelled'].includes(task.status)) actions.append(button('取消任务树', async () => {
+  if (['say','child'].includes(task.task_kind) && !['completed', 'failed', 'cancelled'].includes(task.status)) actions.append(button('取消任务树', async () => {
     const confirmed = await confirmDialog({
       title: '取消这个任务树？',
       message: '取消这个任务及所有子任务；工作区会保留。',
@@ -175,22 +178,6 @@ export function renderDetail(task, history, diff, usage) {
   }, 'danger', { help: '取消这个任务及它下面的全部子任务，工作区与分支保留；取消后无法恢复。' }));
   if (task.divergence_resolution) {
     actions.append(button(`查看源 say #${task.parent_id}`, () => detail(task.parent_id), 'link'));
-  }
-  // 分支所有者（main/owner）没有自己的 Agent，但可以按需跑一次**只读分析**：不建分支，答案成为新 Task 的结果。
-  if (['main','owner'].includes(task.task_kind) && !['completed','failed','cancelled'].includes(task.status)) {
-    actions.append(button('问这条分支', async () => {
-      const question = await promptDialog({
-        title: `向 ${task.branch} 提一个只读问题`,
-        message: '会新建一个只读分析子 Task：工作区是这条分支最新提交的分离检出，不创建分支、不产生待合并改动。',
-        label: '问题', placeholder: '例如：现在这条分支上最大的回归风险是什么？', confirmLabel: '开始分析',
-        agent: true,
-        confirmHelp: agentHelp('启动一次受限的分析 Agent：能在隔离检出里读文件、跑命令取证，但没有分支可写、不能派工或合并；答案成为新 Task 的结果。'),
-      });
-      if (!question) return;
-      const created = await action('task.analyze', { id: task.id, question });
-      show(`已开始分析 #${created.task.id}`);
-      await detail(created.task.id);
-    }, 'ghost', { agent: true, help: agentHelp('对这条分支跑一次只读分析（不建分支、不改提交）；结论存成一个子 Task 的结果，另留一条提醒。') }));
   }
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
@@ -313,7 +300,7 @@ export function renderDetail(task, history, diff, usage) {
     panel.append(events);
   }
 
-  if (!['completed', 'failed', 'cancelled'].includes(task.status)) {
+  if (['say','child'].includes(task.task_kind) && !['completed', 'failed', 'cancelled'].includes(task.status)) {
     const follow = block('追加说明');
     const form = el('form'), input = el('textarea');
     input.placeholder = '追加要求；Agent 正在调用时会在本轮结束后立即读到'; input.required = true; input.rows = 3;

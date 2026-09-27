@@ -1,14 +1,137 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Lush · Tasks</title><link rel="stylesheet" href="/core.css"><script type="module" src="/app.js"></script></head>
-<body><header><strong>Lush</strong><span id="project-name"></span><a href="/" id="project-home" hidden>项目列表</a><form method="post" action="/logout"><button type="submit">退出</button></form></header>
-<main id="workspace" hidden>
-  <section class="composer"><h1>新任务</h1><form id="say-form"><label for="goal">目标</label><textarea id="goal" rows="4" maxlength="32000" required></textarea><label for="parent-branch">父分支（留空使用当前分支）</label><input id="parent-branch" maxlength="512"><button class="agent-call" type="submit" id="say-submit">发送</button></form></section>
-  <section><div class="heading"><h2>任务</h2><button id="refresh" type="button">刷新</button></div><ul id="tasks"></ul></section>
-  <section><h2>待我处理</h2><ul id="notices"></ul></section>
-  <section><h2>绑定已有分支</h2><form id="bind-form"><label for="bind-branch">本地分支名</label><input id="bind-branch" required><label for="bind-commit">已确认的 HEAD commit</label><input id="bind-commit" required pattern="[0-9a-f]{40,64}"><button type="submit" id="bind-submit" data-help="为已有本地分支建立静息 owner Task；不会提交或移动 Git ref">绑定</button></form></section>
-  <section id="task-detail" hidden aria-live="polite"></section>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lush · 项目概览</title>
+<script src="/appearance.js" type="module"></script>
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/styles-core.css">
+<script type="module" src="/app.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#detail">跳到主要内容</a>
+<div class="app" id="project-app">
+<main>
+<aside id="sidebar" aria-label="项目导航">
+  <div class="rail-identity">
+    <div class="brand"><button type="button" id="home" class="home" data-help="回到项目概览" aria-label="Lush · 项目概览"><span class="brand-mark" aria-hidden="true">L</span><strong>Lush<span class="brand-caption">TASK STUDIO</span></strong></button></div>
+    <div class="rail-context"><span class="eyebrow">当前项目</span><span id="project">连接项目…</span></div>
+    <section id="project-list-panel" class="project-list-panel" aria-label="项目列表" hidden>
+      <div class="project-list-head"><span class="eyebrow">项目</span><button type="button" id="project-list-refresh" class="ghost" data-help="重新读取项目列表与已打开项目的状态摘要">刷新</button></div>
+      <ul id="project-list" class="project-list"></ul>
+    </section>
+    <div class="rail-tools">
+      <span id="agents"></span><span id="connection" role="status">连接中…</span>
+      <button type="button" id="project-switch" class="ghost" hidden>切换项目</button>
+      <button type="button" id="theme-toggle" class="ghost theme-toggle" aria-label="切换主题">◐ 主题</button>
+      <form class="logout" method="post" action="/logout"><button type="submit" class="ghost">退出</button></form>
+    </div>
+  </div>
+  <section id="sleep-banner" class="sleep-banner" aria-live="polite" hidden></section>
+  <div class="nav-intro">
+    <span class="eyebrow">PROJECT NAVIGATION</span>
+    <strong>工作空间</strong>
+    <button type="button" id="sidebar-toggle" class="ghost" aria-expanded="false" aria-controls="side-nav">导航菜单</button>
+  </div>
+  <div class="nav-divider"><span>工作</span></div>
+  <nav class="workspace-nav" aria-label="工作概览">
+    <button type="button" id="task-graph-open" class="workspace-link" data-help="按 Task 父子关系查看 Agent、分支与工作区"><span class="nav-icon" aria-hidden="true">◇</span><span><strong>Task 图</strong><small>任务与工作区</small></span><span class="nav-arrow">→</span></button>
+    <button type="button" id="overview-open" class="workspace-link" data-help="查看 Task、Agent 进展与待决事项"><span class="nav-icon" aria-hidden="true">◈</span><span><strong>项目概览</strong><small>任务、进展与交付</small></span><span class="nav-arrow">→</span></button>
+  </nav>
+  <nav id="side-nav" class="side-nav" aria-label="工作页面"></nav>
+  <div class="nav-divider"><span>交付</span></div>
+  <nav class="workspace-nav" aria-label="分支与交付">
+    <button type="button" id="graph-open" class="workspace-link" data-help="查看底层分支谱系、工作状态与收口动作"><span class="nav-icon" aria-hidden="true">⑂</span><span><strong>分支与合并</strong><small>Git 交付与冲突处理</small></span><span class="nav-arrow">→</span></button>
+
+  </nav>
+  <div class="nav-divider"><span>其他</span></div>
+  <nav class="support-nav" aria-label="设置与帮助">
+    <button type="button" id="settings-open" class="workspace-link" data-help="配置项目 Agent、模型、思考深度、角色 Prompt 与界面偏好"><span class="nav-icon" aria-hidden="true">⚙</span><span><strong>设置</strong><small>Agent 与界面</small></span><span class="nav-arrow">→</span></button>
+    <button type="button" id="docs-open" class="workspace-link" data-help="查看这套软件的架构、使用流程与接口文档"><span class="nav-icon" aria-hidden="true">≡</span><span><strong>帮助文档</strong><small>使用流程与架构参考</small></span><span class="nav-arrow">→</span></button>
+  </nav>
+  <div class="sidebar-footer"><span class="brand-spark">✳</span> 以 Task 组织成果。<span>派子任务 · 审阅 · 人工合并</span></div>
+</aside>
+<div class="content-shell">
+  <div id="view-toolbar" class="view-toolbar">
+    <button type="button" id="view-back" class="view-back" data-help="返回上一页面" aria-label="返回上一页面">← <span>返回</span></button>
+    <div class="view-identity"><span id="view-context" class="eyebrow">工作</span><strong id="view-title">项目概览</strong></div>
+    <span id="view-hint" class="view-hint">从用户目标到固定 commit 的可验证成果</span>
+  </div>
+  <section id="notice-banner" class="notice-banner" role="status" aria-live="polite" hidden></section>
+  <section id="detail" tabindex="-1" aria-label="项目内容"><div class="loading-state"><span class="brand-spark">✳</span><h1>正在连接你的项目</h1><p class="hint">分支、任务与进展，即将在这里汇合。</p></div></section>
+  <section id="resource-panels" class="resource-panels" aria-label="项目信息页面" hidden>
+    <section class="resource-page side" id="side-notices" data-side="notices" hidden>
+      <header class="resource-hero"><span class="resource-kicker">DECISIONS</span><h1>待我处理</h1><p>查看问题和答复记录，点开未处理事项即可回复。</p></header>
+      <div class="resource-card">
+        <div class="section-title"><button type="button" class="side-head" id="side-head-notices" data-side="notices" aria-expanded="true" aria-controls="notices"><span class="side-name">事项与决策记录</span><span id="notice-count" class="count"></span></button></div>
+        <div class="side-body" id="side-notices-body"><div id="notices"></div></div>
+      </div>
+    </section>
+    <section class="resource-page side" id="side-tasks" data-side="tasks" hidden>
+      <header class="resource-hero"><span class="resource-kicker">EXECUTION</span><h1>任务列表</h1><p>查看 say、子任务、Agent 进度、执行过程与交付状态。</p></header>
+      <div class="resource-tools"><div class="filters" id="task-filters"></div><label class="sort-label" for="sidebar-sort">排序<select id="sidebar-sort" class="sort" aria-label="列表排序方式"></select></label></div>
+      <div class="resource-card">
+        <div class="section-title"><button type="button" class="side-head" id="side-head-tasks" data-side="tasks" aria-expanded="true" aria-controls="tasks"><span class="side-name">任务树</span><span id="task-count" class="count"></span></button></div>
+        <div class="side-body" id="side-tasks-body"><div id="tasks"></div></div>
+      </div>
+    </section>
+    <section class="resource-page side" id="side-intents" data-side="intents" hidden>
+      <header class="resource-hero"><span class="resource-kicker">INTENT</span><h1>需求记录</h1><p>回看原始目标、规划与执行，查看成果并决定如何交付。</p></header>
+      <div class="resource-tools"><div class="filters" id="intent-filters"></div></div>
+      <div class="resource-card">
+        <div class="section-title"><button type="button" class="side-head" id="side-head-intents" data-side="intents" aria-expanded="true" aria-controls="intents"><span class="side-name">输入记录</span><span id="intent-count" class="count"></span></button></div>
+        <div class="side-body" id="side-intents-body"><div id="intents"></div></div>
+      </div>
+    </section>
+    <section class="resource-page side" id="side-specs" data-side="specs" hidden>
+      <header class="resource-hero"><span class="resource-kicker">PLANNING</span><h1>执行计划</h1><p>查看需求拆解后的计划条目、依赖与关联任务。计划条目不是任务类型；运行时将批准后的计划编译为执行任务，历史编排记录仍可查看。</p></header>
+      <div class="resource-tools"><div class="filters" id="spec-filters"></div></div>
+      <div class="resource-card">
+        <div class="section-title"><button type="button" class="side-head" id="side-head-specs" data-side="specs" aria-expanded="true" aria-controls="specs"><span class="side-name">拆解条目</span><span id="spec-count" class="count"></span></button></div>
+        <div class="side-body" id="side-specs-body"><div id="specs"></div></div>
+      </div>
+    </section>
+  </section>
+</div>
 </main>
-<section id="launcher" hidden><h1>选择项目</h1><form id="project-form"><label for="project-path">项目绝对路径</label><input id="project-path" required><button type="submit">打开</button></form><ul id="projects"></ul></section>
-<p id="feedback" role="status" aria-live="polite"></p>
+<div class="composer"><form id="input-form">
+  <div id="composer-details" class="composer-details" hidden>
+    <div class="composer-heading"><label for="input">下一步，想做什么？</label><span class="composer-caption">一条输入，一个 Task</span></div>
+    <div class="composer-target"><label for="input-branch">父分支</label><input id="input-branch" maxlength="512" placeholder="留空＝当前检出分支" aria-describedby="input-branch-help"><span id="input-branch-help" class="hint">从已绑定 Task 的本地分支创建独立 worktree</span></div>
+  </div>
+  <div id="composer-references" class="composer-references" aria-label="本条输入引用的上下文" hidden></div>
+  <div class="draft-panel" id="draft-panel">
+    <div class="draft-body" id="draft-body"><div id="drafts"></div></div>
+  </div>
+  <div class="composer-input">
+    <textarea id="input" rows="1" maxlength="32000" aria-label="输入开发需求或研究问题" placeholder="描述一个目标，发送后创建独立 Task…"></textarea>
+  </div>
+  <div class="composer-foot">
+    <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>Enter</kbd> 换行 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ↵</kbd> 发送当前输入</span>
+    <span class="composer-actions">
+
+      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details" data-help="展开：可以指定父分支，并查看键盘快捷键">⌃ 更多</button>
+
+      <button type="submit" id="draft-commit" class="agent-call">发送</button>
+    </span>
+  </div>
+</form></div>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden><p id="error"></p><button type="button" id="toast-close" class="toast-close" aria-label="关闭提示" data-help="关闭提示" hidden>✕</button></div>
+<div id="modal" class="modal-root" hidden></div>
+<div id="context-menu" class="context-menu" role="menu" hidden></div>
+<section id="project-gate" class="project-gate" aria-hidden="true" hidden>
+  <form id="project-form" class="project-card">
+    <div class="project-brand"><span class="brand-mark" aria-hidden="true">L</span><span><strong>Lush</strong><small>选择一个项目开始工作</small></span></div>
+    <label for="project-path">项目目录</label>
+    <div class="project-path-row"><input id="project-path" name="project" list="project-options" autocomplete="off" spellcheck="false" placeholder="/absolute/path/to/project" required><datalist id="project-options"></datalist><button type="button" id="project-choose" class="ghost" hidden>选择文件夹…</button></div>
+    <p id="project-hint" class="hint">首次打开必须指定绝对路径。之后会自动恢复最后使用的项目，也可以随时切换。</p>
+    <p id="project-error" class="error" role="alert" hidden></p>
+    <div class="project-recent" id="project-recent" hidden>
+      <span class="eyebrow">已登记项目</span>
+      <ul id="project-recent-list" class="project-list"></ul>
+    </div>
+    <div class="project-actions"><button type="button" id="project-cancel" class="ghost" hidden>取消</button><button type="submit" id="project-submit">打开项目</button></div>
+  </form>
+</section>
 </body></html>

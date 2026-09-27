@@ -21,7 +21,7 @@ export function initNoticeRecords() {
   const state = ui.noticeRecords = { status: 'open', rows: [], page: null, request: 0, selected: null, task: null, signature: null };
   const tools = el('div', undefined, 'resource-tools');
   const filters = el('div', undefined, 'filters');
-  for (const [value, label] of [['open','未处理'],['answered','已回答'],['dismissed','已忽略'],['all','全部记录'],['butler','管家选择']]) {
+  for (const [value, label] of [['open','未处理'],['answered','已回答'],['dismissed','已忽略'],['all','全部记录']]) {
     const tab = button(label, () => {
       state.status = value; state.page = null; state.rows = []; state.choices = []; state.selected = null;
       $('notice-record-detail')?.replaceChildren();

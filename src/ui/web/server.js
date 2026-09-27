@@ -28,8 +28,9 @@ function assetFile(pathname) {
   return path.join(ASSETS, name);
 }
 const MUTATIONS = new Set(['agent.configure','agent.environment.configure','system.configure','say.submit','task.spawn','task.message','task.reserve','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge','task.cancel','task.retry','task.cleanup','notice.answer','notice.dismiss','branch.bind','branch.archive']);
-const CORE_READS = new Set(['/api/tasks','/api/notices','/api/graph','/api/task-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/environment']);
-const CORE_TASK_READ = /^\/api\/task\/\d+(?:\/(?:history|history-page|diff|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
+const CORE_READS = new Set(['/api/overview','/api/snapshot','/api/tasks','/api/notices','/api/graph','/api/task-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/environment','/api/docs','/api/docs/search-index']);
+const CORE_TASK_READ = /^\/api\/task\/\d+(?:\/(?:history|history-page|diff|usage|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
+const CORE_DOC_READ = /^\/api\/docs\/[a-z0-9._-]+$/;
 /** 检验报告是 agent 写的自包含 HTML：只允许内联样式/脚本与 data: 图片，禁止任何外部加载与表单提交。
  *  主页面 CSP 不会作用于这个独立文档，所以这里必须自己收紧。 */
 const REPORT_CSP = "sandbox allow-scripts; frame-ancestors 'self'; default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'";
@@ -383,7 +384,7 @@ export function startWeb(config, port = 4318, options = {}) {
         const binding = projectApi ? (prefix ? await projectHost.openRoute(prefix[1]) : await projectHost.require()) : null;
         const client = binding?.client;
         if (request.method === 'GET') {
-          if (url.pathname.startsWith('/api/') && !CORE_READS.has(url.pathname) && !CORE_TASK_READ.test(url.pathname))
+          if (url.pathname.startsWith('/api/') && !CORE_READS.has(url.pathname) && !CORE_TASK_READ.test(url.pathname) && !CORE_DOC_READ.test(url.pathname))
             return json({ error: 'not found' }, 404);
           if (url.pathname === '/api/sleep') return json(await client.request('sleep.status'));
           if (url.pathname === '/api/sleep/choices') return json(await client.request('sleep.choices', {
@@ -395,11 +396,14 @@ export function startWeb(config, port = 4318, options = {}) {
           }));
           if (url.pathname === '/api/snapshot') return json(await client.snapshot());
           if (url.pathname === '/api/overview') return json(await client.overview(url.searchParams.get('revision')));
-          if (url.pathname === '/api/notices') return json(await client.request('notice.page', {
-            status: url.searchParams.get('status') ?? 'all',
-            before: url.searchParams.get('before'),
-            limit: Number(url.searchParams.get('limit') ?? 30),
-          }));
+          if (url.pathname === '/api/notices') {
+            const page = await client.request('notice.page', {
+              status: url.searchParams.get('status') ?? 'all',
+              before: url.searchParams.get('before'),
+              limit: Number(url.searchParams.get('limit') ?? 30),
+            });
+            return json({ ...page, notices: page.notices.filter(notice => notice.kind !== 'plan') });
+          }
           if (url.pathname === '/api/tasks') return json(await client.request('task.page', {
             scope: url.searchParams.get('scope') ?? 'work',
             before: url.searchParams.has('before') ? Number(url.searchParams.get('before')) : null,

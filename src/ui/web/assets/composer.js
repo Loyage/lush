@@ -1,6 +1,7 @@
 import { $, el } from './dom.js';
 import { action } from './api.js';
 import { show } from './messages.js';
+import { detail, refresh } from './navigate.js';
 import { ui } from './state.js';
 import { composerReferences, renderComposerReferences, setComposerReferences } from './context-references.js';
 import { agentHelp } from './help.js';
@@ -51,23 +52,16 @@ export async function buffer() {
 export function syncComposer() {
   const busy = Boolean(ui.composerSubmitting);
   $('draft-commit').disabled = busy || !$('input').value.trim();
-  $('draft-add').disabled = busy;
+
 }
 /** 接上输入框与操作按钮：回车=存草稿，⌘/Ctrl+回车=发送当前正文，Shift+回车=换行。 */
 export function initComposer() {
   $('draft-commit').setAttribute('data-help', agentHelp('只发送输入框中的这一条，不会连带发送缓存的草稿。'));
-  $('draft-toggle').onclick = () => toggleDraftPanel();
-  paintDraftPanel(); renderComposerReferences();
+  renderComposerReferences();
   $('composer-expand').onclick = () => toggleComposerDetails();
   paintComposerDetails();
   // 父分支值可能在展开态被改动：折叠回去时控件上要显示最新值。
   $('input-branch').addEventListener('input', paintComposerDetails);
-  $('draft-add').onclick = async () => {
-    if (ui.composerSubmitting) return;
-    ui.composerSubmitting = true; syncComposer();
-    try { await buffer(); } catch (error) { show(error.message, 'error'); }
-    finally { ui.composerSubmitting = false; syncComposer(); }
-  };
   $('input-form').onsubmit = async event => {
     event.preventDefault();
     if (ui.composerSubmitting) return;
@@ -81,14 +75,14 @@ export function initComposer() {
       const result = await action('say.submit', { content: value, references, ...(branch ? { branch } : {}) });
       if ($('input').value.trim() === value) $('input').value = '';
       if (JSON.stringify(composerReferences()) === signature) setComposerReferences([]);
-      show(`已发送输入 #${result.id}；其它草稿仍在缓存中`);
+      show(`已创建 Task #${result.task.id}`);
+      await refresh(); await detail(result.task.id);
     } catch (error) { show(error.message, 'error'); } finally { ui.composerSubmitting = false; syncComposer(); }
   };
   $('input').addEventListener('input', syncComposer);
-  // 回车=存草稿，⌘/Ctrl+回车=发送当前正文，Shift+回车=换行。
+  // 普通 Enter 换行；快捷键只发送当前正文，不误创建草稿。
   $('input').addEventListener('keydown', event => {
-    if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
-    event.preventDefault();
-    if (event.metaKey || event.ctrlKey) $('input-form').requestSubmit(); else $('draft-add').click();
+    if (event.key !== 'Enter' || event.isComposing || (!event.metaKey && !event.ctrlKey)) return;
+    event.preventDefault(); $('input-form').requestSubmit();
   });
 }

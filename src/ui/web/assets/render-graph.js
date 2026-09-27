@@ -255,7 +255,7 @@ function taskRow(node, owningBranch = null) {
   if (progress) row.append(progress);
   // 这件事在等你拍板：整行带琥珀强调（与未合并 / 工作中的强调可同时存在），决策区把正文与
   // 处理按钮直接摊在这一行里——用户不用先去左侧「待定事项」或别的页面。没有 notice 的任务行一个字段都不加。
-  if (node.notice) {
+  if (node.notice && node.notice.kind !== 'plan') {
     row.classList.add('graph-emphasis-awaiting');
     row.append(decisionRow(node));
   }
@@ -548,7 +548,17 @@ function branchRow(branch, onCollapsed) {
   else row.append(el('span', '⚠ 分支不存在', 'chip warn'));
   if (branch.current) row.append(el('span', '当前检出', 'chip'));
   // 有 ref 但没有 branches 记录：画出来，但标明谱系里没有它。
-  if (!isMain && !branch.tracked && !branch.placeholder) row.append(el('span', '未登记', 'chip'));
+  if (!isMain && !branch.tracked && !branch.placeholder) {
+    row.append(el('span', '未登记', 'chip'));
+    if (branch.head_commit) row.append(button('绑定分支', async () => {
+      const confirmed = await confirmDialog({ title: `绑定 ${branch.name}？`,
+        message: `确认这条本地分支的 HEAD 为 ${branch.head_commit}。绑定只创建静息 owner Task，不修改分支或提交。`,
+        confirmLabel: '绑定', confirmHelp: '按当前固定 HEAD 建立分支所有者 Task；HEAD 漂移时会拒绝。' });
+      if (!confirmed) return;
+      await action('branch.bind', { branch: branch.name, commit: branch.head_commit });
+      await loadGraph();
+    }, 'ghost', { help: '确认本地分支的固定 HEAD，再创建静息 owner Task；不移动 ref。' }));
+  }
   // 收起时告诉用户藏了什么；展开时这条由 CSS 隐掉（.graph-group:not(.collapsed) > .graph-branch > ...）。
   if (hideable) {
     const parts = [];
@@ -582,49 +592,9 @@ function branchRow(branch, onCollapsed) {
   if (edge && (Number.isFinite(edge.ahead) || Number.isFinite(edge.behind))) {
     row.append(el('span', `子分支 +${edge.ahead ?? '?'} / -${edge.behind ?? '?'}`, 'meta'));
   }
-  if (!ownerSay) for (const node of forkActions(branch, edge)) row.append(node);
-  // 一键合并 / 合并编排：有后代分支才给入口。运行中显示进度 + 取消；被冻结（别的 merger）时禁用并说明。
-  if (branch.merge_run) {
-    const run = branch.merge_run;
-    const done = run.done?.length ?? 0;
-    const total = run.order?.length ?? 0;
-    if (run.mode === 'orchestrate') {
-      row.append(el('span', `合并编排中 · ${done}/${total}${run.status === 'paused' ? '（源侧解分歧中）' : ''}`,
-        'chip graph-work run'));
-      row.append(button('取消合并编排', () => runOrchestrateCancel(branch), 'ghost graph-branch-action',
-        { help: '停止这条分支的合并编排并释放冻结；已落地的合并不回滚，等待中的解分歧子任务会被取消。' }));
-    } else {
-      row.append(el('span', `一键合并中 · ${done}/${total}${run.status === 'paused' ? '（等待子任务）' : ''}`,
-        'chip graph-work run'));
-      row.append(button('取消一键合并', () => runMergeCancel(branch), 'ghost graph-branch-action',
-        { help: '停止这条分支的一键合并并释放冻结；已完成的合并保留、不回滚。' }));
-    }
-  } else if (branch.subtreeBranches > 0) {
-    if (newSayBelow || ownerSay) {
-      // 新 say 子树不能用旧一键合并（会越过固定提交与父确认）；改用合并编排：用户确认一次计划，runtime 全自动。
-      // delivery 冻结正是「有待集成的 say 合并请求」，编排就是用来一次确认后收拢它们的，不能因此禁用；
-      // 只有别的 merger / 一键合并运行造成的冻结才该挡住编排。
-      if (branch.freeze && branch.freeze.kind !== 'delivery') {
-        const disabled = el('button', '编排合并全部 say 子分支', 'ghost graph-branch-action');
-        disabled.type = 'button'; disabled.disabled = true;
-        const host = el('span', undefined, 'help-host');
-        host.setAttribute('data-help', `合并编排暂时不可用：${branch.freeze.reason}。`);
-        host.append(disabled); row.append(host);
-      } else {
-        row.append(button('编排合并全部 say 子分支', () => runOrchestrate(branch), 'ghost graph-branch-action',
-          { agent: true, help: agentHelp('合并编排会按叶子到根自动把已固定提交的 say 合并请求 ff-only 收拢进这条分支；没有请求但符合条件的 say 会先自动补发固定提交请求；遇分歧自动派源侧解分歧子任务；运行期间冻结这条分支及其全部后代，耗时较长并消耗 token。') }));
-      }
-    } else if (branch.freeze) {
-      const disabled = el('button', '一键合并全部子分支', 'ghost graph-branch-action');
-      disabled.type = 'button'; disabled.disabled = true;
-      const host = el('span', undefined, 'help-host');
-      host.setAttribute('data-help', `一键合并暂时不可用：${branch.freeze.reason}。`);
-      host.append(disabled); row.append(host);
-    } else {
-      row.append(button('一键合并全部子分支', () => runMergeAll(branch), 'ghost graph-branch-action',
-        { agent: true, help: agentHelp('一键合并会按叶子到根自动快进收拢后代分支，并在分歧 / 冲突时启动 merger Agent；运行期间冻结这条分支及其全部后代，耗时较长并消耗 token。') }));
-    }
-  }
+  // Old branch merge/sync/catchup actions are not part of the Task delivery API.
+  // Legacy merge runs are history only: do not offer resume or cancellation actions.
+  if (branch.merge_run) row.append(el('span', '历史合并编排记录（已停用）', 'chip'));
 
   // 分支元数据：状态、标题、来源、创建时间、任务计数
   const meta = el('div', undefined, 'graph-branch-meta');
@@ -662,20 +632,6 @@ function branchRow(branch, onCollapsed) {
   const diagnostics = branchDiagnostics(branch);
   if (diagnostics) row.append(diagnostics);
 
-  // 效果展示入口按「预约」而不是「立即启动」：`reserve_allowed` 只问现在能不能预约（已登记、有父分支与基线的非主干分支），
-  // 而 `allowed` 才是完整准入。未满足准入的开发分支也应当在创建后就亮起入口；点了先挂预约，等分支满足展示条件后由后端自动启动。
-  const showcase = branch.showcase;
-  if (!ownerSay && showcase?.reserved === true) {
-    row.append(el('span', '已预约效果展示', 'chip graph-showcase-reserved'));
-    // 预约后还没跑起来：把当前准入阻塞原因就地说清楚，用户不必自己去猜还要等什么。
-    if (showcase.allowed !== true && showcase.reason) row.append(el('span', showcase.reason, 'meta graph-showcase-blocker'));
-    row.append(button('取消预约', () => unreserveBranchShowcase(branch.name), 'ghost',
-      { help: '取消这条分支的自动效果展示预约；已开始的展示不受影响。' }));
-  } else if (!ownerSay && showcase?.reserve_allowed === true) {
-    row.append(button('预约效果展示', () => reserveBranchShowcase(branch.name), 'ghost',
-      { agent: true, help: agentHelp('预约后，等这条分支满足展示条件时自动启动专用展示 Agent；当前已满足则立即开始。') }));
-  }
-  if (!ownerSay && showcase?.latest_task_id) row.append(button('查看已有展示', () => detail(showcase.latest_task_id), 'link'));
   if (ownerSay) row.append(deliveryControls(ownerSay, { refresh: loadGraph }));
   // 只有「可归档且尚未归档」的分支才给归档；当前检出、未登记、还有活没完的都不给。
   // 归档一条＝归档它整棵子树（见 runBranchArchive 的确认文案）。
@@ -738,8 +694,7 @@ function unplacedBlock(group) {
   const lane = el('div', undefined, 'graph-lane');
   for (const node of group.items) {
     const row = taskRow(node);
-    row.append(button('删除', () => runTaskDelete(node), 'ghost',
-      { help: '删除这条任务与它已结束的后代任务：任务行、消息、事件与 notice 一并清除，无法撤销。' }));
+
     lane.append(row);
   }
   block.append(lane);

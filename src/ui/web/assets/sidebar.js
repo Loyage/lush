@@ -16,10 +16,8 @@ import { treeParent } from './tree-order.js';
  * 顺序即优先级：先看要人拍板的（待定事项），再回看输入与拆解，最后才是正在跑的行动任务。
  */
 export const SIDEBAR_SECTIONS = [
-  { id: 'notices', label: '待我处理', long: '待我处理', icon: '◔', description: '问题、审批与处理记录' },
-  { id: 'intents', label: '需求记录', long: '需求记录', icon: '⌁', description: '原始需求、规划与成果' },
-  { id: 'specs', label: '执行计划', long: '执行计划', icon: '◇', description: '计划条目、依赖与关联任务' },
-  { id: 'tasks', label: '任务列表', long: '任务列表', icon: '✓', description: '全部类型、状态与执行过程' },
+  { id: 'notices', label: '待我处理', long: '待我处理', icon: '◔', description: '提问、答复与提醒' },
+  { id: 'tasks', label: '任务列表', long: '任务列表', icon: '✓', description: 'say、子任务与执行过程' },
 ];
 export const COLLAPSED_KEY = 'lush.sidebar.collapsed';
 export const FILTERS_KEY = 'lush.sidebar.filters';

@@ -30,15 +30,6 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
   };
 
   if (!reservation && !['completed', 'failed', 'cancelled'].includes(task.status)) {
-    if (!readyToRequestMerge) actions.append(button('预约展示', async () => {
-      const confirmed = await confirmDialog({
-        title: `为 say #${task.id} 预约效果展示？`,
-        message: '点击即创建专用展示子 Task 并开始准备；say 完成工作且满足展示准入后会向它发信号，展示按最终固定提交交付。原 Task 在展示结束前不会终结。展示不代表验收，也不会合并。',
-        confirmLabel: '预约展示', agent: true,
-        confirmHelp: agentHelp('预约时即创建展示子 Task 并让它先做准备；say 完成工作后自动发信号，展示按最终提交交付。'),
-      });
-      if (confirmed) await update('task.reserve', { id: task.id, kind: 'showcase' }, `已创建 say #${task.id} 的展示子任务并开始准备`);
-    }, 'ghost', { agent: true, help: agentHelp('点击即创建展示子 Task 并开始准备；say 完成工作后自动发信号，展示按最终提交交付，原 say 等展示结算。') }));
     actions.append(button(readyToRequestMerge ? '请求合并' : '预约合并请求', async () => {
       const confirmed = await confirmDialog({
         title: readyToRequestMerge ? `为 say #${task.id} 发起合并请求？` : `为 say #${task.id} 预约合并请求？`,

@@ -239,14 +239,8 @@ function onContextMenu(event) {
   const generic = genericReference(event.target);
   const values = selected ? [selected, ...semantic] : [...semantic];
   if (generic && !values.some(value => value.kind === 'text' && value.quote === generic.quote)) values.push(generic);
-  const step = semantic.find(value => value.kind === 'transcript_step');
-  const selectedText = selected ? String(window.getSelection?.()?.toString?.() || '').trim() : '';
-  // 任意非空选区都能「介绍」：落在执行步骤里仍走只读解释 Agent；其余走直连模型的快速介绍。
-  const introduce = !selected ? null
-    : step && selectedText.length <= MAX_QUOTE
-      ? { label: '介绍：目的、原理与结果含义', help: agentHelp('用只读的解释 Agent 说明这个执行步骤的目的、原理与结果含义。'), run: () => startExplanation(step.target.task_id, step.target.seq, selectedText) }
-      : { label: '快速介绍所选文字：是什么、为何如此', help: modelHelp('用设置里配置的模型直接解释所选文字是什么、为何如此，不启动 Agent。'), run: () => startIntro(selected.quote, selected.location) };
-  if (values.length) showMenu(event, values, introduce); else hideMenu();
+  // Selection still supports Task references, but retired explanation actions are hidden.
+  if (values.length) showMenu(event, values); else hideMenu();
 }
 function onClick(event) { if (!inside(event.target, $('context-menu'))) hideMenu(); }
 function onKeydown(event) { if (event.key === 'Escape') hideMenu(); }

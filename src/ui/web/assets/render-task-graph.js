@@ -140,9 +140,6 @@ function taskCard(node, folded, refresh) {
     row.append(git);
   }
 
-  const orchestration = taskOrchestration(node);
-  if (orchestration) row.append(orchestration);
-
   if (node.notice) {
     if (['question', 'plan'].includes(node.notice.kind)) {
       // Same decision controls as the branch graph, but refresh this Task view after a response.
@@ -174,13 +171,14 @@ function taskCard(node, folded, refresh) {
 
 export function renderTaskGraph(graph) {
   if (ui.view?.id !== 'task-graph') return;
+  graph = { ...graph, nodes: (graph.nodes || []).filter(node => ['say','child','main','owner'].includes(node.task_kind)) };
   const host = $('detail');
   const saved = collapsed();
   const forest = taskForest(graph);
   ui.taskGraphIds = new Set(graph.nodes.map(node => node.id));
   const box = el('div', undefined, 'task-graph');
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
-  hero.append(el('h1', 'Task 图'), el('p', 'Task 包裹 Agent、分支与 worktree；连线表示父子关系。有子 Task 的分支可就地发起合并编排；分支归档仍在「分支与合并」。'));
+  hero.append(el('h1', 'Task 图'), el('p', 'Task 包裹 Agent、分支与 worktree；连线表示父子关系。代码集成由直接父 Agent 或用户按固定提交批准。'));
   const summary = el('div', undefined, 'task-graph-summary');
   const active = graph.nodes.filter(node => ACTIVE.has(node.status)).length;
   const decisions = graph.nodes.reduce((count, node) => count + (node.notice_count || 0), 0);
