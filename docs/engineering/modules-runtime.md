@@ -14,7 +14,8 @@
 | `agent/models.js` | 有界、超时地读取 Pi / Codex CLI 模型目录，只投影安全的模型元数据，失败回退内置预设 | `discoverAgentModels(config, agent)` |
 | `agent/resources.js` | 不执行资源代码地发现用户/项目 Pi 扩展、Skills 与已安装 package 资源；CLI 列表失败时保留本地目录结果 | `discoverAgentResources(config)` |
 | `agent/provider.js` | 动态后端路由、Pi / Codex invocation、Codex thread 恢复与每轮 token 用量留存（不伪造费用）；调用 Prompt 与 env 组合器；子进程因 AbortSignal 结束时保留 scheduler / lifecycle 写入的具体超时或取消原因；关闭进程后读一次抢占的双向标记（<home>/preempt，无论采纳与否立即清掉）并抛 `AgentPreempted` | `PiProvider`、`CodexProvider`、`AgentProvider`、`MockProvider`、`AgentPreempted`、`preemptPaths` |
-| `agent/pi-runtime.js` | 内置 Pi extension；记录 invocation 身份，达到可选软预算后在下一次自然请求提醒一次，不强停或制造新轮次；在 `turn_end`（本轮工具都结束）读一次抢占请求并写 stop 标记，让本轮就此收尾 | 默认导出 `lushRuntime(pi)` |
+| `agent/pi-runtime.js` | 内置 Pi extension；记录 invocation 身份、工具边界写本轮 Pi entry 指针；软预算提醒与安全抢占 | 默认导出 `lushRuntime(pi)` |
+| `agent/fork.js` / `bin/git` | 固定提交的 Pi 指针截取单分支 checkpoint 供 Pi `--fork`；Agent 的 Git commit adapter 登记成功提交的指针，其余 Git 命令透传 | `forkCheckpoint`、`readCommitPointer`；`bin/git` 为 Agent PATH 入口 |
 | `agent/guide.js` | 旧调用方兼容出口；内置 Prompt 的事实来源是 `prompts.js` | `GUIDE` |
 | `core/transcript-reader.js` | 完整任务会话的流式检索、按类型／工具／失败过滤、步骤分段原文与同会话调用 ID 配对；单行超过 16 MiB 明确报不完整，不受快速视图前 8 MiB 的范围限制 | `searchTranscript(config,taskId,options)`、`transcriptStep(config,taskId,seq,offset)`、`transcriptPage(config,taskId,seq?,offset?)`（连续完整文字，有界分段） |
 | `core/transcript.js` | 兼容快速记录与用量投影；保留调用身份；与全文读面共享步骤投影；`readTranscriptLatest` 另做一次完整的异步流式扫描，尾部不受前 8 MiB 窗口限制，只保留 `limit` 大小的环形窗口与当前 token 批次 | `projectRecord(record,max?)`、`readTranscript`、`readTranscriptLatest(config,taskId,{after,before,limit})`、`readUsage`、`sessionFiles`、`transcriptReadStats` |
@@ -89,7 +90,7 @@
 |---|---|---|
 | `workspaces/base.js` | 构造与串行队列状态（`queue` / `busy` / `namespace`） | `class WorkspacesBase` |
 | `workspaces/git.js` | Git 原语与串行队列（无 shell 插值） | `exclusive`、`git`、`gitOutput`、`porcelain`、`clean`、`isAncestor`、`merging`、`unmerged`、`workspaceForBranch`、`checkedOut` |
-| `workspaces/worktree.js` | worktree / 对照检出 / 可推进输入分支的创建与回收；planner 在输入 worktree 中运行，任务以直接父分支为 target；`task_kind='analysis'` 只给分支提交的分离检出（不建分支、调用结束回收） | `anchor(inputId, requestedBranch)`、`dropAnchor(anchor)`、`releaseAnchor(anchor)`、`reclaimAnchors(anchors)`、`inputAnchor(task)`、`ensure(task)`、`finish(task)`、`codeBase(task)`、`removeBaseline(taskId)` |
+| `workspaces/worktree.js` | worktree / 对照检出 / 可推进输入分支的创建与回收；新 child 在 spawn 时从父分支当时 tip 建 worktree；`task_kind='analysis'` 创建时从固定父提交做只读分离检出 | `forkTaskUnsafe(task,parentBranch,commit)`、`anchor(inputId, requestedBranch)`、`dropAnchor(anchor)`、`releaseAnchor(anchor)`、`reclaimAnchors(anchors)`、`inputAnchor(task)`、`ensure(task)`、`finish(task)`、`codeBase(task)`、`removeBaseline(taskId)` |
 | `workspaces/showcase.js` | 已登记非主干准入、精确本地 ref / 起点解析、实际改动与工作区 / Git 中间态校验、固定提交树有界缓存、隔离 detached 检出及复用校验（归档显式 discard 时可只校验身份而允许脏目录）；不拥有或删除源分支 | `showcaseSnapshot`、`showcaseTree`、`showcaseCleanBranches`、`assertShowcaseCheckout`、`ensureShowcase` |
 | `workspaces/diff.js` | 只读审阅视图（不进写队列）；分支诊断批量读取创建起点到 tip 的改动、最近提交与实际 worktree 未提交数，固定提交有界缓存；字段与限制见[分支诊断接缝](modules.md#分支诊断增量读面) | `diff(task)`、`branchDiagnostics(branches)` |
 | `workspaces/merge.js` | 父子分支关系判定、两个方向的原子 fast-forward（子→父、父→子）、批量预检与任务兼容入口；绝不在父分支 no-ff | `branchTaskBlockers(child)`、`branchState(child)`、`mergeBranchUnsafe(child,expected)`、`mergeBranch(child,expected)`、`catchupBranchUnsafe(child)`、`catchupBranch(child)`、`preflightMerge(tasks)`、`merge(taskId)` |

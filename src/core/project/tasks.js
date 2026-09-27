@@ -3,6 +3,7 @@ import { taskSlug } from '../naming.js';
 import { agentView } from './internal.js';
 import fs from 'node:fs';
 import { saveInputRule, snapshotPath } from '../task-input-rule.js';
+import { forkCheckpoint } from '../../agent/fork.js';
 
 export const DEP_KINDS = new Set(['code', 'order']);
 function normalizeDeps(deps) {
@@ -23,7 +24,11 @@ function normalizeDeps(deps) {
 /** 派生任务与单任务详情。 */
 export default {
   /** name is the planner's short slug for the work; it becomes the branch/worktree name and stays fixed for the task's life. */
-  spawn(parentId, goal, role = undefined, deps = [], name = null, specId = null) {
+  async spawn(parentId, goal, role = undefined, deps = [], name = null, specId = null) {
+    return this.write('fork a task', () => this.forkChildTask(parentId, goal, role, deps, name, specId));
+  },
+
+  async forkChildTask(parentId, goal, role = undefined, deps = [], name = null, specId = null) {
     this.assertWritable('delegate a task');
     const parent = this.store.task(parentId);
     check(!['main','owner'].includes(parent.task_kind), 'branch owner Tasks accept new say Tasks, not unrestricted spawned work');
@@ -70,24 +75,38 @@ export default {
     const slug = taskSlug(name, goal);
     const parentRule = taskKind && fs.existsSync(snapshotPath(this.config.home, parent.id))
       ? fs.readFileSync(snapshotPath(this.config.home, parent.id), 'utf8') : null;
-    let ruleTaskId = null;
-    let task;
-    try { task = this.store.transaction(() => {
-      const created = this.store.create({ parent_id: parent.id, input_id: inheritedInput, role, goal, name: slug, task_kind: taskKind });
-      this.assertDeps(created.id, parent, merged);
-      if (parentRule !== null) {
-        ruleTaskId = created.id;
-        saveInputRule(this.config.home, created.id, parentRule);
-        this.store.event(created.id, 'task.input_rule_frozen', { inherited_from: parent.id });
+    return this.workspaces.exclusive(async () => {
+      const liveParent = this.store.task(parent.id);
+      check(!TERMINAL.has(liveParent.status) && liveParent.branch === parent.branch, 'parent changed before fork');
+      const commit = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${parent.branch}^{commit}`);
+      let ruleTaskId = null, task;
+      try { task = this.store.transaction(() => {
+        const created = this.store.create({ parent_id: parent.id, input_id: inheritedInput, role, goal, name: slug, task_kind: taskKind });
+        this.assertDeps(created.id, liveParent, merged);
+        if (parentRule !== null) {
+          ruleTaskId = created.id;
+          saveInputRule(this.config.home, created.id, parentRule);
+          this.store.event(created.id, 'task.input_rule_frozen', { inherited_from: parent.id });
+        }
+        for (const edge of merged) { this.store.addDep(created.id, edge.id, edge.kind); this.store.event(created.id, 'dep.added', edge); }
+        if (spec) this.store.plannedSpec(spec.id, created.id);
+        return created;
+      }); } catch (error) {
+        if (ruleTaskId !== null) fs.rmSync(snapshotPath(this.config.home, ruleTaskId), { force: true });
+        throw error;
       }
-      for (const edge of merged) { this.store.addDep(created.id, edge.id, edge.kind); this.store.event(created.id, 'dep.added', edge); }
-      if (spec) this.store.plannedSpec(spec.id, created.id);
-      return created;
-    }); } catch (error) {
-      if (ruleTaskId !== null) fs.rmSync(snapshotPath(this.config.home, ruleTaskId), { force: true });
-      throw error;
-    }
-    this.kick(); return task;
+      try {
+        await this.workspaces.forkTaskUnsafe(task, liveParent.branch, commit);
+        const pointer = this.store.get('SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', commit);
+        if (pointer) forkCheckpoint(this.config.home, { ...pointer, commit });
+      } catch (error) {
+        // A partially created worktree is valuable evidence; never force-delete it.
+        this.store.update(task.id, { status: 'failed', error: `fork failed: ${error.message}` });
+        this.store.event(task.id, 'task.fork_failed', { parent_id: parent.id, commit, error: error.message });
+        throw new Error(`task #${task.id} fork failed; inspect its worktree: ${error.message}`);
+      }
+      this.kick(); return this.store.task(task.id);
+    });
   },
 
   /** Deterministic Plan compiler path: turn one planner spec into a root work item without another model call. */

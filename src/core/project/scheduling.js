@@ -216,9 +216,11 @@ export default {
       // retry_profile contains system instructions and local resource paths. It is runtime
       // configuration, not task data, so do not copy it into the provider's untrusted input JSON.
       const { retry_profile: _retryProfile, ...providerTask } = this.progressView(task);
+      const forkPointer = task.base_commit ? this.store.get(
+        'SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', task.base_commit) : null;
       const result = await this.provider.run({ task: providerTask, cwd, token: run.token, signal: run.controller.signal, agent,
         onSpawn: pid => { run.pid = pid; }, messages, api: this,
-        context,
+        context, forkPointer,
       });
       clearTimeout(timer);
       if (TERMINAL.has(this.store.task(taskId).status) || run.parked) return;

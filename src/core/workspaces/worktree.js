@@ -6,6 +6,21 @@ import { dirtDetail } from './git.js';
 
 /** worktree / 对照检出 / 输入锚点的创建与回收。 */
 export const methods = {
+  /** Called within the Git serial queue when a child is born, not deferred to its first invocation. */
+  async forkTaskUnsafe(task, parentBranch, commit) {
+    const project = this.config.project;
+    const branch = `lush/${this.namespace}/${taskLabel(task.id, task.name)}`;
+    const workspace = path.join(this.config.home, 'worktrees', taskLabel(task.id, task.name));
+    check(!(await this.git(project, 'branch', '--list', branch)), `fork branch already exists: ${branch}`);
+    this.store.update(task.id, { workspace, branch, base_commit: commit, target_branch: parentBranch });
+    this.store.recordBranch({ branch, parent: parentBranch, created_from_commit: commit,
+      task_id: task.id, worktree: workspace });
+    fs.mkdirSync(path.dirname(workspace), { recursive: true });
+    await this.git(project, 'worktree', 'add', '-b', branch, workspace, commit);
+    this.store.event(task.id, 'task.forked', { parent_id: task.parent_id, commit, branch, workspace });
+    return workspace;
+  },
+
   /**
    * 输入锚点：把「提交这条输入那一刻的代码」固定成一条分支加一个检出。
    * 它属于输入而不是任务（没有 agent 在这里跑），所以由 Git 边界创建、由调用方落库并负责失败回收。

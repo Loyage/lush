@@ -1111,7 +1111,7 @@ test('new say Task can spawn independent agent child and its settlement sends a 
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const say = await f.project.say('develop');
-    const child = f.project.spawn(say.task.id, 'review changes', 'agent', [], 'review');
+    const child = await f.project.spawn(say.task.id, 'review changes', 'agent', [], 'review');
     expect(child).toMatchObject({ role: 'agent', task_kind: 'child', parent_id: say.task.id });
     const workspace = await f.project.workspaces.ensure(child);
     const stored = f.store.task(child.id);
@@ -1136,7 +1136,7 @@ test('graph plots a spawned agent child as its own task node, but not the main r
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const say = await f.project.say('develop');
-    const child = f.project.spawn(say.task.id, 'review changes', 'agent', [], 'review');
+    const child = await f.project.spawn(say.task.id, 'review changes', 'agent', [], 'review');
     await f.project.workspaces.ensure(child);
     const stored = f.store.task(child.id);
     const graph = await f.project.graph();
@@ -1154,7 +1154,7 @@ test('only the running direct parent Agent can integrate a frozen completed chil
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const say = await f.project.say('develop');
-    const child = f.project.spawn(say.task.id, 'write child code', 'agent', [], 'write-child');
+    const child = await f.project.spawn(say.task.id, 'write child code', 'agent', [], 'write-child');
     const workspace = await f.project.workspaces.ensure(child);
     fs.writeFileSync(path.join(workspace, 'child.txt'), 'work\n');
     await git(workspace, 'add', 'child.txt'); await git(workspace, 'commit', '-m', 'child work');
@@ -1180,7 +1180,7 @@ test('child branch drift rejects the fixed commit without moving the parent', as
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const say = await f.project.say('develop');
-    const child = f.project.spawn(say.task.id, 'write child code', 'agent', [], 'write-child');
+    const child = await f.project.spawn(say.task.id, 'write child code', 'agent', [], 'write-child');
     const workspace = await f.project.workspaces.ensure(child);
     fs.writeFileSync(path.join(workspace, 'child.txt'), 'first\n');
     await git(workspace, 'add', 'child.txt'); await git(workspace, 'commit', '-m', 'first');

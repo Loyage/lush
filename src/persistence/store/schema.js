@@ -53,6 +53,12 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         retry_profile TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+      -- A commit identifies the Pi context present when an agent made it. External commits
+      -- deliberately have no row; task creation then starts with an empty conversation.
+      CREATE TABLE IF NOT EXISTS commit_contexts (
+        commit_hash TEXT PRIMARY KEY, task_id INTEGER NOT NULL,
+        session_path TEXT NOT NULL, entry_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS tasks_parent ON tasks(parent_id);
       CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);
       CREATE INDEX IF NOT EXISTS tasks_layer_status ON tasks(layer,status,id);

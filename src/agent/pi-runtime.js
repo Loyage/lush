@@ -1,11 +1,31 @@
 /** Trusted, dependency-free Pi extension. No tools, processes or background timers. */
 import fs from 'node:fs';
+import path from 'node:path';
 
 export default function lushRuntime(pi) {
   let settings;
   try { settings = JSON.parse(process.env.LUSH_RUNTIME_CONTEXT || '{}'); }
   catch { throw new Error('invalid Lush runtime context'); }
   const budget = settings.soft_budget || {};
+  // Commit wrappers use the last complete context boundary, not the in-flight assistant
+  // tool-call message (which can be missing sibling tool results). This marker is scoped
+  // to the current invocation and is not itself a model-visible session entry.
+  const checkpointFile = settings.sessions_dir && settings.task_id
+    ? path.join(settings.sessions_dir, `task-${settings.task_id}-context.json`) : null;
+  const checkpoint = ctx => {
+    if (!checkpointFile || !settings.run_id) return;
+    const leaf = ctx.sessionManager.getLeafEntry();
+    const entry = leaf?.type === 'message' && leaf.message?.role === 'assistant' &&
+      leaf.message.content?.some?.(part => part.type === 'toolCall') ? leaf.parentId : ctx.sessionManager.getLeafId();
+    const session = ctx.sessionManager.getSessionFile();
+    if (!entry || !session) return;
+    const temporary = `${checkpointFile}.${process.pid}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify({ task_id: settings.task_id, run_id: settings.run_id,
+      session, entry }) + '\n', { mode: 0o600 });
+    fs.renameSync(temporary, checkpointFile);
+  };
+  pi.on('tool_call', (_event, ctx) => { checkpoint(ctx); });
+  pi.on('turn_end', (_event, ctx) => { checkpoint(ctx); });
   let responses = 0, tokens = 0, unknownTokens = 0, warned = false;
   pi.on('session_start', () => {
     if (settings.run_id) pi.appendEntry('lush.invocation', {

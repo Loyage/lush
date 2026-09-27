@@ -1,0 +1,50 @@
+#!/usr/bin/env bun
+// Agent-only git commit adapter. Non-commit Git calls (including Lush's own) are passed
+// through unmodified; never invoke a shell or import untrusted repository code here.
+import { spawnSync, execFileSync } from 'node:child_process';
+import { Database } from 'bun:sqlite';
+import path from 'node:path';
+import { readCommitPointer } from '../src/agent/fork.js';
+
+const args = process.argv.slice(2);
+const env = { ...process.env, PATH: (process.env.PATH || '').split(path.delimiter)
+  .filter(part => path.resolve(part) !== path.dirname(Bun.main)).join(path.delimiter) };
+let cwd = process.cwd(), command = null;
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '-C' || args[i] === '-c' || args[i] === '--git-dir' || args[i] === '--work-tree') {
+    if (args[i] === '-C') cwd = path.resolve(cwd, args[i + 1] || '');
+    i++; continue;
+  }
+  if (args[i].startsWith('--git-dir=') || args[i].startsWith('--work-tree=') || args[i].startsWith('-c')) continue;
+  command = args[i]; break;
+}
+let taskId = Number(process.env.LUSH_TASK_ID), runId, home, pointer;
+try {
+  const context = JSON.parse(process.env.LUSH_RUNTIME_CONTEXT || '{}');
+  runId = context.run_id;
+  home = path.join(process.env.LUSH_PROJECT, '.lush');
+  if (command === 'commit' && Number.isSafeInteger(taskId) && taskId > 0 && runId) {
+    pointer = readCommitPointer(home, taskId, runId);
+  }
+} catch { /* Unmanaged git calls do not attach context. */ }
+const git = (...values) => execFileSync('git', ['-C', cwd, ...values], { env, encoding: 'utf8' }).trim();
+let before = null;
+if (pointer) { try { before = git('rev-parse', 'HEAD'); } catch { /* initial commit */ } }
+const result = spawnSync('git', args, { env, stdio: 'inherit' });
+if (result.error) { console.error(`git: ${result.error.message}`); process.exit(1); }
+if (result.status === 0 && pointer) {
+  try {
+    const commit = git('rev-parse', 'HEAD');
+    if (commit !== before) {
+      const db = new Database(path.join(home, 'project.db'));
+      try {
+        db.exec('PRAGMA busy_timeout=5000');
+        db.query('INSERT OR IGNORE INTO commit_contexts(commit_hash,task_id,session_path,entry_id) VALUES (?,?,?,?)')
+          .run(commit, taskId, pointer.session, pointer.entry);
+      } finally { db.close(); }
+    }
+  } catch (error) {
+    console.error(`git: commit succeeded but Lush could not record its Pi context: ${error.message}`);
+  }
+}
+process.exit(result.status ?? 1);

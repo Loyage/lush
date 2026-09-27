@@ -59,6 +59,8 @@
   不渲染，只被 `project/branches.js` 与 `test/branch-tree.test.js` 使用。`naming.js` 导出 `slugify` /
   `taskSlug` / `taskLabel` 与 `inputLabel(id)`（历史输入聚合分支的 `input-<id>` 名）。
 
+当前接缝（尚未完成全类型统一）：新式 say/child 的 Git 基线在创建时固定，say 以输入时选定的父 ref 建 worktree，child 派生时在 Git 串行队列里立即从父分支 tip 建 worktree；analysis 创建时固定只读 detached worktree。showcase / 其它专用 Task、旧 Task 与额外绑定的 owner 根 Task 尚未迁入统一 fork 创建路径。`commit_contexts` 是项目本地的提交→Pi session/entry 附属索引；Agent 的 `git commit` 成功后记录当时可复用的上下文指针，外部提交没有指针时子 Pi 从空会话起步。子 Pi 首次运行用固定 entry 截出的 checkpoint 调 `--fork`，后续 invocation 继续自己的会话。旧 task/commit 不回填。
+
 ## Task 图与固定输入规则
 
 `task.graph` / `/api/task-graph` 是以 Task 父子关系为边的有界读面；Web 的 `#task-graph` 为主视角，原 `#graph` 分支图保持独立入口与原操作。Task 卡片按真实状态配色，读面投影 `branch_info.subtree_say` / `branch_info.merge_run` 作为交付诊断；旧 `branch.orchestrate_plan` / `branch.orchestrate` 一键编排入口已下线。新 say 从已提交 fork 读取 `.lush-task/input.mjs` 并冻结在项目 `.lush/task-rules/`；用户后续消息由固定规则返回 `message` 或安全点软抢占的 `interrupt`，失败回退并留事件。子 Task 继承直接父的规则快照。可信代码风险与读面边界见 [Task 图与固定输入规则](task-graph.md)。

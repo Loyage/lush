@@ -1,6 +1,8 @@
 import { check, id, text, TERMINAL } from '../types.js';
 import fs from 'node:fs';
+import path from 'node:path';
 import { readInputRule, saveInputRule, snapshotPath } from '../task-input-rule.js';
+import { forkCheckpoint } from '../../agent/fork.js';
 
 function storedReservation(raw) {
   if (raw === null) return null;
@@ -108,6 +110,20 @@ export default {
         this.store.event(task.id, 'task.analyze_requested', { parent_id: owner.id, branch, commit });
         return task;
       });
+      // Read-only tasks still fork a private checkout at creation. They never own a
+      // writable branch; their Pi conversation can fork from the same frozen commit.
+      const dir = path.join(this.config.home, 'worktrees', `task-${created.id}-analysis`);
+      try {
+        this.store.update(created.id, { baseline_workspace: dir });
+        fs.mkdirSync(path.dirname(dir), { recursive: true });
+        await this.workspaces.git(this.config.project, 'worktree', 'add', '--detach', dir, commit);
+        this.store.event(created.id, 'analysis.checkout', { workspace: dir, commit, branch });
+        const pointer = this.store.get('SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', commit);
+        if (pointer) forkCheckpoint(this.config.home, { ...pointer, commit });
+      } catch (error) {
+        this.store.update(created.id, { status: 'failed', error: `analysis fork failed: ${error.message}` });
+        throw new Error(`analysis #${created.id} fork failed; inspect its checkout: ${error.message}`);
+      }
       this.kick();
       return { status: 'queued', task: this.progressView(created), branch, commit };
     });
@@ -970,6 +986,8 @@ export default {
     const { inputId, anchor } = await this.anchorInput(target);
     let ruleTaskId = null;
     try {
+      const pointer = this.store.get('SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', anchor.commit);
+      if (pointer) forkCheckpoint(this.config.home, { ...pointer, commit: anchor.commit });
       const rule = await readInputRule(this.workspaces, this.config.project, anchor.commit);
       // Git was asynchronous: a clear may have started while the anchor was being created.
       this.assertWritable('send this say');
