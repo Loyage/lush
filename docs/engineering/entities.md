@@ -9,4 +9,4 @@
 - **Run / Artifact**：`agent_runs` 记录每次 provider 调用，Artifact 保存结果或证据。它们是围绕 Task 的结构化事实，不替代 Task 生命周期。
 - **Branch / Commit**：Git ref 与 worktree 是代码事实；谱系和固定提交用于可审阅的集成与恢复。Task 结算不自动推进 Git。
 
-旧协议另有 **Plan / Spec**（planner 编译的工作图）、**Intent**（旧输入的聚合视图）与 **Review Candidate**（固定 integration commit 与 target baseline 的旧验收对象）。这些结构仍用于旧数据收尾，不是新 say 的前置实体；详见[历史流程](../task-flow-1-planning.md)。
+旧 Intent / Plan / Candidate 等结构只用于读懂历史行；记录保留在磁盘上，但不再有公开 RPC / CLI / Web 入口，也不是新 say 的前置实体。当前可调用面见[核心 API 收敛](core-api.md)。

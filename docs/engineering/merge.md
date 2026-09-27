@@ -1,93 +1,55 @@
 # 分支合并与收敛
 
-Lush 的合并单位是分支谱系中的一条 `direct child → parent` 边。Task 仍提供审阅结果和 agent 审计，但代码是否能落地由 Branch + Git commit graph 决定。
+Lush 的合并单位是分支谱系中的一条 `direct child → parent` 边。Task 提供审阅结果和 agent 审计，代码是否能落地由 Branch + Git commit graph 决定；新 say / child 的落地只接受**固定提交**，绝不 no-ff、绝不 rebase。
 
 ## 唯一正常路径：fast-forward
 
-`branch.merge BRANCH` / 分支图“合入父分支”执行以下门槛：
-
 1. child 在 `branches` 中有 `parent_relation=recorded` 的直接父分支；
 2. child 与 parent ref 都存在；
-3. child 对应 task（若有）已经 completed；
-4. child 自己的 worktree、parent 已检出的 worktree都干净；
+3. child 对应 task（若有）已经结算；
+4. child 自己的 worktree、parent 已检出的 worktree 都干净；
 5. child 没有尚未收拢的直接子分支；
-6. parent tip 是 child tip 的祖先。
+6. parent tip 是 child 固定提交的祖先。
 
-父分支有 worktree 时在该 worktree 运行 `git merge --ff-only <child-tip>`，使 index 与工作目录同步；没有 worktree 时用带旧值的 `git update-ref` compare-and-swap 原子推进 ref。外部进程抢先推进会失败，不覆盖它。
+父分支有 worktree 时在该 worktree 运行 `git merge --ff-only <landed-commit>`，使 index 与工作目录同步；没有 worktree 时用带旧值的 `git update-ref` compare-and-swap 原子推进 ref。外部进程抢先推进会失败，不覆盖它。
 
-反方向的 `branch.catchup BRANCH`（分支图的「让子分支跟上父分支」）走同一条骨架，只是主角互换：parent 在前、child 没有独有提交时，把 `git merge --ff-only <parent-tip>` 跑在 child 的 worktree 里（或 update-ref 推进 child 的 ref）。门槛同样是 recorded direct parent、blockers 为空、父子 ref 都在；`fast_forward` 与 `diverged` 一律拒绝，因为那两种情形要先把 child 的成果落上去或先在子侧吸收父分支。
+成功后，关联 task 的 integration 收敛为 `merged`。
 
-成功后，关联 task 的 integration 收敛为 `merged`。输入分支没有 task owner，事件记在该输入的根 planner 上。
+## 谁可以推进
 
-新输入产生的 `task.merge` 是兼容入口，走同一套 direct-parent / ff-only 规则。升级前已经存在、或内部测试直接创建且没有 input 的 legacy task 继续按原 `target_branch` 语义落地（可能 no-ff）；这是迁移兼容，不会出现在新输入分支流中。
+- **直接父 Task 是活动 say / child 时**：只有该 Agent 能在运行中调用 `task.integrate`，核对子任务固定提交并快进；不能推进 main，父分支不干净、HEAD 漂移、子任务未结算或有未集成后代时保留现场并拒绝。
+- **父是 main / owner 时**：只有用户按请求里的 **commit + baseline** 调用 `task.approve_merge` 批准快进。批准前在 Git 串行区复核源 ref、父 ref、工作区与后代，任何漂移拒绝旧批准；提交已落地而 DB 尚未记录时，相同固定值可幂等核对（不再要求旧 baseline）。
 
-## 分支状态
+## 交付锁与冻结
 
-`Workspaces#branchState(child)` 实时计算：
+say 的合并请求（`task.reserve {kind:'merge'}`）在静息、后代结算、工作区干净且可快进时冻结源 `commit` 与父 `baseline`，并在同一事务向父 Task 发去重信号。请求**不等于批准**。
 
-- `fast_forward`：parent 是 child 的祖先；
-- `diverged`：两边都有独有提交；
-- `integrated`：child 已经在 parent 历史里；
-- `missing`：ref 缺失。
+请求发出后 `target_branch` 进入分支写冻结（`status.branch_freeze` / `graph.get` 的 branch 节点 `freeze`，`kind='delivery'`）：不再接受任何 Lush 侧写入（新建 say、`task.retry`、`branch.archive` 等），另一个 say 的同类请求保持 pending 并记 `blocked_code='parent_locked'`；父为 say 时只有锁持有者自己的 `task.integrate` 能写这条分支。解除只有集成或用户显式撤销（`task.unreserve`，另记 `task.request_withdrawn`）。源分支也不能被归档：`branch.archive` 拒绝源分支带未集成请求的子树。
 
-同时返回 child 相对 parent 的 `ahead` / `behind` 与未收拢直接子分支 blockers。状态不写库，避免外部 Git 操作后缓存失真。
+daemon 挡不住父分支自己的 say Agent 提交，也不挡外部 git：那时请求会失去快进前提，`noteBranchAdvance` / `task.integrate` / `task.approve_merge` 会把诊断写进 `reservation.blocked_code='parent_moved'` 与 `blocked_reason`。此时可撤销请求，或先把该固定提交合入父分支再幂等关闭。
 
-## 分歧：父分支先进入子侧
+## 分歧：在子侧收敛
 
-分歧时 runtime **不会**在 parent 上执行 `--no-ff`，也不会把冲突留在 parent worktree。用户执行 `branch.sync CHILD`（或在图上点“在子分支解决分歧”）：
+分歧时 runtime **不会**在 parent 上执行 `--no-ff`，也不会把冲突留在 parent worktree。它派一个**解分歧子 Task**：
 
-1. 冻结当前 child tip 与 parent tip；
-2. 从 child tip 创建一个独立 merger 子分支 / worktree；
-3. merger 执行 `git merge <frozen-parent-tip>`；
-4. 在子侧解决冲突、提交并测试；
-5. 用户批准 merger → child 的 FF；
-6. 用户批准 child → parent 的 FF。
+1. 冻结源侧固定提交与父分支固定顶端；
+2. 从源侧提交创建一个独立分支 / worktree；
+3. Agent 在其中合入冻结的父提交、解决冲突、提交并测试；
+4. runtime 在父 Agent 安全结束后核对产物同时包含两端固定提交；
+5. 依次 fast-forward 源 child 与父分支（main / owner 仍须用户按固定值批准）。
 
-这条路径不 rebase，不重写已审阅提交；最终 parent 得到的树就是 merger 测试过的树。parent 在期间再次前进，只会让第 6 步重新显示 diverged，必须再同步，不能偷偷二次合并。
+`task.resolve_child_divergence` 由执行中的直接父 Agent 发起；`task.resolve_divergence` 由用户发起，用于活动 say 或展示交付后的终态 say。重复请求返回未集成的同一活动 child；已完成但不合格或已失败 / 取消的 child 需用户检查并显式归档其仍活动的旧分支（保留 Task / 事件 / 会话，未提交文件必须另行确认丢弃）后才可重新派。该类子 Task 不走 `task.retry` 重放未知文件副作用。
 
-同一 child 同时只允许一个活动或待落地的 branch-sync merger。
+冻结语义由 `src/core/branch-freeze.js` 从已有事实现算：目标分支上活动的运行、未结束的解分歧任务、以及已发出但尚未集成的合并请求分别冻结相应分支。它拦截新建 say、`task.retry` / `task.cleanup` / `branch.archive`；`task.cancel` 保持可用（释放路径）。
 
 ## 从叶子向根
 
-一条分支还有未进入自己的直接子分支时，向上合并会被拒绝。典型顺序：
+一条分支还有未进入自己的直接子分支时，向上落地会被拒绝。典型顺序：
 
 ```text
-code 下游 → 上游任务分支 → 输入分支 → 用户指定父分支
+解分歧 child → 子 Task 分支 → say 分支 → 用户指定父分支
 ```
 
-并行 sibling 都进入输入分支。因为第一个 sibling 会推进输入分支，后续 sibling 往往显示 diverged；它们按上述子侧同步流程逐个收敛。系统宁可要求显式同步，也不在聚合分支上产生未经独立测试的 merge commit。
+并行 sibling 都进入同一个父分支。第一个 sibling 落地会推进父分支，后续 sibling 的固定提交往往因此不再能快进；它们按上述子侧解分歧流程逐个重新确认。系统宁可要求显式解分歧，也不在聚合分支上产生未经独立测试的 merge commit。
 
-## 批量入口
-
-`task.merge_many` 保留为兼容接口：只接受相同直接父分支，逐项走同一规则。第一项造成父分支前进后，独立 sibling 可能需要同步；批次在首个 `diverged` 或错误处停止，已成功项不回滚。
-
-新的主操作面是分支图，而非按 task 推测交付顺序。
-
-## 一键合并
-
-`branch.merge_all BRANCH`（Web 分支图的「一键合并全部子分支」、CLI `lush branch merge-all BRANCH`）把一条分支（典型是 main）的整棵后代子树从叶子向根自动收拢：
-
-1. 只读的 `branch.merge_plan BRANCH` 列出全部后代，按「叶子在前」（谱系深度降序，其次创建时间、名字）给每条分支当前状态与将要执行的动作（`merge` / `sync` / `skip`）和阻塞原因；
-2. 用户确认一次（Web 确认框展示这份顺序），`branch.merge_all` 开始执行，之后不再逐条确认；
-3. runtime 逐条复用 `branch.merge` 的 ff-only 门槛；父子分歧时自动在该子分支下创建子侧 merger，运行置为 `paused` 并停住，merger 结算后自动落回它的直接父分支并继续；目标分支永不产生 merge commit；
-4. 运行在「全部完成 / 遇到失败 / 用户取消」时结束，已成功落地的不回滚。
-
-运行本身是目标分支附属的 versioned JSON（`branches.merge_run`），不是新业务实体；终态即清空。运行期间按「目标分支 + 它的全部后代」冻结写操作；此外，任何未结束的 merger 任务同样冻结「它处理的分支 + 它的全部后代 + 它的直接父分支」；已发出但尚未集成的 say 合并请求冻结其父分支**本身**（不冻结请求者与兄弟 say 自己的分支），保证固定基线在请求悬而未决时不会因别的交付而失效（见[任务接口](../reference/rpc/tasks.md)的交付锁）。冻结拦截新建 intent（`input.submit` / `draft.commit`）、`branch.merge` / `branch.sync` / `branch.catchup` / `branch.archive`、`task.retry` / `task.cleanup` / `task.delete` 与 `task.clear`；`branch.merge_cancel BRANCH` 清除运行、取消正在等待的 merger 并释放冻结，已落地提交保留。冻结计算见 `src/core/branch-freeze.js`。
-
-相关：[分支优先架构](branch-first.md) · [Git 边界](git-boundary.md) · [分支谱系](branch-genealogy.md)
-
-## 合并编排
-
-新交付模型下，一条输入对应一个拥有分支的 `task_kind='say'` Task；子提交由直接父 Agent 确认，main/owner 需用户逐条批准。当用户希望把 main 下所有待合并 say 子分支一次安排完时，用**合并编排**而不是旧一键合并：
-
-1. `branch.orchestrate_plan BRANCH` 只读列出目标分支后代子树里每个 say 子分支的固定提交、父基线、实时分支状态（`fast_forward` / `diverged` / `integrated` / `missing`）、动作（`merge` / `resolve` / `skip`）、`auto_request`（没有合并预约但已静息、有已提交改动且无未收拢子分支，将由编排代发固定提交请求）与 blockers，按叶子在前（深度降序、其次创建时间、名字）；
-2. 用户确认一次完整顺序与每条固定提交后，`branch.orchestrate BRANCH` 在目标分支的 main/owner Task 下创建一个 `task_kind='merge'` 的**编排 Task**，把运行写入目标分支的 `merge_run`（`mode:'orchestrate'`，带 `task_id`），之后由 runtime 自动推进，不再逐条批准；对 `auto_request` 的分支，runtime 代发固定提交请求（等价于用户点一次「请求合并」的第一步），再走后续落地；仍在跑、等待用户答复、没有已提交改动或已合入的分支跳过并给出原因；
-3. 可直接落地的请求按内部路径（等价于 `task.approve_merge` 的核心，但跳过用户逐条批准）把**固定 commit** ff-only 落进其直接父分支；**绝不 no-ff、绝不 rebase**，也绝不经旧 `branch.merge` / `branch.sync` 绕过固定提交与基线校验；
-4. 遇到分歧时，先在持久运行态冻结目标分支及其后代，等待相关 Agent 当前调用的安全点，再在**编排 Task 下**派源侧解分歧子 Task（`resolves_task_id` 另关联原 say，不改其终态）。它把固定父 tip 合入固定源提交并测试；结算后由 runtime 校验产物同时含两端固定提交，把 say 分支快进到产物、重新固定 requested，再自动继续落地；原 say Agent 不参与；
-5. 运行在「全部完成 / 遇到失败 / 用户取消」时结束，已落地的不回滚。
-
-单次新式解分歧也先在同一事务固定两端提交、创建 Task 与冻结来源事件：源分支及后代、直接父分支在 Task 运行（或已完成但未落地）期间拒绝新的 Lush 写入/Agent 准入，冻结范围外的兄弟分支可继续独立工作。已终结 say 的解分歧 Task 挂在仍活动的目标分支 owner 下；活动 say 的解分歧挂在其下，父 Agent 本轮安全结束后由 runtime 校验、快进并固定请求；已完 child 的分歧由 runtime 在父 Agent 安全结束后依次快进源 child 与父 Task 分支。完成但无效的结果保留冻结与现场，需显式归档解分歧分支；失败/取消释放冻结但仍保留分支与工作区，不自动重放未知副作用。外部 Git 写入无法被 daemon 阻止，开工及落地前均复核冻结两端，漂移时拒绝落地。
-
-编排 Task 有可见 status / result，可 `lush inspect` 查看，可 `branch.orchestrate_cancel BRANCH`（或分支图按钮）取消。运行期间按「目标分支 + 它的全部后代」冻结写操作（与一键合并同一套 `branch-freeze.js` 现算），取消先清运行释放冻结、再取消等待中的解分歧子任务。运行态仍是目标分支附属的 versioned JSON，不新增表 / 列 / 业务实体。
-
-与旧一键合并的边界：旧 `branch.merge_all` 对含新 say 子树的派生仍拒绝，并且不会绕过固定提交；编排是用户确认一次后的 runtime 行为，main Agent 自己不能悄悄发起，也不能用它绕过固定的 `commit + baseline` 校验。
+相关：[分支优先架构](branch-first.md) · [Git 边界](git-boundary.md) · [分支谱系](branch-genealogy.md) · [Task RPC](../reference/rpc/tasks.md)

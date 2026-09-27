@@ -1,30 +1,28 @@
 # 分支优先架构
 
-Git 分支与 worktree 承载代码事实，Task / Agent 承载执行与交付确认。本章的「一条输入的分支流」及 `input.submit`、planner、worker 示例只描述旧协议；新 say 直接拥有输入分支，子提交由父 Agent 确认，main/owner 需用户批准，见[当前流程](../task-flow.md)和[Task RPC](../reference/rpc/tasks.md)。
+Git 分支与 worktree 承载代码事实，Task / Agent 承载执行与交付确认。新 say 直接拥有输入分支，子提交由父 Agent 确认，main/owner 需用户批准，见[当前流程](../task-flow.md)和[Task RPC](../reference/rpc/tasks.md)。
 
-## 旧输入链的核心不变量
+## 核心不变量
 
-1. 用户提交输入时显式选择一个本地父分支；省略时使用项目当前检出分支。
-2. runtime 立即从父分支已提交的顶端创建 `lush/<project>/input-<id>` 与独立 worktree。planner 在这个 worktree 中解析输入，因此之后父分支前进、其它 worktree 有未提交内容，都不会改变它看到的代码。
-3. 普通 worker 分支是输入分支的直接子分支；`code` 下游是上游任务分支的直接子分支。任务的 `target_branch` 永远等于谱系中的直接父分支。
-4. 用户只允许把子分支合回它的**直接父分支**。结果逐层收敛：任务 → 输入分支 → 用户最初选择的分支。
-5. 父分支只接受 fast-forward。runtime 不在父分支上创建 no-ff merge commit，也不在父分支的 worktree 留冲突中间态。
-6. 父子已经分歧时，用户在分支图选择“在子分支解决分歧”。runtime 从子分支顶端创建一个 merger 子分支，让它合入冻结的父分支 commit、解决冲突并测试。之后 merger → child、child → parent 都是 fast-forward。
+1. 用户提交 say 时显式选择一个本地父分支（默认当前检出分支，Web 可选）。
+2. runtime 立即从父分支已提交的顶端创建 `lush/<project>/<id>-<name>` 与独立 worktree。Agent 在这个 worktree 中工作，因此之后父分支前进、其它 worktree 有未提交内容，都不会改变它看到的代码。
+3. 子 Task 分支是父 Task 分支的直接子分支；`target_branch` 永远等于谱系中的直接父分支。
+4. 代码只沿 recorded direct-parent 边推进，且只做 fast-forward。父分支只接受能快进的固定提交；runtime 不在父分支上创建 no-ff merge commit，也不在父分支的 worktree 留冲突中间态。
+5. 新 say / child 的落地由运行中的直接父 Agent `task.integrate` 确认固定子提交；父是 main/owner 时由用户 `task.approve_merge` 按固定 commit + baseline 批准。请求未解决时父分支受交付锁保护。
+6. 父子已经分歧时，在子侧创建一个解分歧子 Task（`task.resolve_child_divergence` / `task.resolve_divergence`）：它从子侧固定提交出发，吸收冻结的父提交、解决冲突并测试；之后由 runtime 校验产物同时包含两端固定提交，再 fast-forward。
 7. 一条分支还有未收拢的直接子分支，或仍有会在它下面产码但尚未建分支的活动 task 时，不能提前合入父分支。这样不会把并行工作的某一部分静默遗漏。
 8. `branches.parent` 与 `created_from_commit` 只在创建时写入；merge 不改谱系。分支当前能否 FF 由 Git commit 图实时计算，不持久化猜测。
 
-## 旧协议：一条输入的分支流
+## 分支流
 
 ```text
-main（用户选择）
-└── input-42                         planner cwd / 聚合分支
-    ├── 101-api                     worker
-    ├── 102-ui                      worker
-    └── 103-tests                   worker
-        └── 107-more-cases          code 下游
+main（用户选择 / 默认检出）
+└── say #7 search-page
+    ├── child #9 api
+    └── child #10 ui
 ```
 
-落地顺序从叶子向根：`107 → 103 → input-42`，其它兄弟分别进入 `input-42`，最后 `input-42 → main`。
+落地顺序从叶子向根：`9 → 7`、`10 → 7`，然后 `7 → main`（main 需用户按固定提交批准）。兄弟子分支先落地会让父分支前进，尚未落地的子提交需要子侧解分歧后重新确认。
 
 ## 连线状态
 
@@ -38,69 +36,11 @@ main（用户选择）
 
 `ahead` / `behind` 以 child 相对 parent 计算。连线还列出 child 尚未收拢的直接子分支；有 blocker 时即使 commit 图本可 FF，也不能向上落地。
 
-Web 分支图把 `integrated` 再拆成两种读得出来的情形：`behind=0` 是「与父分支一致」，`behind>0` 是「落后父分支 N」——后者可以直接快进跟上，所以 `branch.catchup BRANCH`（分支图上的「让子分支跟上父分支」）把 parent 已有的提交快速前进进 child。它只推进 child，不产生 merge commit，也不动父分支；child 有独有提交（`fast_forward`）或已经分歧时拒绝，分别该走 `branch.merge` 与 `branch.sync`。
-
-## 分歧收敛
-
-```text
-P: A──P1
-    \
-C:   C1
-```
-
-`branch sync C` 创建：
-
-```text
-P: A──P1
-    \   \
-C:   C1  \
-      \   S (merge P1 into child-side branch, test here)
-```
-
-用户批准后：
-
-1. `S → C` fast-forward；
-2. `C → P` fast-forward。
-
-不 rebase，因此不重写已经审阅的提交；不在 P 上 no-ff，因此最终落地树就是 merger 测试过的树。
-
 ## Task 与 Branch 的边界
 
 - Task：goal、role、agent session、消息、notice、执行状态、结果与审计事件。
 - Branch：父分支、fork commit、worktree、当前 tip、ahead/behind、是否可合并、是否已进入父分支。
-- `tasks.head_commit` 仍表示 agent 交付时审阅过的提交。分支之后可能通过子分支聚合而前进；向上合并前必须证明 branch tip 仍包含该 reviewed commit。
-- 旧输入分支没有 Task owner，通过 `inputs.anchor_branch` 关联根 planner；新 say 的输入分支直接由 Task 拥有。兼容字段仍叫 `anchor_*`。
+- `tasks.head_commit` 仍表示 agent 交付时审阅过的提交。分支之后可能通过子分支聚合而前进；向上落地前必须证明 branch tip 仍包含该 reviewed commit。
+- main 是静息的 `task_kind='main'` 根 Task；其它本地父分支需 `branch.bind` 显式绑定 `owner`，新 say 才能挂上去。
 
-## 接口
-
-```text
-input.submit { content, branch? }
-draft.commit { ids?, branch? }
-branch.merge  { branch }   # direct child -> parent, ff-only
-branch.sync   { branch }   # 仅 diverged 时创建子侧 merger
-branch.merge_all { branch }   # 一键合并：叶子到根自动收拢整棵后代子树（用户确认一次）
-branch.merge_cancel { branch }  # 取消一键合并并释放冻结
-branch.orchestrate_plan { branch }  # 新 say 交付模型：只读列出 say 子分支的固定提交与动作（含将自动补发请求的）
-branch.orchestrate { branch }  # 用户确认一次后，在 main/owner 下派 runtime 驱动的合并编排 Task
-branch.orchestrate_cancel { branch }  # 取消合并编排并释放冻结；已落地的合并不回滚
-branch.archive { branch, discard? }  # 用户显式归档一整棵子树：允许未合并，删每条的 worktree 与本地 ref，保留记录、任务、事件与会话
-```
-
-CLI：
-
-```bash
-lush say '实现搜索' --branch release/next
-lush draft commit --branch release/next
-lush branch merge lush/.../101-api
-lush branch sync lush/.../input-42
-lush branch merge-all main       # 一键合并 main 的全部后代分支（确认一次后全自动）
-lush branch merge-cancel main    # 取消并释放冻结
-lush branch orchestrate-plan main  # 只读：列出 main 下 say 子分支的固定提交、动作与自动补发请求标记
-lush branch orchestrate main     # 确认一次计划后，派合并编排 Task 自动 ff-only 收拢 say 子分支（含代发固定提交请求）
-lush branch orchestrate-cancel main  # 取消合并编排并释放冻结
-lush branch archive lush/.../101-api   # 归档这棵子树：worktree 与 ref 删掉，记录、任务与会话留在库里
-```
-
-一键合并与解冲突期间的冻结语义（目标分支及其全部后代，冲突时再加父分支）见[分支合并](merge.md#一键合并)。新交付模型下的合并编排（固定提交 + 父基线的 say 请求、分歧时源侧自动解分歧）见[分支合并](merge.md#合并编排)。
-
-相关：[分支谱系](branch-genealogy.md) · [输入和规划](inputs-and-planning.md) · [Git 边界](git-boundary.md) · [批准合并](merge.md)
+相关：[分支谱系](branch-genealogy.md) · [Git 边界](git-boundary.md) · [批准合并](merge.md)

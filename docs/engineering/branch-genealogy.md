@@ -32,7 +32,7 @@ Git 不保存「B 是从 A 创建的」这种关系：`merge-base`、reflog、co
 |---|---|
 | `branch` | 分支短名（PK），如 `lush/<项目哈希>/7-auth-ui` |
 | `parent` | 创建时所在的父分支短名；`NULL` 表示没有 parent 记录 |
-| `parent_relation` | `recorded` = 创建时记下；`inferred` = 由 import 的启发式推断（当前 `branch import` **不猜**，所以不会写入）；`unknown` = 没有 parent 记录 |
+| `parent_relation` | `recorded` = 创建时记下；`inferred` = 预留给将来的启发式推断（当前没有任何入口写它）；`unknown` = 没有 parent 记录 |
 | `created_from_commit` | 创建分支那一刻父分支（或冻结基线）指向的 commit SHA——parent 之后往前走也查得到当时的起点 |
 | `task_id` | 创建它的 task id；故意没有外键。输入聚合分支为 `NULL`（通过 `inputs.anchor_branch` 关联） |
 | `worktree` | 对应的 worktree 路径（创建时写入；现在还在不在由读模型的 `worktree_exists` 回答） |
@@ -41,11 +41,11 @@ Git 不保存「B 是从 A 创建的」这种关系：`merge-base`、reflog、co
 
 创建与状态写入都在 Git 边界里，没有第二套分支创建机制；谱系行的写入口只有下面这些：
 
-1. **创建**：`Workspaces#anchor`（输入分支）与 `Workspaces#ensure`（任务 worktree）在 `git worktree add -b <branch> <dir> <commit>` **之前**先落库。输入分支的 `parent` 是用户提交时指定的本地分支；普通任务的 parent 是输入分支，`code` 下游的 parent 是上游任务分支，branch-sync merger 的 parent 是待同步 child。任务 `target_branch` 与这个直接 parent 一致。
+1. **创建**：新 say / 子 Task 在 `git worktree add -b <branch> <dir> <commit>` **之前**先落库。新 say 的 parent 是用户生效的父分支（main 或已绑定的 owner）；子 Task 的 parent 是父 Task 分支；解分歧子 Task 的 parent 是它要修复的源分支。任务 `target_branch` 与这个直接 parent 一致。旧记录里仍会有输入分支（通过 `inputs.anchor_branch` 关联）与 planner / worker 分支，它们同样遵守谱系不可变规则。
 2. **回收**：`Workspaces#dropBranch`（任务分支）与 `Workspaces#dropAnchor`（兼容命名：输入分支）在 compare-and-delete 成功后标 `deleted`，不删谱系行。
 3. **归档**：`Workspaces#archiveBranches`（经 `Project#archiveBranch`）删掉**整棵子树**里每一条的 worktree 与本地 ref 后逐条标 `archived`，同样不删行。它明知分支可能未合并也允许删，保留任务行、消息、事件与 pi 会话文件，是显式放弃代码的路径——与回收的区别见 [工作区与分支回收](cleanup.md)。
 
-`recordBranch` 是幂等的（`ON CONFLICT DO NOTHING`）：崩溃重试撞见已创建的分支不会重写 parent，**merge 也永远不改谱系**。写操作只允许 child 合回这个 recorded direct parent；导入的 unknown parent 只能看，不能据此合并。
+`recordBranch` 是幂等的（`ON CONFLICT DO NOTHING`）：崩溃重试撞见已创建的分支不会重写 parent，**落地提交也永远不改谱系**。写操作只允许沿这个 recorded direct parent 边推进；unknown parent 只能看，不能据此合并。
 
 ## 查询
 
@@ -63,20 +63,15 @@ Git 不保存「B 是从 A 创建的」这种关系：`merge-base`、reflog、co
 ```bash
 lush branch tree [--verbose]        # 谱系树；--verbose 每节点给出 task / worktree / fork / parent
 lush branch show BRANCH|TASK_ID     # 一条分支的 parent、fork commit、task、worktree、祖先链、子分支
-lush branch import                  # 把现有本地分支登记成记录（只记存在与 worktree，不推断 parent）
+lush branch bind BRANCH COMMIT      # 确认一条非 main 本地分支及固定 HEAD，为它新建静息 owner Task
 lush branch archive BRANCH [--discard]  # 归档整棵子树：删每条的 worktree 与本地 ref，保留任务、事件与会话；--discard 才会丢弃未提交改动
 ```
 
-`branch show` 接受分支短名，也接受纯数字 task id。RPC 另有用户专属 `branch.merge`（ff-only 合回直接父分支）、`branch.sync`（分歧时创建子侧 merger）与 `branch.archive`（归档，允许未合并）；交互主入口是 Web 分支图。
+`branch show` 接受分支短名，也接受纯数字 task id。RPC 另有用户专属 `branch.bind`（绑定已有本地分支）与 `branch.archive`（归档，允许未合并）；交互主入口是 Web 分支图。代码落地不经过旧分支命令，而由运行中的直接父 Agent `task.integrate` 或用户 `task.approve_merge` 按固定提交推进。
 
 ### 已有分支怎么办
 
-引入这个功能之前就存在的分支**没有** parent 记录。runtime 不会去猜一个「看起来合理」的 parent 当成事实，所以：
-
-- 默认视图把它们标成 `[?]` untracked 根节点；
-- `lush branch import` 只把它们登记成 `parent=NULL`、`parent_relation='unknown'`，外加「现在检在哪个 worktree」这条事实，绝不写入 merge-base 猜出来的 parent；已记下的记录不会被覆盖。
-
-要真的引入启发式推断时，写进去的关系必须是 `parent_relation='inferred'`，与 `recorded` 在数据和视图上都分得开。
+引入这个功能之前就存在的分支**没有** parent 记录。runtime 不会去猜一个「看起来合理」的 parent 当成事实，所以默认视图把它们标成 `[?]` untracked 根节点，只记录「现在检在哪个 worktree」这条事实。要真的引入启发式推断时，写进去的关系必须是 `parent_relation='inferred'`，与 `recorded` 在数据和视图上都分得开。
 
 ### 分支被删除或归档之后
 
@@ -95,6 +90,6 @@ main
 
 ## 并发与一致性
 
-没有裸 JSON read-modify-write：记录写在 SQLite 里，创建路径本来就串行（`Workspaces#exclusive` 把所有 git 变更排队），import 用一次事务批量插入。多进程也不会出现「一个进程覆盖另一个」的窗口。
+没有裸 JSON read-modify-write：记录写在 SQLite 里，创建路径本来就串行（`Workspaces#exclusive` 把所有 git 变更排队），写入用一次事务。多进程也不会出现「一个进程覆盖另一个」的窗口。
 
 相关：[Git 边界](git-boundary.md)、[工作区与分支回收](cleanup.md)、[批准合并](merge.md)。

@@ -1,6 +1,6 @@
 # 模块地图：Web 前端
 
-本章是 `src/ui/web/assets/` 的职责与导出清单。浏览器端使用原生 ES module，不经过打包。修改执行过程相关模块前，必须先读[设计理念](../design/agent-process.md)与[阅读器边界](transcript-reader.md)。修改按钮文案、图标、样式或 `agent-call` 标识前，必须先读[按钮帮助与 Agent 触发标识](../design/ui-guidance.md)。
+本章是 `src/ui/web/assets/` 的职责与导出清单。浏览器端使用原生 ES module，不经过打包。修改执行过程相关模块前，必须先读[设计理念](../design/agent-process.md)与[阅读器边界](transcript-reader.md)。修改按钮文案、图标、样式或 `agent-call` 标识前，必须先读[按钮帮助与 Agent 触发标识](../design/ui-guidance.md)。公开面以[核心 API 收敛](core-api.md)与 `src/rpc/registry.js` 为准；**下面涉及草稿、Intent / Plan、效果展示、介绍、托管模式、统计面板与旧一键合并的行都是历史遗留实现**：文件仍在源码与测试里，但没有公开入口，不能当作当前可操作的界面。
 
 > 模块地图：[总览](modules.md) → [Runtime 与持久化](modules-runtime.md) → **Web 前端** → [CLI、RPC 与测试](modules-interfaces.md)
 

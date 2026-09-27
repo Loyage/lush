@@ -5,7 +5,7 @@
 ## 范围、基线与验证
 
 - HEAD：`99fcbc993640c057488532a19ca08814ab60b73e`，与指定基线一致；审查前工作树干净。
-- 已读 [模块地图](../engineering/modules.md)、[Runtime 分章](../engineering/modules-runtime.md)、[接口与测试](../engineering/modules-interfaces.md)、[设计入口](../design/README.md)、[文档约定](../contributing/documentation.md)，并核对 [Git 边界](../engineering/git-boundary.md)、[回收](../engineering/cleanup.md)、[合并](../engineering/merge.md)、[验收闭环](../engineering/review-loop.md)、[检验](../engineering/verification.md)。设计入口暂无 Git 专题，未自行增设产品原则。
+- 已读 [模块地图](../engineering/modules.md)、[Runtime 分章](../engineering/modules-runtime.md)、[接口与测试](../engineering/modules-interfaces.md)、[设计入口](../design/README.md)、[文档约定](../contributing/documentation.md)，并核对 [Git 边界](../engineering/git-boundary.md)、[回收](../engineering/cleanup.md)、[合并](../engineering/merge.md)、[验收闭环](../engineering/review-loop.md)。设计入口暂无 Git 专题，未自行增设产品原则。
 - 方法：静态阅读 + 仓库现有测试 + 临时 fixture 确定性交错；所有 Git 写操作仅在测试临时仓库，无真实 daemon 连接、启停或密钥读取；未安装依赖、未 commit / merge / push 审查工作树。
 - 已执行 `git rev-parse HEAD` / `git status --short`：基线一致、初始无改动。
 - 已执行 `bun run test test/workspaces test/project/candidates.test.js test/project/showcase-eligibility.test.js test/project/showcase.test.js`：**78 pass / 0 fail，514 assertions**；`bun run docs:check`：53 篇 Markdown 检查通过。

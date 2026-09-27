@@ -1,6 +1,6 @@
 # 模块地图：Runtime 与持久化
 
-本章列出 Agent 接缝、任务编排、Git 边界与 SQLite 模块。改签名或搬文件前先回到[模块地图总览](modules.md)确认公共面。
+本章列出 Agent 接缝、任务编排、Git 边界与 SQLite 模块。改签名或搬文件前先回到[模块地图总览](modules.md)确认公共面。公开面以[核心 API 收敛](core-api.md)与 `src/rpc/registry.js` 为准。**除任务中心主链与执行记录读面外，下面涉及 Candidate、草稿、快速路由、效果展示、介绍、托管模式与旧一键合并的运行 / 存储行都是历史遗留实现**：文件仍在源码与测试里，但没有公开入口，只为读懂历史数据与后续清理而保留。
 
 > 模块地图：[总览](modules.md) → **Runtime 与持久化** → [Web 前端](modules-web.md) → [CLI、RPC 与测试](modules-interfaces.md)
 
@@ -29,7 +29,7 @@
 |---|---|---|
 | `core/settings.js` | 运行设置的存储与校验：数字键 `concurrency`（1..64）、`control_concurrency`（1..16）、`call_timeout`（1..86400）、`task_call_limit`（1..1000）、`max_depth`（1..64），以及结构化 `input_routes`，`null` 清除该键；读时校验 uid / symlink / 大小 / 字段，写用临时文件加 rename 原子替换（`0600`）；`get()` 给出生效值 / 环境默认值 / 是否被覆盖与文件路径，`save(patch)` 先校验再落盘 | `RUNTIME_SETTINGS_KEYS`、`RUNTIME_SETTINGS_LIMITS`、`normalizeRuntimeSettings()`、`RuntimeSettings` |
 
-## 快速介绍设置：`src/core/quick-intro.js`
+## 快速介绍设置（历史）：`src/core/quick-intro.js`
 
 选中文字后的「快速介绍」直连的 OpenAI 兼容模型配置，存在 `<home>/quick-intro.json`（version 1，权限 `600`）。没有环境默认值：未配置就是未配置，调用方明确拒绝并让用户去设置里填。只存 `base_url` / `model` / `api_key`；`base_url` 只接受 http(s) 且会去掉尾部斜杠与重复的 `/chat/completions`，`api_key` 可留空（本地服务）。读模型用 `has_key` / `key_hint` 遮蔽密钥，只有 daemon 内部的 `resolve()` 拿到完整 Key。
 

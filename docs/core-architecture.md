@@ -25,7 +25,7 @@ flowchart LR
     task --> child("按需创建子 Task")
     child --> confirm{"父 Agent 确认固定提交"}
     confirm --> task
-    task --> request("展示或合并预约")
+    task --> request("合并预约")
     request --> approve{"父 Agent / 用户批准"}
     approve --> target(["父分支"])
 ```
@@ -34,9 +34,9 @@ flowchart LR
 
 ## 交付边界
 
-子任务完成不推进父分支；直接父 Agent 只有在分支与工作区符合条件时才能确认固定子提交并快进。say 的展示预约点击即创建展示子 Task 并先做准备，原 say 完成并发信号后展示按最终提交交付。say 的合并预约会冻结源提交与父分支基线，请求不等于批准。main/owner 的交付需要用户批准固定提交与基线；分支分歧在子侧处理，不能靠覆盖父工作区蒙混过关。Task `completed`、已集成到直接父分支、已进入 main 是三件不同的事。
+子任务完成不推进父分支；直接父 Agent 只有在分支与工作区符合条件时才能确认固定子提交并快进。say 的合并预约会冻结源提交与父分支基线，请求不等于批准。main/owner 的交付需要用户批准固定提交与基线；分支分歧在子侧处理，不能靠覆盖父工作区蒙混过关。Task `completed`、已集成到直接父分支、已进入 main 是三件不同的事。
 
-旧 `input.submit` / 批量 `draft.commit` 的 Intent → Plan → 私有集成 → Review Candidate 链仍用于历史任务的兼容收尾；它不是新 say 的主链，Candidate 也不是新 say 的必经交付对象。细节见[历史流程](task-flow-1-planning.md)和[旧协议参考](reference/rpc/inputs.md)。
+旧 Intent / Plan / Candidate、草稿、快速路由、效果展示、介绍、托管模式与旧合并编排的旧行、会话与工作区保留在磁盘上，不迁移、不删除，但不再有公开 RPC / CLI / Web 入口，也不会自动启动或重放；当前可调用面见[核心 API 收敛](engineering/core-api.md)。
 
 ---
 

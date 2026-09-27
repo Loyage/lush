@@ -2,22 +2,20 @@
 
 ## 信息架构
 
-默认 Web 首页是 **Intent 工作台**：
+Web 默认首页是**项目概览**，按 Task 组织：
 
-1. Intent 总数与正在推进的目标；
-2. 等待验收的 Review Candidate；
-3. Intent 原文、Plan 状态、最新候选版本与 HTML 结果入口；
-4. 真正需要用户处理的 Decision / Notice；
-5. 运行中的 agent 与时间轴；
-6. 折叠的 Git 交付诊断。
+1. Task 指标与正在推进的目标；
+2. 运行中的 agent 与等待原因；
+3. 真正需要用户处理的 Notice；
+4. 折叠的 Git 交付诊断。
 
-分支图继续提供完整 fork 谱系、ahead/behind、分歧、缺失、worktree、同步与归档动作，但它是高级 Git 诊断页，不是产品主线。任务树回答执行关系；Candidate 页面和报告回答“结果是不是用户想要的”。
+左栏把页面分成「工作」（Task 图、项目概览、待我处理、任务列表）、「交付」（分支与合并）与「其他」（设置、帮助文档）。分支图继续提供完整 fork 谱系、ahead/behind、分歧、缺失、worktree 与归档动作，但它是高级 Git 诊断页，不是产品主线。任务图与任务详情回答执行关系、进度与交付状态；概览按 Task 展示。旧 Intent / Plan、草稿、效果展示、解释、托管模式与自动合并的操作入口不再显示。
 
-页面内容可以通过“上下文引用”聚焦到下一条输入：任务、任务子树、分支图、交付项、Intent、Spec、Notice、Diff、结果、消息、执行步骤、事件和检验记录注册语义引用；其它页面文字可直接选中后引用。只有存在候选时才拦截 `contextmenu`。任意非空选区都可右键“快速介绍所选文字”，直连用户在设置里配置的模型 API 就地得到解释；选区落在执行步骤内时仍走原只读解释 Agent，面板同时兼容两类来源快照。引用卡片在加入草稿前不受轮询影响，加入后随 Draft / Input 持久化；有稳定目标的卡片标签可点击导航到来源并一次性闪烁定位，找不到时给顶部提示，普通 text 引用与移除按钮不触发定位；所有引用文字仍以 `textContent` 渲染。
+页面内容可以通过“上下文引用”聚焦到下一条输入：任务、任务子树、分支、Notice、Diff、结果、消息、执行步骤与事件注册语义引用；其它页面文字可直接选中后引用。引用卡片在加入输入前不受轮询影响，加入后随 Input 持久化；有稳定目标的卡片标签可点击导航到来源并一次性闪烁定位，找不到时给顶部提示，普通 text 引用与移除按钮不触发定位；所有引用文字仍以 `textContent` 渲染。
 
 ## 执行过程
 
-执行记录的设计目标与取舍见[Agent 执行过程理念](../design/agent-process.md)，当前读路径、完整检索、调用配对、JSON 渲染和专用解释 Agent 的权限见[执行记录阅读器](transcript-reader.md)。右键“介绍”对任意非空选区提供：选区落在执行步骤内时走步骤解释（`explanation.start`，创建无开发分支的解释 Task），其余走「快速介绍」（`intro.start`，直连设置里的 OpenAI 兼容模型）。快速介绍不建 Task / Input / 分支、不读会话文件，结果写 `introductions` 表供解释历史回看；两类都不经过输入缓存，就地显示。
+执行记录的设计目标与取舍见[Agent 执行过程理念](../design/agent-process.md)，当前读路径、完整检索、调用配对、JSON 渲染与权限见[执行记录阅读器](transcript-reader.md)。
 
 ## 文档
 
@@ -32,9 +30,9 @@ Web 与 daemon 是两个独立进程。`bun run doctor --project PATH` 分别列
 - UI 不直接读 SQLite 或执行 Git；
 - RPC registry 校验方法、参数与 USER_ONLY / AGENT_ONLY；
 - agent token 只在当前 invocation 有效；
-- `candidate.prepare/verify/accept/changes/reject` 都是 USER_ONLY；
-- Candidate HTML 报告与核心 HTML 文档使用独立收紧的 CSP。
+- Web 的 `POST /api/action` 另有自己的动作白名单，且不接受 agent token；
+- 报告与核心 HTML 文档使用独立收紧的 CSP。
 
 ## 轮询与读模型
 
-`/api/snapshot` 返回 status、timeline、Intent、Plan、Work tasks、Notice 与 Candidate。`graph.get` 会运行只读 Git，因此按指纹与最长陈旧时间单独刷新，不进入每个 1.5 秒快照。用户正在输入反馈、Decision 或编辑表单时，轮询不得冲掉内容和焦点。
+`/api/overview` 返回有界的 Task 核心读模型，`/api/snapshot` 保留兼容同源；`graph.get` 会运行只读 Git，因此按指纹与最长陈旧时间单独刷新，不进入常规轮询。用户正在输入、编辑表单或决策时，轮询不得冲掉内容和焦点。

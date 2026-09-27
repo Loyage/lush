@@ -58,7 +58,9 @@
 
 在真实终端里观看执行过程走 `lush task transcript ID --follow`（Web「Agent」块的「复制命令」给出的同一条命令）：先用兼容读面 `task.transcript` 分页打印已有记录，再用 `task.transcript_latest` 以 `after` 为游标轮询新步骤，直到 Ctrl-C。它只读、不执行日志里的命令、不新增 RPC；一次轮询读到整页上限（200 步）时明确提示中间可能还有未显示的记录，不冒充已全部显示。该命令仅用户可运行，agent token 会被拒绝，`--json` 不适用。
 
-## 专用解释 Agent
+## 专用解释 Agent（历史实现）
+
+`explanation.*` / `intro.*` 已从 `src/rpc/registry.js` 移除，不再有公开 RPC / CLI / Web 入口；下面的实现与测试仍存在于源码中，只为读懂历史记录与后续清理，不能当作当前可操作的能力。当前可用的执行记录接口只有 `task.transcript*`。
 
 选中执行记录中的 1–8,192 字文字，右键“介绍：目的、原理与结果含义”，直接创建 `explainer` 根 Task；不创建 Input、开发分支或 worktree，也不附着在可能已终态的源 Task 下。
 
@@ -87,11 +89,11 @@
 | `task.transcript_latest` | `id, after?, before?, limit?`（默认 0 / 0 / 100） | `steps, next, oldest, has_older, files, truncated`；最新优先窗口，limit 最大 200 |
 | `task.transcript_page` | `id, seq?, offset?`（默认 1 / 0） | `steps, next_seq, next_offset, has_more, files, scope` |
 | `task.transcript_step` | `id, seq, offset?` | `step, offset, next_offset, has_more, related, context` 与配对限制标记 |
-| `explanation.start` | `id, seq, quote` | 新解释任务的状态、来源快照 |
-| `explanation.list` | 源任务 `id, before?` | `explanations, next, has_more`，每页 50 条 |
-| `explanation.get` | 解释任务 `id` | `id, status, result, error, source` |
+| `explanation.start`（历史，无公开入口） | `id, seq, quote` | 新解释任务的状态、来源快照 |
+| `explanation.list`（历史，无公开入口） | 源任务 `id, before?` | `explanations, next, has_more`，每页 50 条 |
+| `explanation.get`（历史，无公开入口） | 解释任务 `id` | `id, status, result, error, source` |
 
-GET 路由：`/api/task/<id>/transcript-latest`、`/api/task/<id>/transcript-page`、`/api/task/<id>/transcript-search`、`/api/task/<id>/transcript-step`、`/api/task/<id>/explanations`、`/api/explanation/<id>`。创建走现有 `POST /api/action` 的 `explanation.start` 白名单；没有新增直连模型的浏览器入口。
+GET 路由：`/api/task/<id>/transcript-latest`、`/api/task/<id>/transcript-page`、`/api/task/<id>/transcript-search`、`/api/task/<id>/transcript-step`。`/api/task/<id>/explanations` 与 `/api/explanation/<id>` 仍在源码里，但不在 `CORE_TASK_READ` 白名单内，会被统一 404。
 
 ## 验证入口
 

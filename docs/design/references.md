@@ -1,6 +1,6 @@
 # 上下文引用与定位：把当下所见带进下一步
 
-本章面向修改引用校验、持久化、Web 选区引用、引用卡片与选区解释的 Agent，回答“引用为什么存在、遇到取舍该朝哪边设计”。实现入口是 `src/core/project/references.js`、`src/persistence/store/references.js` 与 `src/ui/web/assets/context-references.js`；实体边界、接口与当前限制见[核心实体](../engineering/entities.md)、[输入和规划](../engineering/inputs-and-planning.md)与[Web 前端模块](../engineering/modules-web.md)。
+本章面向修改引用校验、持久化、Web 选区引用、引用卡片与选区解释的 Agent，回答“引用为什么存在、遇到取舍该朝哪边设计”。实现入口是 `src/core/project/references.js`、`src/persistence/store/references.js` 与 `src/ui/web/assets/context-references.js`；实体边界、接口与当前限制见[核心实体](../engineering/entities.md)与[Web 前端模块](../engineering/modules-web.md)。
 
 ## 用户目标
 

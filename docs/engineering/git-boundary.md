@@ -4,35 +4,34 @@
 
 ## 分支与 worktree
 
-- 输入提交：从用户指定的本地父分支 tip 创建 `lush/<hash>/input-<id>` 与 `.lush/worktrees/input-<id>`；planner cwd 就是这里。
-- 普通 worker：从输入提交时冻结的 commit 创建；direct parent / target 是输入分支。
-- `code` 下游：从上游任务 reviewed commit 创建；direct parent / target 是上游任务分支。
-- branch-sync merger：从 child tip 创建；direct parent / target 是该 child，agent 在这里 merge 冻结的 parent commit。
-- verifier：使用被检验 worktree 加一个 detached 对照检出，不产生交付分支。
+- 新 say：从父分支（main 或已绑定 owner）的已提交 tip 创建 `lush/<hash>/<id>-<name>` 与 `.lush/worktrees/<id>-<name>`，Agent cwd 就是这里。
+- 子 Task：从父分支当前已提交 tip 创建独立的直接子分支与 worktree。
+- 解分歧子 Task：从源侧固定提交创建独立分支与 worktree，在子侧吸收冻结的父提交、解决冲突并测试。
+- 归档与回收：`branch.archive` 与 `task.cleanup`，见[分支谱系](branch-genealogy.md)与[工作区回收](cleanup.md)。
 
 分支名、base、target 与 worktree 在 Git 创建前先落库；崩溃后不会出现 runtime 不知道属于谁的目录。谱系 parent 一经记录不重写。
 
-## 指定输入父分支
+## 父分支选择
 
-`input.submit` / `draft.commit` 可传 `branch`。它必须精确命中 `refs/heads/<branch>`，不接受 tag、SHA 或 rev 表达式；省略时使用项目当前检出分支。父分支不必在项目主 worktree 检出，也可以由另一个 worktree 持有。
+新 say 可传 `branch`。它必须精确命中 `refs/heads/<branch>`，不接受 tag、SHA 或 rev 表达式；省略时使用项目当前检出分支。父分支不必在项目主 worktree 检出，也可以由另一个 worktree 持有；非 main 分支必须先 `branch.bind` 显式绑定 owner，否则新 say 直接拒绝。
 
-未提交修改不会进入新分支。若父分支正被某个 worktree 检出，其 porcelain 差异记录在 `input.anchor` 事件；否则输入只锚定 ref tip。
+未提交修改不会进入新分支。
 
 ## fast-forward 落地
 
 `branchState(child)` 用 commit graph 实时判断 direct parent 与 child：fast-forward / diverged / integrated / missing，并检查 child 的直接子分支是否都已收拢。
 
-普通分支操作默认把实时的 child tip 作为交付提交。Candidate 接受则把 `commit_hash` 作为 `expected` 一路传到 Git 边界；Git 串行区间内重新读取父子状态，并只接受两种结果：父分支已经包含该固定提交，或父分支能 fast-forward 到该固定提交。实际 Git 命令不再引用可变的 child tip，因此接受前置校验通过后即使 child 又前进，也不会扩大交付范围。
+新的 Task 中心交付把固定提交作为 `expected` 一路传到 Git 边界：Git 串行区间内重新读取父子状态，并只接受两种结果：父分支已经包含该固定提交，或父分支能 fast-forward 到该固定提交。实际 Git 命令不再引用可变的 child tip，因此批准前校验通过后即使 child 又前进，也不会扩大交付范围。
 
 落地时：
 
 - parent 已检出：要求 parent / child worktree 干净，在 parent worktree 执行 `git merge --ff-only <landed-commit>`；
 - parent 未检出：执行 `git update-ref refs/heads/<parent> <landed-commit> <old-parent-tip>`，用 compare-and-swap 防止覆盖外部推进。
 
-runtime 不在 parent 上执行 `--no-ff`，也不让 parent worktree进入冲突状态。分歧改由独立子侧 merger 处理；Candidate 固定提交若已不能从 parent fast-forward，则拒绝落地并保留错误记录。
+runtime 不在 parent 上执行 `--no-ff`，也不让 parent worktree 进入冲突状态。分歧改由子侧解分歧 Task 处理；固定提交若已不能从 parent fast-forward，则拒绝落地并保留错误记录。
 
 ## 回收
 
-任务 reviewed commit 必须仍是 branch tip 的祖先，branch tip 必须已经进入 target，才可删除任务分支。输入分支若从初始 commit 前进，也只有在当前 tip 已进入它的直接父分支后才可回收。删除使用 compare-and-delete，不 force。
+任务 reviewed commit 必须仍是 branch tip 的祖先，branch tip 必须已经进入 target，才可删除任务分支。删除使用 compare-and-delete，不 force。`branch.archive` 是唯一一条明知未合并也允许的 compare-and-delete，由用户显式触发，见[分支谱系](branch-genealogy.md)。
 
 相关：[分支优先架构](branch-first.md) · [分支合并](merge.md) · [工作区回收](cleanup.md)

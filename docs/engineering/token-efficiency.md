@@ -15,9 +15,9 @@
 
 内置 prompt 要求按需读取、缩小搜索范围并排除生成物；成功测试只报告命令、范围、计数和日志路径，失败保留相关错误。它们是模型指导，不是删除工具输出或日志的硬过滤器。
 
-## 当前 say 与旧快速路由
+## 当前 say 与快速路由
 
-当前 `say` 一条输入直接创建 Task，不经过 planner 或快速路由；Agent 自行判断亲做还是派子任务。旧 `input.submit` / 批量 `draft.commit` 才按运行设置里的前缀表跳过规划模型、创建 worker/research 根任务及零 invocation 的 planner 占位；规则见[旧输入和规划](inputs-and-planning.md)。旧 planner 的 prompt 鼓励轻量规划，不重复执行者的代码调研。
+当前 `say` 一条输入直接创建 Task，不经过 planner、快速路由或 Plan Compiler；Agent 自行判断亲做还是派子任务。旧 `input.submit` / 批量 `draft.commit` 与运行设置里的前缀表、worker/research 根任务与零 invocation 的 planner 占位不再有公开入口；旧记录保留在磁盘上。
 
 ## 父任务合并唤醒
 
@@ -27,7 +27,7 @@
 - 显式用户/agent 消息、失败与取消结算仍及时变成可调度；正在运行的 invocation 不被强行插入消息。
 - 不能按消息正文猜测是否为成功收据，否则显式求助可能丢失。
 - park / invocation finally / 异常处理 / daemon recover 使用同一判断，既防止空转，也避免父任务尚未清理时的 lost wakeup。
-- planner 的 Work DAG 仍由确定性的 `compilePlans()` 编译，不恢复旧 scheduler 模型调用。
+- planner 的 Work DAG 仍由确定性的 `compilePlans()` 编译，不恢复旧 scheduler 模型调用；这仅用于读懂历史行，不再由公开入口产生新工作。
 
 ## Pi 可选软预算
 
@@ -51,7 +51,7 @@ Codex 没有等价 hook，启用时明确拒绝。explainer 不继承默认预�
 
 ## 归因与历史兼容
 
-`usage-statistics.js` 仍只读扫描会话，`usage-attribution.js` 在相同时间筛选范围内汇总 role / task / invocation：
+`usage-statistics.js` 仍只读扫描会话，`usage-attribution.js` 在相同时间筛选范围内汇总 role / task / invocation。`system.usage` 与统计面板已下线，不再有公开 RPC / Web 入口；以下口径描述内部扫描与历史兼容，供维护者参考：
 
 - 新普通 Pi 记录使用 `lush.invocation` custom entry（无扩展 explainer 仍走时间匹配）；Codex 的规范化 usage 行携带 `lush` 身份。
 - 历史记录先由文件名关联 task，再用唯一匹配的 `agent_runs` 时间区间归因 invocation。无时间、区间重叠或记录被删除时明确归入 unknown，不猜测。

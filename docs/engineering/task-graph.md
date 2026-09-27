@@ -6,7 +6,7 @@ Task 图是 `#task-graph` / `task.graph` / `/api/task-graph` 的有界读面：�
 
 卡片用状态配色一眼区分「在跑」与「停下来」：running 有活动色的呼吸外环，其余按真实状态各给一边框色（排队 / 在等 / 待你决定 / 已完成 / 失败 / 已取消），只有既非活动又无明确终结语义的才落到中性 idle；表头汇总行用同一套状态色把各状态计数排成兼作说明的图例。
 
-合并编排已集成到 Task 卡片上：`task.graph` 只读投影每条 Task 自己分支下的 say 子分支数（`branch_info.subtree_say`）与仍在跑的合并运行（`branch_info.merge_run`）。有子 say 分支的 Task（含 main / owner）卡片给「编排合并全部子 Task」入口，点击先拉同一份只读 `branch.orchestrate_plan`，在确认框里列出固定提交、动作与阻塞，确认后调 `branch.orchestrate`；运行中改显进度与「取消合并编排」。目标就是这条 Task 自己的分支，复用分支图同一套 runtime 与冻结语义，前端不另算一套合并规则。delivery 冻结（有待集成的合并请求）正是编排要收拢的对象，不挡入口；别的 merger / 一键合并造成的冻结才禁用并写明原因。分支归档仍在原分支图。
+`task.graph` 只读投影每条 Task 自己分支下的 say 子分支数（`branch_info.subtree_say`）与仍在跑的合并运行（`branch_info.merge_run`），作为交付诊断；旧 `branch.orchestrate_plan` / `branch.orchestrate` 一键编排入口已下线，卡片不再提供。分支归档仍在原分支图。
 
 ## 新 Task 的输入处理
 
@@ -21,6 +21,6 @@ console.log(JSON.stringify({ delivery: input.startsWith('稍后') ? 'message' : 
 
 每次提交到 say / child Task 的用户消息执行一次固定规则（限时 1s、stdout/stderr 最多 16 KiB），不传一次性 Agent 凭证。规则返回 `message` 时只写入收件箱、轮末交付；返回 `interrupt` 时先写入收件箱，再请求**有安全边界的后端**在安全点软抢占；不支持安全抢占的后端轮末交付，**绝不硬杀**。规则失败或输出无效：记录 `task.input_routed` 错误并回退 `interrupt`，输入仍持久化、不丢失。Agent 发来的消息不执行用户输入规则。无规则的新 say 保持现有安全抢占行为。
 
-## 尚未完成的整体迁移
+## 读面边界
 
-本次新增的读面与规则不改变旧 `input.submit` / `draft.commit`、旧 planner/scheduler 的调用与旧任务的写入能力；旧数据目前**还未变成只读**。规则也尚未作用于 `say.submit` 创建时的初始 goal、notice 答复与非 say/child Task。若要满足“唯一 Task 调度入口，旧数据只读”，必须在用户入口、RPC 权限、恢复与调度器中一起做版本分流，并为旧数据提供不改写原记录的读取/退出方式；不能只隐藏旧 Web 控件就称为重构完成。
+本次读面与规则不改写旧数据：历史 Intent / Plan / Candidate 与旧 planner / scheduler 的行、会话与工作区保留在磁盘上，但不再有公开入口，也不会被新版本自动启动或重放。规则目前只作用于 say / child Task 的用户消息；`say.submit` 创建时的初始 goal、notice 答复与非 say/child Task 不走这条固定规则。当前可调用面见[核心 API 收敛](core-api.md)。

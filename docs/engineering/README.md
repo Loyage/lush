@@ -4,20 +4,20 @@
 
 ## 推荐阅读顺序
 
-1. [核心架构](../core-architecture.md)：当前 say 主链和旧协议边界。
+1. [核心架构](../core-architecture.md)：当前 say 主链。
 2. [执行模型](execution-model.md)：Task、Agent、Run 与唤醒。
-3. [交付与验收](review-loop.md)：父确认、预约与人工批准。
+3. [交付与验收](review-loop.md)：父确认、合并预约与人工批准。
 4. [工程架构索引](architecture.md)：源码主题入口。
 5. [生命周期不变量](invariants.md)：实现必须守住的状态约束。
 
 ## 运行时与数据
 
+- [核心 API 收敛](core-api.md)：当前公开能力与已下线功能边界。
 - [数据流](data-flow.md)
-- [Task 中心输入](task-centered-input-design.md)：当前 say 的约束。
-- [Task 图与固定输入规则](task-graph.md)：Task 视角、可信规则执行与尚未完成的旧路径迁移。
-- [输入和规划](inputs-and-planning.md)、[Intent、Plan 编译与验收候选](intent-layer.md)：旧提交协议的兼容收尾。
+- [Task 中心输入](task-centered-input-design.md)：当前 say 的设计约束。
+- [Task 图与固定输入规则](task-graph.md)：Task 视角、可信规则执行与读面边界。
 - [一次 invocation 与多级协作](invocation.md)
-- [Token 效率与用量归因](token-efficiency.md)：有界上下文、快速路由、合并唤醒与可选软预算。
+- [Token 效率与用量归因](token-efficiency.md)：有界上下文、快速收尾与可选软预算。
 - [项目身份与恢复](identity-and-recovery.md)
 
 ## Git 子系统
@@ -26,7 +26,6 @@
 - [Git 边界](git-boundary.md)
 - [分支谱系](branch-genealogy.md)
 - [分支合并](merge.md)
-- [检验与对照检出](verification.md)
 - [工作区与分支回收](cleanup.md)
 
 ## 接口与开发边界
