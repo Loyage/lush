@@ -221,6 +221,27 @@ test('reserveMergeAll queues every idle pending Task on a branch and the queue l
   } finally { await f.close(); }
 });
 
+test('a Task archived right after landing by an older daemon is still returned to its parent on recovery', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const source = await committedSay(f, 'legacy');
+    const parent = source.parent_id;
+    await f.project.reserveTask(source.id, 'merge');
+    f.project.stopping = false;
+    await f.project.driveTaskMerge(parent);
+    const merger = f.store.get("SELECT * FROM tasks WHERE parent_id=? AND task_kind='merge' AND name='merge'", parent);
+    // The pre-change path archived the branch and worktree right after landing, leaving the Task
+    // under the reusable merge identity. Recovery must still hand it back to its original parent.
+    await f.project.workspaces.cleanup(source.id);
+    f.store.run('UPDATE tasks SET parent_id=? WHERE id=?', merger.id, source.id);
+    expect(f.store.task(source.id)).toMatchObject({ parent_id: merger.id, branch: null, workspace: null });
+    f.project.stopping = true;
+    f.project.recover();
+    expect(f.store.task(source.id).parent_id).toBe(parent);
+    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='task.merge_parent_restored'", source.id).n).toBe(2);
+  } finally { await f.close(); }
+});
+
 test('a merged Task keeps its branch until the user archives it, without blocking its parent', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {

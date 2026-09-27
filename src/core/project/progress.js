@@ -137,12 +137,20 @@ function decode(raw) {
   } catch { return null; }
 }
 
+/** 预约里带交付语义的状态；version 2 的合并请求另有一个 resolving（已退回源侧解分歧）。 */
+const RESERVATION_STATUSES = new Set(['pending','preparing','requested','started','integrated','completed','failed','cancelled']);
+const MERGE_RESERVATION_STATUSES = new Set([...RESERVATION_STATUSES, 'resolving']);
+
+/** 存储形态解码：version 1 是旧形态（merge / showcase），version 2 是新式 say/child 的合并预约。
+ *  两者都要原样交给 UI（`render-delivery.js` 按 `version === 2` 分支已被设计好），
+ *  认不出的形态才降级成 `{status:'invalid'}`，让它以「预约状态需检查」的形式可见而不是消失。 */
 function decodeReservation(raw) {
   if (!raw) return null;
   try {
     const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    if (!isPlainObject(value) || value.version !== 1 || !['merge','showcase'].includes(value.kind)
-      || !['pending','preparing','requested','started','integrated','completed','failed','cancelled'].includes(value.status)) return { status: 'invalid' };
+    if (!isPlainObject(value) || !['merge','showcase'].includes(value.kind)) return { status: 'invalid' };
+    const statuses = value.version === 2 ? MERGE_RESERVATION_STATUSES : value.version === 1 ? RESERVATION_STATUSES : null;
+    if (!statuses || !statuses.has(value.status)) return { status: 'invalid' };
     return value;
   } catch { return { status: 'invalid' }; }
 }

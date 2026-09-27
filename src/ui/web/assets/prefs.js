@@ -12,6 +12,7 @@
  */
 import { COLLAPSED_KEY, FILTERS_KEY, parseCollapsed, parseFilters, serializeCollapsed } from './sidebar.js';
 import { SORT_MODES } from './tree-order.js';
+import { STATUS } from './format.js';
 import { projectRoute } from './route.js';
 
 export const MARKDOWN_KEY = 'lush.markdown';
@@ -22,6 +23,7 @@ export const REDUCED_MOTION_KEY = 'lush.reduceMotion';
 export const POLLING_KEY = 'lush.polling';
 export const TOAST_DURATION_KEY = 'lush.toastDuration';
 export const TRANSCRIPT_ORDER_KEY = 'lush.transcriptOrder';
+export const TASK_GRAPH_STATUSES_KEY = 'lush.taskGraph.hiddenStatuses';
 
 export const SORT_IDS = new Set(SORT_MODES.map(mode => mode.id));
 export const THEME_VALUES = ['system', 'light', 'dark'];
@@ -79,6 +81,15 @@ const enumPref = (key, values, fallback) => ({
   format: value => (values.includes(value) ? value : fallback),
 });
 
+/** Task 图状态筛选：存「隐藏了哪些状态」的集合；未知状态名与坏数据一律丢弃，回落空集（＝全部显示）。 */
+const TASK_STATUS_IDS = new Set(Object.keys(STATUS));
+const parseTaskGraphStatuses = raw => {
+  try {
+    const value = JSON.parse(raw);
+    return new Set(Array.isArray(value) ? value.filter(status => TASK_STATUS_IDS.has(status)) : []);
+  } catch { return new Set(); }
+};
+
 /**
  * 全部受管偏好。`legacy` 是升级前的旧键，只在当前键缺失时读取。
  * `default` 可以是值或工厂（集合 / 对象每次都要新的，避免调用方改到共享默认值）。
@@ -93,6 +104,8 @@ export const PREF_DEFS = {
     format: value => (SORT_IDS.has(value) ? value : 'smart'),
   },
   collapsed: { key: COLLAPSED_KEY, default: () => new Set(), parse: parseCollapsed, format: serializeCollapsed, scope: true },
+  taskGraphStatuses: { key: TASK_GRAPH_STATUSES_KEY, default: () => new Set(), parse: parseTaskGraphStatuses,
+    format: value => JSON.stringify([...value]), scope: true },
   filters: { key: FILTERS_KEY, default: () => parseFilters(null), parse: parseFilters, format: value => JSON.stringify(value), scope: true },
   reduceMotion: boolPref(REDUCED_MOTION_KEY, false),
   polling: enumPref(POLLING_KEY, [...POLLING_IDS], 'standard'),

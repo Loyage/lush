@@ -191,7 +191,7 @@ test('Task 图：分支合并状态进卡片首行标签，facts 行不再重复
   }
 });
 
-test('Task 图：merge 中间层只在队列活跃时现身，空闲时子 Task 回到原父 Task 下', async () => {
+test('Task 图：merge 卡片与其它 Task 一样按状态开关显示，不再空闲就整层收起', async () => {
   const merge = { id: 5, parent_id: 1, task_kind: 'merge', role: 'agent', status: 'waiting',
     title: '串行处理 Task #1 的合并请求', branch: null, workspace: null, target_branch: 'main' };
   const child = { id: 6, parent_id: 5, task_kind: 'say', role: 'agent', status: 'running', title: '等待合并的工作',
@@ -214,17 +214,62 @@ test('Task 图：merge 中间层只在队列活跃时现身，空闲时子 Task 
     expect(deepText(card(6))).not.toContain('不在当前图中');
     expect(roots()).toHaveLength(1);
 
-    // 队列空闲：merge 整层收起，还在图上的子 Task 上浮回原父 Task 下，不留空壳也不留孤儿。
+    // 队列空闲：merge 是常驻的合并队列身份，卡片照旧显示（隐藏与否交给表头的状态开关）。
     merge.status = 'completed';
     child.status = 'completed'; child.reservation = { ...child.reservation, status: 'integrated' };
     await dom.node('task-graph-open').onclick();
-    expect(card(5)).toBeNull();
-    expect(wrapOf(1).querySelector('[data-task-id="6"]')).toBeTruthy();
-    expect(deepText(card(6))).not.toContain('不在当前图中');
+    expect(card(5)).toBeTruthy();
+    expect(wrapOf(5).querySelector('[data-task-id="6"]')).toBeTruthy();
     expect(roots()).toHaveLength(1);
+
+    // 用状态开关关掉「已完成」：merge 卡片与名下已完成的子 Task 一起消失，
+    // 剩下的树不受影响，也不会误报「父 Task 不在当前图中」。
+    dom.node('detail').querySelector('.task-graph-status-toggle[data-status="completed"]').onclick();
+    expect(card(5)).toBeNull();
+    expect(card(6)).toBeNull();
     expect(deepText(dom.node('detail'))).not.toContain('合并队列');
+    expect(wrapOf(1).querySelector('[data-task-id="2"]')).toBeTruthy();
+    expect(deepText(dom.node('detail'))).not.toContain('不在当前图中');
   } finally {
     graph.nodes = graph.nodes.filter(node => ![5, 6].includes(node.id)); graph.total -= 2;
+    globalThis.localStorage.removeItem('lush.taskGraph.hiddenStatuses');
+    await dom.node('task-graph-open').onclick();
+  }
+});
+
+test('Task 图：表头状态图例即开关，按状态隐藏后可一键恢复，偏好写进受管 localStorage 键', async () => {
+  graph.nodes.push({ id: 7, parent_id: 2, task_kind: 'say', role: 'agent', status: 'completed', title: '已经收尾的工作',
+    branch: 'lush/task-7', workspace: null, integration: 'merged' });
+  graph.total += 1;
+  const chip = status => dom.node('detail').querySelector(`.task-graph-status-toggle[data-status="${status}"]`);
+  const card = id => dom.node('detail').querySelector(`[data-task-id="${id}"]`);
+  try {
+    await dom.node('task-graph-open').onclick();
+    expect(chip('completed').textContent).toContain('已完成 1');
+    expect(chip('completed').getAttribute('aria-pressed')).toBe('true');
+    expect(card(7)).toBeTruthy();
+    chip('completed').onclick();
+    expect(card(7)).toBeNull();
+    expect(chip('completed').getAttribute('aria-pressed')).toBe('false');
+    expect(JSON.parse(globalThis.localStorage.getItem('lush.taskGraph.hiddenStatuses'))).toEqual(['completed']);
+    // 只按状态筛：不同状态的兄弟 Task 不受影响。
+    expect(card(2)).toBeTruthy();
+    // 关掉的状态仍留在表头上，点回来即可恢复；「全部状态」一次清空筛选。
+    chip('completed').onclick();
+    expect(card(7)).toBeTruthy();
+    chip('completed').onclick();
+    dom.node('detail').querySelector('.task-graph-status-reset').onclick();
+    expect(card(7)).toBeTruthy();
+    expect(globalThis.localStorage.getItem('lush.taskGraph.hiddenStatuses')).toBe('[]');
+    // 隐藏父 Task 的状态：子 Task 顶成根（与归档筛选同一口径），不会跟着消失也不会误报父不在图里。
+    chip('waiting').onclick();
+    expect(card(1)).toBeNull();
+    expect(card(2)).toBeNull();
+    expect(card(7)).toBeTruthy();
+    expect(deepText(card(7))).not.toContain('不在当前图中');
+  } finally {
+    graph.nodes = graph.nodes.filter(node => node.id !== 7); graph.total -= 1;
+    globalThis.localStorage.removeItem('lush.taskGraph.hiddenStatuses');
     await dom.node('task-graph-open').onclick();
   }
 });

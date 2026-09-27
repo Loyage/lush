@@ -7,7 +7,7 @@ import { show } from './messages.js';
 import { detail } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
-import { scopedKey } from './prefs.js';
+import { readPref, scopedKey, writePref } from './prefs.js';
 import { taskForest } from './task-graph-layout.js';
 import { branchDiagnostics, decisionRow } from './render-graph.js';
 import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
@@ -19,18 +19,12 @@ const ACTIVE = new Set(['running', 'queued', 'waiting', 'awaiting']);
 const ENDED = new Set(['completed', 'failed', 'cancelled']);
 /** 状态计数 / 图例的固定顺序：先是活动态，再到终结态；只画出现过的。 */
 const STATUS_ORDER = ['running', 'queued', 'waiting', 'awaiting', 'completed', 'failed', 'cancelled'];
-/** 图上画成卡片的 Task：自己拥有分支 / worktree 的 main / owner / say / child。
- *  planner / scheduler 属于意图层（在分支图上），merge 是中间层，见 mergeQueueActive。 */
-const VISIBLE_KINDS = new Set(['say', 'child', 'showcase', 'main', 'owner']);
+/** 图上画成卡片的 Task：自己拥有分支 / worktree 的 main / owner / say / child / showcase。
+ *  planner / scheduler 属于意图层（在分支图上）；merge Task 是父 Task 的常驻合并队列身份，
+ *  和别的 Task 一样由表头的状态开关决定显示与否，不按队列活跃度自动收起。 */
+const VISIBLE_KINDS = new Set(['say', 'child', 'showcase', 'main', 'owner', 'merge']);
 /** 在飞的合并预约：已预约等静息 / 已发请求待落地 / 已退回源侧解分歧。 */
 const IN_FLIGHT = new Set(['pending', 'requested', 'resolving']);
-
-/** merge Task 是父 Task 的常驻合并队列身份（`parent_id` 就是那个父 Task），只有队列真在动时才值得占一张卡片：
- *  自己还没结算，或名下还有请求在飞。队列空闲时整层收起，被它收拢的子 Task 回到父 Task 下，不留空壳。 */
-function mergeQueueActive(node, children) {
-  if (!ENDED.has(node.status)) return true;
-  return children.some(child => !ENDED.has(child.status) || IN_FLIGHT.has(child.reservation?.status));
-}
 
 /** merge 卡片的队列摘要：谁先落地以库为准（`driveTaskMerge` 取 id 最小的 requested），展示层不猜。 */
 function mergeQueueNotes(raw) {
@@ -56,6 +50,8 @@ function collapsed() {
   catch { return new Set(); }
 }
 function save(set) { try { localStorage.setItem(scopedKey(KEY), JSON.stringify([...set])); } catch { /* storage unavailable */ } }
+function hiddenStatuses() { return new Set(readPref('taskGraphStatuses')); }
+function saveHiddenStatuses(set) { writePref('taskGraphStatuses', set); }
 
 /** 归档后的 Task：分支已被用户显式归档。归档是记录状态，任务行仍在库里，
  *  只是默认不再占 Task 图主视图；这里只认读模型给出的字段，不自己猜 Git 现状。 */
@@ -241,17 +237,9 @@ export function renderTaskGraph(graph) {
   if (ui.view?.id !== 'task-graph') return;
   const raw = graph.nodes || [];
   const byId = new Map(raw.map(node => [node.id, node]));
-  const childrenOf = new Map();
-  for (const node of raw) {
-    if (node.parent_id === null || node.parent_id === undefined) continue;
-    const list = childrenOf.get(node.parent_id);
-    if (list) list.push(node); else childrenOf.set(node.parent_id, [node]);
-  }
+  // merge 与其它 Task 一视同仁：画不画由表头的状态开关决定，不再按队列活跃度整层收起。
   const visible = new Set(raw.filter(node => VISIBLE_KINDS.has(node.task_kind)).map(node => node.id));
-  for (const node of raw) {
-    if (node.task_kind === 'merge' && mergeQueueActive(node, childrenOf.get(node.id) ?? [])) visible.add(node.id);
-  }
-  // 被收起的中间 Task 不制造孤儿：父指到最近的可见祖先，所以 merge 空闲时它的子 Task 回到原父 Task 下。
+  // 被筛掉的中间 Task 不制造孤儿：父指到最近的可见祖先，所以归档 / 状态筛选藏起来的父 Task 不会把子 Task 一起带走。
   // 祖先都不在这一页（被截断 / 真的缺节点）时保留原 parent_id，照旧画成根并写明「父 Task 不在当前图中」。
   const parentInView = node => {
     const seen = new Set([node.id]);
@@ -267,7 +255,12 @@ export function renderTaskGraph(graph) {
   // 归档 Task 默认不画：它们是收尾后的记录，收进「显示已归档」开关后面，避免压住仍在进行的工作。
   // 过滤在 taskForest 之前完成，所以归档父节点下的未归档子 Task 会像分支图那样顶成根，不会一起消失。
   const archivedCount = all.filter(isArchivedTask).length;
-  const nodes = ui.taskGraphShowArchived ? all : all.filter(node => !isArchivedTask(node));
+  const listed = ui.taskGraphShowArchived ? all : all.filter(node => !isArchivedTask(node));
+  // 状态计数用筛选前的口径：关掉一个状态后它的开关还得留在表头上，否则再也点不回来。
+  const counts = new Map();
+  for (const node of listed) counts.set(node.status, (counts.get(node.status) || 0) + 1);
+  const hidden = hiddenStatuses();
+  const nodes = listed.filter(node => !hidden.has(node.status));
   const view = { ...full, nodes };
   const host = $('detail');
   const saved = collapsed();
@@ -281,16 +274,32 @@ export function renderTaskGraph(graph) {
   const summary = el('div', undefined, 'task-graph-summary');
   const active = nodes.filter(node => ACTIVE.has(node.status)).length;
   const decisions = nodes.reduce((count, node) => count + (node.notice_count || 0), 0);
-  const counts = new Map();
-  for (const node of nodes) counts.set(node.status, (counts.get(node.status) || 0) + 1);
   summary.append(badge(`图中 ${nodes.length} / ${graph.total} Task`), badge(`${active} 活动`));
-  // 状态计数本身兼作图例：running 的活动色与卡片左边条同源，扫一眼就知道每种颜色代表什么。
+  // 状态计数本身兼作图例与开关：点一下隐藏 / 显示该状态，只改显示、不写库、不改任务状态。
   for (const status of STATUS_ORDER) {
     const count = counts.get(status) || 0;
     if (!count) continue;
     const info = statusOf({ status });
-    summary.append(badge(`${info.icon} ${info.label} ${count}`, `b-${status}`));
+    const off = hidden.has(status);
+    const toggle = button(`${info.icon} ${info.label} ${count}`, () => {
+      const next = hiddenStatuses();
+      if (next.has(status)) next.delete(status); else next.add(status);
+      saveHiddenStatuses(next);
+      renderTaskGraph(full);
+    }, 'badge task-graph-status-toggle', {
+      help: off ? `当前隐藏了「${info.label}」的 Task；点一下重新显示。`
+        : `隐藏「${info.label}」的 Task；只影响这一页的显示，不改任务状态。`,
+    });
+    toggle.classList.add(`b-${status}`);
+    toggle.setAttribute('data-status', status);
+    if (off) toggle.classList.add('is-off');
+    toggle.setAttribute('aria-pressed', String(!off));
+    summary.append(toggle);
   }
+  if (hidden.size) summary.append(button('全部状态', () => {
+    saveHiddenStatuses(new Set());
+    renderTaskGraph(full);
+  }, 'ghost task-graph-status-reset', { help: '清除状态筛选，重新显示所有状态的 Task。' }));
   if (decisions) summary.append(badge(`${decisions} 待决`, 'b-awaiting'));
   if (archivedCount) {
     const toggle = button(ui.taskGraphShowArchived ? `隐藏已归档（${archivedCount}）` : `显示已归档（${archivedCount}）`, () => {

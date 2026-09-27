@@ -87,11 +87,14 @@ export default {
    * the reusable merge identity and put it back under the parent it was originally delivered to,
    * so the user can inspect it and decide when to archive. Archiving stays an explicit user action
    * (`task.cleanup` / `branch archive`). Idempotent: a Task already under its original parent is left alone.
+   *
+   * 「原父」只以预约里记下的 `parent_id` 为准，不要求分支还在：用户（或旧版自动归档路径）
+   * 已经收走 branch / worktree 的 Task 同样要归位，否则它会永久挂在 merge 队列身份下。
    */
   restoreMergedTaskParent(taskId) {
     const task = this.store.task(id(taskId));
     const booking = reservationOf(task);
-    if (!task.branch || booking?.version !== 2 || booking.status !== 'integrated') return false;
+    if (booking?.version !== 2 || booking.status !== 'integrated') return false;
     const target = booking.parent_id ?? task.parent_id;
     if (!target || task.parent_id === target) return false;
     check(this.store.task(target), `merged Task #${task.id} has no original parent to return to`);

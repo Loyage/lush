@@ -55,7 +55,7 @@ say 的 pending merge 请求若与直接父分支分歧（`blocked_code='diverge
 
 `task.resolve` 是「已解决」与「放弃任务」的语义区分：前者表示这次输入只是想了解/确认、用户已经没有别的需求，任务以 `completed` 结算并保留 Agent 的 `result`，`integration='none'`，另落一条信息提醒；后者是放弃正在进行的工作。它只在分支没有新提交（`head_commit` 为空或等于 `base_commit`）、工作区干净、没有正在调用的 Agent 且没有发出的合并请求时允许；有提交的 say 仍走 `task.reserve merge` 交付或 `task.cancel` 放弃。它不创建/删除分支与 worktree，也不推进任何 ref；需要继续追问时应在标记前给该 Task 发消息（标记后请另发新的 say）。
 
-`task.inspect`、`task.list` 提供结构化 `reservation`（旧任务为 null，异常行显示 `status:'invalid'`）。旧 Task 不接受该预约。
+`task.inspect`、`task.list` 提供结构化 `reservation`（旧任务为 null）：version 1 与 version 2 的预约都原样读出，认不出的形态显示 `status:'invalid'` 供检查。旧 Task 不接受该预约。
 
 ## Run 与 Artifact
 

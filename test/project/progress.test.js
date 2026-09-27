@@ -16,6 +16,27 @@ function controlled() {
   } };
 }
 
+test('预约读模型：version 2 的合并请求原样交给 UI，旧形态继续可读，认不出的才降级成 invalid', async () => {
+  const f = fixture(); await repo(f.root);
+  try {
+    const task = f.store.create({ role: 'agent', goal: 'deliver something', task_kind: 'say' });
+    const booking = { version: 2, kind: 'merge', status: 'resolving', commit: 'abc123', parent_id: 1, blocked_reason: '父分支已分歧' };
+    f.store.update(task.id, { reservation: JSON.stringify(booking) });
+    expect(f.project.progressView(f.store.task(task.id)).reservation)
+      .toMatchObject({ version: 2, status: 'resolving', blocked_reason: '父分支已分歧' });
+    // 未知状态 / 未知版本 / 未知类型都不能当成一个正常预约交给 UI。
+    f.store.update(task.id, { reservation: JSON.stringify({ ...booking, status: 'sideways' }) });
+    expect(f.project.progressView(f.store.task(task.id)).reservation).toEqual({ status: 'invalid' });
+    f.store.update(task.id, { reservation: JSON.stringify({ ...booking, version: 3 }) });
+    expect(f.project.progressView(f.store.task(task.id)).reservation).toEqual({ status: 'invalid' });
+    // version 1 的旧形态（merge / showcase）继续原样读出。
+    f.store.update(task.id, { reservation: JSON.stringify({ version: 1, kind: 'showcase', status: 'completed' }) });
+    expect(f.project.progressView(f.store.task(task.id)).reservation).toMatchObject({ version: 1, status: 'completed' });
+    f.store.update(task.id, { reservation: null });
+    expect(f.project.progressView(f.store.task(task.id)).reservation).toBeNull();
+  } finally { await f.close(); }
+});
+
 test('agent progress is bound to its live task and preserves completed stable keys across replans', async () => {
   const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {

@@ -467,9 +467,11 @@ export default {
         this.store.update(task.id, { status: 'failed', error: 'daemon interrupted divergence repair; inspect and explicitly retry' });
         this.store.event(task.id, 'merge.repair_interrupted', {});
       }
-      if (booking.version === 2 && booking.status === 'integrated' && task.branch) {
-        // Integration no longer auto-archives; make sure a crash between landing and the
-        // parent restore still returns the Task to its original parent for the user to reclaim.
+      if (booking.version === 2 && booking.status === 'integrated') {
+        // Integration no longer auto-archives; make sure a crash between landing and the parent
+        // restore still returns the Task to its original parent for the user to reclaim. This also
+        // backfills Tasks that an older daemon archived right after landing (their branch is gone,
+        // but the booking still records the original parent).
         try { this.restoreMergedTaskParent(task.id); }
         catch (error) { this.store.update(task.id, { integration_error: `已合并；归还原父 Task 受阻：${error.message}` }); }
       }
