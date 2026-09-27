@@ -9,7 +9,7 @@ import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { scopedKey } from './prefs.js';
 import { taskForest } from './task-graph-layout.js';
-import { branchDiagnostics, decisionRow, runOrchestrate, runOrchestrateCancel } from './render-graph.js';
+import { branchDiagnostics, decisionRow } from './render-graph.js';
 import { renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
 
@@ -20,7 +20,7 @@ const ENDED = new Set(['completed', 'failed', 'cancelled']);
 const STATUS_ORDER = ['running', 'queued', 'waiting', 'awaiting', 'completed', 'failed', 'cancelled'];
 /** 图上画成卡片的 Task：自己拥有分支 / worktree 的 main / owner / say / child。
  *  planner / scheduler 属于意图层（在分支图上），merge 是中间层，见 mergeQueueActive。 */
-const VISIBLE_KINDS = new Set(['say', 'child', 'main', 'owner']);
+const VISIBLE_KINDS = new Set(['say', 'child', 'showcase', 'main', 'owner']);
 /** 在飞的合并预约：已预约等静息 / 已发请求待落地 / 已退回源侧解分歧。 */
 const IN_FLIGHT = new Set(['pending', 'requested', 'resolving']);
 
@@ -73,39 +73,6 @@ function taskVisualState(node) {
   if (node.status === 'completed') return 'completed';
   if (node.status === 'cancelled') return 'cancelled';
   return 'idle';
-}
-
-/** Task 级的合并编排入口：目标就是这条 Task 自己的分支，复用分支图同一份只读计划与 runtime。
- *  没有子 say 分支就没有可收拢的对象，不给入口；已有运行改显进度 + 取消；被别的 merger / 一键合并
- *  冻结时禁用并写明原因。delivery 冻结正是「有待集成的合并请求」，不挡编排。 */
-function taskOrchestration(node) {
-  const info = node.branch_info;
-  if (!info || info.archived) return null;
-  const run = info.merge_run;
-  const box = el('section', undefined, 'task-graph-orchestrate');
-  if (run) {
-    const done = run.done ?? 0;
-    const total = run.total ?? 0;
-    box.append(el('span', `合并编排中 · ${done}/${total}${run.status === 'paused' ? '（源侧解分歧中）' : ''}`,
-      'chip graph-work run'));
-    box.append(button('取消合并编排', () => runOrchestrateCancel({ name: node.branch },
-      { refresh: loadTaskGraph, scope: `Task #${node.id}` }), 'ghost',
-      { help: '停止这条 Task 分支的合并编排并释放冻结；已落地的合并不回滚，等待中的解分歧子任务会被取消。' }));
-    return box;
-  }
-  if (!info.subtree_say) return null;
-  if (node.freeze && node.freeze.kind !== 'delivery') {
-    const disabled = el('button', '编排合并全部子 Task', 'ghost');
-    disabled.type = 'button'; disabled.disabled = true;
-    const host = el('span', undefined, 'help-host');
-    host.setAttribute('data-help', `合并编排暂时不可用：${node.freeze.reason}。`);
-    host.append(disabled); box.append(host);
-    return box;
-  }
-  box.append(button('编排合并全部子 Task', () => runOrchestrate({ name: node.branch },
-    { refresh: loadTaskGraph, label: '子 Task', taskLabel: 'Task', scope: `Task #${node.id}` }), 'ghost',
-    { agent: true, help: agentHelp(`按叶子到根自动把 Task #${node.id} 下所有已固定提交的子 Task 合并请求 ff-only 收拢进 ${node.branch}；没有请求但符合条件的会先自动补发固定提交请求；遇分歧自动派源侧解分歧子任务；运行期间冻结 ${node.branch} 及其全部后代，耗时较长并消耗 token。`) }));
-  return box;
 }
 
 /**

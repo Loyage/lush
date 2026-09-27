@@ -98,7 +98,7 @@ test('Task 卡片同屏展示工作状态、进度、结果、Git 诊断、待�
   await dom.node('task-graph-open').onclick();
   const text = deepText(dom.node('detail'));
   for (const word of ['验收条件', '等待新输入', '已完成初步实现', '实现接口', '1/3',
-    '已提交：2 个文件', '未提交：1 个文件', 'implement API', '是否继续？', '请求合并',
+    '已提交：2 个文件', '未提交：1 个文件', 'implement API', '是否继续？', '合并到父 Task',
     '正在解决 Task #7', '冻结']) {
     expect(text).toContain(word);
   }
@@ -117,13 +117,24 @@ test('Task 卡片同屏展示工作状态、进度、结果、Git 诊断、待�
   await dom.intervalFor(1500)();
   expect(requests).toBeGreaterThan(previousRequests);
   expect(deepText(dom.node('detail'))).toContain('未提交：3 个文件');
+
+  // 静息待合并的 say 给的是 v2 交付入口：确认框说明由父 Task 的 merge 子任务串行处理，确认后才请求。
+  const delivery = dom.node('detail').querySelector('[data-task-id="2"]')
+    .querySelectorAll('button').find(node => node.textContent === '合并到父 Task');
+  expect(delivery).toBeTruthy();
+  expect(delivery.classList.contains('agent-call')).toBe(true);
+  const requesting = delivery.onclick();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(dialogText(dom)).toContain('由父 Task 的 merge 子任务串行处理');
+  await answerDialog(dom, '请求合并');
+  await requesting;
+  expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: 2, kind: 'merge' } });
 });
 
-test('Task 图：主 Task 给子 Task 合并编排入口，运行中改显进度与取消；卡片按状态配色', async () => {
+test('Task 图：卡片按真实状态配色，一键编排入口已下线', async () => {
   const main = graph.nodes[0];
-  const saved = { branch_info: main.branch_info, freeze: main.freeze, status: graph.nodes[1].status };
+  const saved = { freeze: main.freeze, status: graph.nodes[1].status };
   try {
-    main.branch_info = { parent: null, archived: false, subtree_say: 2, merge_run: null };
     main.freeze = null;
     graph.nodes[1].status = 'running';
     await dom.node('task-graph-open').onclick();
@@ -135,29 +146,9 @@ test('Task 图：主 Task 给子 Task 合并编排入口，运行中改显进度
     expect(sayCard.classList.contains('task-graph-running')).toBe(true);
     expect(sayCard.querySelector('.badge.b-running')).toBeTruthy();
 
-    const orchestrate = mainCard.querySelectorAll('button').find(node => node.textContent === '编排合并全部子 Task');
-    expect(orchestrate).toBeTruthy();
-    expect(orchestrate.classList.contains('agent-call')).toBe(true);
-    expect(orchestrate.getAttribute('data-help')).toContain('消耗 token');
-
-    // 点击先拉只读计划，确认前不执行；确认框里把固定提交与动作列清楚。
-    const pending = orchestrate.onclick();
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(world.state.actions.at(-1)).toMatchObject({ method: 'branch.orchestrate_plan', params: { branch: 'main' } });
-    expect(dialogText(dom)).toContain('编排合并 Task #1 的全部 子 Task');
-    expect(dialogText(dom)).toContain('固定 bbbbbbbbbbbb');
-    await answerDialog(dom, '取消');
-    await pending;
-
-    // 运行中：入口换成进度 + 取消，不再重复给开始按钮。
-    main.branch_info.merge_run = { mode: 'orchestrate', status: 'paused', done: 1, total: 2, task_id: 93 };
-    await dom.node('task-graph-open').onclick();
-    const running = dom.node('detail').querySelector('[data-task-id="1"]');
-    expect(deepText(running)).toContain('合并编排中 · 1/2');
-    expect(running.querySelectorAll('button').some(node => node.textContent === '取消合并编排')).toBe(true);
-    expect(running.querySelectorAll('button').some(node => node.textContent === '编排合并全部子 Task')).toBe(false);
+    // 旧 `branch.orchestrate_plan` / `branch.orchestrate` 一键编排卡片已下线，不再给任何编排按钮。
+    expect(mainCard.querySelectorAll('button').some(node => node.textContent.includes('编排'))).toBe(false);
   } finally {
-    main.branch_info = saved.branch_info;
     main.freeze = saved.freeze;
     graph.nodes[1].status = saved.status;
     await dom.node('task-graph-open').onclick();
