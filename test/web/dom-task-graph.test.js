@@ -199,3 +199,41 @@ test('Task 图：分支合并状态进卡片首行标签，facts 行不再重复
     await dom.node('task-graph-open').onclick();
   }
 });
+
+test('Task 图：merge 中间层只在队列活跃时现身，空闲时子 Task 回到原父 Task 下', async () => {
+  const merge = { id: 5, parent_id: 1, task_kind: 'merge', role: 'agent', status: 'waiting',
+    title: '串行处理 Task #1 的合并请求', branch: null, workspace: null, target_branch: 'main' };
+  const child = { id: 6, parent_id: 5, task_kind: 'say', role: 'agent', status: 'running', title: '等待合并的工作',
+    branch: 'lush/task-6', workspace: '/tmp/task-6', target_branch: 'main', integration: 'pending',
+    reservation: { version: 2, kind: 'merge', status: 'requested' } };
+  const roots = () => [...dom.node('detail').querySelector('.task-graph').children]
+    .filter(node => node.classList.contains('task-graph-node'));
+  const card = id => dom.node('detail').querySelector(`[data-task-id="${id}"]`);
+  const wrapOf = id => {
+    for (let at = card(id); at; at = at.parentNode) if (at.classList.contains('task-graph-node')) return at;
+    return null;
+  };
+  graph.nodes.push(merge, child); graph.total += 2;
+  try {
+    await dom.node('task-graph-open').onclick();
+    // 队列在动：merge 卡在图上，子 Task 嵌在它下面，而不是变成「父 Task 不在当前图中」的根。
+    expect(deepText(card(5))).toContain('merge');
+    expect(deepText(card(5))).toContain('合并队列：1 条已发请求待落地（正在处理 #6）');
+    expect(wrapOf(5).querySelector('[data-task-id="6"]')).toBeTruthy();
+    expect(deepText(card(6))).not.toContain('不在当前图中');
+    expect(roots()).toHaveLength(1);
+
+    // 队列空闲：merge 整层收起，还在图上的子 Task 上浮回原父 Task 下，不留空壳也不留孤儿。
+    merge.status = 'completed';
+    child.status = 'completed'; child.reservation = { ...child.reservation, status: 'integrated' };
+    await dom.node('task-graph-open').onclick();
+    expect(card(5)).toBeNull();
+    expect(wrapOf(1).querySelector('[data-task-id="6"]')).toBeTruthy();
+    expect(deepText(card(6))).not.toContain('不在当前图中');
+    expect(roots()).toHaveLength(1);
+    expect(deepText(dom.node('detail'))).not.toContain('合并队列');
+  } finally {
+    graph.nodes = graph.nodes.filter(node => ![5, 6].includes(node.id)); graph.total -= 2;
+    await dom.node('task-graph-open').onclick();
+  }
+});

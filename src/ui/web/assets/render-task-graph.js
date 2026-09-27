@@ -18,6 +18,38 @@ const ACTIVE = new Set(['running', 'queued', 'waiting', 'awaiting']);
 const ENDED = new Set(['completed', 'failed', 'cancelled']);
 /** 状态计数 / 图例的固定顺序：先是活动态，再到终结态；只画出现过的。 */
 const STATUS_ORDER = ['running', 'queued', 'waiting', 'awaiting', 'completed', 'failed', 'cancelled'];
+/** 图上画成卡片的 Task：自己拥有分支 / worktree 的 main / owner / say / child。
+ *  planner / scheduler 属于意图层（在分支图上），merge 是中间层，见 mergeQueueActive。 */
+const VISIBLE_KINDS = new Set(['say', 'child', 'main', 'owner']);
+/** 在飞的合并预约：已预约等静息 / 已发请求待落地 / 已退回源侧解分歧。 */
+const IN_FLIGHT = new Set(['pending', 'requested', 'resolving']);
+
+/** merge Task 是父 Task 的常驻合并队列身份（`parent_id` 就是那个父 Task），只有队列真在动时才值得占一张卡片：
+ *  自己还没结算，或名下还有请求在飞。队列空闲时整层收起，被它收拢的子 Task 回到父 Task 下，不留空壳。 */
+function mergeQueueActive(node, children) {
+  if (!ENDED.has(node.status)) return true;
+  return children.some(child => !ENDED.has(child.status) || IN_FLIGHT.has(child.reservation?.status));
+}
+
+/** merge 卡片的队列摘要：谁先落地以库为准（`driveTaskMerge` 取 id 最小的 requested），展示层不猜。 */
+function mergeQueueNotes(raw) {
+  const queues = new Map();
+  for (const node of raw) {
+    if (node.task_kind !== 'merge') continue;
+    const inFlight = raw.filter(child => child.parent_id === node.id && IN_FLIGHT.has(child.reservation?.status))
+      .sort((a, b) => a.id - b.id);
+    const requested = inFlight.filter(child => child.reservation.status === 'requested');
+    const resolving = inFlight.filter(child => child.reservation.status === 'resolving');
+    const pending = inFlight.length - requested.length - resolving.length;
+    const parts = [];
+    if (requested.length) parts.push(`${requested.length} 条已发请求待落地（正在处理 #${requested[0].id}）`);
+    if (pending) parts.push(`${pending} 条已预约、等静息`);
+    if (resolving.length) parts.push(`${resolving.length} 条源侧解分歧中（#${resolving.map(child => child.id).join('、#')}）`);
+    if (parts.length) queues.set(node.id, `合并队列：${parts.join(' · ')}`);
+  }
+  return queues;
+}
+
 function collapsed() {
   try { const saved = JSON.parse(localStorage.getItem(scopedKey(KEY))); return new Set(Array.isArray(saved) ? saved : []); }
   catch { return new Set(); }
@@ -131,7 +163,7 @@ function mergeAllControl(node, candidates, refresh) {
   return box;
 }
 
-function taskCard(node, folded, refresh, mergeAllByBranch = new Map()) {
+function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote = null) {
   const row = el('article', undefined, 'task-graph-card');
   row.dataset.taskId = String(node.id);
   row.classList.add(`task-graph-${taskVisualState(node)}`);
@@ -160,6 +192,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map()) {
 
   if (node.goal_preview && node.goal_preview !== node.title) row.append(el('p', node.goal_preview, 'task-graph-goal'));
   if (node.waiting_reason) row.append(el('p', node.waiting_reason, 'task-graph-reason'));
+  if (queueNote) row.append(el('p', queueNote, 'task-graph-reason'));
   if (node.result_preview) row.append(el('p', `最近结果：${node.result_preview}${node.result_preview.length >= 320 ? '…' : ''}`, 'task-graph-result'));
   const progress = renderGraphProgress(node.progress, { running: node.status === 'running', status: node.status });
   if (progress) row.append(progress);
@@ -234,7 +267,30 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map()) {
 
 export function renderTaskGraph(graph) {
   if (ui.view?.id !== 'task-graph') return;
-  const all = (graph.nodes || []).filter(node => ['say','child','main','owner'].includes(node.task_kind));
+  const raw = graph.nodes || [];
+  const byId = new Map(raw.map(node => [node.id, node]));
+  const childrenOf = new Map();
+  for (const node of raw) {
+    if (node.parent_id === null || node.parent_id === undefined) continue;
+    const list = childrenOf.get(node.parent_id);
+    if (list) list.push(node); else childrenOf.set(node.parent_id, [node]);
+  }
+  const visible = new Set(raw.filter(node => VISIBLE_KINDS.has(node.task_kind)).map(node => node.id));
+  for (const node of raw) {
+    if (node.task_kind === 'merge' && mergeQueueActive(node, childrenOf.get(node.id) ?? [])) visible.add(node.id);
+  }
+  // 被收起的中间 Task 不制造孤儿：父指到最近的可见祖先，所以 merge 空闲时它的子 Task 回到原父 Task 下。
+  // 祖先都不在这一页（被截断 / 真的缺节点）时保留原 parent_id，照旧画成根并写明「父 Task 不在当前图中」。
+  const parentInView = node => {
+    const seen = new Set([node.id]);
+    for (let parent = byId.get(node.parent_id); parent && !seen.has(parent.id); parent = byId.get(parent.parent_id)) {
+      if (visible.has(parent.id)) return parent.id;
+      seen.add(parent.id);
+    }
+    return node.parent_id ?? null;
+  };
+  const all = raw.filter(node => visible.has(node.id)).map(node => ({ ...node, parent_id: parentInView(node) }));
+  const mergeQueue = mergeQueueNotes(raw);
   const full = { ...graph, nodes: all };
   // 归档 Task 默认不画：它们是收尾后的记录，收进「显示已归档」开关后面，避免压住仍在进行的工作。
   // 过滤在 taskForest 之前完成，所以归档父节点下的未归档子 Task 会像分支图那样顶成根，不会一起消失。
@@ -277,7 +333,7 @@ export function renderTaskGraph(graph) {
   if (view.truncated) box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Task；父节点可能在截断范围外。`, 'hint'));
   const paint = (node, parent) => {
     const wrap = el('div', undefined, 'task-graph-node');
-    wrap.append(taskCard(node, saved, () => renderTaskGraph(full), mergeAllByBranch));
+    wrap.append(taskCard(node, saved, () => renderTaskGraph(full), mergeAllByBranch, mergeQueue.get(node.id) ?? null));
     if (node.children.length && !saved.has(node.id)) {
       const children = el('div', undefined, 'task-graph-children');
       for (const child of node.children) paint(child, children);
