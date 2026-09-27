@@ -52,10 +52,11 @@ export const handlers = {
   'task.spawn'(p, params, actor) {
     const parent = params.parent ?? actor;
     check(actor === null || id(parent) === actor, 'agents may delegate only from their own task');
-    return p.spawn(parent, params.goal, params.role, params.deps ?? [], params.name ?? null, params.spec ?? null);
+    check(['say','child'].includes(p.store.task(id(parent)).task_kind), 'only say/child Tasks can delegate');
+    return p.spawn(parent, params.goal, 'agent', [], params.name ?? null);
   },
   'task.integrate'(p, params, actor) { return p.integrateChild(actor, params.id, params.commit); },
-  'task.reserve'(p, params) { return p.reserveTask(params.id, params.kind); },
+  'task.reserve'(p, params) { check(params.kind === 'merge', 'only merge delivery is supported'); return p.reserveTask(params.id, 'merge'); },
   'task.resolve'(p, params) { return p.resolveTask(params.id); },
   'task.resolve_divergence'(p, params) { return p.resolveSayDivergence(params.id); },
   'task.analyze'(p, params) { return p.analyze(params.id, params.question); },

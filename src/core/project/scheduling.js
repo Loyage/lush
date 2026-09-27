@@ -56,11 +56,8 @@ export default {
   },
 
   pump() {
-    const sleep = this.sleepStatus();
-    if (this.stopping || sleep.paused) return;
-    if (sleep.enabled && !this.sleepAdmitted) { void this.sleepTick(); return; }
-    // Finished planner output is compiled by code, not by a scheduler model invocation.
-    this.compilePlans();
+    if (this.stopping) return;
+    // Legacy planner/spec rows are retained on disk but no longer scheduled.
     const dependencies = this.store.depMap();
     const freezes = new Map(this.branchFreeze().map(info => [info.branch, info]));
     const taskBranch = task => {
@@ -78,6 +75,7 @@ export default {
     let butlerRunning = [...this.running.values()].filter(run => run.role === 'butler').length;
     let executionRunning = this.running.size - controlRunning - butlerRunning;
     for (const task of this.store.all("SELECT * FROM tasks WHERE status='queued' ORDER BY id")) {
+      if (!['say','child'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
       if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.
       if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') continue;
       if (this.running.has(task.id)) continue;
@@ -93,7 +91,6 @@ export default {
       if ((dependencies.get(task.id) || []).some(edge => !TERMINAL.has(edge.status))) continue;
       const control = ['planner','scheduler'].includes(task.role);
       const butler = task.role === 'butler';
-      if (butler && !sleep.enabled) continue;
       if (butler ? butlerRunning >= 1 : control ? controlRunning >= this.config.controlConcurrency : executionRunning >= this.config.concurrency) continue;
       const run = { role: task.role, controller: new AbortController(), token: randomBytes(32).toString('hex'), pid: null, promise: null, recordId: null };
       if (butler) butlerRunning += 1; else if (control) controlRunning += 1; else executionRunning += 1;

@@ -7,6 +7,7 @@ export async function run(command, args, ctx) {
   const { client, json } = ctx;
   let value;
   const verb = args.shift();
+  check(['tree','show','bind','archive'].includes(verb), 'unknown branch command; use tree, show, bind or archive');
   if (verb === 'tree') {
     const verbose = args.includes('--verbose');
     if (verbose) args.splice(args.indexOf('--verbose'), 1);

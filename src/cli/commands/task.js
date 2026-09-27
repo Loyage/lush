@@ -80,28 +80,11 @@ export async function run(command, args, ctx) {
       }
       value = await client.request('task.tree', request);
     }
-    else if (verb === 'ladder') { exact(args, 0); value = await client.request('task.ladder'); if (!json) { printLadder(value); return; } }
-    else if (verb === 'timeline') {
-      const limit = option(args, '--limit'); exact(args, 0);
-      value = await client.request('system.timeline', limit ? { limit: Number(limit) } : {});
-      if (!json) { printTimeline(value); return; }
-    }
     else if (verb === 'spawn') {
       const parent = option(args, '--parent', process.env.LUSH_TASK_ID);
-      const role = option(args, '--role');
       const name = option(args, '--name');
-      const spec = option(args, '--spec');
-      const defaultKind = option(args, '--dep-kind', 'code');
-      const deps = [];
-      // Repeatable and comma-separated: --depends-on 7,9:order --depends-on 11
-      for (let value$1 = option(args, '--depends-on'); value$1 !== null; value$1 = option(args, '--depends-on')) {
-        for (const token of value$1.split(',').filter(Boolean)) {
-          const [depId, kind = defaultKind] = token.split(':');
-          deps.push({ id: id(depId), kind });
-        }
-      }
       exact(args, 1);
-      value = await client.request('task.spawn', { parent: id(parent), role, goal: args[0], deps, name, spec: spec === null ? null : id(spec) });
+      value = await client.request('task.spawn', { parent: id(parent), goal: args[0], ...(name ? { name } : {}) });
     } else if (verb === 'transcript') {
       const follow = args.includes('--follow');
       if (follow) args.splice(args.indexOf('--follow'), 1);
@@ -119,10 +102,6 @@ export async function run(command, args, ctx) {
       }
       value = await client.request('task.transcript', { id: taskId, after });
       if (!json) { printTranscript(value); return; }
-    } else if (verb === 'usage') {
-      exact(args, 1);
-      value = await client.request('task.usage', { id: id(args[0]) });
-      if (!json) { printUsage(value); return; }
     } else if (verb === 'message') { exact(args, 2); value = await client.request('task.message', { id: id(args[0]), body: args[1] }); }
     else if (verb === 'history') {
       const after = Number(option(args, '--after', '0')); exact(args, 1);
@@ -134,17 +113,13 @@ export async function run(command, args, ctx) {
       while (!TERMINAL.has(value.status));
       if (value.status !== 'completed') process.exitCode = 1;
     } else {
-      check(['inspect','cancel','retry','merge','integrate','reserve','resolve','resolve-divergence','resolve-child-divergence','analyze','unreserve','approve-merge','cleanup','verify','delete','clear'].includes(verb), 'unknown task command');
-      if (verb === 'clear') { exact(args, 0); value = await client.request('task.clear'); }
-      else if (verb === 'integrate') {
+      check(['inspect','cancel','retry','integrate','reserve','resolve','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup'].includes(verb), 'unknown task command');
+      if (verb === 'integrate') {
         exact(args, 2);
         value = await client.request('task.integrate', { id: id(args[0]), commit: args[1] });
       } else if (verb === 'reserve') {
         exact(args, 2);
         value = await client.request('task.reserve', { id: id(args[0]), kind: args[1] });
-      } else if (verb === 'analyze') {
-        exact(args, 2);
-        value = await client.request('task.analyze', { id: id(args[0]), question: args[1] });
       } else if (verb === 'resolve-child-divergence') {
         exact(args, 1);
         value = await client.request('task.resolve_child_divergence', { id: id(args[0]) });
@@ -157,17 +132,7 @@ export async function run(command, args, ctx) {
       } else if (verb === 'approve-merge') {
         exact(args, 3);
         value = await client.request('task.approve_merge', { id: id(args[0]), commit: args[1], baseline: args[2] });
-      } else if (verb === 'merge') {
-        // 一个 id 保持原有单任务输出语义；多个 id 走批量合并。
-        check(args.length >= 1, 'merge needs at least one task id');
-        const ids = args.map(value$1 => id(value$1));
-        if (ids.length === 1) value = await client.request('task.merge', { id: ids[0] });
-        else {
-          value = await client.request('task.merge_many', { ids });
-          if (!json) { printMergeMany(value); return; }
-        }
-      }
-      else if (verb === 'cleanup') {
+      } else if (verb === 'cleanup') {
         const keepBranch = args.includes('--keep-branch');
         if (keepBranch) args.splice(args.indexOf('--keep-branch'), 1);
         exact(args, 1); value = await client.request('task.cleanup', { id: id(args[0]), keep_branch: keepBranch });

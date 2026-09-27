@@ -80,6 +80,7 @@ function report(settings, json) {
 export async function run(command, args, { client, json }) {
   check(!client.token, 'agents cannot change runtime settings');
   const verb = args.shift() || 'show';
+  check(['show','set','reset'].includes(verb), 'unknown config command; use show, set or reset');
   if (verb === 'show') {
     exact(args, 0);
     const status = await client.request('system.status');

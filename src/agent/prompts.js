@@ -63,9 +63,9 @@ lush notice post '决策标题' --body '背景、影响和建议' --questions-fi
   lush task message ID '补充说明'
   lush progress plan inspect:确认现状 implement:实现 test:测试 git_commit:提交
   lush progress complete inspect
-  lush branch summary '一句话概括当前分支工作'
+  lush task transcript ID
 
-用户输入/草稿、task merge / verify / cancel / retry / cleanup / clear、branch merge / sync / archive、candidate 操作、notice answer / dismiss、agent 配置、daemon 和 web 控制均为用户专属。`,
+say 输入、固定提交合并批准、task cancel / retry / cleanup、branch bind / archive、notice answer / dismiss、agent 配置、daemon 和 web 控制均为用户专属。旧 Intent / Plan / Candidate / Showcase 命令已经下线。`,
   },
   analysis: {
     title: '角色：只读分支分析',
@@ -90,7 +90,7 @@ lush notice post '决策标题' --body '背景、影响和建议' --questions-fi
 
 子 Task 是独立 Task / worktree，不是等待式工具调用；派出后结束本轮，父 Task 静息、不轮询，子任务结算后信号会在下一轮送达。收到信号先核对 children、固定提交与实际 Git 状态，不重复派活。当前子任务分支不会在完成时自动进入你的分支；如要吸收已完成子任务代码，用 lush task integrate CHILD_ID CHILD_HEAD_COMMIT 显式确认固定提交（仅执行中的直接父 Agent 可用，快进失败要如实报告）。不得宣称未集成的代码已进入父分支。兄弟子任务先落地后，另一个已完子任务的固定提交常常不再能快进：此时用 lush task resolve-child-divergence CHILD_ID 派一个以该固定提交为基线的解分歧子任务去吸收你分支的新提交，等它结算后直接用 task.integrate 确认（要求它的提交同时包含那个固定子提交与你分派时的分支顶端，确认成功后原子任务一并结算）。不要用 rebase、篡改它分支或在你自己分支上伪造合并来解决分歧。你自己的分支上挂着子任务合并请求（信号或详情里的 reservation status 为 requested）时，先把该请求确认集成后，再继续在自己分支上提交新工作：请求已经固定了你的分支基线，你先提交就会让那个固定提交不再能快进（详情会显示 parent_moved 诊断）。那种情况不要自己伪造合并，如实报告，让用户选择撤销请求，或把该固定提交合入你的分支后再次确认（已在分支内时确认是幂等的）。遇到需要产品、架构或接口决策的歧义，先通过 Notice 问用户。用户为 pending 合并预约派出的源侧解分歧子任务，只有完成且其提交同时包含任务中固定的源和父提交时才能确认集成；先核对当前子任务与分支，调用 task.integrate 后再让原预约按最新父分支重新检查。解分歧子任务成功不代表 main 已合并，也不能用旧 branch.sync 代替确认。
 
-你可以使用 lush task spawn '目标' --role agent --name short-kebab-name 派生子 Task；完成消息与来源由 runtime 保留。不能使用用户专属的 task.merge、branch.merge、candidate.accept 等命令自行推进父分支。`,
+你可以使用 lush task spawn '目标' --name short-kebab-name 派生 agent 子 Task；完成消息与来源由 runtime 保留。不能自行推进 main/owner 分支，最终交付由用户批准固定 commit 和 baseline。`,
   },
   planner: {
     title: '角色：planner',

@@ -1,6 +1,6 @@
 # 一条 say 输入如何交付
 
-本文面向日常使用者，按当前默认的 `say` 路径说明从输入到代码落地的过程。旧 `input.submit` / `draft.commit` 的 Intent → Plan → Candidate 流程另见[历史流程](task-flow-1-planning.md)；不要把它当成新输入的前置步骤。
+本文记录 Task 中心输入与交付的设计细节。当前可用命令及下线功能以[核心 API 收敛](engineering/core-api.md)为准；下文提到的草稿、效果展示与旧 Intent 路径是历史描述，不能再作为当前操作步骤。
 
 ## 发送与执行
 

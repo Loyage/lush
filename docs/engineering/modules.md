@@ -32,7 +32,11 @@
 3. **一个分区只改自己分区里的文件。** 分区见下；跨分区要改的东西，先在 `docs/engineering/modules.md`
    里加一条接口，而不是直接伸手。
 
-## 公共面（拆不动，也不许变）
+## 当前公开 API
+
+精简后的 RPC 白名单与旧数据边界以[核心 API 收敛](core-api.md)和 `src/rpc/registry.js` 为准。以下接口表包含历史设计记录，不应当作仍可调用的公开能力。
+
+## 公共面（历史模块契约）
 
 - RPC 方法名与参数表（`registry.js` 的 `PARAMS`）、`USER_ONLY` / `AGENT_ONLY` 权限集合。兼容读面保留 `system.status` / `task.list` / `task.history`，有界 Web 读面增量增加 `system.summary` / `task.activity` / `task.page` / `task.history_page`。Agent 进度使用 `progress.plan(steps)` / `progress.complete(step)`，只允许当前 invocation 给自己的 task 写入。Agent 配置使用 `agent.config`（只读）、`agent.models(agent)`（按需读取本机 CLI 模型目录）、`agent.resources`（按需发现已安装 Pi 扩展与 Skills）与用户专属的 `agent.configure`（整份写入）。Agent 环境文件通过用户专属的 `agent.environment(target)` / `agent.environment.configure(target,values)` 读写，target 是 `common` 或九类角色；由于返回值可能含密钥，连读取也拒绝 agent token。运行设置读写使用用户专属的 `system.configure`（参数 `settings`，部分更新，`null` 清除该键回退环境默认）。
 - CLI 命令与 `lush help` 的语义。新增 `lush config [show]` 打印运行设置的生效值 / 环境默认值 / 是否被覆盖、快速路由前缀与设置文件路径，`lush config set concurrency|control-concurrency|call-timeout|task-call-limit|max-depth N` 写回，`lush config reset [concurrency|control-concurrency|call-timeout|task-call-limit|max-depth|all]` 清除覆盖，`lush config route list|add|remove|reset` 管理快速路由前缀表（`add PREFIX [--target worker|research]` 默认 worker，读当前生效表后整表写回，重复前缀报错；`remove PREFIX` 不存在报错；`reset` 写 `null` 回退默认；校验复用 `core/input-routes.js`，报错与核心一致）；`--json` 输出与 `system.status.settings` 同一份结构化读模型。两端都是用户专属，agent 调用被拒。命令面用连字符（`control-concurrency`），设置文件与 RPC 里是下划线（`control_concurrency` / `input_routes`）。

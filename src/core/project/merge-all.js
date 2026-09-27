@@ -134,21 +134,7 @@ export default {
 
   /** 单飞的异步驱动入口：同一目标同时只有一个驱动在跑。按运行 mode 分派旧一键合并或合并编排。 */
   scheduleMergeRun(target) {
-    if (this.stopping) return;
-    if (this.mergeRunsDriving.has(target)) return;
-    queueMicrotask(() => {
-      if (this.stopping) return;
-      const run = this.store.branchMergeRun(target);
-      const drive = run?.mode === 'orchestrate' ? () => this.driveOrchestrate(target) : () => this.driveMergeRun(target);
-      drive().catch(error => {
-        console.error(`merge run ${target}: ${error.stack || error}`);
-        try {
-          const current = this.store.branchMergeRun(target);
-          if (current?.mode === 'orchestrate') this.finishOrchestrate(target, 'failed', null, error.message);
-          else this.finishMergeRun(target, 'failed', error.message);
-        } catch { /* 终态清理失败不再递归 */ }
-      });
-    });
+    // Old orchestration runs remain recorded; the core API never resumes them.
   },
 
   /**

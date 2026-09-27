@@ -393,24 +393,24 @@ export default {
   },
 
   recover() {
-    this.recoverSleep();
+    // Legacy automation authorization is retained on disk but is not reactivated.
     // 抢占通道是进程内运行时状态：重启后不可能还有 invocation 在跑，残留请求必须清掉，
     // 否则下一次调用会在第一个安全边界被一条早已失效的请求误停。
     fs.rmSync(path.join(this.config.home, 'preempt'), { recursive: true, force: true });
     // A credential dies with the invocation that issued it; nothing survives a restart.
     this.store.run('UPDATE tasks SET agent_token_hash=NULL');
-    // 快速介绍的直连调用也随进程结束，遗留在 running 的记录如实落成失败。
-    this.store.introFailRunning('daemon interrupted; retry the quick intro');
+    // Historical quick-intro rows are retained unchanged; the feature is no longer resumed.
     // Never replay an invocation with unknown filesystem side effects.
-    for (const task of this.store.tasks()) if (task.status === 'running') this.cancel(task.id, 'daemon interrupted; inspect worktree and explicitly retry', 'failed');
-    this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging'");
+    for (const task of this.store.tasks()) if (task.status === 'running' && ['say','child'].includes(task.task_kind))
+      this.cancel(task.id, 'daemon interrupted; inspect worktree and explicitly retry', 'failed');
+    this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('say','child')");
     // A crash can land between committing an inbox message and queueing its owner.
     for (const task of this.store.tasks()) {
-      if (!TERMINAL.has(task.status) && this.hasActionableMessages(task.id)) this.wake(task.id);
+      if (['say','child'].includes(task.task_kind) && !TERMINAL.has(task.status) && this.hasActionableMessages(task.id)) this.wake(task.id);
     }
     // 中断的检验已经标成失败；对照基线是派生状态，顺手回收掉。
     for (const task of this.store.tasks()) {
-      if (task.role !== 'showcase' && task.baseline_workspace && TERMINAL.has(task.status)) {
+      if (['say','child'].includes(task.task_kind) && task.baseline_workspace && TERMINAL.has(task.status)) {
         this.workspaces.removeBaseline(task.id).catch(error => console.error(`verification ${task.id}: baseline cleanup failed: ${error.message}`));
       }
     }
@@ -436,23 +436,7 @@ export default {
         || (task.task_kind === 'child' && this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' LIMIT 1", task.id))))
         this.scheduleTerminalDivergenceFinalize(task.id);
     }
-    // 合并编排是 runtime 驱动、Task 静息（waiting），重启不会被 cancel；恢复时按目标分支重新驱动。
-    for (const { target, run } of this.store.activeBranchMergeRuns()) {
-      if (run.mode === 'orchestrate') this.scheduleMergeRun(target);
-    }
-    for (const task of this.store.tasks()) if (task.task_kind === 'say' && task.reservation) {
-      let reservation = null;
-      try { reservation = JSON.parse(task.reservation); } catch { /* leave corrupt state visible */ }
-      if (reservation?.kind === 'showcase' && reservation.status === 'started') this.settleReservedShowcase(task.id);
-      if (reservation?.kind === 'showcase' && reservation.status === 'pending' && task.status === 'waiting') {
-        void this.startReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
-      }
-      if (reservation?.kind === 'showcase' && reservation.status === 'preparing' && task.status === 'waiting') {
-        void this.signalReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
-      }
-    }
-    // 重启后重扫全部预约：资格可能已经满足，或者需要在新的准入下重新挂起。
-    this.scheduleShowcaseSweep();
+    // Legacy orchestrations and showcases remain on disk, without resuming their side effects.
   },
 
   async shutdown() {

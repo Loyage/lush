@@ -16,7 +16,7 @@ function mergeHandlers(groups) {
     table[method] = handler;
   }
   for (const method of Object.keys(PARAMS)) if (!Object.hasOwn(table, method)) throw new Error(`missing RPC handler: ${method}`);
-  return table;
+  return Object.fromEntries(Object.keys(PARAMS).map(method => [method, table[method]]));
 }
 
 export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers, showcaseHandlers]);

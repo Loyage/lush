@@ -177,18 +177,7 @@ export default {
    * 不挂在 pump 的每次调用上——只有明确的触发点（结算、预约、恢复、归档、合并/跟上）才调度。
    */
   scheduleShowcaseSweep() {
-    if (this.stopping) return;
-    if (this.showcaseSweeping) { this.showcaseSweepAgain = true; return; }
-    this.showcaseSweeping = true;
-    queueMicrotask(() => this.sweepShowcaseReservations()
-      .catch(error => {
-        this.store.event(null, 'showcase.sweep_failed', { error: error.message });
-        console.error(`showcase reservation sweep: ${error.stack || error}`);
-      })
-      .finally(() => {
-        this.showcaseSweeping = false;
-        if (this.showcaseSweepAgain) { this.showcaseSweepAgain = false; this.scheduleShowcaseSweep(); }
-      }));
+    // No new showcase work is started in the core API. Preserve old reservations on disk.
   },
 
   /** 遍历全部 pending 预约：通过完整准入的清除预约并启动展示，其余保持 pending（阻塞原因由 graph 现算）。 */

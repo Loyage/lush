@@ -1,47 +1,44 @@
 import { LushError, check, isPlainObject } from '../core/types.js';
 
+// Public API for the Task-centred workflow. Historical rows remain on disk, but
+// Intent/Plan/Candidate and optional services cannot create new work.
 export const PARAMS = {
-  'sleep.start': ['options','confirmed'], 'sleep.stop': [], 'sleep.resume': [], 'sleep.status': [], 'sleep.choices': ['before','limit'],
-  'system.usage': ['start','end','interval'], 'system.status': [], 'system.summary': [], 'system.stop': [], 'system.timeline': ['limit'], 'system.configure': ['settings'], 'agent.config': [], 'agent.models': ['agent'], 'agent.resources': [], 'agent.environment': ['target'], 'agent.environment.configure': ['target','values'], 'agent.configure': ['config'],
-  'say.submit': ['content','draft_id','branch','references'],
-  'input.submit': ['content','draft_id','branch','references'], 'input.list': [],
-  'draft.add': ['content','references'], 'draft.list': [], 'draft.remove': ['id'], 'draft.update': ['id','content','references'], 'draft.commit': ['ids','branch'],
-  'task.graph': [], 'task.list': ['after','limit'], 'task.activity': ['limit','scope'], 'task.page': ['before','limit','scope'], 'task.tree': ['id'], 'task.inspect': ['id'], 'task.history': ['id','after'], 'task.history_page': ['id','before','limit'], 'task.diff': ['id'],
-  'task.transcript': ['id','after','limit'], 'task.usage': ['id'],
-  'task.transcript_latest': ['id','after','before','limit'],
-  'task.transcript_page': ['id','seq','offset'],
-  'task.transcript_search': ['id','query','kind','tool','errors','after','limit'], 'task.transcript_step': ['id','seq','offset'],
-  'explanation.start': ['id','seq','quote'], 'explanation.list': ['id','before'], 'explanation.get': ['id'],
-  'intro.start': ['quote','location'], 'intro.list': ['id','before'], 'intro.get': ['id'], 'intro.config': [], 'intro.configure': ['config'],
+  'system.status': [], 'system.summary': [], 'system.stop': [], 'system.configure': ['settings'],
+  'agent.config': [], 'agent.models': ['agent'], 'agent.resources': [], 'agent.configure': ['config'],
+  'agent.environment': ['target'], 'agent.environment.configure': ['target','values'],
+  'say.submit': ['content','branch','references'],
+  'task.graph': [], 'task.list': ['after','limit'], 'task.activity': ['limit','scope'],
+  'task.page': ['before','limit','scope'], 'task.tree': ['id'], 'task.inspect': ['id'],
+  'task.history': ['id','after'], 'task.history_page': ['id','before','limit'], 'task.diff': ['id'],
+  'task.transcript': ['id','after','limit'], 'task.transcript_latest': ['id','after','before','limit'],
+  'task.transcript_page': ['id','seq','offset'], 'task.transcript_step': ['id','seq','offset'],
+  'task.transcript_search': ['id','query','kind','tool','errors','after','limit'],
+  'task.spawn': ['parent','goal','name'], 'task.integrate': ['id','commit'],
+  'task.reserve': ['id','kind'], 'task.resolve': ['id'], 'task.resolve_divergence': ['id'],
+  'task.resolve_child_divergence': ['id'], 'task.unreserve': ['id'],
+  'task.approve_merge': ['id','commit','baseline'], 'task.message': ['id','body'],
+  'task.cancel': ['id'], 'task.retry': ['id'], 'task.cleanup': ['id','keep_branch'],
   'progress.plan': ['steps'], 'progress.complete': ['step'],
-  'task.spawn': ['parent','goal','role','deps','name','spec'], 'task.integrate': ['id','commit'],
-  'task.reserve': ['id','kind'], 'task.resolve': ['id'], 'task.resolve_divergence': ['id'], 'task.resolve_child_divergence': ['id'], 'task.analyze': ['id','question'], 'task.unreserve': ['id'], 'task.approve_merge': ['id','commit','baseline'], 'task.message': ['id','body'], 'task.cancel': ['id'], 'task.retry': ['id','profile'],
-  'task.merge': ['id'], 'task.merge_many': ['ids'], 'task.cleanup': ['id','keep_branch'], 'task.verify': ['id'], 'task.delete': ['id'], 'task.clear': [], 'task.ladder': [],
-  'spec.list': [], 'spec.add': ['goal','role','name','deps'], 'spec.drop': ['id','note'],
-  'candidate.list': ['input'], 'candidate.inspect': ['id'], 'candidate.prepare': ['input','summary'], 'candidate.verify': ['id'],
-  'candidate.accept': ['id'], 'candidate.changes': ['id','feedback'], 'candidate.reject': ['id','reason'],
-  'showcase.start': ['branch','baseline'], 'showcase.reserve': ['branch'], 'showcase.unreserve': ['branch'], 'showcase.list': ['branch'], 'showcase.stop': ['id'], 'showcase.preview': ['command','path'],
-  'graph.get': [],
-  'branch.tree': [], 'branch.show': ['branch'], 'branch.import': [], 'branch.bind': ['branch','commit'], 'branch.merge': ['branch'], 'branch.sync': ['branch'], 'branch.catchup': ['branch'],
-  'branch.merge_plan': ['branch'], 'branch.merge_all': ['branch'], 'branch.merge_cancel': ['branch'],
-  'branch.orchestrate_plan': ['branch'], 'branch.orchestrate': ['branch'], 'branch.orchestrate_cancel': ['branch'],
-  'branch.archive': ['branch','discard'], 'branch.summary': ['branch','summary'],
-  'plan.propose': ['title','body'], 'plan.approve': ['id','answer'], 'plan.reject': ['id','reason'],
-  'notice.list': [], 'notice.page': ['status','before','limit'], 'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
+  'notice.list': [], 'notice.page': ['status','before','limit'],
+  'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
+  'branch.tree': [], 'branch.show': ['branch'], 'branch.bind': ['branch','commit'],
+  'branch.archive': ['branch','discard'], 'graph.get': [],
 };
-export const USER_ONLY = new Set(['sleep.start','sleep.stop','sleep.resume','sleep.status','sleep.choices','task.transcript_latest','task.transcript_page','task.transcript_search','task.transcript_step','explanation.start','explanation.list','explanation.get','intro.start','intro.list','intro.get','intro.config','intro.configure','showcase.start','showcase.reserve','showcase.unreserve','showcase.stop','system.usage','system.stop','system.configure','agent.configure','agent.environment','agent.environment.configure','say.submit','input.submit','draft.add','draft.remove','draft.update','draft.commit','task.reserve','task.resolve','task.resolve_divergence','task.analyze','task.unreserve','task.approve_merge','task.cancel','task.retry','task.merge','task.merge_many','task.cleanup','task.verify','task.delete','task.clear','notice.answer','notice.dismiss','plan.approve','plan.reject','candidate.prepare','candidate.verify','candidate.accept','candidate.changes','candidate.reject','branch.import','branch.bind','branch.merge','branch.sync','branch.catchup','branch.merge_all','branch.merge_cancel','branch.orchestrate','branch.orchestrate_cancel','branch.archive']);
-/** 拆解队列与计划审批由 agent 写入；用户只能查看（lush spec list / lush intents），批不批走 plan.approve|reject。 */
-export const AGENT_ONLY = new Set(['task.integrate','task.resolve_child_divergence','showcase.preview','spec.add','spec.drop','plan.propose','progress.plan','progress.complete']);
-/**
- * 统一的请求校验：params 是对象 → 方法在白名单 → 未知参数 → actor → USER_ONLY → AGENT_ONLY。
- * actor 解析有副作用（touchAgent），所以第三参允许传惰性 resolver：只有前三步都通过才会解析身份。
- */
+export const USER_ONLY = new Set([
+  'system.stop','system.configure','agent.configure','agent.environment','agent.environment.configure',
+  'say.submit','task.transcript_latest','task.transcript_page','task.transcript_step','task.transcript_search',
+  'task.reserve','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge',
+  'task.cancel','task.retry','task.cleanup','notice.answer','notice.dismiss','branch.bind','branch.archive',
+]);
+export const AGENT_ONLY = new Set([
+  'task.integrate','task.resolve_child_divergence','progress.plan','progress.complete',
+]);
 export function assertAllowed(method, params, actor) {
   check(isPlainObject(params), 'params must be an object');
   if (!Object.hasOwn(PARAMS, method)) throw new LushError(`unknown method: ${method}`, -32601);
   check(Object.keys(params).every(key => key === '_token' || PARAMS[method].includes(key)), 'unknown parameter');
   const who = typeof actor === 'function' ? actor() : actor;
   check(who === null || !USER_ONLY.has(method), `${method} requires user approval, not an agent`);
-  check(!(who === null && AGENT_ONLY.has(method)), `${method} is planner/agent only; users inspect the queue with lush spec list`);
+  check(!(who === null && AGENT_ONLY.has(method)), `${method} is agent only`);
   return who;
 }

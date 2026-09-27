@@ -1,156 +1,179 @@
-// 前端唯一入口：装配顶部按钮、hashchange 与两个定时器；其余职责都在同目录的模块里。
-import { $, el } from './dom.js';
-import { initAppearance, refreshTheme } from './appearance.js';
-import { show } from './messages.js';
-import { docsTarget, openDocs } from './docs.js';
-import { detail, overview } from './navigate.js';
-import { liveInterval } from './live.js';
-import { onPrefChange, pollingIntervals, readPref, setPref } from './prefs.js';
-import { liveRefresh, refresh, applySort, applyFilters } from './refresh.js';
-import { openGraph } from './render-graph.js';
-import { openTaskGraph } from './render-task-graph.js';
-import { openSettings } from './render-settings.js';
-import { openStatistics } from './render-statistics.js';
-import { initSidebar } from './sidebar-init.js';
-import { openResource, paintCollapsed } from './sidebar-ui.js';
-import { resetUiState, ui } from './state.js';
-import { initComposer } from './composer.js';
-import { SORT_MODES } from './tree-order.js';
-import { initContextReferences } from './context-references.js';
-import { hideHelp, initHelp } from './help.js';
-import { resetTranscriptReaders } from './transcript-reader.js';
-import { closeTranscriptTerminal } from './transcript-terminal.js';
-import { closeExplanationPanel } from './explanations.js';
-import { ensureProject, refreshProjectList } from './project-picker.js';
-import { initNoticeNotifications, resetNoticeNotifier } from './notice-notifications.js';
-import { initNoticeRecords } from './render-notices.js';
+import { agentHelp, initHelp } from './help.js';
 
-/* ---------- 左栏全局排序偏好（与设置页共用 lush.sidebarSort） ---------- */
-function syncSidebarSortSelect() {
-  const select = $('sidebar-sort');
-  select.replaceChildren(...SORT_MODES.map(mode => { const option = el('option', mode.label); option.value = mode.id; return option; }));
-  select.value = ui.sidebarSortMode;
-  select.title = '四个列表共用：智能排序会为任务、规划、输入与待决事项分别选择最有用的顺序；也可以统一按最近更新或编号排序。';
+const $ = id => document.getElementById(id);
+const prefix = /^\/p\/[a-z0-9]{16}(?=\/|$)/.exec(location.pathname)?.[0] ?? '';
+const text = (tag, value, className) => {
+  const node = document.createElement(tag);
+  node.textContent = String(value ?? '');
+  if (className) node.className = className;
+  return node;
+};
+function button(label, callback, { help, agent = false, danger = false } = {}) {
+  const node = text('button', label);
+  node.type = 'button';
+  if (help) node.dataset.help = agent ? agentHelp(help) : help;
+  if (agent) node.classList.add('agent-call');
+  if (danger) node.classList.add('danger');
+  node.addEventListener('click', async () => {
+    node.disabled = true;
+    try { await callback(); } catch (error) { feedback(error.message, true); }
+    finally { node.disabled = false; }
+  });
+  return node;
 }
-function onSidebarSortChange() { setPref('sidebarSort', $('sidebar-sort').value); }
-
-/* ---------- 动效偏好：勾选后强制减少，覆盖系统设置 ---------- */
-function applyReducedMotion(value) {
-  const root = typeof document !== 'undefined' ? document.documentElement : null;
-  if (!root?.dataset) return;
-  if (value) root.dataset.reducedMotion = 'true';
-  else delete root.dataset.reducedMotion;
+function feedback(message, error = false) {
+  $('feedback').textContent = message;
+  $('feedback').classList.toggle('error', error);
 }
-
-/* ---------- 偏好变更后的重画（「变更后重画」统一由 prefs.js 通知） ---------- */
-onPrefChange('sidebarSort', value => { ui.sidebarSortMode = value; syncSidebarSortSelect(); applySort(); });
-// 折叠 / 筛选平时只写盘（saveCollapsedPref / saveFiltersPref），不通知；resetPrefs() 清空它们后要把内存状态一起拉回默认。
-onPrefChange('collapsed', value => { ui.collapsed = value; paintCollapsed(); });
-onPrefChange('filters', value => { ui.filters = value; applyFilters({ persist: false }); });
-onPrefChange('reduceMotion', applyReducedMotion);
-onPrefChange('theme', () => refreshTheme());
-// 轮询频率变了：立刻按新间隔重建两个定时器，不必刷新页面。
-onPrefChange('polling', () => { if (refreshTimer !== null || liveTimer !== null) startTimers(); });
-
-const linked = taskId => /^#task-(\d+)$/.test(taskId) ? Number(taskId.slice(6)) : null;
-
-/** 打开分支图：点按钮与 #graph hash 共用；失败只报错，不中断轮询。 */
-function openGraphView() { return openGraph().catch(error => { show(error.message, 'error'); }); }
-
-/** 打开文档：点左栏「文档」与 #docs / #doc-<id> 共用；同样只报错，不中断轮询。 */
-function openDocsView(id = null) { return openDocs(id).catch(error => { show(error.message, 'error'); }); }
-
-// 地址栏是唯一的路由源：`#settings` / `#graph` / `#docs` / `#doc-ID` / `#task-ID`，其余回概览。
-// 每个分支都把 promise 返回出去：浏览器不看返回值，但测试能 await 到「画完」为止。
-function onHashChange() {
-  hideHelp(); // 换页前先把上一页的按钮提示收掉，避免固定浮层跨页残留。
-  const report = error => { show(error.message, 'error'); };
-  if (location.hash === '#statistics') return ui.statisticsOpen ? undefined : openStatistics();
-  if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
-  if (location.hash === '#graph') return ui.graphOpen ? undefined : openGraphView();
-  if (location.hash === '#task-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
-  const resource = /^#(notices|tasks|intents|specs)$/.exec(location.hash)?.[1];
-  if (resource) return openResource(resource, { push: false });
-  const doc = docsTarget(location.hash);
-  if (doc) return openDocsView(doc.id);
-  const next = linked(location.hash);
-  // 没有 hash 是项目概览；分支图使用显式 #graph，因此浏览器前进 / 后退不会含糊。
-  if (!next) return overview().catch(report);
-  return next === ui.selected ? undefined : detail(next).catch(report);
+async function request(path, options = {}) {
+  const response = await fetch(prefix + path, options);
+  const value = await response.json();
+  if (!response.ok || value?.error) throw new Error(value?.error ?? `HTTP ${response.status}`);
+  return value;
 }
-
-// 上一次注册的定时器与监听器；重复 boot() 前必须先清掉（bun test 在文件之间复用模块注册表）。
-let refreshTimer = null, liveTimer = null, hashListener = null, projectTimer = null, projectVisibilityListener = null;
-// 项目列表摘要不是热数据：低频刷新，且只对已经连接的项目读一次 system.summary。
-const PROJECT_LIST_INTERVAL_MS = 20000;
-
-/** 按当前「轮询频率」偏好重建两个定时器；标准档＝快照 1500ms + 实时 3000ms。 */
-function startTimers() {
-  if (refreshTimer !== null && typeof clearInterval === 'function') clearInterval(refreshTimer);
-  if (liveTimer !== null && typeof clearInterval === 'function') clearInterval(liveTimer);
-  refreshTimer = setInterval(refresh, pollingIntervals().snapshot);
-  liveTimer = setInterval(liveRefresh, liveInterval());
+const action = (method, params) => request('/api/action', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }),
+});
+async function refresh() {
+  const [tasks, notices] = await Promise.all([request('/api/tasks?limit=100'), request('/api/notices?status=open&limit=50')]);
+  $('tasks').replaceChildren(...tasks.tasks.filter(task => ['say','child','main','owner'].includes(task.task_kind)).reverse().map(task => {
+    const item = document.createElement('li');
+    item.append(button(`#${task.id} · ${task.status} · ${task.goal?.slice(0, 140) ?? task.task_kind}`, () => openTask(task.id),
+      { help: '查看目标、消息、交付状态和固定提交' }));
+    return item;
+  }));
+  $('notices').replaceChildren(...notices.notices.map(notice => {
+    const item = document.createElement('li');
+    item.append(text('p', `#${notice.id} · ${notice.title}`), text('p', notice.body ?? '', 'muted'));
+    if (notice.kind !== 'questionnaire') item.append(button('答复', async () => {
+      const answer = prompt(`答复 #${notice.id}`);
+      if (answer === null) return;
+      await action('notice.answer', { id: notice.id, answer });
+      await refresh();
+    }, { agent: true, help: '把答案提交给等待中的任务，可能唤醒 Agent；提交后无法撤回' }));
+    else item.append(text('small', `结构化问卷请用 CLI：lush notice answer ${notice.id} --answers-file FILE`));
+    return item;
+  }));
 }
-
-/**
- * 装配页面：先清掉上一次的定时器 / window 监听器，再按当前全局 DOM 重新接一遍。
- * 浏览器里只跑一次；DOM 测试会重复调用它来换上自己的 stub。
- */
-export async function boot() {
-  if (refreshTimer !== null && typeof clearInterval === 'function') clearInterval(refreshTimer);
-  if (liveTimer !== null && typeof clearInterval === 'function') clearInterval(liveTimer);
-  if (projectTimer !== null && typeof clearInterval === 'function') clearInterval(projectTimer);
-  if (hashListener !== null && typeof removeEventListener === 'function') removeEventListener('hashchange', hashListener);
-  if (projectVisibilityListener !== null && typeof removeEventListener === 'function') removeEventListener('visibilitychange', projectVisibilityListener);
-  refreshTimer = null; liveTimer = null; hashListener = null; projectTimer = null; projectVisibilityListener = null;
-  closeTranscriptTerminal();
-  resetUiState();
-  resetTranscriptReaders();
-  closeExplanationPanel();
-  resetNoticeNotifier();
-  await initNoticeNotifications();
-  initAppearance();                              // 按当前 DOM 重新绑定主题与头部按钮
-  applyReducedMotion(readPref('reduceMotion'));
-  if (!await ensureProject()) return;
-  syncSidebarSortSelect();
-  $('sidebar-sort').addEventListener('change', onSidebarSortChange);
-  projectTimer = setInterval(() => { void refreshProjectList(); }, PROJECT_LIST_INTERVAL_MS);
-  projectVisibilityListener = () => { if (document.visibilityState === 'visible') void refreshProjectList(); };
-  addEventListener('visibilitychange', projectVisibilityListener);
-  initContextReferences();
-  initHelp();                                    // 统一按钮帮助提示（document 级委托，可重复装配）
-  initComposer();
-  // 平级页面共享切换接缝；品牌回概览。入口返回 promise，测试可等到画完。
-  const goGraph = () => openGraphView();
-  const goOverview = () => overview().catch(error => { show(error.message, 'error'); });
-  $('home').onclick = goOverview;
-  $('overview-open').onclick = goOverview;
-  $('settings-open').onclick = () => openSettings();
-  $('statistics-open').onclick = () => openStatistics();
-  $('sidebar-toggle').onclick = () => {
-    const open = $('sidebar').classList.toggle('mobile-open');
-    $('sidebar-toggle').setAttribute('aria-expanded', String(open));
-    $('sidebar-toggle').textContent = open ? '收起菜单' : '导航菜单';
+async function openTask(id) {
+  const task = await request(`/api/task/${id}`);
+  const detail = $('task-detail');
+  detail.hidden = false;
+  detail.replaceChildren(text('h2', `Task #${task.id} · ${task.status}`), text('p', task.goal),
+    text('p', `分支：${task.branch ?? '无'} · 基线：${task.base_commit ?? '无'} · 顶端：${task.head_commit ?? '无'}`, 'muted'));
+  if (task.result) detail.append(text('h3', '结果'), text('p', task.result));
+  if (task.error) detail.append(text('p', task.error, 'muted'));
+  const actions = text('div', '', 'actions');
+  if (['say','child'].includes(task.task_kind) && !['completed','cancelled','failed'].includes(task.status)) {
+    actions.append(button('追加消息', async () => {
+      const body = prompt('给 Task 的补充说明');
+      if (!body?.trim()) return;
+      await action('task.message', { id, body }); await openTask(id);
+    }, { agent: true, help: '下一轮调用时交给同一个 Task；可能唤醒 Agent，但不会创建新任务' }));
+    actions.append(button('派子任务', async () => {
+      const goal = prompt('子任务目标');
+      if (!goal?.trim()) return;
+      await action('task.spawn', { parent: id, goal }); await refresh(); await openTask(id);
+    }, { agent: true, help: '创建独立分支和 worktree，由子 Agent 执行' }));
+  }
+  if (task.task_kind === 'say') {
+    const reservation = task.reservation;
+    if (task.status === 'waiting' || (task.status === 'completed' && reservation?.kind === 'showcase')) {
+      actions.append(button('请求合并 / 复查', async () => {
+        await action('task.reserve', { id, kind: 'merge' }); await openTask(id);
+      }, { help: '冻结固定提交并请求父 Task 集成；不会自动推进父分支' }));
+    }
+    if (reservation?.kind === 'merge' && ['pending','requested'].includes(reservation.status)) {
+      detail.append(text('p', `合并请求：${reservation.status} · ${reservation.blocked_reason ?? ''}`));
+      actions.append(button('撤销合并请求', async () => {
+        if (!confirm('撤销请求并释放父分支交付锁？分支与提交将保留。')) return;
+        await action('task.unreserve', { id }); await openTask(id);
+      }, { help: '撤销尚未集成的请求；保留任务、工作区和提交', danger: true }));
+      if (reservation.status === 'requested' && ['main','owner'].includes(task.parent_task_kind)) {
+        actions.append(button('批准固定提交', async () => {
+          if (!confirm(`将 ${reservation.commit} 按基线 ${reservation.baseline} 快进到父分支？请先审阅改动。`)) return;
+          await action('task.approve_merge', { id, commit: reservation.commit, baseline: reservation.baseline });
+          await refresh(); await openTask(id);
+        }, { help: '核对固定提交和父分支基线后快进；不会合并未提交改动' }));
+      }
+      if (reservation.blocked_code === 'diverged') actions.append(button('派解分歧任务', async () => {
+        await action('task.resolve_divergence', { id }); await refresh(); await openTask(id);
+      }, { agent: true, help: '在独立工作区处理源提交与父提交的分歧，不直接合入父分支' }));
+    }
+    if (task.status === 'waiting' && !task.head_commit) actions.append(button('标记已解决', async () => {
+      await action('task.resolve', { id }); await refresh(); await openTask(id);
+    }, { help: '仅在无代码改动、无活动 Agent 且工作区干净时完成任务' }));
+  }
+  if (!['completed','failed','cancelled'].includes(task.status) && !['main','owner'].includes(task.task_kind)) {
+    actions.append(button('取消任务', async () => {
+      if (!confirm('取消任务及子树？不会强制删除分支或工作区。')) return;
+      await action('task.cancel', { id }); await refresh(); await openTask(id);
+    }, { help: '停止任务及子任务；已有工作区和历史保留', danger: true }));
+  }
+  if (['failed','cancelled'].includes(task.status)) actions.append(button('重试', async () => {
+    await action('task.retry', { id }); await refresh(); await openTask(id);
+  }, { agent: true, help: '检查失败现场后重新启动该 Task 的 Agent' }));
+  actions.append(button('查看改动', async () => {
+    const result = await request(`/api/task/${id}/diff`);
+    detail.append(text('pre', JSON.stringify(result, null, 2)));
+  }));
+  actions.append(button('查看执行过程', async () => {
+    const result = await request(`/api/task/${id}/transcript`);
+    const entries = result.steps?.map(step => `#${step.seq} ${step.kind ?? ''}\n${step.text ?? step.body ?? JSON.stringify(step)}`) ?? [];
+    detail.append(text('pre', entries.join('\n\n') || '暂无会话记录'));
+    if (result.has_more) detail.append(text('small', '记录未全部加载；可用 lush task transcript ID 查看完整过程。'));
+  }, { help: '按需读取任务会话；页面不会执行日志中的命令' }));
+  detail.append(actions);
+  detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+async function launcher() {
+  const status = await request('/api/launcher');
+  if (status.mode !== 'launcher' || prefix) {
+    $('workspace').hidden = false;
+    $('project-home').hidden = status.mode !== 'launcher';
+    $('project-name').textContent = status.projects?.find(row => `/p/${row.id}` === prefix)?.name ?? status.project ?? '';
+    await refresh(); return;
+  }
+  $('launcher').hidden = false;
+  $('projects').replaceChildren(...status.projects.map(row => {
+    const item = document.createElement('li');
+    item.append(button(row.project, () => { location.href = `/p/${row.id}/`; }));
+    return item;
+  }));
+  $('project-form').onsubmit = async event => {
+    event.preventDefault();
+    try {
+      const response = await fetch('/api/launcher/select', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: $('project-path').value }) });
+      const value = await response.json();
+      if (!response.ok || value.error) throw new Error(value.error ?? `HTTP ${response.status}`);
+      location.href = `/p/${value.id}/`;
+    } catch (error) { feedback(error.message, true); }
   };
-  $('graph-open').onclick = goGraph;
-  $('task-graph-open').onclick = () => openTaskGraph().catch(error => { show(error.message, 'error'); });
-  $('docs-open').onclick = () => openDocsView();
-  $('view-back').onclick = () => {
-    if ($('view-back').disabled) return;
-    if (typeof window.history.back === 'function') return window.history.back();
-    return goOverview();
-  };
-  initSidebar();
-  initNoticeRecords();
-  hashListener = onHashChange;
-  addEventListener('hashchange', hashListener);
-  // 先确定页面归属，再开始取数；首次加载期间的导航也不会被启动逻辑抢回。
-  const initialView = onHashChange();
-  await refresh();
-  await initialView;
-  // 深链接设置页可能先于概览摘要到达；摘要就绪后补画配置与系统信息。
-  if (ui.settingsOpen) openSettings();
-  startTimers();
 }
-
-await boot();
+$('say-form').onsubmit = async event => {
+  event.preventDefault();
+  const submit = $('say-submit'); submit.disabled = true;
+  try {
+    const branch = $('parent-branch').value.trim();
+    const result = await action('say.submit', { content: $('goal').value, ...(branch ? { branch } : {}) });
+    $('goal').value = ''; feedback(`已创建 Task #${result.task.id}`);
+    await refresh(); await openTask(result.task.id);
+  } catch (error) { feedback(error.message, true); }
+  finally { submit.disabled = false; }
+};
+$('bind-form').onsubmit = async event => {
+  event.preventDefault();
+  const submit = $('bind-submit'); submit.disabled = true;
+  try {
+    const branch = $('bind-branch').value.trim(), commit = $('bind-commit').value.trim();
+    if (!confirm(`确认 ${branch} 的 HEAD 是 ${commit}？绑定不会移动 Git ref。`)) return;
+    const owner = await action('branch.bind', { branch, commit });
+    feedback(`已绑定 owner Task #${owner.id}`); await refresh();
+  } catch (error) { feedback(error.message, true); }
+  finally { submit.disabled = false; }
+};
+$('say-submit').dataset.help = agentHelp('从父分支创建独立 Task、分支和 worktree');
+$('refresh').onclick = () => refresh().catch(error => feedback(error.message, true));
+initHelp();
+launcher().catch(error => feedback(error.message, true));

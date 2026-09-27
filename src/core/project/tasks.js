@@ -29,8 +29,11 @@ export default {
     check(!['main','owner'].includes(parent.task_kind), 'branch owner Tasks accept new say Tasks, not unrestricted spawned work');
     check(parent.task_kind !== 'analysis', 'read-only analysis Tasks do not delegate; ask a new question instead');
     const taskKind = ['say','child'].includes(parent.task_kind) ? 'child' : null;
-    if (taskKind && parent.branch) this.assertBranchWritable(parent.branch, 'delegate more work while resolving divergence');
-    role = role ?? (taskKind ? 'agent' : 'worker');
+    check(taskKind === 'child', 'only say/child Tasks can delegate');
+    check(role === undefined || role === 'agent', 'child role must be agent');
+    check(Array.isArray(deps) && deps.length === 0 && specId === null, 'legacy deps and specs are not supported');
+    if (parent.branch) this.assertBranchWritable(parent.branch, 'delegate more work while resolving divergence');
+    role = 'agent';
     check(!TERMINAL.has(parent.status), 'cannot delegate from a terminal task');
     check(!['showcase', 'explainer', 'butler'].includes(parent.role), 'showcase and explanation agents cannot delegate development work');
     check(parent.role !== 'planner', 'planner 不再直接派活；用 lush spec add 写拆解队列，由 scheduler 编排');

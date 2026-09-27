@@ -1,6 +1,6 @@
 # 模块地图：CLI、RPC 与测试
 
-本章列出命令行、RPC 分派与测试文件边界；这些接缝连接 runtime 与外部调用方。
+本章记录命令行、RPC 分派与测试文件的历史模块边界。当前可调用的方法以[核心 API 收敛](core-api.md)和 `src/rpc/registry.js` 为准；下列旧模块并非都仍对外开放。
 
 > 模块地图：[总览](modules.md) → [Runtime 与持久化](modules-runtime.md) → [Web 前端](modules-web.md) → **CLI、RPC 与测试**
 
