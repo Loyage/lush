@@ -8,7 +8,8 @@
   "bin": { "lush": "./bin/lush", "lush-host": "./bin/lush-host", "lushd": "./bin/lushd" },
   "exports": { ".": "./src/index.js" },
   "scripts": {
-    "test": "bun test",
+    "test": "bun test --parallel=4",
+    "test:serial": "bun test",
     "docs:check": "bun ./scripts/docs-check.js",
     "measure:read-performance": "bun ./scripts/measure-read-performance.js",
     "lush": "bun ./bin/lush",
