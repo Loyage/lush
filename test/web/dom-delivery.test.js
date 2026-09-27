@@ -33,62 +33,46 @@ function sourceRow() {
     .find(row => row.querySelector('.graph-branch-name')?.textContent.includes(branch));
 }
 
-test('Task detail offers mutually exclusive booking; only showcase marks the Agent cost', async () => {
+test('Task detail offers an Agent merge request and showcase booking', async () => {
   renderDetail(say, null, null, null);
   const detail = dom.node('detail');
-  const showcase = buttonOf(detail, '预约展示'), merge = buttonOf(detail, '预约合并请求');
+  const merge = buttonOf(detail, '合并到父 Task'), showcase = buttonOf(detail, '预约展示');
+  // 两条都是 Agent 入口：合并请求交给父 Task 的 merge 子任务，展示会启动展示子 Agent。
+  expect(merge.classList.contains('agent-call')).toBe(true);
+  expect(merge.getAttribute('data-help')).toContain('消耗 token');
   expect(showcase.classList.contains('agent-call')).toBe(true);
   expect(showcase.getAttribute('data-help')).toContain('消耗 token');
-  expect(merge.classList.contains('agent-call')).toBe(false);
-  const pending = showcase.onclick();
-  expect(dialogText(dom)).toContain('原 Task 在展示结束前不会终结');
-  expect(buttonOf(dom.node('modal'), '预约展示').classList.contains('agent-call')).toBe(true);
+  const pending = merge.onclick();
+  expect(dialogText(dom)).toContain('merge 子任务');
   expect(world.state.actions.some(action => action.method === 'task.reserve')).toBe(false);
-  await answerDialog(dom, '预约展示'); await pending;
-  expect(world.state.actions).toContainEqual({ method: 'task.reserve', params: { id: say.id, kind: 'showcase' } });
+  await answerDialog(dom, '请求合并'); await pending;
+  expect(world.state.actions).toContainEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
 
-  renderDetail({ ...say, reservation: { version: 1, kind: 'showcase', status: 'pending', blocked_reason: '工作区有未提交改动' } }, null, null, null);
-  expect(deepText(dom.node('detail'))).toContain('上次检查未满足：工作区有未提交改动');
-  expect(buttonOf(dom.node('detail'), '预约合并请求')).toBeUndefined();
-  const recheck = buttonOf(dom.node('detail'), '复查预约');
-  expect(recheck.classList.contains('agent-call')).toBe(true);
-  const retry = recheck.onclick();
-  expect(dialogText(dom)).toContain('若已满足条件，会立即创建并启动展示子 Agent');
-  expect(world.state.actions.filter(action => action.method === 'task.reserve')).toHaveLength(1);
-  await answerDialog(dom, '复查展示'); await retry;
-  expect(world.state.actions.filter(action => action.method === 'task.reserve')).toHaveLength(2);
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'showcase' } });
-  renderDetail({ ...say, reservation: { version: 1, kind: 'showcase', status: 'pending', blocked_reason: '工作区有未提交改动' } }, null, null, null);
-  await buttonOf(dom.node('detail'), '撤销预约').onclick();
-  expect(world.state.actions).toContainEqual({ method: 'task.unreserve', params: { id: say.id } });
+  renderDetail(say, null, null, null);
+  await buttonOf(dom.node('detail'), '预约展示').onclick();
+  expect(world.state.actions).toContainEqual({ method: 'task.reserve', params: { id: say.id, kind: 'showcase' } });
 });
 
-test('idle say with a completed invocation and committed changes offers a merge request, not a future booking', async () => {
+test('idle say with committed changes requests a merge; v2 reservations expose recheck and withdraw', async () => {
   const done = { ...say, calls: 1, result: '已提交并测试', base_commit: baseline, head_commit: commit };
   renderDetail(done, null, null, null);
   let panel = dom.node('detail');
-  expect(buttonOf(panel, '预约展示')).toBeUndefined();
-  expect(buttonOf(panel, '预约合并请求')).toBeUndefined();
-  const request = buttonOf(panel, '请求合并');
+  const request = buttonOf(panel, '合并到父 Task');
   expect(request).toBeTruthy();
   const pending = request.onclick();
-  expect(dialogText(dom)).toContain('不会自动推进父分支');
-  expect(world.state.actions.some(action => action.method === 'task.approve_merge')).toBe(false);
-  await answerDialog(dom, '发起请求'); await pending;
+  expect(dialogText(dom)).toContain('merge 子任务');
+  await answerDialog(dom, '请求合并'); await pending;
   expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
 
-  renderGraph(graphFor(null, { done: true }), { force: true });
-  expect(buttonOf(sourceRow(), '请求合并')).toBeTruthy();
-  expect(buttonOf(sourceRow(), '预约展示')).toBeUndefined();
-  renderDetail({ ...done, reservation: { kind: 'merge', status: 'pending', blocked_reason: '工作区有未提交改动' } }, null, null, null);
+  // 新模型 reservation 是 version 2：pending 显示等待徽标与撤销，requested 显示冻结与复查。
+  renderDetail({ ...done, reservation: { version: 2, kind: 'merge', status: 'pending' } }, null, null, null);
   panel = dom.node('detail');
-  expect(deepText(panel)).toContain('合并请求待就绪');
-  expect(buttonOf(panel, '复查合并请求')).toBeTruthy();
-  expect(buttonOf(panel, '撤销合并请求意图')).toBeTruthy();
-  renderDetail({ ...done, head_commit: baseline }, null, null, null);
-  expect(buttonOf(dom.node('detail'), '请求合并')).toBeUndefined();
-  renderDetail({ ...done, status: 'running' }, null, null, null);
-  expect(buttonOf(dom.node('detail'), '请求合并')).toBeUndefined();
+  expect(deepText(panel)).toContain('已预约合并');
+  expect(buttonOf(panel, '撤销预约')).toBeTruthy();
+  renderDetail({ ...done, reservation: { version: 2, kind: 'merge', status: 'requested', commit, baseline } }, null, null, null);
+  panel = dom.node('detail');
+  expect(deepText(panel)).toContain('冻结');
+  expect(buttonOf(panel, '复查合并队列')).toBeTruthy();
 });
 
 test('branch graph uses the same fixed approval, never legacy branch.merge or branch showcase for new say', async () => {
@@ -130,9 +114,9 @@ test('a delivered showcase leaves the completed say a fixed merge request in the
   expect(deepText(row)).toContain('展示已交付');
   const request = buttonOf(row, '请求合并');
   expect(request).toBeTruthy();
-  expect(request.classList.contains('agent-call')).toBe(false);
+  expect(request.classList.contains('agent-call')).toBe(true);
   const pending = request.onclick();
-  expect(dialogText(dom)).toContain('原 Task 已结算');
+  expect(dialogText(dom)).toContain('原 Task');
   await answerDialog(dom, '发起请求'); await pending;
   expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
 });

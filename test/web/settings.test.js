@@ -32,8 +32,6 @@ const runtimeBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '并发额度') || null;
 const limitsBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '调用与拆解限额') || null;
-const routesBlock = () => [...panel().querySelectorAll('.block')]
-  .find(node => node.querySelector('h2')?.textContent === '输入前缀（仅旧提交路径）') || null;
 const environmentBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '环境变量') || null;
 
@@ -301,13 +299,13 @@ test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可�
   expect(world.state.agentConfig.default.default_prompt).toBe('');
 
   openAgent();
-  const planner = panel().querySelector('[data-agent-target="planner"]');
-  await findByText(planner, '单独配置').onclick();
-  expect(world.state.agentConfig.roles.planner).toMatchObject({ agent: 'codex', model: 'gpt-5.4-mini', thinking: 'high' });
-  card = panel().querySelector('[data-agent-target="planner"]');
-  const prompt = card.querySelector('textarea[data-agent-field="append_prompt"]'); prompt.value = '规划时先列风险。';
+  const agentRole = panel().querySelector('[data-agent-target="agent"]');
+  await findByText(agentRole, '单独配置').onclick();
+  expect(world.state.agentConfig.roles.agent).toMatchObject({ agent: 'codex', model: 'gpt-5.4-mini', thinking: 'high' });
+  card = panel().querySelector('[data-agent-target="agent"]');
+  const prompt = card.querySelector('textarea[data-agent-field="append_prompt"]'); prompt.value = '先列风险。';
   await findByText(card, '保存配置').onclick();
-  expect(world.state.agentConfig.roles.planner.append_prompt).toBe('规划时先列风险。');
+  expect(world.state.agentConfig.roles.agent.append_prompt).toBe('先列风险。');
 });
 
 test('Agent 页：环境变量按公共/角色文件读取，默认遮罩并可用键值表保存', async () => {
@@ -503,87 +501,4 @@ test('系统页：没有快照时显示占位', async () => {
   expect(deepText(block)).toContain('尚未收到 daemon 快照');
   // 后面的前缀用例需要快照回来，重新拉一次。
   await dom.intervalFor(1500)();
-});
-
-test('系统页：旧提交路径的前缀块列出、增删并按整表保存', async () => {
-  openSystem();
-  const routes = routesBlock();
-  expect(routes).toBeTruthy();
-  expect(routes.querySelectorAll('input.settings-route-prefix').map(node => node.value)).toEqual(['开发', '解释']);
-  expect(routes.querySelectorAll('select.settings-route-target').map(node => node.value)).toEqual(['worker', 'research']);
-  expect(deepText(routes)).toContain('默认前缀');
-
-  // 删掉第一行，新增一行并填 调研 / research。
-  await routes.querySelector('[data-route-action="remove"]').onclick();
-  await routes.querySelector('[data-route-action="add"]').onclick();
-  const rows = routesBlock();
-  expect(rows.querySelectorAll('.settings-route-row').length).toBe(2);
-  rows.querySelectorAll('input.settings-route-prefix')[1].value = '调研';
-  rows.querySelectorAll('select.settings-route-target')[1].value = 'research';
-  await rows.querySelector('[data-route-action="save"]').onclick();
-
-  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { settings: {
-    input_routes: [{ prefix: '解释', target: 'research' }, { prefix: '调研', target: 'research' }] } } });
-  expect(world.state.runtimeSettings.input_routes.overridden).toBe(true);
-  expect(state.ui.lastSnapshot.status.settings.input_routes.overridden).toBe(true);
-  expect(deepText(routesBlock())).toContain('已覆盖项目默认');
-});
-
-test('系统页：恢复默认前缀送 null 并回退默认表', async () => {
-  openSystem();
-  await routesBlock().querySelector('[data-route-action="reset"]').onclick();
-  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { settings: { input_routes: null } } });
-  expect(world.state.runtimeSettings.input_routes.overridden).toBe(false);
-  expect(world.state.runtimeSettings.input_routes.value).toEqual([{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }]);
-  expect(state.ui.lastSnapshot.status.settings.input_routes.overridden).toBe(false);
-  expect(deepText(routesBlock())).toContain('默认前缀');
-});
-
-test('系统页：前缀为空或重复时拦住，不发写请求', async () => {
-  openSystem();
-  const routes = routesBlock();
-  await routes.querySelector('[data-route-action="add"]').onclick();
-  const before = world.state.actions.length;
-  // 新增行还没有前缀：保存被拦住。
-  await routesBlock().querySelector('[data-route-action="save"]').onclick();
-  expect(world.state.actions.length).toBe(before);
-  expect(routesBlock().querySelector('[data-route-error=""]').textContent).toContain('为空');
-
-  // 与前一行重复的前缀同样拦住。
-  const rows = routesBlock();
-  rows.querySelectorAll('input.settings-route-prefix')[2].value = '开发';
-  await rows.querySelector('[data-route-action="save"]').onclick();
-  expect(world.state.actions.length).toBe(before);
-  expect(routesBlock().querySelector('[data-route-error=""]').textContent).toContain('重复');
-});
-
-test('设置页签：睡觉模式改名为托管模式且不再出现旧称', () => {
-  openSettings();
-  const tab = panel().querySelector('button.settings-tab[data-settings-tab="sleep"]');
-  expect(tab).toBeTruthy();
-  expect(deepText(tab)).toContain('托管模式');
-  expect(deepText(tab)).not.toContain('睡觉');
-});
-
-test('系统页：快速介绍配置可保存、读模型遮蔽 API Key 且能清除', async () => {
-  openSystem();
-  const block = () => [...panel().querySelectorAll('.block')]
-    .find(node => node.querySelector('h2')?.textContent === '快速介绍') || null;
-  expect(block()).toBeTruthy();
-  const before = world.state.actions.length;
-  block().querySelector('[data-intro-input="base_url"]').value = 'https://api.example.com/v1';
-  block().querySelector('[data-intro-input="model"]').value = 'demo-model';
-  block().querySelector('[data-intro-input="api_key"]').value = 'sk-secret-1234';
-  await block().querySelector('[data-intro-action="save"]').onclick();
-  const call = world.state.actions.slice(before).find(entry => entry.method === 'intro.configure');
-  expect(call.params.config).toEqual({ base_url: 'https://api.example.com/v1', model: 'demo-model', api_key: 'sk-secret-1234' });
-  expect(world.state.introConfig).toMatchObject({ base_url: 'https://api.example.com/v1', model: 'demo-model', has_key: true, key_hint: '••••1234', ready: true });
-  // 只写不显：输入框留空，占位显示已保存的尾号。
-  openSystem();
-  expect(block().querySelector('[data-intro-input="api_key"]').value).toBe('');
-  expect(block().querySelector('[data-intro-input="api_key"]').placeholder).toContain('••••1234');
-  expect(block().querySelector('[data-intro-source=""]').textContent).toContain('可调用');
-  await block().querySelector('[data-intro-action="clear-key"]').onclick();
-  expect(world.state.introConfig.has_key).toBe(false);
-  expect(block().querySelector('[data-intro-action="clear-key"]').disabled).toBe(true);
 });

@@ -22,13 +22,10 @@ test('原 Studio 页面在核心 API 下可加载、发送 say 并打开 Task �
   const { detail } = await import('../../src/ui/web/assets/navigate.js');
   await detail(task.id);
   expect(deepText(dom.node('detail'))).toContain('从原界面发送目标');
-  expect(deepText(dom.node('detail'))).not.toContain('预约展示');
   await dom.node('task-graph-open').onclick();
   expect(deepText(dom.node('detail'))).toContain('Task 图');
-  expect(deepText(dom.node('detail'))).not.toContain('编排合并全部');
   await dom.node('graph-open').onclick();
   expect(deepText(dom.node('detail'))).toContain('分支与合并');
-  expect(deepText(dom.node('detail'))).not.toContain('一键合并全部');
   await dom.node('settings-open').onclick();
   expect(deepText(dom.node('detail'))).toContain('设置');
   expect(deepText(dom.node('detail'))).not.toContain('托管模式');

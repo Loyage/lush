@@ -39,7 +39,7 @@ test('web exposes the read-only agent transcript and keeps sessions out of the r
     const snapshot = await (await fetch(f.url + '/api/snapshot')).json();
     expect(JSON.stringify(snapshot)).not.toContain('先看看代码');
     expect(snapshot.tasks.map(row => row.id)).not.toContain(task.id);
-    expect(snapshot.inputs[0]).toMatchObject({ task_id: task.id });
+    expect(snapshot.inputs).toEqual([]);
   } finally { await f.close(); }
 });
 

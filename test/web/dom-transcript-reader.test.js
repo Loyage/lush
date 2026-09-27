@@ -101,25 +101,6 @@ test('locating a search hit loads a centered window, keeps both boundaries and r
   } finally { transcriptCache.delete(973); ui.selected = null; resetTranscriptReaders(); dom.restore(); }
 });
 
-test('selected transcript text offers direct introduction, preserves quote and displays retained source in side panel', async () => {
-  const requests = [], step = { seq: 3, title: 'bash', body: 'exit code 1' };
-  const saved = { id: 72, status: 'completed', result: '命令以非零退出码结束，原因需要更多上下文。',
-    source: { task_id: 972, seq: 3, quote: 'exit code 1', captured_at: '2026-01-01', goal: 'test', step, related: [] } };
-  const dom = installDom({ fetch: async (url, options) => { requests.push([url, options]); return response(saved); } });
-  try {
-    initContextReferences();
-    const target = dom.document.createElement('pre'); target.textContent = step.body;
-    referenceable(target, { kind: 'transcript_step', target: { task_id: 972, seq: 3 }, quote: step.body });
-    dom.setSelection('exit code 1'); await dom.fire('contextmenu', { target, preventDefault() {} });
-    const introduce = findByText(dom.node('context-menu'), '介绍：'); expect(introduce).toBeTruthy();
-    introduce.onclick(); await until(() => deepText(dom.document.body).includes('非零退出码'));
-    expect(JSON.parse(requests[0][1].body)).toEqual({ method: 'explanation.start', params: { id: 972, seq: 3, quote: 'exit code 1' } });
-    expect(deepText(dom.document.body)).toContain('当时的来源快照');
-    expect(deepText(dom.document.body)).toContain('不是执行事实');
-    expect(ui.composerReferences).toHaveLength(0);
-  } finally { closeExplanationPanel(); dom.restore(); }
-});
-
 test('semantic tool body decodes real newlines, exposes edit pairs and keeps literal escapes and HTML inert', () => {
   const dom = installDom();
   try {

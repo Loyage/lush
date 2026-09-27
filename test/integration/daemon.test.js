@@ -15,22 +15,22 @@ test('real daemons: project isolation, duplicate start, immediate input, restart
     expect(main).toMatchObject({ task_kind: 'main', status: 'waiting', input_id: null });
     expect(await ca.request('task.inspect', { id: main.id })).toMatchObject({ branch: 'main', calls: 0 });
     expect((await cb.request('task.list')).find(task => task.task_kind === 'main')).toBeTruthy();
-    expect((await ca.request('branch.merge_all', { branch: 'main' })).status).toBe('empty');
+    expect((await ca.request('task.reserve_all', { branch: 'main' })).total).toBe(0);
     const diagnosis = await cli(a, ['doctor']);
     expect(diagnosis.daemon_code_match).toBe(true);
     expect(diagnosis.identities.current.fingerprint).toBe(diagnosis.identities.daemon.fingerprint);
     expect(diagnosis.daemon_code).toEqual(diagnosis.identities.daemon);
     expect(diagnosis.identities.daemon).toMatchObject({ pid: sa.pid, project: a });
-    expect(diagnosis.web_code).toBeNull();
-    expect(diagnosis.identities.web).toBeNull();
-    expect(diagnosis.web).toMatchObject({ running: false, code_match: null });
+    expect(diagnosis.host_code).toBeNull();
+    expect(diagnosis.identities.host).toBeNull();
+    expect(diagnosis.host).toMatchObject({ running: false, code_match: null });
     expect(diagnosis.update_hints).toEqual([]);
     expect((await cli(a,['start'])).already_running).toBe(true);
     const input = await cli(a,['say','original input']);
     expect((await idle(ca,input.task.id)).status).toBe('waiting');
     const booked = await ca.request('task.reserve', { id: input.task.id, kind: 'merge' });
     expect(booked.reservation.status).toBe('pending');
-    expect(await cb.request('input.list')).toEqual([]);
+    expect((await cb.request('task.list')).filter(task => task.task_kind === 'say')).toEqual([]);
     const before = await ca.request('task.tree');
     const restarted = await cli(a,['daemon-restart']); expect(restarted.pid).not.toBe(sa.pid);
     const after = await ca.request('task.tree');
@@ -61,6 +61,6 @@ test('daemon starts without a main ref but new say refuses to invent one', async
       .rejects.toThrow('explicitly bound Task');
     await expect(client.request('say.submit', { content: 'write a thing', branch: 'main' }))
       .rejects.toThrow('local main branch');
-    expect(await client.request('input.list')).toEqual([]);
+    expect((await client.request('task.list')).filter(task => task.task_kind === 'say')).toEqual([]);
   } finally { await cli(root, ['stop']).catch(() => {}); fs.rmSync(root, { recursive: true, force: true }); }
 }, 30000);

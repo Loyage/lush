@@ -28,6 +28,8 @@ function assetFile(pathname) {
 const MUTATIONS = new Set(['agent.configure','agent.environment.configure','system.configure','say.submit','task.spawn','task.message','task.reserve','task.reserve_all','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge','task.cancel','task.retry','task.interrupt','task.resume','task.configure','task.cleanup','notice.answer','notice.dismiss','branch.bind','branch.archive']);
 const CORE_READS = new Set(['/api/overview','/api/snapshot','/api/tasks','/api/notices','/api/graph','/api/task-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/environment','/api/docs','/api/docs/search-index']);
 const CORE_TASK_READ = /^\/api\/task\/\d+(?:\/(?:history|history-page|diff|usage|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
+// 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的任务读白名单漏掉。
+const CORE_NOTICE_PREVIEW = /^\/api\/task\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
 const CORE_DOC_READ = /^\/api\/docs\/[a-z0-9._-]+$/;
 /** 检验报告是 agent 写的自包含 HTML：只允许内联样式/脚本与 data: 图片，禁止任何外部加载与表单提交。
  *  主页面 CSP 不会作用于这个独立文档，所以这里必须自己收紧。 */
@@ -244,7 +246,7 @@ export function startWeb(config, port = 4318, options = {}) {
         const binding = projectApi ? (prefix ? await projectHost.openRoute(prefix[1]) : await projectHost.require()) : null;
         const client = binding?.client;
         if (request.method === 'GET') {
-          if (url.pathname.startsWith('/api/') && !CORE_READS.has(url.pathname) && !CORE_TASK_READ.test(url.pathname) && !CORE_DOC_READ.test(url.pathname))
+          if (url.pathname.startsWith('/api/') && !CORE_READS.has(url.pathname) && !CORE_TASK_READ.test(url.pathname) && !CORE_NOTICE_PREVIEW.test(url.pathname) && !CORE_DOC_READ.test(url.pathname))
             return json({ error: 'not found' }, 404);
           if (url.pathname === '/api/sleep') return json(await client.request('sleep.status'));
           if (url.pathname === '/api/sleep/choices') return json(await client.request('sleep.choices', {

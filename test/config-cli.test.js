@@ -130,100 +130,14 @@ test('config 参数错误与未知子命令、未知键都被拒绝', async () =
   await expect(runConfigCommand('config', ['set', 'bogus', '3'], { client, json: true })).rejects.toThrow('config set');
   await expect(runConfigCommand('config', ['set', 'concurrency'], { client, json: true })).rejects.toThrow('invalid arguments');
   await expect(runConfigCommand('config', ['set', 'concurrency', '3', 'extra'], { client, json: true })).rejects.toThrow('invalid arguments');
-  await expect(runConfigCommand('config', ['nope'], { client, json: true })).rejects.toThrow('config expects');
+  await expect(runConfigCommand('config', ['nope'], { client, json: true })).rejects.toThrow('unknown config command');
   expect(client.calls).toEqual([]);
 });
 
-test('config route list 读取生效前缀表与来源；省略子命令等价 list', async () => {
+test('config route 已下线：未知子命令被拒绝', async () => {
   const client = fakeClient();
-  expect(await runConfigCommand('config', ['route', 'list'], { client, json: true }))
-    .toEqual({ file: '/tmp/demo/.lush/settings.json', overridden: false, default: DEFAULT_ROUTES, routes: DEFAULT_ROUTES });
-  expect(client.calls).toEqual([{ method: 'system.status', params: undefined }]);
-
-  const omitted = fakeClient();
-  await runConfigCommand('config', ['route'], { client: omitted, json: true });
-  expect(omitted.calls).toEqual([{ method: 'system.status', params: undefined }]);
-});
-
-test('config route list 人类可读输出每条 prefix → target 与来源', async () => {
-  const lines = [];
-  const original = console.log;
-  console.log = (...args) => lines.push(args.join(' '));
-  try { await runConfigCommand('config', ['route', 'list'], { client: fakeClient(), json: false }); }
-  finally { console.log = original; }
-  const text = lines.join('\n');
-  expect(text).toContain('快速路由 input_routes\t生效 2 条 · 环境默认 2 条 · 环境默认');
-  expect(text).toContain('  开发 → worker');
-  expect(text).toContain('  解释 → research');
-});
-
-test('config route add 读当前表后整表写回，默认 worker', async () => {
-  const client = fakeClient();
-  const value = await runConfigCommand('config', ['route', 'add', '修复'], { client, json: true });
-  expect(client.calls).toEqual([
-    { method: 'system.status', params: undefined },
-    { method: 'system.configure', params: { settings: { input_routes: [
-      { prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }, { prefix: '修复', target: 'worker' }] } } },
-  ]);
-  expect(value.overridden).toBe(true);
-  expect(value.routes).toEqual([
-    { prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }, { prefix: '修复', target: 'worker' }]);
-});
-
-test('config route add --target research 归一到核心认可的目标', async () => {
-  const client = fakeClient();
-  await runConfigCommand('config', ['route', 'add', '调研', '--target', 'research'], { client, json: true });
-  expect(client.calls[1].params.settings.input_routes).toEqual([
-    { prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }, { prefix: '调研', target: 'research' }]);
-});
-
-test('config route add 重复前缀或非法 target 报核心一致的错，且不写回', async () => {
-  const duplicate = fakeClient();
-  await expect(runConfigCommand('config', ['route', 'add', '开发'], { client: duplicate, json: true }))
-    .rejects.toThrow('duplicate prefix');
-  expect(duplicate.calls.every(call => call.method === 'system.status')).toBe(true);
-  expect(duplicate.calls.some(call => call.method === 'system.configure')).toBe(false);
-
-  const badTarget = fakeClient();
-  await expect(runConfigCommand('config', ['route', 'add', '新', '--target', 'bogus'], { client: badTarget, json: true }))
-    .rejects.toThrow('target must be worker or research');
-  expect(badTarget.calls.some(call => call.method === 'system.configure')).toBe(false);
-
-  const blank = fakeClient();
-  await expect(runConfigCommand('config', ['route', 'add', 'a b'], { client: blank, json: true }))
-    .rejects.toThrow('non-whitespace');
-});
-
-test('config route remove 删除前缀并整表写回，不存在则报错', async () => {
-  const client = fakeClient();
-  const value = await runConfigCommand('config', ['route', 'remove', '解释'], { client, json: true });
-  expect(client.calls[1]).toEqual({ method: 'system.configure',
-    params: { settings: { input_routes: [{ prefix: '开发', target: 'worker' }] } } });
-  expect(value.overridden).toBe(true);
-  expect(value.routes).toEqual([{ prefix: '开发', target: 'worker' }]);
-
-  const missing = fakeClient();
-  await expect(runConfigCommand('config', ['route', 'remove', '不存在'], { client: missing, json: true }))
-    .rejects.toThrow('is not configured');
-  expect(missing.calls.some(call => call.method === 'system.configure')).toBe(false);
-});
-
-test('config route reset 写 null 回退默认表', async () => {
-  const client = fakeClient({ settings: statusModel({
-    input_routes: routes([...DEFAULT_ROUTES, { prefix: '修复', target: 'worker' }], true) }) });
-  const value = await runConfigCommand('config', ['route', 'reset'], { client, json: true });
-  expect(client.calls).toEqual([{ method: 'system.configure', params: { settings: { input_routes: null } } }]);
-  expect(value.overridden).toBe(false);
-  expect(value.routes).toEqual(DEFAULT_ROUTES);
-});
-
-test('config route 参数错误与未知动作被拒绝', async () => {
-  const client = fakeClient();
-  await expect(runConfigCommand('config', ['route', 'nope'], { client, json: true })).rejects.toThrow('config route expects');
-  await expect(runConfigCommand('config', ['route', 'add'], { client, json: true })).rejects.toThrow('expects a prefix');
-  await expect(runConfigCommand('config', ['route', 'remove'], { client, json: true })).rejects.toThrow('expects a prefix');
-  await expect(runConfigCommand('config', ['route', 'add', '开发', 'extra'], { client, json: true })).rejects.toThrow('invalid arguments');
-  await expect(runConfigCommand('config', ['route', 'reset', 'extra'], { client, json: true })).rejects.toThrow('invalid arguments');
+  await expect(runConfigCommand('config', ['route', 'list'], { client, json: true })).rejects.toThrow('unknown config command');
+  await expect(runConfigCommand('config', ['route', 'add', '修复'], { client, json: true })).rejects.toThrow('unknown config command');
   expect(client.calls).toEqual([]);
 });
 
@@ -231,20 +145,10 @@ test('config 是用户专属：带 agent token 调用被拒', async () => {
   const client = fakeClient({ token: 'agent-token' });
   await expect(runConfigCommand('config', ['show'], { client, json: true })).rejects.toThrow('agents cannot change runtime settings');
   await expect(runConfigCommand('config', ['set', 'concurrency', '8'], { client, json: true })).rejects.toThrow('agents cannot change runtime settings');
-  await expect(runConfigCommand('config', ['route', 'add', '修复'], { client, json: true })).rejects.toThrow('agents cannot change runtime settings');
-  await expect(runConfigCommand('config', ['route', 'reset'], { client, json: true })).rejects.toThrow('agents cannot change runtime settings');
   expect(client.calls).toEqual([]);
 });
 
-test('help 列出 config 的并发与 route 子命令', () => {
-  expect(HELP).toContain('config set concurrency');
-  expect(HELP).toContain('config set control-concurrency');
-  expect(HELP).toContain('config set call-timeout');
-  expect(HELP).toContain('config set task-call-limit');
-  expect(HELP).toContain('config set max-depth');
-  expect(HELP).toContain('config reset');
-  expect(HELP).toContain('config route list');
-  expect(HELP).toContain('config route add PREFIX [--target worker|research]');
-  expect(HELP).toContain('config route remove PREFIX');
-  expect(HELP).toContain('config route reset');
+test('help 列出 config 的并发与限额子命令，不再列 route', () => {
+  expect(HELP).toContain('config show|set|reset');
+  expect(HELP).not.toContain('config route');
 });

@@ -10,20 +10,16 @@ function controlled() {
   } };
 }
 
-/** planner 只写 spec 队列（spawn 会拒绝 planner 父任务）；测试里用它造一个能直接派活的非 planner 任务。 */
-function host(f, { role = 'coordinator', goal = 'host', input_id = null, run = false } = {}) {
-  const task = f.store.create({ input_id, role, goal });
-  if (!run) f.store.update(task.id, { status: 'waiting' });
-  return task;
-}
-
 test('depth and invocation limits bound runaway agents', async () => {
-  const f = fixture({ async run({task, api}) { api.message(task.id, 'again'); return 'loop'; } }, {LUSH_TASK_CALLS:'2', LUSH_MAX_DEPTH:'2'}); await repo(f.root);
+  const f = fixture({ async run({task, api}) { api.message(task.id, 'again'); return 'loop'; } }, {LUSH_TASK_CALLS:'2', LUSH_MAX_DEPTH:'3'}); await repo(f.root);
   try {
-    const root = host(f, { goal: 'root', run: true });
+    f.project.stopping = true;
+    const root = (await f.project.say('root')).task;
+    const child = await f.project.spawn(root.id,'child', undefined, [], 'child');
+    // depth: main → say root → child is already at the limit.
+    expect(() => f.project.spawn(child.id,'too deep', undefined, [], 'deep')).toThrow('nesting');
+    f.project.stopping = false;
     f.project.kick();
-    const child = f.project.spawn(root.id,'child','research');
-    expect(() => f.project.spawn(child.id,'too deep','research')).toThrow('nesting');
     await until(() => f.store.task(root.id).status === 'failed');
     expect(f.store.task(root.id).error).toContain('invocation limit');
   } finally { await f.close(); }
@@ -32,7 +28,7 @@ test('depth and invocation limits bound runaway agents', async () => {
 test('timeout aborts invocation and frees the agent slot', async () => {
   const provider = controlled(), f = fixture(provider, {LUSH_CALL_TIMEOUT:'1'}); await repo(f.root);
   try {
-    const task = (await f.project.submit('timeout')).task;
+    const task = (await f.project.say('timeout')).task;
     await until(() => f.store.task(task.id).status === 'failed');
     expect(provider.calls[0].signal.aborted).toBe(true);
     expect(f.store.task(task.id).error).toBe('agent invocation timed out after 1 second');

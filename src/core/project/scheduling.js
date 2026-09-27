@@ -89,7 +89,7 @@ export default {
     let butlerRunning = [...this.running.values()].filter(run => run.role === 'butler').length;
     let executionRunning = this.running.size - controlRunning - butlerRunning;
     for (const task of this.store.all("SELECT * FROM tasks WHERE status='queued' ORDER BY id")) {
-      if (!['say','child'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
+      if (!['say','child','showcase'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
       if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.
       if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') continue;
       if (this.running.has(task.id)) continue;
@@ -143,8 +143,14 @@ export default {
             const settle = reservation.version === 2 ? this.settleQueuedMerge(task.id) : this.settleReservedMerge(task.id);
             await settle.catch(error => this.noteReservationBlocked(task.id, error.message));
           }
-          if (settled.status === 'waiting' && reservation?.kind === 'showcase' && reservation.status === 'preparing') {
-            await this.signalReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+          if (settled.status === 'waiting' && reservation?.kind === 'showcase' && ['preparing','started'].includes(reservation.status)) {
+            const showcaseChild = reservation.child_id ? this.store.task(reservation.child_id) : null;
+            // 展示子 Task 已经终结（成功/失败/取消）：原 say 该就此收束，而不是继续等一个已经结束的信号。
+            if (showcaseChild && TERMINAL.has(showcaseChild.status)) {
+              await this.settleReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+            } else if (reservation.status === 'preparing') {
+              await this.signalReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+            }
           }
           if (settled.status === 'waiting' && reservation?.kind === 'showcase' && reservation.status === 'pending') {
             await this.startReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));

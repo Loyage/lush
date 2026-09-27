@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
-import { fixture, repo, temp } from '../helpers.js';
+import { fixture, repo, temp, env as cleanEnv } from '../helpers.js';
 import { RPCServer } from '../../src/rpc/server.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { createSignal } from '../../src/signal.js';
@@ -13,7 +13,7 @@ test('Host 只探测已登记项目的 lushd，读取列表不启动项目', asy
   const f = fixture();
   await repo(f.root);
   const global = temp();
-  const env = { ...process.env, LUSH_GLOBAL_CONFIG: global };
+  const env = cleanEnv({ LUSH_GLOBAL_CONFIG: global });
   writeLauncherState(f.config.project, env);
   const web = startWeb(null, 0, { env, openProject: async () => { throw new Error('列表不得启动 lushd'); } });
   const url = `http://127.0.0.1:${web.port}`;
@@ -42,7 +42,7 @@ test('两个真实项目的 daemon 同时连在一个全局 Web 下，A 的写�
   const rpcA = new RPCServer(a.config.socket, new Dispatcher(a.project, createSignal(), {})); await rpcA.start();
   const rpcB = new RPCServer(b.config.socket, new Dispatcher(b.project, createSignal(), {})); await rpcB.start();
   const global = temp();
-  const env = { ...process.env, LUSH_GLOBAL_CONFIG: global };
+  const env = cleanEnv({ LUSH_GLOBAL_CONFIG: global });
   const byPath = new Map([[a.config.project, a], [b.config.project, b]]);
   const web = startWeb(null, 0, { env, openProject: async project => {
     const f = byPath.get(project);

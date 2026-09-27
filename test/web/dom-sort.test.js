@@ -39,33 +39,25 @@ afterAll(() => dom.restore());
 
 /** 一个列表里当前的条目文本顺序；selector 默认取卡片正文。 */
 const texts = (container, selector) => dom.node(container).querySelectorAll(selector).map(node => node.textContent);
-const intents = () => texts('intents', '.intent-goal');
-const specs = () => texts('specs', '.spec-goal');
 const notices = () => texts('notices', '.goal');
 const tasks = () => texts('tasks', '.goal');
 
-test('排序：一个左栏全局控件同时作用于四个列表，切换后不等轮询就重画', async () => {
+test('排序：一个左栏全局控件同时作用于待定记录与任务树，切换后不等轮询就重画', async () => {
   await dom.intervalFor(1500)();
   const sort = dom.node('sidebar-sort');
-  // 默认智能排序：历史输入保持接口顺序，规划任务组内编号升序，待定事项保持返回顺序
-  expect(intents()).toEqual(['老输入', '新输入']);
-  expect(specs()).toEqual(['老规划', '新规划']);
+  // 默认智能排序：待定事项保持返回顺序，行动任务按兄弟最近更新
   expect(notices()).toEqual(['老问题', '新问题']);
   expect(tasks()).toEqual(['正在改点什么', '合并我', '另一个待合的']);
 
-  // 按最近更新：四个列表一起翻过来（都在同一份快照上重排，没有 interval）
+  // 按最近更新：两个列表一起翻过来（都在同一份快照上重排，没有 interval）
   sort.value = 'updated';
   await sort.listeners.change[0]();
-  expect(intents()).toEqual(['新输入', '老输入']);       // planner 最近动过的在前
-  expect(specs()).toEqual(['新规划', '老规划']);         // 组内按 updated_at 倒序
-  expect(notices()).toEqual(['新问题', '老问题']);       // created_at 倒序
+  expect(notices()).toEqual(['新问题', '老问题']);
   expect(tasks()).toEqual(['正在改点什么', '合并我', '另一个待合的']);   // 行动任务仍只重排兄弟
 
-  // 按编号（新在前）：四个列表都用 id 倒序
+  // 按编号（新在前）
   sort.value = 'id';
   await sort.listeners.change[0]();
-  expect(intents()).toEqual(['新输入', '老输入']);
-  expect(specs()).toEqual(['新规划', '老规划']);
   expect(notices()).toEqual(['新问题', '老问题']);
   expect(tasks()).toEqual(['另一个待合的', '合并我', '正在改点什么']);
 });

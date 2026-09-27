@@ -835,6 +835,9 @@ export default {
     if (!TERMINAL.has(child.status)) return task;
     check(child.parent_id === task.id && child.task_kind === 'showcase' && child.role === 'showcase',
       'reserved showcase child identity changed; inspect before settlement');
+    // 子 Task 可能在原 say 本轮调用还没收尾时就已结算：等它到达等待安全点后，
+    // 由调度 finally 再调用这里收束，避免 finish 的「say 结束必须等展示子 Task 结算」被打破。
+    if (task.status !== 'waiting') return task;
     const status = child.status === 'completed' ? 'completed' : child.status === 'cancelled' ? 'cancelled' : 'failed';
     return this.finish(task.id, status, child.result, child.error, { showcaseSettlement: child.id });
   },

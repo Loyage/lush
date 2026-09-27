@@ -22,8 +22,8 @@ test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash �
   const load = () => dom.intervalFor(1500)();
   await load();
   const detail = dom.node('detail');
-  // Intent 成果区只在概览出现；回不去概览等于工作台入口消失。
-  const onOverview = () => findByText(detail, 'Intent 与最新成果');
+  // 最近任务区只在概览出现；回不去概览等于工作台入口消失。
+  const onOverview = () => findByText(detail, '最近任务');
   expect(deepText(detail)).toContain('项目概览');
   expect(onOverview()).toBeTruthy();
 
@@ -31,7 +31,7 @@ test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash �
   // 并且这次要压栈，否则浏览器后退无处可退。
   const pushedBefore = dom.pushed();
   await dom.node('tasks').querySelector('[data-id="1"]').onclick();
-  await until(() => findByText(detail, '追加说明'), 2000);
+  await until(() => findByText(detail, '任务目标'), 2000);
   expect(dom.location.hash).toBe('#task-1');
   expect(dom.pushed()).toBeGreaterThan(pushedBefore);
   expect(onOverview()).toBeNull();
@@ -44,7 +44,7 @@ test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash �
   // 浏览器后退到无 hash 的地址：也是回概览，不是停在一个点不到概览的详情上。
   dom.location.hash = '#task-1';
   await dom.fire('hashchange');
-  await until(() => findByText(detail, '追加说明'), 2000);
+  await until(() => findByText(detail, '任务目标'), 2000);
   dom.location.hash = '';
   await dom.fire('hashchange');
   await until(onOverview, 2000);

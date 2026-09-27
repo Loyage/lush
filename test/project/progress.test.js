@@ -40,8 +40,7 @@ test('预约读模型：version 2 的合并请求原样交给 UI，旧形态继�
 test('agent progress is bound to its live task and preserves completed stable keys across replans', async () => {
   const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
-    const task = f.store.create({ role: 'coordinator', goal: 'coordinate progress', input_id: null });
-    f.project.kick();
+    const task = (await f.project.say('coordinate progress')).task;
     await until(() => provider.calls.length === 1);
     const token = f.project.running.get(task.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});
@@ -75,7 +74,7 @@ test('agent progress is bound to its live task and preserves completed stable ke
         completed_at: completed.progress.items[0].completed_at, duration_ms: completed.progress.items[0].duration_ms },
       { key: 'implement', status: 'pending' }, { key: 'test', status: 'pending', started_at: null },
     ]);
-    expect(f.project.decorate(f.store.summaries('work'))[0].progress.items[0].status).toBe('completed');
+    expect(f.project.decorate(f.store.summaries('work')).find(item => item.id === task.id).progress.items[0].status).toBe('completed');
     await expect(rpc.dispatch('progress.complete', { _token: token, step: 'missing' })).rejects.toThrow('not in the current plan');
     expect(f.store.history(task.id, 0).map(event => event.type)).toContain('progress.completed');
   } finally { await f.close(); }
@@ -114,9 +113,9 @@ test('progress timing excludes waiting and surfaces it as a separate plan entry'
 
 test('a parked parent shows waiting as its own plan entry in inspect and tree summaries', async () => {
   const provider = controlled(), f = fixture(provider);
+  await repo(f.root);
   try {
-    const parent = f.store.create({ role: 'coordinator', goal: 'parent waits for child', input_id: null });
-    f.project.kick();
+    const parent = (await f.project.say('parent waits for child')).task;
     await until(() => provider.calls.length === 1);
     const token = f.project.running.get(parent.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});
@@ -124,7 +123,7 @@ test('a parked parent shows waiting as its own plan entry in inspect and tree su
       { key: 'delegate', label: '派发' }, { key: 'collect', label: '收集结果' },
     ] });
     await rpc.dispatch('progress.complete', { _token: token, step: 'delegate' });
-    const child = f.project.spawn(parent.id, 'child work', 'research');
+    const child = await f.project.spawn(parent.id, 'child work', undefined, [], 'child');
     provider.calls[0].done.resolve('delegated');
     await until(() => f.store.task(parent.id).status === 'waiting' && f.store.task(child.id).status === 'running');
     // 等一小段真实时间，让「等子任务」的区间长得足够生成等待行。

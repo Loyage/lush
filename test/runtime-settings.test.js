@@ -97,17 +97,16 @@ test('call timeout / task call limit / max depth are runtime-overridable and val
 });
 
 test('runtime max_depth override reaches later spawns without restart', async () => {
-  const f = fixture(controlled(), { LUSH_MAX_DEPTH: '2' });
+  const f = fixture(controlled(), { LUSH_MAX_DEPTH: '3' });
   await repo(f.root);
   try {
-    const root = f.store.create({ input_id: null, role: 'coordinator', goal: 'root' });
-    f.store.update(root.id, { status: 'waiting' });
-    const child = f.project.spawn(root.id, 'child', 'research');
-    expect(() => f.project.spawn(child.id, 'too deep', 'research')).toThrow('nesting');
+    const root = (await f.project.say('root')).task;
+    const child = await f.project.spawn(root.id, 'child', undefined, [], 'child');
+    expect(() => f.project.spawn(child.id, 'too deep', undefined, [], 'too-deep')).toThrow('nesting');
     // 调高后同一个 daemon 立即允许更深的派生，不需要重启。
-    expect(f.project.configureRuntimeSettings({ max_depth: 4 }).max_depth).toEqual({ value: 4, default: 2, overridden: true });
-    const grandchild = f.project.spawn(child.id, 'grandchild', 'research');
-    const great = f.project.spawn(grandchild.id, 'great', 'research');
+    expect(f.project.configureRuntimeSettings({ max_depth: 5 }).max_depth).toEqual({ value: 5, default: 3, overridden: true });
+    const grandchild = await f.project.spawn(child.id, 'grandchild', undefined, [], 'grandchild');
+    const great = await f.project.spawn(grandchild.id, 'great', undefined, [], 'great');
     expect(great.parent_id).toBe(grandchild.id);
   } finally { await f.close(); }
 });
@@ -163,9 +162,8 @@ test('raising the limit admits queued work immediately; lowering it cancels noth
   const f = fixture(provider, { LUSH_CONCURRENCY: '1' });
   await repo(f.root);
   try {
-    const first = f.store.create({ input_id: null, role: 'coordinator', goal: 'first' });
-    const second = f.store.create({ input_id: null, role: 'coordinator', goal: 'second' });
-    f.project.kick();
+    const first = (await f.project.say('first')).task;
+    const second = (await f.project.say('second')).task;
     await until(() => f.project.running.size === 1);
     expect(f.project.running.has(first.id)).toBe(true);
     expect(f.project.status().settings.concurrency).toEqual({ value: 1, default: 1, overridden: false });
@@ -187,6 +185,7 @@ test('raising the limit admits queued work immediately; lowering it cancels noth
     expect(f.project.status()).toMatchObject({ concurrency: 1, control_concurrency: 9 });
     expect(fs.existsSync(path.join(f.config.home, 'settings.json'))).toBe(true);
 
+    await until(() => provider.calls.length === 2);
     for (const call of provider.calls) call.done.resolve('done');
     await until(() => f.project.running.size === 0);
     // 重新打开配置也读到持久化的生效值。

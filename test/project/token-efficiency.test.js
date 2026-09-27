@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { fixture, gate, repo, until, git } from '../helpers.js';
+import { fixture, gate, repo, until } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { createSignal } from '../../src/signal.js';
 
@@ -32,96 +32,12 @@ test('context contains only causal neighbours and bounded summaries, not project
   } finally { await f.close(); }
 });
 
-test('input.submit rejects the removed direct parameter as unknown', async () => {
+test('input.submit is retired and rejects the whole method as unknown', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const rpc = new Dispatcher(f.project, createSignal(), {});
-    await expect(rpc.dispatch('input.submit', { content: 'change exactly one thing', direct: true })).rejects.toThrow('unknown parameter');
+    await expect(rpc.dispatch('input.submit', { content: 'change exactly one thing', direct: true })).rejects.toThrow('unknown method');
     expect(f.project.inputs()).toHaveLength(0);
-  } finally { await f.close(); }
-});
-
-test('ordinary successful children wake a coordinator once, after the whole wave', async () => {
-  const provider = controlled(), f = fixture(provider);
-  try {
-    const parent = f.store.create({ role: 'coordinator', goal: 'wave', input_id: null }); f.project.kick();
-    await until(() => provider.calls.length === 1);
-    const a = f.project.spawn(parent.id, 'a', 'research'), b = f.project.spawn(parent.id, 'b', 'research');
-    provider.calls[0].done.resolve('delegated');
-    await until(() => provider.calls.length === 3 && f.store.task(parent.id).status === 'waiting');
-    provider.calls.find(call => call.task.id === a.id).done.resolve('x'.repeat(5000));
-    await until(() => f.store.task(a.id).status === 'completed' && !f.project.running.has(a.id));
-    expect(f.project.hasActionableMessages(parent.id)).toBe(false);
-    f.project.wake(parent.id);
-    await Bun.sleep(20);
-    expect(provider.calls.filter(call => call.task.id === parent.id)).toHaveLength(1);
-    expect(f.store.task(parent.id).status).toBe('waiting');
-    expect(f.store.unread(parent.id)).toHaveLength(1);
-    expect(JSON.parse(f.store.unread(parent.id)[0].body).result_truncated).toBe(true);
-    provider.calls.find(call => call.task.id === b.id).done.resolve('b done');
-    await until(() => provider.calls.filter(call => call.task.id === parent.id).length === 2);
-    const final = provider.calls.filter(call => call.task.id === parent.id)[1];
-    expect(final.messages).toHaveLength(2); final.done.resolve('wave summary');
-    await until(() => f.store.task(parent.id).status === 'completed');
-    expect(f.store.unread(parent.id)).toHaveLength(0);
-  } finally { await f.close(); }
-});
-
-test('coalescing survives parent cleanup races and explicit messages interrupt the wait', async () => {
-  const provider = controlled(), f = fixture(provider);
-  try {
-    const parent = f.store.create({ role: 'coordinator', goal: 'wave', input_id: null }); f.project.kick();
-    await until(() => provider.calls.length === 1);
-    const a = f.project.spawn(parent.id, 'a', 'research'), b = f.project.spawn(parent.id, 'b', 'research');
-    await until(() => provider.calls.length === 3);
-    provider.calls.find(call => call.task.id === a.id).done.resolve('a done');
-    await until(() => f.store.task(a.id).status === 'completed');
-    provider.calls[0].done.resolve('parent parks after first receipt');
-    await until(() => !f.project.running.has(parent.id));
-    expect(provider.calls.filter(call => call.task.id === parent.id)).toHaveLength(1);
-    expect(f.store.task(parent.id).status).toBe('waiting');
-    f.project.message(parent.id, 'explicit update');
-    await until(() => provider.calls.filter(call => call.task.id === parent.id).length === 2);
-    const second = provider.calls.filter(call => call.task.id === parent.id)[1];
-    expect(second.messages.map(m => m.body)).toContain('explicit update');
-    second.done.resolve('handled update');
-    await until(() => f.store.task(parent.id).status === 'waiting' && !f.project.running.has(parent.id));
-    provider.calls.find(call => call.task.id === b.id).done.resolve('b done');
-    await until(() => provider.calls.filter(call => call.task.id === parent.id).length === 3);
-    const last = provider.calls.filter(call => call.task.id === parent.id)[2];
-    expect(last.messages).toHaveLength(1);
-    last.done.resolve('summary');
-    await until(() => f.store.task(parent.id).status === 'completed');
-    expect(f.store.unread(parent.id)).toHaveLength(0);
-  } finally { await f.close(); }
-});
-
-test('failure receipts and explicit child messages are actionable while peers remain active', async () => {
-  const f = fixture(); f.project.stopping = true;
-  try {
-    const parent = f.store.create({ role: 'coordinator', goal: 'wave', input_id: null });
-    const a = f.project.spawn(parent.id, 'a', 'research'); f.project.spawn(parent.id, 'b', 'research');
-    f.project.finish(a.id, 'failed', null, 'failed');
-    expect(f.project.hasActionableMessages(parent.id)).toBe(true);
-    f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', parent.id);
-    f.project.message(parent.id, '{"child":1,"status":"completed"}', a.id);
-    expect(f.project.hasActionableMessages(parent.id)).toBe(true);
-  } finally { await f.close(); }
-});
-
-test('recovery keeps deferred success unread but wakes when no active child remains', async () => {
-  const f = fixture(); f.project.stopping = true;
-  try {
-    const parent = f.store.create({ role: 'coordinator', goal: 'recover wave', input_id: null });
-    const a = f.project.spawn(parent.id, 'a', 'research'), b = f.project.spawn(parent.id, 'b', 'research');
-    f.store.update(parent.id, { status: 'waiting' });
-    f.project.finish(a.id, 'completed', 'done');
-    f.project.recover();
-    expect(f.store.task(parent.id).status).toBe('waiting'); expect(f.store.unread(parent.id)).toHaveLength(1);
-    // Emulate a crash after terminal state / receipt persisted but before parent wake.
-    f.project.finish(b.id, 'completed', 'done'); f.store.update(parent.id, { status: 'waiting' });
-    f.project.recover();
-    expect(f.store.task(parent.id).status).toBe('queued'); expect(f.store.unread(parent.id)).toHaveLength(2);
   } finally { await f.close(); }
 });
 
@@ -129,7 +45,8 @@ test('cancellation while resolving startup context cannot launch a provider with
   const provider = controlled(), f = fixture(provider), ready = gate(); let entered = false;
   f.project.invocationContext = async () => { entered = true; await ready.promise; return {}; };
   try {
-    const task = f.store.create({ role: 'research', goal: 'cancel during context', input_id: null }); f.project.kick();
+    await repo(f.root);
+    const task = (await f.project.say('cancel during context')).task;
     await until(() => entered);
     f.project.cancel(task.id); ready.resolve();
     await until(() => !f.project.running.has(task.id));

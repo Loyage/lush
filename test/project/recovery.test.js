@@ -1,19 +1,12 @@
 import { test, expect } from 'bun:test';
 import { fixture, repo, until } from '../helpers.js';
 
-/** planner 只写 spec 队列；测试里用它造一个能直接派活的非 planner 任务。 */
-function host(f, { role = 'coordinator', goal = 'host', input_id = null } = {}) {
-  const task = f.store.create({ input_id, role, goal });
-  f.store.update(task.id, { status: 'waiting' });
-  return task;
-}
-
 test('recovery does not replay running tasks or interrupted merges', async () => {
   const f = fixture(); await repo(f.root);
   try {
     f.project.stopping = true;
-    const root = host(f, { goal: 'root' });
-    const child = f.project.spawn(root.id,'child','research');
+    const root = (await f.project.say('root')).task;
+    const child = await f.project.spawn(root.id,'child', undefined, [], 'child');
     f.store.update(root.id,{status:'running',integration:'merging'});
     f.store.armAgent(root.id, 'deadbeef');
     f.project.recover();
@@ -28,7 +21,7 @@ test('recovery repairs a committed inbox message whose wake-up was interrupted',
   const f = fixture(); await repo(f.root);
   try {
     f.project.stopping = true;
-    const root = (await f.project.submit('waiting root')).task;
+    const root = (await f.project.say('waiting root')).task;
     f.store.update(root.id,{status:'waiting'});
     f.store.message(root.id,'child result committed before daemon died');
     f.project.recover();

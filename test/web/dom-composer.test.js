@@ -25,8 +25,7 @@ test('输入区默认折叠，展开后才出现父 Task 与快捷键，折叠�
   expect(expand.getAttribute('aria-expanded')).toBe('false');
   expect(expand.title).toContain('父 Task');
   expect(expand.title).toContain('快捷键');
-  // 折叠态仍能看见待提交意图数量与展开控件。
-  expect(dom.node('draft-count').textContent).toBe('空');
+  // 折叠态仍能看见展开控件（草稿面板是已下线的遗留入口，不再计入）。
   expect(expand.textContent).toContain('更多');
 
   // 点开：父 Task 字段与快捷键说明出现；再点收起。
@@ -56,8 +55,7 @@ test('引用卡片始终可见，1.5s 轮询不改变输入区折叠态', async 
   expect(dom.node('composer-references').hidden).toBe(false);
   world.state.drafts = [{ id: 21, content: '带引用的草稿', created_at: iso(NOW - 1000) }];
   await dom.intervalFor(1500)();
-  // 轮询重画后：待提交数量更新，引用卡片与折叠态都不受轮询影响。
-  expect(dom.node('draft-count').textContent).toBe('1 条');
+  // 轮询重画后：引用卡片与折叠态都不受轮询影响。
   expect(dom.node('composer-references').hidden).toBe(false);
   expect(details.hidden).toBe(true);
   expect(expand.getAttribute('aria-expanded')).toBe('false');

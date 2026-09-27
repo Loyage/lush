@@ -44,7 +44,7 @@ test('Web 直接发送只发当前正文：防重复、保留并发编辑与其�
   expect(submitCalls[0]).toEqual({ method: 'say.submit', params: { content: 'small fix', references: [], branch: 'release/next' } });
   expect(dom.node('input').value).toBe('new thought');
   expect(world.state.drafts.map(row => row.id)).toEqual([11]);
-  expect(dom.node('error').textContent).toContain('其它草稿仍在缓存中');
+  expect(dom.node('error').textContent).toContain('已创建 Task');
   fail = true;
   await dom.node('input-form').onsubmit({ preventDefault() {} });
   expect(dom.node('error').textContent).toContain('send failed');

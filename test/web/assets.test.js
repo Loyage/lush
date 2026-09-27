@@ -181,7 +181,6 @@ test('无顶栏壳：身份区在左栏，内容区不再被头部压住；输�
     expect(html).toMatch(/<div id="composer-details"[^>]*hidden/);
     expect(html).toMatch(/id="composer-shortcuts"[^>]*hidden/);
     expect(html).toMatch(/id="composer-expand"[^>]*aria-expanded="false"[^>]*aria-controls="composer-details"/);
-    expect(html).toContain('id="draft-count"');
     // 一行输入：rows=1 且样式里的最小高度 ≤36px；展开不把它撑高。
     expect(html).toMatch(/<textarea id="input" rows="1"/);
     expect(css).toMatch(/\.composer textarea\{min-height:3[0-6]px/);
@@ -198,7 +197,7 @@ test('无顶栏壳：身份区在左栏，内容区不再被头部压住；输�
     // 浮层不再给顶栏留 80px 空档。
     expect(css).toMatch(/\.toast\{position:fixed;top:16px/);
     // 行为落点原样保留：待提交意图开关、父 Task 选择框、提交按钮仍在页面里。
-    for (const id of ['draft-toggle', 'input-parent', 'draft-add', 'draft-commit']) expect(html).toContain(`id="${id}"`);
+    for (const id of ['input-parent', 'draft-commit']) expect(html).toContain(`id="${id}"`);
   } finally { await f.close(); }
 });
 

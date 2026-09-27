@@ -94,14 +94,14 @@ export function makeWorld() {
     agentConfig: {
       version: 1, file: '/tmp/demo/.lush/agent.json', runtime_agent: 'pi',
       default: { agent: 'pi', model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }, roles: {},
-      resolved: Object.fromEntries(['planner','coordinator','worker','research','verifier','merger'].map(role => [role, { agent: 'pi', model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }])),
+      resolved: Object.fromEntries(['agent','planner','coordinator','worker','research','verifier','merger'].map(role => [role, { agent: 'pi', model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }])),
       options: {
         agents: ['pi','codex'],
-        roles: [['planner','规划任务'],['coordinator','协调任务'],['worker','开发任务'],['research','调研任务'],['verifier','验收任务'],['merger','分支分歧解决']].map(([id,label]) => ({ id,label })),
+        roles: [['agent','直接任务'],['planner','规划任务'],['coordinator','协调任务'],['worker','开发任务'],['research','调研任务'],['verifier','验收任务'],['merger','分支分歧解决']].map(([id,label]) => ({ id,label })),
         thinking: { pi: ['', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], codex: ['', 'minimal', 'low', 'medium', 'high', 'xhigh'] },
         models: { pi: ['openai-codex/gpt-5.4'], codex: ['gpt-5.4','gpt-5.4-mini'] },
         default_prompt: '你是 Lush 的默认 task agent。\n遵守任务协议与权限边界。',
-        default_prompts: Object.fromEntries(['planner','coordinator','worker','research','verifier','merger'].map(role => [role, `内置 ${role} Prompt`])),
+        default_prompts: Object.fromEntries(['agent','planner','coordinator','worker','research','verifier','merger'].map(role => [role, `内置 ${role} Prompt`])),
       },
     },
     // 概览打开时不该每 1.5s 打一遍 git：/api/graph 的取数次数记在这里，供测试断言。

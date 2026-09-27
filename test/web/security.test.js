@@ -16,15 +16,16 @@ test('web is project scoped, submits immediately and exposes no Service views', 
     const page = await fetch(f.url); const html = await page.text();
     expect(html).toContain('任务列表'); expect(html).not.toContain('Service');
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
-    const submit = await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'input.submit',params:{content:'web request'}})});
+    const submit = await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'say.submit',params:{content:'web request'}})});
     expect(submit.status).toBe(200);
     const snapshot = await (await fetch(f.url+'/api/snapshot')).json();
-    expect(snapshot.status.project).toBe(f.root); expect(snapshot.inputs[0].content).toBe('web request');
-    // 并行/串行读模型跟着快照一起下发：没有它们，界面只能说"有这些任务"，说不出谁和谁能同时跑。
-    expect(Array.isArray(snapshot.timeline.tasks)).toBe(true);
-    expect(snapshot.timeline.concurrency).toBeGreaterThan(0);
-    expect(Array.isArray(snapshot.ladder.nodes)).toBe(true);
-    const task = await (await fetch(f.url+'/api/task/1')).json(); expect(task.role).toBe('planner');
+    expect(snapshot.status.project).toBe(f.root);
+    // 概览读模型只投影 say/child/main/owner：旧 inputs / timeline / ladder 都不再下发。
+    const say = snapshot.tasks.find(task => task.task_kind === 'say');
+    expect(say.goal).toBe('web request');
+    expect(snapshot.inputs).toEqual([]);
+    expect(snapshot.ladder.nodes).toBeUndefined();
+    const task = await (await fetch(f.url+`/api/task/${say.id}`)).json(); expect(task.task_kind).toBe('say');
   } finally { await f.close(); }
 });
 
@@ -43,7 +44,8 @@ test('web saves project Agent profiles through the narrow mutation whitelist', a
     expect(saved.resolved.merger).toMatchObject({ agent: 'pi', thinking: 'xhigh' });
     const snapshot = await (await fetch(f.url + '/api/snapshot')).json();
     expect(snapshot.status.provider).toBe('mock');
-    expect(snapshot.status.agent_config.default.model).toBe('gpt-5.4-mini');
+    const configView = await (await fetch(f.url + '/api/agent/config')).json();
+    expect(configView.default.model).toBe('gpt-5.4-mini');
     expect(fs.existsSync(path.join(f.config.home, 'agent.json'))).toBe(true);
 
     const fakePi = path.join(f.root, 'fake-pi-models');
@@ -90,7 +92,7 @@ test('web reads and saves per-target Agent environment through user-only narrow 
 test('web exposes only read-only task routes and rejects other paths', async () => {
   const f = await setup(); await repo(f.root);
   try {
-    await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'input.submit',params:{content:'read routes'}})});
+    await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'say.submit',params:{content:'read routes'}})});
     expect((await fetch(f.url+'/api/task/1/history')).status).toBe(200);
     const history = await (await fetch(f.url+'/api/task/1/history')).json();
     expect(history[0].type).toBe('created');
@@ -178,7 +180,7 @@ test('web accepts a configured public origin behind a Host-rewriting proxy', asy
     // 同一台设备登进来的写操作（无 Sec-Fetch + Origin: null）也不能误杀。
     const noop = await fetch(f.url + '/login', { method: 'POST', headers: { ...headers, Origin: 'null' }, body: form });
     const noopCookie = noop.headers.get('set-cookie')?.split(';')[0];
-    expect((await fetch(f.url + '/api/action', { method: 'POST', headers: { Cookie: noopCookie, 'Content-Type': 'application/json', Origin: 'null' }, body: JSON.stringify({ method: 'draft.add', params: { content: 'test' } }) })).status).toBe(200);
+    expect((await fetch(f.url + '/api/action', { method: 'POST', headers: { Cookie: noopCookie, 'Content-Type': 'application/json', Origin: 'null' }, body: JSON.stringify({ method: 'say.submit', params: { content: 'test' } }) })).status).toBe(200);
   } finally { await f.close(); }
 });
 
@@ -192,28 +194,14 @@ test('RPC rejects invalid frames, unknown params, invalid ids and cross-project 
     await expect(client.request('task.inspect',{id:-1})).rejects.toThrow('positive');
     await expect(client.request('task.usage',{id:-1})).rejects.toThrow('positive');
     await expect(client.request('task.usage',{id:1,after:0})).rejects.toThrow('unknown parameter');
-    await expect(client.request('input.submit',{content:'x',sid:0})).rejects.toThrow('unknown parameter');
+    await expect(client.request('say.submit',{content:'x',sid:0})).rejects.toThrow('unknown parameter');
     await expect(client.request('input.list',{_token:'foreign'})).rejects.toThrow();
     // 客户端比 daemon 新时不能只说 unknown method，要给出重启这一步
     await expect(new UIClient(f.config).request('service.list',{})).rejects.toThrow('daemon restart');
-    // spec.list 无参数：多带一个过滤条件也必须被参数白名单拒掉（过滤/分组在 UI 侧做）
-    await expect(new UIClient(f.config).request('spec.list', { status: 'pending' })).rejects.toThrow('unknown parameter');
+    // task.inspect 只收 id：多带一个过滤条件也必须被参数白名单拒掉（过滤在 UI 侧做）
+    await expect(new UIClient(f.config).request('task.inspect', { id: 1, status: 'pending' })).rejects.toThrow('unknown parameter');
   } finally { await f.close(); }
 });
-
-test('web exposes batch merge through the mutation whitelist', async () => {
-  const f = await setup(); await repo(f.root);
-  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
-  try {
-    // 白名单通过后才会到运行时校验：空 ids 报的是「至少一个」，不是「method not allowed from Web UI」。
-    const response = await post('task.merge_many', { ids: [] });
-    expect(response.status).toBe(400);
-    expect((await response.json()).error).toContain('at least one');
-    // agent token 在 Web 层直接被拒；真正的 USER_ONLY 校验在 daemon，见 merge-batch.test.js
-    expect((await post('task.merge_many', { ids: [1], _token: 'forged' })).status).toBe(400);
-  } finally { await f.close(); }
-});
-
 test('web exposes branch batch merge through the mutation whitelist', async () => {
   const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
@@ -231,7 +219,7 @@ test('web exposes branch archive through the mutation whitelist', async () => {
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     // 加的是白名单里的一条具体动作，不是把 /api/action 放宽成通用代理：白名单外的动作仍被同一句话拒绝。
-    const blocked = await post('task.spawn', { role: 'worker', goal: 'x' });
+    const blocked = await post('system.stop', {});
     expect(blocked.status).toBe(400);
     expect((await blocked.json()).error).toBe('method not allowed from Web UI');
     // branch.archive 已越过 Web 白名单、被转发给 daemon：基线上 daemon 还不认识它（unknown method），
@@ -240,38 +228,6 @@ test('web exposes branch archive through the mutation whitelist', async () => {
     expect((await response.json()).error ?? '').not.toContain('method not allowed from Web UI');
   } finally { await f.close(); }
 });
-
-test('web exposes one-click merge and merge orchestration through the mutation whitelist', async () => {
-  const f = await setup(); await repo(f.root);
-  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
-  try {
-    // 分支图这几个入口（一键合并的 plan/all/cancel 与合并编排的 plan/orchestrate/cancel）必须越过 Web
-    // 白名单被转发给 daemon；用不存在的分支只验证「不是白名单拒绝」，运行时错误/成功都不算漏白名单。
-    for (const method of ['branch.merge_plan', 'branch.merge_all', 'branch.merge_cancel',
-      'branch.orchestrate_plan', 'branch.orchestrate', 'branch.orchestrate_cancel']) {
-      const body = await (await post(method, { branch: 'no-such-branch' })).json();
-      expect(body.error ?? '').not.toContain('method not allowed from Web UI');
-    }
-  } finally { await f.close(); }
-});
-
-test('web exposes review candidate actions through the mutation whitelist', async () => {
-  const f = await setup(); await repo(f.root);
-  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
-  try {
-    // 白名单外的方法仍被同一句话拒绝，白名单没有变成通用代理。
-    expect((await post('task.spawn', { role: 'worker', goal: 'x' })).status).toBe(400);
-    // 白名单内的候选动作会被转发给 daemon：不存在时是运行时错误，而不是「method not allowed」。
-    for (const [method, params] of [['candidate.prepare', { input: 99 }], ['candidate.accept', { id: 99 }],
-      ['candidate.changes', { id: 99, feedback: 'x' }], ['candidate.reject', { id: 99 }]]) {
-      const body = await (await post(method, params)).json();
-      expect(body.error ?? '').not.toContain('method not allowed from Web UI');
-    }
-    // agent token 在 Web 层直接被拒
-    expect((await post('candidate.accept', { id: 1, _token: 'forged' })).status).toBe(400);
-  } finally { await f.close(); }
-});
-
 test('web serves core architecture as Markdown and has no standalone documentation HTML route', async () => {
   const f = await setup(); await repo(f.root);
   try {

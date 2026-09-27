@@ -49,8 +49,8 @@ test('posting stops the invocation, releases its slot, gates other messages, and
   const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '1' });
   try {
     await repo(f.root);
-    const task = (await f.project.submit('choose')).task;
-    const other = (await f.project.submit('independent')).task;
+    const task = (await f.project.say('choose')).task;
+    const other = (await f.project.say('independent')).task;
     await until(() => provider.calls.length === 1);
     const token = f.project.running.get(task.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});
@@ -87,7 +87,7 @@ test('posting stops the invocation, releases its slot, gates other messages, and
     expect(JSON.parse(resumed.messages[1].body)).toMatchObject({ notice_id: notice.id, dismissed: false, answer: { answers: [{ labels: ['Tabs'] }, { labels: ['Search', 'Shortcuts'] }] } });
     expect(resumed.token).not.toBe(token);
     resumed.done.resolve('implemented choice');
-    await until(() => f.store.task(task.id).status === 'completed');
+    await until(() => f.store.task(task.id).status === 'waiting');
   } finally { await f.close(); }
 });
 
@@ -95,7 +95,7 @@ test('answer during abort unwinding is not lost; cancellation still wins', async
   const calls = [], f = fixture({ run(ctx) { const done = gate(); calls.push({ ...ctx, done }); return done.promise; } });
   try {
     await repo(f.root);
-    const task = (await f.project.submit('race')).task;
+    const task = (await f.project.say('race')).task;
     await until(() => calls.length === 1);
     const notice = f.project.notice(task.id, 'Choose', '', 'question', questions());
     f.project.answer(notice.id, answer());
@@ -116,7 +116,7 @@ test('awaiting questionnaires survive shutdown/recovery, unrelated inbox does no
   const provider = controlled(), f = fixture(provider);
   try {
     await repo(f.root);
-    const task = (await f.project.submit('recover')).task;
+    const task = (await f.project.say('recover')).task;
     await until(() => provider.calls.length === 1);
     const notice = f.project.notice(task.id, 'Choose', '', 'question', questions());
     f.project.message(task.id, 'extra');
@@ -136,12 +136,14 @@ test('awaiting questionnaires survive shutdown/recovery, unrelated inbox does no
 test('a child completing cannot wake a parent gated on a questionnaire', async () => {
   const provider = controlled(), f = fixture(provider);
   try {
-    const parent = f.store.create({ role: 'coordinator', goal: 'parent' }); f.project.kick();
+    await repo(f.root);
+    const parent = (await f.project.say('parent')).task;
     await until(() => provider.calls.length === 1);
-    const child = f.project.spawn(parent.id, 'child', 'research');
+    const child = await f.project.spawn(parent.id, 'child', undefined, [], 'child');
     await until(() => provider.calls.length === 2);
     const notice = f.project.notice(parent.id, 'Choose', '', 'question', questions());
-    provider.calls.find(c => c.task.id === child.id).done.resolve('child result');
+    // A child that returns normally now stays idle; only a terminal settlement signals the gated parent.
+    f.project.cancel(child.id, 'settle child for the gating test');
     await until(() => f.project.running.size === 0);
     expect(f.store.task(parent.id).status).toBe('awaiting');
     f.project.answer(notice.id, answer());

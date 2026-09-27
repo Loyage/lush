@@ -42,7 +42,7 @@ test('showcase excludes mainline, unregistered, archived, deleted, missing and u
     await git(f.root, 'branch', '-D', 'feature');
     expect((await eligibility(f)).allowed).toBe(false);
     const rpc = new Dispatcher(f.project);
-    await expect(rpc.dispatch('showcase.start', { branch: 'ordinary', baseline: 'main' })).rejects.toThrow('已登记');
+    await expect(rpc.dispatch('showcase.start', { branch: 'ordinary', baseline: 'main' })).rejects.toThrow('unknown method');
     expect(f.store.all("SELECT id FROM tasks WHERE role='showcase'")).toHaveLength(0);
   } finally { await f.close(); }
 });

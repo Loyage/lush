@@ -86,7 +86,7 @@ test('Task input rule is frozen from committed fork, chooses delivery, and falls
     await until(() => f.project.running.has(say.task.id));
     expect(fs.readFileSync(snapshotPath(f.config.home, say.task.id), 'utf8').trim()).toBe(rule.trim());
     expect((await f.project.taskGraph()).nodes.find(node => node.id === say.task.id).has_rule).toBe(true);
-    const child = f.project.spawn(say.task.id, 'child');
+    const child = await f.project.spawn(say.task.id, 'child');
     expect(fs.readFileSync(snapshotPath(f.config.home, child.id), 'utf8').trim()).toBe(rule.trim());
     // Changing the worktree after creation does not change the fixed rule.
     fs.writeFileSync(path.join(say.task.workspace, '.lush-task/input.mjs'), 'console.log(JSON.stringify({delivery:"interrupt"}))');

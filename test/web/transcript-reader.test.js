@@ -2,9 +2,8 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setup, fetch } from './harness.js';
-import { until } from '../helpers.js';
 
-test('Web full-search, original-step and explanation routes use project RPC and preserve source history', async () => {
+test('Web full-search and original-step routes use project RPC and preserve source history', async () => {
   const f = await setup();
   try {
     const task = f.store.create({ role: 'research', input_id: null, goal: 'read output' });
@@ -23,14 +22,7 @@ test('Web full-search, original-step and explanation routes use project RPC and 
     expect((await fetch(`${f.url}/api/task/${task.id}/transcript-page?seq=0`)).status).toBe(400);
     expect((await fetch(`${f.url}/api/task/${task.id}/transcript-page?offset=-1`)).status).toBe(400);
     expect((await fetch(`${f.url}/api/task/999999/transcript-page`)).status).toBe(400);
-    const createdResponse = await fetch(`${f.url}/api/action`, { method: 'POST', headers: { 'content-type': 'application/json', origin: f.url },
-      body: JSON.stringify({ method: 'explanation.start', params: { id: task.id, seq: 1, quote: 'exit code 1' } }) });
-    expect(createdResponse.status).toBe(200);
-    const created = await createdResponse.json();
-    await until(() => f.store.task(created.id).status === 'completed');
-    const result = await (await fetch(`${f.url}/api/explanation/${created.id}`)).json();
-    expect(result.source.quote).toBe('exit code 1'); expect(result.result).toContain('Mock explainer');
-    expect((await (await fetch(`${f.url}/api/task/${task.id}/explanations`)).json()).explanations[0].id).toBe(created.id);
+    // 解释/介绍入口已随旧功能下线；只保留只读检索与分页源历史。
     expect((await fetch(`${f.url}/api/task/${task.id}/transcript-step?seq=-1`)).status).toBe(400);
     expect((await fetch(`${f.url}/api/task/${task.id}/transcript-search?kind=no`)).status).toBe(400);
   } finally { await f.close(); }

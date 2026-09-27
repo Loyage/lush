@@ -27,51 +27,13 @@ function expectAgentButton(node) {
   expect(node.classList.contains('agent-call')).toBe(true);
   expect(node.getAttribute('data-help')).toContain(AGENT_NOTE);
 }
-const detailButton = async text => {
-  const detail = dom.node('detail');
-  return until(() => buttonByText(detail, text), 2000);
-};
 
 test('详情页「追加说明」是 Agent 按钮：task.message 会唤醒或继续该任务', async () => {
-  await dom.intervalFor(1500)();
-  dom.location.hash = '#task-1';
-  await dom.fire('hashchange');
-  expectAgentButton(await detailButton('追加说明'));
-});
-
-test('意图页「批准并开发」「要求修改」是 Agent 按钮，「接受并合入」只带帮助', async () => {
-  const intents = dom.node('intents');
-  await until(() => buttonByText(intents, '批准并开发'), 2000);
-  expectAgentButton(buttonByText(intents, '批准并开发'));
-  expectAgentButton(buttonByText(intents, '要求修改'));
-  // 合入不可逆，但不会调用 Agent：只加 data-help。
-  const accept = buttonByText(intents, '接受并合入');
-  expect(accept).toBeTruthy();
-  expect(accept.classList.contains('agent-call')).toBe(false);
-  expect(accept.getAttribute('data-help')).toBeTruthy();
-});
-
-test('分支图决策区「批准并开发」「回复并继续任务」是 Agent 按钮', async () => {
-  const saved = JSON.parse(JSON.stringify(world.state.graph));
-  try {
-    const one = world.state.graph.nodes.find(node => node.kind === 'task' && node.id === 1);
-    one.notice = { id: 5, kind: 'question', title: '这条要不要动公共面', body: '正文', created_at: iso(NOW) };
-    one.notice_count = 1;
-    world.state.graph.nodes.push({
-      kind: 'task', id: 21, role: 'planner', name: 'plan-21', goal: '拆解需求 21', status: 'awaiting', integration: 'none',
-      branch: 'lush/demo/input-1-anchor', workspace: null, workspace_state: 'none', base_commit: null, head_commit: null,
-      target_branch: null, ahead: null, behind: null, merged: null, current: false, archived: false,
-      notice: { id: 7, kind: 'plan', title: '这轮拆解想先请你拍板 21', body: '计划正文', created_at: iso(NOW) }, notice_count: 1,
-    });
-    await openGraph();
-    const decisions = dom.node('detail').querySelectorAll('div.graph-decision');
-    expect(decisions.length).toBe(2);
-    expectAgentButton(decisions.flatMap(node => buttonsOf(node)).find(node => node.textContent === '批准并开发'));
-    expectAgentButton(decisions.flatMap(node => buttonsOf(node)).find(node => node.textContent === '回复并继续任务'));
-  } finally {
-    world.state.graph = saved;
-    await openGraph();
-  }
+  const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
+  renderDetail({ id: 900, role: 'agent', task_kind: 'say', parent_id: 1, parent_task_kind: 'main',
+    goal: '需要追加说明', status: 'waiting', integration: 'none', calls: 0, deps: [], dependents: [],
+    children: [], messages: [], notices: [] }, null, null, null);
+  expectAgentButton(buttonByText(dom.node('detail'), '追加说明'));
 });
 
 test('通知页「开始解冲突」是 Agent 按钮，data-help 含统一代价说明', () => {

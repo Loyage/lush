@@ -15,16 +15,6 @@ test('ordinary say submits content and branch without extra flags', async () => 
   ]);
 });
 
-test('say --draft sends exactly one chosen draft and rejects mixing text or missing ids', async () => {
-  const calls = [], client = { request: async (method, params) => { calls.push({ method, params }); return { id: 9 }; } };
-  expect(await intent('say', ['--draft', '12', '--branch', 'main'], { client })).toEqual({ id: 9 });
-  expect(calls).toEqual([{ method: 'say.submit', params: { draft_id: 12, branch: 'main' } }]);
-  await expect(intent('say', ['text', '--draft', '12'], { client })).rejects.toThrow();
-  await expect(intent('say', ['--draft', '0'], { client })).rejects.toThrow();
-  await expect(intent('say', ['--draft'], { client })).rejects.toThrow();
-  expect(calls).toHaveLength(1);
-});
-
 test('task reserve and unreserve pass one explicit say Task and kind', async () => {
   const calls = [], client = { request: async (method, params) => { calls.push({ method, params }); return params; } };
   await task('task', ['reserve', '7', 'merge'], { client, json: true });

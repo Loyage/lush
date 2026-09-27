@@ -25,9 +25,10 @@ test('待定事项包含 plan，概览保留原有普通问题入口', async () 
   // 概览：同一条，且点得开（这条路径坏过一次，点 plan 那条是空动作）
   const panel = dom.node('detail');
   const rows = panel.querySelectorAll('.attention-item');
-  expect(rows).toHaveLength(1);
+  // 新概览把 open 且非 info 的待决都列出来，plan 与普通问题一样在列。
+  expect(rows).toHaveLength(2);
   expect(deepText(rows[0])).toContain('普通问题');
-  expect(deepText(panel)).not.toContain('计划待批');
+  expect(deepText(panel)).toContain('计划待批');
   await rows[0].onclick();
   expect(dom.location.hash).toBe('#task-4');
 });

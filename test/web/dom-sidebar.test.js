@@ -20,16 +20,16 @@ world.state.specs = [];
 
 afterAll(() => dom.restore());
 
-test('左栏：四个区块的导航计数与索引、折叠开关、行动任务筛选在真 DOM 上都生效', async () => {
+test('左栏：两个区块的导航计数与索引、折叠开关、行动任务筛选在真 DOM 上都生效', async () => {
   await dom.intervalFor(1500)();
   const nav = dom.node('side-nav');
   const items = nav.querySelectorAll('.nav-item');
-  // 四个区块的导航（待定事项 / 历史输入 / 规划任务 / 行动任务），计数取自各列表
-  expect(items).toHaveLength(4);
-  expect(items.map(node => node.querySelector('.nav-count').textContent)).toEqual(['0', '2', '0', '3']);
-  // 索引顺序就是区块顺序：第三个是「规划任务」
-  await items[2].onclick();
-  expect(items[2].classList.contains('selected')).toBe(true);
+  // 两个区块的导航（待我处理 / 任务列表），计数取自各列表
+  expect(items).toHaveLength(2);
+  expect(items.map(node => node.querySelector('.nav-count').textContent)).toEqual(['0', '3']);
+  // 索引顺序就是区块顺序：第二个是「任务列表」
+  await items[1].onclick();
+  expect(items[1].classList.contains('selected')).toBe(true);
   // 筛选条与列表容器分离：控件建一次，轮询只重画列表
   const filters = dom.node('task-filters');
   const selects = filters.querySelectorAll('.filter-select');
@@ -71,8 +71,8 @@ test('左栏：四个区块的导航计数与索引、折叠开关、行动任�
 
 test('排序是左栏顶部的全局控件，不再是行动任务区块里的下拉', async () => {
   const sort = dom.node('sidebar-sort');
-  // 控件是全局的：挂在左栏顶部，四个列表共用一个；带说明性 title
-  expect(sort.title).toContain('四个列表共用');
+  // 控件是全局的：挂在左栏顶部，两个列表共用一个；带说明性 title
+  expect(sort.title).toContain('列表共用');
   expect(sort.querySelectorAll('option').map(node => node.textContent)).toEqual(['智能排序', '按最近更新', '按编号（新在前）']);
   expect(sort.value).toBe('smart');
   // 区块标题里不再自带排序下拉
