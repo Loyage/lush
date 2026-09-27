@@ -2,11 +2,11 @@ import { check } from './types.js';
 
 /** Long enough to identify the work, short enough to read in `git branch` and the Web UI. */
 const MAX_LENGTH = 40;
-/** Words that carry no task identity; dropped only when falling back to the goal text. */
+/** Words that carry no AP identity; dropped only when falling back to the goal text. */
 const STOPWORDS = new Set(['the','a','an','and','or','of','to','for','in','on','at','by','with','from','into',
   'that','this','is','are','be','been','not','no','do','does','did','as','it','its','if','then','than','so','but',
   'all','any','can','could','will','would','should','must','may','might','use','using','via','per','new','get','set',
-  'task','goal','lush','work','change','changes','update','updates','implement','implementation']);
+  'ap','goal','lush','work','change','changes','update','updates','implement','implementation']);
 
 /** Lowercase ASCII words joined by '-': the only shape a git ref accepts without quoting. */
 export function slugify(value, max = MAX_LENGTH) {
@@ -16,7 +16,7 @@ export function slugify(value, max = MAX_LENGTH) {
 }
 
 /** Planner-supplied short name, else the goal's first meaningful ASCII words; null means "no usable name". */
-export function taskSlug(name, goal) {
+export function apSlug(name, goal) {
   if (name !== null && name !== undefined && name !== '') {
     check(typeof name === 'string', 'name must be text');
     check(name.length <= 200, 'name must be at most 200 characters');
@@ -39,9 +39,9 @@ function goalSlug(goal) {
   return kept.length ? slugify(kept.join('-')) || null : null;
 }
 
-/** `<id>-<slug>`: the id keeps names unique and greppable, the slug says what the task is. */
-export function taskLabel(id, name) {
-  return name ? `${id}-${name}` : `task-${id}`;
+/** `<id>-<slug>`: the id keeps names unique and greppable, the slug says what the AP is. */
+export function apLabel(id, name) {
+  return name ? `${id}-${name}` : `ap-${id}`;
 }
 
 /** `input-<id>`: 输入锚点的分支与检出目录名。输入没有 slug，id 已经唯一且可读。 */

@@ -32,7 +32,7 @@ function safeStateDir(env) {
 function emptyState() { return { version: STATE_VERSION, last_project: null, projects: [] }; }
 
 /**
- * 全局启动器状态：只是界面元数据（已登记路径、顺序、最后打开），不复制 Task 或 `.lush` 数据。
+ * 全局启动器状态：只是界面元数据（已登记路径、顺序、最后打开），不复制 AP 或 `.lush` 数据。
  * 读 v1 老文件时把它的 `last_project` 提升成登记项——旧 Web 进程留下的选择仍然可恢复，
  * 不重写任何项目的 `.lush`，也不丢用户已经打开过的目录。
  */

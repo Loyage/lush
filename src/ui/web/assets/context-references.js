@@ -30,8 +30,8 @@ const inPage = node => {
 };
 const pageLocation = extra => ({ view: ui.graphOpen ? 'branch-graph' : ui.docsOpen ? 'docs' : ui.settingsOpen ? 'settings'
   : ui.statisticsOpen ? 'statistics'
-  : ui.indexOpen ? `${ui.indexOpen}-index` : ui.selected === null ? 'overview' : 'task-detail',
-  ...(ui.selected === null ? {} : { task_id: ui.selected }), ...extra });
+  : ui.indexOpen ? `${ui.indexOpen}-index` : ui.selected === null ? 'overview' : 'ap-detail',
+  ...(ui.selected === null ? {} : { ap_id: ui.selected }), ...extra });
 const referenceKey = value => `${value.kind}:${JSON.stringify(value.target || {})}:${value.quote}`;
 
 /**
@@ -40,11 +40,11 @@ const referenceKey = value => `${value.kind}:${JSON.stringify(value.target || {}
  */
 function locateToken(kind, target = {}) {
   switch (kind) {
-    case 'task': case 'task_subtree': return target.task_id == null ? null : `task-${target.task_id}`;
-    case 'result': return target.task_id == null ? null : `result-${target.task_id}`;
-    case 'diff': return target.task_id == null ? null : `diff-${target.task_id}`;
+    case 'ap': case 'ap_subtree': return target.ap_id == null ? null : `ap-${target.ap_id}`;
+    case 'result': return target.ap_id == null ? null : `result-${target.ap_id}`;
+    case 'diff': return target.ap_id == null ? null : `diff-${target.ap_id}`;
     case 'message': return target.message_id == null ? null : `message-${target.message_id}`;
-    case 'transcript_step': return target.task_id == null || target.seq == null ? null : `step-${target.task_id}-${target.seq}`;
+    case 'transcript_step': return target.ap_id == null || target.seq == null ? null : `step-${target.ap_id}-${target.seq}`;
     case 'verification': return target.verification_id == null ? null : `verification-${target.verification_id}`;
     case 'history_event': return target.event_id == null ? null : `event-${target.event_id}`;
     case 'delivery_branch': return target.target_branch ? `branch:${target.target_branch}` : null;
@@ -188,13 +188,13 @@ async function navigateForReference(reference) {
     resource(kind === 'intent' ? 'intents' : kind === 'spec' ? 'specs' : 'notices');
     return $(LOCATE_ROOTS[kind]);
   }
-  if (['task','task_subtree','result','diff','message','verification','history_event','transcript_step'].includes(kind)) {
-    // 检验 / 历史事件的 target 只有实体 id，所属任务在 location.task_id。
-    const taskId = target.task_id ?? reference?.location?.task_id;
-    if (taskId === null || taskId === undefined) return null;
+  if (['ap','ap_subtree','result','diff','message','verification','history_event','transcript_step'].includes(kind)) {
+    // 检验 / 历史事件的 target 只有实体 id，所属 AP 在 location.ap_id。
+    const apId = target.ap_id ?? reference?.location?.ap_id;
+    if (apId === null || apId === undefined) return null;
     // 执行步骤只在展开的执行过程里渲染；定位先展开它，否则只能报找不到。
-    if (kind === 'transcript_step') transcriptOpen.add(taskId);
-    await detail(taskId);
+    if (kind === 'transcript_step') transcriptOpen.add(apId);
+    await detail(apId);
     return $('detail');
   }
   return null;
@@ -239,7 +239,7 @@ function onContextMenu(event) {
   const generic = genericReference(event.target);
   const values = selected ? [selected, ...semantic] : [...semantic];
   if (generic && !values.some(value => value.kind === 'text' && value.quote === generic.quote)) values.push(generic);
-  // Selection still supports Task references, but retired explanation actions are hidden.
+  // Selection still supports AP references, but retired explanation actions are hidden.
   if (values.length) showMenu(event, values); else hideMenu();
 }
 function onClick(event) { if (!inside(event.target, $('context-menu'))) hideMenu(); }

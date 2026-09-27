@@ -14,7 +14,7 @@ export function registerNavigation({ refresh, detail, overview, graph, resource 
 }
 
 export function refresh() { return navigation.refresh(); }
-export function detail(taskId) { return navigation.detail(taskId); }
+export function detail(apId) { return navigation.detail(apId); }
 export function overview() { return navigation.overview(); }
 export function graph() { return navigation.graph(); }
 export function resource(id) { return navigation.resource(id); }

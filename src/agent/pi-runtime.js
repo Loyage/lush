@@ -9,7 +9,7 @@ export default function lushRuntime(pi) {
   let responses = 0, tokens = 0, unknownTokens = 0, warned = false;
   pi.on('session_start', () => {
     if (settings.run_id) pi.appendEntry('lush.invocation', {
-      task_id: settings.task_id, run_id: settings.run_id, role: settings.role,
+      ap_id: settings.ap_id, run_id: settings.run_id, role: settings.role,
     });
   });
   pi.on('message_end', ({ message }) => {
@@ -35,15 +35,15 @@ export default function lushRuntime(pi) {
   // 安全抢占：daemon 在用户追加输入时写一个 request，这里只在 `turn_end`——本轮工具都已结束的边界——
   // 留一个 stop 标记并让本轮就此收尾（不返回 continue，进程正常退出，由 daemon 记成 preempted）。
   // 不能用 `tool_call`：同一条 assistant message 的工具调用可能并行，那里不是“没有文件操作在跑”的边界。
-  const preempt = typeof settings.preempt_dir === 'string' && settings.preempt_dir && settings.task_id
-    ? { request: `${settings.preempt_dir}/task-${settings.task_id}.request.json`,
-        stop: `${settings.preempt_dir}/task-${settings.task_id}.stop.json` }
+  const preempt = typeof settings.preempt_dir === 'string' && settings.preempt_dir && settings.ap_id
+    ? { request: `${settings.preempt_dir}/ap-${settings.ap_id}.request.json`,
+        stop: `${settings.preempt_dir}/ap-${settings.ap_id}.stop.json` }
     : null;
   if (preempt) pi.on('turn_end', () => {
     let request = null;
     try { request = JSON.parse(fs.readFileSync(preempt.request, 'utf8')); } catch { return; }
     try {
-      fs.writeFileSync(preempt.stop, JSON.stringify({ task_id: settings.task_id, run_id: settings.run_id ?? null,
+      fs.writeFileSync(preempt.stop, JSON.stringify({ ap_id: settings.ap_id, run_id: settings.run_id ?? null,
         safe_point: 'turn_end', reason: request.reason ?? null, requested_at: request.requested_at ?? null,
         stopped_at: new Date().toISOString() }) + '\n', { mode: 0o600 });
     } catch { return; }

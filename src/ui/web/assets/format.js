@@ -2,19 +2,19 @@
 
 export const STATUS = {
   queued: { label: '排队', icon: '○' }, running: { label: '运行中', icon: '●' },
-  waiting: { label: '等子任务', icon: '◐' }, awaiting: { label: '等你决定', icon: '◔' },
+  waiting: { label: '等子 AP', icon: '◐' }, awaiting: { label: '等你决定', icon: '◔' },
   completed: { label: '已完成', icon: '✓' }, failed: { label: '失败', icon: '✗' }, cancelled: { label: '已取消', icon: '⊘' },
 };
 export const INTEGRATION = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并', conflict: '冲突待处理', superseded: '已作废' };
 /** 效果展示在隔离的 detached worktree 中执行，不挂在任何分支上；列出工作区时必须显式写明，别让人误认成源分支的检出。 */
-export const worktreeLabel = task => (task?.role === 'showcase' ? 'detached worktree' : 'worktree');
+export const worktreeLabel = ap => (ap?.role === 'showcase' ? 'detached worktree' : 'worktree');
 export const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验', merger: '解冲突', showcase: '效果展示', explainer: '执行介绍', butler: '管家' };
 export const EVENTS = {
-  created: '创建任务', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
+  created: '创建 AP', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
-  'task.signal': '任务信号', 'child.completed': '子任务完成', 'child.integrated': '子任务已集成',
-  'task.merge_requested': '请求合并', 'task.showcase_settled': '展示结算',
-  'progress.plan': '更新任务计划', 'progress.completed': '完成计划步骤',
+  'ap.signal': 'AP 信号', 'child.completed': '子 AP 完成', 'child.integrated': '子 AP 已集成',
+  'ap.merge_requested': '请求合并', 'ap.showcase_settled': '展示结算',
+  'progress.plan': '更新 AP 计划', 'progress.completed': '完成计划步骤',
   'workspace.created': '创建 worktree', 'workspace.removed': '回收 worktree', 'branch.removed': '回收分支',
   'verify.requested': '请求检验', 'baseline.created': '创建对照基线', 'baseline.removed': '回收对照基线',
   'merge.approved': '批准合并', merged: '已合并', 'merge.included': '随其它变更一并落地', 'merge.failed': '合并失败',
@@ -25,7 +25,7 @@ export const EVENTS = {
 export const HOT = new Set(['running', 'awaiting', 'waiting', 'queued']);
 export const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
 export const short = value => (typeof value === 'string' ? value.slice(0, 7) : '');
-export const statusOf = task => STATUS[task.status] || { label: task.status, icon: '·' };
+export const statusOf = ap => STATUS[ap.status] || { label: ap.status, icon: '·' };
 export function relative(iso) {
   const at = Date.parse(iso); if (!Number.isFinite(at)) return '';
   const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
@@ -42,7 +42,7 @@ export function duration(from, to) {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
   return `${Math.floor(seconds / 3600)} 小时 ${Math.floor((seconds % 3600) / 60)} 分`;
 }
-/** 任务墙钟耗时里的「工作用时」：各轮调用的时长之和（未结束的 run 算到 now）。 */
+/** AP 墙钟耗时里的「工作用时」：各轮调用的时长之和（未结束的 run 算到 now）。 */
 export function runWorkMs(runs, now = Date.now()) {
   let total = 0;
   for (const run of runs || []) {
@@ -58,21 +58,21 @@ export const clock = iso => { const at = Date.parse(iso); return Number.isFinite
 export const tokens = value => { const count = Number(value) || 0; return count >= 1e6 ? `${(count / 1e6).toFixed(2)}M` : count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count); };
 /** 花费可能小到 0.0006 美元，三位小数会全变成 $0.000，看不出差别。 */
 export const money = value => { const amount = Number(value) || 0; return `$${amount > 0 && amount < 0.01 ? amount.toFixed(5) : amount.toFixed(3)}`; };
-export const depsOf = task => task.deps || [];
-export const waitingDeps = task => depsOf(task).filter(dep => !TERMINAL_STATUS.has(dep.status));
+export const depsOf = ap => ap.deps || [];
+export const waitingDeps = ap => depsOf(ap).filter(dep => !TERMINAL_STATUS.has(dep.status));
 /**
- * 还没落地的解冲突任务：进行中的不许重开一轮，已经完成但没落地的可以被「重试合并」取代。
+ * 还没落地的解冲突 AP：进行中的不许重开一轮，已经完成但没落地的可以被「重试合并」取代。
  * merged（已交付）与 superseded（已被下一轮取代）都不再算数。
  */
-export function resolverOf(task) {
-  return (task.resolutions || [])
+export function resolverOf(ap) {
+  return (ap.resolutions || [])
     .filter(row => row.integration !== 'merged' && row.integration !== 'superseded')
     .sort((a, b) => b.id - a.id)[0] || null;
 }
 /** 未解决的冲突会冻结同一目标分支上的合并：解冲突的产物要靠 --ff-only 原样落地，main 不能被推走。
  *  判定与运行时 approveMerge / 批量合并的候选过滤共用 merge-select.js 的 freezeBlocker。 */
 export const DEP_HELP = {
-  code: '这是它的 worktree 基线：本任务的分支从上游分支长出来，所以合并必须先合上游，否则会把上游的改动一起带进来。',
+  code: '这是它的 worktree 基线：本 AP 的分支从上游分支长出来，所以合并必须先合上游，否则会把上游的改动一起带进来。',
   order: '这只是顺序依赖：等上游结束才开跑，代码仍从当时的 HEAD 开始，因此不要求先合并上游。',
 };
 export const PLAN_GATE = { proposed: { label: '等你批准', className: 'b-awaiting' }, approved: { label: '已批准', className: 'b-completed' },
@@ -92,8 +92,8 @@ export function summarizeGoal(goal) {
   if (!line) return null;
   return line.length > GOAL_TITLE_LIMIT ? `${line.slice(0, GOAL_TITLE_LIMIT)}…` : line;
 }
-/** 详情页 hero 的短标题：goal 的摘要；goal 为空时退回 `任务 #id`，标题区永不留空。 */
-export const taskTitle = task => summarizeGoal(task?.goal) ?? `任务 #${task?.id ?? '?'}`;
+/** 详情页 hero 的短标题：goal 的摘要；goal 为空时退回 `AP #id`，标题区永不留空。 */
+export const apTitle = ap => summarizeGoal(ap?.goal) ?? `AP #${ap?.id ?? '?'}`;
 /** 一条 spec 的完整可读文本，放进 title，让人 hover 就能看全文与丢弃原因。 */
 export function specTitle(spec) {
   const info = specStatus(spec);
@@ -118,7 +118,7 @@ export function tokensView(t) {
 }
 /** 「最近一次执行」＝执行过程最后一条可显示步骤：相对时间（会随轮询自己走）+ 内容单行预览，全文放 title。 */
 export function lastView(last) {
-  if (!last) return { value: '—', title: '还没有会话记录：这个任务从未被唤醒，或会话文件已被清理。' };
+  if (!last) return { value: '—', title: '还没有会话记录：这个 AP 从未被唤醒，或会话文件已被清理。' };
   const when = last.at ? relative(last.at) : '时间未知';
   const kindLabel = last.kind ? STEP[last.kind] || last.kind : '';
   const title = last.title || '';

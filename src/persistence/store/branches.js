@@ -18,34 +18,34 @@ export const branches = {
    * 只在分支**确实要创建**（或崩溃重试撞见刚创建的分支）时调用。
    * 已经有记录就一个字都不改：谱系表示创建时的血缘，后来的 merge / 分支被重建都不能改写 parent。
    */
-  recordBranch({ branch, parent = null, relation = null, created_from_commit = null, task_id = null, worktree = null }) {
+  recordBranch({ branch, parent = null, relation = null, created_from_commit = null, ap_id = null, worktree = null }) {
     check(typeof branch === 'string' && branch.length > 0 && branch.length <= 512, 'branch name must be non-empty text');
     check(parent === null || (typeof parent === 'string' && parent.length > 0), 'parent branch must be non-empty text');
     check(parent !== branch, 'a branch cannot be its own parent');
     const parentRelation = relation ?? (parent === null ? 'unknown' : 'recorded');
     check(PARENT_RELATIONS.has(parentRelation), 'parent relation must be recorded, inferred or unknown');
-    this.run(`INSERT INTO branches(branch,parent,parent_relation,created_from_commit,task_id,worktree)
+    this.run(`INSERT INTO branches(branch,parent,parent_relation,created_from_commit,ap_id,worktree)
       VALUES (?,?,?,?,?,?) ON CONFLICT(branch) DO NOTHING`,
-    branch, parent, parentRelation, created_from_commit, task_id, worktree);
+    branch, parent, parentRelation, created_from_commit, ap_id, worktree);
     return this.branch(branch);
   },
 
   /** ref 真的被删掉时调用（目前只有 cleanup 的 dropBranch）。只改状态，不删行——子分支的 parent 必须继续有效。
-   *  分支被删除时其效果展示预约也不再有意义，同时清掉并留一条 `showcase.unreserved` 事件（挂在原属任务上，没有就 task_id=null）。 */
+   *  分支被删除时其效果展示预约也不再有意义，同时清掉并留一条 `showcase.unreserved` 事件（挂在原属 AP 上，没有就 ap_id=null）。 */
   markBranchDeleted(branch) {
     const reserved = Boolean(this.get('SELECT showcase_reservation FROM branches WHERE branch=?', branch)?.showcase_reservation);
     this.run("UPDATE branches SET status='deleted', deleted_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), showcase_reservation=NULL WHERE branch=? AND status<>'deleted'", branch);
     if (reserved) {
-      // branches.task_id 没有外键、可能指向已被 delete 的任务；拿不到活着的 task 就退回 task_id=null。
-      const owner = this.get('SELECT task_id FROM branches WHERE branch=?', branch)?.task_id ?? null;
-      this.run('INSERT INTO events(task_id,type,data) VALUES (?,?,?)',
-        owner !== null && this.get('SELECT id FROM tasks WHERE id=?', owner) ? owner : null,
+      // branches.ap_id 没有外键、可能指向已被 delete 的 AP；拿不到活着的 AP 就退回 ap_id=null。
+      const owner = this.get('SELECT ap_id FROM branches WHERE branch=?', branch)?.ap_id ?? null;
+      this.run('INSERT INTO events(ap_id,type,data) VALUES (?,?,?)',
+        owner !== null && this.get('SELECT id FROM aps WHERE id=?', owner) ? owner : null,
         'showcase.unreserved', JSON.stringify({ branch, reason: 'branch deleted' }));
     }
   },
 
   /**
-   * 归档：worktree 与本地 ref 都已删掉，但这条分支的工作信息（任务行、消息、事件、pi 会话文件）都留着。
+   * 归档：worktree 与本地 ref 都已删掉，但这条分支的工作信息（AP 行、消息、事件、pi 会话文件）都留着。
    * 时间戳复用 `deleted_at`——它本来就表示「这条分支什么时候从磁盘上消失」，archived 只是删得更有保留价值；
    * 另加 archived_at 会重复同一含义，还要为老库补一次 schema 演进，所以不这么做。
    */

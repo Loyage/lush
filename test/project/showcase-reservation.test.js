@@ -17,15 +17,15 @@ async function setup() {
   return f;
 }
 
-/** A non-terminal worker task on the branch keeps full showcase eligibility pending. */
+/** A non-terminal worker AP on the branch keeps full showcase eligibility pending. */
 function block(f) {
-  const task = f.store.create({ role: 'worker', goal: 'feature work' });
-  f.store.update(task.id, { branch: 'feature' });
-  return task;
+  const ap = f.store.create({ role: 'worker', goal: 'feature work' });
+  f.store.update(ap.id, { branch: 'feature' });
+  return ap;
 }
 const rawReservation = f => f.store.branch('feature').showcase_reservation;
 const reservation = f => { const raw = rawReservation(f); return raw ? JSON.parse(raw) : null; };
-const showcaseIds = f => f.store.all("SELECT id FROM tasks WHERE role='showcase' ORDER BY id").map(row => row.id);
+const showcaseIds = f => f.store.all("SELECT id FROM aps WHERE role='showcase' ORDER BY id").map(row => row.id);
 const eventCount = (f, type) => f.store.get('SELECT count(*) AS value FROM events WHERE type=?', type).value;
 const event = (f, type) => f.store.get('SELECT * FROM events WHERE type=? ORDER BY id DESC LIMIT 2', type);
 
@@ -61,12 +61,12 @@ test('reservation is idempotent while pending and clears on unreserve', async ()
   try {
     block(f);
     const first = await f.project.reserveShowcase('feature');
-    expect(first).toMatchObject({ branch: 'feature', reserved: true, task_id: null });
+    expect(first).toMatchObject({ branch: 'feature', reserved: true, ap_id: null });
     expect(first.reason).toContain('尚未成功完成');
     expect(reservation(f)).toMatchObject({ version: 1, status: 'pending' });
     expect(typeof reservation(f).created_at).toBe('string');
     const second = await f.project.reserveShowcase('feature');
-    expect(second).toMatchObject({ branch: 'feature', reserved: true, task_id: null });
+    expect(second).toMatchObject({ branch: 'feature', reserved: true, ap_id: null });
     expect(eventCount(f, 'showcase.reserved')).toBe(1);
     expect(eventCount(f, 'showcase.reservation_started')).toBe(0);
     expect(showcaseIds(f)).toHaveLength(0);
@@ -93,18 +93,18 @@ test('a satisfied reservation starts one showcase automatically; later sweeps do
     f.project.finish(blocker.id, 'completed');
     await until(() => showcaseIds(f).length === 1);
     expect(rawReservation(f)).toBeNull();
-    const task = f.store.task(showcaseIds(f)[0]);
-    expect(JSON.parse(task.showcase).branch).toBe('feature');
+    const ap = f.store.ap(showcaseIds(f)[0]);
+    expect(JSON.parse(ap.showcase).branch).toBe('feature');
     expect(eventCount(f, 'showcase.reserved')).toBe(1);
     expect(eventCount(f, 'showcase.reservation_started')).toBe(1);
     const started = event(f, 'showcase.reservation_started');
-    expect(started.task_id).toBe(task.id);
+    expect(started.ap_id).toBe(ap.id);
     expect(typeof JSON.parse(started.data).created_at).toBe('string');
     expect(JSON.parse(started.data).branch).toBe('feature');
     // Extra triggers are harmless while the showcase exists and after it settles.
     await f.project.sweepShowcaseReservations();
-    f.project.finish(task.id, 'completed');
-    f.store.update(task.id, { status: 'completed' });
+    f.project.finish(ap.id, 'completed');
+    f.store.update(ap.id, { status: 'completed' });
     await f.project.sweepShowcaseReservations();
     expect(showcaseIds(f)).toHaveLength(1);
   } finally { await f.close(); }
@@ -116,7 +116,7 @@ test('a reservation that never passes admission stays pending and creates nothin
     const blocker = block(f);
     const result = await f.project.reserveShowcase('feature');
     expect(result.reserved).toBe(true);
-    expect(result.task_id).toBeNull();
+    expect(result.ap_id).toBeNull();
     expect(result.reason).toContain('尚未成功完成');
     f.project.finish(blocker.id, 'failed');
     await until(() => f.project.showcaseSweeping === false);
@@ -135,8 +135,8 @@ test('manual showcase.start consumes a pending reservation without bypassing adm
     await f.project.reserveShowcase('feature');
     // Freeze the static gate without triggering a sweep, then start by hand.
     f.store.update(blocker.id, { status: 'completed' });
-    const task = await f.project.startShowcase('feature');
-    expect(task.role).toBe('showcase');
+    const ap = await f.project.startShowcase('feature');
+    expect(ap.role).toBe('showcase');
     expect(rawReservation(f)).toBeNull();
     expect(eventCount(f, 'showcase.reservation_started')).toBe(1);
     // Manually starting again cannot duplicate the still-running showcase.
@@ -174,7 +174,7 @@ test('archiving and deleting a branch cancel its reservation', async () => {
   } finally { await f.close(); }
 });
 
-test('markBranchDeleted clears a reservation in place (task cleanup path)', async () => {
+test('markBranchDeleted clears a reservation in place (ap cleanup path)', async () => {
   const f = await setup();
   try {
     block(f);
@@ -201,9 +201,9 @@ test('graph branch nodes carry the reservation increment with unchanged fields',
     expect(node.showcase.reserve_reason).toBeNull();
     expect(node.showcase.reserved).toBe(true);
     expect(node.showcase.reserved_at).toBe(reservation(f).created_at);
-    expect(node.showcase.latest_task_id).toBeNull();
+    expect(node.showcase.latest_ap_id).toBeNull();
     expect(typeof node.showcase.reason).toBe('string');
-    expect(before.task_id).toBeNull();
+    expect(before.ap_id).toBeNull();
   } finally { await f.close(); }
 });
 

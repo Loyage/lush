@@ -12,21 +12,21 @@ const summary = (f, params, actor) => handlers['branch.summary'](f.project, para
 test('handler：省略 branch 时 worker / merger 写自己的分支', async () => {
   const f = await setup();
   try {
-    await change(f, f.task, 'A\n');
-    const worker = f.store.task(f.task.id);
+    await change(f, f.ap, 'A\n');
+    const worker = f.store.ap(f.ap.id);
     expect(worker.branch).toBeTruthy();
 
     const updated = await summary(f, { summary: '实现分支摘要' }, worker.id);
     expect(updated.branch).toBe(worker.branch);
     expect(f.store.branch(worker.branch).summary).toBe('实现分支摘要');
-    // 事件挂在拥有这条分支的任务上（worker 分支的 task_id 就是 worker）。
+    // 事件挂在拥有这条分支的 AP 上（worker 分支的 ap_id 就是 worker）。
     const event = f.store.history(worker.id).find(row => row.type === 'branch.summary');
     expect(event.data).toEqual({ branch: worker.branch, summary: '实现分支摘要' });
 
-    // merger 没有输入锚点，也解析自己的 task.branch。
+    // merger 没有输入锚点，也解析自己的 ap.branch。
     const merger = f.store.create({ input_id: null, role: 'merger', goal: 'sync' });
     f.store.update(merger.id, { branch: 'lush/test/merger-branch' });
-    f.store.recordBranch({ branch: 'lush/test/merger-branch', parent: 'main', task_id: merger.id });
+    f.store.recordBranch({ branch: 'lush/test/merger-branch', parent: 'main', ap_id: merger.id });
     const merged = await summary(f, { summary: '吸收父分支' }, merger.id);
     expect(merged.branch).toBe('lush/test/merger-branch');
     expect(f.store.branch('lush/test/merger-branch').summary).toBe('吸收父分支');
@@ -40,11 +40,11 @@ test('handler：省略 branch 时 planner 写自己输入的锚点分支', async
     const anchor = f.store.get('SELECT anchor_branch FROM inputs WHERE id=?', input.id).anchor_branch;
     expect(anchor).toBeTruthy();
 
-    const updated = await summary(f, { summary: '让分支标题有摘要' }, input.task.id);
+    const updated = await summary(f, { summary: '让分支标题有摘要' }, input.ap.id);
     expect(updated.branch).toBe(anchor);
     expect(f.store.branch(anchor).summary).toBe('让分支标题有摘要');
-    // 锚点分支没有任务，事件挂在输入的规划任务上。
-    const event = f.store.history(input.task.id).find(row => row.type === 'branch.summary');
+    // 锚点分支没有 AP，事件挂在输入的规划 AP 上。
+    const event = f.store.history(input.ap.id).find(row => row.type === 'branch.summary');
     expect(event.data).toEqual({ branch: anchor, summary: '让分支标题有摘要' });
   } finally { await f.close(); }
 });
@@ -52,8 +52,8 @@ test('handler：省略 branch 时 planner 写自己输入的锚点分支', async
 test('handler：agent 写别人的分支被拒，且不留任何写入', async () => {
   const f = await setup();
   try {
-    await change(f, f.task, 'A\n');
-    const worker = f.store.task(f.task.id);
+    await change(f, f.ap, 'A\n');
+    const worker = f.store.ap(f.ap.id);
     f.store.recordBranch({ branch: 'lush/test/other', parent: 'main' });
 
     expect(() => summary(f, { branch: 'lush/test/other', summary: '越权' }, worker.id)).toThrow(/does not belong/);

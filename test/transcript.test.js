@@ -6,7 +6,7 @@ import { readTranscript, readUsage, sessionFiles, transcriptReadStats } from '..
 import { LushError } from '../src/core/types.js';
 
 /** pi 的会话记录长这样：一行一条 JSON，消息正文按 part 排列。 */
-function sessionFile(root, taskId, lines, name = `2026-01-01T00-00-00-000Z_lush-task-${taskId}.jsonl`) {
+function sessionFile(root, apId, lines, name = `2026-01-01T00-00-00-000Z_lush-ap-${apId}.jsonl`) {
   const dir = path.join(root, '.lush', 'sessions');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(dir, name), lines.map(line => (typeof line === 'string' ? line : JSON.stringify(line))).join('\n') + '\n');
@@ -26,10 +26,10 @@ test('transcript projects pi session records into ordered steps', () => {
   const f = fixture();
   try {
     sessionFile(f.root, 1, [
-      { type: 'session', id: 'lush-task-1', cwd: '/tmp/proj' },
+      { type: 'session', id: 'lush-ap-1', cwd: '/tmp/proj' },
       { type: 'model_change', provider: 'deepseek', modelId: 'deepseek-flash' },
       { type: 'thinking_level_change', thinkingLevel: 'high' },
-      message('user', [{ type: 'text', text: 'Read the task input.' }], '2026-01-01T00:00:01.000Z'),
+      message('user', [{ type: 'text', text: 'Read the AP input.' }], '2026-01-01T00:00:01.000Z'),
       message('assistant', [
         { type: 'thinking', thinking: 'Let me look around.' },
         { type: 'toolCall', id: 'call_1', name: 'bash', arguments: { command: 'ls' } },
@@ -41,7 +41,7 @@ test('transcript projects pi session records into ordered steps', () => {
       { type: 'compaction', reason: 'budget' },           // 未知类型不丢，降级成 meta
     ]);
     const page = readTranscript(f.config, 1, 0, 100);
-    expect(page.files).toEqual(['2026-01-01T00-00-00-000Z_lush-task-1.jsonl']);
+    expect(page.files).toEqual(['2026-01-01T00-00-00-000Z_lush-ap-1.jsonl']);
     expect(page.has_more).toBe(false);
     expect(page.truncated).toBe(false);
     expect(page.steps.map(step => step.kind)).toEqual(['meta', 'meta', 'input', 'thinking', 'tool', 'result', 'text', 'result', 'meta']);
@@ -85,18 +85,18 @@ test('usage reports model, context and cost across session files without project
   const f = fixture();
   try {
     sessionFile(f.root, 4, [
-      { type: 'session', id: 'lush-task-4', cwd: '/tmp/proj' },
+      { type: 'session', id: 'lush-ap-4', cwd: '/tmp/proj' },
       { type: 'model_change', provider: 'deepseek', modelId: 'deepseek-flash' },
       { type: 'thinking_level_change', thinkingLevel: 'high' },
       message('user', [{ type: 'text', text: 'go' }], 1000),
       billing('first', { input: 100, output: 20, cacheRead: 200, cacheWrite: 0, reasoning: 5, totalTokens: 320, cost: { total: 0.0004 } }, 2000),
       { type: 'compaction', summary: 'so far', tokensBefore: 120000 },
-    ], '2026-01-01T00-00-00-000Z_lush-task-4.jsonl');
+    ], '2026-01-01T00-00-00-000Z_lush-ap-4.jsonl');
     sessionFile(f.root, 4, [
       billing('second', { input: 10, output: 2, cacheRead: 300, cacheWrite: 4, reasoning: 0, totalTokens: 316, cost: { total: 0.00006 } }, 3000),
-    ], '2026-02-01T00-00-00-000Z_lush-task-4.jsonl');
+    ], '2026-02-01T00-00-00-000Z_lush-ap-4.jsonl');
     const usage = readUsage(f.config, 4);
-    expect(usage.files).toEqual(['2026-01-01T00-00-00-000Z_lush-task-4.jsonl', '2026-02-01T00-00-00-000Z_lush-task-4.jsonl']);
+    expect(usage.files).toEqual(['2026-01-01T00-00-00-000Z_lush-ap-4.jsonl', '2026-02-01T00-00-00-000Z_lush-ap-4.jsonl']);
     expect(usage.model).toEqual({ provider: 'deepseek', model_id: 'deepseek-flash' });
     expect(usage.thinking_level).toBe('high');
     expect(usage.requests).toBe(2);
@@ -112,7 +112,7 @@ test('usage reports model, context and cost across session files without project
     expect(usage.last_at).toBe(new Date(3000).toISOString());
     expect(usage.steps).toBeUndefined();                         // 只有统计，不投影正文
     // 没有会话记录、没有用量的会话都只是空统计，不是错误
-    expect(readUsage(f.config, 99)).toEqual({ task_id: 99, files: [], model: null, thinking_level: null, requests: 0, compacted: 0,
+    expect(readUsage(f.config, 99)).toEqual({ ap_id: 99, files: [], model: null, thinking_level: null, requests: 0, compacted: 0,
       context_tokens: 0, last_at: null, last: null, totals: { input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, tokens: 0, cost: 0 }, truncated: false });
     sessionFile(f.root, 5, [message('assistant', [{ type: 'text', text: 'no usage here' }])]);
     expect(readUsage(f.config, 5)).toMatchObject({ requests: 1, context_tokens: 0, last_at: null });
@@ -151,8 +151,8 @@ test('transcript attaches exact tokens to billed assistant steps and estimates t
   const f = fixture();
   try {
     sessionFile(f.root, 20, [
-      { type: 'session', id: 'lush-task-20', cwd: '/tmp/proj' },
-      message('user', [{ type: 'text', text: '任务上下文' }], 1000),
+      { type: 'session', id: 'lush-ap-20', cwd: '/tmp/proj' },
+      message('user', [{ type: 'text', text: 'AP 上下文' }], 1000),
       assistant([
         { type: 'thinking', thinking: '先看看' },
         { type: 'toolCall', name: 'bash', arguments: { command: 'ls' } },
@@ -194,10 +194,10 @@ test('transcript leaves steps without a comparison point untokenised', () => {
   try {
     const billed = { input: 600, output: 100, cacheRead: 300, cacheWrite: 0, reasoning: 4, totalTokens: 1000, cost: { total: 0.001 } };
     sessionFile(f.root, 21, [
-      message('user', [{ type: 'text', text: '任务上下文' }], 1000),
+      message('user', [{ type: 'text', text: 'AP 上下文' }], 1000),
       assistant([{ type: 'text', text: 'a' }], billed, 2000),
       result('bash', 'file A 末尾没有下一次请求', 2500),
-    ], '2026-01-01T00-00-00-000Z_lush-task-21.jsonl');
+    ], '2026-01-01T00-00-00-000Z_lush-ap-21.jsonl');
     sessionFile(f.root, 21, [
       message('user', [{ type: 'text', text: '第二轮上下文' }], 3000),
       assistant([{ type: 'text', text: 'b' }], billed, 4000),
@@ -205,7 +205,7 @@ test('transcript leaves steps without a comparison point untokenised', () => {
       result('bash', '压缩之后上下文反而更小', 4200),
       assistant([{ type: 'text', text: 'c' }],
         { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 110, cost: { total: 0 } }, 5000),
-    ], '2026-02-01T00-00-00-000Z_lush-task-21.jsonl');
+    ], '2026-02-01T00-00-00-000Z_lush-ap-21.jsonl');
     const page = readTranscript(f.config, 21, 0, 100);
     expect(page.steps.map(step => step.kind)).toEqual(['input', 'text', 'result', 'input', 'text', 'meta', 'result', 'text']);
     expect(page.steps[0].tokens).toBeUndefined();   // 首个请求之前
@@ -297,7 +297,7 @@ test('incremental JSONL cache preserves half lines and UTF-8 across append and t
     fs.writeFileSync(file, replacement);
     const truncated = readTranscript(f.config, 32, 0, 100);
     expect(truncated.steps.map(step => step.body)).toEqual(['截断后']);
-    // A fresh task/file with identical bytes projects identically to the incrementally refreshed cache.
+    // A fresh ap/file with identical bytes projects identically to the incrementally refreshed cache.
     sessionFile(f.root, 33, [message('assistant', [{ type: 'text', text: '截断后' }])]);
     expect(readTranscript(f.config, 33, 0, 100).steps.map(({ file: _file, ...step }) => step))
       .toEqual(truncated.steps.map(({ file: _file, ...step }) => step));
@@ -350,14 +350,14 @@ test('usage polling reuses the parsed aggregate when session files are unchanged
 test('transcript clips huge steps, merges every session file and validates input', () => {
   const f = fixture();
   try {
-    sessionFile(f.root, 3, [message('assistant', [{ type: 'text', text: 'later' }])], '2026-02-01T00-00-00-000Z_lush-task-3.jsonl');
-    sessionFile(f.root, 3, [message('toolResult', [{ type: 'text', text: 'x'.repeat(9000) }])], '2026-01-01T00-00-00-000Z_lush-task-3.jsonl');
+    sessionFile(f.root, 3, [message('assistant', [{ type: 'text', text: 'later' }])], '2026-02-01T00-00-00-000Z_lush-ap-3.jsonl');
+    sessionFile(f.root, 3, [message('toolResult', [{ type: 'text', text: 'x'.repeat(9000) }])], '2026-01-01T00-00-00-000Z_lush-ap-3.jsonl');
     const page = readTranscript(f.config, 3, 0, 100);
     expect(page.files.map(name => name.slice(0, 10))).toEqual(['2026-01-01', '2026-02-01']); // 旧文件在前
     expect(page.steps[0].body).toContain('已截断');
     expect(page.steps[0].body.length).toBeLessThan(4200);
     expect(page.steps.at(-1).body).toBe('later');
-    // task-3 的前缀不能匹配到 task-30 的会话
+    // ap-3 的前缀不能匹配到 ap-30 的会话
     sessionFile(f.root, 30, [message('assistant', [{ type: 'text', text: 'other' }])]);
     expect(sessionFiles(f.config, 3).length).toBe(2);
     expect(() => readTranscript(f.config, 3, -1, 10)).toThrow(LushError);
@@ -365,7 +365,7 @@ test('transcript clips huge steps, merges every session file and validates input
     expect(() => readTranscript(f.config, 3, 0, 201)).toThrow('limit');
     // 没有 sessions 目录、没有会话文件都不算错误
     expect(readTranscript(f.config, 99, 0, 10)).toEqual({
-      task_id: 99, files: [], steps: [], next: 0, has_more: false, truncated: false,
+      ap_id: 99, files: [], steps: [], next: 0, has_more: false, truncated: false,
     });
   } finally { f.close(); }
 });

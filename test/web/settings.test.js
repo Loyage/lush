@@ -46,7 +46,7 @@ test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1
   expect(panel().dataset.view).toBe('settings');
   expect(deepText(panel())).toContain('设置');
   expect(deepText(panel())).toContain('默认 Agent');
-  expect(deepText(panel())).toContain('按任务行为覆盖');
+  expect(deepText(panel())).toContain('按 AP 行为覆盖');
   await openTab('interface');
   expect(deepText(panel())).toContain('Markdown 渲染');
   expect(deepText(panel())).toContain('执行过程排序');
@@ -394,10 +394,10 @@ test('系统页：只读展示 daemon 状态与项目路径，运行设置改为
   expect(limits).toBeTruthy();
   const limitInput = key => limits.querySelector(`input[data-runtime-input="${key}"]`);
   expect(limitInput('call_timeout').value).toBe('900');
-  expect(limitInput('task_call_limit').value).toBe('24');
+  expect(limitInput('ap_call_limit').value).toBe('24');
   expect(limitInput('max_depth').value).toBe('8');
   expect(limitInput('call_timeout').max).toBe('86400');
-  expect(limitInput('task_call_limit').max).toBe('1000');
+  expect(limitInput('ap_call_limit').max).toBe('1000');
   expect(limitInput('max_depth').max).toBe('64');
   expect(limits.querySelector('[data-runtime-state="call_timeout"]').textContent).toContain('生效 900 秒');
   expect(limits.querySelector('[data-runtime-state="call_timeout"]').textContent).toContain('环境默认 900 秒');
@@ -461,12 +461,12 @@ test('系统页：保存写回调用与拆解限额并立即反映到快照；�
   openSystem();
   let limits = limitsBlock();
   limits.querySelector('input[data-runtime-input="call_timeout"]').value = '1200';
-  limits.querySelector('input[data-runtime-input="task_call_limit"]').value = '40';
+  limits.querySelector('input[data-runtime-input="ap_call_limit"]').value = '40';
   limits.querySelector('input[data-runtime-input="max_depth"]').value = '10';
   await limits.querySelector('button[data-runtime-action="save"]').onclick();
-  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { settings: { call_timeout: 1200, task_call_limit: 40, max_depth: 10 } } });
+  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { settings: { call_timeout: 1200, ap_call_limit: 40, max_depth: 10 } } });
   expect(world.state.runtimeSettings.call_timeout).toEqual({ value: 1200, default: 900, overridden: true });
-  expect(world.state.runtimeSettings.task_call_limit).toEqual({ value: 40, default: 24, overridden: true });
+  expect(world.state.runtimeSettings.ap_call_limit).toEqual({ value: 40, default: 24, overridden: true });
   // 内存里立刻镜像到快照，不必等下一次轮询。
   expect(state.ui.lastSnapshot.status.call_timeout).toBe(1200);
   limits = limitsBlock();
@@ -488,7 +488,7 @@ test('系统页：调用与拆解限额可恢复环境默认', async () => {
   await limits.querySelector('button[data-runtime-action="save"]').onclick();
   expect(world.state.runtimeSettings.max_depth.overridden).toBe(true);
   await limitsBlock().querySelector('button[data-runtime-action="reset"]').onclick();
-  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { settings: { call_timeout: null, task_call_limit: null, max_depth: null } } });
+  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { settings: { call_timeout: null, ap_call_limit: null, max_depth: null } } });
   expect(world.state.runtimeSettings.call_timeout).toEqual({ value: 900, default: 900, overridden: false });
   expect(world.state.runtimeSettings.max_depth).toEqual({ value: 8, default: 8, overridden: false });
 });

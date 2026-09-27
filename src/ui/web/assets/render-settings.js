@@ -12,7 +12,7 @@ import { notificationControl } from './notice-notifications.js';
 import { DEFAULT_INPUT_ROUTES, ROUTE_TARGETS } from './input-routes.js';
 
 const TABS = [
-  { id: 'agent', label: 'Agent', note: '任务行为与模型' },
+  { id: 'agent', label: 'Agent', note: 'AP 行为与模型' },
   { id: 'interface', label: '界面', note: '阅读、外观与行为' },
   { id: 'system', label: '系统', note: '运行参数与路径' },
 ];
@@ -87,7 +87,7 @@ function interfaceTab() {
   content.append(appearance);
 
   const navigation = block('导航');
-  navigation.append(row('信息列表排序', '行动任务、Intent、Plan 与待决事项共用。', selectControl('sidebarSort', SORT_MODES, '信息列表排序方式')));
+  navigation.append(row('信息列表排序', '行动 AP、Intent、Plan 与待决事项共用。', selectControl('sidebarSort', SORT_MODES, '信息列表排序方式')));
   content.append(navigation);
 
   const behavior = block('刷新与提示');
@@ -234,7 +234,7 @@ function profileEditor(settings, profile, target, title, subtitle) {
     finally { loadModels.disabled = false; loadModels.textContent = '重新读取'; }
   };
 
-  form.append(field('Agent', backend, '执行该类任务的 CLI。'),
+  form.append(field('Agent', backend, '执行该类 AP 的 CLI。'),
     field('模型', modelBox, '留空使用所选 CLI 的默认模型；也可以读取 CLI 当前目录或直接填写模型 ID。'),
     field('思考深度', thinking, '可用等级随 Agent 变化。'),
     field('软预算：模型响应数', budgetControls.responses, '每次 invocation 单独计数；达到阈值提醒收尾，不强制终止。仅 Pi；解释角色不继承。'),
@@ -262,7 +262,7 @@ function profileEditor(settings, profile, target, title, subtitle) {
   };
   defaultPrompt.addEventListener('input', syncPromptState); syncPromptState();
   const risk = el('div', undefined, 'prompt-risk');
-  risk.append(el('strong', '修改会替换内置 Prompt'), el('span', 'Agent 可能失去 Lush 的任务协议、权限边界、协作方式和交付要求，导致调用失败或错误操作。需要撤销修改时可恢复默认。'));
+  risk.append(el('strong', '修改会替换内置 Prompt'), el('span', 'Agent 可能失去 Lush 的 AP 协议、权限边界、协作方式和交付要求，导致调用失败或错误操作。需要撤销修改时可恢复默认。'));
   const defaultPromptBox = el('div', undefined, 'prompt-field-box'); defaultPromptBox.append(defaultPrompt, promptTools, risk);
   form.append(field('默认 Prompt', defaultPromptBox, target === 'default' && roleDefaults
     ? '留空时每个角色使用自己的内置组合；填写后会用同一内容替换所有继承角色。'
@@ -280,8 +280,8 @@ function profileEditor(settings, profile, target, title, subtitle) {
     const nextDefaultPrompt = enteredDefaultPrompt === builtInPrompt.trim() ? '' : enteredDefaultPrompt;
     if (nextDefaultPrompt && nextDefaultPrompt !== (profile.default_prompt || '')) {
       const confirmed = await confirmDialog({ title: '替换 Lush 内置 Prompt？',
-        message: '保存后，下一次 Agent 调用将不再收到 Lush 内置任务规则。',
-        detail: '可能影响：任务 API 使用、权限边界、子任务协作、工作区安全和交付流程。\n请确认你的 Prompt 已完整覆盖这些要求。',
+        message: '保存后，下一次 Agent 调用将不再收到 Lush 内置 AP 规则。',
+        detail: '可能影响：AP API 使用、权限边界、子 AP 协作、工作区安全和交付流程。\n请确认你的 Prompt 已完整覆盖这些要求。',
         confirmLabel: '仍然替换并保存', danger: true });
       if (!confirmed) return;
     }
@@ -421,15 +421,15 @@ function agentTab() {
   const settings = ui.lastSnapshot?.status?.agent_config;
   if (!settings) {
     const waiting = block('Agent 配置');
-    waiting.append(el('p', '正在等待 daemon 快照。连接建立后可配置 Pi、Codex、模型、思考深度与各任务角色的追加 Prompt。', 'settings-placeholder'));
+    waiting.append(el('p', '正在等待 daemon 快照。连接建立后可配置 Pi、Codex、模型、思考深度与各 AP 角色的追加 Prompt。', 'settings-placeholder'));
     content.append(waiting); return content;
   }
   const intro = el('div', undefined, 'agent-callout');
-  intro.append(el('strong', '项目级 · 动态生效'), el('p', `配置保存在 ${settings.file}。正在运行的调用保持不变，排队任务与后续唤醒会读取最新配置。`, 'settings-note'));
+  intro.append(el('strong', '项目级 · 动态生效'), el('p', `配置保存在 ${settings.file}。正在运行的调用保持不变，排队 AP 与后续唤醒会读取最新配置。`, 'settings-note'));
   content.append(intro);
-  content.append(profileEditor(settings, settings.default, 'default', '默认 Agent', '所有未单独配置的任务行为都继承这里。'));
+  content.append(profileEditor(settings, settings.default, 'default', '默认 Agent', '所有未单独配置的 AP 行为都继承这里。'));
 
-  const roles = block('按任务行为覆盖'); roles.classList.add('agent-roles-block');
+  const roles = block('按 AP 行为覆盖'); roles.classList.add('agent-roles-block');
   roles.append(el('p', '只为需要不同模型、思考深度或工作方式的行为建立覆盖；其余保持继承，后续调整默认值时会一起更新。', 'settings-note settings-section-note'));
   const list = el('div', undefined, 'agent-role-list');
   for (const item of settings.options.roles.filter(item => item.id === 'agent')) {
@@ -447,7 +447,7 @@ const CONCURRENCY_FIELDS = [
 ];
 const LIMIT_FIELDS = [
   { key: 'call_timeout', label: '单次调用超时', max: 86400, unit: '秒' },
-  { key: 'task_call_limit', label: '单任务调用上限', max: 1000, unit: '次' },
+  { key: 'ap_call_limit', label: '单 AP 调用上限', max: 1000, unit: '次' },
   { key: 'max_depth', label: '最大拆解深度', max: 64, unit: '层' },
 ];
 
@@ -495,7 +495,7 @@ function runtimeFieldsEditor(runtime, fields, plain, note) {
     errorBox.hidden = true;
     const saved = await action('system.configure', { settings: patch });
     applyRuntimeSettings(saved);
-    show(`${note}已保存，立即对排队任务生效。`);
+    show(`${note}已保存，立即对排队 AP 生效。`);
     renderSettings();
   }, 'primary settings-runtime-save');
   save.dataset.runtimeAction = 'save';
@@ -525,7 +525,7 @@ function inputRoutesEditor(runtime) {
   const fallback = { value: DEFAULT_INPUT_ROUTES.map(route => ({ ...route })), default: DEFAULT_INPUT_ROUTES.map(route => ({ ...route })), overridden: false };
   const entry = runtime.input_routes || fallback;
   const section = block('输入前缀（仅旧提交路径）');
-  section.append(el('p', '以这些前缀开头的旧提交（`input.submit` / 旧批量 `draft.commit`）不调用规划模型，直接按目标创建根任务：worker 进入开发流程，research 只做调研。新 say 不走快速路由，输入框也不再高亮前缀。', 'settings-note settings-section-note'));
+  section.append(el('p', '以这些前缀开头的旧提交（`input.submit` / 旧批量 `draft.commit`）不调用规划模型，直接按目标创建根 AP：worker 进入开发流程，research 只做调研。新 say 不走快速路由，输入框也不再高亮前缀。', 'settings-note settings-section-note'));
 
   const list = el('div', undefined, 'settings-route-list'); list.dataset.routeList = '';
   const addRow = (prefix = '', target = 'worker') => {
@@ -671,16 +671,16 @@ function systemTab() {
     concurrency: { value: snapshot.concurrency, default: null, overridden: false },
     control_concurrency: { value: snapshot.control_concurrency, default: null, overridden: false },
     call_timeout: { value: snapshot.call_timeout, default: null, overridden: false },
-    task_call_limit: { value: snapshot.task_call_limit, default: null, overridden: false },
+    ap_call_limit: { value: snapshot.ap_call_limit, default: null, overridden: false },
     max_depth: { value: snapshot.max_depth, default: null, overridden: false } };
   const concurrency = block('并发额度');
-  concurrency.append(el('p', '执行通道与控制通道的并发上限；保存后写入项目设置文件，排队任务立即重新准入，不需要重启 daemon。', 'settings-note settings-section-note'));
+  concurrency.append(el('p', '执行通道与控制通道的并发上限；保存后写入项目设置文件，排队 AP 立即重新准入，不需要重启 daemon。', 'settings-note settings-section-note'));
   concurrency.append(runtimeFieldsEditor(runtime, CONCURRENCY_FIELDS, plain, '并发额度'));
   concurrency.append(row('设置文件', '运行设置的保存位置；文件不存在表示全部使用环境默认。', el('code', plain(runtime.file), 'settings-path')));
   content.append(concurrency);
 
   const limits = block('调用与拆解限额');
-  limits.append(el('p', '单次模型调用超时、单任务 invocation 总上限与任务树最大层数；保存后写入同一份项目设置文件，在下一次调度 / 调用 / 拆解时生效。', 'settings-note settings-section-note'));
+  limits.append(el('p', '单次模型调用超时、单 AP invocation 总上限与 AP 树最大层数；保存后写入同一份项目设置文件，在下一次调度 / 调用 / 拆解时生效。', 'settings-note settings-section-note'));
   limits.append(runtimeFieldsEditor(runtime, LIMIT_FIELDS, plain, '调用与拆解限额'));
   content.append(limits);
 

@@ -27,7 +27,7 @@ const ACTIONS = Object.freeze({
 });
 
 function patchKeys(patch) {
-  const allowed = ['summary','feedback','report_task_id'];
+  const allowed = ['summary','feedback','report_ap_id'];
   check(Object.keys(patch).every(key => allowed.includes(key)), 'invalid candidate patch');
 }
 function assertTransition(from, to) {
@@ -56,7 +56,7 @@ export const candidates = {
     check(latest?.status !== 'accepted',
       `candidate #${latest?.id} is accepted; cannot prepare a replacement until Git settles`);
     const version = this.get('SELECT COALESCE(MAX(version),0)+1 AS value FROM review_candidates WHERE input_id=?', input).value;
-    // 候选只冻结待审阅的两个 commit；验收任务必须由用户另行显式启动。
+    // 候选只冻结待审阅的两个 commit；验收 AP 必须由用户另行显式启动。
     // 显式写 status，兼容已有数据库仍保留 preparing 默认值的 schema。
     const row = this.run(`INSERT INTO review_candidates(input_id,version,branch,commit_hash,baseline_branch,baseline_commit,status,summary)
       VALUES (?,?,?,?,?,?,'pending',?)`, input, version, branch, commit, baseline_branch, baseline_commit, summary);
@@ -91,7 +91,7 @@ export const candidates = {
    * While accepted, rejection, feedback and replacement are deliberately forbidden rather than treated as cancellation.
    * @param {number|string} candidateId
    * @param {'verification_requested'|'supersede'|'accept'|'integration_succeeded'|'integration_failed'|'request_changes'|'reject'} action
-   * @param {{summary?: string, feedback?: string, report_task_id?: number}} [patch]
+   * @param {{summary?: string, feedback?: string, report_ap_id?: number}} [patch]
    * @returns {object}
    */
   transitionCandidate(candidateId, action, patch = {}) {
@@ -108,13 +108,13 @@ export const candidates = {
   },
 
   /** 只有当前 preparing Candidate 自己登记的 verifier 才能结算；检查与写入由一条 SQL 原子完成。 */
-  settleCandidateVerification(candidateId, reportTaskId, status) {
+  settleCandidateVerification(candidateId, reportAPId, status) {
     const candidate = id(candidateId);
-    const verifier = id(reportTaskId);
+    const verifier = id(reportAPId);
     check(status === 'ready' || status === 'failed', 'candidate verification must settle as ready or failed');
     assertTransition('preparing', status);
     const result = this.run(`UPDATE review_candidates SET status=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-      WHERE id=? AND status='preparing' AND report_task_id=?`, status, candidate, verifier);
+      WHERE id=? AND status='preparing' AND report_ap_id=?`, status, candidate, verifier);
     // SQLite wrappers may include AFTER-trigger maintenance writes in `changes`; the guarded
     // candidate row contributes at least one change, while a stale verifier still contributes zero.
     return { applied: Number(result.changes) >= 1, candidate: this.candidate(candidate) };

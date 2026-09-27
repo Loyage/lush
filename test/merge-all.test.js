@@ -78,7 +78,7 @@ test('freeze blocks new intents and branch writes on the target and its descenda
     await commitOn(f, 'input-A', main, 'a.txt', 'A\n');
     f.store.recordBranch({ branch: 'main' });
     f.store.recordBranch({ branch: 'input-A', parent: 'main', created_from_commit: main });
-    const run = { version: 1, status: 'running', order: [], index: 0, done: [], skipped: [], waiting_task_id: null };
+    const run = { version: 1, status: 'running', order: [], index: 0, done: [], skipped: [], waiting_ap_id: null };
     f.store.setBranchMergeRun('main', run);
 
     expect(() => f.project.assertBranchWritable('main', 'merge')).toThrow(/frozen/);
@@ -109,7 +109,7 @@ test('an unfinished merger freezes its branch, all descendants and its parent', 
   } finally { await f.close(); }
 });
 
-test('a diverged child pauses the run, creates a merger child task, and resumes after it completes', async () => {
+test('a diverged child pauses the run, creates a merger child AP, and resumes after it completes', async () => {
   const f = await setup();
   try {
     const main = await git(f.root, 'rev-parse', 'HEAD');
@@ -124,15 +124,15 @@ test('a diverged child pauses the run, creates a merger child task, and resumes 
     await f.project.driveMergeRun('main');
     const paused = f.store.branchMergeRun('main');
     expect(paused.status).toBe('paused');
-    expect(paused.waiting_task_id).not.toBeNull();
-    const merger = f.store.task(paused.waiting_task_id);
+    expect(paused.waiting_ap_id).not.toBeNull();
+    const merger = f.store.ap(paused.waiting_ap_id);
     expect(merger.role).toBe('merger');
     expect(merger.target_branch).toBe('input-A');
 
     // 手动扮演那个 merger：在它的 worktree 里把 main 的提交合进来（不同文件，干净合并）。
     const cwd = await f.project.workspaces.ensure(merger);
     await git(cwd, 'merge', moved);
-    await f.project.workspaces.finish(f.store.task(merger.id));
+    await f.project.workspaces.finish(f.store.ap(merger.id));
     f.project.finish(merger.id, 'completed');
     await f.project.driveMergeRun('main');
 
@@ -158,12 +158,12 @@ test('cancelling a paused run releases the freeze, cancels the merger and keeps 
     await f.project.mergeAll('main');
     await f.project.driveMergeRun('main');
     const paused = f.store.branchMergeRun('main');
-    const mergerId = paused.waiting_task_id;
+    const mergerId = paused.waiting_ap_id;
 
     const result = f.project.cancelMergeAll('main');
     expect(result.status).toBe('cancelled');
     expect(f.store.branchMergeRun('main')).toBeNull();
     expect(f.project.branchFreeze()).toEqual([]);
-    expect(f.store.task(mergerId).status).toBe('cancelled');
+    expect(f.store.ap(mergerId).status).toBe('cancelled');
   } finally { await f.close(); }
 });

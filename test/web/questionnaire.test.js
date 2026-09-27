@@ -27,15 +27,15 @@ test('HTML previews retain static styling but remove scripts, navigation and act
 test('questionnaire HTTP route serves stored previews only, preserves main CSP, and accepts atomic answers', async () => {
   const f = await setup();
   try {
-    const task = f.store.create({ role: 'research', goal: 'decision' });
-    const n = f.project.notice(task.id, 'Choose', '', 'question', form(malicious));
-    const response = await fetch(`${f.url}/api/task/${task.id}/notice/${n.id}/preview/0/0`);
+    const ap = f.store.create({ role: 'research', goal: 'decision' });
+    const n = f.project.notice(ap.id, 'Choose', '', 'question', form(malicious));
+    const response = await fetch(`${f.url}/api/ap/${ap.id}/notice/${n.id}/preview/0/0`);
     expect(response.status).toBe(200); expect(response.headers.get('content-security-policy')).toBe(PREVIEW_CSP);
     expect(await response.text()).not.toContain('<script');
     expect((await fetch(f.url + '/')).headers.get('content-security-policy')).toContain("style-src 'self'");
     expect((await fetch(f.url + '/render-questionnaire.js')).status).toBe(200);
     for (const suffix of [`${n.id}/preview/0/1`, `${n.id}/preview/5/0`, `999/preview/0/0`]) {
-      expect((await fetch(`${f.url}/api/task/${task.id}/notice/${suffix}`)).status).toBe(400);
+      expect((await fetch(`${f.url}/api/ap/${ap.id}/notice/${suffix}`)).status).toBe(400);
     }
     const action = answer => fetch(f.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ method: 'notice.answer', params: { id: n.id, answer } }) });
@@ -49,7 +49,7 @@ test('questionnaire HTTP route serves stored previews only, preserves main CSP, 
 test('HTML preview routes require the same authentication as the Web UI', async () => {
   const f = await setup({ auth: { username: 'test', password: 'a-long-enough-password' } });
   try {
-    const response = await fetch(`${f.url}/api/task/1/notice/1/preview/0/0`);
+    const response = await fetch(`${f.url}/api/ap/1/notice/1/preview/0/0`);
     expect(response.status).toBe(401);
   } finally { await f.close(); }
 });

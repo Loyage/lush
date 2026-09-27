@@ -1,16 +1,16 @@
 import { test, expect } from 'bun:test';
-import { graphLayout, graphFingerprint, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingTask, workingState } from '../../src/ui/web/assets/graph-layout.js';
+import { graphLayout, graphFingerprint, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingAP, workingState } from '../../src/ui/web/assets/graph-layout.js';
 
 // graphLayout 的纯逻辑：同一层级的迭代方向必须统一为「新的在前」——
-// 兄弟分支按 created_at 从新到旧（未知时间排在已知时间之后），同一分支下同 level 的任务按 id 降序；
+// 兄弟分支按 created_at 从新到旧（未知时间排在已知时间之后），同一分支下同 level 的 AP 按 id 降序；
 // level 不同的仍按 level 升序（上游 stack 靠前）。这里不碰 DOM，直接断言布局结果的顺序。
 
 const branch = (name, extra = {}) => ({
   kind: 'branch', id: `branch:${name}`, name, head_commit: 'aaa',
   current: false, tracked: true, placeholder: false, created_at: null, ...extra,
 });
-const task = (id, branchName, extra = {}) => ({
-  kind: 'task', id, role: 'worker', name: `t${id}`, goal: `任务 ${id}`,
+const ap = (id, branchName, extra = {}) => ({
+  kind: 'ap', id, role: 'worker', name: `t${id}`, goal: `AP ${id}`,
   status: 'completed', integration: 'none', branch: branchName, target_branch: 'main', ...extra,
 });
 const fork = (from, to) => ({ kind: 'fork', from: `branch:${from}`, to: `branch:${to}` });
@@ -59,25 +59,25 @@ test('未知创建时间的兄弟分支排在已知时间之后，并按分支�
   expect(names(layout.forest[0].children)).toEqual(['dated', 'a-undated', 'z-undated']);
 });
 
-test('同一分支下同 level 的任务按 id 降序（新在前），level 更高的仍排在后面', () => {
+test('同一分支下同 level 的 AP 按 id 降序（新在前），level 更高的仍排在后面', () => {
   const graph = {
     current_branch: 'main',
     nodes: [
       branch('main', { current: true, created_at: '2026-01-01T00:00:00.000Z' }),
       branch('lush/x/a', { created_at: '2026-02-01T00:00:00.000Z' }),
-      task(1, 'lush/x/a'), task(2, 'lush/x/a'), task(3, 'lush/x/a'),
-      // #4 依赖 #1：level 1，必须排在三个 level 0 的任务之后。
-      task(4, 'lush/x/a'),
+      ap(1, 'lush/x/a'), ap(2, 'lush/x/a'), ap(3, 'lush/x/a'),
+      // #4 依赖 #1：level 1，必须排在三个 level 0 的 AP 之后。
+      ap(4, 'lush/x/a'),
     ],
     edges: [fork('main', 'lush/x/a'), code(1, 4)],
   };
   const layout = graphLayout(graph);
-  const tasks = layout.forest[0].children[0].tasks;
-  expect(tasks.map(node => node.id)).toEqual([3, 2, 1, 4]);
+  const aps = layout.forest[0].children[0].aps;
+  expect(aps.map(node => node.id)).toEqual([3, 2, 1, 4]);
   // level / 上游 / 标记等信息不因为排序改变而丢失。
-  expect(tasks.map(node => node.level)).toEqual([0, 0, 0, 1]);
-  expect(tasks.find(node => node.id === 4).upstreams).toEqual([1]);
-  expect(tasks.find(node => node.id === 4).marks).toBeArray();
+  expect(aps.map(node => node.level)).toEqual([0, 0, 0, 1]);
+  expect(aps.find(node => node.id === 4).upstreams).toEqual([1]);
+  expect(aps.find(node => node.id === 4).marks).toBeArray();
 });
 
 test('unplaced 分组内同样 level 升序 + id 降序', () => {
@@ -85,8 +85,8 @@ test('unplaced 分组内同样 level 升序 + id 降序', () => {
     current_branch: 'main',
     nodes: [
       branch('main', { current: true, created_at: '2026-01-01T00:00:00.000Z' }),
-      // 目标分支在图上没有节点：这两个任务落进 unplaced。
-      task(1, null, { target_branch: 'ghost' }), task(2, null, { target_branch: 'ghost' }), task(3, null, { target_branch: 'ghost' }),
+      // 目标分支在图上没有节点：这两个 AP 落进 unplaced。
+      ap(1, null, { target_branch: 'ghost' }), ap(2, null, { target_branch: 'ghost' }), ap(3, null, { target_branch: 'ghost' }),
     ],
     edges: [],
   };
@@ -108,18 +108,18 @@ const layoutIndex = layout => {
 const emphasisGraph = () => ({
   current_branch: 'main',
   nodes: [
-    // 当前检出：自己没任务，下面挂着四种关系的子分支。
-    branch('main', { current: true, status: 'active', tasks: { total: 2, active: 1, failed: 0, completed: 1 } }),
-    // 已合进父分支、任务都结束：不强调，默认收起。
-    branch('lush/x/done', { status: 'ready' }), task(1, 'lush/x/done', { merged: true }),
+    // 当前检出：自己没 AP，下面挂着四种关系的子分支。
+    branch('main', { current: true, status: 'active', aps: { total: 2, active: 1, failed: 0, completed: 1 } }),
+    // 已合进父分支、AP 都结束：不强调，默认收起。
+    branch('lush/x/done', { status: 'ready' }), ap(1, 'lush/x/done', { merged: true }),
     // 没合进父分支：强调 + 默认展开。
-    branch('lush/x/ahead', { status: 'ready' }), task(2, 'lush/x/ahead', { merged: false }),
-    branch('lush/x/diverged', { status: 'ready' }), task(3, 'lush/x/diverged', { merged: false }),
-    // 在跑（汇总 active + running 任务）：强调 + 默认展开。
-    branch('lush/x/busy', { status: 'active', tasks: { total: 1, active: 1, failed: 0, completed: 0 } }),
-    task(4, 'lush/x/busy', { status: 'running', merged: false }),
+    branch('lush/x/ahead', { status: 'ready' }), ap(2, 'lush/x/ahead', { merged: false }),
+    branch('lush/x/diverged', { status: 'ready' }), ap(3, 'lush/x/diverged', { merged: false }),
+    // 在跑（汇总 active + running AP）：强调 + 默认展开。
+    branch('lush/x/busy', { status: 'active', aps: { total: 1, active: 1, failed: 0, completed: 0 } }),
+    ap(4, 'lush/x/busy', { status: 'running', merged: false }),
     // 另一棵根：自己既没未合并也没在跑，但后代没合进父分支——也要默认展开。
-    branch('feature'), branch('feature/legacy'), task(5, 'feature/legacy', { merged: false }),
+    branch('feature'), branch('feature/legacy'), ap(5, 'feature/legacy', { merged: false }),
   ],
   edges: [
     forkEdge('main', 'lush/x/done', 'integrated'),
@@ -130,14 +130,14 @@ const emphasisGraph = () => ({
   ],
 });
 
-test('归档的分支不占分支树：自己与名下任务都不画，后代接到最近的可见祖先上', () => {
+test('归档的分支不占分支树：自己与名下 AP 都不画，后代接到最近的可见祖先上', () => {
   const graph = {
     current_branch: 'main',
     nodes: [
       branch('main', { current: true }),
-      // 归档：ref 是归档时按预期删掉的；这条分支与它名下的任务都不再画在分支树上。
+      // 归档：ref 是归档时按预期删掉的；这条分支与它名下的 AP 都不再画在分支树上。
       branch('lush/x/archived', { head_commit: null, archived: true, archived_at: '2026-09-20T12:39:43.503Z', status: 'archived' }),
-      task(7, 'lush/x/archived'),
+      ap(7, 'lush/x/archived'),
       // 归档分支的后代还活着（历史遗留：归档曾经只删自己一条）：升到最近的非归档祖先下，不跟着消失。
       branch('lush/x/orphan', { head_commit: 'bbb' }),
       branch('lush/x/orphan-gone', { head_commit: null }),
@@ -153,12 +153,12 @@ test('归档的分支不占分支树：自己与名下任务都不画，后代�
   };
   const layout = graphLayout(graph);
   const byName = layoutIndex(layout);
-  // 归档节点自己不在森林里，它名下的任务也不画。
+  // 归档节点自己不在森林里，它名下的 AP 也不画。
   expect(byName.has('lush/x/archived')).toBe(false);
-  const taskIds = [];
-  const collect = entry => { taskIds.push(...entry.tasks.map(node => node.id)); entry.children.forEach(collect); };
+  const apIds = [];
+  const collect = entry => { apIds.push(...entry.aps.map(node => node.id)); entry.children.forEach(collect); };
   layout.forest.forEach(collect);
-  expect(taskIds).not.toContain(7);
+  expect(apIds).not.toContain(7);
   // 后代升到 main 下，并带着中性的「父分支已归档」，不是红色的「分支缺失」。
   expect(names(layout.forest[0].children)).toContain('lush/x/orphan');
   expect(byName.get('lush/x/orphan').relation).toEqual({ key: 'parent_archived', label: '父分支已归档' });
@@ -188,7 +188,7 @@ test('强调判断：没合进父分支 / 正在工作的分支强调，根分�
   expect(emphasisClasses(byName.get('lush/x/ahead'))).toEqual(['graph-emphasis-unmerged']);
   expect(emphasisClasses(byName.get('lush/x/busy'))).toEqual(['graph-emphasis-working']);
   expect(emphasisClasses(byName.get('main'))).toEqual(['graph-emphasis-working']);
-  // 同时命中：没合进父分支 + 自己就有在跑的任务。
+  // 同时命中：没合进父分支 + 自己就有在跑的 AP。
   expect(emphasisClasses({ unmerged: true, working: true })).toEqual(['graph-emphasis-unmerged', 'graph-emphasis-working']);
 });
 
@@ -196,7 +196,7 @@ test('默认折叠：自己或后代命中强调就默认展开，其余默认�
   const byName = layoutIndex(graphLayout(emphasisGraph()));
   const collapsed = (name, expanded = new Set(), explicit = new Set()) =>
     isBranchCollapsed(byName.get(name), expanded, explicit);
-  // 已合进父分支、任务都结束：默认收起。
+  // 已合进父分支、AP 都结束：默认收起。
   expect(collapsed('lush/x/done')).toBe(true);
   // 没合进父分支 / 在跑：默认展开。
   expect(collapsed('lush/x/ahead')).toBe(false);
@@ -214,8 +214,8 @@ test('默认折叠：自己或后代命中强调就默认展开，其余默认�
 });
 
 test('工作态判定只认 running / queued / waiting / awaiting', () => {
-  for (const status of ['running', 'queued', 'waiting', 'awaiting']) expect(isWorkingTask({ status })).toBe(true);
-  for (const status of ['completed', 'failed', 'cancelled', undefined]) expect(isWorkingTask({ status })).toBe(false);
+  for (const status of ['running', 'queued', 'waiting', 'awaiting']) expect(isWorkingAP({ status })).toBe(true);
+  for (const status of ['completed', 'failed', 'cancelled', undefined]) expect(isWorkingAP({ status })).toBe(false);
 });
 
 // workingState 只回答「这条分支怎么显示工作态」，不改 working / defaultExpanded / emphasisClasses 的语义。
@@ -225,18 +225,18 @@ const workGraph = () => ({
     branch('main', { current: true, status: 'active' }),
     // 自己就在跑：最直接的「现在真的在动」。
     branch('lush/x/run', { status: 'active' }),
-    task(1, 'lush/x/run', { status: 'running' }), task(2, 'lush/x/run', { status: 'running' }),
+    ap(1, 'lush/x/run', { status: 'running' }), ap(2, 'lush/x/run', { status: 'running' }),
     // 自己在等（awaiting + queued）：标签取优先级最高的「等你决定」。
     branch('lush/x/pending', { status: 'active' }),
-    task(3, 'lush/x/pending', { status: 'awaiting' }), task(4, 'lush/x/pending', { status: 'queued' }),
-    // 自己的任务都结束了，只有子树里的后代在跑。
+    ap(3, 'lush/x/pending', { status: 'awaiting' }), ap(4, 'lush/x/pending', { status: 'queued' }),
+    // 自己的 AP 都结束了，只有子树里的后代在跑。
     branch('lush/x/parent', { status: 'ready' }),
-    task(5, 'lush/x/parent', { status: 'completed' }),
+    ap(5, 'lush/x/parent', { status: 'completed' }),
     branch('lush/x/parent/sub', { status: 'active' }),
-    task(6, 'lush/x/parent/sub', { status: 'running' }),
-    // 真正停下来的分支：自己与后代都没有工作态任务。
+    ap(6, 'lush/x/parent/sub', { status: 'running' }),
+    // 真正停下来的分支：自己与后代都没有工作态 AP。
     branch('lush/x/idle', { status: 'merged' }),
-    task(7, 'lush/x/idle', { status: 'completed' }),
+    ap(7, 'lush/x/idle', { status: 'completed' }),
   ],
   edges: [
     forkEdge('main', 'lush/x/run', 'integrated', { ahead: 0 }),
@@ -249,40 +249,40 @@ const workGraph = () => ({
 
 test('workingState：自己 running / 自己在等 / 只有子树在跑 / 停下来了', () => {
   const byName = layoutIndex(graphLayout(workGraph()));
-  // ① 本分支自己的任务里有 running：label「工作中」，count 是 running 任务数。
+  // ① 本分支自己的 AP 里有 running：label「工作中」，count 是 running AP 数。
   expect(workingState(byName.get('lush/x/run'))).toEqual({ key: 'running', label: '工作中', count: 2 });
-  // ② 自己没有 running 但在等：label 取优先级最高者，count 是自己的工作态任务数。
+  // ② 自己没有 running 但在等：label 取优先级最高者，count 是自己的工作态 AP 数。
   expect(workingState(byName.get('lush/x/pending'))).toEqual({ key: 'pending', label: '等你决定', count: 2 });
-  // ③ 自己什么都没有、后代子树里有：count 是后代子树里的工作态任务数。
+  // ③ 自己什么都没有、后代子树里有：count 是后代子树里的工作态 AP 数。
   expect(workingState(byName.get('lush/x/parent'))).toEqual({ key: 'subtree', label: '子树工作中', count: 1 });
   // ④ 都没有：null，说明这条分支停下来了。
   expect(workingState(byName.get('lush/x/idle'))).toBeNull();
-  // 根分支自己没有任务，后代在跑：按子树口径显示。
+  // 根分支自己没有 AP，后代在跑：按子树口径显示。
   expect(workingState(byName.get('main'))).toEqual({ key: 'subtree', label: '子树工作中', count: 5 });
-  // 原有语义不变：working 仍是「自己或后代有工作态任务」，强调 class 顺序不变。
+  // 原有语义不变：working 仍是「自己或后代有工作态 AP」，强调 class 顺序不变。
   expect(byName.get('lush/x/idle').working).toBe(false);
   expect(emphasisClasses(byName.get('lush/x/idle'))).toEqual([]);
   expect(byName.get('lush/x/run').working).toBe(true);
   expect(emphasisClasses(byName.get('lush/x/run'))).toEqual(['graph-emphasis-working']);
 });
 
-test('workingState：running 优先于在等，在等内部按 等你决定 > 等子任务 > 排队中 取标签', () => {
-  const of = tasks => workingState({ tasks });
+test('workingState：running 优先于在等，在等内部按 等你决定 > 等子 AP > 排队中 取标签', () => {
+  const of = aps => workingState({ aps });
   expect(of([{ status: 'awaiting' }, { status: 'running' }])).toEqual({ key: 'running', label: '工作中', count: 1 });
   expect(of([{ status: 'awaiting' }, { status: 'waiting' }, { status: 'queued' }])).toEqual({ key: 'pending', label: '等你决定', count: 3 });
-  expect(of([{ status: 'waiting' }, { status: 'queued' }])).toEqual({ key: 'pending', label: '等子任务', count: 2 });
+  expect(of([{ status: 'waiting' }, { status: 'queued' }])).toEqual({ key: 'pending', label: '等子 AP', count: 2 });
   expect(of([{ status: 'queued' }])).toEqual({ key: 'pending', label: '排队中', count: 1 });
   // 停下来的状态一个都不算工作态。
   expect(of([{ status: 'completed' }, { status: 'failed' }, { status: 'cancelled' }])).toBeNull();
-  // 坏数据不炸：没有 tasks 字段的分支当作停下来。
+  // 坏数据不炸：没有 aps 字段的分支当作停下来。
   expect(workingState({})).toBeNull();
 });
 
-// 意图层任务（planner / scheduler）由 graph.get 派生出锚点分支后，和 worker 一样是 kind:task 节点，
+// 意图层 AP（planner / scheduler）由 graph.get 派生出锚点分支后，和 worker 一样是 kind:ap 节点，
 // 所以布局不需要新逻辑：它们自动挂在锚点分支下，running 的 planner 让这条分支按现有 workingState 显示工作态。
 test('planner / scheduler 挂在输入锚点分支下，running 的 planner 让分支显示工作态', () => {
   const anchor = 'lush/x/input-1-anchor';
-  const intentTask = (id, extra) => task(id, anchor, {
+  const intentAP = (id, extra) => ap(id, anchor, {
     target_branch: null, merged: null, branch_state: null,
     workspace: null, workspace_state: 'none', ...extra,
   });
@@ -290,35 +290,35 @@ test('planner / scheduler 挂在输入锚点分支下，running 的 planner 让�
     current_branch: 'main',
     nodes: [
       branch('main', { current: true }),
-      branch(anchor, { status: 'active', tasks: { total: 2, active: 1, failed: 0, completed: 1 } }),
-      intentTask(11, { role: 'planner', status: 'running' }),
-      intentTask(12, { role: 'scheduler', status: 'completed' }),
+      branch(anchor, { status: 'active', aps: { total: 2, active: 1, failed: 0, completed: 1 } }),
+      intentAP(11, { role: 'planner', status: 'running' }),
+      intentAP(12, { role: 'scheduler', status: 'completed' }),
     ],
     edges: [forkEdge('main', anchor, 'integrated', { ahead: 0 })],
   };
   const byName = layoutIndex(graphLayout(graph));
   const entry = byName.get(anchor);
   // 两个都挂在锚点分支下，不落进 unplaced。
-  expect(entry.tasks.map(node => node.id).sort((a, b) => a - b)).toEqual([11, 12]);
-  expect(entry.tasks.map(node => node.role)).toEqual(['scheduler', 'planner']);
+  expect(entry.aps.map(node => node.id).sort((a, b) => a - b)).toEqual([11, 12]);
+  expect(entry.aps.map(node => node.role)).toEqual(['scheduler', 'planner']);
   // running 的 planner 复用现有 workingState 口径，让这条分支显示「工作中」。
   expect(workingState(entry)).toEqual({ key: 'running', label: '工作中', count: 1 });
   expect(emphasisClasses(entry)).toEqual(['graph-emphasis-working']);
   // 不臆造合并信息：planner / scheduler 不画「未合并 / 缺失分支」，也不写领先落后。
-  for (const node of entry.tasks) {
+  for (const node of entry.aps) {
     expect(node.marks).toEqual([]);
     expect(node.aheadBehind).toBe('');
   }
 });
 
-test('归档锚点分支上的 planner / scheduler 与其它任务一样不画在分支树上', () => {
+test('归档锚点分支上的 planner / scheduler 与其它 AP 一样不画在分支树上', () => {
   const anchor = 'lush/x/input-1-anchor';
   const graph = {
     current_branch: 'main',
     nodes: [
       branch('main', { current: true }),
       branch(anchor, { head_commit: null, archived: true, status: 'archived' }),
-      task(11, anchor, {
+      ap(11, anchor, {
         role: 'planner', status: 'running', target_branch: null, merged: null, branch_state: null,
         workspace: null, workspace_state: 'none', archived: true,
       }),
@@ -328,18 +328,18 @@ test('归档锚点分支上的 planner / scheduler 与其它任务一样不画�
   const layout = graphLayout(graph);
   expect(layoutIndex(layout).has(anchor)).toBe(false);
   const ids = [];
-  const collect = entry => { ids.push(...entry.tasks.map(node => node.id)); entry.children.forEach(collect); };
+  const collect = entry => { ids.push(...entry.aps.map(node => node.id)); entry.children.forEach(collect); };
   layout.forest.forEach(collect);
   expect(ids).not.toContain(11);
 });
 
 // 强调与默认折叠都从这几个字段派生：它们一变就必须重画，否则 1.5s 轮询会把旧强调留在页面上。
-test('graphRenderKey 覆盖 incoming status / 分支汇总 status / 任务 status', () => {
-  const build = ({ edgeStatus = 'integrated', branchStatus = 'ready', taskStatus = 'completed' } = {}) => ({
+test('graphRenderKey 覆盖 incoming status / 分支汇总 status / AP status', () => {
+  const build = ({ edgeStatus = 'integrated', branchStatus = 'ready', apStatus = 'completed' } = {}) => ({
     nodes: [
       branch('main', { current: true }),
       branch('lush/x/a', { status: branchStatus }),
-      task(1, 'lush/x/a', { status: taskStatus }),
+      ap(1, 'lush/x/a', { status: apStatus }),
     ],
     edges: [forkEdge('main', 'lush/x/a', edgeStatus)],
   });
@@ -350,31 +350,31 @@ test('graphRenderKey 覆盖 incoming status / 分支汇总 status / 任务 statu
   expect(graphRenderKey(build({ edgeStatus: 'fast_forward' }))).not.toBe(key);
   // 分支汇总从 ready 变成 active：工作态强调要跟着变。
   expect(graphRenderKey(build({ branchStatus: 'active' }))).not.toBe(key);
-  // 任务从 completed 变成 running：任务行与所在分支的工作态强调都要跟着变。
-  expect(graphRenderKey(build({ taskStatus: 'running' }))).not.toBe(key);
-  // 任务在 awaiting 与 queued 之间切换：工作态文案（等你决定 / 排队中）也要跟着变，不能沿用上一张图。
-  expect(graphRenderKey(build({ taskStatus: 'awaiting' }))).not.toBe(graphRenderKey(build({ taskStatus: 'queued' })));
+  // AP 从 completed 变成 running：AP 行与所在分支的工作态强调都要跟着变。
+  expect(graphRenderKey(build({ apStatus: 'running' }))).not.toBe(key);
+  // AP 在 awaiting 与 queued 之间切换：工作态文案（等你决定 / 排队中）也要跟着变，不能沿用上一张图。
+  expect(graphRenderKey(build({ apStatus: 'awaiting' }))).not.toBe(graphRenderKey(build({ apStatus: 'queued' })));
 });
 
 test('进度变化会触发分支诊断重拉与重画', () => {
   const progress = status => ({ version: 1, items: [
     { key: 'inspect', label: '确认现状', status }, { key: 'test', label: '运行测试', status: 'pending' },
   ] });
-  const graph = status => ({ nodes: [branch('main', { current: true }), task(1, 'main', { status: 'running', progress: progress(status) })], edges: [] });
+  const graph = status => ({ nodes: [branch('main', { current: true }), ap(1, 'main', { status: 'running', progress: progress(status) })], edges: [] });
   expect(graphRenderKey(graph('pending'))).not.toBe(graphRenderKey(graph('completed')));
 
-  const snapshot = status => ({ tasks: [task(1, 'main', { status: 'running', progress: progress(status) })], ladder: {}, notices: [] });
+  const snapshot = status => ({ aps: [ap(1, 'main', { status: 'running', progress: progress(status) })], ladder: {}, notices: [] });
   expect(graphFingerprint(snapshot('pending'))).not.toBe(graphFingerprint(snapshot('completed')));
 });
 
-// 待决 notice 直接画在任务行里（见 render-graph 的 decisionRow），所以它一变这张图就必须重画：
+// 待决 notice 直接画在 AP 行里（见 render-graph 的 decisionRow），所以它一变这张图就必须重画：
 // 新 notice 出现要长出决策区，答复 / 忽略后要收回去，换成另一条要换文案与动作。
-test('graphRenderKey 把任务节点上的待决 notice（id / kind / 总数）纳入指纹', () => {
+test('graphRenderKey 把 AP 节点上的待决 notice（id / kind / 总数）纳入指纹', () => {
   const build = ({ notice = null, noticeCount = notice ? 1 : 0 } = {}) => ({
     nodes: [
       branch('main', { current: true }),
       branch('lush/x/a', { status: 'active' }),
-      task(1, 'lush/x/a', { status: 'awaiting', notice, notice_count: noticeCount }),
+      ap(1, 'lush/x/a', { status: 'awaiting', notice, notice_count: noticeCount }),
     ],
     edges: [forkEdge('main', 'lush/x/a', 'integrated')],
   });
@@ -382,7 +382,7 @@ test('graphRenderKey 把任务节点上的待决 notice（id / kind / 总数）�
   const question = build({ notice: { id: 5, kind: 'question', title: '要不要动公共面' } });
   // 同一份数据（连 notice 一起）指纹相同：重画幂等。
   expect(graphRenderKey(question)).toBe(graphRenderKey(build({ notice: { id: 5, kind: 'question', title: '要不要动公共面' } })));
-  // 新 notice 出现：任务行要长出决策区。
+  // 新 notice 出现：AP 行要长出决策区。
   expect(graphRenderKey(question)).not.toBe(none);
   // 换成另一条 notice：正文与动作都要跟着换。
   expect(graphRenderKey(build({ notice: { id: 6, kind: 'question' } }))).not.toBe(graphRenderKey(question));
@@ -394,14 +394,14 @@ test('graphRenderKey 把任务节点上的待决 notice（id / kind / 总数）�
   expect(graphRenderKey(build())).toBe(none);
 });
 
-// 1.5s 轮询用 snapshot 派生指纹判断要不要重拉 /api/graph；待决 notice 不在 tasks / ladder 里，
+// 1.5s 轮询用 snapshot 派生指纹判断要不要重拉 /api/graph；待决 notice 不在 aps / ladder 里，
 // 必须单独纳入，否则新 notice 出现或答复后分支图不会自动重拉重画。
 test('graphFingerprint 让待决 notice 的出现与答复触发重拉，info 提醒与已答复的不算', () => {
   const snapshot = notices => ({
-    tasks: [{ id: 1, status: 'awaiting', integration: 'none', role: 'worker' }],
+    aps: [{ id: 1, status: 'awaiting', integration: 'none', role: 'worker' }],
     ladder: {}, notices,
   });
-  const pending = (id, kind, status = 'open', task_id = 1) => ({ id, task_id, kind, status });
+  const pending = (id, kind, status = 'open', ap_id = 1) => ({ id, ap_id, kind, status });
   const none = graphFingerprint(snapshot([]));
   const question = graphFingerprint(snapshot([pending(5, 'question')]));
   // 新问题出现：指纹变，视图在 3s 规则内重拉。

@@ -29,7 +29,7 @@ test('runtime settings file is atomic, owner-only, and falls back to env default
       concurrency: { value: 6, default: 6, overridden: false },
       control_concurrency: { value: 3, default: 3, overridden: false },
       call_timeout: { value: 900, default: 900, overridden: false },
-      task_call_limit: { value: 24, default: 24, overridden: false },
+      ap_call_limit: { value: 24, default: 24, overridden: false },
       max_depth: { value: 8, default: 8, overridden: false },
       input_routes: { value: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }],
         default: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }], overridden: false } });
@@ -64,25 +64,25 @@ test('runtime settings file is atomic, owner-only, and falls back to env default
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('call timeout / task call limit / max depth are runtime-overridable and validated', () => {
+test('call timeout / ap call limit / max depth are runtime-overridable and validated', () => {
   const root = temp();
-  const config = new Config({ project: root, env: env({ LUSH_CALL_TIMEOUT: '600', LUSH_TASK_CALLS: '12', LUSH_MAX_DEPTH: '5' }) });
+  const config = new Config({ project: root, env: env({ LUSH_CALL_TIMEOUT: '600', LUSH_AP_CALLS: '12', LUSH_MAX_DEPTH: '5' }) });
   config.prepare();
   try {
     const settings = new RuntimeSettings(config);
     const file = path.join(root, '.lush', 'settings.json');
     expect(settings.get()).toMatchObject({
       call_timeout: { value: 600, default: 600, overridden: false },
-      task_call_limit: { value: 12, default: 12, overridden: false },
+      ap_call_limit: { value: 12, default: 12, overridden: false },
       max_depth: { value: 5, default: 5, overridden: false },
     });
     // 写盘后生效值同步进 Config，调度 / 拆解立即读到。
-    const saved = config.configureRuntime({ call_timeout: 1200, task_call_limit: 40, max_depth: 10 });
+    const saved = config.configureRuntime({ call_timeout: 1200, ap_call_limit: 40, max_depth: 10 });
     expect(saved.call_timeout).toEqual({ value: 1200, default: 600, overridden: true });
     expect(config.timeout).toBe(1200);
     expect(config.maxCalls).toBe(40);
     expect(config.maxDepth).toBe(10);
-    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, call_timeout: 1200, task_call_limit: 40, max_depth: 10 });
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, call_timeout: 1200, ap_call_limit: 40, max_depth: 10 });
     // null 清除该键，回退环境默认。
     const cleared = config.configureRuntime({ call_timeout: null });
     expect(cleared.call_timeout).toEqual({ value: 600, default: 600, overridden: false });
@@ -90,7 +90,7 @@ test('call timeout / task call limit / max depth are runtime-overridable and val
     // 越界 / 非整数不落盘。
     expect(() => config.configureRuntime({ call_timeout: 0 })).toThrow('call_timeout');
     expect(() => config.configureRuntime({ call_timeout: 86401 })).toThrow('call_timeout');
-    expect(() => config.configureRuntime({ task_call_limit: 1001 })).toThrow('task_call_limit');
+    expect(() => config.configureRuntime({ ap_call_limit: 1001 })).toThrow('ap_call_limit');
     expect(() => config.configureRuntime({ max_depth: 65 })).toThrow('max_depth');
     expect(() => config.configureRuntime({ call_timeout: 2.5 })).toThrow('integer');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
@@ -136,9 +136,9 @@ test('stored settings win over env defaults, and invalid env still fails at star
   try {
     fs.mkdirSync(path.join(root, '.lush'), { recursive: true });
     fs.writeFileSync(path.join(root, '.lush', 'settings.json'),
-      JSON.stringify({ version: 1, concurrency: 9, control_concurrency: 1, call_timeout: 42, task_call_limit: 7, max_depth: 3 }), { mode: 0o600 });
+      JSON.stringify({ version: 1, concurrency: 9, control_concurrency: 1, call_timeout: 42, ap_call_limit: 7, max_depth: 3 }), { mode: 0o600 });
     const config = new Config({ project: root, env: env({ LUSH_CONCURRENCY: '5', LUSH_CONTROL_CONCURRENCY: '3',
-      LUSH_CALL_TIMEOUT: '600', LUSH_TASK_CALLS: '12', LUSH_MAX_DEPTH: '5' }) });
+      LUSH_CALL_TIMEOUT: '600', LUSH_AP_CALLS: '12', LUSH_MAX_DEPTH: '5' }) });
     expect(config.concurrency).toBe(9);
     expect(config.controlConcurrency).toBe(1);
     expect(config.timeout).toBe(42);
@@ -153,7 +153,7 @@ test('stored settings win over env defaults, and invalid env still fails at star
     expect(() => new Config({ project: root, env: env({ LUSH_CONCURRENCY: '2x' }) })).toThrow('integer');
     expect(() => new Config({ project: root, env: env({ LUSH_CONTROL_CONCURRENCY: '0' }) })).toThrow('integer');
     expect(() => new Config({ project: root, env: env({ LUSH_CALL_TIMEOUT: '0' }) })).toThrow('integer');
-    expect(() => new Config({ project: root, env: env({ LUSH_TASK_CALLS: '1001' }) })).toThrow('integer');
+    expect(() => new Config({ project: root, env: env({ LUSH_AP_CALLS: '1001' }) })).toThrow('integer');
     expect(() => new Config({ project: root, env: env({ LUSH_MAX_DEPTH: 'x' }) })).toThrow('integer');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -179,7 +179,7 @@ test('raising the limit admits queued work immediately; lowering it cancels noth
     await until(() => f.project.running.size === 2);
     expect(f.project.running.has(second.id)).toBe(true);
 
-    // 调低到低于在跑数量：不取消任何在跑任务，只是不再准入新的。
+    // 调低到低于在跑数量：不取消任何在跑 AP，只是不再准入新的。
     f.project.configureRuntimeSettings({ control_concurrency: 9 });
     expect(() => f.project.configureRuntimeSettings({ control_concurrency: 99 })).toThrow('control_concurrency');
     f.project.configureRuntimeSettings({ concurrency: 1 });
@@ -195,7 +195,7 @@ test('raising the limit admits queued work immediately; lowering it cancels noth
 });
 
 test('system.configure is user-only and only accepts a settings patch', () => {
-  // agent（actor 是任务 id）不得调用写接口；用户（actor null）可以。
+  // agent（actor 是 AP id）不得调用写接口；用户（actor null）可以。
   expect(() => assertAllowed('system.configure', { settings: { concurrency: 3 } }, 7)).toThrow('user approval');
   expect(assertAllowed('system.configure', { settings: { concurrency: 3 } }, null)).toBe(null);
   expect(() => assertAllowed('system.configure', { concurrency: 3 }, null)).toThrow('unknown parameter');

@@ -13,27 +13,27 @@ import { treeParent } from './tree-order.js';
 /**
  * 左栏的四个区块：导航条、折叠状态都按这个顺序走，DOM 顺序也必须是同一个顺序。
  * 待提交意图不在这里——它挂在底部 composer 里，见 composer.js。
- * 顺序即优先级：先看要人拍板的（待定事项），再回看输入与拆解，最后才是正在跑的行动任务。
+ * 顺序即优先级：先看要人拍板的（待定事项），再回看输入与拆解，最后才是正在跑的行动 AP。
  */
 export const SIDEBAR_SECTIONS = [
   { id: 'notices', label: '待我处理', long: '待我处理', icon: '◔', description: '提问、答复与提醒' },
-  { id: 'tasks', label: '任务列表', long: '任务列表', icon: '✓', description: 'say、子任务与执行过程' },
+  { id: 'aps', label: 'AP 列表', long: 'AP 列表', icon: '✓', description: 'say、子 AP 与执行过程' },
 ];
 export const COLLAPSED_KEY = 'lush.sidebar.collapsed';
 export const FILTERS_KEY = 'lush.sidebar.filters';
 
-/** 任务树「合并」筛选的语义：unmerged = 还需要人动手的三种；merged = 已进目标分支。 */
+/** AP 树「合并」筛选的语义：unmerged = 还需要人动手的三种；merged = 已进目标分支。 */
 export const UNMERGED = new Set(['pending', 'review', 'conflict']);
 
 export const DEFAULT_FILTERS = Object.freeze({
-  tasks: { status: 'all', role: 'all', integration: 'all', mine: false, text: '' },
+  aps: { status: 'all', role: 'all', integration: 'all', mine: false, text: '' },
   specs: { status: 'all', planner: 'all', role: 'all', text: '' },
   intents: { gate: 'all', status: 'all', text: '' },
 });
 
 const SECTION_IDS = new Set(SIDEBAR_SECTIONS.map(section => section.id));
 
-const STATUS_LABEL = { queued: '排队', running: '运行中', waiting: '等子任务', awaiting: '等你决定',
+const STATUS_LABEL = { queued: '排队', running: '运行中', waiting: '等子 AP', awaiting: '等你决定',
   completed: '已完成', failed: '失败', cancelled: '已取消' };
 const SPEC_STATUS_LABEL = { pending: '排队中', planned: '已排期', dropped: '已丢弃' };
 const ROLE_LABEL = ROLE;
@@ -66,7 +66,7 @@ export function toggleCollapsed(collapsed, id, force) {
 
 function defaultFilters() {
   return {
-    tasks: { ...DEFAULT_FILTERS.tasks },
+    aps: { ...DEFAULT_FILTERS.aps },
     specs: { ...DEFAULT_FILTERS.specs },
     intents: { ...DEFAULT_FILTERS.intents },
   };
@@ -79,7 +79,7 @@ export function parseFilters(raw) {
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return out; }
   if (!parsed || typeof parsed !== 'object') return out;
-  for (const section of ['tasks', 'specs', 'intents']) {
+  for (const section of ['aps', 'specs', 'intents']) {
     const source = parsed[section];
     if (!source || typeof source !== 'object') continue;
     for (const [key, fallback] of Object.entries(DEFAULT_FILTERS[section])) {
@@ -107,33 +107,33 @@ function pick(value) {
 
 const keyword = value => (typeof value === 'string' ? value.trim().toLowerCase() : '');
 
-/** 未答复 notice 的 task id：接受 Set、id 数组，或 notice 行对象（任一种调用方都方便）。 */
+/** 未答复 notice 的 ap id：接受 Set、id 数组，或 notice 行对象（任一种调用方都方便）。 */
 function noticeIds(value) {
   const raw = value instanceof Set ? [...value] : Array.isArray(value) ? value : [];
   return new Set(raw
-    .map(entry => (entry && typeof entry === 'object' ? entry.task_id ?? entry.id : entry))
+    .map(entry => (entry && typeof entry === 'object' ? entry.ap_id ?? entry.id : entry))
     .filter(id => id !== undefined && id !== null));
 }
 
 /* ---------- 三条筛选规则 ---------- */
 
-/** 一个任务是否命中筛选条件（不含「保留祖先」那部分，祖先规则在 filterTasks 里）。 */
-export function matchTask(task, query = {}) {
+/** 一个 AP 是否命中筛选条件（不含「保留祖先」那部分，祖先规则在 filterAPs 里）。 */
+export function matchAP(ap, query = {}) {
   const statuses = pick(query.status);
-  if (statuses.length && !statuses.includes(task.status)) return false;
+  if (statuses.length && !statuses.includes(ap.status)) return false;
   const roles = pick(query.role);
-  if (roles.length && !roles.includes(task.role)) return false;
-  if (query.integration === 'unmerged' && !UNMERGED.has(task.integration)) return false;
-  if (query.integration === 'merged' && task.integration !== 'merged') return false;
+  if (roles.length && !roles.includes(ap.role)) return false;
+  if (query.integration === 'unmerged' && !UNMERGED.has(ap.integration)) return false;
+  if (query.integration === 'merged' && ap.integration !== 'merged') return false;
   // 只看待我处理 = 有未处理问题/审批，或已完成且等你批准合并（pending / review）。
   if (query.mine) {
     const open = noticeIds(query.openNoticeIds);
-    const pendingMerge = task.status === 'completed' && (task.integration === 'pending' || task.integration === 'review');
-    if (!open.has(task.id) && !pendingMerge) return false;
+    const pendingMerge = ap.status === 'completed' && (ap.integration === 'pending' || ap.integration === 'review');
+    if (!open.has(ap.id) && !pendingMerge) return false;
   }
   const needle = keyword(query.text);
   if (needle) {
-    const hay = `#${task.id}\n${task.id}\n${task.goal ?? ''}`.toLowerCase();
+    const hay = `#${ap.id}\n${ap.id}\n${ap.goal ?? ''}`.toLowerCase();
     if (!hay.includes(needle)) return false;
   }
   return true;
@@ -143,7 +143,7 @@ export function matchSpec(spec, query = {}) {
   const statuses = pick(query.status);
   if (statuses.length && !statuses.includes(spec.status)) return false;
   const planners = pick(query.planner);
-  if (planners.length && !planners.includes(String(spec.planner_task_id))) return false;
+  if (planners.length && !planners.includes(String(spec.planner_ap_id))) return false;
   const roles = pick(query.role);
   if (roles.length && !roles.includes(spec.role)) return false;
   const needle = keyword(query.text);
@@ -170,16 +170,16 @@ export function isFiltering(query = {}) {
 }
 
 /**
- * 任务树筛选：命中项 + 命中项的全部祖先（父被筛掉但有命中后代时，父作为通路保留）。
- * 子任务被筛掉时父仍可见——不反向补子节点，树只往上补。
+ * AP 树筛选：命中项 + 命中项的全部祖先（父被筛掉但有命中后代时，父作为通路保留）。
+ * 子 AP 被筛掉时父仍可见——不反向补子节点，树只往上补。
  * 空查询返回入参数组本身，保证默认路径零开销、行为与改造前一致。
  */
-export function filterTasks(tasks, query = {}) {
-  const list = Array.isArray(tasks) ? tasks : [];
+export function filterAPs(aps, query = {}) {
+  const list = Array.isArray(aps) ? aps : [];
   if (!isFiltering(query)) return list;
-  const ids = new Set(list.map(task => task.id));
-  const byId = new Map(list.map(task => [task.id, task]));
-  const matched = new Set(list.filter(task => matchTask(task, query)).map(task => task.id));
+  const ids = new Set(list.map(ap => ap.id));
+  const byId = new Map(list.map(ap => [ap.id, ap]));
+  const matched = new Set(list.filter(ap => matchAP(ap, query)).map(ap => ap.id));
   const visible = new Set(matched);
   for (const id of matched) {
     const seen = new Set([id]);
@@ -192,7 +192,7 @@ export function filterTasks(tasks, query = {}) {
       current = byId.get(parent);
     }
   }
-  return list.filter(task => visible.has(task.id));
+  return list.filter(ap => visible.has(ap.id));
 }
 
 export function filterSpecs(specs, query = {}) {

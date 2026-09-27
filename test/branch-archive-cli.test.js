@@ -9,7 +9,7 @@ function clientStub(result) {
 
 const RESULT = {
   branch: 'lush/h/7-feat', archived: true, worktree: 'removed', ref: 'deleted', tip: 'abcdef1234567890',
-  discarded: false, tasks: [{ id: 7, status: 'completed' }], sessions: ['/tmp/home/sessions/a.jsonl'],
+  discarded: false, aps: [{ id: 7, status: 'completed' }], sessions: ['/tmp/home/sessions/a.jsonl'],
 };
 
 test('lush branch archive forwards BRANCH and --discard to branch.archive', async () => {
@@ -29,7 +29,7 @@ test('the unknown branch command hint mentions archive', async () => {
   await expect(run('branch', ['nope'], { client: clientStub(RESULT), json: true })).rejects.toThrow(/archive/);
 });
 
-test('non-json output shows branch name, worktree/ref outcome, kept tasks and session files', async () => {
+test('non-json output shows branch name, worktree/ref outcome, kept aps and session files', async () => {
   const logs = [];
   const original = console.log;
   console.log = (...args) => logs.push(args.join(' '));

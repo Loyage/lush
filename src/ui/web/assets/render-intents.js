@@ -15,8 +15,8 @@ import { referenceable } from './context-references.js';
 function planActions(intent) {
   if (intent.plan_gate !== 'proposed') return null;
   const actions = el('span', undefined, 'intent-actions');
-  actions.append(button('批准并开发', () => action('plan.approve', { id: intent.task_id }), 'primary',
-    { agent: true, help: agentHelp('批准这份拆解并交给 scheduler 编排成真实任务，随后会启动开发 Agent 执行。') }));
+  actions.append(button('批准并开发', () => action('plan.approve', { id: intent.ap_id }), 'primary',
+    { agent: true, help: agentHelp('批准这份拆解并交给 scheduler 编排成真实 AP，随后会启动开发 Agent 执行。') }));
   actions.append(button('驳回', async () => {
     const reason = await promptDialog({
       title: `驳回 #${intent.id} 的拆解？`,
@@ -26,21 +26,21 @@ function planActions(intent) {
       confirmLabel: '驳回并重拆',
     });
     if (!reason || !reason.trim()) return;
-    return action('plan.reject', { id: intent.task_id, reason: reason.trim() });
+    return action('plan.reject', { id: intent.ap_id, reason: reason.trim() });
   }, undefined, { agent: true, help: agentHelp('把驳回理由送给 planner，让它据此重新拆解计划。') }));
   return actions;
 }
 function candidateActions(intent) {
   const actions = el('span', undefined, 'intent-actions');
-  if (intent.showcase_task_id) actions.append(button(`查看效果展示 #${intent.showcase_task_id}`,
-    () => detail(intent.showcase_task_id), 'link'));
+  if (intent.showcase_ap_id) actions.append(button(`查看效果展示 #${intent.showcase_ap_id}`,
+    () => detail(intent.showcase_ap_id), 'link'));
   if (!intent.candidate_id) return actions.children.length ? actions : null;
-  if (intent.candidate_report_task_id && intent.candidate_status === 'preparing') {
-    actions.append(button(`查看历史检验任务 #${intent.candidate_report_task_id}`,
-      () => detail(intent.candidate_report_task_id), 'link'));
-  } else if (intent.candidate_report_task_id && ['ready','accepted','integrated'].includes(intent.candidate_status)) {
+  if (intent.candidate_report_ap_id && intent.candidate_status === 'preparing') {
+    actions.append(button(`查看历史检验 AP #${intent.candidate_report_ap_id}`,
+      () => detail(intent.candidate_report_ap_id), 'link'));
+  } else if (intent.candidate_report_ap_id && ['ready','accepted','integrated'].includes(intent.candidate_status)) {
     const report = el('a', '打开结果报告', 'link');
-    report.href = projectApi(`/api/task/${intent.candidate_report_task_id}/report`); report.target = '_blank'; report.rel = 'noopener';
+    report.href = projectApi(`/api/ap/${intent.candidate_report_ap_id}/report`); report.target = '_blank'; report.rel = 'noopener';
     actions.append(report);
   }
   if (intent.candidate_status === 'ready') {
@@ -68,7 +68,7 @@ function intentItem(intent) {
   goal.title = intent.content;
   item.append(goal);
   const meta = el('span', undefined, 'meta');
-  meta.append(el('span', `规划 #${intent.task_id}`, 'tid'));
+  meta.append(el('span', `规划 #${intent.ap_id}`, 'tid'));
   const counts = [intent.specs_pending ? `待编排 ${intent.specs_pending}` : null, intent.specs_planned ? `已编排 ${intent.specs_planned}` : null,
     intent.specs_dropped ? `已丢弃 ${intent.specs_dropped}` : null].filter(Boolean);
   meta.append(el('span', counts.length ? `拆解 ${counts.join(' · ')}` : '还没拆解'));
@@ -80,7 +80,7 @@ function intentItem(intent) {
     anchor.title = `${intent.anchor_branch} @ ${intent.anchor_commit}\nworktree: ${intent.anchor_workspace}\n目标分支: ${intent.anchor_target_branch}`;
     meta.append(anchor);
   }
-  if (intent.work_tasks) meta.append(el('span', `开发任务 ${intent.work_tasks}`));
+  if (intent.work_aps) meta.append(el('span', `开发 AP ${intent.work_aps}`));
   if (intent.references?.length) meta.append(badge(`引用 ${intent.references.length}`, 'b-neutral'));
   item.append(meta);
   const actions = planActions(intent);
@@ -90,7 +90,7 @@ function intentItem(intent) {
   item.append(el('span', intent.plan_gate === 'proposed'
     ? 'planner 认为这次改动风险较高，先请你拍板；批准后由 runtime 直接编译 Work DAG。'
     : '回看规划、执行与交付结果；合并仍由你明确批准。', 'hint'));
-  item.onclick = event => { if (event.target === item || event.target.classList.contains('goal')) { ui.noticeFocus = null; return detail(intent.task_id); } };
+  item.onclick = event => { if (event.target === item || event.target.classList.contains('goal')) { ui.noticeFocus = null; return detail(intent.ap_id); } };
   referenceable(item, { kind: 'intent', target: { input_id: intent.id }, label: `意图 #${intent.id}`,
     quote: intent.content, location: { view: 'intent-list', input_id: intent.id } });
   return item;
@@ -112,8 +112,8 @@ export function renderIntents(data) {
     syncSelectOptions(filterUi.intentStatus, withCurrent(options, ui.filters.intents.status, statusOption), ui.filters.intents.status);
   }
   const signature = [ui.sidebarSortMode, JSON.stringify(query), all.map(intent => [intent.id, intent.status, intent.plan_gate, intent.specs_pending, intent.specs_planned,
-    intent.specs_dropped, intent.work_tasks, intent.work_active, intent.work_failed, intent.route, intent.candidate_id, intent.candidate_version, intent.candidate_status,
-    intent.candidate_report_task_id, intent.showcase_task_id, intent.showcase_status].join(':')).join('\u0000')].join('\u0002');
+    intent.specs_dropped, intent.work_aps, intent.work_active, intent.work_failed, intent.route, intent.candidate_id, intent.candidate_version, intent.candidate_status,
+    intent.candidate_report_ap_id, intent.showcase_ap_id, intent.showcase_status].join(':')).join('\u0000')].join('\u0002');
   if (signature === ui.intentSignature) return;
   ui.intentSignature = signature;
   const container = $('intents');

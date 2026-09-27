@@ -4,11 +4,11 @@ const [command, ...args] = process.argv.slice(2);
 const aliases = {
   start: ['daemon','start'], stop: ['daemon','stop'], 'daemon-start': ['daemon','start'],
   'daemon-stop': ['daemon','stop'], 'daemon-restart': ['daemon','restart'],
-  intent: ['intent'], intents: ['intent','list'], drafts: ['draft','list'], tasks: ['task','list'], tree: ['task','tree'],
-  ladder: ['task','ladder'], timeline: ['task','timeline'],
-  inspect: ['task','inspect'], transcript: ['task','transcript'], usage: ['task','usage'], cancel: ['task','cancel'], retry: ['task','retry'],
-  merge: ['task','merge'], cleanup: ['task','cleanup'], clear: ['task','clear'], notices: ['notice','list'],
-  answer: ['notice','answer'], message: ['task','message'], wait: ['task','wait'], specs: ['spec','list'],
+  intent: ['intent'], intents: ['intent','list'], drafts: ['draft','list'], aps: ['ap','list'], tree: ['ap','tree'],
+  ladder: ['ap','ladder'], timeline: ['ap','timeline'],
+  inspect: ['ap','inspect'], transcript: ['ap','transcript'], usage: ['ap','usage'], cancel: ['ap','cancel'], retry: ['ap','retry'],
+  merge: ['ap','merge'], cleanup: ['ap','cleanup'], clear: ['ap','clear'], notices: ['notice','list'],
+  answer: ['notice','answer'], message: ['ap','message'], wait: ['ap','wait'], specs: ['spec','list'],
   approve: ['plan','approve'], reject: ['plan','reject'], propose: ['plan','propose'],
 };
 try { await main([...(aliases[command] || [command]), ...args]); }

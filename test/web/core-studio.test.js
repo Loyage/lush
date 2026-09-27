@@ -9,7 +9,7 @@ const dom = installDom({ fetch: (url, options) => localFetch(f.url + url, option
 const { boot } = await import('../../src/ui/web/assets/app.js');
 afterAll(async () => { dom.restore(); await f.close(); });
 
-test('原 Studio 页面在核心 API 下可加载、发送 say 并打开 Task 详情', async () => {
+test('原 Studio 页面在核心 API 下可加载、发送 say 并打开 AP 详情', async () => {
   await boot();
   expect(dom.node('connection').textContent).toBe('已连接');
   expect(deepText(dom.node('detail'))).toContain('项目概览');
@@ -17,14 +17,14 @@ test('原 Studio 页面在核心 API 下可加载、发送 say 并打开 Task �
   dom.node('input').value = '从原界面发送目标';
   await dom.node('input-form').onsubmit({ preventDefault() {} });
   const overview = await (await localFetch(f.url + '/api/overview')).json();
-  const task = overview.tasks.find(row => row.goal === '从原界面发送目标');
-  expect(task?.task_kind ?? dom.node('error').textContent).toBe('say');
+  const ap = overview.aps.find(row => row.goal === '从原界面发送目标');
+  expect(ap?.ap_kind ?? dom.node('error').textContent).toBe('say');
   const { detail } = await import('../../src/ui/web/assets/navigate.js');
-  await detail(task.id);
+  await detail(ap.id);
   expect(deepText(dom.node('detail'))).toContain('从原界面发送目标');
   expect(deepText(dom.node('detail'))).not.toContain('预约展示');
-  await dom.node('task-graph-open').onclick();
-  expect(deepText(dom.node('detail'))).toContain('Task 图');
+  await dom.node('ap-graph-open').onclick();
+  expect(deepText(dom.node('detail'))).toContain('AP 图');
   expect(deepText(dom.node('detail'))).not.toContain('编排合并全部');
   await dom.node('graph-open').onclick();
   expect(deepText(dom.node('detail'))).toContain('分支与合并');

@@ -5,37 +5,37 @@ import { setup, change } from './harness.js';
 test('creating a worktree records the branch genealogy at the moment of creation', async () => {
   const f = await setup();
   try {
-    await change(f, f.task);
-    const task = f.store.task(f.task.id);
-    const row = f.store.branch(task.branch);
-    expect(row).toMatchObject({ parent: 'main', parent_relation: 'recorded', task_id: task.id, worktree: task.workspace, status: 'active' });
-    expect(row.created_from_commit).toBe(task.base_commit);
+    await change(f, f.ap);
+    const ap = f.store.ap(f.ap.id);
+    const row = f.store.branch(ap.branch);
+    expect(row).toMatchObject({ parent: 'main', parent_relation: 'recorded', ap_id: ap.id, worktree: ap.workspace, status: 'active' });
+    expect(row.created_from_commit).toBe(ap.base_commit);
     // 记录是幂等的：再次 ensure 不会改写 parent（merge / 重建都不能重写创建时的血缘）。
-    f.store.recordBranch({ branch: task.branch, parent: 'somewhere-else' });
-    expect(f.store.branch(task.branch).parent).toBe('main');
+    f.store.recordBranch({ branch: ap.branch, parent: 'somewhere-else' });
+    expect(f.store.branch(ap.branch).parent).toBe('main');
 
     const tree = await f.project.branchTree();
     expect(tree.current_branch).toBe('main');
     const main = tree.roots.find(node => node.branch === 'main');
-    expect(main.children.map(node => node.branch)).toEqual([task.branch]);
-    expect(main.children[0]).toMatchObject({ tracked: true, present: true, deleted: false, task_id: task.id });
+    expect(main.children.map(node => node.branch)).toEqual([ap.branch]);
+    expect(main.children[0]).toMatchObject({ tracked: true, present: true, deleted: false, ap_id: ap.id });
 
-    const shown = await f.project.branchShow(String(task.id));   // 数字：按 task id 查
-    expect(shown.branch).toBe(task.branch);
-    expect(shown.chain).toEqual(['main', task.branch]);
+    const shown = await f.project.branchShow(String(ap.id));   // 数字：按 ap id 查
+    expect(shown.branch).toBe(ap.branch);
+    expect(shown.chain).toEqual(['main', ap.branch]);
     expect(shown.ancestors).toEqual(['main']);
     expect(shown.root).toBe('main');
   } finally { await f.close(); }
 });
 
-test('a stacked task is recorded as a child of the upstream task branch', async () => {
+test('a stacked AP is recorded as a child of the upstream AP branch', async () => {
   const f = await setup();
   try {
-    await change(f, f.task);
-    const upstream = f.store.task(f.task.id);
-    const child = f.project.spawn(f.task.parent_id, 'continue upstream work', 'worker', [{ id: upstream.id, kind: 'code' }], 'stacked-follow-up');
-    await f.project.workspaces.ensure(f.store.task(child.id));
-    const row = f.store.branch(f.store.task(child.id).branch);
+    await change(f, f.ap);
+    const upstream = f.store.ap(f.ap.id);
+    const child = f.project.spawn(f.ap.parent_id, 'continue upstream work', 'worker', [{ id: upstream.id, kind: 'code' }], 'stacked-follow-up');
+    await f.project.workspaces.ensure(f.store.ap(child.id));
+    const row = f.store.branch(f.store.ap(child.id).branch);
     expect(row.parent).toBe(upstream.branch);
     expect(row.created_from_commit).toBe(upstream.head_commit);
     expect(row.parent_relation).toBe('recorded');
@@ -45,11 +45,11 @@ test('a stacked task is recorded as a child of the upstream task branch', async 
 test('deleting a branch keeps its row and every child pointer', async () => {
   const f = await setup();
   try {
-    await change(f, f.task);
-    const upstream = f.store.task(f.task.id);
-    const child = f.project.spawn(f.task.parent_id, 'continue upstream work', 'worker', [{ id: upstream.id, kind: 'code' }], 'stacked-follow-up');
-    await f.project.workspaces.ensure(f.store.task(child.id));
-    const childBranch = f.store.task(child.id).branch;
+    await change(f, f.ap);
+    const upstream = f.store.ap(f.ap.id);
+    const child = f.project.spawn(f.ap.parent_id, 'continue upstream work', 'worker', [{ id: upstream.id, kind: 'code' }], 'stacked-follow-up');
+    await f.project.workspaces.ensure(f.store.ap(child.id));
+    const childBranch = f.store.ap(child.id).branch;
 
     await f.project.workspaces.merge(upstream.id);
     await f.project.workspaces.cleanup(upstream.id);
@@ -72,7 +72,7 @@ test('branch import registers existing branches without inventing a parent', asy
     const first = await f.project.branchImport();
     // main 也不是 Lush 创建的：import 同样只登记它存在与它的 parent unknown。
     expect(first.branches).toEqual(['legacy/one', 'legacy/two', 'main']);
-    expect(f.store.branch('legacy/one')).toMatchObject({ parent: null, parent_relation: 'unknown', created_from_commit: null, task_id: null });
+    expect(f.store.branch('legacy/one')).toMatchObject({ parent: null, parent_relation: 'unknown', created_from_commit: null, ap_id: null });
     expect(f.store.branch('main')).toMatchObject({ parent: null, parent_relation: 'unknown' });
     expect((await f.project.branchImport()).imported).toBe(0);
 
@@ -90,10 +90,10 @@ test('branch import registers existing branches without inventing a parent', asy
 test('merging a branch never rewrites who created it', async () => {
   const f = await setup();
   try {
-    await change(f, f.task);
-    const task = f.store.task(f.task.id);
-    await f.project.workspaces.merge(task.id);
-    const row = f.store.branch(task.branch);
+    await change(f, f.ap);
+    const ap = f.store.ap(f.ap.id);
+    await f.project.workspaces.merge(ap.id);
+    const row = f.store.branch(ap.branch);
     expect(row.parent).toBe('main');
     expect(row.parent_relation).toBe('recorded');
     expect(row.status).toBe('active');   // merge 只让 main 前进，不删分支、不改谱系
@@ -103,11 +103,11 @@ test('merging a branch never rewrites who created it', async () => {
 test('branch tree 不再画归档的分支，它的子分支接到最近的可见祖先上', async () => {
   const f = await setup();
   try {
-    await change(f, f.task);
-    const upstream = f.store.task(f.task.id);
-    const child = f.project.spawn(f.task.parent_id, 'continue upstream work', 'worker', [{ id: upstream.id, kind: 'code' }], 'stacked-follow-up');
-    await f.project.workspaces.ensure(f.store.task(child.id));
-    const childBranch = f.store.task(child.id).branch;
+    await change(f, f.ap);
+    const upstream = f.store.ap(f.ap.id);
+    const child = f.project.spawn(f.ap.parent_id, 'continue upstream work', 'worker', [{ id: upstream.id, kind: 'code' }], 'stacked-follow-up');
+    await f.project.workspaces.ensure(f.store.ap(child.id));
+    const childBranch = f.store.ap(child.id).branch;
     // 老库形态（旧版归档只删自己一条）：父分支已归档、ref 已经不在，子分支还活着。
     await f.project.workspaces.archiveBranch(upstream.branch);
     expect(f.store.branch(childBranch).parent).toBe(upstream.branch);

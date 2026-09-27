@@ -5,27 +5,27 @@ import { branchFreeze } from '../branch-freeze.js';
 export const GRAPH_NODE_LIMIT = 200;
 export const GRAPH_EDGE_LIMIT = 2000;
 
-/** 会产出 worktree / 分支的角色：候选任务来自这三类。
+/** 会产出 worktree / 分支的角色：候选 AP 来自这三类。
  *  planner / scheduler 是意图层，没有自己的分支，但也要按「这条输入的锚点分支」挂进图里，
  *  由下面的 intentRows 单独取（见 graph() —— 派生锚点分支只在那里做一次）。 */
 const GRAPH_ROLES = ['worker', 'merger', 'verifier', 'showcase', 'agent'];
-const TASK_ROLE_SQL = GRAPH_ROLES.map(role => `'${role}'`).join(',');
+const AP_ROLE_SQL = GRAPH_ROLES.map(role => `'${role}'`).join(',');
 
-/** verifier 自己不拥有代码分支，但必须画在它正在验收的分支上：单 worker 检验跟随被检验任务，
+/** verifier 自己不拥有代码分支，但必须画在它正在验收的分支上：单 worker 检验跟随被检验 AP，
  * Candidate 检验跟随 Candidate 固定的 Intent 集成分支。表达式只接收源码内固定 alias，不含外部输入。 */
-const taskBranchSql = alias => `COALESCE(${alias}.branch,
+const apBranchSql = alias => `COALESCE(${alias}.branch,
   CASE
     WHEN ${alias}.role='showcase' THEN json_extract(${alias}.showcase,'$.branch')
     WHEN ${alias}.role='verifier' AND ${alias}.review_candidate_id IS NOT NULL
       THEN (SELECT branch FROM review_candidates candidate WHERE candidate.id=${alias}.review_candidate_id)
-    WHEN ${alias}.role='verifier' AND ${alias}.verifies_task_id IS NOT NULL
-      THEN (SELECT branch FROM tasks verified WHERE verified.id=${alias}.verifies_task_id)
+    WHEN ${alias}.role='verifier' AND ${alias}.verifies_ap_id IS NOT NULL
+      THEN (SELECT branch FROM aps verified WHERE verified.id=${alias}.verifies_ap_id)
     ELSE NULL
   END)`;
 
 const branchId = name => `branch:${name}`;
 
-/** 汇总 status 里算「活动」的口径：任务还占着槽、等槽或等用户。 */
+/** 汇总 status 里算「活动」的口径：AP 还占着槽、等槽或等用户。 */
 const ACTIVE_STATUSES = new Set(['running', 'queued', 'waiting', 'awaiting']);
 /** 一句话标题的上限：超出截断加省略号，别让整段 goal 撑爆界面。 */
 const TITLE_LIMIT = 60;
@@ -38,26 +38,26 @@ function summarize(text) {
 }
 
 /**
- * 分支图读模型：分支谱系（分支节点 + fork 边）+ 任务 -> 分支 / worktree / 目标分支的关系网，
- * 以及任务的堆叠（code）/顺序（order）/解冲突（resolve）/检验（verify）/目标分支（target）边。
+ * 分支图读模型：分支谱系（分支节点 + fork 边）+ AP -> 分支 / worktree / 目标分支的关系网，
+ * 以及 AP 的堆叠（code）/顺序（order）/解冲突（resolve）/检验（verify）/目标分支（target）边。
  *
  * 分支节点覆盖三处事实之和，与 `Project#branchTree` 同口径：
- * - `branches` 表里的每条记录（含 `task_id IS NULL` 的输入锚点、`branch import` 登记的分支）；
+ * - `branches` 表里的每条记录（含 `ap_id IS NULL` 的输入锚点、`branch import` 登记的分支）；
  * - `refs/heads` 里现在真实存在的每个本地 ref（没有记录时 `tracked:false`）；
  * - 只被某条记录的 `parent` 指针提到、既无记录也无 ref 的占位名（`placeholder:true`），
  *   这样刚创建的分支的父分支不会缺失，子分支不会从图上掉下去。
  * `head_commit` 与 `current` 都按当前 ref 现算，不缓存旧值。
  *
  * 每个分支节点另外回答三个问题（只增不改，老字段照旧）：`origin`（这条分支因何存在：输入锚点 /
- * 任务分支 / import 登记 / 只有本地 ref / 占位名）与配套的 `title`、`summary`、`source_id`、`created_at`；
+ * AP 分支 / import 登记 / 只有本地 ref / 占位名）与配套的 `title`、`summary`、`source_id`、`created_at`；
  * `title` 优先取 `branches.summary`（人写的简述），没有摘要时才回落输入 / goal 首行截断。
- * `status` + `tasks`（这条分支自己的任务连同全部后代分支任务的汇总口径：active / failed /
+ * `status` + `aps`（这条分支自己的 AP 连同全部后代分支 AP 的汇总口径：active / failed /
  * merged / ready / empty）。归档过的分支另带 `archived` / `archived_at` / `deleted`，状态固定为
- * `archived`（不被汇总口径改写），它名下的任务节点也标 `archived:true`，仍然留在图上。
- * 这些都只是读 store 已有事实，不写库、不改 git。每个 `kind:"task"` 节点（含意图层的 planner / scheduler）
- * 带解析后的 task `progress`，并另带「待你决断」的 notice：`notice`（open 且 kind 为 question / plan 的最新一条，没有则 null）与
+ * `archived`（不被汇总口径改写），它名下的 AP 节点也标 `archived:true`，仍然留在图上。
+ * 这些都只是读 store 已有事实，不写库、不改 git。每个 `kind:"ap"` 节点（含意图层的 planner / scheduler）
+ * 带解析后的 AP `progress`，并另带「待你决断」的 notice：`notice`（open 且 kind 为 question / plan 的最新一条，没有则 null）与
  * `notice_count`（这类 open notice 的总数）。info 提醒（status='sent'）与 answered / dismissed 都不算，
- * 一次 SELECT 取回后在内存里按 task_id 归并。
+ * 一次 SELECT 取回后在内存里按 ap_id 归并。
  * fork 边在 `status`（fast_forward / diverged / integrated / missing / unknown）与 ahead/behind 之外
  * 再给三个可执行动作：`can_merge`（子→父 fast-forward）/ `can_sync`（分歧时建子侧 merger）/ `can_catchup`
  * （父→子 fast-forward，子分支没有独有提交时才能跟上）。
@@ -70,51 +70,51 @@ function summarize(text) {
  */
 export default {
   /**
-   * Task 图读模型：Task 是身份与父子关系，分支 / worktree 只是属性，不画成节点。全程只读 store 既有事实，
+   * AP 图读模型：AP 是身份与父子关系，分支 / worktree 只是属性，不画成节点。全程只读 store 既有事实，
    * 不写库、不改 git，所以轮询与 `project.stopping` 期间也能安全跑。
    *
-   * 每个节点的 `branch_info` 除了实时 ref 与 Git 诊断，还投影这条 Task 自己的分支上「合并编排」所需的
+   * 每个节点的 `branch_info` 除了实时 ref 与 Git 诊断，还投影这条 AP 自己的分支上「合并编排」所需的
    * 两个只读字段：`subtree_say`（分支谱系里还有多少条 say 子分支，决定是否值得给编排入口）与
-   * `merge_run`（该分支仍在跑的合并运行摘要 `{mode,status,done,total,task_id}`，没有则 null）。
+   * `merge_run`（该分支仍在跑的合并运行摘要 `{mode,status,done,total,ap_id}`，没有则 null）。
    * 两者只读 `branches` / `branches.merge_run`，不触发任何执行。
    */
-  async taskGraph() {
+  async apGraph() {
     const limit = GRAPH_NODE_LIMIT;
-    const rows = this.store.all(`SELECT id, parent_id, input_id, task_kind, role, name, goal, status,
-      integration, integration_error, branch, workspace, target_branch, base_commit, head_commit, resolves_task_id,
+    const rows = this.store.all(`SELECT id, parent_id, input_id, ap_kind, role, name, goal, status,
+      integration, integration_error, branch, workspace, target_branch, base_commit, head_commit, resolves_ap_id,
       reservation, progress_plan, created_at, updated_at, calls, agent_wakes,
-      (SELECT p.task_kind FROM tasks p WHERE p.id=tasks.parent_id) AS parent_task_kind,
+      (SELECT p.ap_kind FROM aps p WHERE p.id=aps.parent_id) AS parent_ap_kind,
       CASE WHEN result IS NULL THEN 0 ELSE 1 END AS has_result,
       substr(result, 1, 320) AS result_preview
-      FROM tasks ORDER BY CASE WHEN task_kind IN ('main','owner') THEN 0
+      FROM aps ORDER BY CASE WHEN ap_kind IN ('main','owner') THEN 0
         WHEN status IN ('running','queued','waiting','awaiting') THEN 1 ELSE 2 END, id DESC LIMIT ?`, limit + 1);
     const selected = rows.slice(0, limit);
     const ids = selected.map(row => row.id);
-    // 一批取回调用区间：任务图上的紧凑进度也要把等待排除在 Agent 工作用时之外。
-    const runs = this.store.runsForTasks(ids);
+    // 一批取回调用区间：AP 图上的紧凑进度也要把等待排除在 Agent 工作用时之外。
+    const runs = this.store.runsForAPs(ids);
     const pending = new Map();
-    if (ids.length) for (const notice of this.store.all(`SELECT id, task_id, kind, title, substr(body,1,1000) AS body
-      FROM notices WHERE status='open' AND task_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`, ...ids)) {
-      const item = pending.get(notice.task_id) ?? { count: 0, notice: null };
-      item.count++; item.notice = notice; pending.set(notice.task_id, item);
+    if (ids.length) for (const notice of this.store.all(`SELECT id, ap_id, kind, title, substr(body,1,1000) AS body
+      FROM notices WHERE status='open' AND ap_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`, ...ids)) {
+      const item = pending.get(notice.ap_id) ?? { count: 0, notice: null };
+      item.count++; item.notice = notice; pending.set(notice.ap_id, item);
     }
     const children = new Map();
     if (ids.length) for (const child of this.store.all(`SELECT parent_id, count(*) AS total,
       sum(CASE WHEN status IN ('running','queued','waiting','awaiting') THEN 1 ELSE 0 END) AS active
-      FROM tasks WHERE parent_id IN (${ids.map(() => '?').join(',')}) GROUP BY parent_id`, ...ids)) children.set(child.parent_id, child);
+      FROM aps WHERE parent_id IN (${ids.map(() => '?').join(',')}) GROUP BY parent_id`, ...ids)) children.set(child.parent_id, child);
     const dependencies = this.store.depMap(ids);
     const resolutions = new Map();
-    if (ids.length) for (const entry of this.store.all(`SELECT task_id, data FROM events
-      WHERE type='task.divergence_resolution_requested' AND task_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`, ...ids)) {
-      try { resolutions.set(entry.task_id, JSON.parse(entry.data).source_task_id); } catch { /* legacy event */ }
+    if (ids.length) for (const entry of this.store.all(`SELECT ap_id, data FROM events
+      WHERE type='ap.divergence_resolution_requested' AND ap_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`, ...ids)) {
+      try { resolutions.set(entry.ap_id, JSON.parse(entry.data).source_ap_id); } catch { /* legacy event */ }
     }
     const freezes = new Map(this.branchFreeze().map(item => [item.branch, item]));
-    // Task 卡片的合并编排入口只读投影：目标就是这条 Task 自己的分支。只读 store / branches，不碰 git、不写库。
+    // AP 卡片的合并编排入口只读投影：目标就是这条 AP 自己的分支。只读 store / branches，不碰 git、不写库。
     const activeBranches = this.store.branches().filter(row => row.status === 'active');
     const activeRuns = new Map(this.store.activeBranchMergeRuns().map(({ target, run }) => [target, run]));
-    const sayBranches = new Set(this.store.all("SELECT branch FROM tasks WHERE task_kind='say' AND branch IS NOT NULL")
+    const sayBranches = new Set(this.store.all("SELECT branch FROM aps WHERE ap_kind='say' AND branch IS NOT NULL")
       .map(row => row.branch));
-    // 一次把分支树拼好并记忆化「分支下的 say 子分支数」，避免每个 Task 节点各扫一遍全部分支。
+    // 一次把分支树拼好并记忆化「分支下的 say 子分支数」，避免每个 AP 节点各扫一遍全部分支。
     const branchChildren = new Map();
     for (const row of activeBranches) {
       const parent = row.parent && row.parent !== row.branch ? row.parent : null;
@@ -162,36 +162,36 @@ export default {
       const child = children.get(row.id) ?? { total: 0, active: 0 };
       const blockers = (dependencies.get(row.id) ?? []).filter(edge => !['completed','failed','cancelled'].includes(edge.status));
       const freeze = freezes.get(row.branch ?? row.target_branch) ?? null;
-      const waiting_reason = freeze && row.status !== 'running' && row.id !== freeze.task_id
+      const waiting_reason = freeze && row.status !== 'running' && row.id !== freeze.ap_id
         ? `冻结 · ${freeze.reason}`
         : row.status === 'awaiting' && notice.count ? `${notice.count} 条待你处理`
-        : row.status === 'waiting' && child.active ? `等待 ${child.active} 个子 Task`
-        : row.status === 'queued' && blockers.length ? `等待依赖 Task #${blockers.map(edge => edge.id).join('、#')}`
+        : row.status === 'waiting' && child.active ? `等待 ${child.active} 个子 AP`
+        : row.status === 'queued' && blockers.length ? `等待依赖 AP #${blockers.map(edge => edge.id).join('、#')}`
         : row.status === 'queued' ? '等待 Agent 调用槽'
-        : row.status === 'waiting' ? '静息 · 等待新输入或子 Task 信号' : null;
+        : row.status === 'waiting' ? '静息 · 等待新输入或子 AP 信号' : null;
       const branch = row.branch ? records.get(row.branch) : null;
-      // 这条分支下还有多少个 say 子分支：决定卡片上「编排合并全部子 Task」入口是否有意义。
+      // 这条分支下还有多少个 say 子分支：决定卡片上「编排合并全部子 AP」入口是否有意义。
       const subtree_say = row.branch ? countSayDescendants(row.branch) : 0;
       const mergeRun = row.branch ? activeRuns.get(row.branch) ?? null : null;
-      return { ...row, kind: 'task', title: summarize(goal) || row.name || `Task #${row.id}`,
+      return { ...row, kind: 'ap', title: summarize(goal) || row.name || `AP #${row.id}`,
         goal_preview: String(goal ?? '').slice(0, 600),
         progress: plan, notice: notice.notice, notice_count: notice.count,
         children_total: child.total, children_active: child.active, waiting_reason,
-        freeze: freeze ? { kind: freeze.kind, task_id: freeze.task_id ?? null, reason: freeze.reason } : null,
-        resolves_task_id: row.resolves_task_id ?? resolutions.get(row.id) ?? null,
+        freeze: freeze ? { kind: freeze.kind, ap_id: freeze.ap_id ?? null, reason: freeze.reason } : null,
+        resolves_ap_id: row.resolves_ap_id ?? resolutions.get(row.id) ?? null,
         reservation: delivery, delivery: delivery ? { kind: delivery.kind, status: delivery.status,
           blocked_reason: delivery.blocked_reason ?? null } : null,
         branch_info: row.branch ? { parent: branch?.parent ?? null, archived: branch?.status === 'archived',
           current_head: refs.get(row.branch) ?? null, diagnostics: diagnostics.get(row.branch) ?? null,
           subtree_say, merge_run: mergeRun ? { mode: mergeRun.mode ?? 'merge_all', status: mergeRun.status,
-            done: mergeRun.done?.length ?? 0, total: mergeRun.order?.length ?? 0, task_id: mergeRun.task_id ?? null } : null } : null,
+            done: mergeRun.done?.length ?? 0, total: mergeRun.order?.length ?? 0, ap_id: mergeRun.ap_id ?? null } : null } : null,
         workspace_state: row.workspace ? (fs.existsSync(row.workspace) ? 'present' : 'missing') : 'none',
         has_result: Boolean(row.has_result),
-        has_rule: fs.existsSync(`${this.config.home}/task-rules/task-${row.id}.mjs`) };
+        has_rule: fs.existsSync(`${this.config.home}/ap-rules/ap-${row.id}.mjs`) };
     });
     const visible = new Set(ids);
     const edges = nodes.filter(node => visible.has(node.parent_id)).map(node => ({ from: node.parent_id, to: node.id }));
-    return { nodes, edges, truncated: rows.length > limit, total: this.store.get('SELECT count(*) AS n FROM tasks').n };
+    return { nodes, edges, truncated: rows.length > limit, total: this.store.get('SELECT count(*) AS n FROM aps').n };
   },
 
   async graph() {
@@ -216,22 +216,22 @@ export default {
       }
 
       const rows = this.store.all(`SELECT id, role, name, goal, status, integration, input_id,
-        ${taskBranchSql('tasks')} AS branch, workspace, parent_id, task_kind, reservation,
-        (SELECT p.task_kind FROM tasks p WHERE p.id=tasks.parent_id) AS parent_task_kind,
-        base_commit, head_commit, target_branch, baseline_workspace, resolves_task_id, verifies_task_id, progress_plan
-        FROM tasks WHERE role IN (${TASK_ROLE_SQL}) ORDER BY id DESC`);
-      // 没有可归属分支也没有 worktree（含已完整回收）的任务不进图。verifier 的 branch 是上面只读派生的
+        ${apBranchSql('aps')} AS branch, workspace, parent_id, ap_kind, reservation,
+        (SELECT p.ap_kind FROM aps p WHERE p.id=aps.parent_id) AS parent_ap_kind,
+        base_commit, head_commit, target_branch, baseline_workspace, resolves_ap_id, verifies_ap_id, progress_plan
+        FROM aps WHERE role IN (${AP_ROLE_SQL}) ORDER BY id DESC`);
+      // 没有可归属分支也没有 worktree（含已完整回收）的 AP 不进图。verifier 的 branch 是上面只读派生的
       // 服务对象分支，所以 Candidate 验收即使清掉 baseline worktree 后也仍留在正确的输入分支下。
-      // role='agent' 里只有 say 与新派生的 child 是「自己拥有分支与 worktree」的工作 Task，必须画成任务行；
+      // role='agent' 里只有 say 与新派生的 child 是「自己拥有分支与 worktree」的工作 AP，必须画成 AP 行；
       // main/owner 是分支所有者（同样的信息已经落在 branch 节点的 title / source_id 上，不重复画），
-      // analysis 是只读分离检出（无分支），都不进任务节点。
-      const candidates = rows.filter(row => (row.role !== 'agent' || row.task_kind === 'say' || row.task_kind === 'child')
+      // analysis 是只读分离检出（无分支），都不进 AP 节点。
+      const candidates = rows.filter(row => (row.role !== 'agent' || row.ap_kind === 'say' || row.ap_kind === 'child')
         && (row.branch || row.workspace || row.baseline_workspace));
 
       // 分支节点名：记录 ∪ 现在的 ref ∪ 当前检出 ∪ 占位父名。记录是历史事实，ref 是现状，
       // 两者都不丢；只被 parent 提到的名字补占位节点，否则它的子分支会从树上消失。
       const records = new Map(this.store.branches().map(row => [row.branch, row]));
-      /** 归档分支：branches.status === 'archived'。它的 ref / worktree 已经没了，但任务行还留着。 */
+      /** 归档分支：branches.status === 'archived'。它的 ref / worktree 已经没了，但 AP 行还留着。 */
       const isArchivedBranch = name => Boolean(name) && records.get(name)?.status === 'archived';
       const branchNames = new Set(records.keys());
       if (currentBranch) branchNames.add(currentBranch);
@@ -246,26 +246,26 @@ export default {
       const orderedBranchNames = [...branchNames].sort((a, b) =>
         Number(b === currentBranch) - Number(a === currentBranch) || a.localeCompare(b));
       const branchCapacity = Math.min(orderedBranchNames.length, GRAPH_NODE_LIMIT);
-      // 分支节点先占额度，剩下的才留给任务：分支基础事实比某个任务节点更值得画。
-      const taskCapacity = Math.max(0, GRAPH_NODE_LIMIT - branchCapacity);
-      let truncated = orderedBranchNames.length > branchCapacity || candidates.length > taskCapacity;
-      const taskRows = candidates.slice(0, taskCapacity);
+      // 分支节点先占额度，剩下的才留给 AP：分支基础事实比某个 AP 节点更值得画。
+      const apCapacity = Math.max(0, GRAPH_NODE_LIMIT - branchCapacity);
+      let truncated = orderedBranchNames.length > branchCapacity || candidates.length > apCapacity;
+      const apRows = candidates.slice(0, apCapacity);
 
-      // 每个任务「待你决断」的 notice：open 且 kind 是 question / plan。info 提醒（status='sent'）
-      // 与 answered / dismissed 的都不算；任务结算时 lifecycle 会把 open 置为 dismissed，所以终态任务不会带。
-      // 一次查询按 id 升序取全部，再在内存里按 task_id 归并：最新一条（id 最大）与总数。
-      // 快速路由（前缀短路）：按 input_id 命中 input.route 事件，任务节点与意图层一样标注。
+      // 每个 AP「待你决断」的 notice：open 且 kind 是 question / plan。info 提醒（status='sent'）
+      // 与 answered / dismissed 的都不算；AP 结算时 lifecycle 会把 open 置为 dismissed，所以终态 AP 不会带。
+      // 一次查询按 id 升序取全部，再在内存里按 ap_id 归并：最新一条（id 最大）与总数。
+      // 快速路由（前缀短路）：按 input_id 命中 input.route 事件，AP 节点与意图层一样标注。
       const routedInputs = this.store.routedInputIds();
       const isRouted = inputId => inputId !== null && inputId !== undefined && routedInputs.has(inputId);
       const pendingNotices = new Map();
-      for (const row of this.store.all(`SELECT id, task_id, kind, title, body, created_at FROM notices
+      for (const row of this.store.all(`SELECT id, ap_id, kind, title, body, created_at FROM notices
         WHERE status='open' AND kind IN ('question','plan') ORDER BY id`)) {
-        const entry = pendingNotices.get(row.task_id);
+        const entry = pendingNotices.get(row.ap_id);
         const notice = { id: row.id, kind: row.kind, title: row.title, body: row.body, created_at: row.created_at };
-        if (entry) { entry.notice = notice; entry.count += 1; } else pendingNotices.set(row.task_id, { notice, count: 1 });
+        if (entry) { entry.notice = notice; entry.count += 1; } else pendingNotices.set(row.ap_id, { notice, count: 1 });
       }
-      const pendingFor = taskId => pendingNotices.get(taskId) ?? { notice: null, count: 0 };
-      // 分支诊断只需要横条所需的有界摘要，不把每个 task 最多 32 条的完整计划塞进 1 MiB graph 帧。
+      const pendingFor = apId => pendingNotices.get(apId) ?? { notice: null, count: 0 };
+      // 分支诊断只需要横条所需的有界摘要，不把每个 AP 最多 32 条的完整计划塞进 1 MiB graph 帧。
       const progressFor = row => {
         const progress = this.progressView(row, runs.get(row.id) ?? []).progress;
         if (!progress) return null;
@@ -276,8 +276,8 @@ export default {
       };
 
       // 分支节点的「为什么 / 是什么 / 现在怎样」全部来自 store 已有事实，不额外写库：
-      // inputs.anchor_branch 回答「因为哪条输入」，tasks.branch 回答「哪个任务」，
-      // branches.task_id 是创建那一刻的绑定，branches.parent 链回答「这条子树现在在干什么」。
+      // inputs.anchor_branch 回答「因为哪条输入」，aps.branch 回答「哪个 AP」，
+      // branches.ap_id 是创建那一刻的绑定，branches.parent 链回答「这条子树现在在干什么」。
       const inputByAnchor = new Map();
       const anchorByInput = new Map();
       for (const input of this.store.all('SELECT id, content, anchor_branch FROM inputs WHERE anchor_branch IS NOT NULL ORDER BY id')) {
@@ -288,32 +288,32 @@ export default {
       // 派生规则只此一处：planner 取自己的 input_id；scheduler 取本批 spec 的 input_id，
       // 批为空 / 那个输入没有锚点时回落该批 planner 的输入锚点；都找不到才 branch = null（走兜底分组，不瞎猜）。
       const plannerInput = new Map();
-      for (const planner of this.store.all("SELECT id, input_id FROM tasks WHERE role='planner'")) plannerInput.set(planner.id, planner.input_id);
+      for (const planner of this.store.all("SELECT id, input_id FROM aps WHERE role='planner'")) plannerInput.set(planner.id, planner.input_id);
       const schedulerAnchor = (schedulerId) => {
-        const spec = this.store.get('SELECT input_id, planner_task_id FROM task_specs WHERE batch_id=? ORDER BY id LIMIT 1', schedulerId);
+        const spec = this.store.get('SELECT input_id, planner_ap_id FROM ap_specs WHERE batch_id=? ORDER BY id LIMIT 1', schedulerId);
         if (!spec) return null;
-        return anchorByInput.get(spec.input_id) ?? anchorByInput.get(plannerInput.get(spec.planner_task_id)) ?? null;
+        return anchorByInput.get(spec.input_id) ?? anchorByInput.get(plannerInput.get(spec.planner_ap_id)) ?? null;
       };
       const intentRows = this.store.all(`SELECT id, role, name, goal, status, integration, input_id, progress_plan
-        FROM tasks WHERE role IN ('planner','scheduler') ORDER BY id DESC`)
+        FROM aps WHERE role IN ('planner','scheduler') ORDER BY id DESC`)
         .map(row => ({ ...row, branch: (row.role === 'planner' ? anchorByInput.get(row.input_id) : schedulerAnchor(row.id)) ?? null }));
-      // 同一次读模型里的任务节点共用一次批量查询：紧凑进度横条的当前步骤时长也要排除等待。
-      const runs = this.store.runsForTasks([...taskRows.map(row => row.id), ...intentRows.map(row => row.id)]);
-      const taskById = new Map();
-      const tasksByBranch = new Map();
-      for (const task of this.store.all(`SELECT id, name, goal, status, ${taskBranchSql('tasks')} AS branch
-        FROM tasks ORDER BY id`)) {
-        taskById.set(task.id, task);
-        if (!task.branch) continue;
-        if (!tasksByBranch.has(task.branch)) tasksByBranch.set(task.branch, []);
-        tasksByBranch.get(task.branch).push(task);
+      // 同一次读模型里的 AP 节点共用一次批量查询：紧凑进度横条的当前步骤时长也要排除等待。
+      const runs = this.store.runsForAPs([...apRows.map(row => row.id), ...intentRows.map(row => row.id)]);
+      const apById = new Map();
+      const apsByBranch = new Map();
+      for (const ap of this.store.all(`SELECT id, name, goal, status, ${apBranchSql('aps')} AS branch
+        FROM aps ORDER BY id`)) {
+        apById.set(ap.id, ap);
+        if (!ap.branch) continue;
+        if (!apsByBranch.has(ap.branch)) apsByBranch.set(ap.branch, []);
+        apsByBranch.get(ap.branch).push(ap);
       }
-      // 意图层任务按派生出来的锚点分支并入同一个 map：分支汇总（tasks / status）复用同一套派生分支，
+      // 意图层 AP 按派生出来的锚点分支并入同一个 map：分支汇总（aps / status）复用同一套派生分支，
       // 不再另算一份口径，所以 running 的 planner 会让锚点分支从 empty 变成 active。
-      for (const task of intentRows) {
-        if (!task.branch) continue;
-        if (!tasksByBranch.has(task.branch)) tasksByBranch.set(task.branch, []);
-        tasksByBranch.get(task.branch).push(task);
+      for (const ap of intentRows) {
+        if (!ap.branch) continue;
+        if (!apsByBranch.has(ap.branch)) apsByBranch.set(ap.branch, []);
+        apsByBranch.get(ap.branch).push(ap);
       }
       // 后代链：占位父也在链上，所以子树能穿过占位名继续往下；环用 seen 兜住，宁可少算也不死循环。
       const childBranches = new Map();
@@ -367,24 +367,24 @@ export default {
         const record = records.get(name) ?? null;
         const placeholder = placeholders.has(name);
         const input = inputByAnchor.get(name) ?? null;
-        const own = tasksByBranch.get(name) ?? [];
-        // origin 优先级从高到低：占位 > 有 ref 但没记录 > 输入锚点 > 任务分支 > 只登记过。
+        const own = apsByBranch.get(name) ?? [];
+        // origin 优先级从高到低：占位 > 有 ref 但没记录 > 输入锚点 > AP 分支 > 只登记过。
         const origin = placeholder ? 'placeholder'
           : !record ? 'local'
           : input ? 'input'
-          : record.task_id !== null || own.length ? 'task'
+          : record.ap_id !== null || own.length ? 'ap'
           : 'registered';
-        // 任务分支的标题取创建它的那个任务：记录里的 task_id 优先，其次这条分支上最新的任务。
-        const owner = origin !== 'task' ? null
-          : (record.task_id === null ? null : taskById.get(record.task_id)) ?? own[own.length - 1] ?? null;
-        // 汇总口径：这条分支自己的任务 + 全部后代分支的任务，占位父也参与统计。
+        // AP 分支的标题取创建它的那个 AP：记录里的 ap_id 优先，其次这条分支上最新的 AP。
+        const owner = origin !== 'ap' ? null
+          : (record.ap_id === null ? null : apById.get(record.ap_id)) ?? own[own.length - 1] ?? null;
+        // 汇总口径：这条分支自己的 AP + 全部后代分支的 AP，占位父也参与统计。
         const counts = { total: 0, active: 0, failed: 0, completed: 0 };
         for (const descendant of subtreeOf(name)) {
-          for (const task of tasksByBranch.get(descendant) ?? []) {
+          for (const ap of apsByBranch.get(descendant) ?? []) {
             counts.total += 1;
-            if (ACTIVE_STATUSES.has(task.status)) counts.active += 1;
-            else if (task.status === 'failed') counts.failed += 1;
-            else if (task.status === 'completed') counts.completed += 1;
+            if (ACTIVE_STATUSES.has(ap.status)) counts.active += 1;
+            else if (ap.status === 'failed') counts.failed += 1;
+            else if (ap.status === 'completed') counts.completed += 1;
           }
         }
         // 归档是记录状态，不是 git 现状：ref 已经删掉，但分支记录与工作信息都还在。
@@ -394,7 +394,7 @@ export default {
         // 分支的 worktree 只在创建那一刻记进 branches 行；目录被归档/清理后就报 missing，不假装还在。
         const worktree = record?.worktree ?? null;
         const worktree_state = worktree ? (fs.existsSync(worktree) ? 'present' : 'missing') : 'none';
-        const { allowed, reason, latest_task_id } = await this.showcaseEligibility(name);
+        const { allowed, reason, latest_ap_id } = await this.showcaseEligibility(name);
         // 预约只是分支附属元数据：reserved 取当前 pending 记录，reserve_allowed 回答「现在能不能预约」
         // （静态条件，不跑 Git）；阻塞原因由 reserve_reason 现算，不落库。
         let reservation = null;
@@ -405,7 +405,7 @@ export default {
         const reservable = this.showcaseReservable(name);
         nodes.push({
           kind: 'branch', id: branchId(name), name,
-          showcase: { allowed, reason, latest_task_id, reserved: pendingReservation !== null,
+          showcase: { allowed, reason, latest_ap_id, reserved: pendingReservation !== null,
             reserved_at: pendingReservation?.created_at ?? null, reserve_allowed: reservable.allowed, reserve_reason: reservable.reason },
           head_commit: refs.get(name) ?? null,
           current: name === currentBranch,
@@ -416,10 +416,10 @@ export default {
           origin,
           // 标题优先用摘要；没有摘要时完全保持既有派生（输入 / goal 首行压缩并截断）。
           title: summary ?? (origin === 'input' ? summarize(input.content)
-            : origin === 'task' ? (owner ? summarize(owner.goal) ?? owner.name ?? null : null)
+            : origin === 'ap' ? (owner ? summarize(owner.goal) ?? owner.name ?? null : null)
             : null),
           summary,
-          source_id: origin === 'input' ? input.id : origin === 'task' ? record?.task_id ?? owner?.id ?? null : null,
+          source_id: origin === 'input' ? input.id : origin === 'ap' ? record?.ap_id ?? owner?.id ?? null : null,
           created_at: record?.created_at ?? null,
           worktree,
           worktree_state,
@@ -432,18 +432,18 @@ export default {
           status: archived ? 'archived'
             : counts.active ? 'active' : counts.failed ? 'failed' : !counts.total ? 'empty'
             : relations.get(name)?.status === 'integrated' ? 'merged' : 'ready',
-          tasks: counts,
+          aps: counts,
           freeze: freezeMap.get(name) ?? null,
           merge_run: mergeRunOf(name),
         });
       }
 
-      for (const row of taskRows) {
+      for (const row of apRows) {
         const workspacePath = row.workspace || row.baseline_workspace || null;
         const workspace_state = workspacePath ? (fs.existsSync(workspacePath) ? 'present' : 'missing') : 'none';
         const knownRef = row.branch ? refs.get(row.branch) ?? null : null;
         const branch_state = row.branch && knownRef ? 'present' : 'missing';
-        // Branch-first 图比较的是分支当前 tip；task.head_commit 只是 agent 最初交付时的 reviewed commit。
+        // Branch-first 图比较的是分支当前 tip；ap.head_commit 只是 agent 最初交付时的 reviewed commit。
         const headCommit = row.role === 'showcase' ? row.head_commit : knownRef || row.head_commit;
         const targetHead = row.target_branch ? refs.get(row.target_branch) ?? null : null;
         let ahead = null, behind = null, merged = null;
@@ -459,15 +459,15 @@ export default {
         }
         const pending = pendingFor(row.id);
         const node = {
-          kind: 'task', id: row.id, role: row.role, name: row.name ?? null,
-          task_kind: row.task_kind ?? null, parent_id: row.parent_id ?? null,
-          parent_task_kind: row.parent_task_kind ?? null,
-          reservation: row.task_kind === 'say' ? this.progressView(row).reservation : null,
-          has_result: row.task_kind === 'say' && row.result !== null,
+          kind: 'ap', id: row.id, role: row.role, name: row.name ?? null,
+          ap_kind: row.ap_kind ?? null, parent_id: row.parent_id ?? null,
+          parent_ap_kind: row.parent_ap_kind ?? null,
+          reservation: row.ap_kind === 'say' ? this.progressView(row).reservation : null,
+          has_result: row.ap_kind === 'say' && row.result !== null,
           goal: String(row.goal ?? '').slice(0, 120),
           status: row.status, integration: row.integration, route: isRouted(row.input_id),
           branch: row.branch ?? null, workspace: workspacePath, workspace_state, branch_state: row.role === 'showcase' ? null : branch_state,
-          // 任务的分支已经归档：ref/worktree 都没了，但这是预期状态，节点照旧画在图上。
+          // AP 的分支已经归档：ref/worktree 都没了，但这是预期状态，节点照旧画在图上。
           archived: isArchivedBranch(row.branch),
           base_commit: row.base_commit ?? null, head_commit: headCommit ?? null, reviewed_commit: row.head_commit ?? null,
           target_branch: row.target_branch ?? null, ahead, behind, merged,
@@ -478,12 +478,12 @@ export default {
         };
         nodes.push(node);
       }
-      // 意图层任务（planner / scheduler）和 worker 任务一样是 kind:task 节点，只是没有自己的
+      // 意图层 AP（planner / scheduler）和 worker AP 一样是 kind:ap 节点，只是没有自己的
       // worktree / 目标分支：合并信息一律保持 null，绝不臆造 ahead/behind/merged，也不画「缺失分支」。
       for (const row of intentRows) {
         const pending = pendingFor(row.id);
         nodes.push({
-          kind: 'task', id: row.id, role: row.role, name: row.name ?? null,
+          kind: 'ap', id: row.id, role: row.role, name: row.name ?? null,
           goal: String(row.goal ?? '').slice(0, 120),
           status: row.status, integration: row.integration, route: isRouted(row.input_id),
           branch: row.branch,
@@ -500,13 +500,13 @@ export default {
       const nodeIds = new Set(nodes.map(node => node.id));
 
       const edges = [];
-      for (const dep of this.store.all('SELECT task_id, depends_on, kind FROM task_deps ORDER BY task_id, depends_on')) {
-        if (!nodeIds.has(dep.task_id) || !nodeIds.has(dep.depends_on)) continue;
-        edges.push({ kind: dep.kind, from: dep.depends_on, to: dep.task_id });
+      for (const dep of this.store.all('SELECT ap_id, depends_on, kind FROM ap_deps ORDER BY ap_id, depends_on')) {
+        if (!nodeIds.has(dep.ap_id) || !nodeIds.has(dep.depends_on)) continue;
+        edges.push({ kind: dep.kind, from: dep.depends_on, to: dep.ap_id });
       }
-      for (const row of taskRows) {
-        if (row.resolves_task_id && nodeIds.has(row.resolves_task_id)) edges.push({ kind: 'resolve', from: row.id, to: row.resolves_task_id });
-        if (row.verifies_task_id && nodeIds.has(row.verifies_task_id)) edges.push({ kind: 'verify', from: row.id, to: row.verifies_task_id });
+      for (const row of apRows) {
+        if (row.resolves_ap_id && nodeIds.has(row.resolves_ap_id)) edges.push({ kind: 'resolve', from: row.id, to: row.resolves_ap_id });
+        if (row.verifies_ap_id && nodeIds.has(row.verifies_ap_id)) edges.push({ kind: 'verify', from: row.id, to: row.verifies_ap_id });
         if (row.target_branch && nodeIds.has(branchId(row.target_branch))) edges.push({ kind: 'target', from: row.id, to: branchId(row.target_branch) });
       }
       // 谱系边：每条记录了 parent 的分支给出「从哪条分支分出来」。两端都在节点集合里才加，
@@ -520,7 +520,7 @@ export default {
       for (const row of records.values()) {
         if (!row.parent || !nodeIds.has(branchId(row.parent)) || !nodeIds.has(branchId(row.branch))) continue;
         const relation = relations.get(row.branch) ?? { status: 'unknown', ahead: null, behind: null };
-        const blockers = [...this.workspaces.branchTaskBlockers(row.branch),
+        const blockers = [...this.workspaces.branchAPBlockers(row.branch),
           ...(childrenByParent.get(row.branch) || []).filter(child => child.status !== 'deleted'
             && refs.has(child.branch) && relations.get(child.branch)?.status !== 'integrated').map(child => child.branch)];
         edges.push({ kind: 'fork', from: branchId(row.parent), to: branchId(row.branch),

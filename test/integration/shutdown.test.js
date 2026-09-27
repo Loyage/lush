@@ -4,7 +4,7 @@ import path from 'node:path';
 import { temp, repo, until } from '../helpers.js';
 import { cli } from './harness.js';
 
-test('shutdown kills pi process group, preserves task as failed, and restart does not replay it', async () => {
+test('shutdown kills pi process group, preserves AP as failed, and restart does not replay it', async () => {
   const root = temp(), fake = path.join(root,'fake-pi');
   await repo(root);
   fs.writeFileSync(fake, `#!/usr/bin/env bun
@@ -24,7 +24,7 @@ setInterval(() => {}, 1000);
     expect(() => process.kill(pid,0)).toThrow();
     await until(() => { try { process.kill(grandchild,0); return false; } catch { return true; } });
     await cli(root,['start']);
-    const task = await cli(root,['inspect',String(input.task.id)]);
-    expect(task.status).toBe('failed'); expect(task.error).toContain('daemon stopped');
+    const ap = await cli(root,['inspect',String(input.ap.id)]);
+    expect(ap.status).toBe('failed'); expect(ap.error).toContain('daemon stopped');
   } finally { await cli(root,['stop']).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); }
 }, 30000);

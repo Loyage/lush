@@ -27,7 +27,7 @@ test('快速介绍设置：遮蔽 API Key、原子落盘、校验并支持部分
   } finally { f.close(); }
 });
 
-test('快速介绍直连 OpenAI 兼容接口，写解释历史但不建任务', async () => {
+test('快速介绍直连 OpenAI 兼容接口，写解释历史但不建 AP', async () => {
   const f = fixture();
   const original = globalThis.fetch;
   const calls = [];
@@ -35,11 +35,11 @@ test('快速介绍直连 OpenAI 兼容接口，写解释历史但不建任务', 
     return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '这是对所选文字的解释。' } }] }) }; };
   try {
     f.project.configureIntro({ base_url: 'https://api.example.com/v1', model: 'demo', api_key: 'sk-1' });
-    const record = f.project.startIntro('一段引用文字', { view: 'task-detail', section: 'selection', task_id: 5 });
+    const record = f.project.startIntro('一段引用文字', { view: 'ap-detail', section: 'selection', ap_id: 5 });
     expect(record.status).toBe('running');
     await until(() => f.store.intro(record.id).status === 'completed');
-    // 不建任务、不建输入分支。
-    expect(f.store.tasks()).toHaveLength(0);
+    // 不建 AP、不建输入分支。
+    expect(f.store.aps()).toHaveLength(0);
     expect(f.store.all('SELECT * FROM inputs')).toHaveLength(0);
     expect(calls[0].url).toBe('https://api.example.com/v1/chat/completions');
     expect(calls[0].options.headers.Authorization).toBe('Bearer sk-1');
@@ -49,10 +49,10 @@ test('快速介绍直连 OpenAI 兼容接口，写解释历史但不建任务', 
     expect(body.messages[1].content).toContain('一段引用文字');
     const saved = f.project.introduction(record.id);
     expect(saved.result).toContain('这是对所选文字的解释');
-    expect(saved.location.task_id).toBe(5);
+    expect(saved.location.ap_id).toBe(5);
     const history = f.project.introductions(5);
     expect(history.introductions[0]).toMatchObject({ id: record.id, kind: 'quick', status: 'completed' });
-    // 只归到来源任务，不串到别的任务。
+    // 只归到来源 AP，不串到别的 AP。
     expect(f.project.introductions(6).introductions).toHaveLength(0);
     const rpc = new Dispatcher(f.project);
     expect((await rpc.dispatch('intro.list', { id: 5 })).introductions[0].id).toBe(record.id);

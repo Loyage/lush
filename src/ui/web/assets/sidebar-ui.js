@@ -5,7 +5,7 @@ const RESOURCE_META = new Map(SIDEBAR_SECTIONS.map(section => [section.id, secti
 const PAGES = {
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
   graph: ['分支与合并', '交付与用量', '分支谱系、改动诊断与人工合并'],
-  'task-graph': ['Task 图', '工作', '任务父子关系 · Agent、分支与 worktree'],
+  'ap-graph': ['AP 图', '工作', 'AP 父子关系 · Agent、分支与 worktree'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],
   settings: ['设置', '其他', 'Agent、界面偏好与系统状态'],
   docs: ['帮助文档', '其他', '使用流程、架构与接口参考'],
@@ -29,8 +29,8 @@ function activate(id, { key = id, title, context, hint, push = true, hash } = {}
   ui.indexOpen = resource ? id : null;
   ui.graphOpen = id === 'graph'; ui.docsOpen = id === 'docs';
   ui.settingsOpen = id === 'settings'; ui.statisticsOpen = id === 'statistics';
-  if (id !== 'task') {
-    ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailTask = null;
+  if (id !== 'ap') {
+    ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailAP = null;
   }
   if (id !== 'graph') ui.graphRenderKey = null;
   const detail = node('detail');
@@ -39,7 +39,7 @@ function activate(id, { key = id, title, context, hint, push = true, hash } = {}
     if (changed) {
       detail.dataset.view = id;
       detail.scrollTop = 0;
-      delete detail.dataset.taskId;
+      delete detail.dataset.apId;
       // 切换立即反馈，不把上一页伪装成正在加载的新页面。
       if (!resource) detail.textContent = '正在加载…';
     }
@@ -48,7 +48,7 @@ function activate(id, { key = id, title, context, hint, push = true, hash } = {}
   for (const section of SIDEBAR_SECTIONS) {
     const page = node(`side-${section.id}`); if (page) page.hidden = section.id !== id;
   }
-  selectNav(id === 'task' ? 'tasks' : id);
+  selectNav(id === 'ap' ? 'aps' : id);
   const meta = resource ? [resource.long, '工作', resource.description] : PAGES[id] || ['项目', '工作', ''];
   setViewChrome(title ?? meta[0], context ?? meta[1], hint ?? meta[2], { root: id === 'overview' });
   const target = hash ?? (id === 'overview' ? '' : `#${id}`);

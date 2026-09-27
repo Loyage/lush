@@ -24,7 +24,7 @@ export function closeTranscriptTerminal() {
 }
 
 /** A document reader, not a terminal emulator: never interprets ANSI or starts a process. */
-function recordNode(taskId, step) {
+function recordNode(apId, step) {
   const node = el('article', undefined, `terminal-record terminal-${step.kind}${step.is_error ? ' terminal-failed' : ''}`);
   node.dataset.seq = String(step.seq);
   const partial = step.offset > 0 || step.body.length < step.body_length;
@@ -46,25 +46,25 @@ function recordNode(taskId, step) {
     }
   });
   node.append(source);
-  referenceable(node, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq },
-    label: `执行步骤 #${taskId}:${step.seq}`, quote: body, location: { task_id: taskId, section: 'transcript' } });
+  referenceable(node, { kind: 'transcript_step', target: { ap_id: apId, seq: step.seq },
+    label: `执行步骤 #${apId}:${step.seq}`, quote: body, location: { ap_id: apId, section: 'transcript' } });
   return node;
 }
 
-export async function openTranscriptTerminal(taskId, seq = 1) {
+export async function openTranscriptTerminal(apId, seq = 1) {
   closeTranscriptTerminal();
   const panel = el('dialog', undefined, 'terminal-dialog');
-  panel.setAttribute('aria-label', `任务 #${taskId} 终端模式`);
+  panel.setAttribute('aria-label', `AP #${apId} 终端模式`);
   const state = { panel, version: 0, seq, offset: 0, first: seq, file: null, count: 0,
     returnTarget: document.activeElement, returnScroll: $('detail').scrollTop, wasInert: $('project-app').inert,
     menu: $('context-menu'), menuParent: $('context-menu')?.parentNode };
   current = state; ui.terminalOpen = true;
   const toolbar = el('header', undefined, 'terminal-toolbar');
-  const back = button('返回任务 · Esc', closeTranscriptTerminal, 'ghost');
+  const back = button('返回 AP · Esc', closeTranscriptTerminal, 'ghost');
   const beginning = button('从头阅读', () => reset(1), 'ghost');
   const earlier = button('前 50 步', () => reset(Math.max(1, state.first - 50)), 'ghost');
   earlier.hidden = seq <= 1;
-  toolbar.append(back, el('strong', `任务 #${taskId} · 终端模式`), earlier, beginning);
+  toolbar.append(back, el('strong', `AP #${apId} · 终端模式`), earlier, beginning);
   const viewport = el('div', undefined, 'terminal-viewport'); viewport.tabIndex = 0;
   const content = el('div', undefined, 'terminal-records');
   const status = el('p', '', 'hint'); status.setAttribute('role', 'status');
@@ -93,13 +93,13 @@ export async function openTranscriptTerminal(taskId, seq = 1) {
     state.abort?.abort(); state.abort = new AbortController();
     more.disabled = true; status.textContent = '正在读取完整记录…';
     try {
-      const data = await api(`/api/task/${taskId}/transcript-page?seq=${state.seq}&offset=${state.offset}`, { signal: state.abort.signal });
+      const data = await api(`/api/ap/${apId}/transcript-page?seq=${state.seq}&offset=${state.offset}`, { signal: state.abort.signal });
       if (current !== state || version !== state.version) return;
       for (const step of data.steps) {
         if (step.file !== state.file) {
           content.append(el('h3', `─ 会话 ${step.file}`, 'terminal-session')); state.file = step.file;
         }
-        content.append(recordNode(taskId, step)); state.count++;
+        content.append(recordNode(apId, step)); state.count++;
       }
       state.seq = data.next_seq; state.offset = data.next_offset;
       status.textContent = !data.files.length ? '没有可读取的会话文件，可能尚未记录或已被清理。'

@@ -61,8 +61,8 @@ test('两个真实项目的 daemon 同时连在一个全局 Web 下，A 的写�
     const snapB = await (await fetch(`${url}/p/${idB}/api/snapshot`)).json();
     expect(snapA.status.project).toBe(a.config.project);
     expect(snapB.status.project).toBe(b.config.project);
-    expect(snapA.tasks.some(task => task.goal === 'A only')).toBe(true);
-    expect(snapB.tasks.some(task => task.goal === 'A only')).toBe(false);
+    expect(snapA.aps.some(ap => ap.goal === 'A only')).toBe(true);
+    expect(snapB.aps.some(ap => ap.goal === 'A only')).toBe(false);
 
     // 无前缀旧路由即使 daemon 都活着也不能替任何一个项目作答。
     expect((await fetch(`${url}/api/snapshot`)).status).toBe(400);

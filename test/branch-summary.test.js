@@ -90,8 +90,8 @@ test('graph：摘要缺失或为空白时完整回落到既有派生标题', asy
     f.store.run('INSERT INTO inputs(id,content,anchor_branch) VALUES (?,?,?)',
       inputId, '  用户输入第一行  \n忽略我', 'lush/test/input-1-anchor');
     f.store.recordBranch({ branch: 'lush/test/input-1-anchor', parent: 'main' });
-    await change(f, f.task, 'A\n');
-    const worker = f.store.task(f.task.id);
+    await change(f, f.ap, 'A\n');
+    const worker = f.store.ap(f.ap.id);
     // 绕过 setter 直接写一段空白：读模型要把它当成「没有摘要」。
     f.store.run('UPDATE branches SET summary=? WHERE branch=?', '   ', 'lush/test/input-1-anchor');
 

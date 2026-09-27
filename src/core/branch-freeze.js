@@ -4,11 +4,11 @@ import { descendantsOf, parentOf } from './genealogy.js';
  * 分支写冻结（merge freeze）的唯一计算处。
  *
  * 冻结不是新的持久化实体，而是从三处已有事实现算出来的：
- * 旧的一键合并运行与 merger 任务只保留磁盘记录，不再参与新代码的冻结与调度。
- * 1. 新式解分歧 Task 固定了两端 tip：活动中以及已完成但未落地时冻结源分支、它的后代和直接父分支；
+ * 旧的一键合并运行与 merger AP 只保留磁盘记录，不再参与新代码的冻结与调度。
+ * 1. 新式解分歧 AP 固定了两端 tip：活动中以及已完成但未落地时冻结源分支、它的后代和直接父分支；
  *    失败/取消释放，未落地的完成分支要显式归档或成功落地才能释放。
- * 2. 已发出但尚未集成的 say 合并请求（`tasks.reservation` 里 kind=merge、status=requested）——请求已经
- *    把父分支基线固定成那个 commit；父分支再前进（另一个子任务落地、用户批准别的请求、外部 git）
+ * 2. 已发出但尚未集成的 say 合并请求（`aps.reservation` 里 kind=merge、status=requested）——请求已经
+ *    把父分支基线固定成那个 commit；父分支再前进（另一个子 AP 落地、用户批准别的请求、外部 git）
  *    就会让固定提交不再能快进，请求只能重做。所以只冻结**父分支本身**：请求者的分支已终态，
  *    兄弟 say 自己的分支仍要能继续工作。解除只有两条路——集成这个请求，或用户明确撤销它；
  *    daemon 挡不住父分支自己的 say Agent 提交，那种情况会在集成时如实报成 parent_moved。
@@ -22,27 +22,27 @@ export function branchFreeze(store) {
 
   // 新式解分歧 child 不使用 merger 角色。它创建时即在同一事务里写固定两端提交的事件；
   // 完成但尚未落地仍保持冻结，失败/取消释放（失败分支必须检查/归档后才能重派）。
-  for (const task of store.all(`SELECT t.id, t.target_branch, t.status, t.integration, t.branch
-    FROM tasks t WHERE t.task_kind='child' AND t.target_branch IS NOT NULL
+  for (const ap of store.all(`SELECT t.id, t.target_branch, t.status, t.integration, t.branch
+    FROM aps t WHERE t.ap_kind='child' AND t.target_branch IS NOT NULL
       AND (t.status NOT IN ('completed','failed','cancelled') OR (t.status='completed' AND t.integration!='merged'))
-      AND EXISTS (SELECT 1 FROM events e WHERE e.task_id=t.id AND e.type='task.divergence_resolution_requested')
+      AND EXISTS (SELECT 1 FROM events e WHERE e.ap_id=t.id AND e.type='ap.divergence_resolution_requested')
     ORDER BY t.id`)) {
-    if (task.status === 'completed' && (!task.branch || store.branch(task.branch)?.status !== 'active')) continue;
-    const branch = task.target_branch;
+    if (ap.status === 'completed' && (!ap.branch || store.branch(ap.branch)?.status !== 'active')) continue;
+    const branch = ap.target_branch;
     for (const name of [branch, parentOf(rows, branch), ...descendantsOf(rows, branch)]) {
-      add(name, { kind: 'resolution', task_id: task.id, target: branch,
-        reason: `解分歧 Task #${task.id} 正在固定 ${branch} 与其父分支（完成后须先落地或显式归档）` });
+      add(name, { kind: 'resolution', ap_id: ap.id, target: branch,
+        reason: `解分歧 AP #${ap.id} 正在固定 ${branch} 与其父分支（完成后须先落地或显式归档）` });
     }
   }
 
-  for (const task of store.all(`SELECT id, target_branch, reservation FROM tasks
-    WHERE task_kind='say' AND target_branch IS NOT NULL AND reservation IS NOT NULL ORDER BY id`)) {
+  for (const ap of store.all(`SELECT id, target_branch, reservation FROM aps
+    WHERE ap_kind='say' AND target_branch IS NOT NULL AND reservation IS NOT NULL ORDER BY id`)) {
     let request = null;
     // 损坏的 reservation 不参与冻结：它自己阻塞不了写，必须保持可检查、可撤销。
-    try { request = JSON.parse(task.reservation); } catch { continue; }
+    try { request = JSON.parse(ap.reservation); } catch { continue; }
     if (!request || request.kind !== 'merge' || request.status !== 'requested') continue;
-    add(task.target_branch, { kind: 'delivery', task_id: task.id, commit: request.commit ?? null,
-      reason: `say #${task.id} 的合并请求 ${String(request.commit ?? '').slice(0, 12)} 已固定基线，等待集成或撤销` });
+    add(ap.target_branch, { kind: 'delivery', ap_id: ap.id, commit: request.commit ?? null,
+      reason: `say #${ap.id} 的合并请求 ${String(request.commit ?? '').slice(0, 12)} 已固定基线，等待集成或撤销` });
   }
 
   return frozen;

@@ -7,8 +7,8 @@ import { check, id, text, bounded } from '../types.js';
 function recordAcceptFailure(project, candidate, reason) {
   project.store.transaction(() => {
     project.store.transitionCandidate(candidate.id, 'integration_failed');
-    const input = project.store.get('SELECT task_id FROM inputs WHERE id=?', candidate.input_id);
-    project.store.event(input?.task_id ?? null, 'candidate.accept_failed', { candidate: candidate.id,
+    const input = project.store.get('SELECT ap_id FROM inputs WHERE id=?', candidate.input_id);
+    project.store.event(input?.ap_id ?? null, 'candidate.accept_failed', { candidate: candidate.id,
       commit: candidate.commit_hash, target: candidate.baseline_branch, error: reason });
   });
   return project.store.candidate(candidate.id);
@@ -22,9 +22,9 @@ export default {
     check(input.anchor_branch && input.anchor_commit && input.anchor_target_branch,
       `input #${input.id} has no integration branch`);
     if (summary !== null && summary !== undefined) text(summary, 'summary');
-    const active = this.store.all(`SELECT id,status,role FROM tasks WHERE input_id=? AND layer='work'
+    const active = this.store.all(`SELECT id,status,role FROM aps WHERE input_id=? AND layer='work'
       AND role NOT IN ('verifier','showcase') AND status NOT IN ('completed','failed','cancelled') ORDER BY id`, input.id);
-    check(active.length === 0, `input #${input.id} still has active work: ${active.map(task => `#${task.id}`).join(', ')}`);
+    check(active.length === 0, `input #${input.id} still has active work: ${active.map(ap => `#${ap.id}`).join(', ')}`);
     const state = await this.workspaces.branchState(input.anchor_branch);
     check(state.status !== 'missing', `input integration branch ${input.anchor_branch} is missing`);
     check(state.blockers.length === 0,
@@ -36,7 +36,7 @@ export default {
       if (previous && ['pending','preparing','ready','accepted'].includes(previous.status)) this.store.transitionCandidate(previous.id, 'supersede');
       const created = this.store.createCandidate({ input_id: input.id, branch: input.anchor_branch, commit,
         baseline_branch: input.anchor_target_branch, baseline_commit: baseline, summary: summary ?? input.content.split('\n')[0].trim() });
-      this.store.event(input.task_id, 'candidate.created', { candidate: created.id, version: created.version,
+      this.store.event(input.ap_id, 'candidate.created', { candidate: created.id, version: created.version,
         branch: created.branch, commit: created.commit_hash, baseline: created.baseline_commit });
       return created;
     });
@@ -49,47 +49,47 @@ export default {
     const candidate = this.store.candidate(candidateId);
     // pending 是新候选等待用户显式验收；preparing 兼容旧数据里尚未真正派 verifier 的候选。
     check(['pending','preparing','failed'].includes(candidate.status), `candidate #${candidate.id} is ${candidate.status}; it cannot be verified`);
-    const active = this.store.get(`SELECT id FROM tasks WHERE review_candidate_id=?
+    const active = this.store.get(`SELECT id FROM aps WHERE review_candidate_id=?
       AND status NOT IN ('completed','failed','cancelled') ORDER BY id DESC LIMIT 1`, candidate.id);
     check(!active, `candidate verification #${active?.id} is still running`);
     const input = this.store.get('SELECT content FROM inputs WHERE id=?', candidate.input_id);
     const goal = `验收候选 #${candidate.id} v${candidate.version}：对照 ${candidate.baseline_branch}，验证固定提交 ${candidate.commit_hash} 是否满足用户意图。\n\n原始意图：${input?.content ?? ''}`;
-    const task = this.store.transaction(() => {
+    const ap = this.store.transaction(() => {
       const created = this.store.create({ parent_id: null, input_id: candidate.input_id, role: 'verifier', goal,
         name: `candidate-${candidate.id}`, review_candidate_id: candidate.id });
-      this.store.transitionCandidate(candidate.id, 'verification_requested', { report_task_id: created.id });
+      this.store.transitionCandidate(candidate.id, 'verification_requested', { report_ap_id: created.id });
       this.store.event(created.id, 'candidate.verify_requested', { candidate: candidate.id, commit: candidate.commit_hash });
       return created;
     });
     this.kick();
-    return task;
+    return ap;
   },
 
-  candidateContext(task) {
-    const candidate = this.store.candidate(task.review_candidate_id);
+  candidateContext(ap) {
+    const candidate = this.store.candidate(ap.review_candidate_id);
     const input = this.store.get('SELECT content,anchor_workspace FROM inputs WHERE id=?', candidate.input_id);
     return {
       candidate: { id: candidate.id, version: candidate.version, summary: candidate.summary,
         intent: input?.content ?? '', commit: candidate.commit_hash, baseline_commit: candidate.baseline_commit },
       branch: candidate.branch, target_branch: candidate.baseline_branch,
-      workspace: input?.anchor_workspace, baseline_workspace: task.baseline_workspace,
-      baseline_commit: candidate.baseline_commit, report_path: this.reportPath(task.id),
-      evidence_path: this.evidencePath(task.id),
+      workspace: input?.anchor_workspace, baseline_workspace: ap.baseline_workspace,
+      baseline_commit: candidate.baseline_commit, report_path: this.reportPath(ap.id),
+      evidence_path: this.evidencePath(ap.id),
     };
   },
 
   candidates(inputId = null) {
     return bounded(this.store.candidates(inputId).map(candidate => ({ ...candidate,
-      has_report: Boolean(candidate.report_task_id && this.hasReport(candidate.report_task_id)),
-      verification: candidate.report_task_id ? this.verificationResult(candidate.report_task_id)
+      has_report: Boolean(candidate.report_ap_id && this.hasReport(candidate.report_ap_id)),
+      verification: candidate.report_ap_id ? this.verificationResult(candidate.report_ap_id)
         : { status: 'unknown', summary: 'No verification has been recorded.' } })), 500000);
   },
 
   candidate(candidateId) {
     const candidate = this.store.candidate(candidateId);
     return { ...candidate,
-      has_report: Boolean(candidate.report_task_id && this.hasReport(candidate.report_task_id)),
-      verification: candidate.report_task_id ? this.verificationResult(candidate.report_task_id)
+      has_report: Boolean(candidate.report_ap_id && this.hasReport(candidate.report_ap_id)),
+      verification: candidate.report_ap_id ? this.verificationResult(candidate.report_ap_id)
         : { status: 'unknown', summary: 'No verification has been recorded.' },
       artifacts: bounded(this.store.artifactsForInput(candidate.input_id), 300000) };
   },
@@ -117,8 +117,8 @@ export default {
     }
     if (outcome.merged || outcome.already_integrated) {
       this.store.transitionCandidate(candidate.id, 'integration_succeeded');
-      const input = this.store.get('SELECT task_id FROM inputs WHERE id=?', candidate.input_id);
-      this.store.event(input?.task_id ?? null, 'candidate.integrated', { candidate: candidate.id,
+      const input = this.store.get('SELECT ap_id FROM inputs WHERE id=?', candidate.input_id);
+      this.store.event(input?.ap_id ?? null, 'candidate.integrated', { candidate: candidate.id,
         commit: outcome.landed ?? candidate.commit_hash, target: candidate.baseline_branch });
     } else {
       // 没有落地也没有抛错（例如父分支已分歧）：把这次接受明确记为失败，候选回到 ready。
@@ -139,7 +139,7 @@ export default {
       this.store.transitionCandidate(candidate.id, 'request_changes', { feedback });
       const planner = this.store.create({ input_id: input.id, role: 'planner',
         goal: `${input.content}\n\n候选 v${candidate.version} 的验收反馈：\n${feedback}` });
-      this.store.run('UPDATE inputs SET task_id=? WHERE id=?', planner.id, input.id);
+      this.store.run('UPDATE inputs SET ap_id=? WHERE id=?', planner.id, input.id);
       this.store.message(planner.id, JSON.stringify({ candidate: candidate.id, feedback }));
       this.store.event(planner.id, 'candidate.changes_requested', { candidate: candidate.id, feedback });
       this.kick();

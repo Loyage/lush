@@ -32,9 +32,9 @@ const detailButton = async text => {
   return until(() => buttonByText(detail, text), 2000);
 };
 
-test('详情页「追加说明」是 Agent 按钮：task.message 会唤醒或继续该任务', async () => {
+test('详情页「追加说明」是 Agent 按钮：ap.message 会唤醒或继续该 AP', async () => {
   await dom.intervalFor(1500)();
-  dom.location.hash = '#task-1';
+  dom.location.hash = '#ap-1';
   await dom.fire('hashchange');
   expectAgentButton(await detailButton('追加说明'));
 });
@@ -51,14 +51,14 @@ test('意图页「批准并开发」「要求修改」是 Agent 按钮，「接�
   expect(accept.getAttribute('data-help')).toBeTruthy();
 });
 
-test('分支图决策区「批准并开发」「回复并继续任务」是 Agent 按钮', async () => {
+test('分支图决策区「批准并开发」「回复并继续 AP」是 Agent 按钮', async () => {
   const saved = JSON.parse(JSON.stringify(world.state.graph));
   try {
-    const one = world.state.graph.nodes.find(node => node.kind === 'task' && node.id === 1);
+    const one = world.state.graph.nodes.find(node => node.kind === 'ap' && node.id === 1);
     one.notice = { id: 5, kind: 'question', title: '这条要不要动公共面', body: '正文', created_at: iso(NOW) };
     one.notice_count = 1;
     world.state.graph.nodes.push({
-      kind: 'task', id: 21, role: 'planner', name: 'plan-21', goal: '拆解需求 21', status: 'awaiting', integration: 'none',
+      kind: 'ap', id: 21, role: 'planner', name: 'plan-21', goal: '拆解需求 21', status: 'awaiting', integration: 'none',
       branch: 'lush/demo/input-1-anchor', workspace: null, workspace_state: 'none', base_commit: null, head_commit: null,
       target_branch: null, ahead: null, behind: null, merged: null, current: false, archived: false,
       notice: { id: 7, kind: 'plan', title: '这轮拆解想先请你拍板 21', body: '计划正文', created_at: iso(NOW) }, notice_count: 1,
@@ -67,7 +67,7 @@ test('分支图决策区「批准并开发」「回复并继续任务」是 Agen
     const decisions = dom.node('detail').querySelectorAll('div.graph-decision');
     expect(decisions.length).toBe(2);
     expectAgentButton(decisions.flatMap(node => buttonsOf(node)).find(node => node.textContent === '批准并开发'));
-    expectAgentButton(decisions.flatMap(node => buttonsOf(node)).find(node => node.textContent === '回复并继续任务'));
+    expectAgentButton(decisions.flatMap(node => buttonsOf(node)).find(node => node.textContent === '回复并继续 AP'));
   } finally {
     world.state.graph = saved;
     await openGraph();
@@ -76,8 +76,8 @@ test('分支图决策区「批准并开发」「回复并继续任务」是 Agen
 
 test('通知页「开始解冲突」是 Agent 按钮，data-help 含统一代价说明', () => {
   const panel = noticePanel(
-    { id: 99, task_id: 5, status: 'open', kind: 'question', title: '要开解冲突任务吗？', body: '冲突文件：a.js', created_at: iso(NOW) },
-    { id: 5, role: 'merger', resolves_task_id: 2, agent_wakes: 0 });
+    { id: 99, ap_id: 5, status: 'open', kind: 'question', title: '要开解冲突 AP 吗？', body: '冲突文件：a.js', created_at: iso(NOW) },
+    { id: 5, role: 'merger', resolves_ap_id: 2, agent_wakes: 0 });
   const start = buttonByText(panel, '开始解冲突');
   expectAgentButton(start);
   // 同一处的「暂不处理」是忽略语义，只带帮助。
@@ -88,9 +88,9 @@ test('通知页「开始解冲突」是 Agent 按钮，data-help 含统一代价
 
 test('禁用的「合并已被冻结」把 data-help 放在 span.help-host 上，仍能显示提示', async () => {
   try {
-    world.state.freeze = [{ id: 4, task_id: 4, target_branch: 'main', resolves_task_id: null }];
+    world.state.freeze = [{ id: 4, ap_id: 4, target_branch: 'main', resolves_ap_id: null }];
     await dom.intervalFor(1500)();
-    dom.location.hash = '#task-1';
+    dom.location.hash = '#ap-1';
     await dom.fire('hashchange');
     const detail = dom.node('detail');
     const host = await until(() => detail.querySelector('.help-host'), 2000);
@@ -123,7 +123,7 @@ test('分支图「归档」只带 data-help，禁用的 branchAction 走 span.he
 test('弹窗确认按钮走 agent + confirmHelp：重试与效果展示都标成 Agent 调用', async () => {
   // dialog.js 的确认按钮在 agent:true 时加 agent-call，confirmHelp 经 agentHelp 生成。
   const pending = formDialog({ title: '重试', content: null, confirmLabel: '使用这些设置重试',
-    agent: true, confirmHelp: agentHelp('用上面选定的 Agent 设置重新启动这个任务。') });
+    agent: true, confirmHelp: agentHelp('用上面选定的 Agent 设置重新启动这个 AP。') });
   const confirm = buttonByText(dom.node('modal'), '使用这些设置重试');
   expectAgentButton(confirm);
   dom.node('modal').querySelectorAll('button').find(node => node.textContent === '取消').onclick();

@@ -8,7 +8,7 @@ test('usage API is project-bound, read-only, authenticated and validates query p
   const f = await setup({ auth: { username: 'usage-test', password: 'test-statistics-password' } });
   try {
     const dir = path.join(f.config.home, 'sessions'); fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, 'historical_lush-task-9999.jsonl');
+    const file = path.join(dir, 'historical_lush-ap-9999.jsonl');
     const source = JSON.stringify({ type: 'message', timestamp: '2026-01-02T00:00:00Z', message: {
       role: 'assistant', provider: 'test', model: 'model', usage: { input: 20, output: 10, cost: { total: 0.125 } },
     } }) + '\n';

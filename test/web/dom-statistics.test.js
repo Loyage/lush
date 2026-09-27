@@ -102,10 +102,10 @@ test('intraday has its own date and hour range, supports all day and preserves b
 test('navigation and stale async responses cannot overwrite another view; direct hash and boot work', async () => {
   let release; deferred = new Promise(resolve => { release = resolve; });
   const inFlight = open();
-  dom.location.hash = '#tasks'; await dom.fire('hashchange');
-  expect(ui.statisticsOpen).toBe(false); expect(ui.indexOpen).toBe('tasks');
+  dom.location.hash = '#aps'; await dom.fire('hashchange');
+  expect(ui.statisticsOpen).toBe(false); expect(ui.indexOpen).toBe('aps');
   release(); await inFlight; deferred = null;
-  expect(ui.indexOpen).toBe('tasks'); expect(dom.node('detail').hidden).toBe(true);
+  expect(ui.indexOpen).toBe('aps'); expect(dom.node('detail').hidden).toBe(true);
   dom.location.hash = '#statistics'; await dom.fire('hashchange');
   expect(ui.statisticsOpen).toBe(true); expect(dom.node('detail').hidden).toBe(false);
   await dom.node('home').onclick(); expect(ui.statisticsOpen).toBe(false);

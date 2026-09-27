@@ -43,7 +43,7 @@ export default {
     const state = this.store.transaction(() => {
       const state = { ...normalized, enabled: true, paused: false, session: randomUUID(),
         started_at: new Date().toISOString(), used_tokens: 0, reason: null };
-      // Event identity survives deletion of the most recent task/notice; notice IDs alone can be reused.
+      // Event identity survives deletion of the most recent ap/notice; notice IDs alone can be reused.
       state.after_event = this.store.event(null, 'sleep.started', state);
       return this.saveSleepState(state);
     });
@@ -59,8 +59,8 @@ export default {
       this.store.event(null, 'sleep.stopped', { session: state.session });
     }
     clearInterval(this.sleepTimer); this.sleepTimer = null;
-    for (const task of this.store.all("SELECT id FROM tasks WHERE role='butler' AND status NOT IN ('completed','failed','cancelled')")) {
-      this.cancel(task.id, '托管模式已关闭，未执行的管家决定作废');
+    for (const ap of this.store.all("SELECT id FROM aps WHERE role='butler' AND status NOT IN ('completed','failed','cancelled')")) {
+      this.cancel(ap.id, '托管模式已关闭，未执行的管家决定作废');
     }
     this.kick();
     return this.sleepStatus();
@@ -69,7 +69,7 @@ export default {
   resumeSleepDevelopment() {
     check(!this.sleepStatus().enabled, '请先关闭托管模式再恢复开发');
     this.saveSleepState({ ...this.sleepStatus(), paused: false, reason: null });
-    this.store.event(null, 'sleep.resumed', { note: '仅恢复排队任务；中止的任务不自动重试' });
+    this.store.event(null, 'sleep.resumed', { note: '仅恢复排队 AP；中止的 AP 不自动重试' });
     this.kick(); return this.sleepStatus();
   },
 
@@ -94,10 +94,10 @@ export default {
     this.saveSleepState({ ...state, enabled: false, paused: true, reason, ended_at: new Date().toISOString() });
     clearInterval(this.sleepTimer); this.sleepTimer = null;
     this.store.event(null, 'sleep.paused', { session: state.session, reason });
-    for (const [taskId] of this.running) {
-      this.cancel(taskId, `${reason}；工作区保留，请检查后显式重试`, 'failed');
+    for (const [apId] of this.running) {
+      this.cancel(apId, `${reason}；工作区保留，请检查后显式重试`, 'failed');
     }
-    for (const task of this.store.all("SELECT id FROM tasks WHERE role='butler' AND status='queued'")) this.cancel(task.id, reason);
+    for (const ap of this.store.all("SELECT id FROM aps WHERE role='butler' AND status='queued'")) this.cancel(ap.id, reason);
   },
 
   async checkSleepBudget(session) {
@@ -126,35 +126,35 @@ export default {
     this.sleepTickPromise = (async () => {
       if (!await this.checkSleepBudget(session)) return;
       const state = this.sleepStatus();
-      const active = this.store.get("SELECT id FROM tasks WHERE role='butler' AND status NOT IN ('completed','failed','cancelled') LIMIT 1");
+      const active = this.store.get("SELECT id FROM aps WHERE role='butler' AND status NOT IN ('completed','failed','cancelled') LIMIT 1");
       if (!active) {
         // The intent is durable before either calling a model or touching Git. Never replay a claimed notice.
         const running = [...this.running.keys()];
         const notice = this.store.get(`SELECT n.* FROM notices n WHERE n.status IN ('open','sent')
           AND (? OR EXISTS (SELECT 1 FROM events e WHERE e.type='notice.opened' AND e.id>?
-            AND e.task_id=n.task_id AND json_extract(e.data,'$.notice_id')=n.id))
-          ${running.length ? `AND n.task_id NOT IN (${running.map(() => '?').join(',')})` : ''}
-          AND NOT EXISTS (SELECT 1 FROM events e WHERE e.type='sleep.choice.started' AND json_extract(e.data,'$.notice.id')=n.id AND json_extract(e.data,'$.notice.task_id')=n.task_id)
+            AND e.ap_id=n.ap_id AND json_extract(e.data,'$.notice_id')=n.id))
+          ${running.length ? `AND n.ap_id NOT IN (${running.map(() => '?').join(',')})` : ''}
+          AND NOT EXISTS (SELECT 1 FROM events e WHERE e.type='sleep.choice.started' AND json_extract(e.data,'$.notice.id')=n.id AND json_extract(e.data,'$.notice.ap_id')=n.ap_id)
           ORDER BY (n.status='open') DESC,n.id LIMIT 1`, state.include_existing ? 1 : 0, state.after_event, ...running);
         if (notice) {
-          const owner = this.store.task(notice.task_id);
+          const owner = this.store.ap(notice.ap_id);
           // Let the originating invocation unwind before answering, especially Plan approval.
           if (!this.running.has(owner.id)) {
             let decision = state.mode === 'recommended' ? recommendedChoice(notice) : null;
             if (notice.kind === 'info') {
               const mergeable = owner.status === 'completed' && owner.integration === 'pending';
               decision = { action: state.allow_merge && mergeable ? 'merge' : 'acknowledge',
-                reason: state.allow_merge && mergeable ? '按明确授权尝试安全合并已完成任务。' : '信息提醒已阅；无可合并改动或未授权自动合并。' };
+                reason: state.allow_merge && mergeable ? '按明确授权尝试安全合并已完成 AP。' : '信息提醒已阅；无可合并改动或未授权自动合并。' };
             }
             const source = { version: 1, session, mode: state.mode, allow_merge: state.allow_merge, notice,
-              task: { id: owner.id, goal: owner.goal.slice(0, 12000), role: owner.role, integration: owner.integration },
+              ap: { id: owner.id, goal: owner.goal.slice(0, 12000), role: owner.role, integration: owner.integration },
               history: state.mode === 'preferences' ? this.sleepPreferenceHistory() : [] };
             let choiceId;
             this.store.transaction(() => {
               choiceId = this.store.event(null, 'sleep.choice.started', source);
               if (!decision) {
-                const task = this.store.create({ role: 'butler', name: 'butler', goal: `管家处理 Notice #${notice.id}：${notice.title}` });
-                this.store.event(task.id, 'sleep.requested', { choice_id: choiceId, ...source });
+                const ap = this.store.create({ role: 'butler', name: 'butler', goal: `管家处理 Notice #${notice.id}：${notice.title}` });
+                this.store.event(ap.id, 'sleep.requested', { choice_id: choiceId, ...source });
               }
             });
             if (decision) await this.applySleepChoice(choiceId, source, decision);
@@ -176,18 +176,18 @@ export default {
       CASE WHEN EXISTS (SELECT 1 FROM events e JOIN events f ON f.type='sleep.choice.finished'
         AND json_extract(f.data,'$.choice_id')=e.id AND json_extract(f.data,'$.status')='applied'
         WHERE e.type='sleep.choice.started' AND json_extract(e.data,'$.notice.id')=n.id
-        AND json_extract(e.data,'$.notice.task_id')=n.task_id)
+        AND json_extract(e.data,'$.notice.ap_id')=n.ap_id)
       THEN 'butler' ELSE 'user' END AS decided_by FROM notices n WHERE n.status='answered'
       ORDER BY n.id DESC LIMIT 20`);
   },
 
-  butlerContext(taskId) {
-    const value = read(this.store.get("SELECT data FROM events WHERE task_id=? AND type='sleep.requested' ORDER BY id LIMIT 1", taskId));
+  butlerContext(apId) {
+    const value = read(this.store.get("SELECT data FROM events WHERE ap_id=? AND type='sleep.requested' ORDER BY id LIMIT 1", apId));
     check(value, 'missing butler context'); return value;
   },
 
-  async completeButler(taskId, result) {
-    const source = this.butlerContext(taskId);
+  async completeButler(apId, result) {
+    const source = this.butlerContext(apId);
     try {
       const decision = JSON.parse(result);
       await this.applySleepChoice(source.choice_id, source, decision);
@@ -229,10 +229,10 @@ export default {
       };
       if (decision.action === 'merge') {
         check(state.allow_merge && source.allow_merge, '未授权自动合并');
-        const task = this.store.task(notice.task_id);
-        check(task.status === 'completed' && task.integration === 'pending', '当前任务不符合自动合并条件');
+        const ap = this.store.ap(notice.ap_id);
+        check(ap.status === 'completed' && ap.integration === 'pending', '当前 AP 不符合自动合并条件');
         this.store.event(null, 'sleep.choice.executing', { choice_id: choiceId, decision });
-        const outcome = await this.approveMerge(task.id);
+        const outcome = await this.approveMerge(ap.id);
         this.finishSleepChoice(choiceId, { status: 'applied', decision, outcome });
       } else this.store.transaction(() => {
         execute(); this.finishSleepChoice(choiceId, { status: 'applied', decision });
@@ -265,8 +265,8 @@ export default {
     const pending = this.store.all(`SELECT id FROM events e WHERE type='sleep.choice.started'
       AND NOT EXISTS (SELECT 1 FROM events f WHERE f.type='sleep.choice.finished' AND json_extract(f.data,'$.choice_id')=e.id)`);
     for (const row of pending) this.finishSleepChoice(row.id, { status: 'interrupted', reason: 'daemon 中断，执行结果可能未知；请人工检查，不自动重放' });
-    for (const task of this.store.all("SELECT id,status FROM tasks WHERE role='butler'")) {
-      if (!TERMINAL.has(task.status)) this.cancel(task.id, '管家 invocation 中断，不自动重放');
+    for (const ap of this.store.all("SELECT id,status FROM aps WHERE role='butler'")) {
+      if (!TERMINAL.has(ap.status)) this.cancel(ap.id, '管家 invocation 中断，不自动重放');
     }
     this.startSleepMonitor();
   },

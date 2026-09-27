@@ -17,29 +17,29 @@ dom.node('side-nav').replaceChildren();
 await boot();
 afterAll(() => dom.restore());
 
-test('左栏只做导航：任务索引在右侧成为独立页面，任务详情与浏览器后退仍可往返', async () => {
-  const taskNav = dom.node('side-nav').querySelector('[data-side="tasks"]');
-  await taskNav.onclick();
+test('左栏只做导航：AP 索引在右侧成为独立页面，AP 详情与浏览器后退仍可往返', async () => {
+  const apNav = dom.node('side-nav').querySelector('[data-side="aps"]');
+  await apNav.onclick();
 
-  expect(dom.location.hash).toBe('#tasks');
+  expect(dom.location.hash).toBe('#aps');
   expect(dom.node('resource-panels').hidden).toBe(false);
   expect(dom.node('detail').hidden).toBe(true);
-  expect(dom.node('side-tasks').hidden).toBe(false);
+  expect(dom.node('side-aps').hidden).toBe(false);
   expect(dom.node('side-notices').hidden).toBe(true);
-  expect(dom.node('view-title').textContent).toBe('任务列表');
-  expect(dom.node('tasks').querySelector('[data-id="1"]')).toBeTruthy();
+  expect(dom.node('view-title').textContent).toBe('AP 列表');
+  expect(dom.node('aps').querySelector('[data-id="1"]')).toBeTruthy();
 
-  await dom.node('tasks').querySelector('[data-id="1"]').onclick();
-  expect(dom.location.hash).toBe('#task-1');
+  await dom.node('aps').querySelector('[data-id="1"]').onclick();
+  expect(dom.location.hash).toBe('#ap-1');
   expect(dom.node('resource-panels').hidden).toBe(true);
   expect(dom.node('detail').hidden).toBe(false);
-  expect(dom.node('view-title').textContent).toBe('任务 #1');
+  expect(dom.node('view-title').textContent).toBe('AP #1');
 
-  // 用 hashchange 模拟浏览器后退：回到任务页，而不是把任务列表塞回左栏。
-  dom.location.hash = '#tasks';
+  // 用 hashchange 模拟浏览器后退：回到 AP 页，而不是把 AP 列表塞回左栏。
+  dom.location.hash = '#aps';
   await dom.fire('hashchange');
   expect(dom.node('resource-panels').hidden).toBe(false);
-  expect(dom.node('side-tasks').hidden).toBe(false);
+  expect(dom.node('side-aps').hidden).toBe(false);
   expect(dom.node('detail').hidden).toBe(true);
 });
 
@@ -80,13 +80,13 @@ test('所有页面平级、唯一选中；重复点击、hash 后退与轮询保
       if (ui.indexOpen) expect(dom.node(`side-${id}`).hidden).toBe(false);
       else expect(dom.node('detail').dataset.view).toBe(id);
     }
-    for (const id of ['graph', 'statistics', 'settings', 'notices', 'tasks', 'intents', 'specs', 'docs', 'overview']) {
+    for (const id of ['graph', 'statistics', 'settings', 'notices', 'aps', 'intents', 'specs', 'docs', 'overview']) {
       dom.location.hash = id === 'overview' ? '' : `#${id}`;
       await dom.fire('hashchange');
       expectSelected(id);
     }
     await detail(1);
-    expectSelected('tasks');
+    expectSelected('aps');
   } finally { intercept = null; }
 });
 
@@ -110,12 +110,12 @@ test('概览切换不依赖 revision 变化，轮询忙或断网时也立即显�
   delete ui.lastSnapshot.revision;
 });
 
-test('迟到的分支、文档与任务请求不覆盖新页面；文档 A→B 乱序也安全', async () => {
+test('迟到的分支、文档与 AP 请求不覆盖新页面；文档 A→B 乱序也安全', async () => {
   await dom.node('home').onclick();
   for (const [path, open] of [
     ['/api/graph', () => dom.node('graph-open').onclick()],
     ['/api/docs', () => openDocs()],
-    ['/api/task/1', () => detail(1)],
+    ['/api/ap/1', () => detail(1)],
   ]) {
     const pending = deferred();
     intercept = url => url === path ? pending.promise : null;
@@ -145,35 +145,35 @@ test('迟到的分支、文档与任务请求不覆盖新页面；文档 A→B �
 test('全部现行角色和历史调度类型始终可选，未知类型也不丢失', async () => {
   await dom.node('home').onclick();
   const snapshot = ui.lastSnapshot;
-  const tasks = [...Object.keys(ROLE), 'future-role'].map((role, index) => ({
+  const aps = [...Object.keys(ROLE), 'future-role'].map((role, index) => ({
     id: 100 + index, parent_id: null, input_id: null, role, goal: `测试 ${role}`,
     status: 'completed', integration: 'none', updated_at: new Date().toISOString(),
   }));
-  ui.lastSnapshot = { ...snapshot, tasks };
+  ui.lastSnapshot = { ...snapshot, aps };
   renderTree(ui.lastSnapshot);
-  const select = dom.node('task-filters').querySelectorAll('.filter-select')[1];
+  const select = dom.node('ap-filters').querySelectorAll('.filter-select')[1];
   expect(select.querySelectorAll('option').map(node => node.value)).toEqual(['all', ...Object.keys(ROLE), 'future-role']);
-  for (const task of tasks) {
-    select.value = task.role;
+  for (const ap of aps) {
+    select.value = ap.role;
     await select.listeners.change[0]();
-    expect(dom.node('tasks').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual([task.id]);
+    expect(dom.node('aps').querySelectorAll('.ap').map(node => Number(node.dataset.id))).toEqual([ap.id]);
   }
   ui.lastSnapshot = snapshot;
   select.value = 'all'; await select.listeners.change[0]();
   expect(select.querySelectorAll('option').map(node => node.value)).toEqual(['all', ...Object.keys(ROLE)]);
 });
 
-test('任务树：角色胶囊带 role-<role> 类，快速路由任务整行标记并显示徽章', async () => {
+test('AP 树：角色胶囊带 role-<role> 类，快速路由 AP 整行标记并显示徽章', async () => {
   await dom.node('home').onclick();
   const snapshot = ui.lastSnapshot;
-  ui.lastSnapshot = { ...snapshot, tasks: [
-    { id: 301, parent_id: null, input_id: 1, role: 'worker', goal: '路由出来的任务', status: 'running', integration: 'none', route: true, updated_at: new Date().toISOString() },
-    { id: 302, parent_id: null, input_id: 2, role: 'verifier', goal: '普通验收任务', status: 'completed', integration: 'none', route: false, updated_at: new Date().toISOString() },
+  ui.lastSnapshot = { ...snapshot, aps: [
+    { id: 301, parent_id: null, input_id: 1, role: 'worker', goal: '路由出来的 AP', status: 'running', integration: 'none', route: true, updated_at: new Date().toISOString() },
+    { id: 302, parent_id: null, input_id: 2, role: 'verifier', goal: '普通验收 AP', status: 'completed', integration: 'none', route: false, updated_at: new Date().toISOString() },
   ] };
   try {
     renderTree(ui.lastSnapshot);
-    const routed = dom.node('tasks').querySelector('[data-id="301"]');
-    const plain = dom.node('tasks').querySelector('[data-id="302"]');
+    const routed = dom.node('aps').querySelector('[data-id="301"]');
+    const plain = dom.node('aps').querySelector('[data-id="302"]');
     expect(routed.classList.contains('route-flagged')).toBe(true);
     expect(routed.querySelector('.role-badge').className).toContain('role-worker');
     expect(routed.querySelector('.route-badge').textContent).toContain('快速路由');
@@ -187,7 +187,7 @@ test('任务树：角色胶囊带 role-<role> 类，快速路由任务整行标�
 });
 
 test('直接链接启动复用同一路由，重复 boot 不复制导航', async () => {
-  for (const id of ['graph', 'statistics', 'settings', 'tasks']) {
+  for (const id of ['graph', 'statistics', 'settings', 'aps']) {
     dom.location.hash = `#${id}`;
     await boot();
     expectSelected(id);

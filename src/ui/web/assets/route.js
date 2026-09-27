@@ -21,7 +21,7 @@ export function projectBase() {
 }
 
 /**
- * 把站内项目 API 路径挂到本页项目前缀下：`/api/task/1` → `/p/<id>/api/task/1`。
+ * 把站内项目 API 路径挂到本页项目前缀下：`/api/ap/1` → `/p/<id>/api/ap/1`。
  * 启动器与随代码发布的文档是宿主级资源，始终留在无前缀路径（它们不属于任何项目）。
  */
 export function projectApi(path) {
@@ -31,7 +31,7 @@ export function projectApi(path) {
   return `${base}${path}`;
 }
 
-/** 打开某个项目的地址；`suffix` 带 hash 时可直接深链接到任务或页面。 */
+/** 打开某个项目的地址；`suffix` 带 hash 时可直接深链接到 AP 或页面。 */
 export function projectHref(id, suffix = '/') {
   return `/p/${id}${suffix}`;
 }

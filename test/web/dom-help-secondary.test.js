@@ -10,13 +10,13 @@ import { makeWorld, NOW, iso } from './dom-world.js';
 // 每个 DOM 测试文件都自给自足：先装自己的 world / DOM，再显式 boot 一次（模块注册表在文件之间共享）。
 const world = makeWorld();
 const baseFetch = world.fetchImpl;
-// 把快照里的任务都改成终态，概览才进「维护与安全回收」分支、画出「清空任务看板」。
+// 把快照里的 AP 都改成终态，概览才进「维护与安全回收」分支、画出「清空 AP 看板」。
 const dom = installDom({ fetch: async (url, options) => {
   const response = await baseFetch(url, options);
   if (String(url) !== '/api/snapshot') return response;
   const data = await response.json();
-  data.tasks = data.tasks.map(task => ({ ...task, status: 'completed' }));
-  data.status.tasks = [{ status: 'completed', count: data.tasks.length }];
+  data.aps = data.aps.map(ap => ({ ...ap, status: 'completed' }));
+  data.status.aps = [{ status: 'completed', count: data.aps.length }];
   data.status.agents = [];
   return { ok: true, status: 200, json: async () => data };
 } });
@@ -38,16 +38,16 @@ const SCOPE = [
   'project-picker.js', 'filters-ui.js', 'sidebar-init.js',
 ];
 
-test('「清空任务看板」是破坏性动作，带 data-help 且不标 agent-call', async () => {
+test('「清空 AP 看板」是破坏性动作，带 data-help 且不标 agent-call', async () => {
   await dom.intervalFor(1500)();
-  const clear = buttonOf(dom.node('detail'), '清空任务看板');
+  const clear = buttonOf(dom.node('detail'), '清空 AP 看板');
   expect(clear).toBeTruthy();
   expect(clear.getAttribute('data-help')).toContain('不可撤销');
   expect(clear.classList.contains('agent-call')).toBe(false);
 });
 
 test('待决提醒横幅：说明性 title 迁移到 data-help，且不标 agent-call', async () => {
-  world.state.notices = [{ id: 9, task_id: 4, kind: 'question', title: '最新问题', body: '请回答', status: 'open', created_at: iso(NOW) }];
+  world.state.notices = [{ id: 9, ap_id: 4, kind: 'question', title: '最新问题', body: '请回答', status: 'open', created_at: iso(NOW) }];
   await dom.intervalFor(1500)();
   const main = dom.node('notice-banner').querySelector('.notice-banner-main');
   expect(main).toBeTruthy();
@@ -67,7 +67,7 @@ test('系统提醒开关：初始文本为空补 aria-label 与 data-help，且�
 });
 
 test('「终端模式」打开只读全宽阅读器，带 data-help 且不标 agent-call', async () => {
-  dom.location.hash = '#task-1';
+  dom.location.hash = '#ap-1';
   await dom.fire('hashchange');
   const detail = dom.node('detail');
   await until(() => buttonOf(detail, '终端模式'), 2000);
@@ -84,7 +84,7 @@ test('左栏导航、待提交意图与批量交付的标注：迁移 title、�
   // 草稿：每条的「发送」是 Agent 触发按钮（agent-call + agentHelp 说明）；「移除」与「×」补 data-help
   const { renderDrafts } = await import('../../src/ui/web/assets/render-drafts.js');
   renderDrafts({ drafts: [{ id: 21, content: '草稿', created_at: iso(NOW),
-    references: [{ kind: 'task', target: { task_id: 1 }, label: '任务 #1', quote: '引文' }] }] });
+    references: [{ kind: 'ap', target: { ap_id: 1 }, label: 'AP #1', quote: '引文' }] }] });
   const drafts = dom.node('drafts');
   const execute = buttonOf(drafts, '发送');
   expect(execute.classList.contains('agent-call')).toBe(true);
@@ -120,7 +120,7 @@ test('设置页的 Agent / 系统按钮按标准补 data-help', async () => {
   expect(buttonOf(panel, '恢复环境默认').getAttribute('data-help')).toContain('并发');
   // 模块级的 activeTab 是跨测试文件共享的：看完成系统页要切回 Agent，别让后续文件从错误页签开始。
   tabOf('agent').onclick();
-  expect(deepText(panel)).toContain('按任务行为覆盖');
+  expect(deepText(panel)).toContain('按 AP 行为覆盖');
 });
 
 test('本范围没有 Agent 触发标识：文件里不出现 agent-call / agentHelp', async () => {

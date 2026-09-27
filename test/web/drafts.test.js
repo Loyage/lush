@@ -23,16 +23,16 @@ test('web buffers drafts, commits the whole batch and keeps agents out of the co
     expect(snapshot.drafts).toEqual([]);
     expect(snapshot.status.drafts).toBe(0);
     expect(snapshot.inputs[0].content).toBe('第二条');
-    // planner 属于 control plane，不在任务列表；mock Plan 已由 runtime 直接编译出 research work。
-    expect(snapshot.inputs[0].task_id).toBeGreaterThan(0);
-    expect(snapshot.tasks.some(task => task.role === 'planner')).toBe(false);
-    expect(snapshot.tasks.some(task => task.role === 'research')).toBe(true);
+    // planner 属于 control plane，不在 AP 列表；mock Plan 已由 runtime 直接编译出 research work。
+    expect(snapshot.inputs[0].ap_id).toBeGreaterThan(0);
+    expect(snapshot.aps.some(ap => ap.role === 'planner')).toBe(false);
+    expect(snapshot.aps.some(ap => ap.role === 'research')).toBe(true);
     // 已提交的输入不能被删；agent token 与非白名单方法都被拒
     expect((await post('draft.remove',{id:1})).status).toBe(400);
     expect((await post('draft.add',{content:'sneak',_token:'forged'})).status).toBe(400);
     expect((await post('draft.clear',{})).status).toBe(400);
-    const divergence = await (await post('task.resolve_divergence',{id:9999})).json();
-    expect(divergence.error).toContain('task 9999'); // routed to daemon, not rejected by Web mutation whitelist
+    const divergence = await (await post('ap.resolve_divergence',{id:9999})).json();
+    expect(divergence.error).toContain('AP 9999'); // routed to daemon, not rejected by Web mutation whitelist
     expect((await post('input.submit',{content:'raw',_token:'forged'})).status).toBe(400);
   } finally { await f.close(); }
 });

@@ -5,7 +5,7 @@ import { QuickIntroSettings } from '../quick-intro.js';
 import { check } from '../types.js';
 
 // 构造与实例状态（config / store / provider / workspaces / running / stopping / scheduled / ancestry）。
-/** One project, a persistent task tree, and a bounded pool of disposable agents. */
+/** One project, a persistent AP tree, and a bounded pool of disposable agents. */
 export class ProjectBase {
   constructor(config, store, provider = null) {
     this.config = config; this.store = store;
@@ -20,7 +20,7 @@ export class ProjectBase {
     this.clearing = false;
     // 已经获准、正在跨 await 的异步写入；clear 先等它们收尾再 purge。
     this.writing = 0; this.writeIdle = Promise.resolve(); this.writeIdleResolve = null;
-    // 直连模型的「快速介绍」不是任务，不进 running；单独记在跑的那次调用，shutdown 时 abort 并等它落库。
+    // 直连模型的「快速介绍」不是 AP，不进 running；单独记在跑的那次调用，shutdown 时 abort 并等它落库。
     this.introRunning = new Map();
     this.integratingIntents = new Set();
     // 一键合并的异步驱动状态：driving 表示某目标正有一轮在跑，避免同目标重复驱动。

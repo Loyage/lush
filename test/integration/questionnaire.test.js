@@ -13,9 +13,9 @@ test('pi CLI questionnaire stops process group, survives daemon restart, and res
 import fs from 'node:fs';
 import path from 'node:path';
 const home = process.env.LUSH_HOME;
-const context = JSON.parse(fs.readFileSync(path.join(home,'sessions','task-'+process.env.LUSH_TASK_ID+'-input.md'),'utf8'));
-fs.appendFileSync(path.join(home,'seen.jsonl'), JSON.stringify({pid:process.pid,task:context.task.id,messages:context.messages})+'\\n');
-if (context.task.calls === 1) {
+const context = JSON.parse(fs.readFileSync(path.join(home,'sessions','ap-'+process.env.LUSH_AP_ID+'-input.md'),'utf8'));
+fs.appendFileSync(path.join(home,'seen.jsonl'), JSON.stringify({pid:process.pid,ap:context.ap.id,messages:context.messages})+'\\n');
+if (context.ap.calls === 1) {
  const file = path.join(home,'sessions','questions.json');
  fs.writeFileSync(file,JSON.stringify({questions:[{header:'Layout',question:'Which layout?',options:[{label:'Sidebar',description:'Categories'},{label:'Tabs',description:'Wider content'}]}]}));
  const child = Bun.spawn(['lush','notice','post','Layout decision','--questions-file',file],{stdout:'pipe',stderr:'pipe'});
@@ -27,11 +27,11 @@ if (context.task.calls === 1) {
   try {
     await repo(root);
     await cli(root, ['start'], { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake });
-    const { task } = await cli(root, ['say', 'choose a layout']);
+    const { ap } = await cli(root, ['say', 'choose a layout']);
     let client = new UIClient(Config.fromEnv(env(), root));
     let waiting;
     for (let i = 0; i < 400; i++) {
-      waiting = await client.request('task.inspect', { id: task.id });
+      waiting = await client.request('ap.inspect', { id: ap.id });
       if (waiting.status === 'awaiting' && !waiting.agent.active) break;
       await Bun.sleep(10);
     }
@@ -43,11 +43,11 @@ if (context.task.calls === 1) {
     await cli(root, ['stop']);
     await cli(root, ['start'], { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake });
     client = new UIClient(Config.fromEnv(env(), root));
-    expect((await client.request('task.inspect', { id: task.id })).status).toBe('awaiting');
+    expect((await client.request('ap.inspect', { id: ap.id })).status).toBe('awaiting');
     const answers = path.join(root, 'answers.json');
     fs.writeFileSync(answers, JSON.stringify({ answers: [{ selected: [1] }] }));
     await cli(root, ['answer', String(notice.id), '--answers-file', answers]);
-    const result = await idle(client, task.id, 2);
+    const result = await idle(client, ap.id, 2);
     expect(result.status).toBe('waiting'); expect(result.calls).toBe(2);
     const seen = fs.readFileSync(seenFile, 'utf8').trim().split('\n').map(JSON.parse);
     expect(seen.length).toBe(2);

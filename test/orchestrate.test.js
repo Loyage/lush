@@ -26,20 +26,20 @@ async function setup() {
   return f;
 }
 
-/** 造一个已完成、带 requested / pending 合并预约的 say Task 及其分支（父是另一个 Task 的分支）。 */
+/** 造一个已完成、带 requested / pending 合并预约的 say AP 及其分支（父是另一个 AP 的分支）。 */
 async function makeSay(f, { branch, parentBranch, from, parentId, filename, content,
   status = 'completed', reservationStatus = 'requested', blockedCode = null }) {
   const commit = await commitOn(f, branch, from, filename, content);
   f.store.recordBranch({ branch, parent: parentBranch, created_from_commit: from });
-  const task = f.store.create({ parent_id: parentId, role: 'agent', task_kind: 'say', goal: `say ${branch}`, name: `say-${branch}` });
-  f.store.update(task.id, { status, branch, target_branch: parentBranch, base_commit: from, head_commit: commit, integration: 'pending' });
+  const ap = f.store.create({ parent_id: parentId, role: 'agent', ap_kind: 'say', goal: `say ${branch}`, name: `say-${branch}` });
+  f.store.update(ap.id, { status, branch, target_branch: parentBranch, base_commit: from, head_commit: commit, integration: 'pending' });
   if (reservationStatus !== null) {
     const reservation = { version: 1, kind: 'merge', status: reservationStatus, created_at: new Date().toISOString() };
     if (reservationStatus === 'requested') { reservation.commit = commit; reservation.baseline = from; reservation.parent_id = parentId; }
     if (blockedCode) reservation.blocked_code = blockedCode;
-    f.store.update(task.id, { reservation: JSON.stringify(reservation) });
+    f.store.update(ap.id, { reservation: JSON.stringify(reservation) });
   }
-  return { task: f.store.task(task.id), commit };
+  return { ap: f.store.ap(ap.id), commit };
 }
 
 test('registry：orchestrate_plan 只读，orchestrate / orchestrate_cancel 是用户专属', () => {
@@ -70,34 +70,34 @@ test('CLI：branch orchestrate-plan / orchestrate / orchestrate-cancel 翻译成
 test('plan enumerates say sub-branches leaf-first with fixed commits, baselines and actions', async () => {
   const f = await setup();
   try {
-    const main = await f.project.ensureMainTask();
+    const main = await f.project.ensureMainAP();
     const mainHead = await git(f.root, 'rev-parse', 'HEAD');
     const a = await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id, filename: 'a.txt', content: 'A\n' });
-    const b = await makeSay(f, { branch: 'say-B', parentBranch: 'say-A', from: a.commit, parentId: a.task.id, filename: 'b.txt', content: 'B\n' });
+    const b = await makeSay(f, { branch: 'say-B', parentBranch: 'say-A', from: a.commit, parentId: a.ap.id, filename: 'b.txt', content: 'B\n' });
 
     const plan = await f.project.orchestratePlan('main');
     expect(plan.target_branch).toBe('main');
     expect(plan.order).toEqual(['say-B', 'say-A']);
-    expect(plan.items.find(item => item.branch === 'say-B')).toMatchObject({ depth: 2, action: 'merge', ready: true, commit: b.commit, baseline: a.commit, task_id: b.task.id });
+    expect(plan.items.find(item => item.branch === 'say-B')).toMatchObject({ depth: 2, action: 'merge', ready: true, commit: b.commit, baseline: a.commit, ap_id: b.ap.id });
     expect(plan.items.find(item => item.branch === 'say-A')).toMatchObject({ depth: 1, action: 'merge', ready: false, commit: a.commit, baseline: mainHead });
-    // 只读：没有写运行，也没有建编排 Task。
+    // 只读：没有写运行，也没有建编排 AP。
     expect(f.store.branchMergeRun('main')).toBeNull();
-    expect(f.store.all("SELECT id FROM tasks WHERE task_kind='merge'")).toHaveLength(0);
+    expect(f.store.all("SELECT id FROM aps WHERE ap_kind='merge'")).toHaveLength(0);
   } finally { await f.close(); }
 });
 
-test('orchestrate lands every requested say merge ff-only and finishes the orchestration task', async () => {
+test('orchestrate lands every requested say merge ff-only and finishes the orchestration AP', async () => {
   const f = await setup();
   try {
-    const main = await f.project.ensureMainTask();
+    const main = await f.project.ensureMainAP();
     const mainHead = await git(f.root, 'rev-parse', 'HEAD');
     // say-A 先不固定提交（pending），等子分支 say-B 落地后由编排按最新 tip 重新固定并落地。
     await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id, filename: 'a.txt', content: 'A\n', reservationStatus: 'pending' });
-    const b = await makeSay(f, { branch: 'say-B', parentBranch: 'say-A', from: (await git(f.root, 'rev-parse', 'say-A')), parentId: (await f.store.get("SELECT id FROM tasks WHERE branch='say-A'")).id, filename: 'b.txt', content: 'B\n' });
+    const b = await makeSay(f, { branch: 'say-B', parentBranch: 'say-A', from: (await git(f.root, 'rev-parse', 'say-A')), parentId: (await f.store.get("SELECT id FROM aps WHERE branch='say-A'")).id, filename: 'b.txt', content: 'B\n' });
 
     const started = await f.project.orchestrate('main');
     expect(started.status).toBe('running');
-    expect(f.store.task(started.task.id).task_kind).toBe('merge');
+    expect(f.store.ap(started.ap.id).ap_kind).toBe('merge');
     // 运行中：目标与整棵后代子树（含没有 worktree 的 say 分支）都被冻结。
     const frozen = f.project.branchFreeze().map(row => row.branch);
     expect(frozen).toEqual(expect.arrayContaining(['main', 'say-A', 'say-B']));
@@ -111,9 +111,9 @@ test('orchestrate lands every requested say merge ff-only and finishes the orche
     expect(await git(f.root, 'rev-list', '--merges', '--count', 'HEAD')).toBe('0');
     expect(fs.readFileSync(path.join(f.root, 'a.txt'), 'utf8')).toBe('A\n');
     expect(fs.readFileSync(path.join(f.root, 'b.txt'), 'utf8')).toBe('B\n');
-    const task = f.store.task(started.task.id);
-    expect(task.status).toBe('completed');
-    expect(f.store.get("SELECT integration FROM tasks WHERE branch='say-B'").integration).toBe('merged');
+    const ap = f.store.ap(started.ap.id);
+    expect(ap.status).toBe('completed');
+    expect(f.store.get("SELECT integration FROM aps WHERE branch='say-B'").integration).toBe('merged');
     const events = f.store.all("SELECT type FROM events WHERE type LIKE 'merge.orchestrate.%' ORDER BY id").map(row => row.type);
     expect(events).toContain('merge.orchestrate.started');
     expect(events).toContain('merge.orchestrate.completed');
@@ -123,24 +123,24 @@ test('orchestrate lands every requested say merge ff-only and finishes the orche
 test('a pending fast-forward say is settled to requested then landed by the orchestration', async () => {
   const f = await setup();
   try {
-    const main = await f.project.ensureMainTask();
+    const main = await f.project.ensureMainAP();
     const mainHead = await git(f.root, 'rev-parse', 'HEAD');
     const a = await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id,
       filename: 'a.txt', content: 'A\n', status: 'waiting', reservationStatus: 'pending' });
     const started = await f.project.orchestrate('main');
     await f.project.driveOrchestrate('main');
     expect(await git(f.root, 'rev-parse', 'HEAD')).toBe(a.commit);
-    const say = f.store.task(a.task.id);
+    const say = f.store.ap(a.ap.id);
     expect(say.status).toBe('completed');
     expect(JSON.parse(say.reservation).status).toBe('integrated');
-    expect(f.store.task(started.task.id).status).toBe('completed');
+    expect(f.store.ap(started.ap.id).status).toBe('completed');
   } finally { await f.close(); }
 });
 
 test('plan marks un-requested eligible say branches for an automatic merge request', async () => {
   const f = await setup();
   try {
-    const main = await f.project.ensureMainTask();
+    const main = await f.project.ensureMainAP();
     const mainHead = await git(f.root, 'rev-parse', 'HEAD');
     const a = await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id,
       filename: 'a.txt', content: 'A\n', status: 'waiting', reservationStatus: null });
@@ -148,17 +148,17 @@ test('plan marks un-requested eligible say branches for an automatic merge reque
     const item = plan.items.find(row => row.branch === 'say-A');
     expect(item).toMatchObject({ action: 'merge', auto_request: true, ready: true, commit: a.commit });
     expect(plan.order).toEqual(['say-A']);
-    // 只读计划不写预约、不落地、不建编排 Task。
-    expect(f.store.task(a.task.id).reservation).toBeNull();
+    // 只读计划不写预约、不落地、不建编排 AP。
+    expect(f.store.ap(a.ap.id).reservation).toBeNull();
     expect(f.store.branchMergeRun('main')).toBeNull();
-    expect(f.store.all("SELECT id FROM tasks WHERE task_kind='merge'")).toHaveLength(0);
+    expect(f.store.all("SELECT id FROM aps WHERE ap_kind='merge'")).toHaveLength(0);
   } finally { await f.close(); }
 });
 
 test('orchestration auto-requests and lands an un-requested fast-forward say', async () => {
   const f = await setup();
   try {
-    const main = await f.project.ensureMainTask();
+    const main = await f.project.ensureMainAP();
     const mainHead = await git(f.root, 'rev-parse', 'HEAD');
     const a = await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id,
       filename: 'a.txt', content: 'A\n', status: 'waiting', reservationStatus: null });
@@ -166,12 +166,12 @@ test('orchestration auto-requests and lands an un-requested fast-forward say', a
     expect(started.status).toBe('running');
     await f.project.driveOrchestrate('main');
     expect(await git(f.root, 'rev-parse', 'HEAD')).toBe(a.commit);
-    const say = f.store.task(a.task.id);
+    const say = f.store.ap(a.ap.id);
     expect(say.status).toBe('completed');
     expect(JSON.parse(say.reservation)).toMatchObject({ kind: 'merge', status: 'integrated' });
-    expect(f.store.task(started.task.id).status).toBe('completed');
+    expect(f.store.ap(started.ap.id).status).toBe('completed');
     // 代发请求留痕，事件标 via=orchestrate。
-    const reserved = f.store.get("SELECT data FROM events WHERE task_id=? AND type='task.reserved'", a.task.id);
+    const reserved = f.store.get("SELECT data FROM events WHERE ap_id=? AND type='ap.reserved'", a.ap.id);
     expect(JSON.parse(reserved.data).via).toBe('orchestrate');
   } finally { await f.close(); }
 });
@@ -179,7 +179,7 @@ test('orchestration auto-requests and lands an un-requested fast-forward say', a
 test('orchestration auto-requests a diverged un-requested say and spawns a resolution child', async () => {
   const f = await setup();
   try {
-    const main = await f.project.ensureMainTask();
+    const main = await f.project.ensureMainAP();
     const mainHead = await git(f.root, 'rev-parse', 'HEAD');
     const a = await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id,
       filename: 'a.txt', content: 'A\n', status: 'waiting', reservationStatus: null });
@@ -191,15 +191,15 @@ test('orchestration auto-requests a diverged un-requested say and spawns a resol
     await f.project.driveOrchestrate('main');
     const paused = f.store.branchMergeRun('main');
     expect(paused.status).toBe('paused');
-    expect(f.store.task(paused.waiting_task_id).resolves_task_id).toBe(a.task.id);
-    expect(JSON.parse(f.store.task(a.task.id).reservation).kind).toBe('merge');
+    expect(f.store.ap(paused.waiting_ap_id).resolves_ap_id).toBe(a.ap.id);
+    expect(JSON.parse(f.store.ap(a.ap.id).reservation).kind).toBe('merge');
   } finally { await f.close(); }
 });
 
 test('un-requested say that is still running or awaiting the user is skipped with a reason', async () => {
   const f = await setup();
   try {
-    const main = await f.project.ensureMainTask();
+    const main = await f.project.ensureMainAP();
     const mainHead = await git(f.root, 'rev-parse', 'HEAD');
     const running = await makeSay(f, { branch: 'say-run', parentBranch: 'main', from: mainHead, parentId: main.id,
       filename: 'r.txt', content: 'R\n', status: 'running', reservationStatus: null });
@@ -213,42 +213,42 @@ test('un-requested say that is still running or awaiting the user is skipped wit
     const result = await f.project.orchestrate('main');
     expect(result.status).toBe('empty');
     expect(f.store.branchMergeRun('main')).toBeNull();
-    expect(f.store.task(running.task.id).reservation).toBeNull();
-    expect(f.store.task(awaiting.task.id).reservation).toBeNull();
+    expect(f.store.ap(running.ap.id).reservation).toBeNull();
+    expect(f.store.ap(awaiting.ap.id).reservation).toBeNull();
   } finally { await f.close(); }
 });
 
 test('orchestration holds the freeze until a running target Agent reaches a safe point', async () => {
   const f = await setup();
   try {
-    const main = await f.project.ensureMainTask();
+    const main = await f.project.ensureMainAP();
     const initial = await git(f.root, 'rev-parse', 'HEAD');
     const parent = await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: initial, parentId: main.id,
       filename: 'a.txt', content: 'A\n', status: 'waiting', reservationStatus: null });
-    const source = await makeSay(f, { branch: 'say-B', parentBranch: 'say-A', from: parent.commit, parentId: parent.task.id,
+    const source = await makeSay(f, { branch: 'say-B', parentBranch: 'say-A', from: parent.commit, parentId: parent.ap.id,
       filename: 'b.txt', content: 'B\n' });
     const moved = await commitOn(f, 'temporary-tip', parent.commit, 'other.txt', 'other\n');
     await git(f.root, 'update-ref', 'refs/heads/say-A', moved);
     const started = await f.project.orchestrate('main');
-    f.store.update(parent.task.id, { status: 'running' });
-    f.project.running.set(parent.task.id, { agent: { agent: 'mock' } });
+    f.store.update(parent.ap.id, { status: 'running' });
+    f.project.running.set(parent.ap.id, { agent: { agent: 'mock' } });
     await f.project.driveOrchestrate('main');
     const paused = f.store.branchMergeRun('main');
-    expect(paused).toMatchObject({ status: 'paused', waiting_safe_task_id: parent.task.id, waiting_task_id: null });
-    expect(f.project.branchFreeze(source.task.branch)).toBeTruthy();
-    expect(f.store.get("SELECT id FROM tasks WHERE resolves_task_id=?", source.task.id)).toBeNull();
-    f.project.running.delete(parent.task.id); f.store.update(parent.task.id, { status: 'waiting' });
+    expect(paused).toMatchObject({ status: 'paused', waiting_safe_ap_id: parent.ap.id, waiting_ap_id: null });
+    expect(f.project.branchFreeze(source.ap.branch)).toBeTruthy();
+    expect(f.store.get("SELECT id FROM aps WHERE resolves_ap_id=?", source.ap.id)).toBeNull();
+    f.project.running.delete(parent.ap.id); f.store.update(parent.ap.id, { status: 'waiting' });
     await f.project.driveOrchestrate('main');
     const ready = f.store.branchMergeRun('main');
     expect(ready.status).toBe('paused');
-    expect(f.store.task(ready.waiting_task_id).parent_id).toBe(started.task.id);
+    expect(f.store.ap(ready.waiting_ap_id).parent_id).toBe(started.ap.id);
   } finally { await f.close(); }
 });
 
 test('a diverged say spawns a source-side resolution child; the runtime finalizes it and lands the commit', async () => {
   const f = await setup();
   try {
-    const main = await f.project.ensureMainTask();
+    const main = await f.project.ensureMainAP();
     const mainHead = await git(f.root, 'rev-parse', 'HEAD');
     const a = await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id, filename: 'a.txt', content: 'A\n' });
     // main 前进：say-A 与 main 分歧。
@@ -263,22 +263,22 @@ test('a diverged say spawns a source-side resolution child; the runtime finalize
     await f.project.driveOrchestrate('main');
     const paused = f.store.branchMergeRun('main');
     expect(paused.status).toBe('paused');
-    expect(paused.waiting_task_id).not.toBeNull();
-    const resolution = f.store.task(paused.waiting_task_id);
-    expect(resolution.task_kind).toBe('child');
-    expect(resolution.resolves_task_id).toBe(a.task.id);
-    expect(resolution.parent_id).toBe(f.store.branchMergeRun('main').task_id);
-    expect(f.project.branchFreeze(a.task.branch)).toBeTruthy();
-    // 编排派的解分歧子任务被标记，走 runtime 收尾而不是旧的终态 say 路径。
-    const event = f.store.get("SELECT data FROM events WHERE task_id=? AND type='task.divergence_resolution_requested'", resolution.id);
+    expect(paused.waiting_ap_id).not.toBeNull();
+    const resolution = f.store.ap(paused.waiting_ap_id);
+    expect(resolution.ap_kind).toBe('child');
+    expect(resolution.resolves_ap_id).toBe(a.ap.id);
+    expect(resolution.parent_id).toBe(f.store.branchMergeRun('main').ap_id);
+    expect(f.project.branchFreeze(a.ap.branch)).toBeTruthy();
+    // 编排派的解分歧子 AP 被标记，走 runtime 收尾而不是旧的终态 say 路径。
+    const event = f.store.get("SELECT data FROM events WHERE ap_id=? AND type='ap.divergence_resolution_requested'", resolution.id);
     expect(JSON.parse(event.data).orchestrated).toBe(true);
 
-    // 扮演那个子任务：把 main 的移动合进来、提交并结算。
+    // 扮演那个子 AP：把 main 的移动合进来、提交并结算。
     const cwd = await f.project.workspaces.ensure(resolution);
     await git(cwd, 'merge', moved);
-    await f.project.workspaces.finish(f.store.task(resolution.id));
+    await f.project.workspaces.finish(f.store.ap(resolution.id));
     f.project.finish(resolution.id, 'completed');
-    await f.project.workspaces.fastForwardBranch('say-A', f.store.task(resolution.id).head_commit);
+    await f.project.workspaces.fastForwardBranch('say-A', f.store.ap(resolution.id).head_commit);
     // 模拟 Git 已快进、DB 仍在 resolving 的重启窗口：driver 必须复核后幂等收尾。
     await f.project.driveOrchestrate('main');
 
@@ -288,14 +288,14 @@ test('a diverged say spawns a source-side resolution child; the runtime finalize
     expect(await git(f.root, 'merge-base', '--is-ancestor', moved, 'HEAD')).toBe('');
     expect(fs.readFileSync(path.join(f.root, 'a.txt'), 'utf8')).toBe('A\n');
     expect(fs.readFileSync(path.join(f.root, 'main.txt'), 'utf8')).toBe('M\n');
-    expect(JSON.parse(f.store.task(a.task.id).reservation).status).toBe('integrated');
+    expect(JSON.parse(f.store.ap(a.ap.id).reservation).status).toBe('integrated');
   } finally { await f.close(); }
 });
 
 test('cancelling an orchestration releases the freeze, cancels the waiting resolution and keeps landed work', async () => {
   const f = await setup();
   try {
-    const main = await f.project.ensureMainTask();
+    const main = await f.project.ensureMainAP();
     const mainHead = await git(f.root, 'rev-parse', 'HEAD');
     await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id,
       filename: 'a.txt', content: 'A\n', status: 'waiting', reservationStatus: 'pending' });
@@ -305,21 +305,21 @@ test('cancelling an orchestration releases the freeze, cancels the waiting resol
     const started = await f.project.orchestrate('main');
     await f.project.driveOrchestrate('main');
     const paused = f.store.branchMergeRun('main');
-    const resolutionId = paused.waiting_task_id;
+    const resolutionId = paused.waiting_ap_id;
 
     const result = f.project.cancelOrchestrate('main');
     expect(result.status).toBe('cancelled');
     expect(f.store.branchMergeRun('main')).toBeNull();
     expect(f.project.branchFreeze()).toEqual([]);
-    expect(f.store.task(resolutionId).status).toBe('cancelled');
-    expect(f.store.task(started.task.id).status).toBe('cancelled');
+    expect(f.store.ap(resolutionId).status).toBe('cancelled');
+    expect(f.store.ap(started.ap.id).status).toBe('cancelled');
   } finally { await f.close(); }
 });
 
-test('cancelling the orchestration Task directly clears the run and releases the freeze', async () => {
+test('cancelling the orchestration AP directly clears the run and releases the freeze', async () => {
   const f = await setup();
   try {
-    const main = await f.project.ensureMainTask();
+    const main = await f.project.ensureMainAP();
     const mainHead = await git(f.root, 'rev-parse', 'HEAD');
     await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id,
       filename: 'a.txt', content: 'A\n', reservationStatus: 'pending' });
@@ -327,19 +327,19 @@ test('cancelling the orchestration Task directly clears the run and releases the
     await git(f.root, 'add', 'main.txt'); await git(f.root, 'commit', '-m', 'main moves');
     const started = await f.project.orchestrate('main');
     await f.project.driveOrchestrate('main');
-    const resolutionId = f.store.branchMergeRun('main').waiting_task_id;
-    f.project.cancel(started.task.id, '直接取消编排');
+    const resolutionId = f.store.branchMergeRun('main').waiting_ap_id;
+    f.project.cancel(started.ap.id, '直接取消编排');
     expect(f.store.branchMergeRun('main')).toBeNull();
     expect(f.project.branchFreeze()).toEqual([]);
-    expect(f.store.task(resolutionId).status).toBe('cancelled');
-    expect(f.store.task(started.task.id).status).toBe('cancelled');
+    expect(f.store.ap(resolutionId).status).toBe('cancelled');
+    expect(f.store.ap(started.ap.id).status).toBe('cancelled');
   } finally { await f.close(); }
 });
 
 test('a source branch that moved past its fixed commit is never silently merged; orchestration reports it as a skip', async () => {
   const f = await setup();
   try {
-    const main = await f.project.ensureMainTask();
+    const main = await f.project.ensureMainAP();
     const mainHead = await git(f.root, 'rev-parse', 'HEAD');
     const a = await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id, filename: 'a.txt', content: 'A\n' });
     // 请求发出后源分支又前进：固定提交不再等于分支顶端，编排不能把新提交当成已审阅内容落地。
@@ -359,13 +359,13 @@ test('a source branch that moved past its fixed commit is never silently merged;
 test('orchestrate refuses to start while a run is active, and legacy merge-cancel refuses an orchestration run', async () => {
   const f = await setup();
   try {
-    const main = await f.project.ensureMainTask();
+    const main = await f.project.ensureMainAP();
     const mainHead = await git(f.root, 'rev-parse', 'HEAD');
     await makeSay(f, { branch: 'say-A', parentBranch: 'main', from: mainHead, parentId: main.id,
       filename: 'a.txt', content: 'A\n', reservationStatus: 'pending' });
     await f.project.orchestrate('main');
     await expect(f.project.orchestrate('main')).rejects.toThrow(/already has an active merge run/);
-    // 旧入口对含新 say Task 的子树一律拒绝，不会绕过固定提交与父确认。
+    // 旧入口对含新 say AP 的子树一律拒绝，不会绕过固定提交与父确认。
     await expect(f.project.mergeAll('main')).rejects.toThrow(/cannot use legacy branch.merge_all/);
     expect(() => f.project.cancelMergeAll('main')).toThrow(/merge orchestration/);
     // cancel clears it and releases the freeze so a fresh run can start.

@@ -37,6 +37,6 @@ function printState(state) {
   console.log(`项目累计 token：${state.used_tokens || 0} / ${state.budget_tokens ?? '不限'}`);
   if (state.reason) console.log(state.reason);
   console.log('立即关闭：bun run lush auto-manage off');
-  if (state.paused) console.log('恢复排队任务：bun run lush auto-manage resume（中止任务请检查后手动 retry）');
+  if (state.paused) console.log('恢复排队 AP：bun run lush auto-manage resume（中止 AP 请检查后手动 retry）');
   console.log('查看管家选择：bun run lush auto-manage choices');
 }

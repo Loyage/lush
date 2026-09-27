@@ -10,7 +10,7 @@ import { branchFreeze, frozenFor, branchFreezeList } from '../branch-freeze.js';
  *   `branch.merge`（ff-only）与 `branch.sync`（分歧时在子侧建 merger）路径；目标分支永不 no-ff。
  * - 一次汇总确认后全自动：`mergeAllPlan` 给出顺序与阻塞原因供确认，`mergeAll` 开始执行后不再逐条确认。
  * - 运行期间冻结目标分支及其全部后代（见 branchFreeze）；冲突时冻结冲突分支的父分支。
- * - 遇到分歧自动创建子侧 merger 子任务，然后暂停运行等待它；用户处理完（或它完成）后自动继续。
+ * - 遇到分歧自动创建子侧 merger 子 AP，然后暂停运行等待它；用户处理完（或它完成）后自动继续。
  *   已成功的合并保留不回滚。
  *
  * 运行是分支附属的 versioned JSON（`branches.merge_run`），不是新实体；终态即清空，冻结随之解除。
@@ -28,11 +28,11 @@ export default {
     return true;
   },
 
-  /** 事件挂在「这条分支属于谁」上：有创建它的任务记在任务上，输入锚点记在 planner 上，否则项目级。 */
+  /** 事件挂在「这条分支属于谁」上：有创建它的 AP 记在 AP 上，输入锚点记在 planner 上，否则项目级。 */
   branchHost(branch) {
     const record = this.store.branch(branch);
-    if (record?.task_id !== null && record?.task_id !== undefined) return record.task_id;
-    return this.store.get('SELECT task_id FROM inputs WHERE anchor_branch=?', branch)?.task_id ?? null;
+    if (record?.ap_id !== null && record?.ap_id !== undefined) return record.ap_id;
+    return this.store.get('SELECT ap_id FROM inputs WHERE anchor_branch=?', branch)?.ap_id ?? null;
   },
 
   /** 目标分支不一定被登记过：main 这类根分支常常只有 ref。按 `branch import` 同一口径补一条记录（parent 留空，不猜）。 */
@@ -68,11 +68,11 @@ export default {
       catch (error) { items.push({ branch, parent: byBranch.get(branch)?.parent ?? null, depth: depth(branch),
         status: 'unknown', ahead: null, behind: null, action: 'skip', ready: false, blockers: [error.message] }); continue; }
       const owner = byBranch.get(branch);
-      const ownerTask = owner?.task_id ? this.store.get('SELECT id,status FROM tasks WHERE id=?', owner.task_id) : null;
-      const active = this.store.all("SELECT id,status FROM tasks WHERE branch=? AND status NOT IN ('completed','failed','cancelled') ORDER BY id", branch);
+      const ownerAP = owner?.ap_id ? this.store.get('SELECT id,status FROM aps WHERE id=?', owner.ap_id) : null;
+      const active = this.store.all("SELECT id,status FROM aps WHERE branch=? AND status NOT IN ('completed','failed','cancelled') ORDER BY id", branch);
       const blockers = [...state.blockers];
-      if (ownerTask && !TERMINAL.has(ownerTask.status)) blockers.push(`task:#${ownerTask.id}`);
-      for (const task of active) blockers.push(`task:#${task.id}`);
+      if (ownerAP && !TERMINAL.has(ownerAP.status)) blockers.push(`ap:#${ownerAP.id}`);
+      for (const ap of active) blockers.push(`ap:#${ap.id}`);
       const action = state.status === 'fast_forward' ? 'merge' : state.status === 'diverged' ? 'sync' : 'skip';
       const ready = action !== 'skip' && blockers.length === 0;
       items.push({ branch, parent: state.parent, depth: depth(branch), status: state.status,
@@ -95,9 +95,9 @@ export default {
     const descendants = descendantsOf(this.store.branches(), name);
     const branches = [name, ...descendants];
     const placeholders = branches.map(() => '?').join(',');
-    check(!this.store.get(`SELECT id FROM tasks WHERE branch IN (${placeholders})
-      AND (task_kind IN ('owner','say','child') OR (task_kind='main' AND branch<>?)) LIMIT 1`, ...branches, name),
-      'new Task branches cannot use legacy branch.merge_all; merge old branches individually');
+    check(!this.store.get(`SELECT id FROM aps WHERE branch IN (${placeholders})
+      AND (ap_kind IN ('owner','say','child') OR (ap_kind='main' AND branch<>?)) LIMIT 1`, ...branches, name),
+      'new AP branches cannot use legacy branch.merge_all; merge old branches individually');
     const existing = this.store.branchMergeRun(name);
     check(!existing || !['running', 'paused'].includes(existing.status),
       `${name} already has a one-click merge in progress`);
@@ -106,7 +106,7 @@ export default {
     await this.ensureMergeTarget(name);
     const now = new Date().toISOString();
     const run = { version: 1, status: 'running', order: plan.order, index: 0, done: [], skipped: [],
-      waiting_task_id: null, started_at: now, updated_at: now };
+      waiting_ap_id: null, started_at: now, updated_at: now };
     this.store.transaction(() => {
       this.store.setBranchMergeRun(name, run);
       this.store.event(this.branchHost(name), 'merge.run.started', { target: name, order: plan.order });
@@ -115,7 +115,7 @@ export default {
     return { target_branch: name, status: 'running', plan, run };
   },
 
-  /** 取消一键合并：先清运行（释放冻结），再取消正在等待的子任务；已成功的合并保留不回滚。 */
+  /** 取消一键合并：先清运行（释放冻结），再取消正在等待的子 AP；已成功的合并保留不回滚。 */
   cancelMergeAll(targetBranch) {
     const name = String(targetBranch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
@@ -127,7 +127,7 @@ export default {
       this.store.event(this.branchHost(name), 'merge.run.cancelled', { target: name, done: run.done ?? [],
         pending: (run.order ?? []).filter(branch => !(run.done ?? []).includes(branch)) });
     });
-    const waiting = run.waiting_task_id ? this.store.task(run.waiting_task_id) : null;
+    const waiting = run.waiting_ap_id ? this.store.ap(run.waiting_ap_id) : null;
     if (waiting && !TERMINAL.has(waiting.status)) this.cancel(waiting.id, 'one-click merge cancelled');
     return { target_branch: name, status: 'cancelled', done: run.done ?? [] };
   },
@@ -149,18 +149,18 @@ export default {
         const run = this.store.branchMergeRun(target);
         if (!run || !['running', 'paused'].includes(run.status)) return;
         if (run.mode === 'orchestrate') return; // 合并编排有自己的 driver
-        // 暂停中：等待子任务。完成则先把 merger 落回它的直接父分支，取消 / 失败则整场失败。
-        if (run.waiting_task_id) {
-          const waited = this.store.task(run.waiting_task_id);
+        // 暂停中：等待子 AP。完成则先把 merger 落回它的直接父分支，取消 / 失败则整场失败。
+        if (run.waiting_ap_id) {
+          const waited = this.store.ap(run.waiting_ap_id);
           if (!TERMINAL.has(waited.status)) return;
           if (waited.status === 'completed') {
             try { await this.approveBranchMerge(waited.branch, waited.head_commit, { internal: true }); }
             catch (error) { this.finishMergeRun(target, 'failed', `landing merger #${waited.id}: ${error.message}`); return; }
           } else {
-            this.finishMergeRun(target, 'failed', `merge child task #${waited.id} ${waited.status}`);
+            this.finishMergeRun(target, 'failed', `merge child AP #${waited.id} ${waited.status}`);
             return;
           }
-          run.waiting_task_id = null;
+          run.waiting_ap_id = null;
           run.status = 'running';
           run.index = (run.index ?? 0) + 1;
           run.updated_at = new Date().toISOString();
@@ -186,15 +186,15 @@ export default {
           }
           if (state.status === 'diverged') {
             const sync = await this.syncBranch(branch, { internal: true });
-            run.waiting_task_id = sync.task?.id ?? null;
-            if (!run.waiting_task_id) { skipped.set(branch, 'diverged; no merger task could be created'); continue; }
+            run.waiting_ap_id = sync.ap?.id ?? null;
+            if (!run.waiting_ap_id) { skipped.set(branch, 'diverged; no merger AP could be created'); continue; }
             run.status = 'paused';
             run.done = [...done];
             run.skipped = [...skipped].map(([name, reason]) => ({ branch: name, reason }));
             run.updated_at = new Date().toISOString();
             this.store.transaction(() => {
               this.store.setBranchMergeRun(target, run);
-              this.store.event(this.branchHost(target), 'merge.run.paused', { target, branch, merger: run.waiting_task_id });
+              this.store.event(this.branchHost(target), 'merge.run.paused', { target, branch, merger: run.waiting_ap_id });
             });
             paused = true;
             break;
@@ -215,9 +215,9 @@ export default {
   },
 
   /** 子 merger 结算后由 lifecycle 调用：若某个运行正等它，就再次驱动。 */
-  resumeMergeRun(waitedTaskId) {
+  resumeMergeRun(waitedAPId) {
     for (const { target, run } of this.store.activeBranchMergeRuns()) {
-      if (run.waiting_task_id === waitedTaskId) { this.scheduleMergeRun(target); return; }
+      if (run.waiting_ap_id === waitedAPId) { this.scheduleMergeRun(target); return; }
     }
   },
 

@@ -17,7 +17,7 @@ const PHASE = {
 };
 
 /* ---------- 批量交付 ---------- */
-/** 合并一批稳定的“原任务 id”；后端会把有现成 resolver 的条目映射到真正的来源分支。 */
+/** 合并一批稳定的“原 AP id”；后端会把有现成 resolver 的条目映射到真正的来源分支。 */
 export async function mergeBatch(ids, candidates) {
   const picked = [...new Set(ids)].map(id => candidates.find(candidate => candidate.id === id)).filter(Boolean);
   if (!picked.length) return;
@@ -26,10 +26,10 @@ export async function mergeBatch(ids, candidates) {
   const nodes = ui.lastSnapshot?.ladder?.nodes || [];
   const order = previewMergeOrder(picked.map(candidate => candidate.id), ladderEdges(nodes));
   const byId = new Map(picked.map(candidate => [candidate.id, candidate]));
-  const lines = order.map((taskId, index) => {
-    const candidate = byId.get(taskId);
-    const source = candidate?.merge_id && candidate.merge_id !== taskId ? `（落地解冲突结果 #${candidate.merge_id}）` : '';
-    return `${index + 1}. #${taskId}${candidate?.goal ? ` ${String(candidate.goal).slice(0, 40)}` : ''}${source}`;
+  const lines = order.map((apId, index) => {
+    const candidate = byId.get(apId);
+    const source = candidate?.merge_id && candidate.merge_id !== apId ? `（落地解冲突结果 #${candidate.merge_id}）` : '';
+    return `${index + 1}. #${apId}${candidate?.goal ? ` ${String(candidate.goal).slice(0, 40)}` : ''}${source}`;
   });
   const confirmed = await confirmDialog({
     title: `向 ${targets[0]} 依次交付 ${order.length} 个变更？`,
@@ -38,7 +38,7 @@ export async function mergeBatch(ids, candidates) {
     confirmLabel: '开始交付',
   });
   if (!confirmed) return;
-  const result = await action('task.merge_many', { ids: picked.map(candidate => candidate.id) });
+  const result = await action('ap.merge_many', { ids: picked.map(candidate => candidate.id) });
   ui.lastMergeResult = { requested: order, result };
   ui.overviewKey = null;
   await refresh();
@@ -54,11 +54,11 @@ function fallbackGroups(candidates) {
   return [...groups].map(([target_branch, items]) => ({ target_branch, current: null, items }));
 }
 
-/** 交付队列：按目标分支分组；code 链是变更栈，resolver 只作为原任务的当前落地来源。 */
+/** 交付队列：按目标分支分组；code 链是变更栈，resolver 只作为原 AP 的当前落地来源。 */
 export function renderLadder(data) {
   const ladder = data?.ladder || {};
   const nodes = ladder.nodes || [];
-  const candidates = mergeCandidates(data?.tasks || [], { nodes, groups: ladder.groups || [], freeze: data?.status?.merge_freeze || [] });
+  const candidates = mergeCandidates(data?.aps || [], { nodes, groups: ladder.groups || [], freeze: data?.status?.merge_freeze || [] });
   const byId = new Map(candidates.map(candidate => [candidate.id, candidate]));
   for (const id of [...mergeSelection]) if (!byId.has(id) || !isMergeable(byId.get(id))) mergeSelection.delete(id);
 
@@ -107,9 +107,9 @@ export function renderLadder(data) {
     const ready = groupItems.filter(isMergeable);
     const actions = el('div', undefined, 'actions pick-actions');
     const selected = button('', () => mergeBatch(ready.filter(item => mergeSelection.has(item.id)).map(item => item.id), candidates));
-    selected.setAttribute('aria-label', '合并本分支中勾选的任务到目标分支');
+    selected.setAttribute('aria-label', '合并本分支中勾选的 AP 到目标分支');
     const all = button('', () => mergeBatch(ready.map(item => item.id), candidates), 'ghost');
-    all.setAttribute('aria-label', '合并本分支全部可交付任务到目标分支');
+    all.setAttribute('aria-label', '合并本分支全部可交付 AP 到目标分支');
     const clear = button('清空选择', () => { mergeSelection.clear(); sync(); }, 'ghost');
     controls.push({ items: groupItems, selected, all });
     actions.append(selected, all, clear); groupBlock.append(actions);
@@ -119,7 +119,7 @@ export function renderLadder(data) {
       const row = el('div', undefined, 'row');
       const box = el('input', undefined, 'pick');
       box.type = 'checkbox'; box.checked = mergeSelection.has(candidate.id); box.disabled = !isMergeable(candidate);
-      box.setAttribute('aria-label', `选择任务 #${candidate.id} 参与批量合并`);
+      box.setAttribute('aria-label', `选择 AP #${candidate.id} 参与批量合并`);
       box.setAttribute('data-help', isMergeable(candidate)
         ? ((candidate.blockers || []).some(item => item.code === 'code_upstream') ? '勾选时会自动带上同一变更栈的 code 上游' : '勾选后合并到本目标分支')
         : (candidate.blockers || []).map(item => item.message).join('\n'));
@@ -136,16 +136,16 @@ export function renderLadder(data) {
         el('span', PHASE[candidate.phase] || candidate.phase || candidate.integration, `delivery-phase ${candidate.ready ? 'b-completed' : 'b-awaiting'}`));
       line.append(row);
       if (candidate.merge_id && candidate.merge_id !== candidate.id) {
-        line.append(el('span', `↳ 当前落地来源：解冲突任务 #${candidate.merge_id}`, 'meta'));
+        line.append(el('span', `↳ 当前落地来源：解冲突 AP #${candidate.merge_id}`, 'meta'));
       }
       for (const dep of candidate.deps || []) {
         line.append(el('span', `${dep.kind === 'code' ? '⛓ 代码基线' : '⏳ 仅执行依赖'} #${dep.id}${dep.merged ? '（已落地）' : ''}`, 'meta'));
       }
       for (const blocker of candidate.blockers || []) line.append(el('span', `! ${blocker.message}`, 'delivery-blocker'));
       if (candidate.covered_by?.length) line.append(el('span', `提示：提交也存在于 #${candidate.covered_by.join('、')}；任一分支落地后系统会按 Git 事实自动收口状态。`, 'meta'));
-      referenceable(line, { kind: 'delivery_branch', target: { task_id: candidate.id, target_branch: candidate.target_branch },
+      referenceable(line, { kind: 'delivery_branch', target: { ap_id: candidate.id, target_branch: candidate.target_branch },
         label: `交付项 #${candidate.id} → ${candidate.target_branch}`, quote: `${candidate.goal}\n阶段：${PHASE[candidate.phase] || candidate.phase || candidate.integration}`,
-        location: { view: 'delivery-ladder', task_id: candidate.id, section: candidate.target_branch } });
+        location: { view: 'delivery-ladder', ap_id: candidate.id, section: candidate.target_branch } });
       groupBlock.append(line);
     }
     section.append(groupBlock);
@@ -155,21 +155,21 @@ export function renderLadder(data) {
   return section;
 }
 
-/** 批量合并的逐条结果：成功、失败原因、冲突并指向新开的解冲突任务。 */
+/** 批量合并的逐条结果：成功、失败原因、冲突并指向新开的解冲突 AP。 */
 export function renderMergeResult(entry) {
   const { result } = entry;
   const section = block('批量交付结果', `${result.merged} 个成功`);
   const summary = result.stopped
-    ? `已向 ${result.target_branch || '目标分支'} 交付 ${result.merged} 个，随后停在 #${result.stopped.id}：${result.stopped.reason}；剩余任务未执行。`
+    ? `已向 ${result.target_branch || '目标分支'} 交付 ${result.merged} 个，随后停在 #${result.stopped.id}：${result.stopped.reason}；剩余 AP 未执行。`
     : `全部交付成功：${result.merged} 个${result.target_branch ? ` → ${result.target_branch}` : ''}。`;
   section.append(el('p', summary, result.stopped ? 'hint warn' : 'hint'));
   for (const row of result.merges) {
     const line = el('div', undefined, 'row');
     line.append(el('span', MERGE_STATUS[row.status] || row.status, `c-${row.status === 'merged' ? 'completed' : row.status === 'conflict' || row.status === 'failed' ? 'failed' : 'queued'}`),
       el('span', `#${row.id}`, 'tid'));
-    if (row.source_task_id && row.source_task_id !== row.id) line.append(el('span', `通过解冲突任务 #${row.source_task_id}`, 'meta'));
-    if (row.status === 'conflict' && row.resolution_task_id) {
-      line.append(el('span', `已开解冲突任务 #${row.resolution_task_id}`, 'meta'), button('查看解冲突任务', () => detail(row.resolution_task_id), 'link'));
+    if (row.source_ap_id && row.source_ap_id !== row.id) line.append(el('span', `通过解冲突 AP #${row.source_ap_id}`, 'meta'));
+    if (row.status === 'conflict' && row.resolution_ap_id) {
+      line.append(el('span', `已开解冲突 AP #${row.resolution_ap_id}`, 'meta'), button('查看解冲突 AP', () => detail(row.resolution_ap_id), 'link'));
     } else if (row.error && row.status !== 'merged') line.append(el('span', row.error, 'meta'));
     if (row.status === 'merged') line.append(el('span', row.included ? '已随前一项进入目标分支' : '已进入目标分支', 'meta'));
     section.append(line);

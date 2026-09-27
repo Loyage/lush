@@ -1,15 +1,15 @@
 /**
  * 「分支图」视图：拉 `/api/graph` 画到 `#detail`，展示分支谱系（分支节点 + fork 父子嵌套）
- * 与每条分支下的任务 / worktree / 目标分支关系，以及任务之间的堆叠（code）/顺序（order）/
+ * 与每条分支下的 AP / worktree / 目标分支关系，以及 AP 之间的堆叠（code）/顺序（order）/
  * 解冲突（resolve）/检验（verify）关系。
  *
  * 视图是只读展示，除下面两类动作外没有别的写入：一、父分支关系上的「合入父分支」/「让子分支跟上父分支」/
  * 「在子分支解决分歧」，以及可归档分支上的「归档」，分别与 CLI 的 `branch merge` / `branch catchup` /
- * `branch sync` / `branch archive` 同源；节点点击只跳任务详情。
- * 二、图末尾兜底分组（`未归属分支的任务`）里任务行上的「删除」：那里的任务既没有分支节点可归档、
- * 也没有别的去处，所以给一个定向删除（`task.delete`，与 CLI 的 `lush task delete` 同源）。
+ * `branch sync` / `branch archive` 同源；节点点击只跳 AP 详情。
+ * 二、图末尾兜底分组（`未归属分支的 AP`）里 AP 行上的「删除」：那里的 AP 既没有分支节点可归档、
+ * 也没有别的去处，所以给一个定向删除（`ap.delete`，与 CLI 的 `lush ap delete` 同源）。
  *
- * 另有一类就地处理：图里任何带「待你决断」notice 的任务行（graph.get 的 `notice` / `notice_count`）
+ * 另有一类就地处理：图里任何带「待你决断」notice 的 AP 行（graph.get 的 `notice` / `notice_count`）
  * 直接把这件事的正文画出来，并在原地答复 / 忽略 / 批准 / 驳回，不必先去左侧「待定事项」或意图面板。
  * 动作与别处同源：question 用 `notice.answer` / `notice.dismiss`，plan 用 `plan.approve` / `plan.reject`。
  *
@@ -21,7 +21,7 @@ import { api, action } from './api.js';
 import { confirmDialog, promptDialog } from './dialog.js';
 import { show } from './messages.js';
 import { statusOf, worktreeLabel } from './format.js';
-import { graphLayout, graphFingerprint, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingTask, workingState } from './graph-layout.js';
+import { graphLayout, graphFingerprint, graphRenderKey, emphasisClasses, isBranchCollapsed, isWorkingAP, workingState } from './graph-layout.js';
 import { detail, overview } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { saveGraphPrefs, ui } from './state.js';
@@ -43,7 +43,7 @@ const BRANCH_STATUS = {
 /** 分支来源映射：来源 -> 中文描述 */
 const BRANCH_ORIGIN = {
   input: '输入锚点',
-  task: '任务分支',
+  ap: 'AP 分支',
   registered: '已登记',
   local: '本地分支',
   placeholder: '占位',
@@ -106,7 +106,7 @@ export function branchDiagnostics(branch) {
 
 let pending = null;
 
-/** 打开分支图：清掉选中的任务详情（否则热任务刷新会把图覆盖掉），并把地址栏切到 #graph。 */
+/** 打开分支图：清掉选中的 AP 详情（否则热 AP 刷新会把图覆盖掉），并把地址栏切到 #graph。 */
 export async function openGraph() {
   const view = activateDetailView({ view: 'graph' });
   if (ui.lastGraph) renderGraph(ui.lastGraph, { force: true });
@@ -146,7 +146,7 @@ export function loadGraph() {
 
 const LANE_CLASS = level => `graph-node l${Math.min(Number(level) || 0, 6)}`;
 
-/** 待决 notice 的徽标文案：问题（等你答复）与计划（等你拍板）分开说，与任务详情 / 意图面板一致。 */
+/** 待决 notice 的徽标文案：问题（等你答复）与计划（等你拍板）分开说，与 AP 详情 / 意图面板一致。 */
 const DECISION_BADGE = { question: '◔ 等你决定', plan: '计划待批' };
 
 /** 提交 / 忽略之后松开输入框：清掉内容，并把焦点还回去。
@@ -159,7 +159,7 @@ function releaseDecisionInput(input) {
 }
 
 /**
- * 任务行里的决策区（`node.notice` 存在时才有）：徽标 + 正文 + 就地的输入与按钮。
+ * AP 行里的决策区（`node.notice` 存在时才有）：徽标 + 正文 + 就地的输入与按钮。
  * 口径来自 graph.get：`notice` 是 open 且 kind 为 question / plan 的最新一条，`notice_count` 是这类 notice 的总数。
  * 动作沿用本文件既有的范式：`await action(...)` 成功后写一句结论并 `await loadGraph()` 重拉这张图；
  * 失败由 dom.js 的 button 统一写进顶部提示（messages.js），不抛到页面上。
@@ -171,7 +171,7 @@ export function decisionRow(node, refresh = loadGraph) {
   head.append(badge(DECISION_BADGE[notice.kind] || '等你决定', 'b-awaiting'));
   if (notice.title) head.append(el('span', notice.title, 'graph-decision-title'));
   const count = Number(node.notice_count) || 0;
-  // 同一任务可以攒下多条（例如又问了一次）：图上给一条最新，但要说清楚还有多少条。
+  // 同一 AP 可以攒下多条（例如又问了一次）：图上给一条最新，但要说清楚还有多少条。
   if (count > 1) head.append(el('span', `另有 ${count - 1} 条待决`, 'meta graph-decision-more'));
   decision.append(head);
   // 正文常常是问题或计划的全部说明：保留换行、限高滚动，不能只给标题或截成看不全。
@@ -180,12 +180,12 @@ export function decisionRow(node, refresh = loadGraph) {
   const actions = el('div', undefined, 'actions graph-decision-actions');
   const done = async message => { show(message); await refresh(); };
 
-  // 计划审批：与 render-intents.js 的 planActions 同一对动作（id 用 planner 任务 id，RPC 也接受这条 notice 的 id）。
+  // 计划审批：与 render-intents.js 的 planActions 同一对动作（id 用 planner AP id，RPC 也接受这条 notice 的 id）。
   if (notice.kind === 'plan') {
     actions.append(button('批准并开发', async () => {
       await action('plan.approve', { id: node.id });
       await done(`已批准 #${node.id} 的拆解，交给 scheduler 编排`);
-    }, 'primary', { agent: true, help: agentHelp('批准这份拆解并交给 scheduler 编排成真实任务，随后会启动开发 Agent 执行。') }));
+    }, 'primary', { agent: true, help: agentHelp('批准这份拆解并交给 scheduler 编排成真实 AP，随后会启动开发 Agent 执行。') }));
     actions.append(button('驳回', async () => {
       const reason = await promptDialog({
         title: `驳回 #${node.id} 的拆解？`,
@@ -202,16 +202,16 @@ export function decisionRow(node, refresh = loadGraph) {
     return decision;
   }
 
-  // 提问：输入框 + 回复 / 忽略；⌘/Ctrl+回车与任务详情里的同一个提交。
+  // 提问：输入框 + 回复 / 忽略；⌘/Ctrl+回车与 AP 详情里的同一个提交。
   const input = el('textarea', undefined, 'graph-decision-input');
   input.placeholder = '你的决定；⌘/Ctrl+回车提交';
   input.rows = 3;
-  const reply = button('回复并继续任务', async () => {
+  const reply = button('回复并继续 AP', async () => {
     const answer = input.value;
     await action('notice.answer', { id: notice.id, answer });
     releaseDecisionInput(input);
-    await done(`已把答复发给任务 #${node.id}，它会继续跑`);
-  }, undefined, { agent: true, help: agentHelp('把你的答复发给该任务的 Agent，它会继续当前工作。') });
+    await done(`已把答复发给 AP #${node.id}，它会继续跑`);
+  }, undefined, { agent: true, help: agentHelp('把你的答复发给该 AP 的 Agent，它会继续当前工作。') });
   input.addEventListener('keydown', async event => {
     if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
     if (!event.metaKey && !event.ctrlKey) return;
@@ -221,21 +221,21 @@ export function decisionRow(node, refresh = loadGraph) {
   actions.append(reply, button('忽略', async () => {
     await action('notice.dismiss', { id: notice.id });
     releaseDecisionInput(input);
-    await done(`已忽略任务 #${node.id} 的这条待决事项`);
-  }, 'ghost', { help: '忽略这条待决事项，不代表批准；任务不会继续处理它。' }));
+    await done(`已忽略 AP #${node.id} 的这条待决事项`);
+  }, 'ghost', { help: '忽略这条待决事项，不代表批准；AP 不会继续处理它。' }));
   decision.append(input, actions);
   return decision;
 }
 
-/** 任务行。`owningBranch` 是包裹它的那条分支：任务就在这条分支上时不再重复写一遍分支名（表头已经写了）；
- *  只有当任务退到目标分支分组（自己那条分支没有节点）或兜底分组时，分支名才是独有信息，必须画出来。 */
-function taskRow(node, owningBranch = null) {
+/** AP 行。`owningBranch` 是包裹它的那条分支：AP 就在这条分支上时不再重复写一遍分支名（表头已经写了）；
+ *  只有当 AP 退到目标分支分组（自己那条分支没有节点）或兜底分组时，分支名才是独有信息，必须画出来。 */
+function apRow(node, owningBranch = null) {
   const row = el('div', undefined, LANE_CLASS(node.level));
-  // 在跑 / 排队 / 等着的任务同样带上工作态强调，和它所在的分支一起被看见。
-  if (isWorkingTask(node)) row.classList.add('graph-emphasis-working');
-  // 快速路由的任务整行加一层底色，滚动时不会被淹没；徽章在下方角色旁。
+  // 在跑 / 排队 / 等着的 AP 同样带上工作态强调，和它所在的分支一起被看见。
+  if (isWorkingAP(node)) row.classList.add('graph-emphasis-working');
+  // 快速路由的 AP 整行加一层底色，滚动时不会被淹没；徽章在下方角色旁。
   if (node.route) row.classList.add('route-flagged');
-  // 在跑的任务行除了左边条再给一个脉冲点：旁边的「运行中」文案有了一眼可见的对应标记。
+  // 在跑的 AP 行除了左边条再给一个脉冲点：旁边的「运行中」文案有了一眼可见的对应标记。
   if (node.status === 'running') row.append(el('span', '●', 'graph-work-dot'));
   row.append(el('span', `#${node.id}`, 'tid'));
   row.append(button(node.goal || '(无目标)', () => detail(node.id), 'graph-node'));
@@ -246,7 +246,7 @@ function taskRow(node, owningBranch = null) {
   if (node.workspace) meta.append(el('span', node.role === 'showcase' ? `${worktreeLabel(node)}：${node.workspace}` : node.workspace, 'graph-path mono'));
   if (node.aheadBehind) meta.append(el('span', node.aheadBehind, 'meta'));
   for (const mark of node.marks || []) meta.append(el('span', mark.text, `chip ${mark.className}`.trim()));
-  if (node.task_kind === 'say' && node.reservation) meta.append(badge({
+  if (node.ap_kind === 'say' && node.reservation) meta.append(badge({
     pending: '交付待就绪', started: '展示中', requested: '待确认合并', integrated: '已合入',
     completed: '展示已交付', failed: '展示失败', cancelled: '展示已取消',
   }[node.reservation.status] || '预约需检查', 'b-awaiting'));
@@ -254,14 +254,14 @@ function taskRow(node, owningBranch = null) {
   const progress = renderGraphProgress(node.progress, { running: node.status === 'running', status: node.status });
   if (progress) row.append(progress);
   // 这件事在等你拍板：整行带琥珀强调（与未合并 / 工作中的强调可同时存在），决策区把正文与
-  // 处理按钮直接摊在这一行里——用户不用先去左侧「待定事项」或别的页面。没有 notice 的任务行一个字段都不加。
+  // 处理按钮直接摊在这一行里——用户不用先去左侧「待定事项」或别的页面。没有 notice 的 AP 行一个字段都不加。
   if (node.notice && node.notice.kind !== 'plan') {
     row.classList.add('graph-emphasis-awaiting');
     row.append(decisionRow(node));
   }
   referenceable(row, [
-    { kind: 'task', target: { task_id: node.id }, label: `任务 #${node.id}`, quote: node.goal || '(无目标)', location: { view: 'branch-graph', task_id: node.id } },
-    { kind: 'task_subtree', target: { task_id: node.id }, label: `任务子树 #${node.id}`, quote: node.goal || '(无目标)', location: { view: 'branch-graph', task_id: node.id } },
+    { kind: 'ap', target: { ap_id: node.id }, label: `AP #${node.id}`, quote: node.goal || '(无目标)', location: { view: 'branch-graph', ap_id: node.id } },
+    { kind: 'ap_subtree', target: { ap_id: node.id }, label: `AP 子树 #${node.id}`, quote: node.goal || '(无目标)', location: { view: 'branch-graph', ap_id: node.id } },
   ]);
   return row;
 }
@@ -272,7 +272,7 @@ async function runBranchAction(method, branch) {
   try {
     const result = await action(method, { branch });
     show(method === 'branch.sync'
-      ? `已为 ${branch} 创建同步任务 #${result.task.id}`
+      ? `已为 ${branch} 创建同步 AP #${result.ap.id}`
       : method === 'branch.catchup'
         ? (result.already_integrated ? `${branch} 已经与父分支一致，无需快进` : `${branch} 已 fast-forward 跟上 ${result.parent}`)
       : (result.needs_sync ? `${branch} 已与父分支分歧，请先在子分支侧解决分歧`
@@ -281,7 +281,7 @@ async function runBranchAction(method, branch) {
   } catch (error) { show(error.message, 'error'); }
 }
 
-/** 归档一子树分支：删掉这条分支与它全部后代的 worktree / 本地 ref，任务、会话与分支记录都留着。
+/** 归档一子树分支：删掉这条分支与它全部后代的 worktree / 本地 ref，AP、会话与分支记录都留着。
  *  未提交改动只能连 worktree 一起丢，所以先确认；确认走应用内弹窗（dialog.js）——原生 confirm
  *  会被浏览器静默吃掉，那时按钮会变成什么都不做。 */
 async function runBranchArchive(branch) {
@@ -291,7 +291,7 @@ async function runBranchArchive(branch) {
     : '会删除这条分支的 worktree 与本地 ref';
   const confirmed = await confirmDialog({
     title: `归档 ${branch.name}？`,
-    message: `${scope}，保留任务、会话与分支记录（记录仍可在「分支详情」与任务详情里查）；未提交改动会被丢弃。`,
+    message: `${scope}，保留 AP、会话与分支记录（记录仍可在「分支详情」与 AP 详情里查）；未提交改动会被丢弃。`,
     confirmLabel: '归档',
     cancelLabel: '保留',
     danger: true,
@@ -302,31 +302,31 @@ async function runBranchArchive(branch) {
     const count = Number(result?.count) || 1;
     const dropped = result?.discarded ? '，已丢弃未提交改动' : '';
     show(count > 1
-      ? `已归档 ${branch.name} 及它下面 ${count - 1} 条后代分支（共 ${count} 条）：worktree 与本地 ref 已删${dropped}，任务、会话与分支记录都保留`
-      : `${branch.name} 已归档（worktree ${result?.worktree ?? 'absent'}、分支 ${result?.ref ?? 'absent'}${dropped}）；任务与会话已保留`);
+      ? `已归档 ${branch.name} 及它下面 ${count - 1} 条后代分支（共 ${count} 条）：worktree 与本地 ref 已删${dropped}，AP、会话与分支记录都保留`
+      : `${branch.name} 已归档（worktree ${result?.worktree ?? 'absent'}、分支 ${result?.ref ?? 'absent'}${dropped}）；AP 与会话已保留`);
     await loadGraph();
   } catch (error) { show(error.message, 'error'); }
 }
 
-/** 删除一条兜底分组里的任务（`task.delete`）：这条任务既挂不上分支节点、也没有别的去处。
- *  删除比归档更重：任务行与它的全部后代、消息、事件、notice、spec 一起从库里消失，不能撤销，
- *  所以确认文案把「会丢掉什么」写满；安全门在 runtime 侧（活动任务、未处理 spec、外部引用、
+/** 删除一条兜底分组里的 AP（`ap.delete`）：这条 AP 既挂不上分支节点、也没有别的去处。
+ *  删除比归档更重：AP 行与它的全部后代、消息、事件、notice、spec 一起从库里消失，不能撤销，
+ *  所以确认文案把「会丢掉什么」写满；安全门在 runtime 侧（活动 AP、未处理 spec、外部引用、
  *  磁盘状态收不回来都会拒绝），失败原因由 messages.js 原样提示。 */
-async function runTaskDelete(node) {
+async function runAPDelete(node) {
   const confirmed = await confirmDialog({
-    title: `删除任务 #${node.id}？`,
-    message: '这条任务与它下面全部已结束后代的任务行会从库里删除（消息、事件、notice、spec 一并清），无法撤销，这部分任务历史不再保留。有分支 / worktree 会先按回收的安全门收尾；收不回来或还有别的任务引用它时会拒绝，什么都不删。',
+    title: `删除 AP #${node.id}？`,
+    message: '这条 AP 与它下面全部已结束后代的 AP 行会从库里删除（消息、事件、notice、spec 一并清），无法撤销，这部分 AP 历史不再保留。有分支 / worktree 会先按回收的安全门收尾；收不回来或还有别的 AP 引用它时会拒绝，什么都不删。',
     confirmLabel: '删除',
     cancelLabel: '保留',
     danger: true,
   });
   if (!confirmed) return;
   try {
-    const result = await action('task.delete', { id: node.id });
+    const result = await action('ap.delete', { id: node.id });
     const ids = result?.deleted?.ids ?? [node.id];
     show(ids.length > 1
-      ? `已删除任务 #${ids.join('、#')}（共 ${ids.length} 条，含后代）：任务行与它们的消息、事件已清，输入与分支记录保留`
-      : `已删除任务 #${node.id}：任务行与它的消息、事件已清，输入与分支记录保留`);
+      ? `已删除 AP #${ids.join('、#')}（共 ${ids.length} 条，含后代）：AP 行与它们的消息、事件已清，输入与分支记录保留`
+      : `已删除 AP #${node.id}：AP 行与它的消息、事件已清，输入与分支记录保留`);
     await loadGraph();
   } catch (error) { show(error.message, 'error'); }
 }
@@ -352,13 +352,13 @@ function branchAction(label, title, run) {
  * 父子关系的处理选项（文案与颜色都来自 graphLayout 算好的 relation.key）：
  * - 领先：合入父分支（子 → 父 fast-forward）；
  * - 落后：让子分支跟上父分支（父 → 子 fast-forward，不产生 merge commit）；
- * - 分歧：在子分支解决分歧（开一个 merger 任务把父分支合进子分支），合入父分支同时摆出来但禁用；
+ * - 分歧：在子分支解决分歧（开一个 merger AP 把父分支合进子分支），合入父分支同时摆出来但禁用；
  * - 有未收拢的子分支时运行时两边都会拒绝，所以按钮禁用，并在 title 里列出 blocker。
  */
 function blockerText(blockers = []) {
-  const tasks = blockers.filter(value => String(value).startsWith('task:#')).map(value => String(value).slice('task:'.length));
-  const branches = blockers.filter(value => !String(value).startsWith('task:#'));
-  return [tasks.length ? `等待任务 ${tasks.join('、')} 完成` : null,
+  const aps = blockers.filter(value => String(value).startsWith('ap:#')).map(value => String(value).slice('ap:'.length));
+  const branches = blockers.filter(value => !String(value).startsWith('ap:#'));
+  return [aps.length ? `等待 AP ${aps.join('、')} 完成` : null,
     branches.length ? `先收拢子分支：${branches.join('、')}` : null].filter(Boolean).join('；');
 }
 
@@ -397,7 +397,7 @@ async function runMergeAll(branch) {
 async function runMergeCancel(branch) {
   const confirmed = await confirmDialog({
     title: `取消 ${branch.name} 的一键合并？`,
-    message: '取消后释放冻结；已完成的合并保留、不回滚，正在等待的 merger 子任务会被取消。',
+    message: '取消后释放冻结；已完成的合并保留、不回滚，正在等待的 merger 子 AP 会被取消。',
     confirmLabel: '取消合并',
     cancelLabel: '继续合并',
     danger: true,
@@ -410,23 +410,23 @@ async function runMergeCancel(branch) {
   } catch (error) { show(error.message, 'error'); }
 }
 
-/** 合并编排计划的一行文本；分支图与 Task 图共用同一份只读计划字段，不在前端另算一套规则。
- *  `taskLabel` 只影响任务编号前缀（分支图说「say」，Task 图说「Task」），固定提交、动作与阻塞口径一致。 */
-export function orchestratePlanLines(plan, { taskLabel = 'say' } = {}) {
+/** 合并编排计划的一行文本；分支图与 AP 图共用同一份只读计划字段，不在前端另算一套规则。
+ *  `apLabel` 只影响 AP 编号前缀（分支图说「say」，AP 图说「AP」），固定提交、动作与阻塞口径一致。 */
+export function orchestratePlanLines(plan, { apLabel = 'say' } = {}) {
   return (plan.items || []).map(item => {
     const commit = item.commit ? ` · 固定 ${String(item.commit).slice(0, 12)}` : '';
     const auto = item.auto_request ? ' · 将自动补发合并请求' : '';
-    return `${item.ready ? '→' : '·'} ${item.branch}${item.task_id ? `（${taskLabel} #${item.task_id}）` : ''}${commit} · ${ORCHESTRATE_ACTION[item.action] || item.action}${auto}${item.blockers?.length ? ` · 阻塞：${item.blockers.join('、')}` : ''}`;
+    return `${item.ready ? '→' : '·'} ${item.branch}${item.ap_id ? `（${apLabel} #${item.ap_id}）` : ''}${commit} · ${ORCHESTRATE_ACTION[item.action] || item.action}${auto}${item.blockers?.length ? ` · 阻塞：${item.blockers.join('、')}` : ''}`;
   }).join('\n');
 }
 
 /** 合并编排：先拉只读计划给用户确认固定顺序与每条固定提交，再开始；之后 runtime 不再逐条问。
- *  分支图与 Task 图共用这份实现，只通过 `refresh` / 文案口径区分（Task 图的目标就是 Task 自己的分支）。 */
-export async function runOrchestrate(branch, { refresh = loadGraph, label = 'say 子分支', taskLabel = 'say', scope = branch.name } = {}) {
+ *  分支图与 AP 图共用这份实现，只通过 `refresh` / 文案口径区分（AP 图的目标就是 AP 自己的分支）。 */
+export async function runOrchestrate(branch, { refresh = loadGraph, label = 'say 子分支', apLabel = 'say', scope = branch.name } = {}) {
   try {
     const plan = await action('branch.orchestrate_plan', { branch: branch.name });
     if (!plan.order?.length) {
-      // 没有可编排项时把原因说清楚：可能是还没点「请求合并」、分支已合入、或仍有任务在跑。
+      // 没有可编排项时把原因说清楚：可能是还没点「请求合并」、分支已合入、或仍有 AP 在跑。
       const why = plan.items.filter(item => item.blockers?.length)
         .map(item => `${item.branch}：${item.blockers.join('、')}`).join('；');
       show(`${scope} 现在没有可编排的 ${label}${why ? `（${why}）` : ''}。`, 'warn');
@@ -434,25 +434,25 @@ export async function runOrchestrate(branch, { refresh = loadGraph, label = 'say
     }
     const confirmed = await confirmDialog({
       title: `编排合并 ${scope} 的全部 ${label}？`,
-      message: `按叶子到根自动把 ${plan.order.length} 条固定提交的合并请求 ff-only 收拢进 ${branch.name}；没有请求但符合条件的 ${taskLabel} 分支会先由 runtime 自动补发固定提交请求；遇分歧自动在源侧派解分歧子任务，完成后自动继续；已完成的不回滚。运行期间 ${branch.name} 及其全部后代被冻结，直到完成或你在图上取消。确认一次后不再逐条批准。`,
-      detail: orchestratePlanLines(plan, { taskLabel }),
+      message: `按叶子到根自动把 ${plan.order.length} 条固定提交的合并请求 ff-only 收拢进 ${branch.name}；没有请求但符合条件的 ${apLabel} 分支会先由 runtime 自动补发固定提交请求；遇分歧自动在源侧派解分歧子 AP，完成后自动继续；已完成的不回滚。运行期间 ${branch.name} 及其全部后代被冻结，直到完成或你在图上取消。确认一次后不再逐条批准。`,
+      detail: orchestratePlanLines(plan, { apLabel }),
       confirmLabel: '开始合并编排',
       cancelLabel: '取消',
       agent: true,
-      confirmHelp: agentHelp('合并编排会按叶子到根自动 ff-only 收拢已固定提交的合并请求，并在分歧时派源侧解分歧子任务；没有请求但符合条件的分支会先自动补发固定提交请求。耗时较长并消耗 token。'),
+      confirmHelp: agentHelp('合并编排会按叶子到根自动 ff-only 收拢已固定提交的合并请求，并在分歧时派源侧解分歧子 AP；没有请求但符合条件的分支会先自动补发固定提交请求。耗时较长并消耗 token。'),
     });
     if (!confirmed) return;
     const started = await action('branch.orchestrate', { branch: branch.name });
-    show(`${scope} 的合并编排已开始（任务 #${started.task?.id ?? '?'}），按序处理 ${plan.order.length} 条 ${taskLabel} 分支。`);
+    show(`${scope} 的合并编排已开始（AP #${started.ap?.id ?? '?'}），按序处理 ${plan.order.length} 条 ${apLabel} 分支。`);
     await refresh();
   } catch (error) { show(error.message, 'error'); }
 }
 
-/** 取消合并编排：释放冻结，已落地的合并保留不回滚；分支图与 Task 图共用。 */
+/** 取消合并编排：释放冻结，已落地的合并保留不回滚；分支图与 AP 图共用。 */
 export async function runOrchestrateCancel(branch, { refresh = loadGraph, scope = branch.name } = {}) {
   const confirmed = await confirmDialog({
     title: `取消 ${scope} 的合并编排？`,
-    message: '取消后释放冻结；已落地的合并保留、不回滚，正在等待的解分歧子任务会被取消。',
+    message: '取消后释放冻结；已落地的合并保留、不回滚，正在等待的解分歧子 AP 会被取消。',
     confirmLabel: '取消编排',
     cancelLabel: '继续编排',
     danger: true,
@@ -476,7 +476,7 @@ function forkActions(branch, edge) {
   }
   if (edge.status === 'diverged') {
     nodes.push(branchAction('在子分支解决分歧',
-      why(`开一个 merger 任务，把父分支合进 ${branch.name} 并解决冲突；先不动父分支。`,
+      why(`开一个 merger AP，把父分支合进 ${branch.name} 并解决冲突；先不动父分支。`,
         `父分支已有 ${Number.isFinite(edge.behind) ? edge.behind : '?'} 个提交不在本分支。`),
       edge.can_sync ? () => runBranchAction('branch.sync', branch.name) : null));
     nodes.push(branchAction('合入父分支', why('父子已分歧：先在子分支解决分歧，之后才能合入。'), null));
@@ -490,7 +490,7 @@ function forkActions(branch, edge) {
 }
 
 /**
- * 收起整棵子树（自己的任务 + 全部子分支）：只改这一个 block 的 class 与 aria，不重画整张图，
+ * 收起整棵子树（自己的 AP + 全部子分支）：只改这一个 block 的 class 与 aria，不重画整张图，
  * 所以滚动位置和键盘焦点都不会丢。约定与左侧区块抽屉一致：`.collapsed` 由 CSS 藏内容，箭头同步翻转。
  * 初始值来自 isBranchCollapsed：用户的显式切换优先，否则未合进父分支 / 在跑的分支默认展开。
  */
@@ -501,7 +501,7 @@ function collapseCaret(branch, onCollapsed) {
   const sync = collapsed => {
     caret.textContent = collapsed ? '▶' : '▼';
     caret.setAttribute('aria-expanded', String(!collapsed));
-    caret.setAttribute('data-help', `${collapsed ? '展开' : '收起'} ${branch.name} 的任务与子分支`);
+    caret.setAttribute('data-help', `${collapsed ? '展开' : '收起'} ${branch.name} 的 AP 与子分支`);
   };
   sync(collapsedNow());
   caret.onclick = () => {
@@ -518,27 +518,27 @@ function collapseCaret(branch, onCollapsed) {
 
 function branchRow(branch, onCollapsed) {
   const row = el('div', undefined, 'graph-branch');
-  const ownerSay = branch.tasks.find(task => task.task_kind === 'say' && task.branch === branch.name) || null;
+  const ownerSay = branch.aps.find(ap => ap.ap_kind === 'say' && ap.branch === branch.name) || null;
   const newSayBelow = branch.children.some(function hasSay(child) {
-    return child.tasks.some(task => task.task_kind === 'say') || child.children.some(hasSay);
+    return child.aps.some(ap => ap.ap_kind === 'say') || child.children.some(hasSay);
   });
-  // main 是项目主干，不是 Lush 管理的交付分支：graph.get 仍如实返回它的 tracked / origin / status / tasks，
-  // 这里只过滤会把「未登记」或后代任务汇总误说成 main 自身诊断的表头信息。
+  // main 是项目主干，不是 Lush 管理的交付分支：graph.get 仍如实返回它的 tracked / origin / status / aps，
+  // 这里只过滤会把「未登记」或后代 AP 汇总误说成 main 自身诊断的表头信息。
   const isMain = branch.name === 'main';
   // 未合进父分支 / 正在工作的分支带强调 class（样式见 styles.css）；两者可同时命中。
   for (const name of emphasisClasses(branch)) row.classList.add(name);
   // 工作态标识只回答显示：running / pending 给 chip，subtree 给一行更弱的话，停下来的分支一个都不画。
   const work = workingState(branch);
-  // 真的有任务在这一条分支上跑（只有 work.key === 'running' 才算）才加 .graph-running：整行做呼吸动效（样式见
+  // 真的有 AP 在这一条分支上跑（只有 work.key === 'running' 才算）才加 .graph-running：整行做呼吸动效（样式见
   // styles.css），与 .graph-emphasis-working 的静态外环并存。注意两者语义不同：.graph-emphasis-working 表示
-  // 「自己或后代还有在跑的任务」（含 subtree），在等 / 子树 / 停下来的分支都不能拿到 .graph-running，必须完全静止。
+  // 「自己或后代还有在跑的 AP」（含 subtree），在等 / 子树 / 停下来的分支都不能拿到 .graph-running，必须完全静止。
   // 动效全部由 CSS 承担，这里不加计时器，也不碰分支图的重画指纹。
   if (work?.key === 'running') row.classList.add('graph-running');
   // 当前没有工作的分支整体降噪（.graph-idle）：分支名与元信息降到次级色，不再占工作态的强调通道。
   // 只在 `working` 也为 false 时才加，保证强调 class（未合并 / 工作态）永远不会被降噪规则盖掉。
   if (!work && !branch.working) row.classList.add('graph-idle');
-  // 只有真的能藏东西的分支才给箭头：任务和子分支都是空的时候，收起没意义。
-  const hideable = branch.subtreeBranches + branch.subtreeTasks > 0;
+  // 只有真的能藏东西的分支才给箭头：AP 和子分支都是空的时候，收起没意义。
+  const hideable = branch.subtreeBranches + branch.subtreeAPs > 0;
   if (hideable) row.append(collapseCaret(branch, onCollapsed));
   row.append(el('span', `⎇ ${branch.name}`, 'graph-branch-name mono'));
   if (branch.head_commit) row.append(el('span', String(branch.head_commit).slice(0, 7), 'meta mono'));
@@ -552,23 +552,23 @@ function branchRow(branch, onCollapsed) {
     row.append(el('span', '未登记', 'chip'));
     if (branch.head_commit) row.append(button('绑定分支', async () => {
       const confirmed = await confirmDialog({ title: `绑定 ${branch.name}？`,
-        message: `确认这条本地分支的 HEAD 为 ${branch.head_commit}。绑定只创建静息 owner Task，不修改分支或提交。`,
-        confirmLabel: '绑定', confirmHelp: '按当前固定 HEAD 建立分支所有者 Task；HEAD 漂移时会拒绝。' });
+        message: `确认这条本地分支的 HEAD 为 ${branch.head_commit}。绑定只创建静息 owner AP，不修改分支或提交。`,
+        confirmLabel: '绑定', confirmHelp: '按当前固定 HEAD 建立分支所有者 AP；HEAD 漂移时会拒绝。' });
       if (!confirmed) return;
       await action('branch.bind', { branch: branch.name, commit: branch.head_commit });
       await loadGraph();
-    }, 'ghost', { help: '确认本地分支的固定 HEAD，再创建静息 owner Task；不移动 ref。' }));
+    }, 'ghost', { help: '确认本地分支的固定 HEAD，再创建静息 owner AP；不移动 ref。' }));
   }
   // 收起时告诉用户藏了什么；展开时这条由 CSS 隐掉（.graph-group:not(.collapsed) > .graph-branch > ...）。
   if (hideable) {
     const parts = [];
     if (branch.subtreeBranches) parts.push(`${branch.subtreeBranches} 分支`);
-    if (branch.subtreeTasks) parts.push(`${branch.subtreeTasks} 任务`);
+    if (branch.subtreeAPs) parts.push(`${branch.subtreeAPs} AP`);
     row.append(el('span', `已收起 ${parts.join(' / ')}`, 'meta graph-collapsed-hint'));
   }
 
   // 工作态标识放在分支名之后、关系 chip 之前：先看到「这条还在动」，再看它和父分支的关系。
-  // 收起的是任务与子分支，状态属于这条分支本身，所以表头上永远显示。
+  // 收起的是 AP 与子分支，状态属于这条分支本身，所以表头上永远显示。
   if (work) {
     if (work.key === 'subtree') {
       const node = el('span', undefined, 'graph-work subtree');
@@ -592,13 +592,13 @@ function branchRow(branch, onCollapsed) {
   if (edge && (Number.isFinite(edge.ahead) || Number.isFinite(edge.behind))) {
     row.append(el('span', `子分支 +${edge.ahead ?? '?'} / -${edge.behind ?? '?'}`, 'meta'));
   }
-  // Old branch merge/sync/catchup actions are not part of the Task delivery API.
+  // Old branch merge/sync/catchup actions are not part of the AP delivery API.
   // Legacy merge runs are history only: do not offer resume or cancellation actions.
   if (branch.merge_run) row.append(el('span', '历史合并编排记录（已停用）', 'chip'));
 
-  // 分支元数据：状态、标题、来源、创建时间、任务计数
+  // 分支元数据：状态、标题、来源、创建时间、AP 计数
   const meta = el('div', undefined, 'graph-branch-meta');
-  // 活动任务或未收拢子分支都会阻止收口；按真实类型说明，不能把 task:#N 冒充成子分支。
+  // 活动 AP 或未收拢子分支都会阻止收口；按真实类型说明，不能把 ap:#N 冒充成子分支。
   if (edge?.blockers?.length) meta.append(el('span', blockerText(edge.blockers), 'graph-branch-blocker'));
   // 归档分支的状态固定显示「已归档」，不被汇总出来的旧状态盖掉。表头已经报过它（ref 是归档时
   // 按预期删掉的），所以这里只补归档时间，不把同一个词再说一遍。
@@ -621,12 +621,12 @@ function branchRow(branch, onCollapsed) {
   if (branch.created_at) {
     meta.append(el('span', `创建于 ${new Date(branch.created_at).toLocaleString('zh-CN', { hour12: false })}`, 'meta'));
   }
-  if (!isMain && branch.taskCounts && branch.taskCounts.total > 0) {
+  if (!isMain && branch.apCounts && branch.apCounts.total > 0) {
     const parts = [];
-    if (branch.taskCounts.active > 0) parts.push(`${branch.taskCounts.active} 活跃`);
-    if (branch.taskCounts.failed > 0) parts.push(`${branch.taskCounts.failed} 失败`);
-    if (branch.taskCounts.completed > 0) parts.push(`${branch.taskCounts.completed} 完成`);
-    meta.append(el('span', `任务：${branch.taskCounts.total}（${parts.join('，')}）`, 'meta'));
+    if (branch.apCounts.active > 0) parts.push(`${branch.apCounts.active} 活跃`);
+    if (branch.apCounts.failed > 0) parts.push(`${branch.apCounts.failed} 失败`);
+    if (branch.apCounts.completed > 0) parts.push(`${branch.apCounts.completed} 完成`);
+    meta.append(el('span', `AP：${branch.apCounts.total}（${parts.join('，')}）`, 'meta'));
   }
   if (meta.children.length > 0) row.append(meta);
   const diagnostics = branchDiagnostics(branch);
@@ -636,17 +636,17 @@ function branchRow(branch, onCollapsed) {
   // 只有「可归档且尚未归档」的分支才给归档；当前检出、未登记、还有活没完的都不给。
   // 归档一条＝归档它整棵子树（见 runBranchArchive 的确认文案）。
   if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch), 'ghost',
-    { help: '归档这条分支及它下面的全部后代分支：删除 worktree 与本地 ref，未提交改动会丢失；任务与会话记录保留。' }));
+    { help: '归档这条分支及它下面的全部后代分支：删除 worktree 与本地 ref，未提交改动会丢失；AP 与会话记录保留。' }));
 
   referenceable(row, { kind: 'delivery_branch', target: { target_branch: branch.name, section: 'graph' }, label: `分支 ${branch.name}`,
     quote: [branch.title || branch.name, branch.summary, branch.parent ? `父分支：${branch.parent}` : null,
-      branch.taskCounts ? `任务：${branch.taskCounts.total}` : null].filter(Boolean).join('\n'),
+      branch.apCounts ? `AP：${branch.apCounts.total}` : null].filter(Boolean).join('\n'),
     location: { view: 'branch-graph', section: branch.name } });
   return row;
 }
 
 /**
- * 一条分支子树：自己的表头 + 自己的任务，子分支作为一个缩进的子树块画在下面。父子的连接靠 CSS 画的
+ * 一条分支子树：自己的表头 + 自己的 AP，子分支作为一个缩进的子树块画在下面。父子的连接靠 CSS 画的
  * 竖线与拐角（.graph-children），而不是一块块看起来平级的卡片；收起时整棵子树一起藏进表头里。
  */
 function branchBlock(branch) {
@@ -657,10 +657,10 @@ function branchBlock(branch) {
   if (branch.relation) block.dataset.relation = branch.relation.key;
   if (isBranchCollapsed(branch, ui.graphExpanded, ui.graphCollapsed)) block.classList.add('collapsed');
   block.append(branchRow(branch, collapsed => block.classList.toggle('collapsed', collapsed)));
-  // 空任务车道不画：否则表头下面会拖出一段没有去处的竖线。子分支车道的连接段自己补上这段空隙。
-  if (branch.tasks.length) {
+  // 空 AP 车道不画：否则表头下面会拖出一段没有去处的竖线。子分支车道的连接段自己补上这段空隙。
+  if (branch.aps.length) {
     const lane = el('div', undefined, 'graph-lane');
-    for (const node of branch.tasks) lane.append(taskRow(node, branch.name));
+    for (const node of branch.aps) lane.append(apRow(node, branch.name));
     block.append(lane);
   }
   if (branch.children.length) {
@@ -682,18 +682,18 @@ function forestDepth(forest) {
   return max;
 }
 
-/** 兜底分组：连目标分支节点都没有的任务，仍然要画出来，只是明确说明它没落在任何分支节点上。
- *  这里的任务没有分支可归档，也没别的去处，所以每行多一个「删除」（`task.delete`）；
- *  它是这个分组唯一的出口，也是页面上唯一会丢任务历史的按钮，确认文案写满了代价。 */
+/** 兜底分组：连目标分支节点都没有的 AP，仍然要画出来，只是明确说明它没落在任何分支节点上。
+ *  这里的 AP 没有分支可归档，也没别的去处，所以每行多一个「删除」（`ap.delete`）；
+ *  它是这个分组唯一的出口，也是页面上唯一会丢 AP 历史的按钮，确认文案写满了代价。 */
 function unplacedBlock(group) {
   const block = el('div', undefined, 'graph-group graph-unplaced');
   const title = el('div', undefined, 'section-title');
-  title.append(el('h2', '未归属分支的任务'));
+  title.append(el('h2', '未归属分支的 AP'));
   block.append(title);
   block.append(el('p', `图上找不到目标分支 ${group.target_branch} 的节点。`, 'hint'));
   const lane = el('div', undefined, 'graph-lane');
   for (const node of group.items) {
-    const row = taskRow(node);
+    const row = apRow(node);
 
     lane.append(row);
   }
@@ -738,7 +738,7 @@ export function renderGraph(graph, { force = false } = {}) {
   const summary = el('div', undefined, 'graph-summary');
   for (const [label, value] of [
     ['分支', String(layout.branch_count)],
-    ['任务', String(layout.task_count)],
+    ['AP', String(layout.ap_count)],
     ['当前检出', layout.current_branch || '未检出'],
   ]) {
     const item = el('div', undefined, 'graph-summary-item');
@@ -754,7 +754,7 @@ export function renderGraph(graph, { force = false } = {}) {
   if (!layout.git) content.push(el('p', `读取 git 失败：${layout.error || '这个项目不是 git 仓库'}`, 'hint warn'));
   else if (layout.error) content.push(el('p', `读取 git 时出错：${layout.error}`, 'hint warn'));
   if (layout.truncated) content.push(el('p', '分支图的节点或边太多，已截断展示；请用 CLI 查看完整状态。', 'hint warn'));
-  if (!layout.forest.length && !layout.unplaced.length) content.push(el('p', '还没有任何任务分支或 worktree。', 'hint'));
+  if (!layout.forest.length && !layout.unplaced.length) content.push(el('p', '还没有任何 AP 分支或 worktree。', 'hint'));
 
   // 把所有根分支包进一个整体容器：窄屏下它就是唯一的横向滚动区，桌面端只是个普通块。
   // `--graph-depth` 记下森林的最大嵌套深度（根为 0），窄屏 CSS 用它算出分支树的最小宽度，

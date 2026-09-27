@@ -7,7 +7,7 @@ import { startWeb } from '../../src/ui/web/server.js';
 import { projectRouteId, readLauncherState } from '../../src/host/registry.js';
 
 /**
- * S-01 回归：同一全局 Web 下 A、B 两个项目都有同号 Task。
+ * S-01 回归：同一全局 Web 下 A、B 两个项目都有同号 AP。
  * 页面 A 的写请求只能落到 A 或被拒；服务端不再有「当前项目」可被别的标签页切换。
  */
 function mockHost(calls) {
@@ -20,7 +20,7 @@ function mockHost(calls) {
           intents: { waiting_approval: 0 }, pending_merges: [], provider: 'mock' };
         return { project, method, ok: true };
       },
-      async snapshot() { calls.push([project, 'snapshot']); return { status: { project }, inputs: [], tasks: [] }; },
+      async snapshot() { calls.push([project, 'snapshot']); return { status: { project }, inputs: [], aps: [] }; },
     } };
   };
   return openProject;
@@ -43,11 +43,11 @@ test('S-01：项目 A 的写请求不会因别的标签页打开 B 而落到 B',
 
     // A 页面准备的写请求带着 A 的身份：只作用于 A。
     calls.length = 0;
-    expect((await post(`${url}/p/${idA}/api/action`, { method: 'task.cancel', params: { id: 1 } })).status).toBe(200);
-    expect((await post(`${url}/p/${idA}/api/action`, { method: 'task.approve_merge', params: { id: 1 } })).status).toBe(200);
+    expect((await post(`${url}/p/${idA}/api/action`, { method: 'ap.cancel', params: { id: 1 } })).status).toBe(200);
+    expect((await post(`${url}/p/${idA}/api/action`, { method: 'ap.approve_merge', params: { id: 1 } })).status).toBe(200);
     expect(calls.filter(([, method]) => method !== 'open')).toEqual([
-      [fs.realpathSync(a), 'task.cancel', { id: 1 }],
-      [fs.realpathSync(a), 'task.approve_merge', { id: 1 }],
+      [fs.realpathSync(a), 'ap.cancel', { id: 1 }],
+      [fs.realpathSync(a), 'ap.approve_merge', { id: 1 }],
     ]);
 
     // 项目页与会话页是同一份 shell；全局根页面是项目启动器。
@@ -60,7 +60,7 @@ test('S-01：项目 A 的写请求不会因别的标签页打开 B 而落到 B',
 
     // 旧页面发出的无项目身份写请求被拒绝，绝不回退到「当前项目」。
     calls.length = 0;
-    const legacy = await post(url + '/api/action', { method: 'task.cancel', params: { id: 1 } });
+    const legacy = await post(url + '/api/action', { method: 'ap.cancel', params: { id: 1 } });
     expect(legacy.status).toBe(400);
     expect((await legacy.json()).error).toContain('缺少项目身份');
     expect(calls).toEqual([]);

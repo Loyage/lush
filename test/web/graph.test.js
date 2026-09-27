@@ -35,13 +35,13 @@ test('graph.get is read-only and readable by both user and agent', async () => {
   } finally { await f.close(); }
 });
 
-test('task.graph is a project-scoped read model and keeps branch graph independent', async () => {
-  expect(PARAMS['task.graph']).toEqual([]);
-  expect(USER_ONLY.has('task.graph')).toBe(false);
+test('ap.graph is a project-scoped read model and keeps branch graph independent', async () => {
+  expect(PARAMS['ap.graph']).toEqual([]);
+  expect(USER_ONLY.has('ap.graph')).toBe(false);
   const f = await setup();
   try {
     await repo(f.root);
-    const result = await fetch(f.url + '/api/task-graph');
+    const result = await fetch(f.url + '/api/ap-graph');
     expect(result.status).toBe(200);
     const graph = await result.json();
     expect(Object.keys(graph).sort()).toEqual(['nodes','edges','truncated','total'].sort());
@@ -80,7 +80,7 @@ test('graphLayout 只画没归档的分支：归档记录还在 graph.js 的返�
     branchNode('lush/x/1-fresh', { status: 'ready', head_commit: 'aaa' }),
   ];
   const layout = layoutOf(nodes);
-  // 归档的分支不画（记录在 branch show / 事件 / 任务详情里）。
+  // 归档的分支不画（记录在 branch show / 事件 / AP 详情里）。
   expect(layout.forest.map(entry => entry.name)).toEqual(['lush/x/1-fresh']);
   // 没归档的分支照旧带 archived: false，渲染器不再需要特判归档。
   expect(layout.forest[0]).toMatchObject({ archived: false, archived_at: null });
@@ -90,10 +90,10 @@ test('graphLayout marks a branch archivable only when nothing blocks the archive
   const nodes = [
     // 当前检出：不能把自己归档掉。
     branchNode('main', { current: true, head_commit: 'aaa' }),
-    // 已登记、任务都结束、ref 还在：可归档。
-    branchNode('lush/x/1-done', { status: 'ready', head_commit: 'bbb', tasks: { total: 1, active: 0, failed: 0, completed: 1 } }),
-    // 自己或后代还有活动任务：先收活。
-    branchNode('lush/x/2-busy', { status: 'active', head_commit: 'ccc', tasks: { total: 2, active: 1, failed: 0, completed: 1 } }),
+    // 已登记、AP 都结束、ref 还在：可归档。
+    branchNode('lush/x/1-done', { status: 'ready', head_commit: 'bbb', aps: { total: 1, active: 0, failed: 0, completed: 1 } }),
+    // 自己或后代还有活动 AP：先收活。
+    branchNode('lush/x/2-busy', { status: 'active', head_commit: 'ccc', aps: { total: 2, active: 1, failed: 0, completed: 1 } }),
     // ref 与 worktree 都已经不在：没什么可归档的。
     branchNode('lush/x/3-gone', { status: 'ready', head_commit: null, worktree_state: 'missing' }),
     // ref 没了但 worktree 还在：仍然有东西可删。
@@ -115,10 +115,10 @@ test('graphLayout marks a branch archivable only when nothing blocks the archive
   expect(byName.has('lush/x/6-old')).toBe(false);
 });
 
-test('nodeMarks reports an archived task instead of a missing branch', () => {
+test('nodeMarks reports an archived AP instead of a missing branch', () => {
   expect(nodeMarks({ archived: true, branch: 'lush/x/1-one', branch_state: 'missing', merged: false }))
     .toEqual([{ text: '未合并', className: '' }, { text: '已归档', className: '' }]);
-  // 没有归档字段的任务照旧报缺失分支。
+  // 没有归档字段的 AP 照旧报缺失分支。
   expect(nodeMarks({ branch: 'lush/x/1-one', branch_state: 'missing' }))
     .toEqual([{ text: '⚠ 缺失分支', className: 'warn' }]);
 });

@@ -12,10 +12,10 @@ const elapsed = (startedAt, completedAt) => {
 
 /**
  * 等待行是运行时生成的读模型条目，不是 Agent 汇报的里程碑：key 用下划线开头，和 Agent 的稳定 key 空间天然隔离。
- * 它把任务所有非 running（等子 Task / 等用户 / 排队）的时间单独累计，让 Agent 步骤只保留真正执行的时间。
+ * 它把 AP 所有非 running（等子 AP / 等用户 / 排队）的时间单独累计，让 Agent 步骤只保留真正执行的时间。
  */
 const WAIT_KEY = '__wait__';
-const WAIT_LABEL = { waiting: '等待子 Task 信号', awaiting: '等待你答复', queued: '排队等待调用槽' };
+const WAIT_LABEL = { waiting: '等待子 AP 信号', awaiting: '等待你答复', queued: '排队等待调用槽' };
 const millis = value => { const at = Date.parse(value); return Number.isFinite(at) ? at : null; };
 
 /** Agent 实际被调用的区间（run 起止；未结束的 run 以 now 收口），合并重叠避免重复累计。 */
@@ -61,7 +61,7 @@ function waitGaps(spans, start, end) {
 
 /**
  * 用 agent_runs 把存储的计划投影成「工作用时 + 等待行」的读模型：步骤 duration_ms 只含真正被调用的时间，
- * 非 running 的等待单独成一条 kind='wait' 条目插在已完成步骤与当前步骤之间。历史与进行中的任务用同一套重算，
+ * 非 running 的等待单独成一条 kind='wait' 条目插在已完成步骤与当前步骤之间。历史与进行中的 AP 用同一套重算，
  * 所以旧计划也会按同样口径显示，不再把等待算成 Agent 的工作时间。
  */
 export function projectProgress(progress, runs, status, now = Date.now()) {
@@ -74,7 +74,7 @@ export function projectProgress(progress, runs, status, now = Date.now()) {
   const planStart = stepStartTimes.length ? Math.min(...stepStartTimes) : now;
   const stepEndTimes = progress.items.map(item => item.status === 'completed' ? millis(item.completed_at) : null).filter(value => value !== null);
   const runEndTimes = runs.map(run => millis(run.ended_at)).filter(value => value !== null);
-  // 终态任务的结束时间取最后一次调用 / 完成步骤，不能用 now：否则结算之后的空闲会被当成等待，且越看越大。
+  // 终态 AP 的结束时间取最后一次调用 / 完成步骤，不能用 now：否则结算之后的空闲会被当成等待，且越看越大。
   const planEnd = terminal
     ? Math.max(planStart, ...stepEndTimes, ...runEndTimes)
     : now;
@@ -163,22 +163,22 @@ function normalizeSteps(steps) {
   });
 }
 
-/** task 执行计划：附属 JSON 的读模型与 agent 汇报入口。 */
+/** AP 执行计划：附属 JSON 的读模型与 agent 汇报入口。 */
 export default {
-  /** Hide serialized storage columns and expose structured task read models. */
-  progressView(task, runs) {
-    const { progress_plan, reservation, ...row } = task;
+  /** Hide serialized storage columns and expose structured AP read models. */
+  progressView(ap, runs) {
+    const { progress_plan, reservation, ...row } = ap;
     const progress = decode(progress_plan);
     return { ...row,
-      progress: Array.isArray(runs) ? projectProgress(progress, runs, task.status) : progress,
+      progress: Array.isArray(runs) ? projectProgress(progress, runs, ap.status) : progress,
       reservation: decodeReservation(reservation) };
   },
 
-  reportProgressPlan(taskId, steps) {
-    const task = this.store.task(taskId);
-    check(!TERMINAL.has(task.status), 'cannot update progress for a terminal task');
+  reportProgressPlan(apId, steps) {
+    const ap = this.store.ap(apId);
+    check(!TERMINAL.has(ap.status), 'cannot update progress for a terminal AP');
     const normalized = normalizeSteps(steps);
-    const previous = decode(task.progress_plan);
+    const previous = decode(ap.progress_plan);
     const previousByKey = new Map((previous?.items || []).map(item => [item.key, item]));
     const previousCurrent = (previous?.items || []).find(item => item.status === 'pending' && item.started_at)
       ?? (previous?.items || []).find(item => item.status === 'pending') ?? null;
@@ -193,22 +193,22 @@ export default {
     if (current) current.started_at = current.key === previousCurrent?.key ? previousCurrent.started_at ?? now : now;
     const preserved = progress.items.filter(item => item.status === 'completed').length;
     this.store.transaction(() => {
-      this.store.setProgressPlan(task.id, progress);
-      this.store.event(task.id, 'progress.plan', { steps: progress.items.map(item => ({ key: item.key, label: item.label })), preserved });
+      this.store.setProgressPlan(ap.id, progress);
+      this.store.event(ap.id, 'progress.plan', { steps: progress.items.map(item => ({ key: item.key, label: item.label })), preserved });
     });
-    return { task_id: task.id, progress };
+    return { ap_id: ap.id, progress };
   },
 
-  completeProgressStep(taskId, rawKey) {
-    const task = this.store.task(taskId);
-    check(!TERMINAL.has(task.status), 'cannot update progress for a terminal task');
+  completeProgressStep(apId, rawKey) {
+    const ap = this.store.ap(apId);
+    check(!TERMINAL.has(ap.status), 'cannot update progress for a terminal AP');
     const key = typeof rawKey === 'string' ? rawKey.trim() : '';
     check(KEY.test(key), 'progress step key is invalid');
-    const progress = decode(task.progress_plan);
+    const progress = decode(ap.progress_plan);
     check(progress, 'report a progress plan before completing a step');
     const item = progress.items.find(step => step.key === key);
     check(item, `progress step '${key}' is not in the current plan`);
-    if (item.status === 'completed') return { task_id: task.id, progress, unchanged: true };
+    if (item.status === 'completed') return { ap_id: ap.id, progress, unchanged: true };
     const now = new Date().toISOString();
     if (!item.started_at) {
       const current = progress.items.find(step => step.status === 'pending');
@@ -220,10 +220,10 @@ export default {
     for (const step of progress.items) if (step.status === 'pending' && step !== next) step.started_at = null;
     if (next && !next.started_at) next.started_at = now;
     this.store.transaction(() => {
-      this.store.setProgressPlan(task.id, progress);
-      this.store.event(task.id, 'progress.completed', { step: key, label: item.label, duration_ms: item.duration_ms,
+      this.store.setProgressPlan(ap.id, progress);
+      this.store.event(ap.id, 'progress.completed', { step: key, label: item.label, duration_ms: item.duration_ms,
         completed: progress.items.filter(step => step.status === 'completed').length, total: progress.items.length });
     });
-    return { task_id: task.id, progress, unchanged: false };
+    return { ap_id: ap.id, progress, unchanged: false };
   },
 };

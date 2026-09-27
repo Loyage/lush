@@ -7,7 +7,7 @@ import { createSignal } from '../src/signal.js';
 
 /** 一个已完成的 worker：有 worktree、有提交、integration=pending。 */
 async function completed(f, name = 'implement-feature') {
-  // planner 只写 spec 队列、不能直接派活：造一个能派活的 coordinator 作父任务。
+  // planner 只写 spec 队列、不能直接派活：造一个能派活的 coordinator 作父 AP。
   const parent = f.store.create({ input_id: null, role: 'coordinator', goal: 'build' });
   // 这个 worker 由测试自己驱动 git 造出「已完成」的改动，先停掉调度，
   // 否则 runtime 可能同时跑它、与测试抢 worktree 的 index.lock（merge-conflict.test.js 里记过这个 flake）。
@@ -17,7 +17,7 @@ async function completed(f, name = 'implement-feature') {
   fs.writeFileSync(path.join(cwd, 'file.txt'), 'changed\n');
   await git(cwd, 'add', 'file.txt');
   await git(cwd, 'commit', '-m', 'implementation');
-  await f.project.workspaces.finish(f.store.task(worker.id));
+  await f.project.workspaces.finish(f.store.ap(worker.id));
   f.store.update(worker.id, { status: 'completed' });
   f.project.stopping = false;
   return { parent, worker, cwd };
@@ -30,7 +30,7 @@ function writeReport(reportPath, title) {
 test('a verification runs in the change worktree, checks out the target branch and publishes a report', async () => {
   const seen = [];
   const f = fixture({ async run(ctx) {
-    if (ctx.task.role !== 'verifier') return 'noop';
+    if (ctx.ap.role !== 'verifier') return 'noop';
     const verification = ctx.context.verification;
     // 基线在 invocation 结束后就被回收，所以在它还活着的时候取证。
     seen.push({ verification,
@@ -45,18 +45,18 @@ test('a verification runs in the change worktree, checks out the target branch a
     const { worker, cwd } = await completed(f);
     const verification = f.project.verify(worker.id);
     expect(verification.role).toBe('verifier');
-    expect(verification.verifies_task_id).toBe(worker.id);
+    expect(verification.verifies_ap_id).toBe(worker.id);
     expect(verification.name).toBe(`verify-${worker.id}`);
     expect(verification.parent_id).toBeNull();
-    await until(() => f.store.task(verification.id).status === 'completed');
+    await until(() => f.store.ap(verification.id).status === 'completed');
 
     const { verification: context, baseline_file, baseline_head, change_file } = seen[0];
     // 演示发生在被测 worktree 里；对照是目标分支当前的独立检出。
-    expect(context.verified_task.id).toBe(worker.id);
+    expect(context.verified_ap.id).toBe(worker.id);
     expect(context.workspace).toBe(cwd);
     expect(context.target_branch).toBe('main');
-    expect(context.branch).toBe(f.store.task(worker.id).branch);
-    expect(context.head_commit).toBe(f.store.task(worker.id).head_commit);
+    expect(context.branch).toBe(f.store.ap(worker.id).branch);
+    expect(context.head_commit).toBe(f.store.ap(worker.id).head_commit);
     expect(context.baseline_workspace).toStartWith(path.join(f.config.home, 'worktrees'));
     expect(context.report_path).toBe(path.join(f.config.home, 'verify', String(verification.id), 'report.html'));
     expect(baseline_head).toBe(await git(f.root, 'rev-parse', 'main'));
@@ -64,7 +64,7 @@ test('a verification runs in the change worktree, checks out the target branch a
     expect(change_file).toBe('changed\n');
 
     // 结算后对照基线被回收（派生状态），报告留在磁盘上。
-    await until(() => f.store.task(verification.id).baseline_workspace === null);
+    await until(() => f.store.ap(verification.id).baseline_workspace === null);
     expect(fs.existsSync(context.baseline_workspace)).toBe(false);
     expect(fs.existsSync(context.report_path)).toBe(true);
 
@@ -72,11 +72,11 @@ test('a verification runs in the change worktree, checks out the target branch a
     expect(inspect.verifications).toHaveLength(1);
     expect(inspect.verifications[0]).toMatchObject({ id: verification.id, status: 'completed', has_report: true, baseline_commit: context.baseline_commit });
     expect(f.project.inspect(verification.id).report).toBe(context.report_path);
-    // 界面树上 verifier 挂在被检验任务下，而不是另起一棵根任务。
+    // 界面树上 verifier 挂在被检验 AP 下，而不是另起一棵根 AP。
     expect(f.project.tree(worker.id).children.map(child => child.id)).toEqual([verification.id]);
-    // 被检验任务本身没有被改动，仍待用户批准合并。
-    expect(f.store.task(worker.id).integration).toBe('pending');
-    expect(f.store.task(worker.id).head_commit).toBe(context.head_commit);
+    // 被检验 AP 本身没有被改动，仍待用户批准合并。
+    expect(f.store.ap(worker.id).integration).toBe('pending');
+    expect(f.store.ap(worker.id).head_commit).toBe(context.head_commit);
   } finally { await f.close(); }
 });
 
@@ -85,9 +85,9 @@ test('verify only accepts a completed worker that still has its worktree and com
   try {
     await repo(f.root);
     const parent = f.store.create({ input_id: null, role: 'coordinator', goal: 'build' });
-    expect(() => f.project.verify(parent.id)).toThrow('only a worker task');
+    expect(() => f.project.verify(parent.id)).toThrow('only a worker AP');
     const worker = f.project.spawn(parent.id, 'implement', 'worker', [], 'implement-feature');
-    expect(() => f.project.verify(worker.id)).toThrow('only a completed task');
+    expect(() => f.project.verify(worker.id)).toThrow('only a completed AP');
     f.store.update(worker.id, { status: 'completed' });
     expect(() => f.project.verify(worker.id)).toThrow('no worktree or commit');
   } finally { await f.close(); }
@@ -97,7 +97,7 @@ test('one verification at a time, and agent credentials cannot start one', async
   const pending = gate();
   let token = null;
   const f = fixture({ async run(ctx) {
-    if (ctx.task.role !== 'verifier') return 'noop';
+    if (ctx.ap.role !== 'verifier') return 'noop';
     token = ctx.token;
     await pending.promise;
     return 'done';
@@ -106,55 +106,55 @@ test('one verification at a time, and agent credentials cannot start one', async
     await repo(f.root);
     const { worker } = await completed(f);
     const first = f.project.verify(worker.id);
-    await until(() => f.store.task(first.id).status === 'running');
+    await until(() => f.store.ap(first.id).status === 'running');
     // 等这次 invocation 真的拿到凭证（ensure 完成后 provider 才被调用）。
     await until(() => token !== null);
     expect(() => f.project.verify(worker.id)).toThrow(`verification #${first.id} is still running`);
-    // task.verify 是用户专属：agent token 解析成功也必须被拒。
+    // ap.verify 是用户专属：agent token 解析成功也必须被拒。
     const dispatcher = new Dispatcher(f.project, createSignal(), {});
-    await expect(dispatcher.dispatch('task.verify', { id: worker.id, _token: token })).rejects.toThrow('user approval');
+    await expect(dispatcher.dispatch('ap.verify', { id: worker.id, _token: token })).rejects.toThrow('user approval');
     pending.resolve();
-    await until(() => f.store.task(first.id).status === 'completed');
+    await until(() => f.store.ap(first.id).status === 'completed');
     const second = f.project.verify(worker.id);
     expect(second.id).toBeGreaterThan(first.id);
-    await until(() => f.store.task(second.id).status === 'completed');
+    await until(() => f.store.ap(second.id).status === 'completed');
     expect(f.project.inspect(worker.id).verifications.map(item => item.id)).toEqual([second.id, first.id]);
   } finally { await f.close(); }
 });
 
 test('a failed verification keeps its error and still reclaims the baseline', async () => {
   const f = fixture({ async run(ctx) {
-    if (ctx.task.role !== 'verifier') return 'noop';
+    if (ctx.ap.role !== 'verifier') return 'noop';
     throw new Error('演示脚本跑不起来');
   } });
   try {
     await repo(f.root);
     const { worker } = await completed(f);
     const verification = f.project.verify(worker.id);
-    await until(() => f.store.task(verification.id).status === 'failed');
-    expect(f.store.task(verification.id).error).toBe('演示脚本跑不起来');
-    await until(() => f.store.task(verification.id).baseline_workspace === null);
+    await until(() => f.store.ap(verification.id).status === 'failed');
+    expect(f.store.ap(verification.id).error).toBe('演示脚本跑不起来');
+    await until(() => f.store.ap(verification.id).baseline_workspace === null);
     const [record] = f.project.inspect(worker.id).verifications;
     expect(record).toMatchObject({ id: verification.id, status: 'failed', has_report: false });
   } finally { await f.close(); }
 });
 
 test('recover reclaims the baseline of a verification interrupted by a restart', async () => {
-  const f = fixture({ async run(ctx) { return ctx.task.role === 'verifier' ? 'done' : 'noop'; } });
+  const f = fixture({ async run(ctx) { return ctx.ap.role === 'verifier' ? 'done' : 'noop'; } });
   try {
     await repo(f.root);
     const { worker } = await completed(f);
     const verification = f.project.verify(worker.id);
-    await until(() => f.store.task(verification.id).status === 'completed');
+    await until(() => f.store.ap(verification.id).status === 'completed');
     // 再造一个真实基线，模拟「创建完就崩溃」的现场。
-    const cwd = await f.project.workspaces.ensure(f.store.task(verification.id));
-    expect(cwd).toBe(f.store.task(worker.id).workspace);
-    const dir = f.store.task(verification.id).baseline_workspace;
+    const cwd = await f.project.workspaces.ensure(f.store.ap(verification.id));
+    expect(cwd).toBe(f.store.ap(worker.id).workspace);
+    const dir = f.store.ap(verification.id).baseline_workspace;
     expect(fs.existsSync(dir)).toBe(true);
     f.store.update(verification.id, { status: 'running' });
     f.project.recover();
-    expect(f.store.task(verification.id).status).toBe('failed');
-    await until(() => f.store.task(verification.id).baseline_workspace === null);
+    expect(f.store.ap(verification.id).status).toBe('failed');
+    await until(() => f.store.ap(verification.id).baseline_workspace === null);
     expect(fs.existsSync(dir)).toBe(false);
   } finally { await f.close(); }
 });

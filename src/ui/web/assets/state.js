@@ -33,8 +33,8 @@ export const ui = {
   /** 左栏：折叠状态（Set of section id）与三组筛选条件，都持久化到 localStorage。 */
   collapsed: readCollapsedPref(),
   filters: readFiltersPref(),
-  selected: null, selectedRevision: null, busy: false, offline: false, detailDirty: false, detailTask: null, detailRenderedAt: 0,
-  /** 右侧信息页（notices / tasks / intents / specs）；左栏只做导航。 */
+  selected: null, selectedRevision: null, busy: false, offline: false, detailDirty: false, detailAP: null, detailRenderedAt: 0,
+  /** 右侧信息页（notices / aps / intents / specs）；左栏只做导航。 */
   indexOpen: null,
   /** 「文档」视图：打开期间轮询不用概览覆盖它，与 graphOpen 同一套排他规则。 */
   docsOpen: false, docsQuery: '',
@@ -45,7 +45,7 @@ export const ui = {
   draftSignature: null,
   // 意图面板的重建哨兵：planner 状态、闸门、spec 计数、scheduler 进度变了才重画。
   intentSignature: null,
-  // 拆解队列的重建哨兵：id/status/batch_id/task_id 变化才重画，轮询不冲掉滚动。
+  // 拆解队列的重建哨兵：id/status/batch_id/ap_id 变化才重画，轮询不冲掉滚动。
   specSignature: null,
   draftIds: [], draftEditing: null, draftPanelOpen: false, composerExpanded: false, composerSubmitting: false,
   // 尚未加入草稿的输入框引用；引用随 draft.add 持久化，轮询不能清掉本地选择。
@@ -59,15 +59,15 @@ export const ui = {
    *  lastGraph 是最近一次拉到的 graph.get 读模型：分支图与概览共用同一份数据，
    *  概览因此不必新增 RPC，也不会各自打一次 git。 */
   graphOpen: false, graphFingerprint: null, graphFetchedAt: 0, graphRenderKey: null, lastGraph: null,
-  taskGraphFetchedAt: 0, taskGraphIds: new Set(),
+  apGraphFetchedAt: 0, apGraphIds: new Set(),
   /** 分支图里收起的分支名（Set）：收起的是整棵子树，持久化到 localStorage。
    *  graphExpanded 是用户显式展开的分支名：默认值只在两个集合里都没有时生效。 */
   graphCollapsed: readGraphCollapsedPref(),
   graphExpanded: readGraphExpandedPref(),
   graphFilesExpanded: new Set(), // 文件明细只记会话内展开，轮询保留。
   lastSnapshot: null,   // 切排序模式要立刻重排，不必等下一次轮询
-  taskHistory: [],      // 用户显式加载的历史任务页；有界轮询不会把它们立刻抹掉
-  taskHistoryPage: null,
+  apHistory: [],      // 用户显式加载的历史 AP 页；有界轮询不会把它们立刻抹掉
+  apHistoryPage: null,
   sideNodes: new Map(),      // section id -> 区块 <section>
   sideHeads: new Map(),      // section id -> 标题按钮
   navButtons: new Map(),     // section id -> 导航按钮
@@ -76,14 +76,14 @@ export const ui = {
   lastMergeResult: null,
   overviewKey: null,
   liveBusy: false,
-  // `<taskId>:<seq>` -> 用户显式选择的展开状态，重画详情不会丢
+  // `<apId>:<seq>` -> 用户显式选择的展开状态，重画详情不会丢
   stepToggle: new Map(),
 };
 
 // 编辑态按草稿 id 记，这样轮询重建时不会丢用户的意图。
-export const transcriptOpen = new Set();    // 用户展开过「执行过程」的任务
-export const transcriptCache = new Map();   // taskId -> 已加载的步骤窗口
-/** 勾选状态按 id 存：任务树 / 阶梯每次重画都从它取，轮询不会把勾选丢掉。 */
+export const transcriptOpen = new Set();    // 用户展开过「执行过程」的 AP
+export const transcriptCache = new Map();   // apId -> 已加载的步骤窗口
+/** 勾选状态按 id 存：AP 树 / 阶梯每次重画都从它取，轮询不会把勾选丢掉。 */
 export const mergeSelection = new Set();
 
 /**
@@ -94,19 +94,19 @@ export function resetUiState() {
   ui.view = null;
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;
   ui.statisticsOpen = false; ui.statisticsFilters = null; ui.terminalOpen = false;
-  ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0; ui.indexOpen = null; ui.docsOpen = false; ui.docsQuery = ''; ui.settingsOpen = false;
+  ui.detailDirty = false; ui.detailAP = null; ui.detailRenderedAt = 0; ui.indexOpen = null; ui.docsOpen = false; ui.docsQuery = ''; ui.settingsOpen = false;
   ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false; ui.composerExpanded = false; ui.composerSubmitting = false; ui.composerReferences = [];
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.noticeRecords = null; ui.loadNoticeRecords = null;
-  ui.lastSnapshot = null; ui.taskHistory = []; ui.taskHistoryPage = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
+  ui.lastSnapshot = null; ui.apHistory = []; ui.apHistoryPage = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.graphOpen = false; ui.graphFingerprint = null; ui.graphFetchedAt = 0; ui.graphRenderKey = null; ui.lastGraph = null;
-  ui.taskGraphFetchedAt = 0; ui.taskGraphIds = new Set();
+  ui.apGraphFetchedAt = 0; ui.apGraphIds = new Set();
   ui.graphCollapsed = readGraphCollapsedPref();
   ui.graphExpanded = readGraphExpandedPref();
   ui.graphFilesExpanded = new Set();
   ui.sideNodes = new Map(); ui.sideHeads = new Map(); ui.navButtons = new Map(); ui.navCounts = new Map();
   ui.stepToggle = new Map();
   ui.collapsed = readCollapsedPref(); ui.filters = readFiltersPref(); ui.sidebarSortMode = readSidebarSortPref();
-  if (!['all','agent'].includes(ui.filters.tasks.role)) ui.filters.tasks.role = 'all';
+  if (!['all','agent'].includes(ui.filters.aps.role)) ui.filters.aps.role = 'all';
   transcriptOpen.clear(); transcriptCache.clear(); mergeSelection.clear();
 }

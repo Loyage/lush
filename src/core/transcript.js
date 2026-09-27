@@ -1,11 +1,11 @@
 /**
  * Read-only projector for pi session records.
  *
- * A task's agent process (thinking, tool calls, tool output) is written by pi as
+ * An AP's agent process (thinking, tool calls, tool output) is written by pi as
  * JSONL under `<home>/sessions`, never into SQLite: the daemon only stores the
- * final stdout as `tasks.result`. This module projects task details; usage-statistics.js
+ * final stdout as `aps.result`. This module projects AP details; usage-statistics.js
  * separately streams project-wide totals. Neither writes, moves or deletes them — the session file stays the
- * agent's own record, and the task's `result` stays the review artifact.
+ * agent's own record, and the AP's `result` stays the review artifact.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,7 +15,7 @@ import { check, bounded } from './types.js';
 const MAX_BODY = 4000;
 /** Per-request step window; the Web UI pages through the rest with `after`. */
 export const MAX_STEPS = 200;
-/** Total bytes read from one task's session files per request. */
+/** Total bytes read from one AP's session files per request. */
 const MAX_BYTES = 8 * 1024 * 1024;
 /** Full-scan bound for one JSONL line: a bigger line cannot be projected without unbounded memory. */
 const MAX_LATEST_LINE = 16 * 1024 * 1024;
@@ -58,7 +58,7 @@ function fromMessage(record, at, max = MAX_BODY) {
   const bodyOf = value => clip(value, max);
   const message = record.message;
   if (!message || typeof message !== 'object') return [];
-  if (message.role === 'user') return [{ kind: 'input', title: '任务上下文', at, body: bodyOf(textOf(message.content)) }];
+  if (message.role === 'user') return [{ kind: 'input', title: 'AP 上下文', at, body: bodyOf(textOf(message.content)) }];
   if (message.role === 'toolResult') {
     return [{ kind: 'result', title: `${message.toolName || 'tool'}${message.isError ? '（失败）' : ''}`, at,
       call_id: message.toolCallId ?? null, tool_name: message.toolName ?? null, is_error: Boolean(message.isError), body: bodyOf(textOf(message.content)) }];
@@ -82,11 +82,11 @@ export function projectRecord(record, max = MAX_BODY) {
 
 const sessionDir = config => path.join(config.home, 'sessions');
 
-/** Session files for one task, oldest first; the name prefix is the session start time. */
-export function sessionFiles(config, taskId) {
+/** Session files for one AP, oldest first; the name prefix is the session start time. */
+export function sessionFiles(config, apId) {
   const dir = sessionDir(config);
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir).filter(name => name.endsWith(`_lush-task-${taskId}.jsonl`)).sort();
+  return fs.readdirSync(dir).filter(name => name.endsWith(`_lush-ap-${apId}.jsonl`)).sort();
 }
 
 /** Small synchronous reads keep one giant JSONL file from becoming one giant main-thread pause. */
@@ -216,14 +216,14 @@ function* eachRecord(dir, files, budget) {
   }
 }
 
-function rememberReadStats(config, taskId, budget) {
-  READ_STATS.set(`${config.home}\0${taskId}`, { bytes: budget.readBytes, budget_bytes: budget.bytes,
+function rememberReadStats(config, apId, budget) {
+  READ_STATS.set(`${config.home}\0${apId}`, { bytes: budget.readBytes, budget_bytes: budget.bytes,
     max_bytes: MAX_BYTES, truncated: budget.truncated });
 }
 
 /** Test/measurement seam: actual bytes read by the most recent transcript or usage request. */
-export function transcriptReadStats(config, taskId) {
-  return READ_STATS.get(`${config.home}\0${taskId}`) ?? { bytes: 0, budget_bytes: 0, max_bytes: MAX_BYTES, truncated: false };
+export function transcriptReadStats(config, apId) {
+  return READ_STATS.get(`${config.home}\0${apId}`) ?? { bytes: 0, budget_bytes: 0, max_bytes: MAX_BYTES, truncated: false };
 }
 
 const num = value => (Number.isFinite(value) ? value : 0);
@@ -250,7 +250,7 @@ function exactTokens(row, first) {
 }
 
 /**
- * Steps of a task's agent process, oldest first, across every wake and session file.
+ * Steps of an AP's agent process, oldest first, across every wake and session file.
  * `after` is the last `seq` the caller already has, so the window is stable while
  * the agent keeps appending.
  *
@@ -262,16 +262,16 @@ function exactTokens(row, first) {
  *   `{context_added, estimated: true, batch: true}`, again with `first: true` on the
  *   batch's first step. The estimate is a subtraction of adjacent requests:
  *   `N = (下一请求的 input + cacheRead + cacheWrite) − (上一请求的 tokensOf)`,
- *   i.e. how many tokens this batch (all its tool outputs and task context) pushed into
+ *   i.e. how many tokens this batch (all its tool outputs and AP context) pushed into
  *   the context. N ≤ 0 (before the first request, no next request, or compaction shrank
  *   the context) and file boundaries add no `tokens` at all: the estimate never crosses
  *   two session files, because the comparison point restarts with each file.
  */
-export function readTranscript(config, taskId, after = 0, limit = 100) {
+export function readTranscript(config, apId, after = 0, limit = 100) {
   check(Number.isSafeInteger(after) && after >= 0, 'invalid transcript cursor');
   check(Number.isInteger(limit) && limit > 0 && limit <= MAX_STEPS, `transcript limit must be 1..${MAX_STEPS}`);
   const dir = sessionDir(config);
-  const files = sessionFiles(config, taskId);
+  const files = sessionFiles(config, apId);
   const budget = { bytes: 0, readBytes: 0, truncated: false };
   const steps = [];
   let seq = 0;
@@ -354,9 +354,9 @@ export function readTranscript(config, taskId, after = 0, limit = 100) {
   }
 
   const window = bounded(steps, 900000);
-  rememberReadStats(config, taskId, budget);
+  rememberReadStats(config, apId, budget);
   return {
-    task_id: taskId, files, steps: window, next: window.length ? window.at(-1).seq : after,
+    ap_id: apId, files, steps: window, next: window.length ? window.at(-1).seq : after,
     has_more: hasMore, truncated: budget.truncated,
   };
 }
@@ -399,7 +399,7 @@ async function* sessionRecords(dir, file, state) {
 }
 
 /**
- * Newest steps of a task's agent process, read by a complete streaming scan so the tail stays
+ * Newest steps of an AP's agent process, read by a complete streaming scan so the tail stays
  * reachable even when the transcript exceeds the compatibility reader's 8 MiB head window.
  *
  * The window is the latest `limit` steps with `seq > after` and (`before === 0` or `seq < before`),
@@ -409,12 +409,12 @@ async function* sessionRecords(dir, file, state) {
  * instead of faking an empty result. Memory stays bounded: a `limit`-sized ring plus the current
  * token batch, never the full bodies. Session files are never rewritten.
  */
-export async function readTranscriptLatest(config, taskId, { after = 0, before = 0, limit = 100 } = {}) {
+export async function readTranscriptLatest(config, apId, { after = 0, before = 0, limit = 100 } = {}) {
   check(Number.isSafeInteger(after) && after >= 0, 'invalid transcript cursor');
   check(Number.isSafeInteger(before) && before >= 0, 'invalid transcript cursor');
   check(Number.isInteger(limit) && limit > 0 && limit <= MAX_STEPS, `transcript limit must be 1..${MAX_STEPS}`);
   const dir = sessionDir(config);
-  const files = sessionFiles(config, taskId);
+  const files = sessionFiles(config, apId);
   const state = { truncated: false };
   const steps = [];
   let seq = 0, hasOlder = false, prev = null, batchStart = null;
@@ -467,30 +467,30 @@ export async function readTranscriptLatest(config, taskId, { after = 0, before =
 
   const next = steps.length ? steps.at(-1).seq : after;
   const oldest = steps.length ? steps[0].seq : before || 0;
-  return { task_id: taskId, steps, files, next, oldest, has_older: hasOlder, truncated: state.truncated };
+  return { ap_id: apId, steps, files, next, oldest, has_older: hasOlder, truncated: state.truncated };
 }
 
 /**
  * What one agent spent: the model it ran on, how full its context is, what the session cost
  * so far, and the last execution step (time + short preview). Same files as the transcript,
- * but steps are not returned wholesale: only the final one is previewed for the task detail.
+ * but steps are not returned wholesale: only the final one is previewed for the AP detail.
  */
-export function readUsage(config, taskId) {
-  const files = sessionFiles(config, taskId);
+export function readUsage(config, apId) {
+  const files = sessionFiles(config, apId);
   const dir = sessionDir(config);
-  const cacheKey = `${config.home}\0${taskId}`;
+  const cacheKey = `${config.home}\0${apId}`;
   const signature = files.map(file => {
     try { return `${file}:${statVersion(fs.statSync(path.join(dir, file)))}`; } catch { return `${file}:missing`; }
   }).join('|');
   const cached = USAGE_CACHE.get(cacheKey);
   if (cached?.signature === signature) {
-    rememberReadStats(config, taskId, { readBytes: 0, bytes: cached.stats.budget_bytes, truncated: cached.result.truncated });
+    rememberReadStats(config, apId, { readBytes: 0, bytes: cached.stats.budget_bytes, truncated: cached.result.truncated });
     return structuredClone(cached.result);
   }
   const budget = { bytes: 0, readBytes: 0, truncated: false };
   const totals = { input: 0, output: 0, cache_read: 0, cache_write: 0, reasoning: 0, tokens: 0, cost: 0 };
   const usage = {
-    task_id: taskId, files, model: null, thinking_level: null, requests: 0,
+    ap_id: apId, files, model: null, thinking_level: null, requests: 0,
     context_tokens: 0, compacted: 0, last_at: null, last: null, totals, truncated: false,
   };
   for (const { record } of eachRecord(dir, files, budget)) {
@@ -528,7 +528,7 @@ export function readUsage(config, taskId) {
     usage.last_at = at;
   }
   usage.truncated = budget.truncated;
-  rememberReadStats(config, taskId, budget);
+  rememberReadStats(config, apId, budget);
   USAGE_CACHE.set(cacheKey, { signature, result: structuredClone(usage), stats: { budget_bytes: budget.bytes } });
   return usage;
 }

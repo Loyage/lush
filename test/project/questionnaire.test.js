@@ -49,27 +49,27 @@ test('posting stops the invocation, releases its slot, gates other messages, and
   const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '1' });
   try {
     await repo(f.root);
-    const task = (await f.project.submit('choose')).task;
-    const other = (await f.project.submit('independent')).task;
+    const ap = (await f.project.submit('choose')).ap;
+    const other = (await f.project.submit('independent')).ap;
     await until(() => provider.calls.length === 1);
-    const token = f.project.running.get(task.id).token;
+    const token = f.project.running.get(ap.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});
-    await expect(rpc.dispatch('notice.post', { _token: token, task: other.id, title: 'spoof', questions: questions() })).rejects.toThrow('own task');
+    await expect(rpc.dispatch('notice.post', { _token: token, ap: other.id, title: 'spoof', questions: questions() })).rejects.toThrow('own AP');
     await expect(rpc.dispatch('notice.post', { _token: token, title: 'invalid', questions: [] })).rejects.toThrow();
-    expect(f.store.task(task.id).status).toBe('running');
+    expect(f.store.ap(ap.id).status).toBe('running');
     const notice = await rpc.dispatch('notice.post', { _token: token, title: 'Choose', body: 'context', questions: questions() });
     expect(notice.kind).toBe('questionnaire');
     expect(f.project.status().notices).toBe(1);
     expect(provider.calls[0].signal.aborted).toBe(true);
-    expect(f.store.task(task.id).status).toBe('awaiting');
-    await expect(rpc.dispatch('task.list', { _token: token })).rejects.toThrow();
+    expect(f.store.ap(ap.id).status).toBe('awaiting');
+    await expect(rpc.dispatch('ap.list', { _token: token })).rejects.toThrow();
     await until(() => provider.calls.length === 2);
-    expect(provider.calls[1].task.id).toBe(other.id);
-    expect(f.project.running.has(task.id)).toBe(false);
-    f.project.message(task.id, 'arrived while waiting');
-    expect(f.store.task(task.id).status).toBe('awaiting');
-    expect(f.store.unread(task.id).map(m => m.body)).toEqual(['arrived while waiting']);
-    expect(() => f.project.notice(task.id, 'duplicate', '', 'question', questions())).toThrow('already');
+    expect(provider.calls[1].ap.id).toBe(other.id);
+    expect(f.project.running.has(ap.id)).toBe(false);
+    f.project.message(ap.id, 'arrived while waiting');
+    expect(f.store.ap(ap.id).status).toBe('awaiting');
+    expect(f.store.unread(ap.id).map(m => m.body)).toEqual(['arrived while waiting']);
+    expect(() => f.project.notice(ap.id, 'duplicate', '', 'question', questions())).toThrow('already');
     expect(() => f.project.answer(notice.id, 'free text')).toThrow();
     expect(f.store.get('SELECT status FROM notices WHERE id=?', notice.id).status).toBe('open');
     const otherToken = f.project.running.get(other.id).token;
@@ -81,13 +81,13 @@ test('posting stops the invocation, releases its slot, gates other messages, and
     provider.calls[1].done.resolve('done');
     await until(() => provider.calls.length === 3);
     const resumed = provider.calls[2];
-    expect(resumed.task.id).toBe(task.id);
+    expect(resumed.ap.id).toBe(ap.id);
     expect(resumed.messages.length).toBe(2);
     expect(resumed.messages[0].body).toBe('arrived while waiting');
     expect(JSON.parse(resumed.messages[1].body)).toMatchObject({ notice_id: notice.id, dismissed: false, answer: { answers: [{ labels: ['Tabs'] }, { labels: ['Search', 'Shortcuts'] }] } });
     expect(resumed.token).not.toBe(token);
     resumed.done.resolve('implemented choice');
-    await until(() => f.store.task(task.id).status === 'completed');
+    await until(() => f.store.ap(ap.id).status === 'completed');
   } finally { await f.close(); }
 });
 
@@ -95,19 +95,19 @@ test('answer during abort unwinding is not lost; cancellation still wins', async
   const calls = [], f = fixture({ run(ctx) { const done = gate(); calls.push({ ...ctx, done }); return done.promise; } });
   try {
     await repo(f.root);
-    const task = (await f.project.submit('race')).task;
+    const ap = (await f.project.submit('race')).ap;
     await until(() => calls.length === 1);
-    const notice = f.project.notice(task.id, 'Choose', '', 'question', questions());
+    const notice = f.project.notice(ap.id, 'Choose', '', 'question', questions());
     f.project.answer(notice.id, answer());
-    expect(f.project.running.has(task.id)).toBe(true);
+    expect(f.project.running.has(ap.id)).toBe(true);
     calls[0].done.resolve('aborted output must not replace waiting result');
     await until(() => calls.length === 2);
     expect(calls[1].messages.length).toBe(1);
-    const next = f.project.notice(task.id, 'Choose again', '', 'question', questions());
-    f.project.cancel(task.id);
+    const next = f.project.notice(ap.id, 'Choose again', '', 'question', questions());
+    f.project.cancel(ap.id);
     calls[1].done.resolve('aborted');
     await until(() => !f.project.running.size);
-    expect(f.store.task(task.id).status).toBe('cancelled');
+    expect(f.store.ap(ap.id).status).toBe('cancelled');
     expect(() => f.project.answer(next.id, answer())).toThrow('not open');
   } finally { for (const c of calls) c.done.resolve('stop'); await f.close(); }
 });
@@ -116,14 +116,14 @@ test('awaiting questionnaires survive shutdown/recovery, unrelated inbox does no
   const provider = controlled(), f = fixture(provider);
   try {
     await repo(f.root);
-    const task = (await f.project.submit('recover')).task;
+    const ap = (await f.project.submit('recover')).ap;
     await until(() => provider.calls.length === 1);
-    const notice = f.project.notice(task.id, 'Choose', '', 'question', questions());
-    f.project.message(task.id, 'extra');
+    const notice = f.project.notice(ap.id, 'Choose', '', 'question', questions());
+    f.project.message(ap.id, 'extra');
     await f.project.shutdown();
-    expect(f.store.task(task.id).status).toBe('awaiting');
+    expect(f.store.ap(ap.id).status).toBe('awaiting');
     f.project.recover(); // also exercises the durable gate when no invocation exists
-    expect(f.store.task(task.id).status).toBe('awaiting');
+    expect(f.store.ap(ap.id).status).toBe('awaiting');
     expect(f.store.get('SELECT status FROM notices WHERE id=?', notice.id).status).toBe('open');
     f.project.stopping = false;
     f.project.answer(notice.id, '', true);
@@ -141,9 +141,9 @@ test('a child completing cannot wake a parent gated on a questionnaire', async (
     const child = f.project.spawn(parent.id, 'child', 'research');
     await until(() => provider.calls.length === 2);
     const notice = f.project.notice(parent.id, 'Choose', '', 'question', questions());
-    provider.calls.find(c => c.task.id === child.id).done.resolve('child result');
+    provider.calls.find(c => c.ap.id === child.id).done.resolve('child result');
     await until(() => f.project.running.size === 0);
-    expect(f.store.task(parent.id).status).toBe('awaiting');
+    expect(f.store.ap(parent.id).status).toBe('awaiting');
     f.project.answer(notice.id, answer());
     await until(() => provider.calls.length === 3);
     expect(provider.calls[2].messages.length).toBe(2);

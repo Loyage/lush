@@ -9,7 +9,7 @@ const statusModel = (overrides = {}) => ({ file: '/tmp/demo/.lush/settings.json'
   concurrency: { value: 4, default: 4, overridden: false },
   control_concurrency: { value: 2, default: 2, overridden: false },
   call_timeout: { value: 900, default: 900, overridden: false },
-  task_call_limit: { value: 24, default: 24, overridden: false },
+  ap_call_limit: { value: 24, default: 24, overridden: false },
   max_depth: { value: 8, default: 8, overridden: false },
   input_routes: routes(DEFAULT_ROUTES),
   ...overrides });
@@ -79,8 +79,8 @@ test('config set 调用与拆解限额写回对应键，--json 给结构化读�
   expect(value.call_timeout).toEqual({ value: 1200, default: 900, overridden: true });
 
   const calls = fakeClient();
-  await runConfigCommand('config', ['set', 'task-call-limit', '40'], { client: calls, json: true });
-  expect(calls.calls).toEqual([{ method: 'system.configure', params: { settings: { task_call_limit: 40 } } }]);
+  await runConfigCommand('config', ['set', 'ap-call-limit', '40'], { client: calls, json: true });
+  expect(calls.calls).toEqual([{ method: 'system.configure', params: { settings: { ap_call_limit: 40 } } }]);
 
   const depth = fakeClient();
   await runConfigCommand('config', ['set', 'max-depth', '10'], { client: depth, json: true });
@@ -92,7 +92,7 @@ test('config set 越界或非整数报错，且不发出写请求', async () => 
     ['concurrency', '2.5', '1 to 64'], ['concurrency', 'abc', '1 to 64'],
     ['control-concurrency', '17', '1 to 16'], ['control-concurrency', 'x', '1 to 16'],
     ['call-timeout', '86401', '1 to 86400'], ['call-timeout', '0', '1 to 86400'],
-    ['task-call-limit', '1001', '1 to 1000'], ['max-depth', '65', '1 to 64']]) {
+    ['ap-call-limit', '1001', '1 to 1000'], ['max-depth', '65', '1 to 64']]) {
     const client = fakeClient();
     await expect(runConfigCommand('config', ['set', flag, raw], { client, json: true })).rejects.toThrow(range);
     expect(client.calls).toEqual([]);
@@ -112,15 +112,15 @@ test('config reset 清除指定键或全部，回到环境默认', async () => {
     concurrency: { value: 8, default: 4, overridden: true },
     control_concurrency: { value: 6, default: 2, overridden: true },
     call_timeout: { value: 1200, default: 900, overridden: true },
-    task_call_limit: { value: 40, default: 24, overridden: true },
+    ap_call_limit: { value: 40, default: 24, overridden: true },
     max_depth: { value: 10, default: 8, overridden: true } }) });
   const all = await runConfigCommand('config', ['reset'], { client: both, json: true });
   expect(both.calls).toEqual([{ method: 'system.configure', params: { settings: {
-    concurrency: null, control_concurrency: null, call_timeout: null, task_call_limit: null, max_depth: null } } }]);
+    concurrency: null, control_concurrency: null, call_timeout: null, ap_call_limit: null, max_depth: null } } }]);
   expect(all.concurrency).toEqual({ value: 4, default: 4, overridden: false });
   expect(all.control_concurrency).toEqual({ value: 2, default: 2, overridden: false });
   expect(all.call_timeout).toEqual({ value: 900, default: 900, overridden: false });
-  expect(all.task_call_limit).toEqual({ value: 24, default: 24, overridden: false });
+  expect(all.ap_call_limit).toEqual({ value: 24, default: 24, overridden: false });
   expect(all.max_depth).toEqual({ value: 8, default: 8, overridden: false });
 });
 
@@ -240,7 +240,7 @@ test('help 列出 config 的并发与 route 子命令', () => {
   expect(HELP).toContain('config set concurrency');
   expect(HELP).toContain('config set control-concurrency');
   expect(HELP).toContain('config set call-timeout');
-  expect(HELP).toContain('config set task-call-limit');
+  expect(HELP).toContain('config set ap-call-limit');
   expect(HELP).toContain('config set max-depth');
   expect(HELP).toContain('config reset');
   expect(HELP).toContain('config route list');

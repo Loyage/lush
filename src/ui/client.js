@@ -16,19 +16,19 @@ export class UIClient {
   /** Compatibility URL for the Web bootstrap; the payload is the same bounded core overview. */
   async snapshot() { return this.overview(); }
 
-  /** Task-centred homepage: no legacy planner, draft or showcase RPC calls. */
+  /** AP-centred homepage: no legacy planner, draft or showcase RPC calls. */
   async overview(revision = null) {
     const status = await this.request('system.summary');
     check(status.project === this.config.project, 'daemon project mismatch');
     if (revision && revision === status.revision) return { unchanged: true, revision };
     const [activity, page] = await Promise.all([
-      this.request('task.activity', { limit: 100, scope: 'work' }),
+      this.request('ap.activity', { limit: 100, scope: 'work' }),
       this.request('notice.page', { status: 'all', limit: 100 }),
     ]);
-    const tasks = activity.tasks.filter(task => ['say','child','main','owner'].includes(task.task_kind));
-    const ids = new Set(tasks.map(task => task.id));
-    return { revision: status.revision, status, tasks, task_page: activity.page,
-      notices: page.notices.filter(notice => ids.has(notice.task_id)),
+    const aps = activity.aps.filter(ap => ['say','child','main','owner'].includes(ap.ap_kind));
+    const ids = new Set(aps.map(ap => ap.id));
+    return { revision: status.revision, status, aps, ap_page: activity.page,
+      notices: page.notices.filter(notice => ids.has(notice.ap_id)),
       ladder: { groups: [] }, inputs: [], drafts: [], specs: [], candidates: [], showcases: [] };
   }
 }

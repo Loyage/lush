@@ -7,10 +7,10 @@ import { exact, option } from '../args.js';
  * `lush config`：项目级「运行设置」（两条并发上限 + 三条调用 / 拆解限额）的用户接口。
  *
  * 读模型来自 `system.status.settings`（核心在写盘后同步的内存镜像），写走 `system.configure`。
- * 二者都是用户专属：agent 调用直接被拒，避免某次任务调用顺手改掉整个项目的并发与限额。
+ * 二者都是用户专属：agent 调用直接被拒，避免某次 AP 调用顺手改掉整个项目的并发与限额。
  *
  * 命令面用连字符（`control-concurrency`）与 help 一致；RPC / 设置文件里是下划线
- * （`control_concurrency` / `call_timeout` / `task_call_limit` / `max_depth` / `input_routes`）。
+ * （`control_concurrency` / `call_timeout` / `ap_call_limit` / `max_depth` / `input_routes`）。
  * 范围与核心共用 `RUNTIME_SETTINGS_LIMITS`，避免两份数字漂移。
  *
  * `config route` 在同一份运行设置上管理快速路由前缀表：读当前生效表后整表写回，校验直接复用
@@ -20,7 +20,7 @@ const FIELDS = [
   { flag: 'concurrency', key: 'concurrency', label: '执行通道' },
   { flag: 'control-concurrency', key: 'control_concurrency', label: '控制通道' },
   { flag: 'call-timeout', key: 'call_timeout', label: '单次调用超时（秒）' },
-  { flag: 'task-call-limit', key: 'task_call_limit', label: '单任务调用上限' },
+  { flag: 'ap-call-limit', key: 'ap_call_limit', label: '单 AP 调用上限' },
   { flag: 'max-depth', key: 'max_depth', label: '最大拆解深度' },
 ];
 const byFlag = new Map(FIELDS.map(field => [field.flag, field]));

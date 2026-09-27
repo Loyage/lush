@@ -117,11 +117,11 @@ test('文档视图打开时轮询不覆盖它，切到别的视图后让位', as
   expect(deepText(dom.node('detail'))).toContain('项目概览');
   expect(dom.node('detail').dataset.view).toBe('overview');
 
-  // 从文档视图点进任务详情：右栏归任务，随后轮询也不会把文档画回来
+  // 从文档视图点进 AP 详情：右栏归 AP，随后轮询也不会把文档画回来
   await openDocs('docs-engineering-modules');
-  dom.location.hash = '#task-1';
+  dom.location.hash = '#ap-1';
   await dom.fire('hashchange');
-  expect(dom.node('detail').dataset.view).toBe('task');
+  expect(dom.node('detail').dataset.view).toBe('ap');
   await dom.intervalFor(1500)();
   expect(deepText(dom.node('detail'))).not.toContain('三条规矩');
 });

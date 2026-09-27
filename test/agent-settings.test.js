@@ -117,23 +117,23 @@ test('Pi resource discovery lists installed extensions and skills without loadin
 
 test('Pi provider disables discovery and explicitly loads only the selected extensions and skills', async () => {
   const root = temp(), fake = path.join(root, 'fake-pi');
-  fs.writeFileSync(fake, `#!/usr/bin/env bun\nimport fs from 'node:fs';\nfs.writeFileSync(process.env.LUSH_HOME + '/pi-args.json', JSON.stringify(process.argv.slice(2)));\nfs.writeFileSync(process.env.LUSH_HOME + '/pi-env.json', JSON.stringify({ task: process.env.LUSH_TASK_ID }));\nconsole.log('pi finished');\n`, { mode: 0o755 });
+  fs.writeFileSync(fake, `#!/usr/bin/env bun\nimport fs from 'node:fs';\nfs.writeFileSync(process.env.LUSH_HOME + '/pi-args.json', JSON.stringify(process.argv.slice(2)));\nfs.writeFileSync(process.env.LUSH_HOME + '/pi-env.json', JSON.stringify({ ap: process.env.LUSH_AP_ID }));\nconsole.log('pi finished');\n`, { mode: 0o755 });
   const config = new Config({ project: root, env: env({ LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake }) });
   config.prepare();
   try {
     const provider = new PiProvider(config);
-    expect(await provider.run({ task: { id: 8, parent_id: 3, role: 'worker', goal: 'test' }, context: {}, messages: [], cwd: root, token: 'secret',
+    expect(await provider.run({ ap: { id: 8, parent_id: 3, role: 'worker', goal: 'test' }, context: {}, messages: [], cwd: root, token: 'secret',
       signal: new AbortController().signal, onSpawn() {}, agent: { agent: 'pi', model: '', thinking: '', default_prompt: '', append_prompt: '',
         extensions: ['/tmp/selected-extension.ts'], skills: ['/tmp/selected-skill/SKILL.md'] } })).toBe('pi finished');
     const args = JSON.parse(fs.readFileSync(path.join(root, '.lush', 'pi-args.json'), 'utf8'));
     expect(args).toContain('--no-extensions'); expect(args).toContain('--no-skills');
     expect(args.slice(args.indexOf('--extension'), args.indexOf('--extension') + 2)).toEqual(['--extension', '/tmp/selected-extension.ts']);
     expect(args.slice(args.indexOf('--skill'), args.indexOf('--skill') + 2)).toEqual(['--skill', '/tmp/selected-skill/SKILL.md']);
-    expect(JSON.parse(fs.readFileSync(path.join(root, '.lush', 'pi-env.json'), 'utf8'))).toEqual({ task: '8' });
+    expect(JSON.parse(fs.readFileSync(path.join(root, '.lush', 'pi-env.json'), 'utf8'))).toEqual({ ap: '8' });
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('Codex provider persists a task thread and resumes it on the next invocation', async () => {
+test('Codex provider persists an AP thread and resumes it on the next invocation', async () => {
   const root = temp();
   const fake = path.join(root, 'fake-codex');
   fs.writeFileSync(fake, `#!/usr/bin/env bun
@@ -142,7 +142,7 @@ import path from 'node:path';
 const args = process.argv.slice(2);
 const out = args[args.indexOf('--output-last-message') + 1];
 fs.writeFileSync(out, 'codex finished');
-fs.appendFileSync(path.join(process.env.LUSH_HOME, 'codex-seen.jsonl'), JSON.stringify({ args, task: process.env.LUSH_TASK_ID, token: !!process.env.LUSH_AGENT_TOKEN }) + '\\n');
+fs.appendFileSync(path.join(process.env.LUSH_HOME, 'codex-seen.jsonl'), JSON.stringify({ args, ap: process.env.LUSH_AP_ID, token: !!process.env.LUSH_AGENT_TOKEN }) + '\\n');
 console.log(JSON.stringify({ type: 'thread.started', thread_id: 'thread-test-1' }));
 console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100, cached_input_tokens: 40, output_tokens: 20 } }));
 `, { mode: 0o755 });
@@ -151,7 +151,7 @@ console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100,
   try {
     const provider = new CodexProvider(config);
     const common = {
-      task: { id: 7, role: 'worker', goal: 'test' }, context: {}, messages: [], cwd: root, token: 'secret',
+      ap: { id: 7, role: 'worker', goal: 'test' }, context: {}, messages: [], cwd: root, token: 'secret',
       signal: new AbortController().signal, onSpawn() {},
       agent: { agent: 'codex', model: 'gpt-5.4-mini', thinking: 'high', default_prompt: '', append_prompt: 'Run checks.', extensions: [], skills: [] },
     };
@@ -159,7 +159,7 @@ console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100,
     common.agent.default_prompt = 'Replacement system rules.';
     common.agent.append_prompt = 'Additional project rules.';
     expect(await provider.run(common)).toBe('codex finished');
-    const systemPrompt = fs.readFileSync(path.join(root, '.lush', 'sessions', 'task-7-system.md'), 'utf8');
+    const systemPrompt = fs.readFileSync(path.join(root, '.lush', 'sessions', 'ap-7-system.md'), 'utf8');
     expect(systemPrompt).toStartWith('Replacement system rules.');
     expect(systemPrompt).toContain('Additional project rules.');
     const seen = fs.readFileSync(path.join(root, '.lush', 'codex-seen.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
@@ -168,11 +168,11 @@ console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100,
     expect(seen[0].args).toContain('model_reasoning_effort="high"');
     expect(seen[1].args.slice(0, 3)).toEqual(['exec', 'resume', '--dangerously-bypass-approvals-and-sandbox']);
     expect(seen[1].args).toContain('thread-test-1');
-    expect(seen.every(row => row.task === '7' && row.token)).toBe(true);
+    expect(seen.every(row => row.ap === '7' && row.token)).toBe(true);
     const usage = await readUsageStatistics(config);
     expect(usage.totals).toMatchObject({ requests: 2, tokens: 240, input: 120, cache_read: 80, output: 40, unknown_cost: 2, unknown_tokens: 0 });
     expect(usage.models[0]).toMatchObject({ provider: 'codex', model: 'gpt-5.4-mini' });
-    const files = fs.readdirSync(path.join(config.home, 'sessions')).filter(name => name.endsWith('_lush-task-7.jsonl'));
+    const files = fs.readdirSync(path.join(config.home, 'sessions')).filter(name => name.endsWith('_lush-ap-7.jsonl'));
     expect(files.length).toBe(2);
     expect(fs.statSync(path.join(config.home, 'sessions', files[0])).mode & 0o777).toBe(0o600);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }

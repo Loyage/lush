@@ -8,9 +8,9 @@ const BODY_PAGE = 24000;
 const KINDS = new Set(['', 'input', 'thinking', 'tool', 'result', 'text', 'meta']);
 
 /** Stream all completed records, not the compatibility reader's first 8 MiB. Never cache full bodies. */
-async function* stepsOf(config, taskId) {
+async function* stepsOf(config, apId) {
   let seq = 0;
-  for (const file of sessionFiles(config, taskId)) {
+  for (const file of sessionFiles(config, apId)) {
     const filename = path.join(config.home, 'sessions', file);
     const handle = await fs.promises.open(filename, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
     try {
@@ -53,7 +53,7 @@ function summary(step, query = '') {
     excerpt: `${start ? '…' : ''}${body.slice(start, start + 500)}`, body_truncated: body.length > 1800 };
 }
 
-export async function searchTranscript(config, taskId, { query = '', kind = '', tool = '', errors = false, after = 0, limit = 50 } = {}) {
+export async function searchTranscript(config, apId, { query = '', kind = '', tool = '', errors = false, after = 0, limit = 50 } = {}) {
   check(typeof query === 'string' && query.length <= 500, 'query must be at most 500 characters');
   check(KINDS.has(kind), 'invalid transcript kind');
   check(typeof tool === 'string' && tool.length <= 100, 'invalid tool filter');
@@ -62,7 +62,7 @@ export async function searchTranscript(config, taskId, { query = '', kind = '', 
   check(Number.isInteger(limit) && limit >= 1 && limit <= 100, 'limit must be 1..100');
   const steps = [], needle = query.toLocaleLowerCase(), toolNeedle = tool.toLocaleLowerCase();
   let has_more = false, responseBytes = 0;
-  for await (const step of stepsOf(config, taskId)) {
+  for await (const step of stepsOf(config, apId)) {
     if (step.seq <= after || (kind && step.kind !== kind) || (errors && !step.is_error)) continue;
     if (toolNeedle && !(step.tool_name || '').toLocaleLowerCase().includes(toolNeedle)) continue;
     if (needle && !`${step.title}\n${step.body}`.toLocaleLowerCase().includes(needle)) continue;
@@ -70,17 +70,17 @@ export async function searchTranscript(config, taskId, { query = '', kind = '', 
     if (steps.length === limit || responseBytes + bytes > 700000) { has_more = true; break; }
     steps.push(item); responseBytes += bytes;
   }
-  return { task_id: taskId, steps, next: steps.at(-1)?.seq ?? after, has_more,
-    files: sessionFiles(config, taskId), scope: 'all-complete-records', truncated: false };
+  return { ap_id: apId, steps, next: steps.at(-1)?.seq ?? after, has_more,
+    files: sessionFiles(config, apId), scope: 'all-complete-records', truncated: false };
 }
 
 /** Continuous read-only terminal pages: one scan per page, no per-step context scans or clipped summaries. */
-export async function transcriptPage(config, taskId, seq = 1, offset = 0) {
+export async function transcriptPage(config, apId, seq = 1, offset = 0) {
   check(Number.isSafeInteger(seq) && seq > 0, 'invalid step seq');
   check(Number.isSafeInteger(offset) && offset >= 0, 'invalid body offset');
   const steps = [];
   let remaining = 96000, responseBytes = 0, next_seq = seq, next_offset = offset, has_more = false, found = false;
-  for await (const step of stepsOf(config, taskId)) {
+  for await (const step of stepsOf(config, apId)) {
     if (step.seq < seq) continue;
     if (steps.length >= 50 || remaining === 0) { has_more = true; break; }
     const body = step.body || '';
@@ -105,19 +105,19 @@ export async function transcriptPage(config, taskId, seq = 1, offset = 0) {
     if (has_more) break;
   }
   check(found || offset === 0, '执行步骤已不存在，可能会话文件已被清理');
-  return { task_id: taskId, steps, next_seq, next_offset, has_more, files: sessionFiles(config, taskId), scope: 'all-complete-records' };
+  return { ap_id: apId, steps, next_seq, next_offset, has_more, files: sessionFiles(config, apId), scope: 'all-complete-records' };
 }
 
 /** Read one original step in bounded character pages; associated bodies are explicitly bounded snapshots. */
-export async function transcriptStep(config, taskId, seq, offset = 0) {
+export async function transcriptStep(config, apId, seq, offset = 0) {
   check(Number.isSafeInteger(seq) && seq > 0, 'invalid step seq');
   check(Number.isSafeInteger(offset) && offset >= 0, 'invalid body offset');
   let target;
-  for await (const step of stepsOf(config, taskId)) if (step.seq === seq) { target = step; break; }
+  for await (const step of stepsOf(config, apId)) if (step.seq === seq) { target = step; break; }
   check(target, '执行步骤已不存在，可能会话文件已被清理');
   const related = [], context = [];
   let calls = 0, pairedCount = 0;
-  for await (const step of stepsOf(config, taskId)) {
+  for await (const step of stepsOf(config, apId)) {
     const paired = target.call_id && step.file === target.file && step.call_id === target.call_id
       && ['tool', 'result'].includes(step.kind);
     if (paired && step.kind === 'tool') calls++;
@@ -130,6 +130,6 @@ export async function transcriptStep(config, taskId, seq, offset = 0) {
   if (calls !== 1) related.length = 0;
   const full = target.body || '';
   check(offset <= full.length, 'body offset exceeds original text');
-  return { task_id: taskId, step: { ...target, body: full.slice(offset, offset + BODY_PAGE), body_length: full.length },
+  return { ap_id: apId, step: { ...target, body: full.slice(offset, offset + BODY_PAGE), body_length: full.length },
     offset, next_offset: Math.min(full.length, offset + BODY_PAGE), has_more: offset + BODY_PAGE < full.length, related, context, pairing_ambiguous, related_truncated: pairedCount > 8 };
 }

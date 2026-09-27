@@ -16,23 +16,23 @@ test('timeline turns invocations into runs and tells a dependency wait from a sl
   const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '1' });
   try {
     // 工作池只有一个槽：first 占住它，没有依赖的 queued 只能等槽，blocked 等的是 first 这条依赖。
-    // planner 不能再直接派活，这里按任务树最底层直接建任务与依赖边（都是 research，不建 worktree）。
+    // planner 不能再直接派活，这里按 AP 树最底层直接建 AP 与依赖边（都是 research，不建 worktree）。
     const first = f.store.create({ input_id: null, role: 'research', goal: 'takes the only worker slot' });
     const queued = f.store.create({ input_id: null, role: 'research', goal: 'waits for the slot' });
     const blocked = f.store.create({ input_id: null, role: 'research', goal: 'waits for first' });
     f.store.addDep(blocked.id, first.id, 'order');
     f.project.kick();
-    const call = taskId => provider.calls.find(entry => entry.task.id === taskId);
-    await until(() => f.store.task(first.id).status === 'running');
+    const call = apId => provider.calls.find(entry => entry.ap.id === apId);
+    await until(() => f.store.ap(first.id).status === 'running');
     call(first.id).done.resolve('done');
-    await until(() => f.store.task(queued.id).status === 'running');
+    await until(() => f.store.ap(queued.id).status === 'running');
     call(queued.id).done.resolve('done');
-    await until(() => f.store.task(blocked.id).status === 'running');
+    await until(() => f.store.ap(blocked.id).status === 'running');
     call(blocked.id).done.resolve('done');
-    await until(() => f.store.task(blocked.id).status === 'completed');
+    await until(() => f.store.ap(blocked.id).status === 'completed');
 
     const timeline = f.project.timeline();
-    const row = taskId => timeline.tasks.find(task => task.id === taskId);
+    const row = apId => timeline.aps.find(ap => ap.id === apId);
     expect(timeline.concurrency).toBe(1);
     expect(timeline.clamped).toBe(false);
     expect(row(first.id).segments.at(-1)).toMatchObject({ kind: 'run' });
@@ -44,7 +44,7 @@ test('timeline turns invocations into runs and tells a dependency wait from a sl
   } finally { await f.close(); }
 });
 
-test('timeline keeps an open segment for whatever a task is doing right now', async () => {
+test('timeline keeps an open segment for whatever an AP is doing right now', async () => {
   const provider = controlled(), f = fixture(provider);
   try {
     const parent = f.store.create({ input_id: null, role: 'coordinator', goal: 'parent' });
@@ -52,13 +52,13 @@ test('timeline keeps an open segment for whatever a task is doing right now', as
     await until(() => provider.calls.length === 1);
     const child = f.project.spawn(parent.id, 'child', 'research');
     provider.calls[0].done.resolve('delegated');
-    // 父任务派完工就停在 waiting，子任务还在跑：两边的开口段分别是「等子任务」和「运行中」。
-    await until(() => f.store.task(parent.id).status === 'waiting' && f.store.task(child.id).status === 'running');
+    // 父 AP 派完工就停在 waiting，子 AP 还在跑：两边的开口段分别是「等子 AP」和「运行中」。
+    await until(() => f.store.ap(parent.id).status === 'waiting' && f.store.ap(child.id).status === 'running');
 
     const timeline = f.project.timeline({ limit: 2 });
-    expect(timeline.tasks.map(task => task.id)).toEqual([parent.id, child.id]);
+    expect(timeline.aps.map(ap => ap.id)).toEqual([parent.id, child.id]);
     expect(timeline.truncated).toBe(false);
-    const row = taskId => timeline.tasks.find(task => task.id === taskId);
+    const row = apId => timeline.aps.find(ap => ap.id === apId);
     expect(row(parent.id).segments.at(-1)).toMatchObject({ kind: 'wait', reason: 'children', open: true });
     expect(row(child.id).segments.at(-1)).toMatchObject({ kind: 'run', open: true });
     expect(f.project.timeline({ limit: 1 }).truncated).toBe(true);
@@ -66,12 +66,12 @@ test('timeline keeps an open segment for whatever a task is doing right now', as
   } finally { await f.close(); }
 });
 
-test('timeline does not leave a task that died before it ever started blank', async () => {
+test('timeline does not leave an AP that died before it ever started blank', async () => {
   const f = fixture({ run: async () => 'never called' });
   try {
-    const task = f.store.create({ role: 'worker', goal: 'no worktree at all', name: 'broken' });
-    f.project.cancel(task.id, 'worktree creation failed', 'failed');
-    const [row] = f.project.timeline().tasks;
+    const ap = f.store.create({ role: 'worker', goal: 'no worktree at all', name: 'broken' });
+    f.project.cancel(ap.id, 'worktree creation failed', 'failed');
+    const [row] = f.project.timeline().aps;
     expect(row.segments).toEqual([{ kind: 'wait', start: row.created_at, end: row.terminal_at, reason: 'setup' }]);
   } finally { await f.close(); }
 });
@@ -80,11 +80,11 @@ test('timeline and ladder are read-only read models, not user-only actions', asy
   const f = fixture();
   try {
     const dispatcher = new Dispatcher(f.project, createSignal(), {});
-    expect((await dispatcher.dispatch('system.timeline', {})).tasks).toEqual([]);
-    expect((await dispatcher.dispatch('task.ladder', {})).nodes).toEqual([]);
+    expect((await dispatcher.dispatch('system.timeline', {})).aps).toEqual([]);
+    expect((await dispatcher.dispatch('ap.ladder', {})).nodes).toEqual([]);
     await expect(dispatcher.dispatch('system.timeline', { limit: 0 })).rejects.toThrow('timeline limit must be 1..200');
-    await expect(dispatcher.dispatch('task.ladder', { limit: 1 })).rejects.toThrow('unknown parameter');
-    await expect(dispatcher.dispatch('task.timeline', {})).rejects.toThrow('unknown method');
+    await expect(dispatcher.dispatch('ap.ladder', { limit: 1 })).rejects.toThrow('unknown parameter');
+    await expect(dispatcher.dispatch('ap.timeline', {})).rejects.toThrow('unknown method');
   } finally { await f.close(); }
 });
 
@@ -102,10 +102,10 @@ test('ladder separates code bases from order waits and notices a branch that alr
     const three = await commit('three', [main]);
     const four = await commit('merge one', [main, one]);
     const merged = main;
-    // 任务行必须先在库里，才能给它们挂分支信息与依赖边。
-    expect([1, 2, 3, 4, 5]).toEqual(Array.from({ length: 5 }, (_, index) => f.store.create({ role: 'worker', goal: `task ${index + 1}`, name: `t${index + 1}` }).id));
+    // AP 行必须先在库里，才能给它们挂分支信息与依赖边。
+    expect([1, 2, 3, 4, 5]).toEqual(Array.from({ length: 5 }, (_, index) => f.store.create({ role: 'worker', goal: `AP ${index + 1}`, name: `t${index + 1}` }).id));
     const rows = [['up', one, 1], ['stacked', two, 2], ['waits', three, 3], ['integrator', four, 4], ['landed', merged, 5]];
-    for (const [, head, taskId] of rows) f.store.update(taskId, { branch: `lush/ns/${taskId}`, head_commit: head, target_branch: 'main', integration: 'pending', status: 'completed' });
+    for (const [, head, apId] of rows) f.store.update(apId, { branch: `lush/ns/${apId}`, head_commit: head, target_branch: 'main', integration: 'pending', status: 'completed' });
     f.store.update(5, { integration: 'merged' });
     f.store.addDep(2, 1, 'code');
     f.store.addDep(2, 5, 'code');
@@ -113,7 +113,7 @@ test('ladder separates code bases from order waits and notices a branch that alr
     f.store.addDep(4, 1, 'order');
 
     const ladder = await f.project.ladder();
-    const node = taskId => ladder.nodes.find(entry => entry.id === taskId);
+    const node = apId => ladder.nodes.find(entry => entry.id === apId);
     expect(ladder.target_branch).toBe('main');
     expect(ladder.truncated).toBe(false);
     expect(ladder.nodes.map(entry => entry.id)).toEqual([1, 2, 3, 4]);
@@ -122,9 +122,9 @@ test('ladder separates code bases from order waits and notices a branch that alr
       { id: 5, kind: 'code', branch: 'lush/ns/5', merged: true, pending: false, contains: true },
     ]);
     expect(node(2).level).toBe(1);
-    const delivery = taskId => ladder.groups.flatMap(group => group.items).find(item => item.id === taskId);
+    const delivery = apId => ladder.groups.flatMap(group => group.items).find(item => item.id === apId);
     expect(delivery(2)).toMatchObject({ ready: false, selectable: true });
-    expect(delivery(2).blockers).toContainEqual(expect.objectContaining({ code: 'code_upstream', task_id: 1 }));
+    expect(delivery(2).blockers).toContainEqual(expect.objectContaining({ code: 'code_upstream', ap_id: 1 }));
     expect(node(3).deps[0]).toMatchObject({ kind: 'order', contains: false });
     expect(node(4).deps[0]).toMatchObject({ kind: 'order', contains: true });
     // order 边不改变合并层级：集成分支可以先合，而 code 基线必须先合。

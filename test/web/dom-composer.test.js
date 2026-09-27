@@ -47,7 +47,7 @@ test('输入区默认折叠，展开后才出现父分支与快捷键，折叠�
 test('引用卡片始终可见，1.5s 轮询不改变输入区折叠态', async () => {
   const details = dom.node('composer-details'), expand = dom.node('composer-expand');
   expect(details.hidden).toBe(true);  // 上一条测试结束时已收起
-  setComposerReferences([{ version: 1, kind: 'text', target: {}, label: '任务 #1', quote: '正在改点什么', location: {}, captured_at: iso(NOW) }]);
+  setComposerReferences([{ version: 1, kind: 'text', target: {}, label: 'AP #1', quote: '正在改点什么', location: {}, captured_at: iso(NOW) }]);
   expect(dom.node('composer-references').hidden).toBe(false);
   world.state.drafts = [{ id: 21, content: '带引用的草稿', created_at: iso(NOW - 1000) }];
   await dom.intervalFor(1500)();

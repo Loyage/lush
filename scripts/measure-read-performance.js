@@ -12,7 +12,7 @@ import { installDom, deepText } from '../test/dom-stub.js';
 
 const dom = installDom({ fetch: async () => ({ ok: false, status: 404, json: async () => ({ error: 'measurement has no network' }) }) });
 const { renderTree } = await import('../src/ui/web/assets/render-tree.js');
-renderTree({ tasks: [], inputs: [], notices: [], status: { concurrency: 1 }, task_page: { total: 0, active: 0, historical: 0, shown: 0, truncated: false, has_more: false } });
+renderTree({ aps: [], inputs: [], notices: [], status: { concurrency: 1 }, ap_page: { total: 0, active: 0, historical: 0, shown: 0, truncated: false, has_more: false } });
 
 const cleanEnv = () => {
   const env = { ...process.env, LUSH_PROVIDER: 'mock' };
@@ -35,13 +35,13 @@ function fixture() {
     close() { store.close(); fs.rmSync(root, { recursive: true, force: true }); } };
 }
 
-async function taskDataset(count) {
+async function apDataset(count) {
   const f = fixture();
   try {
     f.store.transaction(() => {
       for (let index = 0; index < count; index += 1) {
-        const task = f.store.create({ input_id: null, role: 'research', goal: `task ${index} ${'x'.repeat(80)}` });
-        f.store.update(task.id, { status: 'completed', result: 'done' });
+        const ap = f.store.create({ input_id: null, role: 'research', goal: `ap ${index} ${'x'.repeat(80)}` });
+        f.store.update(ap.id, { status: 'completed', result: 'done' });
       }
     });
     // These are the real homepage and compatibility client paths, including summary, ladder and activity.
@@ -49,21 +49,21 @@ async function taskDataset(count) {
     const legacy = await timedAsync(() => f.client.snapshot());
     renderTree(overview.value); // warm this data shape before measuring recurring refresh work
     const render = timed(() => renderTree(overview.value));
-    const treeText = deepText(dom.node('tasks'));
-    return { tasks: count, overview_bytes: bytes(overview.value), legacy_bytes: bytes(legacy.value),
+    const treeText = deepText(dom.node('aps'));
+    return { aps: count, overview_bytes: bytes(overview.value), legacy_bytes: bytes(legacy.value),
       overview_ms: +overview.ms.toFixed(3), legacy_ms: +legacy.ms.toFixed(3), render_ms: +render.ms.toFixed(3),
-      shown: overview.value.tasks.length, historical: overview.value.task_page.historical,
-      truncated: overview.value.task_page.truncated, has_more: overview.value.task_page.has_more,
+      shown: overview.value.aps.length, historical: overview.value.ap_page.historical,
+      truncated: overview.value.ap_page.truncated, has_more: overview.value.ap_page.has_more,
       ui_truncation: treeText.includes('列表已截断'), ui_paging: treeText.includes('加载更早 50 个') };
   } finally { f.close(); }
 }
 
-function writeLog(config, taskId, targetBytes) {
+function writeLog(config, apId, targetBytes) {
   const dir = path.join(config.home, 'sessions'); fs.mkdirSync(dir, { recursive: true });
   const payload = JSON.stringify({ type: 'message', timestamp: 1000, message: { role: 'assistant', provider: 'mock', model: 'mock',
     content: [{ type: 'text', text: 'x'.repeat(3800) }], usage: { input: 10, output: 2, totalTokens: 12, cost: { total: 0 } } } }) + '\n';
   const repeats = Math.ceil(targetBytes / Buffer.byteLength(payload));
-  fs.writeFileSync(path.join(dir, `2026-01-01T00-00-00-000Z_lush-task-${taskId}.jsonl`), payload.repeat(repeats));
+  fs.writeFileSync(path.join(dir, `2026-01-01T00-00-00-000Z_lush-ap-${apId}.jsonl`), payload.repeat(repeats));
 }
 
 async function logDataset(label, size) {
@@ -76,29 +76,29 @@ async function logDataset(label, size) {
     await timer;
     const coldStats = transcriptReadStats(f.config, 1);
     const warm = timed(() => readUsage(f.config, 1));
-    return { label, file_bytes: fs.statSync(path.join(f.config.home, 'sessions', '2026-01-01T00-00-00-000Z_lush-task-1.jsonl')).size,
+    return { label, file_bytes: fs.statSync(path.join(f.config.home, 'sessions', '2026-01-01T00-00-00-000Z_lush-ap-1.jsonl')).size,
       cold_ms: +cold.ms.toFixed(3), warm_ms: +warm.ms.toFixed(3), timer_delay_ms: +(firedAt - start).toFixed(3),
       bytes_read: coldStats.bytes, budget_bytes: coldStats.budget_bytes, truncated: cold.value.truncated };
   } finally { f.close(); }
 }
 
 const thresholds = { overview: 100, render: 50, large_log_cold: 100, unchanged_usage: 10, other_rpc_timer_delay: 150 };
-const taskSets = [];
-for (const count of [20, 1000, 10000]) taskSets.push(await taskDataset(count));
+const apSets = [];
+for (const count of [20, 1000, 10000]) apSets.push(await apDataset(count));
 const logSets = [];
 for (const [label, size] of [['small', 64 * 1024], ['medium', 2 * 1024 * 1024], ['large', 12 * 1024 * 1024]]) {
   logSets.push(await logDataset(label, size));
 }
 const report = {
   environment: { bun: Bun.version, platform: `${process.platform}/${process.arch}` },
-  task_sets: taskSets, log_sets: logSets, thresholds_ms: thresholds,
+  ap_sets: apSets, log_sets: logSets, thresholds_ms: thresholds,
 };
 const violations = [];
-for (const set of report.task_sets) {
-  if (set.overview_ms > thresholds.overview) violations.push(`${set.tasks} tasks overview ${set.overview_ms}ms > ${thresholds.overview}ms`);
-  if (set.render_ms > thresholds.render) violations.push(`${set.tasks} tasks render ${set.render_ms}ms > ${thresholds.render}ms`);
-  if (set.tasks >= 1000 && (set.shown !== 50 || !set.truncated || !set.has_more || !set.ui_truncation || !set.ui_paging)) {
-    violations.push(`${set.tasks} tasks did not expose the bounded UI truncation/page controls`);
+for (const set of report.ap_sets) {
+  if (set.overview_ms > thresholds.overview) violations.push(`${set.aps} aps overview ${set.overview_ms}ms > ${thresholds.overview}ms`);
+  if (set.render_ms > thresholds.render) violations.push(`${set.aps} aps render ${set.render_ms}ms > ${thresholds.render}ms`);
+  if (set.aps >= 1000 && (set.shown !== 50 || !set.truncated || !set.has_more || !set.ui_truncation || !set.ui_paging)) {
+    violations.push(`${set.aps} aps did not expose the bounded UI truncation/page controls`);
   }
 }
 const large = report.log_sets.find(set => set.label === 'large');
