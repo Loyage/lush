@@ -32,6 +32,35 @@ test('Task 图以 Task 为节点；原分支图仍可切换，折叠与刷新不
   expect(deepText(dom.node('detail'))).toContain('实现功能');
 });
 
+test('Task 图默认隐藏已归档 Task，可用「显示已归档」开关就地查看', async () => {
+  const archived = { id: 99, parent_id: 1, task_kind: 'say', role: 'agent', status: 'completed',
+    title: '已归档的工作', branch: 'lush/task-99', workspace: null, integration: 'merged',
+    branch_info: { parent: 'main', archived: true, current_head: null, diagnostics: null, subtree_say: 0, merge_run: null },
+    children: [] };
+  graph.nodes.push(archived); graph.total += 1;
+  try {
+    await dom.node('task-graph-open').onclick();
+    expect(dom.node('detail').querySelector('[data-task-id="99"]')).toBeNull();
+    expect(deepText(dom.node('detail'))).not.toContain('已归档的工作');
+    const toggle = dom.node('detail').querySelector('.task-graph-archived-toggle');
+    expect(toggle).toBeTruthy();
+    expect(toggle.textContent).toContain('显示已归档（1）');
+    expect(toggle.getAttribute('data-help')).toContain('默认隐藏');
+    toggle.onclick();
+    const card = dom.node('detail').querySelector('[data-task-id="99"]');
+    expect(card).toBeTruthy();
+    expect(deepText(card)).toContain('分支已归档');
+    expect(dom.node('detail').querySelector('.task-graph-archived-toggle').textContent).toContain('隐藏已归档（1）');
+    // 再点一次收回，保持默认视图。
+    dom.node('detail').querySelector('.task-graph-archived-toggle').onclick();
+    expect(dom.node('detail').querySelector('[data-task-id="99"]')).toBeNull();
+  } finally {
+    graph.nodes.pop(); graph.total -= 1;
+    ui.taskGraphShowArchived = false;
+    await dom.node('task-graph-open').onclick();
+  }
+});
+
 test('Task 图：效果展示子 Task 的隔离检出显式标注 detached worktree，普通分支仍写 worktree', async () => {
   const showcase = { id: 3, parent_id: 2, task_kind: 'showcase', role: 'showcase', status: 'waiting', title: '展示效果',
     branch: null, workspace: '/tmp/showcase-3', children: [] };

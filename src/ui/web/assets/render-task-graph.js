@@ -24,6 +24,12 @@ function collapsed() {
 }
 function save(set) { try { localStorage.setItem(scopedKey(KEY), JSON.stringify([...set])); } catch { /* storage unavailable */ } }
 
+/** 归档后的 Task：分支已归档（合并队列收尾时自动发生）。归档是记录状态，任务行仍在库里，
+ *  只是默认不再占 Task 图主视图；这里只认读模型给出的字段，不自己猜 Git 现状。 */
+function isArchivedTask(node) {
+  return node.branch_info?.archived === true || node.archived === true;
+}
+
 /** 卡片颜色口径：running 最醒目，其余按真实状态各自一色（排队 / 在等 / 待你 / 完成 / 失败 / 取消）；
  *  只有既非活动也没有明确终结语义的才落到 idle。看板一眼能分清「正在跑」和「停下来了」。 */
 function taskVisualState(node) {
@@ -171,20 +177,27 @@ function taskCard(node, folded, refresh) {
 
 export function renderTaskGraph(graph) {
   if (ui.view?.id !== 'task-graph') return;
-  graph = { ...graph, nodes: (graph.nodes || []).filter(node => ['say','child','main','owner'].includes(node.task_kind)) };
+  const all = (graph.nodes || []).filter(node => ['say','child','main','owner'].includes(node.task_kind));
+  const full = { ...graph, nodes: all };
+  // 归档 Task 默认不画：它们是收尾后的记录，收进「显示已归档」开关后面，避免压住仍在进行的工作。
+  // 过滤在 taskForest 之前完成，所以归档父节点下的未归档子 Task 会像分支图那样顶成根，不会一起消失。
+  const archivedCount = all.filter(isArchivedTask).length;
+  const nodes = ui.taskGraphShowArchived ? all : all.filter(node => !isArchivedTask(node));
+  const view = { ...full, nodes };
   const host = $('detail');
   const saved = collapsed();
-  const forest = taskForest(graph);
-  ui.taskGraphIds = new Set(graph.nodes.map(node => node.id));
+  const forest = taskForest(view);
+  // 用 all 而不是 nodes：可见子 Task 的父 Task 可能只是被归档藏起来，不该被说成「不在当前图中」。
+  ui.taskGraphIds = new Set(all.map(node => node.id));
   const box = el('div', undefined, 'task-graph');
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
   hero.append(el('h1', 'Task 图'), el('p', 'Task 包裹 Agent、分支与 worktree；连线表示父子关系。代码集成由直接父 Agent 或用户按固定提交批准。'));
   const summary = el('div', undefined, 'task-graph-summary');
-  const active = graph.nodes.filter(node => ACTIVE.has(node.status)).length;
-  const decisions = graph.nodes.reduce((count, node) => count + (node.notice_count || 0), 0);
+  const active = nodes.filter(node => ACTIVE.has(node.status)).length;
+  const decisions = nodes.reduce((count, node) => count + (node.notice_count || 0), 0);
   const counts = new Map();
-  for (const node of graph.nodes) counts.set(node.status, (counts.get(node.status) || 0) + 1);
-  summary.append(badge(`图中 ${graph.nodes.length} / ${graph.total} Task`), badge(`${active} 活动`));
+  for (const node of nodes) counts.set(node.status, (counts.get(node.status) || 0) + 1);
+  summary.append(badge(`图中 ${nodes.length} / ${graph.total} Task`), badge(`${active} 活动`));
   // 状态计数本身兼作图例：running 的活动色与卡片左边条同源，扫一眼就知道每种颜色代表什么。
   for (const status of STATUS_ORDER) {
     const count = counts.get(status) || 0;
@@ -193,12 +206,20 @@ export function renderTaskGraph(graph) {
     summary.append(badge(`${info.icon} ${info.label} ${count}`, `b-${status}`));
   }
   if (decisions) summary.append(badge(`${decisions} 待决`, 'b-awaiting'));
+  if (archivedCount) {
+    const toggle = button(ui.taskGraphShowArchived ? `隐藏已归档（${archivedCount}）` : `显示已归档（${archivedCount}）`, () => {
+      ui.taskGraphShowArchived = !ui.taskGraphShowArchived;
+      renderTaskGraph(full);
+    }, 'ghost', { help: '归档 Task 是分支合并收尾后自动隐藏的记录；这里只在当前页面显示，不写库、不改任务状态，重开页面仍默认隐藏。' });
+    toggle.classList.add('task-graph-archived-toggle');
+    summary.append(toggle);
+  }
   hero.append(summary, button('刷新', () => loadTaskGraph(), 'ghost'));
   box.append(hero);
-  if (graph.truncated) box.append(el('p', `只显示最近及活动的 ${graph.nodes.length} / ${graph.total} 条 Task；父节点可能在截断范围外。`, 'hint'));
+  if (view.truncated) box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Task；父节点可能在截断范围外。`, 'hint'));
   const paint = (node, parent) => {
     const wrap = el('div', undefined, 'task-graph-node');
-    wrap.append(taskCard(node, saved, () => renderTaskGraph(graph)));
+    wrap.append(taskCard(node, saved, () => renderTaskGraph(full)));
     if (node.children.length && !saved.has(node.id)) {
       const children = el('div', undefined, 'task-graph-children');
       for (const child of node.children) paint(child, children);

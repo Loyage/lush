@@ -60,6 +60,8 @@ export const ui = {
    *  概览因此不必新增 RPC，也不会各自打一次 git。 */
   graphOpen: false, graphFingerprint: null, graphFetchedAt: 0, graphRenderKey: null, lastGraph: null,
   taskGraphFetchedAt: 0, taskGraphIds: new Set(),
+  /** Task 图里是否临时显示已归档 Task（默认隐藏，随页面重开复位）。 */
+  taskGraphShowArchived: false,
   /** 分支图里收起的分支名（Set）：收起的是整棵子树，持久化到 localStorage。
    *  graphExpanded 是用户显式展开的分支名：默认值只在两个集合里都没有时生效。 */
   graphCollapsed: readGraphCollapsedPref(),
@@ -100,7 +102,7 @@ export function resetUiState() {
   ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.noticeRecords = null; ui.loadNoticeRecords = null;
   ui.lastSnapshot = null; ui.taskHistory = []; ui.taskHistoryPage = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.graphOpen = false; ui.graphFingerprint = null; ui.graphFetchedAt = 0; ui.graphRenderKey = null; ui.lastGraph = null;
-  ui.taskGraphFetchedAt = 0; ui.taskGraphIds = new Set();
+  ui.taskGraphFetchedAt = 0; ui.taskGraphIds = new Set(); ui.taskGraphShowArchived = false;
   ui.graphCollapsed = readGraphCollapsedPref();
   ui.graphExpanded = readGraphExpandedPref();
   ui.graphFilesExpanded = new Set();
