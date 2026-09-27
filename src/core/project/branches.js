@@ -87,6 +87,53 @@ export default {
     return nodes;
   },
 
+  /**
+   * 只读判断一批分支「现在能不能归档」，给 Task 图 / Task 详情的归档按钮做可用性预判。
+   * 判据与分支图 graph-layout 的 `archivable` 对齐：这条分支已登记、未归档也未删除、不是当前检出、
+   * 整棵子树里没有非终态任务，且还有东西可删（本地 ref 或 worktree 至少存在一个）。传进来的名字是
+   * 子树根：归档一条就是归档它整棵子树，所以判断覆盖后代分支。真正的安全门仍在 `archiveBranch`
+   * （它还额外查冻结、未集成请求、无分支使用者与 running invocation）；这里只回答按钮该不该出现，
+   * 不写库、不动 Git。`state` 可传入调用方已经取过的 `gitState()`，省一次 for-each-ref。
+   */
+  async branchArchivability(names, state = null) {
+    const want = [...new Set((names ?? []).filter(name => typeof name === 'string' && name.length > 0))];
+    const result = new Map();
+    if (!want.length) return result;
+    const git = state ?? await gitState(this.workspaces, this.config.project);
+    const rows = this.store.branches();
+    const byName = new Map(rows.map(row => [row.branch, row]));
+    const statusByBranch = new Map();
+    const remember = (branch, status) => {
+      if (!statusByBranch.has(branch)) statusByBranch.set(branch, []);
+      statusByBranch.get(branch).push(status);
+    };
+    for (const task of this.store.all('SELECT branch, status FROM tasks WHERE branch IS NOT NULL')) remember(task.branch, task.status);
+    // 展示任务的源分支在 showcase JSON 元数据里，不在 tasks.branch：归档时它们也算占用者。
+    for (const task of this.store.all("SELECT status, json_extract(showcase,'$.branch') AS branch FROM tasks WHERE role='showcase' AND showcase IS NOT NULL"))
+      if (task.branch) remember(task.branch, task.status);
+    for (const name of want) {
+      const record = byName.get(name) ?? null;
+      // 只统计真正会被删掉的那些分支：已归档 / 已回收 / 未登记的后代跳过（与 archiveBranch 的 targets 同口径）。
+      const targets = [name, ...descendantsOf(rows, name)].filter(branch => byName.get(branch)?.status === 'active');
+      let blocking = 0;
+      for (const branch of targets) for (const status of statusByBranch.get(branch) ?? []) if (!TERMINAL.has(status)) blocking += 1;
+      const hasRef = git.git ? git.refs.has(name) : false;
+      const worktree = record?.worktree ?? (git.git ? git.worktrees.get(name) ?? null : null);
+      const worktreeState = worktree ? (fs.existsSync(worktree) ? 'present' : 'missing') : 'none';
+      const archived = record?.status === 'archived';
+      const deleted = record?.status === 'deleted';
+      const current = name === git.current_branch;
+      const archivable = !archived && record !== null && !deleted && !current && blocking === 0
+        && (hasRef || worktreeState === 'present');
+      result.set(name, {
+        archivable, archived, deleted, current, tracked: record !== null, blocking_tasks: blocking,
+        subtree_branches: Math.max(0, targets.length - 1),
+        head_commit: hasRef ? git.refs.get(name) : null, worktree_state: worktreeState,
+      });
+    }
+    return result;
+  },
+
   /** branch.tree：谱系森林 + git 现状。默认把「有 ref 但没有记录」的分支也画出来（标 untracked）。
    *  归档的分支不再占分支树（它们是记录：`branch show` / 事件 / 任务详情里查），但不能连带藏掉它们的后代：
    *  把后代接到最近的非归档祖先上。 */

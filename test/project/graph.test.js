@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, git } from '../helpers.js';
 import { setup, change } from '../workspaces/harness.js';
+import { Dispatcher } from '../../src/rpc/dispatcher.js';
 
 // 分支图读模型：节点 / 边 / ahead-behind / merged / 缺失容错 / 只读 / 上限。
 // 每个用例自给自足：setup() 造一个真 git 仓库 + 一个可派活的 coordinator 父任务。
@@ -483,5 +484,35 @@ test('graph carries each task pending notice and its count', async () => {
     nodes = await nodesOf();
     expect(nodes.get(child.id).notice).toBeNull();
     expect(nodes.get(child.id).notice_count).toBe(0);
+  } finally { await f.close(); }
+});
+
+test('branch archivability read model: active subtree blocks, settled branch is archivable, archived stays recorded', async () => {
+  const f = await setup();
+  try {
+    const branch = f.store.task(f.task.id).branch;
+    // 自己还没结算（活动任务）时不可归档：Task 图与详情的归档按钮都不会出现。
+    let node = (await f.project.taskGraph()).nodes.find(row => row.id === f.task.id);
+    expect(node.branch_info).toMatchObject({ archived: false, archivable: false, subtree_branches: 0 });
+    expect((await f.project.branchArchivability([branch])).get(branch)).toMatchObject({ archivable: false, archived: false });
+
+    // 结算后这条分支可归档；Task 图与归档判据同口径。
+    await change(f, f.task, 'A\n');
+    node = (await f.project.taskGraph()).nodes.find(row => row.id === f.task.id);
+    expect(node.branch_info.archivable).toBe(true);
+    expect((await f.project.branchArchivability([branch])).get(branch))
+      .toMatchObject({ archivable: true, archived: false, subtree_branches: 0, blocking_tasks: 0 });
+    // Web 详情走异步 RPC：handler 在同步 inspect 之上附上 branch_archive，核心 inspect 本身保持同步。
+    expect(f.project.inspect(f.task.id).branch_archive).toBeUndefined();
+    const inspected = await new Dispatcher(f.project).dispatch('task.inspect', { id: f.task.id });
+    expect(inspected.branch_archive).toMatchObject({ archivable: true, archived: false, subtree_branches: 0 });
+
+    // 归档后读模型立刻反映：archived 且不再可归档，但分支记录与 Task 仍在。
+    await f.project.archiveBranch(branch);
+    node = (await f.project.taskGraph()).nodes.find(row => row.id === f.task.id);
+    expect(node.branch_info.archived).toBe(true);
+    expect(node.branch_info.archivable).toBe(false);
+    expect((await f.project.branchArchivability([branch])).get(branch)).toMatchObject({ archivable: false, archived: true });
+    expect(f.store.branch(branch).status).toBe('archived');
   } finally { await f.close(); }
 });

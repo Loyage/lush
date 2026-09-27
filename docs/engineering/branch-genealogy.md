@@ -67,7 +67,7 @@ lush branch bind BRANCH COMMIT      # 确认一条非 main 本地分支及固定
 lush branch archive BRANCH [--discard]  # 归档整棵子树：删每条的 worktree 与本地 ref，保留任务、事件与会话；--discard 才会丢弃未提交改动
 ```
 
-`branch show` 接受分支短名，也接受纯数字 task id。RPC 另有用户专属 `branch.bind`（绑定已有本地分支）与 `branch.archive`（归档，允许未合并）；交互主入口是 Web 分支图。代码落地不经过旧分支命令，而由运行中的直接父 Agent `task.integrate` 或用户 `task.approve_merge` 按固定提交推进。
+`branch show` 接受分支短名，也接受纯数字 task id。RPC 另有用户专属 `branch.bind`（绑定已有本地分支）与 `branch.archive`（归档，允许未合并）；交互入口是 Web 分支图、Task 图与 Task 详情（三处共用同一动作）。代码落地不经过旧分支命令，而由运行中的直接父 Agent `task.integrate` 或用户 `task.approve_merge` 按固定提交推进。
 
 ### 已有分支怎么办
 

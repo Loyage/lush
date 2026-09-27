@@ -228,3 +228,35 @@ test('Task 图：merge 中间层只在队列活跃时现身，空闲时子 Task 
     await dom.node('task-graph-open').onclick();
   }
 });
+
+test('Task 图：可归档分支给「归档」按钮，帮助说清含义，确认后才走 branch.archive', async () => {
+  const saved = graph.nodes[1].branch_info;
+  graph.nodes[1].branch_info = { ...(saved || {}), archived: false, current_head: 'abc456', archivable: true, subtree_branches: 0 };
+  try {
+    await dom.node('task-graph-open').onclick();
+    const card = dom.node('detail').querySelector('[data-task-id="2"]');
+    const archive = card.querySelectorAll('button').find(node => node.textContent === '归档');
+    expect(archive).toBeTruthy();
+    // 按钮说明归档的含义：删 worktree/ref、未提交改动会丢、Task 与会话保留、不等于删除 Task。
+    const help = archive.getAttribute('data-help');
+    expect(help).toContain('worktree 与本地 ref');
+    expect(help).toContain('未提交改动');
+    expect(help).toContain('不等于删除 Task');
+
+    const pending = archive.onclick();
+    expect(dialogText(dom)).toContain('保留任务、会话与分支记录');
+    expect(world.state.actions.some(entry => entry.method === 'branch.archive')).toBe(false);
+    await answerDialog(dom, '归档');
+    await pending;
+    expect(world.state.actions).toContainEqual({ method: 'branch.archive', params: { branch: 'lush/task-2', discard: true } });
+
+    // 不可归档（还有活动任务 / 当前检出等）时不给按钮。
+    graph.nodes[1].branch_info = { ...(saved || {}), archived: false, current_head: 'abc456', archivable: false, subtree_branches: 0 };
+    await dom.node('task-graph-open').onclick();
+    expect(dom.node('detail').querySelector('[data-task-id="2"]')
+      .querySelectorAll('button').some(node => node.textContent === '归档')).toBe(false);
+  } finally {
+    graph.nodes[1].branch_info = saved;
+    await dom.node('task-graph-open').onclick();
+  }
+});

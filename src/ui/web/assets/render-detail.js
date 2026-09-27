@@ -18,6 +18,7 @@ import { renderResolutions } from './render-resolutions.js';
 import { specItem } from './render-specs.js';
 import { renderVerifications } from './render-verify.js';
 import { renderShowcase } from './render-showcase.js';
+import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { ui } from './state.js';
 import { agentText } from './text.js';
 import { referenceable } from './context-references.js';
@@ -150,6 +151,10 @@ export function renderDetail(task, history, diff, usage) {
   }, 'ghost', { help: '删除这条任务的 worktree 与本地分支；只有分支已进入目标分支且顶端就是审阅过的提交时才真删，否则保留并在事件里说明原因。' }));
   if (reclaimable && task.workspace && task.branch) actions.append(button('只回收 worktree（保留分支）', async () => { await action('task.cleanup', { id: task.id, keep_branch: true }); await detail(task.id); }, 'ghost',
     { help: '只删除 worktree、保留本地分支；未提交的改动会随 worktree 一起丢失。' }));
+  // 归档与分支图同源（`branch.archive`）：删这条 Task 的分支与后代分支的 worktree/ref，Task 记录与历史保留。
+  if (task.branch_archive?.archivable) actions.append(button('归档', () => runBranchArchive(
+    { name: task.branch, subtreeBranches: task.branch_archive.subtree_branches }, { refresh: () => detail(task.id) }), 'ghost',
+    { help: BRANCH_ARCHIVE_HELP }));
   const verifications = task.verifications || [];
   // 没有代码改动的 say 给一个与「取消」区分的收尾：已解决=没有别的需求，取消=因别的原因放弃。
   const noCommittedChange = !task.head_commit || !task.base_commit || task.head_commit === task.base_commit;

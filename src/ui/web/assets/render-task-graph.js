@@ -10,6 +10,7 @@ import { ui } from './state.js';
 import { scopedKey } from './prefs.js';
 import { taskForest } from './task-graph-layout.js';
 import { branchDiagnostics, decisionRow } from './render-graph.js';
+import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
 
@@ -199,6 +200,10 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
     if (branch.diagnostics) git.append(branchDiagnostics({ name: node.branch, diagnostics: branch.diagnostics }));
     else git.append(el('p', '分支诊断不可用，不能推断工作区干净或已合并。', 'hint'));
     row.append(git);
+    // 归档与分支图同源（`branch.archive`）：删这条分支与后代分支的 worktree/ref，Task 记录保留。
+    if (branch.archivable) row.append(button('归档', () => runBranchArchive(
+      { name: node.branch, subtreeBranches: branch.subtree_branches }, { refresh: loadTaskGraph }), 'ghost',
+      { help: BRANCH_ARCHIVE_HELP }));
   }
 
   if (node.notice) {

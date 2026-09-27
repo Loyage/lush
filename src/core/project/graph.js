@@ -150,6 +150,8 @@ export default {
     const diagnostics = candidates.length ? await this.workspaces.branchDiagnostics(candidates
       .map(name => ({ name, head_commit: refs.get(name) ?? null,
         created_from_commit: records.get(name)?.created_from_commit ?? null }))) : new Map();
+    // 归档按钮的可用性预判（与分支图同口径）：Task 图只读消费，判断在 branches.branchArchivability。
+    const archivability = await this.branchArchivability(branchNames);
     const nodes = selected.map(({ goal, progress_plan, reservation, ...row }) => {
       const view = this.progressView({ progress_plan, reservation }, runs.get(row.id) ?? []);
       const delivery = view.reservation;
@@ -182,6 +184,8 @@ export default {
         reservation: delivery, delivery: delivery ? { kind: delivery.kind, status: delivery.status,
           blocked_reason: delivery.blocked_reason ?? null } : null,
         branch_info: row.branch ? { parent: branch?.parent ?? null, archived: branch?.status === 'archived',
+          archivable: archivability.get(row.branch)?.archivable === true,
+          subtree_branches: archivability.get(row.branch)?.subtree_branches ?? 0,
           current_head: refs.get(row.branch) ?? null, diagnostics: diagnostics.get(row.branch) ?? null,
           subtree_say, merge_run: mergeRun ? { mode: mergeRun.mode ?? 'merge_all', status: mergeRun.status,
             done: mergeRun.done?.length ?? 0, total: mergeRun.order?.length ?? 0, task_id: mergeRun.task_id ?? null } : null } : null,

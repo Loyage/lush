@@ -8,7 +8,7 @@
 
 ## 分支归档
 
-`lush branch archive BRANCH [--discard]`（RPC `branch.archive {branch, discard?}`，用户专属）是**显式放弃一条分支的代码**的路径，与上面的安全回收是两件不同的事。**归档一条＝归档它整棵子树**：任务分支是从父分支长出来的，只删一半会留下一批「父分支已不在」的后代，所以传进来的那条是子树根，它的全部后代一起归档（已经归档 / 回收过的后代跳过）：
+`lush branch archive BRANCH [--discard]`（RPC `branch.archive {branch, discard?}`，用户专属）是**显式放弃一条分支的代码**的路径，与上面的安全回收是两件不同的事。**归档一条＝归档它整棵子树**：任务分支是从父分支长出来的，只删一半会留下一批「父分支已不在」的后代，所以传进来的那条是子树根，它的全部后代一起归档（已经归档 / 回收过的后代跳过）。Web 上分支图、Task 图与 Task 详情三个入口共用同一个动作（`branch-archive.js`）：界面先按与 `archiveBranch` 对齐的只读判据（`branches.branchArchivability`）决定按钮出不出现，真正的安全门仍在 runtime。
 
 - cleanup / `task cleanup` 是**安全回收**：必须先证明分支的成果已经进入目标分支（tip 仍含审阅过的 `head_commit`，且 tip 是目标分支的祖先），证明不了就保留并说明 reason。
 - 归档是**明知可能未合并也允许删**：用户明确表示不再要这棵子树的代码，runtime 不再做祖先检查——因此 `archiveBranch` 是 Git 边界里唯一一条这样的 compare-and-delete。

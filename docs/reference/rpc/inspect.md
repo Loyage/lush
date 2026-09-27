@@ -12,7 +12,7 @@
 
 `task wait ID` 在客户端轮询 inspect；只阻塞当前客户端，终态返回。failed/cancelled 设置非零退出码。Agent 不允许使用 wait，应结束 invocation 由调度器唤醒。
 
-`task.list` 和 tree 返回摘要，不复制每个 task 的结果与收件箱。完整 result 在 inspect 中；inspect 的子任务、消息、notice 集合受字节预算限制，完整记录仍在 SQLite。摘要与 inspect 都带 agent 字段：摘要含 `agent_wakes` / `agent_last_seen_at`，inspect 额外给出 `agent.id`（`<role>#<task-id>`）、`agent.active` 与 `agent.pid`；inspect 另带 `resolutions`（解分歧 / 收尾记录：`{id, status, integration, branch, head_commit, ...}`），解分歧任务自身带 `resolves_task_id`。history 每页最多 100 个事件且有字节预算，以最后一条 event.id 作为下一页 after。大型任务森林超过 1 MiB frame 时应改用 task list 分页和指定根 ID 的 task tree。
+`task.list` 和 tree 返回摘要，不复制每个 task 的结果与收件箱。完整 result 在 inspect 中；inspect 的子任务、消息、notice 集合受字节预算限制，完整记录仍在 SQLite。摘要与 inspect 都带 agent 字段：摘要含 `agent_wakes` / `agent_last_seen_at`，inspect 额外给出 `agent.id`（`<role>#<task-id>`）、`agent.active` 与 `agent.pid`；inspect 另带 `resolutions`（解分歧 / 收尾记录：`{id, status, integration, branch, head_commit, ...}`），解分歧任务自身带 `resolves_task_id`。带分支的 Task 另附 `branch_archive` 投影（`archivable` / `archived` / `subtree_branches` / `blocking_tasks` 等，与 `branchArchivability` 同口径），供 Web 详情页决定是否显示「归档」按钮；核心 `inspect` 保持同步，这一层由 `task.inspect` RPC handler 异步附加。history 每页最多 100 个事件且有字节预算，以最后一条 event.id 作为下一页 after。大型任务森林超过 1 MiB frame 时应改用 task list 分页和指定根 ID 的 task tree。
 
 `task.diff` 是只读审阅视图：不写库、不改仓库，因此不进入 Git 串行队列。返回 `{branch, target_branch, base_commit, head_commit, committed, base_behind, files, files_total, pending, pending_total, commits}`；`files` 是 base..head 的已提交改动，`pending` 是相对 HEAD 的未提交改动（含未跟踪文件，`code` 为 git porcelain 状态、新增删除行数为 null）。`base_behind` 是 `base_commit..target_branch` 的提交数：没有 code 依赖时 `base_commit` 是这条输入在 submit 那一刻的锚点，用户之后在主树上的提交都算在 `base_behind` 里（它们不在这次审阅里）；stacked 任务的 base 是上游分支，所以它也含上游尚未合并的差异。无工作区时返回 `null`。该 RPC 暂无 CLI 命令。
 

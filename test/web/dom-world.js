@@ -111,6 +111,8 @@ export function makeWorld() {
     // explanation.start 的返回与 /api/explanation/:id 读取。
     explanations: new Map(), explanationSeq: 0,
     // 快速介绍：/api/intro/config 与 /api/task/:id/intros、/api/intro/:id。
+    // Task 详情归档按钮的读模型投影：测试可设 state.branchArchive 让任务 #1 带 branch_archive。
+    branchArchive: null,
     intros: new Map(), introSeq: 0,
     introConfig: { file: '/tmp/demo/.lush/quick-intro.json', base_url: '', model: '', has_key: false, key_hint: '', ready: false },
     // 一条已冻结、等待验收的 Review Candidate（挂到 Intent #2 上）。
@@ -186,6 +188,7 @@ export function makeWorld() {
   });
   const detail = id => {
     if (id === 1) return { ...task1, branch: 'lush/1-x', workspace: '/tmp/wt/1', head_commit: 'abc1234', target_branch: 'main',
+      ...(state.branchArchive ? { branch_archive: state.branchArchive } : {}),
       calls: 1, agent: { id: 'worker#1', wakes: 2, active: true, pid: 4242, last_seen_at: iso(NOW - 1000) },
       deps: [], dependents: [], verifications: [{ id: 2, status: 'completed', result: '检验通过', updated_at: iso(NOW - 500) }],
       resolutions: [], children: [], messages: [], result: null, error: null, integration_error: null };

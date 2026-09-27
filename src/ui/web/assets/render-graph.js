@@ -25,6 +25,7 @@ import { activateDetailView } from './sidebar-ui.js';
 import { saveGraphPrefs, ui } from './state.js';
 import { referenceable } from './context-references.js';
 import { agentHelp } from './help.js';
+import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
 
@@ -263,33 +264,6 @@ function taskRow(node, owningBranch = null) {
   return row;
 }
 
-/** 归档一子树分支：删掉这条分支与它全部后代的 worktree / 本地 ref，任务、会话与分支记录都留着。
- *  未提交改动只能连 worktree 一起丢，所以先确认；确认走应用内弹窗（dialog.js）——原生 confirm
- *  会被浏览器静默吃掉，那时按钮会变成什么都不做。 */
-async function runBranchArchive(branch) {
-  const descendants = Number(branch.subtreeBranches) || 0;
-  const scope = descendants
-    ? `会删除这条分支与它下面 ${descendants} 条后代分支的 worktree 与本地 ref`
-    : '会删除这条分支的 worktree 与本地 ref';
-  const confirmed = await confirmDialog({
-    title: `归档 ${branch.name}？`,
-    message: `${scope}，保留任务、会话与分支记录（记录仍可在「分支详情」与任务详情里查）；未提交改动会被丢弃。`,
-    confirmLabel: '归档',
-    cancelLabel: '保留',
-    danger: true,
-  });
-  if (!confirmed) return;
-  try {
-    const result = await action('branch.archive', { branch: branch.name, discard: true });
-    const count = Number(result?.count) || 1;
-    const dropped = result?.discarded ? '，已丢弃未提交改动' : '';
-    show(count > 1
-      ? `已归档 ${branch.name} 及它下面 ${count - 1} 条后代分支（共 ${count} 条）：worktree 与本地 ref 已删${dropped}，任务、会话与分支记录都保留`
-      : `${branch.name} 已归档（worktree ${result?.worktree ?? 'absent'}、分支 ${result?.ref ?? 'absent'}${dropped}）；任务与会话已保留`);
-    await loadGraph();
-  } catch (error) { show(error.message, 'error'); }
-}
-
 /** 分支合并的阻塞说明：把 runtime 给出的 blocker 码翻成人话，画在分支表头；
  *  没有可合动作时也用它解释原因。 */
 function blockerText(blockers = []) {
@@ -442,8 +416,8 @@ function branchRow(branch, onCollapsed) {
   if (ownerSay) row.append(deliveryControls(ownerSay, { refresh: loadGraph }));
   // 只有「可归档且尚未归档」的分支才给归档；当前检出、未登记、还有活没完的都不给。
   // 归档一条＝归档它整棵子树（见 runBranchArchive 的确认文案）。
-  if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch), 'ghost',
-    { help: '归档这条分支及它下面的全部后代分支：删除 worktree 与本地 ref，未提交改动会丢失；任务与会话记录保留。' }));
+  if (branch.archivable && !branch.archived) row.append(button('归档', () => runBranchArchive(branch, { refresh: loadGraph }), 'ghost',
+    { help: BRANCH_ARCHIVE_HELP }));
 
   referenceable(row, { kind: 'delivery_branch', target: { target_branch: branch.name, section: 'graph' }, label: `分支 ${branch.name}`,
     quote: [branch.title || branch.name, branch.summary, branch.parent ? `父分支：${branch.parent}` : null,

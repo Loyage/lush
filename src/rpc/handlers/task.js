@@ -12,7 +12,13 @@ export const handlers = {
   'task.page'(p, params, actor) { return p.taskPage(params.before ?? null, Number(params.limit ?? 50), params.scope ?? 'work'); },
   'task.tree'(p, params, actor) { return p.tree(params.id ?? null); },
   'task.ladder'(p, params, actor) { return p.ladder(); },
-  'task.inspect'(p, params, actor) { return p.inspect(params.id); },
+  'task.inspect': async (p, params) => {
+    const task = p.inspect(params.id);
+    if (!task.branch) return task;
+    // 归档按钮的可用性预判只在 Web 详情这种异步 RPC 路径上附加，保持核心 inspect 同步。
+    const info = (await p.branchArchivability([task.branch])).get(task.branch);
+    return info ? { ...task, branch_archive: info } : task;
+  },
   'task.history'(p, params, actor) {
     p.store.task(params.id);
     const after = Number(params.after ?? 0);
