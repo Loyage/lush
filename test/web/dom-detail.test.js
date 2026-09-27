@@ -3,7 +3,7 @@ import { installDom, findByText, deepText } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
-// 概览入口与后退、详情头部意图编号、热 AP 自己变新、折叠执行过程。
+// 概览入口与后退、详情头部意图编号、热任务自己变新、折叠执行过程。
 // 每个 DOM 测试文件都自给自足：bun test 在文件之间共享模块注册表，只有本进程里第一个 dom 文件会走到
 // app.js 顶部那次 boot()，其余文件 import 到的是缓存模块。所以这里自己建 world、装 stub，再显式装配
 // 一次当前 DOM。
@@ -27,12 +27,12 @@ test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash �
   expect(deepText(detail)).toContain('项目概览');
   expect(onOverview()).toBeTruthy();
 
-  // 从 AP 树点进详情（真实的入口）：概览标题随之消失，回概览只能靠左上角的 Lush，
+  // 从任务树点进详情（真实的入口）：概览标题随之消失，回概览只能靠左上角的 Lush，
   // 并且这次要压栈，否则浏览器后退无处可退。
   const pushedBefore = dom.pushed();
-  await dom.node('aps').querySelector('[data-id="1"]').onclick();
+  await dom.node('tasks').querySelector('[data-id="1"]').onclick();
   await until(() => findByText(detail, '追加说明'), 2000);
-  expect(dom.location.hash).toBe('#ap-1');
+  expect(dom.location.hash).toBe('#task-1');
   expect(dom.pushed()).toBeGreaterThan(pushedBefore);
   expect(onOverview()).toBeNull();
 
@@ -42,7 +42,7 @@ test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash �
   expect(dom.location.hash).toBe('');
 
   // 浏览器后退到无 hash 的地址：也是回概览，不是停在一个点不到概览的详情上。
-  dom.location.hash = '#ap-1';
+  dom.location.hash = '#task-1';
   await dom.fire('hashchange');
   await until(() => findByText(detail, '追加说明'), 2000);
   dom.location.hash = '';
@@ -53,7 +53,7 @@ test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash �
 test('详情头部显示对应意图编号，能点开那条意图，input_id 为空时不乱显示', async () => {
   const detail = dom.node('detail');
   const head = () => detail.querySelector('.head');
-  dom.location.hash = '#ap-1';
+  dom.location.hash = '#task-1';
   await dom.fire('hashchange');
   await until(() => head() && findByText(head(), '意图 #1'), 2000);
 
@@ -62,29 +62,29 @@ test('详情头部显示对应意图编号，能点开那条意图，input_id �
   expect(intent.title).toContain('demo');
   expect(intent.classList.contains('intent-link')).toBe(true);
 
-  // 点击跳到这条意图的 planner AP #9（fixture 里 intents[0].ap_id = 9）。
+  // 点击跳到这条意图的 planner 任务 #9（fixture 里 intents[0].task_id = 9）。
   await intent.onclick();
-  expect(dom.location.hash).toBe('#ap-9');
+  expect(dom.location.hash).toBe('#task-9');
 
   // scheduler #4 的 input_id 是 null：头部不该出现「意图 #null」。
-  dom.location.hash = '#ap-4';
+  dom.location.hash = '#task-4';
   await dom.fire('hashchange');
   await until(() => head() && deepText(head()).includes('#4'), 2000);
   expect(deepText(head())).not.toContain('意图 #');
 });
 
-test('运行中 AP 在 AP 树和详情显示计划完成度与当前步骤', async () => {
+test('运行中 task 在任务树和详情显示计划完成度与当前步骤', async () => {
   await dom.intervalFor(1500)();
-  const ap = dom.node('aps').querySelector('[data-id="1"]');
-  const compact = ap.querySelector('.ap-progress-compact');
+  const task = dom.node('tasks').querySelector('[data-id="1"]');
+  const compact = task.querySelector('.task-progress-compact');
   expect(deepText(compact)).toContain('1/3');
   expect(deepText(compact)).toContain('当前：实现功能');
 
-  dom.location.hash = '#ap-1';
+  dom.location.hash = '#task-1';
   await dom.fire('hashchange');
   const detail = dom.node('detail');
-  await until(() => findByText(detail, 'AP 计划'), 2000);
-  const panel = detail.querySelector('.ap-progress-panel');
+  await until(() => findByText(detail, '任务计划'), 2000);
+  const panel = detail.querySelector('.task-progress-panel');
   expect(deepText(panel)).toContain('1/3');
   expect(deepText(panel)).toContain('确认现状');
   expect(deepText(panel)).toContain('实现功能');
@@ -102,14 +102,14 @@ test('运行中 AP 在 AP 树和详情显示计划完成度与当前步骤', asy
   expect(runningDuration.textContent).toContain('已执行 2 分');
 });
 
-test('终态 AP 冻结未完成步骤，不再挂持续上涨的 live tick', async () => {
-  const { renderAPProgress, renderGraphProgress } = await import('../../src/ui/web/assets/render-progress.js');
+test('终态 task 冻结未完成步骤，不再挂持续上涨的 live tick', async () => {
+  const { renderTaskProgress, renderGraphProgress } = await import('../../src/ui/web/assets/render-progress.js');
   const progress = { version: 1, items: [
     { key: 'inspect', label: '确认现状', status: 'completed', started_at: iso(NOW - 9000), completed_at: iso(NOW - 2000), duration_ms: 7000 },
     { key: 'report', label: '交付报告', status: 'pending', started_at: iso(NOW - 65000), completed_at: null, duration_ms: null },
     { key: 'finish', label: '最终答复', status: 'pending', started_at: null, completed_at: null, duration_ms: null },
   ] };
-  const panel = renderAPProgress(progress, { status: 'failed', endedAt: iso(NOW - 5000) });
+  const panel = renderTaskProgress(progress, { status: 'failed', endedAt: iso(NOW - 5000) });
   expect(deepText(panel)).toContain('失败时中止 · 已执行 1 分 0 秒');
   expect(deepText(panel)).toContain('未执行');
   expect(panel.querySelector('.is-interrupted')).toBeTruthy();
@@ -121,15 +121,15 @@ test('终态 AP 冻结未完成步骤，不再挂持续上涨的 live tick', asy
 });
 
 test('等待时间单独成条：不计入 Agent 工作用时，并实时计时', async () => {
-  const { renderAPProgress, renderCompactProgress, renderGraphProgress, refreshProgressDurations } =
+  const { renderTaskProgress, renderCompactProgress, renderGraphProgress, refreshProgressDurations } =
     await import('../../src/ui/web/assets/render-progress.js');
   const progress = { version: 1, updated_at: iso(NOW - 1000), items: [
     { key: 'inspect', label: '确认现状', kind: 'step', status: 'completed', started_at: iso(NOW - 9000), completed_at: iso(NOW - 2000), duration_ms: 7000, work_ms: 7000 },
-    { key: '__wait__', label: '等待子 AP 信号', kind: 'wait', reason: 'waiting', status: 'pending', started_at: iso(NOW - 60000), completed_at: null, duration_ms: null, wait_ms: 30000, waiting_since: iso(NOW - 30000) },
+    { key: '__wait__', label: '等待子 Task 信号', kind: 'wait', reason: 'waiting', status: 'pending', started_at: iso(NOW - 60000), completed_at: null, duration_ms: null, wait_ms: 30000, waiting_since: iso(NOW - 30000) },
     { key: 'implement', label: '实现功能', kind: 'step', status: 'pending', started_at: iso(NOW - 60000), completed_at: null, duration_ms: null, work_ms: 4000, active_since: null },
   ] };
-  const panel = renderAPProgress(progress, { status: 'waiting' });
-  expect(deepText(panel)).toContain('等待子 AP 信号');
+  const panel = renderTaskProgress(progress, { status: 'waiting' });
+  expect(deepText(panel)).toContain('等待子 Task 信号');
   expect(deepText(panel)).toContain('用时 7 秒');
   expect(panel.querySelector('.is-wait.is-current')).toBeTruthy();
   const waitDuration = panel.querySelector('.is-wait-duration');
@@ -138,19 +138,19 @@ test('等待时间单独成条：不计入 Agent 工作用时，并实时计时'
   // 被等待打断的步骤显示冻结的工作用时，而不是「尚未开始」。
   expect(deepText(panel)).toContain('已执行 4 秒');
   // 等待条不占计划完成度：2 个 Agent 步骤里完成 1 个。
-  const meter = panel.querySelector('.ap-progress-meter');
+  const meter = panel.querySelector('.task-progress-meter');
   expect(meter.max).toBe(2);
   expect(meter.value).toBe(1);
 
   const compact = renderCompactProgress(progress);
-  expect(deepText(compact)).toContain('当前：等待子 AP 信号');
+  expect(deepText(compact)).toContain('当前：等待子 Task 信号');
   const graph = renderGraphProgress(progress, { running: false, status: 'waiting' });
-  expect(deepText(graph)).toContain('等待子 AP 信号');
+  expect(deepText(graph)).toContain('等待子 Task 信号');
 });
 
 test('Agent 的模型与用量直接可见：没有折叠开关，也没有可点的「模型、用量与会话信息」标题', async () => {
   const detail = dom.node('detail');
-  dom.location.hash = '#ap-1';
+  dom.location.hash = '#task-1';
   await dom.fire('hashchange');
   await until(() => findByText(detail, '会话记录'), 2000);
 
@@ -176,8 +176,8 @@ test('Agent 的模型与用量直接可见：没有折叠开关，也没有可�
   expect(findByText(process, '终端模式')).toBeTruthy();
 });
 
-test('热 AP 点击才加载执行正文，轮询增量续读并保留阅读节点，收起停止续读', async () => {
-  dom.location.hash = '#ap-1';
+test('热任务点击才加载执行正文，轮询增量续读并保留阅读节点，收起停止续读', async () => {
+  dom.location.hash = '#task-1';
   await dom.fire('hashchange');
   const detail = dom.node('detail');
   const list = () => detail.querySelector('[data-live="transcript-steps"]');
@@ -188,7 +188,7 @@ test('热 AP 点击才加载执行正文，轮询增量续读并保留阅读节�
   const originalList = list();
   const search = detail.querySelector('.transcript-search');
   search.querySelector('input').value = '保留搜索内容';
-  // 同一个 AP 的慢刷新也复用实际阅读节点，不只保存几枚布尔开关。
+  // 同一个任务的慢刷新也复用实际阅读节点，不只保存几枚布尔开关。
   await dom.fire('hashchange');
   await until(() => detail.querySelector('.transcript-search'), 2000);
   expect(list()).toBe(originalList);

@@ -16,8 +16,8 @@ export const MODEL_PRESETS = {
 };
 
 const ROLE_LABELS = {
-  agent: '直接 AP', planner: '规划 AP', coordinator: '协调 AP', worker: '开发 AP', research: '调研 AP',
-  verifier: '检验 AP', merger: '分支分歧解决', showcase: '效果展示', explainer: '执行过程介绍（Pi 无工具）', butler: '托管模式管家（Pi 无工具）',
+  agent: '直接任务', planner: '规划任务', coordinator: '协调任务', worker: '开发任务', research: '调研任务',
+  verifier: '检验任务', merger: '分支分歧解决', showcase: '效果展示', explainer: '执行过程介绍（Pi 无工具）', butler: '托管模式管家（Pi 无工具）',
 };
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_PROMPT_BYTES = 32 * 1024;
@@ -143,7 +143,7 @@ export class AgentSettings {
     return { ...(config.resolved[role === 'scheduler' ? 'planner' : role] || config.default) };
   }
 
-  /** Validate and freeze an AP-local profile for one explicit retry attempt. */
+  /** Validate and freeze a task-local profile for one explicit retry attempt. */
   retryProfile(role, value) {
     const resolvedRole = role === 'scheduler' ? 'planner' : role;
     check(AGENT_ROLES.includes(resolvedRole), `unknown agent role: ${role}`);

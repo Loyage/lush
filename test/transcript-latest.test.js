@@ -7,7 +7,7 @@ import { LushError } from '../src/core/types.js';
 import { PARAMS, USER_ONLY, assertAllowed } from '../src/rpc/registry.js';
 
 /** pi 的会话记录长这样：一行一条 JSON，消息正文按 part 排列。 */
-function sessionFile(root, apId, lines, name = `2026-01-01T00-00-00-000Z_lush-ap-${apId}.jsonl`) {
+function sessionFile(root, taskId, lines, name = `2026-01-01T00-00-00-000Z_lush-task-${taskId}.jsonl`) {
   const dir = path.join(root, '.lush', 'sessions');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(dir, name), lines.map(line => (typeof line === 'string' ? line : JSON.stringify(line))).join('\n') + '\n');
@@ -26,8 +26,8 @@ test('latest returns the newest window with cursor metadata and read-direction d
     sessionFile(f.root, 1, Array.from({ length: 10 }, (_v, index) => assistant(`step ${index}`, 1000 + index)));
     const last = await readTranscriptLatest(f.config, 1, { limit: 3 });
     expect(last.steps.map(step => step.body)).toEqual(['step 7', 'step 8', 'step 9']);
-    expect(last).toMatchObject({ ap_id: 1, next: 10, oldest: 8, has_older: true, truncated: false });
-    expect(last.files).toEqual(['2026-01-01T00-00-00-000Z_lush-ap-1.jsonl']);
+    expect(last).toMatchObject({ task_id: 1, next: 10, oldest: 8, has_older: true, truncated: false });
+    expect(last.files).toEqual(['2026-01-01T00-00-00-000Z_lush-task-1.jsonl']);
     // after 只看新增，has_older 对仍被截断的旧前缀为真；到末尾则空
     expect((await readTranscriptLatest(f.config, 1, { after: 7, limit: 100 })).steps.map(step => step.seq)).toEqual([8, 9, 10]);
     expect(await readTranscriptLatest(f.config, 1, { after: 10, limit: 100 }))
@@ -36,7 +36,7 @@ test('latest returns the newest window with cursor metadata and read-direction d
     expect((await readTranscriptLatest(f.config, 1, { before: 4, limit: 100 })).steps.map(step => step.seq)).toEqual([1, 2, 3]);
     // 没有会话文件不是错误，也不冒充有数据
     expect(await readTranscriptLatest(f.config, 99, { limit: 5 }))
-      .toEqual({ ap_id: 99, steps: [], files: [], next: 0, oldest: 0, has_older: false, truncated: false });
+      .toEqual({ task_id: 99, steps: [], files: [], next: 0, oldest: 0, has_older: false, truncated: false });
     await expect(readTranscriptLatest(f.config, 1, { after: -1 })).rejects.toThrow(LushError);
     await expect(readTranscriptLatest(f.config, 1, { before: -1 })).rejects.toThrow(LushError);
     await expect(readTranscriptLatest(f.config, 1, { limit: 0 })).rejects.toThrow('limit');
@@ -148,12 +148,12 @@ test('latest skips malformed lines and marks an over-long line truncated instead
 test('latest scans across session files in the same order as the head reader', async () => {
   const f = fixture();
   try {
-    sessionFile(f.root, 9, [assistant('old file', 1000)], '2026-01-01T00-00-00-000Z_lush-ap-9.jsonl');
-    sessionFile(f.root, 9, [assistant('new file', 2000)], '2026-02-01T00-00-00-000Z_lush-ap-9.jsonl');
+    sessionFile(f.root, 9, [assistant('old file', 1000)], '2026-01-01T00-00-00-000Z_lush-task-9.jsonl');
+    sessionFile(f.root, 9, [assistant('new file', 2000)], '2026-02-01T00-00-00-000Z_lush-task-9.jsonl');
     const latest = await readTranscriptLatest(f.config, 9, { limit: 10 });
     expect(latest.steps.map(step => [step.body, step.file])).toEqual([
-      ['old file', '2026-01-01T00-00-00-000Z_lush-ap-9.jsonl'],
-      ['new file', '2026-02-01T00-00-00-000Z_lush-ap-9.jsonl'],
+      ['old file', '2026-01-01T00-00-00-000Z_lush-task-9.jsonl'],
+      ['new file', '2026-02-01T00-00-00-000Z_lush-task-9.jsonl'],
     ]);
     expect(latest.steps.map(step => step.seq)).toEqual([1, 2]);
     // 文件边界不跨文件推算：新文件的首个请求之前没有可比对上下文
@@ -162,8 +162,8 @@ test('latest scans across session files in the same order as the head reader', a
   } finally { await f.close(); }
 });
 
-test('ap.transcript_latest is a user-only read RPC with the documented params', () => {
-  expect(PARAMS['ap.transcript_latest']).toEqual(['id', 'after', 'before', 'limit']);
-  expect(USER_ONLY.has('ap.transcript_latest')).toBe(true);
-  expect(() => assertAllowed('ap.transcript_latest', { id: 1 }, { id: 1 })).toThrow('requires user approval');
+test('task.transcript_latest is a user-only read RPC with the documented params', () => {
+  expect(PARAMS['task.transcript_latest']).toEqual(['id', 'after', 'before', 'limit']);
+  expect(USER_ONLY.has('task.transcript_latest')).toBe(true);
+  expect(() => assertAllowed('task.transcript_latest', { id: 1 }, { id: 1 })).toThrow('requires user approval');
 });

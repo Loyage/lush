@@ -11,7 +11,7 @@ test('docs index lists the bundled documentation, grouped for reading', async ()
     const { docs } = await (await fetch(f.url + '/api/docs')).json();
     const ids = docs.map(doc => doc.id);
     expect(ids).toContain('readme');
-    expect(ids).toContain('docs-ap-flow');
+    expect(ids).toContain('docs-task-flow');
     expect(ids).toContain('docs-engineering-modules');
     expect(docs.find(doc => doc.id === 'readme').group).toBe('总览');
     expect(docs.find(doc => doc.id === 'docs-contributing-documentation').group).toBe('贡献指南');
@@ -36,13 +36,13 @@ test('each document is delivered as markdown with its repository path', async ()
     const readme = await (await fetch(f.url + '/api/docs/readme')).json();
     expect(readme.path).toBe('README.md');
     expect(readme.markdown).toStartWith('# Lush');
-    expect(readme.markdown).toContain('docs/ap-flow.md');
+    expect(readme.markdown).toContain('docs/task-flow.md');
     const modules = await (await fetch(f.url + '/api/docs/docs-engineering-modules')).json();
     expect(modules.markdown).toContain('模块地图');
     expect(modules.markdown).toContain('src/core/project.js');
     // 子目录里的文档同样只靠 id 命中
-    const rpc = await (await fetch(f.url + '/api/docs/docs-reference-rpc-ap')).json();
-    expect(rpc.path).toBe('docs/reference/rpc/ap.md');
+    const rpc = await (await fetch(f.url + '/api/docs/docs-reference-rpc-tasks')).json();
+    expect(rpc.path).toBe('docs/reference/rpc/tasks.md');
   } finally { await f.close(); }
 });
 
@@ -54,8 +54,8 @@ test('the lazy search index contains headings, prose and code without mixing Mer
     const { docs } = await response.json();
     const core = docs.find(doc => doc.id === 'docs-core-architecture');
     const execution = docs.find(doc => doc.id === 'docs-engineering-execution-model');
-    expect(core.headings).toContain('项目、输入与 AP');
-    expect(core.body).toContain('直接关联的 AP');
+    expect(core.headings).toContain('项目、输入与任务');
+    expect(core.body).toContain('直接关联的 Task');
     expect(execution.body).toContain('释放执行槽');
     expect(core.diagram).toContain('flowchart LR');
     expect(core.body).not.toContain('flowchart LR');

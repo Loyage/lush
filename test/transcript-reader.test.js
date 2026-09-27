@@ -9,7 +9,7 @@ import { groupSteps, stepSummary } from '../src/ui/web/assets/transcript-model.j
 const row = message => ({ type: 'message', timestamp: '2026-01-01T00:00:00Z', message });
 const assistant = content => row({ role: 'assistant', content });
 function session(f, name, records) {
-  const file = path.join(f.config.home, 'sessions', `${name}_lush-ap-1.jsonl`);
+  const file = path.join(f.config.home, 'sessions', `${name}_lush-task-1.jsonl`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, records.map(value => JSON.stringify(value)).join('\n') + '\n'); return file;
 }

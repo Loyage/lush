@@ -2,7 +2,7 @@
 
 当前公开方法以 `src/rpc/registry.js` 的白名单为准；本层只记录白名单里的接口。
 
-- [AP、Run 与 Artifact](ap.md)
+- [Task、Run 与 Artifact](tasks.md)
 - [Inspect、history、diff 与 transcript](inspect.md)
 - [Notice](notices.md)
 - [分支](branches.md)

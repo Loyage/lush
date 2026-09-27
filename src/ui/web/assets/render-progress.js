@@ -32,7 +32,7 @@ function runningDuration(startedAt, now = Date.now()) {
 
 /**
  * 读模型给出的实际耗时：优先用「工作用时 + 当前调用起点」的投影（等待已经被 runtime 排除），
- * 只有旧数据没有 work_ms 时才回落到 started_at 的墙钟计时，保证历史 AP 和 DOM fixture 仍能显示。
+ * 只有旧数据没有 work_ms 时才回落到 started_at 的墙钟计时，保证历史任务和 DOM fixture 仍能显示。
  */
 export function liveProgressMs(item, now = Date.now()) {
   if (!item) return 0;
@@ -62,18 +62,18 @@ function applyLiveTiming(node, item) {
   if (item.started_at) node.dataset.progressStartedAt = item.started_at;
 }
 
-function liveDuration(item, className = 'ap-progress-duration is-running-duration', prefix = '已执行') {
+function liveDuration(item, className = 'task-progress-duration is-running-duration', prefix = '已执行') {
   const node = el('span', `${prefix} ${formatProgressDuration(liveProgressMs(item))}`, className);
   applyLiveTiming(node, item);
   return node;
 }
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
-const STOPPED_LABEL = { completed: 'AP 结束时未完成', failed: '失败时中止', cancelled: '取消时中止' };
+const STOPPED_LABEL = { completed: '任务结束时未完成', failed: '失败时中止', cancelled: '取消时中止' };
 
 function stoppedDuration(startedAt, endedAt, status) {
   const started = Date.parse(startedAt), ended = Date.parse(endedAt);
-  const label = STOPPED_LABEL[status] || 'AP 结束时中止';
+  const label = STOPPED_LABEL[status] || '任务结束时中止';
   return Number.isFinite(started) && Number.isFinite(ended)
     ? `${label} · 已执行 ${formatProgressDuration(Math.max(0, ended - started))}` : label;
 }
@@ -102,13 +102,13 @@ export function refreshProgressDurations(root = globalThis.document) {
 export function renderCompactProgress(progress) {
   const stats = progressStats(progress);
   if (!stats.total) return null;
-  const node = el('div', undefined, 'ap-progress-compact');
-  const meter = el('progress', undefined, 'ap-progress-meter'); meter.max = stats.total; meter.value = stats.completed;
-  node.append(meter, el('span', `${stats.completed}/${stats.total}`, 'ap-progress-count'),
-    el('span', stats.current ? `当前：${stats.current.label}` : '计划已全部完成', 'ap-progress-current'));
+  const node = el('div', undefined, 'task-progress-compact');
+  const meter = el('progress', undefined, 'task-progress-meter'); meter.max = stats.total; meter.value = stats.completed;
+  node.append(meter, el('span', `${stats.completed}/${stats.total}`, 'task-progress-count'),
+    el('span', stats.current ? `当前：${stats.current.label}` : '计划已全部完成', 'task-progress-current'));
   if (stats.current) node.append(stats.current.kind === 'wait'
-    ? liveDuration(stats.current, 'ap-progress-duration is-running-duration compact-duration', '已等待')
-    : liveDuration(stats.current, 'ap-progress-duration is-running-duration compact-duration'));
+    ? liveDuration(stats.current, 'task-progress-duration is-running-duration compact-duration', '已等待')
+    : liveDuration(stats.current, 'task-progress-duration is-running-duration compact-duration'));
   return node;
 }
 
@@ -117,32 +117,32 @@ export function renderGraphProgress(progress, { running = false, status = null }
   if (!stats.total && !running) return null;
   const terminal = TERMINAL.has(status);
   const indeterminate = !stats.total;
-  const node = el('div', undefined, `graph-ap-progress${running ? ' is-running' : ''}${terminal ? ' is-terminal' : ''}${indeterminate ? ' is-indeterminate' : ''}`);
-  const caption = el('div', undefined, 'graph-ap-progress-caption');
+  const node = el('div', undefined, `graph-task-progress${running ? ' is-running' : ''}${terminal ? ' is-terminal' : ''}${indeterminate ? ' is-indeterminate' : ''}`);
+  const caption = el('div', undefined, 'graph-task-progress-caption');
   const label = indeterminate ? '等待 Agent 汇报计划'
     : stats.current ? `${stats.current.label}${terminal ? ` · ${STOPPED_LABEL[status] || '已中止'}` : ''}` : '计划已全部完成';
-  caption.append(el('span', label, 'graph-ap-progress-label'));
+  caption.append(el('span', label, 'graph-task-progress-label'));
   if (!indeterminate && stats.current && !terminal) caption.append(stats.current.kind === 'wait'
-    ? liveDuration(stats.current, 'graph-ap-progress-duration is-running-duration', '已等待')
-    : liveDuration(stats.current, 'graph-ap-progress-duration is-running-duration'));
-  caption.append(el('span', indeterminate ? '进行中' : `${stats.completed}/${stats.total}`, 'graph-ap-progress-count'));
-  const track = el('div', undefined, 'graph-ap-progress-track');
-  const meter = el('progress', undefined, 'graph-ap-progress-meter');
+    ? liveDuration(stats.current, 'graph-task-progress-duration is-running-duration', '已等待')
+    : liveDuration(stats.current, 'graph-task-progress-duration is-running-duration'));
+  caption.append(el('span', indeterminate ? '进行中' : `${stats.completed}/${stats.total}`, 'graph-task-progress-count'));
+  const track = el('div', undefined, 'graph-task-progress-track');
+  const meter = el('progress', undefined, 'graph-task-progress-meter');
   if (!indeterminate) { meter.max = stats.total; meter.value = stats.completed; }
   track.append(meter); node.append(caption, track);
   return node;
 }
 
-export function renderAPProgress(progress, { status = null, endedAt = null } = {}) {
+export function renderTaskProgress(progress, { status = null, endedAt = null } = {}) {
   const stats = progressStats(progress);
   if (!stats.total) return null;
   const terminal = TERMINAL.has(status);
-  const section = block('AP 计划', `${stats.completed}/${stats.total}`);
-  section.classList.add('ap-progress-panel');
+  const section = block('任务计划', `${stats.completed}/${stats.total}`);
+  section.classList.add('task-progress-panel');
   if (terminal) section.classList.add('is-terminal', `is-terminal-${status}`);
-  const meter = el('progress', undefined, 'ap-progress-meter'); meter.max = stats.total; meter.value = stats.completed;
+  const meter = el('progress', undefined, 'task-progress-meter'); meter.max = stats.total; meter.value = stats.completed;
   section.append(meter);
-  const list = el('ol', undefined, 'ap-progress-list');
+  const list = el('ol', undefined, 'task-progress-list');
   let reachedCurrent = false;
   for (const item of stats.items) {
     const wait = item.kind === 'wait';
@@ -150,21 +150,21 @@ export function renderAPProgress(progress, { status = null, endedAt = null } = {
     const current = !done && !reachedCurrent;
     if (current) reachedCurrent = true;
     const state = done ? 'is-complete' : current ? (terminal ? 'is-interrupted' : 'is-current') : 'is-pending';
-    const row = el('li', undefined, `ap-progress-step ${state}${wait ? ' is-wait' : ''}`);
-    row.append(el('span', wait ? '⏳' : done ? '✓' : current ? (terminal ? '×' : '●') : '○', 'ap-progress-icon'),
-      el('span', item.label, 'ap-progress-label'));
-    if (!wait) row.append(el('code', item.key, 'ap-progress-key'));
+    const row = el('li', undefined, `task-progress-step ${state}${wait ? ' is-wait' : ''}`);
+    row.append(el('span', wait ? '⏳' : done ? '✓' : current ? (terminal ? '×' : '●') : '○', 'task-progress-icon'),
+      el('span', item.label, 'task-progress-label'));
+    if (!wait) row.append(el('code', item.key, 'task-progress-key'));
     if (wait) {
-      if (done) row.append(el('span', `等待 ${formatProgressDuration(item.duration_ms ?? item.wait_ms)}`, 'ap-progress-duration is-wait-duration'));
-      else if (current && terminal) row.append(el('span', stoppedDuration(item.waiting_since ?? item.started_at, endedAt, status), 'ap-progress-duration is-stopped-duration'));
-      else if (current) row.append(liveDuration(item, 'ap-progress-duration is-running-duration is-wait-duration', '已等待'));
-      else row.append(el('span', '尚未发生', 'ap-progress-duration is-pending-duration'));
+      if (done) row.append(el('span', `等待 ${formatProgressDuration(item.duration_ms ?? item.wait_ms)}`, 'task-progress-duration is-wait-duration'));
+      else if (current && terminal) row.append(el('span', stoppedDuration(item.waiting_since ?? item.started_at, endedAt, status), 'task-progress-duration is-stopped-duration'));
+      else if (current) row.append(liveDuration(item, 'task-progress-duration is-running-duration is-wait-duration', '已等待'));
+      else row.append(el('span', '尚未发生', 'task-progress-duration is-pending-duration'));
     } else if (done) row.append(el('span', item.duration_ms === null ? '用时未知' : `用时 ${formatProgressDuration(item.duration_ms)}`,
-      'ap-progress-duration is-complete-duration'));
+      'task-progress-duration is-complete-duration'));
     else if (current && terminal) row.append(el('span', stoppedDuration(item.started_at, endedAt, status),
-      'ap-progress-duration is-stopped-duration'));
+      'task-progress-duration is-stopped-duration'));
     else if (current || item.started_at) row.append(liveDuration(item));
-    else row.append(el('span', terminal ? '未执行' : '尚未开始', 'ap-progress-duration is-pending-duration'));
+    else row.append(el('span', terminal ? '未执行' : '尚未开始', 'task-progress-duration is-pending-duration'));
     list.append(row);
   }
   section.append(list);

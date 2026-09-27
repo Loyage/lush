@@ -23,14 +23,14 @@ await boot();
 afterAll(() => dom.restore());
 
 test('resolver 的首次 notice 使用明确动作，不再让“任意回复”承担批准语义', async () => {
-  const panel = noticePanel({ id: 99, ap_id: 5, status: 'open', kind: 'question', title: '要开解冲突 AP 吗？', body: '冲突文件：a.js', created_at: iso(NOW) },
-    { id: 5, role: 'merger', resolves_ap_id: 2, agent_wakes: 0 });
+  const panel = noticePanel({ id: 99, task_id: 5, status: 'open', kind: 'question', title: '要开解冲突任务吗？', body: '冲突文件：a.js', created_at: iso(NOW) },
+    { id: 5, role: 'merger', resolves_task_id: 2, agent_wakes: 0 });
   expect(panel.querySelector('textarea')).toBeNull();
   expect(findByText(panel, '开始解冲突')).toBeTruthy();
   expect(findByText(panel, '暂不处理')).toBeTruthy();
 });
 
-test('批量合并：只列出能合的 AP，冻结的不给选，按依赖顺序确认，并逐条展示结果', async () => {
+test('批量合并：只列出能合的任务，冻结的不给选，按依赖顺序确认，并逐条展示结果', async () => {
   const detail = dom.node('detail');
   // 交付队列现在没有常驻视图，测试自己把它挂进 #detail（每次 refresh 重画概览后都要重挂）。
   const mount = () => detail.replaceChildren(renderLadder(ui.lastSnapshot));
@@ -42,13 +42,13 @@ test('批量合并：只列出能合的 AP，冻结的不给选，按依赖顺�
   expect(boxes().filter(box => box.disabled)).toHaveLength(1);
 
   // main 出现未解决冲突，同时用户切到 release：main 被冻结，release 变成当前可交付分支。
-  world.state.freeze = [{ id: 4, ap_id: 4, target_branch: 'main', resolves_ap_id: null }];
+  world.state.freeze = [{ id: 4, task_id: 4, target_branch: 'main', resolves_task_id: null }];
   world.state.currentBranch = 'release';
   await dom.intervalFor(1500)();
   mount();
   const frozen = boxes().find(box => box.disabled);
   expect(frozen).toBeTruthy();
-  // 被冻结的 AP 在界面上就是不可勾的（浏览器里 disabled 的勾选框不会触发 onchange）。
+  // 被冻结的任务在界面上就是不可勾的（浏览器里 disabled 的勾选框不会触发 onchange）。
   expect(deepText(detail)).toContain('#4 的冲突冻结了 main');
 
   // 只选没被冻结的 #3（它在 release 上，不受 main 的冲突冻结影响）。
@@ -70,7 +70,7 @@ test('批量合并：只列出能合的 AP，冻结的不给选，按依赖顺�
   // mergeBatch 内部会 refresh()（概览重画，且概览不再挂交付队列），重新挂一次队列才能看到逐条结果。
   mount();
   // 请求只带勾选的 id；顺序由运行时按依赖决定。
-  expect(world.state.actions).toEqual([{ method: 'ap.merge_many', params: { ids: [3] } }]);
+  expect(world.state.actions).toEqual([{ method: 'task.merge_many', params: { ids: [3] } }]);
   // 结果逐条展示，刷新后仍在页面上。
   expect(deepText(detail)).toContain('批量交付结果');
   expect(findByText(detail, '已进入目标分支')).toBeTruthy();

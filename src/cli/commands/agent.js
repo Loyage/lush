@@ -87,7 +87,7 @@ export async function run(command, args, { client, json }) {
 
   check(verb === 'set', 'agent expects show, models, prompt, env, init, set or reset');
   const target = args.shift();
-  check(TARGETS.has(target), 'agent set target must be default or an AP role');
+  check(TARGETS.has(target), 'agent set target must be default or a task role');
   const supplied = name => args.includes(name);
   const hasAgent = supplied('--agent'), hasModel = supplied('--model'), hasThinking = supplied('--thinking');
   const hasDefaultPrompt = supplied('--default-prompt');

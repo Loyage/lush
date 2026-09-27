@@ -14,9 +14,9 @@ function fileList(rows, total) {
   if (total > rows.length) list.append(el('li', `… 另有 ${total - rows.length} 个文件`, 'path'));
   return list;
 }
-export function renderDiff(diff, apId = null) {
+export function renderDiff(diff, taskId = null) {
   const section = block('改动概览');
-  if (!diff) { section.append(el('p', '尚无工作区（规划 AP 或不改动代码的 AP 不创建 worktree）。', 'hint')); return section; }
+  if (!diff) { section.append(el('p', '尚无工作区（规划任务或不改动代码的任务不创建 worktree）。', 'hint')); return section; }
   const grid = el('div', undefined, 'grid');
   grid.append(kv('分支', diff.branch || '—', 'mono'), kv('目标分支', diff.target_branch || '—', 'mono'));
   grid.append(kv('基准 → 提交', diff.committed ? `${short(diff.base_commit)} → ${short(diff.head_commit)}` : `${short(diff.base_commit) || '—'} → 无提交`, 'mono'));
@@ -33,9 +33,9 @@ export function renderDiff(diff, apId = null) {
   if (diff.pending?.length) {
     section.append(el('p', '未提交的改动（agent 未提交或失败时留下的）', 'hint'), fileList(diff.pending, diff.pending_total));
   }
-  if (apId) referenceable(section, { kind: 'diff', target: { ap_id: apId }, label: `改动概览 #${apId}`,
+  if (taskId) referenceable(section, { kind: 'diff', target: { task_id: taskId }, label: `改动概览 #${taskId}`,
     quote: [...(diff.commits || []), ...(diff.files || []).map(file => `${file.path} +${file.added ?? '?'} -${file.deleted ?? '?'}`),
       ...(diff.pending || []).map(file => `${file.code || ''} ${file.path}`)].join('\n') || '尚无文件改动',
-    location: { view: 'ap-detail', ap_id: apId, section: 'diff' } });
+    location: { view: 'task-detail', task_id: taskId, section: 'diff' } });
   return section;
 }

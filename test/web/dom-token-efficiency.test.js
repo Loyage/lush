@@ -60,9 +60,9 @@ test('空输入不发送，草稿仍可从单条按钮发送', async () => {
 test('statistics shows bounded attribution and unknown groups without rendering injected HTML', () => {
   const totals = { requests: 1, input: 10, output: 20, cache_read: 30, cache_write: 0, tokens: 60, cost: 0.1, unknown_cost: 0, unknown_tokens: 0 };
   const node = renderStatistics({ totals, range: { start: null, end: '2026-01-01' }, generated_at: '', interval: 'day', buckets: [], models: [], coverage: {},
-    roles: [{ role: 'worker', ...totals }], aps: [{ ap_id: 1, role: 'worker', status: 'failed', goal: '<script>x</script>', ...totals }],
-    invocations: [{ ap_id: 1, role: 'worker', run_id: null, ...totals }],
-    attribution: { limit: 100, aps_truncated: true, unknown_role_requests: 1, unknown_run_requests: 1 } });
+    roles: [{ role: 'worker', ...totals }], tasks: [{ task_id: 1, role: 'worker', status: 'failed', goal: '<script>x</script>', ...totals }],
+    invocations: [{ task_id: 1, role: 'worker', run_id: null, ...totals }],
+    attribution: { limit: 100, tasks_truncated: true, unknown_role_requests: 1, unknown_run_requests: 1 } });
   expect(deepText(node)).toContain('按 invocation 归因');
   expect(deepText(node)).toContain('run 未知'); expect(deepText(node)).toContain('最高的 100 组');
   expect(node.querySelector('script')).toBe(null);

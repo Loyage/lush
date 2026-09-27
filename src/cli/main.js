@@ -7,7 +7,7 @@ import { HELP } from './help.js';
 import { launcherWebConfig } from '../host/registry.js';
 import * as system from './commands/system.js';
 import * as intent from './commands/intent.js';
-import * as ap from './commands/ap.js';
+import * as task from './commands/task.js';
 import * as progress from './commands/progress.js';
 import * as notice from './commands/notice.js';
 import * as branch from './commands/branch.js';
@@ -24,7 +24,7 @@ const COMMANDS = new Map();
 for (const [module, names] of [
   [system, ['daemon', 'status', 'doctor', 'log', 'host', 'host-restart', 'host-stop', 'host-status']],
   [intent, ['say']],
-  [ap, ['ap']],
+  [task, ['task']],
   [progress, ['progress']],
   [notice, ['notice']],
   [branch, ['branch']],

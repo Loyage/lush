@@ -4,9 +4,9 @@ import path from 'node:path';
 import { fixture, repo, until, git, gate } from '../helpers.js';
 
 function provider() {
-  return { async run({ ap, context }) {
-    if (ap.role === 'planner') return '计划完成';
-    if (ap.role === 'verifier' && context.verification?.candidate) {
+  return { async run({ task, context }) {
+    if (task.role === 'planner') return '计划完成';
+    if (task.role === 'verifier' && context.verification?.candidate) {
       fs.mkdirSync(path.dirname(context.verification.report_path), { recursive: true });
       fs.writeFileSync(context.verification.report_path, '<!doctype html><title>candidate report</title><h1>ok</h1>');
       fs.writeFileSync(context.verification.evidence_path, JSON.stringify({ schema_version: 1, status: 'pass',
@@ -22,7 +22,7 @@ function provider() {
 /** Candidate-focused fixture: freeze one commit without scheduling a verifier. */
 async function frozenCandidate(f, target = null) {
   const input = await f.project.submit('交付固定候选提交', target);
-  await until(() => f.store.ap(input.ap.id).status === 'completed');
+  await until(() => f.store.task(input.task.id).status === 'completed');
   fs.writeFileSync(path.join(input.anchor.workspace, 'reviewed.txt'), 'reviewed\n');
   await git(input.anchor.workspace, 'add', 'reviewed.txt');
   await git(input.anchor.workspace, 'commit', '-m', 'reviewed candidate');
@@ -33,9 +33,9 @@ async function frozenCandidate(f, target = null) {
 
 /** Acceptance-focused fixture: settle an already-tested review through the Candidate state contract. */
 function markCandidateReady(f, candidate) {
-  const reportAP = f.store.get('SELECT ap_id FROM inputs WHERE id=?', candidate.input_id).ap_id;
-  f.store.transitionCandidate(candidate.id, 'verification_requested', { report_ap_id: reportAP });
-  f.store.settleCandidateVerification(candidate.id, reportAP, 'ready');
+  const reportTask = f.store.get('SELECT task_id FROM inputs WHERE id=?', candidate.input_id).task_id;
+  f.store.transitionCandidate(candidate.id, 'verification_requested', { report_task_id: reportTask });
+  f.store.settleCandidateVerification(candidate.id, reportTask, 'ready');
   return f.store.candidate(candidate.id);
 }
 async function readyCandidate(f, target = null) {
@@ -43,20 +43,20 @@ async function readyCandidate(f, target = null) {
   return { ...frozen, candidate: markCandidateReady(f, frozen.candidate) };
 }
 
-function writeReport(f, apId) {
-  const file = f.project.reportPath(apId);
+function writeReport(f, taskId) {
+  const file = f.project.reportPath(taskId);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, '<!doctype html><title>late candidate report</title><h1>ok</h1>');
 }
 
-function writePassingArtifact(f, apId) {
-  const ap = f.store.ap(apId);
-  const candidate = f.store.candidate(ap.review_candidate_id);
-  f.store.addArtifact({ ap_id: ap.id, input_id: ap.input_id, kind: 'run.result', payload: {
+function writePassingArtifact(f, taskId) {
+  const task = f.store.task(taskId);
+  const candidate = f.store.candidate(task.review_candidate_id);
+  f.store.addArtifact({ task_id: task.id, input_id: task.input_id, kind: 'run.result', payload: {
     schema_version: 2, invocation: { status: 'completed' }, outcome: 'success', summary: 'verified',
     verification: { status: 'pass', tested_commit: candidate.commit_hash, baseline_commit: candidate.baseline_commit,
       commands: [{ command: 'bun run test', exit_code: 0, baseline_exit_code: 0, summary: 'passed' }],
-      summary: 'passed', report: { ap_id: ap.id, path: f.project.reportPath(ap.id), available: true },
+      summary: 'passed', report: { task_id: task.id, path: f.project.reportPath(task.id), available: true },
       failures: [], unverified: [], baseline_failures: [], residual_risks: [] },
   } });
 }
@@ -65,7 +65,7 @@ test('review candidate freezes the intent commit, publishes evidence and lands o
   const f = fixture(provider()); await repo(f.root);
   try {
     const input = await f.project.submit('实现一个可以验收的结果');
-    await until(() => f.store.ap(input.ap.id).status === 'completed');
+    await until(() => f.store.task(input.task.id).status === 'completed');
     const file = path.join(input.anchor.workspace, 'result.txt');
     fs.writeFileSync(file, 'candidate result\n');
     await git(input.anchor.workspace, 'add', 'result.txt');
@@ -74,7 +74,7 @@ test('review candidate freezes the intent commit, publishes evidence and lands o
 
     const prepared = await f.project.prepareCandidate(input.id, '可以验收的结果');
     expect(prepared).toMatchObject({ input_id: input.id, version: 1, status: 'pending', commit_hash: reviewed });
-    expect(f.store.all("SELECT id FROM aps WHERE role='verifier' AND review_candidate_id=?", prepared.id)).toEqual([]);
+    expect(f.store.all("SELECT id FROM tasks WHERE role='verifier' AND review_candidate_id=?", prepared.id)).toEqual([]);
 
     // 冻结候选不会自动验收；只有用户显式请求才创建 verifier。
     const verifier = f.project.verifyCandidate(prepared.id);
@@ -98,7 +98,7 @@ test('candidate acceptance pins the reviewed commit inside the Git queue', async
   const f = fixture(provider()); await repo(f.root);
   try {
     const input = await f.project.submit('交付固定候选提交');
-    await until(() => f.store.ap(input.ap.id).status === 'completed');
+    await until(() => f.store.task(input.task.id).status === 'completed');
     fs.writeFileSync(path.join(input.anchor.workspace, 'reviewed.txt'), 'reviewed\n');
     await git(input.anchor.workspace, 'add', 'reviewed.txt');
     await git(input.anchor.workspace, 'commit', '-m', 'reviewed candidate');
@@ -135,7 +135,7 @@ test('accepted candidate rejects concurrent rejection, feedback and replacement 
     blocker = f.project.workspaces.exclusive(() => hold.promise);
     accepting = f.project.acceptCandidate(candidate.id);
     await until(() => f.store.candidate(candidate.id).status === 'accepted');
-    const plannerCount = f.store.get("SELECT count(*) AS value FROM aps WHERE input_id=? AND role='planner'", input.id).value;
+    const plannerCount = f.store.get("SELECT count(*) AS value FROM tasks WHERE input_id=? AND role='planner'", input.id).value;
 
     await expect(f.project.acceptCandidate(candidate.id)).rejects.toThrow('only a ready candidate can start acceptance');
     expect(() => f.project.rejectCandidate(candidate.id, 'too late')).toThrow(/accepted candidate cannot be rejected/);
@@ -148,7 +148,7 @@ test('accepted candidate rejects concurrent rejection, feedback and replacement 
       baseline_commit: candidate.baseline_commit, summary: 'bypass prepare' }))
       .toThrow('cannot prepare a replacement until Git settles');
     expect(f.store.candidates(input.id)).toHaveLength(1);
-    expect(f.store.get("SELECT count(*) AS value FROM aps WHERE input_id=? AND role='planner'", input.id).value)
+    expect(f.store.get("SELECT count(*) AS value FROM tasks WHERE input_id=? AND role='planner'", input.id).value)
       .toBe(plannerCount);
     expect(f.store.candidate(candidate.id).status).toBe('accepted');
 
@@ -169,7 +169,7 @@ test('candidate acceptance updates an unconnected parent ref to exactly the revi
   const f = fixture(provider()); await repo(f.root);
   try {
     const input = await f.project.submit('交付到未检出的 main');
-    await until(() => f.store.ap(input.ap.id).status === 'completed');
+    await until(() => f.store.task(input.task.id).status === 'completed');
     fs.writeFileSync(path.join(input.anchor.workspace, 'pinned.txt'), 'pinned\n');
     await git(input.anchor.workspace, 'add', 'pinned.txt');
     await git(input.anchor.workspace, 'commit', '-m', 'pinned candidate');
@@ -186,14 +186,14 @@ test('candidate acceptance updates an unconnected parent ref to exactly the revi
 
 test('late candidate verification cannot overwrite superseded or explicit user states', async () => {
   const f = fixture(provider()); await repo(f.root);
-  const report = ap => {
-    const file = f.project.reportPath(ap.id);
+  const report = task => {
+    const file = f.project.reportPath(task.id);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, '<!doctype html><title>late report</title>');
   };
   try {
     const input = await f.project.submit('验证候选状态竞争');
-    await until(() => f.store.ap(input.ap.id).status === 'completed');
+    await until(() => f.store.task(input.task.id).status === 'completed');
     fs.writeFileSync(path.join(input.anchor.workspace, 'result.txt'), 'candidate\n');
     await git(input.anchor.workspace, 'add', 'result.txt');
     await git(input.anchor.workspace, 'commit', '-m', 'candidate');
@@ -208,7 +208,7 @@ test('late candidate verification cannot overwrite superseded or explicit user s
 
     const stale = await f.project.prepareCandidate(input.id);
     const staleVerifier = f.project.verifyCandidate(stale.id);
-    f.store.updateCandidate(stale.id, { report_ap_id: input.ap.id });
+    f.store.updateCandidate(stale.id, { report_task_id: input.task.id });
     report(staleVerifier); f.project.finish(staleVerifier.id, 'completed', 'late');
     expect(f.store.candidate(stale.id).status).toBe('preparing');
     f.project.rejectCandidate(stale.id, '旧 verifier 已失效');
@@ -231,7 +231,7 @@ test('candidate acceptance rejects branch drift and feedback starts an increment
   const f = fixture(provider()); await repo(f.root);
   try {
     const input = await f.project.submit('做一个页面');
-    await until(() => f.store.ap(input.ap.id).status === 'completed');
+    await until(() => f.store.task(input.task.id).status === 'completed');
     fs.writeFileSync(path.join(input.anchor.workspace, 'page.txt'), 'v1\n');
     await git(input.anchor.workspace, 'add', 'page.txt'); await git(input.anchor.workspace, 'commit', '-m', 'v1');
     const prepared = await f.project.prepareCandidate(input.id);
@@ -242,8 +242,8 @@ test('candidate acceptance rejects branch drift and feedback starts an increment
     const revision = f.project.requestCandidateChanges(prepared.id, '按钮需要更明显');
     expect(revision.candidate.status).toBe('changes_requested');
     expect(revision.planner.role).toBe('planner');
-    expect(f.store.get('SELECT ap_id FROM inputs WHERE id=?', input.id).ap_id).toBe(revision.planner.id);
-    await until(() => f.store.ap(revision.planner.id).status === 'completed');
+    expect(f.store.get('SELECT task_id FROM inputs WHERE id=?', input.id).task_id).toBe(revision.planner.id);
+    await until(() => f.store.task(revision.planner.id).status === 'completed');
   } finally { await f.close(); }
 });
 
@@ -291,7 +291,7 @@ test('candidate acceptance lands the pinned commit when its branch advances afte
     expect(fs.readFileSync(path.join(f.root, 'reviewed.txt'), 'utf8')).toBe('reviewed\n');
     expect(fs.existsSync(path.join(f.root, 'unreviewed.txt'))).toBe(false);
     expect(await git(input.anchor.workspace, 'rev-parse', 'HEAD')).not.toBe(reviewed);
-    const history = f.store.history(input.ap.id);
+    const history = f.store.history(input.task.id);
     expect(history.find(row => row.type === 'branch.merged')?.data.commit).toBe(reviewed);
     expect(history.find(row => row.type === 'candidate.integrated')?.data.commit).toBe(reviewed);
   } finally { await f.close(); }
@@ -344,7 +344,7 @@ test('candidate acceptance failure returns to ready and records the merge error'
 
     await expect(f.project.acceptCandidate(candidate.id)).rejects.toThrow('working tree is dirty');
     expect(f.store.candidate(candidate.id).status).toBe('ready');
-    const event = f.store.history(input.ap.id).find(row => row.type === 'candidate.accept_failed');
+    const event = f.store.history(input.task.id).find(row => row.type === 'candidate.accept_failed');
     expect(event?.data).toMatchObject({ candidate: candidate.id, target: 'main' });
     expect(event?.data.error).toContain('working tree is dirty');
   } finally { await f.close(); }
@@ -363,14 +363,14 @@ test('late successful and failed verifiers cannot revive a rejected candidate', 
       f.project.finish(verifier.id, terminal, terminal === 'completed' ? 'late success' : null,
         terminal === 'failed' ? 'late failure' : null);
       expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'rejected',
-        report_ap_id: verifier.id, feedback: rejected.feedback });
-      expect(f.store.ap(verifier.id)).toMatchObject({ status: terminal,
+        report_task_id: verifier.id, feedback: rejected.feedback });
+      expect(f.store.task(verifier.id)).toMatchObject({ status: terminal,
         result: terminal === 'completed' ? 'late success' : null });
       const events = f.store.history(verifier.id);
       expect(events.some(row => row.type === 'candidate.verified')).toBe(false);
       expect(events.find(row => row.type === 'candidate.verification_ignored')?.data)
         .toMatchObject({ candidate: candidate.id, status: terminal, candidate_status: 'rejected',
-          current_report_ap_id: verifier.id, has_report: terminal === 'completed' });
+          current_report_task_id: verifier.id, has_report: terminal === 'completed' });
     } finally { await f.close(); }
   }
 });
@@ -386,10 +386,10 @@ test('late verifier result cannot overwrite changes_requested', async () => {
 
     f.project.finish(verifier.id, 'completed', 'obsolete review');
     expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'changes_requested',
-      report_ap_id: verifier.id, feedback: '用户已经要求修改' });
-    expect(f.store.ap(revision.planner.id).role).toBe('planner');
+      report_task_id: verifier.id, feedback: '用户已经要求修改' });
+    expect(f.store.task(revision.planner.id).role).toBe('planner');
     expect(f.store.history(verifier.id).find(row => row.type === 'candidate.verification_ignored')?.data)
-      .toMatchObject({ candidate_status: 'changes_requested', current_report_ap_id: verifier.id });
+      .toMatchObject({ candidate_status: 'changes_requested', current_report_task_id: verifier.id });
   } finally { await f.close(); }
 });
 
@@ -409,10 +409,10 @@ test('late verifier result cannot overwrite a superseded candidate', async () =>
     writeReport(f, verifier.id);
 
     f.project.finish(verifier.id, 'completed', 'obsolete review');
-    expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'superseded', report_ap_id: verifier.id });
+    expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'superseded', report_task_id: verifier.id });
     expect(f.store.candidate(replacement.id).status).toBe('pending');
     expect(f.store.history(verifier.id).find(row => row.type === 'candidate.verification_ignored')?.data)
-      .toMatchObject({ candidate_status: 'superseded', current_report_ap_id: verifier.id });
+      .toMatchObject({ candidate_status: 'superseded', current_report_task_id: verifier.id });
   } finally { await f.close(); }
 });
 
@@ -424,18 +424,18 @@ test('only the currently registered verifier can settle a preparing candidate', 
     const obsolete = f.project.verifyCandidate(candidate.id);
     const current = f.store.create({ parent_id: null, input_id: candidate.input_id, role: 'verifier',
       goal: 'current candidate verification', name: `candidate-${candidate.id}-current`, review_candidate_id: candidate.id });
-    f.store.updateCandidate(candidate.id, { status: 'preparing', report_ap_id: current.id });
+    f.store.updateCandidate(candidate.id, { status: 'preparing', report_task_id: current.id });
     writeReport(f, obsolete.id);
 
     f.project.finish(obsolete.id, 'completed', 'obsolete result');
-    expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'preparing', report_ap_id: current.id });
+    expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'preparing', report_task_id: current.id });
     expect(f.store.history(obsolete.id).find(row => row.type === 'candidate.verification_ignored')?.data)
-      .toMatchObject({ candidate_status: 'preparing', current_report_ap_id: current.id });
+      .toMatchObject({ candidate_status: 'preparing', current_report_task_id: current.id });
 
     writeReport(f, current.id);
     writePassingArtifact(f, current.id);
     f.project.finish(current.id, 'completed', 'current result');
-    expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'ready', report_ap_id: current.id });
+    expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'ready', report_task_id: current.id });
     expect(f.store.history(current.id).find(row => row.type === 'candidate.verified')?.data)
       .toMatchObject({ candidate_status: 'ready', has_report: true });
   } finally { await f.close(); }
@@ -449,7 +449,7 @@ test('the current verifier still marks the candidate failed when its evidence is
     const verifier = f.project.verifyCandidate(candidate.id);
 
     f.project.finish(verifier.id, 'completed', 'no report produced');
-    expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'failed', report_ap_id: verifier.id });
+    expect(f.store.candidate(candidate.id)).toMatchObject({ status: 'failed', report_task_id: verifier.id });
     expect(f.store.history(verifier.id).find(row => row.type === 'candidate.verified')?.data)
       .toMatchObject({ candidate_status: 'failed', has_report: false });
   } finally { await f.close(); }
@@ -457,9 +457,9 @@ test('the current verifier still marks the candidate failed when its evidence is
 
 /** G-02: pass evidence must never describe uncommitted or drifted content as the pinned commit. */
 function evidenceProvider(onRun) {
-  return { async run({ ap, context }) {
-    if (ap.role === 'planner') return '计划完成';
-    if (ap.role === 'verifier' && context.verification?.candidate) {
+  return { async run({ task, context }) {
+    if (task.role === 'planner') return '计划完成';
+    if (task.role === 'verifier' && context.verification?.candidate) {
       if (onRun) await onRun(context.verification);
       fs.mkdirSync(path.dirname(context.verification.report_path), { recursive: true });
       fs.writeFileSync(context.verification.report_path, '<!doctype html><title>candidate report</title><h1>ok</h1>');
@@ -474,18 +474,18 @@ function evidenceProvider(onRun) {
 }
 
 async function failedCandidate(f, input, candidate, verifier, needle) {
-  await until(() => ['completed','failed','cancelled'].includes(f.store.ap(verifier.id).status));
-  expect(f.store.ap(verifier.id).status).toBe('failed');
-  expect(String(f.store.ap(verifier.id).error)).toContain(needle);
+  await until(() => ['completed','failed','cancelled'].includes(f.store.task(verifier.id).status));
+  expect(f.store.task(verifier.id).status).toBe('failed');
+  expect(String(f.store.task(verifier.id).error)).toContain(needle);
   expect(f.store.candidate(candidate.id).status).toBe('failed');
 }
 
 test('candidate verification refuses a dirty pinned worktree before the verifier runs', async () => {
   const calls = [];
-  const f = fixture({ async run({ ap }) { calls.push(ap.role); return 'ran'; } }); await repo(f.root);
+  const f = fixture({ async run({ task }) { calls.push(task.role); return 'ran'; } }); await repo(f.root);
   try {
     const input = await f.project.submit('验收必须读固定提交');
-    await until(() => f.store.ap(input.ap.id).status === 'completed');
+    await until(() => f.store.task(input.task.id).status === 'completed');
     fs.writeFileSync(path.join(input.anchor.workspace, 'reviewed.txt'), 'reviewed\n');
     await git(input.anchor.workspace, 'add', 'reviewed.txt');
     await git(input.anchor.workspace, 'commit', '-m', 'reviewed candidate');
@@ -508,7 +508,7 @@ test('candidate verification fails when the tested worktree is committed during 
   await repo(f.root);
   try {
     const input = await f.project.submit('运行期间推移的候选');
-    await until(() => f.store.ap(input.ap.id).status === 'completed');
+    await until(() => f.store.task(input.task.id).status === 'completed');
     fs.writeFileSync(path.join(input.anchor.workspace, 'reviewed.txt'), 'reviewed\n');
     await git(input.anchor.workspace, 'add', 'reviewed.txt');
     await git(input.anchor.workspace, 'commit', '-m', 'reviewed candidate');
@@ -526,7 +526,7 @@ test('candidate verification fails when the comparison checkout is dirty', async
   await repo(f.root);
   try {
     const input = await f.project.submit('对照检出被改动');
-    await until(() => f.store.ap(input.ap.id).status === 'completed');
+    await until(() => f.store.task(input.task.id).status === 'completed');
     fs.writeFileSync(path.join(input.anchor.workspace, 'reviewed.txt'), 'reviewed\n');
     await git(input.anchor.workspace, 'add', 'reviewed.txt');
     await git(input.anchor.workspace, 'commit', '-m', 'reviewed candidate');

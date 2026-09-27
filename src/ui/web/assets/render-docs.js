@@ -31,13 +31,13 @@ function docsHead(title, onOpen) {
 /** 目录页：按分组列出全部文档；第一次输入查询时才拉全文索引。 */
 export function renderDocsIndex(docs, onOpen, options = {}) {
   const panel = $('detail');
-  panel.dataset.view = 'docs';   // 左栏高亮与进场动画都跟着这个属性走，和 graph / AP 同一套
+  panel.dataset.view = 'docs';   // 左栏高亮与进场动画都跟着这个属性走，和 graph / task 同一套
   clearMermaidDiagrams(panel);
   panel.replaceChildren();
   panel.scrollTop = 0;
   const head = el('div', undefined, 'head');
   head.append(el('span', '帮助文档', 'tid-lg'));
-  panel.append(head, el('p', '这些是随当前代码发布的文档：先看总体架构与使用说明，再按需查 AP 流程与接口参考。文档之间的相对链接可以直接点开。', 'hint'));
+  panel.append(head, el('p', '这些是随当前代码发布的文档：先看总体架构与使用说明，再按需查任务流程与接口参考。文档之间的相对链接可以直接点开。', 'hint'));
 
   const search = el('div', undefined, 'doc-search');
   const input = el('input');

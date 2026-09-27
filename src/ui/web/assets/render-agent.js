@@ -33,8 +33,8 @@ function lastStepRow(last) {
   return row;
 }
 /** 轮询里只重画这一行：不展开执行过程时，「最近一条步骤」不必等整个详情面板重建。 */
-export function paintUsageLast(apId, usage) {
-  if (ui.selected !== apId) return;
+export function paintUsageLast(taskId, usage) {
+  if (ui.selected !== taskId) return;
   const row = $('detail').querySelector('[data-live="last"]');
   if (!row) return;
   const last = usage?.last ?? null;
@@ -45,16 +45,16 @@ export function paintUsageLast(apId, usage) {
 }
 /** 一个 agent 的全部信息：身份与唤醒次数（Lush 侧）+ 模型、上下文、花费（pi 会话记录侧）。
  *  执行过程就在同一块里——它就是 agent 这个身份干过的事，不是另一类数据。 */
-export function renderAgent(ap, usage, reading = null) {
+export function renderAgent(task, usage, reading = null) {
   const section = block('Agent');
   const grid = el('div', undefined, 'grid');
-  if (ap.agent) {
-    grid.append(kv('agent', `${ap.agent.id} · ${ap.agent.active ? `运行中 · pid ${ap.agent.pid ?? '待上报'}` : '空闲'}`));
-    grid.append(kv('唤醒', `累计 ${ap.agent.wakes} 次${ap.agent.last_seen_at ? ` · 上次动手 ${relative(ap.agent.last_seen_at)}` : ''}`));
-    if (!usage?.files?.length && ap.agent.backend) {
-      grid.append(kv('运行后端', ap.agent.backend));
-      grid.append(kv('模型', ap.agent.model || `${ap.agent.backend} 默认`, 'mono'));
-      if (ap.agent.thinking) grid.append(kv('思考等级', ap.agent.thinking));
+  if (task.agent) {
+    grid.append(kv('agent', `${task.agent.id} · ${task.agent.active ? `运行中 · pid ${task.agent.pid ?? '待上报'}` : '空闲'}`));
+    grid.append(kv('唤醒', `累计 ${task.agent.wakes} 次${task.agent.last_seen_at ? ` · 上次动手 ${relative(task.agent.last_seen_at)}` : ''}`));
+    if (!usage?.files?.length && task.agent.backend) {
+      grid.append(kv('运行后端', task.agent.backend));
+      grid.append(kv('模型', task.agent.model || `${task.agent.backend} 默认`, 'mono'));
+      if (task.agent.thinking) grid.append(kv('思考等级', task.agent.thinking));
     }
   }
   if (usage?.files?.length) {
@@ -69,7 +69,7 @@ export function renderAgent(ap, usage, reading = null) {
       if (usage.totals.cache_write) spent.push(`缓存写 ${tokens(usage.totals.cache_write)}`);
       if (usage.totals.reasoning) spent.push(`推理 ${tokens(usage.totals.reasoning)}`);
       const cumulative = kv('累计 token', spent.join(' · '));
-      cumulative.title = '这个 AP 的全部会话文件累计；重试不会清空 agent 的历史。';
+      cumulative.title = '这个任务的全部会话文件累计；重试不会清空 agent 的历史。';
       const cost = kv('预计花费', money(usage.totals.cost));
       cost.title = 'pi 按模型单价对每次请求算出的 cost.total 累加；模型换过就按各自单价分别计。';
       grid.append(context, cumulative, cost);
@@ -78,50 +78,50 @@ export function renderAgent(ap, usage, reading = null) {
     grid.append(kv('会话记录', `${usage.files.length} 个文件${usage.compacted ? ` · 上下文压缩 ${usage.compacted} 次` : ''}`, 'mono'));
   }
   const process = block('执行过程');
-  const cached = transcriptCache.get(ap.id);
+  const cached = transcriptCache.get(task.id);
   const markdown = markdownEnabled();
   const reusable = reading && reading.transcriptState === cached && reading.transcriptMarkdown === markdown;
   const holder = reusable ? reading : el('div', undefined, 'transcript');
   holder.transcriptState = cached; holder.transcriptMarkdown = markdown;
-  const expanded = transcriptOpen.has(ap.id);
+  const expanded = transcriptOpen.has(task.id);
   holder.hidden = !expanded;
   if (reusable) { /* Preserve previews, source nodes and search across detail refreshes. */ }
-  else if (cached && expanded) holder.replaceChildren(...transcriptContent(ap.id));
+  else if (cached && expanded) holder.replaceChildren(...transcriptContent(task.id));
   // 未展开时不加载正文；缺失记录的原因在展开后说明。
-  else if (!usage?.files?.length) holder.append(el('p', ap.agent?.backend === 'codex'
+  else if (!usage?.files?.length) holder.append(el('p', task.agent?.backend === 'codex'
     ? 'Codex 的线程会持续复用；当前版本暂不投影它的本地执行记录。'
-    : '这个 AP 还没有 Pi 会话记录（可能从未被唤醒，或会话文件已被清理）。', 'hint'));
+    : '这个任务还没有 Pi 会话记录（可能从未被唤醒，或会话文件已被清理）。', 'hint'));
   else {
     holder.append(el('p', '点击展开后读取执行记录。', 'hint'));
   }
   const toggle = button(expanded ? '收起执行过程' : '展开执行过程', async () => {
-    const open = !transcriptOpen.has(ap.id);
-    if (open) transcriptOpen.add(ap.id); else transcriptOpen.delete(ap.id);
+    const open = !transcriptOpen.has(task.id);
+    if (open) transcriptOpen.add(task.id); else transcriptOpen.delete(task.id);
     holder.hidden = !open;
     toggle.textContent = open ? '收起执行过程' : '展开执行过程';
     toggle.setAttribute('aria-expanded', String(open));
     if (!open) return;
-    if (transcriptCache.has(ap.id)) {
-      if (holder.transcriptState !== transcriptCache.get(ap.id) || !holder.querySelector('.transcript-reader')) {
-        holder.transcriptState = transcriptCache.get(ap.id);
-        holder.replaceChildren(...transcriptContent(ap.id));
+    if (transcriptCache.has(task.id)) {
+      if (holder.transcriptState !== transcriptCache.get(task.id) || !holder.querySelector('.transcript-reader')) {
+        holder.transcriptState = transcriptCache.get(task.id);
+        holder.replaceChildren(...transcriptContent(task.id));
       }
     } else {
       holder.replaceChildren(el('p', '正在读取执行记录…', 'hint'));
-      try { await loadTranscript(ap.id); }
+      try { await loadTranscript(task.id); }
       catch (error) {
-        transcriptCache.set(ap.id, { steps: [], files: usage?.files || [], error: error.message });
-        holder.replaceChildren(...transcriptContent(ap.id));
+        transcriptCache.set(task.id, { steps: [], files: usage?.files || [], error: error.message });
+        holder.replaceChildren(...transcriptContent(task.id));
       }
     }
   }, 'ghost');
   toggle.setAttribute('aria-expanded', String(expanded));
   const controls = el('div', undefined, 'actions');
-  controls.append(toggle, button('终端模式', () => openTranscriptTerminal(ap.id), 'ghost',
+  controls.append(toggle, button('终端模式', () => openTranscriptTerminal(task.id), 'ghost',
     { help: '打开全宽只读终端，按会话顺序阅读完整执行记录；不执行命令，也不自动滚动' }));
   process.append(controls);
   // 终端里观看执行过程的等价命令：展示出来并可复制，真正跟随由 CLI 负责，不只是复制一串提示。
-  const command = `lush ap transcript ${ap.id} --follow`;
+  const command = `lush task transcript ${task.id} --follow`;
   const commandRow = el('div', undefined, 'terminal-command');
   commandRow.append(el('span', '终端命令', 'hint'), el('code', command, 'mono'),
     button('复制命令', async () => {

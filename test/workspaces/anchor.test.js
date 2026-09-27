@@ -6,11 +6,11 @@ import { fixture, repo, git } from '../helpers.js';
 // 输入分支：submit 从指定父分支创建聚合分支与检出，planner/worker 基线不随开工时间漂移。
 // 这里只碰 Git 边界与输入落库的接缝；CLI / Web 的上层行为在 test/route-shortcut.test.js。
 
-/** planner 只写 spec 队列，所以用 coordinator 充当能派活的父 AP。 */
+/** planner 只写 spec 队列，所以用 coordinator 充当能派活的父任务。 */
 function host(f, input_id) {
-  const ap = f.store.create({ input_id, role: 'coordinator', goal: 'host' });
-  f.store.update(ap.id, { status: 'waiting' });
-  return ap;
+  const task = f.store.create({ input_id, role: 'coordinator', goal: 'host' });
+  f.store.update(task.id, { status: 'waiting' });
+  return task;
 }
 
 test('an input creates a real aggregate branch checkout and the planner runs there', async () => {
@@ -22,14 +22,14 @@ test('an input creates a real aggregate branch checkout and the planner runs the
     expect(fs.existsSync(input.anchor.workspace)).toBe(true);
     // 检出真的停在输入分支上；根 planner 的 cwd 也固定到这里。
     expect(await git(input.anchor.workspace, 'symbolic-ref', '--short', 'HEAD')).toBe(input.anchor.branch);
-    expect(await f.project.workspaces.ensure(input.ap)).toBe(input.anchor.workspace);
+    expect(await f.project.workspaces.ensure(input.task)).toBe(input.anchor.workspace);
     // 谱系在分支创建那一刻写下：parent = 提交输入时的检出分支，created_from_commit = 当时的 HEAD
     expect(f.store.branch(input.anchor.branch)).toMatchObject({ parent: 'main', parent_relation: 'recorded',
-      created_from_commit: head, ap_id: null, worktree: input.anchor.workspace, status: 'active' });
+      created_from_commit: head, task_id: null, worktree: input.anchor.workspace, status: 'active' });
     // 意图视图与事件都带上锚点，review 时看得到「这份代码是什么时候冻的」
     expect(f.project.inputs()[0]).toMatchObject({ anchor_branch: input.anchor.branch, anchor_commit: head,
       anchor_workspace: input.anchor.workspace, anchor_target_branch: 'main' });
-    expect(f.store.history(input.ap.id).find(row => row.type === 'input.anchor').data)
+    expect(f.store.history(input.task.id).find(row => row.type === 'input.anchor').data)
       .toMatchObject({ input_id: input.id, branch: input.anchor.branch, commit: head, target_branch: 'main' });
   } finally { await f.close(); }
 });
@@ -39,7 +39,7 @@ test('uncommitted changes are recorded on the anchor instead of silently enterin
   try {
     fs.writeFileSync(path.join(f.root, 'file.txt'), 'uncommitted\n');
     const input = await f.project.submit('work');
-    const event = f.store.history(input.ap.id).find(row => row.type === 'input.anchor');
+    const event = f.store.history(input.task.id).find(row => row.type === 'input.anchor');
     expect(event.data.dirty_source).toMatchObject({ files: 1, sample: [' M file.txt'] });
     // 锚点是已提交的 HEAD：那一刻的未提交改动不传递，也不改变基线
     expect(input.anchor.commit).toBe(await git(f.root, 'rev-parse', 'HEAD'));
@@ -57,12 +57,12 @@ test('a worker bases, parents and targets on its input anchor, not on the branch
     await git(f.root, 'add', '.'); await git(f.root, 'commit', '-m', 'later on main');
     const worker = f.project.spawn(host(f, input.id).id, 'implement', 'worker', [], 'implement-thing');
     const cwd = await f.project.workspaces.ensure(worker);
-    const ap = f.store.ap(worker.id);
-    expect(ap.base_commit).toBe(anchorCommit);
-    expect(ap.target_branch).toBe(input.anchor.branch);
+    const task = f.store.task(worker.id);
+    expect(task.base_commit).toBe(anchorCommit);
+    expect(task.target_branch).toBe(input.anchor.branch);
     expect(fs.existsSync(path.join(cwd, 'later.txt'))).toBe(false);
     // 谱系写锚点分支，而不是「当时检出的分支」——那条分支早就在锚点之后往前走了
-    expect(f.store.branch(ap.branch)).toMatchObject({ parent: input.anchor.branch, created_from_commit: anchorCommit });
+    expect(f.store.branch(task.branch)).toMatchObject({ parent: input.anchor.branch, created_from_commit: anchorCommit });
     expect(f.store.history(worker.id).find(row => row.type === 'workspace.created').data.anchored_on)
       .toMatchObject({ input_id: input.id, branch: input.anchor.branch, commit: anchorCommit });
   } finally { await f.close(); }
@@ -77,15 +77,15 @@ test('a code dependency still stacks on the upstream branch and beats the anchor
     const cwd = await f.project.workspaces.ensure(upstream);
     fs.writeFileSync(path.join(cwd, 'upstream.txt'), 'upstream\n');
     await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', 'upstream change');
-    await f.project.workspaces.finish(f.store.ap(upstream.id));
+    await f.project.workspaces.finish(f.store.task(upstream.id));
     f.store.update(upstream.id, { status: 'completed' });
 
     const downstream = f.project.spawn(parent.id, 'downstream', 'worker', [{ id: upstream.id, kind: 'code' }], 'downstream-change');
     await f.project.workspaces.ensure(downstream);
-    const ap = f.store.ap(downstream.id);
-    expect(ap.base_commit).toBe(f.store.ap(upstream.id).head_commit);
-    expect(ap.base_commit).not.toBe(input.anchor.commit);
-    expect(f.store.branch(ap.branch)).toMatchObject({ parent: f.store.ap(upstream.id).branch });
+    const task = f.store.task(downstream.id);
+    expect(task.base_commit).toBe(f.store.task(upstream.id).head_commit);
+    expect(task.base_commit).not.toBe(input.anchor.commit);
+    expect(f.store.branch(task.branch)).toMatchObject({ parent: f.store.task(upstream.id).branch });
     expect(f.store.history(downstream.id).find(row => row.type === 'workspace.created').data.stacked_on).toBe(upstream.id);
   } finally { await f.close(); }
 });
@@ -124,7 +124,7 @@ test('a failed submit writes no input row and keeps buffered drafts', async () =
     await expect(f.project.submit('raw')).rejects.toThrow('git worktree root');
     await expect(f.project.commitDrafts()).rejects.toThrow('git worktree root');
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
-    expect(f.store.get('SELECT count(*) AS n FROM aps').n).toBe(0);
+    expect(f.store.get('SELECT count(*) AS n FROM tasks').n).toBe(0);
     expect(f.store.get('SELECT count(*) AS n FROM branches').n).toBe(0);
     expect(f.store.draftCount()).toBe(1);
     // input id 只往大走：两次尝试已经用掉 1 与 2，下一次提交仍然是干净的目录名

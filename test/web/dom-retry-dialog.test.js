@@ -26,12 +26,12 @@ const dom = installDom({ fetch: async (url, options = {}) => {
 } });
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
 const restoreNavigation = registerNavigation({ refresh: async () => {}, detail: async () => {}, overview: async () => {}, graph: async () => {} });
-const { retryAP } = await import('../../src/ui/web/assets/retry-dialog.js');
+const { retryTask } = await import('../../src/ui/web/assets/retry-dialog.js');
 
 afterAll(() => { restoreNavigation(); dom.restore(); });
 
-test('检查后重试编辑完整 Profile，并只把覆盖参数提交给 ap.retry', async () => {
-  const pending = retryAP({ id: 42, role: 'worker', status: 'failed' });
+test('检查后重试编辑完整 Profile，并只把覆盖参数提交给 task.retry', async () => {
+  const pending = retryTask({ id: 42, role: 'worker', status: 'failed' });
   await until(() => dialogButton(dom, '使用这些设置重试'));
   const modal = dom.node('modal');
   expect(deepText(modal)).toContain('只用于本轮重试');
@@ -48,7 +48,7 @@ test('检查后重试编辑完整 Profile，并只把覆盖参数提交给 ap.re
   await dialogButton(dom, '使用这些设置重试').onclick();
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
-  expect(actions[0]).toEqual({ method: 'ap.retry', params: { id: 42, profile: {
+  expect(actions[0]).toEqual({ method: 'task.retry', params: { id: 42, profile: {
     agent: 'pi', model: 'openai-codex/gpt-5.4-mini', thinking: 'high', default_prompt: '',
     append_prompt: '先复盘错误，再做最小修复', extensions: ['/tmp/review.js'], skills: [], soft_budget: {},
   } } });

@@ -7,7 +7,7 @@
 ## 第 0 阶段：冻结契约、先补危险场景的测试
 
 - 明确项目路由 ID、全局／单项目路由共存规则、旧页面过期行为、项目注册与移除语义；先更新接口设计，不凭 UI 草图直接改后端。
-- 用临时 A／B 项目与 mock 客户端补 [S-01](../03-security-boundaries.md#s-01--全局项目切换会把旧页面操作送到另一个项目) 回归：两项目都有 AP #1；在 A 页准备 `ap.cancel`、`ap.approve_merge` 等写请求，B 页打开后 A 的请求只能作用于 A 或被拒，绝不能落到 B。慢读响应也不得绘制到另一项目。
+- 用临时 A／B 项目与 mock 客户端补 [S-01](../03-security-boundaries.md#s-01--全局项目切换会把旧页面操作送到另一个项目) 回归：两项目都有 Task #1；在 A 页准备 `task.cancel`、`task.approve_merge` 等写请求，B 页打开后 A 的请求只能作用于 A 或被拒，绝不能落到 B。慢读响应也不得绘制到另一项目。
 
 ## 第 1 阶段：多 binding 与路由隔离（先于 UI）
 
@@ -17,7 +17,7 @@
 
 ## 第 2 阶段：页面路由与前端隔离
 
-- `src/ui/web/assets/api.js`、`app.js`、`project-picker.js`：页面地址成为当前项目的来源；API 构造统一基于该项目路由，避免到处手拼 `/api/`；深链接可直接打开指定项目与 AP。先保证切换时取消／忽略旧轮询、异步动作与迟到结果，再做左栏列表。旧页面发送无身份写操作必须收到明确错误而非悄悄改写另一项目。
+- `src/ui/web/assets/api.js`、`app.js`、`project-picker.js`：页面地址成为当前项目的来源；API 构造统一基于该项目路由，避免到处手拼 `/api/`；深链接可直接打开指定项目与任务。先保证切换时取消／忽略旧轮询、异步动作与迟到结果，再做左栏列表。旧页面发送无身份写操作必须收到明确错误而非悄悄改写另一项目。
 - `state.js`、`refresh.js` 及相关视图：切项目时重置或按项目缓存 `lastSnapshot`、详情、graph、历史分页、draft、notice 与 transcript 等状态；切换期间输入框未发送文字／引用不得丢失或混入另一项目。浏览器本地存储中项目相关的筛选、分支折叠、问卷草稿、通知去重按项目隔离；全局外观偏好仍可共享。引用定位仅在所属项目查找，不用同号实体“近似命中”。
 - `index.html`、左栏和样式：展示项目列表及当前项目身份；项目内原有页面层级不变，活动状态与错误可见。按钮行为遵循[帮助与 Agent 标识](../../design/ui-guidance.md)；新增调用 Agent 的动作必须有 `agent-call` 与 `agentHelp()`。桌面目录选择 IPC 继续只提供受信宿主路径，不给页面 Node 权限。
 
@@ -29,7 +29,7 @@
 
 ## 文档和验证收尾
 
-- 同步 `docs/engineering/modules.md`、`modules-web.md`、[HTTP 参考](../../reference/http.md)、部署／使用说明；更新 [S-01](../03-security-boundaries.md#s-01--全局项目切换会把旧页面操作送到另一个项目) 的状态与验证证据，而不是把旧审查记录删掉。修改引用或通知定位时先读[引用理念](../../design/references.md)；涉及执行记录时先读[执行过程理念](../../design/transcript.md)。
+- 同步 `docs/engineering/modules.md`、`modules-web.md`、[HTTP 参考](../../reference/http.md)、部署／使用说明；更新 [S-01](../03-security-boundaries.md#s-01--全局项目切换会把旧页面操作送到另一个项目) 的状态与验证证据，而不是把旧审查记录删掉。修改引用或通知定位时先读[引用理念](../../design/references.md)；涉及执行记录时先读[执行过程理念](../../design/agent-process.md)。
 - 跑 `bun run test`、`bun run docs:check`、`git diff --check`；再以两个临时项目、两个真实浏览器标签和桌面独立窗口验证并发编辑、前进／后退、深链接、daemon 离线／恢复、公网白名单与多项目通知。测试结束只清理自建 fixture，不触碰用户正在开发的项目。
 
 **完成标准**：A、B 同时运行且在工作台可独立查看／操作；切换 B 不改变 A 标签的请求目标、未提交文字或导航；所有项目读写入口都拒绝缺失／不允许的项目身份；单项目 Web、CLI 与人工合并约束保持原样。未完成身份隔离时，不把“项目列表已显示”视为交付。

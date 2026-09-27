@@ -1,10 +1,10 @@
 # Web / 桌面体验与前端架构审查
 
-面向维护者，聚焦输入可靠性、页面异步生命周期、Notice 历史、前端大数据开销与桌面偏好；只提出建议，不实施功能。设计依据：[Web 模块边界](../engineering/modules-web.md)、[执行过程理念](../design/transcript.md)、[阅读器约束](../engineering/transcript-reader.md)、[文档约定](../contributing/documentation.md)。
+面向维护者，聚焦输入可靠性、页面异步生命周期、Notice 历史、前端大数据开销与桌面偏好；只提出建议，不实施功能。设计依据：[Web 模块边界](../engineering/modules-web.md)、[执行过程理念](../design/agent-process.md)、[阅读器约束](../engineering/transcript-reader.md)、[文档约定](../contributing/documentation.md)。
 
 ## 范围、基线与验证
 
-- 原审查基线：`99fcbc993640c057488532a19ca08814ab60b73e`；当前版本已包含 say / AP 中心输入及交付流程变更，以上旧基线的代码行与行为结论不应直接视为当前事实。原审查时起始工作树干净，仅新增本文件。
+- 原审查基线：`99fcbc993640c057488532a19ca08814ab60b73e`；当前版本已包含 say / Task 中心输入及交付流程变更，以上旧基线的代码行与行为结论不应直接视为当前事实。原审查时起始工作树干净，仅新增本文件。
 - 静态审查：`src/ui/web/assets/` 的导航、输入、Notice、图、统计、执行记录及 `src/ui/desktop/`；认证 / IPC 安全不在本报告范围。
 - 已执行：`git rev-parse HEAD`、`git status --short`；临时目录下 `bun run doctor --project "$tmp"` 返回本 worktree 代码身份，临时项目无 daemon / Web，随后清理目录，未接触真实项目运行状态。
 - 已执行：`bun run test` 后附 `test/web/` 下 `dom-{composer,drafts,token-efficiency,navigation,dialog,graph,statistics,transcript-reader,transcript-terminal,notices}.test.js` 与 `notice-notifications.test.js` 的展开路径，61 通过 / 0 失败；另跑 `bun run test test/web/notice-records.test.js`，3 通过 / 0 失败。
@@ -40,7 +40,7 @@
 ## U-04 · 写操作完成后的导航没有沿用页面身份保护
 
 - **P2 · 已复现（DOM / mock）· S**。证据：`src/ui/web/assets/render-notices.js` `noticePanel/refreshRecord/settle`，174–183、198–205、225–239 行；对照 `src/ui/web/assets/detail.js` `loadDetail`，10–35 行。
-- 问题与触发：从 AP 详情回复 Notice，挂起 action 响应，用户导航到分支图，再放行响应；闭包仍执行 `detail(notice.ap_id)`。复现中当前视图由 graph 变回 AP，用户新导航被旧动作夺回。
+- 问题与触发：从任务详情回复 Notice，挂起 action 响应，用户导航到分支图，再放行响应；闭包仍执行 `detail(notice.task_id)`。复现中当前视图由 graph 变回 task，用户新导航被旧动作夺回。
 - 影响与反例：读请求的迟到响应已有防护，现有导航测试通过；但新的 `detail()` 调用合法创建新身份，因此原读保护不能挡住写后跳转。这里不是 Notice 答案写错，而是后续页面流程出错。
 - 建议与取舍：动作开始时捕获 view / notice 身份，成功后无条件刷新缓存，但只有原页面仍持有身份才推进本地导航；离开后的成功用非打断式提示反馈。
 - 验收：回复、忽略、计划审批、问卷提交期间跳转到其它页面，完成 / 失败都不夺回画布；停留原页面时仍正确显示结算状态或下一项。
@@ -55,7 +55,7 @@
 ## U-06 · 分支图轮询强制整树重建，折叠不减少 DOM 构造
 
 - **P2 · 已复现（节点行为）；实际性能影响待验证 · M**。证据：`src/ui/web/assets/render-graph.js` `loadGraph`，137–143 行；`branchBlock`，517–536 行；`renderGraph`，572–615 行；`src/ui/web/assets/refresh.js` `graphStale/refresh`，57–68、107–115 行。
-- 问题与触发：正常轮询走 `loadGraph → renderGraph(force:true)`，绕过指纹未变的短路；折叠只切 class，仍递归创建所有子分支 / AP。fixture 中折叠 main 后仍有 4 个后代分支 DOM，同一份 graph 再加载会替换根分支节点。
+- 问题与触发：正常轮询走 `loadGraph → renderGraph(force:true)`，绕过指纹未变的短路；折叠只切 class，仍递归创建所有子分支 / 任务。fixture 中折叠 main 后仍有 4 个后代分支 DOM，同一份 graph 再加载会替换根分支节点。
 - 影响与反例：存在随全图规模增长的周期性主线程开销及焦点 / 选区风险；已有 3s / 10s 取数节流、图截断、决策输入保护，不能据此宣称已经测到卡顿。统计分桶和 transcript 手动续读的限额也不应一并删掉。
 - 建议与取舍：先让轮询尊重包含 diagnostics 的 render key，手动刷新按需另行处理；再比较折叠子树惰性创建与按分支 key 更新。是否进一步虚拟化需性能证据，不预设重写框架。
 - 验收：相同图连续轮询保持分支节点身份；先按当前 API 的 20 / 200 节点规模记录构造节点数、渲染耗时与真实浏览器长任务，折叠显著减少挂载；1,000 / 5,000 节点仅作为合成压力实验，不暗示当前 API 支持该规模。诊断变化、折叠偏好与已输入回复仍正确。

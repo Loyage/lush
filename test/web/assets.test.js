@@ -14,7 +14,7 @@ test('web serves the live-refresh and batch-merge modules alongside app.js', asy
     expect(await (await fetch(f.url + '/live.js')).text()).toContain('export async function liveTick');
     expect(await (await fetch(f.url + '/merge-select.js')).text()).toContain('export function mergeCandidates');
     // 左栏折叠 / 快速导航 / 筛选的纯逻辑模块也必须在白名单里，否则浏览器加载 app.js 时 import 404。
-    expect(await (await fetch(f.url + '/sidebar.js')).text()).toContain('export function filterAPs');
+    expect(await (await fetch(f.url + '/sidebar.js')).text()).toContain('export function filterTasks');
     const app = await pageSource(f.url);
     expect(app).toContain("from './live.js'");
     expect(app).toContain("from './merge-select.js'");
@@ -65,9 +65,9 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     expect(css).toContain('.graph-branch.graph-running{position:relative}');
     expect(css).toMatch(/\.graph-branch\.graph-running::after\{[^}]*animation:graph-running-breathe 2\.4s/);
     expect(css).toContain('@keyframes graph-running-breathe{');
-    // AP 计划在分支诊断里是一整条进度条；running 时有轨道扫光、填充流动与外框脉冲三层动效。
-    expect(css).toContain('.graph-ap-progress{flex-basis:100%');
-    expect(css).toContain('.graph-ap-progress.is-running .graph-ap-progress-track::after{');
+    // task 计划在分支诊断里是一整条进度条；running 时有轨道扫光、填充流动与外框脉冲三层动效。
+    expect(css).toContain('.graph-task-progress{flex-basis:100%');
+    expect(css).toContain('.graph-task-progress.is-running .graph-task-progress-track::after{');
     expect(css).toContain('@keyframes graph-progress-sweep{');
     expect(css).toContain('@keyframes graph-progress-stripes{');
     expect(css).toContain('@keyframes graph-progress-pulse{');
@@ -77,7 +77,7 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     // 停下来的分支不得沾上动画；reduced-motion 的全局规则仍然把这些动画一并关掉。
     expect(css).not.toMatch(/\.graph-branch\.graph-idle\{[^}]*animation/);
     expect(css).toMatch(/@media\(prefers-reduced-motion:reduce\)\{\*,?\*::before,\*::after\{animation:none!important/);
-    // 待决 notice 的决策区画在分支图的 AP 行里，样式必须与 render-graph.js 一起在。
+    // 待决 notice 的决策区画在分支图的任务行里，样式必须与 render-graph.js 一起在。
     expect(css).toContain('.graph-node.graph-emphasis-awaiting{');
     expect(css).toContain('.graph-decision{flex-basis:100%');
     expect(css).toContain('.graph-decision-body{');
@@ -190,11 +190,11 @@ test('无顶栏壳：身份区在左栏，内容区不再被头部压住；输�
     expect(css).not.toMatch(/\.composer-highlight/);
     expect(css).toMatch(/\.composer-input textarea\{[^}]*background:transparent/);
     expect(css).not.toMatch(/\.composer textarea\{[^}]*background:/);
-    // AP 类型胶囊按 role-<role> 取色；快速路由是独立一套（徽章 + 整行底色），不覆盖状态色。
+    // 任务类型胶囊按 role-<role> 取色；快速路由是独立一套（徽章 + 整行底色），不覆盖状态色。
     expect(css).toMatch(/\.role-worker\{color:var\(--role-worker\)\}/);
     expect(css).toMatch(/\.role-planner\{color:var\(--role-planner\)\}/);
     expect(css).toMatch(/\.route-badge\{[^}]*color:var\(--route\)/);
-    expect(css).toMatch(/\.ap\.route-flagged,\.graph-node\.route-flagged\{background-image:/);
+    expect(css).toMatch(/\.task\.route-flagged,\.graph-node\.route-flagged\{background-image:/);
     // 浮层不再给顶栏留 80px 空档。
     expect(css).toMatch(/\.toast\{position:fixed;top:16px/);
     // 行为落点原样保留：待提交意图开关、父分支输入框、提交按钮仍在页面里。
@@ -217,7 +217,7 @@ test('web serves the sort module and wires the left-column sort dropdown', async
     const html = await (await fetch(f.url)).text();
     expect(html).toContain('id="sidebar-sort"');
     expect(html).toContain('aria-label="列表排序方式"');
-    // 排序控件已经从行动 AP 区块移到左栏顶部，旧的 #tree-sort 不再存在
+    // 排序控件已经从行动任务区块移到左栏顶部，旧的 #tree-sort 不再存在
     expect(html).not.toContain('id="tree-sort"');
   } finally { await f.close(); }
 });

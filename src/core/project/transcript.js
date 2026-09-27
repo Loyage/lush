@@ -5,30 +5,30 @@ import { searchTranscript, transcriptStep, transcriptPage } from '../transcript-
 /** pi 会话记录的只读投影。 */
 export default {
   /** Read-only agent process log from pi's session files; never touches the database. */
-  transcript(apId, after = 0, limit = 100) {
-    this.store.ap(apId);
-    return readTranscript(this.config, apId, after, limit);
+  transcript(taskId, after = 0, limit = 100) {
+    this.store.task(taskId);
+    return readTranscript(this.config, taskId, after, limit);
   },
 
-  transcriptLatest(apId, after = 0, before = 0, limit = 100) {
-    this.store.ap(apId);
-    return readTranscriptLatest(this.config, apId, { after, before, limit });
+  transcriptLatest(taskId, after = 0, before = 0, limit = 100) {
+    this.store.task(taskId);
+    return readTranscriptLatest(this.config, taskId, { after, before, limit });
   },
 
-  transcriptPage(apId, seq, offset) { this.store.ap(apId); return transcriptPage(this.config, apId, seq, offset); },
-  searchTranscript(apId, options) { this.store.ap(apId); return searchTranscript(this.config, apId, options); },
-  transcriptStep(apId, seq, offset) { this.store.ap(apId); return transcriptStep(this.config, apId, seq, offset); },
+  transcriptPage(taskId, seq, offset) { this.store.task(taskId); return transcriptPage(this.config, taskId, seq, offset); },
+  searchTranscript(taskId, options) { this.store.task(taskId); return searchTranscript(this.config, taskId, options); },
+  transcriptStep(taskId, seq, offset) { this.store.task(taskId); return transcriptStep(this.config, taskId, seq, offset); },
 
   /** Read-only agent usage (model, context, cost) from the same session files, without the bodies. */
   usageStatistics(options) {
     return readUsageStatistics(this.config, options, {
-      aps: this.store.all('SELECT id,role,status,integration,substr(goal,1,160) AS goal FROM aps'),
-      runs: this.store.all('SELECT id,ap_id,role,status,started_at,ended_at FROM agent_runs'),
+      tasks: this.store.all('SELECT id,role,status,integration,substr(goal,1,160) AS goal FROM tasks'),
+      runs: this.store.all('SELECT id,task_id,role,status,started_at,ended_at FROM agent_runs'),
     });
   },
 
-  usage(apId) {
-    this.store.ap(apId);
-    return readUsage(this.config, apId);
+  usage(taskId) {
+    this.store.task(taskId);
+    return readUsage(this.config, taskId);
   }
 };

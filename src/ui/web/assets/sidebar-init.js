@@ -50,19 +50,19 @@ export function initSidebar() {
       paintCollapsed(); saveCollapsedPref();
     });
   }
-  // 行动 AP：状态 / 角色 / 合并 / 只看待我处理 / 关键字
-  const apStatus = filterSelect('状态', [{ value: 'all', label: '全部状态' },
+  // 行动任务：状态 / 角色 / 合并 / 只看待我处理 / 关键字
+  const taskStatus = filterSelect('状态', [{ value: 'all', label: '全部状态' },
     ...['queued', 'running', 'waiting', 'awaiting', 'completed', 'failed', 'cancelled'].map(statusOption)],
-    ui.filters.aps.status, value => { ui.filters.aps.status = value; applyFilters(); });
-  const apRole = filterSelect('AP 类型', withCurrent([{ value: 'all', label: '全部类型' }, ...Object.keys(ROLE).map(roleOption)], ui.filters.aps.role, roleOption), ui.filters.aps.role,
-    value => { ui.filters.aps.role = value; applyFilters(); });
-  const apIntegration = filterSelect('合并', [{ value: 'all', label: '全部' }, { value: 'unmerged', label: '待合并' }, { value: 'merged', label: '已合并' }],
-    ui.filters.aps.integration, value => { ui.filters.aps.integration = value; applyFilters(); });
-  const apMine = filterToggle('只看待我处理', ui.filters.aps.mine, value => { ui.filters.aps.mine = value; applyFilters(); });
-  const apText = filterInput(ui.filters.aps.text, value => { ui.filters.aps.text = value; applyFilters(); });
-  $('ap-filters').replaceChildren(apStatus.wrap, apRole.wrap, apIntegration.wrap, apMine.wrap, apText.wrap);
-  filterUi.apRole = apRole.select;
-  // 规划 AP：状态 / planner / 角色 / 关键字
+    ui.filters.tasks.status, value => { ui.filters.tasks.status = value; applyFilters(); });
+  const taskRole = filterSelect('任务类型', withCurrent([{ value: 'all', label: '全部类型' }, ...Object.keys(ROLE).map(roleOption)], ui.filters.tasks.role, roleOption), ui.filters.tasks.role,
+    value => { ui.filters.tasks.role = value; applyFilters(); });
+  const taskIntegration = filterSelect('合并', [{ value: 'all', label: '全部' }, { value: 'unmerged', label: '待合并' }, { value: 'merged', label: '已合并' }],
+    ui.filters.tasks.integration, value => { ui.filters.tasks.integration = value; applyFilters(); });
+  const taskMine = filterToggle('只看待我处理', ui.filters.tasks.mine, value => { ui.filters.tasks.mine = value; applyFilters(); });
+  const taskText = filterInput(ui.filters.tasks.text, value => { ui.filters.tasks.text = value; applyFilters(); });
+  $('task-filters').replaceChildren(taskStatus.wrap, taskRole.wrap, taskIntegration.wrap, taskMine.wrap, taskText.wrap);
+  filterUi.taskRole = taskRole.select;
+  // 规划任务：状态 / planner / 角色 / 关键字
   const specStatus = filterSelect('状态', [{ value: 'all', label: '全部状态' }, specStatusOption('pending'), specStatusOption('planned'), specStatusOption('dropped')],
     ui.filters.specs.status, value => { ui.filters.specs.status = value; applyFilters(); });
   const specPlanner = filterSelect('planner', withCurrent([{ value: 'all', label: '全部 planner' }], ui.filters.specs.planner, plannerOption), ui.filters.specs.planner,

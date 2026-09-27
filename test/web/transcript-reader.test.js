@@ -7,31 +7,31 @@ import { until } from '../helpers.js';
 test('Web full-search, original-step and explanation routes use project RPC and preserve source history', async () => {
   const f = await setup();
   try {
-    const ap = f.store.create({ role: 'research', input_id: null, goal: 'read output' });
-    f.store.update(ap.id, { status: 'completed' });
+    const task = f.store.create({ role: 'research', input_id: null, goal: 'read output' });
+    f.store.update(task.id, { status: 'completed' });
     const dir = path.join(f.config.home, 'sessions'); fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, `001_lush-ap-${ap.id}.jsonl`), JSON.stringify({ type: 'message', message: {
+    fs.writeFileSync(path.join(dir, `001_lush-task-${task.id}.jsonl`), JSON.stringify({ type: 'message', message: {
       role: 'toolResult', toolName: 'bash', toolCallId: 'a', isError: true, content: [{ type: 'text', text: 'exit code 1' }],
     } }) + '\n');
-    const search = await (await fetch(`${f.url}/api/ap/${ap.id}/transcript-search?query=exit&errors=true`)).json();
+    const search = await (await fetch(`${f.url}/api/task/${task.id}/transcript-search?query=exit&errors=true`)).json();
     expect(search.steps[0].seq).toBe(1);
-    const source = await (await fetch(`${f.url}/api/ap/${ap.id}/transcript-step?seq=1`)).json();
+    const source = await (await fetch(`${f.url}/api/task/${task.id}/transcript-step?seq=1`)).json();
     expect(source.step.body).toBe('exit code 1');
-    const page = await (await fetch(`${f.url}/api/ap/${ap.id}/transcript-page`)).json();
+    const page = await (await fetch(`${f.url}/api/task/${task.id}/transcript-page`)).json();
     expect(page.steps[0]).toMatchObject({ seq: 1, offset: 0, body: 'exit code 1', body_length: 11 });
     expect(page).toMatchObject({ next_seq: 2, next_offset: 0, has_more: false });
-    expect((await fetch(`${f.url}/api/ap/${ap.id}/transcript-page?seq=0`)).status).toBe(400);
-    expect((await fetch(`${f.url}/api/ap/${ap.id}/transcript-page?offset=-1`)).status).toBe(400);
-    expect((await fetch(`${f.url}/api/ap/999999/transcript-page`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/task/${task.id}/transcript-page?seq=0`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/task/${task.id}/transcript-page?offset=-1`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/task/999999/transcript-page`)).status).toBe(400);
     const createdResponse = await fetch(`${f.url}/api/action`, { method: 'POST', headers: { 'content-type': 'application/json', origin: f.url },
-      body: JSON.stringify({ method: 'explanation.start', params: { id: ap.id, seq: 1, quote: 'exit code 1' } }) });
+      body: JSON.stringify({ method: 'explanation.start', params: { id: task.id, seq: 1, quote: 'exit code 1' } }) });
     expect(createdResponse.status).toBe(200);
     const created = await createdResponse.json();
-    await until(() => f.store.ap(created.id).status === 'completed');
+    await until(() => f.store.task(created.id).status === 'completed');
     const result = await (await fetch(`${f.url}/api/explanation/${created.id}`)).json();
     expect(result.source.quote).toBe('exit code 1'); expect(result.result).toContain('Mock explainer');
-    expect((await (await fetch(`${f.url}/api/ap/${ap.id}/explanations`)).json()).explanations[0].id).toBe(created.id);
-    expect((await fetch(`${f.url}/api/ap/${ap.id}/transcript-step?seq=-1`)).status).toBe(400);
-    expect((await fetch(`${f.url}/api/ap/${ap.id}/transcript-search?kind=no`)).status).toBe(400);
+    expect((await (await fetch(`${f.url}/api/task/${task.id}/explanations`)).json()).explanations[0].id).toBe(created.id);
+    expect((await fetch(`${f.url}/api/task/${task.id}/transcript-step?seq=-1`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/task/${task.id}/transcript-search?kind=no`)).status).toBe(400);
   } finally { await f.close(); }
 });

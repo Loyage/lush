@@ -8,7 +8,7 @@ import { liveInterval } from './live.js';
 import { onPrefChange, pollingIntervals, readPref, setPref } from './prefs.js';
 import { liveRefresh, refresh, applySort, applyFilters } from './refresh.js';
 import { openGraph } from './render-graph.js';
-import { openAPGraph } from './render-ap-graph.js';
+import { openTaskGraph } from './render-task-graph.js';
 import { openSettings } from './render-settings.js';
 import { initSidebar } from './sidebar-init.js';
 import { openResource, paintCollapsed } from './sidebar-ui.js';
@@ -29,7 +29,7 @@ function syncSidebarSortSelect() {
   const select = $('sidebar-sort');
   select.replaceChildren(...SORT_MODES.map(mode => { const option = el('option', mode.label); option.value = mode.id; return option; }));
   select.value = ui.sidebarSortMode;
-  select.title = '四个列表共用：智能排序会为 AP、规划、输入与待决事项分别选择最有用的顺序；也可以统一按最近更新或编号排序。';
+  select.title = '四个列表共用：智能排序会为任务、规划、输入与待决事项分别选择最有用的顺序；也可以统一按最近更新或编号排序。';
 }
 function onSidebarSortChange() { setPref('sidebarSort', $('sidebar-sort').value); }
 
@@ -51,7 +51,7 @@ onPrefChange('theme', () => refreshTheme());
 // 轮询频率变了：立刻按新间隔重建两个定时器，不必刷新页面。
 onPrefChange('polling', () => { if (refreshTimer !== null || liveTimer !== null) startTimers(); });
 
-const linked = apId => /^#ap-(\d+)$/.test(apId) ? Number(apId.slice(4)) : null;
+const linked = taskId => /^#task-(\d+)$/.test(taskId) ? Number(taskId.slice(6)) : null;
 
 /** 打开分支图：点按钮与 #graph hash 共用；失败只报错，不中断轮询。 */
 function openGraphView() { return openGraph().catch(error => { show(error.message, 'error'); }); }
@@ -59,15 +59,15 @@ function openGraphView() { return openGraph().catch(error => { show(error.messag
 /** 打开文档：点左栏「文档」与 #docs / #doc-<id> 共用；同样只报错，不中断轮询。 */
 function openDocsView(id = null) { return openDocs(id).catch(error => { show(error.message, 'error'); }); }
 
-// 地址栏是唯一的路由源：`#settings` / `#graph` / `#docs` / `#doc-ID` / `#ap-ID`，其余回概览。
+// 地址栏是唯一的路由源：`#settings` / `#graph` / `#docs` / `#doc-ID` / `#task-ID`，其余回概览。
 // 每个分支都把 promise 返回出去：浏览器不看返回值，但测试能 await 到「画完」为止。
 function onHashChange() {
   hideHelp(); // 换页前先把上一页的按钮提示收掉，避免固定浮层跨页残留。
   const report = error => { show(error.message, 'error'); };
   if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
   if (location.hash === '#graph') return ui.graphOpen ? undefined : openGraphView();
-  if (location.hash === '#ap-graph') return ui.view?.id === 'ap-graph' ? undefined : openAPGraph().catch(report);
-  const resource = /^#(notices|aps)$/.exec(location.hash)?.[1];
+  if (location.hash === '#task-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
+  const resource = /^#(notices|tasks)$/.exec(location.hash)?.[1];
   if (resource) return openResource(resource, { push: false });
   const doc = docsTarget(location.hash);
   if (doc) return openDocsView(doc.id);
@@ -130,7 +130,7 @@ export async function boot() {
     $('sidebar-toggle').textContent = open ? '收起菜单' : '导航菜单';
   };
   $('graph-open').onclick = goGraph;
-  $('ap-graph-open').onclick = () => openAPGraph().catch(error => { show(error.message, 'error'); });
+  $('task-graph-open').onclick = () => openTaskGraph().catch(error => { show(error.message, 'error'); });
   $('docs-open').onclick = () => openDocsView();
   $('view-back').onclick = () => {
     if ($('view-back').disabled) return;

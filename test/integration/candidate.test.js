@@ -11,18 +11,18 @@ import { cli, legacySay, done } from './harness.js';
 const CANDIDATE_PI = `#!/usr/bin/env bun
 import fs from 'node:fs';
 import path from 'node:path';
-const file = path.join(process.env.LUSH_HOME,'sessions','ap-'+process.env.LUSH_AP_ID+'-input.md');
+const file = path.join(process.env.LUSH_HOME,'sessions','task-'+process.env.LUSH_TASK_ID+'-input.md');
 const context = JSON.parse(fs.readFileSync(file,'utf8'));
-const ap = context.ap;
+const task = context.task;
 const git = (...args) => { const proc = Bun.spawnSync(['git',...args]); if (proc.exitCode) throw new Error(proc.stderr.toString()); };
-if (ap.role === 'planner' && ap.calls === 1) {
+if (task.role === 'planner' && task.calls === 1) {
   const proc = Bun.spawn(['lush','spec','add','add greeting','--role','worker','--name','add-greeting','--json'],{stdout:'pipe',stderr:'pipe'});
   const err = await new Response(proc.stderr).text();
   if (await proc.exited) throw new Error(err);
-} else if (ap.role === 'worker') {
+} else if (task.role === 'worker') {
   fs.writeFileSync('greeting.txt','hi\\n');
   git('add','greeting.txt'); git('commit','-qm','add greeting');
-} else if (ap.role === 'verifier') {
+} else if (task.role === 'verifier') {
   const v = context.verification;
   const changed = fs.existsSync(path.join(v.workspace,'greeting.txt'));
   const baseline = fs.existsSync(path.join(v.baseline_workspace,'greeting.txt'));
@@ -33,7 +33,7 @@ if (ap.role === 'planner' && ap.calls === 1) {
       baseline_exit_code:baseline?0:1,summary:'compared greeting file'}],failures:changed&&!baseline?[]:['candidate mismatch'],
     unverified:[],baseline_failures:[],residual_risks:[]}));
 }
-console.log('candidate pi done ' + ap.role);
+console.log('candidate pi done ' + task.role);
 `;
 
 test('an Intent compiles to work, auto-integrates privately, then a frozen Candidate lands on acceptance', async () => {
@@ -45,19 +45,19 @@ test('an Intent compiles to work, auto-integrates privately, then a frozen Candi
     await cli(root,['start'], { LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
     const input = await legacySay(root, 'add greeting');
     const client = new UIClient(Config.fromEnv(env(),root));
-    expect((await done(client,input.ap.id)).status).toBe('completed');
+    expect((await done(client,input.task.id)).status).toBe('completed');
 
-    // No scheduler AP exists; the Plan is compiled straight into a root worker.
-    const aps = await client.request('ap.list');
-    expect(aps.some(ap => ap.role === 'scheduler')).toBe(false);
-    const worker = aps.find(ap => ap.role === 'worker');
+    // No scheduler task exists; the Plan is compiled straight into a root worker.
+    const tasks = await client.request('task.list');
+    expect(tasks.some(task => task.role === 'scheduler')).toBe(false);
+    const worker = tasks.find(task => task.role === 'worker');
     expect(worker).toBeTruthy();
     expect(worker.parent_id).toBeNull();
     expect((await done(client, worker.id)).status).toBe('completed');
 
     // Auto integration moves the work into the private Intent branch, not into main.
     for (let i=0;i<400;i++) {
-      const state = await client.request('ap.inspect',{id:worker.id});
+      const state = await client.request('task.inspect',{id:worker.id});
       if (state.integration === 'merged') break;
       await Bun.sleep(30);
     }
@@ -71,8 +71,8 @@ test('an Intent compiles to work, auto-integrates privately, then a frozen Candi
       await Bun.sleep(30);
     }
     expect(candidate?.status).toBe('pending');
-    expect(candidate.report_ap_id).toBeNull();
-    expect((await client.request('ap.list')).filter(ap => ap.role === 'verifier')).toHaveLength(0);
+    expect(candidate.report_task_id).toBeNull();
+    expect((await client.request('task.list')).filter(task => task.role === 'verifier')).toHaveLength(0);
 
     // 用户显式指定验收后才创建 verifier 与报告。
     await client.request('candidate.verify', { id: candidate.id });
@@ -82,9 +82,9 @@ test('an Intent compiles to work, auto-integrates privately, then a frozen Candi
       await Bun.sleep(30);
     }
     expect(candidate?.status).toBe('ready');
-    expect(candidate.report_ap_id).toBeGreaterThan(0);
+    expect(candidate.report_task_id).toBeGreaterThan(0);
     // Verifier 把自包含报告写到磁盘；Web 路由只把它作为独立文档发出去（路由本身在 web/security.test.js 覆盖）。
-    const reportFile = path.join(root,'.lush','verify',String(candidate.report_ap_id),'report.html');
+    const reportFile = path.join(root,'.lush','verify',String(candidate.report_task_id),'report.html');
     const html = fs.readFileSync(reportFile,'utf8');
     expect(html).toContain('changed=true baseline=false');
 
@@ -105,8 +105,8 @@ test('requesting changes keeps the reviewed version and starts a new planner for
     await cli(root,['start'], { LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
     const input = await legacySay(root, 'add greeting');
     const client = new UIClient(Config.fromEnv(env(),root));
-    await done(client,input.ap.id);
-    const worker = (await client.request('ap.list')).find(ap => ap.role === 'worker');
+    await done(client,input.task.id);
+    const worker = (await client.request('task.list')).find(task => task.role === 'worker');
     await done(client, worker.id);
     let candidate = null;
     for (let i=0;i<400;i++) {
@@ -127,8 +127,8 @@ test('requesting changes keeps the reviewed version and starts a new planner for
     const revision = await cli(root,['candidate','changes',String(candidate.id),'按钮再明显一点']);
     expect(revision.candidate.status).toBe('changes_requested');
     const intents = await client.request('input.list');
-    expect(intents[0].ap_id).not.toBe(input.ap.id);
-    const fresh = await client.request('ap.inspect',{id:intents[0].ap_id});
+    expect(intents[0].task_id).not.toBe(input.task.id);
+    const fresh = await client.request('task.inspect',{id:intents[0].task_id});
     expect(fresh.role).toBe('planner');
     expect(fresh.input_id).toBe(input.id);
     // The old candidate can no longer be accepted.

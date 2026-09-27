@@ -1,6 +1,6 @@
-// An AP's parent is the only structural edge; branch and worktree belong to the AP card.
+// A task's parent is the only structural edge; branch and worktree belong to the task card.
 // Missing parents (including a truncated page) become visible roots, never silently disappear.
-export function apForest(graph = {}) {
+export function taskForest(graph = {}) {
   const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
   const byId = new Map(nodes.map(node => [node.id, { ...node, children: [] }]));
   const roots = [];

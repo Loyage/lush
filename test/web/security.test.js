@@ -14,17 +14,17 @@ test('web is project scoped, submits immediately and exposes no Service views', 
   const f = await setup(); await repo(f.root);
   try {
     const page = await fetch(f.url); const html = await page.text();
-    expect(html).toContain('AP 列表'); expect(html).not.toContain('Service');
+    expect(html).toContain('任务列表'); expect(html).not.toContain('Service');
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
     const submit = await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'input.submit',params:{content:'web request'}})});
     expect(submit.status).toBe(200);
     const snapshot = await (await fetch(f.url+'/api/snapshot')).json();
     expect(snapshot.status.project).toBe(f.root); expect(snapshot.inputs[0].content).toBe('web request');
-    // 并行/串行读模型跟着快照一起下发：没有它们，界面只能说"有这些 AP"，说不出谁和谁能同时跑。
-    expect(Array.isArray(snapshot.timeline.aps)).toBe(true);
+    // 并行/串行读模型跟着快照一起下发：没有它们，界面只能说"有这些任务"，说不出谁和谁能同时跑。
+    expect(Array.isArray(snapshot.timeline.tasks)).toBe(true);
     expect(snapshot.timeline.concurrency).toBeGreaterThan(0);
     expect(Array.isArray(snapshot.ladder.nodes)).toBe(true);
-    const ap = await (await fetch(f.url+'/api/ap/1')).json(); expect(ap.role).toBe('planner');
+    const task = await (await fetch(f.url+'/api/task/1')).json(); expect(task.role).toBe('planner');
   } finally { await f.close(); }
 });
 
@@ -87,18 +87,18 @@ test('web reads and saves per-target Agent environment through user-only narrow 
   } finally { await f.close(); }
 });
 
-test('web exposes only read-only ap routes and rejects other paths', async () => {
+test('web exposes only read-only task routes and rejects other paths', async () => {
   const f = await setup(); await repo(f.root);
   try {
     await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'input.submit',params:{content:'read routes'}})});
-    expect((await fetch(f.url+'/api/ap/1/history')).status).toBe(200);
-    const history = await (await fetch(f.url+'/api/ap/1/history')).json();
+    expect((await fetch(f.url+'/api/task/1/history')).status).toBe(200);
+    const history = await (await fetch(f.url+'/api/task/1/history')).json();
     expect(history[0].type).toBe('created');
-    expect((await fetch(f.url+'/api/ap/1/history?after=9999')).status).toBe(200);
-    expect(await (await fetch(f.url+'/api/ap/1/diff')).json()).toBeNull();
-    expect((await fetch(f.url+'/api/ap/1/diff')).status).toBe(200);
-    expect((await fetch(f.url+'/api/ap/99/diff')).status).toBe(400);
-    expect((await fetch(f.url+'/api/ap/1/merge')).status).toBe(404);
+    expect((await fetch(f.url+'/api/task/1/history?after=9999')).status).toBe(200);
+    expect(await (await fetch(f.url+'/api/task/1/diff')).json()).toBeNull();
+    expect((await fetch(f.url+'/api/task/1/diff')).status).toBe(200);
+    expect((await fetch(f.url+'/api/task/99/diff')).status).toBe(400);
+    expect((await fetch(f.url+'/api/task/1/merge')).status).toBe(404);
     expect((await fetch(f.url+'/api/system/status')).status).toBe(404);
   } finally { await f.close(); }
 });
@@ -189,9 +189,9 @@ test('RPC rejects invalid frames, unknown params, invalid ids and cross-project 
     expect(() => parseRequest(Buffer.from('{"jsonrpc":"2.0","method":"x","id":{}}'))).toThrow('id');
     expect(() => encode({large:'x'.repeat(1048576)})).toThrow('1 MiB');
     const client = new RPCClient(f.config.socket);
-    await expect(client.request('ap.inspect',{id:-1})).rejects.toThrow('positive');
-    await expect(client.request('ap.usage',{id:-1})).rejects.toThrow('positive');
-    await expect(client.request('ap.usage',{id:1,after:0})).rejects.toThrow('unknown parameter');
+    await expect(client.request('task.inspect',{id:-1})).rejects.toThrow('positive');
+    await expect(client.request('task.usage',{id:-1})).rejects.toThrow('positive');
+    await expect(client.request('task.usage',{id:1,after:0})).rejects.toThrow('unknown parameter');
     await expect(client.request('input.submit',{content:'x',sid:0})).rejects.toThrow('unknown parameter');
     await expect(client.request('input.list',{_token:'foreign'})).rejects.toThrow();
     // 客户端比 daemon 新时不能只说 unknown method，要给出重启这一步
@@ -206,11 +206,11 @@ test('web exposes batch merge through the mutation whitelist', async () => {
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     // 白名单通过后才会到运行时校验：空 ids 报的是「至少一个」，不是「method not allowed from Web UI」。
-    const response = await post('ap.merge_many', { ids: [] });
+    const response = await post('task.merge_many', { ids: [] });
     expect(response.status).toBe(400);
     expect((await response.json()).error).toContain('at least one');
     // agent token 在 Web 层直接被拒；真正的 USER_ONLY 校验在 daemon，见 merge-batch.test.js
-    expect((await post('ap.merge_many', { ids: [1], _token: 'forged' })).status).toBe(400);
+    expect((await post('task.merge_many', { ids: [1], _token: 'forged' })).status).toBe(400);
   } finally { await f.close(); }
 });
 
@@ -219,7 +219,7 @@ test('web exposes branch archive through the mutation whitelist', async () => {
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     // 加的是白名单里的一条具体动作，不是把 /api/action 放宽成通用代理：白名单外的动作仍被同一句话拒绝。
-    const blocked = await post('ap.spawn', { role: 'worker', goal: 'x' });
+    const blocked = await post('task.spawn', { role: 'worker', goal: 'x' });
     expect(blocked.status).toBe(400);
     expect((await blocked.json()).error).toBe('method not allowed from Web UI');
     // branch.archive 已越过 Web 白名单、被转发给 daemon：基线上 daemon 还不认识它（unknown method），
@@ -248,7 +248,7 @@ test('web exposes review candidate actions through the mutation whitelist', asyn
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     // 白名单外的方法仍被同一句话拒绝，白名单没有变成通用代理。
-    expect((await post('ap.spawn', { role: 'worker', goal: 'x' })).status).toBe(400);
+    expect((await post('task.spawn', { role: 'worker', goal: 'x' })).status).toBe(400);
     // 白名单内的候选动作会被转发给 daemon：不存在时是运行时错误，而不是「method not allowed」。
     for (const [method, params] of [['candidate.prepare', { input: 99 }], ['candidate.accept', { id: 99 }],
       ['candidate.changes', { id: 99, feedback: 'x' }], ['candidate.reject', { id: 99 }]]) {
@@ -271,7 +271,7 @@ test('web serves core architecture as Markdown and has no standalone documentati
     const body = await response.json();
     expect(body.markdown).toContain('新 `say` 保存 Input');
     expect(body.markdown).toContain('```mermaid');
-    // 文档系统不再暴露 authored HTML；运行时 verifier 报告仍走独立的 AP report 路由。
+    // 文档系统不再暴露 authored HTML；运行时 verifier 报告仍走独立的 task report 路由。
     expect((await fetch(f.url+'/api/docs/docs-core-architecture/html')).status).toBe(404);
     expect((await fetch(f.url+'/api/docs/readme/html')).status).toBe(404);
     const mermaid = await fetch(f.url+'/mermaid.min.js');

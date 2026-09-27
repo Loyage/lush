@@ -18,16 +18,16 @@ test('a develop prefix short-circuits the planner and creates the routed worker'
     // 规划模型一次都没被调用，planner 直接结算为 completed。
     expect(provider.calls).toHaveLength(0);
     expect(f.project.running.size).toBe(0);
-    expect(result.ap.status).toBe('completed');
-    expect(result.ap.calls).toBe(0);
-    expect(result.ap.result).toContain('前缀 开发 命中');
+    expect(result.task.status).toBe('completed');
+    expect(result.task.calls).toBe(0);
+    expect(result.task.result).toContain('前缀 开发 命中');
     expect(result.worker.role).toBe('worker');
     expect(result.worker.goal).toBe('做一个登录页');
-    expect(f.store.ap(result.worker.id).parent_id).toBeNull();
+    expect(f.store.task(result.worker.id).parent_id).toBeNull();
 
-    const events = f.store.history(result.ap.id);
+    const events = f.store.history(result.task.id);
     const route = events.find(event => event.type === 'input.route');
-    expect(route.data).toMatchObject({ prefix: '开发', target: 'worker', ap: result.worker.id });
+    expect(route.data).toMatchObject({ prefix: '开发', target: 'worker', task: result.worker.id });
     expect(events.some(event => event.type === 'completed' && event.data.route === true)).toBe(true);
     // 走的是 route，不是任何直接执行占位。
     expect(f.project.inputs().find(input => input.id === result.id).route).toBe(1);
@@ -43,11 +43,11 @@ test('an explain prefix creates a read-only research root and never a worktree o
     expect(result.research.role).toBe('research');
     expect(result.research.goal).toBe('调度器怎么工作');
 
-    // research 沿用主项目目录且只读：ensure 后工作区仍是项目目录，AP 上没有分支 / worktree。
+    // research 沿用主项目目录且只读：ensure 后工作区仍是项目目录，任务上没有分支 / worktree。
     const workspace = await f.project.workspaces.ensure(result.research);
     expect(workspace).toBe(f.config.project);
-    expect(f.store.ap(result.research.id).branch).toBeNull();
-    expect(f.store.ap(result.research.id).workspace).toBeNull();
+    expect(f.store.task(result.research.id).branch).toBeNull();
+    expect(f.store.task(result.research.id).workspace).toBeNull();
   } finally { await f.close(); }
 });
 
@@ -57,33 +57,33 @@ test('a non-prefix input still goes to the planner', async () => {
     const plain = await f.project.submit('做一个登录页');
     expect(plain.route).toBeUndefined();
     expect(plain.worker).toBeUndefined();
-    expect(plain.ap.role).toBe('planner');
-    expect(plain.ap.status).toBe('queued');
+    expect(plain.task.role).toBe('planner');
+    expect(plain.task.status).toBe('queued');
     expect(provider.calls).toHaveLength(0);
   } finally { await f.close(); }
 });
 
-test('AP read models and the branch graph flag a fast-routed input', async () => {
+test('task read models and the branch graph flag a fast-routed input', async () => {
   const provider = controlled(), f = fixture(provider); f.project.stopping = true; await repo(f.root);
   try {
-    const routed = await f.project.submit('开发 路由出来的 AP');
-    const plain = await f.project.submit('交给规划器的普通 AP');
+    const routed = await f.project.submit('开发 路由出来的任务');
+    const plain = await f.project.submit('交给规划器的普通任务');
 
-    // AP 树 / 概览共用的 activity 读模型：派生的 worker 与它的 planner 都带上 route。
-    const activity = new Map(f.project.activity(50, 'all').aps.map(ap => [ap.id, ap]));
+    // 任务树 / 概览共用的 activity 读模型：派生的 worker 与它的 planner 都带上 route。
+    const activity = new Map(f.project.activity(50, 'all').tasks.map(task => [task.id, task]));
     expect(activity.get(routed.worker.id).route).toBe(true);
-    expect(activity.get(routed.ap.id).route).toBe(true);
-    expect(activity.get(plain.ap.id).route).toBe(false);
+    expect(activity.get(routed.task.id).route).toBe(true);
+    expect(activity.get(plain.task.id).route).toBe(false);
 
-    // AP 详情单读模型同一口径。
+    // 任务详情单读模型同一口径。
     expect(f.project.inspect(routed.worker.id).route).toBe(true);
-    expect(f.project.inspect(plain.ap.id).route).toBe(false);
+    expect(f.project.inspect(plain.task.id).route).toBe(false);
 
     // 分支图：快速路由的 planner 挂在输入锚点分支上，节点同样标 route。
     const graph = await f.project.graph();
     const byId = new Map(graph.nodes.map(node => [node.id, node]));
-    expect(byId.get(routed.ap.id).route).toBe(true);
-    expect(byId.get(plain.ap.id).route).toBe(false);
+    expect(byId.get(routed.task.id).route).toBe(true);
+    expect(byId.get(plain.task.id).route).toBe(false);
   } finally { await f.close(); }
 });
 

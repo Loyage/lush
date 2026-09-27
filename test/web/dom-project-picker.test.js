@@ -20,12 +20,12 @@ const row = { id: ID, project: '/tmp/demo', name: 'demo', connected: false, last
 test('根路径按 last_project_id 跳一次，且不因此启动任何项目 daemon', async () => {
   state = { mode: 'host', project: null, last_project: '/tmp/demo', last_project_id: ID, projects: [row] };
   globalThis.location.pathname = '/';
-  globalThis.location.hash = '#ap-3';
+  globalThis.location.hash = '#task-3';
   let replaced = null;
   globalThis.location.replace = url => { replaced = url; };
   try {
     expect(await ensureProject()).toBe(false);
-    expect(replaced).toBe(`/p/${ID}/#ap-3`);
+    expect(replaced).toBe(`/p/${ID}/#task-3`);
     // 只读了启动器状态与项目列表；没有对任何项目发 snapshot / action。
     expect(requests.every(path => path.startsWith('/api/host'))).toBe(true);
   } finally { delete globalThis.location.replace; }

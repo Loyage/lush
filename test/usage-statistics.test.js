@@ -8,7 +8,7 @@ const message = (at, cost = 0.5, extra = {}) => ({ type: 'message', timestamp: a
   role: 'assistant', provider: 'vendor', model: 'model', content: [{ type: 'text', text: 'private text' }],
   usage: { input: 10, output: 5, cacheRead: 20, cacheWrite: 2, reasoning: 3, totalTokens: 37, ...(cost === null ? {} : { cost: { total: cost } }) }, ...extra,
 } });
-function sessions(config, rows, name = 'a_lush-ap-999.jsonl') {
+function sessions(config, rows, name = 'a_lush-task-999.jsonl') {
   const dir = path.join(config.home, 'sessions'); fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, name); fs.writeFileSync(file, rows.map(row => JSON.stringify(row)).join('\n') + '\n'); return file;
 }
@@ -60,8 +60,8 @@ test('undated and missing usage are explicit; malformed, incomplete and foreign 
     const file = sessions(f.config, [message(null, null), message('2026-01-01T01:00:00Z', null, { usage: undefined })]);
     fs.appendFileSync(file, '{bad json}\n' + JSON.stringify(message('2026-01-02T00:00:00Z')));
     sessions(f.config, [message('2026-01-01T01:00:00Z', 999)], 'unrelated.jsonl');
-    fs.writeFileSync(path.join(f.config.home, 'sessions', 'codex-ap-1.json'), '{}');
-    fs.symlinkSync(file, path.join(f.config.home, 'sessions', 'link_lush-ap-1.jsonl'));
+    fs.writeFileSync(path.join(f.config.home, 'sessions', 'codex-task-1.json'), '{}');
+    fs.symlinkSync(file, path.join(f.config.home, 'sessions', 'link_lush-task-1.jsonl'));
     const all = await readUsageStatistics(f.config);
     expect(all.totals).toMatchObject({ requests: 2, unknown_cost: 2, unknown_tokens: 1 });
     expect(all.coverage).toMatchObject({ undated_requests: 1, malformed_lines: 1, incomplete_files: 1, unreadable_files: 1, codex_threads: 1 });
@@ -92,7 +92,7 @@ test('cache invalidates on append, replacement, truncation, regrowth and removal
   } finally { await f.close(); }
 });
 
-test('statistics read beyond the AP transcript 8 MiB window and keep scanning after oversized lines', async () => {
+test('statistics read beyond the task transcript 8 MiB window and keep scanning after oversized lines', async () => {
   const f = fixture();
   try {
     const file = sessions(f.config, [message('2026-01-01T01:00:00Z')]);

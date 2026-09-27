@@ -5,13 +5,13 @@ import { initNoticeRecords, loadNoticeRecords, openNotice, renderNotices, notice
 import { registerNavigation } from '../../src/ui/web/assets/navigate.js';
 import { setup, fetch as httpFetch } from './harness.js';
 
-const base = { ap_id: 1, created_at: '2026-01-01T00:00:00Z', kind: 'question', body: '原始问题正文' };
+const base = { task_id: 1, created_at: '2026-01-01T00:00:00Z', kind: 'question', body: '原始问题正文' };
 
 test('records HTTP endpoint validates filters and exposes stored history beyond snapshot limit', async () => {
   const f = await setup();
   try {
-    const ap = f.store.create({ input_id: null, role: 'worker', goal: 'notice route' });
-    for (let i = 0; i < 205; i++) f.store.run("INSERT INTO notices(ap_id,title,body,status,answer) VALUES (?,?,?,'answered',?)", ap.id, `record ${i}`, 'body', 'decision');
+    const task = f.store.create({ input_id: null, role: 'worker', goal: 'notice route' });
+    for (let i = 0; i < 205; i++) f.store.run("INSERT INTO notices(task_id,title,body,status,answer) VALUES (?,?,?,'answered',?)", task.id, `record ${i}`, 'body', 'decision');
     const first = await (await httpFetch(f.url + '/api/notices?status=answered&limit=100')).json();
     expect(first.notices).toHaveLength(100); expect(first.has_more).toBe(true);
     const second = await (await httpFetch(f.url + `/api/notices?status=answered&limit=100&before=${first.cursor}`)).json();
@@ -42,7 +42,7 @@ test('decision panel loads history, preserves edits across polls, answers inline
       const notices = matching.slice(0, 2);
       return json({ notices, cursor: notices.at(-1)?.id, has_more: matching.length > notices.length });
     }
-    if (url === '/api/ap/1') return json({ id: 1, notices: rows });
+    if (url === '/api/task/1') return json({ id: 1, notices: rows });
     if (url === '/api/action') {
       const { method, params } = JSON.parse(options.body); calls.push({ method, params });
       const target = rows.find(row => row.id === params.id);
@@ -62,7 +62,7 @@ test('decision panel loads history, preserves edits across polls, answers inline
     renderNotices(snapshot()); await loadNoticeRecords({ preserve: true });
     expect(focus.querySelector('textarea')).toBe(textarea);
     expect(textarea.value).toBe('用户的选择');
-    await findByText(focus, '回复并继续 AP').onclick();
+    await findByText(focus, '回复并继续任务').onclick();
     expect(calls.at(-1)).toEqual({ method: 'notice.answer', params: { id: 5, answer: '用户的选择' } });
     expect(ui.indexOpen).toBe('notices');
     expect(deepText(focus)).toContain('用户的选择'); expect(focus.querySelector('textarea')).toBeNull();

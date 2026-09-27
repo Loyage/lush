@@ -15,7 +15,7 @@ afterAll(() => dom.restore());
 
 test('概览：指标以 Intent 为主，Git 诊断退居次级且折叠跨重画保留', () => {
   const data = ui.lastSnapshot;
-  data.notices = [{ id: 23, ap_id: 1, status: 'open', title: '确认兼容方案' }];
+  data.notices = [{ id: 23, task_id: 1, status: 'open', title: '确认兼容方案' }];
   ui.selected = null; ui.graphOpen = false; ui.docsOpen = false;
   ui.overviewKey = null;
   renderOverview(data);
@@ -34,8 +34,8 @@ test('概览：指标以 Intent 为主，Git 诊断退居次级且折叠跨重�
   expect(text).not.toContain('开始验收');
   expect(text).toContain('需要你决定');
   expect(text).toContain('验证 unknown'); // 兼容旧 Candidate：没有结构化证据时明确显示未知。
-  // 旧结构不再出现：按 AP status 的分布 chips 与按目标分支分组的交付队列。
-  expect(text).not.toContain('AP 状态');
+  // 旧结构不再出现：按任务 status 的分布 chips 与按目标分支分组的交付队列。
+  expect(text).not.toContain('任务状态');
   expect(text).not.toContain('交付队列');
   // Intent 成果先于 Git 诊断，Git 诊断仍先于运行 / 维护信息。
   expect(text.indexOf('Intent 与最新成果')).toBeLessThan(text.indexOf('Git 交付诊断'));
@@ -56,16 +56,16 @@ test('概览：待收口 / 正在工作 / 提醒各归其位，info 提醒不进
     nodes: [
       { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'aaa', current: true, tracked: false, placeholder: false, created_at: iso(NOW - 60000) },
       { kind: 'branch', id: 'branch:lush/demo/1-one', name: 'lush/demo/1-one', head_commit: 'bbb', current: false, tracked: true, placeholder: false,
-        status: 'active', origin: 'ap', title: '正在改点什么', source_id: 1, created_at: iso(NOW - 50000) },
+        status: 'active', origin: 'task', title: '正在改点什么', source_id: 1, created_at: iso(NOW - 50000) },
       { kind: 'branch', id: 'branch:lush/demo/2-two', name: 'lush/demo/2-two', head_commit: 'ccc', current: false, tracked: true, placeholder: false,
-        status: 'ready', origin: 'ap', title: '合并我', source_id: 2, created_at: iso(NOW - 40000) },
+        status: 'ready', origin: 'task', title: '合并我', source_id: 2, created_at: iso(NOW - 40000) },
       { kind: 'branch', id: 'branch:lush/demo/3-three', name: 'lush/demo/3-three', head_commit: 'ddd', current: false, tracked: true, placeholder: false,
-        status: 'ready', origin: 'ap', title: '另一个待合的', source_id: 3, created_at: iso(NOW - 30000) },
+        status: 'ready', origin: 'task', title: '另一个待合的', source_id: 3, created_at: iso(NOW - 30000) },
       { kind: 'branch', id: 'branch:lush/demo/behind', name: 'lush/demo/behind', head_commit: 'eee', current: false, tracked: true, placeholder: false,
         status: 'ready', created_at: iso(NOW - 20000) },
       { kind: 'branch', id: 'branch:lush/demo/blocked', name: 'lush/demo/blocked', head_commit: 'fff', current: false, tracked: true, placeholder: false,
         status: 'ready', created_at: iso(NOW - 10000) },
-      { kind: 'ap', id: 1, role: 'worker', name: 'one', goal: '正在改点什么', status: 'running', integration: 'none',
+      { kind: 'task', id: 1, role: 'worker', name: 'one', goal: '正在改点什么', status: 'running', integration: 'none',
         branch: 'lush/demo/1-one', workspace: '/tmp/wt/1', workspace_state: 'present', branch_state: 'present',
         target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
     ],
@@ -82,9 +82,9 @@ test('概览：待收口 / 正在工作 / 提醒各归其位，info 提醒不进
     await fetchGraph();
     const data = ui.lastSnapshot;
     data.notices = [
-      { id: 900, ap_id: 1, kind: 'info', status: 'sent', title: '分支 lush/demo/1-one 有需要注意的变化', created_at: iso(NOW - 1000) },
-      { id: 901, ap_id: 1, kind: 'question', status: 'open', title: '确认兼容方案', created_at: iso(NOW - 2000) },
-      { id: 902, ap_id: 2, kind: 'plan', status: 'open', title: '计划待批准', created_at: iso(NOW - 3000) },
+      { id: 900, task_id: 1, kind: 'info', status: 'sent', title: '分支 lush/demo/1-one 有需要注意的变化', created_at: iso(NOW - 1000) },
+      { id: 901, task_id: 1, kind: 'question', status: 'open', title: '确认兼容方案', created_at: iso(NOW - 2000) },
+      { id: 902, task_id: 2, kind: 'plan', status: 'open', title: '计划待批准', created_at: iso(NOW - 3000) },
     ];
     ui.overviewKey = null;
     renderOverview(data);
@@ -102,13 +102,13 @@ test('概览：待收口 / 正在工作 / 提醒各归其位，info 提醒不进
     // 已与父分支一致、只在跑的 1-one 不在待收口清单里。
     expect(closingRow('lush/demo/1-one')).toBeNull();
 
-    // ② 正在工作的分支：分支名、标题、活跃 AP 数与 AP 链接。
+    // ② 正在工作的分支：分支名、标题、活跃任务数与任务链接。
     const working = panel.querySelector('.working-branches').querySelector('[data-branch="lush/demo/1-one"]');
     expect(working).toBeTruthy();
     const workingText = deepText(working);
     expect(workingText).toContain('lush/demo/1-one');
     expect(workingText).toContain('正在改点什么');
-    expect(workingText).toContain('1 个活跃 AP');
+    expect(workingText).toContain('1 个活跃任务');
     expect(working.querySelectorAll('button').some(node => node.textContent === '#1')).toBe(true);
 
     // ③ kind==='info' 的提醒只进「最近提醒」；待决口径仍是 open 且非 plan。
@@ -160,8 +160,8 @@ test('概览：图未到 / 读图失败时给占位与降级提示，提醒与�
     ui.selected = null; ui.graphOpen = false; ui.docsOpen = false;
     const data = ui.lastSnapshot;
     data.notices = [
-      { id: 910, ap_id: 1, kind: 'info', status: 'sent', title: '提醒仍然可见', created_at: iso(NOW - 1000) },
-      { id: 911, ap_id: 1, kind: 'question', status: 'open', title: '问题仍然可见' },
+      { id: 910, task_id: 1, kind: 'info', status: 'sent', title: '提醒仍然可见', created_at: iso(NOW - 1000) },
+      { id: 911, task_id: 1, kind: 'question', status: 'open', title: '问题仍然可见' },
     ];
     // ① 还没拿到图：占位文案，快照撑得住的提醒与待决照画。
     ui.lastGraph = null; ui.overviewKey = null;
@@ -193,25 +193,25 @@ test('概览：图未到 / 读图失败时给占位与降级提示，提醒与�
   }
 });
 
-test('AP goal becomes the page heading and results precede implementation metadata', () => {
+test('task goal becomes the page heading and results precede implementation metadata', () => {
   renderDetail({ id: 42, role: 'worker', status: 'completed', integration: 'none', calls: 0,
     goal: '更清晰的项目工作台', result: '已完成主题切换', deps: [], dependents: [] }, null, null, null);
   const panel = dom.node('detail');
-  expect(panel.dataset.view).toBe('ap');
+  expect(panel.dataset.view).toBe('task');
   // hero 的 h1 只放一句话短标题。
   expect(panel.querySelector('h1').textContent).toBe('更清晰的项目工作台');
-  // 完整 goal 落在正文的「AP 目标」块里，且排在「结果」之前。
+  // 完整 goal 落在正文的「任务目标」块里，且排在「结果」之前。
   const goalPanel = panel.querySelector('.goal-panel');
   expect(goalPanel).toBeTruthy();
-  expect(deepText(goalPanel)).toContain('AP 目标');
+  expect(deepText(goalPanel)).toContain('任务目标');
   expect(deepText(goalPanel)).toContain('更清晰的项目工作台');
   const text = deepText(panel);
-  expect(text.indexOf('AP 目标')).toBeLessThan(text.indexOf('已完成主题切换'));
+  expect(text.indexOf('任务目标')).toBeLessThan(text.indexOf('已完成主题切换'));
   expect(text.indexOf('已完成主题切换')).toBeLessThan(text.indexOf('调用次数'));
   expect(panel.querySelector('.breadcrumb')).toBeTruthy();
 });
 
-test('详情头部：角色胶囊按类型着色，快速路由 AP 另带徽章', () => {
+test('详情头部：角色胶囊按类型着色，快速路由任务另带徽章', () => {
   renderDetail({ id: 44, role: 'research', status: 'completed', integration: 'none', calls: 0, route: true,
     goal: '解释快速路由', result: '已解释', deps: [], dependents: [] }, null, null, null);
   const panel = dom.node('detail');

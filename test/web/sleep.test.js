@@ -75,7 +75,7 @@ test('settings shows risk confirmation before activation; banner gives immediate
 });
 
 test('butler choices are a separate read-only tab with question snapshot, answer, reason and pagination', async () => {
-  const choice = id => ({ id, created_at: '2026-01-01T00:00:00Z', mode: 'preferences', notice: { id, ap_id: 1, title: '原始问题 <script>', body: '需要什么？', kind: 'question' },
+  const choice = id => ({ id, created_at: '2026-01-01T00:00:00Z', mode: 'preferences', notice: { id, task_id: 1, title: '原始问题 <script>', body: '需要什么？', kind: 'question' },
     result: { status: 'applied', decision: { action: 'answer', answer: '采用 A <img>', reason: '依据你以往选择' } } });
   const dom = installDom({ fetch: async url => ({ ok: true, status: 200, json: async () => {
     if (url.startsWith('/api/sleep/choices')) return url.includes('before') ? { choices: [choice(1)], cursor: 1, has_more: false }

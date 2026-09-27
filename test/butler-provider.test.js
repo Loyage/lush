@@ -10,7 +10,7 @@ test('butler uses isolated Pi with no credentials, tools, extensions, skills or 
   fs.writeFileSync(fake, `#!/usr/bin/env bun\nconsole.log(JSON.stringify({args:process.argv.slice(2),token:process.env.LUSH_AGENT_TOKEN}));\n`, { mode: 0o755 });
   const config = new Config({ project: root, env: env({ LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake }) }); config.prepare();
   const agent = { agent: 'pi', extensions: ['/untrusted'], skills: ['/untrusted'] };
-  const options = { ap: { id: 1, role: 'butler', goal: '选择' }, context: { butler: { notice: { title: '问题' } } }, messages: [], cwd: root,
+  const options = { task: { id: 1, role: 'butler', goal: '选择' }, context: { butler: { notice: { title: '问题' } } }, messages: [], cwd: root,
     token: 'secret', signal: new AbortController().signal, onSpawn() {}, agent };
   try {
     const result = JSON.parse(await new PiProvider(config).run(options));

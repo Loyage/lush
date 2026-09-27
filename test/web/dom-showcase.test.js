@@ -18,13 +18,13 @@ function setup() {
   const actions = [], details = [], graphRefreshes = [], replies = {};
   const nodes = [
     { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'def' },
-    branch('feature', { allowed: false, reserve_allowed: true, reserve_reason: null, reason: '子 AP 尚未完成', latest_ap_id: null }),
+    branch('feature', { allowed: false, reserve_allowed: true, reserve_reason: null, reason: '子任务尚未完成', latest_task_id: null }),
   ];
   const dom = installDom({ fetch: async (url, options) => {
     if (url === '/api/graph') return Response.json({ current_branch: 'main', nodes });
     if (url === '/api/action') {
       const body = JSON.parse(options.body); actions.push(body);
-      return Response.json(replies[body.method] ?? { branch: body.params?.branch, reserved: true, ap_id: null });
+      return Response.json(replies[body.method] ?? { branch: body.params?.branch, reserved: true, task_id: null });
     }
     throw new Error(`unexpected ${url}`);
   } });
@@ -42,11 +42,11 @@ test('branch rows expose reservation, not a bare start: reservable branches get 
   try {
     f.nodes.push(
       // 未满足准入、但静态条件可预约：入口照样亮起，这是本 spec 要改的行为。
-      branch('developing', { allowed: false, reserve_allowed: true, reserve_reason: null, reason: '开发 AP 尚未完成' }),
+      branch('developing', { allowed: false, reserve_allowed: true, reserve_reason: null, reason: '开发任务尚未完成' }),
       // 不满足静态可预约条件（例如主干 / 未登记）：没有入口。
       branch('trunk', { allowed: false, reserve_allowed: false, reserve_reason: '主干分支不开放效果展示' }),
       // 已满足准入且未预约：只给一个预约入口，不再另给「效果展示」。
-      branch('ready', { allowed: true, reserve_allowed: true, latest_ap_id: 41 }),
+      branch('ready', { allowed: true, reserve_allowed: true, latest_task_id: 41 }),
       // 已预约：状态 + 取消入口，并就地说明当前阻塞原因。
       branch('waiting', { reserved: true, reserved_at: '2026-09-24T00:00:00.000Z', allowed: false, reason: '子分支尚未收拢', reserve_allowed: true }),
     );
@@ -68,7 +68,7 @@ test('branch rows expose reservation, not a bare start: reservable branches get 
     expect(buttons(f.dom, '取消预约')[0].classList.contains('agent-call')).toBe(false);
     expect(buttons(f.dom, '取消预约')[0].getAttribute('data-help')).toContain('已开始的展示不受影响');
 
-    // latest_ap_id 仍然给只读的历史展示入口。
+    // latest_task_id 仍然给只读的历史展示入口。
     expect(buttons(f.dom, '查看已有展示')).toHaveLength(1);
     await findByText(detail, '查看已有展示').onclick();
     expect(f.details).toEqual([41]);
@@ -82,7 +82,7 @@ test('showcase reservation fields participate in the render key, so a reserve_al
     f.nodes[1].showcase = { allowed: false, reserve_allowed: false, reserve_reason: '主干分支不开放效果展示' };
     render(f);
     expect(findByText(f.dom.node('detail'), '预约效果展示')).toBeFalsy();
-    // 只有预约子字段变化（提交、AP、诊断都没动），表头也必须重画，否则入口永远不出现。
+    // 只有预约子字段变化（提交、任务、诊断都没动），表头也必须重画，否则入口永远不出现。
     f.nodes[1].showcase.reserve_allowed = true;
     f.nodes[1].showcase.reserve_reason = null;
     renderGraph({ git: true, nodes: f.nodes, edges: [] }); // 不 force：走 graphRenderKey
@@ -90,10 +90,10 @@ test('showcase reservation fields participate in the render key, so a reserve_al
   } finally { ui.graphRenderKey = oldKey; f.close(); }
 });
 
-test('reserve re-checks reserve_allowed, confirms, posts showcase.reserve and navigates when an AP starts immediately', async () => {
+test('reserve re-checks reserve_allowed, confirms, posts showcase.reserve and navigates when a task starts immediately', async () => {
   const f = setup();
   f.nodes[1].showcase.allowed = true;
-  f.replies['showcase.reserve'] = { branch: 'feature', reserved: true, ap_id: 42 };
+  f.replies['showcase.reserve'] = { branch: 'feature', reserved: true, task_id: 42 };
   try {
     const pending = reserveBranchShowcase('feature');
     await until(() => dialogText(f.dom).includes('预约展示 feature'));
@@ -151,7 +151,7 @@ test('dismissing the reserve confirm sends nothing', async () => {
 
 test('clicking the branch-row reserve button goes through the confirm and issues showcase.reserve', async () => {
   const f = setup();
-  f.replies['showcase.reserve'] = { branch: 'feature', reserved: true, ap_id: null };
+  f.replies['showcase.reserve'] = { branch: 'feature', reserved: true, task_id: null };
   const oldKey = ui.graphRenderKey;
   try {
     render(f);
@@ -169,12 +169,12 @@ test('clicking the branch-row reserve button goes through the confirm and issues
 test('reserved branch shows status, blocker and cancel; cancel issues showcase.unreserve', async () => {
   const f = setup();
   f.nodes[1].showcase = { reserved: true, reserved_at: '2026-09-24T00:00:00.000Z', allowed: false,
-    reason: '子 AP 尚未完成', reserve_allowed: true };
+    reason: '子任务尚未完成', reserve_allowed: true };
   const oldKey = ui.graphRenderKey;
   try {
     render(f);
     expect(deepText(f.dom.node('detail'))).toContain('已预约效果展示');
-    expect(deepText(f.dom.node('detail'))).toContain('子 AP 尚未完成');
+    expect(deepText(f.dom.node('detail'))).toContain('子任务尚未完成');
     const cancel = buttons(f.dom, '取消预约')[0];
     await cancel.onclick();
     await until(() => f.actions.length === 1);
@@ -195,26 +195,26 @@ test('unreserve posts showcase.unreserve and reloads the graph', async () => {
 test('showcase detail embeds sandboxed report, renders safe loopback preview, stops it and rejects malicious URLs', async () => {
   const f = setup();
   try {
-    const ap = { id: 42, status: 'completed', report: '/ignored/runtime/path', showcase: { branch: 'feature', commit: 'abc', baseline_commit: 'def',
+    const task = { id: 42, status: 'completed', report: '/ignored/runtime/path', showcase: { branch: 'feature', commit: 'abc', baseline_commit: 'def',
       preview: { status: 'running', url: 'http://127.0.0.1:43210/demo' } } };
-    const panel = renderShowcase(ap);
+    const panel = renderShowcase(task);
     expect(deepText(panel)).toContain('展示完成 ≠ 检验通过');
     // 展示跑在隔离的 detached worktree 里，不是源分支检出：面板必须显式写明。
     expect(deepText(panel)).toContain('detached worktree');
     expect(panel.querySelector('iframe').getAttribute('sandbox')).toBe('allow-scripts');
-    expect(panel.querySelector('iframe').src).toBe('/api/ap/42/report');
+    expect(panel.querySelector('iframe').src).toBe('/api/task/42/report');
     expect(findByText(panel, '打开可操作预览 ↗').rel).toBe('noopener noreferrer');
     await findByText(panel, '停止预览').onclick();
     expect(f.actions.at(-1)).toEqual({ method: 'showcase.stop', params: { id: 42 } });
-    ap.showcase.preview.url = 'javascript:alert(1)';
-    expect(findByText(renderShowcase(ap), '打开可操作预览 ↗')).toBeFalsy();
-    ap.showcase.preview = { status: 'stopped', url: null };
-    expect(deepText(renderShowcase(ap))).toContain('未运行');
-    ap.status = 'failed';
-    const partial = renderShowcase(ap);
+    task.showcase.preview.url = 'javascript:alert(1)';
+    expect(findByText(renderShowcase(task), '打开可操作预览 ↗')).toBeFalsy();
+    task.showcase.preview = { status: 'stopped', url: null };
+    expect(deepText(renderShowcase(task))).toContain('未运行');
+    task.status = 'failed';
+    const partial = renderShowcase(task);
     expect(deepText(partial)).toContain('中断前写入的未确认展示页');
     expect(partial.querySelector('iframe')).toBeTruthy();
-    ap.report = null;
-    expect(deepText(renderShowcase(ap))).toContain('未生成展示页');
+    task.report = null;
+    expect(deepText(renderShowcase(task))).toContain('未生成展示页');
   } finally { f.close(); }
 });

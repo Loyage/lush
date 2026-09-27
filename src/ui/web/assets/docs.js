@@ -60,7 +60,7 @@ export function docLinkResolver(current, docs) {
   };
 }
 
-/** 打开文档目录（id 为 null）或某一篇：清掉选中的 AP（否则热 AP 刷新会把文档覆盖掉），地址栏切到对应 hash。 */
+/** 打开文档目录（id 为 null）或某一篇：清掉选中的任务（否则热任务刷新会把文档覆盖掉），地址栏切到对应 hash。 */
 export async function openDocs(id = null) {
   const hash = id ? `#doc-${id}` : DOCS_HASH;
   activateDetailView({ view: 'docs', key: hash, hash });

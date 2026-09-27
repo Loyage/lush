@@ -55,7 +55,7 @@ test('project state and database cannot be rebound', () => {
   } finally { fs.rmSync(a,{recursive:true,force:true}); fs.rmSync(b,{recursive:true,force:true}); }
 });
 
-test('non-git projects bind via manifest and can accept research aps', () => {
+test('non-git projects bind via manifest and can accept research tasks', () => {
   const root = temp();
   try {
     const config = Config.fromEnv(env(),root); config.prepare();
@@ -71,10 +71,10 @@ test('the spec queue stores seq, deps and batch membership', () => {
     const config = Config.fromEnv(env(),root); config.prepare();
     const file = path.join(config.home,'project.db');
     const reopened = new Store(file,root);
-    expect(reopened.get("SELECT name FROM sqlite_master WHERE name='ap_specs'")).toBeTruthy();
+    expect(reopened.get("SELECT name FROM sqlite_master WHERE name='task_specs'")).toBeTruthy();
     const planner = reopened.create({ input_id: null, role: 'planner', goal: 'plan' });
-    const first = reopened.addSpec({ input_id: null, planner_ap_id: planner.id, goal: 'first', role: 'research', name: 'first', deps: [] });
-    const second = reopened.addSpec({ input_id: null, planner_ap_id: planner.id, goal: 'second', role: 'worker', name: 'second', deps: [{ spec: first.id, kind: 'code' }] });
+    const first = reopened.addSpec({ input_id: null, planner_task_id: planner.id, goal: 'first', role: 'research', name: 'first', deps: [] });
+    const second = reopened.addSpec({ input_id: null, planner_task_id: planner.id, goal: 'second', role: 'worker', name: 'second', deps: [{ spec: first.id, kind: 'code' }] });
     expect(second).toMatchObject({ seq: 2, status: 'pending' });
     expect(second.deps).toEqual([{ spec: first.id, kind: 'code' }]);
     expect(reopened.pendingSpecs().map(row => row.id)).toEqual([first.id, second.id]);

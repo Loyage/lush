@@ -4,7 +4,7 @@ import path from 'node:path';
 import { check } from './types.js';
 import { usageAttribution } from './usage-attribution.js';
 
-const SESSION = /_lush-ap-\d+\.jsonl$/;
+const SESSION = /_lush-task-\d+\.jsonl$/;
 const MAX_LINE = 16 * 1024 * 1024;
 const MAX_BUCKETS = 1500;
 const CACHE_ROWS = 100000;
@@ -30,14 +30,14 @@ function boundary(value, name) {
   check(month >= 1 && month <= 12 && day >= 1 && day <= date.getUTCDate(), `invalid ${name}`);
   return n;
 }
-function normalize(record, model, invocation, apId) {
+function normalize(record, model, invocation, taskId) {
   const m = record?.type === 'message' ? record.message : null;
   if (m?.role !== 'assistant') return null;
   const u = m.usage ?? {};
   const fields = ['input', 'output', 'cacheRead', 'cacheWrite'];
   const knownTokens = validNumber(u.totalTokens) || fields.some(key => validNumber(u[key]));
   const attribution = record.lush ?? invocation;
-  const owned = attribution?.ap_id === apId;
+  const owned = attribution?.task_id === taskId;
   return {
     run_id: owned && Number.isSafeInteger(attribution.run_id) && attribution.run_id > 0 ? attribution.run_id : null,
     role: owned && ['planner','scheduler','coordinator','worker','research','verifier','merger','showcase','explainer','butler'].includes(attribution.role) ? attribution.role : null,
@@ -59,7 +59,7 @@ async function readFile(file, stat) {
     cache.delete(file); cache.set(file, previous);
     return previous;
   }
-  const result = { signature: key, ap_id: Number(file.match(/_lush-ap-(\d+)\.jsonl$/)[1]), rows: [], malformed: 0, incomplete: 0 };
+  const result = { signature: key, task_id: Number(file.match(/_lush-task-(\d+)\.jsonl$/)[1]), rows: [], malformed: 0, incomplete: 0 };
   let invocation = null;
   let model = { provider: 'unknown', model: 'unknown' };
   let tail = '', skipping = false;
@@ -71,7 +71,7 @@ async function readFile(file, stat) {
       model = { provider: String(record.provider ?? 'unknown').slice(0, 256), model: String(record.modelId ?? 'unknown').slice(0, 256) };
     }
     if (record?.type === 'custom' && record.customType === 'lush.invocation') invocation = record.data;
-    const row = normalize(record, model, invocation, result.ap_id);
+    const row = normalize(record, model, invocation, result.task_id);
     if (row) result.rows.push(row);
   };
   // Snapshot the size: a live agent can keep appending, but one request must still finish.
@@ -105,7 +105,7 @@ async function scan(dir) {
   let names;
   try { names = await fs.promises.readdir(dir); }
   catch (error) { if (error.code === 'ENOENT') return { files: [], codex_threads: 0, unreadable: 0 }; throw error; }
-  const result = { files: [], codex_threads: names.filter(name => /^codex-ap-\d+\.json$/.test(name)).length, unreadable: 0 };
+  const result = { files: [], codex_threads: names.filter(name => /^codex-task-\d+\.json$/.test(name)).length, unreadable: 0 };
   const live = new Set(names.filter(name => SESSION.test(name)).map(name => path.join(dir, name)));
   for (const file of cache.keys()) if (path.dirname(file) === dir && !live.has(file)) cache.delete(file);
   for (const file of [...live].sort()) {
@@ -169,7 +169,7 @@ export async function readUsageStatistics(config, options = {}, metadata = {}) {
       if (!included(row)) continue;
       if (row.at !== null && (first === null || row.at < first)) first = row.at;
       add(totals, row);
-      attribution.add(file.ap_id, row);
+      attribution.add(file.task_id, row);
       const key = JSON.stringify([row.provider, row.model]);
       if (!models.has(key)) models.set(key, { provider: row.provider, model: row.model, ...empty() });
       const group = models.get(key);

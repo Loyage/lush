@@ -66,7 +66,7 @@ export function validateRunResultPayload(payload) {
   if (verification.status === 'unverified') check(verification.unverified.length > 0,
     'unverified verification must describe what was not verified');
   check(isPlainObject(verification.report)
-    && Number.isSafeInteger(verification.report.ap_id) && verification.report.ap_id > 0
+    && Number.isSafeInteger(verification.report.task_id) && verification.report.task_id > 0
     && typeof verification.report.path === 'string' && verification.report.path.length > 0
     && typeof verification.report.available === 'boolean', 'verification report reference is invalid');
   return payload;
@@ -104,9 +104,9 @@ export function artifactPayload(kind, source) {
 
 /** Durable invocation attempts and structured artifacts. */
 export const runs = {
-  startRun(ap, agent = {}) {
-    const row = this.run(`INSERT INTO agent_runs(ap_id,attempt,role,provider,model,thinking) VALUES (?,?,?,?,?,?)`,
-      ap.id, ap.calls + 1, ap.role, agent.agent || null, agent.model || null, agent.thinking || null);
+  startRun(task, agent = {}) {
+    const row = this.run(`INSERT INTO agent_runs(task_id,attempt,role,provider,model,thinking) VALUES (?,?,?,?,?,?)`,
+      task.id, task.calls + 1, task.role, agent.agent || null, agent.model || null, agent.thinking || null);
     return this.get('SELECT * FROM agent_runs WHERE id=?', Number(row.lastInsertRowid));
   },
   finishRun(runId, status, { result = null, error = null } = {}) {
@@ -115,28 +115,28 @@ export const runs = {
       status, result, error, id(runId));
     return this.get('SELECT * FROM agent_runs WHERE id=?', id(runId));
   },
-  runsForAP(apId) { return this.all('SELECT * FROM agent_runs WHERE ap_id=? ORDER BY id', id(apId)); },
-  /** 批量取回每轮的起止，供 AP 读模型一次性把「工作用时 / 等待」投影出来；分块避免 IN 列表过长。 */
-  runsForAPs(apIds) {
-    const ids = [...new Set(apIds.filter(value => value !== null && value !== undefined))];
-    const byAP = new Map();
+  runsForTask(taskId) { return this.all('SELECT * FROM agent_runs WHERE task_id=? ORDER BY id', id(taskId)); },
+  /** 批量取回每轮的起止，供任务读模型一次性把「工作用时 / 等待」投影出来；分块避免 IN 列表过长。 */
+  runsForTasks(taskIds) {
+    const ids = [...new Set(taskIds.filter(value => value !== null && value !== undefined))];
+    const byTask = new Map();
     for (let offset = 0; offset < ids.length; offset += 400) {
       const chunk = ids.slice(offset, offset + 400);
-      for (const row of this.all(`SELECT ap_id, started_at, ended_at FROM agent_runs
-        WHERE ap_id IN (${chunk.map(() => '?').join(',')}) ORDER BY id`, ...chunk)) {
-        if (!byAP.has(row.ap_id)) byAP.set(row.ap_id, []);
-        byAP.get(row.ap_id).push(row);
+      for (const row of this.all(`SELECT task_id, started_at, ended_at FROM agent_runs
+        WHERE task_id IN (${chunk.map(() => '?').join(',')}) ORDER BY id`, ...chunk)) {
+        if (!byTask.has(row.task_id)) byTask.set(row.task_id, []);
+        byTask.get(row.task_id).push(row);
       }
     }
-    return byAP;
+    return byTask;
   },
-  addArtifact({ ap_id, run_id = null, input_id = null, kind, payload, metadata = {} }) {
+  addArtifact({ task_id, run_id = null, input_id = null, kind, payload, metadata = {} }) {
     check(typeof kind === 'string' && kind.length > 0 && kind.length <= 64, 'artifact kind must be non-empty text');
     if (kind === 'run.result') validateRunResultPayload(payload);
     const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
     check(Buffer.byteLength(body) <= 512000, 'artifact payload exceeds 512000 bytes');
-    const row = this.run(`INSERT INTO artifacts(ap_id,run_id,input_id,kind,payload,metadata) VALUES (?,?,?,?,?,?)`,
-      id(ap_id), run_id === null ? null : id(run_id), input_id, kind, body, JSON.stringify(metadata ?? {}));
+    const row = this.run(`INSERT INTO artifacts(task_id,run_id,input_id,kind,payload,metadata) VALUES (?,?,?,?,?,?)`,
+      id(task_id), run_id === null ? null : id(run_id), input_id, kind, body, JSON.stringify(metadata ?? {}));
     return this.artifact(Number(row.lastInsertRowid));
   },
   artifact(artifactId) {
@@ -146,6 +146,6 @@ export const runs = {
     try { metadata = JSON.parse(row.metadata || '{}'); } catch { /* preserve malformed historical metadata as empty */ }
     return { ...row, payload: artifactPayload(row.kind, row.payload), metadata };
   },
-  artifactsForAP(apId) { return this.all('SELECT id FROM artifacts WHERE ap_id=? ORDER BY id', id(apId)).map(row => this.artifact(row.id)); },
+  artifactsForTask(taskId) { return this.all('SELECT id FROM artifacts WHERE task_id=? ORDER BY id', id(taskId)).map(row => this.artifact(row.id)); },
   artifactsForInput(inputId) { return this.all('SELECT id FROM artifacts WHERE input_id=? ORDER BY id', id(inputId)).map(row => this.artifact(row.id)); },
 };

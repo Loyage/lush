@@ -9,7 +9,7 @@ import { detail, registerNavigation } from './navigate.js';
 import { syncComposer } from './composer.js';
 import { graphFingerprint } from './graph-layout.js';
 import { fetchGraph, loadGraph, openGraph } from './render-graph.js';
-import { loadAPGraph } from './render-ap-graph.js';
+import { loadTaskGraph } from './render-task-graph.js';
 import { slotGauge } from './gauge.js';
 import { paintUsageLast } from './render-agent.js';
 import { renderNotices } from './render-notices.js';
@@ -51,7 +51,7 @@ export async function overview() {
 /* ---------- polling ---------- */
 // 分支图不在每个 1.5s 轮询里打一遍 git：指纹变了也至少隔 3 秒才重拉一次。
 const GRAPH_MIN_INTERVAL_MS = 3000;
-// 指纹只覆盖 AP 与交付队列，不覆盖「用户在 UI 外新建的分支」，所以再加一条最长陈旧时间兜底：
+// 指纹只覆盖任务与交付队列，不覆盖「用户在 UI 外新建的分支」，所以再加一条最长陈旧时间兜底：
 // 到期无条件重拉一次，分支图 / 概览打开期间新分支最多约 10s 内出现，不用手点刷新。
 const GRAPH_MAX_AGE_MS = 10000;
 
@@ -80,11 +80,11 @@ export async function refresh() {
     if (!data) return;
     if (changed) {
       // Keep explicitly loaded historical pages visible across bounded polling refreshes.
-      if (ui.apHistory?.length) {
-        const byId = new Map([...ui.apHistory, ...response.aps].map(ap => [ap.id, ap]));
-        response.aps = [...byId.values()].filter(ap => ['say','child','main','owner'].includes(ap.ap_kind)).sort((a, b) => a.id - b.id);
-        response.ap_page = ui.apHistoryPage ?? response.ap_page;
-      } else ui.apHistoryPage = response.ap_page;
+      if (ui.taskHistory?.length) {
+        const byId = new Map([...ui.taskHistory, ...response.tasks].map(task => [task.id, task]));
+        response.tasks = [...byId.values()].filter(task => ['say','child','main','owner'].includes(task.task_kind)).sort((a, b) => a.id - b.id);
+        response.task_page = ui.taskHistoryPage ?? response.task_page;
+      } else ui.taskHistoryPage = response.task_page;
       ui.lastSnapshot = response;
     }
     $('project').textContent = data.status.project.split('/').filter(Boolean).at(-1) || data.status.project;
@@ -109,12 +109,12 @@ export async function refresh() {
         if (ui.view?.id === 'overview') renderOverview(ui.lastSnapshot ?? data);
       }).catch(error => { show(error.message, 'error'); });
     }
-    const apGraphAge = Date.now() - ui.apGraphFetchedAt;
-    if (ui.view?.id === 'ap-graph' && (apGraphAge >= GRAPH_MAX_AGE_MS || (changed && apGraphAge >= GRAPH_MIN_INTERVAL_MS))
+    const taskGraphAge = Date.now() - ui.taskGraphFetchedAt;
+    if (ui.view?.id === 'task-graph' && (taskGraphAge >= GRAPH_MAX_AGE_MS || (changed && taskGraphAge >= GRAPH_MIN_INTERVAL_MS))
       && ![...$('detail').querySelectorAll('textarea')].some(node => node === document.activeElement || node.value)) {
-      await loadAPGraph();
+      await loadTaskGraph();
     }
-    const current = data.aps.find(ap => ap.id === ui.selected);
+    const current = data.tasks.find(task => task.id === ui.selected);
     let readingFocused = false;
     for (let node = document.activeElement; node; node = node.parentNode) {
       if (node.classList?.contains('transcript')) { readingFocused = true; break; }
@@ -122,12 +122,12 @@ export async function refresh() {
     const selecting = Boolean(window.getSelection?.()?.toString());
     const editing = ui.terminalOpen || selecting || readingFocused || ui.detailDirty || [...$('detail').querySelectorAll('textarea')].some(node => node.value || node === document.activeElement);
     if (current && !editing) {
-      // Live APs also refresh on a slow tick so elapsed time and agent pid stay honest.
+      // Live tasks also refresh on a slow tick so elapsed time and agent pid stay honest.
       const changed = current.updated_at !== ui.selectedRevision;
       const tick = HOT.has(current.status) && Date.now() - ui.detailRenderedAt > 15000;
       if (changed || tick) await detail(ui.selected);
     }
-    // 展开中的 notice 被别处答复/忽略后，右侧要收敛回普通 AP 详情。
+    // 展开中的 notice 被别处答复/忽略后，右侧要收敛回普通任务详情。
     if (noticeBefore !== ui.noticeFocus && ui.selected !== null && !editing) await detail(ui.selected);
   } catch (error) {
     $('connection').textContent = '离线 · 自动重连'; $('connection').classList.add('offline');
@@ -135,20 +135,20 @@ export async function refresh() {
   } finally { ui.busy = false; }
 }
 
-/* ---------- 热 AP 的实时刷新：页面自己变新，不用手点 ---------- */
+/* ---------- 热任务的实时刷新：页面自己变新，不用手点 ---------- */
 export async function liveRefresh() {
   refreshProgressDurations();
   if (ui.busy || ui.liveBusy || ui.terminalOpen) return;
-  const ap = liveTarget(ui.lastSnapshot?.aps || [], ui.selected);
-  if (!ap) return;
-  const apId = ap.id;
+  const task = liveTarget(ui.lastSnapshot?.tasks || [], ui.selected);
+  if (!task) return;
+  const taskId = task.id;
   ui.liveBusy = true;
   try {
     await liveTick({
-      ap,
+      task,
       // 仅显式展开时续读；收起后不继续加载正文。
-      transcript: transcriptOpen.has(apId) ? transcriptCache.get(apId) ?? null : null,
-      fetchUsage: id => api(`/api/ap/${id}/usage`).catch(() => null),
+      transcript: transcriptOpen.has(taskId) ? transcriptCache.get(taskId) ?? null : null,
+      fetchUsage: id => api(`/api/task/${id}/usage`).catch(() => null),
       fetchTranscript: fetchTranscriptAfter,
       publish: { usage: paintUsageLast, steps: appendTranscriptSteps },
     });

@@ -72,17 +72,17 @@ test('process starts collapsed even with cached records; only user expansion is 
   const dom = installDom(); const id = 998;
   transcriptCache.set(id, { steps: [step(1, 'body')], files: ['session-a'], next: 1 });
   try {
-    const ap = { id }, usage = { files: ['session-a'], totals: {} };
-    const first = renderAgent(ap, usage);
+    const task = { id }, usage = { files: ['session-a'], totals: {} };
+    const first = renderAgent(task, usage);
     dom.node('detail').append(first);
     expect(first.querySelector('.transcript').hidden).toBe(true);
     expect(first.querySelector('.step')).toBeNull();
     await findByText(first, '展开执行过程').onclick();
     const holder = first.querySelector('.transcript');
     expect(holder.hidden).toBe(false); expect(holder.querySelector('.step')).toBeTruthy();
-    expect(renderAgent(ap, usage, holder).querySelector('.transcript').hidden).toBe(false);
+    expect(renderAgent(task, usage, holder).querySelector('.transcript').hidden).toBe(false);
     await findByText(first, '收起执行过程').onclick();
-    expect(renderAgent(ap, usage, holder).querySelector('.transcript').hidden).toBe(true);
+    expect(renderAgent(task, usage, holder).querySelector('.transcript').hidden).toBe(true);
     const list = holder.querySelector('[data-live="transcript-steps"]');
     await findByText(first, '展开执行过程').onclick();
     expect(holder.querySelector('[data-live="transcript-steps"]')).toBe(list);
@@ -91,8 +91,8 @@ test('process starts collapsed even with cached records; only user expansion is 
 });
 
 test('continuous transcript read is user-only', () => {
-  expect(() => assertAllowed('ap.transcript_page', { id: 1, seq: 1, offset: 0 }, 7)).toThrow('not an agent');
-  expect(() => assertAllowed('ap.transcript_page', { id: 1, seq: 1, offset: 0 }, null)).not.toThrow();
+  expect(() => assertAllowed('task.transcript_page', { id: 1, seq: 1, offset: 0 }, 7)).toThrow('not an agent');
+  expect(() => assertAllowed('task.transcript_page', { id: 1, seq: 1, offset: 0 }, null)).not.toThrow();
 });
 
 test('agent panel shows the follow command inline and copies it from a button', async () => {
@@ -104,9 +104,9 @@ test('agent panel shows the follow command inline and copies it from a button', 
     const panel = renderAgent({ id: 77, agent: { id: 5, active: true, pid: 1, wakes: 2, backend: 'pi' } }, { files: [] });
     const row = panel.querySelector('.terminal-command');
     expect(row).toBeTruthy();
-    expect(deepText(row)).toContain('lush ap transcript 77 --follow');
+    expect(deepText(row)).toContain('lush task transcript 77 --follow');
     await findByText(row, '复制命令').onclick();
-    expect(copied).toEqual(['lush ap transcript 77 --follow']);
+    expect(copied).toEqual(['lush task transcript 77 --follow']);
   } finally {
     if (original) Object.defineProperty(globalThis, 'navigator', original); else delete globalThis.navigator;
     dom.restore();

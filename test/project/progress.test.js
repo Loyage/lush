@@ -16,27 +16,27 @@ function controlled() {
   } };
 }
 
-test('agent progress is bound to its live AP and preserves completed stable keys across replans', async () => {
+test('agent progress is bound to its live task and preserves completed stable keys across replans', async () => {
   const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
-    const ap = f.store.create({ role: 'coordinator', goal: 'coordinate progress', input_id: null });
+    const task = f.store.create({ role: 'coordinator', goal: 'coordinate progress', input_id: null });
     f.project.kick();
     await until(() => provider.calls.length === 1);
-    const token = f.project.running.get(ap.id).token;
+    const token = f.project.running.get(task.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});
 
     await expect(rpc.dispatch('progress.plan', { steps: [{ key: 'inspect', label: '确认现状' }] })).rejects.toThrow('agent only');
     const planned = await rpc.dispatch('progress.plan', { _token: token, steps: [
-      { key: 'inspect', label: '确认现状' }, { key: 'delegate', label: '派发子 AP' }, { key: 'wait_son', label: '等待子 AP' },
+      { key: 'inspect', label: '确认现状' }, { key: 'delegate', label: '派发子任务' }, { key: 'wait_son', label: '等待子任务' },
     ] });
-    expect(planned).toMatchObject({ ap_id: ap.id, progress: { version: 1 } });
-    expect(f.project.inspect(ap.id).progress.items.map(item => [item.key, item.status])).toEqual([
+    expect(planned).toMatchObject({ task_id: task.id, progress: { version: 1 } });
+    expect(f.project.inspect(task.id).progress.items.map(item => [item.key, item.status])).toEqual([
       ['inspect', 'pending'], ['delegate', 'pending'], ['wait_son', 'pending'],
     ]);
-    const initialTiming = f.project.inspect(ap.id).progress.items;
+    const initialTiming = f.project.inspect(task.id).progress.items;
     expect(initialTiming[0].started_at).toBeTruthy();
     expect(initialTiming[1].started_at).toBeNull();
-    expect(f.project.inspect(ap.id).progress_plan).toBeUndefined();
+    expect(f.project.inspect(task.id).progress_plan).toBeUndefined();
 
     const completed = await rpc.dispatch('progress.complete', { _token: token, step: 'inspect' });
     expect(completed.progress.items[0]).toMatchObject({ key: 'inspect', status: 'completed' });
@@ -48,7 +48,7 @@ test('agent progress is bound to its live AP and preserves completed stable keys
     await rpc.dispatch('progress.plan', { _token: token, steps: [
       { key: 'inspect', label: '复核现状' }, { key: 'implement', label: '实现' }, { key: 'test', label: '测试' },
     ] });
-    const fresh = f.project.inspect(ap.id);
+    const fresh = f.project.inspect(task.id);
     expect(fresh.progress.items).toMatchObject([
       { key: 'inspect', label: '复核现状', status: 'completed', started_at: initialTiming[0].started_at,
         completed_at: completed.progress.items[0].completed_at, duration_ms: completed.progress.items[0].duration_ms },
@@ -56,7 +56,7 @@ test('agent progress is bound to its live AP and preserves completed stable keys
     ]);
     expect(f.project.decorate(f.store.summaries('work'))[0].progress.items[0].status).toBe('completed');
     await expect(rpc.dispatch('progress.complete', { _token: token, step: 'missing' })).rejects.toThrow('not in the current plan');
-    expect(f.store.history(ap.id, 0).map(event => event.type)).toContain('progress.completed');
+    expect(f.store.history(task.id, 0).map(event => event.type)).toContain('progress.completed');
   } finally { await f.close(); }
 });
 
@@ -66,7 +66,7 @@ test('progress timing excludes waiting and surfaces it as a separate plan entry'
     { key: 'implement', label: '实现', status: 'pending', started_at: at(10 * SEC), completed_at: null, duration_ms: null },
   ] };
 
-  // AP 现在停在 waiting：最后一段 8s→15s 的调用空隙还开着，等待行就是要持续计时的当前步骤。
+  // 任务现在停在 waiting：最后一段 8s→15s 的调用空隙还开着，等待行就是要持续计时的当前步骤。
   const waiting = projectProgress(progress, [
     { started_at: at(0), ended_at: at(4 * SEC) },
     { started_at: at(6 * SEC), ended_at: at(8 * SEC) },
@@ -105,8 +105,8 @@ test('a parked parent shows waiting as its own plan entry in inspect and tree su
     await rpc.dispatch('progress.complete', { _token: token, step: 'delegate' });
     const child = f.project.spawn(parent.id, 'child work', 'research');
     provider.calls[0].done.resolve('delegated');
-    await until(() => f.store.ap(parent.id).status === 'waiting' && f.store.ap(child.id).status === 'running');
-    // 等一小段真实时间，让「等子 AP」的区间长得足够生成等待行。
+    await until(() => f.store.task(parent.id).status === 'waiting' && f.store.task(child.id).status === 'running');
+    // 等一小段真实时间，让「等子任务」的区间长得足够生成等待行。
     await new Promise(resolve => setTimeout(resolve, 30));
 
     const view = f.project.inspect(parent.id);
@@ -117,8 +117,8 @@ test('a parked parent shows waiting as its own plan entry in inspect and tree su
     const collect = view.progress.items.find(item => item.key === 'collect');
     expect(collect.active_since).toBeNull();
     expect(collect.work_ms).toBeGreaterThanOrEqual(0);
-    // AP 树的紧凑进度带同一等待行，口径与详情一致。
-    const summary = f.project.decorate(f.store.summaries('work')).find(ap => ap.id === parent.id);
+    // 任务树的紧凑进度带同一等待行，口径与详情一致。
+    const summary = f.project.decorate(f.store.summaries('work')).find(task => task.id === parent.id);
     expect(summary.progress.items.some(item => item.kind === 'wait' && item.reason === 'waiting')).toBe(true);
   } finally { await f.close(); }
 });
@@ -139,8 +139,8 @@ test('terminal progress freezes waiting at the last run instead of growing with 
 test('progress plans reject duplicate or unstable keys', async () => {
   const f = fixture({ async run() { return 'done'; } });
   try {
-    const ap = f.store.create({ role: 'research', goal: 'validate', input_id: null });
-    expect(() => f.project.reportProgressPlan(ap.id, [{ key: 'Bad Key', label: 'x' }])).toThrow('must match');
-    expect(() => f.project.reportProgressPlan(ap.id, [{ key: 'test', label: 'one' }, { key: 'test', label: 'two' }])).toThrow('duplicate');
+    const task = f.store.create({ role: 'research', goal: 'validate', input_id: null });
+    expect(() => f.project.reportProgressPlan(task.id, [{ key: 'Bad Key', label: 'x' }])).toThrow('must match');
+    expect(() => f.project.reportProgressPlan(task.id, [{ key: 'test', label: 'one' }, { key: 'test', label: 'two' }])).toThrow('duplicate');
   } finally { await f.close(); }
 });

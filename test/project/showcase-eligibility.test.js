@@ -43,28 +43,28 @@ test('showcase excludes mainline, unregistered, archived, deleted, missing and u
     expect((await eligibility(f)).allowed).toBe(false);
     const rpc = new Dispatcher(f.project);
     await expect(rpc.dispatch('showcase.start', { branch: 'ordinary', baseline: 'main' })).rejects.toThrow('已登记');
-    expect(f.store.all("SELECT id FROM aps WHERE role='showcase'")).toHaveLength(0);
+    expect(f.store.all("SELECT id FROM tasks WHERE role='showcase'")).toHaveLength(0);
   } finally { await f.close(); }
 });
 
-test('showcase blocks pending, failed, cancelled and conflict aps, dirty checkout and Git operations', async () => {
+test('showcase blocks pending, failed, cancelled and conflict tasks, dirty checkout and Git operations', async () => {
   const f = await setup();
   try {
-    const ap = f.store.create({ role: 'worker', goal: 'feature' });
-    f.store.update(ap.id, { branch: 'feature' });
+    const task = f.store.create({ role: 'worker', goal: 'feature' });
+    f.store.update(task.id, { branch: 'feature' });
     for (const status of ['queued', 'running', 'waiting', 'awaiting', 'failed', 'cancelled']) {
-      f.store.update(ap.id, { status });
+      f.store.update(task.id, { status });
       expect((await eligibility(f)).allowed).toBe(false);
     }
-    f.store.update(ap.id, { status: 'completed', integration: 'conflict' });
+    f.store.update(task.id, { status: 'completed', integration: 'conflict' });
     expect((await eligibility(f)).allowed).toBe(false);
-    f.store.update(ap.id, { integration: 'pending' });
+    f.store.update(task.id, { integration: 'pending' });
     expect((await eligibility(f)).allowed).toBe(true); // human merge approval is not a prerequisite
     const originalGit = f.project.workspaces.git;
     f.project.workspaces.git = async () => { throw new Error('read unavailable'); };
     expect((await eligibility(f)).allowed).toBe(false);
     f.project.workspaces.git = originalGit;
-    const child = f.store.create({ parent_id: ap.id, role: 'worker', goal: 'not yet assigned a branch' });
+    const child = f.store.create({ parent_id: task.id, role: 'worker', goal: 'not yet assigned a branch' });
     expect((await eligibility(f)).allowed).toBe(false);
     f.store.update(child.id, { status: 'completed' });
     const graph = await f.project.graph();
@@ -98,8 +98,8 @@ test('showcase waits for input planning and unintegrated descendants, but not un
     const input = await f.project.submit('develop feature', 'feature');
     // The queued planner has no branch field, but its input anchor is a descendant.
     expect((await eligibility(f)).allowed).toBe(false);
-    f.store.update(input.ap.id, { status: 'completed' });
-    const spec = f.store.addSpec({ planner_ap_id: input.ap.id, input_id: input.id, goal: 'pending plan' });
+    f.store.update(input.task.id, { status: 'completed' });
+    const spec = f.store.addSpec({ planner_task_id: input.task.id, input_id: input.id, goal: 'pending plan' });
     expect((await eligibility(f)).reason).toContain('未编排');
     f.store.dropSpec(spec.id);
     expect((await eligibility(f)).allowed).toBe(true);
@@ -131,7 +131,7 @@ test('successful showcases deduplicate file trees across empty commits, baseline
     f.store.update(first.id, { status: 'completed' });
     // Legacy snapshot without tree is still deduplicated without rewriting it.
     const legacy = { ...first.showcase }; delete legacy.tree;
-    f.store.run('UPDATE aps SET showcase=? WHERE id=?', JSON.stringify(legacy), first.id);
+    f.store.run('UPDATE tasks SET showcase=? WHERE id=?', JSON.stringify(legacy), first.id);
     for (let i = 0; i < 51; i++) {
       const failed = f.store.create({ role: 'showcase', goal: 'old failure', showcase: legacy });
       f.store.update(failed.id, { status: 'failed' });
@@ -139,7 +139,7 @@ test('successful showcases deduplicate file trees across empty commits, baseline
     await git(f.root, 'commit', '--allow-empty', '-m', 'metadata only');
     expect((await eligibility(f)).reason).toContain('相同代码');
     await expect(f.project.startShowcase('feature', 'main')).rejects.toThrow('相同代码');
-    expect(JSON.parse(f.store.ap(first.id).showcase).tree).toBeUndefined();
+    expect(JSON.parse(f.store.task(first.id).showcase).tree).toBeUndefined();
     fs.writeFileSync(path.join(f.root, 'file.txt'), 'new content\n');
     await git(f.root, 'commit', '-am', 'new code');
     expect((await eligibility(f)).allowed).toBe(true);
@@ -157,19 +157,19 @@ test('concurrent starts and retries cannot bypass the gate; failed versions may 
   try {
     const results = await Promise.allSettled([f.project.startShowcase('feature'), f.project.startShowcase('feature')]);
     expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
-    const ap = results.find(result => result.status === 'fulfilled').value;
-    f.store.update(ap.id, { status: 'failed' });
+    const task = results.find(result => result.status === 'fulfilled').value;
+    f.store.update(task.id, { status: 'failed' });
     expect((await eligibility(f)).allowed).toBe(true);
-    const attempts = await Promise.allSettled([f.project.retry(ap.id), f.project.startShowcase('feature')]);
+    const attempts = await Promise.allSettled([f.project.retry(task.id), f.project.startShowcase('feature')]);
     expect(attempts.filter(result => result.status === 'fulfilled')).toHaveLength(1);
-    f.store.update(ap.id, { status: 'cancelled' });
+    f.store.update(task.id, { status: 'cancelled' });
     fs.writeFileSync(path.join(f.root, 'file.txt'), 'dirty\n');
-    await expect(f.project.retry(ap.id)).rejects.toThrow('未提交');
+    await expect(f.project.retry(task.id)).rejects.toThrow('未提交');
     await git(f.root, 'commit', '-am', 'changed');
-    await expect(f.project.retry(ap.id)).rejects.toThrow('代码已变化');
-    expect(f.store.ap(ap.id).status).toBe('cancelled');
+    await expect(f.project.retry(task.id)).rejects.toThrow('代码已变化');
+    expect(f.store.task(task.id).status).toBe('cancelled');
     const newer = await f.project.startShowcase('feature');
     f.store.update(newer.id, { status: 'completed' });
-    await expect(f.project.retry(ap.id)).rejects.toThrow('相同代码');
+    await expect(f.project.retry(task.id)).rejects.toThrow('相同代码');
   } finally { await f.close(); }
 });

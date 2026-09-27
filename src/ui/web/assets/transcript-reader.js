@@ -10,10 +10,10 @@ export function resetTranscriptReaders() {
   readers.clear();
 }
 // Compatibility entry point: search hits and clipped quick-view steps share one continuous reader.
-export function openTranscriptStep(apId, seq) { return openTranscriptTerminal(apId, seq); }
+export function openTranscriptStep(taskId, seq) { return openTranscriptTerminal(taskId, seq); }
 
-function readerState(apId) {
-  if (readers.has(apId)) return readers.get(apId);
+function readerState(taskId) {
+  if (readers.has(taskId)) return readers.get(taskId);
   const root = el('section', undefined, 'transcript-reader');
   root.setAttribute('aria-label', '执行记录全文查找');
   const form = el('form', undefined, 'transcript-search');
@@ -27,21 +27,21 @@ function readerState(apId) {
   const results = el('div');
   root.append(form, results);
   // locate 由 render-transcript.js 注入，让命中停在富文本执行过程里；单独使用时的回退是终端模式。
-  const state = { root, version: 0, locate: null }; readers.set(apId, state);
+  const state = { root, version: 0, locate: null }; readers.set(taskId, state);
   let criteria = null, cursors = [0], pageIndex = 0;
   const search = async after => {
     const version = ++state.version;
     submit.disabled = true; results.replaceChildren(el('p', '正在跨会话搜索完整记录…', 'hint'));
     try {
       const params = new URLSearchParams({ ...criteria, after });
-      const data = await api(`/api/ap/${apId}/transcript-search?${params}`);
+      const data = await api(`/api/task/${taskId}/transcript-search?${params}`);
       if (version !== state.version) return;
-      results.replaceChildren(el('p', `第 ${pageIndex + 1} 页 · ${data.steps.length} 条${data.has_more ? ' · 还有更多' : ''} · 范围：当前 AP 所有完整会话记录`, 'hint'));
+      results.replaceChildren(el('p', `第 ${pageIndex + 1} 页 · ${data.steps.length} 条${data.has_more ? ' · 还有更多' : ''} · 范围：当前任务所有完整会话记录`, 'hint'));
       if (!data.files.length) results.append(el('p', '没有可读取的会话文件，可能已被清理或后端未记录执行过程。', 'hint'));
       else if (!data.steps.length) results.append(el('p', '没有命中。未写完的记录不参与检索。', 'hint'));
       for (const step of data.steps) {
         const row = el('div', undefined, 'search-hit');
-        row.append(button(`#${step.seq} · ${STEP[step.kind] || step.kind} · ${stepSummary(step)}`, () => (state.locate || openTranscriptStep)(apId, step.seq), 'ghost'));
+        row.append(button(`#${step.seq} · ${STEP[step.kind] || step.kind} · ${stepSummary(step)}`, () => (state.locate || openTranscriptStep)(taskId, step.seq), 'ghost'));
         const excerpt = el('p');
         const text = step.excerpt || '', needle = criteria.query, at = needle ? text.toLocaleLowerCase().indexOf(needle.toLocaleLowerCase()) : -1;
         if (at < 0) excerpt.textContent = text;
@@ -61,8 +61,8 @@ function readerState(apId) {
   };
   return state;
 }
-export function transcriptReader(apId, { locate } = {}) {
-  const state = readerState(apId);
+export function transcriptReader(taskId, { locate } = {}) {
+  const state = readerState(taskId);
   if (typeof locate === 'function') state.locate = locate;
   return state.root;
 }

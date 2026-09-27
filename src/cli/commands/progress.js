@@ -10,19 +10,19 @@ function step(value) {
   return { key, label };
 }
 
-/** Agent-only progress reporting; AP identity comes from LUSH_AGENT_TOKEN, never a CLI AP id. */
+/** Agent-only progress reporting; task identity comes from LUSH_AGENT_TOKEN, never a CLI task id. */
 export async function run(command, args, { client, json }) {
   const verb = args.shift();
-  check(client.token, 'progress commands are available only inside a running Lush agent AP');
+  check(client.token, 'progress commands are available only inside a running Lush agent task');
   if (verb === 'plan') {
     check(args.length > 0, 'progress plan needs KEY[:LABEL] steps');
     const result = await client.request('progress.plan', { steps: args.map(step) });
-    return json ? result : { ap_id: result.ap_id, planned: result.progress.items.length };
+    return json ? result : { task_id: result.task_id, planned: result.progress.items.length };
   }
   if (verb === 'complete') {
     exact(args, 1);
     const result = await client.request('progress.complete', { step: args[0] });
-    return json ? result : { ap_id: result.ap_id, completed: args[0], unchanged: result.unchanged };
+    return json ? result : { task_id: result.task_id, completed: args[0], unchanged: result.unchanged };
   }
   check(false, 'unknown progress command; use progress plan or progress complete');
 }

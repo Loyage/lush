@@ -6,7 +6,7 @@ import { makeWorld, NOW, iso } from './dom-world.js';
 // 点击进入 #notices 并定位最新一条；结算后计数下降，归零隐藏。
 const world = makeWorld();
 const dom = installDom({ fetch: world.fetchImpl });
-const notice = (id, status, title, kind = 'question', apId = 4) => ({ id, ap_id: apId, kind, title, body: '请回答', status, created_at: iso(NOW - id * 100) });
+const notice = (id, status, title, kind = 'question', taskId = 4) => ({ id, task_id: taskId, kind, title, body: '请回答', status, created_at: iso(NOW - id * 100) });
 world.state.notices = [
   notice(8, 'answered', '已答复的问题'),
   notice(6, 'open', '计划待批', 'plan', 1),
@@ -57,7 +57,7 @@ test('经 notice.answer / notice.dismiss 结算后计数下降，归零隐藏', 
   // 打开最新一条，写答复 -> notice.answer 结算，计数降到 1。
   await bannerButton().onclick();
   dom.node('notice-record-detail').querySelector('textarea').value = '就这么办';
-  const answer = allByTag(dom.node('notice-record-detail'), 'button').find(node => node.textContent === '回复并继续 AP');
+  const answer = allByTag(dom.node('notice-record-detail'), 'button').find(node => node.textContent === '回复并继续任务');
   await answer.onclick();
   expect(world.state.notices.find(row => row.id === 11).status).toBe('answered');
   expect(banner().hidden).toBe(false);

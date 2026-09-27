@@ -1,33 +1,33 @@
-/** 依赖边（ap_deps）的读写与结构遍历。 */
+/** 依赖边（task_deps）的读写与结构遍历。 */
 export const deps = {
-  addDep(apId, dependsOn, kind) {
-    this.run('INSERT INTO ap_deps(ap_id,depends_on,kind) VALUES (?,?,?)', apId, dependsOn, kind);
+  addDep(taskId, dependsOn, kind) {
+    this.run('INSERT INTO task_deps(task_id,depends_on,kind) VALUES (?,?,?)', taskId, dependsOn, kind);
   },
-  deps(apId) { return this.all('SELECT depends_on, kind FROM ap_deps WHERE ap_id=? ORDER BY depends_on', apId); },
-  dependents(apId) { return this.all('SELECT ap_id, kind FROM ap_deps WHERE depends_on=? ORDER BY ap_id', apId); },
-  depsDetail(apId) {
+  deps(taskId) { return this.all('SELECT depends_on, kind FROM task_deps WHERE task_id=? ORDER BY depends_on', taskId); },
+  dependents(taskId) { return this.all('SELECT task_id, kind FROM task_deps WHERE depends_on=? ORDER BY task_id', taskId); },
+  depsDetail(taskId) {
     return this.all(`SELECT d.depends_on AS id, d.kind, t.role, t.status, t.integration, substr(t.goal,1,200) AS goal
-      FROM ap_deps d JOIN aps t ON t.id=d.depends_on WHERE d.ap_id=? ORDER BY d.depends_on`, apId);
+      FROM task_deps d JOIN tasks t ON t.id=d.depends_on WHERE d.task_id=? ORDER BY d.depends_on`, taskId);
   },
-  dependentsDetail(apId) {
-    return this.all(`SELECT d.ap_id AS id, d.kind, t.role, t.status, substr(t.goal,1,200) AS goal
-      FROM ap_deps d JOIN aps t ON t.id=d.ap_id WHERE d.depends_on=? ORDER BY d.ap_id`, apId);
+  dependentsDetail(taskId) {
+    return this.all(`SELECT d.task_id AS id, d.kind, t.role, t.status, substr(t.goal,1,200) AS goal
+      FROM task_deps d JOIN tasks t ON t.id=d.task_id WHERE d.depends_on=? ORDER BY d.task_id`, taskId);
   },
-  /** 这些 AP 的依赖边：时间轴画执行等待，交付队列只把其中的 code 边当合并约束。 */
-  edgesOf(apIds) {
-    if (!apIds.length) return [];
-    const holes = apIds.map(() => '?').join(',');
-    return this.all(`SELECT ap_id, depends_on, kind FROM ap_deps WHERE ap_id IN (${holes}) ORDER BY ap_id, depends_on`, ...apIds);
+  /** 这些任务的依赖边：时间轴画执行等待，交付队列只把其中的 code 边当合并约束。 */
+  edgesOf(taskIds) {
+    if (!taskIds.length) return [];
+    const holes = taskIds.map(() => '?').join(',');
+    return this.all(`SELECT task_id, depends_on, kind FROM task_deps WHERE task_id IN (${holes}) ORDER BY task_id, depends_on`, ...taskIds);
   },
-  /** One query for a read model: AP id -> edges carrying the upstream status. */
-  depMap(apIds = null) {
-    if (Array.isArray(apIds) && !apIds.length) return new Map();
-    const where = Array.isArray(apIds) ? ` WHERE d.ap_id IN (${apIds.map(() => '?').join(',')})` : '';
+  /** One query for a read model: task id -> edges carrying the upstream status. */
+  depMap(taskIds = null) {
+    if (Array.isArray(taskIds) && !taskIds.length) return new Map();
+    const where = Array.isArray(taskIds) ? ` WHERE d.task_id IN (${taskIds.map(() => '?').join(',')})` : '';
     const map = new Map();
-    for (const row of this.all(`SELECT d.ap_id, d.depends_on AS id, d.kind, t.status
-      FROM ap_deps d JOIN aps t ON t.id=d.depends_on${where} ORDER BY d.ap_id, d.depends_on`, ...(apIds || []))) {
-      if (!map.has(row.ap_id)) map.set(row.ap_id, []);
-      map.get(row.ap_id).push({ id: row.id, kind: row.kind, status: row.status });
+    for (const row of this.all(`SELECT d.task_id, d.depends_on AS id, d.kind, t.status
+      FROM task_deps d JOIN tasks t ON t.id=d.depends_on${where} ORDER BY d.task_id, d.depends_on`, ...(taskIds || []))) {
+      if (!map.has(row.task_id)) map.set(row.task_id, []);
+      map.get(row.task_id).push({ id: row.id, kind: row.kind, status: row.status });
     }
     return map;
   },

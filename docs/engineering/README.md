@@ -5,7 +5,7 @@
 ## 推荐阅读顺序
 
 1. [核心架构](../core-architecture.md)：当前 say 主链。
-2. [执行模型](execution-model.md)：AP、Agent、Run 与唤醒。
+2. [执行模型](execution-model.md)：Task、Agent、Run 与唤醒。
 3. [交付与验收](review-loop.md)：父确认、合并预约与人工批准。
 4. [工程架构索引](architecture.md)：源码主题入口。
 5. [生命周期不变量](invariants.md)：实现必须守住的状态约束。
@@ -14,8 +14,8 @@
 
 - [核心 API 收敛](core-api.md)：当前公开能力与已下线功能边界。
 - [数据流](data-flow.md)
-- [AP 中心输入](ap-centered-input-design.md)：当前 say 的设计约束。
-- [AP 图与固定输入规则](ap-graph.md)：AP 视角、可信规则执行与读面边界。
+- [Task 中心输入](task-centered-input-design.md)：当前 say 的设计约束。
+- [Task 图与固定输入规则](task-graph.md)：Task 视角、可信规则执行与读面边界。
 - [一次 invocation 与多级协作](invocation.md)
 - [Token 效率与用量归因](token-efficiency.md)：有界上下文、快速收尾与可选软预算。
 - [项目身份与恢复](identity-and-recovery.md)

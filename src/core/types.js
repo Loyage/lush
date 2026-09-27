@@ -6,13 +6,13 @@ export const jsonDump = JSON.stringify;
 export const jsonLoad = JSON.parse;
 export const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 /**
- * AP 分层。intent 层把一条意图变成工作：planner 做拆解分析、scheduler 把它编排成 AP。
- * 它们不是用户要的开发工作，所以不进 AP 树/AP 链/时间轴，只在「意图」视图里出现。
- * 其余角色（worker/coordinator/research/verifier/merger）是 work 层，才构成 AP 链。
+ * 任务分层。intent 层把一条意图变成工作：planner 做拆解分析、scheduler 把它编排成任务。
+ * 它们不是用户要的开发工作，所以不进任务树/任务链/时间轴，只在「意图」视图里出现。
+ * 其余角色（worker/coordinator/research/verifier/merger）是 work 层，才构成任务链。
  */
 export const INTENT_ROLES = new Set(['planner', 'scheduler']);
 export const layerOf = role => (INTENT_ROLES.has(role) ? 'intent' : 'work');
-/** AP 本轮还没跑完（正在跑或还会被调用）：planner 处于这两个状态时，不算「这一轮拆解写完了」。 */
+/** 任务本轮还没跑完（正在跑或还会被调用）：planner 处于这两个状态时，不算「这一轮拆解写完了」。 */
 export const EXECUTING = new Set(['queued', 'running']);
 export function check(condition, message) { if (!condition) throw new LushError(message, -32602); }
 export function text(value, name = 'text') {

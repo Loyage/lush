@@ -12,23 +12,23 @@ test('child signals are durable, typed, source-bound and delivered once after th
     const parent = f.store.create({ role: 'coordinator', goal: 'parent' });
     const child = f.store.create({ parent_id: parent.id, role: 'research', goal: 'child' });
     f.store.update(parent.id, { status: 'waiting' });
-    const first = f.project.sendAPSignal(child.id, parent.id, 'child.completed', `child:${child.id}:completed`, { result: 'done' });
+    const first = f.project.sendTaskSignal(child.id, parent.id, 'child.completed', `child:${child.id}:completed`, { result: 'done' });
     expect(first.inserted).toBe(true);
-    expect(f.store.ap(parent.id).status).toBe('queued');
+    expect(f.store.task(parent.id).status).toBe('queued');
     const inbox = f.store.unread(parent.id);
     expect(inbox).toHaveLength(1);
     expect(inbox[0]).toMatchObject({ id: first.id, sender_id: child.id, signal_type: 'child.completed', signal_key: `child:${child.id}:completed` });
     expect(JSON.parse(inbox[0].body).payload).toEqual({ result: 'done' });
     // 历史事件默认只存 message_id；读取历史时把被引用的消息正文一并带上，时间线才看得到通信内容。
-    const signalEvent = f.store.historyPage(parent.id).events.find(event => event.type === 'ap.signal');
-    expect(signalEvent.message).toMatchObject({ id: first.id, ap_id: parent.id, sender_id: child.id, signal_type: 'child.completed' });
+    const signalEvent = f.store.historyPage(parent.id).events.find(event => event.type === 'task.signal');
+    expect(signalEvent.message).toMatchObject({ id: first.id, task_id: parent.id, sender_id: child.id, signal_type: 'child.completed' });
     expect(JSON.parse(signalEvent.message.body).payload).toEqual({ result: 'done' });
-    expect(f.store.all("SELECT type FROM events WHERE ap_id=? AND type='ap.signal'", parent.id)).toHaveLength(1);
-    expect(f.project.sendAPSignal(child.id, parent.id, 'child.completed', `child:${child.id}:completed`, { result: 'done' }))
+    expect(f.store.all("SELECT type FROM events WHERE task_id=? AND type='task.signal'", parent.id)).toHaveLength(1);
+    expect(f.project.sendTaskSignal(child.id, parent.id, 'child.completed', `child:${child.id}:completed`, { result: 'done' }))
       .toEqual({ id: first.id, inserted: false });
     expect(f.store.unread(parent.id)).toHaveLength(1);
-    expect(f.store.all("SELECT id FROM events WHERE ap_id=? AND type='ap.signal'", parent.id)).toHaveLength(1);
-    expect(() => f.project.sendAPSignal(child.id, parent.id, 'child.completed', `child:${child.id}:completed`, { result: 'different' }))
+    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='task.signal'", parent.id)).toHaveLength(1);
+    expect(() => f.project.sendTaskSignal(child.id, parent.id, 'child.completed', `child:${child.id}:completed`, { result: 'different' }))
       .toThrow('different content');
     expect(f.store.unread(parent.id)).toHaveLength(1);
     f.store.run('UPDATE messages SET consumed=1 WHERE id=?', first.id);
@@ -50,19 +50,19 @@ test('普通文本消息事件正文内联在 data.body，不重复挂 event.mes
   } finally { await f.close(); }
 });
 
-test('AP signals reject unrelated or terminal targets, malformed keys and oversized payloads without writing', async () => {
+test('task signals reject unrelated or terminal targets, malformed keys and oversized payloads without writing', async () => {
   const f = fixture(); f.project.stopping = true;
   try {
     const parent = f.store.create({ role: 'coordinator', goal: 'parent' });
     const child = f.store.create({ parent_id: parent.id, role: 'research', goal: 'child' });
     const unrelated = f.store.create({ role: 'coordinator', goal: 'other' });
-    expect(() => f.project.sendAPSignal(child.id, unrelated.id, 'child.completed', 'once')).toThrow('direct parent');
-    expect(() => f.project.sendAPSignal(child.id, parent.id, 'X', 'once')).toThrow('invalid AP signal type');
-    expect(() => f.project.sendAPSignal(child.id, parent.id, 'child.completed', 'a b')).toThrow('invalid AP signal key');
-    expect(() => f.project.sendAPSignal(child.id, parent.id, 'child.completed', 'once', { value: 'x'.repeat(16384) }))
+    expect(() => f.project.sendTaskSignal(child.id, unrelated.id, 'child.completed', 'once')).toThrow('direct parent');
+    expect(() => f.project.sendTaskSignal(child.id, parent.id, 'X', 'once')).toThrow('invalid task signal type');
+    expect(() => f.project.sendTaskSignal(child.id, parent.id, 'child.completed', 'a b')).toThrow('invalid task signal key');
+    expect(() => f.project.sendTaskSignal(child.id, parent.id, 'child.completed', 'once', { value: 'x'.repeat(16384) }))
       .toThrow('exceeds');
     f.store.update(parent.id, { status: 'completed' });
-    expect(() => f.project.sendAPSignal(child.id, parent.id, 'child.completed', 'once')).toThrow('terminal parent');
+    expect(() => f.project.sendTaskSignal(child.id, parent.id, 'child.completed', 'once')).toThrow('terminal parent');
     expect(f.store.all('SELECT id FROM messages')).toEqual([]);
   } finally { await f.close(); }
 });
@@ -72,23 +72,23 @@ test('opening an old database adds only nullable signal columns and preserves ol
   const file = path.join(config.home, 'project.db');
   try {
     const first = new Store(file, root);
-    const ap = first.create({ role: 'research', goal: 'old AP' });
-    first.message(ap.id, 'old message'); first.close();
+    const task = first.create({ role: 'research', goal: 'old task' });
+    first.message(task.id, 'old message'); first.close();
     const old = new Database(file);
     old.query('DROP INDEX messages_signal_once').run();
-    old.query('DROP INDEX aps_new_branch_owner').run();
+    old.query('DROP INDEX tasks_new_branch_owner').run();
     old.query('ALTER TABLE messages DROP COLUMN signal_key').run();
     old.query('ALTER TABLE messages DROP COLUMN signal_type').run();
-    old.query('ALTER TABLE aps DROP COLUMN reservation').run();
-    old.query('ALTER TABLE aps DROP COLUMN ap_kind').run();
+    old.query('ALTER TABLE tasks DROP COLUMN reservation').run();
+    old.query('ALTER TABLE tasks DROP COLUMN task_kind').run();
     old.close();
     const reopened = new Store(file, root);
     try {
-      expect(reopened.unread(ap.id)[0]).toMatchObject({ body: 'old message', signal_type: null, signal_key: null });
+      expect(reopened.unread(task.id)[0]).toMatchObject({ body: 'old message', signal_type: null, signal_key: null });
       expect(reopened.get('SELECT count(*) AS n FROM messages').n).toBe(1);
       expect(reopened.all('PRAGMA index_list(messages)').some(row => row.name === 'messages_signal_once')).toBe(true);
-      expect(reopened.ap(ap.id)).toMatchObject({ ap_kind: null, reservation: null });
-      expect(reopened.all('PRAGMA index_list(aps)').some(row => row.name === 'aps_new_branch_owner')).toBe(true);
+      expect(reopened.task(task.id)).toMatchObject({ task_kind: null, reservation: null });
+      expect(reopened.all('PRAGMA index_list(tasks)').some(row => row.name === 'tasks_new_branch_owner')).toBe(true);
     } finally { reopened.close(); }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

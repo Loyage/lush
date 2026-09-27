@@ -3,7 +3,7 @@
 **一丁点儿时间不浪费。**
 **Not a single moment wasted.**
 
-Lush 是项目级的多 agent 开发应用。你描述想要的结果，Lush 在独立的 Git 分支与 worktree 里并行拆解、实现与验证，把成果冻结成精确的提交，最后由你明确批准落地。当前输入路径是 **say**：一条输入直连一个拥有独立分支与 worktree 的 AP，它自己判断亲自做还是再派子 AP。旧 Intent / Plan / Candidate 的对外操作已下线；磁盘历史数据、会话与工作区原样保留，不自动迁移或删除。它面向长期维护真实代码库、希望把重复开发真正并行起来的开发者。
+Lush 是项目级的多 agent 开发应用。你描述想要的结果，Lush 在独立的 Git 分支与 worktree 里并行拆解、实现与验证，把成果冻结成精确的提交，最后由你明确批准落地。当前输入路径是 **say**：一条输入直连一个拥有独立分支与 worktree 的 Task，它自己判断亲自做还是再派子 Task。旧 Intent / Plan / Candidate 的对外操作已下线；磁盘历史数据、会话与工作区原样保留，不自动迁移或删除。它面向长期维护真实代码库、希望把重复开发真正并行起来的开发者。
 
 Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行时依赖。支持 macOS 与 Linux。
 
@@ -11,11 +11,11 @@ Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行
 
 ### 你描述目标，机器负责拆解
 
-你输入的是目标，不是任务清单。这条目标直接成为一个拥有独立分支与 worktree 的 AP：它先理解现状，再决定亲自完成还是派生并发子 AP；子 AP 完成后由直接父 AP 的 Agent 确认固定提交并快进集成。旧规划链不再创建或调度 AP；现有历史行仍保留在磁盘。
+你输入的是目标，不是任务清单。这条目标直接成为一个拥有独立分支与 worktree 的 Task：它先理解现状，再决定亲自完成还是派生并发子 Task；子 Task 完成后由直接父 Task 的 Agent 确认固定提交并快进集成。旧规划链不再创建或调度任务；现有历史行仍保留在磁盘。
 
-### 输入与 AP 相连：围绕目标，而不是任务清单
+### 输入与任务相连：围绕目标，而不是任务清单
 
-每条 say 输入保存原话、引用及其 AP，便于回看目标和结果，而不必从 Git 分支名猜测。当前对外入口只服务 AP 中心工作流。
+每条 say 输入保存原话、引用及其 Task，便于回看目标和结果，而不必从 Git 分支名猜测。当前对外入口只服务 Task 中心工作流。
 
 ### 精确的 commit，而不是笼统的“完成了”
 
@@ -39,12 +39,12 @@ Host 不进行跨项目调度。共享同一份 Lush 代码的不同项目互不
 
 ## 一条输入怎么走
 
-- **发送**：「发送」只提交输入框里这一条，一条输入立即成为一个拥有独立分支与 worktree 的 AP；不走旧草稿、规划或快速路由。
-- **静息与唤醒**：Agent 一轮结束后 AP 静息但不终结；新消息、子 AP 结算或用户追加说明会唤醒同一个 AP（用户追加说明时会在本轮工具结束后收口，不打断正在执行的命令）。
-- **交付**：AP 可以预约**展示**或**合并请求**（二选一）。合并请求冻结源 commit 与父分支基线并把父分支锁住，直到父 Agent 确认集成或你显式撤销；main 只在你按固定 commit + 基线批准后才前进。`completed` 不等于已合并。
-- **提问**：通过 Notice 向用户询问关键决策；补充需求通过 `ap message` 送到现有 AP。
+- **发送**：「发送」只提交输入框里这一条，一条输入立即成为一个拥有独立分支与 worktree 的 Task；不走旧草稿、规划或快速路由。
+- **静息与唤醒**：Agent 一轮结束后 Task 静息但不终结；新消息、子任务结算或用户追加说明会唤醒同一个 Task（用户追加说明时会在本轮工具结束后收口，不打断正在执行的命令）。
+- **交付**：Task 可以预约**展示**或**合并请求**（二选一）。合并请求冻结源 commit 与父分支基线并把父分支锁住，直到父 Agent 确认集成或你显式撤销；main 只在你按固定 commit + 基线批准后才前进。`completed` 不等于已合并。
+- **提问**：通过 Notice 向用户询问关键决策；补充需求通过 `task message` 送到现有 Task。
 
-以上是当前输入路径。完整操作过程见[一条 say 输入如何交付](docs/ap-flow.md)；设计边界见[AP 中心输入](docs/engineering/ap-centered-input-design.md)。当前接口白名单及旧数据边界见[核心 API 收敛](docs/engineering/core-api.md)。
+以上是当前输入路径。完整操作过程见[一条 say 输入如何交付](docs/task-flow.md)；设计边界见[Task 中心输入](docs/engineering/task-centered-input-design.md)。当前接口白名单及旧数据边界见[核心 API 收敛](docs/engineering/core-api.md)。
 
 ## 部署方式
 
@@ -66,7 +66,7 @@ Lush 提供两种图形化使用方式，两者复用同一份 Web UI 与 API：
 ## 接下来读什么
 
 - [文档总览](docs/README.md)：完整文档地图与推荐阅读顺序。
-- [一条 say 输入如何交付](docs/ap-flow.md)：当前输入与交付流程。
-- [AP 中心输入](docs/engineering/ap-centered-input-design.md)：say / 子 AP / 预约的设计边界。
+- [一条 say 输入如何交付](docs/task-flow.md)：当前输入与交付流程。
+- [Task 中心输入](docs/engineering/task-centered-input-design.md)：say / 子任务 / 预约的设计边界。
 - [核心 API 收敛](docs/engineering/core-api.md)：当前公开接口和旧数据边界。
-- [核心架构](docs/core-architecture.md)：AP、Agent 与 Git 交付边界。
+- [核心架构](docs/core-architecture.md)：Task、Agent 与 Git 交付边界。

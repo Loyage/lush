@@ -67,7 +67,7 @@ function paintControl(root) {
 /** Per-page baseline: no historical burst on first load, refresh or project switch. */
 export function createNoticeNotifier({ send, enabled = () => readPref('noticeNotifications') } = {}) {
   let project = null, high = null, started = 0, seen = new Set();
-  const identity = row => `${row.id}:${row.ap_id}:${row.created_at}`;
+  const identity = row => `${row.id}:${row.task_id}:${row.created_at}`;
   return data => {
     const current = data.status?.project;
     const rows = data.notices || [];
@@ -75,7 +75,7 @@ export function createNoticeNotifier({ send, enabled = () => readPref('noticeNot
     if (project !== current || high === null) {
       project = current; high = nextHigh; started = Date.now(); seen = new Set(rows.map(identity)); return;
     }
-    // Explicit AP deletion/clear can reuse SQLite notice IDs. Identity + creation time
+    // Explicit task deletion/clear can reuse SQLite notice IDs. Identity + creation time
     // still recognizes those new questions, while old records resurfacing after paging stay silent.
     const fresh = rows.filter(row => !seen.has(identity(row)) && (row.id > high || Date.parse(row.created_at) >= started)
       && row.status === 'open' && ['question','questionnaire','plan'].includes(row.kind));

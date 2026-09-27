@@ -6,16 +6,16 @@ import { makeWorld, NOW, iso } from './dom-world.js';
 const world = makeWorld();
 const dom = installDom({ fetch: world.fetchImpl });
 world.state.notices = [
-  { id: 5, ap_id: 4, kind: 'question', title: '普通问题', body: '', status: 'open', created_at: iso(NOW - 9000) },
-  { id: 7, ap_id: 1, kind: 'plan', title: '计划待批', body: '', status: 'open', created_at: iso(NOW - 8000) },
-  { id: 8, ap_id: 4, kind: 'question', title: '已答复的问题', body: '', status: 'answered', created_at: iso(NOW - 8500) },
+  { id: 5, task_id: 4, kind: 'question', title: '普通问题', body: '', status: 'open', created_at: iso(NOW - 9000) },
+  { id: 7, task_id: 1, kind: 'plan', title: '计划待批', body: '', status: 'open', created_at: iso(NOW - 8000) },
+  { id: 8, task_id: 4, kind: 'question', title: '已答复的问题', body: '', status: 'answered', created_at: iso(NOW - 8500) },
 ];
 const { boot } = await import('../../src/ui/web/assets/app.js');
 dom.node('side-nav').replaceChildren();
 await boot();
 afterAll(() => dom.restore());
 
-const aps = () => dom.node('aps').querySelectorAll('.goal').map(node => node.textContent);
+const tasks = () => dom.node('tasks').querySelectorAll('.goal').map(node => node.textContent);
 
 test('待定事项包含 plan，概览保留原有普通问题入口', async () => {
   await dom.intervalFor(1500)();
@@ -29,17 +29,17 @@ test('待定事项包含 plan，概览保留原有普通问题入口', async () 
   expect(deepText(rows[0])).toContain('普通问题');
   expect(deepText(panel)).not.toContain('计划待批');
   await rows[0].onclick();
-  expect(dom.location.hash).toBe('#ap-4');
+  expect(dom.location.hash).toBe('#task-4');
 });
 
 test('「只看待我处理」包含计划审批，与待决页面一致', async () => {
   await dom.intervalFor(1500)();
   // #1 只有那条 plan notice；#2 / #3 是「已完成待批准合并」，本来就命中
-  expect(aps()).toEqual(['正在改点什么', '合并我', '另一个待合的']);
-  const toggle = dom.node('ap-filters').querySelector('.filter-toggle');
+  expect(tasks()).toEqual(['正在改点什么', '合并我', '另一个待合的']);
+  const toggle = dom.node('task-filters').querySelector('.filter-toggle');
   toggle.checked = true;
   await toggle.listeners.change[0]();
-  expect(aps()).toEqual(['正在改点什么', '合并我', '另一个待合的']);
+  expect(tasks()).toEqual(['正在改点什么', '合并我', '另一个待合的']);
   toggle.checked = false;
   await toggle.listeners.change[0]();
 });

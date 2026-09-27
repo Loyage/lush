@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { run as intent } from '../src/cli/commands/intent.js';
-import { run as ap } from '../src/cli/commands/ap.js';
+import { run as task } from '../src/cli/commands/task.js';
 import { run as system } from '../src/cli/commands/system.js';
 import { fixture } from './helpers.js';
 import { codeIdentity } from '../src/identity.js';
@@ -25,34 +25,34 @@ test('say --draft sends exactly one chosen draft and rejects mixing text or miss
   expect(calls).toHaveLength(1);
 });
 
-test('ap reserve and unreserve pass one explicit say AP and kind', async () => {
+test('task reserve and unreserve pass one explicit say Task and kind', async () => {
   const calls = [], client = { request: async (method, params) => { calls.push({ method, params }); return params; } };
-  await ap('ap', ['reserve', '7', 'merge'], { client, json: true });
-  await ap('ap', ['resolve-divergence', '7'], { client, json: true });
-  await ap('ap', ['resolve-child-divergence', '9'], { client, json: true });
-  await ap('ap', ['unreserve', '7'], { client, json: true });
-  await ap('ap', ['approve-merge', '7', 'a'.repeat(40), 'b'.repeat(40)], { client, json: true });
+  await task('task', ['reserve', '7', 'merge'], { client, json: true });
+  await task('task', ['resolve-divergence', '7'], { client, json: true });
+  await task('task', ['resolve-child-divergence', '9'], { client, json: true });
+  await task('task', ['unreserve', '7'], { client, json: true });
+  await task('task', ['approve-merge', '7', 'a'.repeat(40), 'b'.repeat(40)], { client, json: true });
   expect(calls).toEqual([
-    { method: 'ap.reserve', params: { id: 7, kind: 'merge' } },
-    { method: 'ap.resolve_divergence', params: { id: 7 } },
-    { method: 'ap.resolve_child_divergence', params: { id: 9 } },
-    { method: 'ap.unreserve', params: { id: 7 } },
-    { method: 'ap.approve_merge', params: { id: 7, commit: 'a'.repeat(40), baseline: 'b'.repeat(40) } },
+    { method: 'task.reserve', params: { id: 7, kind: 'merge' } },
+    { method: 'task.resolve_divergence', params: { id: 7 } },
+    { method: 'task.resolve_child_divergence', params: { id: 9 } },
+    { method: 'task.unreserve', params: { id: 7 } },
+    { method: 'task.approve_merge', params: { id: 7, commit: 'a'.repeat(40), baseline: 'b'.repeat(40) } },
   ]);
-  await expect(ap('ap', ['reserve', '7'], { client, json: true })).rejects.toThrow();
+  await expect(task('task', ['reserve', '7'], { client, json: true })).rejects.toThrow();
   expect(calls).toHaveLength(5);
 });
 
-test('brief aps use bounded rows and retain a continuation cursor; ordinary list stays compatible', async () => {
+test('brief tasks use bounded rows and retain a continuation cursor; ordinary list stays compatible', async () => {
   const rows = Array.from({ length: 3 }, (_, i) => ({ id: i + 1, role: 'worker', status: 'completed', goal: 'x'.repeat(200), progress: 'large' }));
   const calls = [], client = { request: async (method, params) => { calls.push(params); return rows; } };
-  const result = await ap('ap', ['list', '--brief', '--limit', '2'], { client, json: true });
+  const result = await task('task', ['list', '--brief', '--limit', '2'], { client, json: true });
   expect(calls[0]).toEqual({ after: 0, limit: 3 });
   expect(result).toMatchObject({ has_more: true, next_after: 2 });
-  expect(result.aps).toHaveLength(2); expect(result.aps[0].goal).toHaveLength(160);
-  expect(result.aps[0].progress).toBeUndefined();
-  expect(await ap('ap', ['list'], { client, json: true })).toEqual(rows);
-  await expect(ap('ap', ['list', '--brief', '--limit', '999'], { client })).rejects.toThrow('1..200');
+  expect(result.tasks).toHaveLength(2); expect(result.tasks[0].goal).toHaveLength(160);
+  expect(result.tasks[0].progress).toBeUndefined();
+  expect(await task('task', ['list'], { client, json: true })).toEqual(rows);
+  await expect(task('task', ['list', '--brief', '--limit', '999'], { client })).rejects.toThrow('1..200');
 });
 
 test('doctor keeps identity checks but full daemon profiles require --verbose', async () => {

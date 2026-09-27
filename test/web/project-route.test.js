@@ -20,12 +20,12 @@ test('项目身份来自地址：项目 API 加前缀，宿主级资源不加', 
   globalThis.location.pathname = `/p/${ID}/`;
   expect(projectRoute()).toBe(ID);
   expect(projectBase()).toBe(`/p/${ID}`);
-  expect(projectApi('/api/ap/1')).toBe(`/p/${ID}/api/ap/1`);
+  expect(projectApi('/api/task/1')).toBe(`/p/${ID}/api/task/1`);
   // 启动器与随代码发布的文档属于宿主，不挂到任何项目下。
   expect(projectApi('/api/host/projects')).toBe('/api/host/projects');
   expect(projectApi('/api/docs')).toBe('/api/docs');
   expect(projectApi('/app.js')).toBe('/app.js');
-  expect(projectHref(ID, '/#ap-1')).toBe(`/p/${ID}/#ap-1`);
+  expect(projectHref(ID, '/#task-1')).toBe(`/p/${ID}/#task-1`);
   // 非项目路径（ID 后续还有别的字符）不会被误认成项目页。
   globalThis.location.pathname = `/p/${ID}x/`;
   expect(projectRoute()).toBeNull();
@@ -34,7 +34,7 @@ test('项目身份来自地址：项目 API 加前缀，宿主级资源不加', 
 test('项目相关偏好按项目隔离，全局外观偏好共享', () => {
   globalThis.location.pathname = '/';
   prefs.setPref('sidebarSort', 'id');
-  prefs.setPref('collapsed', new Set(['aps']));
+  prefs.setPref('collapsed', new Set(['tasks']));
   prefs.setPref('theme', 'dark');
   expect(globalThis.localStorage.getItem('lush.sidebarSort')).toBe('id');
   expect(globalThis.localStorage.getItem('lush.theme')).toBe('dark');

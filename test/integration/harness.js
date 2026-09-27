@@ -19,26 +19,26 @@ export async function legacySay(root, content, branch = null) {
 }
 
 /** New say Agents release their invocation slot instead of becoming terminal on ordinary returns. */
-export async function idle(client, apId, calls = 1) {
+export async function idle(client, taskId, calls = 1) {
   for (let i = 0; i < 100; i++) {
-    const ap = await client.request('ap.inspect', { id: apId });
-    if (ap.status === 'waiting' && ap.calls >= calls && !ap.agent.active) return ap;
+    const task = await client.request('task.inspect', { id: taskId });
+    if (task.status === 'waiting' && task.calls >= calls && !task.agent.active) return task;
     await Bun.sleep(30);
   }
-  throw new Error('AP did not become idle');
+  throw new Error('task did not become idle');
 }
 
-export async function done(client, apId) {
-  for (let i=0;i<100;i++) { const ap = await client.request('ap.inspect',{id:apId}); if (['completed','failed'].includes(ap.status)) return ap; await Bun.sleep(30); }
-  throw new Error('AP timeout');
+export async function done(client, taskId) {
+  for (let i=0;i<100;i++) { const task = await client.request('task.inspect',{id:taskId}); if (['completed','failed'].includes(task.status)) return task; await Bun.sleep(30); }
+  throw new Error('task timeout');
 }
 
 /** Wait for deterministic Plan compilation and return work items belonging to the planner's Intent. */
-export async function workOf(client, plannerAPId, minimum = 1) {
-  const planner = await client.request('ap.inspect', { id: plannerAPId });
+export async function workOf(client, plannerTaskId, minimum = 1) {
+  const planner = await client.request('task.inspect', { id: plannerTaskId });
   for (let i=0;i<200;i++) {
-    const aps = await client.request('ap.list');
-    const work = aps.filter(ap => ap.input_id === planner.input_id && ap.role !== 'verifier');
+    const tasks = await client.request('task.list');
+    const work = tasks.filter(task => task.input_id === planner.input_id && task.role !== 'verifier');
     if (work.length >= minimum) return work;
     await Bun.sleep(30);
   }

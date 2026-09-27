@@ -19,8 +19,8 @@ test('drafts buffer, drop and commit one input per draft', async () => {
     expect(committed.inputs).toHaveLength(2);
     // 每条草稿各成一条输入，正文逐字，不再有批次引导语。
     expect(committed.inputs.map(row => row.content)).toEqual(['第一条 想法', '第三条']);
-    expect(committed.inputs.map(row => row.ap.role)).toEqual(['planner', 'planner']);
-    expect(committed.inputs.map(row => row.ap.goal)).toEqual(['第一条 想法', '第三条']);
+    expect(committed.inputs.map(row => row.task.role)).toEqual(['planner', 'planner']);
+    expect(committed.inputs.map(row => row.task.goal)).toEqual(['第一条 想法', '第三条']);
     expect(committed.inputs.map(row => row.draft)).toEqual([first.id, third.id]);
     for (const row of committed.inputs) expect(row.content).not.toContain('用户在一次提交中给了');
     // 每条草稿各自回写 input_id 作为审计链；被移除的草稿不留行
@@ -42,7 +42,7 @@ test('a single buffered draft reaches its own planner verbatim', async () => {
     const committed = await f.project.commitDrafts();
     expect(committed.inputs).toHaveLength(1);
     expect(committed.inputs[0].content).toBe('  原话\n保留  ');
-    expect(committed.inputs[0].ap.goal).toBe('  原话\n保留  ');
+    expect(committed.inputs[0].task.goal).toBe('  原话\n保留  ');
   } finally { await f.close(); }
 });
 
@@ -134,7 +134,7 @@ test('agent tokens cannot touch the user input buffer', async () => {
   const f = fixture({ run({ signal }) { return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })); } });
   await repo(f.root);
   try {
-    const root = (await f.project.submit('root')).ap;
+    const root = (await f.project.submit('root')).task;
     await until(() => f.project.running.has(root.id));
     const token = f.project.running.get(root.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});

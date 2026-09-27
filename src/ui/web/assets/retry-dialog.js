@@ -40,13 +40,13 @@ function resourceGroup(title, entries, selected, kind, enabled) {
 }
 
 /**
- * Retry a failed/cancelled AP with a complete ap-local Agent profile. The profile is sent
- * only to ap.retry; it never mutates project agent.json and expires when this attempt settles.
+ * Retry a failed/cancelled task with a complete task-local Agent profile. The profile is sent
+ * only to task.retry; it never mutates project agent.json and expires when this attempt settles.
  */
-export async function retryAP(ap) {
+export async function retryTask(task) {
   try {
     const settings = await api('/api/agent/config');
-    const { role, profile } = roleProfile(settings, ap.role);
+    const { role, profile } = roleProfile(settings, task.role);
     const builtInPrompt = settings.options?.default_prompts?.[role] || settings.options?.default_prompt || '';
     const selectedExtensions = new Set(profile.extensions || []);
     const selectedSkills = new Set(profile.skills || []);
@@ -56,7 +56,7 @@ export async function retryAP(ap) {
     const form = el('div', undefined, 'retry-profile-form');
     const grid = el('div', undefined, 'retry-profile-grid');
     const backend = el('select'); backend.dataset.retryField = 'agent';
-    const availableAgents = ap.role === 'explainer' ? ['pi'] : (settings.options?.agents || ['pi', 'codex']);
+    const availableAgents = task.role === 'explainer' ? ['pi'] : (settings.options?.agents || ['pi', 'codex']);
     backend.replaceChildren(...availableAgents.map(value => option(value, backendLabel(value))));
     const inheritedBackend = availableAgents.includes(profile.agent);
     backend.value = inheritedBackend ? profile.agent : availableAgents[0];
@@ -125,7 +125,7 @@ export async function retryAP(ap) {
       const levels = settings.options?.thinking?.[agent] || [''];
       const selected = clear || !inheritedBackend || !levels.includes(profile.thinking) ? '' : profile.thinking;
       thinking.replaceChildren(...levels.map(value => option(value, thinkingLabel(value)))); thinking.value = selected;
-      const budgetEnabled = agent === 'pi' && ap.role !== 'explainer';
+      const budgetEnabled = agent === 'pi' && task.role !== 'explainer';
       budgetResponses.disabled = !budgetEnabled; budgetTokens.disabled = !budgetEnabled;
       paintModels(); paintResources(); void loadModels(agent);
     };
@@ -137,10 +137,10 @@ export async function retryAP(ap) {
       field('思考深度', thinking, '可用等级随 Agent 变化。'),
       field('软预算：响应数', budgetResponses, '留空关闭；仅 Pi。'),
       field('软预算：累计 token', budgetTokens, '留空关闭；仅 Pi。'),
-      field('默认 Prompt', promptBox, '修改后会替换 Lush 内置角色 Prompt，可能影响 AP 协议与交付行为。', true),
+      field('默认 Prompt', promptBox, '修改后会替换 Lush 内置角色 Prompt，可能影响任务协议与交付行为。', true),
       field('追加 Prompt', appendPrompt, '追加在基础 Prompt 与项目补充之后，仅本轮重试生效。', true),
       field('扩展与 Skills', resourcesBox, '保留当前角色配置，可按本轮需要增删。', true));
-    form.append(grid, el('p', '确认后，所选完整 Profile 会固定到这个 AP，直到它再次完成、失败或取消。', 'retry-scope-note'));
+    form.append(grid, el('p', '确认后，所选完整 Profile 会固定到这个任务，直到它再次完成、失败或取消。', 'retry-scope-note'));
 
     try { resources = await api('/api/agent/resources'); }
     catch (error) { resources = { extensions: [], skills: [], warning: `资源目录读取失败：${error.message}` }; }
@@ -148,10 +148,10 @@ export async function retryAP(ap) {
     syncBackend(false);
 
     const confirmed = await formDialog({
-      title: `检查后重试 AP #${ap.id}`,
-      message: `AP 因“${ap.status === 'cancelled' ? '已取消' : '失败'}”停止。请检查并调整 ${ap.role} Agent；这些设置只用于本轮重试。`,
+      title: `检查后重试任务 #${task.id}`,
+      message: `任务因“${task.status === 'cancelled' ? '已取消' : '失败'}”停止。请检查并调整 ${task.role} Agent；这些设置只用于本轮重试。`,
       content: form, confirmLabel: '使用这些设置重试', cancelLabel: '暂不重试', cardClass: 'retry-modal',
-      agent: true, confirmHelp: agentHelp('用上面选定的 Agent 设置重新启动这个 AP。'),
+      agent: true, confirmHelp: agentHelp('用上面选定的 Agent 设置重新启动这个任务。'),
     });
     if (!confirmed) return false;
 
@@ -160,15 +160,15 @@ export async function retryAP(ap) {
     if (nextDefault && nextDefault !== (profile.default_prompt || '')) {
       const accepted = await confirmDialog({
         title: '用自定义 Prompt 重试？',
-        message: '自定义内容会替换 Lush 内置 AP 规则，仅本轮重试生效。',
-        detail: '可能影响：AP API 使用、权限边界、子 AP 协作、工作区安全和交付流程。',
+        message: '自定义内容会替换 Lush 内置任务规则，仅本轮重试生效。',
+        detail: '可能影响：任务 API 使用、权限边界、子任务协作、工作区安全和交付流程。',
         confirmLabel: '仍然重试', cancelLabel: '取消重试', danger: true,
-        agent: true, confirmHelp: agentHelp('用这份自定义 Prompt 重新启动这个 AP。'),
+        agent: true, confirmHelp: agentHelp('用这份自定义 Prompt 重新启动这个任务。'),
       });
       if (!accepted) return false;
     }
     const softBudget = {};
-    if (backend.value === 'pi' && ap.role !== 'explainer') {
+    if (backend.value === 'pi' && task.role !== 'explainer') {
       if (budgetResponses.value.trim()) softBudget.responses = Number(budgetResponses.value);
       if (budgetTokens.value.trim()) softBudget.tokens = Number(budgetTokens.value);
     }
@@ -177,8 +177,8 @@ export async function retryAP(ap) {
       default_prompt: nextDefault, append_prompt: appendPrompt.value.trim(),
       extensions: [...selectedExtensions], skills: [...selectedSkills], soft_budget: softBudget,
     };
-    await action('ap.retry', { id: ap.id, profile: retryProfile });
-    show(`AP #${ap.id} 已按本轮 Agent 设置进入重试队列。`);
+    await action('task.retry', { id: task.id, profile: retryProfile });
+    show(`任务 #${task.id} 已按本轮 Agent 设置进入重试队列。`);
     return true;
   } catch (error) {
     show(`无法重试：${error.message}`, 'error');

@@ -1,37 +1,37 @@
 import { LushError, check, isPlainObject } from '../core/types.js';
 
-// Public API for the AP-centred workflow. Historical rows remain on disk, but
+// Public API for the Task-centred workflow. Historical rows remain on disk, but
 // Intent/Plan/Candidate and optional services cannot create new work.
 export const PARAMS = {
   'system.status': [], 'system.summary': [], 'system.stop': [], 'system.configure': ['settings'],
   'agent.config': [], 'agent.models': ['agent'], 'agent.resources': [], 'agent.configure': ['config'],
   'agent.environment': ['target'], 'agent.environment.configure': ['target','values'],
   'say.submit': ['content','branch','references'],
-  'ap.graph': [], 'ap.list': ['after','limit'], 'ap.activity': ['limit','scope'],
-  'ap.page': ['before','limit','scope'], 'ap.tree': ['id'], 'ap.inspect': ['id'],
-  'ap.history': ['id','after'], 'ap.history_page': ['id','before','limit'], 'ap.diff': ['id'], 'ap.usage': ['id'],
-  'ap.transcript': ['id','after','limit'], 'ap.transcript_latest': ['id','after','before','limit'],
-  'ap.transcript_page': ['id','seq','offset'], 'ap.transcript_step': ['id','seq','offset'],
-  'ap.transcript_search': ['id','query','kind','tool','errors','after','limit'],
-  'ap.spawn': ['parent','goal','name'], 'ap.integrate': ['id','commit'],
-  'ap.reserve': ['id','kind'], 'ap.resolve': ['id'], 'ap.resolve_divergence': ['id'],
-  'ap.resolve_child_divergence': ['id'], 'ap.unreserve': ['id'],
-  'ap.approve_merge': ['id','commit','baseline'], 'ap.message': ['id','body'],
-  'ap.cancel': ['id'], 'ap.retry': ['id'], 'ap.cleanup': ['id','keep_branch'],
+  'task.graph': [], 'task.list': ['after','limit'], 'task.activity': ['limit','scope'],
+  'task.page': ['before','limit','scope'], 'task.tree': ['id'], 'task.inspect': ['id'],
+  'task.history': ['id','after'], 'task.history_page': ['id','before','limit'], 'task.diff': ['id'], 'task.usage': ['id'],
+  'task.transcript': ['id','after','limit'], 'task.transcript_latest': ['id','after','before','limit'],
+  'task.transcript_page': ['id','seq','offset'], 'task.transcript_step': ['id','seq','offset'],
+  'task.transcript_search': ['id','query','kind','tool','errors','after','limit'],
+  'task.spawn': ['parent','goal','name'], 'task.integrate': ['id','commit'],
+  'task.reserve': ['id','kind'], 'task.resolve': ['id'], 'task.resolve_divergence': ['id'],
+  'task.resolve_child_divergence': ['id'], 'task.unreserve': ['id'],
+  'task.approve_merge': ['id','commit','baseline'], 'task.message': ['id','body'],
+  'task.cancel': ['id'], 'task.retry': ['id'], 'task.cleanup': ['id','keep_branch'],
   'progress.plan': ['steps'], 'progress.complete': ['step'],
   'notice.list': [], 'notice.page': ['status','before','limit'],
-  'notice.post': ['ap','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
+  'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
   'branch.tree': [], 'branch.show': ['branch'], 'branch.bind': ['branch','commit'],
   'branch.archive': ['branch','discard'], 'graph.get': [],
 };
 export const USER_ONLY = new Set([
   'system.stop','system.configure','agent.configure','agent.environment','agent.environment.configure',
-  'say.submit','ap.transcript_latest','ap.transcript_page','ap.transcript_step','ap.transcript_search',
-  'ap.reserve','ap.resolve','ap.resolve_divergence','ap.unreserve','ap.approve_merge',
-  'ap.cancel','ap.retry','ap.cleanup','notice.answer','notice.dismiss','branch.bind','branch.archive',
+  'say.submit','task.transcript_latest','task.transcript_page','task.transcript_step','task.transcript_search',
+  'task.reserve','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge',
+  'task.cancel','task.retry','task.cleanup','notice.answer','notice.dismiss','branch.bind','branch.archive',
 ]);
 export const AGENT_ONLY = new Set([
-  'ap.integrate','ap.resolve_child_divergence','progress.plan','progress.complete',
+  'task.integrate','task.resolve_child_divergence','progress.plan','progress.complete',
 ]);
 export function assertAllowed(method, params, actor) {
   check(isPlainObject(params), 'params must be an object');

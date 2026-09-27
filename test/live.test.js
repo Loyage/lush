@@ -7,30 +7,30 @@ import { liveTarget, liveTick } from '../src/ui/web/assets/live.js';
 
 const message = (role, text, timestamp) => ({ type: 'message', timestamp, message: { role, content: [{ type: 'text', text }] } });
 
-function sessionPath(root, apId) {
+function sessionPath(root, taskId) {
   const dir = path.join(root, '.lush', 'sessions');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  return path.join(dir, `2026-01-01T00-00-00-000Z_lush-ap-${apId}.jsonl`);
+  return path.join(dir, `2026-01-01T00-00-00-000Z_lush-task-${taskId}.jsonl`);
 }
-function writeSession(root, apId, lines) {
-  fs.writeFileSync(sessionPath(root, apId), lines.map(line => JSON.stringify(line)).join('\n') + '\n');
+function writeSession(root, taskId, lines) {
+  fs.writeFileSync(sessionPath(root, taskId), lines.map(line => JSON.stringify(line)).join('\n') + '\n');
 }
-function appendSession(root, apId, lines) {
-  fs.appendFileSync(sessionPath(root, apId), lines.map(line => JSON.stringify(line)).join('\n') + '\n');
+function appendSession(root, taskId, lines) {
+  fs.appendFileSync(sessionPath(root, taskId), lines.map(line => JSON.stringify(line)).join('\n') + '\n');
 }
 
-test('只有展示中的热 AP 才会被实时刷新', () => {
-  const aps = [
+test('只有展示中的热任务才会被实时刷新', () => {
+  const tasks = [
     { id: 1, status: 'running' }, { id: 2, status: 'completed' },
     { id: 3, status: 'awaiting' }, { id: 4, status: 'queued' }, { id: 5, status: 'failed' },
   ];
-  expect(liveTarget(aps, 1).status).toBe('running');
-  expect(liveTarget(aps, 3).status).toBe('awaiting');
-  expect(liveTarget(aps, 4).status).toBe('queued');
-  expect(liveTarget(aps, 2)).toBeNull();     // 已终态：`updated_at` 变的时候主 refresh 会重画一次
-  expect(liveTarget(aps, 5)).toBeNull();
-  expect(liveTarget(aps, 99)).toBeNull();    // 不在列表里
-  expect(liveTarget(aps, null)).toBeNull();
+  expect(liveTarget(tasks, 1).status).toBe('running');
+  expect(liveTarget(tasks, 3).status).toBe('awaiting');
+  expect(liveTarget(tasks, 4).status).toBe('queued');
+  expect(liveTarget(tasks, 2)).toBeNull();     // 已终态：`updated_at` 变的时候主 refresh 会重画一次
+  expect(liveTarget(tasks, 5)).toBeNull();
+  expect(liveTarget(tasks, 99)).toBeNull();    // 不在列表里
+  expect(liveTarget(tasks, null)).toBeNull();
 });
 
 test('一个 tick 刷 usage 且只对已加载的 transcript 增量续读', async () => {
@@ -42,7 +42,7 @@ test('一个 tick 刷 usage 且只对已加载的 transcript 增量续读', asyn
   const publish = { usage: [], steps: [] };
   const transcript = { steps: [{ seq: 1 }], next: 1 };
   const options = {
-    ap: { id: 7, status: 'running' }, transcript,
+    task: { id: 7, status: 'running' }, transcript,
     fetchUsage: async id => { calls.usage.push(id); return { last: { at: '2026-01-01T00:00:03.000Z', kind: 'tool', title: 'bash', body: 'ls' } }; },
     fetchTranscript: async (id, after) => { calls.transcript.push(after); return pages.shift(); },
     publish: { usage: (id, usage) => publish.usage.push([id, usage.last.kind]), steps: (id, steps) => publish.steps.push(steps.map(step => step.seq)) },
@@ -63,7 +63,7 @@ test('一个 tick 刷 usage 且只对已加载的 transcript 增量续读', asyn
 test('尚未加载执行过程时不读 transcript，只刷 usage', async () => {
   let transcriptCalls = 0;
   const updated = await liveTick({
-    ap: { id: 2, status: 'running' }, transcript: null,
+    task: { id: 2, status: 'running' }, transcript: null,
     fetchUsage: async () => null, fetchTranscript: async () => { transcriptCalls += 1; return { steps: [] }; },
   });
   expect(transcriptCalls).toBe(0);
@@ -74,7 +74,7 @@ test('manual pagination winning a race does not duplicate the live page', async 
   const transcript = { steps: [{ seq: 1 }], next: 1 };
   let finish, started;
   const requested = new Promise(resolve => { started = resolve; });
-  const pending = liveTick({ ap: { id: 2 }, transcript, fetchUsage: async () => null,
+  const pending = liveTick({ task: { id: 2 }, transcript, fetchUsage: async () => null,
     fetchTranscript: () => { started(); return new Promise(resolve => { finish = resolve; }); } });
   await requested;
   transcript.steps.push({ seq: 2 }); transcript.next = 2;
@@ -92,13 +92,13 @@ test('会话文件增长时，连续 tick 能让步骤与最近一次执行一�
   const f = fixture();
   try {
     writeSession(f.root, 8, [
-      message('user', 'AP 上下文', '2026-01-01T00:00:01.000Z'),
+      message('user', '任务上下文', '2026-01-01T00:00:01.000Z'),
       message('assistant', '先看看目录', '2026-01-01T00:00:02.000Z'),
     ]);
     const cache = { steps: [], next: 0 };
     const seen = { after: [], last: [] };
     const tick = () => liveTick({
-      ap: { id: 8, status: 'running' }, transcript: cache,
+      task: { id: 8, status: 'running' }, transcript: cache,
       fetchUsage: async () => readUsage(f.config, 8),
       fetchTranscript: async (_id, after) => { seen.after.push(after); return readTranscript(f.config, 8, after, 100); },
     });

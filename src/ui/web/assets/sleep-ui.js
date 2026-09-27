@@ -14,8 +14,8 @@ async function stop() {
   renderSleepBanner(state);
 }
 async function resume() {
-  if (!await confirmDialog({ title: '恢复开发调度？', message: '只恢复排队 AP，不重新开启托管模式。因预算中止的 AP 保留现场，需要检查后逐个重试。', confirmLabel: '恢复排队 AP',
-    agent: true, confirmHelp: agentHelp('恢复排队 AP，它们对应的 Agent 会重新开始运行。') })) return;
+  if (!await confirmDialog({ title: '恢复开发调度？', message: '只恢复排队任务，不重新开启托管模式。因预算中止的任务保留现场，需要检查后逐个重试。', confirmLabel: '恢复排队任务',
+    agent: true, confirmHelp: agentHelp('恢复排队任务，它们对应的 Agent 会重新开始运行。') })) return;
   renderSleepBanner(await action('sleep.resume', {}));
 }
 
@@ -33,9 +33,9 @@ export function renderSleepBanner(state) {
   if (state.enabled) host.append(el('p', '（旧称「我去睡觉了」）', 'hint'));
   if (state.reason) host.append(el('p', state.reason, 'hint'));
   if (state.enabled) host.append(button('立即关闭托管模式', stop, 'danger',
-    { help: '立即停止管家值守；排队中的 AP 不会恢复，需要你自己处理。' }));
-  if (state.paused) host.append(button('恢复排队 AP', resume, 'ghost',
-    { agent: true, help: agentHelp('只恢复排队 AP，不重新开启托管模式；它们对应的 Agent 会重新开始运行。') }));
+    { help: '立即停止管家值守；排队中的任务不会恢复，需要你自己处理。' }));
+  if (state.paused) host.append(button('恢复排队任务', resume, 'ghost',
+    { agent: true, help: agentHelp('只恢复排队任务，不重新开启托管模式；它们对应的 Agent 会重新开始运行。') }));
 }
 
 export function sleepSettings() {
@@ -44,9 +44,9 @@ export function sleepSettings() {
   const status = el('p', state?.enabled ? `已开启 · ${modeLabel(state.mode)} · ${usageLabel(state)}` : state?.paused ? '预算保护：开发已暂停' : '未开启', 'hint');
   host.append(status, el('p', '离开界面后仍持续运行，直到你主动关闭或预算保护触发。每次代理决定都会留在「待我处理 → 管家选择」。（也有人叫它「我去睡觉了」——反正它不睡。）'));
   if (state?.enabled) { host.append(button('立即关闭托管模式', async () => { await stop(); status.textContent = '已关闭；历史选择仍保留'; }, 'danger',
-    { help: '立即停止管家值守；排队中的 AP 不会恢复，需要你自己处理。' })); return host; }
-  if (state?.paused) { host.append(button('恢复排队 AP', resume, undefined,
-    { agent: true, help: agentHelp('只恢复排队 AP，不重新开启托管模式；它们对应的 Agent 会重新开始运行。') })); return host; }
+    { help: '立即停止管家值守；排队中的任务不会恢复，需要你自己处理。' })); return host; }
+  if (state?.paused) { host.append(button('恢复排队任务', resume, undefined,
+    { agent: true, help: agentHelp('只恢复排队任务，不重新开启托管模式；它们对应的 Agent 会重新开始运行。') })); return host; }
   const mode = el('select'); mode.setAttribute('aria-label', '管家模式'); mode.dataset.sleepField = 'mode';
   for (const [value, label] of [['recommended','全通过／推荐（无推荐时由管家判断）'],['preferences','参考以往选择，推断我的偏好']]) {
     const option = el('option', label); option.value = value; mode.append(option);
@@ -77,7 +77,7 @@ export function sleepSettings() {
       if (ui.lastSnapshot?.status) ui.lastSnapshot.status.sleep = next;
       renderSleepBanner(next);
       host.replaceChildren(el('h2', '托管模式 · 已开启'), el('p', usageLabel(next)), button('立即关闭托管模式', stop, 'danger',
-        { help: '立即停止管家值守；排队中的 AP 不会恢复，需要你自己处理。' }));
+        { help: '立即停止管家值守；排队中的任务不会恢复，需要你自己处理。' }));
     } finally { enable.disabled = false; }
   }, undefined, { agent: true, help: agentHelp('开启托管模式后，管家会代理你处理 Notice，可能自动批准计划或合并。') });
   host.append(enable); return host;
@@ -90,7 +90,7 @@ export function sleepChoiceCard(choice) {
   const result = choice.result || {};
   const decision = result.decision;
   card.append(el('h3', `管家选择 #${choice.id} · ${RESULT[result.status] || result.status}`),
-    el('p', `${absolute(choice.created_at)} · ${modeLabel(choice.mode)} · Notice #${choice.notice.id} · AP #${choice.notice.ap_id}`, 'hint'),
+    el('p', `${absolute(choice.created_at)} · ${modeLabel(choice.mode)} · Notice #${choice.notice.id} · 任务 #${choice.notice.task_id}`, 'hint'),
     el('h4', choice.notice.title));
   if (choice.notice.kind === 'questionnaire') {
     try {

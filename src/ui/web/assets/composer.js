@@ -75,8 +75,8 @@ export function initComposer() {
       const result = await action('say.submit', { content: value, references, ...(branch ? { branch } : {}) });
       if ($('input').value.trim() === value) $('input').value = '';
       if (JSON.stringify(composerReferences()) === signature) setComposerReferences([]);
-      show(`已创建 AP #${result.ap.id}`);
-      await refresh(); await detail(result.ap.id);
+      show(`已创建 Task #${result.task.id}`);
+      await refresh(); await detail(result.task.id);
     } catch (error) { show(error.message, 'error'); } finally { ui.composerSubmitting = false; syncComposer(); }
   };
   $('input').addEventListener('input', syncComposer);

@@ -43,20 +43,20 @@ export class Config {
     // 环境变量仍是默认值（构造时严格校验，非法直接抛错）；<home>/settings.json 里被显式覆盖的键优先于它。
     this.concurrencyDefault = positive(env, 'LUSH_CONCURRENCY', 4, 64);
     this.controlConcurrencyDefault = positive(env, 'LUSH_CONTROL_CONCURRENCY', 2, 16);
-    // 调用超时 / 单 AP 调用上限 / 最大拆解深度同样是「环境默认 + 运行时可覆盖」的项目设置。
+    // 调用超时 / 单任务调用上限 / 最大拆解深度同样是「环境默认 + 运行时可覆盖」的项目设置。
     this.timeoutDefault = positive(env, 'LUSH_CALL_TIMEOUT', 900, 86400);
-    this.maxCallsDefault = positive(env, 'LUSH_AP_CALLS', 24, 1000);
+    this.maxCallsDefault = positive(env, 'LUSH_TASK_CALLS', 24, 1000);
     this.maxDepthDefault = positive(env, 'LUSH_MAX_DEPTH', 8, 64);
     this.runtimeSettings = new RuntimeSettings(this);
     const runtime = this.runtimeSettings.get();
     this.concurrency = runtime.concurrency.value;
     this.controlConcurrency = runtime.control_concurrency.value;
     this.timeout = runtime.call_timeout.value;
-    this.maxCalls = runtime.ap_call_limit.value;
+    this.maxCalls = runtime.task_call_limit.value;
     this.maxDepth = runtime.max_depth.value;
     // 快速路由前缀：提交输入时按这份生效值做匹配，不需要重启 daemon。
     this.inputRoutes = runtime.input_routes.value.map(route => ({ ...route }));
-    // 宿主（Project）注册的回调：运行设置写盘后重新 pump，让调高的并发立即对排队 AP 生效。
+    // 宿主（Project）注册的回调：运行设置写盘后重新 pump，让调高的并发立即对排队任务生效。
     this.onKick = null;
     const hash = createHash('sha256').update(this.project).digest('hex').slice(0, 24);
     this.socketDir = path.join(os.tmpdir(), `lush-${process.getuid()}`);
@@ -73,14 +73,14 @@ export class Config {
 
   /**
    * 运行时改写并发上限：校验并原子写盘，成功后同步内存里的生效值，再 kick 一次。
-   * 调低并发不取消任何在跑 AP——它们自然结束，pump() 只是不再准入新 AP。
+   * 调低并发不取消任何在跑任务——它们自然结束，pump() 只是不再准入新任务。
    */
   configureRuntime(patch) {
     const model = this.runtimeSettings.save(patch);
     this.concurrency = model.concurrency.value;
     this.controlConcurrency = model.control_concurrency.value;
     this.timeout = model.call_timeout.value;
-    this.maxCalls = model.ap_call_limit.value;
+    this.maxCalls = model.task_call_limit.value;
     this.maxDepth = model.max_depth.value;
     this.inputRoutes = model.input_routes.value.map(route => ({ ...route }));
     this.kick();

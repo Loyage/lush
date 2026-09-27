@@ -4,11 +4,11 @@ Lush 是**项目级的多 agent 开发应用**。Bun / JavaScript / SQLite；dae
 
 ## 作用域
 
-- Lush UI（浏览器/桌面）↔ 整机入口 Lush Host（`bin/lush-host`）↔ 每项目一个 lushd（`bin/lushd`）。Host 只登记、鉴权、路由及转发，不持有 AP 事实；一个 lushd 对应一个 canonical 项目目录，状态固定在 `<project>/.lush/`。
+- Lush UI（浏览器/桌面）↔ 整机入口 Lush Host（`bin/lush-host`）↔ 每项目一个 lushd（`bin/lushd`）。Host 只登记、鉴权、路由及转发，不持有任务事实；一个 lushd 对应一个 canonical 项目目录，状态固定在 `<project>/.lush/`。
 - CLI 项目命令默认向上发现 `.lush/project.json` 或 `.git`；用 `--project PATH` 显式选择项目。Web 四条命令无 `--project` / `LUSH_PROJECT` 时进入全局项目启动器。
 - `LUSH_PROJECT` 会传入 agent 子进程，agent 在独立 worktree 中仍连接原项目。
 - `LUSH_HOME` 不许指向独立的全局目录；非空时必须等于 `<project>/.lush`。
-- 实体只有 Input / AP / Agent / Message / Notice / Event。不要引入电脑级调度。
+- 实体只有 Input / Task / Agent / Message / Notice / Event。不要引入电脑级调度。
 
 ## 命令一律走 bun run
 
@@ -20,7 +20,7 @@ bun run daemon-restart          # 运行代码、提示词或配置变更后重�
 bun run say '输入'              # 立即提交单条输入，不等开发完成
 bun run draft add '输入'        # 只写缓存，不规划；按回车逐条攒
 bun run drafts                  # 看缓存里有什么
-bun run draft commit            # 缓存整体交给一个 planner：拆 AP + 建依赖
+bun run draft commit            # 缓存整体交给一个 planner：拆任务 + 建依赖
 bun run tree
 bun run inspect 3
 bun run host                     # 后台启动全局 Web 项目选择器；自动恢复上次项目并启动/连接 daemon
@@ -43,24 +43,24 @@ bun run stop
 - Git 操作通过 `src/core/workspaces.js`，无 shell 插值，所有 Lush Git 变更串行。
 - 每个 worker 独立 worktree / 分支；默认必须由用户明确批准合并。
 - 不强制 reset / clean / 删除工作区，不自动提交用户已有改动。失败工作区也有价值。
-- `completed` 不等于 `merged`。保留独立的 AP 状态与 integration 状态。
-- AP 的父子关系创建后不变；终态 AP 不允许活动后代。依赖边（`ap_deps`）只在 spawn 时写入，之后不可变。
+- `completed` 不等于 `merged`。保留独立的任务状态与 integration 状态。
+- Task 的父子关系创建后不变；终态 task 不允许活动后代。依赖边（`task_deps`）只在 spawn 时写入，之后不可变。
 - 依赖只做结构校验（自依赖、祖先、悬空 id、多 code 边、非 worker 上游）；语义冲突由 planner 判断，拿不准就问用户。
 - 输入分 `develop` / `explain` 两类（`inputs.flow`，未判定按 develop）：explain 输入不得派生 worker/coordinator（`Project.spawn` 硬校验），因此了解类输入不产生 worktree 与待合并改动；改判只影响之后的 spawn。
-- `code` 依赖把上游分支当作下游 worktree 的基线，所以合并必须上游先行；`ap merge` 会拒绝越级。
+- `code` 依赖把上游分支当作下游 worktree 的基线，所以合并必须上游先行；`task merge` 会拒绝越级。
 - 输入缓存在 `drafts` 表：草稿可在提交前删除，提交后行保留并回写 `input_id`；已提交的输入永不删除。
-- Agent 等待子 AP 或用户时释放 invocation 槽；新输入有独立规划槽。
-- AP 与 agent 是终身一对一的身份（`<role>#<id>`），但凭证只代表一次 invocation：库里只存 SHA-256，`actor()` 必须同时校验 hash 命中与「仍在 running 且未被 abort」。不要把 token 改成终身有效，否则上一轮逃逸的后台进程会重新变成合法 actor。
-- 消息只在 invocation 之间送达。注意「父 AP 刚 park、子 AP 刚完成、running Map 还未清理」之间的 lost-wakeup 竞态。
+- Agent 等待子任务或用户时释放 invocation 槽；新输入有独立规划槽。
+- Task 与 agent 是终身一对一的身份（`<role>#<id>`），但凭证只代表一次 invocation：库里只存 SHA-256，`actor()` 必须同时校验 hash 命中与「仍在 running 且未被 abort」。不要把 token 改成终身有效，否则上一轮逃逸的后台进程会重新变成合法 actor。
+- 消息只在 invocation 之间送达。注意「父任务刚 park、子任务刚完成、running Map 还未清理」之间的 lost-wakeup 竞态。
 - 重启不自动重放有未知副作用的调用；不迁移、不覆盖磁盘上已有的数据。
 
 ## 模块
 
-修改模块前必须先读 `docs/design/README.md` 中的对应设计理念；执行记录、工具渲染、检索与选区解释必须先读 `docs/design/transcript.md`；引用、选区引用、引用卡片定位与快照/现状取舍必须先读 `docs/design/references.md`；改 Web 按钮文案、图标、样式，或新增会调用 Agent 的按钮前，必须先读 `docs/design/ui-guidance.md`——所有会调用 Agent 的按钮必须带 `agent-call` 紫色标识与 `agentHelp` 提示，含义不直观的按钮必须带 `data-help`，禁用按钮用外层 `.help-host` 承载。理念指导取舍，模块地图规定职责与接口，不得只看功能清单而忽略用户目标。
+修改模块前必须先读 `docs/design/README.md` 中的对应设计理念；执行记录、工具渲染、检索与选区解释必须先读 `docs/design/agent-process.md`；引用、选区引用、引用卡片定位与快照/现状取舍必须先读 `docs/design/references.md`；改 Web 按钮文案、图标、样式，或新增会调用 Agent 的按钮前，必须先读 `docs/design/ui-guidance.md`——所有会调用 Agent 的按钮必须带 `agent-call` 紫色标识与 `agentHelp` 提示，含义不直观的按钮必须带 `data-help`，禁用按钮用外层 `.help-host` 承载。理念指导取舍，模块地图规定职责与接口，不得只看功能清单而忽略用户目标。
 
 - `src/config.js`：项目发现与不可变绑定。
 - `src/persistence/store.js`：SQLite 事实来源。
-- `src/core/project.js`：AP 树、消息、notice、调度与生命周期。
+- `src/core/project.js`：任务树、消息、notice、调度与生命周期。
 - `src/core/workspaces.js`：Git 工作区、人工批准合并、安全清理。
 - `src/agent/`：共享指令、pi 与 mock 后端。
 - `src/rpc/` / `src/daemon/`：通信、装配、锁与退出。

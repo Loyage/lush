@@ -14,40 +14,40 @@ function controlled() {
   } };
 }
 
-test('clear refuses while an AP is active, and refuses agent credentials', async () => {
+test('clear refuses while a task is active, and refuses agent credentials', async () => {
   const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
-    const ap = (await f.project.submit('work')).ap;
+    const task = (await f.project.submit('work')).task;
     await until(() => provider.calls.length === 1);
     expect(() => f.project.clear()).toThrow('unwinding');
     const rpc = new Dispatcher(f.project, createSignal(), {});
-    await expect(rpc.dispatch('ap.clear', { _token: provider.calls[0].token })).rejects.toThrow('user approval');
+    await expect(rpc.dispatch('task.clear', { _token: provider.calls[0].token })).rejects.toThrow('user approval');
     provider.calls[0].done.resolve('done');
-    await until(() => f.project.running.size === 0 && f.store.ap(ap.id).status === 'completed');
-    expect(f.store.ap(ap.id).status).toBe('completed');
-    // queued-but-unscheduled APs also block a clear
+    await until(() => f.project.running.size === 0 && f.store.task(task.id).status === 'completed');
+    expect(f.store.task(task.id).status).toBe('completed');
+    // queued-but-unscheduled tasks also block a clear
     f.project.stopping = true;
-    const queued = (await f.project.submit('later')).ap;
-    expect(f.store.ap(queued.id).status).toBe('queued');
+    const queued = (await f.project.submit('later')).task;
+    expect(f.store.task(queued.id).status).toBe('queued');
     expect(() => f.project.clear()).toThrow(`#${queued.id} still active`);
     f.store.update(queued.id, { status: 'cancelled' });
-    expect(await rpc.dispatch('ap.clear')).toMatchObject({ cleared: { aps: 2 } });
-    expect(f.store.aps()).toEqual([]);
+    expect(await rpc.dispatch('task.clear')).toMatchObject({ cleared: { tasks: 2 } });
+    expect(f.store.tasks()).toEqual([]);
   } finally { await f.close(); }
 });
 
-test('clear drops rows but keeps unmerged worktrees, branches and never recycles AP ids', async () => {
+test('clear drops rows but keeps unmerged worktrees, branches and never recycles task ids', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const parent = (await f.project.submit('build')).ap;
-    // planner 只写队列；用一个 coordinator 充当可派活的父 AP。
+    const parent = (await f.project.submit('build')).task;
+    // planner 只写队列；用一个 coordinator 充当可派活的父任务。
     const host = f.store.create({ input_id: null, role: 'coordinator', goal: 'host' });
     const worker = f.project.spawn(host.id, 'implement', 'worker', [], 'implement-feature');
     const cwd = await f.project.workspaces.ensure(worker);
     fs.writeFileSync(path.join(cwd, 'file.txt'), 'changed\n');
     await git(cwd, 'add', 'file.txt'); await git(cwd, 'commit', '-m', 'implementation');
-    await f.project.workspaces.finish(f.store.ap(worker.id));
-    const branch = f.store.ap(worker.id).branch;
+    await f.project.workspaces.finish(f.store.task(worker.id));
+    const branch = f.store.task(worker.id).branch;
     f.project.message(parent.id, 'note');
     f.project.notice(parent.id, 'question', 'body');
     f.project.draft('buffered');
@@ -56,17 +56,17 @@ test('clear drops rows but keeps unmerged worktrees, branches and never recycles
     f.store.update(worker.id, { status: 'completed' });
 
     const result = await f.project.clear();
-    expect(result.cleared).toMatchObject({ aps: 3, inputs: 1, drafts: 1, notices: 1, messages: 1, ap_specs: 0 });
+    expect(result.cleared).toMatchObject({ tasks: 3, inputs: 1, drafts: 1, notices: 1, messages: 1, task_specs: 0 });
     expect(result.reclaimed).toEqual({ worktrees: 0, branches: 0, anchors: 1 });
-    expect(result.next_ap_id).toBe(worker.id + 1);
+    expect(result.next_task_id).toBe(worker.id + 1);
     expect(result.next_input_id).toBe(parent.input_id + 1);
     // 未合并的成果回收不掉，所以行虽删了，磁盘上的目录与分支都保留，并给出原因。
-    expect(result.retained.aps).toEqual([{ id: worker.id, branch, workspace: cwd, baseline_workspace: null, reason: 'unmerged work must be kept' }]);
+    expect(result.retained.tasks).toEqual([{ id: worker.id, branch, workspace: cwd, baseline_workspace: null, reason: 'unmerged work must be kept' }]);
 
-    for (const table of ['aps','inputs','drafts','notices','messages','events','ap_deps','ap_specs']) {
+    for (const table of ['tasks','inputs','drafts','notices','messages','events','task_deps','task_specs']) {
       expect(f.store.get(`SELECT count(*) AS n FROM ${table}`).n).toBe(0);
     }
-    expect(f.project.status().aps).toEqual([]);
+    expect(f.project.status().tasks).toEqual([]);
     expect(f.project.tree()).toEqual([]);
 
     // 磁盘不动：worktree 目录、分支与提交都还在，只是 daemon 不再认识它们。
@@ -75,9 +75,9 @@ test('clear drops rows but keeps unmerged worktrees, branches and never recycles
     expect(await git(cwd, 'rev-parse', 'HEAD')).toBeTruthy();
 
     // id 不复用，所以下一个 worktree 不会撞上保留下来的旧目录名。
-    const next = (await f.project.submit('after clear')).ap;
+    const next = (await f.project.submit('after clear')).task;
     expect(next.id).toBe(worker.id + 1);
-    expect((await f.project.submit('again')).ap.id).toBe(worker.id + 2);
+    expect((await f.project.submit('again')).task.id).toBe(worker.id + 2);
   } finally { await f.close(); }
 });
 
@@ -87,26 +87,26 @@ test('clear reclaims merged worktrees and branches while keeping unmerged work',
     const parent = f.store.create({ input_id: null, role: 'coordinator', goal: 'build' });
     const merged = f.project.spawn(parent.id, 'merged work', 'worker', [], 'merged-work');
     const pending = f.project.spawn(parent.id, 'pending work', 'worker', [], 'pending-work');
-    for (const ap of [merged, pending]) {
-      const cwd = await f.project.workspaces.ensure(ap);
-      fs.writeFileSync(path.join(cwd, 'file.txt'), `${ap.name}\n`);
-      await git(cwd, 'add', 'file.txt'); await git(cwd, 'commit', '-m', ap.name);
-      await f.project.workspaces.finish(f.store.ap(ap.id));
-      f.store.update(ap.id, { status: 'completed' });
+    for (const task of [merged, pending]) {
+      const cwd = await f.project.workspaces.ensure(task);
+      fs.writeFileSync(path.join(cwd, 'file.txt'), `${task.name}\n`);
+      await git(cwd, 'add', 'file.txt'); await git(cwd, 'commit', '-m', task.name);
+      await f.project.workspaces.finish(f.store.task(task.id));
+      f.store.update(task.id, { status: 'completed' });
     }
     await f.project.workspaces.merge(merged.id);
     f.store.update(parent.id, { status: 'completed' });
-    const mergedCwd = f.store.ap(merged.id).workspace, mergedBranch = f.store.ap(merged.id).branch;
-    const pendingCwd = f.store.ap(pending.id).workspace, pendingBranch = f.store.ap(pending.id).branch;
+    const mergedCwd = f.store.task(merged.id).workspace, mergedBranch = f.store.task(merged.id).branch;
+    const pendingCwd = f.store.task(pending.id).workspace, pendingBranch = f.store.task(pending.id).branch;
 
     const result = await f.project.clear();
     expect(result.reclaimed).toEqual({ worktrees: 1, branches: 1, anchors: 0 });
-    expect(result.retained.aps).toEqual([{ id: pending.id, branch: pendingBranch, workspace: pendingCwd, baseline_workspace: null, reason: 'unmerged work must be kept' }]);
+    expect(result.retained.tasks).toEqual([{ id: pending.id, branch: pendingBranch, workspace: pendingCwd, baseline_workspace: null, reason: 'unmerged work must be kept' }]);
     expect(fs.existsSync(mergedCwd)).toBe(false);
     expect(await git(f.root, 'branch', '--list', mergedBranch)).toBe('');
     expect(fs.existsSync(pendingCwd)).toBe(true);
     expect(await git(f.root, 'branch', '--list', pendingBranch)).toContain(pendingBranch);
-    expect(f.store.aps()).toEqual([]);
+    expect(f.store.tasks()).toEqual([]);
   } finally { await f.close(); }
 });
 
@@ -116,7 +116,7 @@ test('clear reclaims the input anchor, but keeps one whose checkout was touched'
     const clean = await f.project.submit('clean input');
     const touched = await f.project.submit('touched input');
     fs.writeFileSync(path.join(touched.anchor.workspace, 'file.txt'), 'edited by hand\n');
-    for (const input of [clean, touched]) f.store.update(input.ap.id, { status: 'completed' });
+    for (const input of [clean, touched]) f.store.update(input.task.id, { status: 'completed' });
 
     const result = await f.project.clear();
     expect(result.reclaimed.anchors).toBe(1);
@@ -146,7 +146,7 @@ test('clear refuses new writes while its disk reclaim is in flight', async () =>
   try {
     const held = gate(), started = gate();
     const original = f.project.workspaces.reclaim.bind(f.project.workspaces);
-    f.project.workspaces.reclaim = async aps => { started.resolve(); await held.promise; return original(aps); };
+    f.project.workspaces.reclaim = async tasks => { started.resolve(); await held.promise; return original(tasks); };
     const clearing = f.project.clear();
     await started.promise;
     expect(f.project.clearing).toBe(true);
@@ -159,7 +159,7 @@ test('clear refuses new writes while its disk reclaim is in flight', async () =>
     expect(f.project.clearing).toBe(false);
     // Nothing the rejected entries tried to create survived or was silently removed after success.
     expect(f.store.get('SELECT count(*) AS n FROM drafts').n).toBe(0);
-    expect(f.store.get('SELECT count(*) AS n FROM aps').n).toBe(0);
+    expect(f.store.get('SELECT count(*) AS n FROM tasks').n).toBe(0);
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
   } finally { await f.close(); }
 });
@@ -179,7 +179,7 @@ test('an input whose Git anchor is in flight re-checks the clear gate instead of
     await expect(pending).rejects.toThrow('clear is in progress');
     await clearing;
     expect(f.project.clearing).toBe(false);
-    expect(f.store.get('SELECT count(*) AS n FROM aps').n).toBe(0);
+    expect(f.store.get('SELECT count(*) AS n FROM tasks').n).toBe(0);
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
   } finally { await f.close(); }
 });

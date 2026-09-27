@@ -6,7 +6,7 @@ const MAX_DRAFTS = 500;
 
 /** 输入缓存（增删改、逐条提交）。 */
 export default {
-  /** Buffering is user-only: agents submit work through ap.spawn, never through the input buffer. */
+  /** Buffering is user-only: agents submit work through task.spawn, never through the input buffer. */
   draft(content, references = []) {
     this.assertWritable('buffer a draft');
     text(content, 'draft');
@@ -84,21 +84,21 @@ export default {
       const references = currentReferences.map(reference => ({ segment: 1, reference }));
       const match = matchInputRoute(this.config.inputRoutes, draft.content);
       let worker = null;
-      const result = await this.createInput(draft.content, ap => {
+      const result = await this.createInput(draft.content, task => {
         // Git anchoring is asynchronous: a user can edit/remove/send this draft while it waits.
         // Recheck inside the input transaction rather than associating a stale snapshot (or a deleted draft).
         const live = this.store.draft(draft.id);
         check(live.input_id === null && live.content === draft.content
           && JSON.stringify(this.store.draftReferences(draft.id)) === JSON.stringify(currentReferences),
           `draft ${draft.id} changed while being submitted; retry with its latest contents`);
-        this.store.run('UPDATE drafts SET input_id=? WHERE id=?', ap.input_id, draft.id);
-        this.store.setInputReferences(ap.input_id, references);
-        this.store.event(ap.id, 'input.draft', { draft_ids: [draft.id] });
-        if (match) worker = this.routeInput(ap, match);
+        this.store.run('UPDATE drafts SET input_id=? WHERE id=?', task.input_id, draft.id);
+        this.store.setInputReferences(task.input_id, references);
+        this.store.event(task.id, 'input.draft', { draft_ids: [draft.id] });
+        if (match) worker = this.routeInput(task, match);
       }, branch);
       const output = { ...result, references: references.map(value => ({ segment: value.segment, ...value.reference })), draft: draft.id };
       if (match) {
-        output.ap = this.store.ap(output.ap.id);
+        output.task = this.store.task(output.task.id);
         output.route = { prefix: match.prefix, target: match.target };
         if (match.target === 'worker') output.worker = worker; else output.research = worker;
       }

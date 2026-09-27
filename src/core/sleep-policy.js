@@ -1,7 +1,7 @@
 import { check, isPlainObject } from './types.js';
 import { questionnaireAnswer } from './questionnaire.js';
 
-export const SLEEP_WARNING = '管家会替你回答问题、批准开发计划，可能误解偏好、作出错误选择并持续消耗整个项目的 token。允许自动合并时会修改目标分支。关闭浏览器不停止此模式，daemon 重启后仍保留授权。预算包含输入、输出和缓存 token，按已记录响应检查，并非供应商硬限额，在途请求可能超额；到限会暂停调度并中止当前调用，工作区保留，中止 AP 需检查后手动重试。关闭模式不会撤销已执行的决定或已经开始的 Git 操作。';
+export const SLEEP_WARNING = '管家会替你回答问题、批准开发计划，可能误解偏好、作出错误选择并持续消耗整个项目的 token。允许自动合并时会修改目标分支。关闭浏览器不停止此模式，daemon 重启后仍保留授权。预算包含输入、输出和缓存 token，按已记录响应检查，并非供应商硬限额，在途请求可能超额；到限会暂停调度并中止当前调用，工作区保留，中止任务需检查后手动重试。关闭模式不会撤销已执行的决定或已经开始的 Git 操作。';
 
 export function sleepOptions(value) {
   check(isPlainObject(value) && Object.keys(value).every(k => ['mode','budget_tokens','include_existing','allow_merge'].includes(k)), 'invalid sleep options');

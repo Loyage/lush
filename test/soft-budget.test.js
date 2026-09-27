@@ -19,9 +19,9 @@ function extension(settings) {
 }
 
 test('soft budget is one advisory on the next natural request; no messages, model calls or tool interception', () => {
-  const { hooks, entries } = extension({ ap_id: 2, run_id: 9, role: 'worker', soft_budget: { responses: 2, tokens: 500 } });
+  const { hooks, entries } = extension({ task_id: 2, run_id: 9, role: 'worker', soft_budget: { responses: 2, tokens: 500 } });
   hooks.session_start();
-  expect(entries[0]).toEqual({ type: 'lush.invocation', data: { ap_id: 2, run_id: 9, role: 'worker' } });
+  expect(entries[0]).toEqual({ type: 'lush.invocation', data: { task_id: 2, run_id: 9, role: 'worker' } });
   const assistant = tokens => ({ message: { role: 'assistant', usage: { totalTokens: tokens } } });
   hooks.message_end({ message: { role: 'toolResult' } });
   hooks.message_end(assistant(200));
@@ -38,7 +38,7 @@ test('soft budget is one advisory on the next natural request; no messages, mode
     title: '软预算提醒', body: result.messages[1].content,
   });
   expect(hooks.context({ messages: original })).toBeUndefined();
-  const next = extension({ ap_id: 2, run_id: 10, role: 'worker', soft_budget: { responses: 2 } });
+  const next = extension({ task_id: 2, run_id: 10, role: 'worker', soft_budget: { responses: 2 } });
   expect(next.hooks.context({ messages: original })).toBeUndefined();
 });
 
@@ -74,22 +74,22 @@ test('budget configuration validates supported backends, preserves disabled comp
   } finally { await f.close(); }
 });
 
-test('Pi receives pretty AP data inline, no credential hash or repeated prompts, and trusted runtime metadata', async () => {
+test('Pi receives pretty task data inline, no credential hash or repeated prompts, and trusted runtime metadata', async () => {
   const root = temp(), fake = path.join(root, 'fake-pi');
   fs.writeFileSync(fake, `#!/usr/bin/env bun\nconsole.log(JSON.stringify({args:process.argv.slice(2),runtime:JSON.parse(process.env.LUSH_RUNTIME_CONTEXT)}));\n`, { mode: 0o755 });
   const config = new Config({ project: root, env: env({ LUSH_PI_COMMAND: fake }) }); config.prepare();
   try {
-    const options = { ap: { id: 3, role: 'worker', goal: 'hello', agent_token_hash: 'DO-NOT-INJECT' },
+    const options = { task: { id: 3, role: 'worker', goal: 'hello', agent_token_hash: 'DO-NOT-INJECT' },
       context: { invocation: { run_id: 5 } }, messages: [], cwd: root, token: 'secret', signal: new AbortController().signal, onSpawn() {},
       agent: { agent: 'pi', model: '', thinking: '', append_prompt: 'already in system', soft_budget: { responses: 5 } } };
     const result = JSON.parse(await new PiProvider(config).run(options));
-    const file = path.join(config.home, 'sessions/ap-3-input.md'), body = fs.readFileSync(file, 'utf8');
+    const file = path.join(config.home, 'sessions/task-3-input.md'), body = fs.readFileSync(file, 'utf8');
     expect(body.split('\n').length).toBeGreaterThan(5);
     expect(body).not.toContain('DO-NOT-INJECT'); expect(body).not.toContain('already in system');
     expect(result.args).toContain(`@${file}`);
     expect(result.args.some(arg => arg.endsWith('/pi-runtime.js'))).toBe(true);
-    expect(result.runtime).toMatchObject({ run_id: 5, ap_id: 3, role: 'worker', soft_budget: { responses: 5 } });
+    expect(result.runtime).toMatchObject({ run_id: 5, task_id: 3, role: 'worker', soft_budget: { responses: 5 } });
     await expect(new CodexProvider(config).run(options)).rejects.toThrow('only by Pi');
-    await expect(new PiProvider(config).run({ ...options, ap: { ...options.ap, role: 'explainer' } })).rejects.toThrow('explainer');
+    await expect(new PiProvider(config).run({ ...options, task: { ...options.task, role: 'explainer' } })).rejects.toThrow('explainer');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

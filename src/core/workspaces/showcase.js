@@ -91,21 +91,21 @@ export const methods = {
   },
 
   /** 收到「工作完成」信号后，把既有 prep 检出移到新的冻结提交；保留未跟踪的依赖/缓存，强制更新跟踪文件。 */
-  async showcaseRepin(ap, previous, snapshot) {
-    for (const [dir, from, to] of [[ap.workspace, previous?.commit, snapshot.commit],
-      [ap.baseline_workspace, previous?.baseline_commit, snapshot.baseline_commit]]) {
+  async showcaseRepin(task, previous, snapshot) {
+    for (const [dir, from, to] of [[task.workspace, previous?.commit, snapshot.commit],
+      [task.baseline_workspace, previous?.baseline_commit, snapshot.baseline_commit]]) {
       if (!dir || from === to || !fs.existsSync(dir)) continue;
       await this.git(dir, 'checkout', '--detach', '--force', to);
     }
   },
 
-  ensureShowcase(ap) {
+  ensureShowcase(task) {
     return this.exclusive(async () => {
-      ap = this.store.ap(ap.id);
-      const snapshot = JSON.parse(ap.showcase);
-      const workspace = ap.workspace || path.join(this.config.home, 'worktrees', `showcase-${ap.id}`);
-      const baseline = ap.baseline_workspace || path.join(this.config.home, 'worktrees', `showcase-${ap.id}-base`);
-      this.store.update(ap.id, { workspace, base_commit: snapshot.commit, head_commit: snapshot.commit,
+      task = this.store.task(task.id);
+      const snapshot = JSON.parse(task.showcase);
+      const workspace = task.workspace || path.join(this.config.home, 'worktrees', `showcase-${task.id}`);
+      const baseline = task.baseline_workspace || path.join(this.config.home, 'worktrees', `showcase-${task.id}-base`);
+      this.store.update(task.id, { workspace, base_commit: snapshot.commit, head_commit: snapshot.commit,
         baseline_workspace: baseline, baseline_commit: snapshot.baseline_commit });
       for (const [dir, commit] of [[workspace, snapshot.commit], [baseline, snapshot.baseline_commit]]) {
         if (fs.existsSync(dir)) {

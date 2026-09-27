@@ -21,9 +21,9 @@ export const handlers = {
     return { notices, cursor: notices.at(-1)?.id ?? null, has_more: rows.length > notices.length, limit };
   },
   'notice.post'(p, params, actor) {
-    const ap = params.ap ?? actor;
-    check(actor === null || id(ap) === actor, 'agents may post notices only for their own AP');
-    return p.notice(ap, params.title, params.body, 'question', params.questions);
+    const task = params.task ?? actor;
+    check(actor === null || id(task) === actor, 'agents may post notices only for their own task');
+    return p.notice(task, params.title, params.body, 'question', params.questions);
   },
   'notice.answer'(p, params, actor) { return p.answer(params.id, params.answer); },
   'notice.dismiss'(p, params, actor) { return p.answer(params.id, '', true); },

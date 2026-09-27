@@ -4,27 +4,27 @@ import path from 'node:path';
 import { fixture, repo, git } from '../helpers.js';
 
 function host(f, inputId) {
-  const ap = f.store.create({ input_id: inputId, role: 'coordinator', goal: 'host' });
-  f.store.update(ap.id, { status: 'waiting' });
-  return ap;
+  const task = f.store.create({ input_id: inputId, role: 'coordinator', goal: 'host' });
+  f.store.update(task.id, { status: 'waiting' });
+  return task;
 }
 
-async function complete(f, ap, file) {
-  const cwd = await f.project.workspaces.ensure(ap);
+async function complete(f, task, file) {
+  const cwd = await f.project.workspaces.ensure(task);
   fs.writeFileSync(path.join(cwd, file), `${file}\n`);
   await git(cwd, 'add', file); await git(cwd, 'commit', '-m', file);
-  await f.project.workspaces.finish(f.store.ap(ap.id));
-  f.store.update(ap.id, { status: 'completed' });
-  return f.store.ap(ap.id);
+  await f.project.workspaces.finish(f.store.task(task.id));
+  f.store.update(task.id, { status: 'completed' });
+  return f.store.task(task.id);
 }
 
-test('sibling branches aggregate through ff-only and divergence creates a child-side sync AP', async () => {
+test('sibling branches aggregate through ff-only and divergence creates a child-side sync task', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const input = await f.project.submit('parallel work');
     const parent = host(f, input.id);
     expect((await f.project.workspaces.branchState(input.anchor.branch)).blockers)
-      .toEqual(expect.arrayContaining([`ap:#${input.ap.id}`, `ap:#${parent.id}`]));
+      .toEqual(expect.arrayContaining([`task:#${input.task.id}`, `task:#${parent.id}`]));
     const first = await complete(f, f.project.spawn(parent.id, 'first', 'worker', [], 'first'), 'first.txt');
     const second = await complete(f, f.project.spawn(parent.id, 'second', 'worker', [], 'second'), 'second.txt');
 
@@ -36,12 +36,12 @@ test('sibling branches aggregate through ff-only and divergence creates a child-
 
     const sync = await f.project.syncBranch(second.branch);
     expect(sync).toMatchObject({ status: 'queued', branch: second.branch, parent: input.anchor.branch });
-    expect(sync.ap).toMatchObject({ role: 'merger', base_commit: state.child_head, target_branch: second.branch });
-    const event = f.store.history(sync.ap.id).find(row => row.type === 'branch.sync.requested');
+    expect(sync.task).toMatchObject({ role: 'merger', base_commit: state.child_head, target_branch: second.branch });
+    const event = f.store.history(sync.task.id).find(row => row.type === 'branch.sync.requested');
     expect(event.data).toMatchObject({ child: second.branch, parent: input.anchor.branch,
       child_commit: state.child_head, parent_commit: state.parent_head });
     const again = await f.project.syncBranch(second.branch);
-    expect(again).toMatchObject({ status: 'existing', ap: { id: sync.ap.id } });
+    expect(again).toMatchObject({ status: 'existing', task: { id: sync.task.id } });
   } finally { await f.close(); }
 });
 
@@ -50,7 +50,7 @@ test('落后的子分支可以 fast-forward 跟上父分支；领先与分歧时
   try {
     // 没干活的输入锚点：创建后父分支前进了，它自己没有独有提交 —— 这就是「落后」。
     const behind = await f.project.submit('behind input');
-    f.store.update(behind.ap.id, { status: 'completed' });
+    f.store.update(behind.task.id, { status: 'completed' });
     fs.writeFileSync(path.join(f.root, 'outside.txt'), 'outside\n');
     await git(f.root, 'add', 'outside.txt'); await git(f.root, 'commit', '-m', 'outside work');
 
@@ -62,11 +62,11 @@ test('落后的子分支可以 fast-forward 跟上父分支；领先与分歧时
     expect(await git(f.root, 'rev-parse', `refs/heads/${behind.anchor.branch}`)).toBe(state.parent_head);
     expect(await git(f.root, 'rev-parse', 'refs/heads/main')).toBe(state.parent_head);
     expect(await f.project.catchupBranch(behind.anchor.branch)).toMatchObject({ caught_up: false, already_integrated: true });
-    expect(f.store.history(behind.ap.id).some(row => row.type === 'branch.caught_up')).toBe(true);
+    expect(f.store.history(behind.task.id).some(row => row.type === 'branch.caught_up')).toBe(true);
 
     // 领先（自己的提交还没上去）不是 catch up 的活 —— 那是 branch.merge。
     const input = await f.project.submit('ahead input');
-    f.store.update(input.ap.id, { status: 'completed' });
+    f.store.update(input.task.id, { status: 'completed' });
     const parent = host(f, input.id);
     const pending = await complete(f, f.project.spawn(parent.id, 'pending', 'worker', [], 'pending'), 'pending.txt');
     expect((await f.project.workspaces.branchState(pending.branch)).status).toBe('fast_forward');

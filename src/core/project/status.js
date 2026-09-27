@@ -4,10 +4,10 @@ import { branchFreezeList } from '../branch-freeze.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
-/** Shared status projection. Its AP aggregates are served by covering indexes, never AP rows. */
+/** Shared status projection. Its task aggregates are served by covering indexes, never task rows. */
 function statusView(project, agentConfig = null) {
-  const layers = project.store.all('SELECT layer,status,count FROM overview_ap_counts WHERE count>0 ORDER BY layer,status');
-  const aps = layers.filter(row => row.layer === 'work').map(({ status, count }) => ({ status, count }));
+  const layers = project.store.all('SELECT layer,status,count FROM overview_task_counts WHERE count>0 ORDER BY layer,status');
+  const tasks = layers.filter(row => row.layer === 'work').map(({ status, count }) => ({ status, count }));
   const alive = layers.filter(row => !TERMINAL.has(row.status)).reduce((sum, row) => sum + row.count, 0);
   return { project: project.config.project, home: project.config.home,
     revision: project.overviewRevision(),
@@ -20,24 +20,24 @@ function statusView(project, agentConfig = null) {
     // 软件配置的只读镜像：并发与调用 / 拆解限额都可在运行时改写；顶层仍是当前生效值，
     // 来源（环境默认 / 是否被覆盖 / 设置文件）在 settings 里。
     // pi 的两项覆写未设置时是空字符串，交给界面显示「pi 默认」，不在这里编造 pi 自己的默认模型 / provider。
-    call_timeout: project.config.timeout, ap_call_limit: project.config.maxCalls, max_depth: project.config.maxDepth,
+    call_timeout: project.config.timeout, task_call_limit: project.config.maxCalls, max_depth: project.config.maxDepth,
     pi_model: project.config.env.LUSH_PI_MODEL || '', pi_provider: project.config.env.LUSH_PI_PROVIDER || '',
-    aps, layers,
-    agents: [...project.running].map(([ap_id, run]) => agentView(project.store.ap(ap_id), run)),
+    tasks, layers,
+    agents: [...project.running].map(([task_id, run]) => agentView(project.store.task(task_id), run)),
     agents_total: alive, agents_idle: alive - project.running.size,
-    // 以原 worker 为稳定交付项；resolver 是它的来源，不在这里重复计数（完整阶段见 ap.ladder.groups）。
-    pending_merges: project.store.all("SELECT id, substr(goal,1,500) AS goal, branch, integration FROM aps WHERE resolves_ap_id IS NULL AND integration IN ('pending','review','conflict') ORDER BY id LIMIT 100"),
+    // 以原 worker 为稳定交付项；resolver 是它的来源，不在这里重复计数（完整阶段见 task.ladder.groups）。
+    pending_merges: project.store.all("SELECT id, substr(goal,1,500) AS goal, branch, integration FROM tasks WHERE resolves_task_id IS NULL AND integration IN ('pending','review','conflict') ORDER BY id LIMIT 100"),
     // 未解决的冲突冻结同一目标分支上的合并：界面据此禁用按钮并说清原因。
-    merge_freeze: project.store.all(`SELECT id AS ap_id, target_branch,
-      (SELECT r.id FROM aps r WHERE r.resolves_ap_id = aps.id AND r.status NOT IN ('failed','cancelled')
-        ORDER BY r.id DESC LIMIT 1) AS resolves_ap_id
-      FROM aps WHERE integration='conflict' ORDER BY id LIMIT 50`),
+    merge_freeze: project.store.all(`SELECT id AS task_id, target_branch,
+      (SELECT r.id FROM tasks r WHERE r.resolves_task_id = tasks.id AND r.status NOT IN ('failed','cancelled')
+        ORDER BY r.id DESC LIMIT 1) AS resolves_task_id
+      FROM tasks WHERE integration='conflict' ORDER BY id LIMIT 50`),
     // 分支写冻结（一键合并 + 未结束的 merger）与进行中的一键合并运行：只读投影，界面据此禁用写按钮。
     branch_freeze: branchFreezeList(project.store),
     notices: project.store.get("SELECT count(*) AS count FROM notices WHERE status='open' AND kind IN ('question','questionnaire')").count };
 }
 
-/** 项目级读模型：AP 分布、layers、意图、spec、drafts、agents、待合并、合并冻结、notice 计数。 */
+/** 项目级读模型：任务分布、layers、意图、spec、drafts、agents、待合并、合并冻结、notice 计数。 */
 export default {
   /** Persistent invalidation cursor plus bounded runtime-only facts; no historical table aggregate. */
   overviewRevision() {

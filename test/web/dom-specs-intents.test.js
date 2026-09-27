@@ -33,18 +33,18 @@ test('结构化 Plan 只读展示：兼容历史批次、能跳到派生工作�
   expect(text).toContain('#2');
   expect(text).toContain('已被调度取走的拆解');
   expect(text).toContain('已排期');
-  expect(text).toContain('AP #2');
+  expect(text).toContain('任务 #2');
   // 纯只读：队列里唯一的按钮是跳转，没有 spec.add / spec.drop / 编辑入口
-  expect(specs.querySelectorAll('button').map(node => node.textContent)).toEqual(['查看 AP']);
+  expect(specs.querySelectorAll('button').map(node => node.textContent)).toEqual(['查看任务']);
 
-  // planned 那条的「查看 AP」打开它派生成的 AP 详情
-  await findByText(specs, '查看 AP').onclick();
+  // planned 那条的「查看任务」打开它派生成的任务详情
+  await findByText(specs, '查看任务').onclick();
   expect(deepText(dom.node('detail'))).toContain('合并我');
 
-  // scheduler 已退出产品模型；历史 batch 仍可在 Plan 读模型中审计，但 Intent 面板不再暴露调度 AP。
+  // scheduler 已退出产品模型；历史 batch 仍可在 Plan 读模型中审计，但 Intent 面板不再暴露调度任务。
   const intents = dom.node('intents');
   expect(deepText(intents)).not.toContain('调度 #4');
-  expect(dom.node('aps').querySelector('[data-id="4"]')).toBeFalsy();
+  expect(dom.node('tasks').querySelector('[data-id="4"]')).toBeFalsy();
 
   // 队列被清空后，轮询把它收敛成空态，不残留旧节点
   world.state.specs = [];
@@ -64,8 +64,8 @@ test('Intent 面板：planner 在 control plane，批准后 runtime 直接编译
   expect(text).not.toContain('调度 #4');
   expect(text).toContain('等你批准');
   expect(text).toContain('已批准');
-  expect(dom.node('aps').querySelector('[data-id="9"]')).toBeFalsy();
-  expect(dom.node('aps').querySelector('[data-id="11"]')).toBeFalsy();
+  expect(dom.node('tasks').querySelector('[data-id="9"]')).toBeFalsy();
+  expect(dom.node('tasks').querySelector('[data-id="11"]')).toBeFalsy();
 
   // 批准：闸门放行给 deterministic compiler，刷新后按钮消失、徽章变成已批准
   await findByText(intents, '批准并开发').onclick();
@@ -87,9 +87,9 @@ test('Intent 面板：planner 在 control plane，批准后 runtime 直接编译
 
 test('Intent 面板：不提供效果展示或 pending 候选手动验收入口', async () => {
   world.state.candidates[0].status = 'pending';
-  world.state.candidates[0].report_ap_id = null;
+  world.state.candidates[0].report_task_id = null;
   world.state.intents[1].candidate_status = 'pending';
-  world.state.intents[1].candidate_report_ap_id = null;
+  world.state.intents[1].candidate_report_task_id = null;
   world.state.intents[1].anchor_branch = 'lush/demo/2-two';
   await dom.intervalFor(1500)();
 
@@ -102,9 +102,9 @@ test('Intent 面板：不提供效果展示或 pending 候选手动验收入口'
 
 test('Intent 面板：待验收候选给出结果入口与接受 / 要求修改，两者走 candidate.*', async () => {
   world.state.candidates[0].status = 'ready';
-  world.state.candidates[0].report_ap_id = 12;
+  world.state.candidates[0].report_task_id = 12;
   world.state.intents[1].candidate_status = 'ready';
-  world.state.intents[1].candidate_report_ap_id = 12;
+  world.state.intents[1].candidate_report_task_id = 12;
   await dom.intervalFor(1500)();
   const intents = dom.node('intents');
   const text = deepText(intents);
@@ -112,7 +112,7 @@ test('Intent 面板：待验收候选给出结果入口与接受 / 要求修改�
   expect(text).toContain('候选 v1 · ready');
   const report = findByText(intents, '打开结果报告');
   expect(report).toBeTruthy();
-  expect(report.href).toBe('/api/ap/12/report');
+  expect(report.href).toBe('/api/task/12/report');
   expect(report.target).toBe('_blank');
   expect(findByText(intents, '接受并合入')).toBeTruthy();
 

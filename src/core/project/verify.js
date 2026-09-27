@@ -20,31 +20,31 @@ function evidenceExit(value, name) {
   return value;
 }
 
-/** 检验 AP、结构化证据与报告位置。 */
+/** 检验任务、结构化证据与报告位置。 */
 export default {
   /** 自包含 HTML 检验报告：由 verifier 自己写文件，runtime 只决定它在哪。 */
-  reportPath(apId) {
-    const role = this.store.get('SELECT role FROM aps WHERE id=?', apId)?.role;
-    return path.join(this.config.home, role === 'showcase' ? 'showcase' : 'verify', String(apId), 'report.html');
+  reportPath(taskId) {
+    const role = this.store.get('SELECT role FROM tasks WHERE id=?', taskId)?.role;
+    return path.join(this.config.home, role === 'showcase' ? 'showcase' : 'verify', String(taskId), 'report.html');
   },
 
   /** 与报告同目录的机器可读证据；runtime 校验后复制进 versioned run.result Artifact。 */
-  evidencePath(apId) { return path.join(this.config.home, 'verify', String(apId), 'evidence.json'); },
+  evidencePath(taskId) { return path.join(this.config.home, 'verify', String(taskId), 'evidence.json'); },
 
-  hasReport(apId) { return fs.existsSync(this.reportPath(apId)); },
+  hasReport(taskId) { return fs.existsSync(this.reportPath(taskId)); },
 
   /**
    * Read and strictly validate evidence supplied by a verifier. Commit bindings and report references are
    * runtime facts, never trusted from the agent-owned file. A normal invocation without evidence is explicitly
    * unverified; malformed evidence fails the invocation rather than being relabelled as success.
-   * @param {object} AP
+   * @param {object} task
    * @returns {{status: 'pass'|'fail'|'partial'|'unverified', tested_commit: string|null, baseline_commit: string|null}}
    */
-  verificationEvidence(ap) {
-    const context = this.verificationContext(ap);
-    const evidenceFile = this.evidencePath(ap.id);
-    const report = { ap_id: ap.id, path: this.reportPath(ap.id), available: this.hasReport(ap.id) };
-    const testedCommit = ap.review_candidate_id ? context.candidate.commit : context.head_commit;
+  verificationEvidence(task) {
+    const context = this.verificationContext(task);
+    const evidenceFile = this.evidencePath(task.id);
+    const report = { task_id: task.id, path: this.reportPath(task.id), available: this.hasReport(task.id) };
+    const testedCommit = task.review_candidate_id ? context.candidate.commit : context.head_commit;
     const base = { tested_commit: testedCommit ?? null, baseline_commit: context.baseline_commit ?? null, report };
     if (!fs.existsSync(evidenceFile)) return { status: 'unverified', ...base, commands: [],
       summary: 'The verifier completed without structured verification evidence.', failures: [],
@@ -96,7 +96,7 @@ export default {
    * 对应的不是冻结提交，开始与结算都会拒绝，绝不把它记成该 commit 的通过证据。
    * 同时校验只读对照检出仍停在 baseline 提交且干净。
    */
-  async assertCandidateVerification(candidate, ap = null) {
+  async assertCandidateVerification(candidate, task = null) {
     const input = this.store.get('SELECT anchor_workspace FROM inputs WHERE id=?', candidate.input_id);
     const workspace = input?.anchor_workspace;
     check(workspace && fs.existsSync(workspace), `candidate #${candidate.id} has no integration worktree to compare`);
@@ -105,19 +105,19 @@ export default {
       `candidate #${candidate.id} pins ${candidate.commit_hash.slice(0, 12)}, but its worktree moved to ${head.slice(0, 12)}; prepare a new candidate`);
     const dirty = await this.workspaces.porcelain(workspace);
     check(!dirty, `candidate #${candidate.id} worktree has uncommitted changes; verification must read the pinned commit\n${dirty}`);
-    if (ap?.baseline_workspace && fs.existsSync(ap.baseline_workspace)) {
-      const baseHead = await this.workspaces.git(ap.baseline_workspace, 'rev-parse', 'HEAD');
+    if (task?.baseline_workspace && fs.existsSync(task.baseline_workspace)) {
+      const baseHead = await this.workspaces.git(task.baseline_workspace, 'rev-parse', 'HEAD');
       check(baseHead === candidate.baseline_commit,
         `candidate #${candidate.id} baseline checkout moved to ${baseHead.slice(0, 12)}; recreate it before verifying`);
-      const baseDirty = await this.workspaces.porcelain(ap.baseline_workspace);
+      const baseDirty = await this.workspaces.porcelain(task.baseline_workspace);
       check(!baseDirty, `candidate #${candidate.id} baseline checkout has uncommitted changes\n${baseDirty}`);
     }
     return workspace;
   },
 
-  /** Latest structured conclusion for a verification AP; old/missing artifacts stay unknown. */
-  verificationResult(apId) {
-    const artifact = this.store.artifactsForAP(apId).filter(row => row.kind === 'run.result').at(-1);
+  /** Latest structured conclusion for a verification task; old/missing artifacts stay unknown. */
+  verificationResult(taskId) {
+    const artifact = this.store.artifactsForTask(taskId).filter(row => row.kind === 'run.result').at(-1);
     return artifact?.payload?.verification ?? { status: 'unknown', tested_commit: null, baseline_commit: null,
       commands: [], summary: 'No structured verification evidence is available.', report: null,
       failures: [], unverified: [], baseline_failures: [], residual_risks: [] };
@@ -126,38 +126,38 @@ export default {
   /**
    * 用户点「检验」：为一个已完成的 worker 派一个只读 verifier，
    * 由它自己判断最直观的演示方式，并对照目标分支的同一场景。
-   * 终态 AP 不能有活动子 AP，所以 verifier 是独立根 AP，用 verifies_ap_id 关联而非 parent_id。
+   * 终态任务不能有活动子任务，所以 verifier 是独立根任务，用 verifies_task_id 关联而非 parent_id。
    */
-  verify(apId) {
-    const target = this.store.ap(apId);
-    check(target.role === 'worker', `only a worker AP can be verified; #${target.id} is a ${target.role}`);
-    check(target.status === 'completed', `only a completed AP can be verified; #${target.id} is ${target.status}`);
+  verify(taskId) {
+    const target = this.store.task(taskId);
+    check(target.role === 'worker', `only a worker task can be verified; #${target.id} is a ${target.role}`);
+    check(target.status === 'completed', `only a completed task can be verified; #${target.id} is ${target.status}`);
     check(target.workspace && fs.existsSync(target.workspace) && target.head_commit,
-      `AP #${target.id} has no worktree or commit to verify`);
-    check(target.target_branch, `AP #${target.id} has no target branch to compare against`);
+      `task #${target.id} has no worktree or commit to verify`);
+    check(target.target_branch, `task #${target.id} has no target branch to compare against`);
     const active = this.store.activeVerification(target.id);
     check(!active, `verification #${active?.id} is still running; wait for it or cancel it`);
     const goal = `检验 #${target.id}：用最直观的方式演示它这一步改动的实际运行结果，并对照 ${target.target_branch} 分支在当前同样场景下的表现。`;
-    const ap = this.store.transaction(() => this.store.create({
+    const task = this.store.transaction(() => this.store.create({
       parent_id: null, input_id: target.input_id, role: 'verifier', goal,
-      name: `verify-${target.id}`, verifies_ap_id: target.id }));
-    this.store.event(target.id, 'verify.requested', { verify_ap: ap.id, baseline: target.target_branch });
-    // 让界面知道被检验 AP 刚刚有了新状态，否则轮询不会重新渲染它的详情。
+      name: `verify-${target.id}`, verifies_task_id: target.id }));
+    this.store.event(target.id, 'verify.requested', { verify_task: task.id, baseline: target.target_branch });
+    // 让界面知道被检验任务刚刚有了新状态，否则轮询不会重新渲染它的详情。
     this.store.touch(target.id);
     this.kick();
-    return ap;
+    return task;
   },
 
   /** verifier 的上下文：它要演示哪次改动、对照在哪个目录、报告和结构化证据写到哪。 */
-  verificationContext(ap) {
-    if (ap.review_candidate_id) return this.candidateContext(ap);
-    const target = this.store.ap(ap.verifies_ap_id);
+  verificationContext(task) {
+    if (task.review_candidate_id) return this.candidateContext(task);
+    const target = this.store.task(task.verifies_task_id);
     return {
-      verified_ap: { id: target.id, goal: target.goal, name: target.name, status: target.status, result: target.result },
+      verified_task: { id: target.id, goal: target.goal, name: target.name, status: target.status, result: target.result },
       branch: target.branch, base_commit: target.base_commit, head_commit: target.head_commit,
       target_branch: target.target_branch, workspace: target.workspace,
-      baseline_workspace: ap.baseline_workspace, baseline_commit: ap.baseline_commit,
-      report_path: this.reportPath(ap.id), evidence_path: this.evidencePath(ap.id),
+      baseline_workspace: task.baseline_workspace, baseline_commit: task.baseline_commit,
+      report_path: this.reportPath(task.id), evidence_path: this.evidencePath(task.id),
     };
   }
 };

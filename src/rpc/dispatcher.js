@@ -1,7 +1,7 @@
 import { PARAMS, assertAllowed } from './registry.js';
 import { handlers as systemHandlers } from './handlers/system.js';
 import { handlers as inputHandlers } from './handlers/input.js';
-import { handlers as apHandlers } from './handlers/ap.js';
+import { handlers as taskHandlers } from './handlers/task.js';
 import { handlers as specHandlers } from './handlers/spec.js';
 import { handlers as noticeHandlers } from './handlers/notice.js';
 import { handlers as branchHandlers } from './handlers/branch.js';
@@ -19,7 +19,7 @@ function mergeHandlers(groups) {
   return Object.fromEntries(Object.keys(PARAMS).map(method => [method, table[method]]));
 }
 
-export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, apHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers, showcaseHandlers]);
+export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers, showcaseHandlers]);
 
 export class Dispatcher {
   constructor(project, stopping, identity) { this.project = project; this.stopping = stopping; this.identity = identity; }
