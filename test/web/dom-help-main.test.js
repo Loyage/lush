@@ -106,18 +106,15 @@ test('禁用的「合并已被冻结」把 data-help 放在 span.help-host 上�
   }
 });
 
-test('分支图「归档」只带 data-help，禁用的 branchAction 走 span.help-host', async () => {
+test('分支图「归档」只带 data-help，旧分支动作入口不再渲染', async () => {
   await openGraph();
   const detail = dom.node('detail');
   const archive = buttonByText(detail, '归档');
   expect(archive).toBeTruthy();
   expect(archive.classList.contains('agent-call')).toBe(false);
   expect(archive.getAttribute('data-help')).toBeTruthy();
-  // 分歧分支的「合入父分支」在当前状态不可执行：禁用按钮包在 .help-host 里，帮助仍可读。
-  const disabledAction = detail.querySelectorAll('.help-host')
-    .find(node => node.querySelector('button')?.disabled === true);
-  expect(disabledAction).toBeTruthy();
-  expect(disabledAction.getAttribute('data-help')).toBeTruthy();
+  // 合并 / 同步等旧分支动作已随公开 API 下线，不再有禁用的 .graph-branch-action 占位。
+  expect(detail.querySelectorAll('button.graph-branch-action').length).toBe(0);
 });
 
 test('弹窗确认按钮走 agent + confirmHelp：重试与效果展示都标成 Agent 调用', async () => {

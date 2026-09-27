@@ -130,13 +130,10 @@ test('分支图：入口走 #graph，画出分支谱系与任务，点节点进�
   expect(text).toContain('可 fast-forward');
   expect(text).toContain('父子已分歧');
   expect(text).toContain('子分支 +1 / -2');
-  const mergeButton = detail.querySelectorAll('button').find(node => node.textContent === '合入父分支');
-  const syncButton = detail.querySelectorAll('button').find(node => node.textContent === '在子分支解决分歧');
-  expect(mergeButton).toBeTruthy(); expect(syncButton).toBeTruthy();
-  await mergeButton.onclick();
-  await syncButton.onclick();
-  expect(world.state.actions).toContainEqual({ method: 'branch.merge', params: { branch: 'lush/demo/1-one' } });
-  expect(world.state.actions).toContainEqual({ method: 'branch.sync', params: { branch: 'lush/demo/2-two' } });
+  // 旧的分支合并 / 同步动作已随公开 API 下线：分支行不再摆这些按钮。
+  for (const label of ['合入父分支', '在子分支解决分歧', '让子分支跟上父分支']) {
+    expect(detail.querySelectorAll('button').find(node => node.textContent === label)).toBeUndefined();
+  }
 
   // 父子嵌套：无任务的锚点分支与 worker 分支挂在 main 的子树里，2-two 挂在 1-one 下，不在 release 下。
   const header = name => detail.querySelectorAll('span.graph-branch-name').find(node => node.textContent.includes(name));
@@ -381,32 +378,23 @@ test('分支图：关系色按领先 / 相等 / 落后 / 分歧 / 缺失分，�
   const text = deepText(detail);
   for (const label of ['可 fast-forward', '与父分支一致', '落后父分支 3', '父子已分歧', '关系未知']) expect(text).toContain(label);
 
-  // 领先：只有合入父分支。
-  expect(buttonIn('lush/demo/1-one', '合入父分支').disabled).toBe(false);
-  // 落后：只有「让子分支跟上父分支」，走新的 branch.catchup。
-  expect(buttonIn('lush/demo/behind-only', '让子分支跟上父分支').disabled).toBe(false);
-  expect(buttonIn('lush/demo/behind-only', '合入父分支')).toBeUndefined();
-  await buttonIn('lush/demo/behind-only', '让子分支跟上父分支').onclick();
-  expect(world.state.actions).toContainEqual({ method: 'branch.catchup', params: { branch: 'lush/demo/behind-only' } });
-  // 分歧：解决分歧可用，合入父分支同时摆出来但禁用（并在外层 span.help-host 的 data-help 里说清楚为什么）。
-  expect(buttonIn('lush/demo/2-two', '在子分支解决分歧').disabled).toBe(false);
-  const divergedMerge = buttonIn('lush/demo/2-two', '合入父分支');
-  expect(divergedMerge.disabled).toBe(true);
-  expect(divergedMerge.parentNode.getAttribute('data-help')).toContain('先在子分支解决分歧');
-  // 相等 / 缺失 / 未登记的关系没有可做的事，不摆按钮。
-  for (const name of ['lush/demo/input-1-anchor', 'lush/demo/3-three', 'feature/scratch']) {
+  // 旧的分支合并 / 同步 / 快进动作已随公开 API 下线：任何关系都不再摆 .graph-branch-action 按钮。
+  for (const name of ['lush/demo/1-one', 'lush/demo/behind-only', 'lush/demo/2-two',
+    'lush/demo/input-1-anchor', 'lush/demo/3-three', 'feature/scratch']) {
     expect(blockOf(name).querySelectorAll('button.graph-branch-action').length).toBe(0);
+    for (const label of ['合入父分支', '在子分支解决分歧', '让子分支跟上父分支']) {
+      expect(buttonIn(name, label)).toBeUndefined();
+    }
   }
 
-  // 未收拢的直接子分支：运行时两边都会拒绝，所以按钮禁用并列出 blocker。
+  // 未收拢的直接子分支：运行时两边都会拒绝，所以分支表头列出 blocker。
   const edge = world.state.graph.edges.find(row => row.to === 'branch:lush/demo/1-one');
   const saved = { blockers: edge.blockers, can_merge: edge.can_merge };
   edge.blockers = ['lush/demo/2-two']; edge.can_merge = false;
   try {
     await openGraph();
-    const merge = buttonIn('lush/demo/1-one', '合入父分支');
-    expect(merge.disabled).toBe(true);
-    expect(merge.parentNode.getAttribute('data-help')).toContain('先收拢子分支：lush/demo/2-two');
+    // 旧合并按钮已下线，但阻塞原因仍在分支表头说清楚。
+    expect(buttonIn('lush/demo/1-one', '合入父分支')).toBeUndefined();
     expect(deepText(blockOf('lush/demo/1-one'))).toContain('先收拢子分支：lush/demo/2-two');
   } finally {
     edge.blockers = saved.blockers; edge.can_merge = saved.can_merge;
@@ -802,7 +790,7 @@ test('分支图：决策输入不被轮询冲掉——有内容或聚焦时跳�
   }
 });
 
-test('分支图：兜底分组里的任务带「删除」，确认后走 task.delete 并从图上收起来', async () => {
+test('分支图：兜底分组仍画出未归属任务，但不再提供定向删除（task.delete 已下线）', async () => {
   const saved = JSON.parse(JSON.stringify(world.state.graph));
   try {
     // 既没有自己的分支节点、目标分支也不在图上、又没有归档的任务：graphLayout 把它放进兜底分组。
@@ -813,24 +801,8 @@ test('分支图：兜底分组里的任务带「删除」，确认后走 task.de
     const block = () => dom.node('detail').querySelector('div.graph-unplaced');
     expect(deepText(block())).toContain('未归属分支的任务');
     expect(deepText(block())).toContain('给 Web 加个设置页');
-    const remove = () => block().querySelectorAll('button').find(node => node.textContent === '删除');
-
-    // 确认文案必须把代价写清楚（丢任务历史、不可撤销、收不回来就拒绝）；取消＝什么都不发。
-    const cancelled = remove().onclick();
-    expect(dialogText(dom)).toContain('删除任务 #41？');
-    expect(dialogText(dom)).toContain('无法撤销');
-    await answerDialog(dom, '保留');
-    await cancelled;
-    expect(world.state.actions.some(entry => entry.method === 'task.delete')).toBe(false);
-    expect(deepText(block())).toContain('给 Web 加个设置页');
-
-    // 确认后走 task.delete（与 CLI 的 lush task delete 同源），重拉后这条不再出现在兜底分组里。
-    const confirmed = remove().onclick();
-    await answerDialog(dom, '删除');
-    await confirmed;
-    expect(world.state.actions).toContainEqual({ method: 'task.delete', params: { id: 41 } });
-    expect(dom.node('error').textContent).toContain('已删除任务 #41');
-    expect(deepText(dom.node('detail')).includes('给 Web 加个设置页')).toBe(false);
+    // 定向删除随公开 API 下线：兜底分组也只是只读展示，不再提供任何删除按钮。
+    expect(block().querySelectorAll('button').find(node => node.textContent === '删除')).toBeUndefined();
   } finally {
     world.state.graph = saved;
     await openGraph();
@@ -863,43 +835,10 @@ test('分支图：任务行按类型着色，快速路由任务整行强调并�
   }
 });
 
-test('分支图：含 say 子树给编排入口；delivery 冻结不挡编排，merger 冻结才禁用', async () => {
-  const saved = world.state.graph;
-  const mainNode = { kind: 'branch', id: 'branch:main', name: 'main', head_commit: 'aaa', current: true,
-    tracked: false, placeholder: false, created_at: iso(NOW - 1000), status: 'active' };
-  world.state.graph = {
-    generated_at: iso(NOW), current_branch: 'main', truncated: false, git: true, error: null,
-    nodes: [
-      mainNode,
-      { kind: 'branch', id: 'branch:say-1', name: 'say-1', head_commit: 'bbb', current: false, tracked: true,
-        placeholder: false, created_at: iso(NOW), status: 'ready' },
-      { kind: 'task', id: 7, role: 'agent', task_kind: 'say', name: 'say-1', goal: '待合的 say', status: 'completed',
-        integration: 'pending', branch: 'say-1', workspace: '/tmp/wt/7', workspace_state: 'present',
-        branch_state: 'present', target_branch: 'main', ahead: 1, behind: 0, merged: false, current: false },
-    ],
-    edges: [
-      { kind: 'fork', from: 'branch:main', to: 'branch:say-1', status: 'fast_forward', ahead: 1, behind: 0,
-        blockers: [], can_merge: false, can_sync: false },
-    ],
-  };
-  const blockOf = name => dom.node('detail').querySelectorAll('span.graph-branch-name')
-    .find(node => node.textContent.includes(name)).parentNode.parentNode;
-  const orchestrateButton = () => blockOf('main').querySelectorAll('button')
-    .find(node => node.textContent === '编排合并全部 say 子分支');
-  try {
-    // delivery 冻结 = 有待集成的 say 合并请求，正是编排要处理的：按钮必须在且可用。
-    mainNode.freeze = { kind: 'delivery', task_id: 7, commit: 'bbb', reason: 'say #7 的合并请求已固定基线' };
-    await openGraph();
-    expect(orchestrateButton()).toBeTruthy();
-    expect(orchestrateButton().disabled).toBe(false);
-
-    // 别的 merger / 一键合并造成的冻结仍然禁用编排。
-    mainNode.freeze = { kind: 'merger', task_id: 9, reason: '合并/解冲突任务 #9 正在处理 say-1' };
-    await openGraph();
-    expect(orchestrateButton().disabled).toBe(true);
-    expect(orchestrateButton().parentNode.getAttribute('data-help')).toContain('合并编排暂时不可用');
-  } finally {
-    world.state.graph = saved;
-    await openGraph();
+test('分支图：一键合并 / 合并编排入口已随公开 API 下线，不再画编排按钮', async () => {
+  await openGraph();
+  const controls = dom.node('detail').querySelectorAll('button');
+  for (const label of ['编排合并全部 say 子分支', '一键合并全部子分支', '取消合并编排', '取消一键合并']) {
+    expect(controls.find(node => node.textContent === label)).toBeUndefined();
   }
 });

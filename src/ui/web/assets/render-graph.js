@@ -3,15 +3,13 @@
  * 与每条分支下的任务 / worktree / 目标分支关系，以及任务之间的堆叠（code）/顺序（order）/
  * 解冲突（resolve）/检验（verify）关系。
  *
- * 视图是只读展示，除下面两类动作外没有别的写入：一、父分支关系上的「合入父分支」/「让子分支跟上父分支」/
- * 「在子分支解决分歧」，以及可归档分支上的「归档」，分别与 CLI 的 `branch merge` / `branch catchup` /
- * `branch sync` / `branch archive` 同源；节点点击只跳任务详情。
- * 二、图末尾兜底分组（`未归属分支的任务`）里任务行上的「删除」：那里的任务既没有分支节点可归档、
- * 也没有别的去处，所以给一个定向删除（`task.delete`，与 CLI 的 `lush task delete` 同源）。
+ * 视图是只读展示，唯一的写入是可归档分支上的「归档」，与 CLI 的 `branch archive` 同源；
+ * 节点点击只跳任务详情。旧的分支合并 / 同步 / 删除、一键合并与合并编排入口都随公开 API
+ * 收敛下线，交付与合并统一走 Task 详情里的固定提交入口。
  *
  * 另有一类就地处理：图里任何带「待你决断」notice 的任务行（graph.get 的 `notice` / `notice_count`）
- * 直接把这件事的正文画出来，并在原地答复 / 忽略 / 批准 / 驳回，不必先去左侧「待定事项」或意图面板。
- * 动作与别处同源：question 用 `notice.answer` / `notice.dismiss`，plan 用 `plan.approve` / `plan.reject`。
+ * 直接把这件事的正文画出来，并在原地答复 / 忽略，不必先去左侧「待定事项」或别的页面。
+ * 动作与别处同源：question 用 `notice.answer` / `notice.dismiss`。
  *
  * 幂等：同一份数据重画不重复建节点、不重建外层容器，所以 1.5s 轮询不会把滚动位置冲掉；
  * 唯一的例外是用户正在决策区里打字：那时整张图都不重画（见 renderGraph 的 hasPendingDecision）。
@@ -29,7 +27,6 @@ import { referenceable } from './context-references.js';
 import { agentHelp } from './help.js';
 import { renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
-import { reserveBranchShowcase, unreserveBranchShowcase } from './render-showcase.js';
 
 /** 分支状态映射：状态 -> { label, className }；已合进父分支是常态，不再单独出一个「已合并」标签。
  *  没有 archived：归档的分支根本不会被画进分支树（看 graphLayout 的 hiddenBranches）。 */
@@ -266,21 +263,6 @@ function taskRow(node, owningBranch = null) {
   return row;
 }
 
-/** 父分支上的三个动作：合入父分支 / 让子分支跟上父分支 / 在子分支解决分歧。
- *  失败只写进顶部提示（messages.js），不抛到页面上；成功后重拉一次图，颜色与按钮随之更新。 */
-async function runBranchAction(method, branch) {
-  try {
-    const result = await action(method, { branch });
-    show(method === 'branch.sync'
-      ? `已为 ${branch} 创建同步任务 #${result.task.id}`
-      : method === 'branch.catchup'
-        ? (result.already_integrated ? `${branch} 已经与父分支一致，无需快进` : `${branch} 已 fast-forward 跟上 ${result.parent}`)
-      : (result.needs_sync ? `${branch} 已与父分支分歧，请先在子分支侧解决分歧`
-        : result.already_integrated ? `${branch} 已经在 ${result.parent} 中` : `${branch} 已 fast-forward 合入 ${result.parent}`));
-    await loadGraph();
-  } catch (error) { show(error.message, 'error'); }
-}
-
 /** 归档一子树分支：删掉这条分支与它全部后代的 worktree / 本地 ref，任务、会话与分支记录都留着。
  *  未提交改动只能连 worktree 一起丢，所以先确认；确认走应用内弹窗（dialog.js）——原生 confirm
  *  会被浏览器静默吃掉，那时按钮会变成什么都不做。 */
@@ -308,185 +290,13 @@ async function runBranchArchive(branch) {
   } catch (error) { show(error.message, 'error'); }
 }
 
-/** 删除一条兜底分组里的任务（`task.delete`）：这条任务既挂不上分支节点、也没有别的去处。
- *  删除比归档更重：任务行与它的全部后代、消息、事件、notice、spec 一起从库里消失，不能撤销，
- *  所以确认文案把「会丢掉什么」写满；安全门在 runtime 侧（活动任务、未处理 spec、外部引用、
- *  磁盘状态收不回来都会拒绝），失败原因由 messages.js 原样提示。 */
-async function runTaskDelete(node) {
-  const confirmed = await confirmDialog({
-    title: `删除任务 #${node.id}？`,
-    message: '这条任务与它下面全部已结束后代的任务行会从库里删除（消息、事件、notice、spec 一并清），无法撤销，这部分任务历史不再保留。有分支 / worktree 会先按回收的安全门收尾；收不回来或还有别的任务引用它时会拒绝，什么都不删。',
-    confirmLabel: '删除',
-    cancelLabel: '保留',
-    danger: true,
-  });
-  if (!confirmed) return;
-  try {
-    const result = await action('task.delete', { id: node.id });
-    const ids = result?.deleted?.ids ?? [node.id];
-    show(ids.length > 1
-      ? `已删除任务 #${ids.join('、#')}（共 ${ids.length} 条，含后代）：任务行与它们的消息、事件已清，输入与分支记录保留`
-      : `已删除任务 #${node.id}：任务行与它的消息、事件已清，输入与分支记录保留`);
-    await loadGraph();
-  } catch (error) { show(error.message, 'error'); }
-}
-
-/** 动作按钮：能执行就接上 RPC；暂时不能执行也照画，但禁用并把原因写进 title——
- *  选项不该因为当前状态不对就整块消失，否则用户只会看到「这里什么都没有」。 */
-function branchAction(label, title, run) {
-  const node = run ? button(label, run, 'ghost graph-branch-action') : el('button', label, 'ghost graph-branch-action');
-  if (!run) {
-    node.type = 'button';
-    node.disabled = true;
-    // 禁用的按钮不派发指针事件，data-help 放外层 span.help-host。
-    const host = el('span', undefined, 'help-host');
-    host.setAttribute('data-help', title);
-    host.append(node);
-    return host;
-  }
-  node.setAttribute('data-help', title);
-  return node;
-}
-
-/**
- * 父子关系的处理选项（文案与颜色都来自 graphLayout 算好的 relation.key）：
- * - 领先：合入父分支（子 → 父 fast-forward）；
- * - 落后：让子分支跟上父分支（父 → 子 fast-forward，不产生 merge commit）；
- * - 分歧：在子分支解决分歧（开一个 merger 任务把父分支合进子分支），合入父分支同时摆出来但禁用；
- * - 有未收拢的子分支时运行时两边都会拒绝，所以按钮禁用，并在 title 里列出 blocker。
- */
+/** 分支合并的阻塞说明：把 runtime 给出的 blocker 码翻成人话，画在分支表头；
+ *  没有可合动作时也用它解释原因。 */
 function blockerText(blockers = []) {
   const tasks = blockers.filter(value => String(value).startsWith('task:#')).map(value => String(value).slice('task:'.length));
   const branches = blockers.filter(value => !String(value).startsWith('task:#'));
   return [tasks.length ? `等待任务 ${tasks.join('、')} 完成` : null,
     branches.length ? `先收拢子分支：${branches.join('、')}` : null].filter(Boolean).join('；');
-}
-
-/** 描述一键合并顺序：与 daemon 的 mergeAllPlan 同一份字段，不在前端另算一套规则。 */
-const MERGE_ALL_ACTION = { merge: '快进合入', sync: '子侧解法', skip: '不处理' };
-/** 描述合并编排顺序：与 daemon 的 orchestratePlan 同一份字段。 */
-const ORCHESTRATE_ACTION = { merge: '快进合入', resolve: '源侧解分歧', skip: '不处理' };
-
-/** 一键合并：先拉只读计划给用户确认顺序与阻塞，再开始；运行期间冻结目标与全部后代。 */
-async function runMergeAll(branch) {
-  try {
-    const plan = await action('branch.merge_plan', { branch: branch.name });
-    if (!plan.order?.length) {
-      show(`${branch.name} 现在没有可以一键合并的后代分支。`, 'warn');
-      return;
-    }
-    const lines = plan.items.map(item =>
-      `${item.ready ? '→' : '·'} ${item.branch}（${MERGE_ALL_ACTION[item.action] || item.action}）${item.blockers?.length ? ` · 阻塞：${item.blockers.join('、')}` : ''}`).join('\n');
-    const confirmed = await confirmDialog({
-      title: `一键合并 ${branch.name} 的全部子分支？`,
-      message: `按叶子到根自动收拢 ${plan.order.length} 条分支；遇分歧自动开子侧 merger 并暂停等你处理，已完成的不回滚。运行期间 ${branch.name} 及其全部后代被冻结，不能新建输入 / 编辑 / 合并，直到完成或你在图上取消。`,
-      detail: lines,
-      confirmLabel: '开始一键合并',
-      cancelLabel: '取消',
-      agent: true,
-      confirmHelp: agentHelp('一键合并会按叶子到根自动快进合并，并在分歧 / 冲突时启动 merger Agent；耗时较长并消耗 token。'),
-    });
-    if (!confirmed) return;
-    await action('branch.merge_all', { branch: branch.name });
-    show(`${branch.name} 的一键合并已开始，按序处理 ${plan.order.length} 条分支。`);
-    await loadGraph();
-  } catch (error) { show(error.message, 'error'); }
-}
-
-/** 取消一键合并：释放冻结，已完成的合并保留不回滚。 */
-async function runMergeCancel(branch) {
-  const confirmed = await confirmDialog({
-    title: `取消 ${branch.name} 的一键合并？`,
-    message: '取消后释放冻结；已完成的合并保留、不回滚，正在等待的 merger 子任务会被取消。',
-    confirmLabel: '取消合并',
-    cancelLabel: '继续合并',
-    danger: true,
-  });
-  if (!confirmed) return;
-  try {
-    await action('branch.merge_cancel', { branch: branch.name });
-    show(`已取消 ${branch.name} 的一键合并，已完成的合并保留。`);
-    await loadGraph();
-  } catch (error) { show(error.message, 'error'); }
-}
-
-/** 合并编排计划的一行文本；分支图与 Task 图共用同一份只读计划字段，不在前端另算一套规则。
- *  `taskLabel` 只影响任务编号前缀（分支图说「say」，Task 图说「Task」），固定提交、动作与阻塞口径一致。 */
-export function orchestratePlanLines(plan, { taskLabel = 'say' } = {}) {
-  return (plan.items || []).map(item => {
-    const commit = item.commit ? ` · 固定 ${String(item.commit).slice(0, 12)}` : '';
-    const auto = item.auto_request ? ' · 将自动补发合并请求' : '';
-    return `${item.ready ? '→' : '·'} ${item.branch}${item.task_id ? `（${taskLabel} #${item.task_id}）` : ''}${commit} · ${ORCHESTRATE_ACTION[item.action] || item.action}${auto}${item.blockers?.length ? ` · 阻塞：${item.blockers.join('、')}` : ''}`;
-  }).join('\n');
-}
-
-/** 合并编排：先拉只读计划给用户确认固定顺序与每条固定提交，再开始；之后 runtime 不再逐条问。
- *  分支图与 Task 图共用这份实现，只通过 `refresh` / 文案口径区分（Task 图的目标就是 Task 自己的分支）。 */
-export async function runOrchestrate(branch, { refresh = loadGraph, label = 'say 子分支', taskLabel = 'say', scope = branch.name } = {}) {
-  try {
-    const plan = await action('branch.orchestrate_plan', { branch: branch.name });
-    if (!plan.order?.length) {
-      // 没有可编排项时把原因说清楚：可能是还没点「请求合并」、分支已合入、或仍有任务在跑。
-      const why = plan.items.filter(item => item.blockers?.length)
-        .map(item => `${item.branch}：${item.blockers.join('、')}`).join('；');
-      show(`${scope} 现在没有可编排的 ${label}${why ? `（${why}）` : ''}。`, 'warn');
-      return;
-    }
-    const confirmed = await confirmDialog({
-      title: `编排合并 ${scope} 的全部 ${label}？`,
-      message: `按叶子到根自动把 ${plan.order.length} 条固定提交的合并请求 ff-only 收拢进 ${branch.name}；没有请求但符合条件的 ${taskLabel} 分支会先由 runtime 自动补发固定提交请求；遇分歧自动在源侧派解分歧子任务，完成后自动继续；已完成的不回滚。运行期间 ${branch.name} 及其全部后代被冻结，直到完成或你在图上取消。确认一次后不再逐条批准。`,
-      detail: orchestratePlanLines(plan, { taskLabel }),
-      confirmLabel: '开始合并编排',
-      cancelLabel: '取消',
-      agent: true,
-      confirmHelp: agentHelp('合并编排会按叶子到根自动 ff-only 收拢已固定提交的合并请求，并在分歧时派源侧解分歧子任务；没有请求但符合条件的分支会先自动补发固定提交请求。耗时较长并消耗 token。'),
-    });
-    if (!confirmed) return;
-    const started = await action('branch.orchestrate', { branch: branch.name });
-    show(`${scope} 的合并编排已开始（任务 #${started.task?.id ?? '?'}），按序处理 ${plan.order.length} 条 ${taskLabel} 分支。`);
-    await refresh();
-  } catch (error) { show(error.message, 'error'); }
-}
-
-/** 取消合并编排：释放冻结，已落地的合并保留不回滚；分支图与 Task 图共用。 */
-export async function runOrchestrateCancel(branch, { refresh = loadGraph, scope = branch.name } = {}) {
-  const confirmed = await confirmDialog({
-    title: `取消 ${scope} 的合并编排？`,
-    message: '取消后释放冻结；已落地的合并保留、不回滚，正在等待的解分歧子任务会被取消。',
-    confirmLabel: '取消编排',
-    cancelLabel: '继续编排',
-    danger: true,
-  });
-  if (!confirmed) return;
-  try {
-    await action('branch.orchestrate_cancel', { branch: branch.name });
-    show(`已取消 ${scope} 的合并编排，已落地的合并保留。`);
-    await refresh();
-  } catch (error) { show(error.message, 'error'); }
-}
-
-function forkActions(branch, edge) {
-  if (!edge) return [];
-  const blocked = edge.blockers?.length ? blockerText(edge.blockers) : null;
-  const why = (reason, extra = null) => [reason, extra, blocked].filter(Boolean).join('\n');
-  const nodes = [];
-  if (edge.status === 'fast_forward') {
-    nodes.push(branchAction('合入父分支', why(`把 ${branch.name} fast-forward 合入父分支；不会在父分支上产生 merge commit。`),
-      edge.can_merge ? () => runBranchAction('branch.merge', branch.name) : null));
-  }
-  if (edge.status === 'diverged') {
-    nodes.push(branchAction('在子分支解决分歧',
-      why(`开一个 merger 任务，把父分支合进 ${branch.name} 并解决冲突；先不动父分支。`,
-        `父分支已有 ${Number.isFinite(edge.behind) ? edge.behind : '?'} 个提交不在本分支。`),
-      edge.can_sync ? () => runBranchAction('branch.sync', branch.name) : null));
-    nodes.push(branchAction('合入父分支', why('父子已分歧：先在子分支解决分歧，之后才能合入。'), null));
-  }
-  if (edge.status === 'integrated' && edge.behind > 0) {
-    nodes.push(branchAction('让子分支跟上父分支',
-      why(`把父分支已有的 ${edge.behind} 个提交 fast-forward 进 ${branch.name}；不产生 merge commit，也不改父分支。`),
-      edge.can_catchup ? () => runBranchAction('branch.catchup', branch.name) : null));
-  }
-  return nodes;
 }
 
 /**
@@ -519,9 +329,6 @@ function collapseCaret(branch, onCollapsed) {
 function branchRow(branch, onCollapsed) {
   const row = el('div', undefined, 'graph-branch');
   const ownerSay = branch.tasks.find(task => task.task_kind === 'say' && task.branch === branch.name) || null;
-  const newSayBelow = branch.children.some(function hasSay(child) {
-    return child.tasks.some(task => task.task_kind === 'say') || child.children.some(hasSay);
-  });
   // main 是项目主干，不是 Lush 管理的交付分支：graph.get 仍如实返回它的 tracked / origin / status / tasks，
   // 这里只过滤会把「未登记」或后代任务汇总误说成 main 自身诊断的表头信息。
   const isMain = branch.name === 'main';
@@ -682,9 +489,7 @@ function forestDepth(forest) {
   return max;
 }
 
-/** 兜底分组：连目标分支节点都没有的任务，仍然要画出来，只是明确说明它没落在任何分支节点上。
- *  这里的任务没有分支可归档，也没别的去处，所以每行多一个「删除」（`task.delete`）；
- *  它是这个分组唯一的出口，也是页面上唯一会丢任务历史的按钮，确认文案写满了代价。 */
+/** 兜底分组：连目标分支节点都没有的任务，仍然要画出来，只是明确说明它没落在任何分支节点上。 */
 function unplacedBlock(group) {
   const block = el('div', undefined, 'graph-group graph-unplaced');
   const title = el('div', undefined, 'section-title');

@@ -10,12 +10,11 @@ test('graph.get is read-only and readable by both user and agent', async () => {
   expect(PARAMS['graph.get']).toEqual([]);
   expect(USER_ONLY.has('graph.get')).toBe(false);
   expect(AGENT_ONLY.has('graph.get')).toBe(false);
-  expect(PARAMS['branch.merge']).toEqual(['branch']);
-  expect(PARAMS['branch.sync']).toEqual(['branch']);
-  expect(PARAMS['branch.catchup']).toEqual(['branch']);
-  expect(USER_ONLY.has('branch.merge')).toBe(true);
-  expect(USER_ONLY.has('branch.sync')).toBe(true);
-  expect(USER_ONLY.has('branch.catchup')).toBe(true);
+  // 旧的分支合并 / 同步 / 快进动作随公开 API 下线：不在参数表，也不在权限表。
+  for (const method of ['branch.merge', 'branch.sync', 'branch.catchup']) {
+    expect(PARAMS[method]).toBeUndefined();
+    expect(USER_ONLY.has(method)).toBe(false);
+  }
   expect(PARAMS['branch.archive']).toEqual(['branch', 'discard']);
   expect(USER_ONLY.has('branch.archive')).toBe(true);
   expect(AGENT_ONLY.has('branch.archive')).toBe(false);
