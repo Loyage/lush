@@ -1,13 +1,13 @@
 # 待决问题
 
-notice 是所有角色、所有任务分支共用的用户决策入口。普通进度、完成汇报写 task result，不发 notice。
+notice 是所有角色、所有 AP 分支共用的用户决策入口。普通进度、完成汇报写 AP result，不发 notice。
 
 | CLI | RPC | 参数 |
 |---|---|---|
 | `notice list` | `notice.list` | `{}` |
 | Web 历史分页 | `notice.page` | `{status?: 'all', before?: ID, limit?: 30}` |
-| `notice post 'title' --task ID --body 'body'` | `notice.post` | `{task, title, body?: '', questions?}` |
-| `notice post 'title' --questions-file FILE` | `notice.post` | 文件为 `{questions:[…]}`，agent 可省略 `--task` |
+| `notice post 'title' --ap ID --body 'body'` | `notice.post` | `{ap, title, body?: '', questions?}` |
+| `notice post 'title' --questions-file FILE` | `notice.post` | 文件为 `{questions:[…]}`，agent 可省略 `--ap` |
 | `notice answer ID 'answer'` | `notice.answer` | `{id, answer:字符串}`（旧式文字问题） |
 | `notice answer ID --answers-file FILE` | `notice.answer` | `{id, answer:{answers:[…]}}`（结构化问卷） |
 | `notice dismiss ID` | `notice.dismiss` | `{id}` |
@@ -36,15 +36,15 @@ notice 是所有角色、所有任务分支共用的用户决策入口。普通�
 - 推荐项排第一并在 label 标「（推荐）」，默认**不自动选择**。多选仅用于多个选项可以同时成立的题目。
 - 每题自动提供自定义答案，不要手写 `Other` / `其他` / `自定义答案` 占位选项。自定义答案替代该题全部选项，不与选项混用。
 - `preview` 是 Markdown（最多 12000 字）；`previewHtml` 是自包含静态 HTML/CSS（最多 16000 字）。整个 versioned envelope 最多 64000 UTF-8 字节，背景 body 最多 8000 字。无需预览的简单偏好题只写说明即可。
-- 发布前完整校验，非法请求不建 notice、不暂停任务。每个 task 同时最多一份开放问卷。
+- 发布前完整校验，非法请求不建 notice、不暂停 AP。每个 AP 同时最多一份开放问卷。
 
 问卷存入现有 notices 表：`kind='questionnaire'`，`body` 为 `{version:1,body,questions}` JSON。不新增实体、表或列，不迁移旧数据库。旧式文字 notice 与计划审批保持原格式。
 
 ## 非阻塞暂停与恢复
 
-发布结构化问卷是 agent 本轮的**最后一个动作**。同一数据库事务先保存 notice、消费本轮已交付消息、记录暂停结果、将 task 标为 `awaiting`，然后中止本轮 invocation 的进程组并作废 token。它不是失败、不是 completed，不检查/提交/清理 worker 的半成品工作区；取消任务仍按原有规则处理。
+发布结构化问卷是 agent 本轮的**最后一个动作**。同一数据库事务先保存 notice、消费本轮已交付消息、记录暂停结果、将 AP 标为 `awaiting`，然后中止本轮 invocation 的进程组并作废 token。它不是失败、不是 completed，不检查/提交/清理 worker 的半成品工作区；取消 AP 仍按原有规则处理。
 
-普通追加消息与子任务结果继续落收件箱，但开放问卷会挡住重新排队。回答/忽略后投递消息，再由 task 唤醒 agent；若用户回答发生在旧进程尚未收尾时，释放 running 占位后的收件箱复查保证不会丢唤醒。重启保留待答问题，不自动重放暂停前的调用。
+普通追加消息与子 AP 结果继续落收件箱，但开放问卷会挡住重新排队。回答/忽略后投递消息，再由 AP 唤醒 agent；若用户回答发生在旧进程尚未收尾时，释放 running 占位后的收件箱复查保证不会丢唤醒。重启保留待答问题，不自动重放暂停前的调用。
 
 答复必须按题目顺序覆盖全部问题，选项使用 **零基序号**：
 
@@ -56,15 +56,15 @@ notice 是所有角色、所有任务分支共用的用户决策入口。普通�
 
 服务端从已存问卷生成规范化答案：`{version:1,answers:[{question,header,selected,labels,custom}]}`，JSON 存入 `notice.answer`。收件箱消息包含 `{notice_id,title,dismissed,answer}`，其中 answer 是规范化对象，不是客户端自报的标签。答复 RPC 只允许用户；同一 notice 只能结算一次。
 
-忽略问卷表示**未做决定，不是默认同意推荐项**。普通 owner 收到 `dismissed:true` 消息后继续评估，不应实施依赖未决选择的工作。从未被唤醒的预置解分歧任务（`resolves_task_id` 且 `agent_wakes=0`）会因忽略被直接取消，见[合并](../../engineering/merge.md)。
+忽略问卷表示**未做决定，不是默认同意推荐项**。普通 owner 收到 `dismissed:true` 消息后继续评估，不应实施依赖未决选择的工作。从未被唤醒的预置解分歧 AP（`resolves_ap_id` 且 `agent_wakes=0`）会因忽略被直接取消，见[合并](../../engineering/merge.md)。
 
 ## Web / Electron
 
 「待我处理」面板提供未处理、已回答、已忽略和全部记录四个普通 Notice 筛选，包括普通提问、问卷与纯提醒。点开后在面板内查看正文、答复或审批；已处理事项只读展示原问题与结果，不会因答复、忽略、刷新或重启丢失。
 
-问卷单选点一次即进入下一题；多选点选后继续；预览按钮/悬停/键盘聚焦可先看方案，不提交答案。最后展示全部题目的选择、说明与可展开预览，可返回修改，一次确认整份问卷。在记录面板提交后原地显示处理结果；从任务详情答复时仍可自动打开下一个未决问题。
+问卷单选点一次即进入下一题；多选点选后继续；预览按钮/悬停/键盘聚焦可先看方案，不提交答案。最后展示全部题目的选择、说明与可展开预览，可返回修改，一次确认整份问卷。在记录面板提交后原地显示处理结果；从 AP 详情答复时仍可自动打开下一个未决问题。
 
-选择草稿按项目、notice id、创建时间及正文隔离，在当前标签页的 sessionStorage 保存；切换任务、轮询、刷新再打开不会丢选择。发送失败保留草稿、允许重试；其它标签页已处理时服务端拒绝重复提交。
+选择草稿按项目、notice id、创建时间及正文隔离，在当前标签页的 sessionStorage 保存；切换 AP、轮询、刷新再打开不会丢选择。发送失败保留草稿、允许重试；其它标签页已处理时服务端拒绝重复提交。
 
 HTML 通过已认证的只读预览路由渲染，不读取 agent 提供的本机路径：先白名单清洗，删除脚本、事件、外链导航、meta refresh、表单、嵌套 frame 等，再使用独立 CSP 和无权限 iframe sandbox。仅允许内联样式与 data 图片/字体，禁止网络与脚本、宿主访问、导航与表单提交。预览是**静态提案，不是已实现效果**。浏览器与 Electron 共用该实现，主页面 CSP 不放宽。
 

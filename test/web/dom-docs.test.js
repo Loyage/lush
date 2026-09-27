@@ -10,7 +10,7 @@ const DOCS = [
   { id: 'docs-engineering-data-flow', title: '数据流', group: '架构', path: 'docs/engineering/data-flow.md' },
 ];
 const BODY = {
-  readme: '# Lush\n\n先读 [任务流程](docs/task-flow.md)，架构见 [模块地图](docs/engineering/modules.md)。\n\n| 项 | 值 |\n| --- | --- |\n| 依赖 | 零第三方 |\n',
+  readme: '# Lush\n\n先读 [AP 流程](docs/ap-flow.md)，架构见 [模块地图](docs/engineering/modules.md)。\n\n| 项 | 值 |\n| --- | --- |\n| 依赖 | 零第三方 |\n',
   'docs-engineering-modules': '# 模块地图\n\n## 三条规矩\n\n[数据流](data-flow.md) 与 [外链](https://example.com/x)。\n',
   'docs-engineering-data-flow': '# 数据流\n\n入口到 Project 的结构。\n',
 };

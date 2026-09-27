@@ -1,6 +1,6 @@
 # Web 路由
 
-本节管 Web 进程暴露的读取路由与用户动作白名单；监听与安全约束见 [HTTP](http.md)。代码里的 `CORE_READS`（只读路由白名单）、`CORE_TASK_READ` / `CORE_DOC_READ`（任务与文档读取形状）和 `MUTATIONS`（`POST /api/action` 动作白名单）是权威来源；白名单之外的 `/api/**` 一律 404，不再回落到其它项目或旧接口。
+本节管 Web 进程暴露的读取路由与用户动作白名单；监听与安全约束见 [HTTP](http.md)。代码里的 `CORE_READS`（只读路由白名单）、`CORE_AP_READ` / `CORE_DOC_READ`（AP 与文档读取形状）和 `MUTATIONS`（`POST /api/action` 动作白名单）是权威来源；白名单之外的 `/api/**` 一律 404，不再回落到其它项目或旧接口。
 
 Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局工作台（无 `--project`）为**每个项目**给出一条稳定身份路由 `/p/<project-id>/**`；带 `--project` 的单项目模式固定绑定且拒绝切换，并保留无前缀的兼容路径。
 
@@ -20,30 +20,30 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 | 路由 | 底层 |
 |---|---|
 | `GET /api/snapshot` | 兼容快照读面；首页轮询走带 revision 的 `/api/overview` |
-| `GET /api/overview?revision=N` | 有界 Task 核心读模型（与 `/api/snapshot` 同源） |
-| `GET /api/tasks?scope=&before=&limit=` | `task.page`，有界任务分页，`scope` 为 `work` / `all` |
+| `GET /api/overview?revision=N` | 有界 AP 核心读模型（与 `/api/snapshot` 同源） |
+| `GET /api/aps?scope=&before=&limit=` | `ap.page`，有界 AP 分页，`scope` 为 `work` / `all` |
 | `GET /api/notices?status=&before=&limit=` | `notice.page`：全部类型事项与处理结果的按需分页；过滤掉旧 `plan` 类型；参数和留档语义见[待决问题](rpc/notices.md) |
-| `GET /api/graph` | 分支节点、fork 连线实时状态与任务关系（`graph.get`） |
-| `GET /api/task-graph` | Task 父子读面（`task.graph`） |
+| `GET /api/graph` | 分支节点、fork 连线实时状态与 AP 关系（`graph.get`） |
+| `GET /api/ap-graph` | AP 父子读面（`ap.graph`） |
 | `GET /api/agent/config` | `agent.config` |
 | `GET /api/agent/models?agent=pi\|codex` | 按需读取所选本机 CLI 当前可用模型目录；失败时带预设与 warning 回退 |
 | `GET /api/agent/resources` | 不执行资源代码地读取当前用户和项目已安装的 Pi 扩展、Skills 与 package 资源 |
 | `GET /api/agent/environment?target=common\|ROLE` | 按需读取公共或单角色 env 文件，包含明文值；底层 `agent.environment` 为用户专属，公网模式必须先登录，页面默认遮罩 |
-| `GET /api/task/ID` | `task.inspect` |
-| `GET /api/task/ID/history?after=N` | `task.history` |
-| `GET /api/task/ID/history-page?before=N&limit=N` | `task.history_page` |
-| `GET /api/task/ID/diff` | `task.diff` |
-| `GET /api/task/ID/usage` | `task.usage` |
-| `GET /api/task/ID/transcript?after=N` | `task.transcript` |
-| `GET /api/task/ID/transcript-latest?after=N&before=N&limit=N` | 用户专属 `task.transcript_latest`，全量扫描的最新优先窗口（默认 0 / 0 / 100） |
-| `GET /api/task/ID/transcript-search?query=&kind=&tool=&errors=&after=&limit=` | 用户专属 `task.transcript_search`，当前任务完整记录检索／筛选／分页 |
-| `GET /api/task/ID/transcript-page?seq=1&offset=0` | 用户专属 `task.transcript_page`，连续完整文字分页 |
-| `GET /api/task/ID/transcript-step?seq=N&offset=0` | 用户专属 `task.transcript_step`，分段原文、配对及前后上下文 |
+| `GET /api/ap/ID` | `ap.inspect` |
+| `GET /api/ap/ID/history?after=N` | `ap.history` |
+| `GET /api/ap/ID/history-page?before=N&limit=N` | `ap.history_page` |
+| `GET /api/ap/ID/diff` | `ap.diff` |
+| `GET /api/ap/ID/usage` | `ap.usage` |
+| `GET /api/ap/ID/transcript?after=N` | `ap.transcript` |
+| `GET /api/ap/ID/transcript-latest?after=N&before=N&limit=N` | 用户专属 `ap.transcript_latest`，全量扫描的最新优先窗口（默认 0 / 0 / 100） |
+| `GET /api/ap/ID/transcript-search?query=&kind=&tool=&errors=&after=&limit=` | 用户专属 `ap.transcript_search`，当前 AP 完整记录检索／筛选／分页 |
+| `GET /api/ap/ID/transcript-page?seq=1&offset=0` | 用户专属 `ap.transcript_page`，连续完整文字分页 |
+| `GET /api/ap/ID/transcript-step?seq=N&offset=0` | 用户专属 `ap.transcript_step`，分段原文、配对及前后上下文 |
 
 执行记录相关游标与界限见[执行记录阅读器](../engineering/transcript-reader.md)。
 
 ## 用户动作
 
-`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`system.configure`、`say.submit`、`task.spawn`、`task.message`、`task.reserve`、`task.resolve`、`task.resolve_divergence`、`task.unreserve`、`task.approve_merge`、`task.cancel`、`task.retry`、`task.cleanup`、`notice.answer`、`notice.dismiss`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。
+`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`system.configure`、`say.submit`、`ap.spawn`、`ap.message`、`ap.reserve`、`ap.resolve`、`ap.resolve_divergence`、`ap.unreserve`、`ap.approve_merge`、`ap.cancel`、`ap.retry`、`ap.cleanup`、`notice.answer`、`notice.dismiss`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。
 
 任何不在上述白名单的写入（含已下线的草稿、Candidate 验收、托管模式、展示、介绍与旧合并入口）都不再提供 Web 操作。
