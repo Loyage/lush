@@ -65,6 +65,7 @@ function taskVisualState(node) {
   if (node.status === 'running') return 'running';
   if (node.status === 'awaiting' || node.notice) return 'awaiting';
   if (node.status === 'failed') return 'failed';
+  if (node.status === 'paused') return 'paused';
   if (node.status === 'queued') return 'queued';
   if (node.status === 'waiting') return 'waiting';
   if (node.status === 'completed') return 'completed';

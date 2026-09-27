@@ -6,9 +6,9 @@ export const handlers = {
     if (Object.hasOwn(params, 'draft_id')) {
       check(!Object.hasOwn(params, 'content') && !Object.hasOwn(params, 'references'),
         'draft_id cannot be combined with content or references');
-      return p.say(undefined, params.branch ?? null, [], params.draft_id);
+      return p.say(undefined, params.branch ?? null, [], params.draft_id, params.start !== false);
     }
-    return p.say(params.content, params.branch ?? null, params.references ?? []);
+    return p.say(params.content, params.branch ?? null, params.references ?? [], null, params.start !== false);
   },
   'input.submit'(p, params, actor) {
     if (Object.hasOwn(params, 'draft_id')) {

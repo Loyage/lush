@@ -26,7 +26,7 @@ export const tasks = {
   summaryPage({ active = false, before = null, limit = 50, scope = 'work' } = {}) {
     check(['work', 'all'].includes(scope), 'invalid task scope');
     const where = ['layer=?']; const params = [];
-    if (active) where.push("status IN ('queued','running','waiting','awaiting')");
+    if (active) where.push("status IN ('queued','running','waiting','awaiting','paused')");
     else where.push("status IN ('completed','failed','cancelled')");
     if (before !== null) { where.push('id<?'); params.push(before); }
     const index = active ? 'tasks_layer_status' : 'tasks_layer_id_status';

@@ -41,10 +41,10 @@ test('Web 直接发送只发当前正文：防重复、保留并发编辑与其�
   dom.node('input').value = 'new thought';
   pending.resolve(); await sent; pending = null;
   expect(submitCalls).toHaveLength(1);
-  expect(submitCalls[0]).toEqual({ method: 'say.submit', params: { content: 'small fix', references: [], branch: 'release/next' } });
+  expect(submitCalls[0]).toEqual({ method: 'say.submit', params: { content: 'small fix', references: [], start: false, branch: 'release/next' } });
   expect(dom.node('input').value).toBe('new thought');
   expect(world.state.drafts.map(row => row.id)).toEqual([11]);
-  expect(dom.node('error').textContent).toContain('已创建 Task');
+  expect(dom.node('error').textContent).toContain('待开始');
   fail = true;
   await dom.node('input-form').onsubmit({ preventDefault() {} });
   expect(dom.node('error').textContent).toContain('send failed');

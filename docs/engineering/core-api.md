@@ -4,13 +4,13 @@
 
 ## 核心工作流
 
-- `say.submit`：一条用户输入创建一个有独立分支/worktree 的 say Task。main 自动确立静息 owner；其它现有本地分支须先 `branch.bind` 固定 HEAD。
+- `say.submit`：一条用户输入创建一个有独立分支/worktree 的 say Task。`start:false`（Web 主发送默认）只创建为 `paused`（Web 显示「待开始」）且不调用 Agent；`start:true`（缺省）立即排队运行。main 自动确立静息 owner；其它现有本地分支须先 `branch.bind` 固定 HEAD。
 - `task.spawn`：只可在活动 say/child 下派 agent 子 Task；不再接受 role、deps 或 spec。
 - `task.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。
 - `task.inspect` / `task.page` / `task.graph` / `task.diff` / `task.history*` / `task.transcript*`：按需只读审阅；支持 CLI 与 Web。
 - `task.integrate`：运行中的直接父 Agent 核对固定子提交并快进；`task.resolve_child_divergence` 为父侧分歧派隔离任务。
 - `task.reserve {kind:'merge'}` / `task.reserve_all {branch}` / `task.unreserve` / `task.resolve_divergence` / `task.approve_merge`：冻结、复查、解分歧和由用户批准固定 commit + baseline；`reserve_all` 把一条分支下所有已静息待合并的 Task 逐条按同一套准入放入 v2 merge 队列，不会自动批准进 main。
-- `task.resolve` / `task.cancel` / `task.retry` / `task.cleanup`：显式结算与安全维护。`task.interrupt` / `task.resume` / `task.configure` 是可恢复的暂停流程：中断进入非终态 paused，暂停中可追加消息或固定本轮运行设置，继续才重新排队；`task.cancel` 仍是不可恢复的终态放弃，且只在 paused 下作为次级入口。`branch.tree/show/bind/archive` 管理分支。Agent 和 runtime 配置、进度、daemon 状态是运行必需的辅助接口。
+- `task.resolve` / `task.cancel` / `task.retry` / `task.cleanup`：显式结算与安全维护。`task.interrupt` / `task.resume` / `task.configure` 是可恢复的暂停流程：中断进入非终态 paused，暂停中可追加消息或固定本轮运行设置（profile 可含只在本任务生效的 `env` 覆盖，Pi 按 common → 角色 → 本任务三层合并），继续才重新排队；`say.submit {start:false}` 直接建出的「待开始」Task 就走这套 resume。`task.cancel` 仍是不可恢复的终态放弃，且只在 paused 下作为次级入口。`branch.tree/show/bind/archive` 管理分支。Agent 和 runtime 配置、进度、daemon 状态是运行必需的辅助接口。
 
 ## 移除与磁盘边界
 

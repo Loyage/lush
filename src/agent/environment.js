@@ -44,6 +44,9 @@ function normalizeValues(values) {
   return normalized;
 }
 
+/** Per-task env overrides stored in a task-local Agent profile use the same name/value rules as role env files. */
+export function normalizeAgentEnv(values) { return normalizeValues(values); }
+
 function quoted(value) {
   return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('\n', '\\n').replaceAll('\r', '\\r').replaceAll('\t', '\\t')}"`;
 }

@@ -6,7 +6,7 @@ export const PARAMS = {
   'system.status': [], 'system.summary': [], 'system.stop': [], 'system.configure': ['settings'],
   'agent.config': [], 'agent.models': ['agent'], 'agent.resources': [], 'agent.configure': ['config'],
   'agent.environment': ['target'], 'agent.environment.configure': ['target','values'],
-  'say.submit': ['content','branch','references'],
+  'say.submit': ['content','branch','references','start'],
   'task.graph': [], 'task.list': ['after','limit'], 'task.activity': ['limit','scope'],
   'task.page': ['before','limit','scope'], 'task.tree': ['id'], 'task.inspect': ['id'],
   'task.history': ['id','after'], 'task.history_page': ['id','before','limit'], 'task.diff': ['id'], 'task.usage': ['id'],

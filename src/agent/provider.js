@@ -55,7 +55,9 @@ function sessionFiles(config, task, context, messages, agent) {
   const prompt = agentPrompt(config, task.role, agent, task.task_kind ?? null);
   fs.writeFileSync(systemFile, prompt.text, { mode: 0o600 });
   const environment = agentEnvironment(config, task.role);
-  return { sessions, promptFile, systemFile, environment };
+  // 任务级覆盖只在本轮生效，优先级高于 common / 角色两层；不写进 prompt 文件，避免环境值进入模型上下文。
+  const values = { ...environment.values, ...(agent.env || {}) };
+  return { sessions, promptFile, systemFile, environment: { ...environment, values } };
 }
 
 async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, onStdout = null, extraEnv = {} }) {

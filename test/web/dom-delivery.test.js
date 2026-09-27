@@ -266,7 +266,7 @@ test('non-terminal say offers 中断 instead of direct cancel; paused offers 继
   await answerDialog(dom, '中断'); await pending;
   expect(world.state.actions).toContainEqual({ method: 'task.interrupt', params: { id: say.id } });
 
-  renderDetail({ ...say, status: 'paused' }, null, null, null);
+  renderDetail({ ...say, status: 'paused', agent_wakes: 1 }, null, null, null);
   panel = dom.node('detail');
   expect(buttonOf(panel, '中断')).toBeUndefined();
   expect(buttonOf(panel, '取消任务树')).toBeUndefined();
@@ -282,7 +282,7 @@ test('non-terminal say offers 中断 instead of direct cancel; paused offers 继
   await resume.onclick();
   expect(world.state.actions).toContainEqual({ method: 'task.resume', params: { id: say.id } });
 
-  renderDetail({ ...say, status: 'paused' }, null, null, null);
+  renderDetail({ ...say, status: 'paused', agent_wakes: 1 }, null, null, null);
   const abandoning = buttonOf(dom.node('detail'), '放弃任务').onclick();
   expect(dialogText(dom)).toContain('放弃这条 Task');
   await answerDialog(dom, '放弃任务'); await abandoning;

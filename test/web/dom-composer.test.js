@@ -1,9 +1,10 @@
 import { test, expect, afterAll } from 'bun:test';
 import { installDom } from '../dom-stub.js';
+import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
 // 输入区折叠 / 展开：默认只留一行输入 + 一行操作，父 Task 与快捷键说明点开才出现；
-// 折叠态仍能看到待提交意图数量、展开控件，以及已选父 Task 的痕迹。
+// 折叠态仍能看到展开控件，以及已选父 Task 的痕迹。
 const world = makeWorld();
 const dom = installDom({ fetch: world.fetchImpl });
 const { boot } = await import('../../src/ui/web/assets/app.js');
@@ -25,7 +26,7 @@ test('输入区默认折叠，展开后才出现父 Task 与快捷键，折叠�
   expect(expand.getAttribute('aria-expanded')).toBe('false');
   expect(expand.title).toContain('父 Task');
   expect(expand.title).toContain('快捷键');
-  // 折叠态仍能看见展开控件（草稿面板是已下线的遗留入口，不再计入）。
+  // 折叠态仍能看见展开控件与已选父 Task 的痕迹。
   expect(expand.textContent).toContain('更多');
 
   // 点开：父 Task 字段与快捷键说明出现；再点收起。
@@ -53,11 +54,24 @@ test('引用卡片始终可见，1.5s 轮询不改变输入区折叠态', async 
   expect(details.hidden).toBe(true);  // 上一条测试结束时已收起
   setComposerReferences([{ version: 1, kind: 'text', target: {}, label: '任务 #1', quote: '正在改点什么', location: {}, captured_at: iso(NOW) }]);
   expect(dom.node('composer-references').hidden).toBe(false);
-  world.state.drafts = [{ id: 21, content: '带引用的草稿', created_at: iso(NOW - 1000) }];
   await dom.intervalFor(1500)();
   // 轮询重画后：引用卡片与折叠态都不受轮询影响。
   expect(dom.node('composer-references').hidden).toBe(false);
   expect(details.hidden).toBe(true);
   expect(expand.getAttribute('aria-expanded')).toBe('false');
   setComposerReferences([]);
+});
+
+test('⌘/Ctrl+Enter 创建待开始，⌘/Ctrl+Shift+Enter 直接运行', async () => {
+  const lastSend = () => [...world.state.actions].reverse().find(row => row.method === 'say.submit');
+  const fire = async (shift, content) => {
+    dom.node('input').value = content;
+    dom.node('input').listeners.input[0]({});
+    await dom.node('input').listeners.keydown[0]({ key: 'Enter', metaKey: true, shiftKey: shift, isComposing: false, preventDefault() {} });
+    await until(() => lastSend()?.params.content === content && !ui.composerSubmitting);
+  };
+  await fire(false, '先暂存的目标');
+  expect(lastSend().params.start).toBe(false);
+  await fire(true, '立即运行的目标');
+  expect(lastSend().params.start).toBe(true);
 });

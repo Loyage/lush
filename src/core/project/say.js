@@ -1007,12 +1007,12 @@ export default {
   },
 
   /** Every new say is one Input and one branch-owning Task, regardless of whether it writes code. */
-  say(content = undefined, branch = null, references = [], draftId = null) {
-    return this.write('send this say', () => this.sendSay(content, branch, references, draftId));
+  say(content = undefined, branch = null, references = [], draftId = null, start = true) {
+    return this.write('send this say', () => this.sendSay(content, branch, references, draftId, start));
   },
 
   /** The body of say(); runs under the clear gate so an anchor created before a clear cannot commit after its purge. */
-  async sendSay(content = undefined, branch = null, references = [], draftId = null) {
+  async sendSay(content = undefined, branch = null, references = [], draftId = null, start = true) {
     let draft = null, draftReferences = null;
     if (draftId !== null && draftId !== undefined) {
       check(content === undefined && references.length === 0, 'draft_id cannot be combined with content or references');
@@ -1059,7 +1059,7 @@ export default {
         const task = this.store.create({ parent_id: parent.id, input_id: inputId, role: 'agent', goal: content,
           name: `say-${inputId}`, task_kind: 'say' });
         this.store.update(task.id, { branch: anchor.branch, workspace: anchor.workspace,
-          base_commit: anchor.commit, target_branch: target });
+          base_commit: anchor.commit, target_branch: target, ...(start ? {} : { status: 'paused' }) });
         if (rule !== null) {
           ruleTaskId = task.id;
           saveInputRule(this.config.home, task.id, rule);

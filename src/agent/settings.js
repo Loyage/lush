@@ -3,6 +3,7 @@ import path from 'node:path';
 import { check, isPlainObject } from '../core/types.js';
 import { GUIDE } from './guide.js';
 import { AGENT_ROLES as PROMPT_ROLES, builtInPrompt } from './prompts.js';
+import { normalizeAgentEnv } from './environment.js';
 
 export const AGENT_ROLES = [...PROMPT_ROLES];
 export const AGENT_BACKENDS = ['pi', 'codex'];
@@ -21,7 +22,7 @@ const ROLE_LABELS = {
 };
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_PROMPT_BYTES = 32 * 1024;
-const PROFILE_KEYS = new Set(['agent', 'model', 'thinking', 'prompt', 'default_prompt', 'append_prompt', 'extensions', 'skills', 'soft_budget']);
+const PROFILE_KEYS = new Set(['agent', 'model', 'thinking', 'prompt', 'default_prompt', 'append_prompt', 'extensions', 'skills', 'soft_budget', 'env']);
 
 export function normalizeSoftBudget(value) {
   if (value === undefined || value === null) return {};
@@ -68,7 +69,10 @@ export function normalizeAgentProfile(value, name = 'profile') {
   const enabled = Object.keys(soft_budget).length > 0;
   check(!enabled || agent === 'pi', 'soft_budget is supported only by Pi');
   check(!enabled || !['roles.explainer','roles.butler'].includes(name), 'explainer/butler does not support soft_budget');
-  return { agent, model, thinking, default_prompt, append_prompt, extensions, skills, ...(enabled ? { soft_budget } : {}) };
+  // Per-task env overrides are the innermost layer; stored only when non-empty so profiles stay byte-stable.
+  const env = normalizeAgentEnv(value.env ?? {});
+  return { agent, model, thinking, default_prompt, append_prompt, extensions, skills,
+    ...(enabled ? { soft_budget } : {}), ...(Object.keys(env).length ? { env } : {}) };
 }
 
 function envDefault(config) {

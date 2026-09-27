@@ -185,15 +185,16 @@ export function renderDetail(task, history, diff, usage) {
     await detail(task.id);
   }, 'ghost', { help: '停止这个 Task 的 Agent 调用并保留工作区、提交、会话与消息；正在运行的子任务不受影响，之后可以继续。' }));
   if (task.status === 'paused') {
-    actions.append(button('继续', async () => {
-      try { await action('task.resume', { id: task.id }); show(`Task #${task.id} 已继续运行。`); }
-      catch (error) { show(`无法继续：${error.message}`, 'error'); }
+    const neverStarted = (task.agent_wakes ?? 0) === 0;
+    actions.append(button(neverStarted ? '开始' : '继续', async () => {
+      try { await action('task.resume', { id: task.id }); show(neverStarted ? `Task #${task.id} 已开始运行。` : `Task #${task.id} 已继续运行。`); }
+      catch (error) { show(`无法${neverStarted ? '开始' : '继续'}：${error.message}`, 'error'); }
       await detail(task.id);
-    }, undefined, { agent: true, help: agentHelp('按当前运行设置重新启动这条 Task 的 Agent；工作区、提交、会话与已追加的消息都保留。') }));
+    }, undefined, { agent: true, help: agentHelp('按当前运行设置启动这条 Task 的 Agent；工作区、提交、会话与已追加的消息都保留。') }));
     actions.append(button('调整运行设置', async () => {
       await configureTask(task);
       await detail(task.id);
-    }, 'ghost', { help: '只修改这条 Task 本轮使用的 Agent、模型、Prompt 与扩展；保存后点「继续」生效，任务结算后自动清除。' }));
+    }, 'ghost', { help: '只修改这条 Task 本轮使用的 Agent、模型、Prompt、扩展与 Pi 环境变量；保存后点「开始 / 继续」生效，任务结算后自动清除。' }));
     actions.append(button('放弃任务', async () => {
       const confirmed = await confirmDialog({
         title: '放弃这个任务树？',

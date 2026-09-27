@@ -21,6 +21,20 @@ function field(label, control, note = '', wide = false) {
   return wrap;
 }
 
+/** 每行一个 NAME=value；后端会再校验变量名与保留前缀，这里只做最基本的切分。 */
+export function parseEnvLines(text) {
+  const values = {};
+  for (const raw of String(text ?? '').split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const at = line.indexOf('=');
+    if (at <= 0) throw new Error(`环境变量必须是 NAME=value：${line}`);
+    values[line.slice(0, at).trim()] = line.slice(at + 1);
+  }
+  return values;
+}
+const envLines = values => Object.entries(values || {}).map(([name, value]) => `${name}=${value}`).join('\n');
+
 function resourceGroup(title, entries, selected, kind, enabled) {
   const group = el('fieldset', undefined, 'retry-resource-group');
   group.append(el('legend', title));
@@ -41,6 +55,7 @@ function resourceGroup(title, entries, selected, kind, enabled) {
 
 /**
  * 任务级 Agent Profile 面板：terminal retry 与 paused 的「调整运行设置」共用同一套字段。
+ * 字段含本轮 Agent / 模型 / 思考深度 / Prompt / 扩展 / Skills / 软预算，以及只在本任务生效的 Pi 环境变量。
  * Profile 只送到 task.retry / task.configure，不修改项目 agent.json，任务结算时失效。
  */
 export async function retryTask(task) {
@@ -100,6 +115,13 @@ async function profileDialog(task, options) {
     const appendPrompt = el('textarea'); appendPrompt.rows = 4; appendPrompt.maxLength = 32768;
     appendPrompt.value = profile.append_prompt || ''; appendPrompt.dataset.retryField = 'append-prompt';
 
+    const envBox = el('div', undefined, 'retry-env-box');
+    const env = el('textarea'); env.rows = 4; env.maxLength = 16384;
+    env.value = envLines(profile.env); env.dataset.retryField = 'env';
+    env.placeholder = 'NAME=value，每行一个；留空则不覆盖角色环境变量';
+    const envNote = el('span', '只在本轮覆盖 common 与角色的 Pi 环境变量；NAME 不能以 LUSH_ 开头，值不要带换行。', 'settings-note');
+    envBox.append(env, envNote);
+
     const resourcesBox = el('div', undefined, 'retry-resources');
     const resourceNote = el('p', '正在读取已安装的 Pi 扩展与 Skills…', 'settings-note');
     const resourceChoices = el('div', undefined, 'retry-resource-choices');
@@ -122,7 +144,7 @@ async function profileDialog(task, options) {
     const paintResources = () => {
       const enabled = backend.value === 'pi';
       resourceNote.textContent = enabled
-        ? (resources.warning || '勾选项只在本轮重试中加载；扩展拥有当前用户的完整系统权限。')
+        ? (resources.warning || '勾选项只在本轮运行中加载；扩展拥有当前用户的完整系统权限。')
         : 'Codex 不加载 Pi 扩展与 Skills；已选项会保留，但本轮不使用。';
       resourceChoices.replaceChildren(
         resourceGroup('扩展', resources.extensions || [], selectedExtensions, 'extensions', enabled),
@@ -142,13 +164,14 @@ async function profileDialog(task, options) {
     backend.onchange = () => syncBackend(true);
 
     grid.append(
-      field('Agent', backend, '只覆盖本轮重试，不修改项目或角色默认配置。'),
+      field('Agent', backend, '只覆盖本轮运行，不修改项目或角色默认配置。'),
       field('模型', modelBox, '可直接填写模型 ID，或从预设与本机目录中选择。'),
       field('思考深度', thinking, '可用等级随 Agent 变化。'),
       field('软预算：响应数', budgetResponses, '留空关闭；仅 Pi。'),
       field('软预算：累计 token', budgetTokens, '留空关闭；仅 Pi。'),
       field('默认 Prompt', promptBox, '修改后会替换 Lush 内置角色 Prompt，可能影响任务协议与交付行为。', true),
-      field('追加 Prompt', appendPrompt, '追加在基础 Prompt 与项目补充之后，仅本轮重试生效。', true),
+      field('追加 Prompt', appendPrompt, '追加在基础 Prompt 与项目补充之后，仅本轮运行生效。', true),
+      field('Pi 环境变量', envBox, '每行一个 NAME=value，仅本轮运行覆盖；留空表示沿用角色设置。', true),
       field('扩展与 Skills', resourcesBox, '保留当前角色配置，可按本轮需要增删。', true));
     form.append(grid, el('p', '确认后，所选完整 Profile 会固定到这个任务，直到它再次完成、失败或取消。', 'retry-scope-note'));
 
@@ -189,12 +212,14 @@ async function profileDialog(task, options) {
       if (budgetResponses.value.trim()) softBudget.responses = Number(budgetResponses.value);
       if (budgetTokens.value.trim()) softBudget.tokens = Number(budgetTokens.value);
     }
-    const retryProfile = {
+    const envValues = parseEnvLines(env.value);
+    const taskProfile = {
       agent: backend.value, model: model.value.trim(), thinking: thinking.value,
       default_prompt: nextDefault, append_prompt: appendPrompt.value.trim(),
       extensions: [...selectedExtensions], skills: [...selectedSkills], soft_budget: softBudget,
+      ...(Object.keys(envValues).length ? { env: envValues } : {}),
     };
-    await action(options.method, { id: task.id, profile: retryProfile });
+    await action(options.method, { id: task.id, profile: taskProfile });
     show(configuring
       ? `任务 #${task.id} 的运行设置已保存；点「继续」按新设置运行。`
       : `任务 #${task.id} 已按本轮 Agent 设置进入重试队列。`);

@@ -7,7 +7,8 @@ import { ui } from './state.js';
 import { composerReferences, renderComposerReferences, setComposerReferences } from './context-references.js';
 import { agentHelp } from './help.js';
 
-// 草稿只缓存；输入框发送仅提交当前正文，绝不连带发送其它草稿。
+// 新输入只走 say：发送 / ⌘Ctrl+Enter 建「待开始」Task，⌘Ctrl+Shift+Enter 直接运行；
+// 下面的草稿函数是历史实现，已无公开入口，保留供旧行与测试参考。
 /** 面板开合状态画到 DOM：.open 控制展开，aria-expanded 同步给读屏。 */
 export function paintDraftPanel() {
   const open = Boolean(ui.draftPanelOpen);
@@ -102,17 +103,19 @@ export async function buffer() {
   // 网络请求期间用户可能又引用了一项；只清掉实际随这条草稿提交的那一组。
   if (JSON.stringify(composerReferences()) === signature) setComposerReferences([]);
 }
-/** 接上输入框与操作按钮：回车=存草稿，⌘/Ctrl+回车=发送当前正文，Shift+回车=换行。 */
+/** 接上输入框与操作按钮：Enter 换行；⌘/Ctrl+Enter 创建待开始任务；⌘/Ctrl+Shift+Enter 创建并立即运行。 */
 export function initComposer() {
-  $('draft-commit').setAttribute('data-help', agentHelp('只发送输入框中的这一条，不会连带发送缓存的草稿。'));
+  $('draft-commit').setAttribute('data-help', agentHelp('发送后创建独立 Task；默认先停在「待开始」，可进任务里配置 Agent、模型与 Pi 环境变量再开始。⌘ / Ctrl+Shift+Enter 直接开始。'));
   renderComposerReferences();
   $('composer-expand').onclick = () => toggleComposerDetails();
   renderParentOptions();
   // 父 Task 可能在展开态被改动：折叠回去时控件上要显示最新值。
   $('input-parent').addEventListener('change', paintComposerDetails);
+  // 由快捷键决定的本次提交是否立即运行；发送按钮始终先建「待开始」。
   $('input-form').onsubmit = async event => {
     event.preventDefault();
     if (ui.composerSubmitting) return;
+    const start = Boolean(ui.composerStartNow);
     ui.composerSubmitting = true; syncComposer();
     try {
       const value = $('input').value.trim();
@@ -120,17 +123,21 @@ export function initComposer() {
       const references = composerReferences();
       const signature = JSON.stringify(references);
       const branch = $('input-parent').value.trim();
-      const result = await action('say.submit', { content: value, references, ...(branch ? { branch } : {}) });
+      const result = await action('say.submit', { content: value, references, start, ...(branch ? { branch } : {}) });
       if ($('input').value.trim() === value) $('input').value = '';
       if (JSON.stringify(composerReferences()) === signature) setComposerReferences([]);
-      show(`已创建 Task #${result.task.id}`);
+      show(start ? `已创建并开始 Task #${result.task.id}` : `已创建 Task #${result.task.id}（待开始），可配置后开始；⌘ / Ctrl+Shift+Enter 可直接运行`);
       await refresh(); await detail(result.task.id);
     } catch (error) { show(error.message, 'error'); } finally { ui.composerSubmitting = false; syncComposer(); }
   };
   $('input').addEventListener('input', syncComposer);
-  // 普通 Enter 换行；快捷键只发送当前正文，不误创建草稿。
+  // Enter 换行；⌘/Ctrl+Enter 创建待开始任务；⌘/Ctrl+Shift+Enter 创建并立即运行。
   $('input').addEventListener('keydown', event => {
-    if (event.key !== 'Enter' || event.isComposing || (!event.metaKey && !event.ctrlKey)) return;
-    event.preventDefault(); $('input-form').requestSubmit();
+    if (event.key !== 'Enter' || event.isComposing) return;
+    if (!event.metaKey && !event.ctrlKey) return; // 普通 Enter 换行
+    event.preventDefault();
+    ui.composerStartNow = Boolean(event.shiftKey);
+    $('input-form').requestSubmit();
+    ui.composerStartNow = false;
   });
 }

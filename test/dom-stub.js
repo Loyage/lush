@@ -89,6 +89,9 @@ class StubNode {
   focus() { if (globalThis.document) globalThis.document.activeElement = this; }
   // blur() 与 focus() 对称：焦点在自己身上时交还出去（浏览器里 activeElement 会回到 body / 外层元素）。
   blur() { if (globalThis.document && globalThis.document.activeElement === this) globalThis.document.activeElement = null; }
+  // 浏览器等价动作的极薄实现：快捷键测试要触发 form 的 submit 事件，按钮测试也会用 click。
+  requestSubmit() { return this.onsubmit?.({ preventDefault() {}, target: this }); }
+  click() { return this.onclick?.({ currentTarget: this, preventDefault() {} }); }
   querySelector(selector) { return walk(this).find(node => matches(node, selector)) || null; }
   querySelectorAll(selector) { return walk(this).filter(node => matches(node, selector)); }
 }
