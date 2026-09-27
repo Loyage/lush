@@ -166,6 +166,14 @@ export const methods = {
       }
       return { id: task.id, worktree: 'absent', branch: 'absent', reason: null };
     }
+    // A squash deliberately does not make the source commit an ancestor of the parent.
+    // Verify the exact landed tree and ref instead of applying the old ancestry cleanup rule.
+    const booking = task.reservation ? JSON.parse(task.reservation) : null;
+    if (booking?.version === 2 && booking.status === 'integrated' && task.branch) {
+      if (keepBranch) return { id: task.id, worktree: 'kept', branch: 'kept', reason: 'kept by --keep-branch' };
+      await this.archiveSquashedTaskUnsafe(task, booking.commit, booking.landed_commit);
+      return { id: task.id, worktree: 'removed', branch: 'removed', reason: null };
+    }
     // merged/none：这条线已经收尾；superseded：这一轮解冲突被下一轮取代，分支留作恢复点，不强留工作区。
     check(['merged','none','superseded'].includes(task.integration), 'unmerged work must be kept');
     let worktree = 'absent';

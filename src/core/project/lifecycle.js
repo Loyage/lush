@@ -219,6 +219,18 @@ export default {
     const task = this.store.task(taskId);
     check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; cancel individual say Tasks instead');
     if (TERMINAL.has(task.status)) return task;
+    const mergeBooking = task.reservation ? JSON.parse(task.reservation) : null;
+    if (mergeBooking?.version === 2 && mergeBooking.kind === 'merge'
+      && ['pending','requested','resolving'].includes(mergeBooking.status)) {
+      check(!this.taskMergeBusy?.has(mergeBooking.parent_id), 'merge is applying a Git update; wait for its safe point');
+      this.store.transaction(() => {
+        this.store.update(task.id, { reservation: JSON.stringify({ ...mergeBooking, status: 'withdrawn' }) });
+        this.store.event(task.id, 'task.request_withdrawn', { reason, parent_id: mergeBooking.parent_id });
+        if (mergeBooking.parent_id) this.store.run("UPDATE messages SET consumed=1 WHERE task_id=? AND sender_id=? AND signal_key LIKE 'merge-v2:%'",
+          mergeBooking.parent_id, task.id);
+      });
+      if (mergeBooking.parent_id) this.scheduleTaskMerge(mergeBooking.parent_id);
+    }
     // 合并编排 Task 直接经 task.cancel 取消时，也要先清运行释放冻结、取消等待中的解分歧子任务，
     // 与 branch.orchestrate_cancel 同一收尾；否则残留 run 会继续驱动并冻结目标分支。
     if (task.task_kind === 'merge') {
@@ -379,9 +391,19 @@ export default {
       check(reservation.kind !== 'showcase' || !['completed','failed','cancelled'].includes(reservation.status),
         'a settled showcase and its parent cannot be retried separately; submit a new say');
     }
-    if (task.parent_id) check(!TERMINAL.has(this.store.task(task.parent_id).status), 'parent has ended; retry the parent or submit a new input');
+    if (task.parent_id) {
+      const parent = this.store.task(task.parent_id);
+      if (parent.task_kind === 'merge' && parent.name === 'merge' && parent.status === 'completed'
+        && ['say','child'].includes(task.task_kind) && task.integration !== 'merged') {
+        check(!TERMINAL.has(this.store.task(parent.parent_id).status), 'original parent has ended; inspect the branch');
+        this.store.update(parent.id, { status: 'waiting' });
+        this.store.event(parent.id, 'merge.queue_reopened', { task_id: task.id });
+      } else check(!TERMINAL.has(parent.status), 'parent has ended; retry the parent or submit a new input');
+    }
     const retryProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile(task.role, profile);
+    const booking = task.reservation ? JSON.parse(task.reservation) : null;
     this.store.update(task.id, { status: 'queued', error: null, result: null, calls: 0,
+      ...(booking?.version === 2 && booking.status === 'withdrawn' ? { reservation: null } : {}),
       retry_profile: retryProfile ? JSON.stringify(retryProfile) : null });
     this.store.event(task.id, 'retry', retryProfile ? {
       profile_override: true, agent: retryProfile.agent, model: retryProfile.model || null,
@@ -416,19 +438,41 @@ export default {
     }
     this.kick();
     // 只续推已经静息的预约；running invocation 的未知文件副作用仍保留现场，不自动重播。
-    for (const task of this.store.tasks()) if (task.task_kind === 'say' && task.status === 'waiting' && task.reservation) {
+    for (const task of this.store.tasks()) if (['say','child'].includes(task.task_kind) && task.status === 'waiting' && task.reservation) {
       let pendingMerge = false;
       try { const value = JSON.parse(task.reservation); pendingMerge = value.kind === 'merge' && value.status === 'pending'; }
       catch { /* invalid state remains visible for inspection */ }
-      if (pendingMerge) void this.settleReservedMerge(task.id).catch(error =>
-        this.noteReservationBlocked(task.id, error.message));
+      if (pendingMerge) {
+        const booking = JSON.parse(task.reservation);
+        void (booking.version === 2 ? this.settleQueuedMerge(task.id) : this.settleReservedMerge(task.id)).catch(error =>
+          this.noteReservationBlocked(task.id, error.message));
+      }
     }
     // 已发出的请求也要复查：重启期间父分支可能被推进、源分支可能被外部改动，而 pending 复查不覆盖它。
-    for (const task of this.store.tasks()) if (task.task_kind === 'say' && task.reservation) {
+    for (const task of this.store.tasks()) if (['say','child'].includes(task.task_kind) && task.reservation) {
       let requested = false;
       try { requested = JSON.parse(task.reservation)?.status === 'requested'; } catch { /* leave corrupt state visible */ }
-      if (requested) void this.recheckRequestedMerge(task.id).catch(error =>
-        this.noteReservationBlocked(task.id, error.message));
+      if (requested) {
+        const booking = JSON.parse(task.reservation);
+        if (booking.version === 2) this.scheduleTaskMerge(booking.parent_id);
+        else void this.recheckRequestedMerge(task.id).catch(error =>
+          this.noteReservationBlocked(task.id, error.message));
+      }
+    }
+    // A returned source must not resume an invocation with unknown side effects after restart.
+    for (const task of this.store.tasks()) if (['say','child'].includes(task.task_kind) && task.reservation) {
+      let booking;
+      try { booking = JSON.parse(task.reservation); } catch { continue; }
+      if (booking.version === 2 && booking.status === 'resolving' && task.status === 'queued') {
+        this.store.update(task.id, { status: 'failed', error: 'daemon interrupted divergence repair; inspect and explicitly retry' });
+        this.store.event(task.id, 'merge.repair_interrupted', {});
+      }
+      if (booking.version === 2 && booking.status === 'integrated' && task.branch) {
+        void this.workspaces.exclusive(() => this.workspaces.archiveSquashedTaskUnsafe(
+          this.store.task(task.id), booking.commit, booking.landed_commit)).catch(error => {
+          this.store.update(task.id, { integration_error: `自动归档受阻：${error.message}` });
+        });
+      }
     }
     // 崩溃可能落在「独立解分歧子 Task 已结算」与「runtime 推进 say 分支」之间：重启后补跑收尾。
     for (const task of this.store.tasks()) {

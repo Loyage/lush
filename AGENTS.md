@@ -36,15 +36,15 @@ bun run stop
 
 **lushd 与 Lush Host 是两个独立进程，改完两端代码两个都要重启。** 无 `--project` 的 Web/桌面启动器会在选定项目后自动启动或连接 daemon；显式 `--project` 的单项目 Web 不替用户启动 daemon。`bun run daemon-restart` 只管当前项目 daemon；`bun run host` 后台起的 Web 进程自己活到被杀为止，不会跟着 daemon 换版本。只重启 daemon 就去刷新页面，会看到旧 Web 进程把**新的** `app.js` 发下来、却对自己不认识的 API 路由（例如后来才加的 `/api/docs`）回 404——页面直接「打开失败」。改 `src/ui/web/` 下任何东西之后，先 `bun run host-restart` 再看页面：它停掉端口上那个后台 Web（只认命令行确实是 Lush Web 的进程）再按当前代码起一个新的；直接再跑 `bun run host` 只会幂等报告「已在运行」。重启 Web 会清空登录会话，浏览器要重新登录一次；跑的是不是这份代码用 `bun run host-status` 看（它比的是 Web 自己记下的代码指纹），不用靠猜。`bun run doctor` 只校验 daemon 的 fingerprint，报的是 daemon 的身份，不会告诉你 Web 是不是旧进程。
 
-不要在开发测试时默认操纵用户正在开发的项目。测试用临时项目目录和 mock/可控子进程；测试结束停 daemon 并清理自己的临时文件。
+跑测试时，若测试彼此独立且不会争用共享状态、端口或其他资源，尽量并行运行以缩短等待；有依赖或资源冲突时再串行执行。不要在开发测试时默认操纵用户正在开发的项目。测试用临时项目目录和 mock/可控子进程；测试结束停 daemon 并清理自己的临时文件。
 
 ## 安全与持久化
 
 - Git 操作通过 `src/core/workspaces.js`，无 shell 插值，所有 Lush Git 变更串行。
-- 每个 worker 独立 worktree / 分支；默认必须由用户明确批准合并。
+- 每个 worker 独立 worktree / 分支；历史 worker 的合并仍由用户批准。新式 say/child 的 version 2 合并预约由用户发起后，merge Task 自动串行 Squash（含 main），分歧由原 Task 在源侧解决；成功受检归档工作区。
 - 不强制 reset / clean / 删除工作区，不自动提交用户已有改动。失败工作区也有价值。
 - `completed` 不等于 `merged`。保留独立的任务状态与 integration 状态。
-- Task 的父子关系创建后不变；终态 task 不允许活动后代。依赖边（`task_deps`）只在 spawn 时写入，之后不可变。
+- Task 父子关系原则上创建后不变；**新式 say/child 的 version 2 合并请求**是唯一例外：先发出固定请求，再将请求 Task 重挂到原父的 merge 子 Task，并用预约和事件保存原父 ID。终态 task 不允许活动后代。依赖边（`task_deps`）只在 spawn 时写入，之后不可变。
 - 依赖只做结构校验（自依赖、祖先、悬空 id、多 code 边、非 worker 上游）；语义冲突由 planner 判断，拿不准就问用户。
 - 输入分 `develop` / `explain` 两类（`inputs.flow`，未判定按 develop）：explain 输入不得派生 worker/coordinator（`Project.spawn` 硬校验），因此了解类输入不产生 worktree 与待合并改动；改判只影响之后的 spawn。
 - `code` 依赖把上游分支当作下游 worktree 的基线，所以合并必须上游先行；`task merge` 会拒绝越级。

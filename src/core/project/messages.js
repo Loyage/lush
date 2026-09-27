@@ -8,6 +8,11 @@ export default {
     const target = this.store.task(taskId); text(body, 'message');
     check(!['main','owner'].includes(target.task_kind), 'branch owner Task is not an unrestricted Agent inbox; use an approved merge request');
     check(!TERMINAL.has(target.status), 'task has ended; retry it or submit a new input');
+    if (target.reservation) {
+      const booking = JSON.parse(target.reservation);
+      check(!(booking.version === 2 && booking.status === 'requested'),
+        'Task is frozen for merge; wait for integration or divergence repair before messaging it');
+    }
     check(target.task_kind !== 'say' || !target.reservation || JSON.parse(target.reservation).status !== 'started',
       'say Task has finished development and is presenting; submit a new say instead');
     if (sender !== null) {

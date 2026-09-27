@@ -92,6 +92,75 @@ export const methods = {
 
   mergeBranch(child, expected = null) { return this.exclusive(() => this.mergeBranchUnsafe(child, expected)); },
 
+  /** Squash a verified child tip into one parent commit. Caller holds the Git queue. */
+  async squashBranchUnsafe(child, source, parentHead, message) {
+    const project = this.config.project;
+    const state = await this.branchState(child);
+    check(state.parent_head === parentHead && state.child_head === source, 'source/target moved before squash');
+    check(state.blockers.every(blocker => blocker === `task:#${this.store.branch(child)?.task_id}`),
+      'unintegrated descendant branches block squash');
+    const childWorkspace = await this.workspaceForBranch(child);
+    if (childWorkspace) await this.clean(childWorkspace);
+    const parentWorkspace = await this.workspaceForBranch(state.parent);
+    if (parentWorkspace) {
+      await this.clean(parentWorkspace);
+      check(await this.git(parentWorkspace, 'symbolic-ref', '--short', 'HEAD') === state.parent
+        && await this.git(parentWorkspace, 'rev-parse', 'HEAD') === parentHead,
+      'parent checkout moved before squash');
+    }
+    if (await this.isAncestor(project, source, parentHead))
+      return { commit: parentHead, already_integrated: true };
+    check(await this.isAncestor(project, parentHead, source), 'diverged source must be repaired before squash');
+    const parentTree = await this.git(project, 'rev-parse', `${parentHead}^{tree}`);
+    const sourceTree = await this.git(project, 'rev-parse', `${source}^{tree}`);
+    if (parentTree === sourceTree) return { commit: parentHead, already_integrated: true };
+    if (parentWorkspace) {
+      // --squash stages the exact source tree for a fast-forwardable child, then writes one commit.
+      await this.git(parentWorkspace, 'merge', '--squash', source);
+      try {
+        const staged = await this.git(parentWorkspace, 'write-tree');
+        check(staged === sourceTree, 'squash staged a different tree than the reviewed child');
+        await this.git(parentWorkspace, '-c', 'user.name=Lush', '-c', 'user.email=lush@localhost',
+          'commit', '-m', message);
+      } catch (error) {
+        // Do not reset/clean user state if commit fails: preserve the staged result for inspection.
+        throw error;
+      }
+      const commit = await this.git(parentWorkspace, 'rev-parse', 'HEAD');
+      check(await this.git(parentWorkspace, 'rev-parse', 'HEAD^') === parentHead,
+        'squash must create exactly one parent commit');
+      return { commit, already_integrated: false };
+    }
+    const commit = await this.git(project, '-c', 'user.name=Lush', '-c', 'user.email=lush@localhost',
+      'commit-tree', sourceTree, '-p', parentHead, '-m', message);
+    await this.git(project, 'update-ref', `refs/heads/${state.parent}`, commit, parentHead);
+    return { commit, already_integrated: false };
+  },
+
+  /** Delete the source ref after squash only when its reviewed tree survives in the target. */
+  async archiveSquashedTaskUnsafe(task, source, landed) {
+    check(task.integration === 'merged' && task.branch && task.target_branch, 'only integrated tasks can be archived');
+    const project = this.config.project;
+    const tip = await this.git(project, 'rev-parse', `refs/heads/${task.branch}`);
+    check(tip === source, 'source branch moved; keep it for inspection');
+    check(await this.git(project, 'rev-parse', `${source}^{tree}`) === await this.git(project, 'rev-parse', `${landed}^{tree}`),
+      'squash tree differs from source; keep the source branch');
+    check(await this.isAncestor(project, landed, `refs/heads/${task.target_branch}`),
+      'the squash commit is no longer on the target branch');
+    if (task.workspace) {
+      await this.clean(task.workspace);
+      check(await this.git(task.workspace, 'rev-parse', 'HEAD') === source, 'source worktree moved');
+      await this.git(project, 'worktree', 'remove', task.workspace);
+      this.store.update(task.id, { workspace: null });
+      this.store.event(task.id, 'workspace.removed', { workspace: task.workspace });
+    }
+    check(!await this.checkedOut(task.branch), 'source branch is still checked out');
+    await this.git(project, 'update-ref', '-d', `refs/heads/${task.branch}`, source);
+    this.store.markBranchArchived(task.branch);
+    this.store.update(task.id, { branch: null });
+    this.store.event(task.id, 'task.archived', { branch: task.branch, source_commit: source, landed_commit: landed });
+  },
+
   /**
    * 把一条分支快进到一个已经包含它当前顶端的提交（例如独立解分歧子任务的产物）。
    * 有检出的 worktree 就在里面 `git merge --ff-only`，否则 compare-and-swap ref；不产生 merge commit，

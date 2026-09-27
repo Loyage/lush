@@ -9,7 +9,7 @@ function storedReservation(raw) {
   let value;
   try { value = JSON.parse(raw); }
   catch { throw new Error('reservation state is invalid; inspect task before changing it'); }
-  check(value && typeof value === 'object' && !Array.isArray(value) && value.version === 1
+  check(value && typeof value === 'object' && !Array.isArray(value) && [1,2].includes(value.version)
     && ['merge','showcase'].includes(value.kind) && typeof value.status === 'string',
   'reservation state is invalid; inspect task before changing it');
   return value;
@@ -162,6 +162,9 @@ export default {
   async reserveTask(taskId, kind) {
     check(kind === 'merge' || kind === 'showcase', 'reservation kind must be merge or showcase');
     if (kind === 'showcase') return this.bookShowcase(taskId);
+    const code = this.store.task(id(taskId));
+    if (code.task_kind === 'child' || !code.reservation || JSON.parse(code.reservation)?.version === 2)
+      return this.requestTaskMerge(taskId);
     // 展示交付后原 say 已终结，但「看完后仍需在分支图批准合并」这条路还缺一张固定提交的合并请求。
     // 这类终态 say 不能再等一个 pending 预约，直接补发 requested；若它之前撤销过请求（reservation 为空），
     // 同样允许重新请求，不必复活 Task。
@@ -170,7 +173,7 @@ export default {
       const settledReservation = storedReservation(settledSay.reservation);
       if (settledReservation === null
         || (settledReservation.kind === 'showcase' && settledReservation.status === 'completed')) {
-        return this.requestSettledShowcaseMerge(taskId);
+        return this.requestTaskMerge(taskId);
       }
     }
     const accepted = this.store.transaction(() => {
@@ -201,7 +204,7 @@ export default {
     this.store.transaction(() => {
       const task = this.store.task(taskId);
       const reservation = storedReservation(task.reservation);
-      if (!['merge','showcase'].includes(reservation?.kind) || !['pending','preparing','requested'].includes(reservation.status)) return;
+      if (!['merge','showcase'].includes(reservation?.kind) || !['pending','preparing','requested','resolving'].includes(reservation.status)) return;
       const blocked_reason = String(reason).slice(0, 1000);
       if (reservation.blocked_reason === blocked_reason && (reservation.blocked_code ?? null) === code) return;
       const { blocked_code: _previousCode, ...rest } = reservation;
@@ -277,8 +280,8 @@ export default {
     return this.workspaces.exclusive(async () => {
       const task = this.store.task(id(taskId));
       const reservation = storedReservation(task.reservation);
-      check(task.task_kind === 'say' && reservation?.kind === 'merge' && reservation.status === 'pending',
-        'only a pending say merge reservation can resolve parent divergence');
+      check(task.task_kind === 'say' && reservation?.version === 1 && reservation.kind === 'merge' && reservation.status === 'pending',
+        'only a legacy pending say merge reservation can use this resolution path');
       const terminal = TERMINAL.has(task.status);
       const previous = this.store.get(`SELECT t.* FROM tasks t JOIN events e ON e.task_id=t.id
         LEFT JOIN branches b ON b.branch=t.branch
@@ -806,6 +809,21 @@ export default {
 
   unreserveTask(taskId) {
     let prepChild = null;
+    const requested = this.store.task(id(taskId));
+    if (['say','child'].includes(requested.task_kind) && requested.reservation
+      && JSON.parse(requested.reservation)?.version === 2) {
+      const booking = JSON.parse(requested.reservation);
+      const abandonedRepair = booking.status === 'resolving' && ['failed','cancelled'].includes(requested.status)
+        && !this.running.has(requested.id);
+      check(booking.status === 'pending' || abandonedRepair,
+        'a sent merge request cannot be withdrawn; wait for integration or resolve the divergence');
+      this.store.transaction(() => {
+        this.store.update(requested.id, { reservation: null });
+        this.store.event(requested.id, 'task.unreserved', { reservation: booking });
+      });
+      if (abandonedRepair && booking.parent_id) this.scheduleTaskMerge(booking.parent_id);
+      return { task_id: requested.id, reservation: null, changed: true };
+    }
     const result = this.store.transaction(() => {
       const task = this.store.task(id(taskId));
       check(task.task_kind === 'say', 'only new say Tasks support delivery reservations');
@@ -844,7 +862,7 @@ export default {
     return this.workspaces.exclusive(async () => {
       const task = this.store.task(id(taskId));
       const reservation = storedReservation(task.reservation);
-      check(task.task_kind === 'say' && task.status === 'completed' && reservation?.kind === 'merge'
+      check(task.task_kind === 'say' && task.status === 'completed' && reservation?.version === 1 && reservation.kind === 'merge'
         && ['requested','integrated'].includes(reservation.status), 'no completed merge request for this say Task');
       check(reservation.commit === commit && reservation.baseline === baseline,
         'approval does not match the frozen request commit and parent baseline');

@@ -36,13 +36,14 @@ export function branchFreeze(store) {
   }
 
   for (const task of store.all(`SELECT id, target_branch, reservation FROM tasks
-    WHERE task_kind='say' AND target_branch IS NOT NULL AND reservation IS NOT NULL ORDER BY id`)) {
+    WHERE task_kind IN ('say','child') AND target_branch IS NOT NULL AND reservation IS NOT NULL ORDER BY id`)) {
     let request = null;
     // 损坏的 reservation 不参与冻结：它自己阻塞不了写，必须保持可检查、可撤销。
     try { request = JSON.parse(task.reservation); } catch { continue; }
-    if (!request || request.kind !== 'merge' || request.status !== 'requested') continue;
+    if (!request || request.kind !== 'merge'
+      || !(request.status === 'requested' || (request.version === 2 && request.status === 'resolving'))) continue;
     add(task.target_branch, { kind: 'delivery', task_id: task.id, commit: request.commit ?? null,
-      reason: `say #${task.id} 的合并请求 ${String(request.commit ?? '').slice(0, 12)} 已固定基线，等待集成或撤销` });
+      reason: `Task #${task.id} 的合并请求 ${String(request.commit ?? '').slice(0, 12)} 正由 merge Task 串行处理` });
   }
 
   return frozen;

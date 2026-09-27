@@ -12,12 +12,12 @@ lush [--project PATH] [--json] <command>
   task message ID '说明'             给现有 Task 追加消息
   task transcript ID [--follow]      查看执行记录
   task history ID                    查看事件
-  task integrate CHILD COMMIT        运行中的直接父 Agent 确认子提交
-  task resolve-child-divergence ID   父 Agent 派解分歧子任务
-  task reserve ID merge              冻结固定提交并请求合并/复查
-  task resolve-divergence ID         处理 say 与父分支分歧
-  task approve-merge ID COMMIT BASELINE  用户批准快进到 main/owner
-  task unreserve ID                  撤销合并请求
+  task reserve ID merge              say/child 静息后请求自动 Squash 合并；运行中预约
+  task unreserve ID                  撤销尚未发出的合并预约
+  task integrate CHILD COMMIT        历史任务的父 Agent 确认固定子提交
+  task resolve-child-divergence ID   历史解分歧子任务
+  task resolve-divergence ID         历史 say 解分歧入口
+  task approve-merge ID COMMIT BASELINE  历史请求的用户批准入口
   task resolve ID                    无代码改动时标记已解决
   task cancel|retry ID               停止或显式重试
   task cleanup ID [--keep-branch]    安全回收工作区

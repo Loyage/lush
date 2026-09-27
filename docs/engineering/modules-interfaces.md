@@ -55,7 +55,7 @@
 
 | 分区 | 文件 |
 |---|---|
-| Task 中心主链 | `test/project/say.test.js`、`task-signals.test.js`、`task-centered-graph.test.js`、`lifecycle.test.js`、`scheduling.test.js`、`preempt.test.js`、`progress.test.js`、`recovery.test.js`、`limits.test.js`、`agents.test.js`、`status.test.js` |
+| Task 中心主链 | `test/project/say.test.js`、`merge-queue.test.js`、`task-signals.test.js`、`task-centered-graph.test.js`、`lifecycle.test.js`、`scheduling.test.js`、`preempt.test.js`、`progress.test.js`、`recovery.test.js`、`limits.test.js`、`agents.test.js`、`status.test.js` |
 | 公开面契约 | `test/core-api.test.js`（RPC 白名单）、`test/help-guard.test.js`（帮助与命令面）、`test/web/core-api.test.js` |
 | Git / worktree | `test/workspaces/{naming,merge,cleanup,genealogy,anchor,archive,branch-diagnostics,branch-first}.test.js` |
 | Web 读面与安全 | `test/web/{security,assets,read-models,project-route,core-studio,multi-project,launcher}.test.js` |

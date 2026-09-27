@@ -24,7 +24,7 @@ export default {
   },
 
   hasActionableMessages(taskId) {
-    if (!this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', taskId)) return false;
+    if (!this.store.get("SELECT id FROM messages WHERE task_id=? AND consumed=0 AND (signal_key IS NULL OR signal_key NOT LIKE 'merge-v2:%') LIMIT 1", taskId)) return false;
     const task = this.store.get('SELECT role FROM tasks WHERE id=?', taskId);
     if (task.role !== 'coordinator' || !this.store.get(`SELECT id FROM tasks WHERE parent_id=?
       AND status NOT IN ('completed','failed','cancelled') LIMIT 1`, taskId)) return true;
@@ -37,6 +37,8 @@ export default {
   wake(taskId) {
     const task = this.store.task(taskId);
     if (['main','owner','merge'].includes(task.task_kind)) return; // runtime-driven roots and merge orchestration never run providers
+    if (task.reservation && JSON.parse(task.reservation)?.version === 2
+      && JSON.parse(task.reservation).status === 'requested') return; // frozen until merge queue settles
     if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') return;
     if (!TERMINAL.has(task.status) && !this.running.has(task.id)) {
       const deferred = task.role === 'coordinator' && this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', task.id)
@@ -79,6 +81,8 @@ export default {
       if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.
       if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') continue;
       if (this.running.has(task.id)) continue;
+      if (task.reservation && JSON.parse(task.reservation)?.version === 2
+        && JSON.parse(task.reservation).status === 'requested') continue;
       const frozen = freezes.get(taskBranch(task));
       // 仅允许本次解分歧 Task 在隔离 worktree 内运行；所有其它 Agent 留在 queued，消息不丢。
       const resolution = frozen && this.store.get(`SELECT data FROM events WHERE task_id=?
@@ -100,6 +104,15 @@ export default {
         console.error(`task ${task.id}: ${error.stack || error}`);
       }).finally(async () => {
         this.running.delete(task.id);
+        if (!this.stopping && ['say','child'].includes(task.task_kind)) {
+          const current = this.store.task(task.id);
+          const booking = current.reservation ? JSON.parse(current.reservation) : null;
+          if (booking?.version === 2 && booking.status === 'requested') this.scheduleTaskMerge(booking.parent_id);
+          if (current.branch) {
+            const parent = this.store.get('SELECT id FROM tasks WHERE branch=? AND task_kind IN (\'main\',\'owner\',\'say\',\'child\')', current.branch);
+            if (parent) this.scheduleTaskMerge(parent.id);
+          }
+        }
         // 已冻结的编排此时才能按安全点重新核对两端 tip，并派隔离的解分歧 Task。
         for (const { target, run: mergeRun } of this.store.activeBranchMergeRuns()) {
           if (mergeRun.mode === 'orchestrate' && mergeRun.waiting_safe_task_id === task.id) this.scheduleMergeRun(target);
@@ -115,7 +128,8 @@ export default {
           try { reservation = settled.task_kind === 'say' && settled.reservation ? JSON.parse(settled.reservation) : null; }
           catch { /* invalid state stays visible for inspection */ }
           if (settled.status === 'waiting' && reservation?.kind === 'merge') {
-            await this.settleReservedMerge(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+            const settle = reservation.version === 2 ? this.settleQueuedMerge(task.id) : this.settleReservedMerge(task.id);
+            await settle.catch(error => this.noteReservationBlocked(task.id, error.message));
           }
           if (settled.status === 'waiting' && reservation?.kind === 'showcase' && reservation.status === 'preparing') {
             await this.signalReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
@@ -267,7 +281,14 @@ export default {
       if (this.store.children(taskId).some(child => !TERMINAL.has(child.status))) {
         this.store.update(taskId, { status: 'waiting' }); return;
       }
-      if (task.task_kind === 'say') {
+      if (['say','child'].includes(task.task_kind)) {
+        const booking = this.store.task(taskId).reservation ? JSON.parse(this.store.task(taskId).reservation) : null;
+        if (booking?.version === 2 && booking.status === 'resolving') this.store.transaction(() => {
+          this.store.update(taskId, { reservation: JSON.stringify({ ...booking, status: 'pending' }) });
+          this.store.event(taskId, 'merge.divergence_ready', { head_commit: this.store.task(taskId).head_commit });
+        });
+        // Both say and child remain idle until an explicit merge request. Child work must
+        // not silently become terminal before its parent has collected the branch.
         // A say Task keeps ownership of its branch between invocations. Only an explicit
         // later reservation/termination may close it; a normal provider return is not completion.
         // 这条分支自己前进了（本轮新提交）：挂在它上面的未集成请求要如实变成失效状态，

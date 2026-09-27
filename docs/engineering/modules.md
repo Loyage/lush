@@ -76,7 +76,11 @@
 - `graph.get` 的 branch 节点增量提供 `diagnostics`：`changes` 以登记的 `created_from_commit` → 当前固定 tip 统计已提交净改动（文件总数、文本增删行、二进制文件数及有界文件列表），`latest_commit` 给出 tip 的提交时间与摘要，`working_tree` 单独统计实际检出该分支的工作区未提交文件数（暂存 / 未暂存 / 未跟踪 / 冲突，分类可能重叠）。无起点、无 ref、未检出与读取失败不能冒充零。
 - Git 边界 `workspaces/diff.js` 新增 `branchDiagnostics(branches)` 批量读面：只读 Git、禁用外部 diff/textconv，固定提交结果有界缓存；文件列表每分支最多 50 项且 JSON 不超过 2 KiB，截断不影响汇总。无新表、无新 RPC 方法；Web 用既有图轮询，并保留文件列表展开状态。
 
-## 交付锁与合并编排
+## 新式 Task 的自动合并（version 2）
+
+新式 say / child 的 `task.reserve {kind:'merge'}` 创建 version 2 预约：运行中只保存意图，轮末安全点、子任务结算、工作区干净且有提交时发幂等 `merge.requested` 信号；请求后原 Task 静息冻结。父 Task 创建/复用 `task_kind='merge'` 子 Task，先留带原父 ID 的审计事件，再把请求 Task 的 `parent_id` 改成 merge Task；Git 的 `target_branch` 仍是创建时的直接父分支，不改写分支谱系。merge Task 是 runtime 驱动的串行队列，不启动不受限 Provider；队列空闲时结算身份，后续请求可重开。源/目标可快进时将源树 Squash 为父分支上的**一条提交**（不是把源的 Git 提交逐个快进）；分歧时重新唤醒原 Task，在自己的分支吸收固定父提交，完成后重新排队。main / owner 也由该队列自动推进，不需旧 `task.approve_merge`。Git 和 DB 分阶段，恢复时只对比精确原父、树与提交标题，绝不重放未知副作用。合并后验证源树等于已落地树、ref 未漂移且工作区干净，删 worktree 与源 ref，保留 Task / 事件 / 原哈希；检查失败保留磁盘现场和错误，允许安全重试归档。历史 version 1 请求继续走原来的用户/父 Agent 手动路径，不迁移旧记录。
+
+## 交付锁与合并编排（历史 version 1）
 
 - 新的 Task 中心交付只走固定提交：合并预约（`tasks.reservation`，`kind='merge'`）在静息、后代结算、工作区干净且可快进时冻结源 `commit` 与父 `baseline`，向父 Task 发去重请求；父为 say 时由运行中的直接父 Agent `task.integrate` 确认，父为 main/owner 时由用户 `task.approve_merge` 批准。请求未解决时父分支受交付锁保护。
 - `src/core/branch-freeze.js` 从已有事实现算分支写冻结：任何未结束的解分歧 Task 冻结其目标分支 + 全部后代 + 其直接父分支；已发出但尚未集成的 say 合并请求（`reservation` 里 `kind=merge`、`status=requested`）冻结其 `target_branch` **本身**（不冻结请求者与兄弟 say 自己的分支）——请求已经把父分支基线固定成那个 commit，父分支再前进就只能作废重做。交付锁同时保证同一个父分支一次只接受一个未集成请求：`settleReservedMerge` 见到别人的交付锁就保持 pending 并记 `parent_locked`，`integrateChild` / `approveReservedMerge` 只允许锁持有者自己落地。冻结拦截新建 say、`task.retry` / `task.cleanup` / `branch.archive`；`task.cancel` 保持可用（释放路径）；源分支带着未集成请求时 `branch.archive` 也拒绝（删了它父分支的交付锁就永远没有落地对象）。冻结经 `status.branch_freeze` / `status.merge_runs` 与 `graph.get` 的 branch 节点 `freeze` / `merge_run` 下发。
