@@ -14,7 +14,8 @@ export const PARAMS = {
   'task.transcript_page': ['id','seq','offset'], 'task.transcript_step': ['id','seq','offset'],
   'task.transcript_search': ['id','query','kind','tool','errors','after','limit'],
   'task.spawn': ['parent','goal','name'], 'task.integrate': ['id','commit'],
-  'task.reserve': ['id','kind'], 'task.resolve': ['id'], 'task.resolve_divergence': ['id'],
+  'task.reserve': ['id','kind'], 'task.reserve_all': ['branch'],
+  'task.resolve': ['id'], 'task.resolve_divergence': ['id'],
   'task.resolve_child_divergence': ['id'], 'task.unreserve': ['id'],
   'task.approve_merge': ['id','commit','baseline'], 'task.message': ['id','body'],
   'task.cancel': ['id'], 'task.retry': ['id'], 'task.cleanup': ['id','keep_branch'],
@@ -27,7 +28,7 @@ export const PARAMS = {
 export const USER_ONLY = new Set([
   'system.stop','system.configure','agent.configure','agent.environment','agent.environment.configure',
   'say.submit','task.transcript_latest','task.transcript_page','task.transcript_step','task.transcript_search',
-  'task.reserve','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge',
+  'task.reserve','task.reserve_all','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge',
   'task.cancel','task.retry','task.cleanup','notice.answer','notice.dismiss','branch.bind','branch.archive',
 ]);
 export const AGENT_ONLY = new Set([

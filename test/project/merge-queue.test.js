@@ -2,6 +2,7 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, repo, git, until, gate } from '../helpers.js';
+import { PARAMS, USER_ONLY, assertAllowed } from '../../src/rpc/registry.js';
 
 async function committedSay(f, name) {
   const say = await f.project.say(name);
@@ -167,5 +168,48 @@ test('a second source diverging after squash is returned to its own Agent withou
     expect(returned.workspace).toBe(second.workspace);
     expect(f.store.task(returned.parent_id).task_kind).toBe('merge');
     expect(f.store.unread(second.id).some(message => message.body.includes('分歧'))).toBe(true);
+  } finally { await f.close(); }
+});
+
+test('reserve_all is a user-only branch batch entry', () => {
+  expect(PARAMS['task.reserve_all']).toEqual(['branch']);
+  expect(USER_ONLY.has('task.reserve_all')).toBe(true);
+  expect(assertAllowed('task.reserve_all', { branch: 'main' }, null)).toBeNull();
+  expect(() => assertAllowed('task.reserve_all', { branch: 'main' }, 7)).toThrow(/requires user approval/);
+  expect(() => assertAllowed('task.reserve_all', { branch: 'main', extra: 1 }, null)).toThrow(/unknown parameter/);
+});
+
+test('reserveMergeAll queues every idle pending Task on a branch and the queue lands them in order', async () => {
+  const f = fixture({ resolve() { return { agent: 'mock' }; }, async run({ cwd, messages }) {
+    const instruction = messages.map(row => row.body).find(body => body.includes('合并分歧'));
+    if (instruction) { const commit = instruction.match(/[0-9a-f]{40}/)?.[0]; await git(cwd, 'merge', '--no-edit', commit); return 'resolved and tested'; }
+    return 'idle';
+  } });
+  f.project.stopping = true;
+  await repo(f.root);
+  try {
+    const first = await committedSay(f, 'alpha');
+    const second = await committedSay(f, 'beta');
+    f.store.update(first.id, { integration: 'pending' });
+    f.store.update(second.id, { integration: 'pending' });
+    // 目标分支不同、或还没静息的 Task 不能被这一次批量带入。
+    const other = await committedSay(f, 'other');
+    f.store.update(other.id, { integration: 'pending', target_branch: 'release' });
+    const busy = await committedSay(f, 'busy');
+    f.store.update(busy.id, { integration: 'pending', status: 'running' });
+
+    const result = await f.project.reserveMergeAll('main');
+    expect(result).toMatchObject({ target_branch: 'main', total: 2, requested: 2, blocked: 0, failed: 0 });
+    expect(result.tasks.map(task => task.id)).toEqual([first.id, second.id]);
+    expect(JSON.parse(f.store.task(other.id).reservation)).toBeNull();
+    expect(JSON.parse(f.store.task(busy.id).reservation)).toBeNull();
+
+    f.project.stopping = false;
+    await f.project.driveTaskMerge(first.parent_id);
+    await until(() => f.store.task(second.id).integration === 'merged', 8000);
+    expect(f.store.task(first.id).integration).toBe('merged');
+    expect(f.store.task(second.id).integration).toBe('merged');
+    expect(await git(f.root, 'show', 'main:alpha.txt')).toBe('alpha');
+    expect(await git(f.root, 'show', 'main:beta.txt')).toBe('beta');
   } finally { await f.close(); }
 });

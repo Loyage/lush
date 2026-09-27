@@ -25,7 +25,7 @@ function assetFile(pathname) {
   if (!ASSET_NAME.test(name) || !ASSET_EXTENSIONS.has(path.extname(name))) return null;
   return path.join(ASSETS, name);
 }
-const MUTATIONS = new Set(['agent.configure','agent.environment.configure','system.configure','say.submit','task.spawn','task.message','task.reserve','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge','task.cancel','task.retry','task.cleanup','notice.answer','notice.dismiss','branch.bind','branch.archive']);
+const MUTATIONS = new Set(['agent.configure','agent.environment.configure','system.configure','say.submit','task.spawn','task.message','task.reserve','task.reserve_all','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge','task.cancel','task.retry','task.cleanup','notice.answer','notice.dismiss','branch.bind','branch.archive']);
 const CORE_READS = new Set(['/api/overview','/api/snapshot','/api/tasks','/api/notices','/api/graph','/api/task-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/environment','/api/docs','/api/docs/search-index']);
 const CORE_TASK_READ = /^\/api\/task\/\d+(?:\/(?:history|history-page|diff|usage|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 const CORE_DOC_READ = /^\/api\/docs\/[a-z0-9._-]+$/;

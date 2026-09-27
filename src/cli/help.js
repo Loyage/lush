@@ -13,6 +13,7 @@ lush [--project PATH] [--json] <command>
   task transcript ID [--follow]      查看执行记录
   task history ID                    查看事件
   task reserve ID merge              say/child 静息后请求自动 Squash 合并；运行中预约
+  task reserve-all BRANCH            一次把该分支下所有已静息、待合并 Task 放入 merge 队列
   task unreserve ID                  撤销尚未发出的合并预约
   task integrate CHILD COMMIT        历史任务的父 Agent 确认固定子提交
   task resolve-child-divergence ID   历史解分歧子任务

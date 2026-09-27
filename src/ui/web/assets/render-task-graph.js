@@ -1,6 +1,6 @@
 import { $, badge, button, el, roleBadge } from './dom.js';
 import { api, action } from './api.js';
-import { promptDialog } from './dialog.js';
+import { confirmDialog, promptDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { absolute, INTEGRATION, statusOf, worktreeLabel } from './format.js';
 import { show } from './messages.js';
@@ -76,7 +76,62 @@ function taskOrchestration(node) {
   return box;
 }
 
-function taskCard(node, folded, refresh) {
+/**
+ * 「合并所有」的候选：目标分支就是这条 Task、已静息且仍待集成的 say/child。展示层只做只读筛选
+ * （v2 预约 JSON 不在图里展开，所以按状态 + 集成口径判断），真正能不能发出请求由 runtime 的
+ * `task.reserve_all` → `reserveMergeAll` 再逐条校验一次。
+ */
+function mergeAllCandidates(graph) {
+  const byBranch = new Map();
+  for (const node of graph.nodes || []) {
+    if (!['say', 'child'].includes(node.task_kind)) continue;
+    if (node.status !== 'waiting' || node.integration !== 'pending') continue;
+    if (!node.target_branch) continue;
+    if (node.reservation?.kind && node.reservation.kind !== 'merge') continue;
+    const list = byBranch.get(node.target_branch) ?? [];
+    list.push({ id: node.id, title: node.title });
+    byBranch.set(node.target_branch, list);
+  }
+  return byBranch;
+}
+
+/**
+ * 分支所有者卡片上的「合并所有」：把这条分支下所有已静息、待合并的 Task 一次性交给父 Task 的 merge
+ * 子任务串行处理。没有候选时也保留按钮并写明原因，选项不因当前状态整块消失。
+ */
+function mergeAllControl(node, candidates, refresh) {
+  const box = el('section', undefined, 'task-graph-merge-all');
+  if (!candidates.length) {
+    const disabled = el('button', '合并所有', 'ghost');
+    disabled.type = 'button'; disabled.disabled = true;
+    const host = el('span', undefined, 'help-host');
+    host.setAttribute('data-help', `这条分支下没有已静息、待合并的 Task；等 Task 完成并静息后再刷新。`);
+    host.append(disabled); box.append(host);
+    return box;
+  }
+  box.append(button(`合并所有（${candidates.length}）`, async () => {
+    const detail = candidates.map(item => `#${item.id} ${item.title}`).join('\n');
+    const confirmed = await confirmDialog({
+      title: `把 ${node.branch} 下 ${candidates.length} 条待合并 Task 一并放入 merge 队列？`,
+      message: '逐个请求合并；父 Task 的 merge 子任务一次只落地一条，其余请求按序排队。与父分支分歧的 Task 会自动唤醒其 Agent 在源侧合入固定父提交并测试，修好后继续合并。已发出的请求不能批量撤销；分支与提交不会因失败丢失。',
+      detail,
+      confirmLabel: '开始合并',
+      confirmHelp: agentHelp('按顺序自动合并所有已静息的待合并 Task；发生分歧时会唤醒对应 Task 的 Agent。'),
+      agent: true,
+    });
+    if (!confirmed) return;
+    const result = await action('task.reserve_all', { branch: node.branch });
+    const bits = [`共 ${result.total} 条`];
+    if (result.requested) bits.push(`${result.requested} 条已发出请求`);
+    if (result.blocked) bits.push(`${result.blocked} 条仍在等待条件`);
+    if (result.failed) bits.push(`${result.failed} 条失败`);
+    show(`已把 ${node.branch} 的待合并 Task 放入 merge 队列：${bits.join('、')}。`);
+    await refresh();
+  }, 'ghost', { agent: true, help: agentHelp(`一次性请求合并 ${node.branch} 下全部已静息、待合并的 Task；由父 Task 的 merge 子任务串行处理，分歧时唤醒对应 Agent。`) }));
+  return box;
+}
+
+function taskCard(node, folded, refresh, mergeAllByBranch = new Map()) {
   const row = el('article', undefined, 'task-graph-card');
   row.dataset.taskId = String(node.id);
   row.classList.add(`task-graph-${taskVisualState(node)}`);
@@ -160,6 +215,8 @@ function taskCard(node, folded, refresh) {
       row.append(pending);
     }
   }
+  if (['main', 'owner'].includes(node.task_kind) && node.branch)
+    row.append(mergeAllControl(node, mergeAllByBranch.get(node.branch) ?? [], loadTaskGraph));
   const controls = deliveryControls(node, { refresh: loadTaskGraph });
   if (controls) row.append(controls);
   if (['say', 'child'].includes(node.task_kind) && !ENDED.has(node.status)) {
@@ -187,6 +244,7 @@ export function renderTaskGraph(graph) {
   const host = $('detail');
   const saved = collapsed();
   const forest = taskForest(view);
+  const mergeAllByBranch = mergeAllCandidates(view);
   // 用 all 而不是 nodes：可见子 Task 的父 Task 可能只是被归档藏起来，不该被说成「不在当前图中」。
   ui.taskGraphIds = new Set(all.map(node => node.id));
   const box = el('div', undefined, 'task-graph');
@@ -219,7 +277,7 @@ export function renderTaskGraph(graph) {
   if (view.truncated) box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Task；父节点可能在截断范围外。`, 'hint'));
   const paint = (node, parent) => {
     const wrap = el('div', undefined, 'task-graph-node');
-    wrap.append(taskCard(node, saved, () => renderTaskGraph(full)));
+    wrap.append(taskCard(node, saved, () => renderTaskGraph(full), mergeAllByBranch));
     if (node.children.length && !saved.has(node.id)) {
       const children = el('div', undefined, 'task-graph-children');
       for (const child of node.children) paint(child, children);

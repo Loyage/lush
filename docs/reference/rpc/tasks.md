@@ -16,6 +16,7 @@ Task 中心路径是 Input → 直接拥有独立分支的 `agent` Task（`task_
 | `task message ID 'body'` | `task.message` | `{id, body}` |
 | `task integrate CHILD_ID CHILD_HEAD_COMMIT` | `task.integrate` | `{id, commit}`；agent-only |
 | `task reserve ID merge` | `task.reserve` | `{id, kind:'merge'}`；用户专属 |
+| `task reserve-all BRANCH`（Web「合并所有」） | `task.reserve_all` | `{branch}`；用户专属；把该分支下所有已静息、待合并的 say/child 逐条走同一套预约准入并交给 v2 merge 队列串行处理 |
 | `task unreserve ID` | `task.unreserve` | `{id}`；用户专属 |
 | `task approve-merge ID COMMIT BASELINE` | `task.approve_merge` | `{id, commit, baseline}`；用户专属 |
 | `task resolve ID` | `task.resolve` | `{id}`；用户专属 |

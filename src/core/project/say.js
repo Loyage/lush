@@ -199,6 +199,38 @@ export default {
     return { ...accepted, reservation: storedReservation(this.store.task(accepted.task_id).reservation) };
   },
 
+  /**
+   * 用户专属：把一条目标分支（例如 main）下所有已静息、待合并的 Task 一次性放进父 Task 的 merge 子任务。
+   * 每条仍走与单条 `task.reserve` 完全相同的准入（静息、工作区、固定提交、父基线、子分支收拢），
+   * 所以这里只是把「逐条点请求合并」收成一个入口，不新增任何绕过校验的捷径；不满足条件的保持 pending
+   * 预约并记录 `blocked_reason`，由 merge 队列按 id 顺序串行落地。返回逐条结果供界面汇总。
+   */
+  async reserveMergeAll(targetBranch) {
+    const name = String(targetBranch ?? '').trim();
+    check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
+    // 只有还停在自己分支上、尚未集成的 say/child 才有资格；showcase 预约不能在同一入口改成合并。
+    const rows = this.store.all(`SELECT id FROM tasks
+      WHERE task_kind IN ('say','child') AND status='waiting' AND integration='pending' AND target_branch=?
+        AND (reservation IS NULL OR json_extract(reservation,'$.kind')='merge')
+      ORDER BY id`, name);
+    const tasks = [];
+    for (const row of rows) {
+      try {
+        const booked = await this.reserveTask(row.id, 'merge');
+        const reservation = booked.reservation ?? null;
+        tasks.push({ id: row.id,
+          status: reservation?.status === 'requested' ? 'requested' : 'blocked',
+          reservation, blocked_reason: reservation?.blocked_reason ?? null });
+      } catch (error) {
+        tasks.push({ id: row.id, status: 'failed', error: error.message });
+      }
+    }
+    return { target_branch: name, total: rows.length,
+      requested: tasks.filter(task => task.status === 'requested').length,
+      blocked: tasks.filter(task => task.status === 'blocked').length,
+      failed: tasks.filter(task => task.status === 'failed').length, tasks };
+  },
+
   /** 阻塞诊断：pending 是“还没能满足”，requested 是“已发出的请求失效了”。两种情况都只记录上次检查的快照。 */
   noteReservationBlocked(taskId, reason, code = null) {
     this.store.transaction(() => {

@@ -214,6 +214,18 @@ test('web exposes batch merge through the mutation whitelist', async () => {
   } finally { await f.close(); }
 });
 
+test('web exposes branch batch merge through the mutation whitelist', async () => {
+  const f = await setup(); await repo(f.root);
+  const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
+  try {
+    // 越过 Web 白名单后由 runtime 校验分支：用不存在的分支只验证不是白名单拒绝。
+    const body = await (await post('task.reserve_all', { branch: 'no-such-branch' })).json();
+    expect(body.error ?? '').not.toContain('method not allowed from Web UI');
+    // agent token 在 Web 层直接被拒。
+    expect((await post('task.reserve_all', { branch: 'main', _token: 'forged' })).status).toBe(400);
+  } finally { await f.close(); }
+});
+
 test('web exposes branch archive through the mutation whitelist', async () => {
   const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});

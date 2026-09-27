@@ -113,13 +113,16 @@ export async function run(command, args, ctx) {
       while (!TERMINAL.has(value.status));
       if (value.status !== 'completed') process.exitCode = 1;
     } else {
-      check(['inspect','cancel','retry','integrate','reserve','resolve','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup'].includes(verb), 'unknown task command');
+      check(['inspect','cancel','retry','integrate','reserve','reserve-all','resolve','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup'].includes(verb), 'unknown task command');
       if (verb === 'integrate') {
         exact(args, 2);
         value = await client.request('task.integrate', { id: id(args[0]), commit: args[1] });
       } else if (verb === 'reserve') {
         exact(args, 2);
         value = await client.request('task.reserve', { id: id(args[0]), kind: args[1] });
+      } else if (verb === 'reserve-all') {
+        exact(args, 1);
+        value = await client.request('task.reserve_all', { branch: args[0] });
       } else if (verb === 'resolve-child-divergence') {
         exact(args, 1);
         value = await client.request('task.resolve_child_divergence', { id: id(args[0]) });

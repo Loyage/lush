@@ -286,6 +286,8 @@ export function makeWorld() {
         return json({ deleted: { root: body.params.id, ids: [body.params.id], tasks: 1 },
           reclaimed: { worktrees: 0, branches: 0 }, next_task_id: 99 });
       }
+      if (body.method === 'task.reserve_all') return json({ target_branch: body.params.branch, total: 2, requested: 1, blocked: 1,
+        failed: 0, tasks: [{ id: 2, status: 'requested' }, { id: 3, status: 'blocked' }] });
       if (body.method === 'task.merge_many') return json({ target_branch: body.params.ids.includes(3) ? 'release' : 'main',
         merges: body.params.ids.map(id => ({ id, status: 'merged', integration: 'merged' })), merged: body.params.ids.length, stopped: null });
       if (body.method === 'draft.update') { const draft = state.drafts.find(row => row.id === body.params.id); if (draft) { draft.content = body.params.content; if (body.params.references !== undefined) draft.references = body.params.references; } return json({ id: draft?.id, content: draft?.content, references: draft?.references || [] }); }
