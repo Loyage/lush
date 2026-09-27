@@ -1,6 +1,7 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
-import { git } from '../helpers.js';
+import path from 'node:path';
+import { fixture, git, repo } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { createSignal } from '../../src/signal.js';
 import { setup, change } from './harness.js';
@@ -87,6 +88,43 @@ test('cleaned failed child worktree can be recreated by rebuilding its branch fr
     f.project.retry(child.id);
     expect(await f.project.workspaces.ensure(f.store.task(child.id))).toBe(cwd);
     expect(await git(cwd,'symbolic-ref','--short','HEAD')).toBe(branch);
+  } finally { await f.close(); }
+});
+
+/** v2 合并落地的 say：分支、worktree 与预约都还在，等用户决定何时归档。 */
+async function squashedSay(f, name) {
+  const say = await f.project.say(name);
+  fs.writeFileSync(path.join(say.task.workspace, `${name}.txt`), `${name}\n`);
+  await git(say.task.workspace, 'add', `${name}.txt`);
+  await git(say.task.workspace, 'commit', '-m', `${name} one`);
+  f.store.update(say.task.id, { status: 'waiting', result: 'done' });
+  await f.project.reserveTask(say.task.id, 'merge');
+  f.project.stopping = false;
+  await f.project.driveTaskMerge(say.task.parent_id);
+  const merged = f.store.task(say.task.id);
+  expect(merged).toMatchObject({ status: 'completed', integration: 'merged' });
+  expect(JSON.parse(merged.reservation)).toMatchObject({ version: 2, status: 'integrated' });
+  return merged;
+}
+
+test('cleanup and delete survive a v2 say whose branch was archived before reclamation', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const merged = await squashedSay(f, 'archived-first');
+    const branch = merged.branch;
+    // 用户先显式归档分支：ref / worktree 都没了，tasks.branch 作为历史指针留下。
+    await f.project.archiveBranch(branch);
+    expect(f.store.branch(branch).status).toBe('archived');
+    expect(f.store.task(merged.id)).toMatchObject({ branch, workspace: null });
+    // 再回收：以前会去 rev-parse 一个不存在的 ref 而拒绝，现在只把悬空指针同步干净。
+    const out = await f.project.workspaces.cleanup(merged.id);
+    expect(out.cleanup).toEqual({ id: merged.id, worktree: 'absent', branch: 'removed', reason: null });
+    expect(f.store.task(merged.id).branch).toBe(null);
+    expect(f.store.get('SELECT count(*) AS n FROM events WHERE task_id=? AND type=? AND data LIKE ?',
+      merged.id, 'branch.removed', '%"already_archived":true%').n).toBe(1);
+    // 删除任务走同一套 reclaim，必须也能过。
+    await f.project.deleteTask(merged.id);
+    expect(f.store.get('SELECT id FROM tasks WHERE id=?', merged.id)).toBeFalsy();
   } finally { await f.close(); }
 });
 

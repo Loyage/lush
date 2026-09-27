@@ -171,6 +171,24 @@ export const methods = {
     const booking = task.reservation ? JSON.parse(task.reservation) : null;
     if (booking?.version === 2 && booking.status === 'integrated' && task.branch) {
       if (keepBranch) return { id: task.id, worktree: 'kept', branch: 'kept', reason: 'kept by --keep-branch' };
+      // 源分支可能已被用户显式归档：archiveBranch 有意保留 tasks.branch 当历史指针，但 ref 与 worktree
+      // 早就从磁盘上删掉了。这时没有东西可回收，只把悬空指针同步成「库反映磁盘」；继续走 squash 核对
+      // 会去 rev-parse 一个不存在的 ref 而失败，把 cleanup / deleteTask 整条路径卡死。
+      const record = this.store.branch(task.branch);
+      if (['archived', 'deleted'].includes(record?.status)) {
+        let worktree = 'absent';
+        if (task.workspace) {
+          const dir = task.workspace;
+          await this.clean(dir);
+          await this.git(this.config.project, 'worktree', 'remove', dir);
+          this.store.update(task.id, { workspace: null });
+          this.store.event(task.id, 'workspace.removed', { branch: task.branch, workspace: dir });
+          worktree = 'removed';
+        }
+        this.store.update(task.id, { branch: null });
+        this.store.event(task.id, 'branch.removed', { branch: task.branch, already_archived: true });
+        return { id: task.id, worktree, branch: 'removed', reason: null };
+      }
       await this.archiveSquashedTaskUnsafe(task, booking.commit, booking.landed_commit);
       return { id: task.id, worktree: 'removed', branch: 'removed', reason: null };
     }
