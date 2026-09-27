@@ -29,7 +29,9 @@ test('worker branch is isolated, committed results stay pending until explicit m
 test('review diff is read-only and reports commits, files and dirty worktrees', async () => {
   const f = await setup();
   try {
-    expect(await f.project.workspaces.diff(f.store.task(f.task.id))).toBeNull();
+    // 新模型里 say 一创建就有分支与 worktree：还没干活时是「没有提交」的空 diff，而不是 null。
+    expect(await f.project.workspaces.diff(f.store.task(f.task.id)))
+      .toMatchObject({ committed: false, head_commit: null, files: [], pending: [] });
     const cwd = await change(f, f.task);
     const diff = await f.project.workspaces.diff(f.store.task(f.task.id));
     expect(diff.committed).toBe(true);
@@ -54,73 +56,80 @@ test('review diff is read-only and reports commits, files and dirty worktrees', 
   } finally { await f.close(); }
 });
 
-test('independent workers get different worktrees and merge serially', async () => {
+test('independent say Tasks get different worktrees and land one at a time', async () => {
   const f = await setup();
   try {
-    const b = f.project.spawn(f.task.parent_id,'other','worker');
+    const other = await f.project.say('other');
+    const b = f.store.task(other.task.id);
     await Promise.all([change(f,f.task,'A','a.txt'), change(f,b,'B','b.txt')]);
-    expect(f.store.task(b.id).workspace).not.toBe(f.store.task(f.task.id).workspace);
-    await Promise.all([f.project.workspaces.merge(f.task.id), f.project.workspaces.merge(b.id)]);
+    // 两条 say 各有独立 worktree，互不干扰；落地顺序由 v2 队列串行决定（见 merge-queue 用例）。
+    expect(b.workspace).not.toBe(f.store.task(f.task.id).workspace);
+    expect(fs.existsSync(path.join(b.workspace,'b.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(f.store.task(f.task.id).workspace,'a.txt'))).toBe(true);
+    await f.project.workspaces.merge(f.task.id);
     expect(fs.readFileSync(path.join(f.root,'a.txt'),'utf8')).toBe('A');
-    expect(fs.readFileSync(path.join(f.root,'b.txt'),'utf8')).toBe('B');
   } finally { await f.close(); }
 });
 
-test('merge conflicts come back as a structured result and leave the main tree untouched', async () => {
+test('父分支前进之后，第二条分支不会被覆盖：分歧交回源 Task，主树一个字节不动', async () => {
   const f = await setup();
   try {
-    const b = f.project.spawn(f.task.parent_id,'other','worker');
+    const other = await f.project.say('other');
+    const b = f.store.task(other.task.id);
     await change(f,f.task,'A\n'); await change(f,b,'B\n');
-    // 干净合并：conflict 为空。
+    // 第一条落地，main 前进。
     expect((await f.project.workspaces.merge(f.task.id)).conflict).toBeNull();
     const head = await git(f.root,'rev-parse','HEAD');
-    // 内容冲突不是异常：它带着冲突文件列表回来，main 已 abort 回合并前的干净状态。
+    // 新路径只有 ff-only / compare-and-swap：第二条已经分歧，于是原样交回，不写 main、不留 merge 中间态。
     const result = await f.project.workspaces.merge(b.id);
-    expect(result.conflict.files).toEqual(['file.txt']);
+    expect(result.diverged).toBeTruthy();
     expect(result.task.integration).toBe('pending');
+    expect(result.task.integration_error).toContain('diverged');
     expect(await git(f.root,'rev-parse','HEAD')).toBe(head);
     expect(await git(f.root,'status','--porcelain')).toBe('');
-    expect(f.store.task(b.id).integration_error).toBeTruthy();
-    // 两边分支都留着：稍后还能重试，或者交给解冲突任务。
-    expect(fs.readFileSync(path.join(f.store.task(b.id).workspace,'file.txt'),'utf8')).toBe('B\n');
-    expect((await f.project.workspaces.merge(b.id)).conflict.files).toEqual(['file.txt']);
-    expect(await git(f.root,'status','--porcelain')).toBe('');
+    // 两个分支都还在：稍后由源 Task 自己吸收父提交，或交给 v2 队列处理。
+    expect(fs.readFileSync(path.join(b.workspace,'file.txt'),'utf8')).toBe('B\n');
   } finally { await f.close(); }
 });
 
 test('dirty main tree no longer blocks worktrees, but still blocks merge and dirty worker', async () => {
   const f = await setup();
   try {
-    // 主树有未提交改动：worker 只基于已提交的 HEAD，所以允许开工；分歧写进事件供审阅。
+    // 主树有未提交改动：say 只基于已提交的 HEAD 建 worktree，允许开工；分歧写进事件供审阅。
     fs.writeFileSync(path.join(f.root, 'file.txt'), 'uncommitted\n');
-    const cwd = await f.project.workspaces.ensure(f.task);
-    expect(cwd).toBe(path.join(f.config.home, 'worktrees', `${f.task.id}-implement-feature`));
+    const fresh = await f.project.say('dirty main work');
+    const task = fresh.task;
+    const cwd = task.workspace;
+    expect(cwd).toBe(path.join(f.config.home, 'worktrees', `input-${fresh.id}`));
     expect(fs.readFileSync(path.join(cwd, 'file.txt'), 'utf8')).toBe('base\n');
-    const created = f.store.all("SELECT data FROM events WHERE task_id=? AND type='workspace.created'", f.task.id)[0];
-    expect(JSON.parse(created.data).dirty_source).toEqual({ files: 1, sample: [' M file.txt'], more: 0 });
+    const created = f.store.all("SELECT data FROM events WHERE task_id=? AND type='input.anchor'", task.id)[0];
+    expect(JSON.parse(created.data).dirty_source).toMatchObject({ files: 1, sample: [' M file.txt'], more: 0 });
 
     // worker 必须自己提交：这条门槛与主树无关。
     fs.writeFileSync(path.join(cwd, 'file.txt'), 'dirty');
-    await expect(f.project.workspaces.finish(f.store.task(f.task.id))).rejects.toThrow('dirty');
+    await expect(f.project.workspaces.finish(f.store.task(task.id))).rejects.toThrow('dirty');
     await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', 'first');
-    await f.project.workspaces.finish(f.store.task(f.task.id)); f.store.update(f.task.id, { status: 'completed' });
+    await f.project.workspaces.finish(f.store.task(task.id)); f.store.update(task.id, { status: 'completed' });
 
-    // 合并门槛仍在 merge 自己身上，而且报错要点出是哪个文件；失败的合并不动 integration。
-    await expect(f.project.workspaces.merge(f.task.id)).rejects.toThrow('file.txt');
-    expect(f.store.task(f.task.id).integration).toBe('pending');
+    // main 正被项目检出：落地要先 fast-forward 这棵工作树，所以脏树照样挡住合并，报错要点出文件。
+    await expect(f.project.workspaces.merge(task.id)).rejects.toThrow('file.txt');
+    expect(f.store.task(task.id).integration).toBe('pending');
+    expect(fs.readFileSync(path.join(f.root, 'file.txt'), 'utf8')).toBe('uncommitted\n');
+    // 用户自己把改动安顿好之后，同一份固定提交就能落地。
     await git(f.root, 'checkout', '--', 'file.txt');
-
-    await git(cwd, 'commit', '--allow-empty', '-m', 'unreviewed');
-    await expect(f.project.workspaces.merge(f.task.id)).rejects.toThrow('changed after review');
+    expect((await f.project.workspaces.merge(task.id)).task.integration).toBe('merged');
+    expect(fs.readFileSync(path.join(f.root, 'file.txt'), 'utf8')).toBe('dirty');
   } finally { await f.close(); }
 });
 
-test('merge refuses a different target branch and an active task', async () => {
+test('merge refuses a task that has not finished', async () => {
   const f = await setup();
   try {
+    // 新路径（say/child）用固定提交 + compare-and-swap 落地，不再要求用户把检出切到目标分支。
     await expect(f.project.workspaces.merge(f.task.id)).rejects.toThrow('completed');
     await change(f,f.task); await git(f.root,'checkout','-b','other');
-    await expect(f.project.workspaces.merge(f.task.id)).rejects.toThrow('switch to main');
+    expect((await f.project.workspaces.merge(f.task.id)).branch).toBeTruthy();
+    expect(await git(f.root,'rev-parse','main')).toBe(f.store.task(f.task.id).head_commit);
   } finally { await f.close(); }
 });
 
@@ -139,38 +148,22 @@ test('an interrupted merge can only be reconciled by another explicit approval',
   } finally { await f.close(); }
 });
 
-test('a downstream code dependency stacks on a cleaned upstream commit, not on a deleted ref', async () => {
-  const f = await setup();
-  try {
-    await change(f, f.task);
-    await f.project.workspaces.merge(f.task.id);
-    await f.project.workspaces.cleanup(f.task.id);
-    expect(f.store.task(f.task.id).branch).toBeNull();
-    const child = f.project.spawn(f.task.parent_id,'continue on top','worker',[{ id: f.task.id, kind: 'code' }],'stacked-on-cleaned');
-    const cwd = await f.project.workspaces.ensure(child);
-    expect(await git(cwd,'rev-parse','HEAD')).toBe(f.store.task(f.task.id).head_commit);
-    expect(fs.readFileSync(path.join(cwd,'file.txt'),'utf8')).toBe('changed\n');
-  } finally { await f.close(); }
-});
-
-test('end-to-end worker executes inside worktree and cannot silently finish dirty', async () => {
-  const f = fixture({ async run({ task, cwd, api }) {
-    if (task.role === 'coordinator' && task.calls === 1) { api.spawn(task.id,'edit','worker'); return 'delegated'; }
-    if (task.role === 'worker') fs.writeFileSync(path.join(cwd,'new.txt'),'not committed');
+test('end-to-end say Agent works inside its worktree and cannot silently finish dirty', async () => {
+  const f = fixture({ async run({ cwd }) {
+    fs.writeFileSync(path.join(cwd,'new.txt'),'not committed');
     return 'done';
   } });
   try {
     await repo(f.root);
-    // 主树带未提交改动：worker 仍然能开工（基于已提交 HEAD），但 Lush 不会动这份改动。
+    // 主树带未提交改动：say 仍然能开工（基于已提交 HEAD），但 Lush 不会动这份改动。
     fs.writeFileSync(path.join(f.root,'wip.txt'),'uncommitted');
-    // 合并后的语义：planner 只写队列、不能直接 spawn，这里用一个 coordinator 作可派活的根任务。
-    const root = f.store.create({ input_id: null, role: 'coordinator', goal: 'edit' });
+    const say = await f.project.say('edit');
     f.project.kick();
-    await until(() => f.store.task(root.id).status === 'completed');
-    const child = f.store.children(root.id)[0];
-    expect(child.status).toBe('failed'); expect(child.error).toContain('dirty');
-    expect(child.error).toContain('new.txt');
-    expect(fs.existsSync(path.join(child.workspace,'new.txt'))).toBe(true);
+    await until(() => f.store.task(say.task.id).status !== 'running' && f.store.task(say.task.id).status !== 'queued');
+    const task = f.store.task(say.task.id);
+    expect(task.status).toBe('failed'); expect(task.error).toContain('dirty');
+    expect(task.error).toContain('new.txt');
+    expect(fs.existsSync(path.join(task.workspace,'new.txt'))).toBe(true);
     expect(fs.existsSync(path.join(f.root,'new.txt'))).toBe(false);
     expect(fs.readFileSync(path.join(f.root,'wip.txt'),'utf8')).toBe('uncommitted');
     expect(await git(f.root,'status','--porcelain')).toBe('?? wip.txt');

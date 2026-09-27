@@ -33,7 +33,10 @@ test('a stacked task is recorded as a child of the upstream task branch', async 
   try {
     await change(f, f.task);
     const upstream = f.store.task(f.task.id);
-    const child = f.project.spawn(f.task.parent_id, 'continue upstream work', 'worker', [{ id: upstream.id, kind: 'code' }], 'stacked-follow-up');
+    // 新模型没有 code 依赖边：child 直接 fork 自父分支当时的 tip，血缘记录的是那个提交。
+    // 派活只发生在还没结算的父 Task 上，所以这里先把父 Task 留在活动态。
+    f.store.update(upstream.id, { status: 'waiting' });
+    const child = await f.project.spawn(f.task.id, 'continue upstream work', undefined, [], 'stacked-follow-up');
     await f.project.workspaces.ensure(f.store.task(child.id));
     const row = f.store.branch(f.store.task(child.id).branch);
     expect(row.parent).toBe(upstream.branch);
@@ -47,9 +50,13 @@ test('deleting a branch keeps its row and every child pointer', async () => {
   try {
     await change(f, f.task);
     const upstream = f.store.task(f.task.id);
-    const child = f.project.spawn(f.task.parent_id, 'continue upstream work', 'worker', [{ id: upstream.id, kind: 'code' }], 'stacked-follow-up');
-    await f.project.workspaces.ensure(f.store.task(child.id));
+    // 新模型没有 code 依赖边：child 直接 fork 自父分支当时的 tip，血缘记录的是那个提交。
+    // 派活只发生在还没结算的父 Task 上，所以这里先把父 Task 留在活动态。
+    f.store.update(upstream.id, { status: 'waiting' });
+    const child = await f.project.spawn(f.task.id, 'continue upstream work', undefined, [], 'stacked-follow-up');
     const childBranch = f.store.task(child.id).branch;
+    f.store.update(child.id, { status: 'completed' });
+    f.store.update(upstream.id, { status: 'completed' });
 
     await f.project.workspaces.merge(upstream.id);
     await f.project.workspaces.cleanup(upstream.id);
@@ -105,9 +112,12 @@ test('branch tree 不再画归档的分支，它的子分支接到最近的可�
   try {
     await change(f, f.task);
     const upstream = f.store.task(f.task.id);
-    const child = f.project.spawn(f.task.parent_id, 'continue upstream work', 'worker', [{ id: upstream.id, kind: 'code' }], 'stacked-follow-up');
-    await f.project.workspaces.ensure(f.store.task(child.id));
+    // 新模型没有 code 依赖边：child 直接 fork 自父分支当时的 tip，血缘记录的是那个提交。
+    // 派活只发生在还没结算的父 Task 上，所以这里先把父 Task 留在活动态。
+    f.store.update(upstream.id, { status: 'waiting' });
+    const child = await f.project.spawn(f.task.id, 'continue upstream work', undefined, [], 'stacked-follow-up');
     const childBranch = f.store.task(child.id).branch;
+    f.store.update(child.id, { status: 'completed' });
     // 老库形态（旧版归档只删自己一条）：父分支已归档、ref 已经不在，子分支还活着。
     await f.project.workspaces.archiveBranch(upstream.branch);
     expect(f.store.branch(childBranch).parent).toBe(upstream.branch);

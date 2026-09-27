@@ -3,21 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, repo, git } from '../helpers.js';
 
-// 输入分支：submit 从指定父分支创建聚合分支与检出，planner/worker 基线不随开工时间漂移。
+// 输入锚点：say 从指定父分支创建聚合分支与检出，Task 的基线不随开工时间漂移。
 // 这里只碰 Git 边界与输入落库的接缝；CLI / Web 的上层行为在 test/route-shortcut.test.js。
 
-/** planner 只写 spec 队列，所以用 coordinator 充当能派活的父任务。 */
-function host(f, input_id) {
-  const task = f.store.create({ input_id, role: 'coordinator', goal: 'host' });
-  f.store.update(task.id, { status: 'waiting' });
-  return task;
-}
-
-test('an input creates a real aggregate branch checkout and the planner runs there', async () => {
+test('new say creates a real aggregate branch checkout and runs there', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const head = await git(f.root, 'rev-parse', 'HEAD');
-    const input = await f.project.submit('work');
+    const input = await f.project.say('work');
     expect(input.anchor).toMatchObject({ branch: `lush/${f.project.workspaces.namespace}/input-${input.id}`, commit: head, target: 'main' });
     expect(fs.existsSync(input.anchor.workspace)).toBe(true);
     // 检出真的停在输入分支上；根 planner 的 cwd 也固定到这里。
@@ -25,7 +18,7 @@ test('an input creates a real aggregate branch checkout and the planner runs the
     expect(await f.project.workspaces.ensure(input.task)).toBe(input.anchor.workspace);
     // 谱系在分支创建那一刻写下：parent = 提交输入时的检出分支，created_from_commit = 当时的 HEAD
     expect(f.store.branch(input.anchor.branch)).toMatchObject({ parent: 'main', parent_relation: 'recorded',
-      created_from_commit: head, task_id: null, worktree: input.anchor.workspace, status: 'active' });
+      created_from_commit: head, task_id: input.task.id, worktree: input.anchor.workspace, status: 'active' });
     // 意图视图与事件都带上锚点，review 时看得到「这份代码是什么时候冻的」
     expect(f.project.inputs()[0]).toMatchObject({ anchor_branch: input.anchor.branch, anchor_commit: head,
       anchor_workspace: input.anchor.workspace, anchor_target_branch: 'main' });
@@ -38,7 +31,7 @@ test('uncommitted changes are recorded on the anchor instead of silently enterin
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     fs.writeFileSync(path.join(f.root, 'file.txt'), 'uncommitted\n');
-    const input = await f.project.submit('work');
+    const input = await f.project.say('work');
     const event = f.store.history(input.task.id).find(row => row.type === 'input.anchor');
     expect(event.data.dirty_source).toMatchObject({ files: 1, sample: [' M file.txt'] });
     // 锚点是已提交的 HEAD：那一刻的未提交改动不传递，也不改变基线
@@ -47,46 +40,44 @@ test('uncommitted changes are recorded on the anchor instead of silently enterin
   } finally { await f.close(); }
 });
 
-test('a worker bases, parents and targets on its input anchor, not on the branch tip at spawn', async () => {
+test('a child bases, parents and targets on its parent branch, not on the branch tip at anchor time', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const input = await f.project.submit('implement the thing');
-    const anchorCommit = input.anchor.commit;
-    // 规划期间用户继续在主树上提交：锚点已经在 submit 那一刻定住，worker 不该看见后来的提交。
+    const say = await f.project.say('implement the thing');
+    const anchorCommit = say.anchor.commit;
+    // 建好锚点后用户继续在主树上提交：锚点已经在 say 那一刻定住，父分支不动，child 也不该看见后来的提交。
     fs.writeFileSync(path.join(f.root, 'later.txt'), 'later\n');
     await git(f.root, 'add', '.'); await git(f.root, 'commit', '-m', 'later on main');
-    const worker = f.project.spawn(host(f, input.id).id, 'implement', 'worker', [], 'implement-thing');
-    const cwd = await f.project.workspaces.ensure(worker);
-    const task = f.store.task(worker.id);
+    const child = await f.project.spawn(say.task.id, 'implement');
+    const cwd = await f.project.workspaces.ensure(child);
+    const task = f.store.task(child.id);
     expect(task.base_commit).toBe(anchorCommit);
-    expect(task.target_branch).toBe(input.anchor.branch);
+    expect(task.target_branch).toBe(say.task.branch);
     expect(fs.existsSync(path.join(cwd, 'later.txt'))).toBe(false);
-    // 谱系写锚点分支，而不是「当时检出的分支」——那条分支早就在锚点之后往前走了
-    expect(f.store.branch(task.branch)).toMatchObject({ parent: input.anchor.branch, created_from_commit: anchorCommit });
-    expect(f.store.history(worker.id).find(row => row.type === 'workspace.created').data.anchored_on)
-      .toMatchObject({ input_id: input.id, branch: input.anchor.branch, commit: anchorCommit });
+    // 谱系写父分支，而不是「当时检出的分支」——那条 main 早就在锚点之后往前走了。
+    expect(f.store.branch(task.branch)).toMatchObject({ parent: say.task.branch, created_from_commit: anchorCommit });
+    // child 的 worktree 在 spawn 时就建好了（forkTaskUnsafe），事件记的是 fork 本身。
+    expect(f.store.history(child.id).find(row => row.type === 'task.forked').data)
+      .toMatchObject({ parent_id: say.task.id, branch: task.branch, workspace: task.workspace });
   } finally { await f.close(); }
 });
 
-test('a code dependency still stacks on the upstream branch and beats the anchor', async () => {
+test('父分支自己前进之后，child 从父分支当时的 tip 长出来，基线不再是锚点', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const input = await f.project.submit('stack two things');
-    const parent = host(f, input.id);
-    const upstream = f.project.spawn(parent.id, 'upstream', 'worker', [], 'upstream-change');
-    const cwd = await f.project.workspaces.ensure(upstream);
-    fs.writeFileSync(path.join(cwd, 'upstream.txt'), 'upstream\n');
-    await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', 'upstream change');
-    await f.project.workspaces.finish(f.store.task(upstream.id));
-    f.store.update(upstream.id, { status: 'completed' });
+    const say = await f.project.say('stack two things');
+    const sayBranch = say.task.branch;
+    fs.writeFileSync(path.join(say.task.workspace, 'upstream.txt'), 'upstream\n');
+    await git(say.task.workspace, 'add', '.'); await git(say.task.workspace, 'commit', '-m', 'upstream change');
+    await f.project.workspaces.finish(f.store.task(say.task.id));
+    f.store.update(say.task.id, { status: 'waiting' });
 
-    const downstream = f.project.spawn(parent.id, 'downstream', 'worker', [{ id: upstream.id, kind: 'code' }], 'downstream-change');
-    await f.project.workspaces.ensure(downstream);
-    const task = f.store.task(downstream.id);
-    expect(task.base_commit).toBe(f.store.task(upstream.id).head_commit);
-    expect(task.base_commit).not.toBe(input.anchor.commit);
-    expect(f.store.branch(task.branch)).toMatchObject({ parent: f.store.task(upstream.id).branch });
-    expect(f.store.history(downstream.id).find(row => row.type === 'workspace.created').data.stacked_on).toBe(upstream.id);
+    const child = await f.project.spawn(say.task.id, 'downstream');
+    const task = f.store.task(child.id);
+    expect(task.base_commit).toBe(f.store.task(say.task.id).head_commit);
+    expect(task.base_commit).not.toBe(say.anchor.commit);
+    expect(task.target_branch).toBe(sayBranch);
+    expect(f.store.branch(task.branch)).toMatchObject({ parent: sayBranch, created_from_commit: task.base_commit });
   } finally { await f.close(); }
 });
 
@@ -94,11 +85,14 @@ test('input submission can choose a local parent branch without checking it out'
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     await git(f.root, 'branch', 'release-next');
-    const input = await f.project.submit('release work', 'release-next');
+    // 新模型里非 main 的父分支先要有 Task 所有者（branch.bind），say 才能挂上去。
+    await f.project.bindBranch('release-next', await git(f.root, 'rev-parse', 'release-next'));
+    const input = await f.project.say('release work', 'release-next');
     expect(input.anchor.target).toBe('release-next');
     expect(f.store.branch(input.anchor.branch).parent).toBe('release-next');
     expect(await git(f.root, 'symbolic-ref', '--short', 'HEAD')).toBe('main');
-    await expect(f.project.submit('bad', 'missing-branch')).rejects.toThrow('does not exist locally');
+    await expect(f.project.say('bad', 'missing-branch'))
+      .rejects.toThrow('needs exactly one explicitly bound Task before say');
   } finally { await f.close(); }
 });
 
@@ -117,20 +111,7 @@ test('anchoring refuses a detached HEAD without an explicit parent, a project th
   } finally { await f.close(); await plain.close(); }
 });
 
-test('a failed submit writes no input row and keeps buffered drafts', async () => {
-  const f = fixture(); f.project.stopping = true;   // 故意不是 git 仓库
-  try {
-    f.project.draft('想法');
-    await expect(f.project.submit('raw')).rejects.toThrow('git worktree root');
-    await expect(f.project.commitDrafts()).rejects.toThrow('git worktree root');
-    expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
-    expect(f.store.get('SELECT count(*) AS n FROM tasks').n).toBe(0);
-    expect(f.store.get('SELECT count(*) AS n FROM branches').n).toBe(0);
-    expect(f.store.draftCount()).toBe(1);
-    // input id 只往大走：两次尝试已经用掉 1 与 2，下一次提交仍然是干净的目录名
-    expect(f.store.inputIdHigh()).toBe(2);
-  } finally { await f.close(); }
-});
+
 
 test('releaseAnchor only drops an untouched checkout, and reclaimAnchors keeps going', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);

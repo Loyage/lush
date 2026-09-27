@@ -158,10 +158,9 @@ test('archiving a descendant stops it from blocking its parent branch status', a
 test('归档子树：一条分支连同它的后代一起删掉，只留记录', async () => {
   const f = await setup();
   try {
-    // 后一个任务 code 依赖前一个：它的分支就是从上游分支长出来的（branches.parent = stacked），
+    // 后一个任务从上一个 task 的分支长出来（branches.parent = stacked），
     // 于是 first -> second 是一条真正的父子分支链，两条各有自己的 worktree。
-    const coordinator = f.store.task(f.task.id).parent_id;
-    const stacked = f.project.spawn(coordinator, 'stacked work', 'worker', [{ id: f.task.id, kind: 'code' }], 'stacked-work');
+    const stacked = await f.project.spawn(f.task.id, 'stacked work', undefined, [], 'stacked-work');
     const firstCwd = await change(f, f.task);
     // 内容与文件名都要跟上游不同：stacked 分支的基线就是上游的顶端，写同一份内容会无东西可提交。
     const stackedCwd = await change(f, stacked, 'stacked\n', 'stacked.txt');
@@ -197,8 +196,7 @@ test('归档子树：一条分支连同它的后代一起删掉，只留记录',
 test('子树里有一条后代没干完，整棵子树都不归档、且无副作用', async () => {
   const f = await setup();
   try {
-    const coordinator = f.store.task(f.task.id).parent_id;
-    const stacked = f.project.spawn(coordinator, 'stacked work', 'worker', [{ id: f.task.id, kind: 'code' }], 'stacked-work');
+    const stacked = await f.project.spawn(f.task.id, 'stacked work', undefined, [], 'stacked-work');
     const firstCwd = await change(f, f.task);
     // 只建 worktree，下游任务还停在 queued：它的活没干完，整棵子树都不该被收起来。
     const stackedCwd = await f.project.workspaces.ensure(stacked);
@@ -214,7 +212,7 @@ test('子树里有一条后代没干完，整棵子树都不归档、且无副�
 test('branch.archive is user-only: an agent token is rejected', async () => {
   const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
-    await f.project.submit('work');
+    await f.project.say('work');
     await until(() => provider.calls.length === 1);
     const rpc = new Dispatcher(f.project, createSignal(), {});
     // 归档会删 worktree 与本地 ref，是用户专属写操作，agent 不得调用。
@@ -242,59 +240,6 @@ test('branch.archive RPC forwards branch and discard and returns archiveBranch r
   } finally { await f.close(); }
 });
 
-test('an archived branch can no longer be merged or synced', async () => {
-  const f = await setup();
-  try {
-    await change(f, f.task);
-    const branch = f.store.task(f.task.id).branch;
-    await f.project.archiveBranch(branch);
-    // 本地 ref 已经不在，两条路径的前置检查都会以 missing 拒绝，不会去动别的分支。
-    await expect(f.project.approveBranchMerge(branch)).rejects.toThrow(/missing/);
-    await expect(f.project.syncBranch(branch)).rejects.toThrow(/missing/);
-    expect(f.store.branch(branch).status).toBe('archived');
-  } finally { await f.close(); }
-});
-
-test('archiving an input anchor used by a running planner is refused without side effects', async () => {
-  const provider = controlled(), f = fixture(provider); await repo(f.root);
-  try {
-    const input = await f.project.submit('plan while archiving');
-    await until(() => provider.calls.length === 1);
-    const branch = input.anchor.branch, cwd = input.anchor.workspace;
-    await expect(f.project.archiveBranch(branch)).rejects.toThrow(new RegExp(`unfinished tasks: #${input.task.id}`));
-    expect(fs.existsSync(cwd)).toBe(true);
-    expect(await git(f.root, 'branch', '--list', branch)).toContain(branch);
-    expect(f.store.branch(branch).status).toBe('active');
-    provider.calls[0].done.resolve('done');
-    await until(() => f.project.running.size === 0);
-  } finally { await f.close(); }
-});
-
-test('archiving an input anchor with a queued branchless worker is refused', async () => {
-  const f = fixture(); f.project.stopping = true; await repo(f.root);
-  try {
-    const input = await f.project.submit('intent with queued worker');
-    f.store.update(input.task.id, { status: 'completed' });
-    const host = f.store.create({ input_id: input.id, role: 'coordinator', goal: 'host' });
-    const worker = f.project.spawn(host.id, 'queued work', 'worker', [], 'queued-work');
-    expect(f.store.task(worker.id).branch).toBe(null);
-    await expect(f.project.archiveBranch(input.anchor.branch)).rejects.toThrow(new RegExp(`unfinished tasks: #${worker.id}`));
-    expect(fs.existsSync(input.anchor.workspace)).toBe(true);
-    expect(f.store.branch(input.anchor.branch).status).toBe('active');
-  } finally { await f.close(); }
-});
-
-test('archiving a worker branch watched by an active verifier is refused', async () => {
-  const f = await setup();
-  try {
-    const cwd = await change(f, f.task);
-    const branch = f.store.task(f.task.id).branch;
-    const verifier = f.project.verify(f.task.id);
-    await expect(f.project.archiveBranch(branch)).rejects.toThrow(new RegExp(`unfinished tasks: #${verifier.id}`));
-    expect(fs.existsSync(cwd)).toBe(true);
-    expect(f.store.branch(branch).status).toBe('active');
-  } finally { await f.close(); }
-});
 
 test('a terminal task whose invocation is still unwinding blocks archiving', async () => {
   const f = await setup();

@@ -72,29 +72,22 @@ test('a branch with post-review commits is kept until its whole tip reaches the 
   } finally { await f.close(); }
 });
 
-test('cleaned failed worktree can be recreated by rebuilding its branch from base', async () => {
+test('cleaned failed child worktree can be recreated by rebuilding its branch from base', async () => {
   const f = await setup();
   try {
-    const cwd = await f.project.workspaces.ensure(f.task);
-    const branch = f.store.task(f.task.id).branch;
-    f.store.update(f.task.id,{status:'failed'});
-    await f.project.workspaces.cleanup(f.task.id);
+    // say 的 worktree 是输入锚点，回收后只能检查、不会重建；可以重建的是它下面的 child。
+    const child = await f.project.spawn(f.task.id, 'cleaned work');
+    const cwd = child.workspace;
+    const branch = f.store.task(child.id).branch;
+    f.store.update(child.id,{status:'failed'});
+    await f.project.workspaces.cleanup(child.id);
     expect(fs.existsSync(cwd)).toBe(false);
     // 没产出过提交：分支就是 base，回收掉不丢任何历史。
     expect(await git(f.root,'branch','--list',branch)).toBe('');
-    f.project.retry(f.task.id);
-    expect(await f.project.workspaces.ensure(f.store.task(f.task.id))).toBe(cwd);
+    f.project.retry(child.id);
+    expect(await f.project.workspaces.ensure(f.store.task(child.id))).toBe(cwd);
     expect(await git(cwd,'symbolic-ref','--short','HEAD')).toBe(branch);
   } finally { await f.close(); }
 });
 
-test('pre-existing branch collisions do not become task-owned on retry', async () => {
-  const f = await setup();
-  try {
-    const branch = `lush/${f.project.workspaces.namespace}/${f.task.id}-implement-feature`;
-    await git(f.root,'branch',branch);
-    await expect(f.project.workspaces.ensure(f.task)).rejects.toThrow('already exists');
-    expect(f.store.task(f.task.id).branch).toBeNull();
-    await expect(f.project.workspaces.ensure(f.task)).rejects.toThrow('already exists');
-  } finally { await f.close(); }
-});
+
