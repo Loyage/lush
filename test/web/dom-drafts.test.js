@@ -50,7 +50,7 @@ test('草稿单独发送，输入框直接发送且不连带其它草稿', async
   expect(dom.node('draft-count').textContent).toBe('1 条');
 
   // 输入框立即发送：保留尚未发出的草稿。
-  dom.node('input-branch').value = 'release/next';
+  dom.node('input-parent').value = 'release/next';
   dom.node('input').value = '草稿之外的正文';
   dom.node('input').listeners.input[0]({});
   expect(dom.node('draft-commit').disabled).toBe(false);

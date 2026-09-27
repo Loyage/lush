@@ -16,6 +16,10 @@ test('new say creates one Input and one Task in its own worktree, without planne
       target_branch: 'main' });
     expect(f.store.get('SELECT task_id FROM inputs WHERE id=?', response.id).task_id).toBe(response.task.id);
     expect(f.store.branch(response.anchor.branch).task_id).toBe(response.task.id);
+    // 概览与输入区父 Task 选择共用 activity 读模型：分支所有者必须带上 branch。
+    const activity = new Map(f.project.activity(50, 'work').tasks.map(task => [task.id, task]));
+    expect(activity.get(response.task.id).branch).toBe(response.anchor.branch);
+    expect(activity.get(root.id).branch).toBe('main');
     expect(await git(response.task.workspace, 'symbolic-ref', '--short', 'HEAD')).toBe(response.task.branch);
     expect(await f.project.workspaces.ensure(response.task)).toBe(response.task.workspace);
     expect(f.store.get("SELECT count(*) AS n FROM tasks WHERE role='planner'").n).toBe(0);

@@ -19,6 +19,7 @@ const dom = installDom({ fetch: async (url, options) => {
 dom.document.createElementNS = (_namespace, tag) => dom.document.createElement(tag);
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { syncComposer } = await import('../../src/ui/web/assets/composer.js');
+const { ui } = await import('../../src/ui/web/assets/state.js');
 const { renderStatistics } = await import('../../src/ui/web/assets/render-statistics.js');
 const { openSettings } = await import('../../src/ui/web/assets/render-settings.js');
 await boot();
@@ -27,7 +28,11 @@ afterAll(() => dom.restore());
 test('Web 直接发送只发当前正文：防重复、保留并发编辑与其它草稿', async () => {
   world.state.drafts = [{ id: 11, content: 'keep draft', references: [] }];
   await dom.intervalFor(1500)();
-  dom.node('input').value = 'small fix'; dom.node('input-branch').value = 'release/next'; syncComposer();
+  dom.node('input').value = 'small fix';
+  // 输入区按快照列出父 Task；注入一个再选它的分支，提交仍只带 branch，语义不变。
+  ui.lastSnapshot.tasks = [{ id: 1, task_kind: 'main', branch: 'release/next', status: 'waiting', goal: '管理 release/next' }];
+  syncComposer();
+  dom.node('input-parent').value = 'release/next';
   pending = gate();
   const sent = dom.node('input-form').onsubmit({ preventDefault() {} });
   await until(() => submitCalls.length === 1);

@@ -97,7 +97,7 @@
 <div class="composer"><form id="input-form">
   <div id="composer-details" class="composer-details" hidden>
     <div class="composer-heading"><label for="input">下一步，想做什么？</label><span class="composer-caption">一条输入，一个 Task</span></div>
-    <div class="composer-target"><label for="input-branch">父分支</label><input id="input-branch" maxlength="512" placeholder="留空＝当前检出分支" aria-describedby="input-branch-help"><span id="input-branch-help" class="hint">从已绑定 Task 的本地分支创建独立 worktree</span></div>
+    <div class="composer-target"><label for="input-parent">父 Task</label><select id="input-parent" aria-describedby="input-parent-help"><option value="">当前检出分支（默认）</option></select><span id="input-parent-help" class="hint">新 Task 从所选父 Task 的分支创建独立 worktree</span></div>
   </div>
   <div id="composer-references" class="composer-references" aria-label="本条输入引用的上下文" hidden></div>
   <div class="draft-panel" id="draft-panel">
@@ -110,7 +110,7 @@
     <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>Enter</kbd> 换行 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ↵</kbd> 发送当前输入</span>
     <span class="composer-actions">
 
-      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details" data-help="展开：可以指定父分支，并查看键盘快捷键">⌃ 更多</button>
+      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details" data-help="展开：可以选择父 Task，并查看键盘快捷键">⌃ 更多</button>
 
       <button type="submit" id="draft-commit" class="agent-call">发送</button>
     </span>
