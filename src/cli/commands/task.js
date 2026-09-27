@@ -113,7 +113,7 @@ export async function run(command, args, ctx) {
       while (!TERMINAL.has(value.status));
       if (value.status !== 'completed') process.exitCode = 1;
     } else {
-      check(['inspect','cancel','retry','integrate','reserve','reserve-all','resolve','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup'].includes(verb), 'unknown task command');
+      check(['inspect','cancel','retry','interrupt','resume','integrate','reserve','reserve-all','resolve','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup'].includes(verb), 'unknown task command');
       if (verb === 'integrate') {
         exact(args, 2);
         value = await client.request('task.integrate', { id: id(args[0]), commit: args[1] });

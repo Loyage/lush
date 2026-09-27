@@ -19,6 +19,7 @@ export const PARAMS = {
   'task.resolve_child_divergence': ['id'], 'task.unreserve': ['id'],
   'task.approve_merge': ['id','commit','baseline'], 'task.message': ['id','body'],
   'task.cancel': ['id'], 'task.retry': ['id'], 'task.cleanup': ['id','keep_branch'],
+  'task.interrupt': ['id'], 'task.resume': ['id','profile'], 'task.configure': ['id','profile'],
   'progress.plan': ['steps'], 'progress.complete': ['step'],
   'notice.list': [], 'notice.page': ['status','before','limit'],
   'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
@@ -29,7 +30,8 @@ export const USER_ONLY = new Set([
   'system.stop','system.configure','agent.configure','agent.environment','agent.environment.configure',
   'say.submit','task.transcript_latest','task.transcript_page','task.transcript_step','task.transcript_search',
   'task.reserve','task.reserve_all','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge',
-  'task.cancel','task.retry','task.cleanup','notice.answer','notice.dismiss','branch.bind','branch.archive',
+  'task.cancel','task.retry','task.cleanup','task.interrupt','task.resume','task.configure',
+  'notice.answer','notice.dismiss','branch.bind','branch.archive',
 ]);
 export const AGENT_ONLY = new Set([
   'task.integrate','task.resolve_child_divergence','progress.plan','progress.complete',

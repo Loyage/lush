@@ -32,7 +32,7 @@
 
 ## 当前公开面
 
-精简后的 RPC / CLI / Web 白名单以[核心 API 收敛](core-api.md)和 `src/rpc/registry.js` 为准：`system.*`、`agent.*`、`say.submit`、`task.*`（含 `spawn` / `integrate` / `reserve` / `resolve*` / `unreserve` / `approve_merge` / `message` / `cancel` / `retry` / `cleanup` 与只读读面）、`progress.*`、`notice.*`、`branch.tree/show/bind/archive`、`graph.get`。CLI 只注册 `daemon` / `status` / `doctor` / `log` / `web*` / `say` / `task` / `progress` / `notice` / `branch` / `agent` / `config`；其余命令模块（draft / intent / spec / plan / candidate / showcase / sleep）不再挂载，handlers 中未列入白名单的方法一律返回 `unknown method`。
+精简后的 RPC / CLI / Web 白名单以[核心 API 收敛](core-api.md)和 `src/rpc/registry.js` 为准：`system.*`、`agent.*`、`say.submit`、`task.*`（含 `spawn` / `integrate` / `reserve` / `resolve*` / `unreserve` / `approve_merge` / `message` / `cancel` / `retry` / `interrupt` / `resume` / `configure` / `cleanup` 与只读读面）、`progress.*`、`notice.*`、`branch.tree/show/bind/archive`、`graph.get`。CLI 只注册 `daemon` / `status` / `doctor` / `log` / `web*` / `say` / `task` / `progress` / `notice` / `branch` / `agent` / `config`；其余命令模块（draft / intent / spec / plan / candidate / showcase / sleep）不再挂载，handlers 中未列入白名单的方法一律返回 `unknown method`。
 
 以下仍是可调用的公共面：
 
@@ -97,7 +97,7 @@
 实现约束与历史归因口径见 [Token 效率与用量归因](token-efficiency.md)。
 
 - `project/context.js` 的 `invocationContext(task,run)` 只投影直接父子、依赖、用户引用与专用角色上下文；不注入全局最近 Task。关联摘要有界且明确截断，完整内容通过既有 `lush task inspect` 读取。`provider.js` 启动 JSON 使用多行格式，剔除凭证 hash 与重复 prompt 配置。
-- 安全抢占（`scheduling.requestPreempt`）：**只由用户追加输入触发**（`task.message` 且 `sender===null`），且只在有可验证安全边界的后端生效（目前只有 Pi）。它在 `<home>/preempt/` 写一次性 request；`agent/pi-runtime.js` 在 `turn_end` 写 stop 标记并让本轮收尾。`provider.js` 关进程后读一次双向标记并抛 `AgentPreempted`；`invoke` 据此把这次 run 记成 `preempted` 并把 Task 放回 `queued`/`waiting`，写 `invocation.preempted` 事件，**不**调 `cancel()`。超时与 `task.cancel` 仍走硬杀路径并如实标成失败/取消。
+- 安全抢占（`scheduling.requestPreempt`）：由用户追加输入（`task.message` 且 `sender===null`）或用户主动 `task.interrupt` 触发，且只在有可验证安全边界的后端生效（目前只有 Pi）。它在 `<home>/preempt/` 写一次性 request；`agent/pi-runtime.js` 在 `turn_end` 写 stop 标记并让本轮收尾。`provider.js` 关进程后读一次双向标记并抛 `AgentPreempted`；`invoke` 据此把这次 run 记成 `preempted`，追加输入触发的写回 `queued`/`waiting`，用户中断触发的保持 `paused`，写 `invocation.preempted` 事件，**不**调 `cancel()`。`task.interrupt` 只停当前 Task（不级联子任务），超过 30 秒未到安全边界才硬杀，任务仍停在 `paused` 等用户 `task.resume`；普通超时与 `task.cancel` 仍走硬杀路径并如实标成失败/取消。
 - 普通子 Task 成功结算只在全部子 Task 终态后唤醒；失败、取消、显式消息仍及时处理。延迟消息保留未读，所有收尾/恢复路径共用 `hasActionableMessages(taskId)`，避免空转和 lost-wakeup。
 - Agent profile 增加可选 `soft_budget:{responses?,tokens?}`：正整数，空对象/缺省关闭。仅普通 Pi 支持；Codex 和 explainer 明确拒绝启用。内置 `agent/pi-runtime.js` 扩展记录 invocation 身份，按本次响应累计用量，在达到阈值后下一次自然模型调用前仅提醒一次收尾；不强制停止、不额外启动模型轮次。
 - CLI `task list --brief` 返回短目标与分页提示；`progress` 默认只回简短确认，`--json` 保留完整读模型；`doctor` 默认省略完整 daemon 配置，`--verbose` 恢复详细输出。

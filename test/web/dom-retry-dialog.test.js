@@ -26,7 +26,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
 } });
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
 const restoreNavigation = registerNavigation({ refresh: async () => {}, detail: async () => {}, overview: async () => {}, graph: async () => {} });
-const { retryTask } = await import('../../src/ui/web/assets/retry-dialog.js');
+const { retryTask, configureTask } = await import('../../src/ui/web/assets/retry-dialog.js');
 
 afterAll(() => { restoreNavigation(); dom.restore(); });
 
@@ -52,4 +52,18 @@ test('检查后重试编辑完整 Profile，并只把覆盖参数提交给 task.
     agent: 'pi', model: 'openai-codex/gpt-5.4-mini', thinking: 'high', default_prompt: '',
     append_prompt: '先复盘错误，再做最小修复', extensions: ['/tmp/review.js'], skills: [], soft_budget: {},
   } } });
+});
+
+test('暂停中的「调整运行设置」只保存 Profile，不启动 Agent', async () => {
+  actions.length = 0;
+  const pending = configureTask({ id: 42, role: 'worker', status: 'paused' });
+  await until(() => dialogButton(dom, '保存设置'));
+  const modal = dom.node('modal');
+  expect(deepText(modal)).toContain('点「继续」时生效');
+  await dialogButton(dom, '保存设置').onclick();
+  expect(await pending).toBe(true);
+  expect(actions).toHaveLength(1);
+  expect(actions[0].method).toBe('task.configure');
+  expect(actions[0].params.id).toBe(42);
+  expect(actions[0].params.profile).toMatchObject({ agent: 'pi' });
 });

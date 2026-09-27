@@ -10,7 +10,7 @@
 - `task.inspect` / `task.page` / `task.graph` / `task.diff` / `task.history*` / `task.transcript*`：按需只读审阅；支持 CLI 与 Web。
 - `task.integrate`：运行中的直接父 Agent 核对固定子提交并快进；`task.resolve_child_divergence` 为父侧分歧派隔离任务。
 - `task.reserve {kind:'merge'}` / `task.reserve_all {branch}` / `task.unreserve` / `task.resolve_divergence` / `task.approve_merge`：冻结、复查、解分歧和由用户批准固定 commit + baseline；`reserve_all` 把一条分支下所有已静息待合并的 Task 逐条按同一套准入放入 v2 merge 队列，不会自动批准进 main。
-- `task.resolve` / `task.cancel` / `task.retry` / `task.cleanup`：显式结算与安全维护。`branch.tree/show/bind/archive` 管理分支。Agent 和 runtime 配置、进度、daemon 状态是运行必需的辅助接口。
+- `task.resolve` / `task.cancel` / `task.retry` / `task.cleanup`：显式结算与安全维护。`task.interrupt` / `task.resume` / `task.configure` 是可恢复的暂停流程：中断进入非终态 paused，暂停中可追加消息或固定本轮运行设置，继续才重新排队；`task.cancel` 仍是不可恢复的终态放弃，且只在 paused 下作为次级入口。`branch.tree/show/bind/archive` 管理分支。Agent 和 runtime 配置、进度、daemon 状态是运行必需的辅助接口。
 
 ## 移除与磁盘边界
 

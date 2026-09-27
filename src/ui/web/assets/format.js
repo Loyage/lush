@@ -3,6 +3,7 @@
 export const STATUS = {
   queued: { label: '排队', icon: '○' }, running: { label: '运行中', icon: '●' },
   waiting: { label: '等子任务', icon: '◐' }, awaiting: { label: '等你决定', icon: '◔' },
+  paused: { label: '已暂停', icon: '⏸' },
   completed: { label: '已完成', icon: '✓' }, failed: { label: '失败', icon: '✗' }, cancelled: { label: '已取消', icon: '⊘' },
 };
 export const INTEGRATION = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并', conflict: '冲突待处理', superseded: '已作废' };
@@ -20,9 +21,11 @@ export const EVENTS = {
   'merge.approved': '批准合并', merged: '已合并', 'merge.included': '随其它变更一并落地', 'merge.failed': '合并失败',
   'merge.conflict': '合并冲突', 'merge.resolved': '冲突已解决', 'merge.conflict.abandoned': '放弃解冲突',
   'resolution.superseded': '解冲突作废',
+  'task.interrupted': '已中断', 'task.resumed': '继续运行', 'task.configured': '调整运行设置',
+  'invocation.preempted': '安全中断', 'task.interrupt_timeout': '中断超时强制终止',
   completed: '完成', failed: '失败', cancelled: '取消',
 };
-export const HOT = new Set(['running', 'awaiting', 'waiting', 'queued']);
+export const HOT = new Set(['running', 'awaiting', 'waiting', 'queued', 'paused']);
 export const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
 export const short = value => (typeof value === 'string' ? value.slice(0, 7) : '');
 export const statusOf = task => STATUS[task.status] || { label: task.status, icon: '·' };

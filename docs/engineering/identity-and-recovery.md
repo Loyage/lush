@@ -6,6 +6,6 @@
 
 daemon 启动捕获全部运行源码 fingerprint；status 显示 project、home、socket、code_dir、fingerprint。start 遇到已运行 daemon 只报告，不换版本。
 
-正常退出停止接收 RPC，取消正在执行的任务、终止 agent 进程组、等待调用和 Git 队列结束，再关闭数据库和释放锁。queued / waiting / awaiting 持久保留。重启发现 running 时记失败并取消其活动后代，不重放可能已有副作用的工作，并回收中断的检验对照检出；留待用户检查。SIGKILL 可能留下外部进程，需要用户检查后重试。
+正常退出停止接收 RPC，取消正在执行的任务、终止 agent 进程组、等待调用和 Git 队列结束，再关闭数据库和释放锁。queued / waiting / awaiting / paused 持久保留（paused 重启后仍停在暂停，不自动恢复）。重启发现 running 时记失败并取消其活动后代，不重放可能已有副作用的工作，并回收中断的检验对照检出；留待用户检查。SIGKILL 可能留下外部进程，需要用户检查后重试。
 
 不提供 exactly-once 文件副作用保证。SQLite 事务只能保护 Lush 记录，不能把任意模型工具与 Git 操作一起纳入事务。

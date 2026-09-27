@@ -21,6 +21,7 @@ lush [--project PATH] [--json] <command>
   task approve-merge ID COMMIT BASELINE  历史请求的用户批准入口
   task resolve ID                    无代码改动时标记已解决
   task cancel|retry ID               停止或显式重试
+  task interrupt|resume ID           中断（暂停）后继续运行
   task cleanup ID [--keep-branch]    安全回收工作区
 
   branch tree|show BRANCH            查看分支

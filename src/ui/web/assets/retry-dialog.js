@@ -40,10 +40,20 @@ function resourceGroup(title, entries, selected, kind, enabled) {
 }
 
 /**
- * Retry a failed/cancelled task with a complete task-local Agent profile. The profile is sent
- * only to task.retry; it never mutates project agent.json and expires when this attempt settles.
+ * 任务级 Agent Profile 面板：terminal retry 与 paused 的「调整运行设置」共用同一套字段。
+ * Profile 只送到 task.retry / task.configure，不修改项目 agent.json，任务结算时失效。
  */
 export async function retryTask(task) {
+  return profileDialog(task, { method: 'task.retry' });
+}
+
+/** 暂停中的「调整运行设置」：只保存 Profile，不启动 Agent；点详情里的「继续」才生效。 */
+export async function configureTask(task) {
+  return profileDialog(task, { method: 'task.configure' });
+}
+
+async function profileDialog(task, options) {
+  const configuring = options.method === 'task.configure';
   try {
     const settings = await api('/api/agent/config');
     const { role, profile } = roleProfile(settings, task.role);
@@ -148,10 +158,16 @@ export async function retryTask(task) {
     syncBackend(false);
 
     const confirmed = await formDialog({
-      title: `检查后重试任务 #${task.id}`,
-      message: `任务因“${task.status === 'cancelled' ? '已取消' : '失败'}”停止。请检查并调整 ${task.role} Agent；这些设置只用于本轮重试。`,
-      content: form, confirmLabel: '使用这些设置重试', cancelLabel: '暂不重试', cardClass: 'retry-modal',
-      agent: true, confirmHelp: agentHelp('用上面选定的 Agent 设置重新启动这个任务。'),
+      title: configuring ? `调整任务 #${task.id} 的运行设置` : `检查后重试任务 #${task.id}`,
+      message: configuring
+        ? `任务已暂停。这些设置固定到这次暂停，点「继续」时生效；任务结算后自动清除。`
+        : `任务因“${task.status === 'cancelled' ? '已取消' : '失败'}”停止。请检查并调整 ${task.role} Agent；这些设置只用于本轮重试。`,
+      content: form, confirmLabel: configuring ? '保存设置' : '使用这些设置重试',
+      cancelLabel: configuring ? '不修改' : '暂不重试', cardClass: 'retry-modal',
+      agent: !configuring,
+      confirmHelp: configuring
+        ? '保存这次运行设置；点任务详情的「继续」后按新设置启动 Agent。'
+        : agentHelp('用上面选定的 Agent 设置重新启动这个任务。'),
     });
     if (!confirmed) return false;
 
@@ -159,11 +175,12 @@ export async function retryTask(task) {
     const nextDefault = enteredDefault === builtInPrompt.trim() ? '' : enteredDefault;
     if (nextDefault && nextDefault !== (profile.default_prompt || '')) {
       const accepted = await confirmDialog({
-        title: '用自定义 Prompt 重试？',
-        message: '自定义内容会替换 Lush 内置任务规则，仅本轮重试生效。',
+        title: configuring ? '用自定义 Prompt 保存设置？' : '用自定义 Prompt 重试？',
+        message: '自定义内容会替换 Lush 内置任务规则，仅本轮生效。',
         detail: '可能影响：任务 API 使用、权限边界、子任务协作、工作区安全和交付流程。',
-        confirmLabel: '仍然重试', cancelLabel: '取消重试', danger: true,
-        agent: true, confirmHelp: agentHelp('用这份自定义 Prompt 重新启动这个任务。'),
+        confirmLabel: configuring ? '仍然保存' : '仍然重试', cancelLabel: configuring ? '取消修改' : '取消重试', danger: true,
+        agent: !configuring,
+        confirmHelp: configuring ? '保存这份自定义 Prompt 作为本轮运行设置。' : agentHelp('用这份自定义 Prompt 重新启动这个任务。'),
       });
       if (!accepted) return false;
     }
@@ -177,11 +194,13 @@ export async function retryTask(task) {
       default_prompt: nextDefault, append_prompt: appendPrompt.value.trim(),
       extensions: [...selectedExtensions], skills: [...selectedSkills], soft_budget: softBudget,
     };
-    await action('task.retry', { id: task.id, profile: retryProfile });
-    show(`任务 #${task.id} 已按本轮 Agent 设置进入重试队列。`);
+    await action(options.method, { id: task.id, profile: retryProfile });
+    show(configuring
+      ? `任务 #${task.id} 的运行设置已保存；点「继续」按新设置运行。`
+      : `任务 #${task.id} 已按本轮 Agent 设置进入重试队列。`);
     return true;
   } catch (error) {
-    show(`无法重试：${error.message}`, 'error');
+    show(configuring ? `无法保存运行设置：${error.message}` : `无法重试：${error.message}`, 'error');
     return false;
   }
 }

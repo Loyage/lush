@@ -1,6 +1,7 @@
 import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } from './dom.js';
 import { action } from './api.js';
 import { confirmDialog, promptDialog } from './dialog.js';
+import { configureTask } from './retry-dialog.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, runWorkMs, statusOf, taskTitle, worktreeLabel } from './format.js';
 import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
@@ -156,7 +157,7 @@ export function renderDetail(task, history, diff, usage) {
     && task.reservation?.kind !== 'showcase') actions.append(button('已解决', async () => {
     const confirmed = await confirmDialog({
       title: `把 say #${task.id} 标记为已解决？`,
-      message: '适用于这次输入只是想了解/确认、没有代码改动的情况：任务结算为「已完成」，答案作为结果保留，并解除它占用的唤醒。它与「取消任务树」不同——那是因别的原因放弃正在进行的工作；这里代表你确认没有别的需求了。如需继续追问，请在标记前直接给这个任务发消息；标记后请作为新的 say 发送。',
+      message: '适用于这次输入只是想了解/确认、没有代码改动的情况：任务结算为「已完成」，答案作为结果保留，并解除它占用的唤醒。它与「放弃任务」不同——那是因别的原因放弃正在进行的工作；这里代表你确认没有别的需求了。如需继续追问，请在标记前直接给这个任务发消息；标记后请作为新的 say 发送。',
       confirmLabel: '标记已解决',
       confirmHelp: '仅在没有提交、工作区干净时允许；任务变为已完成，不发起合并请求，也不删除分支与工作区。',
     });
@@ -164,18 +165,41 @@ export function renderDetail(task, history, diff, usage) {
     try { await action('task.resolve', { id: task.id }); show(`say #${task.id} 已标记为已解决`); }
     catch (error) { show(error.message, 'error'); }
     await detail(task.id);
-  }, 'ghost', { help: '把没有代码改动的 say 结算为已完成（保留答案），用来区分「没有别的要求」和「取消任务树」；有提交时请改用请求合并或取消。' }));
-  if (['say','child'].includes(task.task_kind) && !['completed', 'failed', 'cancelled'].includes(task.status)) actions.append(button('取消任务树', async () => {
+  }, 'ghost', { help: '把没有代码改动的 say 结算为已完成（保留答案），用来区分「没有别的要求」和「放弃任务」；有提交时请改用请求合并或放弃。' }));
+  // 主流程是「中断 → 暂停 → 继续」，不再一步取消；永久放弃只在暂停后作为次级危险操作出现。
+  const liveWorkTask = ['say','child'].includes(task.task_kind) && !TERMINAL_STATUS.has(task.status);
+  if (liveWorkTask && task.status !== 'paused') actions.append(button('中断', async () => {
     const confirmed = await confirmDialog({
-      title: '取消这个任务树？',
-      message: '取消这个任务及所有子任务；工作区会保留。',
-      confirmLabel: '取消任务',
-      cancelLabel: '保留',
-      danger: true,
+      title: `中断 Task #${task.id}？`,
+      message: '停止当前 Agent 调用并保留现场：工作区、提交、pi 会话与消息都不变。中断后可以追加说明或调整运行设置，再点「继续」恢复。',
+      confirmLabel: '中断', cancelLabel: '保留',
     });
-    if (confirmed) await action('task.cancel', { id: task.id });
+    if (!confirmed) return;
+    try { await action('task.interrupt', { id: task.id }); show(`Task #${task.id} 已中断；可追加说明或调整运行设置后继续。`); }
+    catch (error) { show(`无法中断：${error.message}`, 'error'); }
     await detail(task.id);
-  }, 'danger', { help: '取消这个任务及它下面的全部子任务，工作区与分支保留；取消后无法恢复。' }));
+  }, 'ghost', { help: '停止这个 Task 的 Agent 调用并保留工作区、提交、会话与消息；正在运行的子任务不受影响，之后可以继续。' }));
+  if (task.status === 'paused') {
+    actions.append(button('继续', async () => {
+      try { await action('task.resume', { id: task.id }); show(`Task #${task.id} 已继续运行。`); }
+      catch (error) { show(`无法继续：${error.message}`, 'error'); }
+      await detail(task.id);
+    }, undefined, { agent: true, help: agentHelp('按当前运行设置重新启动这条 Task 的 Agent；工作区、提交、会话与已追加的消息都保留。') }));
+    actions.append(button('调整运行设置', async () => {
+      await configureTask(task);
+      await detail(task.id);
+    }, 'ghost', { help: '只修改这条 Task 本轮使用的 Agent、模型、Prompt 与扩展；保存后点「继续」生效，任务结算后自动清除。' }));
+    actions.append(button('放弃任务', async () => {
+      const confirmed = await confirmDialog({
+        title: '放弃这个任务树？',
+        message: '放弃这条 Task 及所有子任务（进入已取消），工作区与分支保留；放弃后不能直接恢复。',
+        confirmLabel: '放弃任务', cancelLabel: '保留', danger: true,
+      });
+      if (!confirmed) return;
+      await action('task.cancel', { id: task.id });
+      await detail(task.id);
+    }, 'danger', { help: '放弃这条 Task 及它下面的全部子任务，工作区与分支保留；这是不可恢复的终态操作。' }));
+  }
   if (task.divergence_resolution) {
     actions.append(button(`查看源 say #${task.parent_id}`, () => detail(task.parent_id), 'link'));
   }

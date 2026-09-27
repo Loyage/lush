@@ -21,7 +21,7 @@ export function toggleDraftPanel(force) {
 }
 // 可作为父 Task 的只有拥有分支、仍在活动的主干 / owner / say Task；正在展示冻结提交的 say 会被后端拒绝。
 const PARENT_KINDS = new Set(['main', 'owner', 'say']);
-const PARENT_STATUSES = new Set(['queued', 'running', 'waiting', 'awaiting']);
+const PARENT_STATUSES = new Set(['queued', 'running', 'waiting', 'awaiting', 'paused']);
 
 /** 当前快照里可选的父 Task，按 id 升序。纯函数，便于单测。 */
 export function parentTasks(tasks = ui.lastSnapshot?.tasks ?? []) {

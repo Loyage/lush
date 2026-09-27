@@ -5,6 +5,16 @@ import { check, TERMINAL, LushError } from '../types.js';
 import { tokenHash } from './internal.js';
 import { AgentPreempted } from '../../agent/provider.js';
 
+/** 「中断」的安全边界等待上限：请求抢占后仍不收敛就强制结束本轮 invocation（任务保持 paused）。 */
+const INTERRUPT_GRACE_MS = 30_000;
+
+/** 运行设置调整事件只记可公开的字段，与 retry 事件同一记账口径。 */
+function profileEvent(profile) {
+  return { agent: profile.agent, model: profile.model || null, thinking: profile.thinking || null,
+    default_prompt_overridden: Boolean(profile.default_prompt), append_prompt: Boolean(profile.append_prompt),
+    extensions: profile.extensions.length, skills: profile.skills.length, soft_budget: profile.soft_budget || null };
+}
+
 /** 调度、invocation 生命周期、凭证。 */
 export default {
   questionPending(taskId) {
@@ -20,7 +30,8 @@ export default {
       for (const message of run.messages || []) this.store.run('UPDATE messages SET consumed=1 WHERE id=?', message.id);
       this.store.event(taskId, 'invocation.completed', { result, suspended: true, notice_id: noticeId });
     }
-    this.store.update(taskId, { status: 'awaiting', result });
+    // 用户已主动暂停时不把状态改成 awaiting；待决问题保留，继续时由 pump 重新投影成 awaiting。
+    if (this.store.task(taskId).status !== 'paused') this.store.update(taskId, { status: 'awaiting', result });
   },
 
   hasActionableMessages(taskId) {
@@ -37,6 +48,7 @@ export default {
   wake(taskId) {
     const task = this.store.task(taskId);
     if (['main','owner','merge'].includes(task.task_kind)) return; // runtime-driven roots and merge orchestration never run providers
+    if (task.status === 'paused') return; // 暂停是用户显式状态：消息照收，但不自动恢复调用
     if (task.reservation && JSON.parse(task.reservation)?.version === 2
       && JSON.parse(task.reservation).status === 'requested') return; // frozen until merge queue settles
     if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') return;
@@ -170,6 +182,76 @@ export default {
     return true;
   },
 
+  /**
+   * 用户主动「中断」一个 Task：停掉当前 Agent 调用，进入非终态 `paused`，工作区 / 提交 / pi 会话 / 消息全部保留。
+   * 只处理当前任务，不级联子任务——正在跑的子任务照常结束，父任务保持暂停，等用户点「继续」。
+   * 有可验证安全边界的后端（目前只有 pi）先请求在 turn_end 收尾；超过 INTERRUPT_GRACE_MS 仍未收敛才强制结束本轮
+   * invocation。其它后端没有边界，直接终止进程。两种情况都只结束本次 invocation，Task 仍可继续。
+   */
+  interrupt(taskId, reason = 'interrupted by user') {
+    const task = this.store.task(taskId);
+    check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; interrupt individual say Tasks instead');
+    check(['say','child'].includes(task.task_kind), 'only say/child Tasks can be paused');
+    check(!TERMINAL.has(task.status), 'task has ended; retry it or submit a new input');
+    check(task.status !== 'paused', 'task is already paused');
+    const booking = task.reservation ? JSON.parse(task.reservation) : null;
+    check(!(booking?.version === 2 && booking.status === 'requested'),
+      'Task is frozen for merge; wait for integration or withdraw the request before pausing');
+    check(!(task.task_kind === 'say' && booking?.status === 'started'),
+      'say Task is presenting; cancel the showcase instead of pausing');
+    const run = this.running.get(task.id);
+    this.store.transaction(() => {
+      this.store.update(task.id, { status: 'paused', error: null });
+      this.store.event(task.id, 'task.interrupted', { run_id: run?.recordId ?? null, reason });
+    });
+    if (!run) return this.store.task(task.id);
+    const soft = this.requestPreempt(task.id, reason);
+    if (!soft) {
+      // 没有可验证安全边界的后端：立即结束本轮调用，任务仍停在 paused。
+      run.controller.abort(new Error(reason));
+      return this.store.task(task.id);
+    }
+    clearTimeout(run.interruptTimer);
+    const grace = Number(this.config.interruptGraceMs) > 0 ? this.config.interruptGraceMs : INTERRUPT_GRACE_MS;
+    run.interruptTimer = setTimeout(() => {
+      this.store.event(task.id, 'task.interrupt_timeout', { run_id: run.recordId ?? null, reason, grace_ms: grace });
+      run.controller.abort(new Error(`${reason}（安全边界超时，已强制终止）`));
+    }, grace);
+    run.interruptTimer.unref?.();
+    return this.store.task(task.id);
+  },
+
+  /** 暂停中调整本轮运行设置：复用任务级 retry_profile，继续时生效、结算时清除，不改项目默认。 */
+  configureTask(taskId, profile = null) {
+    this.assertWritable('configure a task');
+    const task = this.store.task(taskId);
+    check(task.status === 'paused', 'only paused tasks can adjust run settings');
+    check(['say','child'].includes(task.task_kind), 'only say/child Tasks can adjust run settings');
+    const retryProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile(task.role, profile);
+    this.store.transaction(() => {
+      this.store.update(task.id, { retry_profile: retryProfile ? JSON.stringify(retryProfile) : null });
+      this.store.event(task.id, 'task.configured', retryProfile ? profileEvent(retryProfile) : { profile_override: false });
+    });
+    return this.store.task(task.id);
+  },
+
+  /** 从「已暂停」继续：保留 calls / 会话 / 工作区 / 消息，只把状态放回 queued（依赖或冻结由 pump 再决定）。 */
+  resumeTask(taskId, profile = null) {
+    this.assertWritable('resume a task');
+    const task = this.store.task(taskId);
+    check(task.status === 'paused', 'only paused tasks can be resumed');
+    check(['say','child'].includes(task.task_kind), 'only say/child Tasks can be resumed');
+    check(!this.running.has(task.id), 'agent is still stopping; resume shortly');
+    const retryProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile(task.role, profile);
+    this.store.transaction(() => {
+      this.store.update(task.id, { status: 'queued', error: null,
+        ...(retryProfile ? { retry_profile: JSON.stringify(retryProfile) } : {}) });
+      this.store.event(task.id, 'task.resumed', retryProfile ? { profile_override: true, ...profileEvent(retryProfile) } : { profile_override: false });
+    });
+    this.kick();
+    return this.store.task(task.id);
+  },
+
   /** Resolve an agent credential to its task. Only the invocation that was issued the token is an actor. */
   actor(token) {
     if (token === undefined || token === null || token === '') return null;
@@ -261,6 +343,8 @@ export default {
             changes: [], evidence: [], decisions: [], risks: [], artifacts: [], followups: [], verification },
           metadata: { role: task.role, call: task.calls, agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null } });
       });
+      // 暂停中的 Task 即使本轮正常返回也只保留结果，不自动推进状态；用户点「继续」时才恢复调度。
+      if (this.store.task(taskId).status === 'paused') return;
       if (task.role === 'butler') await this.completeButler(taskId, result);
       if (TERMINAL.has(this.store.task(taskId).status)) return;
       // Deliver actionable arrivals next time; ordinary coordinator receipts wait for the wave.
@@ -322,12 +406,14 @@ export default {
         if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {
           this.store.finishRun(run.recordId, 'preempted', { error: error.details?.reason ?? 'preempted by new input' });
         }
+        const paused = this.store.task(taskId).status === 'paused';
         if (!run.parked && !TERMINAL.has(this.store.task(taskId).status)) {
           this.store.transaction(() => {
             this.store.event(taskId, 'invocation.preempted', { run_id: run.recordId, ...error.details });
-            this.store.update(taskId, { status: this.hasActionableMessages(taskId) ? 'queued' : 'waiting' });
+            // 用户主动中断停在 paused；普通追加输入触发的抢占仍回到 queued/waiting。
+            if (!paused) this.store.update(taskId, { status: this.hasActionableMessages(taskId) ? 'queued' : 'waiting' });
           });
-          this.kick();
+          if (!paused) this.kick();
         }
         return;
       }
@@ -337,9 +423,11 @@ export default {
       if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {
         this.store.finishRun(run.recordId, timedOut ? 'failed' : run.controller.signal.aborted ? 'cancelled' : 'failed', { error: message });
       }
-      if (!run.parked && !TERMINAL.has(this.store.task(taskId).status)) this.cancel(taskId, message, 'failed');
+      const current = this.store.task(taskId);
+      if (!run.parked && !TERMINAL.has(current.status) && current.status !== 'paused') this.cancel(taskId, message, 'failed');
     } finally {
       clearTimeout(timer);
+      clearTimeout(run.interruptTimer);
       if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {
         const task = this.store.task(taskId);
         this.store.finishRun(run.recordId, task.status === 'cancelled' ? 'cancelled' : task.status === 'failed' ? 'failed' : 'completed',

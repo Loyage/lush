@@ -21,7 +21,7 @@ sequenceDiagram
 ```
 
 - 新 say 输入直接拥有 `agent` Task，不创建 planner/scheduler。父 Agent 可按需派子 Task；子 Task 结算只发送信号，不自动合并。
-- 一轮正常返回后的 say Task 通常处于 `waiting`，保留分支与再次唤醒能力；`awaiting` 等用户答复。终态 Task 不允许活动后代。
+- 一轮正常返回后的 say Task 通常处于 `waiting`，保留分支与再次唤醒能力；`awaiting` 等用户答复；用户主动中断则停在非终态 `paused`，可追加消息或调整本轮运行设置后继续。终态 Task 不允许活动后代。
 - 用户追加输入先持久化，再尝试在可证明的安全点收尾：当前 Pi 可在 `turn_end` 抢占，记录 `preempted` Run；无安全点后端只在自然轮末交付，不把硬杀冒充安全中断。
 - 未知外部副作用的中断不自动重放。Run 结束、Task 结算、代码集成互不等价。
 

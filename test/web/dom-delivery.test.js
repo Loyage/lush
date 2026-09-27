@@ -256,7 +256,7 @@ test('no-change say gets an 已解决 button distinct from cancel; committed or 
   expect(resolve).toBeDefined();
   // 语义不直观但不调用 Agent：只带 data-help，不带 agent-call。
   expect(resolve.classList.contains('agent-call')).toBe(false);
-  expect(resolve.getAttribute('data-help')).toContain('取消任务树');
+  expect(resolve.getAttribute('data-help')).toContain('放弃任务');
   const pending = resolve.onclick();
   expect(dialogText(dom)).toContain('已解决');
   await answerDialog(dom, '标记已解决'); await pending;
@@ -267,4 +267,40 @@ test('no-change say gets an 已解决 button distinct from cancel; committed or 
   renderDetail({ ...say, head_commit: null, base_commit: baseline,
     reservation: { version: 1, kind: 'showcase', status: 'preparing', child_id: 5 } }, null, null, null);
   expect(buttonOf(dom.node('detail'), '已解决')).toBeUndefined();
+});
+
+test('non-terminal say offers 中断 instead of direct cancel; paused offers 继续 / 调整运行设置 / 放弃任务', async () => {
+  renderDetail({ ...say, status: 'running' }, null, null, null);
+  let panel = dom.node('detail');
+  expect(buttonOf(panel, '取消任务树')).toBeUndefined();
+  const interrupt = buttonOf(panel, '中断');
+  expect(interrupt).toBeTruthy();
+  // 中断只是可恢复的停顿，不调用 Agent：带 data-help，但不带 agent-call。
+  expect(interrupt.classList.contains('agent-call')).toBe(false);
+  const pending = interrupt.onclick();
+  expect(dialogText(dom)).toContain('保留现场');
+  await answerDialog(dom, '中断'); await pending;
+  expect(world.state.actions).toContainEqual({ method: 'task.interrupt', params: { id: say.id } });
+
+  renderDetail({ ...say, status: 'paused' }, null, null, null);
+  panel = dom.node('detail');
+  expect(buttonOf(panel, '中断')).toBeUndefined();
+  expect(buttonOf(panel, '取消任务树')).toBeUndefined();
+  const resume = buttonOf(panel, '继续');
+  expect(resume).toBeTruthy();
+  expect(resume.classList.contains('agent-call')).toBe(true);
+  expect(resume.getAttribute('data-help')).toContain('消耗 token');
+  expect(buttonOf(panel, '调整运行设置')).toBeTruthy();
+  const giveUp = buttonOf(panel, '放弃任务');
+  expect(giveUp).toBeTruthy();
+  expect(giveUp.classList.contains('agent-call')).toBe(false);
+
+  await resume.onclick();
+  expect(world.state.actions).toContainEqual({ method: 'task.resume', params: { id: say.id } });
+
+  renderDetail({ ...say, status: 'paused' }, null, null, null);
+  const abandoning = buttonOf(dom.node('detail'), '放弃任务').onclick();
+  expect(dialogText(dom)).toContain('放弃这条 Task');
+  await answerDialog(dom, '放弃任务'); await abandoning;
+  expect(world.state.actions).toContainEqual({ method: 'task.cancel', params: { id: say.id } });
 });
