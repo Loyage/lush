@@ -14,7 +14,7 @@ async function committedSay(f, name) {
   return say.task;
 }
 
-test('idle say requests route through a reusable merge child, squash one commit and archive', async () => {
+test('idle say requests route through a reusable merge child, squash one commit and return the Task to its parent', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const source = await committedSay(f, 'alpha');
@@ -26,13 +26,17 @@ test('idle say requests route through a reusable merge child, squash one commit 
     f.project.stopping = false;
     await f.project.driveTaskMerge(source.parent_id);
     const done = f.store.task(source.id);
-    expect(done).toMatchObject({ status: 'completed', integration: 'merged', branch: null, workspace: null });
-    const merger = f.store.task(done.parent_id);
+    // Integration no longer auto-archives: branch, worktree and original parent are preserved.
+    expect(done).toMatchObject({ status: 'completed', integration: 'merged', parent_id: source.parent_id });
+    expect(done.branch).toBe(source.branch);
+    expect(done.workspace).toBe(source.workspace);
+    const merger = f.store.get("SELECT * FROM tasks WHERE parent_id=? AND task_kind='merge' AND name='merge'", source.parent_id);
     expect(merger).toMatchObject({ parent_id: source.parent_id, task_kind: 'merge', status: 'completed' });
     expect(await git(f.root, 'rev-list', '--count', `${original}..main`)).toBe('1');
     expect(await git(f.root, 'show', 'main:alpha.txt')).toBe('alpha');
-    expect(f.store.branch(source.branch).status).toBe('archived');
+    expect(f.store.branch(source.branch).status).toBe('active');
     expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='task.reparented_for_merge'", source.id).n).toBe(1);
+    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='task.merge_parent_restored'", source.id).n).toBe(1);
   } finally { await f.close(); }
 });
 
@@ -47,7 +51,8 @@ test('a completed showcase say reopens for automatic delivery without v1 approva
     expect(booking.reservation).toMatchObject({ version: 2, kind: 'merge', status: 'requested' });
     f.project.stopping = false;
     await f.project.driveTaskMerge(source.parent_id);
-    expect(f.store.task(source.id)).toMatchObject({ status: 'completed', integration: 'merged', branch: null });
+    expect(f.store.task(source.id)).toMatchObject({ status: 'completed', integration: 'merged', parent_id: source.parent_id });
+    expect(f.store.task(source.id).branch).toBe(source.branch);
   } finally { await f.close(); }
 });
 
@@ -80,7 +85,8 @@ test('a child Task can request a squash into its say parent without waking its A
     f.project.stopping = false;
     await f.project.driveTaskMerge(say.task.id);
     expect(f.store.task(child.id).integration).toBe('merged');
-    expect(f.store.task(child.id).parent_id).toBe(f.store.get("SELECT id FROM tasks WHERE parent_id=? AND task_kind='merge'", say.task.id).id);
+    expect(f.store.task(child.id).parent_id).toBe(say.task.id);
+    expect(f.store.task(child.id).branch).toBe(child.branch);
     expect(await git(say.task.workspace, 'rev-list', '--count', `${start}..HEAD`)).toBe('1');
     expect(await git(say.task.workspace, 'show', 'HEAD:child.txt')).toBe('child');
     expect(f.store.get("SELECT count(*) AS n FROM messages WHERE task_id=? AND signal_type='merge.completed'", say.task.id).n).toBe(1);
@@ -129,8 +135,9 @@ test('the original source Agent repairs divergence and the queue resumes without
     await f.project.reserveTask(second.id, 'merge');
     f.project.stopping = false;
     await f.project.driveTaskMerge(parentId);
-    await until(() => f.store.task(second.id).branch === null || f.store.task(second.id).integration_error, 8000);
-    expect(f.store.task(second.id)).toMatchObject({ status: 'completed', branch: null, workspace: null });
+    await until(() => f.store.task(second.id).integration === 'merged' || f.store.task(second.id).integration_error, 8000);
+    expect(f.store.task(second.id)).toMatchObject({ status: 'completed', integration: 'merged', parent_id: parentId });
+    expect(f.store.task(second.id).branch).toBe(second.branch);
     expect(await git(f.root, 'rev-list', '--count', `${baseline}..main`)).toBe('2');
     expect(await git(f.root, 'show', 'main:one.txt')).toBe('one');
     expect(await git(f.root, 'show', 'main:two.txt')).toBe('two');
@@ -211,5 +218,35 @@ test('reserveMergeAll queues every idle pending Task on a branch and the queue l
     expect(f.store.task(second.id).integration).toBe('merged');
     expect(await git(f.root, 'show', 'main:alpha.txt')).toBe('alpha');
     expect(await git(f.root, 'show', 'main:beta.txt')).toBe('beta');
+  } finally { await f.close(); }
+});
+
+test('a merged Task keeps its branch until the user archives it, without blocking its parent', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const say = await f.project.say('parent');
+    f.store.update(say.task.id, { status: 'waiting' });
+    const child = await f.project.spawn(say.task.id, 'child work');
+    fs.writeFileSync(path.join(child.workspace, 'child.txt'), 'child\n');
+    await git(child.workspace, 'add', 'child.txt'); await git(child.workspace, 'commit', '-m', 'child one');
+    f.store.update(child.id, { status: 'waiting', result: 'done' });
+
+    await f.project.reserveTask(child.id, 'merge');
+    f.project.stopping = false;
+    await f.project.driveTaskMerge(say.task.id);
+
+    const merged = f.store.task(child.id);
+    expect(merged).toMatchObject({ status: 'completed', integration: 'merged', parent_id: say.task.id });
+    expect(merged.branch).toBe(child.branch);
+    expect(merged.workspace).toBe(child.workspace);
+    // Squash ancestry looks divergent in Git, but the read model reports it integrated and does not
+    // let a retained merged child block its parent branch.
+    expect((await f.project.workspaces.branchState(child.branch)).status).toBe('integrated');
+    expect((await f.project.workspaces.branchState(say.task.branch)).blockers).toEqual([`task:#${say.task.id}`]);
+
+    // Archiving is the user's explicit later decision.
+    await f.project.workspaces.cleanup(child.id);
+    expect(f.store.task(child.id)).toMatchObject({ branch: null, workspace: null });
+    expect(f.store.branch(child.branch).status).toBe('archived');
   } finally { await f.close(); }
 });

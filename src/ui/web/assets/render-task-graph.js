@@ -56,7 +56,7 @@ function collapsed() {
 }
 function save(set) { try { localStorage.setItem(scopedKey(KEY), JSON.stringify([...set])); } catch { /* storage unavailable */ } }
 
-/** 归档后的 Task：分支已归档（合并队列收尾时自动发生）。归档是记录状态，任务行仍在库里，
+/** 归档后的 Task：分支已被用户显式归档。归档是记录状态，任务行仍在库里，
  *  只是默认不再占 Task 图主视图；这里只认读模型给出的字段，不自己猜 Git 现状。 */
 function isArchivedTask(node) {
   return node.branch_info?.archived === true || node.archived === true;
@@ -291,7 +291,7 @@ export function renderTaskGraph(graph) {
     const toggle = button(ui.taskGraphShowArchived ? `隐藏已归档（${archivedCount}）` : `显示已归档（${archivedCount}）`, () => {
       ui.taskGraphShowArchived = !ui.taskGraphShowArchived;
       renderTaskGraph(full);
-    }, 'ghost', { help: '归档 Task 是分支合并收尾后自动隐藏的记录；这里只在当前页面显示，不写库、不改任务状态，重开页面仍默认隐藏。' });
+    }, 'ghost', { help: '归档 Task 是用户显式归档分支后留下的记录；这里只在当前页面显示，不写库、不改任务状态，重开页面仍默认隐藏。' });
     toggle.classList.add('task-graph-archived-toggle');
     summary.append(toggle);
   }

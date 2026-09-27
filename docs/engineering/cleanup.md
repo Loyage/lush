@@ -13,6 +13,8 @@
 - cleanup / `task cleanup` 是**安全回收**：必须先证明分支的成果已经进入目标分支（tip 仍含审阅过的 `head_commit`，且 tip 是目标分支的祖先），证明不了就保留并说明 reason。
 - 归档是**明知可能未合并也允许删**：用户明确表示不再要这棵子树的代码，runtime 不再做祖先检查——因此 `archiveBranch` 是 Git 边界里唯一一条这样的 compare-and-delete。
 
+新式 version 2 Squash 合并落地后不再自动走归档：runtime 把请求 Task 从 merge 队列身份归还到它原本的直接父 Task，分支与 worktree 保留，直到用户显式 `task cleanup` / `branch archive` 才按上面同一套安全门删除。Squash 只保证树相同，源 ref 并不在目标分支的祖先链上，所以 `archiveSquashedTaskUnsafe` 用「源树等于已落地树 + 落地提交仍在目标分支」替代祖先检查；在归档前，`branchState` 通过 `Workspaces#squashedLanded` 就把这条分支按已收拢报告，既不冒充分歧，也不挡住父分支。
+
 归档保留的东西：`branches` 谱系行（`status` 标成 `archived`，`deleted_at` 兼作归档时间，不为它另加列）、子树里每条分支上的任务行、消息、事件，以及不随 worktree 消失的 pi 会话文件（`<home>/sessions/`；位置写进 `branch.archived` 事件）。被删掉的是子树里每一条的 worktree 与本地 ref，以及旧效果展示遗留的 detached worktree（如果存在）；对应任务行的 `workspace` / `baseline_workspace` 清成 `NULL`，历史字段继续保留。
 
 **归档的节点不再占分支树**（Web 分支图与 `branch tree` 都不画）：它们是记录，用 `branch show` / `branch.archive` 事件 / 任务详情查；见[分支谱系](branch-genealogy.md)。

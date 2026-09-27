@@ -16,7 +16,7 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
     const controls = el('div', undefined, 'actions delivery-actions');
     const state = reservation?.version === 2 ? reservation.status : null;
     if (state) panel.append(badge({ pending: '已预约合并 · 等待静息', requested: '冻结 · 自动合并中',
-      resolving: '分歧处理中 · 原 Task 已恢复工作', integrated: '已合并并归档' }[state] || state, 'b-awaiting'));
+      resolving: '分歧处理中 · 原 Task 已恢复工作', integrated: '已合并 · 待归档' }[state] || state, 'b-awaiting'));
     if (reservation?.blocked_reason) panel.append(el('p', reservation.blocked_reason, 'hint'));
     if (task.integration_error) panel.append(el('p', task.integration_error, 'hint'));
     if (state === 'requested') controls.append(button('复查合并队列', async () => {
@@ -26,7 +26,7 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
       const ready = task.status === 'waiting';
       controls.append(button(ready ? '合并到父 Task' : '预约合并', async () => {
         const confirmed = await confirmDialog({ title: `${ready ? '请求合并' : '预约合并'} Task #${task.id}？`,
-          message: '静息后会冻结原 Task，由父 Task 的 merge 子任务串行处理；可合并时向父分支写入一条 Squash 提交。出现分歧时自动唤醒原 Task 处理。包括 main 在内无需再次人工批准；成功后受检删除源分支与 worktree。',
+          message: '静息后会冻结原 Task，由父 Task 的 merge 子任务串行处理；可合并时向父分支写入一条 Squash 提交。出现分歧时自动唤醒原 Task 处理。包括 main 在内无需再次人工批准；成功后归还原父 Task 并保留源分支与 worktree，由你决定何时归档。',
           confirmLabel: ready ? '请求合并' : '预约合并', agent: true,
           confirmHelp: agentHelp('提交自动合并意图；若存在分歧，将唤醒原 Task 的 Agent 处理。') });
         if (!confirmed) return;

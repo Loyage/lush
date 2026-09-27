@@ -82,6 +82,29 @@ export default {
     });
   },
 
+  /**
+   * version 2 integration leaves the worktree and branch in place; unhook the delivered Task from
+   * the reusable merge identity and put it back under the parent it was originally delivered to,
+   * so the user can inspect it and decide when to archive. Archiving stays an explicit user action
+   * (`task.cleanup` / `branch archive`). Idempotent: a Task already under its original parent is left alone.
+   */
+  restoreMergedTaskParent(taskId) {
+    const task = this.store.task(id(taskId));
+    const booking = reservationOf(task);
+    if (!task.branch || booking?.version !== 2 || booking.status !== 'integrated') return false;
+    const target = booking.parent_id ?? task.parent_id;
+    if (!target || task.parent_id === target) return false;
+    check(this.store.task(target), `merged Task #${task.id} has no original parent to return to`);
+    this.store.transaction(() => {
+      const live = this.store.task(task.id);
+      if (live.parent_id === target) return;
+      this.store.run("UPDATE tasks SET parent_id=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
+        target, live.id);
+      this.store.event(live.id, 'task.merge_parent_restored', { from: live.parent_id, to: target });
+    });
+    return true;
+  },
+
   /** Dispatch the parent's merge signal without waking its development Agent. */
   scheduleTaskMerge(parentId) {
     if (this.stopping) return;
@@ -181,12 +204,9 @@ export default {
             this.store.run("UPDATE messages SET consumed=1 WHERE id IN (SELECT id FROM messages WHERE task_id=? AND sender_id=? AND signal_type='merge.requested')",
               parentId, task.id);
           });
-          try {
-            await this.workspaces.archiveSquashedTaskUnsafe(this.store.task(task.id), request.commit, landed.commit);
-          } catch (error) {
-            this.store.update(task.id, { integration_error: `已合并；自动归档受阻：${error.message}` });
-            this.store.event(task.id, 'task.archive_blocked', { error: error.message });
-          }
+          // Deliberately do not archive after landing: return the delivered Task to its original
+          // parent and keep its worktree/branch, so the user decides when to reclaim it.
+          this.restoreMergedTaskParent(task.id);
           return 'next';
         });
         if (outcome === 'wait') break;

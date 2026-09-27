@@ -468,10 +468,10 @@ export default {
         this.store.event(task.id, 'merge.repair_interrupted', {});
       }
       if (booking.version === 2 && booking.status === 'integrated' && task.branch) {
-        void this.workspaces.exclusive(() => this.workspaces.archiveSquashedTaskUnsafe(
-          this.store.task(task.id), booking.commit, booking.landed_commit)).catch(error => {
-          this.store.update(task.id, { integration_error: `自动归档受阻：${error.message}` });
-        });
+        // Integration no longer auto-archives; make sure a crash between landing and the
+        // parent restore still returns the Task to its original parent for the user to reclaim.
+        try { this.restoreMergedTaskParent(task.id); }
+        catch (error) { this.store.update(task.id, { integration_error: `已合并；归还原父 Task 受阻：${error.message}` }); }
       }
     }
     // 崩溃可能落在「独立解分歧子 Task 已结算」与「runtime 推进 say 分支」之间：重启后补跑收尾。

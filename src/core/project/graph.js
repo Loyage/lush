@@ -348,6 +348,10 @@ export default {
             status = ahead === 0 ? 'integrated' : behind === 0 ? 'fast_forward' : 'diverged';
           } catch { status = 'unknown'; ahead = null; behind = null; }
         }
+        // Squash 落地但尚未归档的分支在 Git 祖先上看是分歧；读模型如实投影成 integrated，与 branchState 同口径。
+        if (status !== 'integrated' && parentHead && await this.workspaces.squashedLanded(row.branch, parentHead)) {
+          status = 'integrated'; ahead = 0; behind = 0;
+        }
         relations.set(row.branch, { status, ahead, behind, parent_head: parentHead, child_head: childHead });
       }
 

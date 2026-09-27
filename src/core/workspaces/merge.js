@@ -22,6 +22,27 @@ export const methods = {
     return [...new Set(blockers)];
   },
 
+  /**
+   * version 2 Squash 在父分支上落成一个等价树的新提交，Git 祖先关系因此看不出这条子分支已经进了父分支。
+   * 在用户显式归档前，只要 ref 仍停在集成时固定的源提交、且记录的落地提交确实是 `onto` 的祖先，
+   * 就如实把它当作已收拢；ref 一旦漂移就不再命中，按未收拢显示。供 branchState / 图读模型共用。
+   */
+  async squashedLanded(branch, onto) {
+    if (!branch || !onto) return false;
+    const record = this.store.branch(branch);
+    if (!record || record.status !== 'active' || record.task_id === null || record.task_id === undefined) return false;
+    const task = this.store.get('SELECT reservation FROM tasks WHERE id=?', record.task_id);
+    if (!task?.reservation) return false;
+    let booking;
+    try { booking = JSON.parse(task.reservation); } catch { return false; }
+    if (booking?.version !== 2 || booking.status !== 'integrated' || !booking.commit || !booking.landed_commit) return false;
+    const project = this.config.project;
+    let tip = null;
+    try { tip = await this.git(project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`); } catch { return false; }
+    if (tip !== booking.commit) return false;
+    return this.isAncestor(project, booking.landed_commit, onto);
+  },
+
   /** 一条已登记的 child -> direct parent 边当前在 commit 图上的状态。 */
   async branchState(child) {
     const record = this.store.branch(child);
@@ -43,7 +64,16 @@ export const methods = {
     for (const descendant of this.store.branches().filter(row => row.parent === child && !['deleted', 'archived'].includes(row.status))) {
       let head = null;
       try { head = await this.git(project, 'rev-parse', '--verify', `refs/heads/${descendant.branch}^{commit}`); } catch { continue; }
-      if (!await this.isAncestor(project, head, childHead)) blockers.push(descendant.branch);
+      if (await this.isAncestor(project, head, childHead)) continue;
+      // Squash 落地的子分支祖先关系看不到，但成果已在 childHead 里；ref 未漂移就不算 blocker。
+      if (await this.squashedLanded(descendant.branch, childHead)) continue;
+      blockers.push(descendant.branch);
+    }
+    // 自己就是已 Squash 落地、尚未归档的分支：按 integrated 报告，不谎报分歧；Squash 后没有要再收拢的独有提交。
+    if (status !== 'integrated' && await this.squashedLanded(child, parentHead)) {
+      status = 'integrated';
+      return { child, parent: record.parent, child_head: childHead, parent_head: parentHead,
+        status, ahead: 0, behind: 0, blockers };
     }
     return { child, parent: record.parent, child_head: childHead, parent_head: parentHead,
       status, ahead: Number.isFinite(ahead) ? ahead : null, behind: Number.isFinite(behind) ? behind : null, blockers };
