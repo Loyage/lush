@@ -7,6 +7,16 @@ import { detail } from './navigate.js';
 
 const short = hash => String(hash || '').slice(0, 12);
 
+/** 「已合并 · 待归档」承诺的是一次还能按的归档：分支记录已归档、或 Task 已经没有分支（回收工作区与分支、
+ *  旧版落地即归档都会把 tasks.branch 清成 null）时，已经没有东西可归档，标签必须跟着真实状态落地。
+ *  三个入口的数据形状不同——Task 详情是 inspect 的 branch_archive，Task 图 / 分支图是 branch_info，所以两个都看。 */
+function archiveBadge(task) {
+  const archived = task.branch_info?.archived === true || task.branch_archive?.archived === true;
+  return Boolean(task.branch) && !archived
+    ? { label: '已合并 · 待归档', className: 'b-awaiting' }
+    : { label: '已合并 · 已归档', className: 'b-completed' };
+}
+
 /** Shared new-say delivery controls: the detail page and branch graph use exactly the same authorization path. */
 export function deliveryControls(task, { refresh = () => {} } = {}) {
   if (!['say','child'].includes(task.task_kind)) return null;
@@ -15,8 +25,13 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
   if (task.task_kind === 'child' || !reservation || reservation.version === 2) {
     const controls = el('div', undefined, 'actions delivery-actions');
     const state = reservation?.version === 2 ? reservation.status : null;
-    if (state) panel.append(badge({ pending: '已预约合并 · 等待静息', requested: '冻结 · 自动合并中',
-      resolving: '分歧处理中 · 原 Task 已恢复工作', integrated: '已合并 · 待归档' }[state] || state, 'b-awaiting'));
+    if (state) {
+      // integrated 的说法由分支现状决定，其余状态照旧；不把「还在不在」混进文案表里。
+      const merged = state === 'integrated' ? archiveBadge(task) : null;
+      const label = merged ? merged.label : { pending: '已预约合并 · 等待静息', requested: '冻结 · 自动合并中',
+        resolving: '分歧处理中 · 原 Task 已恢复工作' }[state] || state;
+      panel.append(badge(label, merged ? merged.className : 'b-awaiting'));
+    }
     if (reservation?.blocked_reason) panel.append(el('p', reservation.blocked_reason, 'hint'));
     if (task.integration_error) panel.append(el('p', task.integration_error, 'hint'));
     if (state === 'requested') controls.append(button('复查合并队列', async () => {

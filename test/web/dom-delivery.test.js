@@ -75,6 +75,30 @@ test('idle say with committed changes requests a merge; v2 reservations expose r
   expect(buttonOf(panel, '复查合并队列')).toBeTruthy();
 });
 
+test('integrated merge says 待归档 only while a branch is still left to archive', () => {
+  const reservation = { version: 2, kind: 'merge', status: 'integrated', commit, baseline, parent_id: 1 };
+  const done = { ...say, calls: 1, status: 'completed', integration: 'merged', result: '已提交并测试',
+    base_commit: baseline, head_commit: commit, reservation };
+  renderDetail(done, null, null, null);
+  expect(deepText(dom.node('detail'))).toContain('已合并 · 待归档');
+  // 分支记录已归档（ref / worktree 都没了）：已经没有东西可归档，标签必须落地成「已归档」。
+  renderDetail({ ...done, branch_archive: { archivable: false, archived: true, tracked: true } }, null, null, null);
+  let panel = dom.node('detail');
+  expect(deepText(panel)).toContain('已合并 · 已归档');
+  expect(deepText(panel)).not.toContain('待归档');
+  // 回收工作区与分支 / 旧版落地即归档会把 tasks.branch 清成 null；inspect 这时不再带 branch_archive。
+  renderDetail({ ...done, branch: null }, null, null, null);
+  panel = dom.node('detail');
+  expect(deepText(panel)).toContain('已合并 · 已归档');
+  expect(deepText(panel)).not.toContain('待归档');
+  // Task 图 / 分支图那种节点形状给的是 branch_info（没有 branch_archive）：判据必须同时认这一份。
+  const graph = graphFor(reservation, { done: true, status: 'completed' });
+  graph.nodes.find(node => node.id === say.id).branch_info = { archived: true, archivable: false };
+  renderGraph(graph, { force: true });
+  expect(deepText(sourceRow())).toContain('已合并 · 已归档');
+  expect(deepText(sourceRow())).not.toContain('待归档');
+});
+
 test('branch graph uses the same fixed approval, never legacy branch.merge or branch showcase for new say', async () => {
   const reservation = { version: 1, kind: 'merge', status: 'requested', commit, baseline, parent_id: 1 };
   renderGraph(graphFor(reservation), { force: true });
