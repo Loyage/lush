@@ -4,7 +4,7 @@ import path from 'node:path';
 import { temp } from '../helpers.js';
 import { fetch } from './harness.js';
 import { startWeb } from '../../src/ui/web/server.js';
-import { projectRouteId, readLauncherState } from '../../src/ui/launcher.js';
+import { projectRouteId, readLauncherState } from '../../src/host/registry.js';
 
 /**
  * S-01 回归：同一全局 Web 下 A、B 两个项目都有同号 Task。
@@ -38,8 +38,8 @@ test('S-01：项目 A 的写请求不会因别的标签页打开 B 而落到 B',
   const url = `http://127.0.0.1:${web.port}`;
   const idA = projectRouteId(fs.realpathSync(a)), idB = projectRouteId(fs.realpathSync(b));
   try {
-    expect((await post(url + '/api/launcher/select', { project: a })).status).toBe(200);
-    expect((await post(url + '/api/launcher/select', { project: b })).status).toBe(200);
+    expect((await post(url + '/api/host/select', { project: a })).status).toBe(200);
+    expect((await post(url + '/api/host/select', { project: b })).status).toBe(200);
 
     // A 页面准备的写请求带着 A 的身份：只作用于 A。
     calls.length = 0;
@@ -83,15 +83,15 @@ test('每个项目页只读到自己项目的快照与摘要', async () => {
   const url = `http://127.0.0.1:${web.port}`;
   const idA = projectRouteId(fs.realpathSync(a)), idB = projectRouteId(fs.realpathSync(b));
   try {
-    expect((await post(url + '/api/launcher/select', { project: a })).status).toBe(200);
-    expect((await post(url + '/api/launcher/select', { project: b })).status).toBe(200);
+    expect((await post(url + '/api/host/select', { project: a })).status).toBe(200);
+    expect((await post(url + '/api/host/select', { project: b })).status).toBe(200);
 
     expect((await (await fetch(`${url}/p/${idA}/api/snapshot`)).json()).status.project).toBe(fs.realpathSync(a));
     expect((await (await fetch(`${url}/p/${idB}/api/snapshot`)).json()).status.project).toBe(fs.realpathSync(b));
     // 单项目模式遗留的无前缀读路由在全局模式同样拒绝。
     expect((await fetch(url + '/api/snapshot')).status).toBe(400);
 
-    const { projects } = await (await fetch(url + '/api/launcher/projects')).json();
+    const { projects } = await (await fetch(url + '/api/host/projects')).json();
     expect(projects.map(row => row.id).sort()).toEqual([idA, idB].sort());
     expect(projects.every(row => row.connected && row.summary?.revision)).toBe(true);
     expect(projects.find(row => row.id === idA).summary).toMatchObject({ notices: 1, agents_total: 2 });
@@ -109,10 +109,10 @@ test('从列表移除只删入口并断开 Web 连接，不停止 daemon（不�
   const url = `http://127.0.0.1:${web.port}`;
   const idA = projectRouteId(fs.realpathSync(a));
   try {
-    expect((await post(url + '/api/launcher/select', { project: a })).status).toBe(200);
+    expect((await post(url + '/api/host/select', { project: a })).status).toBe(200);
     expect((await fetch(`${url}/p/${idA}/api/snapshot`)).status).toBe(200);
 
-    const removed = await post(url + '/api/launcher/remove', { id: idA });
+    const removed = await post(url + '/api/host/remove', { id: idA });
     expect(removed.status).toBe(200);
     expect(await removed.json()).toMatchObject({ project: fs.realpathSync(a), projects: [] });
     expect(readLauncherState(env)).toMatchObject({ last_project: null, projects: [] });
@@ -136,7 +136,7 @@ test('canonical 别名不会产生第二个项目身份', async () => {
   const idA = projectRouteId(fs.realpathSync(a));
   try {
     // 用别名登记 → 服务端 canonical 化后只产生一个身份，且就是真实路径的 ID。
-    const selected = await (await post(url + '/api/launcher/select', { project: alias })).json();
+    const selected = await (await post(url + '/api/host/select', { project: alias })).json();
     expect(selected.id).toBe(idA);
     expect(selected.project).toBe(fs.realpathSync(a));
     expect((await fetch(`${url}/p/${idA}/api/snapshot`)).status).toBe(200);
@@ -162,7 +162,7 @@ test('并发打开同一项目只连接一次（single-flight）', async () => {
   const url = `http://127.0.0.1:${web.port}`;
   const id = projectRouteId(fs.realpathSync(a));
   try {
-    expect((await post(url + '/api/launcher/select', { project: a })).status).toBe(200);
+    expect((await post(url + '/api/host/select', { project: a })).status).toBe(200);
     const statuses = await Promise.all([1, 2, 3, 4].map(() => fetch(`${url}/p/${id}/api/snapshot`).then(response => response.status)));
     expect(statuses).toEqual([200, 200, 200, 200]);
     expect(opens).toBe(1);
@@ -187,7 +187,7 @@ test('公网白名单只允许打开登记目录，且不把登记列表当成�
       body: `username=owner&password=${encodeURIComponent(password)}&next=%2F` });
     const cookie = login.headers.get('set-cookie').split(';')[0];
     const headers = { Cookie: cookie };
-    const status = await (await fetch(url + '/api/launcher', { headers })).json();
+    const status = await (await fetch(url + '/api/host', { headers })).json();
     expect(status.allowed_projects).toEqual([fs.realpathSync(allowed)]);
     expect(status.projects.map(row => row.project)).toEqual([fs.realpathSync(allowed)]);
     expect(status.last_project).toBeNull();

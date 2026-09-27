@@ -7,8 +7,8 @@ import { check } from '../../core/types.js';
 import { exact } from '../args.js';
 
 const DEFAULT_WEB_PORT = 4318;
-const WEB_START = ['web', 'web-restart'];
-const WEB_COMMANDS = [...WEB_START, 'web-stop', 'web-status'];
+const HOST_START = ['host', 'host-restart'];
+const HOST_COMMANDS = [...HOST_START, 'host-stop', 'host-status'];
 
 /** 对应作用域的 web.json 存在即公网模式；Electron 临时 host 永远只监听回环。 */
 function publicWeb(config) {
@@ -18,7 +18,7 @@ function webUrl(config, port) {
   return `http://${publicWeb(config) ? '0.0.0.0' : '127.0.0.1'}:${port}`;
 }
 
-function webLog(config) { return path.join(config.home, 'web.log'); }
+function webLog(config) { return path.join(config.home, 'host.log'); }
 
 function codeView(value, extra = {}) {
   if (!value || typeof value !== 'object' || !value.fingerprint || !value.code_dir) return null;
@@ -31,8 +31,8 @@ function commandText(parts) {
 
 function webUpdateHint(config, report) {
   if (report.code_match !== false) return null;
-  const command = ['bun', 'run', 'web-restart', String(report.port), ...(!config.launcher && config.project ? ['--project', config.project] : [])];
-  return { process: 'web', reason: 'code_mismatch', project: config.project ?? null, pid: report.pid, command,
+  const command = ['bun', 'run', 'host-restart', String(report.port), ...(!config.launcher && config.project ? ['--project', config.project] : [])];
+  return { process: 'host', reason: 'code_mismatch', project: config.project ?? null, pid: report.pid, command,
     message: `端口 ${report.port} 上的 Web 与当前磁盘代码不一致；只在准备好清空 Web 登录会话时运行 ${commandText(command)}` };
 }
 
@@ -44,9 +44,9 @@ function daemonUpdateHint(config, status, current) {
 }
 
 function withWebDiagnostics(config, report, state, current = codeIdentity()) {
-  const webCode = codeView(state, state ? { pid: state.pid, started_at: state.started_at ?? null } : {});
-  const value = { ...report, state_file: path.join(config.home, 'web.state.json'), current_code: codeView(current), web_code: webCode,
-    identities: { current: codeView(current), web: webCode } };
+  const hostCode = codeView(state, state ? { pid: state.pid, started_at: state.started_at ?? null } : {});
+  const value = { ...report, state_file: path.join(config.home, 'host.state.json'), current_code: codeView(current), host_code: hostCode,
+    identities: { current: codeView(current), host: hostCode } };
   value.update_hint = webUpdateHint(config, value);
   return value;
 }
@@ -58,11 +58,11 @@ function logTail(config, lines = 3) {
 }
 
 /**
- * 前台服务：占住终端直到被杀。后台启动的真正就是它（`bin/lush-web`），
- * 调试时也可以 `bun run web --foreground` 直接盯着日志。
+ * 前台服务：占住终端直到被杀。后台启动的真正就是它（`bin/lush-host`），
+ * 调试时也可以 `bun run host --foreground` 直接盯着日志。
  */
 async function serveWeb(config, port) {
-  const control = await import('../../ui/web/control.js');
+  const control = await import('../../host/control.js');
   const web = await import('../../ui/web/server.js');
   const publicMode = publicWeb(config);
   let server;
@@ -78,7 +78,7 @@ async function serveWeb(config, port) {
   // 收到 SIGTERM 时先放开端口再清掉记录：留下的陈旧记录会让下一次 web-status 撒谎。
   const shutdown = () => { web.rememberWebProject(server); server.stop(true); if (!ephemeral) control.clearWebState(config, process.pid); process.exit(0); };
   process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
-  if (ephemeral) console.log(`LUSH_WEB_READY ${JSON.stringify({ url: webUrl(config, server.port), port: server.port })}`);
+  if (ephemeral) console.log(`LUSH_HOST_READY ${JSON.stringify({ url: webUrl(config, server.port), port: server.port })}`);
   else console.log(`Lush ${config.project || '项目启动器'}\n${webUrl(config, server.port)}${publicMode ? '\n公网监听，需登录；请在前置代理启用 HTTPS。' : ''}`);
 }
 
@@ -87,17 +87,17 @@ async function serveWeb(config, port) {
  * 命令返回时页面就能打开，而不是让用户在浏览器里发现它还没起来。
  */
 async function launchWeb(config, port, extra = {}) {
-  const control = await import('../../ui/web/control.js');
+  const control = await import('../../host/control.js');
   control.ensureHome(config);
   const fd = fs.openSync(webLog(config), 'a', 0o600);
-  const child = cp.spawn(process.execPath, [path.join(ROOT, 'bin/lush-web'), String(port)], {
+  const child = cp.spawn(process.execPath, [path.join(ROOT, 'bin/lush-host'), String(port)], {
     cwd: config.project || ROOT, env: config.env, detached: true, stdio: ['ignore', fd, fd],
   });
   fs.closeSync(fd); child.unref();
   let error = null;
   child.on('error', err => { error = err; });
   const state = await control.waitForWebState(config, child.pid, { timeoutMs: 10000, abort: () => Boolean(error) || child.exitCode !== null });
-  if (!state) throw new Error(`web failed to start: ${error?.message || logTail(config) || `see ${webLog(config)}`}`);
+  if (!state) throw new Error(`host failed to start: ${error?.message || logTail(config) || `see ${webLog(config)}`}`);
   return { ...stateReport(config, state), ...extra };
 }
 
@@ -123,7 +123,7 @@ function noteStaleCode(value) {
 
 /** 端口上的 Web 现状：谁在听、跑的是不是这份代码、日志在哪。 */
 async function webReport(config, port) {
-  const control = await import('../../ui/web/control.js');
+  const control = await import('../../host/control.js');
   const owners = control.webOwners(config, port);
   const state = control.liveWebState(config);
   const lush = (owners ?? []).filter(owner => owner.lush);
@@ -142,7 +142,7 @@ async function webReport(config, port) {
 /** `web`：已经在跑就如实报告（幂等），否则后台起一个新的；别人的进程只报告、不碰。 */
 async function webStart(config, port, foreground) {
   if (foreground) return await serveWeb(config, port);
-  const control = await import('../../ui/web/control.js');
+  const control = await import('../../host/control.js');
   const owners = control.webOwners(config, port);
   const lush = (owners ?? []).filter(owner => owner.lush);
   if (lush.length) {
@@ -160,7 +160,7 @@ async function webStart(config, port, foreground) {
  * 不硬着头皮再起一个——否则用户会看到两个 Web 抢同一个端口，却不知道哪个在答。
  */
 async function stopWeb(config, port) {
-  const control = await import('../../ui/web/control.js');
+  const control = await import('../../host/control.js');
   const pids = control.webCandidatePids(config, port);
   check(pids !== null, `无法判断端口 ${port} 上有没有 Web 进程（缺少 lsof / ss，也没有 ${control.webStateFile(config)}）；确认端口空闲后再试`);
   const result = await control.stopStaleWeb(port, { pids });
@@ -200,18 +200,18 @@ export async function run(command, args, ctx) {
   const { client } = ctx;
   const config = client.config;
   let value;
-  if (WEB_COMMANDS.includes(command)) {
-    // `--foreground` 是 bin/lush-web 与调试用的入口：占住终端，其余情况一律后台。
+  if (HOST_COMMANDS.includes(command)) {
+    // `--foreground` 是 bin/lush-host 与调试用的入口：占住终端，其余情况一律后台。
     const foreground = args.includes('--foreground');
     if (foreground) args.splice(args.indexOf('--foreground'), 1);
     check(!client.token, 'agents cannot control web servers');
     check(args.length <= 1, `${command} accepts one port`);
-    check(!foreground || WEB_START.includes(command), `${command} has no foreground mode`);
-    const control = await import('../../ui/web/control.js');
+    check(!foreground || HOST_START.includes(command), `${command} has no foreground mode`);
+    const control = await import('../../host/control.js');
     const port = resolvePort(args[0], control.liveWebState(config));
-    if (command === 'web') value = await webStart(config, port, foreground);
-    else if (command === 'web-restart') value = await webRestart(config, port, foreground);
-    else if (command === 'web-stop') {
+    if (command === 'host') value = await webStart(config, port, foreground);
+    else if (command === 'host-restart') value = await webRestart(config, port, foreground);
+    else if (command === 'host-stop') {
       const result = await stopWeb(config, port);
       value = { ...(await webReport(config, port)), running: false, pid: null, pids: [], stopped: result.stopped };
       if (result.stuck.length) value.stuck = result.stuck;
@@ -239,21 +239,21 @@ export async function run(command, args, ctx) {
       value.code_match = daemonStatus.fingerprint === current.fingerprint && daemonStatus.code_dir === current.code_dir;
       value.daemon_code_match = value.code_match;
     } catch (error) { value.daemon = error.message; value.daemon_code_match = null; }
-    const control = await import('../../ui/web/control.js');
+    const control = await import('../../host/control.js');
     const state = control.liveWebState(config);
-    value.web = state
+    value.host = state
       ? await webReport(config, state.port)
       : withWebDiagnostics(config, { project: config.project, port: null, url: null, running: false, pid: null, pids: [], others: [],
         log: webLog(config), started_at: null, code_match: null, listeners_known: false }, null, current);
     const daemonCode = codeView(daemonStatus, daemonStatus ? { pid: daemonStatus.pid ?? null, project: daemonStatus.project ?? null,
       started_at: daemonStatus.started_at ?? null } : {});
     value.daemon_code = daemonCode;
-    value.web_code = value.web.web_code;
-    value.web_code_match = value.web.code_match;
-    value.identities = { current: codeView(current), daemon: daemonCode, web: value.web.web_code };
-    value.update_hints = [daemonUpdateHint(config, daemonStatus, current), value.web.update_hint].filter(Boolean);
+    value.host_code = value.host.host_code;
+    value.host_code_match = value.host.code_match;
+    value.identities = { current: codeView(current), daemon: daemonCode, host: value.host.host_code };
+    value.update_hints = [daemonUpdateHint(config, daemonStatus, current), value.host.update_hint].filter(Boolean);
     if (value.update_hints[0]?.process === 'daemon') console.error(`lush: ${value.update_hints[0].message}`);
-    noteStaleCode(value.web);
+    noteStaleCode(value.host);
   } else if (command === 'status') { exact(args, 0); value = await client.request('system.status');
   }
   else if (command === 'log') {

@@ -19,7 +19,7 @@ CLI / Web → say.submit → Input + 独立 say AP / worktree
 - [核心实体](entities.md)、[数据流](data-flow.md)、[一次 invocation](invocation.md)、[生命周期不变量](invariants.md)、[Token 效率](token-efficiency.md)、[项目身份与恢复](identity-and-recovery.md)
 - [AP 中心输入](ap-centered-input-design.md)、[AP 图与固定输入规则](ap-graph.md)
 - [分支优先](branch-first.md)、[Git 边界](git-boundary.md)、[分支谱系](branch-genealogy.md)、[合并](merge.md)、[清理](cleanup.md)
-- [界面与传输](interface.md)、[执行记录阅读器](transcript-reader.md)、[模块地图](modules.md)
+- [Lush UI / Host / lushd 三层边界](host-boundary.md)、[界面与传输](interface.md)、[执行记录阅读器](transcript-reader.md)、[模块地图](modules.md)
 
 ---
 

@@ -27,7 +27,7 @@ export function projectBase() {
 export function projectApi(path) {
   const base = projectBase();
   if (!base || !path.startsWith('/api/')) return path;
-  if (path.startsWith('/api/launcher') || path.startsWith('/api/docs')) return path;
+  if (path.startsWith('/api/host') || path.startsWith('/api/docs')) return path;
   return `${base}${path}`;
 }
 

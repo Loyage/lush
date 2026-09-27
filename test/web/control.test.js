@@ -6,22 +6,22 @@ import { codeIdentity } from '../../src/identity.js';
 import {
   clearWebState, ensureHome, isLushWebCommand, liveWebState, parsePidList, parseSsPids, portListening,
   readWebState, recordWebState, stopStaleWeb, stopWebPids, waitForWebState, webCandidatePids, webStateFile,
-} from '../../src/ui/web/control.js';
+} from '../../src/host/control.js';
 
 // 停旧 Web 是一段会杀进程的代码：杀错对象比停不掉更糟。这里固定住两件事——
 // 「什么样的命令行才算 Lush Web」，以及「先 SIGTERM、超时才 SIGKILL」的顺序。
 
 test('只把 Lush Web 的命令行当成自己人', () => {
-  expect(isLushWebCommand('/nix/store/x-bun/bin/bun ./scripts/ops.js web 4318 --project /tmp/a')).toBe(true);
-  expect(isLushWebCommand('bun run web 4318 --project /tmp/a')).toBe(true);
-  // web-restart 停完就在同一个进程里当监听者，命令行留着 -restart：下一次重启必须认得出它
-  expect(isLushWebCommand('bun ./scripts/ops.js web-restart 4318 --project /tmp/a')).toBe(true);
-  expect(isLushWebCommand('/nix/store/x-bun/bin/bun run web-restart 4318')).toBe(true);
-  expect(isLushWebCommand('/usr/local/bin/bun /Users/x/lush/bin/lush-web 4318')).toBe(true);
-  expect(isLushWebCommand('node src/ui/web/server.js')).toBe(true);
+  expect(isLushWebCommand('/nix/store/x-bun/bin/bun ./scripts/ops.js host 4318 --project /tmp/a')).toBe(true);
+  expect(isLushWebCommand('bun run host 4318 --project /tmp/a')).toBe(true);
+  // host-restart 停完就在同一个进程里当监听者，命令行留着 -restart：下一次重启必须认得出它
+  expect(isLushWebCommand('bun ./scripts/ops.js host-restart 4318 --project /tmp/a')).toBe(true);
+  expect(isLushWebCommand('/nix/store/x-bun/bin/bun run host-restart 4318')).toBe(true);
+  expect(isLushWebCommand('/usr/local/bin/bun /Users/x/lush/bin/lush-host 4318')).toBe(true);
+  expect(isLushWebCommand('node src/ui/web/server.js')).toBe(false);
   // 名字里带 web、但不是 Web UI 的：一个都不能杀
   expect(isLushWebCommand('bun ./scripts/ops.js webpack')).toBe(false);
-  expect(isLushWebCommand('bun ./scripts/ops.js web-restart-helper')).toBe(false);
+  expect(isLushWebCommand('bun ./scripts/ops.js host-restart-helper')).toBe(false);
   expect(isLushWebCommand('python3 -m http.server 4318')).toBe(false);
   expect(isLushWebCommand('node /srv/app/server.js')).toBe(false);
   expect(isLushWebCommand('cat /tmp/lush-web')).toBe(false);
@@ -54,7 +54,7 @@ test('SIGTERM 就退出的旧 Web：只发一次信号', async () => {
   const killed = [];
   let alive = true;
   const result = await stopWebPids([11], {
-    alive: () => alive, commandOf: () => 'bun ./scripts/ops.js web 4318',
+    alive: () => alive, commandOf: () => 'bun ./scripts/ops.js host 4318',
     kill: (pid, signal) => { killed.push(`${pid}:${signal}`); alive = false; }, sleep: async () => {},
   });
   expect(killed).toEqual(['11:SIGTERM']);
@@ -65,7 +65,7 @@ test('SIGTERM 不奏效才升级到 SIGKILL，杀不掉如实报告', async () =
   const killed = [];
   const alive = new Set([7, 8]);
   const result = await stopWebPids([7, 8], {
-    alive: pid => alive.has(pid), commandOf: () => 'bun /Users/x/lush/bin/lush-web',
+    alive: pid => alive.has(pid), commandOf: () => 'bun /Users/x/lush/bin/lush-host',
     kill: (pid, signal) => { killed.push(`${pid}:${signal}`); if (signal === 'SIGKILL' && pid === 7) alive.delete(pid); },
     sleep: async () => {}, timeoutMs: 20, graceMs: 20,
   });
@@ -98,7 +98,7 @@ test('停完再确认端口空出来，而不是杀完就走', async () => {
   expect(result2.refused.length).toBe(1);
   // 杀了但父进程还没回收（僵尸、端口已空）：如实报 stuck，但也如实说端口空了
   const zombie = await stopStaleWeb(4318, {
-    pids: [12], alive: () => true, commandOf: () => 'bun ./scripts/ops.js web 4318', kill: () => {},
+    pids: [12], alive: () => true, commandOf: () => 'bun ./scripts/ops.js host 4318', kill: () => {},
     sleep: async () => {}, timeoutMs: 10, graceMs: 10, listeners: none,
   });
   expect(zombie.stuck).toEqual([12]);
@@ -106,9 +106,9 @@ test('停完再确认端口空出来，而不是杀完就走', async () => {
   expect(zombie.reason).toBe('stuck');
 });
 
-/* ---------- 后台 Web 的自我描述：`.lush/web.state.json` ---------- */
+/* ---------- 后台 Web 的自我描述：`.lush/host.state.json` ---------- */
 
-// 记录只服务 web-status：它不能自己变成谎言（进程死了还说在跑），也不能被旧进程收尾时误删。
+// 记录只服务 host-status：它不能自己变成谎言（进程死了还说在跑），也不能被旧进程收尾时误删。
 test('记录只在属于那个进程时删除，指向已退出进程的记录不算“在跑”', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-web-state-'));
   const config = { home: path.join(root, '.lush') };
@@ -166,7 +166,7 @@ test('portListening 只认真的在听的端口', async () => {
   expect(await portListening(port)).toBe(false);
 });
 
-// 记录说的是「我在 4318 上」：问 4400 的时候不能拿它当候选，否则 web-stop 4400 会停掉 4318 上那个。
+// 记录说的是「我在 4318 上」：问 4400 的时候不能拿它当候选，否则 host-stop 4400 会停掉 4318 上那个。
 test('记录只对自己那个端口负责', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-web-ports-'));
   const free = () => { const probe = Bun.serve({ port: 0, fetch: () => new Response('p') }); const { port } = probe; probe.stop(true); return port; };

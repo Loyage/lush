@@ -2,10 +2,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { UIClient } from '../client.js';
-import { Config } from '../../config.js';
-import { daemon } from '../../cli/daemon.js';
-import { canonicalProjectPath, launcherWebConfig, readLauncherState, removeLauncherProject, projectRouteId, writeLauncherState } from '../launcher.js';
+import { canonicalProjectPath, launcherWebConfig, projectRouteId } from '../../host/registry.js';
+import { createProjectHost } from '../../host/project-host.js';
 import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
 import { previewResponse } from './notice-preview.js';
 import { check, id } from '../../core/types.js';
@@ -139,144 +137,6 @@ function originAllowed(request, url, origins) {
   return Boolean(parsed) && (parsed.host === url.host || origins.includes(parsed.origin));
 }
 
-export function createProjectHost(initialConfig = null, options = {}) {
-  const launcher = !initialConfig;
-  const env = options.env || process.env;
-  const allowedProjects = options.allowedProjects ? new Set(options.allowedProjects) : null;
-  const openProject = options.openProject || (async project => {
-    const config = new Config({ project, env });
-    await daemon(config, 'start');
-    return { config, client: new UIClient(config) };
-  });
-  const boundProject = initialConfig ? initialConfig.project : null;
-  /** 每个 canonical 路径一份连接与客户端；连接失败只脏这一格，不影响其它项目。 */
-  const connections = new Map();
-  const inflight = new Map();
-  const failures = new Map();
-  /** 摘要读取的退避：不可达项目不每轮重试，但不影响其它项目的行。 */
-  const summaryBackoff = new Map();
-  const SUMMARY_TIMEOUT_MS = 4000, SUMMARY_BACKOFF_MS = 60_000;
-  if (initialConfig) connections.set(boundProject, { config: initialConfig, client: new UIClient(initialConfig) });
-
-  /** 已登记项目：公网模式只认白名单（不退化为仅控制选择器）；本地全局模式认启动器列表；单项目模式只有自己。 */
-  function registry() {
-    if (allowedProjects) return [...allowedProjects];
-    const list = [];
-    if (boundProject) list.push(boundProject);
-    if (launcher) for (const project of readLauncherState(env).projects) if (!list.includes(project)) list.push(project);
-    return list;
-  }
-
-  /**
-   * URL 里的不透明 ID → canonical 路径。只认已登记集合，绝不把 URL 片段当路径。
-   * 登记项与磁盘 realpath 不一致（符号链接 / 目录搬家）时按真实路径匹配，但只在它仍存在时。
-   */
-  function routePath(id) {
-    if (typeof id !== 'string' || !/^[a-f0-9]{16}$/.test(id)) return null;
-    for (const entry of registry()) {
-      if (projectRouteId(entry) === id) return entry;
-      try {
-        const real = fs.realpathSync(entry);
-        if (projectRouteId(real) === id) return real;
-      } catch { /* 目录不在了：保留原登记项，解析失败时显式报错而不是绑定别的目录 */ }
-    }
-    return null;
-  }
-
-  /** 同一项目的并发打开只做一次启动 / 连接尝试（single-flight）。 */
-  async function connect(project) {
-    const existing = connections.get(project);
-    if (existing) return existing;
-    const pending = inflight.get(project);
-    if (pending) return await pending;
-    const attempt = (async () => {
-      const next = await openProject(project);
-      check(next?.config && next?.client, 'project opener returned an invalid binding');
-      connections.set(project, next);
-      failures.delete(project);
-      summaryBackoff.delete(project);
-      return next;
-    })();
-    inflight.set(project, attempt);
-    try { return await attempt; }
-    catch (error) { failures.set(project, error.message); throw error; }
-    finally { inflight.delete(project); }
-  }
-
-  function entries() {
-    const state = launcher ? readLauncherState(env) : { last_project: boundProject };
-    const last = state.last_project && (!allowedProjects || allowedProjects.has(state.last_project)) ? state.last_project : null;
-    return registry().map(project => ({ id: projectRouteId(project), project, name: path.basename(project) || project,
-      connected: connections.has(project) || inflight.has(project), last: project === last,
-      error: failures.get(project) ?? null }));
-  }
-
-  async function select(value) {
-    check(launcher, 'this Web UI is bound to one project; restart it without --project to switch projects');
-    const project = canonicalProjectPath(value, env);
-    check(!allowedProjects || allowedProjects.has(project), `项目不在全局 Web 白名单中：${project}`);
-    writeLauncherState(project, env);
-    await connect(project);
-    return project;
-  }
-
-  return {
-    launcher,
-    async status() {
-      const state = launcher ? readLauncherState(env) : { last_project: boundProject };
-      const last = state.last_project && (!allowedProjects || allowedProjects.has(state.last_project)) ? state.last_project : null;
-      return { mode: launcher ? 'launcher' : 'bound', project: boundProject,
-        last_project: last, last_project_id: last ? projectRouteId(last) : null,
-        error: null, ...(launcher && allowedProjects ? { allowed_projects: [...allowedProjects] } : {}),
-        projects: entries() };
-    },
-    /** 项目列表 + 仅对已经连接的项目读一次有界摘要；不因为列表面板就启动没打开过的 daemon。
-     *  每个项目独立计时、失败独立退避：一个卡住的 daemon 不能拖住整张列表。 */
-    async projects() {
-      return await Promise.all(entries().map(async row => {
-        const binding = connections.get(row.project);
-        if (!binding) return row;
-        const retryAt = summaryBackoff.get(row.project) ?? 0;
-        if (retryAt > Date.now()) return { ...row, error: failures.get(row.project) ?? '项目暂时不可达' };
-        let timer = null;
-        try {
-          const status = await Promise.race([
-            binding.client.request('system.summary'),
-            new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('项目摘要读取超时')), SUMMARY_TIMEOUT_MS); timer.unref?.(); }),
-          ]);
-          summaryBackoff.delete(row.project);
-          return { ...row, error: null, summary: { project: status.project, revision: status.revision, provider: status.provider,
-            agents_total: status.agents_total ?? 0, notices: status.notices ?? 0,
-            waiting_approval: status.intents?.waiting_approval ?? 0, pending_merges: status.pending_merges?.length ?? 0 } };
-        } catch (error) {
-          summaryBackoff.set(row.project, Date.now() + SUMMARY_BACKOFF_MS);
-          return { ...row, error: error.message };
-        } finally { if (timer) clearTimeout(timer); }
-      }));
-    },
-    async select(value) { return await select(value); },
-    /** 项目页请求：解析 ID、必要时连接；未知 / 失效身份显式报错，绝不回退到「当前项目」。 */
-    async openRoute(id) {
-      const project = routePath(id);
-      check(project, `未知或已失效的项目身份：${id}（请刷新页面或从项目列表重新打开）`);
-      return await connect(project);
-    },
-    /** 从列表移除：只删入口并断开 Web 连接，不停止 daemon。 */
-    remove(id) {
-      check(launcher, 'this Web UI is bound to one project');
-      const project = routePath(id);
-      check(project, `未知的项目身份：${id}`);
-      const state = removeLauncherProject(project, env);
-      connections.delete(project);
-      failures.delete(project);
-      summaryBackoff.delete(project);
-      return { project, ...state };
-    },
-    async require() { check(!launcher, '请通过 /p/<project>/ 访问具体项目'); return await connect(boundProject); },
-    hasRoute(id) { return Boolean(routePath(id)); },
-    rememberCurrent() { if (launcher && connections.size) writeLauncherState(boundProject ?? [...connections.keys()].at(-1), env); },
-  };
-}
 
 export function startWeb(config, port = 4318, options = {}) {
   check(Number.isInteger(port) && port >= 0 && port <= 65535, 'invalid web port');
@@ -351,9 +211,9 @@ export function startWeb(config, port = 4318, options = {}) {
 
       try {
         // ---- 宿主级路由：启动器等不属于任何项目的接口先于项目路由匹配 ----
-        if (request.method === 'GET' && url.pathname === '/api/launcher') return json(await projectHost.status());
-        if (request.method === 'GET' && url.pathname === '/api/launcher/projects') return json({ projects: await projectHost.projects() });
-        if (request.method === 'POST' && url.pathname === '/api/launcher/select') {
+        if (request.method === 'GET' && url.pathname === '/api/host') return json(await projectHost.status());
+        if (request.method === 'GET' && url.pathname === '/api/host/projects') return json({ projects: await projectHost.projects() });
+        if (request.method === 'POST' && url.pathname === '/api/host/select') {
           check(projectHost.launcher, 'project switching is disabled for this Web UI');
           check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
           const body = await request.json();
@@ -361,7 +221,7 @@ export function startWeb(config, port = 4318, options = {}) {
           // 只登记 / 连接并回传稳定身份；页面归属由前端跳到该项目的 /p/<id>/ 决定，不在服务端留「当前项目」。
           return json({ ...await projectHost.status(), id: projectRouteId(project), project });
         }
-        if (request.method === 'POST' && url.pathname === '/api/launcher/remove') {
+        if (request.method === 'POST' && url.pathname === '/api/host/remove') {
           check(projectHost.launcher, 'project removal is disabled for this Web UI');
           check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
           const body = await request.json();
@@ -376,7 +236,7 @@ export function startWeb(config, port = 4318, options = {}) {
           return json({ error: `未知或已失效的项目身份：${prefix[1]}` }, 404);
         }
         if (prefix) url.pathname = inner;
-        const projectApi = inner.startsWith('/api/') && !inner.startsWith('/api/docs') && !inner.startsWith('/api/launcher');
+        const projectApi = inner.startsWith('/api/') && !inner.startsWith('/api/docs') && !inner.startsWith('/api/host');
         if (projectHost.launcher && !prefix && projectApi) {
           // 旧页面发出的无项目身份请求：拒绝并提示刷新，绝不用另一标签页选中的项目代答。
           return json({ error: '缺少项目身份：全局 Web 的项目读写必须经 /p/<project>/ 路由；请刷新页面或从项目列表重新打开' }, 400);

@@ -4,7 +4,7 @@ import { codeIdentity } from '../identity.js';
 import { check } from '../core/types.js';
 import { option, print } from './args.js';
 import { HELP } from './help.js';
-import { launcherWebConfig } from '../ui/launcher.js';
+import { launcherWebConfig } from '../host/registry.js';
 import * as system from './commands/system.js';
 import * as intent from './commands/intent.js';
 import * as task from './commands/task.js';
@@ -22,7 +22,7 @@ export { HELP };
  */
 const COMMANDS = new Map();
 for (const [module, names] of [
-  [system, ['daemon', 'status', 'doctor', 'log', 'web', 'web-restart', 'web-stop', 'web-status']],
+  [system, ['daemon', 'status', 'doctor', 'log', 'host', 'host-restart', 'host-stop', 'host-status']],
   [intent, ['say']],
   [task, ['task']],
   [progress, ['progress']],
@@ -48,7 +48,7 @@ export async function main(argv = process.argv.slice(2)) {
     console.log(HELP); return;
   }
   const command = args.shift();
-  const globalWeb = ['web', 'web-restart', 'web-stop', 'web-status'].includes(command) && !projectPath && !process.env.LUSH_PROJECT;
+  const globalWeb = ['host', 'host-restart', 'host-stop', 'host-status'].includes(command) && !projectPath && !process.env.LUSH_PROJECT;
   const selectedConfig = globalWeb ? launcherWebConfig(process.env) : Config.fromEnv(process.env, process.cwd(), projectPath);
   const client = globalWeb
     ? { config: selectedConfig, token: process.env.LUSH_AGENT_TOKEN || null }

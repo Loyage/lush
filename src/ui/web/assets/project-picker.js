@@ -13,7 +13,8 @@ function setError(message = '') {
 
 function summaryText(row) {
   if (row.error) return row.error;
-  if (!row.connected) return '未打开';
+  if (row.running === false) return row.connected ? 'lushd 未运行' : '未运行';
+  if (!row.connected && !row.running) return '未打开';
   const summary = row.summary;
   if (!summary) return '已连接';
   const parts = [];
@@ -67,7 +68,7 @@ function paint(containerId, rows) {
 async function removeProject(row, item) {
   item.querySelector?.('.project-remove')?.setAttribute('disabled', '');
   try {
-    await api('/api/launcher/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: row.id }) });
+    await api('/api/host/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: row.id }) });
     item.remove?.();
     if (row.id === projectRoute() && typeof globalThis.location?.assign === 'function') globalThis.location.assign('/');
   } catch (error) { setError(error.message); item.querySelector?.('.project-remove')?.removeAttribute('disabled'); }
@@ -80,7 +81,7 @@ export async function refreshProjectList() {
   const visible = (panel && !panel.hidden) || (gate && !gate.hidden);
   if (!visible) return;
   try {
-    const { projects } = await api('/api/launcher/projects');
+    const { projects } = await api('/api/host/projects');
     paint('project-list', projects);
     paint('project-recent-list', projects);
     const recent = node('project-recent');
@@ -129,7 +130,7 @@ async function selectProject() {
   if (submit) submit.disabled = true;
   setError();
   try {
-    const result = await api('/api/launcher/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: input?.value || '' }) });
+    const result = await api('/api/host/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: input?.value || '' }) });
     if (!result?.id) throw new Error('启动器没有返回项目身份，请刷新页面后重试');
     closeProjectPicker();
     const target = projectHref(result.id);
@@ -143,7 +144,7 @@ async function selectProject() {
 }
 
 async function openSwitcher() {
-  try { openProjectPicker(await api('/api/launcher')); }
+  try { openProjectPicker(await api('/api/host')); }
   catch (error) { setError(error.message); }
 }
 
@@ -177,13 +178,13 @@ function bindPicker(status) {
 /** 返回 false 表示首启尚未落到具体项目，调用方不得启动项目轮询。 */
 export async function ensureProject() {
   let status;
-  try { status = await api('/api/launcher'); }
+  try { status = await api('/api/host'); }
   catch (error) {
     // 兼容尚未提供启动器端点的旧 Web；真正的连接错误仍会在随后的 snapshot 中显示。
     if (/404|no route|not found/i.test(error.message)) return true;
     throw error;
   }
-  launcher = status.mode === 'launcher';
+  launcher = status.mode === 'host';
   bindPicker(status);
   if (!launcher) { closeProjectPicker(); return true; }
 

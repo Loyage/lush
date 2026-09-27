@@ -17,7 +17,7 @@
 | `cli/help.js` | 帮助文本 | `HELP` |
 | `cli/args.js` | 参数解析与两种输出 | `option`、`exact`、`print` |
 | `cli/print.js` | 树 / 会话 / 用量 / 分支谱系的渲染 | `printTree`、`printTranscript`、`transcriptStepText`、`printUsage`、`printBranchTree`、`printBranchShow`、`printBranchArchive` |
-| `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `web` / `web-restart` / `web-stop` / `web-status`；无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式；`doctor` / `web-status` 分列磁盘、daemon、Web 身份并只给显式更新提示 | `run` |
+| `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `host` / `host-restart` / `host-stop` / `host-status`；无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式；`doctor` / `host-status` 分列磁盘、daemon、Web 身份并只给显式更新提示 | `run` |
 | `cli/commands/intent.js` | `say`（新输入的唯一入口） | `run` |
 | `cli/commands/ap.js` | `ap`（list / tree / inspect / spawn / message / transcript [--follow] / history / wait / integrate / reserve / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup） | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
 | `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 agent AP） | `run` |

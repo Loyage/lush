@@ -30,8 +30,8 @@ bun install                        # 安装依赖；桌面版会安装 Electron
 
 ```bash
 bun run start --project /absolute/path/to/my-project   # 只启动项目 daemon
-bun run web                                            # 全局 Web 启动器（默认 127.0.0.1:4318）
-bun run web 4318 --project /absolute/path/to/my-project # 绑定单项目的 Web
+bun run host                                            # 全局 Web 启动器（默认 127.0.0.1:4318）
+bun run host 4318 --project /absolute/path/to/my-project # 绑定单项目的 Web
 bun run desktop                                        # Electron 桌面版；独立随机端口
 ```
 
@@ -121,7 +121,7 @@ lush config set max-depth 12                 # AP 树最大层数（1..64）
 lush config reset all                        # 清除覆盖，回到环境默认
 ```
 
-改 daemon 自身环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。`.lush/agent/*.env` 与 Prompt 文件每次 invocation 前热加载，不需要重启。Web 是独立进程：改完 `src/ui/web/` 用 `bun run web-restart`，否则页面可能加载新资源却打到旧 API 路由。
+改 daemon 自身环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。`.lush/agent/*.env` 与 Prompt 文件每次 invocation 前热加载，不需要重启。Web 是独立进程：改完 `src/ui/web/` 用 `bun run host-restart`，否则页面可能加载新资源却打到旧 API 路由。
 
 ## 6. 状态目录
 
@@ -152,7 +152,7 @@ socket 位于用户私有临时目录，只为通信；持久状态始终在项�
 bun run doctor        # 项目 / home / daemon / Web 的代码身份
 bun run test          # 完整测试；使用可控的假 Agent，不调用付费模型
 bun run docs:check    # 文档结构与相对链接
-bun run web-status    # 后台 Web 在不在跑、跑的是不是当前代码、日志在哪
+bun run host-status    # 后台 Web 在不在跑、跑的是不是当前代码、日志在哪
 ```
 
 `doctor` 发现代码身份不一致时只给出带正确 `--project` 的更新命令，不会自动重启；按提示重启对应进程后再复验。
@@ -161,10 +161,10 @@ bun run web-status    # 后台 Web 在不在跑、跑的是不是当前代码、
 
 | 现象 | 处理 |
 |---|---|
-| 页面「打开失败」或 API 404 | Web 进程仍是旧代码：`bun run web-restart` |
+| 页面「打开失败」或 API 404 | Web 进程仍是旧代码：`bun run host-restart` |
 | daemon 行为与磁盘代码不一致 | `bun run daemon-restart` |
-| 改了 `src/ui/web/` 却没生效 | `bun run web-restart`，不是 `bun run web` |
-| 不确定当前跑的是谁 | `bun run doctor`（daemon）与 `bun run web-status`（Web） |
+| 改了 `src/ui/web/` 却没生效 | `bun run host-restart`，不是 `bun run host` |
+| 不确定当前跑的是谁 | `bun run doctor`（daemon）与 `bun run host-status`（Web） |
 | 想离线演示调度 | `LUSH_PROVIDER=mock bun run start --project ...` |
 
 Mock 只派调研 AP，不调用模型、不修改代码。

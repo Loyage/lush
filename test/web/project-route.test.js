@@ -22,7 +22,7 @@ test('项目身份来自地址：项目 API 加前缀，宿主级资源不加', 
   expect(projectBase()).toBe(`/p/${ID}`);
   expect(projectApi('/api/task/1')).toBe(`/p/${ID}/api/task/1`);
   // 启动器与随代码发布的文档属于宿主，不挂到任何项目下。
-  expect(projectApi('/api/launcher/projects')).toBe('/api/launcher/projects');
+  expect(projectApi('/api/host/projects')).toBe('/api/host/projects');
   expect(projectApi('/api/docs')).toBe('/api/docs');
   expect(projectApi('/app.js')).toBe('/app.js');
   expect(projectHref(ID, '/#task-1')).toBe(`/p/${ID}/#task-1`);

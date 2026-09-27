@@ -25,9 +25,13 @@ Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行
 
 分支与 worktree 负责代码隔离、集成与恢复，退回到基础设施层。每个 worker 有自己干净的工作区和分支；合并默认需要你批准；出现分歧时在子侧解决冲突，并只落地测试过的树。
 
-### 项目级，而不是电脑级
+### 三层：Lush UI → Lush Host → lushd
 
-一个 daemon 只绑定一个项目目录，所有事实写入 `<project>/.lush/`；没有跨项目的全局调度器。共享同一份代码仓库的不同项目互不干扰。
+- **Lush UI**：浏览器页面／Electron 窗口，只展示状态和发送带项目身份的请求；没有项目数据库或 Agent 调度器。
+- **Lush Host**（`bin/lush-host` / `bun run host`）：本机入口，提供 UI、认证、项目登记、连接与请求转发。一个 Host 可连接多个项目；列表只探测已登记项目的 lushd，打开项目时按需连接或启动。它的 `launcher.json` 仅是界面元数据，不是项目事实来源。
+- **lushd**（`bin/lushd`）：每个 canonical 项目目录一个 daemon，独占该项目的 SQLite、RPC、Agent 与 Git 工作区；事实写入 `<project>/.lush/`。CLI `lush` 也是项目客户端，可直接连接 lushd。
+
+Host 不进行跨项目调度。共享同一份 Lush 代码的不同项目互不干扰；项目 API 始终带 `/p/<project-id>/` 身份，宿主 API 在 `/api/host`。
 
 ### 人类把关：Agent 不是沙箱
 
@@ -48,7 +52,7 @@ Lush 提供两种图形化使用方式，两者复用同一份 Web UI 与 API：
 
 | 方式 | 适合场景 | 启动 |
 |---|---|---|
-| 本地 Web | 日常使用的主工作台，用浏览器打开 | 在 Lush 源码目录执行 `bun run web`；首次选择项目，之后新窗口落在上次项目，可同时打开多个项目 |
+| 本地 Web | 日常使用的主工作台，用浏览器打开 | 在 Lush 源码目录执行 `bun run host`；首次选择项目，之后新窗口落在上次项目，可同时打开多个项目 |
 | 桌面应用 | 更接近原生应用，提供系统目录选择器 | 先 `bun install`，再执行 `bun run desktop` |
 
 两者默认只监听本机。需要从手机或其他设备访问，要在 `web.json` 中配置登录认证并置于 HTTPS 反向代理之后。命令行、远程访问等其它形态属于部署细节，统一收录在次级部署文档中。

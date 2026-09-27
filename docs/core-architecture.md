@@ -17,7 +17,7 @@ Lush 的中心对象是 **AP**。用户写下的是目标，而不是任务清�
 
 ## 项目、输入与 AP
 
-一个 daemon 绑定一个 canonical 项目，数据库状态在 `<project>/.lush/`。业务实体是 Input、AP、Agent、Message、Notice、Event；Git 分支与 worktree 承载代码隔离。一次新 `say` 保存 Input（原话、引用）并创建与它直接关联的 AP；AP 拥有自己的分支和工作区。main 或显式绑定的分支所有者 AP 是它的父节点。AP 可以再派独立子 AP，也可以不改代码直接回答。
+Lush UI（浏览器或 Electron）通过整机入口 Lush Host（`bin/lush-host`）访问项目；Host 登记项目、校验身份、按需连接或启动对应 lushd，不保存任务事实，也不调度跨项目工作。一个 lushd 绑定一个 canonical 项目，数据库状态在 `<project>/.lush/`。CLI `lush` 可作为另一客户端直接访问项目 lushd。业务实体是 Input、AP、Agent、Message、Notice、Event；Git 分支与 worktree 承载代码隔离。一次新 `say` 保存 Input（原话、引用）并创建与它直接关联的 AP；AP 拥有自己的分支和工作区。main 或显式绑定的分支所有者 AP 是它的父节点。AP 可以再派独立子 AP，也可以不改代码直接回答。
 
 ```mermaid
 flowchart LR

@@ -25,7 +25,7 @@
 |---|---|---|
 | `app.js` | 唯一入口：先经 `project-picker.js` 确认项目，再装配左栏顶部身份区按钮（品牌回概览 / 切换项目 / 移动端导航 / 右侧返回）、`#graph` / `#settings` / `#statistics` / 四个信息页 / AP / 文档的 hash 路由与两个定时器；定时器按「轮询频率」偏好重建；全局模式下另按 20s 低频刷新左栏项目列表摘要 | `boot()` |
 | `route.js` | 当前页面的项目身份只来自地址：`/p/<id>/` 是本页项目，`/` 是单项目模式或全局列表；`projectApi()` 给项目 API 加前缀（启动器与文档等宿主级资源不加），`projectHref()` 生成项目地址。不 import 任何模块，`api.js` / `prefs.js` 都以它为准 | `projectRoute()`、`projectBase()`、`projectApi()`、`projectHref()` |
-| `project-picker.js` | 全局项目列表与启动门：读 `/api/launcher`；根路径按 `last_project_id` 只做新窗口首次落点跳转，其余展示项目列表（名称 / 路径 / 已连接摘要 / 移除）；已在某个项目页时用新标签打开别的项目，切换不会丢掉当前标签的输入；Electron 环境可调用 preload 暴露的原生目录选择器；项目未选定前不启动快照轮询 | `ensureProject()`、`openProjectPicker()`、`closeProjectPicker()`、`refreshProjectList()` |
+| `project-picker.js` | 全局项目列表与启动门：读 `/api/host`；根路径按 `last_project_id` 只做新窗口首次落点跳转，其余展示项目列表（名称 / 路径 / 已连接摘要 / 移除）；已在某个项目页时用新标签打开别的项目，切换不会丢掉当前标签的输入；Electron 环境可调用 preload 暴露的原生目录选择器；项目未选定前不启动快照轮询 | `ensureProject()`、`openProjectPicker()`、`closeProjectPicker()`、`refreshProjectList()` |
 | `appearance.js` | head 中初始化深浅主题，装配左栏顶部的主题切换按钮；偏好经 prefs.js 读写（`lush.theme`），`system` 跟随系统、显式值覆盖系统，存储不可用时保留会话内选择 | `systemThemeMedia()`、`resolveTheme()`、`effectiveTheme()`、`applyTheme()`、`createAppearance()`、`initAppearance()`、`refreshTheme()` |
 | `prefs.js` | 本地偏好中心：键名 / 默认值 / 解析与序列化、读写与变更通知都在这一份（`markdown` / `theme` / `sidebarSort` / `collapsed` / `filters` / `reduceMotion` / `polling` / `toastDuration` / `transcriptOrder` / `noticeNotifications`）；坏数据回落默认值，存储不可用不抛异常；老键（`lush.treeSort`、`lush.theme`、`lush.markdown`）继续生效；`collapsed` / `filters` / `sidebarSort` 按项目隔离（键加 `:<project-id>` 后缀），主题等外观偏好共享；`resetPrefs()` 删除全部受管键（含历史键）并逐项通知回默认值 | `PREF_DEFS`、`PREF_NAMES`、`MARKDOWN_KEY`、`THEME_KEY`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`REDUCED_MOTION_KEY`、`POLLING_KEY`、`TOAST_DURATION_KEY`、`TRANSCRIPT_ORDER_KEY`、`THEME_VALUES`、`SORT_IDS`、`POLLING_MODES`、`TOAST_MODES`、`TRANSCRIPT_ORDER_MODES`、`pollingIntervals()`、`toastDurations()`、`readPref`、`writePref`、`setPref`、`onPrefChange`、`resetPrefs`、`prefsSnapshot`、`storageAvailable`、`scopedKey` |
 | `sleep-ui.js` / `styles-sleep.css` | 托管模式设置与风险确认、全页面左栏状态（管家值守/预算暂停、本会话已处理与选择计数、token 用量）及关闭/恢复入口、只读管家选择卡片；不在轮询时重置设置表单 | `sleepSettings()`、`renderSleepBanner(state)`、`sleepChoiceCard(choice)`；CSS |
@@ -104,10 +104,11 @@ AP 图走 `ap.graph` / `/api/ap-graph`、`#ap-graph`；分支图仍走 `graph.ge
 
 | 文件 | 职责 | 导出 / 接缝 |
 |---|---|---|
-| `src/ui/web/server.js` | 单项目与全局工作台两种 HTTP host；资源、认证、窄 API 路由、按项目索引的连接管理（single-flight）与 `/p/<project-id>/` 项目身份路由；保留 `/api/snapshot`，新增 `/api/overview`、`/api/aps`、事件历史页与设置页 Agent 配置按需路由 | `startWeb()`、`createProjectHost()`、`rememberWebProject()` |
-| `src/ui/web/control.js` | 后台 Web 进程识别、状态文件、端口探测与安全停止 | `webOwners()`、`stopStaleWeb()`、`recordWebState()` 等 |
+| `src/ui/web/server.js` | Host 的 HTTP 适配器：UI 资源、认证、窄 API 路由与 `/p/<project-id>/` 项目身份路由；项目连接与发现委托 `src/host/project-host.js` | `startWeb()`、`rememberWebProject()` |
+| `src/host/project-host.js` | 已登记项目的连接缓存与 single-flight、身份解析、按需启动 lushd；列表仅探测已登记项目的 socket，不启动未打开的项目 | `createProjectHost()` |
+| `src/host/control.js` | 后台 lush-host 进程识别、状态文件、端口探测与安全停止 | `webOwners()`、`stopStaleWeb()`、`recordWebState()` 等 |
 | `src/ui/web/docs.js` | 扫描随代码发布的 Markdown 文档与搜索字段 | `docsIndex()`、`docsSearchIndex()`、`readDoc()` |
-| `src/ui/launcher.js` | 跨项目的登记列表、最后路径缓存、稳定路由 ID 派生、绝对目录 canonicalize、无项目 Web 控制配置 | `launcherStateDir()`、`readLauncherState()`、`writeLauncherState()`、`removeLauncherProject()`、`projectRouteId()`、`canonicalProjectPath()`、`launcherWebConfig()` |
+| `src/host/registry.js` | 跨项目的登记列表、最后路径缓存、稳定路由 ID 派生、绝对目录 canonicalize、无项目 Web 控制配置 | `launcherStateDir()`、`readLauncherState()`、`writeLauncherState()`、`removeLauncherProject()`、`projectRouteId()`、`canonicalProjectPath()`、`launcherWebConfig()` |
 | `src/ui/desktop/main.js` | Electron 主进程：启动随机端口临时 Web host、管理窗口与 host 生命周期；校验主窗口 IPC 来源、持久化本端提醒开关、发送原生通知并聚焦待决面板 | Electron `main` 入口 |
 | `src/ui/desktop/preload.cjs` | 原生目录选择与窄通知 IPC，不开放 Node；通知点击只导航到固定 `#notices` | `window.lushDesktop.chooseProject()`、`notificationSettings(enabled?)`、`notifyNotice(payload)` |
 

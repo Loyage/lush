@@ -1,35 +1,24 @@
 /**
- * Web 进程的识别、回收与自我描述。
- *
- * 为什么必须有这一步：`bun run web` 起的是**后台**进程，它自己活到被杀为止，不会跟着代码换版本。
- * 改完 `src/ui/web/` 再在同一个端口上跑一次，只会拿到「端口已在用」；用户接着刷新页面，旧进程会把
- * **新的** `app.js` 发下来、却对自己没有的路由（比如 `/api/docs`）回 404，页面于是「打开失败」，
- * 而报错里看不出是进程过期。所以这里提供三件事：
- *
- *   1. 认出端口上的监听者（`webListenerPids`）与「命令行是不是 Lush Web」（`isLushWebCommand`）；
- *   2. 只停命令行确实是 Lush Web 的进程（`stopWebPids` / `stopStaleWeb`）——别的程序（哪怕名字里带
- *      lush-web）只报告、不杀，宁可让用户自己决定，也不替他关掉别人的进程；
- *   3. 后台 Web 留下的自我描述（`.lush/web.state.json`：pid / 端口 / 代码指纹 / 启动时间），
- *      让 `web-status` 能说清「在跑的是不是这份代码」，而不是只看端口在不在。
+ * Lush Host 后台进程的身份识别、状态记录与安全回收。
+ * 改完 UI/Host 代码后，必须通过 host-restart 换掉旧进程；
+ * 只停止命令行确实属于 lush-host 的进程，别人的监听者一律拒绝触碰。
  */
 import cp from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { codeIdentity } from '../../identity.js';
+import { codeIdentity } from '../identity.js';
 
-/** 只有这些运行时的命令行才会被当成 Lush Web；`bun run web` 的子进程是它们中的第一个。 */
+/** 只有这些命令行才会被当成 Lush Host。 */
 const RUNTIME = /(?:^|\/)(?:bun|node|deno)(?:\s|$)/;
 const WEB_COMMANDS = [
-  // 后台启动的正是 `bin/lush-web`；前台调试时命令行则是 `ops.js web ... --foreground`。
-  // `bun run web` 的包装进程在同一份命令行里也带 `web`，同样认得出来。
-  /(?:^|\s|\/)ops\.js\s+web(?:-restart)?(?:\s|$)/,
-  /(?:^|\s)run\s+web(?:-restart)?(?:\s|$)/,   // bun run web（包装进程，杀不杀都行）
-  /(?:^|\s|\/)lush-web(?:\s|$)/,               // bin/lush-web
-  /ui[\\/]web[\\/]server\.js/,                 // 直接跑模块
+  // 后台启动的是 bin/lush-host；前台调试命令为 ops.js host --foreground。
+  /(?:^|\s|\/)ops\.js\s+host(?:-restart)?(?:\s|$)/,
+  /(?:^|\s)run\s+host(?:-restart)?(?:\s|$)/,
+  /(?:^|\s|\/)lush-host(?:\s|$)/,
 ];
-/** `.lush/web.json` 是登录配置，后台 Web 的自我描述另放一个文件：两者不能混。 */
-const STATE_FILE = 'web.state.json';
+/** web.json 是登录配置，Host 状态另放一个文件。 */
+const STATE_FILE = 'host.state.json';
 
 /** `ps -o command=` 的一行是不是 Lush Web。空串、别的程序一律 false。 */
 export function isLushWebCommand(command) {
@@ -105,7 +94,7 @@ function ownersOf(pids) {
   });
 }
 
-/* ---------- 后台 Web 的自我描述：`.lush/web.state.json` ---------- */
+/* ---------- 后台 Host 的自我描述：`host.state.json` ---------- */
 
 export function webStateFile(config) {
   return path.join(config.home, STATE_FILE);
@@ -262,6 +251,6 @@ export async function busyPortHint(port) {
   const owners = ownersOf(pids);
   if (!owners.length) return '';
   const web = owners.filter(owner => owner.lush);
-  if (web.length) return `\n端口 ${port} 上已有一个 Lush Web 进程（pid ${web.map(owner => owner.pid).join(', ')}，跑的很可能仍是旧代码）：用 bun run web-restart ${port} 换成本地代码。`;
+  if (web.length) return `\n端口 ${port} 上已有一个 Lush Web 进程（pid ${web.map(owner => owner.pid).join(', ')}，跑的很可能仍是旧代码）：用 bun run host-restart ${port} 换成本地代码。`;
   return `\n端口 ${port} 被 pid ${owners.map(owner => owner.pid).join(', ')} 占用，命令行不是 Lush Web，没有动它：\n${owners.map(owner => `  ${owner.command}`).join('\n')}`;
 }

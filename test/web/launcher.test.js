@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { temp } from '../helpers.js';
 import { fetch } from './harness.js';
-import { createProjectHost, startWeb } from '../../src/ui/web/server.js';
-import { launcherStateFile, readLauncherState, projectRouteId } from '../../src/ui/launcher.js';
+import { startWeb } from '../../src/ui/web/server.js';
+import { createProjectHost } from '../../src/host/project-host.js';
+import { launcherStateFile, readLauncherState, projectRouteId } from '../../src/host/registry.js';
 
 function opener(calls) {
   return async project => {
@@ -42,20 +43,20 @@ test('全局公网 Web 用独立认证保护所有路由，并只允许项目白
   const url = `http://127.0.0.1:${web.port}`;
   try {
     expect(web.hostname).toBe('0.0.0.0');
-    expect((await fetch(url + '/api/launcher')).status).toBe(401);
+    expect((await fetch(url + '/api/host')).status).toBe(401);
     const login = await fetch(url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: `username=owner&password=${encodeURIComponent(password)}&next=%2F` });
     expect(login.status).toBe(303);
     const cookie = login.headers.get('set-cookie').split(';')[0];
     const headers = { Cookie: cookie };
-    const status = await (await fetch(url + '/api/launcher', { headers })).json();
-    expect(status).toMatchObject({ mode: 'launcher', project: null, last_project: null, allowed_projects: [fs.realpathSync(allowed)] });
+    const status = await (await fetch(url + '/api/host', { headers })).json();
+    expect(status).toMatchObject({ mode: 'host', project: null, last_project: null, allowed_projects: [fs.realpathSync(allowed)] });
 
-    const blocked = await fetch(url + '/api/launcher/select', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+    const blocked = await fetch(url + '/api/host/select', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ project: denied }) });
     expect(blocked.status).toBe(400);
     expect((await blocked.json()).error).toContain('白名单');
-    const selected = await fetch(url + '/api/launcher/select', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+    const selected = await fetch(url + '/api/host/select', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ project: allowed }) });
     expect(selected.status).toBe(200);
     expect(calls).toEqual([fs.realpathSync(allowed)]);
@@ -90,14 +91,15 @@ test('无项目 Web 首次要求选择绝对路径，登记后按项目身份路
     expect((await fetch(url + '/')).status).toBe(200);
     expect(await (await fetch(url + '/')).text()).toContain('id="project-gate"');
     expect((await fetch(url + '/project-picker.js')).status).toBe(200);
-    expect(await (await fetch(url + '/api/launcher')).json()).toMatchObject({ mode: 'launcher', project: null, last_project: null, projects: [] });
-    const relative = await fetch(url + '/api/launcher/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: 'relative' }) });
+    expect(await (await fetch(url + '/api/host')).json()).toMatchObject({ mode: 'host', project: null, last_project: null, projects: [] });
+    expect((await fetch(url + '/api/launcher')).status).not.toBe(200);
+    const relative = await fetch(url + '/api/host/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: 'relative' }) });
     expect(relative.status).toBe(400);
 
-    const selected = await fetch(url + '/api/launcher/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: root }) });
+    const selected = await fetch(url + '/api/host/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: root }) });
     expect(selected.status).toBe(200);
     const id = projectRouteId(fs.realpathSync(root));
-    expect(await selected.json()).toMatchObject({ mode: 'launcher', project: fs.realpathSync(root), last_project: fs.realpathSync(root), id });
+    expect(await selected.json()).toMatchObject({ mode: 'host', project: fs.realpathSync(root), last_project: fs.realpathSync(root), id });
     expect(calls).toEqual([fs.realpathSync(root)]);
     // 无前缀写路由在全局模式下一律拒绝：旧页面不能靠「最后选中的项目」落到另一个项目。
     const legacy = await fetch(url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'input.submit', params: { content: 'legacy' } }) });
@@ -110,7 +112,7 @@ test('无项目 Web 首次要求选择绝对路径，登记后按项目身份路
   const restoredCalls = [];
   const restored = startWeb(null, 0, { env, openProject: opener(restoredCalls) });
   try {
-    const status = await (await fetch(`http://127.0.0.1:${restored.port}/api/launcher`)).json();
+    const status = await (await fetch(`http://127.0.0.1:${restored.port}/api/host`)).json();
     const id = projectRouteId(fs.realpathSync(root));
     // 只报告「上次打开」供新窗口决定落点；不因此自动连接或启动 daemon。
     expect(status).toMatchObject({ project: null, last_project: fs.realpathSync(root), last_project_id: id, projects: [{ id, project: fs.realpathSync(root), }] });

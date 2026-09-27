@@ -1,0 +1,5 @@
+#!/usr/bin/env bun
+// Lush Host: UI 的整机入口；项目执行由各项目的 lushd 承担。
+import { main } from '../src/cli/main.js';
+try { await main(['host', '--foreground', ...process.argv.slice(2)]); }
+catch (error) { console.error(`lush-host: ${error.message}`); process.exitCode = 1; }

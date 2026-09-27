@@ -38,7 +38,7 @@ function startHost() {
   const env = { ...process.env, LUSH_WEB_LAUNCHER: '1', LUSH_WEB_EPHEMERAL: '1' };
   delete env.LUSH_PROJECT;
   delete env.LUSH_HOME;
-  host = cp.spawn(bun, [path.join(root, 'bin', 'lush-web'), '0'], {
+  host = cp.spawn(bun, [path.join(root, 'bin', 'lush-host'), '0'], {
     cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
   });
   return new Promise((resolve, reject) => {
@@ -51,9 +51,9 @@ function startHost() {
     host.stderr.on('data', chunk => { errors = (errors + chunk).slice(-2000); });
     host.stdout.on('data', chunk => {
       output += chunk;
-      const line = output.split('\n').find(value => value.startsWith('LUSH_WEB_READY '));
+      const line = output.split('\n').find(value => value.startsWith('LUSH_HOST_READY '));
       if (!line) return;
-      try { done(JSON.parse(line.slice('LUSH_WEB_READY '.length)).url); }
+      try { done(JSON.parse(line.slice('LUSH_HOST_READY '.length)).url); }
       catch (error) { reject(error); }
     });
     host.once('error', error => { clearTimeout(timeout); reject(new Error(`无法启动 Bun：${error.message}`)); });
