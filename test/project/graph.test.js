@@ -7,7 +7,7 @@ import { setup, change } from '../workspaces/harness.js';
 // 分支图读模型：节点 / 边 / ahead-behind / merged / 缺失容错 / 只读 / 上限。
 // 每个用例自给自足：setup() 造一个真 git 仓库 + 一个可派活的 coordinator 父任务。
 
-test('graph reports code stacking, ahead/behind and merge state', async () => {
+test('graph reports branch stacking, ahead/behind and merge state', async () => {
   const f = await setup();
   try {
     const task = f.task;
@@ -16,8 +16,11 @@ test('graph reports code stacking, ahead/behind and merge state', async () => {
     ]);
     f.project.completeProgressStep(task.id, 'inspect');
     await change(f, task, 'A\n');
-    const child = f.project.spawn(task.parent_id, 'continue on top', 'worker', [{ id: task.id, kind: 'code' }], 'stacked');
+    // 派活只发生在还没结算的父 Task 上：父分支上已经有 A，child 从这里长出来。
+    f.store.update(task.id, { status: 'waiting' });
+    const child = await f.project.spawn(task.id, 'continue on top', undefined, [], 'stacked');
     await change(f, child, 'B\n');
+    f.store.update(task.id, { status: 'completed' });
 
     const graph = await f.project.graph();
     expect(graph.git).toBe(true);
@@ -33,8 +36,8 @@ test('graph reports code stacking, ahead/behind and merge state', async () => {
     expect(upstream.branch_state).toBe('present');
     expect(upstream.workspace_state).toBe('present');
     expect(upstream.ahead).toBe(1); expect(upstream.behind).toBe(0); expect(upstream.merged).toBe(false);
-    expect(downstream.target_branch).toBe('main');
-    expect(downstream.ahead).toBe(2); expect(downstream.merged).toBe(false);
+    expect(downstream.target_branch).toBe(upstream.branch);
+    expect(downstream.ahead).toBe(1); expect(downstream.merged).toBe(false);
     expect(downstream.current).toBe(false);
 
     const mainBranch = graph.nodes.find(node => node.kind === 'branch' && node.name === 'main');
@@ -45,20 +48,29 @@ test('graph reports code stacking, ahead/behind and merge state', async () => {
     expect(branchChanges.base_commit).toBe(f.store.branch(upstream.branch).created_from_commit);
     expect(mainBranch.diagnostics.changes.reason).toBe('missing_baseline');
 
-    expect(graph.edges).toContainEqual({ kind: 'code', from: task.id, to: child.id });
+    // 新模型没有依赖边：父子分支关系写在 branches.parent 上，图里以 fork 边表达。
+    expect(graph.edges).toContainEqual(expect.objectContaining({ kind: 'fork',
+      from: `branch:${upstream.branch}`, to: `branch:${f.store.task(child.id).branch}` }));
     expect(graph.edges).toContainEqual({ kind: 'target', from: task.id, to: `branch:${f.store.task(task.id).target_branch}` });
     expect(graph.edges).toContainEqual({ kind: 'target', from: child.id, to: `branch:${f.store.task(child.id).target_branch}` });
 
-    // 上游落地后：merged=true，ahead 归零；下游仍领先一条自己的提交。
+    // 子分支没合拢之前父分支合不动（活约束）：先落子分支，再落父分支，两次过渡都能看出来。
+    await f.project.workspaces.merge(child.id);
+    const afterChild = await f.project.graph();
+    const childById = new Map(afterChild.nodes.map(node => [node.id, node]));
+    expect(childById.get(child.id).merged).toBe(true);
+    expect(childById.get(child.id).ahead).toBe(0);
+
     await f.project.workspaces.merge(task.id);
     const after = await f.project.graph();
     const byId = new Map(after.nodes.map(node => [node.id, node]));
     expect(byId.get(task.id).merged).toBe(true);
     expect(byId.get(task.id).ahead).toBe(0); expect(byId.get(task.id).behind).toBe(0);
-    expect(byId.get(child.id).merged).toBe(false);
-    expect(byId.get(child.id).ahead).toBe(1);
-    // 合入父分支后仍是创建以来的规模，不随着 ahead 归零。
-    expect(after.nodes.find(node => node.name === upstream.branch)?.diagnostics?.changes).toEqual(branchChanges);
+    expect(byId.get(child.id).merged).toBe(true);
+    // 合入父分支后仍是「相对创建起点」的规模，不随着 ahead 归零（分支 tip 本身已经前进）。
+    expect(after.nodes.find(node => node.name === upstream.branch)?.diagnostics?.changes)
+      .toMatchObject({ status: branchChanges.status, files_total: branchChanges.files_total,
+        added: branchChanges.added, deleted: branchChanges.deleted, base_commit: branchChanges.base_commit });
   } finally { await f.close(); }
 });
 
@@ -239,8 +251,9 @@ test('graph labels each branch with origin, title and source', async () => {
     expect(nodes.get('branch:lush/test/input-1-anchor').created_at)
       .toBe(f.store.branch('lush/test/input-1-anchor').created_at);
 
-    // worker 分支：origin 是 task，标题来自 goal，source_id 是任务 id。
-    expect(nodes.get(`branch:${worker.branch}`)).toMatchObject({ origin: 'task', title: 'implement', source_id: worker.id });
+    // say 分支同时是输入的锚点分支，所以 origin 是 input，标题取输入内容，source_id 是 input id。
+    expect(nodes.get(`branch:${worker.branch}`))
+      .toMatchObject({ origin: 'input', title: 'implement', source_id: worker.input_id });
 
     // 没有来源的分支不假装有标题。
     expect(nodes.get('branch:feature/scratch')).toMatchObject({ origin: 'local', title: null, source_id: null, created_at: null, tracked: false });
@@ -461,11 +474,14 @@ test('graph carries each task pending notice and its count', async () => {
     expect(nodes.get('branch:lush/test/input-1-anchor')).not.toHaveProperty('notice');
 
     // 结算会把该任务剩下的 open notice 置为 dismissed：终态任务 notice===null，count===0。
-    expect(f.store.get('SELECT status FROM notices WHERE id=?', second.id).status).toBe('open');
-    f.project.finish(f.task.id, 'completed', '做完了');
-    expect(f.store.get('SELECT status FROM notices WHERE id=?', second.id).status).toBe('dismissed');
+    // say 的结算只跟着固定合并请求走，所以用一条 child Task 验证同一套口径。
+    const child = await f.project.spawn(f.task.id, 'settle me');
+    const childNotice = f.project.notice(child.id, 'child 待决', '子任务的问题');
+    expect(f.store.get('SELECT status FROM notices WHERE id=?', childNotice.id).status).toBe('open');
+    f.project.finish(child.id, 'completed', '做完了');
+    expect(f.store.get('SELECT status FROM notices WHERE id=?', childNotice.id).status).toBe('dismissed');
     nodes = await nodesOf();
-    expect(nodes.get(f.task.id).notice).toBeNull();
-    expect(nodes.get(f.task.id).notice_count).toBe(0);
+    expect(nodes.get(child.id).notice).toBeNull();
+    expect(nodes.get(child.id).notice_count).toBe(0);
   } finally { await f.close(); }
 });
