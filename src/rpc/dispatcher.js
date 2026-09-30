@@ -1,3 +1,4 @@
+import { check } from '../core/types.js';
 import { PARAMS, assertAllowed } from './registry.js';
 import { handlers as systemHandlers } from './handlers/system.js';
 import { handlers as inputHandlers } from './handlers/input.js';
@@ -27,6 +28,8 @@ export class Dispatcher {
     // 身份解析交给 registry：只有白名单与未知参数都过了才去查 token（actor() 会写 agent_last_seen_at）。
     const actor = assertAllowed(method, params, () => this.project.actor(params._token));
     const p = this.project;
+    check(!this.stopping?.isRequested?.() || ['system.status', 'system.summary'].includes(method),
+      '项目后台正在停止，请稍后再试');
     return await HANDLERS[method].call(this, p, params, actor);
   }
 }

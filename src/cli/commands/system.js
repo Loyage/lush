@@ -66,7 +66,14 @@ async function serveWeb(config, port) {
   const web = await import('../../ui/web/server.js');
   const publicMode = publicWeb(config);
   let server;
-  try { server = web.startWeb(config.launcher ? null : config, port, { env: config.env, authConfig: publicMode ? config : null }); }
+  const supervised = typeof process.send === 'function' && process.connected;
+  const shutdown = (code = 0) => {
+    web.rememberWebProject(server); server.stop(true);
+    if (config.env.LUSH_WEB_EPHEMERAL !== '1') control.clearWebState(config, process.pid);
+    process.exit(code);
+  };
+  try { server = web.startWeb(config.launcher ? null : config, port, { env: config.env,
+    authConfig: publicMode ? config : null, restartHost: supervised ? () => shutdown(75) : null }); }
   catch (error) {
     // 端口被占最常见的原因就是上一次的 Web 还活着。Bun 只说「Is port XX in use?」，
     // 这里补上是谁占的、以及换成本地代码的那条命令。
@@ -74,10 +81,14 @@ async function serveWeb(config, port) {
     throw new Error(`${error.message}${await control.busyPortHint(port)}`);
   }
   const ephemeral = config.env.LUSH_WEB_EPHEMERAL === '1';
-  if (!ephemeral) control.recordWebState(config, { pid: process.pid, port: server.port });
-  // 收到 SIGTERM 时先放开端口再清掉记录：留下的陈旧记录会让下一次 web-status 撒谎。
-  const shutdown = () => { web.rememberWebProject(server); server.stop(true); if (!ephemeral) control.clearWebState(config, process.pid); process.exit(0); };
-  process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
+  if (!ephemeral) control.recordWebState(config, { pid: process.pid, port: server.port,
+    supervisor_pid: supervised ? process.ppid : null });
+  // Signal wrappers must not pass the signal name as an exit code.
+  process.on('SIGTERM', () => shutdown()); process.on('SIGINT', () => shutdown());
+  if (supervised) {
+    process.on('disconnect', () => shutdown()); // owner died: never leave a desktop Host orphaned
+    process.send({ type: 'host-ready', port: server.port });
+  }
   if (ephemeral) console.log(`LUSH_HOST_READY ${JSON.stringify({ url: webUrl(config, server.port), port: server.port })}`);
   else console.log(`Lush ${config.project || '项目启动器'}\n${webUrl(config, server.port)}${publicMode ? '\n公网监听，需登录；请在前置代理启用 HTTPS。' : ''}`);
 }

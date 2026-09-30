@@ -36,6 +36,7 @@
 | `styles.css` | 双主题设计 token、应用布局（无应用顶栏：品牌 / 项目名 / 并发槽 / 连接状态 / 主题切换 / 退出登录在左栏顶部的身份区，内容区占满高度）、组件、响应式与 reduced-motion 动效（含设置页与强制减少动效 `[data-reduced-motion="true"]`） | CSS |
 | `state.js` | 共享可变状态（一个对象，新字段不必改别的文件就能加）；`ui.view` 为唯一页面身份（id/key），导航接缝集中更新兼容读标记；`ui.indexOpen` 记录右侧信息页，`ui.settingsOpen` 标记设置视图；折叠 / 筛选 / 排序偏好经 prefs.js 读写 | `ui`、`transcriptOpen`、`transcriptCache`、`mergeSelection`、`resetUiState()`、`readSidebarSortPref`、`readCollapsedPref`、`readFiltersPref`、`saveCollapsedPref`、`saveFiltersPref`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`SORT_IDS` |
 | `navigate.js` | 导航间接层（断循环依赖）；注册返回带身份保护的 teardown，DOM 测试用完必须恢复，避免跨文件污染 | `registerNavigation({refresh, detail, overview, resource}) -> restore()`、`refresh()`、`detail(taskId)`、`overview()`、`resource(id)` |
+| `service-restart.js` | 设置系统页的两个独立重启入口：应用内确认、范围与忙碌保护提示、重复点击保护、Host 能力探测；Host 换进程后有界探测新 pid，恢复刷新或转登录，失败就地提示 | `serviceRestartControls(options?)`、`waitForHostRestart(pid,options?)` |
 | `api.js` | fetch 与用户动作；请求路径经 `route.js` 挂到本页项目前缀下 | `api(url, options)`、`action(method, params)`、`loadHistory(taskId)`、`projectApi` |
 | `format.js` | 标签映射与格式化（纯函数） | `STATUS`、`INTEGRATION`、`ROLE`、`EVENTS`、`HOT`、`TERMINAL_STATUS`、`PLAN_GATE`、`SPEC_STATUS`、`MERGE_STATUS`、`CHANGE`、`DEP_HELP`、`STEP`、`MD_STEP`、`GOAL_TITLE_LIMIT`、`statusOf`、`relative`、`duration`、`absolute`、`clock`、`tokens`、`tokensView`、`money`、`depsOf`、`waitingDeps`、`resolverOf`、`specStatus`、`specTitle`、`summarizeGoal`、`taskTitle`、`edgeLabel`、`lastView`、`short` |
 | `help.js` | 按钮帮助浮层：为含义不直观的按钮渲染 `data-help`，装配桌面悬停 / 键盘聚焦 / 移动端长按，禁用按钮由外层 `.help-host` 承载；会调用 Agent 的按钮统一用 `agent-call` 类与 `agentHelp()` 文案 | `AGENT_NOTE`、`agentHelp`、`initHelp`、`hideHelp`、`setHelpTimers` |
@@ -101,7 +102,9 @@ Task 卡片显示真实 Git 父分支、当前检出、领先/落后计数及关
 |---|---|---|
 | `src/ui/web/server.js` | Host 的 HTTP 适配器：UI 资源、认证、窄 API 路由与 `/p/<project-id>/` 项目身份路由；项目连接与发现委托 `src/host/project-host.js` | `startWeb()`、`rememberWebProject()` |
 | `src/host/project-host.js` | 已登记项目的连接缓存与 single-flight、身份解析、按需启动 lushd；列表仅探测已登记项目的 socket，不启动未打开的项目 | `createProjectHost()` |
-| `src/host/control.js` | 后台 lush-host 进程识别、状态文件、端口探测与安全停止 | `webOwners()`、`stopStaleWeb()`、`recordWebState()` 等 |
+| `src/host/control.js` | 后台 lush-host 进程识别（含 worker）、状态文件、端口探测与安全停止；状态记录可带 `supervisor_pid` 以关联启动者 | `webOwners()`、`stopStaleWeb()`、`recordWebState()` 等 |
+| `src/host/service-control.js` | 项目级重启 single-flight：请求 idle 停止、等锁释放、启动新 daemon，无强杀 | `restartProjectDaemon(config)` |
+| `src/host/supervisor.js` | `bin/lush-host` 的稳定进程所有者，等 worker 退出75后在同端口重新启动；普通退出不重放，退出时停止唯一 worker | `superviseHost(args?)` |
 | `src/ui/web/docs.js` | 扫描随代码发布的 Markdown 文档与搜索字段 | `docsIndex()`、`docsSearchIndex()`、`readDoc()` |
 | `src/host/registry.js` | 跨项目的登记列表、最后路径缓存、稳定路由 ID 派生、绝对目录 canonicalize、无项目 Web 控制配置 | `launcherStateDir()`、`readLauncherState()`、`writeLauncherState()`、`removeLauncherProject()`、`projectRouteId()`、`canonicalProjectPath()`、`launcherWebConfig()` |
 | `src/ui/desktop/main.js` | Electron 主进程：启动随机端口临时 Web host、管理窗口与 host 生命周期；校验主窗口 IPC 来源、持久化本端提醒开关、发送原生通知并聚焦待决面板 | Electron `main` 入口 |

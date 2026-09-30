@@ -9,7 +9,11 @@ export function dirtDetail(status, limit = 20) {
 /** Git 原语与串行队列（无 shell 插值）。 */
 export const methods = {
   exclusive(fn) {
+    this.pending = (this.pending ?? 0) + 1;
     const next = this.queue.then(fn);
+    // Observe settlement without replacing next or changing queue/awaiter timing.
+    const settled = () => { this.pending -= 1; };
+    next.then(settled, settled);
     this.queue = next.catch(() => {});
     return next;
   },

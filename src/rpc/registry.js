@@ -3,7 +3,7 @@ import { LushError, check, isPlainObject } from '../core/types.js';
 // Public API for the Task-centred workflow. Historical rows remain on disk, but
 // Intent/Plan/Candidate and optional services cannot create new work.
 export const PARAMS = {
-  'system.status': [], 'system.summary': [], 'system.stop': [], 'system.configure': ['settings'],
+  'system.status': [], 'system.summary': [], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings'],
   'agent.config': [], 'agent.models': ['agent'], 'agent.resources': [], 'agent.configure': ['config'],
   'agent.environment': ['target'], 'agent.environment.configure': ['target','values'],
   'say.submit': ['content','branch','references','start'],
@@ -27,7 +27,7 @@ export const PARAMS = {
   'branch.archive': ['branch','discard'], 'graph.get': [],
 };
 export const USER_ONLY = new Set([
-  'system.stop','system.configure','agent.configure','agent.environment','agent.environment.configure',
+  'system.stop','system.stop_if_idle','system.configure','agent.configure','agent.environment','agent.environment.configure',
   'say.submit','task.transcript_latest','task.transcript_page','task.transcript_step','task.transcript_search',
   'task.reserve','task.reserve_all','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge',
   'task.cancel','task.retry','task.cleanup','task.interrupt','task.resume','task.configure',

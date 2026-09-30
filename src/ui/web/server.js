@@ -6,7 +6,8 @@ import { canonicalProjectPath, launcherWebConfig, projectRouteId } from '../../h
 import { createProjectHost } from '../../host/project-host.js';
 import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
 import { previewResponse } from './notice-preview.js';
-import { check, id } from '../../core/types.js';
+import { check, id, isPlainObject } from '../../core/types.js';
+import { restartProjectDaemon } from '../../host/service-control.js';
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
 const AUTH_FILE = 'web.json';
 const SESSION_COOKIE = 'lush_session';
@@ -148,6 +149,12 @@ export function startWeb(config, port = 4318, options = {}) {
   const projectHost = createProjectHost(config, { ...options, allowedProjects: launcher ? auth?.projects : null });
   const sessions = new Map();
   const failures = new Map();
+  let hostRestarting = false;
+  const emptyJson = async request => {
+    check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
+    const body = await request.json();
+    check(isPlainObject(body) && Object.keys(body).length === 0, 'restart body must be an empty object; paths and agent tokens are not accepted');
+  };
   const server = Bun.serve({
     hostname: auth ? '0.0.0.0' : '127.0.0.1', port, maxRequestBodySize: 128 * 1024,
     async fetch(request, server) {
@@ -213,7 +220,17 @@ export function startWeb(config, port = 4318, options = {}) {
 
       try {
         // ---- 宿主级路由：启动器等不属于任何项目的接口先于项目路由匹配 ----
-        if (request.method === 'GET' && url.pathname === '/api/host') return json(await projectHost.status());
+        if (request.method === 'GET' && url.pathname === '/api/host') return json({ ...await projectHost.status(),
+          pid: process.pid, restart_supported: typeof options.restartHost === 'function' });
+        if (request.method === 'POST' && url.pathname === '/api/host/restart') {
+          await emptyJson(request);
+          check(typeof options.restartHost === 'function', '当前嵌入界面不支持重启服务，请使用命令行重启 Host');
+          check(!hostRestarting, '界面服务已经在重启，请稍后再试');
+          hostRestarting = true;
+          // Let Bun flush the small acceptance response before releasing the listener.
+          setTimeout(() => options.restartHost(), 200);
+          return json({ restarting: true });
+        }
         if (request.method === 'GET' && url.pathname === '/api/host/projects') return json({ projects: await projectHost.projects() });
         if (request.method === 'POST' && url.pathname === '/api/host/select') {
           check(projectHost.launcher, 'project switching is disabled for this Web UI');
@@ -245,6 +262,10 @@ export function startWeb(config, port = 4318, options = {}) {
         }
         const binding = projectApi ? (prefix ? await projectHost.openRoute(prefix[1]) : await projectHost.require()) : null;
         const client = binding?.client;
+        if (request.method === 'POST' && url.pathname === '/api/service/restart') {
+          await emptyJson(request);
+          return json(await restartProjectDaemon(binding.config));
+        }
         if (request.method === 'GET') {
           if (url.pathname.startsWith('/api/') && !CORE_READS.has(url.pathname) && !CORE_TASK_READ.test(url.pathname) && !CORE_NOTICE_PREVIEW.test(url.pathname) && !CORE_DOC_READ.test(url.pathname))
             return json({ error: 'not found' }, 404);

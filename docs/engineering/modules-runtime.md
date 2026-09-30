@@ -89,7 +89,7 @@
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `workspaces/base.js` | 构造与串行队列状态（`queue` / `busy` / `namespace`） | `class WorkspacesBase` |
+| `workspaces/base.js` | 构造与串行队列状态（`queue` / `pending` / `busy` / `namespace`） | `class WorkspacesBase` |
 | `workspaces/git.js` | Git 原语与串行队列（无 shell 插值） | `exclusive`、`git`、`gitOutput`、`porcelain`、`clean`、`isAncestor`、`merging`、`unmerged`、`workspaceForBranch`、`checkedOut` |
 | `workspaces/worktree.js` | worktree / 对照检出 / 可推进输入分支的创建与回收；新 child 在 spawn 时从父分支当时 tip 建 worktree；`task_kind='analysis'` 创建时从固定父提交做只读分离检出 | `forkTaskUnsafe(task,parentBranch,commit)`、`anchor(inputId, requestedBranch)`、`dropAnchor(anchor)`、`releaseAnchor(anchor)`、`reclaimAnchors(anchors)`、`inputAnchor(task)`、`ensure(task)`、`finish(task)`、`codeBase(task)`、`removeBaseline(taskId)` |
 | `workspaces/showcase.js` | 已登记非主干准入、精确本地 ref / 起点解析、实际改动与工作区 / Git 中间态校验、固定提交树有界缓存、隔离 detached 检出及复用校验（归档显式 discard 时可只校验身份而允许脏目录）；不拥有或删除源分支 | `showcaseSnapshot`、`showcaseTree`、`showcaseCleanBranches`、`assertShowcaseCheckout`、`ensureShowcase` |

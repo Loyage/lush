@@ -10,6 +10,7 @@ import { ui } from './state.js';
 import { SORT_MODES } from './tree-order.js';
 import { notificationControl } from './notice-notifications.js';
 import { DEFAULT_INPUT_ROUTES, ROUTE_TARGETS } from './input-routes.js';
+import { serviceRestartControls } from './service-restart.js';
 
 const TABS = [
   { id: 'agent', label: 'Agent', note: '任务行为与模型' },
@@ -656,6 +657,7 @@ function quickIntroEditor(config, plain) {
 function systemTab() {
   const content = el('div', undefined, 'settings-tab-panel');
   const snapshot = ui.lastSnapshot?.status ?? null;
+  content.append(serviceRestartControls());
   const section = block('运行状态');
   section.append(el('p', '这里展示 daemon 的当前状态。Agent 配置请在 Agent 页修改；并发额度与调用 / 拆解限额可在下方改写并立即生效，不需要重启 daemon。', 'settings-note settings-readonly'));
   if (!snapshot) {

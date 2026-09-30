@@ -15,7 +15,7 @@ const WEB_COMMANDS = [
   // 后台启动的是 bin/lush-host；前台调试命令为 ops.js host --foreground。
   /(?:^|\s|\/)ops\.js\s+host(?:-restart)?(?:\s|$)/,
   /(?:^|\s)run\s+host(?:-restart)?(?:\s|$)/,
-  /(?:^|\s|\/)lush-host(?:\s|$)/,
+  /(?:^|\s|\/)lush-host(?:-worker)?(?:\s|$)/,
 ];
 /** web.json 是登录配置，Host 状态另放一个文件。 */
 const STATE_FILE = 'host.state.json';
@@ -133,9 +133,9 @@ export function liveWebState(config) {
  * 写下「我在这个端口上跑这份代码」。由正在服务的进程自己写，取不到指纹就当没写成：
  * 这份记录只服务 `web-status`，写不进去也不该拖垮 Web 本身。
  */
-export function recordWebState(config, { pid, port }) {
+export function recordWebState(config, { pid, port, supervisor_pid = null }) {
   const { fingerprint, code_dir, version: code_version } = codeIdentity();
-  const state = { version: 1, pid, port, started_at: new Date().toISOString(), fingerprint, code_dir, code_version };
+  const state = { version: 1, pid, port, ...(supervisor_pid ? { supervisor_pid } : {}), started_at: new Date().toISOString(), fingerprint, code_dir, code_version };
   try {
     ensureHome(config);
     const file = webStateFile(config);
@@ -189,7 +189,7 @@ export async function waitForWebState(config, pid, options = {}) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const state = read();
-    if (state && state.pid === pid && await listening(state.port)) return state;
+    if (state && (state.pid === pid || state.supervisor_pid === pid) && await listening(state.port)) return state;
     if (abort()) return null;
     if (Date.now() >= deadline) return null;
     await sleep(intervalMs);

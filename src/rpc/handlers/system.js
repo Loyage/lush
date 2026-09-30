@@ -12,6 +12,20 @@ export const handlers = {
   // Polling summary has its own indexed/persistent-cursor path and never opens the full Agent profile.
   'system.summary'(p, params, actor) { return { ...p.summary(), ...this.identity, pid: process.pid }; },
   'system.stop'(p, params, actor) { this.stopping.request(); return { stopping: true }; },
+  'system.stop_if_idle'(p) {
+    // No await between checking activity and closing admission: pump/merge callbacks
+    // cannot start a new invocation in the check → shutdown window.
+    check(!p.stopping, '项目后台正在停止，请稍后再试');
+    check(p.running.size === 0 && p.introRunning.size === 0,
+      '项目还有活动 Agent 或模型调用，请先结束或暂停任务后再重启');
+    check(!p.writing && !p.clearing && !p.workspaces.pending && !p.workspaces.busy.size
+      && !p.taskMergeBusy?.size && !p.mergeRunsDriving.size && !p.integratingIntents.size
+      && !p.showcaseSweeping && !p.previewStarting.size,
+      '项目还有 Git、合并或后台操作正在执行，请稍后再重启');
+    p.stopping = true;
+    this.stopping.request();
+    return { stopping: true };
+  },
   'system.timeline'(p, params, actor) { return p.timeline({ limit: params.limit }); },
   // 用户专属写操作：把运行设置（并发上限）的热更新暴露给 CLI / Web，agent 不得调用。
   'system.configure'(p, params, actor) {

@@ -36,7 +36,7 @@
 |---|---|---|
 | `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验。**唯一公开面**：未列入 `PARAMS` 的方法一律 `unknown method` | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
-| `rpc/handlers/system.js` | 用户专属 `system.configure`；只读 `system.status`（兼容完整状态）与 `system.summary`（首页用持久 revision/索引聚合的无 Agent 全配置摘要）；`graph.get`；`agent.*`（含用户专属配置与环境文件）；历史 `sleep.*` / `system.usage` 仍可被内部调用，但不在白名单 | `handlers` |
+| `rpc/handlers/system.js` | 用户专属 `system.configure`、`system.stop_if_idle`（同步 idle 准入并关闭调度，见[服务重启](../reference/web-routes.md#服务重启)）；只读 `system.status`（兼容完整状态）与 `system.summary`（首页用持久 revision/索引聚合的无 Agent 全配置摘要）；`graph.get`；`agent.*`（含用户专属配置与环境文件）；历史 `sleep.*` / `system.usage` 仍可被内部调用，但不在白名单 | `handlers` |
 | `rpc/handlers/task.js` | `task.*`：`graph` / `list` / `activity` / `page` / `tree` / `inspect` / `history` / `history_page` / `diff` / `usage` / `transcript*`、`spawn`、agent-only 的 `integrate` / `resolve_child_divergence` / `progress.*`，以及用户专属的 `reserve` / `unreserve` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` | `handlers` |
 | `rpc/handlers/notice.js` | `notice.list/page/post/answer/dismiss` | `handlers` |
 | `rpc/handlers/branch.js` | `branch.tree/show/bind/archive`（`branch.bind` / `branch.archive` 在 `USER_ONLY`） | `handlers` |
@@ -58,6 +58,7 @@
 | Task 中心主链 | `test/project/say.test.js`、`merge-queue.test.js`、`task-signals.test.js`、`task-centered-graph.test.js`、`lifecycle.test.js`、`scheduling.test.js`、`preempt.test.js`、`progress.test.js`、`recovery.test.js`、`limits.test.js`、`agents.test.js`、`status.test.js` |
 | 公开面契约 | `test/core-api.test.js`（RPC 白名单）、`test/help-guard.test.js`（帮助与命令面）、`test/web/core-api.test.js` |
 | Git / worktree | `test/workspaces/{naming,merge,cleanup,genealogy,anchor,archive,branch-diagnostics,branch-first}.test.js` |
+| 服务重启 | `test/service-restart.test.js`、`test/web/service-restart.test.js`、`test/integration/service-restart.test.js`（idle 准入、鉴权/路由、真实进程与桌面所有权） |
 | Web 读面与安全 | `test/web/{security,assets,read-models,project-route,core-studio,multi-project,launcher}.test.js` |
 | Web DOM | `test/web/dom-*.test.js`（各自 `boot()`） |
 | Notice 记录与提醒 | `test/project/{notice-page,notice-info,questionnaire}.test.js`、`test/web/{notice-records,notice-notifications,questionnaire}.test.js` |

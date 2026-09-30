@@ -1,0 +1,4 @@
+#!/usr/bin/env bun
+import { main } from '../src/cli/main.js';
+try { await main(['host', '--foreground', ...process.argv.slice(2)]); }
+catch (error) { console.error(`lush-host: ${error.message}`); process.exitCode = 1; }
