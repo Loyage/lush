@@ -1,8 +1,8 @@
 /**
- * 左栏排序：纯函数，不依赖 DOM / window，浏览器里以 ES module 加载，测试里由 bun 直接 import。
+ * 列表排序：纯函数，不依赖 DOM / window，浏览器里以 ES module 加载，测试里由 bun 直接 import。
  *
- * 任务树的「分组」（谁挂在谁下面）和「排序」（同一父任务下谁先渲染）必须是同一棵树的两面。
- * 两边各写一遍 parent 规则迟早会漂移，所以 renderTree 与这里的 rankTasks 共用 treeParent()。
+ * 平铺 Task 列表走 orderTasks()，只看任务自身；历史树排序保留 rankTasks() / orderSiblings()，
+ * 后者的分组与祖先 roll-up 共用 treeParent()，不能混入平铺列表的优先级。
  * 历史输入 / 规划任务 / 待定事项没有树结构，只按「最多一条时间线」排，共用 orderList()。
  *
  * 档位（数字越小越靠前）：
@@ -13,7 +13,7 @@
  * failed 与 cancelled 不再单独拆档：两者都没有可交付的产出（失败没结果，取消是用户主动放弃），
  * 与「已合并」一样属于「不需要你再动手」，单独拆一档只会多出一个语义几乎相同的档位。测试固定住这个选择。
  *
- * 排序只决定同一父任务下兄弟的先后，树结构与嵌套不变：祖先永远在子孙之前渲染。
+ * 树排序只决定兄弟的先后；orderTasks 的平铺排序没有祖先优先规则。
  */
 
 export const SORT_MODES = [
@@ -123,6 +123,16 @@ export function orderSiblings(children, { mode, ranks } = {}) {
     return left.effectiveRank - right.effectiveRank || left.rank - right.rank
       || right.activity - left.activity || a.id - b.id;
   });
+}
+
+/** 平铺任务列表按自身状态和更新时间排序，不继承后代的优先级。 */
+export function orderTasks(tasks, { mode, openNoticeIds = new Set() } = {}) {
+  const open = openNoticeIds instanceof Set ? openNoticeIds : new Set(openNoticeIds);
+  const ranks = new Map(tasks.map(task => {
+    const rank = rankOf(task, open);
+    return [task.id, { rank, effectiveRank: rank, activity: timestamp(task.updated_at) }];
+  }));
+  return orderSiblings(tasks, { mode, ranks });
 }
 
 /**

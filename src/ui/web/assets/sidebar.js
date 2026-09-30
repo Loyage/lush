@@ -8,7 +8,6 @@
  * 默认（空查询、无折叠）必须与改造前完全一致：三个 filter* 在没有任何条件时原样返回入参数组。
  */
 import { ROLE } from './format.js';
-import { treeParent } from './tree-order.js';
 
 /**
  * 左栏的四个区块：导航条、折叠状态都按这个顺序走，DOM 顺序也必须是同一个顺序。
@@ -84,7 +83,9 @@ export function parseFilters(raw) {
     if (!source || typeof source !== 'object') continue;
     for (const [key, fallback] of Object.entries(DEFAULT_FILTERS[section])) {
       const given = source[key];
-      if (typeof fallback === 'boolean') { if (typeof given === 'boolean') out[section][key] = given; }
+      if (section === 'tasks' && (key === 'status' || key === 'role') && Array.isArray(given)) {
+        out[section][key] = [...new Set(given.filter(value => typeof value === 'string' && value && value !== 'all'))];
+      } else if (typeof fallback === 'boolean') { if (typeof given === 'boolean') out[section][key] = given; }
       else if (typeof given === 'string') out[section][key] = given;
     }
   }
@@ -117,7 +118,7 @@ function noticeIds(value) {
 
 /* ---------- 三条筛选规则 ---------- */
 
-/** 一个任务是否命中筛选条件（不含「保留祖先」那部分，祖先规则在 filterTasks 里）。 */
+/** 一个任务是否命中筛选条件：同组多选取并集，不同条件取交集。 */
 export function matchTask(task, query = {}) {
   const statuses = pick(query.status);
   if (statuses.length && !statuses.includes(task.status)) return false;
@@ -169,30 +170,11 @@ export function isFiltering(query = {}) {
     || query.mine === true || keyword(query.text) !== '';
 }
 
-/**
- * 任务树筛选：命中项 + 命中项的全部祖先（父被筛掉但有命中后代时，父作为通路保留）。
- * 子任务被筛掉时父仍可见——不反向补子节点，树只往上补。
- * 空查询返回入参数组本身，保证默认路径零开销、行为与改造前一致。
- */
+/** 平铺列表只返回命中任务，不补祖先；空查询原样返回入参数组。 */
 export function filterTasks(tasks, query = {}) {
   const list = Array.isArray(tasks) ? tasks : [];
   if (!isFiltering(query)) return list;
-  const ids = new Set(list.map(task => task.id));
-  const byId = new Map(list.map(task => [task.id, task]));
-  const matched = new Set(list.filter(task => matchTask(task, query)).map(task => task.id));
-  const visible = new Set(matched);
-  for (const id of matched) {
-    const seen = new Set([id]);
-    let current = byId.get(id);
-    while (current) {
-      const parent = treeParent(current, ids);
-      if (!parent || seen.has(parent)) break;   // 防环：坏数据下不无限上溯
-      seen.add(parent);
-      visible.add(parent);
-      current = byId.get(parent);
-    }
-  }
-  return list.filter(task => visible.has(task.id));
+  return list.filter(task => matchTask(task, query));
 }
 
 export function filterSpecs(specs, query = {}) {

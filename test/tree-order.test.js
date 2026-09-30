@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { SORT_MODES, treeParent, rankTasks, orderSiblings, orderList } from '../src/ui/web/assets/tree-order.js';
+import { SORT_MODES, treeParent, rankTasks, orderSiblings, orderTasks, orderList } from '../src/ui/web/assets/tree-order.js';
 
 // 扁平任务表：字段与 store.summaries() 一致（id/parent_id/verifies_task_id/status/integration/updated_at）。
 const task = (id, extra = {}) => ({
@@ -8,6 +8,20 @@ const task = (id, extra = {}) => ({
 });
 const at = seconds => new Date(Date.UTC(2026, 0, 1, 0, 0, seconds)).toISOString();
 const ids = list => list.map(row => row.id);
+
+test('平铺任务排序跨父子层级，智能优先级不继承后代', () => {
+  const tasks = [
+    task(1, { status: 'completed', integration: 'merged', updated_at: at(1) }),
+    task(2, { parent_id: 1, status: 'running', updated_at: at(3) }),
+    task(3, { status: 'completed', updated_at: at(9) }),
+    task(4, { parent_id: 2, status: 'failed', updated_at: at(2) }),
+  ];
+  expect(ids(orderTasks(tasks, { mode: 'smart' }))).toEqual([2, 3, 4, 1]);
+  expect(ids(orderTasks(tasks, { mode: 'smart', openNoticeIds: new Set([4]) }))).toEqual([4, 2, 3, 1]);
+  expect(ids(orderTasks(tasks, { mode: 'updated' }))).toEqual([3, 2, 4, 1]);
+  expect(ids(orderTasks(tasks, { mode: 'id' }))).toEqual([4, 3, 2, 1]);
+  expect(ids(tasks)).toEqual([1, 2, 3, 4]);
+});
 
 test('SORT_MODES 顺序即下拉框顺序，智能排序是第一个', () => {
   expect(SORT_MODES.map(mode => mode.id)).toEqual(['smart', 'updated', 'id']);

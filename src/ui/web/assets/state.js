@@ -83,6 +83,5 @@ export function resetUiState() {
   ui.sideNodes = new Map(); ui.sideHeads = new Map(); ui.navButtons = new Map(); ui.navCounts = new Map();
   ui.stepToggle = new Map();
   ui.collapsed = readCollapsedPref(); ui.filters = readFiltersPref(); ui.sidebarSortMode = readSidebarSortPref();
-  if (!['all','agent'].includes(ui.filters.tasks.role)) ui.filters.tasks.role = 'all';
   transcriptOpen.clear(); transcriptCache.clear(); mergeSelection.clear();
 }

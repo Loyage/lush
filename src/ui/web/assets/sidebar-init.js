@@ -1,6 +1,6 @@
 import { SIDEBAR_SECTIONS, toggleCollapsed } from './sidebar.js';
 import { $, el } from './dom.js';
-import { filterInput, filterSelect, filterToggle, filterUi, plannerOption, roleOption, specStatusOption, statusOption, syncSelectOptions, withCurrent } from './filters-ui.js';
+import { filterInput, filterMulti, filterSelect, filterToggle, filterUi, plannerOption, roleOption, specStatusOption, statusOption, syncSelectOptions, withCurrent } from './filters-ui.js';
 import { applyFilters } from './refresh.js';
 import { navTo, paintCollapsed } from './sidebar-ui.js';
 import { ROLE } from './format.js';
@@ -51,17 +51,22 @@ export function initSidebar() {
     });
   }
   // 行动任务：状态 / 角色 / 合并 / 只看待我处理 / 关键字
-  const taskStatus = filterSelect('状态', [{ value: 'all', label: '全部状态' },
-    ...['queued', 'running', 'waiting', 'awaiting', 'paused', 'completed', 'failed', 'cancelled'].map(statusOption)],
+  const taskStatus = filterMulti('状态',
+    ['queued', 'running', 'waiting', 'awaiting', 'paused', 'completed', 'failed', 'cancelled'].map(statusOption),
     ui.filters.tasks.status, value => { ui.filters.tasks.status = value; applyFilters(); });
-  const taskRole = filterSelect('任务类型', withCurrent([{ value: 'all', label: '全部类型' }, ...Object.keys(ROLE).map(roleOption)], ui.filters.tasks.role, roleOption), ui.filters.tasks.role,
+  const taskRole = filterMulti('任务类型', Object.keys(ROLE).map(roleOption), ui.filters.tasks.role,
     value => { ui.filters.tasks.role = value; applyFilters(); });
   const taskIntegration = filterSelect('合并', [{ value: 'all', label: '全部' }, { value: 'unmerged', label: '待合并' }, { value: 'merged', label: '已合并' }],
     ui.filters.tasks.integration, value => { ui.filters.tasks.integration = value; applyFilters(); });
   const taskMine = filterToggle('只看待我处理', ui.filters.tasks.mine, value => { ui.filters.tasks.mine = value; applyFilters(); });
   const taskText = filterInput(ui.filters.tasks.text, value => { ui.filters.tasks.text = value; applyFilters(); });
-  $('task-filters').replaceChildren(taskStatus.wrap, taskRole.wrap, taskIntegration.wrap, taskMine.wrap, taskText.wrap);
-  filterUi.taskRole = taskRole.select;
+  taskText.input.placeholder = '搜索任务目标或 #编号';
+  taskText.input.setAttribute('aria-label', '搜索任务目标或编号');
+  const extras = el('div', undefined, 'task-filter-extras');
+  extras.append(taskIntegration.wrap, taskMine.wrap, el('span', '同组多选；未勾选时显示全部。筛选范围为已加载任务。', 'hint'));
+  $('task-filters').replaceChildren(taskText.wrap, taskStatus.wrap, taskRole.wrap, extras);
+  filterUi.taskStatus = taskStatus;
+  filterUi.taskRole = taskRole;
   // 规划任务：状态 / planner / 角色 / 关键字
   const specStatus = filterSelect('状态', [{ value: 'all', label: '全部状态' }, specStatusOption('pending'), specStatusOption('planned'), specStatusOption('dropped')],
     ui.filters.specs.status, value => { ui.filters.specs.status = value; applyFilters(); });

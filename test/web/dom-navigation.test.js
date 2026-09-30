@@ -151,16 +151,20 @@ test('全部现行角色和历史调度类型始终可选，未知类型也不�
   }));
   ui.lastSnapshot = { ...snapshot, tasks };
   renderTree(ui.lastSnapshot);
-  const select = dom.node('task-filters').querySelectorAll('.filter-select')[1];
-  expect(select.querySelectorAll('option').map(node => node.value)).toEqual(['all', ...Object.keys(ROLE), 'future-role']);
+  const group = dom.node('task-filters').querySelectorAll('.filter-multi')[1];
+  const choices = () => group.querySelectorAll('input').map(node => node.value);
+  expect(choices()).toEqual(['all', ...Object.keys(ROLE), 'future-role']);
+  const all = group.querySelector('[data-value="all"]').querySelector('input');
   for (const task of tasks) {
-    select.value = task.role;
-    await select.listeners.change[0]();
+    all.checked = true; await all.listeners.change[0]();
+    const box = group.querySelector(`[data-value="${task.role}"]`).querySelector('input');
+    box.checked = true;
+    await box.listeners.change[0]();
     expect(dom.node('tasks').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual([task.id]);
   }
   ui.lastSnapshot = snapshot;
-  select.value = 'all'; await select.listeners.change[0]();
-  expect(select.querySelectorAll('option').map(node => node.value)).toEqual(['all', ...Object.keys(ROLE)]);
+  all.checked = true; await all.listeners.change[0]();
+  expect(choices()).toEqual(['all', ...Object.keys(ROLE)]);
 });
 
 test('任务树：角色胶囊带 role-<role> 类，快速路由任务整行标记并显示徽章', async () => {

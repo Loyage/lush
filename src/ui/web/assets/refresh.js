@@ -69,7 +69,7 @@ export async function refresh() {
       // Keep explicitly loaded historical pages visible across bounded polling refreshes.
       if (ui.taskHistory?.length) {
         const byId = new Map([...ui.taskHistory, ...response.tasks].map(task => [task.id, task]));
-        response.tasks = [...byId.values()].filter(task => ['say','child','main','owner'].includes(task.task_kind)).sort((a, b) => a.id - b.id);
+        response.tasks = [...byId.values()].sort((a, b) => a.id - b.id);
         response.task_page = ui.taskHistoryPage ?? response.task_page;
       } else ui.taskHistoryPage = response.task_page;
       ui.lastSnapshot = response;

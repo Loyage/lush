@@ -1,4 +1,4 @@
-import { el } from './dom.js';
+import { el, syncChildren } from './dom.js';
 import { ROLE, STATUS, SPEC_STATUS } from './format.js';
 
 // 选项随数据变化的筛选控件（角色 / planner / 意图状态）
@@ -29,6 +29,40 @@ export function filterToggle(label, checked, onChange) {
   box.addEventListener('change', () => onChange(box.checked));
   wrap.append(box, el('span', label, 'filter-label'));
   return { wrap, box };
+}
+/** 展开的多选组；空集合代表全部。复用选项节点，轮询不打断焦点。 */
+export function filterMulti(label, options, value, onChange) {
+  const wrap = el('fieldset', undefined, 'filter-multi');
+  wrap.append(el('legend', label, 'filter-label'));
+  const choices = el('div', undefined, 'filter-options');
+  wrap.append(choices);
+  let selected = [], latestOptions = options;
+  const sync = (nextOptions, current) => {
+    latestOptions = nextOptions;
+    selected = (Array.isArray(current) ? current : [current]).filter(value => typeof value === 'string' && value && value !== 'all');
+    const known = new Map([...choices.children].map(node => [node.dataset.value, node]));
+    const allOptions = [{ value: 'all', label: '全部' }, ...nextOptions];
+    for (const value of selected) if (!allOptions.some(option => option.value === value)) allOptions.push({ value, label: value });
+    const nodes = allOptions.map(option => {
+      let node = known.get(option.value);
+      if (!node) {
+        const control = filterToggle(option.label, false, checked => {
+          const next = option.value === 'all' ? [] : checked
+            ? [...new Set([...selected, option.value])] : selected.filter(value => value !== option.value);
+          sync(latestOptions, next);
+          onChange(next);
+        });
+        node = control.wrap;
+        node.dataset.value = option.value;
+        control.box.value = option.value;
+      }
+      node.querySelector('input').checked = option.value === 'all' ? !selected.length : selected.includes(option.value);
+      return node;
+    });
+    syncChildren(choices, nodes);
+  };
+  sync(options, value);
+  return { wrap, sync };
 }
 export function filterInput(value, onChange) {
   const wrap = el('label', undefined, 'filter filter-text');

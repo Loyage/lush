@@ -5,7 +5,7 @@ import {
   parseFilters, DEFAULT_FILTERS,
 } from '../src/ui/web/assets/sidebar.js';
 
-/** 一棵三层的树 + 一个不相关的根：用来固定「命中项 + 祖先通路」这条规则。 */
+/** 一棵三层的树 + 一个不相关的根：平铺筛选不应额外补出祖先。 */
 const tree = [
   { id: 1, parent_id: null, role: 'worker', status: 'completed', integration: 'merged', goal: '根任务' },
   { id: 2, parent_id: 1, role: 'coordinator', status: 'completed', integration: 'merged', goal: '中间层' },
@@ -27,22 +27,21 @@ test('空查询原样返回：三个 filter 连数组引用都不换，默认行
   expect(filterTasks(tree, { status: 'all', role: 'all', integration: 'all', mine: false, text: '   ' })).toBe(tree);
 });
 
-test('任务树筛选：状态 / 角色 / 合并 / 关键字各自生效，且可组合', () => {
-  expect(ids(filterTasks(tree, { status: 'running' }))).toEqual([1, 2, 3, 4, 5]);   // 两个命中，各自补祖先
-  expect(ids(filterTasks(tree, { status: ['completed'] }))).toEqual([1, 2]);        // 子任务被筛掉，父仍可见
+test('平铺筛选：同组多选 OR，不同条件 AND，搜索只显示命中任务', () => {
+  expect(ids(filterTasks(tree, { status: 'running' }))).toEqual([3, 5]);
+  expect(ids(filterTasks(tree, { status: ['completed'] }))).toEqual([1, 2]);
   expect(ids(filterTasks(tree, { role: 'research' }))).toEqual([4]);
-  expect(ids(filterTasks(tree, { status: 'running', role: 'worker' }))).toEqual([1, 2, 3, 4, 5]);
-  expect(ids(filterTasks(tree, { status: 'completed', role: 'coordinator' }))).toEqual([1, 2]);
-  // 关键字大小写不敏感：匹配 goal 文本（命中 #3，父链 #1 / #2 作为通路保留）
-  expect(ids(filterTasks(tree, { text: 'login' }))).toEqual([1, 2, 3]);
-  expect(ids(filterTasks(tree, { text: 'LOGIN' }))).toEqual([1, 2, 3]);
-  // 也匹配 #id 与裸 id
+  expect(ids(filterTasks(tree, { status: ['running', 'failed'], role: ['worker', 'research'] }))).toEqual([3, 4, 5]);
+  expect(ids(filterTasks(tree, { status: 'completed', role: 'coordinator' }))).toEqual([2]);
+  expect(ids(filterTasks(tree, { text: 'login' }))).toEqual([3]);
+  expect(ids(filterTasks(tree, { text: 'LOGIN' }))).toEqual([3]);
   expect(ids(filterTasks(tree, { text: '#4' }))).toEqual([4]);
-  // 组合：状态 + 关键字
-  expect(ids(filterTasks(tree, { status: 'running', text: 'login' }))).toEqual([1, 2, 3]);
+  expect(ids(filterTasks(tree, { text: '3' }))).toEqual([3]);
+  expect(ids(filterTasks(tree, { status: ['running', 'failed'], text: 'login' }))).toEqual([3]);
+  expect(filterTasks(tree, { status: [], role: [] })).toBe(tree);
 });
 
-test('任务树保留祖先：命中的后代把整条父链带出来，但不反向补被筛掉的子孙', () => {
+test('平铺列表不补父子：待我处理 / 合并筛选与搜索只返回命中项', () => {
   const pending = [
     { id: 10, parent_id: null, role: 'worker', status: 'completed', integration: 'pending', goal: '待合并' },
     { id: 11, parent_id: null, role: 'worker', status: 'completed', integration: 'merged', goal: '已合并' },
@@ -50,10 +49,9 @@ test('任务树保留祖先：命中的后代把整条父链带出来，但不�
   // mine：completed + pending/review 待我批准合并，或有未答复 notice
   expect(ids(filterTasks(pending, { mine: true }))).toEqual([10]);
   expect(ids(filterTasks(pending, { mine: true, openNoticeIds: [11] }))).toEqual([10, 11]);
-  // 祖先通路：只命中 #3，#1 / #2 作为通路保留
-  expect(ids(filterTasks(tree, { text: 'Fix LOGIN' }))).toEqual([1, 2, 3]);
-  // 父只匹配自己时，不把不匹配的子任务带出来
-  expect(ids(filterTasks(tree, { text: '中间层' }))).toEqual([1, 2]);
+  expect(ids(filterTasks(tree, { text: 'Fix LOGIN' }))).toEqual([3]);
+  expect(ids(filterTasks(tree, { text: '中间层' }))).toEqual([2]);
+  expect(ids(filterTasks(pending, { integration: 'merged' }))).toEqual([11]);
   // 空结果就是空结果
   expect(filterTasks(tree, { text: '不存在的关键字' })).toEqual([]);
 });
@@ -143,4 +141,7 @@ test('筛选状态：解析出规整对象，类型不符的字段回落成默�
   expect(parsed.intents).toEqual(DEFAULT_FILTERS.intents);
   expect(parseFilters('nope').tasks.status).toBe('all');
   expect(parseFilters('[]').tasks.text).toBe('');
+  expect(parseFilters(JSON.stringify({ tasks: { status: ['running', 'failed', 'running', null, 1, 'all', ''],
+    role: ['agent', 'future-role'] } })).tasks).toMatchObject({ status: ['running', 'failed'], role: ['agent', 'future-role'] });
+  expect(parseFilters(JSON.stringify({ tasks: { role: 'research' } })).tasks.role).toBe('research');
 });
