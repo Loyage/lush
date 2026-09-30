@@ -41,7 +41,7 @@
 - `src/index.js` 的导出、`bin/*` 的行为。
 - Web 路由与 asset 路径：`server.js` 只按 basename 服务 `assets/` 下的 `.js` / `.css`，
   所以**新增前端模块不需要改 server.js**。带 `--project` 的单项目 Web 继续用无前缀的 `/api/**`；无 `--project` 的全局工作台改为**每项目一条稳定身份路由**：`/p/<project-id>/**` 下的页面、GET 与 `POST /api/action` 都按请求自带的项目身份解析（ID 由 canonical 路径派生，只在已登记集合里反查，不把 URL 片段当路径），`GET /api/snapshot` 因此不再有可被别的标签页切换的「当前项目」。宿主级路由留在无前缀：`GET /api/host`（模式、已登记列表、上次打开）、`GET /api/host/projects`（仅探测已登记目录的 lushd，返回 `running` 与有界摘要；不启动项目）、`POST /api/host/select`（登记并连接，返回路由 ID，不设全局当前项目）、`POST /api/host/remove`（只删入口并断开 Web 连接），以及「文档」视图的 `/api/docs`、`/api/docs/search-index` 与 `/api/docs/<id>`——数据源是 `src/ui/web/docs.js`，只读随代码发布的 `docs/**/*.md` 与 `README.md`，与当前项目目录无关，只按扫出来的 id 查表命中。项目读取与写动作的完整白名单见[Web 路由](../reference/web-routes.md)（`CORE_READS` / `CORE_TASK_READ` / `CORE_DOC_READ` / `MUTATIONS`）。认证边界也在 `server.js`：项目绑定模式读取 `.lush/web.json`，全局启动器读取用户配置目录的 `web.json`；无对应配置时只监听本机，有配置时监听公网，并用 `/login`、`/logout` 与 HttpOnly 会话 Cookie 保护全部页面、资源和 API。全局公网配置必须额外提供 `projects` 绝对路径白名单，且项目注册表不允许把白名单外的路径解析成可访问身份；本地无认证启动器仍可输入任意现存绝对目录。
-- 前端项目身份在 `src/ui/web/assets/route.js`：从 `location.pathname` 读 `/p/<id>/`（读不到就是单项目模式或全局根），`api.js` 用它给项目 API 加前缀，启动器与文档等宿主级资源不加；折叠 / 筛选 / 排序与分支图折叠按项目隔离在 `prefs.js` / `state.js`，主题等外观偏好共享。项目列表与切换在 `project-picker.js`：已在一个项目页时用新标签打开别的项目，切换项目不会清空当前标签的输入。
+- 前端项目身份在 `src/ui/web/assets/route.js`：从 `location.pathname` 读 `/p/<id>/`（读不到就是单项目模式或全局根），`api.js` 用它给项目 API 加前缀，启动器与文档等宿主级资源不加；折叠 / 筛选 / 排序与 Task 图偏好按项目隔离在 `prefs.js` / `state.js`，主题等外观偏好共享。项目列表与切换在 `project-picker.js`：已在一个项目页时用新标签打开别的项目，切换项目不会清空当前标签的输入。
 - Web 按钮帮助走 `data-help`：含义不直观的按钮都带提示，会调用 Agent 的按钮另带 `agent-call` 类与 `agentHelp()` 生成的文案，禁用按钮由外层 `.help-host` 承载；前端实现与三种输入方式见[按钮帮助与 Agent 触发标识](../design/ui-guidance.md)。
 - Host 的项目连接与按需启动在 `src/host/project-host.js`；全局项目登记状态在 `src/host/registry.js`：用户配置目录中的 `launcher.json` 是 v2，存 `last_project` 与已登记的 `projects` 路径列表（读 v1 时把 `last_project` 提升为登记项），只把上次打开当作**新窗口首次落点**，不再决定任何页面的请求目标；同目录的可选 `web.json` 独立保存全局启动器认证、可信 Origin 与项目白名单；两者都不是业务事实也不是 `LUSH_HOME`。`projectRouteId(path)` 由 canonical 路径派生 16 位十六进制 ID，同一路径稳定、不同路径不可混同；服务端只用它在已登记集合里反查路径。macOS / Linux / Windows 分别遵循各自用户配置目录。Electron 桌面壳使用独立随机端口复用同一 Web server 与 assets，始终只监听回环且不读取全局公网认证；关闭时只停自己的临时 Web host，不停项目 daemon，因此可与后台 Web 同时打开。
 - Web 进程的生命周期在 `src/host/control.js`：`webListenerPids(port)` 认出端口上的监听者，
@@ -63,18 +63,18 @@
 
 ## Task 图与固定输入规则
 
-`task.graph` / `/api/task-graph` 是以 Task 父子关系为边的有界读面；Web 的 `#task-graph` 为主视角，原 `#graph` 分支图保持独立入口与原操作。Task 卡片按真实状态配色，读面投影 `branch_info.subtree_say` / `branch_info.merge_run` 作为交付诊断；旧 `branch.orchestrate_plan` / `branch.orchestrate` 一键编排入口已下线。新 say 从已提交 fork 读取 `.lush-task/input.mjs` 并冻结在项目 `.lush/task-rules/`；用户后续消息由固定规则返回 `message` 或安全点软抢占的 `interrupt`，失败回退并留事件。子 Task 继承直接父的规则快照。可信代码风险与读面边界见 [Task 图与固定输入规则](task-graph.md)。
+`task.graph` / `/api/task-graph` 是以 Task 父子关系为边的有界读面；Web 的 `#task-graph` 为主视角，旧 `#graph` 分支视图及 `/api/graph` HTTP 路由已移除；精简 Git 父分支、当前检出与关系诊断移入 Task 卡片，完整谱系与未绑定分支绑定只保留 CLI / RPC。Task 卡片按真实状态配色，读面投影 `branch_info.subtree_say` / `branch_info.merge_run` 作为交付诊断；旧 `branch.orchestrate_plan` / `branch.orchestrate` 一键编排入口已下线。新 say 从已提交 fork 读取 `.lush-task/input.mjs` 并冻结在项目 `.lush/task-rules/`；用户后续消息由固定规则返回 `message` 或安全点软抢占的 `interrupt`，失败回退并留事件。子 Task 继承直接父的规则快照。可信代码风险与读面边界见 [Task 图与固定输入规则](task-graph.md)。
 
 ## 页面导航与全类型 Task 列表
 
-- Web 采用平级页面，分组只组织导航：工作（Task 图、项目概览、待我处理、Task 列表）、交付与用量（分支与合并）、其他（设置、帮助文档）。Task 详情归属 Task 列表，文档正文归属帮助文档。
+- Web 采用平级页面，分组只组织导航：工作（Task 图、项目概览、待我处理、Task 列表）、其他（设置、帮助文档）。Task 详情归属 Task 列表，文档正文归属帮助文档。
 - `sidebar-ui.js` 统一页面切换、路由地址、唯一选中项、视图栏、移动端收起与加载占位；`ui.view` 为当前页面身份，异步读面用身份检查阻止迟到响应覆盖新页面。概览导航先画缓存，不依赖 revision 变化或轮询空闲。
 - `task.activity(limit?,scope?)` / `task.page(before?,limit?,scope?)` 增加 `scope='work'|'all'`，省略保留旧 work 口径；Web overview 与历史分页显式请求 all，覆盖 intent/work 两层，继续有界读取，不改 Task 实体或存储层级。`GET /api/tasks` 透传 scope；类型筛选固定提供全部现行角色，兼容历史 scheduler 与未知角色，筛选范围明确为已加载 Task。
 
 ## 分支诊断增量读面
 
 - `graph.get` 的 branch 节点增量提供 `diagnostics`：`changes` 以登记的 `created_from_commit` → 当前固定 tip 统计已提交净改动（文件总数、文本增删行、二进制文件数及有界文件列表），`latest_commit` 给出 tip 的提交时间与摘要，`working_tree` 单独统计实际检出该分支的工作区未提交文件数（暂存 / 未暂存 / 未跟踪 / 冲突，分类可能重叠）。无起点、无 ref、未检出与读取失败不能冒充零。
-- Git 边界 `workspaces/diff.js` 新增 `branchDiagnostics(branches)` 批量读面：只读 Git、禁用外部 diff/textconv，固定提交结果有界缓存；文件列表每分支最多 50 项且 JSON 不超过 2 KiB，截断不影响汇总。无新表、无新 RPC 方法；Web 用既有图轮询，并保留文件列表展开状态。
+- Git 边界 `workspaces/diff.js` 新增 `branchDiagnostics(branches)` 批量读面：只读 Git、禁用外部 diff/textconv，固定提交结果有界缓存；文件列表每分支最多 50 项且 JSON 不超过 2 KiB，截断不影响汇总。无新表、无新 RPC 方法；Web 用 Task 图轮询，并保留文件列表展开状态。
 
 ## 新式 Task 的自动合并（version 2）
 

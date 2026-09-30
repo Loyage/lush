@@ -17,7 +17,7 @@ const { ui } = await import('../../src/ui/web/assets/state.js');
 await boot();
 afterAll(() => dom.restore());
 
-test('Task 图以 Task 为节点；原分支图仍可切换，折叠与刷新不丢失', async () => {
+test('Task 图以 Task 为节点；旧 #graph 不再打开分支图', async () => {
   await dom.node('task-graph-open').onclick();
   expect(dom.location.hash).toBe('#task-graph');
   const text = deepText(dom.node('detail'));
@@ -26,8 +26,11 @@ test('Task 图以 Task 为节点；原分支图仍可切换，折叠与刷新不
   expect(text).toContain('/tmp/task-2');
   expect(text).toContain('固定输入规则');
   expect(requests).toBeGreaterThan(0);
-  await dom.node('graph-open').onclick();
-  expect(dom.location.hash).toBe('#graph');
+  dom.location.hash = '#graph';
+  await dom.fire('hashchange');
+  expect(ui.view.id).toBe('overview');
+  expect(dom.location.hash).toBe('');
+  expect(deepText(dom.node('detail'))).not.toContain('分支与合并');
   await dom.node('task-graph-open').onclick();
   expect(deepText(dom.node('detail'))).toContain('实现功能');
 });
@@ -88,7 +91,7 @@ test('Task 卡片同屏展示工作状态、进度、结果、Git 诊断、待�
     integration: 'pending', target_branch: 'main', head_commit: 'abc456', base_commit: 'abc123', has_result: true,
     progress: { completed: 1, total: 3, current: { label: '实现接口', started_at: '2026-01-01T00:00:00Z' } },
     notice: { id: 42, kind: 'question', title: '是否继续？', body: '先决定接口名称' }, notice_count: 1,
-    branch_info: { current_head: 'abc456', archived: false, diagnostics: {
+    branch_info: { parent: 'main', current: true, relation: { status: 'ahead', ahead: 1, behind: 0 }, current_head: 'abc456', archived: false, diagnostics: {
       changes: { status: 'ok', files_total: 2, added: 12, deleted: 3, binary_files: 0,
         base_commit: 'abc123', head_commit: 'abc456', files: [{ path: 'src/api.js', added: 12, deleted: 3 }], truncated: false },
       latest_commit: { subject: 'implement API', committed_at: '2026-01-01T00:00:00Z' },
@@ -99,7 +102,7 @@ test('Task 卡片同屏展示工作状态、进度、结果、Git 诊断、待�
   const text = deepText(dom.node('detail'));
   for (const word of ['验收条件', '等待新输入', '已完成初步实现', '实现接口', '1/3',
     '已提交：2 个文件', '未提交：1 个文件', 'implement API', '是否继续？', '合并到父 Task',
-    '正在解决 Task #7', '冻结']) {
+    '正在解决 Task #7', '冻结', 'Git 父分支：main', '当前检出', 'Git 关系：领先 · 领先 1 / 落后 0 个提交']) {
     expect(text).toContain(word);
   }
   const card = dom.node('detail').querySelector('[data-task-id="2"]');

@@ -1,25 +1,10 @@
-import { GRAPH_COLLAPSED_KEY, GRAPH_EXPANDED_KEY, parseGraphCollapsed, serializeGraphCollapsed } from './graph-layout.js';
-import { readPref, scopedKey, writePref } from './prefs.js';
+import { readPref, writePref } from './prefs.js';
 
 /* ---------- 偏好：折叠 / 筛选 / 排序都持久化到 localStorage ---------- */
 // 键名、默认值与解析规则都在 prefs.js；这里只是转发，让老 import 继续可用。
 export { SIDEBAR_SORT_KEY, LEGACY_TREE_SORT_KEY, SORT_IDS } from './prefs.js';
 export function readSidebarSortPref() { return readPref('sidebarSort'); }
 export function readCollapsedPref() { return readPref('collapsed'); }
-/** 分支图的折叠按分支名存：重画（1.5s 轮询 / 手动刷新）后仍然收起。
- *  收起与展开分两个 key 记：默认值由「未合进父分支 / 在跑」决定，用户显式切换优先且不会被重画吞掉。 */
-export function readGraphCollapsedPref() {
-  try { return parseGraphCollapsed(localStorage.getItem(scopedKey(GRAPH_COLLAPSED_KEY))); } catch { return new Set(); }
-}
-export function readGraphExpandedPref() {
-  try { return parseGraphCollapsed(localStorage.getItem(scopedKey(GRAPH_EXPANDED_KEY))); } catch { return new Set(); }
-}
-export function saveGraphPrefs() {
-  try {
-    localStorage.setItem(scopedKey(GRAPH_COLLAPSED_KEY), serializeGraphCollapsed(ui.graphCollapsed));
-    localStorage.setItem(scopedKey(GRAPH_EXPANDED_KEY), serializeGraphCollapsed(ui.graphExpanded));
-  } catch { /* 隐私模式里忽略 */ }
-}
 export function readFiltersPref() { return readPref('filters'); }
 export function saveCollapsedPref() { writePref('collapsed', ui.collapsed); }
 export function saveFiltersPref() { writePref('filters', ui.filters); }
@@ -36,7 +21,7 @@ export const ui = {
   selected: null, selectedRevision: null, busy: false, offline: false, detailDirty: false, detailTask: null, detailRenderedAt: 0,
   /** 右侧信息页（notices / tasks / intents / specs）；左栏只做导航。 */
   indexOpen: null,
-  /** 「文档」视图：打开期间轮询不用概览覆盖它，与 graphOpen 同一套排他规则。 */
+  /** 「文档」视图：打开期间轮询不用概览覆盖它，由统一页面身份保护。 */
   docsOpen: false, docsQuery: '',
   /** 「设置」视图：打开期间轮询不用概览覆盖它（设置页只受用户操作驱动）。 */
   settingsOpen: false,
@@ -55,18 +40,10 @@ export const ui = {
   questionDrafts: new Map(), // 当前会话草稿；sessionStorage 可跨刷新恢复
   // 左栏四个列表共用的排序偏好（smart / updated / id）。
   sidebarSortMode: readSidebarSortPref(),
-  /** 分支图视图：打开期间轮询不用概览覆盖它；指纹 + 最小时隔决定要不要重拉 /api/graph。
-   *  lastGraph 是最近一次拉到的 graph.get 读模型：分支图与概览共用同一份数据，
-   *  概览因此不必新增 RPC，也不会各自打一次 git。 */
-  graphOpen: false, graphFingerprint: null, graphFetchedAt: 0, graphRenderKey: null, lastGraph: null,
   taskGraphFetchedAt: 0, taskGraphIds: new Set(),
   /** Task 图里是否临时显示已归档 Task（默认隐藏，随页面重开复位）。 */
   taskGraphShowArchived: false,
-  /** 分支图里收起的分支名（Set）：收起的是整棵子树，持久化到 localStorage。
-   *  graphExpanded 是用户显式展开的分支名：默认值只在两个集合里都没有时生效。 */
-  graphCollapsed: readGraphCollapsedPref(),
-  graphExpanded: readGraphExpandedPref(),
-  graphFilesExpanded: new Set(), // 文件明细只记会话内展开，轮询保留。
+  taskGraphFilesExpanded: new Set(), // 文件明细只记会话内展开，轮询保留。
   lastSnapshot: null,   // 切排序模式要立刻重排，不必等下一次轮询
   taskHistory: [],      // 用户显式加载的历史任务页；有界轮询不会把它们立刻抹掉
   taskHistoryPage: null,
@@ -101,11 +78,8 @@ export function resetUiState() {
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.noticeRecords = null; ui.loadNoticeRecords = null;
   ui.lastSnapshot = null; ui.taskHistory = []; ui.taskHistoryPage = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
-  ui.graphOpen = false; ui.graphFingerprint = null; ui.graphFetchedAt = 0; ui.graphRenderKey = null; ui.lastGraph = null;
   ui.taskGraphFetchedAt = 0; ui.taskGraphIds = new Set(); ui.taskGraphShowArchived = false;
-  ui.graphCollapsed = readGraphCollapsedPref();
-  ui.graphExpanded = readGraphExpandedPref();
-  ui.graphFilesExpanded = new Set();
+  ui.taskGraphFilesExpanded = new Set();
   ui.sideNodes = new Map(); ui.sideHeads = new Map(); ui.navButtons = new Map(); ui.navCounts = new Map();
   ui.stepToggle = new Map();
   ui.collapsed = readCollapsedPref(); ui.filters = readFiltersPref(); ui.sidebarSortMode = readSidebarSortPref();

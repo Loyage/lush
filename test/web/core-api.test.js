@@ -16,6 +16,9 @@ test('Web exposes say and task reads, not legacy mutations or pages', async () =
     });
     const legacy = await post('input.submit', { content: 'old' });
     expect(legacy.status).toBe(400);
+    // 本地分支绑定按用户决定仅保留 CLI / RPC，不留 Web 动作入口。
+    expect((await post('branch.bind', { branch: 'feature', commit: 'a'.repeat(40) })).status).toBe(400);
+    expect((await fetch(f.url + '/api/graph')).status).toBe(404);
     expect((await fetch(f.url + '/api/overview')).status).toBe(200);
     expect((await fetch(f.url + '/api/snapshot')).status).toBe(200);
     const sent = await post('say.submit', { content: '新目标' });

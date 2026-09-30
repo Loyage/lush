@@ -7,7 +7,6 @@ import { detail, overview } from './navigate.js';
 import { liveInterval } from './live.js';
 import { onPrefChange, pollingIntervals, readPref, setPref } from './prefs.js';
 import { liveRefresh, refresh, applySort, applyFilters } from './refresh.js';
-import { openGraph } from './render-graph.js';
 import { openTaskGraph } from './render-task-graph.js';
 import { openSettings } from './render-settings.js';
 import { initSidebar } from './sidebar-init.js';
@@ -53,26 +52,22 @@ onPrefChange('polling', () => { if (refreshTimer !== null || liveTimer !== null)
 
 const linked = taskId => /^#task-(\d+)$/.test(taskId) ? Number(taskId.slice(6)) : null;
 
-/** 打开分支图：点按钮与 #graph hash 共用；失败只报错，不中断轮询。 */
-function openGraphView() { return openGraph().catch(error => { show(error.message, 'error'); }); }
-
 /** 打开文档：点左栏「文档」与 #docs / #doc-<id> 共用；同样只报错，不中断轮询。 */
 function openDocsView(id = null) { return openDocs(id).catch(error => { show(error.message, 'error'); }); }
 
-// 地址栏是唯一的路由源：`#settings` / `#graph` / `#docs` / `#doc-ID` / `#task-ID`，其余回概览。
+// 地址栏是唯一的路由源：`#settings` / `#task-graph` / `#docs` / `#doc-ID` / `#task-ID`，其余回概览。
 // 每个分支都把 promise 返回出去：浏览器不看返回值，但测试能 await 到「画完」为止。
 function onHashChange() {
   hideHelp(); // 换页前先把上一页的按钮提示收掉，避免固定浮层跨页残留。
   const report = error => { show(error.message, 'error'); };
   if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
-  if (location.hash === '#graph') return ui.graphOpen ? undefined : openGraphView();
   if (location.hash === '#task-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
   const resource = /^#(notices|tasks)$/.exec(location.hash)?.[1];
   if (resource) return openResource(resource, { push: false });
   const doc = docsTarget(location.hash);
   if (doc) return openDocsView(doc.id);
   const next = linked(location.hash);
-  // 没有 hash 是项目概览；分支图使用显式 #graph，因此浏览器前进 / 后退不会含糊。
+  // 未知或已移除的 hash（包括旧 #graph）回项目概览。
   if (!next) return overview().catch(report);
   return next === ui.selected ? undefined : detail(next).catch(report);
 }
@@ -119,7 +114,6 @@ export async function boot() {
   initHelp();                                    // 统一按钮帮助提示（document 级委托，可重复装配）
   initComposer();
   // 平级页面共享切换接缝；品牌回概览。入口返回 promise，测试可等到画完。
-  const goGraph = () => openGraphView();
   const goOverview = () => overview().catch(error => { show(error.message, 'error'); });
   $('home').onclick = goOverview;
   $('overview-open').onclick = goOverview;
@@ -129,7 +123,6 @@ export async function boot() {
     $('sidebar-toggle').setAttribute('aria-expanded', String(open));
     $('sidebar-toggle').textContent = open ? '收起菜单' : '导航菜单';
   };
-  $('graph-open').onclick = goGraph;
   $('task-graph-open').onclick = () => openTaskGraph().catch(error => { show(error.message, 'error'); });
   $('docs-open').onclick = () => openDocsView();
   $('view-back').onclick = () => {

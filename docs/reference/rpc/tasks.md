@@ -2,7 +2,14 @@
 
 本节管 Task 的创建、沟通与交付：`task.spawn` / `task.message` / `task.integrate` / `task.reserve` / `task.resolve*` / `task.cancel` / `task.retry` / `task.interrupt` / `task.resume` / `task.configure` / `task.cleanup`，以及只读的 `task.list` / `task.tree` / `task.graph` / `task.activity` / `task.page`。当前公开白名单以[核心 API 收敛](../../engineering/core-api.md)与 `src/rpc/registry.js` 为准；Task 图与固定输入规则见[工程说明](../../engineering/task-graph.md)。
 
-`task.graph {}` 是用户与 Agent 均可读的 Task 父子读面，Web GET `/api/task-graph` 对应：`{nodes,edges,truncated,total}`。最多 200 条节点，优先保留分支所有者与活动任务；节点含 `goal_preview`（最多 600 字）、`result_preview`（最多 320 字）、`waiting_reason`、`progress`（有界完成数和当前步骤；当前步骤可能是 runtime 生成的等待条目，等待不计入 Agent 工作用时也不占完成度）、`notice`（最新一条 open 待决，正文最多 1000 字）、`notice_count`、`children_total/active`、`reservation`、`has_result`、`branch` / `workspace`、`branch_info`（实时 ref、与分支图同源的 Git 诊断，以及合并运行投影：`subtree_say` 是这条分支下属还有多少条 say 子分支、`merge_run` 是这条分支上仍在跑的合并运行 `{mode,status,done,total,task_id}`，没有则 null）、`freeze`（写冻结原因）与 `resolves_task_id`（被修复的源 Task；父子边仍只表示负责集成的归属），以及 `has_rule`（仅表示存在固定输入规则），边是 `{from:parentId,to:childId}`。分支 fork/合并关系仍由 `graph.get` 提供；`task.graph` 全程只读，不写运行态或事件。
+`task.graph {}` 是用户与 Agent 均可读的 Task 父子读面，Web GET `/api/task-graph` 对应：`{nodes,edges,truncated,total}`。最多 200 条节点，优先保留分支所有者与活动任务；节点含 `goal_preview`（最多 600 字）、`result_preview`（最多 320 字）、`waiting_reason`、`progress`（有界完成数和当前步骤；当前步骤可能是 runtime 生成的等待条目，等待不计入 Agent 工作用时也不占完成度）、`notice`（最新一条 open 待决，正文最多 1000 字）、`notice_count`、`children_total/active`、`reservation`、`has_result`、`branch` / `workspace`、`branch_info`（实时 ref、与 `graph.get` 同源的 Git 诊断，以及合并运行投影：`subtree_say` 是这条分支下属还有多少条 say 子分支、`merge_run` 是这条分支上仍在跑的合并运行 `{mode,status,done,total,task_id}`，没有则 null）、`freeze`（写冻结原因）与 `resolves_task_id`（被修复的源 Task；父子边仍只表示负责集成的归属），以及 `has_rule`（仅表示存在固定输入规则），边是 `{from:parentId,to:childId}`。完整分支谱系仍由 `graph.get` 提供；`task.graph` 不依赖它，全程只读，不写运行态或事件。
+
+`branch_info` 另提供精简 Git 关系诊断：
+- `parent` 保留 `branches.parent` 的历史登记值，不按 Task 父子边或 `target_branch` 猜测，也不跳过已归档父分支。
+- `current:boolean` 表示 canonical 项目目录当前检出的分支，不是「某个 worktree 检出了它」。detached HEAD 或读取失败为 false。
+- `relation:{status,ahead,behind}` 比较本分支实时 tip 与登记父分支实时 tip；`ahead` 是只有本分支有的提交数，`behind` 是只有父分支有的提交数。`status` 为 `equal`（一致，0/0）、`ahead`（领先，>0/0）、`behind`（落后，0/>0）、`diverged`（分歧，均 >0）、`missing`（已成功读取 refs，但任一侧 ref 缺失）、`parent_archived`（登记父分支已归档）或 `unknown`（无明确登记父关系、父关系仅 inferred/unknown，或 Git 读取失败/计数无效）；后三种计数均为 null。自身已归档时 `relation:null`，以既有 `archived:true` 表达正常历史状态，不误报缺失。没有分支的 Task 仍为 `branch_info:null`。
+
+关系按当前有界 Task 集合去重，批量读取 refs / 登记谱系，并缓存同一固定提交对的 `rev-list --left-right --count` 结果，不逐 Task 重读 Git。它只回答真实 Git 祖先关系，不表示是否交付：Squash 已落地的分支仍可能是 `diverged`，`integration:'merged'` 独立记录交付成功；Task 图边仍只表示 Task 父子归属。
 
 Task 中心路径是 Input → 直接拥有独立分支的 `agent` Task（`task_kind='say'`）→ 按需派出的子 `agent` Task。main 是 `task_kind='main'` 的静息根 Task，其他本地分支需 `branch.bind` 显式绑定 `owner`。`tasks.task_kind` 只加列，旧数据保留在磁盘上、不再产生新工作；旧 Intent / Plan / Candidate 与 planner / scheduler 的 `layer` 只用于读懂历史行，不参与新调度。
 
@@ -51,7 +58,7 @@ Task 中心路径是 Input → 直接拥有独立分支的 `agent` Task（`task_
 
 ## 解分歧与已解决
 
-say 的 pending merge 请求若与直接父分支分歧（`blocked_code='diverged'`），用户可 `task.resolve_divergence ID` 派一个源侧解分歧子 Task：它固定源 tip 为工作区基线、固定直接父 tip 为要吸收的提交，不移动任何 ref。已完成但未集成、或失败/取消且仍有活动分支的子任务返回 `needs_review`（包含原 Task 和原因），不悄悄新派。完成后由 runtime 校验产物同时包含原源 tip 和固定父 tip，快进源分支并自动发出固定请求（main/owner 仍须用户批准最终合并），不再要求被冻结的源 say Agent 重新运行。若产物不合格或失败，先检查原子 Task/工作区；显式 `branch archive BRANCH`（Web 分支图「归档」）旧分支后，原 say 静息且已处理子信号时才能重新 `task resolve-divergence ID` 派新子任务。归档删掉旧 ref/worktree、保留 Task/固定提交事件/会话；脏工作区默认拒绝，只有用户明确 `--discard` 才丢弃未提交文件。该类子 Task 不支持 `task retry` 重放未知文件副作用。没有创建分支的失败任务无需归档，重派仍需通过静息检查。若 Task 已失败/取消，不能对终态预约直接复查：先检查 Agent/工作区副作用，再显式 `task retry ID`。
+say 的 pending merge 请求若与直接父分支分歧（`blocked_code='diverged'`），用户可 `task.resolve_divergence ID` 派一个源侧解分歧子 Task：它固定源 tip 为工作区基线、固定直接父 tip 为要吸收的提交，不移动任何 ref。已完成但未集成、或失败/取消且仍有活动分支的子任务返回 `needs_review`（包含原 Task 和原因），不悄悄新派。完成后由 runtime 校验产物同时包含原源 tip 和固定父 tip，快进源分支并自动发出固定请求（main/owner 仍须用户批准最终合并），不再要求被冻结的源 say Agent 重新运行。若产物不合格或失败，先检查原子 Task/工作区；显式 `branch archive BRANCH`（Web Task 图「归档」）旧分支后，原 say 静息且已处理子信号时才能重新 `task resolve-divergence ID` 派新子任务。归档删掉旧 ref/worktree、保留 Task/固定提交事件/会话；脏工作区默认拒绝，只有用户明确 `--discard` 才丢弃未提交文件。该类子 Task 不支持 `task retry` 重放未知文件副作用。没有创建分支的失败任务无需归档，重派仍需通过静息检查。若 Task 已失败/取消，不能对终态预约直接复查：先检查 Agent/工作区副作用，再显式 `task retry ID`。
 
 `task.resolve` 是「已解决」与「放弃任务」的语义区分：前者表示这次输入只是想了解/确认、用户已经没有别的需求，任务以 `completed` 结算并保留 Agent 的 `result`，`integration='none'`，另落一条信息提醒；后者是放弃正在进行的工作。它只在分支没有新提交（`head_commit` 为空或等于 `base_commit`）、工作区干净、没有正在调用的 Agent 且没有发出的合并请求时允许；有提交的 say 仍走 `task.reserve merge` 交付或 `task.cancel` 放弃。它不创建/删除分支与 worktree，也不推进任何 ref；需要继续追问时应在标记前给该 Task 发消息（标记后请另发新的 say）。
 

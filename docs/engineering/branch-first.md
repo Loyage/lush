@@ -26,7 +26,7 @@ main（用户选择 / 默认检出）
 
 ## 连线状态
 
-分支图对每条 `parent → child` fork 连线实时给出：
+`graph.get` RPC 对每条 `parent → child` fork 边实时给出以下诊断（Web 已移除旧分支图，Task 卡片改用 `task.graph` 的精简关系状态）：
 
 - `fast_forward`：parent 是 child 的祖先，可直接把 child 合回 parent；
 - `diverged`：两边都有独有提交，必须先在子侧同步；

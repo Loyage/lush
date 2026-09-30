@@ -15,4 +15,4 @@ say Task 可以预约**合并请求**；再次发送同类预约不会新增意�
 
 父 Task 是运行中的 say Agent 时，由它确认固定子提交；父是 main/owner 时，只有用户能按请求中的 **commit + baseline** 批准（`lush task approve-merge ID COMMIT BASELINE`）。请求未解决时父分支受交付锁保护；用户可撤销请求但不会删除分支或提交。父分支自行提交或外部 Git 操作仍可能造成分歧，此时需复查诊断，在源侧解决，或由用户撤销请求。`completed` 只表示任务结算，**不表示已进入父分支或 main**。
 
-审阅时从 `lush task inspect ID` 和分支图（RPC `task.diff` 提供只读改动视图）查看固定提交、未提交改动、消息与阻塞原因；失败工作区与历史按安全规则保留。[RPC Task 参考](reference/rpc/tasks.md)列出详细准入和异常处理。
+审阅时从 `lush task inspect ID` 和 Task 图（RPC `task.diff` 提供只读改动视图）查看固定提交、未提交改动、消息与阻塞原因；失败工作区与历史按安全规则保留。[RPC Task 参考](reference/rpc/tasks.md)列出详细准入和异常处理。

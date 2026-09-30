@@ -9,7 +9,7 @@ import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { readPref, scopedKey, writePref } from './prefs.js';
 import { taskForest } from './task-graph-layout.js';
-import { branchDiagnostics, decisionRow } from './render-graph.js';
+import { branchDiagnostics, decisionRow } from './task-graph-parts.js';
 import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
@@ -20,7 +20,7 @@ const ENDED = new Set(['completed', 'failed', 'cancelled']);
 /** 状态计数 / 图例的固定顺序：先是活动态，再到终结态；只画出现过的。 */
 const STATUS_ORDER = ['running', 'queued', 'waiting', 'awaiting', 'completed', 'failed', 'cancelled'];
 /** 图上画成卡片的 Task：自己拥有分支 / worktree 的 main / owner / say / child / showcase。
- *  planner / scheduler 属于意图层（在分支图上）；merge Task 是父 Task 的常驻合并队列身份，
+ *  planner / scheduler 是历史意图层记录，不在这里画；merge Task 是父 Task 的常驻合并队列身份，
  *  和别的 Task 一样由表头的状态开关决定显示与否，不按队列活跃度自动收起。 */
 const VISIBLE_KINDS = new Set(['say', 'child', 'showcase', 'main', 'owner', 'merge']);
 /** 在飞的合并预约：已预约等静息 / 已发请求待落地 / 已退回源侧解分歧。 */
@@ -194,10 +194,20 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
       header.append(el('span', `与 Task 固定提交 ${node.head_commit.slice(0, 12)} 不同`, 'warn'));
     }
     git.append(header);
+    if (branch.current) header.append(badge('当前检出'));
+    if (branch.parent) git.append(el('div', `Git 父分支：${branch.parent}`, 'mono'));
+    const relation = branch.relation;
+    const label = { equal: '一致', ahead: '领先', behind: '落后', diverged: '分歧', missing: '分支缺失',
+      parent_archived: '父分支已归档', unknown: '关系未知' }[relation?.status] || '关系未知';
+    const counts = Number.isFinite(relation?.ahead) && Number.isFinite(relation?.behind)
+      ? ` · 领先 ${relation.ahead} / 落后 ${relation.behind} 个提交` : '';
+    git.append(el('div', `Git 关系：${label}${counts}`, ['diverged', 'missing'].includes(relation?.status) ? 'warn' : 'meta'));
+    if (relation?.status === 'diverged' && node.integration === 'merged')
+      git.append(el('p', '改动已合入；Squash 等集成方式不会改写原分支的 Git 提交关系。', 'hint'));
     if (branch.diagnostics) git.append(branchDiagnostics({ name: node.branch, diagnostics: branch.diagnostics }));
     else git.append(el('p', '分支诊断不可用，不能推断工作区干净或已合并。', 'hint'));
     row.append(git);
-    // 归档与分支图同源（`branch.archive`）：删这条分支与后代分支的 worktree/ref，Task 记录保留。
+    // 归档与详情同源（`branch.archive`）：删这条分支与后代分支的 worktree/ref，Task 记录保留。
     if (branch.archivable) row.append(button('归档', () => runBranchArchive(
       { name: node.branch, subtreeBranches: branch.subtree_branches }, { refresh: loadTaskGraph }), 'ghost',
       { help: BRANCH_ARCHIVE_HELP }));
@@ -205,7 +215,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
 
   if (node.notice) {
     if (['question', 'plan'].includes(node.notice.kind)) {
-      // Same decision controls as the branch graph, but refresh this Task view after a response.
+      // Inline decisions refresh this Task view after a response.
       const decision = decisionRow(node, loadTaskGraph);
       if (node.notice.body?.length >= 1000) decision.append(el('p', '正文仅显示前 1000 字；完整内容请打开 Task 详情。', 'hint'));
       row.append(decision);
@@ -254,7 +264,7 @@ export function renderTaskGraph(graph) {
   const mergeQueue = mergeQueueNotes(raw);
   const full = { ...graph, nodes: all };
   // 归档 Task 默认不画：它们是收尾后的记录，收进「显示已归档」开关后面，避免压住仍在进行的工作。
-  // 过滤在 taskForest 之前完成，所以归档父节点下的未归档子 Task 会像分支图那样顶成根，不会一起消失。
+  // 过滤在 taskForest 之前完成，所以归档父节点下的未归档子 Task 会顶成根，不会一起消失。
   const archivedCount = all.filter(isArchivedTask).length;
   const listed = ui.taskGraphShowArchived ? all : all.filter(node => !isArchivedTask(node));
   // 状态计数用筛选前的口径：关掉一个状态后它的开关还得留在表头上，否则再也点不回来。

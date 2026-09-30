@@ -55,7 +55,7 @@ Git 不保存「B 是从 A 创建的」这种关系：`merge-base`、reflog、co
 
 - **没有记录、但有 ref** 的本地分支也画出来，标 `[?]`（untracked）——旧项目第一次跑不会是一片空白。
 - **有记录、但 ref 已不在** 的节点标 `[deleted]`，子分支照旧挂在它下面；`branches.status` 区分它是被回收（`deleted`）还是被归档（`archived`），`branch show` 都会报出来。
-- **归档的节点不画在树上**（Web 分支图与 `branch tree` 都不画）：记录还在，用 `branch show` / `branch.archive` 事件 / 任务详情查；隐藏它们时还在的后代接到最近的可见祖先上，绝不因为隐藏归档节点而把活着的后代一起藏掉（`pruneHidden`）。
+- **归档的节点不画在树上**（`branch tree` 不画；Task 图默认隐藏归档 Task，可切换显示）：记录还在，用 `branch show` / `branch.archive` 事件 / 任务详情查；隐藏它们时还在的后代接到最近的可见祖先上，绝不因为隐藏归档节点而把活着的后代一起藏掉（`pruneHidden`）。
 - `*` 是当前检出分支；`parent: unknown` 表示**没有** parent 记录，不是「推断不出来所以随便填了一个」。
 
 ## CLI
@@ -67,7 +67,7 @@ lush branch bind BRANCH COMMIT      # 确认一条非 main 本地分支及固定
 lush branch archive BRANCH [--discard]  # 归档整棵子树：删每条的 worktree 与本地 ref，保留任务、事件与会话；--discard 才会丢弃未提交改动
 ```
 
-`branch show` 接受分支短名，也接受纯数字 task id。RPC 另有用户专属 `branch.bind`（绑定已有本地分支）与 `branch.archive`（归档，允许未合并）；交互入口是 Web 分支图、Task 图与 Task 详情（三处共用同一动作）。代码落地不经过旧分支命令，而由运行中的直接父 Agent `task.integrate` 或用户 `task.approve_merge` 按固定提交推进。
+`branch show` 接受分支短名，也接受纯数字 task id。RPC 另有用户专属 `branch.bind`（绑定已有本地分支）与 `branch.archive`（归档，允许未合并）；归档的 Web 入口是 Task 图与 Task 详情（共用同一动作）；未绑定本地分支的绑定只保留 CLI / RPC。代码落地不经过旧分支命令，而由运行中的直接父 Agent `task.integrate` 或用户 `task.approve_merge` 按固定提交推进。
 
 ### 已有分支怎么办
 
@@ -86,7 +86,7 @@ main
 
 `dropBranch` 会把 `status` 标成 `deleted`；外部（用户自己 `git branch -D`）删掉的分支，读模型按 ref 现状显示 `[deleted]`，不会去改库。
 
-归档同理：`archived` 是 `status` 的第三个取值，不删行、不动子分支的 `parent` 指针；归档过的节点照旧画出来（Web 分支图显示「已归档」，并在元数据里给出归档时间；已归档的分支不再报「分支不存在」），子分支仍挂在它下面，报「父分支已归档」而不是「分支缺失」——归档删掉 ref 是用户自己按的动作，读模型与界面都不把它当成异常。所以「ref 已不在」与「行已被删」是两回事，读模型永远按 `branches` 行与 git 现状合并出节点。
+归档同理：`archived` 是 `status` 的第三个取值，不删行、不动子分支的 `parent` 指针；归档记录仍可查询，Task 图在「显示已归档」下标为「分支已归档」，不报「分支不存在」；未归档子 Task 的 Git 关系诊断报「父分支已归档」而不是「分支缺失」——归档删掉 ref 是用户自己按的动作，读模型与界面都不把它当成异常。所以「ref 已不在」与「行已被删」是两回事，读模型永远按 `branches` 行与 git 现状合并出节点。
 
 ## 并发与一致性
 

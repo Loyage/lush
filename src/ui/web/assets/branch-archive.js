@@ -1,5 +1,5 @@
 /**
- * 「归档分支」这条用户动作的唯一实现：分支图 / Task 图 / Task 详情三个入口共用。
+ * 「归档分支」这条用户动作的唯一实现：Task 图 / Task 详情两个入口共用。
  * 归档一条＝归档它整棵子树（删每条的 worktree 与本地 ref），但 Task、消息、事件、pi 会话记录都保留，
  * 所以它是「放弃这条分支代码」的记录状态，不是删除 Task。归档后分支与它名下的 Task 不再占 Task 图主视图，
  * 可用表头「显示已归档」开关临时查看。
@@ -12,12 +12,12 @@ import { action } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { show } from './messages.js';
 
-/** 「归档」的统一含义说明：三个入口共用同一句代价，改文案只改这一份。 */
+/** 「归档」的统一含义说明：两个入口共用同一句代价，改文案只改这一份。 */
 export const BRANCH_ARCHIVE_HELP = '归档这条分支及它下面的全部后代分支：删除 worktree 与本地 ref，'
   + '未提交改动会随 worktree 一起丢失；Task、消息、事件与会话记录都保留。归档是放弃这条分支代码的记录状态，'
   + '不等于删除 Task——之后可在 Task 图表头「显示已归档」里看到它。';
 
-/** 归档一子树分支；`refresh` 由调用方决定重拉哪个视图（分支图 / Task 图 / Task 详情），默认什么也不做。 */
+/** 归档一子树分支；`refresh` 由调用方决定重拉哪个视图（Task 图 / Task 详情），默认什么也不做。 */
 export async function runBranchArchive(branch, { refresh } = {}) {
   const descendants = Number(branch.subtreeBranches) || 0;
   const scope = descendants

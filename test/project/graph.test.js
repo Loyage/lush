@@ -514,5 +514,165 @@ test('branch archivability read model: active subtree blocks, settled branch is 
     expect(node.branch_info.archivable).toBe(false);
     expect((await f.project.branchArchivability([branch])).get(branch)).toMatchObject({ archivable: false, archived: true });
     expect(f.store.branch(branch).status).toBe('archived');
+    expect(node.branch_info.relation).toBeNull();
+  } finally { await f.close(); }
+});
+
+test('Task Git relation distinguishes equal, ahead, diverged and behind using live tips', async () => {
+  const f = await setup();
+  try {
+    const info = async () => (await f.project.taskGraph()).nodes.find(node => node.id === f.task.id).branch_info;
+    const initial = await info();
+    expect(initial).toMatchObject({ parent: 'main', current: false, relation: { status: 'equal', ahead: 0, behind: 0 } });
+    const main = (await f.project.taskGraph()).nodes.find(node => node.task_kind === 'main');
+    expect(main.branch_info).toMatchObject({ current: true, parent: null, relation: { status: 'unknown', ahead: null, behind: null } });
+    await git(f.root, 'tag', 'main'); // 当前检出也按完整 ref 读取，避免同名 tag 混淆。
+    expect((await f.project.taskGraph()).nodes.find(node => node.task_kind === 'main').branch_info.current).toBe(true);
+    await change(f, f.task, 'child\n');
+    expect((await info()).relation).toEqual({ status: 'ahead', ahead: 1, behind: 0 });
+    await git(f.root, 'commit', '--allow-empty', '-m', 'parent advanced');
+    expect((await info()).relation).toEqual({ status: 'diverged', ahead: 1, behind: 1 });
+    await git(f.root, 'merge', '--no-edit', f.task.branch);
+    // Task 的交付 head_commit 不随外部 Git 前进；诊断仍只用实时 ref。
+    await git(f.root, 'commit', '--allow-empty', '-m', 'parent advanced again');
+    expect((await info()).relation).toEqual({ status: 'behind', ahead: 0, behind: 3 });
+    await git(f.root, 'checkout', '--detach');
+    expect((await f.project.taskGraph()).nodes.every(node => !node.branch_info?.current)).toBe(true);
+  } finally { await f.close(); }
+});
+
+test('Task Git diagnostics use registered parents, not Task edges or targets, and share fixed-commit reads', async () => {
+  const f = await setup();
+  try {
+    await change(f, f.task, 'child\n');
+    const alias = f.store.create({ parent_id: f.task.id, role: 'worker', goal: 'historical alias' });
+    await git(f.root, 'branch', 'alias', f.task.branch);
+    await git(f.root, 'tag', 'alias', 'main'); // 同名 tag 不应改变本地 ref 名的解析。
+    f.store.recordBranch({ branch: 'alias', parent: 'main' });
+    f.store.update(alias.id, { branch: 'alias', target_branch: f.task.branch, status: 'completed' });
+    const duplicate = f.store.create({ parent_id: f.task.id, role: 'worker', goal: 'same branch' });
+    f.store.update(duplicate.id, { branch: f.task.branch, status: 'completed' });
+    f.project.graph = () => { throw new Error('must not fetch branch graph'); };
+    f.project.workspaces.squashedLanded = () => { throw new Error('must not reinterpret Git ancestry'); };
+    const calls = [];
+    const original = f.project.workspaces.git.bind(f.project.workspaces);
+    f.project.workspaces.git = (cwd, ...args) => { calls.push(args); return original(cwd, ...args); };
+    const before = { tasks: f.store.tasks(), branches: f.store.branches(), events: f.store.all('SELECT * FROM events'),
+      revision: f.project.overviewRevision(), refs: await git(f.root, 'show-ref'), status: await git(f.root, 'status', '--porcelain') };
+    const graph = await f.project.taskGraph();
+    const nodes = new Map(graph.nodes.map(node => [node.id, node]));
+    expect(nodes.get(alias.id).branch_info).toMatchObject({ parent: 'main', current: false,
+      relation: { status: 'ahead', ahead: 1, behind: 0 } });
+    expect(nodes.get(duplicate.id).branch_info.relation).toEqual(nodes.get(f.task.id).branch_info.relation);
+    expect(graph.edges).toContainEqual({ from: f.task.id, to: alias.id });
+    const comparisons = calls.filter(args => args[0] === 'rev-list');
+    expect(comparisons).toHaveLength(1);
+    expect(comparisons[0]).toEqual(['rev-list', '--left-right', '--count',
+      `${await git(f.root, 'rev-parse', 'main')}...${await git(f.root, 'rev-parse', `refs/heads/${f.task.branch}`)}`, '--']);
+    expect(calls.filter(args => args[0] === 'for-each-ref')).toHaveLength(1);
+    // 当前检出用完整 ref；已有工作区诊断另有检出身份校验，不约束其调用数。
+    expect(calls).toContainEqual(['symbolic-ref', '--quiet', 'HEAD']);
+    expect({ tasks: f.store.tasks(), branches: f.store.branches(), events: f.store.all('SELECT * FROM events'),
+      revision: f.project.overviewRevision(), refs: await git(f.root, 'show-ref'), status: await git(f.root, 'status', '--porcelain') }).toEqual(before);
+  } finally { await f.close(); }
+});
+
+test('Task Git diagnostics distinguish missing refs, archived parents and absent recorded relations', async () => {
+  const f = await setup();
+  try {
+    const cases = [
+      { branch: 'missing-child', parent: 'main', status: 'missing', ref: false },
+      { branch: 'missing-parent', parent: 'gone', status: 'missing' },
+      { branch: 'archived-parent', parent: 'old', status: 'parent_archived' },
+      { branch: 'root', parent: null, status: 'unknown' },
+      { branch: 'inferred', parent: 'main', relation: 'inferred', status: 'unknown' },
+      { branch: 'uncertain', parent: 'main', relation: 'unknown', status: 'unknown' },
+      { branch: 'unregistered', status: 'unknown', register: false },
+    ];
+    f.store.recordBranch({ branch: 'old' }); f.store.markBranchArchived('old');
+    for (const item of cases) {
+      if (item.ref !== false) await git(f.root, 'branch', item.branch, 'main');
+      if (item.register !== false) f.store.recordBranch({ branch: item.branch, parent: item.parent, relation: item.relation });
+      const task = f.store.create({ parent_id: f.task.id, role: 'worker', goal: item.branch });
+      f.store.update(task.id, { branch: item.branch, target_branch: 'main', status: 'completed' });
+      item.id = task.id;
+    }
+    const branchless = f.store.create({ parent_id: f.task.id, role: 'worker', goal: 'no branch' });
+    f.store.update(branchless.id, { status: 'completed' });
+    const graph = await f.project.taskGraph();
+    for (const item of cases) {
+      const node = graph.nodes.find(node => node.id === item.id);
+      expect(node.branch_info.parent).toBe(item.parent ?? null);
+      expect(node.branch_info.relation).toEqual({ status: item.status, ahead: null, behind: null });
+      expect(node.branch_info.archived).toBe(false);
+    }
+    expect(graph.nodes.find(node => node.id === branchless.id).branch_info).toBeNull();
+    // 父分支记录已归档的事实不被重建的同名 ref 淹没。
+    await git(f.root, 'branch', 'old', 'main');
+    expect((await f.project.taskGraph()).nodes.find(node => node.branch === 'archived-parent').branch_info.relation.status).toBe('parent_archived');
+    // 自身已归档：保留历史登记 parent，用 archived 表达，而不是 missing。
+    await change(f, f.task, 'child\n');
+    await f.project.archiveBranch(f.task.branch);
+    const archived = (await f.project.taskGraph()).nodes.find(node => node.id === f.task.id);
+    expect(archived.branch_info).toMatchObject({ parent: 'main', archived: true, current_head: null, relation: null });
+  } finally { await f.close(); }
+});
+
+test('Task Git diagnostics report unknown on failed refs, failed comparisons or invalid counts', async () => {
+  const f = await setup();
+  try {
+    await git(f.root, 'branch', 'same-tip', 'main');
+    f.store.recordBranch({ branch: 'same-tip', parent: 'main' });
+    const alias = f.store.create({ role: 'worker', goal: 'same unreadable pair' });
+    f.store.update(alias.id, { branch: 'same-tip', status: 'completed' });
+    const original = f.project.workspaces.git.bind(f.project.workspaces);
+    for (const broken of ['refs', 'counts', 'malformed', 'negative', 'overflow']) {
+      const calls = [];
+      f.project.workspaces.git = async (cwd, ...args) => {
+        calls.push(args);
+        if (broken === 'refs' && args[0] === 'for-each-ref') throw new Error('refs unreadable');
+        if (args[0] === 'rev-list') {
+          if (broken === 'counts') throw new Error('commit unreadable');
+          if (broken === 'malformed') return 'not counts';
+          if (broken === 'negative') return '-1 0';
+          if (broken === 'overflow') return '0 9007199254740992';
+        }
+        return original(cwd, ...args);
+      };
+      const graph = await f.project.taskGraph();
+      for (const id of [f.task.id, alias.id]) expect(graph.nodes.find(node => node.id === id).branch_info.relation)
+        .toEqual({ status: 'unknown', ahead: null, behind: null });
+      expect(calls.filter(args => args[0] === 'rev-list')).toHaveLength(broken === 'refs' ? 0 : 1);
+    }
+  } finally { await f.close(); }
+});
+
+test('Task Git diagnostics tolerate non-Git projects without pretending missing or equal', async () => {
+  const f = fixture(); f.project.stopping = true;
+  try {
+    const task = f.store.create({ role: 'worker', goal: 'historical work' });
+    f.store.update(task.id, { branch: 'child', status: 'completed' });
+    f.store.recordBranch({ branch: 'child', parent: 'main' });
+    expect((await f.project.taskGraph()).nodes.find(node => node.id === task.id).branch_info)
+      .toMatchObject({ parent: 'main', current: false, current_head: null, relation: { status: 'unknown', ahead: null, behind: null } });
+  } finally { await f.close(); }
+});
+
+test('Task Git relation keeps Squash ancestry separate from successful integration', async () => {
+  const f = await setup();
+  try {
+    await change(f, f.task, 'child\n');
+    await git(f.task.workspace, 'commit', '--allow-empty', '-m', 'another child commit');
+    const source = await git(f.root, 'rev-parse', f.task.branch);
+    await git(f.root, 'merge', '--squash', f.task.branch);
+    await git(f.root, 'commit', '-m', 'squashed delivery');
+    const landed = await git(f.root, 'rev-parse', 'HEAD');
+    f.store.update(f.task.id, { integration: 'merged', head_commit: source, reservation: JSON.stringify({ version: 2,
+      kind: 'merge', status: 'integrated', commit: source, landed_commit: landed }) });
+    expect(await f.project.workspaces.squashedLanded(f.task.branch, landed)).toBe(true);
+    const node = (await f.project.taskGraph()).nodes.find(node => node.id === f.task.id);
+    expect(node.integration).toBe('merged');
+    expect(node.branch_info.relation).toEqual({ status: 'diverged', ahead: 2, behind: 1 });
+    expect(node.parent_id).toBe(f.task.parent_id);
   } finally { await f.close(); }
 });

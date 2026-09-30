@@ -6,7 +6,13 @@ const world = makeWorld();
 const dom = installDom({ fetch: world.fetchImpl });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
-const { renderGraph } = await import('../../src/ui/web/assets/render-graph.js');
+const { renderTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
+const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
+const { ui } = await import('../../src/ui/web/assets/state.js');
+function renderGraph(graph) {
+  activateDetailView({ view: 'task-graph' });
+  renderTaskGraph(graph);
+}
 dom.node('side-nav').replaceChildren();
 await boot();
 afterAll(() => dom.restore());
@@ -16,21 +22,16 @@ const say = { id: 70, role: 'agent', task_kind: 'say', parent_id: 1, parent_task
   goal: 'ship a view', status: 'waiting', integration: 'pending', calls: 0, branch, target_branch: 'main',
   deps: [], dependents: [], children: [], messages: [], notices: [], reservation: null };
 const buttonOf = (root, label) => root.querySelectorAll('button').find(node => node.textContent === label);
-const graphFor = (reservation, { done = false, status = null } = {}) => ({ git: true, current_branch: 'main', nodes: [
-  { kind: 'branch', id: 'branch:main', name: 'main', head_commit: baseline, current: true, tracked: true },
-  { kind: 'branch', id: `branch:${branch}`, name: branch, head_commit: commit, tracked: true,
-    showcase: { reserved: false, reserve_allowed: true } },
+const graphFor = (reservation, { done = false, status = null } = {}) => ({ total: 1, nodes: [
   { kind: 'task', id: say.id, role: 'agent', task_kind: 'say', parent_id: 1, parent_task_kind: 'main',
-    goal: say.goal, branch, target_branch: 'main',
+    title: say.goal, goal: say.goal, branch, target_branch: 'main',
     status: status ?? (reservation?.status === 'requested' ? 'completed' : 'waiting'),
     integration: 'pending', reservation, base_commit: baseline, head_commit: commit,
     has_result: done, workspace: '/tmp/lush-new-say' },
-], edges: [{ kind: 'fork', from: 'branch:main', to: `branch:${branch}`,
-  status: 'fast_forward', ahead: 1, behind: 0, blockers: [], can_merge: true }] });
+], edges: [] });
 
 function sourceRow() {
-  return dom.node('detail').querySelectorAll('div.graph-branch')
-    .find(row => row.querySelector('.graph-branch-name')?.textContent.includes(branch));
+  return dom.node('detail').querySelector(`[data-task-id="${say.id}"]`);
 }
 
 test('Task detail offers an Agent merge request and showcase booking', async () => {
@@ -91,15 +92,17 @@ test('integrated merge says 待归档 only while a branch is still left to archi
   panel = dom.node('detail');
   expect(deepText(panel)).toContain('已合并 · 已归档');
   expect(deepText(panel)).not.toContain('待归档');
-  // Task 图 / 分支图那种节点形状给的是 branch_info（没有 branch_archive）：判据必须同时认这一份。
+  // Task 图节点给的是 branch_info（没有 branch_archive）：判据必须同时认这一份。
   const graph = graphFor(reservation, { done: true, status: 'completed' });
   graph.nodes.find(node => node.id === say.id).branch_info = { archived: true, archivable: false };
-  renderGraph(graph, { force: true });
+  ui.taskGraphShowArchived = true;
+  renderGraph(graph);
   expect(deepText(sourceRow())).toContain('已合并 · 已归档');
   expect(deepText(sourceRow())).not.toContain('待归档');
+  ui.taskGraphShowArchived = false;
 });
 
-test('branch graph uses the same fixed approval, never legacy branch.merge or branch showcase for new say', async () => {
+test('Task graph uses the same fixed approval, never legacy branch.merge or branch showcase for new say', async () => {
   const reservation = { version: 1, kind: 'merge', status: 'requested', commit, baseline, parent_id: 1 };
   renderGraph(graphFor(reservation), { force: true });
   const row = sourceRow();

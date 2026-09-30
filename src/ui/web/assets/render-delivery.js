@@ -9,7 +9,7 @@ const short = hash => String(hash || '').slice(0, 12);
 
 /** 「已合并 · 待归档」承诺的是一次还能按的归档：分支记录已归档、或 Task 已经没有分支（回收工作区与分支、
  *  旧版落地即归档都会把 tasks.branch 清成 null）时，已经没有东西可归档，标签必须跟着真实状态落地。
- *  三个入口的数据形状不同——Task 详情是 inspect 的 branch_archive，Task 图 / 分支图是 branch_info，所以两个都看。 */
+ *  两个入口的数据形状不同——Task 详情是 inspect 的 branch_archive，Task 图是 branch_info，所以两个都看。 */
 function archiveBadge(task) {
   const archived = task.branch_info?.archived === true || task.branch_archive?.archived === true;
   return Boolean(task.branch) && !archived

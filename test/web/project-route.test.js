@@ -7,7 +7,6 @@ afterAll(() => dom.restore());
 
 const { projectBase, projectApi, projectHref, projectRoute } = await import('../../src/ui/web/assets/route.js');
 const prefs = await import('../../src/ui/web/assets/prefs.js');
-const state = await import('../../src/ui/web/assets/state.js');
 const ID = 'a1b2c3d4e5f60718';
 
 test('项目身份来自地址：项目 API 加前缀，宿主级资源不加', () => {
@@ -48,8 +47,8 @@ test('项目相关偏好按项目隔离，全局外观偏好共享', () => {
   expect(globalThis.localStorage.getItem(`lush.sidebarSort:${ID}`)).toBe('updated');
   expect(globalThis.localStorage.getItem('lush.sidebarSort')).toBe('id');
 
-  // 分支图折叠同样按项目隔离。
-  expect(state.readGraphCollapsedPref().size).toBe(0);
+  // Task 图的状态筛选同样按项目隔离。
+  prefs.setPref('taskGraphStatuses', new Set(['completed']));
   globalThis.location.pathname = '/';
-  expect(globalThis.localStorage.getItem('lush.graphCollapsed')).toBeNull();
+  expect(prefs.readPref('taskGraphStatuses').size).toBe(0);
 });

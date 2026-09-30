@@ -77,6 +77,8 @@ export default {
    * 两个只读字段：`subtree_say`（分支谱系里还有多少条 say 子分支，决定是否值得给编排入口）与
    * `merge_run`（该分支仍在跑的合并运行摘要 `{mode,status,done,total,task_id}`，没有则 null）。
    * 两者只读 `branches` / `branches.merge_run`，不触发任何执行。
+   * `current` 表示 canonical 项目目录当前检出；`relation` 比较登记父分支与本分支的固定 tip，
+   * 与 Task 父子边 / integration 无关（Squash 落地也不改写真实 Git 分歧）。自身归档时为 null。
    */
   async taskGraph() {
     const limit = GRAPH_NODE_LIMIT;
@@ -110,7 +112,9 @@ export default {
     }
     const freezes = new Map(this.branchFreeze().map(item => [item.branch, item]));
     // Task 卡片的合并编排入口只读投影：目标就是这条 Task 自己的分支。只读 store / branches，不碰 git、不写库。
-    const activeBranches = this.store.branches().filter(row => row.status === 'active');
+    const branchRows = this.store.branches();
+    const records = new Map(branchRows.map(row => [row.branch, row]));
+    const activeBranches = branchRows.filter(row => row.status === 'active');
     const activeRuns = new Map(this.store.activeBranchMergeRuns().map(({ target, run }) => [target, run]));
     const sayBranches = new Set(this.store.all("SELECT branch FROM tasks WHERE task_kind='say' AND branch IS NOT NULL")
       .map(row => row.branch));
@@ -136,22 +140,70 @@ export default {
       return total;
     };
     const branchNames = [...new Set(selected.map(row => row.branch).filter(Boolean))];
-    const records = new Map(branchNames.length ? this.store.all(`SELECT branch, parent, status, created_from_commit
-      FROM branches WHERE branch IN (${branchNames.map(() => '?').join(',')})`, ...branchNames)
-      .map(row => [row.branch, row]) : []);
     const refs = new Map();
+    let refsKnown = false, currentBranch = null;
     try {
-      const output = await this.workspaces.git(this.config.project, 'for-each-ref', '--format=%(refname:short) %(objectname)', 'refs/heads');
+      // 用完整 ref 名避免同名 tag 令 refname:short 变成 heads/<name>；只批量读一次。
+      const output = await this.workspaces.git(this.config.project, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads');
       for (const line of output.split('\n')) {
-        const at = line.indexOf(' '); if (at > 0) refs.set(line.slice(0, at), line.slice(at + 1).trim());
+        const at = line.indexOf(' ');
+        if (line.startsWith('refs/heads/') && at > 0) refs.set(line.slice(11, at), line.slice(at + 1).trim());
       }
-    } catch { /* no Git: mark head and diagnostics unknown, not clean */ }
+      refsKnown = true;
+    } catch { /* 读取失败不是 ref 缺失：关系保持 unknown。 */ }
+    try {
+      const headRef = await this.workspaces.git(this.config.project, 'symbolic-ref', '--quiet', 'HEAD');
+      if (headRef.startsWith('refs/heads/')) currentBranch = headRef.slice(11);
+    } catch { /* detached HEAD / 无 Git / 读取失败：没有可确认的当前分支。 */ }
+    // 同一分支只算一次；不同分支使用同一固定提交对时也共享 rev-list 结果，包括失败。
+    const relations = new Map(), commitRelations = new Map();
+    for (const name of branchNames) {
+      const record = records.get(name);
+      if (record?.status === 'archived') { relations.set(name, null); continue; }
+      let relation = { status: 'unknown', ahead: null, behind: null };
+      if (record?.parent && record.parent_relation === 'recorded') {
+        if (records.get(record.parent)?.status === 'archived') relation.status = 'parent_archived';
+        else if (refsKnown) {
+          const childHead = refs.get(name), parentHead = refs.get(record.parent);
+          if (!childHead || !parentHead) relation.status = 'missing';
+          else {
+            const key = `${parentHead}...${childHead}`;
+            if (!commitRelations.has(key)) {
+              let result = { status: 'unknown', ahead: null, behind: null };
+              try {
+                const output = await this.workspaces.git(this.config.project, 'rev-list', '--left-right', '--count', key, '--');
+                const counts = output.trim().split(/\s+/);
+                if (counts.length === 2 && counts.every(value => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)))) {
+                  const [behind, ahead] = counts.map(Number);
+                  result = { status: ahead === 0 && behind === 0 ? 'equal'
+                    : behind === 0 ? 'ahead' : ahead === 0 ? 'behind' : 'diverged', ahead, behind };
+                }
+              } catch { /* 固定提交也可能已不可读，绝不冒充一致或缺失。 */ }
+              commitRelations.set(key, result);
+            }
+            relation = commitRelations.get(key);
+          }
+        }
+      }
+      relations.set(name, relation);
+    }
     const candidates = branchNames.filter(name => records.get(name)?.status !== 'archived');
     const diagnostics = candidates.length ? await this.workspaces.branchDiagnostics(candidates
       .map(name => ({ name, head_commit: refs.get(name) ?? null,
         created_from_commit: records.get(name)?.created_from_commit ?? null }))) : new Map();
     // 归档按钮的可用性预判（与分支图同口径）：Task 图只读消费，判断在 branches.branchArchivability。
-    const archivability = await this.branchArchivability(branchNames);
+    // 归档预判复用同一批 refs / 当前检出，不再为每轮 Task 图重复取 Git 状态。
+    const worktrees = new Map();
+    try {
+      const output = await this.workspaces.git(this.config.project, 'worktree', 'list', '--porcelain');
+      for (const block of output.split(/\n\n+/)) {
+        const workspace = /^worktree (.*)$/m.exec(block)?.[1];
+        const branch = /^branch refs\/heads\/(.*)$/m.exec(block)?.[1];
+        if (workspace && branch) worktrees.set(branch, workspace);
+      }
+    } catch { /* 工作区不可读不影响已确认的 refs / 提交关系。 */ }
+    const archivability = await this.branchArchivability(branchNames,
+      { git: refsKnown, refs, current_branch: currentBranch, worktrees });
     const nodes = selected.map(({ goal, progress_plan, reservation, ...row }) => {
       const view = this.progressView({ progress_plan, reservation }, runs.get(row.id) ?? []);
       const delivery = view.reservation;
@@ -184,6 +236,7 @@ export default {
         reservation: delivery, delivery: delivery ? { kind: delivery.kind, status: delivery.status,
           blocked_reason: delivery.blocked_reason ?? null } : null,
         branch_info: row.branch ? { parent: branch?.parent ?? null, archived: branch?.status === 'archived',
+          current: row.branch === currentBranch, relation: relations.get(row.branch),
           archivable: archivability.get(row.branch)?.archivable === true,
           subtree_branches: archivability.get(row.branch)?.subtree_branches ?? 0,
           current_head: refs.get(row.branch) ?? null, diagnostics: diagnostics.get(row.branch) ?? null,

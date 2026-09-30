@@ -2,7 +2,7 @@ import { test, expect, afterAll } from 'bun:test';
 import { installDom, deepText, findByText } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
-import { addComposerReference, locatable } from '../../src/ui/web/assets/context-references.js';
+import { addComposerReference, locatable, locateReference } from '../../src/ui/web/assets/context-references.js';
 import { closeExplanationPanel } from '../../src/ui/web/assets/explanations.js';
 
 const world = makeWorld();
@@ -65,6 +65,18 @@ test('检验引用用 location.task_id 导航到任务并定位到卡片', async
   await chip.children[0].onclick();
   expect(dom.node('detail').dataset.taskId).toBe('1');
   expect(dom.node('detail').querySelector('.verify').classList.contains('locate-flash')).toBe(true);
+});
+
+test('旧分支引用保留快照，但不再导航到旧视图并明确说明入口已移除', async () => {
+  const beforeHash = dom.location.hash;
+  const beforePanel = dom.node('detail').dataset.view;
+  const reference = { version: 1, kind: 'delivery_branch', target: { target_branch: 'feature', section: 'graph' },
+    label: '分支 feature', quote: '当时的快照', location: { view: 'branch-graph' } };
+  expect(await locateReference(reference)).toBe(false);
+  expect(dom.node('error').textContent).toContain('Web 定位入口已移除');
+  expect(reference.quote).toBe('当时的快照');
+  expect(dom.location.hash).toBe(beforeHash);
+  expect(dom.node('detail').dataset.view).toBe(beforePanel);
 });
 
 test('引用目标找不到时给出顶部提示而不是静默失败', async () => {

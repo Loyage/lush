@@ -1,6 +1,6 @@
 import { $, button, el } from './dom.js';
 import { show } from './messages.js';
-import { detail, graph, resource } from './navigate.js';
+import { detail, resource } from './navigate.js';
 import { transcriptOpen, ui } from './state.js';
 import { startExplanation, startIntro } from './explanations.js';
 import { agentHelp, modelHelp } from './help.js';
@@ -28,7 +28,7 @@ const inPage = node => {
   const main = typeof document?.querySelector === 'function' ? document.querySelector('main') : null;
   return !main || inside(node, main);
 };
-const pageLocation = extra => ({ view: ui.graphOpen ? 'branch-graph' : ui.docsOpen ? 'docs' : ui.settingsOpen ? 'settings'
+const pageLocation = extra => ({ view: ui.view?.id === 'task-graph' ? 'task-graph' : ui.docsOpen ? 'docs' : ui.settingsOpen ? 'settings'
   : ui.statisticsOpen ? 'statistics'
   : ui.indexOpen ? `${ui.indexOpen}-index` : ui.selected === null ? 'overview' : 'task-detail',
   ...(ui.selected === null ? {} : { task_id: ui.selected }), ...extra });
@@ -183,7 +183,6 @@ function flashLocated(node) {
 }
 async function navigateForReference(reference) {
   const kind = reference?.kind, target = reference?.target || {};
-  if (kind === 'delivery_branch') { await graph(); return $('detail'); }
   if (kind === 'intent' || kind === 'spec' || kind === 'notice') {
     resource(kind === 'intent' ? 'intents' : kind === 'spec' ? 'specs' : 'notices');
     return $(LOCATE_ROOTS[kind]);
@@ -212,6 +211,10 @@ async function waitForRef(root, token, attempts = 15) {
 export async function locateReference(reference) {
   const token = locateToken(reference?.kind, reference?.target);
   if (!token) return false;
+  if (reference.kind === 'delivery_branch') {
+    show('分支引用的 Web 定位入口已移除；原始引用快照仍保留，可用 CLI 查看分支。', 'error');
+    return false;
+  }
   let root = null;
   try { root = await navigateForReference(reference); }
   catch (error) { show(`定位失败：${error.message}`, 'error'); return false; }

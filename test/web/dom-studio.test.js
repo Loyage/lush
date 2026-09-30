@@ -3,7 +3,6 @@ import { installDom, deepText } from '../dom-stub.js';
 import { makeWorld, iso, NOW } from './dom-world.js';
 import { ui } from '../../src/ui/web/assets/state.js';
 import { renderOverview } from '../../src/ui/web/assets/render-overview.js';
-import { fetchGraph } from '../../src/ui/web/assets/render-graph.js';
 import { renderDetail } from '../../src/ui/web/assets/render-detail.js';
 
 const world = makeWorld();
@@ -45,7 +44,7 @@ test('概览：Task 指标、最近任务、待决与运行时折叠跨重画保
   expect(panel.querySelector('[data-fold="runtime"]').open).toBe(true);
 });
 
-test('概览：分支与合并入口打开分支图，运行中 Agent 列出', async () => {
+test('概览：不再有分支视图入口，运行中 Agent 列出', async () => {
   const data = { ...ui.lastSnapshot, tasks: [], notices: [],
     status: { ...ui.lastSnapshot.status, agents: [{ task_id: 7, pid: 1234 }], concurrency: 2 } };
   ui.selected = null; ui.graphOpen = false; ui.docsOpen = false; ui.overviewKey = null;
@@ -54,12 +53,8 @@ test('概览：分支与合并入口打开分支图，运行中 Agent 列出', a
   const text = deepText(panel);
   expect(text).toContain('还没有 Task');
   expect(text).toContain('查看任务 #7');
-  const entry = [...panel.querySelectorAll('button')].find(node => node.textContent === '打开分支图');
-  expect(entry).toBeTruthy();
-  await entry.onclick();
-  expect(dom.location.hash).toBe('#graph');
-  expect(ui.graphOpen).toBe(true);
-  ui.graphOpen = false; dom.location.hash = '';
+  expect(text).not.toContain('分支与合并');
+  expect([...panel.querySelectorAll('button')].some(node => node.textContent === '打开分支图')).toBe(false);
 });
 
 test('概览：没有 Task 与待决时给空态并展示运行时信息', () => {

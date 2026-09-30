@@ -127,7 +127,7 @@ function prefKey(def) {
   return scopedKey(def.key);
 }
 
-/** 把一个 localStorage 键挂到当前项目下；单项目模式 / 全局根保持原键。供 prefs 以外的模块（分支图折叠等）复用。 */
+/** 把一个 localStorage 键挂到当前项目下；单项目模式 / 全局根保持原键。供 prefs 以外的模块（Task 图折叠等）复用。 */
 export function scopedKey(base) {
   const id = projectRoute();
   return id ? `${base}:${id}` : base;

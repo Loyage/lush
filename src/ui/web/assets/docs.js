@@ -3,7 +3,7 @@
  *
  * 文档随这份代码发布（`docs/` 与根 `README.md`），由 `src/ui/web/docs.js` 提供索引与正文；
  * 这里只负责路由（`#docs` / `#doc-<id>`）、取数与相对链接解析，渲染在 render-docs.js。
- * 与「分支图」（render-graph.js 的 openGraph）同构：同一个右栏、同一个排他标志、同一套 hash 路由。
+ * 与 Task 图共用右侧画布，由统一页面身份保护异步响应，使用同一套 hash 路由。
  *
  * 相对链接为什么要在浏览器里解析：文档之间互相引用（`entities.md`、`../README.md`），
  * markdown.js 默认只放行 http/https，所以这里给它一个解析器，把站内路径换成 `#doc-<id>`

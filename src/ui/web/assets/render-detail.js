@@ -151,7 +151,7 @@ export function renderDetail(task, history, diff, usage) {
   }, 'ghost', { help: '删除这条任务的 worktree 与本地分支；只有分支已进入目标分支且顶端就是审阅过的提交时才真删，否则保留并在事件里说明原因。' }));
   if (reclaimable && task.workspace && task.branch) actions.append(button('只回收 worktree（保留分支）', async () => { await action('task.cleanup', { id: task.id, keep_branch: true }); await detail(task.id); }, 'ghost',
     { help: '只删除 worktree、保留本地分支；未提交的改动会随 worktree 一起丢失。' }));
-  // 归档与分支图同源（`branch.archive`）：删这条 Task 的分支与后代分支的 worktree/ref，Task 记录与历史保留。
+  // 归档与 Task 图同源（`branch.archive`）：删这条 Task 的分支与后代分支的 worktree/ref，Task 记录与历史保留。
   if (task.branch_archive?.archivable) actions.append(button('归档', () => runBranchArchive(
     { name: task.branch, subtreeBranches: task.branch_archive.subtree_branches }, { refresh: () => detail(task.id) }), 'ghost',
     { help: BRANCH_ARCHIVE_HELP }));
@@ -225,7 +225,7 @@ export function renderDetail(task, history, diff, usage) {
         : `由直接父 Agent #${task.parent_id} 再派一个以同一固定提交为基线的解分歧子任务（task resolve-child-divergence）。`;
     panel.append(el('p', archived
       ? `解分歧子任务已归档，Task、固定提交记录和会话仍保留。${retry}`
-      : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在分支图显式归档这条子分支（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,
+      : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在 Task 图或任务详情显式归档这条子分支（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,
     'hint delivery-reason'));
   }
   const delivery = deliveryControls(task, { refresh: () => detail(task.id) });

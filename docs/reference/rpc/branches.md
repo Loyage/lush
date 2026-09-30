@@ -49,11 +49,11 @@
 
 顶层的 `worktree` / `ref` / `tip` / `discarded` 描述的是**子树根**（调用方问的那一条），整棵子树逐条看 `branches`，`count` 是这次一共归档了几条分支。CLI 的 `lush branch archive BRANCH [--discard]` 非 JSON 输出由 `printBranchArchive` 打印，每条分支一行。
 
-被归档分支名下的任务节点也不再画进分支树（它们是记录：`branch show` / `branch.archive` 事件 / 任务详情）。
+被归档分支名下的 Task 记录仍可从 `branch show` / `branch.archive` 事件 / 任务详情查询；Task 图默认隐藏，可显式显示。
 
 ## graph.get 的 fork 边
 
-Web 分支图使用 `graph.get`。每个 branch 节点带 `origin` / `title` / `source_id` / `created_at`、汇总的 `status` 与 `tasks` 计数，另带 `worktree` / `worktree_state` 与 `deleted`；归档分支的 `status` 固定为 `archived`，带 `archived` / `archived_at`（复用 `branches.deleted_at`，不新增列），`tasks.branch` 指向它的任务节点带 `archived: true`。每个 `kind:'task'` 节点另带「待你决断」的 notice：`notice` 是 `status='open'` 的最新一条（按 id 最大，没有则 null），`notice_count` 是 open notice 的总数；answered / dismissed 都不算。分支图把这条 notice 画在任务行里并就地处理（走 `notice.answer` / `notice.dismiss`）。**归档节点仍在 `graph.get` 的返回里**（读模型不藏事实），但前端不再把它们画进分支树：`graphLayout` 跳过 `archived` 的 branch 节点与它们名下的任务，把它们还在的后代接到最近的可见祖先上，并给这种后代标上 `父分支已归档`（中性色，不是红色的「分支缺失」）。`missing` 只留给「谁都没归档、ref 真的不见了」那条 fork 边。每条 fork edge 附加：
+`graph.get` 作为只读 RPC 保留完整 Git 谱系；Web 已删除旧分支视图及 `/api/graph` HTTP 路由，Task 卡片改用 [`task.graph`](tasks.md) 的精简诊断。每个 branch 节点带 `origin` / `title` / `source_id` / `created_at`、汇总 `status` 与 `tasks` 计数，以及 `worktree` / `worktree_state` / `deleted`。**归档节点仍在 RPC 返回里**，其 `status='archived'`，带 `archived` / `archived_at`，对应 Task 带 `archived:true`。Task 节点还保留 `notice` / `notice_count` 的只读待决摘要。每条 fork edge 附加：
 
 ```json
 {
@@ -72,7 +72,7 @@ Web 分支图使用 `graph.get`。每个 branch 节点带 `origin` / `title` / `
 
 `can_merge` / `can_sync` / `can_catchup` 是只读诊断字段，描述这条边当前是否可快进 / 需子侧收敛 / 可跟上父分支；新 say / child 的代码落地不经过这些旧入口，而由运行中的直接父 Agent `task.integrate` 或用户 `task.approve_merge` 按固定提交推进。
 
-待决 notice 也进分支图的重拉判断：快照指纹（`graphFingerprint`）与渲染指纹（`graphRenderKey`）都把 open 的 notice 算进来，所以新 notice 出现、被答复 / 忽略后，分支图会自动重拉重画。
+Web 待决操作在 Task 图、Task 详情与「待我处理」进行，不再有分支图重拉或定位入口。
 
 ### branch 节点的 diagnostics
 

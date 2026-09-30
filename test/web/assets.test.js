@@ -56,16 +56,11 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     expect(css).toContain('color-scheme:light');
     expect(css).toContain('@media(prefers-reduced-motion:reduce)');
     expect(css).toContain('@media(max-width:760px)');
-    // 分支图的工作态标识（在跑 / 在等 / 子树）与停下来分支的降噪 class 都在样式表里。
-    expect(css).toContain('.graph-work.run{');
-    expect(css).toContain('.graph-work.pending{');
-    expect(css).toContain('.graph-work.subtree{');
-    expect(css).toContain('.graph-branch.graph-idle{');
-    // 在跑的分支行有专用动效 class：只有它带动画，且动画写在外环伪元素上（周期 2.4s，不位移不缩放）。
-    expect(css).toContain('.graph-branch.graph-running{position:relative}');
-    expect(css).toMatch(/\.graph-branch\.graph-running::after\{[^}]*animation:graph-running-breathe 2\.4s/);
-    expect(css).toContain('@keyframes graph-running-breathe{');
-    // task 计划在分支诊断里是一整条进度条；running 时有轨道扫光、填充流动与外框脉冲三层动效。
+    // 旧分支图专用样式已移除，Task 卡片保留各状态色和 running 动效。
+    expect(css).not.toContain('.graph-branch');
+    expect(css).not.toContain('.graph-view');
+    expect(css).toContain('.task-graph-card.task-graph-running{');
+    // Task 进度仍有轨道扫光、填充流动与外框脉冲。
     expect(css).toContain('.graph-task-progress{flex-basis:100%');
     expect(css).toContain('.graph-task-progress.is-running .graph-task-progress-track::after{');
     expect(css).toContain('@keyframes graph-progress-sweep{');
@@ -74,25 +69,14 @@ test('studio styles provide dual themes, readable headings and reduced-motion su
     // 完成步骤与当前步骤的耗时使用明显不同的字形，不能只靠文案猜状态。
     expect(css).toMatch(/\.is-complete-duration\{[^}]*font-family:Georgia/);
     expect(css).toMatch(/\.is-running-duration\{[^}]*font-family:ui-monospace/);
-    // 停下来的分支不得沾上动画；reduced-motion 的全局规则仍然把这些动画一并关掉。
-    expect(css).not.toMatch(/\.graph-branch\.graph-idle\{[^}]*animation/);
+    // reduced-motion 的全局规则关闭所有动画。
     expect(css).toMatch(/@media\(prefers-reduced-motion:reduce\)\{\*,?\*::before,\*::after\{animation:none!important/);
-    // 待决 notice 的决策区画在分支图的任务行里，样式必须与 render-graph.js 一起在。
-    expect(css).toContain('.graph-node.graph-emphasis-awaiting{');
+    // 待决 notice 的决策区画在 Task 卡片里，保留共享决策样式。
     expect(css).toContain('.graph-decision{flex-basis:100%');
     expect(css).toContain('.graph-decision-body{');
-    // 手机端分支树不再逐层压窄卡片：.graph-tree 横向滚动，并按最大嵌套深度给出随深度增长的最小宽度。
-    expect(css).toMatch(/\.graph-tree\{--graph-indent:[^}]*overflow-x:auto/);
-    expect(css).toMatch(/\.graph-tree\{--graph-indent:[^}]*overscroll-behavior-x:contain/);
-    expect(css).toContain('.graph-tree>.graph-group{min-width:calc(var(--graph-card-min) + (var(--graph-depth,0) * var(--graph-indent)))}');
-    // 缩进只有一个来源：--graph-indent；实际 padding-left 与连接线几何都由它推导，避免两处硬编码漂移。
-    expect(css).toContain('--graph-indent:16px');
-    expect(css).toContain('.graph-children{padding-left:var(--graph-indent)}');
-    expect(css).toContain('.graph-children>.graph-group::before,.graph-children>.graph-group::after{left:calc(-1 * (var(--graph-indent) + 2px))}');
-    expect(css).toContain('.graph-children>.graph-group::after{width:calc(var(--graph-indent) + 2px)');
-    // 手机端拍平嵌套卡片：子分支的 .graph-group 透明、无边框、无内边距、无圆角/阴影，只留最外层一张卡片，
-    // 层级改由缩进与连接线表达（关系底色仍保留在 .graph-branch 表头上）。
-    expect(css).toContain('.graph-children .graph-group{border:0;background:transparent;box-shadow:none;padding:0;border-radius:0}');
+    // Task 树在窄屏缩小缩进，画布仍可横向滚动。
+    expect(css).toContain('.task-graph{max-width:1200px;margin:auto;overflow-x:auto}');
+    expect(css).toContain('@media(max-width:640px){.task-graph-children{margin-left:6px;padding-left:10px}');
     // 执行过程每一步的 token chip：flex:none + 主题弱化色，标题截断时它和时间都不被挤掉。
     expect(css).toMatch(/\.step-tokens\{flex:none;color:var\(--dim\)/);
     const html = await (await fetch(f.url)).text();
@@ -193,7 +177,7 @@ test('无顶栏壳：身份区在左栏，内容区不再被头部压住；输�
     expect(css).toMatch(/\.role-worker\{color:var\(--role-worker\)\}/);
     expect(css).toMatch(/\.role-planner\{color:var\(--role-planner\)\}/);
     expect(css).toMatch(/\.route-badge\{[^}]*color:var\(--route\)/);
-    expect(css).toMatch(/\.task\.route-flagged,\.graph-node\.route-flagged\{background-image:/);
+    expect(css).toMatch(/\.task\.route-flagged\{background-image:/);
     // 浮层不再给顶栏留 80px 空档。
     expect(css).toMatch(/\.toast\{position:fixed;top:16px/);
     // 行为落点保留：父 Task 选择框与提交按钮仍在页面里。

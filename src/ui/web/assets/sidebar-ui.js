@@ -4,7 +4,6 @@ import { ui } from './state.js';
 const RESOURCE_META = new Map(SIDEBAR_SECTIONS.map(section => [section.id, section]));
 const PAGES = {
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
-  graph: ['分支与合并', '交付与用量', '分支谱系、改动诊断与人工合并'],
   'task-graph': ['Task 图', '工作', '任务父子关系 · Agent、分支与 worktree'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],
   settings: ['设置', '其他', 'Agent、界面偏好与系统状态'],
@@ -27,12 +26,11 @@ function activate(id, { key = id, title, context, hint, push = true, hash } = {}
   if (changed) ui.view = { id, key };
   const resource = RESOURCE_META.get(id);
   ui.indexOpen = resource ? id : null;
-  ui.graphOpen = id === 'graph'; ui.docsOpen = id === 'docs';
+  ui.docsOpen = id === 'docs';
   ui.settingsOpen = id === 'settings'; ui.statisticsOpen = id === 'statistics';
   if (id !== 'task') {
     ui.selected = null; ui.selectedRevision = null; ui.detailDirty = false; ui.detailTask = null;
   }
-  if (id !== 'graph') ui.graphRenderKey = null;
   const detail = node('detail');
   if (detail) {
     detail.hidden = Boolean(resource);

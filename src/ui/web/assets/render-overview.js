@@ -1,6 +1,6 @@
 import { $, block, button, el, kv } from './dom.js';
 import { HOT, absolute, statusOf } from './format.js';
-import { detail, graph } from './navigate.js';
+import { detail } from './navigate.js';
 import { openNotice } from './render-notices.js';
 import { ui } from './state.js';
 
@@ -55,11 +55,6 @@ export function renderOverview(data) {
     decisions.append(row);
   }
   panel.append(decisions);
-
-  const delivery = block('分支与合并');
-  delivery.append(el('p', '检查固定提交、工作区与分支关系；合并仍需直接父 Agent 或你明确批准。', 'hint'),
-    button('打开分支图', () => graph(), 'ghost'));
-  panel.append(delivery);
 
   const agents = block('运行中的 Agent', `${data.status.agents?.length ?? 0} / ${data.status.concurrency ?? 1}`);
   for (const agent of data.status.agents || []) {

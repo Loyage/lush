@@ -25,8 +25,8 @@ function assetFile(pathname) {
   if (!ASSET_NAME.test(name) || !ASSET_EXTENSIONS.has(path.extname(name))) return null;
   return path.join(ASSETS, name);
 }
-const MUTATIONS = new Set(['agent.configure','agent.environment.configure','system.configure','say.submit','task.spawn','task.message','task.reserve','task.reserve_all','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge','task.cancel','task.retry','task.interrupt','task.resume','task.configure','task.cleanup','notice.answer','notice.dismiss','branch.bind','branch.archive']);
-const CORE_READS = new Set(['/api/overview','/api/snapshot','/api/tasks','/api/notices','/api/graph','/api/task-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/environment','/api/docs','/api/docs/search-index']);
+const MUTATIONS = new Set(['agent.configure','agent.environment.configure','system.configure','say.submit','task.spawn','task.message','task.reserve','task.reserve_all','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge','task.cancel','task.retry','task.interrupt','task.resume','task.configure','task.cleanup','notice.answer','notice.dismiss','branch.archive']);
+const CORE_READS = new Set(['/api/overview','/api/snapshot','/api/tasks','/api/notices','/api/task-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/environment','/api/docs','/api/docs/search-index']);
 const CORE_TASK_READ = /^\/api\/task\/\d+(?:\/(?:history|history-page|diff|usage|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的任务读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/task\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
@@ -275,9 +275,8 @@ export function startWeb(config, port = 4318, options = {}) {
           if (url.pathname === '/api/agent/models') return json(await client.request('agent.models', { agent: url.searchParams.get('agent') || '' }));
           if (url.pathname === '/api/agent/resources') return json(await client.request('agent.resources'));
           if (url.pathname === '/api/agent/environment') return json(await client.request('agent.environment', { target: url.searchParams.get('target') || '' }));
-          // 分支图跑 git，不进 1.5s 的 /api/snapshot：只有打开视图时才单独取一次。
-          if (url.pathname === '/api/graph') return json(await client.request('graph.get'));
-           if (url.pathname === '/api/task-graph') return json(await client.request('task.graph'));
+          // Task 图的 Git 诊断单独按需取数，不进概览的常规轮询。
+          if (url.pathname === '/api/task-graph') return json(await client.request('task.graph'));
           if (url.pathname === '/api/showcases') return json(await client.request('showcase.list', { branch: url.searchParams.get('branch') }));
           const preview = /^\/api\/task\/(\d+)\/notice\/(\d+)\/preview\/(\d+)\/(\d+)$/.exec(url.pathname);
           if (preview) {

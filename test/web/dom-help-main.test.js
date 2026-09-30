@@ -11,7 +11,8 @@ const world = makeWorld();
 const dom = installDom({ fetch: world.fetchImpl });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { agentHelp, AGENT_NOTE, showHelp, hideHelp } = await import('../../src/ui/web/assets/help.js');
-const { openGraph } = await import('../../src/ui/web/assets/render-graph.js');
+const { renderTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
+const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { noticePanel } = await import('../../src/ui/web/assets/render-notices.js');
 const { formDialog } = await import('../../src/ui/web/assets/dialog.js');
 dom.node('side-nav').replaceChildren();
@@ -68,8 +69,10 @@ test('禁用的「合并已被冻结」把 data-help 放在 span.help-host 上�
   }
 });
 
-test('分支图「归档」只带 data-help，旧分支动作入口不再渲染', async () => {
-  await openGraph();
+test('Task 图「归档」只带 data-help，旧分支动作入口不再渲染', async () => {
+  activateDetailView({ view: 'task-graph' });
+  renderTaskGraph({ total: 1, nodes: [{ id: 2, task_kind: 'say', role: 'agent', status: 'completed',
+    title: '已完成任务', branch: 'feature', branch_info: { archivable: true, current_head: 'abc' } }] });
   const detail = dom.node('detail');
   const archive = buttonByText(detail, '归档');
   expect(archive).toBeTruthy();
