@@ -67,7 +67,7 @@
 
 ## 页面导航与全类型 Task 列表
 
-- Web 采用平级页面，分组只组织导航：工作（Task 图、项目概览、待我处理、Task 列表）、其他（设置、帮助文档）。Task 详情归属 Task 列表，文档正文归属帮助文档。
+- Web 采用平级页面，分组只组织导航：工作（项目概览、任务树、待我处理、Task 列表）、其他（设置、帮助文档）。Task 详情归属 Task 列表，文档正文归属帮助文档。
 - `sidebar-ui.js` 统一页面切换、路由地址、唯一选中项、视图栏、移动端收起与加载占位；`ui.view` 为当前页面身份，异步读面用身份检查阻止迟到响应覆盖新页面。概览导航先画缓存，不依赖 revision 变化或轮询空闲。
 - `task.activity(limit?,scope?)` / `task.page(before?,limit?,scope?)` 增加 `scope='work'|'all'`，省略保留旧 work 口径；Web overview 与历史分页显式请求 all，覆盖 intent/work 两层，继续有界读取，不改 Task 实体或存储层级。`GET /api/tasks` 透传 scope；类型筛选固定提供全部现行角色，兼容历史 scheduler 与未知角色，筛选范围明确为已加载 Task。
 

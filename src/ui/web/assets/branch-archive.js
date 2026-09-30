@@ -15,7 +15,7 @@ import { show } from './messages.js';
 /** 「归档」的统一含义说明：两个入口共用同一句代价，改文案只改这一份。 */
 export const BRANCH_ARCHIVE_HELP = '归档这条分支及它下面的全部后代分支：删除 worktree 与本地 ref，'
   + '未提交改动会随 worktree 一起丢失；Task、消息、事件与会话记录都保留。归档是放弃这条分支代码的记录状态，'
-  + '内部合并队列随父 Task 一起归档；不等于删除 Task——之后可在 Task 图表头「显示已归档」里看到它。';
+  + '内部合并队列随父 Task 一起归档；不等于删除 Task——之后可在任务树表头「显示已归档」里看到它。';
 
 /** 归档一子树分支；`refresh` 由调用方决定重拉哪个视图（Task 图 / Task 详情），默认什么也不做。 */
 export async function runBranchArchive(branch, { refresh } = {}) {

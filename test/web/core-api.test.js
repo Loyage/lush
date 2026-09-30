@@ -7,7 +7,11 @@ test('Web exposes say and task reads, not legacy mutations or pages', async () =
   try {
     const page = await fetch(f.url);
     const html = await page.text();
-    expect(html).toContain('Task 图');
+    expect(html).toContain('<strong>任务树</strong>');
+    expect(html).not.toContain('Task 图');
+    const workspaceNav = html.match(/<nav class="workspace-nav"[^>]*>([\s\S]*?)<\/nav>/)[1];
+    expect([...workspaceNav.matchAll(/id="([^"]+)-open"/g)].map(match => match[1]))
+      .toEqual(['overview', 'task-graph']);
     expect(html).toContain('/styles.css');
     expect((await fetch(f.url + '/styles-core.css')).status).toBe(200);
     expect(html).not.toContain('id="project-home"');

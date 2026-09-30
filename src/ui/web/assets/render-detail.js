@@ -225,7 +225,7 @@ export function renderDetail(task, history, diff, usage) {
         : `由直接父 Agent #${task.parent_id} 再派一个以同一固定提交为基线的解分歧子任务（task resolve-child-divergence）。`;
     panel.append(el('p', archived
       ? `解分歧子任务已归档，Task、固定提交记录和会话仍保留。${retry}`
-      : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在 Task 图或任务详情显式归档这条子分支（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,
+      : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在任务树或任务详情显式归档这条子分支（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,
     'hint delivery-reason'));
   }
   const delivery = deliveryControls(task, { refresh: () => detail(task.id) });

@@ -282,7 +282,7 @@ export function renderTaskGraph(graph) {
   ui.taskGraphIds = new Set(all.map(node => node.id));
   const box = el('div', undefined, 'task-graph');
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
-  hero.append(el('h1', 'Task 图'), el('p', 'Task 包裹 Agent、分支与 worktree；连线表示父子关系。代码集成由直接父 Agent 或用户按固定提交批准。'));
+  hero.append(el('h1', '任务树'), el('p', 'Task 包裹 Agent、分支与 worktree；连线表示父子关系。代码集成由直接父 Agent 或用户按固定提交批准。'));
   const summary = el('div', undefined, 'task-graph-summary');
   const active = nodes.filter(node => ACTIVE.has(node.status)).length;
   const decisions = nodes.reduce((count, node) => count + (node.notice_count || 0), 0);
@@ -358,5 +358,5 @@ function hasPendingInput() {
 export async function openTaskGraph() {
   activateDetailView({ view: 'task-graph' });
   try { await loadTaskGraph(); }
-  catch (error) { if (ui.view?.id === 'task-graph') $('detail').textContent = `Task 图加载失败：${error.message}`; throw error; }
+  catch (error) { if (ui.view?.id === 'task-graph') $('detail').textContent = `任务树加载失败：${error.message}`; throw error; }
 }

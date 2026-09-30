@@ -4,7 +4,7 @@ import { ui } from './state.js';
 const RESOURCE_META = new Map(SIDEBAR_SECTIONS.map(section => [section.id, section]));
 const PAGES = {
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
-  'task-graph': ['Task 图', '工作', '任务父子关系 · Agent、分支与 worktree'],
+  'task-graph': ['任务树', '工作', '任务父子关系 · Agent、分支与 worktree'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],
   settings: ['设置', '其他', 'Agent、界面偏好与系统状态'],
   docs: ['帮助文档', '其他', '使用流程、架构与接口参考'],

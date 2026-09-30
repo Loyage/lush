@@ -23,7 +23,10 @@ test('原 Studio 页面在核心 API 下可加载、发送 say 并打开 Task �
   await detail(task.id);
   expect(deepText(dom.node('detail'))).toContain('从原界面发送目标');
   await dom.node('task-graph-open').onclick();
-  expect(deepText(dom.node('detail'))).toContain('Task 图');
+  expect(deepText(dom.node('detail'))).toContain('任务树');
+  expect(deepText(dom.node('detail'))).not.toContain('Task 图');
+  expect(dom.node('view-title').textContent).toBe('任务树');
+  expect(document.title).toBe('Lush · 任务树');
   // 真 RPC → HTTP → Task 卡片，验证合入后的诊断字段，不只依赖 DOM fixture。
   const graph = await (await localFetch(f.url + '/api/task-graph')).json();
   const node = graph.nodes.find(row => row.id === task.id);
