@@ -138,7 +138,7 @@ test('执行过程排序：默认最新在前，设置行切正序并持久化',
   expect(labels).toContain('最早在前（正序）');
   const row = [...panel().querySelectorAll('.settings-row')].find(node => deepText(node).includes('执行过程排序'));
   expect(row).toBeTruthy();
-  expect(deepText(row)).toContain('终端模式');
+  expect(deepText(row)).toContain('全屏执行详情');
 
   select.value = 'asc';
   await select.listeners.change[0]();

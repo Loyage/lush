@@ -49,7 +49,7 @@ export const TOAST_IDS = new Set(TOAST_MODES.map(mode => mode.id));
 
 /**
  * 「阅读」组的执行过程排序：默认倒序（最新在前），可切回按时间正序。
- * 只影响任务详情的快速查看；终端模式始终从最早读，不受这里影响。
+ * 全屏执行详情与设置页共用同一阅读方向。
  */
 export const TRANSCRIPT_ORDER_MODES = [
   { id: 'desc', label: '最新在前（倒序）' },

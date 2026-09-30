@@ -13,7 +13,7 @@ function shell(title) {
   panel.onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation?.(); close.onclick(); } };
   panel.append(el('h3', title), close);
   const content = el('div'); panel.append(content);
-  (document.body.querySelector('.terminal-dialog') || document.body).append(panel);
+  (document.body.querySelector('.transcript-dialog') || document.body).append(panel);
   close.focus?.({ preventScroll: true });
   return { content, version: generation };
 }

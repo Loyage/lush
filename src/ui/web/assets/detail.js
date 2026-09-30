@@ -53,7 +53,7 @@ export async function loadDetail(taskId) {
       if (!current()) return;
     }
   }
-  if (ui.terminalOpen) return;
+  if (ui.transcriptView) return;
   timeline.onMore = before => loadHistory(taskId, before);
   ui.selectedRevision = task.updated_at; ui.detailTask = taskId; ui.detailRenderedAt = Date.now(); ui.detailDirty = false;
   renderDetail(task, timeline, diff, usage);

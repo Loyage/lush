@@ -1,7 +1,7 @@
 import { el, button } from './dom.js';
 import { api } from './api.js';
 import { STEP } from './format.js';
-import { openTranscriptTerminal } from './transcript-terminal.js';
+import { ui } from './state.js';
 import { stepSummary } from './transcript-model.js';
 
 const readers = new Map();
@@ -9,8 +9,35 @@ export function resetTranscriptReaders() {
   for (const state of readers.values()) state.version++;
   readers.clear();
 }
-// Compatibility entry point: search hits and clipped quick-view steps share one continuous reader.
-export function openTranscriptStep(taskId, seq) { return openTranscriptTerminal(taskId, seq); }
+// Exact raw text is loaded in bounded segments, alongside the rich step rather than in a second mode.
+export async function openTranscriptStep(taskId, seq) {
+  const root = ui.transcriptView?.taskId === taskId ? ui.transcriptView.holder : document.getElementById('detail');
+  const target = root?.querySelector(`[data-result-seq="${seq}"]`) || root?.querySelector(`[data-seq="${seq}"]`);
+  if (!target) {
+    const { openTranscriptView } = await import('./transcript-view.js');
+    return openTranscriptView(taskId, seq);
+  }
+  let raw = target.querySelector('.transcript-full-original');
+  if (raw) { raw.open = true; raw.hidden = false; raw.scrollIntoView?.({ block: 'nearest' }); return; }
+  raw = el('details', undefined, 'transcript-full-original'); raw.open = true;
+  raw.append(el('summary', `完整原文 · #${seq}`));
+  const content = el('div'), status = el('p', '', 'hint');
+  let offset = 0;
+  const more = button('继续读取原文', load, 'ghost');
+  raw.append(content, status, more); target.append(raw);
+  async function load() {
+    more.disabled = true;
+    try {
+      const data = await api(`/api/task/${taskId}/transcript-step?seq=${seq}&offset=${offset}`);
+      if (!data.step) throw new Error('步骤不存在，记录可能已被清理');
+      content.append(el('pre', data.step.body, 'raw-value'));
+      offset = data.next_offset; more.hidden = !data.has_more;
+      status.textContent = data.has_more ? '原文分段读取，后面还有内容。' : '已读取完整原文。';
+    } catch (error) { status.textContent = `读取未完成：${error.message}`; more.textContent = '重试读取原文'; }
+    finally { more.disabled = false; }
+  }
+  await load();
+}
 
 function readerState(taskId) {
   if (readers.has(taskId)) return readers.get(taskId);
@@ -26,7 +53,7 @@ function readerState(taskId) {
   form.append(query, kind, tool, errorLabel, submit);
   const results = el('div');
   root.append(form, results);
-  // locate 由 render-transcript.js 注入，让命中停在富文本执行过程里；单独使用时的回退是终端模式。
+  // locate 由 render-transcript.js 注入，让命中停在富文本执行过程里。
   const state = { root, version: 0, locate: null }; readers.set(taskId, state);
   let criteria = null, cursors = [0], pageIndex = 0;
   const search = async after => {

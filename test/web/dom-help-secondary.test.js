@@ -32,7 +32,7 @@ const buttonOf = (root, text) => allByTag(root, 'button').find(node => node.text
 /** 本 spec 负责的文件：帮助标注只加在这里，且不得出现 Agent 触发标识。 */
 const SCOPE = [
   'render-overview.js', 'render-ladder.js', 'render-tree.js', 'render-history.js',
-  'render-agent.js', 'render-transcript.js', 'transcript-reader.js', 'transcript-terminal.js', 'transcript-body.js',
+  'render-agent.js', 'render-transcript.js', 'transcript-reader.js', 'transcript-view.js', 'render-results.js', 'transcript-body.js',
   'structured-value.js', 'render-settings.js', 'render-docs.js', 'render-specs.js', 'render-verify.js',
   'render-resolutions.js', 'notice-banner.js', 'notice-notifications.js', 'render-statistics.js',
   'project-picker.js', 'filters-ui.js', 'sidebar-init.js',
@@ -56,14 +56,14 @@ test('系统提醒开关：初始文本为空补 aria-label 与 data-help，且�
   expect(toggle.classList.contains('agent-call')).toBe(false);
 });
 
-test('「终端模式」打开只读全宽阅读器，带 data-help 且不标 agent-call', async () => {
+test('「打开执行详情」打开只读全屏阅读器，带 data-help 且不标 agent-call', async () => {
   dom.location.hash = '#task-1';
   await dom.fire('hashchange');
   const detail = dom.node('detail');
-  await until(() => buttonOf(detail, '终端模式'), 2000);
-  const terminal = buttonOf(detail, '终端模式');
-  expect(terminal.getAttribute('data-help')).toContain('只读');
-  expect(terminal.classList.contains('agent-call')).toBe(false);
+  await until(() => buttonOf(detail, '打开执行详情'), 2000);
+  const reader = buttonOf(detail, '打开执行详情');
+  expect(reader.getAttribute('data-help')).toContain('只读');
+  expect(reader.classList.contains('agent-call')).toBe(false);
 });
 
 test('左栏导航、待提交意图与批量交付的标注：迁移 title、补符号按钮与 aria-label', async () => {

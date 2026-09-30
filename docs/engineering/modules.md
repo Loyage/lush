@@ -12,7 +12,7 @@
 公开面以[核心 API 收敛](core-api.md)与 `src/rpc/registry.js` 为唯一白名单。本节下面提到的 `explanation.*` / `intro.*` 历史实现已经没有公开入口（注册表里不存在），保留在源码中只为读懂旧记录与后续清理；当前可用的执行记录接口只有 `task.transcript*`。
 
 执行记录增量接口（具体约束见[阅读器](transcript-reader.md)）：
-- 用户只读 `task.transcript_page(id,seq?,offset?)` / `GET /api/task/<id>/transcript-page`，从 `(seq,offset)` 连续读取未裁剪的步骤文字；每页最多 50 段、96,000 字符正文，单段最多 24,000 字符，返回 `next_seq/next_offset/has_more`。终端模式只读回放，不启动 Pi 或 PTY，不执行终端控制序列。
+- 用户只读 `task.transcript_page(id,seq?,offset?)` / `GET /api/task/<id>/transcript-page`，从 `(seq,offset)` 连续读取未裁剪的步骤文字；每页最多 50 段、96,000 字符正文，单段最多 24,000 字符，返回 `next_seq/next_offset/has_more`。兼容只读接口保留，不启动 Pi 或 PTY，不执行终端控制序列；Web 使用全屏富文本详情与分段步骤原文，不再提供终端模式。
 - `task.transcript` 是主读面：步骤增量保留 `call_id` / `tool_name` / `is_error`；同一会话内按调用 ID 配对。
 - 用户只读 `task.transcript_latest(id,after?,before?,limit?)` / `GET /api/task/<id>/transcript-latest`：对 Task 全部会话做一次完整流式扫描，返回满足 `seq > after` 且 `seq < before`（默认 0 / 0 表示不设边界）的最新 `limit`（1..200，默认 100）步，按 `seq` 升序；每步的 4,000 字符裁剪与 `exact` / `batch` token 口径与 `task.transcript` 完全一致。返回 `next` / `oldest` / `has_older` 供 `before` 往回翻页，`truncated` 在单行超 16 MiB 时置真而不冒充空结果。
 - 用户只读 `task.transcript_search(id,query?,kind?,tool?,errors?,after?,limit?)` 与 `task.transcript_step(id,seq,offset?)`：前者跨完整 Task 会话检索、分页摘要，后者按步骤读取分段原文及关联上下文；HTTP 用 `/api/task/<id>/transcript-search`、`transcript-step`。

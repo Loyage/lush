@@ -8,6 +8,7 @@ import { freezeBlocker } from './merge-select.js';
 import { show } from './messages.js';
 import { detail, overview } from './navigate.js';
 import { renderAgent } from './render-agent.js';
+import { renderResults } from './render-results.js';
 import { renderDiff } from './render-diff.js';
 import { deliveryControls } from './render-delivery.js';
 import { renderHistory } from './render-history.js';
@@ -59,7 +60,7 @@ function intentBadge(task) {
 }
 export function renderDetail(task, history, diff, usage) {
   const panel = $('detail');
-  const reading = panel.dataset.taskId === String(task.id) ? panel.querySelector('.transcript') : null;
+  const previousResult = panel.dataset.taskId === String(task.id) ? panel.querySelector('.result-panel') : null;
   panel.dataset.view = 'task'; panel.dataset.taskId = String(task.id); panel.replaceChildren();
   referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `任务 #${task.id}`,
     quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-detail', task_id: task.id } });
@@ -241,16 +242,12 @@ export function renderDetail(task, history, diff, usage) {
   const progress = renderTaskProgress(task.progress, { status: task.status, endedAt });
   if (progress) panel.append(progress);
   if (task.role === 'showcase') panel.append(renderShowcase(task));
-  if (task.result) {
-    const result = block('结果'); result.classList.add('result-panel'); result.append(agentText(task.result, { plain: 'pre' }));
-    referenceable(result, { kind: 'result', target: { task_id: task.id, section: 'result' }, label: `任务结果 #${task.id}`,
-      quote: task.result, location: { view: 'task-detail', task_id: task.id, section: 'result' } });
-    panel.append(result);
-  }
+  const result = renderResults(task, history, previousResult);
+  if (result) panel.append(result);
   if (task.error) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); panel.append(error); }
   if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); panel.append(error); }
 
-  if (task.calls) panel.append(renderAgent(task, usage, reading));
+  if (task.calls) panel.append(renderAgent(task, usage));
 
   const stats = block('状态'); stats.classList.add('task-stats');
   const grid = el('div', undefined, 'grid');

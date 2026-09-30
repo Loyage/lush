@@ -1,10 +1,9 @@
 import { $, block, button, el, kv } from './dom.js';
 import { lastView, money, relative, tokens } from './format.js';
-import { transcriptContent, loadTranscript, tokensChip } from './render-transcript.js';
-import { transcriptCache, transcriptOpen, ui } from './state.js';
-import { markdownEnabled } from './text.js';
+import { tokensChip } from './render-transcript.js';
+import { ui } from './state.js';
 import { show } from './messages.js';
-import { openTranscriptTerminal } from './transcript-terminal.js';
+import { openTranscriptView } from './transcript-view.js';
 
 /** 把文本写进剪贴板；优先用 async clipboard，非安全上下文回退到临时 textarea。 */
 async function copyText(text) {
@@ -45,7 +44,7 @@ export function paintUsageLast(taskId, usage) {
 }
 /** 一个 agent 的全部信息：身份与唤醒次数（Lush 侧）+ 模型、上下文、花费（pi 会话记录侧）。
  *  执行过程就在同一块里——它就是 agent 这个身份干过的事，不是另一类数据。 */
-export function renderAgent(task, usage, reading = null) {
+export function renderAgent(task, usage) {
   const section = block('Agent');
   const grid = el('div', undefined, 'grid');
   if (task.agent) {
@@ -78,47 +77,9 @@ export function renderAgent(task, usage, reading = null) {
     grid.append(kv('会话记录', `${usage.files.length} 个文件${usage.compacted ? ` · 上下文压缩 ${usage.compacted} 次` : ''}`, 'mono'));
   }
   const process = block('执行过程');
-  const cached = transcriptCache.get(task.id);
-  const markdown = markdownEnabled();
-  const reusable = reading && reading.transcriptState === cached && reading.transcriptMarkdown === markdown;
-  const holder = reusable ? reading : el('div', undefined, 'transcript');
-  holder.transcriptState = cached; holder.transcriptMarkdown = markdown;
-  const expanded = transcriptOpen.has(task.id);
-  holder.hidden = !expanded;
-  if (reusable) { /* Preserve previews, source nodes and search across detail refreshes. */ }
-  else if (cached && expanded) holder.replaceChildren(...transcriptContent(task.id));
-  // 未展开时不加载正文；缺失记录的原因在展开后说明。
-  else if (!usage?.files?.length) holder.append(el('p', task.agent?.backend === 'codex'
-    ? 'Codex 的线程会持续复用；当前版本暂不投影它的本地执行记录。'
-    : '这个任务还没有 Pi 会话记录（可能从未被唤醒，或会话文件已被清理）。', 'hint'));
-  else {
-    holder.append(el('p', '点击展开后读取执行记录。', 'hint'));
-  }
-  const toggle = button(expanded ? '收起执行过程' : '展开执行过程', async () => {
-    const open = !transcriptOpen.has(task.id);
-    if (open) transcriptOpen.add(task.id); else transcriptOpen.delete(task.id);
-    holder.hidden = !open;
-    toggle.textContent = open ? '收起执行过程' : '展开执行过程';
-    toggle.setAttribute('aria-expanded', String(open));
-    if (!open) return;
-    if (transcriptCache.has(task.id)) {
-      if (holder.transcriptState !== transcriptCache.get(task.id) || !holder.querySelector('.transcript-reader')) {
-        holder.transcriptState = transcriptCache.get(task.id);
-        holder.replaceChildren(...transcriptContent(task.id));
-      }
-    } else {
-      holder.replaceChildren(el('p', '正在读取执行记录…', 'hint'));
-      try { await loadTranscript(task.id); }
-      catch (error) {
-        transcriptCache.set(task.id, { steps: [], files: usage?.files || [], error: error.message });
-        holder.replaceChildren(...transcriptContent(task.id));
-      }
-    }
-  }, 'ghost');
-  toggle.setAttribute('aria-expanded', String(expanded));
   const controls = el('div', undefined, 'actions');
-  controls.append(toggle, button('终端模式', () => openTranscriptTerminal(task.id), 'ghost',
-    { help: '打开全宽只读终端，按会话顺序阅读完整执行记录；不执行命令，也不自动滚动' }));
+  controls.append(button('打开执行详情', () => openTranscriptView(task.id), 'ghost',
+    { help: '全屏阅读执行记录，可切换正序和倒序、搜索完整历史；只读，不执行命令，也不调用 Agent' }));
   process.append(controls);
   // 终端里观看执行过程的等价命令：展示出来并可复制，真正跟随由 CLI 负责，不只是复制一串提示。
   const command = `lush task transcript ${task.id} --follow`;
@@ -130,7 +91,6 @@ export function renderAgent(task, usage, reading = null) {
     }, 'ghost', { help: '把这条命令复制到剪贴板；它只读取执行记录，不会在页面里执行，也不会调用 Agent' }));
   process.append(commandRow);
   if (usage?.last) process.append(lastStepRow(usage.last));
-  process.append(holder);
   section.classList.add('agent-panel');
   section.append(process);
   // Auxiliary information follows the reading area, without hiding existing model/usage data.

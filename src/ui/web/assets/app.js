@@ -17,7 +17,7 @@ import { SORT_MODES } from './tree-order.js';
 import { initContextReferences } from './context-references.js';
 import { hideHelp, initHelp } from './help.js';
 import { resetTranscriptReaders } from './transcript-reader.js';
-import { closeTranscriptTerminal } from './transcript-terminal.js';
+import { closeTranscriptView } from './transcript-view.js';
 import { closeExplanationPanel } from './explanations.js';
 import { ensureProject, refreshProjectList } from './project-picker.js';
 import { initNoticeNotifications, resetNoticeNotifier } from './notice-notifications.js';
@@ -96,7 +96,7 @@ export async function boot() {
   if (hashListener !== null && typeof removeEventListener === 'function') removeEventListener('hashchange', hashListener);
   if (projectVisibilityListener !== null && typeof removeEventListener === 'function') removeEventListener('visibilitychange', projectVisibilityListener);
   refreshTimer = null; liveTimer = null; hashListener = null; projectTimer = null; projectVisibilityListener = null;
-  closeTranscriptTerminal();
+  closeTranscriptView();
   resetUiState();
   resetTranscriptReaders();
   closeExplanationPanel();

@@ -98,7 +98,7 @@ export async function refresh() {
       if (node.classList?.contains('transcript')) { readingFocused = true; break; }
     }
     const selecting = Boolean(window.getSelection?.()?.toString());
-    const editing = ui.terminalOpen || selecting || readingFocused || ui.detailDirty || [...$('detail').querySelectorAll('textarea')].some(node => node.value || node === document.activeElement);
+    const editing = ui.transcriptView || selecting || readingFocused || ui.detailDirty || [...$('detail').querySelectorAll('textarea')].some(node => node.value || node === document.activeElement);
     if (current && !editing) {
       // Live tasks also refresh on a slow tick so elapsed time and agent pid stay honest.
       const changed = current.updated_at !== ui.selectedRevision;
@@ -116,20 +116,29 @@ export async function refresh() {
 /* ---------- 热任务的实时刷新：页面自己变新，不用手点 ---------- */
 export async function liveRefresh() {
   refreshProgressDurations();
-  if (ui.busy || ui.liveBusy || ui.terminalOpen) return;
-  const task = liveTarget(ui.lastSnapshot?.tasks || [], ui.selected);
+  if (ui.busy || ui.liveBusy) return;
+  const tasks = ui.lastSnapshot?.tasks || [];
+  const cached = transcriptCache.get(ui.selected);
+  const hotTask = liveTarget(tasks, ui.selected);
+  // A fullscreen reader stays open when the Task settles: read the final tail once as on the task page.
+  const task = hotTask || (ui.transcriptView && cached && !cached.error && !cached.settled
+    ? tasks.find(value => value.id === ui.selected) : null);
   if (!task) return;
   const taskId = task.id;
+  const transcript = transcriptOpen.has(taskId) ? transcriptCache.get(taskId) ?? null : null;
   ui.liveBusy = true;
   try {
     await liveTick({
       task,
       // 仅显式展开时续读；收起后不继续加载正文。
-      transcript: transcriptOpen.has(taskId) ? transcriptCache.get(taskId) ?? null : null,
+      transcript,
       fetchUsage: id => api(`/api/task/${id}/usage`).catch(() => null),
       fetchTranscript: fetchTranscriptAfter,
-      publish: { usage: paintUsageLast, steps: appendTranscriptSteps },
+      publish: { usage: paintUsageLast, steps: (id, steps) => {
+        if (transcriptCache.get(id) === transcript) appendTranscriptSteps(id, steps);
+      } },
     });
+    if (transcript && transcriptCache.get(taskId) === transcript) transcript.settled = !hotTask;
   } catch { /* 网络抖动交给主 refresh 的离线提示，live tick 不弹错 */ }
   finally { ui.liveBusy = false; }
 }

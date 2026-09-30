@@ -2,6 +2,7 @@ import { test, expect, afterAll } from 'bun:test';
 import { installDom, findByText, deepText, dialogText, answerDialog } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
+import { ui } from '../../src/ui/web/assets/state.js';
 
 // 概览入口与后退、详情头部意图编号、热任务自己变新、折叠执行过程。
 // 每个 DOM 测试文件都自给自足：bun test 在文件之间共享模块注册表，只有本进程里第一个 dom 文件会走到
@@ -169,30 +170,30 @@ test('Agent 的模型与用量直接可见：没有折叠开关，也没有可�
   expect(context.title).toContain('最近一次模型请求');
   // 默认收起且不请求正文，模型用量不受影响。
   const process = blockByTitle('执行过程');
-  expect(process.querySelector('.transcript').hidden).toBe(true);
+  expect(process.querySelector('.transcript')).toBeNull();
   expect(process.querySelector('[data-live="transcript-steps"]')).toBeNull();
   expect(world.state.transcriptAfter).toEqual([]);
-  expect(findByText(process, '展开执行过程')).toBeTruthy();
-  expect(findByText(process, '终端模式')).toBeTruthy();
+  expect(findByText(process, '打开执行详情')).toBeTruthy();
+  expect(findByText(process, '终端模式')).toBeNull();
 });
 
 test('热任务点击才加载执行正文，轮询增量续读并保留阅读节点，收起停止续读', async () => {
   dom.location.hash = '#task-1';
   await dom.fire('hashchange');
   const detail = dom.node('detail');
-  const list = () => detail.querySelector('[data-live="transcript-steps"]');
-  await findByText(detail, '展开执行过程').onclick();
+  const panel = () => dom.document.body.querySelector('.transcript-dialog');
+  const list = () => panel()?.querySelector('[data-live="transcript-steps"]');
+  await findByText(detail, '打开执行详情').onclick();
   await until(() => list() && list().children.length === 5, 2000);
   expect(world.state.transcriptAfter.every(after => after === 0)).toBe(true);
   const initialReads = [...world.state.transcriptAfter];
   const originalList = list();
-  const search = detail.querySelector('.transcript-search');
+  const search = panel().querySelector('.transcript-search');
   search.querySelector('input').value = '保留搜索内容';
-  // 同一个任务的慢刷新也复用实际阅读节点，不只保存几枚布尔开关。
-  await dom.fire('hashchange');
-  await until(() => detail.querySelector('.transcript-search'), 2000);
+  // 全屏阅读期间轮询不重建正文或搜索框。
+  await dom.intervalFor(1500)();
   expect(list()).toBe(originalList);
-  expect(detail.querySelector('.transcript-search')).toBe(search);
+  expect(panel().querySelector('.transcript-search')).toBe(search);
   expect(search.querySelector('input').value).toBe('保留搜索内容');
 
   // 每一步的 token chip：只认组的首步，同一条回复的第二个 step 不重复；估算带 + 前缀。
@@ -224,10 +225,19 @@ test('热任务点击才加载执行正文，轮询增量续读并保留阅读�
   expect(list().querySelectorAll('.step-tokens').length).toBe(2);
   // 第二个 tick 用的是游标 5，不是从头再读一遍。
   expect(world.state.transcriptAfter).toEqual([...initialReads, 5]);
-  await findByText(detail, '收起执行过程').onclick();
-  expect(detail.querySelector('.transcript').hidden).toBe(true);
+  // Task 结算时全屏仍打开：最后的回答补读一次，不重建阅读页。
+  const snapshot = ui.lastSnapshot;
+  ui.lastSnapshot = { ...snapshot, tasks: snapshot.tasks.map(task => task.id === 1 ? { ...task, status: 'completed' } : task) };
+  world.state.transcriptSteps.push({ seq: 7, kind: 'text', body: '最终回答' });
   await dom.intervalFor(3000)();
-  expect(world.state.transcriptAfter).toEqual([...initialReads, 5]);
+  expect(deepText(list())).toContain('最终回答');
+  const finalReads = [...world.state.transcriptAfter];
+  await dom.intervalFor(3000)(); expect(world.state.transcriptAfter).toEqual(finalReads);
+  ui.lastSnapshot = snapshot;
+  await findByText(panel(), '返回任务 · Esc').onclick();
+  expect(panel()).toBeNull();
+  await dom.intervalFor(3000)();
+  expect(world.state.transcriptAfter).toEqual(finalReads);
 });
 
 test('详情：可归档分支给「归档」按钮，帮助说清含义，确认后走 branch.archive', async () => {

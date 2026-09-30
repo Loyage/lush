@@ -35,10 +35,10 @@ function sourceBody(taskId, step) {
     if (!source.open || source.dataset.loaded) return;
     source.dataset.loaded = 'true';
     source.append(el('p', `${step.file || '会话记录'}${step.line ? `:${step.line}` : ''}`, 'hint'), el('pre', step.body, 'raw-value'),
-      button('在终端模式中查看', () => openTranscriptStep(taskId, step.seq), 'ghost'));
+      button('读取完整原文', () => openTranscriptStep(taskId, step.seq), 'ghost'));
   });
   body.append(source);
-  if (/…（已截断 \d+ 字符）$/.test(step.body || '')) body.append(button('本段已截断 · 在终端模式中继续阅读', () => openTranscriptStep(taskId, step.seq), 'ghost'));
+  if (/…（已截断 \d+ 字符）$/.test(step.body || '')) body.append(button('本段已截断 · 读取完整原文', () => openTranscriptStep(taskId, step.seq), 'ghost'));
   referenceable(body, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 #${taskId}:${step.seq}`,
     quote: step.body, location: { task_id: taskId, section: 'transcript' } });
   return body;
@@ -163,17 +163,21 @@ const transcriptMetaText = state => state.steps.length
   ? `已加载 ${state.steps.length} 条记录 · 按调用关联输入输出 · 长内容可就地展开${(state.has_older || state.has_more) ? ' · 尚有未加载记录' : ''}`
   : (state.files.length ? '会话记录里还没有可显示的步骤。' : '这个任务还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。');
 
+/** 全屏打开时只更新其正文，不重建任务页。 */
+const transcriptHolder = taskId => ui.transcriptView?.taskId === taskId
+  ? ui.transcriptView.holder : $('detail').querySelector('.transcript');
+
 /** 只替换执行过程区块，避免为了追加一页步骤重建整个详情面板。 */
 export function paintTranscript(taskId) {
   if (ui.selected !== taskId) return;
-  const holder = $('detail').querySelector('.transcript');
+  const holder = transcriptHolder(taskId);
   if (holder) { holder.transcriptState = transcriptCache.get(taskId); holder.replaceChildren(...transcriptContent(taskId)); }
 }
 
 /** 只刷新过程区块之外的计数与翻页入口，不重建已渲染节点。 */
 function syncTranscriptChrome(taskId, state) {
   if (ui.selected !== taskId) return;
-  const holder = $('detail').querySelector('.transcript');
+  const holder = transcriptHolder(taskId);
   if (!holder) return;
   const meta = holder.querySelector('[data-live="transcript-meta"]');
   if (meta) meta.textContent = transcriptMetaText(state);
@@ -254,7 +258,7 @@ function olderButton(taskId, state) {
       state.has_older = Boolean(page.has_older);
       state.truncated = Boolean(state.truncated || page.truncated);
       if (ui.selected === taskId) {
-        const holder = $('detail').querySelector('.transcript');
+        const holder = transcriptHolder(taskId);
         const list = holder?.querySelector('[data-live="transcript-steps"]');
         if (list) insertOlder(taskId, list, state, page.steps || []);
       }
@@ -271,7 +275,7 @@ function olderButton(taskId, state) {
 export function appendTranscriptSteps(taskId, steps) {
   if (ui.selected !== taskId) return;
   const state = transcriptCache.get(taskId);
-  const holder = $('detail').querySelector('.transcript');
+  const holder = transcriptHolder(taskId);
   if (!state || !holder) return;
   const list = holder.querySelector('[data-live="transcript-steps"]');
   if (list) insertNewer(taskId, list, state, steps);
@@ -290,7 +294,7 @@ export async function fetchTranscriptAfter(taskId, after) {
 
 /**
  * 搜索命中定位：以目标 seq 为中心取一个有界窗口（前 100 + 后 100），两侧都保留「是否还有更多」的
- * 真实边界，之后在富文本执行过程里展开并滚动到该步，不切到终端模式。
+ * 真实边界，之后在富文本执行过程里展开并滚动到该步。
  */
 export async function loadTranscriptWindow(taskId, seq) {
   const [backward, forward] = await Promise.all([
@@ -336,28 +340,34 @@ function revealStep({ step, inner }) {
   setTimeout(() => { for (const node of nodes) node.classList?.remove('step-located'); }, 2000);
 }
 
-/** 点搜索命中：停在富文本执行过程里定位该步；终端模式仍是显式的「不看渲染」入口。 */
+/** 点搜索命中：停在富文本执行过程里定位该步。 */
 export async function locateTranscriptStep(taskId, seq) {
   if (ui.selected !== taskId) return;
-  const holder = $('detail').querySelector('.transcript');
+  const holder = transcriptHolder(taskId);
   if (!holder) return;
   const state = transcriptCache.get(taskId);
   if (!state || !state.steps.some(step => step.seq === seq)) {
     await loadTranscriptWindow(taskId, seq);
     paintTranscript(taskId);
   }
-  const target = stepTarget($('detail'), seq);
+  const target = stepTarget(holder, seq);
   if (target) revealStep(target);
 }
 
+const loadVersions = new Map();
 export async function loadTranscript(taskId) {
+  const version = (loadVersions.get(taskId) || 0) + 1;
+  loadVersions.set(taskId, version);
   const order = transcriptOrder();
+  const current = () => loadVersions.get(taskId) === version && transcriptOrder() === order;
   if (order === 'desc') {
     const page = await api(`/api/task/${taskId}/transcript-latest?limit=100`);
+    if (!current()) return;
     transcriptCache.set(taskId, { order, steps: page.steps || [], files: page.files || [], next: page.next ?? 0,
       oldest: page.oldest ?? 0, has_older: Boolean(page.has_older), truncated: page.truncated });
   } else {
     const page = await api(`/api/task/${taskId}/transcript?after=0`);
+    if (!current()) return;
     transcriptCache.set(taskId, { order, steps: page.steps || [], files: page.files || [], next: page.next ?? 0,
       has_more: page.has_more, truncated: page.truncated });
   }
@@ -369,5 +379,12 @@ onPrefChange('transcriptOrder', () => {
   const order = transcriptOrder();
   for (const [id, state] of transcriptCache) if (state.order !== order) transcriptCache.delete(id);
   const taskId = ui.selected;
-  if (taskId !== null && transcriptOpen.has(taskId)) loadTranscript(taskId).catch(() => { /* 网络抖动交给主刷新提示 */ });
+  if (taskId !== null && transcriptOpen.has(taskId)) {
+    paintTranscript(taskId);
+    loadTranscript(taskId).catch(error => {
+      if (transcriptOrder() !== order) return;
+      transcriptCache.set(taskId, { order, steps: [], files: [], error: error.message });
+      paintTranscript(taskId);
+    });
+  }
 });

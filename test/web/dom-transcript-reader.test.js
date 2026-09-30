@@ -8,7 +8,7 @@ import { transcriptContent, appendTranscriptSteps, locateTranscriptStep } from '
 import { transcriptCache, transcriptOpen, ui } from '../../src/ui/web/assets/state.js';
 import { transcriptReader, resetTranscriptReaders } from '../../src/ui/web/assets/transcript-reader.js';
 import { initContextReferences, referenceable } from '../../src/ui/web/assets/context-references.js';
-import { closeTranscriptTerminal } from '../../src/ui/web/assets/transcript-terminal.js';
+import { closeTranscriptView } from '../../src/ui/web/assets/transcript-view.js';
 import { closeExplanationPanel } from '../../src/ui/web/assets/explanations.js';
 
 const response = value => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });
@@ -70,8 +70,8 @@ test('full-record search sends filters and the hit invokes the injected rich loc
     expect(located).toEqual([[971, 88]]);
     expect(root.querySelector('mark').textContent).toBe('needle');
     expect(root.tagName).toBe('SECTION');
-    expect(dom.document.body.querySelector('.terminal-dialog')).toBeNull();
-  } finally { closeTranscriptTerminal(); resetTranscriptReaders(); dom.restore(); }
+    expect(dom.document.body.querySelector('.transcript-dialog')).toBeNull();
+  } finally { closeTranscriptView(); resetTranscriptReaders(); dom.restore(); }
 });
 
 test('locating a search hit loads a centered window, keeps both boundaries and reveals the step in place', async () => {
