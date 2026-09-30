@@ -86,6 +86,7 @@ export default {
       integration, integration_error, branch, workspace, target_branch, base_commit, head_commit, resolves_task_id,
       reservation, progress_plan, created_at, updated_at, calls, agent_wakes,
       (SELECT p.task_kind FROM tasks p WHERE p.id=tasks.parent_id) AS parent_task_kind,
+      (SELECT p.branch FROM tasks p WHERE p.id=tasks.parent_id) AS parent_branch,
       CASE WHEN result IS NULL THEN 0 ELSE 1 END AS has_result,
       substr(result, 1, 320) AS result_preview
       FROM tasks ORDER BY CASE WHEN task_kind IN ('main','owner') THEN 0
@@ -204,7 +205,7 @@ export default {
     } catch { /* 工作区不可读不影响已确认的 refs / 提交关系。 */ }
     const archivability = await this.branchArchivability(branchNames,
       { git: refsKnown, refs, current_branch: currentBranch, worktrees });
-    const nodes = selected.map(({ goal, progress_plan, reservation, ...row }) => {
+    const nodes = selected.map(({ goal, progress_plan, reservation, parent_branch, ...row }) => {
       const view = this.progressView({ progress_plan, reservation }, runs.get(row.id) ?? []);
       const delivery = view.reservation;
       const progress = view.progress;
@@ -224,10 +225,14 @@ export default {
         : row.status === 'queued' ? '等待 Agent 调用槽'
         : row.status === 'waiting' ? '静息 · 等待新输入或子 Task 信号' : null;
       const branch = row.branch ? records.get(row.branch) : null;
+      // 内部 merge 队列没有自己的分支，归档跟随直接父 Task；从库里读父分支，父节点被截断也不漏掉。
+      // 不沿 target_branch 或祖先传播：独立工作子 Task 仍按自己的分支归档事实判断。
+      const archived = branch?.status === 'archived' || (row.task_kind === 'merge' && !row.branch
+        && records.get(parent_branch)?.status === 'archived');
       // 这条分支下还有多少个 say 子分支：决定卡片上「编排合并全部子 Task」入口是否有意义。
       const subtree_say = row.branch ? countSayDescendants(row.branch) : 0;
       const mergeRun = row.branch ? activeRuns.get(row.branch) ?? null : null;
-      return { ...row, kind: 'task', title: summarize(goal) || row.name || `Task #${row.id}`,
+      return { ...row, kind: 'task', archived, title: summarize(goal) || row.name || `Task #${row.id}`,
         goal_preview: String(goal ?? '').slice(0, 600),
         progress: plan, notice: notice.notice, notice_count: notice.count,
         children_total: child.total, children_active: child.active, waiting_reason,

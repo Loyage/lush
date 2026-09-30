@@ -4,6 +4,8 @@
 
 `task.graph {}` 是用户与 Agent 均可读的 Task 父子读面，Web GET `/api/task-graph` 对应：`{nodes,edges,truncated,total}`。最多 200 条节点，优先保留分支所有者与活动任务；节点含 `goal_preview`（最多 600 字）、`result_preview`（最多 320 字）、`waiting_reason`、`progress`（有界完成数和当前步骤；当前步骤可能是 runtime 生成的等待条目，等待不计入 Agent 工作用时也不占完成度）、`notice`（最新一条 open 待决，正文最多 1000 字）、`notice_count`、`children_total/active`、`reservation`、`has_result`、`branch` / `workspace`、`branch_info`（实时 ref、与 `graph.get` 同源的 Git 诊断，以及合并运行投影：`subtree_say` 是这条分支下属还有多少条 say 子分支、`merge_run` 是这条分支上仍在跑的合并运行 `{mode,status,done,total,task_id}`，没有则 null）、`freeze`（写冻结原因）与 `resolves_task_id`（被修复的源 Task；父子边仍只表示负责集成的归属），以及 `has_rule`（仅表示存在固定输入规则），边是 `{from:parentId,to:childId}`。完整分支谱系仍由 `graph.get` 提供；`task.graph` 不依赖它，全程只读，不写运行态或事件。
 
+节点的 `archived:boolean` 只读投影归档事实：自己的分支已归档，或无独立分支的内部 `task_kind='merge'` 队列的直接父 Task 分支已归档。父 Task 不在这页也能判断，兼容历史归档，不改写 Task 状态、父子关系或事件；其它子 Task 不继承父归档，`target_branch` 不作为归档依据。Web 默认隐藏这些节点，「显示已归档」可查看，内部队列标注「随父 Task 归档」；没有分支的队列仍为 `branch_info:null`。
+
 `branch_info` 另提供精简 Git 关系诊断：
 - `parent` 保留 `branches.parent` 的历史登记值，不按 Task 父子边或 `target_branch` 猜测，也不跳过已归档父分支。
 - `current:boolean` 表示 canonical 项目目录当前检出的分支，不是「某个 worktree 检出了它」。detached HEAD 或读取失败为 false。

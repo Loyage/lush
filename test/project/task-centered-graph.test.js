@@ -75,6 +75,77 @@ test('Task graph projects branch-level merge orchestration state read-only', asy
   } finally { await f.close(); }
 });
 
+test('archiving a parent also archives its branchless merge queue without changing task facts', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const { task: parent } = await f.project.say('parent');
+    f.store.update(parent.id, { status: 'completed' });
+    const queue = f.store.create({ parent_id: parent.id, role: 'agent', task_kind: 'merge', goal: 'internal queue' });
+    f.store.update(queue.id, { status: 'completed', target_branch: parent.branch });
+    const otherQueue = f.store.create({ parent_id: parent.parent_id, role: 'agent', task_kind: 'merge', goal: 'main queue' });
+    // Even if a historical target points at this branch, ownership comes only from the direct parent.
+    f.store.update(otherQueue.id, { status: 'completed', target_branch: parent.branch });
+    const branchless = f.store.create({ parent_id: parent.id, role: 'agent', task_kind: 'child', goal: 'not a queue' });
+    f.store.update(branchless.id, { status: 'completed' });
+    await git(f.root, 'branch', 'independent', 'main');
+    f.store.recordBranch({ branch: 'independent', parent: 'main' });
+    const independent = f.store.create({ parent_id: parent.id, role: 'agent', task_kind: 'child', goal: 'independent work' });
+    f.store.update(independent.id, { status: 'completed', branch: 'independent' });
+    const before = (await f.project.taskGraph()).nodes.find(node => node.id === queue.id);
+    expect(before).toMatchObject({ archived: false, branch: null, branch_info: null });
+    const facts = f.store.task(queue.id);
+    await f.project.archiveBranch(parent.branch);
+    const eventCount = f.store.get('SELECT count(*) AS n FROM events').n;
+    const graph = await f.project.taskGraph();
+    expect(graph.nodes.find(node => node.id === parent.id)).toMatchObject({ archived: true, branch_info: { archived: true } });
+    expect(graph.nodes.find(node => node.id === queue.id)).toMatchObject({ archived: true, parent_id: parent.id, branch: null, branch_info: null });
+    for (const task of [otherQueue, branchless, independent]) {
+      expect(graph.nodes.find(node => node.id === task.id).archived).toBe(false);
+    }
+    expect(graph.edges).toContainEqual({ from: parent.id, to: queue.id });
+    expect(f.store.task(queue.id)).toEqual(facts);
+    expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(eventCount);
+  } finally { await f.close(); }
+});
+
+test('historical merge queues inherit archive even when their parent is outside the bounded Task graph', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const { task: parent } = await f.project.say('old parent');
+    f.store.update(parent.id, { status: 'completed' });
+    await f.project.archiveBranch(parent.branch);
+    f.store.transaction(() => {
+      for (let i = 0; i < 201; i++) {
+        const task = f.store.create({ role: 'agent', task_kind: 'child', goal: `history ${i}` });
+        f.store.update(task.id, { status: 'completed' });
+      }
+    });
+    const queue = f.store.create({ parent_id: parent.id, role: 'agent', task_kind: 'merge', goal: 'historical queue' });
+    f.store.update(queue.id, { status: 'completed', target_branch: parent.branch });
+    const graph = await f.project.taskGraph();
+    expect(graph.truncated).toBe(true);
+    expect(graph.nodes).toHaveLength(200);
+    expect(graph.nodes.some(node => node.id === parent.id)).toBe(false);
+    const node = graph.nodes.find(node => node.id === queue.id);
+    expect(node).toMatchObject({ archived: true, branch_info: null });
+    expect(node).not.toHaveProperty('parent_branch');
+  } finally { await f.close(); }
+});
+
+test('an active internal merge queue blocks parent archive rather than being hidden with unfinished work', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const { task: parent } = await f.project.say('parent');
+    f.store.update(parent.id, { status: 'completed' });
+    const queue = f.store.create({ parent_id: parent.id, role: 'agent', task_kind: 'merge', goal: 'active queue' });
+    f.store.update(queue.id, { status: 'waiting', target_branch: parent.branch });
+    await expect(f.project.archiveBranch(parent.branch)).rejects.toThrow(`unfinished tasks: #${queue.id}`);
+    expect(f.store.branch(parent.branch).status).toBe('active');
+    expect(fs.existsSync(parent.workspace)).toBe(true);
+    expect((await f.project.taskGraph()).nodes.find(node => node.id === queue.id).archived).toBe(false);
+  } finally { await f.close(); }
+});
+
 test('Task input rule is frozen from committed fork, chooses delivery, and falls back without losing input', async () => {
   const paused = gate();
   const f = fixture({ run: async () => { await paused.promise; return 'done'; } }); await repo(f.root);

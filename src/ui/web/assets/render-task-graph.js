@@ -53,8 +53,8 @@ function save(set) { try { localStorage.setItem(scopedKey(KEY), JSON.stringify([
 function hiddenStatuses() { return new Set(readPref('taskGraphStatuses')); }
 function saveHiddenStatuses(set) { writePref('taskGraphStatuses', set); }
 
-/** 归档后的 Task：分支已被用户显式归档。归档是记录状态，任务行仍在库里，
- *  只是默认不再占 Task 图主视图；这里只认读模型给出的字段，不自己猜 Git 现状。 */
+/** 归档后的 Task：自己的分支已归档，或内部 merge 队列随直接父 Task 归档。
+ *  任务行仍在库里，只是默认不再占主视图；这里只认读模型字段，不自己猜 Git 现状。 */
 function isArchivedTask(node) {
   return node.branch_info?.archived === true || node.archived === true;
 }
@@ -173,6 +173,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   if (node.workspace_state === 'missing') facts.append(badge('⚠ worktree 缺失', 'warn'));
   if (!node.branch && !node.workspace) facts.append(el('span', '无独立分支 / worktree', 'meta'));
   if (node.branch_info?.archived) facts.append(badge('分支已归档'));
+  else if (node.archived && node.task_kind === 'merge') facts.append(badge('随父 Task 归档'));
   if (node.delivery) facts.append(badge(`交付：${node.delivery.kind} · ${node.delivery.status}`));
   if (node.has_rule) facts.append(badge('固定输入规则'));
   if (node.children_total) facts.append(el('span', `子 Task：${node.children_total}${node.children_active ? `（${node.children_active} 活动）` : ''}`, 'meta'));
@@ -316,7 +317,7 @@ export function renderTaskGraph(graph) {
     const toggle = button(ui.taskGraphShowArchived ? `隐藏已归档（${archivedCount}）` : `显示已归档（${archivedCount}）`, () => {
       ui.taskGraphShowArchived = !ui.taskGraphShowArchived;
       renderTaskGraph(full);
-    }, 'ghost', { help: '归档 Task 是用户显式归档分支后留下的记录；这里只在当前页面显示，不写库、不改任务状态，重开页面仍默认隐藏。' });
+    }, 'ghost', { help: '归档 Task 是用户显式归档分支后留下的记录，包含随父 Task 归档的内部合并队列；这里只在当前页面显示，不写库、不改任务状态，重开页面仍默认隐藏。' });
     toggle.classList.add('task-graph-archived-toggle');
     summary.append(toggle);
   }

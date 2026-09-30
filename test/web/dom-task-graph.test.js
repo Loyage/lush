@@ -64,6 +64,45 @@ test('Task 图默认隐藏已归档 Task，可用「显示已归档」开关就�
   }
 });
 
+test('Task 图：内部合并队列随父 Task 归档，可查看历史但不隐藏独立工作子 Task', async () => {
+  const saved = [...graph.nodes], total = graph.total;
+  const parent = { id: 99, parent_id: 1, task_kind: 'say', role: 'agent', status: 'completed',
+    title: '归档父任务', branch: 'lush/task-99', archived: true, branch_info: { archived: true } };
+  const queue = { id: 100, parent_id: 99, task_kind: 'merge', role: 'agent', status: 'completed',
+    title: '父任务的内部合并队列', branch: null, branch_info: null, archived: true };
+  const independent = { id: 101, parent_id: 99, task_kind: 'child', role: 'agent', status: 'completed',
+    title: '独立子任务', branch: 'lush/task-101', archived: false, branch_info: { archived: false } };
+  const card = id => dom.node('detail').querySelector(`[data-task-id="${id}"]`);
+  const actions = world.state.actions.length;
+  graph.nodes.push(parent, queue, independent); graph.total += 3;
+  try {
+    await dom.node('task-graph-open').onclick();
+    expect(card(99)).toBeNull();
+    expect(card(100)).toBeNull();
+    expect(card(101)).toBeTruthy();
+    const toggle = dom.node('detail').querySelector('.task-graph-archived-toggle');
+    expect(toggle.textContent).toContain('显示已归档（2）');
+    expect(toggle.getAttribute('data-help')).toContain('随父 Task 归档');
+    toggle.onclick();
+    expect(card(99)).toBeTruthy();
+    expect(deepText(card(100))).toContain('随父 Task 归档');
+    expect(deepText(card(100))).not.toContain('分支已归档');
+    expect(card(101)).toBeTruthy();
+    dom.node('detail').querySelector('.task-graph-archived-toggle').onclick();
+    expect(card(100)).toBeNull();
+    // 后端投影不依赖同页父节点：父 Task 被截断时也不会把队列误画成根。
+    graph.nodes = graph.nodes.filter(node => node.id !== 99);
+    await dom.node('task-graph-open').onclick();
+    expect(card(100)).toBeNull();
+    expect(dom.node('detail').querySelector('.task-graph-archived-toggle').textContent).toContain('显示已归档（1）');
+    expect(world.state.actions).toHaveLength(actions);
+  } finally {
+    graph.nodes = saved; graph.total = total;
+    ui.taskGraphShowArchived = false;
+    await dom.node('task-graph-open').onclick();
+  }
+});
+
 test('Task 图：效果展示子 Task 的隔离检出显式标注 detached worktree，普通分支仍写 worktree', async () => {
   const showcase = { id: 3, parent_id: 2, task_kind: 'showcase', role: 'showcase', status: 'waiting', title: '展示效果',
     branch: null, workspace: '/tmp/showcase-3', children: [] };
@@ -290,9 +329,11 @@ test('Task 图：可归档分支给「归档」按钮，帮助说清含义，确
     expect(help).toContain('worktree 与本地 ref');
     expect(help).toContain('未提交改动');
     expect(help).toContain('不等于删除 Task');
+    expect(help).toContain('内部合并队列随父 Task 一起归档');
 
     const pending = archive.onclick();
     expect(dialogText(dom)).toContain('保留任务、会话与分支记录');
+    expect(dialogText(dom)).toContain('内部合并队列随父 Task 一起归档');
     expect(world.state.actions.some(entry => entry.method === 'branch.archive')).toBe(false);
     await answerDialog(dom, '归档');
     await pending;
