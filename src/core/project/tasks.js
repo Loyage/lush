@@ -82,6 +82,9 @@ export default {
       let ruleTaskId = null, task;
       try { task = this.store.transaction(() => {
         const created = this.store.create({ parent_id: parent.id, input_id: inheritedInput, role, goal, name: slug, task_kind: taskKind });
+        this.store.update(created.id, { reservation: JSON.stringify({ version: 2, kind: 'merge',
+          status: 'pending', created_at: new Date().toISOString() }) });
+        this.store.event(created.id, 'task.reserved', { kind: 'merge', version: 2, via: 'spawn' });
         this.assertDeps(created.id, liveParent, merged);
         if (parentRule !== null) {
           ruleTaskId = created.id;

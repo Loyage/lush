@@ -40,4 +40,4 @@ waiting / awaiting / paused 不占 agent 槽，也不运行 sleep/poll 子进程
 
 ## 协作与集成
 
-新 say / child Agent 可以派子任务；普通成功收据在本波直接子任务全部终态后合并唤醒，失败、取消和显式消息仍及时可调度，详见[合并唤醒](token-efficiency.md#父任务合并唤醒)。新子任务只发送信号，代码由运行中的直接父 Agent 显式确认固定提交并集成；main/owner 由用户按固定 commit + baseline 批准。
+新 say / child Agent 可以派子任务；普通成功收据在本波直接子任务全部终态后合并唤醒，失败、取消和显式消息仍及时可调度，详见[合并唤醒](token-efficiency.md#父任务合并唤醒)。Agent 派出的 child 在创建时默认预约合入直接父 Task；轮末安全结束、消息已处理、后代已结算且工作区干净后，runtime 固定提交并由父 Task 下的 merge 队列串行 Squash，无需用户逐个预约或父 Agent 手动集成。干净且无新提交的 child 直接结算并交付结果。成功收据等本波子任务全部结算再唤醒父 Agent，避免父 Agent 与队列争用分支。用户直接创建的 say 仍由用户决定何时预约合并（含进入 main/owner）；分歧退回原 Task 合入固定父提交并测试，再自动重新排队。旧 version 1 请求继续保留原来的手动确认边界。

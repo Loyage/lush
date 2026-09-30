@@ -23,7 +23,7 @@
 
 普通成功子任务的结算消息仍立即落库，但父任务在还有非终态直接子任务时不因此再调用模型。最后一个子任务终态后，一次性投递未读收据。
 
-- runtime 写入 `child.completed` 事件，并记录对应 message ID；只有这类认证收据允许延后。
+- 历史 coordinator 依据 runtime 写入的 `child.completed` 事件与 message ID 延后收据；新式 say/child 同样依据 `task.signal` 事件认证 `child.completed` / `merge.completed` 收据，在本波直接子任务全部终态后唤醒。`merge.requested` 只由 runtime 队列处理，不触发开发 Agent。
 - 显式用户/agent 消息、失败与取消结算仍及时变成可调度；正在运行的 invocation 不被强行插入消息。
 - 不能按消息正文猜测是否为成功收据，否则显式求助可能丢失。
 - park / invocation finally / 异常处理 / daemon recover 使用同一判断，既防止空转，也避免父任务尚未清理时的 lost wakeup。

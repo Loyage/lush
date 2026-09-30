@@ -36,13 +36,16 @@ export default {
 
   hasActionableMessages(taskId) {
     if (!this.store.get("SELECT id FROM messages WHERE task_id=? AND consumed=0 AND (signal_key IS NULL OR signal_key NOT LIKE 'merge-v2:%') LIMIT 1", taskId)) return false;
-    const task = this.store.get('SELECT role FROM tasks WHERE id=?', taskId);
-    if (task.role !== 'coordinator' || !this.store.get(`SELECT id FROM tasks WHERE parent_id=?
+    const task = this.store.get('SELECT role,task_kind FROM tasks WHERE id=?', taskId);
+    if (!(task.role === 'coordinator' || ['say','child'].includes(task.task_kind)) || !this.store.get(`SELECT id FROM tasks WHERE parent_id=?
       AND status NOT IN ('completed','failed','cancelled') LIMIT 1`, taskId)) return true;
     // Only runtime-attested success receipts wait; explicit messages remain urgent.
+    // Runtime merge requests never wake the development Agent, even alongside a receipt.
     return Boolean(this.store.get(`SELECT m.id FROM messages m WHERE m.task_id=? AND m.consumed=0
-      AND NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id=m.task_id AND e.type='child.completed'
-        AND json_extract(e.data,'$.message_id')=m.id) LIMIT 1`, taskId));
+      AND (m.signal_key IS NULL OR m.signal_key NOT LIKE 'merge-v2:%')
+      AND NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id=m.task_id
+        AND (e.type='child.completed' OR (? AND e.type='task.signal' AND json_extract(e.data,'$.signal') IN ('child.completed','merge.completed')))
+        AND json_extract(e.data,'$.message_id')=m.id) LIMIT 1`, taskId, ['say','child'].includes(task.task_kind) ? 1 : 0));
   },
 
   wake(taskId) {
@@ -53,7 +56,8 @@ export default {
       && JSON.parse(task.reservation).status === 'requested') return; // frozen until merge queue settles
     if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') return;
     if (!TERMINAL.has(task.status) && !this.running.has(task.id)) {
-      const deferred = task.role === 'coordinator' && this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', task.id)
+      const deferred = (task.role === 'coordinator' || ['say','child'].includes(task.task_kind))
+        && this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', task.id)
         && !this.hasActionableMessages(task.id);
       this.store.update(task.id, { status: this.questionPending(task.id) ? 'awaiting' : deferred ? 'waiting' : 'queued' });
     }
@@ -137,7 +141,7 @@ export default {
         if (!this.stopping) {
           const settled = this.store.task(task.id);
           let reservation = null;
-          try { reservation = settled.task_kind === 'say' && settled.reservation ? JSON.parse(settled.reservation) : null; }
+          try { reservation = ['say','child'].includes(settled.task_kind) && settled.reservation ? JSON.parse(settled.reservation) : null; }
           catch { /* invalid state stays visible for inspection */ }
           if (settled.status === 'waiting' && reservation?.kind === 'merge') {
             const settle = reservation.version === 2 ? this.settleQueuedMerge(task.id) : this.settleReservedMerge(task.id);
@@ -377,10 +381,9 @@ export default {
           this.store.update(taskId, { reservation: JSON.stringify({ ...booking, status: 'pending' }) });
           this.store.event(taskId, 'merge.divergence_ready', { head_commit: this.store.task(taskId).head_commit });
         });
-        // Both say and child remain idle until an explicit merge request. Child work must
-        // not silently become terminal before its parent has collected the branch.
-        // A say Task keeps ownership of its branch between invocations. Only an explicit
-        // later reservation/termination may close it; a normal provider return is not completion.
+        // Spawned children already carry a merge reservation; the invocation cleanup
+        // releases ownership before requesting their automatic delivery. A user-created
+        // say still keeps its branch until the user explicitly reserves or ends it.
         // 这条分支自己前进了（本轮新提交）：挂在它上面的未集成请求要如实变成失效状态，
         // 而不是继续显示“等待集成”。daemon 阻止不了这次提交，所以只如实记录检查结果。
         await this.noteBranchAdvance(taskId);

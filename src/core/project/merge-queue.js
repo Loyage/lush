@@ -54,6 +54,16 @@ export default {
         'merge source or target moved; inspect the branch');
       check(state.blockers.every(blocker => blocker === `task:#${task.id}`),
         `unintegrated descendants block the request: ${state.blockers.join(', ')}`);
+      if (task.task_kind === 'child' && state.child_head === task.base_commit) {
+        // A clean, unchanged delegated branch has only a result to deliver. Do not
+        // leave its parent waiting for a merge that cannot produce a commit.
+        this.store.transaction(() => {
+          this.store.update(task.id, { reservation: null });
+          this.store.event(task.id, 'task.unreserved', { reservation: prior, reason: 'no changes' });
+          this.finish(task.id, 'completed', task.result);
+        });
+        return true;
+      }
       if (state.child_head === task.base_commit || state.status === 'integrated') {
         this.noteReservationBlocked(task.id, '没有尚未合入的提交；请继续工作或显式结束这条 Task');
         return false;
@@ -138,8 +148,10 @@ export default {
           if (request?.status !== 'requested') return 'next';
           const parent = this.store.task(parentId);
           check(parent.branch === task.target_branch, 'merge request target no longer matches its parent');
-          // Never rewrite a branch while its owner still has an invocation. Retry at its safe point.
-          if (this.running.has(parentId) || parent.status === 'running' || parent.status === 'queued'
+          // Never rewrite a branch while its owner still has an invocation. A queued
+          // owner is already held by the request's branch freeze: waiting for it to
+          // run would deadlock when an urgent message arrives during delivery.
+          if (this.running.has(parentId) || parent.status === 'running'
             || this.running.has(task.id)) return 'wait';
           let merger = this.store.get("SELECT * FROM tasks WHERE parent_id=? AND task_kind='merge' AND name='merge' ORDER BY id LIMIT 1", parentId);
           if (!merger) merger = this.store.transaction(() => {

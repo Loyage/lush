@@ -14,6 +14,193 @@ async function committedSay(f, name) {
   return say.task;
 }
 
+test('spawn reserves child delivery by default, waits for its safe point, and leaves say delivery to the user', async () => {
+  const pause = gate();
+  const f = fixture({ resolve() { return { agent: 'mock' }; }, async run({ task, cwd }) {
+    if (task.task_kind === 'child') {
+      fs.writeFileSync(path.join(cwd, 'auto.txt'), 'automatic\n');
+      await git(cwd, 'add', 'auto.txt'); await git(cwd, 'commit', '-m', 'automatic child');
+      await pause.promise;
+    }
+    return 'done';
+  } });
+  f.project.stopping = true; await repo(f.root);
+  try {
+    const say = await f.project.say('parent');
+    f.store.update(say.task.id, { status: 'waiting' });
+    const child = await f.project.spawn(say.task.id, 'automatic child');
+    expect(JSON.parse(child.reservation)).toMatchObject({ version: 2, kind: 'merge', status: 'pending' });
+    expect(f.store.task(say.task.id).reservation).toBeNull();
+    const baseline = await git(f.root, 'rev-parse', 'main');
+    const reserved = f.store.history(child.id).filter(event => event.type === 'task.reserved');
+    expect(reserved).toHaveLength(1);
+    expect(reserved[0].data.via).toBe('spawn');
+    f.project.stopping = false; f.project.kick();
+    await until(() => f.store.task(child.id).status === 'running');
+    expect(JSON.parse(f.store.task(child.id).reservation).status).toBe('pending');
+    expect(await git(say.task.workspace, 'rev-parse', 'HEAD')).toBe(baseline);
+    pause.resolve();
+    await until(() => f.store.task(child.id).integration === 'merged', 8000);
+    await until(() => f.store.task(say.task.id).calls === 1 && f.store.task(say.task.id).status === 'waiting');
+    expect(await git(say.task.workspace, 'show', 'HEAD:auto.txt')).toBe('automatic');
+    expect(await git(f.root, 'rev-parse', 'main')).toBe(baseline);
+    expect(f.store.task(say.task.id).reservation).toBeNull();
+    expect(f.store.task(child.id).parent_id).toBe(say.task.id);
+  } finally { pause.resolve(); await f.close(); }
+});
+
+test('automatic sibling deliveries batch the parent wake and repair divergence on the source', async () => {
+  const slow = gate(), slowStarted = gate();
+  let parentCalls = 0;
+  const f = fixture({ resolve() { return { agent: 'mock' }; }, async run({ task, cwd, messages, api }) {
+    if (task.task_kind === 'say') {
+      parentCalls++;
+      expect(api.store.children(task.id).filter(child => child.task_kind === 'child').every(child => child.integration === 'merged')).toBe(true);
+      return 'collected both children';
+    }
+    const instruction = messages.find(row => row.body.includes('合并分歧'));
+    if (instruction) {
+      await git(cwd, 'merge', '--no-edit', instruction.body.match(/[0-9a-f]{40}/)[0]);
+      return 'repaired';
+    }
+    fs.writeFileSync(path.join(cwd, `${task.name}.txt`), `${task.name}\n`);
+    await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', task.name);
+    if (task.name === 'slow') { slowStarted.resolve(); await slow.promise; }
+    return task.name;
+  } });
+  f.project.stopping = true; await repo(f.root);
+  try {
+    const say = await f.project.say('parent'); f.store.update(say.task.id, { status: 'waiting' });
+    const fast = await f.project.spawn(say.task.id, 'fast', undefined, [], 'fast');
+    const second = await f.project.spawn(say.task.id, 'slow', undefined, [], 'slow');
+    f.project.stopping = false; f.project.kick();
+    await slowStarted.promise;
+    await until(() => f.store.task(fast.id).integration === 'merged', 8000);
+    expect(parentCalls).toBe(0);
+    expect(f.project.hasActionableMessages(say.task.id)).toBe(false);
+    expect(f.store.task(say.task.id).status).toBe('waiting');
+    slow.resolve();
+    await until(() => f.store.task(second.id).integration === 'merged', 8000);
+    await until(() => parentCalls === 1 && f.store.task(say.task.id).status === 'waiting');
+    expect(f.store.task(second.id).calls).toBe(2);
+    expect(await git(say.task.workspace, 'show', 'HEAD:fast.txt')).toBe('fast');
+    expect(await git(say.task.workspace, 'show', 'HEAD:slow.txt')).toBe('slow');
+    expect(f.store.task(say.task.id).reservation).toBeNull();
+  } finally { slow.resolve(); await f.close(); }
+});
+
+test('nested delegated Tasks deliver bottom-up without reserving the user say', async () => {
+  let childId, grandchildId;
+  const f = fixture({ resolve() { return { agent: 'mock' }; }, async run({ task, cwd, api }) {
+    if (task.task_kind === 'say' && task.calls === 1) {
+      childId = (await api.spawn(task.id, 'child', undefined, [], 'child')).id;
+      return 'delegated';
+    }
+    if (task.name === 'child' && task.calls === 1) {
+      grandchildId = (await api.spawn(task.id, 'grandchild', undefined, [], 'grandchild')).id;
+      return 'delegated again';
+    }
+    if (task.name === 'grandchild') {
+      fs.writeFileSync(path.join(cwd, 'nested.txt'), 'nested\n');
+      await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', 'nested');
+    }
+    return 'done';
+  } });
+  await repo(f.root);
+  try {
+    const say = await f.project.say('nested parent');
+    await until(() => childId && f.store.task(childId).integration === 'merged', 10000);
+    await until(() => f.store.task(say.task.id).calls === 2 && f.store.task(say.task.id).status === 'waiting');
+    expect(f.store.task(grandchildId).integration).toBe('merged');
+    expect(await git(say.task.workspace, 'show', 'HEAD:nested.txt')).toBe('nested');
+    expect(f.store.task(say.task.id).reservation).toBeNull();
+    expect(await git(f.root, 'rev-list', '--count', 'main')).toBe('1');
+  } finally { await f.close(); }
+});
+
+test('a clean no-change child delivers its result without a merge commit', async () => {
+  const f = fixture({ resolve() { return { agent: 'mock' }; }, async run() { return 'research answer'; } });
+  f.project.stopping = true; await repo(f.root);
+  try {
+    const say = await f.project.say('parent'); f.store.update(say.task.id, { status: 'waiting' });
+    const child = await f.project.spawn(say.task.id, 'research');
+    const baseline = await git(f.root, 'rev-parse', 'main');
+    f.project.stopping = false; f.project.kick();
+    await until(() => f.store.task(child.id).status === 'completed');
+    await until(() => f.store.task(say.task.id).calls === 1 && f.store.task(say.task.id).status === 'waiting');
+    expect(f.store.task(child.id)).toMatchObject({ integration: 'none', result: 'research answer', reservation: null });
+    expect(await git(say.task.workspace, 'rev-parse', 'HEAD')).toBe(baseline);
+    expect(f.store.get("SELECT count(*) AS n FROM messages WHERE task_id=? AND signal_type='child.completed'", say.task.id).n).toBe(1);
+  } finally { await f.close(); }
+});
+
+test('an explicitly withdrawn child reservation is not recreated at its safe point', async () => {
+  const f = fixture({ resolve() { return { agent: 'mock' }; }, async run({ cwd }) {
+    fs.writeFileSync(path.join(cwd, 'held.txt'), 'held\n');
+    await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', 'held');
+    return 'held';
+  } });
+  f.project.stopping = true; await repo(f.root);
+  try {
+    const say = await f.project.say('parent'); f.store.update(say.task.id, { status: 'waiting' });
+    const child = await f.project.spawn(say.task.id, 'held');
+    f.project.unreserveTask(child.id);
+    const baseline = await git(f.root, 'rev-parse', 'main');
+    f.project.stopping = false; f.project.kick();
+    await until(() => f.store.task(child.id).status === 'waiting' && !f.project.running.has(child.id));
+    expect(f.store.task(child.id)).toMatchObject({ reservation: null, integration: 'pending' });
+    expect(await git(say.task.workspace, 'rev-parse', 'HEAD')).toBe(baseline);
+    expect(f.store.task(say.task.id).calls).toBe(0);
+  } finally { await f.close(); }
+});
+
+test('a child waiting for a user decision keeps its automatic merge pending until the answer is processed', async () => {
+  const f = fixture({ resolve() { return { agent: 'mock' }; }, async run({ task, cwd, api }) {
+    if (task.task_kind === 'child' && task.calls === 1) {
+      fs.writeFileSync(path.join(cwd, 'decision.txt'), 'decision\n');
+      await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', 'decision');
+      api.notice(task.id, 'confirm', 'need an answer');
+    }
+    return 'done';
+  } });
+  f.project.stopping = true; await repo(f.root);
+  try {
+    const say = await f.project.say('parent'); f.store.update(say.task.id, { status: 'waiting' });
+    const child = await f.project.spawn(say.task.id, 'decision');
+    const baseline = await git(f.root, 'rev-parse', 'main');
+    f.project.stopping = false; f.project.kick();
+    await until(() => f.store.task(child.id).status === 'awaiting' && !f.project.running.has(child.id));
+    expect(JSON.parse(f.store.task(child.id).reservation).status).toBe('pending');
+    expect(await git(say.task.workspace, 'rev-parse', 'HEAD')).toBe(baseline);
+    f.project.answer(f.store.get("SELECT id FROM notices WHERE task_id=? AND status='open'", child.id).id, 'yes');
+    await until(() => f.store.task(child.id).integration === 'merged', 8000);
+    expect(f.store.task(child.id).calls).toBe(2);
+  } finally { await f.close(); }
+});
+
+test('a failed sibling wakes the parent urgently without deadlocking an automatic merge request', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const say = await f.project.say('parent'); f.store.update(say.task.id, { status: 'waiting' });
+    const child = await f.project.spawn(say.task.id, 'ready');
+    const failed = await f.project.spawn(say.task.id, 'failed');
+    fs.writeFileSync(path.join(child.workspace, 'ready.txt'), 'ready\n');
+    await git(child.workspace, 'add', '.'); await git(child.workspace, 'commit', '-m', 'ready');
+    f.store.update(child.id, { status: 'waiting', result: 'done' });
+    await f.project.settleQueuedMerge(child.id);
+    f.project.finish(failed.id, 'failed', null, 'failed to implement');
+    expect(f.store.task(say.task.id).status).toBe('queued');
+    expect(f.project.hasActionableMessages(say.task.id)).toBe(true);
+    expect(f.project.branchFreeze(say.task.branch)?.task_id).toBe(child.id);
+    f.project.kick = () => {}; f.project.stopping = false;
+    await f.project.driveTaskMerge(say.task.id);
+    expect(f.store.task(child.id).integration).toBe('merged');
+    expect(f.store.task(failed.id).integration).toBe('none');
+    expect(f.project.branchFreeze(say.task.branch)).toBeNull();
+    expect(f.store.unread(say.task.id).some(row => row.signal_type === 'child.failed')).toBe(true);
+  } finally { await f.close(); }
+});
+
 test('idle say requests route through a reusable merge child, squash one commit and return the Task to its parent', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
