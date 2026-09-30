@@ -25,6 +25,19 @@ const taskBranchSql = alias => `COALESCE(${alias}.branch,
 
 const branchId = name => `branch:${name}`;
 
+/** 等待只是运行时状态，不是计划步骤；两种图共用与详情一致的完成度口径。 */
+function compactProgress(progress) {
+  if (!progress?.items?.length) return null;
+  const steps = progress.items.filter(item => item.kind !== 'wait');
+  const current = progress.items.find(item => item.status !== 'completed');
+  return { version: 1, total: steps.length,
+    completed: steps.filter(item => item.status === 'completed').length,
+    current: current ? { key: current.key, label: current.label, started_at: current.started_at,
+      kind: current.kind, work_ms: current.work_ms, active_since: current.active_since,
+      wait_ms: current.wait_ms, waiting_since: current.waiting_since } : null,
+    updated_at: progress.updated_at };
+}
+
 /** 汇总 status 里算「活动」的口径：任务还占着槽、等槽或等用户。 */
 const ACTIVE_STATUSES = new Set(['running', 'queued', 'waiting', 'awaiting']);
 /** 一句话标题的上限：超出截断加省略号，别让整段 goal 撑爆界面。 */
@@ -206,13 +219,9 @@ export default {
     const archivability = await this.branchArchivability(branchNames,
       { git: refsKnown, refs, current_branch: currentBranch, worktrees });
     const nodes = selected.map(({ goal, progress_plan, reservation, parent_branch, ...row }) => {
-      const view = this.progressView({ progress_plan, reservation }, runs.get(row.id) ?? []);
+      const view = this.progressView({ progress_plan, reservation, status: row.status }, runs.get(row.id) ?? []);
       const delivery = view.reservation;
-      const progress = view.progress;
-      const current = progress?.items?.find(item => item.status !== 'completed');
-      const plan = progress?.items?.length ? { total: progress.items.length,
-        completed: progress.items.filter(item => item.status === 'completed').length,
-        current: current ? { label: current.label, started_at: current.started_at } : null } : null;
+      const plan = compactProgress(view.progress);
       const notice = pending.get(row.id) ?? { count: 0, notice: null };
       const child = children.get(row.id) ?? { total: 0, active: 0 };
       const blockers = (dependencies.get(row.id) ?? []).filter(edge => !['completed','failed','cancelled'].includes(edge.status));
@@ -328,14 +337,7 @@ export default {
       }
       const pendingFor = taskId => pendingNotices.get(taskId) ?? { notice: null, count: 0 };
       // 分支诊断只需要横条所需的有界摘要，不把每个 task 最多 32 条的完整计划塞进 1 MiB graph 帧。
-      const progressFor = row => {
-        const progress = this.progressView(row, runs.get(row.id) ?? []).progress;
-        if (!progress) return null;
-        const completed = progress.items.filter(item => item.status === 'completed').length;
-        const current = progress.items.find(item => item.status !== 'completed') || null;
-        return { version: 1, completed, total: progress.items.length,
-          current: current ? { key: current.key, label: current.label, started_at: current.started_at } : null, updated_at: progress.updated_at };
-      };
+      const progressFor = row => compactProgress(this.progressView(row, runs.get(row.id) ?? []).progress);
 
       // 分支节点的「为什么 / 是什么 / 现在怎样」全部来自 store 已有事实，不额外写库：
       // inputs.anchor_branch 回答「因为哪条输入」，tasks.branch 回答「哪个任务」，

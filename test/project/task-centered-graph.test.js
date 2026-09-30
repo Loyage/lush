@@ -50,6 +50,46 @@ test('Task graph projects current Git diagnostics, compact progress, waiting and
   } finally { hold.resolve(); await f.close(); }
 });
 
+test('graph progress counts only planned work, including after all work finishes while waiting for signals', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const { task } = await f.project.say('four work milestones');
+    const now = Date.now(), at = offset => new Date(now + offset).toISOString();
+    const run = f.store.startRun(task);
+    f.store.run('UPDATE agent_runs SET started_at=?, ended_at=?, status=? WHERE id=?',
+      at(-60000), at(-50000), 'completed', run.id);
+    const resumed = f.store.startRun(task);
+    f.store.run('UPDATE agent_runs SET started_at=?, ended_at=?, status=? WHERE id=?',
+      at(-48000), at(-40000), 'completed', resumed.id);
+    const stored = { version: 1, updated_at: at(-41000), items: ['inspect', 'implement', 'test', 'commit'].map((key, index) => ({
+      key, label: key, status: 'completed', started_at: at(-59000 + index * 4000),
+      completed_at: at(-55000 + index * 4000), duration_ms: 4000,
+    })) };
+    for (const allDone of [true, false]) {
+      const plan = structuredClone(stored);
+      if (!allDone) Object.assign(plan.items[3], { status: 'pending', completed_at: null, duration_ms: null });
+      f.store.setProgressPlan(task.id, plan);
+      for (const status of ['waiting', 'awaiting', 'queued', 'completed', 'failed', 'cancelled']) {
+        f.store.update(task.id, { status });
+        const events = f.store.get('SELECT count(*) AS n FROM events').n;
+        const views = [await f.project.taskGraph(), await f.project.graph()];
+        for (const view of views) {
+          const progress = view.nodes.find(node => node.id === task.id).progress;
+          expect(progress).toMatchObject({ completed: allDone ? 4 : 3, total: 4 });
+          if (['waiting', 'awaiting', 'queued'].includes(status)) {
+            expect(progress.current).toMatchObject({ kind: 'wait', wait_ms: 2000 });
+            expect(progress.current.waiting_since).toBe(at(-40000));
+            expect(progress.current.label).toBe({ waiting: '等待子 Task 信号', awaiting: '等待你答复', queued: '排队等待调用槽' }[status]);
+          } else if (allDone) expect(progress.current).toBeNull();
+          else expect(progress.current).toMatchObject({ key: 'commit', kind: 'step', work_ms: 7000, active_since: null });
+        }
+        expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(events);
+        expect(JSON.parse(f.store.task(task.id).progress_plan)).toEqual(plan);
+      }
+    }
+  } finally { await f.close(); }
+});
+
 test('Task graph projects branch-level merge orchestration state read-only', async () => {
   const f = fixture({ run: async () => 'done' }); await repo(f.root);
   try {
