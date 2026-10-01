@@ -21,7 +21,7 @@ function field(label, control, note = '', wide = false) {
   return wrap;
 }
 
-/** 每行一个 NAME=value；后端会再校验变量名与保留前缀，这里只做最基本的切分。 */
+/** 每行一个 NAME=value；特殊值用 JSON 字符串保留换行、引号及首尾空白。后端仍校验变量名与保留前缀。 */
 export function parseEnvLines(text) {
   const values = {};
   for (const raw of String(text ?? '').split('\n')) {
@@ -29,11 +29,15 @@ export function parseEnvLines(text) {
     if (!line || line.startsWith('#')) continue;
     const at = line.indexOf('=');
     if (at <= 0) throw new Error(`环境变量必须是 NAME=value：${line}`);
-    values[line.slice(0, at).trim()] = line.slice(at + 1);
+    const value = line.slice(at + 1);
+    values[line.slice(0, at).trim()] = value.startsWith('"') ? JSON.parse(value) : value;
   }
   return values;
 }
-const envLines = values => Object.entries(values || {}).map(([name, value]) => `${name}=${value}`).join('\n');
+const envLines = values => Object.entries(values || {}).map(([name, value]) => {
+  const encoded = /[\r\n]/.test(value) || value.trim() !== value || value.startsWith('"') ? JSON.stringify(value) : value;
+  return `${name}=${encoded}`;
+}).join('\n');
 
 function resourceGroup(title, entries, selected, kind, enabled) {
   const group = el('fieldset', undefined, 'retry-resource-group');
@@ -72,6 +76,13 @@ async function profileDialog(task, options) {
   try {
     const settings = await api('/api/agent/config');
     const { role, profile } = roleProfile(settings, task.role);
+    // agent.json does not contain the env-file layers. Match invocation precedence:
+    // common env < role env < profile env. Do not silently open an incomplete form on read failure.
+    const [commonEnv, roleEnv] = await Promise.all([
+      api('/api/agent/environment?target=common'),
+      api(`/api/agent/environment?target=${encodeURIComponent(role)}`),
+    ]);
+    profile.env = { ...commonEnv.values, ...roleEnv.values, ...(profile.env || {}) };
     const builtInPrompt = settings.options?.default_prompts?.[role] || settings.options?.default_prompt || '';
     const selectedExtensions = new Set(profile.extensions || []);
     const selectedSkills = new Set(profile.skills || []);
@@ -118,8 +129,8 @@ async function profileDialog(task, options) {
     const envBox = el('div', undefined, 'retry-env-box');
     const env = el('textarea'); env.rows = 4; env.maxLength = 16384;
     env.value = envLines(profile.env); env.dataset.retryField = 'env';
-    env.placeholder = 'NAME=value，每行一个；留空则不覆盖角色环境变量';
-    const envNote = el('span', '只在本轮覆盖 common 与角色的 Pi 环境变量；NAME 不能以 LUSH_ 开头，值不要带换行。', 'settings-note');
+    env.placeholder = 'NAME=value，每行一个；特殊值可用 JSON 字符串';
+    const envNote = el('span', '已加载公共与角色环境变量，角色同名值优先；保存后只在本任务覆盖。NAME 不能以 LUSH_ 开头，含换行的值使用 JSON 字符串。', 'settings-note');
     envBox.append(env, envNote);
 
     const resourcesBox = el('div', undefined, 'retry-resources');
@@ -173,7 +184,22 @@ async function profileDialog(task, options) {
       field('追加 Prompt', appendPrompt, '追加在基础 Prompt 与项目补充之后，仅本轮运行生效。', true),
       field('Pi 环境变量', envBox, '每行一个 NAME=value，仅本轮运行覆盖；留空表示沿用角色设置。', true),
       field('扩展与 Skills', resourcesBox, '保留当前角色配置，可按本轮需要增删。', true));
-    form.append(grid, el('p', '确认后，所选完整 Profile 会固定到这个任务，直到它再次完成、失败或取消。', 'retry-scope-note'));
+    const defaultsTools = el('div', undefined, 'retry-prompt-tools');
+    const restoreDefaults = button('加载默认参数', () => {
+      backend.value = inheritedBackend ? profile.agent : availableAgents[0];
+      model.value = inheritedBackend ? (profile.model || '') : '';
+      budgetResponses.value = String(profile.soft_budget?.responses ?? '');
+      budgetTokens.value = String(profile.soft_budget?.tokens ?? '');
+      defaultPrompt.value = profile.default_prompt || builtInPrompt;
+      appendPrompt.value = profile.append_prompt || '';
+      env.value = envLines(profile.env);
+      selectedExtensions.clear(); selectedSkills.clear();
+      for (const id of profile.extensions || []) selectedExtensions.add(id);
+      for (const id of profile.skills || []) selectedSkills.add(id);
+      syncPromptState(); syncBackend(false);
+    }, 'ghost', { help: '用打开面板时读取的项目与角色默认参数替换表单中全部改动（含环境变量）；不保存、不启动 Agent。' });
+    restoreDefaults.type = 'button'; defaultsTools.append(restoreDefaults);
+    form.append(defaultsTools, grid, el('p', '确认后，所选完整 Profile 会固定到这个任务，直到它再次完成、失败或取消。', 'retry-scope-note'));
 
     try { resources = await api('/api/agent/resources'); }
     catch (error) { resources = { extensions: [], skills: [], warning: `资源目录读取失败：${error.message}` }; }
