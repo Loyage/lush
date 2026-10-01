@@ -36,6 +36,8 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 | `GET /api/task-graph` | Task 父子读面（`task.graph`） |
 | `GET /api/agent/config` | `agent.config` |
 | `GET /api/agent/status` | 用户专属 `agent.status {}`，当前项目 Pi 安装、模型目录、资源、脱敏账号与可查询余额/额度；仅进入页面和手动刷新时读取，详见 [Agent 状态](rpc/agents.md) |
+| `GET /api/agent/usage/config` | 用户专属 `agent.usage.config {}`；声明式查询模板与采样设置，见 [Agent 状态](rpc/agents.md) |
+| `GET /api/agent/usage/history?provider=&account_key=&days=` | 用户专属 `agent.usage.history`，只读本地脱敏缓存；days 为 1/7/30/90，不访问上游 |
 | `GET /api/agent/models?agent=pi\|codex` | 按需读取所选本机 CLI 当前可用模型目录；失败时带预设与 warning 回退 |
 | `GET /api/agent/resources` | 不执行资源代码地读取当前用户和项目已安装的 Pi 扩展、Skills 与 package 资源 |
 | `GET /api/agent/environment?target=common\|ROLE` | 按需读取公共或单角色 env 文件，包含明文值；底层 `agent.environment` 为用户专属，公网模式必须先登录，页面默认遮罩 |
@@ -57,6 +59,6 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 ## 用户动作
 
-`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`system.configure`、`say.submit`、`task.spawn`、`task.message`、`task.reserve`、`task.reserve_all`、`task.accept`、`task.reopen`、`task.sync_parent`、`task.resolve_sync`、`task.resolve`、`task.resolve_divergence`、`task.unreserve`、`task.approve_merge`、`task.cancel`、`task.retry`、`task.interrupt`、`task.resume`、`task.configure`、`task.cleanup`、`notice.answer`、`notice.dismiss`、`notice.read`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。
+`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`agent.usage.configure`、`system.configure`、`say.submit`、`task.spawn`、`task.message`、`task.reserve`、`task.reserve_all`、`task.accept`、`task.reopen`、`task.sync_parent`、`task.resolve_sync`、`task.resolve`、`task.resolve_divergence`、`task.unreserve`、`task.approve_merge`、`task.cancel`、`task.retry`、`task.interrupt`、`task.resume`、`task.configure`、`task.cleanup`、`notice.answer`、`notice.dismiss`、`notice.read`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。
 
 任何不在上述白名单的写入（含已下线的草稿、Candidate 验收、托管模式、展示、介绍与旧合并入口）都不再提供 Web 操作。

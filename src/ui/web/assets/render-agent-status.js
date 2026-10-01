@@ -2,6 +2,7 @@ import { $, block, button, el, kv } from './dom.js';
 import { api } from './api.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
+import { createAgentUsage } from './render-agent-usage.js';
 
 const REFRESH_HELP = '重新读取当前项目 Pi 的安装、模型、账号及可查询余额；可能访问服务商账户接口，不启动 Agent 或模型调用。';
 const list = value => Array.isArray(value) ? value : [];
@@ -45,6 +46,8 @@ function balanceSection(balance = {}) {
       entry.append(el('p', `剩余 ${amount(item.remaining)} ${unit}`, 'agent-status-amount'));
       if (item.total !== null && item.total !== undefined) note(entry, `总额 ${amount(item.total)} ${unit}`);
       if (item.used !== null && item.used !== undefined) note(entry, `已使用 ${amount(item.used)} ${unit}`);
+      if (item.window_seconds) note(entry, `额度窗口：${item.window_seconds} 秒`);
+      if (item.reset_at) note(entry, `重置时间：${item.reset_at}`);
       root.append(entry);
     }
   }
@@ -67,7 +70,15 @@ function accountsSection(data) {
       kv('凭证状态', accountStates[account.status] || text(account.status)),
       kv('凭证来源', text(account.source)));
     if (account.expires_at) grid.append(kv('凭证到期时间', account.expires_at));
-    card.append(grid, balanceSection(account.balance || {})); cards.append(card);
+    card.append(grid, balanceSection(account.balance || {}));
+    const previous = account.last_success;
+    if (account.balance?.status !== 'available' && previous?.balance?.status === 'available') {
+      const stale = el('div', undefined, 'agent-status-last-success');
+      const checkedAt = previous.checked_at || previous.balance.checked_at;
+      note(stale, `最后成功查询：${text(checkedAt, '时间未知')}。以下为缓存旧值，并非最新状态；本次查询失败 / 未取得新数值。`, true);
+      stale.append(balanceSection({ ...previous.balance, checked_at: checkedAt || null })); card.append(stale);
+    }
+    cards.append(card);
   }
   section.append(cards);
   return section;
@@ -162,14 +173,16 @@ export function openAgentStatus() {
   if (ui.agentStatusPage?.view === view) return ui.agentStatusPage.pending || Promise.resolve();
   const page = el('div', undefined, 'agent-status-page');
   const header = el('header', undefined, 'agent-status-head'), copy = el('div');
-  copy.append(el('h1', 'Agent 状态'), el('p', 'Pi 安装、模型、账号与可查询余额。进入页面时查询，也可手动刷新；不自动轮询，不调用模型。', 'hint'));
+  copy.append(el('h1', 'Agent 状态'), el('p', 'Pi 安装、模型、账号、余额与额度历史。进入页面和手动刷新时查询并缓存；页面不自动轮询，可在下方启用后台采样，不调用模型。', 'hint'));
   const feedback = el('p', undefined, 'hint agent-status-feedback'); feedback.setAttribute('role', 'status');
   const result = el('div');
   const state = { view, pending: null, data: null }; ui.agentStatusPage = state;
   const ownsPage = () => ui.view === view && ui.agentStatusPage === state;
+  const usage = createAgentUsage({ ownsPage }); usage.node.hidden = true;
   const load = () => {
     if (!ownsPage()) return Promise.resolve();
     if (state.pending) return state.pending;
+    const configRevision = usage.configRevision();
     refresh.disabled = true; refresh.textContent = '正在查询…'; feedback.textContent = '正在读取 Pi 状态…';
     feedback.className = 'hint agent-status-feedback'; feedback.setAttribute('role', 'status'); page.setAttribute('aria-busy', 'true');
     state.pending = (async () => {
@@ -178,11 +191,16 @@ export function openAgentStatus() {
         if (!ownsPage()) return;
         if (data?.version !== 1 || data.agent !== 'pi') throw new Error('Agent 状态数据格式不兼容，请更新项目后台与界面服务。');
         const content = renderAgentStatus(data);
-        state.data = data; result.replaceChildren(content); feedback.textContent = '查询完成；信息不会自动刷新。';
+        state.data = data; result.replaceChildren(content); feedback.textContent = '查询完成，结果已缓存；页面信息不会自动刷新。';
+        usage.node.hidden = false;
+        await usage.update(data, configRevision);
       } catch (error) {
         if (!ownsPage()) return;
         feedback.textContent = `查询失败：${error.message}${state.data ? '。以下保留上次查询结果，并非最新状态。' : ''}`;
         feedback.className = 'agent-status-warning agent-status-feedback'; feedback.setAttribute('role', 'alert');
+        // Historical observations and query settings must remain accessible even if live discovery fails.
+        usage.node.hidden = false;
+        await usage.update(state.data || {}, configRevision);
       } finally {
         state.pending = null;
         if (ownsPage()) { refresh.disabled = false; refresh.textContent = state.data ? '刷新状态' : '重新查询'; page.setAttribute('aria-busy', 'false'); }
@@ -192,6 +210,6 @@ export function openAgentStatus() {
   };
   const refreshHost = el('span', undefined, 'help-host'); refreshHost.setAttribute('data-help', REFRESH_HELP);
   const refresh = button('刷新状态', load, 'agent-status-refresh', { help: REFRESH_HELP });
-  refreshHost.append(refresh); header.append(copy, refreshHost); page.append(header, feedback, result); $('detail').replaceChildren(page);
+  refreshHost.append(refresh); header.append(copy, refreshHost); page.append(header, feedback, result, usage.node); $('detail').replaceChildren(page);
   return load();
 }

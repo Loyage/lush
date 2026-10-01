@@ -6,9 +6,10 @@ import { agentEnvironment } from './environment.js';
 import { MODEL_PRESETS } from './settings.js';
 import { discoverAgentResources } from './resources.js';
 import { resolvePiInstallation, statusCommand } from './status-command.js';
-import { readStatusJson, readPiAccounts, queryAccountBalance } from './status-accounts.js';
+import { readStatusJson, readPiAccounts, usageDigest } from './status-accounts.js';
+import { runUsageQueries } from './usage-query-run.js';
 
-const flights = new WeakMap();
+const flights = new WeakMap(), usageFlights = new WeakMap();
 const helper = fileURLToPath(new URL('./status-pi.js', import.meta.url));
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const text = (value, max = 500) => typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, '').slice(0, max) : null;
@@ -87,7 +88,7 @@ function projectPath(value, project, home = os.homedir()) {
   if (value === '~' || value.startsWith('~/')) return path.join(home, value.slice(2));
   return path.resolve(project, value);
 }
-async function status(config, profile, options) {
+function statusContext(config, profile) {
   const warnings = [], checked_at = new Date().toISOString();
   let env = { ...config.env };
   try { env = { ...env, ...agentEnvironment(config, 'agent').values, ...(profile.env || {}) }; }
@@ -96,7 +97,7 @@ async function status(config, profile, options) {
   for (const key of Object.keys(env)) if (key === 'LUSH_AGENT_TOKEN' || key === 'LUSH_TASK_ID' || key.startsWith('PI_SESSION')
     || ['PI_PROVIDER', 'PI_MODEL', 'PI_REASONING_LEVEL', 'LUSH_RUNTIME_CONTEXT'].includes(key)) delete env[key];
   env.PI_OFFLINE = '1'; env.PI_SKIP_VERSION_CHECK = '1';
-  const queryConfig = { ...config, env }, installation = resolvePiInstallation(queryConfig);
+  const queryConfig = { ...config, env };
   const homeDir = env.HOME || os.homedir();
   const config_dir = projectPath(env.PI_CODING_AGENT_DIR || path.join(homeDir, '.pi', 'agent'), config.project, homeDir);
   env.PI_CODING_AGENT_DIR = config_dir;
@@ -108,6 +109,12 @@ async function status(config, profile, options) {
   const currentProvider = env.LUSH_PI_PROVIDER || (model?.includes('/') ? model.split('/')[0] : null)
     || projectSettings?.defaultProvider || globalSettings?.defaultProvider;
   const { accounts, keys } = readPiAccounts(config_dir, env, modelsConfig, warnings, currentProvider, checked_at);
+  return { warnings, checked_at, env, queryConfig, config_dir, modelsConfig, globalSettings, projectSettings, model, currentProvider, accounts, keys, homeDir };
+}
+async function status(config, profile, options, context) {
+  const { warnings, checked_at, env, queryConfig, config_dir, modelsConfig, globalSettings, projectSettings, model, currentProvider, homeDir } = context;
+  const installation = resolvePiInstallation(queryConfig);
+  const usagePromise = usageFlight(config, profile, options, context);
   const metadataPromise = localPiMetadata(installation, queryConfig, config_dir, modelsConfig, globalSettings, projectSettings).catch(() => null);
   let version = null, runtimeWarning = null;
   const versionPromise = (async () => {
@@ -118,14 +125,8 @@ async function status(config, profile, options) {
       version = output;
     } catch { runtimeWarning = '无法查询当前配置的 Pi 命令版本；程序未安装、命令不可用或输出无效。'; }
   })();
-  // Only a configured provider of the current profile is queried remotely, never every saved account on opening a page.
-  const balancePromise = Promise.all(accounts.map(async account => {
-    if (account.provider === currentProvider && keys.has(account.provider) && ['openrouter', 'deepseek'].includes(account.provider))
-      account.balance = await queryAccountBalance(account.provider, keys.get(account.provider), checked_at, options);
-    else if (keys.has(account.provider) && ['openrouter', 'deepseek'].includes(account.provider))
-      account.balance.reason = '此账号不是当前 Agent 配置的服务商，本次未联网查询余额/额度。';
-  }));
-  const metadata = await metadataPromise;
+  const [metadata, usage] = await Promise.all([metadataPromise, usagePromise]);
+  const accounts = usage.accounts;
   const eligible = new Set(accounts.filter(account => account.status === 'configured').map(account => account.provider));
   let models;
   if (Array.isArray(metadata?.models)) {
@@ -167,17 +168,33 @@ async function status(config, profile, options) {
     modelBytes += size; safeModels.push(item);
   }
   models.models = safeModels;
-  await Promise.all([versionPromise, balancePromise]);
-  return { version: 1, agent: 'pi', checked_at,
+  await versionPromise;
+  return { version: 1, agent: 'pi', query_id: usage.query_id, checked_at: usage.checked_at, current_provider: currentProvider,
     scope: { project: config.project, role: 'agent', note: '当前项目 daemon 的 Pi 安装与公共/agent 角色配置；不是浏览器本机，也不是某次 invocation 的实况。账号状态是本地凭证信息，未联网验证登录。' },
     runtime: { command: installation.command, executable: installation.executable, real_path: installation.real_path, version, config_dir,
       backend: profile.agent || config.provider || null, model, warning: runtimeWarning },
     models, resources, accounts, warnings };
 }
 
-/** Shared concurrent requests only, not a stale cache. Each explicit refresh reads current files. */
+function flight(map, config, profile, options, context, run) {
+  // Hot-read config/env/credentials participate in identity, but only their digest is retained.
+  const identities = context.accounts.map(({ balance, ...account }) => account);
+  const key = usageDigest([profile, context.env, context.modelsConfig, context.globalSettings, context.projectSettings,
+    identities, [...context.keys], options.usageConfig || null, options.timeout || null]);
+  let entries = map.get(config); if (!entries) { entries = new Map(); map.set(config, entries); }
+  if (entries.has(key)) return entries.get(key);
+  const pending = run().finally(() => { if (entries.get(key) === pending) entries.delete(key); });
+  entries.set(key, pending); return pending;
+}
+function usageFlight(config, profile, options, context) {
+  return flight(usageFlights, config, profile, options, context, () => runUsageQueries(context, options));
+}
+/** Lightweight account-only query: no Pi executable, SDK, plugins, model calls or OAuth refresh. */
+export function discoverAgentUsage(config, profile, options = {}) {
+  return usageFlight(config, profile, options, statusContext(config, profile));
+}
+/** Concurrent identical queries share work; new file/config state never reuses a stale request. */
 export function discoverAgentStatus(config, profile, options = {}) {
-  if (flights.has(config)) return flights.get(config);
-  const pending = status(config, profile, options).finally(() => { if (flights.get(config) === pending) flights.delete(config); });
-  flights.set(config, pending); return pending;
+  const context = statusContext(config, profile);
+  return flight(flights, config, profile, options, context, () => status(config, profile, options, context));
 }

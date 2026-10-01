@@ -68,16 +68,19 @@
 
 ## Agent 状态只读查询接缝
 
-新增平级页面 `#agent-status`（其他分组，标题「Agent 状态」）。仅进入页面与手动刷新时读取用户专属 `agent.status` / `GET /api/agent/status`，不纳入 overview 或后台轮询，不启动模型调用。数据来自当前项目 daemon 的 Pi 命令与公共 + `agent` 角色环境，明确不是浏览器本机或某个已运行 invocation 的状态。
+用量扩展的完整字段与文件契约见 [Agent 额度查询与历史曲线](agent-usage.md)，操作说明见 [Agent 状态](../reference/rpc/agents.md)。
 
-读模型 version 1：`{version:1, agent:'pi', checked_at, scope, runtime, models, resources, accounts, warnings}`。
+平级页面 `#agent-status`（其他分组，标题「Agent 状态」）。进入页面与手动刷新时读取用户专属 `agent.status` / `GET /api/agent/status`，不纳入 overview 或页面轮询，不启动模型调用。可显式启用 daemon 轻量定时采样，默认关闭、间隔 5 分钟、历史保留 90 天。数据来自当前项目 daemon 的 Pi 命令与公共 + `agent` 角色环境，明确不是浏览器本机或某个已运行 invocation 的状态。
+
+读模型 version 1：`{version:1, agent:'pi', query_id, checked_at, current_provider, scope, runtime, models, resources, accounts, warnings, usage_config}`。
 - `scope:{project, role:'agent', note}`；`runtime:{command, executable, real_path, version, config_dir, backend, model, warning}`，读取失败字段为 null 而不伪造。
 - `models` 沿用模型目录读模型 `{agent,source,models,warning}`；状态页安全读取 SDK 本地元数据并按本地凭证匹配，source 为 `local`，不加载扩展动态模型、不联网验证可用性；安装不支持时回退 `presets`，预设不能冒充实际可用模型。不能直接对真实配置运行可能执行密钥命令或刷新 OAuth 的 `--list-models`。
 - `resources` 沿用扩展/Skills 目录并提供 `packages:[{source,root}]`；包声明不代表已安装，未发现安装路径时 root 为 null。目录仅说明安装/发现，不宣称扩展已加载。
 - `accounts:[{provider,auth_type,source,identity,status,expires_at,balance}]`；`identity` 已在服务端脱敏，`status` 说明本地凭证配置/过期/未知，不把存在凭证当作已联网验证登录。`balance:{status,kind,items,reason,checked_at}`，status 为 `available|unsupported|unconfigured|error`，kind 为 `balance|quota|null`；items 为安全白名单 `{label,remaining,total,used,unit}`（数值不可得用 null）。余额与额度不可互换，未知不可写成零。
-- 凭证、原始 auth/models 配置、完整 CLI stderr 和上游响应永不返回。官方余额接口只对已配置账号调用，固定服务商 HTTPS 地址、不跟重定向、有界大小/超时；没有可靠官方接口明确 unsupported，不通过模型调用探测。不执行配置中的密钥命令，不隐式刷新或改写 OAuth 凭证。
+- 账号增加匿名 `account_key`，失败可带 `last_success` 旧值及时间；balance 增加 `queried/error_code`，items 增加 `id/reset_at/window_seconds`。默认仅当前服务商，可显式选择多服务商；内置 DeepSeek/OpenRouter/Codex/Z.AI/Kimi，Codex 明确标注网页后端兼容性风险，其他可配置 HTTPS 请求与字段映射。
+- 凭证、原始 auth/models 配置、完整 CLI stderr 和上游响应永不返回。请求不跟重定向、有界大小/超时；自定义查询只向用户配置目标发送显式环境引用，不自动转发 Pi 凭证。不通过模型调用探测，不执行密钥命令，不刷新或改写 OAuth。项目 SQLite 留存安全采样，历史读面有界且标明降采样，不把失败/缺失填成零。
 
-后端职责在 `src/agent/status.js`、`src/core/project/agents.js` 与 RPC handler；Web server 仅转发。前端职责在 `render-agent-status.js`，复用唯一页面身份与项目路由前缀，迟到响应不能覆盖新页面。细表分别见 Runtime、Web 与 CLI/RPC 分章。
+后端职责在 `src/agent/status.js`、`usage-query*.js`、`usage-settings.js`、`src/core/agent-usage.js`、Store 用量 mixin 与 Project/RPC handler；Web server 仅转发。新增用户专属 `agent.usage.config/configure/history`，前端由 `render-agent-status.js`、`render-agent-usage.js` 与 `agent-usage-form.js` 协作，复用唯一页面身份与项目路由前缀，迟到响应不能覆盖新页面。细表分别见 Runtime、Web 与 CLI/RPC 分章。
 
 ## 页面导航与全类型 Task 列表
 

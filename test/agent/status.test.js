@@ -2,7 +2,9 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { discoverAgentStatus } from '../../src/agent/status.js';
+import { discoverAgentStatus as queryStatus } from '../../src/agent/status.js';
+// Never send fixture OAuth/API credentials over the network, even in discovery-only tests.
+const discoverAgentStatus = (config, profile, options = {}) => queryStatus(config, profile, { fetch: async () => new Response('', { status: 401 }), ...options });
 import { queryAccountBalance } from '../../src/agent/status-accounts.js';
 
 function json(file, value) {
@@ -67,7 +69,7 @@ test('status reads the configured Pi installation, SDK metadata and resources wi
     f.config.env.DEEPSEEK_API_KEY = 'DEEPSEEK_SECRET';
     const authFile = path.join(f.configDir, 'auth.json'), before = fs.readFileSync(authFile, 'utf8');
     let queries = 0;
-    const value = await discoverAgentStatus(f.config, f.profile, { fetch() { queries++; throw new Error('Should not query non-current accounts'); } });
+    const value = await discoverAgentStatus(f.config, f.profile, { fetch(url) { queries++; expect(url).toBe('https://chatgpt.com/backend-api/wham/usage'); throw new Error('SECRET'); } });
     expect(value.runtime).toMatchObject({ version: '9.1.2', command: f.config.env.LUSH_PI_COMMAND, real_path: f.config.env.LUSH_PI_COMMAND, config_dir: f.configDir, backend: 'pi' });
     expect(value.scope).toMatchObject({ role: 'agent', project: f.root });
     expect(value.models.source).toBe('local');
@@ -77,10 +79,10 @@ test('status reads the configured Pi installation, SDK metadata and resources wi
     expect(value.resources.extensions[0].id).toBe(plugin);
     expect(value.resources.skills[0].label).toBe('hello');
     const account = value.accounts.find(item => item.provider === 'openai-codex');
-    expect(account).toMatchObject({ auth_type: 'oauth', identity: 'p***@***', status: 'configured', source: 'auth.json', balance: { status: 'unsupported', items: [], kind: null } });
+    expect(account).toMatchObject({ auth_type: 'oauth', identity: 'p***@***', status: 'configured', source: 'auth.json', balance: { status: 'error', items: [], kind: null, queried: true, error_code: 'network' } });
     expect(value.accounts.find(item => item.provider === 'anthropic').status).toBe('expired');
     expect(value.accounts.find(item => item.provider === 'custom-proxy').status).toBe('unknown');
-    expect(queries).toBe(0);
+    expect(queries).toBe(1);
     expect(JSON.stringify(value)).not.toContain('SECRET'); expect(JSON.stringify(value)).not.toContain('person@example.com');
     expect(fs.readFileSync(authFile, 'utf8')).toBe(before);
     expect(fs.existsSync(authFile + '.lock')).toBe(false);

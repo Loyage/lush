@@ -74,7 +74,7 @@
 | 桌面连接 | `test/desktop/{connections,runtime,local-host,connection-ui}.test.js`（地址 / 持久化 / 模拟 Electron 安全与窗口 / 真实临时 Host 生命周期 / 连接页 DOM） |
 | Notice 记录与提醒 | `test/project/{notice-page,notice-info,lifecycle-notice,questionnaire}.test.js`、`test/web/{notice-records,notice-notifications,lifecycle-notice-api,questionnaire}.test.js` |
 | 执行过程阅读 | `test/transcript*.test.js`、`test/web/{transcript-reader,dom-transcript-reader,dom-transcript-view,dom-results}.test.js` |
-| Agent 状态 | `test/agent/status.test.js`（fake Pi SDK、凭证不执行/不刷新、身份脱敏与官方余额 mock）、`test/web/agent-status-api.test.js`（RPC/HTTP 用户鉴权与项目路由） |
+| Agent 状态 | `test/agent/{status,usage-query,usage-settings}.test.js`（fake Pi SDK、凭证不执行/不刷新、脱敏身份、内置/HTTP mock 查询和安全设置）、`test/project/{agent-usage,agent-usage-provider}.test.js`（存储/定时采样/热更新/有界历史/联调）、`test/web/{agent-status-api,agent-usage-api,dom-agent-status,dom-agent-usage}.test.js`（用户鉴权/项目路由、配置表单/缓存曲线/异步状态） |
 | 运行设置与 Agent | `test/runtime-settings.test.js`、`test/config*.test.js`、`test/agent-settings.test.js`、`test/soft-budget.test.js` |
 | 文档 | `test/docs-check.test.js`、`test/docs-search.test.js`、`test/markdown.test.js`、`test/mermaid-docs.test.js`、`test/web/docs.test.js` |
 | 历史遗留（内部实现仍在，无公开入口） | `test/drafts/**`、`test/project/{intent-layer,plan-gate,specs-queue,candidates,analysis,explanations,intro,sleep,verification-evidence}.test.js`、`test/{candidate-cli,sleep-cli,merge-all,orchestrate,verify,task-clear,task-delete,usage-*}.test.js` 及其 `test/web/*` 对应文件；它们验证的是历史兼容与内存实现，不能当作公开能力 |

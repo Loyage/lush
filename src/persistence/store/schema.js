@@ -3,6 +3,31 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       -- Keep schema creation atomic and avoid an fsync for each CREATE on a new project.
       BEGIN;
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      -- Sanitized project-local account observations; technical cache, not task facts.
+      CREATE TABLE IF NOT EXISTS agent_usage_queries (
+        id INTEGER PRIMARY KEY, query_key TEXT NOT NULL UNIQUE,
+        provider TEXT NOT NULL, account_key TEXT NOT NULL, source_key TEXT NOT NULL,
+        checked_at TEXT NOT NULL, status TEXT NOT NULL, error_code TEXT, payload TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS agent_usage_queries_account_time
+        ON agent_usage_queries(provider,account_key,source_key,checked_at DESC);
+      CREATE INDEX IF NOT EXISTS agent_usage_queries_time ON agent_usage_queries(checked_at);
+      CREATE INDEX IF NOT EXISTS agent_usage_queries_success ON agent_usage_queries(provider,account_key,source_key,checked_at DESC)
+        WHERE status='available';
+      CREATE TABLE IF NOT EXISTS agent_usage_series (
+        id TEXT PRIMARY KEY, provider TEXT NOT NULL, account_key TEXT NOT NULL, source_key TEXT NOT NULL,
+        metric_id TEXT NOT NULL, kind TEXT, label TEXT NOT NULL, unit TEXT, window_seconds INTEGER,
+        last_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS agent_usage_series_account
+        ON agent_usage_series(provider,account_key,source_key,last_at DESC);
+      CREATE INDEX IF NOT EXISTS agent_usage_series_time ON agent_usage_series(last_at DESC);
+      CREATE TABLE IF NOT EXISTS agent_usage_points (
+        series_id TEXT NOT NULL REFERENCES agent_usage_series(id) ON DELETE CASCADE,
+        query_id INTEGER NOT NULL REFERENCES agent_usage_queries(id) ON DELETE CASCADE,
+        checked_at TEXT NOT NULL, remaining REAL, total REAL, used REAL,
+        status TEXT NOT NULL, reset_at TEXT, error_code TEXT,
+        PRIMARY KEY (series_id,query_id));
+      CREATE INDEX IF NOT EXISTS agent_usage_points_time ON agent_usage_points(series_id,checked_at DESC,query_id DESC);
+      CREATE INDEX IF NOT EXISTS agent_usage_points_query ON agent_usage_points(query_id);
       -- anchor_* 为兼容旧库保留名称：它们表示可推进的输入聚合分支 / 初始 commit / worktree / 用户指定父分支。
       -- planner 在该 worktree 解析；普通 worker 以 anchor_commit 为冻结基线，并以 anchor_branch 为直接父分支。
       CREATE TABLE IF NOT EXISTS inputs (

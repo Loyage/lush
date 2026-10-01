@@ -1,5 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { USAGE_ENDPOINTS, unavailableBalance } from './usage-query.js';
+export { queryAccountBalance } from './usage-query.js';
 
 const MAX_JSON = 512 * 1024;
 const providerName = value => typeof value === 'string' && /^[a-z][a-z0-9_-]{0,79}$/i.test(value);
@@ -68,8 +71,14 @@ function identity(credential) {
     return masked(claims.email) || masked(claims['https://api.openai.com/auth']?.chatgpt_account_id);
   } catch { return null; }
 }
-function unavailableBalance(status, reason, checked_at) {
-  return { status, kind: null, items: [], reason, checked_at };
+export const usageDigest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+function stableIdentity(credential) {
+  if (!object(credential)) return null;
+  let claims;
+  try { claims = JSON.parse(Buffer.from(credential.access?.split('.')[1] || '', 'base64url').toString('utf8')); } catch {}
+  for (const value of [credential.accountId, claims?.['https://api.openai.com/auth']?.chatgpt_account_id, credential.email, claims?.email])
+    if (typeof value === 'string' && value.length > 0 && value.length < 1024) return value;
+  return null;
 }
 
 /** Private keys are kept in a separate map which must never become the RPC result. */
@@ -99,66 +108,20 @@ export function readPiAccounts(configDir, env, modelsConfig, warnings, currentPr
       if (name) { source = 'environment'; auth_type = 'api_key'; key = resolveKey(env[name], {}); status = key ? 'configured' : 'unknown'; }
     }
     // Do not send a proxy's key to the provider's official host just because its provider ID matches.
+    if (auth_type === 'oauth' && status === 'configured' && provider === 'openai-codex') key = resolveKey(credential.access, {});
     const baseUrl = custom?.baseUrl;
-    const officialOrigin = provider === 'deepseek' ? 'https://api.deepseek.com' : provider === 'openrouter' ? 'https://openrouter.ai' : null;
+    const officialOrigin = USAGE_ENDPOINTS[provider] ? new URL(USAGE_ENDPOINTS[provider]).origin : null;
     let official = modelsConfig !== null && baseUrl === undefined;
     if (modelsConfig !== null && typeof baseUrl === 'string') { try { const url = new URL(baseUrl); official = url.origin === officialOrigin && !url.username && !url.password; } catch {} }
-    if (key && official) keys.set(provider, key);
-    let balance = unavailableBalance('unsupported', provider === 'openai-codex'
-      ? 'ChatGPT/Codex 订阅没有可靠的公开余额/额度查询接口；订阅额度不等于现金余额。'
-      : '此服务商尚无已接入的可靠官方余额/额度查询接口。', checkedAt);
+    if (key && official && (provider !== 'openai-codex' || auth_type === 'oauth')) keys.set(provider, key);
+    let balance = unavailableBalance('unsupported', '此服务商尚无已接入的余额/额度查询接口。', checkedAt);
     if (status === 'unconfigured') balance = unavailableBalance('unconfigured', '未配置此服务商凭证。', checkedAt);
     else if (status === 'expired') balance = unavailableBalance('unsupported', '本地 OAuth 凭证已过期；状态查询不会自动刷新凭证。', checkedAt);
     else if (status === 'unknown') balance = unavailableBalance('unsupported', '凭证状态未知或使用密钥命令；只读查询不会执行命令。', checkedAt);
     else if (officialOrigin && !official) balance = unavailableBalance('unsupported', '此账号使用自定义端点，不能将其凭证发送给服务商官方余额接口。', checkedAt);
-    accounts.push({ provider, auth_type, source, identity: accountIdentity, status, expires_at, balance });
+    else if (provider === 'openai-codex' && auth_type !== 'oauth') balance = unavailableBalance('unsupported', 'Codex 订阅查询仅支持有效的本地 OAuth 凭证，不使用 API Key 代替订阅登录。', checkedAt);
+    const account_key = usageDigest([configDir, provider, stableIdentity(credential) || key || credential?.access || credential?.key || custom?.apiKey || 'unconfigured', baseUrl || 'builtin']);
+    accounts.push({ provider, account_key, auth_type, source, identity: accountIdentity, status, expires_at, balance });
   }
   return { accounts, keys };
-}
-
-const number = value => typeof value === 'number' && Number.isFinite(value) ? value
-  : typeof value === 'string' && /^-?\d+(?:\.\d+)?$/.test(value) && Number.isFinite(Number(value)) ? Number(value) : null;
-async function responseJson(response) {
-  if (!response.ok) throw new Error();
-  if (Number(response.headers.get('content-length')) > 65536) throw new Error();
-  const reader = response.body?.getReader(); if (!reader) throw new Error();
-  const chunks = []; let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read(); if (done) break;
-      size += value.byteLength; if (size > 65536) throw new Error(); chunks.push(value);
-    }
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  } finally { await reader.cancel().catch(() => {}); }
-}
-
-/** Fixed official endpoints, read-only GET, no redirects, bounded body and deadline; errors are deliberately generic. */
-export async function queryAccountBalance(provider, key, checkedAt, { fetch: fetcher = globalThis.fetch, timeout = 8000 } = {}) {
-  const url = provider === 'deepseek' ? 'https://api.deepseek.com/user/balance'
-    : provider === 'openrouter' ? 'https://openrouter.ai/api/v1/key' : null;
-  if (!url) return unavailableBalance('unsupported', '此服务商尚无已接入的可靠官方余额/额度查询接口。', checkedAt);
-  const controller = new AbortController(); let timer;
-  try {
-    const deadline = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error()); }, timeout); });
-    const data = await Promise.race([deadline, (async () => responseJson(await fetcher(url, {
-      method: 'GET', headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
-      redirect: 'error', signal: controller.signal,
-    })))()]);
-    if (provider === 'deepseek') {
-      if (!Array.isArray(data?.balance_infos) || !data.balance_infos.length || data.balance_infos.length > 10) throw new Error();
-      const items = data.balance_infos.map(item => {
-        const remaining = number(item?.total_balance);
-        if (remaining === null || !/^[A-Z]{3}$/.test(item?.currency || '')) throw new Error();
-        return { label: '账户余额', remaining, total: null, used: null, unit: item.currency };
-      });
-      return { status: 'available', kind: 'balance', items, reason: null, checked_at: checkedAt };
-    }
-    const quota = data?.data;
-    const total = number(quota?.limit), remaining = number(quota?.limit_remaining), used = number(quota?.usage);
-    if (!object(quota) || used === null || (quota.limit !== null && total === null)
-      || (quota.limit_remaining !== null && remaining === null)) throw new Error();
-    return { status: 'available', kind: 'quota', items: [{ label: 'API Key 消费额度', remaining, total, used, unit: 'USD' }],
-      reason: total === null ? '此 API Key 未设置消费上限；显示的是 Key 用量，不是账户现金余额。' : '这是 API Key 消费额度，不是账户现金余额。', checked_at: checkedAt };
-  } catch { return unavailableBalance('error', '官方余额/额度查询失败（网络、授权、超时或响应格式问题），未取得数值。', checkedAt); }
-  finally { clearTimeout(timer); controller.abort(); }
 }

@@ -6,6 +6,7 @@ export const PARAMS = {
   'system.status': [], 'system.summary': [], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings'],
   'agent.config': [], 'agent.models': ['agent'], 'agent.resources': [], 'agent.status': [], 'agent.configure': ['config'],
   'agent.environment': ['target'], 'agent.environment.configure': ['target','values'],
+  'agent.usage.config': [], 'agent.usage.configure': ['config'], 'agent.usage.history': ['provider','account_key','days'],
   'say.submit': ['content','branch','references','start'],
   'task.graph': [], 'task.list': ['after','limit'], 'task.activity': ['limit','scope'],
   'task.page': ['before','limit','scope'], 'task.tree': ['id'], 'task.inspect': ['id'],
@@ -29,6 +30,7 @@ export const PARAMS = {
 };
 export const USER_ONLY = new Set([
   'system.stop','system.stop_if_idle','system.configure','agent.configure','agent.status','agent.environment','agent.environment.configure',
+  'agent.usage.config','agent.usage.configure','agent.usage.history',
   'say.submit','task.transcript_latest','task.transcript_page','task.transcript_step','task.transcript_search',
   'task.reserve','task.reserve_all','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge',
   'task.cancel','task.retry','task.cleanup','task.interrupt','task.resume','task.configure',

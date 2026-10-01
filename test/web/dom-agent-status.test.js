@@ -99,6 +99,9 @@ test('请求失败就地重试；刷新失败保留旧结果但明确标为旧�
   intercept = () => Promise.reject(new Error('测试连接失败'));
   await openAgentStatus();
   expect(pageText()).toContain('查询失败：测试连接失败');
+  expect(dom.node('detail').querySelector('.agent-usage-panel').hidden).toBe(false);
+  expect(pageText()).toContain('查询与采样设置');
+  expect(pageText()).toContain('已读取本地缓存');
   expect(refresh().textContent).toBe('重新查询');
   expect(dom.node('detail').querySelector('.agent-status-feedback').getAttribute('role')).toBe('alert');
   intercept = null; await refresh().onclick(); expect(pageText()).toContain('12.25 USD');
@@ -154,6 +157,23 @@ test('空目录、预设、未知/失败余额和真实零分开呈现，额度�
   expect(text).toContain('未知不等于零');
   const empty = deepText(renderAgentStatus({ version: 1, agent: 'pi', accounts: [], resources: {}, models: {} }));
   expect(empty).toContain('未发现账号信息'); expect(empty).toContain('未发现扩展 / 插件');
+});
+
+test('账号查询失败显示最后成功缓存及旧时间，不覆盖本次错误；新查询成功不展示旧值', () => {
+  const data = fixture(), previous = { checked_at: '2026-09-29T09:00:00Z',
+    balance: { status: 'available', kind: 'quota', items: [{ label: '周额度', remaining: 42, unit: '%' }], checked_at: '2026-09-28T09:00:00Z' } };
+  data.accounts = [{ provider: 'openai-codex', balance: { status: 'error', kind: null, items: [], reason: '本次网络失败', checked_at: '2026-10-01T09:00:00Z' }, last_success: previous }];
+  const root = renderAgentStatus(data), text = deepText(root);
+  expect(text).toContain('本次网络失败'); expect(text).toContain('查询失败'); expect(text).toContain('剩余 42 %');
+  expect(text).toContain('最后成功查询：2026-09-29T09:00:00Z'); expect(text).toContain('缓存旧值，并非最新状态');
+  expect(text).not.toContain('2026-09-28T09:00:00Z'); expect(text).toContain('2026-10-01T09:00:00Z');
+  expect(root.querySelectorAll('.agent-status-last-success')).toHaveLength(1);
+  data.accounts[0].balance = { status: 'available', kind: 'quota', items: [{ remaining: 20, unit: '%' }] };
+  const success = renderAgentStatus(data);
+  expect(success.querySelectorAll('.agent-status-last-success')).toHaveLength(0);
+  expect(deepText(success)).toContain('剩余 20 %'); expect(deepText(success)).not.toContain('剩余 42 %');
+  data.accounts[0].balance.status = 'error'; data.accounts[0].last_success.balance.status = 'error';
+  expect(renderAgentStatus(data).querySelectorAll('.agent-status-last-success')).toHaveLength(0);
 });
 
 test('配置包没有安装路径时不能宣称已安装', () => {

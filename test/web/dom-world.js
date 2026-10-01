@@ -87,6 +87,8 @@ export function makeWorld() {
     transcriptLatest: [],
     actions: [],
     resolveOutcome: null,
+    agentUsageConfig: { version: 1, enabled: false, interval_minutes: 5, retention_days: 90, providers: [], custom: [] },
+    agentUsageHistory: { version: 1, from: iso(NOW - 7 * 86400000), to: iso(NOW), retention_days: 90, series: [], truncated: false },
     agentEnvironments: {
       common: { HTTP_PROXY: 'http://127.0.0.1:7897', API_KEY: 'secret-value' },
       planner: {}, coordinator: {}, worker: {}, research: {}, verifier: {}, merger: {},
@@ -203,7 +205,9 @@ export function makeWorld() {
     const path = String(url);
     const json = data => ({ ok: true, status: 200, json: async () => data });
     if (path === '/api/snapshot') return json(snapshot());
-    if (path === '/api/agent/status') return json({ version: 1, agent: 'pi', checked_at: iso(NOW),
+    if (path === '/api/agent/usage/config') return json(state.agentUsageConfig);
+    if (path.startsWith('/api/agent/usage/history?')) return json(state.agentUsageHistory);
+    if (path === '/api/agent/status') return json({ version: 1, agent: 'pi', checked_at: iso(NOW), usage_config: state.agentUsageConfig,
       scope: { project: '/tmp/demo', role: 'agent' }, runtime: { command: 'pi', version: '0.1.0', backend: 'pi' },
       models: { source: 'cli', models: [] }, resources: { extensions: [], skills: [], packages: [] }, accounts: [], warnings: [] });
     if (path.startsWith('/api/agent/models?agent=')) {
@@ -225,6 +229,10 @@ export function makeWorld() {
     if (path === '/api/action') {
       const body = JSON.parse(options.body);
       state.actions.push(body);
+      if (body.method === 'agent.usage.configure') {
+        state.agentUsageConfig = body.params.config;
+        return json(state.agentUsageConfig);
+      }
       if (body.method === 'agent.configure') {
         const config = body.params.config;
         state.agentConfig = { ...state.agentConfig, version: 1, default: config.default, roles: config.roles,
