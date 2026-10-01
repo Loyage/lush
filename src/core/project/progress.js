@@ -140,7 +140,7 @@ function decode(raw) {
 
 /** 预约里带交付语义的状态；version 2 的合并请求另有一个 resolving（已退回源侧解分歧）。 */
 const RESERVATION_STATUSES = new Set(['pending','preparing','requested','started','integrated','completed','failed','cancelled']);
-const MERGE_RESERVATION_STATUSES = new Set([...RESERVATION_STATUSES, 'resolving', 'withdrawn']);
+const MERGE_RESERVATION_STATUSES = new Set([...RESERVATION_STATUSES, 'executing', 'resolving', 'suspended', 'blocked', 'withdrawn']);
 
 /** 存储形态解码：version 1 是旧形态（merge / showcase），version 2 是新式 say/child 的合并预约。
  *  两者都要原样交给 UI（`render-delivery.js` 按 `version === 2` 分支已被设计好），

@@ -7,11 +7,11 @@ import { descendantsOf, parentOf } from './genealogy.js';
  * 旧的一键合并运行与 merger 任务只保留磁盘记录，不再参与新代码的冻结与调度。
  * 1. 新式解分歧 Task 固定了两端 tip：活动中以及已完成但未落地时冻结源分支、它的后代和直接父分支；
  *    失败/取消释放，未落地的完成分支要显式归档或成功落地才能释放。
- * 2. 已发出但尚未集成的 say 合并请求（`tasks.reservation` 里 kind=merge、status=requested）——请求已经
- *    把父分支基线固定成那个 commit；父分支再前进（另一个子任务落地、用户批准别的请求、外部 git）
- *    就会让固定提交不再能快进，请求只能重做。所以只冻结**父分支本身**：请求者的分支已终态，
- *    兄弟 say 自己的分支仍要能继续工作。解除只有两条路——集成这个请求，或用户明确撤销它；
- *    daemon 挡不住父分支自己的 say Agent 提交，那种情况会在集成时如实报成 parent_moved。
+ * 2. queue_protocol=1 的 requested 只冻结源分支普通开发；executing/resolving/blocked 同时持有
+ *    父分支逻辑执行位。指定 attempt 的源侧修复由 scheduler 单独准入，兄弟独立分支不受影响。
+ *    suspended/withdrawn 明确释放执行位；blocked 的父侧未知现场不释放给下一项。
+ *    历史 v1/旧 v2 已固定父基线的请求仍冻结父分支本身，等待受检结算或撤销。
+ *    外部 Git 不受 daemon 控制，所以落地仍复核清洁度、固定 refs 并用双 ref 事务。
  *
  * 返回 Map<branch, info>；info.kind 区分来源，供界面给出可解释的禁用原因。所有查询只读 store。
  */
@@ -36,15 +36,23 @@ export function branchFreeze(store) {
     }
   }
 
-  for (const task of store.all(`SELECT id, target_branch, reservation FROM tasks
-    WHERE task_kind IN ('say','child') AND target_branch IS NOT NULL AND reservation IS NOT NULL ORDER BY id`)) {
+  for (const task of store.all(`SELECT id, branch, target_branch, reservation FROM tasks
+    WHERE task_kind IN ('say','child') AND target_branch IS NOT NULL AND reservation IS NOT NULL
+    ORDER BY CASE WHEN json_valid(reservation) AND json_extract(reservation,'$.status') IN ('executing','resolving','blocked') THEN 0 ELSE 1 END,id`)) {
     let request = null;
     // 损坏的 reservation 不参与冻结：它自己阻塞不了写，必须保持可检查、可撤销。
     try { request = JSON.parse(task.reservation); } catch { continue; }
     if (!request || request.kind !== 'merge'
-      || !(request.status === 'requested' || (request.version === 2 && request.status === 'resolving'))) continue;
-    add(task.target_branch, { kind: 'delivery', task_id: task.id, commit: request.commit ?? null,
-      reason: `Task #${task.id} 的合并请求 ${String(request.commit ?? '').slice(0, 12)} 正由 merge Task 串行处理` });
+      || !(request.status === 'requested' || (request.version === 2 && ['executing','resolving','blocked'].includes(request.status)))) continue;
+    if (request.version === 2 && request.queue_protocol === 1) {
+      // Queued work freezes only its source. The current attempt owns the parent writer slot.
+      const info = { kind: 'delivery', task_id: task.id, commit: request.commit ?? null,
+        attempt_id: request.attempt_id ?? null,
+        reason: `Task #${task.id} 的交付由父 Task 队列串行处理（${request.status}）` };
+      add(task.branch, info);
+      if (['executing','resolving','blocked'].includes(request.status)) add(task.target_branch, info);
+    } else add(task.target_branch, { kind: 'delivery', task_id: task.id, commit: request.commit ?? null,
+      reason: `历史 Task #${task.id} 的固定提交交付请求尚未结算` });
   }
 
   return frozen;

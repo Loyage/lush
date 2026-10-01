@@ -66,7 +66,12 @@ test('ready say uses only 合并 even with a pending intent; requested delivery 
     expect(request.classList.contains('agent-call')).toBe(true);
     expect(request.getAttribute('data-help')).toContain('消耗 token');
     const pending = request.onclick();
-    expect(dialogText(dom)).toContain('merge 子任务');
+    expect(dialogText(dom)).toContain('父 Task 自有队列的 runtime');
+    expect(dialogText(dom)).toContain('不创建 merge Task、不改变父子关系');
+    expect(dialogText(dom)).toContain('不额外调用父 Agent');
+    expect(dialogText(dom)).toContain('挂起释放执行位');
+    expect(dialogText(dom)).toContain('成功后进入待验收');
+    expect(dialogText(dom)).not.toContain('归还原父');
     expect(dialogText(dom)).toContain('不会改变跨轮保留的自动合并设置');
     await answerDialog(dom, '合并'); await pending;
     expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
@@ -77,6 +82,39 @@ test('ready say uses only 合并 even with a pending intent; requested delivery 
   expect(buttonOf(panel, '复查合并队列')).toBeTruthy();
   expect(buttonOf(panel, '合并')).toBeUndefined();
   expect(panel.querySelector('.auto-merge-toggle')).toBeNull();
+});
+
+test('parent-owned queue states explain the slot and offer only suspended resume or blocked inspection', async () => {
+  const states = {
+    requested: '冻结 · 等待父队列', executing: '自动合并中 · 占用父执行位',
+    resolving: '源侧修复中 · 保留父执行位', suspended: '交付已挂起 · 父执行位已释放',
+    blocked: '交付阻塞 · 保留父侧现场',
+  };
+  for (const [status, label] of Object.entries(states)) {
+    const reservation = { version: 2, queue_protocol: 1, kind: 'merge', status,
+      blocked_reason: '等待固定尝试核验', commit, parent_id: 1 };
+    const graph = graphFor(reservation, { status: 'waiting' });
+    for (const render of [() => renderDetail({ ...say, reservation }, null, null, null),
+      () => renderGraph(graph)]) {
+      render();
+      const panel = dom.node('detail');
+      expect(deepText(panel)).toContain(label);
+      expect(deepText(panel)).toContain('等待固定尝试核验');
+      expect(buttonOf(panel, '合并')).toBeUndefined();
+      expect(panel.querySelector('.auto-merge-toggle')).toBeNull();
+      expect(buttonOf(panel, '批准固定提交合入父分支')).toBeUndefined();
+      const recovery = buttonOf(panel, status === 'suspended' ? '恢复交付' : '受检复查落地');
+      if (['suspended','blocked'].includes(status)) {
+        expect(recovery.classList.contains('agent-call')).toBe(true);
+        expect(recovery.getAttribute('data-help')).toContain('消耗 token');
+        await recovery.onclick();
+        expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
+      } else expect(recovery).toBeUndefined();
+    }
+  }
+  const legacy = deliveryControls({ ...say, reservation: { version: 2, kind: 'merge', status: 'resolving' } });
+  expect(deepText(legacy)).toContain('历史源侧解分歧');
+  expect(deepText(legacy)).not.toContain('保留父执行位');
 });
 
 test('failed v2 delivery cannot bypass explicit retry through a checkbox or booking recheck', () => {

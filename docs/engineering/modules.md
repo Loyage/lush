@@ -106,17 +106,27 @@
 
 预约展示、效果展示 Agent、报告页与持续预览实现均已删除；`task.reserve` 仅接受 `kind='merge'`。普通合并预约不受影响，已完成 Task 须显式恢复后继续工作，不再提供展示完成后的特殊合并路径。历史展示列、记录和报告文件不迁移、不删除；旧展示 Task 不调度或重试，尚存 detached worktree 不由普通归档/清理回收。
 
+## 父 Task 自有交付队列（version 2，queue_protocol=1）
+
+新请求不创建 merge Task，也不改源 Task 的 parent_id。`tasks.reservation` 是持久事实，Message/Event 只通知：真实源安全点固定 `delivery_id`（请求 Event ID）、`enqueue_seq`、`commit`、`parent_id`；拿到父分支逻辑执行位后才固定 `attempt_id`、`baseline` 与 `original_commit`。状态为 pending → requested → executing/resolving → integrated；suspended 显式释放执行位，恢复重新排队并生成新尝试；blocked 保留未知父侧现场，不让下一项写入。请求按 enqueue_seq、代码依赖优先；逻辑执行位跨源侧修复持久化，不持有全项目 Git 锁跨 Agent 调用。
+
+Project 的 `scheduleTaskMerge(parentId)` 用内存 pending-wake 集合保留 busy 期间的信号，`driveTaskMerge(parentId)` 释放 busy 后重新准入，避免挂起/取消丢唤醒；持久预约仍是唯一交付事实。`finalizeTaskMerge(taskId,attemptId,landedCommit,parentHead=landedCommit)` 分开记录交付提交与经 Git 核验的实时父 tip，恢复到已前进父分支不能回写旧 head_commit。`message` 的 sender/目标权限检查全部通过后，才在消息事务内挂起/恢复尝试、消费修复信号。`driveTaskMerge(parentId)` 每次只处理一项，父 invocation 实际退出后准入；`suspendTaskMerge(taskId,reason)` / `resumeQueuedTaskMerge(taskId)` 管理尝试暂停与重排；`recoverTaskDeliveries()` 核对准确 Git 凭据，兼容旧 v2 在途重挂仅使用 reservation/audit 的明确原父，保留历史 merge 身份。调度、同步、向上交付与兄弟落地共享父分支写冻结；仅当前 attempt 的源侧修复可绕过自己的源冻结。落地前复核源/目标 ref、取消、新输入、清洁度与祖先保留。Git 成功 DB 未写时只按预先持久化的 `landing_receipt.commit` 精确恢复，未知副作用不重放。Web 共用交付控件只给静息 suspended 显示「恢复交付」、静息 blocked 显示「受检复查落地」，复用 task.reserve 且标注可能唤醒源 Agent；failed/paused/awaiting 仍先处理已有检查/继续/待决，不绕过安全点。
+
+Git 接缝新增 `prepareTaskSquashUnsafe(child,source,baseline,message)` 返回未落地的 `{commit,source,baseline,tree,parent,workspace}`；`applyTaskSquashUnsafe(receipt,guard)` 最后复核固定 refs/清洁度并在写入前调用同步 guard，受检推进父工作区/ref；`verifyTaskSquashUnsafe(receipt)` 精确核验提交/父/树与目标祖先、工作区。Store 仍使用 reservation JSON 与 Event ID，无新业务实体。旧 version 1 原语义不变；旧 v2 凭据以精确父/树/完整标题核对，不能以标题前缀猜测。
+
 ## 新式 Task 的自动合并（version 2）
 
 自动合并设置接缝：`task.auto_merge {id,enabled}` 是用户专属开关接口，与一次性交付的 `task.reserve {kind:'merge'}` 分开；Task 详情与 Task 图投影 `auto_merge:{enabled,locked,editable,reason}`（不支持的 Task 为 null）。设置持久化在可空 `tasks.auto_merge` JSON（`{version:1,enabled,locked}`），自动产生的 pending 意图带 `reservation.auto_merge:true`，跨 invocation、daemon 重启与后续开发轮次保留，不以合并请求的生命周期代替设置。新 say 默认关闭，新派生 child 默认开启并锁定，服务端拒绝关闭（含通过 `task.unreserve` 绕过）；历史 Task 不批量回填或改写已有撤销决定。`editable` 只允许尚未交付就绪且没有已发请求的活动任务调整；`reason` 解释不可操作原因。CLI 使用 `task auto-merge ID on|off`。开启只安装 runtime hook，不新增父 Agent 或用户审批：安全点满足交付条件后复用现有 version 2 请求与父队列准入。显式「合并」继续走 `task.reserve`，不改变持久开关。Web 详情/Task 图共用复选框；后端 `merge_readiness.ready` 为真时只显示「合并」，请求已发出或已合并时展示对应进度/结果，不重复发起。禁用子任务复选框须说明由父任务派生、自动合并不可关闭。
 
 交付按钮的只读接缝：`project/say.js` 的 `mergeReadiness(task)` 在 `task.inspect` 与 `task.graph` 投影 `merge_readiness:{ready,reason}`（仅 say/child）。复用 `reservationWaitReason` 检查调用收尾、子 Task 结算、待决与未处理消息，并检查登记的待交付提交；`waiting` 本身不代表本轮交付就绪。该字段只表示可以尝试发起请求，Git 清洁度、ref 和后代分支仍由预约准入最终复核，不是合并授权。`render-delivery.js` 以此字段选择开发阶段的「自动合并」复选框或就绪后的「合并」按钮；缺少设置投影时保守只读，已有请求只展示进度与受检复查。
 
-用户直接创建的 say 由用户通过持久自动合并开关或显式 `task.reserve {kind:'merge'}` 决定交付；Agent 经 `task.spawn` 派出的新 child 在创建事务中默认开启并锁定 hook，同时保存自动 pending 意图与 `task.reserved {via:'spawn'}` 事件，无需用户逐个操作；`task.unreserve` 不能绕过锁定，旧 child 不回填。无提交的干净 child 在安全点交付结果、进入 `awaiting_acceptance` 等直接父 Agent 确认，清除预约，不产生合并提交；有改动的 child 和已预约的 say 共用合并队列。运行中只保存意图，轮末安全点、子任务结算、工作区干净且有提交时发幂等 `merge.requested` 信号；请求后原 Task 静息冻结。父 Task 创建/复用 `task_kind='merge'` 子 Task，先留带原父 ID 的审计事件，再把请求 Task 的 `parent_id` 改成 merge Task；Git 的 `target_branch` 仍是创建时的直接父分支，不改写分支谱系。merge Task 是 runtime 驱动的串行队列，不启动不受限 Provider；队列空闲时结算身份，后续请求可重开。源/目标可快进时将源树 Squash 为父分支上的**一条提交**（不是把源的 Git 提交逐个快进）；分歧时重新唤醒原 Task，在自己的分支吸收固定父提交，完成后重新排队。main / owner 也由该队列自动推进，不需旧 `task.approve_merge`。Git 和 DB 分阶段，恢复时只对比精确原父、树与提交标题，绝不重放未知副作用。合并落地后**不自动归档**：runtime 把请求 Task 从 merge 队列身份归还到它原本的直接父 Task（`task.merge_parent_restored`），进入非终态 `awaiting_acceptance`，保留分支、worktree 与 Task / 事件 / 原哈希，可追加输入继续当前 Task；say 用户验收 / child 直接父 Agent 确认与显式归档分开；“原父”只以预约里记下的 `parent_id` 为准，所以被旧版自动归档路径在落地后立刻收走 branch / worktree 的历史行，也会在 daemon 重启的 `recover()` 里归位（Task 图不再把它挂在 merge 队列身份下）；`branchState` / 分支图读模型把「ref 仍等于集成时固定源提交、记录的落地提交是父分支祖先」的 Squash 分支视为已收拢（`Workspaces#squashedLanded`），所以未归档也不会冒充分歧或挡住父分支。用户的显式归档（`task.cleanup` / `branch archive`）仍先验证源树等于已落地树、ref 未漂移且工作区干净，再删 worktree 与源 ref；检查失败保留磁盘现场和错误，允许安全重试。历史 version 1 请求继续走原来的用户/父 Agent 手动路径，不迁移旧记录。
+用户创建的 say 由持久 hook 或显式 `task.reserve` 授权；新 child 默认开启且锁定 hook，旧 child 不回填。运行中只保存 pending 意图。真实源安全点检查调用实际退出、消息/待决/后代结算、源 ref 与工作区后，用请求 Event ID 保存交付标识及入队顺序；无代码 child 只交结果，进入待父确认。新请求不创建 merge Task、不重挂，目标始终是直接父分支。父 runtime 在写执行位上固定基线、串行 Squash 为一条提交；源侧修复保留执行位，失败/问卷挂起释放，恢复重新排队。不额外启动父 Agent，main/owner 静息；普通消息在每项落地边界优先调度。精确预制 SHA 和 landing_receipt 在父侧写入前保存，重启仅核对凭据，不重放未知 apply。
 
-### 合并队列中断恢复
+正常落地保持委派关系与 worktree，进入 `awaiting_acceptance/integration=merged`；say 用户验收、child 直接父确认、显式归档分开。`Workspaces#squashedLanded` 让保留的已落地分支不阻塞父交付；归档仍严格核验树、源 ref、清洁度。旧 v2 merge 身份、重挂事件与历史记录保留，兼容恢复仅用明确 parent_id/匹配 audit 归位；旧落地窗只按精确单父、树、完整标题核对，未知保留错误。旧 version 1 手动审批不改。
 
-`project/merge-queue.js` 的 `restoreUnrequestedTaskParent(taskId)` 仅凭 version 2 预约或重挂事件，并复核内部队列与分支谱系，将已撤销／旧版丢失预约的 Task 归还原父；`retry`、显式重新预约与 `recover` 共用此 DB-only 修复，不执行 Git 或重放 Agent。失败撤销记录 `retry_status`，显式 retry 恢复原合并意图与固定分歧上下文；用户取消／撤销不隐式恢复预约。恢复队列身份不等于批准合并，丢失的旧预约仍需用户重新申请。
+### 历史 v2 重挂兼容与中断恢复
+
+`project/merge-queue.js` 的 `restoreUnrequestedTaskParent(taskId)` 仅凭 version 2 预约或重挂事件，并复核内部队列与分支谱系，将已撤销／旧版丢失预约的 Task 归还原父；`retry`、显式重新预约与 `recover` 共用此 DB-only 修复，不执行 Git 或重放 Agent。新协议失败保留 suspended 意图；显式 retry/恢复丢弃旧 attempt/baseline，安全点重新排队。旧失败撤销记录的 `retry_status` 只恢复 pending 意图，不复用旧分歧基线；用户取消／撤销不隐式恢复旧尝试。恢复队列身份不等于批准合并，丢失的旧预约仍需用户重新申请。
 
 ## 交付锁与合并编排（历史 version 1）
 
@@ -169,7 +179,7 @@ daemon 启动在 project identity/Store 建立后、RPC 开放前幂等执行 `P
 
 新 say 入口增量：`say.submit(content?,branch?,references?)` 与旧 `input.submit` 分开，后者不再有公开入口；新 Input 直连 `role='agent'`、`task_kind='say'` 的 Task，main 是 `task_kind='main'` 的静息根 Task。`tasks.task_kind` 只加列不重写历史；新提交必须先校验父分支有明确的 Task 所有者。实现职责放 `src/core/project/say.js`、现有 Git 边界与 Store，不新增全局调度器。
 
-新 Task 子代码只允许执行中的直接父 Agent 经 `task.integrate {id,commit}` 确认固定 child HEAD 并在 Git 串行锁下 ff-only 快进至父分支。新 say 的 pending merge 请求若与直接父分支分歧，用户可 `task.resolve_divergence {id}` 创建一个独立 child（基线固定为源 tip，目标固定为源 say 分支，Task 目标要求合入当时固定的父 tip 并测试）；活动 say 的 child 挂在其子树下，由 `task.integrate` 确认。父 say Agent 收到子 Task 完成信号后用 `task.integrate` 确认固定 child commit；该确认额外校验 child commit 同时含最初源/父 tip，之后用户复查预约或自然轮末重新按最新父 tip 准入。兄弟子 Task 先落地或父分支自己提交后，已完普通子 Task 的固定提交同样不再能快进：执行中的直接父 Agent 用 `task.resolve_child_divergence {id}` 从该固定提交拉起同构的解分歧子 Task，解分歧后仍由 `task.integrate` 确认。`task.integrate` 不能推进 main；父分支不干净、HEAD 漂移、子 Task 未结算或有未集成后代时保留现场并拒绝。实现放 `src/core/project/say.js`，Git 写入复用 `workspaces.mergeBranchUnsafe`。
+历史 Task 中心路径的子代码只允许执行中的直接父 Agent 经 `task.integrate {id,commit}` 确认固定 child HEAD（当前 v2 交付由父 runtime 队列推进，拒绝绕过） 并在 Git 串行锁下 ff-only 快进至父分支。新 say 的 pending merge 请求若与直接父分支分歧，用户可 `task.resolve_divergence {id}` 创建一个独立 child（基线固定为源 tip，目标固定为源 say 分支，Task 目标要求合入当时固定的父 tip 并测试）；活动 say 的 child 挂在其子树下，由 `task.integrate` 确认。父 say Agent 收到子 Task 完成信号后用 `task.integrate` 确认固定 child commit；该确认额外校验 child commit 同时含最初源/父 tip，之后用户复查预约或自然轮末重新按最新父 tip 准入。兄弟子 Task 先落地或父分支自己提交后，已完普通子 Task 的固定提交同样不再能快进：执行中的直接父 Agent 用 `task.resolve_child_divergence {id}` 从该固定提交拉起同构的解分歧子 Task，解分歧后仍由 `task.integrate` 确认。`task.integrate` 不能推进 main；父分支不干净、HEAD 漂移、子 Task 未结算或有未集成后代时保留现场并拒绝。实现放 `src/core/project/say.js`，Git 写入复用 `workspaces.mergeBranchUnsafe`。
 
 Task 中心输入的持久信号增量：`messages` 增加可空 `signal_type` / `signal_key`（旧自由文本消息不变），`(task_id,sender_id,signal_key)` 部分唯一索引保证子→父同一次信号只写一条；`Store.signal()` 与 `Project.sendTaskSignal()` 只供 runtime 内部使用，事务同写 Event/Message，先落库后唤醒。边界见[Task 中心输入](task-centered-input-design.md)和[一次 invocation](invocation.md)。
 

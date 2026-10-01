@@ -40,4 +40,4 @@ waiting / awaiting / paused 不占 agent 槽，也不运行 sleep/poll 子进程
 
 ## 协作与集成
 
-新 say / child Agent 可以派子任务；普通成功收据在本波直接子任务全部终态后合并唤醒，失败、取消和显式消息仍及时可调度，详见[合并唤醒](token-efficiency.md#父任务合并唤醒)。Agent 派出的 child 在创建时默认预约合入直接父 Task；轮末安全结束、消息已处理、后代已结算且工作区干净后，runtime 固定提交并由父 Task 下的 merge 队列串行 Squash，无需用户逐个预约或父 Agent 手动集成。干净且无新提交的 child 直接结算并交付结果。成功收据等本波子任务全部结算再唤醒父 Agent，避免父 Agent 与队列争用分支。用户直接创建的 say 仍由用户决定何时预约合并（含进入 main/owner）；分歧退回原 Task 合入固定父提交并测试，再自动重新排队。旧 version 1 请求继续保留原来的手动确认边界。
+新 say / child Agent 可以派子任务；普通成功收据在本波直接子任务全部终态后合并唤醒，失败、取消和显式消息仍及时可调度，详见[合并唤醒](token-efficiency.md#父任务合并唤醒)。Agent 派出的 child 在创建时默认预约合入直接父 Task；轮末安全结束、消息已处理、后代已结算且工作区干净后，runtime 在真实安全点固定源提交并交给父 Task 自有队列串行 Squash，不创建 merge Task、不改父子关系，不额外调用父 Agent 或要求手动集成。干净且无新提交的 child 直接交付结果、进入 awaiting_acceptance 等父确认。成功收据等本波子任务全部结算再唤醒父 Agent，避免父 Agent 与队列争用分支。用户直接创建的 say 仍由用户决定何时预约合并（含进入 main/owner）；取得父执行位后才固定父基线；分歧退回原 Task 合入固定父提交、保留原源提交并测试，修复期间保留父执行位。挂起释放，恢复重新排队并固定新基线。旧 version 1 请求继续保留原来的手动确认边界，旧 version 2 merge 身份与在途重挂仅按明确预约／审计兼容恢复；见[分支合并](merge.md)。

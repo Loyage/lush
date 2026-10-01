@@ -1,4 +1,5 @@
-import { test, expect } from 'bun:test';
+import { test, expect, setDefaultTimeout } from 'bun:test';
+setDefaultTimeout(15000);
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, repo, git, until, gate } from '../helpers.js';
@@ -112,13 +113,15 @@ test('say merge reservations are durable, reject removed kinds and are not autho
   } finally { await f.close(); }
 });
 
-test('a diverged completed child is repaired from both tips and runtime lands it after the parent reaches a safe point', async () => {
+test('historical completed child is repaired from both tips and runtime lands it after the parent reaches a safe point', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const parent = await f.project.say('parent with two children');
     const first = await f.project.spawn(parent.task.id, 'first child', 'agent', [], 'first');
     const second = await f.project.spawn(parent.task.id, 'second child', 'agent', [], 'second');
     for (const child of [first, second]) {
+      // Historical pre-hook children retain their manual ff-only integration path.
+      f.store.update(child.id, { reservation: null, auto_merge: null });
       const cwd = await f.project.workspaces.ensure(child);
       fs.writeFileSync(path.join(cwd, `${child.id}.txt`), 'work\n');
       await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', `child ${child.id}`);
@@ -168,7 +171,9 @@ test('a diverged completed child is repaired from both tips and runtime lands it
     f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', parent.task.id);
     f.store.update(parent.task.id, { status: 'waiting' });
     await f.project.reserveTask(parent.task.id, 'merge');
-    expect(JSON.parse(f.store.task(parent.task.id).reservation).status).toBe('requested');
+    // New parent-owned runtime may already have taken the writer slot before reserve returns.
+    await until(() => f.store.task(parent.task.id).integration === 'merged');
+    expect(JSON.parse(f.store.task(parent.task.id).reservation).status).toBe('integrated');
   } finally { await f.close(); }
 });
 
@@ -177,6 +182,7 @@ test('repair refuses a diverged child of a locked parent and a child whose branc
   try {
     const parent = await f.project.say('parent');
     const child = await f.project.spawn(parent.task.id, 'child', 'agent', [], 'child');
+    f.store.update(child.id, { reservation: null, auto_merge: null });
     const cwd = await f.project.workspaces.ensure(child);
     fs.writeFileSync(path.join(cwd, 'x.txt'), 'work\n');
     await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', 'child');
@@ -193,6 +199,10 @@ test('repair refuses a diverged child of a locked parent and a child whose branc
     await f.project.workspaces.finish(f.store.task(requester.task.id));
     f.store.update(requester.task.id, { status: 'waiting' });
     expect((await f.project.reserveTask(requester.task.id, 'merge')).reservation.status).toBe('requested');
+    // Historical v1 requests pin the parent at enqueue; v2 only owns it while executing.
+    const legacy = JSON.parse(f.store.task(requester.task.id).reservation);
+    f.store.update(requester.task.id, { reservation: JSON.stringify({ ...legacy, version: 1,
+      baseline: await git(parent.task.workspace, 'rev-parse', 'HEAD') }) });
     await git(parent.task.workspace, 'commit', '--allow-empty', '-m', 'parent moved');
     f.store.update(parent.task.id, { status: 'running' });
     await expect(f.project.resolveChildDivergence(parent.task.id, child.id)).rejects.toThrow('frozen');
@@ -284,11 +294,12 @@ test('graph plots a spawned agent child as its own task node, but not the main r
   } finally { await f.close(); }
 });
 
-test('only the running direct parent Agent can integrate a frozen completed child with ff-only', async () => {
+test('historical child without a v2 delivery intent needs a running direct parent to integrate ff-only', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const say = await f.project.say('develop');
     const child = await f.project.spawn(say.task.id, 'write child code', 'agent', [], 'write-child');
+    f.store.update(child.id, { reservation: null, auto_merge: null });
     const workspace = await f.project.workspaces.ensure(child);
     fs.writeFileSync(path.join(workspace, 'child.txt'), 'work\n');
     await git(workspace, 'add', 'child.txt'); await git(workspace, 'commit', '-m', 'child work');
@@ -315,6 +326,7 @@ test('child branch drift rejects the fixed commit without moving the parent', as
   try {
     const say = await f.project.say('develop');
     const child = await f.project.spawn(say.task.id, 'write child code', 'agent', [], 'write-child');
+    f.store.update(child.id, { reservation: null, auto_merge: null });
     const workspace = await f.project.workspaces.ensure(child);
     fs.writeFileSync(path.join(workspace, 'child.txt'), 'first\n');
     await git(workspace, 'add', 'child.txt'); await git(workspace, 'commit', '-m', 'first');

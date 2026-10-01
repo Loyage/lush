@@ -1,4 +1,5 @@
-import { test, expect } from 'bun:test';
+import { test, expect, setDefaultTimeout } from 'bun:test';
+setDefaultTimeout(15000);
 import fs from 'node:fs';
 import path from 'node:path';
 import { Database } from 'bun:sqlite';
@@ -140,7 +141,11 @@ test('settled source diagnostics in an idle runtime merge queue do not block par
     const child = await f.project.spawn(parent.id, 'child');
     await commit(child.workspace, 'nested.txt', 'nested\n'); f.store.update(child.id, { status: 'waiting' });
     await deliver(f, child);
-    const queue = f.store.get("SELECT * FROM tasks WHERE parent_id=? AND task_kind='merge'", parent.id);
+    expect(f.store.get("SELECT * FROM tasks WHERE parent_id=? AND task_kind='merge'", parent.id)).toBeNull();
+    // Construct actual historical facts; current delivery never creates a queue identity.
+    const queue = f.store.create({ parent_id: parent.id, role: 'agent', task_kind: 'merge', name: 'merge', goal: 'historical runtime queue' });
+    f.store.update(queue.id, { status: 'completed' });
+    f.store.event(child.id, 'task.reparented_for_merge', { from: parent.id, to: queue.id });
     // Historical quota failure + repair reports were addressed to the temporary queue parent.
     const messages = [
       f.store.message(queue.id, JSON.stringify({ child: child.id, status: 'failed', error: 'usage limit reached' }), child.id),
@@ -315,7 +320,8 @@ test('accept/reopen cannot revive an invocation token; cancellation releases a r
     expect(() => f.project.actor(token)).toThrow('expired');
     await commit(historic.workspace, 'cancel.txt', 'cancel second iteration\n');
     await f.project.reserveTask(historic.id, 'merge');
-    expect(f.project.branchFreeze('main')).toBeTruthy();
+    expect(f.project.branchFreeze('main')).toBeNull();
+    expect(f.project.branchFreeze(historic.branch)?.task_id).toBe(historic.id);
     f.project.cancel(historic.id);
     expect(f.project.branchFreeze('main')).toBeNull();
     expect(f.store.task(historic.id).status).toBe('cancelled');

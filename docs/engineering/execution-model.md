@@ -15,12 +15,14 @@ sequenceDiagram
     participant C as 子 Task / Agent
     P->>R: 派独立子 Task
     R-->>P: 结束本轮，释放槽
-    C->>R: 提交结果并结算
-    R->>P: 投递持久信号，唤醒新 Run
-    P->>R: 确认固定子提交（若需代码）
+    C->>R: 安全结束，提交本轮成果
+    R->>R: 父自有队列串行 Squash（若有代码）
+    R-->>C: 待父确认，保留工作区
+    R->>P: 投递交付信号，唤醒新 Run
+    P->>R: 检查结果并 accept 子 Task
 ```
 
-- 新 say 输入直接拥有 `agent` Task，不创建 planner/scheduler。父 Agent 可按需派子 Task；子 Task 结算只发送信号，不自动合并。
+- 新 say 输入直接拥有 `agent` Task，不创建 planner/scheduler。父 Agent 可按需派子 Task；新 child 默认开启锁定的自动合并 hook，安全点交给父 Task 自有队列的 runtime 串行 Squash，不新建 merge Task、不改父子关系、不额外调用父 Agent。无提交的干净 child 只交付结果、等父确认。
 - 一轮正常返回后的 say Task 通常处于 `waiting`，保留分支与再次唤醒能力；`awaiting` 等用户答复；用户主动中断则停在非终态 `paused`，可追加消息或调整本轮运行设置后继续。终态 Task 不允许活动后代。
 - 新式 version 2 合并后进入非终态 `awaiting_acceptance`，不自动调用 Agent；追加输入继续原 Task，say 由用户验收、child 由其运行中的直接父 Agent 检查并 `task.accept` 确认才 completed，归档另行显式操作。历史已合并任务显式恢复与安全同步见[持续迭代](task-iteration.md)。
 - 用户追加输入先持久化，再尝试在可证明的安全点收尾：当前 Pi 可在 `turn_end` 抢占，记录 `preempted` Run；无安全点后端只在自然轮末交付，不把硬杀冒充安全中断。
@@ -28,7 +30,7 @@ sequenceDiagram
 
 ## 历史数据边界
 
-旧 Intent / Plan / Candidate 与 planner / scheduler 的记录、会话与工作区保留在磁盘上，不迁移、不删除，但不再有公开入口，也不会自动启动或重放。control / execution 两条容量车道仍是运行时的准入机制，普通 say 不调用规划模型。当前可调用面见[核心 API 收敛](core-api.md)。
+旧 version 1 人工确认语义不改，旧 version 2 merge 身份与在途重挂只按明确预约／审计兼容恢复；完整协议见[分支合并](merge.md)。旧 Intent / Plan / Candidate 与 planner / scheduler 的记录、会话与工作区保留在磁盘上，不迁移、不删除，但不再有公开入口，也不会自动启动或重放。control / execution 两条容量车道仍是运行时的准入机制，普通 say 不调用规划模型。当前可调用面见[核心 API 收敛](core-api.md)。
 
 ---
 

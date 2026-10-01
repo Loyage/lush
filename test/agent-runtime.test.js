@@ -31,6 +31,16 @@ test('agent prompt distinguishes persistent auto-merge hooks from delivery and a
   expect(prompt).toContain('Agent 不得操作自动合并开关');
   expect(prompt).toContain('不增加父 Agent 审批');
   expect(prompt).toContain('只有显示 integration=merged 才能宣称已进入父分支');
+  expect(prompt).toContain('不创建 merge Task、不重挂 parent_id');
+  expect(prompt).toContain('不额外调用父 Agent 或要求 task.integrate');
+  expect(prompt).toContain('源侧修复期间保留父执行位');
+  expect(prompt).toContain('除 runtime 指定的当前尝试源侧修复外');
+  expect(prompt).toContain('恢复重新排队并固定新父基线');
+  expect(prompt).toContain('不得用旧尝试回复推进新尝试');
+  expect(prompt).toContain('消息仅是通知，持久交付状态才是事实');
+  expect(prompt).toContain('旧 version 1 人工确认与旧 version 2 merge 身份仅为历史兼容');
+  expect(prompt).not.toContain('由父 Task 下的 merge 子 Task');
+  expect(prompt).not.toContain('收到 merge Task 的分歧消息');
 });
 
 test('settings replacement, project/local overlays and settings append have explicit order', () => {

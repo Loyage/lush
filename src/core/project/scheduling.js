@@ -33,6 +33,7 @@ export default {
     }
     // 用户已主动暂停时不把状态改成 awaiting；待决问题保留，继续时由 pump 重新投影成 awaiting。
     if (this.store.task(taskId).status !== 'paused') this.store.update(taskId, { status: 'awaiting', result });
+    this.suspendTaskMerge(taskId, `等待用户回答问卷 #${noticeId}`);
   },
 
   hasActionableMessages(taskId) {
@@ -60,7 +61,9 @@ export default {
     if (task.status === 'awaiting_acceptance' && !this.hasActionableMessages(task.id)) return;
     if (task.status === 'paused') return; // 暂停是用户显式状态：消息照收，但不自动恢复调用
     if (task.reservation && JSON.parse(task.reservation)?.version === 2
-      && JSON.parse(task.reservation).status === 'requested') return; // frozen until merge queue settles
+      && ['requested','executing','blocked'].includes(JSON.parse(task.reservation).status)) return; // only designated repair may run
+    if (task.reservation && JSON.parse(task.reservation).status === 'suspended'
+      && !this.questionPending(task.id) && this.hasActionableMessages(task.id)) this.resumeQueuedTaskMerge(task.id);
     if (!TERMINAL.has(task.status) && !this.running.has(task.id)) {
       const deferred = (task.role === 'coordinator' || ['say','child'].includes(task.task_kind))
         && this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', task.id)
@@ -108,12 +111,15 @@ export default {
       if (this.running.has(task.id) || this.taskSyncBusy?.has(task.id)) continue;
       try { assertTaskAncestorsOpen(this, task); } catch { continue; }
       if (task.reservation && JSON.parse(task.reservation)?.version === 2
-        && JSON.parse(task.reservation).status === 'requested') continue;
+        && ['requested','executing','blocked'].includes(JSON.parse(task.reservation).status)) continue;
       const frozen = freezes.get(taskBranch(task));
       // 仅允许本次解分歧 Task 在隔离 worktree 内运行；所有其它 Agent 留在 queued，消息不丢。
       const resolution = frozen && this.store.get(`SELECT data FROM events WHERE task_id=?
         AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1`, task.id);
-      if (frozen && !(resolution && (frozen.task_id === task.id || frozen.kind === 'merge_all'))
+      const deliveryRepair = task.reservation ? JSON.parse(task.reservation) : null;
+      const designatedRepair = deliveryRepair?.status === 'resolving' && frozen?.task_id === task.id
+        && this.activeTaskMerge(deliveryRepair.parent_id)?.id === task.id;
+      if (frozen && !designatedRepair && !(resolution && (frozen.task_id === task.id || frozen.kind === 'merge_all'))
         && !(task.role === 'merger' && (frozen.task_id === task.id || frozen.kind === 'merge_all'))) continue;
       if (resolution && this.running.has(JSON.parse(resolution.data).parent_task_id)) continue;
       if (this.questionPending(task.id)) { this.store.update(task.id, { status: 'awaiting' }); continue; }
@@ -122,7 +128,8 @@ export default {
       const control = ['planner','scheduler'].includes(task.role);
       const butler = task.role === 'butler';
       if (butler ? butlerRunning >= 1 : control ? controlRunning >= this.config.controlConcurrency : executionRunning >= this.config.concurrency) continue;
-      const run = { role: task.role, controller: new AbortController(), token: randomBytes(32).toString('hex'), pid: null, promise: null, recordId: null };
+      const run = { role: task.role, controller: new AbortController(), token: randomBytes(32).toString('hex'), pid: null, promise: null, recordId: null,
+        deliveryAttempt: designatedRepair ? deliveryRepair.attempt_id : null };
       if (butler) butlerRunning += 1; else if (control) controlRunning += 1; else executionRunning += 1;
       this.running.set(task.id, run);
       this.store.armAgent(task.id, tokenHash(run.token));
@@ -133,7 +140,9 @@ export default {
         if (!this.stopping && ['say','child'].includes(task.task_kind)) {
           const current = this.store.task(task.id);
           const booking = current.reservation ? JSON.parse(current.reservation) : null;
-          if (booking?.version === 2 && booking.status === 'requested') this.scheduleTaskMerge(booking.parent_id);
+          if (booking?.version === 2 && ['requested','executing','resolving','blocked'].includes(booking.status)) this.scheduleTaskMerge(booking.parent_id);
+          if (booking?.status === 'resolving' && ['awaiting','paused'].includes(current.status))
+            this.suspendTaskMerge(task.id, '源侧修复等待用户或已暂停');
           if (current.branch) {
             const parent = this.store.get('SELECT id FROM tasks WHERE branch=? AND task_kind IN (\'main\',\'owner\',\'say\',\'child\')', current.branch);
             if (parent) this.scheduleTaskMerge(parent.id);
@@ -196,13 +205,14 @@ export default {
     check(!TERMINAL.has(task.status), 'task has ended; retry it or submit a new input');
     check(task.status !== 'paused', 'task is already paused');
     const booking = task.reservation ? JSON.parse(task.reservation) : null;
-    check(!(booking?.version === 2 && booking.status === 'requested'),
+    check(!(booking?.version === 2 && ['requested','executing','blocked'].includes(booking.status)),
       'Task is frozen for merge; wait for integration or withdraw the request before pausing');
     const run = this.running.get(task.id);
     this.store.transaction(() => {
       this.store.update(task.id, { status: 'paused', error: null });
       this.store.event(task.id, 'task.interrupted', { run_id: run?.recordId ?? null, reason });
     });
+    this.suspendTaskMerge(task.id, reason);
     if (!run) return this.store.task(task.id);
     const soft = this.requestPreempt(task.id, reason);
     if (!soft) {
@@ -249,6 +259,7 @@ export default {
       this.store.update(task.id, { status: 'queued', error: null,
         ...(retryProfile ? { retry_profile: JSON.stringify(retryProfile) } : {}) });
       resumeTaskDelivery(this, task.id, 'user resumed development');
+      this.resumeQueuedTaskMerge(task.id);
       this.store.event(task.id, 'task.resumed', retryProfile ? { profile_override: true, ...profileEvent(retryProfile) } : { profile_override: false });
     });
     this.kick();
@@ -393,8 +404,10 @@ export default {
         }
         const booking = this.store.task(taskId).reservation ? JSON.parse(this.store.task(taskId).reservation) : null;
         if (booking?.version === 2 && booking.status === 'resolving') this.store.transaction(() => {
-          this.store.update(taskId, { reservation: JSON.stringify({ ...booking, status: 'pending' }) });
-          this.store.event(taskId, 'merge.divergence_ready', { head_commit: this.store.task(taskId).head_commit });
+          check(run.deliveryAttempt === booking.attempt_id, 'stale repair response cannot advance a new attempt');
+          this.store.update(taskId, { reservation: JSON.stringify({ ...booking, repair_ready: true, repair_run_id: run.recordId }) });
+          this.store.event(taskId, 'merge.divergence_ready', { attempt_id: booking.attempt_id,
+            run_id: run.recordId, head_commit: this.store.task(taskId).head_commit });
         });
         // Spawned children already carry a merge reservation; the invocation cleanup
         // releases ownership before requesting their automatic delivery. A user-created

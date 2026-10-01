@@ -555,6 +555,8 @@ export default {
   /** An observable execution barrier, not a Git verdict. A retry never skips a running invocation or unread signal. */
   reservationWaitReason(task) {
     if (this.taskSyncBusy?.has(task.id)) return 'Task 父分支同步正在执行，请等待安全点';
+    const inbound = this.activeTaskMerge(task.id);
+    if (inbound) return `等待子 Task #${inbound.id} 的父分支执行位释放`;
     if (this.running.has(task.id) || task.status === 'running') return 'Agent 正在调用或收尾，等待本轮安全结束';
     if (task.status === 'queued') return 'Task 等待下一轮 Agent 调用完成';
     if (task.status === 'awaiting' || this.questionPending(task.id)) return 'Task 正在等待用户答复';
@@ -791,6 +793,9 @@ export default {
   async integrateChild(parentId, childId, commit) {
     const parent = this.store.task(id(parentId)), child = this.store.task(id(childId));
     const delivery = child.task_kind === 'say' ? storedReservation(child.reservation) : null;
+    const queuedDelivery = storedReservation(child.reservation);
+    check(!queuedDelivery || queuedDelivery.version !== 2 || queuedDelivery.status === 'integrated',
+      'version 2 delivery belongs to the parent runtime queue, not a parent Agent Git write');
     check(['say','child'].includes(parent.task_kind) && child.parent_id === parent.id
       && (child.task_kind === 'child' || (delivery?.kind === 'merge' && delivery.status === 'requested')),
       'only a direct child or requested say Task of a new Task can be integrated');

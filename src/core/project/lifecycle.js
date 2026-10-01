@@ -197,15 +197,20 @@ export default {
     check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; cancel individual say Tasks instead');
     if (TERMINAL.has(task.status)) return task;
     const mergeBooking = task.reservation ? JSON.parse(task.reservation) : null;
+    const inbound = this.activeTaskMerge(task.id);
+    check(!inbound || !JSON.parse(inbound.reservation).landing_receipt,
+      'child landing may have modified this branch; inspect its blocked execution slot before cancelling');
     if (mergeBooking?.version === 2 && mergeBooking.kind === 'merge'
-      && ['pending','requested','resolving'].includes(mergeBooking.status)) {
-      check(!this.taskMergeBusy?.has(mergeBooking.parent_id), 'merge is applying a Git update; wait for its safe point');
+      && ['pending','requested','executing','resolving','suspended','blocked'].includes(mergeBooking.status)) {
+      check(!mergeBooking.landing_receipt, 'merge is applying or reconciling a Git update; wait for its safe point');
       this.store.transaction(() => {
-        this.store.update(task.id, { reservation: JSON.stringify({ ...mergeBooking, status: 'withdrawn',
-          retry_status: status === 'failed' ? (mergeBooking.status === 'resolving' ? 'resolving' : 'pending') : null }) });
+        this.store.update(task.id, { reservation: JSON.stringify({ ...mergeBooking,
+          status: status === 'failed' ? 'suspended' : 'withdrawn', repair_ready: false,
+          retry_status: status === 'failed' ? 'pending' : null }) });
         this.store.event(task.id, 'task.request_withdrawn', { reason, parent_id: mergeBooking.parent_id });
         if (mergeBooking.parent_id) this.store.run("UPDATE messages SET consumed=1 WHERE task_id=? AND sender_id=? AND signal_key LIKE 'merge-v2:%'",
           mergeBooking.parent_id, task.id);
+        this.store.run("UPDATE messages SET consumed=1 WHERE task_id=? AND signal_type='merge.repair'", task.id);
       });
       if (mergeBooking.parent_id) this.scheduleTaskMerge(mergeBooking.parent_id);
     }
@@ -387,9 +392,10 @@ export default {
     const booking = task.reservation ? JSON.parse(task.reservation) : null;
     this.store.update(task.id, { status: 'queued', error: null, result: null, calls: 0,
       ...(booking?.version === 2 && booking.status === 'withdrawn' ? { reservation:
-        task.status === 'failed' && ['pending','resolving'].includes(booking.retry_status)
-          ? JSON.stringify({ ...booking, status: booking.retry_status }) : null } : {}),
+        task.status === 'failed' && booking.retry_status
+          ? JSON.stringify({ version: 2, kind: 'merge', status: 'pending', auto_merge: booking.auto_merge }) : null } : {}),
       retry_profile: retryProfile ? JSON.stringify(retryProfile) : null });
+    this.resumeQueuedTaskMerge(task.id);
     this.store.event(task.id, 'retry', retryProfile ? {
       profile_override: true, agent: retryProfile.agent, model: retryProfile.model || null,
       thinking: retryProfile.thinking || null, default_prompt_overridden: Boolean(retryProfile.default_prompt),
@@ -412,6 +418,7 @@ export default {
     for (const task of this.store.tasks()) if (task.status === 'running' && ['say','child','analysis'].includes(task.task_kind))
       this.cancel(task.id, 'daemon interrupted; inspect worktree and explicitly retry', 'failed');
     this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('say','child')");
+    this.recoverTaskDeliveries();
     // Older retries discarded a withdrawn booking while leaving the source under its queue.
     // Restore the audited owner before wake/settlement; no approval or invocation is recreated.
     for (const task of this.store.tasks()) if (['say','child'].includes(task.task_kind)) {
@@ -458,6 +465,7 @@ export default {
       let booking;
       try { booking = JSON.parse(task.reservation); } catch { continue; }
       if (booking.version === 2 && booking.status === 'resolving' && task.status === 'queued') {
+        this.suspendTaskMerge(task.id, 'daemon interrupted divergence repair; inspect and explicitly retry');
         this.store.transaction(() => {
           this.store.update(task.id, { status: 'failed', error: 'daemon interrupted divergence repair; inspect and explicitly retry' });
           const eventId = this.store.event(task.id, 'merge.repair_interrupted', {});

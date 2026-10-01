@@ -6,13 +6,13 @@
 
 ## 从子任务到父分支
 
-Agent 派出的新 child 默认预约合入直接父 Task；用户直接创建的 say 仍由用户决定何时预约。安全结束、后代交付收敛、工作区干净且有提交时，runtime 请求合并并冻结源 Task，由父 Task 的 merge 队列自动串行 Squash（含 main）。无提交的干净 child 只交付结果，不产生合并提交。
+Agent 派出的新 child 默认预约合入直接父 Task；用户直接创建的 say 仍由用户决定何时预约。安全结束、后代交付收敛、工作区干净且有提交时，runtime 请求合并并冻结源 Task，由父 Task 自有队列的 runtime 串行 Squash（含 main），不创建 merge Task、不改变父子关系，也不额外调用父 Agent。无提交的干净 child 只交付结果，不产生合并提交。
 
-分歧由源 Task 吸收固定父提交、解决冲突并测试，再排队交付；不得由普通 Agent 在父 worktree 擅自造合并提交或 rebase。失败保留分支、工作区与历史。详细准入和历史 version 1 的 `task.integrate` / `task.approve_merge` 固定提交确认见[Task RPC](../reference/rpc/tasks.md)。
+取得父执行位后才固定尝试基线；分歧由源 Task 吸收固定父提交、保留原源提交、解决冲突并测试，期间保留父执行位，修好后由 runtime 核验并落地。挂起释放执行位，恢复重新排队并固定新父基线；不得由普通 Agent 在父 worktree 擅自造合并提交或 rebase。失败保留分支、工作区与历史。详细交付协议见[分支合并](merge.md)；历史 version 2 merge 身份及在途重挂仅凭明确预约／审计兼容恢复，保留历史。历史 version 1 的 `task.integrate` / `task.approve_merge` 固定提交确认见[Task RPC](../reference/rpc/tasks.md)。
 
 ## 多轮交付不是一次性销毁
 
-本轮 Squash 落地后，原 Task 归还原父，进入非终态 `awaiting_acceptance`，保留分支/worktree/会话，不自动调用 Agent。用户可以追加输入继续**同一 Task**，后续提交再交付；原始 `base_commit` 不改写，本轮基线由 `iteration_base_commit` 表达。
+本轮 Squash 落地后，原 Task 保持原父子关系，进入非终态 `awaiting_acceptance`，保留分支/worktree/会话，不自动调用 Agent。用户可以追加输入继续**同一 Task**，后续提交再交付；原始 `base_commit` 不改写，本轮基线由 `iteration_base_commit` 表达。
 
 `task.accept` 把已交付 Task 结算为 `completed`：用户验收自己创建的 say，运行中的直接父 Agent 检查并确认派生 child，无需用户逐个验收。写审计事件，不调用 Agent，也不删除代码现场；父验收不会隐式确认后代，未处理问题和未交付改动不能当作成功。待验收时不能直接归档；验收后清理/归档仍是独立显式动作。
 

@@ -14,7 +14,7 @@ export default {
     check(!target.branch || this.store.branch(target.branch)?.status === 'active', 'archived Tasks cannot receive new work');
     if (target.reservation) {
       const booking = JSON.parse(target.reservation);
-      check(!(booking.version === 2 && booking.status === 'requested'),
+      check(!(booking.version === 2 && ['requested','executing','blocked'].includes(booking.status)),
         'Task is frozen for merge; wait for integration or divergence repair before messaging it');
     }
     if (sender !== null) {
@@ -28,6 +28,10 @@ export default {
       catch (error) { ruleError = error.message; decision = { delivery: 'interrupt', source: 'fallback' }; }
     } else if (sender === null) decision = { delivery: 'interrupt', source: 'default' };
     this.store.transaction(() => {
+      // No delivery mutation (including consuming repair signals) before all sender/target admission checks.
+      const booking = target.reservation ? JSON.parse(target.reservation) : null;
+      if (booking?.version === 2 && booking.status === 'resolving') this.suspendTaskMerge(target.id, '源侧修复收到追加输入');
+      if (booking?.version === 2 && ['resolving','suspended'].includes(booking.status)) this.resumeQueuedTaskMerge(target.id);
       if (sender === null) resumeTaskDelivery(this, target.id, 'new user input');
       consumeIntegratedReservation(this, target, 'new input');
       this.store.message(target.id, body, sender);

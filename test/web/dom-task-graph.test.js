@@ -70,7 +70,7 @@ test('Task 图默认隐藏已归档 Task，可用「显示已归档」开关就�
   }
 });
 
-test('Task 图：内部合并队列随父 Task 归档，可查看历史但不隐藏独立工作子 Task', async () => {
+test('Task 图：历史内部合并队列随父 Task 归档，不隐藏独立工作子 Task', async () => {
   const saved = [...graph.nodes], total = graph.total;
   const parent = { id: 99, parent_id: 1, task_kind: 'say', role: 'agent', status: 'completed',
     title: '归档父任务', branch: 'lush/task-99', archived: true, branch_info: { archived: true } };
@@ -233,7 +233,7 @@ test('Task 图：分支合并状态进卡片首行标签，facts 行不再重复
   }
 });
 
-test('Task 图：merge 卡片与其它 Task 一样按状态开关显示，不再空闲就整层收起', async () => {
+test('Task 图：旧 v2 merge 卡片保留历史标记及状态筛选，空闲记录可回看', async () => {
   const merge = { id: 5, parent_id: 1, task_kind: 'merge', role: 'agent', status: 'waiting',
     title: '串行处理 Task #1 的合并请求', branch: null, workspace: null, target_branch: 'main' };
   const child = { id: 6, parent_id: 5, task_kind: 'say', role: 'agent', status: 'running', title: '等待合并的工作',
@@ -251,7 +251,8 @@ test('Task 图：merge 卡片与其它 Task 一样按状态开关显示，不再
     await dom.node('task-graph-open').onclick();
     // 队列在动：merge 卡在图上，子 Task 嵌在它下面，而不是变成「父 Task 不在当前图中」的根。
     expect(deepText(card(5))).toContain('merge');
-    expect(deepText(card(5))).toContain('合并队列：1 条已发请求待落地（正在处理 #6）');
+    expect(deepText(card(5))).toContain('merge（历史）');
+    expect(deepText(card(5))).toContain('历史合并队列：1 条已发请求待落地（正在处理 #6）');
     expect(wrapOf(5).querySelector('[data-task-id="6"]')).toBeTruthy();
     expect(deepText(card(6))).not.toContain('不在当前图中');
     expect(roots()).toHaveLength(1);

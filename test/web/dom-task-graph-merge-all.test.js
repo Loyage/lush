@@ -32,7 +32,13 @@ test('main 分支给「合并所有」入口：只计静息待合并 Task，确�
 
   const pending = mergeAll.onclick();
   await new Promise(resolve => setTimeout(resolve, 0));
-  expect(dialogText(dom)).toContain('一并放入 merge 队列');
+  expect(dialogText(dom)).toContain('一并放入父交付队列');
+  expect(dialogText(dom)).toContain('父 Task 自有队列的 runtime');
+  expect(dialogText(dom)).toContain('不创建 merge Task、不改变父子关系');
+  expect(dialogText(dom)).toContain('不额外调用父 Agent');
+  expect(dialogText(dom)).toContain('按入队顺序排队（代码依赖优先）');
+  expect(dialogText(dom)).toContain('修复期间保留父执行位');
+  expect(dialogText(dom)).toContain('恢复重新排队并固定新基线');
   expect(dialogText(dom)).toContain('#2 实现功能');
   expect(dialogText(dom)).not.toContain('#3');
   await answerDialog(dom, '开始合并');

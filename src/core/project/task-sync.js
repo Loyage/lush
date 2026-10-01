@@ -26,6 +26,8 @@ function acquire(project, taskId, parentId) {
 function release(project, taskId, parentId) {
   project.taskSyncBusy.delete(taskId);
   project.taskSyncBusy.delete(parentId);
+  project.scheduleTaskMerge(taskId);
+  project.scheduleTaskMerge(parentId);
   project.kick();
 }
 

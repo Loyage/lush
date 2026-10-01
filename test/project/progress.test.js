@@ -24,6 +24,14 @@ test('预约读模型：version 2 的合并请求原样交给 UI，旧形态继�
     f.store.update(task.id, { reservation: JSON.stringify(booking) });
     expect(f.project.progressView(f.store.task(task.id)).reservation)
       .toMatchObject({ version: 2, status: 'resolving', blocked_reason: '父分支已分歧' });
+    // Current queue states must survive the real inspect/decorate projection, not just DOM fixtures.
+    for (const status of ['requested','executing','resolving','suspended','blocked','integrated']) {
+      const current = { ...booking, queue_protocol: 1, status, delivery_id: 13, enqueue_seq: 13,
+        attempt_id: 17, baseline: 'parent', landing_receipt: { commit: 'exact-sha' } };
+      f.store.update(task.id, { reservation: JSON.stringify(current) });
+      expect(f.project.inspect(task.id).reservation).toEqual(current);
+      expect(f.project.decorate(f.store.summaries('work')).find(row => row.id === task.id).reservation).toEqual(current);
+    }
     // 未知状态 / 未知版本 / 未知类型都不能当成一个正常预约交给 UI。
     f.store.update(task.id, { reservation: JSON.stringify({ ...booking, status: 'sideways' }) });
     expect(f.project.progressView(f.store.task(task.id)).reservation).toEqual({ status: 'invalid' });

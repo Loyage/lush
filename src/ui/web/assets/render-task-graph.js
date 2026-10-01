@@ -21,13 +21,13 @@ const ENDED = new Set(['completed', 'failed', 'cancelled']);
 /** 状态计数 / 图例的固定顺序：先是活动态，再到终结态；只画出现过的。 */
 const STATUS_ORDER = ['running', 'queued', 'waiting', 'awaiting', 'awaiting_acceptance', 'completed', 'failed', 'cancelled'];
 /** 图上画成卡片的 Task：自己拥有分支 / worktree 的 main / owner / say / child。
- *  planner / scheduler 是历史意图层记录，不在这里画；merge Task 是父 Task 的常驻合并队列身份，
+ *  planner / scheduler 是历史意图层记录，不在这里画；merge Task 是旧 version 2 的历史队列身份，
  *  和别的 Task 一样由表头的状态开关决定显示与否，不按队列活跃度自动收起。 */
 const VISIBLE_KINDS = new Set(['say', 'child', 'main', 'owner', 'merge']);
 /** 在飞的合并预约：已预约等静息 / 已发请求待落地 / 已退回源侧解分歧。 */
 const IN_FLIGHT = new Set(['pending', 'requested', 'resolving']);
 
-/** merge 卡片的队列摘要：谁先落地以库为准（`driveTaskMerge` 取 id 最小的 requested），展示层不猜。 */
+/** 旧 version 2 merge 卡片的历史摘要；当前父自有队列不新增这类卡片。 */
 function mergeQueueNotes(raw) {
   const queues = new Map();
   for (const node of raw) {
@@ -41,7 +41,7 @@ function mergeQueueNotes(raw) {
     if (requested.length) parts.push(`${requested.length} 条已发请求待落地（正在处理 #${requested[0].id}）`);
     if (pending) parts.push(`${pending} 条已预约、等静息`);
     if (resolving.length) parts.push(`${resolving.length} 条源侧解分歧中（#${resolving.map(child => child.id).join('、#')}）`);
-    if (parts.length) queues.set(node.id, `合并队列：${parts.join(' · ')}`);
+    if (parts.length) queues.set(node.id, `历史合并队列：${parts.join(' · ')}`);
   }
   return queues;
 }
@@ -95,8 +95,8 @@ function mergeAllCandidates(graph) {
 }
 
 /**
- * 分支所有者卡片上的「合并所有」：把这条分支下所有已静息、待合并的 Task 一次性交给父 Task 的 merge
- * 子任务串行处理。没有候选时也保留按钮并写明原因，选项不因当前状态整块消失。
+ * 分支所有者卡片上的「合并所有」：把这条分支下所有已静息、待合并的 Task 一次性交给父 Task
+ * 自有队列的 runtime 串行处理，不创建中间 Task。没有候选时也保留按钮并写明原因，选项不因当前状态整块消失。
  */
 function mergeAllControl(node, candidates, refresh) {
   const box = el('section', undefined, 'task-graph-merge-all');
@@ -111,8 +111,8 @@ function mergeAllControl(node, candidates, refresh) {
   box.append(button(`合并所有（${candidates.length}）`, async () => {
     const detail = candidates.map(item => `#${item.id} ${item.title}`).join('\n');
     const confirmed = await confirmDialog({
-      title: `把 ${node.branch} 下 ${candidates.length} 条待合并 Task 一并放入 merge 队列？`,
-      message: '逐个请求合并；父 Task 的 merge 子任务一次只落地一条，其余请求按序排队。与父分支分歧的 Task 会自动唤醒其 Agent 在源侧合入固定父提交并测试，修好后继续合并。已发出的请求不能批量撤销；分支与提交不会因失败丢失。',
+      title: `把 ${node.branch} 下 ${candidates.length} 条待合并 Task 一并放入父交付队列？`,
+      message: '逐个请求合并；父 Task 自有队列的 runtime 一次只落地一条，其余按入队顺序排队（代码依赖优先）。不创建 merge Task、不改变父子关系，也不额外调用父 Agent。取得父执行位后才固定父基线；分歧时唤醒原 Task 的 Agent 在源侧合入固定父提交并测试，修复期间保留父执行位。挂起释放执行位，恢复重新排队并固定新基线。已发出的请求不能批量撤销；分支与提交不会因失败丢失。',
       detail,
       confirmLabel: '开始合并',
       confirmHelp: agentHelp('按顺序自动合并所有已静息的待合并 Task；发生分歧时会唤醒对应 Task 的 Agent。'),
@@ -124,9 +124,9 @@ function mergeAllControl(node, candidates, refresh) {
     if (result.requested) bits.push(`${result.requested} 条已发出请求`);
     if (result.blocked) bits.push(`${result.blocked} 条仍在等待条件`);
     if (result.failed) bits.push(`${result.failed} 条失败`);
-    show(`已把 ${node.branch} 的待合并 Task 放入 merge 队列：${bits.join('、')}。`);
+    show(`已把 ${node.branch} 的待合并 Task 放入父交付队列：${bits.join('、')}。`);
     await refresh();
-  }, 'ghost', { agent: true, help: agentHelp(`一次性请求合并 ${node.branch} 下全部已静息、待合并的 Task；由父 Task 的 merge 子任务串行处理，分歧时唤醒对应 Agent。`) }));
+  }, 'ghost', { agent: true, help: agentHelp(`一次性请求合并 ${node.branch} 下全部已静息、待合并的 Task；由父 Task 自有队列的 runtime 串行处理，不额外调用父 Agent，分歧时唤醒原 Agent。`) }));
   return box;
 }
 
@@ -154,7 +154,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   // 用与任务详情同一份 INTEGRATION 文案与配色；none（没有独有提交）/ 未知值不占位。
   const merge = INTEGRATION[node.integration];
   if (!minimal && merge) head.append(badge(merge, node.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
-  if (!minimal && node.task_kind) head.append(badge(node.task_kind));
+  if (!minimal && node.task_kind) head.append(badge(node.task_kind === 'merge' ? 'merge（历史）' : node.task_kind));
   if (!minimal && node.freeze && node.freeze.task_id !== node.id) head.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
   row.append(head);
@@ -406,7 +406,7 @@ export function renderTaskGraph(graph) {
     const toggle = button(ui.taskGraphShowArchived ? `隐藏已归档（${archivedCount}）` : `显示已归档（${archivedCount}）`, () => {
       ui.taskGraphShowArchived = !ui.taskGraphShowArchived;
       renderTaskGraph(full);
-    }, 'ghost', { help: '归档 Task 是用户显式归档分支后留下的记录，包含随父 Task 归档的内部合并队列；这里只在当前页面显示，不写库、不改任务状态，重开页面仍默认隐藏。' });
+    }, 'ghost', { help: '归档 Task 是用户显式归档分支后留下的记录，包含随父 Task 归档的历史内部合并队列；这里只在当前页面显示，不写库、不改任务状态，重开页面仍默认隐藏。' });
     toggle.classList.add('task-graph-archived-toggle');
     summary.append(toggle);
   }

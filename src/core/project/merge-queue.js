@@ -5,7 +5,10 @@ import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReserva
 const reservationOf = task => task.reservation ? JSON.parse(task.reservation) : null;
 const codeTask = task => ['say', 'child'].includes(task.task_kind);
 
-/** New task-owned delivery queue. The task tree is reparented only after a durable request. */
+const ACTIVE = ['executing', 'resolving', 'blocked'];
+const FROZEN = ['requested', ...ACTIVE];
+
+/** Parent-owned delivery. Reservations are facts; messages are notifications only. */
 export default {
   /** Persistent hook configuration is separate from the single delivery receipt. */
   autoMergeView(task) {
@@ -17,7 +20,7 @@ export default {
     let reason = null;
     if (locked) reason = '父任务派生的子 Task 默认自动合并，不能关闭';
     else if (TERMINAL.has(task.status) || task.status === 'awaiting_acceptance') reason = '本轮已交付或任务已结束，不能调整自动合并';
-    else if (booking && ['requested','resolving'].includes(booking.status)) reason = '合并请求已发出，不能调整自动合并';
+    else if (booking && [...FROZEN, 'suspended'].includes(booking.status)) reason = '合并请求已发出，不能调整自动合并';
     else if (this.taskSyncBusy?.has(task.id) || taskSyncDeliveryPaused(this, task.id)) reason = '父分支同步正在执行或交付已暂停，不能调整自动合并';
     else if (this.mergeReadiness(task)?.ready) reason = '本轮开发已完成，请使用合并按钮';
     return { enabled, locked, editable: !reason, reason };
@@ -68,6 +71,22 @@ export default {
     assertTaskNotSyncing(this, task.id);
     resumeTaskDelivery(this, task.id, 'explicit merge reservation');
     let previous = reservationOf(task);
+    if (previous?.status === 'blocked' && previous.landing_receipt) {
+      await this.workspaces.exclusive(async () => {
+        if (await this.workspaces.verifyTaskSquashUnsafe(previous.landing_receipt)) return;
+        await this.workspaces.assertCleanBranches([task.branch, task.target_branch]);
+        check(await this.workspaces.workspaceForBranch(task.target_branch) === previous.landing_receipt.workspace,
+          'landing target checkout moved; preserve blocked slot');
+        const target = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.target_branch}`);
+        check(target === previous.baseline, 'unknown parent-side landing effects; preserve blocked slot and inspect Git');
+        check(this.store.task(task.id).reservation === task.reservation, 'delivery changed during blocked inspection');
+        const { landing_receipt, ...unwritten } = previous;
+        this.store.update(task.id, { reservation: JSON.stringify({ ...unwritten, status: 'suspended',
+          blocked_reason: '显式复核证明父分支未写入；重新排队' }) });
+        this.store.event(task.id, 'merge.unwritten_attempt_released', { attempt_id: previous.attempt_id });
+      });
+      task = this.store.task(task.id); previous = reservationOf(task);
+    }
     if (previous?.status === 'integrated' && !TERMINAL.has(task.status)) {
       check(!this.running.has(task.id), 'Agent is still in flight');
       const state = await this.workspaces.exclusive(async () => {
@@ -102,7 +121,8 @@ export default {
       const { auto_merge: _automatic, ...explicit } = intent;
       this.store.update(task.id, { reservation: JSON.stringify(explicit) });
     }
-    if (previous?.status === 'requested') this.scheduleTaskMerge(previous.parent_id);
+    if (previous?.status === 'suspended') this.resumeQueuedTaskMerge(task.id);
+    if (FROZEN.includes(previous?.status)) this.scheduleTaskMerge(previous.parent_id);
     else await this.settleQueuedMerge(task.id);
     return { task_id: task.id, changed: !previous, reservation: reservationOf(this.store.task(task.id)) };
   },
@@ -127,7 +147,8 @@ export default {
       if (prior?.version !== 2 || prior.status !== 'pending' || this.reservationWaitReason(task)
         || taskSyncDeliveryPaused(this, task.id)) return false;
       assertTaskAncestorsOpen(this, task);
-      const originalParent = this.store.task(prior.parent_id ?? task.parent_id);
+      const originalParent = this.store.task(task.parent_id);
+      check(!prior.parent_id || prior.parent_id === task.parent_id, 'delivery parent changed');
       check(['say','child','main','owner'].includes(originalParent.task_kind) && !TERMINAL.has(originalParent.status),
         'merge needs an active direct parent');
       const state = await this.workspaces.branchState(task.branch);
@@ -136,6 +157,9 @@ export default {
       check(state.blockers.every(blocker => blocker === `task:#${task.id}`),
         `unintegrated descendants block the request: ${state.blockers.join(', ')}`);
       const delivery = await taskDeliveryState(this, task);
+      await this.workspaces.assertCleanBranches([task.branch]);
+      check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === state.child_head,
+        'source ref moved during safe-point inspection');
       if (delivery !== 'pending' && (task.task_kind === 'child'
         || (prior.auto_merge && task.iteration_base_commit))) {
         // No-change children and automatic follow-ups deliver a result, not an
@@ -168,15 +192,19 @@ export default {
         const live = this.store.task(task.id), pinned = reservationOf(live);
         check(pinned?.version === 2 && pinned.status === 'pending' && live.status === 'waiting'
           && !this.reservationWaitReason(live) && !taskSyncDeliveryPaused(this, live.id)
-          && (live.parent_id === originalParent.id || this.store.task(live.parent_id).parent_id === originalParent.id)
+          && live.parent_id === originalParent.id
           && live.head_commit === state.child_head,
         'merge reservation changed during request');
         const { blocked_reason: _reason, blocked_code: _code, parent_commit: _parentCommit, ...ready } = pinned;
-        const request = { ...ready, status: 'requested', commit: state.child_head,
-          baseline: state.parent_head, parent_id: originalParent.id, requested_at: new Date().toISOString() };
+        const deliveryId = this.store.event(task.id, 'merge.enqueued', { parent_id: originalParent.id, commit: state.child_head });
+        const request = { ...ready, queue_protocol: 1, status: 'requested', commit: state.child_head,
+          delivery_id: deliveryId, enqueue_seq: deliveryId, parent_id: originalParent.id,
+          requested_at: new Date().toISOString() };
+        // A parent baseline belongs to an attempt, never to an enqueue.
+        delete request.baseline; delete request.attempt_id; delete request.landing_receipt;
         this.store.update(task.id, { reservation: JSON.stringify(request) });
-        const key = `merge-v2:${task.id}:${state.child_head}`;
-        const payload = { branch: task.branch, commit: state.child_head, baseline: state.parent_head };
+        const key = `merge-v2:${task.id}:delivery:${deliveryId}`;
+        const payload = { branch: task.branch, commit: state.child_head, delivery_id: deliveryId, enqueue_seq: deliveryId };
         const body = JSON.stringify({ version: 1, signal: 'merge.requested', key,
           source_task_id: task.id, target_task_id: originalParent.id, payload });
         const row = this.store.signal(originalParent.id, task.id, 'merge.requested', key, body);
@@ -202,9 +230,13 @@ export default {
     const task = this.store.task(id(taskId));
     const booking = reservationOf(task);
     if (booking?.version !== 2 || booking.status !== 'integrated') return false;
-    const target = booking.parent_id ?? task.parent_id;
+    const target = booking.parent_id;
     if (!target || task.parent_id === target) return false;
-    check(this.store.task(target), `merged Task #${task.id} has no original parent to return to`);
+    const parent = this.store.task(target), queue = this.store.task(task.parent_id);
+    const auditRow = this.store.get("SELECT data FROM events WHERE task_id=? AND type='task.reparented_for_merge' ORDER BY id DESC LIMIT 1", task.id);
+    const audit = auditRow ? JSON.parse(auditRow.data) : null;
+    check(queue.task_kind === 'merge' && queue.parent_id === target && audit?.from === target && audit?.to === queue.id
+      && task.target_branch === parent.branch, 'cannot restore integrated parent without matching legacy reparent audit');
     this.store.transaction(() => {
       const live = this.store.task(task.id);
       if (live.parent_id === target) return;
@@ -220,7 +252,7 @@ export default {
     const task = this.store.task(id(taskId)), booking = reservationOf(task);
     if (!codeTask(task) || !task.parent_id) return false;
     if (booking && !(booking.version === 2 && booking.kind === 'merge'
-      && (booking.status === 'withdrawn' || (booking.status === 'pending' && !booking.parent_id)))) return false;
+      && (['withdrawn','suspended'].includes(booking.status) || (booking.status === 'pending' && !booking.parent_id)))) return false;
     const queue = this.store.task(task.parent_id);
     if (queue.task_kind !== 'merge' || queue.name !== 'merge') return false;
     const row = this.store.get("SELECT data FROM events WHERE task_id=? AND type='task.reparented_for_merge' ORDER BY id DESC LIMIT 1", task.id);
@@ -238,15 +270,89 @@ export default {
       this.store.event(task.id, 'task.merge_parent_restored', { from: queue.id, to: target,
         reason: 'merge request withdrawn or missing' });
     });
+    if (!this.store.children(queue.id).length && queue.status !== 'completed') {
+      this.store.update(queue.id, { status: 'completed' });
+      this.store.event(queue.id, 'merge.queue_idle', { parent_id: target, historical: true });
+    }
     this.scheduleTaskMerge(target);
     return true;
   },
 
+  /** Compatibility is audited, never inferred from a branch name or merge identity. */
+  recoverTaskDeliveries() {
+    for (const task of this.store.tasks()) {
+      let booking;
+      try { booking = reservationOf(task); }
+      catch (error) { this.store.update(task.id, { integration_error: `invalid delivery state: ${error.message}` }); continue; }
+      if (!codeTask(task) || booking?.version !== 2 || !FROZEN.includes(booking.status)) continue;
+      if (booking.queue_protocol === 1) {
+        // A crashed pre-write inspection is safe to suspend; an apply needs exact reconciliation.
+        if (booking.status === 'executing' && !booking.landing_receipt)
+          this.suspendTaskMerge(task.id, 'daemon interrupted before landing; explicitly requeue');
+        if (booking.status === 'resolving' && task.status === 'waiting' && !booking.repair_ready)
+          this.suspendTaskMerge(task.id, 'daemon interrupted repair; inspect before requeue');
+        if (booking.landing_receipt || (booking.status === 'resolving' && booking.repair_ready))
+          this.scheduleTaskMerge(booking.parent_id);
+        continue;
+      }
+      const queue = task.parent_id ? this.store.task(task.parent_id) : null;
+      const auditRow = this.store.get("SELECT data FROM events WHERE task_id=? AND type='task.reparented_for_merge' ORDER BY id DESC LIMIT 1", task.id);
+      const audit = auditRow ? JSON.parse(auditRow.data) : null;
+      const parentId = booking.parent_id;
+      try {
+        check(parentId, 'legacy delivery lacks explicit original parent');
+        const parent = this.store.task(parentId);
+        check(parent.branch === task.target_branch && this.store.branch(task.branch)?.parent === parent.branch,
+          'legacy delivery parent ownership mismatch');
+        if (task.parent_id !== parentId) {
+          check(queue?.task_kind === 'merge' && queue.parent_id === parentId
+            && audit?.from === parentId && audit?.to === queue.id, 'legacy delivery lacks matching reparent audit');
+          this.store.run('UPDATE tasks SET parent_id=? WHERE id=? AND parent_id=?', parentId, task.id, queue.id);
+          this.store.event(task.id, 'task.merge_parent_restored', { from: queue.id, to: parentId, reason: 'legacy in-flight compatibility' });
+          if (!this.store.children(queue.id).length) this.store.update(queue.id, { status: 'completed' });
+        }
+        // An old implementation may have committed before recording its DB receipt.
+        // Leave the old baseline intact until a read-only exact legacy check has completed.
+        void this.workspaces.exclusive(async () => {
+          const live = this.store.task(task.id), old = reservationOf(live);
+          if (old?.queue_protocol === 1 || !FROZEN.includes(old?.status)) return;
+          const tip = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${parent.branch}`);
+          const parents = await this.workspaces.git(this.config.project, 'show', '-s', '--format=%P', tip);
+          const title = await this.workspaces.git(this.config.project, 'show', '-s', '--format=%s', tip);
+          const tree = await this.workspaces.commitTree(tip);
+          const sourceTree = await this.workspaces.commitTree(old.commit);
+          const matches = old.baseline && parents === old.baseline && tree === sourceTree
+            && title === `Merge task #${task.id}: ${task.goal.split('\n')[0].slice(0, 100)}`;
+          const now = this.store.task(task.id);
+          check(now.reservation === live.reservation && now.parent_id === parentId, 'legacy delivery changed during recovery');
+          const deliveryId = this.store.event(task.id, 'merge.legacy_queue_recovered', { parent_id: parentId, landed: matches });
+          const requestEvent = this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.merge_requested' ORDER BY id DESC LIMIT 1", task.id);
+          const converted = { ...old, queue_protocol: 1, delivery_id: deliveryId, enqueue_seq: requestEvent?.id ?? deliveryId,
+            status: old.status === 'resolving' ? 'suspended' : 'requested' };
+          delete converted.baseline; delete converted.parent_commit;
+          if (matches) {
+            const workspace = await this.workspaces.workspaceForBranch(parent.branch);
+            check(this.store.task(task.id).reservation === live.reservation, 'legacy delivery changed while identifying checkout');
+            const attemptId = this.store.event(task.id, 'merge.legacy_landing_identified', { commit: tip, baseline: old.baseline });
+            Object.assign(converted, { status: 'blocked', attempt_id: attemptId, baseline: old.baseline,
+              landing_receipt: { child: task.branch, source: old.commit, commit: tip, baseline: old.baseline,
+                tree: sourceTree, parent: parent.branch, workspace } });
+            // Preserve exact credentials even when source or target is dirty/drifted.
+          }
+          this.store.update(task.id, { reservation: JSON.stringify(converted) });
+          this.scheduleTaskMerge(parentId);
+        }).catch(error => this.store.update(task.id, { integration_error: `legacy delivery recovery blocked: ${error.message}` }));
+      } catch (error) { this.store.update(task.id, { integration_error: error.message }); }
+    }
+  },
+
   /** Dispatch the parent's merge signal without waking its development Agent. */
   scheduleTaskMerge(parentId) {
-    if (this.stopping) return;
+    if (this.stopping || !parentId) return;
+    // A signal delivered while the driver awaits Git must survive a busy early return.
+    (this.taskMergeWakePending ??= new Set()).add(parentId);
     queueMicrotask(() => this.driveTaskMerge(parentId).catch(error => {
-      const pending = this.store.get(`SELECT id FROM tasks WHERE json_extract(reservation,'$.version')=2
+      const pending = this.store.get(`SELECT id FROM tasks WHERE json_valid(reservation) AND json_extract(reservation,'$.version')=2
         AND json_extract(reservation,'$.status')='requested'
         AND json_extract(reservation,'$.parent_id')=? ORDER BY id LIMIT 1`, parentId);
       if (pending) this.store.update(pending.id, { integration_error: error.message.slice(0, 1000) });
@@ -255,115 +361,228 @@ export default {
     }));
   },
 
+  /** Persistent logical owner, unlike the short-lived global Git queue. */
+  activeTaskMerge(parentId) {
+    return this.store.get(`SELECT * FROM tasks WHERE json_valid(reservation) AND json_extract(reservation,'$.version')=2
+      AND json_extract(reservation,'$.parent_id')=?
+      AND json_extract(reservation,'$.status') IN ('executing','resolving','blocked')
+      ORDER BY json_extract(reservation,'$.attempt_id'),id LIMIT 1`, parentId);
+  },
+
+  /** Explicit suspension invalidates old repair responses and releases only an unwritten target. */
+  suspendTaskMerge(taskId, reason) {
+    const task = this.store.task(taskId), booking = reservationOf(task);
+    if (booking?.version !== 2 || !['requested','executing','resolving'].includes(booking.status)) return false;
+    check(!booking.landing_receipt, 'landing may have modified the parent; preserve its execution slot');
+    this.store.transaction(() => {
+      this.store.update(task.id, { reservation: JSON.stringify({ ...booking, status: 'suspended',
+        repair_ready: false, blocked_reason: reason }) });
+      this.store.event(task.id, 'merge.attempt_suspended', { delivery_id: booking.delivery_id,
+        attempt_id: booking.attempt_id, reason });
+      this.store.run("UPDATE messages SET consumed=1 WHERE task_id=? AND signal_type='merge.repair'", task.id);
+    });
+    this.scheduleTaskMerge(booking.parent_id);
+    return true;
+  },
+
+  resumeQueuedTaskMerge(taskId) {
+    const task = this.store.task(taskId), booking = reservationOf(task);
+    if (booking?.version !== 2 || booking.status !== 'suspended') return false;
+    const { baseline, attempt_id, landing_receipt, parent_commit, repair_ready, repair_run_id, blocked_reason,
+      enqueue_seq, delivery_id, original_commit, ...intent } = booking;
+    this.store.update(task.id, { reservation: JSON.stringify({ ...intent, status: 'pending' }) });
+    this.store.event(task.id, 'merge.attempt_resumed', { previous_delivery_id: delivery_id, previous_attempt_id: attempt_id });
+    return true;
+  },
+
+  /** Guard after every asynchronous inspection, and immediately before the Git write. */
+  assertTaskMergeAttempt(taskId, attemptId, allowRepair = false) {
+    const task = this.store.task(taskId), request = reservationOf(task);
+    check(request?.attempt_id === attemptId && ['executing', ...(allowRepair ? ['resolving','blocked'] : [])].includes(request.status),
+      'delivery attempt changed or was cancelled');
+    const parent = this.store.task(request.parent_id);
+    check(!TERMINAL.has(task.status) && !TERMINAL.has(parent.status)
+      && task.parent_id === parent.id && task.target_branch === parent.branch, 'delivery identities changed');
+    check(!this.running.has(parent.id) && parent.status !== 'running' && !this.running.has(task.id)
+      && !this.taskSyncBusy?.has(parent.id) && !this.taskSyncBusy?.has(task.id), 'delivery invocation/sync still in flight');
+    check(!this.reservationWaitReason(task), this.reservationWaitReason(task) || 'source no longer idle');
+    const owner = this.activeTaskMerge(parent.id);
+    check(owner?.id === task.id, 'parent execution slot changed');
+    return { task, request, parent };
+  },
+
+  async readTaskMergeParentHead(task, landedCommit) {
+    const head = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.target_branch}`);
+    await this.workspaces.assertCleanBranches([task.target_branch]);
+    check(await this.workspaces.isAncestor(this.config.project, landedCommit, head),
+      'exact landed commit no longer survives on parent');
+    check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.target_branch}`) === head,
+      'parent ref moved during delivery reconciliation');
+    return head;
+  },
+
+  finalizeTaskMerge(taskId, attemptId, landedCommit, parentHead = landedCommit) {
+    this.store.transaction(() => {
+      const { task, request, parent } = this.assertTaskMergeAttempt(taskId, attemptId, true);
+      this.store.update(task.id, { status: 'awaiting_acceptance', integration: 'merged', integration_error: null,
+        iteration_base_commit: request.commit, retry_profile: null,
+        reservation: JSON.stringify({ ...request, status: 'integrated', landed_commit: landedCommit,
+          integrated_at: new Date().toISOString() }) });
+      this.store.update(parent.id, { head_commit: parentHead });
+      this.store.event(task.id, 'task.merge_integrated', { source_commit: request.commit, commit: landedCommit,
+        parent_head: parentHead, parent_id: parent.id, delivery_id: request.delivery_id, attempt_id: attemptId, squash: true });
+      const key = `merge-v2-completed:${task.id}:${request.delivery_id}:${attemptId}`;
+      const receipt = this.store.signal(parent.id, task.id, 'merge.completed', key,
+        JSON.stringify({ version: 1, signal: 'merge.completed', key, source_task_id: task.id,
+          target_task_id: parent.id, payload: { commit: landedCommit, parent_head: parentHead, source_commit: request.commit,
+            delivery_id: request.delivery_id, attempt_id: attemptId } }));
+      if (receipt.inserted) this.store.event(parent.id, 'task.signal', { message_id: receipt.id,
+        source_task_id: task.id, signal: 'merge.completed', key });
+      this.store.run("UPDATE messages SET consumed=1 WHERE task_id=? AND sender_id=? AND signal_type='merge.requested'", parent.id, task.id);
+    });
+  },
+
   async driveTaskMerge(parentId) {
-    if (this.stopping) return;
+    if (this.stopping || !parentId) return;
     this.taskMergeBusy ??= new Set();
     if (this.taskMergeBusy.has(parentId)) return;
     this.taskMergeBusy.add(parentId);
+    this.taskMergeWakePending?.delete(parentId); // consume only after actually acquiring the driver
+    let landed = false, taskId = null;
     try {
-      while (!this.stopping) {
-        // The oldest request is the only one allowed to advance this parent's branch.
-        const row = this.store.get(`SELECT * FROM tasks WHERE json_extract(reservation,'$.version')=2
-          AND json_extract(reservation,'$.status')='requested'
-          AND json_extract(reservation,'$.parent_id')=? ORDER BY id LIMIT 1`, parentId);
-        if (!row) break;
-        const outcome = await this.workspaces.exclusive(async () => {
-          const task = this.store.task(row.id), request = reservationOf(task);
-          if (request?.status !== 'requested') return 'next';
-          const parent = this.store.task(parentId);
-          assertTaskAncestorsOpen(this, task);
-          check(!TERMINAL.has(parent.status), 'merge parent has ended');
-          check(parent.branch === task.target_branch, 'merge request target no longer matches its parent');
-          // Never rewrite a branch while its owner still has an invocation. A queued
-          // owner is already held by the request's branch freeze: waiting for it to
-          // run would deadlock when an urgent message arrives during delivery.
-          if (this.running.has(parentId) || parent.status === 'running' || this.taskSyncBusy?.has(parentId)
-            || this.taskSyncBusy?.has(task.id) || this.running.has(task.id)) return 'wait';
-          let merger = this.store.get("SELECT * FROM tasks WHERE parent_id=? AND task_kind='merge' AND name='merge' ORDER BY id LIMIT 1", parentId);
-          if (!merger) merger = this.store.transaction(() => {
-            const created = this.store.create({ parent_id: parentId, input_id: parent.input_id, role: 'agent',
-              task_kind: 'merge', name: 'merge', goal: `串行处理 Task #${parentId} 的合并请求` });
-            this.store.update(created.id, { status: 'waiting', target_branch: parent.branch });
-            this.store.event(created.id, 'merge.queue_started', { parent_id: parentId });
-            return created;
-          });
-          if (merger.status === 'completed') this.store.update(merger.id, { status: 'waiting' });
-          if (task.parent_id === parentId) this.store.transaction(() => {
-            this.store.run("UPDATE tasks SET parent_id=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND parent_id=?",
-              merger.id, task.id, parentId);
-            this.store.event(task.id, 'task.reparented_for_merge', { from: parentId, to: merger.id });
-          });
-          else check(task.parent_id === merger.id, 'requested Task moved outside its merge queue');
-          const state = await this.workspaces.branchState(task.branch);
-          check(state.parent === parent.branch && state.child_head === request.commit,
-            'requested source branch moved; preserve its worktree for inspection');
-          check(state.blockers.every(blocker => blocker === `task:#${task.id}`),
-            `unintegrated descendants block merge: ${state.blockers.join(', ')}`);
-          // Git can succeed immediately before the DB transaction. Recognize only our
-          // exact one-parent squash of the pinned request; never replay the commit.
-          const previousParent = await this.workspaces.git(this.config.project, 'rev-parse', `${state.parent_head}^`).catch(() => null);
-          const previousTitle = await this.workspaces.git(this.config.project, 'log', '-1', '--format=%s', state.parent_head);
-          const previousTree = await this.workspaces.git(this.config.project, 'rev-parse', `${state.parent_head}^{tree}`);
-          const sourceTree = await this.workspaces.git(this.config.project, 'rev-parse', `${request.commit}^{tree}`);
-          const landedPreviously = previousParent === request.baseline && previousTree === sourceTree
-            && previousTitle.startsWith(`Merge task #${task.id}: `);
-          if (state.status === 'diverged' && !landedPreviously) {
-            // This Task, not an unrelated resolver, owns the repair. It runs on its original source branch.
-            this.store.transaction(() => {
-              const live = reservationOf(this.store.task(task.id));
-              this.store.update(task.id, { reservation: JSON.stringify({ ...live, status: 'resolving',
-                blocked_reason: `父分支 ${parent.branch} 已分歧；请在自己的分支合入固定父提交 ${state.parent_head}，解决冲突并测试，再重新提交合并请求。`,
-                parent_commit: state.parent_head }), status: 'queued' });
-              this.store.message(task.id, `合并分歧：请在你的工作区合入固定父提交 ${state.parent_head}（不要修改父分支），解决冲突、测试并提交；完成后自动再次请求合并。`, merger.id);
-              this.store.event(task.id, 'merge.divergence_returned', { parent_commit: state.parent_head, merger_id: merger.id });
-            });
-            this.kick();
-            return 'wait';
+      await this.workspaces.exclusive(async () => {
+        let row = this.activeTaskMerge(parentId);
+        const parent = this.store.task(parentId);
+        // The parent itself may be a frozen source in an upward delivery. Its
+        // fixed tree cannot simultaneously accept a descendant landing.
+        if (FROZEN.includes(reservationOf(parent)?.status)) return;
+        const foreignLock = this.branchFreeze(parent.branch);
+        if (foreignLock && (!row || foreignLock.task_id !== row.id || foreignLock.kind !== 'delivery')) return;
+        if (!row) {
+          // Each landing is a scheduling boundary: urgent ordinary input gets its turn.
+          if (this.hasActionableMessages(parentId) && ['say','child'].includes(parent.task_kind)) {
+            this.wake(parentId); return;
           }
-          // Other pending requests can have gone stale since they were pinned. The first one
-          // remains the only writer; a later one will be returned to its own Agent for repair.
-          check(landedPreviously || state.status === 'fast_forward' || state.status === 'integrated',
-            'merge source is not landable');
-          const landed = landedPreviously ? { commit: state.parent_head, already_integrated: true }
-            : await this.workspaces.squashBranchUnsafe(task.branch, request.commit, state.parent_head,
-              `Merge task #${task.id}: ${task.goal.split('\n')[0].slice(0, 100)}`);
+          const candidates = this.store.all(`SELECT * FROM tasks WHERE json_valid(reservation) AND json_extract(reservation,'$.version')=2
+            AND json_extract(reservation,'$.status')='requested'
+            AND json_extract(reservation,'$.parent_id')=?
+            ORDER BY json_extract(reservation,'$.enqueue_seq'),id`, parentId);
+          row = candidates.find(candidate => this.store.deps(candidate.id).filter(edge => edge.kind === 'code')
+            .every(edge => this.store.task(edge.depends_on).integration === 'merged'));
+        }
+        if (!row) return;
+        taskId = row.id;
+        let task = this.store.task(row.id), request = reservationOf(task);
+        if (!FROZEN.includes(request?.status) || request.queue_protocol !== 1) return;
+        if (this.running.has(parentId) || parent.status === 'running' || this.taskSyncBusy?.has(parentId)
+          || this.running.has(task.id) || this.taskSyncBusy?.has(task.id)) return;
+        check(!TERMINAL.has(parent.status) && parent.branch === task.target_branch, 'delivery parent changed or ended');
+        assertTaskAncestorsOpen(this, task);
+        if (request.status === 'resolving' && !request.repair_ready) return;
+        if (request.status === 'requested') {
+          // Acquire the persistent writer slot synchronously BEFORE inspecting Git.
+          check(task.parent_id === parent.id, 'legacy reparented delivery needs audited recovery');
+          const attemptId = this.store.event(task.id, 'merge.attempt_started', { delivery_id: request.delivery_id, parent_id: parentId });
+          request = { ...request, status: 'executing', attempt_id: attemptId, original_commit: request.commit };
+          this.store.update(task.id, { reservation: JSON.stringify(request) });
+        }
+        if (request.landing_receipt) {
+          // Exact Git/DB recovery. Never replay an apply whose side effects are unknown.
+          check(await this.workspaces.verifyTaskSquashUnsafe(request.landing_receipt),
+            'unconfirmed landing: preserve parent worktree and execution slot; inspect Git');
+          await this.workspaces.assertCleanBranches([task.branch]);
+          check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === request.commit,
+            'landed source ref drifted; preserve exact receipt and inspect');
+          const parentHead = await this.readTaskMergeParentHead(task, request.landing_receipt.commit);
+          check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === request.commit,
+            'landed source ref drifted during parent reconciliation');
+          this.assertTaskMergeAttempt(task.id, request.attempt_id, true);
+          this.finalizeTaskMerge(task.id, request.attempt_id, request.landing_receipt.commit, parentHead);
+          landed = true; return;
+        }
+        const state = await this.workspaces.branchState(task.branch);
+        this.assertTaskMergeAttempt(task.id, request.attempt_id, true);
+        check(state.parent === parent.branch && state.child_head === (request.repair_ready ? task.head_commit : request.commit),
+          'requested source/target moved; preserve its worktree');
+        check(state.blockers.every(blocker => blocker === `task:#${task.id}`), `unintegrated descendants: ${state.blockers.join(', ')}`);
+        await this.workspaces.assertCleanBranches([task.branch, parent.branch]);
+        this.assertTaskMergeAttempt(task.id, request.attempt_id, true);
+        if (!request.baseline) {
+          request = { ...request, baseline: state.parent_head };
+          this.store.update(task.id, { reservation: JSON.stringify(request) });
+          this.store.event(task.id, 'merge.baseline_fixed', { attempt_id: request.attempt_id, baseline: request.baseline });
+        }
+        check(state.parent_head === request.baseline, 'fixed parent baseline drifted externally; suspend and retry on a new baseline');
+        if (request.repair_ready) {
+          check(await this.workspaces.isAncestor(this.config.project, request.original_commit, task.head_commit)
+            && await this.workspaces.isAncestor(this.config.project, request.baseline, task.head_commit),
+            'repair must preserve both original source and fixed parent commits');
+          this.assertTaskMergeAttempt(task.id, request.attempt_id, true);
+          request = { ...request, status: 'executing', commit: task.head_commit, repair_ready: false };
+          this.store.update(task.id, { reservation: JSON.stringify(request) });
+        }
+        if (state.status === 'diverged' && !request.repair_run_id) {
+          this.assertTaskMergeAttempt(task.id, request.attempt_id);
+          const key = `merge-repair:${request.delivery_id}:${request.attempt_id}`;
+          const payload = { delivery_id: request.delivery_id, attempt_id: request.attempt_id,
+            source_commit: request.original_commit, parent_commit: request.baseline };
           this.store.transaction(() => {
-            const live = this.store.task(task.id), booked = reservationOf(live);
-            check(booked?.status === 'requested' && booked.commit === request.commit, 'merge request changed during landing');
-            this.store.update(task.id, { status: 'awaiting_acceptance', integration: 'merged', integration_error: null,
-              iteration_base_commit: request.commit,
-              reservation: JSON.stringify({ ...booked, status: 'integrated', integrated_at: new Date().toISOString(),
-                landed_commit: landed.commit }), retry_profile: null });
-            this.store.update(parent.id, { head_commit: landed.commit });
-            this.store.event(task.id, 'task.merge_integrated', { source_commit: request.commit,
-              commit: landed.commit, parent_id: parentId, merger_id: merger.id, squash: true });
-            const key = `merge-v2-completed:${task.id}:${landed.commit}`;
-            const receipt = this.store.signal(parentId, task.id, 'merge.completed', key,
-              JSON.stringify({ version: 1, signal: 'merge.completed', key, source_task_id: task.id,
-                target_task_id: parentId, payload: { commit: landed.commit, source_commit: request.commit } }));
-            if (receipt.inserted) this.store.event(parentId, 'task.signal', {
-              message_id: receipt.id, source_task_id: task.id, signal: 'merge.completed', key });
-            this.store.run("UPDATE messages SET consumed=1 WHERE id IN (SELECT id FROM messages WHERE task_id=? AND sender_id=? AND signal_type='merge.requested')",
-              parentId, task.id);
+            this.store.update(task.id, { status: 'queued', reservation: JSON.stringify({ ...request, status: 'resolving',
+              parent_commit: request.baseline, blocked_reason: `源侧修复固定父提交 ${request.baseline}，父执行位保留` }) });
+            this.store.signal(task.id, parentId, 'merge.repair', key, JSON.stringify({ version: 1, signal: 'merge.repair', key,
+              source_task_id: parentId, target_task_id: task.id, payload: {
+                instruction: `合并分歧：请在你的工作区合入固定父提交 ${request.baseline}，保留原源提交 ${request.original_commit}，`
+                  + `解决冲突、测试并提交；不要修改父分支。交付 ${request.delivery_id} 尝试 ${request.attempt_id}。`, ...payload } }));
+            this.store.event(task.id, 'merge.divergence_returned', payload);
           });
-          // Deliberately do not archive after landing: return the delivered Task to its original
-          // parent and keep its worktree/branch, so the user decides when to reclaim it.
-          this.restoreMergedTaskParent(task.id);
-          return 'next';
-        });
-        if (outcome === 'wait') break;
+          this.kick(); return;
+        }
+        check(state.status === 'fast_forward' || state.status === 'integrated', 'source is not landable after repair');
+        // Keep the established Squash policy: an equal source/parent tree needs no empty commit.
+        const sourceTree = await this.workspaces.commitTree(request.commit);
+        if (sourceTree === await this.workspaces.commitTree(request.baseline)) {
+          await this.workspaces.assertCleanBranches([task.branch, parent.branch]);
+          check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${parent.branch}`) === request.baseline
+            && await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === request.commit,
+            'equal-tree source/target moved during inspection');
+          this.assertTaskMergeAttempt(task.id, request.attempt_id);
+          this.store.event(task.id, 'merge.tree_already_present', { attempt_id: request.attempt_id, tree: sourceTree,
+            source_commit: request.commit, parent_commit: request.baseline });
+          this.finalizeTaskMerge(task.id, request.attempt_id, request.baseline);
+          landed = true; return;
+        }
+        const receipt = await this.workspaces.prepareTaskSquashUnsafe(task.branch, request.commit, request.baseline,
+          `Merge task #${task.id}: ${task.goal.split('\n')[0].slice(0, 100)} [delivery ${request.delivery_id}, attempt ${request.attempt_id}]`);
+        this.assertTaskMergeAttempt(task.id, request.attempt_id);
+        // Persist exact SHA before ANY parent mutation (the Git/DB double-write window).
+        request = { ...request, landing_receipt: receipt };
+        this.store.update(task.id, { reservation: JSON.stringify(request) });
+        this.store.event(task.id, 'merge.landing_prepared', { delivery_id: request.delivery_id, attempt_id: request.attempt_id, receipt });
+        await this.workspaces.applyTaskSquashUnsafe(receipt, () => this.assertTaskMergeAttempt(task.id, request.attempt_id));
+        const parentHead = await this.readTaskMergeParentHead(task, receipt.commit);
+        check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === request.commit,
+          'source ref drifted during landing reconciliation');
+        this.finalizeTaskMerge(task.id, request.attempt_id, receipt.commit, parentHead);
+        landed = true;
+      });
+    } catch (error) {
+      if (taskId) {
+        const task = this.store.task(taskId), request = reservationOf(task);
+        if (ACTIVE.includes(request?.status)) {
+          if (request.landing_receipt) {
+            this.store.update(taskId, { reservation: JSON.stringify({ ...request, status: 'blocked', blocked_reason: error.message }),
+              integration_error: error.message });
+            this.store.event(taskId, 'merge.landing_blocked', { attempt_id: request.attempt_id, error: error.message });
+          } else this.suspendTaskMerge(taskId, error.message);
+        }
       }
-      // A persistent merge identity can be reopened for later requests, but it must not
-      // leave an active descendant behind when its parent finishes.
-      const merger = this.store.get("SELECT * FROM tasks WHERE parent_id=? AND task_kind='merge' AND name='merge' ORDER BY id LIMIT 1", parentId);
-      if (merger?.status === 'waiting' && this.store.children(merger.id).every(child =>
-        TERMINAL.has(child.status) && reservationOf(child)?.status !== 'resolving')) {
-        this.store.transaction(() => {
-          this.store.update(merger.id, { status: 'completed' });
-          this.store.event(merger.id, 'merge.queue_idle', { parent_id: parentId });
-        });
-        if (this.hasActionableMessages(parentId)) this.wake(parentId);
-      }
-    } finally { this.taskMergeBusy.delete(parentId); this.kick(); }
+      this.store.event(parentId, 'merge.queue_failed', { task_id: taskId, error: error.message });
+    } finally {
+      this.taskMergeBusy.delete(parentId);
+      if (landed && this.hasActionableMessages(parentId)) this.wake(parentId);
+      const pendingWake = this.taskMergeWakePending?.delete(parentId);
+      if (landed || pendingWake) this.scheduleTaskMerge(parentId); // drain a busy-time signal at the item boundary
+      this.kick();
+    }
   },
 };

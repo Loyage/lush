@@ -41,10 +41,10 @@ bun run stop
 ## 安全与持久化
 
 - Git 操作通过 `src/core/workspaces.js`，无 shell 插值，所有 Lush Git 变更串行。
-- 每个 worker 独立 worktree / 分支；历史 worker 的合并仍由用户批准。新式 say/child 的 version 2 合并预约由用户发起后，merge Task 自动串行 Squash（含 main），分歧由原 Task 在源侧解决；成功受检归档工作区。
+- 每个 worker 独立 worktree / 分支；历史 worker 的合并仍由用户批准。新式 say/child 的 version 2 交付由父 Task 自有队列的 runtime 串行 Squash（含 main），不额外调用父 Agent。say 默认关闭自动合并，由用户开启 hook 或显式请求；新 child 默认开启且锁定。分歧由原 Task 在源侧吸收固定父基线，修复期间保留父执行位；挂起释放，恢复重新排队并固定新基线。落地后待验收，分支/worktree 保留，验收与显式归档分开。
 - 不强制 reset / clean / 删除工作区，不自动提交用户已有改动。失败工作区也有价值。
 - `completed` 不等于 `merged`。保留独立的任务状态与 integration 状态。
-- Task 父子关系原则上创建后不变；**新式 say/child 的 version 2 合并请求**是唯一例外：先发出固定请求，再将请求 Task 重挂到原父的 merge 子 Task，并用预约和事件保存原父 ID。终态 task 不允许活动后代。依赖边（`task_deps`）只在 spawn 时写入，之后不可变。
+- 新 Task 父子关系创建后始终保持委派关系；当前 version 2 交付不创建 merge Task、不改源 Task 的 `parent_id`。持久预约是交付事实，Message/Event 仅通知；按入队顺序、代码依赖优先，取得父执行位后才固定尝试基线。旧 version 1 语义不改；旧 version 2 merge 身份和在途重挂只凭明确预约/审计恢复原父，不猜身份、不删历史。终态 task 不允许活动后代。依赖边（`task_deps`）只在 spawn 时写入，之后不可变。
 - 依赖只做结构校验（自依赖、祖先、悬空 id、多 code 边、非 worker 上游）；语义冲突由 planner 判断，拿不准就问用户。
 - 输入分 `develop` / `explain` 两类（`inputs.flow`，未判定按 develop）：explain 输入不得派生 worker/coordinator（`Project.spawn` 硬校验），因此了解类输入不产生 worktree 与待合并改动；改判只影响之后的 spawn。
 - `code` 依赖把上游分支当作下游 worktree 的基线，所以合并必须上游先行；`task merge` 会拒绝越级。

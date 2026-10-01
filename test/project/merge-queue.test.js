@@ -1,4 +1,6 @@
-import { test, expect } from 'bun:test';
+import { test, expect, setDefaultTimeout } from 'bun:test';
+// Real multi-worktree transactions and repair invocations must finish cleanup before timeout.
+setDefaultTimeout(15000);
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, repo, git, until, gate } from '../helpers.js';
@@ -244,17 +246,23 @@ test('a failed sibling wakes the parent urgently without deadlocking an automati
     f.project.finish(failed.id, 'failed', null, 'failed to implement');
     expect(f.store.task(say.task.id).status).toBe('queued');
     expect(f.project.hasActionableMessages(say.task.id)).toBe(true);
-    expect(f.project.branchFreeze(say.task.branch)?.task_id).toBe(child.id);
+    expect(f.project.branchFreeze(say.task.branch)).toBeNull();
+    expect(f.project.branchFreeze(child.branch)?.task_id).toBe(child.id);
     f.project.kick = () => {}; f.project.stopping = false;
+    await f.project.driveTaskMerge(say.task.id);
+    expect(f.store.task(child.id).integration).not.toBe('merged');
+    // The queued parent gets the urgent failure before the next landing attempt.
+    f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', say.task.id);
+    f.store.update(say.task.id, { status: 'waiting' });
     await f.project.driveTaskMerge(say.task.id);
     expect(f.store.task(child.id).integration).toBe('merged');
     expect(f.store.task(failed.id).integration).toBe('none');
     expect(f.project.branchFreeze(say.task.branch)).toBeNull();
-    expect(f.store.unread(say.task.id).some(row => row.signal_type === 'child.failed')).toBe(true);
+    expect(f.store.all("SELECT id FROM messages WHERE task_id=? AND signal_type='child.failed'", say.task.id)).toHaveLength(1);
   } finally { await f.close(); }
 });
 
-test('idle say requests route through a reusable merge child, squash one commit and return the Task to its parent', async () => {
+test('idle say requests use their parent queue without merge identities or reparenting, and squash one commit', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const source = await committedSay(f, 'alpha');
@@ -271,12 +279,15 @@ test('idle say requests route through a reusable merge child, squash one commit 
     expect(done.branch).toBe(source.branch);
     expect(done.workspace).toBe(source.workspace);
     const merger = f.store.get("SELECT * FROM tasks WHERE parent_id=? AND task_kind='merge' AND name='merge'", source.parent_id);
-    expect(merger).toMatchObject({ parent_id: source.parent_id, task_kind: 'merge', status: 'completed' });
+    expect(merger).toBeNull();
+    expect(JSON.parse(done.reservation)).toMatchObject({ queue_protocol: 1,
+      delivery_id: booked.reservation.delivery_id, enqueue_seq: booked.reservation.enqueue_seq,
+      baseline: original, status: 'integrated' });
     expect(await git(f.root, 'rev-list', '--count', `${original}..main`)).toBe('1');
     expect(await git(f.root, 'show', 'main:alpha.txt')).toBe('alpha');
     expect(f.store.branch(source.branch).status).toBe('active');
-    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='task.reparented_for_merge'", source.id).n).toBe(1);
-    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='task.merge_parent_restored'", source.id).n).toBe(1);
+    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='task.reparented_for_merge'", source.id).n).toBe(0);
+    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='task.merge_parent_restored'", source.id).n).toBe(0);
   } finally { await f.close(); }
 });
 
@@ -302,7 +313,9 @@ test('a dirty parent rejects auto merge without deleting the source worktree', a
     await f.project.reserveTask(source.id, 'merge');
     fs.writeFileSync(path.join(f.root, 'untracked.txt'), 'user work\n');
     f.project.stopping = false;
-    await expect(f.project.driveTaskMerge(source.parent_id)).rejects.toThrow();
+    await f.project.driveTaskMerge(source.parent_id);
+    expect(JSON.parse(f.store.task(source.id).reservation).status).toBe('suspended');
+    expect(f.project.activeTaskMerge(source.parent_id)).toBeNull();
     expect(await git(f.root, 'rev-parse', 'main')).toBe(before);
     expect(f.store.task(source.id).status).toBe('waiting');
     expect(fs.existsSync(source.workspace)).toBe(true);
@@ -387,7 +400,8 @@ test('cancelling a frozen request releases the parent lock but preserves the sou
   try {
     const source = await committedSay(f, 'cancelled');
     await f.project.reserveTask(source.id, 'merge');
-    expect(f.project.branchFreeze('main')?.task_id).toBe(source.id);
+    expect(f.project.branchFreeze('main')).toBeNull();
+    expect(f.project.branchFreeze(source.branch)?.task_id).toBe(source.id);
     f.project.cancel(source.id);
     expect(f.project.branchFreeze('main')).toBeNull();
     expect(f.store.task(source.id).branch).toBe(source.branch);
@@ -407,11 +421,14 @@ test('a second source diverging after squash is returned to its own Agent withou
     f.project.kick = () => {};
     await f.project.driveTaskMerge(parentId);
     expect(f.store.task(first.id).integration).toBe('merged');
+    await until(() => JSON.parse(f.store.task(second.id).reservation).status === 'resolving');
     const returned = f.store.task(second.id);
     expect(JSON.parse(returned.reservation).status).toBe('resolving');
     expect(returned.status).toBe('queued');
     expect(returned.workspace).toBe(second.workspace);
-    expect(f.store.task(returned.parent_id).task_kind).toBe('merge');
+    expect(returned.parent_id).toBe(parentId);
+    expect(f.project.activeTaskMerge(parentId)?.id).toBe(second.id);
+    expect(f.store.get("SELECT count(*) AS n FROM tasks WHERE task_kind='merge'").n).toBe(0);
     expect(f.store.unread(second.id).some(message => message.body.includes('分歧'))).toBe(true);
   } finally { await f.close(); }
 });
@@ -467,18 +484,20 @@ test('a Task archived right after landing by an older daemon is still returned t
     await f.project.reserveTask(source.id, 'merge');
     f.project.stopping = false;
     await f.project.driveTaskMerge(parent);
-    const merger = f.store.get("SELECT * FROM tasks WHERE parent_id=? AND task_kind='merge' AND name='merge'", parent);
+    const merger = f.store.create({ parent_id: parent, role: 'agent', task_kind: 'merge', name: 'merge', goal: 'historical queue' });
+    f.store.update(merger.id, { status: 'completed' });
     // The pre-change path archived the branch and worktree right after landing, leaving the Task
     // under the reusable merge identity. Recovery must still hand it back to its original parent.
     // Simulate the historical terminal fact, without migrating real historical rows.
     f.store.update(source.id, { status: 'completed' });
     await f.project.workspaces.cleanup(source.id);
     f.store.run('UPDATE tasks SET parent_id=? WHERE id=?', merger.id, source.id);
+    f.store.event(source.id, 'task.reparented_for_merge', { from: parent, to: merger.id });
     expect(f.store.task(source.id)).toMatchObject({ parent_id: merger.id, branch: null, workspace: null });
     f.project.stopping = true;
     f.project.recover();
     expect(f.store.task(source.id).parent_id).toBe(parent);
-    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='task.merge_parent_restored'", source.id).n).toBe(2);
+    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='task.merge_parent_restored'", source.id).n).toBe(1);
   } finally { await f.close(); }
 });
 

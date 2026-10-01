@@ -64,9 +64,9 @@
 
 | 分区 | 文件 |
 |---|---|
-| Task 中心主链 | `test/project/say.test.js`、`merge-queue.test.js`、`task-signals.test.js`、`task-centered-graph.test.js`、`lifecycle.test.js`、`scheduling.test.js`、`preempt.test.js`、`progress.test.js`、`recovery.test.js`、`limits.test.js`、`agents.test.js`、`status.test.js` |
+| Task 中心主链 | `test/project/say.test.js`、`merge-queue.test.js`、`parent-delivery.test.js`（父自有队列顺序/执行位/暂停重排/取消与精确恢复）、`delivery-compatibility.test.js`（重复交付/代码依赖/旧 v2 审计与 Git/DB 窗口/源漂移）、`delivery-review.test.js`（拒绝非法 sender 无副作用、busy 挂起/取消真实自动唤醒、父前进后精确恢复读模型）、`task-signals.test.js`、`task-centered-graph.test.js`、`lifecycle.test.js`、`scheduling.test.js`、`preempt.test.js`、`progress.test.js`、`recovery.test.js`、`limits.test.js`、`agents.test.js`、`status.test.js` |
 | 公开面契约 | `test/core-api.test.js`（RPC 白名单）、`test/help-guard.test.js`（帮助与命令面）、`test/web/core-api.test.js`、`test/task-iteration-api.test.js`（四个用户专属接口/CLI mock）、`test/web/iteration-api.test.js`（HTTP mock）、`test/web/dom-iteration.test.js`（共享迭代动作） |
-| Git / worktree | `test/workspaces/{naming,merge,cleanup,genealogy,anchor,archive,branch-diagnostics,branch-first,safety}.test.js`；`safety` 直接验证通用 Git 安全门、历史展示 worktree 保留与 DB 附属数据只读兼容 |
+| Git / worktree | `test/workspaces/{naming,merge,cleanup,genealogy,anchor,archive,branch-diagnostics,branch-first,safety,task-squash}.test.js`（task-squash 核验精确凭据、双 ref 事务、guard、dirty/drift 与失败保留现场）；`safety` 直接验证通用 Git 安全门、历史展示 worktree 保留与 DB 附属数据只读兼容 |
 | 服务重启 | `test/service-restart.test.js`、`test/web/service-restart.test.js`、`test/integration/service-restart.test.js`（idle 准入、鉴权/路由、真实进程与桌面所有权） |
 | Web 读面与安全 | `test/web/{security,assets,read-models,project-route,core-studio,multi-project,launcher}.test.js` |
 | Web DOM | `test/web/dom-*.test.js`（各自 `boot()`） |

@@ -4,6 +4,71 @@ const { check, LushError } = types;
 const isSettled = task => types.isSettled?.(task) ?? (['completed', 'failed', 'cancelled'].includes(task.status)
   || (task.status === 'awaiting_acceptance' && task.integration === 'merged'));
 
+const oid = value => typeof value === 'string' && /^[0-9a-f]{40,64}$/.test(value);
+
+function taskSquashReceipt(receipt) {
+  check(receipt && oid(receipt.commit) && oid(receipt.source) && oid(receipt.baseline) && oid(receipt.tree)
+    && typeof receipt.child === 'string' && receipt.child && typeof receipt.parent === 'string' && receipt.parent
+    && receipt.child !== receipt.parent && (receipt.workspace === null || (typeof receipt.workspace === 'string' && receipt.workspace)),
+  'invalid task squash receipt');
+  // A caller cannot change the persisted credentials while asynchronous Git checks are in flight.
+  return Object.freeze({ ...receipt });
+}
+
+function taskSquashGuard(guard) {
+  const result = guard();
+  if (result && typeof result.then === 'function') {
+    Promise.resolve(result).catch(() => {});
+    throw new LushError('task squash guard must be synchronous');
+  }
+  check(result !== false, 'task squash cancelled before write');
+}
+
+/** Lock both fixed refs before touching the index, then CAS the parent only after the checkout is ready. */
+async function applyTaskSquashTransaction(workspaces, receipt, guard, action) {
+  const proc = Bun.spawn(['git', '-C', workspaces.config.project, '-c', 'core.hooksPath=/dev/null',
+    'update-ref', '-m', 'Lush task squash', '--stdin'], {
+    stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', env: { ...workspaces.config.env, GIT_TERMINAL_PROMPT: '0' },
+  });
+  const errorText = new Response(proc.stderr).text();
+  const reader = proc.stdout.getReader();
+  let output = '', committed = false;
+  const response = async expected => {
+    while (!output.includes(expected)) {
+      const chunk = await reader.read();
+      if (chunk.done) throw new LushError(`task squash refs moved or locked: ${await errorText}`);
+      output += new TextDecoder().decode(chunk.value);
+    }
+  };
+  try {
+    proc.stdin.write(`start\nverify refs/heads/${receipt.child} ${receipt.source}\nupdate refs/heads/${receipt.parent} ${receipt.commit} ${receipt.baseline}\nprepare\n`);
+    await proc.stdin.flush();
+    await response('prepare: ok\n');
+    await action();
+    taskSquashGuard(guard); // No await between runtime cancellation/new-input guard and this write.
+    proc.stdin.write('commit\n');
+    await proc.stdin.flush();
+    await response('commit: ok\n');
+    committed = true;
+  } finally {
+    try { if (!committed) proc.stdin.write('abort\n'); proc.stdin.end(); } catch { /* Git rejected the transaction. */ }
+    while (!(await reader.read()).done) { /* Drain the protocol before releasing the Git queue. */ }
+    await proc.exited;
+    await errorText;
+  }
+}
+
+/** Check only immutable objects; recovery must never mistake an equivalent new commit for this receipt. */
+async function checkTaskSquashObjects(workspaces, receipt) {
+  const project = workspaces.config.project;
+  const identity = await workspaces.git(project, 'show', '--no-patch', '--format=%H %T %P', receipt.commit);
+  check(identity === `${receipt.commit} ${receipt.tree} ${receipt.baseline}`,
+    'task squash receipt must match the exact single-parent commit and tree');
+  check(await workspaces.commitTree(receipt.source) === receipt.tree, 'task squash tree differs from fixed source');
+  check(await workspaces.isAncestor(project, receipt.baseline, receipt.source),
+    'diverged source must be repaired before task squash');
+}
+
 /** 分支关系、批准合并的预检与落地。 */
 export const methods = {
   /** 尚未落成/完成分支、但未来可能改变 child 的任务，也必须阻止 child 提前向上交付。 */
@@ -138,7 +203,101 @@ export const methods = {
 
   mergeBranch(child, expected = null) { return this.exclusive(() => this.mergeBranchUnsafe(child, expected)); },
 
-  /** Squash a verified child tip into one parent commit. Caller holds the Git queue. */
+  /**
+   * Pre-create the exact object, without changing a ref, index or worktree. Caller holds the Git queue
+   * and must persist this receipt before apply. Even an equal tree has an exact single-parent object;
+   * runtime decides whether a no-change delivery needs a commit before calling this boundary.
+   */
+  async prepareTaskSquashUnsafe(child, source, baseline, message) {
+    check(oid(source) && oid(baseline), 'task squash requires fixed commits');
+    check(typeof message === 'string' && message.trim(), 'task squash requires a commit message');
+    const state = await this.branchState(child);
+    check(state.child_head === source && state.parent_head === baseline, 'source/target moved before task squash preparation');
+    check(state.blockers.every(blocker => blocker === `task:#${this.store.branch(child)?.task_id}`),
+      'unintegrated descendant branches block task squash');
+    await this.assertCleanBranches([child, state.parent]);
+    const workspace = await this.workspaceForBranch(state.parent);
+    if (workspace) {
+      await this.clean(workspace);
+      check(await this.git(workspace, 'symbolic-ref', '--quiet', 'HEAD') === `refs/heads/${state.parent}`
+        && await this.git(workspace, 'rev-parse', 'HEAD') === baseline, 'parent checkout moved before task squash preparation');
+    }
+    check(await this.isAncestor(this.config.project, baseline, source), 'diverged source must be repaired before task squash');
+    const tree = await this.commitTree(source);
+    const commit = await this.git(this.config.project, '-c', 'user.name=Lush', '-c', 'user.email=lush@localhost',
+      'commit-tree', tree, '-p', baseline, '-m', message);
+    return Object.freeze({ child, commit, source, baseline, tree, parent: state.parent, workspace });
+  },
+
+  /**
+   * Apply once, never replay unknown side effects. The ref transaction holds source AND parent while
+   * read-tree's two-tree merge synchronizes the checkout without reset/clean or commit hooks. If a
+   * write fails (including cancellation after read-tree), abort only the ref transaction: leave all
+   * index/worktree evidence in place. Runtime must block the target until it is inspected/reconciled.
+   */
+  async applyTaskSquashUnsafe(credentials, guard) {
+    const receipt = taskSquashReceipt(credentials);
+    check(typeof guard === 'function', 'task squash requires a synchronous write guard');
+    const project = this.config.project;
+    await this.git(project, 'check-ref-format', `refs/heads/${receipt.child}`);
+    await this.git(project, 'check-ref-format', `refs/heads/${receipt.parent}`);
+    await checkTaskSquashObjects(this, receipt);
+    const checkRefs = async () => {
+      const state = await this.branchState(receipt.child);
+      check(state.parent === receipt.parent && state.child_head === receipt.source && state.parent_head === receipt.baseline,
+        'source/target moved before task squash apply');
+      check(state.blockers.every(blocker => blocker === `task:#${this.store.branch(receipt.child)?.task_id}`),
+        'unintegrated descendant branches block task squash');
+      check(await this.workspaceForBranch(receipt.parent) === receipt.workspace, 'parent worktree changed before task squash apply');
+      await this.assertCleanBranches([receipt.child, receipt.parent]);
+      if (receipt.workspace) {
+        await this.clean(receipt.workspace);
+        check(await this.git(receipt.workspace, 'symbolic-ref', '--quiet', 'HEAD') === `refs/heads/${receipt.parent}`
+          && await this.git(receipt.workspace, 'rev-parse', 'HEAD') === receipt.baseline, 'parent checkout moved before task squash apply');
+      }
+    };
+    await checkRefs();
+    await applyTaskSquashTransaction(this, receipt, guard, async () => {
+      // Ref locks also close drift during the asynchronous cleanliness/ancestry checks.
+      await checkRefs();
+      taskSquashGuard(guard);
+      if (receipt.workspace) {
+        await this.git(receipt.workspace, 'read-tree', '-m', '-u', receipt.baseline, receipt.commit);
+        check(await this.git(receipt.workspace, 'write-tree') === receipt.tree, 'task squash checkout staged a different tree');
+        await this.git(receipt.workspace, 'diff-files', '--quiet', '--ignore-submodules=none');
+        check(!await this.git(receipt.workspace, 'ls-files', '--others', '--exclude-standard', '--', '.', ':(exclude).lush'),
+          'parent worktree became dirty during task squash apply');
+        check(await this.git(receipt.workspace, 'symbolic-ref', '--quiet', 'HEAD') === `refs/heads/${receipt.parent}`,
+          'parent checkout moved during task squash apply');
+      }
+      await this.assertCleanBranches([receipt.child]);
+    });
+    check(await this.verifyTaskSquashUnsafe(receipt), 'task squash landed but exact receipt/worktree verification failed; inspect before continuing');
+    return receipt;
+  },
+
+  /** Read-only exact recovery proof. False means inspect/block, never invoke apply to guess/replay. */
+  async verifyTaskSquashUnsafe(credentials) {
+    try {
+      const receipt = taskSquashReceipt(credentials);
+      await checkTaskSquashObjects(this, receipt);
+      const project = this.config.project;
+      const head = await this.git(project, 'rev-parse', '--verify', `refs/heads/${receipt.parent}^{commit}`);
+      check(await this.isAncestor(project, receipt.commit, head), 'exact task squash commit is not on target');
+      check(await this.workspaceForBranch(receipt.parent) === receipt.workspace, 'task squash target worktree changed');
+      await this.assertCleanBranches([receipt.parent]);
+      if (receipt.workspace) {
+        await this.clean(receipt.workspace);
+        check(await this.git(receipt.workspace, 'symbolic-ref', '--quiet', 'HEAD') === `refs/heads/${receipt.parent}`
+          && await this.git(receipt.workspace, 'rev-parse', 'HEAD') === head, 'task squash target checkout changed');
+      }
+      check(await this.git(project, 'rev-parse', '--verify', `refs/heads/${receipt.parent}^{commit}`) === head,
+        'task squash target moved during verification');
+      return true;
+    } catch { return false; }
+  },
+
+  /** Historical compatibility: squash a verified child tip into one parent commit. Caller holds the Git queue. */
   async squashBranchUnsafe(child, source, parentHead, message) {
     const project = this.config.project;
     const state = await this.branchState(child);
