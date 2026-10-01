@@ -1,6 +1,6 @@
 import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } from './dom.js';
 import { action } from './api.js';
-import { confirmDialog, promptDialog } from './dialog.js';
+import { confirmDialog, formDialog } from './dialog.js';
 import { configureTask } from './retry-dialog.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, runWorkMs, statusOf, taskTitle, worktreeLabel } from './format.js';
 import { agentHelp } from './help.js';
@@ -81,6 +81,30 @@ export function renderDetail(task, history, diff, usage) {
   if (notice && notice.task_id === task.id) panel.prepend(noticePanel(notice, task));
 
   const actions = el('div', undefined, 'actions task-actions');
+  if (['say','child'].includes(task.task_kind) && !TERMINAL_STATUS.has(task.status)) {
+    const help = agentHelp('把追加输入发给该任务的 Agent。若它正在调用，会请它在当前一轮工具都结束后收尾，下一轮先读这条输入；暂停中的任务需点「开始 / 继续」后处理。');
+    actions.append(button('追加输入', async () => {
+      const field = el('div', undefined, 'modal-field');
+      const label = el('label', '希望任务接下来进行的内容', 'modal-label');
+      label.setAttribute('for', 'task-followup-input');
+      const input = el('textarea', undefined, 'modal-input');
+      input.id = 'task-followup-input'; input.rows = 5; input.required = true;
+      input.placeholder = '输入希望这个任务接下来做什么，例如新的要求、调整方向或补充信息';
+      field.append(label, input);
+      while (true) {
+        const pending = formDialog({ title: `追加输入 · 任务 #${task.id}`, content: field,
+          message: task.status === 'paused' ? '输入会保留在当前任务中；点「开始 / 继续」后由 Agent 处理。' : '输入会发送给当前任务，让 Agent 接下来处理这些内容。',
+          confirmLabel: '发送输入', agent: true, confirmHelp: help });
+        input.focus();
+        if (!await pending) return;
+        if (!input.value.trim()) { show('请输入希望任务接下来进行的内容。', 'error'); continue; }
+        try { await action('task.message', { id: task.id, body: input.value }); }
+        catch (error) { show(error.message, 'error'); continue; }
+        await detail(task.id);
+        return;
+      }
+    }, undefined, { agent: true, help }));
+  }
   const stacked = (task.deps || []).filter(edge => edge.kind === 'code');
   const freeze = freezeOf(task);
   const resolver = resolverOf(task);
@@ -177,11 +201,11 @@ export function renderDetail(task, history, diff, usage) {
   if (liveWorkTask && task.status !== 'paused') actions.append(button('中断', async () => {
     const confirmed = await confirmDialog({
       title: `中断 Task #${task.id}？`,
-      message: '停止当前 Agent 调用并保留现场：工作区、提交、pi 会话与消息都不变。中断后可以追加说明或调整运行设置，再点「继续」恢复。',
+      message: '停止当前 Agent 调用并保留现场：工作区、提交、pi 会话与消息都不变。中断后可以追加输入或调整运行设置，再点「继续」恢复。',
       confirmLabel: '中断', cancelLabel: '保留',
     });
     if (!confirmed) return;
-    try { await action('task.interrupt', { id: task.id }); show(`Task #${task.id} 已中断；可追加说明或调整运行设置后继续。`); }
+    try { await action('task.interrupt', { id: task.id }); show(`Task #${task.id} 已中断；可追加输入或调整运行设置后继续。`); }
     catch (error) { show(`无法中断：${error.message}`, 'error'); }
     await detail(task.id);
   }, 'ghost', { help: '停止这个 Task 的 Agent 调用并保留工作区、提交、会话与消息；正在运行的子任务不受影响，之后可以继续。' }));
@@ -327,16 +351,6 @@ export function renderDetail(task, history, diff, usage) {
     panel.append(events);
   }
 
-  if (['say','child'].includes(task.task_kind) && !['completed', 'failed', 'cancelled'].includes(task.status)) {
-    const follow = block('追加说明');
-    const form = el('form'), input = el('textarea');
-    input.placeholder = '追加要求；Agent 正在调用时会在本轮结束后立即读到'; input.required = true; input.rows = 3;
-    input.addEventListener('input', () => { ui.detailDirty = true; });
-    form.append(input, button('追加说明', async () => { await action('task.message', { id: task.id, body: input.value }); ui.detailDirty = false; await detail(task.id); }, undefined,
-      { agent: true, help: agentHelp('把这条补充说明发给该任务的 Agent。若它正在调用，会请它在当前一轮工具都结束后收尾（不杀进程、不打断正在执行的命令），下一轮先看这条说明。') }));
-    form.onsubmit = event => { event.preventDefault(); form.querySelector('button').click(); };
-    follow.append(form); panel.append(follow);
-  }
 }
 export function renderDetailError(taskId, message) {
   const panel = $('detail');

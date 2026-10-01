@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, allByTag } from '../dom-stub.js';
+import { installDom, allByTag, answerDialog } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
@@ -29,12 +29,73 @@ function expectAgentButton(node) {
   expect(node.getAttribute('data-help')).toContain(AGENT_NOTE);
 }
 
-test('详情页「追加说明」是 Agent 按钮：task.message 会唤醒或继续该任务', async () => {
+const followupTask = { id: 900, role: 'agent', task_kind: 'say', parent_id: 1, parent_task_kind: 'main',
+  goal: '需要追加输入', status: 'waiting', integration: 'none', calls: 0, deps: [], dependents: [],
+  children: [], messages: [], notices: [] };
+
+test('详情页「追加输入」位于操作栏首位，点击才显示多行输入与 Agent 发送按钮', async () => {
   const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
-  renderDetail({ id: 900, role: 'agent', task_kind: 'say', parent_id: 1, parent_task_kind: 'main',
-    goal: '需要追加说明', status: 'waiting', integration: 'none', calls: 0, deps: [], dependents: [],
-    children: [], messages: [], notices: [] }, null, null, null);
-  expectAgentButton(buttonByText(dom.node('detail'), '追加说明'));
+  renderDetail(followupTask, null, null, null);
+  const panel = dom.node('detail');
+  const entry = panel.querySelector('.task-actions').children[0];
+  expect(entry.textContent).toBe('追加输入');
+  expectAgentButton(entry);
+  expect(panel.querySelector('textarea')).toBeNull();
+  expect(buttonByText(panel, '追加说明')).toBeNull();
+  const before = world.state.actions.length;
+  const pending = entry.onclick();
+  const input = dom.node('modal').querySelector('textarea');
+  expect(input).toBeTruthy();
+  expect(dom.document.activeElement).toBe(input);
+  expectAgentButton(buttonByText(dom.node('modal'), '发送输入'));
+  input.value = '先补充测试\n再调整实现';
+  // 后台重画详情不会冲掉独立弹窗中的草稿。
+  renderDetail(followupTask, null, null, null);
+  expect(dom.node('modal').querySelector('textarea')).toBe(input);
+  expect(world.state.actions.length).toBe(before);
+  await answerDialog(dom, '发送输入'); await pending;
+  expect(world.state.actions.slice(before)).toEqual([
+    { method: 'task.message', params: { id: 900, body: '先补充测试\n再调整实现' } },
+  ]);
+});
+
+test('追加输入取消或空白不发送；空白校验后仍可输入并提交', async () => {
+  const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
+  const before = world.state.actions.length;
+  renderDetail(followupTask, null, null, null);
+  let pending = buttonByText(dom.node('detail'), '追加输入').onclick();
+  dom.node('modal').querySelector('textarea').value = '不发送的草稿';
+  await answerDialog(dom, '取消'); await pending;
+  expect(world.state.actions.length).toBe(before);
+  pending = buttonByText(dom.node('detail'), '追加输入').onclick();
+  dom.node('modal').querySelector('textarea').value = '  \n ';
+  await answerDialog(dom, '发送输入');
+  expect(world.state.actions.length).toBe(before);
+  expect(dom.node('modal').hidden).toBe(false);
+  dom.node('modal').querySelector('textarea').value = '继续完善测试';
+  await answerDialog(dom, '发送输入'); await pending;
+  expect(world.state.actions.at(-1)).toEqual({ method: 'task.message', params: { id: 900, body: '继续完善测试' } });
+});
+
+test('暂停任务可追加输入但不会自动继续；终态与其他类型没有入口', async () => {
+  const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
+  renderDetail({ ...followupTask, task_kind: 'child', status: 'paused' }, null, null, null);
+  const before = world.state.actions.length;
+  const pending = buttonByText(dom.node('detail'), '追加输入').onclick();
+  expect(dom.node('modal').querySelector('.modal-message').textContent).toContain('开始 / 继续');
+  dom.node('modal').querySelector('textarea').value = '下一步检查边界情况';
+  await answerDialog(dom, '发送输入'); await pending;
+  expect(world.state.actions.slice(before)).toEqual([
+    { method: 'task.message', params: { id: 900, body: '下一步检查边界情况' } },
+  ]);
+  for (const status of ['completed', 'failed', 'cancelled']) {
+    renderDetail({ ...followupTask, status }, null, null, null);
+    expect(buttonByText(dom.node('detail'), '追加输入')).toBeNull();
+  }
+  for (const task_kind of ['main', 'owner', 'analysis', 'merge']) {
+    renderDetail({ ...followupTask, task_kind }, null, null, null);
+    expect(buttonByText(dom.node('detail'), '追加输入')).toBeNull();
+  }
 });
 
 test('通知页「开始解冲突」是 Agent 按钮，data-help 含统一代价说明', () => {
