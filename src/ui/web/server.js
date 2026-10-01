@@ -27,7 +27,7 @@ function assetFile(pathname) {
   return path.join(ASSETS, name);
 }
 const MUTATIONS = new Set(['agent.configure','agent.environment.configure','system.configure','say.submit','task.spawn','task.message','task.reserve','task.reserve_all','task.resolve','task.accept','task.reopen','task.sync_parent','task.resolve_sync','task.resolve_divergence','task.unreserve','task.approve_merge','task.cancel','task.retry','task.interrupt','task.resume','task.configure','task.cleanup','notice.answer','notice.dismiss','branch.archive']);
-const CORE_READS = new Set(['/api/overview','/api/snapshot','/api/tasks','/api/notices','/api/task-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/environment','/api/docs','/api/docs/search-index']);
+const CORE_READS = new Set(['/api/overview','/api/snapshot','/api/tasks','/api/notices','/api/task-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/environment','/api/docs','/api/docs/search-index']);
 const CORE_TASK_READ = /^\/api\/task\/\d+(?:\/(?:history|history-page|diff|usage|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的任务读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/task\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
@@ -295,6 +295,7 @@ export function startWeb(config, port = 4318, options = {}) {
           if (url.pathname === '/api/agent/config') return json(await client.request('agent.config'));
           if (url.pathname === '/api/agent/models') return json(await client.request('agent.models', { agent: url.searchParams.get('agent') || '' }));
           if (url.pathname === '/api/agent/resources') return json(await client.request('agent.resources'));
+          if (url.pathname === '/api/agent/status') return json(await client.request('agent.status'));
           if (url.pathname === '/api/agent/environment') return json(await client.request('agent.environment', { target: url.searchParams.get('target') || '' }));
           // Task 图的 Git 诊断单独按需取数，不进概览的常规轮询。
           if (url.pathname === '/api/task-graph') return json(await client.request('task.graph'));

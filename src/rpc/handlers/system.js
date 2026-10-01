@@ -35,6 +35,7 @@ export const handlers = {
   'agent.config'(p, params, actor) { return p.agentConfig(); },
   'agent.models'(p, params, actor) { return p.agentModels(params.agent); },
   'agent.resources'(p, params, actor) { return p.agentResources(); },
+  'agent.status'(p) { return p.agentStatus(); },
   // 环境变量值可能包含密钥：读取与写入都只允许本地用户/Web 登录会话，不向 agent token 开放。
   'agent.environment'(p, params, actor) { return p.agentEnvironment(params.target); },
   'agent.environment.configure'(p, params, actor) { return p.configureAgentEnvironment(params.target, params.values); },

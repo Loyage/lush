@@ -11,8 +11,12 @@
 | `agent/prompts.js` | 命名内置 Prompt 片段、按角色组合，并叠加可提交、本机与 `agent.json` 补充 | `AGENT_ROLES`、`PROMPT_PARTS`、`ROLE_PROMPT_PARTS`、`builtInPrompt(role)`、`agentPrompt(config,role,profile)` |
 | `agent/environment.js` | 每次 invocation 热加载 `.lush/agent/agent.env` 与角色 env，校验并叠加环境；为 Web/RPC 提供按公共/角色文件读取与 owner-only 原子写入，空表删除文件 | `AGENT_ENV_TARGETS`、`parseAgentEnv(source,file)`、`readAgentEnvironment(config,target)`、`saveAgentEnvironment(config,target,values)`、`agentEnvironment(config,role)` |
 | `agent/settings.js` | `.lush/agent.json` 的兼容读取、校验、原子写入、角色继承与 Web 选项（含各角色内置 Prompt）；旧 `prompt` 迁到 `append_prompt`，资源选择存 `extensions` / `skills` | `AGENT_ROLES`、`AGENT_BACKENDS`、`THINKING_LEVELS`、`MODEL_PRESETS`、`normalizeAgentConfig()`、`normalizeAgentProfile()`、`normalizeSoftBudget(value)`、`AgentSettings` |
+| `agent/status.js` | 用户按需查询当前项目 Pi 安装、只读 SDK 本地模型目录（source=local，按本地配置凭证筛选但不冒充联网验证）、资源、脱敏账号与当前配置服务商的可靠官方余额；DeepSeek 返回余额，OpenRouter 返回 Key 消费额度，Codex 订阅明确 unsupported；按公共/agent 环境与角色配置取值，single-flight，不启动模型、不刷新凭证，UTF-8 输出预算适配 1 MiB RPC 帧 | `discoverAgentStatus(config, profile, options?)` |
+| `agent/status-command.js` | 状态查询的无 shell、有限输出/超时子进程及 Pi 可执行文件/安装路径解析；错误不带 stdout/stderr | `statusCommand()`、`resolvePiInstallation()` |
+| `agent/status-pi.js` | 内部隔离进程入口；从已安装 Pi 读取 SDK 本地模型/包元数据，禁用 refresh、不读真实凭证、不加载扩展 | 内部脚本，无公共导出 |
+| `agent/status-accounts.js` | 有界只读配置解析、凭证来源/过期状态、身份脱敏与固定官方 HTTPS 余额查询；不执行密钥命令、不返回密钥/上游原文 | `readPiAccounts()`、`queryAccountBalance()`、`readStatusJson()` |
 | `agent/models.js` | 有界、超时地读取 Pi / Codex CLI 模型目录，只投影安全的模型元数据，失败回退内置预设 | `discoverAgentModels(config, agent)` |
-| `agent/resources.js` | 不执行资源代码地发现用户/项目 Pi 扩展、Skills 与已安装 package 资源；CLI 列表失败时保留本地目录结果 | `discoverAgentResources(config)` |
+| `agent/resources.js` | 不执行资源代码地发现用户/项目 Pi 扩展、Skills 与已安装 package 资源；CLI 列表失败时保留本地目录结果 | `discoverAgentResources(config, options?)`（options.packages 提供只读包目录，options.warning 提供安全来源说明，options.extensions/skills 补充 Lush 当前选择；扩展/Skills 最多各 500 项，默认维持旧 CLI 发现） |
 | `agent/provider.js` | 动态后端路由、Pi / Codex invocation、Codex thread 恢复与每轮 token 用量留存（不伪造费用）；调用 Prompt 与 env 组合器；子进程因 AbortSignal 结束时保留 scheduler / lifecycle 写入的具体超时或取消原因；关闭进程后读一次抢占的双向标记（<home>/preempt，无论采纳与否立即清掉）并抛 `AgentPreempted` | `PiProvider`、`CodexProvider`、`AgentProvider`、`MockProvider`、`AgentPreempted`、`preemptPaths` |
 | `agent/pi-runtime.js` | 内置 Pi extension；记录 invocation 身份、工具边界写本轮 Pi entry 指针；软预算提醒与安全抢占 | 默认导出 `lushRuntime(pi)` |
 | `agent/fork.js` / `bin/git` | 固定提交的 Pi 指针截取单分支 checkpoint 供 Pi `--fork`；Agent 的 Git commit adapter 登记成功提交的指针，其余 Git 命令透传 | `forkCheckpoint`、`readCommitPointer`；`bin/git` 为 Agent PATH 入口 |
@@ -49,7 +53,7 @@
 | `core/sleep-policy.js` | 开启选项及结构化决策校验、确定性推荐策略与共享风险说明 | `SLEEP_WARNING`、`sleepOptions`、`recommendedChoice`、`validateSleepChoice` |
 | `project/base.js` | 构造与实例状态（`config` / `store` / `agentSettings` / `quickIntro` / `provider` / `workspaces` / `running` / `introRunning` / `stopping` / `scheduled` / `ancestry`） | `class ProjectBase` |
 | `project/internal.js` | 两个跨模块的私有助手 | `agentView(task, run, latestRun)`、`tokenHash(token)` |
-| `project/agents.js` | 项目级 Agent 配置与环境文件读写接缝；配置和 env 都动态生效，按需查询 Pi / Codex 本机模型目录及 Pi 扩展/Skills，写入只允许用户侧 RPC；env 读取因含密钥也只允许用户 | `agentConfig()`、`agentModels(agent)`、`agentResources()`、`agentEnvironment(target)`、`configureAgentEnvironment(target,values)`、`configureAgents(value)` |
+| `project/agents.js` | 项目级 Agent 配置与环境文件读写接缝；配置和 env 都动态生效，按需查询 Pi / Codex 本机模型目录及 Pi 扩展/Skills，写入只允许用户侧 RPC；env 读取因含密钥也只允许用户 | `agentConfig()`、`agentModels(agent)`、`agentResources()`、`agentStatus()`、`agentEnvironment(target)`、`configureAgentEnvironment(target,values)`、`configureAgents(value)` |
 | `project/settings.js` | 项目级运行设置接缝：把运行设置的读模型喂给 `system.status`，并把用户侧的 `system.configure` 接到 `Config.configureRuntime` | `runtimeSettings()`、`configureRuntimeSettings(patch)` |
 | `project/status.js` | 项目级读模型与廉价 `revision`；首页 `system.summary` 走独立的 `summary()`，用持久 `meta.overview_revision` 与覆盖索引聚合且不打开 Agent / 快速介绍配置，兼容 `system.status` 仍镜像完整 `agent_config` / `intro_config`，设置页再按需读取；运行设置另给 `settings` 镜像（并发额度 + 调用 / 拆解限额），顶层同名字段仍是生效值 | `overviewRevision()`、`summary()`、`status(includeAgentConfig=true)` |
 | `project/deps.js` | 依赖边的读模型与结构校验；`decorate` 按 `input_id` 命中 `routedInputIds()` 给出 `route` 布尔（快速路由任务标记），并批量取回这一批任务的 `agent_runs`，让任务树 / 任务列表的紧凑进度也按「工作用时 + 等待」投影而不是墙钟 | `decorate(tasks)`、`blockedBy(taskId)`、`assertDeps(taskId, parent, edges)` |

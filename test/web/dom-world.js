@@ -203,6 +203,9 @@ export function makeWorld() {
     const path = String(url);
     const json = data => ({ ok: true, status: 200, json: async () => data });
     if (path === '/api/snapshot') return json(snapshot());
+    if (path === '/api/agent/status') return json({ version: 1, agent: 'pi', checked_at: iso(NOW),
+      scope: { project: '/tmp/demo', role: 'agent' }, runtime: { command: 'pi', version: '0.1.0', backend: 'pi' },
+      models: { source: 'cli', models: [] }, resources: { extensions: [], skills: [], packages: [] }, accounts: [], warnings: [] });
     if (path.startsWith('/api/agent/models?agent=')) {
       const agent = decodeURIComponent(path.split('=').at(-1));
       return json({ agent, source: 'cli', warning: null, models: agent === 'pi'

@@ -66,9 +66,22 @@
 
 `task.graph` / `/api/task-graph` 是以 Task 父子关系为边的有界读面；Web 的 `#task-graph` 为主视角，旧 `#graph` 分支视图及 `/api/graph` HTTP 路由已移除；精简 Git 父分支、当前检出与关系诊断移入 Task 卡片，完整谱系与未绑定分支绑定只保留 CLI / RPC。Task 卡片按真实状态配色，读面投影 `archived`（内部 merge 队列随直接父 Task 归档，详见 [Task 图](task-graph.md)）及 `branch_info.subtree_say` / `branch_info.merge_run` 作为交付诊断；旧 `branch.orchestrate_plan` / `branch.orchestrate` 一键编排入口已下线。新 say 从已提交 fork 读取 `.lush-task/input.mjs` 并冻结在项目 `.lush/task-rules/`；用户后续消息由固定规则返回 `message` 或安全点软抢占的 `interrupt`，失败回退并留事件。子 Task 继承直接父的规则快照。可信代码风险与读面边界见 [Task 图与固定输入规则](task-graph.md)。
 
+## Agent 状态只读查询接缝
+
+新增平级页面 `#agent-status`（其他分组，标题「Agent 状态」）。仅进入页面与手动刷新时读取用户专属 `agent.status` / `GET /api/agent/status`，不纳入 overview 或后台轮询，不启动模型调用。数据来自当前项目 daemon 的 Pi 命令与公共 + `agent` 角色环境，明确不是浏览器本机或某个已运行 invocation 的状态。
+
+读模型 version 1：`{version:1, agent:'pi', checked_at, scope, runtime, models, resources, accounts, warnings}`。
+- `scope:{project, role:'agent', note}`；`runtime:{command, executable, real_path, version, config_dir, backend, model, warning}`，读取失败字段为 null 而不伪造。
+- `models` 沿用模型目录读模型 `{agent,source,models,warning}`；状态页安全读取 SDK 本地元数据并按本地凭证匹配，source 为 `local`，不加载扩展动态模型、不联网验证可用性；安装不支持时回退 `presets`，预设不能冒充实际可用模型。不能直接对真实配置运行可能执行密钥命令或刷新 OAuth 的 `--list-models`。
+- `resources` 沿用扩展/Skills 目录并提供 `packages:[{source,root}]`；包声明不代表已安装，未发现安装路径时 root 为 null。目录仅说明安装/发现，不宣称扩展已加载。
+- `accounts:[{provider,auth_type,source,identity,status,expires_at,balance}]`；`identity` 已在服务端脱敏，`status` 说明本地凭证配置/过期/未知，不把存在凭证当作已联网验证登录。`balance:{status,kind,items,reason,checked_at}`，status 为 `available|unsupported|unconfigured|error`，kind 为 `balance|quota|null`；items 为安全白名单 `{label,remaining,total,used,unit}`（数值不可得用 null）。余额与额度不可互换，未知不可写成零。
+- 凭证、原始 auth/models 配置、完整 CLI stderr 和上游响应永不返回。官方余额接口只对已配置账号调用，固定服务商 HTTPS 地址、不跟重定向、有界大小/超时；没有可靠官方接口明确 unsupported，不通过模型调用探测。不执行配置中的密钥命令，不隐式刷新或改写 OAuth 凭证。
+
+后端职责在 `src/agent/status.js`、`src/core/project/agents.js` 与 RPC handler；Web server 仅转发。前端职责在 `render-agent-status.js`，复用唯一页面身份与项目路由前缀，迟到响应不能覆盖新页面。细表分别见 Runtime、Web 与 CLI/RPC 分章。
+
 ## 页面导航与全类型 Task 列表
 
-- Web 采用平级页面，分组只组织导航：工作（项目概览、任务树、待我处理、Task 列表）、其他（设置、帮助文档）。Task 详情归属 Task 列表，文档正文归属帮助文档。
+- Web 采用平级页面，分组只组织导航：工作（项目概览、任务树、待我处理、Task 列表）、其他（Agent 状态、设置、帮助文档）。Task 详情归属 Task 列表，文档正文归属帮助文档。
 - `sidebar-ui.js` 统一页面切换、路由地址、唯一选中项、视图栏、移动端收起与加载占位；`ui.view` 为当前页面身份，异步读面用身份检查阻止迟到响应覆盖新页面。概览导航先画缓存，不依赖 revision 变化或轮询空闲。
 - Task 列表平铺展示，不补祖先、不显示缩进或兄弟链，排序直接作用于所有命中任务（智能排序只看任务自身的状态与更新）；Task 树页面独立负责父子关系。状态与类型筛选为常展开的即时复选框，同组取并集、跨组取交集，空选与「全部」均表示不限制；偏好兼容旧单值与新数组，轮询保留选项焦点和历史类型选择。
 - `task.activity(limit?,scope?)` / `task.page(before?,limit?,scope?)` 增加 `scope='work'|'all'`，省略保留旧 work 口径；Web overview 与历史分页显式请求 all，覆盖 intent/work 两层，继续有界读取，不改 Task 实体或存储层级。`GET /api/tasks` 透传 scope；类型筛选固定提供全部现行角色，兼容历史 scheduler 与未知角色，筛选与搜索范围明确为已加载 Task，历史分页加载的旧类型不会在后续轮询中被丢弃。

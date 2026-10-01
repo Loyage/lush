@@ -55,7 +55,7 @@ test('右侧固定返回按钮在没有原生 history.back 的宿主里安全回
 });
 
 const navEntries = () => [
-  ...['overview', 'task-graph', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
+  ...['overview', 'task-graph', 'agent-status', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
   ...[...ui.navButtons.entries()],
 ];
 function expectSelected(id) {
@@ -81,7 +81,7 @@ test('所有页面平级、唯一选中；重复点击、hash 后退与轮询保
       if (ui.indexOpen) expect(dom.node(`side-${id}`).hidden).toBe(false);
       else expect(dom.node('detail').dataset.view).toBe(id);
     }
-    for (const id of ['task-graph', 'settings', 'notices', 'tasks', 'docs', 'overview']) {
+    for (const id of ['task-graph', 'agent-status', 'settings', 'notices', 'tasks', 'docs', 'overview']) {
       dom.location.hash = id === 'overview' ? '' : `#${id}`;
       await dom.fire('hashchange');
       expectSelected(id);
@@ -227,7 +227,7 @@ test('任务列表：角色胶囊带 role-<role> 类，快速路由任务整行�
 });
 
 test('直接链接启动复用同一路由，重复 boot 不复制导航', async () => {
-  for (const id of ['task-graph', 'settings', 'tasks']) {
+  for (const id of ['task-graph', 'agent-status', 'settings', 'tasks']) {
     dom.location.hash = `#${id}`;
     await boot();
     expectSelected(id);

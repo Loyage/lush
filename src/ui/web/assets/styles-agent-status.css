@@ -1,0 +1,35 @@
+/* Read-only Agent status: theme tokens and native disclosures, no inline positioning. */
+.agent-status-page{min-width:0;max-width:1180px;margin:auto}
+.agent-status-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:20px}
+.agent-status-head h1{margin:0 0 8px;font-size:clamp(24px,2.2vw,32px)}
+.agent-status-head .hint{max-width:760px}
+.agent-status-refresh{flex:none;white-space:nowrap}
+.agent-status-feedback{margin:12px 0}
+.agent-status-results>.hint{overflow-wrap:anywhere}
+.agent-status-warning{padding:9px 12px;margin:12px 0;border:1px solid color-mix(in srgb,var(--awaiting) 28%,var(--line-soft));border-radius:8px;background:var(--amber-soft);color:var(--awaiting);font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+.agent-status-accounts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;margin-top:14px}
+.agent-status-account{min-width:0;border:1px solid var(--line-soft);border-radius:10px;padding:16px;background:var(--bg)}
+.agent-status-account h3{margin:0 0 12px;font-size:15px;overflow-wrap:anywhere}
+.agent-status-account .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.agent-status-balance{border-top:1px solid var(--line-soft);margin-top:16px;padding-top:14px}
+.agent-status-balance h3{font-size:12px;margin-bottom:8px}
+.agent-status-balance-item{padding:8px 0;font-size:12px;overflow-wrap:anywhere}
+.agent-status-amount{font-size:20px;font-variant-numeric:tabular-nums;margin:5px 0}
+.agent-status-model-filters{display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px;margin:16px 0 10px}
+.agent-status-model-filters label{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:11px;color:var(--muted)}
+.agent-status-model-filters label:first-child{flex:1 1 220px}
+.agent-status-model-filters label:last-child{flex:0 1 240px}
+.agent-status-model-filters :is(input,select){width:100%;min-width:0;padding:9px 11px;background:var(--bg);border:1px solid var(--line);border-radius:8px;font:inherit;color:var(--text)}
+.agent-status-table-scroll{overflow-x:auto;margin:12px 0}
+.agent-status-model-table{width:100%;border-collapse:collapse;font-size:12px;text-align:left}
+.agent-status-model-table caption{text-align:left;font-size:11px;color:var(--dim);padding-bottom:8px}
+.agent-status-model-table :is(th,td){padding:10px;border-bottom:1px solid var(--line-soft);vertical-align:top;overflow-wrap:anywhere}
+.agent-status-model-table thead th{font-size:10px;color:var(--dim);font-weight:500;white-space:nowrap}
+.agent-status-model-table tbody th{font-weight:500;min-width:160px}
+.agent-status-model-table small{display:block;color:var(--dim);font-weight:400;margin-top:3px}
+.agent-status-resources{margin-top:12px;border-top:1px solid var(--line-soft);padding-top:8px}
+.agent-status-resources summary{cursor:pointer;padding:7px 0;font-size:13px;font-weight:600}
+.agent-status-resource-list{list-style:none;padding:0;margin:6px 0}
+.agent-status-resource-list li{padding:10px 0;border-bottom:1px solid var(--line-soft);overflow-wrap:anywhere;font-size:12px}
+.agent-status-resource-list li:last-child{border-bottom:0}
+@media(max-width:600px){.agent-status-head{flex-direction:column;gap:12px}.agent-status-account{padding:12px}.agent-status-account .grid{grid-template-columns:minmax(0,1fr)}.agent-status-model-filters label:last-child{flex:1 1 160px}}

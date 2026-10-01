@@ -43,13 +43,14 @@ function realFile(value) {
 }
 
 function addExtension(rows, value, source, label = '') {
+  if (rows.size >= 500) return;
   const file = realFile(value);
   if (!file || !['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts'].includes(path.extname(file))) return;
   rows.set(file, { id: file, label: label || path.basename(file), source });
 }
 
 function extensionEntries(rows, root, source, labelPrefix = '') {
-  if (!fs.existsSync(root)) return;
+  if (rows.size >= 500 || !fs.existsSync(root)) return;
   for (const entry of fs.readdirSync(root, { withFileTypes: true }).slice(0, 500)) {
     const full = path.join(root, entry.name);
     if (entry.isFile()) addExtension(rows, full, source, labelPrefix ? `${labelPrefix} · ${entry.name}` : entry.name);
@@ -118,6 +119,7 @@ function manifestPaths(root, values) {
 }
 
 function packageEntries(extensions, skills, root, source) {
+  if (extensions.size >= 500 && skills.size >= 500) return;
   let manifest = null;
   try { manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch {}
   const pi = manifest?.pi;
@@ -145,24 +147,36 @@ function installedPackages(output) {
 }
 
 /** Discover installed Pi extensions and skills without loading or executing them. */
-export async function discoverAgentResources(config) {
+export async function discoverAgentResources(config, options = {}) {
   const extensions = new Map(), skills = new Map();
-  const configDir = config.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
+  const userHome = config.env.HOME || os.homedir();
+  const configDir = config.env.PI_CODING_AGENT_DIR || path.join(userHome, '.pi', 'agent');
   extensionEntries(extensions, path.join(configDir, 'extensions'), '用户扩展');
   skillEntries(skills, path.join(configDir, 'skills'), '用户 Skills');
-  skillEntries(skills, path.join(os.homedir(), '.agents', 'skills'), '用户 Skills');
+  skillEntries(skills, path.join(userHome, '.agents', 'skills'), '用户 Skills');
   extensionEntries(extensions, path.join(config.project, '.pi', 'extensions'), '项目扩展');
   skillEntries(skills, path.join(config.project, '.pi', 'skills'), '项目 Skills');
   skillEntries(skills, path.join(config.project, '.agents', 'skills'), '项目 Skills');
 
-  let warning = null;
-  try {
-    const command = config.env.LUSH_PI_COMMAND || 'pi';
-    const output = await commandOutput(command, ['list'], config.env, config.project);
-    for (const item of installedPackages(output)) packageEntries(extensions, skills, item.root, item.source);
-  } catch (error) {
-    warning = `无法读取 Pi 已安装包，仅显示本地目录资源：${String(error?.message || error).slice(0, 500)}`;
+  for (const file of options.extensions || []) addExtension(extensions, file, 'Lush agent 配置');
+  for (const file of options.skills || []) {
+    if (path.basename(file) === 'SKILL.md') {
+      const resolved = realFile(file), info = resolved && skillInfo(resolved);
+      if (resolved && info) skills.set(resolved, { id: resolved, label: info.name, description: info.description, source: 'Lush agent 配置' });
+    } else skillEntries(skills, file, 'Lush agent 配置');
   }
+  let warning = options.warning || null, packages = options.packages;
+  if (!Array.isArray(packages)) {
+    try {
+      const command = config.env.LUSH_PI_COMMAND || 'pi';
+      const output = await commandOutput(command, ['list'], config.env, config.project);
+      packages = installedPackages(output);
+    } catch (error) {
+      warning = `无法读取 Pi 已安装包，仅显示本地目录资源：${String(error?.message || error).slice(0, 500)}`;
+      packages = [];
+    }
+  }
+  for (const item of packages) if (item.root) packageEntries(extensions, skills, item.root, item.source);
   const sorted = values => [...values.values()].sort((a, b) => a.source.localeCompare(b.source) || a.label.localeCompare(b.label));
-  return { agent: 'pi', extensions: sorted(extensions), skills: sorted(skills), warning };
+  return { agent: 'pi', extensions: sorted(extensions), skills: sorted(skills), packages, warning };
 }

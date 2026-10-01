@@ -36,7 +36,7 @@
 |---|---|---|
 | `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验。**唯一公开面**：未列入 `PARAMS` 的方法一律 `unknown method` | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
-| `rpc/handlers/system.js` | 用户专属 `system.configure`、`system.stop_if_idle`（同步 idle 准入并关闭调度，见[服务重启](../reference/web-routes.md#服务重启)）；只读 `system.status`（兼容完整状态）与 `system.summary`（首页用持久 revision/索引聚合的无 Agent 全配置摘要）；`graph.get`；`agent.*`（含用户专属配置与环境文件）；历史 `sleep.*` / `system.usage` 仍可被内部调用，但不在白名单 | `handlers` |
+| `rpc/handlers/system.js` | 用户专属 `system.configure`、`system.stop_if_idle`（同步 idle 准入并关闭调度，见[服务重启](../reference/web-routes.md#服务重启)）；只读 `system.status`（兼容完整状态）与 `system.summary`（首页用持久 revision/索引聚合的无 Agent 全配置摘要）；`graph.get`；`agent.*`（含用户专属配置与环境文件，以及按需读取脱敏 Pi 账号/安装状态的 `agent.status`，不纳入快照）；历史 `sleep.*` / `system.usage` 仍可被内部调用，但不在白名单 | `handlers` |
 | `rpc/handlers/task.js` | `task.*`：`graph` / `list` / `activity` / `page` / `tree` / `inspect` / `history` / `history_page` / `diff` / `usage` / `transcript*`、`spawn`、agent-only 的 `integrate` / `resolve_child_divergence` / `progress.*`，以及用户专属的 `reserve` / `unreserve` / `accept` / `reopen` / `sync_parent` / `resolve_sync` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` | `handlers` |
 | `rpc/handlers/notice.js` | `notice.list/page/post/answer/dismiss` | `handlers` |
 | `rpc/handlers/branch.js` | `branch.tree/show/bind/archive`（`branch.bind` / `branch.archive` 在 `USER_ONLY`） | `handlers` |
@@ -73,6 +73,7 @@
 | 桌面连接 | `test/desktop/{connections,runtime,local-host,connection-ui}.test.js`（地址 / 持久化 / 模拟 Electron 安全与窗口 / 真实临时 Host 生命周期 / 连接页 DOM） |
 | Notice 记录与提醒 | `test/project/{notice-page,notice-info,questionnaire}.test.js`、`test/web/{notice-records,notice-notifications,questionnaire}.test.js` |
 | 执行过程阅读 | `test/transcript*.test.js`、`test/web/{transcript-reader,dom-transcript-reader,dom-transcript-view,dom-results}.test.js` |
+| Agent 状态 | `test/agent/status.test.js`（fake Pi SDK、凭证不执行/不刷新、身份脱敏与官方余额 mock）、`test/web/agent-status-api.test.js`（RPC/HTTP 用户鉴权与项目路由） |
 | 运行设置与 Agent | `test/runtime-settings.test.js`、`test/config*.test.js`、`test/agent-settings.test.js`、`test/soft-budget.test.js` |
 | 文档 | `test/docs-check.test.js`、`test/docs-search.test.js`、`test/markdown.test.js`、`test/mermaid-docs.test.js`、`test/web/docs.test.js` |
 | 历史遗留（内部实现仍在，无公开入口） | `test/drafts/**`、`test/project/{intent-layer,plan-gate,specs-queue,candidates,analysis,explanations,intro,showcase,showcase-eligibility,showcase-reservation,sleep,verification-evidence}.test.js`、`test/{candidate-cli,showcase-cli,sleep-cli,merge-all,orchestrate,verify,task-clear,task-delete,usage-*}.test.js` 及其 `test/web/*` 对应文件；它们验证的是历史兼容与内存实现，不能当作公开能力 |

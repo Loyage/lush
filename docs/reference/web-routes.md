@@ -35,6 +35,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 | `GET /api/graph` | 分支节点、fork 连线实时状态与任务关系（`graph.get`） |
 | `GET /api/task-graph` | Task 父子读面（`task.graph`） |
 | `GET /api/agent/config` | `agent.config` |
+| `GET /api/agent/status` | 用户专属 `agent.status {}`，当前项目 Pi 安装、模型目录、资源、脱敏账号与可查询余额/额度；仅进入页面和手动刷新时读取，详见 [Agent 状态](rpc/agents.md) |
 | `GET /api/agent/models?agent=pi\|codex` | 按需读取所选本机 CLI 当前可用模型目录；失败时带预设与 warning 回退 |
 | `GET /api/agent/resources` | 不执行资源代码地读取当前用户和项目已安装的 Pi 扩展、Skills 与 package 资源 |
 | `GET /api/agent/environment?target=common\|ROLE` | 按需读取公共或单角色 env 文件，包含明文值；底层 `agent.environment` 为用户专属，公网模式必须先登录，页面默认遮罩 |

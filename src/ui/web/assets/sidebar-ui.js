@@ -7,6 +7,7 @@ const PAGES = {
   'task-graph': ['任务树', '工作', '任务父子关系 · Agent、分支与 worktree'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],
   settings: ['设置', '其他', 'Agent、界面偏好与系统状态'],
+  'agent-status': ['Agent 状态', '其他', 'Pi 安装、模型与账号 · 只读查询'],
   docs: ['帮助文档', '其他', '使用流程、架构与接口参考'],
 };
 function node(id) { return globalThis.document?.getElementById?.(id) ?? null; }

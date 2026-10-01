@@ -9,6 +9,7 @@ import { onPrefChange, pollingIntervals, readPref, setPref } from './prefs.js';
 import { liveRefresh, refresh, applySort, applyFilters } from './refresh.js';
 import { openTaskGraph } from './render-task-graph.js';
 import { openSettings } from './render-settings.js';
+import { openAgentStatus } from './render-agent-status.js';
 import { initSidebar } from './sidebar-init.js';
 import { openResource, paintCollapsed } from './sidebar-ui.js';
 import { resetUiState, ui } from './state.js';
@@ -55,12 +56,13 @@ const linked = taskId => /^#task-(\d+)$/.test(taskId) ? Number(taskId.slice(6)) 
 /** 打开文档：点左栏「文档」与 #docs / #doc-<id> 共用；同样只报错，不中断轮询。 */
 function openDocsView(id = null) { return openDocs(id).catch(error => { show(error.message, 'error'); }); }
 
-// 地址栏是唯一的路由源：`#settings` / `#task-graph` / `#docs` / `#doc-ID` / `#task-ID`，其余回概览。
+// 地址栏是唯一的路由源：设置 / Agent 状态 / Task 图 / 文档 / Task；其余回概览。
 // 每个分支都把 promise 返回出去：浏览器不看返回值，但测试能 await 到「画完」为止。
 function onHashChange() {
   hideHelp(); // 换页前先把上一页的按钮提示收掉，避免固定浮层跨页残留。
   const report = error => { show(error.message, 'error'); };
   if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
+  if (location.hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
   if (location.hash === '#task-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
   const resource = /^#(notices|tasks)$/.exec(location.hash)?.[1];
   if (resource) return openResource(resource, { push: false });
@@ -118,6 +120,7 @@ export async function boot() {
   $('home').onclick = goOverview;
   $('overview-open').onclick = goOverview;
   $('settings-open').onclick = () => openSettings();
+  if ($('agent-status-open')) $('agent-status-open').onclick = () => openAgentStatus();
   $('sidebar-toggle').onclick = () => {
     const open = $('sidebar').classList.toggle('mobile-open');
     $('sidebar-toggle').setAttribute('aria-expanded', String(open));
