@@ -124,13 +124,27 @@ export function iterationViews(store, tasks) {
 }
 
 export default {
-  /** User-only at the RPC boundary; acceptance is not workspace archival. */
-  async acceptTask(taskId) {
+  /** Users accept their goals; a live delegator may confirm only its delivered direct child. */
+  async acceptTask(taskId, actor = null) {
     this.assertWritable('accept a task');
+    const invocation = actor === null ? null : this.running.get(id(actor));
+    const authorize = task => {
+      if (actor === null) return;
+      const parent = this.store.task(id(actor));
+      const run = this.running.get(parent.id);
+      check(parent.status === 'running' && run && run === invocation && !run.parked && !run.controller.signal.aborted,
+        'parent Agent is no longer active');
+      check(['say', 'child'].includes(parent.task_kind) && task.task_kind === 'child' && task.parent_id === parent.id,
+        'agents may confirm only their own direct child, never a user-created say');
+      assertTaskAncestorsOpen(this, task);
+      check(['awaiting_acceptance', 'completed'].includes(task.status), 'child must be delivered before parent confirmation');
+    };
+    authorize(this.store.task(id(taskId)));
     assertTaskNotSyncing(this, id(taskId));
     return this.workspaces.exclusive(async () => {
       let task = this.store.task(id(taskId));
       check(['say', 'child'].includes(task.task_kind), 'only say/child Tasks can be accepted');
+      authorize(task);
       assertTaskNotSyncing(this, task.id);
       if (task.status === 'completed') return task;
       check(['waiting', 'awaiting_acceptance'].includes(task.status), 'Task must be idle before acceptance');
@@ -163,12 +177,14 @@ export default {
         }
       }
       task = this.store.task(task.id);
+      authorize(task);
       check(['waiting', 'awaiting_acceptance'].includes(task.status), 'Task changed during acceptance');
       for (const row of this.subtreeTasks(task.id)) {
         check(row.id === task.id || TERMINAL.has(row.status), 'descendant changed during acceptance');
         check(!this.running.has(row.id) && !acceptanceUnreadMessage(this, row),
           `Task #${row.id}: new input arrived during acceptance`);
         assertTaskNotSyncing(this, row.id);
+        check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
         check(!bookingOf(row) || ['integrated', 'completed', 'withdrawn'].includes(bookingOf(row).status)
           || (bookingOf(row).status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery changed during acceptance');
       }
@@ -178,7 +194,8 @@ export default {
         this.store.update(task.id, { status: 'completed', error: null, retry_profile: null,
           ...(booking?.status === 'pending' ? { reservation: null } : {}) });
         this.store.armAgent(task.id, null);
-        this.store.event(task.id, 'task.accepted', { head_commit: task.head_commit, integration: task.integration });
+        this.store.event(task.id, 'task.accepted', { head_commit: task.head_commit, integration: task.integration,
+          accepted_by: actor === null ? 'user' : 'parent', parent_id: actor });
       });
       return this.store.task(task.id);
     });

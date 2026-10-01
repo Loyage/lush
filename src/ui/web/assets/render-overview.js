@@ -8,7 +8,8 @@ import { ui } from './state.js';
 export function renderOverview(data) {
   const tasks = (data.tasks || []).filter(task => ['say','child','main','owner'].includes(task.task_kind));
   const open = (data.notices || []).filter(notice => notice.status === 'open' && notice.kind !== 'info');
-  const acceptance = tasks.filter(task => task.status === 'awaiting_acceptance');
+  const acceptance = tasks.filter(task => task.status === 'awaiting_acceptance' && task.task_kind === 'say');
+  const parentConfirmation = tasks.filter(task => task.status === 'awaiting_acceptance' && task.task_kind === 'child');
   const active = tasks.filter(task => HOT.has(task.status) && task.status !== 'awaiting_acceptance' && !['main','owner'].includes(task.task_kind));
   const key = JSON.stringify([data.revision, tasks.map(task => `${task.id}:${task.updated_at}`), open.map(notice => notice.id)]);
   if (key === ui.overviewKey) return;
@@ -19,14 +20,14 @@ export function renderOverview(data) {
   const hero = el('div', undefined, 'overview-hero');
   const copy = el('div');
   copy.append(el('span', 'TASK / 目标与交付', 'eyebrow'), el('h1', '项目概览'),
-    el('p', open.length ? `${open.length} 个问题等待你的决定。` : active.length ? `${active.length} 个 Task 正在推进。` : acceptance.length ? `${acceptance.length} 个 Task 等待验收，可追加输入继续开发。` : '发送一条目标，创建独立 Task。', 'hero-description'));
+    el('p', open.length ? `${open.length} 个问题等待你的决定。` : active.length ? `${active.length} 个 Task 正在推进。` : acceptance.length ? `${acceptance.length} 个 Task 等待验收，可追加输入继续开发。` : parentConfirmation.length ? `${parentConfirmation.length} 个派生 Task 等待父 Agent 确认，无需你验收。` : '发送一条目标，创建独立 Task。', 'hero-description'));
   hero.append(copy, el('div', '✳', 'hero-mark')); panel.append(hero);
 
   const metrics = el('div', undefined, 'metrics');
   for (const [label, value, note, tone] of [
     ['Task', tasks.length, 'say、子任务与分支所有者', 'blue'],
     ['进行中', active.length, `${data.status.agents?.length ?? 0} 个 Agent 正在调用`, 'violet'],
-    ['待验收', acceptance.length, '已合并，不自动调用 Agent', 'violet'],
+    ['待验收', acceptance.length, `${parentConfirmation.length} 个派生 Task 待父确认，无需你验收`, 'violet'],
     ['待我处理', open.length, open.length ? '需要你的答复' : '没有待答复问题', 'green'],
   ]) {
     const card = el('div', undefined, `metric tone-${tone}`);

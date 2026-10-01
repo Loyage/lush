@@ -65,7 +65,7 @@ export const handlers = {
   'task.reserve'(p, params) { check(params.kind === 'merge', 'only merge delivery is supported'); return p.reserveTask(params.id, 'merge'); },
   'task.reserve_all'(p, params) { return p.reserveMergeAll(params.branch); },
   'task.resolve'(p, params) { return p.resolveTask(params.id); },
-  'task.accept'(p, params) { return p.acceptTask(params.id); },
+  'task.accept'(p, params, actor) { return p.acceptTask(params.id, actor); },
   'task.reopen'(p, params) { return p.reopenTask(params.id); },
   'task.sync_parent'(p, params) { return p.syncTaskParent(params.id); },
   'task.resolve_sync'(p, params) { return p.resolveTaskSync(params.id); },

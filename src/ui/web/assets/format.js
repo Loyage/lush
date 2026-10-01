@@ -33,7 +33,9 @@ export const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
 export const short = value => (typeof value === 'string' ? value.slice(0, 7) : '');
 export const statusOf = task => task.status === 'paused' && (task.agent_wakes ?? 0) === 0
   ? { label: '待开始', icon: '⏸' }
-  : (STATUS[task.status] || { label: task.status, icon: '·' });
+  : task.status === 'awaiting_acceptance' && task.task_kind === 'child'
+    ? { label: '待父确认', icon: '◈' }
+    : (STATUS[task.status] || { label: task.status, icon: '·' });
 export function relative(iso) {
   const at = Date.parse(iso); if (!Number.isFinite(at)) return '';
   const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));

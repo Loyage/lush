@@ -94,17 +94,18 @@ test('a no-op follow-up consumes the old booking without losing Squash cleanup e
   } finally { await f.close(); }
 });
 
-test('no-change delegated delivery keeps legacy completion and is not a historical merged Task', async () => {
+test('no-change delegated delivery waits for parent confirmation and is not a historical merged Task', async () => {
   const f = setup({ resolve() { return { agent: 'mock' }; }, async run() { return 'collected'; } });
   await repo(f.root);
   try {
     const { task: parent } = await f.project.say('parent'); f.store.update(parent.id, { status: 'waiting' });
     const child = await f.project.spawn(parent.id, 'answer first, code later');
     f.project.stopping = false; f.project.kick();
-    await until(() => f.store.task(child.id).status === 'completed' && f.store.task(parent.id).calls === 1 && f.store.task(parent.id).status === 'waiting');
+    await until(() => f.store.task(child.id).status === 'awaiting_acceptance' && f.store.task(parent.id).calls === 1 && f.store.task(parent.id).status === 'waiting');
     expect(f.store.task(child.id).reservation).toBeNull();
-    await expect(f.project.reopenTask(child.id)).rejects.toThrow('completed/merged');
-    expect(f.store.task(child.id)).toMatchObject({ integration: 'none', status: 'completed', calls: 1 });
+    expect(f.store.task(child.id)).toMatchObject({ integration: 'none', status: 'awaiting_acceptance', calls: 1 });
+    await f.project.acceptTask(child.id);
+    await expect(f.project.reopenTask(child.id)).rejects.toThrow('accepted Tasks');
     expect(f.project.reservationWaitReason(f.store.task(parent.id))).toBeNull();
   } finally { await f.close(); }
 });

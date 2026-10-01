@@ -79,15 +79,6 @@ export default {
       check(state.blockers.every(blocker => blocker === `task:#${task.id}`),
         `unintegrated descendants block the request: ${state.blockers.join(', ')}`);
       const delivery = await taskDeliveryState(this, task);
-      if (task.task_kind === 'child' && delivery === 'none'
-        && this.store.children(task.id).every(child => TERMINAL.has(child.status))) {
-        this.store.transaction(() => {
-          this.store.update(task.id, { reservation: null, integration: 'none' });
-          this.store.event(task.id, 'task.unreserved', { reservation: prior, reason: 'no changes' });
-          this.finish(task.id, 'completed', task.result);
-        });
-        return true;
-      }
       if (task.task_kind === 'child' && delivery !== 'pending') {
         // A clean, unchanged delegated branch has only a result to deliver. Do not
         // leave its parent waiting for a merge that cannot produce a commit.

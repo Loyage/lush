@@ -234,7 +234,8 @@ export default {
         : row.status === 'waiting' && child.active ? `等待 ${child.active} 个子 Task`
         : row.status === 'queued' && blockers.length ? `等待依赖 Task #${blockers.map(edge => edge.id).join('、#')}`
         : row.status === 'queued' ? '等待 Agent 调用槽'
-        : row.status === 'awaiting_acceptance' ? '本轮已交付 · 等待你验收或追加输入'
+        : row.status === 'awaiting_acceptance' ? (row.task_kind === 'child'
+          ? `本轮已交付 · 等待父 Task #${row.parent_id} 确认` : '本轮已交付 · 等待你验收或追加输入')
         : row.status === 'waiting' ? '静息 · 等待新输入或子 Task 信号' : null;
       const branch = row.branch ? records.get(row.branch) : null;
       // 内部 merge 队列没有自己的分支，归档跟随直接父 Task；从库里读父分支，父节点被截断也不漏掉。

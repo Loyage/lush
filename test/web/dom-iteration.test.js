@@ -19,7 +19,7 @@ const { iterationControls } = await import('../../src/ui/web/assets/render-itera
 const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
 const { renderTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
-const { STATUS, HOT, TERMINAL_STATUS } = await import('../../src/ui/web/assets/format.js');
+const { STATUS, HOT, TERMINAL_STATUS, statusOf } = await import('../../src/ui/web/assets/format.js');
 const { parentTasks } = await import('../../src/ui/web/assets/composer.js');
 const { matchTask } = await import('../../src/ui/web/assets/sidebar.js');
 const { renderOverview } = await import('../../src/ui/web/assets/render-overview.js');
@@ -100,7 +100,7 @@ test('detail and graph expose the same awaiting acceptance actions and continuin
   let panel = dom.node('detail');
   expect(buttonOf(panel, '归档')).toBeUndefined();
   expect(buttonOf(panel, '回收工作区与分支')).toBeUndefined();
-  expect(deepText(panel)).toContain('后代仍待验收');
+  expect(deepText(panel)).toContain('无需你逐个验收');
   expect(buttonOf(panel, '追加输入').classList.contains('agent-call')).toBe(true);
   expect(buttonOf(panel, '验收完成')).toBeTruthy(); expect(buttonOf(panel, '同步父分支')).toBeTruthy();
   expect(buttonOf(panel, '中断')).toBeUndefined(); expect(buttonOf(panel, '已解决')).toBeUndefined();
@@ -116,6 +116,26 @@ test('detail and graph expose the same awaiting acceptance actions and continuin
   expect(buttonOf(dom.node('detail'), '合并到父 Task')).toBeTruthy();
   renderDetail({ ...task, status: 'completed', accepted: true }, null, null, null);
   expect(buttonOf(dom.node('detail'), '继续开发')).toBeUndefined();
+});
+
+test('delegated Tasks wait for parent confirmation, not user acceptance or mine filtering', () => {
+  const child = { ...task, task_kind: 'child', integration: 'none', reservation: null };
+  const panel = render(child);
+  expect(statusOf(child).label).toBe('待父确认');
+  expect(deepText(panel)).toContain('等待父 Task #1');
+  expect(buttonOf(panel, '验收完成')).toBeUndefined();
+  expect(matchTask(child, { mine: true })).toBe(false);
+  expect(matchTask(child, { mine: true, openNoticeIds: [child.id] })).toBe(true);
+  ui.overviewKey = null;
+  renderOverview({ tasks: [child], notices: [], status: { agents: [] } });
+  expect(deepText(dom.node('detail'))).toContain('等待父 Agent 确认');
+  const acceptance = dom.node('detail').querySelectorAll('.metric').find(node => deepText(node).includes('待验收'));
+  expect(acceptance.querySelector('.metric-value').textContent).toBe('0');
+  renderDetail(child, null, null, null);
+  expect(buttonOf(dom.node('detail'), '验收完成')).toBeUndefined();
+  activateDetailView({ view: 'task-graph' });
+  renderTaskGraph({ total: 1, nodes: [child], edges: [] });
+  expect(buttonOf(dom.node('detail'), '验收完成')).toBeUndefined();
 });
 
 test('overview counts acceptance separately, and latest result remains readable while awaiting acceptance', () => {

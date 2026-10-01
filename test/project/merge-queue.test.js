@@ -145,6 +145,9 @@ test('nested delegated Tasks deliver bottom-up without reserving the user say', 
       fs.writeFileSync(path.join(cwd, 'nested.txt'), 'nested\n');
       await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', 'nested');
     }
+    for (const child of api.store.children(task.id).filter(row => row.task_kind === 'child' && row.status === 'awaiting_acceptance')) {
+      await api.acceptTask(child.id, task.id);
+    }
     return 'done';
   } });
   await repo(f.root);
@@ -152,10 +155,17 @@ test('nested delegated Tasks deliver bottom-up without reserving the user say', 
     const say = await f.project.say('nested parent');
     await until(() => childId && f.store.task(childId).integration === 'merged', 10000);
     await until(() => f.store.task(say.task.id).calls === 2 && f.store.task(say.task.id).status === 'waiting');
-    expect(f.store.task(grandchildId).integration).toBe('merged');
+    expect(f.store.task(grandchildId)).toMatchObject({ integration: 'merged', status: 'completed' });
+    expect(f.store.task(childId).status).toBe('completed');
+    expect(f.store.history(grandchildId).find(event => event.type === 'task.accepted').data)
+      .toMatchObject({ accepted_by: 'parent', parent_id: childId });
     expect(await git(say.task.workspace, 'show', 'HEAD:nested.txt')).toBe('nested');
     expect(f.store.task(say.task.id).reservation).toBeNull();
     expect(await git(f.root, 'rev-list', '--count', 'main')).toBe('1');
+    await f.project.reserveTask(say.task.id, 'merge');
+    await until(() => f.store.task(say.task.id).status === 'awaiting_acceptance' && !f.project.running.has(say.task.id));
+    await f.project.acceptTask(say.task.id);
+    expect(f.store.task(say.task.id).status).toBe('completed');
   } finally { await f.close(); }
 });
 
@@ -167,7 +177,7 @@ test('a clean no-change child delivers its result without a merge commit', async
     const child = await f.project.spawn(say.task.id, 'research');
     const baseline = await git(f.root, 'rev-parse', 'main');
     f.project.stopping = false; f.project.kick();
-    await until(() => f.store.task(child.id).status === 'completed');
+    await until(() => f.store.task(child.id).status === 'awaiting_acceptance');
     await until(() => f.store.task(say.task.id).calls === 1 && f.store.task(say.task.id).status === 'waiting');
     expect(f.store.task(child.id)).toMatchObject({ integration: 'none', result: 'research answer', reservation: null });
     expect(await git(say.task.workspace, 'rev-parse', 'HEAD')).toBe(baseline);

@@ -14,13 +14,13 @@ Agent 派出的新 child 默认预约合入直接父 Task；用户直接创建�
 
 本轮 Squash 落地后，原 Task 归还原父，进入非终态 `awaiting_acceptance`，保留分支/worktree/会话，不自动调用 Agent。用户可以追加输入继续**同一 Task**，后续提交再交付；原始 `base_commit` 不改写，本轮基线由 `iteration_base_commit` 表达。
 
-用户 `task.accept` 才把待验收 Task 结算为 `completed`，写验收事件，不调用 Agent，也不删除代码现场。仍待验收的后代必须先逐个验收，父验收不会隐式验收后代。待验收时不能直接归档；验收后清理/归档仍是独立显式动作。
+`task.accept` 把已交付 Task 结算为 `completed`：用户验收自己创建的 say，运行中的直接父 Agent 检查并确认派生 child，无需用户逐个验收。写审计事件，不调用 Agent，也不删除代码现场；父验收不会隐式确认后代，未处理问题和未交付改动不能当作成功。待验收时不能直接归档；验收后清理/归档仍是独立显式动作。
 
-父分支继续前进时，用户 `task.sync_parent` 只在源侧安全吸收父提交；无冲突程序直接完成，冲突先持久化固定提交诊断，另点 `task.resolve_sync` 才调用 Agent。漂移拒绝旧解冲突请求，失败不重置现场。历史未归档且保留分支/worktree 的 completed/merged say/child 可显式 `task.reopen` 恢复待验收；明确用户验收过的新任务不误重开，归档任务不重建，不批量迁移旧行。完整边界见[持续迭代](task-iteration.md)。
+父分支继续前进时，用户 `task.sync_parent` 只在源侧安全吸收父提交；无冲突程序直接完成，冲突先持久化固定提交诊断，另点 `task.resolve_sync` 才调用 Agent。漂移拒绝旧解冲突请求，失败不重置现场。历史未归档且保留分支/worktree 的 completed/merged say/child 可显式 `task.reopen` 恢复待验收；明确用户验收或父确认过的新任务不误重开，归档任务不重建，不批量迁移旧行。完整边界见[持续迭代](task-iteration.md)。
 
 ## 状态不互相代替
 
-`waiting` 表示静息等待，`awaiting_acceptance` 表示本轮交付后等待用户验收，`completed` 表示 Task 已结算，`integration` 表示代码进入了直接父分支；即使进入直接父分支，也未必进入 main。交付静息不是用户验收，用户验收也不是分支归档。失败工作区、审计事件、调用结果与消息不会因任务结算自动清除。用户可查[分支与回收](branch-first.md)及[工作区回收](cleanup.md)。
+`waiting` 表示静息等待，`awaiting_acceptance` 表示本轮交付后 say 等待用户验收、child 等待父 Agent 确认，`completed` 表示 Task 已结算，`integration` 表示代码进入了直接父分支；即使进入直接父分支，也未必进入 main。交付静息不是用户验收，用户验收也不是分支归档。失败工作区、审计事件、调用结果与消息不会因任务结算自动清除。用户可查[分支与回收](branch-first.md)及[工作区回收](cleanup.md)。
 
 ---
 

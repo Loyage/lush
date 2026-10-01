@@ -4,7 +4,7 @@ Lush 的合并单位是分支谱系中的一条 `direct child → parent` 边。
 
 ## 新式 version 2 交付与持续迭代
 
-新式 say/child 预约交给父 Task 的 merge 队列串行 Squash，含 main；分歧回源 Task 处理，原 Task 不能绕过冻结推进父分支。落地后归还原父，进入非终态 `awaiting_acceptance`；追加输入继续当前 Task，用户验收 `task.accept` 与显式归档分开。本轮使用 `iteration_base_commit`，原始起点不改写。安全父同步只在源侧吸收固定父提交，冲突先诊断、另点 Agent；详见[持续迭代](task-iteration.md)。
+新式 say/child 预约交给父 Task 的 merge 队列串行 Squash，含 main；分歧回源 Task 处理，原 Task 不能绕过冻结推进父分支。落地后归还原父，进入非终态 `awaiting_acceptance`；追加输入继续当前 Task，say 用户验收 / child 直接父 Agent 确认（`task.accept`）与显式归档分开。本轮使用 `iteration_base_commit`，原始起点不改写。安全父同步只在源侧吸收固定父提交，冲突先诊断、另点 Agent；详见[持续迭代](task-iteration.md)。
 
 以下 fast-forward、用户批准和独立解分歧子 Task 的描述是历史 version 1 接缝，不适用于 version 2 自动 Squash 队列。
 

@@ -54,14 +54,16 @@ export function iterationControls(task, { refresh = () => {}, events = [] } = {}
   } else {
     if (task.status === 'awaiting_acceptance') {
       const acceptanceReason = reason || ((task.children || []).some(child => !['completed', 'failed', 'cancelled'].includes(child.status))
-        ? '后代尚未验收或结算；请先逐个处理后代，父验收不会替它们验收。' : null);
-      panel.append(el('p', '本轮已合并，等待你验收；追加输入可继续当前 Task。若后代仍待验收，请先逐个验收后代。验收完成不会归档分支或 worktree。', 'hint'));
-      actions.append(guardedAction(button('验收完成', async () => {
+        ? '后代尚未确认或结算；派生任务由其直接父 Agent 检查并确认，无需你逐个验收。' : null);
+      panel.append(el('p', task.task_kind === 'child'
+        ? `本轮已交付，等待父 Task #${task.parent_id} 的 Agent 检查并确认；无需你验收。需要修改时可追加输入，分支与 worktree 保留。`
+        : '本轮已交付，等待你验收；追加输入可继续当前 Task。派生任务由父 Agent 检查并确认，无需你逐个验收。验收完成不会归档分支或 worktree。', 'hint'));
+      if (task.task_kind !== 'child') actions.append(guardedAction(button('验收完成', async () => {
         if (!await confirmDialog({ title: `验收 Task #${task.id}？`,
-          message: '将 Task 结算为已完成，不调用 Agent，也不删除分支、worktree、会话与交付历史。仍待验收的后代须先逐个验收，本操作不会替它们验收；归档仍是独立的显式操作。',
+          message: '将 Task 结算为已完成，不调用 Agent，也不删除分支、worktree、会话与交付历史。派生任务须先由其直接父 Agent 确认，本操作不会替它们确认；归档仍是独立的显式操作。',
           confirmLabel: '验收完成', confirmHelp: '确认本轮成果完成；结算 Task，但不归档代码现场。' })) return;
         await update('task.accept', '验收完成；分支与工作区保留。');
-      }, undefined, { help: '结算为已完成，不运行 Agent；仍待验收的后代须先逐个验收。验收与归档独立，待验收时不能直接归档工作区。' }), acceptanceReason));
+      }, undefined, { help: '结算为已完成，不运行 Agent；派生任务由其直接父 Agent 确认，无需你逐个验收。验收与归档独立，待验收时不能直接归档工作区。' }), acceptanceReason));
     }
     actions.append(guardedAction(button('同步父分支', async () => {
       try {

@@ -32,7 +32,7 @@ export const USER_ONLY = new Set([
   'say.submit','task.transcript_latest','task.transcript_page','task.transcript_step','task.transcript_search',
   'task.reserve','task.reserve_all','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge',
   'task.cancel','task.retry','task.cleanup','task.interrupt','task.resume','task.configure',
-  'task.accept','task.reopen','task.sync_parent','task.resolve_sync',
+  'task.reopen','task.sync_parent','task.resolve_sync',
   'notice.answer','notice.dismiss','branch.bind','branch.archive',
 ]);
 export const AGENT_ONLY = new Set([

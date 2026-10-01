@@ -64,7 +64,7 @@ function waitGaps(spans, start, end) {
  * 非 running 的等待单独成一条 kind='wait' 条目插在已完成步骤与当前步骤之间。历史与进行中的任务用同一套重算，
  * 所以旧计划也会按同样口径显示，不再把等待算成 Agent 的工作时间。
  */
-export function projectProgress(progress, runs, status, now = Date.now()) {
+export function projectProgress(progress, runs, status, now = Date.now(), taskKind = null) {
   if (!progress || !Array.isArray(runs) || !runs.length) return progress;
   const spans = runIntervals(runs, now);
   const openRun = runs.find(run => !run.ended_at) ?? null;
@@ -103,7 +103,8 @@ export function projectProgress(progress, runs, status, now = Date.now()) {
   const waiting = !terminal && last[1] >= planEnd;
   const waitItem = {
     key: WAIT_KEY, kind: 'wait',
-    label: waiting ? (WAIT_LABEL[status] ?? '等待信号') : '等待信号',
+    label: waiting ? (status === 'awaiting_acceptance' && taskKind === 'child'
+      ? '等待父 Task 确认' : WAIT_LABEL[status] ?? '等待信号') : '等待信号',
     reason: waiting ? status : null,
     status: waiting ? 'pending' : 'completed',
     started_at: new Date(gaps[0][0]).toISOString(),
@@ -178,7 +179,7 @@ export default {
     const { progress_plan, reservation, ...row } = task;
     const progress = decode(progress_plan);
     return { ...row,
-      progress: Array.isArray(runs) ? projectProgress(progress, runs, task.status) : progress,
+      progress: Array.isArray(runs) ? projectProgress(progress, runs, task.status, Date.now(), task.task_kind) : progress,
       reservation: decodeReservation(reservation) };
   },
 

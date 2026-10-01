@@ -130,7 +130,8 @@ export function matchTask(task, query = {}) {
   if (query.mine) {
     const open = noticeIds(query.openNoticeIds);
     const pendingMerge = task.status === 'completed' && (task.integration === 'pending' || task.integration === 'review');
-    if (!open.has(task.id) && !pendingMerge && task.status !== 'awaiting_acceptance') return false;
+    const userAcceptance = task.status === 'awaiting_acceptance' && task.task_kind !== 'child';
+    if (!open.has(task.id) && !pendingMerge && !userAcceptance) return false;
   }
   const needle = keyword(query.text);
   if (needle) {
