@@ -1,13 +1,17 @@
 import { check, id, text, TERMINAL, isPlainObject } from '../types.js';
 import { questionnaire, questionnaireAnswer } from '../questionnaire.js';
 import { decideTaskInput } from '../task-input-rule.js';
+import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, resumeTaskDelivery } from './iteration.js';
 
 /** 收件箱、notice、答复。 */
 export default {
   message(taskId, body, sender = null) {
     const target = this.store.task(taskId); text(body, 'message');
+    assertTaskNotSyncing(this, target.id);
     check(!['main','owner'].includes(target.task_kind), 'branch owner Task is not an unrestricted Agent inbox; use an approved merge request');
-    check(!TERMINAL.has(target.status), 'task has ended; retry it or submit a new input');
+    check(!TERMINAL.has(target.status), 'task has ended; explicitly reopen a completed Task or retry failed work');
+    assertTaskAncestorsOpen(this, target);
+    check(!target.branch || this.store.branch(target.branch)?.status === 'active', 'archived Tasks cannot receive new work');
     if (target.reservation) {
       const booking = JSON.parse(target.reservation);
       check(!(booking.version === 2 && booking.status === 'requested'),
@@ -26,6 +30,8 @@ export default {
       catch (error) { ruleError = error.message; decision = { delivery: 'interrupt', source: 'fallback' }; }
     } else if (sender === null) decision = { delivery: 'interrupt', source: 'default' };
     this.store.transaction(() => {
+      if (sender === null) resumeTaskDelivery(this, target.id, 'new user input');
+      consumeIntegratedReservation(this, target, 'new input');
       this.store.message(target.id, body, sender);
       this.store.event(target.id, 'message', { sender, body });
       if (sender === null) this.store.event(target.id, 'task.input_routed', { delivery: decision.delivery,

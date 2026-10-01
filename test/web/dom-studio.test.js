@@ -27,8 +27,8 @@ test('概览：Task 指标、最近任务、待决与运行时折叠跨重画保
   renderOverview(data);
   const panel = dom.node('detail');
   expect(panel.dataset.view).toBe('overview');
-  expect(panel.querySelectorAll('.metric').length).toBe(3);
-  expect([...panel.querySelectorAll('.metric-label')].map(node => node.textContent)).toEqual(['Task', '进行中', '待我处理']);
+  expect(panel.querySelectorAll('.metric').length).toBe(4);
+  expect([...panel.querySelectorAll('.metric-label')].map(node => node.textContent)).toEqual(['Task', '进行中', '待验收', '待我处理']);
   const text = deepText(panel);
   expect(text).toContain('正在改点什么');
   expect(text).toContain('需要你的决定');

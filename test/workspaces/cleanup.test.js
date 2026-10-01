@@ -1,4 +1,5 @@
 import { test, expect } from 'bun:test';
+import iteration from '../../src/core/project/iteration.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, git, repo } from '../helpers.js';
@@ -102,7 +103,8 @@ async function squashedSay(f, name) {
   f.project.stopping = false;
   await f.project.driveTaskMerge(say.task.parent_id);
   const merged = f.store.task(say.task.id);
-  expect(merged).toMatchObject({ status: 'completed', integration: 'merged' });
+  expect(merged).toMatchObject({ status: 'awaiting_acceptance', integration: 'merged' });
+  await iteration.acceptTask.call(f.project, merged.id);
   expect(JSON.parse(merged.reservation)).toMatchObject({ version: 2, status: 'integrated' });
   return merged;
 }

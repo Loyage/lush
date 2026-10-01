@@ -102,6 +102,7 @@ function whyText(task, children = []) {
   if (task.status === 'running') return '在跑（占 1 个并发槽）';
   if (task.status === 'queued') return waiting.length ? `排队：等 ${waiting.map(dep => `#${dep.id}`).join('、')}` : '排队：等并发槽';
   if (task.status === 'waiting') return `等子任务（${children.filter(child => child.status === 'running').length} 个在跑）`;
+  if (task.status === 'awaiting_acceptance') return '待验收（已合并，可追加输入）';
   if (task.status === 'awaiting') return '等你决定';
   if (task.status === 'completed' && task.integration === 'conflict') return '合并冲突：等你决定要不要开解冲突任务';
   if (task.status === 'completed' && ['pending', 'review'].includes(task.integration)) return '等你批准合并';

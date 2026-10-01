@@ -16,6 +16,7 @@ export const PARAMS = {
   'task.spawn': ['parent','goal','name'], 'task.integrate': ['id','commit'],
   'task.reserve': ['id','kind'], 'task.reserve_all': ['branch'],
   'task.resolve': ['id'], 'task.resolve_divergence': ['id'],
+  'task.accept': ['id'], 'task.reopen': ['id'], 'task.sync_parent': ['id'], 'task.resolve_sync': ['id'],
   'task.resolve_child_divergence': ['id'], 'task.unreserve': ['id'],
   'task.approve_merge': ['id','commit','baseline'], 'task.message': ['id','body'],
   'task.cancel': ['id'], 'task.retry': ['id'], 'task.cleanup': ['id','keep_branch'],
@@ -31,6 +32,7 @@ export const USER_ONLY = new Set([
   'say.submit','task.transcript_latest','task.transcript_page','task.transcript_step','task.transcript_search',
   'task.reserve','task.reserve_all','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge',
   'task.cancel','task.retry','task.cleanup','task.interrupt','task.resume','task.configure',
+  'task.accept','task.reopen','task.sync_parent','task.resolve_sync',
   'notice.answer','notice.dismiss','branch.bind','branch.archive',
 ]);
 export const AGENT_ONLY = new Set([

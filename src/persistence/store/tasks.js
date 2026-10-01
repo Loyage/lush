@@ -26,7 +26,7 @@ export const tasks = {
   summaryPage({ active = false, before = null, limit = 50, scope = 'work' } = {}) {
     check(['work', 'all'].includes(scope), 'invalid task scope');
     const where = ['layer=?']; const params = [];
-    if (active) where.push("status IN ('queued','running','waiting','awaiting','paused')");
+    if (active) where.push("status IN ('queued','running','waiting','awaiting','paused','awaiting_acceptance')");
     else where.push("status IN ('completed','failed','cancelled')");
     if (before !== null) { where.push('id<?'); params.push(before); }
     const index = active ? 'tasks_layer_status' : 'tasks_layer_id_status';
@@ -123,7 +123,7 @@ export const tasks = {
   /** Bump the visible timestamp without touching status; used when a verification starts or settles. */
   touch(taskId) { this.run("UPDATE tasks SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", taskId); },
   update(taskId, patch) {
-    const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit','plan_gate','review_candidate_id','retry_profile','reservation'];
+    const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','iteration_base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit','plan_gate','review_candidate_id','retry_profile','reservation'];
     check(Object.keys(patch).every(key => allowed.includes(key)), 'invalid task patch');
     this.run(`UPDATE tasks SET ${Object.keys(patch).map(key => `${key}=?`).join(',')}, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, ...Object.values(patch), taskId);
     return this.task(taskId);

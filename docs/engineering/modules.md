@@ -78,9 +78,17 @@
 - `graph.get` 的 branch 节点增量提供 `diagnostics`：`changes` 以登记的 `created_from_commit` → 当前固定 tip 统计已提交净改动（文件总数、文本增删行、二进制文件数及有界文件列表），`latest_commit` 给出 tip 的提交时间与摘要，`working_tree` 单独统计实际检出该分支的工作区未提交文件数（暂存 / 未暂存 / 未跟踪 / 冲突，分类可能重叠）。无起点、无 ref、未检出与读取失败不能冒充零。
 - Git 边界 `workspaces/diff.js` 新增 `branchDiagnostics(branches)` 批量读面：只读 Git、禁用外部 diff/textconv，固定提交结果有界缓存；文件列表每分支最多 50 项且 JSON 不超过 2 KiB，截断不影响汇总。无新表、无新 RPC 方法；Web 用 Task 图轮询，并保留文件列表展开状态。
 
+## 已合并 Task 的多轮交付接缝
+
+[持续迭代](task-iteration.md)规定新式 say/child 合并后的非终态 `awaiting_acceptance`、显式验收与归档分离、安全父同步及历史显式恢复。USER_ONLY `task.accept/reopen/sync_parent/resolve_sync` 分别调用 `Project.acceptTask/reopenTask/syncTaskParent/resolveTaskSync`；前三者不调用 Agent，只有 resolve_sync 显式启动当前 Task Agent。Task 详情/图共用 `render-iteration.js`；读模型 `accepted:boolean` 防止已验收记录误重开，`parent_sync_conflict` 提供固定提交诊断。保留原始 `base_commit`，本轮用可空 `iteration_base_commit`，不批量迁移旧行。
+
 ## 新式 Task 的自动合并（version 2）
 
-用户直接创建的 say 仍由用户通过 `task.reserve {kind:'merge'}` 决定何时创建 version 2 预约；Agent 经 `task.spawn` 派出的 child 在创建事务中默认保存同样的预约与 `task.reserved {via:'spawn'}` 事件，无需用户逐个预约（不回填旧 child，用户仍可显式撤销）。无提交的干净 child 在安全点直接交付结果并结算，清除预约，不产生合并提交；有改动的 child 和已预约的 say 共用合并队列。运行中只保存意图，轮末安全点、子任务结算、工作区干净且有提交时发幂等 `merge.requested` 信号；请求后原 Task 静息冻结。父 Task 创建/复用 `task_kind='merge'` 子 Task，先留带原父 ID 的审计事件，再把请求 Task 的 `parent_id` 改成 merge Task；Git 的 `target_branch` 仍是创建时的直接父分支，不改写分支谱系。merge Task 是 runtime 驱动的串行队列，不启动不受限 Provider；队列空闲时结算身份，后续请求可重开。源/目标可快进时将源树 Squash 为父分支上的**一条提交**（不是把源的 Git 提交逐个快进）；分歧时重新唤醒原 Task，在自己的分支吸收固定父提交，完成后重新排队。main / owner 也由该队列自动推进，不需旧 `task.approve_merge`。Git 和 DB 分阶段，恢复时只对比精确原父、树与提交标题，绝不重放未知副作用。合并落地后**不自动归档**：runtime 把请求 Task 从 merge 队列身份归还到它原本的直接父 Task（`task.merge_parent_restored`），保留分支、worktree 与 Task / 事件 / 原哈希，由用户决定何时归档；“原父”只以预约里记下的 `parent_id` 为准，所以被旧版自动归档路径在落地后立刻收走 branch / worktree 的历史行，也会在 daemon 重启的 `recover()` 里归位（Task 图不再把它挂在 merge 队列身份下）；`branchState` / 分支图读模型把「ref 仍等于集成时固定源提交、记录的落地提交是父分支祖先」的 Squash 分支视为已收拢（`Workspaces#squashedLanded`），所以未归档也不会冒充分歧或挡住父分支。用户的显式归档（`task.cleanup` / `branch archive`）仍先验证源树等于已落地树、ref 未漂移且工作区干净，再删 worktree 与源 ref；检查失败保留磁盘现场和错误，允许安全重试。历史 version 1 请求继续走原来的用户/父 Agent 手动路径，不迁移旧记录。
+用户直接创建的 say 仍由用户通过 `task.reserve {kind:'merge'}` 决定何时创建 version 2 预约；Agent 经 `task.spawn` 派出的 child 在创建事务中默认保存同样的预约与 `task.reserved {via:'spawn'}` 事件，无需用户逐个预约（不回填旧 child，用户仍可显式撤销）。无提交的干净 child 在安全点直接交付结果并结算，清除预约，不产生合并提交；有改动的 child 和已预约的 say 共用合并队列。运行中只保存意图，轮末安全点、子任务结算、工作区干净且有提交时发幂等 `merge.requested` 信号；请求后原 Task 静息冻结。父 Task 创建/复用 `task_kind='merge'` 子 Task，先留带原父 ID 的审计事件，再把请求 Task 的 `parent_id` 改成 merge Task；Git 的 `target_branch` 仍是创建时的直接父分支，不改写分支谱系。merge Task 是 runtime 驱动的串行队列，不启动不受限 Provider；队列空闲时结算身份，后续请求可重开。源/目标可快进时将源树 Squash 为父分支上的**一条提交**（不是把源的 Git 提交逐个快进）；分歧时重新唤醒原 Task，在自己的分支吸收固定父提交，完成后重新排队。main / owner 也由该队列自动推进，不需旧 `task.approve_merge`。Git 和 DB 分阶段，恢复时只对比精确原父、树与提交标题，绝不重放未知副作用。合并落地后**不自动归档**：runtime 把请求 Task 从 merge 队列身份归还到它原本的直接父 Task（`task.merge_parent_restored`），进入非终态 `awaiting_acceptance`，保留分支、worktree 与 Task / 事件 / 原哈希，可追加输入继续当前 Task；用户验收完成与显式归档分开；“原父”只以预约里记下的 `parent_id` 为准，所以被旧版自动归档路径在落地后立刻收走 branch / worktree 的历史行，也会在 daemon 重启的 `recover()` 里归位（Task 图不再把它挂在 merge 队列身份下）；`branchState` / 分支图读模型把「ref 仍等于集成时固定源提交、记录的落地提交是父分支祖先」的 Squash 分支视为已收拢（`Workspaces#squashedLanded`），所以未归档也不会冒充分歧或挡住父分支。用户的显式归档（`task.cleanup` / `branch archive`）仍先验证源树等于已落地树、ref 未漂移且工作区干净，再删 worktree 与源 ref；检查失败保留磁盘现场和错误，允许安全重试。历史 version 1 请求继续走原来的用户/父 Agent 手动路径，不迁移旧记录。
+
+### 合并队列中断恢复
+
+`project/merge-queue.js` 的 `restoreUnrequestedTaskParent(taskId)` 仅凭 version 2 预约或重挂事件，并复核内部队列与分支谱系，将已撤销／旧版丢失预约的 Task 归还原父；`retry`、显式重新预约与 `recover` 共用此 DB-only 修复，不执行 Git 或重放 Agent。失败撤销记录 `retry_status`，显式 retry 恢复原合并意图与固定分歧上下文；用户取消／撤销不隐式恢复预约。恢复队列身份不等于批准合并，丢失的旧预约仍需用户重新申请。
 
 ## 交付锁与合并编排（历史 version 1）
 

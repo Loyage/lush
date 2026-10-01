@@ -24,7 +24,8 @@ export function branchFreeze(store) {
   // 完成但尚未落地仍保持冻结，失败/取消释放（失败分支必须检查/归档后才能重派）。
   for (const task of store.all(`SELECT t.id, t.target_branch, t.status, t.integration, t.branch
     FROM tasks t WHERE t.task_kind='child' AND t.target_branch IS NOT NULL
-      AND (t.status NOT IN ('completed','failed','cancelled') OR (t.status='completed' AND t.integration!='merged'))
+      AND (t.status NOT IN ('completed','failed','cancelled','awaiting_acceptance')
+        OR (t.status IN ('completed','awaiting_acceptance') AND t.integration!='merged'))
       AND EXISTS (SELECT 1 FROM events e WHERE e.task_id=t.id AND e.type='task.divergence_resolution_requested')
     ORDER BY t.id`)) {
     if (task.status === 'completed' && (!task.branch || store.branch(task.branch)?.status !== 'active')) continue;

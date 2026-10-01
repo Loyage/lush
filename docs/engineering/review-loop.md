@@ -1,22 +1,26 @@
 # 交付与验收
 
-本章面向维护交付链路的开发者，区分当前 say 的合并预约、直接父 Task 的集成与用户对 main/owner 的批准。
+本章面向维护交付链路的开发者，区分新式 Task 的自动合并、用户验收与显式归档；历史 version 1 固定提交批准仍保留。
 
 > 连续阅读：[架构总览](../core-architecture.md) → [执行模型](execution-model.md) → **交付与验收** → [工程索引](architecture.md)
 
 ## 从子任务到父分支
 
-子 Task 的结果和固定提交先成为持久信号；父 Agent 检查子任务状态、自己的工作区及 Git 提交，再显式 `task.integrate` 快进到父分支。兄弟任务或父 Agent 先提交会使旧子提交不再能快进，此时从子侧派解分歧任务吸收固定父 tip，测试后确认同时包含两个固定提交的新提交。不得自动在父分支造合并提交或重写子分支。
+Agent 派出的新 child 默认预约合入直接父 Task；用户直接创建的 say 仍由用户决定何时预约。安全结束、后代交付收敛、工作区干净且有提交时，runtime 请求合并并冻结源 Task，由父 Task 的 merge 队列自动串行 Squash（含 main）。无提交的干净 child 只交付结果，不产生合并提交。
 
-## say 的合并预约
+分歧由源 Task 吸收固定父提交、解决冲突并测试，再排队交付；不得由普通 Agent 在父 worktree 擅自造合并提交或 rebase。失败保留分支、工作区与历史。详细准入和历史 version 1 的 `task.integrate` / `task.approve_merge` 固定提交确认见[Task RPC](../reference/rpc/tasks.md)。
 
-- **合并请求**：待 say 静息、后代结算、工作区干净且可快进后冻结源 commit 与直接父基线，向父 Task 投递一次请求。请求会锁住父分支的 Lush 写入，直到集成或用户撤销；撤销不删除任务、分支或提交。
+## 多轮交付不是一次性销毁
 
-直接父是 say 时，仅运行中的直接父 Agent 能确认请求并快进；父是 main/owner 时，只有用户能按固定 commit 与 baseline 批准。批准前会复核 Git ref、工作区及后代；请求后父 Agent 自行提交或外部 Git 操作仍可能令基线漂移，须复查诊断并在源侧处理或撤销。已在父分支内的固定提交可以幂等关闭请求。详细状态与命令见[Task RPC](../reference/rpc/tasks.md)。
+本轮 Squash 落地后，原 Task 归还原父，进入非终态 `awaiting_acceptance`，保留分支/worktree/会话，不自动调用 Agent。用户可以追加输入继续**同一 Task**，后续提交再交付；原始 `base_commit` 不改写，本轮基线由 `iteration_base_commit` 表达。
+
+用户 `task.accept` 才把待验收 Task 结算为 `completed`，写验收事件，不调用 Agent，也不删除代码现场。仍待验收的后代必须先逐个验收，父验收不会隐式验收后代。待验收时不能直接归档；验收后清理/归档仍是独立显式动作。
+
+父分支继续前进时，用户 `task.sync_parent` 只在源侧安全吸收父提交；无冲突程序直接完成，冲突先持久化固定提交诊断，另点 `task.resolve_sync` 才调用 Agent。漂移拒绝旧解冲突请求，失败不重置现场。历史未归档且保留分支/worktree 的 completed/merged say/child 可显式 `task.reopen` 恢复待验收；明确用户验收过的新任务不误重开，归档任务不重建，不批量迁移旧行。完整边界见[持续迭代](task-iteration.md)。
 
 ## 状态不互相代替
 
-`waiting` 表示暂时没有 invocation，`completed` 表示 Task 已结算，`integration` 表示代码进入了直接父分支；即使进入直接父分支，也未必进入 main。失败工作区、审计事件与消息不会因任务结算自动清除。用户可查[分支与回收](branch-first.md)及[工作区回收](cleanup.md)。
+`waiting` 表示静息等待，`awaiting_acceptance` 表示本轮交付后等待用户验收，`completed` 表示 Task 已结算，`integration` 表示代码进入了直接父分支；即使进入直接父分支，也未必进入 main。交付静息不是用户验收，用户验收也不是分支归档。失败工作区、审计事件、调用结果与消息不会因任务结算自动清除。用户可查[分支与回收](branch-first.md)及[工作区回收](cleanup.md)。
 
 ---
 

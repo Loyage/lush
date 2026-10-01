@@ -1,4 +1,6 @@
 import { check, id, TERMINAL } from '../types.js';
+import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, taskDeliveryState,
+  resumeTaskDelivery, taskSyncDeliveryPaused } from './iteration.js';
 
 const reservationOf = task => task.reservation ? JSON.parse(task.reservation) : null;
 const codeTask = task => ['say', 'child'].includes(task.task_kind);
@@ -6,16 +8,35 @@ const codeTask = task => ['say', 'child'].includes(task.task_kind);
 /** New task-owned delivery queue. The task tree is reparented only after a durable request. */
 export default {
   async requestTaskMerge(taskId) {
-    const task = this.store.task(id(taskId));
+    let task = this.store.task(id(taskId));
     check(codeTask(task), 'only say/child code Tasks can request a merge');
-    const previous = reservationOf(task);
+    this.restoreUnrequestedTaskParent(task.id);
+    task = this.store.task(task.id);
+    assertTaskAncestorsOpen(this, task);
+    assertTaskNotSyncing(this, task.id);
+    resumeTaskDelivery(this, task.id, 'explicit merge reservation');
+    let previous = reservationOf(task);
+    if (previous?.status === 'integrated' && !TERMINAL.has(task.status)) {
+      check(!this.running.has(task.id), 'Agent is still in flight');
+      const state = await this.workspaces.exclusive(async () => {
+        await this.workspaces.finish(this.store.task(task.id));
+        return taskDeliveryState(this, this.store.task(task.id));
+      });
+      this.store.update(task.id, { integration: state });
+      if (state !== 'pending') return { task_id: task.id, changed: false, reservation: previous };
+      this.store.transaction(() => {
+        consumeIntegratedReservation(this, this.store.task(task.id), 'new merge reservation');
+        this.store.update(task.id, { status: 'waiting' });
+      });
+      task = this.store.task(task.id); previous = reservationOf(task);
+    }
+    if (task.status === 'awaiting_acceptance') this.store.update(task.id, { status: 'waiting' });
     const showcased = task.task_kind === 'say' && task.status === 'completed'
       && (!previous || (previous.kind === 'showcase' && previous.status === 'completed'))
       && task.integration === 'pending';
     check(!previous || showcased || (previous.kind === 'merge' && previous.version === 2),
       'another delivery reservation already exists');
     check(showcased || !TERMINAL.has(task.status), 'ended Tasks cannot request a merge');
-    check(previous?.status !== 'integrated', 'this Task is already integrated');
     if (!previous || showcased) this.store.transaction(() => {
       const current = this.store.task(task.id);
       check((showcased && current.status === 'completed') || (!current.reservation && !TERMINAL.has(current.status)),
@@ -35,6 +56,7 @@ export default {
     const current = this.store.task(taskId);
     const reservation = reservationOf(current);
     if (!codeTask(current) || reservation?.version !== 2 || reservation.status !== 'pending') return false;
+    if (taskSyncDeliveryPaused(this, taskId)) return false;
     const reason = this.reservationWaitReason(current);
     if (reason || this.running.has(taskId)) {
       if (reason) this.noteReservationBlocked(taskId, reason);
@@ -42,10 +64,12 @@ export default {
     }
     return this.workspaces.exclusive(async () => {
       let task = this.store.task(taskId);
-      if (reservationOf(task)?.status !== 'pending' || this.reservationWaitReason(task) || this.running.has(taskId)) return false;
+      if (reservationOf(task)?.status !== 'pending' || taskSyncDeliveryPaused(this, taskId)
+        || this.taskSyncBusy?.has(taskId) || this.reservationWaitReason(task) || this.running.has(taskId)) return false;
       await this.workspaces.finish(task);
       task = this.store.task(taskId);
       const prior = reservationOf(task);
+      assertTaskAncestorsOpen(this, task);
       const originalParent = this.store.task(prior.parent_id ?? task.parent_id);
       check(['say','child','main','owner'].includes(originalParent.task_kind) && !TERMINAL.has(originalParent.status),
         'merge needs an active direct parent');
@@ -54,17 +78,34 @@ export default {
         'merge source or target moved; inspect the branch');
       check(state.blockers.every(blocker => blocker === `task:#${task.id}`),
         `unintegrated descendants block the request: ${state.blockers.join(', ')}`);
-      if (task.task_kind === 'child' && state.child_head === task.base_commit) {
-        // A clean, unchanged delegated branch has only a result to deliver. Do not
-        // leave its parent waiting for a merge that cannot produce a commit.
+      const delivery = await taskDeliveryState(this, task);
+      if (task.task_kind === 'child' && delivery === 'none'
+        && this.store.children(task.id).every(child => TERMINAL.has(child.status))) {
         this.store.transaction(() => {
-          this.store.update(task.id, { reservation: null });
+          this.store.update(task.id, { reservation: null, integration: 'none' });
           this.store.event(task.id, 'task.unreserved', { reservation: prior, reason: 'no changes' });
           this.finish(task.id, 'completed', task.result);
         });
         return true;
       }
-      if (state.child_head === task.base_commit || state.status === 'integrated') {
+      if (task.task_kind === 'child' && delivery !== 'pending') {
+        // A clean, unchanged delegated branch has only a result to deliver. Do not
+        // leave its parent waiting for a merge that cannot produce a commit.
+        this.store.transaction(() => {
+          this.store.update(task.id, { reservation: null, status: 'awaiting_acceptance', integration: delivery });
+          const settled = this.store.event(task.id, 'task.delivered', { result: task.result, commit: task.head_commit, no_changes: true });
+          this.store.event(task.id, 'task.unreserved', { reservation: prior, reason: 'no changes' });
+          const key = `child:${task.id}:delivery:${settled}`;
+          const receipt = this.store.signal(originalParent.id, task.id, 'child.completed', key,
+            JSON.stringify({ version: 1, signal: 'child.completed', key, source_task_id: task.id,
+              target_task_id: originalParent.id, payload: { result: task.result, commit: task.head_commit } }));
+          if (receipt.inserted) this.store.event(originalParent.id, 'task.signal', {
+            source_task_id: task.id, signal: 'child.completed', key, message_id: receipt.id });
+        });
+        this.wake(originalParent.id);
+        return true;
+      }
+      if (delivery !== 'pending' || state.status === 'integrated') {
         this.noteReservationBlocked(task.id, '没有尚未合入的提交；请继续工作或显式结束这条 Task');
         return false;
       }
@@ -118,6 +159,33 @@ export default {
     return true;
   },
 
+  /** Repair only detached queue membership, never invent approval or replay an invocation. */
+  restoreUnrequestedTaskParent(taskId) {
+    const task = this.store.task(id(taskId)), booking = reservationOf(task);
+    if (!codeTask(task) || !task.parent_id) return false;
+    if (booking && !(booking.version === 2 && booking.kind === 'merge'
+      && (booking.status === 'withdrawn' || (booking.status === 'pending' && !booking.parent_id)))) return false;
+    const queue = this.store.task(task.parent_id);
+    if (queue.task_kind !== 'merge' || queue.name !== 'merge') return false;
+    const row = this.store.get("SELECT data FROM events WHERE task_id=? AND type='task.reparented_for_merge' ORDER BY id DESC LIMIT 1", task.id);
+    const audit = row ? JSON.parse(row.data) : null;
+    const target = booking?.parent_id ?? audit?.from;
+    check(target && audit?.from === target && audit?.to === queue.id && queue.parent_id === target,
+      'cannot recover merge parent without matching reparent audit');
+    const parent = this.store.task(target);
+    check(['say','child','main','owner'].includes(parent.task_kind)
+      && parent.branch === task.target_branch && this.store.branch(task.branch)?.parent === parent.branch,
+      'cannot recover merge parent: branch ownership changed');
+    this.store.transaction(() => {
+      this.store.run("UPDATE tasks SET parent_id=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND parent_id=?",
+        target, task.id, queue.id);
+      this.store.event(task.id, 'task.merge_parent_restored', { from: queue.id, to: target,
+        reason: 'merge request withdrawn or missing' });
+    });
+    this.scheduleTaskMerge(target);
+    return true;
+  },
+
   /** Dispatch the parent's merge signal without waking its development Agent. */
   scheduleTaskMerge(parentId) {
     if (this.stopping) return;
@@ -147,12 +215,14 @@ export default {
           const task = this.store.task(row.id), request = reservationOf(task);
           if (request?.status !== 'requested') return 'next';
           const parent = this.store.task(parentId);
+          assertTaskAncestorsOpen(this, task);
+          check(!TERMINAL.has(parent.status), 'merge parent has ended');
           check(parent.branch === task.target_branch, 'merge request target no longer matches its parent');
           // Never rewrite a branch while its owner still has an invocation. A queued
           // owner is already held by the request's branch freeze: waiting for it to
           // run would deadlock when an urgent message arrives during delivery.
-          if (this.running.has(parentId) || parent.status === 'running'
-            || this.running.has(task.id)) return 'wait';
+          if (this.running.has(parentId) || parent.status === 'running' || this.taskSyncBusy?.has(parentId)
+            || this.taskSyncBusy?.has(task.id) || this.running.has(task.id)) return 'wait';
           let merger = this.store.get("SELECT * FROM tasks WHERE parent_id=? AND task_kind='merge' AND name='merge' ORDER BY id LIMIT 1", parentId);
           if (!merger) merger = this.store.transaction(() => {
             const created = this.store.create({ parent_id: parentId, input_id: parent.input_id, role: 'agent',
@@ -204,7 +274,8 @@ export default {
           this.store.transaction(() => {
             const live = this.store.task(task.id), booked = reservationOf(live);
             check(booked?.status === 'requested' && booked.commit === request.commit, 'merge request changed during landing');
-            this.store.update(task.id, { status: 'completed', integration: 'merged', integration_error: null,
+            this.store.update(task.id, { status: 'awaiting_acceptance', integration: 'merged', integration_error: null,
+              iteration_base_commit: request.commit,
               reservation: JSON.stringify({ ...booked, status: 'integrated', integrated_at: new Date().toISOString(),
                 landed_commit: landed.commit }), retry_profile: null });
             this.store.update(parent.id, { head_commit: landed.commit });

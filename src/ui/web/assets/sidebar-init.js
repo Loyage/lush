@@ -52,7 +52,7 @@ export function initSidebar() {
   }
   // 行动任务：状态 / 角色 / 合并 / 只看待我处理 / 关键字
   const taskStatus = filterMulti('状态',
-    ['queued', 'running', 'waiting', 'awaiting', 'paused', 'completed', 'failed', 'cancelled'].map(statusOption),
+    ['queued', 'running', 'waiting', 'awaiting', 'awaiting_acceptance', 'paused', 'completed', 'failed', 'cancelled'].map(statusOption),
     ui.filters.tasks.status, value => { ui.filters.tasks.status = value; applyFilters(); });
   const taskRole = filterMulti('任务类型', Object.keys(ROLE).map(roleOption), ui.filters.tasks.role,
     value => { ui.filters.tasks.role = value; applyFilters(); });

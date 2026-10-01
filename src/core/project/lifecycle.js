@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { check, TERMINAL, bounded } from '../types.js';
+import { assertTaskAncestorsOpen, assertTaskNotSyncing } from './iteration.js';
 
 /**
  * 结算提醒的文案只由任务事实拼出来：goal 可能很长，只取第一行并截断成「一句话目标」。
@@ -91,7 +92,7 @@ export default {
       this.finishSleepChoice(source.choice_id, { status: 'interrupted', reason: error || '管家中断，未执行选择' });
     }
     if (task.role === 'showcase' && status !== 'completed') void this.stopShowcasePreview(task.id);
-    check(this.store.children(task.id).every(child => TERMINAL.has(child.status)), 'cannot finish with active children');
+    check(this.store.children(task.id).every(child => TERMINAL.has(child.status)), 'cannot finish with active or unaccepted children');
     this.store.transaction(() => {
       // A retry profile is scoped to this attempt. Terminal settlement removes it so a later
       // explicit retry starts from the then-current project/role profile unless the user adjusts it again.
@@ -217,6 +218,7 @@ export default {
 
   cancel(taskId, reason = 'cancelled by user', status = 'cancelled') {
     const task = this.store.task(taskId);
+    assertTaskNotSyncing(this, task.id);
     check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; cancel individual say Tasks instead');
     if (TERMINAL.has(task.status)) return task;
     const mergeBooking = task.reservation ? JSON.parse(task.reservation) : null;
@@ -224,7 +226,8 @@ export default {
       && ['pending','requested','resolving'].includes(mergeBooking.status)) {
       check(!this.taskMergeBusy?.has(mergeBooking.parent_id), 'merge is applying a Git update; wait for its safe point');
       this.store.transaction(() => {
-        this.store.update(task.id, { reservation: JSON.stringify({ ...mergeBooking, status: 'withdrawn' }) });
+        this.store.update(task.id, { reservation: JSON.stringify({ ...mergeBooking, status: 'withdrawn',
+          retry_status: status === 'failed' ? (mergeBooking.status === 'resolving' ? 'resolving' : 'pending') : null }) });
         this.store.event(task.id, 'task.request_withdrawn', { reason, parent_id: mergeBooking.parent_id });
         if (mergeBooking.parent_id) this.store.run("UPDATE messages SET consumed=1 WHERE task_id=? AND sender_id=? AND signal_key LIKE 'merge-v2:%'",
           mergeBooking.parent_id, task.id);
@@ -265,6 +268,7 @@ export default {
     check(this.running.size === 0, 'an agent invocation is still unwinding; clear must wait');
     check(this.store.activeBranchMergeRuns().length === 0, 'a one-click merge is in progress; finish or cancel it before clearing');
     check(this.workspaces.busy.size === 0, 'worktree cleanup is in progress; clear must wait');
+    check(!this.taskSyncBusy?.size, 'Task parent synchronization is in flight; clear must wait');
     const active = this.store.activeTasks();
     check(active.length === 0,
       `#${active.slice(0, 20).map(task => task.id).join(', #')} still active (${active.length}); cancel them or wait until they finish`);
@@ -324,6 +328,7 @@ export default {
     const root = this.store.task(taskId);
     const subtree = this.subtreeTasks(root.id);
     const ids = subtree.map(task => task.id);
+    for (const value of ids) assertTaskNotSyncing(this, value);
     const active = subtree.filter(task => !TERMINAL.has(task.status));
     check(active.length === 0,
       `#${active.slice(0, 20).map(task => task.id).join(', #')} still active (${active.length}); cancel them or wait until they finish`);
@@ -375,7 +380,8 @@ export default {
 
   retry(taskId, profile = null) {
     this.assertWritable('retry a task');
-    const task = this.store.task(taskId);
+    let task = this.store.task(taskId);
+    assertTaskNotSyncing(this, task.id);
     check(['failed','cancelled'].includes(task.status), 'only failed/cancelled tasks can be retried');
     check(!this.running.has(task.id), 'agent is still stopping; retry shortly');
     check(!this.workspaces.busy.has(task.id), 'worktree cleanup is in progress; retry shortly');
@@ -386,6 +392,9 @@ export default {
     // 冻结中的分支不接受重试：重试会重新产出提交、推进分支，扰动正在进行的合并。
     if (task.branch) this.assertBranchWritable(task.branch, 'retry a task on it');
     if (task.role === 'showcase') return this.retryShowcase(task.id);
+    this.restoreUnrequestedTaskParent(task.id);
+    task = this.store.task(task.id);
+    assertTaskAncestorsOpen(this, task);
     if (task.task_kind === 'say' && task.reservation) {
       const reservation = JSON.parse(task.reservation);
       check(reservation.kind !== 'showcase' || !['completed','failed','cancelled'].includes(reservation.status),
@@ -403,7 +412,9 @@ export default {
     const retryProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile(task.role, profile);
     const booking = task.reservation ? JSON.parse(task.reservation) : null;
     this.store.update(task.id, { status: 'queued', error: null, result: null, calls: 0,
-      ...(booking?.version === 2 && booking.status === 'withdrawn' ? { reservation: null } : {}),
+      ...(booking?.version === 2 && booking.status === 'withdrawn' ? { reservation:
+        task.status === 'failed' && ['pending','resolving'].includes(booking.retry_status)
+          ? JSON.stringify({ ...booking, status: booking.retry_status }) : null } : {}),
       retry_profile: retryProfile ? JSON.stringify(retryProfile) : null });
     this.store.event(task.id, 'retry', retryProfile ? {
       profile_override: true, agent: retryProfile.agent, model: retryProfile.model || null,
@@ -426,6 +437,12 @@ export default {
     for (const task of this.store.tasks()) if (task.status === 'running' && ['say','child'].includes(task.task_kind))
       this.cancel(task.id, 'daemon interrupted; inspect worktree and explicitly retry', 'failed');
     this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('say','child')");
+    // Older retries discarded a withdrawn booking while leaving the source under its queue.
+    // Restore the audited owner before wake/settlement; no approval or invocation is recreated.
+    for (const task of this.store.tasks()) if (['say','child'].includes(task.task_kind)) {
+      try { this.restoreUnrequestedTaskParent(task.id); }
+      catch (error) { this.store.update(task.id, { integration_error: error.message }); }
+    }
     // A crash can land between committing an inbox message and queueing its owner.
     for (const task of this.store.tasks()) {
       if (['say','child'].includes(task.task_kind) && !TERMINAL.has(task.status) && this.hasActionableMessages(task.id)) this.wake(task.id);

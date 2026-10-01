@@ -30,6 +30,8 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         result TEXT, error TEXT, calls INTEGER NOT NULL DEFAULT 0,
         agent_wakes INTEGER NOT NULL DEFAULT 0, agent_token_hash TEXT, agent_last_seen_at TEXT,
         workspace TEXT, branch TEXT, base_commit TEXT, head_commit TEXT,
+        -- Current delivery baseline; original fork base_commit remains immutable.
+        iteration_base_commit TEXT,
         integration TEXT NOT NULL DEFAULT 'none', target_branch TEXT, integration_error TEXT,
         -- layer: 'intent'（planner 拆解 / scheduler 编排）不进任务树；'work' 才是用户要的开发任务链。
         layer TEXT NOT NULL DEFAULT 'work',
@@ -120,6 +122,7 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       CREATE INDEX IF NOT EXISTS notices_status_kind ON notices(status,kind,id);
       CREATE INDEX IF NOT EXISTS messages_task ON messages(task_id, consumed);
       CREATE INDEX IF NOT EXISTS events_task ON events(task_id, id);
+      CREATE INDEX IF NOT EXISTS events_task_type_id ON events(task_id, type, id);
       CREATE INDEX IF NOT EXISTS events_type_id ON events(type, id);
       -- 「快速介绍」记录：选中任意页面文字后直连 OpenAI 兼容 API 的只读结果。它不是 Task（没有分支、
       -- 没有 worktree、不参与调度），只是为「解释历史」保留的一份带来源快照的模型输出。task_id 可空，

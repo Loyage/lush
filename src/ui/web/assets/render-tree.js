@@ -33,6 +33,7 @@ function whyLine(task, index) {
     const live = kids.filter(child => child.status === 'running').length;
     return `等子任务：${live} 个在跑 · ${kids.filter(child => !TERMINAL_STATUS.has(child.status)).length} 个未结束`;
   }
+  if (task.status === 'awaiting_acceptance') return '本轮已合并，待验收；可追加输入继续开发';
   if (task.status === 'awaiting') return '等你决定：有没答复的问题';
   if (task.status === 'paused') return '已暂停：可追加输入或调整运行设置，点「继续」恢复';
   if (task.status === 'completed' && task.integration === 'conflict') return '已完成，合并冲突等你决定';

@@ -31,7 +31,7 @@ function expectAgentButton(node) {
 
 const followupTask = { id: 900, role: 'agent', task_kind: 'say', parent_id: 1, parent_task_kind: 'main',
   goal: '需要追加输入', status: 'waiting', integration: 'none', calls: 0, deps: [], dependents: [],
-  children: [], messages: [], notices: [] };
+  children: [], messages: [], notices: [], branch: 'feature/followup', workspace: '/tmp/followup' };
 
 test('详情页「追加输入」位于操作栏首位，点击才显示多行输入与 Agent 发送按钮', async () => {
   const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');

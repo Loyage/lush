@@ -11,6 +11,7 @@ import { renderAgent } from './render-agent.js';
 import { renderResults } from './render-results.js';
 import { renderDiff } from './render-diff.js';
 import { deliveryControls } from './render-delivery.js';
+import { guardedAction, iterationBlocker, iterationControls } from './render-iteration.js';
 import { renderHistory } from './render-history.js';
 import { formatProgressDuration, renderTaskProgress } from './render-progress.js';
 import { noticePanel } from './render-notices.js';
@@ -83,7 +84,7 @@ export function renderDetail(task, history, diff, usage) {
   const actions = el('div', undefined, 'actions task-actions');
   if (['say','child'].includes(task.task_kind) && !TERMINAL_STATUS.has(task.status)) {
     const help = agentHelp('把追加输入发给该任务的 Agent。若它正在调用，会请它在当前一轮工具都结束后收尾，下一轮先读这条输入；暂停中的任务需点「开始 / 继续」后处理。');
-    actions.append(button('追加输入', async () => {
+    actions.append(guardedAction(button('追加输入', async () => {
       const field = el('div', undefined, 'modal-field');
       const label = el('label', '希望任务接下来进行的内容', 'modal-label');
       label.setAttribute('for', 'task-followup-input');
@@ -103,7 +104,7 @@ export function renderDetail(task, history, diff, usage) {
         await detail(task.id);
         return;
       }
-    }, undefined, { agent: true, help }));
+    }, undefined, { agent: true, help }), iterationBlocker(task)));
   }
   const stacked = (task.deps || []).filter(edge => edge.kind === 'code');
   const freeze = freezeOf(task);
@@ -177,13 +178,14 @@ export function renderDetail(task, history, diff, usage) {
   if (reclaimable && task.workspace && task.branch) actions.append(button('只回收 worktree（保留分支）', async () => { await action('task.cleanup', { id: task.id, keep_branch: true }); await detail(task.id); }, 'ghost',
     { help: '只删除 worktree、保留本地分支；未提交的改动会随 worktree 一起丢失。' }));
   // 归档与 Task 图同源（`branch.archive`）：删这条 Task 的分支与后代分支的 worktree/ref，Task 记录与历史保留。
-  if (task.branch_archive?.archivable) actions.append(button('归档', () => runBranchArchive(
+  if (task.branch_archive?.archivable && task.status !== 'awaiting_acceptance') actions.append(button('归档', () => runBranchArchive(
     { name: task.branch, subtreeBranches: task.branch_archive.subtree_branches }, { refresh: () => detail(task.id) }), 'ghost',
     { help: BRANCH_ARCHIVE_HELP }));
   const verifications = task.verifications || [];
   // 没有代码改动的 say 给一个与「取消」区分的收尾：已解决=没有别的需求，取消=因别的原因放弃。
-  const noCommittedChange = !task.head_commit || !task.base_commit || task.head_commit === task.base_commit;
-  if (task.task_kind === 'say' && !TERMINAL_STATUS.has(task.status) && noCommittedChange
+  const iterationBase = task.iteration_base_commit || task.base_commit;
+  const noCommittedChange = !task.head_commit || !iterationBase || task.head_commit === iterationBase;
+  if (task.task_kind === 'say' && !TERMINAL_STATUS.has(task.status) && task.status !== 'awaiting_acceptance' && noCommittedChange
     && task.reservation?.kind !== 'showcase') actions.append(button('已解决', async () => {
     const confirmed = await confirmDialog({
       title: `把 say #${task.id} 标记为已解决？`,
@@ -198,7 +200,7 @@ export function renderDetail(task, history, diff, usage) {
   }, 'ghost', { help: '把没有代码改动的 say 结算为已完成（保留答案），用来区分「没有别的要求」和「放弃任务」；有提交时请改用请求合并或放弃。' }));
   // 主流程是「中断 → 暂停 → 继续」，不再一步取消；永久放弃只在暂停后作为次级危险操作出现。
   const liveWorkTask = ['say','child'].includes(task.task_kind) && !TERMINAL_STATUS.has(task.status);
-  if (liveWorkTask && task.status !== 'paused') actions.append(button('中断', async () => {
+  if (liveWorkTask && !['paused', 'awaiting_acceptance'].includes(task.status)) actions.append(button('中断', async () => {
     const confirmed = await confirmDialog({
       title: `中断 Task #${task.id}？`,
       message: '停止当前 Agent 调用并保留现场：工作区、提交、pi 会话与消息都不变。中断后可以追加输入或调整运行设置，再点「继续」恢复。',
@@ -253,6 +255,8 @@ export function renderDetail(task, history, diff, usage) {
       : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在任务树或任务详情显式归档这条子分支（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,
     'hint delivery-reason'));
   }
+  const iteration = iterationControls(task, { refresh: () => detail(task.id), events: history?.events || [] });
+  if (iteration) panel.append(iteration);
   const delivery = deliveryControls(task, { refresh: () => detail(task.id) });
   if (delivery) panel.append(delivery);
 

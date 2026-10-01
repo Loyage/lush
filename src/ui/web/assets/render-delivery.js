@@ -37,11 +37,12 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
     if (state === 'requested') controls.append(button('复查合并队列', async () => {
       await action('task.reserve', { id: task.id, kind: 'merge' }); await refresh();
     }, 'ghost', { help: '重新检查固定的合并请求；若上次失败，受检重试，绝不重复提交已落地的 Squash。' }));
-    if ((!reservation || state === 'pending') && !['completed','failed','cancelled'].includes(task.status)) {
+    if ((!reservation || state === 'pending' || (state === 'integrated' && task.status !== 'awaiting_acceptance'))
+      && !['completed','failed','cancelled','awaiting_acceptance'].includes(task.status)) {
       const ready = task.status === 'waiting';
       controls.append(button(ready ? '合并到父 Task' : '预约合并', async () => {
         const confirmed = await confirmDialog({ title: `${ready ? '请求合并' : '预约合并'} Task #${task.id}？`,
-          message: '静息后会冻结原 Task，由父 Task 的 merge 子任务串行处理；可合并时向父分支写入一条 Squash 提交。出现分歧时自动唤醒原 Task 处理。包括 main 在内无需再次人工批准；成功后归还原父 Task 并保留源分支与 worktree，由你决定何时归档。',
+          message: '静息后会冻结原 Task，由父 Task 的 merge 子任务串行处理；可合并时向父分支写入一条 Squash 提交。出现分歧时自动唤醒原 Task 处理。包括 main 在内无需再次人工批准；成功后归还原父 Task，进入待验收并保留源分支与 worktree；可追加输入继续当前 Task，验收完成与显式归档分开。',
           confirmLabel: ready ? '请求合并' : '预约合并', agent: true,
           confirmHelp: agentHelp('提交自动合并意图；若存在分歧，将唤醒原 Task 的 Agent 处理。') });
         if (!confirmed) return;

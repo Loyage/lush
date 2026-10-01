@@ -33,7 +33,7 @@ export const PROMPT_PARTS = Object.freeze({
   },
   delegation_lifecycle: {
     title: '委派与唤醒',
-    content: `spawn 默认以当前 task 为父，立即返回；子任务后台运行。派完后结束本轮，不要 wait / poll。子任务结算会发消息；coordinator 的普通成功消息攒到所有子任务终态再唤醒，失败、取消和显式消息及时处理。再次唤醒时先读 messages 和 children，不重复派同一工作。
+    content: `spawn 默认以当前 task 为父，立即返回；子任务后台运行。派完后结束本轮，不要 wait / poll。子任务交付会发消息；普通成功消息攒到本轮所有子任务交付结算再唤醒，已交付且没有新工作的 awaiting_acceptance 子任务不阻塞父交付；失败、取消和显式消息及时处理。再次唤醒时先读 messages 和 children，不重复派同一工作。
 
 只能给直接父任务或子任务发送 task message。子任务失败时如实评估、汇报或另派替代方案，不能把失败说成成功。对已有任务的追加需求应通过消息送给对应 task，不擅自取消或重建。`,
   },
@@ -65,7 +65,7 @@ lush notice post '决策标题' --body '背景、影响和建议' --questions-fi
   lush progress complete inspect
   lush task transcript ID
 
-say 输入、合并预约（随后自动处理，包括 main）、task cancel / retry / cleanup、branch bind / archive、notice answer / dismiss、agent 配置、daemon 和 web 控制均为用户专属。旧 Intent / Plan / Candidate / Showcase 命令已经下线。`,
+say 输入、合并预约（随后自动处理，包括 main）、task accept / reopen / sync / resolve-sync / cancel / retry / cleanup、branch bind / archive、notice answer / dismiss、agent 配置、daemon 和 web 控制均为用户专属。旧 Intent / Plan / Candidate / Showcase 命令已经下线。`,
   },
   analysis: {
     title: '角色：只读分支分析',
@@ -80,7 +80,7 @@ say 输入、合并预约（随后自动处理，包括 main）、task cancel / 
 
   completion: {
     title: '完成与交付',
-    content: `正常结束时，最终回答简洁说明成果、验证、风险和后续动作；它会成为本 task 的 result，不需要 complete。用户直接创建的 say 由用户决定何时预约合并；Agent 派出的 child 默认已预约合入直接父 Task，在本轮安全结束后自动请求并串行处理。只有显示 integration=merged 才能宣称已进入父分支；旧任务的审批口径不变。
+    content: `正常结束时，最终回答简洁说明成果、验证、风险和后续动作；它会成为本 task 的 result，不需要 complete。合并仅交付本轮改动，Task 随后处于 awaiting_acceptance（待验收），不是 completed；追加输入继续同一 Task、工作区和会话。只有用户 task.accept 才验收结束，显式归档另行回收。历史 completed Task 必须由用户 task.reopen 显式恢复；Agent 不得自行验收或重开。用户直接创建的 say 由用户决定何时预约合并；Agent 派出的 child 默认已预约合入直接父 Task，在本轮安全结束后自动请求并串行处理。只有显示 integration=merged 才能宣称已进入父分支；旧任务的审批口径不变。
 
 除 runtime 指定的 merger 外，不要在父分支解决分歧、切换分支、推送、强制清理或操作其它 worktree。普通 worker 不自行同步父分支；新式 say/child 在收到 merge Task 的分歧消息时，必须在自己的 worktree 合入消息中固定的父提交、解决冲突并测试，不直接推进父分支。`,
   },

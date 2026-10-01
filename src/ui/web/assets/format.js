@@ -4,6 +4,7 @@ export const STATUS = {
   queued: { label: '排队', icon: '○' }, running: { label: '运行中', icon: '●' },
   waiting: { label: '等子任务', icon: '◐' }, awaiting: { label: '等你决定', icon: '◔' },
   paused: { label: '已暂停', icon: '⏸' },
+  awaiting_acceptance: { label: '待验收', icon: '◈' },
   completed: { label: '已完成', icon: '✓' }, failed: { label: '失败', icon: '✗' }, cancelled: { label: '已取消', icon: '⊘' },
 };
 export const INTEGRATION = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并', conflict: '冲突待处理', superseded: '已作废' };
@@ -15,6 +16,8 @@ export const EVENTS = {
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
   'task.signal': '任务信号', 'child.completed': '子任务完成', 'child.integrated': '子任务已集成',
   'task.merge_requested': '请求合并', 'task.showcase_settled': '展示结算',
+  'task.accepted': '验收完成', 'task.reopened': '恢复待验收',
+  'task.parent_synced': '已同步父分支', 'task.parent_sync_conflict': '父同步冲突',
   'progress.plan': '更新任务计划', 'progress.completed': '完成计划步骤',
   'workspace.created': '创建 worktree', 'workspace.removed': '回收 worktree', 'branch.removed': '回收分支',
   'verify.requested': '请求检验', 'baseline.created': '创建对照基线', 'baseline.removed': '回收对照基线',
@@ -25,7 +28,7 @@ export const EVENTS = {
   'invocation.preempted': '安全中断', 'task.interrupt_timeout': '中断超时强制终止',
   completed: '完成', failed: '失败', cancelled: '取消',
 };
-export const HOT = new Set(['running', 'awaiting', 'waiting', 'queued', 'paused']);
+export const HOT = new Set(['running', 'awaiting', 'awaiting_acceptance', 'waiting', 'queued', 'paused']);
 export const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
 export const short = value => (typeof value === 'string' ? value.slice(0, 7) : '');
 export const statusOf = task => task.status === 'paused' && (task.agent_wakes ?? 0) === 0

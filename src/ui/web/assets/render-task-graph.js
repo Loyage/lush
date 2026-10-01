@@ -13,12 +13,13 @@ import { branchDiagnostics, decisionRow } from './task-graph-parts.js';
 import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
+import { guardedAction, iterationBlocker, iterationControls } from './render-iteration.js';
 
 const KEY = 'lush.taskGraph.collapsed';
-const ACTIVE = new Set(['running', 'queued', 'waiting', 'awaiting']);
+const ACTIVE = new Set(['running', 'queued', 'waiting', 'awaiting', 'awaiting_acceptance']);
 const ENDED = new Set(['completed', 'failed', 'cancelled']);
 /** 状态计数 / 图例的固定顺序：先是活动态，再到终结态；只画出现过的。 */
-const STATUS_ORDER = ['running', 'queued', 'waiting', 'awaiting', 'completed', 'failed', 'cancelled'];
+const STATUS_ORDER = ['running', 'queued', 'waiting', 'awaiting', 'awaiting_acceptance', 'completed', 'failed', 'cancelled'];
 /** 图上画成卡片的 Task：自己拥有分支 / worktree 的 main / owner / say / child / showcase。
  *  planner / scheduler 是历史意图层记录，不在这里画；merge Task 是父 Task 的常驻合并队列身份，
  *  和别的 Task 一样由表头的状态开关决定显示与否，不按队列活跃度自动收起。 */
@@ -68,6 +69,7 @@ function taskVisualState(node) {
   if (node.status === 'paused') return 'paused';
   if (node.status === 'queued') return 'queued';
   if (node.status === 'waiting') return 'waiting';
+  if (node.status === 'awaiting_acceptance') return 'awaiting_acceptance';
   if (node.status === 'completed') return 'completed';
   if (node.status === 'cancelled') return 'cancelled';
   return 'idle';
@@ -168,6 +170,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   if (node.branch) facts.append(el('span', `分支：${node.branch}`, 'mono'));
   if (node.target_branch) facts.append(el('span', `父分支：${node.target_branch}`, 'mono'));
   if (node.base_commit) facts.append(el('span', `任务基线：${node.base_commit.slice(0, 12)}`, 'mono'));
+  if (node.iteration_base_commit) facts.append(el('span', `本轮基线：${node.iteration_base_commit.slice(0, 12)}`, 'mono'));
   if (node.head_commit) facts.append(el('span', `固定提交：${node.head_commit.slice(0, 12)}`, 'mono'));
   if (node.workspace) facts.append(el('span', `${worktreeLabel(node)}：${node.workspace}`, 'mono'));
   if (node.workspace_state === 'missing') facts.append(badge('⚠ worktree 缺失', 'warn'));
@@ -209,7 +212,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
     else git.append(el('p', '分支诊断不可用，不能推断工作区干净或已合并。', 'hint'));
     row.append(git);
     // 归档与详情同源（`branch.archive`）：删这条分支与后代分支的 worktree/ref，Task 记录保留。
-    if (branch.archivable) row.append(button('归档', () => runBranchArchive(
+    if (branch.archivable && node.status !== 'awaiting_acceptance') row.append(button('归档', () => runBranchArchive(
       { name: node.branch, subtreeBranches: branch.subtree_branches }, { refresh: loadTaskGraph }), 'ghost',
       { help: BRANCH_ARCHIVE_HELP }));
   }
@@ -230,17 +233,19 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   }
   if (['main', 'owner'].includes(node.task_kind) && node.branch)
     row.append(mergeAllControl(node, mergeAllByBranch.get(node.branch) ?? [], loadTaskGraph));
+  const iteration = iterationControls(node, { refresh: loadTaskGraph });
+  if (iteration) row.append(iteration);
   const controls = deliveryControls(node, { refresh: loadTaskGraph });
   if (controls) row.append(controls);
   if (['say', 'child'].includes(node.task_kind) && !ENDED.has(node.status)) {
-    row.append(button('向此 Task 输入', async () => {
+    row.append(guardedAction(button('向此 Task 输入', async () => {
       const body = await promptDialog({ title: `发给 Task #${node.id}`, label: '输入', confirmLabel: '发送消息',
         confirmHelp: agentHelp('把输入交给这条 Task；固定规则可请求 Agent 在安全点提前收尾，否则轮末投递。'), agent: true });
       if (!body) return;
       await action('task.message', { id: node.id, body });
       show(`已提交给 Task #${node.id}`);
       await loadTaskGraph();
-    }, 'ghost', { agent: true, help: agentHelp('给这个 Task 的 Agent 发送输入；可能在安全点提前收尾，不会立即硬杀。') }));
+    }, 'ghost', { agent: true, help: agentHelp('给这个 Task 的 Agent 发送输入；可能在安全点提前收尾，不会立即硬杀。') }), iterationBlocker(node)));
   }
   return row;
 }

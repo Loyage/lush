@@ -5,6 +5,9 @@ export const isPlainObject = value => value !== null && typeof value === 'object
 export const jsonDump = JSON.stringify;
 export const jsonLoad = JSON.parse;
 export const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+/** Delivered Tasks remain iterable, but do not hold up their parent's delivery. */
+export const isSettled = task => TERMINAL.has(task.status) || (task.status === 'awaiting_acceptance'
+  && ['merged', 'none'].includes(task.integration));
 /**
  * 任务分层。intent 层把一条意图变成工作：planner 做拆解分析、scheduler 把它编排成任务。
  * 它们不是用户要的开发工作，所以不进任务树/任务链/时间轴，只在「意图」视图里出现。

@@ -120,6 +120,7 @@ main{display:contents}
 .meta{display:block;font-size:11px;color:var(--dim);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .task.s-running{border-left-color:var(--running);background:color-mix(in srgb,var(--blue-soft) 45%,transparent)}.task.s-running .dot{animation:breathe 2s ease-in-out infinite}.task.s-running .goal{color:var(--text)}
 .task.s-awaiting .goal,.notice-brief .goal{color:var(--awaiting)}.task.s-failed .goal{color:var(--failed)}.task.s-cancelled{opacity:.65}
+.c-awaiting_acceptance,.b-awaiting_acceptance{color:var(--violet)}.task.s-awaiting_acceptance .goal{color:var(--violet)}
 .c-queued,.b-queued{color:var(--queued)}.c-paused,.b-paused{color:var(--violet)}.c-running,.b-running{color:var(--running)}.c-waiting,.b-waiting{color:var(--waiting)}.c-awaiting,.b-awaiting{color:var(--awaiting)}.c-completed,.b-completed{color:var(--completed)}.c-failed,.b-failed{color:var(--failed)}.c-cancelled,.b-cancelled{color:var(--cancelled)}
 .badge{display:inline-flex;align-items:center;font-size:10px;font-weight:550;line-height:1.65;border-radius:6px;padding:2px 7px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);background:color-mix(in srgb,currentColor 6%,transparent);white-space:nowrap}
 .b-neutral{color:var(--muted);border-color:var(--line);background:transparent}.badge.intent-link{cursor:pointer}.badge.intent-link:hover{color:var(--accent);border-color:var(--accent)}
@@ -461,6 +462,7 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-card.task-graph-paused{border-left-color:var(--violet)}
 .task-graph-card.task-graph-waiting{border-left-color:var(--waiting)}
 .task-graph-card.task-graph-awaiting{border-left-color:var(--awaiting);background:color-mix(in srgb,var(--amber-soft) 24%,var(--panel))}
+.task-graph-card.task-graph-awaiting_acceptance{border-left-color:var(--violet);background:color-mix(in srgb,var(--violet-soft) 24%,var(--panel))}
 .task-graph-card.task-graph-completed{border-left-color:var(--completed)}
 .task-graph-card.task-graph-failed{border-left-color:var(--failed)}
 .task-graph-card.task-graph-cancelled{border-left-color:var(--cancelled);opacity:.75}

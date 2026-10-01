@@ -19,6 +19,10 @@ lush [--project PATH] [--json] <command>
   task resolve-child-divergence ID   历史解分歧子任务
   task resolve-divergence ID         历史 say 解分歧入口
   task approve-merge ID COMMIT BASELINE  历史请求的用户批准入口
+  task accept ID                     合并后验收完成（不归档）
+  task reopen ID                     历史已合并任务恢复待验收（不调用 Agent）
+  task sync-parent ID                安全同步父提交；冲突只返回诊断
+  task resolve-sync ID               调用 Agent 解决已记录的同步冲突
   task resolve ID                    无代码改动时标记已解决
   task cancel|retry ID               停止或显式重试
   task interrupt|resume ID           中断（暂停）后继续运行

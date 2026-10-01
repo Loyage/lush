@@ -4,6 +4,7 @@ import { agentView } from './internal.js';
 import fs from 'node:fs';
 import { saveInputRule, snapshotPath } from '../task-input-rule.js';
 import { forkCheckpoint } from '../../agent/fork.js';
+import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, iterationViews } from './iteration.js';
 
 export const DEP_KINDS = new Set(['code', 'order']);
 function normalizeDeps(deps) {
@@ -31,6 +32,7 @@ export default {
   async forkChildTask(parentId, goal, role = undefined, deps = [], name = null, specId = null) {
     this.assertWritable('delegate a task');
     const parent = this.store.task(parentId);
+    assertTaskNotSyncing(this, parent.id);
     check(!['main','owner'].includes(parent.task_kind), 'branch owner Tasks accept new say Tasks, not unrestricted spawned work');
     check(parent.task_kind !== 'analysis', 'read-only analysis Tasks do not delegate; ask a new question instead');
     const taskKind = ['say','child'].includes(parent.task_kind) ? 'child' : null;
@@ -40,6 +42,7 @@ export default {
     if (parent.branch) this.assertBranchWritable(parent.branch, 'delegate more work while resolving divergence');
     role = 'agent';
     check(!TERMINAL.has(parent.status), 'cannot delegate from a terminal task');
+    assertTaskAncestorsOpen(this, parent);
     check(!['showcase', 'explainer', 'butler'].includes(parent.role), 'showcase and explanation agents cannot delegate development work');
     check(parent.role !== 'planner', 'planner 不再直接派活；用 lush spec add 写拆解队列，由 scheduler 编排');
     text(goal, 'goal');
@@ -77,10 +80,16 @@ export default {
       ? fs.readFileSync(snapshotPath(this.config.home, parent.id), 'utf8') : null;
     return this.workspaces.exclusive(async () => {
       const liveParent = this.store.task(parent.id);
+      assertTaskNotSyncing(this, liveParent.id);
+      assertTaskAncestorsOpen(this, liveParent);
       check(!TERMINAL.has(liveParent.status) && liveParent.branch === parent.branch, 'parent changed before fork');
       const commit = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${parent.branch}^{commit}`);
       let ruleTaskId = null, task;
       try { task = this.store.transaction(() => {
+        if (liveParent.status === 'awaiting_acceptance') {
+          consumeIntegratedReservation(this, liveParent, 'delegated new work');
+          this.store.update(liveParent.id, { status: 'waiting' });
+        }
         const created = this.store.create({ parent_id: parent.id, input_id: inheritedInput, role, goal, name: slug, task_kind: taskKind });
         this.store.update(created.id, { reservation: JSON.stringify({ version: 2, kind: 'merge',
           status: 'pending', created_at: new Date().toISOString() }) });
@@ -174,7 +183,7 @@ export default {
     const { retry_profile: _retryProfile, ...storedTask } = this.store.task(taskId);
     // 详情页要显示工作用时与等待行：先取这一轮的调用区间，计划时长才能只算真正运行的时间。
     const runs = this.store.runsForTask(storedTask.id);
-    const task = this.progressView(storedTask, runs);
+    const task = { ...this.progressView(storedTask, runs), ...iterationViews(this.store, [storedTask]).get(storedTask.id) };
     // 与任务树 / 分支图同一口径：这条输入的 planner 带 input.route 事件就是快速路由。
     task.route = storedTask.input_id !== null && this.store.routedInputIds().has(storedTask.input_id);
     const resolution = task.task_kind === 'child' ? this.store.get(

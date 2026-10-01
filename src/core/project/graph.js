@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { iterationViews } from './iteration.js';
 import { branchFreeze } from '../branch-freeze.js';
 
 /** 分支图的规模上限：只读视图不该为了画全图把 daemon 拖垮，超限截断并在结果里说明。 */
@@ -96,7 +97,7 @@ export default {
   async taskGraph() {
     const limit = GRAPH_NODE_LIMIT;
     const rows = this.store.all(`SELECT id, parent_id, input_id, task_kind, role, name, goal, status,
-      integration, integration_error, branch, workspace, target_branch, base_commit, head_commit, resolves_task_id,
+      integration, integration_error, branch, workspace, target_branch, base_commit, iteration_base_commit, head_commit, resolves_task_id,
       reservation, progress_plan, created_at, updated_at, calls, agent_wakes,
       (SELECT p.task_kind FROM tasks p WHERE p.id=tasks.parent_id) AS parent_task_kind,
       (SELECT p.branch FROM tasks p WHERE p.id=tasks.parent_id) AS parent_branch,
@@ -106,6 +107,7 @@ export default {
         WHEN status IN ('running','queued','waiting','awaiting') THEN 1 ELSE 2 END, id DESC LIMIT ?`, limit + 1);
     const selected = rows.slice(0, limit);
     const ids = selected.map(row => row.id);
+    const iterations = iterationViews(this.store, selected);
     // 一批取回调用区间：任务图上的紧凑进度也要把等待排除在 Agent 工作用时之外。
     const runs = this.store.runsForTasks(ids);
     const pending = new Map();
@@ -232,6 +234,7 @@ export default {
         : row.status === 'waiting' && child.active ? `等待 ${child.active} 个子 Task`
         : row.status === 'queued' && blockers.length ? `等待依赖 Task #${blockers.map(edge => edge.id).join('、#')}`
         : row.status === 'queued' ? '等待 Agent 调用槽'
+        : row.status === 'awaiting_acceptance' ? '本轮已交付 · 等待你验收或追加输入'
         : row.status === 'waiting' ? '静息 · 等待新输入或子 Task 信号' : null;
       const branch = row.branch ? records.get(row.branch) : null;
       // 内部 merge 队列没有自己的分支，归档跟随直接父 Task；从库里读父分支，父节点被截断也不漏掉。
@@ -241,7 +244,7 @@ export default {
       // 这条分支下还有多少个 say 子分支：决定卡片上「编排合并全部子 Task」入口是否有意义。
       const subtree_say = row.branch ? countSayDescendants(row.branch) : 0;
       const mergeRun = row.branch ? activeRuns.get(row.branch) ?? null : null;
-      return { ...row, kind: 'task', archived, title: summarize(goal) || row.name || `Task #${row.id}`,
+      return { ...row, ...iterations.get(row.id), kind: 'task', archived, title: summarize(goal) || row.name || `Task #${row.id}`,
         goal_preview: String(goal ?? '').slice(0, 600),
         progress: plan, notice: notice.notice, notice_count: notice.count,
         children_total: child.total, children_active: child.active, waiting_reason,

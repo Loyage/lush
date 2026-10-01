@@ -19,7 +19,7 @@
 | `cli/print.js` | 树 / 会话 / 用量 / 分支谱系的渲染 | `printTree`、`printTranscript`、`transcriptStepText`、`printUsage`、`printBranchTree`、`printBranchShow`、`printBranchArchive` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `host` / `host-restart` / `host-stop` / `host-status`；无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式；`doctor` / `host-status` 分列磁盘、daemon、Web 身份并只给显式更新提示 | `run` |
 | `cli/commands/intent.js` | `say`（新输入的唯一入口） | `run` |
-| `cli/commands/task.js` | `task`（list / tree / inspect / spawn / message / transcript [--follow] / history / wait / integrate / reserve / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup） | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
+| `cli/commands/task.js` | `task`（list / tree / inspect / spawn / message / transcript [--follow] / history / wait / integrate / reserve / accept / reopen / sync-parent / resolve-sync / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup） | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
 | `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 agent task） | `run` |
 | `cli/commands/notice.js` | `notice list/post/answer/dismiss` | `run` |
 | `cli/commands/branch.js` | `branch tree / show / bind / archive` | `run` |
@@ -37,7 +37,7 @@
 | `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验。**唯一公开面**：未列入 `PARAMS` 的方法一律 `unknown method` | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
 | `rpc/handlers/system.js` | 用户专属 `system.configure`、`system.stop_if_idle`（同步 idle 准入并关闭调度，见[服务重启](../reference/web-routes.md#服务重启)）；只读 `system.status`（兼容完整状态）与 `system.summary`（首页用持久 revision/索引聚合的无 Agent 全配置摘要）；`graph.get`；`agent.*`（含用户专属配置与环境文件）；历史 `sleep.*` / `system.usage` 仍可被内部调用，但不在白名单 | `handlers` |
-| `rpc/handlers/task.js` | `task.*`：`graph` / `list` / `activity` / `page` / `tree` / `inspect` / `history` / `history_page` / `diff` / `usage` / `transcript*`、`spawn`、agent-only 的 `integrate` / `resolve_child_divergence` / `progress.*`，以及用户专属的 `reserve` / `unreserve` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` | `handlers` |
+| `rpc/handlers/task.js` | `task.*`：`graph` / `list` / `activity` / `page` / `tree` / `inspect` / `history` / `history_page` / `diff` / `usage` / `transcript*`、`spawn`、agent-only 的 `integrate` / `resolve_child_divergence` / `progress.*`，以及用户专属的 `reserve` / `unreserve` / `accept` / `reopen` / `sync_parent` / `resolve_sync` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` | `handlers` |
 | `rpc/handlers/notice.js` | `notice.list/page/post/answer/dismiss` | `handlers` |
 | `rpc/handlers/branch.js` | `branch.tree/show/bind/archive`（`branch.bind` / `branch.archive` 在 `USER_ONLY`） | `handlers` |
 | `rpc/handlers/input.js` | 历史 `input.*` / `draft.*`：源码保留，不在白名单 | `handlers` |
@@ -56,7 +56,7 @@
 | 分区 | 文件 |
 |---|---|
 | Task 中心主链 | `test/project/say.test.js`、`merge-queue.test.js`、`task-signals.test.js`、`task-centered-graph.test.js`、`lifecycle.test.js`、`scheduling.test.js`、`preempt.test.js`、`progress.test.js`、`recovery.test.js`、`limits.test.js`、`agents.test.js`、`status.test.js` |
-| 公开面契约 | `test/core-api.test.js`（RPC 白名单）、`test/help-guard.test.js`（帮助与命令面）、`test/web/core-api.test.js` |
+| 公开面契约 | `test/core-api.test.js`（RPC 白名单）、`test/help-guard.test.js`（帮助与命令面）、`test/web/core-api.test.js`、`test/task-iteration-api.test.js`（四个用户专属接口/CLI mock）、`test/web/iteration-api.test.js`（HTTP mock）、`test/web/dom-iteration.test.js`（共享迭代动作） |
 | Git / worktree | `test/workspaces/{naming,merge,cleanup,genealogy,anchor,archive,branch-diagnostics,branch-first}.test.js` |
 | 服务重启 | `test/service-restart.test.js`、`test/web/service-restart.test.js`、`test/integration/service-restart.test.js`（idle 准入、鉴权/路由、真实进程与桌面所有权） |
 | Web 读面与安全 | `test/web/{security,assets,read-models,project-route,core-studio,multi-project,launcher}.test.js` |

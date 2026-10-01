@@ -35,7 +35,7 @@ test('有未收拢子 Task 的分支不能先合进父分支；子 Task 落地�
     await f.project.reserveTask(child.id, 'merge');
     f.project.stopping = false;
     await f.project.driveTaskMerge(say.task.id);
-    expect(f.store.task(child.id)).toMatchObject({ status: 'completed', integration: 'merged' });
+    expect(f.store.task(child.id)).toMatchObject({ status: 'awaiting_acceptance', integration: 'merged' });
     f.project.stopping = true;
     expect((await f.project.workspaces.branchState(say.task.branch)).blockers).toEqual([`task:#${say.task.id}`]);
   } finally { await f.close(); }

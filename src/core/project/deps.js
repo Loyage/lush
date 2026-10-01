@@ -1,4 +1,5 @@
 import { check, TERMINAL } from '../types.js';
+import { iterationViews } from './iteration.js';
 
 /** 依赖边的读模型与结构校验。 */
 export default {
@@ -7,11 +8,12 @@ export default {
     const edges = this.store.depMap(tasks.map(task => task.id));
     // 一次性取回这一批任务的调用区间：计划时长里的等待要单独显示，不能算进 Agent 的工作用时。
     const runs = this.store.runsForTasks(tasks.map(task => task.id));
+    const iterations = iterationViews(this.store, tasks);
     // 快速路由是「这条输入」的属性：同 input 的 planner 与它派生出的任务都带上同一标记。
     const routed = this.store.routedInputIds();
     return tasks.map(task => {
       const deps = edges.get(task.id) || [];
-      return { ...this.progressView(task, runs.get(task.id) ?? []), deps, blocked: deps.some(edge => !TERMINAL.has(edge.status)),
+      return { ...this.progressView(task, runs.get(task.id) ?? []), ...iterations.get(task.id), deps, blocked: deps.some(edge => !TERMINAL.has(edge.status)),
         route: task.input_id !== null && task.input_id !== undefined && routed.has(task.input_id) };
     });
   },

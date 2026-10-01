@@ -1,4 +1,8 @@
-import { check, LushError } from '../types.js';
+import * as types from '../types.js';
+const { check, LushError } = types;
+// The additive lifecycle mixin can land independently of this Git module.
+const isSettled = task => types.isSettled?.(task) ?? (['completed', 'failed', 'cancelled'].includes(task.status)
+  || (task.status === 'awaiting_acceptance' && task.integration === 'merged'));
 
 /** 分支关系、批准合并的预检与落地。 */
 export const methods = {
@@ -7,16 +11,16 @@ export const methods = {
     const record = this.store.branch(child);
     const blockers = [];
     if (record?.task_id !== null && record?.task_id !== undefined) {
-      const owner = this.store.get('SELECT id,status FROM tasks WHERE id=?', record.task_id);
-      if (owner && !['completed','failed','cancelled'].includes(owner.status)) blockers.push(`task:#${owner.id}`);
-      for (const row of this.store.all(`SELECT tasks.id,tasks.status,tasks.branch FROM task_deps
+      const owner = this.store.get('SELECT id,status,integration FROM tasks WHERE id=?', record.task_id);
+      if (owner && !isSettled(owner)) blockers.push(`task:#${owner.id}`);
+      for (const row of this.store.all(`SELECT tasks.id,tasks.status,tasks.integration,tasks.branch FROM task_deps
         JOIN tasks ON tasks.id=task_deps.task_id WHERE task_deps.depends_on=? AND task_deps.kind='code'`, record.task_id)) {
-        if (!['completed','failed','cancelled'].includes(row.status) && !row.branch) blockers.push(`task:#${row.id}`);
+        if (!isSettled(row) && !row.branch) blockers.push(`task:#${row.id}`);
       }
     } else {
       const input = this.store.get('SELECT id FROM inputs WHERE anchor_branch=?', child);
-      if (input) for (const row of this.store.all("SELECT id FROM tasks WHERE input_id=? AND status NOT IN ('completed','failed','cancelled')", input.id)) {
-        blockers.push(`task:#${row.id}`);
+      if (input) for (const row of this.store.all("SELECT id,status,integration FROM tasks WHERE input_id=? AND status NOT IN ('completed','failed','cancelled')", input.id)) {
+        if (!isSettled(row)) blockers.push(`task:#${row.id}`);
       }
     }
     return [...new Set(blockers)];
@@ -31,16 +35,28 @@ export const methods = {
     if (!branch || !onto) return false;
     const record = this.store.branch(branch);
     if (!record || record.status !== 'active' || record.task_id === null || record.task_id === undefined) return false;
-    const task = this.store.get('SELECT reservation FROM tasks WHERE id=?', record.task_id);
-    if (!task?.reservation) return false;
-    let booking;
-    try { booking = JSON.parse(task.reservation); } catch { return false; }
-    if (booking?.version !== 2 || booking.status !== 'integrated' || !booking.commit || !booking.landed_commit) return false;
+    // Receipts survive reopening and replacement of the current delivery reservation.
+    const receipt = this.store.get("SELECT data FROM events WHERE task_id=? AND type='task.merge_integrated' ORDER BY id DESC LIMIT 1", record.task_id);
+    let source, landed;
+    try {
+      if (receipt) {
+        const data = JSON.parse(receipt.data);
+        const parent = this.store.get('SELECT branch FROM tasks WHERE id=?', data.parent_id);
+        if (parent?.branch !== record.parent) return false;
+        source = data.source_commit; landed = data.commit;
+      } else {
+        const task = this.store.get('SELECT reservation FROM tasks WHERE id=?', record.task_id);
+        const booking = task?.reservation ? JSON.parse(task.reservation) : null;
+        if (booking?.version !== 2 || booking.status !== 'integrated') return false;
+        source = booking.commit; landed = booking.landed_commit;
+      }
+    } catch { return false; }
+    if (!source || !landed) return false;
     const project = this.config.project;
     let tip = null;
     try { tip = await this.git(project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`); } catch { return false; }
-    if (tip !== booking.commit) return false;
-    return this.isAncestor(project, booking.landed_commit, onto);
+    if (tip !== source) return false;
+    return this.isAncestor(project, landed, onto);
   },
 
   /** 一条已登记的 child -> direct parent 边当前在 commit 图上的状态。 */

@@ -28,6 +28,10 @@ Task 中心路径是 Input → 直接拥有独立分支的 `agent` Task（`task_
 | `task reserve-all BRANCH`（Web「合并所有」） | `task.reserve_all` | `{branch}`；用户专属；把该分支下所有已静息、待合并的 say/child 逐条走同一套预约准入并交给 v2 merge 队列串行处理 |
 | `task unreserve ID` | `task.unreserve` | `{id}`；用户专属 |
 | `task approve-merge ID COMMIT BASELINE` | `task.approve_merge` | `{id, commit, baseline}`；用户专属 |
+| `task accept ID` | `task.accept` | `{id}`；用户专属；返回 Task，验收完成但不归档 |
+| `task reopen ID` | `task.reopen` | `{id}`；用户专属；历史已合并任务显式恢复待验收，返回 Task，不调用 Agent |
+| `task sync-parent ID` | `task.sync_parent` | `{id}`；用户专属；返回 `{task,synced,conflict,source_commit,parent_commit,reason?}`；不调用 Agent |
+| `task resolve-sync ID` | `task.resolve_sync` | `{id}`；用户专属；返回 Task，显式调用 Agent 解决已记录同步冲突 |
 | `task resolve ID` | `task.resolve` | `{id}`；用户专属 |
 | `task resolve-divergence ID` | `task.resolve_divergence` | `{id}`；用户专属 |
 | `task resolve-child-divergence CHILD_ID` | `task.resolve_child_divergence` | `{id}`；agent-only |
@@ -48,7 +52,15 @@ Task 中心路径是 Input → 直接拥有独立分支的 `agent` Task（`task_
 
 父 Agent 可用 `task.integrate` 固定子提交；未完成、分支漂移、父非运行态、父工作区不干净、存在未集成后代或非快进均拒绝并保留现场。兄弟子任务先落地、或父分支自己提交后，已完子任务的固定提交就不再生效为快进：`task.resolve_child_divergence CHILD_ID` 由执行中的直接父 Agent 从该固定提交拉起一个解分歧子 Task（记 `task.divergence_resolution_requested`，固定当时的父分支顶端），它合入父分支新提交并测试后，由 runtime 在父 Agent 安全结束后核对两端固定提交、依次快进源 child 与父分支，并把被修复的子 Task 标成已集成；期间父/源及源的后代冻结，其余兄弟仍可独立工作。父分支有未集成的 say 请求时先处理那个请求；解分歧子任务自身失败/不合格时保留现场，需用户显式归档旧分支后才能重派。
 
-## 合并预约与批准
+## 多轮交付、验收与父同步
+
+新式 say/child 的 version 2 预约由父 Task 的 merge 队列自动串行 Squash（含 main），合并后回原父并进入非终态 `awaiting_acceptance`，不是 `completed`。追加 `task.message` 继续同一 Task；验收 `task.accept` 才结算为 completed，归档仍须显式操作且待验收时不得直接归档；仍待验收的后代须先逐个验收，验收父 Task 不隐式验收后代。原始 `base_commit` 保留，本轮基线用可空 `iteration_base_commit`。`accepted:boolean`（依据 `task.accepted` 事件）和 `parent_sync_conflict:{source_commit,parent_commit,reason}|null` 由 inspect/Task 图投影。
+
+`sync_parent` 只在源侧安全吸收父提交；无冲突由程序直接完成并记 `task.parent_synced`，冲突返回诊断并记 `task.parent_sync_conflict`，不自动调用 Agent。`resolve_sync` 才显式唤醒当前 Task，固定两端提交已漂移时拒绝并要求重新同步。冻结、运行中、工作区不安全或后代未收敛由后端严格拒绝；不重置现场，不推进父分支。
+
+`reopen` 仅面向未归档、分支/worktree 仍保留、未明确用户验收的历史 completed/merged say/child；只恢复待验收，不启动 Agent。已归档不重建，不批量迁移旧记录。完整生命周期见[持续迭代](../../engineering/task-iteration.md)。
+
+## 历史 version 1 合并预约与批准
 
 `task.reserve` 持久化互斥意图（当前只支持 `kind='merge'`），同类重复不新增预约、只复查现有 pending/preparing/requested 的准入。`reservation.blocked_reason` / `blocked_code` 记录上次检查未满足的原因，包括调用尚未结束、用户答复/未读信号、活动子 Task、未提交改动、无有效提交或 Git 分歧；它是上次检查快照，不是实时 Git 诊断。修复外部工作区/分支后可重复执行 `task reserve ID merge`，Web 用「复查预约」调用同一入口；复查不越过消息投递与固定提交校验，也不自动合并。
 
@@ -62,7 +74,7 @@ Task 中心路径是 Input → 直接拥有独立分支的 `agent` Task（`task_
 
 say 的 pending merge 请求若与直接父分支分歧（`blocked_code='diverged'`），用户可 `task.resolve_divergence ID` 派一个源侧解分歧子 Task：它固定源 tip 为工作区基线、固定直接父 tip 为要吸收的提交，不移动任何 ref。已完成但未集成、或失败/取消且仍有活动分支的子任务返回 `needs_review`（包含原 Task 和原因），不悄悄新派。完成后由 runtime 校验产物同时包含原源 tip 和固定父 tip，快进源分支并自动发出固定请求（main/owner 仍须用户批准最终合并），不再要求被冻结的源 say Agent 重新运行。若产物不合格或失败，先检查原子 Task/工作区；显式 `branch archive BRANCH`（Web Task 图「归档」）旧分支后，原 say 静息且已处理子信号时才能重新 `task resolve-divergence ID` 派新子任务。归档删掉旧 ref/worktree、保留 Task/固定提交事件/会话；脏工作区默认拒绝，只有用户明确 `--discard` 才丢弃未提交文件。该类子 Task 不支持 `task retry` 重放未知文件副作用。没有创建分支的失败任务无需归档，重派仍需通过静息检查。若 Task 已失败/取消，不能对终态预约直接复查：先检查 Agent/工作区副作用，再显式 `task retry ID`。
 
-`task.resolve` 是「已解决」与「放弃任务」的语义区分：前者表示这次输入只是想了解/确认、用户已经没有别的需求，任务以 `completed` 结算并保留 Agent 的 `result`，`integration='none'`，另落一条信息提醒；后者是放弃正在进行的工作。它只在分支没有新提交（`head_commit` 为空或等于 `base_commit`）、工作区干净、没有正在调用的 Agent 且没有发出的合并请求时允许；有提交的 say 仍走 `task.reserve merge` 交付或 `task.cancel` 放弃。它不创建/删除分支与 worktree，也不推进任何 ref；需要继续追问时应在标记前给该 Task 发消息（标记后请另发新的 say）。
+`task.resolve` 是「已解决」与「放弃任务」的语义区分：前者表示这次输入只是想了解/确认、用户已经没有别的需求，任务以 `completed` 结算并保留 Agent 的 `result`，`integration='none'`，另落一条信息提醒；后者是放弃正在进行的工作。它只在分支没有新提交（`head_commit` 为空或等于 `base_commit`）、工作区干净、没有正在调用的 Agent 且没有发出的合并请求时允许；有提交的 say 仍走 `task.reserve merge` 交付或 `task.cancel` 放弃。它不创建/删除分支与 worktree，也不推进任何 ref；需要继续追问时应在标记前给该 Task 发消息（标记后请另发新的 say（已合并任务的待验收与验收完成另走上述多轮交付协议））。
 
 `task.inspect`、`task.list` 提供结构化 `reservation`（旧任务为 null）：version 1 与 version 2 的预约都原样读出，认不出的形态显示 `status:'invalid'` 供检查。旧 Task 不接受该预约。
 

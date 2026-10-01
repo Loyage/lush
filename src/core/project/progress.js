@@ -15,7 +15,7 @@ const elapsed = (startedAt, completedAt) => {
  * 它把任务所有非 running（等子 Task / 等用户 / 排队）的时间单独累计，让 Agent 步骤只保留真正执行的时间。
  */
 const WAIT_KEY = '__wait__';
-const WAIT_LABEL = { waiting: '等待子 Task 信号', awaiting: '等待你答复', queued: '排队等待调用槽' };
+const WAIT_LABEL = { waiting: '等待子 Task 信号', awaiting: '等待你答复', awaiting_acceptance: '等待你验收', queued: '排队等待调用槽' };
 const millis = value => { const at = Date.parse(value); return Number.isFinite(at) ? at : null; };
 
 /** Agent 实际被调用的区间（run 起止；未结束的 run 以 now 收口），合并重叠避免重复累计。 */
@@ -139,7 +139,7 @@ function decode(raw) {
 
 /** 预约里带交付语义的状态；version 2 的合并请求另有一个 resolving（已退回源侧解分歧）。 */
 const RESERVATION_STATUSES = new Set(['pending','preparing','requested','started','integrated','completed','failed','cancelled']);
-const MERGE_RESERVATION_STATUSES = new Set([...RESERVATION_STATUSES, 'resolving']);
+const MERGE_RESERVATION_STATUSES = new Set([...RESERVATION_STATUSES, 'resolving', 'withdrawn']);
 
 /** 存储形态解码：version 1 是旧形态（merge / showcase），version 2 是新式 say/child 的合并预约。
  *  两者都要原样交给 UI（`render-delivery.js` 按 `version === 2` 分支已被设计好），

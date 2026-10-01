@@ -169,7 +169,17 @@ export const methods = {
     // A squash deliberately does not make the source commit an ancestor of the parent.
     // Verify the exact landed tree and ref instead of applying the old ancestry cleanup rule.
     const booking = task.reservation ? JSON.parse(task.reservation) : null;
-    if (booking?.version === 2 && booking.status === 'integrated' && task.branch) {
+    const receiptRow = this.store.get("SELECT data FROM events WHERE task_id=? AND type='task.merge_integrated' ORDER BY id DESC LIMIT 1", task.id);
+    const receipt = receiptRow ? JSON.parse(receiptRow.data) : null;
+    const deliveredSource = receipt?.source_commit ?? (booking?.version === 2 && booking.status === 'integrated' ? booking.commit : null);
+    const deliveredCommit = receipt?.commit ?? booking?.landed_commit;
+    const exactReceipt = deliveredSource && task.head_commit === deliveredSource;
+    const source = exactReceipt ? deliveredSource : task.integration === 'merged' && task.iteration_base_commit ? task.head_commit : null;
+    const landed = exactReceipt ? deliveredCommit : task.iteration_base_commit;
+    // New input consumes the previous reservation; immutable receipts retain the Squash proof.
+    // A later sync can have a new merge HEAD but the same tree as its fixed parent baseline.
+    // archiveSquashedTaskUnsafe verifies both trees, exact ref, target ancestry and cleanliness.
+    if (source && landed && task.branch) {
       if (keepBranch) return { id: task.id, worktree: 'kept', branch: 'kept', reason: 'kept by --keep-branch' };
       // 源分支可能已被用户显式归档：archiveBranch 有意保留 tasks.branch 当历史指针，但 ref 与 worktree
       // 早就从磁盘上删掉了。这时没有东西可回收，只把悬空指针同步成「库反映磁盘」；继续走 squash 核对
@@ -189,7 +199,7 @@ export const methods = {
         this.store.event(task.id, 'branch.removed', { branch: task.branch, already_archived: true });
         return { id: task.id, worktree, branch: 'removed', reason: null };
       }
-      await this.archiveSquashedTaskUnsafe(task, booking.commit, booking.landed_commit);
+      await this.archiveSquashedTaskUnsafe(task, source, landed);
       return { id: task.id, worktree: 'removed', branch: 'removed', reason: null };
     }
     // merged/none：这条线已经收尾；superseded：这一轮解冲突被下一轮取代，分支留作恢复点，不强留工作区。
@@ -201,7 +211,7 @@ export const methods = {
       const head = await this.git(dir, 'rev-parse', 'HEAD');
       // Even failed/cancelled tasks may contain valuable committed changes. Branch-first tasks land in their
       // direct parent, which is often an input/task worktree rather than the project checkout's HEAD.
-      if (head !== task.base_commit) {
+      if (head !== (task.iteration_base_commit ?? task.base_commit)) {
         check(task.target_branch, 'task has committed work but no target branch');
         await this.git(this.config.project, 'merge-base', '--is-ancestor', head, `refs/heads/${task.target_branch}`);
       }
@@ -226,7 +236,12 @@ export const methods = {
       this.busy.add(taskId);
       try {
         const task = this.store.task(taskId);
-        check(['completed','failed','cancelled'].includes(task.status), 'task must have stopped');
+        check(['completed','failed','cancelled'].includes(task.status), 'task must have stopped; accept delivered work before cleanup');
+        const active = this.store.get(`WITH RECURSIVE descendants(id,status) AS (
+          SELECT id,status FROM tasks WHERE parent_id=?
+          UNION ALL SELECT t.id,t.status FROM tasks t JOIN descendants d ON t.parent_id=d.id
+        ) SELECT id FROM descendants WHERE status NOT IN ('completed','failed','cancelled') LIMIT 1`, task.id);
+        check(!active, `descendant Task #${active?.id} must be accepted or ended before cleanup`);
         return { ...this.store.task(task.id), cleanup: await this.release(task, { keepBranch }) };
       } finally { this.busy.delete(taskId); }
     });

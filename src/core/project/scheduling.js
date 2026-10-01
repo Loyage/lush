@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { check, TERMINAL, LushError } from '../types.js';
+import { check, TERMINAL, LushError, isSettled } from '../types.js';
+import { assertTaskAncestorsOpen, assertTaskNotSyncing, resumeTaskDelivery, taskDeliveryState, taskSyncDeliveryPaused } from './iteration.js';
 import { tokenHash } from './internal.js';
 import { AgentPreempted } from '../../agent/provider.js';
 
@@ -38,7 +39,7 @@ export default {
     if (!this.store.get("SELECT id FROM messages WHERE task_id=? AND consumed=0 AND (signal_key IS NULL OR signal_key NOT LIKE 'merge-v2:%') LIMIT 1", taskId)) return false;
     const task = this.store.get('SELECT role,task_kind FROM tasks WHERE id=?', taskId);
     if (!(task.role === 'coordinator' || ['say','child'].includes(task.task_kind)) || !this.store.get(`SELECT id FROM tasks WHERE parent_id=?
-      AND status NOT IN ('completed','failed','cancelled') LIMIT 1`, taskId)) return true;
+      AND status NOT IN ('completed','failed','cancelled','awaiting_acceptance') LIMIT 1`, taskId)) return true;
     // Only runtime-attested success receipts wait; explicit messages remain urgent.
     // Runtime merge requests never wake the development Agent, even alongside a receipt.
     return Boolean(this.store.get(`SELECT m.id FROM messages m WHERE m.task_id=? AND m.consumed=0
@@ -50,7 +51,13 @@ export default {
 
   wake(taskId) {
     const task = this.store.task(taskId);
+    if (this.taskSyncBusy?.has(task.id)) {
+      (this.taskSyncWakePending ??= new Set()).add(task.id);
+      return;
+    }
     if (['main','owner','merge'].includes(task.task_kind)) return; // runtime-driven roots and merge orchestration never run providers
+    try { assertTaskAncestorsOpen(this, task); } catch { return; }
+    if (task.status === 'awaiting_acceptance' && !this.hasActionableMessages(task.id)) return;
     if (task.status === 'paused') return; // 暂停是用户显式状态：消息照收，但不自动恢复调用
     if (task.reservation && JSON.parse(task.reservation)?.version === 2
       && JSON.parse(task.reservation).status === 'requested') return; // frozen until merge queue settles
@@ -75,6 +82,10 @@ export default {
 
   pump() {
     if (this.stopping) return;
+    for (const taskId of this.taskSyncWakePending ?? []) if (!this.taskSyncBusy?.has(taskId)) {
+      this.taskSyncWakePending.delete(taskId);
+      if (this.hasActionableMessages(taskId)) this.wake(taskId);
+    }
     // Legacy planner/spec rows are retained on disk but no longer scheduled.
     const dependencies = this.store.depMap();
     const freezes = new Map(this.branchFreeze().map(info => [info.branch, info]));
@@ -96,7 +107,8 @@ export default {
       if (!['say','child','showcase'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
       if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.
       if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') continue;
-      if (this.running.has(task.id)) continue;
+      if (this.running.has(task.id) || this.taskSyncBusy?.has(task.id)) continue;
+      try { assertTaskAncestorsOpen(this, task); } catch { continue; }
       if (task.reservation && JSON.parse(task.reservation)?.version === 2
         && JSON.parse(task.reservation).status === 'requested') continue;
       const frozen = freezes.get(taskBranch(task));
@@ -143,7 +155,7 @@ export default {
           let reservation = null;
           try { reservation = ['say','child'].includes(settled.task_kind) && settled.reservation ? JSON.parse(settled.reservation) : null; }
           catch { /* invalid state stays visible for inspection */ }
-          if (settled.status === 'waiting' && reservation?.kind === 'merge') {
+          if (settled.status === 'waiting' && reservation?.kind === 'merge' && !taskSyncDeliveryPaused(this, task.id)) {
             const settle = reservation.version === 2 ? this.settleQueuedMerge(task.id) : this.settleReservedMerge(task.id);
             await settle.catch(error => this.noteReservationBlocked(task.id, error.message));
           }
@@ -200,6 +212,7 @@ export default {
    */
   interrupt(taskId, reason = 'interrupted by user') {
     const task = this.store.task(taskId);
+    assertTaskNotSyncing(this, task.id);
     check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; interrupt individual say Tasks instead');
     check(['say','child'].includes(task.task_kind), 'only say/child Tasks can be paused');
     check(!TERMINAL.has(task.status), 'task has ended; retry it or submit a new input');
@@ -235,6 +248,7 @@ export default {
   configureTask(taskId, profile = null) {
     this.assertWritable('configure a task');
     const task = this.store.task(taskId);
+    assertTaskNotSyncing(this, task.id);
     check(task.status === 'paused', 'only paused tasks can adjust run settings');
     check(['say','child'].includes(task.task_kind), 'only say/child Tasks can adjust run settings');
     const retryProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile(task.role, profile);
@@ -249,6 +263,8 @@ export default {
   resumeTask(taskId, profile = null) {
     this.assertWritable('resume a task');
     const task = this.store.task(taskId);
+    assertTaskNotSyncing(this, task.id);
+    assertTaskAncestorsOpen(this, task);
     check(task.status === 'paused', 'only paused tasks can be resumed');
     check(['say','child'].includes(task.task_kind), 'only say/child Tasks can be resumed');
     check(!this.running.has(task.id), 'agent is still stopping; resume shortly');
@@ -256,6 +272,7 @@ export default {
     this.store.transaction(() => {
       this.store.update(task.id, { status: 'queued', error: null,
         ...(retryProfile ? { retry_profile: JSON.stringify(retryProfile) } : {}) });
+      resumeTaskDelivery(this, task.id, 'user resumed development');
       this.store.event(task.id, 'task.resumed', retryProfile ? { profile_override: true, ...profileEvent(retryProfile) } : { profile_override: false });
     });
     this.kick();
@@ -270,7 +287,7 @@ export default {
     const run = task ? this.running.get(task.id) : null;
     if (!run) throw new LushError('invalid or expired agent token');
     check(!['explainer','butler'].includes(task.role), 'isolated agents have no RPC capability');
-    check(!TERMINAL.has(task.status) && !run.parked && !run.controller.signal.aborted, 'agent task is no longer active');
+    check(task.status === 'running' && !run.parked && !run.controller.signal.aborted, 'agent task is no longer active');
     this.store.touchAgent(task.id);
     return task.id;
   },
@@ -337,6 +354,18 @@ export default {
       if (task.role === 'verifier' && task.review_candidate_id) {
         await this.assertCandidateVerification(this.store.candidate(task.review_candidate_id), task);
       }
+      // Explicit synchronization repair is validated before recording a successful invocation.
+      // The hook owns its own Git exclusive lock and never delivers into the parent.
+      if (['say','child'].includes(task.task_kind) && this.store.task(taskId).status !== 'paused'
+        && this.store.unread(taskId).every(row => messages.some(message => message.id === row.id))
+        && !this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open'", taskId)
+        && this.store.children(taskId).every(isSettled) && this.settleTaskSyncResolution) {
+        run.syncResolved = await this.settleTaskSyncResolution(taskId);
+        if (run.syncResolved) {
+          run.syncIntegration = this.store.task(taskId).integration;
+          run.syncHead = this.store.task(taskId).head_commit;
+        }
+      }
       this.store.transaction(() => {
         for (const message of messages) this.store.run('UPDATE messages SET consumed=1 WHERE id=?', message.id);
         this.store.event(taskId, 'invocation.completed', { result, run_id: run.recordId });
@@ -362,7 +391,7 @@ export default {
       if (this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open'", taskId)) {
         this.store.update(taskId, { status: 'awaiting' }); return;
       }
-      if (this.store.children(taskId).some(child => !TERMINAL.has(child.status))) {
+      if (this.store.children(taskId).some(child => !isSettled(child))) {
         this.store.update(taskId, { status: 'waiting' }); return;
       }
       await this.workspaces.finish(this.store.task(taskId));
@@ -372,10 +401,16 @@ export default {
       if (this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open'", taskId)) {
         this.store.update(taskId, { status: 'awaiting' }); return;
       }
-      if (this.store.children(taskId).some(child => !TERMINAL.has(child.status))) {
+      if (this.store.children(taskId).some(child => !isSettled(child))) {
         this.store.update(taskId, { status: 'waiting' }); return;
       }
       if (['say','child'].includes(task.task_kind)) {
+        if (run.syncResolved) {
+          check(this.store.task(taskId).head_commit === run.syncHead, 'synchronization repair HEAD changed before settlement');
+          this.store.update(taskId, { integration: run.syncIntegration,
+            status: run.syncIntegration === 'merged' ? 'awaiting_acceptance' : 'waiting' });
+          return;
+        }
         const booking = this.store.task(taskId).reservation ? JSON.parse(this.store.task(taskId).reservation) : null;
         if (booking?.version === 2 && booking.status === 'resolving') this.store.transaction(() => {
           this.store.update(taskId, { reservation: JSON.stringify({ ...booking, status: 'pending' }) });
@@ -387,8 +422,13 @@ export default {
         // 这条分支自己前进了（本轮新提交）：挂在它上面的未集成请求要如实变成失效状态，
         // 而不是继续显示“等待集成”。daemon 阻止不了这次提交，所以只如实记录检查结果。
         await this.noteBranchAdvance(taskId);
+        const live = this.store.task(taskId);
+        const delivery = live.iteration_base_commit && !live.reservation ? await taskDeliveryState(this, live) : null;
+        if (this.hasActionableMessages(taskId)) { this.store.update(taskId, { status: 'queued' }); return; }
+        if (TERMINAL.has(this.store.task(taskId).status) || this.store.task(taskId).status === 'paused') return;
         this.store.transaction(() => {
-          this.store.update(taskId, { status: 'waiting' });
+          this.store.update(taskId, { status: delivery && delivery !== 'pending' ? 'awaiting_acceptance' : 'waiting',
+            ...(delivery ? { integration: delivery } : {}) });
           this.store.event(taskId, 'task.idle', { run_id: run.recordId, head_commit: this.store.task(taskId).head_commit });
         });
         return;

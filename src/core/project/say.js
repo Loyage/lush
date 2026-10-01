@@ -1,4 +1,5 @@
-import { check, id, text, TERMINAL } from '../types.js';
+import { check, id, text, TERMINAL, isSettled } from '../types.js';
+import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, resumeTaskDelivery } from './iteration.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readInputRule, saveInputRule, snapshotPath } from '../task-input-rule.js';
@@ -138,6 +139,7 @@ export default {
   async resolveTask(taskId) {
     const target = id(taskId);
     const task = this.store.task(target);
+    assertTaskNotSyncing(this, task.id);
     check(task.task_kind === 'say', 'only a new say Task can be marked resolved');
     check(!TERMINAL.has(task.status), 'task already ended; retry it or send a new input');
     check(!this.running.has(task.id), 'Agent 正在调用，等本轮安全结束后再标记已解决');
@@ -160,6 +162,7 @@ export default {
 
   /** Persistent, mutually exclusive user intention; not a merge/showcase authorization. */
   async reserveTask(taskId, kind) {
+    assertTaskNotSyncing(this, id(taskId));
     check(kind === 'merge' || kind === 'showcase', 'reservation kind must be merge or showcase');
     if (kind === 'showcase') return this.bookShowcase(taskId);
     const code = this.store.task(id(taskId));
@@ -550,12 +553,13 @@ export default {
 
   /** An observable execution barrier, not a Git verdict. A retry never skips a running invocation or unread signal. */
   reservationWaitReason(task) {
+    if (this.taskSyncBusy?.has(task.id)) return 'Task 父分支同步正在执行，请等待安全点';
     if (this.running.has(task.id) || task.status === 'running') return 'Agent 正在调用或收尾，等待本轮安全结束';
     if (task.status === 'queued') return 'Task 等待下一轮 Agent 调用完成';
     if (task.status === 'awaiting' || this.questionPending(task.id)) return 'Task 正在等待用户答复';
     if (task.status !== 'waiting') return `Task 尚未静息（${task.status}）`;
     const reservation = storedReservation(task.reservation);
-    const child = this.store.children(task.id).find(row => !TERMINAL.has(row.status)
+    const child = this.store.children(task.id).find(row => !isSettled(row)
       && !(reservation?.kind === 'showcase' && reservation.status === 'preparing' && row.id === reservation.child_id));
     if (child) return `等待子 Task #${child.id} 结算`;
     if (this.hasActionableMessages(task.id)) return '还有未处理的消息或子任务信号，需先交给 Agent';
@@ -845,6 +849,7 @@ export default {
   unreserveTask(taskId) {
     let prepChild = null;
     const requested = this.store.task(id(taskId));
+    assertTaskNotSyncing(this, requested.id);
     if (['say','child'].includes(requested.task_kind) && requested.reservation
       && JSON.parse(requested.reservation)?.version === 2) {
       const booking = JSON.parse(requested.reservation);
@@ -1032,7 +1037,9 @@ export default {
     const owner = this.store.all("SELECT * FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say') ORDER BY id", target);
     check(owner.length === 1, `branch ${target} needs exactly one explicitly bound Task before say`);
     const parent = owner[0];
+    assertTaskNotSyncing(this, parent.id);
     check(!TERMINAL.has(parent.status), `parent task #${parent.id} has ended; select an active parent Task`);
+    assertTaskAncestorsOpen(this, parent);
     check(parent.task_kind !== 'say' || storedReservation(parent.reservation)?.status !== 'started',
       'parent say Task is presenting its frozen commit; select another bound branch');
     // anchorInput always passes the chosen ref, never the possibly changed process HEAD.
@@ -1047,6 +1054,13 @@ export default {
       const result = this.store.transaction(() => {
         const current = this.store.task(parent.id);
         check(!TERMINAL.has(current.status) && current.branch === target, 'parent task changed while creating the worktree');
+        assertTaskAncestorsOpen(this, current);
+        assertTaskNotSyncing(this, current.id);
+        resumeTaskDelivery(this, current.id, 'new child input');
+        if (current.status === 'awaiting_acceptance') {
+          consumeIntegratedReservation(this, current, 'new child input');
+          this.store.update(current.id, { status: 'waiting' });
+        }
         if (draft) {
           const live = this.store.draft(draft.id);
           check(live.input_id === null && live.content === draft.content
