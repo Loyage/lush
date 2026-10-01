@@ -22,7 +22,7 @@ import { closeTranscriptView } from './transcript-view.js';
 import { closeExplanationPanel } from './explanations.js';
 import { ensureProject, refreshProjectList } from './project-picker.js';
 import { initNoticeNotifications, resetNoticeNotifier } from './notice-notifications.js';
-import { initNoticeRecords } from './render-notices.js';
+import { initNoticeRecords, openNotice } from './render-notices.js';
 
 /* ---------- 左栏全局排序偏好（与设置页共用 lush.sidebarSort） ---------- */
 function syncSidebarSortSelect() {
@@ -64,6 +64,8 @@ function onHashChange() {
   if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
   if (location.hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
   if (location.hash === '#task-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
+  const noticeId = /^#notice-([1-9]\d*)$/.exec(location.hash)?.[1];
+  if (noticeId && Number.isSafeInteger(Number(noticeId))) return openNotice(Number(noticeId)).catch(report);
   const resource = /^#(notices|tasks)$/.exec(location.hash)?.[1];
   if (resource) return openResource(resource, { push: false });
   const doc = docsTarget(location.hash);

@@ -66,4 +66,5 @@ export async function loadDetail(taskId) {
   }
   const tree = $('tasks').querySelector(`[data-id="${taskId}"]`);
   if (tree) for (const node of $('tasks').children) node.classList.toggle('selected', node === tree);
+  return true;
 }

@@ -1,44 +1,40 @@
 import { $, el } from './dom.js';
 import { openNotice } from './render-notices.js';
 import { openResource } from './sidebar-ui.js';
+import { unreadNotice } from './notice-kind.js';
+import { show } from './messages.js';
 
-/**
- * 全局常驻待决提醒条：汇总快照里所有 `status === "open"` 的 notice（问卷、计划审批、普通提问），
- * 与左栏「待我处理」、`renderNotices` 用同一口径，不新增 API，也不触发系统通知。
- * 节点在 `.content-shell` 内、`#detail` / `#resource-panels` 之外，因此概览、任务详情、设置、
- * 统计、Task 图、文档与信息页都看得见（桌面常驻；移动端随 sticky 顶栏固定）。
- * 1.5s 轮询每次都会调用它：用 host.dataset 签名幂等，内容没变就不重画，避免闪烁与抢焦点。
- * 必须在 `renderNotices(data)` 之后调用，这样 `ui.noticeIndex` 已有最新记录，点击能直接定位。
- */
+/** Global pending-decision and unread-info entry points; polling never invokes Agent. */
 export function renderNoticeBanner(data) {
   const host = $('notice-banner');
   if (!host) return;
-  const open = (data?.notices || []).filter(notice => notice.status === 'open');
-  if (!open.length) {
+  const rows = data?.notices || [];
+  const groups = [
+    { rows: rows.filter(row => row.status === 'open'), label: '条待你处理', action: '去处理 →', kind: 'decision', help: '最新待决提醒；点击打开处理页' },
+    { rows: rows.filter(unreadNotice), label: '条未读告知', action: '打开 Task →', kind: 'info', help: '打开对应 Task；成功加载后自动已读，不会启动 Agent 或批准合并' },
+  ].filter(group => group.rows.length);
+  if (!groups.length) {
     if (host.dataset.signature !== '0') { host.dataset.signature = '0'; host.replaceChildren(); }
     host.hidden = true;
     return;
   }
-  const newest = open.reduce((max, notice) => (notice.id > max.id ? notice : max), open[0]);
+  const newest = group => group.rows.reduce((a, b) => b.id > a.id ? b : a);
+  const signature = JSON.stringify(groups.map(group => [group.kind, group.rows.length, newest(group).id, newest(group).title]));
   host.hidden = false;
-  const signature = `${open.length}:${newest.id}:${newest.title}`;
   if (host.dataset.signature === signature) return;
   host.dataset.signature = signature;
-  const main = el('button', undefined, 'notice-banner-main');
-  main.type = 'button';
-  main.setAttribute('data-help', '最新待决提醒；点击打开处理页');
-  main.append(
-    el('span', undefined, 'notice-banner-dot'),
-    el('span', `${open.length} 条待你处理`, 'notice-banner-count'),
-    el('span', newest.title, 'notice-banner-title'),
-    el('span', '去处理 →', 'notice-banner-go'),
-  );
-  main.onclick = async () => {
-    main.disabled = true;
-    try {
-      openResource('notices');
-      await openNotice(newest.id);
-    } finally { main.disabled = false; }
-  };
-  host.replaceChildren(main);
+  host.replaceChildren(...groups.map(group => {
+    const notice = newest(group);
+    const main = el('button', undefined, `notice-banner-main notice-banner-${group.kind}`);
+    main.type = 'button'; main.setAttribute('data-help', group.help);
+    main.append(el('span', undefined, 'notice-banner-dot'), el('span', `${group.rows.length} ${group.label}`, 'notice-banner-count'),
+      el('span', notice.title, 'notice-banner-title'), el('span', group.action, 'notice-banner-go'));
+    main.onclick = async () => {
+      main.disabled = true;
+      try { if (group.kind === 'decision') openResource('notices'); await openNotice(notice.id); }
+      catch (error) { show(error.message, 'error'); }
+      finally { main.disabled = false; }
+    };
+    return main;
+  }));
 }

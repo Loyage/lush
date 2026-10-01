@@ -362,7 +362,7 @@ test('say Agent becomes idle after a call, can wake again, and can own another s
   } finally { await f.close(); }
 });
 
-test('user marks a no-change say resolved: completed + integration none, answer kept, one info notice', async () => {
+test('user marks a no-change say resolved: completed + integration none, answer kept, no redundant settlement notice', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const sent = await f.project.say('只是想了解：预约是怎么工作的？');
@@ -374,9 +374,8 @@ test('user marks a no-change say resolved: completed + integration none, answer 
     expect(resolved.head_commit).toBe(before.base_commit);
     expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='task.resolved'", sent.task.id)).toHaveLength(1);
     const notices = f.store.all("SELECT * FROM notices WHERE task_id=? AND kind='info'", sent.task.id);
-    expect(notices).toHaveLength(1);
-    expect(notices[0].title).toContain(`分支 ${before.branch}`);
-    expect(notices[0].body).toContain('没有记录到需要合入父分支的改动');
+    // User-created Tasks notify on runtime idle/failure, not on the user's own explicit resolution.
+    expect(notices).toHaveLength(0);
     // 终态不能重复结算，也不能再被 message 唤醒。
     await expect(f.project.resolveTask(sent.task.id)).rejects.toThrow('already ended');
   } finally { await f.close(); }

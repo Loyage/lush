@@ -103,14 +103,16 @@ export default {
         ...(resolvedByUser ? { reservation: null } : {}) });
       if (resolvedByUser) this.store.event(task.id, 'task.resolved', { head_commit: task.head_commit ?? null });
       this.store.run("UPDATE notices SET status='dismissed',answer='task ended' WHERE task_id=? AND status='open'", task.id);
-      // 结算提醒：completed / failed 且任务有自己的分支或是一次只读分析时落且只落一条纯信息 notice。
-      // 它 kind='info' / status='sent'，与这次结算同一个事务，且顺序在「关掉 open notice」之后；
-      // cancelled 不提醒，没有分支的任务（planner / scheduler / coordinator / research / verifier）也不提醒。
-      if ((status === 'completed' || status === 'failed') && (task.branch || task.task_kind === 'analysis')) {
+      // Historical branch settlements keep their old info reminder. User-created say/analysis
+      // use the lifecycle hook below instead, so a failure cannot create two notices.
+      // Both remain info/sent, outside every open-decision/blocking query.
+      if ((status === 'completed' || status === 'failed') && task.branch
+        && !['say','analysis'].includes(task.task_kind)) {
         const reminder = settlementReminder(this.store.task(task.id), status);
         this.notify(task.id, reminder.title, reminder.body);
       }
       const settlementEvent = this.store.event(task.id, status, { result, error });
+      this.notifyTaskLifecycle(task.id, settlementEvent);
       // 一个 scheduler 要么把 spec 编成任务，要么明确 drop；取消则把未处理的 spec 还给队列，绝不静默丢弃。
       if (task.role === 'scheduler') {
         if (status === 'cancelled') this.store.releaseBatch(task.id, 'scheduler 被取消，spec 回到 pending');
@@ -406,7 +408,7 @@ export default {
     this.store.run('UPDATE tasks SET agent_token_hash=NULL');
     // Historical quick-intro rows are retained unchanged; the feature is no longer resumed.
     // Never replay an invocation with unknown filesystem side effects.
-    for (const task of this.store.tasks()) if (task.status === 'running' && ['say','child'].includes(task.task_kind))
+    for (const task of this.store.tasks()) if (task.status === 'running' && ['say','child','analysis'].includes(task.task_kind))
       this.cancel(task.id, 'daemon interrupted; inspect worktree and explicitly retry', 'failed');
     this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('say','child')");
     // Older retries discarded a withdrawn booking while leaving the source under its queue.
@@ -453,8 +455,11 @@ export default {
       let booking;
       try { booking = JSON.parse(task.reservation); } catch { continue; }
       if (booking.version === 2 && booking.status === 'resolving' && task.status === 'queued') {
-        this.store.update(task.id, { status: 'failed', error: 'daemon interrupted divergence repair; inspect and explicitly retry' });
-        this.store.event(task.id, 'merge.repair_interrupted', {});
+        this.store.transaction(() => {
+          this.store.update(task.id, { status: 'failed', error: 'daemon interrupted divergence repair; inspect and explicitly retry' });
+          const eventId = this.store.event(task.id, 'merge.repair_interrupted', {});
+          this.notifyTaskLifecycle(task.id, eventId);
+        });
       }
       if (booking.version === 2 && booking.status === 'integrated') {
         // Integration no longer auto-archives; make sure a crash between landing and the parent

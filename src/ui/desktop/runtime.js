@@ -154,6 +154,9 @@ export function createDesktop({ electron, userData, localHost, platform = proces
       const entry = trusted(event);
       if (!store.enabled(entry.preferenceKey) || !Notification.isSupported()) return false;
       if (!payload || !['title', 'body', 'tag'].every(key => typeof payload[key] === 'string' && payload[key].length <= 4000)) throw new Error('invalid notification');
+      const target = payload.notice_id === undefined && payload.task_id === undefined ? null : { notice_id: payload.notice_id, task_id: payload.task_id };
+      if (target && ![target.notice_id, target.task_id].every(value => Number.isSafeInteger(value) && value > 0)) throw new Error('invalid notification target');
+      const sourcePath = new URL(event.senderFrame.url).pathname;
       const key = `${entry.preferenceKey}:${payload.tag}`;
       banners.get(key)?.banner.close();
       const banner = new Notification({ title: payload.title, body: payload.body });
@@ -163,7 +166,10 @@ export function createDesktop({ electron, userData, localHost, platform = proces
       banner.on('click', () => {
         const win = entry.window;
         if (win.isDestroyed()) return;
-        focus(win); win.webContents.send('lush:notice-open'); banner.close();
+        focus(win);
+        if (target) win.webContents.send('lush:notice-open', { ...target, pathname: sourcePath });
+        else win.webContents.send('lush:notice-open');
+        banner.close();
       });
       banner.show(); return true;
     });

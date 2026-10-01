@@ -26,7 +26,7 @@ function assetFile(pathname) {
   if (!ASSET_NAME.test(name) || !ASSET_EXTENSIONS.has(path.extname(name))) return null;
   return path.join(ASSETS, name);
 }
-const MUTATIONS = new Set(['agent.configure','agent.environment.configure','system.configure','say.submit','task.spawn','task.message','task.reserve','task.reserve_all','task.resolve','task.accept','task.reopen','task.sync_parent','task.resolve_sync','task.resolve_divergence','task.unreserve','task.approve_merge','task.cancel','task.retry','task.interrupt','task.resume','task.configure','task.cleanup','notice.answer','notice.dismiss','branch.archive']);
+const MUTATIONS = new Set(['agent.configure','agent.environment.configure','system.configure','say.submit','task.spawn','task.message','task.reserve','task.reserve_all','task.resolve','task.accept','task.reopen','task.sync_parent','task.resolve_sync','task.resolve_divergence','task.unreserve','task.approve_merge','task.cancel','task.retry','task.interrupt','task.resume','task.configure','task.cleanup','notice.answer','notice.dismiss','notice.read','branch.archive']);
 const CORE_READS = new Set(['/api/overview','/api/snapshot','/api/tasks','/api/notices','/api/task-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/environment','/api/docs','/api/docs/search-index']);
 const CORE_TASK_READ = /^\/api\/task\/\d+(?:\/(?:history|history-page|diff|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的任务读白名单漏掉。

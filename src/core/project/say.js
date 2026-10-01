@@ -122,7 +122,11 @@ export default {
         const pointer = this.store.get('SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', commit);
         if (pointer) forkCheckpoint(this.config.home, { ...pointer, commit });
       } catch (error) {
-        this.store.update(created.id, { status: 'failed', error: `analysis fork failed: ${error.message}` });
+        this.store.transaction(() => {
+          this.store.update(created.id, { status: 'failed', error: `analysis fork failed: ${error.message}` });
+          const eventId = this.store.event(created.id, 'analysis.fork_failed', { error: error.message });
+          this.notifyTaskLifecycle(created.id, eventId);
+        });
         throw new Error(`analysis #${created.id} fork failed; inspect its checkout: ${error.message}`);
       }
       this.kick();

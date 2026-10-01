@@ -9,4 +9,11 @@ contextBridge.exposeInMainWorld('lushDesktop', {
   platform: process.platform,
   mode,
 });
-ipcRenderer.on('lush:notice-open', () => { window.location.hash = '#notices'; });
+ipcRenderer.on('lush:notice-open', (_event, target) => {
+  if (!target) { window.location.hash = '#notices'; return; }
+  if (![target.notice_id, target.task_id].every(value => Number.isSafeInteger(value) && value > 0)
+    || typeof target.pathname !== 'string' || !/^(\/|\/p\/[a-f0-9]{16}\/?)$/.test(target.pathname)) return;
+  const hash = `#notice-${target.notice_id}`;
+  if (window.location.pathname === target.pathname) window.location.hash = hash;
+  else window.location.href = `${target.pathname}${hash}`;
+});

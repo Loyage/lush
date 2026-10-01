@@ -12,6 +12,7 @@ import { ui } from './state.js';
 import { referenceable } from './context-references.js';
 import { questionnairePanel } from './render-questionnaire.js';
 import { sleepChoiceCard } from './sleep-ui.js';
+import { lifecycleNotice, unreadNotice, noticeMatches, positiveId } from './notice-kind.js';
 
 const STATUS = { open: '待处理', answered: '已回答', dismissed: '已忽略', sent: '已发送' };
 
@@ -21,7 +22,7 @@ export function initNoticeRecords() {
   const state = ui.noticeRecords = { status: 'open', rows: [], page: null, request: 0, selected: null, task: null, signature: null };
   const tools = el('div', undefined, 'resource-tools');
   const filters = el('div', undefined, 'filters');
-  for (const [value, label] of [['open','未处理'],['answered','已回答'],['dismissed','已忽略'],['all','全部记录']]) {
+  for (const [value, label] of [['open','待决'],['unread','未读告知'],['answered','已回答'],['dismissed','已忽略'],['all','全部记录']]) {
     const tab = button(label, () => {
       state.status = value; state.page = null; state.rows = []; state.choices = []; state.selected = null;
       $('notice-record-detail')?.replaceChildren();
@@ -67,7 +68,7 @@ export async function loadNoticeRecords({ more = false, preserve = false } = {})
     if (!Array.isArray(page.notices)) throw new Error('请重启 Web 与 daemon 以加载 notice 历史');
     state.rows = more || preserve
       ? [...new Map([...state.rows, ...page.notices].map(row => [row.id, row])).values()]
-        .filter(row => status === 'all' || row.status === status).sort((a, b) => b.id - a.id)
+        .filter(row => noticeMatches(row, status)).sort((a, b) => b.id - a.id)
       : page.notices;
     if (!preserve || !state.page) state.page = page;
     for (const row of state.rows) ui.noticeIndex.set(row.id, row);
@@ -126,10 +127,10 @@ function paintNoticeRows(rows) {
     node.className = `notice-brief${ui.noticeRecords?.selected === notice.id || ui.noticeFocus === notice.id ? ' selected' : ''}`;
     node.replaceChildren();
     const row = el('span', undefined, 'row');
-    row.append(badge(STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'),
+    row.append(badge(lifecycleNotice(notice) ? unreadNotice(notice) ? '未读告知' : '已读告知' : STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'),
       el('span', `#${notice.task_id}`, 'tid'), el('span', relative(notice.created_at), 'when'));
     node.append(row, el('span', notice.title, 'goal'));
-    node.title = `${notice.title}\n发布于 ${absolute(notice.created_at)}`;
+    node.setAttribute('data-help', lifecycleNotice(notice) ? '打开对应 Task；成功加载后自动已读，不会启动 Agent 或批准合并' : `${notice.title}；发布于 ${absolute(notice.created_at)}`);
     referenceable(node, { kind: 'notice', target: { notice_id: notice.id }, label: `事项记录 #${notice.id}`,
       quote: `${notice.title}\n${notice.body || ''}`, location: { view: 'notice-list', notice_id: notice.id } });
     return node;
@@ -139,13 +140,14 @@ function paintNoticeRows(rows) {
 
 /** 快照维护计数；信息页按需分页读完整记录。 */
 export function renderNotices(data) {
-  // Plan、普通提问和问卷共享待决入口；info 只出现在历史中。
+  // 告知与决策分开计数，不把 info 当作需要答复的问题。
   const open = data.notices.filter(notice => notice.status === 'open');
+  const unread = data.notices.filter(unreadNotice);
   ui.noticeIndex = new Map([...(ui.noticeRecords?.rows || []), ...data.notices].map(notice => [notice.id, notice]));
   // notice 可能被 CLI 或另一个标签页答复/忽略；关掉了就不再展开。
   if (ui.noticeFocus !== null && ui.noticeIndex.get(ui.noticeFocus)?.status !== 'open') ui.noticeFocus = null;
-  $('notice-count').textContent = open.length ? String(open.length) : '无';
-  setNavCount('notices', open.length);
+  $('notice-count').textContent = unread.length ? `${open.length} 待决 · ${unread.length} 告知` : open.length ? String(open.length) : '无';
+  setNavCount('notices', open.length + unread.length);
   if (ui.indexOpen === 'notices' && ui.noticeRecords?.status === 'butler') {
     if (!ui.noticeRecords.pending) void loadNoticeRecords({ preserve: true });
     return;
@@ -156,19 +158,36 @@ export function renderNotices(data) {
     if (ui.noticeRecords.page) {
       const state = ui.noticeRecords;
       const newest = Math.max(0, ...state.rows.map(row => row.id));
-      const additions = data.notices.filter(row => row.id > newest && (state.status === 'all' || row.status === state.status));
+      const additions = data.notices.filter(row => row.id > newest && noticeMatches(row, state.status));
       state.rows = [...additions, ...state.rows.map(row => ui.noticeIndex.get(row.id) || row)];
-      const rows = ui.noticeRecords.rows.filter(row => ui.noticeRecords.status === 'all' || row.status === ui.noticeRecords.status);
+      const rows = ui.noticeRecords.rows.filter(row => noticeMatches(row, ui.noticeRecords.status));
       paintNoticeRows(rows);
       if (!state.pending) void loadNoticeRecords({ preserve: true });
     } else if (!ui.noticeRecords.pending) void loadNoticeRecords();
     return;
   }
-  paintNoticeRows(open);
+  paintNoticeRows([...open, ...unread]);
 }
-export function openNotice(noticeId) {
-  const notice = ui.noticeIndex.get(noticeId);
-  if (!notice) return Promise.resolve();
+let noticeRequest = 0;
+export async function openNotice(noticeId) {
+  if (!positiveId(noticeId)) return;
+  const request = ++noticeRequest;
+  const previousView = ui.view;
+  const notice = ui.noticeIndex.get(noticeId) || await readNoticeRecord(noticeId);
+  if (request !== noticeRequest || ui.view !== previousView) return;
+  ui.noticeIndex.set(noticeId, notice);
+  if (lifecycleNotice(notice)) {
+    ui.noticeFocus = null;
+    // loadDetail returns true only for a successfully rendered, still-current request.
+    const loaded = await detail(notice.task_id);
+    if (loaded !== true || request !== noticeRequest || ui.selected !== notice.task_id) return;
+    if (!unreadNotice(notice)) return;
+    const current = await action('notice.read', { id: notice.id });
+    ui.noticeIndex.set(notice.id, current);
+    if (ui.noticeRecords) ui.noticeRecords.rows = ui.noticeRecords.rows.map(row => row.id === current.id ? current : row);
+    // The normal snapshot refresh updates counts and the banner across all pages.
+    return;
+  }
   if (ui.indexOpen === 'notices' && ui.noticeRecords) {
     const state = ui.noticeRecords;
     if (state.status === 'butler') {

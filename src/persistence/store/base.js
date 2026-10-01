@@ -11,12 +11,20 @@ const ADDED_COLUMNS = {
   messages: ['signal_type', 'signal_key'],
   tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit'],
   agent_runs: ['model', 'thinking'],
+  notices: ['read_at'],
 };
 function addMissingColumns(db) {
   for (const [table, columns] of Object.entries(ADDED_COLUMNS)) {
     const present = new Set(db.query(`PRAGMA table_info(${table})`).all().map(row => row.name));
     for (const column of columns) if (!present.has(column)) db.query(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`).run();
   }
+  // Numeric source identities stay nullable; never backfill historical notices.
+  const noticeColumns = new Set(db.query('PRAGMA table_info(notices)').all().map(row => row.name));
+  if (!noticeColumns.has('source_event_id')) db.query('ALTER TABLE notices ADD COLUMN source_event_id INTEGER').run();
+  db.query(`CREATE UNIQUE INDEX IF NOT EXISTS notices_source_event_once ON notices(source_event_id)
+    WHERE source_event_id IS NOT NULL`).run();
+  db.query(`CREATE INDEX IF NOT EXISTS notices_lifecycle_unread ON notices(id)
+    WHERE kind='info' AND status='sent' AND source_event_id IS NOT NULL AND read_at IS NULL`).run();
   // Old free-text messages have NULL keys, so a partial unique index adds no new restriction to history.
   db.query(`CREATE UNIQUE INDEX IF NOT EXISTS messages_signal_once ON messages(task_id,sender_id,signal_key)
     WHERE signal_key IS NOT NULL`).run();

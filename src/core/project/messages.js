@@ -1,4 +1,4 @@
-import { check, id, text, TERMINAL, isPlainObject } from '../types.js';
+import { check, id, text, TERMINAL, isPlainObject, isSettled } from '../types.js';
 import { questionnaire, questionnaireAnswer } from '../questionnaire.js';
 import { decideTaskInput } from '../task-input-rule.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, resumeTaskDelivery } from './iteration.js';
@@ -96,6 +96,52 @@ export default {
     const row = this.store.run("INSERT INTO notices(task_id,title,body,kind,status) VALUES (?,?,?,'info','sent')", task.id, title, body);
     this.store.event(task.id, 'notice.opened', { notice_id: Number(row.lastInsertRowid), title, kind: 'info' });
     return this.store.get('SELECT * FROM notices WHERE id=?', Number(row.lastInsertRowid));
+  },
+
+  /** Built-in lifecycle hook. Caller commits Task state, source Event and Notice together. */
+  notifyTaskLifecycle(taskId, sourceEventId) {
+    const task = this.store.task(taskId);
+    if (!['say','analysis'].includes(task.task_kind)) return null;
+    const event = this.store.get('SELECT * FROM events WHERE id=? AND task_id=?', id(sourceEventId), task.id);
+    check(event, 'lifecycle source event does not belong to this Task');
+    const failed = task.status === 'failed' && ['failed','merge.repair_interrupted','analysis.fork_failed'].includes(event.type);
+    const idle = event.type === 'task.idle' && ['waiting','awaiting_acceptance'].includes(task.status);
+    const analyzed = task.task_kind === 'analysis' && task.status === 'completed' && event.type === 'completed';
+    if (!failed && !idle && !analyzed) return null;
+    if (!failed && (this.hasActionableMessages(task.id)
+      || this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", task.id)
+      || this.store.children(task.id).some(child => !isSettled(child)))) return null;
+    const existing = this.store.get('SELECT * FROM notices WHERE source_event_id=?', event.id);
+    if (existing) return existing;
+    const goal = String(task.goal ?? '').trim().split('\n')[0].slice(0, 100);
+    const title = `${task.task_kind === 'analysis' ? '分析' : '任务'} #${task.id} ${failed ? '异常停止' : analyzed ? '已完成' : '本轮已结束'}：${goal}`;
+    const body = [
+      failed ? `任务异常停止：${String(task.error ?? '没有记录到原因').slice(0, 1200)}`
+        : analyzed ? '只读分析已完成，没有分支改动。'
+          : '本轮工作已收尾，现已静息，等待合并、验收或进一步指示；这不代表 Task 已验收完成。',
+      task.branch ? `分支：${task.branch}\n父分支：${task.target_branch ?? '（未记录）'}`
+        : `分析分支：${task.target_branch ?? '（未记录）'}`,
+      task.task_kind === 'analysis' ? '' : task.integration === 'merged'
+        ? 'integration：已合入父分支。' : '尚未记录已合入父分支；实际交付状态见 Task 详情。',
+      task.result ? `${analyzed ? '结论' : '本轮结果'}：${String(task.result).slice(0, 1200)}` : '',
+      `打开任务 #${task.id} 查看详情。此告知无需答复，不会批准合并、验收或自动重试。`,
+    ].filter(Boolean).join('\n');
+    const row = this.store.run(`INSERT INTO notices(task_id,title,body,kind,status,source_event_id)
+      VALUES (?,?,?,'info','sent',?)`, task.id, title, body, event.id);
+    const noticeId = Number(row.lastInsertRowid);
+    this.store.event(task.id, 'notice.opened', { notice_id: noticeId, title, kind: 'info', source_event_id: event.id });
+    return this.store.get('SELECT * FROM notices WHERE id=?', noticeId);
+  },
+
+  /** User acknowledgement is independent of decisions and never wakes the Agent. */
+  readNotice(noticeId) {
+    const notice = this.store.get('SELECT * FROM notices WHERE id=?', id(noticeId));
+    check(notice && notice.kind === 'info' && notice.status === 'sent', 'only sent info notices can be marked read');
+    this.store.transaction(() => {
+      const changed = this.store.run("UPDATE notices SET read_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND read_at IS NULL", notice.id);
+      if (changed.changes) this.store.event(notice.task_id, 'notice.read', { notice_id: notice.id });
+    });
+    return this.store.get('SELECT * FROM notices WHERE id=?', notice.id);
   },
 
   answer(noticeId, answer, dismiss = false) {

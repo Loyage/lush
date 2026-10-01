@@ -381,8 +381,13 @@ export default {
       if (['say','child'].includes(task.task_kind)) {
         if (run.syncResolved) {
           check(this.store.task(taskId).head_commit === run.syncHead, 'synchronization repair HEAD changed before settlement');
-          this.store.update(taskId, { integration: run.syncIntegration,
-            status: run.syncIntegration === 'merged' ? 'awaiting_acceptance' : 'waiting' });
+          this.store.transaction(() => {
+            this.store.update(taskId, { integration: run.syncIntegration,
+              status: run.syncIntegration === 'merged' ? 'awaiting_acceptance' : 'waiting' });
+            const eventId = this.store.event(taskId, 'task.idle', { run_id: run.recordId,
+              head_commit: this.store.task(taskId).head_commit, sync_resolved: true });
+            this.notifyTaskLifecycle(taskId, eventId);
+          });
           return;
         }
         const booking = this.store.task(taskId).reservation ? JSON.parse(this.store.task(taskId).reservation) : null;
@@ -400,10 +405,17 @@ export default {
         const delivery = live.iteration_base_commit && !live.reservation ? await taskDeliveryState(this, live) : null;
         if (this.hasActionableMessages(taskId)) { this.store.update(taskId, { status: 'queued' }); return; }
         if (TERMINAL.has(this.store.task(taskId).status) || this.store.task(taskId).status === 'paused') return;
+        if (this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open'", taskId)) {
+          this.store.update(taskId, { status: 'awaiting' }); return;
+        }
+        if (this.store.children(taskId).some(child => !isSettled(child))) {
+          this.store.update(taskId, { status: 'waiting' }); return;
+        }
         this.store.transaction(() => {
           this.store.update(taskId, { status: delivery && delivery !== 'pending' ? 'awaiting_acceptance' : 'waiting',
             ...(delivery ? { integration: delivery } : {}) });
-          this.store.event(taskId, 'task.idle', { run_id: run.recordId, head_commit: this.store.task(taskId).head_commit });
+          const eventId = this.store.event(taskId, 'task.idle', { run_id: run.recordId, head_commit: this.store.task(taskId).head_commit });
+          this.notifyTaskLifecycle(taskId, eventId);
         });
         return;
       }

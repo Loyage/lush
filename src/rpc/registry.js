@@ -23,7 +23,7 @@ export const PARAMS = {
   'task.interrupt': ['id'], 'task.resume': ['id','profile'], 'task.configure': ['id','profile'],
   'progress.plan': ['steps'], 'progress.complete': ['step'],
   'notice.list': [], 'notice.page': ['status','before','limit'],
-  'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'],
+  'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'], 'notice.read': ['id'],
   'branch.tree': [], 'branch.show': ['branch'], 'branch.bind': ['branch','commit'],
   'branch.archive': ['branch','discard'], 'graph.get': [],
 };
@@ -33,7 +33,7 @@ export const USER_ONLY = new Set([
   'task.reserve','task.reserve_all','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge',
   'task.cancel','task.retry','task.cleanup','task.interrupt','task.resume','task.configure',
   'task.reopen','task.sync_parent','task.resolve_sync',
-  'notice.answer','notice.dismiss','branch.bind','branch.archive',
+  'notice.answer','notice.dismiss','notice.read','branch.bind','branch.archive',
 ]);
 export const AGENT_ONLY = new Set([
   'task.integrate','task.resolve_child_divergence','progress.plan','progress.complete',

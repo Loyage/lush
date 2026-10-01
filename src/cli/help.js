@@ -31,7 +31,7 @@ lush [--project PATH] [--json] <command>
   branch tree|show BRANCH            查看分支
   branch bind BRANCH COMMIT          显式绑定已有本地分支
   branch archive BRANCH [--discard]  安全归档分支
-  notice list|post|answer|dismiss    向用户提问与答复
+  notice list|post|answer|dismiss|read    用户决策与告知已读
   progress plan|complete             Agent 汇报进度
   agent show|models|set|reset|prompt|env|init  配置 Agent
   config show|set|reset              设置并发和调用限额

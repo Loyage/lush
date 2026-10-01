@@ -1,5 +1,6 @@
 import { button, el } from './dom.js';
 import { onPrefChange, readPref, setPref } from './prefs.js';
+import { unreadNotice, noticeHash, positiveId } from './notice-kind.js';
 
 const desktop = () => globalThis.window?.lushDesktop;
 let failure = '';
@@ -52,7 +53,7 @@ export function notificationControl() {
     paintControl(root); toggle.disabled = false;
   }, 'ghost');
   toggle.dataset.pref = 'noticeNotifications';
-  toggle.setAttribute('data-help', '开启后新的待你处理问题会发系统通知；关闭后只保留页面内提醒');
+  toggle.setAttribute('data-help', '开启后新的待决问题与 Task 告知会发系统通知；关闭后只保留页面内提醒');
   root.append(toggle, status); paintControl(root); return root;
 }
 function paintControl(root) {
@@ -78,7 +79,7 @@ export function createNoticeNotifier({ send, enabled = () => readPref('noticeNot
     // Explicit task deletion/clear can reuse SQLite notice IDs. Identity + creation time
     // still recognizes those new questions, while old records resurfacing after paging stay silent.
     const fresh = rows.filter(row => !seen.has(identity(row)) && (row.id > high || Date.parse(row.created_at) >= started)
-      && row.status === 'open' && ['question','questionnaire','plan'].includes(row.kind));
+      && ((row.status === 'open' && ['question','questionnaire','plan'].includes(row.kind)) || unreadNotice(row)));
     for (const row of rows) seen.add(identity(row));
     high = Math.max(high, nextHigh);
     if (!enabled()) return;
@@ -94,11 +95,19 @@ async function deliver(notice, project) {
     const title = `Lush · ${project.split('/').filter(Boolean).at(-1) || project}`;
     const body = notice.title.slice(0, 500);
     if (desktop()?.notifyNotice) {
-      if (!await desktop().notifyNotice({ title, body, tag: key })) return;
+      const target = positiveId(notice.id) && positiveId(notice.task_id) ? { notice_id: notice.id, task_id: notice.task_id } : {};
+      if (!await desktop().notifyNotice({ title, body, tag: key, ...target })) return;
     } else {
       if (!globalThis.Notification || Notification.permission !== 'granted') return;
       const notification = new Notification(title, { body, tag: key });
-      notification.onclick = () => { globalThis.window?.focus?.(); location.hash = '#notices'; notification.close(); };
+      const hash = noticeHash(notice);
+      const pathname = location.pathname;
+      notification.onclick = () => {
+        globalThis.window?.focus?.();
+        if (location.pathname === pathname) location.hash = hash;
+        else location.href = `${pathname}${hash}`;
+        notification.close();
+      };
     }
     try { localStorage.setItem(key, '1'); } catch { /* session baseline still deduplicates */ }
   };

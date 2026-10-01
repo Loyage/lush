@@ -70,7 +70,7 @@
 | `project/progress.js` | task 的 versioned 执行计划与预约读面投影、整表汇报与按稳定 key 完成；自动记录每步 `started_at` / `completed_at` / `duration_ms`，改计划时同 key 的完成态与计时保留。读面在有 `agent_runs` 时用 `projectProgress` 重算：步骤用时只含真正 running 的调用区间（`work_ms`、未结束的 run 拆成 `active_since` 交给前端推进），非 running 的等待另生成一条 `kind:'wait'` 条目插在已完成与当前步骤之间，历史计划同样重算，旧数据没有 run 时才回落墙钟计时 | `progressView(task, runs?)`、`projectProgress(progress, runs, status, now?, taskKind?)`（child 待交付确认显示等待父 Task，而非等待用户验收）、`reportProgressPlan(taskId, steps)`、`completeProgressStep(taskId, key)` |
 | `project/tree.js` | 任务树读模型（intent 层提上来当根） | `tree(taskId)` |
 | `project/timeline.js` | 并发时间轴（run/wait 区间与原因） | `timeline({limit})` |
-| `project/messages.js` | 收件箱、notice（question / plan / info 三类）、答复 | `message`、`sendTaskSignal(sourceId,targetId,type,key,payload)`、`notice`、`notify`、`answer` |
+| `project/messages.js` | 收件箱、notice（question / plan / info 三类）、答复与用户创建 Task 的内置告知 hook；`notifyTaskLifecycle` 由生命周期事务调用，以来源 Event ID 去重；已读不唤醒 Task | `message`、`sendTaskSignal(sourceId,targetId,type,key,payload)`、`notice`、`notify`、`notifyTaskLifecycle(taskId,sourceEventId)`、`readNotice(noticeId)`、`answer` |
 | `project/iteration.js` | 已交付 Task 的持续迭代、显式验收／历史重开、交付基线和有界读模型；由 Project 正式注册 | `acceptTask`、`reopenTask`；共享 `taskDeliveryState`、`iterationViews` 与同步/祖先守卫 |
 | `project/merge-queue.js` | 新式 say/child 的 version 2 预约、静息请求（无提交的干净 child 直接结算）、父 Task 的 merge 子 Task 串行驱动、分歧退回原 Task，以及合并落地后归还原父 Task（不自动归档）；父子重挂保留原父 ID 在 reservation / Event；“原父”只以预约里记下的 `parent_id` 为准，所以被旧版自动归档路径收走 branch / worktree 的历史行也会在 `recover()` 里归位；Git 副作用交给 Workspaces | `requestTaskMerge`、`settleQueuedMerge`、`scheduleTaskMerge`、`driveTaskMerge`、`restoreMergedTaskParent`、`restoreUnrequestedTaskParent` |
 | `project/merge.js` | 批准合并、按目标分支批量交付、冲突收口、随带提交对账与交付队列；`ladder()` 只读取有界 pending、对应有效 resolver 与直接依赖头，不遍历历史任务 | `approveMerge`、`approveMergeMany`、`reconcileIntegrated`、`openResolution`、`settleResolution`、`mergeConflictContext`、`ladder()`、`containsCommit` |
@@ -108,7 +108,7 @@
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `store/base.js` | 打开数据库、事务、id 分配与加列式 schema 演进 | `class StoreBase`（构造、`run`/`get`/`all`/`transaction`/`close`、`taskIdHigh`/`setTaskIdHigh`/`nextTaskId`、`inputIdHigh`/`setInputIdHigh`/`nextInputId`） |
+| `store/base.js` | 打开数据库、事务、id 分配与加列式 schema 演进；Notice 新增可空 `source_event_id INTEGER` / `read_at TEXT` 及来源唯一、未读部分索引，旧行不回填 | `class StoreBase`（构造、`run`/`get`/`all`/`transaction`/`close`、`taskIdHigh`/`setTaskIdHigh`/`nextTaskId`、`inputIdHigh`/`setInputIdHigh`/`nextInputId`） |
 | `store/schema.js` | 全部 DDL、项目绑定校验，以及首页持久 revision / 技术计数表 `overview_task_counts` 的触发器维护（旧库打开时一次性播种） | `SCHEMA`、`bindProject(db, project)` |
 | `store/tasks.js` | tasks 表的读写与生命周期字段（新增可空 `task_kind`，旧记录为 legacy，新 say/main/owner 明确标识；`reservation` 是 say/child 的 versioned 合并预约状态；version 2 静息后向直接父 Task 发请求，由 merge 队列串行 Squash；历史 version 1 仍按固定源提交/父基线批准）、有界 task 页（scope 默认 work，all 包含 intent/work），以及 `tasks.progress_plan` 附属 JSON 的原子替换；`tasks.retry_profile` 保存已校验的本轮重试 Profile 并在终态清除；`routedInputIds()` 一次查出带 `input.route` 事件的 input id 集，供任务读模型标注快速路由 | `task`、`tasks`、`summaries`、`summaryPage`、`routedInputIds`、`create`、`update`、`setProgressPlan`、`children`、`touch`、`armAgent`、`touchAgent`、`agentByToken`、`activeTasks`、`purge`、`referringTasks`、`deleteTasks` |
 | `store/specs.js` | 拆解队列 | `specDeps`、`addSpec`、`spec`、`specs`、`specStats`、`pendingSpecs`、`specsForBatch`、`specsByPlanner`、`nextSpecPlanner`、`assignSpecs`、`takeSpecs`、`plannedSpec`、`dropSpec`、`releaseBatch`、`discardBatch` |

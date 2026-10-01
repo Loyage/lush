@@ -2,13 +2,17 @@ import { check, id, bounded } from '../../core/types.js';
 
 /** notice.* */
 export const handlers = {
-  'notice.list'(p, params, actor) { return bounded(p.store.all("SELECT * FROM notices ORDER BY (status='open') DESC, id DESC LIMIT 200"), 900000); },
+  'notice.list'(p, params, actor) { return bounded(p.store.all(`SELECT * FROM notices
+    ORDER BY (status='open') DESC,
+      (kind='info' AND status='sent' AND source_event_id IS NOT NULL AND read_at IS NULL) DESC,
+      id DESC LIMIT 200`), 900000); },
   'notice.page'(p, { status = 'all', before = null, limit = 30 }) {
-    check(['all','open','answered','dismissed','sent'].includes(status), 'invalid notice status');
+    check(['all','open','answered','dismissed','sent','unread'].includes(status), 'invalid notice status');
     check(Number.isInteger(limit) && limit >= 1 && limit <= 100, 'limit must be 1..100');
     if (before !== null) before = id(before);
     const where = [], args = [];
-    if (status !== 'all') { where.push('status=?'); args.push(status); }
+    if (status === 'unread') where.push("kind='info' AND status='sent' AND source_event_id IS NOT NULL AND read_at IS NULL");
+    else if (status !== 'all') { where.push('status=?'); args.push(status); }
     if (before !== null) { where.push('id<?'); args.push(before); }
     const rows = p.store.all(`SELECT * FROM notices${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`, ...args, limit + 1);
     // Bound by bytes too, without dropping the cursor for omitted records.
@@ -27,4 +31,5 @@ export const handlers = {
   },
   'notice.answer'(p, params, actor) { return p.answer(params.id, params.answer); },
   'notice.dismiss'(p, params, actor) { return p.answer(params.id, '', true); },
+  'notice.read'(p, params) { return p.readNotice(params.id); },
 };

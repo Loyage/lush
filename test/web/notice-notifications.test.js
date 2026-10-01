@@ -55,6 +55,37 @@ test('browser permission is opt-in, rejection safe, click opens records, togglin
   } finally { if (previous === undefined) delete globalThis.Notification; else globalThis.Notification = previous; dom.restore(); }
 });
 
+test('lifecycle info observer includes new unread only, never historical/read backlog', async () => {
+  const sent = [];
+  const info = (id, extra = {}) => ({ ...notice(id, 'sent', 'info'), task_id: 4, source_event_id: id + 100, read_at: null, ...extra });
+  const observe = createNoticeNotifier({ enabled: () => true, send: row => sent.push(row.id) });
+  observe(data([info(1)]));
+  observe(data([info(2), info(3, { read_at: 'already read' }), info(4, { source_event_id: null }), info(5, { source_event_id: -1 })]));
+  observe(data([info(2)]));
+  observe(data([info(6)], '/tmp/two'));
+  observe(data([info(7)], '/tmp/two'));
+  await flush(); expect(sent).toEqual([2, 7]);
+});
+
+test('browser lifecycle notice click preserves source project path and uses a numeric Notice route', async () => {
+  const dom = installDom(); const previous = globalThis.Notification; const banners = [];
+  class FakeNotification {
+    static permission = 'granted';
+    constructor(_title, options) { this.options = options; banners.push(this); }
+    close() { this.closed = true; }
+  }
+  globalThis.Notification = FakeNotification;
+  try {
+    setPref('noticeNotifications', true); dom.location.pathname = '/p/abcdef0123456789/';
+    resetNoticeNotifier(); observeNotices(data([]));
+    observeNotices(data([{ ...notice(100, 'sent', 'info'), task_id: 4, source_event_id: 100, read_at: null }]));
+    await flush(); expect(banners).toHaveLength(1);
+    banners[0].onclick(); expect(dom.location.hash).toBe('#notice-100');
+    dom.location.pathname = '/p/1111111111111111/';
+    banners[0].onclick(); expect(dom.location.href).toBe('/p/abcdef0123456789/#notice-100');
+  } finally { if (previous === undefined) delete globalThis.Notification; else globalThis.Notification = previous; dom.restore(); }
+});
+
 test('desktop preference restores independently of origin and reset disables native channel', async () => {
   const dom = installDom(); let saved = true; const sent = [];
   dom.window.lushDesktop = {

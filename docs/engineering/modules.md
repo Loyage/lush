@@ -117,8 +117,15 @@
 
 ## Notice 提醒与历史接缝
 
-- 保留 `notice.list` 兼容读面，新增 `notice.page(status?,before?,limit?)` 与 `GET /api/notices`：按 ID 降序分页，status 为 `all|open|answered|dismissed|sent`，返回 `{notices,cursor,has_more,limit}`。不删除或重写既有 Notice。
-- 「待我处理」按需查询全部类型的 Notice，未处理项可直接答复／审批，历史只读；首页仍用有界快照。通知仅针对新增的 open 决策事项，首次加载不补发历史。
+### 用户创建 Task 的告知型生命周期 hook
+
+- 内置 runtime hook（不执行仓库程序、不调用 Agent）仅为用户直接创建的 `say` / `analysis` Task 生成生命周期告知。工作收尾且无待决、未处理消息或未结算子任务时告知本轮静息；异常停止（超时、调用失败、daemon 中断恢复）告知失败原因。等待子任务、待决、用户主动暂停/取消和安全抢占不产生额外告知。静息不是验收完成，也不承诺已合并。
+- 复用 Notice 的 `kind='info' / status='sent'`，新增可空 `source_event_id`（唯一的来源生命周期 Event ID）与 `read_at`（成功打开 Task 后的已读时间）；旧 Notice 不回填、不作为新增未读告知。状态/来源事件/告知同事务保存，以来源 ID 幂等；历史终态提醒兼容保留，用户创建 Task 不重复生成旧结算提醒。
+- 跨分区契约：用户专属 `notice.read {id}` 幂等标记 info Notice 已读，不答复、不唤醒 Task；`notice.page {status:'unread'}` 仅返回 `kind=info,status=sent,source_event_id IS NOT NULL,read_at IS NULL`。`notice.list` 的有界快照优先包含待决与未读告知，返回完整新字段。Web `POST /api/action` 开放 `notice.read`。
+- UI 将待决与未读告知区分展示；点击生命周期告知成功加载对应 Task 后调用 `notice.read`，加载失败不标已读。系统通知沿用客户端开关/首屏不补发/项目隔离，新增 info 生命周期告知的增量提醒；浏览器和桌面点击使用受限的 Task/Notice 数字 ID 路由，不允许任意 URL。告知不进入调度、合并、验收的 open 决策口径。
+
+- 保留 `notice.list` 兼容读面，新增 `notice.page(status?,before?,limit?)` 与 `GET /api/notices`：按 ID 降序分页，status 为 `all|open|answered|dismissed|sent|unread`，返回 `{notices,cursor,has_more,limit}`。不删除或重写既有 Notice。
+- 「待我处理」按需查询全部类型的 Notice，未处理项可直接答复／审批，历史只读；首页仍用有界快照。通知针对新增的 open 决策事项与未读生命周期告知，首次加载不补发历史。
 - `notice-notifications.js` 负责浏览器 Notification 与桌面 IPC 适配，默认关闭；授权只由用户开启时触发，失败不影响轮询和留档。开关属于当前客户端，桌面保存在 Electron userData（不受随机端口影响）。窗口关闭后不提醒，不引入 daemon 后台推送。
 
 ## Token 效率接缝

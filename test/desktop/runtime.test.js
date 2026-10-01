@@ -190,6 +190,43 @@ test('native notices are opt-in per Host and click focuses their source window, 
   } finally { f.close(); }
 });
 
+test('native notification targets are numeric and retain the original project route', async () => {
+  const f = fixture();
+  try {
+    await f.desktop.start(); const win = await f.desktop.openRemote('https://one.example.com');
+    win.webContents.mainFrame.url = 'https://one.example.com/p/abcdef0123456789/';
+    await f.invoke('lush:notification-settings', win, true);
+    const payload = { title: 'Task', body: 'idle', tag: 'lifecycle', notice_id: 50, task_id: 4 };
+    expect(await f.invoke('lush:notice', win, payload)).toBe(true);
+    win.webContents.mainFrame.url = 'https://one.example.com/p/1111111111111111/';
+    f.notices[0].emit('click');
+    expect(win.webContents.sent).toEqual(['lush:notice-open', { notice_id: 50, task_id: 4, pathname: '/p/abcdef0123456789/' }]);
+    for (const value of [0, -1, '50', Number.MAX_SAFE_INTEGER + 1, 'https://evil.test/']) {
+      await expect(f.invoke('lush:notice', win, { ...payload, notice_id: value })).rejects.toThrow('invalid notification target');
+    }
+    await expect(f.invoke('lush:notice', win, { ...payload, task_id: null })).rejects.toThrow('invalid notification target');
+  } finally { f.close(); }
+});
+
+test('notification preload validates target and restores only a safe source project path', () => {
+  const source = fs.readFileSync(new URL('../../src/ui/desktop/preload.cjs', import.meta.url), 'utf8');
+  let click;
+  const location = { pathname: '/p/abcdef0123456789/', hash: '' };
+  vm.runInNewContext(source, { require: () => ({ contextBridge: { exposeInMainWorld: () => {} },
+    ipcRenderer: { invoke: () => {}, on: (_name, handler) => { click = handler; } } }),
+    process: { argv: [], platform: 'linux' }, window: { location } });
+  click({}, { notice_id: 50, task_id: 4, pathname: location.pathname });
+  expect(location.hash).toBe('#notice-50');
+  click({}, { notice_id: 51, task_id: 4, pathname: '/p/1111111111111111/' });
+  expect(location.href).toBe('/p/1111111111111111/#notice-51');
+  for (const target of [{ notice_id: '50', task_id: 4, pathname: '/' }, { notice_id: 50, task_id: -1, pathname: '/' },
+    { notice_id: 50, task_id: 4, pathname: '//evil.test' }, { notice_id: 50, task_id: 4, pathname: '/api/action' }]) {
+    location.hash = ''; location.href = '';
+    click({}, target); expect(location.hash).toBe(''); expect(location.href).toBe('');
+  }
+  click({}); expect(location.hash).toBe('#notices');
+});
+
 test('network failure closes only the failed window, preserves others and surfaces an explicit retry error', async () => {
   const f = fixture();
   try {
