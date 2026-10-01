@@ -13,12 +13,13 @@
 | `agent/prompts.js` | 命名内置 Prompt 片段、按角色组合，并叠加可提交、本机与 `agent.json` 补充 | `AGENT_ROLES`、`PROMPT_PARTS`、`ROLE_PROMPT_PARTS`、`builtInPrompt(role)`、`agentPrompt(config,role,profile)` |
 | `agent/environment.js` | 每次 invocation 热加载 `.lush/agent/agent.env` 与角色 env，校验并叠加环境；为 Web/RPC 提供按公共/角色文件读取与 owner-only 原子写入，空表删除文件 | `AGENT_ENV_TARGETS`、`parseAgentEnv(source,file)`、`readAgentEnvironment(config,target)`、`saveAgentEnvironment(config,target,values)`、`agentEnvironment(config,role)` |
 | `agent/settings.js` | `.lush/agent.json` 的兼容读取、校验、原子写入、角色继承与 Web 选项（含各角色内置 Prompt）；旧 `prompt` 迁到 `append_prompt`，资源选择存 `extensions` / `skills` | `AGENT_ROLES`、`AGENT_BACKENDS`、`THINKING_LEVELS`、`MODEL_PRESETS`、`normalizeAgentConfig()`、`normalizeAgentProfile()`、`normalizeSoftBudget(value)`、`AgentSettings` |
-| `agent/status.js` | 完整 Pi 安装/模型/资源/脱敏账号状态与轻量账号额度查询；公共/agent 环境和配置热读，按真实凭证/环境摘要单飞，两入口共用 query_id；不启动模型、不刷新凭证，响应适配 1 MiB RPC 帧 | `discoverAgentStatus(config,profile,options?)`、`discoverAgentUsage(config,profile,options?)` |
+| `agent/status.js` | 完整 Pi 安装/模型/资源/脱敏账号状态与轻量账号额度查询；公共/agent 环境和配置热读，按真实凭证/环境摘要单飞，两入口共用 query_id；不启动模型，已选官方 Codex 可独立刷新过期 OAuth，响应适配 1 MiB RPC 帧 | `discoverAgentStatus(config,profile,options?)`、`discoverAgentUsage(config,profile,options?)` |
 | `agent/status-command.js` | 状态查询的无 shell、有限输出/超时子进程及 Pi 可执行文件/安装路径解析；错误不带 stdout/stderr | `statusCommand()`、`resolvePiInstallation()` |
 | `agent/status-pi.js` | 内部隔离进程入口；从已安装 Pi 读取 SDK 本地模型/包元数据，禁用 refresh、不读真实凭证、不加载扩展 | 内部脚本，无公共导出 |
 | `agent/status-accounts.js` | 有界只读配置解析、凭证来源/过期状态、脱敏身份和稳定匿名账号摘要；内置查询凭证隔离自定义模型端点，不执行密钥命令 | `readPiAccounts()`、`queryAccountBalance()`（兼容再导出）、`readStatusJson()`、`usageDigest()` |
-| `agent/usage-query.js` | DeepSeek/OpenRouter/Codex/Z.AI/Kimi 固定 HTTPS 请求与自定义 JSON 映射；显式环境引用、安全序列化、无重定向、有界响应/截止时间、固定错误分类 | `USAGE_ENDPOINTS`、`queryAccountBalance()`、`queryCustomBalance()`、`unavailableBalance()` |
+| `agent/usage-query.js` | DeepSeek/OpenRouter/Codex/Z.AI/Kimi 固定 HTTPS 请求与自定义 JSON 映射；显式环境引用、安全序列化、无重定向、有界响应/截止时间、固定错误分类（含429/超时）、Codex独立百分比与真实窗口时长 | `USAGE_ENDPOINTS`、`queryAccountBalance()`、`queryCustomBalance()`、`unavailableBalance()` |
 | `agent/usage-query-run.js` | 已选服务商与 custom 覆盖策略、最多四并发、query_id 及来源身份，未选账号不生成查询事实 | `runUsageQueries(context,options)` |
+| `agent/usage-auth-codex.js` | 独立 Codex OAuth access 刷新，兼容原 auth.json 和锁目录协议；固定认证 HTTPS 请求、有界响应/超时、跨进程锁/heartbeat与校验写回，不加载 Pi 运行时、不覆盖其他服务商 | `resolveCodexUsageCredential(authFile,expected,options)`（内部私密结果，永不直接投影 RPC）；字段契约见 [额度查询](agent-usage.md#codex-追加完善接缝) |
 | `agent/usage-settings.js` | 项目 `agent-usage.json` owner-only 原子读写、声明式 HTTP 模板与字段路径严格校验，默认关闭后台/5分钟/90天 | `normalizeUsageConfig()`、`UsageSettings` |
 | `core/agent-usage.js` | 项目用量服务：保存安全观测、query_id 去重、失败附旧成功值、保留期、显式后台采样和在途关闭；Provider 负责热读单飞 | `AgentUsageService`、`usageSourceKey(config,provider)` |
 | `agent/models.js` | 有界、超时地读取 Pi / Codex CLI 模型目录，只投影安全的模型元数据，失败回退内置预设 | `discoverAgentModels(config, agent)` |
@@ -117,7 +118,7 @@
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `store/base.js` | 打开数据库、事务、id 分配与加列式 schema 演进；Notice 新增可空 `source_event_id INTEGER` / `read_at TEXT` 及来源唯一、未读部分索引，旧行不回填 | `class StoreBase`（构造、`run`/`get`/`all`/`transaction`/`close`、`taskIdHigh`/`setTaskIdHigh`/`nextTaskId`、`inputIdHigh`/`setInputIdHigh`/`nextInputId`） |
+| `store/base.js` | 打开数据库、事务、id 分配与加列式 schema 演进；额度采样新增 nullable REAL used_percent，旧值保持未知；Notice 新增可空 `source_event_id INTEGER` / `read_at TEXT` 及来源唯一、未读部分索引，旧行不回填 | `class StoreBase`（构造、`run`/`get`/`all`/`transaction`/`close`、`taskIdHigh`/`setTaskIdHigh`/`nextTaskId`、`inputIdHigh`/`setInputIdHigh`/`nextInputId`） |
 | `store/schema.js` | 全部 DDL、项目绑定校验，以及首页持久 revision / 技术计数表 `overview_task_counts` 的触发器维护（旧库打开时一次性播种） | `SCHEMA`、`bindProject(db, project)` |
 | `store/tasks.js` | tasks 表的读写与生命周期字段（新增可空 `task_kind`，旧记录为 legacy，新 say/main/owner 明确标识；可空 `auto_merge` 是 `{version:1,enabled,locked}` 的 JSON hook 设置，旧行不回填，新 say 关闭、新 child 开启锁定；`reservation` 是独立的 say/child versioned 单次合并状态，自动 pending 带 `auto_merge:true`；version 2 静息后向直接父 Task 发请求，由 merge 队列串行 Squash；历史 version 1 仍按固定源提交/父基线批准）、有界 task 页（scope 默认 work，all 包含 intent/work），以及 `tasks.progress_plan` 附属 JSON 的原子替换；`tasks.retry_profile` 保存已校验的本轮重试 Profile 并在终态清除；`routedInputIds()` 一次查出带 `input.route` 事件的 input id 集，供任务读模型标注快速路由 | `task`、`tasks`、`summaries`、`summaryPage`、`routedInputIds`、`create`、`update`、`setProgressPlan`、`children`、`touch`、`armAgent`、`touchAgent`、`agentByToken`、`activeTasks`、`purge`、`referringTasks`、`deleteTasks` |
 | `store/specs.js` | 拆解队列 | `specDeps`、`addSpec`、`spec`、`specs`、`specStats`、`pendingSpecs`、`specsForBatch`、`specsByPlanner`、`nextSpecPlanner`、`assignSpecs`、`takeSpecs`、`plannedSpec`、`dropSpec`、`releaseBatch`、`discardBatch` |

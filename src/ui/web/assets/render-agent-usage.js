@@ -1,13 +1,13 @@
 import { block, button, el } from './dom.js';
 import { api } from './api.js';
 import { usageConfigForm } from './agent-usage-form.js';
+import { usageWindow, usageErrorLabels } from './usage-window.js';
 
 const list = value => Array.isArray(value) ? value : [];
 const finite = value => typeof value === 'number' && Number.isFinite(value);
 const amount = value => finite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 8 }) : '未知';
 const time = value => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : '时间未知';
-const errorLabels = { expired: '凭证过期，请在 Pi 中更新', unconfigured: '缺少查询凭证', unauthorized: '授权失败', network: '网络查询失败', invalid_response: '响应格式无效', unsupported: '不支持查询', timeout: '查询超时' };
-const pointStatus = point => point.status === 'available' ? '查询成功' : errorLabels[point.error_code] || '查询失败 / 未知';
+const pointStatus = point => point.status === 'available' ? '查询成功' : usageErrorLabels[point.error_code] || '查询失败 / 未知';
 const isKnown = point => point.status === 'available' && finite(point.remaining) && Number.isFinite(Date.parse(point.at));
 const text = (parent, value, warning = false) => parent.append(el('p', value, warning ? 'agent-status-warning' : 'hint'));
 function selectControl(parent, label, entries, value, className) {
@@ -32,7 +32,7 @@ function resetBetween(previous, point) {
 export function renderUsageSeries(series, range, config = {}) {
   const root = el('div', undefined, 'agent-usage-series'), points = list(series.points);
   root.append(el('h3', `${series.provider} · ${series.label || '未命名指标'}`));
-  text(root, `${series.kind === 'balance' ? '现金余额' : '订阅 / API 额度（非现金余额）'} · 单位 ${series.unit || '未知'} · 账号 ${series.account_key || '未知'}${series.window_seconds ? ` · ${series.window_seconds} 秒窗口` : ''}`);
+  text(root, `${series.kind === 'balance' ? '现金余额' : '订阅 / API 额度（非现金余额）'} · 单位 ${series.unit || '未知'} · 账号 ${series.account_key || '未知'} · ${usageWindow(series.window_seconds)}`);
   text(root, `范围：${time(range.from)} — ${time(range.to)}；显示 ${points.length} / ${series.sample_count ?? points.length} 个样本。时间均为 UTC。`);
   const known = points.filter(isKnown), latest = points.at(-1), lastKnown = known.at(-1);
   if (latest && !isKnown(latest)) {
@@ -85,12 +85,13 @@ export function renderUsageSeries(series, range, config = {}) {
   const scroll = el('div', undefined, 'agent-status-table-scroll'), table = el('table', undefined, 'agent-status-model-table');
   table.append(el('caption', `原始采样读数 · ${series.unit || '单位未知'} · UTC；未知不等于零`));
   const head = el('thead'), row = el('tr');
-  for (const label of ['采样时间', '剩余', '总量', '已用', '状态', '重置时间']) { const th = el('th', label); th.setAttribute('scope', 'col'); row.append(th); }
+  for (const label of ['采样时间', '剩余', '总量', '已用', '已用百分比 (%)', '状态', '重置时间']) { const th = el('th', label); th.setAttribute('scope', 'col'); row.append(th); }
   head.append(row); table.append(head); const body = el('tbody');
   for (const point of points) {
     const tr = el('tr');
     for (const value of [time(point.at), amount(point.status === 'available' ? point.remaining : null), amount(point.status === 'available' ? point.total : null),
-      amount(point.status === 'available' ? point.used : null), pointStatus(point), point.reset_at ? time(point.reset_at) : '未知']) tr.append(el('td', value));
+      amount(point.status === 'available' ? point.used : null), amount(point.status === 'available' ? point.used_percent : null),
+      pointStatus(point), point.reset_at ? time(point.reset_at) : '未知']) tr.append(el('td', value));
     body.append(tr);
   }
   table.append(body); scroll.append(table); details.append(scroll); root.append(details); return root;
@@ -142,7 +143,7 @@ export function createAgentUsage({ ownsPage }) {
     const all = list(data.series), selectedAccount = account.value, previousMetric = metric.value;
     const choices = all.filter(series => !selectedAccount || `${series.provider}\n${series.account_key}` === selectedAccount);
     metric.replaceChildren();
-    for (const series of choices) { const option = el('option', `${series.provider} · ${series.label} · ${series.unit || '单位未知'}${series.window_seconds ? ` · ${series.window_seconds} 秒` : ''} · ${String(series.account_key).slice(0, 12)}`); option.value = series.id; metric.append(option); }
+    for (const series of choices) { const option = el('option', `${series.provider} · ${series.label} · ${series.unit || '单位未知'} · ${usageWindow(series.window_seconds)} · ${String(series.account_key).slice(0, 12)}`); option.value = series.id; metric.append(option); }
     metric.value = choices.some(series => series.id === previousMetric) ? previousMetric : choices[0]?.id || '';
     metric.disabled = !choices.length;
     const selected = choices.find(series => series.id === metric.value);

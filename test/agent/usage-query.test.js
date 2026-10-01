@@ -98,15 +98,15 @@ test('OAuth refresh token rotation preserves history identity, a different accou
   } finally { f.close(); }
 });
 
-test('expired OAuth is an attempted safe error, unsupported providers and proxy credentials are not queried', async () => {
+test('expired OAuth refresh failure is a safe error, unsupported providers and proxy credentials are not queried', async () => {
   const f = world();
   try {
     f.auth({ 'openai-codex': { ...oauth(), expires: 1 }, unknown: { type: 'api_key', key: 'PRIVATE_KEY' }, zai: { type: 'api_key', key: 'PRIVATE_KEY' } });
     f.models({ providers: { zai: { baseUrl: 'https://proxy.invalid' } } });
     let calls = 0;
     const value = await discoverAgentUsage(f.config, f.profile, { usageConfig: { providers: ['openai-codex', 'unknown', 'zai'] }, fetch() { calls++; throw new Error(); } });
-    expect(calls).toBe(0);
-    expect(value.accounts.find(row => row.provider === 'openai-codex').balance).toMatchObject({ status: 'error', queried: true, error_code: 'expired' });
+    expect(calls).toBe(1);
+    expect(value.accounts.find(row => row.provider === 'openai-codex').balance).toMatchObject({ status: 'error', queried: true, error_code: 'network' });
     for (const provider of ['unknown', 'zai']) expect(value.accounts.find(row => row.provider === provider).balance.queried).toBe(false);
   } finally { f.close(); }
 });
@@ -184,7 +184,7 @@ test('failed query codes are safe and bounded for authorization, body, timeout a
     [async () => new Response('x'.repeat(65537)), 'invalid_response'],
     [async () => new Response('PRIVATE'), 'invalid_response'],
     [async () => { throw new Error('PRIVATE'); }, 'network'],
-    [async () => new Promise(() => {}), 'network'],
+    [async () => new Promise(() => {}), 'timeout'],
   ]) {
     const value = await queryAccountBalance('openai-codex', 'PRIVATE', at, { fetch, timeout: 10 });
     expect(value).toMatchObject({ status: 'error', error_code: code, items: [], queried: true });

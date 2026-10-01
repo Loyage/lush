@@ -127,6 +127,19 @@ test('重置/补充与后台停机间隔断开，截断历史只画观测点', (
   expect(reset.querySelectorAll('.agent-usage-connection')).toHaveLength(0); expect(reset.querySelectorAll('.agent-usage-reset')).toHaveLength(1);
 });
 
+test('历史窗口与百分比单独呈现，限流和凭证冲突不是零额度', () => {
+  const data = history(), series = { ...data.series[0], window_seconds: 18000,
+    points: [point('09:00', 99.5, { used_percent: 0.5 }), point('09:05', null, { status: 'error', error_code: 'rate_limited' })] };
+  const root = renderUsageSeries(series, data);
+  expect(deepText(root)).toContain('5 小时窗口'); expect(deepText(root)).toContain('HTTP 429');
+  expect(deepText(root)).toContain('已用百分比 (%)');
+  expect(root.querySelector('tbody').children[0].children[4].textContent).toBe('0.5');
+  expect(root.querySelector('tbody').children[1].children[4].textContent).toBe('未知');
+  expect(root.querySelectorAll('.agent-usage-dot')).toHaveLength(1);
+  const unknown = renderUsageSeries({ ...series, window_seconds: null, points: [point('09:00', null, { status: 'error', error_code: 'auth_changed' })] }, data);
+  expect(deepText(unknown)).toContain('窗口时长未知'); expect(deepText(unknown)).toContain('登录凭证已变化');
+});
+
 test('数据表覆盖所有记录，图上观测点可键盘聚焦或触摸查看', () => {
   const data = history(), root = renderUsageSeries(data.series[0], data);
   expect(root.querySelector('tbody').children).toHaveLength(4);

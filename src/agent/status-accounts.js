@@ -81,7 +81,13 @@ function stableIdentity(credential) {
   return null;
 }
 
-/** Private keys are kept in a separate map which must never become the RPC result. */
+/** Safe projection of refreshed OAuth, without exposing its access/refresh tokens. */
+export function codexCredentialView(configDir, credential, baseUrl = undefined) {
+  return { status: 'configured', expires_at: expiry(credential.expires), identity: identity(credential),
+    account_key: usageDigest([configDir, 'openai-codex', stableIdentity(credential) || credential.access, baseUrl || 'builtin']) };
+}
+
+/** Private keys and Codex refresh metadata must never become the RPC result. */
 export function readPiAccounts(configDir, env, modelsConfig, warnings, currentProvider, checkedAt) {
   const auth = readStatusJson(path.join(configDir, 'auth.json'), warnings, 'Pi 凭证文件', { privateFile: true });
   const providers = new Set();
@@ -89,7 +95,7 @@ export function readPiAccounts(configDir, env, modelsConfig, warnings, currentPr
   for (const [id, value] of Object.entries(modelsConfig?.providers || {})) if (providerName(id) && object(value) && value.apiKey) providers.add(id);
   for (const [id, names] of Object.entries(ENV_KEYS)) if (names.some(name => env[name])) providers.add(id);
   if (providerName(currentProvider)) providers.add(currentProvider);
-  const accounts = [], keys = new Map();
+  const accounts = [], keys = new Map(); let codexAuth = null;
   for (const provider of [...providers].sort().slice(0, 100)) {
     const credential = auth?.[provider], custom = modelsConfig?.providers?.[provider];
     let source = 'none', auth_type = null, status = auth === null ? 'unknown' : 'unconfigured', expires_at = null, key = null, accountIdentity = null;
@@ -114,14 +120,15 @@ export function readPiAccounts(configDir, env, modelsConfig, warnings, currentPr
     let official = modelsConfig !== null && baseUrl === undefined;
     if (modelsConfig !== null && typeof baseUrl === 'string') { try { const url = new URL(baseUrl); official = url.origin === officialOrigin && !url.username && !url.password; } catch {} }
     if (key && official && (provider !== 'openai-codex' || auth_type === 'oauth')) keys.set(provider, key);
+    if (provider === 'openai-codex' && auth_type === 'oauth') codexAuth = { credential, official, baseUrl };
     let balance = unavailableBalance('unsupported', '此服务商尚无已接入的余额/额度查询接口。', checkedAt);
     if (status === 'unconfigured') balance = unavailableBalance('unconfigured', '未配置此服务商凭证。', checkedAt);
-    else if (status === 'expired') balance = unavailableBalance('unsupported', '本地 OAuth 凭证已过期；状态查询不会自动刷新凭证。', checkedAt);
+    else if (status === 'expired') balance = unavailableBalance('unsupported', '本地 OAuth 凭证已过期；只有已选官方 Codex 查询支持独立刷新，其他账号需更新登录。', checkedAt);
     else if (status === 'unknown') balance = unavailableBalance('unsupported', '凭证状态未知或使用密钥命令；只读查询不会执行命令。', checkedAt);
     else if (officialOrigin && !official) balance = unavailableBalance('unsupported', '此账号使用自定义端点，不能将其凭证发送给服务商官方余额接口。', checkedAt);
     else if (provider === 'openai-codex' && auth_type !== 'oauth') balance = unavailableBalance('unsupported', 'Codex 订阅查询仅支持有效的本地 OAuth 凭证，不使用 API Key 代替订阅登录。', checkedAt);
     const account_key = usageDigest([configDir, provider, stableIdentity(credential) || key || credential?.access || credential?.key || custom?.apiKey || 'unconfigured', baseUrl || 'builtin']);
     accounts.push({ provider, account_key, auth_type, source, identity: accountIdentity, status, expires_at, balance });
   }
-  return { accounts, keys };
+  return { accounts, keys, codexAuth };
 }

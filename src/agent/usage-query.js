@@ -1,5 +1,6 @@
 // Provider wire formats are intentionally parsed here rather than loading Pi extensions.
-// Endpoint references: pi-usage (MIT), https://github.com/ajarellanod/pi-usage-bars.
+// Endpoint references: pi-usage (MIT), https://github.com/iefnaf/pi-usage (extensions/usage/core.ts).
+// This module uses fetch directly; it never loads the Pi plugin or its runtime.
 // No provider response text, error message, credential or environment value is returned.
 export const USAGE_ENDPOINTS = Object.freeze({
   deepseek: 'https://api.deepseek.com/user/balance',
@@ -21,7 +22,7 @@ function available(kind, items, checked_at, reason = null) {
   return { status: 'available', kind, items, reason, checked_at, queried: true, error_code: null };
 }
 function item(id, label, unit, values = {}) {
-  return { id, label, unit, remaining: null, total: null, used: null, reset_at: null, window_seconds: null, ...values };
+  return { id, label, unit, remaining: null, total: null, used: null, used_percent: null, reset_at: null, window_seconds: null, ...values };
 }
 function iso(value, milliseconds = false) {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
@@ -39,8 +40,14 @@ function reset(window, checkedAt) {
 function percent(value) { const parsed = number(value); return parsed !== null && parsed >= 0 && parsed <= 100 ? parsed : null; }
 function percentageItem(id, label, raw, checkedAt) {
   const used = percent(raw?.used_percent);
-  return item(id, label, '%', { used, remaining: used === null ? null : 100 - used, total: used === null ? null : 100,
-    window_seconds: positiveInt(raw?.limit_window_seconds), reset_at: reset(raw, checkedAt) });
+  const seconds = positiveInt(raw?.limit_window_seconds);
+  const duration = seconds === 604800 ? '7 天（周）' : seconds && seconds % 86400 === 0 ? `${seconds / 86400} 天`
+    : seconds && seconds % 3600 === 0 ? `${seconds / 3600} 小时` : seconds && seconds % 60 === 0 ? `${seconds / 60} 分钟`
+      : seconds ? `${seconds} 秒` : null;
+  // The wham endpoint supplies utilization, not an absolute token/request quota.
+  return item(id, duration ? `${label} · ${duration}` : label, '%', { used, used_percent: used,
+    remaining: used === null ? null : 100 - used, total: used === null ? null : 100,
+    window_seconds: seconds, reset_at: reset(raw, checkedAt) });
 }
 function bucket(id, label, raw, windowSeconds = null) {
   let used = number(raw?.used), remaining = number(raw?.remaining), total = number(raw?.limit);
@@ -69,7 +76,7 @@ function parseBuiltin(provider, data, checkedAt) {
     const raw = data?.rate_limit;
     const items = [percentageItem('primary', '主要额度窗口', raw?.primary_window, checkedAt),
       percentageItem('secondary', '次要额度窗口', raw?.secondary_window, checkedAt)];
-    return available('quota', items, checkedAt, '来自 ChatGPT 网页后端接口（非稳定公开 API）；订阅额度不是现金余额，未知窗口不视为零。');
+    return available('quota', items, checkedAt, '来自 ChatGPT 网页后端接口（非稳定公开 API）；订阅额度不是现金余额；% 数值为归一化百分比，不是实际 token、请求总额度或金额，未知窗口不视为零。');
   }
   if (provider === 'kimi-coding') {
     const items = [bucket('membership', '会员额度', data?.usage)];
@@ -102,6 +109,7 @@ function parseBuiltin(provider, data, checkedAt) {
 }
 async function responseJson(response) {
   if (response.status === 401 || response.status === 403) fail('unauthorized');
+  if (response.status === 429) fail('rate_limited');
   if (!response.ok) fail('network');
   if (Number(response.headers.get('content-length')) > 65536) fail('invalid_response');
   const reader = response.body?.getReader(); if (!reader) fail('invalid_response');
@@ -120,16 +128,18 @@ async function query(url, init, checkedAt, parse, { fetch: fetcher = globalThis.
   const duration = Number.isFinite(timeout) && timeout > 0 ? Math.min(timeout, 30000) : 8000;
   try {
     const deadline = new Promise((_, reject) => { timer = setTimeout(() => {
-      controller.abort(); reject(Object.assign(new Error('Usage timeout'), { usageCode: 'network' }));
+      controller.abort(); reject(Object.assign(new Error('Usage timeout'), { usageCode: 'timeout' }));
     }, duration); });
     const data = await Promise.race([deadline, (async () => responseJson(await fetcher(url, {
       ...init, redirect: 'error', signal: controller.signal,
     })))()]);
     try { return parse(data); } catch (error) { if (error?.usageCode) throw error; fail('invalid_response'); }
   } catch (error) {
-    const code = ['unauthorized', 'invalid_response', 'unconfigured'].includes(error?.usageCode) ? error.usageCode : 'network';
-    return unavailableBalance('error', code === 'unauthorized' ? '额度查询授权失败，请检查或更新凭证。'
-      : code === 'invalid_response' ? '额度查询响应格式无效或超出安全大小，未取得数值。' : '余额/额度查询失败（网络、超时或服务异常），未取得数值。', checkedAt, code, true);
+    const code = ['unauthorized', 'invalid_response', 'unconfigured', 'timeout', 'rate_limited'].includes(error?.usageCode) ? error.usageCode : 'network';
+    const reasons = { unauthorized: '额度查询授权失败，请检查或更新凭证。',
+      invalid_response: '额度查询响应格式无效或超出安全大小，未取得数值。',
+      timeout: '额度查询超时，未取得数值。', rate_limited: '服务商限制查询频率（HTTP 429），请稍后再试；未自动重试。' };
+    return unavailableBalance('error', reasons[code] || '余额/额度查询失败（网络或服务异常），未取得数值。', checkedAt, code, true);
   } finally { clearTimeout(timer); controller.abort(); }
 }
 /** Fixed HTTPS builtins; a caller must first validate the credential belongs to this provider. */

@@ -141,6 +141,23 @@ test('local、cli 和 presets 来源分别标注，本地目录不冒充联网�
   statusData = fixture();
 });
 
+test('Codex 展示真实窗口与独立百分比，未知时长不猜每日，认证错误明确显示', () => {
+  const data = fixture();
+  data.accounts = [{ provider: 'openai-codex', balance: { status: 'available', kind: 'quota', items: [
+    { label: '主要额度窗口', remaining: 99.5, total: 100, used: 0.5, used_percent: 0.5, unit: '%', window_seconds: 18000 },
+    { label: '次要额度窗口', remaining: null, used_percent: null, unit: '%', window_seconds: 604800 },
+    { label: '未知额度窗口', remaining: null, used_percent: null, unit: '%', window_seconds: null },
+  ] } }];
+  const value = deepText(renderAgentStatus(data));
+  expect(value).toContain('5 小时窗口'); expect(value).toContain('7 天（周）窗口'); expect(value).toContain('窗口时长未知');
+  expect(value).toContain('已用百分比 0.5 %'); expect(value).not.toContain('已用百分比 50 %');
+  expect(value).toContain('不是实际 token'); expect(value).not.toContain('每日');
+  for (const [code, message] of [['rate_limited', 'HTTP 429'], ['timeout', '查询超时'], ['auth_locked', '其他进程'], ['refresh_failed', '凭证刷新失败']]) {
+    data.accounts[0].balance = { status: 'error', error_code: code, items: [] };
+    expect(deepText(renderAgentStatus(data))).toContain(message);
+  }
+});
+
 test('空目录、预设、未知/失败余额和真实零分开呈现，额度不当成现金', () => {
   const data = fixture(); data.models = { source: 'presets', warning: 'CLI 不可用', models: [{ id: 'preset-only' }] };
   data.accounts = [

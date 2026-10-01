@@ -81,8 +81,8 @@
 - `models` 沿用模型目录读模型 `{agent,source,models,warning}`；状态页安全读取 SDK 本地元数据并按本地凭证匹配，source 为 `local`，不加载扩展动态模型、不联网验证可用性；安装不支持时回退 `presets`，预设不能冒充实际可用模型。不能直接对真实配置运行可能执行密钥命令或刷新 OAuth 的 `--list-models`。
 - `resources` 沿用扩展/Skills 目录并提供 `packages:[{source,root}]`；包声明不代表已安装，未发现安装路径时 root 为 null。目录仅说明安装/发现，不宣称扩展已加载。
 - `accounts:[{provider,auth_type,source,identity,status,expires_at,balance}]`；`identity` 已在服务端脱敏，`status` 说明本地凭证配置/过期/未知，不把存在凭证当作已联网验证登录。`balance:{status,kind,items,reason,checked_at}`，status 为 `available|unsupported|unconfigured|error`，kind 为 `balance|quota|null`；items 为安全白名单 `{label,remaining,total,used,unit}`（数值不可得用 null）。余额与额度不可互换，未知不可写成零。
-- 账号增加匿名 `account_key`，失败可带 `last_success` 旧值及时间；balance 增加 `queried/error_code`，items 增加 `id/reset_at/window_seconds`。默认仅当前服务商，可显式选择多服务商；内置 DeepSeek/OpenRouter/Codex/Z.AI/Kimi，Codex 明确标注网页后端兼容性风险，其他可配置 HTTPS 请求与字段映射。
-- 凭证、原始 auth/models 配置、完整 CLI stderr 和上游响应永不返回。请求不跟重定向、有界大小/超时；自定义查询只向用户配置目标发送显式环境引用，不自动转发 Pi 凭证。不通过模型调用探测，不执行密钥命令，不刷新或改写 OAuth。项目 SQLite 留存安全采样，历史读面有界且标明降采样，不把失败/缺失填成零。
+- 账号增加匿名 `account_key`，失败可带 `last_success` 旧值及时间；balance 增加 `queried/error_code`，items 增加 `id/reset_at/window_seconds/used_percent`。默认仅当前服务商，可显式选择多服务商；内置 DeepSeek/OpenRouter/Codex/Z.AI/Kimi，Codex 明确标注网页后端兼容性风险，其他可配置 HTTPS 请求与字段映射。
+- 凭证、原始 auth/models 配置、完整 CLI stderr 和上游响应永不返回。请求不跟重定向、有界大小/超时；自定义查询只向用户配置目标发送显式环境引用，不自动转发 Pi 凭证。不通过模型调用探测，不执行密钥命令；已选官方 Codex 过期 OAuth 可通过独立适配刷新并安全写回原凭证文件（不依赖 Pi 运行时），其他认证不变。项目 SQLite 留存安全采样，历史读面有界且标明降采样，不把失败/缺失填成零。
 
 后端职责在 `src/agent/status.js`、`usage-query*.js`、`usage-settings.js`、`src/core/agent-usage.js`、Store 用量 mixin 与 Project/RPC handler；Web server 仅转发。新增用户专属 `agent.usage.config/configure/history`，前端由 `render-agent-status.js`、`render-agent-usage.js` 与 `agent-usage-form.js` 协作，复用唯一页面身份与项目路由前缀，迟到响应不能覆盖新页面。细表分别见 Runtime、Web 与 CLI/RPC 分章。
 

@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { usageDigest } from './status-accounts.js';
+import path from 'node:path';
+import { usageDigest, codexCredentialView } from './status-accounts.js';
+import { resolveCodexUsageCredential } from './usage-auth-codex.js';
 import { USAGE_ENDPOINTS, unavailableBalance, queryAccountBalance, queryCustomBalance } from './usage-query.js';
 
 const validProvider = value => typeof value === 'string' && /^[a-z][a-z0-9_-]{0,79}$/i.test(value);
@@ -37,6 +39,21 @@ export async function runUsageQueries(context, options = {}) {
       }
       if (mapping) { account.balance = await queryCustomBalance(mapping, env, checked_at, options); continue; }
       if (!USAGE_ENDPOINTS[account.provider]) continue;
+      // Only the original, explicitly selected official Codex account may refresh.
+      // A custom HTTP mapping or a proxy model endpoint never sends its credentials to OpenAI.
+      if (account.provider === 'openai-codex' && context.codexAuth?.official && account.auth_type === 'oauth') {
+        const auth = await resolveCodexUsageCredential(path.join(config_dir, 'auth.json'), context.codexAuth.credential, options);
+        if (auth.error_code) {
+          account.balance = unavailableBalance('error', auth.error_code === 'expired'
+            ? 'Codex OAuth 已过期且无法刷新，请更新登录凭证。'
+            : auth.error_code === 'auth_locked' ? 'Codex 凭证正在使用或锁已变化，本次未写回凭证，请稍后重试。'
+              : auth.error_code === 'auth_changed' ? 'Codex 凭证或存储已变化，本次未覆盖，请重新查询。'
+                : 'Codex OAuth 刷新失败，本次未取得可用查询凭证。', checked_at, auth.error_code, true);
+          continue;
+        }
+        Object.assign(account, codexCredentialView(config_dir, auth.credential, context.codexAuth.baseUrl));
+        keys.set(account.provider, auth.credential.access);
+      }
       if (keys.has(account.provider) && account.status === 'configured') {
         account.balance = await queryAccountBalance(account.provider, keys.get(account.provider), checked_at, options);
       } else if (account.status !== 'configured') {

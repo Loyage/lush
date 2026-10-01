@@ -3,8 +3,9 @@ import { api } from './api.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { createAgentUsage } from './render-agent-usage.js';
+import { usageWindow, usageErrorLabels } from './usage-window.js';
 
-const REFRESH_HELP = '重新读取当前项目 Pi 的安装、模型、账号及可查询余额；可能访问服务商账户接口，不启动 Agent 或模型调用。';
+const REFRESH_HELP = '重新读取当前项目 Pi 的安装、模型、账号及可查询余额；可能访问服务商账户接口，并在已选官方 Codex 凭证过期时刷新登录，不启动 Agent 或模型调用。';
 const list = value => Array.isArray(value) ? value : [];
 const text = (value, fallback = '未知') => typeof value === 'string' && value ? value : fallback;
 const amount = value => typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 8 }) : '未知';
@@ -35,7 +36,7 @@ function balanceSection(balance = {}) {
   root.append(el('h3', title));
   // Do not reinterpret missing numbers, unknown statuses or quota as a cash balance.
   if (balance.status !== 'available') {
-    note(root, balanceStates[balance.status] || '查询状态未知', true);
+    note(root, usageErrorLabels[balance.error_code] || balanceStates[balance.status] || '查询状态未知', true);
   } else if (!['balance', 'quota'].includes(balance.kind) || !list(balance.items).length) {
     note(root, '未取得可展示的余额或额度数据；未知不等于零。', true);
   } else {
@@ -46,7 +47,9 @@ function balanceSection(balance = {}) {
       entry.append(el('p', `剩余 ${amount(item.remaining)} ${unit}`, 'agent-status-amount'));
       if (item.total !== null && item.total !== undefined) note(entry, `总额 ${amount(item.total)} ${unit}`);
       if (item.used !== null && item.used !== undefined) note(entry, `已使用 ${amount(item.used)} ${unit}`);
-      if (item.window_seconds) note(entry, `额度窗口：${item.window_seconds} 秒`);
+      if (typeof item.used_percent === 'number' && Number.isFinite(item.used_percent)) note(entry, `已用百分比 ${amount(item.used_percent)} %`);
+      note(entry, `额度窗口：${usageWindow(item.window_seconds)}`);
+      if (item.unit === '%') note(entry, '这里的总量 100 % 表示百分比尺度，不是实际 token、请求总额度或金额。');
       if (item.reset_at) note(entry, `重置时间：${item.reset_at}`);
       root.append(entry);
     }
@@ -111,7 +114,7 @@ function modelsSection(data) {
   const catalog = data.models || {}, models = list(catalog.models);
   const local = catalog.source === 'local', cli = catalog.source === 'cli';
   const section = block(local ? '本地模型目录（未联网验证）' : cli ? 'Pi CLI 模型目录（未联网验证）' : '模型目录（未确认可用）', models.length);
-  note(section, local ? '本地目录与已配置凭证的匹配结果，未联网验证；不执行密钥命令或刷新登录凭证，不加载扩展动态模型。不保证凭证有效、账号额度充足或请求成功。'
+  note(section, local ? '本地目录与已配置凭证的匹配结果，未联网验证；模型目录读取不执行密钥命令或刷新登录凭证，不加载扩展动态模型。不保证凭证有效、账号额度充足或请求成功。'
     : cli ? '由当前项目环境的 Pi CLI 返回；目录模型未联网验证，不保证凭证有效、账号额度充足或请求成功。'
       : catalog.source === 'presets' ? '无法读取 Pi 实际目录，以下仅为内置预设，不代表当前账号可用。' : '模型目录来源未知，不能确认当前账号可用。', !local && !cli);
   note(section, catalog.warning, true);
@@ -173,7 +176,7 @@ export function openAgentStatus() {
   if (ui.agentStatusPage?.view === view) return ui.agentStatusPage.pending || Promise.resolve();
   const page = el('div', undefined, 'agent-status-page');
   const header = el('header', undefined, 'agent-status-head'), copy = el('div');
-  copy.append(el('h1', 'Agent 状态'), el('p', 'Pi 安装、模型、账号、余额与额度历史。进入页面和手动刷新时查询并缓存；页面不自动轮询，可在下方启用后台采样，不调用模型。', 'hint'));
+  copy.append(el('h1', 'Agent 状态'), el('p', 'Pi 安装、模型、账号、余额与额度历史。进入页面和手动刷新时查询并缓存；页面不自动轮询，可在下方启用后台采样；已选官方 Codex 凭证过期时可自动刷新登录，不调用模型。', 'hint'));
   const feedback = el('p', undefined, 'hint agent-status-feedback'); feedback.setAttribute('role', 'status');
   const result = el('div');
   const state = { view, pending: null, data: null }; ui.agentStatusPage = state;

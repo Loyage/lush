@@ -110,7 +110,7 @@ export function usageConfigForm(config, accounts, { changed, save }) {
   const retention = field(general, '历史保留（天）', config.retention_days, { key: 'retention_days', type: 'number', change: changed });
   retention.min = '1'; retention.max = '3650';
   controls.append(general);
-  note(controls, '默认只在进入状态页或手动刷新时联网查询。启用后台采样后，关闭页面仍会查询；daemon 停止期间没有样本，也不会补发。查询不会调用 Agent 或模型。');
+  note(controls, '默认只在进入状态页或手动刷新时联网查询。启用后台采样后，关闭页面仍会查询；daemon 停止期间没有样本，也不会补发。已选官方 Codex 凭证过期时会尝试刷新并安全写回原登录文件；自定义查询不会刷新或自动取得 Pi 凭证。查询不会调用 Agent 或模型。');
   note(controls, '超过保留期限的样本会自动清理，缩短期限可能永久删除旧历史；保存配置不会立即执行远端查询。');
   const providers = field(controls, '查询服务商（逗号分隔，留空仅当前 Agent 服务商）', list(config.providers).join(', '), { key: 'providers', placeholder: 'openai-codex, deepseek', change: changed });
   const choices = [...new Set([...list(accounts).map(account => account.provider), ...list(config.custom).map(source => source.provider)].filter(Boolean))].sort();

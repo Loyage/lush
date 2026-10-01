@@ -108,8 +108,8 @@ function statusContext(config, profile) {
     || projectSettings?.defaultModel || globalSettings?.defaultModel, 256);
   const currentProvider = env.LUSH_PI_PROVIDER || (model?.includes('/') ? model.split('/')[0] : null)
     || projectSettings?.defaultProvider || globalSettings?.defaultProvider;
-  const { accounts, keys } = readPiAccounts(config_dir, env, modelsConfig, warnings, currentProvider, checked_at);
-  return { warnings, checked_at, env, queryConfig, config_dir, modelsConfig, globalSettings, projectSettings, model, currentProvider, accounts, keys, homeDir };
+  const { accounts, keys, codexAuth } = readPiAccounts(config_dir, env, modelsConfig, warnings, currentProvider, checked_at);
+  return { warnings, checked_at, env, queryConfig, config_dir, modelsConfig, globalSettings, projectSettings, model, currentProvider, accounts, keys, codexAuth, homeDir };
 }
 async function status(config, profile, options, context) {
   const { warnings, checked_at, env, queryConfig, config_dir, modelsConfig, globalSettings, projectSettings, model, currentProvider, homeDir } = context;
@@ -180,7 +180,8 @@ function flight(map, config, profile, options, context, run) {
   // Hot-read config/env/credentials participate in identity, but only their digest is retained.
   const identities = context.accounts.map(({ balance, ...account }) => account);
   const key = usageDigest([profile, context.env, context.modelsConfig, context.globalSettings, context.projectSettings,
-    identities, [...context.keys], options.usageConfig || null, options.timeout || null]);
+    identities, [...context.keys], context.codexAuth, options.usageConfig || null, options.timeout || null,
+    options.refreshCodex !== false]);
   let entries = map.get(config); if (!entries) { entries = new Map(); map.set(config, entries); }
   if (entries.has(key)) return entries.get(key);
   const pending = run().finally(() => { if (entries.get(key) === pending) entries.delete(key); });
@@ -189,7 +190,7 @@ function flight(map, config, profile, options, context, run) {
 function usageFlight(config, profile, options, context) {
   return flight(usageFlights, config, profile, options, context, () => runUsageQueries(context, options));
 }
-/** Lightweight account-only query: no Pi executable, SDK, plugins, model calls or OAuth refresh. */
+/** Lightweight account-only query; independent Codex refresh, no Pi executable, SDK, plugins or model calls. */
 export function discoverAgentUsage(config, profile, options = {}) {
   return usageFlight(config, profile, options, statusContext(config, profile));
 }

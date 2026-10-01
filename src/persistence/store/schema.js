@@ -23,7 +23,7 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       CREATE TABLE IF NOT EXISTS agent_usage_points (
         series_id TEXT NOT NULL REFERENCES agent_usage_series(id) ON DELETE CASCADE,
         query_id INTEGER NOT NULL REFERENCES agent_usage_queries(id) ON DELETE CASCADE,
-        checked_at TEXT NOT NULL, remaining REAL, total REAL, used REAL,
+        checked_at TEXT NOT NULL, remaining REAL, total REAL, used REAL, used_percent REAL,
         status TEXT NOT NULL, reset_at TEXT, error_code TEXT,
         PRIMARY KEY (series_id,query_id));
       CREATE INDEX IF NOT EXISTS agent_usage_points_time ON agent_usage_points(series_id,checked_at DESC,query_id DESC);

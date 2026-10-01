@@ -5,15 +5,16 @@ const digest = value => createHash('sha256').update(JSON.stringify(value)).diges
 const safe = (value, max = 120) => typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, '').slice(0, max) : null;
 const numeric = value => typeof value === 'number' && Number.isFinite(value) ? value : null;
 const iso = value => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
-const codes = new Set(['expired','unconfigured','network','unauthorized','invalid_response','unsupported','timeout','unknown','missing_metric']);
+const codes = new Set(['expired','unconfigured','network','unauthorized','invalid_response','unsupported','timeout','rate_limited',
+  'auth_locked','auth_changed','refresh_failed','unknown','missing_metric']);
 const statuses = new Set(['available','error','unsupported','unconfigured','unknown']);
 const errorCode = value => codes.has(value) ? value : value ? 'unknown' : null;
-const toPoint = row => ({ at: row.checked_at, remaining: row.remaining, total: row.total, used: row.used,
+const toPoint = row => ({ at: row.checked_at, remaining: row.remaining, total: row.total, used: row.used, used_percent: row.used_percent ?? null,
   status: row.status, reset_at: row.reset_at, error_code: row.error_code });
 
 // The projection has bounded strings and finite JSON numbers; this conservative UTF-8
 // bound leaves room for every point without dropping the oldest observations afterwards.
-const MAX_POINT_BYTES = 384;
+const MAX_POINT_BYTES = 420;
 function sampledPoints(store, seriesId, from, to, stats, limit) {
   if (stats.n <= limit) return store.all(`SELECT * FROM agent_usage_points
     WHERE series_id=? AND checked_at>=? AND checked_at<=? ORDER BY checked_at,query_id`, seriesId, from, to).map(toPoint);
@@ -44,7 +45,7 @@ function sampledPoints(store, seriesId, from, to, stats, limit) {
       SELECT first_key AS sort_key FROM stats UNION SELECT last_key FROM stats
       UNION SELECT failure_key FROM stats UNION SELECT reset_key FROM stats
       UNION SELECT low_key FROM extrema UNION SELECT high_key FROM extrema
-    ) SELECT checked_at,remaining,total,used,status,reset_at,error_code FROM bucketed
+    ) SELECT checked_at,remaining,total,used,used_percent,status,reset_at,error_code FROM bucketed
       WHERE sort_key IN (SELECT sort_key FROM selected) ORDER BY checked_at,query_id`,
   seriesId, from, to, buckets, stats.first_at, stats.last_at, stats.first_at, buckets).map(toPoint);
 }
@@ -63,6 +64,7 @@ export const agentUsage = {
       return [{ id, label: safe(item.label) || id, unit: safe(item.unit, 24),
         remaining: status === 'available' ? numeric(item.remaining) : null,
         total: status === 'available' ? numeric(item.total) : null, used: status === 'available' ? numeric(item.used) : null,
+        used_percent: status === 'available' && numeric(item.used_percent) !== null && item.used_percent >= 0 && item.used_percent <= 100 ? item.used_percent : null,
         reset_at: iso(item.reset_at), window_seconds: Number.isSafeInteger(item.window_seconds) && item.window_seconds > 0 ? item.window_seconds : null }];
     });
     return this.transaction(() => {
@@ -91,8 +93,8 @@ export const agentUsage = {
       }
       for (const entry of series) {
         const item = current.get(entry.id), itemStatus = item ? status : status === 'available' ? 'unknown' : status;
-        this.run(`INSERT INTO agent_usage_points (series_id,query_id,checked_at,remaining,total,used,status,reset_at,error_code)
-          VALUES (?,?,?,?,?,?,?,?,?)`, entry.id, queryId, at, item?.remaining ?? null, item?.total ?? null, item?.used ?? null,
+        this.run(`INSERT INTO agent_usage_points (series_id,query_id,checked_at,remaining,total,used,used_percent,status,reset_at,error_code)
+          VALUES (?,?,?,?,?,?,?,?,?,?)`, entry.id, queryId, at, item?.remaining ?? null, item?.total ?? null, item?.used ?? null, item?.used_percent ?? null,
         itemStatus, item?.reset_at ?? null, item ? code : code || 'missing_metric');
         this.run('UPDATE agent_usage_series SET last_at=MAX(last_at,?) WHERE id=?', at, entry.id);
       }
