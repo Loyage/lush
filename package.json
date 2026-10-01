@@ -29,6 +29,9 @@
     "host-stop": "bun ./scripts/ops.js host-stop",
     "host-status": "bun ./scripts/ops.js host-status",
     "desktop": "electron .",
+    "desktop:stage:win": "bun ./scripts/build-desktop.js --stage",
+    "desktop:build:win": "bun ./scripts/build-desktop.js --build",
+    "desktop:verify:win": "bun ./scripts/build-desktop.js --verify",
     "say": "bun ./scripts/ops.js say",
     "draft": "bun ./scripts/ops.js draft",
     "drafts": "bun ./scripts/ops.js drafts",
@@ -54,7 +57,9 @@
     "answer": "bun ./scripts/ops.js answer"
   },
   "devDependencies": {
-    "electron": "^39.0.0"
+    "electron": "39.8.10",
+    "electron-builder": "26.15.3",
+    "@electron/asar": "4.3.1"
   },
   "engines": { "bun": ">=1.2.0" }
 }

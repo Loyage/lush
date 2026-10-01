@@ -1,0 +1,73 @@
+name: Windows remote desktop installer
+
+# Artifacts only: no tag-triggered release, publishing token, signing secret or auto-update feed.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - package.json
+      - bun.lock
+      - src/ui/desktop/**
+      - src/ui/web/assets/help.js
+      - scripts/build-desktop.js
+      - test/packaging/**
+      - .github/workflows/windows-desktop.yml
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - bun.lock
+      - src/ui/desktop/**
+      - src/ui/web/assets/help.js
+      - scripts/build-desktop.js
+      - test/packaging/**
+      - .github/workflows/windows-desktop.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installer:
+    name: Windows x64 NSIS (unsigned, remote only)
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Install locked build dependencies
+        run: bun install --frozen-lockfile
+      - name: Packaging and portable desktop unit tests
+        run: bun test test/packaging test/desktop/connections.test.js test/desktop/runtime.test.js test/desktop/connection-ui.test.js test/desktop/windows-connection-ui.test.js
+      - name: Build Windows installer (never publish)
+        run: bun run desktop:build:win
+      - name: Verify packaged allowlist and SHA-256
+        run: bun run desktop:verify:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lush-windows-x64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            node_modules/lush-desktop-build/dist/Lush-*-windows-x64-setup.exe
+            node_modules/lush-desktop-build/dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Build summary
+        shell: pwsh
+        run: |
+          @"
+          ## Windows remote desktop installer
+          Windows x64 NSIS installer and SHA256SUMS.txt are available in this run's artifact (14 days).
+          The application contains only the Electron remote client and connection-page assets; no Bun, Host, daemon, project state or credentials.
+          This build is unsigned: Windows may show SmartScreen / unknown publisher warnings.
+          No GitHub Release or update feed was published. Installing and connecting to a real Linux Host still requires a manual Windows acceptance test.
+          "@ >> $env:GITHUB_STEP_SUMMARY

@@ -6,7 +6,7 @@ import os from 'node:os';
 import vm from 'node:vm';
 import { createDesktop } from '../../src/ui/desktop/runtime.js';
 
-function fixture() {
+function fixture(platform = 'linux') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-desktop-runtime-'));
   const all = [], notices = [], handlers = new Map(), sessions = new Map(), errors = [], external = [];
   let starts = 0, stops = 0, picks = 0, failNext = false, template;
@@ -48,7 +48,7 @@ function fixture() {
     shell: { openExternal: async url => external.push(url) },
     dialog: { showErrorBox: (...args) => errors.push(args), showOpenDialog: async () => { picks++; return { canceled: false, filePaths: ['/local/project'] }; } },
   };
-  const desktop = createDesktop({ electron, userData: dir, localHost: { start: async () => { starts++; return 'http://127.0.0.1:4318/'; }, stop: () => { stops++; } } });
+  const desktop = createDesktop({ electron, userData: dir, platform, localHost: { start: async () => { starts++; return 'http://127.0.0.1:4318/'; }, stop: () => { stops++; } } });
   const event = (win, frame = win.webContents.mainFrame) => ({ sender: win.webContents, senderFrame: frame });
   const invoke = async (name, win, ...args) => handlers.get(name)(event(win), ...args);
   return { desktop, all, notices, errors, external, event, handlers, invoke, electron,
@@ -89,6 +89,38 @@ test('connection page starts without Bun, then local and multiple remote windows
   } finally { f.close(); }
 });
 
+test('Windows is remote-only: menu, direct calls and trusted IPC never start a local Host', async () => {
+  const f = fixture('win32');
+  try {
+    await f.desktop.start(); const chooser = f.all[0];
+    const item = f.stats().template[0].submenu.find(row => row.accelerator === 'CmdOrCtrl+Shift+N');
+    expect(item.enabled).toBe(false); expect(item.label).toContain('不可用');
+    await expect(f.desktop.openLocal()).rejects.toThrow('Windows 不会启动');
+    await expect(f.invoke('lush:open-local', chooser)).rejects.toThrow('Windows 不会启动');
+    const remote = await f.desktop.openRemote('https://one.example.com');
+    expect(remote.options.webPreferences.additionalArguments).toEqual(['--lush-desktop-mode=remote']);
+    await expect(f.invoke('lush:choose-project', remote)).rejects.toThrow('cannot choose');
+    expect(f.stats().starts).toBe(0); expect(f.stats().picks).toBe(0);
+    expect(f.all).toHaveLength(2);
+  } finally { f.close(); }
+});
+
+test('connection preload reports Windows local support without exposing platform or generic IPC', () => {
+  const source = fs.readFileSync(new URL('../../src/ui/desktop/connection-preload.cjs', import.meta.url), 'utf8');
+  for (const platform of ['linux', 'darwin', 'win32']) {
+    let bridge; const calls = [];
+    vm.runInNewContext(source, { process: { platform }, require: name => {
+      if (name !== 'electron') throw new Error('unexpected require');
+      return { contextBridge: { exposeInMainWorld: (_name, value) => { bridge = value; } },
+        ipcRenderer: { invoke: (...args) => calls.push(args) } };
+    } });
+    expect(bridge.localSupported).toBe(platform !== 'win32');
+    expect(bridge.platform).toBeUndefined(); expect(bridge.invoke).toBeUndefined();
+    bridge.openRemote('https://one.example.com');
+    expect(calls).toEqual([['lush:open-remote', 'https://one.example.com']]);
+  }
+});
+
 test('IPC rejects foreign windows, subframes, wrong paths and redirects to another origin', async () => {
   const f = fixture();
   try {
@@ -119,7 +151,7 @@ test('project popups remain owned and scoped; previews have no preload; external
     await f.desktop.start(); const remote = await f.desktop.openRemote('https://one.example.com');
     expect(remote.webContents.openHandler({ url: 'https://one.example.com/p/abcdef0123456789/' })).toEqual({ action: 'deny' });
     const project = f.all.at(-1);
-    expect(project.options.webPreferences.preload).toEndWith('/preload.cjs');
+    expect(path.basename(project.options.webPreferences.preload)).toBe('preload.cjs');
     expect(project.options.webPreferences.partition).toBe(remote.options.webPreferences.partition);
     remote.webContents.openHandler({ url: 'https://one.example.com/p/abcdef0123456789/api/task/1/report' });
     const preview = f.all.at(-1);

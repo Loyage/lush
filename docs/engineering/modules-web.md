@@ -110,15 +110,15 @@ Task 卡片显示真实 Git 父分支、当前检出、领先/落后计数及关
 | `src/host/supervisor.js` | `bin/lush-host` 的稳定进程所有者，等 worker 退出75后在同端口重新启动；普通退出不重放，退出时停止唯一 worker | `superviseHost(args?)` |
 | `src/ui/web/docs.js` | 扫描随代码发布的 Markdown 文档与搜索字段 | `docsIndex()`、`docsSearchIndex()`、`readDoc()` |
 | `src/host/registry.js` | 跨项目的登记列表、最后路径缓存、稳定路由 ID 派生、绝对目录 canonicalize、无项目 Web 控制配置 | `launcherStateDir()`、`readLauncherState()`、`writeLauncherState()`、`removeLauncherProject()`、`projectRouteId()`、`canonicalProjectPath()`、`launcherWebConfig()` |
-| `src/ui/desktop/main.js` | Electron 装配入口：设置 userData，装配桌面 runtime | Electron `main` 入口 |
-| `src/ui/desktop/runtime.js` | 连接菜单、可信连接页、本地 / 远程独立窗口、按窗口 IPC / 导航 / 通知安全边界及退出清理；远程直接加载所选 Host，不在本地复制业务 API | `createDesktop({electron, userData, localHost?, store?})` |
+| `src/ui/desktop/main.js` | Electron 装配入口：设置 userData 与 Windows AppUserModelID；仅非 Windows 动态加载本地 Host，Windows 为远程-only | Electron `main` 入口 |
+| `src/ui/desktop/runtime.js` | 连接菜单、可信连接页、本地 / 远程独立窗口、按窗口 IPC / 导航 / 通知安全边界及退出清理；远程直接加载所选 Host，不在本地复制业务 API | `createDesktop({electron, userData, localHost?, platform?, store?})`；Windows 本地窗口在菜单及主进程均被拒绝 |
 | `src/ui/desktop/local-host.js` | single-flight 启动随机端口临时 Host，处理启动失败、超时及退出；仅本地窗口需要 Bun，桌面退出只停自己持有的 Host | `createLocalHost(options?)` → `start()` / `stop()` |
 | `src/ui/desktop/connections.js` | Host 根地址校验（HTTPS / 回环 HTTP）、会话分区与页面身份判定、最近连接和按 Host 的提醒偏好；纯连接元数据，不含项目事实或密码 | `normalizeHostUrl()`、`sameHost()`、`sessionPartition()`、`isProjectPage()`、`ConnectionStore` |
-| `src/ui/desktop/connection.html` / `connection.js` / `connection.css` | 本地可信连接页：打开本地、输入远程 Host、最近连接、仅移除记录、失败就地显示；帮助复用 Web `help.js` | 桌面内部页面，无业务 API |
-| `src/ui/desktop/connection-preload.cjs` | 仅连接页可用的本地 / 远程打开及记录管理 IPC | `window.lushConnections.list()` / `openLocal()` / `openRemote(url)` / `remove(url)` |
+| `src/ui/desktop/connection.html` / `connection.js` / `connection.css` | 本地可信连接页：打开本地、输入远程 Host、最近连接、仅移除记录、失败就地显示；Windows 禁用本地并解释远程-only；帮助复用 Web `help.js` | 桌面内部页面，无业务 API |
+| `src/ui/desktop/connection-preload.cjs` | 仅连接页可用的本地 / 远程打开及记录管理 IPC | `window.lushConnections.localSupported`（只读布尔值）/ `list()` / `openLocal()` / `openRemote(url)` / `remove(url)` |
 | `src/ui/desktop/preload.cjs` | 沙箱内的窄通知 IPC；只有本地工作窗口暴露目录选择，远程窗口不暴露；通知点击只导航到固定 `#notices` | `window.lushDesktop.chooseProject()`（仅本地）、`notificationSettings(enabled?)`、`notifyNotice(payload)` |
 
-桌面壳不复制任何业务页面或 API。首启展示连接页，本地窗口共享桌面持有的临时 Host，远程窗口直接连接 HTTPS Host 或用户自行建立的回环 HTTP SSH 隧道；可同时使用本地和多个远程窗口。业务 UI / API 始终由各自 Host 提供；选择远程项目时路径属于远端，不使用本地目录选择器。登录会话按 Host origin 隔离并持久化，提醒开关按 Host 隔离；未知源、子 frame 和独立预览窗口不得调用工作窗口 IPC。完整行为与限制见[远程桌面部署](../deployment/remote-desktop.md)。
+桌面壳不复制任何业务页面或 API。Windows 为仅远程客户端，不加载本地 Host、不启动 Bun 或 daemon；`test/desktop/windows-connection-ui.test.js` 覆盖平台提示及刷新后禁用状态，`test/desktop/runtime.test.js` 覆盖主进程拒绝与 preload 能力。首启展示连接页，本地窗口共享桌面持有的临时 Host，远程窗口直接连接 HTTPS Host 或用户自行建立的回环 HTTP SSH 隧道；可同时使用本地和多个远程窗口。业务 UI / API 始终由各自 Host 提供；选择远程项目时路径属于远端，不使用本地目录选择器。登录会话按 Host origin 隔离并持久化，提醒开关按 Host 隔离；未知源、子 frame 和独立预览窗口不得调用工作窗口 IPC。完整行为与限制见[远程桌面部署](../deployment/remote-desktop.md)。
 
 `markdown.js` 除默认渲染外还有两件「文档」视图需要的能力：`renderMarkdown(text, doc, options)` 里的
 `options.link(raw, label)` 由调用方接管链接解析（返回 `{ href, external }`，返回空或抛错都回落到默认规则：

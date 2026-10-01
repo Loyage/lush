@@ -11,11 +11,11 @@
 <body>
   <main>
     <h1>Lush</h1>
-    <p>本地与远程使用独立窗口，可以同时工作。窗口关闭不会停止项目 daemon。</p>
+    <p id="connection-intro">本地与远程使用独立窗口，可以同时工作。窗口关闭不会停止项目 daemon。</p>
     <section aria-labelledby="local-heading">
       <h2 id="local-heading">本地项目</h2>
-      <p>需要本机已安装 Bun；打开后可选择本地项目目录。</p>
-      <button id="open-local" type="button">打开本地窗口</button>
+      <p id="local-help">需要本机已安装 Bun；打开后可选择本地项目目录。</p>
+      <span id="local-help-host" class="help-host"><button id="open-local" type="button" aria-describedby="local-help">打开本地窗口</button></span>
     </section>
     <section aria-labelledby="remote-heading">
       <h2 id="remote-heading">远程 Host</h2>

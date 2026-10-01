@@ -10,9 +10,10 @@ const safeExternal = value => {
 };
 
 /** Electron is injected so window, IPC and lifecycle invariants can be tested without a display. */
-export function createDesktop({ electron, userData, localHost, store = new ConnectionStore(userData) }) {
+export function createDesktop({ electron, userData, localHost, platform = process.platform, store = new ConnectionStore(userData) }) {
   const { app, BrowserWindow, dialog, ipcMain, shell, Notification, Menu } = electron;
   const windows = new Map(), banners = new Map(), sessions = new WeakSet();
+  const localSupported = platform !== 'win32' && Boolean(localHost);
   let chooser = null, quitting = false, ready = false, localPending = null;
 
   function focus(win) {
@@ -88,6 +89,8 @@ export function createDesktop({ electron, userData, localHost, store = new Conne
     return win;
   }
   async function openLocal() {
+    if (quitting) throw new Error('桌面正在退出');
+    if (!localSupported) throw new Error('此客户端不支持本地后台；请连接远程 Linux / macOS Lush Host。Windows 不会启动本地 Bun、Host 或 daemon。');
     if (localPending) return localPending;
     localPending = (async () => {
       if (!localHost) throw new Error('本地 Host 未配置');
@@ -116,12 +119,13 @@ export function createDesktop({ electron, userData, localHost, store = new Conne
   function rebuildMenu() {
     const recent = store.list();
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
+      ...(platform === 'darwin' ? [{ role: 'appMenu' }] : []),
       { label: '连接', submenu: [
         { label: '连接远程 Host…', accelerator: 'CmdOrCtrl+Shift+O', click: showConnections },
-        { label: '新建本地窗口', accelerator: 'CmdOrCtrl+Shift+N', click: () => { void openLocal().catch(showError); } },
+        { label: localSupported ? '新建本地窗口' : '本地窗口不可用（请连接远程 Host）', enabled: localSupported,
+          accelerator: 'CmdOrCtrl+Shift+N', click: () => { void openLocal().catch(showError); } },
         { label: '最近远程连接', enabled: recent.length > 0, submenu: recent.map(url => ({ label: url, click: () => { void openRemote(url).catch(showError); } })) },
-        { type: 'separator' }, { role: 'close' }, ...(process.platform === 'darwin' ? [] : [{ role: 'quit' }]),
+        { type: 'separator' }, { role: 'close' }, ...(platform === 'darwin' ? [] : [{ role: 'quit' }]),
       ] },
       { role: 'editMenu' }, { label: '视图', submenu: [{ role: 'reload' }, { role: 'toggleDevTools' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }] },
       { role: 'windowMenu' },
@@ -174,7 +178,7 @@ export function createDesktop({ electron, userData, localHost, store = new Conne
       if (win) focus(win); else showConnections();
     });
     app.on('before-quit', dispose);
-    app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+    app.on('window-all-closed', () => { if (platform !== 'darwin') app.quit(); });
     return app.whenReady().then(() => {
       if (quitting) return;
       ready = true; installIPC(); rebuildMenu(); showConnections();

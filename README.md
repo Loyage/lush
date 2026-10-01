@@ -5,7 +5,7 @@
 
 Lush 是项目级的多 agent 开发应用。你描述想要的结果，Lush 在独立的 Git 分支与 worktree 里并行拆解、实现与验证，把成果冻结成精确的提交，最后由你明确批准落地。当前输入路径是 **say**：一条输入直连一个拥有独立分支与 worktree 的 Task，它自己判断亲自做还是再派子 Task。旧 Intent / Plan / Candidate 的对外操作已下线；磁盘历史数据、会话与工作区原样保留，不自动迁移或删除。它面向长期维护真实代码库、希望把重复开发真正并行起来的开发者。
 
-Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行时依赖。支持 macOS 与 Linux。
+Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行时依赖。后台支持 macOS 与 Linux；Windows 可用浏览器或 Electron 安装包连接远程 Host，见[Windows 客户端](docs/deployment/windows-client.md)。
 
 ## 设计理念
 
@@ -53,9 +53,9 @@ Lush 提供两种图形化使用方式，两者复用同一份 Web UI 与 API：
 | 方式 | 适合场景 | 启动 |
 |---|---|---|
 | 本地 Web | 日常使用的主工作台，用浏览器打开 | 在 Lush 源码目录执行 `bun run host`；首次选择项目，之后新窗口落在上次项目，可同时打开多个项目 |
-| 桌面应用 | 本地目录选择，或连接远程 Host；独立窗口可同时工作 | 先 `bun install`，再执行 `bun run desktop`；见[远程桌面部署](docs/deployment/remote-desktop.md) |
+| 桌面应用 | macOS / Linux 可选择本地目录；Windows 为远程客户端，独立窗口可同时工作 | 源码：先 `bun install`，再 `bun run desktop`；Windows 安装包无需 Bun，见[Windows 客户端](docs/deployment/windows-client.md)与[远程桌面部署](docs/deployment/remote-desktop.md) |
 
-两者默认只监听本机。需要从手机或其他设备访问，要在 `web.json` 中配置登录认证并置于 HTTPS 反向代理之后。命令行、远程访问等其它形态属于部署细节，统一收录在次级部署文档中。
+Host 默认只监听本机，远程 Electron 窗口本身不启动监听服务。需要从 Windows、手机或其他设备访问，要在远端 `web.json` 中配置登录认证并置于 HTTPS 反向代理之后，或自行建立回环 SSH 隧道。命令行、远程访问等其它形态属于部署细节，统一收录在次级部署文档中。
 
 ## 用 Agent 部署
 

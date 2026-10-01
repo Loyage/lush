@@ -14,6 +14,7 @@ dom.byId.set('open-local', local); document.body.append(local);
 const remoteButton = document.createElement('button'); dom.byId.set('open-remote', remoteButton); document.body.append(remoteButton);
 let recent = ['https://one.example.com/'], localCalls = 0, remoteCalls = [], error = null, gate = null;
 dom.window.lushConnections = {
+  localSupported: true,
   list: async () => recent,
   openLocal: async () => { localCalls++; },
   openRemote: async url => { remoteCalls.push(url); if (gate) await gate; if (error) throw new Error(error); recent = [url]; },
