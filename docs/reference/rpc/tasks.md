@@ -45,6 +45,16 @@ Task 中心路径是 Input → 直接拥有独立分支的 `agent` Task（`task_
 
 `task.activity` / `task.page` 的 `scope='work'|'all'` 省略时保留旧 work 口径；Web overview 与历史分页显式请求 `all`，继续有界读取，不改任务实体或存储层级。`GET /api/tasks` 透传 scope。
 
+## 执行详情代码只读接口
+
+`task.code_state {id,scope?,after?,limit?}`、`task.code_tree {id,scope?,path?,query?,changed?,after?,limit?,revision?}`、`task.code_file {id,scope?,path,view?,side?,offset?,limit?,context?,revision?}` 均为用户专属；不接受 Agent 凭证、任意 cwd 或 ref，不执行 Git 写入/仓库程序，也不新增快照。完整字段和基线语义见[代码阅读器契约](../../engineering/code-reader.md)。
+
+- `scope=task|iteration|working`；默认任务创建基线到实际工作区，累计净变化与暂存/未暂存状态独立。文件范围为 Git 跟踪和未忽略的未跟踪文件，排除所有 `.git`/`.lush` 组件及其大小写变体（兼容 macOS 常见的不区分大小写卷），不跟随链接或进入子模块。
+- 每次扫描最多 20,000 个文件、Git 单次标准输出 4 MiB、整个读取期限 15 秒；每个 Workspaces 至多 4 个并发读取，超限明确不可用。响应 JSON 最多 512 KiB；state/tree 的行数组预算为 480 KiB，包含路径、旧路径和 JSON 转义，剩余空间留给元信息。达到单页字节预算仍以 `next/has_more` 正常分页，不置底层 `truncated`；单行超预算则明确不可用并标超限。已知路径无法安全采样时整次读取明确失败，不静默漏文件。分页与底层超限不同；未知计数返回 null。
+- 正文只读单侧最多 8 MiB UTF-8 数据，按最多 24,000 JS 字符分段；BOM、CR 与末尾无换行保留。`content.line_continued` 标明分段从同一行中途继续。超过读取预算明确说明，不冒充空文件。二进制/非 UTF-8 不进行文本解码。
+- diff 输入两侧合计最多 2 MiB、patch 最多 512 KiB、结构化 hunk 最多 480 KiB；超限降级分段原文。无基线可读当前正文但不能算 diff；归档后只有原始提交仍在才可回看，不保证未提交内容和永久可读。
+- 后端用临时隔离 Git 目录只读原对象与 index，不加载仓库自定义 filter/textconv/fsmonitor 等配置，不改变真正 index。现场读取沿用项目已有 `bun:ffi` / 系统 libc 路线，在 Linux/macOS 用 `openat` 与平台 `node:fs.constants` 的 `O_NOFOLLOW` 逐组件打开；链接只经 `readlinkat` 读取链接文本。FD 同步设置 close-on-exec，并由 `node:fs` 做 fstat/read/close，不依赖 `/proc`、第三方 native 包/编译器或 native stat 结构布局。系统接口加载失败则明确不可用，不回退到有竞态的路径内容读取。macOS/Linux 聚焦 workflow 覆盖真实平台，mock loader 仅验证符号选择，不能冒充 Darwin 实测。
+
 ## 派子任务与集成
 
 `task.spawn` 必须关联一个活动父 Task，且父只能是 `task_kind='say'` 或 `'child'` 的 Task；新子 Task 角色固定为 `agent`，不接受旧 `role` / `deps` / planner `spec` 参数，分支从父分支当前已提交 tip 创建独立 worktree。新 child 默认开启且锁定自动合并 hook，安全点通过交付校验后向父 Task 发持久去重请求，由父 merge 队列串行集成；失败不会冒充已交付。

@@ -28,7 +28,7 @@ function assetFile(pathname) {
 }
 const MUTATIONS = new Set(['agent.configure','agent.environment.configure','agent.usage.configure','system.configure','say.submit','task.spawn','task.message','task.auto_merge','task.reserve','task.reserve_all','task.resolve','task.accept','task.reopen','task.sync_parent','task.resolve_sync','task.resolve_divergence','task.unreserve','task.approve_merge','task.cancel','task.retry','task.interrupt','task.resume','task.configure','task.cleanup','notice.answer','notice.dismiss','notice.read','branch.archive']);
 const CORE_READS = new Set(['/api/overview','/api/snapshot','/api/tasks','/api/notices','/api/task-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/environment','/api/docs','/api/docs/search-index']);
-const CORE_TASK_READ = /^\/api\/task\/\d+(?:\/(?:history|history-page|diff|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
+const CORE_TASK_READ = /^\/api\/task\/\d+(?:\/(?:history|history-page|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的任务读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/task\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
 const CORE_DOC_READ = /^\/api\/docs\/[a-z0-9._-]+$/;
@@ -324,6 +324,18 @@ export function startWeb(config, port = 4318, options = {}) {
             check(stat.isFile() && !stat.isSymbolicLink() && fs.realpathSync(file) === file && stat.size <= 8 * 1024 * 1024, 'unsafe report file');
             // 独立顶层文档（新标签打开）：不受主页面 CSP 约束，但仍显式收紧到一个自包含页面。
             return new Response(Bun.file(file), { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': REPORT_CSP } });
+          }
+          const codeRead = /^\/api\/task\/(\d+)\/(code-state|code-tree|code-file)$/.exec(url.pathname);
+          if (codeRead) {
+            const method = 'task.' + codeRead[2].replace('-', '_'), params = { id: Number(codeRead[1]) };
+            const allowed = codeRead[2] === 'code-state' ? ['scope','after','limit'] : codeRead[2] === 'code-tree'
+              ? ['scope','path','query','changed','after','limit','revision'] : ['scope','path','view','side','offset','limit','context','revision'];
+            for (const [key, value] of url.searchParams) {
+              check(allowed.includes(key) && !(key in params), 'unknown or duplicate code query parameter');
+              if (key === 'changed') { check(value === 'true' || value === 'false', 'invalid changed filter'); params[key] = value === 'true'; }
+              else params[key] = ['after','limit','offset','context'].includes(key) ? Number(value) : value;
+            }
+            return json(await client.request(method, params));
           }
           const reading = /^\/api\/task\/(\d+)\/(transcript-search|transcript-step|transcript-page|transcript-latest|explanations|intros)$/.exec(url.pathname);
           if (reading) {

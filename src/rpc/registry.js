@@ -11,6 +11,9 @@ export const PARAMS = {
   'task.graph': [], 'task.list': ['after','limit'], 'task.activity': ['limit','scope'],
   'task.page': ['before','limit','scope'], 'task.tree': ['id'], 'task.inspect': ['id'],
   'task.history': ['id','after'], 'task.history_page': ['id','before','limit'], 'task.diff': ['id'], 'task.usage': ['id'],
+  'task.code_state': ['id','scope','after','limit'],
+  'task.code_tree': ['id','scope','path','query','changed','after','limit','revision'],
+  'task.code_file': ['id','scope','path','view','side','offset','limit','context','revision'],
   'task.transcript': ['id','after','limit'], 'task.transcript_latest': ['id','after','before','limit'],
   'task.transcript_page': ['id','seq','offset'], 'task.transcript_step': ['id','seq','offset'],
   'task.transcript_search': ['id','query','kind','tool','errors','after','limit'],
@@ -30,6 +33,7 @@ export const PARAMS = {
 };
 export const USER_ONLY = new Set([
   'system.stop','system.stop_if_idle','system.configure','agent.configure','agent.status','agent.environment','agent.environment.configure',
+  'task.code_state','task.code_tree','task.code_file',
   'agent.usage.config','agent.usage.configure','agent.usage.history',
   'say.submit','task.transcript_latest','task.transcript_page','task.transcript_step','task.transcript_search',
   'task.reserve','task.reserve_all','task.auto_merge','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge',

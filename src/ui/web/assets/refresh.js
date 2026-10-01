@@ -74,6 +74,7 @@ export async function refresh() {
       } else ui.taskHistoryPage = response.task_page;
       ui.lastSnapshot = response;
     }
+    if (ui.transcriptView) ui.transcriptView.paintStatus?.(data.tasks?.find(task => task.id === ui.transcriptView.taskId));
     $('project').textContent = data.status.project.split('/').filter(Boolean).at(-1) || data.status.project;
     $('project').title = data.status.project;
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');

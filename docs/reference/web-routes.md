@@ -45,6 +45,9 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 | `GET /api/task/ID/history?after=N` | `task.history` |
 | `GET /api/task/ID/history-page?before=N&limit=N` | `task.history_page` |
 | `GET /api/task/ID/diff` | `task.diff` |
+| `GET /api/task/ID/code-state?scope=&after=&limit=` | 用户专属 `task.code_state`，代码净变化与未提交状态分页 |
+| `GET /api/task/ID/code-tree?scope=&path=&query=&changed=&after=&limit=&revision=` | 用户专属 `task.code_tree`，全项目文件目录/路径筛选分页 |
+| `GET /api/task/ID/code-file?scope=&path=&view=&side=&offset=&limit=&context=&revision=` | 用户专属 `task.code_file`，固定采样下的正文/逐行差异分段 |
 | `GET /api/task/ID/usage` | `task.usage` |
 | `GET /api/task/ID/report` | 仅 verifier 的自包含 HTML 检验报告；使用独立 sandbox CSP，非 verifier 返回 404 |
 | `GET /api/task/ID/transcript?after=N` | `task.transcript` |
@@ -55,7 +58,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 `/api/showcases` 与历史展示 Task 的 `/api/task/ID/report` 均返回 404；不再提供展示资源、预览或动作入口。历史 Task 仍可经通用任务读面回看，磁盘报告与历史记录不删除。
 
-执行记录相关游标与界限见[执行记录阅读器](../engineering/transcript-reader.md)。
+执行记录相关游标与界限见[执行记录阅读器](../engineering/transcript-reader.md)。代码读面见[代码阅读器](../engineering/code-reader.md)；Host 仅转发，复用项目身份与登录会话，不在概览后台读取代码。拒绝未知/重复查询字段、任意 cwd/ref 和 Agent token；`changed` 只接受 `true/false`。
 
 ## 用户动作
 

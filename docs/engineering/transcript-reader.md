@@ -56,6 +56,16 @@
 
 「读取完整原文」通过既有 `task.transcript_step` 按 24,000 字符分段，就地显示精确文字并提供继续读取／失败重试，不重复堆放配对与前后上下文。`task.transcript_page` 保留为兼容只读 API：每页至多 50 段、96,000 字符正文、700,000 字节步骤 JSON，返回 `(next_seq,next_offset)`；不再有 Web 终端模式调用方。
 
+### 平级的代码与改动视图
+
+执行详情顶部增加键盘可切换的「执行记录 / 代码与改动」页签，默认仍是执行记录。代码页签首次点击才创建 `code-view.js` 并读取代码；切换保留两边的 DOM、选中文件、搜索与正文滚动，关闭释放代码计时器及请求。切到代码时暂停执行记录的增量正文读取、作废未完成的检索/正文队列；回到记录后已完成的搜索不重跑，未完成的搜索明确提示重新提交。
+
+文件浏览器列出全部项目代码，未改文件可直接阅读；改动/未提交清单与目录共用选中状态。路径筛选按 Enter/按钮提交，目录按需读取，首层改动目录有界展开；用户显式折叠的目录在刷新/页签返回后保持折叠，不被自动展开规则覆盖。删除/重命名、暂存/未暂存、未跟踪、冲突各自可辨；缺少基线时明确净变化无法判断，不能把空列表报成无改动。数据和归档边界以[代码阅读器契约](code-reader.md)为准。
+
+选中文件支持差异/文件内容、基线/当前版本、行号、按语言着色、上下差异块、增加上下文及分段读取。桌面默认并排，可切统一；窄屏强制统一并可收起文件栏。二进制/链接/子模块与模式变化保留元信息；正文按选中侧的类型/大小和读取原因识别不可展示内容，即使后端返回空 text，也不报空文件或已读到末尾。超限/不可用/不存在不冒充空文件或无差异。正文选区沿用文本引用，附路径、比较方向与采样出处，不新增代码语义目标或模型按钮。
+
+仅前台代码页签按轮询偏好进行 single-flight 状态探测；状态变化只提示「加载最新」，不替换文件内容、选区或滚动位置。显式刷新才更新索引与选中文件；续读同时核对工作区 revision 和 file_revision，禁止把两个版本的文件片段拼接；`content.line_continued=true` 时核对字符偏移/行号并接入上一段的最后一行，不额外插入换行或重复行号，缺失该字段按 false 兼容。取消/切换后迟到响应作废。文件上的「在执行记录中搜索此路径」切回同级页签并清空旧类型/工具/失败过滤，只做路径文字搜索，不宣称修改因果定位。
+
 ### 结果历史
 
 `render-results.js` 默认直接展示 `Task.result`，此前 invocation 结果在「此前结果」内逐项惰性展开，显示调用身份与时间，重复文本也保留为不同调用。初始读 `task.inspect.runs` 与已加载 `invocation.completed` 事件；受 inspect 字节预算限制的更早结果通过既有 `task.history_page` 逐页加载，按 run ID 去重。无需新表／RPC，历史结果引用其不可变事件而不是可变的最新结果。刷新且最新结果未改变时保留展开节点与已加载历史。
@@ -102,6 +112,8 @@ GET 路由：`/api/task/<id>/transcript-latest`、`/api/task/<id>/transcript-pag
 ## 验证入口
 
 `test/transcript-reader.test.js` 覆盖全量范围、截断后命中、配对、分页与文件边界；`test/transcript-latest.test.js` 覆盖最新窗口、`before` 往回翻页、`after` 只看新增、token／裁剪与 head 读面一致、超过 8 MiB 仍取到尾部、坏行跳过与超长行标记；`test/project/explanations.test.js` 覆盖快照、无分支和权限；`test/explainer-provider.test.js` 使用可控子进程检查禁用工具的参数与凭证。
+
+代码阅读器前端回归在 `test/web/dom-code-view.test.js`：按需进入、全部文件/懒目录、路径筛选和分页、逐行差异/正文/版本、单飞与前台刷新、采样失效、归档/超限/删除降级、安全文本、页签状态与路径搜索。后端读面不由 DOM mock 证明，需另跑 Git/RPC 集成用例。
 
 Web 路由与 DOM 交互见 `test/web/transcript-reader.test.js`、`test/web/dom-transcript-reader.test.js`、`test/web/dom-transcript-view.test.js`、`test/web/dom-results.test.js`；代码着色与搜索定位见 `test/web/dom-code-highlight.test.js`、`test/web/dom-transcript-reader.test.js`。测试只使用临时项目和 Mock／可控进程，不发送真实项目内容给模型。
 

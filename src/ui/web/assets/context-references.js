@@ -110,8 +110,12 @@ function selectionReference(target) {
   const quote = String(selection?.toString?.() || '').trim();
   if (!quote || selection?.isCollapsed) return null;
   if (typeof selection?.containsNode === 'function' && !selection.containsNode(target, true)) return null;
-  return { version: 1, kind: 'text', target: {}, label: `所选文字 · ${Math.min(quote.length, MAX_QUOTE)}${quote.length > MAX_QUOTE ? `/${quote.length} 字 · 已截断` : ' 字'}`,
-    quote: quote.slice(0, MAX_QUOTE), location: pageLocation({ section: 'selection' }), captured_at: new Date().toISOString() };
+  let source = null;
+  for (let at = target; at; at = parentOf(at)) {
+    if (at.dataset?.codeReference === 'true') { source = semanticOptions(at).find(value => value.kind === 'text'); break; }
+  }
+  return { version: 1, kind: 'text', target: {}, label: `${source ? `${source.label} · ` : ''}所选文字 · ${Math.min(quote.length, MAX_QUOTE)}${quote.length > MAX_QUOTE ? `/${quote.length} 字 · 已截断` : ' 字'}`.slice(0, 200),
+    quote: quote.slice(0, MAX_QUOTE), location: source?.location || pageLocation({ section: 'selection' }), captured_at: new Date().toISOString() };
 }
 function genericReference(target) {
   if (excluded(target) || !inPage(target)) return null;

@@ -34,6 +34,9 @@ export const handlers = {
     return p.store.historyPage(taskId, before, limit);
   },
   'task.diff'(p, params, actor) { return p.diff(params.id); },
+  'task.code_state'(p, { id: taskId, _token, ...options }) { return p.codeState(id(taskId), options); },
+  'task.code_tree'(p, { id: taskId, _token, ...options }) { return p.codeTree(id(taskId), options); },
+  'task.code_file'(p, { id: taskId, _token, ...options }) { return p.codeFile(id(taskId), options); },
   'task.transcript'(p, params, actor) { return p.transcript(id(params.id), Number(params.after ?? 0), Number(params.limit ?? 100)); },
   'task.transcript_latest'(p, params) {
     return p.transcriptLatest(id(params.id), Number(params.after ?? 0), Number(params.before ?? 0), Number(params.limit ?? 100));

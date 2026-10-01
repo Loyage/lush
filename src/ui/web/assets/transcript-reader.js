@@ -10,6 +10,15 @@ export function releaseTranscriptReader(taskId) {
   if (state) state.version++;
   readers.delete(taskId);
 }
+export function pauseTranscriptReader(taskId) {
+  const state = readers.get(taskId);
+  if (!state) return;
+  state.version++;
+  state.pause?.();
+}
+export function searchTranscriptPath(taskId, path) {
+  return readerState(taskId).searchPath(String(path));
+}
 export function resetTranscriptReaders() {
   for (const state of readers.values()) state.version++;
   readers.clear();
@@ -71,8 +80,17 @@ function readerState(taskId) {
   }, 'ghost');
   clear.hidden = true; root.append(clear); state.clear = clear;
   let criteria = null, cursors = [0], pageIndex = 0;
+  let searching = false;
+  state.pause = () => {
+    submit.disabled = false; root.setAttribute('aria-busy', 'false');
+    if (searching) {
+      searching = false;
+      results.replaceChildren(el('p', '搜索读取已暂停；回到此视图后可重新搜索。', 'hint'));
+      state.onError?.(new Error('已暂停读取；请重新搜索以继续'));
+    }
+  };
   const search = async after => {
-    const version = ++state.version;
+    const version = ++state.version; searching = true;
     root.setAttribute('aria-busy', 'true');
     submit.disabled = true; state.onStart?.(); results.replaceChildren(el('p', '正在跨会话搜索完整记录…', 'hint'));
     try {
@@ -100,7 +118,13 @@ function readerState(taskId) {
       results.replaceChildren(el('p', `搜索未完成：${error.message}`, 'error'));
       state.onError?.(error);
     } }
-    finally { if (version === state.version) { submit.disabled = false; root.setAttribute('aria-busy', 'false'); } }
+    finally { if (version === state.version) { searching = false; submit.disabled = false; root.setAttribute('aria-busy', 'false'); } }
+  };
+  state.searchPath = path => {
+    query.value = path; kind.value = ''; tool.value = ''; errors.checked = false;
+    criteria = { query: path, kind: '', tool: '', errors: 'false' };
+    cursors = [0]; pageIndex = 0;
+    return search(0);
   };
   form.onsubmit = event => {
     event.preventDefault(); criteria = { query: query.value.trim(), kind: kind.value, tool: tool.value.trim(), errors: String(errors.checked) };

@@ -1,3 +1,5 @@
+@import url('./styles-code.css');
+
 /* Lush Studio — semantic color, type and spacing tokens shared by both themes. */
 :root {
   color-scheme:light;

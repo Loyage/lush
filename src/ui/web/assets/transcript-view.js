@@ -2,15 +2,18 @@ import { $, el, button } from './dom.js';
 import { ui, transcriptCache, transcriptOpen } from './state.js';
 import { loadTranscript, paintTranscript, transcriptContent, transcriptMatch, locateTranscriptStep, transcriptOrder } from './render-transcript.js';
 import { api } from './api.js';
-import { transcriptReader, releaseTranscriptReader, openTranscriptStep } from './transcript-reader.js';
+import { transcriptReader, releaseTranscriptReader, pauseTranscriptReader, searchTranscriptPath, openTranscriptStep } from './transcript-reader.js';
+import { createCodeView } from './code-view.js';
 import { setPref, onPrefChange, TRANSCRIPT_ORDER_MODES } from './prefs.js';
 import { closeExplanationPanel } from './explanations.js';
+import { statusOf } from './format.js';
 
 let current = null;
 export function closeTranscriptView() {
   const state = current;
   if (!state) return;
   current = null;
+  state.code?.dispose();
   releaseTranscriptReader(state.taskId);
   removeEventListener('hashchange', state.onNavigate);
   if (state.panel.querySelector('.reading-panel')) closeExplanationPanel();
@@ -26,11 +29,12 @@ export function closeTranscriptView() {
 export async function openTranscriptView(taskId, seq) {
   closeTranscriptView();
   const panel = el('dialog', undefined, 'transcript-dialog');
-  panel.setAttribute('aria-label', `任务 #${taskId} 执行过程`);
+  panel.setAttribute('aria-label', `任务 #${taskId} 执行详情`);
   const holder = el('div', undefined, 'transcript');
   const state = { panel, holder, taskId, returnTarget: document.activeElement,
     returnScroll: $('detail').scrollTop, wasInert: $('project-app').inert,
     menu: $('context-menu'), menuParent: $('context-menu')?.parentNode };
+  state.mode = 'transcript';
   current = state; ui.transcriptView = state; transcriptOpen.add(taskId);
   const toolbar = el('header', undefined, 'transcript-toolbar');
   const back = button('返回任务 · Esc', closeTranscriptView, 'ghost');
@@ -38,14 +42,63 @@ export async function openTranscriptView(taskId, seq) {
   for (const mode of TRANSCRIPT_ORDER_MODES) { const option = el('option', mode.label); option.value = mode.id; order.append(option); }
   order.value = transcriptOrder(); order.onchange = () => setPref('transcriptOrder', order.value);
   state.order = order;
-  toolbar.append(back, el('strong', `任务 #${taskId} · 执行过程`), order);
+  const taskStatus = el('span', '状态未知', 'badge');
+  state.paintStatus = task => {
+    if (!task) return;
+    taskStatus.textContent = statusOf(task).label; taskStatus.className = `badge b-${task.status}`;
+  };
+  state.paintStatus(ui.lastSnapshot?.tasks?.find(task => task.id === taskId));
+  toolbar.append(back, el('strong', `任务 #${taskId} · 执行详情`), taskStatus, order);
+  const tabs = el('div', undefined, 'execution-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '执行详情视图');
+  const recordsTab = button('执行记录', () => switchMode('transcript'), 'ghost');
+  const codeTab = button('代码与改动', () => switchMode('code'), 'ghost');
+  for (const [tab, name] of [[recordsTab, 'transcript'], [codeTab, 'code']]) {
+    tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', String(name === state.mode));
+    tab.setAttribute('aria-controls', `execution-${name}-${taskId}`);
+    tab.id = `execution-tab-${name}-${taskId}`;
+    tab.tabIndex = name === state.mode ? 0 : -1;
+    tab.onkeydown = event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const mode = event.key === 'Home' ? 'transcript' : event.key === 'End' ? 'code' : state.mode === 'code' ? 'transcript' : 'code';
+      void switchMode(mode); (mode === 'code' ? codeTab : recordsTab).focus();
+    };
+  }
+  tabs.append(recordsTab, codeTab);
+  async function switchMode(mode) {
+    if (current !== state || mode === state.mode) return;
+    state.mode = mode;
+    layout.hidden = mode !== 'transcript'; order.hidden = mode !== 'transcript';
+    for (const [tab, value] of [[recordsTab, 'transcript'], [codeTab, 'code']]) {
+      tab.setAttribute('aria-selected', String(mode === value)); tab.tabIndex = mode === value ? 0 : -1;
+    }
+    if (mode === 'code') {
+      pauseTranscriptReader(taskId); transcriptOpen.delete(taskId);
+      if (!state.code) {
+        state.code = createCodeView(taskId, { onSearch: async path => {
+          await switchMode('transcript');
+          if (current === state && state.mode === 'transcript') await searchTranscriptPath(taskId, path);
+        } });
+        state.code.root.id = `execution-code-${taskId}`;
+        state.code.root.setAttribute('role', 'tabpanel'); state.code.root.setAttribute('aria-labelledby', codeTab.id);
+        panel.append(state.code.root);
+      }
+      state.code.root.hidden = false; await state.code.setActive(true);
+    } else {
+      if (state.code) { state.code.root.hidden = true; await state.code.setActive(false); }
+      if (current !== state || state.mode !== 'transcript') return;
+      transcriptOpen.add(taskId);
+      if (!state.filtered && transcriptCache.get(taskId)?.order && transcriptCache.get(taskId).order !== transcriptOrder()) await loadTranscript(taskId);
+    }
+  }
   const layout = el('div', undefined, 'transcript-layout');
+  layout.id = `execution-transcript-${taskId}`; layout.setAttribute('role', 'tabpanel'); layout.setAttribute('aria-labelledby', recordsTab.id);
   const sidebar = el('aside', undefined, 'transcript-sidebar'); sidebar.setAttribute('aria-label', '执行过程搜索与筛选');
   const viewport = el('div', undefined, 'transcript-viewport'); viewport.tabIndex = 0;
   viewport.setAttribute('aria-label', '执行过程正文');
   const notice = el('p', '', 'hint'); notice.setAttribute('role', 'status'); state.notice = notice;
   state.filtered = false;
-  const active = valid => current === state && valid();
+  const active = valid => current === state && state.mode === 'transcript' && valid();
   const reader = transcriptReader(taskId, {
     locate: (_id, target) => {
       const card = [...holder.children].find(node => node.dataset.matchSeq === String(target));
@@ -113,13 +166,14 @@ export async function openTranscriptView(taskId, seq) {
     },
   });
   sidebar.append(el('h2', '搜索'), reader);
-  viewport.append(notice, holder); layout.append(sidebar, viewport); panel.append(toolbar, layout);
+  viewport.append(notice, holder); layout.append(sidebar, viewport); panel.append(toolbar, tabs, layout);
   state.onNavigate = closeTranscriptView; addEventListener('hashchange', state.onNavigate);
   panel.oncancel = event => { event.preventDefault(); closeTranscriptView(); };
   panel.onkeydown = event => {
     if (event.defaultPrevented) return;
     if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'f') {
-      event.preventDefault(); reader.querySelector('input').focus?.({ preventScroll: true });
+      event.preventDefault();
+      void switchMode('transcript'); reader.querySelector('input').focus?.({ preventScroll: true });
     } else if (event.key === 'Escape') { event.preventDefault(); closeTranscriptView(); }
   };
   if (state.menu) { state.menu.hidden = true; panel.append(state.menu); }
