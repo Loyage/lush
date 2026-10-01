@@ -32,13 +32,13 @@ bun install                        # 安装依赖；桌面版会安装 Electron
 bun run start --project /absolute/path/to/my-project   # 只启动项目 daemon
 bun run host                                            # 全局 Web 启动器（默认 127.0.0.1:4318）
 bun run host 4318 --project /absolute/path/to/my-project # 绑定单项目的 Web
-bun run desktop                                        # Electron 桌面版；独立随机端口
+bun run desktop                                        # Electron 连接页：本地窗口 / 远程 Host
 ```
 
 | 形态 | 适合 | 说明 |
 |---|---|---|
 | 本地 Web | 日常主工作台 | 浏览器打开 `http://127.0.0.1:4318` |
-| 桌面应用 | 想要原生窗口与目录选择器 | 与 Web 复用同一份 UI / API，可与后台 Web 同时运行 |
+| 桌面应用 | 想要原生窗口、本地目录选择或远程项目 | 连接页可打开本地 / 远程独立窗口，业务 UI / API 由对应 Host 提供；见[远程桌面部署](remote-desktop.md) |
 | 全局启动器 | 本机多个项目同时打开、来回查看 | 已登记列表与上次项目记在用户配置目录（`launcher.json` v2），不写入项目 `.lush/`；每个项目一条 `/p/<project-id>/` 地址 |
 | 命令行 | 脚本化、服务器、无图形环境 | 完整命令见 [CLI 与 RPC](../reference/api.md) |
 
@@ -88,7 +88,7 @@ lush agent init worker --local        # 创建本机私有的 .lush/agent/ 补�
 - 首次启动会把明文 `password` 原地替换为 scrypt `password_hash`，之后通过登录页取得 12 小时的 HttpOnly / SameSite 会话 Cookie。密码首尾空白忽略，大小写与中间字符必须一致；连续输错 5 次锁 60 秒。
 - 公网模式下 `projects` 白名单同时决定可见与可访问：服务端只用列表中 canonical 后的路径派生项目身份，本机曾登记过但不在白名单的目录即使地址已知也会被拒，白名单不会退化成仅控制选择器。
 - 公网部署**必须**置于 HTTPS 反向代理之后，否则登录密码在网络中明文传输。反向代理默认会把 `Host` 改写成 `127.0.0.1:4318`，与浏览器发出的对外 `Origin` 不一致，提交会被当作跨站拒绝。二选一：让代理保留原始 Host（推荐，nginx 用 `proxy_set_header Host $host;`），或在 `web.json` 里登记对外地址 `"origin": "https://lush.example.com"`（多个用 `"origins": [...]`）。
-- 删除对应模式的 `web.json` 即恢复仅本机、无需登录的模式。Electron 桌面版始终只监听回环地址，不读取全局公网配置。
+- 删除对应模式的 `web.json` 即恢复仅本机、无需登录的模式。Electron 的本地临时 Host 始终只监听回环地址，不读取全局公网配置；远程窗口直接加载远端 Host，远端的认证配置仍然生效，详见[远程桌面部署](remote-desktop.md)。
 - 监听范围、会话与跨站判定的完整安全约束见 [HTTP 与认证](../reference/http.md)。
 
 ## 5. 运行配置

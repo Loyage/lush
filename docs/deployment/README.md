@@ -5,7 +5,8 @@
 ## 阅读顺序
 
 1. [Agent 部署指导](agent-guide.md)：自包含的部署说明书。把本文交给你的 AI coding agent，它就能完成环境检查、安装、启动（daemon / Web / 桌面）、Agent 配置、远程访问与验证；人也可以直接照着执行。
-2. 部署完成后，按[文档总览](../README.md)进入使用与架构阅读。
+2. 使用本地 Electron 打开远程项目时，阅读[远程桌面部署](remote-desktop.md)：HTTPS、SSH 隧道、窗口与登录隔离。
+3. 部署完成后，按[文档总览](../README.md)进入使用与架构阅读。
 
 ## 相关参考
 

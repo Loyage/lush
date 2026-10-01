@@ -61,6 +61,7 @@
 | 服务重启 | `test/service-restart.test.js`、`test/web/service-restart.test.js`、`test/integration/service-restart.test.js`（idle 准入、鉴权/路由、真实进程与桌面所有权） |
 | Web 读面与安全 | `test/web/{security,assets,read-models,project-route,core-studio,multi-project,launcher}.test.js` |
 | Web DOM | `test/web/dom-*.test.js`（各自 `boot()`） |
+| 桌面连接 | `test/desktop/{connections,runtime,local-host,connection-ui}.test.js`（地址 / 持久化 / 模拟 Electron 安全与窗口 / 真实临时 Host 生命周期 / 连接页 DOM） |
 | Notice 记录与提醒 | `test/project/{notice-page,notice-info,questionnaire}.test.js`、`test/web/{notice-records,notice-notifications,questionnaire}.test.js` |
 | 执行过程阅读 | `test/transcript*.test.js`、`test/web/{transcript-reader,dom-transcript-reader,dom-transcript-view,dom-results}.test.js` |
 | 运行设置与 Agent | `test/runtime-settings.test.js`、`test/config*.test.js`、`test/agent-settings.test.js`、`test/soft-budget.test.js` |

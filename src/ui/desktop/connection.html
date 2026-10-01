@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Lush · 连接</title>
+  <link rel="stylesheet" href="./connection.css">
+  <script type="module" src="./connection.js"></script>
+</head>
+<body>
+  <main>
+    <h1>Lush</h1>
+    <p>本地与远程使用独立窗口，可以同时工作。窗口关闭不会停止项目 daemon。</p>
+    <section aria-labelledby="local-heading">
+      <h2 id="local-heading">本地项目</h2>
+      <p>需要本机已安装 Bun；打开后可选择本地项目目录。</p>
+      <button id="open-local" type="button">打开本地窗口</button>
+    </section>
+    <section aria-labelledby="remote-heading">
+      <h2 id="remote-heading">远程 Host</h2>
+      <form id="remote-form">
+        <label for="host-url">Host 根地址</label>
+        <input id="host-url" type="url" maxlength="2048" placeholder="https://lush.example.com" autocomplete="url" spellcheck="false" required aria-describedby="remote-help">
+        <p id="remote-help">只连接你信任的 Lush Host。公网使用 HTTPS；SSH 隧道请自行建立，再填 http://127.0.0.1:端口。这里不保存密码或 SSH 密钥。</p>
+        <button id="open-remote" type="submit">打开远程窗口</button>
+      </form>
+      <p>登录和项目选择在远端页面完成，项目路径属于远程机器。远程模式不需要本机 Bun。</p>
+    </section>
+    <p id="connection-status" role="status" aria-live="polite"></p>
+    <p id="connection-error" role="alert"></p>
+    <section aria-labelledby="recent-heading">
+      <h2 id="recent-heading">最近远程连接</h2>
+      <p>仅移除记录不会退出登录、关闭窗口或停止远端服务。</p>
+      <ul id="recent-connections"></ul>
+    </section>
+    <p class="hint">可随时通过桌面「连接」菜单打开更多窗口。连接失败可重试；不会自动重发任务操作。</p>
+  </main>
+</body>
+</html>
