@@ -214,6 +214,20 @@ test('web exposes branch batch merge through the mutation whitelist', async () =
   } finally { await f.close(); }
 });
 
+test('web forwards auto-merge settings but rejects tokens and unrelated mutations', async () => {
+  const f = await setup();
+  const post = (method, params) => fetch(f.url + '/api/action', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
+  try {
+    // This test owns the Web seam; runtime may reject an unknown Task (or an older daemon the method).
+    const response = await post('task.auto_merge', { id: 999, enabled: true });
+    expect((await response.json()).error ?? '').not.toContain('method not allowed from Web UI');
+    const token = await post('task.auto_merge', { id: 999, enabled: false, _token: 'forged' });
+    expect(token.status).toBe(400);
+    expect((await post('system.stop', {})).status).toBe(400);
+  } finally { await f.close(); }
+});
+
 test('web exposes branch archive through the mutation whitelist', async () => {
   const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});

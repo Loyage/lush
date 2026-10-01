@@ -149,6 +149,7 @@ export default {
         // Recheck the inbox after releasing ownership to avoid a lost wake-up.
         if (!TERMINAL.has(this.store.task(task.id).status) && this.hasActionableMessages(task.id)) this.wake(task.id);
         if (!this.stopping) {
+          this.armTaskAutoMerge(task.id);
           const settled = this.store.task(task.id);
           let reservation = null;
           try { reservation = ['say','child'].includes(settled.task_kind) && settled.reservation ? JSON.parse(settled.reservation) : null; }

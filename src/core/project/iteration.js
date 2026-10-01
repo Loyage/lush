@@ -52,8 +52,11 @@ export function consumeIntegratedReservation(project, task, reason) {
   const previous = bookingOf(task);
   if (previous?.status !== 'integrated' && !(task.task_kind === 'child'
     && task.status === 'awaiting_acceptance' && !previous)) return false;
-  project.store.update(task.id, { reservation: task.task_kind === 'child'
-    ? JSON.stringify({ version: 2, kind: 'merge', status: 'pending', created_at: new Date().toISOString() }) : null });
+  const settings = task.auto_merge ? JSON.parse(task.auto_merge) : null;
+  const automatic = settings ? settings.enabled === true : task.task_kind === 'child';
+  project.store.update(task.id, { reservation: automatic
+    ? JSON.stringify({ version: 2, kind: 'merge', status: 'pending',
+      ...(settings?.enabled ? { auto_merge: true } : {}), created_at: new Date().toISOString() }) : null });
   project.store.event(task.id, 'task.iteration_started', { reason, previous_reservation: previous });
   return true;
 }

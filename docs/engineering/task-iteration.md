@@ -6,7 +6,7 @@
 
 version 2 合并落地后，原 Task 归还原父 Task，进入非终态 `awaiting_acceptance`（待验收），`integration='merged'`。这只代表本轮改动已交付，不代表用户已经验收，也不自动启动 Agent。分支、worktree、会话、消息、结果和历史保留。
 
-- 用户可继续用 `task.message` 给当前 Task 追加输入，沿用原 Task / Agent 身份、分支和会话继续开发；不另造 say。新增提交仍须再次交付。
+- 用户可继续用 `task.message` 给当前 Task 追加输入，沿用原 Task / Agent 身份、分支和会话继续开发；不另造 say。新增提交仍须再次交付；Task 的自动合并开关跨轮保留，已开启时在本轮再次就绪后自动请求，未开启时仍由用户显式合并。单次 `task.reserve` 不会打开持久开关。
 - `task.accept` 区分责任：用户直接创建的 say 由用户验收最终效果；派生 child 由运行中的直接父 Agent 检查结果、测试与交付事实后确认，无需用户逐个点击。两者都结算为 `completed`，写 `task.accepted`（`accepted_by:'user'|'parent'`，父确认另记 `parent_id`），不调用 Agent，不删除代码现场。用户仍可显式确认 child，但不是必经流程。
 - 父 Agent 不得验收自己、兄弟、间接后代或用户创建的 say；其 invocation 必须仍有效，child 必须已交付并处于 `awaiting_acceptance`。失败、在途交付、未读消息、未决问题、脏工作区、新增未交付提交与未结算后代都不得自动当作成功。Git 检查后复核权限与新输入；需要修改时先 `task.message` 继续 child，检查通过再确认。父 Task 验收不隐式确认后代，直接父 Agent 应在收口前完成内部确认。
 - `task.cleanup` / `branch.archive` 是独立的显式磁盘维护；验收不暗含归档，归档也不得假装验收；待验收 Task 须先验收才能归档，现有回收终态门保持。

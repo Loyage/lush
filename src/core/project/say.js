@@ -693,6 +693,12 @@ export default {
   unreserveTask(taskId) {
     const requested = this.store.task(id(taskId));
     assertTaskNotSyncing(this, requested.id);
+    const automatic = this.autoMergeView(requested);
+    check(!automatic?.locked, '父任务派生的子 Task 自动合并已锁定，不能撤销；如需停止工作，请取消任务');
+    // A persistent hook would immediately recreate an automatic intention. Make
+    // the user explicitly switch it off (with the same readiness gate) instead.
+    check(!automatic?.enabled || !requested.reservation || !JSON.parse(requested.reservation).auto_merge,
+      '请关闭自动合并开关，不要通过撤销请求关闭持久 hook');
     if (['say','child'].includes(requested.task_kind) && requested.reservation
       && JSON.parse(requested.reservation)?.version === 2) {
       const booking = JSON.parse(requested.reservation);
@@ -908,6 +914,7 @@ export default {
         const task = this.store.create({ parent_id: parent.id, input_id: inputId, role: 'agent', goal: content,
           name: `say-${inputId}`, task_kind: 'say' });
         this.store.update(task.id, { branch: anchor.branch, workspace: anchor.workspace,
+          auto_merge: JSON.stringify({ version: 1, enabled: false, locked: false }),
           base_commit: anchor.commit, target_branch: target, ...(start ? {} : { status: 'paused' }) });
         if (rule !== null) {
           ruleTaskId = task.id;

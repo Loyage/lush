@@ -24,6 +24,15 @@ test('agent prompts are composed from role-specific named parts', () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('agent prompt distinguishes persistent auto-merge hooks from delivery and authorization', () => {
+  const prompt = builtInPrompt('agent');
+  expect(prompt).toContain('自动合并设置跨追加开发轮次保留');
+  expect(prompt).toContain('默认开启不可关闭的自动合并 hook');
+  expect(prompt).toContain('Agent 不得操作自动合并开关');
+  expect(prompt).toContain('不增加父 Agent 审批');
+  expect(prompt).toContain('只有显示 integration=merged 才能宣称已进入父分支');
+});
+
 test('settings replacement, project/local overlays and settings append have explicit order', () => {
   const root = temp();
   try {

@@ -64,6 +64,7 @@ export const handlers = {
   'task.integrate'(p, params, actor) { return p.integrateChild(actor, params.id, params.commit); },
   'task.reserve'(p, params) { check(params.kind === 'merge', 'only merge delivery is supported'); return p.reserveTask(params.id, 'merge'); },
   'task.reserve_all'(p, params) { return p.reserveMergeAll(params.branch); },
+  'task.auto_merge'(p, params) { return p.setTaskAutoMerge(params.id, params.enabled); },
   'task.resolve'(p, params) { return p.resolveTask(params.id); },
   'task.accept'(p, params, actor) { return p.acceptTask(params.id, actor); },
   'task.reopen'(p, params) { return p.reopenTask(params.id); },

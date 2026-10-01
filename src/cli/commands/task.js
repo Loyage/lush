@@ -113,13 +113,17 @@ export async function run(command, args, ctx) {
       while (!TERMINAL.has(value.status));
       if (value.status !== 'completed') process.exitCode = 1;
     } else {
-      check(['inspect','cancel','retry','interrupt','resume','integrate','reserve','reserve-all','resolve','accept','reopen','sync-parent','resolve-sync','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup'].includes(verb), 'unknown task command');
+      check(['inspect','cancel','retry','interrupt','resume','integrate','reserve','reserve-all','auto-merge','resolve','accept','reopen','sync-parent','resolve-sync','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup'].includes(verb), 'unknown task command');
       if (verb === 'integrate') {
         exact(args, 2);
         value = await client.request('task.integrate', { id: id(args[0]), commit: args[1] });
       } else if (verb === 'reserve') {
         exact(args, 2);
         value = await client.request('task.reserve', { id: id(args[0]), kind: args[1] });
+      } else if (verb === 'auto-merge') {
+        exact(args, 2);
+        check(['on','off'].includes(args[1]), 'auto-merge expects on or off');
+        value = await client.request('task.auto_merge', { id: id(args[0]), enabled: args[1] === 'on' });
       } else if (verb === 'reserve-all') {
         exact(args, 1);
         value = await client.request('task.reserve_all', { branch: args[0] });

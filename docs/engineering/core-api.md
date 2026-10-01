@@ -9,6 +9,7 @@
 - `task.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。
 - `task.inspect` / `task.page` / `task.graph` / `task.diff` / `task.history*` / `task.transcript*`：按需只读审阅；支持 CLI 与 Web。
 - `task.integrate`：运行中的直接父 Agent 核对固定子提交并快进；`task.resolve_child_divergence` 为父侧分歧派隔离任务。
+- `task.auto_merge {id,enabled}`：用户专属的持久自动合并开关；新 say 默认关闭，新 child 默认开启且不可关闭，开发就绪后不能调整。与单次请求分离，语义见 [Task RPC](../reference/rpc/tasks.md#自动合并开关与本轮合并)。
 - `task.reserve {kind:'merge'}` / `task.reserve_all {branch}` / `task.unreserve` / `task.resolve_divergence` / `task.approve_merge`：冻结、复查、解分歧和由用户批准固定 commit + baseline；`reserve_all` 把一条分支下所有已静息待合并的 Task 逐条按同一套准入放入 v2 merge 队列，新式 version 2 请求由 merge Task 自动串行 Squash，含 main；旧 version 1 仍需固定提交批准。
 - `task.accept` / `task.reopen` / `task.sync_parent` / `task.resolve_sync`：[多轮交付](task-iteration.md)。`accept` 支持用户验收 say、运行中的直接父 Agent 确认已交付 child；其余入口仍用户专属。合并后待验收，可追加输入继续；验收/归档分开，父同步无冲突程序完成、冲突另点 Agent；历史任务不批量迁移，归档不重建。
 - `task.resolve` / `task.cancel` / `task.retry` / `task.cleanup`：显式结算与安全维护。`task.interrupt` / `task.resume` / `task.configure` 是可恢复的暂停流程：中断进入非终态 paused，暂停中可追加消息或固定本轮运行设置（profile 可含只在本任务生效的 `env` 覆盖，Pi 按 common → 角色 → 本任务三层合并），继续才重新排队；`say.submit {start:false}` 直接建出的「待开始」Task 就走这套 resume。`task.cancel` 仍是不可恢复的终态放弃，且只在 paused 下作为次级入口。`branch.tree/show/bind/archive` 管理分支。Agent 和 runtime 配置、进度、daemon 状态是运行必需的辅助接口。

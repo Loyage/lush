@@ -185,7 +185,7 @@ test('a clean no-change child delivers its result without a merge commit', async
   } finally { await f.close(); }
 });
 
-test('an explicitly withdrawn child reservation is not recreated at its safe point', async () => {
+test('a historical child with an explicitly withdrawn reservation is not re-enabled at its safe point', async () => {
   const f = fixture({ resolve() { return { agent: 'mock' }; }, async run({ cwd }) {
     fs.writeFileSync(path.join(cwd, 'held.txt'), 'held\n');
     await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', 'held');
@@ -195,6 +195,8 @@ test('an explicitly withdrawn child reservation is not recreated at its safe poi
   try {
     const say = await f.project.say('parent'); f.store.update(say.task.id, { status: 'waiting' });
     const child = await f.project.spawn(say.task.id, 'held');
+    // NULL is an old row, not a new locked hook. Upgrade never rewrites this choice.
+    f.store.update(child.id, { auto_merge: null });
     f.project.unreserveTask(child.id);
     const baseline = await git(f.root, 'rev-parse', 'main');
     f.project.stopping = false; f.project.kick();

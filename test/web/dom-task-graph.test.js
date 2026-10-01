@@ -145,7 +145,7 @@ test('Task 卡片同屏展示工作状态、进度、结果、Git 诊断、待�
   await dom.node('task-graph-open').onclick();
   const text = deepText(dom.node('detail'));
   for (const word of ['验收条件', '等待新输入', '已完成初步实现', '实现接口', '1/3',
-    '已提交：2 个文件', '未提交：1 个文件', 'implement API', '是否继续？', '预约合并',
+    '已提交：2 个文件', '未提交：1 个文件', 'implement API', '是否继续？', '自动合并',
     '正在解决 Task #7', '冻结', 'Git 父分支：main', '当前检出', 'Git 关系：领先 · 领先 1 / 落后 0 个提交']) {
     expect(text).toContain(word);
   }
@@ -165,17 +165,12 @@ test('Task 卡片同屏展示工作状态、进度、结果、Git 诊断、待�
   expect(requests).toBeGreaterThan(previousRequests);
   expect(deepText(dom.node('detail'))).toContain('未提交：3 个文件');
 
-  // 无就绪投影的 waiting Task 只能预约，不能从静息状态猜测工作已经结束。
-  const delivery = dom.node('detail').querySelector('[data-task-id="2"]')
-    .querySelectorAll('button').find(node => node.textContent === '预约合并');
+  // 缺少设置投影时保守只读，不能从 waiting 猜测完成或编辑权限。
+  const delivery = dom.node('detail').querySelector('[data-task-id="2"]').querySelector('.auto-merge-toggle');
   expect(delivery).toBeTruthy();
   expect(delivery.classList.contains('agent-call')).toBe(true);
-  const requesting = delivery.onclick();
-  await new Promise(resolve => setTimeout(resolve, 0));
-  expect(dialogText(dom)).toContain('由父 Task 的 merge 子任务串行处理');
-  await answerDialog(dom, '预约合并');
-  await requesting;
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: 2, kind: 'merge' } });
+  expect(delivery.querySelector('input').disabled).toBe(true);
+  expect(delivery.parentNode.getAttribute('data-help')).toContain('暂不可用');
 });
 
 test('Task 图：卡片按真实状态配色，一键编排入口已下线', async () => {

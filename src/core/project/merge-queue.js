@@ -7,6 +7,58 @@ const codeTask = task => ['say', 'child'].includes(task.task_kind);
 
 /** New task-owned delivery queue. The task tree is reparented only after a durable request. */
 export default {
+  /** Persistent hook configuration is separate from the single delivery receipt. */
+  autoMergeView(task) {
+    if (!codeTask(task)) return null;
+    const booking = reservationOf(task);
+    if (booking && booking.version !== 2) return null; // historical approval stays historical
+    const settings = task.auto_merge ? JSON.parse(task.auto_merge) : null;
+    const enabled = settings?.enabled === true, locked = settings?.locked === true;
+    let reason = null;
+    if (locked) reason = '父任务派生的子 Task 默认自动合并，不能关闭';
+    else if (TERMINAL.has(task.status) || task.status === 'awaiting_acceptance') reason = '本轮已交付或任务已结束，不能调整自动合并';
+    else if (booking && ['requested','resolving'].includes(booking.status)) reason = '合并请求已发出，不能调整自动合并';
+    else if (this.taskSyncBusy?.has(task.id) || taskSyncDeliveryPaused(this, task.id)) reason = '父分支同步正在执行或交付已暂停，不能调整自动合并';
+    else if (this.mergeReadiness(task)?.ready) reason = '本轮开发已完成，请使用合并按钮';
+    return { enabled, locked, editable: !reason, reason };
+  },
+
+  /** DB-only arming; never revives ended/delivered tasks or withdrawn historical hooks. */
+  armTaskAutoMerge(taskId) {
+    const task = this.store.task(taskId);
+    if (!codeTask(task) || !task.auto_merge || !JSON.parse(task.auto_merge).enabled
+      || task.reservation || TERMINAL.has(task.status) || task.status === 'awaiting_acceptance'
+      || taskSyncDeliveryPaused(this, task.id)) return false;
+    this.store.transaction(() => {
+      this.store.update(task.id, { reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'pending',
+        auto_merge: true, created_at: new Date().toISOString() }) });
+      this.store.event(task.id, 'task.reserved', { kind: 'merge', version: 2, via: 'auto_merge' });
+    });
+    return true;
+  },
+
+  async setTaskAutoMerge(taskId, enabled) {
+    check(typeof enabled === 'boolean', 'enabled must be a boolean');
+    const task = this.store.task(id(taskId));
+    const before = this.autoMergeView(task);
+    check(before, 'only version 2 say/child Tasks support auto merge');
+    if (before.enabled === enabled) return { task_id: task.id, changed: false, auto_merge: before };
+    check(before.editable, before.reason);
+    assertTaskAncestorsOpen(this, task);
+    this.store.transaction(() => {
+      this.store.update(task.id, { auto_merge: JSON.stringify({ version: 1, enabled, locked: false }) });
+      this.store.event(task.id, 'task.auto_merge_changed', { enabled, previous: before.enabled });
+      const booking = reservationOf(task);
+      if (!enabled && booking?.status === 'pending' && booking.auto_merge === true) {
+        this.store.update(task.id, { reservation: null });
+        this.store.event(task.id, 'task.unreserved', { reservation: booking, reason: 'auto merge disabled' });
+      }
+      if (enabled) this.armTaskAutoMerge(task.id);
+    });
+    if (enabled) await this.settleQueuedMerge(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+    return { task_id: task.id, changed: true, auto_merge: this.autoMergeView(this.store.task(task.id)) };
+  },
+
   async requestTaskMerge(taskId) {
     let task = this.store.task(id(taskId));
     check(codeTask(task), 'only say/child code Tasks can request a merge');
@@ -43,6 +95,13 @@ export default {
           created_at: new Date().toISOString() }) });
       this.store.event(task.id, 'task.reserved', { kind: 'merge', version: 2 });
     });
+    // A manual request is an independent one-shot intent, not a change to the hook.
+    // Keep it even if the user later switches off an unfinished task's hook.
+    const intent = reservationOf(this.store.task(task.id));
+    if (intent?.status === 'pending' && intent.auto_merge) {
+      const { auto_merge: _automatic, ...explicit } = intent;
+      this.store.update(task.id, { reservation: JSON.stringify(explicit) });
+    }
     if (previous?.status === 'requested') this.scheduleTaskMerge(previous.parent_id);
     else await this.settleQueuedMerge(task.id);
     return { task_id: task.id, changed: !previous, reservation: reservationOf(this.store.task(task.id)) };
@@ -65,6 +124,8 @@ export default {
       await this.workspaces.finish(task);
       task = this.store.task(taskId);
       const prior = reservationOf(task);
+      if (prior?.version !== 2 || prior.status !== 'pending' || this.reservationWaitReason(task)
+        || taskSyncDeliveryPaused(this, task.id)) return false;
       assertTaskAncestorsOpen(this, task);
       const originalParent = this.store.task(prior.parent_id ?? task.parent_id);
       check(['say','child','main','owner'].includes(originalParent.task_kind) && !TERMINAL.has(originalParent.status),
@@ -75,22 +136,29 @@ export default {
       check(state.blockers.every(blocker => blocker === `task:#${task.id}`),
         `unintegrated descendants block the request: ${state.blockers.join(', ')}`);
       const delivery = await taskDeliveryState(this, task);
-      if (task.task_kind === 'child' && delivery !== 'pending') {
-        // A clean, unchanged delegated branch has only a result to deliver. Do not
-        // leave its parent waiting for a merge that cannot produce a commit.
-        this.store.transaction(() => {
+      if (delivery !== 'pending' && (task.task_kind === 'child'
+        || (prior.auto_merge && task.iteration_base_commit))) {
+        // No-change children and automatic follow-ups deliver a result, not an
+        // empty Squash. Recheck after Git awaits so new input/disabled hooks win.
+        const delivered = this.store.transaction(() => {
+          const live = this.store.task(task.id), current = reservationOf(live);
+          if (current?.version !== 2 || current.status !== 'pending' || live.head_commit !== task.head_commit
+            || this.reservationWaitReason(live) || taskSyncDeliveryPaused(this, live.id)) return false;
           this.store.update(task.id, { reservation: null, status: 'awaiting_acceptance', integration: delivery });
           const settled = this.store.event(task.id, 'task.delivered', { result: task.result, commit: task.head_commit, no_changes: true });
           this.store.event(task.id, 'task.unreserved', { reservation: prior, reason: 'no changes' });
-          const key = `child:${task.id}:delivery:${settled}`;
-          const receipt = this.store.signal(originalParent.id, task.id, 'child.completed', key,
-            JSON.stringify({ version: 1, signal: 'child.completed', key, source_task_id: task.id,
-              target_task_id: originalParent.id, payload: { result: task.result, commit: task.head_commit } }));
-          if (receipt.inserted) this.store.event(originalParent.id, 'task.signal', {
-            source_task_id: task.id, signal: 'child.completed', key, message_id: receipt.id });
+          if (task.task_kind === 'child') {
+            const key = `child:${task.id}:delivery:${settled}`;
+            const receipt = this.store.signal(originalParent.id, task.id, 'child.completed', key,
+              JSON.stringify({ version: 1, signal: 'child.completed', key, source_task_id: task.id,
+                target_task_id: originalParent.id, payload: { result: task.result, commit: task.head_commit } }));
+            if (receipt.inserted) this.store.event(originalParent.id, 'task.signal', {
+              source_task_id: task.id, signal: 'child.completed', key, message_id: receipt.id });
+          }
+          return true;
         });
-        this.wake(originalParent.id);
-        return true;
+        if (delivered && task.task_kind === 'child') this.wake(originalParent.id);
+        return delivered;
       }
       if (delivery !== 'pending' || state.status === 'integrated') {
         this.noteReservationBlocked(task.id, '没有尚未合入的提交；请继续工作或显式结束这条 Task');
@@ -99,6 +167,7 @@ export default {
       this.store.transaction(() => {
         const live = this.store.task(task.id), pinned = reservationOf(live);
         check(pinned?.version === 2 && pinned.status === 'pending' && live.status === 'waiting'
+          && !this.reservationWaitReason(live) && !taskSyncDeliveryPaused(this, live.id)
           && (live.parent_id === originalParent.id || this.store.task(live.parent_id).parent_id === originalParent.id)
           && live.head_commit === state.child_head,
         'merge reservation changed during request');

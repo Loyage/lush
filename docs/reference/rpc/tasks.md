@@ -1,6 +1,6 @@
 # 任务、Run 与 Artifact
 
-本节管 Task 的创建、沟通与交付：`task.spawn` / `task.message` / `task.integrate` / `task.reserve` / `task.resolve*` / `task.cancel` / `task.retry` / `task.interrupt` / `task.resume` / `task.configure` / `task.cleanup`，以及只读的 `task.list` / `task.tree` / `task.graph` / `task.activity` / `task.page`。当前公开白名单以[核心 API 收敛](../../engineering/core-api.md)与 `src/rpc/registry.js` 为准；Task 图与固定输入规则见[工程说明](../../engineering/task-graph.md)。
+本节管 Task 的创建、沟通与交付：`task.spawn` / `task.message` / `task.integrate` / `task.auto_merge` / `task.reserve` / `task.resolve*` / `task.cancel` / `task.retry` / `task.interrupt` / `task.resume` / `task.configure` / `task.cleanup`，以及只读的 `task.list` / `task.tree` / `task.graph` / `task.activity` / `task.page`。当前公开白名单以[核心 API 收敛](../../engineering/core-api.md)与 `src/rpc/registry.js` 为准；Task 图与固定输入规则见[工程说明](../../engineering/task-graph.md)。
 
 `task.graph {}` 是用户与 Agent 均可读的 Task 父子读面，Web GET `/api/task-graph` 对应：`{nodes,edges,truncated,total}`。最多 200 条节点，优先保留分支所有者与活动任务；节点含 `goal_preview`（最多 600 字）、`result_preview`（最多 320 字）、`waiting_reason`、`progress`（有界完成数和当前步骤；当前步骤可能是 runtime 生成的等待条目，等待不计入 Agent 工作用时也不占完成度）、`notice`（最新一条 open 待决，正文最多 1000 字）、`notice_count`、`children_total/active`、`reservation`、`has_result`、`branch` / `workspace`、`branch_info`（实时 ref、与 `graph.get` 同源的 Git 诊断，以及合并运行投影：`subtree_say` 是这条分支下属还有多少条 say 子分支、`merge_run` 是这条分支上仍在跑的合并运行 `{mode,status,done,total,task_id}`，没有则 null）、`freeze`（写冻结原因）与 `resolves_task_id`（被修复的源 Task；父子边仍只表示负责集成的归属），以及 `has_rule`（仅表示存在固定输入规则），边是 `{from:parentId,to:childId}`。完整分支谱系仍由 `graph.get` 提供；`task.graph` 不依赖它，全程只读，不写运行态或事件。
 
@@ -24,7 +24,8 @@ Task 中心路径是 Input → 直接拥有独立分支的 `agent` Task（`task_
 | `task spawn 'goal' --parent ID [--name NAME]` | `task.spawn` | `{parent, goal, name?}`；父必须是 say/child Task |
 | `task message ID 'body'` | `task.message` | `{id, body}` |
 | `task integrate CHILD_ID CHILD_HEAD_COMMIT` | `task.integrate` | `{id, commit}`；agent-only |
-| `task reserve ID merge` | `task.reserve` | `{id, kind:'merge'}`；用户专属 |
+| `task auto-merge ID on\|off` | `task.auto_merge` | `{id, enabled:boolean}`；用户专属；设置跨轮保留的自动合并 hook，返回 `{task_id,changed,auto_merge}` |
+| `task reserve ID merge` | `task.reserve` | `{id, kind:'merge'}`；用户专属；显式请求本轮合并，不修改自动合并设置 |
 | `task reserve-all BRANCH`（Web「合并所有」） | `task.reserve_all` | `{branch}`；用户专属；把该分支下所有已静息、待合并的 say/child 逐条走同一套预约准入并交给 v2 merge 队列串行处理 |
 | `task unreserve ID` | `task.unreserve` | `{id}`；用户专属 |
 | `task approve-merge ID COMMIT BASELINE` | `task.approve_merge` | `{id, commit, baseline}`；用户专属 |
@@ -46,11 +47,21 @@ Task 中心路径是 Input → 直接拥有独立分支的 `agent` Task（`task_
 
 ## 派子任务与集成
 
-`task.spawn` 必须关联一个活动父 Task，且父只能是 `task_kind='say'` 或 `'child'` 的 Task；新子 Task 角色固定为 `agent`，不接受旧 `role` / `deps` / planner `spec` 参数，分支从父分支当前已提交 tip 创建独立 worktree。其完成/失败只给父 Task 发持久去重信号，不自动集成代码。
+`task.spawn` 必须关联一个活动父 Task，且父只能是 `task_kind='say'` 或 `'child'` 的 Task；新子 Task 角色固定为 `agent`，不接受旧 `role` / `deps` / planner `spec` 参数，分支从父分支当前已提交 tip 创建独立 worktree。新 child 默认开启且锁定自动合并 hook，安全点通过交付校验后向父 Task 发持久去重请求，由父 merge 队列串行集成；失败不会冒充已交付。
 
 `name` 是任务自己的英文短名（kebab-case），写入只读的 `tasks.name`，决定分支与 worktree 名：`lush/<项目哈希>/<id>-<name>` 与 `.lush/worktrees/<id>-<name>`。省略时 runtime 从 goal 首行提取英文词回退，提不出可用词则任务没有 name（分支/目录回到 `task-<id>`）。`name` 给不出至少两个 ASCII 字母或数字时报 `name needs at least two ASCII letters or digits (kebab-case)`；名字不可改，已有 worktree 不会被改名。
 
-父 Agent 可用 `task.integrate` 固定子提交；未完成、分支漂移、父非运行态、父工作区不干净、存在未集成后代或非快进均拒绝并保留现场。兄弟子任务先落地、或父分支自己提交后，已完子任务的固定提交就不再生效为快进：`task.resolve_child_divergence CHILD_ID` 由执行中的直接父 Agent 从该固定提交拉起一个解分歧子 Task（记 `task.divergence_resolution_requested`，固定当时的父分支顶端），它合入父分支新提交并测试后，由 runtime 在父 Agent 安全结束后核对两端固定提交、依次快进源 child 与父分支，并把被修复的子 Task 标成已集成；期间父/源及源的后代冻结，其余兄弟仍可独立工作。父分支有未集成的 say 请求时先处理那个请求；解分歧子任务自身失败/不合格时保留现场，需用户显式归档旧分支后才能重派。
+历史手动集成路径中，父 Agent 可用 `task.integrate` 固定子提交；未完成、分支漂移、父非运行态、父工作区不干净、存在未集成后代或非快进均拒绝并保留现场。兄弟子任务先落地、或父分支自己提交后，已完子任务的固定提交就不再生效为快进：`task.resolve_child_divergence CHILD_ID` 由执行中的直接父 Agent 从该固定提交拉起一个解分歧子 Task（记 `task.divergence_resolution_requested`，固定当时的父分支顶端），它合入父分支新提交并测试后，由 runtime 在父 Agent 安全结束后核对两端固定提交、依次快进源 child 与父分支，并把被修复的子 Task 标成已集成；期间父/源及源的后代冻结，其余兄弟仍可独立工作。父分支有未集成的 say 请求时先处理那个请求；解分歧子任务自身失败/不合格时保留现场，需用户显式归档旧分支后才能重派。
+
+## 自动合并开关与本轮合并
+
+`task.auto_merge {id,enabled}` 只接受布尔值，Agent 不得调用。新 say 默认关闭，新派生 child 默认开启且锁定；锁定子任务不能经 CLI/RPC 关闭，也不能用 `task.unreserve` 绕过。开关跨 invocation、重启和追加开发轮次保留，历史 Task 不批量回填或重置已有决定。
+
+`task.inspect` 与 `task.graph` 提供 `auto_merge:{enabled,locked,editable,reason}`，不适用的 Task 为 null。Web 在开发阶段以「自动合并」勾选框呈现；锁定或不可编辑时显示只读状态及原因。任务已交付就绪、已发请求、已终结或待验收时不能调整开关。关闭开关只移除尚未发出的自动意图，不撤回已发请求，也不取消独立的显式合并意图。旧 version 2 pending 仍保留单次意图，开关不由它推断为开启；Web 明示其仍有效。`task reserve` 将当前 pending 确认为独立单次意图，后续关闭 hook 不撤销它；非锁定任务可用 `task unreserve` 撤销单次意图。开启 hook 的自动意图不能借该命令绕过开关的就绪门禁。
+
+开启 hook 后，runtime 仍等本轮安全结束、后代结算、待决与消息处理完成，并复核工作区和提交，再复用 version 2 请求与父 merge 队列。包含 main 在内均按现有队列自动准入，不增加父 Agent 或用户审批；分歧仍回原 Task 处理。显式「合并」调用 `task.reserve`，只请求本轮交付，不修改持久开关。
+
+`merge_readiness:{ready,reason}` 是执行屏障与登记提交的只读投影，不承诺 Git 准入。ready 为真时 Web 显示「合并」而非可操作勾选框；已有请求或已合并则显示进度或结果，不能重复发起。缺少设置投影时保守只读，不假装可编辑。历史 version 1 预约继续原审批口径，不改造成自动合并。
 
 ## 多轮交付、验收与父同步
 
@@ -75,8 +86,6 @@ Task 中心路径是 Input → 直接拥有独立分支的 `agent` Task（`task_
 say 的 pending merge 请求若与直接父分支分歧（`blocked_code='diverged'`），用户可 `task.resolve_divergence ID` 派一个源侧解分歧子 Task：它固定源 tip 为工作区基线、固定直接父 tip 为要吸收的提交，不移动任何 ref。已完成但未集成、或失败/取消且仍有活动分支的子任务返回 `needs_review`（包含原 Task 和原因），不悄悄新派。完成后由 runtime 校验产物同时包含原源 tip 和固定父 tip，快进源分支并自动发出固定请求（main/owner 仍须用户批准最终合并），不再要求被冻结的源 say Agent 重新运行。若产物不合格或失败，先检查原子 Task/工作区；显式 `branch archive BRANCH`（Web Task 图「归档」）旧分支后，原 say 静息且已处理子信号时才能重新 `task resolve-divergence ID` 派新子任务。归档删掉旧 ref/worktree、保留 Task/固定提交事件/会话；脏工作区默认拒绝，只有用户明确 `--discard` 才丢弃未提交文件。该类子 Task 不支持 `task retry` 重放未知文件副作用。没有创建分支的失败任务无需归档，重派仍需通过静息检查。若 Task 已失败/取消，不能对终态预约直接复查：先检查 Agent/工作区副作用，再显式 `task retry ID`。
 
 `task.resolve` 是「已解决」与「放弃任务」的语义区分：前者表示这次输入只是想了解/确认、用户已经没有别的需求，任务以 `completed` 结算并保留 Agent 的 `result`，`integration='none'`，另落一条信息提醒；后者是放弃正在进行的工作。它只在分支没有新提交（`head_commit` 为空或等于 `base_commit`）、工作区干净、没有正在调用的 Agent 且没有发出的合并请求时允许；有提交的 say 仍走 `task.reserve merge` 交付或 `task.cancel` 放弃。它不创建/删除分支与 worktree，也不推进任何 ref；需要继续追问时应在标记前给该 Task 发消息（标记后请另发新的 say（已合并任务的待验收与验收完成另走上述多轮交付协议））。
-
-`task.inspect` 与 `task.graph` 的 say/child 节点另提供只读 `merge_readiness:{ready,reason}`：只有本轮调用已结束、子 Task 已结算、没有待决/待处理消息且登记了待交付提交，才表示可以尝试请求合并；不承诺工作区干净或 Git 已满足准入，点击后仍由后端复核，未满足时保留预约。前端缺少该字段时保守显示「预约合并」，已有 pending 显示「复查预约 / 撤销预约」。
 
 `task.inspect`、`task.list` 提供结构化 `reservation`（旧任务为 null）：version 1 与 version 2 的预约都原样读出，认不出的形态显示 `status:'invalid'` 供检查。旧 Task 不接受该预约。
 

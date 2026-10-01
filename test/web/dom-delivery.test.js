@@ -6,6 +6,8 @@ const world = makeWorld();
 const dom = installDom({ fetch: world.fetchImpl });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
+const { deliveryControls } = await import('../../src/ui/web/assets/render-delivery.js');
+const { showHelp, hideHelp } = await import('../../src/ui/web/assets/help.js');
 const { renderTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
@@ -20,13 +22,14 @@ afterAll(() => dom.restore());
 const commit = 'a'.repeat(40), baseline = 'b'.repeat(40), branch = 'feature/new-say';
 const say = { id: 70, role: 'agent', task_kind: 'say', parent_id: 1, parent_task_kind: 'main',
   goal: 'ship a view', status: 'waiting', integration: 'pending', calls: 0, branch, target_branch: 'main',
-  deps: [], dependents: [], children: [], messages: [], notices: [], reservation: null };
+  deps: [], dependents: [], children: [], messages: [], notices: [], reservation: null,
+  auto_merge: { enabled: false, locked: false, editable: true, reason: null } };
 const buttonOf = (root, label) => root.querySelectorAll('button').find(node => node.textContent === label);
 const graphFor = (reservation, { done = false, status = null } = {}) => ({ total: 1, nodes: [
   { kind: 'task', id: say.id, role: 'agent', task_kind: 'say', parent_id: 1, parent_task_kind: 'main',
     title: say.goal, goal: say.goal, branch, target_branch: 'main',
     status: status ?? (reservation?.status === 'requested' ? 'completed' : 'waiting'),
-    integration: 'pending', reservation, base_commit: baseline, head_commit: commit,
+    integration: 'pending', reservation, auto_merge: say.auto_merge, base_commit: baseline, head_commit: commit,
     has_result: done, workspace: '/tmp/lush-new-say' },
 ], edges: [] });
 
@@ -34,93 +37,231 @@ function sourceRow() {
   return dom.node('detail').querySelector(`[data-task-id="${say.id}"]`);
 }
 
-test('Task detail offers an Agent merge booking without showcase controls', async () => {
+test('Task detail offers an auto-merge checkbox instead of booking buttons', async () => {
   renderDetail(say, null, null, null);
   const detail = dom.node('detail');
-  const merge = buttonOf(detail, '预约合并');
-  // 合并请求交给父 Task 的 merge 子任务，保留 Agent 代价说明。
-  expect(merge.classList.contains('agent-call')).toBe(true);
-  expect(merge.getAttribute('data-help')).toContain('消耗 token');
+  const toggle = detail.querySelector('.auto-merge-toggle');
+  const input = toggle.querySelector('input');
+  expect(toggle.classList.contains('agent-call')).toBe(true);
+  expect(toggle.parentNode.getAttribute('data-help')).toContain('消耗 token');
+  expect(input.checked).toBe(false); expect(input.disabled).toBe(false);
+  expect(buttonOf(detail, '预约合并')).toBeUndefined();
   expect(buttonOf(detail, '预约展示')).toBeUndefined();
-  const pending = merge.onclick();
-  expect(dialogText(dom)).toContain('merge 子任务');
+  input.checked = true; await input.onchange();
+  expect(world.state.actions).toContainEqual({ method: 'task.auto_merge', params: { id: say.id, enabled: true } });
   expect(world.state.actions.some(action => action.method === 'task.reserve')).toBe(false);
-  await answerDialog(dom, '预约合并'); await pending;
-  expect(world.state.actions).toContainEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
-
   expect(world.state.actions.some(action => action.params?.kind === 'showcase')).toBe(false);
 });
 
-test('idle say with committed changes requests a merge; v2 reservations expose recheck and withdraw', async () => {
+test('ready say uses only 合并 even with a pending intent; requested delivery shows queue progress', async () => {
   const done = { ...say, calls: 1, result: '已提交并测试', base_commit: baseline, head_commit: commit,
     merge_readiness: { ready: true, reason: null } };
-  renderDetail(done, null, null, null);
-  let panel = dom.node('detail');
-  const request = buttonOf(panel, '合并到父 Task');
-  expect(request).toBeTruthy();
-  const pending = request.onclick();
-  expect(dialogText(dom)).toContain('merge 子任务');
-  await answerDialog(dom, '请求合并'); await pending;
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
-
-  // 新模型 reservation 是 version 2：pending 显示等待徽标与撤销，requested 显示冻结与复查。
-  renderDetail({ ...done, reservation: { version: 2, kind: 'merge', status: 'pending' } }, null, null, null);
-  panel = dom.node('detail');
-  expect(deepText(panel)).toContain('已预约合并');
-  expect(buttonOf(panel, '撤销预约')).toBeTruthy();
-  expect(buttonOf(panel, '合并到父 Task')).toBeUndefined();
-  expect(buttonOf(panel, '预约合并')).toBeUndefined();
-  const recheck = buttonOf(panel, '复查预约');
-  expect(recheck.classList.contains('agent-call')).toBe(true);
-  expect(recheck.getAttribute('data-help')).toContain('消耗 token');
-  await recheck.onclick();
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
+  for (const reservation of [null, { version: 2, kind: 'merge', status: 'pending' }]) {
+    renderDetail({ ...done, reservation }, null, null, null);
+    const panel = dom.node('detail');
+    expect(panel.querySelector('.auto-merge-toggle')).toBeNull();
+    expect(buttonOf(panel, '撤销预约')).toBeUndefined();
+    expect(buttonOf(panel, '复查预约')).toBeUndefined();
+    const request = buttonOf(panel, '合并');
+    expect(request.classList.contains('agent-call')).toBe(true);
+    expect(request.getAttribute('data-help')).toContain('消耗 token');
+    const pending = request.onclick();
+    expect(dialogText(dom)).toContain('merge 子任务');
+    expect(dialogText(dom)).toContain('不会改变跨轮保留的自动合并设置');
+    await answerDialog(dom, '合并'); await pending;
+    expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
+  }
   renderDetail({ ...done, reservation: { version: 2, kind: 'merge', status: 'requested', commit, baseline } }, null, null, null);
-  panel = dom.node('detail');
+  const panel = dom.node('detail');
   expect(deepText(panel)).toContain('冻结');
   expect(buttonOf(panel, '复查合并队列')).toBeTruthy();
+  expect(buttonOf(panel, '合并')).toBeUndefined();
+  expect(panel.querySelector('.auto-merge-toggle')).toBeNull();
 });
 
-test('failed v2 delivery cannot bypass explicit retry through a booking recheck', () => {
+test('failed v2 delivery cannot bypass explicit retry through a checkbox or booking recheck', () => {
   renderDetail({ ...say, status: 'failed', reservation: { version: 2, kind: 'merge', status: 'pending' } }, null, null, null);
-  expect(buttonOf(dom.node('detail'), '复查预约')).toBeUndefined();
-  expect(buttonOf(dom.node('detail'), '撤销预约')).toBeTruthy();
+  const panel = dom.node('detail');
+  expect(buttonOf(panel, '复查预约')).toBeUndefined();
+  expect(buttonOf(panel, '撤销预约')).toBeUndefined();
+  expect(panel.querySelector('.auto-merge-toggle').querySelector('input').disabled).toBe(true);
 });
 
-test('waiting for child work or unread messages remains a booking in both detail and graph', async () => {
+test('waiting for child work or unread messages shows the shared auto-merge toggle in detail and graph', async () => {
   for (const reason of ['等待子 Task #71 结算', '还有未处理的消息或子任务信号，需先交给 Agent']) {
     // A previous result and commit do not prove the current invocation is delivered.
     const waiting = { ...say, calls: 2, result: '上一轮已提交', head_commit: commit, base_commit: baseline,
       merge_readiness: { ready: false, reason } };
     renderDetail(waiting, null, null, null);
     let panel = dom.node('detail');
-    expect(buttonOf(panel, '合并到父 Task')).toBeUndefined();
-    expect(buttonOf(panel, '预约合并')).toBeTruthy();
+    expect(buttonOf(panel, '合并')).toBeUndefined();
+    expect(buttonOf(panel, '预约合并')).toBeUndefined();
     expect(deepText(panel)).toContain(reason);
-    const pending = buttonOf(panel, '预约合并').onclick();
-    expect(dialogText(dom)).toContain('子任务结算、消息处理完成');
-    await answerDialog(dom, '预约合并'); await pending;
-    expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
+    const toggle = panel.querySelector('.auto-merge-toggle').querySelector('input');
+    toggle.checked = true; await toggle.onchange();
+    expect(world.state.actions.at(-1)).toEqual({ method: 'task.auto_merge', params: { id: say.id, enabled: true } });
     const graph = graphFor(null, { done: true });
     graph.nodes[0].merge_readiness = waiting.merge_readiness;
     renderGraph(graph);
     panel = dom.node('detail');
-    expect(buttonOf(panel, '合并到父 Task')).toBeUndefined();
-    expect(buttonOf(panel, '预约合并')).toBeTruthy();
+    expect(buttonOf(panel, '合并')).toBeUndefined();
+    expect(buttonOf(panel, '预约合并')).toBeUndefined();
+    expect(panel.querySelector('.auto-merge-toggle').querySelector('input').disabled).toBe(false);
     expect(deepText(panel)).toContain(reason);
     graph.nodes[0].reservation = { version: 2, kind: 'merge', status: 'pending' };
+    graph.nodes[0].auto_merge = { ...say.auto_merge, enabled: true };
     renderGraph(graph);
     panel = dom.node('detail');
-    expect(buttonOf(panel, '合并到父 Task')).toBeUndefined();
+    expect(buttonOf(panel, '合并')).toBeUndefined();
     expect(buttonOf(panel, '预约合并')).toBeUndefined();
-    expect(buttonOf(panel, '复查预约')).toBeTruthy();
-    expect(buttonOf(panel, '撤销预约')).toBeTruthy();
+    expect(buttonOf(panel, '复查预约')).toBeUndefined();
+    expect(buttonOf(panel, '撤销预约')).toBeUndefined();
+    const enabled = panel.querySelector('.auto-merge-toggle').querySelector('input');
+    expect(enabled.checked).toBe(true);
+    enabled.checked = false; await enabled.onchange();
+    expect(world.state.actions.at(-1)).toEqual({ method: 'task.auto_merge', params: { id: say.id, enabled: false } });
     expect(deepText(panel)).toContain(reason);
   }
   const graph = graphFor(null, { done: true });
   graph.nodes[0].merge_readiness = { ready: true, reason: null };
   renderGraph(graph);
-  expect(buttonOf(dom.node('detail'), '合并到父 Task')).toBeTruthy();
+  expect(buttonOf(dom.node('detail'), '合并')).toBeTruthy();
+});
+
+test('locked child and unavailable settings are accessible read-only controls, never inferred editable', async () => {
+  const before = world.state.actions.length;
+  for (const auto_merge of [null, undefined, { enabled: true, locked: true, editable: false,
+    reason: '由父任务派生，自动合并不可关闭。' }, { enabled: false, locked: false, editable: false, reason: '等待安全点' }]) {
+    const panel = deliveryControls({ ...say, task_kind: 'child', auto_merge });
+    const label = panel.querySelector('.auto-merge-toggle');
+    const input = label.querySelector('input'), host = label.parentNode;
+    expect(input.disabled).toBe(true);
+    expect(input.checked).toBe(auto_merge?.enabled === true);
+    expect(input.getAttribute('aria-label')).toContain('自动合并');
+    expect(host.classList.contains('help-host')).toBe(true); expect(host.tabIndex).toBe(0);
+    expect(host.getAttribute('data-help')).toContain(auto_merge?.reason || '暂不可用');
+    showHelp(host);
+    expect(host.getAttribute('aria-describedby')).toBe('help-tip');
+    expect(dom.node('help-tip').textContent).toContain(auto_merge?.reason || '暂不可用');
+    hideHelp();
+    input.checked = !input.checked; await input.onchange();
+    expect(input.checked).toBe(auto_merge?.enabled === true);
+  }
+  expect(world.state.actions.length).toBe(before);
+});
+
+test('auto-merge mutation is single-flight across rerenders and restores checked state on failure', async () => {
+  const previousFetch = globalThis.fetch;
+  let release, requests = 0;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/api/action') && JSON.parse(options.body).method === 'task.auto_merge') {
+      requests++;
+      return new Promise(resolve => { release = () => resolve({ ok: false, status: 400,
+        json: async () => ({ error: '任务已经就绪，不可修改自动合并' }) }); });
+    }
+    return previousFetch(url, options);
+  };
+  try {
+    const panel = deliveryControls(say), input = panel.querySelector('input');
+    input.checked = true;
+    const saving = input.onchange();
+    expect(input.disabled).toBe(true);
+    await input.onchange(); expect(requests).toBe(1);
+    const rerendered = deliveryControls(say).querySelector('input');
+    expect(rerendered.disabled).toBe(true);
+    rerendered.checked = true; await rerendered.onchange(); expect(requests).toBe(1);
+    release(); await saving;
+    expect(input.disabled).toBe(false); expect(input.checked).toBe(false);
+    expect(dom.node('error').textContent).toContain('任务已经就绪');
+    expect(deliveryControls(say).querySelector('input').disabled).toBe(false);
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('successful updates apply the returned setting and editability before the next view refresh', async () => {
+  const previousFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/api/action') && JSON.parse(options.body).method === 'task.auto_merge') {
+      requests++;
+      return { ok: true, status: 200, json: async () => ({ task_id: say.id, changed: true,
+        auto_merge: { enabled: true, locked: false, editable: false, reason: '已经交付就绪，请合并' } }) };
+    }
+    return previousFetch(url, options);
+  };
+  try {
+    const input = deliveryControls(say).querySelector('input');
+    input.checked = true; await input.onchange();
+    expect(input.checked).toBe(true); expect(input.disabled).toBe(true);
+    const host = input.parentNode.parentNode;
+    expect(host.tabIndex).toBe(0); expect(host.getAttribute('data-help')).toContain('已经交付就绪');
+    input.checked = false; await input.onchange();
+    expect(input.checked).toBe(true); expect(requests).toBe(1);
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('persisted settings survive continued work without deriving them from the reservation slot', () => {
+  const automatic = { enabled: true, locked: false, editable: true, reason: null };
+  const working = deliveryControls({ ...say, status: 'running', auto_merge: automatic, reservation: null });
+  expect(working.querySelector('input').checked).toBe(true);
+  const manual = deliveryControls({ ...say, auto_merge: say.auto_merge,
+    reservation: { version: 2, kind: 'merge', status: 'pending' } });
+  expect(manual.querySelector('input').checked).toBe(false);
+  for (const state of ['requested', 'resolving', 'integrated']) {
+    const panel = deliveryControls({ ...say, status: state === 'integrated' ? 'awaiting_acceptance' : 'waiting',
+      auto_merge: automatic, integration_error: '等待父队列复核',
+      reservation: { version: 2, kind: 'merge', status: state } });
+    expect(panel.querySelector('input')).toBeNull(); expect(buttonOf(panel, '合并')).toBeUndefined();
+    expect(deepText(panel)).toContain('等待父队列复核');
+  }
+});
+
+test('detail and graph distinguish independent one-shot intents from automatic pending requests', () => {
+  for (const enabled of [true, false]) for (const marker of [undefined, false, true]) {
+    const reservation = { version: 2, kind: 'merge', status: 'pending',
+      ...(marker === undefined ? {} : { auto_merge: marker }) };
+    const auto_merge = { ...say.auto_merge, enabled };
+    const graph = graphFor(reservation);
+    graph.nodes[0].auto_merge = auto_merge;
+    for (const render of [() => renderDetail({ ...say, reservation, auto_merge }, null, null, null),
+      () => renderGraph(graph)]) {
+      render();
+      const panel = dom.node('detail');
+      const hint = panel.querySelector('.single-merge-intent');
+      if (marker !== true) {
+        expect(hint).toBeTruthy();
+        expect(hint.textContent).toContain('关闭自动合并不会撤销');
+        expect(hint.textContent).toContain('条件满足后仍会合并');
+      } else expect(hint).toBeNull();
+      expect(panel.querySelector('.auto-merge-toggle').querySelector('input').checked).toBe(enabled);
+      expect(buttonOf(panel, '撤销预约')).toBeUndefined();
+      expect(buttonOf(panel, '预约合并')).toBeUndefined();
+    }
+  }
+  for (const status of ['requested', 'resolving', 'integrated']) {
+    const panel = deliveryControls({ ...say, reservation: { version: 2, kind: 'merge', status } });
+    expect(panel.querySelector('.single-merge-intent')).toBeNull();
+  }
+});
+
+test('failed resolving withdrawal matches locked and enabled automatic-intent protection', async () => {
+  for (const status of ['failed', 'cancelled']) for (const enabled of [false, true])
+    for (const automatic of [undefined, false, true]) for (const locked of [false, true]) {
+      const task = { ...say, status, auto_merge: { enabled, locked, editable: false, reason: '本轮已结束' },
+        reservation: { version: 2, kind: 'merge', status: 'resolving',
+          ...(automatic === undefined ? {} : { auto_merge: automatic }) } };
+      const graph = graphFor(task.reservation, { status });
+      graph.nodes[0].auto_merge = task.auto_merge;
+      for (const render of [() => renderDetail(task, null, null, null), () => renderGraph(graph)]) {
+        render();
+        const withdraw = buttonOf(dom.node('detail'), '放弃解分歧请求');
+        if (locked || (enabled && automatic === true)) expect(withdraw).toBeUndefined();
+        else expect(withdraw).toBeTruthy();
+      }
+    }
+  const panel = deliveryControls({ ...say, status: 'failed', auto_merge: { ...say.auto_merge, enabled: true },
+    reservation: { version: 2, kind: 'merge', status: 'resolving' } });
+  await buttonOf(panel, '放弃解分歧请求').onclick();
+  expect(world.state.actions.at(-1)).toEqual({ method: 'task.unreserve', params: { id: say.id } });
 });
 
 test('integrated merge says 待归档 only while a branch is still left to archive', () => {
@@ -174,7 +315,7 @@ test('Task graph uses the same fixed approval, never legacy branch.merge or bran
   expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
 
   renderGraph(graphFor(null), { force: true });
-  expect(buttonOf(sourceRow(), '预约合并')).toBeTruthy();
+  expect(sourceRow().querySelector('.auto-merge-toggle')).toBeTruthy();
   expect(buttonOf(sourceRow(), '预约展示')).toBeUndefined();
   expect(buttonOf(sourceRow(), '预约效果展示')).toBeUndefined();
 });

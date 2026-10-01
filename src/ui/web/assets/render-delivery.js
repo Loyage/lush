@@ -7,6 +7,50 @@ import { detail } from './navigate.js';
 import { isHistoricalDelivery } from './format.js';
 
 const short = hash => String(hash || '').slice(0, 12);
+const updatingAutoMerge = new Set();
+
+/** A task setting, not a one-shot merge request. Missing projections stay read-only. */
+function autoMergeControl(task, refresh) {
+  let setting = task.auto_merge;
+  const ended = ['completed','failed','cancelled','awaiting_acceptance'].includes(task.status);
+  const editable = () => setting?.editable === true && !setting.locked && !ended;
+  const label = el('label', undefined, 'auto-merge-toggle agent-call');
+  const input = el('input'); input.type = 'checkbox';
+  input.setAttribute('aria-label', `Task #${task.id} 自动合并`);
+  let saved = setting?.enabled === true;
+  input.checked = saved;
+  const host = el('span', undefined, 'help-host auto-merge-help');
+  const updateState = () => {
+    input.disabled = !editable() || updatingAutoMerge.has(task.id);
+    const reason = setting?.reason || (setting?.locked ? '由父任务派生，自动合并不可关闭。'
+      : !setting ? '自动合并设置暂不可用，请刷新或更新服务后查看。'
+        : ended ? '本轮已结束，当前不可修改自动合并设置。' : '');
+    host.setAttribute('data-help', agentHelp(`${reason ? `${reason} ` : ''}开启后跨轮保留：本轮工作、子任务及消息处理完成且 Git 条件满足时自动请求合并，由父 Task 的队列准入；分歧时唤醒原 Agent 处理。关闭仅停用尚未发出请求的 hook，不撤回已发请求。`));
+    // A disabled input cannot receive keyboard focus; its host must still explain why.
+    host.tabIndex = input.disabled ? 0 : -1;
+    if (input.disabled) host.setAttribute('aria-label', `Task #${task.id} 自动合并：${reason || '正在保存'}`);
+    else host.removeAttribute('aria-label');
+  };
+  updateState();
+  label.append(input, el('span', '自动合并')); host.append(label);
+  input.onchange = async () => {
+    if (!editable() || updatingAutoMerge.has(task.id)) { input.checked = saved; return; }
+    const enabled = input.checked;
+    updatingAutoMerge.add(task.id); updateState(); host.setAttribute('aria-busy', 'true');
+    try {
+      const result = await action('task.auto_merge', { id: task.id, enabled });
+      setting = result.auto_merge ?? null;
+      saved = setting?.enabled === true; input.checked = saved;
+      show(setting ? `Task #${task.id} 已${saved ? '开启' : '关闭'}自动合并` : '设置已提交，请刷新查看自动合并状态');
+    } catch (error) {
+      input.checked = saved; show(error.message, 'error');
+    } finally {
+      updatingAutoMerge.delete(task.id); updateState(); host.removeAttribute('aria-busy');
+    }
+    try { await refresh(); } catch (error) { show(error.message, 'error'); }
+  };
+  return host;
+}
 
 /** 「已合并 · 待归档」承诺的是一次还能按的归档：分支记录已归档、或 Task 已经没有分支（回收工作区与分支、
  *  旧版落地即归档都会把 tasks.branch 清成 null）时，已经没有东西可归档，标签必须跟着真实状态落地。
@@ -29,10 +73,12 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
     if (state) {
       // integrated 的说法由分支现状决定，其余状态照旧；不把「还在不在」混进文案表里。
       const merged = state === 'integrated' ? archiveBadge(task) : null;
-      const label = merged ? merged.label : { pending: '已预约合并 · 等待交付条件', requested: '冻结 · 自动合并中',
+      const label = merged ? merged.label : { pending: '等待合并条件', requested: '冻结 · 自动合并中',
         resolving: '分歧处理中 · 原 Task 已恢复工作' }[state] || state;
       panel.append(badge(label, merged ? merged.className : 'b-awaiting'));
     }
+    if (state === 'pending' && reservation.auto_merge !== true)
+      panel.append(el('p', '本轮单次合并意图仍有效；关闭自动合并不会撤销，条件满足后仍会合并。', 'hint single-merge-intent'));
     const waitReason = (!state || state === 'pending') && task.merge_readiness?.reason;
     if (waitReason) panel.append(el('p', waitReason, 'hint'));
     if (reservation?.blocked_reason && reservation.blocked_reason !== waitReason)
@@ -40,38 +86,29 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
     if (task.integration_error) panel.append(el('p', task.integration_error, 'hint'));
     if (state === 'requested') controls.append(button('复查合并队列', async () => {
       await action('task.reserve', { id: task.id, kind: 'merge' }); await refresh();
-    }, 'ghost', { help: '重新检查固定的合并请求；若上次失败，受检重试，绝不重复提交已落地的 Squash。' }));
-    if ((!reservation || (state === 'integrated' && task.status !== 'awaiting_acceptance'))
-      && !['completed','failed','cancelled','awaiting_acceptance'].includes(task.status)) {
-      // waiting also covers unfinished child work. Only the shared runtime projection can mark readiness.
-      const ready = task.merge_readiness?.ready === true;
-      controls.append(button(ready ? '合并到父 Task' : '预约合并', async () => {
-        const confirmed = await confirmDialog({ title: `${ready ? '请求合并' : '预约合并'} Task #${task.id}？`,
-          message: '这是合并意图：本轮调用结束、子任务结算、消息处理完成且 Git 条件满足后才会冻结原 Task，由父 Task 的 merge 子任务串行处理；可合并时向父分支写入一条 Squash 提交。出现分歧时自动唤醒原 Task 处理。包括 main 在内无需再次人工批准；成功后归还原父 Task，进入待验收并保留源分支与 worktree；可追加输入继续当前 Task，验收完成与显式归档分开。',
-          confirmLabel: ready ? '请求合并' : '预约合并', agent: true,
-          confirmHelp: agentHelp('提交自动合并意图；若存在分歧，将唤醒原 Task 的 Agent 处理。') });
+    }, 'ghost', { agent: true, help: agentHelp('重新检查固定的合并请求；若上次失败，受检重试，绝不重复提交已落地的 Squash；分歧时唤醒原 Agent。') }));
+    const active = !['completed','failed','cancelled','awaiting_acceptance'].includes(task.status);
+    const canOffer = !state || state === 'pending' || (state === 'integrated' && active);
+    if (canOffer && active && task.merge_readiness?.ready === true) {
+      controls.append(button('合并', async () => {
+        const confirmed = await confirmDialog({ title: `合并 Task #${task.id}？`,
+          message: '复核本轮交付与 Git 条件后冻结原 Task，由父 Task 的 merge 子任务串行处理，向父分支写入一条 Squash 提交。出现分歧时自动唤醒原 Task 处理，包括 main 在内无需再次人工批准。条件不满足时保留本次请求意图并显示原因；不会改变跨轮保留的自动合并设置。成功后归还原父 Task，进入待验收并保留源分支与 worktree；验收与归档分开。',
+          confirmLabel: '合并', agent: true,
+          confirmHelp: agentHelp('请求合并本轮成果；存在分歧时唤醒原 Task 的 Agent 处理。') });
         if (!confirmed) return;
         const booked = await action('task.reserve', { id: task.id, kind: 'merge' });
-        show(`Task #${task.id} 已${booked.reservation?.status === 'requested' ? '发起合并请求' : '预约合并'}`);
+        show(`Task #${task.id} ${booked.reservation?.status === 'requested' ? '已发起合并请求' : '已提交合并意图，请查看交付状态'}`);
         await refresh();
-      }, 'ghost', { agent: true, help: agentHelp(ready
-        ? '尝试发起合并请求；仍须复核 Git 与交付条件，不满足时保留预约，分歧会唤醒原 Agent。'
-        : '先保存合并意图，待本轮工作、子任务和消息处理完成且 Git 条件满足后再请求合并。') }));
+      }, 'ghost', { agent: true, help: agentHelp('尝试合并本轮成果；仍须复核 Git 与交付条件，不满足时保留请求意图并显示原因，分歧会唤醒原 Agent。') }));
+    } else if (canOffer && (active || state === 'pending')) {
+      controls.append(autoMergeControl(task, refresh));
     }
 
-    if (state === 'resolving' && ['failed','cancelled'].includes(task.status)) controls.append(button('放弃解分歧请求', async () => {
+    const protectedAutomaticIntent = reservation?.auto_merge === true && task.auto_merge?.enabled === true;
+    if (state === 'resolving' && !task.auto_merge?.locked && !protectedAutomaticIntent
+      && ['failed','cancelled'].includes(task.status)) controls.append(button('放弃解分歧请求', async () => {
       await action('task.unreserve', { id: task.id }); show('已撤销失败的解分歧请求；分支与 worktree 保留'); await refresh();
     }, 'ghost', { help: '只解除自动合并请求；保留失败 Task 的分支、提交和工作区供检查。' }));
-    if (state === 'pending') {
-      if (!['completed','failed','cancelled'].includes(task.status)) controls.append(button('复查预约', async () => {
-        const booked = await action('task.reserve', { id: task.id, kind: 'merge' });
-        show(booked.reservation?.status === 'requested' ? '已发起合并请求' : '已复查合并预约；请查看等待条件');
-        await refresh();
-      }, 'ghost', { agent: true, help: agentHelp('重查已有预约的执行与 Git 条件；满足时进入自动合并，分歧会唤醒原 Agent。') }));
-      controls.append(button('撤销预约', async () => {
-        await action('task.unreserve', { id: task.id }); show('已撤销合并预约'); await refresh();
-      }, 'ghost', { help: '只撤销尚未发出的合并预约；不会删除工作区或提交。' }));
-    }
     if (controls.children.length) panel.append(controls);
     return panel;
   }

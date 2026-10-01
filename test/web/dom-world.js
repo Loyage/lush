@@ -229,6 +229,8 @@ export function makeWorld() {
     if (path === '/api/action') {
       const body = JSON.parse(options.body);
       state.actions.push(body);
+      if (body.method === 'task.auto_merge') return json({ task_id: body.params.id, changed: true,
+        auto_merge: { enabled: body.params.enabled, locked: false, editable: true, reason: null } });
       if (body.method === 'agent.usage.configure') {
         state.agentUsageConfig = body.params.config;
         return json(state.agentUsageConfig);

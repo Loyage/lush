@@ -91,8 +91,9 @@ export default {
           this.store.update(liveParent.id, { status: 'waiting' });
         }
         const created = this.store.create({ parent_id: parent.id, input_id: inheritedInput, role, goal, name: slug, task_kind: taskKind });
-        this.store.update(created.id, { reservation: JSON.stringify({ version: 2, kind: 'merge',
-          status: 'pending', created_at: new Date().toISOString() }) });
+        this.store.update(created.id, { auto_merge: JSON.stringify({ version: 1, enabled: true, locked: true }),
+          reservation: JSON.stringify({ version: 2, kind: 'merge', auto_merge: true,
+            status: 'pending', created_at: new Date().toISOString() }) });
         this.store.event(created.id, 'task.reserved', { kind: 'merge', version: 2, via: 'spawn' });
         this.assertDeps(created.id, liveParent, merged);
         if (parentRule !== null) {
@@ -188,7 +189,7 @@ export default {
     task.route = storedTask.input_id !== null && this.store.routedInputIds().has(storedTask.input_id);
     const resolution = task.task_kind === 'child' ? this.store.get(
       "SELECT data FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1", task.id) : null;
-    return { ...task, merge_readiness: this.mergeReadiness(storedTask),
+    return { ...task, auto_merge: this.autoMergeView(storedTask), merge_readiness: this.mergeReadiness(storedTask),
       parent_task_kind: task.parent_id ? this.store.task(task.parent_id).task_kind : null,
       ...(resolution ? { divergence_resolution: { ...JSON.parse(resolution.data),
         branch_status: task.branch ? this.store.branch(task.branch)?.status ?? null : null } } : {}),

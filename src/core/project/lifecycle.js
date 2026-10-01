@@ -429,6 +429,8 @@ export default {
       }
     }
     this.kick();
+    // Re-arm only persisted hooks; NULL historical settings never acquire new intent.
+    for (const task of this.store.tasks()) if (task.status === 'waiting') this.armTaskAutoMerge(task.id);
     // 只续推已经静息的预约；running invocation 的未知文件副作用仍保留现场，不自动重播。
     for (const task of this.store.tasks()) if (['say','child'].includes(task.task_kind) && task.status === 'waiting' && task.reservation) {
       let pendingMerge = false;
