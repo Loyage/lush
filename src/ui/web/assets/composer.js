@@ -1,6 +1,6 @@
 import { $, el } from './dom.js';
 import { action } from './api.js';
-import { taskTitle } from './format.js';
+import { taskTitle, isHistoricalDelivery } from './format.js';
 import { show } from './messages.js';
 import { detail, refresh } from './navigate.js';
 import { ui } from './state.js';
@@ -20,7 +20,7 @@ export function toggleDraftPanel(force) {
   ui.draftPanelOpen = force === undefined ? !ui.draftPanelOpen : Boolean(force);
   paintDraftPanel();
 }
-// 可作为父 Task 的只有拥有分支、仍在活动的主干 / owner / say Task；正在展示冻结提交的 say 会被后端拒绝。
+// 可作为父 Task 的只有拥有分支、仍在活动且未冻结的主干 / owner / say Task。
 const PARENT_KINDS = new Set(['main', 'owner', 'say']);
 const PARENT_STATUSES = new Set(['queued', 'running', 'waiting', 'awaiting', 'awaiting_acceptance', 'paused']);
 
@@ -29,7 +29,7 @@ export function parentTasks(tasks = ui.lastSnapshot?.tasks ?? []) {
   return tasks
     .filter(task => PARENT_KINDS.has(task.task_kind) && task.branch && PARENT_STATUSES.has(task.status)
       && !task.archived && !task.branch_archive?.archived && !task.branch_info?.archived && !task.freeze
-      && !['started', 'requested'].includes(task.reservation?.status))
+      && !isHistoricalDelivery(task) && task.reservation?.status !== 'requested')
     .sort((a, b) => a.id - b.id);
 }
 

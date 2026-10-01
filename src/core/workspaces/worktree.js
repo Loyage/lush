@@ -8,6 +8,7 @@ import { dirtDetail } from './git.js';
 export const methods = {
   /** Called within the Git serial queue when a child is born, not deferred to its first invocation. */
   async forkTaskUnsafe(task, parentBranch, commit) {
+    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase tasks are unsupported; preserve their worktrees for manual inspection');
     const project = this.config.project;
     const branch = `lush/${this.namespace}/${taskLabel(task.id, task.name)}`;
     const workspace = path.join(this.config.home, 'worktrees', taskLabel(task.id, task.name));
@@ -110,6 +111,7 @@ export const methods = {
   },
 
   async ensure(task) {
+    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase tasks are unsupported; preserve their worktrees for manual inspection');
     if (task.task_kind === 'main') return this.config.project;
     // 只读分析：分支最新提交的分离检出，**不创建也不占用任何分支**，所以分析师无法推进任何 ref。
     // 与 verifier 的对照检出同一套路：目录是派生的，invocation 结束就回收。
@@ -139,7 +141,6 @@ export const methods = {
       check(await this.git(anchor.workspace, 'symbolic-ref', '--short', 'HEAD') === task.branch, 'say branch changed');
       return anchor.workspace;
     }
-    if (task.role === 'showcase') return this.ensureShowcase(task);
     // verifier 不修改代码：它站在被检验的 worktree 里演示，另拉一个目标分支的只读对照。
     if (task.role === 'verifier') return this.exclusive(async () => {
       task = this.store.task(task.id);
@@ -259,13 +260,7 @@ export const methods = {
     return { id: input.id, branch: input.anchor_branch, commit: input.anchor_commit, workspace: input.anchor_workspace, target: input.anchor_target_branch };
   },
   async finish(task) {
-    if (task.role === 'showcase') {
-      const snapshot = JSON.parse(task.showcase);
-      for (const [dir, commit] of [[task.workspace, snapshot.commit], [task.baseline_workspace, snapshot.baseline_commit]]) {
-        await this.assertShowcaseCheckout(dir, commit);
-      }
-      return;
-    }
+    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase tasks are unsupported; preserve their worktrees for manual inspection');
     if (!task.workspace) return;
     await this.clean(task.workspace);
     const branch = await this.git(task.workspace, 'symbolic-ref', '--short', 'HEAD');
@@ -288,6 +283,7 @@ export const methods = {
   removeBaseline(taskId) {
     return this.exclusive(async () => {
       const task = this.store.task(taskId);
+      check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase tasks are unsupported; preserve their worktrees for manual inspection');
       if (!task.baseline_workspace) return task;
       const dir = task.baseline_workspace;
       try { await this.git(this.config.project, 'worktree', 'remove', '--force', dir); }

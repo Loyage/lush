@@ -25,11 +25,6 @@ export class ProjectBase {
     this.integratingIntents = new Set();
     // 一键合并的异步驱动状态：driving 表示某目标正有一轮在跑，避免同目标重复驱动。
     this.mergeRunsDriving = new Set();
-    // 效果展示预约重扫的单飞状态：sweeping 表示一轮在跑，sweepAgain 表示跑到一半又收到了触发。
-    this.showcaseSweeping = false; this.showcaseSweepAgain = false;
-    this.previews = new Map(); this.previewStarting = new Map();
-    this.workspaces.previewActive = id => this.previewStarting.has(id) || ['running','starting','stopping'].includes(this.previews.get(id)?.status);
-    this.workspaces.stopPreview = id => this.stopShowcasePreview(id);
   }
 
   /** R-01: reject writes that would create rows while a clear is reclaiming disk. */

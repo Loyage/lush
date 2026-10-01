@@ -35,9 +35,9 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         integration TEXT NOT NULL DEFAULT 'none', target_branch TEXT, integration_error TEXT,
         -- layer: 'intent'（planner 拆解 / scheduler 编排）不进任务树；'work' 才是用户要的开发任务链。
         layer TEXT NOT NULL DEFAULT 'work',
-        -- NULL/legacy=旧任务；main/owner 是静息根；say 直接管理输入，showcase 是其专用展示子节点。
+        -- NULL/legacy=旧任务；main/owner 是静息根；say 直接管理输入；历史专用节点只保留记录。
         task_kind TEXT,
-        -- 新 say Task 的互斥展示/合并预约；versioned JSON，NULL 表示未预约。
+        -- say/child 的合并预约；versioned JSON，NULL 表示未预约，历史其它预约只保留记录。
         reservation TEXT,
         -- plan_gate: planner 这一轮拆解的审批闸门：NULL=没申请批准（直接编排）/ proposed=等你批准 / approved / rejected。
         plan_gate TEXT,
@@ -50,6 +50,7 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         review_candidate_id INTEGER,
         -- Agent 汇报的执行里程碑；versioned JSON，属于 task 附属元数据而非新实体。
         progress_plan TEXT,
+        -- 历史展示快照：兼容旧库，只读保留，不再创建展示 Task。
         showcase TEXT,
         -- 完整且已校验的 task-local Agent profile；只在一次显式重试到下次终态之间生效。
         retry_profile TEXT,
@@ -98,7 +99,7 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         status TEXT NOT NULL DEFAULT 'active', deleted_at TEXT,
         -- 一句话摘要：分支图上的标题优先用它（人写的简述），没有时才回落输入 / 目标的原文首行。
         summary TEXT,
-        -- 效果展示预约：分支附属的可空 versioned JSON（pending 等待准入 / 启动后清除），不是独立业务实体。
+        -- 历史分支展示预约：只读保留，不再写入、启动或清除。
         showcase_reservation TEXT,
         -- 一键合并运行：目标分支附属的可空 versioned JSON（status/order/index/done/skipped/waiting_task_id）。
         -- 它不是独立业务实体，只记录这条分支当前正在收拢哪些后代、合并到哪里了；终态后清空。

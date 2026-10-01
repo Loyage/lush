@@ -17,8 +17,9 @@ const parents = [
   { id: 5, task_kind: 'say', branch: 'lush/a/5-five', status: 'waiting', goal: '五号任务' },
   { id: 1, task_kind: 'main', branch: 'main', status: 'waiting', goal: '管理 main' },
   { id: 7, task_kind: 'owner', branch: 'release', status: 'awaiting', goal: '管理 release' },
-  // 正在展示冻结提交的 say、已结束的 say、子 Task 与没有分支的 Task 都不是父候选。
-  { id: 8, task_kind: 'say', branch: 'lush/a/8-eight', status: 'running', goal: '八号任务', reservation: { status: 'started' } },
+  // 已发合并请求的 say、已结束的 say、子 Task 与没有分支的 Task 都不是父候选。
+  { id: 8, task_kind: 'say', branch: 'lush/a/8-eight', status: 'running', goal: '八号任务', reservation: { kind: 'merge', status: 'requested' } },
+  { id: 12, task_kind: 'say', branch: 'legacy', status: 'waiting', reservation: { kind: 'showcase', status: 'started' } },
   { id: 9, task_kind: 'say', branch: 'lush/a/9-nine', status: 'completed', goal: '九号已完成' },
   { id: 10, task_kind: 'child', branch: 'lush/a/10-child', status: 'waiting', goal: '子任务' },
   { id: 11, task_kind: 'say', branch: null, status: 'waiting', goal: '没有分支' },

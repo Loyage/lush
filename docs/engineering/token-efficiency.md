@@ -9,7 +9,7 @@
 - 普通任务携带父任务摘要、最多 50 个直接子任务摘要、依赖、所属输入的用户引用、未决 notice；未读消息单独送达。
 - goal / error 摘要分别至多 500 / 1000 字符；仅依赖附带至多 1500 字符的结果，避免重复子任务成功收据。
 - 截断明确标记。需要原文时按 task ID inspect / transcript，不能把截断当作不存在。
-- planner、verifier、merger、showcase、explainer 保留各自专用上下文。explainer 仍不获得任意项目上下文、任务凭证或工具。
+- planner、verifier、merger、explainer 保留各自专用上下文。explainer 仍不获得任意项目上下文、任务凭证或工具。
 - 启动文件使用多行 JSON，去除 token hash 与重复的完整 prompt 配置；当前任务上一轮结果限 2000 字符并标记。
 - Pi 使用 `@task-N-input.md` 直接附带输入文件，不必再消耗一次模型响应去 read；原始文件仍保留在 sessions。
 

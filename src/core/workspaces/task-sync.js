@@ -36,7 +36,7 @@ export const methods = {
       'Task branch must remain checked out in its own worktree');
     check(fs.realpathSync(await this.git(workspace, 'rev-parse', '--show-toplevel')) === fs.realpathSync(workspace),
       'Task workspace is not a worktree root');
-    await this.showcaseCleanBranches([task.branch]); // also detects detached rebases and all Git intermediate states
+    await this.assertCleanBranches([task.branch]); // also detects detached rebases and all Git intermediate states
     await this.clean(workspace);
     check(await this.git(workspace, 'symbolic-ref', '--quiet', 'HEAD') === `refs/heads/${task.branch}`
       && await this.git(workspace, 'rev-parse', 'HEAD') === source, 'Task checkout moved during synchronization');
@@ -88,7 +88,7 @@ export const methods = {
       recheck();
       check(await readRef(task.branch) === source && await readRef(record.parent) === parent,
         'source/parent moved during synchronization; refresh and retry');
-      await this.showcaseCleanBranches([task.branch, record.parent]);
+      await this.assertCleanBranches([task.branch, record.parent]);
       await this.taskSyncCheckout(task, source);
     };
     await verify();

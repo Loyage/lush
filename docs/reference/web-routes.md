@@ -44,11 +44,14 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 | `GET /api/task/ID/history-page?before=N&limit=N` | `task.history_page` |
 | `GET /api/task/ID/diff` | `task.diff` |
 | `GET /api/task/ID/usage` | `task.usage` |
+| `GET /api/task/ID/report` | 仅 verifier 的自包含 HTML 检验报告；使用独立 sandbox CSP，非 verifier 返回 404 |
 | `GET /api/task/ID/transcript?after=N` | `task.transcript` |
 | `GET /api/task/ID/transcript-latest?after=N&before=N&limit=N` | 用户专属 `task.transcript_latest`，全量扫描的最新优先窗口（默认 0 / 0 / 100） |
 | `GET /api/task/ID/transcript-search?query=&kind=&tool=&errors=&after=&limit=` | 用户专属 `task.transcript_search`，当前任务完整记录检索／筛选／分页 |
 | `GET /api/task/ID/transcript-page?seq=1&offset=0` | 用户专属 `task.transcript_page`，连续完整文字分页 |
 | `GET /api/task/ID/transcript-step?seq=N&offset=0` | 用户专属 `task.transcript_step`，分段原文、配对及前后上下文 |
+
+`/api/showcases` 与历史展示 Task 的 `/api/task/ID/report` 均返回 404；不再提供展示资源、预览或动作入口。历史 Task 仍可经通用任务读面回看，磁盘报告与历史记录不删除。
 
 执行记录相关游标与界限见[执行记录阅读器](../engineering/transcript-reader.md)。
 

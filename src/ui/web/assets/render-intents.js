@@ -32,8 +32,6 @@ function planActions(intent) {
 }
 function candidateActions(intent) {
   const actions = el('span', undefined, 'intent-actions');
-  if (intent.showcase_task_id) actions.append(button(`查看效果展示 #${intent.showcase_task_id}`,
-    () => detail(intent.showcase_task_id), 'link'));
   if (!intent.candidate_id) return actions.children.length ? actions : null;
   if (intent.candidate_report_task_id && intent.candidate_status === 'preparing') {
     actions.append(button(`查看历史检验任务 #${intent.candidate_report_task_id}`,
@@ -113,7 +111,7 @@ export function renderIntents(data) {
   }
   const signature = [ui.sidebarSortMode, JSON.stringify(query), all.map(intent => [intent.id, intent.status, intent.plan_gate, intent.specs_pending, intent.specs_planned,
     intent.specs_dropped, intent.work_tasks, intent.work_active, intent.work_failed, intent.route, intent.candidate_id, intent.candidate_version, intent.candidate_status,
-    intent.candidate_report_task_id, intent.showcase_task_id, intent.showcase_status].join(':')).join('\u0000')].join('\u0002');
+    intent.candidate_report_task_id].join(':')).join('\u0000')].join('\u0002');
   if (signature === ui.intentSignature) return;
   ui.intentSignature = signature;
   const container = $('intents');

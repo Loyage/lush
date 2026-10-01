@@ -11,7 +11,7 @@ function storedReservation(raw) {
   try { value = JSON.parse(raw); }
   catch { throw new Error('reservation state is invalid; inspect task before changing it'); }
   check(value && typeof value === 'object' && !Array.isArray(value) && [1,2].includes(value.version)
-    && ['merge','showcase'].includes(value.kind) && typeof value.status === 'string',
+    && value.kind === 'merge' && typeof value.status === 'string',
   'reservation state is invalid; inspect task before changing it');
   return value;
 }
@@ -133,7 +133,7 @@ export default {
   /**
    * 用户专属：把一个**没有代码改动**的 say 标记为「已解决」。它与「放弃任务」区分开：
    * 前者表示这次输入只是想了解/确认、你已经没有别的需求；后者是因为别的原因放弃正在进行的工作。
-   * 只有分支没有新提交、工作区干净、没有正在调用的 Agent，且没有发出的合并请求或进行中的展示交付时才允许；
+   * 只有分支没有新提交、工作区干净、没有正在调用的 Agent，且没有发出的合并请求时才允许；
    * 有提交的 say 请走「请求合并」交付，或直接「放弃任务」。结算后照常落一条完成提醒。
    */
   async resolveTask(taskId) {
@@ -146,8 +146,6 @@ export default {
     const reservation = storedReservation(task.reservation);
     check(reservation?.kind !== 'merge' || reservation.status !== 'requested',
       '这条 say 已经有发出的合并请求；请先批准或撤销请求，再标记已解决');
-    check(reservation?.kind !== 'showcase',
-      '这条 say 预约了展示交付；请先撤销展示预约，再标记已解决');
     check(!task.head_commit || !task.base_commit || task.head_commit === task.base_commit,
       '这条 say 已经有提交；请用「请求合并」交付，或用「放弃任务」放弃');
     return this.workspaces.exclusive(async () => {
@@ -160,31 +158,19 @@ export default {
     });
   },
 
-  /** Persistent, mutually exclusive user intention; not a merge/showcase authorization. */
+  /** Persistent merge intention; not an authorization to mutate Git. */
   async reserveTask(taskId, kind) {
     assertTaskNotSyncing(this, id(taskId));
-    check(kind === 'merge' || kind === 'showcase', 'reservation kind must be merge or showcase');
-    if (kind === 'showcase') return this.bookShowcase(taskId);
+    check(kind === 'merge', 'reservation kind must be merge');
     const code = this.store.task(id(taskId));
     if (code.task_kind === 'child' || !code.reservation || JSON.parse(code.reservation)?.version === 2)
       return this.requestTaskMerge(taskId);
-    // 展示交付后原 say 已终结，但「看完后仍需在分支图批准合并」这条路还缺一张固定提交的合并请求。
-    // 这类终态 say 不能再等一个 pending 预约，直接补发 requested；若它之前撤销过请求（reservation 为空），
-    // 同样允许重新请求，不必复活 Task。
-    const settledSay = this.store.task(id(taskId));
-    if (settledSay.task_kind === 'say' && settledSay.status === 'completed') {
-      const settledReservation = storedReservation(settledSay.reservation);
-      if (settledReservation === null
-        || (settledReservation.kind === 'showcase' && settledReservation.status === 'completed')) {
-        return this.requestTaskMerge(taskId);
-      }
-    }
     const accepted = this.store.transaction(() => {
       const task = this.store.task(id(taskId));
       check(task.task_kind === 'say', 'only new say Tasks support delivery reservations');
       check(!TERMINAL.has(task.status), 'cannot reserve an ended say Task');
       const previous = storedReservation(task.reservation);
-      check(!previous || (previous.version === 1 && previous.status === 'pending' && ['merge','showcase'].includes(previous.kind)),
+      check(!previous || (previous.version === 1 && previous.status === 'pending' && previous.kind === 'merge'),
         'reservation state needs inspection before changing it');
       check(!previous || previous.kind === kind, `task #${task.id} already reserves ${previous?.kind}; unreserve it before choosing ${kind}`);
       if (previous) return { task_id: task.id, reservation: previous, changed: false };
@@ -211,7 +197,7 @@ export default {
   async reserveMergeAll(targetBranch) {
     const name = String(targetBranch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
-    // 只有还停在自己分支上、尚未集成的 say/child 才有资格；showcase 预约不能在同一入口改成合并。
+    // 只有还停在自己分支上、尚未集成的 say/child 才有资格。
     const rows = this.store.all(`SELECT id FROM tasks
       WHERE task_kind IN ('say','child') AND status='waiting' AND integration='pending' AND target_branch=?
         AND (reservation IS NULL OR json_extract(reservation,'$.kind')='merge')
@@ -239,7 +225,7 @@ export default {
     this.store.transaction(() => {
       const task = this.store.task(taskId);
       const reservation = storedReservation(task.reservation);
-      if (!['merge','showcase'].includes(reservation?.kind) || !['pending','preparing','requested','resolving'].includes(reservation.status)) return;
+      if (reservation?.kind !== 'merge' || !['pending','requested','resolving'].includes(reservation.status)) return;
       const blocked_reason = String(reason).slice(0, 1000);
       if (reservation.blocked_reason === blocked_reason && (reservation.blocked_code ?? null) === code) return;
       const { blocked_code: _previousCode, ...rest } = reservation;
@@ -308,7 +294,7 @@ export default {
 
   /**
    * A user starts source-side conflict work, not a merge approval. 活动 say 的独立子 Task 完成后由 say Agent
-   * 确认集成；已经终结的 say（展示交付后）没有可唤醒的 Agent，改用不挂在它子树下的独立 Task，结算后由
+   * 确认集成；已经终结的历史 say 没有可唤醒的 Agent，改用不挂在它子树下的独立 Task，结算后由
    * runtime 把产物推进回 say 分支并重新发合并请求。
    */
   async resolveSayDivergence(taskId) {
@@ -462,7 +448,7 @@ export default {
           mergeRequest: { commit: liveResolution.head_commit, baseline: fixed.parent_commit, parent_id: liveSay.parent_id },
         });
       }
-      return this.requestSettledShowcaseMergeUnsafe(liveSay.id).catch(error => {
+      return this.requestCompletedMergeUnsafe(liveSay.id).catch(error => {
         this.noteReservationBlocked(liveSay.id, error.message);
         return null;
       });
@@ -569,9 +555,7 @@ export default {
     if (task.status === 'queued') return 'Task 等待下一轮 Agent 调用完成';
     if (task.status === 'awaiting' || this.questionPending(task.id)) return 'Task 正在等待用户答复';
     if (task.status !== 'waiting') return `Task 尚未静息（${task.status}）`;
-    const reservation = storedReservation(task.reservation);
-    const child = this.store.children(task.id).find(row => !isSettled(row)
-      && !(reservation?.kind === 'showcase' && reservation.status === 'preparing' && row.id === reservation.child_id));
+    const child = this.store.children(task.id).find(row => !isSettled(row));
     if (child) return `等待子 Task #${child.id} 结算`;
     if (this.hasActionableMessages(task.id)) return '还有未处理的消息或子任务信号，需先交给 Agent';
     return null;
@@ -630,24 +614,19 @@ export default {
   },
 
   /**
-   * 展示交付后原 say 已经终结，但交付流程还差一步：用户仍需要一张固定提交的合并请求才能在分支图批准。
+   * 历史终态 say 解分歧后仍需要一张固定提交的合并请求。
    * `merge` 预约的 pending 阶段依赖 say 静息等待，终态 Task 永远等不到，所以这里直接固定源 tip 与父基线、
    * 在事务里写一次 requested 并给父 Task 发 `merge.requested` 信号；不改动已经终结的生命周期。
    * 父子分歧时不抛错，而是留一条 pending/diverged 预约，用户可派独立解分歧子 Task 吸收固定的父提交。
    */
-  requestSettledShowcaseMerge(taskId) {
-    return this.workspaces.exclusive(() => this.requestSettledShowcaseMergeUnsafe(taskId));
-  },
-
-  /** 调用方必须已持有 Git 串行锁；终态 say 的展示/解分歧流程共用。 */
-  async requestSettledShowcaseMergeUnsafe(taskId) {
+  /** 调用方必须已持有 Git 串行锁；仅供历史终态 say 解分歧收尾。 */
+  async requestCompletedMergeUnsafe(taskId) {
     const current = this.store.task(id(taskId));
     const reservation = storedReservation(current.reservation);
     const pendingResolution = reservation?.kind === 'merge' && reservation.status === 'pending';
     check(current.task_kind === 'say' && current.status === 'completed'
-      && (reservation === null || (reservation.kind === 'showcase' && reservation.status === 'completed')
-        || pendingResolution),
-    'only a completed say whose showcase settled can request a merge after settlement');
+      && pendingResolution,
+    'only a completed say with a pending legacy merge can request a merge after resolution');
     check(current.integration !== 'merged', 'this say is already integrated into its parent');
     const parent = this.store.task(current.parent_id);
     check(['main','owner','say'].includes(parent.task_kind) && !TERMINAL.has(parent.status),
@@ -707,158 +686,7 @@ export default {
     return { task_id: task.id, reservation: storedReservation(this.store.task(task.id).reservation), changed: true };
   },
 
-  /**
-   * 用户专属：say Task 预约效果展示。点击即创建展示子 Task 并进入准备阶段；say 真正完成且满足展示准入后，
-   * 由 signalReservedShowcase 发信号让它按最终提交交付。重复调用幂等，也不会重复建子 Task。
-   */
-  async bookShowcase(taskId) {
-    const target = id(taskId);
-    const current = this.store.task(target);
-    check(current.task_kind === 'say', 'only new say Tasks support delivery reservations');
-    check(!TERMINAL.has(current.status), 'cannot reserve an ended say Task');
-    const previous = storedReservation(current.reservation);
-    check(!previous || previous.kind === 'showcase',
-      `task #${current.id} already reserves ${previous?.kind}; unreserve it before choosing showcase`);
-    if (previous) {
-      // 幂等复查：条件已满足就补发一次信号，否则保留 preparation 状态。
-      // 必须放在 exclusive 之外，否则会与 signalReservedShowcase 自己的串行锁死锁。
-      if (previous.status === 'preparing' && current.status === 'waiting') await this.signalReservedShowcase(target);
-      return { task_id: target, reservation: storedReservation(this.store.task(target).reservation), changed: false,
-        child_id: previous.child_id ?? null };
-    }
-    const created = await this.workspaces.exclusive(async () => {
-      const task = this.store.task(target);
-      check(task.task_kind === 'say' && task.reservation === null && !TERMINAL.has(task.status),
-        'say changed while booking showcase');
-      const prep = await this.showcasePreparation(task.branch);
-      return this.store.transaction(() => {
-        const live = this.store.task(target);
-        check(live.task_kind === 'say' && live.reservation === null && !TERMINAL.has(live.status),
-          'say changed while booking showcase');
-        check(this.store.activeTasks().length < 1000, 'too many active tasks');
-        const reservation = { version: 1, kind: 'showcase', status: 'preparing',
-          created_at: new Date().toISOString(), child_id: null, prep_commit: prep.commit };
-        const child = this.store.create({ parent_id: live.id, input_id: live.input_id, role: 'showcase',
-          name: 'showcase', task_kind: 'showcase', showcase: { ...prep, phase: 'preparing' },
-          goal: `效果展示：${live.branch}\n先做准备（理解改动、设计展示方案）；收到原 say 工作完成的信号后，再按最终固定提交交付自包含展示页与可运行预览。展示不是验收，也不自动合并。` });
-        this.store.update(live.id, { reservation: JSON.stringify({ ...reservation, child_id: child.id }) });
-        this.store.event(child.id, 'showcase.booked', { branch: live.branch, commit: prep.commit,
-          baseline: prep.baseline_commit, phase: 'preparing' });
-        this.store.event(live.id, 'task.showcase_booked', { child_id: child.id, commit: prep.commit });
-        return child;
-      });
-    });
-    this.kick();
-    return { task_id: target, reservation: storedReservation(this.store.task(target).reservation), changed: true,
-      child_id: created.id };
-  },
-
-  /**
-   * 展示预约的第二阶段：say 真正完成（静息）且分支满足展示准入时，把既有展示子 Task 从 prep 提交重新固定到
-   * 最终提交并唤醒它继续交付。say 仍保持非终态，等展示子 Task 结算后才终结。
-   */
-  async signalReservedShowcase(taskId) {
-    return this.workspaces.exclusive(async () => {
-      const task = this.store.task(id(taskId));
-      const reservation = storedReservation(task.reservation);
-      if (task.task_kind !== 'say' || reservation?.kind !== 'showcase' || reservation.status !== 'preparing') return false;
-      const child = this.store.task(reservation.child_id);
-      if (!child || child.role !== 'showcase' || child.task_kind !== 'showcase' || child.parent_id !== task.id) {
-        this.noteReservationBlocked(task.id, '展示预约的子 Task 丢失或身份变化，请撤销后重新预约', 'missing_child');
-        return false;
-      }
-      if (this.running.has(child.id) || child.status === 'queued' || child.status === 'running') return false;
-      if (TERMINAL.has(child.status)) {
-        this.noteReservationBlocked(task.id, `展示子 Task #${child.id} 已 ${child.status}，撤销后重新预约`, 'child_ended');
-        return false;
-      }
-      const reason = this.reservationWaitReason(task);
-      if (reason) { this.noteReservationBlocked(task.id, reason); return false; }
-      const eligibility = await this.showcaseEligibility(task.branch, null, child.id, task.id);
-      if (!eligibility.allowed) { this.noteReservationBlocked(task.id, eligibility.reason); return false; }
-      const snapshot = eligibility.snapshot;
-      await this.workspaces.showcaseRepin(child, JSON.parse(child.showcase), snapshot);
-      this.store.transaction(() => {
-        const current = storedReservation(this.store.task(task.id).reservation);
-        check(current?.kind === 'showcase' && current.status === 'preparing' && current.child_id === child.id,
-          'showcase reservation changed during signal');
-        const { blocked_reason: _reason, blocked_code: _code, ...clean } = current;
-        this.store.setShowcase(child.id, { ...snapshot, phase: 'final' });
-        this.store.update(child.id, { base_commit: snapshot.commit, head_commit: snapshot.commit, baseline_commit: snapshot.baseline_commit });
-        this.store.update(task.id, { head_commit: snapshot.commit,
-          integration: snapshot.commit === task.base_commit ? 'none' : 'pending',
-          reservation: JSON.stringify({ ...clean, status: 'started', commit: snapshot.commit,
-            baseline: snapshot.baseline_commit, started_at: new Date().toISOString() }) });
-        this.store.event(child.id, 'showcase.signaled', { commit: snapshot.commit, baseline: snapshot.baseline_commit });
-        this.store.event(task.id, 'task.showcase_started', { child_id: child.id, commit: snapshot.commit,
-          baseline: snapshot.baseline_commit });
-      });
-      this.wake(child.id);
-      return child;
-    });
-  },
-
-  /** Reserve a dedicated, detached showcase child; the say Task remains nonterminal until that child settles. */
-  async startReservedShowcase(taskId) {
-    const ready = (diagnose = true) => {
-      const task = this.store.task(taskId);
-      const reservation = storedReservation(task.reservation);
-      if (this.stopping || task.task_kind !== 'say' || reservation?.kind !== 'showcase' || reservation.status !== 'pending') return null;
-      const reason = this.reservationWaitReason(task);
-      if (reason) { if (diagnose) this.noteReservationBlocked(task.id, reason); return null; }
-      return task;
-    };
-    if (!ready()) return false;
-    return this.workspaces.exclusive(async () => {
-      const task = ready();
-      if (!task) return false;
-      const eligibility = await this.showcaseEligibility(task.branch, null, null, task.id);
-      if (!eligibility.allowed) { this.noteReservationBlocked(task.id, eligibility.reason); return false; }
-      const { snapshot } = eligibility;
-      if (!ready()) return false;
-      const child = this.store.transaction(() => {
-        const current = ready(false);
-        check(current && current.id === task.id, 'showcase reservation changed during admission');
-        check(this.store.activeTasks().length < 1000, 'too many active tasks');
-        const reservation = storedReservation(current.reservation);
-        const created = this.store.create({ parent_id: current.id, input_id: current.input_id, role: 'showcase',
-          name: 'showcase', task_kind: 'showcase', showcase: snapshot,
-          goal: `效果展示：${current.branch}\n分析固定提交 ${snapshot.commit} 相对 ${snapshot.baseline_commit} 的修改，交付展示页和可运行预览。展示不是验收，也不自动合并。` });
-        const { blocked_reason: _reason, ...cleanReservation } = reservation;
-        this.store.update(current.id, { head_commit: snapshot.commit,
-          integration: snapshot.commit === current.base_commit ? 'none' : 'pending',
-          reservation: JSON.stringify({ ...cleanReservation, status: 'started', child_id: created.id,
-            commit: snapshot.commit, baseline: snapshot.baseline_commit, started_at: new Date().toISOString() }) });
-        this.store.event(created.id, 'showcase.requested', snapshot);
-        this.store.event(current.id, 'task.showcase_started', { child_id: created.id, commit: snapshot.commit,
-          baseline: snapshot.baseline_commit });
-        return created;
-      });
-      this.kick();
-      return child;
-    });
-  },
-
-  /** Child settled first; then close the original say Task without conflating showcase with Git integration. */
-  settleReservedShowcase(taskId) {
-    const task = this.store.task(taskId);
-    const reservation = storedReservation(task.reservation);
-    // `started` 是正常交付阶段；`preparing` 只在准备子 Task 失败/取消时走到这里，同样要收束原 say。
-    if (task.task_kind !== 'say' || reservation?.kind !== 'showcase'
-      || !['preparing','started'].includes(reservation.status) || TERMINAL.has(task.status)) return task;
-    const child = this.store.task(reservation.child_id);
-    if (!TERMINAL.has(child.status)) return task;
-    check(child.parent_id === task.id && child.task_kind === 'showcase' && child.role === 'showcase',
-      'reserved showcase child identity changed; inspect before settlement');
-    // 子 Task 可能在原 say 本轮调用还没收尾时就已结算：等它到达等待安全点后，
-    // 由调度 finally 再调用这里收束，避免 finish 的「say 结束必须等展示子 Task 结算」被打破。
-    if (task.status !== 'waiting') return task;
-    const status = child.status === 'completed' ? 'completed' : child.status === 'cancelled' ? 'cancelled' : 'failed';
-    return this.finish(task.id, status, child.result, child.error, { showcaseSettlement: child.id });
-  },
-
   unreserveTask(taskId) {
-    let prepChild = null;
     const requested = this.store.task(id(taskId));
     assertTaskNotSyncing(this, requested.id);
     if (['say','child'].includes(requested.task_kind) && requested.reservation
@@ -887,22 +715,16 @@ export default {
         `解分歧 Task #${resolution.id} 仍占用冻结；先等待它落地，或取消并显式归档其分支`);
       }
       // 已发出但尚未集成的合并请求可以撤销：否则父分支会被一个不再成立的请求一直冻住。
-      // 展示预约在准备阶段仍可撤销：随之取消那个还没交付任何东西的 prep 子 Task。
-      const withdrawable = previous.version === 1 && (['pending','preparing'].includes(previous.status)
-        || (previous.kind === 'merge' && previous.status === 'requested'));
+      const withdrawable = previous.version === 1 && previous.kind === 'merge'
+        && ['pending','requested'].includes(previous.status);
       check(withdrawable, 'started reservation cannot be withdrawn; inspect task');
       this.store.update(task.id, { reservation: null });
-      if (previous.kind === 'showcase' && previous.status === 'preparing' && previous.child_id) prepChild = previous.child_id;
       this.store.event(task.id, previous.status === 'requested' ? 'task.request_withdrawn' : 'task.unreserved', { reservation: previous,
         ...(previous.status === 'requested' ? { commit: previous.commit ?? null, baseline: previous.baseline ?? null,
           note: 'withdrawn without integration; the work stays on its branch' } : {}) });
       return { task_id: task.id, reservation: null, changed: true,
         withdrawn: previous.status === 'requested' ? previous : null };
     });
-    if (prepChild !== null) {
-      const child = this.store.task(prepChild);
-      if (child && !TERMINAL.has(child.status)) this.cancel(child.id, '展示预约已撤销，准备中的展示已取消');
-    }
     return result;
   },
 
@@ -1051,8 +873,6 @@ export default {
     assertTaskNotSyncing(this, parent.id);
     check(!TERMINAL.has(parent.status), `parent task #${parent.id} has ended; select an active parent Task`);
     assertTaskAncestorsOpen(this, parent);
-    check(parent.task_kind !== 'say' || storedReservation(parent.reservation)?.status !== 'started',
-      'parent say Task is presenting its frozen commit; select another bound branch');
     // anchorInput always passes the chosen ref, never the possibly changed process HEAD.
     const { inputId, anchor } = await this.anchorInput(target);
     let ruleTaskId = null;

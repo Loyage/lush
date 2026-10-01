@@ -109,15 +109,13 @@ test('Task 图：内部合并队列随父 Task 归档，可查看历史但不隐
   }
 });
 
-test('Task 图：效果展示子 Task 的隔离检出显式标注 detached worktree，普通分支仍写 worktree', async () => {
+test('Task 图不再包含历史展示类型，普通分支仍写 worktree', async () => {
   const showcase = { id: 3, parent_id: 2, task_kind: 'showcase', role: 'showcase', status: 'waiting', title: '展示效果',
     branch: null, workspace: '/tmp/showcase-3', children: [] };
   graph.nodes.push(showcase);
   try {
     await dom.node('task-graph-open').onclick();
-    const showcaseCard = dom.node('detail').querySelector('[data-task-id="3"]');
-    expect(deepText(showcaseCard)).toContain('detached worktree：/tmp/showcase-3');
-    expect(showcaseCard.querySelector('.role-badge').classList.contains('role-showcase')).toBe(true);
+    expect(dom.node('detail').querySelector('[data-task-id="3"]')).toBeNull();
     // 普通有分支的 Task 不应被误标。
     const sayCard = dom.node('detail').querySelector('[data-task-id="2"]');
     expect(deepText(sayCard)).toContain('worktree：/tmp/task-2');

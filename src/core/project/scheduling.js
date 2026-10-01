@@ -61,7 +61,6 @@ export default {
     if (task.status === 'paused') return; // 暂停是用户显式状态：消息照收，但不自动恢复调用
     if (task.reservation && JSON.parse(task.reservation)?.version === 2
       && JSON.parse(task.reservation).status === 'requested') return; // frozen until merge queue settles
-    if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') return;
     if (!TERMINAL.has(task.status) && !this.running.has(task.id)) {
       const deferred = (task.role === 'coordinator' || ['say','child'].includes(task.task_kind))
         && this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', task.id)
@@ -104,9 +103,8 @@ export default {
     let butlerRunning = [...this.running.values()].filter(run => run.role === 'butler').length;
     let executionRunning = this.running.size - controlRunning - butlerRunning;
     for (const task of this.store.all("SELECT * FROM tasks WHERE status='queued' ORDER BY id")) {
-      if (!['say','child','showcase'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
+      if (!['say','child'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
       if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.
-      if (task.task_kind === 'say' && task.reservation && JSON.parse(task.reservation).status === 'started') continue;
       if (this.running.has(task.id) || this.taskSyncBusy?.has(task.id)) continue;
       try { assertTaskAncestorsOpen(this, task); } catch { continue; }
       if (task.reservation && JSON.parse(task.reservation)?.version === 2
@@ -159,27 +157,6 @@ export default {
             const settle = reservation.version === 2 ? this.settleQueuedMerge(task.id) : this.settleReservedMerge(task.id);
             await settle.catch(error => this.noteReservationBlocked(task.id, error.message));
           }
-          if (settled.status === 'waiting' && reservation?.kind === 'showcase' && ['preparing','started'].includes(reservation.status)) {
-            const showcaseChild = reservation.child_id ? this.store.task(reservation.child_id) : null;
-            // 展示子 Task 已经终结（成功/失败/取消）：原 say 该就此收束，而不是继续等一个已经结束的信号。
-            if (showcaseChild && TERMINAL.has(showcaseChild.status)) {
-              await this.settleReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
-            } else if (reservation.status === 'preparing') {
-              await this.signalReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
-            }
-          }
-          if (settled.status === 'waiting' && reservation?.kind === 'showcase' && reservation.status === 'pending') {
-            await this.startReservedShowcase(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
-          }
-          // 展示准备阶段完成：若原 say 已真正完成且满足准入，立刻补发信号让它进入交付。
-          if (settled.role === 'showcase' && settled.status === 'waiting' && settled.parent_id) {
-            let phase = null;
-            try { phase = settled.showcase ? JSON.parse(settled.showcase).phase : null; } catch { /* leave visible */ }
-            if (phase === 'preparing') {
-              await this.signalReservedShowcase(settled.parent_id)
-                .catch(error => this.noteReservationBlocked(settled.parent_id, error.message));
-            }
-          }
         }
         this.kick();
       });
@@ -220,8 +197,6 @@ export default {
     const booking = task.reservation ? JSON.parse(task.reservation) : null;
     check(!(booking?.version === 2 && booking.status === 'requested'),
       'Task is frozen for merge; wait for integration or withdraw the request before pausing');
-    check(!(task.task_kind === 'say' && booking?.status === 'started'),
-      'say Task is presenting; cancel the showcase instead of pausing');
     const run = this.running.get(task.id);
     this.store.transaction(() => {
       this.store.update(task.id, { status: 'paused', error: null });
@@ -326,7 +301,6 @@ export default {
       }
       if (run.controller.signal.aborted) throw new Error('cancelled');
       task = this.store.task(taskId);
-      if (task.role === 'showcase') this.prepareShowcaseReport(task, run.recordId);
       this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, message_ids: messages.map(message => message.id),
         agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null });
       timer = setTimeout(() => {
@@ -432,20 +406,6 @@ export default {
           this.store.event(taskId, 'task.idle', { run_id: run.recordId, head_commit: this.store.task(taskId).head_commit });
         });
         return;
-      }
-      if (task.role === 'showcase') {
-        const snapshot = JSON.parse(this.store.task(taskId).showcase);
-        if (snapshot.phase === 'preparing') {
-          // 第一阶段只做准备：不要求 report，也不结算展示 Task；保留现场等原 say 的工作完成信号。
-          this.store.transaction(() => {
-            this.store.update(taskId, { status: 'waiting' });
-            this.store.event(taskId, 'showcase.preparation_done', { run_id: run.recordId });
-          });
-          return;
-        }
-        const payload = this.showcaseReport(this.store.task(taskId));
-        this.store.addArtifact({ task_id: taskId, run_id: run.recordId, input_id: task.input_id,
-          kind: 'showcase.result', payload, metadata: { role: 'showcase' } });
       }
       this.finish(taskId, 'completed', result);
     } catch (error) {

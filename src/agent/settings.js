@@ -18,7 +18,7 @@ export const MODEL_PRESETS = {
 
 const ROLE_LABELS = {
   agent: '直接任务', planner: '规划任务', coordinator: '协调任务', worker: '开发任务', research: '调研任务',
-  verifier: '检验任务', merger: '分支分歧解决', showcase: '效果展示', explainer: '执行过程介绍（Pi 无工具）', butler: '托管模式管家（Pi 无工具）',
+  verifier: '检验任务', merger: '分支分歧解决', explainer: '执行过程介绍（Pi 无工具）', butler: '托管模式管家（Pi 无工具）',
 };
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_PROMPT_BYTES = 32 * 1024;
@@ -117,6 +117,12 @@ export class AgentSettings {
     let value;
     try { value = JSON.parse(fs.readFileSync(this.file, 'utf8')); }
     catch { throw new Error(`invalid JSON in ${this.file}`); }
+    // Retired role overrides must not prevent existing projects from reading active profiles.
+    // Ignore only on read; do not rewrite the file or accept new overrides through save().
+    if (isPlainObject(value?.roles) && Object.hasOwn(value.roles, 'showcase')) {
+      const { showcase: retired, ...roles } = value.roles;
+      value = { ...value, roles };
+    }
     return normalizeAgentConfig(value, fallback);
   }
 
@@ -143,6 +149,7 @@ export class AgentSettings {
   }
 
   resolve(role) {
+    check(role !== 'showcase', 'showcase role is no longer supported');
     const config = this.get();
     return { ...(config.resolved[role === 'scheduler' ? 'planner' : role] || config.default) };
   }

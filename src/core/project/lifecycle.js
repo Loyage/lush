@@ -45,9 +45,7 @@ function settlementReminder(task, status) {
       `直接父分支：${task.target_branch ?? '（未记录）'}`,
       reservation?.kind === 'merge' && reservation.status === 'requested'
         ? `固定提交 ${reservation.commit} 的合并请求已发给父 Task #${reservation.parent_id}；当前尚未合入，须由父 Agent 或用户确认。`
-        : reservation?.kind === 'showcase' && ['completed','failed','cancelled'].includes(reservation.status)
-          ? `展示子 Task #${reservation.child_id} 已${reservation.status === 'completed' ? '交付' : reservation.status === 'cancelled' ? '取消' : '失败'}；展示不代表验收，也没有自动合并。`
-          : `integration：${INTEGRATION_REMINDER[task.integration] ?? INTEGRATION_REMINDER.none}。`,
+        : `integration：${INTEGRATION_REMINDER[task.integration] ?? INTEGRATION_REMINDER.none}。`,
     ].join('\n'),
   };
 }
@@ -61,48 +59,31 @@ export default {
       AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1`, task.id) : null;
     const resolutionSource = resolutionEvent ? JSON.parse(resolutionEvent.data).source_task_id : task.resolves_task_id;
     const request = options.mergeRequest ?? null;
-    const showcaseSettlement = options.showcaseSettlement ?? null;
     // 用户对一次「只想了解」的 say 显式收尾：没有代码改动，也不产生合并请求。
     const resolvedByUser = options.resolvedByUser === true;
-    check(!request || !showcaseSettlement, 'a say Task cannot merge and showcase together');
     if (resolvedByUser) {
-      check(task.task_kind === 'say' && status === 'completed' && !request && !showcaseSettlement,
+      check(task.task_kind === 'say' && status === 'completed' && !request,
         'a user-resolved settlement belongs to a new say Task');
-    } else if (task.task_kind === 'say' && (status === 'completed' || showcaseSettlement)) {
+    } else if (task.task_kind === 'say' && status === 'completed') {
       const reservation = task.reservation ? JSON.parse(task.reservation) : null;
-      if (request) {
+      check(request, 'a new say Task completes only with its pinned merge request or explicit user resolution');
+      {
         check(reservation?.kind === 'merge' && reservation.status === 'pending'
           && task.status === 'waiting' && task.head_commit === request.commit && task.parent_id === request.parent_id,
         'a new say Task completes only with its pinned merge request');
         const parent = this.store.task(task.parent_id);
         check(['main','owner','say'].includes(parent.task_kind) && !TERMINAL.has(parent.status),
           'merge request parent is no longer active');
-      } else {
-        const child = showcaseSettlement ? this.store.task(showcaseSettlement) : null;
-        check(reservation?.kind === 'showcase' && ['preparing','started'].includes(reservation.status)
-          && reservation.child_id === child?.id && child.parent_id === task.id
-          && child.role === 'showcase' && child.task_kind === 'showcase' && TERMINAL.has(child.status)
-          && task.status === 'waiting'
-          && status === (child.status === 'completed' ? 'completed' : child.status === 'cancelled' ? 'cancelled' : 'failed'),
-        'a new say Task completes only after its reserved showcase child settles');
       }
-    } else check(!request && !showcaseSettlement, 'delivery settlement belongs to a say Task');
+    } else check(!request, 'delivery settlement belongs to a say Task');
     if (task.role === 'butler' && status !== 'completed') {
       const source = this.butlerContext(task.id);
       this.finishSleepChoice(source.choice_id, { status: 'interrupted', reason: error || '管家中断，未执行选择' });
     }
-    if (task.role === 'showcase' && status !== 'completed') void this.stopShowcasePreview(task.id);
     check(this.store.children(task.id).every(child => TERMINAL.has(child.status)), 'cannot finish with active or unaccepted children');
     this.store.transaction(() => {
       // A retry profile is scoped to this attempt. Terminal settlement removes it so a later
       // explicit retry starts from the then-current project/role profile unless the user adjusts it again.
-      if (showcaseSettlement) {
-        const reservation = JSON.parse(task.reservation);
-        const { blocked_reason: _previousReason, blocked_code: _previousCode, ...cleanReservation } = reservation;
-        this.store.update(task.id, { reservation: JSON.stringify({ ...cleanReservation, status,
-          settled_at: new Date().toISOString() }) });
-        this.store.event(task.id, 'task.showcase_settled', { child_id: showcaseSettlement, status });
-      }
       if (request) {
         const reservation = JSON.parse(task.reservation);
         const { blocked_reason: _previousReason, blocked_code: _previousCode, ...cleanReservation } = reservation;
@@ -138,8 +119,7 @@ export default {
       if (task.parent_id && !resolutionEvent && !request && !TERMINAL.has(this.store.task(task.parent_id).status)
         && !(['say','analysis','merge'].includes(task.task_kind) && ['main','owner'].includes(this.store.task(task.parent_id).task_kind))) {
         const parent = this.store.task(task.parent_id);
-        if ((task.task_kind === 'child' && ['say','child'].includes(parent.task_kind))
-          || (task.task_kind === 'showcase' && parent.task_kind === 'say')) {
+        if (task.task_kind === 'child' && ['say','child'].includes(parent.task_kind)) {
           const key = `${task.task_kind}:${task.id}:settlement:${settlementEvent}`;
           const type = `${task.task_kind}.${status}`;
           const payload = { result: result?.slice(0, 2000) ?? null, error,
@@ -157,8 +137,6 @@ export default {
       }
       // Verification settles either a worker detail or a frozen review candidate.
       if (task.verifies_task_id) this.store.touch(task.verifies_task_id);
-      if (task.role === 'showcase' && status === 'completed') this.notify(task.id, `效果展示已就绪 #${task.id}`,
-        `${JSON.parse(task.showcase).branch} 的展示页已生成。展示不代表检验通过，也没有自动合并。`);
       if (task.review_candidate_id) {
         const hasReport = this.hasReport(task.id);
         const verification = this.verificationResult(task.id);
@@ -192,9 +170,6 @@ export default {
         }
       }
     });
-    // A reserved showcase child closes the original say only after its own terminal fact is committed.
-    // If we crash here, recover() repeats this DB-only, idempotent step.
-    if (task.task_kind === 'showcase' && task.parent_id) this.settleReservedShowcase(task.parent_id);
     // 终态 say 的独立解分歧子 Task 完成：由 runtime 把产物推进回 say 分支并重新发合并请求。
     if (resolutionSource && status === 'completed') this.scheduleTerminalDivergenceFinalize(task.id);
     // Work compiled from a Plan is automatically aggregated inside the private Intent branch. The user still
@@ -211,8 +186,6 @@ export default {
     for (const edge of this.store.dependents(task.id)) this.wake(edge.task_id);
     // 一个没有父子/依赖边的 planner（根任务）也要在自己结束时把这一轮拆解交给 scheduler。
     this.kick();
-    // 结算可能正好满足某条分支的效果展示预约，重扫一次（只在触发点调度，不挂进每次 kick）。
-    this.scheduleShowcaseSweep();
     return this.store.task(task.id);
   },
 
@@ -391,14 +364,13 @@ export default {
     check(!divergenceChild, '解分歧子 Task 不重放未知文件副作用：先检查现场，显式归档旧分支，再从源 say 重新派独立子任务');
     // 冻结中的分支不接受重试：重试会重新产出提交、推进分支，扰动正在进行的合并。
     if (task.branch) this.assertBranchWritable(task.branch, 'retry a task on it');
-    if (task.role === 'showcase') return this.retryShowcase(task.id);
+    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'showcase functionality has been removed; historical Tasks are read-only');
     this.restoreUnrequestedTaskParent(task.id);
     task = this.store.task(task.id);
     assertTaskAncestorsOpen(this, task);
     if (task.task_kind === 'say' && task.reservation) {
       const reservation = JSON.parse(task.reservation);
-      check(reservation.kind !== 'showcase' || !['completed','failed','cancelled'].includes(reservation.status),
-        'a settled showcase and its parent cannot be retried separately; submit a new say');
+      check(reservation.kind === 'merge', 'historical delivery reservation is no longer supported');
     }
     if (task.parent_id) {
       const parent = this.store.task(task.parent_id);
@@ -511,10 +483,6 @@ export default {
       if (run.parked) run.controller.abort();
       else this.cancel(taskId, 'daemon stopped; inspect before retrying', 'failed');
     }
-    const startingPreviews = [...this.previewStarting.values()];
-    for (const controller of startingPreviews) controller.abort();
-    await Promise.allSettled(startingPreviews.map(controller => controller.promise));
-    await Promise.allSettled([...this.previews.values()].map(entry => entry.stop()));
     for (const entry of this.introRunning.values()) entry.controller.abort(new Error('daemon stopped; retry the quick intro'));
     await Promise.allSettled([...this.introRunning.values()].map(entry => entry.promise));
     await Promise.allSettled([...this.running.values()].map(run => run.promise));

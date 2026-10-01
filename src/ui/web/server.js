@@ -28,7 +28,7 @@ function assetFile(pathname) {
 }
 const MUTATIONS = new Set(['agent.configure','agent.environment.configure','system.configure','say.submit','task.spawn','task.message','task.reserve','task.reserve_all','task.resolve','task.accept','task.reopen','task.sync_parent','task.resolve_sync','task.resolve_divergence','task.unreserve','task.approve_merge','task.cancel','task.retry','task.interrupt','task.resume','task.configure','task.cleanup','notice.answer','notice.dismiss','branch.archive']);
 const CORE_READS = new Set(['/api/overview','/api/snapshot','/api/tasks','/api/notices','/api/task-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/environment','/api/docs','/api/docs/search-index']);
-const CORE_TASK_READ = /^\/api\/task\/\d+(?:\/(?:history|history-page|diff|usage|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
+const CORE_TASK_READ = /^\/api\/task\/\d+(?:\/(?:history|history-page|diff|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的任务读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/task\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
 const CORE_DOC_READ = /^\/api\/docs\/[a-z0-9._-]+$/;
@@ -299,7 +299,6 @@ export function startWeb(config, port = 4318, options = {}) {
           if (url.pathname === '/api/agent/environment') return json(await client.request('agent.environment', { target: url.searchParams.get('target') || '' }));
           // Task 图的 Git 诊断单独按需取数，不进概览的常规轮询。
           if (url.pathname === '/api/task-graph') return json(await client.request('task.graph'));
-          if (url.pathname === '/api/showcases') return json(await client.request('showcase.list', { branch: url.searchParams.get('branch') }));
           const preview = /^\/api\/task\/(\d+)\/notice\/(\d+)\/preview\/(\d+)\/(\d+)$/.exec(url.pathname);
           if (preview) {
             const page = await client.request('notice.page', { before: Number(preview[2]) + 1, limit: 1 });
@@ -312,8 +311,8 @@ export function startWeb(config, port = 4318, options = {}) {
           const report = /^\/api\/task\/(\d+)\/report$/.exec(url.pathname);
           if (report) {
             const task = await client.request('task.inspect', { id: Number(report[1]) });
-            check(['verifier','showcase'].includes(task.role), `task #${task.id} is not a verification or showcase`);
-            const file = path.join(binding.config.home, task.role === 'showcase' ? 'showcase' : 'verify', String(task.id), 'report.html');
+            if (task.role !== 'verifier') return json({ error: 'not found' }, 404);
+            const file = path.join(binding.config.home, 'verify', String(task.id), 'report.html');
             if (!fs.existsSync(file)) return json({ error: `task #${task.id} has no report yet` }, 404);
             const stat = fs.lstatSync(file);
             check(stat.isFile() && !stat.isSymbolicLink() && fs.realpathSync(file) === file && stat.size <= 8 * 1024 * 1024, 'unsafe report file');

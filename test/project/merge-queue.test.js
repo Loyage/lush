@@ -278,19 +278,17 @@ test('idle say requests route through a reusable merge child, squash one commit 
   } finally { await f.close(); }
 });
 
-test('a completed showcase say reopens for automatic delivery without v1 approval', async () => {
+test('a completed historical showcase say cannot reopen through merge reservation', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const source = await committedSay(f, 'showcased');
     await f.project.workspaces.finish(source);
     f.store.update(source.id, { status: 'completed', reservation: JSON.stringify({ version: 1,
       kind: 'showcase', status: 'completed', child_id: 999 }) });
-    const booking = await f.project.reserveTask(source.id, 'merge');
-    expect(booking.reservation).toMatchObject({ version: 2, kind: 'merge', status: 'requested' });
-    f.project.stopping = false;
-    await f.project.driveTaskMerge(source.parent_id);
-    expect(f.store.task(source.id)).toMatchObject({ status: 'awaiting_acceptance', integration: 'merged', parent_id: source.parent_id });
-    expect(f.store.task(source.id).branch).toBe(source.branch);
+    const before = f.store.task(source.id);
+    await expect(f.project.reserveTask(source.id, 'merge')).rejects.toThrow('ended say Task');
+    expect(f.store.task(source.id)).toEqual(before);
+    expect(f.store.unread(source.parent_id)).toHaveLength(0);
   } finally { await f.close(); }
 });
 

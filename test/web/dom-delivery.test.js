@@ -34,24 +34,21 @@ function sourceRow() {
   return dom.node('detail').querySelector(`[data-task-id="${say.id}"]`);
 }
 
-test('Task detail conservatively offers an Agent merge booking and showcase booking', async () => {
+test('Task detail offers an Agent merge booking without showcase controls', async () => {
   renderDetail(say, null, null, null);
   const detail = dom.node('detail');
-  const merge = buttonOf(detail, '预约合并'), showcase = buttonOf(detail, '预约展示');
-  // 两条都是 Agent 入口：合并请求交给父 Task 的 merge 子任务，展示会启动展示子 Agent。
+  const merge = buttonOf(detail, '预约合并');
+  // 合并请求交给父 Task 的 merge 子任务，保留 Agent 代价说明。
   expect(merge.classList.contains('agent-call')).toBe(true);
   expect(merge.getAttribute('data-help')).toContain('消耗 token');
-  expect(showcase.classList.contains('agent-call')).toBe(true);
-  expect(showcase.getAttribute('data-help')).toContain('消耗 token');
+  expect(buttonOf(detail, '预约展示')).toBeUndefined();
   const pending = merge.onclick();
   expect(dialogText(dom)).toContain('merge 子任务');
   expect(world.state.actions.some(action => action.method === 'task.reserve')).toBe(false);
   await answerDialog(dom, '预约合并'); await pending;
   expect(world.state.actions).toContainEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
 
-  renderDetail(say, null, null, null);
-  await buttonOf(dom.node('detail'), '预约展示').onclick();
-  expect(world.state.actions).toContainEqual({ method: 'task.reserve', params: { id: say.id, kind: 'showcase' } });
+  expect(world.state.actions.some(action => action.params?.kind === 'showcase')).toBe(false);
 });
 
 test('idle say with committed changes requests a merge; v2 reservations expose recheck and withdraw', async () => {
@@ -177,25 +174,58 @@ test('Task graph uses the same fixed approval, never legacy branch.merge or bran
   expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
 
   renderGraph(graphFor(null), { force: true });
-  const reserve = buttonOf(sourceRow(), '预约展示');
-  expect(reserve).toBeTruthy();
-  expect(reserve.classList.contains('agent-call')).toBe(true);
+  expect(buttonOf(sourceRow(), '预约合并')).toBeTruthy();
+  expect(buttonOf(sourceRow(), '预约展示')).toBeUndefined();
   expect(buttonOf(sourceRow(), '预约效果展示')).toBeUndefined();
 });
 
-test('a delivered showcase leaves the completed say a fixed merge request in the graph, never legacy branch.merge', async () => {
-  const reservation = { version: 1, kind: 'showcase', status: 'completed', child_id: 5, commit, baseline };
-  renderGraph(graphFor(reservation, { done: true, status: 'completed' }), { force: true });
-  const row = sourceRow();
-  expect(buttonOf(row, '合入父分支')).toBeUndefined();
-  expect(deepText(row)).toContain('展示已交付');
-  const request = buttonOf(row, '请求合并');
-  expect(request).toBeTruthy();
-  expect(request.classList.contains('agent-call')).toBe(true);
-  const pending = request.onclick();
-  expect(dialogText(dom)).toContain('原 Task');
-  await answerDialog(dom, '发起请求'); await pending;
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
+test('historical showcase reservations are read-only in detail and graph for every state', () => {
+  const actions = world.state.actions.length;
+  for (const status of ['pending', 'preparing', 'started', 'completed', 'failed', 'cancelled']) {
+    const reservation = { version: 1, kind: 'showcase', status, child_id: 5, commit, baseline };
+    renderDetail({ ...say, status: status === 'failed' ? 'failed' : 'waiting', reservation,
+      result: '历史交付记录', head_commit: commit, base_commit: baseline }, null, null, null);
+    const panel = dom.node('detail');
+    expect(deepText(panel)).toContain('历史交付记录');
+    expect(panel.querySelector('.delivery-controls')).toBeNull();
+    expect(panel.querySelector('.iteration-controls')).toBeNull();
+    for (const label of ['预约展示', '预约合并', '请求合并', '检查后重试', '追加输入', '中断', '已解决'])
+      expect(buttonOf(panel, label)).toBeUndefined();
+    const graph = graphFor(reservation, { done: true, status: 'waiting' });
+    graph.nodes[0].branch_info = { archivable: true };
+    renderGraph(graph);
+    const row = sourceRow();
+    expect(row.querySelector('.delivery-controls')).toBeNull();
+    expect(row.querySelector('.iteration-controls')).toBeNull();
+    expect(buttonOf(row, '向此 Task 输入')).toBeUndefined();
+    expect(buttonOf(row, '归档')).toBeUndefined();
+    expect(buttonOf(row, '请求合并')).toBeUndefined();
+  }
+  expect(world.state.actions.length).toBe(actions);
+});
+
+test('historical showcase Tasks retain generic results without reports, previews or retry operations', () => {
+  const historical = { ...say, id: 81, task_kind: 'showcase', role: 'showcase', status: 'failed',
+    branch: null, workspace: '/tmp/legacy-view', result: '历史任务结果', error: '中断原因',
+    showcase: { report: { href: '/api/task/81/report' }, preview: { url: 'http://localhost:9000' } } };
+  renderDetail(historical, null, null, null);
+  const panel = dom.node('detail');
+  expect(deepText(panel)).toContain('历史任务结果');
+  expect(deepText(panel)).toContain('中断原因');
+  expect(deepText(panel)).toContain('detached worktree：/tmp/legacy-view');
+  expect(panel.querySelector('iframe')).toBeNull();
+  expect(panel.querySelector('.role-showcase')).toBeNull();
+  expect(panel.querySelector('.showcase-panel')).toBeNull();
+  expect(buttonOf(panel, '检查后重试')).toBeUndefined();
+  expect(buttonOf(panel, '停止预览')).toBeUndefined();
+  for (const status of ['waiting', 'paused', 'completed', 'failed', 'cancelled']) {
+    renderDetail({ ...historical, status, integration: 'none', notices: [{ id: 91, kind: 'questionnaire', status: 'open',
+      title: '历史问题', body: JSON.stringify({ version: 1, questions: [{ question: '继续？', header: '历史',
+        options: [{ label: '是', description: '继续' }, { label: '否', description: '停止' }] }] }) }] }, null, null, null);
+    expect(panel.querySelector('.task-actions').querySelectorAll('button').map(node => node.textContent)).toEqual(['刷新详情']);
+    expect(panel.querySelector('.questionnaire')).toBeNull();
+    expect(deepText(panel)).toContain('历史待决 · 只读');
+  }
 });
 
 test('a diverged merge offers a source-side Agent child, but does not call legacy sync or approve the parent', async () => {
@@ -299,7 +329,7 @@ test('a failed Task with pending delivery cannot bypass explicit Task inspection
   expect(deepText(panel)).toContain('先检查失败现场');
 });
 
-test('nested say requests await the parent Agent; failed showcase offers a report link but no retry', () => {
+test('nested say requests await the parent Agent; failed historical delivery has no report action or retry', () => {
   renderDetail({ ...say, status: 'completed', parent_task_kind: 'say', reservation:
     { version: 1, kind: 'merge', status: 'requested', commit, baseline, parent_id: 12 } }, null, null, null);
   expect(buttonOf(dom.node('detail'), '批准固定提交合入父分支')).toBeUndefined();
@@ -307,7 +337,7 @@ test('nested say requests await the parent Agent; failed showcase offers a repor
   renderDetail({ ...say, status: 'failed', reservation:
     { version: 1, kind: 'showcase', status: 'failed', child_id: 81 } }, null, null, null);
   expect(buttonOf(dom.node('detail'), '检查后重试')).toBeUndefined();
-  expect(buttonOf(dom.node('detail'), '查看展示 #81')).toBeTruthy();
+  expect(buttonOf(dom.node('detail'), '查看展示 #81')).toBeUndefined();
 });
 
 test('no-change say gets an 已解决 button distinct from cancel; committed or showcase work does not', async () => {

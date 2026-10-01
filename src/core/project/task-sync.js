@@ -119,7 +119,7 @@ export default {
         const verify = async () => {
           check(await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${current.target_branch}^{commit}`)
             === diagnostic.parent_commit, 'parent moved since the conflict; synchronize again before resolving');
-          await this.workspaces.showcaseCleanBranches([current.branch, current.target_branch]);
+          await this.workspaces.assertCleanBranches([current.branch, current.target_branch]);
           await this.workspaces.taskSyncCheckout(current, source);
           this.assertTaskSyncable(task.id);
           check(await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${current.target_branch}^{commit}`)
@@ -162,7 +162,7 @@ export default {
       check(await this.workspaces.isAncestor(this.config.project, request.source_commit, commit)
         && await this.workspaces.isAncestor(this.config.project, request.parent_commit, commit),
         'synchronization repair must preserve both fixed source and parent commits');
-      const integration = await this.workspaces.showcaseTree(commit) === await this.workspaces.showcaseTree(request.parent_commit)
+      const integration = await this.workspaces.commitTree(commit) === await this.workspaces.commitTree(request.parent_commit)
         ? 'merged' : 'pending';
       await this.workspaces.taskSyncCheckout(current, commit);
       this.store.transaction(() => {

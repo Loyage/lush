@@ -61,9 +61,11 @@
 - **建议与取舍**：以资源/角色统一识别两类 verifier，复用 `removeBaseline()` 的失败保留指针逻辑；保持 Showcase 基线保留与预览保护，不扩大 force 删除范围。
 - **验收**：Candidate 验收成功、失败、取消后 baseline 及时消失；清理失败保存路径并可显式重试；重复 cleanup 幂等且报告真实资源结果；旧 worker verifier 与 Showcase 生命周期不回归。
 
-## G-06 图读取重复执行完整 Showcase 准入，少量分支已产生大量 Git 子进程
+## G-06 图读取重复执行完整 Showcase 准入（随功能删除关闭）
 
-**P2 · 已复现（成本测量） · 预估 M**
+**已关闭：预约展示、效果展示与图准入投影整体删除，不再执行下述历史调用。**
+
+以下保留原始成本测量记录，不是当前待实施方案。
 
 - **依据**：`src/core/project/graph.js`，`graph()`，218–255 行，每个节点串行调用 `showcaseEligibility()`；`src/core/project/showcase.js`，同名函数，10–64 行，每次重新扫描 branches/inputs/tasks，并执行 `showcaseSnapshot()`。`src/core/workspaces/showcase.js`，47–85 行，对每个分支重新枚举远端默认分支、校验 ref、列 worktree。
 - **实验与影响**：临时仓库创建 20 条已登记、有实际树变化、无任务的分支；21 个图节点一次读取发起 **230 次 Git**、约 **2.31 s**，同实例热读仍 **226 次 / 2.08 s**。其中 `for-each-ref` 与 `worktree list` 各 21 次；这是本机探针，不是生产 SLA 或 200 分支外推结论。图读取并发时会叠加进程与重复 DB 扫描。

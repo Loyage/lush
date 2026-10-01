@@ -19,8 +19,7 @@ export const handlers = {
     check(p.running.size === 0 && p.introRunning.size === 0,
       '项目还有活动 Agent 或模型调用，请先结束或暂停任务后再重启');
     check(!p.writing && !p.clearing && !p.workspaces.pending && !p.workspaces.busy.size
-      && !p.taskMergeBusy?.size && !p.mergeRunsDriving.size && !p.integratingIntents.size
-      && !p.showcaseSweeping && !p.previewStarting.size,
+      && !p.taskMergeBusy?.size && !p.mergeRunsDriving.size && !p.integratingIntents.size,
       '项目还有 Git、合并或后台操作正在执行，请稍后再重启');
     p.stopping = true;
     this.stopping.request();

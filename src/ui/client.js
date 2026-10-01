@@ -16,7 +16,7 @@ export class UIClient {
   /** Compatibility URL for the Web bootstrap; the payload is the same bounded core overview. */
   async snapshot() { return this.overview(); }
 
-  /** Task-centred homepage: no legacy planner, draft or showcase RPC calls. */
+  /** Task-centred homepage: no legacy planner or draft RPC calls. */
   async overview(revision = null) {
     const status = await this.request('system.summary');
     check(status.project === this.config.project, 'daemon project mismatch');
@@ -29,6 +29,6 @@ export class UIClient {
     const ids = new Set(tasks.map(task => task.id));
     return { revision: status.revision, status, tasks, task_page: activity.page,
       notices: page.notices.filter(notice => ids.has(notice.task_id)),
-      ladder: { groups: [] }, inputs: [], drafts: [], specs: [], candidates: [], showcases: [] };
+      ladder: { groups: [] }, inputs: [], drafts: [], specs: [], candidates: [] };
   }
 }

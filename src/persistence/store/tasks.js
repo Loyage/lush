@@ -133,17 +133,13 @@ export const tasks = {
     this.run("UPDATE tasks SET progress_plan=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", JSON.stringify(value), taskId);
     return this.task(taskId);
   },
-  /** 展示快照在准备/最终阶段之间重新固定；只由展示预约的 Project 层调用。 */
-  setShowcase(taskId, value) {
-    this.run("UPDATE tasks SET showcase=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", value === null ? null : JSON.stringify(value), taskId);
-    return this.task(taskId);
-  },
   /** name is the task's own short slug; it is written once at spawn and never edited, so a worktree keeps its name. */
-  create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null, resolves_task_id = null, review_candidate_id = null, showcase = null, task_kind = null }) {
+  create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null, resolves_task_id = null, review_candidate_id = null, task_kind = null }) {
+    check(role !== 'showcase' && task_kind !== 'showcase', 'showcase tasks are no longer supported');
     const taskId = this.nextTaskId();
     const layer = layerOf(role);
-    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id,resolves_task_id,review_candidate_id,layer,showcase,task_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-      taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer, showcase ? JSON.stringify(showcase) : null, task_kind);
+    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id,resolves_task_id,review_candidate_id,layer,task_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer, task_kind);
     const task = this.task(taskId);
     this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer });
     return task;

@@ -8,14 +8,17 @@ export const STATUS = {
   completed: { label: '已完成', icon: '✓' }, failed: { label: '失败', icon: '✗' }, cancelled: { label: '已取消', icon: '⊘' },
 };
 export const INTEGRATION = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并', conflict: '冲突待处理', superseded: '已作废' };
-/** 效果展示在隔离的 detached worktree 中执行，不挂在任何分支上；列出工作区时必须显式写明，别让人误认成源分支的检出。 */
-export const worktreeLabel = task => (task?.role === 'showcase' ? 'detached worktree' : 'worktree');
-export const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验', merger: '解冲突', showcase: '效果展示', explainer: '执行介绍', butler: '管家' };
+/** 无分支的历史检出只标为 detached，不再依赖已下线的专用角色。 */
+export const worktreeLabel = task => (!task?.branch && task?.workspace ? 'detached worktree' : 'worktree');
+/** 已下线交付记录仅供回看，不提供重试、预约或迭代操作。 */
+export const isHistoricalDelivery = task => task.role === 'showcase' || task.task_kind === 'showcase'
+  || Boolean(task.reservation?.kind && task.reservation.kind !== 'merge');
+export const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验', merger: '解冲突', explainer: '执行介绍', butler: '管家' };
 export const EVENTS = {
   created: '创建任务', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
   'task.signal': '任务信号', 'child.completed': '子任务完成', 'child.integrated': '子任务已集成',
-  'task.merge_requested': '请求合并', 'task.showcase_settled': '展示结算',
+  'task.merge_requested': '请求合并',
   'task.accepted': '验收完成', 'task.reopened': '恢复待验收',
   'task.parent_synced': '已同步父分支', 'task.parent_sync_conflict': '父同步冲突',
   'progress.plan': '更新任务计划', 'progress.completed': '完成计划步骤',

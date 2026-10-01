@@ -81,13 +81,13 @@ test('explicit branch.bind registers a previously untracked local branch without
   } finally { await f.close(); }
 });
 
-test('say delivery reservations are mutually exclusive, durable and cannot be mistaken for authorization', async () => {
+test('say merge reservations are durable, reject removed kinds and are not authorization', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const say = await f.project.say('build a view');
     const legacy = f.store.create({ role: 'worker', goal: 'legacy' });
     await expect(f.project.reserveTask(legacy.id, 'merge')).rejects.toThrow('only say/child');
-    await expect(f.project.reserveTask(say.task.id, 'other')).rejects.toThrow('merge or showcase');
+    await expect(f.project.reserveTask(say.task.id, 'other')).rejects.toThrow('reservation kind must be merge');
     expect(() => assertAllowed('task.reserve', { id: say.task.id, kind: 'merge' }, say.task.id))
       .toThrow('requires user approval');
     // 新模型 reservation 是 version 2：pending 是「还没满足条件」，不是合并批准。
@@ -99,13 +99,15 @@ test('say delivery reservations are mutually exclusive, durable and cannot be mi
     expect(f.project.inspect(say.task.id).reservation).toEqual(first.reservation);
     expect(f.project.decorate(f.store.summaries('work')).find(task => task.id === say.task.id).reservation).toEqual(first.reservation);
     expect(await f.project.reserveTask(say.task.id, 'merge')).toEqual({ ...first, changed: false });
-    await expect(f.project.reserveTask(say.task.id, 'showcase')).rejects.toThrow('unreserve it before choosing');
+    await expect(f.project.reserveTask(say.task.id, 'showcase')).rejects.toThrow('reservation kind must be merge');
     expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='task.reserved'", say.task.id)).toHaveLength(1);
     expect(f.store.task(say.task.id).integration).toBe('none');
     expect(await git(f.root, 'rev-parse', 'main')).toBe(say.anchor.commit);
     expect(f.project.unreserveTask(say.task.id)).toMatchObject({ changed: true, reservation: null });
     expect(f.project.unreserveTask(say.task.id)).toMatchObject({ changed: false, reservation: null });
-    expect((await f.project.reserveTask(say.task.id, 'showcase')).reservation.kind).toBe('showcase');
+    await expect(f.project.reserveTask(say.task.id, 'showcase')).rejects.toThrow('reservation kind must be merge');
+    expect(f.store.children(say.task.id)).toHaveLength(0);
+    expect(f.store.task(say.task.id).reservation).toBeNull();
     expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='task.unreserved'", say.task.id)).toHaveLength(1);
   } finally { await f.close(); }
 });
@@ -221,167 +223,6 @@ test('pending merge can be explicitly rechecked without duplicate bookings or sk
     expect(ready.reservation.blocked_reason).toBeUndefined();
     expect(f.store.unread(say.task.parent_id)).toHaveLength(1);
     expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='task.reserved'", say.task.id)).toHaveLength(1);
-  } finally { await f.close(); }
-});
-test('showcase booking creates a detached child and finishes the say only after the report is delivered', async () => {
-  const show = gate();
-  const f = fixture({ run: async ({ task, cwd, context }) => {
-    if (task.role === 'showcase') {
-      if (context.showcase.phase === 'preparing') return 'prepared';
-      await show.promise;
-      fs.writeFileSync(context.showcase.report_path, '<!doctype html><h1>Ready</h1>');
-      return 'preview ready';
-    }
-    fs.writeFileSync(path.join(cwd, 'screen.txt'), 'ready\n');
-    await git(cwd, 'add', 'screen.txt'); await git(cwd, 'commit', '-m', 'screen');
-    return 'screen built';
-  } });
-  await repo(f.root);
-  try {
-    const say = await f.project.say('show new screen');
-    const baseline = await git(f.root, 'rev-parse', 'main');
-    const booked = await f.project.reserveTask(say.task.id, 'showcase');
-    expect(['preparing','started']).toContain(booked.reservation.status);
-    await until(() => JSON.parse(f.store.task(say.task.id).reservation).status === 'started');
-    const current = f.store.task(say.task.id), reservation = JSON.parse(current.reservation);
-    const child = f.store.task(reservation.child_id);
-    expect(child).toMatchObject({ parent_id: say.task.id, role: 'showcase', task_kind: 'showcase' });
-    expect(current.status).toBe('waiting');
-    expect(f.store.activeTasks().some(row => row.id === child.id)).toBe(true);
-    expect(JSON.parse(child.showcase)).toMatchObject({ commit: reservation.commit, baseline_commit: reservation.baseline });
-    expect(() => f.project.message(say.task.id, 'interrupt the presentation')).toThrow('presenting');
-    await expect(f.project.say('too late', say.task.branch)).rejects.toThrow('presenting');
-    expect(await git(f.root, 'rev-parse', 'main')).toBe(baseline);
-    show.resolve();
-    await until(() => f.store.task(say.task.id).status === 'completed');
-    expect(f.store.task(child.id).status).toBe('completed');
-    expect(f.project.inspect(child.id).report).toContain(`showcase/${child.id}/report.html`);
-    expect(JSON.parse(f.store.task(say.task.id).reservation).status).toBe('completed');
-    expect(f.store.task(say.task.id).integration).toBe('pending');
-    expect(f.store.unread(say.task.id)).toMatchObject([{ signal_type: 'showcase.completed', sender_id: child.id }]);
-    expect(f.store.unread(say.task.parent_id)).toHaveLength(0);
-    expect(await git(f.root, 'rev-parse', 'main')).toBe(baseline);
-  } finally { show.resolve(); await f.close(); }
-});
-test('showcase booking creates the child immediately and signals only once code and worktree are ready', async () => {
-  const f = fixture(); f.project.stopping = true; await repo(f.root);
-  try {
-    const say = await f.project.say('present later');
-    f.store.update(say.task.id, { status: 'waiting' });
-    f.project.stopping = false; f.project.kick = () => {}; // create the child, but do not start a mock invocation
-    const first = await f.project.reserveTask(say.task.id, 'showcase');
-    expect(first.reservation).toMatchObject({ kind: 'showcase', status: 'preparing' });
-    expect(typeof first.reservation.child_id).toBe('number');
-    const child = f.store.task(first.reservation.child_id);
-    expect(child).toMatchObject({ parent_id: say.task.id, role: 'showcase', task_kind: 'showcase', status: 'queued' });
-    // 准备阶段完成（这里直接置为 waiting，不跑 mock 调用）后才会尝试发信号。
-    f.store.update(child.id, { status: 'waiting' });
-    expect(await f.project.signalReservedShowcase(say.task.id)).toBe(false);
-    expect(JSON.parse(f.store.task(say.task.id).reservation).blocked_reason).toContain('没有实际文件改动');
-    fs.writeFileSync(path.join(say.task.workspace, 'ready.txt'), 'ready\n');
-    await git(say.task.workspace, 'add', 'ready.txt'); await git(say.task.workspace, 'commit', '-m', 'ready');
-    const scratch = path.join(say.task.workspace, 'uncommitted.tmp');
-    fs.writeFileSync(scratch, 'user changes');
-    await f.project.signalReservedShowcase(say.task.id);
-    expect(JSON.parse(f.store.task(say.task.id).reservation).blocked_reason).toContain('未提交修改');
-    fs.unlinkSync(scratch); // only our temporary test project file
-    const signaled = await f.project.signalReservedShowcase(say.task.id);
-    expect(signaled.id).toBe(first.reservation.child_id);
-    expect(JSON.parse(f.store.task(say.task.id).reservation)).toMatchObject({ kind: 'showcase', status: 'started',
-      child_id: first.reservation.child_id });
-    expect(f.store.children(say.task.id)).toHaveLength(1);
-    expect(f.store.task(say.task.id).status).toBe('waiting');
-  } finally { await f.close(); }
-});
-
-test('showcase reservation rechecks never duplicate a child and only signal after admission', async () => {
-  const f = fixture(); f.project.stopping = true; await repo(f.root);
-  try {
-    const say = await f.project.say('present once');
-    f.store.update(say.task.id, { status: 'waiting' });
-    f.project.stopping = false; f.project.kick = () => {};
-    const booked = await f.project.reserveTask(say.task.id, 'showcase');
-    f.store.update(booked.reservation.child_id, { status: 'waiting' });
-    await f.project.signalReservedShowcase(say.task.id);
-    expect(JSON.parse(f.store.task(say.task.id).reservation).blocked_reason).toContain('没有实际文件改动');
-    fs.writeFileSync(path.join(say.task.workspace, 'view.txt'), 'new view\n');
-    await git(say.task.workspace, 'add', 'view.txt'); await git(say.task.workspace, 'commit', '-m', 'view');
-    const retried = await f.project.reserveTask(say.task.id, 'showcase');
-    expect(retried.changed).toBe(false);
-    expect(retried.reservation).toMatchObject({ kind: 'showcase', status: 'started' });
-    expect(retried.reservation.blocked_reason).toBeUndefined();
-    expect(f.store.children(say.task.id)).toHaveLength(1);
-    f.project.recover();
-    expect(f.store.children(say.task.id)).toHaveLength(1);
-  } finally { await f.close(); }
-});
-
-test('a failed showcase leaves the say and its worktree as visible failed delivery, without merging', async () => {
-  const f = fixture({ run: async ({ task, cwd }) => {
-    if (task.role === 'showcase') return 'no HTML delivered';
-    fs.writeFileSync(path.join(cwd, 'change.txt'), 'change\n');
-    await git(cwd, 'add', 'change.txt'); await git(cwd, 'commit', '-m', 'change');
-    return 'built';
-  } });
-  await repo(f.root);
-  try {
-    const say = await f.project.say('show change');
-    const baseline = await git(f.root, 'rev-parse', 'main');
-    await f.project.reserveTask(say.task.id, 'showcase');
-    await until(() => f.store.task(say.task.id).status === 'failed');
-    const parent = f.store.task(say.task.id), reservation = JSON.parse(parent.reservation);
-    const child = f.store.task(reservation.child_id);
-    expect(reservation.status).toBe('failed');
-    expect(child.status).toBe('failed');
-    expect(parent.error).toContain('report.html');
-    expect(fs.existsSync(say.task.workspace)).toBe(true);
-    expect(await git(f.root, 'rev-parse', 'main')).toBe(baseline);
-    await expect(f.project.retry(child.id)).rejects.toThrow('cannot be retried under its ended parent');
-    expect(() => f.project.retry(say.task.id)).toThrow('cannot be retried separately');
-  } finally { await f.close(); }
-});
-
-test('cancelling a presenting say cancels its showcase child before ending the parent', async () => {
-  const go = gate();
-  const f = fixture({ run: async ({ task, cwd, context }) => {
-    if (task.role === 'showcase') { if (context.showcase.phase === 'preparing') return 'prepared'; await go.promise; return 'cancelled'; }
-    fs.writeFileSync(path.join(cwd, 'cancel.txt'), 'ready\n');
-    await git(cwd, 'add', 'cancel.txt'); await git(cwd, 'commit', '-m', 'cancel');
-    return 'built';
-  } });
-  await repo(f.root);
-  try {
-    const say = await f.project.say('present then cancel');
-    await f.project.reserveTask(say.task.id, 'showcase');
-    await until(() => JSON.parse(f.store.task(say.task.id).reservation).status === 'started');
-    const childId = JSON.parse(f.store.task(say.task.id).reservation).child_id;
-    f.project.cancel(say.task.id, 'stop the presentation');
-    expect(f.store.task(childId).status).toBe('cancelled');
-    expect(f.store.task(say.task.id).status).toBe('cancelled');
-    expect(JSON.parse(f.store.task(say.task.id).reservation).status).toBe('cancelled');
-    expect(f.store.children(say.task.id).every(child => child.status === 'cancelled')).toBe(true);
-  } finally { go.resolve(); await f.close(); }
-});
-
-test('a preparation-phase showcase failure settles the say instead of leaving it preparing', async () => {
-  const f = fixture({ run: async ({ task, cwd, context }) => {
-    if (task.role === 'showcase') {
-      if (context.showcase.phase === 'preparing') throw new Error('prep blew up');
-      return 'unreachable';
-    }
-    fs.writeFileSync(path.join(cwd, 'prep.txt'), 'ready\n');
-    await git(cwd, 'add', 'prep.txt'); await git(cwd, 'commit', '-m', 'prep');
-    return 'built';
-  } });
-  await repo(f.root);
-  try {
-    const say = await f.project.say('fail prep');
-    await f.project.reserveTask(say.task.id, 'showcase');
-    await until(() => f.store.task(say.task.id).status === 'failed');
-    const reservation = JSON.parse(f.store.task(say.task.id).reservation);
-    expect(reservation.status).toBe('failed');
-    expect(f.store.task(reservation.child_id).status).toBe('failed');
-    expect(f.store.task(say.task.id).error).toContain('prep blew up');
   } finally { await f.close(); }
 });
 test('say --draft retains exact draft text and references, sends only one, and refuses stale edits', async () => {
@@ -554,7 +395,7 @@ test('resolving a say refuses committed work, in-flight delivery, and active inv
 
     // 先建好全部 say，再伪造各态：requested 预约会冻结 main，之后就不能再往 main 发 say。
     const requested = await f.project.say('已经请求合并');
-    const shown = await f.project.say('预约了展示');
+    const shown = await f.project.say('历史交付记录');
     const busy = await f.project.say('正在调用');
 
     f.store.update(requested.task.id, { status: 'waiting', reservation: JSON.stringify({ version: 1, kind: 'merge',
@@ -563,7 +404,7 @@ test('resolving a say refuses committed work, in-flight delivery, and active inv
 
     f.store.update(shown.task.id, { status: 'waiting', reservation: JSON.stringify({ version: 1, kind: 'showcase',
       status: 'preparing', child_id: 1 }) });
-    await expect(f.project.resolveTask(shown.task.id)).rejects.toThrow('展示预约');
+    await expect(f.project.resolveTask(shown.task.id)).rejects.toThrow('reservation state is invalid');
 
     f.store.update(busy.task.id, { status: 'running' });
     f.project.running.set(busy.task.id, { controller: new AbortController() });

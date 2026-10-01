@@ -9,6 +9,7 @@ export const methods = {
    * 原子删除——检查之后分支被谁动过就拒绝，历史不会丢。
    */
   async dropBranch(task) {
+    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase tasks are unsupported; preserve their worktrees for manual inspection');
     const branch = task.branch;
     if (!branch) return { branch: null, status: 'absent', reason: null };
     const project = this.config.project;
@@ -39,11 +40,23 @@ export const methods = {
    * 两遍走：第一遍只读地收集 tip / worktree 并把所有会失败的事检查完（脏 worktree、主检出），
    * 第二遍才开始删。这样「子树里有脏 worktree」不会留下归档了一半的分支。
    */
-  archiveBranches(branches, { discard_worktree = false, showcases = [] } = {}) {
+  archiveBranches(branches, { discard_worktree = false } = {}) {
     return this.exclusive(async () => {
       const project = this.config.project;
       const names = [...new Set(branches.map(branch => String(branch ?? '').trim()))];
       for (const branch of names) check(branch.length > 0 && branch.length <= 512, 'branch name must be non-empty text');
+      // Historical detached worktrees are recovery points, never ordinary branch checkouts.
+      // Inspect stored metadata only; malformed snapshots with retained directories fail closed.
+      const retainedPaths = new Set();
+      for (const task of this.store.all("SELECT id,branch,showcase,workspace,baseline_workspace FROM tasks WHERE role='showcase' OR task_kind='showcase'")) {
+        const retained = [task.workspace, task.baseline_workspace].filter(dir => dir && fs.existsSync(dir));
+        if (!retained.length) continue;
+        for (const dir of retained) retainedPaths.add(fs.realpathSync(dir));
+        let snapshot;
+        try { snapshot = JSON.parse(task.showcase); } catch { /* unknown ownership: preserve */ }
+        check(snapshot?.branch && !names.includes(snapshot.branch) && !names.includes(task.branch),
+          `legacy showcase #${task.id} retains worktrees; preserve and inspect them manually before archive`);
+      }
       const plan = [];
       for (const branch of names) {
         // 先把 tip 记下来：后面 update-ref -d 用它做 compare-and-delete，检查之后被谁动过就拒绝。
@@ -52,6 +65,7 @@ export const methods = {
         const workspace = await this.workspaceForBranch(branch);
         const present = Boolean(workspace) && fs.existsSync(workspace);
         if (present) {
+          check(!retainedPaths.has(fs.realpathSync(workspace)), 'legacy showcase worktrees cannot be archived as ordinary branch checkouts');
           // 主检出是用户现场，不是某条分支的临时工作区；即便调用方漏了「当前分支不可归档」也该在这里挡住。
           check(fs.realpathSync(workspace) !== fs.realpathSync(project), `refusing to archive the project checkout: ${workspace}`);
           if (!discard_worktree) {
@@ -63,43 +77,6 @@ export const methods = {
           }
         }
         plan.push({ branch, tip, workspace, present, worktree: 'absent', ref: 'absent', discarded: false });
-      }
-
-      // 展示任务不拥有源分支，但会留下两个 detached worktree（展示提交与对照提交）。归档源分支时
-      // 一并回收；先把所有目录的身份、固定提交与干净状态检查完，再停预览、开始任何删除。
-      const detached = [];
-      for (const task of showcases) {
-        check(task.role === 'showcase' && ['completed','failed','cancelled'].includes(task.status),
-          `showcase #${task.id} must be stopped before its branch can be archived`);
-        const snapshot = JSON.parse(task.showcase);
-        check(names.includes(snapshot.branch), `showcase #${task.id} does not belong to an archived branch`);
-        for (const [field, commit] of [['workspace', snapshot.commit], ['baseline_workspace', snapshot.baseline_commit]]) {
-          const dir = task[field];
-          if (!dir) continue;
-          const present = fs.existsSync(dir);
-          if (present) await this.assertShowcaseCheckout(dir, commit, { allowDirty: discard_worktree });
-          detached.push({ task_id: task.id, branch: snapshot.branch, field, commit, dir, present });
-        }
-      }
-      for (const task of showcases) {
-        if (!this.previewActive?.(task.id)) continue;
-        check(typeof this.stopPreview === 'function', `showcase #${task.id} preview must be stopped before archive`);
-        await this.stopPreview(task.id);
-        check(!this.previewActive?.(task.id), `showcase #${task.id} preview is still stopping`);
-      }
-      for (const entry of detached) {
-        let removed = false, discarded = false;
-        if (entry.present && fs.existsSync(entry.dir)) {
-          // A preview may have written files after the first preflight. Recheck after it has stopped.
-          await this.assertShowcaseCheckout(entry.dir, entry.commit, { allowDirty: discard_worktree });
-          if (discard_worktree) discarded = (await this.porcelain(entry.dir)) !== '';
-          await this.git(project, 'worktree', 'remove', ...(discard_worktree ? ['--force'] : []), entry.dir);
-          removed = true;
-        }
-        this.store.update(entry.task_id, { [entry.field]: null });
-        this.store.event(entry.task_id, 'showcase.worktree_archived', {
-          branch: entry.branch, workspace: entry.dir, kind: entry.field === 'workspace' ? 'showcase' : 'baseline', removed, discarded,
-        });
       }
 
       const outcomes = [];
@@ -131,22 +108,7 @@ export const methods = {
    * 任何一步不安全就抛错——cleanup 把它报给用户，clear 记下原因并保留那条任务。
    */
   async release(task, { keepBranch = false } = {}) {
-    if (task.role === 'showcase') {
-      check(!this.previewActive?.(task.id), 'stop the showcase preview before cleanup');
-      const snapshot = JSON.parse(task.showcase);
-      let removed = false;
-      for (const [field, commit] of [['workspace', snapshot.commit], ['baseline_workspace', snapshot.baseline_commit]]) {
-        const dir = task[field];
-        if (!dir) continue;
-        if (fs.existsSync(dir)) {
-          await this.assertShowcaseCheckout(dir, commit);
-          await this.git(this.config.project, 'worktree', 'remove', dir);
-          removed = true;
-        }
-        this.store.update(task.id, { [field]: null });
-      }
-      return { id: task.id, worktree: removed ? 'removed' : 'absent', branch: 'absent', reason: null };
-    }
+    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase tasks are unsupported; preserve their worktrees for manual inspection');
     // 检验任务没有 branch/integration，只有派生出来的对照检出。
     if (task.verifies_task_id) {
       if (!task.baseline_workspace) return { id: task.id, worktree: 'absent', branch: 'absent', reason: null };

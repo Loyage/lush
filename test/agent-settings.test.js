@@ -1,15 +1,50 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { Config } from '../src/config.js';
-import { AgentSettings } from '../src/agent/settings.js';
+import { AgentSettings, AGENT_ROLES } from '../src/agent/settings.js';
+import { builtInPrompt, agentPrompt, PROMPT_PARTS, ROLE_PROMPT_PARTS } from '../src/agent/prompts.js';
 import { CodexProvider, PiProvider } from '../src/agent/provider.js';
 import { readUsageStatistics } from '../src/core/usage-statistics.js';
 import { discoverAgentModels } from '../src/agent/models.js';
 import { discoverAgentResources } from '../src/agent/resources.js';
 import { GUIDE } from '../src/agent/guide.js';
 import { run as runAgentCommand } from '../src/cli/commands/agent.js';
-import { env, temp } from './helpers.js';
+// Profile/provider tests do not need a Project or its runtime modules.
+function temp() { return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-agent-settings-'))); }
+function env(extra = {}) {
+  return { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LUSH_'))), LUSH_PROVIDER: 'mock', ...extra };
+}
+
+test('retired showcase profiles are ignored on read, preserved on disk and rejected on write', async () => {
+  const root = temp();
+  const config = new Config({ project: root, env: env() }); config.prepare();
+  try {
+    const settings = new AgentSettings(config);
+    const stored = { version: 1, default: { agent: 'pi', model: 'active-model' },
+      roles: { showcase: { agent: 'obsolete-backend', prompt: 'legacy override' }, worker: { agent: 'codex', model: 'worker-model' } } };
+    const body = JSON.stringify(stored);
+    fs.writeFileSync(settings.file, body, { mode: 0o600 });
+    const read = settings.get();
+    expect(read.resolved.worker.model).toBe('worker-model');
+    expect(read.roles.showcase).toBeUndefined();
+    expect(read.resolved.showcase).toBeUndefined();
+    expect(read.options.roles.some(role => role.id === 'showcase')).toBe(false);
+    expect(read.options.default_prompts.showcase).toBeUndefined();
+    expect(fs.readFileSync(settings.file, 'utf8')).toBe(body);
+    expect(() => settings.save(stored)).toThrow('unknown role');
+    expect(() => settings.retryProfile('showcase', { agent: 'pi' })).toThrow('unknown agent role');
+    expect(() => settings.resolve('showcase')).toThrow('no longer supported');
+    expect(AGENT_ROLES).not.toContain('showcase');
+    expect(PROMPT_PARTS.showcase).toBeUndefined();
+    expect(ROLE_PROMPT_PARTS.showcase).toBeUndefined();
+    expect(() => builtInPrompt('showcase')).toThrow('role must be');
+    expect(() => agentPrompt(config, 'showcase')).toThrow('role must be');
+    const client = { token: null, async request() { return read; } };
+    await expect(runAgentCommand('agent', ['set', 'showcase', '--model', 'x'], { client })).rejects.toThrow();
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 test('project Agent config is atomic, role-aware, and re-read dynamically', () => {
   const root = temp();

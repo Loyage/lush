@@ -329,8 +329,8 @@ export default {
     if (!say) { blockers.push('该分支没有 say Task 拥有'); return blockers; }
     const reservation = reservationOf(say);
     // 展示预约未完成时不能同时请求合并；展示已交付的终态 say 允许补发一次固定提交请求。
-    if (reservation && !(reservation.kind === 'showcase' && reservation.status === 'completed')) {
-      blockers.push(reservation.kind === 'showcase' ? '展示预约尚未完成' : `预约状态 ${reservation.status}`);
+    if (reservation) {
+      blockers.push(`预约状态 ${reservation.status}`);
       return blockers;
     }
     if (say.status === 'running' || say.status === 'queued') blockers.push(`say #${say.id} 仍在 ${say.status}`);

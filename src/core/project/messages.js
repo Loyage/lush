@@ -17,8 +17,6 @@ export default {
       check(!(booking.version === 2 && booking.status === 'requested'),
         'Task is frozen for merge; wait for integration or divergence repair before messaging it');
     }
-    check(target.task_kind !== 'say' || !target.reservation || JSON.parse(target.reservation).status !== 'started',
-      'say Task has finished development and is presenting; submit a new say instead');
     if (sender !== null) {
       const from = this.store.task(sender);
       check(target.parent_id === from.id || from.parent_id === target.id, 'agents may message only a direct parent or child');

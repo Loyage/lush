@@ -29,7 +29,6 @@ export default {
       open_notices: this.store.all("SELECT * FROM notices WHERE task_id=? AND status='open'", task.id),
       ...(task.role === 'planner' ? { queued_specs: this.store.specs({ planner_task_id: task.id, status: 'pending', limit: 50 }) } : {}),
       ...(task.role === 'verifier' ? { verification: this.verificationContext(task) } : {}),
-      ...(task.role === 'showcase' ? { showcase: this.showcaseContext(task) } : {}),
       ...(task.resolves_task_id ? { merge_conflict: this.mergeConflictContext(task) } : {}),
       ...(task.role === 'merger' && !task.resolves_task_id ? { branch_sync: (() => {
         const row = this.store.get("SELECT data FROM events WHERE task_id=? AND type='branch.sync.requested' ORDER BY id DESC LIMIT 1", task.id);

@@ -31,25 +31,21 @@ export default {
       task = this.store.task(task.id); previous = reservationOf(task);
     }
     if (task.status === 'awaiting_acceptance') this.store.update(task.id, { status: 'waiting' });
-    const showcased = task.task_kind === 'say' && task.status === 'completed'
-      && (!previous || (previous.kind === 'showcase' && previous.status === 'completed'))
-      && task.integration === 'pending';
-    check(!previous || showcased || (previous.kind === 'merge' && previous.version === 2),
+    check(!previous || (previous.kind === 'merge' && previous.version === 2),
       'another delivery reservation already exists');
-    check(showcased || !TERMINAL.has(task.status), 'ended Tasks cannot request a merge');
-    if (!previous || showcased) this.store.transaction(() => {
+    check(!TERMINAL.has(task.status), 'ended Tasks cannot request a merge');
+    if (!previous) this.store.transaction(() => {
       const current = this.store.task(task.id);
-      check((showcased && current.status === 'completed') || (!current.reservation && !TERMINAL.has(current.status)),
+      check(!current.reservation && !TERMINAL.has(current.status),
         'Task changed while reserving merge');
-      this.store.update(task.id, { status: showcased ? 'waiting' : current.status,
+      this.store.update(task.id, { status: current.status,
         reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'pending',
           created_at: new Date().toISOString() }) });
-      if (showcased) this.store.event(task.id, 'task.delivery_reopened', { reason: 'showcase completed; automatic merge requested' });
       this.store.event(task.id, 'task.reserved', { kind: 'merge', version: 2 });
     });
     if (previous?.status === 'requested') this.scheduleTaskMerge(previous.parent_id);
     else await this.settleQueuedMerge(task.id);
-    return { task_id: task.id, changed: !previous || showcased, reservation: reservationOf(this.store.task(task.id)) };
+    return { task_id: task.id, changed: !previous, reservation: reservationOf(this.store.task(task.id)) };
   },
 
   async settleQueuedMerge(taskId) {

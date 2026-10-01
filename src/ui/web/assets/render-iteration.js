@@ -4,6 +4,7 @@ import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { show } from './messages.js';
 import { ui } from './state.js';
+import { isHistoricalDelivery } from './format.js';
 
 export const isIterationTask = task => ['say', 'child'].includes(task.task_kind);
 export function iterationBlocker(task) {
@@ -27,7 +28,7 @@ export function guardedAction(node, reason) {
 
 /** Detail and graph share the same non-Agent acceptance/sync and explicit Agent conflict path. */
 export function iterationControls(task, { refresh = () => {}, events = [] } = {}) {
-  if (!isIterationTask(task)) return null;
+  if (!isIterationTask(task) || isHistoricalDelivery(task)) return null;
   const ended = ['completed', 'failed', 'cancelled'].includes(task.status);
   const accepted = task.accepted === true || events.some(event => event.type === 'task.accepted');
   const historical = task.status === 'completed' && task.integration === 'merged' && !accepted

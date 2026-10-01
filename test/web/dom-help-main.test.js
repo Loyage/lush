@@ -143,7 +143,7 @@ test('Task 图「归档」只带 data-help，旧分支动作入口不再渲染',
   expect(detail.querySelectorAll('button.graph-branch-action').length).toBe(0);
 });
 
-test('弹窗确认按钮走 agent + confirmHelp：重试与效果展示都标成 Agent 调用', async () => {
+test('弹窗确认按钮走 agent + confirmHelp：重试标成 Agent 调用', async () => {
   // dialog.js 的确认按钮在 agent:true 时加 agent-call，confirmHelp 经 agentHelp 生成。
   const pending = formDialog({ title: '重试', content: null, confirmLabel: '使用这些设置重试',
     agent: true, confirmHelp: agentHelp('用上面选定的 Agent 设置重新启动这个任务。') });

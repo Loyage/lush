@@ -2,7 +2,7 @@ import { $, badge, button, el, roleBadge } from './dom.js';
 import { api, action } from './api.js';
 import { confirmDialog, promptDialog } from './dialog.js';
 import { agentHelp } from './help.js';
-import { absolute, INTEGRATION, statusOf, worktreeLabel } from './format.js';
+import { absolute, INTEGRATION, statusOf, worktreeLabel, isHistoricalDelivery } from './format.js';
 import { show } from './messages.js';
 import { detail } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
@@ -20,10 +20,10 @@ const ACTIVE = new Set(['running', 'queued', 'waiting', 'awaiting', 'awaiting_ac
 const ENDED = new Set(['completed', 'failed', 'cancelled']);
 /** 状态计数 / 图例的固定顺序：先是活动态，再到终结态；只画出现过的。 */
 const STATUS_ORDER = ['running', 'queued', 'waiting', 'awaiting', 'awaiting_acceptance', 'completed', 'failed', 'cancelled'];
-/** 图上画成卡片的 Task：自己拥有分支 / worktree 的 main / owner / say / child / showcase。
+/** 图上画成卡片的 Task：自己拥有分支 / worktree 的 main / owner / say / child。
  *  planner / scheduler 是历史意图层记录，不在这里画；merge Task 是父 Task 的常驻合并队列身份，
  *  和别的 Task 一样由表头的状态开关决定显示与否，不按队列活跃度自动收起。 */
-const VISIBLE_KINDS = new Set(['say', 'child', 'showcase', 'main', 'owner', 'merge']);
+const VISIBLE_KINDS = new Set(['say', 'child', 'main', 'owner', 'merge']);
 /** 在飞的合并预约：已预约等静息 / 已发请求待落地 / 已退回源侧解分歧。 */
 const IN_FLIGHT = new Set(['pending', 'requested', 'resolving']);
 
@@ -212,12 +212,12 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
     else git.append(el('p', '分支诊断不可用，不能推断工作区干净或已合并。', 'hint'));
     row.append(git);
     // 归档与详情同源（`branch.archive`）：删这条分支与后代分支的 worktree/ref，Task 记录保留。
-    if (branch.archivable && node.status !== 'awaiting_acceptance') row.append(button('归档', () => runBranchArchive(
+    if (!isHistoricalDelivery(node) && branch.archivable && node.status !== 'awaiting_acceptance') row.append(button('归档', () => runBranchArchive(
       { name: node.branch, subtreeBranches: branch.subtree_branches }, { refresh: loadTaskGraph }), 'ghost',
       { help: BRANCH_ARCHIVE_HELP }));
   }
 
-  if (node.notice) {
+  if (node.notice && !isHistoricalDelivery(node)) {
     if (['question', 'plan'].includes(node.notice.kind)) {
       // Inline decisions refresh this Task view after a response.
       const decision = decisionRow(node, loadTaskGraph);
@@ -237,7 +237,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   if (iteration) row.append(iteration);
   const controls = deliveryControls(node, { refresh: loadTaskGraph });
   if (controls) row.append(controls);
-  if (['say', 'child'].includes(node.task_kind) && !ENDED.has(node.status)) {
+  if (['say', 'child'].includes(node.task_kind) && !ENDED.has(node.status) && !isHistoricalDelivery(node)) {
     row.append(guardedAction(button('向此 Task 输入', async () => {
       const body = await promptDialog({ title: `发给 Task #${node.id}`, label: '输入', confirmLabel: '发送消息',
         confirmHelp: agentHelp('把输入交给这条 Task；固定规则可请求 Agent 在安全点提前收尾，否则轮末投递。'), agent: true });

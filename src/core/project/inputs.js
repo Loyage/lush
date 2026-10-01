@@ -113,8 +113,6 @@ export default {
       (SELECT count(*) FROM tasks w WHERE w.input_id=inputs.id AND w.layer='work' AND w.role NOT IN ('verifier','showcase')
         AND w.status NOT IN ('completed','failed','cancelled')) AS work_active,
       (SELECT count(*) FROM tasks w WHERE w.input_id=inputs.id AND w.role='worker' AND w.status='failed') AS work_failed,
-      (SELECT s.id FROM tasks s WHERE s.input_id=inputs.id AND s.role='showcase' ORDER BY s.id DESC LIMIT 1) AS showcase_task_id,
-      (SELECT s.status FROM tasks s WHERE s.input_id=inputs.id AND s.role='showcase' ORDER BY s.id DESC LIMIT 1) AS showcase_status,
       (SELECT c.id FROM review_candidates c WHERE c.input_id=inputs.id ORDER BY c.version DESC LIMIT 1) AS candidate_id,
       (SELECT c.version FROM review_candidates c WHERE c.input_id=inputs.id ORDER BY c.version DESC LIMIT 1) AS candidate_version,
       (SELECT c.status FROM review_candidates c WHERE c.input_id=inputs.id ORDER BY c.version DESC LIMIT 1) AS candidate_status,

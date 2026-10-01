@@ -108,9 +108,9 @@ export default {
       statusByBranch.get(branch).push(status);
     };
     for (const task of this.store.all('SELECT branch, status FROM tasks WHERE branch IS NOT NULL')) remember(task.branch, task.status);
-    // 展示任务的源分支在 showcase JSON 元数据里，不在 tasks.branch：归档时它们也算占用者。
-    for (const task of this.store.all("SELECT status, json_extract(showcase,'$.branch') AS branch FROM tasks WHERE role='showcase' AND showcase IS NOT NULL"))
-      if (task.branch) remember(task.branch, task.status);
+    // Retired detached checkouts remain protected; removal does not authorize deleting historical disk state.
+    for (const task of this.store.all("SELECT status,workspace,baseline_workspace, json_extract(showcase,'$.branch') AS branch FROM tasks WHERE role='showcase' AND showcase IS NOT NULL"))
+      if (task.branch) remember(task.branch, [task.workspace, task.baseline_workspace].some(dir => dir && fs.existsSync(dir)) ? 'blocked' : task.status);
     for (const name of want) {
       const record = byName.get(name) ?? null;
       // 只统计真正会被删掉的那些分支：已归档 / 已回收 / 未登记的后代跳过（与 archiveBranch 的 targets 同口径）。
@@ -168,8 +168,6 @@ export default {
     }
     const outcome = await this.workspaces.mergeBranch(name, expected);
     if (!outcome.merged && !outcome.already_integrated) return outcome;
-    // 合并把父分支推进了，原先卡在「相关任务未完成 / 子分支未收拢」的预约可能已可启动。
-    this.scheduleShowcaseSweep();
     const task = record.task_id === null ? null : this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
     if (task && ['pending','review','conflict','merging'].includes(task.integration)) {
       this.store.transaction(() => {
@@ -292,8 +290,7 @@ export default {
     const placeholders = targets.map(() => '?').join(',');
     const unfinished = this.store.all(`SELECT id, status FROM tasks WHERE branch IN (${placeholders})
       AND status NOT IN ('completed','failed','cancelled') ORDER BY id`, ...targets);
-    // Showcase tasks have no tasks.branch: their source branch lives in immutable JSON metadata. They still use
-    // detached worktrees, so an active invocation must block archive and terminal ones must be reclaimed with it.
+    // Historical branchless checkouts are never reclaimed through ordinary branch archive.
     const showcases = this.store.all(`SELECT * FROM tasks WHERE role='showcase'
       AND json_extract(showcase,'$.branch') IN (${placeholders}) ORDER BY id`, ...targets);
     unfinished.push(...showcases.filter(task => !TERMINAL.has(task.status) || this.running.has(task.id)));
@@ -308,9 +305,7 @@ export default {
     const cleaning = [...this.workspaces.busy].filter(id => users.has(id));
     check(cleaning.length === 0, `branch ${name} is being cleaned up (task #${cleaning[0]})`);
     check(unfinished.length === 0, `branch ${name} still has unfinished tasks: ${unfinished.map(task => `#${task.id}`).join(', ')}`);
-    const showcaseCleanup = showcases.map(task => ({ id: task.id, status: task.status,
-      worktrees: [task.workspace, task.baseline_workspace].filter(dir => dir && fs.existsSync(dir)).length }));
-    const outcomes = await this.workspaces.archiveBranches(targets, { discard_worktree, showcases });
+    const outcomes = await this.workspaces.archiveBranches(targets, { discard_worktree });
     const tips = new Map(outcomes.map(outcome => [outcome.branch, outcome.tip]));
     // 目录已经删了，tasks.workspace 不能再指着一个不存在的路径；branch 字段是历史，必须留着。
     const archived = this.store.all(`SELECT id, status, branch FROM tasks WHERE branch IN (${placeholders}) ORDER BY id`, ...targets);
@@ -329,8 +324,6 @@ export default {
       }
       // 每条被归档的分支各留一条事件（含会话文件位置）：这条分支的原始记录就算以后被 clear 掉也查得回。
       for (const target of targets) {
-        // 归档即取消这条分支的效果展示预约；unreserveShowcase 自己写 showcase.unreserved。
-        this.unreserveShowcase(target);
         const own = archived.filter(task => task.branch === target);
         const owner = own.some(task => task.id === this.store.branch(target)?.task_id) ? this.store.branch(target).task_id : own[0]?.id ?? null;
         this.store.event(owner, 'branch.archived', { branch: target, tip: tips.get(target) ?? null, sessions: sessionsByBranch.get(target) ?? [] });
@@ -341,8 +334,7 @@ export default {
     this.kick(); // 被冻结的 queued Agent 可以在归档释放冻结后重新准入。
     return { branch: name, archived: true, count: outcomes.length, branches: outcomes,
       worktree: root.worktree ?? 'absent', ref: root.ref ?? 'absent', tip: root.tip ?? null, discarded: root.discarded === true,
-      tasks: archived.map(task => ({ id: task.id, status: task.status })), sessions,
-      showcases: showcaseCleanup, showcase_worktrees: showcaseCleanup.reduce((sum, task) => sum + task.worktrees, 0) };
+      tasks: archived.map(task => ({ id: task.id, status: task.status })), sessions };
   },
 
   /**
@@ -363,8 +355,6 @@ export default {
     const host = owner?.id ?? this.store.get('SELECT task_id FROM inputs WHERE anchor_branch=?', name)?.task_id ?? null;
     if (host !== null) this.store.event(host, 'branch.caught_up', { branch: name, parent: outcome.parent,
       from: outcome.from, to: outcome.to, already_integrated: outcome.already_integrated === true });
-    // 跟上父分支后，子分支上的预约可能重新变得可展示。
-    this.scheduleShowcaseSweep();
     return outcome;
   },
 

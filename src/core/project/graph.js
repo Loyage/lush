@@ -9,14 +9,13 @@ export const GRAPH_EDGE_LIMIT = 2000;
 /** 会产出 worktree / 分支的角色：候选任务来自这三类。
  *  planner / scheduler 是意图层，没有自己的分支，但也要按「这条输入的锚点分支」挂进图里，
  *  由下面的 intentRows 单独取（见 graph() —— 派生锚点分支只在那里做一次）。 */
-const GRAPH_ROLES = ['worker', 'merger', 'verifier', 'showcase', 'agent'];
+const GRAPH_ROLES = ['worker', 'merger', 'verifier', 'agent'];
 const TASK_ROLE_SQL = GRAPH_ROLES.map(role => `'${role}'`).join(',');
 
 /** verifier 自己不拥有代码分支，但必须画在它正在验收的分支上：单 worker 检验跟随被检验任务，
  * Candidate 检验跟随 Candidate 固定的 Intent 集成分支。表达式只接收源码内固定 alias，不含外部输入。 */
 const taskBranchSql = alias => `COALESCE(${alias}.branch,
   CASE
-    WHEN ${alias}.role='showcase' THEN json_extract(${alias}.showcase,'$.branch')
     WHEN ${alias}.role='verifier' AND ${alias}.review_candidate_id IS NOT NULL
       THEN (SELECT branch FROM review_candidates candidate WHERE candidate.id=${alias}.review_candidate_id)
     WHEN ${alias}.role='verifier' AND ${alias}.verifies_task_id IS NOT NULL
@@ -467,19 +466,8 @@ export default {
         // 分支的 worktree 只在创建那一刻记进 branches 行；目录被归档/清理后就报 missing，不假装还在。
         const worktree = record?.worktree ?? null;
         const worktree_state = worktree ? (fs.existsSync(worktree) ? 'present' : 'missing') : 'none';
-        const { allowed, reason, latest_task_id } = await this.showcaseEligibility(name);
-        // 预约只是分支附属元数据：reserved 取当前 pending 记录，reserve_allowed 回答「现在能不能预约」
-        // （静态条件，不跑 Git）；阻塞原因由 reserve_reason 现算，不落库。
-        let reservation = null;
-        if (record?.showcase_reservation) {
-          try { const parsed = JSON.parse(record.showcase_reservation); if (parsed && typeof parsed === 'object') reservation = parsed; } catch { /* 损坏值当没有预约 */ }
-        }
-        const pendingReservation = reservation?.status === 'pending' ? reservation : null;
-        const reservable = this.showcaseReservable(name);
         nodes.push({
           kind: 'branch', id: branchId(name), name,
-          showcase: { allowed, reason, latest_task_id, reserved: pendingReservation !== null,
-            reserved_at: pendingReservation?.created_at ?? null, reserve_allowed: reservable.allowed, reserve_reason: reservable.reason },
           head_commit: refs.get(name) ?? null,
           current: name === currentBranch,
           tracked: record !== null,
@@ -517,7 +505,7 @@ export default {
         const knownRef = row.branch ? refs.get(row.branch) ?? null : null;
         const branch_state = row.branch && knownRef ? 'present' : 'missing';
         // Branch-first 图比较的是分支当前 tip；task.head_commit 只是 agent 最初交付时的 reviewed commit。
-        const headCommit = row.role === 'showcase' ? row.head_commit : knownRef || row.head_commit;
+        const headCommit = knownRef || row.head_commit;
         const targetHead = row.target_branch ? refs.get(row.target_branch) ?? null : null;
         let ahead = null, behind = null, merged = null;
         if (headCommit && row.target_branch && targetHead) {
@@ -539,7 +527,7 @@ export default {
           has_result: row.task_kind === 'say' && row.result !== null,
           goal: String(row.goal ?? '').slice(0, 120),
           status: row.status, integration: row.integration, route: isRouted(row.input_id),
-          branch: row.branch ?? null, workspace: workspacePath, workspace_state, branch_state: row.role === 'showcase' ? null : branch_state,
+          branch: row.branch ?? null, workspace: workspacePath, workspace_state, branch_state,
           // 任务的分支已经归档：ref/worktree 都没了，但这是预期状态，节点照旧画在图上。
           archived: isArchivedBranch(row.branch),
           base_commit: row.base_commit ?? null, head_commit: headCommit ?? null, reviewed_commit: row.head_commit ?? null,

@@ -33,7 +33,7 @@ export const statusBadge = task => badge(`${statusOf(task).icon} ${statusOf(task
  * 未知角色兜底成 `role-unknown`，不掷错也不丢标签。
  */
 export const roleBadge = role => {
-  const key = String(role ?? '').replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'unknown';
+  const key = Object.hasOwn(ROLE, role) ? String(role).toLowerCase() : 'unknown';
   const label = ROLE[role] || String(role ?? '未知');
   const node = el('span', label, `badge role-badge role-${key}`);
   node.title = `任务类型：${label}`;

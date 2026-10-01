@@ -21,7 +21,6 @@ import orchestrateMethods from './project/orchestrate.js';
 import graphMethods from './project/graph.js';
 import branchesMethods from './project/branches.js';
 import verifyMethods from './project/verify.js';
-import showcaseMethods from './project/showcase.js';
 import explanationMethods from './project/explanations.js';
 import introMethods from './project/intro.js';
 import candidateMethods from './project/candidates.js';
@@ -45,7 +44,7 @@ const MIXINS = [
   ['sleep', sleepMethods], ['status', statusMethods], ['agents', agentMethods], ['deps', depsMethods], ['inputs', inputsMethods], ['say', sayMethods], ['drafts', draftsMethods], ['references', referencesMethods],
   ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['progress', progressMethods], ['tree', treeMethods],
   ['timeline', timelineMethods], ['messages', messagesMethods], ['merge', mergeMethods], ['mergeQueue', mergeQueueMethods], ['mergeAll', mergeAllMethods], ['orchestrate', orchestrateMethods], ['verify', verifyMethods],
-  ['explanations', explanationMethods], ['intro', introMethods], ['showcase', showcaseMethods], ['candidates', candidateMethods], ['integration', integrationMethods], ['graph', graphMethods], ['branches', branchesMethods],
+  ['explanations', explanationMethods], ['intro', introMethods], ['candidates', candidateMethods], ['integration', integrationMethods], ['graph', graphMethods], ['branches', branchesMethods],
   ['transcript', transcriptMethods], ['settings', settingMethods], ['context', contextMethods], ['scheduling', schedulingMethods], ['lifecycle', lifecycleMethods], ['taskSync', taskSyncMethods], ['iteration', iterationMethods],
 ];
 
