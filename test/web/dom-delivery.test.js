@@ -34,10 +34,10 @@ function sourceRow() {
   return dom.node('detail').querySelector(`[data-task-id="${say.id}"]`);
 }
 
-test('Task detail offers an Agent merge request and showcase booking', async () => {
+test('Task detail conservatively offers an Agent merge booking and showcase booking', async () => {
   renderDetail(say, null, null, null);
   const detail = dom.node('detail');
-  const merge = buttonOf(detail, '合并到父 Task'), showcase = buttonOf(detail, '预约展示');
+  const merge = buttonOf(detail, '预约合并'), showcase = buttonOf(detail, '预约展示');
   // 两条都是 Agent 入口：合并请求交给父 Task 的 merge 子任务，展示会启动展示子 Agent。
   expect(merge.classList.contains('agent-call')).toBe(true);
   expect(merge.getAttribute('data-help')).toContain('消耗 token');
@@ -46,7 +46,7 @@ test('Task detail offers an Agent merge request and showcase booking', async () 
   const pending = merge.onclick();
   expect(dialogText(dom)).toContain('merge 子任务');
   expect(world.state.actions.some(action => action.method === 'task.reserve')).toBe(false);
-  await answerDialog(dom, '请求合并'); await pending;
+  await answerDialog(dom, '预约合并'); await pending;
   expect(world.state.actions).toContainEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
 
   renderDetail(say, null, null, null);
@@ -55,7 +55,8 @@ test('Task detail offers an Agent merge request and showcase booking', async () 
 });
 
 test('idle say with committed changes requests a merge; v2 reservations expose recheck and withdraw', async () => {
-  const done = { ...say, calls: 1, result: '已提交并测试', base_commit: baseline, head_commit: commit };
+  const done = { ...say, calls: 1, result: '已提交并测试', base_commit: baseline, head_commit: commit,
+    merge_readiness: { ready: true, reason: null } };
   renderDetail(done, null, null, null);
   let panel = dom.node('detail');
   const request = buttonOf(panel, '合并到父 Task');
@@ -70,10 +71,59 @@ test('idle say with committed changes requests a merge; v2 reservations expose r
   panel = dom.node('detail');
   expect(deepText(panel)).toContain('已预约合并');
   expect(buttonOf(panel, '撤销预约')).toBeTruthy();
+  expect(buttonOf(panel, '合并到父 Task')).toBeUndefined();
+  expect(buttonOf(panel, '预约合并')).toBeUndefined();
+  const recheck = buttonOf(panel, '复查预约');
+  expect(recheck.classList.contains('agent-call')).toBe(true);
+  expect(recheck.getAttribute('data-help')).toContain('消耗 token');
+  await recheck.onclick();
+  expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
   renderDetail({ ...done, reservation: { version: 2, kind: 'merge', status: 'requested', commit, baseline } }, null, null, null);
   panel = dom.node('detail');
   expect(deepText(panel)).toContain('冻结');
   expect(buttonOf(panel, '复查合并队列')).toBeTruthy();
+});
+
+test('failed v2 delivery cannot bypass explicit retry through a booking recheck', () => {
+  renderDetail({ ...say, status: 'failed', reservation: { version: 2, kind: 'merge', status: 'pending' } }, null, null, null);
+  expect(buttonOf(dom.node('detail'), '复查预约')).toBeUndefined();
+  expect(buttonOf(dom.node('detail'), '撤销预约')).toBeTruthy();
+});
+
+test('waiting for child work or unread messages remains a booking in both detail and graph', async () => {
+  for (const reason of ['等待子 Task #71 结算', '还有未处理的消息或子任务信号，需先交给 Agent']) {
+    // A previous result and commit do not prove the current invocation is delivered.
+    const waiting = { ...say, calls: 2, result: '上一轮已提交', head_commit: commit, base_commit: baseline,
+      merge_readiness: { ready: false, reason } };
+    renderDetail(waiting, null, null, null);
+    let panel = dom.node('detail');
+    expect(buttonOf(panel, '合并到父 Task')).toBeUndefined();
+    expect(buttonOf(panel, '预约合并')).toBeTruthy();
+    expect(deepText(panel)).toContain(reason);
+    const pending = buttonOf(panel, '预约合并').onclick();
+    expect(dialogText(dom)).toContain('子任务结算、消息处理完成');
+    await answerDialog(dom, '预约合并'); await pending;
+    expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
+    const graph = graphFor(null, { done: true });
+    graph.nodes[0].merge_readiness = waiting.merge_readiness;
+    renderGraph(graph);
+    panel = dom.node('detail');
+    expect(buttonOf(panel, '合并到父 Task')).toBeUndefined();
+    expect(buttonOf(panel, '预约合并')).toBeTruthy();
+    expect(deepText(panel)).toContain(reason);
+    graph.nodes[0].reservation = { version: 2, kind: 'merge', status: 'pending' };
+    renderGraph(graph);
+    panel = dom.node('detail');
+    expect(buttonOf(panel, '合并到父 Task')).toBeUndefined();
+    expect(buttonOf(panel, '预约合并')).toBeUndefined();
+    expect(buttonOf(panel, '复查预约')).toBeTruthy();
+    expect(buttonOf(panel, '撤销预约')).toBeTruthy();
+    expect(deepText(panel)).toContain(reason);
+  }
+  const graph = graphFor(null, { done: true });
+  graph.nodes[0].merge_readiness = { ready: true, reason: null };
+  renderGraph(graph);
+  expect(buttonOf(dom.node('detail'), '合并到父 Task')).toBeTruthy();
 });
 
 test('integrated merge says 待归档 only while a branch is still left to archive', () => {

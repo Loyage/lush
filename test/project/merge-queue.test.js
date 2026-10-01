@@ -15,6 +15,46 @@ async function committedSay(f, name) {
   return say.task;
 }
 
+test('detail and graph share read-only request readiness across child and message waits', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const say = await committedSay(f, 'readiness');
+    await f.project.workspaces.finish(f.store.task(say.id));
+    const projectView = async expected => {
+      const before = f.store.history(say.id).length;
+      expect(f.project.inspect(say.id).merge_readiness).toMatchObject(expected);
+      const graph = await f.project.taskGraph();
+      expect(graph.nodes.find(node => node.id === say.id).merge_readiness).toMatchObject(expected);
+      expect(f.store.history(say.id)).toHaveLength(before);
+    };
+    await projectView({ ready: true, reason: null });
+    const child = f.store.create({ parent_id: say.id, role: 'agent', task_kind: 'child', goal: 'pending child' });
+    for (const status of ['queued','running','waiting','awaiting']) {
+      f.store.update(child.id, { status });
+      await projectView({ ready: false, reason: `等待子 Task #${child.id} 结算` });
+    }
+    const booked = await f.project.reserveTask(say.id, 'merge');
+    expect(booked.reservation.status).toBe('pending');
+    expect(booked.reservation.blocked_reason).toContain(`子 Task #${child.id}`);
+    expect(f.store.history(say.id).some(event => event.type === 'task.merge_requested')).toBe(false);
+    await f.project.unreserveTask(say.id);
+    // A delivered child awaiting user acceptance no longer blocks this invocation's delivery.
+    f.store.update(child.id, { status: 'awaiting_acceptance', integration: 'merged' });
+    await projectView({ ready: true });
+    f.store.message(say.id, 'continue work before merging');
+    await projectView({ ready: false, reason: '还有未处理的消息或子任务信号，需先交给 Agent' });
+    f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', say.id);
+    f.project.running.set(say.id, {});
+    try { await projectView({ ready: false, reason: 'Agent 正在调用或收尾，等待本轮安全结束' }); }
+    finally { f.project.running.delete(say.id); }
+    (f.project.taskSyncBusy ??= new Set()).add(say.id);
+    try { await projectView({ ready: false, reason: 'Task 父分支同步正在执行，请等待安全点' }); }
+    finally { f.project.taskSyncBusy.delete(say.id); }
+    f.store.update(say.id, { integration: 'none', head_commit: f.store.task(say.id).base_commit });
+    await projectView({ ready: false, reason: '没有登记的待交付提交，等待本轮工作完成' });
+  } finally { await f.close(); }
+});
+
 test('spawn reserves child delivery by default, waits for its safe point, and leaves say delivery to the user', async () => {
   const pause = gate();
   const f = fixture({ resolve() { return { agent: 'mock' }; }, async run({ task, cwd }) {

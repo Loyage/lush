@@ -551,6 +551,17 @@ export default {
     });
   },
 
+  /** Read-only request readiness, shared by detail and graph; Git admission still runs on reserve. */
+  mergeReadiness(task) {
+    if (!['say','child'].includes(task.task_kind)) return null;
+    const reason = this.reservationWaitReason(task);
+    if (reason) return { ready: false, reason };
+    if (task.integration !== 'pending' || !task.branch || !task.head_commit
+      || !task.base_commit || task.head_commit === (task.iteration_base_commit ?? task.base_commit))
+      return { ready: false, reason: '没有登记的待交付提交，等待本轮工作完成' };
+    return { ready: true, reason: null };
+  },
+
   /** An observable execution barrier, not a Git verdict. A retry never skips a running invocation or unread signal. */
   reservationWaitReason(task) {
     if (this.taskSyncBusy?.has(task.id)) return 'Task 父分支同步正在执行，请等待安全点';

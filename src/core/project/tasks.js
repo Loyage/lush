@@ -188,7 +188,8 @@ export default {
     task.route = storedTask.input_id !== null && this.store.routedInputIds().has(storedTask.input_id);
     const resolution = task.task_kind === 'child' ? this.store.get(
       "SELECT data FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1", task.id) : null;
-    return { ...task, parent_task_kind: task.parent_id ? this.store.task(task.parent_id).task_kind : null,
+    return { ...task, merge_readiness: this.mergeReadiness(storedTask),
+      parent_task_kind: task.parent_id ? this.store.task(task.parent_id).task_kind : null,
       ...(resolution ? { divergence_resolution: { ...JSON.parse(resolution.data),
         branch_status: task.branch ? this.store.branch(task.branch)?.status ?? null : null } } : {}),
       deps: this.store.depsDetail(task.id), dependents: this.store.dependentsDetail(task.id),
