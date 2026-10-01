@@ -65,12 +65,12 @@ export function renderDetail(task, history, diff, usage) {
   referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `任务 #${task.id}`,
     quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-detail', task_id: task.id } });
   const breadcrumb = el('div', undefined, 'breadcrumb');
-  breadcrumb.append(button('项目概览', () => overview(), 'link'), el('span', '/'), el('span', `${ROLE[task.role] || task.role} #${task.id}`));
+  breadcrumb.append(button('项目概览', () => overview(), 'link'), el('span', '/'), el('span', `${task.role === 'agent' ? '任务' : ROLE[task.role] || task.role} #${task.id}`));
   panel.append(breadcrumb);
   const hero = el('div', undefined, 'task-hero');
   const head = el('div', undefined, 'head');
   head.append(el('span', `#${task.id}`, 'tid-lg'), statusBadge(task),
-    roleBadge(task.role), ...(task.route ? [routeBadge()] : []), intentBadge(task));
+    ...(task.role === 'agent' ? [] : [roleBadge(task.role)]), ...(task.route ? [routeBadge()] : []), intentBadge(task));
   const integration = INTEGRATION[task.integration];
   if (integration) head.append(badge(integration, task.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
   if (task.task_kind === 'analysis') head.append(badge('只读分析', 'b-neutral'));

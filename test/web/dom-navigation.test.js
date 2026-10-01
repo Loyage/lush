@@ -9,6 +9,7 @@ const { ui } = await import('../../src/ui/web/assets/state.js');
 const { openDocs } = await import('../../src/ui/web/assets/docs.js');
 const { detail } = await import('../../src/ui/web/assets/navigate.js');
 const { renderTree } = await import('../../src/ui/web/assets/render-tree.js');
+const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
 const { ROLE } = await import('../../src/ui/web/assets/format.js');
 const json = data => ({ ok: true, json: async () => data });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
@@ -167,7 +168,42 @@ test('全部现行角色和历史调度类型始终可选，未知类型也不�
   expect(choices()).toEqual(['all', ...Object.keys(ROLE)]);
 });
 
-test('任务树：角色胶囊带 role-<role> 类，快速路由任务整行标记并显示徽章', async () => {
+test('任务列表与详情省略通用 agent 角色标签，保留专用角色和 Agent 运行信息', async () => {
+  await dom.node('home').onclick();
+  const snapshot = ui.lastSnapshot;
+  const base = { id: 401, parent_id: 1, input_id: null, role: 'agent', task_kind: 'say',
+    goal: '普通任务', status: 'completed', integration: 'none', calls: 0,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  try {
+    for (const status of ['paused', 'running', 'completed']) {
+      const task = { ...base, status, agent: { id: 'agent#401', active: status === 'running', pid: 1234 } };
+      ui.lastSnapshot = { ...snapshot, tasks: [task] };
+      renderTree(ui.lastSnapshot);
+      const row = dom.node('tasks').querySelector('[data-id="401"]');
+      expect(row.querySelector('.role-badge')).toBeNull();
+      expect(deepText(row)).not.toContain('agent');
+      renderDetail(task, null, null, null);
+      expect(dom.node('detail').querySelector('.head').querySelector('.role-badge')).toBeNull();
+      expect(deepText(dom.node('detail').querySelector('.breadcrumb'))).toContain('任务 #401');
+      expect(deepText(dom.node('detail').querySelector('.head'))).toContain(status === 'running'
+        ? 'agent agent#401 · pid 1234' : 'agent agent#401 · 空闲');
+    }
+    for (const role of ['worker', 'research', 'future-role']) {
+      const task = { ...base, role, task_kind: null };
+      ui.lastSnapshot = { ...snapshot, tasks: [task] };
+      renderTree(ui.lastSnapshot);
+      expect(dom.node('tasks').querySelector('.role-badge').textContent).toBe(ROLE[role] || role);
+      renderDetail(task, null, null, null);
+      expect(dom.node('detail').querySelector('.head').querySelector('.role-badge').textContent).toBe(ROLE[role] || role);
+    }
+  } finally {
+    ui.lastSnapshot = snapshot;
+    renderTree(snapshot);
+    await dom.node('home').onclick();
+  }
+});
+
+test('任务列表：角色胶囊带 role-<role> 类，快速路由任务整行标记并显示徽章', async () => {
   await dom.node('home').onclick();
   const snapshot = ui.lastSnapshot;
   ui.lastSnapshot = { ...snapshot, tasks: [

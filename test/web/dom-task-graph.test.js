@@ -25,6 +25,12 @@ test('Task 图以 Task 为节点；旧 #graph 不再打开分支图', async () =
   expect(text).toContain('lush/task-2');
   expect(text).toContain('/tmp/task-2');
   expect(text).toContain('固定输入规则');
+  for (const id of [1, 2]) {
+    const head = dom.node('detail').querySelector(`[data-task-id="${id}"]`).querySelector('.task-graph-head');
+    expect(head.querySelector('.role-badge')).toBeNull();
+    expect(deepText(head)).not.toContain('agent');
+    expect(deepText(head)).toContain(id === 1 ? 'main' : 'say');
+  }
   expect(requests).toBeGreaterThan(0);
   dom.location.hash = '#graph';
   await dom.fire('hashchange');
@@ -111,6 +117,7 @@ test('Task 图：效果展示子 Task 的隔离检出显式标注 detached workt
     await dom.node('task-graph-open').onclick();
     const showcaseCard = dom.node('detail').querySelector('[data-task-id="3"]');
     expect(deepText(showcaseCard)).toContain('detached worktree：/tmp/showcase-3');
+    expect(showcaseCard.querySelector('.role-badge').classList.contains('role-showcase')).toBe(true);
     // 普通有分支的 Task 不应被误标。
     const sayCard = dom.node('detail').querySelector('[data-task-id="2"]');
     expect(deepText(sayCard)).toContain('worktree：/tmp/task-2');

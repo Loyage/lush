@@ -144,7 +144,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   }
   const title = button(`#${node.id} ${node.title}`, () => detail(node.id), 'ghost');
   title.classList.add('task-graph-title');
-  head.append(title, roleBadge(node.role), badge(node.status === 'waiting' && !node.children_active ? '静息' : statusOf(node).label,
+  head.append(title, ...(node.role === 'agent' ? [] : [roleBadge(node.role)]), badge(node.status === 'waiting' && !node.children_active ? '静息' : statusOf(node).label,
     `b-${node.status}`));
   // 分支合并状态放进卡片首行的标签：与任务状态并排，一眼看清这条 Task 的改动合进父分支没有。
   // 用与任务详情同一份 INTEGRATION 文案与配色；none（没有独有提交）/ 未知值不占位。

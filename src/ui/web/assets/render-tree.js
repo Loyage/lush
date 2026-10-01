@@ -70,7 +70,7 @@ export function renderTree(data) {
     node.replaceChildren();
     const row = el('span', undefined, 'row');
     row.append(el('span', statusOf(task).icon, `dot c-${task.status}`), el('span', `#${task.id}`, 'tid'),
-      el('span', statusOf(task).label), roleBadge(task.role));
+      el('span', statusOf(task).label), ...(task.role === 'agent' ? [] : [roleBadge(task.role)]));
     if (task.route) row.append(routeBadge());
     for (const chip of depChips(task)) row.append(chip);
     row.append(el('span', relative(task.updated_at), 'when'));
