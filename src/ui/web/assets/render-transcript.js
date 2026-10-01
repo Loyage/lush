@@ -28,6 +28,11 @@ export function tokensChip(tokens) {
 
 function sourceBody(taskId, step) {
   const body = el('div', undefined, 'step-source');
+  const openOriginal = () => {
+    let root = body.parentNode;
+    while (root && !root.classList?.contains('transcript-match')) root = root.parentNode;
+    return openTranscriptStep(taskId, step.seq, { root });
+  };
   body.append(transcriptBody(step, { key: stepKey(taskId, step) }));
   const source = el('details', undefined, 'step-original');
   source.append(el('summary', `原文与来源 · #${step.seq}`));
@@ -35,10 +40,10 @@ function sourceBody(taskId, step) {
     if (!source.open || source.dataset.loaded) return;
     source.dataset.loaded = 'true';
     source.append(el('p', `${step.file || '会话记录'}${step.line ? `:${step.line}` : ''}`, 'hint'), el('pre', step.body, 'raw-value'),
-      button('读取完整原文', () => openTranscriptStep(taskId, step.seq), 'ghost'));
+      button('读取完整原文', openOriginal, 'ghost'));
   });
   body.append(source);
-  if (/…（已截断 \d+ 字符）$/.test(step.body || '')) body.append(button('本段已截断 · 读取完整原文', () => openTranscriptStep(taskId, step.seq), 'ghost'));
+  if (/…（已截断 \d+ 字符）$/.test(step.body || '')) body.append(button('本段已截断 · 读取完整原文', openOriginal, 'ghost'));
   referenceable(body, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 #${taskId}:${step.seq}`,
     quote: step.body, location: { task_id: taskId, section: 'transcript' } });
   return body;
@@ -105,6 +110,21 @@ function stepNode(taskId, step) {
   return item;
 }
 
+/** A search match stays one card per source seq; paired content is explicit, never an unrelated neighbour. */
+export function transcriptMatch(taskId, step, related = []) {
+  const card = el('section', undefined, 'transcript-match'); card.dataset.matchSeq = String(step.seq);
+  card.append(el('h3', `命中 #${step.seq} · ${STEP[step.kind] || step.kind}`));
+  const steps = [...related, step].sort((a, b) => a.seq - b.seq);
+  const list = el('ol', undefined, 'steps');
+  for (const value of groupSteps(steps)) {
+    ui.stepToggle.set(stepKey(taskId, value), true);
+    list.append(stepNode(taskId, value));
+  }
+  if (related.length) card.append(el('p', '下方保留同一调用的配对输入输出；配对内容不代表额外搜索命中。', 'hint'));
+  card.append(list);
+  return card;
+}
+
 /** 已加载的唯一步骤节点（配对结果挂在调用里，用 data-result-seq，不在此列）。 */
 function nodeBySeq(container, seq) {
   for (const child of container.children) if (child.dataset?.seq === String(seq)) return child;
@@ -169,7 +189,7 @@ const transcriptHolder = taskId => ui.transcriptView?.taskId === taskId
 
 /** 只替换执行过程区块，避免为了追加一页步骤重建整个详情面板。 */
 export function paintTranscript(taskId) {
-  if (ui.selected !== taskId) return;
+  if (ui.selected !== taskId || (ui.transcriptView?.taskId === taskId && ui.transcriptView.filtered)) return;
   const holder = transcriptHolder(taskId);
   if (holder) { holder.transcriptState = transcriptCache.get(taskId); holder.replaceChildren(...transcriptContent(taskId)); }
 }
@@ -189,12 +209,13 @@ function syncTranscriptChrome(taskId, state) {
 
 export function transcriptContent(taskId) {
   const state = transcriptCache.get(taskId);
+  const reader = () => ui.transcriptView?.taskId === taskId ? [] : [transcriptReader(taskId, { locate: locateTranscriptStep })];
   if (!state) return [el('p', '正在读取会话记录…', 'hint')];
-  if (state.error) return [transcriptReader(taskId, { locate: locateTranscriptStep }), el('p', `读取执行记录失败：${state.error}`, 'error'),
+  if (state.error) return [...reader(), el('p', `读取执行记录失败：${state.error}`, 'error'),
     button('重试读取', () => loadTranscript(taskId), 'ghost')];
   const meta = el('p', transcriptMetaText(state), 'hint');
   meta.dataset.live = 'transcript-meta';
-  if (!state.steps.length) return [meta, transcriptReader(taskId, { locate: locateTranscriptStep })];
+  if (!state.steps.length) return [meta, ...reader()];
   const desc = state.order === 'desc';
   const grouped = groupSteps(state.steps);
   const list = el('ol', undefined, 'steps');
@@ -224,7 +245,7 @@ export function transcriptContent(taskId) {
   latest.hidden = true; latest.dataset.live = 'transcript-new';
   const sources = el('details', undefined, 'transcript-sources');
   sources.append(el('summary', `记录来源 · ${state.files.length} 个会话文件`), el('pre', state.files.join('\n'), 'raw-value'));
-  return [transcriptReader(taskId, { locate: locateTranscriptStep }), meta, latest, list, actions, sources, state.truncated ? el('p', '快速视图只读取了前面一部分；顶部全文搜索可访问后续会话与完整原文。', 'hint') : null].filter(Boolean);
+  return [...reader(), meta, latest, list, actions, sources, state.truncated ? el('p', '快速视图有未读取记录；全文搜索可访问后续会话与完整原文。', 'hint') : null].filter(Boolean);
 }
 
 /** 「加载更多」：向后读更新的一页，asc 追加到末尾、desc 前插到顶部。 */
@@ -274,6 +295,10 @@ function olderButton(taskId, state) {
  */
 export function appendTranscriptSteps(taskId, steps) {
   if (ui.selected !== taskId) return;
+  if (ui.transcriptView?.taskId === taskId && ui.transcriptView.filtered) {
+    if (steps.length) ui.transcriptView.notice.textContent = '有新记录；重新搜索可更新命中，或返回全部记录查看。';
+    return;
+  }
   const state = transcriptCache.get(taskId);
   const holder = transcriptHolder(taskId);
   if (!state || !holder) return;

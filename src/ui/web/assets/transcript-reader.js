@@ -5,13 +5,18 @@ import { ui } from './state.js';
 import { stepSummary } from './transcript-model.js';
 
 const readers = new Map();
+export function releaseTranscriptReader(taskId) {
+  const state = readers.get(taskId);
+  if (state) state.version++;
+  readers.delete(taskId);
+}
 export function resetTranscriptReaders() {
   for (const state of readers.values()) state.version++;
   readers.clear();
 }
 // Exact raw text is loaded in bounded segments, alongside the rich step rather than in a second mode.
-export async function openTranscriptStep(taskId, seq) {
-  const root = ui.transcriptView?.taskId === taskId ? ui.transcriptView.holder : document.getElementById('detail');
+export async function openTranscriptStep(taskId, seq, { root: scopedRoot } = {}) {
+  const root = scopedRoot || (ui.transcriptView?.taskId === taskId ? ui.transcriptView.holder : document.getElementById('detail'));
   const target = root?.querySelector(`[data-result-seq="${seq}"]`) || root?.querySelector(`[data-seq="${seq}"]`);
   if (!target) {
     const { openTranscriptView } = await import('./transcript-view.js');
@@ -54,11 +59,16 @@ function readerState(taskId) {
   const results = el('div');
   root.append(form, results);
   // locate 由 render-transcript.js 注入，让命中停在富文本执行过程里。
-  const state = { root, version: 0, locate: null }; readers.set(taskId, state);
+  const state = { root, version: 0, locate: null, onPage: null, onStart: null, onError: null, onClear: null }; readers.set(taskId, state);
+  const clear = button('返回全部记录', () => {
+    state.version++; submit.disabled = false; results.replaceChildren();
+    state.onClear?.();
+  }, 'ghost');
+  clear.hidden = true; root.append(clear); state.clear = clear;
   let criteria = null, cursors = [0], pageIndex = 0;
   const search = async after => {
     const version = ++state.version;
-    submit.disabled = true; results.replaceChildren(el('p', '正在跨会话搜索完整记录…', 'hint'));
+    submit.disabled = true; state.onStart?.(); results.replaceChildren(el('p', '正在跨会话搜索完整记录…', 'hint'));
     try {
       const params = new URLSearchParams({ ...criteria, after });
       const data = await api(`/api/task/${taskId}/transcript-search?${params}`);
@@ -67,7 +77,7 @@ function readerState(taskId) {
       if (!data.files.length) results.append(el('p', '没有可读取的会话文件，可能已被清理或后端未记录执行过程。', 'hint'));
       else if (!data.steps.length) results.append(el('p', '没有命中。未写完的记录不参与检索。', 'hint'));
       for (const step of data.steps) {
-        const row = el('div', undefined, 'search-hit');
+        const row = el('div', undefined, 'search-hit'); row.dataset.hitSeq = String(step.seq);
         row.append(button(`#${step.seq} · ${STEP[step.kind] || step.kind} · ${stepSummary(step)}`, () => (state.locate || openTranscriptStep)(taskId, step.seq), 'ghost'));
         const excerpt = el('p');
         const text = step.excerpt || '', needle = criteria.query, at = needle ? text.toLocaleLowerCase().indexOf(needle.toLocaleLowerCase()) : -1;
@@ -79,7 +89,11 @@ function readerState(taskId) {
       if (pageIndex) actions.append(button('上一页', () => { pageIndex--; void search(cursors[pageIndex]); }, 'ghost'));
       if (data.has_more) actions.append(button('下一页', () => { cursors[++pageIndex] = data.next; void search(data.next); }, 'ghost'));
       results.append(actions);
-    } catch (error) { if (version === state.version) results.replaceChildren(el('p', `搜索未完成：${error.message}`, 'error')); }
+      await state.onPage?.(data, () => version === state.version);
+    } catch (error) { if (version === state.version) {
+      results.replaceChildren(el('p', `搜索未完成：${error.message}`, 'error'));
+      state.onError?.(error);
+    } }
     finally { if (version === state.version) submit.disabled = false; }
   };
   form.onsubmit = event => {
@@ -88,8 +102,10 @@ function readerState(taskId) {
   };
   return state;
 }
-export function transcriptReader(taskId, { locate } = {}) {
+export function transcriptReader(taskId, { locate, onPage, onStart, onError, onClear } = {}) {
   const state = readerState(taskId);
   if (typeof locate === 'function') state.locate = locate;
+  Object.assign(state, { onPage, onStart, onError, onClear });
+  state.clear.hidden = !onClear;
   return state.root;
 }
