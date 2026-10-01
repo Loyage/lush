@@ -16,9 +16,9 @@ import { DEFAULT_INPUT_ROUTES, normalizeInputRoutes } from './input-routes.js';
  */
 export const RUNTIME_SETTINGS_KEYS = ['concurrency', 'control_concurrency', 'call_timeout', 'task_call_limit', 'max_depth', 'input_routes'];
 export const RUNTIME_SETTINGS_LIMITS = {
-  concurrency: { env: 'LUSH_CONCURRENCY', fallback: 4, max: 64 },
+  concurrency: { env: 'LUSH_CONCURRENCY', fallback: 8, max: 64 },
   control_concurrency: { env: 'LUSH_CONTROL_CONCURRENCY', fallback: 2, max: 16 },
-  call_timeout: { env: 'LUSH_CALL_TIMEOUT', fallback: 900, max: 86400 },
+  call_timeout: { env: 'LUSH_CALL_TIMEOUT', fallback: 10800, max: 86400 },
   task_call_limit: { env: 'LUSH_TASK_CALLS', fallback: 24, max: 1000 },
   max_depth: { env: 'LUSH_MAX_DEPTH', fallback: 8, max: 64 },
 };

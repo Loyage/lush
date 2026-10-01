@@ -99,9 +99,9 @@ lush agent init worker --local        # 创建本机私有的 .lush/agent/ 补�
 |---|---|---|
 | `LUSH_PROJECT` | 从 cwd 发现 | 显式项目目录；设置后 Web 也进入单项目绑定模式 |
 | `LUSH_PROVIDER` | `pi` | 首次未写项目配置时的 Agent：`pi` / `codex`；`mock` 为离线测试模式 |
-| `LUSH_CONCURRENCY` | `4` | worker / research / verifier 执行槽的环境默认值 |
+| `LUSH_CONCURRENCY` | `8` | worker / research / verifier 执行槽的环境默认值 |
 | `LUSH_CONTROL_CONCURRENCY` | `2` | planner 等控制面槽的环境默认值，不被执行面占用 |
-| `LUSH_CALL_TIMEOUT` | `900` | 单次模型调用超时秒数 |
+| `LUSH_CALL_TIMEOUT` | `10800` | 单次模型调用超时秒数（3 小时） |
 | `LUSH_TASK_CALLS` | `24` | 单 task invocation 总上限 |
 | `LUSH_MAX_DEPTH` | `8` | 任务树最大层数 |
 | `LUSH_PI_COMMAND` | `pi` | Pi 可执行文件 |

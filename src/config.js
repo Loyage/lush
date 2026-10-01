@@ -41,10 +41,10 @@ export class Config {
     check(['pi', 'codex', 'mock'].includes(this.provider), 'LUSH_PROVIDER must be pi, codex or mock');
     // Execution and control work have separate admission lanes: long workers can never starve new intent planning.
     // 环境变量仍是默认值（构造时严格校验，非法直接抛错）；<home>/settings.json 里被显式覆盖的键优先于它。
-    this.concurrencyDefault = positive(env, 'LUSH_CONCURRENCY', 4, 64);
+    this.concurrencyDefault = positive(env, 'LUSH_CONCURRENCY', 8, 64);
     this.controlConcurrencyDefault = positive(env, 'LUSH_CONTROL_CONCURRENCY', 2, 16);
     // 调用超时 / 单任务调用上限 / 最大拆解深度同样是「环境默认 + 运行时可覆盖」的项目设置。
-    this.timeoutDefault = positive(env, 'LUSH_CALL_TIMEOUT', 900, 86400);
+    this.timeoutDefault = positive(env, 'LUSH_CALL_TIMEOUT', 10800, 86400);
     this.maxCallsDefault = positive(env, 'LUSH_TASK_CALLS', 24, 1000);
     this.maxDepthDefault = positive(env, 'LUSH_MAX_DEPTH', 8, 64);
     this.runtimeSettings = new RuntimeSettings(this);

@@ -8,7 +8,7 @@ test('system.status mirrors read-only software config from daemon startup env', 
   const f = fixture(noop, { LUSH_CALL_TIMEOUT: '600', LUSH_TASK_CALLS: '12', LUSH_MAX_DEPTH: '5' });
   try {
     expect(f.project.status()).toMatchObject({
-      provider: 'mock', concurrency: 4, control_concurrency: 2,
+      provider: 'mock', concurrency: 8, control_concurrency: 2,
       call_timeout: 600, task_call_limit: 12, max_depth: 5,
       // 未设置的 pi 覆写项是空字符串，由界面显示「pi 默认」，不编造默认模型 / provider 名。
       pi_model: '', pi_provider: '',
@@ -25,7 +25,11 @@ test('system.status mirrors read-only software config from daemon startup env', 
 test('system.status uses config defaults when env is silent and reports pi overrides when set', async () => {
   const defaults = fixture(noop);
   try {
-    expect(defaults.project.status()).toMatchObject({ call_timeout: 900, task_call_limit: 24, max_depth: 8 });
+    expect(defaults.project.status()).toMatchObject({ concurrency: 8, call_timeout: 10800, task_call_limit: 24, max_depth: 8 });
+    expect(defaults.project.status().settings).toMatchObject({
+      concurrency: { value: 8, default: 8, overridden: false },
+      call_timeout: { value: 10800, default: 10800, overridden: false },
+    });
   } finally { await defaults.close(); }
 
   const set = fixture(noop, { LUSH_PI_MODEL: 'gpt-5', LUSH_PI_PROVIDER: 'openai' });

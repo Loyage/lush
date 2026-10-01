@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Config } from '../src/config.js';
-import { RuntimeSettings } from '../src/core/settings.js';
+import { RuntimeSettings, RUNTIME_SETTINGS_LIMITS } from '../src/core/settings.js';
 import { assertAllowed } from '../src/rpc/registry.js';
 import { fixture, repo, until, gate, env, temp } from './helpers.js';
 
@@ -14,6 +14,35 @@ function controlled() {
     return done.promise;
   } };
 }
+
+test('execution slots and call timeout use new defaults without replacing explicit overrides', () => {
+  const root = temp();
+  try {
+    const config = new Config({ project: root, env: env() });
+    expect(config).toMatchObject({ concurrency: 8, timeout: 10800, controlConcurrency: 2 });
+    expect(RUNTIME_SETTINGS_LIMITS.concurrency.fallback).toBe(8);
+    expect(RUNTIME_SETTINGS_LIMITS.call_timeout.fallback).toBe(10800);
+    expect(config.runtimeSettings.get()).toMatchObject({
+      concurrency: { value: 8, default: 8, overridden: false },
+      call_timeout: { value: 10800, default: 10800, overridden: false },
+    });
+    expect(fs.existsSync(config.runtimeSettings.file)).toBe(false);
+
+    // Existing explicit values remain valid, including timeouts longer than the new default.
+    config.configureRuntime({ concurrency: 4, call_timeout: 86400 });
+    const restarted = new Config({ project: root, env: env() });
+    expect(restarted).toMatchObject({ concurrency: 4, timeout: 86400 });
+    expect(restarted.runtimeSettings.get()).toMatchObject({
+      concurrency: { value: 4, default: 8, overridden: true },
+      call_timeout: { value: 86400, default: 10800, overridden: true },
+    });
+    restarted.configureRuntime({ concurrency: null, call_timeout: null });
+    expect(restarted).toMatchObject({ concurrency: 8, timeout: 10800 });
+
+    const overridden = new Config({ project: root, env: env({ LUSH_CONCURRENCY: '3', LUSH_CALL_TIMEOUT: '1800' }) });
+    expect(overridden).toMatchObject({ concurrency: 3, timeout: 1800 });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 /** 并发上限可热更新的存储：文件、0600、原子替换、环境默认回退、null 清除、非法值不落盘。 */
 test('runtime settings file is atomic, owner-only, and falls back to env defaults per key', () => {
@@ -28,7 +57,7 @@ test('runtime settings file is atomic, owner-only, and falls back to env default
     expect(settings.get()).toEqual({ file,
       concurrency: { value: 6, default: 6, overridden: false },
       control_concurrency: { value: 3, default: 3, overridden: false },
-      call_timeout: { value: 900, default: 900, overridden: false },
+      call_timeout: { value: 10800, default: 10800, overridden: false },
       task_call_limit: { value: 24, default: 24, overridden: false },
       max_depth: { value: 8, default: 8, overridden: false },
       input_routes: { value: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }],
