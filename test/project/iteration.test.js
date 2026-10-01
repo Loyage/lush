@@ -132,6 +132,60 @@ test('delivered unaccepted descendants do not block parent delivery, but must be
   } finally { await f.close(); }
 });
 
+test('settled source diagnostics in an idle runtime merge queue do not block parent acceptance', async () => {
+  const f = setup(); await repo(f.root);
+  try {
+    const { task: parent } = await f.project.say('parent'); f.store.update(parent.id, { status: 'waiting' });
+    const child = await f.project.spawn(parent.id, 'child');
+    await commit(child.workspace, 'nested.txt', 'nested\n'); f.store.update(child.id, { status: 'waiting' });
+    await deliver(f, child);
+    const queue = f.store.get("SELECT * FROM tasks WHERE parent_id=? AND task_kind='merge'", parent.id);
+    // Historical quota failure + repair reports were addressed to the temporary queue parent.
+    const messages = [
+      f.store.message(queue.id, JSON.stringify({ child: child.id, status: 'failed', error: 'usage limit reached' }), child.id),
+      f.store.message(queue.id, 'fixed parent absorbed; tests passed', child.id),
+    ];
+    f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', parent.id);
+    f.store.update(parent.id, { status: 'waiting' });
+    await deliver(f, parent);
+    await expect(f.project.acceptTask(parent.id)).rejects.toThrow('descendants');
+    await f.project.acceptTask(child.id);
+    // Real user input and unaudited senders remain blockers, even on a completed queue.
+    for (const sender of [null, parent.id]) {
+      const message = f.store.message(queue.id, 'must not be silently ignored', sender);
+      await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Task #${queue.id}: unread input`);
+      f.store.run('UPDATE messages SET consumed=1 WHERE id=?', message);
+    }
+    // A normal completed child's inbox must not receive the queue exemption.
+    const childInput = f.store.message(child.id, 'unprocessed input');
+    await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Task #${child.id}: unread input`);
+    f.store.run('UPDATE messages SET consumed=1 WHERE id=?', childInput);
+    expect((await f.project.acceptTask(parent.id)).status).toBe('completed');
+    expect(f.store.unread(queue.id).map(row => row.id)).toEqual(messages);
+    expect(f.store.task(queue.id).calls).toBe(0);
+    expect(f.store.task(parent.id).calls).toBe(0);
+  } finally { await f.close(); }
+});
+
+test('new queue input during Git acceptance checks is not hidden by historical diagnostics', async () => {
+  const f = setup(); await repo(f.root);
+  try {
+    const parent = await sourceTask(f);
+    await deliver(f, parent);
+    const queue = f.store.create({ parent_id: parent.id, role: 'agent', task_kind: 'merge', name: 'merge', goal: 'internal queue' });
+    f.store.update(queue.id, { status: 'completed' });
+    const subtreeTasks = f.project.subtreeTasks.bind(f.project);
+    let scans = 0;
+    f.project.subtreeTasks = id => {
+      if (++scans === 2) f.store.message(queue.id, 'new user input');
+      return subtreeTasks(id);
+    };
+    await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Task #${queue.id}: new input`);
+    expect(f.store.task(parent.id).status).toBe('awaiting_acceptance');
+    expect(f.store.unread(queue.id)).toHaveLength(1);
+  } finally { await f.close(); }
+});
+
 test('accepted and archived child resources do not block later parent acceptance', async () => {
   const f = setup(); await repo(f.root);
   try {

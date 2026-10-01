@@ -3,6 +3,20 @@ import { check, id, TERMINAL } from '../types.js';
 
 const bookingOf = task => task.reservation ? JSON.parse(task.reservation) : null;
 
+/** A completed runtime queue has no Agent inbox. Keep its settled sources' diagnostics as history. */
+function acceptanceUnreadMessage(project, task) {
+  const idleQueue = task.task_kind === 'merge' && task.name === 'merge'
+    && task.status === 'completed' && !task.branch;
+  return project.store.get(`SELECT m.id FROM messages m WHERE m.task_id=? AND m.consumed=0
+    AND NOT (? AND m.sender_id IS NOT NULL
+      AND EXISTS (SELECT 1 FROM tasks source WHERE source.id=m.sender_id
+        AND source.status IN ('completed','failed','cancelled'))
+      AND EXISTS (SELECT 1 FROM events e WHERE e.task_id=m.sender_id
+        AND e.type='task.reparented_for_merge'
+        AND json_extract(e.data,'$.to')=? AND json_extract(e.data,'$.from')=?))
+    ORDER BY m.id LIMIT 1`, task.id, idleQueue ? 1 : 0, task.id, task.parent_id);
+}
+
 export function assertTaskNotSyncing(project, taskId) {
   check(!project.taskSyncBusy?.has(taskId), 'Task parent sync is in flight; wait for its safe point');
 }
@@ -128,7 +142,7 @@ export default {
         assertTaskNotSyncing(this, row.id);
         check(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
           || (booking.status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery is still in flight or reserved');
-        check(!this.store.get("SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1", row.id), 'unread input must be processed before acceptance');
+        check(!acceptanceUnreadMessage(this, row), `Task #${row.id}: unread input must be processed before acceptance`);
         check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
         if (row.branch) {
           const record = this.store.branch(row.branch);
@@ -152,8 +166,8 @@ export default {
       check(['waiting', 'awaiting_acceptance'].includes(task.status), 'Task changed during acceptance');
       for (const row of this.subtreeTasks(task.id)) {
         check(row.id === task.id || TERMINAL.has(row.status), 'descendant changed during acceptance');
-        check(!this.running.has(row.id) && !this.hasActionableMessages(row.id)
-          && !this.store.get("SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1", row.id), 'new input arrived during acceptance');
+        check(!this.running.has(row.id) && !acceptanceUnreadMessage(this, row),
+          `Task #${row.id}: new input arrived during acceptance`);
         assertTaskNotSyncing(this, row.id);
         check(!bookingOf(row) || ['integrated', 'completed', 'withdrawn'].includes(bookingOf(row).status)
           || (bookingOf(row).status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery changed during acceptance');
