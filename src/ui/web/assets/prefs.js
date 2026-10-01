@@ -104,6 +104,8 @@ export const PREF_DEFS = {
     format: value => (SORT_IDS.has(value) ? value : 'smart'),
   },
   collapsed: { key: COLLAPSED_KEY, default: () => new Set(), parse: parseCollapsed, format: serializeCollapsed, scope: true },
+  taskGraphMinimal: { key: 'lush.taskGraph.minimal', default: false, parse: raw => raw === '1',
+    format: value => value ? '1' : '0', scope: true },
   taskGraphStatuses: { key: TASK_GRAPH_STATUSES_KEY, default: () => new Set(), parse: parseTaskGraphStatuses,
     format: value => JSON.stringify([...value]), scope: true },
   filters: { key: FILTERS_KEY, default: () => parseFilters(null), parse: parseFilters, format: value => JSON.stringify(value), scope: true },

@@ -63,7 +63,7 @@ function closestHelp(from) {
 }
 
 /** 惰性建唯一的 #help-tip；每次显示前都重新按当前 DOM 收口，避免模块重载后指向旧节点。 */
-function ensureTip() {
+function ensureTip(target) {
   const doc = globalThis.document;
   if (!doc) return null;
   let tip = typeof doc.getElementById === 'function' ? doc.getElementById(TIP_ID) : null;
@@ -73,7 +73,12 @@ function ensureTip() {
   if (tip.className !== 'help-tip') tip.className = 'help-tip';
   tip.setAttribute?.('role', 'tooltip');
   if (tip.hidden !== true) tip.hidden = true;
-  if (!tip.parentNode && doc.body?.append) doc.body.append(tip);
+  // 顶层 popover/dialog 会盖住 body 的任何 z-index；提示必须跟随目标进入同一顶层。
+  let host = doc.body;
+  for (let at = target; at; at = at.parentNode) {
+    if (at.getAttribute?.('popover') != null || at.tagName === 'DIALOG') { host = at; break; }
+  }
+  if (host?.append && tip.parentNode !== host) { tip.remove?.(); host.append(tip); }
   return tip;
 }
 
@@ -113,7 +118,7 @@ function restoreDescribed() {
 export function showHelp(target) {
   const text = helpText(target);
   if (!target || !text) return;
-  const tip = ensureTip();
+  const tip = ensureTip(target);
   if (!tip) return;
   tip.textContent = text;
   tip.hidden = false;
@@ -128,7 +133,13 @@ export function hideHelp() {
   clearPress();
   clearSuppress(); // 提示都收了，再扣着下一次 click 只会误伤后续正常操作。
   const tip = node(TIP_ID);
-  if (tip) tip.hidden = true;
+  if (tip) {
+    tip.hidden = true;
+    // 浮层可以随卡片卸载；把唯一提示还回 body，避免留下失效的顶层子节点。
+    if (tip.parentNode !== globalThis.document?.body && globalThis.document?.body?.append) {
+      tip.remove?.(); globalThis.document.body.append(tip);
+    }
+  }
   restoreDescribed();
 }
 

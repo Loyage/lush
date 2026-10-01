@@ -7,11 +7,11 @@ import { show } from './messages.js';
 import { detail } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
-import { readPref, scopedKey, writePref } from './prefs.js';
+import { readPref, scopedKey, setPref, writePref } from './prefs.js';
 import { taskForest } from './task-graph-layout.js';
 import { branchDiagnostics, decisionRow } from './task-graph-parts.js';
 import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
-import { renderGraphProgress } from './render-progress.js';
+import { progressStats, renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
 import { guardedAction, iterationBlocker, iterationControls } from './render-iteration.js';
 
@@ -130,7 +130,7 @@ function mergeAllControl(node, candidates, refresh) {
   return box;
 }
 
-function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote = null) {
+function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote = null, minimal = false) {
   const row = el('article', undefined, 'task-graph-card');
   row.dataset.taskId = String(node.id);
   row.classList.add(`task-graph-${taskVisualState(node)}`);
@@ -141,21 +141,27 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
       if (folded.has(node.id)) folded.delete(node.id); else folded.add(node.id);
       save(folded); refresh();
     }, 'ghost', { help: `展开或收起 Task #${node.id} 的 ${node.children.length} 条直接子任务` });
+    toggle.dataset.graphFocus = `fold-${node.id}`;
     toggle.setAttribute('aria-expanded', String(!folded.has(node.id)));
     head.append(toggle);
   }
   const title = button(`#${node.id} ${node.title}`, () => detail(node.id), 'ghost');
   title.classList.add('task-graph-title');
-  head.append(title, ...(node.role === 'agent' ? [] : [roleBadge(node.role)]), badge(node.status === 'waiting' && !node.children_active ? '静息' : statusOf(node).label,
+  title.dataset.graphFocus = `title-${node.id}`;
+  head.append(title, ...(minimal || node.role === 'agent' ? [] : [roleBadge(node.role)]), badge(node.status === 'waiting' && !node.children_active ? '静息' : statusOf(node).label,
     `b-${node.status}`));
   // 分支合并状态放进卡片首行的标签：与任务状态并排，一眼看清这条 Task 的改动合进父分支没有。
   // 用与任务详情同一份 INTEGRATION 文案与配色；none（没有独有提交）/ 未知值不占位。
   const merge = INTEGRATION[node.integration];
-  if (merge) head.append(badge(merge, node.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
-  if (node.task_kind) head.append(badge(node.task_kind));
-  if (node.freeze && node.freeze.task_id !== node.id) head.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
+  if (!minimal && merge) head.append(badge(merge, node.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
+  if (!minimal && node.task_kind) head.append(badge(node.task_kind));
+  if (!minimal && node.freeze && node.freeze.task_id !== node.id) head.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
   row.append(head);
+  if (minimal) {
+    row.append(minimalSummary(node, queueNote), taskActionsMenu(node, mergeAllByBranch));
+    return row;
+  }
 
   if (node.goal_preview && node.goal_preview !== node.title) row.append(el('p', node.goal_preview, 'task-graph-goal'));
   if (node.waiting_reason) row.append(el('p', node.waiting_reason, 'task-graph-reason'));
@@ -212,9 +218,8 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
     else git.append(el('p', '分支诊断不可用，不能推断工作区干净或已合并。', 'hint'));
     row.append(git);
     // 归档与详情同源（`branch.archive`）：删这条分支与后代分支的 worktree/ref，Task 记录保留。
-    if (!isHistoricalDelivery(node) && branch.archivable && node.status !== 'awaiting_acceptance') row.append(button('归档', () => runBranchArchive(
-      { name: node.branch, subtreeBranches: branch.subtree_branches }, { refresh: loadTaskGraph }), 'ghost',
-      { help: BRANCH_ARCHIVE_HELP }));
+    const archive = archiveControl(node);
+    if (archive) row.append(archive);
   }
 
   if (node.notice && !isHistoricalDelivery(node)) {
@@ -231,6 +236,19 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
       row.append(pending);
     }
   }
+  appendTaskActions(row, node, mergeAllByBranch);
+  return row;
+}
+
+function archiveControl(node) {
+  const branch = node.branch_info;
+  if (!branch || branch.archived || !branch.archivable || isHistoricalDelivery(node) || node.status === 'awaiting_acceptance') return null;
+  return button('归档', () => runBranchArchive({ name: node.branch, subtreeBranches: branch.subtree_branches },
+    { refresh: loadTaskGraph }), 'ghost', { help: BRANCH_ARCHIVE_HELP });
+}
+
+// 完整卡片和极简浮层共用同一套准入、确认、Agent 标识与 RPC，不复制业务规则。
+function appendTaskActions(row, node, mergeAllByBranch) {
   if (['main', 'owner'].includes(node.task_kind) && node.branch)
     row.append(mergeAllControl(node, mergeAllByBranch.get(node.branch) ?? [], loadTaskGraph));
   const iteration = iterationControls(node, { refresh: loadTaskGraph });
@@ -247,11 +265,76 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
       await loadTaskGraph();
     }, 'ghost', { agent: true, help: agentHelp('给这个 Task 的 Agent 发送输入；可能在安全点提前收尾，不会立即硬杀。') }), iterationBlocker(node)));
   }
-  return row;
+}
+
+function minimalSummary(node, queueNote) {
+  const line = el('div', undefined, 'task-graph-minimal-summary');
+  const stats = progressStats(node.progress);
+  const count = stats.total ? `${stats.completed}/${stats.total}` : '';
+  const stopped = { failed: '失败时中止', cancelled: '取消时中止', completed: '结束时未完成' }[node.status];
+  const step = stats.current ? `${stats.current.label}${stopped ? ` · ${stopped}` : ''}`
+    : stats.total ? '计划已全部完成' : node.status === 'running' ? '等待 Agent 汇报计划' : '';
+  const waiting = ['waiting', 'awaiting', 'awaiting_acceptance', 'paused', 'queued'].includes(node.status);
+  const note = node.integration_error ? `集成受阻：${node.integration_error}`
+    : waiting && node.waiting_reason ? node.waiting_reason : queueNote || step;
+  const text = el('span', [count, note].filter(Boolean).join(' · '), 'task-graph-minimal-note');
+  line.append(text);
+  if (node.freeze && node.freeze.task_id !== node.id) line.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
+  if (isArchivedTask(node)) line.append(badge('已归档'));
+  const merge = INTEGRATION[node.integration];
+  if (merge) line.append(badge(merge, node.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
+  return line;
+}
+
+/** 原生非模态 popover：在顶层浮动，不受树横向滚动裁切；Esc / 外部点击由浏览器收起。
+ * 普通按钮组而非 ARIA menu：复用控件内含说明与禁用帮助，Tab 按文档顺序可达。 */
+function taskActionsMenu(node, mergeAllByBranch) {
+  const wrap = el('div', undefined, 'task-graph-more');
+  const panel = el('section', undefined, 'task-graph-actions-popover');
+  panel.id = `task-graph-actions-${node.id}`;
+  panel.setAttribute('popover', 'auto');
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-label', `Task #${node.id} 更多操作`);
+  const trigger = el('button', '⋯', 'ghost task-graph-more-trigger');
+  trigger.type = 'button';
+  trigger.setAttribute('popovertarget', panel.id);
+  trigger.setAttribute('data-help', '打开这条 Task 的更多操作；可追加输入、处理交付或进入详情，不展开任务条目。');
+  trigger.onclick = () => {
+    if (panel.dataset.open === 'true') return;
+    const heading = el('strong', `#${node.id} ${node.title}`, 'task-graph-actions-title');
+    const close = button('关闭', () => panel.hidePopover(), 'ghost');
+    close.setAttribute('autofocus', '');
+    panel.replaceChildren(heading, close, button('打开任务详情', () => detail(node.id), 'ghost'));
+    if (node.notice) panel.append(button('打开待决事项', () => detail(node.id), 'ghost',
+      { help: '到 Task 详情查看完整问题与选项并答复。' }));
+    appendTaskActions(panel, node, mergeAllByBranch);
+    const archive = archiveControl(node);
+    if (archive) panel.append(archive);
+  };
+  // 先关闭顶层浮层并恢复触发焦点，再让业务按钮打开原有确认 / 输入弹窗。
+  panel.addEventListener('click', event => {
+    const button = event.target.closest?.('button');
+    if (button && !button.disabled) panel.hidePopover();
+  }, { capture: true });
+  trigger.dataset.graphFocus = `more-${node.id}`;
+  trigger.setAttribute('aria-label', `Task #${node.id} 更多操作`);
+  trigger.setAttribute('aria-haspopup', 'dialog');
+  trigger.setAttribute('aria-controls', panel.id);
+  trigger.setAttribute('aria-expanded', 'false');
+  panel.addEventListener('beforetoggle', event => {
+    const open = event.newState === 'open';
+    panel.dataset.open = String(open);
+    trigger.setAttribute('aria-expanded', String(open));
+    if (!open) trigger.focus({ preventScroll: true });
+  });
+  wrap.append(trigger, panel);
+  return wrap;
 }
 
 export function renderTaskGraph(graph) {
   if (ui.view?.id !== 'task-graph') return;
+  if (hasOpenActions()) return; // 轮询和筛选重画不能卸载正在使用的浮层。
+  const minimal = ui.taskGraphMinimal;
   const raw = graph.nodes || [];
   const byId = new Map(raw.map(node => [node.id, node]));
   // merge 与其它 Task 一视同仁：画不画由表头的状态开关决定，不再按队列活跃度整层收起。
@@ -285,7 +368,8 @@ export function renderTaskGraph(graph) {
   const mergeAllByBranch = mergeAllCandidates(view);
   // 用 all 而不是 nodes：可见子 Task 的父 Task 可能只是被归档藏起来，不该被说成「不在当前图中」。
   ui.taskGraphIds = new Set(all.map(node => node.id));
-  const box = el('div', undefined, 'task-graph');
+  const focusKey = document.activeElement?.dataset?.graphFocus;
+  const box = el('div', undefined, `task-graph${minimal ? ' task-graph-minimal' : ''}`);
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
   hero.append(el('h1', '任务树'), el('p', 'Task 包裹 Agent、分支与 worktree；连线表示父子关系。代码集成由直接父 Agent 或用户按固定提交批准。'));
   const summary = el('div', undefined, 'task-graph-summary');
@@ -326,12 +410,29 @@ export function renderTaskGraph(graph) {
     toggle.classList.add('task-graph-archived-toggle');
     summary.append(toggle);
   }
-  hero.append(summary, button('刷新', () => loadTaskGraph(), 'ghost'));
+  const mode = el('label', undefined, 'task-graph-mode');
+  const checkbox = el('input');
+  checkbox.type = 'checkbox';
+  checkbox.checked = minimal;
+  checkbox.dataset.graphFocus = 'minimal-mode';
+  checkbox.onchange = () => {
+    if (hasPendingInput()) {
+      checkbox.checked = minimal;
+      show('请先提交或清空正在编辑的待决答复，再切换显示模式。');
+      return;
+    }
+    setPref('taskGraphMinimal', checkbox.checked);
+    renderTaskGraph(full);
+    host.querySelector('.task-graph-mode')?.querySelector('input')?.focus({ preventScroll: true });
+  };
+  mode.append(checkbox, el('span', '极简模式'));
+  mode.setAttribute('data-help', '以等高双行浏览任务状态与进度；完整信息在详情，操作收进省略号菜单。仅改变显示，按项目记住选择。');
+  hero.append(summary, mode, button('刷新', () => loadTaskGraph(), 'ghost'));
   box.append(hero);
   if (view.truncated) box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Task；父节点可能在截断范围外。`, 'hint'));
   const paint = (node, parent) => {
     const wrap = el('div', undefined, 'task-graph-node');
-    wrap.append(taskCard(node, saved, () => renderTaskGraph(full), mergeAllByBranch, mergeQueue.get(node.id) ?? null));
+    wrap.append(taskCard(node, saved, () => renderTaskGraph(full), mergeAllByBranch, mergeQueue.get(node.id) ?? null, minimal));
     if (node.children.length && !saved.has(node.id)) {
       const children = el('div', undefined, 'task-graph-children');
       for (const child of node.children) paint(child, children);
@@ -341,6 +442,7 @@ export function renderTaskGraph(graph) {
   };
   for (const node of forest) paint(node, box);
   host.replaceChildren(box);
+  if (focusKey) host.querySelector(`[data-graph-focus="${focusKey}"]`)?.focus({ preventScroll: true });
 }
 
 let pending = null;
@@ -353,6 +455,9 @@ export async function loadTaskGraph() {
     if (!hasPendingInput()) renderTaskGraph(graph);
   }
   return graph;
+}
+function hasOpenActions() {
+  return Boolean($('detail').querySelector('.task-graph-actions-popover[data-open="true"]'));
 }
 function hasPendingInput() {
   for (const node of $('detail').querySelectorAll('textarea')) {

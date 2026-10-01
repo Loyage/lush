@@ -482,3 +482,22 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-git .graph-diagnostics{margin-top:8px}.task-graph-card>.delivery-controls,.task-graph-card>.graph-decision{margin-top:10px}
 .task-graph-card>.agent-call{margin-top:9px}
 @media(max-width:640px){.task-graph-children{margin-left:6px;padding-left:10px}.task-graph-children>.task-graph-node::before{left:-10px;width:9px}.task-graph-card{padding:9px 11px}}
+/* 极简树固定双行，不把正文/操作仅仅藏在裁切区里；浮层走 top layer，不撑高或被树裁切。 */
+.task-graph-mode{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;white-space:nowrap}
+.task-graph-mode input{width:16px;height:16px;margin:0;flex:none}
+.task-graph-minimal .task-graph-node{margin:5px 0;min-width:300px}
+.task-graph-minimal .task-graph-card{height:68px;padding:7px 9px;display:grid;grid-template-columns:minmax(0,1fr) 30px;grid-template-rows:26px 20px;gap:4px 7px;border-radius:7px}
+.task-graph-minimal .task-graph-head{grid-column:1;grid-row:1;flex-wrap:nowrap;gap:5px;min-width:0;margin:0}
+.task-graph-minimal .task-graph-head>button{padding:2px 5px;flex:none}
+.task-graph-minimal .task-graph-head>.task-graph-title{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:48px;font-size:12px}
+.task-graph-minimal .badge{flex:none;padding:1px 4px;font-size:10px}
+.task-graph-minimal-summary{grid-column:1;grid-row:2;display:flex;align-items:center;gap:6px;min-width:0;color:var(--muted);font-size:11px;line-height:20px}
+.task-graph-minimal-note{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task-graph-more{grid-column:2;grid-row:1/3;align-self:center}
+.task-graph-more-trigger{width:30px;height:36px;padding:0;font-size:20px;line-height:1}
+.task-graph-actions-popover{position:fixed;inset:auto 20px 20px auto;margin:0;width:min(360px,calc(100vw - 32px));max-height:70dvh;overflow:auto;padding:16px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);font-size:12px;overflow-wrap:anywhere}
+.task-graph-actions-popover:popover-open{display:flex;flex-direction:column;align-items:stretch;gap:10px}
+.task-graph-actions-title{font-size:13px;white-space:normal}
+.task-graph-actions-popover .delivery-controls,.task-graph-actions-popover .iteration-controls{margin:0}
+.task-graph-actions-popover button{white-space:normal;text-align:left}
+@media(max-width:640px){.task-graph-actions-popover{right:16px;bottom:16px}}

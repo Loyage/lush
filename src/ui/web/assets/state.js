@@ -1,4 +1,4 @@
-import { readPref, writePref } from './prefs.js';
+import { onPrefChange, readPref, writePref } from './prefs.js';
 
 /* ---------- 偏好：折叠 / 筛选 / 排序都持久化到 localStorage ---------- */
 // 键名、默认值与解析规则都在 prefs.js；这里只是转发，让老 import 继续可用。
@@ -42,6 +42,7 @@ export const ui = {
   // 左栏四个列表共用的排序偏好（smart / updated / id）。
   sidebarSortMode: readSidebarSortPref(),
   taskGraphFetchedAt: 0, taskGraphIds: new Set(),
+  taskGraphMinimal: readPref('taskGraphMinimal'),
   /** Task 图里是否临时显示已归档 Task（默认隐藏，随页面重开复位）。 */
   taskGraphShowArchived: false,
   taskGraphFilesExpanded: new Set(), // 文件明细只记会话内展开，轮询保留。
@@ -59,6 +60,9 @@ export const ui = {
   // `<taskId>:<seq>` -> 用户显式选择的展开状态，重画详情不会丢
   stepToggle: new Map(),
 };
+
+// 保留存储不可用时的本轮选择；设置页恢复默认也同步回内存。
+onPrefChange('taskGraphMinimal', value => { ui.taskGraphMinimal = value; });
 
 // 编辑态按草稿 id 记，这样轮询重建时不会丢用户的意图。
 export const transcriptOpen = new Set();    // 用户展开过「执行过程」的任务
@@ -80,7 +84,7 @@ export function resetUiState() {
   ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.noticeRecords = null; ui.loadNoticeRecords = null;
   ui.lastSnapshot = null; ui.taskHistory = []; ui.taskHistoryPage = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.taskGraphFetchedAt = 0; ui.taskGraphIds = new Set(); ui.taskGraphShowArchived = false;
-  ui.taskGraphFilesExpanded = new Set();
+  ui.taskGraphFilesExpanded = new Set(); ui.taskGraphMinimal = readPref('taskGraphMinimal');
   ui.sideNodes = new Map(); ui.sideHeads = new Map(); ui.navButtons = new Map(); ui.navCounts = new Map();
   ui.stepToggle = new Map();
   ui.collapsed = readCollapsedPref(); ui.filters = readFiltersPref(); ui.sidebarSortMode = readSidebarSortPref();
