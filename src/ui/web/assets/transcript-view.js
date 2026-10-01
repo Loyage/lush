@@ -112,11 +112,16 @@ export async function openTranscriptView(taskId, seq) {
       }));
     },
   });
-  sidebar.append(el('h2', '搜索与筛选'), el('p', '搜索当前任务的全部完整会话；右侧仅展示本页命中及配对内容。', 'hint'), reader);
+  sidebar.append(el('h2', '搜索'), reader);
   viewport.append(notice, holder); layout.append(sidebar, viewport); panel.append(toolbar, layout);
   state.onNavigate = closeTranscriptView; addEventListener('hashchange', state.onNavigate);
   panel.oncancel = event => { event.preventDefault(); closeTranscriptView(); };
-  panel.onkeydown = event => { if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); closeTranscriptView(); } };
+  panel.onkeydown = event => {
+    if (event.defaultPrevented) return;
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault(); reader.querySelector('input').focus?.({ preventScroll: true });
+    } else if (event.key === 'Escape') { event.preventDefault(); closeTranscriptView(); }
+  };
   if (state.menu) { state.menu.hidden = true; panel.append(state.menu); }
   document.body.append(panel); panel.showModal?.(); $('project-app').inert = true;
   back.focus?.({ preventScroll: true });

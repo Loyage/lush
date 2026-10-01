@@ -32,7 +32,15 @@ test('fullscreen sidebar and rich match bodies correspond, retain pairing and ra
     const panel = dom.document.body.querySelector('.transcript-dialog'), sidebar = panel.querySelector('.transcript-sidebar');
     const holder = ui.transcriptView.holder;
     expect(sidebar.querySelector('.transcript-reader')).toBeTruthy(); expect(holder.querySelector('.transcript-reader')).toBeNull();
+    const viewport = panel.querySelector('.transcript-viewport');
+    expect(sidebar.parentNode).toBe(viewport.parentNode); expect(holder.parentNode).toBe(viewport);
     const form = sidebar.querySelector('form'), inputs = form.querySelectorAll('input');
+    expect(form.querySelector('.transcript-query-row').querySelector('input').type).toBe('search');
+    expect(form.querySelector('button').type).toBe('submit'); expect(form.querySelector('button').onclick).toBeUndefined();
+    inputs[0].value = 'not submitted';
+    expect(calls).toHaveLength(0);
+    panel.onkeydown({ key: 'F', ctrlKey: true, shiftKey: true, preventDefault() {} });
+    expect(dom.document.activeElement).toBe(inputs[0]);
     inputs[1].value = 'bash'; inputs[2].checked = true; form.querySelector('select').value = 'tool';
     submit(panel, 'needle');
     await until(() => holder.querySelector('[data-result-seq="3"]') && holder.querySelector('[data-seq="6"]'));
@@ -53,6 +61,9 @@ test('fullscreen sidebar and rich match bodies correspond, retain pairing and ra
     findByText(sidebar, '返回全部记录').onclick();
     expect(holder.querySelector('.transcript-match')).toBeNull(); expect(deepText(holder)).toContain('new unrelated record');
     expect(panel.querySelector('select').disabled).toBe(false);
+    expect(inputs.map(node => node.value)).toEqual(['', '', '']); expect(inputs[2].checked).toBe(false);
+    expect(form.querySelector('select').value).toBe('');
+    expect(sidebar.querySelector('.transcript-reader').getAttribute('aria-busy')).toBe('false');
   } finally { cleanup(dom, id); }
 });
 

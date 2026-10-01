@@ -49,25 +49,31 @@ function readerState(taskId) {
   const root = el('section', undefined, 'transcript-reader');
   root.setAttribute('aria-label', '执行记录全文查找');
   const form = el('form', undefined, 'transcript-search');
-  const query = el('input'); query.placeholder = '全文关键词（包含未加载记录）'; query.setAttribute('aria-label', '执行记录全文关键词'); query.maxLength = 500;
+  const query = el('input'); query.type = 'search'; query.placeholder = '搜索完整执行记录'; query.setAttribute('aria-label', '执行记录全文关键词'); query.maxLength = 500;
   const kind = el('select'); kind.setAttribute('aria-label', '消息类型');
   for (const [value, label] of [['', '所有类型'], ...Object.entries(STEP)]) { const option = el('option', label); option.value = value; kind.append(option); }
   const tool = el('input'); tool.placeholder = '工具名，例如 bash'; tool.setAttribute('aria-label', '工具名'); tool.maxLength = 100;
   const errors = el('input'); errors.type = 'checkbox'; const errorLabel = el('label', '只看失败'); errorLabel.prepend(errors);
-  const submit = button('搜索完整记录', () => {}, 'ghost'); submit.type = 'submit';
-  form.append(query, kind, tool, errorLabel, submit);
-  const results = el('div');
+  // Keep submission native; button() temporarily disables itself in onclick.
+  const submit = el('button', '搜索', 'ghost'); submit.type = 'submit';
+  const queryRow = el('div', undefined, 'transcript-query-row'); queryRow.append(query, submit);
+  const filters = el('div', undefined, 'transcript-search-filters'); filters.append(kind, tool, errorLabel);
+  const hint = el('p', 'Enter 搜索 · Ctrl/⌘+Shift+F 聚焦搜索框；包含未加载记录。', 'hint transcript-search-hint');
+  form.append(queryRow, filters, hint);
+  const results = el('div', undefined, 'transcript-search-results'); results.setAttribute('aria-label', '搜索命中摘要');
   root.append(form, results);
   // locate 由 render-transcript.js 注入，让命中停在富文本执行过程里。
   const state = { root, version: 0, locate: null, onPage: null, onStart: null, onError: null, onClear: null }; readers.set(taskId, state);
   const clear = button('返回全部记录', () => {
-    state.version++; submit.disabled = false; results.replaceChildren();
+    state.version++; submit.disabled = false; root.setAttribute('aria-busy', 'false'); results.replaceChildren();
+    query.value = ''; kind.value = ''; tool.value = ''; errors.checked = false;
     state.onClear?.();
   }, 'ghost');
   clear.hidden = true; root.append(clear); state.clear = clear;
   let criteria = null, cursors = [0], pageIndex = 0;
   const search = async after => {
     const version = ++state.version;
+    root.setAttribute('aria-busy', 'true');
     submit.disabled = true; state.onStart?.(); results.replaceChildren(el('p', '正在跨会话搜索完整记录…', 'hint'));
     try {
       const params = new URLSearchParams({ ...criteria, after });
@@ -94,7 +100,7 @@ function readerState(taskId) {
       results.replaceChildren(el('p', `搜索未完成：${error.message}`, 'error'));
       state.onError?.(error);
     } }
-    finally { if (version === state.version) submit.disabled = false; }
+    finally { if (version === state.version) { submit.disabled = false; root.setAttribute('aria-busy', 'false'); } }
   };
   form.onsubmit = event => {
     event.preventDefault(); criteria = { query: query.value.trim(), kind: kind.value, tool: tool.value.trim(), errors: String(errors.checked) };
