@@ -129,6 +129,7 @@ function genericReference(target) {
 }
 
 export function setComposerReferences(values) {
+  ui.composerReferenceRevision = (ui.composerReferenceRevision ?? 0) + 1;
   ui.composerReferences = [...values];
   renderComposerReferences();
 }
@@ -140,6 +141,7 @@ export function addComposerReference(value) {
   const next = [...ui.composerReferences, value];
   const bytes = typeof TextEncoder === 'function' ? new TextEncoder().encode(JSON.stringify(next)).length : JSON.stringify(next).length;
   if (bytes > MAX_REFERENCE_BYTES) throw new Error('本条输入的引用快照合计不能超过 48 KiB；请移除较长的引用后再试');
+  ui.composerReferenceRevision = (ui.composerReferenceRevision ?? 0) + 1;
   ui.composerReferences.push(value);
   renderComposerReferences();
   $('input')?.focus?.();
@@ -156,6 +158,7 @@ export function renderComposerReferences() {
       : el('span', reference.label, 'context-chip-label');
     label.title = canLocate ? `${reference.quote}\n点击定位到来源` : reference.quote;
     const remove = button('×', () => {
+      ui.composerReferenceRevision = (ui.composerReferenceRevision ?? 0) + 1;
       ui.composerReferences.splice(index, 1);
       renderComposerReferences();
     }, 'context-remove');

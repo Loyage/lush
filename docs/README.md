@@ -6,7 +6,7 @@
 
 1. [项目概览](../README.md)：Lush 是什么、如何启动。
 2. [部署](deployment/README.md)：安装、配置与验证；可直接交给 Agent 的[部署指导](deployment/agent-guide.md)。
-3. [一条 say 输入如何交付](task-flow.md)：发送、子任务、合并预约、多轮验收与归档。
+3. [一条 say 输入如何交付](task-flow.md)：发送、子任务、合并预约、多轮验收与归档；[历史输入与暂存](input-history.md)：先保存想法、随后发射，以及检索原始指令。
 4. [核心 API 收敛](engineering/core-api.md)：当前公开的 RPC / CLI / Web 能力与已下线边界。
 
 ## 理解与修改系统

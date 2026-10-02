@@ -1,0 +1,19 @@
+.inputs-page{max-width:1400px;margin:0 auto;padding:clamp(14px,3vw,32px)}
+.inputs-header h1{margin:0 0 12px}.inputs-header .hint{line-height:1.7;max-width:900px}
+.inputs-filters{display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px;margin:22px 0}
+.input-filter,.input-search,.input-parent-label{display:flex;flex-direction:column;gap:7px;font-size:12px;color:var(--muted);min-width:0}
+.input-search{flex:1 1 220px}.inputs-filters input,.inputs-filters select,.input-detail select{max-width:100%;min-width:0}
+.inputs-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:20px;align-items:start}
+.inputs-layout:has(.input-detail[hidden]){grid-template-columns:minmax(0,1fr)}
+.inputs-list{list-style:none;display:flex;flex-direction:column;gap:14px;margin:0 0 20px;padding:0;min-width:0}
+.input-record,.input-detail{border:1px solid var(--line);border-radius:12px;padding:18px;background:var(--panel);min-width:0}
+.input-detail{border-top:3px solid var(--accent)}.input-detail h2{margin:0 0 14px;font-size:18px}
+.input-metadata{display:flex;align-items:center;flex-wrap:wrap;gap:8px;color:var(--muted);font-size:11px}
+.input-preview,.input-original,.input-quote{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;font-family:inherit}
+.input-preview{font-size:13px;max-height:12em;overflow:auto}.input-original{max-height:65vh;overflow:auto;font-size:14px}
+.input-actions{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-top:14px}
+.input-detail textarea{display:block;box-sizing:border-box;width:100%;resize:vertical;min-height:180px;max-height:65vh;margin:14px 0;font:inherit;line-height:1.6}
+.input-detail select{width:100%}.input-references h3{font-size:13px;color:var(--muted)}
+.input-reference{padding:12px;margin:10px 0;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:12px;overflow-wrap:anywhere}
+.input-quote{max-height:180px;overflow:auto}.inputs-page [role="alert"]{color:var(--failed)}
+@media(max-width:850px){.inputs-layout{grid-template-columns:minmax(0,1fr)}.input-detail{grid-row:1}.input-record,.input-detail{padding:14px}.input-detail textarea,.inputs-filters input{font-size:16px}}

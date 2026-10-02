@@ -13,7 +13,7 @@ test('only task-centred methods are externally dispatchable', () => {
     expect(() => assertAllowed(method, {}, null)).toThrow(`unknown method: ${method}`);
   }
   expect(assertAllowed('say.submit', { content: '实现目标' }, null)).toBeNull();
-  expect(() => assertAllowed('say.submit', { draft_id: 1 }, null)).toThrow('unknown parameter');
+  expect(assertAllowed('say.submit', { draft_id: 1, expected_revision: 1 }, null)).toBeNull();
   expect(() => assertAllowed('task.spawn', { parent: 1, role: 'worker', goal: 'x' }, null)).toThrow('unknown parameter');
   expect(() => assertAllowed('task.integrate', { id: 1, commit: 'a' }, null)).toThrow('agent only');
   expect(() => assertAllowed('task.approve_merge', { id: 1 }, 42)).toThrow('requires user approval');

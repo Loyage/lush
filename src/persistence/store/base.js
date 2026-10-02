@@ -18,6 +18,11 @@ function addMissingColumns(db) {
     const present = new Set(db.query(`PRAGMA table_info(${table})`).all().map(row => row.name));
     for (const column of columns) if (!present.has(column)) db.query(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`).run();
   }
+  // Draft ownership/version are optional on historical rows; never infer or backfill them.
+  const draftColumns = new Set(db.query('PRAGMA table_info(drafts)').all().map(row => row.name));
+  for (const column of ['parent_id', 'revision']) {
+    if (!draftColumns.has(column)) db.query(`ALTER TABLE drafts ADD COLUMN ${column} INTEGER`).run();
+  }
   // Nullable numeric quota metadata: old observations stay unknown, never backfilled from local usage.
   const usageColumns = new Set(db.query('PRAGMA table_info(agent_usage_points)').all().map(row => row.name));
   if (!usageColumns.has('used_percent')) db.query('ALTER TABLE agent_usage_points ADD COLUMN used_percent REAL').run();

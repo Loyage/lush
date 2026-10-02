@@ -55,9 +55,20 @@ export const methods = {
       // 未提交改动不进入新分支；若父分支正被检出，把那份差异明确记下来。
       const targetWorkspace = await this.workspaceForBranch(target);
       const source = targetWorkspace ? await this.porcelain(targetWorkspace) : '';
+      check(!fs.existsSync(workspace), `input workspace already exists: ${workspace}; inspect it before submitting`);
       this.store.recordBranch({ branch, parent: target, created_from_commit: commit, worktree: workspace });
-      fs.mkdirSync(path.dirname(workspace), { recursive: true });
-      await this.git(project, 'worktree', 'add', '-b', branch, workspace, commit);
+      try {
+        fs.mkdirSync(path.dirname(workspace), { recursive: true });
+        await this.git(project, 'worktree', 'add', '-b', branch, workspace, commit);
+      } catch (error) {
+        // Only this newly allocated anchor is ours. Never force-clean an unknown checkout.
+        try {
+          const cleanup = await this.dropAnchor({ branch, workspace, commit, target });
+          if (cleanup.status === 'absent') this.store.markBranchDeleted(branch);
+          if (cleanup.status === 'kept') console.error(`input ${inputId}: anchor cleanup kept: ${cleanup.reason}`);
+        } catch (failure) { console.error(`input ${inputId}: anchor cleanup failed: ${failure.message}`); }
+        throw error;
+      }
       const dirt = dirtDetail(source);
       return { branch, commit, workspace, target, dirty_source: dirt.files ? { ...dirt, workspace: targetWorkspace } : null };
     });

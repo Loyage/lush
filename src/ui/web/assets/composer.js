@@ -1,5 +1,5 @@
 import { $, el } from './dom.js';
-import { action } from './api.js';
+import { action, api } from './api.js';
 import { taskTitle, isHistoricalDelivery } from './format.js';
 import { show } from './messages.js';
 import { detail, refresh } from './navigate.js';
@@ -7,138 +7,144 @@ import { ui } from './state.js';
 import { composerReferences, renderComposerReferences, setComposerReferences } from './context-references.js';
 import { agentHelp } from './help.js';
 
-// 新输入只走 say：发送 / ⌘Ctrl+Enter 建「待开始」Task，⌘Ctrl+Shift+Enter 直接运行；
-// 下面的草稿函数是历史实现，已无公开入口，保留供旧行与测试参考。
-/** 面板开合状态画到 DOM：.open 控制展开，aria-expanded 同步给读屏。 */
+// Historical panel helpers remain for legacy readers; new drafts live in #inputs.
 export function paintDraftPanel() {
   const open = Boolean(ui.draftPanelOpen);
   $('draft-panel')?.classList.toggle('open', open);
   $('draft-toggle')?.setAttribute('aria-expanded', String(open));
 }
-/** 默认折叠；force 省略时就是开关。 */
 export function toggleDraftPanel(force) {
   ui.draftPanelOpen = force === undefined ? !ui.draftPanelOpen : Boolean(force);
   paintDraftPanel();
 }
-// 可作为父 Task 的只有拥有分支、仍在活动且未冻结的主干 / owner / say Task。
-const PARENT_KINDS = new Set(['main', 'owner', 'say']);
-const PARENT_STATUSES = new Set(['queued', 'running', 'waiting', 'awaiting', 'awaiting_acceptance', 'paused']);
-
-/** 当前快照里可选的父 Task，按 id 升序。纯函数，便于单测。 */
-export function parentTasks(tasks = ui.lastSnapshot?.tasks ?? []) {
-  return tasks
-    .filter(task => PARENT_KINDS.has(task.task_kind) && task.branch && PARENT_STATUSES.has(task.status)
-      && !task.archived && !task.branch_archive?.archived && !task.branch_info?.archived && !task.freeze
-      && !isHistoricalDelivery(task) && task.reservation?.status !== 'requested')
-    .sort((a, b) => a.id - b.id);
+// Legacy pure projection; the active composer uses the complete /api/input-parents read model.
+export function parentTasks(tasks = []) {
+  return tasks.filter(task => ['main', 'owner', 'say'].includes(task.task_kind) && task.branch
+    && ['queued', 'running', 'waiting', 'awaiting', 'awaiting_acceptance', 'paused'].includes(task.status)
+    && !task.archived && !task.branch_archive?.archived && !task.branch_info?.archived && !task.freeze
+    && !isHistoricalDelivery(task) && task.reservation?.status !== 'requested').sort((a, b) => a.id - b.id);
 }
-
-/** 选中的父 Task 在折叠态留下的短标识；空值表示跟随当前检出分支。 */
 function selectedParentLabel() {
   const select = $('input-parent');
-  if (!select || !select.value) return null;
+  if (!select?.value) return null;
   const option = [...select.children].find(node => node.value === select.value);
-  return option ? (option.dataset.label ?? option.textContent) : select.value;
+  return option?.dataset.label ?? option?.textContent ?? select.value;
 }
-
-/**
- * 输入区展开态：默认只留一行输入 + 一行操作；展开后才出现父 Task 与快捷键说明。
- * 折叠态仍把已选父 Task 写在展开控件上，避免用户在不知情的情况下提交到别的分支。
- */
 export function paintComposerDetails() {
   const open = Boolean(ui.composerExpanded);
-  const details = $('composer-details'), shortcuts = $('composer-shortcuts'), toggle = $('composer-expand');
-  if (details) details.hidden = !open;
-  if (shortcuts) shortcuts.hidden = !open;
+  if ($('composer-details')) $('composer-details').hidden = !open;
+  if ($('composer-shortcuts')) $('composer-shortcuts').hidden = !open;
+  const toggle = $('composer-expand');
   if (!toggle) return;
   const parent = selectedParentLabel();
   toggle.setAttribute('aria-expanded', String(open));
-  toggle.title = open ? '收起：只留一行输入与操作按钮' : `展开：可以选择父 Task，并查看键盘快捷键${parent ? `（当前父 Task：${parent}）` : ''}`;
+  toggle.setAttribute('data-help', open ? '收起：只留输入与操作按钮。' : `展开：可以选择父 Task，并查看键盘快捷键${parent ? `（当前父 Task：${parent}）` : ''}。`);
   toggle.textContent = open ? '⌃ 收起' : (parent ? `⌃ 更多 · 父 Task：${parent}` : '⌃ 更多');
 }
-
-/**
- * 把快照里最新的父 Task 列表画进下拉框。选项值仍是分支名，所以 `say.submit` 的语义不变；
- * 用户看到与选择的是 Task 身份。列表没变就不重建 DOM（避免每次轮询把打开的下拉框关掉），
- * 重建后保留仍在候选里的选择。
- */
 export function renderParentOptions() {
   const select = $('input-parent');
   if (!select) return;
-  const tasks = parentTasks();
-  const signature = JSON.stringify(tasks.map(task => [task.id, task.branch, task.status, task.reservation?.status ?? null]));
+  const tasks = ui.composerParents ?? [];
+  const signature = JSON.stringify(tasks);
   if (select.dataset.signature === signature) { paintComposerDetails(); return; }
   select.dataset.signature = signature;
   const previous = select.value;
-  const placeholder = el('option', '当前检出分支（默认）');
-  placeholder.value = '';
-  select.replaceChildren(placeholder, ...tasks.map(task => {
+  const placeholder = el('option', '当前检出分支（默认）'); placeholder.value = '';
+  const options = tasks.map(task => {
     const option = el('option', `#${task.id} ${taskTitle(task)} · ${task.branch}`);
-    option.value = task.branch;
-    option.dataset.label = `#${task.id} ${taskTitle(task)}`;
-    option.title = `#${task.id} ${task.goal ?? ''}\n分支：${task.branch}`;
+    option.value = task.branch; option.dataset.label = `#${task.id} ${taskTitle(task)}`;
     return option;
-  }));
-  select.value = [...select.children].some(option => option.value === previous) ? previous : '';
+  });
+  if (previous && !tasks.some(task => task.branch === previous)) {
+    const missing = el('option', `${previous}（父 Task 已不可选，请重选）`); missing.value = previous; options.push(missing);
+  }
+  select.replaceChildren(placeholder, ...options); select.value = previous || '';
   paintComposerDetails();
 }
-/** 默认折叠；force 省略时就是开关。展开状态只在本次会话内保留，不写进本地偏好。 */
+export function loadComposerParents() {
+  const identity = ui.composerIdentity;
+  if (!identity) return Promise.resolve();
+  if (identity.parentsPending) return identity.parentsPending;
+  const current = () => ui.composerIdentity === identity;
+  identity.parentsPending = (async () => {
+    try {
+      const data = await api('/api/input-parents');
+      if (!current()) return;
+      if (!Array.isArray(data.items)) throw new Error('父 Task 列表格式不兼容');
+      ui.composerParents = data.items; renderParentOptions();
+    } catch (error) { if (current()) show(`父 Task 列表读取失败：${error.message}`, 'error'); }
+    finally { identity.parentsPending = null; }
+  })();
+  return identity.parentsPending;
+}
 export function toggleComposerDetails(force) {
   ui.composerExpanded = force === undefined ? !ui.composerExpanded : Boolean(force);
   paintComposerDetails();
+  if (ui.composerExpanded) return loadComposerParents();
 }
-// 发送按钮只看当前输入框；草稿只能从各自的发送按钮提交。
-/** 输入框发送按钮与父 Task 下拉框共用：刷新时先按最新快照重建候选，再决定能不能发。 */
 export function syncComposer() {
   renderParentOptions();
-  const busy = Boolean(ui.composerSubmitting);
-  $('draft-commit').disabled = busy || !$('input').value.trim();
+  const disabled = Boolean(ui.composerSubmitting) || !$('input').value.trim();
+  $('draft-commit').disabled = disabled;
+  if ($('input-buffer')) $('input-buffer').disabled = disabled;
 }
-export async function buffer() {
-  const value = $('input').value.trim();
-  if (!value) return;
-  const references = composerReferences();
-  const signature = JSON.stringify(references);
-  await action('draft.add', { content: value, references });
-  if ($('input').value.trim() === value) $('input').value = '';
-  // 网络请求期间用户可能又引用了一项；只清掉实际随这条草稿提交的那一组。
-  if (JSON.stringify(composerReferences()) === signature) setComposerReferences([]);
+
+/** One flight across buffering, button submission and all keyboard shortcuts. */
+async function submitInput(mode) {
+  const input = $('input'), value = input.value, content = value.trim();
+  if (ui.composerSubmitting || !content) return;
+  const identity = ui.composerIdentity, editRevision = ui.composerEditRevision, view = ui.view;
+  const referenceRevision = ui.composerReferenceRevision;
+  const references = composerReferences(), signature = JSON.stringify(references);
+  const branch = $('input-parent').value.trim();
+  ui.composerSubmitting = true; syncComposer();
+  try {
+    if (branch && !ui.composerParents?.some(task => task.branch === branch)) throw new Error('所选父 Task 已不可用，请展开输入区重新选择。');
+    const params = { content, references, ...(branch ? { branch } : {}) };
+    const result = await action(mode === 'buffer' ? 'draft.add' : 'say.submit', mode === 'buffer' ? params : { ...params, start: mode === 'start' });
+    if (ui.composerIdentity !== identity) return;
+    // Never consume text or references authored while the request was in flight (even an edit-and-undo).
+    const untouched = ui.composerEditRevision === editRevision && input.value === value
+      && ui.composerReferenceRevision === referenceRevision && JSON.stringify(composerReferences()) === signature;
+    if (untouched) { input.value = ''; setComposerReferences([]); }
+    if (mode === 'buffer') {
+      show(`已暂存输入 #${result.id}，可到「历史输入」编辑或发射；未创建 Task、未调用 Agent。`);
+      ui.inputsPage?.added?.();
+    } else {
+      show(mode === 'start' ? `已创建并开始 Task #${result.task.id}` : `已创建 Task #${result.task.id}（待开始），可配置后开始`);
+      await refresh();
+      if (ui.composerIdentity === identity && ui.view === view) await detail(result.task.id);
+    }
+  } catch (error) { if (ui.composerIdentity === identity) show(error.message, 'error'); }
+  finally { if (ui.composerIdentity === identity) { ui.composerSubmitting = false; syncComposer(); } }
 }
-/** 接上输入框与操作按钮：Enter 换行；⌘/Ctrl+Enter 创建待开始任务；⌘/Ctrl+Shift+Enter 创建并立即运行。 */
+export function buffer() { return submitInput('buffer'); }
+
+/** Enter buffers; Shift+Enter inserts a newline; Ctrl/Meta shortcuts retain their existing meanings. */
 export function initComposer() {
-  $('draft-commit').setAttribute('data-help', agentHelp('发送后创建独立 Task；默认先停在「待开始」，可进任务里配置 Agent、模型与 Pi 环境变量再开始。⌘ / Ctrl+Shift+Enter 直接开始。'));
+  ui.composerIdentity = {}; ui.composerEditRevision = 0;
+  const sendHelp = agentHelp('发送后创建独立 Task；默认先停在「待开始」，可配置后开始。⌘ / Ctrl+Shift+Enter 直接开始。');
+  $('draft-commit').setAttribute('data-help', sendHelp);
+  $('input-send-help')?.setAttribute('data-help', sendHelp);
   renderComposerReferences();
   $('composer-expand').onclick = () => toggleComposerDetails();
+  if ($('input-buffer')) $('input-buffer').onclick = buffer;
   renderParentOptions();
-  // 父 Task 可能在展开态被改动：折叠回去时控件上要显示最新值。
-  $('input-parent').addEventListener('change', paintComposerDetails);
-  // 由快捷键决定的本次提交是否立即运行；发送按钮始终先建「待开始」。
-  $('input-form').onsubmit = async event => {
+  $('input-parent').onchange = paintComposerDetails;
+  $('input-form').onsubmit = event => { event.preventDefault(); return submitInput(ui.composerStartNow ? 'start' : 'create'); };
+  $('input').oninput = () => { ui.composerEditRevision++; syncComposer(); };
+  let composing = false;
+  $('input').oncompositionstart = () => { composing = true; };
+  $('input').oncompositionend = () => { composing = false; };
+  $('input').onkeydown = event => {
+    if (event.key !== 'Enter' || composing || event.isComposing || event.keyCode === 229) return;
+    if (event.altKey) return;
+    if (!event.metaKey && !event.ctrlKey && event.shiftKey) return;
     event.preventDefault();
-    if (ui.composerSubmitting) return;
-    const start = Boolean(ui.composerStartNow);
-    ui.composerSubmitting = true; syncComposer();
-    try {
-      const value = $('input').value.trim();
-      if (!value) return;
-      const references = composerReferences();
-      const signature = JSON.stringify(references);
-      const branch = $('input-parent').value.trim();
-      const result = await action('say.submit', { content: value, references, start, ...(branch ? { branch } : {}) });
-      if ($('input').value.trim() === value) $('input').value = '';
-      if (JSON.stringify(composerReferences()) === signature) setComposerReferences([]);
-      show(start ? `已创建并开始 Task #${result.task.id}` : `已创建 Task #${result.task.id}（待开始），可配置后开始；⌘ / Ctrl+Shift+Enter 可直接运行`);
-      await refresh(); await detail(result.task.id);
-    } catch (error) { show(error.message, 'error'); } finally { ui.composerSubmitting = false; syncComposer(); }
+    if (event.repeat) return;
+    if (!event.metaKey && !event.ctrlKey) return buffer();
+    return submitInput(event.shiftKey ? 'start' : 'create');
   };
-  $('input').addEventListener('input', syncComposer);
-  // Enter 换行；⌘/Ctrl+Enter 创建待开始任务；⌘/Ctrl+Shift+Enter 创建并立即运行。
-  $('input').addEventListener('keydown', event => {
-    if (event.key !== 'Enter' || event.isComposing) return;
-    if (!event.metaKey && !event.ctrlKey) return; // 普通 Enter 换行
-    event.preventDefault();
-    ui.composerStartNow = Boolean(event.shiftKey);
-    $('input-form').requestSubmit();
-    ui.composerStartNow = false;
-  });
+  syncComposer();
+  return loadComposerParents();
 }

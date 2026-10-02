@@ -24,8 +24,8 @@ test('输入区默认折叠，展开后才出现父 Task 与快捷键，折叠�
   expect(details.hidden).toBe(true);
   expect(shortcuts.hidden).toBe(true);
   expect(expand.getAttribute('aria-expanded')).toBe('false');
-  expect(expand.title).toContain('父 Task');
-  expect(expand.title).toContain('快捷键');
+  expect(expand.getAttribute('data-help')).toContain('父 Task');
+  expect(expand.getAttribute('data-help')).toContain('快捷键');
   // 折叠态仍能看见展开控件与已选父 Task 的痕迹。
   expect(expand.textContent).toContain('更多');
 
@@ -40,13 +40,13 @@ test('输入区默认折叠，展开后才出现父 Task 与快捷键，折叠�
   expect(shortcuts.hidden).toBe(true);
 
   // 选中父 Task 后，折叠态在展开控件上留下可见痕迹（避免不知情地提交到别的分支）。
-  // 候选来自输入框读的同一份快照；这里注入一个 main Task，再选它。
-  ui.lastSnapshot.tasks = [{ id: 1, task_kind: 'main', branch: 'main', status: 'waiting', goal: '管理 main 分支及子任务合并请求' }];
+  // 完整父候选读面独立于有界 overview。
+  world.state.inputParents = ui.composerParents = [{ id: 1, branch: 'main', goal: '管理 main 分支及子任务合并请求' }];
   renderParentOptions();
   dom.node('input-parent').value = 'main';
-  dom.node('input-parent').listeners.change[0]({});
+  dom.node('input-parent').onchange({});
   expect(expand.textContent).toContain('#1');
-  expect(expand.title).toContain('#1');
+  expect(expand.getAttribute('data-help')).toContain('#1');
 });
 
 test('引用卡片始终可见，1.5s 轮询不改变输入区折叠态', async () => {
@@ -66,8 +66,8 @@ test('⌘/Ctrl+Enter 创建待开始，⌘/Ctrl+Shift+Enter 直接运行', async
   const lastSend = () => [...world.state.actions].reverse().find(row => row.method === 'say.submit');
   const fire = async (shift, content) => {
     dom.node('input').value = content;
-    dom.node('input').listeners.input[0]({});
-    await dom.node('input').listeners.keydown[0]({ key: 'Enter', metaKey: true, shiftKey: shift, isComposing: false, preventDefault() {} });
+    dom.node('input').oninput({});
+    await dom.node('input').onkeydown({ key: 'Enter', metaKey: true, shiftKey: shift, isComposing: false, preventDefault() {} });
     await until(() => lastSend()?.params.content === content && !ui.composerSubmitting);
   };
   await fire(false, '先暂存的目标');

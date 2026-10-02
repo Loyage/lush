@@ -28,6 +28,8 @@ export const ui = {
   statisticsOpen: false, statisticsFilters: null,
   agentStatusPage: null, // 页面与查询身份；仅进入 Agent 状态和手动刷新时取数。
   versionsPage: null, // main 历史固定 tip、分页与请求身份；仅显式读取。
+  inputsPage: null, // 全库输入搜索、分页与本地编辑；不受 overview 轮询影响。
+  composerParents: [], composerIdentity: null, composerEditRevision: 0, composerReferenceRevision: 0,
   transcriptView: null,
   draftSignature: null,
   // 意图面板的重建哨兵：planner 状态、闸门、spec 计数、scheduler 进度变了才重画。
@@ -76,7 +78,8 @@ export const mergeSelection = new Set();
  * 上一个文件留下的哨兵（signature）会让新 DOM 上的第一次轮询直接 return，什么都不画。
  */
 export function resetUiState() {
-  ui.view = null;
+  ui.view = null; ui.inputsPage = null;
+  ui.composerParents = []; ui.composerIdentity = null; ui.composerEditRevision = 0; ui.composerReferenceRevision = 0;
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;
   ui.statisticsOpen = false; ui.statisticsFilters = null; ui.transcriptView = null; ui.agentStatusPage = null; ui.versionsPage = null;
   ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0; ui.indexOpen = null; ui.docsOpen = false; ui.docsQuery = ''; ui.settingsOpen = false;

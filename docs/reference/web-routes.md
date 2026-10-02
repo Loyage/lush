@@ -30,6 +30,9 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 |---|---|
 | `GET /api/snapshot` | 兼容快照读面；首页轮询走带 revision 的 `/api/overview` |
 | `GET /api/overview?revision=N` | 有界 Task 核心读模型（与 `/api/snapshot` 同源） |
+| `GET /api/inputs?cursor=&limit=&q=&status=&integration=` | 用户专属 `input.history`，全项目原始输入与未提交草稿搜索/筛选/分页，见[历史输入接口](../engineering/input-history.md) |
+| `GET /api/input/{kind}/{id}` | 用户专属 `input.get`，`kind` 为 `draft` / `input`，完整正文与引用 |
+| `GET /api/input-parents` | 用户专属 `input.parents`，完整可选父 Task 读面 |
 | `GET /api/tasks?scope=&before=&limit=` | `task.page`，有界任务分页，`scope` 为 `work` / `all` |
 | `GET /api/notices?status=&before=&limit=` | `notice.page`：全部类型事项与处理结果的按需分页；过滤掉旧 `plan` 类型；参数和留档语义见[待决问题](rpc/notices.md) |
 | `GET /api/graph` | 分支节点、fork 连线实时状态与任务关系（`graph.get`） |
@@ -63,6 +66,6 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 ## 用户动作
 
-`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`agent.usage.configure`、`system.configure`、`say.submit`、`task.spawn`、`task.message`、`task.auto_merge`、`task.reserve`、`task.reserve_all`、`task.accept`、`task.reopen`、`task.sync_parent`、`task.resolve_sync`、`task.resolve`、`task.resolve_divergence`、`task.unreserve`、`task.approve_merge`、`task.cancel`、`task.retry`、`task.interrupt`、`task.resume`、`task.configure`、`task.cleanup`、`notice.answer`、`notice.dismiss`、`notice.read`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。
+`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`agent.usage.configure`、`system.configure`、`say.submit`、`draft.add`、`draft.update`、`draft.remove`、`task.spawn`、`task.message`、`task.auto_merge`、`task.reserve`、`task.reserve_all`、`task.accept`、`task.reopen`、`task.sync_parent`、`task.resolve_sync`、`task.resolve`、`task.resolve_divergence`、`task.unreserve`、`task.approve_merge`、`task.cancel`、`task.retry`、`task.interrupt`、`task.resume`、`task.configure`、`task.cleanup`、`notice.answer`、`notice.dismiss`、`notice.read`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。
 
-任何不在上述白名单的写入（含已下线的草稿、Candidate 验收、托管模式、展示、介绍与旧合并入口）都不再提供 Web 操作。
+任何不在上述白名单的写入（含已下线的批量草稿提交、Candidate 验收、托管模式、展示、介绍与旧合并入口）都不再提供 Web 操作。

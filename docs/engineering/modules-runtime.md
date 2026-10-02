@@ -1,6 +1,6 @@
 # 模块地图：Runtime 与持久化
 
-本章列出 Agent 接缝、任务编排、Git 边界与 SQLite 模块。改签名或搬文件前先回到[模块地图总览](modules.md)确认公共面。公开面以[核心 API 收敛](core-api.md)与 `src/rpc/registry.js` 为准。**除任务中心主链与执行记录读面外，下面涉及 Candidate、草稿、快速路由、介绍、托管模式与旧一键合并的运行 / 存储行都是历史遗留实现**：文件仍在源码与测试里，但没有公开入口，只为读懂历史数据与后续清理而保留。
+本章列出 Agent 接缝、任务编排、Git 边界与 SQLite 模块。改签名或搬文件前先回到[模块地图总览](modules.md)确认公共面。公开面以[核心 API 收敛](core-api.md)与 `src/rpc/registry.js` 为准。**除任务中心主链、历史输入/缓冲区与执行记录读面外，下面涉及 Candidate、旧批量草稿、快速路由、介绍、托管模式与旧一键合并的运行 / 存储行都是历史遗留实现**：文件仍在源码与测试里，但没有公开入口，只为读懂历史数据与后续清理而保留。
 
 预约展示、效果展示与持续预览已整体删除：不再创建/调度展示 Task，不提供报告页或展示后合并捷径。旧 `tasks.showcase`、`branches.showcase_reservation` 与历史行只读保留；尚存的旧 detached worktree 受安全拒绝保护，不随普通分支归档删除。合并预约仅接受 `kind='merge'`。
 
@@ -67,7 +67,8 @@
 | `src/core/task-input-rule.js` | 仓库规则从固定 fork commit 读取、保存 Task 快照；可信子进程限时执行并校验输入分发结果（不传 Agent 凭证） | `readInputRule`、`saveInputRule`、`snapshotPath`、`decideTaskInput` |
 | `project/say.js` | 新 say 的父分支所有者解析、daemon 启动/main say 幂等建立静息根 Task与输入/草稿直接生成 Task（不触碰历史 planner 路径） | `bootstrapMain()`、`ensureMainTask()`、`bindBranch(branch,commit)`、`say(content?,branch?,references?,draftId?)`、`reserveTask(taskId,kind)`（同类 pending 重查并记录阶段性阻塞）、`reserveMergeAll(targetBranch)`（用户专属批量入口：把一条分支下所有已静息、待合并的 say/child 逐条交给同一套 `reserveTask` 准入，返回 requested / blocked / failed 逐条结果，不绕过任何单条校验）、`mergeReadiness(task)`（详情与 Task 图共用的只读执行/登记提交就绪投影，Git 准入仍由预约最终复核）、`reservationWaitReason(task)`、`settleReservedMerge(taskId)`（父分支有别人的交付锁时保持 pending 并记 `parent_locked`）、`unreserveTask(taskId)`（pending 可撤；已发出未集成的 merge 请求可撤——解除交付锁、不删分支与提交、另记 `task.request_withdrawn`）、`noteBranchAdvance(taskId)`（父分支自己提交后把失效请求记成 `parent_moved`）、`recheckRequestedMerge(taskId)` 与 `clearReservationBlocked(taskId)`（已发出请求的只读复查：`source_moved` / `contained` / `parent_moved` / 清掉过期诊断；重启恢复与 `task.reserve` 复查共用）、`approveReservedMerge(taskId,commit,baseline)`（固定提交已在父分支内时退化为幂等关闭）、`integrateChild(parentId,childId,commit)`（只有交付锁持有者能写锁住的父分支；确认解分歧子 Task 时额外要求它包含固定的源与父两个提交，并一并结算被修复的已完子任务）、`resolveSayDivergence(taskId)`（固定两端 tip，在活动 say 下挂 child、终态 say 下挂目标 owner 并以 `resolves_task_id` 关联源；受影响 Task 先冻结、runtime 验证后推进源分支；未集成的完成分支须用户显式归档后才可重派）、`requestCompletedMergeUnsafe(taskId)` / `pinSettledMergeRequest(task,parent,commit,baseline)`（仅供历史终态 say 的 version 1 解分歧收尾，不能从展示记录新建合并预约）、`finalizeTerminalDivergence(resolutionId)` / `scheduleTerminalDivergenceFinalize(resolutionId)` / `noteTerminalDivergenceFailure(resolution,status,error)`（兼容旧方法名：新 say/child 的独立解分歧子 Task 由 runtime 核验固定提交并收尾，失败保留现场；lifecycle 触发）、`resolveChildDivergence(parentId,childId)`（执行中的直接父 Agent 派解分歧子 Task；父本轮安全结束后由 runtime 核对固定提交并落地；父分支有交付锁时先拒）、`analyze(taskId,question)`（用户专属：在 main/owner 下建 `task_kind='analysis'` 只读分析子 Task，不建分支） |
 | `project/inputs.js` | 从用户指定父分支创建可推进输入分支、在其中规划；`inputs()` 的意图列表由 `inputs JOIN tasks` 内连接派生（任务那一半是输入自己的根 planner），所以根 planner 被 `task.delete` 删掉的输入行仍在库里，但不再出现在这个列表里 | `anchorInput(branch)`、`insertInput(inputId, anchor, content, attach, references)`、`createInput(content, attach, branch, references)`、`submit(content, branch, references)`、`inputs()` |
-| `project/drafts.js` | 输入缓存（增删改、结构化引用、逐条提交到指定父分支） | `draft`、`drafts`、`dropDraft`、`editDraft`、`submitDraft(id, branch)`（单条 say）、`commitDrafts(ids, branch)`（旧批量入口） |
+| `project/input-history.js` | 新公开历史输入读写、完整父候选、稳定父身份与草稿乐观锁；不运行旧 planner，详情见[历史输入接口](input-history.md) | `inputHistory()`、`inputGet()`、`inputParents()`、`inputParent()`、`assertInputParent()`、`addBufferedDraft()`、`updateBufferedDraft()`、`removeBufferedDraft()`、`submitBufferedDraft()` |
+| `project/drafts.js` | 历史内部输入缓存实现（公开缓冲区改由 `input-history.js` 接管，不重新开放旧批量提交） | `draft`、`drafts`、`dropDraft`、`editDraft`、`submitDraft(id, branch)`（单条 say）、`commitDrafts(ids, branch)`（旧批量入口） |
 | `project/references.js` | Input / Draft 的结构化上下文引用：校验、持久化与 invocation 时实时解析 | `normalizeReferences(references)`、`referencesForInput(inputId)`、`resolveInputReferences(inputId)` |
 | `project/specs.js` | 结构化 Plan 与确定性编译入口；新路径不创建 scheduler agent | `compilePlans()`、兼容别名 `ensureScheduler()`、`addSpec(plannerTaskId, spec)`、`dropSpec(specId, note, actor)` |
 | `project/plans.js` | 计划审批闸门 | `proposePlan`、`approvePlan`、`rejectPlan`、`planForApproval` |
@@ -105,7 +106,7 @@
 |---|---|---|
 | `workspaces/base.js` | 构造与串行队列状态（`queue` / `pending` / `busy` / `namespace`） | `class WorkspacesBase` |
 | `workspaces/git.js` | Git 原语与串行队列（无 shell 插值） | `exclusive`、`git`、`gitOutput`、`porcelain`、`clean`、`isAncestor`、`merging`、`unmerged`、`workspaceForBranch`、`checkedOut` |
-| `workspaces/worktree.js` | worktree / 对照检出 / 可推进输入分支的创建与回收；新 child 在 spawn 时从父分支当时 tip 建 worktree；`task_kind='analysis'` 创建时从固定父提交做只读分离检出 | `forkTaskUnsafe(task,parentBranch,commit)`、`anchor(inputId, requestedBranch)`、`dropAnchor(anchor)`、`releaseAnchor(anchor)`、`reclaimAnchors(anchors)`、`inputAnchor(task)`、`ensure(task)`、`finish(task)`、`codeBase(task)`、`removeBaseline(taskId)` |
+| `workspaces/worktree.js` | worktree / 对照检出 / 可推进输入分支的创建与回收；新 child 在 spawn 时从父分支当时 tip 建 worktree；`anchor` 创建失败时清理本次自建锚点，不删除用户已有工作区；`task_kind='analysis'` 创建时从固定父提交做只读分离检出 | `forkTaskUnsafe(task,parentBranch,commit)`、`anchor(inputId, requestedBranch)`、`dropAnchor(anchor)`、`releaseAnchor(anchor)`、`reclaimAnchors(anchors)`、`inputAnchor(task)`、`ensure(task)`、`finish(task)`、`codeBase(task)`、`removeBaseline(taskId)` |
 | `workspaces/safety.js` | 通用 Git 安全原语：固定提交树有界缓存，分支工作区洁净与 Git 中间态校验；供合并/同步使用 | `commitTree`、`assertCleanBranches` |
 | `workspaces/code.js` | 有界代码状态、目录/路径检索和单文件正文/diff；task/iteration/working 基线，采样 revision、脏状态与净变化分离，归档仅原始对象可读时降级；每实例至多 4 个并发读取 | `codeState(task,options)`、`codeTree(task,options)`、`codeFile(task,options)` |
 | `workspaces/code-io.js` | 参数/路径校验、有界子进程、隔离 Git 配置与只读对象/index、可信 worktree 校验；POSIX 描述符逐组件不跟随链接读取；链接元信息基于链接文本，不读取目标 | `LIMITS`、`CodeReadError`、`options`、`relativePath`、`integer`、`runGit`、`isolatedGit`、`fileHandle`、`readWorkspace`、`signature`、`hash`、`internal`、`compare`、`kindOfMode` |
@@ -128,6 +129,7 @@
 | `store/messages.js` | 收件箱 | `message`、`signal`（有键去重的 Task 信号）、`unread` |
 | `store/events.js` | 审计事件；保留旧正向历史，并提供从最近记录向前翻页的游标页；事件只带 `message_id` 时一并附上被引用的消息正文（`event.message`） | `event`（返回新增 ID）、`history`、`historyPage` |
 | `store/verification.js` | 检验与解冲突的关联读模型 | `verifications`、`activeVerification`、`resolutions`、`activeResolver`、`unlandedResolver`、`conflictsOn` |
+| `store/input-history.js` | 原始输入/未提交草稿的服务端搜索、分页与状态投影；缺失关联 Task 不丢历史 | `inputHistoryRows()`、`inputHistoryItem()` |
 | `store/drafts.js` | 输入缓存 | `addDraft`、`draft`、`updateDraft`、`openDrafts`、`draftCount` |
 | `store/references.js` | Input / Draft 的引用元数据（不是新的业务实体） | `setDraftReferences`、`draftReferences`、`setInputReferences`、`inputReferences`、`referencesForDrafts` |
 | `store/agent-usage.js` | SQLite 附属查询/指标/采样表的安全投影、去重、旧成功值、到期清理及覆盖所选全范围的有界代表点抽样；超出预算明确 truncated，不冒充完整历史 | `recordAgentUsage()`、`lastAgentUsageSuccess()`、`pruneAgentUsage()`、`readAgentUsageHistory()` |

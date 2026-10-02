@@ -4,7 +4,9 @@
 
 ## 发送与执行
 
-1. `lush say '目标'` 立即提交这一条输入；Web「发送」也只发送当前输入。输入保留原话和引用，直接创建拥有独立分支、worktree 的 say Task，**不先运行 planner、快速路由或 Plan Compiler**。
+Web 中尚未决定执行的想法可先按 Enter 暂存，Shift+Enter 换行；暂存不创建 Task、不调用 Agent。在「历史输入」中可搜索原始指令、编辑暂存并逐条发射，见[历史输入与暂存](input-history.md)。
+
+1. `lush say '目标'` 立即提交并开始这一条输入；Web「发送」或 Ctrl/⌘+Enter 只发送当前输入并创建待开始 Task，Ctrl/⌘+Shift+Enter 才立即开始。输入保留原话和引用，直接创建拥有独立分支、worktree 的 say Task，**不先运行 planner、快速路由或 Plan Compiler**。
 2. 默认以当前检出的本地分支为父分支；Web 可选父分支。main 有静息的根 Task，其他分支必须先显式绑定所有者（`lush branch bind BRANCH COMMIT`）。从父分支的已提交 tip 创建工作区；未提交改动不会被带入。
 3. say Agent 可亲自完成，也可派子 Task。子 Task 各有自己的分支；新 child 默认预约合入直接父 Task。安全结束、后代收敛、工作区干净且有提交时，由父 Task 自有队列的 runtime 串行 Squash，不额外调用父 Agent；无提交的干净 child 只交付结果，不产生合并提交。分歧回源 Task 合入固定父提交并测试，不允许 Agent 在父分支擅自解决或 rebase。
 4. Agent 每轮返回后，say Task 通常静息等待下一条消息或子任务结果；`waiting` 不占调用槽，也不表示失败或代码已合并。直接问问题也走 say worktree。只想了解、没有代码改动的回答可用用户专属 `lush task resolve ID` 标记「已解决」：保留答案并以 `completed` 结算，区别于「取消」。

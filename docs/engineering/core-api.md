@@ -5,6 +5,7 @@
 ## 核心工作流
 
 - `say.submit`：一条用户输入创建一个有独立分支/worktree 的 say Task。`start:false`（Web 主发送默认）只创建为 `paused`（Web 显示「待开始」）且不调用 Agent；`start:true`（缺省）立即排队运行。main 自动确立静息 owner；其它现有本地分支须先 `branch.bind` 固定 HEAD。
+- `input.history` / `input.get` / `input.parents` 与 `draft.add` / `draft.update` / `draft.remove`：用户专属历史输入与持久缓冲区；草稿通过 `say.submit {draft_id,expected_revision,start?}` 发射，不恢复旧 planner 或批量提交。字段、版本检查与分页见[历史输入接口](input-history.md)。
 - `task.spawn`：只可在活动 say/child 下派 agent 子 Task；不再接受 role、deps 或 spec。
 - `task.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。
 - `branch.history {cursor?,limit?}`：用户专属只读 main 第一父链历史与精确交付 Task / 原始 say 追溯；Web `GET /api/versions`，不新增 CLI 写入口，见 [版本迭代](version-history.md)。
@@ -19,8 +20,8 @@
 
 ## 移除与磁盘边界
 
-Intent / Plan / Candidate、草稿、快速路由、展示、解释、托管、旧合并编排与旧任务创建不再有公开 RPC、CLI 或 Web 操作入口。旧行、会话与工作区不迁移、不删；旧排队任务和预约不会自动启动或重放。已有历史记录可能不能由新版本继续收尾。内部旧实现及旧测试尚未全部移除，不能把公开白名单当作已完成的物理删码证明。
+Intent / Plan / Candidate、旧批量草稿提交、快速路由、展示、解释、托管、旧合并编排与旧任务创建不再有公开 RPC、CLI 或 Web 操作入口。旧行、会话与工作区不迁移、不删；旧排队任务和预约不会自动启动或重放。已有历史记录可能不能由新版本继续收尾。内部旧实现及旧测试尚未全部移除，不能把公开白名单当作已完成的物理删码证明。
 
-Web 保留原 Studio 的项目选择、侧栏、Task 图、任务详情、执行过程、设置与文档布局；概览改按 Task 展示。旧 Intent/Plan、草稿、展示、解释、托管和自动合并的操作入口不再显示。`/api/overview` 与 `/api/snapshot` 返回同一份有界的 Task 核心读模型；`/api/docs` 仍只读随代码发布的文档。
+Web 保留原 Studio 的项目选择、侧栏、Task 图、任务详情、执行过程、设置与文档布局；概览改按 Task 展示。旧 Intent/Plan、批量草稿、展示、解释与托管入口不再显示；新的「历史输入」与缓冲区只接当前 say 路径。`/api/overview` 与 `/api/snapshot` 返回同一份有界的 Task 核心读模型；`/api/docs` 仍只读随代码发布的文档。
 
 变更 API 时必须同步 RPC 参数与权限表、Web 写白名单和只读路由、CLI 帮助、Agent 提示词及新的 Task 中心测试；不能仅隐藏 UI 按钮。

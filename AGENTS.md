@@ -18,9 +18,7 @@ bun run test
 bun run start                   # 只启动所选项目；已有 daemon 不会换版本
 bun run daemon-restart          # 运行代码、提示词或配置变更后重启
 bun run say '输入'              # 立即提交单条输入，不等开发完成
-bun run draft add '输入'        # 只写缓存，不规划；按回车逐条攒
-bun run drafts                  # 看缓存里有什么
-bun run draft commit            # 缓存整体交给一个 planner：拆任务 + 建依赖
+# Web 主输入 Enter 暂存；“历史输入”编辑/逐条发射。旧 draft CLI 不再注册。
 bun run tree
 bun run inspect 3
 bun run host                     # 后台启动全局 Web 项目选择器；自动恢复上次项目并启动/连接 daemon
@@ -56,7 +54,7 @@ bun run stop
 
 ## 模块
 
-修改模块前必须先读 `docs/design/README.md` 中的对应设计理念；执行记录、工具渲染、检索与选区解释必须先读 `docs/design/agent-process.md`；引用、选区引用、引用卡片定位与快照/现状取舍必须先读 `docs/design/references.md`；改 Web 按钮文案、图标、样式，或新增会调用 Agent 的按钮前，必须先读 `docs/design/ui-guidance.md`——所有会调用 Agent 的按钮必须带 `agent-call` 紫色标识与 `agentHelp` 提示，含义不直观的按钮必须带 `data-help`，禁用按钮用外层 `.help-host` 承载。理念指导取舍，模块地图规定职责与接口，不得只看功能清单而忽略用户目标。
+修改模块前必须先读 `docs/design/README.md` 中的对应设计理念；执行记录、工具渲染、检索与选区解释必须先读 `docs/design/agent-process.md`；引用、选区引用、引用卡片定位与快照/现状取舍必须先读 `docs/design/references.md`；改 Web 按钮文案、图标、样式，或新增会调用 Agent 的按钮前，必须先读 `docs/design/ui-guidance.md`——所有会调用 Agent 的按钮必须带 `agent-call` 紫色标识与 `agentHelp` 提示，含义不直观的按钮必须带 `data-help`，禁用按钮用外层 `.help-host` 承载。修改输入框、暂存、历史输入检索与状态投影前，必须先读 `docs/design/input-history.md`。理念指导取舍，模块地图规定职责与接口，不得只看功能清单而忽略用户目标。
 
 - `src/config.js`：项目发现与不可变绑定。
 - `src/persistence/store.js`：SQLite 事实来源。

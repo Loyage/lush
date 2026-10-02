@@ -26,8 +26,9 @@ function assetFile(pathname) {
   if (!ASSET_NAME.test(name) || !ASSET_EXTENSIONS.has(path.extname(name))) return null;
   return path.join(ASSETS, name);
 }
-const MUTATIONS = new Set(['agent.configure','agent.environment.configure','agent.usage.configure','system.configure','say.submit','task.spawn','task.message','task.auto_merge','task.reserve','task.reserve_all','task.resolve','task.accept','task.reopen','task.sync_parent','task.resolve_sync','task.resolve_divergence','task.unreserve','task.approve_merge','task.cancel','task.retry','task.interrupt','task.resume','task.configure','task.cleanup','notice.answer','notice.dismiss','notice.read','branch.archive']);
-const CORE_READS = new Set(['/api/overview','/api/snapshot','/api/tasks','/api/notices','/api/task-graph','/api/versions','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/environment','/api/docs','/api/docs/search-index']);
+const MUTATIONS = new Set(['agent.configure','agent.environment.configure','agent.usage.configure','system.configure','say.submit','draft.add','draft.update','draft.remove','task.spawn','task.message','task.auto_merge','task.reserve','task.reserve_all','task.resolve','task.accept','task.reopen','task.sync_parent','task.resolve_sync','task.resolve_divergence','task.unreserve','task.approve_merge','task.cancel','task.retry','task.interrupt','task.resume','task.configure','task.cleanup','notice.answer','notice.dismiss','notice.read','branch.archive']);
+const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
+const CORE_READS = new Set(['/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/tasks','/api/notices','/api/task-graph','/api/versions','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/environment','/api/docs','/api/docs/search-index']);
 const CORE_TASK_READ = /^\/api\/task\/\d+(?:\/(?:history|history-page|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的任务读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/task\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
@@ -267,7 +268,7 @@ export function startWeb(config, port = 4318, options = {}) {
           return json(await restartProjectDaemon(binding.config));
         }
         if (request.method === 'GET') {
-          if (url.pathname.startsWith('/api/') && !CORE_READS.has(url.pathname) && !CORE_TASK_READ.test(url.pathname) && !CORE_NOTICE_PREVIEW.test(url.pathname) && !CORE_DOC_READ.test(url.pathname))
+          if (url.pathname.startsWith('/api/') && !CORE_READS.has(url.pathname) && !CORE_TASK_READ.test(url.pathname) && !CORE_INPUT_READ.test(url.pathname) && !CORE_NOTICE_PREVIEW.test(url.pathname) && !CORE_DOC_READ.test(url.pathname))
             return json({ error: 'not found' }, 404);
           if (url.pathname === '/api/sleep') return json(await client.request('sleep.status'));
           if (url.pathname === '/api/sleep/choices') return json(await client.request('sleep.choices', {
@@ -286,6 +287,23 @@ export function startWeb(config, port = 4318, options = {}) {
               limit: Number(url.searchParams.get('limit') ?? 30),
             });
             return json({ ...page, notices: page.notices.filter(notice => notice.kind !== 'plan') });
+          }
+          if (url.pathname === '/api/inputs') {
+            const params = {};
+            for (const [key, value] of url.searchParams) {
+              check(['cursor','limit','q','status','integration'].includes(key) && !(key in params), 'unknown or duplicate input history query parameter');
+              params[key] = key === 'limit' ? Number(value) : value;
+            }
+            return json(await client.request('input.history', params));
+          }
+          if (url.pathname === '/api/input-parents') {
+            check(!url.search, 'input parents accepts no query parameters');
+            return json(await client.request('input.parents'));
+          }
+          const input = CORE_INPUT_READ.exec(url.pathname);
+          if (input) {
+            check(!url.search, 'input detail accepts no query parameters');
+            return json(await client.request('input.get', { kind: input[1], id: id(input[2]) }));
           }
           if (url.pathname === '/api/tasks') return json(await client.request('task.page', {
             scope: url.searchParams.get('scope') ?? 'work',

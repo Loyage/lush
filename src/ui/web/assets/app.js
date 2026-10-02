@@ -11,6 +11,7 @@ import { openTaskGraph } from './render-task-graph.js';
 import { openSettings } from './render-settings.js';
 import { openAgentStatus } from './render-agent-status.js';
 import { openVersions } from './render-versions.js';
+import { openInputs } from './render-inputs.js';
 import { initSidebar } from './sidebar-init.js';
 import { openResource, paintCollapsed } from './sidebar-ui.js';
 import { resetUiState, ui } from './state.js';
@@ -65,6 +66,7 @@ function onHashChange() {
   if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
   if (location.hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
   if (location.hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();
+  if (location.hash === '#inputs') return ui.view?.id === 'inputs' ? undefined : openInputs();
   if (location.hash === '#task-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
   const noticeId = /^#notice-([1-9]\d*)$/.exec(location.hash)?.[1];
   if (noticeId && Number.isSafeInteger(Number(noticeId))) return openNotice(Number(noticeId)).catch(report);
@@ -118,7 +120,7 @@ export async function boot() {
   addEventListener('visibilitychange', projectVisibilityListener);
   initContextReferences();
   initHelp();                                    // 统一按钮帮助提示（document 级委托，可重复装配）
-  initComposer();
+  const composerReady = initComposer();
   // 平级页面共享切换接缝；品牌回概览。入口返回 promise，测试可等到画完。
   const goOverview = () => overview().catch(error => { show(error.message, 'error'); });
   $('home').onclick = goOverview;
@@ -126,6 +128,8 @@ export async function boot() {
   $('settings-open').onclick = () => openSettings();
   if ($('agent-status-open')) $('agent-status-open').onclick = () => openAgentStatus();
   if ($('versions-open')) $('versions-open').onclick = () => openVersions();
+  if ($('inputs-open')) $('inputs-open').onclick = () => openInputs();
+  if ($('input-history')) $('input-history').onclick = () => openInputs();
   $('sidebar-toggle').onclick = () => {
     const open = $('sidebar').classList.toggle('mobile-open');
     $('sidebar-toggle').setAttribute('aria-expanded', String(open));
@@ -146,6 +150,7 @@ export async function boot() {
   const initialView = onHashChange();
   await refresh();
   await initialView;
+  await composerReady;
   // 深链接设置页可能先于概览摘要到达；摘要就绪后补画配置与系统信息。
   if (ui.settingsOpen) openSettings();
   startTimers();

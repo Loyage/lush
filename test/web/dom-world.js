@@ -108,6 +108,7 @@ export function makeWorld() {
     },
     // 概览打开时不该每 1.5s 打一遍 git：/api/graph 的取数次数记在这里，供测试断言。
     graphFetches: 0,
+    inputParents: [],
     drafts: [],
     commits: [],
     // explanation.start 的返回与 /api/explanation/:id 读取。
@@ -205,6 +206,7 @@ export function makeWorld() {
     const path = String(url);
     const json = data => ({ ok: true, status: 200, json: async () => data });
     if (path === '/api/snapshot') return json(snapshot());
+    if (path === '/api/input-parents') return json({ items: state.inputParents });
     if (path === '/api/agent/usage/config') return json(state.agentUsageConfig);
     if (path.startsWith('/api/agent/usage/history?')) return json(state.agentUsageHistory);
     if (path === '/api/agent/status') return json({ version: 1, agent: 'pi', checked_at: iso(NOW), usage_config: state.agentUsageConfig,

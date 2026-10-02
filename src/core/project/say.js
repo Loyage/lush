@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readInputRule, saveInputRule, snapshotPath } from '../task-input-rule.js';
 import { forkCheckpoint } from '../../agent/fork.js';
+import { checkDraftRevision } from './input-history.js';
 
 function storedReservation(raw) {
   if (raw === null) return null;
@@ -860,17 +861,23 @@ export default {
   },
 
   /** Every new say is one Input and one branch-owning Task, regardless of whether it writes code. */
-  say(content = undefined, branch = null, references = [], draftId = null, start = true) {
-    return this.write('send this say', () => this.sendSay(content, branch, references, draftId, start));
+  say(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined) {
+    return this.write('send this say', () => this.sendSay(content, branch, references, draftId, start, expectedRevision));
   },
 
   /** The body of say(); runs under the clear gate so an anchor created before a clear cannot commit after its purge. */
-  async sendSay(content = undefined, branch = null, references = [], draftId = null, start = true) {
+  async sendSay(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined) {
     let draft = null, draftReferences = null;
+    const buffered = expectedRevision !== undefined;
     if (draftId !== null && draftId !== undefined) {
       check(content === undefined && references.length === 0, 'draft_id cannot be combined with content or references');
       draft = this.store.draft(id(draftId));
       check(draft.input_id === null, `draft ${draft.id} was already submitted as input ${draft.input_id}`);
+      if (buffered) {
+        checkDraftRevision(draft, expectedRevision);
+        check(draft.parent_id !== null, 'legacy draft has no saved parent Task; edit it and explicitly select a parent before sending');
+        branch = this.assertInputParent(draft.parent_id).branch;
+      }
       draftReferences = this.store.draftReferences(draft.id);
       content = draft.content;
       references = draftReferences;
@@ -885,6 +892,7 @@ export default {
     const owner = this.store.all("SELECT * FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say') ORDER BY id", target);
     check(owner.length === 1, `branch ${target} needs exactly one explicitly bound Task before say`);
     const parent = owner[0];
+    if (buffered) check(parent.id === draft.parent_id, 'saved parent Task changed; edit the draft before sending');
     assertTaskNotSyncing(this, parent.id);
     check(!TERMINAL.has(parent.status), `parent task #${parent.id} has ended; select an active parent Task`);
     assertTaskAncestorsOpen(this, parent);
@@ -899,6 +907,7 @@ export default {
       this.assertWritable('send this say');
       const result = this.store.transaction(() => {
         const current = this.store.task(parent.id);
+        if (buffered) this.assertInputParent(draft.parent_id, target);
         check(!TERMINAL.has(current.status) && current.branch === target, 'parent task changed while creating the worktree');
         assertTaskAncestorsOpen(this, current);
         assertTaskNotSyncing(this, current.id);
@@ -909,6 +918,10 @@ export default {
         }
         if (draft) {
           const live = this.store.draft(draft.id);
+          if (buffered) {
+            checkDraftRevision(live, expectedRevision);
+            check(live.parent_id === draft.parent_id, 'draft parent changed while being submitted');
+          }
           check(live.input_id === null && live.content === draft.content
             && JSON.stringify(this.store.draftReferences(draft.id)) === JSON.stringify(draftReferences),
             `draft ${draft.id} changed while being submitted; retry with its latest contents`);

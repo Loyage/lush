@@ -342,12 +342,12 @@ test('child branch drift rejects the fixed commit without moving the parent', as
   } finally { await f.close(); }
 });
 
-test('say.submit is user-only and the legacy input.submit / draft_id paths are gone', async () => {
+test('say.submit is user-only and the legacy input.submit path remains closed', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const dispatcher = new Dispatcher(f.project);
-    // 旧 input.submit 与 say --draft 的 draft_id 参数都已下线：公开面只剩 say.submit 的 content/branch/references。
-    await expect(dispatcher.dispatch('say.submit', { content: 'x', draft_id: 1 })).rejects.toThrow('unknown parameter');
+    // Buffered draft submission cannot override the saved body or ownership.
+    await expect(dispatcher.dispatch('say.submit', { content: 'x', draft_id: 1 })).rejects.toThrow('cannot be combined');
     await expect(dispatcher.dispatch('input.submit', { content: 'legacy request' })).rejects.toThrow('unknown method');
     const sent = await dispatcher.dispatch('say.submit', { content: 'new request' });
     expect(sent.task.task_kind).toBe('say');
