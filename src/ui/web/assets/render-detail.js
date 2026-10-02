@@ -9,6 +9,7 @@ import { show } from './messages.js';
 import { detail, overview } from './navigate.js';
 import { renderAgent } from './render-agent.js';
 import { renderResults } from './render-results.js';
+import { renderGoal } from './render-goal.js';
 import { renderDiff } from './render-diff.js';
 import { deliveryControls } from './render-delivery.js';
 import { guardedAction, iterationBlocker, iterationControls } from './render-iteration.js';
@@ -63,6 +64,7 @@ export function renderDetail(task, history, diff, usage) {
   const panel = $('detail');
   const sameTask = panel.dataset.taskId === String(task.id);
   const previousResult = sameTask ? panel.querySelector('.result-panel') : null;
+  const previousGoal = sameTask ? panel.querySelector('.goal-panel') : null;
   const previousMessages = new Map(sameTask ? [...panel.querySelectorAll('.task-message')].map(node => [node.dataset.messageId, node]) : []);
   panel.dataset.view = 'task'; panel.dataset.taskId = String(task.id); panel.replaceChildren();
   referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `任务 #${task.id}`,
@@ -245,11 +247,8 @@ export function renderDetail(task, history, diff, usage) {
   if (delivery) panel.append(delivery);
 
   // 结果与失败原因优先于调用次数、目录等底层元数据。完整目标（goal）以 Markdown 正文排在结果之前。
-  if (task.goal) {
-    const goal = block('任务目标'); goal.classList.add('goal-panel');
-    goal.append(agentText(task.goal, { className: 'goal-text', plain: 'div' }));
-    panel.append(goal);
-  }
+  const goal = renderGoal(task, history, previousGoal);
+  if (goal) panel.append(goal);
   const endedAt = [...(task.runs || [])].reverse().find(run => run.ended_at)?.ended_at ?? task.updated_at;
   const progress = renderTaskProgress(task.progress, { status: task.status, endedAt });
   if (progress) panel.append(progress);
