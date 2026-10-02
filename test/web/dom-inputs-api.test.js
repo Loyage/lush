@@ -13,7 +13,7 @@ const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js
 const { setComposerReferences } = await import('../../src/ui/web/assets/context-references.js');
 afterAll(() => dom.restore());
 const root = () => dom.node('detail');
-const btn = (label, host = root()) => host.querySelectorAll('button').find(node => node.textContent === label);
+const btn = (label, host = root()) => host.querySelectorAll('button').find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
 
 test('真实 API 串联：Enter 暂存、空筛选/正文检索、保存修订与仅创建、原文引用只读', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
@@ -47,6 +47,7 @@ test('真实 API 串联：Enter 暂存、空筛选/正文检索、保存修订�
     expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='say'")[0].status).toBe('paused');
     expect(root().querySelectorAll('.input-record')).toHaveLength(1);
     expect(root().querySelector('.input-record').dataset.input).toMatch(/^input:/);
+    await btn('← 返回历史输入').onclick();
     await btn('查看原文').onclick();
     expect(panel.querySelector('textarea')).toBe(null); expect(deepText(panel)).toContain('已保存的最终输入');
     expect(deepText(panel)).toContain('引用快照'); expect(deepText(panel)).toContain('捕获时所见');

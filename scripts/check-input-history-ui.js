@@ -9,7 +9,9 @@ import { makeWorld } from '/fixture-world.js';
 const world=makeWorld();world.state.inputParents=[{id:1,branch:'main',goal:'主干 Task'},{id:800,branch:'feature/old',goal:'不在 overview 中的旧父 Task'}];
 const base={created_at:'2026-10-02T00:00:00Z',parent_id:1,branch:'main',integration:'none',merge_status:'none',references:[],content_truncated:false};
 window.rows=[{...base,kind:'draft',id:1,content:'尚未实施的想法\\n可以随时编辑',task_id:null,status:'draft',revision:1},
- {...base,kind:'input',id:2,content:'原始输入 <img src=x onerror=alert(1)>',task_id:1,status:'awaiting_acceptance',integration:'merged',merge_status:'merged',revision:null}];
+ {...base,kind:'input',id:2,content:'原始输入 <img src=x onerror=alert(1)>\\n'+('多行很长的原始输入内容\\n'.repeat(100)),content_truncated:true,task_id:1,status:'awaiting_acceptance',integration:'merged',merge_status:'merged',revision:null},
+ {...base,kind:'input',id:3,content:'',task_id:null,status:'unknown',merge_status:'none',revision:null},
+ {...base,kind:'input',id:4,content:'X'.repeat(1000),task_id:1,status:'created',merge_status:'blocked',revision:null}];
 window.calls=[];window.delayMutation=false;window.hold=null;
 window.fetch=async(url,options={})=>{
  const path=new URL(url,location.href).pathname;const json=data=>({ok:true,json:async()=>structuredClone(data)});
@@ -57,6 +59,9 @@ async function rpc(path, body, method = 'POST') {
   const data = JSON.parse(response.text); if (response.status >= 400) throw new Error(JSON.stringify(data)); return data.value;
 }
 const execute = script => rpc(`/session/${session}/execute/sync`, { script, args: [] });
+const setTheme = theme => rpc(`/session/${session}/execute/async`, {
+  script: `const done=arguments[0];import('/prefs.js').then(({setPref})=>{setPref('theme','${theme}');requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>done(true),250)));});`, args: [],
+});
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 const waitFor = expression => rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0];let n=0;const check=()=>(${expression})?done(true):++n>150?done(false):setTimeout(check,20);check();`, args: [] });
 async function click(selector) {
@@ -78,12 +83,35 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/#inputs` });
-  assert(await waitFor('window.ready && document.querySelectorAll(".input-record").length===2'), 'app/history did not load');
-  await click('.input-record button');
-  assert(await waitFor('document.querySelector(".input-detail textarea")'), 'editor did not load');
+  assert(await waitFor('window.ready && document.querySelectorAll(".input-record").length===4'), 'app/history did not load');
   for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [900, 700], [390, 844]]) {
     await rpc(`/session/${session}/window/rect`, { width, height });
-    await execute(`document.documentElement.dataset.theme='${theme}'`);
+    await setTheme(theme);
+    const layout = await execute(`const rows=[...document.querySelectorAll('.input-row')];return {viewport:innerWidth,
+      overflow:document.documentElement.scrollWidth>innerWidth+1,
+      heights:rows.map(n=>n.getBoundingClientRect().height),
+      clipped:rows.some(n=>n.scrollWidth>n.clientWidth+1),
+      previewScrollers:rows.some(n=>getComputedStyle(n.querySelector('.input-preview')).overflowY==='auto'),
+      buttons:rows.map(n=>n.querySelectorAll('button').length),
+      badgesFit:rows.every(n=>[...n.querySelectorAll('.badge')].every(b=>b.getBoundingClientRect().right<=n.getBoundingClientRect().right-8))};`);
+    assert(!layout.overflow && !layout.clipped && !layout.previewScrollers && layout.badgesFit, `list overflow ${theme} ${width}: ${JSON.stringify(layout)}`);
+    assert(layout.heights.every(h=>Math.abs(h-layout.heights[0])<0.1) && layout.buttons.every(n=>n===0), `rows are not equal-height/native buttons: ${JSON.stringify(layout)}`);
+    console.log(`PASS equal-height input rows ${theme} ${layout.viewport}px viewport: ${layout.heights.join('/')}px`);
+  }
+  await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
+  await setTheme('light');
+  const listScreenshot = (process.argv[2] || '/tmp/lush-input-history-ui.png').replace(/\.png$/, '-list.png');
+  await Bun.write(listScreenshot, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
+  await click('.input-record button');
+  assert(await waitFor('document.querySelector(".input-detail textarea")'), 'editor did not load');
+  assert(await execute(`return document.querySelector('.inputs-browse').hidden && !document.querySelector('.input-detail-view').hidden && location.hash==='#input-draft-1';`), 'detail did not replace list');
+  await rpc(`/session/${session}/back`, {});
+  assert(await waitFor('!document.querySelector(".inputs-browse").hidden && location.hash==="#inputs"'), 'browser back did not restore list');
+  await click('.input-record button');
+  assert(await waitFor('!document.querySelector(".input-detail").hidden'), 'cached editor did not reopen');
+  for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [900, 700], [390, 844]]) {
+    await rpc(`/session/${session}/window/rect`, { width, height });
+    await setTheme(theme);
     const layout = await execute(`const panel=document.querySelector('.input-detail'),box=panel.querySelector('textarea'),composer=document.querySelector('.composer');
       return {viewport:innerWidth,pageOverflow:document.documentElement.scrollWidth>innerWidth+1,editorWidth:box.getBoundingClientRect().width,
       detailOverflow:panel.scrollWidth>panel.clientWidth+1,composerOverflow:composer.scrollWidth>composer.clientWidth+1,
@@ -115,7 +143,7 @@ try {
   await execute(`document.querySelector('#input').value='';document.querySelector('#input').dispatchEvent(new Event('input'));`);
   const screenshot = process.argv[2] || '/tmp/lush-input-history-ui.png';
   await Bun.write(screenshot, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
-  console.log(`PASS real keyboard buffering/newline, duplicate/in-flight preservation, Agent help and edit/fire; screenshot: ${screenshot}`);
+  console.log(`PASS independent detail/browser back, real keyboard buffering/newline, duplicate/in-flight preservation, Agent help and edit/fire; screenshots: ${listScreenshot}, ${screenshot}`);
   passed = true;
 } catch (error) { console.error(`Browser check failed; complete geckodriver log: ${log}`); throw error; }
 finally {

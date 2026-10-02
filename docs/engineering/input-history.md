@@ -49,12 +49,14 @@
 
 前端显式查询与刷新历史，不随 overview 重画编辑内容；所有异步响应核对页面身份，失败保留编辑，发射按钮单飞。CLI 不恢复旧 draft 命令，也不新增批量提交。
 
+列表复用资源页的页头、筛选容器与卡片样式，条目等高，仅显示两行正文摘要、编号/时间和独立任务/合并徽章。整条使用原生 button 进入详情，列表不内嵌 Task 跳转、引用或草稿操作。`#inputs` 是列表；`#input-draft-<id>` / `#input-input-<id>` 是可直接打开的独立详情，仍归属 `ui.view.id='inputs'`。`openInputs({item?:{kind,id},push?:boolean})` 共用同一页面身份；同页往返保留列表查询、已加载分页、滚动位置和未保存编辑，重新读取/切换条目仍检查编辑保护。返回列表使在途详情响应失效，不会被迟到响应重新打开。
+
 ## 验证入口与边界
 
 - `test/project/input-history.test.js`：状态、全库搜索分页、父身份、重开持久化、乐观锁和发射/编辑/删除竞态。
 - `test/web/input-history.test.js`：HTTP 路由与参数白名单。
 - `test/web/dom-input-buffer.test.js` / `dom-inputs.test.js`：键盘、输入法、单飞、编辑与迟到响应保护。
 - `test/web/dom-inputs-api.test.js`：真实临时 HTTP/RPC/SQLite/Git 串联主输入暂存、搜索、修订保存、仅创建及原始引用回看，不连接用户项目。
-- `bun scripts/check-input-history-ui.js`：Firefox/geckodriver 临时 fixture，验证双主题 1440/900/500px 实际视口、键盘及布局；Firefox 将请求的 390px 窗口限制为 500px 视口，不据此声称验证了 390px。
+- `bun scripts/check-input-history-ui.js`：Firefox/geckodriver 临时 fixture，验证双主题 1440/900/500px 实际视口的等高列表/详情布局、浏览器后退与键盘交互；Firefox 将请求的 390px 窗口限制为 500px 视口，不据此声称验证了 390px。
 
 缓冲区上限 500 条。无已绑定父 Task 或 detached HEAD 时，暂存需先明确选择有效父任务；失败保留输入，不自动新建任意 owner。当前不提供批量发射、Task 追加消息的全局检索或原始 Input 改写。

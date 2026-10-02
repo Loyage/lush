@@ -66,7 +66,11 @@ function onHashChange() {
   if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
   if (location.hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
   if (location.hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();
-  if (location.hash === '#inputs') return ui.view?.id === 'inputs' ? undefined : openInputs();
+  if (location.hash === '#inputs') return openInputs({ push: false });
+  const inputMatch = /^#input-(draft|input)-([1-9]\d*)$/.exec(location.hash);
+  if (inputMatch && Number.isSafeInteger(Number(inputMatch[2]))) {
+    return openInputs({ item: { kind: inputMatch[1], id: Number(inputMatch[2]) }, push: false });
+  }
   if (location.hash === '#task-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
   const noticeId = /^#notice-([1-9]\d*)$/.exec(location.hash)?.[1];
   if (noticeId && Number.isSafeInteger(Number(noticeId))) return openNotice(Number(noticeId)).catch(report);

@@ -51,7 +51,7 @@ await boot();
 const root = () => dom.node('detail');
 const text = () => deepText(root());
 const panel = () => root().querySelector('.input-detail');
-const btn = (label, parent = root()) => parent.querySelectorAll('button').find(node => node.textContent === label);
+const btn = (label, parent = root()) => parent.querySelectorAll('button').find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
 const openDraft = () => btn('编辑与发射').onclick();
 const form = () => root().querySelector('.inputs-filters');
 const editor = () => panel().querySelector('textarea');
@@ -65,7 +65,8 @@ afterAll(() => dom.restore());
 test('工作导航 #inputs、输入区入口、独立状态与只读原文，轮询不覆盖编辑', async () => {
   await dom.node('inputs-open').onclick();
   expect(dom.location.hash).toBe('#inputs'); expect(dom.node('inputs-open').getAttribute('aria-current')).toBe('page');
-  expect(dom.node('view-context').textContent).toBe('工作'); expect(text()).toContain('任务状态：待验收'); expect(text()).toContain('合并状态：已合并');
+  expect(dom.node('view-context').textContent).toBe('工作');
+  expect(root().querySelector('[aria-label="任务状态：待验收"]')).toBeTruthy(); expect(root().querySelector('[aria-label="合并状态：已合并"]')).toBeTruthy();
   await btn('查看原文').onclick(); expect(panel().querySelector('textarea')).toBe(null); expect(deepText(panel())).toContain('已发送原文只读');
   await openDraft(); const node = editor(); node.value = '还没保存'; const before = reads.length;
   await dom.intervalFor(1500)(); await dom.intervalFor(3000)();
@@ -73,6 +74,56 @@ test('工作导航 #inputs、输入区入口、独立状态与只读原文，轮
   await btn('刷新列表').onclick(); expect(editor()).toBe(node); expect(node.value).toBe('还没保存');
   dom.location.hash = '#tasks'; await dom.fire('hashchange');
   await dom.node('input-history').onclick(); expect(dom.location.hash).toBe('#inputs');
+});
+
+test('紧凑条目只有一个详情入口，等高摘要不内嵌操作或引用，沿用资源页样式', async () => {
+  rows = [fixture('draft', 1, { content: '短句' }), fixture('input', 2, { content: '\n\n' + '长段落\n'.repeat(200), content_truncated: true }),
+    fixture('input', 3, { content: '', status: 'missing', merge_status: 'missing' })];
+  await openInputs();
+  expect(root().querySelector('.resource-hero')).toBeTruthy(); expect(root().querySelector('.resource-tools')).toBeTruthy();
+  const cards = root().querySelectorAll('.input-record');
+  expect(cards.map(card => card.querySelectorAll('button').length)).toEqual([1, 1, 1]);
+  expect(cards.every(card => card.querySelector('.input-preview').tagName === 'SPAN')).toBe(true);
+  expect(cards[1].querySelector('.input-preview').textContent).not.toContain('\n');
+  expect(deepText(cards[1])).toContain('摘要已截断'); expect(deepText(cards[2])).toContain('状态未知');
+  expect(root().querySelectorAll('.input-reference')).toHaveLength(0);
+  expect(btn('查看 Task #20')).toBeUndefined();
+  const css = readFileSync('src/ui/web/assets/styles-inputs.css', 'utf8');
+  expect(css).toContain('height:123px'); expect(css).toContain('-webkit-line-clamp:2');
+});
+
+test('独立详情与返回保留筛选、分页、滚动和未保存编辑，键盘焦点回到条目', async () => {
+  pageCursor = 'next'; await openInputs();
+  const search = form().querySelector('input'); search.value = '想法'; await form().onsubmit({ preventDefault() {} });
+  const record = root().querySelector('.input-record'); root().scrollTop = 240;
+  await record.querySelector('button').onclick();
+  expect(dom.location.hash).toBe('#input-draft-1'); expect(dom.node('view-title').textContent).toBe('暂存输入 #1');
+  expect(root().querySelector('.inputs-browse').hidden).toBe(true); expect(root().querySelector('.input-detail-view').hidden).toBe(false);
+  expect(document.activeElement).toBe(panel());
+  editor().value = '未保存的本地编辑'; const node = editor(), before = reads.length;
+  await btn('← 返回历史输入').onclick();
+  expect(dom.location.hash).toBe('#inputs'); expect(root().querySelector('.inputs-browse').hidden).toBe(false);
+  expect(root().querySelector('.input-detail-view').hidden).toBe(true); expect(panel().hidden).toBe(true);
+  expect(form().querySelector('input')).toBe(search); expect(search.value).toBe('想法'); expect(reads.length).toBe(before);
+  expect(root().scrollTop).toBe(240); expect(document.activeElement).toBe(record.querySelector('button')); expect(btn('加载更多').hidden).toBe(false);
+  await openDraft(); expect(editor()).toBe(node); expect(editor().value).toBe('未保存的本地编辑'); expect(reads.length).toBe(before);
+  await openInputs(); expect(panel().hidden).toBe(true);
+});
+
+test('详情深链接、浏览器后退与迟到读取，切换草稿取消时恢复原路由和编辑', async () => {
+  dom.location.hash = '#input-input-2'; await dom.fire('hashchange');
+  expect(deepText(panel())).toContain('原始输入 #2'); expect(panel().hidden).toBe(false);
+  dom.location.hash = '#inputs'; await dom.fire('hashchange'); expect(panel().hidden).toBe(true);
+  const late = deferred(); intercept = path => path === '/api/input/draft/1' ? late.promise : null;
+  const opening = openDraft(); await btn('← 返回历史输入').onclick();
+  late.resolve(json(fixture())); await opening; expect(panel().hidden).toBe(true); expect(dom.location.hash).toBe('#inputs');
+  intercept = null; await openDraft(); editor().value = '不丢弃';
+  dom.location.hash = '#input-input-2'; const switching = dom.fire('hashchange');
+  await dialogButton(dom, '取消').onclick(); await switching;
+  expect(dom.location.hash).toBe('#input-draft-1'); expect(editor().value).toBe('不丢弃'); expect(dom.node('view-title').textContent).toBe('暂存输入 #1');
+  dom.location.hash = '#input-input-2'; const confirmed = dom.fire('hashchange');
+  await dialogButton(dom, '放弃编辑').onclick(); await confirmed;
+  expect(dom.location.hash).toBe('#input-input-2'); expect(editor()).toBe(null); expect(deepText(panel())).toContain('原始输入 #2');
 });
 
 test('正文全库搜索与状态/合并筛选发到服务端，游标分页与失败重试', async () => {
