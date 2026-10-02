@@ -42,7 +42,7 @@ test('decision panel loads history, preserves edits across polls, answers inline
       const notices = matching.slice(0, 2);
       return json({ notices, cursor: notices.at(-1)?.id, has_more: matching.length > notices.length });
     }
-    if (url === '/api/task/1') return json({ id: 1, notices: rows });
+    if (url === '/api/worker/1') return json({ id: 1, notices: rows });
     if (url === '/api/action') {
       const { method, params } = JSON.parse(options.body); calls.push({ method, params });
       const target = rows.find(row => row.id === params.id);
@@ -62,7 +62,7 @@ test('decision panel loads history, preserves edits across polls, answers inline
     renderNotices(snapshot()); await loadNoticeRecords({ preserve: true });
     expect(focus.querySelector('textarea')).toBe(textarea);
     expect(textarea.value).toBe('用户的选择');
-    await findByText(focus, '回复并继续任务').onclick();
+    await findByText(focus, '回复并继续 Worker').onclick();
     expect(calls.at(-1)).toEqual({ method: 'notice.answer', params: { id: 5, answer: '用户的选择' } });
     expect(ui.indexOpen).toBe('notices');
     expect(deepText(focus)).toContain('用户的选择'); expect(focus.querySelector('textarea')).toBeNull();

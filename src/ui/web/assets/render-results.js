@@ -25,7 +25,7 @@ export function renderResults(task, history = {}, previous = null) {
   const result = block('结果'); result.classList.add('result-panel'); result.resultSignature = signature;
   if (task.result) {
     const latest = agentText(task.result, { plain: 'pre' }); result.append(latest);
-    referenceable(latest, { kind: 'result', target: { task_id: task.id, section: 'result' }, label: `任务结果 #${task.id}`,
+    referenceable(latest, { kind: 'result', target: { task_id: task.id, section: 'result' }, label: `Worker 结果 #${task.id}`,
       quote: task.result, location: { view: 'task-detail', task_id: task.id, section: 'result' } });
   } else result.append(el('p', '当前没有最新结果；此前调用的结果保留在下方。', 'hint'));
   const fold = el('details', undefined, 'result-history');

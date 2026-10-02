@@ -70,7 +70,7 @@ test('批量合并：只列出能合的任务，冻结的不给选，按依赖�
   // mergeBatch 内部会 refresh()（概览重画，且概览不再挂交付队列），重新挂一次队列才能看到逐条结果。
   mount();
   // 请求只带勾选的 id；顺序由运行时按依赖决定。
-  expect(world.state.actions).toEqual([{ method: 'task.merge_many', params: { ids: [3] } }]);
+  expect(world.state.actions).toEqual([{ method: 'worker.merge_many', params: { ids: [3] } }]);
   // 结果逐条展示，刷新后仍在页面上。
   expect(deepText(detail)).toContain('批量交付结果');
   expect(findByText(detail, '已进入目标分支')).toBeTruthy();

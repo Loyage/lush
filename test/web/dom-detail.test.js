@@ -24,7 +24,7 @@ test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash �
   await load();
   const detail = dom.node('detail');
   // 最近任务区只在概览出现；回不去概览等于工作台入口消失。
-  const onOverview = () => findByText(detail, '最近任务');
+  const onOverview = () => findByText(detail, '最近 Worker');
   expect(deepText(detail)).toContain('项目概览');
   expect(onOverview()).toBeTruthy();
 
@@ -32,8 +32,8 @@ test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash �
   // 并且这次要压栈，否则浏览器后退无处可退。
   const pushedBefore = dom.pushed();
   await dom.node('tasks').querySelector('[data-id="1"]').onclick();
-  await until(() => findByText(detail, '任务目标'), 2000);
-  expect(dom.location.hash).toBe('#task-1');
+  await until(() => findByText(detail, 'Worker 目标'), 2000);
+  expect(dom.location.hash).toBe('#worker-1');
   expect(dom.pushed()).toBeGreaterThan(pushedBefore);
   expect(onOverview()).toBeNull();
 
@@ -43,9 +43,9 @@ test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash �
   expect(dom.location.hash).toBe('');
 
   // 浏览器后退到无 hash 的地址：也是回概览，不是停在一个点不到概览的详情上。
-  dom.location.hash = '#task-1';
+  dom.location.hash = '#worker-1';
   await dom.fire('hashchange');
-  await until(() => findByText(detail, '任务目标'), 2000);
+  await until(() => findByText(detail, 'Worker 目标'), 2000);
   dom.location.hash = '';
   await dom.fire('hashchange');
   await until(onOverview, 2000);
@@ -54,7 +54,7 @@ test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash �
 test('详情头部显示对应意图编号，能点开那条意图，input_id 为空时不乱显示', async () => {
   const detail = dom.node('detail');
   const head = () => detail.querySelector('.head');
-  dom.location.hash = '#task-1';
+  dom.location.hash = '#worker-1';
   await dom.fire('hashchange');
   await until(() => head() && findByText(head(), '意图 #1'), 2000);
 
@@ -65,10 +65,10 @@ test('详情头部显示对应意图编号，能点开那条意图，input_id �
 
   // 点击跳到这条意图的 planner 任务 #9（fixture 里 intents[0].task_id = 9）。
   await intent.onclick();
-  expect(dom.location.hash).toBe('#task-9');
+  expect(dom.location.hash).toBe('#worker-9');
 
   // scheduler #4 的 input_id 是 null：头部不该出现「意图 #null」。
-  dom.location.hash = '#task-4';
+  dom.location.hash = '#worker-4';
   await dom.fire('hashchange');
   await until(() => head() && deepText(head()).includes('#4'), 2000);
   expect(deepText(head())).not.toContain('意图 #');
@@ -81,10 +81,10 @@ test('运行中 task 在任务树和详情显示计划完成度与当前步骤',
   expect(deepText(compact)).toContain('1/3');
   expect(deepText(compact)).toContain('当前：实现功能');
 
-  dom.location.hash = '#task-1';
+  dom.location.hash = '#worker-1';
   await dom.fire('hashchange');
   const detail = dom.node('detail');
-  await until(() => findByText(detail, '任务计划'), 2000);
+  await until(() => findByText(detail, 'Worker 计划'), 2000);
   const panel = detail.querySelector('.task-progress-panel');
   expect(deepText(panel)).toContain('1/3');
   expect(deepText(panel)).toContain('确认现状');
@@ -151,7 +151,7 @@ test('等待时间单独成条：不计入 Agent 工作用时，并实时计时'
 
 test('Agent 的模型与用量直接可见：没有折叠开关，也没有可点的「模型、用量与会话信息」标题', async () => {
   const detail = dom.node('detail');
-  dom.location.hash = '#task-1';
+  dom.location.hash = '#worker-1';
   await dom.fire('hashchange');
   await until(() => findByText(detail, '会话记录'), 2000);
 
@@ -178,7 +178,7 @@ test('Agent 的模型与用量直接可见：没有折叠开关，也没有可�
 });
 
 test('热任务点击才加载执行正文，轮询增量续读并保留阅读节点，收起停止续读', async () => {
-  dom.location.hash = '#task-1';
+  dom.location.hash = '#worker-1';
   await dom.fire('hashchange');
   const detail = dom.node('detail');
   const panel = () => dom.document.body.querySelector('.transcript-dialog');
@@ -234,7 +234,7 @@ test('热任务点击才加载执行正文，轮询增量续读并保留阅读�
   const finalReads = [...world.state.transcriptAfter];
   await dom.intervalFor(3000)(); expect(world.state.transcriptAfter).toEqual(finalReads);
   ui.lastSnapshot = snapshot;
-  await findByText(panel(), '返回任务 · Esc').onclick();
+  await findByText(panel(), '返回 Worker · Esc').onclick();
   expect(panel()).toBeNull();
   await dom.intervalFor(3000)();
   expect(world.state.transcriptAfter).toEqual(finalReads);
@@ -245,9 +245,9 @@ test('详情：可归档分支给「归档」按钮，帮助说清含义，确�
   world.state.branchArchive = { archivable: true, archived: false, subtree_branches: 0, blocking_tasks: 0 };
   try {
     // 先离开详情，保证这次是重新拉取 #1；否则上一次渲染的 DOM 会让等待立即返回。
-    dom.location.hash = '#task-2';
+    dom.location.hash = '#worker-2';
     await dom.fire('hashchange');
-    dom.location.hash = '#task-1';
+    dom.location.hash = '#worker-1';
     await dom.fire('hashchange');
     const archive = await until(
       () => [...detail.querySelectorAll('button')].find(node => node.textContent === '归档'), 2000);
@@ -255,15 +255,15 @@ test('详情：可归档分支给「归档」按钮，帮助说清含义，确�
     // 归档的含义写在按钮帮助里：删 worktree/ref、Task 记录保留、不等于删除 Task。
     const help = archive.getAttribute('data-help');
     expect(help).toContain('worktree 与本地 ref');
-    expect(help).toContain('不等于删除 Task');
+    expect(help).toContain('不等于删除 Worker');
 
     const pending = archive.onclick();
     expect(dialogText(dom)).toContain('worktree 与本地 ref');
-    expect(dialogText(dom)).toContain('保留任务、会话与分支记录');
+    expect(dialogText(dom)).toContain('保留 Worker、会话与分支记录');
     expect(world.state.actions.some(entry => entry.method === 'branch.archive')).toBe(false);
     await answerDialog(dom, '归档');
     await pending;
     expect(world.state.actions).toContainEqual({ method: 'branch.archive', params: { branch: 'lush/1-x', discard: true } });
-    expect(world.state.actions.some(entry => entry.method === 'task.cleanup')).toBe(false);
+    expect(world.state.actions.some(entry => entry.method === 'worker.cleanup')).toBe(false);
   } finally { world.state.branchArchive = null; }
 });

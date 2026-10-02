@@ -26,7 +26,7 @@ export const handlers = {
   },
   'notice.post'(p, params, actor) {
     const task = params.task ?? actor;
-    check(actor === null || id(task) === actor, 'agents may post notices only for their own task');
+    check(actor === null || id(task) === actor, 'agents may post notices only for their own worker');
     return p.notice(task, params.title, params.body, 'question', params.questions);
   },
   'notice.answer'(p, params, actor) { return p.answer(params.id, params.answer); },

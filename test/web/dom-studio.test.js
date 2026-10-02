@@ -28,7 +28,7 @@ test('概览：Task 指标、最近任务、待决与运行时折叠跨重画保
   const panel = dom.node('detail');
   expect(panel.dataset.view).toBe('overview');
   expect(panel.querySelectorAll('.metric').length).toBe(4);
-  expect([...panel.querySelectorAll('.metric-label')].map(node => node.textContent)).toEqual(['Task', '进行中', '待验收', '待我处理']);
+  expect([...panel.querySelectorAll('.metric-label')].map(node => node.textContent)).toEqual(['Worker', '进行中', '待验收', '待我处理']);
   const text = deepText(panel);
   expect(text).toContain('正在改点什么');
   expect(text).toContain('需要你的决定');
@@ -51,8 +51,8 @@ test('概览：不再有分支视图入口，运行中 Agent 列出', async () =
   renderOverview(data);
   const panel = dom.node('detail');
   const text = deepText(panel);
-  expect(text).toContain('还没有 Task');
-  expect(text).toContain('查看任务 #7');
+  expect(text).toContain('还没有 Worker');
+  expect(text).toContain('查看 Worker #7');
   expect(text).not.toContain('分支与合并');
   expect([...panel.querySelectorAll('button')].some(node => node.textContent === '打开分支图')).toBe(false);
 });
@@ -63,7 +63,7 @@ test('概览：没有 Task 与待决时给空态并展示运行时信息', () =>
   ui.selected = null; ui.overviewKey = null;
   renderOverview(data);
   const text = deepText(dom.node('detail'));
-  expect(text).toContain('还没有 Task');
+  expect(text).toContain('还没有 Worker');
   expect(text).toContain('暂时没有待决问题');
   expect(text).toContain('当前没有 Agent 调用');
   expect(text).toContain('/tmp/demo');
@@ -79,10 +79,10 @@ test('task goal becomes the page heading and results precede implementation meta
   // 完整 goal 落在正文的「任务目标」块里，且排在「结果」之前。
   const goalPanel = panel.querySelector('.goal-panel');
   expect(goalPanel).toBeTruthy();
-  expect(deepText(goalPanel)).toContain('任务目标');
+  expect(deepText(goalPanel)).toContain('Worker 目标');
   expect(deepText(goalPanel)).toContain('更清晰的项目工作台');
   const text = deepText(panel);
-  expect(text.indexOf('任务目标')).toBeLessThan(text.indexOf('已完成主题切换'));
+  expect(text.indexOf('Worker 目标')).toBeLessThan(text.indexOf('已完成主题切换'));
   expect(text.indexOf('已完成主题切换')).toBeLessThan(text.indexOf('调用次数'));
   expect(panel.querySelector('.breadcrumb')).toBeTruthy();
 });

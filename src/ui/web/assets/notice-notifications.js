@@ -53,7 +53,7 @@ export function notificationControl() {
     paintControl(root); toggle.disabled = false;
   }, 'ghost');
   toggle.dataset.pref = 'noticeNotifications';
-  toggle.setAttribute('data-help', '开启后新的待决问题与 Task 告知会发系统通知；关闭后只保留页面内提醒');
+  toggle.setAttribute('data-help', '开启后新的待决问题与 Worker 告知会发系统通知；关闭后只保留页面内提醒');
   root.append(toggle, status); paintControl(root); return root;
 }
 function paintControl(root) {

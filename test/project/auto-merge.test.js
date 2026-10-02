@@ -202,7 +202,7 @@ test('hook cannot bypass invocation, child, unread-message, user-answer or dirty
     f.project.running.delete(task.id);
     const child = f.store.create({ parent_id: task.id, role: 'agent', task_kind: 'child', goal: 'unfinished' });
     expect(await f.project.settleQueuedMerge(task.id)).toBe(false);
-    expect(booking(f, task.id).blocked_reason).toContain('子 Task');
+    expect(booking(f, task.id).blocked_reason).toContain('子Worker');
     f.store.update(child.id, { status: 'completed' });
     const message = f.store.message(task.id, 'unprocessed');
     expect(await f.project.settleQueuedMerge(task.id)).toBe(false);

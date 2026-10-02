@@ -53,7 +53,7 @@ test('configureTask 保存 paused 任务的本轮运行设置，并把按任务�
   await dialogButton(dom, '保存设置').onclick();
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
-  expect(actions[0]).toEqual({ method: 'task.configure', params: { id: 43, profile: {
+  expect(actions[0]).toEqual({ method: 'worker.configure', params: { id: 43, profile: {
     agent: 'pi', model: 'openai-codex/gpt-5.4', thinking: 'medium', default_prompt: '',
     append_prompt: '', extensions: [], skills: [], soft_budget: {}, env: { API_BASE: 'https://example.invalid', TOKEN: 'abc' },
   } } });
@@ -86,7 +86,7 @@ test('待开始任务可加载全部默认参数，含公共与角色环境变�
   expect(parseEnvLines(get('env').value)).toEqual({ ...commonValues, ...roleValues });
   await dialogButton(dom, '保存设置').onclick();
   expect(await pending).toBe(true);
-  expect(actions).toEqual([{ method: 'task.configure', params: { id: 44, profile: {
+  expect(actions).toEqual([{ method: 'worker.configure', params: { id: 44, profile: {
     ...profile, env: { ...commonValues, ...roleValues },
   } } }]);
 });

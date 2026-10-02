@@ -19,7 +19,7 @@ import { descendantsOf } from '../genealogy.js';
  * `branches.merge_run`（只加 `mode` / `task_id` 字段，遵循「只加不改」）。
  */
 const MERGE_TASK_GOAL = target => `合并编排：把 ${target} 下所有待合并的 say 子分支按叶子到根自动 ff-only 收拢。\n`
-  + '本任务由 runtime 驱动（没有 agent invocation）：只在用户确认计划一次后自动执行，遇分歧自动派源侧解分歧子任务，'
+  + '本 Worker 由 runtime 驱动（没有 agent invocation）：只在用户确认计划一次后自动执行，遇分歧自动派源侧解分歧子Worker，'
   + '直到全部合并、失败或用户取消。用户可在分支图或 `lush branch orchestrate-cancel` 取消。';
 
 /** 解析 say Task 的预约 JSON；损坏值按「没有预约」处理，不抛错拦住整条读面。 */
@@ -69,11 +69,11 @@ export default {
       const blockers = state.blockers.filter(item => item !== `task:#${say?.id}`);
       let action = 'skip';
       let autoRequest = false;
-      if (!say) blockers.push('该分支没有 say Task 拥有');
+      if (!say) blockers.push('该分支没有 say Worker 拥有');
       // 已经在父分支历史里（含没有预约的旧提交）：明确报「已合入」，不再拿「没有合并预约」误导用户。
       else if (state.status === 'integrated' || merge?.status === 'integrated') action = 'skip';
       else if (merge) {
-        if (reservation.blocked_code === 'resolving') blockers.push('已有解分歧子任务在处理');
+        if (reservation.blocked_code === 'resolving') blockers.push('已有解分歧子Worker在处理');
         else if (!['waiting', 'completed'].includes(say.status)) blockers.push(`say #${say.id} 仍在 ${say.status}`);
         else if (!['pending', 'requested'].includes(reservation.status)) blockers.push(`预约状态 ${reservation.status}`);
         else if (state.status === 'diverged') action = 'resolve';
@@ -91,7 +91,7 @@ export default {
       if (action === 'resolve' && say?.parent_id) {
         const owner = this.store.task(say.parent_id);
         if (this.running.has(owner.id) || owner.status === 'running')
-          blockers.push(`父 Task #${owner.id} 正在调用；编排先冻结，等安全点再派解分歧`);
+          blockers.push(`父Worker #${owner.id} 正在调用；编排先冻结，等安全点再派解分歧`);
       }
       const ready = action !== 'skip' && blockers.length === 0;
       items.push({ branch, task_id: say?.id ?? null, parent: state.parent ?? byBranch.get(branch)?.parent ?? null,
@@ -121,11 +121,11 @@ export default {
     await this.ensureMergeTarget(name);
     let owner = this.store.get(`SELECT * FROM tasks WHERE branch=? AND task_kind IN ('main','owner') AND status NOT IN ('completed','failed','cancelled') ORDER BY id`, name);
     if (!owner && name === 'main') owner = await this.ensureMainTask();
-    check(owner, `branch ${name} has no main/owner Task to own the merge orchestration; bind it first`);
+    check(owner, `branch ${name} has no main/owner Worker to own the merge orchestration; bind it first`);
     if (!plan.order.length) return { target_branch: name, status: 'empty', plan };
     const now = new Date().toISOString();
     const created = this.store.transaction(() => {
-      check(this.store.activeTasks().length < 1000, 'too many active tasks');
+      check(this.store.activeTasks().length < 1000, 'too many active workers');
       const task = this.store.create({ parent_id: owner.id, input_id: null, role: 'agent', task_kind: 'merge',
         name: `merge-${name.split('/').at(-1).slice(0, 24)}`, goal: MERGE_TASK_GOAL(name) });
       this.store.update(task.id, { status: 'waiting', target_branch: name });
@@ -208,11 +208,11 @@ export default {
           const waited = this.store.task(run.waiting_task_id);
           if (!TERMINAL.has(waited.status)) return;
           if (waited.status !== 'completed') {
-            this.finishOrchestrate(target, 'failed', null, `解分歧子 Task #${waited.id} ${waited.status}`);
+            this.finishOrchestrate(target, 'failed', null, `解分歧子Worker #${waited.id} ${waited.status}`);
             return;
           }
           try { await this.finalizeOrchestratedDivergence(waited.id); }
-          catch (error) { this.finishOrchestrate(target, 'failed', null, `收尾解分歧子 Task #${waited.id}：${error.message}`); return; }
+          catch (error) { this.finishOrchestrate(target, 'failed', null, `收尾解分歧子Worker #${waited.id}：${error.message}`); return; }
           run.waiting_task_id = null;
           run.status = 'running';
           run.index = (run.index ?? 0) + 1;
@@ -284,9 +284,9 @@ export default {
    */
   async orchestrateItem(branch) {
     const say = this.store.get("SELECT * FROM tasks WHERE branch=? AND task_kind='say' ORDER BY id DESC LIMIT 1", branch);
-    if (!say) return { status: 'skip', reason: '该分支没有 say Task 拥有' };
+    if (!say) return { status: 'skip', reason: '该分支没有 say Worker 拥有' };
     let reservation = reservationOf(say);
-    if (reservation?.blocked_code === 'resolving') return { status: 'skip', reason: '已有解分歧子任务在处理' };
+    if (reservation?.blocked_code === 'resolving') return { status: 'skip', reason: '已有解分歧子Worker在处理' };
     let state;
     try { state = await this.workspaces.branchState(branch); }
     catch (error) { return { status: 'failed', reason: error.message }; }
@@ -326,7 +326,7 @@ export default {
    */
   autoRequestBlockers(say, state) {
     const blockers = [];
-    if (!say) { blockers.push('该分支没有 say Task 拥有'); return blockers; }
+    if (!say) { blockers.push('该分支没有 say Worker 拥有'); return blockers; }
     const reservation = reservationOf(say);
     // 展示预约未完成时不能同时请求合并；展示已交付的终态 say 允许补发一次固定提交请求。
     if (reservation) {
@@ -345,7 +345,7 @@ export default {
     if (state.status === 'missing') blockers.push('分支 ref 缺失');
     else if (state.status === 'integrated') blockers.push('已合入父分支');
     else if (!['fast_forward', 'diverged'].includes(state.status)) blockers.push(`无法从 ${state.status} 分支合并`);
-    if (state.child_head !== say.head_commit) blockers.push('分支顶端与 Task 记录的固定提交不一致，先检查现场');
+    if (state.child_head !== say.head_commit) blockers.push('分支顶端与 Worker 记录的固定提交不一致，先检查现场');
     const childBlockers = state.blockers.filter(item => item !== `task:#${say.id}`);
     if (childBlockers.length) blockers.push(`等待子分支收拢：${childBlockers.join('、')}`);
     return blockers;
@@ -364,7 +364,7 @@ export default {
       const now = new Date().toISOString();
       const reservation = { version: 1, kind: 'merge', status: 'pending', created_at: now };
       if (state.status === 'diverged') {
-        reservation.blocked_reason = '分支与直接父分支已分歧；编排将派源侧解分歧子 Task 吸收固定的父提交。';
+        reservation.blocked_reason = '分支与直接父分支已分歧；编排将派源侧解分歧子Worker吸收固定的父提交。';
         reservation.blocked_code = 'diverged';
       }
       const parent = this.store.task(say.parent_id);
@@ -374,7 +374,7 @@ export default {
           throw new Error('say changed while auto-reserving its merge request');
         }
         check(['main', 'owner', 'say'].includes(parent?.task_kind) && !TERMINAL.has(parent.status),
-          'merge request needs a live directly bound parent Task');
+          'merge request needs a live directly bound parent Worker');
         this.store.update(sayId, { reservation: JSON.stringify(reservation) });
         this.store.event(sayId, 'task.reserved', { reservation, via: 'orchestrate' });
       });
@@ -448,7 +448,7 @@ export default {
       if (current.status === 'integrated') return { status: 'integrated' };
       if (current.status !== 'requested') return { status: 'skip', reason: `预约状态 ${current.status}` };
       const parent = this.store.task(say.parent_id);
-      if (!parent) return { status: 'failed', reason: '直接父 Task 已不存在' };
+      if (!parent) return { status: 'failed', reason: '直接父Worker已不存在' };
       const state = await this.workspaces.branchState(say.branch);
       if (state.status === 'integrated') return this.markOrchestratedIntegrated(sayId, state);
       if (state.status !== 'fast_forward') return { status: state.status === 'diverged' ? 'diverged' : 'skip', reason: `状态 ${state.status}` };
@@ -498,7 +498,7 @@ export default {
    */
   async spawnOrchestratedResolution(branch) {
     const say = this.store.get("SELECT * FROM tasks WHERE branch=? AND task_kind='say' ORDER BY id DESC LIMIT 1", branch);
-    check(say, `branch ${branch} has no say Task`);
+    check(say, `branch ${branch} has no say Worker`);
     const active = this.store.get(`SELECT t.* FROM tasks t JOIN events e ON e.task_id=t.id
       WHERE t.resolves_task_id=? AND e.type='task.divergence_resolution_requested'
         AND t.status NOT IN ('completed','failed','cancelled') ORDER BY t.id DESC LIMIT 1`, say.id);
@@ -508,7 +508,7 @@ export default {
       WHERE t.resolves_task_id=? AND e.type='task.divergence_resolution_requested'
         AND t.status IN ('completed','failed','cancelled')
         AND (t.integration != 'merged' AND b.status='active') ORDER BY t.id DESC LIMIT 1`, say.id);
-    check(!stale, `解分歧子 Task #${stale?.id} 已结束但尚未集成；检查现场并显式归档它的分支后再重派`);
+    check(!stale, `解分歧子Worker #${stale?.id} 已结束但尚未集成；检查现场并显式归档它的分支后再重派`);
     return this.workspaces.exclusive(async () => {
       const live = this.store.task(say.id);
       const reservation = reservationOf(live);
@@ -516,24 +516,24 @@ export default {
         && ['pending', 'requested'].includes(reservation.status), '只有带合并预约的 say 才能解分歧');
       const parent = this.store.task(live.parent_id);
       check(parent && ['main', 'owner', 'say'].includes(parent.task_kind) && !TERMINAL.has(parent.status),
-        'say 的直接父 Task 已结束或不可合并');
+        'say 的直接父Worker已结束或不可合并');
       const run = this.store.activeBranchMergeRuns().find(({ run: entry }) => entry.mode === 'orchestrate'
         && entry.task_id && (entry.order ?? []).includes(branch));
       const coordinator = run ? this.store.task(run.run.task_id) : null;
-      check(coordinator?.task_kind === 'merge' && !TERMINAL.has(coordinator.status), '解分歧需要仍在运行的编排 Task');
+      check(coordinator?.task_kind === 'merge' && !TERMINAL.has(coordinator.status), '解分歧需要仍在运行的编排 Worker');
       check(!this.running.has(parent.id) && parent.status !== 'running',
-        `父 Task #${parent.id} 尚未到安全点；等待本轮调用结束后再解分歧`);
+        `父Worker #${parent.id} 尚未到安全点；等待本轮调用结束后再解分歧`);
       const state = await this.workspaces.branchState(live.branch);
       check(state.status === 'diverged', `源分支现在是 ${state.status}，不需要解分歧`);
       check(state.child_head === (reservation.commit ?? live.head_commit),
         '解分歧前源分支已越过固定提交；检查现场');
       const blockers = state.blockers.filter(item => item !== `task:#${live.id}`);
       check(blockers.length === 0, `先收拢未集成子分支：${blockers.join('、')}`);
-      const goal = `在独立子任务工作区解决 say #${live.id} 与直接父分支 ${parent.branch} 的分歧。\n`
+      const goal = `在独立子Worker工作区解决 say #${live.id} 与直接父分支 ${parent.branch} 的分歧。\n`
         + `基线是固定源提交 ${state.child_head}。请把固定父提交 ${state.parent_head} 合入本工作区（不要合入会移动的分支名）；`
-        + '如有冲突，保留双方意图并解决，运行相关测试，再提交结果。只改自己的子任务分支，'
+        + '如有冲突，保留双方意图并解决，运行相关测试，再提交结果。只改自己的子Worker分支，'
         + `不可修改 say 分支或父分支。完成后由 runtime 校验产物同时包含两端固定提交，把它快进推进回 say 分支，`
-        + '并由合并编排任务自动重新发出固定提交的合并请求。';
+        + '并由合并编排 Worker 自动重新发出固定提交的合并请求。';
       const child = this.store.transaction(() => {
         const liveNow = this.store.task(say.id);
         const current = reservationOf(liveNow);
@@ -542,10 +542,10 @@ export default {
         'say 预约在启动解分歧时发生变化');
         const activeRun = this.store.branchMergeRun(run.target);
         check(activeRun?.mode === 'orchestrate' && activeRun.task_id === coordinator.id
-          && !TERMINAL.has(this.store.task(coordinator.id).status), '合并编排已结束，不能再派解分歧 Task');
-        check(this.store.activeTasks().length < 1000, 'too many active tasks');
+          && !TERMINAL.has(this.store.task(coordinator.id).status), '合并编排已结束，不能再派解分歧 Worker');
+        check(this.store.activeTasks().length < 1000, 'too many active workers');
         check(!this.running.has(parent.id) && this.store.task(parent.id).status !== 'running',
-          `父 Task #${parent.id} 尚未到安全点；等待本轮调用结束后再解分歧`);
+          `父Worker #${parent.id} 尚未到安全点；等待本轮调用结束后再解分歧`);
         const created = this.store.create({ parent_id: coordinator.id, input_id: liveNow.input_id, role: 'agent',
           task_kind: 'child', name: `resolve-${liveNow.id}`, goal, resolves_task_id: liveNow.id });
         this.store.update(created.id, { base_commit: state.child_head, target_branch: liveNow.branch });
@@ -553,7 +553,7 @@ export default {
           source_commit: state.child_head, parent_task_id: parent.id, parent_branch: parent.branch,
           parent_commit: state.parent_head, orchestrated: true });
         this.store.update(liveNow.id, { reservation: JSON.stringify({ ...current,
-          blocked_reason: `合并编排等待解分歧子 Task #${created.id}`, blocked_code: 'resolving',
+          blocked_reason: `合并编排等待解分歧子Worker #${created.id}`, blocked_code: 'resolving',
           resolution_child_id: created.id }) });
         this.store.event(liveNow.id, 'task.divergence_resolution_started', { child_id: created.id,
           source_commit: state.child_head, parent_commit: state.parent_head, via: 'orchestrate' });
@@ -585,9 +585,9 @@ export default {
         || current?.kind !== 'merge' || current.blocked_code !== 'resolving'
         || current.resolution_child_id !== liveResolution.id) return null;
       const event = this.store.get("SELECT data FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1", resolutionId);
-      check(event, '编排解分歧子 Task 缺少固定的请求快照');
+      check(event, '编排解分歧子Worker缺少固定的请求快照');
       const fixed = JSON.parse(event.data);
-      check(fixed.source_task_id === liveSay.id, '解分歧子 Task 指向了别的 say');
+      check(fixed.source_task_id === liveSay.id, '解分歧子Worker指向了别的 say');
       check(await this.workspaces.isAncestor(this.config.project, fixed.source_commit, liveResolution.head_commit)
         && await this.workspaces.isAncestor(this.config.project, fixed.parent_commit, liveResolution.head_commit),
         '解分歧产物必须同时包含固定的源提交与父提交');

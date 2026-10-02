@@ -58,7 +58,7 @@ function fromMessage(record, at, max = MAX_BODY) {
   const bodyOf = value => clip(value, max);
   const message = record.message;
   if (!message || typeof message !== 'object') return [];
-  if (message.role === 'user') return [{ kind: 'input', title: '任务上下文', at, body: bodyOf(textOf(message.content)) }];
+  if (message.role === 'user') return [{ kind: 'input', title: 'Worker 上下文', at, body: bodyOf(textOf(message.content)) }];
   if (message.role === 'toolResult') {
     return [{ kind: 'result', title: `${message.toolName || 'tool'}${message.isError ? '（失败）' : ''}`, at,
       call_id: message.toolCallId ?? null, tool_name: message.toolName ?? null, is_error: Boolean(message.isError), body: bodyOf(textOf(message.content)) }];

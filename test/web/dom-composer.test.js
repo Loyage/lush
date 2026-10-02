@@ -24,7 +24,7 @@ test('输入区默认折叠，展开后才出现父 Task 与快捷键，折叠�
   expect(details.hidden).toBe(true);
   expect(shortcuts.hidden).toBe(true);
   expect(expand.getAttribute('aria-expanded')).toBe('false');
-  expect(expand.getAttribute('data-help')).toContain('父 Task');
+  expect(expand.getAttribute('data-help')).toContain('父 Worker');
   expect(expand.getAttribute('data-help')).toContain('快捷键');
   // 折叠态仍能看见展开控件与已选父 Task 的痕迹。
   expect(expand.textContent).toContain('更多');

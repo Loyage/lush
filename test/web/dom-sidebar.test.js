@@ -150,14 +150,14 @@ test('历史分页保留全类型记录和多选条件，空态明确提示尚�
   const calls = [];
   intercept = url => {
     calls.push(url);
-    if (url.startsWith('/api/tasks?')) return Promise.resolve(new Response(JSON.stringify({ tasks: [older], cursor: 50, has_more: false })));
+    if (url.startsWith('/api/workers?')) return Promise.resolve(new Response(JSON.stringify({ tasks: [older], cursor: 50, has_more: false })));
     return null;
   };
   try {
     renderTree(data);
     expect(deepText(dom.node('tasks'))).toContain('更早记录尚未加载');
     await findByText(dom.node('tasks'), '加载更早 50 个').onclick();
-    expect(calls).toContain('/api/tasks?scope=all&before=51&limit=50');
+    expect(calls).toContain('/api/workers?scope=all&before=51&limit=50');
     expect(dom.node('tasks').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual([50]);
     expect(ui.filters.tasks.role).toEqual(['research']);
     // 有界轮询不丢掉显式加载的旧类型 Task（它没有新式 task_kind）。

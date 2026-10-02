@@ -36,12 +36,12 @@ export const roleBadge = role => {
   const key = Object.hasOwn(ROLE, role) ? String(role).toLowerCase() : 'unknown';
   const label = ROLE[role] || String(role ?? '未知');
   const node = el('span', label, `badge role-badge role-${key}`);
-  node.title = `任务类型：${label}`;
+  node.title = `Worker 类型：${label}`;
   return node;
 };
 /** 快速路由标记：前缀短路、未调用规划模型创建的 task。文案与悬停说明是全站唯一口径。 */
 export const routeBadge = () => {
   const node = el('span', '⚡ 快速路由', 'badge route-badge');
-  node.title = '这条输入的快速路由前缀在提交时命中：未调用规划模型，直接创建了任务。';
+  node.title = '这条输入的快速路由前缀在提交时命中：未调用规划模型，直接创建了 Worker。';
   return node;
 };

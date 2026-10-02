@@ -22,7 +22,7 @@ export function mergePriority(node) {
 }
 function taskLink(id, key) {
   const link = button(`#${id}`, () => detail(id), 'ghost task-graph-merge-link',
-    { help: `打开 Task #${id} 的已有详情，不调用 Agent。` });
+    { help: `打开 Worker #${id} 的已有详情，不调用 Agent。` });
   link.dataset.graphFocus = key;
   return link;
 }
@@ -49,13 +49,13 @@ export function mergeRelations(node) {
       ? '源侧分歧处理阶段，保留父执行位；不代表 Agent 此刻正在运行。'
       : phase === 'blocked' ? '落地结果待核验，仍保留父执行位；不代表正在推进合并。'
       : phase === 'suspended' ? '交付已挂起并释放执行位；恢复后重新排队。'
-      : '持久合并请求的处理阶段；不代表 Task 的 Agent 运行状态。');
+      : '持久合并请求的处理阶段；不代表 Worker 的 Agent 运行状态。');
     line.append(own);
   }
   const queue = node.merge_queue;
   if (queue?.total) {
     const incoming = el('span', undefined, 'task-graph-merge-incoming');
-    incoming.append('合入此任务：');
+    incoming.append('合入此 Worker：');
     for (const status of Object.keys(MERGE_PHASES)) {
       const count = queue.counts[status] || 0;
       if (!count) continue;
@@ -66,7 +66,7 @@ export function mergeRelations(node) {
       if (count > items.length) group.append(`（另 ${count - items.length} 条未列出）`);
       incoming.append(group);
     }
-    incoming.setAttribute('data-help', '完整直接子任务的持久请求计数，不受筛选、折叠或图节点截断影响；编号仅列有界摘要，不表示严格执行次序。分歧处理中不是 Agent 运行状态，落地待核验仍占执行位但不代表正在推进。');
+    incoming.setAttribute('data-help', '完整直接子 Worker 的持久请求计数，不受筛选、折叠或图节点截断影响；编号仅列有界摘要，不表示严格执行次序。分歧处理中不是 Agent 运行状态，落地待核验仍占执行位但不代表正在推进。');
     line.append(incoming);
   } else if (!queue && node.children_total) {
     line.append(el('span', '合入摘要不可用（旧读面）', 'meta'));
@@ -75,6 +75,6 @@ export function mergeRelations(node) {
   line.tabIndex = 0;
   line.dataset.graphFocus = `merge-relations-${node.id}`;
   line.setAttribute('aria-label', '合并关系摘要；窄屏可横向滚动查看完整关系');
-  line.setAttribute('data-help', '持久预约的合并阶段，不代表 Agent 正在运行。合入计数覆盖完整直接子任务，编号是有界摘要；落地待核验仍占父执行位但不表示正在推进。窄屏可横向滚动查看，点击编号只打开详情。');
+  line.setAttribute('data-help', '持久预约的合并阶段，不代表 Agent 正在运行。合入计数覆盖完整直接子 Worker，编号是有界摘要；落地待核验仍占父执行位但不表示正在推进。窄屏可横向滚动查看，点击编号只打开详情。');
   return line;
 }

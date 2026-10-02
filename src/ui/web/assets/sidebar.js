@@ -16,7 +16,7 @@ import { ROLE } from './format.js';
  */
 export const SIDEBAR_SECTIONS = [
   { id: 'notices', label: '待我处理', long: '待我处理', icon: '◔', description: '提问、答复与提醒' },
-  { id: 'tasks', label: '任务列表', long: '任务列表', icon: '✓', description: 'say、子任务与执行过程' },
+  { id: 'tasks', label: 'Worker 列表', long: 'Worker 列表', icon: '✓', description: 'say、子 Worker 与执行过程' },
 ];
 export const COLLAPSED_KEY = 'lush.sidebar.collapsed';
 export const FILTERS_KEY = 'lush.sidebar.filters';
@@ -32,7 +32,7 @@ export const DEFAULT_FILTERS = Object.freeze({
 
 const SECTION_IDS = new Set(SIDEBAR_SECTIONS.map(section => section.id));
 
-const STATUS_LABEL = { queued: '排队', running: '运行中', waiting: '等子任务', awaiting: '等你决定', paused: '已暂停',
+const STATUS_LABEL = { queued: '排队', running: '运行中', waiting: '等子 Worker', awaiting: '等你决定', paused: '已暂停',
   awaiting_acceptance: '待验收', completed: '已完成', failed: '失败', cancelled: '已取消' };
 const SPEC_STATUS_LABEL = { pending: '排队中', planned: '已排期', dropped: '已丢弃' };
 const ROLE_LABEL = ROLE;

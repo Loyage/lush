@@ -9,8 +9,8 @@ const cases = [
   ['sync_parent', 'syncTaskParent'], ['resolve_sync', 'resolveTaskSync'],
 ];
 for (const [verb, method] of cases) {
-  test(`task.${verb} is id-only and forwards its result with the correct authority`, async () => {
-    const rpc = `task.${verb}`, task = { id: 7, status: 'awaiting_acceptance' };
+  test(`worker.${verb} is id-only and forwards its result with the correct authority`, async () => {
+    const rpc = `worker.${verb}`, task = { id: 7, status: 'awaiting_acceptance' };
     const result = verb === 'sync_parent' ? { task, synced: false, conflict: true,
       source_commit: 'source', parent_commit: 'parent', reason: 'conflict' } : task;
     expect(PARAMS[rpc]).toEqual(['id']); expect(USER_ONLY.has(rpc)).toBe(verb !== 'accept');
@@ -28,9 +28,9 @@ for (const [verb, method] of cases) {
     }
     const cliCalls = [], client = { async request(method, params) { cliCalls.push({ method, params }); return result; } };
     const cli = verb.replaceAll('_', '-');
-    expect(await run('task', [cli, '7'], { client, json: true })).toBe(result);
-    expect(cliCalls).toEqual([{ method: rpc, params: { id: 7 } }]);
-    expect(HELP).toContain(`task ${cli} ID`);
-    await expect(run('task', [cli, '7', 'force'], { client, json: true })).rejects.toThrow();
+    expect(await run('worker', [cli, '7'], { client, json: true })).toBe(result);
+    expect(cliCalls).toEqual([{ method: `worker.${verb}`, params: { id: 7 } }]);
+    expect(HELP).toContain(`worker ${cli} ID`);
+    await expect(run('worker', [cli, '7', 'force'], { client, json: true })).rejects.toThrow();
   });
 }

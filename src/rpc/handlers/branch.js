@@ -66,11 +66,11 @@ export const handlers = {
     }
     if (params.branch !== undefined && params.branch !== null) {
       check(ownedBranches(p, actor).has(params.branch),
-        `branch ${params.branch} does not belong to task #${actor}; agents may summarize only their own branch`);
+        `branch ${params.branch} does not belong to worker #${actor}; agents may summarize only their own branch`);
       return p.setBranchSummary(params.branch, params.summary);
     }
     const branch = ownBranch(p, actor);
-    check(branch, `task #${actor} has no branch to summarize; pass an explicit branch`);
+    check(branch, `worker #${actor} has no branch to summarize; pass an explicit branch`);
     return p.setBranchSummary(branch, params.summary);
   },
 };

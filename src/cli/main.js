@@ -7,7 +7,7 @@ import { HELP } from './help.js';
 import { launcherWebConfig } from '../host/registry.js';
 import * as system from './commands/system.js';
 import * as intent from './commands/intent.js';
-import * as task from './commands/task.js';
+import * as worker from './commands/task.js';
 import * as progress from './commands/progress.js';
 import * as notice from './commands/notice.js';
 import * as branch from './commands/branch.js';
@@ -24,7 +24,7 @@ const COMMANDS = new Map();
 for (const [module, names] of [
   [system, ['daemon', 'status', 'doctor', 'log', 'host', 'host-restart', 'host-stop', 'host-status']],
   [intent, ['say']],
-  [task, ['task']],
+  [worker, ['worker']],
   [progress, ['progress']],
   [notice, ['notice']],
   [branch, ['branch']],
@@ -48,13 +48,13 @@ export async function main(argv = process.argv.slice(2)) {
     console.log(HELP); return;
   }
   const command = args.shift();
+  const handler = COMMANDS.get(command);
+  if (!handler) throw new Error(`unknown command: ${command}; run lush help`);
   const globalWeb = ['host', 'host-restart', 'host-stop', 'host-status'].includes(command) && !projectPath && !process.env.LUSH_PROJECT;
   const selectedConfig = globalWeb ? launcherWebConfig(process.env) : Config.fromEnv(process.env, process.cwd(), projectPath);
   const client = globalWeb
     ? { config: selectedConfig, token: process.env.LUSH_AGENT_TOKEN || null }
     : new UIClient(selectedConfig, process.env.LUSH_AGENT_TOKEN || null);
-  const handler = COMMANDS.get(command);
-  if (!handler) throw new Error(`unknown command: ${command}; run lush help`);
   const value = await handler(command, args, { client, json });
   if (value === undefined) return;
   if (value?.fingerprint) {

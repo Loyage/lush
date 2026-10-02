@@ -6,7 +6,7 @@ import { request } from 'node:http';
 const assets = new URL('../src/ui/web/assets/', import.meta.url).pathname;
 const fixtureScript = `
 import { makeWorld } from '/fixture-world.js';
-const world=makeWorld();world.state.inputParents=[{id:1,branch:'main',goal:'主干 Task'},{id:800,branch:'feature/old',goal:'不在 overview 中的旧父 Task'}];
+const world=makeWorld();world.state.inputParents=[{id:1,branch:'main',goal:'主干 Worker'},{id:800,branch:'feature/old',goal:'不在 overview 中的旧父 Worker'}];
 const base={created_at:'2026-10-02T00:00:00Z',parent_id:1,branch:'main',integration:'none',merge_status:'none',references:[],content_truncated:false};
 window.rows=[{...base,kind:'draft',id:1,content:'尚未实施的想法\\n可以随时编辑',task_id:null,status:'draft',revision:1},
  {...base,kind:'input',id:2,content:'原始输入 <img src=x onerror=alert(1)>\\n'+('多行很长的原始输入内容\\n'.repeat(100)),content_truncated:true,task_id:1,status:'awaiting_acceptance',integration:'merged',merge_status:'merged',revision:null},

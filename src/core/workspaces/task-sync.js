@@ -33,13 +33,13 @@ export const methods = {
   async taskSyncCheckout(task, source) {
     const workspace = await this.workspaceForBranch(task.branch);
     check(workspace && task.workspace && fs.realpathSync(workspace) === fs.realpathSync(task.workspace),
-      'Task branch must remain checked out in its own worktree');
+      'Worker branch must remain checked out in its own worktree');
     check(fs.realpathSync(await this.git(workspace, 'rev-parse', '--show-toplevel')) === fs.realpathSync(workspace),
-      'Task workspace is not a worktree root');
+      'Worker workspace is not a worktree root');
     await this.assertCleanBranches([task.branch]); // also detects detached rebases and all Git intermediate states
     await this.clean(workspace);
     check(await this.git(workspace, 'symbolic-ref', '--quiet', 'HEAD') === `refs/heads/${task.branch}`
-      && await this.git(workspace, 'rev-parse', 'HEAD') === source, 'Task checkout moved during synchronization');
+      && await this.git(workspace, 'rev-parse', 'HEAD') === source, 'Worker checkout moved during synchronization');
     return workspace;
   },
 
@@ -81,7 +81,7 @@ export const methods = {
     const project = this.config.project;
     const record = this.store.branch(task.branch);
     check(record?.status === 'active' && record.task_id === task.id && record.parent_relation === 'recorded'
-      && record.parent === task.target_branch, 'Task has no matching active direct-parent branch record');
+      && record.parent === task.target_branch, 'Worker has no matching active direct-parent branch record');
     check(oid(source) && oid(parent), 'synchronization requires fixed commits');
     const readRef = branch => this.git(project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`);
     const verify = async () => {

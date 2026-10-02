@@ -22,11 +22,11 @@ test('任务、任务子树与任意选中文字可以经右键加入输入引�
   const menu = dom.node('context-menu');
   expect(prevented).toBe(true);
   expect(menu.hidden).toBe(false);
-  expect(deepText(menu)).toContain('引用：任务 #1');
-  expect(deepText(menu)).toContain('引用：任务子树 #1');
-  await menuButton('引用：任务 #1').onclick();
+  expect(deepText(menu)).toContain('引用：Worker #1');
+  expect(deepText(menu)).toContain('引用：Worker 子树 #1');
+  await menuButton('引用：Worker #1').onclick();
   expect(dom.node('composer-references').children).toHaveLength(1);
-  expect(deepText(dom.node('composer-references'))).toContain('任务 #1');
+  expect(deepText(dom.node('composer-references'))).toContain('Worker #1');
 
   dom.setSelection('用户刚刚选中的一段结果');
   await dom.fire('contextmenu', { target: task, clientX: 12, clientY: 22, preventDefault() {} });
@@ -40,6 +40,8 @@ test('任务、任务子树与任意选中文字可以经右键加入输入引�
   await until(() => world.state.actions.some(action => action.method === 'say.submit'));
   const sent = world.state.actions.find(action => action.method === 'say.submit');
   expect(sent.params.references.map(row => row.kind)).toEqual(['task', 'text']);
+  expect(sent.params.references[0]).toMatchObject({ kind: 'task', target: { task_id: 1 },
+    label: 'Worker #1', location: { view: 'task-tree', task_id: 1 } });
   expect(dom.node('composer-references').children).toHaveLength(0);
 });
 
@@ -47,6 +49,7 @@ test('引用卡片标签点击后导航并闪烁定位，普通文本引用不�
   addComposerReference({ version: 1, kind: 'task', target: { task_id: 1 }, label: '任务 #1', quote: '正在改点什么' });
   const taskChip = dom.node('composer-references').children.find(chip => chip.children[0].tagName === 'BUTTON');
   expect(taskChip).toBeTruthy();
+  expect(deepText(taskChip)).toContain('任务 #1'); // 保存过的快照标签不迁移。
   await taskChip.children[0].onclick();
   expect(dom.node('detail').dataset.taskId).toBe('1');
   expect(dom.node('detail').classList.contains('locate-flash')).toBe(true);

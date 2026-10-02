@@ -12,12 +12,12 @@ test('large results do not inflate task listings and event history stays paginat
     f.store.update(task.id,{result:'x'.repeat(250000),status:'completed'});
     for (let i=0;i<10;i++) f.store.event(task.id,'output',{result:'x'.repeat(250000)});
     const client = new RPCClient(f.config.socket);
-    const tasks = await client.request('task.list'); expect(tasks[0].result).toBeUndefined();
-    const first = await client.request('task.history',{id:task.id});
+    const tasks = await client.request('worker.list'); expect(tasks[0].result).toBeUndefined();
+    const first = await client.request('worker.history',{id:task.id});
     expect(first.length).toBeLessThan(11);
-    const second = await client.request('task.history',{id:task.id,after:first.at(-1).id});
+    const second = await client.request('worker.history',{id:task.id,after:first.at(-1).id});
     expect(second[0].id).toBeGreaterThan(first.at(-1).id);
-    expect((await client.request('task.inspect',{id:task.id})).result.length).toBe(250000);
+    expect((await client.request('worker.inspect',{id:task.id})).result.length).toBe(250000);
   } finally { await f.close(); }
 });
 test('recent event history is cursor-paged and explicitly reports truncation', async () => {
@@ -26,13 +26,13 @@ test('recent event history is cursor-paged and explicitly reports truncation', a
     f.project.stopping = true;
     const task = f.store.create({ input_id: null, role: 'research', goal: 'history' });
     for (let index = 0; index < 220; index += 1) f.store.event(task.id, 'tick', { index });
-    const recent = await (await fetch(f.url + `/api/task/${task.id}/history-page`)).json();
+    const recent = await (await fetch(f.url + `/api/worker/${task.id}/history-page`)).json();
     expect(recent.events).toHaveLength(100); expect(recent.truncated).toBe(true);
     expect(recent.events[0].id).toBeLessThan(recent.events.at(-1).id);
-    const older = await (await fetch(f.url + `/api/task/${task.id}/history-page?before=${recent.cursor}`)).json();
+    const older = await (await fetch(f.url + `/api/worker/${task.id}/history-page?before=${recent.cursor}`)).json();
     expect(older.events).toHaveLength(100); expect(older.truncated).toBe(true);
     expect(older.events.at(-1).id).toBeLessThan(recent.events[0].id);
-    const oldest = await (await fetch(f.url + `/api/task/${task.id}/history-page?before=${older.cursor}`)).json();
+    const oldest = await (await fetch(f.url + `/api/worker/${task.id}/history-page?before=${older.cursor}`)).json();
     expect(oldest.events.length).toBeGreaterThan(0); expect(oldest.truncated).toBe(false);
   } finally { await f.close(); }
 });

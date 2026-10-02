@@ -32,7 +32,7 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
   const actions = el('div', undefined, 'settings-runtime-actions');
   let host = null;
   let busy = false;
-  const daemonHelp = '只重启当前项目后台；存在活动 Agent、模型调用或 Git 工作时拒绝重启，请先结束相关任务。';
+  const daemonHelp = '只重启当前项目后台；存在活动 Agent、模型调用或 Git 工作时拒绝重启，请先结束相关 Worker。';
   const hostHelp = '重启当前 Web/桌面界面服务，所有连接它的页面会短暂断开；不停止任何项目后台，登录会话可能失效。';
   const daemonWrap = el('span', undefined, 'help-host'); daemonWrap.setAttribute('data-help', daemonHelp);
   const hostWrap = el('span', undefined, 'help-host'); hostWrap.setAttribute('data-help', hostHelp);
@@ -46,7 +46,7 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
     try {
       const isHost = target === 'host';
       const accepted = await confirm({ title: isHost ? '重启界面服务？' : '重启当前项目后台？',
-        message: isHost ? hostHelp : `${daemonHelp} 静息任务、代码和历史记录保留。`,
+        message: isHost ? hostHelp : `${daemonHelp} 静息 Worker、代码和历史记录保留。`,
         confirmLabel: '确认重启', confirmHelp: isHost ? hostHelp : daemonHelp });
       if (!accepted) return;
       restarting = true; paint();

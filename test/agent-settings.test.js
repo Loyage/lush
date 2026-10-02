@@ -201,6 +201,8 @@ console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100,
     expect(seen).toHaveLength(2);
     expect(seen[0].args.slice(0, 2)).toEqual(['exec', '--dangerously-bypass-approvals-and-sandbox']);
     expect(seen[0].args).toContain('model_reasoning_effort="high"');
+    expect(seen[0].args.at(-1)).toContain('current Worker and unread messages');
+    expect(seen[0].args.at(-1)).toContain('Follow the Worker role');
     expect(seen[1].args.slice(0, 3)).toEqual(['exec', 'resume', '--dangerously-bypass-approvals-and-sandbox']);
     expect(seen[1].args).toContain('thread-test-1');
     expect(seen.every(row => row.task === '7' && row.token)).toBe(true);

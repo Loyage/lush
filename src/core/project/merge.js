@@ -10,12 +10,12 @@ export default {
    */
   async approveMerge(taskId) {
     const task = this.store.task(taskId);
-    check(!task.task_kind, 'new Task branches require parent confirmation or fixed-commit main approval; legacy task.merge is unavailable');
+    check(!task.task_kind, 'new Worker branches require parent confirmation or fixed-commit main approval; legacy worker.merge is unavailable');
     // 原 worker 是稳定的交付身份：resolver 已完成且仍可快进时，单任务入口也自动落地 resolver。
     // 若目标分支已经前进则不映射，继续走原任务重试语义：旧 resolver 会被标为 superseded，再开新一轮。
     if (task.integration === 'conflict' && !task.resolves_task_id) {
       const active = this.store.activeResolver(task.id);
-      check(!active, `resolution task #${active?.id} is still active; finish or cancel it before retrying merge #${task.id}`);
+      check(!active, `resolution worker #${active?.id} is still active; finish or cancel it before retrying merge #${task.id}`);
       const ready = this.store.unlandedResolver(task.id);
       if (ready) {
         const source = this.store.task(ready.id);
@@ -30,7 +30,7 @@ export default {
       && row.resolves_task_id !== task.id && task.resolves_task_id !== row.id);
     const blocker = frozen[0];
     check(!blocker, blocker
-      ? `merging into ${task.target_branch} is frozen by the unresolved conflict on #${blocker.id}; answer its notice, cancel its resolution task, or retry that merge first`
+      ? `merging into ${task.target_branch} is frozen by the unresolved conflict on #${blocker.id}; answer its notice, cancel its resolution worker, or retry that merge first`
       : '');
     const result = await this.workspaces.merge(task.id);
     if (result.diverged) {
@@ -58,12 +58,12 @@ export default {
    * 遇到第一个运行期冲突或硬失败就停下：后续条目标 skipped，避免在未知现场上继续合并。
    */
   async approveMergeMany(ids) {
-    check(Array.isArray(ids), 'ids must be an array of task ids');
-    check(ids.length > 0, 'batch merge needs at least one task id');
+    check(Array.isArray(ids), 'ids must be an array of worker ids');
+    check(ids.length > 0, 'batch merge needs at least one worker id');
     const requested = [...new Set(ids.map(value => id(value)))];
-    check(requested.length <= 50, 'at most 50 tasks per batch merge');
+    check(requested.length <= 50, 'at most 50 workers per batch merge');
     for (const taskId of requested) check(!this.store.task(taskId).task_kind,
-      'new Task branches cannot use legacy task.merge_many');
+      'new Worker branches cannot use legacy worker.merge_many');
 
     // 批量入口接收稳定的“原任务 id”。若它已有完成但未落地的 resolver，真正应落地的是
     // resolver 的分支，而不是按较小的原任务 id 先重试并作废已有成果。
@@ -74,7 +74,7 @@ export default {
       let source = original;
       if (original.integration === 'conflict' && !original.resolves_task_id) {
         const active = this.store.activeResolver(original.id);
-        check(!active, `resolution task #${active?.id} is still active; finish or cancel it before batch merging #${original.id}`);
+        check(!active, `resolution worker #${active?.id} is still active; finish or cancel it before batch merging #${original.id}`);
         const ready = this.store.unlandedResolver(original.id);
         if (ready) source = this.store.task(ready.id);
       }
@@ -128,7 +128,7 @@ export default {
           merges.push({ ...identity, status: 'conflict', integration: result.integration,
             resolution_task_id: result.merge.resolution_task_id, error: stopped.reason });
         } else if (result.merge?.status === 'diverged') {
-          stopped = { id: entry.id, reason: `branch diverged from ${result.merge.parent}; sync task #${result.merge.sync_task_id} created` };
+          stopped = { id: entry.id, reason: `branch diverged from ${result.merge.parent}; sync worker #${result.merge.sync_task_id} created` };
           merges.push({ ...identity, status: 'diverged', integration: result.integration,
             sync_task_id: result.merge.sync_task_id, error: stopped.reason });
         } else {
@@ -172,7 +172,7 @@ export default {
     const task = this.store.task(taskId);
     check(['pending', 'review'].includes(task.integration), `#${task.id} is not waiting for a merge`);
     const active = this.store.activeResolver(task.id);
-    check(!active, `resolution task #${active?.id} is still running; wait for it or cancel it before asking for another round`);
+    check(!active, `resolution worker #${active?.id} is still running; wait for it or cancel it before asking for another round`);
     const stale = this.store.unlandedResolver(task.id);
     const goal = `解决 #${task.id} 合并到 ${task.target_branch} 的冲突。\n`
       + `你的 worktree 以 ${task.target_branch} 的顶端为基线；把 #${task.id} 已审阅的提交 ${task.head_commit ?? task.branch}（分支 ${task.branch}）并进来，\n`
@@ -192,12 +192,12 @@ export default {
         commit: task.head_commit, files: conflict.files });
       return this.store.update(created.id, { status: 'awaiting', target_branch: task.target_branch });
     });
-    const notice = this.notice(resolution.id, `#${task.id} 合并到 ${task.target_branch} 冲突：要开一个解冲突任务吗？`, [
+    const notice = this.notice(resolution.id, `#${task.id} 合并到 ${task.target_branch} 冲突：要开一个解冲突 Worker 吗？`, [
       `冲突文件：\n${conflict.files.map(file => `  ${file}`).join('\n')}`,
       `git 的输出：\n${conflict.output}`,
       `${task.target_branch} 已经 abort 回合并前的干净状态，没有留下中间态。`,
-      `答复任意内容：批准解冲突任务 #${resolution.id} 开工。它在自己的 worktree 里（基线＝${task.target_branch} 顶端）把 #${task.id} 已审阅的提交并进来、解冲突、跑测试，完成后由你决定要不要落地。`,
-      `解冲突任务落地时用 --ff-only：落地的树就是它测过的那棵树，不会再冲突一次。`,
+      `答复任意内容：批准解冲突 Worker #${resolution.id} 开工。它在自己的 worktree 里（基线＝${task.target_branch} 顶端）把 #${task.id} 已审阅的提交并进来、解冲突、跑测试，完成后由你决定要不要落地。`,
+      `解冲突 Worker 落地时用 --ff-only：落地的树就是它测过的那棵树，不会再冲突一次。`,
       `忽略这条问题：撤销 #${resolution.id}，#${task.id} 回到「待合并」。`,
       `在冲突解决之前，同一目标分支 ${task.target_branch} 上的其它合并会被冻结，防止 main 前进让解冲突的结果失效。`,
     ].join('\n\n'));
@@ -308,16 +308,16 @@ export default {
         try {
           const branchState = await this.workspaces.branchState(source.branch);
           if (branchState.blockers.length) blockers.push({ code: 'branch_children',
-            message: `先收拢直接子分支/任务：${branchState.blockers.join('、')}` });
+            message: `先收拢直接子分支/Worker：${branchState.blockers.join('、')}` });
           if (branchState.status === 'diverged') blockers.push({ code: 'branch_diverged',
             message: `与直接父分支 ${branchState.parent} 已分歧；请到分支图在子侧同步` });
           if (branchState.status === 'missing') blockers.push({ code: 'branch_missing', message: '子分支或直接父分支不存在' });
         } catch (error) { blockers.push({ code: 'branch_invalid', message: error.message }); }
       }
       if (phase === 'conflict_decision') blockers.push({ code: 'conflict_decision', task_id: active?.id ?? null,
-        message: active ? `决定是否启动解冲突任务 #${active.id}` : '需要重新发起解冲突' });
+        message: active ? `决定是否启动解冲突 Worker #${active.id}` : '需要重新发起解冲突' });
       if (phase === 'resolving') blockers.push({ code: 'resolution_active', task_id: active.id,
-        message: `解冲突任务 #${active.id} 正在处理` });
+        message: `解冲突 Worker #${active.id} 正在处理` });
       if (phase === 'resolution_stale') blockers.push({ code: 'resolution_stale', task_id: readyResolution.id,
         message: `目标分支已前进；废弃解冲突结果 #${readyResolution.id} 后重新处理` });
       const foreign = conflictRows.find(conflict => conflict.target_branch === source.target_branch
@@ -328,7 +328,7 @@ export default {
         const upstream = head.get(dep.id);
         const landed = upstream?.head_commit && source.target_branch
           ? await this.workspaces.isAncestor(this.config.project, upstream.head_commit, `refs/heads/${source.target_branch}`) : false;
-        if (!landed) blockers.push({ code: 'code_upstream', task_id: dep.id, message: `先把基线任务 #${dep.id} 落地` });
+        if (!landed) blockers.push({ code: 'code_upstream', task_id: dep.id, message: `先把基线 Worker #${dep.id} 落地` });
       }
       items.push({ id: row.id, source_task_id: source.id, role: row.role, goal: row.goal,
         branch: source.branch, target_branch: source.target_branch, integration: row.integration, source_integration: source.integration,

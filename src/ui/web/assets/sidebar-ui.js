@@ -4,8 +4,8 @@ import { ui } from './state.js';
 const RESOURCE_META = new Map(SIDEBAR_SECTIONS.map(section => [section.id, section]));
 const PAGES = {
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
-  'task-graph': ['任务树', '工作', '任务父子关系 · Agent、分支与 worktree'],
-  versions: ['版本迭代', '工作', 'main 主线历史 · 提交与 Task / say 追溯'],
+  'task-graph': ['Worker 树', '工作', 'Worker 父子关系 · Agent、分支与 worktree'],
+  versions: ['版本迭代', '工作', 'main 主线历史 · 提交与 Worker / say 追溯'],
   inputs: ['历史输入', '工作', '暂存想法 · 全库原始输入检索与发射'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],
   settings: ['设置', '其他', 'Agent、界面偏好与系统状态'],
@@ -52,7 +52,8 @@ function activate(id, { key = id, title, context, hint, push = true, hash } = {}
   selectNav(id === 'task' ? 'tasks' : id);
   const meta = resource ? [resource.long, '工作', resource.description] : PAGES[id] || ['项目', '工作', ''];
   setViewChrome(title ?? meta[0], context ?? meta[1], hint ?? meta[2], { root: id === 'overview' });
-  const target = hash ?? (id === 'overview' ? '' : `#${id}`);
+  const route = id === 'tasks' ? 'workers' : id === 'task-graph' ? 'worker-graph' : id;
+  const target = hash ?? (id === 'overview' ? '' : `#${route}`);
   if (push && globalThis.location?.hash !== target) {
     const base = `${globalThis.location?.pathname || '/'}${globalThis.location?.search || ''}`;
     globalThis.window?.history?.pushState?.(null, '', target || base);

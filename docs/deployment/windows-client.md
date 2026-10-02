@@ -8,7 +8,7 @@
 2. 在 Windows 的现代 Edge、Chrome 或 Firefox 打开 Host 的 HTTPS 根地址，例如 `https://lush.example.com`。
 3. 登录后选择远程项目；新增项目必须填写远程机器上的绝对目录，不是 `C:\...` 本地路径。
 
-任务输入、执行记录、待决问卷、任务树和项目设置都使用远端提供的同一份 Web UI。浏览器不启动本机 Bun 或 daemon；需要调整 Agent 模型认证时，在远端配置。浏览器刷新或客户端关闭不停止远端任务。
+Worker输入、执行记录、待决问卷、Worker树和项目设置都使用远端提供的同一份 Web UI。浏览器不启动本机 Bun 或 daemon；需要调整 Agent 模型认证时，在远端配置。浏览器刷新或客户端关闭不停止远端Worker。
 
 ## Electron：安装后直接连接
 

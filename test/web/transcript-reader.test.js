@@ -12,18 +12,18 @@ test('Web full-search and original-step routes use project RPC and preserve sour
     fs.writeFileSync(path.join(dir, `001_lush-task-${task.id}.jsonl`), JSON.stringify({ type: 'message', message: {
       role: 'toolResult', toolName: 'bash', toolCallId: 'a', isError: true, content: [{ type: 'text', text: 'exit code 1' }],
     } }) + '\n');
-    const search = await (await fetch(`${f.url}/api/task/${task.id}/transcript-search?query=exit&errors=true`)).json();
+    const search = await (await fetch(`${f.url}/api/worker/${task.id}/transcript-search?query=exit&errors=true`)).json();
     expect(search.steps[0].seq).toBe(1);
-    const source = await (await fetch(`${f.url}/api/task/${task.id}/transcript-step?seq=1`)).json();
+    const source = await (await fetch(`${f.url}/api/worker/${task.id}/transcript-step?seq=1`)).json();
     expect(source.step.body).toBe('exit code 1');
-    const page = await (await fetch(`${f.url}/api/task/${task.id}/transcript-page`)).json();
+    const page = await (await fetch(`${f.url}/api/worker/${task.id}/transcript-page`)).json();
     expect(page.steps[0]).toMatchObject({ seq: 1, offset: 0, body: 'exit code 1', body_length: 11 });
     expect(page).toMatchObject({ next_seq: 2, next_offset: 0, has_more: false });
-    expect((await fetch(`${f.url}/api/task/${task.id}/transcript-page?seq=0`)).status).toBe(400);
-    expect((await fetch(`${f.url}/api/task/${task.id}/transcript-page?offset=-1`)).status).toBe(400);
-    expect((await fetch(`${f.url}/api/task/999999/transcript-page`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/worker/${task.id}/transcript-page?seq=0`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/worker/${task.id}/transcript-page?offset=-1`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/worker/999999/transcript-page`)).status).toBe(400);
     // 解释/介绍入口已随旧功能下线；只保留只读检索与分页源历史。
-    expect((await fetch(`${f.url}/api/task/${task.id}/transcript-step?seq=-1`)).status).toBe(400);
-    expect((await fetch(`${f.url}/api/task/${task.id}/transcript-search?kind=no`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/worker/${task.id}/transcript-step?seq=-1`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/worker/${task.id}/transcript-search?kind=no`)).status).toBe(400);
   } finally { await f.close(); }
 });

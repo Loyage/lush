@@ -13,7 +13,7 @@ export function renderGoal(task, history = {}, previous = null) {
     return previous;
   }
   if (!task.goal && !(history.events || []).some(isFollowup) && !history.truncated && !history.has_more) return null;
-  const goal = block('任务目标'); goal.classList.add('goal-panel'); goal.goalSignature = signature;
+  const goal = block('Worker 目标'); goal.classList.add('goal-panel'); goal.goalSignature = signature;
   if (task.goal) goal.append(agentText(task.goal, { className: 'goal-text', plain: 'div' }));
   const fold = el('details', undefined, 'goal-history');
   fold.open = previous?.querySelector('.goal-history')?.open || false;
@@ -45,7 +45,7 @@ export function renderGoal(task, history = {}, previous = null) {
           item.append(agentText(event.data.body, { className: 'goal-text', plain: 'div' }));
         });
         referenceable(item, { kind: 'history_event', target: { task_id: task.id, event_id: event.id },
-          label: `任务 #${task.id} 的追加输入`, quote: event.data.body,
+          label: `Worker #${task.id} 的追加输入`, quote: event.data.body,
           location: { view: 'task-detail', task_id: task.id, section: 'history' } });
         rendered.set(event.id, item);
       }

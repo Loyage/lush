@@ -29,7 +29,7 @@ export default {
           : row.event_legacy === 1 && row.task_kind === null && row.target_branch === 'main';
       if (!isMain) continue;
       check(row.goal.length <= 16384 && (row.input_content?.length ?? 0) <= 131072,
-        'version history Task or say text exceeds safe size');
+        'version history Worker or say text exceeds safe size');
       const tasks = byCommit.get(row.landed_commit);
       if (!tasks || tasks.has(row.id)) continue;
       tasks.set(row.id, { id: row.id, goal: row.goal, task_kind: row.task_kind ?? 'legacy',

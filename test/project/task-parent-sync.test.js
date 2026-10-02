@@ -178,7 +178,7 @@ test('active descendants, idle-parent and parent delivery freeze prevent synchro
     await expect(f.project.syncTaskParent(f.task.id)).rejects.toThrow('active descendants');
     f.store.update(child.id, { status: 'cancelled' });
     f.store.update(f.task.parent_id, { status: 'running' });
-    await expect(f.project.syncTaskParent(f.task.id)).rejects.toThrow('parent Task');
+    await expect(f.project.syncTaskParent(f.task.id)).rejects.toThrow('parent Worker');
     f.store.update(f.task.parent_id, { status: 'waiting' });
     const sibling = await f.project.say('sibling');
     f.store.update(sibling.task.id, { status: 'waiting', reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'requested',

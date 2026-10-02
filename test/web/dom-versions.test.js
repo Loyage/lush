@@ -40,14 +40,14 @@ test('版本迭代平级导航、hash、页面身份、移动端与只读轮询�
   expect(dom.node('resource-panels').hidden).toBe(true); expect(dom.node('detail').hidden).toBe(false);
   expect(dom.node('sidebar').classList.contains('mobile-open')).toBe(false);
   expect(text()).toContain(sha('a')); expect(text()).toContain('2026-10-02T09:00:00Z'); expect(text()).toContain('开发者');
-  expect(text()).toContain('查看 Task #12'); expect(text()).toContain('开发版本迭代'); expect(text()).toContain('原始 say #7');
-  expect(text()).toContain('原始 say\n保留换行'); expect(text()).toContain('未关联 Task');
+  expect(text()).toContain('查看 Worker #12'); expect(text()).toContain('开发版本迭代'); expect(text()).toContain('原始 say #7');
+  expect(text()).toContain('原始 say\n保留换行'); expect(text()).toContain('未关联 Worker');
   expect(refresh().getAttribute('data-help')).toContain('不启动 Agent');
   expect(dom.node('detail').querySelectorAll('.agent-call')).toHaveLength(0);
   const content = text(), pushes = dom.pushed(); await openVersions();
   await dom.intervalFor(1500)(); await dom.intervalFor(3000)();
   expect(paths.length).toBe(before + 1); expect(text()).toBe(content); expect(dom.pushed()).toBe(pushes);
-  dom.location.hash = '#tasks'; await dom.fire('hashchange'); expect(selected()).toEqual(['tasks']);
+  dom.location.hash = '#workers'; await dom.fire('hashchange'); expect(selected()).toEqual(['tasks']);
   dom.location.hash = '#versions'; await dom.fire('hashchange'); expect(selected()).toEqual(['versions']);
   expect(paths.length).toBe(before + 2);
 });
@@ -150,7 +150,7 @@ test('重复点击分页单飞；文本安全渲染、未核实关联与明确�
   expect(deepText(node)).toContain(html); expect(node.querySelectorAll('img')).toHaveLength(0);
   expect(deepText(node)).toContain('已截断');
   const unrelated = renderVersionCommit({ ...malicious, association: 'unassociated' });
-  expect(deepText(unrelated)).toContain('未关联 Task'); expect(unrelated.querySelectorAll('.version-task-link')).toHaveLength(0);
+  expect(deepText(unrelated)).toContain('未关联 Worker'); expect(unrelated.querySelectorAll('.version-task-link')).toHaveLength(0);
 });
 
 test('HTML 工作导航和样式入口、响应式与双主题 token 静态约束', () => {

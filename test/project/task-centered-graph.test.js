@@ -79,7 +79,7 @@ test('graph progress counts only planned work, including after all work finishes
           if (['waiting', 'awaiting', 'queued'].includes(status)) {
             expect(progress.current).toMatchObject({ kind: 'wait', wait_ms: 2000 });
             expect(progress.current.waiting_since).toBe(at(-40000));
-            expect(progress.current.label).toBe({ waiting: '等待子 Task 信号', awaiting: '等待你答复', queued: '排队等待调用槽' }[status]);
+            expect(progress.current.label).toBe({ waiting: '等待子Worker信号', awaiting: '等待你答复', queued: '排队等待调用槽' }[status]);
           } else if (allDone) expect(progress.current).toBeNull();
           else expect(progress.current).toMatchObject({ key: 'commit', kind: 'step', work_ms: 7000, active_since: null });
         }
@@ -179,7 +179,7 @@ test('an active internal merge queue blocks parent archive rather than being hid
     f.store.update(parent.id, { status: 'completed' });
     const queue = f.store.create({ parent_id: parent.id, role: 'agent', task_kind: 'merge', goal: 'active queue' });
     f.store.update(queue.id, { status: 'waiting', target_branch: parent.branch });
-    await expect(f.project.archiveBranch(parent.branch)).rejects.toThrow(`unfinished tasks: #${queue.id}`);
+    await expect(f.project.archiveBranch(parent.branch)).rejects.toThrow(`unfinished workers: #${queue.id}`);
     expect(f.store.branch(parent.branch).status).toBe('active');
     expect(fs.existsSync(parent.workspace)).toBe(true);
     expect((await f.project.taskGraph()).nodes.find(node => node.id === queue.id).archived).toBe(false);

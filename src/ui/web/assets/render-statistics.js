@@ -122,7 +122,7 @@ export function renderStatistics(data) {
     body.append(tr);
   }
   table.append(body); scroll.append(table); section.append(scroll); root.append(section);
-  for (const [key, title] of [['roles', '按角色归因'], ['tasks', '按任务归因'], ['invocations', '按 invocation 归因']]) {
+  for (const [key, title] of [['roles', '按角色归因'], ['tasks', '按 Worker 归因'], ['invocations', '按 invocation 归因']]) {
     if (!data[key]) continue;
     const group = block(title), wrap = el('div', undefined, 'usage-table-scroll'), table = el('table', undefined, 'usage-table');
     const head = el('tr');
@@ -143,7 +143,7 @@ export function renderStatistics(data) {
     root.append(group);
   }
   if (data.attribution?.unknown_role_requests || data.attribution?.unknown_run_requests) {
-    root.append(el('p', `历史归因不完整：${data.attribution.unknown_role_requests} 条角色未知，${data.attribution.unknown_run_requests} 条 invocation 未知。未知记录仍计入总量，不按相邻任务猜测。`, 'usage-warning'));
+    root.append(el('p', `历史归因不完整：${data.attribution.unknown_role_requests} 条角色未知，${data.attribution.unknown_run_requests} 条 invocation 未知。未知记录仍计入总量，不按相邻 Worker 猜测。`, 'usage-warning'));
   }
   return root;
 }
@@ -151,7 +151,7 @@ export function renderStatistics(data) {
 export async function openStatistics() {
   const view = activateDetailView({ view: 'statistics' });
   const page = el('div', undefined, 'statistics-page');
-  page.append(el('h1', '用量统计'), el('p', '当前项目所有保留会话（含已归档／已删除任务）。不设置时间即统计迄今为止的全部记录；费用来自调用时的估价，不是实际账单。', 'hint'));
+  page.append(el('h1', '用量统计'), el('p', '当前项目所有保留会话（含已归档／已删除 Worker）。不设置时间即统计迄今为止的全部记录；费用来自调用时的估价，不是实际账单。', 'hint'));
   const filters = ui.statisticsFilters ??= statisticsDefaults();
   const modes = el('div', undefined, 'usage-modes'); modes.setAttribute('role', 'group'); modes.setAttribute('aria-label', '统计视图');
   const form = el('form', undefined, 'usage-filters');

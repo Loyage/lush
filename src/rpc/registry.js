@@ -1,6 +1,6 @@
 import { LushError, check, isPlainObject } from '../core/types.js';
 
-// Public API for the Task-centred workflow. Historical rows remain on disk, but
+// Public API for the Worker-centred workflow. Historical rows remain on disk, but
 // Intent/Plan/Candidate and optional services cannot create new work.
 export const PARAMS = {
   'system.status': [], 'system.summary': [], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings'],
@@ -11,23 +11,23 @@ export const PARAMS = {
   'input.history': ['cursor','limit','q','status','integration'], 'input.get': ['kind','id'], 'input.parents': [],
   'draft.add': ['content','references','branch'], 'draft.update': ['id','content','references','branch','expected_revision'],
   'draft.remove': ['id','expected_revision'],
-  'task.graph': [], 'task.list': ['after','limit'], 'task.activity': ['limit','scope'],
-  'task.page': ['before','limit','scope'], 'task.tree': ['id'], 'task.inspect': ['id'],
-  'task.history': ['id','after'], 'task.history_page': ['id','before','limit'], 'task.diff': ['id'], 'task.usage': ['id'],
-  'task.code_state': ['id','scope','after','limit'],
-  'task.code_tree': ['id','scope','path','query','changed','after','limit','revision'],
-  'task.code_file': ['id','scope','path','view','side','offset','limit','context','revision'],
-  'task.transcript': ['id','after','limit'], 'task.transcript_latest': ['id','after','before','limit'],
-  'task.transcript_page': ['id','seq','offset'], 'task.transcript_step': ['id','seq','offset'],
-  'task.transcript_search': ['id','query','kind','tool','errors','after','limit'],
-  'task.spawn': ['parent','goal','name'], 'task.integrate': ['id','commit'],
-  'task.reserve': ['id','kind'], 'task.reserve_all': ['branch'], 'task.auto_merge': ['id','enabled'],
-  'task.resolve': ['id'], 'task.resolve_divergence': ['id'],
-  'task.accept': ['id'], 'task.reopen': ['id'], 'task.sync_parent': ['id'], 'task.resolve_sync': ['id'],
-  'task.resolve_child_divergence': ['id'], 'task.unreserve': ['id'],
-  'task.approve_merge': ['id','commit','baseline'], 'task.message': ['id','body'],
-  'task.cancel': ['id'], 'task.retry': ['id'], 'task.cleanup': ['id','keep_branch'],
-  'task.interrupt': ['id'], 'task.resume': ['id','profile'], 'task.configure': ['id','profile'],
+  'worker.graph': [], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
+  'worker.page': ['before','limit','scope'], 'worker.tree': ['id'], 'worker.inspect': ['id'],
+  'worker.history': ['id','after'], 'worker.history_page': ['id','before','limit'], 'worker.diff': ['id'], 'worker.usage': ['id'],
+  'worker.code_state': ['id','scope','after','limit'],
+  'worker.code_tree': ['id','scope','path','query','changed','after','limit','revision'],
+  'worker.code_file': ['id','scope','path','view','side','offset','limit','context','revision'],
+  'worker.transcript': ['id','after','limit'], 'worker.transcript_latest': ['id','after','before','limit'],
+  'worker.transcript_page': ['id','seq','offset'], 'worker.transcript_step': ['id','seq','offset'],
+  'worker.transcript_search': ['id','query','kind','tool','errors','after','limit'],
+  'worker.spawn': ['parent','goal','name'], 'worker.integrate': ['id','commit'],
+  'worker.reserve': ['id','kind'], 'worker.reserve_all': ['branch'], 'worker.auto_merge': ['id','enabled'],
+  'worker.resolve': ['id'], 'worker.resolve_divergence': ['id'],
+  'worker.accept': ['id'], 'worker.reopen': ['id'], 'worker.sync_parent': ['id'], 'worker.resolve_sync': ['id'],
+  'worker.resolve_child_divergence': ['id'], 'worker.unreserve': ['id'],
+  'worker.approve_merge': ['id','commit','baseline'], 'worker.message': ['id','body'],
+  'worker.cancel': ['id'], 'worker.retry': ['id'], 'worker.cleanup': ['id','keep_branch'],
+  'worker.interrupt': ['id'], 'worker.resume': ['id','profile'], 'worker.configure': ['id','profile'],
   'progress.plan': ['steps'], 'progress.complete': ['step'],
   'notice.list': [], 'notice.page': ['status','before','limit'],
   'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'], 'notice.read': ['id'],
@@ -36,17 +36,17 @@ export const PARAMS = {
 };
 export const USER_ONLY = new Set([
   'system.stop','system.stop_if_idle','system.configure','agent.configure','agent.status','agent.environment','agent.environment.configure',
-  'branch.history','task.code_state','task.code_tree','task.code_file',
+  'branch.history','worker.code_state','worker.code_tree','worker.code_file',
   'agent.usage.config','agent.usage.configure','agent.usage.history',
   'input.history','input.get','input.parents','draft.add','draft.update','draft.remove',
-  'say.submit','task.transcript_latest','task.transcript_page','task.transcript_step','task.transcript_search',
-  'task.reserve','task.reserve_all','task.auto_merge','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge',
-  'task.cancel','task.retry','task.cleanup','task.interrupt','task.resume','task.configure',
-  'task.reopen','task.sync_parent','task.resolve_sync',
+  'say.submit','worker.transcript_latest','worker.transcript_page','worker.transcript_step','worker.transcript_search',
+  'worker.reserve','worker.reserve_all','worker.auto_merge','worker.resolve','worker.resolve_divergence','worker.unreserve','worker.approve_merge',
+  'worker.cancel','worker.retry','worker.cleanup','worker.interrupt','worker.resume','worker.configure',
+  'worker.reopen','worker.sync_parent','worker.resolve_sync',
   'notice.answer','notice.dismiss','notice.read','branch.bind','branch.archive',
 ]);
 export const AGENT_ONLY = new Set([
-  'task.integrate','task.resolve_child_divergence','progress.plan','progress.complete',
+  'worker.integrate','worker.resolve_child_divergence','progress.plan','progress.complete',
 ]);
 export function assertAllowed(method, params, actor) {
   check(isPlainObject(params), 'params must be an object');

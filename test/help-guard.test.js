@@ -5,7 +5,7 @@ import { UIClient } from '../src/ui/client.js';
 import { fixture } from './helpers.js';
 
 // --help / -h 出现在任意 argv 位置都只打印帮助：命令 token 被 shift() 后，子命令会把裸 flag
-// 当成必填正文落库（spec add / branch summary / notice post / task spawn）。这份测试锁住全局拦截：
+// 当成必填正文落库（spec add / branch summary / notice post / worker spawn）。这份测试锁住全局拦截：
 // 打印 HELP、不发任何 RPC、不落库，且只有独立的 flag token 才算帮助。
 
 /** 捕获一次 main() 的 console.log，返回合并后的文本。 */
@@ -45,7 +45,7 @@ test('子命令里的裸 --help 只打印帮助，不落库也不发 RPC', async
     expect(await helpText(['spec', 'add', '--help', '--project', f.root])).toContain(HELP);
     expect(await helpText(['branch', 'summary', '--help'])).toContain(HELP);
     expect(await helpText(['notice', 'post', '--help'])).toContain(HELP);
-    expect(await helpText(['task', 'spawn', '--help'])).toContain(HELP);
+    expect(await helpText(['worker', 'spawn', '--help'])).toContain(HELP);
 
     // 全局 flag 先被移除，-h 与 --project 在命令前后都走同一拦截。
     expect(await helpText(['--json', 'spec', 'add', '--help'])).toContain(HELP);

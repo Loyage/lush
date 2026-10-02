@@ -20,9 +20,9 @@ export async function action(method, params) {
 export async function loadHistory(taskId, before = null) {
   const cursor = before === null ? '' : `?before=${before}`;
   try {
-    const page = await api(`/api/task/${taskId}/history-page${cursor}`);
+    const page = await api(`/api/worker/${taskId}/history-page${cursor}`);
     if (!Array.isArray(page)) return page;
   } catch { /* old Web host: fall back to the legacy ascending page */ }
-  const events = await api(`/api/task/${taskId}/history?after=0`);
+  const events = await api(`/api/worker/${taskId}/history?after=0`);
   return { events: Array.isArray(events) ? events : [], cursor: null, has_more: false, truncated: false, limit: 100 };
 }

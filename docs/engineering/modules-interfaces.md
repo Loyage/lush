@@ -19,8 +19,8 @@
 | `cli/print.js` | 树 / 会话 / 用量 / 分支谱系的渲染 | `printTree`、`printTranscript`、`transcriptStepText`、`printUsage`、`printBranchTree`、`printBranchShow`、`printBranchArchive` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `host` / `host-restart` / `host-stop` / `host-status`；无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式；`doctor` / `host-status` 分列磁盘、daemon、Web 身份并只给显式更新提示 | `run` |
 | `cli/commands/intent.js` | `say`（新输入的唯一入口） | `run` |
-| `cli/commands/task.js` | `task`（list / tree / inspect / spawn / message / transcript [--follow] / history / wait / integrate / auto-merge ID on\|off / reserve / accept / reopen / sync-parent / resolve-sync / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup） | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
-| `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 agent task） | `run` |
+| `cli/commands/task.js` | `worker`（list / tree / inspect / spawn / message / transcript [--follow] / history / wait / integrate / auto-merge ID on\|off / reserve / accept / reopen / sync-parent / resolve-sync / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup） | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
+| `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 Agent 的 Worker） | `run` |
 | `cli/commands/notice.js` | `notice list/post/answer/dismiss/read`（read 为用户专属，只将 info 告知标已读） | `run` |
 | `cli/commands/branch.js` | `branch tree / show / bind / archive` | `run` |
 | `cli/commands/agent.js` | `agent show/models/set/reset` 配置 profile；`prompt/env` 查看最终组合和环境来源，`init` 创建共享/本机补充；`--prompt` 只作旧版 `--append-prompt` 别名 | `run` |
@@ -39,7 +39,7 @@
 | `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验。**唯一公开面**：未列入 `PARAMS` 的方法一律 `unknown method` | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
 | `rpc/handlers/system.js` | 用户专属 `system.configure`、`system.stop_if_idle`（同步 idle 准入并关闭调度，见[服务重启](../reference/web-routes.md#服务重启)）；只读 `system.status`（兼容完整状态）与 `system.summary`（首页用持久 revision/索引聚合的无 Agent 全配置摘要）；`graph.get`；`agent.*`（含用户专属配置与环境文件，以及按需读取脱敏 Pi 账号/安装状态的 `agent.status`，不纳入快照）；历史 `sleep.*` / `system.usage` 仍可被内部调用，但不在白名单 | `handlers` |
-| `rpc/handlers/task.js` | `task.*`：`graph` / `list` / `activity` / `page` / `tree` / `inspect` / `history` / `history_page` / `diff` / 用户专属 `code_state` / `code_tree` / `code_file` / `usage` / `transcript*`、`spawn`、agent-only 的 `integrate` / `resolve_child_divergence` / `progress.*`，共享但按身份校验的 `accept`（用户验收 say / 直接父 Agent 确认 child），以及用户专属的 `auto_merge` / `reserve` / `unreserve` / `reopen` / `sync_parent` / `resolve_sync` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` | `handlers` |
+| `rpc/handlers/task.js` | `worker.*`：`graph` / `list` / `activity` / `page` / `tree` / `inspect` / `history` / `history_page` / `diff` / 用户专属 `code_state` / `code_tree` / `code_file` / `usage` / `transcript*`、`spawn`、agent-only 的 `integrate` / `resolve_child_divergence` / `progress.*`，共享但按身份校验的 `accept`（用户验收 say / 直接父 Agent 确认 child），以及用户专属的 `auto_merge` / `reserve` / `unreserve` / `reopen` / `sync_parent` / `resolve_sync` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` | `handlers` |
 | `rpc/handlers/notice.js` | `notice.list/page/post/answer/dismiss/read`；list 待决优先、其次未读生命周期 info；page 的 `unread` 仅筛新生命周期告知；read 幂等、不答复也不唤醒 | `handlers` |
 | `rpc/handlers/branch.js` | `branch.history/tree/show/bind/archive`（`branch.history` / `branch.bind` / `branch.archive` 在 `USER_ONLY`）；history 只读 main 第一父链 | `handlers` |
 | `rpc/handlers/input.js` | 历史 `input.*` / `draft.*`：源码保留，不在白名单 | `handlers` |
@@ -64,7 +64,7 @@
 
 | 分区 | 文件 |
 |---|---|
-| Task 中心主链 | `test/project/say.test.js`、`merge-queue.test.js`、`parent-delivery.test.js`（父自有队列顺序/执行位/暂停重排/取消与精确恢复）、`delivery-compatibility.test.js`（重复交付/代码依赖/旧 v2 审计与 Git/DB 窗口/源漂移）、`delivery-review.test.js`（拒绝非法 sender 无副作用、busy 挂起/取消真实自动唤醒、父前进后精确恢复读模型）、`task-signals.test.js`、`task-centered-graph.test.js`、`lifecycle.test.js`、`scheduling.test.js`、`preempt.test.js`、`progress.test.js`、`recovery.test.js`、`limits.test.js`、`agents.test.js`、`status.test.js` |
+| Worker 中心主链 | `test/project/say.test.js`、`merge-queue.test.js`、`parent-delivery.test.js`（父自有队列顺序/执行位/暂停重排/取消与精确恢复）、`delivery-compatibility.test.js`（重复交付/代码依赖/旧 v2 审计与 Git/DB 窗口/源漂移）、`delivery-review.test.js`（拒绝非法 sender 无副作用、busy 挂起/取消真实自动唤醒、父前进后精确恢复读模型）、`task-signals.test.js`、`task-centered-graph.test.js`、`lifecycle.test.js`、`scheduling.test.js`、`preempt.test.js`、`progress.test.js`、`recovery.test.js`、`limits.test.js`、`agents.test.js`、`status.test.js` |
 | 公开面契约 | `test/core-api.test.js`（RPC 白名单）、`test/help-guard.test.js`（帮助与命令面）、`test/web/core-api.test.js`、`test/task-iteration-api.test.js`（四个用户专属接口/CLI mock）、`test/web/iteration-api.test.js`（HTTP mock）、`test/web/dom-iteration.test.js`（共享迭代动作） |
 | Git / worktree | `test/workspaces/{naming,merge,cleanup,genealogy,anchor,archive,branch-diagnostics,branch-first,safety,task-squash}.test.js`（task-squash 核验精确凭据、双 ref 事务、guard、dirty/drift 与失败保留现场）；`safety` 直接验证通用 Git 安全门、历史展示 worktree 保留与 DB 附属数据只读兼容 |
 | 服务重启 | `test/service-restart.test.js`、`test/web/service-restart.test.js`、`test/integration/service-restart.test.js`（idle 准入、鉴权/路由、真实进程与桌面所有权） |

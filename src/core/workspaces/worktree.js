@@ -8,7 +8,7 @@ import { dirtDetail } from './git.js';
 export const methods = {
   /** Called within the Git serial queue when a child is born, not deferred to its first invocation. */
   async forkTaskUnsafe(task, parentBranch, commit) {
-    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase tasks are unsupported; preserve their worktrees for manual inspection');
+    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     const project = this.config.project;
     const branch = `lush/${this.namespace}/${taskLabel(task.id, task.name)}`;
     const workspace = path.join(this.config.home, 'worktrees', taskLabel(task.id, task.name));
@@ -122,7 +122,7 @@ export const methods = {
   },
 
   async ensure(task) {
-    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase tasks are unsupported; preserve their worktrees for manual inspection');
+    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     if (task.task_kind === 'main') return this.config.project;
     // 只读分析：分支最新提交的分离检出，**不创建也不占用任何分支**，所以分析师无法推进任何 ref。
     // 与 verifier 的对照检出同一套路：目录是派生的，invocation 结束就回收。
@@ -161,7 +161,7 @@ export const methods = {
       const workspace = candidate ? candidateInput?.anchor_workspace : target.workspace;
       check(workspace && fs.existsSync(workspace), candidate
         ? `candidate #${candidate.id} has no integration worktree to compare`
-        : `verified task #${target.id} has no worktree to compare`);
+        : `verified worker #${target.id} has no worktree to compare`);
       if (candidate) {
         const actual = await this.git(workspace, 'rev-parse', 'HEAD');
         check(actual === candidate.commit_hash,
@@ -193,13 +193,13 @@ export const methods = {
       task = this.store.task(task.id);
       if (task.workspace && fs.existsSync(task.workspace)) {
         const root = fs.realpathSync(await this.git(task.workspace, 'rev-parse', '--show-toplevel'));
-        check(root === task.workspace, 'task workspace is not a git worktree root');
-        check(await this.git(task.workspace, 'symbolic-ref', '--short', 'HEAD') === task.branch, 'task worktree branch changed; restore it before retrying');
+        check(root === task.workspace, 'worker workspace is not a git worktree root');
+        check(await this.git(task.workspace, 'symbolic-ref', '--short', 'HEAD') === task.branch, 'worker worktree branch changed; restore it before retrying');
         return task.workspace;
       }
       const project = this.config.project;
       const root = fs.realpathSync(await this.git(project, 'rev-parse', '--show-toplevel'));
-      check(root === project, 'coding tasks require the project to be a git worktree root');
+      check(root === project, 'coding workers require the project to be a git worktree root');
       // 主工作树脏不再是硬门槛：`git worktree add` 只读已提交的 HEAD、不碰用户现场，所以 Lush
       // 不必为了开工去提交、暂存或藏起已有改动。代价是 worker 看不到未提交改动，这份分歧必须
       // 留痕（dirty_source），否则 review 无从知道 base 与用户当时的现场不同。
@@ -217,7 +217,7 @@ export const methods = {
       // 但一个已经派出的并行任务仍从输入提交时冻结的 commit 开始，不会随合并时机漂移。
       // 终态 say 的独立解分歧子 Task 也是 task_kind='child'，但没有父任务（用 resolves_task_id 关联）。
       const owner = task.task_kind === 'child' && task.parent_id && !resolves ? this.store.task(task.parent_id) : null;
-      check(!owner || owner.branch, 'new child Task has no parent branch');
+      check(!owner || owner.branch, 'new child Worker has no parent branch');
       const anchor = (resolves || branchSync || owner) ? null : this.inputAnchor(task);
       const base = task.base_commit || (owner
         ? await this.git(project, 'rev-parse', '--verify', `refs/heads/${owner.branch}^{commit}`)
@@ -230,7 +230,7 @@ export const methods = {
         || await this.git(project, 'symbolic-ref', '--short', 'HEAD');
       const branch = task.branch || `lush/${this.namespace}/${taskLabel(task.id, task.name)}`;
       let reuse = false;
-      if (!task.branch) check(!(await this.git(project, 'branch', '--list', branch)), 'task branch already exists; preserve or rename the old branch before retrying');
+      if (!task.branch) check(!(await this.git(project, 'branch', '--list', branch)), 'worker branch already exists; preserve or rename the old branch before retrying');
       if (task.branch) {
         try { await this.git(project, 'show-ref', '--verify', `refs/heads/${branch}`); reuse = true; }
         catch { /* a crash may have happened before the initial branch was created */ }
@@ -271,21 +271,21 @@ export const methods = {
     return { id: input.id, branch: input.anchor_branch, commit: input.anchor_commit, workspace: input.anchor_workspace, target: input.anchor_target_branch };
   },
   async finish(task) {
-    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase tasks are unsupported; preserve their worktrees for manual inspection');
+    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     if (!task.workspace) return;
     await this.clean(task.workspace);
     const branch = await this.git(task.workspace, 'symbolic-ref', '--short', 'HEAD');
-    check(branch === task.branch, 'agent changed the task branch; restore it before retrying');
+    check(branch === task.branch, 'agent changed the worker branch; restore it before retrying');
     const head = await this.git(task.workspace, 'rev-parse', 'HEAD');
     this.store.update(task.id, { head_commit: head, integration: head === task.base_commit ? 'none' : 'pending' });
   },
   /** The single code dependency a worker may stack on; it has to be a finished worker with a branch. */
   codeBase(task) {
     const edges = this.store.deps(task.id).filter(edge => edge.kind === 'code');
-    check(edges.length <= 1, 'a task cannot stack on more than one code dependency');
+    check(edges.length <= 1, 'a worker cannot stack on more than one code dependency');
     if (!edges.length) return null;
     const upstream = this.store.task(edges[0].depends_on);
-    check(upstream.role === 'worker', `code dependency #${upstream.id} is a ${upstream.role} task; it has no branch to stack on`);
+    check(upstream.role === 'worker', `code dependency #${upstream.id} is a ${upstream.role} worker; it has no branch to stack on`);
     check(upstream.status === 'completed', `code dependency #${upstream.id} is ${upstream.status}; only a completed upstream can be a worktree base`);
     check(upstream.head_commit, `code dependency #${upstream.id} produced no commit yet`);
     return upstream;
@@ -294,7 +294,7 @@ export const methods = {
   removeBaseline(taskId) {
     return this.exclusive(async () => {
       const task = this.store.task(taskId);
-      check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase tasks are unsupported; preserve their worktrees for manual inspection');
+      check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
       if (!task.baseline_workspace) return task;
       const dir = task.baseline_workspace;
       try { await this.git(this.config.project, 'worktree', 'remove', '--force', dir); }

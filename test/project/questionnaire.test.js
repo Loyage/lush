@@ -54,7 +54,7 @@ test('posting stops the invocation, releases its slot, gates other messages, and
     await until(() => provider.calls.length === 1);
     const token = f.project.running.get(task.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});
-    await expect(rpc.dispatch('notice.post', { _token: token, task: other.id, title: 'spoof', questions: questions() })).rejects.toThrow('own task');
+    await expect(rpc.dispatch('notice.post', { _token: token, task: other.id, title: 'spoof', questions: questions() })).rejects.toThrow('own worker');
     await expect(rpc.dispatch('notice.post', { _token: token, title: 'invalid', questions: [] })).rejects.toThrow();
     expect(f.store.task(task.id).status).toBe('running');
     const notice = await rpc.dispatch('notice.post', { _token: token, title: 'Choose', body: 'context', questions: questions() });

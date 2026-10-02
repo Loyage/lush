@@ -4,7 +4,7 @@ import { detail } from './navigate.js';
 import { openNotice } from './render-notices.js';
 import { ui } from './state.js';
 
-/** Task-first homepage using the existing studio layout, without old Intent/Plan/Candidate controls. */
+/** Worker-first homepage using the existing studio layout, without old Intent/Plan/Candidate controls. */
 export function renderOverview(data) {
   const tasks = (data.tasks || []).filter(task => ['say','child','main','owner'].includes(task.task_kind));
   const open = (data.notices || []).filter(notice => notice.status === 'open' && notice.kind !== 'info');
@@ -19,15 +19,15 @@ export function renderOverview(data) {
   panel.dataset.view = 'overview'; panel.replaceChildren();
   const hero = el('div', undefined, 'overview-hero');
   const copy = el('div');
-  copy.append(el('span', 'TASK / 目标与交付', 'eyebrow'), el('h1', '项目概览'),
-    el('p', open.length ? `${open.length} 个问题等待你的决定。` : active.length ? `${active.length} 个 Task 正在推进。` : acceptance.length ? `${acceptance.length} 个 Task 等待验收，可追加输入继续开发。` : parentConfirmation.length ? `${parentConfirmation.length} 个派生 Task 等待父 Agent 确认，无需你验收。` : '发送一条目标，创建独立 Task。', 'hero-description'));
+  copy.append(el('span', 'WORKER / 目标与交付', 'eyebrow'), el('h1', '项目概览'),
+    el('p', open.length ? `${open.length} 个问题等待你的决定。` : active.length ? `${active.length} 个 Worker 正在推进。` : acceptance.length ? `${acceptance.length} 个 Worker 等待验收，可追加输入继续开发。` : parentConfirmation.length ? `${parentConfirmation.length} 个派生 Worker 等待父 Agent 确认，无需你验收。` : '发送一条目标，创建独立 Worker。', 'hero-description'));
   hero.append(copy, el('div', '✳', 'hero-mark')); panel.append(hero);
 
   const metrics = el('div', undefined, 'metrics');
   for (const [label, value, note, tone] of [
-    ['Task', tasks.length, 'say、子任务与分支所有者', 'blue'],
+    ['Worker', tasks.length, 'say、子 Worker 与分支所有者', 'blue'],
     ['进行中', active.length, `${data.status.agents?.length ?? 0} 个 Agent 正在调用`, 'violet'],
-    ['待验收', acceptance.length, `${parentConfirmation.length} 个派生 Task 待父确认，无需你验收`, 'violet'],
+    ['待验收', acceptance.length, `${parentConfirmation.length} 个派生 Worker 待父确认，无需你验收`, 'violet'],
     ['待我处理', open.length, open.length ? '需要你的答复' : '没有待答复问题', 'green'],
   ]) {
     const card = el('div', undefined, `metric tone-${tone}`);
@@ -36,8 +36,8 @@ export function renderOverview(data) {
   }
   panel.append(metrics);
 
-  const work = block('最近任务', String(tasks.length));
-  if (!tasks.length) work.append(el('p', '还没有 Task。在底部输入框描述目标即可开始。', 'empty-state compact'));
+  const work = block('最近 Worker', String(tasks.length));
+  if (!tasks.length) work.append(el('p', '还没有 Worker。在底部输入框描述目标即可开始。', 'empty-state compact'));
   for (const task of [...tasks].sort((a, b) => b.id - a.id).slice(0, 20)) {
     const row = el('div', undefined, 'branch-row');
     row.append(el('span', `#${task.id}`, 'tid'), button(task.goal || task.task_kind, () => detail(task.id), 'link'),
@@ -53,7 +53,7 @@ export function renderOverview(data) {
   for (const notice of open) {
     const row = button('', () => openNotice(notice.id), 'attention-item');
     const text = el('span', undefined, 'attention-copy');
-    text.append(el('span', `任务 #${notice.task_id} · 等待答复`, 'eyebrow'), el('strong', notice.title));
+    text.append(el('span', `Worker #${notice.task_id} · 等待答复`, 'eyebrow'), el('strong', notice.title));
     row.append(el('span', '?', 'attention-icon'), text, el('span', '去处理 →', 'attention-action'));
     decisions.append(row);
   }
@@ -62,7 +62,7 @@ export function renderOverview(data) {
   const agents = block('运行中的 Agent', `${data.status.agents?.length ?? 0} / ${data.status.concurrency ?? 1}`);
   for (const agent of data.status.agents || []) {
     const row = el('div', undefined, 'row');
-    row.append(el('span', '●', 'dot c-running'), button(`查看任务 #${agent.task_id}`, () => detail(agent.task_id), 'link'),
+    row.append(el('span', '●', 'dot c-running'), button(`查看 Worker #${agent.task_id}`, () => detail(agent.task_id), 'link'),
       el('span', agent.pid ? `pid ${agent.pid}` : 'pid 待上报', 'when'));
     agents.append(row);
   }

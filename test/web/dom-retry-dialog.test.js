@@ -38,7 +38,7 @@ const { retryTask, configureTask } = await import('../../src/ui/web/assets/retry
 
 afterAll(() => { restoreNavigation(); dom.restore(); });
 
-test('检查后重试编辑完整 Profile，并只把覆盖参数提交给 task.retry', async () => {
+test('检查后重试编辑完整 Profile，并只把覆盖参数提交给 worker.retry', async () => {
   const pending = retryTask({ id: 42, role: 'worker', status: 'failed' });
   await until(() => dialogButton(dom, '使用这些设置重试'));
   const modal = dom.node('modal');
@@ -57,7 +57,7 @@ test('检查后重试编辑完整 Profile，并只把覆盖参数提交给 task.
   await dialogButton(dom, '使用这些设置重试').onclick();
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
-  expect(actions[0]).toEqual({ method: 'task.retry', params: { id: 42, profile: {
+  expect(actions[0]).toEqual({ method: 'worker.retry', params: { id: 42, profile: {
     agent: 'pi', model: 'openai-codex/gpt-5.4-mini', thinking: 'high', default_prompt: '',
     append_prompt: '先复盘错误，再做最小修复', extensions: ['/tmp/review.js'], skills: [], soft_budget: {}, env: { ...commonEnv, ...roleEnv },
   } } });
@@ -72,7 +72,7 @@ test('暂停中的「调整运行设置」只保存 Profile，不启动 Agent', 
   await dialogButton(dom, '保存设置').onclick();
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
-  expect(actions[0].method).toBe('task.configure');
+  expect(actions[0].method).toBe('worker.configure');
   expect(actions[0].params.id).toBe(42);
   expect(actions[0].params.profile).toMatchObject({ agent: 'pi' });
 });
@@ -104,7 +104,7 @@ test('加载默认参数恢复角色的 Prompt、资源与软预算，并正确�
     expect(modal.querySelector('[data-retry-resource="skills"]').checked).toBe(true);
     await dialogButton(dom, '保存设置').onclick();
     expect(await pending).toBe(true);
-    expect(actions).toEqual([{ method: 'task.configure', params: { id: 46, profile: {
+    expect(actions).toEqual([{ method: 'worker.configure', params: { id: 46, profile: {
       ...defaults, env: { ...commonEnv, ...roleEnv, ...defaults.env },
     } } }]);
   } finally {

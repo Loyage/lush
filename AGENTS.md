@@ -4,11 +4,12 @@ Lush 是**项目级的多 agent 开发应用**。Bun / JavaScript / SQLite；dae
 
 ## 作用域
 
-- Lush UI（浏览器/桌面）↔ 整机入口 Lush Host（`bin/lush-host`）↔ 每项目一个 lushd（`bin/lushd`）。Host 只登记、鉴权、路由及转发，不持有任务事实；一个 lushd 对应一个 canonical 项目目录，状态固定在 `<project>/.lush/`。
+- Lush UI（浏览器/桌面）↔ 整机入口 Lush Host（`bin/lush-host`）↔ 每项目一个 lushd（`bin/lushd`）。Host 只登记、鉴权、路由及转发，不持有Worker事实；一个 lushd 对应一个 canonical 项目目录，状态固定在 `<project>/.lush/`。
 - CLI 项目命令默认向上发现 `.lush/project.json` 或 `.git`；用 `--project PATH` 显式选择项目。Web 四条命令无 `--project` / `LUSH_PROJECT` 时进入全局项目启动器。
 - `LUSH_PROJECT` 会传入 agent 子进程，agent 在独立 worktree 中仍连接原项目。
 - `LUSH_HOME` 不许指向独立的全局目录；非空时必须等于 `<project>/.lush`。
-- 实体只有 Input / Task / Agent / Message / Notice / Event。不要引入电脑级调度。
+- 实体只有 Input / Worker / Agent / Message / Notice / Event。不要引入电脑级调度。
+- 公开入口全面使用 Worker：CLI `lush worker`、RPC `worker.*`、HTTP `/api/worker/<id>` / `/api/workers` / `/api/worker-graph`，不留旧 Task 别名。存储字段、事件、环境变量与内部路径的保留边界以 `docs/engineering/core-api.md` 为准，不做数据迁移或机械改名。
 
 ## 命令一律走 bun run
 
@@ -39,17 +40,17 @@ bun run stop
 ## 安全与持久化
 
 - Git 操作通过 `src/core/workspaces.js`，无 shell 插值，所有 Lush Git 变更串行。
-- 每个 worker 独立 worktree / 分支；历史 worker 的合并仍由用户批准。新式 say/child 的 version 2 交付由父 Task 自有队列的 runtime 串行 Squash（含 main），不额外调用父 Agent。say 默认关闭自动合并，由用户开启 hook 或显式请求；新 child 默认开启且锁定。分歧由原 Task 在源侧吸收固定父基线，修复期间保留父执行位；挂起释放，恢复重新排队并固定新基线。落地后待验收，分支/worktree 保留，验收与显式归档分开。
+- 每个 worker 独立 worktree / 分支；历史 worker 的合并仍由用户批准。新式 say/child 的 version 2 交付由父 Worker 自有队列的 runtime 串行 Squash（含 main），不额外调用父 Agent。say 默认关闭自动合并，由用户开启 hook 或显式请求；新 child 默认开启且锁定。分歧由原 Worker 在源侧吸收固定父基线，修复期间保留父执行位；挂起释放，恢复重新排队并固定新基线。落地后待验收，分支/worktree 保留，验收与显式归档分开。
 - 不强制 reset / clean / 删除工作区，不自动提交用户已有改动。失败工作区也有价值。
-- `completed` 不等于 `merged`。保留独立的任务状态与 integration 状态。
-- 新 Task 父子关系创建后始终保持委派关系；当前 version 2 交付不创建 merge Task、不改源 Task 的 `parent_id`。持久预约是交付事实，Message/Event 仅通知；按入队顺序、代码依赖优先，取得父执行位后才固定尝试基线。旧 version 1 语义不改；旧 version 2 merge 身份和在途重挂只凭明确预约/审计恢复原父，不猜身份、不删历史。终态 task 不允许活动后代。依赖边（`task_deps`）只在 spawn 时写入，之后不可变。
+- `completed` 不等于 `merged`。保留独立的Worker状态与 integration 状态。
+- 新 Worker 父子关系创建后始终保持委派关系；当前 version 2 交付不创建 merge Worker、不改源 Worker 的 `parent_id`。持久预约是交付事实，Message/Event 仅通知；按入队顺序、代码依赖优先，取得父执行位后才固定尝试基线。旧 version 1 语义不改；旧 version 2 merge 身份和在途重挂只凭明确预约/审计恢复原父，不猜身份、不删历史。终态 Worker 不允许活动后代。依赖边（`task_deps`）只在 spawn 时写入，之后不可变。
 - 依赖只做结构校验（自依赖、祖先、悬空 id、多 code 边、非 worker 上游）；语义冲突由 planner 判断，拿不准就问用户。
 - 输入分 `develop` / `explain` 两类（`inputs.flow`，未判定按 develop）：explain 输入不得派生 worker/coordinator（`Project.spawn` 硬校验），因此了解类输入不产生 worktree 与待合并改动；改判只影响之后的 spawn。
-- `code` 依赖把上游分支当作下游 worktree 的基线，所以合并必须上游先行；`task merge` 会拒绝越级。
+- `code` 依赖把上游分支当作下游 worktree 的基线，所以合并必须上游先行；当前交付队列也不得越级。
 - 输入缓存在 `drafts` 表：草稿可在提交前删除，提交后行保留并回写 `input_id`；已提交的输入永不删除。
-- Agent 等待子任务或用户时释放 invocation 槽；新输入有独立规划槽。
-- Task 与 agent 是终身一对一的身份（`<role>#<id>`），但凭证只代表一次 invocation：库里只存 SHA-256，`actor()` 必须同时校验 hash 命中与「仍在 running 且未被 abort」。不要把 token 改成终身有效，否则上一轮逃逸的后台进程会重新变成合法 actor。
-- 消息只在 invocation 之间送达。注意「父任务刚 park、子任务刚完成、running Map 还未清理」之间的 lost-wakeup 竞态。
+- Agent 等待子Worker或用户时释放 invocation 槽；新输入有独立规划槽。
+- Worker 与 agent 是终身一对一的身份（`<role>#<id>`），但凭证只代表一次 invocation：库里只存 SHA-256，`actor()` 必须同时校验 hash 命中与「仍在 running 且未被 abort」。不要把 token 改成终身有效，否则上一轮逃逸的后台进程会重新变成合法 actor。
+- 消息只在 invocation 之间送达。注意「父Worker刚 park、子Worker刚完成、running Map 还未清理」之间的 lost-wakeup 竞态。
 - 重启不自动重放有未知副作用的调用；不迁移、不覆盖磁盘上已有的数据。
 
 ## 模块
@@ -58,7 +59,7 @@ bun run stop
 
 - `src/config.js`：项目发现与不可变绑定。
 - `src/persistence/store.js`：SQLite 事实来源。
-- `src/core/project.js`：任务树、消息、notice、调度与生命周期。
+- `src/core/project.js`：Worker树、消息、notice、调度与生命周期。
 - `src/core/workspaces.js`：Git 工作区、人工批准合并、安全清理。
 - `src/agent/`：共享指令、pi 与 mock 后端。
 - `src/rpc/` / `src/daemon/`：通信、装配、锁与退出。

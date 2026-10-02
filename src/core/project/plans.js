@@ -58,7 +58,7 @@ export default {
     const value = id(reference);
     const notice = this.store.get("SELECT * FROM notices WHERE id=? AND kind='plan'", value);
     const planner = notice ? this.store.task(notice.task_id) : this.store.task(value);
-    check(planner.role === 'planner', `task #${planner.id} is a ${planner.role}; only a planner has a plan to approve`);
+    check(planner.role === 'planner', `worker #${planner.id} is a ${planner.role}; only a planner has a plan to approve`);
     check(planner.plan_gate === 'proposed', `planner #${planner.id} has no plan waiting for approval`);
     return planner;
   }

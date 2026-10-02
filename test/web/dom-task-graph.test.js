@@ -9,7 +9,7 @@ const graph = { nodes: [
 ], total: 2, truncated: false };
 let requests = 0;
 const dom = installDom({ fetch: (url, options) => {
-  if (String(url) === '/api/task-graph') { requests++; return { ok: true, json: async () => graph }; }
+  if (String(url) === '/api/worker-graph') { requests++; return { ok: true, json: async () => graph }; }
   return world.fetchImpl(url, options);
 } });
 const { boot } = await import('../../src/ui/web/assets/app.js');
@@ -19,7 +19,7 @@ afterAll(() => dom.restore());
 
 test('Task 图以 Task 为节点；旧 #graph 不再打开分支图', async () => {
   await dom.node('task-graph-open').onclick();
-  expect(dom.location.hash).toBe('#task-graph');
+  expect(dom.location.hash).toBe('#worker-graph');
   const text = deepText(dom.node('detail'));
   expect(text).toContain('实现功能');
   expect(text).toContain('lush/task-2');
@@ -88,10 +88,10 @@ test('Task 图：历史内部合并队列随父 Task 归档，不隐藏独立工
     expect(card(101)).toBeTruthy();
     const toggle = dom.node('detail').querySelector('.task-graph-archived-toggle');
     expect(toggle.textContent).toContain('显示已归档（2）');
-    expect(toggle.getAttribute('data-help')).toContain('随父 Task 归档');
+    expect(toggle.getAttribute('data-help')).toContain('随父 Worker 归档');
     toggle.onclick();
     expect(card(99)).toBeTruthy();
-    expect(deepText(card(100))).toContain('随父 Task 归档');
+    expect(deepText(card(100))).toContain('随父 Worker 归档');
     expect(deepText(card(100))).not.toContain('分支已归档');
     expect(card(101)).toBeTruthy();
     dom.node('detail').querySelector('.task-graph-archived-toggle').onclick();
@@ -146,7 +146,7 @@ test('Task 卡片同屏展示工作状态、进度、结果、Git 诊断、待�
   const text = deepText(dom.node('detail'));
   for (const word of ['验收条件', '等待新输入', '已完成初步实现', '实现接口', '1/3',
     '已提交：2 个文件', '未提交：1 个文件', 'implement API', '是否继续？', '自动合并',
-    '正在解决 Task #7', '冻结', 'Git 父分支：main', '当前检出', 'Git 关系：领先 · 领先 1 / 落后 0 个提交']) {
+    '正在解决 Worker #7', '冻结', 'Git 父分支：main', '当前检出', 'Git 关系：领先 · 领先 1 / 落后 0 个提交']) {
     expect(text).toContain(word);
   }
   const card = dom.node('detail').querySelector('[data-task-id="2"]');
@@ -155,7 +155,7 @@ test('Task 卡片同屏展示工作状态、进度、结果、Git 诊断、待�
   await dom.intervalFor(1500)();
   expect(dom.node('detail').querySelector('.graph-decision-input')).toBe(decision);
   await card.querySelector('.graph-decision').querySelectorAll('button')
-    .find(node => node.textContent === '回复并继续任务').onclick();
+    .find(node => node.textContent === '回复并继续 Worker').onclick();
   expect(world.state.actions.at(-1)).toMatchObject({ method: 'notice.answer', params: { id: 42 } });
   // Snapshot revision unchanged: Git data is still refreshed after the max age.
   graph.nodes[1].branch_info.diagnostics.working_tree.files_total = 3;
@@ -329,12 +329,12 @@ test('Task 图：可归档分支给「归档」按钮，帮助说清含义，确
     const help = archive.getAttribute('data-help');
     expect(help).toContain('worktree 与本地 ref');
     expect(help).toContain('未提交改动');
-    expect(help).toContain('不等于删除 Task');
-    expect(help).toContain('内部合并队列随父 Task 一起归档');
+    expect(help).toContain('不等于删除 Worker');
+    expect(help).toContain('内部合并队列随父 Worker 一起归档');
 
     const pending = archive.onclick();
-    expect(dialogText(dom)).toContain('保留任务、会话与分支记录');
-    expect(dialogText(dom)).toContain('内部合并队列随父 Task 一起归档');
+    expect(dialogText(dom)).toContain('保留 Worker、会话与分支记录');
+    expect(dialogText(dom)).toContain('内部合并队列随父 Worker 一起归档');
     expect(world.state.actions.some(entry => entry.method === 'branch.archive')).toBe(false);
     await answerDialog(dom, '归档');
     await pending;

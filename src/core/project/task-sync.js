@@ -18,7 +18,7 @@ function baselinePatch(project, taskId, commit) {
 function acquire(project, taskId, parentId) {
   project.taskSyncBusy ??= new Set();
   check(!project.taskSyncBusy.has(taskId) && !project.taskSyncBusy.has(parentId),
-    'Task synchronization is already in progress');
+    'Worker synchronization is already in progress');
   project.taskSyncBusy.add(taskId);
   project.taskSyncBusy.add(parentId);
 }
@@ -34,36 +34,36 @@ function release(project, taskId, parentId) {
 export default {
   assertTaskSyncable(taskId) {
     const task = this.store.task(id(taskId));
-    check(['say', 'child'].includes(task.task_kind), 'only say/child Tasks can synchronize their direct parent');
-    check(!TERMINAL.has(task.status), 'ended Tasks must first use task.reopen');
+    check(['say', 'child'].includes(task.task_kind), 'only say/child Workers can synchronize their direct parent');
+    check(!TERMINAL.has(task.status), 'ended Workers must first use worker.reopen');
     check(['waiting', 'paused', 'awaiting_acceptance'].includes(task.status),
-      'Task must be idle and not queued, running, or waiting for a user decision');
-    check(!this.running.has(task.id), 'Task invocation is still running');
-    check(task.branch && task.workspace && task.target_branch && task.parent_id, 'Task branch/worktree/direct parent is missing');
+      'Worker must be idle and not queued, running, or waiting for a user decision');
+    check(!this.running.has(task.id), 'Worker invocation is still running');
+    check(task.branch && task.workspace && task.target_branch && task.parent_id, 'Worker branch/worktree/direct parent is missing');
     const booking = bookingOf(task);
     check(!booking || ['pending', 'integrated', 'withdrawn', 'completed', 'failed', 'cancelled'].includes(booking.status),
-      'Task is frozen for delivery or divergence repair');
+      'Worker is frozen for delivery or divergence repair');
     check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", task.id),
-      'Task has an unanswered user decision');
-    check(!this.hasActionableMessages(task.id), 'Task has pending input; process it before synchronizing');
+      'Worker has an unanswered user decision');
+    check(!this.hasActionableMessages(task.id), 'Worker has pending input; process it before synchronizing');
     check(this.subtreeTasks(task.id).every(child => child.id === task.id
-      || (isSettled(child) && !this.running.has(child.id))), 'Task has active descendants');
+      || (isSettled(child) && !this.running.has(child.id))), 'Worker has active descendants');
     const parent = this.store.task(task.parent_id);
     check(['main', 'owner', 'say', 'child'].includes(parent.task_kind) && !TERMINAL.has(parent.status)
-      && parent.branch === task.target_branch, 'Task parent identity no longer matches its fixed Git target');
+      && parent.branch === task.target_branch, 'Worker parent identity no longer matches its fixed Git target');
     check(parent.status !== 'running' && parent.status !== 'queued' && !this.running.has(parent.id),
-      'parent Task must be idle before synchronizing');
+      'parent Worker must be idle before synchronizing');
     const seen = new Set([task.id]);
     for (let ancestor = parent; ancestor; ancestor = ancestor.parent_id ? this.store.task(ancestor.parent_id) : null) {
-      check(!seen.has(ancestor.id), 'Task ancestry contains a cycle');
+      check(!seen.has(ancestor.id), 'Worker ancestry contains a cycle');
       seen.add(ancestor.id);
-      check(!TERMINAL.has(ancestor.status), 'an ancestor Task has ended; reopen it before synchronizing');
+      check(!TERMINAL.has(ancestor.status), 'an ancestor Worker has ended; reopen it before synchronizing');
     }
-    this.assertBranchWritable(task.branch, 'synchronize Task');
-    this.assertBranchWritable(parent.branch, 'synchronize Task from parent');
+    this.assertBranchWritable(task.branch, 'synchronize Worker');
+    this.assertBranchWritable(parent.branch, 'synchronize Worker from parent');
     const record = this.store.branch(task.branch);
     check(record?.status === 'active' && record.task_id === task.id && record.parent_relation === 'recorded'
-      && record.parent === parent.branch, 'Task branch ownership/direct parent record changed');
+      && record.parent === parent.branch, 'Worker branch ownership/direct parent record changed');
     return task;
   },
 
@@ -76,7 +76,7 @@ export default {
         const recheck = () => {
           const live = this.assertTaskSyncable(task.id);
           check(['parent_id', 'branch', 'workspace', 'target_branch', 'status', 'reservation'].every(key => live[key] === current[key]),
-            'Task changed during synchronization');
+            'Worker changed during synchronization');
         };
         const project = this.config.project;
         const source = await this.workspaces.git(project, 'rev-parse', '--verify', `refs/heads/${current.branch}^{commit}`);
@@ -129,7 +129,7 @@ export default {
         };
         await verify();
         this.store.transaction(() => {
-          const body = `父分支同步冲突：在本 Task 工作区吸收固定父提交 ${diagnostic.parent_commit}，保留源提交 ${source} 的历史。`
+          const body = `父分支同步冲突：在本 Worker 工作区吸收固定父提交 ${diagnostic.parent_commit}，保留源提交 ${source} 的历史。`
             + (diagnostic.base_commit ? ` 三方合并必须以 ${diagnostic.base_commit} 为基线（Squash 历史不能用普通 merge 重放旧改动；可用 git merge-tree --write-tree --merge-base=${diagnostic.base_commit}，解决其冲突树后创建同时以固定源/父为祖先的提交）。` : ' 可用普通 Git merge。')
             + ' 解决冲突、运行测试并提交；不要修改父分支，不要 rebase/reset，不自动发起交付。\n固定诊断：\n' + diagnostic.reason;
           const messageId = this.store.message(task.id, body);

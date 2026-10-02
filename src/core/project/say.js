@@ -10,22 +10,22 @@ function storedReservation(raw) {
   if (raw === null) return null;
   let value;
   try { value = JSON.parse(raw); }
-  catch { throw new Error('reservation state is invalid; inspect task before changing it'); }
+  catch { throw new Error('reservation state is invalid; inspect worker before changing it'); }
   check(value && typeof value === 'object' && !Array.isArray(value) && [1,2].includes(value.version)
     && value.kind === 'merge' && typeof value.status === 'string',
-  'reservation state is invalid; inspect task before changing it');
+  'reservation state is invalid; inspect worker before changing it');
   return value;
 }
 
 /** 请求失效的唯一诊断文案：三个触发点（父分支自己提交 / 集成 / 批准）说同一句话，才不会被去重成多条事件。 */
 function assertQuietResolutionParent(project, parent) {
   check(!project.running.has(parent.id) && !['running', 'queued'].includes(parent.status),
-    `父 Task #${parent.id} 尚未到安全点；等待当前 Agent 调用结束后再冻结并派解分歧 Task`);
+    `父Worker #${parent.id} 尚未到安全点；等待当前 Agent 调用结束后再冻结并派解分歧 Worker`);
 }
 
 function parentMovedReason(branch, parentHead, commit) {
   return `父分支 ${branch} 在本请求发出后被推进到 ${String(parentHead).slice(0, 12)}，`
-    + `固定提交 ${String(commit).slice(0, 12)} 已不能快进：撤销这个请求（任务、分支与提交保留），`
+    + `固定提交 ${String(commit).slice(0, 12)} 已不能快进：撤销这个请求（Worker、分支与提交保留），`
     + `或先把该固定提交合入 ${branch} 再确认集成。`;
 }
 
@@ -41,7 +41,7 @@ export default {
   /** A stable logical root; no provider invocation is started merely by creating it. */
   async ensureMainTask() {
     const existing = this.store.all("SELECT * FROM tasks WHERE task_kind='main' AND branch='main' ORDER BY id");
-    check(existing.length <= 1, 'main branch has more than one owning task');
+    check(existing.length <= 1, 'main branch has more than one owning worker');
     if (existing.length) return existing[0];
     let commit = null;
     try {
@@ -50,7 +50,7 @@ export default {
     } catch { /* no local main ref */ }
     check(commit, 'the new say protocol needs a local main branch; no branch was created automatically');
     return this.store.transaction(() => {
-      const root = this.store.create({ role: 'agent', goal: '管理 main 分支及子任务合并请求', name: 'main', task_kind: 'main' });
+      const root = this.store.create({ role: 'agent', goal: '管理 main 分支及子Worker合并请求', name: 'main', task_kind: 'main' });
       this.store.update(root.id, { status: 'waiting', branch: 'main', base_commit: commit, head_commit: commit });
       this.store.event(root.id, 'main.bound', { branch: 'main', commit });
       return this.store.task(root.id);
@@ -62,7 +62,7 @@ export default {
     text(branch, 'branch');
     check(branch.length <= 512 && branch !== 'main', 'bind a non-main local branch; main has its own root');
     check(typeof commit === 'string' && /^[0-9a-f]{40,64}$/.test(commit), 'bind needs the exact local branch HEAD commit');
-    this.assertBranchWritable(branch, 'bind it to a new Task');
+    this.assertBranchWritable(branch, 'bind it to a new Worker');
     return this.workspaces.exclusive(async () => {
       const actual = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`)
         .catch(() => { throw new Error(`local branch ${branch} does not exist`); });
@@ -72,10 +72,10 @@ export default {
       const unfinished = this.store.get(`SELECT t.id FROM tasks t LEFT JOIN inputs i ON i.id=t.input_id
         WHERE t.task_kind IS NULL AND t.status NOT IN ('completed','failed','cancelled')
           AND (t.branch=? OR t.target_branch=? OR i.anchor_branch=?) LIMIT 1`, branch, branch, branch);
-      check(!unfinished, `branch ${branch} still has an active old task #${unfinished?.id}; finish it before binding`);
+      check(!unfinished, `branch ${branch} still has an active old worker #${unfinished?.id}; finish it before binding`);
       return this.store.transaction(() => {
         const owners = this.store.all("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say')", branch);
-        check(owners.length === 0, `branch ${branch} already has a new Task owner`);
+        check(owners.length === 0, `branch ${branch} already has a new Worker owner`);
         const owner = this.store.create({ role: 'agent', name: 'branch-owner', goal: `管理显式绑定的分支 ${branch}`,
           task_kind: 'owner' });
         this.store.update(owner.id, { status: 'waiting', branch, base_commit: commit, head_commit: commit });
@@ -93,19 +93,19 @@ export default {
    */
   async analyze(taskId, question) {
     const parent = this.store.task(id(taskId));
-    check(['main','owner'].includes(parent.task_kind), 'only a branch owner Task analyzes its branch on demand');
+    check(['main','owner'].includes(parent.task_kind), 'only a branch owner Worker analyzes its branch on demand');
     text(question, 'question');
     check(question.length <= 4000, 'analysis question exceeds 4000 characters');
     check(!TERMINAL.has(parent.status), 'branch owner has ended; bind the branch again first');
     return this.workspaces.exclusive(async () => {
       const branch = parent.branch;
-      check(branch, `task #${parent.id} owns no branch to analyze`);
+      check(branch, `worker #${parent.id} owns no branch to analyze`);
       const commit = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`)
         .catch(() => { throw new Error(`local branch ${branch} does not exist; nothing to analyze`); });
       const created = this.store.transaction(() => {
         const owner = this.store.task(parent.id);
         check(!TERMINAL.has(owner.status) && owner.branch === branch, 'branch owner changed while starting analysis');
-        check(this.store.activeTasks().length < 1000, 'too many active tasks');
+        check(this.store.activeTasks().length < 1000, 'too many active workers');
         const task = this.store.create({ parent_id: owner.id, input_id: null, role: 'agent', task_kind: 'analysis',
           goal: question });
         this.store.update(task.id, { target_branch: branch, base_commit: commit });
@@ -145,20 +145,20 @@ export default {
     const target = id(taskId);
     const task = this.store.task(target);
     assertTaskNotSyncing(this, task.id);
-    check(task.task_kind === 'say', 'only a new say Task can be marked resolved');
-    check(!TERMINAL.has(task.status), 'task already ended; retry it or send a new input');
+    check(task.task_kind === 'say', 'only a new say Worker can be marked resolved');
+    check(!TERMINAL.has(task.status), 'worker already ended; retry it or send a new input');
     check(!this.running.has(task.id), 'Agent 正在调用，等本轮安全结束后再标记已解决');
     const reservation = storedReservation(task.reservation);
     check(reservation?.kind !== 'merge' || reservation.status !== 'requested',
       '这条 say 已经有发出的合并请求；请先批准或撤销请求，再标记已解决');
     check(!task.head_commit || !task.base_commit || task.head_commit === task.base_commit,
-      '这条 say 已经有提交；请用「请求合并」交付，或用「放弃任务」放弃');
+      '这条 say 已经有提交；请用「请求合并」交付，或用「放弃 Worker」放弃');
     return this.workspaces.exclusive(async () => {
       // 清理工作区并复核任务分支与顶端提交；有未提交改动或换过分支会在这里拒绝。
       await this.workspaces.finish(task);
       const current = this.store.task(task.id);
       check(current.head_commit === current.base_commit,
-        '这条 say 已经有提交；请用「请求合并」交付，或用「放弃任务」放弃');
+        '这条 say 已经有提交；请用「请求合并」交付，或用「放弃 Worker」放弃');
       return this.finish(current.id, 'completed', current.result, null, { resolvedByUser: true });
     });
   },
@@ -172,12 +172,12 @@ export default {
       return this.requestTaskMerge(taskId);
     const accepted = this.store.transaction(() => {
       const task = this.store.task(id(taskId));
-      check(task.task_kind === 'say', 'only new say Tasks support delivery reservations');
-      check(!TERMINAL.has(task.status), 'cannot reserve an ended say Task');
+      check(task.task_kind === 'say', 'only new say Workers support delivery reservations');
+      check(!TERMINAL.has(task.status), 'cannot reserve an ended say Worker');
       const previous = storedReservation(task.reservation);
       check(!previous || (previous.version === 1 && previous.status === 'pending' && previous.kind === 'merge'),
         'reservation state needs inspection before changing it');
-      check(!previous || previous.kind === kind, `task #${task.id} already reserves ${previous?.kind}; unreserve it before choosing ${kind}`);
+      check(!previous || previous.kind === kind, `worker #${task.id} already reserves ${previous?.kind}; unreserve it before choosing ${kind}`);
       if (previous) return { task_id: task.id, reservation: previous, changed: false };
       const reservation = { version: 1, kind, status: 'pending', created_at: new Date().toISOString() };
       this.store.update(task.id, { reservation: JSON.stringify(reservation) });
@@ -195,7 +195,7 @@ export default {
 
   /**
    * 用户专属：把一条目标分支（例如 main）下所有已静息、待合并的 Task 一次性放进父 Task 的 merge 子任务。
-   * 每条仍走与单条 `task.reserve` 完全相同的准入（静息、工作区、固定提交、父基线、子分支收拢），
+   * 每条仍走与单条 `worker.reserve` 完全相同的准入（静息、工作区、固定提交、父基线、子分支收拢），
    * 所以这里只是把「逐条点请求合并」收成一个入口，不新增任何绕过校验的捷径；不满足条件的保持 pending
    * 预约并记录 `blocked_reason`，由 merge 队列按 id 顺序串行落地。返回逐条结果供界面汇总。
    */
@@ -318,8 +318,8 @@ export default {
       if (previous) return TERMINAL.has(previous.status)
         ? { status: 'needs_review', task: this.progressView(previous),
           reason: terminal
-            ? `解分歧子 Task #${previous.id} ${previous.status} 且尚未集成；先检查现场。若需重新派任务，须显式归档 ${previous.branch}（保留 Task 和会话，脏工作区需用户另行确认丢弃）。`
-            : `解分歧子 Task #${previous.id} ${previous.status} 且尚未集成；先检查现场。完成的结果可由 say Agent 确认固定提交；若需重新派任务，须显式归档 ${previous.branch}（保留 Task 和会话，脏工作区需用户另行确认丢弃）。` }
+            ? `解分歧子Worker #${previous.id} ${previous.status} 且尚未集成；先检查现场。若需重新派 Worker，须显式归档 ${previous.branch}（保留 Worker 和会话，脏工作区需用户另行确认丢弃）。`
+            : `解分歧子Worker #${previous.id} ${previous.status} 且尚未集成；先检查现场。完成的结果可由 say Agent 确认固定提交；若需重新派 Worker，须显式归档 ${previous.branch}（保留 Worker 和会话，脏工作区需用户另行确认丢弃）。` }
         : { status: 'existing', task: this.progressView(previous) };
       if (!terminal) {
         const reason = this.reservationWaitReason(task);
@@ -338,9 +338,9 @@ export default {
       check(state.status === 'diverged', `source is ${state.status}; resolve_divergence only applies to a diverged branch`);
       const blockers = state.blockers.filter(item => item !== `task:#${source.id}`);
       check(blockers.length === 0, `unintegrated child branches block divergence resolution: ${blockers.join(', ')}; inspect failed or rejected child work and explicitly archive only the unwanted child branch before retrying`);
-      const goal = `在独立子任务工作区解决 say #${source.id} 与直接父分支 ${parent.branch} 的分歧。\n`
+      const goal = `在独立子Worker工作区解决 say #${source.id} 与直接父分支 ${parent.branch} 的分歧。\n`
         + `基线是固定源提交 ${state.child_head}。请将固定父提交 ${state.parent_head} 合入本工作区（不要合入会移动的分支名）；`
-        + `如有冲突，保留双方意图并解决，运行相关测试，再提交结果。只改自己的子任务分支，`
+        + `如有冲突，保留双方意图并解决，运行相关测试，再提交结果。只改自己的子Worker分支，`
         + `不可修改 say 分支或父分支；`
         + (terminal
           ? `完成后由 runtime 检查产物含两端固定提交，把它快进推进回 say 分支，再重新发出固定提交的合并请求。`
@@ -353,7 +353,7 @@ export default {
           && live.head_commit === state.child_head && live.parent_id === parent.id,
           'say reservation changed while starting divergence work');
         assertQuietResolutionParent(this, this.store.task(parent.id));
-        check(this.store.activeTasks().length < 1000, 'too many active tasks');
+        check(this.store.activeTasks().length < 1000, 'too many active workers');
         const child = this.store.create({ parent_id: terminal ? parent.id : live.id, input_id: live.input_id,
           role: 'agent', task_kind: 'child', name: `resolve-${live.id}`, goal,
           ...(terminal ? { resolves_task_id: live.id } : {}) });
@@ -363,8 +363,8 @@ export default {
           parent_commit: state.parent_head });
         this.store.update(live.id, { reservation: JSON.stringify({ ...currentReservation,
           blocked_reason: terminal
-            ? `等待独立解分歧子 Task #${child.id} 完成后由 runtime 推进 say 分支并重新发合并请求`
-            : `等待解分歧子 Task #${child.id} 完成并由 say Agent 确认集成`,
+            ? `等待独立解分歧子Worker #${child.id} 完成后由 runtime 推进 say 分支并重新发合并请求`
+            : `等待解分歧子Worker #${child.id} 完成并由 say Agent 确认集成`,
           blocked_code: 'resolving', resolution_child_id: child.id }) });
         this.store.event(live.id, 'task.divergence_resolution_started', { child_id: child.id,
           source_commit: state.child_head, parent_commit: state.parent_head });
@@ -477,7 +477,7 @@ export default {
     if (reservation?.kind !== 'merge' || reservation.status !== 'pending'
       || reservation.resolution_child_id !== resolution.id) return false;
     this.store.update(say.id, { reservation: JSON.stringify({ ...reservation,
-      blocked_reason: `解分歧子 Task #${resolution.id} ${status}${error ? `：${error}` : ''}；检查现场后显式归档旧分支再重新派。`,
+      blocked_reason: `解分歧子Worker #${resolution.id} ${status}${error ? `：${error}` : ''}；检查现场后显式归档旧分支再重新派。`,
       blocked_code: 'diverged' }) });
     this.store.event(say.id, 'task.divergence_resolution_failed', { resolution: resolution.id, status, error: error ?? null });
     return true;
@@ -485,11 +485,11 @@ export default {
 
   /** A running direct parent Agent absorbs a diverged completed child commit into its own branch history.
    *  The child branch is never rewritten and the parent branch never takes a merge commit: a new Task contains
-   *  both frozen tips and is landed by the same task.integrate confirmation, which then closes the source child. */
+   *  both frozen tips and is landed by the same worker.integrate confirmation, which then closes the source child. */
   async resolveChildDivergence(parentId, childId) {
     return this.workspaces.exclusive(async () => {
       const parent = this.store.task(id(parentId)), child = this.store.task(id(childId));
-      check(['say','child'].includes(parent.task_kind), 'only a new Task agent can repair its own child branch');
+      check(['say','child'].includes(parent.task_kind), 'only a new Worker agent can repair its own child branch');
       check(child.task_kind === 'child' && child.parent_id === parent.id, 'a parent can only repair its own direct child');
       const previous = this.store.get(`SELECT t.* FROM tasks t JOIN events e ON e.task_id=t.id
         LEFT JOIN branches b ON b.branch=t.branch
@@ -500,7 +500,7 @@ export default {
         ORDER BY t.id DESC LIMIT 1`, parent.id, child.id);
       if (previous) return TERMINAL.has(previous.status)
         ? { status: 'needs_review', task: this.progressView(previous),
-          reason: `解分歧子 Task #${previous.id} 已结束且尚未集成；先检查现场。若需重做，由用户显式归档 ${previous.branch} 后再调用本接口（不会重放上一次 Agent）。` }
+          reason: `解分歧子Worker #${previous.id} 已结束且尚未集成；先检查现场。若需重做，由用户显式归档 ${previous.branch} 后再调用本接口（不会重放上一次 Agent）。` }
         : { status: 'existing', task: this.progressView(previous) };
       check(child.status === 'completed' && child.integration !== 'merged',
         'only a completed child whose work is not integrated yet can be repaired');
@@ -515,16 +515,16 @@ export default {
         'child branch moved after its completed commit; inspect it before repairing');
       check(state.status === 'diverged', `child is ${state.status}; repair only applies to a diverged child`);
       check(state.blockers.length === 0, `unintegrated descendants block repairing this child: ${state.blockers.join(', ')}`);
-      const goal = `在独立子任务工作区解决子 Task #${live.id} 与直接父分支 ${parent.branch} 的分歧。\n`
+      const goal = `在独立子Worker工作区解决子Worker #${live.id} 与直接父分支 ${parent.branch} 的分歧。\n`
         + `基线是固定子提交 ${state.child_head}。请将固定父提交 ${state.parent_head} 合入本工作区（不要合入会移动的分支名）；`
-        + `如有冲突，保留双方意图并解决，运行相关测试，再提交结果。只改自己的子任务分支，`
+        + `如有冲突，保留双方意图并解决，运行相关测试，再提交结果。只改自己的子Worker分支，`
         + `不可修改 #${live.id} 或 ${parent.branch}；完成后由 runtime 核对两端固定提交，依次快进 #${live.id} 与 #${parent.id} 的分支。`;
       const created = this.store.transaction(() => {
         const current = this.store.task(live.id), owner = this.store.task(parent.id);
         check(owner.status === 'running' && current.status === 'completed' && current.integration !== 'merged'
           && current.head_commit === state.child_head && current.parent_id === owner.id,
         'child or parent changed while starting divergence repair');
-        check(this.store.activeTasks().length < 1000, 'too many active tasks');
+        check(this.store.activeTasks().length < 1000, 'too many active workers');
         const repair = this.store.create({ parent_id: owner.id, input_id: owner.input_id, role: 'agent',
           task_kind: 'child', name: `resolve-${current.id}`, goal });
         this.store.update(repair.id, { base_commit: state.child_head, target_branch: owner.branch });
@@ -555,16 +555,16 @@ export default {
 
   /** An observable execution barrier, not a Git verdict. A retry never skips a running invocation or unread signal. */
   reservationWaitReason(task) {
-    if (this.taskSyncBusy?.has(task.id)) return 'Task 父分支同步正在执行，请等待安全点';
+    if (this.taskSyncBusy?.has(task.id)) return 'Worker 父分支同步正在执行，请等待安全点';
     const inbound = this.activeTaskMerge(task.id);
-    if (inbound) return `等待子 Task #${inbound.id} 的父分支执行位释放`;
+    if (inbound) return `等待子Worker #${inbound.id} 的父分支执行位释放`;
     if (this.running.has(task.id) || task.status === 'running') return 'Agent 正在调用或收尾，等待本轮安全结束';
-    if (task.status === 'queued') return 'Task 等待下一轮 Agent 调用完成';
-    if (task.status === 'awaiting' || this.questionPending(task.id)) return 'Task 正在等待用户答复';
-    if (task.status !== 'waiting') return `Task 尚未静息（${task.status}）`;
+    if (task.status === 'queued') return 'Worker 等待下一轮 Agent 调用完成';
+    if (task.status === 'awaiting' || this.questionPending(task.id)) return 'Worker 正在等待用户答复';
+    if (task.status !== 'waiting') return `Worker 尚未静息（${task.status}）`;
     const child = this.store.children(task.id).find(row => !isSettled(row));
-    if (child) return `等待子 Task #${child.id} 结算`;
-    if (this.hasActionableMessages(task.id)) return '还有未处理的消息或子任务信号，需先交给 Agent';
+    if (child) return `等待子Worker #${child.id} 结算`;
+    if (this.hasActionableMessages(task.id)) return '还有未处理的消息或子Worker信号，需先交给 Agent';
     return null;
   },
 
@@ -592,7 +592,7 @@ export default {
       }
       const parent = this.store.task(task.parent_id);
       check(['main','owner','say'].includes(parent.task_kind) && !TERMINAL.has(parent.status),
-        'merge request needs a live directly bound parent Task');
+        'merge request needs a live directly bound parent Worker');
       // 基线一旦固定，父分支就不能再被别的交付推进：同时只允许一个未集成的请求。
       const lock = this.branchFreeze(parent.branch);
       if (lock && lock.task_id !== task.id) {
@@ -637,7 +637,7 @@ export default {
     check(current.integration !== 'merged', 'this say is already integrated into its parent');
     const parent = this.store.task(current.parent_id);
     check(['main','owner','say'].includes(parent.task_kind) && !TERMINAL.has(parent.status),
-      'merge request needs a live directly bound parent Task');
+      'merge request needs a live directly bound parent Worker');
     // 交付锁与普通合并请求同源：同一父分支同时只允许一个未集成的请求。
     const lock = this.branchFreeze(parent.branch);
     check(!lock || lock.task_id === current.id,
@@ -654,7 +654,7 @@ export default {
       // 分歧不是失败：固定成 pending/diverged，让用户在源侧派独立解分歧子 Task。子分支未收拢也一并说清。
       const detail = blockers.length ? `；先收拢未集成子分支：${blockers.join(', ')}` : '';
       const blocked = { version: 1, kind: 'merge', status: 'pending', created_at: new Date().toISOString(),
-        blocked_reason: `分支与直接父分支已分歧；先派独立解分歧子 Task 吸收固定的父提交，再重新发合并请求${detail}。`,
+        blocked_reason: `分支与直接父分支已分歧；先派独立解分歧子Worker 吸收固定的父提交，再重新发合并请求${detail}。`,
         blocked_code: 'diverged' };
       this.store.transaction(() => {
         const live = this.store.task(task.id);
@@ -697,7 +697,7 @@ export default {
     const requested = this.store.task(id(taskId));
     assertTaskNotSyncing(this, requested.id);
     const automatic = this.autoMergeView(requested);
-    check(!automatic?.locked, '父任务派生的子 Task 自动合并已锁定，不能撤销；如需停止工作，请取消任务');
+    check(!automatic?.locked, '父Worker派生的子Worker自动合并已锁定，不能撤销；如需停止工作，请取消 Worker');
     // A persistent hook would immediately recreate an automatic intention. Make
     // the user explicitly switch it off (with the same readiness gate) instead.
     check(!automatic?.enabled || !requested.reservation || !JSON.parse(requested.reservation).auto_merge,
@@ -718,19 +718,19 @@ export default {
     }
     const result = this.store.transaction(() => {
       const task = this.store.task(id(taskId));
-      check(task.task_kind === 'say', 'only new say Tasks support delivery reservations');
+      check(task.task_kind === 'say', 'only new say Workers support delivery reservations');
       if (task.reservation === null) return { task_id: task.id, reservation: null, changed: false };
       const previous = storedReservation(task.reservation);
       if (previous.blocked_code === 'resolving' && previous.resolution_child_id) {
         const resolution = this.store.task(previous.resolution_child_id);
         check(TERMINAL.has(resolution.status) && (resolution.integration === 'merged'
           || !resolution.branch || this.store.branch(resolution.branch)?.status === 'archived'),
-        `解分歧 Task #${resolution.id} 仍占用冻结；先等待它落地，或取消并显式归档其分支`);
+        `解分歧 Worker #${resolution.id} 仍占用冻结；先等待它落地，或取消并显式归档其分支`);
       }
       // 已发出但尚未集成的合并请求可以撤销：否则父分支会被一个不再成立的请求一直冻住。
       const withdrawable = previous.version === 1 && previous.kind === 'merge'
         && ['pending','requested'].includes(previous.status);
-      check(withdrawable, 'started reservation cannot be withdrawn; inspect task');
+      check(withdrawable, 'started reservation cannot be withdrawn; inspect worker');
       this.store.update(task.id, { reservation: null });
       this.store.event(task.id, previous.status === 'requested' ? 'task.request_withdrawn' : 'task.unreserved', { reservation: previous,
         ...(previous.status === 'requested' ? { commit: previous.commit ?? null, baseline: previous.baseline ?? null,
@@ -749,12 +749,12 @@ export default {
       const task = this.store.task(id(taskId));
       const reservation = storedReservation(task.reservation);
       check(task.task_kind === 'say' && task.status === 'completed' && reservation?.version === 1 && reservation.kind === 'merge'
-        && ['requested','integrated'].includes(reservation.status), 'no completed merge request for this say Task');
+        && ['requested','integrated'].includes(reservation.status), 'no completed merge request for this say Worker');
       check(reservation.commit === commit && reservation.baseline === baseline,
         'approval does not match the frozen request commit and parent baseline');
       const parent = this.store.task(task.parent_id);
       check(['main','owner'].includes(parent.task_kind) && reservation.parent_id === parent.id,
-        'only a direct main/owner Task merge request can be approved by a user');
+        'only a direct main/owner Worker merge request can be approved by a user');
       const lock = this.branchFreeze(parent.branch);
       check(!lock || (lock.kind === 'delivery' && lock.task_id === task.id),
         lock ? `branch ${parent.branch} is frozen: ${lock.reason}; cannot approve another delivery` : '');
@@ -799,7 +799,7 @@ export default {
       'version 2 delivery belongs to the parent runtime queue, not a parent Agent Git write');
     check(['say','child'].includes(parent.task_kind) && child.parent_id === parent.id
       && (child.task_kind === 'child' || (delivery?.kind === 'merge' && delivery.status === 'requested')),
-      'only a direct child or requested say Task of a new Task can be integrated');
+      'only a direct child or requested say Worker of a new Worker can be integrated');
     check(parent.status === 'running', 'parent Agent must be running to confirm child integration');
     check(child.status === 'completed', 'child must complete before integration');
     check(child.branch && child.target_branch === parent.branch, 'child branch has no matching parent');
@@ -809,7 +809,7 @@ export default {
     // 交付锁：父分支上还有别的未集成请求时，只有那个请求自己的集成能写这条分支。
     const lock = this.branchFreeze(parent.branch);
     check(!lock || (lock.kind === 'delivery' && lock.task_id === child.id),
-      lock ? `branch ${parent.branch} is frozen: ${lock.reason}; cannot integrate another Task` : '');
+      lock ? `branch ${parent.branch} is frozen: ${lock.reason}; cannot integrate another Worker` : '');
     return this.workspaces.exclusive(async () => {
       const state = await this.workspaces.branchState(child.branch);
       check(state.parent === parent.branch && state.child_head === commit,
@@ -875,7 +875,7 @@ export default {
       check(draft.input_id === null, `draft ${draft.id} was already submitted as input ${draft.input_id}`);
       if (buffered) {
         checkDraftRevision(draft, expectedRevision);
-        check(draft.parent_id !== null, 'legacy draft has no saved parent Task; edit it and explicitly select a parent before sending');
+        check(draft.parent_id !== null, 'legacy draft has no saved parent Worker; edit it and explicitly select a parent before sending');
         branch = this.assertInputParent(draft.parent_id).branch;
       }
       draftReferences = this.store.draftReferences(draft.id);
@@ -887,14 +887,14 @@ export default {
     if (branch !== null && branch !== undefined) text(branch, 'branch');
     const target = branch ?? await this.workspaces.git(this.config.project, 'symbolic-ref', '--short', 'HEAD')
       .catch(() => { throw new Error('select a local parent branch before sending from detached HEAD'); });
-    this.assertBranchWritable(target, 'create a new task on it');
+    this.assertBranchWritable(target, 'create a new worker on it');
     if (target === 'main') await this.ensureMainTask();
     const owner = this.store.all("SELECT * FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say') ORDER BY id", target);
-    check(owner.length === 1, `branch ${target} needs exactly one explicitly bound Task before say`);
+    check(owner.length === 1, `branch ${target} needs exactly one explicitly bound Worker before say`);
     const parent = owner[0];
-    if (buffered) check(parent.id === draft.parent_id, 'saved parent Task changed; edit the draft before sending');
+    if (buffered) check(parent.id === draft.parent_id, 'saved parent Worker changed; edit the draft before sending');
     assertTaskNotSyncing(this, parent.id);
-    check(!TERMINAL.has(parent.status), `parent task #${parent.id} has ended; select an active parent Task`);
+    check(!TERMINAL.has(parent.status), `parent worker #${parent.id} has ended; select an active parent Worker`);
     assertTaskAncestorsOpen(this, parent);
     // anchorInput always passes the chosen ref, never the possibly changed process HEAD.
     const { inputId, anchor } = await this.anchorInput(target);
@@ -908,7 +908,7 @@ export default {
       const result = this.store.transaction(() => {
         const current = this.store.task(parent.id);
         if (buffered) this.assertInputParent(draft.parent_id, target);
-        check(!TERMINAL.has(current.status) && current.branch === target, 'parent task changed while creating the worktree');
+        check(!TERMINAL.has(current.status) && current.branch === target, 'parent worker changed while creating the worktree');
         assertTaskAncestorsOpen(this, current);
         assertTaskNotSyncing(this, current.id);
         resumeTaskDelivery(this, current.id, 'new child input');
@@ -941,7 +941,7 @@ export default {
         }
         this.store.run('UPDATE inputs SET task_id=? WHERE id=?', task.id, inputId);
         const attached = this.store.run('UPDATE branches SET task_id=? WHERE branch=? AND task_id IS NULL', task.id, anchor.branch);
-        check(attached.changes === 1, 'input branch already belongs to another task');
+        check(attached.changes === 1, 'input branch already belongs to another worker');
         if (draft) {
           this.store.run('UPDATE drafts SET input_id=? WHERE id=?', inputId, draft.id);
           this.store.event(task.id, 'input.draft', { draft_ids: [draft.id] });

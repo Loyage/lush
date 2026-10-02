@@ -33,8 +33,8 @@ export function specItem(spec) {
   if (spec.note && spec.status === 'dropped') item.append(el('span', `原因：${spec.note}`, 'meta'));
   if (spec.status === 'planned' && spec.task_id !== null && spec.task_id !== undefined) {
     const taskRow = el('span', undefined, 'spec-task');
-    taskRow.append(el('span', `任务 #${spec.task_id}`, 'tid'),
-      button('查看任务', () => { ui.noticeFocus = null; return detail(spec.task_id); }, 'link'));
+    taskRow.append(el('span', `Worker #${spec.task_id}`, 'tid'),
+      button('查看 Worker', () => { ui.noticeFocus = null; return detail(spec.task_id); }, 'link'));
     item.append(taskRow);
   }
   item.title = specTitle(spec);

@@ -27,9 +27,9 @@ function stateBadges(item, compact = false) {
   const status = INPUT_STATUS[item.status] ?? INPUT_STATUS.unknown;
   const merge = INPUT_MERGE[item.merge_status] ?? '状态未知';
   const taskTone = Object.hasOwn(INPUT_STATUS, item.status) && !['draft', 'created', 'unknown'].includes(item.status) ? item.status : 'neutral';
-  const taskBadge = el('span', `${compact ? '' : '任务状态：'}${status}`, `badge b-${taskTone}`);
+  const taskBadge = el('span', `${compact ? '' : 'Worker 状态：'}${status}`, `badge b-${taskTone}`);
   const mergeBadge = el('span', `${compact ? '' : '合并状态：'}${merge}`, `badge ${item.merge_status === 'merged' ? 'b-completed' : item.merge_status === 'blocked' ? 'b-awaiting' : item.merge_status === 'merging' ? 'b-running' : 'b-neutral'}`);
-  taskBadge.setAttribute('aria-label', `任务状态：${status}`); mergeBadge.setAttribute('aria-label', `合并状态：${merge}`);
+  taskBadge.setAttribute('aria-label', `Worker 状态：${status}`); mergeBadge.setAttribute('aria-label', `合并状态：${merge}`);
   return [taskBadge, mergeBadge];
 }
 function recordTime(item) {
@@ -65,12 +65,12 @@ export function openInputs({ item = null, push = true } = {}) {
   const root = el('div', undefined, 'inputs-page resource-page');
   const browse = el('section', undefined, 'inputs-browse');
   const header = el('header', undefined, 'resource-hero');
-  header.append(el('span', 'INPUTS', 'resource-kicker'), el('h1', '历史输入'), el('p', '查找原始输入与暂存想法，点开查看完整原文、引用或编辑草稿。任务追加消息请到对应 Task 查看。'));
+  header.append(el('span', 'INPUTS', 'resource-kicker'), el('h1', '历史输入'), el('p', '查找原始输入与暂存想法，点开查看完整原文、引用或编辑草稿。Worker 追加消息请到对应 Worker 查看。'));
   const filters = el('form', undefined, 'inputs-filters resource-tools');
   const searchLabel = el('label', '搜索原文', 'input-search');
   const search = el('input'); search.type = 'search'; search.placeholder = '搜索全库输入正文'; search.setAttribute('aria-label', '搜索全库输入正文');
   searchLabel.append(search);
-  const status = selectField('任务状态', INPUT_STATUS), merge = selectField('合并状态', INPUT_MERGE);
+  const status = selectField('Worker 状态', INPUT_STATUS), merge = selectField('合并状态', INPUT_MERGE);
   const searchButton = el('button', '搜索'); searchButton.type = 'submit';
   const feedback = el('p', undefined, 'inputs-feedback hint'); feedback.setAttribute('role', 'status');
   const list = el('ol', undefined, 'inputs-list'); list.setAttribute('aria-label', '输入记录');
@@ -94,9 +94,9 @@ export function openInputs({ item = null, push = true } = {}) {
     const card = el('li', undefined, 'input-record'); card.dataset.input = keyOf(item);
     const label = item.kind === 'draft' ? '编辑与发射' : '查看原文';
     const row = button('', () => openItem(item), 'input-row', { help: item.kind === 'draft'
-      ? '打开完整草稿，编辑正文、引用和父 Task；打开不会调用 Agent。' : '只读查看这条输入提交时的完整原文与引用。' });
+      ? '打开完整草稿，编辑正文、引用和父 Worker；打开不会调用 Agent。' : '只读查看这条输入提交时的完整原文与引用。' });
     const preview = (item.content ?? '').replace(/\s+/g, ' ').trim() || '（无正文）';
-    row.setAttribute('aria-label', `${item.kind === 'draft' ? '草稿' : '输入'} #${item.id}，${preview.slice(0, 120)}，任务状态：${INPUT_STATUS[item.status] ?? INPUT_STATUS.unknown}，合并状态：${INPUT_MERGE[item.merge_status] ?? '状态未知'}：${label}`);
+    row.setAttribute('aria-label', `${item.kind === 'draft' ? '草稿' : '输入'} #${item.id}，${preview.slice(0, 120)}，Worker 状态：${INPUT_STATUS[item.status] ?? INPUT_STATUS.unknown}，合并状态：${INPUT_MERGE[item.merge_status] ?? '状态未知'}：${label}`);
     const head = el('span', undefined, 'input-record-head');
     head.append(el('span', `${item.kind === 'draft' ? '草稿' : '输入'} #${item.id}`, 'tid'), recordTime(item));
     const summary = el('span', undefined, 'input-summary');
@@ -201,15 +201,15 @@ export function openInputs({ item = null, push = true } = {}) {
     const editor = { busy: false, dirty: () => false, recordKey: keyOf(record) }; state.editor = editor;
     const current = () => ownsPage() && state.editor === editor;
     panel.replaceChildren(el('h2', editable ? `暂存输入 #${record.id}` : `原始输入 #${record.id}`), statusLine(record));
-    const message = el('p', editable ? '编辑只保留在本页；保存后跨设备可见。发射会先保存，再创建 Task。' : '已发送原文只读，不随 Task 后续追加输入或目标变化。', 'hint');
+    const message = el('p', editable ? '编辑只保留在本页；保存后跨设备可见。发射会先保存，再创建 Worker。' : '已发送原文只读，不随 Worker 后续追加输入或目标变化。', 'hint');
     message.setAttribute('role', 'status'); panel.append(message);
     const content = editable ? el('textarea') : el('pre', record.content, 'input-original');
     if (editable) { content.value = record.content; content.rows = 10; content.maxLength = 32000; content.setAttribute('aria-label', '草稿正文'); }
     panel.append(content);
-    const parent = el('select'); parent.setAttribute('aria-label', '草稿父 Task');
+    const parent = el('select'); parent.setAttribute('aria-label', '草稿父 Worker');
     const parentHint = el('p', undefined, 'hint');
     if (editable) {
-      const placeholder = el('option', '请选择父 Task'); placeholder.value = ''; parent.append(placeholder);
+      const placeholder = el('option', '请选择父 Worker'); placeholder.value = ''; parent.append(placeholder);
       for (const task of parents) {
         const option = el('option', `#${task.id} ${task.goal ?? ''} · ${task.branch}`); option.value = String(task.id); parent.append(option);
       }
@@ -218,8 +218,8 @@ export function openInputs({ item = null, push = true } = {}) {
         const missing = el('option', `#${record.parent_id} · ${record.branch ?? '未知分支'}（已不可选，请重选）`);
         missing.value = `missing:${record.parent_id}`; parent.append(missing); parent.value = missing.value;
       } else parent.value = record.parent_id ? String(record.parent_id) : '';
-      const label = el('label', '父 Task', 'input-parent-label'); label.append(parent); panel.append(label, parentHint);
-    } else panel.append(el('p', `父 Task：${record.parent_id ? `#${record.parent_id}` : '未知'} · 输入分支：${record.branch ?? '未知'}`, 'hint'));
+      const label = el('label', '父 Worker', 'input-parent-label'); label.append(parent); panel.append(label, parentHint);
+    } else panel.append(el('p', `父 Worker：${record.parent_id ? `#${record.parent_id}` : '未知'} · 输入分支：${record.branch ?? '未知'}`, 'hint'));
     const refs = el('div', undefined, 'input-references'); panel.append(refs);
     const mutating = [], referenceControls = [];
     function paintReferences() {
@@ -249,7 +249,7 @@ export function openInputs({ item = null, push = true } = {}) {
     editor.editKey = () => JSON.stringify([saved.revision, content.value, parent.value, references]);
     editor.dirty = () => editable && (content.value !== saved.content || parent.value !== initialParent() || JSON.stringify(references) !== JSON.stringify(saved.references));
     const selectedParent = () => parents.find(task => String(task.id) === parent.value);
-    const paintParent = () => { parentHint.textContent = selectedParent() ? '发射时从这个父 Task 的分支创建独立工作区。' : '原父 Task 缺失或不可用，必须重新选择并保存后才能发射。'; };
+    const paintParent = () => { parentHint.textContent = selectedParent() ? '发射时从这个父 Worker 的分支创建独立工作区。' : '原父 Worker 缺失或不可用，必须重新选择并保存后才能发射。'; };
     parent.onchange = paintParent; paintParent();
     const actions = el('div', undefined, 'input-actions'); panel.append(actions);
     function setBusy(busy) {
@@ -259,7 +259,7 @@ export function openInputs({ item = null, push = true } = {}) {
     async function persist() {
       if (!content.value.trim()) throw new Error('草稿正文不能为空。');
       const target = selectedParent();
-      if (!target) throw new Error('请选择可用的父 Task，并保存后再发射。');
+      if (!target) throw new Error('请选择可用的父 Worker，并保存后再发射。');
       if (saved.revision !== null && !Number.isInteger(saved.revision)) throw new Error('草稿缺少版本号，请重新读取。');
       if (!editor.dirty()) return;
       const updated = await action('draft.update', { id: saved.id, content: content.value, references,
@@ -273,7 +273,7 @@ export function openInputs({ item = null, push = true } = {}) {
       setBusy(true); message.setAttribute('role', 'status');
       try {
         if (kind === 'remove') {
-          if (!await confirmDialog({ title: `删除暂存输入 #${saved.id}？`, message: '这条未发送草稿及其引用将被删除，无法恢复；不会删除任何已发送输入或 Task。', confirmLabel: '删除草稿', danger: true,
+          if (!await confirmDialog({ title: `删除暂存输入 #${saved.id}？`, message: '这条未发送草稿及其引用将被删除，无法恢复；不会删除任何已发送输入或 Worker。', confirmLabel: '删除草稿', danger: true,
             confirmHelp: '永久删除这条未发送草稿与附属引用。' })) return;
           if (!current()) return;
           await action('draft.remove', { id: saved.id, expected_revision: saved.revision });
@@ -287,7 +287,7 @@ export function openInputs({ item = null, push = true } = {}) {
           const result = await action('say.submit', { draft_id: saved.id, expected_revision: saved.revision, start: kind === 'start' });
           if (!current()) return;
           panel.replaceChildren(el('h2', kind === 'start' ? '已发射并开始' : '已创建·待开始'),
-            button(`查看 Task #${result.task.id}`, () => detail(result.task.id)));
+            button(`查看 Worker #${result.task.id}`, () => detail(result.task.id)));
         }
         if (!current()) return;
         state.editor = null; state.items.delete(keyOf(saved)); paintList();
@@ -299,16 +299,16 @@ export function openInputs({ item = null, push = true } = {}) {
     }
     if (editable) {
       for (const [label, kind, opts] of [
-        ['发射并开始', 'start', { agent: true, help: agentHelp('先保存编辑，再将这一条草稿创建为独立 Task 并立即开始；不执行其它暂存输入。') }],
-        ['仅创建', 'create', { help: '先保存编辑，再创建待开始的 Task 和工作区；不调用 Agent，可进入任务配置后手动开始。' }],
+        ['发射并开始', 'start', { agent: true, help: agentHelp('先保存编辑，再将这一条草稿创建为独立 Worker 并立即开始；不执行其它暂存输入。') }],
+        ['仅创建', 'create', { help: '先保存编辑，再创建待开始的 Worker 和工作区；不调用 Agent，可进入 Worker 配置后手动开始。' }],
         ['保存', 'save', {}],
         ['删除草稿', 'remove', { help: '经确认后永久删除这条未发送草稿及其引用；已发送输入不可删除。', className: 'danger' }],
       ]) {
         const control = controlsButton(label, () => mutate(kind), opts); mutating.push(control.node); actions.append(control.host);
       }
     }
-    if (record.task_id) actions.append(button(`查看 Task #${record.task_id}`, () => detail(record.task_id)));
-    const reread = controlsButton('重新读取详情', () => openItem(record, { reread: true }), { help: '读取最新原文、版本号和父 Task 候选；如有未保存编辑，会先确认是否放弃。' });
+    if (record.task_id) actions.append(button(`查看 Worker #${record.task_id}`, () => detail(record.task_id)));
+    const reread = controlsButton('重新读取详情', () => openItem(record, { reread: true }), { help: '读取最新原文、版本号和父 Worker 候选；如有未保存编辑，会先确认是否放弃。' });
     mutating.push(reread.node); actions.append(reread.host);
   }
   const loaded = load();

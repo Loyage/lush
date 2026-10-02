@@ -55,7 +55,7 @@ test('详情页「追加输入」位于操作栏首位，点击才显示多行�
   expect(world.state.actions.length).toBe(before);
   await answerDialog(dom, '发送输入'); await pending;
   expect(world.state.actions.slice(before)).toEqual([
-    { method: 'task.message', params: { id: 900, body: '先补充测试\n再调整实现' } },
+    { method: 'worker.message', params: { id: 900, body: '先补充测试\n再调整实现' } },
   ]);
 });
 
@@ -74,7 +74,7 @@ test('追加输入取消或空白不发送；空白校验后仍可输入并提�
   expect(dom.node('modal').hidden).toBe(false);
   dom.node('modal').querySelector('textarea').value = '继续完善测试';
   await answerDialog(dom, '发送输入'); await pending;
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.message', params: { id: 900, body: '继续完善测试' } });
+  expect(world.state.actions.at(-1)).toEqual({ method: 'worker.message', params: { id: 900, body: '继续完善测试' } });
 });
 
 test('暂停任务可追加输入但不会自动继续；终态与其他类型没有入口', async () => {
@@ -86,7 +86,7 @@ test('暂停任务可追加输入但不会自动继续；终态与其他类型�
   dom.node('modal').querySelector('textarea').value = '下一步检查边界情况';
   await answerDialog(dom, '发送输入'); await pending;
   expect(world.state.actions.slice(before)).toEqual([
-    { method: 'task.message', params: { id: 900, body: '下一步检查边界情况' } },
+    { method: 'worker.message', params: { id: 900, body: '下一步检查边界情况' } },
   ]);
   for (const status of ['completed', 'failed', 'cancelled']) {
     renderDetail({ ...followupTask, status }, null, null, null);
@@ -114,7 +114,7 @@ test('禁用的「合并已被冻结」把 data-help 放在 span.help-host 上�
   try {
     world.state.freeze = [{ id: 4, task_id: 4, target_branch: 'main', resolves_task_id: null }];
     await dom.intervalFor(1500)();
-    dom.location.hash = '#task-1';
+    dom.location.hash = '#worker-1';
     await dom.fire('hashchange');
     const detail = dom.node('detail');
     const host = await until(() => detail.querySelector('.help-host'), 2000);

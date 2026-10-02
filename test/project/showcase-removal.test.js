@@ -9,7 +9,7 @@ test('showcase runtime and reservation APIs are removed without changing merge o
     const head = await git(f.root, 'rev-parse', 'main');
     const count = f.store.all('SELECT id FROM tasks').length;
     const rpc = new Dispatcher(f.project);
-    await expect(rpc.dispatch('task.reserve', { id: say.task.id, kind: 'showcase' })).rejects.toThrow('only merge delivery is supported');
+    await expect(rpc.dispatch('worker.reserve', { id: say.task.id, kind: 'showcase' })).rejects.toThrow('only merge delivery is supported');
     for (const method of ['showcase.start', 'showcase.list', 'showcase.preview', 'showcase.stop', 'branch.reserve_showcase'])
       await expect(rpc.dispatch(method, { id: say.task.id, branch: say.task.branch })).rejects.toThrow('unknown method');
     for (const method of ['bookShowcase', 'signalReservedShowcase', 'startReservedShowcase', 'settleReservedShowcase',

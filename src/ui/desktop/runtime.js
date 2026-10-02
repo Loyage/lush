@@ -84,7 +84,7 @@ export function createDesktop({ electron, userData, localHost, platform = proces
     try { await win.loadURL(target); }
     catch (error) {
       win.destroy();
-      throw new Error(`无法打开 ${hostUrl}：${error.message}。请检查 Host、HTTPS 证书或 SSH 隧道，然后重新连接；不会自动重发任务操作。`);
+      throw new Error(`无法打开 ${hostUrl}：${error.message}。请检查 Host、HTTPS 证书或 SSH 隧道，然后重新连接；不会自动重发 Worker 操作。`);
     }
     return win;
   }

@@ -32,19 +32,19 @@ function settlementReminder(task, status) {
         status === 'completed'
           ? `结论：${answer.length > 1200 ? `${answer.slice(0, 1200)}…` : answer || '（空回答）'}`
           : `分析未完成：${String(task.error ?? '').slice(0, 500) || '没有记录到原因'}`,
-        `完整回答见任务 #${task.id} 详情。`,
+        `完整回答见 Worker #${task.id} 详情。`,
       ].join('\n'),
     };
   }
   const reservation = task.task_kind === 'say' && task.reservation ? JSON.parse(task.reservation) : null;
   return {
-    title: `分支 ${task.branch}：任务 #${task.id} ${label}`,
+    title: `分支 ${task.branch}：Worker #${task.id} ${label}`,
     body: [
-      `任务 #${task.id}（${task.role}：${brief}）结算为「${label}」。`,
+      `Worker #${task.id}（${task.role}：${brief}）结算为「${label}」。`,
       `分支：${task.branch}`,
       `直接父分支：${task.target_branch ?? '（未记录）'}`,
       reservation?.kind === 'merge' && reservation.status === 'requested'
-        ? `固定提交 ${reservation.commit} 的合并请求已发给父 Task #${reservation.parent_id}；当前尚未合入，须由父 Agent 或用户确认。`
+        ? `固定提交 ${reservation.commit} 的合并请求已发给父Worker #${reservation.parent_id}；当前尚未合入，须由父 Agent 或用户确认。`
         : `integration：${INTEGRATION_REMINDER[task.integration] ?? INTEGRATION_REMINDER.none}。`,
     ].join('\n'),
   };
@@ -63,19 +63,19 @@ export default {
     const resolvedByUser = options.resolvedByUser === true;
     if (resolvedByUser) {
       check(task.task_kind === 'say' && status === 'completed' && !request,
-        'a user-resolved settlement belongs to a new say Task');
+        'a user-resolved settlement belongs to a new say Worker');
     } else if (task.task_kind === 'say' && status === 'completed') {
       const reservation = task.reservation ? JSON.parse(task.reservation) : null;
-      check(request, 'a new say Task completes only with its pinned merge request or explicit user resolution');
+      check(request, 'a new say Worker completes only with its pinned merge request or explicit user resolution');
       {
         check(reservation?.kind === 'merge' && reservation.status === 'pending'
           && task.status === 'waiting' && task.head_commit === request.commit && task.parent_id === request.parent_id,
-        'a new say Task completes only with its pinned merge request');
+        'a new say Worker completes only with its pinned merge request');
         const parent = this.store.task(task.parent_id);
         check(['main','owner','say'].includes(parent.task_kind) && !TERMINAL.has(parent.status),
           'merge request parent is no longer active');
       }
-    } else check(!request, 'delivery settlement belongs to a say Task');
+    } else check(!request, 'delivery settlement belongs to a say Worker');
     if (task.role === 'butler' && status !== 'completed') {
       const source = this.butlerContext(task.id);
       this.finishSleepChoice(source.choice_id, { status: 'interrupted', reason: error || '管家中断，未执行选择' });
@@ -102,7 +102,7 @@ export default {
       this.store.update(task.id, { status, result, error, retry_profile: null,
         ...(resolvedByUser ? { reservation: null } : {}) });
       if (resolvedByUser) this.store.event(task.id, 'task.resolved', { head_commit: task.head_commit ?? null });
-      this.store.run("UPDATE notices SET status='dismissed',answer='task ended' WHERE task_id=? AND status='open'", task.id);
+      this.store.run("UPDATE notices SET status='dismissed',answer='worker ended' WHERE task_id=? AND status='open'", task.id);
       // Historical branch settlements keep their old info reminder. User-created say/analysis
       // use the lifecycle hook below instead, so a failure cannot create two notices.
       // Both remain info/sent, outside every open-decision/blocking query.
@@ -164,7 +164,7 @@ export default {
         const target = this.store.task(resolutionSource);
         if (target.integration === 'conflict') {
           this.store.update(target.id, { integration: 'pending',
-            integration_error: `resolution task #${task.id} ${status}${error ? `: ${error}` : ''}` });
+            integration_error: `resolution worker #${task.id} ${status}${error ? `: ${error}` : ''}` });
           this.store.event(target.id, 'merge.conflict.abandoned', { resolution: task.id, status });
         } else {
           // 终态 say 的独立解分歧子 Task 没做成：把预约落回可分派的 diverged，保留失败现场。
@@ -194,7 +194,7 @@ export default {
   cancel(taskId, reason = 'cancelled by user', status = 'cancelled') {
     const task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
-    check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; cancel individual say Tasks instead');
+    check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; cancel individual say Workers instead');
     if (TERMINAL.has(task.status)) return task;
     const mergeBooking = task.reservation ? JSON.parse(task.reservation) : null;
     const inbound = this.activeTaskMerge(task.id);
@@ -214,7 +214,7 @@ export default {
       });
       if (mergeBooking.parent_id) this.scheduleTaskMerge(mergeBooking.parent_id);
     }
-    // 合并编排 Task 直接经 task.cancel 取消时，也要先清运行释放冻结、取消等待中的解分歧子任务，
+    // 合并编排 Worker 直接经 worker.cancel 取消时，也要先清运行释放冻结、取消等待中的解分歧子任务，
     // 与 branch.orchestrate_cancel 同一收尾；否则残留 run 会继续驱动并冻结目标分支。
     if (task.task_kind === 'merge') {
       for (const { target, run } of this.store.activeBranchMergeRuns()) {
@@ -248,7 +248,7 @@ export default {
     check(this.running.size === 0, 'an agent invocation is still unwinding; clear must wait');
     check(this.store.activeBranchMergeRuns().length === 0, 'a one-click merge is in progress; finish or cancel it before clearing');
     check(this.workspaces.busy.size === 0, 'worktree cleanup is in progress; clear must wait');
-    check(!this.taskSyncBusy?.size, 'Task parent synchronization is in flight; clear must wait');
+    check(!this.taskSyncBusy?.size, 'Worker parent synchronization is in flight; clear must wait');
     const active = this.store.activeTasks();
     check(active.length === 0,
       `#${active.slice(0, 20).map(task => task.id).join(', #')} still active (${active.length}); cancel them or wait until they finish`);
@@ -290,7 +290,7 @@ export default {
   },
 
   /**
-   * 用户专属的定向删除（`task.delete` / `lush task delete`）：把一条已结束任务连同它的全部已结束后代
+   * 用户专属的定向删除（`worker.delete` / `lush worker delete`）：把一条已结束 Worker连同它的全部已结束后代
    * 从库里删掉。这是除 clear 之外唯一会丢掉任务历史的路径，所以安全门比 clear 更细，范围却只有这一棵子树：
    * - 子树里任何一条还在跑 / 排队 / 等答复：拒绝，不做隐式取消（同 clear）；
    * - 它的 invocation 还在收尾、或 cleanup 正在走它的 worktree：拒绝；
@@ -315,7 +315,7 @@ export default {
     check(ids.every(value => !this.running.has(value)), 'agent is still stopping; delete must wait');
     check(ids.every(value => !this.workspaces.busy.has(value)), 'worktree cleanup is in progress; delete must wait');
     // 冻结中的分支（一键合并 / 未结束的 merger）不允许删任务：删除会连带走它的分支与 worktree。
-    for (const task of subtree) if (task.branch) this.assertBranchWritable(task.branch, 'delete a task on it');
+    for (const task of subtree) if (task.branch) this.assertBranchWritable(task.branch, 'delete a worker on it');
     const unhandled = subtree.filter(task => task.role === 'planner'
       && this.store.get("SELECT count(*) AS value FROM task_specs WHERE planner_task_id=? AND status='pending'", task.id).value > 0);
     check(unhandled.length === 0,
@@ -343,7 +343,7 @@ export default {
     // 目录、分支或对照检出收不回来（未合并、脏、被别处检出）：任务行不动，让用户先处理磁盘。
     const kept = outcomes.filter(row => row.worktree === 'kept' || row.branch === 'kept');
     check(kept.length === 0,
-      `${kept.map(row => `#${row.id} (${row.reason})`).join('; ')} cannot be reclaimed; finish or clean it up first (lush task cleanup ID)`);
+      `${kept.map(row => `#${row.id} (${row.reason})`).join('; ')} cannot be reclaimed; finish or clean it up first (lush worker cleanup ID)`);
     const counts = this.store.deleteTasks(ids);
     this.store.event(null, 'task.deleted', { task_id: root.id,
       tasks: subtree.map(task => ({ id: task.id, parent_id: task.parent_id, input_id: task.input_id,
@@ -359,19 +359,19 @@ export default {
   },
 
   retry(taskId, profile = null) {
-    this.assertWritable('retry a task');
+    this.assertWritable('retry a worker');
     let task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
-    check(['failed','cancelled'].includes(task.status), 'only failed/cancelled tasks can be retried');
+    check(['failed','cancelled'].includes(task.status), 'only failed/cancelled workers can be retried');
     check(!this.running.has(task.id), 'agent is still stopping; retry shortly');
     check(!this.workspaces.busy.has(task.id), 'worktree cleanup is in progress; retry shortly');
     check(task.role !== 'butler', '管家决定不允许重放；请手动处理原 Notice');
     const divergenceChild = task.task_kind === 'child' && this.store.get(
       "SELECT id FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' LIMIT 1", task.id);
-    check(!divergenceChild, '解分歧子 Task 不重放未知文件副作用：先检查现场，显式归档旧分支，再从源 say 重新派独立子任务');
+    check(!divergenceChild, '解分歧子Worker不重放未知文件副作用：先检查现场，显式归档旧分支，再从源 say 重新派独立子Worker');
     // 冻结中的分支不接受重试：重试会重新产出提交、推进分支，扰动正在进行的合并。
-    if (task.branch) this.assertBranchWritable(task.branch, 'retry a task on it');
-    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'showcase functionality has been removed; historical Tasks are read-only');
+    if (task.branch) this.assertBranchWritable(task.branch, 'retry a worker on it');
+    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'showcase functionality has been removed; historical Workers are read-only');
     this.restoreUnrequestedTaskParent(task.id);
     task = this.store.task(task.id);
     assertTaskAncestorsOpen(this, task);
@@ -478,7 +478,7 @@ export default {
         // backfills Tasks that an older daemon archived right after landing (their branch is gone,
         // but the booking still records the original parent).
         try { this.restoreMergedTaskParent(task.id); }
-        catch (error) { this.store.update(task.id, { integration_error: `已合并；归还原父 Task 受阻：${error.message}` }); }
+        catch (error) { this.store.update(task.id, { integration_error: `已合并；归还原父Worker受阻：${error.message}` }); }
       }
     }
     // 崩溃可能落在「独立解分歧子 Task 已结算」与「runtime 推进 say 分支」之间：重启后补跑收尾。

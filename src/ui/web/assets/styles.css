@@ -110,7 +110,7 @@ main{display:contents}
 #tasks .row{flex-wrap:wrap}
 .filter-empty,.spec-empty,.intent-empty{font-size:12px;color:var(--dim);padding:8px 6px 12px}
 #tasks:empty::after,#notices:empty::after,#intents:empty::after,#drafts:empty::after{display:block;color:var(--dim);font-size:12px;padding:10px 8px}
-#tasks:empty::after{content:'还没有行动任务'}#notices:empty::after{content:'✓ 没有待定事项'}#intents:empty::after{content:'还没有历史输入'}#drafts:empty::after{content:'在输入框里按回车，暂存第一个想法。'}
+#tasks:empty::after{content:'还没有行动 Worker'}#notices:empty::after{content:'✓ 没有待定事项'}#intents:empty::after{content:'还没有历史输入'}#drafts:empty::after{content:'在输入框里按回车，暂存第一个想法。'}
 .sidebar-footer{border-top:1px solid var(--line-soft);padding:20px 8px 4px;font-size:12px;color:var(--muted);margin-top:32px}.sidebar-footer>span:last-child{display:block;font-size:10px;color:var(--dim);margin:5px 0 0 23px}.brand-spark{color:var(--accent);font-size:19px;margin-right:5px}
 
 /* The index is compact, but titles get two readable lines instead of a clipped sentence. */

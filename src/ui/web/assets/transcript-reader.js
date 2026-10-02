@@ -42,7 +42,7 @@ export async function openTranscriptStep(taskId, seq, { root: scopedRoot } = {})
   async function load() {
     more.disabled = true;
     try {
-      const data = await api(`/api/task/${taskId}/transcript-step?seq=${seq}&offset=${offset}`);
+      const data = await api(`/api/worker/${taskId}/transcript-step?seq=${seq}&offset=${offset}`);
       if (!data.step) throw new Error('步骤不存在，记录可能已被清理');
       content.append(el('pre', data.step.body, 'raw-value'));
       offset = data.next_offset; more.hidden = !data.has_more;
@@ -95,9 +95,9 @@ function readerState(taskId) {
     submit.disabled = true; state.onStart?.(); results.replaceChildren(el('p', '正在跨会话搜索完整记录…', 'hint'));
     try {
       const params = new URLSearchParams({ ...criteria, after });
-      const data = await api(`/api/task/${taskId}/transcript-search?${params}`);
+      const data = await api(`/api/worker/${taskId}/transcript-search?${params}`);
       if (version !== state.version) return;
-      results.replaceChildren(el('p', `第 ${pageIndex + 1} 页 · ${data.steps.length} 条${data.has_more ? ' · 还有更多' : ''} · 范围：当前任务所有完整会话记录`, 'hint'));
+      results.replaceChildren(el('p', `第 ${pageIndex + 1} 页 · ${data.steps.length} 条${data.has_more ? ' · 还有更多' : ''} · 范围：当前 Worker 所有完整会话记录`, 'hint'));
       if (!data.files.length) results.append(el('p', '没有可读取的会话文件，可能已被清理或后端未记录执行过程。', 'hint'));
       else if (!data.steps.length) results.append(el('p', '没有命中。未写完的记录不参与检索。', 'hint'));
       for (const step of data.steps) {

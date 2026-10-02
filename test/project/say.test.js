@@ -29,7 +29,7 @@ test('new say creates one Input and one Task in its own worktree, without planne
     expect(() => f.project.message(root.id, 'run in main')).toThrow('not an unrestricted Agent inbox');
     expect(() => f.project.spawn(root.id, 'write main')).toThrow('not unrestricted spawned work');
     expect(() => f.project.cancel(root.id)).toThrow('permanent root');
-    await expect(f.project.say('another', 'feature/missing')).rejects.toThrow('explicitly bound Task');
+    await expect(f.project.say('another', 'feature/missing')).rejects.toThrow('explicitly bound Worker');
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(1);
   } finally { await f.close(); }
 });
@@ -49,16 +49,16 @@ test('explicit branch.bind makes a new idle owner without replacing legacy histo
       created_from_commit: baseline, task_id: old.id });
     const pending = f.store.create({ role: 'worker', goal: 'unfinished legacy work' });
     f.store.update(pending.id, { target_branch: 'external' });
-    await expect(f.project.bindBranch('external', commit)).rejects.toThrow('active old task');
+    await expect(f.project.bindBranch('external', commit)).rejects.toThrow('active old worker');
     f.store.update(pending.id, { status: 'cancelled' });
-    await expect(f.project.say('not yet', 'external')).rejects.toThrow('explicitly bound Task');
+    await expect(f.project.say('not yet', 'external')).rejects.toThrow('explicitly bound Worker');
     await expect(f.project.bindBranch('external', baseline)).rejects.toThrow('moved');
     const owner = await new Dispatcher(f.project).dispatch('branch.bind', { branch: 'external', commit });
     expect(owner).toMatchObject({ task_kind: 'owner', status: 'waiting', branch: 'external',
       base_commit: commit, parent_id: null, calls: 0 });
     expect(f.store.branch('external').task_id).toBe(old.id);
     expect((await f.project.branchShow('external')).task_id).toBe(owner.id);
-    await expect(f.project.bindBranch('external', commit)).rejects.toThrow('already has a new Task owner');
+    await expect(f.project.bindBranch('external', commit)).rejects.toThrow('already has a new Worker owner');
     const sent = await f.project.say('new task', 'external');
     expect(sent.task.parent_id).toBe(owner.id);
     expect(f.store.get("SELECT count(*) AS n FROM tasks WHERE role='planner'").n).toBe(0);
@@ -89,10 +89,10 @@ test('say merge reservations are durable, reject removed kinds and are not autho
     const legacy = f.store.create({ role: 'worker', goal: 'legacy' });
     await expect(f.project.reserveTask(legacy.id, 'merge')).rejects.toThrow('only say/child');
     await expect(f.project.reserveTask(say.task.id, 'other')).rejects.toThrow('reservation kind must be merge');
-    expect(() => assertAllowed('task.reserve', { id: say.task.id, kind: 'merge' }, say.task.id))
+    expect(() => assertAllowed('worker.reserve', { id: say.task.id, kind: 'merge' }, say.task.id))
       .toThrow('requires user approval');
     // 新模型 reservation 是 version 2：pending 是「还没满足条件」，不是合并批准。
-    const first = await new Dispatcher(f.project).dispatch('task.reserve', { id: say.task.id, kind: 'merge' });
+    const first = await new Dispatcher(f.project).dispatch('worker.reserve', { id: say.task.id, kind: 'merge' });
     expect(first).toMatchObject({ task_id: say.task.id, changed: true,
       reservation: { version: 2, kind: 'merge', status: 'pending' } });
     expect(JSON.parse(f.store.task(say.task.id).reservation)).toEqual(first.reservation);
@@ -139,8 +139,8 @@ test('historical completed child is repaired from both tips and runtime lands it
     expect(f.store.task(second.id).integration).toBe('pending');
     expect(await git(f.root, 'rev-parse', parent.task.branch)).toBe(firstCommit);
     // 只有正在跑的直接父 Agent 能派，且不能修别人的子任务。
-    expect(() => assertAllowed('task.resolve_child_divergence', { id: second.id }, null)).toThrow('agent only');
-    await expect(f.project.resolveChildDivergence(parent.task.parent_id, second.id)).rejects.toThrow('only a new Task agent');
+    expect(() => assertAllowed('worker.resolve_child_divergence', { id: second.id }, null)).toThrow('agent only');
+    await expect(f.project.resolveChildDivergence(parent.task.parent_id, second.id)).rejects.toThrow('only a new Worker agent');
     await expect(f.project.resolveChildDivergence(parent.task.id, first.id)).rejects.toThrow('whose work is not integrated yet');
     const started = await f.project.resolveChildDivergence(parent.task.id, second.id);
     expect(started).toMatchObject({ status: 'queued', source_commit: secondCommit, parent_commit: firstCommit });
@@ -316,7 +316,7 @@ test('historical child without a v2 delivery intent needs a running direct paren
     expect(await git(say.task.workspace, 'rev-parse', 'HEAD')).toBe(commit);
     expect(await git(f.root, 'rev-parse', 'main')).toBe(mainBefore);
     expect((await f.project.integrateChild(say.task.id, child.id, commit)).merge.already_integrated).toBe(true);
-    await expect(new Dispatcher(f.project).dispatch('task.integrate', { id: child.id, commit }))
+    await expect(new Dispatcher(f.project).dispatch('worker.integrate', { id: child.id, commit }))
       .rejects.toThrow('agent only');
   } finally { await f.close(); }
 });
@@ -380,7 +380,7 @@ test('user marks a no-change say resolved: completed + integration none, answer 
     const sent = await f.project.say('只是想了解：预约是怎么工作的？');
     f.store.update(sent.task.id, { status: 'waiting', result: '预约是 say 上的一种互斥意图。' });
     const before = f.store.task(sent.task.id);
-    const resolved = await new Dispatcher(f.project).dispatch('task.resolve', { id: sent.task.id });
+    const resolved = await new Dispatcher(f.project).dispatch('worker.resolve', { id: sent.task.id });
     expect(resolved).toMatchObject({ status: 'completed', integration: 'none', reservation: null,
       result: '预约是 say 上的一种互斥意图。', branch: before.branch, base_commit: before.base_commit });
     expect(resolved.head_commit).toBe(before.base_commit);
@@ -422,6 +422,6 @@ test('resolving a say refuses committed work, in-flight delivery, and active inv
     try { await expect(f.project.resolveTask(busy.task.id)).rejects.toThrow('正在调用'); }
     finally { f.project.running.delete(busy.task.id); }
 
-    expect(() => assertAllowed('task.resolve', { id: busy.task.id }, busy.task.id)).toThrow('requires user approval');
+    expect(() => assertAllowed('worker.resolve', { id: busy.task.id }, busy.task.id)).toThrow('requires user approval');
   } finally { await f.close(); }
 });

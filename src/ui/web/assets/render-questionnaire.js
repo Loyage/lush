@@ -34,7 +34,7 @@ function preview(notice, question, option, value) {
     frame.setAttribute('sandbox', '');
     frame.setAttribute('referrerpolicy', 'no-referrer');
     frame.setAttribute('title', `${value.label} · 静态效果预览`);
-    frame.setAttribute('src', projectApi(`/api/task/${notice.task_id}/notice/${notice.id}/preview/${question}/${option}`));
+    frame.setAttribute('src', projectApi(`/api/worker/${notice.task_id}/notice/${notice.id}/preview/${question}/${option}`));
     pane.append(frame);
   }
   if (!value.preview && !value.previewHtml) pane.append(el('p', value.description));
@@ -133,7 +133,7 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
     if (!discard && !questions.every((q, i) => complete(q, draft.answers[i]))) return;
     if (discard && !await confirmDialog({
       title: '忽略整份问卷？',
-      message: '这不代表批准任何选项，任务会收到“未做决定”的消息。',
+      message: '这不代表批准任何选项，Worker 会收到“未做决定”的消息。',
       confirmLabel: '忽略问卷',
       danger: true,
     })) return;
@@ -158,7 +158,7 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
     progress.append(button('汇总确认', () => { draft.step = questions.length; save(); paint(); }, draft.step === questions.length ? '' : 'ghost'));
     content.append(progress);
     if (draft.step === questions.length) {
-      content.append(el('h3', '确认你的全部选择'), el('p', '尚未发送给 agent。确认后整份问卷一次提交，原任务将继续。', 'hint'));
+      content.append(el('h3', '确认你的全部选择'), el('p', '尚未发送给 agent。确认后整份问卷一次提交，原 Worker 将继续。', 'hint'));
       questions.forEach((q, i) => {
         const a = draft.answers[i], item = el('div', undefined, 'decision-summary');
         item.append(el('strong', q.question), el('p', a.custom.trim() || a.selected.map(n => q.options[n]?.label).filter(Boolean).join('、') || '尚未回答'));
@@ -173,8 +173,8 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
         }
         content.append(item);
       });
-      const submit = button(busy ? '正在提交…' : '确认全部选择并继续任务', () => send(false), undefined,
-        { agent: true, help: agentHelp('把整份问卷一次性提交，原任务 Agent 会带着你的选择继续。') });
+      const submit = button(busy ? '正在提交…' : '确认全部选择并继续 Worker', () => send(false), undefined,
+        { agent: true, help: agentHelp('把整份问卷一次性提交，原 Worker Agent 会带着你的选择继续。') });
       submit.disabled = !questions.every((q, i) => complete(q, draft.answers[i]));
       // 未答完时按钮禁用，data-help 放外层 span.help-host 才能悬停看到。
       const submitHost = el('span', undefined, 'help-host');
@@ -216,7 +216,7 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
     const controls = el('div', undefined, 'actions');
     if (draft.step > 0) controls.append(button('上一题', () => { draft.step--; save(); paint(); }, 'ghost'));
     controls.append(button('忽略问卷', () => send(true), 'ghost',
-      { help: '忽略整份问卷，不代表批准任何选项；任务会收到「未做决定」的消息。' }));
+      { help: '忽略整份问卷，不代表批准任何选项；Worker 会收到「未做决定」的消息。' }));
     content.append(controls);
     if (error) { const message = el('p', error, 'error'); message.setAttribute('role', 'alert'); content.append(message); }
     if (busy) content.querySelectorAll('button').forEach(node => { node.disabled = true; });

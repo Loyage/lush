@@ -8,7 +8,7 @@
 - 环境：Darwin 25.6.0 arm64、Bun 1.4.2、Git 2.55.0；没有安装依赖。执行前阅读 [文档约定](../contributing/documentation.md)、[模块地图](../engineering/modules.md)及其三篇分章、[设计入口](../design/README.md)与[执行过程理念](../design/agent-process.md)，并检查 `AGENTS.md`。
 - 隔离：全量测试、性能脚本、探针通过 `env -i` 保留 PATH，使用临时 HOME / XDG_CONFIG_HOME / TMPDIR；设置 `GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null`。仅使用 fixture、mock 与测试自己的 daemon；未连接、启停或读取真实项目 `/Users/loyage/Documents/lush/.lush`，未读取密钥。
 - 已执行：`git rev-parse HEAD`、`git status --short`、版本检查及源码静态检索；`bun run test` **588 pass / 0 fail / 4771 assertions / 120 files，128.19s**；基线 `bun run docs:check` **52 篇通过**，加入本文后 **53 篇通过**；`git diff --check` 无报错。
-- 已执行：`bun run measure:read-performance` **ok=true**；万任务 overview 21.537ms / 36,071 bytes，large log cold 18.308ms / warm 0.116ms，读取恰为 8 MiB。均为一次本机采样，不代表所有机器、真实浏览器或线上 RPC 延迟。
+- 已执行：`bun run measure:read-performance` **ok=true**；万Worker overview 21.537ms / 36,071 bytes，large log cold 18.308ms / warm 0.116ms，读取恰为 8 MiB。均为一次本机采样，不代表所有机器、真实浏览器或线上 RPC 延迟。
 - 已执行：`bun run specs`、`bun run propose` 均退出 1，报 `Script not found`，未进入业务命令；`bun run /tmp/…/probe.js` 运行文档反例；独立进程 `bun run /tmp/…/git-probe.js` 验证合成 Git 配置污染及无配置对照，细节见 E-01 / E-05。探针在临时目录，结束检查未发现本轮遗留进程，随后清理本轮临时目录。
 - 唯一仓库交付为本文；无 commit / merge / push。P1 为正确性、安全或数据安全高影响项，P2 为常见效率、体验与维护项，P3 为增强项；本范围未确认值得定为 P1 的缺陷。
 
@@ -68,6 +68,6 @@
 
 - **依据**：`scripts/measure-read-performance.js` 的 `fixture()`（26–35 行）将 client.request 直接接到 Dispatcher；`taskDataset()`（38–59 行）和 `logDataset()`（69–83 行）各单次采样，渲染使用 DOM stub；顶层阈值/报告（85–113 行）有固定预算、无分位数和历史归档。CI 的 `jobs.test`（18–29 行）没有执行此脚本。
 - **触发与影响**：本次性能预算全部通过，但 `other_rpc_timer_delay` 实际是同进程定时器延迟，不是真实竞争 RPC 延迟；同一脚本也没有测浏览器布局。没有自动留存时，难区分增长趋势、机器噪声与单次回退，且脚本自身长期可能不被运行。
-- **现有保护 / 反例**：已有 20 / 1000 / 10000 任务、三档日志、字节预算和分页控件断言，是可直接复用的基础；没有依据要求立即优化已经通过预算的代码。
+- **现有保护 / 反例**：已有 20 / 1000 / 10000 Worker、三档日志、字节预算和分页控件断言，是可直接复用的基础；没有依据要求立即优化已经通过预算的代码。
 - **建议与取舍**：先加定期/手动作业归档 JSON，标注“投影 / stub 渲染 / 事件循环阻塞”；重复样本记录中位数/高分位及环境身份，再为真实 socket 并发读增加独立测量。是否将时间预算设为阻断门禁由维护者确认；结构/字节上限可先硬校验，耗时先观察，避免共享 runner 抖动。
-- **验收**：同一数据规模可比较至少两次提交的结果，记录 OS/Bun/Git 和样本数；结构预算超限稳定失败，时间告警可解释；真实 RPC 延迟与投影耗时分列，报告不混入用户任务内容或凭证。
+- **验收**：同一数据规模可比较至少两次提交的结果，记录 OS/Bun/Git 和样本数；结构预算超限稳定失败，时间告警可解释；真实 RPC 延迟与投影耗时分列，报告不混入用户Worker内容或凭证。

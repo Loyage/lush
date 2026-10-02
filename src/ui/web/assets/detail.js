@@ -10,8 +10,8 @@ let detailRequest = 0;
 /** 拉取并渲染一个任务详情。 */
 export async function loadDetail(taskId) {
   ui.selected = taskId;
-  const view = activateDetailView({ view: 'task', key: `task-${taskId}`, hash: `#task-${taskId}`,
-    title: `任务 #${taskId}`, context: '任务列表', hint: '结果优先，过程与运行信息随后' });
+  const view = activateDetailView({ view: 'task', key: `task-${taskId}`, hash: `#worker-${taskId}`,
+    title: `Worker #${taskId}`, context: 'Worker 列表', hint: '结果优先，过程与运行信息随后' });
   const request = ++detailRequest;
   const current = () => ui.view === view && request === detailRequest;
   const navigated = ui.detailTask !== taskId;
@@ -19,10 +19,10 @@ export async function loadDetail(taskId) {
   let task, timeline, diff, usage;
   try {
     [task, timeline, diff, usage] = await Promise.all([
-      api(`/api/task/${taskId}`), loadHistory(taskId).catch(() => ({ events: [], truncated: false })),
-      api(`/api/task/${taskId}/diff`).catch(() => null),
+      api(`/api/worker/${taskId}`), loadHistory(taskId).catch(() => ({ events: [], truncated: false })),
+      api(`/api/worker/${taskId}/diff`).catch(() => null),
       // agent 用量（模型、上下文、花费）来自 pi 会话记录：读不到会话不影响详情其余部分。
-      api(`/api/task/${taskId}/usage`).catch(() => null),
+      api(`/api/worker/${taskId}/usage`).catch(() => null),
     ]);
   } catch (error) {
     if (!current()) return;

@@ -16,7 +16,7 @@ function planActions(intent) {
   if (intent.plan_gate !== 'proposed') return null;
   const actions = el('span', undefined, 'intent-actions');
   actions.append(button('批准并开发', () => action('plan.approve', { id: intent.task_id }), 'primary',
-    { agent: true, help: agentHelp('批准这份拆解并交给 scheduler 编排成真实任务，随后会启动开发 Agent 执行。') }));
+    { agent: true, help: agentHelp('批准这份拆解并交给 scheduler 编排成真实 Worker，随后会启动开发 Agent 执行。') }));
   actions.append(button('驳回', async () => {
     const reason = await promptDialog({
       title: `驳回 #${intent.id} 的拆解？`,
@@ -34,11 +34,11 @@ function candidateActions(intent) {
   const actions = el('span', undefined, 'intent-actions');
   if (!intent.candidate_id) return actions.children.length ? actions : null;
   if (intent.candidate_report_task_id && intent.candidate_status === 'preparing') {
-    actions.append(button(`查看历史检验任务 #${intent.candidate_report_task_id}`,
+    actions.append(button(`查看历史检验 Worker #${intent.candidate_report_task_id}`,
       () => detail(intent.candidate_report_task_id), 'link'));
   } else if (intent.candidate_report_task_id && ['ready','accepted','integrated'].includes(intent.candidate_status)) {
     const report = el('a', '打开结果报告', 'link');
-    report.href = projectApi(`/api/task/${intent.candidate_report_task_id}/report`); report.target = '_blank'; report.rel = 'noopener';
+    report.href = projectApi(`/api/worker/${intent.candidate_report_task_id}/report`); report.target = '_blank'; report.rel = 'noopener';
     actions.append(report);
   }
   if (intent.candidate_status === 'ready') {
@@ -78,7 +78,7 @@ function intentItem(intent) {
     anchor.title = `${intent.anchor_branch} @ ${intent.anchor_commit}\nworktree: ${intent.anchor_workspace}\n目标分支: ${intent.anchor_target_branch}`;
     meta.append(anchor);
   }
-  if (intent.work_tasks) meta.append(el('span', `开发任务 ${intent.work_tasks}`));
+  if (intent.work_tasks) meta.append(el('span', `开发 Worker ${intent.work_tasks}`));
   if (intent.references?.length) meta.append(badge(`引用 ${intent.references.length}`, 'b-neutral'));
   item.append(meta);
   const actions = planActions(intent);

@@ -10,7 +10,7 @@ function taskSquashReceipt(receipt) {
   check(receipt && oid(receipt.commit) && oid(receipt.source) && oid(receipt.baseline) && oid(receipt.tree)
     && typeof receipt.child === 'string' && receipt.child && typeof receipt.parent === 'string' && receipt.parent
     && receipt.child !== receipt.parent && (receipt.workspace === null || (typeof receipt.workspace === 'string' && receipt.workspace)),
-  'invalid task squash receipt');
+  'invalid worker squash receipt');
   // A caller cannot change the persisted credentials while asynchronous Git checks are in flight.
   return Object.freeze({ ...receipt });
 }
@@ -19,9 +19,9 @@ function taskSquashGuard(guard) {
   const result = guard();
   if (result && typeof result.then === 'function') {
     Promise.resolve(result).catch(() => {});
-    throw new LushError('task squash guard must be synchronous');
+    throw new LushError('worker squash guard must be synchronous');
   }
-  check(result !== false, 'task squash cancelled before write');
+  check(result !== false, 'worker squash cancelled before write');
 }
 
 /** Lock both fixed refs before touching the index, then CAS the parent only after the checkout is ready. */
@@ -36,7 +36,7 @@ async function applyTaskSquashTransaction(workspaces, receipt, guard, action) {
   const response = async expected => {
     while (!output.includes(expected)) {
       const chunk = await reader.read();
-      if (chunk.done) throw new LushError(`task squash refs moved or locked: ${await errorText}`);
+      if (chunk.done) throw new LushError(`worker squash refs moved or locked: ${await errorText}`);
       output += new TextDecoder().decode(chunk.value);
     }
   };
@@ -63,10 +63,10 @@ async function checkTaskSquashObjects(workspaces, receipt) {
   const project = workspaces.config.project;
   const identity = await workspaces.git(project, 'show', '--no-patch', '--format=%H %T %P', receipt.commit);
   check(identity === `${receipt.commit} ${receipt.tree} ${receipt.baseline}`,
-    'task squash receipt must match the exact single-parent commit and tree');
-  check(await workspaces.commitTree(receipt.source) === receipt.tree, 'task squash tree differs from fixed source');
+    'worker squash receipt must match the exact single-parent commit and tree');
+  check(await workspaces.commitTree(receipt.source) === receipt.tree, 'worker squash tree differs from fixed source');
   check(await workspaces.isAncestor(project, receipt.baseline, receipt.source),
-    'diverged source must be repaired before task squash');
+    'diverged source must be repaired before worker squash');
 }
 
 /** 分支关系、批准合并的预检与落地。 */
@@ -209,20 +209,20 @@ export const methods = {
    * runtime decides whether a no-change delivery needs a commit before calling this boundary.
    */
   async prepareTaskSquashUnsafe(child, source, baseline, message) {
-    check(oid(source) && oid(baseline), 'task squash requires fixed commits');
-    check(typeof message === 'string' && message.trim(), 'task squash requires a commit message');
+    check(oid(source) && oid(baseline), 'worker squash requires fixed commits');
+    check(typeof message === 'string' && message.trim(), 'worker squash requires a commit message');
     const state = await this.branchState(child);
-    check(state.child_head === source && state.parent_head === baseline, 'source/target moved before task squash preparation');
+    check(state.child_head === source && state.parent_head === baseline, 'source/target moved before worker squash preparation');
     check(state.blockers.every(blocker => blocker === `task:#${this.store.branch(child)?.task_id}`),
-      'unintegrated descendant branches block task squash');
+      'unintegrated descendant branches block worker squash');
     await this.assertCleanBranches([child, state.parent]);
     const workspace = await this.workspaceForBranch(state.parent);
     if (workspace) {
       await this.clean(workspace);
       check(await this.git(workspace, 'symbolic-ref', '--quiet', 'HEAD') === `refs/heads/${state.parent}`
-        && await this.git(workspace, 'rev-parse', 'HEAD') === baseline, 'parent checkout moved before task squash preparation');
+        && await this.git(workspace, 'rev-parse', 'HEAD') === baseline, 'parent checkout moved before worker squash preparation');
     }
-    check(await this.isAncestor(this.config.project, baseline, source), 'diverged source must be repaired before task squash');
+    check(await this.isAncestor(this.config.project, baseline, source), 'diverged source must be repaired before worker squash');
     const tree = await this.commitTree(source);
     const commit = await this.git(this.config.project, '-c', 'user.name=Lush', '-c', 'user.email=lush@localhost',
       'commit-tree', tree, '-p', baseline, '-m', message);
@@ -237,7 +237,7 @@ export const methods = {
    */
   async applyTaskSquashUnsafe(credentials, guard) {
     const receipt = taskSquashReceipt(credentials);
-    check(typeof guard === 'function', 'task squash requires a synchronous write guard');
+    check(typeof guard === 'function', 'worker squash requires a synchronous write guard');
     const project = this.config.project;
     await this.git(project, 'check-ref-format', `refs/heads/${receipt.child}`);
     await this.git(project, 'check-ref-format', `refs/heads/${receipt.parent}`);
@@ -245,15 +245,15 @@ export const methods = {
     const checkRefs = async () => {
       const state = await this.branchState(receipt.child);
       check(state.parent === receipt.parent && state.child_head === receipt.source && state.parent_head === receipt.baseline,
-        'source/target moved before task squash apply');
+        'source/target moved before worker squash apply');
       check(state.blockers.every(blocker => blocker === `task:#${this.store.branch(receipt.child)?.task_id}`),
-        'unintegrated descendant branches block task squash');
-      check(await this.workspaceForBranch(receipt.parent) === receipt.workspace, 'parent worktree changed before task squash apply');
+        'unintegrated descendant branches block worker squash');
+      check(await this.workspaceForBranch(receipt.parent) === receipt.workspace, 'parent worktree changed before worker squash apply');
       await this.assertCleanBranches([receipt.child, receipt.parent]);
       if (receipt.workspace) {
         await this.clean(receipt.workspace);
         check(await this.git(receipt.workspace, 'symbolic-ref', '--quiet', 'HEAD') === `refs/heads/${receipt.parent}`
-          && await this.git(receipt.workspace, 'rev-parse', 'HEAD') === receipt.baseline, 'parent checkout moved before task squash apply');
+          && await this.git(receipt.workspace, 'rev-parse', 'HEAD') === receipt.baseline, 'parent checkout moved before worker squash apply');
       }
     };
     await checkRefs();
@@ -263,16 +263,16 @@ export const methods = {
       taskSquashGuard(guard);
       if (receipt.workspace) {
         await this.git(receipt.workspace, 'read-tree', '-m', '-u', receipt.baseline, receipt.commit);
-        check(await this.git(receipt.workspace, 'write-tree') === receipt.tree, 'task squash checkout staged a different tree');
+        check(await this.git(receipt.workspace, 'write-tree') === receipt.tree, 'worker squash checkout staged a different tree');
         await this.git(receipt.workspace, 'diff-files', '--quiet', '--ignore-submodules=none');
         check(!await this.git(receipt.workspace, 'ls-files', '--others', '--exclude-standard', '--', '.', ':(exclude).lush'),
-          'parent worktree became dirty during task squash apply');
+          'parent worktree became dirty during worker squash apply');
         check(await this.git(receipt.workspace, 'symbolic-ref', '--quiet', 'HEAD') === `refs/heads/${receipt.parent}`,
-          'parent checkout moved during task squash apply');
+          'parent checkout moved during worker squash apply');
       }
       await this.assertCleanBranches([receipt.child]);
     });
-    check(await this.verifyTaskSquashUnsafe(receipt), 'task squash landed but exact receipt/worktree verification failed; inspect before continuing');
+    check(await this.verifyTaskSquashUnsafe(receipt), 'worker squash landed but exact receipt/worktree verification failed; inspect before continuing');
     return receipt;
   },
 
@@ -283,16 +283,16 @@ export const methods = {
       await checkTaskSquashObjects(this, receipt);
       const project = this.config.project;
       const head = await this.git(project, 'rev-parse', '--verify', `refs/heads/${receipt.parent}^{commit}`);
-      check(await this.isAncestor(project, receipt.commit, head), 'exact task squash commit is not on target');
-      check(await this.workspaceForBranch(receipt.parent) === receipt.workspace, 'task squash target worktree changed');
+      check(await this.isAncestor(project, receipt.commit, head), 'exact worker squash commit is not on target');
+      check(await this.workspaceForBranch(receipt.parent) === receipt.workspace, 'worker squash target worktree changed');
       await this.assertCleanBranches([receipt.parent]);
       if (receipt.workspace) {
         await this.clean(receipt.workspace);
         check(await this.git(receipt.workspace, 'symbolic-ref', '--quiet', 'HEAD') === `refs/heads/${receipt.parent}`
-          && await this.git(receipt.workspace, 'rev-parse', 'HEAD') === head, 'task squash target checkout changed');
+          && await this.git(receipt.workspace, 'rev-parse', 'HEAD') === head, 'worker squash target checkout changed');
       }
       check(await this.git(project, 'rev-parse', '--verify', `refs/heads/${receipt.parent}^{commit}`) === head,
-        'task squash target moved during verification');
+        'worker squash target moved during verification');
       return true;
     } catch { return false; }
   },
@@ -344,7 +344,7 @@ export const methods = {
 
   /** Delete the source ref after squash only when its reviewed tree survives in the target. */
   async archiveSquashedTaskUnsafe(task, source, landed) {
-    check(task.integration === 'merged' && task.branch && task.target_branch, 'only integrated tasks can be archived');
+    check(task.integration === 'merged' && task.branch && task.target_branch, 'only integrated workers can be archived');
     const project = this.config.project;
     const tip = await this.git(project, 'rev-parse', `refs/heads/${task.branch}`);
     check(tip === source, 'source branch moved; keep it for inspection');
@@ -428,7 +428,7 @@ export const methods = {
     await this.clean(project);
     await this.clean(task.workspace);
     check(await this.git(project, 'symbolic-ref', '--short', 'HEAD') === task.target_branch, `switch to ${task.target_branch} before merging`);
-    check(await this.git(task.workspace, 'rev-parse', 'HEAD') === task.head_commit, 'task branch changed after review');
+    check(await this.git(task.workspace, 'rev-parse', 'HEAD') === task.head_commit, 'worker branch changed after review');
     const resolved = task.resolves_task_id ? this.store.task(task.resolves_task_id) : null;
     if (resolved) {
       check(resolved.head_commit && await this.isAncestor(project, resolved.head_commit, task.head_commit),
@@ -466,7 +466,7 @@ export const methods = {
   /** 批量交付的只读预检：在第一项改写主树前把共同分支、脏树、审阅提交漂移与 resolver 完整性一次查完。 */
   preflightMerge(tasks) {
     return this.exclusive(async () => {
-      check(Array.isArray(tasks) && tasks.length > 0, 'merge preflight needs tasks');
+      check(Array.isArray(tasks) && tasks.length > 0, 'merge preflight needs workers');
       const project = this.config.project;
       const targets = [...new Set(tasks.map(task => task.target_branch))];
       check(targets.length === 1 && targets[0], 'merge preflight requires one target branch');
@@ -478,7 +478,7 @@ export const methods = {
           const task = this.store.task(raw.id);
           check(task.status === 'completed' && ['pending','review','conflict'].includes(task.integration), `#${task.id} is not a completed merge candidate`);
           await this.clean(task.workspace);
-          check(await this.git(task.workspace, 'rev-parse', 'HEAD') === task.head_commit, `task #${task.id} branch changed after review`);
+          check(await this.git(task.workspace, 'rev-parse', 'HEAD') === task.head_commit, `worker #${task.id} branch changed after review`);
           if (task.resolves_task_id) {
             const resolved = this.store.task(task.resolves_task_id);
             check(resolved.head_commit && await this.isAncestor(project, resolved.head_commit, task.head_commit),
@@ -494,9 +494,9 @@ export const methods = {
         check(task.status === 'completed' && ['pending','review','conflict'].includes(task.integration), `#${task.id} is not a completed merge candidate`);
         if (task.workspace) await this.clean(task.workspace);
         const state = await this.branchState(task.branch);
-        check(state.parent === task.target_branch, `task #${task.id} no longer targets its direct parent`);
+        check(state.parent === task.target_branch, `worker #${task.id} no longer targets its direct parent`);
         check(task.head_commit && state.child_head && await this.isAncestor(project, task.head_commit, state.child_head),
-          `task #${task.id} branch no longer contains its reviewed commit`);
+          `worker #${task.id} branch no longer contains its reviewed commit`);
         if (task.resolves_task_id) {
           const resolved = this.store.task(task.resolves_task_id);
           check(resolved.head_commit && await this.isAncestor(project, resolved.head_commit, state.child_head),
@@ -516,16 +516,16 @@ export const methods = {
   merge(taskId) {
     return this.exclusive(async () => {
       const task = this.store.task(taskId);
-      check(task.status === 'completed' && ['pending','review','conflict'].includes(task.integration), 'only completed tasks with pending/review/conflict changes can be merged');
-      check(task.branch, `task #${task.id} has no branch`);
+      check(task.status === 'completed' && ['pending','review','conflict'].includes(task.integration), 'only completed workers with pending/review/conflict changes can be merged');
+      check(task.branch, `worker #${task.id} has no branch`);
       const record = this.store.branch(task.branch);
       if (!task.input_id || record?.parent !== task.target_branch) return this.legacyMergeUnsafe(task);
       const project = this.config.project;
       const state = await this.branchState(task.branch);
-      check(state.parent === task.target_branch, `task #${task.id} targets ${task.target_branch}, but its recorded parent is ${state.parent}`);
+      check(state.parent === task.target_branch, `worker #${task.id} targets ${task.target_branch}, but its recorded parent is ${state.parent}`);
       // task.head_commit 是 agent 交付时审阅过的提交；分支之后可以聚合直接子分支，但不能把原成果丢掉。
       check(task.head_commit && state.child_head && await this.isAncestor(project, task.head_commit, state.child_head),
-        `task #${task.id} branch no longer contains its reviewed commit`);
+        `worker #${task.id} branch no longer contains its reviewed commit`);
       const resolved = task.resolves_task_id ? this.store.task(task.resolves_task_id) : null;
       if (resolved) {
         check(resolved.head_commit, `#${task.id} resolves #${resolved.id}, which has no reviewed commit`);

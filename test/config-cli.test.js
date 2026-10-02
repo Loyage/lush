@@ -58,6 +58,8 @@ test('config show 人类可读输出：执行通道 / 控制通道 / 快速路�
   expect(text).toContain('  开发 → worker');
   expect(text).toContain('  解释 → research');
   expect(text).toContain('设置文件\t/tmp/demo/.lush/settings.json');
+  expect(text).toContain('单 Worker 调用上限 worker-call-limit');
+  expect(text).not.toContain('task-call-limit');
 });
 
 test('config set 写回对应通道，--json 给结构化读模型', async () => {
@@ -79,7 +81,7 @@ test('config set 调用与拆解限额写回对应键，--json 给结构化读�
   expect(value.call_timeout).toEqual({ value: 1200, default: 900, overridden: true });
 
   const calls = fakeClient();
-  await runConfigCommand('config', ['set', 'task-call-limit', '40'], { client: calls, json: true });
+  await runConfigCommand('config', ['set', 'worker-call-limit', '40'], { client: calls, json: true });
   expect(calls.calls).toEqual([{ method: 'system.configure', params: { settings: { task_call_limit: 40 } } }]);
 
   const depth = fakeClient();
@@ -87,12 +89,18 @@ test('config set 调用与拆解限额写回对应键，--json 给结构化读�
   expect(depth.calls).toEqual([{ method: 'system.configure', params: { settings: { max_depth: 10 } } }]);
 });
 
+test('config reset worker-call-limit retains its persisted task_call_limit key', async () => {
+  const client = fakeClient();
+  await runConfigCommand('config', ['reset', 'worker-call-limit'], { client, json: true });
+  expect(client.calls).toEqual([{ method: 'system.configure', params: { settings: { task_call_limit: null } } }]);
+});
+
 test('config set 越界或非整数报错，且不发出写请求', async () => {
   for (const [flag, raw, range] of [['concurrency', '65', '1 to 64'], ['concurrency', '0', '1 to 64'],
     ['concurrency', '2.5', '1 to 64'], ['concurrency', 'abc', '1 to 64'],
     ['control-concurrency', '17', '1 to 16'], ['control-concurrency', 'x', '1 to 16'],
     ['call-timeout', '86401', '1 to 86400'], ['call-timeout', '0', '1 to 86400'],
-    ['task-call-limit', '1001', '1 to 1000'], ['max-depth', '65', '1 to 64']]) {
+    ['worker-call-limit', '1001', '1 to 1000'], ['max-depth', '65', '1 to 64']]) {
     const client = fakeClient();
     await expect(runConfigCommand('config', ['set', flag, raw], { client, json: true })).rejects.toThrow(range);
     expect(client.calls).toEqual([]);
@@ -128,6 +136,8 @@ test('config 参数错误与未知子命令、未知键都被拒绝', async () =
   const client = fakeClient();
   await expect(runConfigCommand('config', ['reset', 'bogus'], { client, json: true })).rejects.toThrow('config reset');
   await expect(runConfigCommand('config', ['set', 'bogus', '3'], { client, json: true })).rejects.toThrow('config set');
+  await expect(runConfigCommand('config', ['set', 'task-call-limit', '3'], { client, json: true })).rejects.toThrow('config set');
+  await expect(runConfigCommand('config', ['reset', 'task-call-limit'], { client, json: true })).rejects.toThrow('config reset');
   await expect(runConfigCommand('config', ['set', 'concurrency'], { client, json: true })).rejects.toThrow('invalid arguments');
   await expect(runConfigCommand('config', ['set', 'concurrency', '3', 'extra'], { client, json: true })).rejects.toThrow('invalid arguments');
   await expect(runConfigCommand('config', ['nope'], { client, json: true })).rejects.toThrow('unknown config command');
@@ -150,5 +160,6 @@ test('config 是用户专属：带 agent token 调用被拒', async () => {
 
 test('help 列出 config 的并发与限额子命令，不再列 route', () => {
   expect(HELP).toContain('config show|set|reset');
+  expect(HELP).toContain('worker-call-limit');
   expect(HELP).not.toContain('config route');
 });

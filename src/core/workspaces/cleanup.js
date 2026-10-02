@@ -9,7 +9,7 @@ export const methods = {
    * 原子删除——检查之后分支被谁动过就拒绝，历史不会丢。
    */
   async dropBranch(task) {
-    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase tasks are unsupported; preserve their worktrees for manual inspection');
+    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     const branch = task.branch;
     if (!branch) return { branch: null, status: 'absent', reason: null };
     const project = this.config.project;
@@ -17,11 +17,11 @@ export const methods = {
     try { tip = await this.git(project, 'rev-parse', `refs/heads/${branch}`); }
     catch { return { branch, status: 'absent', reason: null }; }
     const reviewed = task.head_commit || task.base_commit;
-    if (!reviewed) return { branch, status: 'kept', reason: 'no reviewed commit is recorded for this task' };
+    if (!reviewed) return { branch, status: 'kept', reason: 'no reviewed commit is recorded for this worker' };
     if (!(await this.isAncestor(project, reviewed, tip))) return { branch, status: 'kept', reason: task.head_commit
       ? `branch tip ${tip.slice(0, 12)} no longer contains the reviewed commit ${reviewed.slice(0, 12)}`
       : `branch no longer contains its recorded base ${reviewed.slice(0, 12)}` };
-    if (!task.target_branch) return { branch, status: 'kept', reason: 'no target branch is recorded for this task' };
+    if (!task.target_branch) return { branch, status: 'kept', reason: 'no target branch is recorded for this worker' };
     if (!(await this.isAncestor(project, tip, `refs/heads/${task.target_branch}`)))
       return { branch, status: 'kept', reason: `${tip.slice(0, 12)} is not in ${task.target_branch} yet` };
     if (await this.checkedOut(branch)) return { branch, status: 'kept', reason: 'branch is checked out in a worktree' };
@@ -108,7 +108,7 @@ export const methods = {
    * 任何一步不安全就抛错——cleanup 把它报给用户，clear 记下原因并保留那条任务。
    */
   async release(task, { keepBranch = false } = {}) {
-    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase tasks are unsupported; preserve their worktrees for manual inspection');
+    check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     // 检验任务没有 branch/integration，只有派生出来的对照检出。
     if (task.verifies_task_id) {
       if (!task.baseline_workspace) return { id: task.id, worktree: 'absent', branch: 'absent', reason: null };
@@ -174,7 +174,7 @@ export const methods = {
       // Even failed/cancelled tasks may contain valuable committed changes. Branch-first tasks land in their
       // direct parent, which is often an input/task worktree rather than the project checkout's HEAD.
       if (head !== (task.iteration_base_commit ?? task.base_commit)) {
-        check(task.target_branch, 'task has committed work but no target branch');
+        check(task.target_branch, 'worker has committed work but no target branch');
         await this.git(this.config.project, 'merge-base', '--is-ancestor', head, `refs/heads/${task.target_branch}`);
       }
       await this.git(this.config.project, 'worktree', 'remove', dir);
@@ -198,12 +198,12 @@ export const methods = {
       this.busy.add(taskId);
       try {
         const task = this.store.task(taskId);
-        check(['completed','failed','cancelled'].includes(task.status), 'task must have stopped; accept delivered work before cleanup');
+        check(['completed','failed','cancelled'].includes(task.status), 'worker must have stopped; accept delivered work before cleanup');
         const active = this.store.get(`WITH RECURSIVE descendants(id,status) AS (
           SELECT id,status FROM tasks WHERE parent_id=?
           UNION ALL SELECT t.id,t.status FROM tasks t JOIN descendants d ON t.parent_id=d.id
         ) SELECT id FROM descendants WHERE status NOT IN ('completed','failed','cancelled') LIMIT 1`, task.id);
-        check(!active, `descendant Task #${active?.id} must be accepted or ended before cleanup`);
+        check(!active, `descendant Worker #${active?.id} must be accepted or ended before cleanup`);
         return { ...this.store.task(task.id), cleanup: await this.release(task, { keepBranch }) };
       } finally { this.busy.delete(taskId); }
     });

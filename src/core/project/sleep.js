@@ -69,7 +69,7 @@ export default {
   resumeSleepDevelopment() {
     check(!this.sleepStatus().enabled, '请先关闭托管模式再恢复开发');
     this.saveSleepState({ ...this.sleepStatus(), paused: false, reason: null });
-    this.store.event(null, 'sleep.resumed', { note: '仅恢复排队任务；中止的任务不自动重试' });
+    this.store.event(null, 'sleep.resumed', { note: '仅恢复排队 Worker；中止的 Worker 不自动重试' });
     this.kick(); return this.sleepStatus();
   },
 
@@ -144,7 +144,7 @@ export default {
             if (notice.kind === 'info') {
               const mergeable = owner.status === 'completed' && owner.integration === 'pending';
               decision = { action: state.allow_merge && mergeable ? 'merge' : 'acknowledge',
-                reason: state.allow_merge && mergeable ? '按明确授权尝试安全合并已完成任务。' : '信息提醒已阅；无可合并改动或未授权自动合并。' };
+                reason: state.allow_merge && mergeable ? '按明确授权尝试安全合并已完成 Worker。' : '信息提醒已阅；无可合并改动或未授权自动合并。' };
             }
             const source = { version: 1, session, mode: state.mode, allow_merge: state.allow_merge, notice,
               task: { id: owner.id, goal: owner.goal.slice(0, 12000), role: owner.role, integration: owner.integration },
@@ -230,7 +230,7 @@ export default {
       if (decision.action === 'merge') {
         check(state.allow_merge && source.allow_merge, '未授权自动合并');
         const task = this.store.task(notice.task_id);
-        check(task.status === 'completed' && task.integration === 'pending', '当前任务不符合自动合并条件');
+        check(task.status === 'completed' && task.integration === 'pending', '当前 Worker 不符合自动合并条件');
         this.store.event(null, 'sleep.choice.executing', { choice_id: choiceId, decision });
         const outcome = await this.approveMerge(task.id);
         this.finishSleepChoice(choiceId, { status: 'applied', decision, outcome });

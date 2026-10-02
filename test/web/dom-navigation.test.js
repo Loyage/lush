@@ -22,22 +22,22 @@ test('左栏只做导航：任务索引在右侧成为独立页面，任务详�
   const taskNav = dom.node('side-nav').querySelector('[data-side="tasks"]');
   await taskNav.onclick();
 
-  expect(dom.location.hash).toBe('#tasks');
+  expect(dom.location.hash).toBe('#workers');
   expect(dom.node('resource-panels').hidden).toBe(false);
   expect(dom.node('detail').hidden).toBe(true);
   expect(dom.node('side-tasks').hidden).toBe(false);
   expect(dom.node('side-notices').hidden).toBe(true);
-  expect(dom.node('view-title').textContent).toBe('任务列表');
+  expect(dom.node('view-title').textContent).toBe('Worker 列表');
   expect(dom.node('tasks').querySelector('[data-id="1"]')).toBeTruthy();
 
   await dom.node('tasks').querySelector('[data-id="1"]').onclick();
-  expect(dom.location.hash).toBe('#task-1');
+  expect(dom.location.hash).toBe('#worker-1');
   expect(dom.node('resource-panels').hidden).toBe(true);
   expect(dom.node('detail').hidden).toBe(false);
-  expect(dom.node('view-title').textContent).toBe('任务 #1');
+  expect(dom.node('view-title').textContent).toBe('Worker #1');
 
   // 用 hashchange 模拟浏览器后退：回到任务页，而不是把任务列表塞回左栏。
-  dom.location.hash = '#tasks';
+  dom.location.hash = '#workers';
   await dom.fire('hashchange');
   expect(dom.node('resource-panels').hidden).toBe(false);
   expect(dom.node('side-tasks').hidden).toBe(false);
@@ -46,7 +46,7 @@ test('左栏只做导航：任务索引在右侧成为独立页面，任务详�
 
 test('右侧固定返回按钮在没有原生 history.back 的宿主里安全回落到概览', async () => {
   await dom.node('side-nav').querySelector('[data-side="tasks"]').onclick();
-  expect(dom.node('view-title').textContent).toBe('任务列表');
+  expect(dom.node('view-title').textContent).toBe('Worker 列表');
   await dom.node('view-back').onclick();
   expect(dom.node('detail').hidden).toBe(false);
   expect(dom.node('resource-panels').hidden).toBe(true);
@@ -58,6 +58,7 @@ const navEntries = () => [
   ...['overview', 'task-graph', 'agent-status', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
   ...[...ui.navButtons.entries()],
 ];
+const routeHash = id => id === 'overview' ? '' : `#${id === 'tasks' ? 'workers' : id === 'task-graph' ? 'worker-graph' : id}`;
 function expectSelected(id) {
   expect(navEntries().filter(([, node]) => node.classList.contains('selected')).map(([key]) => key)).toEqual([id]);
   expect(navEntries().filter(([, node]) => node.getAttribute('aria-current') === 'page').map(([key]) => key)).toEqual([id]);
@@ -70,7 +71,7 @@ test('所有页面平级、唯一选中；重复点击、hash 后退与轮询保
       dom.node('sidebar').classList.add('mobile-open');
       await node.onclick();
       expectSelected(id);
-      expect(dom.location.hash).toBe(id === 'overview' ? '' : `#${id}`);
+      expect(dom.location.hash).toBe(routeHash(id));
       expect(dom.node('sidebar').classList.contains('mobile-open')).toBe(false);
       const pushes = dom.pushed();
       await node.onclick();
@@ -82,7 +83,7 @@ test('所有页面平级、唯一选中；重复点击、hash 后退与轮询保
       else expect(dom.node('detail').dataset.view).toBe(id);
     }
     for (const id of ['task-graph', 'agent-status', 'settings', 'notices', 'tasks', 'docs', 'overview']) {
-      dom.location.hash = id === 'overview' ? '' : `#${id}`;
+      dom.location.hash = routeHash(id);
       await dom.fire('hashchange');
       expectSelected(id);
     }
@@ -114,9 +115,9 @@ test('概览切换不依赖 revision 变化，轮询忙或断网时也立即显�
 test('迟到的 Task 图、文档与任务请求不覆盖新页面；文档 A→B 乱序也安全', async () => {
   await dom.node('home').onclick();
   for (const [path, open] of [
-    ['/api/task-graph', () => dom.node('task-graph-open').onclick()],
+    ['/api/worker-graph', () => dom.node('task-graph-open').onclick()],
     ['/api/docs', () => openDocs()],
-    ['/api/task/1', () => detail(1)],
+    ['/api/worker/1', () => detail(1)],
   ]) {
     const pending = deferred();
     intercept = url => url === path ? pending.promise : null;
@@ -184,7 +185,7 @@ test('任务列表与详情省略通用 agent 角色标签，保留专用角色�
       expect(deepText(row)).not.toContain('agent');
       renderDetail(task, null, null, null);
       expect(dom.node('detail').querySelector('.head').querySelector('.role-badge')).toBeNull();
-      expect(deepText(dom.node('detail').querySelector('.breadcrumb'))).toContain('任务 #401');
+      expect(deepText(dom.node('detail').querySelector('.breadcrumb'))).toContain('Worker #401');
       expect(deepText(dom.node('detail').querySelector('.head'))).toContain(status === 'running'
         ? 'agent agent#401 · pid 1234' : 'agent agent#401 · 空闲');
     }
@@ -228,9 +229,59 @@ test('任务列表：角色胶囊带 role-<role> 类，快速路由任务整行�
 
 test('直接链接启动复用同一路由，重复 boot 不复制导航', async () => {
   for (const id of ['task-graph', 'agent-status', 'settings', 'tasks']) {
-    dom.location.hash = `#${id}`;
+    dom.location.hash = routeHash(id);
     await boot();
     expectSelected(id);
     expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);
   }
+});
+
+test('Worker 公开深链接使用新地址，内部页面与 DOM 身份不迁移；旧 Task hash 仅回概览', async () => {
+  const reads = [];
+  intercept = url => {
+    reads.push(url);
+    return url === '/api/worker-graph' ? Promise.resolve(json({ total: 0, nodes: [], edges: [] })) : null;
+  };
+  try {
+    for (const [hash, view, selected] of [
+      ['#workers', 'tasks', 'tasks'], ['#worker-graph', 'task-graph', 'task-graph'], ['#worker-1', 'task', 'tasks'],
+    ]) {
+      dom.location.hash = hash;
+      await boot();
+      expect(dom.location.hash).toBe(hash);
+      expect(ui.view.id).toBe(view);
+      expectSelected(selected);
+    }
+    expect(ui.selected).toBe(1);
+    expect(dom.node('detail').dataset.taskId).toBe('1');
+    expect(dom.node('detail').dataset.view).toBe('task');
+    expect(dom.node('tasks')).toBeTruthy();
+    expect(reads).toContain('/api/worker/1');
+    expect(reads).toContain('/api/worker-graph');
+    expect(reads.some(url => /^\/api\/tasks?(?:\/|\?|$|-graph)/.test(url))).toBe(false);
+    const workerReads = () => reads.filter(url => url.startsWith('/api/worker')).length;
+    for (const hash of ['#task-1', '#task-graph', '#tasks']) {
+      const before = workerReads();
+      dom.location.hash = hash;
+      await dom.fire('hashchange');
+      expect(ui.view.id).toBe('overview');
+      expectSelected('overview');
+      expect(dom.location.hash).toBe('');
+      expect(workerReads()).toBe(before);
+    }
+    expect(ROLE.worker).toBe('执行');
+  } finally { intercept = null; }
+});
+
+test('前端 mock 只接受 worker HTTP/RPC，不保留 task 接口别名；响应内字段仍为 task_id', async () => {
+  const isolated = makeWorld();
+  expect((await isolated.fetchImpl('/api/worker/1')).ok).toBe(true);
+  for (const url of ['/api/task/1', '/api/task/1/usage', '/api/tasks?scope=all', '/api/task-graph']) {
+    expect((await isolated.fetchImpl(url)).status).toBe(404);
+  }
+  const oldAction = await isolated.fetchImpl('/api/action', { body: JSON.stringify({ method: 'task.auto_merge', params: { id: 1, enabled: true } }) });
+  expect(oldAction.status).toBe(404);
+  expect(isolated.state.actions).toHaveLength(0);
+  const setting = await isolated.fetchImpl('/api/action', { body: JSON.stringify({ method: 'worker.auto_merge', params: { id: 1, enabled: true } }) });
+  expect(await setting.json()).toMatchObject({ task_id: 1, auto_merge: { enabled: true } });
 });

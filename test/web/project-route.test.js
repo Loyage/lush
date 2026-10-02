@@ -19,12 +19,12 @@ test('项目身份来自地址：项目 API 加前缀，宿主级资源不加', 
   globalThis.location.pathname = `/p/${ID}/`;
   expect(projectRoute()).toBe(ID);
   expect(projectBase()).toBe(`/p/${ID}`);
-  expect(projectApi('/api/task/1')).toBe(`/p/${ID}/api/task/1`);
+  expect(projectApi('/api/worker/1')).toBe(`/p/${ID}/api/worker/1`);
   // 启动器与随代码发布的文档属于宿主，不挂到任何项目下。
   expect(projectApi('/api/host/projects')).toBe('/api/host/projects');
   expect(projectApi('/api/docs')).toBe('/api/docs');
   expect(projectApi('/app.js')).toBe('/app.js');
-  expect(projectHref(ID, '/#task-1')).toBe(`/p/${ID}/#task-1`);
+  expect(projectHref(ID, '/#worker-1')).toBe(`/p/${ID}/#worker-1`);
   // 非项目路径（ID 后续还有别的字符）不会被误认成项目页。
   globalThis.location.pathname = `/p/${ID}x/`;
   expect(projectRoute()).toBeNull();

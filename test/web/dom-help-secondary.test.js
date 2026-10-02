@@ -57,7 +57,7 @@ test('系统提醒开关：初始文本为空补 aria-label 与 data-help，且�
 });
 
 test('「打开执行详情」打开只读全屏阅读器，带 data-help 且不标 agent-call', async () => {
-  dom.location.hash = '#task-1';
+  dom.location.hash = '#worker-1';
   await dom.fire('hashchange');
   const detail = dom.node('detail');
   await until(() => buttonOf(detail, '打开执行详情'), 2000);
@@ -107,7 +107,7 @@ test('设置页的 Agent / 系统按钮按标准补 data-help', async () => {
   expect(buttonOf(panel, '恢复环境默认').getAttribute('data-help')).toContain('并发');
   // 模块级的 activeTab 是跨测试文件共享的：看完成系统页要切回 Agent，别让后续文件从错误页签开始。
   tabOf('agent').onclick();
-  expect(deepText(panel)).toContain('按任务行为覆盖');
+  expect(deepText(panel)).toContain('按 Worker 行为覆盖');
 });
 
 test('本范围没有 Agent 触发标识：文件里不出现 agent-call / agentHelp', async () => {

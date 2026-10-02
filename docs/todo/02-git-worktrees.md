@@ -10,18 +10,18 @@
 - 已执行 `git rev-parse HEAD` / `git status --short`：基线一致、初始无改动。
 - 已执行 `bun run test test/workspaces test/project/candidates.test.js test/project/showcase-eligibility.test.js test/project/showcase.test.js`：**78 pass / 0 fail，514 assertions**；`bun run docs:check`：53 篇 Markdown 检查通过。
 - 已执行 `bun run /tmp/lush-audit-git-probes.js`：复现 G-01～G-06；使用 `test/helpers.js` 的 `fixture/repo/git`，mock provider、临时 Git 仓库、受控方法拦截；每例 `finally` 关闭项目并删除 fixture，临时脚本已删除。下列条目保留可重建的关键步骤与观测。
-- 反例核验：已有测试覆盖脏主树拒绝合并、失败任务已提交成果保留、Candidate 串行队列内只落冻结提交、迟到 verifier 不覆盖决策、Showcase 预览阻止清理；带双引号 worktree 路径探针正常，不列为缺陷。
+- 反例核验：已有测试覆盖脏主树拒绝合并、失败Worker已提交成果保留、Candidate 串行队列内只落冻结提交、迟到 verifier 不覆盖决策、Showcase 预览阻止清理；带双引号 worktree 路径探针正常，不列为缺陷。
 - **不作为缺陷**：人工最终批准、分歧在子侧解决、显式 `archive --discard` 放弃代码、重启不自动重放未知副作用；以下问题与这些合理边界不同。
 
-## G-01 归档准入漏掉实际使用输入工作区的活动任务
+## G-01 归档准入漏掉实际使用输入工作区的活动Worker
 
 **P1 · 已复现 · 预估 M · 已完成（2026-09-26，提交 `a8c1699`）**
 
-- **完成口径**：`branchResourceUsers()` 统一「谁在用这些 worktree / ref」：拥有分支的任务、输入锚点下的 planner/worker/merger 与 say、引用被检验任务或候选的 verifier、以这些分支为目标的进行中工作，以及 running 中未收尾或正在 cleanup 的任务。任一活动使用者即拒绝且无副作用。回归：`test/workspaces/archive.test.js`（running planner、queued branchless worker、活动 verifier、终态未收尾四例）。
-- **依据**：`src/core/project/branches.js`，`archiveBranch()`，170–186 行，仅按 `tasks.branch IN (...)` 查未终态任务；`src/core/workspaces/worktree.js`，`ensure()`，127–132 行，planner 实际使用输入 anchor，而 task 本身没有 branch。归档前也没有 `running` / `busy` 收尾检查。
-- **触发与影响**：让 mock planner 停在 `run()`（状态 running、branch=null），归档其输入分支；调用返回 `archived=true`，planner cwd 已被删除。尚未建分支的 worker、共享源目录的 verifier 同样需要关联准入，不能仅凭任务 branch 判断资源无人使用；会中断执行，`--discard` 情况下还可能删除活动产物。
-- **建议与取舍**：归档安全门覆盖 input anchor、任务依赖/后代、verifier 服务对象与实际工作区使用者，并在 Git 串行区间内重检；为待归档分支建立短期操作保留，避免排队后又准入新任务。可复用 Showcase 的关联检查思路，但归档允许 failed/cancelled，不能照抄“全部成功”的产品条件。
-- **验收**：running planner、未建分支的 queued worker、活动 verifier、已终态但 invocation 未收尾时均拒绝且目录/ref/状态不变；终态且无使用者仍可按现有规则归档。已有 archive 测试只覆盖已拥有 branch 的活动任务，不能证明这些场景安全。
+- **完成口径**：`branchResourceUsers()` 统一「谁在用这些 worktree / ref」：拥有分支的Worker、输入锚点下的 planner/worker/merger 与 say、引用被检验Worker或候选的 verifier、以这些分支为目标的进行中工作，以及 running 中未收尾或正在 cleanup 的Worker。任一活动使用者即拒绝且无副作用。回归：`test/workspaces/archive.test.js`（running planner、queued branchless worker、活动 verifier、终态未收尾四例）。
+- **依据**：`src/core/project/branches.js`，`archiveBranch()`，170–186 行，仅按 `tasks.branch IN (...)` 查未终态Worker；`src/core/workspaces/worktree.js`，`ensure()`，127–132 行，planner 实际使用输入 anchor，而 Worker 本身没有 branch。归档前也没有 `running` / `busy` 收尾检查。
+- **触发与影响**：让 mock planner 停在 `run()`（状态 running、branch=null），归档其输入分支；调用返回 `archived=true`，planner cwd 已被删除。尚未建分支的 worker、共享源目录的 verifier 同样需要关联准入，不能仅凭Worker branch 判断资源无人使用；会中断执行，`--discard` 情况下还可能删除活动产物。
+- **建议与取舍**：归档安全门覆盖 input anchor、Worker依赖/后代、verifier 服务对象与实际工作区使用者，并在 Git 串行区间内重检；为待归档分支建立短期操作保留，避免排队后又准入新Worker。可复用 Showcase 的关联检查思路，但归档允许 failed/cancelled，不能照抄“全部成功”的产品条件。
+- **验收**：running planner、未建分支的 queued worker、活动 verifier、已终态但 invocation 未收尾时均拒绝且目录/ref/状态不变；终态且无使用者仍可按现有规则归档。已有 archive 测试只覆盖已拥有 branch 的活动Worker，不能证明这些场景安全。
 
 ## G-02 Candidate 固定的是 HEAD，实际验收仍可读取脏文件树
 
@@ -46,10 +46,10 @@
 
 **P2 · 已复现 · 预估 M**
 
-- **依据**：`src/core/workspaces/cleanup.js`，`archiveBranches()`，42–85 行，第一遍只收集 tip/路径并检查 clean，第二遍逐条 remove/ref-delete/标 archived；`src/core/project/branches.js`，`archiveBranch()`，174–177、186–213 行，根已 archived 时拒绝，任务指针与事件仅在整批 Git 成功后更新。
+- **依据**：`src/core/workspaces/cleanup.js`，`archiveBranches()`，42–85 行，第一遍只收集 tip/路径并检查 clean，第二遍逐条 remove/ref-delete/标 archived；`src/core/project/branches.js`，`archiveBranch()`，174–177、186–213 行，根已 archived 时拒绝，Worker指针与事件仅在整批 Git 成功后更新。
 - **触发与影响**：父、子 worktree 都干净，提前 `git worktree lock <child>`；归档父分支先删除父目录/ref 并标 archived，再在子目录报 locked。观测父 archived、子 active；重试父直接报 `already archived`，一次已知、可预检的状态造成半棵树归档和审计/指针更新遗漏。
 - **建议与取舍**：预检识别 locked / prunable / submodule 等已知拒绝条件；仍需承认外部变化、I/O 失败使跨目录删除无法天然原子，持久保留逐项 outcome，允许用户显式继续未完成部分。不要通过双 force 绕过锁，也不要以回滚名义重建可能冲突的用户目录；继续操作入口的交互需确认。
-- **验收**：已锁定后代在任何删除前拒绝；第二遍注入失败时返回完整已完成/保留项，任务路径与审计符合磁盘事实，用户可安全继续。已有“脏后代零副作用”测试保留，另补锁定与部分失败测试。
+- **验收**：已锁定后代在任何删除前拒绝；第二遍注入失败时返回完整已完成/保留项，Worker路径与审计符合磁盘事实，用户可安全继续。已有“脏后代零副作用”测试保留，另补锁定与部分失败测试。
 
 ## G-05 Candidate verifier 的 baseline 不在正常完成与手动清理路径中
 
@@ -68,6 +68,6 @@
 以下保留原始成本测量记录，不是当前待实施方案。
 
 - **依据**：`src/core/project/graph.js`，`graph()`，218–255 行，每个节点串行调用 `showcaseEligibility()`；`src/core/project/showcase.js`，同名函数，10–64 行，每次重新扫描 branches/inputs/tasks，并执行 `showcaseSnapshot()`。`src/core/workspaces/showcase.js`，47–85 行，对每个分支重新枚举远端默认分支、校验 ref、列 worktree。
-- **实验与影响**：临时仓库创建 20 条已登记、有实际树变化、无任务的分支；21 个图节点一次读取发起 **230 次 Git**、约 **2.31 s**，同实例热读仍 **226 次 / 2.08 s**。其中 `for-each-ref` 与 `worktree list` 各 21 次；这是本机探针，不是生产 SLA 或 200 分支外推结论。图读取并发时会叠加进程与重复 DB 扫描。
-- **建议与取舍**：图用一次 refs/worktrees/任务关系快照批量计算展示资格，按固定 commit 缓存纯 Git 结果，合并同项目并发图请求；真正 start/retry 继续在写队列内执行完整实时准入。也可改为分支详情按需判定，但会改变交互，需用户确认。
-- **验收**：增加 20/200 分支冷热读测量与 Git 命令计数，固定枚举不随分支数重复；批量读失败仍区分 unknown 与不合格，活动任务/脏树变化不能被缓存长期隐藏。已有 diagnostics 缓存测试通过，不等于整个 graph 已有成本界限。
+- **实验与影响**：临时仓库创建 20 条已登记、有实际树变化、无Worker的分支；21 个图节点一次读取发起 **230 次 Git**、约 **2.31 s**，同实例热读仍 **226 次 / 2.08 s**。其中 `for-each-ref` 与 `worktree list` 各 21 次；这是本机探针，不是生产 SLA 或 200 分支外推结论。图读取并发时会叠加进程与重复 DB 扫描。
+- **建议与取舍**：图用一次 refs/worktrees/Worker关系快照批量计算展示资格，按固定 commit 缓存纯 Git 结果，合并同项目并发图请求；真正 start/retry 继续在写队列内执行完整实时准入。也可改为分支详情按需判定，但会改变交互，需用户确认。
+- **验收**：增加 20/200 分支冷热读测量与 Git 命令计数，固定枚举不随分支数重复；批量读失败仍区分 unknown 与不合格，活动Worker/脏树变化不能被缓存长期隐藏。已有 diagnostics 缓存测试通过，不等于整个 graph 已有成本界限。

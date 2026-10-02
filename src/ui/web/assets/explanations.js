@@ -21,7 +21,7 @@ const locationText = location => {
   const bits = [];
   if (location?.view) bits.push(`页面 ${location.view}`);
   if (location?.section) bits.push(`位置 ${location.section}`);
-  if (location?.task_id != null) bits.push(`任务 #${location.task_id}`);
+  if (location?.task_id != null) bits.push(`Worker #${location.task_id}`);
   if (location?.input_id != null) bits.push(`意图 #${location.input_id}`);
   if (location?.spec_id != null) bits.push(`规划条目 #${location.spec_id}`);
   if (location?.notice_id != null) bits.push(`事项 #${location.notice_id}`);
@@ -35,7 +35,7 @@ function paint(content, data) {
   content.replaceChildren(el('p', `解释 #${data.id} · ${data.status} · 模型解释，不是执行事实`, 'hint'));
   content.append(el('p', generic
     ? `来源：所选文字（${locationText(source.location)}） · ${source.captured_at || ''}`
-    : `来源：任务 #${source.task_id} / 步骤 #${source.seq} · ${source.captured_at || ''}`, 'hint'));
+    : `来源：Worker #${source.task_id} / 步骤 #${source.seq} · ${source.captured_at || ''}`, 'hint'));
   content.append(el('blockquote', source.quote || ''));
   if (!generic && source.body_truncated) content.append(el('p', '关联步骤较长，解释上下文仅含首段；选中文字完整保留。', 'hint'));
   content.append(data.error ? el('p', data.error, 'error') : agentText(data.result || '正在排队或解释…'));
@@ -44,7 +44,7 @@ function paint(content, data) {
   if (generic) {
     snapshot.append(el('p', `页面位置：${locationText(source.location)}`));
   } else {
-    snapshot.append(el('p', `任务目标：${source.goal || '（没有记录）'}`));
+    snapshot.append(el('p', `Worker 目标：${source.goal || '（没有记录）'}`));
     const steps = [source.step, ...(source.related || [])].filter(Boolean);
     for (const step of steps) {
       snapshot.append(el('h4', `步骤 #${step.seq} · ${step.title}`), structuredValue(step.body));
@@ -114,14 +114,14 @@ export async function openExplanation(id) {
   await watch(content, version, id);
 }
 export async function explanationHistory(taskId) {
-  const { content, version } = shell(`任务 #${taskId} 的解释历史`);
+  const { content, version } = shell(`Worker #${taskId} 的解释历史`);
   const quick = el('div'), agent = el('div');
   content.append(quick, agent);
   const quickHead = el('h4', '快速介绍'); quick.append(quickHead);
   const quickEmpty = el('p', '还没有快速介绍记录。选中文字后右键选择「快速介绍」。', 'hint'); quick.append(quickEmpty);
   const loadIntros = async before => {
     try {
-      const data = await api(`/api/task/${taskId}/intros${before ? `?before=${before}` : ''}`);
+      const data = await api(`/api/worker/${taskId}/intros${before ? `?before=${before}` : ''}`);
       if (version !== generation) return;
       for (const row of data.introductions) {
         quickEmpty.remove();
@@ -136,7 +136,7 @@ export async function explanationHistory(taskId) {
   const agentEmpty = el('p', '还没有执行步骤解释记录。在执行过程里选中文字后右键选择「介绍」。', 'hint'); agent.append(agentEmpty);
   const loadAgent = async before => {
     try {
-      const data = await api(`/api/task/${taskId}/explanations${before ? `?before=${before}` : ''}`);
+      const data = await api(`/api/worker/${taskId}/explanations${before ? `?before=${before}` : ''}`);
       if (version !== generation) return;
       for (const row of data.explanations) {
         agentEmpty.remove();

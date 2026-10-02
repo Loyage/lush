@@ -24,15 +24,29 @@ test('agent prompts are composed from role-specific named parts', () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('all built-in role prompts call the entity Worker without changing historical role names', () => {
+  expect(AGENT_ROLES).toContain('worker');
+  for (const role of AGENT_ROLES) {
+    const prompt = builtInPrompt(role);
+    expect(prompt).not.toMatch(/lush task|\bTask\b|任务/);
+    expect(prompt).toContain(`角色：${role}`);
+  }
+});
+
 test('agent prompt distinguishes persistent auto-merge hooks from delivery and authorization', () => {
   const prompt = builtInPrompt('agent');
   expect(prompt).toContain('自动合并设置跨追加开发轮次保留');
   expect(prompt).toContain('默认开启不可关闭的自动合并 hook');
+  expect(prompt).toContain('lush worker spawn');
+  expect(prompt).toContain('lush worker accept');
+  expect(prompt).toContain('LUSH_TASK_ID');
+  expect(prompt).toContain('Worker 数据仍使用 task 字段');
+  expect(prompt).not.toMatch(/lush task|\bTask\b|任务/);
   expect(prompt).toContain('Agent 不得操作自动合并开关');
   expect(prompt).toContain('不增加父 Agent 审批');
   expect(prompt).toContain('只有显示 integration=merged 才能宣称已进入父分支');
-  expect(prompt).toContain('不创建 merge Task、不重挂 parent_id');
-  expect(prompt).toContain('不额外调用父 Agent 或要求 task.integrate');
+  expect(prompt).toContain('不创建 merge Worker、不重挂 parent_id');
+  expect(prompt).toContain('不额外调用父 Agent 或要求 worker.integrate');
   expect(prompt).toContain('源侧修复期间保留父执行位');
   expect(prompt).toContain('除 runtime 指定的当前尝试源侧修复外');
   expect(prompt).toContain('恢复重新排队并固定新父基线');

@@ -204,7 +204,7 @@ test('parent choices enumerate beyond overview, omit ended/missing/archived ance
     f.store.transaction(() => {
       for (let i = 0; i < 260; i++) f.store.create({ role: 'agent', goal: 'newer unrelated Task' });
     });
-    expect((await f.call('input.parents')).items).toEqual([{ id: d.parent_id, branch: 'main', goal: '管理 main 分支及子任务合并请求' }]);
+    expect((await f.call('input.parents')).items).toEqual([{ id: d.parent_id, branch: 'main', goal: '管理 main 分支及子Worker合并请求' }]);
     const sent = await f.call('say.submit', { content: 'eligible say', start: false });
     expect((await f.call('input.parents')).items.map(item => item.id)).toContain(sent.task.id);
     const sub = await f.call('draft.add', { content: 'under say', branch: sent.task.branch });
@@ -223,7 +223,7 @@ test('parent choices enumerate beyond overview, omit ended/missing/archived ance
         f.store.update(task.id, { branch: `bound-${i}` });
       }
     });
-    await expect(f.call('input.parents')).rejects.toThrow('too many parent Task candidates');
+    await expect(f.call('input.parents')).rejects.toThrow('too many parent Worker candidates');
   } finally { await f.close(); }
 });
 

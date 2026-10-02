@@ -54,8 +54,8 @@ test('the lazy search index contains headings, prose and code without mixing Mer
     const { docs } = await response.json();
     const core = docs.find(doc => doc.id === 'docs-core-architecture');
     const execution = docs.find(doc => doc.id === 'docs-engineering-execution-model');
-    expect(core.headings).toContain('项目、输入与任务');
-    expect(core.body).toContain('直接关联的 Task');
+    expect(core.headings).toContain('项目、输入与 Worker');
+    expect(core.body).toContain('直接关联的 Worker');
     expect(execution.body).toContain('释放执行槽');
     expect(core.diagram).toContain('flowchart LR');
     expect(core.body).not.toContain('flowchart LR');

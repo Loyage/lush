@@ -30,7 +30,7 @@ test('inspect, decorate and Task graph distinguish explicit acceptance from hist
     f.store.update(f.task.id, { status: 'waiting' });
     await f.project.acceptTask(f.task.id);
     expectState(await views(f), true, null);
-    await expect(f.project.reopenTask(f.task.id)).rejects.toThrow('accepted Tasks cannot be reopened');
+    await expect(f.project.reopenTask(f.task.id)).rejects.toThrow('accepted Workers cannot be reopened');
     // Older persisted reopen records are read faithfully, but the new API cannot revive acceptance.
     f.store.event(f.task.id, 'task.reopened', { head_commit: f.store.task(f.task.id).head_commit });
     f.store.update(f.task.id, { status: 'awaiting_acceptance' });

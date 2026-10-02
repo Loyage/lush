@@ -1,4 +1,4 @@
-// Real Task tree layout/popover regression. Firefox + geckodriver, no daemon or model calls.
+// Real Worker tree layout/popover regression. Firefox + geckodriver, no daemon or model calls.
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -16,11 +16,11 @@ window.graph={total:8,nodes:[
 {id:1,parent_id:null,task_kind:'main',role:'agent',title:'main',status:'waiting',branch:'main'},
 ...['running','awaiting','awaiting_acceptance','failed','completed','paused','waiting'].map((status,i)=>({
 id:i+2,parent_id:i===6?2:1,task_kind:'say',role:'agent',status,branch:'task-'+i,
-title:'任务 '+(i+2)+' '+('长标题用于确认固定高度和截断 '.repeat(i?2:20)),
+title:'Worker '+(i+2)+' '+('长标题用于确认固定高度和截断 '.repeat(i?2:20)),
 integration:i===4?'merged':'pending',notice_count:i===1?3:0,
 notice:i===1?{id:1,kind:'question',title:'确认接口',body:'待决问题'}:null,
 waiting_reason:'等待用户确认接口兼容范围',goal_preview:'完整目标',result_preview:'完整结果'.repeat(200),
-progress:i===5?null:{total:5,completed:i===4?5:2,current:i===4?null:{label:'实现任务树双行摘要 '.repeat(10)}}
+progress:i===5?null:{total:5,completed:i===4?5:2,current:i===4?null:{label:'实现 Worker 树双行摘要 '.repeat(10)}}
 }))]};
 for (const node of window.graph.nodes) node.merge_queue={counts:{},total:0,items:[],truncated:false};
 window.graph.nodes[0].merge_queue={counts:{resolving:1,requested:7,blocked:1},total:9,truncated:true,
@@ -28,7 +28,8 @@ window.graph.nodes[0].merge_queue={counts:{resolving:1,requested:7,blocked:1},to
 window.graph.nodes[1].reservation={version:2,kind:'merge',queue_protocol:1,parent_id:1,status:'resolving'};
 ui.view={id:'task-graph'}; window.paint=()=>renderTaskGraph(window.graph);
 window.refreshGraph=loadTaskGraph;
-window.fetch=async()=>Response.json(window.graph);
+window.fetch=async(url)=>new URL(url,location.href).pathname==='/api/worker-graph'
+  ?Response.json(window.graph):Response.json({error:'no route '+url},{status:404});
 window.paint(); window.ready=true;
 </script></body></html>`;
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
@@ -120,7 +121,7 @@ try {
   await key('\uE00C');
   assert(await execute(`return document.querySelector('#modal').hidden && document.activeElement.dataset.graphFocus==='more-2';`), 'dialog did not restore more trigger');
   await click('[data-task-id="2"] .task-graph-title');
-  assert(await execute('return window.openedTask===2'), 'title did not open correct Task');
+  assert(await execute('return window.openedTask===2'), 'title did not open correct Worker');
   // Real layout: only a same-parent reorder gets finite transform animations.
   const reorder = await execute(`
     document.querySelector('#detail').style.cssText='height:360px;overflow:auto';

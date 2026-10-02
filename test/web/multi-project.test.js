@@ -43,11 +43,11 @@ test('S-01：项目 A 的写请求不会因别的标签页打开 B 而落到 B',
 
     // A 页面准备的写请求带着 A 的身份：只作用于 A。
     calls.length = 0;
-    expect((await post(`${url}/p/${idA}/api/action`, { method: 'task.cancel', params: { id: 1 } })).status).toBe(200);
-    expect((await post(`${url}/p/${idA}/api/action`, { method: 'task.approve_merge', params: { id: 1 } })).status).toBe(200);
+    expect((await post(`${url}/p/${idA}/api/action`, { method: 'worker.cancel', params: { id: 1 } })).status).toBe(200);
+    expect((await post(`${url}/p/${idA}/api/action`, { method: 'worker.approve_merge', params: { id: 1 } })).status).toBe(200);
     expect(calls.filter(([, method]) => method !== 'open')).toEqual([
-      [fs.realpathSync(a), 'task.cancel', { id: 1 }],
-      [fs.realpathSync(a), 'task.approve_merge', { id: 1 }],
+      [fs.realpathSync(a), 'worker.cancel', { id: 1 }],
+      [fs.realpathSync(a), 'worker.approve_merge', { id: 1 }],
     ]);
 
     // 项目页与会话页是同一份 shell；全局根页面是项目启动器。
@@ -60,7 +60,7 @@ test('S-01：项目 A 的写请求不会因别的标签页打开 B 而落到 B',
 
     // 旧页面发出的无项目身份写请求被拒绝，绝不回退到「当前项目」。
     calls.length = 0;
-    const legacy = await post(url + '/api/action', { method: 'task.cancel', params: { id: 1 } });
+    const legacy = await post(url + '/api/action', { method: 'worker.cancel', params: { id: 1 } });
     expect(legacy.status).toBe(400);
     expect((await legacy.json()).error).toContain('缺少项目身份');
     expect(calls).toEqual([]);

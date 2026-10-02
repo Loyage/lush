@@ -95,7 +95,7 @@ try {
       if (/^\/assets\/[\w.-]+\.(js|css)$/.test(route) || route === '/highlight.min.js') return new Response(Bun.file(path.join(assets, path.basename(route))));
       if (route.endsWith('/transcript-search')) return Response.json({ steps: [step], files: ['fixture'], next: 1, has_more: false });
       if (route.endsWith('/transcript-step')) return Response.json({ step, related: [], context: [], has_more: false });
-      const match = /^\/api\/task\/101\/code-(state|tree|file)$/.exec(route);
+      const match = /^\/api\/worker\/101\/code-(state|tree|file)$/.exec(route);
       if (match) {
         const kind = match[1], params = Object.fromEntries(url.searchParams);
         if ('changed' in params) params.changed = params.changed === 'true';
@@ -180,7 +180,7 @@ try {
   assert(await execute(`return document.querySelectorAll('.code-content-line[data-line="1"]').length===1`), 'continued line duplicated source line number');
   assert(fs.readFileSync(indexPath).equals(originalIndex), 'read-only viewer rewrote original Git index');
   assert((await git(workspace, 'rev-parse', 'HEAD')) === commit, 'read-only viewer moved HEAD');
-  await clickText('返回任务 · Esc');
+  await clickText('返回 Worker · Esc');
   const closedCount = counts.state;
   await Bun.sleep(3500);
   assert(counts.state === closedCount, 'closed viewer kept polling');

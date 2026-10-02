@@ -66,13 +66,13 @@ test('工作导航 #inputs、输入区入口、独立状态与只读原文，轮
   await dom.node('inputs-open').onclick();
   expect(dom.location.hash).toBe('#inputs'); expect(dom.node('inputs-open').getAttribute('aria-current')).toBe('page');
   expect(dom.node('view-context').textContent).toBe('工作');
-  expect(root().querySelector('[aria-label="任务状态：待验收"]')).toBeTruthy(); expect(root().querySelector('[aria-label="合并状态：已合并"]')).toBeTruthy();
+  expect(root().querySelector('[aria-label="Worker 状态：待验收"]')).toBeTruthy(); expect(root().querySelector('[aria-label="合并状态：已合并"]')).toBeTruthy();
   await btn('查看原文').onclick(); expect(panel().querySelector('textarea')).toBe(null); expect(deepText(panel())).toContain('已发送原文只读');
   await openDraft(); const node = editor(); node.value = '还没保存'; const before = reads.length;
   await dom.intervalFor(1500)(); await dom.intervalFor(3000)();
   expect(editor()).toBe(node); expect(node.value).toBe('还没保存'); expect(reads.length).toBe(before);
   await btn('刷新列表').onclick(); expect(editor()).toBe(node); expect(node.value).toBe('还没保存');
-  dom.location.hash = '#tasks'; await dom.fire('hashchange');
+  dom.location.hash = '#workers'; await dom.fire('hashchange');
   await dom.node('input-history').onclick(); expect(dom.location.hash).toBe('#inputs');
 });
 
@@ -87,7 +87,7 @@ test('紧凑条目只有一个详情入口，等高摘要不内嵌操作或引�
   expect(cards[1].querySelector('.input-preview').textContent).not.toContain('\n');
   expect(deepText(cards[1])).toContain('摘要已截断'); expect(deepText(cards[2])).toContain('状态未知');
   expect(root().querySelectorAll('.input-reference')).toHaveLength(0);
-  expect(btn('查看 Task #20')).toBeUndefined();
+  expect(btn('查看 Worker #20')).toBeUndefined();
   const css = readFileSync('src/ui/web/assets/styles-inputs.css', 'utf8');
   expect(css).toContain('height:123px'); expect(css).toContain('-webkit-line-clamp:2');
 });
@@ -172,7 +172,7 @@ test('仅创建先保存再以新版本发射，不带正文/branch；关联 Tas
   expect(calls[0].params).not.toHaveProperty('branch');
   expect(calls[1].params).toEqual({ draft_id: 1, expected_revision: 4, start: false });
   let opened; const restore = registerNavigation({ detail: async id => { opened = id; } });
-  try { await btn('查看 Task #33', panel()).onclick(); expect(opened).toBe(33); } finally { restore(); }
+  try { await btn('查看 Worker #33', panel()).onclick(); expect(opened).toBe(33); } finally { restore(); }
   expect(calls).toHaveLength(2);
 });
 

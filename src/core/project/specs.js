@@ -87,7 +87,7 @@ export default {
     check(spec.status === 'pending', `spec #${spec.id} is ${spec.status}; only a pending spec can be dropped`);
     if (actor !== null) {
       const owner = actor === spec.planner_task_id || (spec.batch_id !== null && actor === spec.batch_id);
-      check(owner, `task #${actor} may not drop spec #${spec.id}`);
+      check(owner, `worker #${actor} may not drop spec #${spec.id}`);
     }
     if (note !== null && note !== undefined) text(note, 'note');
     this.store.dropSpec(spec.id, note ?? null);

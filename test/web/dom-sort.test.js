@@ -53,7 +53,7 @@ test('排序：一个左栏全局控件同时作用于待定记录与任务树�
   sort.value = 'updated';
   await sort.listeners.change[0]();
   expect(notices()).toEqual(['新问题', '老问题']);
-  expect(tasks()).toEqual(['正在改点什么', '合并我', '另一个待合的']);   // 行动任务仍只重排兄弟
+  expect(tasks()).toEqual(['正在改点什么', '合并我', '另一个待合的']);   // 行动Worker仍只重排兄弟
 
   // 按编号（新在前）
   sort.value = 'id';

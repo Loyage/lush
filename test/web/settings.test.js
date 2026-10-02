@@ -44,7 +44,7 @@ test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1
   expect(panel().dataset.view).toBe('settings');
   expect(deepText(panel())).toContain('设置');
   expect(deepText(panel())).toContain('默认 Agent');
-  expect(deepText(panel())).toContain('按任务行为覆盖');
+  expect(deepText(panel())).toContain('按 Worker 行为覆盖');
   await openTab('interface');
   expect(deepText(panel())).toContain('Markdown 渲染');
   expect(deepText(panel())).toContain('执行过程排序');

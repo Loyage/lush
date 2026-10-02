@@ -97,7 +97,7 @@ export default {
     const placeholders = branches.map(() => '?').join(',');
     check(!this.store.get(`SELECT id FROM tasks WHERE branch IN (${placeholders})
       AND (task_kind IN ('owner','say','child') OR (task_kind='main' AND branch<>?)) LIMIT 1`, ...branches, name),
-      'new Task branches cannot use legacy branch.merge_all; merge old branches individually');
+      'new Worker branches cannot use legacy branch.merge_all; merge old branches individually');
     const existing = this.store.branchMergeRun(name);
     check(!existing || !['running', 'paused'].includes(existing.status),
       `${name} already has a one-click merge in progress`);
@@ -157,7 +157,7 @@ export default {
             try { await this.approveBranchMerge(waited.branch, waited.head_commit, { internal: true }); }
             catch (error) { this.finishMergeRun(target, 'failed', `landing merger #${waited.id}: ${error.message}`); return; }
           } else {
-            this.finishMergeRun(target, 'failed', `merge child task #${waited.id} ${waited.status}`);
+            this.finishMergeRun(target, 'failed', `merge child worker #${waited.id} ${waited.status}`);
             return;
           }
           run.waiting_task_id = null;
@@ -187,7 +187,7 @@ export default {
           if (state.status === 'diverged') {
             const sync = await this.syncBranch(branch, { internal: true });
             run.waiting_task_id = sync.task?.id ?? null;
-            if (!run.waiting_task_id) { skipped.set(branch, 'diverged; no merger task could be created'); continue; }
+            if (!run.waiting_task_id) { skipped.set(branch, 'diverged; no merger worker could be created'); continue; }
             run.status = 'paused';
             run.done = [...done];
             run.skipped = [...skipped].map(([name, reason]) => ({ branch: name, reason }));

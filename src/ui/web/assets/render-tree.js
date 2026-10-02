@@ -31,10 +31,10 @@ function whyLine(task, index) {
   if (task.status === 'waiting') {
     const kids = index.children(task.id);
     const live = kids.filter(child => child.status === 'running').length;
-    return `等子任务：${live} 个在跑 · ${kids.filter(child => !TERMINAL_STATUS.has(child.status)).length} 个未结束`;
+    return `等子 Worker：${live} 个在跑 · ${kids.filter(child => !TERMINAL_STATUS.has(child.status)).length} 个未结束`;
   }
   if (task.status === 'awaiting_acceptance') return task.task_kind === 'child'
-    ? `本轮已交付，等待父 Task #${task.parent_id} 确认；无需你验收` : '本轮已交付，待验收；可追加输入继续开发';
+    ? `本轮已交付，等待父 Worker #${task.parent_id} 确认；无需你验收` : '本轮已交付，待验收；可追加输入继续开发';
   if (task.status === 'awaiting') return '等你决定：有没答复的问题';
   if (task.status === 'paused') return '已暂停：可追加输入或调整运行设置，点「继续」恢复';
   if (task.status === 'completed' && task.integration === 'conflict') return '已完成，合并冲突等你决定';
@@ -87,25 +87,25 @@ export function renderTree(data) {
     if (integration && integration !== '待合并') node.append(el('span', integration, 'meta'));
     node.title = `${task.goal}\n更新于 ${absolute(task.updated_at)}`;
     referenceable(node, [
-      { kind: 'task', target: { task_id: task.id }, label: `任务 #${task.id}`, quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-tree', task_id: task.id } },
-      { kind: 'task_subtree', target: { task_id: task.id }, label: `任务子树 #${task.id}`, quote: `${task.goal}\n从此任务开始的分支`, location: { view: 'task-tree', task_id: task.id } },
+      { kind: 'task', target: { task_id: task.id }, label: `Worker #${task.id}`, quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-tree', task_id: task.id } },
+      { kind: 'task_subtree', target: { task_id: task.id }, label: `Worker 子树 #${task.id}`, quote: `${task.goal}\n从此 Worker 开始的分支`, location: { view: 'task-tree', task_id: task.id } },
     ]);
     ordered.push(node);
   }
   if (isFiltering(query) && !visible.length) ordered.push(el('div', data.task_page?.has_more
-    ? '已加载任务中没有符合筛选的条目；更早记录尚未加载，请继续加载历史。'
+    ? '已加载 Worker 中没有符合筛选的条目；更早记录尚未加载，请继续加载历史。'
     : '没有符合筛选的条目', 'filter-empty'));
   const page = data.task_page;
   if (page) {
     const paging = el('div', undefined, 'task-pagination');
     paging.append(el('span', page.truncated
-      ? `当前显示全部 ${page.active} 个活动任务和最近 ${page.shown} / ${page.historical} 个历史任务（列表已截断）`
-      : `已显示全部 ${page.total} 个任务`, 'hint'));
+      ? `当前显示全部 ${page.active} 个活动 Worker 和最近 ${page.shown} / ${page.historical} 个历史 Worker（列表已截断）`
+      : `已显示全部 ${page.total} 个 Worker`, 'hint'));
     if (page.has_more) {
       const more = button('加载更早 50 个', async () => {
         more.disabled = true; more.textContent = '加载中…';
         try {
-          const next = await api(`/api/tasks?scope=all&before=${page.cursor}&limit=50`);
+          const next = await api(`/api/workers?scope=all&before=${page.cursor}&limit=50`);
           const loaded = new Map([...ui.taskHistory, ...next.tasks].map(task => [task.id, task]));
           ui.taskHistory = [...loaded.values()];
           ui.taskHistoryPage = { ...page, cursor: next.cursor, has_more: next.has_more, truncated: next.has_more,

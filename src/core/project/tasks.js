@@ -9,14 +9,14 @@ import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReserva
 export const DEP_KINDS = new Set(['code', 'order']);
 function normalizeDeps(deps) {
   check(Array.isArray(deps), 'deps must be an array');
-  check(deps.length <= 32, 'at most 32 dependencies per task');
+  check(deps.length <= 32, 'at most 32 dependencies per worker');
   const edges = [];
   for (const raw of deps) {
     const value = isPlainObject(raw) ? raw : { id: raw };
     const kind = value.kind ?? 'code';
     check(DEP_KINDS.has(kind), 'dependency kind must be code or order');
     const depId = id(value.id);
-    check(!edges.some(edge => edge.id === depId), `duplicate dependency on task ${depId}`);
+    check(!edges.some(edge => edge.id === depId), `duplicate dependency on worker ${depId}`);
     edges.push({ id: depId, kind });
   }
   return edges;
@@ -26,31 +26,31 @@ function normalizeDeps(deps) {
 export default {
   /** name is the planner's short slug for the work; it becomes the branch/worktree name and stays fixed for the task's life. */
   async spawn(parentId, goal, role = undefined, deps = [], name = null, specId = null) {
-    return this.write('fork a task', () => this.forkChildTask(parentId, goal, role, deps, name, specId));
+    return this.write('fork a worker', () => this.forkChildTask(parentId, goal, role, deps, name, specId));
   },
 
   async forkChildTask(parentId, goal, role = undefined, deps = [], name = null, specId = null) {
-    this.assertWritable('delegate a task');
+    this.assertWritable('delegate a worker');
     const parent = this.store.task(parentId);
     assertTaskNotSyncing(this, parent.id);
-    check(!['main','owner'].includes(parent.task_kind), 'branch owner Tasks accept new say Tasks, not unrestricted spawned work');
-    check(parent.task_kind !== 'analysis', 'read-only analysis Tasks do not delegate; ask a new question instead');
+    check(!['main','owner'].includes(parent.task_kind), 'branch owner Workers accept new say Workers, not unrestricted spawned work');
+    check(parent.task_kind !== 'analysis', 'read-only analysis Workers do not delegate; ask a new question instead');
     const taskKind = ['say','child'].includes(parent.task_kind) ? 'child' : null;
-    check(taskKind === 'child', 'only say/child Tasks can delegate');
+    check(taskKind === 'child', 'only say/child Workers can delegate');
     check(role === undefined || role === 'agent', 'child role must be agent');
     check(Array.isArray(deps) && deps.length === 0 && specId === null, 'legacy deps and specs are not supported');
     if (parent.branch) this.assertBranchWritable(parent.branch, 'delegate more work while resolving divergence');
     role = 'agent';
-    check(!TERMINAL.has(parent.status), 'cannot delegate from a terminal task');
+    check(!TERMINAL.has(parent.status), 'cannot delegate from a terminal worker');
     assertTaskAncestorsOpen(this, parent);
     check(!['showcase', 'explainer', 'butler'].includes(parent.role), 'retired and explanation agents cannot delegate development work');
     check(parent.role !== 'planner', 'planner 不再直接派活；用 lush spec add 写拆解队列，由 scheduler 编排');
     text(goal, 'goal');
     check(taskKind ? role === 'agent' : ['worker','coordinator','research'].includes(role),
-      taskKind ? 'new Task agents can only delegate a Task agent' : 'role must be worker, coordinator or research');
-    check(!taskKind || specId === null, 'new Task agents do not compile planner specs');
+      taskKind ? 'new Worker agents can only delegate a Worker agent' : 'role must be worker, coordinator or research');
+    check(!taskKind || specId === null, 'new Worker agents do not compile planner specs');
     const edges = normalizeDeps(deps);
-    check(!taskKind || edges.length === 0, 'new Task children use parent signals, not legacy dependency edges');
+    check(!taskKind || edges.length === 0, 'new Worker children use parent signals, not legacy dependency edges');
     const resolved = new Map(edges.map(edge => [edge.id, edge.kind]));
     let spec = null;
     if (specId !== null && specId !== undefined) {
@@ -63,7 +63,7 @@ export default {
         check(target.status !== 'dropped', `spec #${hint.spec} was dropped; its dependency can never be met, so drop spec #${spec.id} instead of spawning it`);
         check(target.task_id !== null, `spec #${hint.spec} has not been spawned yet; spawn the dependency before spec #${spec.id}`);
         const existing = resolved.get(target.task_id);
-        if (existing !== undefined) check(existing === hint.kind, `conflicting dependency on task #${target.task_id}: explicit ${existing} vs spec hint ${hint.kind}`);
+        if (existing !== undefined) check(existing === hint.kind, `conflicting dependency on worker #${target.task_id}: explicit ${existing} vs spec hint ${hint.kind}`);
         else resolved.set(target.task_id, hint.kind);
       }
     } else {
@@ -73,8 +73,8 @@ export default {
     const inheritedInput = parent.input_id ?? (spec ? spec.input_id : null);
     let depth = 1, ancestor = parent;
     while (ancestor.parent_id) { ancestor = this.store.task(ancestor.parent_id); depth++; }
-    check(depth < this.config.maxDepth, 'task nesting limit reached');
-    check(this.store.get("SELECT count(*) AS n FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").n < 1000, 'too many active tasks');
+    check(depth < this.config.maxDepth, 'worker nesting limit reached');
+    check(this.store.get("SELECT count(*) AS n FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").n < 1000, 'too many active workers');
     const slug = taskSlug(name, goal);
     const parentRule = taskKind && fs.existsSync(snapshotPath(this.config.home, parent.id))
       ? fs.readFileSync(snapshotPath(this.config.home, parent.id), 'utf8') : null;
@@ -116,7 +116,7 @@ export default {
         // A partially created worktree is valuable evidence; never force-delete it.
         this.store.update(task.id, { status: 'failed', error: `fork failed: ${error.message}` });
         this.store.event(task.id, 'task.fork_failed', { parent_id: parent.id, commit, error: error.message });
-        throw new Error(`task #${task.id} fork failed; inspect its worktree: ${error.message}`);
+        throw new Error(`worker #${task.id} fork failed; inspect its worktree: ${error.message}`);
       }
       this.kick(); return this.store.task(task.id);
     });
@@ -138,7 +138,7 @@ export default {
       return { id: target.task_id, kind: hint.kind };
     });
     check(this.store.get("SELECT count(*) AS n FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").n < 1000,
-      'too many active tasks');
+      'too many active workers');
     const task = this.store.create({ parent_id: null, input_id: spec.input_id, role, goal: spec.goal, name: spec.name });
     this.assertDeps(task.id, null, edges);
     for (const edge of edges) { this.store.addDep(task.id, edge.id, edge.kind); this.store.event(task.id, 'dep.added', edge); }
@@ -149,7 +149,7 @@ export default {
 
   /** Task window: active items plus a bounded terminal tail; all includes control-plane roles. */
   activity(limit = 50, scope = 'work') {
-    check(['work', 'all'].includes(scope), 'invalid task scope');
+    check(['work', 'all'].includes(scope), 'invalid worker scope');
     const size = Number(limit);
     check(Number.isInteger(size) && size >= 1 && size <= 200, 'activity limit must be 1..200');
     const active = this.store.summaryPage({ active: true, limit: 1000, scope });
@@ -166,11 +166,11 @@ export default {
 
   /** Older terminal items within the requested scope; callers merge pages by id. */
   taskPage(before = null, limit = 50, scope = 'work') {
-    check(['work', 'all'].includes(scope), 'invalid task scope');
+    check(['work', 'all'].includes(scope), 'invalid worker scope');
     const cursor = before === null || before === undefined ? null : Number(before);
     const size = Number(limit);
-    check(cursor === null || (Number.isSafeInteger(cursor) && cursor > 0), 'invalid task history cursor');
-    check(Number.isInteger(size) && size >= 1 && size <= 200, 'task history limit must be 1..200');
+    check(cursor === null || (Number.isSafeInteger(cursor) && cursor > 0), 'invalid worker history cursor');
+    check(Number.isInteger(size) && size >= 1 && size <= 200, 'worker history limit must be 1..200');
     const rows = this.store.summaryPage({ before: cursor, limit: size + 1, scope });
     const hasMore = rows.length > size;
     const page = rows.slice(0, size);
@@ -180,7 +180,7 @@ export default {
 
   inspect(taskId) {
     // retry_profile may contain a replacement system prompt and local resource paths. It is
-    // runtime configuration, not part of the task read model (agents can call task.inspect).
+    // runtime configuration, not part of the task read model (agents can call worker.inspect).
     const { retry_profile: _retryProfile, ...storedTask } = this.store.task(taskId);
     // 详情页要显示工作用时与等待行：先取这一轮的调用区间，计划时长才能只算真正运行的时间。
     const runs = this.store.runsForTask(storedTask.id);

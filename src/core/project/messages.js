@@ -8,14 +8,14 @@ export default {
   message(taskId, body, sender = null) {
     const target = this.store.task(taskId); text(body, 'message');
     assertTaskNotSyncing(this, target.id);
-    check(!['main','owner'].includes(target.task_kind), 'branch owner Task is not an unrestricted Agent inbox; use an approved merge request');
-    check(!TERMINAL.has(target.status), 'task has ended; explicitly reopen a completed Task or retry failed work');
+    check(!['main','owner'].includes(target.task_kind), 'branch owner Worker is not an unrestricted Agent inbox; use an approved merge request');
+    check(!TERMINAL.has(target.status), 'worker has ended; explicitly reopen a completed Worker or retry failed work');
     assertTaskAncestorsOpen(this, target);
-    check(!target.branch || this.store.branch(target.branch)?.status === 'active', 'archived Tasks cannot receive new work');
+    check(!target.branch || this.store.branch(target.branch)?.status === 'active', 'archived Workers cannot receive new work');
     if (target.reservation) {
       const booking = JSON.parse(target.reservation);
       check(!(booking.version === 2 && ['requested','executing','blocked'].includes(booking.status)),
-        'Task is frozen for merge; wait for integration or divergence repair before messaging it');
+        'Worker is frozen for merge; wait for integration or divergence repair before messaging it');
     }
     if (sender !== null) {
       const from = this.store.task(sender);
@@ -47,13 +47,13 @@ export default {
   /** Runtime-only: commit a typed child→parent signal once, then wake the parent. */
   sendTaskSignal(sourceId, targetId, type, key, payload = {}) {
     const source = this.store.task(sourceId), target = this.store.task(targetId);
-    check(source.parent_id === target.id, 'task signals must go from a child to its direct parent');
+    check(source.parent_id === target.id, 'worker signals must go from a child to its direct parent');
     check(!['main','owner'].includes(target.task_kind), 'branch owner only receives pinned reserved merge requests');
     check(!TERMINAL.has(target.status), 'a terminal parent cannot receive a new signal');
-    check(typeof type === 'string' && /^[a-z][a-z0-9_.-]{0,63}$/.test(type), 'invalid task signal type');
-    check(typeof key === 'string' && key.length > 0 && key.length <= 128 && !/\s/u.test(key), 'invalid task signal key');
-    check(isPlainObject(payload), 'task signal payload must be an object');
-    check(Buffer.byteLength(JSON.stringify(payload)) <= 16384, 'task signal payload exceeds 16384 bytes');
+    check(typeof type === 'string' && /^[a-z][a-z0-9_.-]{0,63}$/.test(type), 'invalid worker signal type');
+    check(typeof key === 'string' && key.length > 0 && key.length <= 128 && !/\s/u.test(key), 'invalid worker signal key');
+    check(isPlainObject(payload), 'worker signal payload must be an object');
+    check(Buffer.byteLength(JSON.stringify(payload)) <= 16384, 'worker signal payload exceeds 16384 bytes');
     const body = JSON.stringify({ version: 1, signal: type, key, source_task_id: source.id,
       target_task_id: target.id, payload });
     const signal = this.store.transaction(() => {
@@ -70,10 +70,10 @@ export default {
     const task = this.store.task(taskId); text(title, 'title');
     check(typeof body === 'string' && body.length <= 32000, 'invalid notice body');
     check(['question','plan'].includes(kind), 'notice kind must be question or plan');
-    check(!TERMINAL.has(task.status), 'task has ended');
+    check(!TERMINAL.has(task.status), 'worker has ended');
     if (questions !== undefined) {
       check(kind === 'question', 'a plan cannot contain a questionnaire');
-      check(!this.questionPending(task.id), 'task already has an open questionnaire');
+      check(!this.questionPending(task.id), 'worker already has an open questionnaire');
       body = questionnaire(body, questions); kind = 'questionnaire';
     }
     const noticeId = this.store.transaction(() => {
@@ -107,7 +107,7 @@ export default {
     const task = this.store.task(taskId);
     if (!['say','analysis'].includes(task.task_kind)) return null;
     const event = this.store.get('SELECT * FROM events WHERE id=? AND task_id=?', id(sourceEventId), task.id);
-    check(event, 'lifecycle source event does not belong to this Task');
+    check(event, 'lifecycle source event does not belong to this Worker');
     const failed = task.status === 'failed' && ['failed','merge.repair_interrupted','analysis.fork_failed'].includes(event.type);
     const idle = event.type === 'task.idle' && ['waiting','awaiting_acceptance'].includes(task.status);
     const analyzed = task.task_kind === 'analysis' && task.status === 'completed' && event.type === 'completed';
@@ -118,17 +118,17 @@ export default {
     const existing = this.store.get('SELECT * FROM notices WHERE source_event_id=?', event.id);
     if (existing) return existing;
     const goal = String(task.goal ?? '').trim().split('\n')[0].slice(0, 100);
-    const title = `${task.task_kind === 'analysis' ? '分析' : '任务'} #${task.id} ${failed ? '异常停止' : analyzed ? '已完成' : '本轮已结束'}：${goal}`;
+    const title = `${task.task_kind === 'analysis' ? '分析' : 'Worker'} #${task.id} ${failed ? '异常停止' : analyzed ? '已完成' : '本轮已结束'}：${goal}`;
     const body = [
-      failed ? `任务异常停止：${String(task.error ?? '没有记录到原因').slice(0, 1200)}`
+      failed ? `Worker 异常停止：${String(task.error ?? '没有记录到原因').slice(0, 1200)}`
         : analyzed ? '只读分析已完成，没有分支改动。'
-          : '本轮工作已收尾，现已静息，等待合并、验收或进一步指示；这不代表 Task 已验收完成。',
+          : '本轮工作已收尾，现已静息，等待合并、验收或进一步指示；这不代表 Worker 已验收完成。',
       task.branch ? `分支：${task.branch}\n父分支：${task.target_branch ?? '（未记录）'}`
         : `分析分支：${task.target_branch ?? '（未记录）'}`,
       task.task_kind === 'analysis' ? '' : task.integration === 'merged'
-        ? 'integration：已合入父分支。' : '尚未记录已合入父分支；实际交付状态见 Task 详情。',
+        ? 'integration：已合入父分支。' : '尚未记录已合入父分支；实际交付状态见 Worker 详情。',
       task.result ? `${analyzed ? '结论' : '本轮结果'}：${String(task.result).slice(0, 1200)}` : '',
-      `打开任务 #${task.id} 查看详情。此告知无需答复，不会批准合并、验收或自动重试。`,
+      `打开 Worker #${task.id} 查看详情。此告知无需答复，不会批准合并、验收或自动重试。`,
     ].filter(Boolean).join('\n');
     const row = this.store.run(`INSERT INTO notices(task_id,title,body,kind,status,source_event_id)
       VALUES (?,?,?,'info','sent',?)`, task.id, title, body, event.id);

@@ -32,16 +32,16 @@ test('one task keeps one agent identity while its credential rotates every wake'
     expect(f.project.inspect(task.id).agent).toMatchObject({ id: `agent#${task.id}`, wakes: 2, active: true });
 
     const rpc = new Dispatcher(f.project, createSignal(), {});
-    await expect(rpc.dispatch('task.list', { _token: first })).rejects.toThrow('token');
+    await expect(rpc.dispatch('worker.list', { _token: first })).rejects.toThrow('token');
     const seen = f.store.task(task.id).agent_last_seen_at;
     await Bun.sleep(10);
-    await rpc.dispatch('task.inspect', { id: task.id, _token: second });
+    await rpc.dispatch('worker.inspect', { id: task.id, _token: second });
     expect(f.store.task(task.id).agent_last_seen_at).not.toBe(seen);
 
     provider.calls[1].done.resolve('second');
     // A say Task stays idle between invocations rather than completing on an ordinary return.
     await until(() => f.project.running.size === 0 && f.store.task(task.id).status === 'waiting');
-    await expect(rpc.dispatch('task.list', { _token: second })).rejects.toThrow('token');
+    await expect(rpc.dispatch('worker.list', { _token: second })).rejects.toThrow('token');
     expect(f.store.task(task.id).agent_token_hash).toBeNull();
     expect(f.project.inspect(task.id).agent).toMatchObject({ id: `agent#${task.id}`, wakes: 2, active: false, pid: null });
   } finally { await f.close(); }
@@ -87,13 +87,13 @@ test('agent capabilities cannot approve merges, spoof parents or message sibling
     await until(() => provider.calls.length === 3);
     const token = f.project.running.get(a.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});
-    await expect(rpc.dispatch('task.approve_merge', {id:a.id,commit:'deadbeef',baseline:'deadbeef',_token:token})).rejects.toThrow('user approval');
-    await expect(rpc.dispatch('task.spawn', {parent:root.id,goal:'spoof',_token:token})).rejects.toThrow('own task');
-    await expect(rpc.dispatch('task.message', {id:b.id,body:'no',_token:token})).rejects.toThrow('direct');
-    await rpc.dispatch('task.message', {id:root.id,body:'yes',_token:token});
+    await expect(rpc.dispatch('worker.approve_merge', {id:a.id,commit:'deadbeef',baseline:'deadbeef',_token:token})).rejects.toThrow('user approval');
+    await expect(rpc.dispatch('worker.spawn', {parent:root.id,goal:'spoof',_token:token})).rejects.toThrow('own worker');
+    await expect(rpc.dispatch('worker.message', {id:b.id,body:'no',_token:token})).rejects.toThrow('direct');
+    await rpc.dispatch('worker.message', {id:root.id,body:'yes',_token:token});
     await expect(rpc.dispatch('service.list', {})).rejects.toThrow('unknown method');
-    await expect(rpc.dispatch('task.list', {_token:'other-project'})).rejects.toThrow('token');
+    await expect(rpc.dispatch('worker.list', {_token:'other-project'})).rejects.toThrow('token');
     f.project.cancel(a.id);
-    await expect(rpc.dispatch('task.list', {_token:token})).rejects.toThrow();
+    await expect(rpc.dispatch('worker.list', {_token:token})).rejects.toThrow();
   } finally { await f.close(); }
 });

@@ -13,7 +13,7 @@ export async function readInputRule(workspaces, project, commit) {
   const exists = await workspaces.git(project, 'cat-file', '-e', `${commit}:${INPUT_RULE_PATH}`).then(() => true, () => false);
   if (!exists) return null;
   const source = await workspaces.git(project, 'show', `${commit}:${INPUT_RULE_PATH}`);
-  check(Buffer.byteLength(source) <= MAX_RULE_BYTES, 'Task input rule exceeds 16 KiB');
+  check(Buffer.byteLength(source) <= MAX_RULE_BYTES, 'Worker input rule exceeds 16 KiB');
   return source;
 }
 
@@ -35,10 +35,10 @@ export function decideTaskInput(home, task, body) {
     env, input: JSON.stringify({ version: 1, task: { id: task.id, status: task.status, task_kind: task.task_kind,
       branch: task.branch }, input: body }) + '\n', encoding: 'utf8', timeout: 1000, maxBuffer: 16384,
   });
-  if (run.error || run.status !== 0) throw new Error(`Task input rule failed: ${run.error?.message || String(run.stderr || 'non-zero exit').slice(0, 300)}`);
+  if (run.error || run.status !== 0) throw new Error(`Worker input rule failed: ${run.error?.message || String(run.stderr || 'non-zero exit').slice(0, 300)}`);
   let result;
-  try { result = JSON.parse(run.stdout); } catch { throw new Error('Task input rule must print one JSON object'); }
+  try { result = JSON.parse(run.stdout); } catch { throw new Error('Worker input rule must print one JSON object'); }
   check(result && !Array.isArray(result) && ['message', 'interrupt'].includes(result.delivery),
-    'Task input rule must return {"delivery":"message"} or {"delivery":"interrupt"}');
+    'Worker input rule must return {"delivery":"message"} or {"delivery":"interrupt"}');
   return { delivery: result.delivery, source: 'rule' };
 }

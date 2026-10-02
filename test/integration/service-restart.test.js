@@ -35,8 +35,8 @@ test('project restart changes daemon only, single-flights clicks and keeps pause
     expect(result.pid).not.toBe(before.pid);
     expect((await fetch(url + '/api/host').then(r => r.json())).pid).toBe(web.pid);
     expect((await cli(other, ['daemon', 'status'])).pid).toBe(untouched.pid);
-    expect((await client.request('task.inspect', { id: task.task.id })).status).toBe('paused');
-    expect((await client.request('task.inspect', { id: task.task.id })).calls).toBe(0);
+    expect((await client.request('worker.inspect', { id: task.task.id })).status).toBe('paused');
+    expect((await client.request('worker.inspect', { id: task.task.id })).calls).toBe(0);
   } finally {
     await cli(root, ['host-stop', String(port)]).catch(() => {});
     await Promise.all([cli(root, ['daemon', 'stop']).catch(() => {}), cli(other, ['daemon', 'stop']).catch(() => {})]);

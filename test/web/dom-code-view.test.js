@@ -64,6 +64,9 @@ test('code reader is opt-in and shows all files, diff/status, content paging and
   try {
     expect(f.calls).toHaveLength(0);
     await code.setActive(true);
+    expect(f.calls[0].pathname).toBe('/api/worker/72/code-state');
+    expect(f.calls[0].searchParams.get('scope')).toBe('task');
+    expect(f.calls.every(url => url.pathname.startsWith('/api/worker/72/'))).toBe(true);
     expect(findFile(code.root, 'README.md')).toBeTruthy();
     expect(deepText(code.root)).toContain('已暂存 · 未暂存');
     expect(deepText(code.root)).toContain('aaaaaaab → 当前工作区');

@@ -27,7 +27,7 @@ test('有未收拢子 Task 的分支不能先合进父分支；子 Task 落地�
     // 子分支还在：父 Task 的合并请求只能停在 pending，并说清在等谁。
     const blocked = await f.project.reserveTask(say.task.id, 'merge');
     expect(blocked.reservation).toMatchObject({ kind: 'merge', status: 'pending' });
-    expect(blocked.reservation.blocked_reason).toContain(`等待子 Task #${child.id} 结算`);
+    expect(blocked.reservation.blocked_reason).toContain(`等待子Worker #${child.id} 结算`);
     expect(await git(f.root, 'rev-parse', 'main')).not.toBe(await git(say.task.workspace, 'rev-parse', 'HEAD'));
 
     // 子 Task 先走 v2 队列合进父分支：落地后结构上就只剩父 Task 自己这一条 blocker。

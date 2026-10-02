@@ -3,8 +3,8 @@ import { repo } from '../helpers.js';
 import { PARAMS, USER_ONLY, AGENT_ONLY } from '../../src/rpc/registry.js';
 import { fetch, pageSource, setup } from './harness.js';
 
-test('task.graph remains read-only; the branch genealogy RPC remains available without a Web view', () => {
-  for (const method of ['task.graph', 'graph.get']) {
+test('worker.graph remains read-only; the branch genealogy RPC remains available without a Web view', () => {
+  for (const method of ['worker.graph', 'graph.get']) {
     expect(PARAMS[method]).toEqual([]);
     expect(USER_ONLY.has(method)).toBe(false);
     expect(AGENT_ONLY.has(method)).toBe(false);
@@ -14,11 +14,11 @@ test('task.graph remains read-only; the branch genealogy RPC remains available w
   for (const method of ['branch.merge', 'branch.sync', 'branch.catchup']) expect(PARAMS[method]).toBeUndefined();
 });
 
-test('task.graph is a project-scoped read model', async () => {
+test('worker.graph is a project-scoped read model', async () => {
   const f = await setup();
   try {
     await repo(f.root);
-    const result = await fetch(f.url + '/api/task-graph');
+    const result = await fetch(f.url + '/api/worker-graph');
     expect(result.status).toBe(200);
     const graph = await result.json();
     expect(Object.keys(graph).sort()).toEqual(['nodes','edges','truncated','total'].sort());

@@ -2,12 +2,12 @@ import { test, expect } from 'bun:test';
 import { repo } from '../helpers.js';
 import { fetch, setup } from './harness.js';
 
-test('Web exposes say and task reads, not legacy mutations or pages', async () => {
+test('Web exposes say and worker reads, not legacy mutations or pages', async () => {
   const f = await setup(); await repo(f.root);
   try {
     const page = await fetch(f.url);
     const html = await page.text();
-    expect(html).toContain('<strong>任务树</strong>');
+    expect(html).toContain('<strong>Worker 树</strong>');
     expect(html).not.toContain('Task 图');
     const workspaceNav = html.match(/<nav class="workspace-nav"[^>]*>([\s\S]*?)<\/nav>/)[1];
     expect([...workspaceNav.matchAll(/id="([^"]+)-open"/g)].map(match => match[1]))
@@ -29,12 +29,12 @@ test('Web exposes say and task reads, not legacy mutations or pages', async () =
     expect(sent.status).toBe(200);
     const created = await sent.json();
     expect(created.task.task_kind).toBe('say');
-    expect((await fetch(f.url + `/api/task/${created.task.id}`)).status).toBe(200);
+    expect((await fetch(f.url + `/api/worker/${created.task.id}`)).status).toBe(200);
     const overview = await (await fetch(f.url + '/api/overview')).json();
     expect(overview.tasks.some(task => task.id === created.task.id)).toBe(true);
-    const child = await post('task.spawn', { parent: created.task.id, goal: '独立子目标' });
+    const child = await post('worker.spawn', { parent: created.task.id, goal: '独立子目标' });
     expect(child.status).toBe(200);
     expect((await child.json()).task_kind).toBe('child');
-    expect((await post('task.reserve', { id: created.task.id, kind: 'showcase' })).status).toBe(400);
+    expect((await post('worker.reserve', { id: created.task.id, kind: 'showcase' })).status).toBe(400);
   } finally { await f.close(); }
 });

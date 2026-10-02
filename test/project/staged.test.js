@@ -50,9 +50,9 @@ test('resume profile freezes per-task env and rejects unsafe names', async () =>
 });
 
 test('resume / configure / say.submit start are user-only and env is validated on the profile', () => {
-  expect(assertAllowed('task.resume', { id: 1, profile: {} }, null)).toBeNull();
-  expect(() => assertAllowed('task.resume', { id: 1 }, 42)).toThrow('requires user approval');
-  expect(assertAllowed('task.configure', { id: 1 }, null)).toBeNull();
+  expect(assertAllowed('worker.resume', { id: 1, profile: {} }, null)).toBeNull();
+  expect(() => assertAllowed('worker.resume', { id: 1 }, 42)).toThrow('requires user approval');
+  expect(assertAllowed('worker.configure', { id: 1 }, null)).toBeNull();
   expect(assertAllowed('say.submit', { content: 'x', start: false }, null)).toBeNull();
   expect(() => assertAllowed('say.submit', { content: 'x', bogus: 1 }, null)).toThrow('unknown parameter');
   expect(normalizeAgentProfile({ agent: 'pi', env: { OK: '1' } }).env).toEqual({ OK: '1' });

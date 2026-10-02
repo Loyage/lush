@@ -31,7 +31,7 @@ if (context.task.calls === 1) {
     let client = new UIClient(Config.fromEnv(env(), root));
     let waiting;
     for (let i = 0; i < 400; i++) {
-      waiting = await client.request('task.inspect', { id: task.id });
+      waiting = await client.request('worker.inspect', { id: task.id });
       if (waiting.status === 'awaiting' && !waiting.agent.active) break;
       await Bun.sleep(10);
     }
@@ -43,7 +43,7 @@ if (context.task.calls === 1) {
     await cli(root, ['stop']);
     await cli(root, ['start'], { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake });
     client = new UIClient(Config.fromEnv(env(), root));
-    expect((await client.request('task.inspect', { id: task.id })).status).toBe('awaiting');
+    expect((await client.request('worker.inspect', { id: task.id })).status).toBe('awaiting');
     const answers = path.join(root, 'answers.json');
     fs.writeFileSync(answers, JSON.stringify({ answers: [{ selected: [1] }] }));
     await cli(root, ['answer', String(notice.id), '--answers-file', answers]);

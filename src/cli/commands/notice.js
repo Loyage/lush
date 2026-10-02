@@ -9,7 +9,7 @@ export async function run(command, args, ctx) {
     const verb = args.shift();
     if (verb === 'list') { exact(args, 0); value = await client.request('notice.list'); }
     else if (verb === 'post') {
-      const task = option(args, '--task', process.env.LUSH_TASK_ID), body = option(args, '--body', '');
+      const task = option(args, '--worker', process.env.LUSH_TASK_ID), body = option(args, '--body', '');
       const file = option(args, '--questions-file'); exact(args, 1);
       let questions;
       if (file !== null) {

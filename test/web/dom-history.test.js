@@ -48,8 +48,9 @@ test('信号事件显示被引用消息的正文与来源，而不是只有 mess
     data: { message_id: 4, source_task_id: 7, signal: 'child.completed', key: 'child:7:settlement:3' },
     message: { id: 4, task_id: 1, sender_id: 7, signal_type: 'child.completed', body } }], { taskId: 1 });
   const text = deepText(list);
+  expect(text).toContain('Worker 信号');
   expect(text).toContain('子任务完成');
-  expect(text).toContain('来自任务 #7');
+  expect(text).toContain('来自 Worker #7');
   expect(text).toContain('信号 child.completed');
   expect(text).toContain('子任务完成的结果正文');
   expect(text).not.toContain('message_id');
@@ -66,7 +67,7 @@ test('时间线区分消息方向，普通消息按原文显示', () => {
     { id: 6, type: 'message', created_at: at, data: { sender: null, body: '请继续处理这个边界情况' } },
   ], { taskId: 23 });
   const text = deepText(list);
-  expect(text).toContain('发给任务 #1');
+  expect(text).toContain('发给 Worker #1');
   expect(text).toContain('信号 merge.requested');
   expect(text).toContain('lush/x/23-work');
   expect(text).toContain('来自你');

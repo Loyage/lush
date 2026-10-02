@@ -504,7 +504,7 @@ test('branch archivability read model: active subtree blocks, settled branch is 
       .toMatchObject({ archivable: true, archived: false, subtree_branches: 0, blocking_tasks: 0 });
     // Web 详情走异步 RPC：handler 在同步 inspect 之上附上 branch_archive，核心 inspect 本身保持同步。
     expect(f.project.inspect(f.task.id).branch_archive).toBeUndefined();
-    const inspected = await new Dispatcher(f.project).dispatch('task.inspect', { id: f.task.id });
+    const inspected = await new Dispatcher(f.project).dispatch('worker.inspect', { id: f.task.id });
     expect(inspected.branch_archive).toMatchObject({ archivable: true, archived: false, subtree_branches: 0 });
 
     // 归档后读模型立刻反映：archived 且不再可归档，但分支记录与 Task 仍在。

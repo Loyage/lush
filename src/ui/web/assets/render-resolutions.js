@@ -8,7 +8,7 @@ import { detail } from './navigate.js';
  */
 export function renderResolutions(task) {
   const section = block('合并冲突', String(task.resolutions.length));
-  section.append(el('p', '内容冲突会开一个专用任务：它在自己的 worktree 里（基线＝目标分支顶端）把已审阅的提交并进来、解冲突、跑测试；批准时用 --ff-only 落地，所以落地的就是它测过的那棵树。', 'hint'));
+  section.append(el('p', '内容冲突会开一个专用 Worker：它在自己的 worktree 里（基线＝目标分支顶端）把已审阅的提交并进来、解冲突、跑测试；批准时用 --ff-only 落地，所以落地的就是它测过的那棵树。', 'hint'));
   for (const row of task.resolutions) {
     const line = el('div', undefined, 'row');
     line.append(el('span', `#${row.id}`, 'tid'), el('span', `${statusOf(row).icon} ${statusOf(row).label}`, `dot c-${row.status}`),

@@ -16,7 +16,7 @@ test('real say completion reaches HTTP snapshot and opens a readable Task withou
     expect(notice).toMatchObject({ kind: 'info', status: 'sent', read_at: null });
     expect(notice.source_event_id).toBeGreaterThan(0);
     expect(notice.body).toContain('本轮实际收尾结果');
-    const detail = await (await fetch(f.url + `/api/task/${notice.task_id}`)).json();
+    const detail = await (await fetch(f.url + `/api/worker/${notice.task_id}`)).json();
     expect(detail).toMatchObject({ id: task.id, status: 'waiting', result: '本轮实际收尾结果' });
     const before = f.store.task(task.id);
     const response = await fetch(f.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },

@@ -16,13 +16,13 @@ export class UIClient {
   /** Compatibility URL for the Web bootstrap; the payload is the same bounded core overview. */
   async snapshot() { return this.overview(); }
 
-  /** Task-centred homepage: no legacy planner or draft RPC calls. */
+  /** Worker-centred homepage: no legacy planner or draft RPC calls. */
   async overview(revision = null) {
     const status = await this.request('system.summary');
     check(status.project === this.config.project, 'daemon project mismatch');
     if (revision && revision === status.revision) return { unchanged: true, revision };
     const [activity, page] = await Promise.all([
-      this.request('task.activity', { limit: 100, scope: 'work' }),
+      this.request('worker.activity', { limit: 100, scope: 'work' }),
       this.request('notice.page', { status: 'all', limit: 100 }),
     ]);
     const tasks = activity.tasks.filter(task => ['say','child','main','owner'].includes(task.task_kind));

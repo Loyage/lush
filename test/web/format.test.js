@@ -32,7 +32,7 @@ test('summarizeGoal：空 / null / undefined 返回 null，不抛错', () => {
 test('taskTitle：用 goal 摘要；goal 为空时退回 任务 #id', () => {
   expect(taskTitle({ id: 42, goal: '更清晰的项目工作台' })).toBe('更清晰的项目工作台');
   expect(taskTitle({ id: 42, goal: '第一行\n第二行' })).toBe('第一行');
-  expect(taskTitle({ id: 42, goal: '' })).toBe('任务 #42');
-  expect(taskTitle({ id: 42 })).toBe('任务 #42');
-  expect(taskTitle(null)).toBe('任务 #?');
+  expect(taskTitle({ id: 42, goal: '' })).toBe('Worker #42');
+  expect(taskTitle({ id: 42 })).toBe('Worker #42');
+  expect(taskTitle(null)).toBe('Worker #?');
 });

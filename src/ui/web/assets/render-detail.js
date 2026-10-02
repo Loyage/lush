@@ -29,9 +29,9 @@ import { referenceable } from './context-references.js';
 const freezeOf = task => freezeBlocker(task.target_branch, task, ui.lastSnapshot?.status?.merge_freeze || []);
 /** 任务依赖：本任务等谁、谁在等它。 */
 function renderDeps(task) {
-  const section = block('任务依赖');
-  section.append(el('p', task.deps?.length ? `本任务等这些结算：${task.deps.map(edgeLabel).join('、')}` : '本任务不依赖其他任务。', 'hint'));
-  section.append(el('p', task.dependents?.length ? `这些任务在等它：${task.dependents.map(edgeLabel).join('、')}` : '没有任务在等它。', 'hint'));
+  const section = block('Worker 依赖');
+  section.append(el('p', task.deps?.length ? `本 Worker 等这些结算：${task.deps.map(edgeLabel).join('、')}` : '本 Worker 不依赖其他 Worker。', 'hint'));
+  section.append(el('p', task.dependents?.length ? `这些 Worker 在等它：${task.dependents.map(edgeLabel).join('、')}` : '没有 Worker 在等它。', 'hint'));
   return section;
 }
 /** planner 这一轮写下的拆解 / scheduler 这一批取走的 spec：只读，和左侧队列同一套行。 */
@@ -39,8 +39,8 @@ function renderTaskSpecs(task) {
   const specs = task.specs || [];
   const section = block('拆解队列', String(specs.length));
   section.append(el('p', task.role === 'scheduler'
-    ? '本任务这一批取走的 spec：每一条都要有归宿——spawn 成任务，或明确丢弃。'
-    : '这一轮写下的拆解（等 scheduler 编排）：scheduler 会把它们一次性编排成真实任务，批内没有依赖边的会同时开工。', 'hint'));
+    ? '本 Worker 这一批取走的 spec：每一条都要有归宿——spawn 成 Worker，或明确丢弃。'
+    : '这一轮写下的拆解（等 scheduler 编排）：scheduler 会把它们一次性编排成真实 Worker，批内没有依赖边的会同时开工。', 'hint'));
   if (!specs.length) section.append(el('p', '这一批是空的。', 'hint'));
   for (const spec of [...specs].sort((a, b) => a.id - b.id)) section.append(specItem(spec));
   return section;
@@ -67,10 +67,10 @@ export function renderDetail(task, history, diff, usage) {
   const previousGoal = sameTask ? panel.querySelector('.goal-panel') : null;
   const previousMessages = new Map(sameTask ? [...panel.querySelectorAll('.task-message')].map(node => [node.dataset.messageId, node]) : []);
   panel.dataset.view = 'task'; panel.dataset.taskId = String(task.id); panel.replaceChildren();
-  referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `任务 #${task.id}`,
+  referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `Worker #${task.id}`,
     quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-detail', task_id: task.id } });
   const breadcrumb = el('div', undefined, 'breadcrumb');
-  breadcrumb.append(button('项目概览', () => overview(), 'link'), el('span', '/'), el('span', `${task.role === 'agent' ? '任务' : ROLE[task.role] || task.role} #${task.id}`));
+  breadcrumb.append(button('项目概览', () => overview(), 'link'), el('span', '/'), el('span', `${task.role === 'agent' ? 'Worker' : ROLE[task.role] || task.role} #${task.id}`));
   panel.append(breadcrumb);
   const hero = el('div', undefined, 'task-hero');
   const head = el('div', undefined, 'head');
@@ -88,23 +88,23 @@ export function renderDetail(task, history, diff, usage) {
 
   const actions = el('div', undefined, 'actions task-actions');
   if (!readOnly && ['say','child'].includes(task.task_kind) && !TERMINAL_STATUS.has(task.status)) {
-    const help = agentHelp('把追加输入发给该任务的 Agent。若它正在调用，会请它在当前一轮工具都结束后收尾，下一轮先读这条输入；暂停中的任务需点「开始 / 继续」后处理。');
+    const help = agentHelp('把追加输入发给该 Worker 的 Agent。若它正在调用，会请它在当前一轮工具都结束后收尾，下一轮先读这条输入；暂停中的 Worker 需点「开始 / 继续」后处理。');
     actions.append(guardedAction(button('追加输入', async () => {
       const field = el('div', undefined, 'modal-field');
-      const label = el('label', '希望任务接下来进行的内容', 'modal-label');
+      const label = el('label', '希望 Worker 接下来进行的内容', 'modal-label');
       label.setAttribute('for', 'task-followup-input');
       const input = el('textarea', undefined, 'modal-input');
       input.id = 'task-followup-input'; input.rows = 5; input.required = true;
-      input.placeholder = '输入希望这个任务接下来做什么，例如新的要求、调整方向或补充信息';
+      input.placeholder = '输入希望这个 Worker 接下来做什么，例如新的要求、调整方向或补充信息';
       field.append(label, input);
       while (true) {
-        const pending = formDialog({ title: `追加输入 · 任务 #${task.id}`, content: field,
-          message: task.status === 'paused' ? '输入会保留在当前任务中；点「开始 / 继续」后由 Agent 处理。' : '输入会发送给当前任务，让 Agent 接下来处理这些内容。',
+        const pending = formDialog({ title: `追加输入 · Worker #${task.id}`, content: field,
+          message: task.status === 'paused' ? '输入会保留在当前 Worker 中；点「开始 / 继续」后由 Agent 处理。' : '输入会发送给当前 Worker，让 Agent 接下来处理这些内容。',
           confirmLabel: '发送输入', agent: true, confirmHelp: help });
         input.focus();
         if (!await pending) return;
-        if (!input.value.trim()) { show('请输入希望任务接下来进行的内容。', 'error'); continue; }
-        try { await action('task.message', { id: task.id, body: input.value }); }
+        if (!input.value.trim()) { show('请输入希望 Worker 接下来进行的内容。', 'error'); continue; }
+        try { await action('worker.message', { id: task.id, body: input.value }); }
         catch (error) { show(error.message, 'error'); continue; }
         await detail(task.id);
         return;
@@ -121,7 +121,7 @@ export function renderDetail(task, history, diff, usage) {
     node.disabled = true;
     // 禁用的按钮不派发指针事件，data-help 放外层 span.help-host。
     const host = el('span', undefined, 'help-host');
-    host.setAttribute('data-help', `#${freeze.task_id} 的合并冲突还没解决：先处理它的待决问题（或让它的解冲突任务作废），${task.target_branch} 上的合并才能继续。`);
+    host.setAttribute('data-help', `#${freeze.task_id} 的合并冲突还没解决：先处理它的待决问题（或让它的解冲突 Worker 作废），${task.target_branch} 上的合并才能继续。`);
     host.append(node);
     actions.append(host);
   } else if (!readOnly && !task.task_kind && task.status === 'completed' && ['pending', 'review', 'conflict'].includes(task.integration)) {
@@ -129,24 +129,24 @@ export function renderDetail(task, history, diff, usage) {
     const readyResolver = resolver && resolver.status === 'completed' && ['pending', 'review'].includes(resolver.integration)
       && deliveryItem?.phase !== 'resolution_stale';
     const retry = task.integration === 'conflict';
-    const label = readyResolver ? `审阅并落地解冲突结果 #${resolver.id}` : live ? `解冲突任务 #${resolver.id} 进行中`
+    const label = readyResolver ? `审阅并落地解冲突结果 #${resolver.id}` : live ? `解冲突 Worker #${resolver.id} 进行中`
       : retry ? '重新尝试合并' : task.integration === 'review' ? '检查后重新批准合并' : '批准合并';
     const node = button(label, async () => {
       if (readyResolver) return detail(resolver.id);
       const caveats = [];
-      if (stacked.length) caveats.push(`本任务 stacked 在 #${stacked.map(edge => edge.id).join('、')} 之上，必须先合并上游，否则会把它的改动一起带进来。`);
-      if (task.resolves_task_id) caveats.push('这是解冲突任务：落地用 --ff-only，落地的树就是它测过的那棵树。');
-      if (resolver) caveats.push(`解冲突任务 #${resolver.id} 还没落地：重新尝试会明确废弃它（分支与目录仍保留）。`);
+      if (stacked.length) caveats.push(`本 Worker stacked 在 #${stacked.map(edge => edge.id).join('、')} 之上，必须先合并上游，否则会把它的改动一起带进来。`);
+      if (task.resolves_task_id) caveats.push('这是解冲突 Worker：落地用 --ff-only，落地的树就是它测过的那棵树。');
+      if (resolver) caveats.push(`解冲突 Worker #${resolver.id} 还没落地：重新尝试会明确废弃它（分支与目录仍保留）。`);
       const confirmed = await confirmDialog({
         title: retry ? `重新尝试把 ${task.branch} 合并到 ${task.target_branch}？` : `将 ${task.branch} 合并到 ${task.target_branch}？`,
-        message: retry ? '如果还冲突，会再开一轮解冲突任务。请先审阅代码和测试结果。' : '请先审阅代码和测试结果。',
+        message: retry ? '如果还冲突，会再开一轮解冲突 Worker。请先审阅代码和测试结果。' : '请先审阅代码和测试结果。',
         detail: caveats.join('\n\n') || null,
         confirmLabel: retry ? '重新尝试' : '合并',
       });
       if (!confirmed) return;
-      const result = await action('task.merge', { id: task.id });
-      if (result?.merge?.status === 'conflict') show(`合并冲突：已开解冲突任务 #${result.merge.resolution_task_id}，请处理左侧的待决问题（${task.target_branch} 上的其它合并已冻结）。`, 'error');
-      else if (result?.merge?.status === 'resolved') show(`冲突已解决：原任务 #${result.merge.resolved_task_id} 也标成已合并。`);
+      const result = await action('worker.merge', { id: task.id });
+      if (result?.merge?.status === 'conflict') show(`合并冲突：已开解冲突 Worker #${result.merge.resolution_task_id}，请处理左侧的待决问题（${task.target_branch} 上的其它合并已冻结）。`, 'error');
+      else if (result?.merge?.status === 'resolved') show(`冲突已解决：原 Worker #${result.merge.resolved_task_id} 也标成已合并。`);
       await detail(task.id);
     });
     if (live) {
@@ -159,11 +159,11 @@ export function renderDetail(task, history, diff, usage) {
   }
   if (!readOnly && ['failed', 'cancelled'].includes(task.status) && ['say','child'].includes(task.task_kind)
     && !task.divergence_resolution) actions.append(button('检查后重试', async () => {
-    const confirmed = await confirmDialog({ title: `重试 Task #${task.id}？`,
+    const confirmed = await confirmDialog({ title: `重试 Worker #${task.id}？`,
       message: '先检查失败工作区与提交。重试不会回滚此前 Agent 的文件副作用。', confirmLabel: '重试',
-      agent: true, confirmHelp: agentHelp('重新启动这条 Task 的 Agent；已有工作区和历史保留。') });
+      agent: true, confirmHelp: agentHelp('重新启动这条 Worker 的 Agent；已有工作区和历史保留。') });
     if (!confirmed) return;
-    await action('task.retry', { id: task.id }); await detail(task.id);
+    await action('worker.retry', { id: task.id }); await detail(task.id);
   }, 'ghost', { agent: true, help: agentHelp('检查失败现场后再启动一次 Agent，不清理历史或用户改动。') }));
   // 归档与 Task 图同源（`branch.archive`）：删这条 Task 的分支与后代分支的 worktree/ref，Task 记录与历史保留。
   if (!readOnly && task.branch_archive?.archivable && task.status !== 'awaiting_acceptance') actions.append(button('归档', () => runBranchArchive(
@@ -175,49 +175,49 @@ export function renderDetail(task, history, diff, usage) {
   if (!readOnly && task.task_kind === 'say' && !TERMINAL_STATUS.has(task.status) && task.status !== 'awaiting_acceptance' && noCommittedChange) actions.append(button('已解决', async () => {
     const confirmed = await confirmDialog({
       title: `把 say #${task.id} 标记为已解决？`,
-      message: '适用于这次输入只是想了解/确认、没有代码改动的情况：任务结算为「已完成」，答案作为结果保留，并解除它占用的唤醒。它与「放弃任务」不同——那是因别的原因放弃正在进行的工作；这里代表你确认没有别的需求了。如需继续追问，请在标记前直接给这个任务发消息；标记后请作为新的 say 发送。',
+      message: '适用于这次输入只是想了解/确认、没有代码改动的情况：Worker 结算为「已完成」，答案作为结果保留，并解除它占用的唤醒。它与「放弃 Worker」不同——那是因别的原因放弃正在进行的工作；这里代表你确认没有别的需求了。如需继续追问，请在标记前直接给这个 Worker 发消息；标记后请作为新的 say 发送。',
       confirmLabel: '标记已解决',
-      confirmHelp: '仅在没有提交、工作区干净时允许；任务变为已完成，不发起合并请求，也不删除分支与工作区。',
+      confirmHelp: '仅在没有提交、工作区干净时允许；Worker 变为已完成，不发起合并请求，也不删除分支与工作区。',
     });
     if (!confirmed) return;
-    try { await action('task.resolve', { id: task.id }); show(`say #${task.id} 已标记为已解决`); }
+    try { await action('worker.resolve', { id: task.id }); show(`say #${task.id} 已标记为已解决`); }
     catch (error) { show(error.message, 'error'); }
     await detail(task.id);
-  }, 'ghost', { help: '把没有代码改动的 say 结算为已完成（保留答案），用来区分「没有别的要求」和「放弃任务」；有提交时请改用请求合并或放弃。' }));
+  }, 'ghost', { help: '把没有代码改动的 say 结算为已完成（保留答案），用来区分「没有别的要求」和「放弃 Worker」；有提交时请改用请求合并或放弃。' }));
   // 主流程是「中断 → 暂停 → 继续」，不再一步取消；永久放弃只在暂停后作为次级危险操作出现。
   const liveWorkTask = !readOnly && ['say','child'].includes(task.task_kind) && !TERMINAL_STATUS.has(task.status);
   if (liveWorkTask && !['paused', 'awaiting_acceptance'].includes(task.status)) actions.append(button('中断', async () => {
     const confirmed = await confirmDialog({
-      title: `中断 Task #${task.id}？`,
+      title: `中断 Worker #${task.id}？`,
       message: '停止当前 Agent 调用并保留现场：工作区、提交、pi 会话与消息都不变。中断后可以追加输入或调整运行设置，再点「继续」恢复。',
       confirmLabel: '中断', cancelLabel: '保留',
     });
     if (!confirmed) return;
-    try { await action('task.interrupt', { id: task.id }); show(`Task #${task.id} 已中断；可追加输入或调整运行设置后继续。`); }
+    try { await action('worker.interrupt', { id: task.id }); show(`Worker #${task.id} 已中断；可追加输入或调整运行设置后继续。`); }
     catch (error) { show(`无法中断：${error.message}`, 'error'); }
     await detail(task.id);
-  }, 'ghost', { help: '停止这个 Task 的 Agent 调用并保留工作区、提交、会话与消息；正在运行的子任务不受影响，之后可以继续。' }));
+  }, 'ghost', { help: '停止这个 Worker 的 Agent 调用并保留工作区、提交、会话与消息；正在运行的子 Worker不受影响，之后可以继续。' }));
   if (!readOnly && task.status === 'paused') {
     const neverStarted = (task.agent_wakes ?? 0) === 0;
     actions.append(button(neverStarted ? '开始' : '继续', async () => {
-      try { await action('task.resume', { id: task.id }); show(neverStarted ? `Task #${task.id} 已开始运行。` : `Task #${task.id} 已继续运行。`); }
+      try { await action('worker.resume', { id: task.id }); show(neverStarted ? `Worker #${task.id} 已开始运行。` : `Worker #${task.id} 已继续运行。`); }
       catch (error) { show(`无法${neverStarted ? '开始' : '继续'}：${error.message}`, 'error'); }
       await detail(task.id);
-    }, undefined, { agent: true, help: agentHelp('按当前运行设置启动这条 Task 的 Agent；工作区、提交、会话与已追加的消息都保留。') }));
+    }, undefined, { agent: true, help: agentHelp('按当前运行设置启动这条 Worker 的 Agent；工作区、提交、会话与已追加的消息都保留。') }));
     actions.append(button('调整运行设置', async () => {
       await configureTask(task);
       await detail(task.id);
-    }, 'ghost', { help: '只修改这条 Task 本轮使用的 Agent、模型、Prompt、扩展与 Pi 环境变量；保存后点「开始 / 继续」生效，任务结算后自动清除。' }));
-    actions.append(button('放弃任务', async () => {
+    }, 'ghost', { help: '只修改这条 Worker 本轮使用的 Agent、模型、Prompt、扩展与 Pi 环境变量；保存后点「开始 / 继续」生效，Worker 结算后自动清除。' }));
+    actions.append(button('放弃 Worker', async () => {
       const confirmed = await confirmDialog({
-        title: '放弃这个任务树？',
-        message: '放弃这条 Task 及所有子任务（进入已取消），工作区与分支保留；放弃后不能直接恢复。',
-        confirmLabel: '放弃任务', cancelLabel: '保留', danger: true,
+        title: '放弃这个 Worker 树？',
+        message: '放弃这条 Worker 及所有子 Worker（进入已取消），工作区与分支保留；放弃后不能直接恢复。',
+        confirmLabel: '放弃 Worker', cancelLabel: '保留', danger: true,
       });
       if (!confirmed) return;
-      await action('task.cancel', { id: task.id });
+      await action('worker.cancel', { id: task.id });
       await detail(task.id);
-    }, 'danger', { help: '放弃这条 Task 及它下面的全部子任务，工作区与分支保留；这是不可恢复的终态操作。' }));
+    }, 'danger', { help: '放弃这条 Worker 及它下面的全部子 Worker，工作区与分支保留；这是不可恢复的终态操作。' }));
   }
   if (task.divergence_resolution) {
     actions.append(button(`查看源 say #${task.parent_id}`, () => detail(task.parent_id), 'link'));
@@ -232,13 +232,13 @@ export function renderDetail(task, history, diff, usage) {
       && task.resolves_task_id === task.divergence_resolution.source_task_id;
     const repairsSay = task.divergence_resolution.source_task_id === task.parent_id;
     const retry = terminalSay
-      ? `返回源 say #${task.divergence_resolution.source_task_id}，在分歧仍存在且预约可分派时可重新派独立子任务。`
+      ? `返回源 say #${task.divergence_resolution.source_task_id}，在分歧仍存在且预约可分派时可重新派独立子 Worker。`
       : repairsSay
-        ? '返回源 say，在静息且分歧仍存在时可重新派独立子任务。'
-        : `由直接父 Agent #${task.parent_id} 再派一个以同一固定提交为基线的解分歧子任务（task resolve-child-divergence）。`;
+        ? '返回源 say，在静息且分歧仍存在时可重新派独立子 Worker。'
+        : `由直接父 Agent #${task.parent_id} 再派一个以同一固定提交为基线的解分歧子 Worker（worker resolve-child-divergence）。`;
     panel.append(el('p', archived
-      ? `解分歧子任务已归档，Task、固定提交记录和会话仍保留。${retry}`
-      : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在任务树或任务详情显式归档这条子分支（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,
+      ? `解分歧子 Worker 已归档，Worker、固定提交记录和会话仍保留。${retry}`
+      : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在 Worker 树或 Worker 详情显式归档这条子分支（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,
     'hint delivery-reason'));
   }
   const iteration = iterationControls(task, { refresh: () => detail(task.id), events: history?.events || [] });
@@ -287,15 +287,15 @@ export function renderDetail(task, history, diff, usage) {
   if (task.role === 'verifier' || task.verifications?.length || (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit)) panel.append(renderVerifications(task));
 
   if (task.children?.length) {
-    const children = block('子任务', String(task.children.length));
+    const children = block('子 Worker', String(task.children.length));
     for (const child of task.children) {
       const row = el('div', undefined, 'row');
       row.append(el('span', statusOf(child).icon, `dot c-${child.status}`), el('span', `#${child.id}`, 'tid'));
       const jump = button(`${child.goal}`, () => detail(child.id), 'link');
       row.append(jump, el('span', relative(child.updated_at), 'when'));
       referenceable(row, [
-        { kind: 'task', target: { task_id: child.id }, label: `任务 #${child.id}`, quote: child.goal, location: { view: 'task-detail', task_id: child.id } },
-        { kind: 'task_subtree', target: { task_id: child.id }, label: `任务子树 #${child.id}`, quote: child.goal, location: { view: 'task-detail', task_id: child.id } },
+        { kind: 'task', target: { task_id: child.id }, label: `Worker #${child.id}`, quote: child.goal, location: { view: 'task-detail', task_id: child.id } },
+        { kind: 'task_subtree', target: { task_id: child.id }, label: `Worker 子树 #${child.id}`, quote: child.goal, location: { view: 'task-detail', task_id: child.id } },
       ]);
       children.append(row);
     }
@@ -322,7 +322,7 @@ export function renderDetail(task, history, diff, usage) {
     const messages = block('消息', String(task.messages.length));
     for (const message of task.messages) {
       const item = renderTaskMessage(message, task.id, previousMessages.get(String(message.id)));
-      referenceable(item, { kind: 'message', target: { task_id: task.id, message_id: message.id }, label: `任务 #${task.id} 的消息`,
+      referenceable(item, { kind: 'message', target: { task_id: task.id, message_id: message.id }, label: `Worker #${task.id} 的消息`,
         quote: message.body, location: { view: 'task-detail', task_id: task.id, section: 'messages' } });
       messages.append(item);
     }

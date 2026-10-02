@@ -37,7 +37,7 @@
     "drafts": "bun ./scripts/ops.js drafts",
     "intent": "bun ./scripts/ops.js intent",
     "intents": "bun ./scripts/ops.js intents",
-    "tasks": "bun ./scripts/ops.js tasks",
+    "workers": "bun ./scripts/ops.js workers",
     "tree": "bun ./scripts/ops.js tree",
     "ladder": "bun ./scripts/ops.js ladder",
     "timeline": "bun ./scripts/ops.js timeline",

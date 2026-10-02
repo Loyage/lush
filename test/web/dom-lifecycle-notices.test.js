@@ -20,7 +20,7 @@ const fetchImpl = async (url, opts) => {
     const notices = world.state.notices.filter(row => row.source_event_id && !row.read_at);
     return json({ notices, cursor: notices.at(-1)?.id ?? null, has_more: false });
   }
-  if (target.pathname === '/api/task/4') {
+  if (target.pathname === '/api/worker/4') {
     if (failTask) return json({ error: 'test detail failure' }, 500);
     if (deferTask) await new Promise(resolve => { releaseTask = resolve; });
   }
@@ -57,7 +57,7 @@ test('点击告知直接进入 Task，成功加载后仅标已读，保留 sent 
   world.state.notices = [info(20)]; world.state.actions = [];
   await update();
   await dom.node('notice-banner').querySelector('.notice-banner-info').onclick();
-  expect(dom.location.hash).toBe('#task-4'); expect(ui.detailTask).toBe(4);
+  expect(dom.location.hash).toBe('#worker-4'); expect(ui.detailTask).toBe(4);
   expect(world.state.actions).toEqual([{ method: 'notice.read', params: { id: 20 } }]);
   expect(world.state.notices[0].read_at).toBeTruthy(); expect(world.state.notices[0].status).toBe('sent');
   expect(dom.node('notice-banner').hidden).toBe(true);
@@ -95,7 +95,7 @@ test('迟到的 Task 加载不能覆盖新导航，也不能把未看的告知�
 test('系统通知数字深链接从未缓存记录定位 Task 并已读；非法 ID 不发送读动作', async () => {
   world.state.notices = [info(50)]; world.state.actions = []; ui.noticeIndex.clear();
   dom.location.hash = '#notice-50'; await dom.fire('hashchange');
-  expect(dom.location.hash).toBe('#task-4'); expect(world.state.actions).toHaveLength(1);
+  expect(dom.location.hash).toBe('#worker-4'); expect(world.state.actions).toHaveLength(1);
   await openNotice(-1); await openNotice('50'); await openNotice(Number.MAX_SAFE_INTEGER + 1);
   expect(world.state.actions).toHaveLength(1);
 });

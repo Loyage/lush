@@ -57,8 +57,8 @@ test('task signals reject unrelated or terminal targets, malformed keys and over
     const child = f.store.create({ parent_id: parent.id, role: 'research', goal: 'child' });
     const unrelated = f.store.create({ role: 'coordinator', goal: 'other' });
     expect(() => f.project.sendTaskSignal(child.id, unrelated.id, 'child.completed', 'once')).toThrow('direct parent');
-    expect(() => f.project.sendTaskSignal(child.id, parent.id, 'X', 'once')).toThrow('invalid task signal type');
-    expect(() => f.project.sendTaskSignal(child.id, parent.id, 'child.completed', 'a b')).toThrow('invalid task signal key');
+    expect(() => f.project.sendTaskSignal(child.id, parent.id, 'X', 'once')).toThrow('invalid worker signal type');
+    expect(() => f.project.sendTaskSignal(child.id, parent.id, 'child.completed', 'a b')).toThrow('invalid worker signal key');
     expect(() => f.project.sendTaskSignal(child.id, parent.id, 'child.completed', 'once', { value: 'x'.repeat(16384) }))
       .toThrow('exceeds');
     f.store.update(parent.id, { status: 'completed' });

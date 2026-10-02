@@ -89,19 +89,19 @@ export async function isolatedGit(workspaces, task, scope) {
   if (task.workspace && fs.existsSync(task.workspace)) {
     workspace = fs.realpathSync(task.workspace);
     // No canonical fallback; only an explicitly recorded, separately registered worktree.
-    if (workspace === project || workspace !== path.resolve(task.workspace)) throw new CodeReadError('该 Task 没有可安全读取的专属工作区');
+    if (workspace === project || workspace !== path.resolve(task.workspace)) throw new CodeReadError('该 Worker 没有可安全读取的专属工作区');
     const list = (await runGit(config, project, ['worktree', 'list', '--porcelain', '-z'], { deadline })).toString('utf8');
     const records = list.split('\0\0').map(block => block.split('\0'));
     const record = records.find(fields => fields.includes(`worktree ${workspace}`));
-    if (!record || task.branch && !record.includes(`branch refs/heads/${task.branch}`)) throw new CodeReadError('任务工作区身份已变化，请刷新后重试', 'stale');
+    if (!record || task.branch && !record.includes(`branch refs/heads/${task.branch}`)) throw new CodeReadError('Worker 工作区身份已变化，请刷新后重试', 'stale');
     if (fs.realpathSync(await identity(workspace, 'rev-parse', '--path-format=absolute', '--git-common-dir')) !== common
-      || await identity(workspace, 'rev-parse', '--show-toplevel') !== workspace) throw new CodeReadError('任务工作区不属于此项目');
+      || await identity(workspace, 'rev-parse', '--show-toplevel') !== workspace) throw new CodeReadError('Worker 工作区不属于此项目');
     const stat = fs.statSync(workspace, { bigint: true }); workspaceIdentity = `${stat.dev}:${stat.ino}`;
     head = await identity(workspace, 'rev-parse', '--verify', 'HEAD');
     index = path.join(await identity(workspace, 'rev-parse', '--absolute-git-dir'), 'index');
     source = 'workspace';
   }
-  if (!head || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(head)) throw new CodeReadError('没有可读取的任务现场或原始提交');
+  if (!head || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(head)) throw new CodeReadError('没有可读取的 Worker 现场或原始提交');
   if (source === 'commit' && scope === 'working') throw new CodeReadError('工作区已不可用，不能还原未提交内容');
   let base = scope === 'working' ? head : scope === 'iteration' ? task.iteration_base_commit ?? task.base_commit : task.base_commit;
   if (base && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(base)) base = null;

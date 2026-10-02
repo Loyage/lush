@@ -20,16 +20,16 @@ export function renderVersionCommit(commit) {
   metadata.append(sha, time, el('span', `作者：${text(commit.author?.name)}`)); card.append(metadata);
   const tasks = commit.association === 'verified' && Array.isArray(commit.tasks) ? commit.tasks : [];
   if (!tasks.length) {
-    card.append(el('p', '未关联 Task', 'version-unassociated'),
+    card.append(el('p', '未关联 Worker', 'version-unassociated'),
       el('p', '没有确切交付证据；不会根据提交标题猜测归属。', 'hint'));
   } else {
-    card.append(el('p', '已核实 Task 交付关联', 'version-associated'));
+    card.append(el('p', '已核实 Worker 交付关联', 'version-associated'));
     for (const task of tasks) {
       const entry = el('section', undefined, 'version-task');
-      entry.append(button(`查看 Task #${task.id}`, () => detail(task.id), 'version-task-link',
-        { help: '打开这次交付对应的 Task 详情，查看开发过程与结果；不启动 Agent。' }),
-      el('p', text(task.goal, '（无 Task 目标）'), 'version-goal'));
-      if (task.goal_truncated) entry.append(el('p', 'Task 目标已截断，可在详情中查看完整内容。', 'hint'));
+      entry.append(button(`查看 Worker #${task.id}`, () => detail(task.id), 'version-task-link',
+        { help: '打开这次交付对应的 Worker 详情，查看开发过程与结果；不启动 Agent。' }),
+      el('p', text(task.goal, '（无 Worker 目标）'), 'version-goal'));
+      if (task.goal_truncated) entry.append(el('p', 'Worker 目标已截断，可在详情中查看完整内容。', 'hint'));
       if (task.input) {
         const input = el('details', undefined, 'version-input');
         input.append(el('summary', `原始 say #${task.input.id}`), el('p', text(task.input.content, '（空输入）'), 'version-say'));
@@ -58,7 +58,7 @@ export function openVersions() {
   if (ui.versionsPage?.view === view) return ui.versionsPage.pending || Promise.resolve();
   const page = el('div', undefined, 'versions-page'), header = el('header', undefined, 'versions-head');
   const copy = el('div');
-  copy.append(el('h1', '版本迭代'), el('p', 'main 主线 · 最新在前。每条记录代表一个主线提交，侧分支内部开发提交不混入列表；同一 Task 的多次交付分别保留。', 'hint'));
+  copy.append(el('h1', '版本迭代'), el('p', 'main 主线 · 最新在前。每条记录代表一个主线提交，侧分支内部开发提交不混入列表；同一 Worker 的多次交付分别保留。', 'hint'));
   const feedback = el('p', undefined, 'versions-feedback hint'); feedback.setAttribute('role', 'status');
   const tip = el('p', undefined, 'version-tip hint');
   const list = el('ol', undefined, 'versions-list'); list.setAttribute('aria-label', 'main 主线提交历史');

@@ -13,7 +13,7 @@ test('Web allows the four iteration mutations through user-only RPC', async () =
       f.project[method] = id => { calls.push({ method, id }); return result; };
       const post = params => fetch(f.url + '/api/action', { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: `task.${verb}`, params }) });
+        body: JSON.stringify({ method: `worker.${verb}`, params }) });
       const response = await post({ id: 7 });
       expect(response.status).toBe(200); expect(await response.json()).toEqual(result);
       expect(calls.at(-1)).toEqual({ method, id: 7 });

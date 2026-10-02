@@ -14,8 +14,8 @@ import { show } from './messages.js';
 
 /** 「归档」的统一含义说明：两个入口共用同一句代价，改文案只改这一份。 */
 export const BRANCH_ARCHIVE_HELP = '归档这条分支及它下面的全部后代分支：删除 worktree 与本地 ref，'
-  + '未提交改动会随 worktree 一起丢失；Task、消息、事件与会话记录都保留。归档是放弃这条分支代码的记录状态，'
-  + '历史内部合并队列随父 Task 一起归档；不等于删除 Task——之后可在任务树表头「显示已归档」里看到它。';
+  + '未提交改动会随 worktree 一起丢失；Worker、消息、事件与会话记录都保留。归档是放弃这条分支代码的记录状态，'
+  + '历史内部合并队列随父 Worker 一起归档；不等于删除 Worker——之后可在 Worker 树表头「显示已归档」里看到它。';
 
 /** 归档一子树分支；`afterAcceptance` 仅调整验收成功后的询问，仍须显式确认归档。 */
 export async function runBranchArchive(branch, { refresh, afterAcceptance = false } = {}) {
@@ -25,7 +25,7 @@ export async function runBranchArchive(branch, { refresh, afterAcceptance = fals
     : '会删除这条分支的 worktree 与本地 ref';
   const confirmed = await confirmDialog({
     title: afterAcceptance ? '验收完成，是不是要直接归档？' : `归档 ${branch.name}？`,
-    message: `${afterAcceptance ? `已完成验收。归档 ${branch.name}：` : ''}${scope}，保留任务、会话与分支记录（记录仍可在「分支详情」与任务详情里查）；历史内部合并队列随父 Task 一起归档，未提交改动会被丢弃。${afterAcceptance ? '选择保留或关闭弹窗不影响已完成的验收。' : ''}`,
+    message: `${afterAcceptance ? `已完成验收。归档 ${branch.name}：` : ''}${scope}，保留 Worker、会话与分支记录（记录仍可在「分支详情」与 Worker 详情里查）；历史内部合并队列随父 Worker 一起归档，未提交改动会被丢弃。${afterAcceptance ? '选择保留或关闭弹窗不影响已完成的验收。' : ''}`,
     confirmLabel: afterAcceptance ? '直接归档' : '归档',
     cancelLabel: '保留',
     danger: true,
@@ -37,8 +37,8 @@ export async function runBranchArchive(branch, { refresh, afterAcceptance = fals
     const count = Number(result?.count) || 1;
     const dropped = result?.discarded ? '，已丢弃未提交改动' : '';
     show(count > 1
-      ? `已归档 ${branch.name} 及它下面 ${count - 1} 条后代分支（共 ${count} 条）：worktree 与本地 ref 已删${dropped}，任务、会话与分支记录都保留`
-      : `${branch.name} 已归档（worktree ${result?.worktree ?? 'absent'}、分支 ${result?.ref ?? 'absent'}${dropped}）；任务与会话已保留`);
+      ? `已归档 ${branch.name} 及它下面 ${count - 1} 条后代分支（共 ${count} 条）：worktree 与本地 ref 已删${dropped}，Worker、会话与分支记录都保留`
+      : `${branch.name} 已归档（worktree ${result?.worktree ?? 'absent'}、分支 ${result?.ref ?? 'absent'}${dropped}）；Worker 与会话已保留`);
     await refresh?.();
   } catch (error) { show(error.message, 'error'); }
 }

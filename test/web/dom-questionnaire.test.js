@@ -25,7 +25,7 @@ test('single click advances; previews do not select; multi-select, review, edit 
   try {
     const root = questionnairePanel(notice(), { settle: async answer => calls.push(answer) });
     expect(root.querySelector('iframe').getAttribute('sandbox')).toBe('');
-    expect(root.querySelector('iframe').getAttribute('src')).toBe('/api/task/22/notice/7/preview/0/0');
+    expect(root.querySelector('iframe').getAttribute('src')).toBe('/api/worker/22/notice/7/preview/0/0');
     await click(root, '预览'); expect(deepText(root)).toContain('Which layout?'); expect(calls).toEqual([]);
     await option(root, 'Tabs').onclick();
     expect(deepText(root)).toContain('Which features?'); expect(deepText(root)).not.toContain('Which layout?');
@@ -35,7 +35,7 @@ test('single click advances; previews do not select; multi-select, review, edit 
     expect(deepText(root)).toContain('确认你的全部选择'); expect(deepText(root)).toContain('Search、Shortcuts');
     expect(calls).toEqual([]);
     await click(root, '修改'); await option(root, 'Sidebar').onclick(); await click(root, '查看全部选择');
-    await click(root, '确认全部选择并继续任务');
+    await click(root, '确认全部选择并继续 Worker');
     expect(calls).toEqual([{ answers: [{ selected: [0], custom: '' }, { selected: [0, 1], custom: '' }] }]);
   } finally { dom.restore(); }
 });
@@ -55,9 +55,9 @@ test('custom answer, polling rebuild, session refresh recovery, failure retry an
     ui.questionDrafts.clear(); // equivalent to refreshing the browser's module state
     root = questionnairePanel(notice(), { settle });
     expect(deepText(root)).toContain('Use a drawer');
-    await click(root, '确认全部选择并继续任务');
+    await click(root, '确认全部选择并继续 Worker');
     expect(deepText(root)).toContain('选择已保留');
-    await click(root, '确认全部选择并继续任务'); expect(attempts).toBe(2); expect(storage.size).toBe(0);
+    await click(root, '确认全部选择并继续 Worker'); expect(attempts).toBe(2); expect(storage.size).toBe(0);
     ui.lastSnapshot = { status: { project: '/project-b' } };
     root = questionnairePanel(notice(), { settle });
     expect(deepText(root)).toContain('Which layout?'); expect(root.querySelector('textarea').value).toBe('');
@@ -69,7 +69,7 @@ test('incomplete questionnaire cannot submit, custom answer clears selection, di
   try {
     const root = questionnairePanel(notice(), { settle: () => submitted++, dismiss: () => dismissed++ });
     await click(root, '汇总确认');
-    expect(findByText(root, '确认全部选择并继续任务').disabled).toBe(true);
+    expect(findByText(root, '确认全部选择并继续 Worker').disabled).toBe(true);
     await click(root, '修改'); await option(root, 'Tabs').onclick();
     await option(root, 'Search').onclick();
     const input = root.querySelector('textarea'); input.value = 'Neither'; input.listeners.input[0]();
@@ -98,7 +98,7 @@ test('answered questionnaire replays chosen options and previews with no submit 
     expect(answered.querySelectorAll('.decision-picked-mark').length).toBe(2);
     const frame = answered.querySelector('iframe');
     expect(frame.getAttribute('sandbox')).toBe('');
-    expect(frame.getAttribute('src')).toBe('/api/task/22/notice/7/preview/0/0');
+    expect(frame.getAttribute('src')).toBe('/api/worker/22/notice/7/preview/0/0');
     // 未选中项不冒充选择，但点它仍能看到自己的预览（Tabs 走 Markdown 预览）。
     const tabs = option(answered, 'Tabs');
     expect(tabs.classList.contains('selected')).toBe(false);
@@ -138,7 +138,7 @@ test('different branches share the notice queue and final confirmation advances 
     renderNotices({ notices: [first, second] }); ui.noticeFocus = first.id;
     const root = noticePanel(first, { role: 'worker' });
     await option(root, 'Tabs').onclick(); await option(root, 'Search').onclick(); await click(root, '查看全部选择');
-    await click(root, '确认全部选择并继续任务');
+    await click(root, '确认全部选择并继续 Worker');
     expect(sent).toEqual([{ method: 'notice.answer', params: { id: 7, answer: { answers: [{ selected: [1], custom: '' }, { selected: [0], custom: '' }] } } }]);
     expect(navigated).toEqual([99]); expect(ui.noticeFocus).toBe(8);
     const answered = questionnairePanel({ ...first, status: 'answered', answer: JSON.stringify({ answers: [{ question: 'Which layout?', labels: ['Tabs'], custom: '' }] }) });

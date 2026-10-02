@@ -16,7 +16,7 @@ function fileList(rows, total) {
 }
 export function renderDiff(diff, taskId = null) {
   const section = block('改动概览');
-  if (!diff) { section.append(el('p', '尚无工作区（规划任务或不改动代码的任务不创建 worktree）。', 'hint')); return section; }
+  if (!diff) { section.append(el('p', '尚无工作区（规划 Worker 或不改动代码的 Worker 不创建 worktree）。', 'hint')); return section; }
   const grid = el('div', undefined, 'grid');
   grid.append(kv('分支', diff.branch || '—', 'mono'), kv('目标分支', diff.target_branch || '—', 'mono'));
   grid.append(kv('基准 → 提交', diff.committed ? `${short(diff.base_commit)} → ${short(diff.head_commit)}` : `${short(diff.base_commit) || '—'} → 无提交`, 'mono'));

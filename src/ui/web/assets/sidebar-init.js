@@ -54,16 +54,16 @@ export function initSidebar() {
   const taskStatus = filterMulti('状态',
     ['queued', 'running', 'waiting', 'awaiting', 'awaiting_acceptance', 'paused', 'completed', 'failed', 'cancelled'].map(statusOption),
     ui.filters.tasks.status, value => { ui.filters.tasks.status = value; applyFilters(); });
-  const taskRole = filterMulti('任务类型', Object.keys(ROLE).map(roleOption), ui.filters.tasks.role,
+  const taskRole = filterMulti('Worker 类型', Object.keys(ROLE).map(roleOption), ui.filters.tasks.role,
     value => { ui.filters.tasks.role = value; applyFilters(); });
   const taskIntegration = filterSelect('合并', [{ value: 'all', label: '全部' }, { value: 'unmerged', label: '待合并' }, { value: 'merged', label: '已合并' }],
     ui.filters.tasks.integration, value => { ui.filters.tasks.integration = value; applyFilters(); });
   const taskMine = filterToggle('只看待我处理', ui.filters.tasks.mine, value => { ui.filters.tasks.mine = value; applyFilters(); });
   const taskText = filterInput(ui.filters.tasks.text, value => { ui.filters.tasks.text = value; applyFilters(); });
-  taskText.input.placeholder = '搜索任务目标或 #编号';
-  taskText.input.setAttribute('aria-label', '搜索任务目标或编号');
+  taskText.input.placeholder = '搜索 Worker 目标或 #编号';
+  taskText.input.setAttribute('aria-label', '搜索 Worker 目标或编号');
   const extras = el('div', undefined, 'task-filter-extras');
-  extras.append(taskIntegration.wrap, taskMine.wrap, el('span', '同组多选；未勾选时显示全部。筛选范围为已加载任务。', 'hint'));
+  extras.append(taskIntegration.wrap, taskMine.wrap, el('span', '同组多选；未勾选时显示全部。筛选范围为已加载 Worker。', 'hint'));
   $('task-filters').replaceChildren(taskText.wrap, taskStatus.wrap, taskRole.wrap, extras);
   filterUi.taskStatus = taskStatus;
   filterUi.taskRole = taskRole;

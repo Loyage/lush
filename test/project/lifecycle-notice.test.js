@@ -31,6 +31,22 @@ function idle(f, task) {
   });
 }
 
+test('new lifecycle notices use Worker terminology without rewriting historical text or event names', async () => {
+  const f = fixture(); f.project.stopping = true;
+  try {
+    const task = userTask(f);
+    const historical = f.project.notify(task.id, '任务已结束', '历史 Task 详情');
+    const notice = idle(f, task);
+    expect(notice.title).toStartWith(`Worker #${task.id} 本轮已结束`);
+    expect(notice.body).toContain(`打开 Worker #${task.id} 查看详情`);
+    expect(notice.body).not.toContain('任务');
+    expect(notice.body).not.toContain('Task');
+    expect(f.store.get('SELECT title,body FROM notices WHERE id=?', historical.id))
+      .toEqual({ title: '任务已结束', body: '历史 Task 详情' });
+    expect(f.store.get('SELECT type FROM events WHERE id=?', notice.source_event_id).type).toBe('task.idle');
+  } finally { await f.close(); }
+});
+
 test('successful user say invocation emits one unread info, another completed round emits another', async () => {
   const f = fixture({ async run() { return '结果'; } });
   try {
@@ -43,7 +59,7 @@ test('successful user say invocation emits one unread info, another completed ro
     expect(notice.source_event_id).toBeGreaterThan(0);
     expect(notice.title).toContain('本轮已结束');
     expect(notice.body).toContain('结果');
-    expect(notice.body).toContain('不代表 Task 已验收完成');
+    expect(notice.body).toContain('不代表 Worker 已验收完成');
     expect(f.project.notifyTaskLifecycle(task.id, notice.source_event_id).id).toBe(notice.id);
     expect(rows(f, task.id)).toHaveLength(1);
     f.store.message(task.id, '继续'); f.project.wake(task.id);

@@ -129,11 +129,11 @@ export default {
    */
   verify(taskId) {
     const target = this.store.task(taskId);
-    check(target.role === 'worker', `only a worker task can be verified; #${target.id} is a ${target.role}`);
-    check(target.status === 'completed', `only a completed task can be verified; #${target.id} is ${target.status}`);
+    check(target.role === 'worker', `only a worker-role Worker can be verified; #${target.id} is a ${target.role}`);
+    check(target.status === 'completed', `only a completed worker can be verified; #${target.id} is ${target.status}`);
     check(target.workspace && fs.existsSync(target.workspace) && target.head_commit,
-      `task #${target.id} has no worktree or commit to verify`);
-    check(target.target_branch, `task #${target.id} has no target branch to compare against`);
+      `worker #${target.id} has no worktree or commit to verify`);
+    check(target.target_branch, `worker #${target.id} has no target branch to compare against`);
     const active = this.store.activeVerification(target.id);
     check(!active, `verification #${active?.id} is still running; wait for it or cancel it`);
     const goal = `检验 #${target.id}：用最直观的方式演示它这一步改动的实际运行结果，并对照 ${target.target_branch} 分支在当前同样场景下的表现。`;

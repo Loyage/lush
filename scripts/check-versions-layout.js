@@ -86,7 +86,7 @@ try {
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` }); await waitFor('window.ready');
   assert(await execute('return document.querySelectorAll(".version-commit").length===50'), 'first page must contain 50 commits');
   await click('.version-input summary'); await click('.version-task-link');
-  assert(await execute(`return window.openedTask===${task.id} && !window.injected && document.querySelector('.version-say').textContent.includes('<script>')`), 'Task navigation or safe original say rendering failed');
+  assert(await execute(`return window.openedTask===${task.id} && !window.injected && document.querySelector('.version-say').textContent.includes('<script>')`), 'Worker navigation or safe original say rendering failed');
   for (const theme of ['light', 'dark']) for (const [width, height] of [[1440,900], [900,700], [390,844]]) {
     await rpc(`/session/${session}/window/rect`, { width, height });
     await execute(`document.documentElement.dataset.theme='${theme}';document.querySelector('#detail').scrollTop=0;window.scrollTo(0,0);`);
@@ -101,7 +101,7 @@ try {
   assert(await execute(`return document.querySelectorAll('.version-commit').length===50 && document.querySelector('.version-tip').textContent.includes('${head}')`), 'refresh did not replace snapshot');
   assert((await git(f.root, 'rev-parse', 'HEAD')) === head, 'read changed main');
   assert(await execute('return window.browserErrors.length===0'), 'browser emitted errors');
-  passed = true; console.log(`PASS real Git paging, fixed tip, explicit refresh, safe say and Task navigation. Screenshots: ${output}`);
+  passed = true; console.log(`PASS real Git paging, fixed tip, explicit refresh, safe say and Worker navigation. Screenshots: ${output}`);
 } catch (error) {
   if (session) await screenshot('failure').catch(() => {});
   console.error(`Version browser failure; full logs: ${logs}`); throw error;

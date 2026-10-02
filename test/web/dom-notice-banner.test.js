@@ -57,7 +57,7 @@ test('经 notice.answer / notice.dismiss 结算后计数下降，归零隐藏', 
   // 打开最新一条，写答复 -> notice.answer 结算，计数降到 1。
   await bannerButton().onclick();
   dom.node('notice-record-detail').querySelector('textarea').value = '就这么办';
-  const answer = allByTag(dom.node('notice-record-detail'), 'button').find(node => node.textContent === '回复并继续任务');
+  const answer = allByTag(dom.node('notice-record-detail'), 'button').find(node => node.textContent === '回复并继续 Worker');
   await answer.onclick();
   expect(world.state.notices.find(row => row.id === 11).status).toBe('answered');
   expect(banner().hidden).toBe(false);

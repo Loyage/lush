@@ -38,7 +38,7 @@ export async function mergeBatch(ids, candidates) {
     confirmLabel: '开始交付',
   });
   if (!confirmed) return;
-  const result = await action('task.merge_many', { ids: picked.map(candidate => candidate.id) });
+  const result = await action('worker.merge_many', { ids: picked.map(candidate => candidate.id) });
   ui.lastMergeResult = { requested: order, result };
   ui.overviewKey = null;
   await refresh();
@@ -107,9 +107,9 @@ export function renderLadder(data) {
     const ready = groupItems.filter(isMergeable);
     const actions = el('div', undefined, 'actions pick-actions');
     const selected = button('', () => mergeBatch(ready.filter(item => mergeSelection.has(item.id)).map(item => item.id), candidates));
-    selected.setAttribute('aria-label', '合并本分支中勾选的任务到目标分支');
+    selected.setAttribute('aria-label', '合并本分支中勾选的 Worker 到目标分支');
     const all = button('', () => mergeBatch(ready.map(item => item.id), candidates), 'ghost');
-    all.setAttribute('aria-label', '合并本分支全部可交付任务到目标分支');
+    all.setAttribute('aria-label', '合并本分支全部可交付 Worker 到目标分支');
     const clear = button('清空选择', () => { mergeSelection.clear(); sync(); }, 'ghost');
     controls.push({ items: groupItems, selected, all });
     actions.append(selected, all, clear); groupBlock.append(actions);
@@ -119,7 +119,7 @@ export function renderLadder(data) {
       const row = el('div', undefined, 'row');
       const box = el('input', undefined, 'pick');
       box.type = 'checkbox'; box.checked = mergeSelection.has(candidate.id); box.disabled = !isMergeable(candidate);
-      box.setAttribute('aria-label', `选择任务 #${candidate.id} 参与批量合并`);
+      box.setAttribute('aria-label', `选择 Worker #${candidate.id} 参与批量合并`);
       box.setAttribute('data-help', isMergeable(candidate)
         ? ((candidate.blockers || []).some(item => item.code === 'code_upstream') ? '勾选时会自动带上同一变更栈的 code 上游' : '勾选后合并到本目标分支')
         : (candidate.blockers || []).map(item => item.message).join('\n'));
@@ -136,7 +136,7 @@ export function renderLadder(data) {
         el('span', PHASE[candidate.phase] || candidate.phase || candidate.integration, `delivery-phase ${candidate.ready ? 'b-completed' : 'b-awaiting'}`));
       line.append(row);
       if (candidate.merge_id && candidate.merge_id !== candidate.id) {
-        line.append(el('span', `↳ 当前落地来源：解冲突任务 #${candidate.merge_id}`, 'meta'));
+        line.append(el('span', `↳ 当前落地来源：解冲突 Worker #${candidate.merge_id}`, 'meta'));
       }
       for (const dep of candidate.deps || []) {
         line.append(el('span', `${dep.kind === 'code' ? '⛓ 代码基线' : '⏳ 仅执行依赖'} #${dep.id}${dep.merged ? '（已落地）' : ''}`, 'meta'));
@@ -160,16 +160,16 @@ export function renderMergeResult(entry) {
   const { result } = entry;
   const section = block('批量交付结果', `${result.merged} 个成功`);
   const summary = result.stopped
-    ? `已向 ${result.target_branch || '目标分支'} 交付 ${result.merged} 个，随后停在 #${result.stopped.id}：${result.stopped.reason}；剩余任务未执行。`
+    ? `已向 ${result.target_branch || '目标分支'} 交付 ${result.merged} 个，随后停在 #${result.stopped.id}：${result.stopped.reason}；剩余 Worker 未执行。`
     : `全部交付成功：${result.merged} 个${result.target_branch ? ` → ${result.target_branch}` : ''}。`;
   section.append(el('p', summary, result.stopped ? 'hint warn' : 'hint'));
   for (const row of result.merges) {
     const line = el('div', undefined, 'row');
     line.append(el('span', MERGE_STATUS[row.status] || row.status, `c-${row.status === 'merged' ? 'completed' : row.status === 'conflict' || row.status === 'failed' ? 'failed' : 'queued'}`),
       el('span', `#${row.id}`, 'tid'));
-    if (row.source_task_id && row.source_task_id !== row.id) line.append(el('span', `通过解冲突任务 #${row.source_task_id}`, 'meta'));
+    if (row.source_task_id && row.source_task_id !== row.id) line.append(el('span', `通过解冲突 Worker #${row.source_task_id}`, 'meta'));
     if (row.status === 'conflict' && row.resolution_task_id) {
-      line.append(el('span', `已开解冲突任务 #${row.resolution_task_id}`, 'meta'), button('查看解冲突任务', () => detail(row.resolution_task_id), 'link'));
+      line.append(el('span', `已开解冲突 Worker #${row.resolution_task_id}`, 'meta'), button('查看解冲突 Worker', () => detail(row.resolution_task_id), 'link'));
     } else if (row.error && row.status !== 'merged') line.append(el('span', row.error, 'meta'));
     if (row.status === 'merged') line.append(el('span', row.included ? '已随前一项进入目标分支' : '已进入目标分支', 'meta'));
     section.append(line);

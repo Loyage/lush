@@ -42,5 +42,7 @@ test('non-json output shows branch name, worktree/ref outcome, kept tasks and se
   expect(text).toContain('已删除');
   expect(text).toContain('丢弃了未提交改动');
   expect(text).toContain('#7 completed');
+  expect(text).toContain('保留 Worker');
+  expect(text).not.toContain('保留任务');
   expect(text).toContain('/tmp/home/sessions/a.jsonl');
 });

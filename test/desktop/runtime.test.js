@@ -128,7 +128,7 @@ test('IPC rejects foreign windows, subframes, wrong paths and redirects to anoth
     const handler = f.handlers.get('lush:notification-settings');
     expect(() => handler({ sender: { id: 999 }, senderFrame: {} })).toThrow('untrusted');
     expect(() => handler(f.event(remote, { url: 'https://one.example.com/' }))).toThrow('untrusted');
-    for (const url of ['https://evil.test/', 'https://one.example.com.evil.test/', 'https://one.example.com/api/task/1/report']) {
+    for (const url of ['https://evil.test/', 'https://one.example.com.evil.test/', 'https://one.example.com/api/worker/1/report']) {
       remote.webContents.mainFrame.url = url;
       expect(() => handler(f.event(remote))).toThrow('untrusted');
     }
@@ -153,7 +153,7 @@ test('project popups remain owned and scoped; previews have no preload; external
     const project = f.all.at(-1);
     expect(path.basename(project.options.webPreferences.preload)).toBe('preload.cjs');
     expect(project.options.webPreferences.partition).toBe(remote.options.webPreferences.partition);
-    remote.webContents.openHandler({ url: 'https://one.example.com/p/abcdef0123456789/api/task/1/report' });
+    remote.webContents.openHandler({ url: 'https://one.example.com/p/abcdef0123456789/api/worker/1/report' });
     const preview = f.all.at(-1);
     expect(preview.options.webPreferences.preload).toBeUndefined();
     await expect(f.invoke('lush:notification-settings', preview)).rejects.toThrow('untrusted');
@@ -196,7 +196,7 @@ test('native notification targets are numeric and retain the original project ro
     await f.desktop.start(); const win = await f.desktop.openRemote('https://one.example.com');
     win.webContents.mainFrame.url = 'https://one.example.com/p/abcdef0123456789/';
     await f.invoke('lush:notification-settings', win, true);
-    const payload = { title: 'Task', body: 'idle', tag: 'lifecycle', notice_id: 50, task_id: 4 };
+    const payload = { title: 'Worker', body: 'idle', tag: 'lifecycle', notice_id: 50, task_id: 4 };
     expect(await f.invoke('lush:notice', win, payload)).toBe(true);
     win.webContents.mainFrame.url = 'https://one.example.com/p/1111111111111111/';
     f.notices[0].emit('click');
@@ -232,7 +232,7 @@ test('network failure closes only the failed window, preserves others and surfac
   try {
     await f.desktop.start(); const good = await f.desktop.openRemote('https://one.example.com');
     f.fail();
-    await expect(f.desktop.openRemote('https://two.example.com')).rejects.toThrow('不会自动重发任务操作');
+    await expect(f.desktop.openRemote('https://two.example.com')).rejects.toThrow('不会自动重发 Worker 操作');
     expect(f.all.at(-1).destroyed).toBe(true); expect(good.destroyed).toBe(false);
     await expect(f.desktop.openRemote('http://evil.test')).rejects.toThrow('HTTPS');
     expect(f.stats().starts).toBe(0);

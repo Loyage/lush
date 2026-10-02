@@ -4,7 +4,7 @@ import { agentText, markdownEnabled } from './text.js';
 import { structuredValue } from './structured-value.js';
 
 const SIGNALS = {
-  'child.completed': '子任务完成', 'child.failed': '子任务失败', 'child.cancelled': '子任务已取消',
+  'child.completed': '子 Worker 完成', 'child.failed': '子 Worker 失败', 'child.cancelled': '子 Worker 已取消',
   'merge.requested': '请求合并', 'merge.completed': '已合并', 'merge.repair': '合并分歧 · 需要修复',
 };
 const FIELDS = {
@@ -48,7 +48,7 @@ function signalView(parsed) {
     return { title: SIGNALS[parsed.signal], payload: parsed.payload, failed: parsed.signal === 'child.failed' };
   }
   // Historical settlement messages did not have a versioned signal envelope.
-  const status = { completed: '子任务完成', failed: '子任务失败', cancelled: '子任务已取消' };
+  const status = { completed: '子 Worker 完成', failed: '子 Worker 失败', cancelled: '子 Worker 已取消' };
   if (!own(parsed, 'version') && Number.isSafeInteger(parsed.child) && typeof parsed.status === 'string' && own(status, parsed.status)) {
     const { child, status: _status, ...payload } = parsed;
     return { title: `${status[parsed.status]} · #${child}`, payload, failed: parsed.status === 'failed' };
@@ -66,7 +66,7 @@ function renderPayload(root, payload) {
   }
   if (payload.result_truncated === true) {
     handled.add('result_truncated');
-    root.append(el('p', '结果已在消息生成时截断；展开原文也不能恢复缺失部分，请查看来源任务的结果。', 'hint'));
+    root.append(el('p', '结果已在消息生成时截断；展开原文也不能恢复缺失部分，请查看来源 Worker 的结果。', 'hint'));
   }
   const fields = el('dl', undefined, 'message-fields');
   for (const [key, label] of Object.entries(FIELDS)) {
@@ -108,8 +108,8 @@ export function renderTaskMessage(message, taskId, previous = null) {
   if (previous?.messageSignature === signature) return previous;
   const root = el('article', undefined, 'msg task-message');
   root.dataset.messageId = String(message.id); root.messageSignature = signature;
-  const from = message.sender_id === taskId ? `发给任务 #${message.task_id}`
-    : message.sender_id != null ? `来自任务 #${message.sender_id}` : '来自你';
+  const from = message.sender_id === taskId ? `发给 Worker #${message.task_id}`
+    : message.sender_id != null ? `来自 Worker #${message.sender_id}` : '来自你';
   const meta = el('div', undefined, 'message-meta');
   meta.append(el('span', from));
   if (message.created_at) {

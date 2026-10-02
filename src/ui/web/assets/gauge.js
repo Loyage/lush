@@ -13,6 +13,6 @@ export function slotGauge(data) {
   node.append(dots, el('span', `${used}/${limit}`, 'slot-count'));
   // 没有依赖却没在跑的 queued 任务，等的就是槽——这是「为什么还没开始」最常见的答案。
   if (ready) node.append(el('span', `排队 ${ready} 等槽`, 'slot-queue'));
-  node.title = `并发上限 ${limit}：同一时刻最多 ${limit} 个 agent 在跑。没有依赖却在排队的任务就是在等槽。`;
+  node.title = `并发上限 ${limit}：同一时刻最多 ${limit} 个 agent 在跑。没有依赖却在排队的 Worker就是在等槽。`;
   return node;
 }

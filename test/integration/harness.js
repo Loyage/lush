@@ -21,7 +21,7 @@ export async function legacySay(root, content, branch = null) {
 /** New say Agents release their invocation slot instead of becoming terminal on ordinary returns. */
 export async function idle(client, taskId, calls = 1) {
   for (let i = 0; i < 100; i++) {
-    const task = await client.request('task.inspect', { id: taskId });
+    const task = await client.request('worker.inspect', { id: taskId });
     if (task.status === 'waiting' && task.calls >= calls && !task.agent.active) return task;
     await Bun.sleep(30);
   }
@@ -29,15 +29,15 @@ export async function idle(client, taskId, calls = 1) {
 }
 
 export async function done(client, taskId) {
-  for (let i=0;i<100;i++) { const task = await client.request('task.inspect',{id:taskId}); if (['completed','failed'].includes(task.status)) return task; await Bun.sleep(30); }
+  for (let i=0;i<100;i++) { const task = await client.request('worker.inspect',{id:taskId}); if (['completed','failed'].includes(task.status)) return task; await Bun.sleep(30); }
   throw new Error('task timeout');
 }
 
 /** Wait for deterministic Plan compilation and return work items belonging to the planner's Intent. */
 export async function workOf(client, plannerTaskId, minimum = 1) {
-  const planner = await client.request('task.inspect', { id: plannerTaskId });
+  const planner = await client.request('worker.inspect', { id: plannerTaskId });
   for (let i=0;i<200;i++) {
-    const tasks = await client.request('task.list');
+    const tasks = await client.request('worker.list');
     const work = tasks.filter(task => task.input_id === planner.input_id && task.role !== 'verifier');
     if (work.length >= minimum) return work;
     await Bun.sleep(30);

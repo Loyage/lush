@@ -160,11 +160,11 @@ export default {
     const record = this.store.branch(name);
     check(record && record.parent && record.parent_relation === 'recorded', `${name} has no recorded direct parent`);
     check(!this.store.get("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say','child')", name),
-      'new Task branch cannot use legacy branch.merge');
+      'new Worker branch cannot use legacy branch.merge');
     if (record.task_id !== null) {
       const task = this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
-      check(!task?.task_kind, 'new Task branches require parent confirmation or fixed-commit main approval; legacy branch.merge is unavailable');
-      check(!task || task.status === 'completed', `branch task #${record.task_id} is not completed`);
+      check(!task?.task_kind, 'new Worker branches require parent confirmation or fixed-commit main approval; legacy branch.merge is unavailable');
+      check(!task || task.status === 'completed', `branch worker #${record.task_id} is not completed`);
     }
     const outcome = await this.workspaces.mergeBranch(name, expected);
     if (!outcome.merged && !outcome.already_integrated) return outcome;
@@ -192,7 +192,7 @@ export default {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
     check(!this.store.get("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say','child')", name),
-      'new Task branch cannot use legacy branch.sync');
+      'new Worker branch cannot use legacy branch.sync');
     const state = await this.workspaces.branchState(name);
     check(state.status === 'diverged', `${name} is ${state.status}; branch sync is only needed after divergence`);
     check(state.blockers.length === 0, `sync ${name} is blocked by unfinished child work: ${state.blockers.join(', ')}`);
@@ -303,8 +303,8 @@ export default {
         && !unfinished.some(row => row.id === task.id)) unfinished.push(task);
     }
     const cleaning = [...this.workspaces.busy].filter(id => users.has(id));
-    check(cleaning.length === 0, `branch ${name} is being cleaned up (task #${cleaning[0]})`);
-    check(unfinished.length === 0, `branch ${name} still has unfinished tasks: ${unfinished.map(task => `#${task.id}`).join(', ')}`);
+    check(cleaning.length === 0, `branch ${name} is being cleaned up (worker #${cleaning[0]})`);
+    check(unfinished.length === 0, `branch ${name} still has unfinished workers: ${unfinished.map(task => `#${task.id}`).join(', ')}`);
     const outcomes = await this.workspaces.archiveBranches(targets, { discard_worktree });
     const tips = new Map(outcomes.map(outcome => [outcome.branch, outcome.tip]));
     // 目录已经删了，tasks.workspace 不能再指着一个不存在的路径；branch 字段是历史，必须留着。
@@ -346,7 +346,7 @@ export default {
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
     if (options.internal !== true) this.assertBranchWritable(name, 'catch it up with its parent');
     check(!this.store.get("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say','child')", name),
-      'new Task branch cannot use legacy branch.catchup');
+      'new Worker branch cannot use legacy branch.catchup');
     const record = this.store.branch(name);
     check(record && record.parent && record.parent_relation === 'recorded', `${name} has no recorded direct parent`);
     const outcome = await this.workspaces.catchupBranch(name);
@@ -366,7 +366,7 @@ export default {
     // 便利：允许用 task id 查——分支名形如 lush/<hash>/<id>-<name>，手打太长。
     if (/^\d+$/.test(branch)) {
       const task = this.store.task(Number(branch));
-      check(task.branch, `task #${task.id} has no branch`);
+      check(task.branch, `worker #${task.id} has no branch`);
       branch = task.branch;
     }
     const nodes = this.branchNodes(state);

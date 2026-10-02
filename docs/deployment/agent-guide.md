@@ -42,7 +42,7 @@ bun run desktop                                        # Electron 连接页：�
 | 全局启动器 | 本机多个项目同时打开、来回查看 | 已登记列表与上次项目记在用户配置目录（`launcher.json` v2），不写入项目 `.lush/`；每个项目一条 `/p/<project-id>/` 地址 |
 | 命令行 | 脚本化、服务器、无图形环境 | 完整命令见 [CLI 与 RPC](../reference/api.md) |
 
-其余命令（提交输入、查看任务、合并、回收）见 [CLI 与 RPC](../reference/api.md)；当前 say 操作路线见[一条 say 输入如何交付](../task-flow.md)。
+其余命令（提交输入、查看Worker、合并、回收）见 [CLI 与 RPC](../reference/api.md)；当前 say 操作路线见[一条 say 输入如何交付](../task-flow.md)。
 
 ## 3. 配置 Agent
 
@@ -59,7 +59,7 @@ lush agent init worker --local        # 创建本机私有的 .lush/agent/ 补�
 ```
 
 - 项目级配置写在 `<project>/.lush/agent.json`：一个 `default` 加 planner / coordinator / worker / research / verifier / merger / explainer / butler 八类角色覆盖。写入原子替换，运行中的调用不打断，下一次调用生效。
-- 角色 Prompt 由内置片段依次叠加 `.lush-agent/common.md`、`.lush-agent/<role>.md`、`.lush/agent/common.md`、`.lush/agent/<role>.md` 与 `append_prompt`。不要用非空 `default_prompt` 覆盖内置协议，除非你完整保留了任务 API、权限与交付流程。
+- 角色 Prompt 由内置片段依次叠加 `.lush-agent/common.md`、`.lush-agent/<role>.md`、`.lush/agent/common.md`、`.lush/agent/<role>.md` 与 `append_prompt`。不要用非空 `default_prompt` 覆盖内置协议，除非你完整保留了Worker API、权限与交付流程。
 - Agent 子进程环境在 daemon 环境之上热加载 `<project>/.lush/agent/agent.env` 与 `<project>/.lush/agent/<role>.env`，用于代理等个人设置；`LUSH_*` 保留给 runtime，不能覆盖。细节见 [Agent 环境与权限](../reference/agent-environment.md)。
 
 ## 4. 远程 / 公网访问
@@ -102,8 +102,8 @@ lush agent init worker --local        # 创建本机私有的 .lush/agent/ 补�
 | `LUSH_CONCURRENCY` | `8` | worker / research / verifier 执行槽的环境默认值 |
 | `LUSH_CONTROL_CONCURRENCY` | `2` | planner 等控制面槽的环境默认值，不被执行面占用 |
 | `LUSH_CALL_TIMEOUT` | `10800` | 单次模型调用超时秒数（3 小时） |
-| `LUSH_TASK_CALLS` | `24` | 单 task invocation 总上限 |
-| `LUSH_MAX_DEPTH` | `8` | 任务树最大层数 |
+| `LUSH_TASK_CALLS` | `24` | 单 Worker invocation 总上限 |
+| `LUSH_MAX_DEPTH` | `8` | Worker树最大层数 |
 | `LUSH_PI_COMMAND` | `pi` | Pi 可执行文件 |
 | `LUSH_PI_PROVIDER` / `LUSH_PI_MODEL` / `LUSH_PI_THINKING` | Pi 默认 | `.lush/agent.json` 不存在时的 Pi 初始选择 |
 | `LUSH_CODEX_COMMAND` | `codex` | Codex 可执行文件 |
@@ -116,8 +116,8 @@ lush config                                  # 运行设置：生效值、环境
 lush config set concurrency 8                # 执行通道并发上限（1..64）
 lush config set control-concurrency 4        # 控制通道并发上限（1..16）
 lush config set call-timeout 1800            # 单次模型调用超时秒数（1..86400）
-lush config set task-call-limit 40           # 单任务 invocation 总上限（1..1000）
-lush config set max-depth 12                 # 任务树最大层数（1..64）
+lush config set worker-call-limit 40           # 单Worker invocation 总上限（1..1000）
+lush config set max-depth 12                 # Worker树最大层数（1..64）
 lush config reset all                        # 清除覆盖，回到环境默认
 ```
 
@@ -130,7 +130,7 @@ lush config reset all                        # 清除覆盖，回到环境默认
 ├── project.json       不可跨目录复用的项目绑定
 ├── settings.json      运行设置（并发额度、调用/拆解限额、快速路由前缀）的覆盖；不存在表示全部使用环境默认
 ├── project.db         SQLite：inputs / drafts / tasks / task_specs / task_deps / agent_runs / artifacts / review_candidates / messages / notices / events / branches
-├── sessions/          每个 task 的独立 pi session 与当前输入文件
+├── sessions/          每个 Worker 的独立 Pi session 与当前输入文件
 ├── worktrees/         worker 工作区、每条输入的聚合分支检出、检验期间临时对照检出
 ├── verify/            每个 verifier 的自包含 HTML 检验报告
 ├── daemon.lock        项目 daemon 单实例锁
@@ -144,7 +144,7 @@ socket 位于用户私有临时目录，只为通信；持久状态始终在项�
 - 这是**可信用户工具，不是沙箱**。目录绑定隔离的是 Lush 的数据库、RPC、调度和工作区，不是操作系统的文件权限；Agent 的 bash 拥有当前用户权限，角色约束主要依赖 Agent 指令。
 - 应审阅改动，不向不可信用户暴露 socket，也不与其他程序并发修改正在合并的工作树。
 - 公网 Web 必须启用对应作用域的登录认证并使用 HTTPS，但这仍不把 Agent 或宿主机变成面向恶意用户的安全沙箱。合并与最终接受等用户专属操作不能由普通 Agent 调用绕过。
-- daemon 意外被 `SIGKILL` 时可能留下外部进程；恢复不会重放任务，但仍应检查进程与工作区后再重试。
+- daemon 意外被 `SIGKILL` 时可能留下外部进程；恢复不会重放Worker，但仍应检查进程与工作区后再重试。
 
 ## 8. 验证
 
@@ -167,4 +167,4 @@ bun run host-status    # 后台 Web 在不在跑、跑的是不是当前代码�
 | 不确定当前跑的是谁 | `bun run doctor`（daemon）与 `bun run host-status`（Web） |
 | 想离线演示调度 | `LUSH_PROVIDER=mock bun run start --project ...` |
 
-Mock 只派调研任务，不调用模型、不修改代码。
+Mock 只派调研Worker，不调用模型、不修改代码。

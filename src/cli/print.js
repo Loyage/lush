@@ -1,15 +1,15 @@
 import { TERMINAL } from '../core/types.js';
 
-/** 一步的终端文本：与 `task transcript` 的既有格式一致，多行正文原样换行。 */
+/** 一步的终端文本：与 `worker transcript` 的既有格式一致，多行正文原样换行。 */
 export const transcriptStepText = step => `[${step.seq}] ${step.kind}\t${step.title}${step.at ? `\t${step.at}` : ''}\n${step.body}\n`;
 export function printTranscript(page) {
-  if (!page.steps.length) { console.log(page.files.length ? '(会话记录里没有可显示的步骤)' : '(这个任务还没有 pi 会话记录)'); return; }
+  if (!page.steps.length) { console.log(page.files.length ? '(会话记录里没有可显示的步骤)' : '(这个 Worker 还没有 pi 会话记录)'); return; }
   for (const step of page.steps) console.log(transcriptStepText(step));
   if (page.has_more) console.error(`… 还有更多步骤；用 --after ${page.next} 继续`);
   if (page.truncated) console.error('… 会话记录过大，只读取了前面一部分');
 }
 export function printUsage(usage) {
-  if (!usage.files.length) { console.log('(这个任务还没有 pi 会话记录)'); return; }
+  if (!usage.files.length) { console.log('(这个 Worker 还没有 pi 会话记录)'); return; }
   const model = usage.model ? [usage.model.provider, usage.model.model_id].filter(Boolean).join('/') : '—';
   const t = usage.totals;
   console.log(`模型\t${model}${usage.thinking_level ? ` · 思考等级 ${usage.thinking_level}` : ''}`);
@@ -20,14 +20,14 @@ export function printUsage(usage) {
   if (usage.last) console.log(`最近一次执行\t${usage.last.at ?? '—'}${usage.last.title ? ` · ${usage.last.title}` : ''}\t${oneLine(usage.last.body, 80)}`);
   if (usage.truncated) console.error('… 会话记录过大，统计只覆盖前面一部分');
 }
-/** 批量合并的人类可读汇总：每行一个任务，最后一行给总量与停止点。 */
+/** 批量合并的人类可读汇总：每行一个 Worker，最后一行给总量与停止点。 */
 const MERGE_STATUS_WORD = { merged: '已合并', conflict: '冲突待处理', failed: '失败', skipped: '已跳过' };
 export function printMergeMany(result) {
-  if (!result.merges.length) { console.log('(没有任务需要合并)'); return; }
+  if (!result.merges.length) { console.log('(没有 Worker 需要合并)'); return; }
   for (const row of result.merges) {
     const word = MERGE_STATUS_WORD[row.status] || row.status;
     const extra = [row.source_task_id ? `实际来源 #${row.source_task_id}` : '', row.integration ? `integration=${row.integration}` : '',
-      row.resolution_task_id ? `解冲突任务 #${row.resolution_task_id}` : '', row.included ? '随前一项一并落地' : '', row.error || ''].filter(Boolean).join(' · ');
+      row.resolution_task_id ? `解冲突 Worker #${row.resolution_task_id}` : '', row.included ? '随前一项一并落地' : '', row.error || ''].filter(Boolean).join(' · ');
     console.log(`#${row.id}\t${word}${extra ? `\t${extra}` : ''}`);
   }
   console.log(`共 ${result.merges.length} 个：已合并 ${result.merged}${result.stopped ? `；在 #${result.stopped.id} 停止（${result.stopped.reason}）` : ''}`);
@@ -71,7 +71,7 @@ export function printOrchestratePlan(plan) {
   }
   if (!plan.order?.length) console.log('没有此刻可执行的合并。');
 }
-/** 合并编排启动结果：给一句人话，进度看分支图或任务详情。 */
+/** 合并编排启动结果：给一句人话，进度看分支图或 Worker 详情。 */
 export function printOrchestrateResult(result) {
   if (result.status === 'empty') {
     const why = (result.plan?.items ?? []).filter(item => item.blockers?.length)
@@ -79,16 +79,16 @@ export function printOrchestrateResult(result) {
     console.log(`目标分支 ${result.target_branch}：没有可编排的 say 子分支${why ? `（${why}）` : ''}。`);
     return;
   }
-  console.log(`已在 ${result.target_branch} 开始合并编排（任务 #${result.task?.id ?? '?'}），按序处理 ${result.plan.order.length} 条 say 分支（没有请求但符合条件的会先自动补发固定提交请求）；进度看 lush branch tree 或 lush inspect。`);
+  console.log(`已在 ${result.target_branch} 开始合并编排（Worker #${result.task?.id ?? '?'}），按序处理 ${result.plan.order.length} 条 say 分支（没有请求但符合条件的会先自动补发固定提交请求）；进度看 lush branch tree 或 lush worker inspect。`);
 }
 /** 编排取消结果：已落地的合并不回滚。 */
 export function printOrchestrateCancel(result) {
   console.log(`已取消 ${result.target_branch} 的合并编排；已完成的 ${result.done?.length ?? 0} 条保留，不回滚。`);
 }
-/* ---------- 并行/串行关系：任务树、交付队列、时间轴 ---------- */
+/* ---------- 并行/串行关系：Worker 树、交付队列、时间轴 ---------- */
 const DEP_MARK = { code: '⛓', order: '⏳' };
 const DEP_WORD = { code: '基线', order: '顺序' };
-const WAIT_LABEL = { dep: '等依赖', children: '等子任务', user: '等你决定', slot: '等并发槽', setup: '没跑起来就结束' };
+const WAIT_LABEL = { dep: '等依赖', children: '等子 Worker', user: '等你决定', slot: '等并发槽', setup: '没跑起来就结束' };
 const INTEGRATION_WORD = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并', conflict: '冲突待处理', superseded: '已作废' };
 const oneLine = (value, max = 60) => String(value ?? '').replace(/\s+/g, ' ').slice(0, max);
 const indent = depth => '  '.repeat(depth);
@@ -101,11 +101,11 @@ function whyText(task, children = []) {
   const waiting = (task.deps || []).filter(dep => !settled(dep));
   if (task.status === 'running') return '在跑（占 1 个并发槽）';
   if (task.status === 'queued') return waiting.length ? `排队：等 ${waiting.map(dep => `#${dep.id}`).join('、')}` : '排队：等并发槽';
-  if (task.status === 'waiting') return `等子任务（${children.filter(child => child.status === 'running').length} 个在跑）`;
+  if (task.status === 'waiting') return `等子 Worker（${children.filter(child => child.status === 'running').length} 个在跑）`;
   if (task.status === 'awaiting_acceptance') return task.task_kind === 'child'
-    ? `待父 Task #${task.parent_id} 确认（已交付，无需用户验收）` : '待验收（已交付，可追加输入）';
+    ? `待父 Worker #${task.parent_id} 确认（已交付，无需用户验收）` : '待验收（已交付，可追加输入）';
   if (task.status === 'awaiting') return '等你决定';
-  if (task.status === 'completed' && task.integration === 'conflict') return '合并冲突：等你决定要不要开解冲突任务';
+  if (task.status === 'completed' && task.integration === 'conflict') return '合并冲突：等你决定要不要开解冲突 Worker';
   if (task.status === 'completed' && ['pending', 'review'].includes(task.integration)) return '等你批准合并';
   return null;
 }
@@ -133,7 +133,7 @@ export function printTree(value, status) {
   const collect = node => { flat.push(node); for (const child of node.children || []) collect(child); };
   roots.forEach(collect);
   const ready = flat.filter(task => task.status === 'queued' && !(task.deps || []).some(dep => !settled(dep))).length;
-  console.log(`并发上限 ${status?.concurrency ?? '?'} · ${status?.agents?.length ?? '?'} 个在跑 · ${ready} 个在等槽 · ${flat.length} 个任务`);
+  console.log(`并发上限 ${status?.concurrency ?? '?'} · ${status?.agents?.length ?? '?'} 个在跑 · ${ready} 个在等槽 · ${flat.length} 个 Worker`);
   console.log('⛓ = 分支基线（必须先合上游）  ⏳ = 只等上游结束  ‖ = 兄弟之间无依赖，可同时跑');
   const walk = (node, depth) => {
     const children = node.children || [];
@@ -168,7 +168,7 @@ export function printLadder(ladder) {
     for (const dep of node.deps) console.log(`${indent(node.level + 1)}${dep.kind === 'code' ? '⛓ 必须先合' : '⏳ 仅执行依赖'} #${dep.id} ${dep.branch ?? ''}${dep.merged ? '（已合并）' : ''}`);
   }
 }
-/* ---------- 分支谱系：记录下来的创建关系，与 commit graph / 任务树都是不同维度 ---------- */
+/* ---------- 分支谱系：记录下来的创建关系，与 commit graph / Worker 树都是不同维度 ---------- */
 const shortSha = commit => (commit ? String(commit).slice(0, 12) : null);
 function branchMarks(node) {
   const marks = [];
@@ -177,10 +177,10 @@ function branchMarks(node) {
   if (node.current) marks.push('*');
   return marks.length ? ` ${marks.join(' ')}` : '';
 }
-/** 每个节点在 --verbose 下单列出的细节：task / worktree / fork / parent。 */
+/** 每个节点在 --verbose 下单列出的细节：Worker / worktree / fork / parent。 */
 function branchDetails(node) {
   const out = [];
-  if (node.task_id !== null) out.push(`task: ${node.task_role ? `${node.task_role}#${node.task_id}` : `#${node.task_id}`}${node.task_name ? ` ${node.task_name}` : ''}${node.task_goal ? ` · ${oneLine(node.task_goal, 60)}` : ''}`);
+  if (node.task_id !== null) out.push(`Worker: ${node.task_role ? `${node.task_role}#${node.task_id}` : `#${node.task_id}`}${node.task_name ? ` ${node.task_name}` : ''}${node.task_goal ? ` · ${oneLine(node.task_goal, 60)}` : ''}`);
   if (node.worktree) out.push(`worktree: ${node.worktree}${node.worktree_exists === false ? '（已不在磁盘上）' : ''}`);
   if (node.created_from_commit) out.push(`fork: ${shortSha(node.created_from_commit)}`);
   out.push(node.parent ? `parent: ${node.parent}（${node.parent_relation ?? 'recorded'}）` : 'parent: unknown');
@@ -194,7 +194,7 @@ export function printBranchTree(tree, { verbose = false } = {}) {
   const collect = node => { nodes.push(node); for (const child of node.children) collect(child); };
   (tree.roots || []).forEach(collect);
   if (tree.error) console.error(`lush: ${tree.error}`);
-  if (!nodes.length) { console.log('（还没有任何分支记录；创建任务时会自动记录，或先跑 lush branch import）'); return; }
+  if (!nodes.length) { console.log('（还没有任何分支记录；创建 Worker 时会自动记录，或先跑 lush branch import）'); return; }
   const tracked = nodes.filter(node => node.tracked).length;
   const untracked = nodes.filter(node => node.tracked === false && node.present === true).length;
   const gone = nodes.filter(node => node.present === false).length;
@@ -216,7 +216,7 @@ export function printBranchShow(node) {
   console.log(`branch: ${node.branch}${branchMarks(node)}`);
   console.log(`parent: ${node.parent ? `${node.parent}（${node.parent_relation ?? 'recorded'}）` : 'unknown'}`);
   console.log(`fork commit: ${shortSha(node.created_from_commit) ?? '—'}${node.head_commit && node.head_commit !== node.created_from_commit ? ` · 现在 ${shortSha(node.head_commit)}` : ''}`);
-  console.log(`task: ${node.task_id === null ? '—' : `${node.task_role ? `${node.task_role}#${node.task_id}` : `#${node.task_id}（任务已被清理）`}${node.task_name ? ` ${node.task_name}` : ''}`}`);
+  console.log(`Worker: ${node.task_id === null ? '—' : `${node.task_role ? `${node.task_role}#${node.task_id}` : `#${node.task_id}（Worker 已被清理）`}${node.task_name ? ` ${node.task_name}` : ''}`}`);
   console.log(`worktree: ${node.worktree ?? '—'}${node.worktree_exists === false ? '（已不在磁盘上）' : ''}`);
   console.log(`status: ${node.tracked ? node.status ?? 'active' : node.present === false ? '只作为 parent 出现' : 'untracked'} · ${node.present === null ? 'git 不可用' : node.present ? 'ref 存在' : 'ref 已不在'}`);
   console.log(`created: ${node.created_at ?? '—'}`);
@@ -245,7 +245,7 @@ export function printBranchArchive(result) {
     const name = entry.branch === result.branch ? '' : `  ${entry.branch}  `;
     console.log(`${name}worktree\t${worktree}${entry.discarded ? '（丢弃了未提交改动）' : ''} · 本地分支\t${ref}${entry.tip ? `（tip ${shortSha(entry.tip)}）` : ''}`);
   }
-  console.log(`保留任务\t${result.tasks.length} 个${result.tasks.length ? `：${result.tasks.map(task => `#${task.id} ${task.status}`).join('、')}` : ''}`);
+  console.log(`保留 Worker\t${result.tasks.length} 个${result.tasks.length ? `：${result.tasks.map(task => `#${task.id} ${task.status}`).join('、')}` : ''}`);
   console.log(`会话文件\t${result.sessions.length} 个`);
   for (const file of result.sessions) console.log(`  ${file}`);
 }
@@ -254,7 +254,7 @@ export function printTimeline(page) {
   const width = Math.max(24, Math.min((process.stdout.columns || 100) - 34, 96));
   const cell = at => Math.max(0, Math.min(width, Math.round(((at - start) / span) * width)));
   const stamp = at => new Date(at).toTimeString().slice(0, 8);
-  console.log(`${stamp(start)} → ${stamp(end)} · 并发上限 ${page.concurrency}${page.clamped ? ' · 窗口已截断' : ''}${page.truncated ? ' · 更早的任务未列出' : ''}`);
+  console.log(`${stamp(start)} → ${stamp(end)} · 并发上限 ${page.concurrency}${page.clamped ? ' · 窗口已截断' : ''}${page.truncated ? ' · 更早的 Worker 未列出' : ''}`);
   for (const task of page.tasks) {
     const track = Array(width).fill('·');
     // 只看得到方格的变化：毫秒级的调度延迟不画，也不进"在等什么"的说明。
@@ -266,5 +266,5 @@ export function printTimeline(page) {
     const waits = [...new Set(visible.filter(segment => segment.kind === 'wait' && segment.reason).map(segment => WAIT_LABEL[segment.reason] || segment.reason))];
     console.log(`#${String(task.id).padEnd(3)} ${task.role.padEnd(11)} ${track.join('')} ${waits.join('/')}${task.segments.some(segment => segment.open) ? ' ←进行中' : ''}`);
   }
-  console.log('█ = 真的在跑（invocation 区间）  ▒ = 排队  · = 任务已结束');
+  console.log('█ = 真的在跑（invocation 区间）  ▒ = 排队  · = Worker 已结束');
 }

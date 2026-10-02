@@ -14,7 +14,7 @@ test('web is project scoped, submits immediately and exposes no Service views', 
   const f = await setup(); await repo(f.root);
   try {
     const page = await fetch(f.url); const html = await page.text();
-    expect(html).toContain('任务列表'); expect(html).not.toContain('Service');
+    expect(html).toContain('Worker 列表'); expect(html).not.toContain('Service');
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
     const submit = await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'say.submit',params:{content:'web request'}})});
     expect(submit.status).toBe(200);
@@ -25,7 +25,7 @@ test('web is project scoped, submits immediately and exposes no Service views', 
     expect(say.goal).toBe('web request');
     expect(snapshot.inputs).toEqual([]);
     expect(snapshot.ladder.nodes).toBeUndefined();
-    const task = await (await fetch(f.url+`/api/task/${say.id}`)).json(); expect(task.task_kind).toBe('say');
+    const task = await (await fetch(f.url+`/api/worker/${say.id}`)).json(); expect(task.task_kind).toBe('say');
   } finally { await f.close(); }
 });
 
@@ -89,18 +89,18 @@ test('web reads and saves per-target Agent environment through user-only narrow 
   } finally { await f.close(); }
 });
 
-test('web exposes only read-only task routes and rejects other paths', async () => {
+test('web exposes only read-only worker routes and rejects other paths', async () => {
   const f = await setup(); await repo(f.root);
   try {
     await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'say.submit',params:{content:'read routes'}})});
-    expect((await fetch(f.url+'/api/task/1/history')).status).toBe(200);
-    const history = await (await fetch(f.url+'/api/task/1/history')).json();
+    expect((await fetch(f.url+'/api/worker/1/history')).status).toBe(200);
+    const history = await (await fetch(f.url+'/api/worker/1/history')).json();
     expect(history[0].type).toBe('created');
-    expect((await fetch(f.url+'/api/task/1/history?after=9999')).status).toBe(200);
-    expect(await (await fetch(f.url+'/api/task/1/diff')).json()).toBeNull();
-    expect((await fetch(f.url+'/api/task/1/diff')).status).toBe(200);
-    expect((await fetch(f.url+'/api/task/99/diff')).status).toBe(400);
-    expect((await fetch(f.url+'/api/task/1/merge')).status).toBe(404);
+    expect((await fetch(f.url+'/api/worker/1/history?after=9999')).status).toBe(200);
+    expect(await (await fetch(f.url+'/api/worker/1/diff')).json()).toBeNull();
+    expect((await fetch(f.url+'/api/worker/1/diff')).status).toBe(200);
+    expect((await fetch(f.url+'/api/worker/99/diff')).status).toBe(400);
+    expect((await fetch(f.url+'/api/worker/1/merge')).status).toBe(404);
     expect((await fetch(f.url+'/api/system/status')).status).toBe(404);
   } finally { await f.close(); }
 });
@@ -191,15 +191,15 @@ test('RPC rejects invalid frames, unknown params, invalid ids and cross-project 
     expect(() => parseRequest(Buffer.from('{"jsonrpc":"2.0","method":"x","id":{}}'))).toThrow('id');
     expect(() => encode({large:'x'.repeat(1048576)})).toThrow('1 MiB');
     const client = new RPCClient(f.config.socket);
-    await expect(client.request('task.inspect',{id:-1})).rejects.toThrow('positive');
-    await expect(client.request('task.usage',{id:-1})).rejects.toThrow('positive');
-    await expect(client.request('task.usage',{id:1,after:0})).rejects.toThrow('unknown parameter');
+    await expect(client.request('worker.inspect',{id:-1})).rejects.toThrow('positive');
+    await expect(client.request('worker.usage',{id:-1})).rejects.toThrow('positive');
+    await expect(client.request('worker.usage',{id:1,after:0})).rejects.toThrow('unknown parameter');
     await expect(client.request('say.submit',{content:'x',sid:0})).rejects.toThrow('unknown parameter');
     await expect(client.request('input.list',{_token:'foreign'})).rejects.toThrow();
     // 客户端比 daemon 新时不能只说 unknown method，要给出重启这一步
     await expect(new UIClient(f.config).request('service.list',{})).rejects.toThrow('daemon restart');
-    // task.inspect 只收 id：多带一个过滤条件也必须被参数白名单拒掉（过滤在 UI 侧做）
-    await expect(new UIClient(f.config).request('task.inspect', { id: 1, status: 'pending' })).rejects.toThrow('unknown parameter');
+    // worker.inspect 只收 id：多带一个过滤条件也必须被参数白名单拒掉（过滤在 UI 侧做）
+    await expect(new UIClient(f.config).request('worker.inspect', { id: 1, status: 'pending' })).rejects.toThrow('unknown parameter');
   } finally { await f.close(); }
 });
 test('web exposes branch batch merge through the mutation whitelist', async () => {
@@ -207,10 +207,10 @@ test('web exposes branch batch merge through the mutation whitelist', async () =
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
     // 越过 Web 白名单后由 runtime 校验分支：用不存在的分支只验证不是白名单拒绝。
-    const body = await (await post('task.reserve_all', { branch: 'no-such-branch' })).json();
+    const body = await (await post('worker.reserve_all', { branch: 'no-such-branch' })).json();
     expect(body.error ?? '').not.toContain('method not allowed from Web UI');
     // agent token 在 Web 层直接被拒。
-    expect((await post('task.reserve_all', { branch: 'main', _token: 'forged' })).status).toBe(400);
+    expect((await post('worker.reserve_all', { branch: 'main', _token: 'forged' })).status).toBe(400);
   } finally { await f.close(); }
 });
 
@@ -219,10 +219,10 @@ test('web forwards auto-merge settings but rejects tokens and unrelated mutation
   const post = (method, params) => fetch(f.url + '/api/action', { method: 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
   try {
-    // This test owns the Web seam; runtime may reject an unknown Task (or an older daemon the method).
-    const response = await post('task.auto_merge', { id: 999, enabled: true });
+    // This test owns the Web seam; runtime may reject an unknown Worker (or an older daemon the method).
+    const response = await post('worker.auto_merge', { id: 999, enabled: true });
     expect((await response.json()).error ?? '').not.toContain('method not allowed from Web UI');
-    const token = await post('task.auto_merge', { id: 999, enabled: false, _token: 'forged' });
+    const token = await post('worker.auto_merge', { id: 999, enabled: false, _token: 'forged' });
     expect(token.status).toBe(400);
     expect((await post('system.stop', {})).status).toBe(400);
   } finally { await f.close(); }

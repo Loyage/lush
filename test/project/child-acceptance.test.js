@@ -18,7 +18,7 @@ async function setup() {
   f.store.armAgent(parent.id, tokenHash(token));
   f.project.running.set(parent.id, run);
   const rpc = new Dispatcher(f.project);
-  const confirm = id => rpc.dispatch('task.accept', { id, _token: token });
+  const confirm = id => rpc.dispatch('worker.accept', { id, _token: token });
   const close = async () => { f.project.running.clear(); await f.close(); };
   return { ...f, parent, child, token, run, rpc, confirm, close };
 }
@@ -33,7 +33,7 @@ test('only the live direct delegator can confirm child results; user say and oth
     await expect(f.confirm(f.parent.id)).rejects.toThrow('own direct child');
     await expect(f.confirm(siblingSay.id)).rejects.toThrow('user-created say');
     await expect(f.confirm(otherChild.id)).rejects.toThrow('own direct child');
-    await expect(f.rpc.dispatch('task.accept', { id: f.child.id, parent: f.parent.id, _token: f.token })).rejects.toThrow('unknown parameter');
+    await expect(f.rpc.dispatch('worker.accept', { id: f.child.id, parent: f.parent.id, _token: f.token })).rejects.toThrow('unknown parameter');
     const result = await f.confirm(f.child.id);
     expect(result).toMatchObject({ status: 'completed', integration: 'none', result: 'answer' });
     expect(fs.existsSync(f.child.workspace)).toBe(true);
@@ -109,7 +109,7 @@ test('a parent requests revisions then confirms a no-code child without any user
       api.message(child.id, 'please clarify', task.id);
     } else {
       expect(child).toMatchObject({ status: 'awaiting_acceptance', result: 'revised answer' });
-      await new Dispatcher(api).dispatch('task.accept', { id: child.id, _token: token });
+      await new Dispatcher(api).dispatch('worker.accept', { id: child.id, _token: token });
     }
     return 'checked delegated result';
   } });

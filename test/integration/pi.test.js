@@ -20,7 +20,7 @@ const systemFile = args[args.indexOf('--append-system-prompt')+1];
 const prompt = fs.readFileSync(systemFile,'utf8');
 fs.appendFileSync(path.join(process.env.LUSH_HOME,'seen.jsonl'),JSON.stringify({args, cwd:process.cwd(), project:process.env.LUSH_PROJECT, token:!!process.env.LUSH_AGENT_TOKEN, task:context.task, sharedEnv:process.env.TEST_SHARED, promptRole:prompt.includes('角色：'+context.task.role), promptHasWorkerInstructions:prompt.includes('角色：worker')})+'\\n');
 if(context.task.task_kind === 'say') {
- const proc = Bun.spawn(['lush','task','spawn','delegated via pinned CLI','--name','delegated-work','--json'],{stdout:'pipe',stderr:'pipe'});
+ const proc = Bun.spawn(['lush','worker','spawn','delegated via pinned CLI','--name','delegated-work','--json'],{stdout:'pipe',stderr:'pipe'});
  const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
  if(await proc.exited) throw new Error(err); console.log(out);
 }
@@ -38,7 +38,7 @@ console.log('fake pi completed');
     expect(say.agent).toMatchObject({ id: `agent#${input.task.id}`, role: 'agent', active: false, pid: null });
     expect(say.agent.wakes).toBeGreaterThan(0);
     expect(say.agent.last_seen_at).toBeTruthy();
-    const children = (await client.request('task.list')).filter(task => task.parent_id === input.task.id && task.task_kind === 'child');
+    const children = (await client.request('worker.list')).filter(task => task.parent_id === input.task.id && task.task_kind === 'child');
     expect(children).toHaveLength(1);
     expect(children[0].goal).toBe('delegated via pinned CLI');
     await idle(client, children[0].id);

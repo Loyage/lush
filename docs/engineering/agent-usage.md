@@ -67,7 +67,7 @@ balance items 增加 `id`、`reset_at`（ISO 或 null）、`window_seconds`（�
 - 在多个项目 daemon 共享凭证时，刷新 single-flight 需跨进程文件锁；拿锁后重读，若其他调用已刷新，复用最新有效凭证，不二次刷新。过期以时间判断，本轮不因 403 或 429 强制刷新 / 重试。
 - 额度 items 新增可空 `used_percent`，百分比不代替接口实际原始数值。Codex 的 `used/remaining/total` 在 `%` 单位下只表达归一化百分比，不伪造绝对订阅限额；后端解析真实 `limit_window_seconds`，界面提供可读窗口名。
 - error_code 增加独立 `timeout`、`rate_limited`，429/超时不归为授权失败，失败无自动无限重试。认证可使用安全分类 `auth_locked/auth_changed/refresh_failed`；历史白名单与 UI 文案同步。`agent_usage_points` 仅新增 nullable REAL `used_percent` 列，旧观测保留 null，不重写或由本地 token 用量补值。
-- 父 Task 负责 `usage-query.js`、界面/历史增量字段、相关独立解析测试和文档；认证 child 负责新 `usage-auth-codex.js`、`status.js/status-accounts.js/usage-query-run.js` 接入和独立认证 mock 测试，可修正原 usage-query 测试中的过期行为断言。
+- 父 Worker 负责 `usage-query.js`、界面/历史增量字段、相关独立解析测试和文档；认证 child 负责新 `usage-auth-codex.js`、`status.js/status-accounts.js/usage-query-run.js` 接入和独立认证 mock 测试，可修正原 usage-query 测试中的过期行为断言。
 
 ## 并行文件边界
 

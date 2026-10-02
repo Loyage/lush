@@ -4,7 +4,7 @@ import { makeWorld } from './dom-world.js';
 
 const world = makeWorld();
 let graph;
-const dom = installDom({ fetch: (url, options) => String(url) === '/api/task-graph'
+const dom = installDom({ fetch: (url, options) => String(url) === '/api/worker-graph'
   ? { ok: true, json: async () => graph } : world.fetchImpl(url, options) });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
@@ -118,7 +118,7 @@ test('更多操作惰性创建、沿用 Agent 帮助与原有输入弹窗，展�
   expect(trigger.getAttribute('aria-expanded')).toBe('true');
   graph.nodes[1].title = '新标题'; await loadTaskGraph();
   expect(card(2).querySelector('.task-graph-actions-popover')).toBe(panel);
-  const input = panel.querySelectorAll('button').find(button => button.textContent === '向此 Task 输入');
+  const input = panel.querySelectorAll('button').find(button => button.textContent === '向此 Worker 输入');
   expect(input.classList.contains('agent-call')).toBe(true);
   expect(input.getAttribute('data-help')).toContain('Agent');
   showHelp(input);
@@ -130,9 +130,9 @@ test('更多操作惰性创建、沿用 Agent 帮助与原有输入弹窗，展�
   beforetoggle({ newState: 'closed' });
   expect(document.activeElement).toBe(trigger);
   const sending = input.onclick();
-  expect(dialogText(dom)).toContain('发给 Task #2');
+  expect(dialogText(dom)).toContain('发给 Worker #2');
   await answerDialog(dom, '发送消息', '继续实现'); await sending;
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.message', params: { id: 2, body: '继续实现' } });
+  expect(world.state.actions.at(-1)).toEqual({ method: 'worker.message', params: { id: 2, body: '继续实现' } });
   expect(deepText(card(2))).toContain('新标题');
 });
 
@@ -146,7 +146,7 @@ test('极简菜单复用合并、待决入口及冻结禁用，不内嵌待决�
   graph.nodes[1].freeze = { task_id: 99, reason: '固定提交冻结' }; renderTaskGraph(graph);
   expect(deepText(card(2))).toContain('冻结');
   card(2).querySelector('.task-graph-more-trigger').onclick();
-  const input = card(2).querySelectorAll('button').find(button => button.textContent === '向此 Task 输入');
+  const input = card(2).querySelectorAll('button').find(button => button.textContent === '向此 Worker 输入');
   expect(input.disabled).toBe(true);
   expect(input.parentNode.classList.contains('help-host')).toBe(true);
 });

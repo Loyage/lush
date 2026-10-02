@@ -1,8 +1,8 @@
 # Run、invocation 与多级协作
 
-本文说明每次 provider 调用与持久 Task 的边界。新 say 与历史遗留 Task 共用同一套 Run 记录；旧 WorkItem 只是兼容读模型。
+本文说明每次 provider 调用与持久 Worker 的边界。新 say 与历史遗留 Worker 共用同一套 Run 记录；旧 WorkItem 只是兼容读模型。
 
-## Task 与 Run
+## Worker 与 Run
 
 每次真实 provider 调用都会先写 `agent_runs`：
 
@@ -13,23 +13,23 @@ WorkItem #42
 └── Run #85（completed，最终结果）
 ```
 
-Task 的累计 calls / wakes 继续用于兼容读模型，Run 保存每次调用自己的 attempt、provider、时间、result 与 error。成功输出同时形成 `run.result` Artifact。
+Worker 的累计 calls / wakes 继续用于兼容读模型，Run 保存每次调用自己的 attempt、provider、时间、result 与 error。成功输出同时形成 `run.result` Artifact。
 
 ## 一次 invocation
 
-1. Dispatcher 按任务就绪状态与相应 lane 的容量选择 queued Task。
+1. Dispatcher 按Worker就绪状态与相应 lane 的容量选择 queued Worker。
 2. `running` Map 占位，签发本次 invocation token，创建 `agent_runs` 行。
-3. 准备 cwd：say / child 使用独立 worktree；解分歧 Task 使用从固定提交拉起的独立 worktree；旧记录里可能还有输入 worktree 或对照检出。
-4. 读取启动时未消费消息、相关工作与 Artifact 上下文；对带 Input 的普通任务读取其引用快照并按稳定目标解析本轮最新状态，组成 `referenced_context`。provider 按 role 组合命名 Prompt 片段，叠加 `agent.json`、项目/本机补充并热加载公共/角色 env 后启动 Pi 或 Codex。
-5. 成功返回后消费启动时消息，保存 Task 兼容 result、结束 Run、写 Artifact。
-6. 判定未读消息、Decision、活动子任务与工作区提交，进入 queued / awaiting / waiting / completed。
+3. 准备 cwd：say / child 使用独立 worktree；解分歧 Worker 使用从固定提交拉起的独立 worktree；旧记录里可能还有输入 worktree 或对照检出。
+4. 读取启动时未消费消息、相关工作与 Artifact 上下文；对带 Input 的普通Worker读取其引用快照并按稳定目标解析本轮最新状态，组成 `referenced_context`。provider 按 role 组合命名 Prompt 片段，叠加 `agent.json`、项目/本机补充并热加载公共/角色 env 后启动 Pi 或 Codex。
+5. 成功返回后消费启动时消息，保存 Worker 兼容 result、结束 Run、写 Artifact。
+6. 判定未读消息、Decision、活动子Worker与工作区提交，进入 queued / awaiting / waiting / completed。
 7. 释放 token 和槽，再检查一次收件箱避免 lost wake-up。
 
 失败或取消会结束对应 Run；崩溃恢复不重放未知副作用。
 
-结构化问卷是正常返回之外的主动暂停路径：`notice.post` 带 `questions` 时，同一事务保存 notice、消费本轮已交付消息、记一条 `invocation.completed {suspended:true}` 并设置 awaiting；提交后中止进程组。本轮不执行 worker finish、不标失败。调度器的 `questionPending` 闸门阻止普通消息和子任务结果提前唤醒；答复/忽略落收件箱后，在旧 invocation 清理完毕时重新排队，防止 lost-wakeup。已暂停 task 在关闭/重启时保留 awaiting，而不是把主动暂停当异常失败。详见[待决问题](../reference/rpc/notices.md)。
+结构化问卷是正常返回之外的主动暂停路径：`notice.post` 带 `questions` 时，同一事务保存 notice、消费本轮已交付消息、记一条 `invocation.completed {suspended:true}` 并设置 awaiting；提交后中止进程组。本轮不执行 worker finish、不标失败。调度器的 `questionPending` 闸门阻止普通消息和子Worker结果提前唤醒；答复/忽略落收件箱后，在旧 invocation 清理完毕时重新排队，防止 lost-wakeup。已暂停 Worker 在关闭/重启时保留 awaiting，而不是把主动暂停当异常失败。详见[待决问题](../reference/rpc/notices.md)。
 
-waiting / awaiting / paused 不占 agent 槽，也不运行 sleep/poll 子进程。最终输出是 task result；不提供可被 agent 提前调用的 complete 命令。
+waiting / awaiting / paused 不占 agent 槽，也不运行 sleep/poll 子进程。最终输出是 Worker result；不提供可被 agent 提前调用的 complete 命令。
 
 ## 两条 admission lane
 
@@ -40,4 +40,4 @@ waiting / awaiting / paused 不占 agent 槽，也不运行 sleep/poll 子进程
 
 ## 协作与集成
 
-新 say / child Agent 可以派子任务；普通成功收据在本波直接子任务全部终态后合并唤醒，失败、取消和显式消息仍及时可调度，详见[合并唤醒](token-efficiency.md#父任务合并唤醒)。Agent 派出的 child 在创建时默认预约合入直接父 Task；轮末安全结束、消息已处理、后代已结算且工作区干净后，runtime 在真实安全点固定源提交并交给父 Task 自有队列串行 Squash，不创建 merge Task、不改父子关系，不额外调用父 Agent 或要求手动集成。干净且无新提交的 child 直接交付结果、进入 awaiting_acceptance 等父确认。成功收据等本波子任务全部结算再唤醒父 Agent，避免父 Agent 与队列争用分支。用户直接创建的 say 仍由用户决定何时预约合并（含进入 main/owner）；取得父执行位后才固定父基线；分歧退回原 Task 合入固定父提交、保留原源提交并测试，修复期间保留父执行位。挂起释放，恢复重新排队并固定新基线。旧 version 1 请求继续保留原来的手动确认边界，旧 version 2 merge 身份与在途重挂仅按明确预约／审计兼容恢复；见[分支合并](merge.md)。
+新 say / child Agent 可以派子Worker；普通成功收据在本波直接子Worker全部终态后合并唤醒，失败、取消和显式消息仍及时可调度，详见[合并唤醒](token-efficiency.md#父Worker合并唤醒)。Agent 派出的 child 在创建时默认预约合入直接父 Worker；轮末安全结束、消息已处理、后代已结算且工作区干净后，runtime 在真实安全点固定源提交并交给父 Worker 自有队列串行 Squash，不创建 merge Worker、不改父子关系，不额外调用父 Agent 或要求手动集成。干净且无新提交的 child 直接交付结果、进入 awaiting_acceptance 等父确认。成功收据等本波子Worker全部结算再唤醒父 Agent，避免父 Agent 与队列争用分支。用户直接创建的 say 仍由用户决定何时预约合并（含进入 main/owner）；取得父执行位后才固定父基线；分歧退回原 Worker 合入固定父提交、保留原源提交并测试，修复期间保留父执行位。挂起释放，恢复重新排队并固定新基线。旧 version 1 请求继续保留原来的手动确认边界，旧 version 2 merge 身份与在途重挂仅按明确预约／审计兼容恢复；见[分支合并](merge.md)。

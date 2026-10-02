@@ -111,7 +111,7 @@ test('interrupt / resume / configure reject the wrong targets and are user-only 
     const root = await f.project.ensureMainTask();
     expect(() => f.project.interrupt(root.id)).toThrow('permanent root');
     const { task } = await f.project.say('guards');
-    expect(() => f.project.resumeTask(task.id)).toThrow('only paused tasks');
+    expect(() => f.project.resumeTask(task.id)).toThrow('only paused workers');
     expect(() => f.project.configureTask(task.id, { agent: 'pi' })).toThrow('only paused');
     f.project.interrupt(task.id);
     expect(() => f.project.interrupt(task.id)).toThrow('already paused');
@@ -119,18 +119,18 @@ test('interrupt / resume / configure reject the wrong targets and are user-only 
     f.store.update(task.id, { status: 'cancelled' });
     expect(() => f.project.interrupt(task.id)).toThrow('has ended');
 
-    expect(PARAMS['task.interrupt']).toEqual(['id']);
-    expect(PARAMS['task.resume']).toEqual(['id', 'profile']);
-    expect(PARAMS['task.configure']).toEqual(['id', 'profile']);
-    for (const method of ['task.interrupt', 'task.resume', 'task.configure']) {
+    expect(PARAMS['worker.interrupt']).toEqual(['id']);
+    expect(PARAMS['worker.resume']).toEqual(['id', 'profile']);
+    expect(PARAMS['worker.configure']).toEqual(['id', 'profile']);
+    for (const method of ['worker.interrupt', 'worker.resume', 'worker.configure']) {
       expect(USER_ONLY.has(method)).toBe(true);
-      const params = method === 'task.interrupt' ? { id: 5 } : { id: 5, profile: {} };
+      const params = method === 'worker.interrupt' ? { id: 5 } : { id: 5, profile: {} };
       expect(() => assertAllowed(method, params, 5)).toThrow('requires user approval');
     }
     // 用户路径经 RPC 正常：interrupt 后 inspect 看到 paused。
     f.store.update(task.id, { status: 'queued' });
-    await new Dispatcher(f.project).dispatch('task.interrupt', { id: task.id });
-    expect((await new Dispatcher(f.project).dispatch('task.inspect', { id: task.id })).status).toBe('paused');
+    await new Dispatcher(f.project).dispatch('worker.interrupt', { id: task.id });
+    expect((await new Dispatcher(f.project).dispatch('worker.inspect', { id: task.id })).status).toBe('paused');
   } finally { await f.close(); }
 });
 

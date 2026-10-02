@@ -16,8 +16,8 @@ test('完成信号正文与关键字段直接可读；完整信封只在显式�
   const msg = signal('child.completed', { result: '## 已完成\n\n- 修复 **边界情况**', commit: 'abc1234' });
   const root = renderTaskMessage(msg, 1);
   const text = deepText(root);
-  expect(text).toContain('来自任务 #7');
-  expect(text).toContain('子任务完成');
+  expect(text).toContain('来自 Worker #7');
+  expect(text).toContain('子 Worker 完成');
   expect(root.querySelector('time').getAttribute('datetime')).toBe(at);
   expect(root.querySelector('h2')).toBeTruthy();
   expect(root.querySelector('strong')).toBeTruthy();
@@ -50,11 +50,11 @@ test('常见合并信号有中文标题，显示完整哈希，保留额外字�
 test('失败、取消和生成时截断如实展示，不把历史完成信号当作当前状态', () => {
   const root = renderTaskMessage(signal('child.failed', { error: '测试失败\n保留日志', result: '部分结果', result_truncated: true }), 1);
   expect(root.classList.contains('message-failed')).toBe(true);
-  expect(deepText(root)).toContain('子任务失败');
+  expect(deepText(root)).toContain('子 Worker 失败');
   expect(deepText(root)).toContain('测试失败');
   expect(deepText(root)).toContain('截断');
   expect(deepText(root)).toContain('不能恢复缺失部分');
-  expect(deepText(renderTaskMessage(signal('child.cancelled', { result: null }), 1))).toContain('子任务已取消');
+  expect(deepText(renderTaskMessage(signal('child.cancelled', { result: null }), 1))).toContain('子 Worker 已取消');
   expect(deepText(renderTaskMessage(message(JSON.stringify({ child: 7, status: 'completed', result: '历史结果' })), 1))).toContain('历史结果');
 });
 
@@ -106,7 +106,7 @@ test('长正文就地展开／收起；空消息和收发方向清楚', () => {
   toggle.onclick();
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(deepText(renderTaskMessage(message(''), 1))).toContain('空消息');
-  expect(deepText(renderTaskMessage(message('发给父任务'), 7))).toContain('发给任务 #1');
+  expect(deepText(renderTaskMessage(message('发给父任务'), 7))).toContain('发给 Worker #1');
 });
 
 test('详情集成保留消息引用原文，刷新／追加消息保留已有阅读节点', async () => {
@@ -116,7 +116,7 @@ test('详情集成保留消息引用原文，刷新／追加消息保留已有�
   const card = dom.node('detail').querySelector('.task-message');
   initContextReferences();
   await dom.fire('contextmenu', { target: card, clientX: 10, clientY: 20, preventDefault() {} });
-  await findByText(dom.node('context-menu'), '引用：任务 #1 的消息').onclick();
+  await findByText(dom.node('context-menu'), '引用：Worker #1 的消息').onclick();
   const descriptor = composerReferences()[0];
   expect(descriptor.kind).toBe('message');
   expect(descriptor.target).toEqual({ task_id: 1, message_id: 17 });

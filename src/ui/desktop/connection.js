@@ -10,7 +10,7 @@ if (!localSupported) {
   const reason = 'Windows 客户端仅连接远程 Linux / macOS Lush Host，不启动本地后台，也不需要本机 Bun。';
   document.getElementById('local-help').textContent = reason;
   document.getElementById('local-help-host').dataset.help = reason;
-  document.getElementById('connection-intro').textContent = '连接远程 Host，在独立窗口中管理项目。关闭窗口不会停止远端任务或服务。';
+  document.getElementById('connection-intro').textContent = '连接远程 Host，在独立窗口中管理项目。关闭窗口不会停止远端 Worker 或服务。';
 }
 
 function paintBusy() {

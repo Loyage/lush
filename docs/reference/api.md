@@ -8,14 +8,16 @@
 
 本页是索引：CLI 与 RPC 表格、返回值和错误信息都在下面各章里。若要先理解从输入到交付的实际操作顺序，请读[当前 say 流程](../task-flow.md)。
 
+公开实体入口统一为 `lush worker` / RPC `worker.*`，旧 Task 命令与方法不保留别名；`notice --worker` / `config worker-call-limit` 与保留的内部字段之间的映射见[更名边界](../engineering/core-api.md#worker-更名与兼容边界)。
+
 ## 速查表
 
 | 命令 | 章节 |
 |---|---|
 | `lush say` | [一条 say 输入如何交付](../task-flow.md) |
-| `lush task list` / `tree` / `inspect` / `spawn` / `message` / `cancel` / `retry` / `integrate` / `reserve` / `unreserve` / `resolve` / `resolve-divergence` / `resolve-child-divergence` / `approve-merge` / `cleanup` | [任务、Run 与 Artifact](rpc/tasks.md) |
-| `lush task inspect` / `history` / `transcript` / `wait`（`task.diff` / `task.usage` 仅 RPC） | [审阅与过程读模型](rpc/inspect.md) |
-| `lush task cleanup [--keep-branch]` | [磁盘回收](rpc/maintenance.md) |
+| `lush worker list` / `tree` / `inspect` / `spawn` / `message` / `cancel` / `retry` / `integrate` / `reserve` / `unreserve` / `resolve` / `resolve-divergence` / `resolve-child-divergence` / `approve-merge` / `cleanup` | [Worker、Run 与 Artifact](rpc/tasks.md) |
+| `lush worker inspect` / `history` / `transcript` / `wait`（`worker.diff` / `worker.usage` 仅 RPC） | [审阅与过程读模型](rpc/inspect.md) |
+| `lush worker cleanup [--keep-branch]` | [磁盘回收](rpc/maintenance.md) |
 | `lush branch tree` / `show` / `bind` / `archive` | [分支谱系](rpc/branches.md) |
 | `lush notice list` / `post` / `answer` / `dismiss` | [待决问题](rpc/notices.md) |
 | `lush status` / `lush config show` / `lush config set|reset` / `lush agent show|prompt|env|init|set|reset` / `lush daemon stop` | [Agent 环境与权限](agent-environment.md) |

@@ -119,7 +119,7 @@ test('文档视图打开时轮询不覆盖它，切到别的视图后让位', as
 
   // 从文档视图点进任务详情：右栏归任务，随后轮询也不会把文档画回来
   await openDocs('docs-engineering-modules');
-  dom.location.hash = '#task-1';
+  dom.location.hash = '#worker-1';
   await dom.fire('hashchange');
   expect(dom.node('detail').dataset.view).toBe('task');
   await dom.intervalFor(1500)();

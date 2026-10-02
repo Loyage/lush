@@ -4,16 +4,16 @@ import { absolute, relative, short } from './format.js';
 import { detail } from './navigate.js';
 import { referenceable } from './context-references.js';
 
-const reportButton = taskId => button('打开 HTML 报告', () => { window.open(projectApi(`/api/task/${taskId}/report`), '_blank', 'noopener'); }, 'ghost');
+const reportButton = taskId => button('打开 HTML 报告', () => { window.open(projectApi(`/api/worker/${taskId}/report`), '_blank', 'noopener'); }, 'ghost');
 /** 检验区块：worker 看自己的历次检验，verifier 看自己的报告。 */
 export function renderVerifications(task) {
   if (task.role === 'verifier') {
     const section = block('检验');
-    section.append(el('p', `本任务检验 #${task.verifies_task_id}：演示它 worktree 里的实际运行结果，并对照目标分支的同一场景。`, 'hint'));
+    section.append(el('p', `本 Worker 检验 #${task.verifies_task_id}：演示它 worktree 里的实际运行结果，并对照目标分支的同一场景。`, 'hint'));
     if (task.report) { const actions = el('div', undefined, 'actions'); actions.append(reportButton(task.id)); section.append(actions); }
-    else section.append(el('p', '还没有生成 HTML 报告；报告写到任务 result 里给出的 report_path。', 'hint'));
-    referenceable(section, { kind: 'verification', target: { verification_id: task.id }, label: `检验任务 #${task.id}`,
-      quote: task.result || `检验任务 #${task.id}，被检验任务 #${task.verifies_task_id}`, location: { view: 'task-detail', task_id: task.id, section: 'verification' } });
+    else section.append(el('p', '还没有生成 HTML 报告；报告写到 Worker result 里给出的 report_path。', 'hint'));
+    referenceable(section, { kind: 'verification', target: { verification_id: task.id }, label: `检验 Worker #${task.id}`,
+      quote: task.result || `检验 Worker #${task.id}，被检验 Worker #${task.verifies_task_id}`, location: { view: 'task-detail', task_id: task.id, section: 'verification' } });
     return section;
   }
   const verifications = task.verifications || [];
@@ -25,7 +25,7 @@ export function renderVerifications(task) {
   for (const item of verifications) {
     const card = el('div', undefined, 'verify');
     const row = el('div', undefined, 'row');
-    row.append(statusBadge(item), el('span', `#${item.id}`, 'tid'), button('查看检验任务', () => detail(item.id), 'link'),
+    row.append(statusBadge(item), el('span', `#${item.id}`, 'tid'), button('查看检验 Worker', () => detail(item.id), 'link'),
       el('span', `${relative(item.updated_at)} · ${absolute(item.updated_at)}`, 'when'));
     card.append(row);
     if (item.baseline_commit) card.append(el('p', `对照基线 ${short(item.baseline_commit)}`, 'hint'));

@@ -62,7 +62,7 @@ test('导航新增 Agent 状态平级页，查询安装、模型、账号与资�
   await dom.node('agent-status-open').onclick();
   await dom.intervalFor(1500)(); await dom.intervalFor(3000)();
   expect(calls).toBe(before + 1); expect(pageText()).toBe(content); expect(dom.pushed()).toBe(pushes);
-  dom.location.hash = '#tasks'; await dom.fire('hashchange'); expectSelected('tasks');
+  dom.location.hash = '#workers'; await dom.fire('hashchange'); expectSelected('tasks');
   dom.location.hash = '#agent-status'; await dom.fire('hashchange'); expectSelected('agent-status');
   expect(calls).toBe(before + 2);
 });

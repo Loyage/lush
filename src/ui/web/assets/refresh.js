@@ -133,7 +133,7 @@ export async function liveRefresh() {
       task,
       // 仅显式展开时续读；收起后不继续加载正文。
       transcript,
-      fetchUsage: id => api(`/api/task/${id}/usage`).catch(() => null),
+      fetchUsage: id => api(`/api/worker/${id}/usage`).catch(() => null),
       fetchTranscript: fetchTranscriptAfter,
       publish: { usage: paintUsageLast, steps: (id, steps) => {
         if (transcriptCache.get(id) === transcript) appendTranscriptSteps(id, steps);

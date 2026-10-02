@@ -23,19 +23,19 @@
 
 归档模式当前版本为记录的原始源 `head_commit`（不得用 main / Squash 提交冒充）；working 范围不可用。无基线允许只读正文，差异不可用。读取时验证真实 worktree 身份和 HEAD；数据库 `head_commit` 不代表运行期最新 HEAD。
 
-净变化与工作区脏状态独立。文件恢复到任务基线后净 diff 可以为零，暂存/未暂存仍须显示；暂存内容与工作区抵消时仍保留状态，不伪造 index 独立 diff。子 Task 尚未合入的文件不混入当前 Task；已合入 child / 父同步也可能出现在任务净变化中，不能断言全部由该 Agent 独创。
+净变化与工作区脏状态独立。文件恢复到Worker基线后净 diff 可以为零，暂存/未暂存仍须显示；暂存内容与工作区抵消时仍保留状态，不伪造 index 独立 diff。子 Worker 尚未合入的文件不混入当前 Worker；已合入 child / 父同步也可能出现在Worker净变化中，不能断言全部由该 Agent 独创。
 
 ## 公共 API（version 1）
 
-三个用户专属 RPC 及 GET 路由；均沿用已认证的 `/api/task/<id>/…` 或多项目 `/p/<id>/api/task/<id>/…`，Host 只转发：
+三个用户专属 RPC 及 GET 路由；均沿用已认证的 `/api/worker/<id>/…` 或多项目 `/p/<id>/api/worker/<id>/…`，Host 只转发：
 
 | RPC | HTTP 后缀 | 参数（除 id） |
 | --- | --- | --- |
-| `task.code_state` | `code-state` | `scope?, after?, limit?` |
-| `task.code_tree` | `code-tree` | `scope?, path?, query?, changed?, after?, limit?, revision?` |
-| `task.code_file` | `code-file` | `scope?, path, view?, side?, offset?, limit?, context?, revision?` |
+| `worker.code_state` | `code-state` | `scope?, after?, limit?` |
+| `worker.code_tree` | `code-tree` | `scope?, path?, query?, changed?, after?, limit?, revision?` |
+| `worker.code_file` | `code-file` | `scope?, path, view?, side?, offset?, limit?, context?, revision?` |
 
-- `id` 为 Task id；`path` 必须是项目相对 literal 路径（tree 根用空字符串），不接受 cwd、任意 ref、绝对路径、`..`、NUL 或内部目录。路径不会作为 Git pathspec 指令执行，合法冒号/通配符/换行/tab 文件名按字面处理。
+- `id` 为 Worker id；`path` 必须是项目相对 literal 路径（tree 根用空字符串），不接受 cwd、任意 ref、绝对路径、`..`、NUL 或内部目录。路径不会作为 Git pathspec 指令执行，合法冒号/通配符/换行/tab 文件名按字面处理。
 - `after` 为非负整数分页偏移，默认 0；`limit` tree/state 默认 100、最大 200。`changed` 是布尔值（HTTP `true/false`）；query 是显式按路径过滤，不是仓库全文搜索。无 query 的 tree 仅返回该目录直接子项，query 非空返回全路径匹配文件，均有界。
 - file `view=diff|content`，默认 diff；`side=old|new`，默认 new；content 的 offset/limit 按 JS 字符计，默认 0/24000、上限 24000；diff 的 offset/limit 按 hunk 计，默认 0/20、上限 100，另有响应字节上限；`context` 为每块上下文行数，默认 3、最大 100。
 - `revision` 是服务端给出的不透明采样标识，不是调用方可指定的版本或权限；提交对象固定，现场变化导致不一致时返回 stale，由用户刷新，不能拼接旧文件的后半段与新文件的前半段。
@@ -74,7 +74,7 @@
 
 ## 生命周期与安全
 
-只在前台且代码页签可见时按现有刷新偏好探测 state（正常约 3 秒、single-flight）；不定时下载全部文件。变更只更新状态/提示，已选文件保留旧正文，用户点加载最新才替换。关闭、切换 Task/页签会取消/作废请求，迟到响应不能覆盖；当前正文不会因后台探测失去焦点/选区。
+只在前台且代码页签可见时按现有刷新偏好探测 state（正常约 3 秒、single-flight）；不定时下载全部文件。变更只更新状态/提示，已选文件保留旧正文，用户点加载最新才替换。关闭、切换 Worker/页签会取消/作废请求，迟到响应不能覆盖；当前正文不会因后台探测失去焦点/选区。
 
 后端使用有界 Git 子进程、超时与输出限额；禁用外部 diff、textconv、fsmonitor、分页器和可选 index 写回。只读 Git 不占 mutation queue；读取身份漂移时返回 stale。Git 用参数数组和 literal path，历史读固定对象；现场从校验的普通文件句柄读取，拒绝链接穿越及符号链接换链竞态。目录、单文件、diff 与响应均有独立预算，不缓冲无限输出。
 
@@ -89,7 +89,7 @@
 - 文本 diff 两侧输入合计最多 2 MiB，原始 diff/展开结构预算 512 KiB。超限可切原文，但原文仍受单侧 8 MiB 限制；不将超限伪装成无差异。
 - 整个 JSON 响应最多 512 KiB，列表行预算 480 KiB；字节预算会让实际一页少于 limit，仍用 next/has_more 继续，不截断文件名。全局最多 4 个并发代码读取，超出明确繁忙。
 - 状态中的未跟踪文本增删行可能为未知，文件打开后仍能读到实际差异；子模块只读登记提交，不递归扫描其未提交现场。首期不提供独立 index 版本审阅或逐步骤历史回放。
-- 归档不保证原 Git 对象永久存在，不保存未提交内容。界面显示 Task 工作区净变化，不保证每一行都是该 Agent 所写。
+- 归档不保证原 Git 对象永久存在，不保存未提交内容。界面显示 Worker 工作区净变化，不保证每一行都是该 Agent 所写。
 - Linux 与真实 Firefox 联调已验证；macOS 需要在真实 CI/机器验证，新增 `.github/workflows/code-reader-posix.yml` 覆盖两平台与 Bun 最低/当前版本，但添加 workflow 不等于 CI 已运行通过。
 
 ## 实现分工与验收

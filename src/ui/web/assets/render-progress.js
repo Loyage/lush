@@ -69,11 +69,11 @@ function liveDuration(item, className = 'task-progress-duration is-running-durat
 }
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
-const STOPPED_LABEL = { completed: '任务结束时未完成', failed: '失败时中止', cancelled: '取消时中止' };
+const STOPPED_LABEL = { completed: 'Worker 结束时未完成', failed: '失败时中止', cancelled: '取消时中止' };
 
 function stoppedDuration(startedAt, endedAt, status) {
   const started = Date.parse(startedAt), ended = Date.parse(endedAt);
-  const label = STOPPED_LABEL[status] || '任务结束时中止';
+  const label = STOPPED_LABEL[status] || 'Worker 结束时中止';
   return Number.isFinite(started) && Number.isFinite(ended)
     ? `${label} · 已执行 ${formatProgressDuration(Math.max(0, ended - started))}` : label;
 }
@@ -137,7 +137,7 @@ export function renderTaskProgress(progress, { status = null, endedAt = null } =
   const stats = progressStats(progress);
   if (!stats.total) return null;
   const terminal = TERMINAL.has(status);
-  const section = block('任务计划', `${stats.completed}/${stats.total}`);
+  const section = block('Worker 计划', `${stats.completed}/${stats.total}`);
   section.classList.add('task-progress-panel');
   if (terminal) section.classList.add('is-terminal', `is-terminal-${status}`);
   const meter = el('progress', undefined, 'task-progress-meter'); meter.max = stats.total; meter.value = stats.completed;

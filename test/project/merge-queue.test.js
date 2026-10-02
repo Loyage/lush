@@ -33,24 +33,24 @@ test('detail and graph share read-only request readiness across child and messag
     const child = f.store.create({ parent_id: say.id, role: 'agent', task_kind: 'child', goal: 'pending child' });
     for (const status of ['queued','running','waiting','awaiting']) {
       f.store.update(child.id, { status });
-      await projectView({ ready: false, reason: `等待子 Task #${child.id} 结算` });
+      await projectView({ ready: false, reason: `等待子Worker #${child.id} 结算` });
     }
     const booked = await f.project.reserveTask(say.id, 'merge');
     expect(booked.reservation.status).toBe('pending');
-    expect(booked.reservation.blocked_reason).toContain(`子 Task #${child.id}`);
+    expect(booked.reservation.blocked_reason).toContain(`子Worker #${child.id}`);
     expect(f.store.history(say.id).some(event => event.type === 'task.merge_requested')).toBe(false);
     await f.project.unreserveTask(say.id);
     // A delivered child awaiting user acceptance no longer blocks this invocation's delivery.
     f.store.update(child.id, { status: 'awaiting_acceptance', integration: 'merged' });
     await projectView({ ready: true });
     f.store.message(say.id, 'continue work before merging');
-    await projectView({ ready: false, reason: '还有未处理的消息或子任务信号，需先交给 Agent' });
+    await projectView({ ready: false, reason: '还有未处理的消息或子Worker信号，需先交给 Agent' });
     f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', say.id);
     f.project.running.set(say.id, {});
     try { await projectView({ ready: false, reason: 'Agent 正在调用或收尾，等待本轮安全结束' }); }
     finally { f.project.running.delete(say.id); }
     (f.project.taskSyncBusy ??= new Set()).add(say.id);
-    try { await projectView({ ready: false, reason: 'Task 父分支同步正在执行，请等待安全点' }); }
+    try { await projectView({ ready: false, reason: 'Worker 父分支同步正在执行，请等待安全点' }); }
     finally { f.project.taskSyncBusy.delete(say.id); }
     f.store.update(say.id, { integration: 'none', head_commit: f.store.task(say.id).base_commit });
     await projectView({ ready: false, reason: '没有登记的待交付提交，等待本轮工作完成' });
@@ -299,7 +299,7 @@ test('a completed historical showcase say cannot reopen through merge reservatio
     f.store.update(source.id, { status: 'completed', reservation: JSON.stringify({ version: 1,
       kind: 'showcase', status: 'completed', child_id: 999 }) });
     const before = f.store.task(source.id);
-    await expect(f.project.reserveTask(source.id, 'merge')).rejects.toThrow('ended say Task');
+    await expect(f.project.reserveTask(source.id, 'merge')).rejects.toThrow('ended say Worker');
     expect(f.store.task(source.id)).toEqual(before);
     expect(f.store.unread(source.parent_id)).toHaveLength(0);
   } finally { await f.close(); }
@@ -434,11 +434,11 @@ test('a second source diverging after squash is returned to its own Agent withou
 });
 
 test('reserve_all is a user-only branch batch entry', () => {
-  expect(PARAMS['task.reserve_all']).toEqual(['branch']);
-  expect(USER_ONLY.has('task.reserve_all')).toBe(true);
-  expect(assertAllowed('task.reserve_all', { branch: 'main' }, null)).toBeNull();
-  expect(() => assertAllowed('task.reserve_all', { branch: 'main' }, 7)).toThrow(/requires user approval/);
-  expect(() => assertAllowed('task.reserve_all', { branch: 'main', extra: 1 }, null)).toThrow(/unknown parameter/);
+  expect(PARAMS['worker.reserve_all']).toEqual(['branch']);
+  expect(USER_ONLY.has('worker.reserve_all')).toBe(true);
+  expect(assertAllowed('worker.reserve_all', { branch: 'main' }, null)).toBeNull();
+  expect(() => assertAllowed('worker.reserve_all', { branch: 'main' }, 7)).toThrow(/requires user approval/);
+  expect(() => assertAllowed('worker.reserve_all', { branch: 'main', extra: 1 }, null)).toThrow(/unknown parameter/);
 });
 
 test('reserveMergeAll queues every idle pending Task on a branch and the queue lands them in order', async () => {

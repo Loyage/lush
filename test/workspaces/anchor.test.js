@@ -92,7 +92,7 @@ test('input submission can choose a local parent branch without checking it out'
     expect(f.store.branch(input.anchor.branch).parent).toBe('release-next');
     expect(await git(f.root, 'symbolic-ref', '--short', 'HEAD')).toBe('main');
     await expect(f.project.say('bad', 'missing-branch'))
-      .rejects.toThrow('needs exactly one explicitly bound Task before say');
+      .rejects.toThrow('needs exactly one explicitly bound Worker before say');
   } finally { await f.close(); }
 });
 

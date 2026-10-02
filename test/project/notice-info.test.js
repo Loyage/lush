@@ -26,7 +26,7 @@ test('worker completed 落且只落一条 info 提醒，写清分支、父分支
     expect(note.title).toContain(task.branch);
     expect(note.title).toContain(`#${task.id}`);
     expect(note.title).toContain('已完成');
-    expect(note.body).toContain(`任务 #${task.id}`);
+    expect(note.body).toContain(`Worker #${task.id}`);
     expect(note.body).toContain('worker');
     expect(note.body).toContain(task.branch);
     expect(note.body).toContain(task.target_branch);

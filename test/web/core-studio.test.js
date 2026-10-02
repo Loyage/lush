@@ -9,10 +9,12 @@ const dom = installDom({ fetch: (url, options) => localFetch(f.url + url, option
 const { boot } = await import('../../src/ui/web/assets/app.js');
 afterAll(async () => { dom.restore(); await f.close(); });
 
-test('原 Studio 页面在核心 API 下可加载、发送 say 并打开 Task 详情', async () => {
+test('原 Studio 页面在核心 API 下可加载、发送 say 并打开 Worker 详情', async () => {
   await boot();
   expect(dom.node('connection').textContent).toBe('已连接');
   expect(deepText(dom.node('detail'))).toContain('项目概览');
+  expect(deepText(dom.node('detail'))).toContain('WORKER / 目标与交付');
+  expect(deepText(dom.node('detail'))).not.toContain('TASK /');
   expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);
   dom.node('input').value = '从原界面发送目标';
   await dom.node('input-form').onsubmit({ preventDefault() {} });
@@ -23,12 +25,12 @@ test('原 Studio 页面在核心 API 下可加载、发送 say 并打开 Task �
   await detail(task.id);
   expect(deepText(dom.node('detail'))).toContain('从原界面发送目标');
   await dom.node('task-graph-open').onclick();
-  expect(deepText(dom.node('detail'))).toContain('任务树');
+  expect(deepText(dom.node('detail'))).toContain('Worker 树');
   expect(deepText(dom.node('detail'))).not.toContain('Task 图');
-  expect(dom.node('view-title').textContent).toBe('任务树');
-  expect(document.title).toBe('Lush · 任务树');
-  // 真 RPC → HTTP → Task 卡片，验证合入后的诊断字段，不只依赖 DOM fixture。
-  const graph = await (await localFetch(f.url + '/api/task-graph')).json();
+  expect(dom.node('view-title').textContent).toBe('Worker 树');
+  expect(document.title).toBe('Lush · Worker 树');
+  // 真 RPC → HTTP → Worker 卡片，验证合入后的诊断字段，不只依赖 DOM fixture。
+  const graph = await (await localFetch(f.url + '/api/worker-graph')).json();
   const node = graph.nodes.find(row => row.id === task.id);
   expect(node.branch_info).toMatchObject({ parent: 'main', current: false,
     relation: { status: 'equal', ahead: 0, behind: 0 } });

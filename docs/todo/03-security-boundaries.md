@@ -19,10 +19,10 @@
 
 - **状态**：已按[多项目工作台改造规划](multi_proj/README.md)实施，用户确认「标签页各自独立保持当前项目、打开项目按需启动、移除只隐藏入口、初版只做有界摘要、路径边界保持现状」。下面「依据／触发／复现」保留审查时的原始记录，仅作历史，不代表当前实现。
 - **依据（历史）**：`src/ui/web/server.js`，`createProjectHost/select/require`，139–193 行，所有客户端共用可变 `binding`；`startWeb.fetch`，268–277、361–366 行，动作只取当前 binding，无请求所属项目校验。`src/ui/web/assets/api.js`，`action`，11–14 行，仅发送 method／params。
-- **触发／影响（历史）**：同一启动器的两个标签页／设备分别操作项目 A、B；B 切换后，A 已打开的任务详情仍可能提交 A 的任务 ID，实际命中 B 同 ID 的取消、删除或合并入口。这不是白名单外越权，而是白名单内跨项目误操作，单用户多标签页即可发生。
-- **复现／反例（历史）**：临时 opener 记录目标；依次 select A、select B，再模拟 A 旧页面发 `task.cancel {id:1}`，HTTP 200，记录目标为 B。未执行真实取消。现有 canonical 白名单和 select 串行队列有效，但均不绑定发起页面；显式单项目 host 不受此切换问题影响。
+- **触发／影响（历史）**：同一启动器的两个标签页／设备分别操作项目 A、B；B 切换后，A 已打开的Worker详情仍可能提交 A 的Worker ID，实际命中 B 同 ID 的取消、删除或合并入口。这不是白名单外越权，而是白名单内跨项目误操作，单用户多标签页即可发生。
+- **复现／反例（历史）**：临时 opener 记录目标；依次 select A、select B，再模拟 A 旧页面发 `worker.cancel {id:1}`，HTTP 200，记录目标为 B。未执行真实取消。现有 canonical 白名单和 select 串行队列有效，但均不绑定发起页面；显式单项目 host 不受此切换问题影响。
 - **修复**：全局工作台改为每项目一条稳定身份路由 `/p/<project-id>/`（ID 由 canonical 路径派生，服务端只在已登记集合里反查，不把 URL 片段当路径）；`createProjectHost` 用按 canonical 路径索引的连接集合 + single-flight 取代单一可变 `binding`，每个请求的项目身份在一次请求内冻结。`src/ui/web/assets/route.js` 从 `location.pathname` 取当前项目，`api.js` 据此给所有项目 API 加前缀；页面地址成为当前项目的唯一来源，标签页之间不再共享可变的「当前项目」。全局模式下无前缀的项目读写、未知／已移除身份都被拒绝，绝不回退到别的项目；`/api/launcher/select` 只登记并返回路由 ID，不再设置全局当前项目。
-- **验收（现行测试）**：`test/web/multi-project.test.js` 用临时 A／B 项目与记录目标的 mock 客户端锁住：A 的 `task.cancel` / `task.approve_merge` 只落到 A；无前缀写请求被拒且不触达任何项目；`/p/<id>/api/snapshot` 分别读到自己项目；伪造／已移除身份被拒；并发打开只连接一次；公网模式不把登记列表当白名单。`test/web/project-route.test.js` 锁住前端前缀与按项目隔离的筛选／折叠／排序。单项目 Web、CLI 与人工合并约束保持原样（`test/web/security.test.js` 等原有用例不删不改）。
+- **验收（现行测试）**：`test/web/multi-project.test.js` 用临时 A／B 项目与记录目标的 mock 客户端锁住：A 的 `worker.cancel` / `worker.approve_merge` 只落到 A；无前缀写请求被拒且不触达任何项目；`/p/<id>/api/snapshot` 分别读到自己项目；伪造／已移除身份被拒；并发打开只连接一次；公网模式不把登记列表当白名单。`test/web/project-route.test.js` 锁住前端前缀与按项目隔离的筛选／折叠／排序。单项目 Web、CLI 与人工合并约束保持原样（`test/web/security.test.js` 等原有用例不删不改）。
 
 ## S-02 · same-site 被等同于 same-origin，退出入口可跨源触发
 
@@ -30,7 +30,7 @@
 
 - **依据**：`src/ui/web/server.js`，`originAllowed`，123–137 行，只要 Sec-Fetch-Site 非 cross-site 就直接通过；`startWeb.fetch` 的 logout，260–264 行，无额外来源校验。旧浏览器分支还只比较 host，不比较完整 origin。
 - **触发／影响**：同站不同端口或兄弟子域并不一定同受信任；来源带 `same-site` 时，明确不匹配的 Origin 被忽略。至少会开放表单 POST logout 这类无需 JSON 的会话干扰面，与 HTTP 文档“拒绝跨 Origin”不一致。
-- **复现／反例**：fixture 中不匹配 Origin + same-site 的 draft POST 返回 200，cross-site 返回 403；同样来源的 logout 返回 303，原 cookie 随后读 API 为 401。**不能据此宣称浏览器可任意修改任务**：JSON POST 的 OPTIONS 预检仍为 404，SameSite=Strict 也阻挡真正跨站 cookie；浏览器级退出场景仍需补测。
+- **复现／反例**：fixture 中不匹配 Origin + same-site 的 draft POST 返回 200，cross-site 返回 403；同样来源的 logout 返回 303，原 cookie 随后读 API 为 401。**不能据此宣称浏览器可任意修改Worker**：JSON POST 的 OPTIONS 预检仍为 404，SameSite=Strict 也阻挡真正跨站 cookie；浏览器级退出场景仍需补测。
 - **建议／取舍**：把 Fetch Metadata 当额外拒绝信号，而非替代 Origin；有 Origin 时对照完整同源值或显式可信 origins。保留反向代理配置能力；`Origin:null`／旧 webview 的兼容策略需明确选择，不能无说明地删除现有支持。
 - **验收**：用真实浏览器覆盖同源、兄弟子域、同站异端口、cross-site 与 opaque origin；非可信来源的 login／logout／写 API 不产生状态变化，显式配置的代理 Origin 继续可用。
 
@@ -59,7 +59,7 @@
 **P2 · 已复现（可控慢 socket mock）· 预估 M**
 
 - **依据**：`src/rpc/server.js`，`RPCServer._data`，63–85 行，为每个合法帧追加 Promise；`src/socket_io.js`，`createWriter/flush/write`，6–54 行，write 返回 0 时保留队列，后续回包继续 push，无 pending-byte 预算。
-- **触发／影响**：本机客户端流水发送许多小请求却不读回复，或 agent／CLI 出现故障重试，可让 daemon 排队内存持续增长、挤占正常任务。它是可信本机边界内的稳健性问题，不是公网 RPC 或跨用户越权。
+- **触发／影响**：本机客户端流水发送许多小请求却不读回复，或 agent／CLI 出现故障重试，可让 daemon 排队内存持续增长、挤占正常Worker。它是可信本机边界内的稳健性问题，不是公网 RPC 或跨用户越权。
 - **复现／反例**：fake socket 的 write 固定返回 0，送入 200 个有效小帧，等待请求链后 `writer.pending === 200`，连接未受限；没有做耗尽内存实验。现有单帧 1 MiB 限制、逐连接串行和 drain 重试均有效，但不限制累计保留量。
 - **建议／取舍**：加入每连接在途帧数、输入／输出字节预算，超过高水位暂停读取或关闭故障连接；预算按真实吞吐确定并提供明确错误。不得自动重放已经执行但未送达回复的修改请求。
 - **验收**：用不读响应、持续流水及恢复 drain 三种可控 socket 验证内存／排队量有界；正常大响应仍完整交付；单个慢连接不能拖垮其他连接，关闭语义明确区分未执行与结果未知。

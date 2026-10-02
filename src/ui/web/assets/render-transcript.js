@@ -181,7 +181,7 @@ function insertOlder(taskId, list, state, steps) {
 
 const transcriptMetaText = state => state.steps.length
   ? `已加载 ${state.steps.length} 条记录 · 按调用关联输入输出 · 长内容可就地展开${(state.has_older || state.has_more) ? ' · 尚有未加载记录' : ''}`
-  : (state.files.length ? '会话记录里还没有可显示的步骤。' : '这个任务还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。');
+  : (state.files.length ? '会话记录里还没有可显示的步骤。' : '这个 Worker 还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。');
 
 /** 全屏打开时只更新其正文，不重建任务页。 */
 const transcriptHolder = taskId => ui.transcriptView?.taskId === taskId
@@ -255,7 +255,7 @@ function newerButton(taskId, state) {
     more.disabled = true;
     try {
       const after = state.next;
-      const page = await api(`/api/task/${taskId}/transcript?after=${after}`);
+      const page = await api(`/api/worker/${taskId}/transcript?after=${after}`);
       if (state.next !== after || transcriptCache.get(taskId) !== state) return;
       state.steps.push(...(page.steps || [])); state.next = page.next; state.has_more = page.has_more;
       state.truncated = Boolean(state.truncated || page.truncated);
@@ -272,7 +272,7 @@ function olderButton(taskId, state) {
     more.disabled = true;
     try {
       const before = state.oldest;
-      const page = await api(`/api/task/${taskId}/transcript-latest?before=${before}&limit=100`);
+      const page = await api(`/api/worker/${taskId}/transcript-latest?before=${before}&limit=100`);
       if (state.oldest !== before || transcriptCache.get(taskId) !== state) return;
       state.steps.unshift(...(page.steps || []));
       state.oldest = page.oldest ?? state.oldest;
@@ -313,8 +313,8 @@ export function appendTranscriptSteps(taskId, steps) {
 /** 按当前阅读方向取「更新的一页」：asc 用前向端点，desc 用最新端点（after=已知最大 seq）。 */
 export async function fetchTranscriptAfter(taskId, after) {
   return transcriptOrder() === 'desc'
-    ? api(`/api/task/${taskId}/transcript-latest?after=${after}`)
-    : api(`/api/task/${taskId}/transcript?after=${after}`);
+    ? api(`/api/worker/${taskId}/transcript-latest?after=${after}`)
+    : api(`/api/worker/${taskId}/transcript?after=${after}`);
 }
 
 /**
@@ -323,8 +323,8 @@ export async function fetchTranscriptAfter(taskId, after) {
  */
 export async function loadTranscriptWindow(taskId, seq) {
   const [backward, forward] = await Promise.all([
-    api(`/api/task/${taskId}/transcript-latest?before=${seq + 1}&limit=100`),
-    api(`/api/task/${taskId}/transcript?after=${seq}&limit=100`),
+    api(`/api/worker/${taskId}/transcript-latest?before=${seq + 1}&limit=100`),
+    api(`/api/worker/${taskId}/transcript?after=${seq}&limit=100`),
   ]);
   const merged = [];
   const seen = new Set();
@@ -386,12 +386,12 @@ export async function loadTranscript(taskId) {
   const order = transcriptOrder();
   const current = () => loadVersions.get(taskId) === version && transcriptOrder() === order;
   if (order === 'desc') {
-    const page = await api(`/api/task/${taskId}/transcript-latest?limit=100`);
+    const page = await api(`/api/worker/${taskId}/transcript-latest?limit=100`);
     if (!current()) return;
     transcriptCache.set(taskId, { order, steps: page.steps || [], files: page.files || [], next: page.next ?? 0,
       oldest: page.oldest ?? 0, has_older: Boolean(page.has_older), truncated: page.truncated });
   } else {
-    const page = await api(`/api/task/${taskId}/transcript?after=0`);
+    const page = await api(`/api/worker/${taskId}/transcript?after=0`);
     if (!current()) return;
     transcriptCache.set(taskId, { order, steps: page.steps || [], files: page.files || [], next: page.next ?? 0,
       has_more: page.has_more, truncated: page.truncated });

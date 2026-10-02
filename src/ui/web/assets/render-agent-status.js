@@ -89,7 +89,7 @@ function accountsSection(data) {
 
 function resourcesSection(data) {
   const resources = data.resources || {}, section = block('安装包与发现的资源');
-  note(section, '以下是安装 / 发现目录，不代表扩展已在某个运行中的 Task 加载。实际加载还受 Pi 设置、项目信任及任务配置影响。');
+  note(section, '以下是安装 / 发现目录，不代表扩展已在某个运行中的 Worker 加载。实际加载还受 Pi 设置、项目信任及 Worker 配置影响。');
   note(section, resources.warning, true);
   for (const [key, label] of [['packages', '包配置 / 安装目录'], ['extensions', '扩展 / 插件'], ['skills', 'Skills']]) {
     const rows = list(resources[key]), details = el('details', undefined, 'agent-status-resources');

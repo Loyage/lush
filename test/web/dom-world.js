@@ -99,7 +99,7 @@ export function makeWorld() {
       resolved: Object.fromEntries(['agent','planner','coordinator','worker','research','verifier','merger'].map(role => [role, { agent: 'pi', model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }])),
       options: {
         agents: ['pi','codex'],
-        roles: [['agent','直接任务'],['planner','规划任务'],['coordinator','协调任务'],['worker','开发任务'],['research','调研任务'],['verifier','验收任务'],['merger','分支分歧解决']].map(([id,label]) => ({ id,label })),
+        roles: [['agent','直接 Worker'],['planner','规划 Worker'],['coordinator','协调 Worker'],['worker','开发 Worker'],['research','调研 Worker'],['verifier','验收 Worker'],['merger','分支分歧解决']].map(([id,label]) => ({ id,label })),
         thinking: { pi: ['', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], codex: ['', 'minimal', 'low', 'medium', 'high', 'xhigh'] },
         models: { pi: ['openai-codex/gpt-5.4'], codex: ['gpt-5.4','gpt-5.4-mini'] },
         default_prompt: '你是 Lush 的默认 task agent。\n遵守任务协议与权限边界。',
@@ -113,7 +113,7 @@ export function makeWorld() {
     commits: [],
     // explanation.start 的返回与 /api/explanation/:id 读取。
     explanations: new Map(), explanationSeq: 0,
-    // 快速介绍：/api/intro/config 与 /api/task/:id/intros、/api/intro/:id。
+    // 快速介绍：/api/intro/config 与 /api/worker/:id/intros、/api/intro/:id。
     // Task 详情归档按钮的读模型投影：测试可设 state.branchArchive 让任务 #1 带 branch_archive。
     branchArchive: null,
     intros: new Map(), introSeq: 0,
@@ -230,8 +230,9 @@ export function makeWorld() {
     if (path === '/api/graph') { state.graphFetches += 1; return json(state.graph); }
     if (path === '/api/action') {
       const body = JSON.parse(options.body);
+      if (body.method.startsWith('task.')) return { ok: false, status: 404, json: async () => ({ error: `unknown method ${body.method}` }) };
       state.actions.push(body);
-      if (body.method === 'task.auto_merge') return json({ task_id: body.params.id, changed: true,
+      if (body.method === 'worker.auto_merge') return json({ task_id: body.params.id, changed: true,
         auto_merge: { enabled: body.params.enabled, locked: false, editable: true, reason: null } });
       if (body.method === 'agent.usage.configure') {
         state.agentUsageConfig = body.params.config;
@@ -298,15 +299,15 @@ export function makeWorld() {
           branches: subtree.map(name => ({ branch: name, worktree: 'removed', ref: 'deleted', tip: 'ddd', discarded: true })),
           worktree: 'removed', ref: 'deleted', tip: 'ddd', discarded: true, tasks: [], sessions: [] });
       }
-      if (body.method === 'task.delete') {
+      if (body.method === 'worker.delete') {
         // 删除：被删任务从图上消失，重拉后兜底分组跟着收起来（真实 daemon 侧还有子树与安全门）。
         state.graph.nodes = state.graph.nodes.filter(node => !(node.kind === 'task' && node.id === body.params.id));
         return json({ deleted: { root: body.params.id, ids: [body.params.id], tasks: 1 },
           reclaimed: { worktrees: 0, branches: 0 }, next_task_id: 99 });
       }
-      if (body.method === 'task.reserve_all') return json({ target_branch: body.params.branch, total: 2, requested: 1, blocked: 1,
+      if (body.method === 'worker.reserve_all') return json({ target_branch: body.params.branch, total: 2, requested: 1, blocked: 1,
         failed: 0, tasks: [{ id: 2, status: 'requested' }, { id: 3, status: 'blocked' }] });
-      if (body.method === 'task.merge_many') return json({ target_branch: body.params.ids.includes(3) ? 'release' : 'main',
+      if (body.method === 'worker.merge_many') return json({ target_branch: body.params.ids.includes(3) ? 'release' : 'main',
         merges: body.params.ids.map(id => ({ id, status: 'merged', integration: 'merged' })), merged: body.params.ids.length, stopped: null });
       if (body.method === 'draft.update') { const draft = state.drafts.find(row => row.id === body.params.id); if (draft) { draft.content = body.params.content; if (body.params.references !== undefined) draft.references = body.params.references; } return json({ id: draft?.id, content: draft?.content, references: draft?.references || [] }); }
       if (body.method === 'draft.remove') { state.drafts = state.drafts.filter(row => row.id !== body.params.id); return json({ id: body.params.id }); }
@@ -319,8 +320,8 @@ export function makeWorld() {
           task: { id: 99 }, anchor: null };
         return json(input);
       }
-      if (body.method === 'task.resolve_divergence') return json(state.resolveOutcome ?? { status: 'queued', task: { id: 92 } });
-      if (body.method === 'task.analyze') return json({ status: 'queued', task: { id: 91 }, branch: 'main', commit: 'f'.repeat(40) });
+      if (body.method === 'worker.resolve_divergence') return json(state.resolveOutcome ?? { status: 'queued', task: { id: 92 } });
+      if (body.method === 'worker.analyze') return json({ status: 'queued', task: { id: 91 }, branch: 'main', commit: 'f'.repeat(40) });
       if (body.method === 'draft.commit') {
         // 旧批量提交兼容路径。
         const ids = body.params.ids ?? state.drafts.map(row => row.id);
@@ -387,7 +388,7 @@ export function makeWorld() {
       const intro = state.intros.get(Number(match[1]));
       return intro ? json(intro) : { ok: false, status: 404, json: async () => ({ error: 'introduction not found' }) };
     }
-    match = /^\/api\/task\/(\d+)\/intros$/.exec(path);
+    match = /^\/api\/worker\/(\d+)\/intros$/.exec(path);
     if (match) {
       const rows = [...state.intros.values()].filter(row => (row.location?.task_id ?? null) === Number(match[1]));
       return json({ introductions: rows, has_more: false, next: null });
@@ -412,12 +413,12 @@ export function makeWorld() {
       const cursor = notices.length ? notices.at(-1).id : (before ? Number(before) : null);
       return json({ notices, cursor, has_more });
     }
-    match = /^\/api\/task\/(\d+)$/.exec(path);
+    match = /^\/api\/worker\/(\d+)$/.exec(path);
     if (match) return json(detail(Number(match[1])));
-    if (/^\/api\/task\/\d+\/history/.test(path)) return json([]);
-    if (/^\/api\/task\/\d+\/diff$/.test(path)) return json(null);
-    if (/^\/api\/task\/\d+\/usage$/.test(path)) return json(usage());
-    match = /^\/api\/task\/\d+\/transcript-latest\?(.*)$/.exec(path);
+    if (/^\/api\/worker\/\d+\/history/.test(path)) return json([]);
+    if (/^\/api\/worker\/\d+\/diff$/.test(path)) return json(null);
+    if (/^\/api\/worker\/\d+\/usage$/.test(path)) return json(usage());
+    match = /^\/api\/worker\/\d+\/transcript-latest\?(.*)$/.exec(path);
     if (match) {
       const params = new URLSearchParams(match[1]);
       const after = Number(params.get('after') ?? 0), before = Number(params.get('before') ?? 0), limit = Number(params.get('limit') ?? 100);
@@ -429,7 +430,7 @@ export function makeWorld() {
       return json({ task_id: 1, files: ['s1.jsonl'], steps, next: steps.at(-1)?.seq ?? after,
         oldest: steps[0]?.seq ?? (before || 0), has_older: hasOlder, truncated: false });
     }
-    match = /^\/api\/task\/\d+\/transcript\?after=(\d+)$/.exec(path);
+    match = /^\/api\/worker\/\d+\/transcript\?after=(\d+)$/.exec(path);
     if (match) {
       const after = Number(match[1]);
       state.transcriptAfter.push(after);

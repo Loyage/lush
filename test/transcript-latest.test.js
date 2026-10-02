@@ -162,8 +162,8 @@ test('latest scans across session files in the same order as the head reader', a
   } finally { await f.close(); }
 });
 
-test('task.transcript_latest is a user-only read RPC with the documented params', () => {
-  expect(PARAMS['task.transcript_latest']).toEqual(['id', 'after', 'before', 'limit']);
-  expect(USER_ONLY.has('task.transcript_latest')).toBe(true);
-  expect(() => assertAllowed('task.transcript_latest', { id: 1 }, { id: 1 })).toThrow('requires user approval');
+test('worker.transcript_latest is a user-only read RPC with the documented params', () => {
+  expect(PARAMS['worker.transcript_latest']).toEqual(['id', 'after', 'before', 'limit']);
+  expect(USER_ONLY.has('worker.transcript_latest')).toBe(true);
+  expect(() => assertAllowed('worker.transcript_latest', { id: 1 }, { id: 1 })).toThrow('requires user approval');
 });

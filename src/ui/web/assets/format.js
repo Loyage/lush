@@ -2,7 +2,7 @@
 
 export const STATUS = {
   queued: { label: '排队', icon: '○' }, running: { label: '运行中', icon: '●' },
-  waiting: { label: '等子任务', icon: '◐' }, awaiting: { label: '等你决定', icon: '◔' },
+  waiting: { label: '等子 Worker', icon: '◐' }, awaiting: { label: '等你决定', icon: '◔' },
   paused: { label: '已暂停', icon: '⏸' },
   awaiting_acceptance: { label: '待验收', icon: '◈' },
   completed: { label: '已完成', icon: '✓' }, failed: { label: '失败', icon: '✗' }, cancelled: { label: '已取消', icon: '⊘' },
@@ -15,13 +15,13 @@ export const isHistoricalDelivery = task => task.role === 'showcase' || task.tas
   || Boolean(task.reservation?.kind && task.reservation.kind !== 'merge');
 export const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验', merger: '解冲突', explainer: '执行介绍', butler: '管家' };
 export const EVENTS = {
-  created: '创建任务', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
+  created: '创建 Worker', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
-  'task.signal': '任务信号', 'child.completed': '子任务完成', 'child.integrated': '子任务已集成',
+  'task.signal': 'Worker 信号', 'child.completed': '子 Worker 完成', 'child.integrated': '子 Worker 已集成',
   'task.merge_requested': '请求合并',
   'task.accepted': '验收完成', 'task.reopened': '恢复待验收',
   'task.parent_synced': '已同步父分支', 'task.parent_sync_conflict': '父同步冲突',
-  'progress.plan': '更新任务计划', 'progress.completed': '完成计划步骤',
+  'progress.plan': '更新 Worker 计划', 'progress.completed': '完成计划步骤',
   'workspace.created': '创建 worktree', 'workspace.removed': '回收 worktree', 'branch.removed': '回收分支',
   'verify.requested': '请求检验', 'baseline.created': '创建对照基线', 'baseline.removed': '回收对照基线',
   'merge.approved': '批准合并', merged: '已合并', 'merge.included': '随其它变更一并落地', 'merge.failed': '合并失败',
@@ -85,7 +85,7 @@ export function resolverOf(task) {
 /** 未解决的冲突会冻结同一目标分支上的合并：解冲突的产物要靠 --ff-only 原样落地，main 不能被推走。
  *  判定与运行时 approveMerge / 批量合并的候选过滤共用 merge-select.js 的 freezeBlocker。 */
 export const DEP_HELP = {
-  code: '这是它的 worktree 基线：本任务的分支从上游分支长出来，所以合并必须先合上游，否则会把上游的改动一起带进来。',
+  code: '这是它的 worktree 基线：本 Worker 的分支从上游分支长出来，所以合并必须先合上游，否则会把上游的改动一起带进来。',
   order: '这只是顺序依赖：等上游结束才开跑，代码仍从当时的 HEAD 开始，因此不要求先合并上游。',
 };
 export const PLAN_GATE = { proposed: { label: '等你批准', className: 'b-awaiting' }, approved: { label: '已批准', className: 'b-completed' },
@@ -106,7 +106,7 @@ export function summarizeGoal(goal) {
   return line.length > GOAL_TITLE_LIMIT ? `${line.slice(0, GOAL_TITLE_LIMIT)}…` : line;
 }
 /** 详情页 hero 的短标题：goal 的摘要；goal 为空时退回 `任务 #id`，标题区永不留空。 */
-export const taskTitle = task => summarizeGoal(task?.goal) ?? `任务 #${task?.id ?? '?'}`;
+export const taskTitle = task => summarizeGoal(task?.goal) ?? `Worker #${task?.id ?? '?'}`;
 /** 一条 spec 的完整可读文本，放进 title，让人 hover 就能看全文与丢弃原因。 */
 export function specTitle(spec) {
   const info = specStatus(spec);
@@ -131,7 +131,7 @@ export function tokensView(t) {
 }
 /** 「最近一次执行」＝执行过程最后一条可显示步骤：相对时间（会随轮询自己走）+ 内容单行预览，全文放 title。 */
 export function lastView(last) {
-  if (!last) return { value: '—', title: '还没有会话记录：这个任务从未被唤醒，或会话文件已被清理。' };
+  if (!last) return { value: '—', title: '还没有会话记录：这个 Worker 从未被唤醒，或会话文件已被清理。' };
   const when = last.at ? relative(last.at) : '时间未知';
   const kindLabel = last.kind ? STEP[last.kind] || last.kind : '';
   const title = last.title || '';

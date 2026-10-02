@@ -80,7 +80,7 @@ function taskVisualState(node) {
 /**
  * 「合并所有」的候选：目标分支就是这条 Task、已静息且仍待集成的 say/child。展示层只做只读筛选
  * （v2 预约 JSON 不在图里展开，所以按状态 + 集成口径判断），真正能不能发出请求由 runtime 的
- * `task.reserve_all` → `reserveMergeAll` 再逐条校验一次。
+ * `worker.reserve_all` → `reserveMergeAll` 再逐条校验一次。
  */
 function mergeAllCandidates(graph) {
   const byBranch = new Map();
@@ -106,29 +106,29 @@ function mergeAllControl(node, candidates, refresh) {
     const disabled = el('button', '合并所有', 'ghost');
     disabled.type = 'button'; disabled.disabled = true;
     const host = el('span', undefined, 'help-host');
-    host.setAttribute('data-help', `这条分支下没有已静息、待合并的 Task；等 Task 完成并静息后再刷新。`);
+    host.setAttribute('data-help', `这条分支下没有已静息、待合并的 Worker；等 Worker 完成并静息后再刷新。`);
     host.append(disabled); box.append(host);
     return box;
   }
   box.append(button(`合并所有（${candidates.length}）`, async () => {
     const detail = candidates.map(item => `#${item.id} ${item.title}`).join('\n');
     const confirmed = await confirmDialog({
-      title: `把 ${node.branch} 下 ${candidates.length} 条待合并 Task 一并放入父交付队列？`,
-      message: '逐个请求合并；父 Task 自有队列的 runtime 一次只落地一条，其余按入队顺序排队（代码依赖优先）。不创建 merge Task、不改变父子关系，也不额外调用父 Agent。取得父执行位后才固定父基线；分歧时唤醒原 Task 的 Agent 在源侧合入固定父提交并测试，修复期间保留父执行位。挂起释放执行位，恢复重新排队并固定新基线。已发出的请求不能批量撤销；分支与提交不会因失败丢失。',
+      title: `把 ${node.branch} 下 ${candidates.length} 条待合并 Worker 一并放入父交付队列？`,
+      message: '逐个请求合并；父 Worker 自有队列的 runtime 一次只落地一条，其余按入队顺序排队（代码依赖优先）。不创建 merge Worker、不改变父子关系，也不额外调用父 Agent。取得父执行位后才固定父基线；分歧时唤醒原 Worker 的 Agent 在源侧合入固定父提交并测试，修复期间保留父执行位。挂起释放执行位，恢复重新排队并固定新基线。已发出的请求不能批量撤销；分支与提交不会因失败丢失。',
       detail,
       confirmLabel: '开始合并',
-      confirmHelp: agentHelp('按顺序自动合并所有已静息的待合并 Task；发生分歧时会唤醒对应 Task 的 Agent。'),
+      confirmHelp: agentHelp('按顺序自动合并所有已静息的待合并 Worker；发生分歧时会唤醒对应 Worker 的 Agent。'),
       agent: true,
     });
     if (!confirmed) return;
-    const result = await action('task.reserve_all', { branch: node.branch });
+    const result = await action('worker.reserve_all', { branch: node.branch });
     const bits = [`共 ${result.total} 条`];
     if (result.requested) bits.push(`${result.requested} 条已发出请求`);
     if (result.blocked) bits.push(`${result.blocked} 条仍在等待条件`);
     if (result.failed) bits.push(`${result.failed} 条失败`);
-    show(`已把 ${node.branch} 的待合并 Task 放入父交付队列：${bits.join('、')}。`);
+    show(`已把 ${node.branch} 的待合并 Worker 放入父交付队列：${bits.join('、')}。`);
     await refresh();
-  }, 'ghost', { agent: true, help: agentHelp(`一次性请求合并 ${node.branch} 下全部已静息、待合并的 Task；由父 Task 自有队列的 runtime 串行处理，不额外调用父 Agent，分歧时唤醒原 Agent。`) }));
+  }, 'ghost', { agent: true, help: agentHelp(`一次性请求合并 ${node.branch} 下全部已静息、待合并的 Worker；由父 Worker 自有队列的 runtime 串行处理，不额外调用父 Agent，分歧时唤醒原 Agent。`) }));
   return box;
 }
 
@@ -139,10 +139,10 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   const head = el('div', undefined, 'task-graph-head');
   if (node.children.length) {
     const toggle = button(folded.has(node.id) ? '▸' : '▾', () => {
-      if (hasPendingInput()) { show('请先提交或清空正在编辑的待决答复，再折叠 Task。'); return; }
+      if (hasPendingInput()) { show('请先提交或清空正在编辑的待决答复，再折叠 Worker。'); return; }
       if (folded.has(node.id)) folded.delete(node.id); else folded.add(node.id);
       save(folded); refresh();
-    }, 'ghost', { help: `展开或收起 Task #${node.id} 的 ${node.children.length} 条直接子任务` });
+    }, 'ghost', { help: `展开或收起 Worker #${node.id} 的 ${node.children.length} 条直接子 Worker` });
     toggle.dataset.graphFocus = `fold-${node.id}`;
     toggle.setAttribute('aria-expanded', String(!folded.has(node.id)));
     head.append(toggle);
@@ -175,28 +175,28 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   if (progress) row.append(progress);
 
   const facts = el('div', undefined, 'task-graph-facts');
-  if (node.resolves_task_id) facts.append(button(`正在解决 Task #${node.resolves_task_id}`, () => detail(node.resolves_task_id), 'ghost',
-    { help: '这是被修复的源 Task；父子连线表示负责收敛的 Task，不会改写已终结源 Task 的血缘。' }));
+  if (node.resolves_task_id) facts.append(button(`正在解决 Worker #${node.resolves_task_id}`, () => detail(node.resolves_task_id), 'ghost',
+    { help: '这是被修复的源 Worker；父子连线表示负责收敛的 Worker，不会改写已终结源 Worker 的血缘。' }));
   if (node.branch) facts.append(el('span', `分支：${node.branch}`, 'mono'));
   if (node.target_branch) facts.append(el('span', `父分支：${node.target_branch}`, 'mono'));
-  if (node.base_commit) facts.append(el('span', `任务基线：${node.base_commit.slice(0, 12)}`, 'mono'));
+  if (node.base_commit) facts.append(el('span', `Worker 基线：${node.base_commit.slice(0, 12)}`, 'mono'));
   if (node.iteration_base_commit) facts.append(el('span', `本轮基线：${node.iteration_base_commit.slice(0, 12)}`, 'mono'));
   if (node.head_commit) facts.append(el('span', `固定提交：${node.head_commit.slice(0, 12)}`, 'mono'));
   if (node.workspace) facts.append(el('span', `${worktreeLabel(node)}：${node.workspace}`, 'mono'));
   if (node.workspace_state === 'missing') facts.append(badge('⚠ worktree 缺失', 'warn'));
   if (!node.branch && !node.workspace) facts.append(el('span', '无独立分支 / worktree', 'meta'));
   if (node.branch_info?.archived) facts.append(badge('分支已归档'));
-  else if (node.archived && node.task_kind === 'merge') facts.append(badge('随父 Task 归档'));
+  else if (node.archived && node.task_kind === 'merge') facts.append(badge('随父 Worker 归档'));
   if (node.delivery) facts.append(badge(`交付：${node.delivery.kind} · ${node.delivery.status}`));
   if (node.has_rule) facts.append(badge('固定输入规则'));
-  if (node.children_total) facts.append(el('span', `子 Task：${node.children_total}${node.children_active ? `（${node.children_active} 活动）` : ''}`, 'meta'));
+  if (node.children_total) facts.append(el('span', `子 Worker：${node.children_total}${node.children_active ? `（${node.children_active} 活动）` : ''}`, 'meta'));
   if (Number.isInteger(node.calls) && node.calls) facts.append(el('span', `Agent 调用 ${node.calls} 次`, 'meta'));
   if (node.created_at) facts.append(el('span', `创建 ${absolute(node.created_at)}`, 'meta'));
   if (node.updated_at) facts.append(el('span', `更新 ${absolute(node.updated_at)}`, 'meta'));
   row.append(facts);
   if (node.integration_error) row.append(el('p', `集成受阻：${node.integration_error}`, 'hint'));
   if (node.task_kind !== 'say' && node.delivery?.blocked_reason) row.append(el('p', `交付受阻：${node.delivery.blocked_reason}`, 'hint'));
-  if (node.parent_id && !ui.taskGraphIds?.has(node.parent_id)) row.append(el('p', `父 Task #${node.parent_id} 不在当前图中`, 'hint'));
+  if (node.parent_id && !ui.taskGraphIds?.has(node.parent_id)) row.append(el('p', `父 Worker #${node.parent_id} 不在当前图中`, 'hint'));
 
   if (node.branch_info && !node.branch_info.archived) {
     const branch = node.branch_info;
@@ -205,7 +205,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
     if (branch.current_head) header.append(el('span', `HEAD ${branch.current_head.slice(0, 12)}`, 'mono'));
     else header.append(el('span', '当前分支 ref 不可用', 'warn'));
     if (branch.current_head && node.head_commit && branch.current_head !== node.head_commit) {
-      header.append(el('span', `与 Task 固定提交 ${node.head_commit.slice(0, 12)} 不同`, 'warn'));
+      header.append(el('span', `与 Worker 固定提交 ${node.head_commit.slice(0, 12)} 不同`, 'warn'));
     }
     git.append(header);
     if (branch.current) header.append(badge('当前检出'));
@@ -230,13 +230,13 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
     if (['question', 'plan'].includes(node.notice.kind)) {
       // Inline decisions refresh this Task view after a response.
       const decision = decisionRow(node, loadTaskGraph);
-      if (node.notice.body?.length >= 1000) decision.append(el('p', '正文仅显示前 1000 字；完整内容请打开 Task 详情。', 'hint'));
+      if (node.notice.body?.length >= 1000) decision.append(el('p', '正文仅显示前 1000 字；完整内容请打开 Worker 详情。', 'hint'));
       row.append(decision);
     } else {
       const pending = el('div', undefined, 'graph-decision');
       pending.append(el('strong', node.notice.title || '等待你回答问卷'),
-        el('p', '这条待决事项需要在 Task 详情完成问卷；图中不会把选项误当作普通文字答复。', 'hint'),
-        button('打开待决事项', () => detail(node.id), 'ghost', { help: '到 Task 详情查看完整问题与选项并答复。' }));
+        el('p', '这条待决事项需要在 Worker 详情完成问卷；图中不会把选项误当作普通文字答复。', 'hint'),
+        button('打开待决事项', () => detail(node.id), 'ghost', { help: '到 Worker 详情查看完整问题与选项并答复。' }));
       row.append(pending);
     }
   }
@@ -260,14 +260,14 @@ function appendTaskActions(row, node, mergeAllByBranch) {
   const controls = deliveryControls(node, { refresh: loadTaskGraph });
   if (controls) row.append(controls);
   if (['say', 'child'].includes(node.task_kind) && !ENDED.has(node.status) && !isHistoricalDelivery(node)) {
-    row.append(guardedAction(button('向此 Task 输入', async () => {
-      const body = await promptDialog({ title: `发给 Task #${node.id}`, label: '输入', confirmLabel: '发送消息',
-        confirmHelp: agentHelp('把输入交给这条 Task；固定规则可请求 Agent 在安全点提前收尾，否则轮末投递。'), agent: true });
+    row.append(guardedAction(button('向此 Worker 输入', async () => {
+      const body = await promptDialog({ title: `发给 Worker #${node.id}`, label: '输入', confirmLabel: '发送消息',
+        confirmHelp: agentHelp('把输入交给这条 Worker；固定规则可请求 Agent 在安全点提前收尾，否则轮末投递。'), agent: true });
       if (!body) return;
-      await action('task.message', { id: node.id, body });
-      show(`已提交给 Task #${node.id}`);
+      await action('worker.message', { id: node.id, body });
+      show(`已提交给 Worker #${node.id}`);
       await loadTaskGraph();
-    }, 'ghost', { agent: true, help: agentHelp('给这个 Task 的 Agent 发送输入；可能在安全点提前收尾，不会立即硬杀。') }), iterationBlocker(node)));
+    }, 'ghost', { agent: true, help: agentHelp('给这个 Worker 的 Agent 发送输入；可能在安全点提前收尾，不会立即硬杀。') }), iterationBlocker(node)));
   }
 }
 
@@ -299,19 +299,19 @@ function taskActionsMenu(node, mergeAllByBranch) {
   panel.id = `task-graph-actions-${node.id}`;
   panel.setAttribute('popover', 'auto');
   panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-label', `Task #${node.id} 更多操作`);
+  panel.setAttribute('aria-label', `Worker #${node.id} 更多操作`);
   const trigger = el('button', '⋯', 'ghost task-graph-more-trigger');
   trigger.type = 'button';
   trigger.setAttribute('popovertarget', panel.id);
-  trigger.setAttribute('data-help', '打开这条 Task 的更多操作；可追加输入、处理交付或进入详情，不展开任务条目。');
+  trigger.setAttribute('data-help', '打开这条 Worker 的更多操作；可追加输入、处理交付或进入详情，不展开 Worker 条目。');
   trigger.onclick = () => {
     if (panel.dataset.open === 'true') return;
     const heading = el('strong', `#${node.id} ${node.title}`, 'task-graph-actions-title');
     const close = button('关闭', () => panel.hidePopover(), 'ghost');
     close.setAttribute('autofocus', '');
-    panel.replaceChildren(heading, close, button('打开任务详情', () => detail(node.id), 'ghost'));
+    panel.replaceChildren(heading, close, button('打开 Worker 详情', () => detail(node.id), 'ghost'));
     if (node.notice) panel.append(button('打开待决事项', () => detail(node.id), 'ghost',
-      { help: '到 Task 详情查看完整问题与选项并答复。' }));
+      { help: '到 Worker 详情查看完整问题与选项并答复。' }));
     appendTaskActions(panel, node, mergeAllByBranch);
     const archive = archiveControl(node);
     if (archive) panel.append(archive);
@@ -322,7 +322,7 @@ function taskActionsMenu(node, mergeAllByBranch) {
     if (button && !button.disabled) panel.hidePopover();
   }, { capture: true });
   trigger.dataset.graphFocus = `more-${node.id}`;
-  trigger.setAttribute('aria-label', `Task #${node.id} 更多操作`);
+  trigger.setAttribute('aria-label', `Worker #${node.id} 更多操作`);
   trigger.setAttribute('aria-haspopup', 'dialog');
   trigger.setAttribute('aria-controls', panel.id);
   trigger.setAttribute('aria-expanded', 'false');
@@ -379,11 +379,11 @@ export function renderTaskGraph(graph) {
   const focusTask = document.activeElement?.closest?.('.task-graph-card')?.dataset.taskId;
   const box = el('div', undefined, `task-graph${minimal ? ' task-graph-minimal' : ''}`);
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
-  hero.append(el('h1', '任务树'), el('p', '连线表示委派层级（隐藏节点可能省略），卡片箭头表示真实合并目标。新式请求由父 Task 的 runtime 串行合并，不额外调用父 Agent；分歧时由源 Task 处理。同父兄弟按处理阶段优先展示，不代表执行次序，代码依赖仍优先。'));
+  hero.append(el('h1', 'Worker 树'), el('p', '连线表示委派层级（隐藏节点可能省略），卡片箭头表示真实合并目标。新式请求由父 Worker 的 runtime 串行合并，不额外调用父 Agent；分歧时由源 Worker 处理。同父兄弟按处理阶段优先展示，不代表执行次序，代码依赖仍优先。'));
   const summary = el('div', undefined, 'task-graph-summary');
   const active = nodes.filter(node => ACTIVE.has(node.status)).length;
   const decisions = nodes.reduce((count, node) => count + (node.notice_count || 0), 0);
-  summary.append(badge(`图中 ${nodes.length} / ${graph.total} Task`), badge(`${active} 活动`));
+  summary.append(badge(`图中 ${nodes.length} / ${graph.total} Worker`), badge(`${active} 活动`));
   // 状态计数本身兼作图例与开关：点一下隐藏 / 显示该状态，只改显示、不写库、不改任务状态。
   for (const status of STATUS_ORDER) {
     const count = counts.get(status) || 0;
@@ -396,8 +396,8 @@ export function renderTaskGraph(graph) {
       saveHiddenStatuses(next);
       renderTaskGraph(full);
     }, 'badge task-graph-status-toggle', {
-      help: off ? `当前隐藏了「${info.label}」的 Task；点一下重新显示。`
-        : `隐藏「${info.label}」的 Task；只影响这一页的显示，不改任务状态。`,
+      help: off ? `当前隐藏了「${info.label}」的 Worker；点一下重新显示。`
+        : `隐藏「${info.label}」的 Worker；只影响这一页的显示，不改 Worker 状态。`,
     });
     toggle.classList.add(`b-${status}`);
     toggle.setAttribute('data-status', status);
@@ -409,13 +409,13 @@ export function renderTaskGraph(graph) {
   if (hidden.size) summary.append(button('全部状态', () => {
     saveHiddenStatuses(new Set());
     renderTaskGraph(full);
-  }, 'ghost task-graph-status-reset', { help: '清除状态筛选，重新显示所有状态的 Task。' }));
+  }, 'ghost task-graph-status-reset', { help: '清除状态筛选，重新显示所有状态的 Worker。' }));
   if (decisions) summary.append(badge(`${decisions} 待决`, 'b-awaiting'));
   if (archivedCount) {
     const toggle = button(ui.taskGraphShowArchived ? `隐藏已归档（${archivedCount}）` : `显示已归档（${archivedCount}）`, () => {
       ui.taskGraphShowArchived = !ui.taskGraphShowArchived;
       renderTaskGraph(full);
-    }, 'ghost', { help: '归档 Task 是用户显式归档分支后留下的记录，包含随父 Task 归档的历史内部合并队列；这里只在当前页面显示，不写库、不改任务状态，重开页面仍默认隐藏。' });
+    }, 'ghost', { help: '归档 Worker 是用户显式归档分支后留下的记录，包含随父 Worker 归档的历史内部合并队列；这里只在当前页面显示，不写库、不改 Worker 状态，重开页面仍默认隐藏。' });
     toggle.classList.add('task-graph-archived-toggle');
     summary.append(toggle);
   }
@@ -435,10 +435,10 @@ export function renderTaskGraph(graph) {
     host.querySelector('.task-graph-mode')?.querySelector('input')?.focus({ preventScroll: true });
   };
   mode.append(checkbox, el('span', '极简模式'));
-  mode.setAttribute('data-help', '以等高双行浏览任务状态与进度；完整信息在详情，操作收进省略号菜单。仅改变显示，按项目记住选择。');
+  mode.setAttribute('data-help', '以等高双行浏览 Worker 状态与进度；完整信息在详情，操作收进省略号菜单。仅改变显示，按项目记住选择。');
   hero.append(summary, mode, button('刷新', () => loadTaskGraph(), 'ghost'));
   box.append(hero);
-  if (view.truncated) box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Task；父节点可能在截断范围外。`, 'hint'));
+  if (view.truncated) box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Worker；父节点可能在截断范围外。`, 'hint'));
   const paint = (node, parent) => {
     const wrap = el('div', undefined, 'task-graph-node');
     wrap.append(taskCard(node, saved, () => renderTaskGraph(full), mergeAllByBranch, mergeQueue.get(node.id) ?? null, minimal));
@@ -473,7 +473,7 @@ export function renderTaskGraph(graph) {
 let pending = null;
 export async function loadTaskGraph() {
   const view = ui.view;
-  if (!pending) pending = api('/api/task-graph').finally(() => { pending = null; });
+  if (!pending) pending = api('/api/worker-graph').finally(() => { pending = null; });
   const graph = await pending;
   if (ui.view === view) {
     ui.taskGraphFetchedAt = Date.now();
@@ -496,7 +496,7 @@ function hasPendingInput() {
   return false;
 }
 export async function openTaskGraph() {
-  activateDetailView({ view: 'task-graph' });
+  activateDetailView({ view: 'task-graph', hash: '#worker-graph' });
   try { await loadTaskGraph(); }
-  catch (error) { if (ui.view?.id === 'task-graph') $('detail').textContent = `任务树加载失败：${error.message}`; throw error; }
+  catch (error) { if (ui.view?.id === 'task-graph') $('detail').textContent = `Worker 树加载失败：${error.message}`; throw error; }
 }

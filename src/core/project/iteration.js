@@ -18,7 +18,7 @@ function acceptanceUnreadMessage(project, task) {
 }
 
 export function assertTaskNotSyncing(project, taskId) {
-  check(!project.taskSyncBusy?.has(taskId), 'Task parent sync is in flight; wait for its safe point');
+  check(!project.taskSyncBusy?.has(taskId), 'Worker parent sync is in flight; wait for its safe point');
 }
 
 /** Explicit parent sync is not delivery approval. Persist the pause in existing audit facts. */
@@ -42,7 +42,7 @@ export function assertTaskAncestorsOpen(project, task) {
     const parent = project.store.task(parentId);
     // A reusable runtime queue can be idle; its original parent is the actual owner.
     check(parent.task_kind === 'merge' || !TERMINAL.has(parent.status),
-      `parent has ended (ancestor Task #${parent.id}); reopen or retry the ancestor first`);
+      `parent has ended (ancestor Worker #${parent.id}); reopen or retry the ancestor first`);
     parentId = parent.parent_id;
   }
 }
@@ -64,7 +64,7 @@ export function consumeIntegratedReservation(project, task, reason) {
 /** Read fixed-commit delivery evidence; mutation-sensitive callers hold the Git lock. */
 export async function taskDeliveryState(project, task) {
   const head = task.head_commit;
-  check(head && task.branch && task.target_branch, 'Task has no inspectable delivery branch');
+  check(head && task.branch && task.target_branch, 'Worker has no inspectable delivery branch');
   const parent = await project.workspaces.git(project.config.project, 'rev-parse', '--verify', `refs/heads/${task.target_branch}^{commit}`);
   const event = project.store.get("SELECT data FROM events WHERE task_id=? AND type='task.merge_integrated' ORDER BY id DESC LIMIT 1", task.id);
   const receipt = event ? JSON.parse(event.data) : bookingOf(task);
@@ -129,7 +129,7 @@ export function iterationViews(store, tasks) {
 export default {
   /** Users accept their goals; a live delegator may confirm only its delivered direct child. */
   async acceptTask(taskId, actor = null) {
-    this.assertWritable('accept a task');
+    this.assertWritable('accept a worker');
     const invocation = actor === null ? null : this.running.get(id(actor));
     const authorize = task => {
       if (actor === null) return;
@@ -146,11 +146,11 @@ export default {
     assertTaskNotSyncing(this, id(taskId));
     return this.workspaces.exclusive(async () => {
       let task = this.store.task(id(taskId));
-      check(['say', 'child'].includes(task.task_kind), 'only say/child Tasks can be accepted');
+      check(['say', 'child'].includes(task.task_kind), 'only say/child Workers can be accepted');
       authorize(task);
       assertTaskNotSyncing(this, task.id);
       if (task.status === 'completed') return task;
-      check(['waiting', 'awaiting_acceptance'].includes(task.status), 'Task must be idle before acceptance');
+      check(['waiting', 'awaiting_acceptance'].includes(task.status), 'Worker must be idle before acceptance');
       const subtree = this.subtreeTasks(task.id);
       check(subtree.every(row => !this.running.has(row.id) && !this.workspaces.busy.has(row.id)), 'Agent or cleanup is still in flight');
       check(subtree.slice(1).every(row => TERMINAL.has(row.status)), 'accept or end descendants before accepting their parent');
@@ -159,33 +159,33 @@ export default {
         assertTaskNotSyncing(this, row.id);
         check(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
           || (booking.status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery is still in flight or reserved');
-        check(!acceptanceUnreadMessage(this, row), `Task #${row.id}: unread input must be processed before acceptance`);
+        check(!acceptanceUnreadMessage(this, row), `Worker #${row.id}: unread input must be processed before acceptance`);
         check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
         if (row.branch) {
           const record = this.store.branch(row.branch);
           if (row.id !== task.id && TERMINAL.has(row.status) && ['archived', 'deleted'].includes(record?.status)) continue;
           this.assertBranchWritable(row.branch, 'accept it');
           check(record?.status === 'active' && (row.id !== task.id || (row.workspace && fs.existsSync(row.workspace))),
-            'Task branch/worktree is archived or missing');
+            'Worker branch/worktree is archived or missing');
           if (row.workspace) await this.workspaces.finish(row);
           else {
             const head = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${row.branch}^{commit}`);
-            check(head === row.head_commit, `descendant Task #${row.id} branch moved`);
+            check(head === row.head_commit, `descendant Worker #${row.id} branch moved`);
             const workspace = await this.workspaces.workspaceForBranch(row.branch);
             if (workspace) await this.workspaces.clean(workspace);
           }
           const state = await taskDeliveryState(this, this.store.task(row.id));
-          check(state !== 'pending', `Task #${row.id} has undelivered changes`);
+          check(state !== 'pending', `Worker #${row.id} has undelivered changes`);
           this.store.update(row.id, { integration: state });
         }
       }
       task = this.store.task(task.id);
       authorize(task);
-      check(['waiting', 'awaiting_acceptance'].includes(task.status), 'Task changed during acceptance');
+      check(['waiting', 'awaiting_acceptance'].includes(task.status), 'Worker changed during acceptance');
       for (const row of this.subtreeTasks(task.id)) {
         check(row.id === task.id || TERMINAL.has(row.status), 'descendant changed during acceptance');
         check(!this.running.has(row.id) && !acceptanceUnreadMessage(this, row),
-          `Task #${row.id}: new input arrived during acceptance`);
+          `Worker #${row.id}: new input arrived during acceptance`);
         assertTaskNotSyncing(this, row.id);
         check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
         check(!bookingOf(row) || ['integrated', 'completed', 'withdrawn'].includes(bookingOf(row).status)
@@ -206,27 +206,27 @@ export default {
 
   /** Explicit historical recovery; never starts a provider or recreates an archived ref. */
   async reopenTask(taskId) {
-    this.assertWritable('reopen a task');
+    this.assertWritable('reopen a worker');
     assertTaskNotSyncing(this, id(taskId));
     return this.workspaces.exclusive(async () => {
       const task = this.store.task(id(taskId));
       assertTaskNotSyncing(this, task.id);
-      check(['say', 'child'].includes(task.task_kind) && task.status === 'completed', 'only completed say/child Tasks can be reopened');
+      check(['say', 'child'].includes(task.task_kind) && task.status === 'completed', 'only completed say/child Workers can be reopened');
       assertTaskAncestorsOpen(this, task);
       check(!this.running.has(task.id) && !this.workspaces.busy.has(task.id), 'Agent or cleanup is still in flight');
       check(task.branch && task.workspace && fs.existsSync(task.workspace)
         && this.store.branch(task.branch)?.status === 'active', 'archived or missing branches cannot be reopened');
       check(!this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.accepted' LIMIT 1", task.id),
-        'explicitly accepted Tasks cannot be reopened; start a new Task');
-      check(task.integration === 'merged', 'only historical completed/merged Tasks can be reopened');
+        'explicitly accepted Workers cannot be reopened; start a new Worker');
+      check(task.integration === 'merged', 'only historical completed/merged Workers can be reopened');
       this.assertBranchWritable(task.branch, 'reopen it');
       const booking = bookingOf(task);
       check(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status), 'outstanding delivery blocks reopen');
       const head = await this.workspaces.git(task.workspace, 'rev-parse', 'HEAD');
-      check(head === task.head_commit, 'Task branch moved; inspect before reopening');
+      check(head === task.head_commit, 'Worker branch moved; inspect before reopening');
       await this.workspaces.finish(task);
       const integration = await taskDeliveryState(this, this.store.task(task.id));
-      check(integration !== 'pending', 'historical Task has undelivered changes; inspect before reopening');
+      check(integration !== 'pending', 'historical Worker has undelivered changes; inspect before reopening');
       this.store.transaction(() => {
         this.store.update(task.id, { status: 'awaiting_acceptance', integration, error: null,
           iteration_base_commit: task.iteration_base_commit ?? head, retry_profile: null });

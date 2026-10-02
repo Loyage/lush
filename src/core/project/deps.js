@@ -26,15 +26,15 @@ export default {
     for (let node = parent; node; node = node.parent_id ? this.store.task(node.parent_id) : null) ancestors.add(node.id);
     let code = 0;
     for (const edge of edges) {
-      check(edge.id !== taskId, 'a task cannot depend on itself');
-      check(!ancestors.has(edge.id), `cannot depend on ancestor task #${edge.id}: an ancestor waits for its children, so both sides would wait forever`);
+      check(edge.id !== taskId, 'a worker cannot depend on itself');
+      check(!ancestors.has(edge.id), `cannot depend on ancestor worker #${edge.id}: an ancestor waits for its children, so both sides would wait forever`);
       const dep = this.store.task(edge.id);
       // Edges are only ever written here, so this cannot fire today; it keeps a future edit-DAG API honest.
       check(!this.store.reaches(edge.id, taskId), `dependency on #${edge.id} would create a cycle`);
       if (edge.kind !== 'code') continue;
       code += 1;
-      check(code <= 1, 'a task can stack on at most one code dependency; use order for the rest, or add a task that merges both');
-      check(dep.role === 'worker', `code dependency #${dep.id} is a ${dep.role} task; only a worker gets a branch to stack on`);
+      check(code <= 1, 'a worker can stack on at most one code dependency; use order for the rest, or add a worker that merges both');
+      check(dep.role === 'worker', `code dependency #${dep.id} is a ${dep.role} worker; only the worker role gets a branch to stack on`);
       check(!['failed','cancelled'].includes(dep.status), `code dependency #${dep.id} is ${dep.status}; it cannot serve as a code base`);
     }
   }

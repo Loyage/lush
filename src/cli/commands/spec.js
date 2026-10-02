@@ -17,7 +17,7 @@ export async function run(command, args, ctx) {
       const name = option(args, '--name');
       const defaultKind = option(args, '--dep-kind', 'code');
       const deps = [];
-      // Repeatable and comma-separated, like task spawn: --depends-on 7,9:order --depends-on 11
+      // Repeatable and comma-separated, like worker spawn: --depends-on 7,9:order --depends-on 11
       for (let raw = option(args, '--depends-on'); raw !== null; raw = option(args, '--depends-on')) {
         for (const token of raw.split(',').filter(Boolean)) {
           const [specId, kind = defaultKind] = token.split(':');

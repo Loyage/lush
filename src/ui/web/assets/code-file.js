@@ -26,7 +26,7 @@ export function createCodeFile({ request, onSearch, onStale, taskId }) {
   const contentButton = button('文件内容', () => changeView('content'), 'ghost');
   const sideSelect = select('文件版本', [['new', '当前版本'], ['old', '基线版本']], 'new');
   const layoutSelect = select('差异布局', [['split', '并排差异'], ['unified', '统一差异']], 'split');
-  const search = button('在执行记录中搜索此路径', () => onSearch?.(entry.path), 'ghost', { help: '搜索当前任务全部执行记录中提及此路径的文字；命中不代表该步骤修改了这个文件。' });
+  const search = button('在执行记录中搜索此路径', () => onSearch?.(entry.path), 'ghost', { help: '搜索当前 Worker 全部执行记录中提及此路径的文字；命中不代表该步骤修改了这个文件。' });
   controls.append(diffButton, contentButton, sideSelect, layoutSelect, search);
   heading.append(title, status, controls);
   const metadata = el('div', undefined, 'code-file-metadata');
@@ -43,8 +43,8 @@ export function createCodeFile({ request, onSearch, onStale, taskId }) {
   let entry = null, snapshot = null, epoch = 0, view = 'diff', side = 'new', context = 3;
   let offset = 0, fileRevision = null, readingRevision = null, busy = false, interrupted = false, hunkIndex = -1;
   controls.hidden = true; metadata.hidden = true; navigation.hidden = true;
-  body.append(el('p', '左侧列出当前 Task 的项目文件。选择改动文件审阅差异，或选择任意文件阅读正文。', 'hint'),
-    el('p', '工作区净变化不等于此 Agent 独自创作；已合入子任务和父分支同步也可能包含其中。', 'hint'));
+  body.append(el('p', '左侧列出当前 Worker 的项目文件。选择改动文件审阅差异，或选择任意文件阅读正文。', 'hint'),
+    el('p', '工作区净变化不等于此 Agent 独自创作；已合入子 Worker 和父分支同步也可能包含其中。', 'hint'));
   function syncControls() {
     controls.hidden = !entry; metadata.hidden = !entry;
     diffButton.setAttribute('aria-pressed', String(view === 'diff')); contentButton.setAttribute('aria-pressed', String(view === 'content'));

@@ -60,19 +60,19 @@ function resourceGroup(title, entries, selected, kind, enabled) {
 /**
  * 任务级 Agent Profile 面板：terminal retry 与 paused 的「调整运行设置」共用同一套字段。
  * 字段含本轮 Agent / 模型 / 思考深度 / Prompt / 扩展 / Skills / 软预算，以及只在本任务生效的 Pi 环境变量。
- * Profile 只送到 task.retry / task.configure，不修改项目 agent.json，任务结算时失效。
+ * Profile 只送到 worker.retry / worker.configure，不修改项目 agent.json，Worker 结算时失效。
  */
 export async function retryTask(task) {
-  return profileDialog(task, { method: 'task.retry' });
+  return profileDialog(task, { method: 'worker.retry' });
 }
 
 /** 暂停中的「调整运行设置」：只保存 Profile，不启动 Agent；点详情里的「继续」才生效。 */
 export async function configureTask(task) {
-  return profileDialog(task, { method: 'task.configure' });
+  return profileDialog(task, { method: 'worker.configure' });
 }
 
 async function profileDialog(task, options) {
-  const configuring = options.method === 'task.configure';
+  const configuring = options.method === 'worker.configure';
   try {
     const settings = await api('/api/agent/config');
     const { role, profile } = roleProfile(settings, task.role);
@@ -130,7 +130,7 @@ async function profileDialog(task, options) {
     const env = el('textarea'); env.rows = 4; env.maxLength = 16384;
     env.value = envLines(profile.env); env.dataset.retryField = 'env';
     env.placeholder = 'NAME=value，每行一个；特殊值可用 JSON 字符串';
-    const envNote = el('span', '已加载公共与角色环境变量，角色同名值优先；保存后只在本任务覆盖。NAME 不能以 LUSH_ 开头，含换行的值使用 JSON 字符串。', 'settings-note');
+    const envNote = el('span', '已加载公共与角色环境变量，角色同名值优先；保存后只在本 Worker 覆盖。NAME 不能以 LUSH_ 开头，含换行的值使用 JSON 字符串。', 'settings-note');
     envBox.append(env, envNote);
 
     const resourcesBox = el('div', undefined, 'retry-resources');
@@ -180,7 +180,7 @@ async function profileDialog(task, options) {
       field('思考深度', thinking, '可用等级随 Agent 变化。'),
       field('软预算：响应数', budgetResponses, '留空关闭；仅 Pi。'),
       field('软预算：累计 token', budgetTokens, '留空关闭；仅 Pi。'),
-      field('默认 Prompt', promptBox, '修改后会替换 Lush 内置角色 Prompt，可能影响任务协议与交付行为。', true),
+      field('默认 Prompt', promptBox, '修改后会替换 Lush 内置角色 Prompt，可能影响 Worker 协议与交付行为。', true),
       field('追加 Prompt', appendPrompt, '追加在基础 Prompt 与项目补充之后，仅本轮运行生效。', true),
       field('Pi 环境变量', envBox, '每行一个 NAME=value，仅本轮运行覆盖；留空表示沿用角色设置。', true),
       field('扩展与 Skills', resourcesBox, '保留当前角色配置，可按本轮需要增删。', true));
@@ -199,7 +199,7 @@ async function profileDialog(task, options) {
       syncPromptState(); syncBackend(false);
     }, 'ghost', { help: '用打开面板时读取的项目与角色默认参数替换表单中全部改动（含环境变量）；不保存、不启动 Agent。' });
     restoreDefaults.type = 'button'; defaultsTools.append(restoreDefaults);
-    form.append(defaultsTools, grid, el('p', '确认后，所选完整 Profile 会固定到这个任务，直到它再次完成、失败或取消。', 'retry-scope-note'));
+    form.append(defaultsTools, grid, el('p', '确认后，所选完整 Profile 会固定到这个 Worker，直到它再次完成、失败或取消。', 'retry-scope-note'));
 
     try { resources = await api('/api/agent/resources'); }
     catch (error) { resources = { extensions: [], skills: [], warning: `资源目录读取失败：${error.message}` }; }
@@ -207,16 +207,16 @@ async function profileDialog(task, options) {
     syncBackend(false);
 
     const confirmed = await formDialog({
-      title: configuring ? `调整任务 #${task.id} 的运行设置` : `检查后重试任务 #${task.id}`,
+      title: configuring ? `调整 Worker #${task.id} 的运行设置` : `检查后重试 Worker #${task.id}`,
       message: configuring
-        ? `任务已暂停。这些设置固定到这次暂停，点「继续」时生效；任务结算后自动清除。`
-        : `任务因“${task.status === 'cancelled' ? '已取消' : '失败'}”停止。请检查并调整 ${task.role} Agent；这些设置只用于本轮重试。`,
+        ? `Worker 已暂停。这些设置固定到这次暂停，点「继续」时生效；Worker 结算后自动清除。`
+        : `Worker 因“${task.status === 'cancelled' ? '已取消' : '失败'}”停止。请检查并调整 ${task.role} Agent；这些设置只用于本轮重试。`,
       content: form, confirmLabel: configuring ? '保存设置' : '使用这些设置重试',
       cancelLabel: configuring ? '不修改' : '暂不重试', cardClass: 'retry-modal',
       agent: !configuring,
       confirmHelp: configuring
-        ? '保存这次运行设置；点任务详情的「继续」后按新设置启动 Agent。'
-        : agentHelp('用上面选定的 Agent 设置重新启动这个任务。'),
+        ? '保存这次运行设置；点 Worker 详情的「继续」后按新设置启动 Agent。'
+        : agentHelp('用上面选定的 Agent 设置重新启动这个 Worker。'),
     });
     if (!confirmed) return false;
 
@@ -225,11 +225,11 @@ async function profileDialog(task, options) {
     if (nextDefault && nextDefault !== (profile.default_prompt || '')) {
       const accepted = await confirmDialog({
         title: configuring ? '用自定义 Prompt 保存设置？' : '用自定义 Prompt 重试？',
-        message: '自定义内容会替换 Lush 内置任务规则，仅本轮生效。',
-        detail: '可能影响：任务 API 使用、权限边界、子任务协作、工作区安全和交付流程。',
+        message: '自定义内容会替换 Lush 内置 Worker 规则，仅本轮生效。',
+        detail: '可能影响：Worker API 使用、权限边界、子 Worker 协作、工作区安全和交付流程。',
         confirmLabel: configuring ? '仍然保存' : '仍然重试', cancelLabel: configuring ? '取消修改' : '取消重试', danger: true,
         agent: !configuring,
-        confirmHelp: configuring ? '保存这份自定义 Prompt 作为本轮运行设置。' : agentHelp('用这份自定义 Prompt 重新启动这个任务。'),
+        confirmHelp: configuring ? '保存这份自定义 Prompt 作为本轮运行设置。' : agentHelp('用这份自定义 Prompt 重新启动这个 Worker。'),
       });
       if (!accepted) return false;
     }
@@ -247,8 +247,8 @@ async function profileDialog(task, options) {
     };
     await action(options.method, { id: task.id, profile: taskProfile });
     show(configuring
-      ? `任务 #${task.id} 的运行设置已保存；点「继续」按新设置运行。`
-      : `任务 #${task.id} 已按本轮 Agent 设置进入重试队列。`);
+      ? `Worker #${task.id} 的运行设置已保存；点「继续」按新设置运行。`
+      : `Worker #${task.id} 已按本轮 Agent 设置进入重试队列。`);
     return true;
   } catch (error) {
     show(configuring ? `无法保存运行设置：${error.message}` : `无法重试：${error.message}`, 'error');

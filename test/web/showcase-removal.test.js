@@ -40,11 +40,11 @@ test('historical showcase reports return 404 without deleting data; verifier rep
       fs.writeFileSync(file, '<!doctype html><h1>stored report</h1>');
     }
     for (const prefix of ['', `/p/${projectRouteId(f.root)}`]) {
-      expect((await fetch(`${f.url}${prefix}/api/task/${historical.id}/report`)).status).toBe(404);
-      const generic = await fetch(`${f.url}${prefix}/api/task/${historical.id}`);
+      expect((await fetch(`${f.url}${prefix}/api/worker/${historical.id}/report`)).status).toBe(404);
+      const generic = await fetch(`${f.url}${prefix}/api/worker/${historical.id}`);
       expect(generic.status).toBe(200);
       expect((await generic.json()).result).toBe('saved result');
-      const report = await fetch(`${f.url}${prefix}/api/task/${verifier.id}/report`);
+      const report = await fetch(`${f.url}${prefix}/api/worker/${verifier.id}/report`);
       expect(report.status).toBe(200);
       expect(await report.text()).toContain('stored report');
       expect(report.headers.get('content-security-policy')).toContain('sandbox allow-scripts');
@@ -54,6 +54,6 @@ test('historical showcase reports return 404 without deleting data; verifier rep
     expect(fs.readFileSync(oldReport, 'utf8')).toContain('stored report');
     expect(f.store.task(historical.id).result).toBe('saved result');
     fs.unlinkSync(verifyReport);
-    expect((await fetch(`${f.url}/api/task/${verifier.id}/report`)).status).toBe(404);
+    expect((await fetch(`${f.url}/api/worker/${verifier.id}/report`)).status).toBe(404);
   } finally { await f.close(); }
 });

@@ -11,7 +11,7 @@ export function renderNoticeBanner(data) {
   const rows = data?.notices || [];
   const groups = [
     { rows: rows.filter(row => row.status === 'open'), label: '条待你处理', action: '去处理 →', kind: 'decision', help: '最新待决提醒；点击打开处理页' },
-    { rows: rows.filter(unreadNotice), label: '条未读告知', action: '打开 Task →', kind: 'info', help: '打开对应 Task；成功加载后自动已读，不会启动 Agent 或批准合并' },
+    { rows: rows.filter(unreadNotice), label: '条未读告知', action: '打开 Worker →', kind: 'info', help: '打开对应 Worker；成功加载后自动已读，不会启动 Agent 或批准合并' },
   ].filter(group => group.rows.length);
   if (!groups.length) {
     if (host.dataset.signature !== '0') { host.dataset.signature = '0'; host.replaceChildren(); }

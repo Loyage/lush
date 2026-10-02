@@ -29,7 +29,7 @@ export function closeTranscriptView() {
 export async function openTranscriptView(taskId, seq) {
   closeTranscriptView();
   const panel = el('dialog', undefined, 'transcript-dialog');
-  panel.setAttribute('aria-label', `任务 #${taskId} 执行详情`);
+  panel.setAttribute('aria-label', `Worker #${taskId} 执行详情`);
   const holder = el('div', undefined, 'transcript');
   const state = { panel, holder, taskId, returnTarget: document.activeElement,
     returnScroll: $('detail').scrollTop, wasInert: $('project-app').inert,
@@ -37,7 +37,7 @@ export async function openTranscriptView(taskId, seq) {
   state.mode = 'transcript';
   current = state; ui.transcriptView = state; transcriptOpen.add(taskId);
   const toolbar = el('header', undefined, 'transcript-toolbar');
-  const back = button('返回任务 · Esc', closeTranscriptView, 'ghost');
+  const back = button('返回 Worker · Esc', closeTranscriptView, 'ghost');
   const order = el('select'); order.setAttribute('aria-label', '执行过程排序');
   for (const mode of TRANSCRIPT_ORDER_MODES) { const option = el('option', mode.label); option.value = mode.id; order.append(option); }
   order.value = transcriptOrder(); order.onchange = () => setPref('transcriptOrder', order.value);
@@ -48,7 +48,7 @@ export async function openTranscriptView(taskId, seq) {
     taskStatus.textContent = statusOf(task).label; taskStatus.className = `badge b-${task.status}`;
   };
   state.paintStatus(ui.lastSnapshot?.tasks?.find(task => task.id === taskId));
-  toolbar.append(back, el('strong', `任务 #${taskId} · 执行详情`), taskStatus, order);
+  toolbar.append(back, el('strong', `Worker #${taskId} · 执行详情`), taskStatus, order);
   const tabs = el('div', undefined, 'execution-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '执行详情视图');
   const recordsTab = button('执行记录', () => switchMode('transcript'), 'ghost');
   const codeTab = button('代码与改动', () => switchMode('code'), 'ghost');
@@ -137,7 +137,7 @@ export async function openTranscriptView(taskId, seq) {
       const load = async index => {
         const step = data.steps[index], slot = slots[index];
         try {
-          const page = await api(`/api/task/${taskId}/transcript-step?seq=${step.seq}&offset=0`);
+          const page = await api(`/api/worker/${taskId}/transcript-step?seq=${step.seq}&offset=0`);
           if (!active(valid)) return;
           if (!page.step) throw new Error('步骤已不存在，记录可能已被清理');
           const card = transcriptMatch(taskId, page.step, page.related || []);

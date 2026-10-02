@@ -21,7 +21,7 @@ export function projectBase() {
 }
 
 /**
- * 把站内项目 API 路径挂到本页项目前缀下：`/api/task/1` → `/p/<id>/api/task/1`。
+ * 把站内项目 API 路径挂到本页项目前缀下：`/api/worker/1` → `/p/<id>/api/worker/1`。
  * 启动器与随代码发布的文档是宿主级资源，始终留在无前缀路径（它们不属于任何项目）。
  */
 export function projectApi(path) {

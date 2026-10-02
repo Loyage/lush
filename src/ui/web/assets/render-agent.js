@@ -68,7 +68,7 @@ export function renderAgent(task, usage) {
       if (usage.totals.cache_write) spent.push(`缓存写 ${tokens(usage.totals.cache_write)}`);
       if (usage.totals.reasoning) spent.push(`推理 ${tokens(usage.totals.reasoning)}`);
       const cumulative = kv('累计 token', spent.join(' · '));
-      cumulative.title = '这个任务的全部会话文件累计；重试不会清空 agent 的历史。';
+      cumulative.title = '这个 Worker 的全部会话文件累计；重试不会清空 agent 的历史。';
       const cost = kv('预计花费', money(usage.totals.cost));
       cost.title = 'pi 按模型单价对每次请求算出的 cost.total 累加；模型换过就按各自单价分别计。';
       grid.append(context, cumulative, cost);
@@ -82,7 +82,7 @@ export function renderAgent(task, usage) {
     { help: '全屏阅读执行记录，可切换正序和倒序、搜索完整历史；只读，不执行命令，也不调用 Agent' }));
   process.append(controls);
   // 终端里观看执行过程的等价命令：展示出来并可复制，真正跟随由 CLI 负责，不只是复制一串提示。
-  const command = `lush task transcript ${task.id} --follow`;
+  const command = `lush worker transcript ${task.id} --follow`;
   const commandRow = el('div', undefined, 'terminal-command');
   commandRow.append(el('span', '终端命令', 'hint'), el('code', command, 'mono'),
     button('复制命令', async () => {

@@ -14,14 +14,14 @@ const graph = { nodes: [
     workspace: '/tmp/task-4', target_branch: 'release', integration: 'pending', children: [] },
 ], total: 4, truncated: false };
 const dom = installDom({ fetch: (url, options) => {
-  if (String(url) === '/api/task-graph') return { ok: true, json: async () => graph };
+  if (String(url) === '/api/worker-graph') return { ok: true, json: async () => graph };
   return world.fetchImpl(url, options);
 } });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 await boot();
 afterAll(() => dom.restore());
 
-test('main 分支给「合并所有」入口：只计静息待合并 Task，确认后一次调用 task.reserve_all', async () => {
+test('main 分支给「合并所有」入口：只计静息待合并 Task，确认后一次调用 worker.reserve_all', async () => {
   await dom.node('task-graph-open').onclick();
   const mainCard = dom.node('detail').querySelector('[data-task-id="1"]');
   const mergeAll = mainCard.querySelectorAll('button').find(node => node.textContent.startsWith('合并所有'));
@@ -33,8 +33,8 @@ test('main 分支给「合并所有」入口：只计静息待合并 Task，确�
   const pending = mergeAll.onclick();
   await new Promise(resolve => setTimeout(resolve, 0));
   expect(dialogText(dom)).toContain('一并放入父交付队列');
-  expect(dialogText(dom)).toContain('父 Task 自有队列的 runtime');
-  expect(dialogText(dom)).toContain('不创建 merge Task、不改变父子关系');
+  expect(dialogText(dom)).toContain('父 Worker 自有队列的 runtime');
+  expect(dialogText(dom)).toContain('不创建 merge Worker、不改变父子关系');
   expect(dialogText(dom)).toContain('不额外调用父 Agent');
   expect(dialogText(dom)).toContain('按入队顺序排队（代码依赖优先）');
   expect(dialogText(dom)).toContain('修复期间保留父执行位');
@@ -43,7 +43,7 @@ test('main 分支给「合并所有」入口：只计静息待合并 Task，确�
   expect(dialogText(dom)).not.toContain('#3');
   await answerDialog(dom, '开始合并');
   await pending;
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve_all', params: { branch: 'main' } });
+  expect(world.state.actions.at(-1)).toEqual({ method: 'worker.reserve_all', params: { branch: 'main' } });
 });
 
 test('没有候选时按钮保留但禁用，并用 help-host 写明原因', async () => {

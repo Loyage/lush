@@ -106,7 +106,7 @@ test('agent retains the copyable terminal follow command', async () => {
   Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async text => { copied.push(text); } } }, configurable: true });
   try {
     const panel = renderAgent({ id: 77 }, { files: [] });
-    expect(deepText(panel)).toContain('lush task transcript 77 --follow');
-    await findByText(panel, '复制命令').onclick(); expect(copied).toEqual(['lush task transcript 77 --follow']);
+    expect(deepText(panel)).toContain('lush worker transcript 77 --follow');
+    await findByText(panel, '复制命令').onclick(); expect(copied).toEqual(['lush worker transcript 77 --follow']);
   } finally { if (original) Object.defineProperty(globalThis, 'navigator', original); else delete globalThis.navigator; dom.restore(); }
 });

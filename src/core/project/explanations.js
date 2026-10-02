@@ -11,10 +11,10 @@ export default {
       captured_at: new Date().toISOString(), step: record.step, related: record.related,
       body_truncated: record.has_more, pairing_ambiguous: record.pairing_ambiguous, related_truncated: record.related_truncated };
     check(!this.stopping, 'daemon is stopping');
-    check(this.store.activeTasks().length < 1000, 'too many active tasks');
+    check(this.store.activeTasks().length < 1000, 'too many active workers');
     const task = this.store.transaction(() => {
       const created = this.store.create({ role: 'explainer', input_id: null, name: 'explanation',
-        goal: `介绍任务 #${taskId} 的执行步骤 #${seq}：${quote.slice(0, 180)}` });
+        goal: `介绍 Worker #${taskId} 的执行步骤 #${seq}：${quote.slice(0, 180)}` });
       this.store.event(created.id, 'explanation.requested', snapshot);
       return created;
     });
@@ -39,7 +39,7 @@ export default {
 
   explanation(taskId) {
     const task = this.store.task(id(taskId));
-    check(task.role === 'explainer', 'task is not an explanation');
+    check(task.role === 'explainer', 'worker is not an explanation');
     return { id: task.id, status: task.status, result: task.result, error: task.error, source: this.explanationContext(taskId) };
   },
 

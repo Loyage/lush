@@ -265,12 +265,12 @@ export default {
       const waiting_reason = freeze && row.status !== 'running' && row.id !== freeze.task_id
         ? `冻结 · ${freeze.reason}`
         : row.status === 'awaiting' && notice.count ? `${notice.count} 条待你处理`
-        : row.status === 'waiting' && child.active ? `等待 ${child.active} 个子 Task`
-        : row.status === 'queued' && blockers.length ? `等待依赖 Task #${blockers.map(edge => edge.id).join('、#')}`
+        : row.status === 'waiting' && child.active ? `等待 ${child.active} 个子Worker`
+        : row.status === 'queued' && blockers.length ? `等待依赖 Worker #${blockers.map(edge => edge.id).join('、#')}`
         : row.status === 'queued' ? '等待 Agent 调用槽'
         : row.status === 'awaiting_acceptance' ? (row.task_kind === 'child'
-          ? `本轮已交付 · 等待父 Task #${row.parent_id} 确认` : '本轮已交付 · 等待你验收或追加输入')
-        : row.status === 'waiting' ? '静息 · 等待新输入或子 Task 信号' : null;
+          ? `本轮已交付 · 等待父Worker #${row.parent_id} 确认` : '本轮已交付 · 等待你验收或追加输入')
+        : row.status === 'waiting' ? '静息 · 等待新输入或子Worker信号' : null;
       const branch = row.branch ? records.get(row.branch) : null;
       // 内部 merge 队列没有自己的分支，归档跟随直接父 Task；从库里读父分支，父节点被截断也不漏掉。
       // 不沿 target_branch 或祖先传播：独立工作子 Task 仍按自己的分支归档事实判断。
@@ -279,7 +279,7 @@ export default {
       // 这条分支下还有多少个 say 子分支：决定卡片上「编排合并全部子 Task」入口是否有意义。
       const subtree_say = row.branch ? countSayDescendants(row.branch) : 0;
       const mergeRun = row.branch ? activeRuns.get(row.branch) ?? null : null;
-      return { ...row, ...iterations.get(row.id), kind: 'task', archived, title: summarize(goal) || row.name || `Task #${row.id}`,
+      return { ...row, ...iterations.get(row.id), kind: 'task', archived, title: summarize(goal) || row.name || `Worker #${row.id}`,
         goal_preview: String(goal ?? '').slice(0, 600),
         progress: plan, notice: notice.notice, notice_count: notice.count,
         children_total: child.total, children_active: child.active, waiting_reason,

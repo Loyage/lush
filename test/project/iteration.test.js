@@ -106,7 +106,7 @@ test('no-change delegated delivery waits for parent confirmation and is not a hi
     expect(f.store.task(child.id).reservation).toBeNull();
     expect(f.store.task(child.id)).toMatchObject({ integration: 'none', status: 'awaiting_acceptance', calls: 1 });
     await f.project.acceptTask(child.id);
-    await expect(f.project.reopenTask(child.id)).rejects.toThrow('accepted Tasks');
+    await expect(f.project.reopenTask(child.id)).rejects.toThrow('accepted Workers');
     expect(f.project.reservationWaitReason(f.store.task(parent.id))).toBeNull();
   } finally { await f.close(); }
 });
@@ -128,7 +128,7 @@ test('delivered unaccepted descendants do not block parent delivery, but must be
     await f.project.acceptTask(child.id);
     await f.project.acceptTask(parent.id);
     await expect(f.project.reopenTask(child.id)).rejects.toThrow('parent has ended');
-    await expect(f.project.reopenTask(parent.id)).rejects.toThrow('accepted Tasks cannot be reopened');
+    await expect(f.project.reopenTask(parent.id)).rejects.toThrow('accepted Workers cannot be reopened');
     expect(f.store.task(child.id).status).toBe('completed');
     expect(f.store.task(child.id).calls).toBe(0);
   } finally { await f.close(); }
@@ -159,12 +159,12 @@ test('settled source diagnostics in an idle runtime merge queue do not block par
     // Real user input and unaudited senders remain blockers, even on a completed queue.
     for (const sender of [null, parent.id]) {
       const message = f.store.message(queue.id, 'must not be silently ignored', sender);
-      await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Task #${queue.id}: unread input`);
+      await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Worker #${queue.id}: unread input`);
       f.store.run('UPDATE messages SET consumed=1 WHERE id=?', message);
     }
     // A normal completed child's inbox must not receive the queue exemption.
     const childInput = f.store.message(child.id, 'unprocessed input');
-    await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Task #${child.id}: unread input`);
+    await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Worker #${child.id}: unread input`);
     f.store.run('UPDATE messages SET consumed=1 WHERE id=?', childInput);
     expect((await f.project.acceptTask(parent.id)).status).toBe('completed');
     expect(f.store.unread(queue.id).map(row => row.id)).toEqual(messages);
@@ -186,7 +186,7 @@ test('new queue input during Git acceptance checks is not hidden by historical d
       if (++scans === 2) f.store.message(queue.id, 'new user input');
       return subtreeTasks(id);
     };
-    await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Task #${queue.id}: new input`);
+    await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Worker #${queue.id}: new input`);
     expect(f.store.task(parent.id).status).toBe('awaiting_acceptance');
     expect(f.store.unread(queue.id)).toHaveLength(1);
   } finally { await f.close(); }
@@ -312,7 +312,7 @@ test('accept/reopen cannot revive an invocation token; cancellation releases a r
     await expect(f.project.acceptTask(source.id)).rejects.toThrow('in flight');
     f.project.running.delete(source.id);
     await f.project.acceptTask(source.id);
-    await expect(f.project.reopenTask(source.id)).rejects.toThrow('accepted Tasks cannot be reopened');
+    await expect(f.project.reopenTask(source.id)).rejects.toThrow('accepted Workers cannot be reopened');
     expect(() => f.project.actor(token)).toThrow('expired');
     const historic = await sourceTask(f, 'historical-token'); await deliver(f, historic);
     f.store.update(historic.id, { status: 'completed' });

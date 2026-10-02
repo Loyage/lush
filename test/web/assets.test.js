@@ -33,6 +33,8 @@ test('全局待决提醒条模块可服务，样式与容器一起发货', async
     expect(await module.text()).toContain('export function renderNoticeBanner');
     const html = await (await fetch(f.url)).text();
     expect(html).toContain('id="notice-banner"');
+    expect(html).toContain('<span class="brand-caption">WORKER STUDIO</span>');
+    expect(html).not.toContain('TASK STUDIO');
     const css = await (await fetch(f.url + '/styles.css')).text();
     expect(css).toContain('.notice-banner');
     expect(css).toContain('.notice-banner[hidden]{display:none}');

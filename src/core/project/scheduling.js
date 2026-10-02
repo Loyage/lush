@@ -134,7 +134,7 @@ export default {
       this.running.set(task.id, run);
       this.store.armAgent(task.id, tokenHash(run.token));
       run.promise = this.invoke(task.id, run).catch(error => {
-        console.error(`task ${task.id}: ${error.stack || error}`);
+        console.error(`worker ${task.id}: ${error.stack || error}`);
       }).finally(async () => {
         this.running.delete(task.id);
         if (!this.stopping && ['say','child'].includes(task.task_kind)) {
@@ -200,13 +200,13 @@ export default {
   interrupt(taskId, reason = 'interrupted by user') {
     const task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
-    check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; interrupt individual say Tasks instead');
-    check(['say','child'].includes(task.task_kind), 'only say/child Tasks can be paused');
-    check(!TERMINAL.has(task.status), 'task has ended; retry it or submit a new input');
-    check(task.status !== 'paused', 'task is already paused');
+    check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; interrupt individual say Workers instead');
+    check(['say','child'].includes(task.task_kind), 'only say/child Workers can be paused');
+    check(!TERMINAL.has(task.status), 'worker has ended; retry it or submit a new input');
+    check(task.status !== 'paused', 'worker is already paused');
     const booking = task.reservation ? JSON.parse(task.reservation) : null;
     check(!(booking?.version === 2 && ['requested','executing','blocked'].includes(booking.status)),
-      'Task is frozen for merge; wait for integration or withdraw the request before pausing');
+      'Worker is frozen for merge; wait for integration or withdraw the request before pausing');
     const run = this.running.get(task.id);
     this.store.transaction(() => {
       this.store.update(task.id, { status: 'paused', error: null });
@@ -232,11 +232,11 @@ export default {
 
   /** 暂停中调整本轮运行设置：复用任务级 retry_profile，继续时生效、结算时清除，不改项目默认。 */
   configureTask(taskId, profile = null) {
-    this.assertWritable('configure a task');
+    this.assertWritable('configure a worker');
     const task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
-    check(task.status === 'paused', 'only paused tasks can adjust run settings');
-    check(['say','child'].includes(task.task_kind), 'only say/child Tasks can adjust run settings');
+    check(task.status === 'paused', 'only paused workers can adjust run settings');
+    check(['say','child'].includes(task.task_kind), 'only say/child Workers can adjust run settings');
     const retryProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile(task.role, profile);
     this.store.transaction(() => {
       this.store.update(task.id, { retry_profile: retryProfile ? JSON.stringify(retryProfile) : null });
@@ -247,12 +247,12 @@ export default {
 
   /** 从「已暂停」继续：保留 calls / 会话 / 工作区 / 消息，只把状态放回 queued（依赖或冻结由 pump 再决定）。 */
   resumeTask(taskId, profile = null) {
-    this.assertWritable('resume a task');
+    this.assertWritable('resume a worker');
     const task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
     assertTaskAncestorsOpen(this, task);
-    check(task.status === 'paused', 'only paused tasks can be resumed');
-    check(['say','child'].includes(task.task_kind), 'only say/child Tasks can be resumed');
+    check(task.status === 'paused', 'only paused workers can be resumed');
+    check(['say','child'].includes(task.task_kind), 'only say/child Workers can be resumed');
     check(!this.running.has(task.id), 'agent is still stopping; resume shortly');
     const retryProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile(task.role, profile);
     this.store.transaction(() => {
@@ -274,7 +274,7 @@ export default {
     const run = task ? this.running.get(task.id) : null;
     if (!run) throw new LushError('invalid or expired agent token');
     check(!['explainer','butler'].includes(task.role), 'isolated agents have no RPC capability');
-    check(task.status === 'running' && !run.parked && !run.controller.signal.aborted, 'agent task is no longer active');
+    check(task.status === 'running' && !run.parked && !run.controller.signal.aborted, 'agent worker is no longer active');
     this.store.touchAgent(task.id);
     return task.id;
   },
@@ -289,7 +289,7 @@ export default {
     const messages = this.store.unread(taskId);
     try {
       let task = this.store.task(taskId);
-      check(task.calls < this.config.maxCalls, 'task invocation limit reached');
+      check(task.calls < this.config.maxCalls, 'worker invocation limit reached');
       // An explicit retry may freeze a complete task-local profile. It wins over dynamic
       // project defaults for every invocation in this attempt and is cleared at settlement.
       const retryProfile = task.retry_profile ? this.agentSettings.retryProfile(task.role, JSON.parse(task.retry_profile)) : null;
@@ -309,7 +309,7 @@ export default {
         const fixed = JSON.parse(fixedEvent.data);
         const state = await this.workspaces.branchState(task.target_branch);
         check(state.child_head === fixed.source_commit && state.parent_head === fixed.parent_commit,
-          `解分歧两端提交在 Task #${task.id} 开工前已移动；保留现场，检查后再派`);
+          `解分歧两端提交在 Worker #${task.id} 开工前已移动；保留现场，检查后再派`);
       }
       if (run.controller.signal.aborted) throw new Error('cancelled');
       task = this.store.task(taskId);
@@ -361,7 +361,7 @@ export default {
           status: 'unverified', tested_commit: null, baseline_commit: null, commands: [],
           summary: 'This invocation did not perform verification.', report: { task_id: task.id,
             path: this.reportPath(task.id), available: false }, failures: [],
-          unverified: ['The task role was not verifier.'], baseline_failures: [], residual_risks: [],
+          unverified: ['The worker role was not verifier.'], baseline_failures: [], residual_risks: [],
         };
         this.store.addArtifact({ task_id: taskId, run_id: run.recordId, input_id: task.input_id, kind: 'run.result',
           payload: { schema_version: 2, invocation: { status: 'completed' }, outcome: 'success', summary: result,

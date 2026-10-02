@@ -6,7 +6,7 @@ const MAX_DRAFTS = 500;
 
 /** 输入缓存（增删改、逐条提交）。 */
 export default {
-  /** Buffering is user-only: agents submit work through task.spawn, never through the input buffer. */
+  /** Buffering is user-only: agents submit work through worker.spawn, never through the input buffer. */
   draft(content, references = []) {
     this.assertWritable('buffer a draft');
     text(content, 'draft');

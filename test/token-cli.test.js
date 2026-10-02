@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { run as intent } from '../src/cli/commands/intent.js';
-import { run as task } from '../src/cli/commands/task.js';
+import { run as worker } from '../src/cli/commands/task.js';
 import { run as system } from '../src/cli/commands/system.js';
 import { fixture } from './helpers.js';
 import { codeIdentity } from '../src/identity.js';
@@ -15,37 +15,38 @@ test('ordinary say submits content and branch without extra flags', async () => 
   ]);
 });
 
-test('task reserve and unreserve pass one explicit say Task and kind', async () => {
+test('worker reserve and unreserve pass one explicit say Worker and kind', async () => {
   const calls = [], client = { request: async (method, params) => { calls.push({ method, params }); return params; } };
-  await task('task', ['reserve', '7', 'merge'], { client, json: true });
-  await task('task', ['reserve-all', 'main'], { client, json: true });
-  await task('task', ['resolve-divergence', '7'], { client, json: true });
-  await task('task', ['resolve-child-divergence', '9'], { client, json: true });
-  await task('task', ['unreserve', '7'], { client, json: true });
-  await task('task', ['approve-merge', '7', 'a'.repeat(40), 'b'.repeat(40)], { client, json: true });
+  await worker('worker', ['reserve', '7', 'merge'], { client, json: true });
+  await worker('worker', ['reserve-all', 'main'], { client, json: true });
+  await worker('worker', ['resolve-divergence', '7'], { client, json: true });
+  await worker('worker', ['resolve-child-divergence', '9'], { client, json: true });
+  await worker('worker', ['unreserve', '7'], { client, json: true });
+  await worker('worker', ['approve-merge', '7', 'a'.repeat(40), 'b'.repeat(40)], { client, json: true });
   expect(calls).toEqual([
-    { method: 'task.reserve', params: { id: 7, kind: 'merge' } },
-    { method: 'task.reserve_all', params: { branch: 'main' } },
-    { method: 'task.resolve_divergence', params: { id: 7 } },
-    { method: 'task.resolve_child_divergence', params: { id: 9 } },
-    { method: 'task.unreserve', params: { id: 7 } },
-    { method: 'task.approve_merge', params: { id: 7, commit: 'a'.repeat(40), baseline: 'b'.repeat(40) } },
+    { method: 'worker.reserve', params: { id: 7, kind: 'merge' } },
+    { method: 'worker.reserve_all', params: { branch: 'main' } },
+    { method: 'worker.resolve_divergence', params: { id: 7 } },
+    { method: 'worker.resolve_child_divergence', params: { id: 9 } },
+    { method: 'worker.unreserve', params: { id: 7 } },
+    { method: 'worker.approve_merge', params: { id: 7, commit: 'a'.repeat(40), baseline: 'b'.repeat(40) } },
   ]);
-  await expect(task('task', ['reserve', '7'], { client, json: true })).rejects.toThrow();
-  await expect(task('task', ['reserve-all'], { client, json: true })).rejects.toThrow();
+  await expect(worker('worker', ['reserve', '7'], { client, json: true })).rejects.toThrow();
+  await expect(worker('worker', ['reserve-all'], { client, json: true })).rejects.toThrow();
   expect(calls).toHaveLength(6);
 });
 
-test('brief tasks use bounded rows and retain a continuation cursor; ordinary list stays compatible', async () => {
+test('brief workers use bounded rows and retain a continuation cursor; ordinary list stays compatible', async () => {
   const rows = Array.from({ length: 3 }, (_, i) => ({ id: i + 1, role: 'worker', status: 'completed', goal: 'x'.repeat(200), progress: 'large' }));
-  const calls = [], client = { request: async (method, params) => { calls.push(params); return rows; } };
-  const result = await task('task', ['list', '--brief', '--limit', '2'], { client, json: true });
-  expect(calls[0]).toEqual({ after: 0, limit: 3 });
+  const calls = [], client = { request: async (method, params) => { calls.push({ method, params }); return rows; } };
+  const result = await worker('worker', ['list', '--brief', '--limit', '2'], { client, json: true });
+  expect(calls[0]).toEqual({ method: 'worker.list', params: { after: 0, limit: 3 } });
   expect(result).toMatchObject({ has_more: true, next_after: 2 });
   expect(result.tasks).toHaveLength(2); expect(result.tasks[0].goal).toHaveLength(160);
   expect(result.tasks[0].progress).toBeUndefined();
-  expect(await task('task', ['list'], { client, json: true })).toEqual(rows);
-  await expect(task('task', ['list', '--brief', '--limit', '999'], { client })).rejects.toThrow('1..200');
+  expect(result.note).toContain('lush worker inspect ID');
+  expect(await worker('worker', ['list'], { client, json: true })).toEqual(rows);
+  await expect(worker('worker', ['list', '--brief', '--limit', '999'], { client })).rejects.toThrow('1..200');
 });
 
 test('doctor keeps identity checks but full daemon profiles require --verbose', async () => {

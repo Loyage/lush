@@ -25,7 +25,7 @@ function statusView(project, agentConfig = null) {
     tasks, layers,
     agents: [...project.running].map(([task_id, run]) => agentView(project.store.task(task_id), run)),
     agents_total: alive, agents_idle: alive - project.running.size,
-    // 以原 worker 为稳定交付项；resolver 是它的来源，不在这里重复计数（完整阶段见 task.ladder.groups）。
+    // 以原 worker 为稳定交付项；resolver 是它的来源，不在这里重复计数（完整阶段见内部 ladder().groups 读模型）。
     pending_merges: project.store.all("SELECT id, substr(goal,1,500) AS goal, branch, integration FROM tasks WHERE resolves_task_id IS NULL AND integration IN ('pending','review','conflict') ORDER BY id LIMIT 100"),
     // 未解决的冲突冻结同一目标分支上的合并：界面据此禁用按钮并说清原因。
     merge_freeze: project.store.all(`SELECT id AS task_id, target_branch,

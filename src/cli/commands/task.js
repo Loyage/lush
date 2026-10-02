@@ -2,14 +2,14 @@ import { check, id, TERMINAL } from '../../core/types.js';
 import { option, exact } from '../args.js';
 import { printTree, printLadder, printTimeline, printMergeMany, printTranscript, transcriptStepText, printUsage } from '../print.js';
 
-/** `task transcript --follow` 的默认轮询间隔；一处定义，测试与体验都按它来。 */
+/** `worker transcript --follow` 的默认轮询间隔；一处定义，测试与体验都按它来。 */
 export const FOLLOW_INTERVAL_MS = 1500;
 /** 每次向前读取与轮询的步骤上限；与兼容读面的 `MAX_STEPS` 一致。 */
 const FOLLOW_LIMIT = 200;
 
 /**
- * `task transcript ID --follow`：先把已有记录按 `task transcript` 的既有分页读出来打印，
- * 再用文档推荐的轮询端点 `task.transcript_latest` 持续打印游标之后的新步骤，直到 `signal` 中止。
+ * `worker transcript ID --follow`：先把已有记录按 `worker transcript` 的既有分页读出来打印，
+ * 再用文档推荐的轮询端点 `worker.transcript_latest` 持续打印游标之后的新步骤，直到 `signal` 中止。
  *
  * 只读、不执行日志里的命令。`sleep` / `print` / `note` / `signal` 全部可注入，
  * 让跟随循环能在测试里推进而不必真的等待或等到进程被 Ctrl-C。
@@ -23,9 +23,9 @@ export async function followTranscript(client, taskId, {
   let cursor = after;
   let sawFile = false;
   let truncated = false;
-  // 1) 已有记录沿用兼容读面分页，输出与一次性的 `lush task transcript ID` 完全一致。
+  // 1) 已有记录沿用兼容读面分页，输出与一次性的 `lush worker transcript ID` 完全一致。
   for (;;) {
-    const page = await client.request('task.transcript', { id: taskId, after: cursor, limit });
+    const page = await client.request('worker.transcript', { id: taskId, after: cursor, limit });
     sawFile = sawFile || page.files.length > 0;
     truncated = truncated || Boolean(page.truncated);
     if (!page.steps.length) break;
@@ -33,7 +33,7 @@ export async function followTranscript(client, taskId, {
     cursor = page.steps.at(-1).seq;
     if (!page.has_more) break;
   }
-  if (!sawFile) { note('(这个任务还没有 pi 会话记录)\n'); return; }
+  if (!sawFile) { note('(这个 Worker 还没有 pi 会话记录)\n'); return; }
   if (truncated) note('… 会话记录过大，已只读取前面一部分；跟随从最新记录继续，中间可能有未显示的步骤\n');
   note(`─ 以上是已有记录；正在跟随新步骤（每 ${Math.max(1, Math.round(interval / 1000))} 秒检查一次，Ctrl-C 退出）\n`);
   // 2) 跟随：轮询最新步骤，只打印 cursor 之后的新内容；步骤没到时安静等待。
@@ -42,10 +42,10 @@ export async function followTranscript(client, taskId, {
     if (signal?.aborted) break;
     await sleep(interval);
     if (signal?.aborted) break;
-    const page = await client.request('task.transcript_latest', { id: taskId, after: cursor, before: 0, limit });
+    const page = await client.request('worker.transcript_latest', { id: taskId, after: cursor, before: 0, limit });
     if (page.truncated && !notedTruncated) { notedTruncated = true; note('… 会话中存在超过 16 MiB 的单行，该行无法读取\n'); }
     for (const step of page.steps) print(transcriptStepText(step));
-    if (page.steps.length === limit) note('… 一次检查读到整页新步骤，中间可能还有未显示的记录；可用 `lush task transcript ID` 查看完整现状\n');
+    if (page.steps.length === limit) note('… 一次检查读到整页新步骤，中间可能还有未显示的记录；可用 `lush worker transcript ID` 查看完整现状\n');
     if (page.steps.length) cursor = page.next;
   }
   note('（已停止跟随）\n');
@@ -54,7 +54,7 @@ export async function followTranscript(client, taskId, {
 export async function run(command, args, ctx) {
   const { client, json } = ctx;
   let value;
-  if (command === 'task') {
+  if (command === 'worker') {
     const verb = args.shift();
     if (verb === 'list') {
       const brief = args.includes('--brief');
@@ -62,12 +62,12 @@ export async function run(command, args, ctx) {
       const after = Number(option(args, '--after', '0')), limit = Number(option(args, '--limit', brief ? '30' : '200'));
       exact(args, 0);
       if (brief) check(Number.isInteger(limit) && limit > 0 && limit <= 200, '--brief limit must be 1..200');
-      value = await client.request('task.list', { after, limit: brief ? limit + 1 : limit });
+      value = await client.request('worker.list', { after, limit: brief ? limit + 1 : limit });
       if (brief) {
         const tasks = value.slice(0, limit).map(({ id, parent_id, role, status, integration, goal }) => ({ id, parent_id, role, status, integration,
           goal: goal.replace(/\s+/g, ' ').slice(0, 160), goal_truncated: goal.length >= 160 }));
         value = { tasks, has_more: value.length > limit, next_after: tasks.at(-1)?.id ?? after,
-          note: '短摘要；完整目标与结果用 task inspect ID。' };
+          note: '短摘要；完整目标与结果用 lush worker inspect ID。' };
       }
     }
     else if (verb === 'tree') {
@@ -75,23 +75,23 @@ export async function run(command, args, ctx) {
       const request = args.length ? { id: id(args[0]) } : {};
       if (!json) {
         // 树本身看不出并发槽与排队，所以顺带问一句 status，让"为什么没在跑"也有答案。
-        const [tree, status] = await Promise.all([client.request('task.tree', request), client.request('system.status')]);
+        const [tree, status] = await Promise.all([client.request('worker.tree', request), client.request('system.status')]);
         printTree(tree, status); return;
       }
-      value = await client.request('task.tree', request);
+      value = await client.request('worker.tree', request);
     }
     else if (verb === 'spawn') {
       const parent = option(args, '--parent', process.env.LUSH_TASK_ID);
       const name = option(args, '--name');
       exact(args, 1);
-      value = await client.request('task.spawn', { parent: id(parent), goal: args[0], ...(name ? { name } : {}) });
+      value = await client.request('worker.spawn', { parent: id(parent), goal: args[0], ...(name ? { name } : {}) });
     } else if (verb === 'transcript') {
       const follow = args.includes('--follow');
       if (follow) args.splice(args.indexOf('--follow'), 1);
       const after = Number(option(args, '--after', '0')); exact(args, 1);
       const taskId = id(args[0]);
       if (follow) {
-        check(!client.token, 'agents must end their invocation rather than follow; use `lush task transcript ID`');
+        check(!client.token, 'agents must end their invocation rather than follow; use `lush worker transcript ID`');
         check(!json, '--follow is a live human-readable stream; --json is not supported');
         const controller = new AbortController();
         const stop = () => controller.abort();
@@ -100,53 +100,53 @@ export async function run(command, args, ctx) {
         finally { process.off('SIGINT', stop); }
         return;
       }
-      value = await client.request('task.transcript', { id: taskId, after });
+      value = await client.request('worker.transcript', { id: taskId, after });
       if (!json) { printTranscript(value); return; }
-    } else if (verb === 'message') { exact(args, 2); value = await client.request('task.message', { id: id(args[0]), body: args[1] }); }
+    } else if (verb === 'message') { exact(args, 2); value = await client.request('worker.message', { id: id(args[0]), body: args[1] }); }
     else if (verb === 'history') {
       const after = Number(option(args, '--after', '0')); exact(args, 1);
-      value = await client.request('task.history', { id: id(args[0]), after });
+      value = await client.request('worker.history', { id: id(args[0]), after });
     } else if (verb === 'wait') {
       check(!client.token, 'agents must end their invocation rather than wait; Lush wakes the parent automatically');
       exact(args, 1);
-      do { value = await client.request('task.inspect', { id: id(args[0]) }); if (!TERMINAL.has(value.status)) await Bun.sleep(300); }
+      do { value = await client.request('worker.inspect', { id: id(args[0]) }); if (!TERMINAL.has(value.status)) await Bun.sleep(300); }
       while (!TERMINAL.has(value.status));
       if (value.status !== 'completed') process.exitCode = 1;
     } else {
-      check(['inspect','cancel','retry','interrupt','resume','integrate','reserve','reserve-all','auto-merge','resolve','accept','reopen','sync-parent','resolve-sync','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup'].includes(verb), 'unknown task command');
+      check(['inspect','cancel','retry','interrupt','resume','integrate','reserve','reserve-all','auto-merge','resolve','accept','reopen','sync-parent','resolve-sync','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup'].includes(verb), 'unknown worker command');
       if (verb === 'integrate') {
         exact(args, 2);
-        value = await client.request('task.integrate', { id: id(args[0]), commit: args[1] });
+        value = await client.request('worker.integrate', { id: id(args[0]), commit: args[1] });
       } else if (verb === 'reserve') {
         exact(args, 2);
-        value = await client.request('task.reserve', { id: id(args[0]), kind: args[1] });
+        value = await client.request('worker.reserve', { id: id(args[0]), kind: args[1] });
       } else if (verb === 'auto-merge') {
         exact(args, 2);
         check(['on','off'].includes(args[1]), 'auto-merge expects on or off');
-        value = await client.request('task.auto_merge', { id: id(args[0]), enabled: args[1] === 'on' });
+        value = await client.request('worker.auto_merge', { id: id(args[0]), enabled: args[1] === 'on' });
       } else if (verb === 'reserve-all') {
         exact(args, 1);
-        value = await client.request('task.reserve_all', { branch: args[0] });
+        value = await client.request('worker.reserve_all', { branch: args[0] });
       } else if (verb === 'resolve-child-divergence') {
         exact(args, 1);
-        value = await client.request('task.resolve_child_divergence', { id: id(args[0]) });
+        value = await client.request('worker.resolve_child_divergence', { id: id(args[0]) });
       } else if (verb === 'resolve-divergence') {
         exact(args, 1);
-        value = await client.request('task.resolve_divergence', { id: id(args[0]) });
+        value = await client.request('worker.resolve_divergence', { id: id(args[0]) });
       } else if (verb === 'sync-parent' || verb === 'resolve-sync') {
         exact(args, 1);
-        value = await client.request(`task.${verb.replaceAll('-', '_')}`, { id: id(args[0]) });
+        value = await client.request(`worker.${verb.replaceAll('-', '_')}`, { id: id(args[0]) });
       } else if (verb === 'unreserve') {
         exact(args, 1);
-        value = await client.request('task.unreserve', { id: id(args[0]) });
+        value = await client.request('worker.unreserve', { id: id(args[0]) });
       } else if (verb === 'approve-merge') {
         exact(args, 3);
-        value = await client.request('task.approve_merge', { id: id(args[0]), commit: args[1], baseline: args[2] });
+        value = await client.request('worker.approve_merge', { id: id(args[0]), commit: args[1], baseline: args[2] });
       } else if (verb === 'cleanup') {
         const keepBranch = args.includes('--keep-branch');
         if (keepBranch) args.splice(args.indexOf('--keep-branch'), 1);
-        exact(args, 1); value = await client.request('task.cleanup', { id: id(args[0]), keep_branch: keepBranch });
-      } else { exact(args, 1); value = await client.request(`task.${verb}`, { id: id(args[0]) }); }
+        exact(args, 1); value = await client.request('worker.cleanup', { id: id(args[0]), keep_branch: keepBranch });
+      } else { exact(args, 1); value = await client.request(`worker.${verb}`, { id: id(args[0]) }); }
     }
   }
   return value;

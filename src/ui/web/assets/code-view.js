@@ -12,13 +12,13 @@ export function createCodeView(taskId, { onSearch } = {}) {
   const root = el('section', undefined, 'code-view'); root.setAttribute('aria-label', '代码与改动');
   const toolbar = el('div', undefined, 'code-toolbar');
   const scopeSelect = el('select'); scopeSelect.setAttribute('aria-label', '代码比较范围');
-  for (const [value, label] of [['task', '任务累计'], ['iteration', '本次交付'], ['working', '未提交']]) {
+  for (const [value, label] of [['task', 'Worker 累计'], ['iteration', '本次交付'], ['working', '未提交']]) {
     const option = el('option', label); option.value = value; scopeSelect.append(option);
   }
   scopeSelect.value = 'task';
-  scopeSelect.setAttribute('data-help', '任务累计从创建基线比较，本次交付从迭代基线比较，未提交从实际 HEAD 比较；右侧均为当前工作区，归档时明确降级。');
+  scopeSelect.setAttribute('data-help', 'Worker 累计从创建基线比较，本次交付从迭代基线比较，未提交从实际 HEAD 比较；右侧均为当前工作区，归档时明确降级。');
   const metadata = el('p', '尚未读取代码现场。', 'hint code-snapshot');
-  const refreshButton = button('刷新', () => refresh(), 'ghost', { help: '重新采样当前任务工作区，并显式更新文件列表和选中文件；不会修改文件或调用 Agent。' });
+  const refreshButton = button('刷新', () => refresh(), 'ghost', { help: '重新采样当前 Worker 工作区，并显式更新文件列表和选中文件；不会修改文件或调用 Agent。' });
   const toggleFiles = button('收起文件栏', () => {
     const collapsed = root.classList.toggle('code-files-collapsed'); toggleFiles.textContent = collapsed ? '展开文件栏' : '收起文件栏';
     toggleFiles.setAttribute('aria-expanded', String(!collapsed));
@@ -40,7 +40,7 @@ export function createCodeView(taskId, { onSearch } = {}) {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) if (value !== null && value !== undefined) query.set(key, String(value));
     try {
-      const data = await api(`/api/task/${taskId}/${endpoint}?${query}`, { signal: controller.signal });
+      const data = await api(`/api/worker/${taskId}/${endpoint}?${query}`, { signal: controller.signal });
       if (token !== generation || !visible()) throw aborted();
       return data;
     } finally { controllers.delete(controller); }
@@ -91,7 +91,7 @@ export function createCodeView(taskId, { onSearch } = {}) {
         if (token !== generation) return;
         if (data.availability === 'stale') { showUpdate(data.reason || '采样期间文件发生变化，请重试。'); return; }
         snapshot = data; paintMeta(data); banner.hidden = true;
-        if (data.availability !== 'available') showUpdate(data.reason || '此任务没有可读取的代码现场。');
+        if (data.availability !== 'available') showUpdate(data.reason || '此 Worker 没有可读取的代码现场。');
         const scroll = tree.root.querySelector('.code-tree-scroll')?.scrollTop || 0;
         await tree.reset(data);
         if (token !== generation) return;

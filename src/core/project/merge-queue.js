@@ -18,8 +18,8 @@ export default {
     const settings = task.auto_merge ? JSON.parse(task.auto_merge) : null;
     const enabled = settings?.enabled === true, locked = settings?.locked === true;
     let reason = null;
-    if (locked) reason = '父任务派生的子 Task 默认自动合并，不能关闭';
-    else if (TERMINAL.has(task.status) || task.status === 'awaiting_acceptance') reason = '本轮已交付或任务已结束，不能调整自动合并';
+    if (locked) reason = '父Worker派生的子Worker默认自动合并，不能关闭';
+    else if (TERMINAL.has(task.status) || task.status === 'awaiting_acceptance') reason = '本轮已交付或 Worker 已结束，不能调整自动合并';
     else if (booking && [...FROZEN, 'suspended'].includes(booking.status)) reason = '合并请求已发出，不能调整自动合并';
     else if (this.taskSyncBusy?.has(task.id) || taskSyncDeliveryPaused(this, task.id)) reason = '父分支同步正在执行或交付已暂停，不能调整自动合并';
     else if (this.mergeReadiness(task)?.ready) reason = '本轮开发已完成，请使用合并按钮';
@@ -44,7 +44,7 @@ export default {
     check(typeof enabled === 'boolean', 'enabled must be a boolean');
     const task = this.store.task(id(taskId));
     const before = this.autoMergeView(task);
-    check(before, 'only version 2 say/child Tasks support auto merge');
+    check(before, 'only version 2 say/child Workers support auto merge');
     if (before.enabled === enabled) return { task_id: task.id, changed: false, auto_merge: before };
     check(before.editable, before.reason);
     assertTaskAncestorsOpen(this, task);
@@ -64,7 +64,7 @@ export default {
 
   async requestTaskMerge(taskId) {
     let task = this.store.task(id(taskId));
-    check(codeTask(task), 'only say/child code Tasks can request a merge');
+    check(codeTask(task), 'only say/child code Workers can request a merge');
     this.restoreUnrequestedTaskParent(task.id);
     task = this.store.task(task.id);
     assertTaskAncestorsOpen(this, task);
@@ -104,11 +104,11 @@ export default {
     if (task.status === 'awaiting_acceptance') this.store.update(task.id, { status: 'waiting' });
     check(!previous || (previous.kind === 'merge' && previous.version === 2),
       'another delivery reservation already exists');
-    check(!TERMINAL.has(task.status), 'ended Tasks cannot request a merge');
+    check(!TERMINAL.has(task.status), 'ended Workers cannot request a merge');
     if (!previous) this.store.transaction(() => {
       const current = this.store.task(task.id);
       check(!current.reservation && !TERMINAL.has(current.status),
-        'Task changed while reserving merge');
+        'Worker changed while reserving merge');
       this.store.update(task.id, { status: current.status,
         reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'pending',
           created_at: new Date().toISOString() }) });
@@ -185,7 +185,7 @@ export default {
         return delivered;
       }
       if (delivery !== 'pending' || state.status === 'integrated') {
-        this.noteReservationBlocked(task.id, '没有尚未合入的提交；请继续工作或显式结束这条 Task');
+        this.noteReservationBlocked(task.id, '没有尚未合入的提交；请继续工作或显式结束这条 Worker');
         return false;
       }
       this.store.transaction(() => {
@@ -221,7 +221,7 @@ export default {
    * version 2 integration leaves the worktree and branch in place; unhook the delivered Task from
    * the reusable merge identity and put it back under the parent it was originally delivered to,
    * so the user can inspect it and decide when to archive. Archiving stays an explicit user action
-   * (`task.cleanup` / `branch archive`). Idempotent: a Task already under its original parent is left alone.
+   * (`worker.cleanup` / `branch archive`). Idempotent: a Worker already under its original parent is left alone.
    *
    * 「原父」只以预约里记下的 `parent_id` 为准，不要求分支还在：用户（或旧版自动归档路径）
    * 已经收走 branch / worktree 的 Task 同样要归位，否则它会永久挂在 merge 队列身份下。
@@ -321,6 +321,7 @@ export default {
           const title = await this.workspaces.git(this.config.project, 'show', '-s', '--format=%s', tip);
           const tree = await this.workspaces.commitTree(tip);
           const sourceTree = await this.workspaces.commitTree(old.commit);
+          // Historical titles are recovery credentials, not display labels; keep the task marker.
           const matches = old.baseline && parents === old.baseline && tree === sourceTree
             && title === `Merge task #${task.id}: ${task.goal.split('\n')[0].slice(0, 100)}`;
           const now = this.store.task(task.id);

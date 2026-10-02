@@ -31,7 +31,7 @@ function syncSidebarSortSelect() {
   const select = $('sidebar-sort');
   select.replaceChildren(...SORT_MODES.map(mode => { const option = el('option', mode.label); option.value = mode.id; return option; }));
   select.value = ui.sidebarSortMode;
-  select.title = '四个列表共用：智能排序会为任务、规划、输入与待决事项分别选择最有用的顺序；也可以统一按最近更新或编号排序。';
+  select.title = '四个列表共用：智能排序会为 Worker、规划、输入与待决事项分别选择最有用的顺序；也可以统一按最近更新或编号排序。';
 }
 function onSidebarSortChange() { setPref('sidebarSort', $('sidebar-sort').value); }
 
@@ -53,7 +53,7 @@ onPrefChange('theme', () => refreshTheme());
 // 轮询频率变了：立刻按新间隔重建两个定时器，不必刷新页面。
 onPrefChange('polling', () => { if (refreshTimer !== null || liveTimer !== null) startTimers(); });
 
-const linked = taskId => /^#task-(\d+)$/.test(taskId) ? Number(taskId.slice(6)) : null;
+const linked = taskId => /^#worker-(\d+)$/.test(taskId) ? Number(taskId.slice(8)) : null;
 
 /** 打开文档：点左栏「文档」与 #docs / #doc-<id> 共用；同样只报错，不中断轮询。 */
 function openDocsView(id = null) { return openDocs(id).catch(error => { show(error.message, 'error'); }); }
@@ -71,10 +71,11 @@ function onHashChange() {
   if (inputMatch && Number.isSafeInteger(Number(inputMatch[2]))) {
     return openInputs({ item: { kind: inputMatch[1], id: Number(inputMatch[2]) }, push: false });
   }
-  if (location.hash === '#task-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
+  if (location.hash === '#worker-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
   const noticeId = /^#notice-([1-9]\d*)$/.exec(location.hash)?.[1];
   if (noticeId && Number.isSafeInteger(Number(noticeId))) return openNotice(Number(noticeId)).catch(report);
-  const resource = /^#(notices|tasks)$/.exec(location.hash)?.[1];
+  const resourceRoute = /^#(notices|workers)$/.exec(location.hash)?.[1];
+  const resource = resourceRoute === 'workers' ? 'tasks' : resourceRoute;
   if (resource) return openResource(resource, { push: false });
   const doc = docsTarget(location.hash);
   if (doc) return openDocsView(doc.id);

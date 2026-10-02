@@ -10,10 +10,10 @@ function step(value) {
   return { key, label };
 }
 
-/** Agent-only progress reporting; task identity comes from LUSH_AGENT_TOKEN, never a CLI task id. */
+/** Agent-only progress reporting; Worker identity comes from LUSH_AGENT_TOKEN, never a CLI Worker id. */
 export async function run(command, args, { client, json }) {
   const verb = args.shift();
-  check(client.token, 'progress commands are available only inside a running Lush agent task');
+  check(client.token, 'progress commands are available only inside a running Lush Worker agent');
   if (verb === 'plan') {
     check(args.length > 0, 'progress plan needs KEY[:LABEL] steps');
     const result = await client.request('progress.plan', { steps: args.map(step) });

@@ -130,7 +130,7 @@ function paintNoticeRows(rows) {
     row.append(badge(lifecycleNotice(notice) ? unreadNotice(notice) ? '未读告知' : '已读告知' : STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'),
       el('span', `#${notice.task_id}`, 'tid'), el('span', relative(notice.created_at), 'when'));
     node.append(row, el('span', notice.title, 'goal'));
-    node.setAttribute('data-help', lifecycleNotice(notice) ? '打开对应 Task；成功加载后自动已读，不会启动 Agent 或批准合并' : `${notice.title}；发布于 ${absolute(notice.created_at)}`);
+    node.setAttribute('data-help', lifecycleNotice(notice) ? '打开对应 Worker；成功加载后自动已读，不会启动 Agent 或批准合并' : `${notice.title}；发布于 ${absolute(notice.created_at)}`);
     referenceable(node, { kind: 'notice', target: { notice_id: notice.id }, label: `事项记录 #${notice.id}`,
       quote: `${notice.title}\n${notice.body || ''}`, location: { view: 'notice-list', notice_id: notice.id } });
     return node;
@@ -198,7 +198,7 @@ export async function openNotice(noticeId) {
       void loadNoticeRecords();
     }
     state.selected = noticeId; state.signature = null;
-    return Promise.all([api(`/api/task/${notice.task_id}`), readNoticeRecord(noticeId)]).then(([task, current]) => {
+    return Promise.all([api(`/api/worker/${notice.task_id}`), readNoticeRecord(noticeId)]).then(([task, current]) => {
       if (ui.noticeRecords !== state || state.selected !== noticeId || ui.indexOpen !== 'notices') return;
       state.task = task;
       ui.noticeIndex.set(noticeId, current);
@@ -216,7 +216,7 @@ export function noticePanel(notice, task = null) {
   const section = el('section', undefined, 'notice focus');
   section.dataset.id = notice.id;
   const head = el('div', undefined, 'notice-head');
-  head.append(badge(STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'), el('span', `任务 #${notice.task_id}`, 'tid'),
+  head.append(badge(STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'), el('span', `Worker #${notice.task_id}`, 'tid'),
     el('span', `${relative(notice.created_at)} · ${absolute(notice.created_at)}`, 'when'));
   section.append(head, el('h3', notice.title));
   if (notice.status !== 'open') {
@@ -245,7 +245,7 @@ export function noticePanel(notice, task = null) {
       finally { actions.querySelectorAll('button').forEach(node => { node.disabled = false; }); }
     };
     actions.append(button('批准并开发', () => send('plan.approve', { id: notice.id }), undefined,
-      { agent: true, help: agentHelp('批准这份拆解并交给 scheduler 编排成真实任务，随后会启动开发 Agent 执行。') }), button('驳回', async () => {
+      { agent: true, help: agentHelp('批准这份拆解并交给 scheduler 编排成真实 Worker，随后会启动开发 Agent 执行。') }), button('驳回', async () => {
       const reason = await promptDialog({ title: '驳回计划', message: '说明需要调整的地方。', confirmLabel: '驳回' });
       if (reason?.trim()) await send('plan.reject', { id: notice.id, reason: reason.trim() });
     }, 'ghost', { agent: true, help: agentHelp('把驳回理由送给 planner，让它据此重新拆解计划。') }));
@@ -265,8 +265,8 @@ export function noticePanel(notice, task = null) {
       settle: answer => settled('notice.answer', { id: notice.id, answer }),
       dismiss: () => settled('notice.dismiss', { id: notice.id }),
     }));
-    if (!inRecords) section.append(button('收起，只看任务详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
-      { help: '收起这条待决提醒，回到任务详情；待决事项仍保留在列表里。' }));
+    if (!inRecords) section.append(button('收起，只看 Worker 详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
+      { help: '收起这条待决提醒，回到 Worker 详情；待决事项仍保留在列表里。' }));
     referenceable(section, { kind: 'notice', target: { notice_id: notice.id }, label: `待定事项 #${notice.id}`,
       quote: `${notice.title}\n${notice.body || ''}`, location: { view: 'notice-detail', notice_id: notice.id, task_id: notice.task_id } });
     return section;
@@ -301,11 +301,11 @@ export function noticePanel(notice, task = null) {
       { agent: true, help: agentHelp('批准并启动解冲突 Agent，把父分支合进当前分支并处理合并冲突。') }),
     button('暂不处理', dismiss, 'ghost', { help: '忽略这条待决事项，不代表批准；它不会再出现在待处理列表。' }));
   else actions.append(
-    button('回复并继续任务', () => settle(answer.value), undefined,
-      { agent: true, help: agentHelp('把你的答复发给该任务的 Agent，它会继续当前工作。') }),
+    button('回复并继续 Worker', () => settle(answer.value), undefined,
+      { agent: true, help: agentHelp('把你的答复发给该 Worker 的 Agent，它会继续当前工作。') }),
     button('忽略', dismiss, 'ghost', { help: '忽略这条待决事项，不代表批准；它不会再出现在待处理列表。' }));
-  actions.append(button(inRecords ? '查看任务上下文' : '收起，只看任务详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
-    inRecords ? undefined : { help: '收起这条待决提醒，回到任务详情；待决事项仍保留在列表里。' }));
+  actions.append(button(inRecords ? '查看 Worker 上下文' : '收起，只看 Worker 详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
+    inRecords ? undefined : { help: '收起这条待决提醒，回到 Worker 详情；待决事项仍保留在列表里。' }));
   if (answer) answer.addEventListener('keydown', event => {
     if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
     if (!event.metaKey && !event.ctrlKey) return;

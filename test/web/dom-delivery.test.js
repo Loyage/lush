@@ -48,8 +48,8 @@ test('Task detail offers an auto-merge checkbox instead of booking buttons', asy
   expect(buttonOf(detail, '预约合并')).toBeUndefined();
   expect(buttonOf(detail, '预约展示')).toBeUndefined();
   input.checked = true; await input.onchange();
-  expect(world.state.actions).toContainEqual({ method: 'task.auto_merge', params: { id: say.id, enabled: true } });
-  expect(world.state.actions.some(action => action.method === 'task.reserve')).toBe(false);
+  expect(world.state.actions).toContainEqual({ method: 'worker.auto_merge', params: { id: say.id, enabled: true } });
+  expect(world.state.actions.some(action => action.method === 'worker.reserve')).toBe(false);
   expect(world.state.actions.some(action => action.params?.kind === 'showcase')).toBe(false);
 });
 
@@ -66,15 +66,15 @@ test('ready say uses only 合并 even with a pending intent; requested delivery 
     expect(request.classList.contains('agent-call')).toBe(true);
     expect(request.getAttribute('data-help')).toContain('消耗 token');
     const pending = request.onclick();
-    expect(dialogText(dom)).toContain('父 Task 自有队列的 runtime');
-    expect(dialogText(dom)).toContain('不创建 merge Task、不改变父子关系');
+    expect(dialogText(dom)).toContain('父 Worker 自有队列的 runtime');
+    expect(dialogText(dom)).toContain('不创建 merge Worker、不改变父子关系');
     expect(dialogText(dom)).toContain('不额外调用父 Agent');
     expect(dialogText(dom)).toContain('挂起释放执行位');
     expect(dialogText(dom)).toContain('成功后进入待验收');
     expect(dialogText(dom)).not.toContain('归还原父');
     expect(dialogText(dom)).toContain('不会改变跨轮保留的自动合并设置');
     await answerDialog(dom, '合并'); await pending;
-    expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
+    expect(world.state.actions.at(-1)).toEqual({ method: 'worker.reserve', params: { id: say.id, kind: 'merge' } });
   }
   renderDetail({ ...done, reservation: { version: 2, kind: 'merge', status: 'requested', commit, baseline } }, null, null, null);
   const panel = dom.node('detail');
@@ -108,7 +108,7 @@ test('parent-owned queue states explain the slot and offer only suspended resume
         expect(recovery.classList.contains('agent-call')).toBe(true);
         expect(recovery.getAttribute('data-help')).toContain('消耗 token');
         await recovery.onclick();
-        expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
+        expect(world.state.actions.at(-1)).toEqual({ method: 'worker.reserve', params: { id: say.id, kind: 'merge' } });
       } else expect(recovery).toBeUndefined();
     }
   }
@@ -137,7 +137,7 @@ test('waiting for child work or unread messages shows the shared auto-merge togg
     expect(deepText(panel)).toContain(reason);
     const toggle = panel.querySelector('.auto-merge-toggle').querySelector('input');
     toggle.checked = true; await toggle.onchange();
-    expect(world.state.actions.at(-1)).toEqual({ method: 'task.auto_merge', params: { id: say.id, enabled: true } });
+    expect(world.state.actions.at(-1)).toEqual({ method: 'worker.auto_merge', params: { id: say.id, enabled: true } });
     const graph = graphFor(null, { done: true });
     graph.nodes[0].merge_readiness = waiting.merge_readiness;
     renderGraph(graph);
@@ -157,7 +157,7 @@ test('waiting for child work or unread messages shows the shared auto-merge togg
     const enabled = panel.querySelector('.auto-merge-toggle').querySelector('input');
     expect(enabled.checked).toBe(true);
     enabled.checked = false; await enabled.onchange();
-    expect(world.state.actions.at(-1)).toEqual({ method: 'task.auto_merge', params: { id: say.id, enabled: false } });
+    expect(world.state.actions.at(-1)).toEqual({ method: 'worker.auto_merge', params: { id: say.id, enabled: false } });
     expect(deepText(panel)).toContain(reason);
   }
   const graph = graphFor(null, { done: true });
@@ -192,7 +192,7 @@ test('auto-merge mutation is single-flight across rerenders and restores checked
   const previousFetch = globalThis.fetch;
   let release, requests = 0;
   globalThis.fetch = async (url, options) => {
-    if (String(url).endsWith('/api/action') && JSON.parse(options.body).method === 'task.auto_merge') {
+    if (String(url).endsWith('/api/action') && JSON.parse(options.body).method === 'worker.auto_merge') {
       requests++;
       return new Promise(resolve => { release = () => resolve({ ok: false, status: 400,
         json: async () => ({ error: '任务已经就绪，不可修改自动合并' }) }); });
@@ -219,7 +219,7 @@ test('successful updates apply the returned setting and editability before the n
   const previousFetch = globalThis.fetch;
   let requests = 0;
   globalThis.fetch = async (url, options) => {
-    if (String(url).endsWith('/api/action') && JSON.parse(options.body).method === 'task.auto_merge') {
+    if (String(url).endsWith('/api/action') && JSON.parse(options.body).method === 'worker.auto_merge') {
       requests++;
       return { ok: true, status: 200, json: async () => ({ task_id: say.id, changed: true,
         auto_merge: { enabled: true, locked: false, editable: false, reason: '已经交付就绪，请合并' } }) };
@@ -299,7 +299,7 @@ test('failed resolving withdrawal matches locked and enabled automatic-intent pr
   const panel = deliveryControls({ ...say, status: 'failed', auto_merge: { ...say.auto_merge, enabled: true },
     reservation: { version: 2, kind: 'merge', status: 'resolving' } });
   await buttonOf(panel, '放弃解分歧请求').onclick();
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.unreserve', params: { id: say.id } });
+  expect(world.state.actions.at(-1)).toEqual({ method: 'worker.unreserve', params: { id: say.id } });
 });
 
 test('integrated merge says 待归档 only while a branch is still left to archive', () => {
@@ -341,16 +341,16 @@ test('Task graph uses the same fixed approval, never legacy branch.merge or bran
   const pending = approve.onclick();
   expect(dialogText(dom)).toContain(`源提交：${commit}`);
   expect(dialogText(dom)).toContain(`父分支基线：${baseline}`);
-  expect(world.state.actions.some(action => action.method === 'task.approve_merge')).toBe(false);
+  expect(world.state.actions.some(action => action.method === 'worker.approve_merge')).toBe(false);
   await answerDialog(dom, `批准 ${commit.slice(0, 12)}`); await pending;
-  expect(world.state.actions).toContainEqual({ method: 'task.approve_merge', params: { id: say.id, commit, baseline } });
+  expect(world.state.actions).toContainEqual({ method: 'worker.approve_merge', params: { id: say.id, commit, baseline } });
 
   renderGraph(graphFor({ version: 1, kind: 'merge', status: 'pending', blocked_reason: 'parent diverged' }), { force: true });
   const recheck = buttonOf(sourceRow(), '复查预约');
   expect(recheck.classList.contains('agent-call')).toBe(false);
   expect(recheck.getAttribute('data-help')).toContain('不会直接推进父分支');
   await recheck.onclick();
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
+  expect(world.state.actions.at(-1)).toEqual({ method: 'worker.reserve', params: { id: say.id, kind: 'merge' } });
 
   renderGraph(graphFor(null), { force: true });
   expect(sourceRow().querySelector('.auto-merge-toggle')).toBeTruthy();
@@ -376,7 +376,7 @@ test('historical showcase reservations are read-only in detail and graph for eve
     const row = sourceRow();
     expect(row.querySelector('.delivery-controls')).toBeNull();
     expect(row.querySelector('.iteration-controls')).toBeNull();
-    expect(buttonOf(row, '向此 Task 输入')).toBeUndefined();
+    expect(buttonOf(row, '向此 Worker 输入')).toBeUndefined();
     expect(buttonOf(row, '归档')).toBeUndefined();
     expect(buttonOf(row, '请求合并')).toBeUndefined();
   }
@@ -386,7 +386,7 @@ test('historical showcase reservations are read-only in detail and graph for eve
 test('historical showcase Tasks retain generic results without reports, previews or retry operations', () => {
   const historical = { ...say, id: 81, task_kind: 'showcase', role: 'showcase', status: 'failed',
     branch: null, workspace: '/tmp/legacy-view', result: '历史任务结果', error: '中断原因',
-    showcase: { report: { href: '/api/task/81/report' }, preview: { url: 'http://localhost:9000' } } };
+    showcase: { report: { href: '/api/worker/81/report' }, preview: { url: 'http://localhost:9000' } } };
   renderDetail(historical, null, null, null);
   const panel = dom.node('detail');
   expect(deepText(panel)).toContain('历史任务结果');
@@ -411,25 +411,25 @@ test('a diverged merge offers a source-side Agent child, but does not call legac
   renderGraph(graphFor({ version: 1, kind: 'merge', status: 'pending', blocked_code: 'diverged',
     blocked_reason: 'cannot request a merge from a diverged branch; resolve it first' }), { force: true });
   const row = sourceRow();
-  const resolve = buttonOf(row, '派子任务解决分歧');
+  const resolve = buttonOf(row, '派子 Worker 解决分歧');
   expect(resolve.classList.contains('agent-call')).toBe(true);
   expect(resolve.getAttribute('data-help')).toContain('消耗 token');
   const start = resolve.onclick();
   expect(dialogText(dom)).toContain('不会直接推进 say 或父分支');
-  expect(world.state.actions.some(action => action.method === 'task.resolve_divergence')).toBe(false);
-  await answerDialog(dom, '派解分歧子任务'); await start;
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.resolve_divergence', params: { id: say.id } });
+  expect(world.state.actions.some(action => action.method === 'worker.resolve_divergence')).toBe(false);
+  await answerDialog(dom, '派解分歧子 Worker'); await start;
+  expect(world.state.actions.at(-1)).toEqual({ method: 'worker.resolve_divergence', params: { id: say.id } });
   expect(world.state.actions.some(action => action.method === 'branch.sync')).toBe(false);
   renderDetail({ ...say, reservation: { version: 1, kind: 'merge', status: 'pending',
     blocked_reason: '等待解分歧子 Task #92 完成', blocked_code: 'resolving', resolution_child_id: 92 } }, null, null, null);
-  expect(buttonOf(dom.node('detail'), '派子任务解决分歧')).toBeUndefined();
+  expect(buttonOf(dom.node('detail'), '派子 Worker 解决分歧')).toBeUndefined();
   expect(buttonOf(dom.node('detail'), '查看解分歧 #92')).toBeTruthy();
   world.state.resolveOutcome = { status: 'needs_review', task: { id: 92 },
     reason: '子任务 #92 尚未集成；检查后显式归档旧分支再派任务' };
   renderDetail({ ...say, reservation: { version: 1, kind: 'merge', status: 'pending', blocked_code: 'diverged',
     resolution_child_id: 92 } }, null, null, null);
-  const again = buttonOf(dom.node('detail'), '派子任务解决分歧').onclick();
-  await answerDialog(dom, '派解分歧子任务'); await again;
+  const again = buttonOf(dom.node('detail'), '派子 Worker 解决分歧').onclick();
+  await answerDialog(dom, '派解分歧子 Worker'); await again;
   expect(dom.node('error').textContent).toContain('显式归档旧分支');
   world.state.resolveOutcome = null;
 });
@@ -440,13 +440,13 @@ test('a terminal say with a diverged merge reservation still offers the standalo
   { status: 'completed' }), { force: true });
   const row = sourceRow();
   expect(deepText(row)).not.toContain('不能直接复查预约');
-  const resolve = buttonOf(row, '派子任务解决分歧');
+  const resolve = buttonOf(row, '派子 Worker 解决分歧');
   expect(resolve).toBeTruthy();
   expect(resolve.classList.contains('agent-call')).toBe(true);
   const start = resolve.onclick();
   expect(dialogText(dom)).toContain('由 runtime 快进推进 say 分支');
-  await answerDialog(dom, '派解分歧子任务'); await start;
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.resolve_divergence', params: { id: say.id } });
+  await answerDialog(dom, '派解分歧子 Worker'); await start;
+  expect(world.state.actions.at(-1)).toEqual({ method: 'worker.resolve_divergence', params: { id: say.id } });
 });
 
 test('failed resolution child links back to say and explains archive rather than offering replay', () => {
@@ -459,11 +459,11 @@ test('failed resolution child links back to say and explains archive rather than
   expect(buttonOf(panel, '查看源 say #70')).toBeTruthy();
   expect(deepText(panel)).toContain('显式归档这条子分支');
   renderDetail({ ...child, divergence_resolution: { ...child.divergence_resolution, branch_status: 'archived' } }, null, null, null);
-  expect(deepText(panel)).toContain('Task、固定提交记录和会话仍保留');
+  expect(deepText(panel)).toContain('Worker、固定提交记录和会话仍保留');
   expect(deepText(panel)).toContain('返回源 say');
   // 修复已完子任务固定提交的解分歧子任务：重试由直接父 Agent 驱动，不是返回 say。
   renderDetail({ ...child, divergence_resolution: { ...child.divergence_resolution, source_task_id: 91 } }, null, null, null);
-  expect(deepText(panel)).toContain('再派一个以同一固定提交为基线的解分歧子任务');
+  expect(deepText(panel)).toContain('再派一个以同一固定提交为基线的解分歧子 Worker');
   expect(deepText(panel)).not.toContain('返回源 say');
 });
 
@@ -479,9 +479,9 @@ test('an outstanding request shows its diagnosis and can be withdrawn to release
   const pending = withdraw.onclick();
   expect(dialogText(dom)).toContain('父分支随即解除交付锁');
   const beforeWithdraw = world.state.actions.length;
-  expect(world.state.actions.slice(beforeWithdraw).some(action => action.method === 'task.unreserve')).toBe(false);
+  expect(world.state.actions.slice(beforeWithdraw).some(action => action.method === 'worker.unreserve')).toBe(false);
   await answerDialog(dom, '撤销请求'); await pending;
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.unreserve', params: { id: say.id } });
+  expect(world.state.actions.at(-1)).toEqual({ method: 'worker.unreserve', params: { id: say.id } });
   // 已发出的请求也给一条只读「复查请求」：点完会重画详情，所以重新取节点再断言。
   renderDetail({ ...say, status: 'completed', reservation }, null, null, null);
   const fresh = dom.node('detail');
@@ -489,7 +489,7 @@ test('an outstanding request shows its diagnosis and can be withdrawn to release
   expect(recheck.classList.contains('agent-call')).toBe(false);
   const beforeRecheck = world.state.actions.length;
   await recheck.onclick();
-  expect(world.state.actions.at(-1)).toEqual({ method: 'task.reserve', params: { id: say.id, kind: 'merge' } });
+  expect(world.state.actions.at(-1)).toEqual({ method: 'worker.reserve', params: { id: say.id, kind: 'merge' } });
   expect(world.state.actions.length).toBe(beforeRecheck + 1);
 
   renderDetail({ ...say, status: 'waiting', reservation: { version: 1, kind: 'merge', status: 'pending',
@@ -526,11 +526,11 @@ test('no-change say gets an 已解决 button distinct from cancel; committed or 
   expect(resolve).toBeDefined();
   // 语义不直观但不调用 Agent：只带 data-help，不带 agent-call。
   expect(resolve.classList.contains('agent-call')).toBe(false);
-  expect(resolve.getAttribute('data-help')).toContain('放弃任务');
+  expect(resolve.getAttribute('data-help')).toContain('放弃 Worker');
   const pending = resolve.onclick();
   expect(dialogText(dom)).toContain('已解决');
   await answerDialog(dom, '标记已解决'); await pending;
-  expect(world.state.actions).toContainEqual({ method: 'task.resolve', params: { id: say.id } });
+  expect(world.state.actions).toContainEqual({ method: 'worker.resolve', params: { id: say.id } });
 
   renderDetail({ ...say, head_commit: commit, base_commit: baseline, integration: 'pending' }, null, null, null);
   expect(buttonOf(dom.node('detail'), '已解决')).toBeUndefined();
@@ -542,7 +542,7 @@ test('no-change say gets an 已解决 button distinct from cancel; committed or 
 test('non-terminal say offers 中断 instead of direct cancel; paused offers 继续 / 调整运行设置 / 放弃任务', async () => {
   renderDetail({ ...say, status: 'running' }, null, null, null);
   let panel = dom.node('detail');
-  expect(buttonOf(panel, '取消任务树')).toBeUndefined();
+  expect(buttonOf(panel, '取消 Worker 树')).toBeUndefined();
   const interrupt = buttonOf(panel, '中断');
   expect(interrupt).toBeTruthy();
   // 中断只是可恢复的停顿，不调用 Agent：带 data-help，但不带 agent-call。
@@ -550,27 +550,27 @@ test('non-terminal say offers 中断 instead of direct cancel; paused offers 继
   const pending = interrupt.onclick();
   expect(dialogText(dom)).toContain('保留现场');
   await answerDialog(dom, '中断'); await pending;
-  expect(world.state.actions).toContainEqual({ method: 'task.interrupt', params: { id: say.id } });
+  expect(world.state.actions).toContainEqual({ method: 'worker.interrupt', params: { id: say.id } });
 
   renderDetail({ ...say, status: 'paused', agent_wakes: 1 }, null, null, null);
   panel = dom.node('detail');
   expect(buttonOf(panel, '中断')).toBeUndefined();
-  expect(buttonOf(panel, '取消任务树')).toBeUndefined();
+  expect(buttonOf(panel, '取消 Worker 树')).toBeUndefined();
   const resume = buttonOf(panel, '继续');
   expect(resume).toBeTruthy();
   expect(resume.classList.contains('agent-call')).toBe(true);
   expect(resume.getAttribute('data-help')).toContain('消耗 token');
   expect(buttonOf(panel, '调整运行设置')).toBeTruthy();
-  const giveUp = buttonOf(panel, '放弃任务');
+  const giveUp = buttonOf(panel, '放弃 Worker');
   expect(giveUp).toBeTruthy();
   expect(giveUp.classList.contains('agent-call')).toBe(false);
 
   await resume.onclick();
-  expect(world.state.actions).toContainEqual({ method: 'task.resume', params: { id: say.id } });
+  expect(world.state.actions).toContainEqual({ method: 'worker.resume', params: { id: say.id } });
 
   renderDetail({ ...say, status: 'paused', agent_wakes: 1 }, null, null, null);
-  const abandoning = buttonOf(dom.node('detail'), '放弃任务').onclick();
-  expect(dialogText(dom)).toContain('放弃这条 Task');
-  await answerDialog(dom, '放弃任务'); await abandoning;
-  expect(world.state.actions).toContainEqual({ method: 'task.cancel', params: { id: say.id } });
+  const abandoning = buttonOf(dom.node('detail'), '放弃 Worker').onclick();
+  expect(dialogText(dom)).toContain('放弃这条 Worker');
+  await answerDialog(dom, '放弃 Worker'); await abandoning;
+  expect(world.state.actions).toContainEqual({ method: 'worker.cancel', params: { id: say.id } });
 });

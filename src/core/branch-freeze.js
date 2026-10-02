@@ -32,7 +32,7 @@ export function branchFreeze(store) {
     const branch = task.target_branch;
     for (const name of [branch, parentOf(rows, branch), ...descendantsOf(rows, branch)]) {
       add(name, { kind: 'resolution', task_id: task.id, target: branch,
-        reason: `解分歧 Task #${task.id} 正在固定 ${branch} 与其父分支（完成后须先落地或显式归档）` });
+        reason: `解分歧 Worker #${task.id} 正在固定 ${branch} 与其父分支（完成后须先落地或显式归档）` });
     }
   }
 
@@ -48,11 +48,11 @@ export function branchFreeze(store) {
       // Queued work freezes only its source. The current attempt owns the parent writer slot.
       const info = { kind: 'delivery', task_id: task.id, commit: request.commit ?? null,
         attempt_id: request.attempt_id ?? null,
-        reason: `Task #${task.id} 的交付由父 Task 队列串行处理（${request.status}）` };
+        reason: `Worker #${task.id} 的交付由父Worker队列串行处理（${request.status}）` };
       add(task.branch, info);
       if (['executing','resolving','blocked'].includes(request.status)) add(task.target_branch, info);
     } else add(task.target_branch, { kind: 'delivery', task_id: task.id, commit: request.commit ?? null,
-      reason: `历史 Task #${task.id} 的固定提交交付请求尚未结算` });
+      reason: `历史 Worker #${task.id} 的固定提交交付请求尚未结算` });
   }
 
   return frozen;

@@ -38,8 +38,8 @@ export function paintComposerDetails() {
   if (!toggle) return;
   const parent = selectedParentLabel();
   toggle.setAttribute('aria-expanded', String(open));
-  toggle.setAttribute('data-help', open ? '收起：只留输入与操作按钮。' : `展开：可以选择父 Task，并查看键盘快捷键${parent ? `（当前父 Task：${parent}）` : ''}。`);
-  toggle.textContent = open ? '⌃ 收起' : (parent ? `⌃ 更多 · 父 Task：${parent}` : '⌃ 更多');
+  toggle.setAttribute('data-help', open ? '收起：只留输入与操作按钮。' : `展开：可以选择父 Worker，并查看键盘快捷键${parent ? `（当前父 Worker：${parent}）` : ''}。`);
+  toggle.textContent = open ? '⌃ 收起' : (parent ? `⌃ 更多 · 父 Worker：${parent}` : '⌃ 更多');
 }
 export function renderParentOptions() {
   const select = $('input-parent');
@@ -56,7 +56,7 @@ export function renderParentOptions() {
     return option;
   });
   if (previous && !tasks.some(task => task.branch === previous)) {
-    const missing = el('option', `${previous}（父 Task 已不可选，请重选）`); missing.value = previous; options.push(missing);
+    const missing = el('option', `${previous}（父 Worker 已不可选，请重选）`); missing.value = previous; options.push(missing);
   }
   select.replaceChildren(placeholder, ...options); select.value = previous || '';
   paintComposerDetails();
@@ -70,9 +70,9 @@ export function loadComposerParents() {
     try {
       const data = await api('/api/input-parents');
       if (!current()) return;
-      if (!Array.isArray(data.items)) throw new Error('父 Task 列表格式不兼容');
+      if (!Array.isArray(data.items)) throw new Error('父 Worker 列表格式不兼容');
       ui.composerParents = data.items; renderParentOptions();
-    } catch (error) { if (current()) show(`父 Task 列表读取失败：${error.message}`, 'error'); }
+    } catch (error) { if (current()) show(`父 Worker 列表读取失败：${error.message}`, 'error'); }
     finally { identity.parentsPending = null; }
   })();
   return identity.parentsPending;
@@ -99,7 +99,7 @@ async function submitInput(mode) {
   const branch = $('input-parent').value.trim();
   ui.composerSubmitting = true; syncComposer();
   try {
-    if (branch && !ui.composerParents?.some(task => task.branch === branch)) throw new Error('所选父 Task 已不可用，请展开输入区重新选择。');
+    if (branch && !ui.composerParents?.some(task => task.branch === branch)) throw new Error('所选父 Worker 已不可用，请展开输入区重新选择。');
     const params = { content, references, ...(branch ? { branch } : {}) };
     const result = await action(mode === 'buffer' ? 'draft.add' : 'say.submit', mode === 'buffer' ? params : { ...params, start: mode === 'start' });
     if (ui.composerIdentity !== identity) return;
@@ -108,10 +108,10 @@ async function submitInput(mode) {
       && ui.composerReferenceRevision === referenceRevision && JSON.stringify(composerReferences()) === signature;
     if (untouched) { input.value = ''; setComposerReferences([]); }
     if (mode === 'buffer') {
-      show(`已暂存输入 #${result.id}，可到「历史输入」编辑或发射；未创建 Task、未调用 Agent。`);
+      show(`已暂存输入 #${result.id}，可到「历史输入」编辑或发射；未创建 Worker、未调用 Agent。`);
       ui.inputsPage?.added?.();
     } else {
-      show(mode === 'start' ? `已创建并开始 Task #${result.task.id}` : `已创建 Task #${result.task.id}（待开始），可配置后开始`);
+      show(mode === 'start' ? `已创建并开始 Worker #${result.task.id}` : `已创建 Worker #${result.task.id}（待开始），可配置后开始`);
       await refresh();
       if (ui.composerIdentity === identity && ui.view === view) await detail(result.task.id);
     }
@@ -123,7 +123,7 @@ export function buffer() { return submitInput('buffer'); }
 /** Enter buffers; Shift+Enter inserts a newline; Ctrl/Meta shortcuts retain their existing meanings. */
 export function initComposer() {
   ui.composerIdentity = {}; ui.composerEditRevision = 0;
-  const sendHelp = agentHelp('发送后创建独立 Task；默认先停在「待开始」，可配置后开始。⌘ / Ctrl+Shift+Enter 直接开始。');
+  const sendHelp = agentHelp('发送后创建独立 Worker；默认先停在「待开始」，可配置后开始。⌘ / Ctrl+Shift+Enter 直接开始。');
   $('draft-commit').setAttribute('data-help', sendHelp);
   $('input-send-help')?.setAttribute('data-help', sendHelp);
   renderComposerReferences();

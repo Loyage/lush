@@ -21,14 +21,14 @@ test('web exposes the read-only agent transcript and keeps sessions out of the r
       JSON.stringify({ type: 'message', timestamp: 1789749049639, message: { role: 'toolResult', toolName: 'bash', isError: false, content: [{ type: 'text', text: 'src\nREADME.md' }] } }),
     ].join('\n') + '\n');
     const before = fs.readFileSync(file, 'utf8');
-    const page = await (await fetch(`${f.url}/api/task/${task.id}/transcript`)).json();
+    const page = await (await fetch(`${f.url}/api/worker/${task.id}/transcript`)).json();
     expect(page.steps.map(step => [step.kind, step.title])).toEqual([['thinking', '思考'], ['tool', 'bash'], ['result', 'bash']]);
     expect(page.steps[0].body).toBe('先看看代码');
     expect(page.has_more).toBe(false);
     expect(fs.readFileSync(file, 'utf8')).toBe(before);
     // 越界游标、未知任务、超限 limit 都是 400，不当成服务器错误
-    expect((await fetch(`${f.url}/api/task/${task.id}/transcript?after=-1`)).status).toBe(400);
-    expect((await fetch(`${f.url}/api/task/99/transcript`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/worker/${task.id}/transcript?after=-1`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/worker/99/transcript`)).status).toBe(400);
     // 正文优先：思考与工具默认可读，长内容在原处展开，搜索入口不再折叠。
     const app = await pageSource(f.url);
     expect(app).toContain("STEP_OPEN = new Set(['input', 'text', 'thinking', 'tool', 'result'])");
@@ -56,12 +56,12 @@ test('web exposes agent usage (model, context, cost) next to the transcript', as
         content: [{ type: 'text', text: '已处理' }],
         usage: { input: 1426, output: 193, cacheRead: 2176, cacheWrite: 0, reasoning: 68, totalTokens: 3795, cost: { total: 0.000672456 } } } }),
     ].join('\n') + '\n');
-    const usage = await (await fetch(`${f.url}/api/task/${task.id}/usage`)).json();
+    const usage = await (await fetch(`${f.url}/api/worker/${task.id}/usage`)).json();
     expect(usage.model).toEqual({ provider: 'deepseek', model_id: 'deepseek-flash' });
     expect(usage.requests).toBe(1);
     expect(usage.context_tokens).toBe(3795);
     expect(usage.totals.cost).toBeCloseTo(0.000672456, 9);
-    expect((await fetch(`${f.url}/api/task/99/usage`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/worker/99/usage`)).status).toBe(400);
     // 用量只走这条只读路由，不进快照
     expect(JSON.stringify(await (await fetch(f.url + '/api/snapshot')).json())).not.toContain('deepseek-flash');
     // 详情面板把 agent 身份、模型、上下文与花费和执行过程放在同一块里
@@ -89,7 +89,7 @@ test('web transcript steps carry per-step tokens: exact for a billed turn, estim
         content: [{ type: 'text', text: '改好了' }],
         usage: { input: 1000, output: 30, cacheRead: 50, cacheWrite: 0, reasoning: 3, totalTokens: 1080, cost: { total: 0.002 } } } }),
     ].join('\n') + '\n');
-    const page = await (await fetch(`${f.url}/api/task/${task.id}/transcript`)).json();
+    const page = await (await fetch(`${f.url}/api/worker/${task.id}/transcript`)).json();
     expect(page.steps.map(step => step.kind)).toEqual(['thinking', 'tool', 'result', 'text']);
     // 同一次回复的两个 step 共享精确用量，只有首步带 first（前端据此只印一次 chip）
     expect(page.steps[0].tokens).toMatchObject({ exact: true, turn: true, first: true, total: 325, input: 100, output: 20, cache_read: 200, cache_write: 5 });
@@ -115,17 +115,17 @@ test('web exposes the newest transcript window and validates its cursors', async
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, `2026-01-01T00-00-00-000Z_lush-task-${task.id}.jsonl`), Array.from({ length: 5 }, (_v, index) =>
       JSON.stringify({ type: 'message', timestamp: 1789749049000 + index, message: { role: 'assistant', content: [{ type: 'text', text: `step ${index}` }] } })).join('\n') + '\n');
-    const latest = await (await fetch(`${f.url}/api/task/${task.id}/transcript-latest?limit=2`)).json();
+    const latest = await (await fetch(`${f.url}/api/worker/${task.id}/transcript-latest?limit=2`)).json();
     expect(latest.steps.map(step => [step.seq, step.body])).toEqual([[4, 'step 3'], [5, 'step 4']]);
     expect(latest).toMatchObject({ task_id: task.id, next: 5, oldest: 4, has_older: true, truncated: false });
     // before 往回翻页
-    const older = await (await fetch(`${f.url}/api/task/${task.id}/transcript-latest?before=4&limit=10`)).json();
+    const older = await (await fetch(`${f.url}/api/worker/${task.id}/transcript-latest?before=4&limit=10`)).json();
     expect(older.steps.map(step => step.seq)).toEqual([1, 2, 3]);
     expect(older.has_older).toBe(false);
     // 越界游标、未知任务、超限 limit 都是 400，不是空结果或服务器错误
     for (const query of ['after=-1', 'before=-1', 'limit=0', 'limit=201']) {
-      expect((await fetch(`${f.url}/api/task/${task.id}/transcript-latest?${query}`)).status).toBe(400);
+      expect((await fetch(`${f.url}/api/worker/${task.id}/transcript-latest?${query}`)).status).toBe(400);
     }
-    expect((await fetch(`${f.url}/api/task/99/transcript-latest`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/worker/99/transcript-latest`)).status).toBe(400);
   } finally { await f.close(); }
 });
