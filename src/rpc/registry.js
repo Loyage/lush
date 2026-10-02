@@ -27,6 +27,7 @@ export const PARAMS = {
   'worker.resolve_child_divergence': ['id'], 'worker.unreserve': ['id'],
   'worker.approve_merge': ['id','commit','baseline'], 'worker.message': ['id','body'],
   'worker.cancel': ['id'], 'worker.retry': ['id'], 'worker.cleanup': ['id','keep_branch'],
+  'worker.delete_preview': ['id'], 'worker.delete': ['id','revision','confirm'],
   'worker.interrupt': ['id'], 'worker.resume': ['id','profile'], 'worker.configure': ['id','profile'],
   'progress.plan': ['steps'], 'progress.complete': ['step'],
   'notice.list': [], 'notice.page': ['status','before','limit'],
@@ -42,7 +43,7 @@ export const USER_ONLY = new Set([
   'say.submit','worker.transcript_latest','worker.transcript_page','worker.transcript_step','worker.transcript_search',
   'worker.reserve','worker.reserve_all','worker.auto_merge','worker.resolve','worker.resolve_divergence','worker.unreserve','worker.approve_merge',
   'worker.cancel','worker.retry','worker.cleanup','worker.interrupt','worker.resume','worker.configure',
-  'worker.reopen','worker.sync_parent','worker.resolve_sync',
+  'worker.reopen','worker.sync_parent','worker.resolve_sync','worker.delete_preview','worker.delete',
   'notice.answer','notice.dismiss','notice.read','branch.bind','branch.archive',
 ]);
 export const AGENT_ONLY = new Set([

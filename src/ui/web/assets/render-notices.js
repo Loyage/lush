@@ -67,6 +67,8 @@ export async function loadNoticeRecords({ more = false, preserve = false } = {})
       state.rows = state.rows.map(row => row.id === current.id ? current : row);
     }
     if (!Array.isArray(page.notices)) throw new Error('请重启 Web 与 daemon 以加载 notice 历史');
+    page.notices = page.notices.filter(row => !ui.deletedWorkerIds.has(row.task_id));
+    state.rows = state.rows.filter(row => !ui.deletedWorkerIds.has(row.task_id));
     state.rows = more || preserve
       ? [...new Map([...state.rows, ...page.notices].map(row => [row.id, row])).values()]
         .filter(row => noticeMatches(row, status)).sort((a, b) => b.id - a.id)
@@ -142,7 +144,8 @@ function paintNoticeRows(rows) {
 /** 快照维护计数；信息页按需分页读完整记录。 */
 export function renderNotices(data) {
   // A poll already in flight can contain pre-ACK rows; never resurrect acknowledged notices.
-  data.notices = data.notices.map(row => ui.noticeReadRows.get(noticeIdentity(row)) || row);
+  data.notices = data.notices.filter(row => !ui.deletedWorkerIds.has(row.task_id))
+    .map(row => ui.noticeReadRows.get(noticeIdentity(row)) || row);
   // 告知与决策分开计数，不把 info 当作需要答复的问题。
   const open = data.notices.filter(notice => notice.status === 'open');
   const unread = data.notices.filter(unreadNotice);
@@ -173,6 +176,7 @@ export function renderNotices(data) {
 }
 /** Explicit read acknowledgement only: no navigation, Agent, acceptance or merge. */
 export function readNotice(notice) {
+  if (ui.deletedWorkerIds.has(notice.task_id)) return Promise.resolve(notice);
   const key = noticeIdentity(notice);
   if (ui.noticeReadPending.has(key)) return ui.noticeReadPending.get(key);
   if (ui.noticeReadRows.has(key)) return Promise.resolve(ui.noticeReadRows.get(key));
@@ -180,9 +184,10 @@ export function readNotice(notice) {
   const pending = ui.noticeReadPending, reads = ui.noticeReadRows, source = projectBase();
   const request = Promise.resolve().then(async () => {
     if (source !== projectBase() || ui.noticeReadRows !== reads) throw new Error('项目已切换，请在原项目查看告知');
+    if (ui.deletedWorkerIds.has(notice.task_id)) return notice;
     const current = await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ method: 'notice.read', params: { id: notice.id } }) });
-    if (source !== projectBase() || ui.noticeReadRows !== reads) return current;
+    if (source !== projectBase() || ui.noticeReadRows !== reads || ui.deletedWorkerIds.has(notice.task_id)) return current;
     if (!current?.read_at || noticeIdentity(current) !== key) throw new Error('告知已读确认失败，请重试');
     reads.set(key, current);
     ui.noticeIndex.set(current.id, current);
@@ -201,7 +206,7 @@ export async function openNotice(noticeId) {
   const request = ++noticeRequest;
   const previousView = ui.view;
   const notice = ui.noticeIndex.get(noticeId) || await readNoticeRecord(noticeId);
-  if (request !== noticeRequest || ui.view !== previousView) return;
+  if (request !== noticeRequest || ui.view !== previousView || ui.deletedWorkerIds.has(notice.task_id)) return;
   ui.noticeIndex.set(noticeId, notice);
   if (lifecycleNotice(notice)) {
     ui.noticeFocus = null;
@@ -223,7 +228,8 @@ export async function openNotice(noticeId) {
     }
     state.selected = noticeId; state.signature = null;
     return Promise.all([api(`/api/worker/${notice.task_id}`), readNoticeRecord(noticeId)]).then(([task, current]) => {
-      if (ui.noticeRecords !== state || state.selected !== noticeId || ui.indexOpen !== 'notices') return;
+      if (ui.noticeRecords !== state || state.selected !== noticeId || ui.indexOpen !== 'notices'
+        || ui.deletedWorkerIds.has(notice.task_id)) return;
       state.task = task;
       ui.noticeIndex.set(noticeId, current);
       paintRecordFocus();

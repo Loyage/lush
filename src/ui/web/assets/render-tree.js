@@ -106,11 +106,12 @@ export function renderTree(data) {
         more.disabled = true; more.textContent = '加载中…';
         try {
           const next = await api(`/api/workers?scope=all&before=${page.cursor}&limit=50`);
-          const loaded = new Map([...ui.taskHistory, ...next.tasks].map(task => [task.id, task]));
+          next.tasks = next.tasks.filter(task => !ui.deletedWorkerIds.has(task.id));
+          const loaded = new Map([...ui.taskHistory, ...next.tasks].filter(task => !ui.deletedWorkerIds.has(task.id)).map(task => [task.id, task]));
           ui.taskHistory = [...loaded.values()];
           ui.taskHistoryPage = { ...page, cursor: next.cursor, has_more: next.has_more, truncated: next.has_more,
             shown: page.shown + next.tasks.length };
-          const all = new Map([...data.tasks, ...next.tasks].map(task => [task.id, task]));
+          const all = new Map([...data.tasks, ...next.tasks].filter(task => !ui.deletedWorkerIds.has(task.id)).map(task => [task.id, task]));
           data.tasks = [...all.values()].sort((a, b) => a.id - b.id);
           data.task_page = ui.taskHistoryPage;
           renderTree(data);

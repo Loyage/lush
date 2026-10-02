@@ -13,6 +13,7 @@ import { mergeRelations } from './task-graph-merge.js';
 import { captureGraph, restoreGraph, graphMotionRunning } from './task-graph-motion.js';
 import { branchDiagnostics, decisionRow } from './task-graph-parts.js';
 import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
+import { workerDeleteControl } from './worker-delete.js';
 import { progressStats, renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
 import { guardedAction, iterationBlocker, iterationControls } from './render-iteration.js';
@@ -259,6 +260,8 @@ function appendTaskActions(row, node, mergeAllByBranch) {
   if (iteration) row.append(iteration);
   const controls = deliveryControls(node, { refresh: loadTaskGraph });
   if (controls) row.append(controls);
+  const deletion = workerDeleteControl(node, { refresh: loadTaskGraph });
+  if (deletion) row.append(deletion);
   if (['say', 'child'].includes(node.task_kind) && !ENDED.has(node.status) && !isHistoricalDelivery(node)) {
     row.append(guardedAction(button('向此 Worker 输入', async () => {
       const body = await promptDialog({ title: `发给 Worker #${node.id}`, label: '输入', confirmLabel: '发送消息',
@@ -341,7 +344,7 @@ export function renderTaskGraph(graph) {
   if (hasOpenActions() || hasPendingInput() || window.getSelection?.()?.toString()
     || graphMotionRunning($('detail').querySelector('.task-graph'))) return;
   const minimal = ui.taskGraphMinimal;
-  const raw = graph.nodes || [];
+  const raw = (graph.nodes || []).filter(node => !ui.deletedWorkerIds.has(node.id));
   const byId = new Map(raw.map(node => [node.id, node]));
   // merge 与其它 Task 一视同仁：画不画由表头的状态开关决定，不再按队列活跃度整层收起。
   const visible = new Set(raw.filter(node => VISIBLE_KINDS.has(node.task_kind)).map(node => node.id));

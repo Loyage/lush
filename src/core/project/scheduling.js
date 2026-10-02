@@ -83,7 +83,7 @@ export default {
   },
 
   pump() {
-    if (this.stopping) return;
+    if (this.stopping || this.workerDeleteIds?.size) return;
     for (const taskId of this.taskSyncWakePending ?? []) if (!this.taskSyncBusy?.has(taskId)) {
       this.taskSyncWakePending.delete(taskId);
       if (this.hasActionableMessages(taskId)) this.wake(taskId);

@@ -78,8 +78,8 @@ export const tasks = {
   },
   /**
    * 定向删除一组任务行：删掉它们自己与任务级的子行，集合外一行都不动。
-   * 这是除 purge 之外唯一一条删 tasks 的路径，调用方（Project#deleteTask）必须已经证明：全部终态、
-   * 没有 invocation 还在收尾、磁盘状态已经按 cleanup 的安全门回收完——这里只再断言一次外键引用。
+   * 历史存储原语（无公开 Project / RPC 调用方）；当前明确确认的删除走 hardDeleteTasks。
+   * 旧调用方应已证明全部终态、invocation 退出与磁盘安全回收，这里仅断言外键引用，不作确认授权。
    * 各表的收尾口径：子行（artifacts / agent_runs / messages / notices / events / task_deps）跟着删，
    * 其中 messages 连「被删任务发给别人的」也删（那条消息讲的就是这条任务）；task_specs 只有
    * planner_task_id 有外键，所以只删这批 planner 写的条目。branches.task_id / inputs.task_id /
@@ -111,6 +111,40 @@ export const tasks = {
       counts.task_deps = drop('task_deps', `task_id IN (${marks}) OR depends_on IN (${marks})`, twice);
       counts.task_specs = drop('task_specs', `planner_task_id IN (${marks})`);
       this.run(`DELETE FROM tasks WHERE id IN (${marks})`, ...ids);
+      return counts;
+    });
+  },
+  /** Confirmed private-resource removal has finished. Delete all exclusive history in one FK-safe transaction. */
+  hardDeleteTasks(taskIds, inputIds = [], branchNames = []) {
+    const ids = [...new Set(taskIds.map(value => id(value)))], marks = ids.map(() => '?').join(',');
+    check(ids.length > 0, 'hardDeleteTasks requires Worker ids');
+    const inputs = [...new Set(inputIds.map(value => id(value)))], inputMarks = inputs.map(() => '?').join(',');
+    return this.transaction(() => {
+      const counts = {};
+      const drop = (table, where, args) => {
+        counts[table] = this.get(`SELECT count(*) AS value FROM ${table} WHERE ${where}`, ...args).value;
+        this.run(`DELETE FROM ${table} WHERE ${where}`, ...args);
+      };
+      check(!this.get(`SELECT task_id FROM task_deps WHERE depends_on IN (${marks}) AND task_id NOT IN (${marks}) LIMIT 1`, ...ids,...ids),
+        'Worker has external dependents');
+      if (inputs.length) check(!this.get(`SELECT id FROM tasks WHERE input_id IN (${inputMarks}) AND id NOT IN (${marks}) LIMIT 1`, ...inputs,...ids),
+        'Input is still shared with another Worker');
+      this.setTaskIdHigh(Math.max(this.taskIdHigh(),...ids));
+      if (inputs.length) this.setInputIdHigh(Math.max(this.inputIdHigh(),...inputs));
+      for (const table of ['artifacts','agent_runs','notices','events','introductions','commit_contexts']) drop(table,`task_id IN (${marks})`,ids);
+      drop('messages',`task_id IN (${marks}) OR sender_id IN (${marks})`,[...ids,...ids]);
+      drop('task_deps',`task_id IN (${marks}) OR depends_on IN (${marks})`,[...ids,...ids]);
+      drop('task_specs',`planner_task_id IN (${marks})`,ids);
+      drop('review_candidates',`report_task_id IN (${marks})${inputs.length ? ` OR input_id IN (${inputMarks})` : ''}`,[...ids,...inputs]);
+      drop('tasks',`id IN (${marks})`,ids);
+      if (inputs.length) {
+        // Reference child rows use ON DELETE CASCADE; counts remain truthful before their owners disappear.
+        drop('draft_references',`draft_id IN (SELECT id FROM drafts WHERE input_id IN (${inputMarks}))`,inputs);
+        drop('drafts',`input_id IN (${inputMarks})`,inputs);
+        drop('input_references',`input_id IN (${inputMarks})`,inputs);
+        drop('inputs',`id IN (${inputMarks})`,inputs);
+      }
+      if (branchNames.length) drop('branches',`branch IN (${branchNames.map(()=>'?').join(',')})`,branchNames);
       return counts;
     });
   },

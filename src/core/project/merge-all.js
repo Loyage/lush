@@ -23,6 +23,7 @@ export default {
 
   /** 写操作前的统一守卫：冻结中的分支不接受会扰动合并的写（新建 intent、合并、归档、重试等）。 */
   assertBranchWritable(branch, action = 'modify') {
+    check(!this.workerDeleteIds?.size, `Worker deletion is in progress; cannot ${action}`);
     const info = frozenFor(this.store, branch);
     check(!info, `branch ${branch} is frozen: ${info?.reason ?? 'an active merge is in progress'}; cannot ${action}`);
     return true;

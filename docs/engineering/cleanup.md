@@ -1,6 +1,6 @@
 # 工作区与分支回收
 
-本文件管工作区与分支回收的安全门：`update-ref` compare-and-delete、`keep-branch`，以及与安全回收不同的归档路径。
+本文件管工作区与分支回收的安全门：`update-ref` compare-and-delete、`keep-branch`，以及与安全回收不同的归档和用户确认的彻底删除路径。
 
 工作区清理不强制删除。Worker分支只有在 tip 仍包含审阅过的 `head_commit`、且整个 tip 已进入其 recorded direct parent / `target_branch` 时才删；因此聚合进来的子分支提交不会被误判为篡改，也不会丢失。删除使用 compare-and-delete；拿不准就保留并说明 reason。`--keep-branch` 可只回收 worktree。入口是 `worker.cleanup`，见[磁盘回收](../reference/rpc/maintenance.md)。
 
@@ -11,7 +11,7 @@
 `lush branch archive BRANCH [--discard]`（RPC `branch.archive {branch, discard?}`，用户专属）是**显式放弃一条分支的代码**的路径，与上面的安全回收是两件不同的事。**归档一条＝归档它整棵子树**：Worker分支是从父分支长出来的，只删一半会留下一批「父分支已不在」的后代，所以传进来的那条是子树根，它的全部后代一起归档（已经归档 / 回收过的后代跳过）。Web 上 Worker 图与 Worker 详情两个入口共用同一个动作（`branch-archive.js`）：界面先按与 `archiveBranch` 对齐的只读判据（`branches.branchArchivability`）决定按钮出不出现，真正的安全门仍在 runtime。
 
 - cleanup / `worker cleanup` 是**安全回收**：必须先证明分支的成果已经进入目标分支（tip 仍含审阅过的 `head_commit`，且 tip 是目标分支的祖先），证明不了就保留并说明 reason。
-- 归档是**明知可能未合并也允许删**：用户明确表示不再要这棵子树的代码，runtime 不再做祖先检查——因此 `archiveBranch` 是 Git 边界里唯一一条这样的 compare-and-delete。
+- 归档是**明知可能未合并也允许删**：用户明确表示不再要这棵子树的代码，runtime 不再做祖先检查——因此 `archiveBranch` 不做祖先检查、仍用 compare-and-delete；明确确认的 `worker.delete` 也允许丢弃未交付代码，但另有资源预检与历史清除契约。
 
 新式 version 2 Squash 合并落地后不再自动走归档：当前父自有交付队列不改变请求 Worker 的父子关系，分支与 worktree 保留，直到用户显式 `worker cleanup` / `branch archive` 才按上面同一套安全门删除。Squash 只保证树相同，源 ref 并不在目标分支的祖先链上，所以 `archiveSquashedTaskUnsafe` 用「源树等于已落地树 + 落地提交仍在目标分支」替代祖先检查；在归档前，`branchState` 通过 `Workspaces#squashedLanded` 就把这条分支按已收拢报告，既不冒充分歧，也不挡住父分支。
 
@@ -24,5 +24,9 @@
 安全门（任一不满足就报错且无副作用）：子树根必须已登记、当前不是 `archived` / `deleted`、当前检出分支不在子树里，并且**整棵子树都没有未终态Worker**（`completed` / `failed` / `cancelled` 之外的状态）。默认不丢未提交改动：Git 边界先把整棵子树的 tip / worktree 收齐，`clean` 不过就直接报错，提示用 `--discard` 才能继续。只有显式 `--discard` 才会连着未提交改动一起删掉 worktree。ref 仍用 compare-and-delete，只删掉我们看过的那一个 tip。
 
 归档不删行、不动后代与父分支的 `parent` 指针，所以谱系仍是历史；它与「删除」只在 `branches.status` 上分开（`active` / `archived` / `deleted`）。详见 [分支谱系](branch-genealogy.md)。
+
+## 与彻底删除的区别
+
+`worker.delete_preview` 先列出完整 Worker 子树、原始输入与实际专属资源，用户用固定 revision 最终确认后 `worker.delete` 才丢弃未交付代码现场并清除专属历史；活动调用、外部依赖、共享资源、冻结和未知路径归属均拒绝。它不保留仅作历史的专属分支谱系行：有范围外后代指向时先拒绝，绝不留下孤立谱系。归档与 cleanup 的保留行为不变。HTTP / CLI 与失败重试说明见[彻底删除 Worker](../reference/rpc/maintenance.md#彻底删除-worker)。
 
 相关：[批准合并](merge.md)、[分支谱系](branch-genealogy.md)、[磁盘回收](../reference/rpc/maintenance.md)。

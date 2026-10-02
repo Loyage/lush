@@ -15,6 +15,7 @@ const reads = [
   ['worker/7', 'inspect', { id: 7 }],
   ['worker/7/history?after=2', 'history', { id: 7, after: 2 }],
   ['worker/7/history-page?before=9&limit=2', 'history_page', { id: 7, before: 9, limit: 2 }],
+  ['worker/7/delete-preview', 'delete_preview', { id: 7 }],
   ['worker/7/diff', 'diff', { id: 7 }],
   ['worker/7/usage', 'usage', { id: 7 }],
   ['worker/7/transcript?after=2', 'transcript', { id: 7, after: 2 }],
@@ -29,7 +30,7 @@ const reads = [
     { id: 7, path: 'file.txt', side: 'old', view: 'content', offset: 4, limit: 20, context: 6 }],
 ];
 const mutations = ['spawn','message','auto_merge','reserve','reserve_all','resolve','accept','reopen','sync_parent',
-  'resolve_sync','resolve_divergence','unreserve','approve_merge','cancel','retry','interrupt','resume','configure','cleanup'];
+  'resolve_sync','resolve_divergence','unreserve','approve_merge','cancel','retry','interrupt','resume','configure','cleanup','delete'];
 const legacy = route => route.replace(/^workers/, 'tasks').replace(/^worker-graph/, 'task-graph').replace(/^worker\//, 'task/');
 
 async function hostFixture() {
@@ -89,7 +90,7 @@ test('worker HTTP mutation whitelist accepts renamed actions, rejects every old 
       expect((await post(f.urlA, `worker.${verb}`, { id: 7, _token: 'forged' })).status).toBe(400);
       expect(f.calls).toHaveLength(before);
     }
-    for (const verb of ['integrate','resolve_child_divergence','code_file','inspect','verify','delete'])
+    for (const verb of ['integrate','resolve_child_divergence','code_file','inspect','verify','delete_preview'])
       expect((await post(f.urlA, `worker.${verb}`, { id: 7 })).status).toBe(400);
     const before = f.calls.length;
     expect((await post(f.urlA, 'worker.message', { id: 7 }, { Origin: 'https://evil.invalid' })).status).toBe(403);

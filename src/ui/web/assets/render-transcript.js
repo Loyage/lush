@@ -326,6 +326,7 @@ export async function loadTranscriptWindow(taskId, seq) {
     api(`/api/worker/${taskId}/transcript-latest?before=${seq + 1}&limit=100`),
     api(`/api/worker/${taskId}/transcript?after=${seq}&limit=100`),
   ]);
+  if (ui.deletedWorkerIds.has(taskId)) return;
   const merged = [];
   const seen = new Set();
   for (const step of [...(backward.steps || []), ...(forward.steps || [])]) {
@@ -384,7 +385,7 @@ export async function loadTranscript(taskId) {
   const version = (loadVersions.get(taskId) || 0) + 1;
   loadVersions.set(taskId, version);
   const order = transcriptOrder();
-  const current = () => loadVersions.get(taskId) === version && transcriptOrder() === order;
+  const current = () => loadVersions.get(taskId) === version && transcriptOrder() === order && !ui.deletedWorkerIds.has(taskId);
   if (order === 'desc') {
     const page = await api(`/api/worker/${taskId}/transcript-latest?limit=100`);
     if (!current()) return;
@@ -407,7 +408,7 @@ onPrefChange('transcriptOrder', () => {
   if (taskId !== null && transcriptOpen.has(taskId)) {
     paintTranscript(taskId);
     loadTranscript(taskId).catch(error => {
-      if (transcriptOrder() !== order) return;
+      if (transcriptOrder() !== order || ui.deletedWorkerIds.has(taskId)) return;
       transcriptCache.set(taskId, { order, steps: [], files: [], error: error.message });
       paintTranscript(taskId);
     });

@@ -9,7 +9,7 @@
 <a id="message-consumption"></a>- 消息只有在一次调用成功返回后才消费，失败后可以在明确重试时再次交付。
 <a id="transaction"></a>- 取消、notice 答复与 completion 的核心状态变更都在同步短事务中完成；事务内不等待模型或 Git。
 <a id="retry"></a>- 重试必须是用户显式动作，且父Worker不能已终态。
-<a id="history"></a>- 不删除Worker历史；工作区清理与Worker终态是不同操作。`task.delete` / `task.clear` 已下线，不再有公开入口；Worker行、消息、事件与会话留在磁盘上，工作区回收走 `worker.cleanup` 的安全门。
+<a id="history"></a>- 默认保留Worker历史；工作区清理与Worker终态是不同操作。`worker.cleanup` / `branch.archive` 保留记录，只有用户基于预检 revision 明确确认 `worker.delete` 才清除所选终态子树及专属历史资源；活动调用、外部依赖与共享资源受保护，ID 不复用。旧 `task.delete` / `task.clear` 没有兼容入口。
 <a id="input-branch"></a>- 新 `say` 从父分支已提交 tip 创建独立分支与 worktree；`created_from_commit` / 谱系 parent 创建后不变，分支 tip 只能通过沿 direct-parent 边的 fast-forward 前进。
 <a id="conflict"></a>- 所有写入只沿 recorded direct-parent 边、只做 fast-forward。父子分歧时不在父侧 no-ff；在子侧吸收冻结的父提交并测试，再逐层 ff。新 say 的代码落地由运行中的直接父 Agent `worker.integrate` 或用户 `worker.approve_merge` 按固定提交推进。
 <a id="genealogy"></a>- 分支谱系只在分支被创建那一刻写入，之后不可变：merge 不改写 parent，重试不重写已有记录；分支被删除或归档只标 `status`。没有 recorded parent 的分支只能查看，不能作为合并依据。

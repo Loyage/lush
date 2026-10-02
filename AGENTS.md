@@ -47,7 +47,7 @@ bun run stop
 - 依赖只做结构校验（自依赖、祖先、悬空 id、多 code 边、非 worker 上游）；语义冲突由 planner 判断，拿不准就问用户。
 - 输入分 `develop` / `explain` 两类（`inputs.flow`，未判定按 develop）：explain 输入不得派生 worker/coordinator（`Project.spawn` 硬校验），因此了解类输入不产生 worktree 与待合并改动；改判只影响之后的 spawn。
 - `code` 依赖把上游分支当作下游 worktree 的基线，所以合并必须上游先行；当前交付队列也不得越级。
-- 输入缓存在 `drafts` 表：草稿可在提交前删除，提交后行保留并回写 `input_id`；已提交的输入永不删除。
+- 输入缓存在 `drafts` 表：草稿可在提交前删除，提交后行保留并回写 `input_id`；已提交的输入默认不可改写或删除。仅用户基于资源预检明确确认 `worker.delete` 时，随终态子树清除无剩余使用者的 Input 与已发射 Draft；活动调用、共享资源与外部依赖保护，ID 不复用。
 - Agent 等待子Worker或用户时释放 invocation 槽；新输入有独立规划槽。
 - Worker 与 agent 是终身一对一的身份（`<role>#<id>`），但凭证只代表一次 invocation：库里只存 SHA-256，`actor()` 必须同时校验 hash 命中与「仍在 running 且未被 abort」。不要把 token 改成终身有效，否则上一轮逃逸的后台进程会重新变成合法 actor。
 - 消息只在 invocation 之间送达。注意「父Worker刚 park、子Worker刚完成、running Map 还未清理」之间的 lost-wakeup 竞态。

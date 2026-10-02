@@ -28,6 +28,8 @@ lush [--project PATH] [--json] <command>
   worker cancel|retry ID             停止或显式重试
   worker interrupt|resume ID         中断（暂停）后继续运行
   worker cleanup ID [--keep-branch]   安全回收工作区
+  worker delete ID                   只读预检删除范围、资源与阻塞原因
+  worker delete ID --confirm --revision REV  确认彻底删除（丢弃未交付代码）
 
   branch tree|show BRANCH            查看分支
   branch bind BRANCH COMMIT          显式绑定已有本地分支
@@ -39,5 +41,5 @@ lush [--project PATH] [--json] <command>
   config show|set|reset              设置并发和调用限额（worker-call-limit 为单 Worker 调用上限）
 
 新输入只走 say；旧 Intent/Plan/Candidate、展示、介绍、托管、草稿和批量合并不再提供 API。
-旧 SQLite 数据、会话与工作区保留原样，不迁移、不删除。
+旧数据不迁移；仅用户明确确认 worker delete 时清除所选 Worker 的专属历史与资源。
 `;

@@ -6,7 +6,7 @@ import { Dispatcher, HANDLERS } from '../src/rpc/dispatcher.js';
 const reads = {
   graph: [], list: ['after','limit'], activity: ['limit','scope'], page: ['before','limit','scope'],
   tree: ['id'], inspect: ['id'], history: ['id','after'], history_page: ['id','before','limit'],
-  diff: ['id'], usage: ['id'], code_state: ['id','scope','after','limit'],
+  delete_preview: ['id'], diff: ['id'], usage: ['id'], code_state: ['id','scope','after','limit'],
   code_tree: ['id','scope','path','query','changed','after','limit','revision'],
   code_file: ['id','scope','path','view','side','offset','limit','context','revision'],
   transcript: ['id','after','limit'], transcript_latest: ['id','after','before','limit'],
@@ -19,11 +19,11 @@ const writes = {
   reopen: ['id'], sync_parent: ['id'], resolve_sync: ['id'], resolve_child_divergence: ['id'],
   unreserve: ['id'], approve_merge: ['id','commit','baseline'], message: ['id','body'],
   cancel: ['id'], retry: ['id'], cleanup: ['id','keep_branch'], interrupt: ['id'],
-  resume: ['id','profile'], configure: ['id','profile'],
+  resume: ['id','profile'], configure: ['id','profile'], delete: ['id','revision','confirm'],
 };
 const userOnly = new Set(['code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
   'transcript_search','reserve','reserve_all','auto_merge','resolve','resolve_divergence','unreserve','approve_merge',
-  'cancel','retry','cleanup','interrupt','resume','configure','reopen','sync_parent','resolve_sync']);
+  'cancel','retry','cleanup','interrupt','resume','configure','reopen','sync_parent','resolve_sync','delete_preview','delete']);
 const agentOnly = new Set(['integrate','resolve_child_divergence']);
 const contract = { ...reads, ...writes };
 
@@ -46,7 +46,7 @@ test('worker RPC is the complete strict public namespace with unchanged authorit
     expect(HANDLERS[`task.${verb}`]).toBeUndefined();
   }
   // Renaming never re-enables retired services.
-  for (const verb of ['verify','merge','merge_many','delete','clear','ladder','analyze'])
+  for (const verb of ['verify','merge','merge_many','clear','ladder','analyze'])
     expect(() => assertAllowed(`worker.${verb}`, {}, null)).toThrow('unknown method');
 });
 

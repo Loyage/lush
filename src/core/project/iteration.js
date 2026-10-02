@@ -18,6 +18,7 @@ function acceptanceUnreadMessage(project, task) {
 }
 
 export function assertTaskNotSyncing(project, taskId) {
+  check(!project.workerDeleteIds?.has(taskId), 'Worker deletion is in progress; wait for cleanup');
   check(!project.taskSyncBusy?.has(taskId), 'Worker parent sync is in flight; wait for its safe point');
 }
 

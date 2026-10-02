@@ -35,6 +35,7 @@ import iterationMethods from './project/iteration.js';
 import codeMethods from './project/code.js';
 import historyMethods from './project/version-history.js';
 import inputHistoryMethods from './project/input-history.js';
+import deletionMethods from './project/deletion.js';
 
 /**
  * Project 由若干职责模块拼装：每个模块（`src/core/project/*.js`）导出一个方法对象，
@@ -48,7 +49,7 @@ const MIXINS = [
   ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['progress', progressMethods], ['tree', treeMethods],
   ['timeline', timelineMethods], ['messages', messagesMethods], ['merge', mergeMethods], ['mergeQueue', mergeQueueMethods], ['mergeAll', mergeAllMethods], ['orchestrate', orchestrateMethods], ['verify', verifyMethods],
   ['explanations', explanationMethods], ['intro', introMethods], ['candidates', candidateMethods], ['integration', integrationMethods], ['graph', graphMethods], ['branches', branchesMethods],
-  ['inputHistory', inputHistoryMethods], ['versionHistory', historyMethods], ['code', codeMethods], ['transcript', transcriptMethods], ['settings', settingMethods], ['context', contextMethods], ['scheduling', schedulingMethods], ['lifecycle', lifecycleMethods], ['taskSync', taskSyncMethods], ['iteration', iterationMethods],
+  ['deletion', deletionMethods], ['inputHistory', inputHistoryMethods], ['versionHistory', historyMethods], ['code', codeMethods], ['transcript', transcriptMethods], ['settings', settingMethods], ['context', contextMethods], ['scheduling', schedulingMethods], ['lifecycle', lifecycleMethods], ['taskSync', taskSyncMethods], ['iteration', iterationMethods],
 ];
 
 export class Project extends ProjectBase {}

@@ -22,6 +22,7 @@ import { renderResolutions } from './render-resolutions.js';
 import { specItem } from './render-specs.js';
 import { renderVerifications } from './render-verify.js';
 import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
+import { workerDeleteControl } from './worker-delete.js';
 import { ui } from './state.js';
 import { agentText } from './text.js';
 import { referenceable } from './context-references.js';
@@ -222,6 +223,8 @@ export function renderDetail(task, history, diff, usage) {
   if (task.divergence_resolution) {
     actions.append(button(`查看源 say #${task.parent_id}`, () => detail(task.parent_id), 'link'));
   }
+  const deletion = workerDeleteControl(task);
+  if (deletion) actions.append(deletion);
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
   if (task.divergence_resolution && TERMINAL_STATUS.has(task.status) && task.integration !== 'merged') {

@@ -124,8 +124,9 @@ test('cleanup and delete survive a v2 say whose branch was archived before recla
     expect(f.store.task(merged.id).branch).toBe(null);
     expect(f.store.get('SELECT count(*) AS n FROM events WHERE task_id=? AND type=? AND data LIKE ?',
       merged.id, 'branch.removed', '%"already_archived":true%').n).toBe(1);
-    // 删除任务走同一套 reclaim，必须也能过。
-    await f.project.deleteTask(merged.id);
+    // 彻底删除仍须预检并显式确认；已归档资源应按缺失处理。
+    const preview = await f.project.deleteTaskPreview(merged.id);
+    await f.project.deleteTask(merged.id, { confirm: true, revision: preview.revision });
     expect(f.store.get('SELECT id FROM tasks WHERE id=?', merged.id)).toBeFalsy();
   } finally { await f.close(); }
 });

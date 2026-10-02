@@ -45,6 +45,7 @@ export const ui = {
   questionDrafts: new Map(), // 当前会话草稿；sessionStorage 可跨刷新恢复
   // 左栏四个列表共用的排序偏好（smart / updated / id）。
   sidebarSortMode: readSidebarSortPref(),
+  deletedWorkerIds: new Set(), // 已删除身份不复用；阻止在途读响应把已删缓存/卡片复活。
   taskGraphFetchedAt: 0, taskGraphIds: new Set(),
   taskGraphMinimal: readPref('taskGraphMinimal'),
   /** Task 图里是否临时显示已归档 Task（默认隐藏，随页面重开复位）。 */
@@ -79,7 +80,7 @@ export const mergeSelection = new Set();
  * 上一个文件留下的哨兵（signature）会让新 DOM 上的第一次轮询直接 return，什么都不画。
  */
 export function resetUiState() {
-  ui.view = null; ui.inputsPage = null;
+  ui.view = null; ui.inputsPage = null; ui.deletedWorkerIds = new Set();
   ui.composerParents = []; ui.composerIdentity = null; ui.composerEditRevision = 0; ui.composerReferenceRevision = 0;
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;
   ui.statisticsOpen = false; ui.statisticsFilters = null; ui.transcriptView = null; ui.agentStatusPage = null; ui.versionsPage = null;

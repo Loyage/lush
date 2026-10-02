@@ -32,6 +32,7 @@ export class ProjectBase {
   /** R-01: reject writes that would create rows while a clear is reclaiming disk. */
   assertWritable(action = 'write') {
     check(!this.clearing, `clear is in progress; retry to ${action} in a moment`);
+    check(!this.workerDeleteIds?.size, `Worker deletion is in progress; retry to ${action} in a moment`);
   }
 
   /** R-01: run an asynchronous write under the clear gate so a purge cannot race it. */

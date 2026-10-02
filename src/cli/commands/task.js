@@ -113,7 +113,7 @@ export async function run(command, args, ctx) {
       while (!TERMINAL.has(value.status));
       if (value.status !== 'completed') process.exitCode = 1;
     } else {
-      check(['inspect','cancel','retry','interrupt','resume','integrate','reserve','reserve-all','auto-merge','resolve','accept','reopen','sync-parent','resolve-sync','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup'].includes(verb), 'unknown worker command');
+      check(['inspect','cancel','retry','interrupt','resume','integrate','reserve','reserve-all','auto-merge','resolve','accept','reopen','sync-parent','resolve-sync','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup','delete'].includes(verb), 'unknown worker command');
       if (verb === 'integrate') {
         exact(args, 2);
         value = await client.request('worker.integrate', { id: id(args[0]), commit: args[1] });
@@ -142,6 +142,17 @@ export async function run(command, args, ctx) {
       } else if (verb === 'approve-merge') {
         exact(args, 3);
         value = await client.request('worker.approve_merge', { id: id(args[0]), commit: args[1], baseline: args[2] });
+      } else if (verb === 'delete') {
+        check(!client.token, 'Worker deletion is user only, not an agent operation');
+        const confirm = args.includes('--confirm');
+        if (confirm) args.splice(args.indexOf('--confirm'), 1);
+        const revision = option(args, '--revision');
+        exact(args, 1);
+        check(!revision || confirm, '--revision requires --confirm');
+        check(!confirm || (typeof revision === 'string' && revision.length > 0),
+          'first run worker delete ID to inspect resources; then confirm with --confirm --revision REV');
+        value = await client.request(confirm ? 'worker.delete' : 'worker.delete_preview',
+          { id: id(args[0]), ...(confirm ? { revision, confirm: true } : {}) });
       } else if (verb === 'cleanup') {
         const keepBranch = args.includes('--keep-branch');
         if (keepBranch) args.splice(args.indexOf('--keep-branch'), 1);

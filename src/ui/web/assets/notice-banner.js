@@ -85,7 +85,8 @@ export function renderNoticeBanner(data) {
   }
   state.data = data;
   if (state.gesture) return; // Keep pointer capture intact when polling replaces the snapshot.
-  const rows = (data?.notices || []).map(row => ui.noticeReadRows.get(noticeIdentity(row)) || row);
+  const rows = (data?.notices || []).filter(row => !ui.deletedWorkerIds.has(row.task_id))
+    .map(row => ui.noticeReadRows.get(noticeIdentity(row)) || row);
   const unread = rows.filter(unreadNotice);
   const groups = [
     { rows: rows.filter(row => row.status === 'open'), label: '条待你处理', action: '去处理 →', kind: 'decision', help: '最新待决提醒；点击打开处理页' },

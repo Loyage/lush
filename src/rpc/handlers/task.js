@@ -93,6 +93,12 @@ export const handlers = {
     if (task.branch) p.assertBranchWritable(task.branch, 'clean up its workspace');
     return p.workspaces.cleanup(id(params.id), { keepBranch: params.keep_branch === true });
   },
-  'worker.delete'(p, params, actor) { return p.deleteTask(id(params.id)); },
+  'worker.delete_preview'(p, params) { return p.deleteTaskPreview(id(params.id)); },
+  'worker.delete'(p, params) {
+    check(params.confirm === true, 'deletion requires explicit confirmation');
+    check(typeof params.revision === 'string' && params.revision.length > 0 && params.revision.length <= 256,
+      'deletion requires a preview revision');
+    return p.deleteTask(id(params.id), { revision: params.revision, confirm: true });
+  },
   'worker.clear'(p, params, actor) { return p.clear(); },
 };

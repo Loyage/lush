@@ -65,7 +65,7 @@ lush notice post '决策标题' --body '背景、影响和建议' --questions-fi
   lush progress complete inspect
   lush worker transcript ID
 
-say 输入、自动合并开关（worker auto-merge）与显式合并请求（随后自动处理，包括 main）、worker reopen / sync / resolve-sync / cancel / retry / cleanup、branch bind / archive、notice answer / dismiss、agent 配置、daemon 和 web 控制均为用户专属。worker accept ID：用户验收自己的目标；Agent 只能确认自己直接派出的已交付 child，不能验收 say、自己或兄弟。旧 Intent / Plan / Candidate 命令已经下线。`,
+say 输入、自动合并开关（worker auto-merge）与显式合并请求（随后自动处理，包括 main）、worker reopen / sync / resolve-sync / cancel / retry / cleanup / delete（包括 delete_preview 预检）、branch bind / archive、notice answer / dismiss、agent 配置、daemon 和 web 控制均为用户专属。worker accept ID：用户验收自己的目标；Agent 只能确认自己直接派出的已交付 child，不能验收 say、自己或兄弟。旧 Intent / Plan / Candidate 命令已经下线。`,
   },
   analysis: {
     title: '角色：只读分支分析',

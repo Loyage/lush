@@ -63,6 +63,11 @@ export async function refresh() {
       response = await api('/api/snapshot');
     }
     const changed = !response.unchanged;
+    // A response begun before deletion may contain rows that no longer exist.
+    if (changed && ui.deletedWorkerIds.size) {
+      response.tasks = response.tasks.filter(task => !ui.deletedWorkerIds.has(task.id));
+      if (response.notices) response.notices = response.notices.filter(notice => !ui.deletedWorkerIds.has(notice.task_id));
+    }
     const data = changed ? response : ui.lastSnapshot;
     if (!data) return;
     if (changed) {

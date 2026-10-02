@@ -66,6 +66,14 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 用户已批准执行详情内「执行记录 / 代码与改动」平级视图；只读代码、全项目文件树和逐行 diff 的接口契约见[代码阅读器](code-reader.md)。新增用户专属 `worker.code_state` / `worker.code_tree` / `worker.code_file`，对应 `code-state` / `code-tree` / `code-file` GET 后缀；Project 解析 Worker 身份、Workspaces 读取可信工作区/固定 Git 对象，Host 仅转发，前端按需加载。首期排除 ignored 与内部文件、不新增快照/实体、不修改归档行为。实现按该契约分后端与前端推进，旧 `worker.diff` 保持兼容。
 
+## 用户确认的 Worker 彻底删除接缝
+
+新增用户专属 `worker.delete_preview {id}` / `GET /api/worker/<id>/delete-preview` 与 `worker.delete {id,revision,confirm:true}`。预检只读返回 `{id,revision,can_delete,blockers:string[],workers:[{id,goal,status}],inputs:[{id}],resources:{worktrees:string[],branches:string[],files:string[]},warnings:string[]}`；列表必须覆盖真实删除范围，过大可明确拒绝而不能静默截断。`revision` 固定本次数据库范围及磁盘资源状态；删除在串行 Git 边界内重检，不一致拒绝并要求重新确认。确认本身授权丢弃范围内未提交/未合并代码，不另设 discard 选项。
+
+范围是 Worker 与全部真实后代，清除专属消息/Notice/事件/Run/Artifact/会话/规则/上下文索引/报告等，无剩余使用者的 Input 与已发射 Draft 一并删除；整棵树须已终态且 invocation 已实际退出，不隐式取消，main/owner 不可删除。外部依赖、共享资源、交付冻结、未知路径归属应拒绝并说明，绝不操作 canonical 检出或其他 Worker 资源。资源检索覆盖登记元数据及 Git worktree 现状；文件删除限制在项目 home 的可信专属路径。清理完成后才事务删库，失败保留可诊断、可继续的 Worker，不冒充彻底成功；不撤销已合并代码，不改写 Git 历史或其他记录中的引用快照，ID 不复用。
+
+职责分工：Runtime/Git/Store 实现预检与清理、相关回归和 `modules-runtime.md`；CLI/RPC/Host 只接窄参数接口（本 Worker），CLI `worker delete ID` 为预检，`worker delete ID --confirm --revision REV` 为显式确认；前端共享 `worker-delete.js`（子 Worker）提供详情/Worker图删除入口、只读预检、应用内最终确认及失败保护，维护 `modules-web.md`；确认前展示范围、资源、不可逆后果，不调用 Agent。
+
 ## 历史输入与输入缓冲区
 
 修改输入框、暂存与原始指令检索前先读[历史输入与缓冲区理念](../design/input-history.md)；用户操作见[历史输入与暂存](../input-history.md)。缓冲区只持久保存想法，不创建Worker或调用 Agent；发射必须走当前 say 协议，不恢复旧 planner 或批量 `draft.commit`。历史检索覆盖原始 Input 与未提交 Draft，不含 Worker 追加消息；Worker状态与合并状态独立投影。公共 API、状态枚举、版本校验与文件职责见[历史输入接口](input-history.md)；`#inputs` 由 `render-inputs.js` / `styles-inputs.css` 实现，`openInputs()` 为页面入口，主输入框父候选读面不再依赖 overview。
