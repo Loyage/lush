@@ -252,7 +252,7 @@ test('Task 图：旧 v2 merge 卡片保留历史标记及状态筛选，空闲�
     // 队列在动：merge 卡在图上，子 Task 嵌在它下面，而不是变成「父 Task 不在当前图中」的根。
     expect(deepText(card(5))).toContain('merge');
     expect(deepText(card(5))).toContain('merge（历史）');
-    expect(deepText(card(5))).toContain('历史合并队列：1 条已发请求待落地（正在处理 #6）');
+    expect(deepText(card(5))).toContain('历史合并队列：1 条已发请求待落地（历史协议，不推断当前执行位）');
     expect(wrapOf(5).querySelector('[data-task-id="6"]')).toBeTruthy();
     expect(deepText(card(6))).not.toContain('不在当前图中');
     expect(roots()).toHaveLength(1);

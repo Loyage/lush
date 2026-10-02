@@ -9,6 +9,8 @@ import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { readPref, scopedKey, setPref, writePref } from './prefs.js';
 import { taskForest } from './task-graph-layout.js';
+import { mergeRelations } from './task-graph-merge.js';
+import { captureGraph, restoreGraph, graphMotionRunning } from './task-graph-motion.js';
 import { branchDiagnostics, decisionRow } from './task-graph-parts.js';
 import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { progressStats, renderGraphProgress } from './render-progress.js';
@@ -38,7 +40,7 @@ function mergeQueueNotes(raw) {
     const resolving = inFlight.filter(child => child.reservation.status === 'resolving');
     const pending = inFlight.length - requested.length - resolving.length;
     const parts = [];
-    if (requested.length) parts.push(`${requested.length} 条已发请求待落地（正在处理 #${requested[0].id}）`);
+    if (requested.length) parts.push(`${requested.length} 条已发请求待落地（历史协议，不推断当前执行位）`);
     if (pending) parts.push(`${pending} 条已预约、等静息`);
     if (resolving.length) parts.push(`${resolving.length} 条源侧解分歧中（#${resolving.map(child => child.id).join('、#')}）`);
     if (parts.length) queues.set(node.id, `历史合并队列：${parts.join(' · ')}`);
@@ -163,6 +165,8 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
     return row;
   }
 
+  const relations = mergeRelations(node);
+  if (relations) row.append(relations);
   if (node.goal_preview && node.goal_preview !== node.title) row.append(el('p', node.goal_preview, 'task-graph-goal'));
   if (node.waiting_reason) row.append(el('p', node.waiting_reason, 'task-graph-reason'));
   if (queueNote) row.append(el('p', queueNote, 'task-graph-reason'));
@@ -278,7 +282,8 @@ function minimalSummary(node, queueNote) {
   const note = node.integration_error ? `集成受阻：${node.integration_error}`
     : waiting && node.waiting_reason ? node.waiting_reason : queueNote || step;
   const text = el('span', [count, note].filter(Boolean).join(' · '), 'task-graph-minimal-note');
-  line.append(text);
+  const relations = mergeRelations(node);
+  line.append(relations || text);
   if (node.freeze && node.freeze.task_id !== node.id) line.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (isArchivedTask(node)) line.append(badge('已归档'));
   const merge = INTEGRATION[node.integration];
@@ -333,7 +338,8 @@ function taskActionsMenu(node, mergeAllByBranch) {
 
 export function renderTaskGraph(graph) {
   if (ui.view?.id !== 'task-graph') return;
-  if (hasOpenActions()) return; // 轮询和筛选重画不能卸载正在使用的浮层。
+  if (hasOpenActions() || hasPendingInput() || window.getSelection?.()?.toString()
+    || graphMotionRunning($('detail').querySelector('.task-graph'))) return;
   const minimal = ui.taskGraphMinimal;
   const raw = graph.nodes || [];
   const byId = new Map(raw.map(node => [node.id, node]));
@@ -349,9 +355,9 @@ export function renderTaskGraph(graph) {
     }
     return node.parent_id ?? null;
   };
-  const all = raw.filter(node => visible.has(node.id)).map(node => ({ ...node, parent_id: parentInView(node) }));
+  const all = raw.filter(node => visible.has(node.id)).map(node => ({ ...node, layout_parent_id: parentInView(node) }));
   const mergeQueue = mergeQueueNotes(raw);
-  const full = { ...graph, nodes: all };
+  const full = graph; // Local controls must retain hidden intermediates and real parents.
   // 归档 Task 默认不画：它们是收尾后的记录，收进「显示已归档」开关后面，避免压住仍在进行的工作。
   // 过滤在 taskForest 之前完成，所以归档父节点下的未归档子 Task 会顶成根，不会一起消失。
   const archivedCount = all.filter(isArchivedTask).length;
@@ -363,15 +369,17 @@ export function renderTaskGraph(graph) {
   const nodes = listed.filter(node => !hidden.has(node.status));
   const view = { ...full, nodes };
   const host = $('detail');
+  const before = captureGraph(host);
   const saved = collapsed();
   const forest = taskForest(view);
   const mergeAllByBranch = mergeAllCandidates(view);
   // 用 all 而不是 nodes：可见子 Task 的父 Task 可能只是被归档藏起来，不该被说成「不在当前图中」。
   ui.taskGraphIds = new Set(all.map(node => node.id));
   const focusKey = document.activeElement?.dataset?.graphFocus;
+  const focusTask = document.activeElement?.closest?.('.task-graph-card')?.dataset.taskId;
   const box = el('div', undefined, `task-graph${minimal ? ' task-graph-minimal' : ''}`);
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
-  hero.append(el('h1', '任务树'), el('p', 'Task 包裹 Agent、分支与 worktree；连线表示父子关系。代码集成由直接父 Agent 或用户按固定提交批准。'));
+  hero.append(el('h1', '任务树'), el('p', '连线表示委派层级（隐藏节点可能省略），卡片箭头表示真实合并目标。新式请求由父 Task 的 runtime 串行合并，不额外调用父 Agent；分歧时由源 Task 处理。同父兄弟按处理阶段优先展示，不代表执行次序，代码依赖仍优先。'));
   const summary = el('div', undefined, 'task-graph-summary');
   const active = nodes.filter(node => ACTIVE.has(node.status)).length;
   const decisions = nodes.reduce((count, node) => count + (node.notice_count || 0), 0);
@@ -393,6 +401,7 @@ export function renderTaskGraph(graph) {
     });
     toggle.classList.add(`b-${status}`);
     toggle.setAttribute('data-status', status);
+    toggle.dataset.graphFocus = `status-${status}`;
     if (off) toggle.classList.add('is-off');
     toggle.setAttribute('aria-pressed', String(!off));
     summary.append(toggle);
@@ -441,8 +450,24 @@ export function renderTaskGraph(graph) {
     parent.append(wrap);
   };
   for (const node of forest) paint(node, box);
+  // Structural identity excludes content/status changes, but includes every visible
+  // parent, collapsed/filter preference and width: only actual reorders animate.
+  const topology = [...box.querySelectorAll('.task-graph-card')].map(card => {
+    const node = nodes.find(node => String(node.id) === card.dataset.taskId);
+    return [node.id, node.parent_id, node.layout_parent_id];
+  }).sort((a, b) => a[0] - b[0]);
+  box.dataset.layoutKey = JSON.stringify([minimal, [...saved].sort(), [...hidden].sort(), ui.taskGraphShowArchived,
+    host.clientWidth, topology]);
+  for (const card of box.querySelectorAll('.task-graph-card')) {
+    [...card.querySelectorAll('button'), ...card.querySelectorAll('input')].forEach(control => {
+      const label = control.getAttribute('aria-label') || control.textContent || control.type || 'control';
+      control.dataset.graphFocus ||= `control-${card.dataset.taskId}-${encodeURIComponent(label)}`;
+    });
+  }
   host.replaceChildren(box);
-  if (focusKey) host.querySelector(`[data-graph-focus="${focusKey}"]`)?.focus({ preventScroll: true });
+  restoreGraph(host, box, before);
+  if (focusKey) (host.querySelector(`[data-graph-focus="${focusKey}"]`)
+    || (focusTask && host.querySelector(`[data-graph-focus="title-${focusTask}"]`)))?.focus({ preventScroll: true });
 }
 
 let pending = null;
@@ -457,9 +482,14 @@ export async function loadTaskGraph() {
   return graph;
 }
 function hasOpenActions() {
-  return Boolean($('detail').querySelector('.task-graph-actions-popover[data-open="true"]'));
+  return Boolean($('detail').querySelector('.task-graph-actions-popover[data-open="true"]')
+    || (!$('modal').hidden && $('modal').children.length)
+    || document.querySelector?.('dialog[open], [popover]:popover-open'));
 }
 function hasPendingInput() {
+  const active = document.activeElement;
+  if (active?.isContentEditable || (active && ['INPUT', 'SELECT'].includes(active.tagName)
+    && !['checkbox', 'radio', 'button'].includes(active.type))) return true;
   for (const node of $('detail').querySelectorAll('textarea')) {
     if (node.value || node === document.activeElement) return true;
   }

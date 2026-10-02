@@ -5,6 +5,40 @@ import { branchFreeze } from '../branch-freeze.js';
 /** 分支图的规模上限：只读视图不该为了画全图把 daemon 拖垮，超限截断并在结果里说明。 */
 export const GRAPH_NODE_LIMIT = 200;
 export const GRAPH_EDGE_LIMIT = 2000;
+const MERGE_SUMMARY_LIMIT = 3;
+const MERGE_PHASES = ['executing', 'resolving', 'requested', 'suspended', 'blocked'];
+
+// Aggregate before the graph's 200-node window. Only current-protocol, true parent
+// relationships qualify; return bounded IDs, never whole reservations or task bodies.
+function mergeQueueSummaries(store, ids) {
+  const summaries = new Map(ids.map(id => [id, { counts: Object.fromEntries(MERGE_PHASES.map(s => [s, 0])),
+    total: 0, items: [], truncated: false, limit_per_status: MERGE_SUMMARY_LIMIT }]));
+  if (!ids.length) return summaries;
+  const rows = store.all(`WITH requests AS (
+    SELECT id, parent_id, json_extract(reservation, '$.status') AS status FROM tasks
+    WHERE parent_id IN (${ids.map(() => '?').join(',')})
+      AND CASE WHEN json_valid(reservation) THEN
+        json_extract(reservation, '$.version')=2 AND json_extract(reservation, '$.kind')='merge'
+        AND json_extract(reservation, '$.queue_protocol')=1
+        AND json_extract(reservation, '$.parent_id')=parent_id
+        AND json_extract(reservation, '$.status') IN ('executing','resolving','requested','suspended','blocked')
+      ELSE 0 END
+  ), ranked AS (
+    SELECT *, count(*) OVER (PARTITION BY parent_id,status) AS total,
+      row_number() OVER (PARTITION BY parent_id,status ORDER BY id DESC) AS rank FROM requests
+  ) SELECT id,parent_id,status,total FROM ranked WHERE rank<=? ORDER BY parent_id,status,id DESC`,
+  ...ids, MERGE_SUMMARY_LIMIT);
+  for (const row of rows) {
+    const summary = summaries.get(row.parent_id);
+    summary.counts[row.status] = row.total;
+    summary.items.push({ id: row.id, status: row.status });
+  }
+  for (const summary of summaries.values()) {
+    summary.total = Object.values(summary.counts).reduce((a, b) => a + b, 0);
+    summary.truncated = summary.total > summary.items.length;
+  }
+  return summaries;
+}
 
 /** 会产出 worktree / 分支的角色：候选任务来自这三类。
  *  planner / scheduler 是意图层，没有自己的分支，但也要按「这条输入的锚点分支」挂进图里，
@@ -107,6 +141,7 @@ export default {
     const selected = rows.slice(0, limit);
     const ids = selected.map(row => row.id);
     const iterations = iterationViews(this.store, selected);
+    const mergeQueues = mergeQueueSummaries(this.store, ids);
     // 一批取回调用区间：任务图上的紧凑进度也要把等待排除在 Agent 工作用时之外。
     const runs = this.store.runsForTasks(ids);
     const pending = new Map();
@@ -248,6 +283,7 @@ export default {
         goal_preview: String(goal ?? '').slice(0, 600),
         progress: plan, notice: notice.notice, notice_count: notice.count,
         children_total: child.total, children_active: child.active, waiting_reason,
+        merge_queue: mergeQueues.get(row.id),
         freeze: freeze ? { kind: freeze.kind, task_id: freeze.task_id ?? null, reason: freeze.reason } : null,
         resolves_task_id: row.resolves_task_id ?? resolutions.get(row.id) ?? null,
         auto_merge: this.autoMergeView({ ...row, reservation }),

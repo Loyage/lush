@@ -22,6 +22,10 @@ notice:i===1?{id:1,kind:'question',title:'确认接口',body:'待决问题'}:nul
 waiting_reason:'等待用户确认接口兼容范围',goal_preview:'完整目标',result_preview:'完整结果'.repeat(200),
 progress:i===5?null:{total:5,completed:i===4?5:2,current:i===4?null:{label:'实现任务树双行摘要 '.repeat(10)}}
 }))]};
+for (const node of window.graph.nodes) node.merge_queue={counts:{},total:0,items:[],truncated:false};
+window.graph.nodes[0].merge_queue={counts:{resolving:1,requested:7,blocked:1},total:9,truncated:true,
+  items:[{id:2,status:'resolving'},{id:900,status:'requested'},{id:901,status:'blocked'}]};
+window.graph.nodes[1].reservation={version:2,kind:'merge',queue_protocol:1,parent_id:1,status:'resolving'};
 ui.view={id:'task-graph'}; window.paint=()=>renderTaskGraph(window.graph);
 window.refreshGraph=loadTaskGraph;
 window.fetch=async()=>Response.json(window.graph);
@@ -117,6 +121,30 @@ try {
   assert(await execute(`return document.querySelector('#modal').hidden && document.activeElement.dataset.graphFocus==='more-2';`), 'dialog did not restore more trigger');
   await click('[data-task-id="2"] .task-graph-title');
   assert(await execute('return window.openedTask===2'), 'title did not open correct Task');
+  // Real layout: only a same-parent reorder gets finite transform animations.
+  const reorder = await execute(`
+    document.querySelector('#detail').style.cssText='height:360px;overflow:auto';
+    document.activeElement.blur();
+    window.graph.nodes[1].reservation.status='requested'; window.paint();
+    window.graph.nodes[2].reservation={version:2,kind:'merge',queue_protocol:1,parent_id:1,status:'executing'};
+    const anchor=document.querySelector('[data-task-id="2"]');
+    const host=document.querySelector('#detail'); host.scrollTop=anchor.offsetTop-40;
+    document.querySelector('[data-task-id="2"] .task-graph-title').focus({preventScroll:true});
+    window.anchorId=[...document.querySelectorAll('.task-graph-card')].find(n=>n.getBoundingClientRect().bottom>Math.max(0,host.getBoundingClientRect().top)).dataset.taskId;
+    window.anchorTop=document.querySelector('[data-task-id="'+window.anchorId+'"]').getBoundingClientRect().top;
+    window.paint();
+    window.movedCard=document.querySelector('[data-task-id="3"]');
+    window.motionEffects=document.getAnimations().filter(a=>a.effect.getKeyframes().some(f=>f.transform));
+    window.paint();
+    return {count:window.motionEffects.length,durations:window.motionEffects.map(a=>a.effect.getTiming().duration),
+      preserved:window.movedCard===document.querySelector('[data-task-id="3"]'),focus:document.activeElement.dataset.graphFocus};`);
+  assert(reorder.count>0 && reorder.durations.every(n=>n===250) && reorder.preserved && reorder.focus==='title-2', `invalid FLIP: ${JSON.stringify(reorder)}`);
+  await rpc(`/session/${session}/execute/async`, { script: 'const done=arguments[0];Promise.all(window.motionEffects.map(a=>a.finished)).then(()=>done(true));', args: [] });
+  assert(await execute(`return Math.abs(document.querySelector('[data-task-id="'+window.anchorId+'"]').getBoundingClientRect().top-window.anchorTop)<2;`), 'reorder lost reading anchor');
+  assert(await execute(`window.paint();return !document.getAnimations().some(a=>a.effect.getKeyframes().some(f=>f.transform));`), 'ordinary refresh replayed FLIP');
+  assert(await execute(`document.documentElement.dataset.reducedMotion='true';window.graph.nodes[2].reservation.status='pending';window.paint();return !document.getAnimations().some(a=>a.effect.getKeyframes().some(f=>f.transform));`), 'reduced motion played FLIP');
+  assert(await execute(`delete document.documentElement.dataset.reducedMotion;const n=document.querySelector('[data-task-id="2"]');const r=document.createRange();r.selectNodeContents(n.querySelector('.task-graph-title'));getSelection().addRange(r);window.graph.nodes[2].reservation.status='executing';window.paint();const kept=n===document.querySelector('[data-task-id="2"]');getSelection().removeAllRanges();return kept;`), 'selection did not protect tree');
+  console.log('PASS real FLIP duration, no polling restart, reading anchor/focus, reduced motion and selection protection');
   await rpc(`/session/${session}/refresh`, {});
   assert(await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0];let n=0;const check=()=>window.ready?done(document.querySelector('.task-graph-mode input').checked):++n>100?done(false):setTimeout(check,30);check();`, args: [] }), 'preference did not survive reload');
   await execute(`document.documentElement.dataset.theme='light';`);

@@ -497,6 +497,15 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-minimal .badge{flex:none;padding:1px 4px;font-size:10px}
 .task-graph-minimal-summary{grid-column:1;grid-row:2;display:flex;align-items:center;gap:6px;min-width:0;color:var(--muted);font-size:11px;line-height:20px}
 .task-graph-minimal-note{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Delivery phase is separate from Agent activity; shared tree connectors stay static. */
+.task-graph-merge-relations{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin:6px 0;color:var(--muted);font-size:12px}
+.task-graph-merge-incoming,.task-graph-merge-group,.task-graph-merge-own{display:inline;line-height:inherit}
+.task-graph-merge-group+.task-graph-merge-group::before{content:' · '}
+.task-graph-merge-relations .task-graph-merge-link{display:inline;padding:0 3px;font-size:inherit;line-height:inherit;color:var(--accent);vertical-align:baseline}
+.task-graph-merge-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:4px;animation:task-graph-merge-pulse 2.4s ease-in-out infinite}
+@keyframes task-graph-merge-pulse{50%{opacity:.4}}
+.task-graph-minimal-summary>.task-graph-merge-relations{display:block;flex:1;min-width:0;white-space:nowrap;overflow-x:auto;scrollbar-width:none;margin:0;font-size:11px;line-height:20px}
+.task-graph-minimal-summary .task-graph-merge-own+.task-graph-merge-incoming::before{content:' · '}
 .task-graph-more{grid-column:2;grid-row:1/3;align-self:center}
 .task-graph-more-trigger{width:30px;height:36px;padding:0;font-size:20px;line-height:1}
 .task-graph-actions-popover{position:fixed;inset:auto 20px 20px auto;margin:0;width:min(360px,calc(100vw - 32px));max-height:70dvh;overflow:auto;padding:16px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);font-size:12px;overflow-wrap:anywhere}

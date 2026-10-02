@@ -70,6 +70,12 @@
 
 `task.graph` / `/api/task-graph` 是以 Task 父子关系为边的有界读面；Web 的 `#task-graph` 为主视角，旧 `#graph` 分支视图及 `/api/graph` HTTP 路由已移除；精简 Git 父分支、当前检出与关系诊断移入 Task 卡片，完整谱系与未绑定分支绑定只保留 CLI / RPC。Task 卡片按真实状态配色，读面投影 `archived`（内部 merge 队列随直接父 Task 归档，详见 [Task 图](task-graph.md)）及 `branch_info.subtree_say` / `branch_info.merge_run` 作为交付诊断；旧 `branch.orchestrate_plan` / `branch.orchestrate` 一键编排入口已下线。新 say 从已提交 fork 读取 `.lush-task/input.mjs` 并冻结在项目 `.lush/task-rules/`；用户后续消息由固定规则返回 `message` 或安全点软抢占的 `interrupt`，失败回退并留事件。子 Task 继承直接父的规则快照。可信代码风险与读面边界见 [Task 图与固定输入规则](task-graph.md)。
 
+### Task 图合并关系读面接缝
+
+`task.graph` 每个返回节点新增 `merge_queue:{counts,total,items,truncated,limit_per_status:3}`：仅统计完整 tasks 表中真实直接子任务的 `reservation.version=2,kind=merge,queue_protocol=1,parent_id=tasks.parent_id`，阶段为 executing/resolving/requested/suspended/blocked；pending、历史协议、integrated 不计入当前队列。`counts` 给五种阶段的精确计数，`items:[{id,status}]` 每阶段最多 3 条（ID 降序，仅供展示），`truncated` 明确关联条目未列全；无活动请求时返回零计数空列表。查询只读、SQL 聚合/窗口有界返回，不读取目标/正文，不新增表或调度行为。摘要对客户端筛选、折叠及 200 节点截断独立；旧服务缺字段时显示摘要不可用，不按局部节点伪造全量。
+
+前端 `task-graph-merge.js` 统一新协议阶段/排序及关系 DOM，子卡片目标只用真实 `parent_id` 与 `target_branch`，不把布局祖先当交付目标。`taskForest` 保留根 ID 降序，只在同一真实父的兄弟槽位按 executing/resolving、requested、其它分组，组内 ID 降序；该顺序不是 runtime 执行次序。`task-graph-motion.js` 为整树刷新记录可见卡片位置，仅同一视图结构下真实兄弟换序播放 250ms FLIP（不移动连线），保留阅读锚点、滚动和焦点；首次加载、筛选、折叠、模式/窗口尺寸变化不播放，编辑、选区、弹层、未结束动效期间暂缓刷新，遵循系统/应用减少动效设置。无后台计时器或全局监听。
+
 ## Agent 状态只读查询接缝
 
 用量扩展的完整字段与文件契约见 [Agent 额度查询与历史曲线](agent-usage.md)，操作说明见 [Agent 状态](../reference/rpc/agents.md)。
