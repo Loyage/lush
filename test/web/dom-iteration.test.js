@@ -4,12 +4,16 @@ import { makeWorld } from './dom-world.js';
 
 const world = makeWorld();
 let syncResult;
+let failedMethod = null;
+let acceptGate = null;
 const calls = [];
 const dom = installDom({ fetch: async (url, options) => {
   if (String(url).endsWith('/api/action') && options?.body) {
     const request = JSON.parse(options.body);
-    if (['task.accept', 'task.reopen', 'task.sync_parent', 'task.resolve_sync'].includes(request.method)) {
+    if (['task.accept', 'task.reopen', 'task.sync_parent', 'task.resolve_sync', 'branch.archive'].includes(request.method)) {
       calls.push(request);
+      if (request.method === 'task.accept' && acceptGate) await acceptGate;
+      if (request.method === failedMethod) return new Response(JSON.stringify({ error: '安全检查拒绝' }), { status: 409 });
       return new Response(JSON.stringify(request.method === 'task.sync_parent' ? syncResult : task));
     }
   }
@@ -43,12 +47,19 @@ test('acceptance is non-terminal, visible and eligible as a parent; freezing sti
   expect(parentTasks([{ ...task, branch_info: { archived: true } }])).toEqual([]);
 });
 
-test('acceptance and reopen never start Agent, and acceptance never archives', async () => {
+const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
+
+test('acceptance happens immediately; retaining the branch never undoes acceptance or starts Agent', async () => {
   let panel = render(task);
   const accept = buttonOf(panel, '验收完成');
   expect(accept.classList.contains('agent-call')).toBe(false);
-  const pending = accept.onclick(); expect(dialogText(dom)).toContain('不删除');
-  await answerDialog(dom, '验收完成'); await pending;
+  const pending = accept.onclick();
+  expect(calls.at(-1)).toEqual({ method: 'task.accept', params: { id: 70 } });
+  expect(dialogText(dom)).not.toContain('验收 Task');
+  await flush();
+  expect(dialogText(dom)).toContain('验收完成，是不是要直接归档？');
+  expect(dialogText(dom)).toContain('不影响已完成的验收');
+  await answerDialog(dom, '保留'); await pending;
   expect(calls.at(-1)).toEqual({ method: 'task.accept', params: { id: 70 } });
   expect(calls.some(call => call.method === 'branch.archive' || call.method === 'task.cleanup')).toBe(false);
   panel = render({ ...task, status: 'completed' });
@@ -58,6 +69,87 @@ test('acceptance and reopen never start Agent, and acceptance never archives', a
   expect(calls.at(-1)).toEqual({ method: 'task.reopen', params: { id: 70 } });
   expect(iterationControls({ ...task, status: 'completed', accepted: true })).toBeNull();
   expect(iterationControls({ ...task, status: 'completed' }, { events: [{ type: 'task.accepted' }] })).toBeNull();
+});
+
+test('acceptance waits for success and suppresses duplicate clicks, then archives with one confirmation', async () => {
+  let release;
+  acceptGate = new Promise(resolve => { release = resolve; });
+  const sequence = [];
+  const panel = iterationControls({ ...task, branch_archive: { subtree_branches: 2 } },
+    { refresh: () => { sequence.push(calls.at(-1).method); } });
+  dom.node('detail').replaceChildren(panel);
+  const accept = buttonOf(panel, '验收完成');
+  const before = calls.length;
+  const pending = accept.onclick();
+  expect(accept.disabled).toBe(true);
+  await accept.onclick(); await flush();
+  expect(calls.slice(before)).toEqual([{ method: 'task.accept', params: { id: 70 } }]);
+  expect(dom.node('modal').hidden).toBe(true);
+  release(); acceptGate = null; await flush();
+  expect(sequence).toEqual(['task.accept']);
+  expect(dialogText(dom)).toContain('2 条后代分支');
+  expect(dialogText(dom)).toContain('未提交改动会被丢弃');
+  const archive = buttonOf(dom.node('modal'), '直接归档');
+  expect(archive.classList.contains('agent-call')).toBe(false);
+  expect(archive.getAttribute('data-help')).toContain('删除 worktree 与本地 ref');
+  await answerDialog(dom, '直接归档'); await pending;
+  expect(calls.slice(before)).toEqual([
+    { method: 'task.accept', params: { id: 70 } },
+    { method: 'branch.archive', params: { branch: task.branch, discard: true } },
+  ]);
+  expect(sequence).toEqual(['task.accept', 'branch.archive']);
+  expect(dom.node('modal').hidden).toBe(true);
+});
+
+test('failed acceptance does not ask about archive; failed archive does not repeat or undo acceptance', async () => {
+  const accept = buttonOf(render(task), '验收完成');
+  failedMethod = 'task.accept';
+  let before = calls.length;
+  await accept.onclick();
+  expect(dom.node('modal').hidden).toBe(true);
+  expect(accept.disabled).toBe(false);
+  expect(calls.slice(before).map(call => call.method)).toEqual(['task.accept']);
+  expect(dom.node('error').textContent).toContain('安全检查拒绝');
+  failedMethod = 'branch.archive'; before = calls.length;
+  const pending = accept.onclick(); await flush();
+  await answerDialog(dom, '直接归档'); await pending;
+  expect(calls.slice(before).map(call => call.method)).toEqual(['task.accept', 'branch.archive']);
+  expect(dom.node('error').textContent).toContain('安全检查拒绝');
+  await accept.onclick();
+  expect(calls.slice(before).map(call => call.method)).toEqual(['task.accept', 'branch.archive']);
+  failedMethod = null;
+});
+
+test('refresh failure after successful acceptance still offers archive and never retries acceptance', async () => {
+  const panel = iterationControls(task, { refresh: () => { throw new Error('刷新失败'); } });
+  dom.node('detail').replaceChildren(panel);
+  const accept = buttonOf(panel, '验收完成');
+  const before = calls.length;
+  const pending = accept.onclick(); await flush();
+  expect(dom.node('error').textContent).toContain('刷新失败');
+  expect(dialogText(dom)).toContain('验收完成，是不是要直接归档？');
+  await answerDialog(dom, '保留'); await pending;
+  await accept.onclick();
+  expect(calls.slice(before).map(call => call.method)).toEqual(['task.accept']);
+});
+
+test('detail and graph both accept first; closing the archive question retains the accepted task', async () => {
+  for (const view of ['detail', 'graph']) {
+    ui.lastSnapshot = null;
+    if (view === 'detail') renderDetail(task, null, null, null);
+    else {
+      activateDetailView({ view: 'task-graph' });
+      renderTaskGraph({ total: 1, nodes: [{ ...task, branch_info: { subtree_branches: 1 } }], edges: [] });
+    }
+    const before = calls.length;
+    const pending = buttonOf(dom.node('detail'), '验收完成').onclick();
+    await flush();
+    expect(dialogText(dom)).toContain('是不是要直接归档');
+    if (view === 'graph') expect(dialogText(dom)).toContain('1 条后代分支');
+    dom.node('modal').onkeydown({ key: 'Escape', preventDefault() {} });
+    await pending;
+    expect(calls.slice(before).map(call => call.method)).toEqual(['task.accept']);
+  }
 });
 
 test('safe sync returns conflict diagnostics without Agent; conflict resolution is separately confirmed and purple', async () => {

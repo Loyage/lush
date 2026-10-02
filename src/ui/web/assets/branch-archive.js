@@ -17,18 +17,19 @@ export const BRANCH_ARCHIVE_HELP = '归档这条分支及它下面的全部后�
   + '未提交改动会随 worktree 一起丢失；Task、消息、事件与会话记录都保留。归档是放弃这条分支代码的记录状态，'
   + '历史内部合并队列随父 Task 一起归档；不等于删除 Task——之后可在任务树表头「显示已归档」里看到它。';
 
-/** 归档一子树分支；`refresh` 由调用方决定重拉哪个视图（Task 图 / Task 详情），默认什么也不做。 */
-export async function runBranchArchive(branch, { refresh } = {}) {
+/** 归档一子树分支；`afterAcceptance` 仅调整验收成功后的询问，仍须显式确认归档。 */
+export async function runBranchArchive(branch, { refresh, afterAcceptance = false } = {}) {
   const descendants = Number(branch.subtreeBranches) || 0;
   const scope = descendants
     ? `会删除这条分支与它下面 ${descendants} 条后代分支的 worktree 与本地 ref`
     : '会删除这条分支的 worktree 与本地 ref';
   const confirmed = await confirmDialog({
-    title: `归档 ${branch.name}？`,
-    message: `${scope}，保留任务、会话与分支记录（记录仍可在「分支详情」与任务详情里查）；历史内部合并队列随父 Task 一起归档，未提交改动会被丢弃。`,
-    confirmLabel: '归档',
+    title: afterAcceptance ? '验收完成，是不是要直接归档？' : `归档 ${branch.name}？`,
+    message: `${afterAcceptance ? `已完成验收。归档 ${branch.name}：` : ''}${scope}，保留任务、会话与分支记录（记录仍可在「分支详情」与任务详情里查）；历史内部合并队列随父 Task 一起归档，未提交改动会被丢弃。${afterAcceptance ? '选择保留或关闭弹窗不影响已完成的验收。' : ''}`,
+    confirmLabel: afterAcceptance ? '直接归档' : '归档',
     cancelLabel: '保留',
     danger: true,
+    confirmHelp: BRANCH_ARCHIVE_HELP,
   });
   if (!confirmed) return;
   try {

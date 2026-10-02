@@ -1,10 +1,12 @@
 import { button, el } from './dom.js';
-import { action } from './api.js';
+import { action, api } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { show } from './messages.js';
 import { ui } from './state.js';
 import { isHistoricalDelivery } from './format.js';
+import { runBranchArchive } from './branch-archive.js';
+import { refresh as refreshOverview } from './navigate.js';
 
 export const isIterationTask = task => ['say', 'child'].includes(task.task_kind);
 export function iterationBlocker(task) {
@@ -58,13 +60,27 @@ export function iterationControls(task, { refresh = () => {}, events = [] } = {}
         ? '后代尚未确认或结算；派生任务由其直接父 Agent 检查并确认，无需你逐个验收。' : null);
       panel.append(el('p', task.task_kind === 'child'
         ? `本轮已交付，等待父 Task #${task.parent_id} 的 Agent 检查并确认；无需你验收。需要修改时可追加输入，分支与 worktree 保留。`
-        : '本轮已交付，等待你验收；追加输入可继续当前 Task。派生任务由父 Agent 检查并确认，无需你逐个验收。验收完成不会归档分支或 worktree。', 'hint'));
-      if (task.task_kind !== 'child') actions.append(guardedAction(button('验收完成', async () => {
-        if (!await confirmDialog({ title: `验收 Task #${task.id}？`,
-          message: '将 Task 结算为已完成，不调用 Agent，也不删除分支、worktree、会话与交付历史。派生任务须先由其直接父 Agent 确认，本操作不会替它们确认；归档仍是独立的显式操作。',
-          confirmLabel: '验收完成', confirmHelp: '确认本轮成果完成；结算 Task，但不归档代码现场。' })) return;
-        await update('task.accept', '验收完成；分支与工作区保留。');
-      }, undefined, { help: '结算为已完成，不运行 Agent；派生任务由其直接父 Agent 确认，无需你逐个验收。验收与归档独立，待验收时不能直接归档工作区。' }), acceptanceReason));
+        : '本轮已交付，等待你验收；追加输入可继续当前 Task。派生任务由父 Agent 检查并确认，无需你逐个验收。点击即完成验收，成功后再询问是否直接归档分支与 worktree。', 'hint'));
+      if (task.task_kind !== 'child') {
+        let accepting = false;
+        const accept = button('验收完成', async () => {
+          if (accepting) return;
+          accepting = true;
+          // Keep mutation success separate from refresh failure: acceptance must not be repeated.
+          try { await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ method: 'task.accept', params: { id: task.id } }) }); }
+          catch (error) { accepting = false; show(error.message, 'error'); return; }
+          show('验收完成；分支与工作区保留。');
+          for (const reload of [refreshOverview, refresh]) {
+            try { await reload(); }
+            catch (error) { show(error.message, 'error'); }
+          }
+          await runBranchArchive({ name: task.branch,
+            subtreeBranches: task.branch_archive?.subtree_branches ?? task.branch_info?.subtree_branches },
+            { refresh, afterAcceptance: true });
+        }, undefined, { help: '点击即结算为已完成，不运行 Agent；成功后询问是否直接归档，选择保留不影响验收。派生任务由其直接父 Agent 确认，无需你逐个验收。' });
+        actions.append(guardedAction(accept, acceptanceReason));
+      }
     }
     actions.append(guardedAction(button('同步父分支', async () => {
       try {
