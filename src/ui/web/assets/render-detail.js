@@ -13,6 +13,7 @@ import { renderDiff } from './render-diff.js';
 import { deliveryControls } from './render-delivery.js';
 import { guardedAction, iterationBlocker, iterationControls } from './render-iteration.js';
 import { renderHistory } from './render-history.js';
+import { renderTaskMessage } from './render-task-message.js';
 import { formatProgressDuration, renderTaskProgress } from './render-progress.js';
 import { noticePanel } from './render-notices.js';
 import { questionnairePanel } from './render-questionnaire.js';
@@ -60,7 +61,9 @@ function intentBadge(task) {
 }
 export function renderDetail(task, history, diff, usage) {
   const panel = $('detail');
-  const previousResult = panel.dataset.taskId === String(task.id) ? panel.querySelector('.result-panel') : null;
+  const sameTask = panel.dataset.taskId === String(task.id);
+  const previousResult = sameTask ? panel.querySelector('.result-panel') : null;
+  const previousMessages = new Map(sameTask ? [...panel.querySelectorAll('.task-message')].map(node => [node.dataset.messageId, node]) : []);
   panel.dataset.view = 'task'; panel.dataset.taskId = String(task.id); panel.replaceChildren();
   referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `任务 #${task.id}`,
     quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-detail', task_id: task.id } });
@@ -334,8 +337,7 @@ export function renderDetail(task, history, diff, usage) {
   if (task.messages?.length) {
     const messages = block('消息', String(task.messages.length));
     for (const message of task.messages) {
-      const item = el('div', undefined, 'msg');
-      item.append(el('small', `${message.sender_id ? `来自 #${message.sender_id}` : '来自你'} · ${absolute(message.created_at)}`), el('p', message.body));
+      const item = renderTaskMessage(message, task.id, previousMessages.get(String(message.id)));
       referenceable(item, { kind: 'message', target: { task_id: task.id, message_id: message.id }, label: `任务 #${task.id} 的消息`,
         quote: message.body, location: { view: 'task-detail', task_id: task.id, section: 'messages' } });
       messages.append(item);
