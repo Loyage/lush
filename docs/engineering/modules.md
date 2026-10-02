@@ -86,6 +86,10 @@
 
 后端职责在 `src/agent/status.js`、`usage-query*.js`、`usage-settings.js`、`src/core/agent-usage.js`、Store 用量 mixin 与 Project/RPC handler；Web server 仅转发。新增用户专属 `agent.usage.config/configure/history`，前端由 `render-agent-status.js`、`render-agent-usage.js` 与 `agent-usage-form.js` 协作，复用唯一页面身份与项目路由前缀，迟到响应不能覆盖新页面。细表分别见 Runtime、Web 与 CLI/RPC 分章。
 
+## main 版本迭代
+
+用户已确认的[版本迭代契约](version-history.md)规定只读 `branch.history(cursor?,limit?)` / `GET /api/versions` 与工作分组的 `#versions` 页面：第一父链有界分页，固定 tip，以精确交付证据关联 Task / 原始 say，不凭标题猜测，不新增提交级 diff 或 Git 写操作。Git、Project/RPC 与前端分别遵循该文档的字段和职责边界。
+
 ## 页面导航与全类型 Task 列表
 
 - Web 采用平级页面，分组只组织导航：工作（项目概览、任务树、待我处理、Task 列表）、其他（Agent 状态、设置、帮助文档）。Task 详情归属 Task 列表，文档正文归属帮助文档。

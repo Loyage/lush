@@ -34,6 +34,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 | `GET /api/notices?status=&before=&limit=` | `notice.page`：全部类型事项与处理结果的按需分页；过滤掉旧 `plan` 类型；参数和留档语义见[待决问题](rpc/notices.md) |
 | `GET /api/graph` | 分支节点、fork 连线实时状态与任务关系（`graph.get`） |
 | `GET /api/task-graph` | Task 父子读面（`task.graph`） |
+| `GET /api/versions?cursor=&limit=` | 用户专属只读 `branch.history`，main 第一父链、固定 tip 分页与精确 Task/原始 say 关联；见 [分支 RPC](rpc/branches.md#branchhistory) |
 | `GET /api/agent/config` | `agent.config` |
 | `GET /api/agent/status` | 用户专属 `agent.status {}`，当前项目 Pi 安装、模型目录、资源、脱敏账号与可查询余额/额度；仅进入页面和手动刷新时读取，详见 [Agent 状态](rpc/agents.md) |
 | `GET /api/agent/usage/config` | 用户专属 `agent.usage.config {}`；声明式查询模板与采样设置，见 [Agent 状态](rpc/agents.md) |

@@ -1,0 +1,22 @@
+.versions-page{max-width:1080px;margin:0 auto;padding:clamp(16px,3vw,36px)}
+.versions-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:20px}
+.versions-head h1{margin:0 0 10px}
+.versions-head .hint{margin:0;max-width:760px;line-height:1.7}
+.versions-refresh{flex-shrink:0}
+.versions-feedback{line-height:1.7}
+.versions-error{color:var(--failed)}
+.version-tip{overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.versions-list{list-style:none;padding:0;margin:24px 0;display:flex;flex-direction:column;gap:18px}
+.version-commit{position:relative;padding:22px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:12px;background:var(--panel)}
+.version-commit h2{margin:0 0 12px;font-size:17px;line-height:1.6;overflow-wrap:anywhere}
+.version-metadata{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;color:var(--muted);font-size:12px}
+.version-sha{overflow-wrap:anywhere;user-select:all}
+.version-associated{color:var(--accent);font-size:12px}
+.version-unassociated{color:var(--muted);font-size:12px}
+.version-task{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}
+.version-goal,.version-say{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}
+.version-input{margin-top:12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px}
+.version-input summary{cursor:pointer;color:var(--muted);font-size:13px}
+.version-say{margin-bottom:0;font-size:13px}
+.versions-footer{display:flex;justify-content:center;margin:24px 0}
+@media(max-width:640px){.versions-head{flex-direction:column}.version-commit{padding:16px}.version-metadata{flex-direction:column;align-items:flex-start}.version-sha{max-width:100%}}

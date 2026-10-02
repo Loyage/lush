@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/styles.css">
 <link rel="stylesheet" href="/styles-core.css">
 <link rel="stylesheet" href="/styles-agent-status.css">
+<link rel="stylesheet" href="/styles-versions.css">
 <link rel="stylesheet" href="/styles-agent-usage.css">
 <script type="module" src="/app.js"></script>
 </head>
@@ -41,6 +42,9 @@
     <button type="button" id="task-graph-open" class="workspace-link" data-help="按 Task 父子关系查看 Agent、分支与工作区"><span class="nav-icon" aria-hidden="true">◇</span><span><strong>任务树</strong><small>任务与工作区</small></span><span class="nav-arrow">→</span></button>
   </nav>
   <nav id="side-nav" class="side-nav" aria-label="工作页面"></nav>
+  <nav class="workspace-nav" aria-label="代码演变">
+    <button type="button" id="versions-open" class="workspace-link" data-help="只读查看 main 主线提交历史，追溯对应 Task 与原始 say；不启动 Agent"><span class="nav-icon" aria-hidden="true">↗</span><span><strong>版本迭代</strong><small>main 历史与功能交付</small></span><span class="nav-arrow">→</span></button>
+  </nav>
   <div class="nav-divider"><span>其他</span></div>
   <nav class="support-nav" aria-label="状态、设置与帮助">
     <button type="button" id="agent-status-open" class="workspace-link" data-help="只读查询当前项目 Pi 的安装、模型、账号与可查询余额，不启动 Agent 或模型调用"><span class="nav-icon" aria-hidden="true">◎</span><span><strong>Agent 状态</strong><small>安装、模型与账号</small></span><span class="nav-arrow">→</span></button>

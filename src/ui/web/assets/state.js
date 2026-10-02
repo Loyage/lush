@@ -27,6 +27,7 @@ export const ui = {
   settingsOpen: false,
   statisticsOpen: false, statisticsFilters: null,
   agentStatusPage: null, // 页面与查询身份；仅进入 Agent 状态和手动刷新时取数。
+  versionsPage: null, // main 历史固定 tip、分页与请求身份；仅显式读取。
   transcriptView: null,
   draftSignature: null,
   // 意图面板的重建哨兵：planner 状态、闸门、spec 计数、scheduler 进度变了才重画。
@@ -77,7 +78,7 @@ export const mergeSelection = new Set();
 export function resetUiState() {
   ui.view = null;
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;
-  ui.statisticsOpen = false; ui.statisticsFilters = null; ui.transcriptView = null; ui.agentStatusPage = null;
+  ui.statisticsOpen = false; ui.statisticsFilters = null; ui.transcriptView = null; ui.agentStatusPage = null; ui.versionsPage = null;
   ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0; ui.indexOpen = null; ui.docsOpen = false; ui.docsQuery = ''; ui.settingsOpen = false;
   ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false; ui.composerExpanded = false; ui.composerSubmitting = false; ui.composerStartNow = false; ui.composerReferences = [];
   ui.intentSignature = null; ui.specSignature = null;

@@ -10,6 +10,7 @@ import { liveRefresh, refresh, applySort, applyFilters } from './refresh.js';
 import { openTaskGraph } from './render-task-graph.js';
 import { openSettings } from './render-settings.js';
 import { openAgentStatus } from './render-agent-status.js';
+import { openVersions } from './render-versions.js';
 import { initSidebar } from './sidebar-init.js';
 import { openResource, paintCollapsed } from './sidebar-ui.js';
 import { resetUiState, ui } from './state.js';
@@ -63,6 +64,7 @@ function onHashChange() {
   const report = error => { show(error.message, 'error'); };
   if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
   if (location.hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
+  if (location.hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();
   if (location.hash === '#task-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
   const noticeId = /^#notice-([1-9]\d*)$/.exec(location.hash)?.[1];
   if (noticeId && Number.isSafeInteger(Number(noticeId))) return openNotice(Number(noticeId)).catch(report);
@@ -123,6 +125,7 @@ export async function boot() {
   $('overview-open').onclick = goOverview;
   $('settings-open').onclick = () => openSettings();
   if ($('agent-status-open')) $('agent-status-open').onclick = () => openAgentStatus();
+  if ($('versions-open')) $('versions-open').onclick = () => openVersions();
   $('sidebar-toggle').onclick = () => {
     const open = $('sidebar').classList.toggle('mobile-open');
     $('sidebar-toggle').setAttribute('aria-expanded', String(open));

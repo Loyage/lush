@@ -7,6 +7,7 @@
 - `say.submit`：一条用户输入创建一个有独立分支/worktree 的 say Task。`start:false`（Web 主发送默认）只创建为 `paused`（Web 显示「待开始」）且不调用 Agent；`start:true`（缺省）立即排队运行。main 自动确立静息 owner；其它现有本地分支须先 `branch.bind` 固定 HEAD。
 - `task.spawn`：只可在活动 say/child 下派 agent 子 Task；不再接受 role、deps 或 spec。
 - `task.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。
+- `branch.history {cursor?,limit?}`：用户专属只读 main 第一父链历史与精确交付 Task / 原始 say 追溯；Web `GET /api/versions`，不新增 CLI 写入口，见 [版本迭代](version-history.md)。
 - `task.inspect` / `task.page` / `task.graph` / `task.diff` / `task.history*` / `task.transcript*`：按需只读审阅；支持 CLI 与 Web。
 - `task.integrate`：运行中的直接父 Agent 核对固定子提交并快进；`task.resolve_child_divergence` 为父侧分歧派隔离任务。
 - `task.auto_merge {id,enabled}`：用户专属的持久自动合并开关；新 say 默认关闭，新 child 默认开启且不可关闭，开发就绪后不能调整。与单次请求分离，语义见 [Task RPC](../reference/rpc/tasks.md#自动合并开关与本轮合并)。

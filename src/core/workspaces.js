@@ -7,13 +7,14 @@ import { methods as cleanupMethods } from './workspaces/cleanup.js';
 import { methods as safetyMethods } from './workspaces/safety.js';
 import { methods as taskSyncMethods } from './workspaces/task-sync.js';
 import { methods as codeMethods } from './workspaces/code.js';
+import { methods as historyMethods } from './workspaces/history.js';
 
 /** All Lush git mutations are serialized. No shell interpolation, no forced cleanup. */
 export class Workspaces extends WorkspacesBase {}
 
 // 一个职责一个方法对象，这里只做装配：重名（含与 base 的成员重名）就是拆分出错，立刻抛错。
 for (const [module, mixin] of Object.entries({
-  git: gitMethods, worktree: worktreeMethods, code: codeMethods, diff: diffMethods, merge: mergeMethods, cleanup: cleanupMethods, safety: safetyMethods, taskSync: taskSyncMethods,
+  git: gitMethods, history: historyMethods, worktree: worktreeMethods, code: codeMethods, diff: diffMethods, merge: mergeMethods, cleanup: cleanupMethods, safety: safetyMethods, taskSync: taskSyncMethods,
 })) {
   for (const [name, method] of Object.entries(mixin)) {
     if (Object.prototype.hasOwnProperty.call(Workspaces.prototype, name)) {

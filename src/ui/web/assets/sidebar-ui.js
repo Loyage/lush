@@ -5,6 +5,7 @@ const RESOURCE_META = new Map(SIDEBAR_SECTIONS.map(section => [section.id, secti
 const PAGES = {
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
   'task-graph': ['任务树', '工作', '任务父子关系 · Agent、分支与 worktree'],
+  versions: ['版本迭代', '工作', 'main 主线历史 · 提交与 Task / say 追溯'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],
   settings: ['设置', '其他', 'Agent、界面偏好与系统状态'],
   'agent-status': ['Agent 状态', '其他', 'Pi 安装、模型与账号 · 只读查询'],

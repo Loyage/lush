@@ -28,12 +28,12 @@ export const PARAMS = {
   'progress.plan': ['steps'], 'progress.complete': ['step'],
   'notice.list': [], 'notice.page': ['status','before','limit'],
   'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'], 'notice.read': ['id'],
-  'branch.tree': [], 'branch.show': ['branch'], 'branch.bind': ['branch','commit'],
+  'branch.history': ['cursor','limit'], 'branch.tree': [], 'branch.show': ['branch'], 'branch.bind': ['branch','commit'],
   'branch.archive': ['branch','discard'], 'graph.get': [],
 };
 export const USER_ONLY = new Set([
   'system.stop','system.stop_if_idle','system.configure','agent.configure','agent.status','agent.environment','agent.environment.configure',
-  'task.code_state','task.code_tree','task.code_file',
+  'branch.history','task.code_state','task.code_tree','task.code_file',
   'agent.usage.config','agent.usage.configure','agent.usage.history',
   'say.submit','task.transcript_latest','task.transcript_page','task.transcript_step','task.transcript_search',
   'task.reserve','task.reserve_all','task.auto_merge','task.resolve','task.resolve_divergence','task.unreserve','task.approve_merge',
