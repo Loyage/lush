@@ -163,21 +163,6 @@ export function renderDetail(task, history, diff, usage) {
     if (!confirmed) return;
     await action('task.retry', { id: task.id }); await detail(task.id);
   }, 'ghost', { agent: true, help: agentHelp('检查失败现场后再启动一次 Agent，不清理历史或用户改动。') }));
-  const reclaimable = !readOnly && task.status === 'completed' && ['merged', 'none', 'superseded'].includes(task.integration) && (task.workspace || task.branch);
-  if (reclaimable) actions.append(button('回收工作区与分支', async () => {
-    const plan = [task.workspace && `删除 ${task.workspace}`, task.branch && `回收分支 ${task.branch}`].filter(Boolean).join('\n');
-    const confirmed = await confirmDialog({
-      title: '回收工作区与分支？',
-      message: `只有分支顶端就是审阅过的那次提交、且已经进入 ${task.target_branch} 时才删；否则分支保留并在事件里说明原因。`,
-      detail: plan || null,
-      confirmLabel: '回收',
-      danger: true,
-    });
-    if (!confirmed) return;
-    await action('task.cleanup', { id: task.id }); await detail(task.id);
-  }, 'ghost', { help: '删除这条任务的 worktree 与本地分支；只有分支已进入目标分支且顶端就是审阅过的提交时才真删，否则保留并在事件里说明原因。' }));
-  if (reclaimable && task.workspace && task.branch) actions.append(button('只回收 worktree（保留分支）', async () => { await action('task.cleanup', { id: task.id, keep_branch: true }); await detail(task.id); }, 'ghost',
-    { help: '只删除 worktree、保留本地分支；未提交的改动会随 worktree 一起丢失。' }));
   // 归档与 Task 图同源（`branch.archive`）：删这条 Task 的分支与后代分支的 worktree/ref，Task 记录与历史保留。
   if (!readOnly && task.branch_archive?.archivable && task.status !== 'awaiting_acceptance') actions.append(button('归档', () => runBranchArchive(
     { name: task.branch, subtreeBranches: task.branch_archive.subtree_branches }, { refresh: () => detail(task.id) }), 'ghost',

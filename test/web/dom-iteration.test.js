@@ -100,6 +100,7 @@ test('detail and graph expose the same awaiting acceptance actions and continuin
   let panel = dom.node('detail');
   expect(buttonOf(panel, '归档')).toBeUndefined();
   expect(buttonOf(panel, '回收工作区与分支')).toBeUndefined();
+  expect(buttonOf(panel, '只回收 worktree（保留分支）')).toBeUndefined();
   expect(deepText(panel)).toContain('无需你逐个验收');
   expect(buttonOf(panel, '追加输入').classList.contains('agent-call')).toBe(true);
   expect(buttonOf(panel, '验收完成')).toBeTruthy(); expect(buttonOf(panel, '同步父分支')).toBeTruthy();
@@ -116,6 +117,25 @@ test('detail and graph expose the same awaiting acceptance actions and continuin
   expect(buttonOf(dom.node('detail'), '合并')).toBeTruthy();
   renderDetail({ ...task, status: 'completed', accepted: true }, null, null, null);
   expect(buttonOf(dom.node('detail'), '继续开发')).toBeUndefined();
+});
+
+test('completed task detail uses archive as its only worktree and branch reclamation action', () => {
+  ui.lastSnapshot = null;
+  for (const integration of ['merged', 'none', 'superseded']) {
+    for (const archivable of [true, false]) {
+      renderDetail({ ...task, status: 'completed', accepted: true, integration,
+        branch_archive: { archivable, archived: false, subtree_branches: 0 } }, null, null, null);
+      const panel = dom.node('detail');
+      expect(buttonOf(panel, '回收工作区与分支')).toBeUndefined();
+      expect(buttonOf(panel, '只回收 worktree（保留分支）')).toBeUndefined();
+      const archive = buttonOf(panel, '归档');
+      if (archivable) {
+        expect(archive).toBeTruthy();
+        expect(archive.getAttribute('data-help')).toContain('删除 worktree 与本地 ref');
+        expect(archive.classList.contains('agent-call')).toBe(false);
+      } else expect(archive).toBeUndefined();
+    }
+  }
 });
 
 test('delegated Tasks wait for parent confirmation, not user acceptance or mine filtering', () => {

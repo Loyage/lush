@@ -258,10 +258,12 @@ test('详情：可归档分支给「归档」按钮，帮助说清含义，确�
     expect(help).toContain('不等于删除 Task');
 
     const pending = archive.onclick();
+    expect(dialogText(dom)).toContain('worktree 与本地 ref');
     expect(dialogText(dom)).toContain('保留任务、会话与分支记录');
     expect(world.state.actions.some(entry => entry.method === 'branch.archive')).toBe(false);
     await answerDialog(dom, '归档');
     await pending;
     expect(world.state.actions).toContainEqual({ method: 'branch.archive', params: { branch: 'lush/1-x', discard: true } });
+    expect(world.state.actions.some(entry => entry.method === 'task.cleanup')).toBe(false);
   } finally { world.state.branchArchive = null; }
 });
