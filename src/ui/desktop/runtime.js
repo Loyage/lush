@@ -142,6 +142,10 @@ export function createDesktop({ electron, userData, localHost, platform = proces
       const result = await dialog.showOpenDialog(entry.window, { title: '选择 Lush 项目目录', properties: ['openDirectory', 'createDirectory'] });
       return result.canceled ? null : result.filePaths[0];
     });
+    ipcMain.handle('lush:notice-preferences', (event, value) => {
+      const entry = trusted(event);
+      return store.noticePreferences(entry.preferenceKey, value);
+    });
     ipcMain.handle('lush:notification-settings', (event, enabled) => {
       const entry = trusted(event), supported = Notification.isSupported();
       if (enabled !== undefined) {

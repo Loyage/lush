@@ -21,14 +21,18 @@ export class UIClient {
     const status = await this.request('system.summary');
     check(status.project === this.config.project, 'daemon project mismatch');
     if (revision && revision === status.revision) return { unchanged: true, revision };
-    const [activity, page] = await Promise.all([
+    const [activity, page, unread] = await Promise.all([
       this.request('worker.activity', { limit: 100, scope: 'work' }),
       this.request('notice.page', { status: 'all', limit: 100 }),
+      // Lifecycle reminders belong to the project, not the homepage Worker window.
+      // A separate bounded page also keeps newer read history from crowding them out.
+      this.request('notice.page', { status: 'unread', limit: 100 }),
     ]);
     const tasks = activity.tasks.filter(task => ['say','child','main','owner'].includes(task.task_kind));
     const ids = new Set(tasks.map(task => task.id));
     return { revision: status.revision, status, tasks, task_page: activity.page,
-      notices: page.notices.filter(notice => ids.has(notice.task_id)),
+      notices: [...new Map([...page.notices.filter(notice => ids.has(notice.task_id)), ...unread.notices]
+        .map(notice => [notice.id, notice])).values()],
       ladder: { groups: [] }, inputs: [], drafts: [], specs: [], candidates: [] };
   }
 }

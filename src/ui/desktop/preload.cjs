@@ -5,6 +5,7 @@ const mode = process.argv.includes('--lush-desktop-mode=local') ? 'local' : 'rem
 contextBridge.exposeInMainWorld('lushDesktop', {
   ...(mode === 'local' ? { chooseProject: () => ipcRenderer.invoke('lush:choose-project') } : {}),
   notificationSettings: enabled => ipcRenderer.invoke('lush:notification-settings', enabled),
+  noticePreferences: value => ipcRenderer.invoke('lush:notice-preferences', value),
   notifyNotice: payload => ipcRenderer.invoke('lush:notice', payload),
   platform: process.platform,
   mode,

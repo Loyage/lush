@@ -74,6 +74,23 @@ function selectControl(name, modes, title) {
   return select;
 }
 
+function noticeChannelControl(type, label) {
+  const group = el('div', undefined, 'settings-choices');
+  for (const [channel, text] of [['banner', '页面告知条'], ['system', '系统通知']]) {
+    const wrap = el('label', undefined, 'settings-choice');
+    const input = el('input'); input.type = 'checkbox';
+    input.dataset.pref = 'noticeChannels'; input.dataset.noticeType = type; input.dataset.channel = channel;
+    input.checked = readPref('noticeChannels')[type][channel];
+    input.setAttribute('aria-label', `${label}：${text}`);
+    input.addEventListener('change', () => {
+      const value = readPref('noticeChannels'); value[type][channel] = input.checked;
+      setPref('noticeChannels', value);
+    });
+    wrap.append(input, el('span', text)); group.append(wrap);
+  }
+  return group;
+}
+
 function interfaceTab() {
   const content = el('div', undefined, 'settings-tab-panel');
   const reading = block('阅读');
@@ -94,8 +111,17 @@ function interfaceTab() {
   const behavior = block('刷新与提示');
   behavior.append(row('轮询频率', '控制页面快照与实时状态刷新；修改后立即生效。', selectControl('polling', POLLING_MODES, '页面自动刷新频率')));
   behavior.append(row('消息停留时长', '控制顶部信息与错误提示自动消失的速度。', selectControl('toastDuration', TOAST_MODES, '消息提示停留时长')));
-  behavior.append(row('待决事项系统提醒', '默认关闭，仅当前客户端生效。窗口打开期间提醒新事项；关闭提醒不影响记录和决策。', notificationControl()));
+  behavior.append(row('系统通知总开关', '默认关闭，仅当前客户端生效。窗口打开期间提醒新待决事项及所选告知；关闭期间不补发。', notificationControl()));
   content.append(behavior);
+
+  const notices = block('告知渠道');
+  notices.append(el('p', '仅控制当前客户端的页面告知条和系统通知；系统通知还需开启总开关。所有记录保留，不改变历史或未读列表计数。待决事项始终独立显示，不能用「已知」消除。', 'settings-note'));
+  for (const [type, label, note] of [
+    ['idle', 'Worker 本轮结束', 'Worker 已静息，不代表验收完成或已合并。'],
+    ['analysis', '只读分析完成', '用户发起的只读分析已完成。'],
+    ['failed', '异常停止', '超时、调用失败或后台中断等异常。'],
+  ]) notices.append(row(label, note, noticeChannelControl(type, label)));
+  content.append(notices);
 
   const reset = block('恢复界面默认');
   const resetButton = el('button', '恢复默认设置', 'ghost pref-reset'); resetButton.type = 'button'; resetButton.onclick = () => resetPrefs();

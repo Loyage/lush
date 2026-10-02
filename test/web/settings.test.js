@@ -61,6 +61,25 @@ test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1
   expect(panel().dataset.view).toBe('overview');
 });
 
+test('告知设置提供三类两渠道独立复选项，默认全选，不改系统通知总开关或项目数据', async () => {
+  prefs.resetPrefs(); openInterface();
+  const controls = () => panel().querySelectorAll('input').filter(node => node.dataset.pref === 'noticeChannels');
+  expect(controls()).toHaveLength(6); expect(controls().every(node => node.checked)).toBe(true);
+  expect(controls().every(node => node.getAttribute('aria-label'))).toBe(true);
+  expect(deepText(panel())).toContain('待决事项始终独立显示');
+  expect(deepText(panel())).toContain('不改变历史或未读列表计数');
+  const before = world.state.actions.length;
+  const checkbox = controls().find(node => node.dataset.noticeType === 'analysis' && node.dataset.channel === 'banner');
+  checkbox.checked = false;
+  for (const handler of checkbox.listeners.change) handler();
+  expect(prefs.readPref('noticeChannels').analysis).toEqual({ banner: false, system: true });
+  expect(controls().find(node => node.dataset.noticeType === 'analysis' && node.dataset.channel === 'banner').checked).toBe(false);
+  expect(prefs.readPref('noticeNotifications')).toBe(false);
+  expect(world.state.actions).toHaveLength(before);
+  await dom.intervalFor(1500)(); expect(controls()).toHaveLength(6);
+  prefs.resetPrefs(); expect(controls().every(node => node.checked)).toBe(true);
+});
+
 test('偏好默认值与老键值：全部走默认，旧键继续生效，坏值回落', () => {
   for (const name of prefs.PREF_NAMES) globalThis.localStorage.removeItem(prefs.PREF_DEFS[name].key);
   expect(prefs.readPref('markdown')).toBe(true);

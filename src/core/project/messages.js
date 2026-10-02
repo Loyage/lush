@@ -1,5 +1,6 @@
 import { check, id, text, TERMINAL, isPlainObject, isSettled } from '../types.js';
 import { questionnaire, questionnaireAnswer } from '../questionnaire.js';
+import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
 import { decideTaskInput } from '../task-input-rule.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, resumeTaskDelivery } from './iteration.js';
 
@@ -85,7 +86,7 @@ export default {
     });
     // This is a deliberate suspension, not a timeout/failure. Persist before stopping the process.
     if (kind === 'questionnaire') this.running.get(task.id)?.controller.abort();
-    return this.store.get('SELECT * FROM notices WHERE id=?', noticeId);
+    return this.store.get(`${NOTICE_SELECT} WHERE id=?`, noticeId);
   },
 
   /**
@@ -99,7 +100,7 @@ export default {
     check(typeof body === 'string' && body.length <= 32000, 'invalid notice body');
     const row = this.store.run("INSERT INTO notices(task_id,title,body,kind,status) VALUES (?,?,?,'info','sent')", task.id, title, body);
     this.store.event(task.id, 'notice.opened', { notice_id: Number(row.lastInsertRowid), title, kind: 'info' });
-    return this.store.get('SELECT * FROM notices WHERE id=?', Number(row.lastInsertRowid));
+    return this.store.get(`${NOTICE_SELECT} WHERE id=?`, Number(row.lastInsertRowid));
   },
 
   /** Built-in lifecycle hook. Caller commits Task state, source Event and Notice together. */
@@ -115,7 +116,7 @@ export default {
     if (!failed && (this.hasActionableMessages(task.id)
       || this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", task.id)
       || this.store.children(task.id).some(child => !isSettled(child)))) return null;
-    const existing = this.store.get('SELECT * FROM notices WHERE source_event_id=?', event.id);
+    const existing = this.store.get(`${NOTICE_SELECT} WHERE source_event_id=?`, event.id);
     if (existing) return existing;
     const goal = String(task.goal ?? '').trim().split('\n')[0].slice(0, 100);
     const title = `${task.task_kind === 'analysis' ? '分析' : 'Worker'} #${task.id} ${failed ? '异常停止' : analyzed ? '已完成' : '本轮已结束'}：${goal}`;
@@ -134,7 +135,7 @@ export default {
       VALUES (?,?,?,'info','sent',?)`, task.id, title, body, event.id);
     const noticeId = Number(row.lastInsertRowid);
     this.store.event(task.id, 'notice.opened', { notice_id: noticeId, title, kind: 'info', source_event_id: event.id });
-    return this.store.get('SELECT * FROM notices WHERE id=?', noticeId);
+    return this.store.get(`${NOTICE_SELECT} WHERE id=?`, noticeId);
   },
 
   /** User acknowledgement is independent of decisions and never wakes the Agent. */
@@ -145,7 +146,7 @@ export default {
       const changed = this.store.run("UPDATE notices SET read_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND read_at IS NULL", notice.id);
       if (changed.changes) this.store.event(notice.task_id, 'notice.read', { notice_id: notice.id });
     });
-    return this.store.get('SELECT * FROM notices WHERE id=?', notice.id);
+    return this.store.get(`${NOTICE_SELECT} WHERE id=?`, notice.id);
   },
 
   answer(noticeId, answer, dismiss = false) {
@@ -168,6 +169,6 @@ export default {
     // 忽略它意味着这件事不要做了，唤醒 agent 只会让它去做用户刚拒绝的事，所以直接让它结束。
     if (dismiss && owner.agent_wakes === 0 && owner.resolves_task_id) this.cancel(owner.id, `user dismissed notice ${notice.id}: ${notice.title}`);
     else this.wake(notice.task_id);
-    return this.store.get('SELECT * FROM notices WHERE id=?', notice.id);
+    return this.store.get(`${NOTICE_SELECT} WHERE id=?`, notice.id);
   }
 };

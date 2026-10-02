@@ -1,5 +1,6 @@
 import { check, id, text, TERMINAL, bounded, isPlainObject } from '../types.js';
 import { taskSlug } from '../naming.js';
+import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
 import { agentView } from './internal.js';
 import fs from 'node:fs';
 import { saveInputRule, snapshotPath } from '../task-input-rule.js';
@@ -198,7 +199,7 @@ export default {
       ...(task.role === 'scheduler' ? { specs: bounded(this.store.specsForBatch(task.id), 200000) } : {}),
       children: bounded(this.decorate(this.store.summaries().filter(child => child.parent_id === task.id)), 100000),
       messages: bounded(this.store.all('SELECT * FROM messages WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
-      notices: bounded(this.store.all('SELECT * FROM notices WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
+      notices: bounded(this.store.all(`${NOTICE_SELECT} WHERE task_id=? ORDER BY id DESC LIMIT 100`, task.id), 200000),
       // worker 带着自己的检验记录与合并冲突处理记录；verifier 带着自己的报告路径。都是只读投影。
       verifications: task.role === 'worker' ? bounded(this.store.verifications(task.id).map(row => ({ ...row, has_report: this.hasReport(row.id) })), 200000) : undefined,
       resolutions: task.role === 'worker' ? bounded(this.store.resolutions(task.id), 200000) : undefined,

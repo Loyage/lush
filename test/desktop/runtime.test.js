@@ -9,7 +9,7 @@ import { createDesktop } from '../../src/ui/desktop/runtime.js';
 function fixture(platform = 'linux') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-desktop-runtime-'));
   const all = [], notices = [], handlers = new Map(), sessions = new Map(), errors = [], external = [];
-  let starts = 0, stops = 0, picks = 0, failNext = false, template;
+  let starts = 0, stops = 0, picks = 0, failNext = false, template, localUrl = 'http://127.0.0.1:4318/';
   const app = new EventEmitter();
   Object.assign(app, { requestSingleInstanceLock: () => true, whenReady: async () => {}, quit: () => app.emit('before-quit') });
   class BrowserWindow extends EventEmitter {
@@ -48,11 +48,12 @@ function fixture(platform = 'linux') {
     shell: { openExternal: async url => external.push(url) },
     dialog: { showErrorBox: (...args) => errors.push(args), showOpenDialog: async () => { picks++; return { canceled: false, filePaths: ['/local/project'] }; } },
   };
-  const desktop = createDesktop({ electron, userData: dir, platform, localHost: { start: async () => { starts++; return 'http://127.0.0.1:4318/'; }, stop: () => { stops++; } } });
+  const desktop = createDesktop({ electron, userData: dir, platform, localHost: { start: async () => { starts++; return localUrl; }, stop: () => { stops++; } } });
   const event = (win, frame = win.webContents.mainFrame) => ({ sender: win.webContents, senderFrame: frame });
   const invoke = async (name, win, ...args) => handlers.get(name)(event(win), ...args);
   return { desktop, all, notices, errors, external, event, handlers, invoke, electron,
     stats: () => ({ starts, stops, picks, template }), fail: () => { failNext = true; },
+    changeLocalUrl: url => { localUrl = url; },
     close: () => { desktop.dispose(); for (const win of all) if (!win.isDestroyed()) win.destroy(); fs.rmSync(dir, { recursive: true, force: true }); } };
 }
 
@@ -165,6 +166,65 @@ test('project popups remain owned and scoped; previews have no preload; external
   } finally { f.close(); }
 });
 
+test('notice preference IPC shares a stable local identity and isolates canonical remote Hosts', async () => {
+  const f = fixture();
+  try {
+    await f.desktop.start();
+    const local = await f.desktop.openLocal();
+    const defaults = { idle: { banner: true, system: true }, analysis: { banner: true, system: true }, failed: { banner: true, system: true } };
+    expect(await f.invoke('lush:notice-preferences', local)).toEqual(defaults);
+    const prefs = { ...defaults, idle: { banner: false, system: false } };
+    expect(await f.invoke('lush:notice-preferences', local, prefs)).toEqual(prefs);
+    f.changeLocalUrl('http://127.0.0.1:9876/');
+    local.destroy();
+    const reopened = await f.desktop.openLocal();
+    expect(await f.invoke('lush:notice-preferences', reopened)).toEqual(prefs);
+    const a = await f.desktop.openRemote('https://ONE.example.com:443');
+    const b = await f.desktop.openRemote('https://two.example.com');
+    const loopbackRemote = await f.desktop.openRemote('http://127.0.0.1:9876/');
+    expect(await f.invoke('lush:notice-preferences', loopbackRemote)).toEqual(defaults);
+    expect(await f.invoke('lush:notice-preferences', a, { analysis: { system: false } })).toEqual({ ...defaults, analysis: { banner: true, system: false } });
+    const shared = await f.desktop.openRemote('https://one.example.com');
+    shared.webContents.mainFrame.url = 'https://one.example.com/p/abcdef0123456789/';
+    expect(await f.invoke('lush:notice-preferences', shared)).toEqual({ ...defaults, analysis: { banner: true, system: false } });
+    expect(await f.invoke('lush:notice-preferences', b)).toEqual(defaults);
+    expect(await f.invoke('lush:notification-settings', a)).toEqual({ enabled: false, supported: true });
+    await f.invoke('lush:notification-settings', a, true);
+    await f.invoke('lush:notification-settings', a, false);
+    expect((await f.invoke('lush:notice-preferences', a)).analysis.system).toBe(false);
+    f.electron.Notification.isSupported = () => false;
+    expect(await f.invoke('lush:notice-preferences', reopened)).toEqual(prefs);
+  } finally { f.close(); }
+});
+
+test('notice preference IPC never accepts caller identities, foreign frames, chooser or preview windows', async () => {
+  const f = fixture();
+  try {
+    await f.desktop.start();
+    const chooser = f.all[0], remote = await f.desktop.openRemote('https://one.example.com');
+    const handler = f.handlers.get('lush:notice-preferences');
+    for (const value of [undefined, { failed: { system: false }, host: 'https://two.example.com/', path: '/tmp/file' }]) {
+      expect(() => handler({ sender: { id: 999 }, senderFrame: {} }, value)).toThrow('untrusted');
+      expect(() => handler(f.event(remote, { url: 'https://one.example.com/' }), value)).toThrow('untrusted');
+      expect(() => handler(f.event(chooser), value)).toThrow('untrusted');
+      for (const url of ['https://evil.test/', 'https://one.example.com/api/docs/a']) {
+        remote.webContents.mainFrame.url = url;
+        expect(() => handler(f.event(remote), value)).toThrow('untrusted');
+      }
+    }
+    remote.webContents.mainFrame.url = 'https://one.example.com/';
+    remote.webContents.openHandler({ url: 'https://one.example.com/api/docs/a' });
+    const preview = f.all.at(-1);
+    expect(() => handler(f.event(preview), {})).toThrow('untrusted');
+    const normalized = handler(f.event(remote), { failed: { system: false }, host: 'https://two.example.com/', path: '/tmp/file', __proto__: { idle: { system: false } } });
+    expect(normalized).toEqual({ idle: { banner: true, system: true }, analysis: { banner: true, system: true }, failed: { banner: true, system: false } });
+    const other = await f.desktop.openRemote('https://two.example.com');
+    expect(handler(f.event(other)).failed.system).toBe(true);
+    remote.destroy();
+    expect(() => handler(f.event(remote), {})).toThrow('untrusted');
+  } finally { f.close(); }
+});
+
 test('native notices are opt-in per Host and click focuses their source window, not another project', async () => {
   const f = fixture();
   try {
@@ -268,5 +328,13 @@ test('sandboxed preloads expose only mode-specific capabilities, never a generic
     expect(exposed).toBe('lushDesktop'); expect(bridge.invoke).toBeUndefined();
     expect(Boolean(bridge.chooseProject)).toBe(mode === 'local');
     bridge.notifyNotice({ title: 'x' }); expect(calls[0][0]).toBe('lush:notice');
+    bridge.noticePreferences();
+    const prefs = { idle: { banner: false, system: true } };
+    bridge.noticePreferences(prefs);
+    bridge.notificationSettings(); bridge.notificationSettings(true);
+    expect(calls.slice(1)).toEqual([['lush:notice-preferences', undefined], ['lush:notice-preferences', prefs],
+      ['lush:notification-settings', undefined], ['lush:notification-settings', true]]);
+    expect(Object.keys(bridge).sort()).toEqual([...(mode === 'local' ? ['chooseProject'] : []),
+      'mode', 'noticePreferences', 'notificationSettings', 'notifyNotice', 'platform'].sort());
   }
 });

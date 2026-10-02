@@ -4,7 +4,8 @@ import { promptDialog } from './dialog.js';
 import { show } from './messages.js';
 import { notificationControl } from './notice-notifications.js';
 import { absolute, relative } from './format.js';
-import { detail } from './navigate.js';
+import { detail, refresh } from './navigate.js';
+import { projectBase } from './route.js';
 import { agentHelp } from './help.js';
 import { setNavCount } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
@@ -12,7 +13,7 @@ import { ui } from './state.js';
 import { referenceable } from './context-references.js';
 import { questionnairePanel } from './render-questionnaire.js';
 import { sleepChoiceCard } from './sleep-ui.js';
-import { lifecycleNotice, unreadNotice, noticeMatches, positiveId } from './notice-kind.js';
+import { lifecycleNotice, unreadNotice, noticeMatches, positiveId, noticeIdentity } from './notice-kind.js';
 
 const STATUS = { open: '待处理', answered: '已回答', dismissed: '已忽略', sent: '已发送' };
 
@@ -140,6 +141,8 @@ function paintNoticeRows(rows) {
 
 /** 快照维护计数；信息页按需分页读完整记录。 */
 export function renderNotices(data) {
+  // A poll already in flight can contain pre-ACK rows; never resurrect acknowledged notices.
+  data.notices = data.notices.map(row => ui.noticeReadRows.get(noticeIdentity(row)) || row);
   // 告知与决策分开计数，不把 info 当作需要答复的问题。
   const open = data.notices.filter(notice => notice.status === 'open');
   const unread = data.notices.filter(unreadNotice);
@@ -168,6 +171,30 @@ export function renderNotices(data) {
   }
   paintNoticeRows([...open, ...unread]);
 }
+/** Explicit read acknowledgement only: no navigation, Agent, acceptance or merge. */
+export function readNotice(notice) {
+  const key = noticeIdentity(notice);
+  if (ui.noticeReadPending.has(key)) return ui.noticeReadPending.get(key);
+  if (ui.noticeReadRows.has(key)) return Promise.resolve(ui.noticeReadRows.get(key));
+  if (!unreadNotice(notice)) return Promise.resolve(notice);
+  const pending = ui.noticeReadPending, reads = ui.noticeReadRows, source = projectBase();
+  const request = Promise.resolve().then(async () => {
+    if (source !== projectBase() || ui.noticeReadRows !== reads) throw new Error('项目已切换，请在原项目查看告知');
+    const current = await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method: 'notice.read', params: { id: notice.id } }) });
+    if (source !== projectBase() || ui.noticeReadRows !== reads) return current;
+    if (!current?.read_at || noticeIdentity(current) !== key) throw new Error('告知已读确认失败，请重试');
+    reads.set(key, current);
+    ui.noticeIndex.set(current.id, current);
+    if (ui.noticeRecords) ui.noticeRecords.rows = ui.noticeRecords.rows.map(row => noticeIdentity(row) === key ? current : row);
+    if (ui.lastSnapshot) renderNotices(ui.lastSnapshot);
+    await refresh();
+    return current;
+  }).finally(() => pending.delete(key));
+  pending.set(key, request);
+  return request;
+}
+
 let noticeRequest = 0;
 export async function openNotice(noticeId) {
   if (!positiveId(noticeId)) return;
@@ -182,10 +209,7 @@ export async function openNotice(noticeId) {
     const loaded = await detail(notice.task_id);
     if (loaded !== true || request !== noticeRequest || ui.selected !== notice.task_id) return;
     if (!unreadNotice(notice)) return;
-    const current = await action('notice.read', { id: notice.id });
-    ui.noticeIndex.set(notice.id, current);
-    if (ui.noticeRecords) ui.noticeRecords.rows = ui.noticeRecords.rows.map(row => row.id === current.id ? current : row);
-    // The normal snapshot refresh updates counts and the banner across all pages.
+    await readNotice(notice);
     return;
   }
   if (ui.indexOpen === 'notices' && ui.noticeRecords) {

@@ -55,6 +55,77 @@ test('connection shortcuts are canonical, bounded and persist independently of c
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('notice channels persist per connection without changing legacy notification settings or shortcuts', () => {
+  const dir = temporary();
+  try {
+    const store = new ConnectionStore(dir);
+    const defaults = { idle: { banner: true, system: true }, analysis: { banner: true, system: true }, failed: { banner: true, system: true } };
+    expect(store.noticePreferences('local')).toEqual(defaults);
+    expect(store.noticePreferences('https://one.example.com')).toEqual(defaults);
+    const local = { ...defaults, idle: { banner: false, system: true } };
+    const remote = { ...defaults, analysis: { banner: true, system: false }, failed: { banner: false, system: false } };
+    store.setEnabled('local', true);
+    store.noticePreferences('local', local);
+    store.noticePreferences('https://ONE.example.com:443', remote);
+    store.remember('https://one.example.com');
+    store.setEnabled('https://one.example.com/', false);
+    store.remove('https://one.example.com');
+    const restored = new ConnectionStore(dir);
+    expect(restored.noticePreferences('local')).toEqual(local);
+    expect(restored.noticePreferences('https://one.example.com')).toEqual(remote);
+    expect(restored.noticePreferences('https://two.example.com')).toEqual(defaults);
+    expect(restored.noticePreferences('https://one.example.com:444')).toEqual(defaults);
+    expect(restored.enabled('local')).toBe(true);
+    expect(restored.enabled('https://one.example.com/')).toBe(false);
+    expect(restored.list()).toEqual([]);
+    remote.failed.system = true; // Returned/caller objects never become mutable store state.
+    const result = restored.noticePreferences('https://one.example.com');
+    result.failed.system = true;
+    expect(restored.noticePreferences('https://one.example.com').failed.system).toBe(false);
+    expect(fs.statSync(store.file).mode & 0o777).toBe(0o600);
+    expect(fs.readdirSync(dir)).toEqual(['connections.json']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('notice preference normalization accepts only own boolean whitelist channels', () => {
+  const dir = temporary();
+  try {
+    const store = new ConnectionStore(dir);
+    const defaults = store.noticePreferences('local');
+    for (const value of [null, false, 0, 'false', [], { idle: false }, { idle: [] }]) {
+      expect(store.noticePreferences('local', value)).toEqual(defaults);
+    }
+    const malicious = JSON.parse('{"idle":{"banner":false,"system":"false","__proto__":{"polluted":true}},"analysis":{"banner":0,"system":false,"unknown":false},"failed":{"banner":null},"unknown":{"banner":false},"__proto__":{"polluted":true}}');
+    expect(store.noticePreferences('local', malicious)).toEqual({ idle: { banner: false, system: true }, analysis: { banner: true, system: false }, failed: { banner: true, system: true } });
+    expect(JSON.parse(fs.readFileSync(store.file, 'utf8')).noticeChannels.local).toEqual(store.noticePreferences('local'));
+    expect({}.polluted).toBeUndefined();
+    expect(store.noticePreferences('local', Object.create({ idle: { banner: false, system: false } }))).toEqual(defaults);
+    expect(store.noticePreferences('local', { idle: Object.create({ banner: false, system: false }) })).toEqual(defaults);
+    for (const key of ['__proto__', 'http://evil.test/', '/tmp/preferences', 'https://good.test/p/123/']) {
+      expect(() => store.noticePreferences(key, defaults)).toThrow();
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('stored notice channels normalize corrupt values and default missing legacy records', () => {
+  const dir = temporary();
+  try {
+    const store = new ConnectionStore(dir);
+    const defaults = store.noticePreferences('local');
+    for (const raw of ['null', '[]', '{broken', '{"notifications":{"local":true}}']) {
+      fs.writeFileSync(store.file, raw);
+      expect(store.noticePreferences('local')).toEqual(defaults);
+    }
+    fs.writeFileSync(store.file, JSON.stringify({ noticeChannels: { local: { idle: { banner: false, system: 'false' } },
+      'https://ONE.example.com:443': { failed: { system: false } }, 'http://evil.test/': { failed: { system: false } } } }));
+    expect(store.noticePreferences('local')).toEqual({ ...defaults, idle: { banner: false, system: true } });
+    expect(store.noticePreferences('https://one.example.com')).toEqual({ ...defaults, failed: { banner: true, system: false } });
+    expect(store.read().noticeChannels).not.toHaveProperty('http://evil.test/');
+    store.remember('https://two.example.com');
+    expect(new ConnectionStore(dir).noticePreferences('https://one.example.com').failed.system).toBe(false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('corrupt records fail closed and legacy notifications are restored for local Hosts only', () => {
   const dir = temporary();
   try {

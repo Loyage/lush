@@ -1,8 +1,9 @@
 import { check, id, bounded } from '../../core/types.js';
+import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
 
 /** notice.* */
 export const handlers = {
-  'notice.list'(p, params, actor) { return bounded(p.store.all(`SELECT * FROM notices
+  'notice.list'(p, params, actor) { return bounded(p.store.all(`${NOTICE_SELECT}
     ORDER BY (status='open') DESC,
       (kind='info' AND status='sent' AND source_event_id IS NOT NULL AND read_at IS NULL) DESC,
       id DESC LIMIT 200`), 900000); },
@@ -14,7 +15,7 @@ export const handlers = {
     if (status === 'unread') where.push("kind='info' AND status='sent' AND source_event_id IS NOT NULL AND read_at IS NULL");
     else if (status !== 'all') { where.push('status=?'); args.push(status); }
     if (before !== null) { where.push('id<?'); args.push(before); }
-    const rows = p.store.all(`SELECT * FROM notices${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`, ...args, limit + 1);
+    const rows = p.store.all(`${NOTICE_SELECT}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`, ...args, limit + 1);
     // Bound by bytes too, without dropping the cursor for omitted records.
     const notices = []; let bytes = 0;
     for (const row of rows.slice(0, limit)) {

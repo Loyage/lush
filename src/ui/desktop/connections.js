@@ -5,6 +5,16 @@ import { createHash, randomUUID } from 'node:crypto';
 const MAX_RECENT = 12;
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 
+// Build a fresh whitelist projection: no coercion, inherited keys or arbitrary metadata.
+function normalizeNoticePreferences(value) {
+  const object = entry => entry !== null && typeof entry === 'object' && !Array.isArray(entry);
+  return Object.fromEntries(['idle', 'analysis', 'failed'].map(type => {
+    const row = object(value) && Object.hasOwn(value, type) && object(value[type]) ? value[type] : null;
+    return [type, Object.fromEntries(['banner', 'system'].map(channel => [channel,
+      row && Object.hasOwn(row, channel) && typeof row[channel] === 'boolean' ? row[channel] : true]))];
+  }));
+}
+
 /** A Host root, never a project path, credential-bearing URL or arbitrary web scheme. */
 export function normalizeHostUrl(value) {
   if (typeof value !== 'string' || value.length > 2048) throw new Error('请输入 Host 根地址');
@@ -42,6 +52,7 @@ export class ConnectionStore {
   read() {
     let raw;
     try { raw = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { raw = {}; }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) raw = {};
     const recent = [];
     for (const entry of Array.isArray(raw.recent) ? raw.recent : []) {
       try { const url = normalizeHostUrl(entry); if (!recent.includes(url) && recent.length < MAX_RECENT) recent.push(url); }
@@ -59,7 +70,14 @@ export class ConnectionStore {
       try { notifications.local = JSON.parse(fs.readFileSync(path.join(this.dir, 'notifications.json'), 'utf8')).enabled === true; }
       catch { notifications.local = false; }
     }
-    return { version: 1, recent, notifications };
+    const noticeChannels = {};
+    if (raw.noticeChannels && typeof raw.noticeChannels === 'object' && !Array.isArray(raw.noticeChannels)) {
+      for (const [key, value] of Object.entries(raw.noticeChannels)) {
+        try { noticeChannels[key === 'local' ? key : normalizeHostUrl(key)] = normalizeNoticePreferences(value); }
+        catch { /* Invalid endpoints must not become preference identities. */ }
+      }
+    }
+    return { version: 1, recent, notifications, noticeChannels };
   }
   write(state) {
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
@@ -77,6 +95,15 @@ export class ConnectionStore {
     const url = normalizeHostUrl(value), state = this.read();
     state.recent = state.recent.filter(entry => entry !== url);
     this.write(state); // Forgetting a shortcut deliberately does not erase cookies or running windows.
+  }
+  noticePreferences(key, value) {
+    key = key === 'local' ? key : normalizeHostUrl(key);
+    const state = this.read();
+    if (value !== undefined) {
+      state.noticeChannels[key] = normalizeNoticePreferences(value);
+      this.write(state);
+    }
+    return normalizeNoticePreferences(state.noticeChannels[key]);
   }
   enabled(key) { return this.read().notifications[key] === true; }
   setEnabled(key, enabled) {

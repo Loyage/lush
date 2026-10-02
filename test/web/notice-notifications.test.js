@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { installDom } from '../dom-stub.js';
 import { createNoticeNotifier, initNoticeNotifications, notificationStatus, setNoticeNotifications, observeNotices, resetNoticeNotifier } from '../../src/ui/web/assets/notice-notifications.js';
-import { readPref, setPref, resetPrefs } from '../../src/ui/web/assets/prefs.js';
+import { readPref, setPref, resetPrefs, normalizeNoticeChannels, PREF_DEFS } from '../../src/ui/web/assets/prefs.js';
 
 const notice = (id, status = 'open', kind = 'question') => ({ id, status, kind, title: `question ${id}`, created_at: String(id) });
 const data = (notices, project = '/tmp/one') => ({ status: { project }, notices });
@@ -97,5 +97,92 @@ test('desktop preference restores independently of origin and reset disables nat
     resetNoticeNotifier(); observeNotices(data([])); observeNotices(data([notice(1)])); await flush();
     expect(sent).toHaveLength(1);
     resetPrefs(); await flush(); expect(saved).toBe(false);
+  } finally { dom.restore(); }
+});
+
+test('noticeChannels defaults/normalization/reset and unavailable localStorage preserve client choices', () => {
+  const dom = installDom();
+  try {
+    expect(readPref('noticeNotifications')).toBe(false);
+    expect(readPref('noticeChannels')).toEqual(normalizeNoticeChannels());
+    localStorage.setItem(PREF_DEFS.noticeChannels.key, '{broken');
+    expect(readPref('noticeChannels')).toEqual(normalizeNoticeChannels());
+    localStorage.setItem(PREF_DEFS.noticeChannels.key, JSON.stringify({ idle: { banner: false, system: 'false' }, failed: null, future: { banner: false } }));
+    expect(readPref('noticeChannels')).toEqual({ idle: { banner: false, system: true }, analysis: { banner: true, system: true }, failed: { banner: true, system: true } });
+    const storage = globalThis.localStorage;
+    globalThis.localStorage = { getItem() { throw Error('private'); }, setItem() { throw Error('private'); }, removeItem() { throw Error('private'); } };
+    setPref('noticeChannels', { failed: { banner: false, system: false } });
+    expect(readPref('noticeChannels').failed).toEqual({ banner: false, system: false });
+    resetPrefs(); expect(readPref('noticeChannels')).toEqual(normalizeNoticeChannels());
+    globalThis.localStorage = storage;
+  } finally { dom.restore(); }
+});
+
+test('classification/channel observer filtering consumes disabled notices without replay; decisions and unknown classes stay enabled', async () => {
+  const dom = installDom(), sent = [];
+  try {
+    const info = (id, type) => ({ ...notice(id, 'sent', 'info'), task_id: 4, source_event_id: id + 100, read_at: null, lifecycle_type: type });
+    const observe = createNoticeNotifier({ enabled: () => true, send: row => sent.push(row.id) });
+    setPref('noticeChannels', { idle: { system: false }, analysis: { system: false }, failed: { system: false } });
+    observe(data([info(1, 'idle')]));
+    observe(data([info(2, 'idle'), info(3, 'analysis'), info(4, 'failed'), info(5, 'future'), info(6, null), notice(7)]));
+    await flush(); expect(sent).toEqual([5, 6, 7]);
+    setPref('noticeChannels', normalizeNoticeChannels());
+    observe(data([info(2, 'idle'), info(3, 'analysis'), info(4, 'failed'), info(8, 'analysis')]));
+    await flush(); expect(sent).toEqual([5, 6, 7, 8]);
+    // Banner-only preference never suppresses OS notifications.
+    setPref('noticeChannels', { failed: { banner: false, system: true } });
+    observe(data([info(9, 'failed')])); await flush(); expect(sent.at(-1)).toBe(9);
+    observe(data([info(10, 'failed')]));
+    setPref('noticeChannels', { failed: { system: false } });
+    await flush(); expect(sent).not.toContain(10);
+  } finally { dom.restore(); }
+});
+
+test('deliver rechecks channels after a cross-tab lock wait and desktop preferences restore without writeback', async () => {
+  const dom = installDom(), sent = [], writes = [];
+  let channels = normalizeNoticeChannels({ failed: { banner: false, system: false } });
+  const previousNavigator = globalThis.navigator;
+  let deliver;
+  globalThis.navigator = { locks: { request: async (_key, run) => { deliver = run; } } };
+  dom.window.lushDesktop = {
+    async notificationSettings() { return { enabled: true }; },
+    async noticePreferences(value) { if (value !== undefined) { channels = value; writes.push(value); } return channels; },
+    async notifyNotice(payload) { sent.push(payload); return true; },
+  };
+  try {
+    await initNoticeNotifications();
+    expect(readPref('noticeChannels').failed).toEqual({ banner: false, system: false });
+    expect(writes).toEqual([]);
+    setPref('noticeChannels', { failed: { banner: true, system: true } }); await flush();
+    expect(channels.failed).toEqual({ banner: true, system: true });
+    resetNoticeNotifier(); observeNotices(data([]));
+    const row = { ...notice(200, 'sent', 'info'), source_event_id: 200, task_id: 4, read_at: null, lifecycle_type: 'failed' };
+    observeNotices(data([row])); await flush(); expect(deliver).toBeFunction();
+    setPref('noticeChannels', { failed: { system: false } }); await deliver();
+    expect(sent).toEqual([]);
+    resetPrefs(); await flush(); expect(channels).toEqual(normalizeNoticeChannels());
+    delete dom.window.lushDesktop.noticePreferences;
+    setPref('noticeChannels', { idle: { banner: false } }); await initNoticeNotifications();
+    expect(readPref('noticeChannels').idle.banner).toBe(false);
+  } finally { globalThis.navigator = previousNavigator; dom.restore(); }
+});
+
+test('late desktop restoration from another Host cannot overwrite or write back the new Host settings', async () => {
+  const dom = installDom(); let finishOld; const writes = [];
+  const current = normalizeNoticeChannels({ analysis: { banner: false } });
+  dom.window.lushDesktop = {
+    async notificationSettings() { await new Promise(resolve => { finishOld = resolve; }); return { enabled: true }; },
+    async noticePreferences(value) { if (value !== undefined) writes.push(['old', value]); return normalizeNoticeChannels(); },
+  };
+  try {
+    const oldInit = initNoticeNotifications();
+    dom.window.lushDesktop = {
+      async notificationSettings(value) { if (value !== undefined) writes.push(['new-global', value]); return { enabled: false }; },
+      async noticePreferences(value) { if (value !== undefined) writes.push(['new-channels', value]); return current; },
+    };
+    await initNoticeNotifications(); finishOld(); await oldInit;
+    expect(readPref('noticeNotifications')).toBe(false); expect(readPref('noticeChannels')).toEqual(current);
+    expect(writes).toEqual([]);
   } finally { dom.restore(); }
 });

@@ -121,6 +121,7 @@
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
+| `notice-projection.js` | Notice 的共享 SQL 只读投影，依据同 Worker 的来源 Event 生成可空 lifecycle_type；list/page、详情及生命周期生成/已读返回一致，不增列、不按标题或当前 Worker 状态分类 | `NOTICE_SELECT` |
 | `store/base.js` | 打开数据库、事务、id 分配与加列式 schema 演进；额度采样新增 nullable REAL used_percent，旧值保持未知；Notice 新增可空 `source_event_id INTEGER` / `read_at TEXT` 及来源唯一、未读部分索引，旧行不回填 | `class StoreBase`（构造、`run`/`get`/`all`/`transaction`/`close`、`taskIdHigh`/`setTaskIdHigh`/`nextTaskId`、`inputIdHigh`/`setInputIdHigh`/`nextInputId`） |
 | `store/schema.js` | 全部 DDL、项目绑定校验，以及首页持久 revision / 技术计数表 `overview_task_counts` 的触发器维护（旧库打开时一次性播种） | `SCHEMA`、`bindProject(db, project)` |
 | `store/tasks.js` | tasks 表的读写与生命周期字段（新增可空 `task_kind`，旧记录为 legacy，新 say/main/owner 明确标识；可空 `auto_merge` 是 `{version:1,enabled,locked}` 的 JSON hook 设置，旧行不回填，新 say 关闭、新 child 开启锁定；`reservation` 是独立的 say/child versioned 单次合并状态，自动 pending 带 `auto_merge:true`；version 2 静息后向直接父 Worker 发请求，queue_protocol=1 保存交付/尝试标识、入队 Event 顺序、执行基线与精确 landing_receipt，由父自有执行位串行 Squash；历史 version 1 仍按固定源提交/父基线批准）、有界 Worker 页（scope 默认 work，all 包含 intent/work），以及 `tasks.progress_plan` 附属 JSON 的原子替换；`tasks.retry_profile` 保存已校验的本轮重试 Profile 并在终态清除；`routedInputIds()` 一次查出带 `input.route` 事件的 input id 集，供Worker读模型标注快速路由 | `task`、`tasks`、`summaries`、`summaryPage`、`routedInputIds`、`create`、`update`、`setProgressPlan`、`children`、`touch`、`armAgent`、`touchAgent`、`agentByToken`、`activeTasks`、`purge`、`referringTasks`、`deleteTasks` |

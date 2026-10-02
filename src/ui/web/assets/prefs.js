@@ -94,7 +94,16 @@ const parseTaskGraphStatuses = raw => {
  * 全部受管偏好。`legacy` 是升级前的旧键，只在当前键缺失时读取。
  * `default` 可以是值或工厂（集合 / 对象每次都要新的，避免调用方改到共享默认值）。
  */
+export function normalizeNoticeChannels(value) {
+  return Object.fromEntries(['idle', 'analysis', 'failed'].map(type => [type,
+    Object.fromEntries(['banner', 'system'].map(channel => [channel,
+      typeof value?.[type]?.[channel] === 'boolean' ? value[type][channel] : true]))]));
+}
+
 export const PREF_DEFS = {
+  noticeChannels: { key: 'lush.noticeChannels', default: () => normalizeNoticeChannels(),
+    parse: raw => { try { return normalizeNoticeChannels(JSON.parse(raw)); } catch { return normalizeNoticeChannels(); } },
+    format: value => JSON.stringify(normalizeNoticeChannels(value)) },
   noticeNotifications: { key: 'lush.noticeNotifications', default: false, parse: raw => raw === '1', format: value => value ? '1' : '0' },
   markdown: boolPref(MARKDOWN_KEY, true),
   theme: enumPref(THEME_KEY, THEME_VALUES, 'system'),
@@ -116,8 +125,9 @@ export const PREF_DEFS = {
 };
 export const PREF_NAMES = Object.keys(PREF_DEFS);
 
-function readRaw(key) { try { return localStorage.getItem(key); } catch { return null; } }
-function removeRaw(key) { try { localStorage.removeItem(key); } catch { /* 隐私模式里忽略 */ } }
+const memory = new Map();
+function readRaw(key) { try { return localStorage.getItem(key) ?? memory.get(key) ?? null; } catch { return memory.get(key) ?? null; } }
+function removeRaw(key) { memory.delete(key); try { localStorage.removeItem(key); } catch { /* 隐私模式里忽略 */ } }
 function defaultValue(def) { return typeof def.default === 'function' ? def.default() : def.default; }
 
 /**
@@ -160,7 +170,8 @@ export function writePref(name, value) {
   const def = PREF_DEFS[name];
   if (!def) throw new Error(`unknown preference: ${name}`);
   const raw = def.format(value);
-  try { localStorage.setItem(prefKey(def), raw); } catch { /* 隐私模式里忽略 */ }
+  try { localStorage.setItem(prefKey(def), raw); memory.delete(prefKey(def)); }
+  catch { memory.set(prefKey(def), raw); }
   return def.parse(raw);
 }
 

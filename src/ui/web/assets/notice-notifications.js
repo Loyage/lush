@@ -1,21 +1,34 @@
 import { button, el } from './dom.js';
 import { onPrefChange, readPref, setPref } from './prefs.js';
-import { unreadNotice, noticeHash, positiveId } from './notice-kind.js';
+import { unreadNotice, noticeHash, positiveId, noticeChannelEnabled } from './notice-kind.js';
 
 const desktop = () => globalThis.window?.lushDesktop;
-let failure = '';
+let failure = '', restoring = false, initialization = 0;
+onPrefChange('noticeChannels', value => {
+  if (!restoring && desktop()?.noticePreferences) void desktop().noticePreferences(value).catch(error => { failure = error.message; });
+});
 onPrefChange('noticeNotifications', enabled => {
   // Includes “restore defaults”; the desktop preference must not resurrect on restart.
-  if (desktop()?.notificationSettings) void desktop().notificationSettings(enabled).catch(error => { failure = error.message; });
+  if (!restoring && desktop()?.notificationSettings) void desktop().notificationSettings(enabled).catch(error => { failure = error.message; });
   for (const root of globalThis.document?.querySelectorAll?.('.notice-notification-control') || []) paintControl(root);
 });
 
 export async function initNoticeNotifications() {
   failure = '';
-  if (desktop()?.notificationSettings) {
-    try { setPref('noticeNotifications', (await desktop().notificationSettings()).enabled); }
-    catch { failure = '无法读取桌面提醒设置'; }
-  }
+  const generation = ++initialization, bridge = desktop(), origin = globalThis.location?.origin;
+  const owns = () => generation === initialization && bridge === desktop() && origin === globalThis.location?.origin;
+  restoring = true;
+  try {
+    if (bridge?.notificationSettings) {
+      try { const settings = await bridge.notificationSettings(); if (owns()) setPref('noticeNotifications', settings.enabled); }
+      catch { if (owns()) failure = '无法读取桌面提醒设置'; }
+    }
+    if (!owns()) return;
+    if (bridge?.noticePreferences) {
+      try { const value = await bridge.noticePreferences(); if (owns()) setPref('noticeChannels', value); }
+      catch { if (owns()) failure = '无法读取桌面告知设置'; }
+    }
+  } finally { if (generation === initialization) restoring = false; }
 }
 
 export function notificationStatus() {
@@ -83,14 +96,18 @@ export function createNoticeNotifier({ send, enabled = () => readPref('noticeNot
     for (const row of rows) seen.add(identity(row));
     high = Math.max(high, nextHigh);
     if (!enabled()) return;
-    for (const notice of fresh) Promise.resolve().then(() => send(notice, current)).catch(error => { failure = `系统提醒发送失败：${error.message}`; });
+    for (const notice of fresh.filter(row => noticeChannelEnabled(row, 'system'))) Promise.resolve().then(() => {
+      if (enabled() && noticeChannelEnabled(notice, 'system')) return send(notice, current);
+    }).catch(error => { failure = `系统提醒发送失败：${error.message}`; });
   };
 }
 
 async function deliver(notice, project) {
-  if (!readPref('noticeNotifications')) return;
+  if (!readPref('noticeNotifications') || !noticeChannelEnabled(notice, 'system')) return;
   const key = `lush.notice-delivered:${project}:${notice.id}:${notice.created_at}`;
   const run = async () => {
+    // A tab-lock wait must not send a notification after the user disabled its channel.
+    if (!readPref('noticeNotifications') || !noticeChannelEnabled(notice, 'system')) return;
     try { if (localStorage.getItem(key)) return; } catch { /* private browsing */ }
     const title = `Lush · ${project.split('/').filter(Boolean).at(-1) || project}`;
     const body = notice.title.slice(0, 500);
