@@ -12,7 +12,7 @@ const { showHelp, hideHelp } = await import('../../src/ui/web/assets/help.js');
 const { renderTaskGraph, loadTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
 const { readPref, setPref, resetPrefs } = await import('../../src/ui/web/assets/prefs.js');
 const card = id => dom.node('detail').querySelector(`[data-task-id="${id}"]`);
-const mode = () => dom.node('detail').querySelector('.task-graph-mode').querySelector('input');
+const mode = () => dom.node('detail').querySelector('[data-graph-focus="minimal-mode"]');
 const enable = () => { mode().checked = true; mode().onchange(); };
 const fixture = () => ({ total: 3, truncated: false, nodes: [
   { id: 1, parent_id: null, task_kind: 'main', role: 'agent', title: 'main', status: 'waiting', branch: 'main' },
@@ -76,8 +76,14 @@ test('极简与完整视图共用折叠、状态筛选和归档开关', async ()
   graph.nodes[2].archived = true;
   renderTaskGraph(graph);
   expect(card(3)).toBeNull();
-  await dom.node('detail').querySelector('.task-graph-archived-toggle').onclick();
+  const archived = dom.node('detail').querySelector('.task-graph-archived-toggle').querySelector('input');
+  archived.checked = true; archived.onchange();
   expect(deepText(card(3))).toContain('已归档');
+  expect(document.activeElement.dataset.graphFocus).toBe('show-archived');
+  mode().checked = false; mode().onchange();
+  expect(document.activeElement).toBe(mode());
+  expect(dom.node('detail').querySelector('.task-graph-archived-toggle').querySelector('input').checked).toBe(true);
+  expect(card(3)).toBeTruthy();
 });
 
 test('等待行不增加进度总数，终态不伪装仍在执行，无进度运行态明确说明未知', () => {
@@ -101,6 +107,20 @@ test('切换极简模式不丢弃未提交的待决答复', () => {
   input.value = '我还在写'; enable();
   expect(mode().checked).toBe(false);
   expect(readPref('taskGraphMinimal')).toBe(false);
+  expect(card(3).querySelector('textarea')).toBe(input);
+  expect(input.value).toBe('我还在写');
+});
+
+test('切换归档显示不丢弃未提交的待决答复，也不提前改变开关状态', () => {
+  graph.nodes[1].archived = true;
+  renderTaskGraph(graph);
+  const input = card(3).querySelector('textarea');
+  input.value = '我还在写';
+  const archived = dom.node('detail').querySelector('.task-graph-archived-toggle').querySelector('input');
+  archived.checked = true; archived.onchange();
+  expect(archived.checked).toBe(false);
+  expect(ui.taskGraphShowArchived).toBe(false);
+  expect(card(2)).toBeNull();
   expect(card(3).querySelector('textarea')).toBe(input);
   expect(input.value).toBe('我还在写');
 });

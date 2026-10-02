@@ -53,15 +53,26 @@ test('Task 图默认隐藏已归档 Task，可用「显示已归档」开关就�
     expect(deepText(dom.node('detail'))).not.toContain('已归档的工作');
     const toggle = dom.node('detail').querySelector('.task-graph-archived-toggle');
     expect(toggle).toBeTruthy();
-    expect(toggle.textContent).toContain('显示已归档（1）');
+    expect(toggle.tagName).toBe('LABEL');
+    expect(toggle.classList.contains('task-graph-mode')).toBe(true);
+    expect(deepText(toggle)).toContain('显示已归档（1）');
     expect(toggle.getAttribute('data-help')).toContain('默认隐藏');
-    toggle.onclick();
+    const checkbox = toggle.querySelector('input');
+    expect(checkbox.type).toBe('checkbox');
+    expect(checkbox.checked).toBe(false);
+    checkbox.checked = true;
+    checkbox.onchange();
     const card = dom.node('detail').querySelector('[data-task-id="99"]');
     expect(card).toBeTruthy();
     expect(deepText(card)).toContain('分支已归档');
-    expect(dom.node('detail').querySelector('.task-graph-archived-toggle').textContent).toContain('隐藏已归档（1）');
+    const enabled = dom.node('detail').querySelector('.task-graph-archived-toggle');
+    expect(deepText(enabled)).toContain('显示已归档（1）');
+    expect(enabled.querySelector('input').checked).toBe(true);
+    expect(document.activeElement).toBe(enabled.querySelector('input'));
     // 再点一次收回，保持默认视图。
-    dom.node('detail').querySelector('.task-graph-archived-toggle').onclick();
+    enabled.querySelector('input').checked = false;
+    enabled.querySelector('input').onchange();
+    expect(dom.node('detail').querySelector('.task-graph-archived-toggle').querySelector('input').checked).toBe(false);
     expect(dom.node('detail').querySelector('[data-task-id="99"]')).toBeNull();
   } finally {
     graph.nodes.pop(); graph.total -= 1;
@@ -87,20 +98,23 @@ test('Task 图：历史内部合并队列随父 Task 归档，不隐藏独立工
     expect(card(100)).toBeNull();
     expect(card(101)).toBeTruthy();
     const toggle = dom.node('detail').querySelector('.task-graph-archived-toggle');
-    expect(toggle.textContent).toContain('显示已归档（2）');
+    expect(deepText(toggle)).toContain('显示已归档（2）');
     expect(toggle.getAttribute('data-help')).toContain('随父 Worker 归档');
-    toggle.onclick();
+    toggle.querySelector('input').checked = true;
+    toggle.querySelector('input').onchange();
     expect(card(99)).toBeTruthy();
     expect(deepText(card(100))).toContain('随父 Worker 归档');
     expect(deepText(card(100))).not.toContain('分支已归档');
     expect(card(101)).toBeTruthy();
-    dom.node('detail').querySelector('.task-graph-archived-toggle').onclick();
+    const checkbox = dom.node('detail').querySelector('.task-graph-archived-toggle').querySelector('input');
+    checkbox.checked = false;
+    checkbox.onchange();
     expect(card(100)).toBeNull();
     // 后端投影不依赖同页父节点：父 Task 被截断时也不会把队列误画成根。
     graph.nodes = graph.nodes.filter(node => node.id !== 99);
     await dom.node('task-graph-open').onclick();
     expect(card(100)).toBeNull();
-    expect(dom.node('detail').querySelector('.task-graph-archived-toggle').textContent).toContain('显示已归档（1）');
+    expect(deepText(dom.node('detail').querySelector('.task-graph-archived-toggle'))).toContain('显示已归档（1）');
     expect(world.state.actions).toHaveLength(actions);
   } finally {
     graph.nodes = saved; graph.total = total;

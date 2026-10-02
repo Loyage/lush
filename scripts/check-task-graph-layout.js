@@ -12,7 +12,7 @@ import { initHelp } from '/assets/help.js';
 initHelp();
 import { registerNavigation } from '/assets/navigate.js';
 registerNavigation({detail:id=>{window.openedTask=id;}});
-window.graph={total:8,nodes:[
+window.graph={total:9,nodes:[
 {id:1,parent_id:null,task_kind:'main',role:'agent',title:'main',status:'waiting',branch:'main'},
 ...['running','awaiting','awaiting_acceptance','failed','completed','paused','waiting'].map((status,i)=>({
 id:i+2,parent_id:i===6?2:1,task_kind:'say',role:'agent',status,branch:'task-'+i,
@@ -21,7 +21,9 @@ integration:i===4?'merged':'pending',notice_count:i===1?3:0,
 notice:i===1?{id:1,kind:'question',title:'确认接口',body:'待决问题'}:null,
 waiting_reason:'等待用户确认接口兼容范围',goal_preview:'完整目标',result_preview:'完整结果'.repeat(200),
 progress:i===5?null:{total:5,completed:i===4?5:2,current:i===4?null:{label:'实现 Worker 树双行摘要 '.repeat(10)}}
-}))]};
+})),
+{id:99,parent_id:1,task_kind:'say',role:'agent',title:'已归档 Worker',status:'completed',archived:true}
+]};
 for (const node of window.graph.nodes) node.merge_queue={counts:{},total:0,items:[],truncated:false};
 window.graph.nodes[0].merge_queue={counts:{resolving:1,requested:7,blocked:1},total:9,truncated:true,
   items:[{id:2,status:'resolving'},{id:900,status:'requested'},{id:901,status:'blocked'}]};
@@ -85,7 +87,7 @@ try {
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
   assert(await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0];let n=0;const check=()=>window.ready?done(true):++n>100?done(false):setTimeout(check,30);check();`, args: [] }), 'fixture did not load');
-  await click('.task-graph-mode input');
+  await click('[data-graph-focus="minimal-mode"]');
   for (const theme of ['light', 'dark']) for (const [width, height] of [[1440,900],[900,700],[390,844]]) {
     await rpc(`/session/${session}/window/rect`, { width, height });
     await execute(`document.documentElement.dataset.theme='${theme}'`);
@@ -94,12 +96,16 @@ try {
       return {heights:cards.map(n=>n.getBoundingClientRect().height),
         overflow:cards.some(n=>{const h=n.querySelector('.task-graph-head');return h.scrollWidth>h.clientWidth+1;}),
         titleWidths:cards.map(n=>n.querySelector('.task-graph-title').getBoundingClientRect().width),
-        checkbox:document.querySelector('.task-graph-mode input').getBoundingClientRect().width,
+        checkbox:document.querySelector('[data-graph-focus="minimal-mode"]').getBoundingClientRect().width,
         pageOverflow:document.documentElement.scrollWidth>innerWidth,
         paragraphs:document.querySelectorAll('.task-graph-goal,.task-graph-result,.task-graph-git').length};`);
     assert(layout.heights.length===8 && layout.heights.every(h=>h===68), `nonuniform rows: ${JSON.stringify(layout)}`);
     assert(!layout.overflow && !layout.pageOverflow && layout.titleWidths.every(w=>w>=48), `clipped controls: ${JSON.stringify(layout)}`);
     assert(layout.checkbox===16 && layout.paragraphs===0, 'minimal mode retained full card content');
+    await click('.task-graph-archived-toggle span');
+    assert(await execute(`const checkbox=document.querySelector('[data-graph-focus="show-archived"]');return checkbox.checked && checkbox.getBoundingClientRect().width===16 && document.activeElement===checkbox && !!document.querySelector('[data-task-id="99"]') && document.documentElement.scrollWidth<=innerWidth;`), 'archived label did not enable the matching checkbox');
+    await key(' ');
+    assert(await execute(`return !document.querySelector('[data-graph-focus="show-archived"]').checked && !document.querySelector('[data-task-id="99"]');`), 'Space did not disable archived display');
     await click('[data-task-id="2"] .task-graph-more-trigger');
     const menu = await execute(`const p=document.querySelector(':popover-open');const r=p?.getBoundingClientRect();return {open:!!p,x:r?.x,y:r?.y,right:r?.right,bottom:r?.bottom,width:innerWidth,height:innerHeight,focus:p?.contains(document.activeElement)};`);
     assert(menu.open && menu.focus && menu.x>=0 && menu.y>=0 && menu.right<=menu.width && menu.bottom<=menu.height, `popover escaped viewport/focus: ${JSON.stringify(menu)}`);
@@ -147,7 +153,7 @@ try {
   assert(await execute(`delete document.documentElement.dataset.reducedMotion;const n=document.querySelector('[data-task-id="2"]');const r=document.createRange();r.selectNodeContents(n.querySelector('.task-graph-title'));getSelection().addRange(r);window.graph.nodes[2].reservation.status='executing';window.paint();const kept=n===document.querySelector('[data-task-id="2"]');getSelection().removeAllRanges();return kept;`), 'selection did not protect tree');
   console.log('PASS real FLIP duration, no polling restart, reading anchor/focus, reduced motion and selection protection');
   await rpc(`/session/${session}/refresh`, {});
-  assert(await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0];let n=0;const check=()=>window.ready?done(document.querySelector('.task-graph-mode input').checked):++n>100?done(false):setTimeout(check,30);check();`, args: [] }), 'preference did not survive reload');
+  assert(await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0];let n=0;const check=()=>window.ready?done(document.querySelector('[data-graph-focus="minimal-mode"]').checked):++n>100?done(false):setTimeout(check,30);check();`, args: [] }), 'preference did not survive reload');
   await execute(`document.documentElement.dataset.theme='light';`);
   const screenshotPath = process.argv[2] || '/tmp/lush-task-graph-layout.png';
   await Bun.write(screenshotPath, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));

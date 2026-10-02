@@ -412,11 +412,23 @@ export function renderTaskGraph(graph) {
   }, 'ghost task-graph-status-reset', { help: '清除状态筛选，重新显示所有状态的 Worker。' }));
   if (decisions) summary.append(badge(`${decisions} 待决`, 'b-awaiting'));
   if (archivedCount) {
-    const toggle = button(ui.taskGraphShowArchived ? `隐藏已归档（${archivedCount}）` : `显示已归档（${archivedCount}）`, () => {
-      ui.taskGraphShowArchived = !ui.taskGraphShowArchived;
+    const toggle = el('label', undefined, 'task-graph-mode task-graph-archived-toggle');
+    const archived = el('input');
+    archived.type = 'checkbox';
+    archived.checked = ui.taskGraphShowArchived;
+    archived.dataset.graphFocus = 'show-archived';
+    archived.onchange = () => {
+      if (hasPendingInput()) {
+        archived.checked = ui.taskGraphShowArchived;
+        show('请先提交或清空正在编辑的待决答复，再切换归档显示。');
+        return;
+      }
+      ui.taskGraphShowArchived = archived.checked;
       renderTaskGraph(full);
-    }, 'ghost', { help: '归档 Worker 是用户显式归档分支后留下的记录，包含随父 Worker 归档的历史内部合并队列；这里只在当前页面显示，不写库、不改 Worker 状态，重开页面仍默认隐藏。' });
-    toggle.classList.add('task-graph-archived-toggle');
+      host.querySelector('[data-graph-focus="show-archived"]')?.focus({ preventScroll: true });
+    };
+    toggle.append(archived, el('span', `显示已归档（${archivedCount}）`));
+    toggle.setAttribute('data-help', '归档 Worker 是用户显式归档分支后留下的记录，包含随父 Worker 归档的历史内部合并队列；这里只在当前页面显示，不写库、不改 Worker 状态，重开页面仍默认隐藏。');
     summary.append(toggle);
   }
   const mode = el('label', undefined, 'task-graph-mode');
@@ -432,7 +444,7 @@ export function renderTaskGraph(graph) {
     }
     setPref('taskGraphMinimal', checkbox.checked);
     renderTaskGraph(full);
-    host.querySelector('.task-graph-mode')?.querySelector('input')?.focus({ preventScroll: true });
+    host.querySelector('[data-graph-focus="minimal-mode"]')?.focus({ preventScroll: true });
   };
   mode.append(checkbox, el('span', '极简模式'));
   mode.setAttribute('data-help', '以等高双行浏览 Worker 状态与进度；完整信息在详情，操作收进省略号菜单。仅改变显示，按项目记住选择。');
