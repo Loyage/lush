@@ -2,7 +2,7 @@
 
 本文件列出当前 say 主链必须守住的状态与 Git 约束；当前主链见[核心架构](../core-architecture.md)。旧 Intent / Plan / Candidate 的行只在磁盘上保留，不再产生新工作。
 
-<a id="status"></a>- 状态：queued / running / waiting / awaiting / paused / completed / failed / cancelled。`paused` 是用户显式「中断」后的非终态停顿：不占并发槽，消息照收，只有用户「继续」才回到排队。
+<a id="status"></a>- 状态：queued / running / waiting / awaiting / paused / completed / failed / cancelled。`paused` 是用户显式「中断」在安全点生效后的非终态停顿：消息照收，不自动唤醒。`interrupt_state=requested` 只表示暂停意愿，旧 invocation 仍占槽并可安全使用 RPC；继续可撤销尚未触发的意愿，已触发则以 queued/resuming 等待旧调用真实退出。所有后端均不因中断等待超时强杀，只有真实释放执行位后才允许新调用。
 <a id="credential"></a>- 一个 Worker 同时只有一个 invocation，且只有一个 agent 身份；身份跨唤醒不变，凭证只在该 invocation 活动期间有效，重启后全部作废。
 <a id="terminal"></a>- 终态 Worker 没有活动子Worker。失败和取消会先自底向上取消活动后代，再结算自身。
 <a id="parent-edge"></a>- 父子边只由已有父Worker的创建操作建立，不允许环或任意 reparent。

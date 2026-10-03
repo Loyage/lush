@@ -11,7 +11,7 @@ export const tasks = {
   /** layer 省略时给全部任务（内部用）；'work' 是任务树/任务链的读模型，'intent' 是 planner + scheduler。 */
   summaries(layer = null) {
     return this.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
-      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
+      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,interrupt_state FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
       ...(layer ? [layer] : []));
   },
   /**
@@ -33,7 +33,7 @@ export const tasks = {
     // 每层先用已有索引取有界页，再归并；避免跨 layer 的全历史排序。
     const layers = scope === 'all' ? ['work', 'intent'] : ['work'];
     return layers.flatMap(layer => this.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
-      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,branch FROM tasks INDEXED BY ${index}
+      agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,branch,interrupt_state FROM tasks INDEXED BY ${index}
       WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?`, layer, ...params, limit))
       .sort((a, b) => b.id - a.id).slice(0, limit);
   },
@@ -157,7 +157,7 @@ export const tasks = {
   /** Bump the visible timestamp without touching status; used when a verification starts or settles. */
   touch(taskId) { this.run("UPDATE tasks SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", taskId); },
   update(taskId, patch) {
-    const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','iteration_base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit','plan_gate','review_candidate_id','retry_profile','reservation','auto_merge'];
+    const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','iteration_base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit','plan_gate','review_candidate_id','retry_profile','reservation','auto_merge','interrupt_state'];
     check(Object.keys(patch).every(key => allowed.includes(key)), 'invalid task patch');
     this.run(`UPDATE tasks SET ${Object.keys(patch).map(key => `${key}=?`).join(',')}, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, ...Object.values(patch), taskId);
     return this.task(taskId);

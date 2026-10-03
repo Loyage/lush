@@ -1,5 +1,22 @@
 import { test, expect } from 'bun:test';
-import { GOAL_TITLE_LIMIT, summarizeGoal, taskTitle } from '../../src/ui/web/assets/format.js';
+import { GOAL_TITLE_LIMIT, STATUS, statusOf, interruptReason, summarizeGoal, taskTitle } from '../../src/ui/web/assets/format.js';
+
+test('interrupt_state is intent, not a replacement status; absent/terminal projections stay compatible', () => {
+  for (const status of ['running', 'awaiting', 'waiting', 'queued']) {
+    expect(statusOf({ status, interrupt_state: 'requested' })).toEqual({ label: '中断请求中', icon: STATUS[status].icon });
+    expect(interruptReason({ status, interrupt_state: 'requested' })).toContain('可撤销');
+    expect(statusOf({ status, interrupt_state: null })).toEqual(STATUS[status]);
+    expect(statusOf({ status })).toEqual(STATUS[status]);
+  }
+  expect(statusOf({ status: 'queued', interrupt_state: 'resuming' }).label).toBe('继续排队中');
+  expect(interruptReason({ status: 'queued', interrupt_state: 'resuming' })).toContain('旧调用释放');
+  expect(statusOf({ status: 'paused', agent_wakes: 0 }).label).toBe('待开始');
+  expect(statusOf({ status: 'paused', agent_wakes: 1 }).label).toBe('已暂停');
+  for (const status of ['completed', 'failed', 'cancelled']) {
+    expect(statusOf({ status, interrupt_state: 'requested' })).toEqual(STATUS[status]);
+    expect(interruptReason({ status, interrupt_state: 'resuming' })).toBeNull();
+  }
+});
 
 // 详情页顶部短标题的口径必须与后端 src/core/project/graph.js 的 summarize 一致：
 // 第一行、压缩空白、超 60 字截断加省略号；空输入不崩、也不把空串当标题。

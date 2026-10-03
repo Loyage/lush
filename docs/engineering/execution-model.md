@@ -23,7 +23,7 @@ sequenceDiagram
 ```
 
 - 新 say 输入直接拥有 `agent` Worker，不创建 planner/scheduler。父 Agent 可按需派子 Worker；新 child 默认开启锁定的自动合并 hook，安全点交给父 Worker 自有队列的 runtime 串行 Squash，不新建 merge Worker、不改父子关系、不额外调用父 Agent。无提交的干净 child 只交付结果、等父确认。
-- 一轮正常返回后的 say Worker 通常处于 `waiting`，保留分支与再次唤醒能力；`awaiting` 等用户答复；用户主动中断则停在非终态 `paused`，可追加消息或调整本轮运行设置后继续。终态 Worker 不允许活动后代。
+- 一轮正常返回后的 say Worker 通常处于 `waiting`，保留分支与再次唤醒能力；`awaiting` 等用户答复；用户主动中断发送暂停意愿（`interrupt_state=requested`），当前调用在安全点收尾后才停在非终态 `paused`。继续立即接受：未认领则撤销，已触发则内部排队等待旧调用退出（`interrupt_state=resuming`），避免调用重叠。暂停请求期间也可追加消息或保存下一次调用的运行设置，不热改旧调用。终态 Worker 不允许活动后代。
 - 新式 version 2 合并后进入非终态 `awaiting_acceptance`，不自动调用 Agent；追加输入继续原 Worker，say 由用户验收、child 由其运行中的直接父 Agent 检查并 `worker.accept` 确认才 completed，归档另行显式操作。历史已合并Worker显式恢复与安全同步见[持续迭代](task-iteration.md)。
 - 用户追加输入先持久化，再尝试在可证明的安全点收尾：当前 Pi 可在 `turn_end` 抢占，记录 `preempted` Run；无安全点后端只在自然轮末交付，不把硬杀冒充安全中断。
 - 未知外部副作用的中断不自动重放。Run 结束、Worker 结算、代码集成互不等价。

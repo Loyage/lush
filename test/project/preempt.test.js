@@ -19,7 +19,7 @@ if (!fs.existsSync(once)) {
   while (!fs.existsSync(request) && Date.now() < deadline) { /* 等 daemon 的抢占请求 */ }
   if (fs.existsSync(request)) {
     fs.writeFileSync(once, '1');
-    fs.writeFileSync(dir + '/task-' + id + '.stop.json', JSON.stringify({ task_id: id, run_id: ctx.run_id, safe_point: 'turn_end' }));
+    fs.renameSync(request, dir + '/task-' + id + '.stop.json');
     process.exit(0);
   }
 }
@@ -42,12 +42,23 @@ test('the pi runtime stops only at the turn_end boundary, and only for its own i
     lushRuntime(pi);
     expect(handlers.has('turn_end')).toBe(true);
     // 没有请求：什么都不写，也不申请继续下一轮（让本轮正常收尾）。
-    expect(handlers.get('turn_end')()).toBeUndefined();
+    let aborted = 0;
+    const ctx = { abort: () => { aborted++; } };
+    expect(handlers.get('turn_end')({}, ctx)).toBeUndefined();
     expect(fs.existsSync(path.join(dir, 'task-7.stop.json'))).toBe(false);
-    fs.writeFileSync(path.join(dir, 'task-7.request.json'), JSON.stringify({ task_id: 7, run_id: 3, reason: 'user message' }));
-    expect(handlers.get('turn_end')()).toBeUndefined();
+    const request = path.join(dir, 'task-7.request.json');
+    // Old task/run markers never affect this invocation.
+    for (const stale of [{ task_id: 7, run_id: 2 }, { task_id: 8, run_id: 3 }]) {
+      fs.writeFileSync(request, JSON.stringify(stale));
+      handlers.get('turn_end')({}, ctx);
+      expect(aborted).toBe(0);
+    }
+    fs.writeFileSync(request, JSON.stringify({ task_id: 7, run_id: 3, reason: 'user message' }));
+    expect(handlers.get('turn_end')({}, ctx)).toBeUndefined();
     expect(JSON.parse(fs.readFileSync(path.join(dir, 'task-7.stop.json'), 'utf8'))).toMatchObject({
-      task_id: 7, run_id: 3, safe_point: 'turn_end', reason: 'user message' });
+      task_id: 7, run_id: 3, reason: 'user message' });
+    expect(fs.existsSync(request)).toBe(false);
+    expect(aborted).toBe(1);
     expect(entries.at(-1)).toMatchObject({ type: 'lush.preempted' });
   } finally { delete process.env.LUSH_RUNTIME_CONTEXT; }
 });
@@ -72,6 +83,32 @@ test('a boundary marker turns a finished process into AgentPreempted instead of 
     expect(fs.existsSync(path.join(dir, 'task-7.request.json'))).toBe(false);
     expect(fs.existsSync(path.join(dir, 'task-7.stop.json'))).toBe(false);
     expect(await provider.run(options)).toContain('stub worker #7 done');
+  } finally { await f.close(); }
+});
+
+test('provider only accepts its own claimed stop and latches it before deleting the marker', async () => {
+  const f = fixture(null, { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub() });
+  await repo(f.root);
+  try {
+    const dir = path.join(f.config.home, 'preempt');
+    fs.mkdirSync(dir, { recursive: true });
+    const stop = path.join(dir, 'task-7.stop.json');
+    const provider = new PiProvider(f.config);
+    let latched = 0;
+    const options = { task: { id: 7, role: 'worker', goal: 'stub work', input_id: null },
+      context: { invocation: { run_id: 11 } }, messages: [], cwd: f.root, token: 't',
+      signal: new AbortController().signal, onSpawn: () => {},
+      onPreempt: () => { latched++; },
+      agent: { agent: 'pi', model: '', thinking: '', extensions: [], skills: [], soft_budget: {} } };
+    for (const stale of [{ task_id: 8, run_id: 11 }, { task_id: 7, run_id: 10 }]) {
+      fs.writeFileSync(stop, JSON.stringify(stale));
+      expect(await provider.run(options)).toContain('done');
+      expect(latched).toBe(0);
+    }
+    fs.writeFileSync(stop, JSON.stringify({ task_id: 7, run_id: 11, reason: 'claimed' }));
+    await expect(provider.run(options)).rejects.toThrow(AgentPreempted);
+    expect(latched).toBe(1);
+    expect(fs.existsSync(stop)).toBe(false);
   } finally { await f.close(); }
 });
 

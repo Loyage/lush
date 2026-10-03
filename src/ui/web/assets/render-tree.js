@@ -1,6 +1,6 @@
 import { $, button, el, roleBadge, routeBadge, syncChildren } from './dom.js';
 import { api } from './api.js';
-import { DEP_HELP, HOT, INTEGRATION, ROLE, STATUS, TERMINAL_STATUS, absolute, depsOf, relative, statusOf, waitingDeps } from './format.js';
+import { DEP_HELP, HOT, INTEGRATION, ROLE, STATUS, TERMINAL_STATUS, absolute, depsOf, relative, statusOf, interruptReason, waitingDeps } from './format.js';
 import { filterUi, roleOption, statusOption, uniqueValues } from './filters-ui.js';
 import { detail } from './navigate.js';
 import { countText, describeFilters, filterTasks, isFiltering } from './sidebar.js';
@@ -24,6 +24,8 @@ function depChips(task) {
 }
 /** 此刻为什么没在干活：等依赖 / 等槽 / 等子任务 / 等你决定。四种拼起来才是完整的并行-串行关系。 */
 function whyLine(task, index) {
+  const interruptHint = interruptReason(task);
+  if (interruptHint) return interruptHint;
   const waiting = waitingDeps(task);
   if (task.status === 'running') return `运行中 · 占 1 个并发槽`;
   if (task.status === 'queued' && waiting.length) return `排队：等 ${waiting.map(dep => `#${dep.id}`).join('、')} 结束`;

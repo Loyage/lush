@@ -68,13 +68,27 @@ test('暂停中的「调整运行设置」只保存 Profile，不启动 Agent', 
   const pending = configureTask({ id: 42, role: 'worker', status: 'paused' });
   await until(() => dialogButton(dom, '保存设置'));
   const modal = dom.node('modal');
-  expect(deepText(modal)).toContain('点「继续」时生效');
+  expect(deepText(modal)).toContain('下一次 Agent 调用');
   await dialogButton(dom, '保存设置').onclick();
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
   expect(actions[0].method).toBe('worker.configure');
   expect(actions[0].params.id).toBe(42);
   expect(actions[0].params.profile).toMatchObject({ agent: 'pi' });
+});
+
+test('请求中断但仍在运行时可以保存设置，不冒充已暂停或热更新旧调用', async () => {
+  actions.length = 0;
+  const pending = configureTask({ id: 43, role: 'worker', status: 'running', interrupt_state: 'requested' });
+  await until(() => dialogButton(dom, '保存设置'));
+  const modal = dom.node('modal');
+  expect(deepText(modal)).toContain('不改变仍在运行的调用');
+  expect(deepText(modal)).not.toContain('Worker 已暂停');
+  expect(dialogButton(dom, '保存设置').classList.contains('agent-call')).toBe(false);
+  await dialogButton(dom, '保存设置').onclick();
+  expect(await pending).toBe(true);
+  expect(actions).toHaveLength(1);
+  expect(actions[0]).toMatchObject({ method: 'worker.configure', params: { id: 43 } });
 });
 
 test('加载默认参数恢复角色的 Prompt、资源与软预算，并正确解析 scheduler 的 planner 环境', async () => {

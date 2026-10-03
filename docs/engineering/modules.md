@@ -172,12 +172,20 @@ Git 接缝新增 `prepareTaskSquashUnsafe(child,source,baseline,message)` 返回
 - 「待我处理」按需查询全部类型的 Notice，未处理项可直接答复／审批，历史只读；首页仍用有界快照。通知针对新增的 open 决策事项与未读生命周期告知，首次加载不补发历史。
 - `notice-notifications.js` 负责浏览器 Notification 与桌面 IPC 适配，默认关闭；授权只由用户开启时触发，失败不影响轮询和留档。开关属于当前客户端，桌面保存在 Electron userData（不受随机端口影响）。窗口关闭后不提醒，不引入 daemon 后台推送。
 
+## 可撤销中断与非阻塞继续接缝
+
+用户已确认：中断只在安全点停止，不再用 30 秒宽限期强杀。新增可空 `tasks.interrupt_state TEXT`，旧行不回填；读面（详情、列表、Worker 图）提供 `interrupt_state: 'requested'|'resuming'|null`。`requested` 表示用户希望暂停，当前 invocation 仍可安全执行工具与 RPC，真实状态保持 running；静息 Worker 直接 paused。`worker.resume` 接受 requested/paused/resuming：未认领请求则撤销暂停（仍有用户消息抢占时保留），已认领或旧调用收尾则记 queued/resuming，由内部等待真实退出后再次准入，绝不重叠调用。重复中断/继续幂等。运行设置仍在暂停意愿期间可保存，下一次 invocation 生效，不暗中改当前调用。
+
+Pi 的 request→stop 原子 rename 是安全点认领；daemon 通过 unlink request 撤销，两者竞态由文件系统原子操作判定。stop 一经认领不撤回。只匹配当前 task/run，不让旧标记影响新调用；Provider 关闭后读取 stop（不要求 request 仍存在）。没有可验证安全点的后端等 invocation 自然结束。普通调用总超时和显式取消保留；重启不自动重放未知调用。调度收尾将未撤销暂停投影成 paused，resuming 在真实释放执行位后回 queued，用户中断不产生虚假的交付完成/失败告知。
+
+前端保留「中断 / 继续」入口：requested 显示等待安全点与可继续撤销，resuming 显示已接受继续、内部等待收尾；请求成功不冒称进程已停止或已重新启动。继续可能触发新 Agent，沿用紫色标识与 agentHelp。实现边界：Runtime 负责 Store、Project、Pi 通道与运行回归；Web 负责动作、状态文案和 DOM 回归。RPC 方法与参数不新增。
+
 ## Token 效率接缝
 
 实现约束与历史归因口径见 [Token 效率与用量归因](token-efficiency.md)。
 
 - `project/context.js` 的 `invocationContext(task,run)` 只投影直接父子、依赖、用户引用与专用角色上下文；不注入全局最近 Worker。关联摘要有界且明确截断，完整内容通过既有 `lush worker inspect` 读取。`provider.js` 启动 JSON 使用多行格式，剔除凭证 hash 与重复 prompt 配置。
-- 安全抢占（`scheduling.requestPreempt`）：由用户追加输入（`worker.message` 且 `sender===null`）或用户主动 `worker.interrupt` 触发，且只在有可验证安全边界的后端生效（目前只有 Pi）。它在 `<home>/preempt/` 写一次性 request；`agent/pi-runtime.js` 在 `turn_end` 写 stop 标记并让本轮收尾。`provider.js` 关进程后读一次双向标记并抛 `AgentPreempted`；`invoke` 据此把这次 run 记成 `preempted`，追加输入触发的写回 `queued`/`waiting`，用户中断触发的保持 `paused`，写 `invocation.preempted` 事件，**不**调 `cancel()`。`worker.interrupt` 只停当前 Worker（不级联子Worker），超过 30 秒未到安全边界才硬杀，Worker仍停在 `paused` 等用户 `worker.resume`；普通超时与 `worker.cancel` 仍走硬杀路径并如实标成失败/取消。
+- 安全抢占（`scheduling.requestPreempt`）：由用户追加输入（`worker.message` 且 `sender===null`）或用户主动 `worker.interrupt` 触发，且只在有可验证安全边界的后端生效（目前只有 Pi）。它在 `<home>/preempt/` 写一次性 request；`agent/pi-runtime.js` 在 `turn_end` 原子 rename 为 stop 后用 `ctx.abort()` 阻止后续轮次。`provider.js` 关进程后只认本 task/run 的 stop 并抛 `AgentPreempted`；可选 `onPreempt` 回调在清理文件前锁存认领事实，避免退出与继续竞态。`invoke` 据此把本 run 记成 `preempted`，追加输入写回 `queued`/`waiting`；用户暂停意愿在真实释放执行位时写 `paused`，已接受继续则回 `queued`。写 `invocation.preempted` 事件，**不**调 `cancel()`。`worker.interrupt` 只停当前 Worker、不级联子Worker，也不再因等待中断安全点超时强杀；普通超时与 `worker.cancel` 保留硬杀路径并如实标成失败/取消。
 - 普通子 Worker 成功结算只在全部子 Worker 终态后唤醒；失败、取消、显式消息仍及时处理。延迟消息保留未读，所有收尾/恢复路径共用 `hasActionableMessages(taskId)`，避免空转和 lost-wakeup。
 - Agent profile 增加可选 `soft_budget:{responses?,tokens?}`：正整数，空对象/缺省关闭。仅普通 Pi 支持；Codex 和 explainer 明确拒绝启用。内置 `agent/pi-runtime.js` 扩展记录 invocation 身份，按本次响应累计用量，在达到阈值后下一次自然模型调用前仅提醒一次收尾；不强制停止、不额外启动模型轮次。
 - CLI `worker list --brief` 返回短目标与分页提示；`progress` 默认只回简短确认，`--json` 保留完整读模型；`doctor` 默认省略完整 daemon 配置，`--verbose` 恢复详细输出。

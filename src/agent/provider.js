@@ -33,13 +33,12 @@ export function preemptPaths(config) {
 function takePreemptMark(paths) {
   if (!paths) return null;
   const read = file => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
-  const request = read(paths.request), stop = read(paths.stop);
+  const stop = read(paths.stop);
   fs.rmSync(paths.request, { force: true }); fs.rmSync(paths.stop, { force: true });
-  if (!request || !stop) return null;
-  if (request.run_id && stop.run_id && request.run_id !== stop.run_id) return null;
-  return { task_id: stop.task_id ?? request.task_id ?? null, run_id: stop.run_id ?? null,
-    safe_point: stop.safe_point ?? 'turn_end', reason: request.reason ?? null,
-    requested_at: request.requested_at ?? null, stopped_at: stop.stopped_at ?? null };
+  if (!stop || stop.task_id !== paths.taskId || stop.run_id !== paths.runId) return null;
+  return { task_id: stop.task_id, run_id: stop.run_id,
+    safe_point: stop.safe_point ?? 'turn_end', reason: stop.reason ?? null,
+    requested_at: stop.requested_at ?? null, stopped_at: stop.stopped_at ?? null };
 }
 
 function sessionFiles(config, task, context, messages, agent, messagesPage = null) {
@@ -64,7 +63,7 @@ function sessionFiles(config, task, context, messages, agent, messagesPage = nul
   return { sessions, promptFile, systemFile, environment: { ...environment, values } };
 }
 
-async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, onStdout = null, extraEnv = {} }) {
+async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, onPreempt = null, onStdout = null, extraEnv = {} }) {
   // The daemon never starts pi/codex directly: it starts the internal guard detached and owns
   // its stdin pipe. The guard runs the real command in the same process group, forwards
   // stdout/stderr and the exit code, and kills that group if the daemon dies (stdin EOF) —
@@ -89,7 +88,8 @@ async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, 
   child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-12000); });
   signal.addEventListener('abort', kill, { once: true });
   if (signal.aborted) kill();
-  const preempt = preemptPaths(config);
+  const paths = preemptPaths(config);
+  const preempt = paths ? { ...paths, taskId: config.taskId, runId: config.runId ?? null } : null;
   try {
     const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
     if (signal.aborted) {
@@ -99,7 +99,7 @@ async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, 
     }
     // 进程自己退出了，而且这一轮在声明的安全边界（本轮工具都结束后）留了标记：按抢占而不是完成/失败处理。
     const mark = takePreemptMark(preempt);
-    if (mark) throw new AgentPreempted(mark);
+    if (mark) { onPreempt?.(mark); throw new AgentPreempted(mark); }
     if (overflow) throw new Error(`agent output exceeded ${MAX_RESULT} characters`);
     if (code !== 0) throw new Error(`${path.basename(command)} exited ${code}: ${stderr}`);
     return output.trim();
@@ -114,7 +114,7 @@ async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, 
 
 export class PiProvider {
   constructor(config) { this.config = config; }
-  async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, agent, forkPointer = null }) {
+  async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onPreempt = null, agent, forkPointer = null }) {
     const config = this.config;
     const explaining = task.role === 'explainer';
     const isolated = explaining || task.role === 'butler';
@@ -141,7 +141,7 @@ export class PiProvider {
     // Backward-compatible provider override for unqualified pi model IDs.
     if (config.env.LUSH_PI_PROVIDER) args.unshift('--provider', config.env.LUSH_PI_PROVIDER);
     return spawnAgent(config.env.LUSH_PI_COMMAND || 'pi', args, {
-      config: { ...config, taskId: task.id }, cwd, token: isolated ? '' : token, signal, onSpawn,
+      config: { ...config, taskId: task.id, runId: context.invocation?.run_id ?? null }, cwd, token: isolated ? '' : token, signal, onSpawn, onPreempt,
       extraEnv: { ...files.environment.values, LUSH_RUNTIME_CONTEXT: JSON.stringify({ ...context.invocation,
         task_id: task.id, role: task.role, soft_budget: agent.soft_budget, preempt_dir: path.join(config.home, 'preempt'),
         sessions_dir: files.sessions }) },

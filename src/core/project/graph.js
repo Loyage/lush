@@ -131,7 +131,7 @@ export default {
     const limit = GRAPH_NODE_LIMIT;
     const rows = this.store.all(`SELECT id, parent_id, input_id, task_kind, role, name, goal, status,
       integration, integration_error, branch, workspace, target_branch, base_commit, iteration_base_commit, head_commit, resolves_task_id,
-      reservation, auto_merge, progress_plan, created_at, updated_at, calls, agent_wakes,
+      reservation, auto_merge, interrupt_state, progress_plan, created_at, updated_at, calls, agent_wakes,
       (SELECT p.task_kind FROM tasks p WHERE p.id=tasks.parent_id) AS parent_task_kind,
       (SELECT p.branch FROM tasks p WHERE p.id=tasks.parent_id) AS parent_branch,
       CASE WHEN result IS NULL THEN 0 ELSE 1 END AS has_result,

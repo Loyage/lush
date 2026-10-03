@@ -232,7 +232,7 @@ export default {
       ...(task.role === 'planner' ? { specs: bounded(this.store.specsByPlanner(task.id), 200000) } : {}),
       ...(task.role === 'scheduler' ? { specs: bounded(this.store.specsForBatch(task.id), 200000) } : {}),
       children: bounded(this.decorate(this.store.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
-        agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation
+        agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,interrupt_state
         FROM tasks WHERE parent_id=? ORDER BY id`, task.id)), 100000),
       messages: bounded(this.store.all('SELECT * FROM messages WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
       notices: bounded(this.store.all(`${NOTICE_SELECT} WHERE task_id=? ORDER BY id DESC LIMIT 100`, task.id), 200000),

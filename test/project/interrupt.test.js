@@ -1,163 +1,292 @@
 import { test, expect } from 'bun:test';
-import { fixture, repo, until } from '../helpers.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { Database } from 'bun:sqlite';
+import { fixture, repo, until, gate, temp } from '../helpers.js';
 import { AgentPreempted } from '../../src/agent/provider.js';
+import { Store } from '../../src/persistence/store.js';
 import { PARAMS, USER_ONLY, assertAllowed } from '../../src/rpc/registry.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 
-/** 不返回、只在 abort 时 reject 的 provider，用来模拟「正在调用」的 Task（mock 没有可验证安全边界）。 */
-function abortingProvider(starts) {
+function controlled(agent = 'pi') {
+  const calls = [];
   return {
-    resolve: () => ({ agent: 'mock', model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }),
-    run: ({ signal }) => new Promise((_, reject) => {
-      starts.push(true);
-      const stop = () => reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'));
-      if (signal.aborted) return stop();
-      signal.addEventListener('abort', stop, { once: true });
-    }),
+    calls,
+    resolve: () => ({ agent, model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }),
+    run: options => {
+      const done = gate();
+      calls.push({ ...options, done });
+      return new Promise((resolve, reject) => {
+        const stop = () => reject(options.signal.reason);
+        if (options.signal.aborted) return stop();
+        options.signal.addEventListener('abort', stop, { once: true });
+        done.promise.then(result => {
+          options.signal.removeEventListener('abort', stop);
+          if (result instanceof Error) reject(result); else resolve(result ?? 'finished');
+        });
+      });
+    },
   };
 }
-
-/** 有 pi 安全边界语义的 provider：让 invoke 以 AgentPreempted 收尾，验证「暂停」不会被自动恢复。 */
-function preemptProvider() {
-  return {
-    resolve: () => ({ agent: 'pi', model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }),
-    run: async () => { await Bun.sleep(10); throw new AgentPreempted({ safe_point: 'turn_end', reason: 'test interrupt' }); },
-  };
+async function start(f) {
+  f.project.stopping = true;
+  await repo(f.root);
+  const { task } = await f.project.say('interruptible work');
+  f.project.stopping = false; f.project.kick();
+  await until(() => f.project.provider.calls.length === 1);
+  return task;
 }
+function files(f, task) {
+  const dir = path.join(f.config.home, 'preempt');
+  return { request: path.join(dir, `task-${task.id}.request.json`), stop: path.join(dir, `task-${task.id}.stop.json`) };
+}
+function events(f, task, type) { return f.store.all('SELECT * FROM events WHERE task_id=? AND type=?', task.id, type); }
 
-test('interrupt pauses a running say without cascading, keeps context, and resume re-queues it', async () => {
-  const starts = [];
-  const f = fixture(abortingProvider(starts));
-  f.project.stopping = true; await repo(f.root);
+test('pending interrupt preserves active credentials, context and children; resume cancels without a second call', async () => {
+  const provider = controlled(), f = fixture(provider);
   try {
-    const { task } = await f.project.say('pause this work');
-    f.project.stopping = false; f.project.kick();
-    await until(() => starts.length === 1);
-    expect(f.store.task(task.id).status).toBe('running');
-    expect(starts).toHaveLength(1);
-
-    const paused = f.project.interrupt(task.id, 'user pause');
-    expect(paused.status).toBe('paused');
+    const task = await start(f), run = f.project.running.get(task.id), marks = files(f, task);
+    const child = f.store.create({ parent_id: task.id, input_id: task.input_id, role: 'agent', goal: 'independent child', task_kind: 'child' });
+    f.store.update(child.id, { status: 'waiting' });
+    const before = f.store.task(task.id);
+    expect(f.project.interrupt(task.id)).toMatchObject({ status: 'running', interrupt_state: 'requested', error: null });
+    expect(f.project.actor(run.token)).toBe(task.id);
+    f.project.reportProgressPlan(task.id, [{ key: 'safe-work', label: 'safe work' }]);
+    expect(f.store.task(child.id).status).toBe('waiting');
+    expect(fs.existsSync(marks.request)).toBe(true);
+    // Both writes and read projections remain truthful while tools finish.
+    expect(f.project.inspect(task.id).interrupt_state).toBe('requested');
+    expect(f.project.activity().tasks.find(row => row.id === task.id).interrupt_state).toBe('requested');
+    expect((await f.project.taskGraph()).nodes.find(row => row.id === task.id).interrupt_state).toBe('requested');
+    expect(f.project.interrupt(task.id).interrupt_state).toBe('requested');
+    expect(events(f, task, 'task.interrupted')).toHaveLength(1);
+    expect(f.project.resumeTask(task.id)).toMatchObject({ status: 'running', interrupt_state: null });
+    expect(fs.existsSync(marks.request)).toBe(false);
+    expect(run.controller.signal.aborted).toBe(false);
+    expect(f.project.actor(run.token)).toBe(task.id);
+    expect(f.project.resumeTask(task.id).status).toBe('running');
+    f.project.pump();
+    expect(provider.calls).toHaveLength(1);
+    provider.calls[0].done.resolve('original invocation completed');
     await until(() => !f.project.running.has(task.id));
-    const after = f.store.task(task.id);
-    expect(after.status).toBe('paused');
-    expect(after.error).toBeNull();
-    expect(after.branch).toBe(task.branch);
-    expect(after.workspace).toBe(task.workspace);
-    expect(after.calls).toBe(1);
-    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='task.interrupted'", task.id).n).toBe(1);
+    expect(f.store.task(task.id)).toMatchObject({ status: 'waiting', calls: 1, branch: before.branch, workspace: before.workspace });
+    expect(events(f, task, 'invocation.preempted')).toHaveLength(0);
+  } finally { await f.close(); }
+});
 
-    // 追加说明不会自动唤醒：消息入收件箱，任务保持 paused。
-    f.project.message(task.id, '补充说明：先只改后端');
-    expect(f.store.task(task.id).status).toBe('paused');
-    expect(f.store.unread(task.id).some(row => row.body.includes('先只改后端'))).toBe(true);
+test('claimed interrupt accepts resume immediately but starts exactly one new call only after old exit', async () => {
+  const provider = controlled(), f = fixture(provider);
+  try {
+    const task = await start(f), run = f.project.running.get(task.id), marks = files(f, task);
+    f.project.interrupt(task.id);
+    fs.renameSync(marks.request, marks.stop); // Pi wins the atomic claim race.
+    expect(f.project.resumeTask(task.id)).toMatchObject({ status: 'queued', interrupt_state: 'resuming' });
+    expect(fs.existsSync(marks.stop)).toBe(true);
+    f.project.resumeTask(task.id); f.project.pump();
+    expect(provider.calls).toHaveLength(1);
+    provider.calls[0].done.resolve(new AgentPreempted({ safe_point: 'turn_end', reason: 'pause' }));
+    await until(() => provider.calls.length === 2);
+    expect(f.store.task(task.id)).toMatchObject({ status: 'running', calls: 2, interrupt_state: null });
+    expect(f.project.running.get(task.id)).not.toBe(run);
+    expect(() => f.project.actor(run.token)).toThrow('invalid or expired');
+    expect(f.store.all('SELECT status FROM agent_runs WHERE task_id=?', task.id).map(row => row.status)).toContain('preempted');
+    provider.calls[1].done.resolve('resumed');
+    await until(() => !f.project.running.has(task.id));
+    expect(f.store.task(task.id).status).toBe('waiting');
+  } finally { await f.close(); }
+});
 
-    const resumed = f.project.resumeTask(task.id);
-    expect(resumed.status).toBe('queued');
-    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='task.resumed'", task.id).n).toBe(1);
-    await until(() => starts.length === 2);
-    expect(starts).toHaveLength(2);
-    // calls 保留、继续累加；上下文没有被重置。
+test('provider cleanup cannot erase the claimed-stop fact before resume races with scheduler catch', async () => {
+  const provider = controlled(), f = fixture(provider);
+  try {
+    const task = await start(f), marks = files(f, task);
+    f.project.interrupt(task.id);
+    // Real PiProvider latches onPreempt before cleaning its consumed stop marker.
+    fs.renameSync(marks.request, marks.stop);
+    provider.calls[0].onPreempt();
+    fs.rmSync(marks.stop);
+    expect(f.project.resumeTask(task.id).interrupt_state).toBe('resuming');
+    provider.calls[0].done.resolve(new AgentPreempted());
+    await until(() => provider.calls.length === 2);
+    provider.calls[1].done.resolve('continued once');
+    await until(() => !f.project.running.has(task.id));
     expect(f.store.task(task.id).calls).toBe(2);
   } finally { await f.close(); }
 });
 
-test('interrupt of a queued say skips the abort path and configureTask keeps settings until settlement', async () => {
-  const f = fixture();
-  f.project.stopping = true; await repo(f.root);
+test('pause settles at a safe boundary, keeps messages unread and resumes with the same workspace', async () => {
+  const provider = controlled(), f = fixture(provider);
   try {
-    const { task } = await f.project.say('queue then pause');
-    expect(['queued', 'waiting']).toContain(f.store.task(task.id).status);
-    const paused = f.project.interrupt(task.id);
-    expect(paused.status).toBe('paused');
-
-    const profile = { agent: 'pi', model: 'gpt-5.4', thinking: 'high', default_prompt: '',
-      append_prompt: '先写测试', extensions: [], skills: [], soft_budget: {} };
-    const configured = f.project.configureTask(task.id, profile);
-    expect(JSON.parse(configured.retry_profile)).toMatchObject({ agent: 'pi', model: 'gpt-5.4', thinking: 'high', append_prompt: '先写测试' });
-    const configuredEvent = f.store.get("SELECT data FROM events WHERE task_id=? AND type='task.configured' ORDER BY id DESC LIMIT 1", task.id);
-    expect(JSON.parse(configuredEvent.data)).toMatchObject({ agent: 'pi', model: 'gpt-5.4', thinking: 'high', append_prompt: true });
-
-    // 继续不带 profile：沿用暂停时保存的设置。
-    const resumed = f.project.resumeTask(task.id);
-    expect(resumed.status).toBe('queued');
-    expect(JSON.parse(f.store.task(task.id).retry_profile)).toMatchObject({ model: 'gpt-5.4' });
-    const resumedEvent = f.store.get("SELECT data FROM events WHERE task_id=? AND type='task.resumed' ORDER BY id DESC LIMIT 1", task.id);
-    expect(JSON.parse(resumedEvent.data)).toMatchObject({ profile_override: false });
-  } finally { await f.close(); }
-});
-
-test('a paused pi Task stays paused even when the preempted invocation unwinds', async () => {
-  const f = fixture(preemptProvider());
-  f.project.stopping = true; await repo(f.root);
-  try {
-    const { task } = await f.project.say('pi pause');
-    f.project.stopping = false; f.project.kick();
-    await until(() => f.project.running.has(task.id));
-    f.project.interrupt(task.id, 'safe pause');
-    expect(f.store.task(task.id).status).toBe('paused');
+    const task = await start(f), run = f.project.running.get(task.id);
+    f.project.interrupt(task.id);
+    f.project.message(task.id, 'correction for next invocation');
+    expect(f.store.task(task.id).status).toBe('running');
+    provider.calls[0].done.resolve(new AgentPreempted({ safe_point: 'turn_end' }));
     await until(() => !f.project.running.has(task.id));
-    await Bun.sleep(10);
-    // AgentPreempted 的收尾不会把 paused 改回 queued/waiting。
-    expect(f.store.task(task.id).status).toBe('paused');
-    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='invocation.preempted'", task.id).n).toBe(1);
+    expect(f.store.task(task.id)).toMatchObject({ status: 'paused', interrupt_state: null, error: null, calls: 1 });
+    expect(f.store.unread(task.id)).toHaveLength(1);
+    expect(() => f.project.actor(run.token)).toThrow('invalid or expired');
+    expect(f.project.resumeTask(task.id).status).toBe('queued');
+    await until(() => provider.calls.length === 2);
+    expect(provider.calls[1].messages[0].body).toBe('correction for next invocation');
+    expect(provider.calls[1].cwd).toBe(task.workspace);
+    provider.calls[1].done.resolve('continued');
+    await until(() => !f.project.running.has(task.id));
+    expect(f.store.unread(task.id)).toHaveLength(0);
   } finally { await f.close(); }
 });
 
-test('interrupt / resume / configure reject the wrong targets and are user-only RPCs', async () => {
+test('resume does not cancel independent user-message preemption', async () => {
+  const provider = controlled(), f = fixture(provider);
+  try {
+    const task = await start(f), marks = files(f, task);
+    f.project.message(task.id, 'urgent input');
+    f.project.interrupt(task.id);
+    f.project.resumeTask(task.id);
+    expect(fs.existsSync(marks.request)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(marks.request, 'utf8')).reason).toBe('user message');
+    provider.calls[0].done.resolve(new AgentPreempted({ safe_point: 'turn_end' }));
+    await until(() => provider.calls.length === 2);
+    expect(provider.calls[1].messages[0].body).toBe('urgent input');
+    provider.calls[1].done.resolve('handled input');
+    await until(() => !f.project.running.has(task.id));
+  } finally { await f.close(); }
+});
+
+test('backends without safe boundaries wait naturally and never abort solely for interrupt', async () => {
+  const provider = controlled('mock'), f = fixture(provider);
+  try {
+    const task = await start(f), run = f.project.running.get(task.id);
+    f.config.interruptGraceMs = 1; // An old setting cannot turn a signal into a hard kill.
+    f.project.interrupt(task.id);
+    await Bun.sleep(20);
+    expect(run.controller.signal.aborted).toBe(false);
+    f.project.resumeTask(task.id);
+    expect(provider.calls).toHaveLength(1);
+    f.project.interrupt(task.id);
+    provider.calls[0].done.resolve('natural completion');
+    await until(() => !f.project.running.has(task.id));
+    expect(f.store.task(task.id)).toMatchObject({ status: 'paused', result: 'natural completion', interrupt_state: null });
+    expect(events(f, task, 'task.interrupt_timeout')).toHaveLength(0);
+    expect(f.store.all("SELECT * FROM notices WHERE task_id=? AND source_event_id IS NOT NULL", task.id)).toHaveLength(0);
+  } finally { await f.close(); }
+});
+
+test('Pi interrupt no longer has a grace-period hard kill; ordinary invocation timeout remains a failure', async () => {
+  const provider = controlled(), f = fixture(provider);
+  try {
+    f.config.timeout = 0.12;
+    f.config.interruptGraceMs = 1;
+    const task = await start(f), run = f.project.running.get(task.id);
+    f.project.interrupt(task.id);
+    await Bun.sleep(20);
+    expect(run.controller.signal.aborted).toBe(false);
+    await until(() => !f.project.running.has(task.id));
+    expect(f.store.task(task.id)).toMatchObject({ status: 'failed', interrupt_state: null });
+    expect(f.store.task(task.id).error).toContain('timed out after 0.12 seconds');
+    expect(events(f, task, 'task.interrupt_timeout')).toHaveLength(0);
+  } finally { await f.close(); }
+});
+
+test('pause and resume during asynchronous settlement preserve the last user intent', async () => {
+  const provider = controlled('mock'), f = fixture(provider), settlement = gate(), entered = gate();
+  try {
+    const task = await start(f);
+    const finish = f.project.workspaces.finish.bind(f.project.workspaces);
+    let once = true;
+    f.project.workspaces.finish = async row => {
+      if (once) { once = false; entered.resolve(); await settlement.promise; }
+      return finish(row);
+    };
+    provider.calls[0].done.resolve('completed provider');
+    await entered.promise;
+    expect(f.project.interrupt(task.id).status).toBe('paused');
+    expect(f.project.resumeTask(task.id).interrupt_state).toBe('resuming');
+    // Latest intent wins even if a restart was previously requested.
+    expect(f.project.interrupt(task.id).status).toBe('paused');
+    settlement.resolve();
+    await until(() => !f.project.running.has(task.id));
+    expect(provider.calls).toHaveLength(1);
+    expect(f.store.task(task.id).status).toBe('paused');
+    expect(events(f, task, 'task.idle')).toHaveLength(0);
+    f.project.resumeTask(task.id);
+    await until(() => provider.calls.length === 2);
+    provider.calls[1].done.resolve('continued');
+    await until(() => !f.project.running.has(task.id));
+  } finally { settlement.resolve(); await f.close(); }
+});
+
+test('queued pause and run configuration are preserved; running pending pause may save next-run settings', async () => {
+  const provider = controlled(), f = fixture(provider);
+  try {
+    const task = await start(f);
+    f.project.interrupt(task.id);
+    const profile = { agent: 'pi', model: 'gpt-5.4', thinking: 'high', append_prompt: 'next call' };
+    expect(JSON.parse(f.project.configureTask(task.id, profile).retry_profile).model).toBe('gpt-5.4');
+    f.project.resumeTask(task.id);
+    expect(provider.calls[0].agent.model).toBe('');
+    f.project.interrupt(task.id);
+    provider.calls[0].done.resolve(new AgentPreempted());
+    await until(() => !f.project.running.has(task.id));
+    f.project.resumeTask(task.id);
+    await until(() => provider.calls.length === 2);
+    expect(provider.calls[1].agent.model).toBe('gpt-5.4');
+    provider.calls[1].done.resolve('configured');
+    await until(() => !f.project.running.has(task.id));
+    f.project.stopping = true;
+    const queued = (await f.project.say('queue then pause')).task;
+    expect(f.project.interrupt(queued.id)).toMatchObject({ status: 'paused', interrupt_state: null });
+    expect(f.project.interrupt(queued.id).status).toBe('paused');
+    expect(f.project.resumeTask(queued.id).status).toBe('queued');
+  } finally { await f.close(); }
+});
+
+test('interrupt/resume/configure retain target guards and user-only RPC authorization', async () => {
   const f = fixture();
   f.project.stopping = true; await repo(f.root);
   try {
     const root = await f.project.ensureMainTask();
     expect(() => f.project.interrupt(root.id)).toThrow('permanent root');
     const { task } = await f.project.say('guards');
+    f.store.update(task.id, { status: 'waiting' });
     expect(() => f.project.resumeTask(task.id)).toThrow('only paused workers');
     expect(() => f.project.configureTask(task.id, { agent: 'pi' })).toThrow('only paused');
-    f.project.interrupt(task.id);
-    expect(() => f.project.interrupt(task.id)).toThrow('already paused');
-    // 终态任务不能暂停：直接写终态避开 delivery 收尾。
+    await new Dispatcher(f.project).dispatch('worker.interrupt', { id: task.id });
+    expect((await new Dispatcher(f.project).dispatch('worker.inspect', { id: task.id })).status).toBe('paused');
     f.store.update(task.id, { status: 'cancelled' });
     expect(() => f.project.interrupt(task.id)).toThrow('has ended');
-
+    expect(() => f.project.resumeTask(task.id)).toThrow('only paused workers');
     expect(PARAMS['worker.interrupt']).toEqual(['id']);
     expect(PARAMS['worker.resume']).toEqual(['id', 'profile']);
     expect(PARAMS['worker.configure']).toEqual(['id', 'profile']);
     for (const method of ['worker.interrupt', 'worker.resume', 'worker.configure']) {
       expect(USER_ONLY.has(method)).toBe(true);
-      const params = method === 'worker.interrupt' ? { id: 5 } : { id: 5, profile: {} };
-      expect(() => assertAllowed(method, params, 5)).toThrow('requires user approval');
+      expect(() => assertAllowed(method, { id: 5 }, 5)).toThrow('requires user approval');
     }
-    // 用户路径经 RPC 正常：interrupt 后 inspect 看到 paused。
-    f.store.update(task.id, { status: 'queued' });
-    await new Dispatcher(f.project).dispatch('worker.interrupt', { id: task.id });
-    expect((await new Dispatcher(f.project).dispatch('worker.inspect', { id: task.id })).status).toBe('paused');
   } finally { await f.close(); }
 });
 
-/** 声称有 pi 安全边界、但从不进入边界的 provider：验证宽限期到点后强制结束本轮 invocation。 */
-function hangingPiProvider() {
-  return {
-    resolve: () => ({ agent: 'pi', model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }),
-    run: ({ signal }) => new Promise((_, reject) => {
-      const stop = () => reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'));
-      if (signal.aborted) return stop();
-      signal.addEventListener('abort', stop, { once: true });
-    }),
-  };
-}
-
-test('interrupt force-stops a pi invocation that never reaches a safe boundary, keeping it paused', async () => {
-  const f = fixture(hangingPiProvider());
-  f.config.interruptGraceMs = 30;
+test('restart never replays a resuming old invocation, and clears its stale control state', async () => {
+  const f = fixture();
   f.project.stopping = true; await repo(f.root);
   try {
-    const { task } = await f.project.say('hang forever');
-    f.project.stopping = false; f.project.kick();
-    await until(() => f.store.task(task.id).status === 'running');
-    f.project.interrupt(task.id, 'force after grace');
-    expect(f.store.task(task.id).status).toBe('paused');
-    await until(() => !f.project.running.has(task.id));
-    expect(f.store.task(task.id).status).toBe('paused');
-    expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='task.interrupt_timeout'", task.id).n).toBe(1);
+    const { task } = await f.project.say('unknown old execution');
+    f.store.update(task.id, { status: 'queued', interrupt_state: 'resuming' });
+    f.project.recover();
+    expect(f.store.task(task.id)).toMatchObject({ status: 'failed', interrupt_state: null, calls: 0 });
+    expect(f.store.task(task.id).error).toContain('daemon interrupted');
   } finally { await f.close(); }
+});
+
+test('old databases gain only a nullable interrupt column without backfilling historical workers', () => {
+  const root = temp(), file = path.join(root, 'store.db');
+  let store = new Store(file, root);
+  const task = store.create({ input_id: null, role: 'agent', goal: 'historical', task_kind: 'say' });
+  const original = store.task(task.id);
+  store.close();
+  const db = new Database(file);
+  db.exec('ALTER TABLE tasks DROP COLUMN interrupt_state'); db.close();
+  store = new Store(file, root);
+  try { expect(store.task(task.id)).toEqual({ ...original, interrupt_state: null }); }
+  finally { store.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });

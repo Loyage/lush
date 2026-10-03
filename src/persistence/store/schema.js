@@ -81,6 +81,7 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         showcase TEXT,
         -- 完整且已校验的 task-local Agent profile；只在一次显式重试到下次终态之间生效。
         retry_profile TEXT,
+        interrupt_state TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       -- A commit identifies the Pi context present when an agent made it. External commits

@@ -27,18 +27,29 @@ export const EVENTS = {
   'merge.approved': '批准合并', merged: '已合并', 'merge.included': '随其它变更一并落地', 'merge.failed': '合并失败',
   'merge.conflict': '合并冲突', 'merge.resolved': '冲突已解决', 'merge.conflict.abandoned': '放弃解冲突',
   'resolution.superseded': '解冲突作废',
-  'task.interrupted': '已中断', 'task.resumed': '继续运行', 'task.configured': '调整运行设置',
+  'task.interrupted': '接受中断请求', 'task.paused': '已安全暂停', 'task.resumed': '接受继续请求', 'task.configured': '调整运行设置',
   'invocation.preempted': '安全中断', 'task.interrupt_timeout': '中断超时强制终止',
   completed: '完成', failed: '失败', cancelled: '取消',
 };
 export const HOT = new Set(['running', 'awaiting', 'awaiting_acceptance', 'waiting', 'queued', 'paused']);
 export const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
 export const short = value => (typeof value === 'string' ? value.slice(0, 7) : '');
-export const statusOf = task => task.status === 'paused' && (task.agent_wakes ?? 0) === 0
-  ? { label: '待开始', icon: '⏸' }
-  : task.status === 'awaiting_acceptance' && task.task_kind === 'child'
-    ? { label: '待父确认', icon: '◈' }
-    : (STATUS[task.status] || { label: task.status, icon: '·' });
+/** 中断意图与实际状态分开：颜色/筛选仍使用 status，不把请求冒充为已暂停。 */
+export function interruptReason(task) {
+  if (TERMINAL_STATUS.has(task.status)) return null;
+  if (task.interrupt_state === 'requested') return '中断请求已接受，等当前调用到安全点后暂停；现在点「继续」可撤销尚未触发的请求，已触发则排队恢复。';
+  if (task.interrupt_state === 'resuming') return '继续请求已接受，等旧调用释放后调度；无需等待即可再次点「继续」。';
+  return null;
+}
+export const statusOf = task => !TERMINAL_STATUS.has(task.status) && task.interrupt_state === 'requested'
+  ? { label: '中断请求中', icon: STATUS[task.status]?.icon || '◐' }
+  : !TERMINAL_STATUS.has(task.status) && task.interrupt_state === 'resuming'
+    ? { label: '继续排队中', icon: '○' }
+    : task.status === 'paused' && (task.agent_wakes ?? 0) === 0
+      ? { label: '待开始', icon: '⏸' }
+      : task.status === 'awaiting_acceptance' && task.task_kind === 'child'
+        ? { label: '待父确认', icon: '◈' }
+        : (STATUS[task.status] || { label: task.status, icon: '·' });
 export function relative(iso) {
   const at = Date.parse(iso); if (!Number.isFinite(at)) return '';
   const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));

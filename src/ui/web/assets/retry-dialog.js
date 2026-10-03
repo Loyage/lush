@@ -66,7 +66,7 @@ export async function retryTask(task) {
   return profileDialog(task, { method: 'worker.retry' });
 }
 
-/** 暂停中的「调整运行设置」：只保存 Profile，不启动 Agent；点详情里的「继续」才生效。 */
+/** 暂停或请求中断时的「调整运行设置」：只保存 Profile，下一次调用生效，不改变旧调用。 */
 export async function configureTask(task) {
   return profileDialog(task, { method: 'worker.configure' });
 }
@@ -209,13 +209,13 @@ async function profileDialog(task, options) {
     const confirmed = await formDialog({
       title: configuring ? `调整 Worker #${task.id} 的运行设置` : `检查后重试 Worker #${task.id}`,
       message: configuring
-        ? `Worker 已暂停。这些设置固定到这次暂停，点「继续」时生效；Worker 结算后自动清除。`
+        ? '这些设置用于下一次 Agent 调用，不改变仍在运行的调用。尚未生效的中断可用「继续」撤销；Worker 结算后设置自动清除。'
         : `Worker 因“${task.status === 'cancelled' ? '已取消' : '失败'}”停止。请检查并调整 ${task.role} Agent；这些设置只用于本轮重试。`,
       content: form, confirmLabel: configuring ? '保存设置' : '使用这些设置重试',
       cancelLabel: configuring ? '不修改' : '暂不重试', cardClass: 'retry-modal',
       agent: !configuring,
       confirmHelp: configuring
-        ? '保存这次运行设置；点 Worker 详情的「继续」后按新设置启动 Agent。'
+        ? '保存这次运行设置，在下一次 Agent 调用时生效；不改变当前调用，也不自动继续。'
         : agentHelp('用上面选定的 Agent 设置重新启动这个 Worker。'),
     });
     if (!confirmed) return false;
@@ -247,7 +247,7 @@ async function profileDialog(task, options) {
     };
     await action(options.method, { id: task.id, profile: taskProfile });
     show(configuring
-      ? `Worker #${task.id} 的运行设置已保存；点「继续」按新设置运行。`
+      ? `Worker #${task.id} 的运行设置已保存，将在下一次 Agent 调用时生效。`
       : `Worker #${task.id} 已按本轮 Agent 设置进入重试队列。`);
     return true;
   } catch (error) {

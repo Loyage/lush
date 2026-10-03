@@ -26,7 +26,7 @@ lush [--project PATH] [--json] <command>
   worker resolve-sync ID             调用 Agent 解决已记录的同步冲突
   worker resolve ID                  无代码改动时标记已解决
   worker cancel|retry ID             停止或显式重试
-  worker interrupt|resume ID         中断（暂停）后继续运行
+  worker interrupt|resume ID         请求安全点暂停 / 非阻塞继续
   worker cleanup ID [--keep-branch]   安全回收工作区
   worker delete ID                   只读预检删除范围、资源与阻塞原因
   worker delete ID --confirm --revision REV  确认彻底删除（丢弃未交付代码）

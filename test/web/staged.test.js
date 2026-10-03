@@ -31,8 +31,9 @@ test('web creates a paused「待开始」Worker and worker.resume queues it with
   } finally { await f.close(); }
 });
 
-test('web refuses worker.resume on a worker that is not paused and keeps say.submit start defaulting to running', async () => {
+test('web resume is idempotent for queued work but refuses idle work without a pause intent', async () => {
   const f = await setup(); await repo(f.root);
+  f.project.stopping = true; // Hold admission so HTTP round trips cannot race natural completion.
   const post = (method, params) => fetch(f.url + '/api/action', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }),
   });
@@ -40,8 +41,13 @@ test('web refuses worker.resume on a worker that is not paused and keeps say.sub
     const created = await (await post('say.submit', { content: '直接开始', start: true })).json();
     expect(created.task.status).toBe('queued');
     const again = await post('worker.resume', { id: created.task.id });
-    expect(again.status).toBe(400);
-    expect((await again.json()).error).toContain('only paused workers');
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ id: created.task.id, status: 'queued', calls: 0 });
+    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='task.resumed'", created.task.id)).toHaveLength(0);
+    f.store.update(created.task.id, { status: 'waiting' });
+    const idle = await post('worker.resume', { id: created.task.id });
+    expect(idle.status).toBe(400);
+    expect((await idle.json()).error).toContain('only paused workers');
     const invalid = await post('say.submit', { content: 'x', start: false, _token: 'forged' });
     expect(invalid.status).toBe(400);
   } finally { await f.close(); }

@@ -41,7 +41,7 @@ test('configureTask 保存 paused 任务的本轮运行设置，并把按任务�
   const pending = configureTask({ id: 43, role: 'agent', status: 'paused' });
   await until(() => dialogButton(dom, '保存设置'));
   const modal = dom.node('modal');
-  expect(deepText(modal)).toContain('已暂停');
+  expect(deepText(modal)).toContain('下一次 Agent 调用');
   expect(deepText(modal)).toContain('Pi 环境变量');
 
   const model = modal.querySelector('[data-retry-field="model"]');

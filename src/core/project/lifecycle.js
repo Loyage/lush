@@ -99,7 +99,7 @@ export default {
           source_task_id: task.id, signal: 'merge.requested', key });
         this.store.update(task.id, { reservation: JSON.stringify(requested) });
       }
-      this.store.update(task.id, { status, result, error, retry_profile: null,
+      this.store.update(task.id, { status, result, error, retry_profile: null, interrupt_state: null,
         ...(resolvedByUser ? { reservation: null } : {}) });
       if (resolvedByUser) this.store.event(task.id, 'task.resolved', { head_commit: task.head_commit ?? null });
       this.store.run("UPDATE notices SET status='dismissed',answer='worker ended' WHERE task_id=? AND status='open'", task.id);
@@ -369,8 +369,11 @@ export default {
           observed_at: closed.ended_at, actual_exit_at: null });
       }
       // Never replay an invocation with unknown filesystem side effects.
-      for (const task of this.store.tasks()) if (task.status === 'running' && ['say','child','analysis'].includes(task.task_kind))
+      for (const task of this.store.tasks()) if ((task.status === 'running' || task.interrupt_state === 'resuming')
+        && ['say','child','analysis'].includes(task.task_kind))
         this.cancel(task.id, 'daemon interrupted; inspect worktree and explicitly retry', 'failed');
+      for (const task of this.store.tasks()) if (task.interrupt_state === 'requested')
+        this.store.update(task.id, { status: 'paused', interrupt_state: null });
     });
     // Historical quick-intro rows are retained unchanged; the feature is no longer resumed.
     this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('say','child')");

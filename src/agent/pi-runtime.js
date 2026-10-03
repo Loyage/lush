@@ -59,15 +59,19 @@ export default function lushRuntime(pi) {
     ? { request: `${settings.preempt_dir}/task-${settings.task_id}.request.json`,
         stop: `${settings.preempt_dir}/task-${settings.task_id}.stop.json` }
     : null;
-  if (preempt) pi.on('turn_end', () => {
-    let request = null;
+  if (preempt) pi.on('turn_end', (_event, ctx) => {
+    let request;
     try { request = JSON.parse(fs.readFileSync(preempt.request, 'utf8')); } catch { return; }
-    try {
-      fs.writeFileSync(preempt.stop, JSON.stringify({ task_id: settings.task_id, run_id: settings.run_id ?? null,
-        safe_point: 'turn_end', reason: request.reason ?? null, requested_at: request.requested_at ?? null,
-        stopped_at: new Date().toISOString() }) + '\n', { mode: 0o600 });
-    } catch { return; }
+    if (request.task_id !== settings.task_id || request.run_id !== (settings.run_id ?? null)) return;
+    // Atomic claim versus daemon unlink: whichever wins determines whether resume
+    // can cancel this request. A claimed stop is never withdrawn or overwritten.
+    if (fs.existsSync(preempt.stop)) return;
+    try { fs.renameSync(preempt.request, preempt.stop); } catch { return; }
+    const stop = JSON.parse(fs.readFileSync(preempt.stop, 'utf8'));
     pi.appendEntry('lush.preempted', { run_id: settings.run_id ?? null, safe_point: 'turn_end',
-      reason: request.reason ?? null });
+      reason: stop.reason ?? null });
+    // No sibling tools remain here. Explicitly abort automatic follow-up rather
+    // than assuming an undefined event result prevents Pi from continuing.
+    ctx.abort();
   });
 }

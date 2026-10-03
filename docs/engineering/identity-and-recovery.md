@@ -6,7 +6,7 @@
 
 daemon 启动捕获全部运行源码 fingerprint；status 显示 project、home、socket、code_dir、fingerprint。start 遇到已运行 daemon 只报告，不换版本。
 
-正常退出停止接收 RPC，取消正在执行的Worker、终止 agent 进程组、等待调用和 Git 队列结束，再关闭数据库和释放锁。queued / waiting / awaiting / paused 持久保留（paused 重启后仍停在暂停，不自动恢复）。重启发现 running 时记失败并取消其活动后代，不重放可能已有副作用的工作，并回收中断的检验对照检出；留待用户检查。用户仍须检查中断现场后再显式重试。
+正常退出停止接收 RPC，取消正在执行的Worker、终止 agent 进程组、等待调用和 Git 队列结束，再关闭数据库和释放锁。queued / waiting / awaiting / paused 持久保留（paused 重启后仍停在暂停，不自动恢复）。重启发现 running 或仍携带 `interrupt_state=resuming` 的调用时记失败并取消其活动后代，不重放可能已有副作用的工作，并回收中断的检验对照检出；不因排队继续的意愿自动重放未知旧调用。用户仍须检查中断现场后再显式重试。
 
 ## agent 父死亡监护与 Run 记账
 

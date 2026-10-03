@@ -2,7 +2,7 @@ import { $, badge, button, el, roleBadge } from './dom.js';
 import { api, action } from './api.js';
 import { confirmDialog, promptDialog } from './dialog.js';
 import { agentHelp } from './help.js';
-import { absolute, INTEGRATION, statusOf, worktreeLabel, isHistoricalDelivery } from './format.js';
+import { absolute, INTEGRATION, statusOf, interruptReason, worktreeLabel, isHistoricalDelivery } from './format.js';
 import { show } from './messages.js';
 import { detail } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
@@ -151,7 +151,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   const title = button(`#${node.id} ${node.title}`, () => detail(node.id), 'ghost');
   title.classList.add('task-graph-title');
   title.dataset.graphFocus = `title-${node.id}`;
-  head.append(title, ...(minimal || node.role === 'agent' ? [] : [roleBadge(node.role)]), badge(node.status === 'waiting' && !node.children_active ? '静息' : statusOf(node).label,
+  head.append(title, ...(minimal || node.role === 'agent' ? [] : [roleBadge(node.role)]), badge(node.status === 'waiting' && !node.children_active && !interruptReason(node) ? '静息' : statusOf(node).label,
     `b-${node.status}`));
   // 分支合并状态放进卡片首行的标签：与任务状态并排，一眼看清这条 Task 的改动合进父分支没有。
   // 用与任务详情同一份 INTEGRATION 文案与配色；none（没有独有提交）/ 未知值不占位。
@@ -169,7 +169,8 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   const relations = mergeRelations(node);
   if (relations) row.append(relations);
   if (node.goal_preview && node.goal_preview !== node.title) row.append(el('p', node.goal_preview, 'task-graph-goal'));
-  if (node.waiting_reason) row.append(el('p', node.waiting_reason, 'task-graph-reason'));
+  const interruptHint = interruptReason(node);
+  if (interruptHint || node.waiting_reason) row.append(el('p', interruptHint || node.waiting_reason, 'task-graph-reason'));
   if (queueNote) row.append(el('p', queueNote, 'task-graph-reason'));
   if (node.result_preview) row.append(el('p', `最近结果：${node.result_preview}${node.result_preview.length >= 320 ? '…' : ''}`, 'task-graph-result'));
   const progress = renderGraphProgress(node.progress, { running: node.status === 'running', status: node.status });
@@ -282,11 +283,12 @@ function minimalSummary(node, queueNote) {
   const step = stats.current ? `${stats.current.label}${stopped ? ` · ${stopped}` : ''}`
     : stats.total ? '计划已全部完成' : node.status === 'running' ? '等待 Agent 汇报计划' : '';
   const waiting = ['waiting', 'awaiting', 'awaiting_acceptance', 'paused', 'queued'].includes(node.status);
-  const note = node.integration_error ? `集成受阻：${node.integration_error}`
-    : waiting && node.waiting_reason ? node.waiting_reason : queueNote || step;
+  const interruptHint = interruptReason(node);
+  const note = interruptHint || (node.integration_error ? `集成受阻：${node.integration_error}`
+    : waiting && node.waiting_reason ? node.waiting_reason : queueNote || step);
   const text = el('span', [count, note].filter(Boolean).join(' · '), 'task-graph-minimal-note');
   const relations = mergeRelations(node);
-  line.append(relations || text);
+  line.append(interruptHint ? text : relations || text);
   if (node.freeze && node.freeze.task_id !== node.id) line.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (isArchivedTask(node)) line.append(badge('已归档'));
   const merge = INTEGRATION[node.integration];

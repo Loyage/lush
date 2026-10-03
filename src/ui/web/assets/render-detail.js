@@ -2,7 +2,7 @@ import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } f
 import { action } from './api.js';
 import { confirmDialog, formDialog } from './dialog.js';
 import { configureTask } from './retry-dialog.js';
-import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, runWorkMs, statusOf, taskTitle, worktreeLabel, isHistoricalDelivery } from './format.js';
+import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, runWorkMs, statusOf, interruptReason, taskTitle, worktreeLabel, isHistoricalDelivery } from './format.js';
 import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
 import { show } from './messages.js';
@@ -100,7 +100,7 @@ export function renderDetail(task, history, diff, usage) {
       field.append(label, input);
       while (true) {
         const pending = formDialog({ title: `追加输入 · Worker #${task.id}`, content: field,
-          message: task.status === 'paused' ? '输入会保留在当前 Worker 中；点「开始 / 继续」后由 Agent 处理。' : '输入会发送给当前 Worker，让 Agent 接下来处理这些内容。',
+          message: task.status === 'paused' || task.interrupt_state === 'requested' ? '输入会保留在当前 Worker 中；点「开始 / 继续」后由 Agent 处理。' : '输入会发送给当前 Worker，让 Agent 接下来处理这些内容。',
           confirmLabel: '发送输入', agent: true, confirmHelp: help });
         input.focus();
         if (!await pending) return;
@@ -185,30 +185,32 @@ export function renderDetail(task, history, diff, usage) {
     catch (error) { show(error.message, 'error'); }
     await detail(task.id);
   }, 'ghost', { help: '把没有代码改动的 say 结算为已完成（保留答案），用来区分「没有别的要求」和「放弃 Worker」；有提交时请改用请求合并或放弃。' }));
-  // 主流程是「中断 → 暂停 → 继续」，不再一步取消；永久放弃只在暂停后作为次级危险操作出现。
+  // 中断只是可撤销的意图；请求期间即可继续、调整下一轮设置或明确放弃。
   const liveWorkTask = !readOnly && ['say','child'].includes(task.task_kind) && !TERMINAL_STATUS.has(task.status);
-  if (liveWorkTask && !['paused', 'awaiting_acceptance'].includes(task.status)) actions.append(button('中断', async () => {
+  const interruptRequested = task.interrupt_state === 'requested';
+  const resuming = task.interrupt_state === 'resuming';
+  if (liveWorkTask && !interruptRequested && !['paused', 'awaiting_acceptance'].includes(task.status)) actions.append(button('中断', async () => {
     const confirmed = await confirmDialog({
       title: `中断 Worker #${task.id}？`,
-      message: '停止当前 Agent 调用并保留现场：工作区、提交、pi 会话与消息都不变。中断后可以追加输入或调整运行设置，再点「继续」恢复。',
+      message: '请求当前 Agent 在安全点暂停并保留现场：工作区、提交、pi 会话与消息都不变。Pi 会等本轮工具结束，其他后端等当前调用自然结束；不会因中断等待超时而强杀。请求期间可追加输入、调整下一轮运行设置，或立即点「继续」撤销中断；子 Worker 不受影响。',
       confirmLabel: '中断', cancelLabel: '保留',
     });
     if (!confirmed) return;
-    try { await action('worker.interrupt', { id: task.id }); show(`Worker #${task.id} 已中断；可追加输入或调整运行设置后继续。`); }
+    try { await action('worker.interrupt', { id: task.id }); show(`Worker #${task.id} 的中断请求已接受；可立即点「继续」，不必等待暂停。`); }
     catch (error) { show(`无法中断：${error.message}`, 'error'); }
     await detail(task.id);
-  }, 'ghost', { help: '停止这个 Worker 的 Agent 调用并保留工作区、提交、会话与消息；正在运行的子 Worker不受影响，之后可以继续。' }));
-  if (!readOnly && task.status === 'paused') {
-    const neverStarted = (task.agent_wakes ?? 0) === 0;
+  }, 'ghost', { help: '请求这个 Worker 在安全点暂停，不因中断等待超时而强杀；保留现场且不影响子 Worker，请求期间可立即点「继续」撤销。' }));
+  if (!readOnly && !TERMINAL_STATUS.has(task.status) && (task.status === 'paused' || interruptRequested || resuming)) {
+    const neverStarted = task.status === 'paused' && !interruptRequested && !resuming && (task.agent_wakes ?? 0) === 0;
     actions.append(button(neverStarted ? '开始' : '继续', async () => {
-      try { await action('worker.resume', { id: task.id }); show(neverStarted ? `Worker #${task.id} 已开始运行。` : `Worker #${task.id} 已继续运行。`); }
+      try { await action('worker.resume', { id: task.id }); show(`Worker #${task.id} 的${neverStarted ? '开始' : '继续'}请求已接受；尚未生效的中断会撤销，需要新调用时由后台调度。`); }
       catch (error) { show(`无法${neverStarted ? '开始' : '继续'}：${error.message}`, 'error'); }
       await detail(task.id);
-    }, undefined, { agent: true, help: agentHelp('按当前运行设置启动这条 Worker 的 Agent；工作区、提交、会话与已追加的消息都保留。') }));
-    actions.append(button('调整运行设置', async () => {
+    }, undefined, { agent: true, help: agentHelp('撤销尚未生效的中断；若已暂停，则请求按当前运行设置调度 Agent。无需等待旧调用释放，重复继续不重复启动；工作区、提交、会话与消息保留。') }));
+    if (task.status === 'paused' || interruptRequested) actions.append(button('调整运行设置', async () => {
       await configureTask(task);
       await detail(task.id);
-    }, 'ghost', { help: '只修改这条 Worker 本轮使用的 Agent、模型、Prompt、扩展与 Pi 环境变量；保存后点「开始 / 继续」生效，Worker 结算后自动清除。' }));
+    }, 'ghost', { help: '只修改这条 Worker 下一次调用使用的 Agent、模型、Prompt、扩展与 Pi 环境变量；不改变仍在运行的调用，Worker 结算后自动清除。' }));
     actions.append(button('放弃 Worker', async () => {
       const confirmed = await confirmDialog({
         title: '放弃这个 Worker 树？',
@@ -227,6 +229,8 @@ export function renderDetail(task, history, diff, usage) {
   if (deletion) actions.append(deletion);
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
+  const interruptHint = interruptReason(task);
+  if (interruptHint) panel.append(el('p', interruptHint, 'hint interrupt-reason'));
   if (task.divergence_resolution && TERMINAL_STATUS.has(task.status) && task.integration !== 'merged') {
     const archived = task.divergence_resolution.branch_status === 'archived';
     // 三种来源：终态 say 的独立解分歧（runtime 驱动）、活动 say 自己的合并请求（用户驱动），
