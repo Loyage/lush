@@ -8,7 +8,7 @@
 
 所有模式都拒绝伪造 Host；显式非 `null` Origin 必须是完整同源值（含协议与端口）或配置的可信 Origin，`Sec-Fetch-Site: same-site/same-origin` 不能覆盖此校验。`cross-site` 子请求继续拒绝，GET 顶层文档导航可进入认证流程。缺失 Origin 与 `Origin:null` 保留旧客户端/webview 兼容，不等于已证明同源。修改 API 仍要求 JSON（登录表单除外）。公网模式仍是可信用户工具，必须置于 HTTPS 反向代理之后，不能作为不可信多用户服务。
 
-`web.json` 的字段、文件权限、密码与登录锁定、反向代理 Origin 配置等部署步骤见[Agent 部署指导](../deployment/agent-guide.md#4-远程--公网访问)。
+`web.json` 的字段、文件权限、密码与登录锁定、反向代理 Origin 配置等部署步骤见[远程 Host Agent 指导](../deployment/remote-host-agent.md)。访问方式与设计原因见[用户说明](../deployment/remote-host.md)。
 
 ## RPC 连接预算
 

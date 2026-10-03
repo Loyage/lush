@@ -1,6 +1,6 @@
-# Agent 部署指导
+# Agent 指导：macOS / Linux 本机部署
 
-本文是**交给 AI coding agent 的部署说明书**：把整篇内容贴给 pi / Codex / Claude Code 等编码 Agent，并说明目标机器就是这台本机，它就能按步骤安装、启动并验证 Lush；人也同样可以照着执行。系统内部设计见[核心架构](../core-architecture.md)，接口细节见[接口参考](../reference/README.md)。
+本文交给帮助用户部署的 AI coding agent：在用户确认的 macOS / Linux 机器上检查环境、安装、启动并验证 Lush。配套[用户说明](local-deployment.md)解释方案原因与取舍；远程入口另走[Host Agent 指导](remote-host-agent.md)，Windows 本机后台另走[WSL2 指导](windows-wsl2-agent.md)。接口细节见[接口参考](../reference/README.md)。
 
 ## 目标与约束
 
@@ -8,10 +8,12 @@
 - 默认只在本机安装与运行；除非用户明确要求公网访问，不要改动监听地址、也不要在没有认证的情况下暴露端口。
 - 不要替用户提交、stash 或覆盖已有代码改动；所有 Lush 的 Git 写操作由 runtime 串行执行。
 - 每一步都要能验证。信息不足或涉及风险时停下来问用户，不要猜测。
+- 先确认目标机器 / 用户、已有 Lush 检出、项目、后端与模型选择，复用现有环境。安装、提权、重启和真实模型调用须用户同意；不复制凭证或把密钥写入仓库 / 报告。
+- 项目必须有初始提交；只读检查未提交改动及 Git 姓名 / 邮箱，缺失时询问，不替用户猜身份或初始化提交。默认只做状态验收，不提交 say、不创建 Worker、不调用付费模型。
 
 ## 前置条件
 
-- 操作系统：macOS 或 Linux。
+- 操作系统：macOS 或 Linux。Windows 本机后台使用 WSL2 Linux，先按[WSL2 环境配置指导](windows-wsl2-agent.md)执行；方案原因见[用户说明](windows-wsl2.md)。
 - [Bun](https://bun.sh) 1.2 或更高：`bun --version`。
 - Git；被开发的项目必须是 Git worktree 根目录，且至少有一次提交。
 - 至少一个已认证的编码 Agent CLI：`pi` 或 `codex`。桌面版另需安装 Electron（见下）。
@@ -20,13 +22,15 @@
 ## 1. 取得代码并安装
 
 ```bash
-git clone <lush-repo> && cd lush   # 或直接使用已有的 Lush 检出
-bun install                        # 安装依赖；桌面版会安装 Electron
+git clone <lush-repo> && cd lush   # 用已确认的仓库地址替换；或复用已有检出
+bun install --frozen-lockfile     # 在 Lush 源码目录；可能下载桌面依赖 Electron
 ```
 
 ## 2. 启动
 
-`start` 只启动某个项目的 daemon；无 `--project` 的 `web` 是全局多项目工作台：首次要求选择项目，之后新窗口会把上次项目当作首次落点并启动或连接对应 daemon。每个已打开项目有自己的地址 `/p/<project-id>/`，不同窗口 / 标签各自保持自己的项目；从项目列表移除只隐藏入口并断开 Web 连接，不停止 daemon。
+下面命令在 Lush 源码目录执行，所有路径和模型占位符必须替换。显式单项目 Host 不启动 daemon，因此先 `start`；不得修改项目绑定变量绕过继承环境冲突。已有服务先检查身份，未经同意不重启或强杀。下面两种 Host 启动命令择一，`desktop` 仅在用户选择桌面时执行。
+
+`start` 只启动某个项目的 daemon；无 `--project` 的 `host` 是全局多项目工作台：首次要求选择项目，之后新窗口会把上次项目当作首次落点并启动或连接对应 daemon。每个已打开项目有自己的地址 `/p/<project-id>/`，不同窗口 / 标签各自保持自己的项目；从项目列表移除只隐藏入口并断开 Web 连接，不停止 daemon。
 
 ```bash
 bun run start --project /absolute/path/to/my-project   # 只启动项目 daemon
@@ -35,12 +39,7 @@ bun run host 4318 --project /absolute/path/to/my-project # 绑定单项目的 We
 bun run desktop                                        # Electron 连接页：本地窗口 / 远程 Host
 ```
 
-| 形态 | 适合 | 说明 |
-|---|---|---|
-| 本地 Web | 日常主工作台 | 浏览器打开 `http://127.0.0.1:4318` |
-| 桌面应用 | 想要原生窗口、本地目录选择或远程项目 | 连接页可打开本地 / 远程独立窗口，业务 UI / API 由对应 Host 提供；见[远程桌面部署](remote-desktop.md) |
-| 全局启动器 | 本机多个项目同时打开、来回查看 | 已登记列表与上次项目记在用户配置目录（`launcher.json` v2），不写入项目 `.lush/`；每个项目一条 `/p/<project-id>/` 地址 |
-| 命令行 | 脚本化、服务器、无图形环境 | 完整命令见 [CLI 与 RPC](../reference/api.md) |
+浏览器默认打开 `http://127.0.0.1:4318`；界面选择原因见[用户说明](local-deployment.md#选浏览器还是桌面)。全局 Host 的 `launcher.json` 只是用户级入口记录，不写入项目 `.lush/`；远程桌面配置另走[桌面 Agent 指导](remote-desktop-agent.md)。
 
 其余命令（提交输入、查看Worker、合并、回收）见 [CLI 与 RPC](../reference/api.md)；当前 say 操作路线见[一条 say 输入如何交付](../task-flow.md)。
 
@@ -49,13 +48,11 @@ bun run desktop                                        # Electron 连接页：�
 默认 Agent 是 `pi`，也支持 `codex`；对应 CLI 必须在 PATH 中可用且已完成认证。
 
 ```bash
-lush agent show                       # 查看项目默认与各角色的当前配置
-lush agent set default --agent pi --model <MODEL> --thinking <LEVEL>
-lush agent set worker --agent codex --model <MODEL>
-lush agent models pi                  # 读取本机 CLI 当前可用模型目录
-lush agent prompt planner             # 查看某角色最终生效的 Prompt 与来源
-lush agent init planner               # 创建可提交的 .lush-agent/ 补充文件
-lush agent init worker --local        # 创建本机私有的 .lush/agent/ 补充文件
+bun run lush --project /absolute/path/to/my-project agent show
+bun run lush --project /absolute/path/to/my-project agent models pi
+# 仅按用户选择配置；后端可选 pi / codex，角色覆盖需复查 show。
+bun run lush --project /absolute/path/to/my-project agent set default --agent pi --model <MODEL>
+bun run lush --project /absolute/path/to/my-project agent prompt worker
 ```
 
 - 项目级配置写在 `<project>/.lush/agent.json`：一个 `default` 加 planner / coordinator / worker / research / verifier / merger / explainer / butler 八类角色覆盖。写入原子替换，运行中的调用不打断，下一次调用生效。
@@ -64,32 +61,9 @@ lush agent init worker --local        # 创建本机私有的 .lush/agent/ 补�
 
 ## 4. 远程 / 公网访问
 
-默认只监听 `127.0.0.1`。需要从其它设备访问时，在对应作用域创建 `web.json`（权限必须 `600`）。单项目模式用项目内 `<project>/.lush/web.json`；全局启动器用用户配置目录下的 `web.json`（macOS `~/Library/Application Support/Lush/`，Linux `${XDG_CONFIG_HOME:-~/.config}/lush/`，Windows `%APPDATA%\Lush\`）。
+本机部署默认只监听回环。用户需要跨设备访问时，先读[远程 Host 用户说明](remote-host.md)，再按[远程 Host Agent 指导](remote-host-agent.md)选择 SSH 或认证 HTTPS；认证模板、配置路径与代理步骤只在该指导维护。
 
-```json
-{
-  "version": 1,
-  "username": "your-name",
-  "password": "a-strong-password-at-least-12-characters"
-}
-```
-
-全局启动器的公网配置还必须用 `projects` 列出允许远程打开的项目绝对路径白名单：
-
-```json
-{
-  "version": 1,
-  "username": "your-name",
-  "password": "a-strong-password-at-least-12-characters",
-  "projects": ["/absolute/path/to/project"]
-}
-```
-
-- 首次启动会把明文 `password` 原地替换为 scrypt `password_hash`，之后通过登录页取得 12 小时的 HttpOnly / SameSite 会话 Cookie。密码首尾空白忽略，大小写与中间字符必须一致；连续输错 5 次锁 60 秒。
-- 公网模式下 `projects` 白名单同时决定可见与可访问：服务端只用列表中 canonical 后的路径派生项目身份，本机曾登记过但不在白名单的目录即使地址已知也会被拒，白名单不会退化成仅控制选择器。
-- 公网部署**必须**置于 HTTPS 反向代理之后，否则登录密码在网络中明文传输。反向代理默认会把 `Host` 改写成 `127.0.0.1:4318`，与浏览器发出的对外 `Origin` 不一致，提交会被当作跨站拒绝。二选一：让代理保留原始 Host（推荐，nginx 用 `proxy_set_header Host $host;`），或在 `web.json` 里登记对外地址 `"origin": "https://lush.example.com"`（多个用 `"origins": [...]`）。
-- 删除对应模式的 `web.json` 即恢复仅本机、无需登录的模式。Electron 的本地临时 Host 始终只监听回环地址，不读取全局公网配置；远程窗口直接加载远端 Host，远端的认证配置仍然生效，详见[远程桌面部署](remote-desktop.md)。
-- 监听范围、会话与跨站判定的完整安全约束见 [HTTP 与认证](../reference/http.md)。
+注意：创建 `web.json` 会启用认证并使 Host 监听 `0.0.0.0`，必须在启动前安排网络隔离与 HTTPS，不可只“加密码开端口”。不自动更改现有公网配置；完整安全约束见[HTTP 与认证](../reference/http.md)。
 
 ## 5. 运行配置
 
@@ -112,13 +86,8 @@ lush agent init worker --local        # 创建本机私有的 .lush/agent/ 补�
 `LUSH_HOME` 不是独立作用域：若保留该变量，必须恰好等于所选项目的 `.lush`，否则拒绝运行。
 
 ```bash
-lush config                                  # 运行设置：生效值、环境默认值、来源与设置文件
-lush config set concurrency 8                # 执行通道并发上限（1..64）
-lush config set control-concurrency 4        # 控制通道并发上限（1..16）
-lush config set call-timeout 1800            # 单次模型调用超时秒数（1..86400）
-lush config set worker-call-limit 40           # 单Worker invocation 总上限（1..1000）
-lush config set max-depth 12                 # Worker树最大层数（1..64）
-lush config reset all                        # 清除覆盖，回到环境默认
+bun run lush --project /absolute/path/to/my-project config
+# 修改或 reset 配置仅在用户明确要求时执行，完整选项见 CLI 参考。
 ```
 
 改 daemon 自身环境变量或运行代码后用 `bun run daemon-restart`，不是再次 `start`。`.lush/agent/*.env` 与 Prompt 文件每次 invocation 前热加载，不需要重启。Web 是独立进程：改完 `src/ui/web/` 用 `bun run host-restart`，否则页面可能加载新资源却打到旧 API 路由。
@@ -149,10 +118,11 @@ socket 位于用户私有临时目录，只为通信；持久状态始终在项�
 ## 8. 验证
 
 ```bash
-bun run doctor        # 项目 / home / daemon / Web 的代码身份
-bun run test          # 完整测试；使用可控的假 Agent，不调用付费模型
-bun run docs:check    # 文档结构与相对链接
-bun run host-status    # 后台 Web 在不在跑、跑的是不是当前代码、日志在哪
+bun run doctor --project /absolute/path/to/my-project       # daemon 代码身份
+bun run host-status --project /absolute/path/to/my-project  # Host 身份与日志
+# 以下是需要时在 Lush 源码目录完整运行的仓库检查，不是 GUI 或模型验收。
+bun run test
+bun run docs:check
 ```
 
 `doctor` 发现代码身份不一致时只给出带正确 `--project` 的更新命令，不会自动重启；按提示重启对应进程后再复验。
@@ -167,4 +137,14 @@ bun run host-status    # 后台 Web 在不在跑、跑的是不是当前代码�
 | 不确定当前跑的是谁 | `bun run doctor`（daemon）与 `bun run host-status`（Web） |
 | 想离线演示调度 | `LUSH_PROVIDER=mock bun run start --project ...` |
 
-Mock 只派调研Worker，不调用模型、不修改代码。
+Mock 只派调研Worker，不调用模型、不修改代码。部署验收默认不必启动它。
+
+## 10. 交付结果
+
+交付工具版本、Lush / 项目路径、Agent 配置（无密钥）、页面地址、代码身份、实际验证 / 未验证项、日志与下次启停命令。浏览器项目页面必须实际读取状态；没有 GUI 权限时请用户确认，不以 HTTP 成功替代桌面验收。失败保留完整日志，断线不自动重发写请求。
+
+仅在用户确认无须保留活动工作后停止入口（`bun run host-stop`，单项目需带 `--project`）或项目 daemon（`bun run stop --project ...`）；不设置自启、不删除 `.lush/`。Host 与 daemon 更新须分别检查与重启。
+
+---
+
+[← 用户说明](local-deployment.md) · [返回部署索引](README.md)

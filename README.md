@@ -5,7 +5,7 @@
 
 Lush 是项目级的多 agent 开发应用。你描述想要的结果，Lush 在独立的 Git 分支与 worktree 里并行拆解、实现与验证，把成果冻结成精确的提交，最后由你明确批准落地。当前输入路径是 **say**：一条输入直连一个拥有独立分支与 worktree 的 Worker，它自己判断亲自做还是再派子 Worker。旧 Intent / Plan / Candidate 的对外操作已下线；磁盘历史数据、会话与工作区原样保留，不自动迁移或删除。它面向长期维护真实代码库、希望把重复开发真正并行起来的开发者。
 
-Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行时依赖。后台支持 macOS 与 Linux；Windows 可用浏览器或 Electron 安装包连接远程 Host，见[Windows 客户端](docs/deployment/windows-client.md)。
+Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行时依赖。后台支持 macOS 与 Linux；Windows 可连接远程 Host，或按[WSL2 方案](docs/deployment/windows-wsl2.md)在本机运行 Linux 后台。客户端安装见[Windows 客户端](docs/deployment/windows-client.md)。
 
 ## 设计理念
 
@@ -56,13 +56,13 @@ Lush 提供两种图形化使用方式，两者复用同一份 Web UI 与 API：
 | 本地 Web | 日常使用的主工作台，用浏览器打开 | 在 Lush 源码目录执行 `bun run host`；首次选择项目，之后新窗口落在上次项目，可同时打开多个项目 |
 | 桌面应用 | macOS / Linux 可选择本地目录；Windows 为远程客户端，独立窗口可同时工作 | 源码：先 `bun install`，再 `bun run desktop`；Windows 安装包无需 Bun，见[Windows 客户端](docs/deployment/windows-client.md)与[远程桌面部署](docs/deployment/remote-desktop.md) |
 
-Host 默认只监听本机，远程 Electron 窗口本身不启动监听服务。需要从 Windows、手机或其他设备访问，要在远端 `web.json` 中配置登录认证并置于 HTTPS 反向代理之后，或自行建立回环 SSH 隧道。命令行、远程访问等其它形态属于部署细节，统一收录在次级部署文档中。
+Host 默认只监听本机，远程 Electron 窗口本身不启动监听服务。需要从另一设备访问时，先按[远程 Host 用户说明](docs/deployment/remote-host.md)选择认证 HTTPS 或回环 SSH 隧道，再交给对应 Agent 配置。其它部署形态统一见[用户 / Agent 配套教程索引](docs/deployment/README.md)。
 
-## 用 Agent 部署
+## 部署文档：用户与 Agent 各一份
 
-你不需要自己完成安装、配置与排错。**把 [Agent 部署指导文件](docs/deployment/agent-guide.md) 交给你的 AI coding agent**（pi、Codex、Claude Code 等），它就能完成环境准备、启动 daemon 与 Web / 桌面、配置 Agent、验证安装并给出下一步。
+你不需要自己完成安装、配置与排错。[部署索引](docs/deployment/README.md)按场景提供配套教程：**用户版解释方案和原因，Agent 版负责帮助配置与验收。** 覆盖 macOS/Linux 本机、远程 Host、远程桌面、Windows 客户端和 WSL2。
 
-这份指导文件是自包含的：包含前置条件、命令、远程访问与安全边界，人也可以直接照着执行。
+本机部署先读[用户说明](docs/deployment/local-deployment.md)，再把[Agent 指导](docs/deployment/agent-guide.md)交给你的 coding agent（pi、Codex、Claude Code 等），并说明目标机器与项目；Windows 同机后台先读[WSL2 用户说明](docs/deployment/windows-wsl2.md)。部署 Agent 应先检查现状、询问未知选择，再安装与验证，不默认迁移项目、开放公网或调用付费模型。
 
 ## 接下来读什么
 

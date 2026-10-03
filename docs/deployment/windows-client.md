@@ -1,10 +1,16 @@
 # Windows Web UI 与桌面客户端
 
-本文面向 Windows 用户和安装包维护者，说明如何用浏览器或 Electron 操作远程 Linux / macOS Lush Host。Windows 仅运行前端，项目目录、Git、Agent、Host 与 lushd 都在远端；本次不提供 Windows 原生后台。桌面入口是 `src/ui/desktop/main.js`。
+本文面向 Windows 用户，解释浏览器 / Electron 的选择和安全边界；配置与维护者构建命令交给[Windows 客户端 Agent 指导](windows-client-agent.md)。客户端操作远程 Linux / macOS Lush Host。Windows 原生侧仅运行前端，不提供原生后台；项目目录、Git、Agent、Host 与 lushd 都在 Linux / macOS 后台侧。本文介绍远程机器连接；若要在同一台 Windows 上运行后台，见[WSL2 用户说明](windows-wsl2.md)与[Agent 配置指导](windows-wsl2-agent.md)。桌面入口是 `src/ui/desktop/main.js`。
+
+## 为什么 Windows 客户端不带后台
+
+客户端只负责连接与展示，项目、Git、编码 Agent 和凭证留在 Linux/macOS 后台。这样 Windows 用户不用重复配置开发工具，也不把已有 Unix 后台的权限和进程管理机制强行搬到 Windows。
+
+浏览器是最小使用方式；Electron 主要提供独立窗口与桌面连接 / 通知体验。安装包内置 Electron 的代价是需要可信的构建来源与安装验收，它不增加 Windows 原生执行项目的能力。需要在同机开发时选择 WSL2，原因见对应[用户说明](windows-wsl2.md)。
 
 ## 浏览器：无需安装客户端
 
-1. 在远端按[部署指导](agent-guide.md#4-远程--公网访问)启动 Host，并配置认证、项目白名单和 HTTPS 反向代理。
+1. 在远端按[远程 Host 指导](remote-host-agent.md)启动 Host，并配置认证、项目白名单和 HTTPS 反向代理。
 2. 在 Windows 的现代 Edge、Chrome 或 Firefox 打开 Host 的 HTTPS 根地址，例如 `https://lush.example.com`。
 3. 登录后选择远程项目；新增项目必须填写远程机器上的绝对目录，不是 `C:\...` 本地路径。
 
@@ -34,19 +40,11 @@ ssh -N -p 2222 -L 127.0.0.1:14318:127.0.0.1:4318 user@remote-machine
 
 ## 构建与交付
 
-安装包维护者在 Windows x64 开发机安装 Bun 1.4.2 与 Node.js 24（构建器使用 Node；CI 固定为 24.20.0），并检出仓库，执行：
+普通用户只需可信来源的安装器与校验和，不需要源码构建环境。维护者的 Windows 环境版本、构建 / 校验命令、CI 与产物位置统一见[Agent 构建指导](windows-client-agent.md#4-仅维护者构建与交付安装包)。
 
-```powershell
-bun install --frozen-lockfile
-bun run desktop:build:win
-bun run desktop:verify:win
-```
+构建使用资源白名单，只交付桌面连接壳及必要帮助资源，不携带 `.lush`、Agent 凭证、项目代码或本地后台。这既减少安装内容，也避免把开发机数据带给用户。
 
-产物在 `node_modules/lush-desktop-build/dist/`：`Lush-<version>-windows-x64-setup.exe` 与 `SHA256SUMS.txt`。校验步骤核对 ASAR 资源白名单，并为安装器计算 SHA-256；`bun run desktop:stage:win` 仅准备资源，不能替代完整构建。安装包不应作为 `node_modules` 中的开发文件直接分发，应交付安装器与校验和。
-
-开发源码入口仍是 `bun run desktop`，在 Windows 同样仅支持远程连接。构建依赖只用于生成安装包，不是安装后运行时依赖。构建 staging 使用白名单，只包含桌面连接壳与所需静态帮助资源，不携带 `.lush`、Agent 凭证、项目代码或本地后台。
-
-仓库 `.github/workflows/windows-desktop.yml` 支持手动触发，以及相关文件的 PR / main 更新触发；成功后从该次 GitHub Actions 下载构建 artifact（保留 14 天），解压取得安装器及校验和。默认只上传 artifact，不自动创建公开 Release；维护者验证后可手工发布。锁文件固定依赖，构建需联网下载 Electron 和 NSIS 资源。生产发行应另配置代码签名证书和受保护的 CI 密钥；当前不包含签名证书或自动更新服务。
+源码开发入口仍是 `bun run desktop`，Windows 同样仅支持远程连接。构建依赖不等于安装后运行时依赖；Linux staging 和模拟测试不能证明 Windows 安装器可用。当前默认不含签名与自动更新，正式发行需另外管理证书与发布权限，不要求普通用户调整系统保护。
 
 ## 发布前验证
 
@@ -60,3 +58,7 @@ bun run desktop:verify:win
 - 断线后输入保留与显式重连，关闭桌面后远端 Agent 继续运行；不能自动重发写操作。
 
 本功能不提供 Windows 原生 Host / daemon、自动 SSH 隧道、远程文件编辑器或交互终端。界面版本由远端 Host 决定；前端更新不替代远端 Host 与 daemon 的分别升级。
+
+---
+
+[返回部署索引](README.md) · [交给 Agent 配置 →](windows-client-agent.md)

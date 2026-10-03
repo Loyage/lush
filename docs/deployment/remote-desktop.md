@@ -1,6 +1,14 @@
 # 桌面连接远程项目
 
-本文面向使用本地 Electron 操作远程项目的用户与部署者。桌面连接的是远程 **Lush Host**；Host 再通过远端 Unix socket 连接项目 lushd，不把 daemon RPC 暴露到网络。实现入口是 `src/ui/desktop/runtime.js`。
+本文面向使用本地 Electron 操作远程项目的用户，解释连接方式与设计取舍；环境配置与操作验收交给[桌面远程 Agent 指导](remote-desktop-agent.md)。桌面连接的是远程 **Lush Host**；Host 再通过远端 Unix socket 连接项目 lushd，不把 daemon RPC 暴露到网络。实现入口是 `src/ui/desktop/runtime.js`。
+
+## 为什么桌面只连接 Host
+
+项目、Git、编码 Agent 和数据库都留在后台，客户端只提供窗口、连接入口与窄通知能力。这样可以在另一台机器使用熟悉的界面，不需要同步工作区或把模型凭证搬到客户端；也不会因客户端关闭而中止后台开发。
+
+浏览器已经能完成项目操作；选择 Electron 主要是为了独立窗口、最近连接和桌面通知，不是获得远程文件系统权限。它不是远程编辑器或终端。代价是需要维护客户端与连接环境，并分别考虑远端登录、证书和断线。
+
+后台访问方式的选择与原因见[远程 Host 用户说明](remote-host.md)。
 
 ## 使用方式
 
@@ -13,7 +21,7 @@
 
 ## HTTPS 与 SSH 隧道
 
-- 公网 Host 必须配置认证、项目白名单和 HTTPS 反向代理，步骤见[Agent 部署指导](agent-guide.md#4-远程--公网访问)。仅连接你信任的 Lush Host。
+- 公网 Host 必须配置认证、项目白名单和 HTTPS 反向代理，具体配置见[远程 Host Agent 指导](remote-host-agent.md)。仅连接你信任的 Lush Host。
 - 远程地址仅允许 HTTPS；不会绕过无效或自签名证书。需要私有证书时，先在系统中建立可信证书链。
 - 自行建立 SSH 隧道时，可连接 `http://127.0.0.1:端口`、`http://localhost:端口` 或 `http://[::1]:端口`。桌面不保存 SSH 密钥、不启动或重连隧道。
 - 地址不得包含账号、密码、项目路径、查询参数或片段。现有 Web 资源使用根路径，因此也不支持把 Host 部署在任意 URL 子路径下。
@@ -44,3 +52,7 @@ ssh -N -p 2222 -L 127.0.0.1:14318:127.0.0.1:4318 user@remote-machine
 ## 验证边界
 
 自动测试覆盖地址校验、持久化、会话分区、模拟 Electron 的窗口 / 导航 / IPC / 通知、preload 能力，以及真实临时 Host 的启动与退出。模拟 Electron 测试不等价于真实桌面验证；发布前还应在实际 Electron 中验证登录 Cookie、证书、跨项目窗口、断线重载与系统通知。
+
+---
+
+[返回部署索引](README.md) · [交给 Agent 配置 →](remote-desktop-agent.md)
