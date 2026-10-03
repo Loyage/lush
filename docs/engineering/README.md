@@ -33,6 +33,7 @@
 
 - [模块设计理念](../design/README.md)：修改前先理解长期目标与取舍。
 - [界面与传输](interface.md)
+- [本地桌面受管界面偏好](desktop-preferences.md)：随机端口下的存储、项目隔离、窄 IPC 与恢复默认。
 - [执行记录阅读器](transcript-reader.md)：摘要、调用配对、完整翻找与无工具解释 Agent。
 - [模块地图总览](modules.md)
 - [Runtime 与持久化模块](modules-runtime.md)

@@ -142,6 +142,26 @@ export function createDesktop({ electron, userData, localHost, platform = proces
       const result = await dialog.showOpenDialog(entry.window, { title: '选择 Lush 项目目录', properties: ['openDirectory', 'createDirectory'] });
       return result.canceled ? null : result.filePaths[0];
     });
+    ipcMain.handle('lush:ui-preferences', (event, change) => {
+      const entry = trusted(event);
+      if (entry.mode !== 'local') throw new Error('remote windows cannot access local UI preferences');
+      const projectFor = row => {
+        const url = row.window.webContents.mainFrame.url;
+        if (!sameHost(url, row.hostUrl)) throw new Error('untrusted desktop preference page');
+        const pathname = new URL(url).pathname;
+        if (pathname === '/') return null;
+        const id = /^\/p\/([a-f0-9]{16})\/?$/.exec(pathname)?.[1];
+        if (!id) throw new Error('untrusted desktop preference page');
+        return id;
+      };
+      const result = store.uiPreferences(projectFor(entry), change);
+      if (change !== undefined) for (const row of windows.values()) {
+        if (row.kind !== 'workspace' || row.mode !== 'local' || row.window.isDestroyed()) continue;
+        try { row.window.webContents.send('lush:ui-preferences-changed', store.uiPreferences(projectFor(row))); }
+        catch { /* A closing/navigated window must not turn a committed write into failure. */ }
+      }
+      return result;
+    });
     ipcMain.handle('lush:notice-preferences', (event, value) => {
       const entry = trusted(event);
       return store.noticePreferences(entry.preferenceKey, value);

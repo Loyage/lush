@@ -126,6 +126,52 @@ test('stored notice channels normalize corrupt values and default missing legacy
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('UI preferences persist per key and project; reset preserves other projects and notification records', () => {
+  const dir = temporary(), a = 'aaaaaaaaaaaaaaaa', b = 'bbbbbbbbbbbbbbbb';
+  try {
+    const one = new ConnectionStore(dir), two = new ConnectionStore(dir);
+    one.setEnabled('local', true); one.noticePreferences('local', { failed: { system: false } });
+    one.uiPreferences(a, { name: 'theme', value: 'dark' });
+    two.uiPreferences(b, { name: 'polling', value: 'power' });
+    one.uiPreferences(a, { name: 'taskGraphCollapsed', value: '[1,2]' });
+    two.uiPreferences(b, { name: 'sidebarSort', value: 'updated' });
+    const restored = new ConnectionStore(dir);
+    expect(restored.uiPreferences(a).values).toEqual({ theme: 'dark', polling: 'power', taskGraphCollapsed: '[1,2]' });
+    expect(restored.uiPreferences(b).values).toEqual({ theme: 'dark', polling: 'power', sidebarSort: 'updated' });
+    expect(restored.uiPreferences(null).values).toEqual({ theme: 'dark', polling: 'power' });
+    expect(restored.uiPreferences(a, { reset: true }).values).toEqual({});
+    expect(two.uiPreferences(b).values).toEqual({ sidebarSort: 'updated' });
+    one.uiPreferences(a, { name: 'markdown', value: '0' }); // Fresh per-key RMW never resurrects pre-reset snapshots.
+    expect(two.uiPreferences(b).values).toEqual({ markdown: '0', sidebarSort: 'updated' });
+    expect(restored.enabled('local')).toBe(true);
+    expect(restored.noticePreferences('local').failed.system).toBe(false);
+    expect(fs.statSync(path.join(dir, 'ui-preferences.json')).mode & 0o777).toBe(0o600);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('UI preference whitelist rejects arbitrary keys/identities and failed reads never replace stored data', () => {
+  const dir = temporary(), project = 'aaaaaaaaaaaaaaaa';
+  try {
+    const store = new ConnectionStore(dir), file = path.join(dir, 'ui-preferences.json');
+    store.uiPreferences(project, { name: 'theme', value: 'light' });
+    const before = fs.readFileSync(file, 'utf8');
+    for (const change of [{ name: 'noticeNotifications', value: '1' }, { name: '__proto__', value: '{}' },
+      { name: '/tmp/secret', value: 'x' }, { name: 'theme', value: 'sepia' }, { name: 'filters', value: '{"path":"/tmp/x"}' },
+      { name: 'theme', value: 'dark', project: 'bbbbbbbbbbbbbbbb' }, { reset: true, name: 'theme' }, { name: 'theme', value: 'x'.repeat(65537) }]) {
+      expect(() => store.uiPreferences(project, change)).toThrow();
+      expect(fs.readFileSync(file, 'utf8')).toBe(before);
+    }
+    expect(() => store.uiPreferences('/tmp/file', { reset: true })).toThrow();
+    expect(() => store.uiPreferences(null, { name: 'sidebarSort', value: 'id' })).toThrow();
+    fs.writeFileSync(file, '{broken');
+    expect(() => store.uiPreferences(project)).toThrow();
+    expect(() => store.uiPreferences(project, { name: 'theme', value: 'dark' })).toThrow();
+    expect(() => store.uiPreferences(project, { reset: true })).toThrow();
+    expect(fs.readFileSync(file, 'utf8')).toBe('{broken');
+    expect(fs.readdirSync(dir)).toEqual(['ui-preferences.json']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('corrupt records fail closed and legacy notifications are restored for local Hosts only', () => {
   const dir = temporary();
   try {

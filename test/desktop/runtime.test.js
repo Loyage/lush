@@ -192,6 +192,41 @@ test('project popups remain owned and scoped; previews have no preload; external
   } finally { f.close(); }
 });
 
+test('local UI IPC derives project identity, persists across ports and broadcasts only trusted local snapshots', async () => {
+  const f = fixture(), a = 'aaaaaaaaaaaaaaaa', b = 'bbbbbbbbbbbbbbbb';
+  try {
+    await f.desktop.start(); const chooser = f.all[0], local = await f.desktop.openLocal();
+    const handler = f.handlers.get('lush:ui-preferences');
+    const remote = await f.desktop.openRemote('http://127.0.0.1:4318/');
+    expect(() => handler(f.event(remote))).toThrow('remote');
+    expect(() => handler(f.event(chooser))).toThrow('untrusted');
+    expect(() => handler({ sender: { id: 999 }, senderFrame: {} })).toThrow('untrusted');
+    expect(() => handler(f.event(local, { url: local.webContents.mainFrame.url }))).toThrow('untrusted');
+    for (const url of ['http://127.0.0.1:9999/', 'http://127.0.0.1:4318/login', 'http://127.0.0.1:4318/api/docs/a']) {
+      local.webContents.mainFrame.url = url; expect(() => handler(f.event(local))).toThrow('untrusted');
+    }
+    local.webContents.mainFrame.url = `http://127.0.0.1:4318/p/${a}/`;
+    local.webContents.openHandler({ url: `http://127.0.0.1:4318/p/${b}/` });
+    const other = f.all.at(-1);
+    local.webContents.openHandler({ url: 'http://127.0.0.1:4318/api/docs/a' });
+    const preview = f.all.at(-1);
+    expect(() => handler(f.event(preview))).toThrow('untrusted');
+    expect(() => handler(f.event(local), { name: 'theme', value: 'dark', project: b })).toThrow('invalid');
+    await f.invoke('lush:ui-preferences', local, { name: 'theme', value: 'dark' });
+    await f.invoke('lush:ui-preferences', local, { name: 'sidebarSort', value: 'id' });
+    await f.invoke('lush:ui-preferences', other, { name: 'sidebarSort', value: 'updated' });
+    expect(local.webContents.sent).toEqual(['lush:ui-preferences-changed', { project: a, revision: 3, values: { theme: 'dark', sidebarSort: 'id' } }]);
+    expect(other.webContents.sent[1]).toMatchObject({ project: b, values: { theme: 'dark', sidebarSort: 'updated' } });
+    expect(remote.webContents.sent).toBeUndefined(); expect(preview.webContents.sent).toBeUndefined();
+    f.changeLocalUrl('http://127.0.0.1:9876/'); local.destroy();
+    const reopened = await f.desktop.openLocal(); reopened.webContents.mainFrame.url = `http://127.0.0.1:9876/p/${a}/`;
+    expect((await f.invoke('lush:ui-preferences', reopened)).values).toEqual({ theme: 'dark', sidebarSort: 'id' });
+    await f.invoke('lush:ui-preferences', reopened, { reset: true });
+    expect((await f.invoke('lush:ui-preferences', other)).values).toEqual({ sidebarSort: 'updated' });
+    expect(() => handler(f.event(local))).toThrow('untrusted');
+  } finally { f.close(); }
+});
+
 test('notice preference IPC shares a stable local identity and isolates canonical remote Hosts', async () => {
   const f = fixture();
   try {
@@ -360,7 +395,12 @@ test('sandboxed preloads expose only mode-specific capabilities, never a generic
     bridge.notificationSettings(); bridge.notificationSettings(true);
     expect(calls.slice(1)).toEqual([['lush:notice-preferences', undefined], ['lush:notice-preferences', prefs],
       ['lush:notification-settings', undefined], ['lush:notification-settings', true]]);
-    expect(Object.keys(bridge).sort()).toEqual([...(mode === 'local' ? ['chooseProject'] : []),
+    if (mode === 'local') {
+      bridge.readPreferences(); bridge.writePreference('theme', 'dark'); bridge.resetPreferences();
+      expect(calls.slice(-3)).toEqual([['lush:ui-preferences'], ['lush:ui-preferences', { name: 'theme', value: 'dark' }], ['lush:ui-preferences', { reset: true }]]);
+      expect(() => bridge.onPreferencesChanged('not a callback')).toThrow();
+    }
+    expect(Object.keys(bridge).sort()).toEqual([...(mode === 'local' ? ['chooseProject', 'readPreferences', 'writePreference', 'resetPreferences', 'onPreferencesChanged'] : []),
       'mode', 'noticePreferences', 'notificationSettings', 'notifyNotice', 'platform'].sort());
   }
 });

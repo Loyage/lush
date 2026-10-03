@@ -62,6 +62,10 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 当前接缝（尚未完成全类型统一）：新式 say/child 的 Git 基线在创建时固定，say 以输入时选定的父 ref 建 worktree，child 派生时在 Git 串行队列里立即从父分支 tip 建 worktree；analysis 创建时固定只读 detached worktree。其它专用 Worker、旧 Worker 与额外绑定的 owner 根 Worker 尚未迁入统一 fork 创建路径。`commit_contexts` 是项目本地的提交→Pi session/entry 附属索引；Agent 的 `git commit` 成功后记录当时可复用的上下文指针，外部提交没有指针时子 Pi 从空会话起步。子 Pi 首次运行用固定 entry 截出的 checkpoint 调 `--fork`，后续 invocation 继续自己的会话。旧 Worker/commit 不回填。
 
+## 本地桌面受管偏好接缝
+
+`ConnectionStore.uiPreferences(project, change?)` 在独立 userData 文件保存非通知受管偏好；主进程仅允许受信本地主 frame 调用，并从页面地址派生项目 ID。preload 不提供任意键 / 路径 / IPC；`prefs.js` 的 `initDesktopPreferences()` 在 boot 的 UI 状态初始化前只读恢复，按键排队写和广播快照同步多窗口，Worker 树折叠纳入受管偏好。远端 / 浏览器和既有通知契约不变。白名单、并发 / 失败及重置范围以[桌面偏好契约](desktop-preferences.md)为准。
+
 ## 执行详情代码阅读器接缝
 
 用户已批准执行详情内「执行记录 / 代码与改动」平级视图；只读代码、全项目文件树和逐行 diff 的接口契约见[代码阅读器](code-reader.md)。新增用户专属 `worker.code_state` / `worker.code_tree` / `worker.code_file`，对应 `code-state` / `code-tree` / `code-file` GET 后缀；Project 解析 Worker 身份、Workspaces 读取可信工作区/固定 Git 对象，Host 仅转发，前端按需加载。首期排除 ignored 与内部文件、不新增快照/实体、不修改归档行为。实现按该契约分后端与前端推进，旧 `worker.diff` 保持兼容。

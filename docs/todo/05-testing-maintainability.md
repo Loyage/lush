@@ -2,7 +2,23 @@
 
 本文供维护者选择测试、开发环境与契约维护投入；保留原审查证据，逐项记录当前复核、已实施的低风险工程改进及待决方向，不将测试缺口描述成业务故障。范围为 `test/`、`scripts/`、`package.json`、CI、文档地图、接口契约与性能测量。
 
-## 当前复核（基线 `81257d12`）
+## 最新核实（2026-10-03，基线 `47239f4`）
+
+本节保留实施前基线核实，并更新 Notice #103 后的收口状态；下文 `81257d12` 的测试数量、失败日志和“当前复核”属于历史证据。
+
+- **E-01 已完成本轮批准范围**：上述基线仍有三个自建继承环境的 Git / 配置测试入口；现已复用 `helpers.env()` 并保留合成配置注入能力，不修改生产环境、不一刀切改所有 spawn，也不新增重复大规模测试。实现与污染回归见 E-01。
+- **E-02 / E-03 不按原故障排期**：退休命令不恢复，支持矩阵仍需另行决定。`47239f4` 已将通用测试与需开发依赖的 packaging 分离，质量 CI 亦分 job；历史缺少 `@electron/asar` 的失败不再意味着当前默认 `bun run test` 必然失败。专项未运行仍不能称全套通过。
+- **E-04 收窄为复用与补缺**：已有 `scripts/check-{input-history-ui,task-graph-layout,transcript-layout,code-reader-layout,versions-layout}.js` 和 `test/web/check-notice-*.js`，使用真实 Firefox / geckodriver、发货资源、临时服务和 API fixture。不能再称“只有 DOM stub”，也不建议先引入 Chromium 或另建一套浏览器工具链。真实 Electron、中文 IME、完整鉴权 / CSP / 多项目客户端验收仍未被这些脚本替代。
+- **E-05 仍需解析方向裁决**：`docs-check.js` 仍仅检查行内路径、不校验标题锚点或引用式链接；现有围栏修复保留，不暗中扩张完整 Markdown 契约。
+- **E-06 本地报告已完成**：上述基线仅单次采样与 Bun / platform 身份；现已默认 5 次采样，提供中位数 / p95、提交 / Git / OS 身份与显式 JSON 输出。无新增 CI 或耗时阻断策略，现有阈值逐样本保留。真实 socket / 浏览器和 CI 归档仍属后续，现行契约见[本地读取性能报告](../contributing/read-performance.md)。
+
+本次实际验证：helper / 文档 / desktop / Web 安全与多项目 **57 pass / 0 fail（9 文件，617 断言）**，性能脚本 **ok=true**；真实 Firefox 的 `check-input-history-ui.js` 全部通过，覆盖发货页面加载、布局、原生键盘、编辑 / 发射和 Worker 追加路由。请求 390px 窗宽时实际 viewport 为 **500px**，不能宣称 390px 验收或中文 IME 验收。完整日志与截图在 `/tmp/lush-129-audit.Fc8gnl/`；未运行全部通用 / packaging 套件或真实 Electron，未启停用户服务。
+
+三项子 Worker 的改动合入后，在 `5b52327` 实际完整运行默认通用测试：**1240 pass / 0 fail，195 文件，12852 断言**；文档 **76 篇通过**。干净代码检出的默认 5 次完整测量 **ok=true / dirty=false**，报告显式保存，全部既有预算逐样本通过；日志与报告 `/tmp/lush-129-final.Tg1Ksv/`。未运行 packaging、真实 Electron 跨启动、最低 Bun 或其他平台专项，不称全套 / 全平台验收完成。
+
+交付 `4950` / 尝试 `4953` 的源侧修复：仅在本 Worker 工作区合入 runtime 指定的父提交 `3e4fbcafeee8b57e84280a0ccc657ba9f84d68ed`，合并提交 `cfedd4e` 保留原交付 `eed44b9`，无文本冲突；父侧 Worker 树默认极简及显式详情选择与本地偏好存储均保留。合入后默认通用测试完整运行 **1245 pass / 0 fail，196 文件，13199 断言**，文档 **75 篇通过**，干净检出的默认 5 次性能采样 **ok=true**；日志 `/tmp/lush-129-repair.inWAc4/`。未修改父分支，未新增 packaging / 真实 Electron / 跨平台验收证据。
+
+## 较早复核（基线 `81257d12`）
 
 2026-10-02 在独立 Worker worktree 复核，环境 Linux x64 / Bun 1.4.2 / Git 2.55.0。已读设计入口、执行过程理念、文档约定、模块总地图及 CLI/RPC/测试分章；只使用临时项目和 mock，不操作用户 daemon、Host 或生产 Git 配置。以下“历史”记录仍指原基线，不作为当前 HEAD 的通过证据。
 
@@ -29,9 +45,12 @@
 
 ## E-01 · 隔离测试继承的宿主 Git 配置
 
-**P2｜当前：共享 helper 路径已修｜历史：已复现｜预估 M**
+**P2｜当前：已完成批准范围内的共享 helper 与自建 Git / 配置测试环境收敛｜历史：已复现｜预估 M**
 
-- **当前复核与实施**：原问题仍可由继承全局配置触发。`test/helpers.js` 的 `env(extra)` 现为子进程提供临时 HOME/XDG，清除继承的 `GIT_*`，禁用全局/系统配置；`git(root,...args)` 也使用该环境，`fixture` 与 integration `cli` 自动受益，签名不变。临时 home 在测试进程退出时删除，不修改 `process.env`；`extra` 可显式注入合成配置。`test/helpers.test.js` 在独立子进程注入失败 hook、签名、config-count/parameters 与 Git 路径污染，验证 repo 和 fixture Git 均成功、hook 未执行、home 已回收。独立拼装环境/直接 spawn 的历史测试不在本次 helper 保护范围；若要让所有测试命令统一隔离，还需另行收敛入口。
+- **2026-10-03 追加实施（Notice #103，基线 `d7d5cb3`）**：`agent-settings.test.js` 删除自建继承环境，`workspaces/safety.test.js` 的 Config 和 `agent/fork.test.js` 的 Git 提交适配器子进程改用现有 `helpers.env(extra)`；受控配置和 fork 所需的项目 / Worker / Run 身份仍显式传入。未改 helper 签名、生产环境、默认测试入口或其他 spawn，也未新增重复大规模用例。范围是已核实的 Git / 配置入口，不承诺所有子进程、所有环境变量均已全局隔离。
+- **本次验证**：隔离子进程注入失败 hook、签名、config-count/parameters 与 Git 路径污染，修复前四文件 **11 pass / 6 fail**（safety 初始化提交失败、fork 提交适配器退出 1）；修复后同一命令 **17 pass / 0 fail，156 断言**，清掉首次反例产生的合成 marker / index 后再次完整重跑仍通过，且二者未再生成。沿用现有 helper 回归验证显式合成配置可用与调用者环境不变。正常 `bun run test` **1229 pass / 0 fail，193 文件，12706 断言**；不包含 packaging、真实浏览器 / Electron、最低 Bun 或其他平台。完整日志 `/tmp/lush-131-env.FGlxZ0/{before,after,after-clean,full}.log`；测试仅使用自建临时项目和 mock，未启停用户服务。
+
+- **较早复核与实施**：原问题仍可由继承全局配置触发。`test/helpers.js` 的 `env(extra)` 现为子进程提供临时 HOME/XDG，清除继承的 `GIT_*`，禁用全局/系统配置；`git(root,...args)` 也使用该环境，`fixture` 与 integration `cli` 自动受益，签名不变。临时 home 在测试进程退出时删除，不修改 `process.env`；`extra` 可显式注入合成配置。`test/helpers.test.js` 在独立子进程注入失败 hook、签名、config-count/parameters 与 Git 路径污染，验证 repo 和 fixture Git 均成功、hook 未执行、home 已回收。独立拼装环境/直接 spawn 的历史测试不在本次 helper 保护范围；若要让所有测试命令统一隔离，还需另行收敛入口。
 
 - **依据**：`test/helpers.js` 的 `env()`（8 行）仅清除 `LUSH_*` 并启用 mock；`git()`（21–25 行）启动 Git 未显式指定隔离环境，`repo()`（26–30 行）只设置仓库用户名、邮箱。`test/integration/harness.js` 的 `cli()`（6–11 行）继续继承这份环境。
 - **触发与影响**：在新进程通过 `GIT_CONFIG_GLOBAL` 指向临时配置，其 `core.hooksPath` 指向仅打印标记并退出 42 的自建 hook，调用 `repo(temp())` 失败并打印 `AUDIT_FAKE_GLOBAL_HOOK`；改为 `/dev/null` 的同代码对照成功。日常测试会受开发者签名、hooks 等设置影响，初始化测试仓库也可能执行非测试控制的 hook；这不是项目 Git 业务行为的缺陷。
@@ -65,7 +84,13 @@
 
 ## E-04 · 为真实浏览器和桌面壳补最小冒烟层
 
-**P2｜当前：仍合理，依赖与维护投入待决｜历史：代码确认（测试能力缺口，不是 UI 故障）｜预估 M**
+**P2｜最新：已有真实 Firefox 专项，剩余为复用与未覆盖场景｜历史：代码确认（测试能力缺口，不是 UI 故障）｜预估 M**
+
+Web / 桌面功能建议已完成，对应待办专题删除；未完成的真实客户端验收集中保留在本条：
+
+- 真实 Electron 启动两次且 Host 端口不同，确认共享外观 / 行为与项目视图偏好保留、恢复默认不清其它项目、通知沿用既有语义；现行存储与安全范围见[桌面偏好契约](../engineering/desktop-preferences.md)。
+- 真实中文 IME 的组词、候选确认及最终 Enter 提交，在浏览器与 Electron 各验证一次；合成 composition 事件和 WebDriver 普通键盘通过不能替代输入法验收。
+- 本轮 Firefox 输入专项最窄实测 viewport 为 500px，不冒称 390px、真实 Electron、读屏器或帧率验收；后续复用现有专项补足目标环境证据，不从零新建浏览器工具链。
 
 - **当前复核**：现在还有 `test/desktop/runtime.test.js` 的模拟 BrowserWindow/preload/IPC 回归、`test/desktop/local-host.test.js` 的真实临时 Host 生命周期，以及 Windows 包产物校验；这比原审查更强，但仍不等于真实 Chromium 加载发货 HTML/CSS 或 Electron 端到端。未增加浏览器依赖、CI runner 或发布门禁。可选开发侧 Chromium 自动冒烟、桌面发布前 Electron 冒烟，或先维护可重复手工清单；均须维护者确认成本。
 
@@ -89,9 +114,13 @@
 
 ## E-06 · 将现有性能脚本变为可比较、分层的回归证据
 
-**P2｜当前：仍合理，已修陈旧 fixture，证据分层待决｜历史：代码确认｜预估 M**
+**P2｜当前：本地重复采样、身份与显式报告已完成；CI / 真实 RPC 仍待决｜历史：代码确认｜预估 M**
 
-- **当前复核与实施**：实测原脚本退出 1，1000/10000 Worker 的 `shown=0`；原因是历史 research fixture 缺 `task_kind`，被当前 overview 的 Worker 类型过滤，并非业务性能退化。改用当前 agent/say fixture，现有结构预算随公开 `page.limit` 检查，不再假定退休的 50 条窗口；没有放宽字节/时间预算。报告增加 `measurement_scope` 明示同进程 dispatcher、DOM stub、事件循环延迟，不更名旧字段或伪称真实 socket RPC。重复采样、Git/OS 身份、报告归档与自动 CI 尚未增加；是否只观察耗时或设硬门禁仍待决。运行时 R-07 的最新窗口 / 分页功能已完成，但 10 万行历史规模、分配量与生产延迟量测仍待补，作为本条性能证据方向保留。
+- **最新实施（2026-10-03，Notice #103 批准范围）**：默认 5 次完整采样，每个数据集 / 样本重建临时 fixture；`--samples N` 支持 1～50，增加中位数及 nearest-rank p95 / min / max、全部原样本、UTC 时间与代码提交 / dirty / OS / Bun / Git 身份。`--output PATH` 可保存与 stdout 完全相同的 JSON，独占新建、不覆盖旧报告。现行参数 / 报告 / 退出语义见[本地读取性能报告](../contributing/read-performance.md)，小规模契约回归为 `test/read-performance.test.js`。不新增依赖、CI 作业或耗时门禁，不改生产代码。
+- **预算与测量边界**：全部原有字节、结构和时间阈值仍逐样本检查，任何样本超限即 `ok:false` / 退出 1，不用摘要中位数掩盖。旧耗时标量现在表示中位数，原样本保留；dispatcher / DOM stub / 事件循环不冒充真实 socket / 浏览器。日志 cold 只指 fixture 首次读取，不清 OS 缓存；5 个样本的 p95 是最大值，不承诺稳定尾延迟。
+- **实际验证**：性能契约 **5 pass / 0 fail，54 断言**，连同文档最终聚焦 **9 pass / 0 fail，73 断言**；`docs:check` **75 篇通过**（长章仅 warning），`git diff --check` 通过；默认 5 次全规模测量 **ok=true**，万 Worker overview median / p95 为 **4.631 / 4.841ms**，stub render 为 **4.552 / 6.829ms**，大日志 cold 为 **14.094 / 14.214ms**，读取 **8 MiB**。stdout 与显式报告逐字节一致；该开发时报告的代码身份正确标为 `dirty:true`。完整日志与报告在 `/tmp/lush-132-performance.Xw700O/`。首轮新增代码存在合成日志对象括号遗漏，测试加载与测量均失败；修复后完整重跑通过，首次错误日志保留在 `/tmp/lush-132-performance.jUfgsM/`，不把首次失败当成测试通过。未运行真实 socket / 浏览器、远端 CI 或跨平台矩阵。
+- **固定父基线源侧修复（交付 4743 / 尝试 4746）**：按 runtime 指定在本源工作区合入父提交 `903deb808d293ef5b1c52fae6215daf4d7b1ab96`，保留原源提交 `4351de0fafe8bd60d7607bd0c17894696cf4680a`，无文本冲突。合入后性能 / 文档 / helper 及父侧 E-01 相关六文件 **26 pass / 0 fail，229 断言**，文档 **75 篇通过**，完整日志 `/tmp/lush-132-repair.1SSTTK/`。未修改父分支，测量范围和既有预算不变。
+- **较早修复（历史）**：原脚本 1000/10000 Worker 的 `shown=0` 来自缺 `task_kind` 的 research fixture，现已用 agent/say 修复；分页按公开 limit 而非退休窗口检查。R-07 最新窗口 / 分页功能已完成，10 万行历史、分配量与生产延迟仍未量测；自动 CI 归档及新门禁仍须另行裁决。
 
 - **依据**：`scripts/measure-read-performance.js` 的 `fixture()`（26–35 行）将 client.request 直接接到 Dispatcher；`taskDataset()`（38–59 行）和 `logDataset()`（69–83 行）各单次采样，渲染使用 DOM stub；顶层阈值/报告（85–113 行）有固定预算、无分位数和历史归档。CI 的 `jobs.test`（18–29 行）没有执行此脚本。
 - **触发与影响**：本次性能预算全部通过，但 `other_rpc_timer_delay` 实际是同进程定时器延迟，不是真实竞争 RPC 延迟；同一脚本也没有测浏览器布局。没有自动留存时，难区分增长趋势、机器噪声与单次回退，且脚本自身长期可能不被运行。
@@ -116,6 +145,6 @@
 
 - **E-02 文档入口契约**：只维护当前文档与既有公开 API 回归；或为明确标注的当前示例新增静态检查（需排除历史记录/路径示例）。不考虑恢复已退休公开入口。
 - **E-03 支持矩阵**：维持现有聚焦矩阵；或继续承诺 Bun 1.2 并扩大生命周期/Host/socket 兼容作业；或经验证后收紧最低版本。后两者影响支持政策或 runner 成本。
-- **E-04 冒烟层**：先用可重复人工清单；或新增开发侧 Chromium 小套自动冒烟；或再加发布前 Electron 冒烟。不得把新增开发依赖变成 daemon/CLI 运行依赖。
+- **E-04 冒烟层**：优先复用已有 Firefox 专项，明确覆盖与未覆盖场景；是否整合入口 / CI 或增加真实 Electron 发布前冒烟仍需确认。不是从零新增 Chromium 工具链，不得把开发依赖变成 daemon/CLI 运行依赖。
 - **E-05 Markdown 方向**：保持现有受限检查、明确未覆盖导航；或零依赖补受限引用/标题规则；或引入开发侧完整解析器。标题去重/中文锚点与告警豁免必须明确，不能靠扩张正则暗中承诺完整解析。
-- **E-06 性能证据**：先做本地重复采样与环境身份；或手动/定期 CI 归档 JSON、耗时仅观察；或增加经稳定性验证的耗时门禁。真实 socket 并发读应独立于投影/事件循环指标；本轮没有新增门禁。
+- **E-06 性能证据**：本地重复采样、环境身份与显式 JSON 输出已完成；手动 / 定期 CI 归档以及经稳定性验证的新耗时门禁仍需裁决。真实 socket 并发读独立于投影 / 事件循环指标；既有本地阈值保留，未新增门禁。

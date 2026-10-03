@@ -11,11 +11,9 @@ import { discoverAgentModels } from '../src/agent/models.js';
 import { discoverAgentResources } from '../src/agent/resources.js';
 import { GUIDE } from '../src/agent/guide.js';
 import { run as runAgentCommand } from '../src/cli/commands/agent.js';
-// Profile/provider tests do not need a Project or its runtime modules.
+import { env } from './helpers.js';
+// Profile/provider tests reuse the isolated environment without constructing a Project fixture.
 function temp() { return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-agent-settings-'))); }
-function env(extra = {}) {
-  return { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LUSH_'))), LUSH_PROVIDER: 'mock', ...extra };
-}
 
 test('retired showcase profiles are ignored on read, preserved on disk and rejected on write', async () => {
   const root = temp();

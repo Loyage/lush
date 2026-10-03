@@ -7,7 +7,7 @@ import { show } from './messages.js';
 import { detail } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
-import { readPref, scopedKey, setPref, writePref } from './prefs.js';
+import { readPref, setPref, writePref } from './prefs.js';
 import { taskForest } from './task-graph-layout.js';
 import { mergeRelations } from './task-graph-merge.js';
 import { captureGraph, restoreGraph, graphMotionRunning } from './task-graph-motion.js';
@@ -18,7 +18,6 @@ import { progressStats, renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
 import { guardedAction, iterationBlocker, iterationControls } from './render-iteration.js';
 
-const KEY = 'lush.taskGraph.collapsed';
 const ACTIVE = new Set(['running', 'queued', 'waiting', 'awaiting', 'awaiting_acceptance']);
 const ENDED = new Set(['completed', 'failed', 'cancelled']);
 /** 状态计数 / 图例的固定顺序：先是活动态，再到终结态；只画出现过的。 */
@@ -49,11 +48,8 @@ function mergeQueueNotes(raw) {
   return queues;
 }
 
-function collapsed() {
-  try { const saved = JSON.parse(localStorage.getItem(scopedKey(KEY))); return new Set(Array.isArray(saved) ? saved : []); }
-  catch { return new Set(); }
-}
-function save(set) { try { localStorage.setItem(scopedKey(KEY), JSON.stringify([...set])); } catch { /* storage unavailable */ } }
+function collapsed() { return new Set(readPref('taskGraphCollapsed')); }
+function save(set) { writePref('taskGraphCollapsed', set); }
 function hiddenStatuses() { return new Set(readPref('taskGraphStatuses')); }
 function saveHiddenStatuses(set) { writePref('taskGraphStatuses', set); }
 

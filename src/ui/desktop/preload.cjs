@@ -3,7 +3,18 @@ const { contextBridge, ipcRenderer } = require('electron');
 // Sandboxed preload: only local windows get the directory picker; no generic invoke or Node API.
 const mode = process.argv.includes('--lush-desktop-mode=local') ? 'local' : 'remote';
 contextBridge.exposeInMainWorld('lushDesktop', {
-  ...(mode === 'local' ? { chooseProject: () => ipcRenderer.invoke('lush:choose-project') } : {}),
+  ...(mode === 'local' ? {
+    chooseProject: () => ipcRenderer.invoke('lush:choose-project'),
+    readPreferences: () => ipcRenderer.invoke('lush:ui-preferences'),
+    writePreference: (name, value) => ipcRenderer.invoke('lush:ui-preferences', { name, value }),
+    resetPreferences: () => ipcRenderer.invoke('lush:ui-preferences', { reset: true }),
+    onPreferencesChanged: callback => {
+      if (typeof callback !== 'function') throw new Error('invalid preference listener');
+      const handler = (_event, snapshot) => callback(snapshot);
+      ipcRenderer.on('lush:ui-preferences-changed', handler);
+      return () => ipcRenderer.removeListener('lush:ui-preferences-changed', handler);
+    },
+  } : {}),
   notificationSettings: enabled => ipcRenderer.invoke('lush:notification-settings', enabled),
   noticePreferences: value => ipcRenderer.invoke('lush:notice-preferences', value),
   notifyNotice: payload => ipcRenderer.invoke('lush:notice', payload),

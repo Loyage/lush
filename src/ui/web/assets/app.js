@@ -5,7 +5,7 @@ import { show } from './messages.js';
 import { docsTarget, openDocs } from './docs.js';
 import { detail, overview } from './navigate.js';
 import { liveInterval } from './live.js';
-import { onPrefChange, pollingIntervals, readPref, setPref } from './prefs.js';
+import { initDesktopPreferences, onPrefChange, pollingIntervals, readPref, setPref } from './prefs.js';
 import { liveRefresh, refresh, applySort, applyFilters } from './refresh.js';
 import { openTaskGraph } from './render-task-graph.js';
 import { openSettings } from './render-settings.js';
@@ -110,6 +110,7 @@ export async function boot() {
   if (projectVisibilityListener !== null && typeof removeEventListener === 'function') removeEventListener('visibilitychange', projectVisibilityListener);
   refreshTimer = null; liveTimer = null; hashListener = null; projectTimer = null; projectVisibilityListener = null;
   closeTranscriptView();
+  await initDesktopPreferences();
   resetUiState();
   resetTranscriptReaders();
   closeExplanationPanel();

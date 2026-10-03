@@ -8,7 +8,8 @@
  * - resetPrefs()            删掉全部受管键（含历史键），并逐项通知回默认值。
  *
  * 老用户的键值继续生效：`lush.markdown` / `lush.theme` 保持原样；左栏排序从 `lush.treeSort`
- * 迁到 `lush.sidebarSort` 后，读取时仍回落旧键。偏好只存在当前浏览器，不写进项目库。
+ * 迁到 `lush.sidebarSort` 后，读取时仍回落旧键。本地桌面经白名单 IPC 保存非通知受管偏好；
+ * 浏览器 / 远程窗口仍按 origin 保存，不写进项目库、不迁移历史端口存储。
  */
 import { COLLAPSED_KEY, FILTERS_KEY, parseCollapsed, parseFilters, serializeCollapsed } from './sidebar.js';
 import { SORT_MODES } from './tree-order.js';
@@ -117,6 +118,9 @@ export const PREF_DEFS = {
     format: value => value ? '1' : '0', scope: true },
   taskGraphStatuses: { key: TASK_GRAPH_STATUSES_KEY, default: () => new Set(), parse: parseTaskGraphStatuses,
     format: value => JSON.stringify([...value]), scope: true },
+  taskGraphCollapsed: { key: 'lush.taskGraph.collapsed', default: () => new Set(), scope: true,
+    parse: raw => { try { const value = JSON.parse(raw); return new Set(Array.isArray(value) ? value.filter(id => typeof id === 'string' || (Number.isSafeInteger(id) && id > 0)) : []); } catch { return new Set(); } },
+    format: value => JSON.stringify([...value]) },
   filters: { key: FILTERS_KEY, default: () => parseFilters(null), parse: parseFilters, format: value => JSON.stringify(value), scope: true },
   reduceMotion: boolPref(REDUCED_MOTION_KEY, false),
   polling: enumPref(POLLING_KEY, [...POLLING_IDS], 'standard'),
@@ -147,6 +151,7 @@ export function scopedKey(base) {
 
 /** localStorage 是否可写：隐私模式 / 内嵌 webview 里写不进去，调用方切换到内存兜底。 */
 export function storageAvailable() {
+  if (currentDesktop()) return true; // Live Host/session cache does not depend on origin localStorage.
   const probe = '__lush_prefs_probe__';
   try {
     localStorage.setItem(probe, '1');
@@ -160,20 +165,87 @@ export function storageAvailable() {
 export function readPref(name) {
   const def = PREF_DEFS[name];
   if (!def) throw new Error(`unknown preference: ${name}`);
-  let raw = readRaw(prefKey(def));
-  if (raw === null) for (const legacy of def.legacy ?? []) { raw = readRaw(legacy); if (raw !== null) break; }
+  const state = currentDesktop();
+  let raw = state && DESKTOP_NAMES.includes(name) ? desktopRaw(state, name) : readRaw(prefKey(def));
+  if (!state && raw === null) for (const legacy of def.legacy ?? []) { raw = readRaw(legacy); if (raw !== null) break; }
   return raw === null ? defaultValue(def) : def.parse(raw);
 }
 
-/** 只写盘：值先规整成稳定字符串，存储不可用时静默放弃。 */
+/** 值先规整成稳定字符串；本地桌面异步写宿主，失败保留会话选择并提供状态。 */
 export function writePref(name, value) {
   const def = PREF_DEFS[name];
   if (!def) throw new Error(`unknown preference: ${name}`);
-  const raw = def.format(value);
-  try { localStorage.setItem(prefKey(def), raw); memory.delete(prefKey(def)); }
-  catch { memory.set(prefKey(def), raw); }
+  const raw = def.format(value), state = currentDesktop();
+  if (state && DESKTOP_NAMES.includes(name)) {
+    const choice = { raw };
+    state.pending.set(name, choice);
+    queueDesktop(state, () => state.bridge.writePreference(name, raw), new Map([[name, choice]]));
+  } else {
+    try { localStorage.setItem(prefKey(def), raw); memory.delete(prefKey(def)); }
+    catch { memory.set(prefKey(def), raw); }
+  }
   return def.parse(raw);
 }
+
+// IPC writes are per-key, not whole snapshots. Pending local choices overlay incoming
+// broadcasts until their own write settles, so late reads cannot erase user input.
+const DESKTOP_NAMES = PREF_NAMES.filter(name => !['noticeChannels', 'noticeNotifications'].includes(name));
+let desktopState = null;
+function localBridge() {
+  const bridge = globalThis.window?.lushDesktop;
+  return bridge?.mode === 'local' && typeof bridge.readPreferences === 'function' && typeof bridge.writePreference === 'function'
+    && typeof bridge.resetPreferences === 'function' ? bridge : null;
+}
+function currentDesktop() {
+  return desktopState && desktopState.bridge === localBridge() && desktopState.project === projectRoute()
+    && desktopState.origin === globalThis.location?.origin ? desktopState : null;
+}
+function desktopRaw(state, name) { return state.pending.get(name)?.raw ?? state.values[name] ?? null; }
+function applyDesktopSnapshot(state, snapshot) {
+  if (currentDesktop() !== state || snapshot?.project !== state.project || !Number.isSafeInteger(snapshot.revision)
+    || snapshot.revision < 0 || snapshot.revision < state.revision || !snapshot.values || typeof snapshot.values !== 'object' || Array.isArray(snapshot.values)) return;
+  const before = Object.fromEntries(DESKTOP_NAMES.map(name => [name, desktopRaw(state, name)]));
+  state.values = Object.fromEntries(DESKTOP_NAMES.filter(name => Object.hasOwn(snapshot.values, name) && typeof snapshot.values[name] === 'string')
+    .map(name => [name, snapshot.values[name]]));
+  state.revision = snapshot.revision;
+  for (const name of DESKTOP_NAMES) if (before[name] !== desktopRaw(state, name)) notify(name, readPref(name));
+}
+/** Restore before boot reads UI state. Loading defaults never writes back to the Host. */
+export async function initDesktopPreferences() {
+  const bridge = localBridge();
+  if (!bridge) { desktopState?.off?.(); desktopState = null; return; }
+  let state = currentDesktop();
+  if (!state) {
+    desktopState?.off?.();
+    state = desktopState = { bridge, project: projectRoute(), origin: globalThis.location?.origin, values: {}, pending: new Map(),
+      revision: -1, error: '', queue: Promise.resolve(), off: null };
+    state.off = bridge.onPreferencesChanged?.(snapshot => applyDesktopSnapshot(state, snapshot));
+  }
+  state.queue = state.queue.then(async () => {
+    try { applyDesktopSnapshot(state, await bridge.readPreferences()); if (!state.pending.size) state.error = ''; }
+    catch (error) { state.error = error.message || '无法读取桌面偏好'; }
+  });
+  await state.queue;
+}
+function queueDesktop(state, operation, pending) {
+  state.queue = state.queue.then(async () => {
+    if (currentDesktop() !== state) return; // Never send old-page choices under a new main-frame project identity.
+    try {
+      const snapshot = await operation();
+      for (const [name, choice] of pending) if (state.pending.get(name) === choice) state.pending.delete(name);
+      const recovered = state.error && !state.pending.size;
+      if (!state.pending.size) state.error = '';
+      applyDesktopSnapshot(state, snapshot);
+      if (recovered && currentDesktop() === state) notify('theme', readPref('theme'));
+    } catch (error) {
+      state.error = error.message || '无法保存桌面偏好'; // Keep the explicit session choices and disk file untouched.
+      if (currentDesktop() === state) notify('theme', readPref('theme'));
+    }
+  });
+}
+export function preferenceStorageStatus() { const state = currentDesktop(); return { desktop: Boolean(state), error: state?.error || '' }; }
+/** Testing / explicit callers may await persistence; ordinary preference setters stay synchronous. */
+export async function flushDesktopPreferences() { await currentDesktop()?.queue; return preferenceStorageStatus(); }
 
 const repainters = new Map();
 
@@ -199,6 +271,15 @@ export function setPref(name, value) {
 
 /** 删掉全部受管键（含历史键），逐项通知回默认值。 */
 export function resetPrefs() {
+  const state = currentDesktop();
+  if (state) {
+    const pending = new Map();
+    for (const name of DESKTOP_NAMES) {
+      const choice = { raw: PREF_DEFS[name].format(defaultValue(PREF_DEFS[name])) };
+      state.pending.set(name, choice); pending.set(name, choice);
+    }
+    queueDesktop(state, () => state.bridge.resetPreferences(), pending);
+  }
   for (const name of PREF_NAMES) {
     const def = PREF_DEFS[name];
     removeRaw(prefKey(def));

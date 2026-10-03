@@ -5,6 +5,43 @@ import { createHash, randomUUID } from 'node:crypto';
 const MAX_RECENT = 12;
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 
+// Only serialized UI preferences, never renderer-selected storage keys or paths.
+const SHARED_UI = new Set(['theme', 'markdown', 'reduceMotion', 'polling', 'toastDuration', 'transcriptOrder']);
+const PROJECT_UI = new Set(['sidebarSort', 'collapsed', 'filters', 'taskGraphStatuses', 'taskGraphMinimal', 'taskGraphCollapsed']);
+const UI_ENUMS = { theme: ['system', 'light', 'dark'], markdown: ['0', '1'], reduceMotion: ['0', '1'],
+  polling: ['fast', 'standard', 'power'], toastDuration: ['short', 'standard', 'long'], transcriptOrder: ['asc', 'desc'],
+  sidebarSort: ['smart', 'updated', 'id'], taskGraphMinimal: ['0', '1'] };
+const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+function uiValue(name, value) {
+  if ((!SHARED_UI.has(name) && !PROJECT_UI.has(name)) || typeof value !== 'string' || value.length > 65536) throw new Error('invalid UI preference');
+  if (Object.hasOwn(UI_ENUMS, name)) {
+    if (!UI_ENUMS[name].includes(value)) throw new Error('invalid UI preference value');
+  } else {
+    const parsed = JSON.parse(value);
+    if (name === 'filters') {
+      const fields = { tasks: ['status', 'role', 'integration', 'mine', 'text'], specs: ['status', 'planner', 'role', 'text'], intents: ['gate', 'status', 'text'] };
+      if (!object(parsed) || Object.keys(parsed).some(section => !Object.hasOwn(fields, section))) throw new Error('invalid UI filters');
+      for (const [section, row] of Object.entries(parsed)) {
+        if (!object(row) || Object.keys(row).some(key => !fields[section].includes(key))) throw new Error('invalid UI filters');
+        for (const [key, item] of Object.entries(row)) {
+          if (key === 'mine' ? typeof item !== 'boolean' : !(typeof item === 'string' || (section === 'tasks' && ['status', 'role'].includes(key) && Array.isArray(item) && item.every(v => typeof v === 'string')))) throw new Error('invalid UI filters');
+        }
+      }
+    } else if (!Array.isArray(parsed) || !parsed.every(item => typeof item === 'string' || (name === 'taskGraphCollapsed' && Number.isSafeInteger(item) && item > 0))) throw new Error('invalid UI preference collection');
+  }
+  return value;
+}
+function uiProject(id) {
+  if (id !== null && (typeof id !== 'string' || !/^[a-f0-9]{16}$/.test(id))) throw new Error('invalid UI preference project');
+}
+function uiProjection(source, names) {
+  const out = {};
+  for (const name of names) if (object(source) && Object.hasOwn(source, name)) {
+    try { out[name] = uiValue(name, source[name]); } catch { /* Corrupt individual preferences default, not arbitrary metadata. */ }
+  }
+  return out;
+}
+
 // Build a fresh whitelist projection: no coercion, inherited keys or arbitrary metadata.
 function normalizeNoticePreferences(value) {
   const object = entry => entry !== null && typeof entry === 'object' && !Array.isArray(entry);
@@ -46,7 +83,7 @@ export function isProjectPage(value) {
   catch { return false; }
 }
 
-/** Metadata only; login cookies belong to Electron's per-Host session partition. */
+/** Client metadata / managed UI only; login cookies belong to Electron's per-Host session partition. */
 export class ConnectionStore {
   constructor(dir) { this.dir = dir; this.file = path.join(dir, 'connections.json'); }
   read() {
@@ -84,6 +121,41 @@ export class ConnectionStore {
     const tmp = `${this.file}.${randomUUID()}.tmp`;
     try { fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600, flag: 'wx' }); fs.renameSync(tmp, this.file); }
     finally { fs.rmSync(tmp, { force: true }); }
+  }
+  // A separate file keeps failed UI reads/writes from altering connection or notification records.
+  readUiPreferences() {
+    const file = path.join(this.dir, 'ui-preferences.json');
+    let raw;
+    try { raw = JSON.parse(fs.readFileSync(file, 'utf8')); }
+    catch (error) { if (error.code === 'ENOENT') return { version: 1, revision: 0, shared: {}, projects: {} }; throw error; }
+    if (!object(raw) || raw.version !== 1 || !Number.isSafeInteger(raw.revision) || raw.revision < 0 || !object(raw.shared) || !object(raw.projects)) throw new Error('invalid stored UI preferences');
+    const projects = {};
+    for (const [id, values] of Object.entries(raw.projects)) if (/^[a-f0-9]{16}$/.test(id)) projects[id] = uiProjection(values, PROJECT_UI);
+    return { version: 1, revision: raw.revision, shared: uiProjection(raw.shared, SHARED_UI), projects };
+  }
+  uiPreferences(project, change) {
+    uiProject(project);
+    if (change !== undefined && (!object(change) || (change.reset === true
+      ? !Object.hasOwn(change, 'reset') || Object.keys(change).length !== 1
+      : Object.keys(change).length !== 2 || !Object.hasOwn(change, 'name') || !Object.hasOwn(change, 'value')))) throw new Error('invalid UI preference change');
+    if (change && change.reset !== true) {
+      uiValue(change.name, change.value);
+      if (PROJECT_UI.has(change.name) && project === null) throw new Error('project UI preference requires a project page');
+    }
+    const state = this.readUiPreferences(); // Non-ENOENT failures must never be turned into an empty write.
+    if (change) {
+      if (change.reset === true) { state.shared = {}; if (project !== null) delete state.projects[project]; }
+      else {
+        const values = SHARED_UI.has(change.name) ? state.shared : (state.projects[project] ??= {});
+        values[change.name] = change.value;
+      }
+      state.revision++;
+      const file = path.join(this.dir, 'ui-preferences.json'), tmp = `${file}.${randomUUID()}.tmp`;
+      fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+      try { fs.writeFileSync(tmp, `${JSON.stringify(state)}\n`, { mode: 0o600, flag: 'wx' }); fs.renameSync(tmp, file); }
+      finally { fs.rmSync(tmp, { force: true }); }
+    }
+    return { project, revision: state.revision, values: { ...state.shared, ...(project === null ? {} : state.projects[project]) } };
   }
   list() { return this.read().recent; }
   remember(value) {

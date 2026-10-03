@@ -36,8 +36,8 @@ ssh -N -p 2222 -L 127.0.0.1:14318:127.0.0.1:4318 user@remote-machine
 
 ## 登录、记录与通知
 
-- 登录 Cookie 和页面偏好按 Host origin 使用独立、持久化的 Electron 会话；本地模式使用另一会话分区。相同 Host 的多个窗口共享登录，不同 Host 不共享。SSH 转发端口是 origin 的一部分；不要把同一本地端口复用为不同远端，否则会被视为同一个 Host。
-- 最近连接最多保存 12 个地址，写在 Electron userData 下的 `connections.json`，仅保存入口元数据与按 Host 的通知开关、告知分类渠道偏好，不保存密码、项目数据库或 Agent 凭证。分类设置与已读语义见[待决问题与告知](../reference/rpc/notices.md#页面告知条与分类设置)。
+- 登录 Cookie 和远程页面偏好按 Host origin 使用独立、持久化的 Electron 会话；本地模式使用另一会话分区。本地非通知受管界面偏好另外保存在桌面 userData 中，随机端口变化不会丢失；外观 / 行为本地共享、视图偏好按稳定项目 ID 隔离，远端 / 浏览器不共享，见[桌面偏好契约](../engineering/desktop-preferences.md)。相同 Host 的多个窗口共享登录，不同 Host 不共享。SSH 转发端口是 origin 的一部分；不要把同一本地端口复用为不同远端，否则会被视为同一个 Host。
+- 最近连接最多保存 12 个地址，写在 Electron userData 下的 `connections.json`，仅保存入口元数据与按 Host 的通知开关、告知分类渠道偏好；本地受管 UI 偏好使用独立 `ui-preferences.json`，不保存密码、项目数据库或 Agent 凭证。分类设置与已读语义见[待决问题与告知](../reference/rpc/notices.md#页面告知条与分类设置)。
 - 「仅移除记录」只移除快捷入口，不清除登录 Cookie、不关闭已打开窗口，也不停止服务。退出登录使用远端页面的退出入口。
 - 系统通知默认关闭，在对应 Host 窗口的设置中开启；不同 Host 的开关独立。通知点击只聚焦发出通知的项目窗口，并打开该窗口的「待我处理」。窗口关闭后不再提醒，不提供后台推送。
 

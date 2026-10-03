@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fixture, git, repo } from '../helpers.js';
+import { env, fixture, git, repo } from '../helpers.js';
 import { forkCheckpoint } from '../../src/agent/fork.js';
 import { PiProvider } from '../../src/agent/provider.js';
 
@@ -27,8 +27,8 @@ test('commit adapter records a Pi entry and a child forks from that exact commit
     fs.writeFileSync(path.join(task.workspace, 'file.txt'), 'committed by parent\n');
     await git(task.workspace, 'add', 'file.txt');
     const commit = spawnSync(gitAdapter, ['commit', '-m', 'parent change'], { cwd: task.workspace, encoding: 'utf8',
-      env: { ...process.env, LUSH_PROJECT: f.root, LUSH_TASK_ID: String(task.id),
-        LUSH_RUNTIME_CONTEXT: JSON.stringify({ run_id: runId }) } });
+      env: env({ LUSH_PROJECT: f.root, LUSH_TASK_ID: String(task.id),
+        LUSH_RUNTIME_CONTEXT: JSON.stringify({ run_id: runId }) }) });
     expect(commit.status).toBe(0);
     const sha = await git(task.workspace, 'rev-parse', 'HEAD');
     const pointer = f.store.get('SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', sha);

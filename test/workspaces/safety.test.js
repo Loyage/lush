@@ -7,12 +7,12 @@ import { Store } from '../../src/persistence/store.js';
 import { Workspaces } from '../../src/core/workspaces.js';
 import { HANDLERS } from '../../src/rpc/dispatcher.js';
 import { assertAllowed } from '../../src/rpc/registry.js';
+import { env } from '../helpers.js';
 
-// Exercise this boundary without importing Project, whose removal is a separate task.
+// Exercise this boundary without constructing a Project fixture.
 async function setup() {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-safety-')));
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LUSH_')));
-  const config = new Config({ project: root, env: { ...env, LUSH_PROVIDER: 'mock' } }); config.prepare();
+  const config = new Config({ project: root, env: env() }); config.prepare();
   const store = new Store(path.join(config.home, 'project.db'), root);
   const workspaces = new Workspaces(config, store);
   const git = (...args) => workspaces.git(root, ...args);

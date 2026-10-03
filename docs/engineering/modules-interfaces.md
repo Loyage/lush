@@ -47,10 +47,11 @@
 | `rpc/handlers/candidate.js` | 历史 `candidate.*`：源码保留，不在白名单 | `handlers` |
 | `rpc/dispatcher.js` | 合并 handler 表（查重名、查漏），校验后分派 | `class Dispatcher` |
 
-## 构建脚本：`scripts/`
+## 开发与构建脚本：`scripts/`
 
 | 文件 | 职责 | 导出 / 命令 |
 |---|---|---|
+| `scripts/measure-read-performance.js` | 临时 fixture 的同进程读面 / DOM stub / 事件循环重复采样，逐样本保留既有预算，代码及 OS / Bun / Git 身份与显式 JSON 输出；无 CI / 生产改动 | `parseOptions(args)`、`summarize(values)`、`collectEnvironment(root?,env?)`、`buildReport(samples,environment,startedAt,finishedAt)`、`writeReport(report,output)`、`THRESHOLDS`；`bun run measure:read-performance [--samples N] [--output PATH]`，契约见[本地读取性能报告](../contributing/read-performance.md) |
 | `scripts/build-desktop.js` | Windows x64 远程 Electron 客户端白名单 staging、固定版本 electron-builder / NSIS 配置、ASAR 内容与源码一致性校验、安装器 SHA-256；生成物只写入忽略的 `node_modules/lush-desktop-build/`，不复制 Host / daemon / Bun / `.lush` / 凭证，不自动发布或签名 | `APP_FILES`、`BUILD_DIR`、`buildPaths(root?)`、`stageDesktop(root?)`、`validateStage(app)`、`verifyArchive(archive, app)`、`builderConfig(root?)`、`writeChecksums(output)`；`bun run desktop:stage:win` / `desktop:build:win` / `desktop:verify:win` |
 
 `.github/workflows/windows-desktop.yml` 在 Windows runner 实际生成并校验 NSIS 安装器，手动、相关 PR 或 main 提交触发，仅上传 14 天保留的安装器与校验和 artifact。无 tag 发布、GitHub Release 写权限或签名密钥；真实 Windows 安装与远程连接仍需人工验收。Windows 主入口不得静态导入未打包的 `local-host.js`；非 Windows 本地入口须按平台延迟加载，不进入远程包。
@@ -82,6 +83,7 @@
 | 执行过程阅读 | `test/transcript*.test.js`、`test/web/{transcript-reader,dom-transcript-reader,dom-transcript-view,dom-results}.test.js` |
 | Agent 状态 | `test/agent/{status,usage-query,usage-settings,codex-usage-parsing,usage-auth-codex}.test.js`（fake Pi SDK、密钥命令不执行、脱敏身份、内置/HTTP mock 查询、独立Codex刷新/锁/写回和安全设置）、`test/project/{agent-usage,agent-usage-provider,codex-usage-history}.test.js`（存储/定时采样/热更新/有界历史/联调）、`test/web/{agent-status-api,agent-usage-api,dom-agent-status,dom-agent-usage}.test.js`（用户鉴权/项目路由、配置表单/缓存曲线/异步状态） |
 | 运行设置与 Agent | `test/runtime-settings.test.js`、`test/config*.test.js`、`test/agent-settings.test.js`、`test/soft-budget.test.js` |
+| 本地性能报告契约 | `test/read-performance.test.js`（参数 / 统计 / 原样本预算 / 输出不覆盖 / Git 身份与降级；不在通用套件重复运行大规模测量） |
 | 测试环境隔离 | `test/helpers.test.js`（子进程 HOME/XDG 与全局/系统 Git 配置隔离、合成 hook/签名/环境污染及退出回收；生产 Git 环境不变） |
 | 文档 | `test/docs-check.test.js`、`test/docs-search.test.js`、`test/markdown.test.js`、`test/mermaid-docs.test.js`、`test/web/docs.test.js` |
 | 历史兼容与安全 | `test/input-routes.test.js` 仅保留旧配置格式校验；`test/{butler,explainer}-provider.test.js` 保留无工具/无凭证隔离；`test/web/dom-merge.test.js` 保留旧 Notice 审批语义；历史记录读取、删除共享引用与交付恢复由各现行分区覆盖。旧 Candidate 命令、快速路由匹配、休眠批量交付面板和项目统计的成功路径测试已移除；拒绝旧公开入口由 core-api / help-guard 覆盖 |

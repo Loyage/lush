@@ -10,8 +10,7 @@
 |---|---|
 | [Git / Worktree 与交付](02-git-worktrees.md) | G-03 更强外部并发隔离；现有漂移检测不等于消除竞态 |
 | [安全与边界](03-security-boundaries.md) | S-04 可信代理与登录限流；真实客户端边界验收 |
-| [Web / 桌面体验](04-web-desktop-experience.md) | U-07 桌面偏好跨随机端口持久化；真实 IME / Electron 验收 |
-| [测试与工程维护](05-testing-maintainability.md) | E-01 非 helper 测试入口隔离、E-02～E-06 剩余契约、兼容、冒烟、Markdown 和性能证据 |
+| [测试与工程维护](05-testing-maintainability.md) | E-02～E-06 剩余契约、兼容、真实 IME / Electron 验收、Markdown 与真实 RPC / CI 性能证据 |
 | [多项目工作台](multi_proj/README.md) | Host 总连接 / 摘要并发预算与真实多客户端验收 |
 
 ## 已完成范围的现行入口
@@ -26,6 +25,10 @@
 - 多项目请求身份与 Host 职责：[三层边界](../engineering/host-boundary.md)。
 
 功能完成不代表所有平台、真实浏览器或生产规模都已验收；剩余测量与兼容投入保留在工程及多项目专题中。各专题的旧基线、行号、日志和“本轮”状态是历史记录，不替代当前验证。
+
+2026-10-03 继续核实 `47239f4` 并按 Notice #103 实施 U-07、E-01 和 E-06 本地报告；默认测试已拆出 packaging，真实 Firefox 专项已存在，不再照旧提出从零引入浏览器测试。实施范围与未批准边界见[最新建议](00-priorities.md#最新建议2026-10-03核实-47239f4)，集成验证范围见[工程专题](05-testing-maintainability.md#最新核实2026-10-03基线-47239f4)。
+
+Web / 桌面专题的改进功能已完成，待办文档已删除，历史证据从 Git 查阅。U-07 现行契约见[桌面偏好](../engineering/desktop-preferences.md)；尚未完成的真实 Electron 跨启动与中文 IME 验收统一保留在工程专题 E-04，不恢复已关闭的功能建议。
 
 ## 后续维护
 
