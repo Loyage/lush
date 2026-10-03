@@ -94,20 +94,18 @@ test('左栏导航、待提交意图与批量交付的标注：迁移 title、�
 
 test('设置页的 Agent / 系统按钮按标准补 data-help', async () => {
   const { openSettings } = await import('../../src/ui/web/assets/render-settings.js');
-  openSettings();
+  await dom.node('agent-status-open').onclick();
   const panel = dom.node('detail');
+  await panel.querySelector('button[data-agent-tab="settings"]').onclick();
   const tabOf = id => [...panel.querySelectorAll('button')].find(node => node.dataset.settingsTab === id);
-  // activeTab 是模块级的，跨测试文件共享：别的文件可能把它留在系统页，先显式切回 Agent 再断言。
-  tabOf('agent').onclick();
   expect(buttonOf(panel, '恢复默认 Prompt').getAttribute('data-help')).toContain('保存');
   expect(buttonOf(panel, '单独配置').getAttribute('data-help')).toContain('独立配置');
 
   // 系统页：并发额度的「恢复环境默认」会立即改写运行参数，必须说清后果。
-  tabOf('system').onclick();
+  openSettings(); tabOf('system').onclick();
   expect(buttonOf(panel, '恢复环境默认').getAttribute('data-help')).toContain('并发');
-  // 模块级的 activeTab 是跨测试文件共享的：看完成系统页要切回 Agent，别让后续文件从错误页签开始。
-  tabOf('agent').onclick();
-  expect(deepText(panel)).toContain('按 Worker 行为覆盖');
+  tabOf('interface').onclick();
+  expect(deepText(panel)).toContain('Markdown 渲染');
 });
 
 test('本范围没有 Agent 触发标识：文件里不出现 agent-call / agentHelp', async () => {

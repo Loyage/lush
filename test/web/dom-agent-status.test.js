@@ -1,6 +1,6 @@
 import { test, expect, afterAll } from 'bun:test';
 import fs from 'node:fs';
-import { installDom, deepText } from '../dom-stub.js';
+import { installDom, deepText, findByText } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 
 const fixture = () => ({ version: 1, agent: 'pi', checked_at: '2026-10-01T09:00:00.000Z',
@@ -22,10 +22,12 @@ const fixture = () => ({ version: 1, agent: 'pi', checked_at: '2026-10-01T09:00:
 const json = data => ({ ok: true, json: async () => data });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const world = makeWorld();
-let statusData = fixture(), intercept = null, calls = 0;
+let statusData = fixture(), intercept = null, calls = 0, configIntercept = null, configCalls = 0, configureIntercept = null;
 const dom = installDom({ fetch: (url, options) => {
   const path = String(url);
   if (path === '/api/agent/status') { calls++; return intercept?.() ?? Promise.resolve(json(statusData)); }
+  if (path === '/api/agent/config') { configCalls++; if (configIntercept) return configIntercept(); }
+  if (path === '/api/action' && configureIntercept && JSON.parse(options.body).method === 'agent.configure') return configureIntercept();
   return world.fetchImpl(url, options);
 } });
 const { ui } = await import('../../src/ui/web/assets/state.js');
@@ -47,7 +49,7 @@ test('导航新增 Agent 状态平级页，查询安装、模型、账号与资�
   await dom.node('agent-status-open').onclick();
   expectSelected('agent-status');
   expect(dom.location.hash).toBe('#agent-status');
-  expect(dom.node('view-title').textContent).toBe('Agent 状态');
+  expect(dom.node('view-title').textContent).toBe('Agent 管理');
   expect(dom.node('resource-panels').hidden).toBe(true);
   expect(dom.node('detail').hidden).toBe(false);
   expect(dom.node('sidebar').classList.contains('mobile-open')).toBe(false);
@@ -65,6 +67,81 @@ test('导航新增 Agent 状态平级页，查询安装、模型、账号与资�
   dom.location.hash = '#workers'; await dom.fire('hashchange'); expectSelected('tasks');
   dom.location.hash = '#agent-status'; await dom.fire('hashchange'); expectSelected('agent-status');
   expect(calls).toBe(before + 2);
+});
+
+test('Agent 管理默认状态页，设置页保存编辑草稿，切换与轮询不重查或换页', async () => {
+  await dom.node('home').onclick(); await openAgentStatus();
+  const detail = dom.node('detail'), before = calls, beforeConfig = configCalls;
+  const tab = id => detail.querySelector(`button[data-agent-tab="${id}"]`);
+  const statusPanel = detail.querySelector('.agent-management-status'), settingsPanel = detail.querySelector('.agent-management-settings');
+  expect(statusPanel.hidden).toBe(false); expect(settingsPanel.hidden).toBe(true);
+  expect(tab('status').getAttribute('aria-selected')).toBe('true');
+  await tab('settings').onclick();
+  expect(statusPanel.hidden).toBe(true); expect(settingsPanel.hidden).toBe(false);
+  expect(tab('settings').getAttribute('aria-selected')).toBe('true'); expect(ui.settingsOpen).toBe(false);
+  expect(refresh().parentNode.hidden).toBe(true);
+  const model = settingsPanel.querySelector('input[data-agent-field="model"]'); model.value = 'unsaved-model';
+  await dom.intervalFor(1500)(); await tab('status').onclick(); await tab('settings').onclick();
+  expect(settingsPanel.querySelector('input[data-agent-field="model"]')).toBe(model);
+  expect(model.value).toBe('unsaved-model'); expect(calls).toBe(before); expect(configCalls).toBe(beforeConfig);
+  expectSelected('agent-status'); expect(dom.location.hash).toBe('#agent-status');
+  await tab('status').onclick(); expect(refresh().parentNode.hidden).toBe(false);
+});
+
+test('完整 Agent 配置仅进入管理设置页时按需读取，单飞且不依赖 overview 快照', async () => {
+  await dom.node('settings-open').onclick();
+  delete ui.lastSnapshot.status.agent_config;
+  const beforeConfig = configCalls; await dom.node('settings-open').onclick();
+  expect(configCalls).toBe(beforeConfig);
+  await dom.node('home').onclick(); delete ui.lastSnapshot.status.agent_config;
+  await openAgentStatus(); expect(configCalls).toBe(beforeConfig);
+  const pending = deferred(); configIntercept = () => pending.promise;
+  ui.lastSnapshot = null;
+  const tab = () => dom.node('detail').querySelector('button[data-agent-tab="settings"]');
+  const first = tab().onclick(), second = tab().onclick();
+  expect(configCalls).toBe(beforeConfig + 1); expect(pageText()).toContain('正在读取 Agent 配置');
+  pending.resolve(json(world.state.agentConfig)); await Promise.all([first, second]); configIntercept = null;
+  expect(pageText()).toContain('默认 Agent'); expect(pageText()).toContain('环境变量');
+  const profile = dom.node('detail').querySelector('[data-agent-target="default"]');
+  profile.querySelector('input[data-agent-field="model"]').value = 'without-overview';
+  await findByText(profile, '保存配置').onclick();
+  expect(world.state.agentConfig.default.model).toBe('without-overview');
+  expect(dom.node('detail').querySelector('input[data-agent-field="model"]').value).toBe('without-overview');
+  await dom.intervalFor(1500)();
+});
+
+test('Agent 配置读取失败可重试，离页迟到响应不能覆盖系统设置或新管理页', async () => {
+  await dom.node('home').onclick(); delete ui.lastSnapshot.status.agent_config;
+  await openAgentStatus(); configIntercept = () => Promise.reject(new Error('配置不可用'));
+  await dom.node('detail').querySelector('button[data-agent-tab="settings"]').onclick();
+  expect(pageText()).toContain('读取 Agent 配置失败：配置不可用');
+  const pending = deferred(); configIntercept = () => pending.promise;
+  const retry = dom.node('detail').querySelector('.agent-management-settings').querySelector('button').onclick();
+  await dom.node('settings-open').onclick();
+  pending.resolve(json(world.state.agentConfig)); await retry; configIntercept = null;
+  expectSelected('settings'); expect(dom.node('detail').querySelector('h1').textContent).toBe('系统设置');
+  expect(dom.node('detail').querySelector('.agent-settings')).toBeNull();
+  delete ui.lastSnapshot.status.agent_config; await openAgentStatus();
+  const old = deferred(); configIntercept = () => old.promise;
+  const stale = dom.node('detail').querySelector('button[data-agent-tab="settings"]').onclick();
+  await dom.node('home').onclick(); await openAgentStatus();
+  configIntercept = () => Promise.resolve(json(world.state.agentConfig));
+  await dom.node('detail').querySelector('button[data-agent-tab="settings"]').onclick();
+  old.resolve(json({ ...world.state.agentConfig, file: 'OLD-CONFIG' })); await stale; configIntercept = null;
+  expect(pageText()).not.toContain('OLD-CONFIG'); expect(pageText()).toContain('默认 Agent');
+  await dom.node('home').onclick(); await openAgentStatus();
+});
+
+test('Agent 配置保存的迟到回调不能抢回已离开的管理页面', async () => {
+  await dom.node('home').onclick(); await openAgentStatus();
+  await dom.node('detail').querySelector('button[data-agent-tab="settings"]').onclick();
+  const pending = deferred(); configureIntercept = () => pending.promise;
+  const saving = findByText(dom.node('detail').querySelector('[data-agent-target="default"]'), '保存配置').onclick();
+  await dom.node('settings-open').onclick();
+  pending.resolve(json(world.state.agentConfig)); await saving; configureIntercept = null;
+  expectSelected('settings'); expect(dom.node('detail').querySelector('h1').textContent).toBe('系统设置');
+  expect(dom.node('detail').querySelector('.agent-settings')).toBeNull();
+  await dom.node('home').onclick(); await openAgentStatus();
 });
 
 test('模型搜索和服务商筛选在本地完成，不调用后台', async () => {
@@ -229,7 +306,9 @@ test('直接链接启动和重复 boot 复用页面身份，旧 boot 请求不�
 test('发布 HTML 包含新导航和受控样式资源，不改变主页面 CSP', () => {
   const html = fs.readFileSync(new URL('../../src/ui/web/assets/index.html', import.meta.url), 'utf8');
   expect(html).toContain('id="agent-status-open"'); expect(html).toContain('/styles-agent-status.css');
-  expect(html).toContain('只读查询当前项目 Pi');
+  expect(html).toContain('<strong>Agent 管理</strong>'); expect(html).toContain('<strong>系统设置</strong>');
+  expect(html).toContain('打开页面不启动 Agent 或模型调用');
+  expect(html).not.toContain('<strong>Agent 状态</strong>');
   const css = fs.readFileSync(new URL('../../src/ui/web/assets/styles-agent-status.css', import.meta.url), 'utf8');
   expect(css).toContain('var(--bg)'); expect(css).toContain('@media(max-width:600px)');
 });

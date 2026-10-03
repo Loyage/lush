@@ -1,4 +1,4 @@
-/** Settings: project Agent profiles, browser-local interface preferences, and read-only daemon information. */
+/** System settings and the Agent settings subpanel used by Agent management. */
 import { $, block, button, el } from './dom.js';
 import { effectiveTheme, systemThemeMedia } from './appearance.js';
 import { action, api } from './api.js';
@@ -13,24 +13,15 @@ import { DEFAULT_INPUT_ROUTES, ROUTE_TARGETS } from './input-routes.js';
 import { serviceRestartControls } from './service-restart.js';
 
 const TABS = [
-  { id: 'agent', label: 'Agent', note: 'Worker 行为与模型' },
   { id: 'interface', label: '界面', note: '阅读、外观与行为' },
   { id: 'system', label: '系统', note: '运行参数与路径' },
 ];
-let activeTab = 'agent';
-let agentConfigPromise = null;
+let activeTab = 'interface';
 
 
 export function openSettings() {
   activateDetailView({ view: 'settings' });
   renderSettings();
-  // The overview summary intentionally omits this large profile; only the settings view asks for it.
-  if (!ui.lastSnapshot?.status?.agent_config && !agentConfigPromise) {
-    agentConfigPromise = api('/api/agent/config').then(config => {
-      if (ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = config;
-      if (ui.settingsOpen) renderSettings();
-    }).catch(error => show(error.message, 'error')).finally(() => { agentConfigPromise = null; });
-  }
 }
 
 function row(title, note, control) {
@@ -146,7 +137,7 @@ function field(label, control, note = '', extraClass = '') {
 const modelCatalogs = new Map();
 let resourceCatalog = null;
 
-function profileEditor(settings, profile, target, title, subtitle) {
+function profileEditor(settings, profile, target, title, subtitle, repaint) {
   const card = el('section', undefined, 'agent-profile'); card.dataset.agentTarget = target;
   const head = el('div', undefined, 'agent-profile-head');
   const copy = el('div'); copy.append(el('h3', title), el('p', subtitle, 'settings-note'));
@@ -326,19 +317,19 @@ function profileEditor(settings, profile, target, title, subtitle) {
     const saved = await action('agent.configure', { config });
     if (ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = saved;
     show(`${title}已保存；正在运行的调用不受影响，下一次调用使用新配置。`);
-    renderSettings();
+    repaint(saved);
   }));
   if (target !== 'default') actions.append(button('恢复继承默认', async () => {
     const roles = { ...settings.roles }; delete roles[target];
     const saved = await action('agent.configure', { config: { version: 1, default: settings.default, roles } });
     if (ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = saved;
-    show(`${title}已恢复继承项目默认配置。`); renderSettings();
+    show(`${title}已恢复继承项目默认配置。`); repaint(saved);
   }, 'ghost', { help: '删除这个角色的单独配置，立即改回继承项目默认 Agent 配置' }));
   card.append(actions);
   return card;
 }
 
-function inheritedRole(settings, role) {
+function inheritedRole(settings, role, repaint) {
   const meta = settings.options.roles.find(item => item.id === role) || { id: role, label: role };
   const resolved = settings.resolved[role];
   const card = el('section', undefined, 'agent-role-summary'); card.dataset.agentTarget = role;
@@ -348,7 +339,7 @@ function inheritedRole(settings, role) {
     const saved = await action('agent.configure', { config: { version: 1, default: settings.default,
       roles: { ...settings.roles, [role]: { ...resolved } } } });
     if (ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = saved;
-    renderSettings();
+    repaint(saved);
   }, 'ghost', { help: '为这个角色建立独立配置；保存后不再跟随默认配置一起变化' }));
   return card;
 }
@@ -372,7 +363,7 @@ async function loadEnvironment(target, force = false) {
   return model;
 }
 
-function environmentEditor(settings) {
+function environmentEditor(settings, repaint) {
   const section = block('环境变量'); section.classList.add('agent-env-block');
   section.append(el('p', '按需读取并编辑 Agent 子进程环境。值返回浏览器后默认遮罩；公共变量先加载，角色变量随后覆盖。保存会规范化 env 文件并移除原注释与排序。', 'settings-note settings-section-note'));
 
@@ -381,11 +372,11 @@ function environmentEditor(settings) {
   const targets = [{ id: 'common', label: '公共 · agent.env' }, ...settings.options.roles.filter(item => item.id === 'agent').map(item => ({ id: item.id, label: `${item.label} · ${item.id}.env` }))];
   for (const item of targets) { const option = el('option', item.label); option.value = item.id; target.append(option); }
   target.value = environmentTarget;
-  target.addEventListener('change', () => { environmentTarget = target.value; renderSettings(); });
+  target.addEventListener('change', () => { environmentTarget = target.value; repaint(); });
   const model = environmentModels.get(environmentTarget);
   const load = button(model ? '重新读取' : '读取变量', async () => {
     load.disabled = true; load.textContent = '读取中…';
-    try { await loadEnvironment(environmentTarget, true); renderSettings(); }
+    try { await loadEnvironment(environmentTarget, true); repaint(); }
     catch (error) { show(error.message, 'error'); load.disabled = false; load.textContent = model ? '重新读取' : '读取变量'; }
   }, 'ghost agent-env-load');
   load.type = 'button';
@@ -410,7 +401,7 @@ function environmentEditor(settings) {
     const reveal = button(entry.visible ? '隐藏' : '显示', () => {
       entry.visible = !entry.visible; value.type = entry.visible ? 'text' : 'password'; reveal.textContent = entry.visible ? '隐藏' : '显示';
     }, 'ghost agent-env-reveal', { help: entry.visible ? '重新遮罩这条环境变量的值；不改变保存内容' : '以明文显示这条环境变量的值；不改变保存内容' }); reveal.type = 'button';
-    const remove = button('删除', () => { rows.splice(index, 1); renderSettings(); }, 'ghost agent-env-remove',
+    const remove = button('删除', () => { rows.splice(index, 1); repaint(); }, 'ghost agent-env-remove',
       { help: '从编辑列表移除这条变量；保存环境变量后才会真正删除' }); remove.type = 'button';
     line.append(name, value, reveal, remove); list.append(line);
   });
@@ -419,7 +410,7 @@ function environmentEditor(settings) {
   const errorBox = el('p', undefined, 'settings-error'); errorBox.hidden = true; errorBox.dataset.envError = '';
   const fail = message => { errorBox.textContent = message; errorBox.hidden = false; show(message, 'error'); };
   const actions = el('div', undefined, 'agent-env-actions');
-  const add = button('新增变量', () => { rows.push({ name: '', value: '', visible: false }); renderSettings(); }, 'ghost'); add.type = 'button'; add.dataset.envAction = 'add';
+  const add = button('新增变量', () => { rows.push({ name: '', value: '', visible: false }); repaint(); }, 'ghost'); add.type = 'button'; add.dataset.envAction = 'add';
   const save = button('保存环境变量', async () => {
     const values = {};
     for (const [index, entry] of rows.entries()) {
@@ -435,7 +426,7 @@ function environmentEditor(settings) {
       const saved = await action('agent.environment.configure', { target: savingTarget, values });
       environmentModels.set(savingTarget, saved); environmentDrafts.delete(savingTarget);
       show(`${savingTarget === 'common' ? '公共' : savingTarget}环境变量已保存；下一次 Agent 调用生效。`);
-      renderSettings();
+      repaint();
     } catch (error) { fail(error.message); save.disabled = false; }
   }, 'primary'); save.type = 'button'; save.dataset.envAction = 'save';
   actions.append(add, save, el('code', model.file, 'settings-path agent-env-path'));
@@ -443,9 +434,9 @@ function environmentEditor(settings) {
   return section;
 }
 
-function agentTab() {
+/** Shared subpanel: its owner supplies configuration and an identity-guarded repaint callback. */
+export function renderAgentSettings(settings, repaint) {
   const content = el('div', undefined, 'settings-tab-panel agent-settings');
-  const settings = ui.lastSnapshot?.status?.agent_config;
   if (!settings) {
     const waiting = block('Agent 配置');
     waiting.append(el('p', '正在等待 daemon 快照。连接建立后可配置 Pi、Codex、模型、思考深度与各 Worker 角色的追加 Prompt。', 'settings-placeholder'));
@@ -454,16 +445,16 @@ function agentTab() {
   const intro = el('div', undefined, 'agent-callout');
   intro.append(el('strong', '项目级 · 动态生效'), el('p', `配置保存在 ${settings.file}。正在运行的调用保持不变，排队 Worker 与后续唤醒会读取最新配置。`, 'settings-note'));
   content.append(intro);
-  content.append(profileEditor(settings, settings.default, 'default', '默认 Agent', '所有未单独配置的 Worker 行为都继承这里。'));
+  content.append(profileEditor(settings, settings.default, 'default', '默认 Agent', '所有未单独配置的 Worker 行为都继承这里。', repaint));
 
   const roles = block('按 Worker 行为覆盖'); roles.classList.add('agent-roles-block');
   roles.append(el('p', '只为需要不同模型、思考深度或工作方式的行为建立覆盖；其余保持继承，后续调整默认值时会一起更新。', 'settings-note settings-section-note'));
   const list = el('div', undefined, 'agent-role-list');
   for (const item of settings.options.roles.filter(item => item.id === 'agent')) {
-    if (settings.roles[item.id]) list.append(profileEditor(settings, settings.roles[item.id], item.id, item.label, `仅用于 ${item.id} 角色。`));
-    else list.append(inheritedRole(settings, item.id));
+    if (settings.roles[item.id]) list.append(profileEditor(settings, settings.roles[item.id], item.id, item.label, `仅用于 ${item.id} 角色。`, repaint));
+    else list.append(inheritedRole(settings, item.id, repaint));
   }
-  roles.append(list); content.append(roles, environmentEditor(settings));
+  roles.append(list); content.append(roles, environmentEditor(settings, repaint));
   return content;
 }
 
@@ -738,9 +729,9 @@ export function renderSettings() {
   const panel = $('detail'); panel.dataset.view = 'settings';
   const view = el('div', undefined, 'settings-view');
   const head = el('div', undefined, 'settings-head');
-  const intro = el('div'); intro.append(el('span', 'PROJECT SETTINGS', 'eyebrow'), el('h1', '设置'), el('p', '项目 Agent 与当前浏览器体验，分开管理。', 'hint'));
+  const intro = el('div'); intro.append(el('span', 'PROJECT SETTINGS', 'eyebrow'), el('h1', '系统设置'), el('p', '管理当前浏览器的界面偏好与项目系统运行参数；Agent 配置请前往“Agent 管理”。', 'hint'));
   head.append(intro); view.append(head, tabBar());
-  view.append(activeTab === 'agent' ? agentTab() : activeTab === 'interface' ? interfaceTab() : systemTab());
+  view.append(activeTab === 'interface' ? interfaceTab() : systemTab());
   panel.replaceChildren(view);
 }
 

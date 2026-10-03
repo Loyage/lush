@@ -21,7 +21,7 @@ const { boot } = await import('../../src/ui/web/assets/app.js');
 const { syncComposer } = await import('../../src/ui/web/assets/composer.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const { renderStatistics } = await import('../../src/ui/web/assets/render-statistics.js');
-const { openSettings } = await import('../../src/ui/web/assets/render-settings.js');
+const { openAgentStatus } = await import('../../src/ui/web/assets/render-agent-status.js');
 await boot();
 afterAll(() => dom.restore());
 
@@ -74,10 +74,9 @@ test('statistics shows bounded attribution and unknown groups without rendering 
 });
 
 test('settings saves optional Pi soft budgets and preserves blank as disabled', async () => {
-  await openSettings();
+  await openAgentStatus();
   const detail = dom.node('detail');
-  // activeTab 是模块级的，跨测试文件共享：别的文件可能把它留在别的页，先显式切回 Agent。
-  detail.querySelector('button.settings-tab[data-settings-tab="agent"]').onclick();
+  await detail.querySelector('button[data-agent-tab="settings"]').onclick();
   const profile = detail.querySelector('[data-agent-target="default"]');
   const responses = profile.querySelector('[data-agent-field="budget_responses"]');
   const tokens = profile.querySelector('[data-agent-field="budget_tokens"]');

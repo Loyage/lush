@@ -14,8 +14,8 @@ dom.node('side-nav').replaceChildren();
 await boot();
 
 afterAll(() => {
-  // activeTab 是模块级的，跨测试文件共享：离开前切回 Agent 页，别让后面的文件从系统页开始。
-  const tab = panel().querySelector('button.settings-tab[data-settings-tab="agent"]');
+  // 系统设置页签是模块级的：离开前切回界面，避免跨测试污染。
+  const tab = panel().querySelector('button.settings-tab[data-settings-tab="interface"]');
   if (tab) tab.onclick();
   dom.restore();
 });
@@ -25,7 +25,10 @@ const openSettings = () => dom.node('settings-open').onclick();
 const openTab = id => panel().querySelector(`button.settings-tab[data-settings-tab="${id}"]`).onclick();
 const openInterface = () => { openSettings(); openTab('interface'); };
 const openSystem = () => { openSettings(); openTab('system'); };
-const openAgent = () => { openSettings(); openTab('agent'); };
+const openAgent = () => {
+  dom.node('agent-status-open').onclick();
+  return panel().querySelector('button[data-agent-tab="settings"]').onclick();
+};
 const systemBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '运行状态') || null;
 const runtimeBlock = () => [...panel().querySelectorAll('.block')]
@@ -39,13 +42,13 @@ test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1
   await dom.intervalFor(1500)();
   expect(panel().dataset.view).toBe('overview');
 
-  openAgent();
+  openInterface();
   expect(dom.location.hash).toBe('#settings');
   expect(panel().dataset.view).toBe('settings');
-  expect(deepText(panel())).toContain('设置');
-  expect(deepText(panel())).toContain('默认 Agent');
-  expect(deepText(panel())).toContain('按 Worker 行为覆盖');
-  await openTab('interface');
+  expect(dom.node('view-title').textContent).toBe('系统设置');
+  expect(panel().querySelector('h1').textContent).toBe('系统设置');
+  expect(panel().querySelectorAll('button.settings-tab').map(node => node.dataset.settingsTab)).toEqual(['interface', 'system']);
+  expect(panel().querySelector('.agent-settings')).toBeNull();
   expect(deepText(panel())).toContain('Markdown 渲染');
   expect(deepText(panel())).toContain('执行过程排序');
   expect(deepText(panel())).toContain('跟随系统');
@@ -272,7 +275,10 @@ test('恢复默认设置：删掉所有偏好键（含历史键）并就地重�
 
 test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可用', async () => {
   await dom.intervalFor(1500)();
-  openAgent();
+  await openAgent();
+  expect(dom.location.hash).toBe('#agent-status');
+  expect(dom.node('view-title').textContent).toBe('Agent 管理');
+  expect(state.ui.settingsOpen).toBe(false);
   let card = panel().querySelector('[data-agent-target="default"]');
   expect(deepText(card)).toContain('修改会替换内置 Prompt');
   const defaultPrompt = card.querySelector('textarea[data-agent-field="default_prompt"]');

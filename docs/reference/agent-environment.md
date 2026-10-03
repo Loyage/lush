@@ -10,7 +10,7 @@
 | `lush agent set/reset …` | `agent.configure` | `{config}`（用户专属） |
 | `lush agent prompt ROLE` | 本地命令 | 按片段查看最终 Prompt 与来源 |
 | `lush agent env ROLE` | 本地命令 | 查看 env 文件与变量名（值隐藏） |
-| Web「设置 → Agent → 环境变量」 | `agent.environment` / `agent.environment.configure` | `{target}` / `{target,values}`（读写都限用户） |
+| Web「Agent 管理 → 设置 → 环境变量」 | `agent.environment` / `agent.environment.configure` | `{target}` / `{target,values}`（读写都限用户） |
 | `lush agent init [ROLE] [--local]` | 本地命令 | 创建共享或本机 Prompt 补充文件 |
 | `lush config [show]` | `system.status`（读 `settings`） | `{}` |
 | `lush config set concurrency|control-concurrency|call-timeout|worker-call-limit|max-depth N` | `system.configure` | `{settings}`，只带要改的键（用户专属） |

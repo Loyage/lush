@@ -88,11 +88,11 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 前端 `task-graph-merge.js` 统一新协议阶段/排序及关系 DOM，子卡片目标只用真实 `parent_id` 与 `target_branch`，不把布局祖先当交付目标。`taskForest` 保留根 ID 降序，只在同一真实父的兄弟槽位按 executing/resolving、requested、其它分组，组内 ID 降序；该顺序不是 runtime 执行次序。`task-graph-motion.js` 为整树刷新记录可见卡片位置，仅同一视图结构下真实兄弟换序播放 250ms FLIP（不移动连线），保留阅读锚点、滚动和焦点；首次加载、筛选、折叠、模式/窗口尺寸变化不播放，编辑、选区、弹层、未结束动效期间暂缓刷新，遵循系统/应用减少动效设置。无后台计时器或全局监听。
 
-## Agent 状态只读查询接缝
+## Agent 管理与状态查询接缝
 
 用量扩展的完整字段与文件契约见 [Agent 额度查询与历史曲线](agent-usage.md)，操作说明见 [Agent 状态](../reference/rpc/agents.md)。
 
-平级页面 `#agent-status`（其他分组，标题「Agent 状态」）。进入页面与手动刷新时读取用户专属 `agent.status` / `GET /api/agent/status`，不纳入 overview 或页面轮询，不启动模型调用。可显式启用 daemon 轻量定时采样，默认关闭、间隔 5 分钟、历史保留 90 天。数据来自当前项目 daemon 的 Pi 命令与公共 + `agent` 角色环境，明确不是浏览器本机或某个已运行 invocation 的状态。
+平级页面 `#agent-status`（其他分组，标题「Agent 管理」，保留原地址）。默认「状态」页签展示查询和用量历史；「设置」页签承接项目默认、Agent 角色覆盖、模型、Prompt、资源与环境变量编辑，按需读取 `/api/agent/config`，保存沿用原接口，不依赖 overview 携带完整配置。页签切换保留状态结果和未保存的设置输入；异步读取与保存按页面身份保护。独立的「系统设置」`#settings` 仅保留界面与系统页签。进入 Agent 管理页面与手动刷新时读取用户专属 `agent.status` / `GET /api/agent/status`，不纳入 overview 或页面轮询，不启动模型调用。可显式启用 daemon 轻量定时采样，默认关闭、间隔 5 分钟、历史保留 90 天。数据来自当前项目 daemon 的 Pi 命令与公共 + `agent` 角色环境，明确不是浏览器本机或某个已运行 invocation 的状态。
 
 读模型 version 1：`{version:1, agent:'pi', query_id, checked_at, current_provider, scope, runtime, models, resources, accounts, warnings, usage_config}`。
 - `scope:{project, role:'agent', note}`；`runtime:{command, executable, real_path, version, config_dir, backend, model, warning}`，读取失败字段为 null 而不伪造。
@@ -110,7 +110,7 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 ## 页面导航与全类型 Worker 列表
 
-- Web 采用平级页面，分组只组织导航：工作（项目概览、Worker树、待我处理、Worker 列表）、其他（Agent 状态、设置、帮助文档）。Worker 详情归属 Worker 列表，文档正文归属帮助文档。
+- Web 采用平级页面，分组只组织导航：工作（项目概览、Worker树、待我处理、Worker 列表）、其他（Agent 管理、系统设置、帮助文档）。Worker 详情归属 Worker 列表，文档正文归属帮助文档。
 - `sidebar-ui.js` 统一页面切换、路由地址、唯一选中项、视图栏、移动端收起与加载占位；`ui.view` 为当前页面身份，异步读面用身份检查阻止迟到响应覆盖新页面。概览导航先画缓存，不依赖 revision 变化或轮询空闲。
 - Worker 列表平铺展示，不补祖先、不显示缩进或兄弟链，排序直接作用于所有命中Worker（智能排序只看Worker自身的状态与更新）；Worker 树页面独立负责父子关系。状态与类型筛选为常展开的即时复选框，同组取并集、跨组取交集，空选与「全部」均表示不限制；偏好兼容旧单值与新数组，轮询保留选项焦点和历史类型选择。
 - `worker.activity(limit?,scope?)` / `worker.page(before?,limit?,scope?)` 增加 `scope='work'|'all'`，省略保留旧 work 口径；Web overview 与历史分页显式请求 all，覆盖 intent/work 两层，继续有界读取，不改 Worker 实体或存储层级。`GET /api/workers` 透传 scope；类型筛选固定提供全部现行角色，兼容历史 scheduler 与未知角色，筛选与搜索范围明确为已加载 Worker，历史分页加载的旧类型不会在后续轮询中被丢弃。
