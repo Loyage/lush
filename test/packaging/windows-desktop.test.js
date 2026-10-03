@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { createPackage } from '@electron/asar';
 import { APP_FILES, BUILD_DIR, buildPaths, stageDesktop, validateStage, verifyArchive, builderConfig, writeChecksums } from '../../scripts/build-desktop.js';
+import { stageDesktopRemotePayload, REMOTE_RESOURCE_FILES, DESKTOP_PAYLOAD_DIR } from '../../scripts/desktop-remote-payload.js';
+import { createRemotePayload } from './remote-fixture.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
@@ -125,6 +127,7 @@ describe('Windows builder and delivery configuration', () => {
     expect(config.win.requestedExecutionLevel).toBe('asInvoker');
     expect(config.publish).toBe(null);
     expect(config.files).toEqual(['package.json', ...APP_FILES]);
+    expect(config.extraResources).toEqual([{ from: path.join(root, DESKTOP_PAYLOAD_DIR), to: 'remote-payload', filter: [...REMOTE_RESOURCE_FILES] }]);
     expect(config.directories.output).toBe(path.join(root, BUILD_DIR, 'dist'));
     // Validate against the actual pinned electron-builder schema, not a mock.
     const { validateConfiguration } = await import('app-builder-lib/out/util/config/config.js');
@@ -134,7 +137,12 @@ describe('Windows builder and delivery configuration', () => {
   test('afterPack verifies the archive and rejects other platforms', async () => {
     const { archive } = await archiveStage();
     const config = builderConfig(root);
-    await config.afterPack({ electronPlatformName: 'win32', appOutDir: path.dirname(path.dirname(archive)) });
+    const appOutDir = path.dirname(path.dirname(archive));
+    await expect(config.afterPack({ electronPlatformName: 'win32', appOutDir })).rejects.toThrow();
+    createRemotePayload(root, path.join(root, 'node_modules/lush-remote-build/payload'));
+    const staged = stageDesktopRemotePayload(root);
+    fs.cpSync(staged, path.join(appOutDir, 'resources/remote-payload'), { recursive: true });
+    await config.afterPack({ electronPlatformName: 'win32', appOutDir });
     await expect(config.afterPack({ electronPlatformName: 'linux' })).rejects.toThrow('Only Windows');
   });
   test('installer checksum has an unambiguous filename and SHA-256', () => {
@@ -161,5 +169,8 @@ describe('Windows builder and delivery configuration', () => {
     expect(workflow.indexOf('bun run desktop:verify:win')).toBeLessThan(workflow.indexOf('actions/upload-artifact@v4'));
     expect(workflow).toContain('if-no-files-found: error');
     expect(workflow).toContain('SHA256SUMS.txt');
+    expect(workflow).toContain('uses: ./.github/workflows/remote-payload.yml');
+    expect(workflow).toContain('needs: remote-payload');
+    expect(workflow).toContain('name: lush-remote-payload');
   });
 });

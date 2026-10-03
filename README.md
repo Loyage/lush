@@ -58,11 +58,11 @@ Lush 提供两种图形化使用方式，两者复用同一份 Web UI 与 API：
 | 本地 Web | 日常使用的主工作台，用浏览器打开 | 在 Lush 源码目录执行 `bun run host`；首次选择项目，之后新窗口落在上次项目，可同时打开多个项目 |
 | 桌面应用 | macOS / Linux 可选择本地目录；Windows 为远程客户端，独立窗口可同时工作 | 源码：先 `bun install`，再 `bun run desktop`；Windows 安装包无需 Bun，见[Windows 客户端](docs/deployment/windows-client.md)与[远程桌面部署](docs/deployment/remote-desktop.md) |
 
-Host 默认只监听本机，远程 Electron 窗口本身不启动监听服务。需要从另一设备访问时，先按[远程 Host 用户说明](docs/deployment/remote-host.md)选择认证 HTTPS 或回环 SSH 隧道，再交给对应 Agent 配置。其它部署形态统一见[用户 / Agent 配套教程索引](docs/deployment/README.md)。
+Host 默认只监听回环。SSH-only Linux 可在本地 Electron 使用[SSH 预检与确认部署](docs/deployment/ssh-desktop.md)，自动建立自有隧道、安装用户私有运行包并打开远端 Host；项目与 Agent 仍在远端。原有认证 HTTPS 和手工隧道见[远程 Host](docs/deployment/remote-host.md)。其它部署形态统一见[用户 / Agent 配套教程索引](docs/deployment/README.md)。
 
 ## 部署文档：用户与 Agent 各一份
 
-你不需要自己完成安装、配置与排错。[部署索引](docs/deployment/README.md)按场景提供配套教程：**用户版解释方案和原因，Agent 版负责帮助配置与验收。** 覆盖 macOS/Linux 本机、远程 Host、远程桌面、Windows 客户端和 WSL2。
+你不需要自己完成安装、配置与排错。[部署索引](docs/deployment/README.md)按场景提供配套教程：**用户版解释方案和原因，Agent 版负责帮助配置与验收。** 覆盖 macOS/Linux 本机、远程 Host、桌面 SSH 首次部署、远程桌面、Windows 客户端和 WSL2。
 
 本机部署先读[用户说明](docs/deployment/local-deployment.md)，再把[Agent 指导](docs/deployment/agent-guide.md)交给你的 coding agent（pi、Codex、Claude Code 等），并说明目标机器与项目；Windows 同机后台先读[WSL2 用户说明](docs/deployment/windows-wsl2.md)。部署 Agent 应先检查现状、询问未知选择，再安装与验证，不默认迁移项目、开放公网或调用付费模型。
 

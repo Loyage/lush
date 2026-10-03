@@ -218,6 +218,11 @@ export async function run(command, args, ctx) {
     check(!client.token, 'agents cannot control web servers');
     check(args.length <= 1, `${command} accepts one port`);
     check(!foreground || HOST_START.includes(command), `${command} has no foreground mode`);
+    if (HOST_START.includes(command)) {
+      // Reject invalid / authenticated SSH scopes before restart can stop an existing Host.
+      const { sshLoopbackOrigin } = await import('../../ui/web/server.js');
+      sshLoopbackOrigin(config.env, config);
+    }
     const control = await import('../../host/control.js');
     const port = resolvePort(args[0], control.liveWebState(config));
     if (command === 'host') value = await webStart(config, port, foreground);

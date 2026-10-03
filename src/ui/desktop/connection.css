@@ -19,6 +19,14 @@ li > button { flex: 1; text-align: left; }
 #connection-error { color: #ffb4ac; }
 #connection-status { color: #8fd6a9; }
 .hint { font-size: 12px; }
+[hidden] { display: none !important; }
+.ssh-plan { margin-top: 16px; padding: 16px; border: 1px solid #486152; border-radius: 8px; background: #18221d; }
+.ssh-plan pre { margin: 12px 0; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #e6efe9; font-size: 12px; }
+.ssh-plan pre:focus-visible { outline: 2px solid #b7e6ca; outline-offset: 3px; }
+#ssh-warnings li { display: list-item; margin-left: 20px; list-style: disc; color: #e8d99a; }
+.ssh-actions { margin-top: 12px; }
+#ssh-connections .ssh-state { color: #a7b8b0; font-size: 12px; }
+h3 { font-size: 15px; }
 .help-tip { position: fixed; z-index: 100; max-width: min(360px, calc(100vw - 24px)); padding: 10px; border: 1px solid #628472; border-radius: 6px; background: #18221d; color: #e6efe9; pointer-events: none; font-size: 13px; }
 .help-tip[hidden] { display: none; }
 @media (max-width: 560px) { main { padding: 18px; } li { flex-wrap: wrap; } }

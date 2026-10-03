@@ -32,7 +32,7 @@ Get-FileHash -Algorithm SHA256 -LiteralPath '.\Lush-<version>-windows-x64-setup.
 4. 经用户同意运行 NSIS 安装器，使用当前用户安装；启动菜单打开 Lush，在连接页填写 Host 根地址打开远程窗口。
 5. 按[桌面远程 Agent 指导](remote-desktop-agent.md#3-打开连接并验证)验收登录、项目身份、重启后的偏好、多窗口与断线。Windows 的“本地窗口”禁用是预期，不启用隐藏开关或尝试启动本机 Bun 后台。
 
-SSH 需保持隧道运行，Electron 不保存密钥或管理重连。卸载客户端不停止远端 Worker；不以删除 `%APPDATA%\Lush\desktop\` 作为默认排错方式。
+内置 SSH 安装 / 接入按[SSH Agent 指导](ssh-desktop-agent.md)执行；手工路线需保持隧道运行。Electron 不保存密钥，也不自动重连。卸载客户端不停止远端 Worker；不以删除 `%APPDATA%\Lush\desktop\` 作为默认排错方式。
 
 ## 4. 仅维护者：构建与交付安装包
 
@@ -45,6 +45,8 @@ bun install --frozen-lockfile
 bun run desktop:build:win
 bun run desktop:verify:win
 ```
+
+构建前还必须把同一可信检出的原生 Linux x64 / ARM64 运行包汇总到 `node_modules/lush-remote-build/payload/`，步骤见[SSH 运行包指导](ssh-desktop-agent.md#源码开发准备运行包)。缺包或身份不匹配会拒绝构建，Windows 不执行 Linux Bun。CI 自动复用原生运行包工作流，手工构建不能跳过这一步。
 
 构建需要联网下载 Electron / NSIS。不得用 Linux staging 或模拟 Windows 测试声称完成 Windows 安装器构建。
 

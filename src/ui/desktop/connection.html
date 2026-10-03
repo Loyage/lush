@@ -27,6 +27,29 @@
       </form>
       <p>登录和项目选择在远端页面完成，项目路径属于远程机器。远程模式不需要本机 Bun。</p>
     </section>
+    <section aria-labelledby="ssh-heading">
+      <h2 id="ssh-heading">通过 SSH 打开服务器</h2>
+      <form id="ssh-form">
+        <label for="ssh-alias">SSH Host 别名 / 主机名</label>
+        <input id="ssh-alias" type="text" maxlength="253" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*" placeholder="my-server" autocomplete="off" spellcheck="false" required aria-describedby="ssh-help">
+        <p id="ssh-help">使用系统 SSH 配置中的 Host。请先在终端执行 ssh my-server，核对主机身份并配置密钥 / ssh-agent。这里不输入或保存密码、私钥或模型凭证。</p>
+        <span class="help-host" data-help="只通过 SSH 检查远端环境与安装计划，不安装服务，不调用模型，也不修改项目"><button id="ssh-inspect" type="submit">预检服务器</button></span>
+      </form>
+      <div id="ssh-plan" class="ssh-plan" hidden aria-labelledby="ssh-plan-heading">
+        <h3 id="ssh-plan-heading">确认远端计划</h3>
+        <p id="ssh-target"></p>
+        <pre id="ssh-plan-details" tabindex="0"></pre>
+        <ul id="ssh-warnings"></ul>
+        <p>仅在 SSH 用户目录安装 Lush 和私有 Bun，不使用 sudo，不更改系统 PATH、防火墙或自启服务。随后启动远端 Host，并由远端页面选择项目、启动或连接其 daemon。Git、Agent 及认证需在远端准备；连接成功不代表模型已就绪。</p>
+        <span class="help-host" data-help="确认展示的服务器与计划后，按需安装 Lush / 私有 Bun并启动远端入口；不复制模型凭证、不重启活动 daemon，也不提交开发请求"><button id="ssh-confirm" type="button">确认连接</button></span>
+      </div>
+      <div class="ssh-actions">
+        <span class="help-host" data-help="取消本次 SSH 检查或连接及尚未使用的安装授权；安装已落地的文件可能保留，不停止远端 Host、daemon 或 Worker"><button id="ssh-cancel" type="button" class="secondary" disabled>取消本次操作</button></span>
+      </div>
+      <h3>SSH 连接记录</h3>
+      <p>记录只保存入口元数据。断开隧道不停止远端开发；已打开的窗口会离线，重新连接不会自动重发 Worker 操作。</p>
+      <ul id="ssh-connections"></ul>
+    </section>
     <p id="connection-status" role="status" aria-live="polite"></p>
     <p id="connection-error" role="alert"></p>
     <section aria-labelledby="recent-heading">

@@ -5,7 +5,7 @@
 ## 使用与部署
 
 1. [项目概览](../README.md)：Lush 是什么、如何启动。
-2. [部署](deployment/README.md)：按场景成对提供用户说明与 Agent 配置指导，覆盖 macOS/Linux 本机、远程 Host、远程桌面、Windows 客户端和 WSL2。先读原因与取舍，再委托配置与验收。
+2. [部署](deployment/README.md)：按场景成对提供用户说明与 Agent 配置指导，覆盖 macOS/Linux 本机、远程 Host、桌面 SSH 首次部署、远程桌面、Windows 客户端和 WSL2。先读原因与取舍，再委托配置与验收。
 3. [一条指令输入如何交付](task-flow.md)：发送、子Worker、合并预约、多轮验收与归档；[历史输入与暂存](input-history.md)：先保存想法、随后发射，以及检索原始指令。
 4. [核心 API 收敛](engineering/core-api.md)：当前公开的 RPC / CLI / Web 能力与已下线边界。
 

@@ -1,61 +1,18 @@
 import { test, expect } from 'bun:test';
-import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import vm from 'node:vm';
-import { createDesktop } from '../../src/ui/desktop/runtime.js';
+import { desktopFixture as fixture } from './runtime-fixture.js';
 
-function fixture(platform = 'linux') {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-desktop-runtime-'));
-  const all = [], notices = [], handlers = new Map(), sessions = new Map(), errors = [], external = [];
-  let starts = 0, stops = 0, picks = 0, failNext = false, template, localUrl = 'http://127.0.0.1:4318/';
-  const app = new EventEmitter();
-  Object.assign(app, { requestSingleInstanceLock: () => true, whenReady: async () => {}, quit: () => app.emit('before-quit') });
-  class BrowserWindow extends EventEmitter {
-    constructor(options) {
-      super(); this.options = options; this.destroyed = false; this.focused = false;
-      const contents = this.webContents = new EventEmitter(); contents.id = all.length + 1;
-      contents.mainFrame = { url: 'about:blank' };
-      if (!sessions.has(options.webPreferences.partition)) {
-        const session = new EventEmitter();
-        session.setPermissionRequestHandler = fn => { session.request = fn; };
-        session.setPermissionCheckHandler = fn => { session.check = fn; };
-        sessions.set(options.webPreferences.partition, session);
-      }
-      contents.session = sessions.get(options.webPreferences.partition);
-      contents.setWindowOpenHandler = fn => { contents.openHandler = fn; };
-      contents.send = (...args) => { contents.sent = args; };
-      all.push(this);
-    }
-    async loadURL(url) { if (failNext) { failNext = false; throw new Error('test network failure'); } this.webContents.mainFrame.url = url; }
-    isDestroyed() { return this.destroyed; }
-    isMinimized() { return false; }
-    show() { this.shown = true; }
-    focus() { this.focused = true; }
-    destroy() { this.destroyed = true; this.emit('closed'); }
-    static getFocusedWindow() { return all.find(win => win.focused && !win.destroyed); }
-  }
-  class Notification extends EventEmitter {
-    constructor(payload) { super(); this.payload = payload; notices.push(this); }
-    static isSupported() { return true; }
-    show() { this.shown = true; }
-    close() { this.closed = true; this.emit('close'); }
-  }
-  const electron = { app, BrowserWindow, Notification,
-    ipcMain: { handle: (name, fn) => handlers.set(name, fn) },
-    Menu: { buildFromTemplate: value => value, setApplicationMenu: value => { template = value; } },
-    shell: { openExternal: async url => external.push(url) },
-    dialog: { showErrorBox: (...args) => errors.push(args), showOpenDialog: async () => { picks++; return { canceled: false, filePaths: ['/local/project'] }; } },
-  };
-  const desktop = createDesktop({ electron, userData: dir, platform, localHost: { start: async () => { starts++; return localUrl; }, stop: () => { stops++; } } });
-  const event = (win, frame = win.webContents.mainFrame) => ({ sender: win.webContents, senderFrame: frame });
-  const invoke = async (name, win, ...args) => handlers.get(name)(event(win), ...args);
-  return { desktop, all, notices, errors, external, event, handlers, invoke, electron,
-    stats: () => ({ starts, stops, picks, template }), fail: () => { failNext = true; },
-    changeLocalUrl: url => { localUrl = url; },
-    close: () => { desktop.dispose(); for (const win of all) if (!win.isDestroyed()) win.destroy(); fs.rmSync(dir, { recursive: true, force: true }); } };
-}
+test('SSH initialization errors preserve local and URL workflows and are reported only on SSH use', async () => {
+  const f = fixture('linux', null, 'SSH 连接记录损坏；未重置记录');
+  try {
+    await f.desktop.start(); const chooser = f.all[0];
+    await expect(f.invoke('lush:ssh-inspect', chooser, { alias: 'server' })).rejects.toThrow('未重置记录');
+    await f.desktop.openLocal(); await f.desktop.openRemote('https://existing.example.com');
+    expect(f.stats().starts).toBe(1); expect(f.all).toHaveLength(3);
+  } finally { f.close(); }
+});
 
 test('connection page starts without Bun, then local and multiple remote windows coexist safely', async () => {
   const f = fixture();
@@ -119,6 +76,12 @@ test('connection preload reports Windows local support without exposing platform
     expect(bridge.platform).toBeUndefined(); expect(bridge.invoke).toBeUndefined();
     bridge.openRemote('https://one.example.com');
     expect(calls).toEqual([['lush:open-remote', 'https://one.example.com']]);
+    bridge.sshList(); bridge.sshInspect({ alias: 'server' });
+    bridge.sshConnect({ confirmation: 'opaque', install: true }); bridge.sshCancel(); bridge.sshDisconnect('record-id');
+    expect(calls.slice(1)).toEqual([['lush:ssh-list'], ['lush:ssh-inspect', { alias: 'server' }],
+      ['lush:ssh-connect', { confirmation: 'opaque', install: true }], ['lush:ssh-cancel'], ['lush:ssh-disconnect', 'record-id']]);
+    expect(Object.keys(bridge).sort()).toEqual(['localSupported', 'list', 'openLocal', 'openRemote', 'remove',
+      'sshList', 'sshInspect', 'sshConnect', 'sshCancel', 'sshDisconnect'].sort());
   }
 });
 
@@ -403,4 +366,167 @@ test('sandboxed preloads expose only mode-specific capabilities, never a generic
     expect(Object.keys(bridge).sort()).toEqual([...(mode === 'local' ? ['chooseProject', 'readPreferences', 'writePreference', 'resetPreferences', 'onPreferencesChanged'] : []),
       'mode', 'noticePreferences', 'notificationSettings', 'notifyNotice', 'platform'].sort());
   }
+});
+
+
+function mockSSH() {
+  const inspected = [], connected = [], disconnected = [];
+  const state = { records: [], needsInstall: true, inspectGate: null, connectGate: null, disposals: 0, failure: null };
+  const manager = {
+    list: async () => state.records,
+    inspect: async profile => {
+      inspected.push(profile);
+      if (state.inspectGate) await state.inspectGate;
+      if (state.failure) throw new Error(state.failure);
+      return { profile, ready: !state.needsInstall, requiresInstall: state.needsInstall,
+        plan: { target: 'linux-x64', install_dir: '/home/remote/.local/share/lush', bun: 'private', version: '0.2.0' }, warnings: ['Agent authentication is not verified'] };
+    },
+    connect: async (profile, options) => {
+      connected.push({ profile, options });
+      if (state.connectGate) await state.connectGate;
+      state.records = [{ ...profile, connected: true }];
+      return { profile, url: 'http://127.0.0.1:14318/' };
+    },
+    disconnect: async id => { disconnected.push(id); state.records = state.records.map(row => row.id === id ? { ...row, connected: false } : row); },
+    dispose: () => { state.disposals++; },
+  };
+  return { manager, state, inspected, connected, disconnected };
+}
+const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+
+test('SSH first install needs a saved preflight and single-use confirmation; managed URLs never become ordinary shortcuts', async () => {
+  const ssh = mockSSH(), f = fixture('win32', ssh.manager);
+  try {
+    await f.desktop.start(); const chooser = f.all[0];
+    await expect(f.invoke('lush:ssh-connect', chooser, { confirmation: 'made-up', install: true })).rejects.toThrow('先预检');
+    expect(ssh.connected).toEqual([]);
+    const inspection = await f.invoke('lush:ssh-inspect', chooser, { alias: 'my-server' });
+    expect(inspection.profile.id).toMatch(/^[a-f0-9]{32}$/);
+    expect(inspection.requiresInstall).toBe(true); expect(inspection.plan.bun).toBe('private');
+    await expect(f.invoke('lush:ssh-connect', chooser, { confirmation: inspection.confirmation, install: false })).rejects.toThrow('明确确认');
+    await expect(f.invoke('lush:ssh-connect', chooser, { confirmation: inspection.confirmation, install: true, profile: { alias: 'evil' } })).rejects.toThrow('先预检');
+    const connected = await f.invoke('lush:ssh-connect', chooser, { confirmation: inspection.confirmation, install: true });
+    expect(ssh.connected).toEqual([{ profile: inspection.profile, options: { install: true } }]);
+    expect(connected.profile).toEqual(inspection.profile);
+    expect(await f.invoke('lush:connections-list', chooser)).toEqual([]);
+    expect(await f.invoke('lush:ssh-list', chooser)).toEqual([{ ...inspection.profile, connected: true }]);
+    const remote = f.all[1];
+    expect(remote.options.title).toContain('SSH my-server');
+    expect(remote.options.webPreferences.partition).toStartWith('persist:lush-ssh-');
+    expect(remote.options.webPreferences.additionalArguments).toEqual(['--lush-desktop-mode=remote']);
+    expect(f.stats().starts).toBe(0);
+    await expect(f.invoke('lush:ssh-connect', chooser, { confirmation: inspection.confirmation, install: true })).rejects.toThrow('先预检');
+    const repeated = await f.invoke('lush:ssh-inspect', chooser, { alias: 'my-server' });
+    expect(repeated.profile).toEqual(inspection.profile); // Typed aliases reuse the persisted identity too.
+    await f.invoke('lush:ssh-cancel', chooser);
+  } finally { f.close(); }
+});
+
+test('SSH identities come from saved records or the main process and cannot be rebound to another alias', async () => {
+  const ssh = mockSSH(), f = fixture('linux', ssh.manager);
+  try {
+    await f.desktop.start(); const chooser = f.all[0];
+    const id = '0123456789abcdef0123456789abcdef';
+    ssh.state.records = [{ id, alias: 'saved-server', connected: false }];
+    const existing = await f.invoke('lush:ssh-inspect', chooser, { alias: 'saved-server' });
+    expect(existing.profile.id).toBe(id);
+    const before = ssh.inspected.length;
+    await expect(f.invoke('lush:ssh-inspect', chooser, { id, alias: 'different-server' })).rejects.toThrow('不能替换服务器');
+    await expect(f.invoke('lush:ssh-inspect', chooser, { id: 'renderer-invented-id', alias: 'new-server' })).rejects.toThrow('未知 SSH 连接身份');
+    expect(ssh.inspected).toHaveLength(before);
+    const generated = await f.invoke('lush:ssh-inspect', chooser, { alias: 'new-server' });
+    expect(generated.profile.id).toMatch(/^[a-f0-9]{32}$/);
+    await f.invoke('lush:ssh-cancel', chooser);
+    const repeated = await f.invoke('lush:ssh-inspect', chooser, generated.profile);
+    expect(repeated.profile).toEqual(generated.profile); // Unsaved, main-generated preflight IDs can be inspected again safely.
+    await expect(f.invoke('lush:ssh-inspect', chooser, { ...generated.profile, alias: 'replacement-server' })).rejects.toThrow('不能替换服务器');
+  } finally { f.close(); }
+});
+
+test('every SSH IPC rejects workspaces, previews, foreign senders and chooser subframes', async () => {
+  const ssh = mockSSH(), f = fixture('linux', ssh.manager);
+  try {
+    await f.desktop.start(); const chooser = f.all[0], remote = await f.desktop.openRemote('https://server.example.com');
+    remote.webContents.openHandler({ url: 'https://server.example.com/api/docs/example' });
+    const preview = f.all.at(-1);
+    for (const name of ['lush:ssh-list', 'lush:ssh-inspect', 'lush:ssh-connect', 'lush:ssh-cancel', 'lush:ssh-disconnect']) {
+      const handler = f.handlers.get(name);
+      for (const event of [f.event(remote), f.event(preview), f.event(chooser, { url: chooser.webContents.mainFrame.url }), { sender: { id: 999 }, senderFrame: {} }]) {
+        await expect(Promise.resolve().then(() => handler(event, { alias: 'server', install: true }))).rejects.toThrow('untrusted');
+      }
+    }
+    expect(ssh.inspected).toEqual([]); expect(ssh.connected).toEqual([]); expect(ssh.disconnected).toEqual([]);
+  } finally { f.close(); }
+});
+
+test('SSH cancellation revokes plans and prevents late checks or connections from opening windows', async () => {
+  const ssh = mockSSH(), f = fixture('linux', ssh.manager);
+  try {
+    await f.desktop.start(); const chooser = f.all[0];
+    const checked = await f.invoke('lush:ssh-inspect', chooser, { alias: 'server' });
+    await f.invoke('lush:ssh-cancel', chooser);
+    await expect(f.invoke('lush:ssh-connect', chooser, { confirmation: checked.confirmation, install: true })).rejects.toThrow('先预检');
+    const gate = deferred(); ssh.state.inspectGate = gate.promise;
+    const pendingCheck = f.invoke('lush:ssh-inspect', chooser, { alias: 'server' });
+    const failedCheck = pendingCheck.catch(error => error);
+    await expect(f.invoke('lush:ssh-inspect', chooser, { alias: 'other' })).rejects.toThrow('正在进行');
+    await f.invoke('lush:ssh-cancel', chooser); gate.resolve();
+    expect((await failedCheck).message).toContain('已取消');
+    expect(ssh.disconnected).toContain(ssh.inspected.at(-1).id);
+    ssh.state.inspectGate = null;
+    const next = await f.invoke('lush:ssh-inspect', chooser, { alias: 'server' });
+    const connectGate = deferred(); ssh.state.connectGate = connectGate.promise;
+    const connecting = f.invoke('lush:ssh-connect', chooser, { confirmation: next.confirmation, install: true });
+    const failedConnect = connecting.catch(error => error);
+    await f.invoke('lush:ssh-cancel', chooser); connectGate.resolve();
+    expect((await failedConnect).message).toContain('已取消');
+    expect(f.all).toHaveLength(1);
+    expect(ssh.disconnected).toContain(next.profile.id);
+  } finally { f.close(); }
+});
+
+test('SSH chooser reload and close invalidate pending authorizations while workspace close keeps its tunnel', async () => {
+  const ssh = mockSSH(), f = fixture('linux', ssh.manager);
+  try {
+    await f.desktop.start(); const chooser = f.all[0];
+    const inspection = await f.invoke('lush:ssh-inspect', chooser, { alias: 'server' });
+    chooser.webContents.emit('did-start-navigation', {}, chooser.webContents.mainFrame.url, false, true);
+    await expect(f.invoke('lush:ssh-connect', chooser, { confirmation: inspection.confirmation, install: true })).rejects.toThrow('先预检');
+    ssh.state.needsInstall = false;
+    const next = await f.invoke('lush:ssh-inspect', chooser, { alias: 'server' });
+    await f.invoke('lush:ssh-connect', chooser, { confirmation: next.confirmation, install: true });
+    expect(ssh.connected.at(-1).options.install).toBe(false); // Cannot use the flag to install without an install plan.
+    const workspace = f.all[1], partition = workspace.options.webPreferences.partition;
+    workspace.webContents.openHandler({ url: 'http://127.0.0.1:14318/p/abcdef0123456789/' });
+    expect(f.all.at(-1).options.webPreferences.partition).toBe(partition);
+    workspace.destroy(); expect(ssh.disconnected).toEqual([]);
+    const ordinary = await f.desktop.openRemote('http://127.0.0.1:14318/');
+    expect(ordinary.options.webPreferences.partition).not.toBe(partition);
+    await f.invoke('lush:ssh-disconnect', chooser, next.profile.id);
+    expect(ssh.disconnected).toContain(next.profile.id);
+    await expect(f.invoke('lush:ssh-disconnect', chooser, 'not-owned')).rejects.toThrow('未知');
+    const beforeClose = await f.invoke('lush:ssh-inspect', chooser, { alias: 'server' });
+    chooser.destroy();
+    const freshChooser = f.desktop.showConnections();
+    await expect(f.invoke('lush:ssh-connect', freshChooser, { confirmation: beforeClose.confirmation, install: false })).rejects.toThrow('先预检');
+    f.desktop.dispose(); f.desktop.dispose();
+    expect(ssh.state.disposals).toBe(1); expect(f.stats().stops).toBe(1);
+  } finally { f.close(); }
+});
+
+test('SSH closed chooser rejects late inspection and strict profile validation does not pass commands to the manager', async () => {
+  const ssh = mockSSH(), f = fixture('linux', ssh.manager);
+  try {
+    await f.desktop.start(); const chooser = f.all[0];
+    for (const value of [null, { alias: '-oProxyCommand=evil' }, { alias: 'server;echo secret' }, { alias: 'user@server' }, { alias: 'server', password: 'secret' }]) {
+      await expect(f.invoke('lush:ssh-inspect', chooser, value)).rejects.toThrow('Host 别名');
+    }
+    expect(ssh.inspected).toEqual([]);
+    const gate = deferred(); ssh.state.inspectGate = gate.promise;
+    const pending = f.invoke('lush:ssh-inspect', chooser, { alias: 'server' });
+    const failed = pending.catch(error => error);
+    chooser.destroy(); gate.resolve();
+    expect((await failed).message).toContain('已取消');
+    expect(ssh.disconnected).toHaveLength(1); expect(f.all).toHaveLength(1);
+  } finally { f.close(); }
 });

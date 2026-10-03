@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { listPackage, statFile, extractFile, uncache } from '@electron/asar';
+import { DESKTOP_PAYLOAD_DIR, REMOTE_RESOURCE_FILES, stageDesktopRemotePayload, verifyDesktopRemotePayload } from './desktop-remote-payload.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Generated output stays in ignored node_modules, never in a project's .lush directory.
@@ -12,6 +13,9 @@ export const APP_FILES = Object.freeze([
   'src/ui/desktop/main.js',
   'src/ui/desktop/runtime.js',
   'src/ui/desktop/connections.js',
+  'src/ui/desktop/ssh.js',
+  'src/ui/desktop/ssh-scripts.js',
+  'src/ui/desktop/ssh-payload.js',
   'src/ui/desktop/preload.cjs',
   'src/ui/desktop/connection-preload.cjs',
   'src/ui/desktop/connection.html',
@@ -99,6 +103,7 @@ export function builderConfig(root = ROOT) {
     appId: 'dev.lush.desktop', productName: 'Lush', electronVersion: pkg.devDependencies.electron,
     directories: { app: paths.app, output: paths.output },
     files: ['package.json', ...APP_FILES], asar: true, npmRebuild: false,
+    extraResources: [{ from: path.join(root, DESKTOP_PAYLOAD_DIR), to: 'remote-payload', filter: [...REMOTE_RESOURCE_FILES] }],
     forceCodeSigning: false, publish: null,
     artifactName: 'Lush-${version}-windows-${arch}-setup.${ext}',
     win: { target: [{ target: 'nsis', arch: ['x64'] }], requestedExecutionLevel: 'asInvoker' },
@@ -107,6 +112,9 @@ export function builderConfig(root = ROOT) {
     afterPack: async context => {
       if (context.electronPlatformName !== 'win32') throw new Error('Only Windows desktop packaging is supported');
       verifyArchive(path.join(context.appOutDir, 'resources', 'app.asar'), paths.app);
+      verifyDesktopRemotePayload(root, path.join(context.appOutDir, 'resources', 'remote-payload'), {
+        stagedDir: path.join(root, DESKTOP_PAYLOAD_DIR),
+      });
     },
   };
 }
@@ -121,15 +129,21 @@ export function writeChecksums(output) {
 
 async function main(mode) {
   const paths = buildPaths();
-  if (mode === '--stage') { stageDesktop(); console.log(`Desktop application staged: ${paths.app}`); return; }
+  if (mode === '--stage') {
+    stageDesktop(); stageDesktopRemotePayload(ROOT);
+    console.log(`Desktop application and verified remote resources staged: ${paths.app}`); return;
+  }
   if (mode === '--verify') {
     const entries = verifyArchive(paths.archive, paths.app);
+    verifyDesktopRemotePayload(ROOT, path.join(path.dirname(paths.archive), 'remote-payload'), {
+      stagedDir: path.join(ROOT, DESKTOP_PAYLOAD_DIR),
+    });
     writeChecksums(paths.output);
     console.log(`Verified ${entries.length} application files; installer checksum written.`); return;
   }
   if (mode === '--build') {
     if (process.platform !== 'win32') throw new Error('Run desktop:build:win on Windows (or use the Windows CI workflow); Linux staging is not a Windows runtime verification.');
-    stageDesktop(); validateStage(paths.app);
+    stageDesktop(); validateStage(paths.app); stageDesktopRemotePayload(ROOT);
     fs.rmSync(paths.output, { recursive: true, force: true });
     // electron-builder runs under Node, not Bun; the installed application uses Electron's own runtime.
     const child = spawnSync('node', [fileURLToPath(import.meta.url), '--builder'], {
@@ -137,7 +151,11 @@ async function main(mode) {
     });
     if (child.error) throw child.error;
     if (child.status !== 0) throw new Error(`electron-builder failed (${child.status ?? child.signal})`);
-    verifyArchive(paths.archive, paths.app); writeChecksums(paths.output);
+    verifyArchive(paths.archive, paths.app);
+    verifyDesktopRemotePayload(ROOT, path.join(path.dirname(paths.archive), 'remote-payload'), {
+      stagedDir: path.join(ROOT, DESKTOP_PAYLOAD_DIR),
+    });
+    writeChecksums(paths.output);
     console.log(`Unsigned Windows x64 NSIS installer: ${paths.output}`); return;
   }
   if (mode === '--builder' && process.platform === 'win32') {

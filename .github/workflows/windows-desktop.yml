@@ -7,20 +7,30 @@ on:
     paths:
       - package.json
       - bun.lock
-      - src/ui/desktop/**
-      - src/ui/web/assets/help.js
+      - src/**
+      - bin/**
+      - docs/**
+      - README.md
+      - scripts/build-remote.js
+      - scripts/desktop-remote-payload.js
       - scripts/build-desktop.js
       - test/packaging/**
+      - .github/workflows/remote-payload.yml
       - .github/workflows/windows-desktop.yml
   push:
     branches: [main]
     paths:
       - package.json
       - bun.lock
-      - src/ui/desktop/**
-      - src/ui/web/assets/help.js
+      - src/**
+      - bin/**
+      - docs/**
+      - README.md
+      - scripts/build-remote.js
+      - scripts/desktop-remote-payload.js
       - scripts/build-desktop.js
       - test/packaging/**
+      - .github/workflows/remote-payload.yml
       - .github/workflows/windows-desktop.yml
 
 permissions:
@@ -31,7 +41,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  remote-payload:
+    uses: ./.github/workflows/remote-payload.yml
+
   installer:
+    needs: remote-payload
     name: Windows x64 NSIS (unsigned, remote only)
     runs-on: windows-2022
     timeout-minutes: 30
@@ -47,8 +61,14 @@ jobs:
           bun-version: 1.4.2
       - name: Install locked build dependencies
         run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: lush-remote-payload
+          path: node_modules/lush-remote-build/payload
+      - name: Verify both private Linux runtimes against this checkout
+        run: bun run scripts/build-remote.js --verify node_modules/lush-remote-build/payload
       - name: Packaging and portable desktop unit tests
-        run: bun test test/packaging test/desktop/connections.test.js test/desktop/runtime.test.js test/desktop/connection-ui.test.js test/desktop/windows-connection-ui.test.js
+        run: bun test test/packaging test/desktop
       - name: Build Windows installer (never publish)
         run: bun run desktop:build:win
       - name: Verify packaged allowlist and SHA-256
@@ -67,7 +87,7 @@ jobs:
           @"
           ## Windows remote desktop installer
           Windows x64 NSIS installer and SHA256SUMS.txt are available in this run's artifact (14 days).
-          The application contains only the Electron remote client and connection-page assets; no Bun, Host, daemon, project state or credentials.
+          The Windows application executes only the Electron client. Reviewed Linux Host/daemon source and private Bun payloads are included as separate resources for consented SSH deployment; no local backend, project state or credentials.
           This build is unsigned: Windows may show SmartScreen / unknown publisher warnings.
           No GitHub Release or update feed was published. Installing and connecting to a real Linux Host still requires a manual Windows acceptance test.
           "@ >> $env:GITHUB_STEP_SUMMARY

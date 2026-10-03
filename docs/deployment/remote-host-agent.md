@@ -14,6 +14,8 @@
 
 ## 2. SSH 隧道路线
 
+SSH-only Linux 的内置桌面预检 / 首次部署见[SSH Agent 指导](ssh-desktop-agent.md)；以下为仍支持的手工配置。
+
 保持远端 Host 的回环模式。先检查对应作用域是否已有 `web.json`；存在时说明它会启用认证和全接口监听，不为了隧道自动删除原配置。
 
 在远端 Lush 源码目录启动显式单项目后台（已有服务先查状态，不重复换版本）：
@@ -26,6 +28,14 @@ bun run host-status --project /srv/projects/demo
 ```
 
 客户端隧道命令与端口隔离规则统一见[远程桌面说明](remote-desktop.md#https-与-ssh-隧道)。先验证 SSH 主机身份，未知指纹让用户核对；不得关闭 host key 检查。转发仅绑定客户端回环地址，不开放 `0.0.0.0`，不同远端不得复用同一本地端口。
+
+默认无认证 Host 要求本地转发端口与远端监听端口相同。若需 `14318 → 4318`，经用户确认，在远端源码目录启动时显式声明：
+
+```bash
+LUSH_WEB_SSH_ORIGIN=http://127.0.0.1:14318 bun run host 4318 --project /srv/projects/demo
+```
+
+此变量只接受带明确端口的 `http://127.0.0.1:PORT`，服务仍仅监听远端回环并检查 Host / Origin。它不能与同作用域 `web.json` 并用；已有 Host 需先核对作用域、版本和入口，再经用户确认重启，不以重复 `host` 自动换配置。自动桌面部署会在独立 profile 中声明该 origin，不改现有公开入口。
 
 先验证远端 HTTP，再验证客户端转发地址；保持隧道终端运行。在浏览器或 Electron 打开转发地址，读取项目状态。断开隧道只断入口，不停止项目 daemon。
 

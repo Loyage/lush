@@ -52,7 +52,11 @@
 | 文件 | 职责 | 导出 / 命令 |
 |---|---|---|
 | `scripts/measure-read-performance.js` | 临时 fixture 的同进程读面 / DOM stub / 事件循环重复采样，逐样本保留既有预算，代码及 OS / Bun / Git 身份与显式 JSON 输出；无 CI / 生产改动 | `parseOptions(args)`、`summarize(values)`、`collectEnvironment(root?,env?)`、`buildReport(samples,environment,startedAt,finishedAt)`、`writeReport(report,output)`、`THRESHOLDS`；`bun run measure:read-performance [--samples N] [--output PATH]`，契约见[本地读取性能报告](../contributing/read-performance.md) |
-| `scripts/build-desktop.js` | Windows x64 远程 Electron 客户端白名单 staging、固定版本 electron-builder / NSIS 配置、ASAR 内容与源码一致性校验、安装器 SHA-256；生成物只写入忽略的 `node_modules/lush-desktop-build/`，不复制 Host / daemon / Bun / `.lush` / 凭证，不自动发布或签名 | `APP_FILES`、`BUILD_DIR`、`buildPaths(root?)`、`stageDesktop(root?)`、`validateStage(app)`、`verifyArchive(archive, app)`、`builderConfig(root?)`、`writeChecksums(output)`；`bun run desktop:stage:win` / `desktop:build:win` / `desktop:verify:win` |
+| `scripts/build-desktop.js` | Windows x64 远程 Electron 客户端白名单 staging、固定版本 electron-builder / NSIS 配置、ASAR 内容与源码一致性校验、安装器 SHA-256；生成物只写入忽略的 `node_modules/lush-desktop-build/`，Windows 应用不执行本机 Host / daemon / Bun；经独立校验的 Linux 运行包只放在 `resources/remote-payload/` 供授权 SSH 部署，不包含 `.lush` / 凭证，不自动发布或签名 | `APP_FILES`、`BUILD_DIR`、`buildPaths(root?)`、`stageDesktop(root?)`、`validateStage(app)`、`verifyArchive(archive, app)`、`builderConfig(root?)`、`writeChecksums(output)`；`bun run desktop:stage:win` / `desktop:build:win` / `desktop:verify:win` |
+| `scripts/build-remote.js` | 原生 Linux x64 / ARM64 私有 Bun 与完整源码白名单运行包，ELF / ustar / 哈希 / 代码身份校验、多架构汇总；生成物在 `node_modules/lush-remote-build/payload/` | `BUILD_DIR`、`BUN_VERSION`、`TARGETS`、`nativeTarget()`、`inspectRuntimeBinary()`、`remoteSourceIdentity(root?)`、`buildRemotePayload()`、`verifyRemotePayload()`、`mergeRemotePayloads()` |
+| `scripts/desktop-remote-payload.js` | 桌面独立 Linux resources 的 staging、两架构完整性、与当前源码身份及已审核 staged 字节的一致性校验；不执行 Linux 二进制 | `REMOTE_RESOURCE_FILES`、`DESKTOP_PAYLOAD_DIR`、`stageDesktopRemotePayload(root, options?)`、`verifyDesktopRemotePayload(root, directory, options?)` |
+
+`.github/workflows/remote-payload.yml` 由原生 Linux x64 / ARM64 runner 构建与烟测，汇总为 `lush-remote-payload` artifact；Windows workflow 复用此工作流，下载并独立校验运行包，再构建客户端。
 
 `.github/workflows/windows-desktop.yml` 在 Windows runner 实际生成并校验 NSIS 安装器，手动、相关 PR 或 main 提交触发，仅上传 14 天保留的安装器与校验和 artifact。无 tag 发布、GitHub Release 写权限或签名密钥；真实 Windows 安装与远程连接仍需人工验收。Windows 主入口不得静态导入未打包的 `local-host.js`；非 Windows 本地入口须按平台延迟加载，不进入远程包。
 
@@ -76,8 +80,9 @@
 | main 版本迭代 | `test/workspaces/version-history.test.js`（SHA-256/Unicode/配置与环境隔离）、`test/project/version-history.test.js`（真实第一父链/多轮交付/历史证据/伪标题/分页/安全大小/无 main）、`test/web/version-history-api.test.js`（RPC 权限/窄参数/认证/Origin/多项目隔离） |
 | Web 读面与安全 | `test/web/{security,assets,read-models,project-route,core-studio,multi-project,launcher}.test.js`；assets 以一次模块图加载冒烟验证资源/CSP，并保留启动与供应资源契约 |
 | Web DOM | `test/web/dom-*.test.js`（各自 `boot()`） |
+| 远端运行包与桌面资源 | `test/packaging/remote-payload.test.js`（归档 / ELF / 哈希 / 固定版本 / 代码身份 / 原生可选烟测）、`desktop-remote-payload.test.js`（resources / 两架构 / 当前源码身份 / 包装字节 / 失败保留）；`remote-fixture.js` 是纯 ELF/ustar 测试数据生成器，不是实际运行时 |
 | Windows 打包 | `test/packaging/windows-desktop.test.js`（白名单 / 清理隔离 / 静态依赖边界 / 真实 ASAR / 固定版本构建配置 schema / 安装器校验和 / CI 交付契约，不冒充 Windows 运行验证） |
-| 桌面连接 | `test/desktop/{connections,runtime,local-host,connection-ui}.test.js`（地址 / 持久化 / 模拟 Electron 安全与窗口 / 真实临时 Host 生命周期 / 连接页 DOM） |
+| 桌面连接与 SSH | `test/desktop/{connections,runtime,local-host,connection-ui,ssh,ssh-connection-ui,windows-connection-ui}.test.js`（窗口 / IPC / 一次安装授权 / 取消 / 元数据 / 隔离 shell 安装）；`test/web/ssh-origin.test.js`（默认与显式 Host / Origin 边界）；可选 `test/integration/ssh-remote-live.test.js`（生产桌面 IPC / 授权 + 真实 sshd、私有 Bun、Host、项目 daemon、重连；仅窗口模拟） |
 | Notice 记录与提醒 | `test/project/{notice-page,notice-info,lifecycle-notice,notice-lifecycle-type,questionnaire}.test.js`、`test/web/{notice-records,notice-notifications,lifecycle-notice-api,overview-lifecycle-notices,dom-lifecycle-notices,settings,questionnaire}.test.js`；真实 Firefox 独立临时 fixture：`bun run ./test/web/check-notice-banner-browser.js`（精确桌面/390px 视口、WebDriver 原生触摸）与 `bun run ./test/web/check-notice-interaction.js`（CSP、键盘/PointerEvents）；两者需 Firefox/geckodriver，不连接用户 daemon |
 | 执行详情代码阅读 | `test/workspaces/code-reader.test.js`（真实临时 Git 工作区、基线/净变化、ignored/链接/外部程序/大文件/历史降级、受阻路径明确失败、长转义路径的字节分页及真实 RPC 帧预算）、`test/workspaces/code-posix.test.js`（真实 openat/readlinkat、换链竞态、FD 回收/CLOEXEC 与 Darwin loader 契约）、`test/web/code-reader-api.test.js`（用户权限、窄参数、认证、Origin、多项目路由） |
 | 执行过程阅读 | `test/transcript*.test.js`、`test/web/{transcript-reader,dom-transcript-reader,dom-transcript-view,dom-results}.test.js` |
@@ -89,6 +94,8 @@
 | 历史兼容与安全 | `test/project/order-compatibility.test.js` 覆盖旧类型只读投影、父类型、名称/路径/原话不变、混合类型唯一索引、父候选、派生、调度告知、历史落地证据与旧入口拒绝；`test/input-routes.test.js` 仅保留旧配置格式校验；`test/{butler,explainer}-provider.test.js` 保留无工具/无凭证隔离；`test/web/dom-merge.test.js` 保留旧 Notice 审批语义；历史记录读取、删除共享引用与交付恢复由各现行分区覆盖。旧 Candidate 命令、快速路由匹配、休眠批量交付面板和项目统计的成功路径测试已移除；拒绝旧公开入口由 core-api / help-guard 覆盖 |
 
 `.github/workflows/code-reader-posix.yml` 独立运行代码读取器的 Linux/macOS 聚焦回归，覆盖最低支持 Bun 1.2.0 和当前固定 Bun 1.4.2；无 native 包或编译步骤。Linux 本地通过不等于 macOS 实测，Darwin loader mock 也不能替代 macOS job 的结果。
+
+`test/desktop/runtime-fixture.js` 共享模拟 Electron 窗口与 IPC 调用环境；不渲染页面，不证明原生桌面行为。
 
 `test/helpers.js`、`test/dom-stub.js` 是被多个文件共用的**公共面**：保持公共签名兼容，改签名会同时影响所有分区。`helpers.env(extra)` 与 `git(root,...args)` 为测试子进程隔离 HOME/XDG、全局/系统 Git 配置及继承的 `GIT_*`；`extra` 可显式注入受控配置，不修改进程级环境或生产 Git 行为。直接自建环境/spawn 的测试需自行隔离。
 

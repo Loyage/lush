@@ -8,6 +8,7 @@
 |---|---|---|
 | macOS / Linux 本机后台 | [本机部署](local-deployment.md) | [本机 Agent 指导](agent-guide.md) |
 | 跨设备访问后台：SSH / 认证 HTTPS | [远程 Host](remote-host.md) | [Host Agent 指导](remote-host-agent.md) |
+| SSH-only Linux：桌面首次部署与接入 | [桌面 SSH 部署](ssh-desktop.md) | [SSH Agent 指导](ssh-desktop-agent.md) |
 | Electron 连接远程项目 | [桌面远程连接](remote-desktop.md) | [桌面连接 Agent 指导](remote-desktop-agent.md) |
 | Windows 浏览器 / 安装包客户端 | [Windows 客户端](windows-client.md) | [Windows 客户端 Agent 指导](windows-client-agent.md)（含维护者构建） |
 | Windows 同机运行 Linux 后台 | [WSL2 方案](windows-wsl2.md) | [WSL2 Agent 指导](windows-wsl2-agent.md) |

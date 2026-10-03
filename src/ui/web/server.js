@@ -152,12 +152,32 @@ function originAllowed(request, url, origins) {
 }
 
 
+/** A managed SSH forward may use a different client port; never accept arbitrary proxy hosts. */
+export function sshLoopbackOrigin(env, config = null) {
+  const value = env.LUSH_WEB_SSH_ORIGIN;
+  if (value === undefined) return null;
+  const match = typeof value === 'string' && /^http:\/\/127\.0\.0\.1:([1-9]\d{0,4})$/.exec(value);
+  check(match && match[0] === value && Number(match[1]) <= 65535,
+    'LUSH_WEB_SSH_ORIGIN must be http://127.0.0.1:PORT with an explicit port from 1 to 65535 (no credentials, path, query or fragment)');
+  const scope = config || launcherWebConfig(env);
+  check(!fs.existsSync(path.join(scope.home, AUTH_FILE)),
+    'LUSH_WEB_SSH_ORIGIN requires an unauthenticated loopback Host; it conflicts with web.json in the selected scope');
+  return new URL(value).origin;
+}
+
 export function startWeb(config, port = 4318, options = {}) {
   check(Number.isInteger(port) && port >= 0 && port <= 65535, 'invalid web port');
+  const env = options.env || config?.env || process.env;
   const launcher = !config;
-  const authConfig = options.authConfig === undefined ? (config || launcherWebConfig(options.env || process.env)) : options.authConfig;
+  // Validate before auth loading can rewrite a plaintext password or a listener is created.
+  const sshOrigin = sshLoopbackOrigin(env, config);
+  const sshHost = sshOrigin ? new URL(sshOrigin).host : null;
+  const authConfig = options.authConfig === undefined ? (config || launcherWebConfig(env)) : options.authConfig;
+  check(!sshOrigin || !authConfig || !fs.existsSync(path.join(authConfig.home, AUTH_FILE)),
+    'LUSH_WEB_SSH_ORIGIN requires an unauthenticated loopback Host; it conflicts with the supplied Web auth configuration');
   const auth = authConfig ? loadAuth(authConfig, { launcher }) : null;
-  const projectHost = createProjectHost(config, { ...options, allowedProjects: launcher ? auth?.projects : null });
+  check(!sshOrigin || !auth, 'LUSH_WEB_SSH_ORIGIN cannot be used with an authenticated Web Host');
+  const projectHost = createProjectHost(config, { ...options, env, allowedProjects: launcher ? auth?.projects : null });
   const sessions = new Map();
   const failures = new Map();
   let hostRestarting = false;
@@ -171,7 +191,7 @@ export function startWeb(config, port = 4318, options = {}) {
     async fetch(request, server) {
       const url = new URL(request.url);
       const host = request.headers.get('host');
-      const localHosts = [`127.0.0.1:${server.port}`, `localhost:${server.port}`];
+      const localHosts = [`127.0.0.1:${server.port}`, `localhost:${server.port}`, ...(sshHost ? [sshHost] : [])];
       if (!host || url.host !== host || (!auth && !localHosts.includes(host))) return new Response('Invalid host', { status: 403 });
       const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
         'Content-Security-Policy': PAGE_CSP };
