@@ -1,8 +1,7 @@
 import { test, expect, afterAll } from 'bun:test';
 import { installDom, deepText, allByTag } from '../dom-stub.js';
 
-// 结算提醒（notice.opened + data.kind='info'）在任务历史里显示成「提醒」，
-// 普通问答 notice 保持「向你提问」。只有这一处显示变化，别的事件语义不变。
+// 中文标题为主，原始事件代码始终可见；提醒与待决问答保持不同语义。
 const dom = installDom({ fetch: async () => new Response('{}') });
 const { renderHistory } = await import('../../src/ui/web/assets/render-history.js');
 afterAll(() => dom.restore());
@@ -16,10 +15,40 @@ test('kind=info 的 notice.opened 显示为「提醒」，question 仍是「向�
     { id: 3, type: 'completed', created_at: at, data: { result: 'done' } },
   ]);
   const text = deepText(list);
+  expect(allByTag(list, 'strong').map(node => node.textContent)).toEqual(['提醒', '向你提问', '完成']);
+  expect(allByTag(list, 'code').map(node => node.textContent)).toEqual(['notice.opened', 'notice.opened', 'completed']);
   expect(text).toContain('提醒');
   expect(text).toContain('向你提问');
   expect(text).toContain('分支 lush/ns/3-work：任务 #3 已完成');
   expect(text).toContain('完成');
+});
+
+test('时间线以中文为主标题，同时保留独立的次要代码字段和事件数据', () => {
+  const events = ['task.reserved', 'merge.enqueued', 'task.merge_integrated', 'invocation.started'].map((type, index) => ({
+    id: index + 1, type, created_at: new Date().toISOString(), data: { marker: '原始字段', call: 2 },
+  }));
+  const before = JSON.stringify(events);
+  const list = renderHistory(events);
+  const labels = ['已预约合并', '合并请求已入队', '已合入父分支', '开始调用'];
+  [...list.children].forEach((item, index) => {
+    const head = item.children[0];
+    expect(head.className).toBe('t-head');
+    expect(head.children[0].tagName).toBe('STRONG');
+    expect(head.children[0].textContent).toBe(labels[index]);
+    expect(head.children[1].tagName).toBe('CODE');
+    expect(head.children[1].className).toBe('t-code');
+    expect(head.children[1].textContent).toBe(events[index].type);
+  });
+  expect(JSON.stringify(events)).toBe(before);
+  expect(deepText(list)).toContain('原始字段');
+});
+
+test('未知事件明确降级为未识别，原始代码按文本安全显示', () => {
+  const type = '<script>alert(1)</script>.unknown';
+  const list = renderHistory([{ type, created_at: new Date().toISOString(), data: {} }]);
+  expect(allByTag(list, 'strong')[0].textContent).toBe('未识别事件');
+  expect(allByTag(list, 'code')[0].textContent).toBe(type);
+  expect(allByTag(list, 'script')).toHaveLength(0);
 });
 
 test('事件历史明确显示截断，并可连续向前加载多页', async () => {

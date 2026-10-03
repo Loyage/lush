@@ -1,5 +1,5 @@
 import { button, el } from './dom.js';
-import { EVENTS, ROLE, absolute, relative, short } from './format.js';
+import { eventLabel, ROLE, absolute, relative, short } from './format.js';
 import { structuredValue } from './structured-value.js';
 import { agentText } from './text.js';
 import { referenceable } from './context-references.js';
@@ -27,9 +27,10 @@ function messageContent({ body, task_id: to, sender_id: from, signal_type: signa
 function eventItem(event, { hot = false, taskId = null } = {}) {
   const item = el('li', undefined, `e-${event.type.replaceAll('.', '-')}${hot ? ' hot' : ''}`);
   const data = event.data || {};
-  // kind='info' 的 notice 是结算提醒，不是「等你决定」的问题；其它事件语义不变。
-  const label = event.type === 'notice.opened' && data.kind === 'info' ? '提醒' : (EVENTS[event.type] || event.type);
-  const head = el('div'); head.append(el('strong', label), el('span', `${relative(event.created_at)} · ${absolute(event.created_at)}`, 't-when'));
+  const label = eventLabel(event);
+  const head = el('div', undefined, 't-head');
+  head.append(el('strong', label), el('code', event.type, 't-code'),
+    el('span', `${relative(event.created_at)} · ${absolute(event.created_at)}`, 't-when'));
   item.append(head);
   let body = '', agent = false, rich = null;
   if (event.type === 'invocation.started') body = `第 ${data.call ?? '?'} 次调用${data.cwd ? ` · ${data.cwd}` : ''}`;
@@ -54,7 +55,7 @@ function eventItem(event, { hot = false, taskId = null } = {}) {
   if (rich) item.append(rich);
   else if (body) item.append(agent ? agentText(body, { className: 't-body' }) : el('div', body, 't-body'));
   if (event.id) referenceable(item, { kind: 'history_event', target: { event_id: event.id, ...(taskId ? { task_id: taskId } : {}) },
-    label: `事件 #${event.id} · ${EVENTS[event.type] || event.type}`, quote: `${EVENTS[event.type] || event.type}${body ? `\n${body}` : ''}`,
+    label: `事件 #${event.id} · ${label}（${event.type}）`, quote: `${label}（${event.type}）${body ? `\n${body}` : ''}`,
     location: { view: 'task-detail', ...(taskId ? { task_id: taskId } : {}), section: 'history' } });
   return item;
 }
