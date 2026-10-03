@@ -26,6 +26,9 @@ li > button { flex: 1; text-align: left; }
 #ssh-warnings li { display: list-item; margin-left: 20px; list-style: disc; color: #e8d99a; }
 .ssh-actions { margin-top: 12px; }
 #ssh-connections .ssh-state { color: #a7b8b0; font-size: 12px; }
+#ssh-config-hosts { max-height: 240px; overflow: auto; padding: 4px; }
+#ssh-config-hosts li > .help-host > button { width: 100%; text-align: left; }
+#ssh-config-status { white-space: pre-wrap; }
 h3 { font-size: 15px; }
 .help-tip { position: fixed; z-index: 100; max-width: min(360px, calc(100vw - 24px)); padding: 10px; border: 1px solid #628472; border-radius: 6px; background: #18221d; color: #e6efe9; pointer-events: none; font-size: 13px; }
 .help-tip[hidden] { display: none; }

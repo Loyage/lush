@@ -78,16 +78,22 @@ function renderSSHPlan(inspection) {
   sshConfirm.textContent = inspection.requiresInstall ? '确认安装并连接' : '确认连接';
   sshPlan.hidden = false; paintBusy();
 }
-function inspectSSH(profile) {
+const sshConnectedMessage = '已打开独立 SSH 工作窗口；连接成功不代表 Agent 已认证。';
+function inspectSSH(profile, connectIfReady = false) {
   if (!sshSupported || busy) return;
   clearSSHPlan();
+  let connected = false;
   void run(async current => {
     const inspection = await bridge.sshInspect(profile);
     if (!current()) return;
     if (inspection.profile?.alias !== sshAlias.value.trim()) throw new Error('服务器已更改，请重新预检');
     selectedSSH = inspection.profile;
-    renderSSHPlan(inspection);
-  }, '正在通过 SSH 预检服务器…', () => sshInspection?.confirmation
+    if (connectIfReady && inspection.ready && !inspection.requiresInstall && inspection.confirmation) {
+      busyKind = 'ssh-connect'; status.textContent = '预检已完成，正在连接已安装的远端入口…'; paintBusy();
+      await bridge.sshConnect({ confirmation: inspection.confirmation, install: false });
+      if (current()) connected = true;
+    } else renderSSHPlan(inspection);
+  }, '正在通过 SSH 预检服务器…', () => connected ? sshConnectedMessage : sshInspection?.confirmation
     ? '预检已完成，请核对服务器与计划后确认。' : '预检尚未就绪，请根据警告修复环境后重试。', 'ssh-inspect');
 }
 async function cancelSSH(message = '已取消本次操作；远端服务与 Worker 不会被停止。') {
@@ -112,11 +118,33 @@ function helpedButton(label, help, action) {
 }
 async function refresh() {
   const revision = ++refreshRevision;
-  const [recent, sshRecords] = await Promise.all([bridge.list(), sshSupported ? bridge.sshList() : []]);
+  const [recentResult, recordsResult, configResult] = await Promise.allSettled([
+    bridge.list(), sshSupported ? bridge.sshList() : [],
+    typeof bridge.sshConfig === 'function' ? bridge.sshConfig() : { hosts: [], warnings: [] },
+  ]);
   if (revision !== refreshRevision) return;
+  const recent = recentResult.status === 'fulfilled' ? recentResult.value : [];
+  const sshRecords = recordsResult.status === 'fulfilled' ? recordsResult.value : [];
+  const configList = document.getElementById('ssh-config-hosts'); configList.replaceChildren();
+  const configStatus = document.getElementById('ssh-config-status');
+  if (configResult.status === 'rejected') {
+    configStatus.textContent = `无法读取本机 SSH 配置：${configResult.reason.message}。仍可手动输入服务器。`;
+  } else {
+    const config = configResult.value;
+    configStatus.textContent = [config.hosts.length ? `找到 ${config.hosts.length} 个 SSH Host。` : '未找到可选择的 SSH Host；可在下方手动输入。', ...config.warnings].join('\n');
+    for (const { alias } of config.hosts) {
+      const row = document.createElement('li');
+      const open = helpedButton(alias, '自动预检此 SSH Host；已安装则直接启动远端入口并连接，首次安装需确认计划；不调用模型', () => {
+        if (busy) return;
+        sshAlias.value = alias; selectedSSH = null;
+        inspectSSH({ alias }, true);
+      });
+      row.append(open); configList.append(row);
+    }
+  }
   const list = document.getElementById('recent-connections');
   list.replaceChildren();
-  if (!recent.length) { const row = document.createElement('li'); row.textContent = '暂无远程连接记录'; list.append(row); }
+  if (!recent.length) { const row = document.createElement('li'); row.textContent = recentResult.status === 'rejected' ? '无法读取远程连接记录；仍可手动输入地址。' : '暂无远程连接记录'; list.append(row); }
   for (const url of recent) {
     const row = document.createElement('li');
     const open = document.createElement('button'); open.type = 'button'; open.textContent = url;
@@ -128,14 +156,13 @@ async function refresh() {
     row.append(open, host); list.append(row);
   }
   const sshList = document.getElementById('ssh-connections'); sshList.replaceChildren();
-  if (!sshRecords.length) { const row = document.createElement('li'); row.textContent = '暂无 SSH 连接记录'; sshList.append(row); }
+  if (!sshRecords.length) { const row = document.createElement('li'); row.textContent = recordsResult.status === 'rejected' ? '无法读取 SSH 连接记录；请检查本机连接记录文件。' : '暂无 SSH 连接记录'; sshList.append(row); }
   for (const record of sshRecords) {
     const row = document.createElement('li');
-    const open = document.createElement('button'); open.type = 'button'; open.textContent = record.alias;
-    open.addEventListener('click', () => {
+    const openHost = helpedButton(record.alias, '自动预检此 SSH 记录；已安装则直接连接，首次安装需确认；不停止远端开发，也不调用模型', () => {
       if (busy) return;
       sshAlias.value = record.alias; selectedSSH = { id: record.id, alias: record.alias };
-      inspectSSH(selectedSSH);
+      inspectSSH(selectedSSH, true);
     });
     const state = document.createElement('span'); state.className = 'ssh-state'; state.textContent = record.connected ? '隧道已连接' : '未连接';
     const disconnect = helpedButton('断开隧道', '仅停止此连接的本地 SSH 隧道；工作窗口会离线，但不停止远端 Host、daemon 或 Worker，也不删除记录', () => {
@@ -144,7 +171,7 @@ async function refresh() {
       void run(async () => { await bridge.sshCancel(); await bridge.sshDisconnect(record.id); }, '正在断开本地 SSH 隧道…', '已断开隧道；远端开发继续运行。');
     });
     disconnect.children[0].className = 'secondary';
-    row.append(open, state, disconnect); sshList.append(row);
+    row.append(openHost, state, disconnect); sshList.append(row);
   }
   paintBusy();
 }
@@ -169,7 +196,7 @@ sshConfirm.addEventListener('click', () => {
   if (busy || !sshInspection?.confirmation || !(sshInspection.ready || sshInspection.requiresInstall)) return;
   const confirmation = { confirmation: sshInspection.confirmation, install: sshInspection.requiresInstall };
   clearSSHPlan();
-  void run(() => bridge.sshConnect(confirmation), confirmation.install ? '正在安装确认的运行包并建立 SSH 隧道…' : '正在启动远端入口并建立 SSH 隧道…', '已打开独立 SSH 工作窗口；连接成功不代表 Agent 已认证。', 'ssh-connect');
+  void run(() => bridge.sshConnect(confirmation), confirmation.install ? '正在安装确认的运行包并建立 SSH 隧道…' : '正在启动远端入口并建立 SSH 隧道…', sshConnectedMessage, 'ssh-connect');
 });
 sshCancel.addEventListener('click', () => { if (!sshCancel.disabled) void cancelSSH(); });
 paintBusy();

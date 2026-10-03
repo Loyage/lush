@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { ConnectionStore, isProjectPage, normalizeHostUrl, sameHost, sessionPartition } from './connections.js';
+import { readSSHConfig } from './ssh-config.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CONNECTION_PAGE = new URL('./connection.html', import.meta.url).href;
@@ -11,7 +12,7 @@ const safeExternal = value => {
 };
 
 /** Electron is injected so window, IPC and lifecycle invariants can be tested without a display. */
-export function createDesktop({ electron, userData, localHost, sshManager = null, sshError = null, platform = process.platform, store = new ConnectionStore(userData) }) {
+export function createDesktop({ electron, userData, localHost, sshManager = null, sshError = null, platform = process.platform, store = new ConnectionStore(userData), sshConfig = readSSHConfig }) {
   const { app, BrowserWindow, dialog, ipcMain, shell, Notification, Menu } = electron;
   const windows = new Map(), banners = new Map(), sessions = new WeakSet();
   const localSupported = platform !== 'win32' && Boolean(localHost);
@@ -258,6 +259,7 @@ export function createDesktop({ electron, userData, localHost, sshManager = null
     ipcMain.handle('lush:open-local', event => { trusted(event, 'chooser'); return openLocal().then(() => true); });
     ipcMain.handle('lush:open-remote', (event, value) => { trusted(event, 'chooser'); return openRemote(value).then(() => true); });
     ipcMain.handle('lush:ssh-list', event => { trusted(event, 'chooser'); return listSSH(); });
+    ipcMain.handle('lush:ssh-config', event => { trusted(event, 'chooser'); return sshConfig(); });
     ipcMain.handle('lush:ssh-inspect', (event, value) => inspectSSH(trusted(event, 'chooser'), value));
     ipcMain.handle('lush:ssh-connect', (event, value) => connectSSH(trusted(event, 'chooser'), value));
     ipcMain.handle('lush:ssh-cancel', event => cancelSSH(trusted(event, 'chooser')).then(() => true));

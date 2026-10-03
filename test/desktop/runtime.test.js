@@ -4,6 +4,21 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { desktopFixture as fixture } from './runtime-fixture.js';
 
+test('SSH config discovery is chooser-only, read-only and independent of SSH metadata or installation', async () => {
+  let reads = 0;
+  const result = { hosts: [{ alias: 'configured-server' }], warnings: [] };
+  const f = fixture('win32', null, 'bad records', () => { reads++; return result; });
+  try {
+    await f.desktop.start(); const chooser = f.all[0];
+    expect(reads).toBe(0);
+    expect(await f.invoke('lush:ssh-config', chooser, { path: '/must-not-be-used' })).toEqual(result);
+    expect(reads).toBe(1); expect(f.stats().starts).toBe(0); expect(f.all).toHaveLength(1);
+    const remote = await f.desktop.openRemote('https://one.example.com');
+    await expect(f.invoke('lush:ssh-config', remote)).rejects.toThrow('untrusted');
+    await expect(f.invoke('lush:ssh-config', chooser)).resolves.toEqual(result);
+  } finally { f.close(); }
+});
+
 test('SSH initialization errors preserve local and URL workflows and are reported only on SSH use', async () => {
   const f = fixture('linux', null, 'SSH 连接记录损坏；未重置记录');
   try {
@@ -76,12 +91,12 @@ test('connection preload reports Windows local support without exposing platform
     expect(bridge.platform).toBeUndefined(); expect(bridge.invoke).toBeUndefined();
     bridge.openRemote('https://one.example.com');
     expect(calls).toEqual([['lush:open-remote', 'https://one.example.com']]);
-    bridge.sshList(); bridge.sshInspect({ alias: 'server' });
+    bridge.sshConfig(); bridge.sshList(); bridge.sshInspect({ alias: 'server' });
     bridge.sshConnect({ confirmation: 'opaque', install: true }); bridge.sshCancel(); bridge.sshDisconnect('record-id');
-    expect(calls.slice(1)).toEqual([['lush:ssh-list'], ['lush:ssh-inspect', { alias: 'server' }],
+    expect(calls.slice(1)).toEqual([['lush:ssh-config'], ['lush:ssh-list'], ['lush:ssh-inspect', { alias: 'server' }],
       ['lush:ssh-connect', { confirmation: 'opaque', install: true }], ['lush:ssh-cancel'], ['lush:ssh-disconnect', 'record-id']]);
     expect(Object.keys(bridge).sort()).toEqual(['localSupported', 'list', 'openLocal', 'openRemote', 'remove',
-      'sshList', 'sshInspect', 'sshConnect', 'sshCancel', 'sshDisconnect'].sort());
+      'sshConfig', 'sshList', 'sshInspect', 'sshConnect', 'sshCancel', 'sshDisconnect'].sort());
   }
 });
 
@@ -449,7 +464,7 @@ test('every SSH IPC rejects workspaces, previews, foreign senders and chooser su
     await f.desktop.start(); const chooser = f.all[0], remote = await f.desktop.openRemote('https://server.example.com');
     remote.webContents.openHandler({ url: 'https://server.example.com/api/docs/example' });
     const preview = f.all.at(-1);
-    for (const name of ['lush:ssh-list', 'lush:ssh-inspect', 'lush:ssh-connect', 'lush:ssh-cancel', 'lush:ssh-disconnect']) {
+    for (const name of ['lush:ssh-config', 'lush:ssh-list', 'lush:ssh-inspect', 'lush:ssh-connect', 'lush:ssh-cancel', 'lush:ssh-disconnect']) {
       const handler = f.handlers.get(name);
       for (const event of [f.event(remote), f.event(preview), f.event(chooser, { url: chooser.webContents.mainFrame.url }), { sender: { id: 999 }, senderFrame: {} }]) {
         await expect(Promise.resolve().then(() => handler(event, { alias: 'server', install: true }))).rejects.toThrow('untrusted');

@@ -5,7 +5,7 @@ import os from 'node:os';
 import { createDesktop } from '../../src/ui/desktop/runtime.js';
 
 // Shared simulated Electron shell. It does not render pages or prove native desktop behavior.
-export function desktopFixture(platform = 'linux', sshManager = null, sshError = null) {
+export function desktopFixture(platform = 'linux', sshManager = null, sshError = null, sshConfig = () => ({ hosts: [], warnings: [] })) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-desktop-runtime-'));
   const all = [], notices = [], handlers = new Map(), sessions = new Map(), errors = [], external = [];
   let starts = 0, stops = 0, picks = 0, failNext = false, template, localUrl = 'http://127.0.0.1:4318/';
@@ -47,7 +47,7 @@ export function desktopFixture(platform = 'linux', sshManager = null, sshError =
     shell: { openExternal: async url => external.push(url) },
     dialog: { showErrorBox: (...args) => errors.push(args), showOpenDialog: async () => { picks++; return { canceled: false, filePaths: ['/local/project'] }; } },
   };
-  const desktop = createDesktop({ electron, userData: dir, platform, sshManager, sshError, localHost: { start: async () => { starts++; return localUrl; }, stop: () => { stops++; } } });
+  const desktop = createDesktop({ electron, userData: dir, platform, sshManager, sshError, sshConfig, localHost: { start: async () => { starts++; return localUrl; }, stop: () => { stops++; } } });
   const event = (win, frame = win.webContents.mainFrame) => ({ sender: win.webContents, senderFrame: frame });
   const invoke = async (name, win, ...args) => handlers.get(name)(event(win), ...args);
   return { desktop, all, notices, errors, external, event, handlers, invoke, electron,

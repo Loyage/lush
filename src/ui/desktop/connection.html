@@ -12,23 +12,15 @@
   <main>
     <h1>Lush</h1>
     <p id="connection-intro">本地与远程使用独立窗口，可以同时工作。窗口关闭不会停止项目 daemon。</p>
-    <section aria-labelledby="local-heading">
-      <h2 id="local-heading">本地项目</h2>
-      <p id="local-help">需要本机已安装 Bun；打开后可选择本地项目目录。</p>
-      <span id="local-help-host" class="help-host"><button id="open-local" type="button" aria-describedby="local-help">打开本地窗口</button></span>
-    </section>
-    <section aria-labelledby="remote-heading">
-      <h2 id="remote-heading">远程 Host</h2>
-      <form id="remote-form">
-        <label for="host-url">Host 根地址</label>
-        <input id="host-url" type="url" maxlength="2048" placeholder="https://lush.example.com" autocomplete="url" spellcheck="false" required aria-describedby="remote-help">
-        <p id="remote-help">只连接你信任的 Lush Host。公网使用 HTTPS；SSH 隧道请自行建立，再填 http://127.0.0.1:端口。这里不保存密码或 SSH 密钥。</p>
-        <button id="open-remote" type="submit">打开远程窗口</button>
-      </form>
-      <p>登录和项目选择在远端页面完成，项目路径属于远程机器。远程模式不需要本机 Bun。</p>
-    </section>
+    <p id="connection-status" role="status" aria-live="polite"></p>
+    <p id="connection-error" role="alert"></p>
     <section aria-labelledby="ssh-heading">
       <h2 id="ssh-heading">通过 SSH 打开服务器</h2>
+      <h3>本机 SSH 配置</h3>
+      <p id="ssh-config-help">读取本机用户 SSH config 及 Include 中的明确 Host 别名，不显示配置原文或密钥。点击服务器后自动预检；已安装则直接连接，首次安装仍需确认计划。</p>
+      <p id="ssh-config-status" role="status" aria-live="polite">正在读取本机 SSH 配置…</p>
+      <ul id="ssh-config-hosts" aria-describedby="ssh-config-help"></ul>
+      <h3>手动输入服务器</h3>
       <form id="ssh-form">
         <label for="ssh-alias">SSH Host 别名 / 主机名</label>
         <input id="ssh-alias" type="text" maxlength="253" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*" placeholder="my-server" autocomplete="off" spellcheck="false" required aria-describedby="ssh-help">
@@ -47,11 +39,24 @@
         <span class="help-host" data-help="取消本次 SSH 检查或连接及尚未使用的安装授权；安装已落地的文件可能保留，不停止远端 Host、daemon 或 Worker"><button id="ssh-cancel" type="button" class="secondary" disabled>取消本次操作</button></span>
       </div>
       <h3>SSH 连接记录</h3>
-      <p>记录只保存入口元数据。断开隧道不停止远端开发；已打开的窗口会离线，重新连接不会自动重发 Worker 操作。</p>
+      <p>点击记录自动预检；已安装则直接连接，首次安装需确认。记录只保存入口元数据。断开隧道不停止远端开发；已打开的窗口会离线，重新连接不会自动重发 Worker 操作。</p>
       <ul id="ssh-connections"></ul>
     </section>
-    <p id="connection-status" role="status" aria-live="polite"></p>
-    <p id="connection-error" role="alert"></p>
+    <section aria-labelledby="local-heading">
+      <h2 id="local-heading">本地项目</h2>
+      <p id="local-help">需要本机已安装 Bun；打开后可选择本地项目目录。</p>
+      <span id="local-help-host" class="help-host"><button id="open-local" type="button" aria-describedby="local-help">打开本地窗口</button></span>
+    </section>
+    <section aria-labelledby="remote-heading">
+      <h2 id="remote-heading">远程 Host</h2>
+      <form id="remote-form">
+        <label for="host-url">Host 根地址</label>
+        <input id="host-url" type="url" maxlength="2048" placeholder="https://lush.example.com" autocomplete="url" spellcheck="false" required aria-describedby="remote-help">
+        <p id="remote-help">只连接你信任的 Lush Host。公网使用 HTTPS；SSH 隧道请自行建立，再填 http://127.0.0.1:端口。这里不保存密码或 SSH 密钥。</p>
+        <button id="open-remote" type="submit">打开远程窗口</button>
+      </form>
+      <p>登录和项目选择在远端页面完成，项目路径属于远程机器。远程模式不需要本机 Bun。</p>
+    </section>
     <section aria-labelledby="recent-heading">
       <h2 id="recent-heading">最近远程连接</h2>
       <p>仅移除记录不会退出登录、关闭窗口或停止远端服务。</p>

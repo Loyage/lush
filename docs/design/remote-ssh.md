@@ -4,6 +4,8 @@
 
 用户从本地 Electron 选择 SSH 服务器，在无 GUI 的远端安装并运行 Lush，打开远端项目。首期自动部署支持 Linux x64 / ARM64；复用系统 SSH 配置、已配置密钥及 ssh-agent。交互式密码、密钥解锁、主机信任建立留给终端；不能关闭主机身份校验。
 
+首屏只读枚举本机用户 SSH config 及 Include 中的明确 Host，免去重填已有服务器。列表不是完整 SSH 配置解释器：不执行 Match exec / ProxyCommand，不展示原文、密钥或凭证；实际连接仍由系统 OpenSSH 解析所选别名。点击配置项或已有记录后自动预检，兼容且已安装则直接连接；首次安装必须展示计划并明确确认。手动输入保留独立预检 / 确认步骤。
+
 允许经用户确认安装用户私有 Bun。安装 Lush 不等于 Agent 已就绪：Git、Pi/Codex 认证及项目构建环境要分别检查，不复制模型凭证、不调用模型验证连接。原有本地、HTTPS 与手工隧道入口保留。
 
 首期实现与模拟 / 隔离 shell 测试已完成，可选真实回环 SSH 测试覆盖私有 Bun、Host、项目 daemon 与重连；跨机器服务器、ARM64、实际 Electron 和 Windows 发布仍需分别验收。使用见[桌面 SSH 部署](../deployment/ssh-desktop.md)。本章是实现契约，不把未验收功能描述成已发布能力。
@@ -52,7 +54,7 @@ archive 根目录包含 `bun`、`bin/`、完整 `src/`、`docs/`、`README.md`�
 - profile 输入：`{id?,alias}`，alias 是安全的 SSH Host 别名 / 主机名，首期不接受自由命令、URL、密码或附加 SSH 参数；id 由可信主进程生成。inspect 返回 `{profile,ready,requiresInstall,plan,warnings}`；plan 是白名单 JSON，展示远端用户目录、版本、平台、安装与启动范围，不含秘密。
 - 已保存 profile 应保持稳定本地入口身份；不同服务器不能因复用回环端口而共享登录 Cookie。端口不可用时不静默改成另一个服务器的 origin。
 - `src/host/`、CLI 与 Web 适配器的 SSH 回环接缝：可显式声明一个仅用于受控 SSH 转发的回环 origin，允许与远端监听端口不同；仍只监听远端回环，仍检查请求 Host 与 Origin，不接受任意域名或全接口监听。默认 Host 的严格行为不能被全局放宽。
-- 可信连接页 / preload / runtime 装配由父 Worker 收口；不得在远端工作窗口增加通用本机执行 IPC。
+- `src/ui/desktop/ssh-config.js` 只读本机用户配置并有界展开 Include；配置枚举仅经可信连接页的窄 IPC 暴露，不能由渲染器指定读取路径。读取失败或缺少配置不得禁用手动、本地和 URL 入口。不得在远端工作窗口增加通用本机执行 IPC。
 
 ## 验收
 
