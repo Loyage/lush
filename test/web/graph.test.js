@@ -9,7 +9,7 @@ test('worker.graph remains read-only; the branch genealogy RPC remains available
     expect(USER_ONLY.has(method)).toBe(false);
     expect(AGENT_ONLY.has(method)).toBe(false);
   }
-  expect(PARAMS['branch.archive']).toEqual(['branch', 'discard']);
+  expect(PARAMS['branch.archive']).toEqual(['branch', 'discard', 'continue']);
   expect(USER_ONLY.has('branch.archive')).toBe(true);
   for (const method of ['branch.merge', 'branch.sync', 'branch.catchup']) expect(PARAMS[method]).toBeUndefined();
 });

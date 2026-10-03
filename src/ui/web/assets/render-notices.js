@@ -20,12 +20,14 @@ const STATUS = { open: '待处理', answered: '已回答', dismissed: '已忽略
 export function initNoticeRecords() {
   const host = $('side-notices-body');
   if (!host) return;
-  const state = ui.noticeRecords = { status: 'open', rows: [], page: null, request: 0, selected: null, task: null, signature: null };
+  const state = ui.noticeRecords = { status: 'open', rows: [], page: null, request: 0, selected: null, task: null, signature: null,
+    observedRevision: ui.lastSnapshot?.revision ?? null, stale: false, loadedPages: 0 };
   const tools = el('div', undefined, 'resource-tools');
   const filters = el('div', undefined, 'filters');
   for (const [value, label] of [['open','待决'],['unread','未读告知'],['answered','已回答'],['dismissed','已忽略'],['all','全部记录']]) {
     const tab = button(label, () => {
       state.status = value; state.page = null; state.rows = []; state.choices = []; state.selected = null;
+      state.stale = false; state.loadedPages = 0;
       $('notice-record-detail')?.replaceChildren();
       for (const node of filters.children) node.setAttribute('aria-pressed', String(node === tab));
       return loadNoticeRecords();
@@ -47,18 +49,30 @@ async function readNoticeRecord(id) {
   return notice;
 }
 
-export async function loadNoticeRecords({ more = false, preserve = false } = {}) {
+export async function loadNoticeRecords({ more = false, preserve = false, reload = false } = {}) {
   const state = ui.noticeRecords;
   if (!state) return;
   if (state.status === 'butler') return loadButlerChoices(state, { more, preserve });
   const request = ++state.request;
   state.pending = true;
-  const cursor = more && state.page?.has_more ? `&before=${state.page.cursor}` : '';
+  const revision = state.observedRevision;
   const status = state.status;
+  const pagesToRead = reload ? Math.max(1, state.loadedPages) : 1;
+  let cursor = more && state.page?.has_more ? `&before=${state.page.cursor}` : '';
   try {
     const selected = state.selected;
-    const page = await api(`/api/notices?status=${status}${cursor}`);
-    if (ui.noticeRecords !== state || request !== state.request) return;
+    const notices = [];
+    let page, pagesRead = 0;
+    // Only a user-requested reload revisits older pages. Freeze the loaded-page
+    // count; concurrent polling cannot expand this request into a history scan.
+    do {
+      page = await api(`/api/notices?status=${status}${cursor}`);
+      if (ui.noticeRecords !== state || request !== state.request) return;
+      if (!Array.isArray(page.notices)) throw new Error('请重启 Web 与 daemon 以加载 notice 历史');
+      notices.push(...page.notices); pagesRead++;
+      cursor = `&before=${page.cursor}`;
+    } while (pagesRead < pagesToRead && page.has_more);
+    page = { ...page, notices: [...new Map(notices.map(row => [row.id, row])).values()] };
     // A settled old question may have fallen outside both the snapshot and this filtered page.
     const current = selected && !page.notices?.some(row => row.id === selected) ? await readNoticeRecord(selected) : null;
     if (ui.noticeRecords !== state || request !== state.request) return;
@@ -74,17 +88,35 @@ export async function loadNoticeRecords({ more = false, preserve = false } = {})
         .filter(row => noticeMatches(row, status)).sort((a, b) => b.id - a.id)
       : page.notices;
     if (!preserve || !state.page) state.page = page;
+    if (more) state.loadedPages += pagesRead;
+    else if (!preserve) {
+      state.loadedPages = pagesRead;
+      state.stale = state.observedRevision !== revision;
+    }
     for (const row of state.rows) ui.noticeIndex.set(row.id, row);
     paintNoticeRows(state.rows);
-    const footer = $('notice-pagination');
-    footer.replaceChildren(el('p', state.rows.length ? `已显示 ${state.rows.length} 条记录` : '没有符合条件的记录', 'hint'));
-    if (state.page.has_more) footer.append(button('加载更早记录', () => loadNoticeRecords({ more: true }), 'ghost'));
+    paintNoticeFooter(state);
     paintRecordFocus();
   } catch (error) {
     if (ui.noticeRecords === state && request === state.request) {
-      $('notice-pagination').replaceChildren(el('p', `记录加载失败：${error.message}`, 'error'), button('重试', () => loadNoticeRecords(), 'ghost'));
+      paintNoticeFooter(state);
+      $('notice-pagination').append(el('p', `记录加载失败：${error.message}`, 'error'),
+        button('重试', () => loadNoticeRecords({ more, preserve, reload }), 'ghost'));
     }
   } finally { if (request === state.request) state.pending = false; }
+}
+
+function paintNoticeFooter(state) {
+  const footer = $('notice-pagination');
+  footer.replaceChildren(el('p', state.rows.length ? `已显示 ${state.rows.length} 条记录` : '没有符合条件的记录', 'hint'));
+  if (state.stale) {
+    const warning = el('p', '列表可能已过期；旧页未自动重查，打开事项时会核验当前状态。', 'hint');
+    warning.setAttribute('role', 'status');
+    footer.append(warning, button('刷新已加载记录', () => loadNoticeRecords({ reload: true }), 'ghost', {
+      help: '只读重载当前已加载页数，保留当前答复；不会提交答案或调用 Agent。',
+    }));
+  }
+  if (state.page?.has_more) footer.append(button('加载更早记录', () => loadNoticeRecords({ more: true }), 'ghost'));
 }
 
 async function loadButlerChoices(state, { more, preserve }) {
@@ -161,14 +193,18 @@ export function renderNotices(data) {
   paintRecordFocus();
   if (ui.indexOpen === 'notices' && ui.noticeRecords) {
     // Preserve loaded older pages. Snapshot updates their status without discarding history.
-    if (ui.noticeRecords.page) {
-      const state = ui.noticeRecords;
+    const state = ui.noticeRecords;
+    if (data.revision !== undefined && data.revision !== state.observedRevision) {
+      state.observedRevision = data.revision;
+      if (state.page || state.pending) state.stale = true;
+    }
+    if (state.page) {
       const newest = Math.max(0, ...state.rows.map(row => row.id));
       const additions = data.notices.filter(row => row.id > newest && noticeMatches(row, state.status));
       state.rows = [...additions, ...state.rows.map(row => ui.noticeIndex.get(row.id) || row)];
       const rows = ui.noticeRecords.rows.filter(row => noticeMatches(row, ui.noticeRecords.status));
       paintNoticeRows(rows);
-      if (!state.pending) void loadNoticeRecords({ preserve: true });
+      paintNoticeFooter(state);
     } else if (!ui.noticeRecords.pending) void loadNoticeRecords();
     return;
   }
@@ -258,20 +294,32 @@ export function noticePanel(notice, task = null) {
     return section;
   }
   const inRecords = ui.indexOpen === 'notices' && ui.noticeRecords?.selected === notice.id;
-  const refreshRecord = async () => {
+  // Writes still refresh shared data, but their follow-up must not navigate a newer page
+  // or replace another selected Notice (which can share the same page identity).
+  const actionIdentity = () => {
+    const view = ui.view, request = noticeRequest, records = ui.noticeRecords;
+    const status = records?.status, selected = records?.selected;
+    return () => ui.view === view && noticeRequest === request
+      && (!inRecords || (ui.noticeRecords === records && records?.status === status && records?.selected === selected));
+  };
+  const refreshRecord = async ownsPage => {
+    if (!ownsPage()) return;
     ui.detailDirty = false;
     if (!inRecords) return detail(notice.task_id);
     const current = await readNoticeRecord(notice.id);
     ui.noticeIndex.set(current.id, current);
+    if (!ownsPage()) return;
     paintRecordFocus();
     await loadNoticeRecords();
   };
+  const completedElsewhere = () => show('事项已处理；保留当前页面。');
   if (notice.kind === 'plan') {
     section.append(el('p', notice.body || '（没有补充说明）', 'notice-body'));
     const actions = el('div', undefined, 'actions');
     const send = async (method, params) => {
+      const ownsPage = actionIdentity();
       actions.querySelectorAll('button').forEach(node => { node.disabled = true; });
-      try { await action(method, params); await refreshRecord(); }
+      try { await action(method, params); if (ownsPage()) await refreshRecord(ownsPage); else completedElsewhere(); }
       finally { actions.querySelectorAll('button').forEach(node => { node.disabled = false; }); }
     };
     actions.append(button('批准并开发', () => send('plan.approve', { id: notice.id }), undefined,
@@ -283,9 +331,11 @@ export function noticePanel(notice, task = null) {
   }
   if (notice.kind === 'questionnaire') {
     const settled = async (method, params) => {
+      const ownsPage = actionIdentity();
       await action(method, params);
+      if (!ownsPage()) { completedElsewhere(); return; }
       ui.detailDirty = false;
-      if (inRecords) { await refreshRecord(); return; }
+      if (inRecords) { await refreshRecord(ownsPage); return; }
       const next = [...ui.noticeIndex.values()].filter(row => row.id !== notice.id && row.status === 'open').sort((a, b) => a.id - b.id)[0];
       ui.noticeFocus = next?.id ?? null;
       try { if (next) await openNotice(next.id); else await detail(notice.task_id); }
@@ -311,19 +361,23 @@ export function noticePanel(notice, task = null) {
   }
   const actions = el('div', undefined, 'actions');
   const settle = async value => {
+    const ownsPage = actionIdentity();
     actions.querySelectorAll('button').forEach(node => { node.disabled = true; });
     try {
       await action('notice.answer', { id: notice.id, answer: value });
+      if (!ownsPage()) { completedElsewhere(); return; }
       ui.noticeFocus = null; ui.detailDirty = false;
-      await refreshRecord();
+      await refreshRecord(ownsPage);
     } finally { actions.querySelectorAll('button').forEach(node => { node.disabled = false; }); }
   };
   const dismiss = async () => {
+    const ownsPage = actionIdentity();
     actions.querySelectorAll('button').forEach(node => { node.disabled = true; });
     try {
       await action('notice.dismiss', { id: notice.id });
+      if (!ownsPage()) { completedElsewhere(); return; }
       ui.noticeFocus = null; ui.detailDirty = false;
-      await refreshRecord();
+      await refreshRecord(ownsPage);
     } finally { actions.querySelectorAll('button').forEach(node => { node.disabled = false; }); }
   };
   if (resolutionDecision) actions.append(

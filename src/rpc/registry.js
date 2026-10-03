@@ -20,6 +20,7 @@ export const PARAMS = {
   'worker.transcript': ['id','after','limit'], 'worker.transcript_latest': ['id','after','before','limit'],
   'worker.transcript_page': ['id','seq','offset'], 'worker.transcript_step': ['id','seq','offset'],
   'worker.transcript_search': ['id','query','kind','tool','errors','after','limit'],
+  'worker.runs_page': ['id','before','limit'], 'worker.artifacts_page': ['id','before','limit'], 'worker.artifact': ['id'],
   'worker.spawn': ['parent','goal','name'], 'worker.integrate': ['id','commit'],
   'worker.reserve': ['id','kind'], 'worker.reserve_all': ['branch'], 'worker.auto_merge': ['id','enabled'],
   'worker.resolve': ['id'], 'worker.resolve_divergence': ['id'],
@@ -33,7 +34,7 @@ export const PARAMS = {
   'notice.list': [], 'notice.page': ['status','before','limit'],
   'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'], 'notice.read': ['id'],
   'branch.history': ['cursor','limit'], 'branch.tree': [], 'branch.show': ['branch'], 'branch.bind': ['branch','commit'],
-  'branch.archive': ['branch','discard'], 'graph.get': [],
+  'branch.archive': ['branch','discard','continue'], 'graph.get': [],
 };
 export const USER_ONLY = new Set([
   'system.stop','system.stop_if_idle','system.configure','agent.configure','agent.status','agent.environment','agent.environment.configure',
@@ -41,6 +42,7 @@ export const USER_ONLY = new Set([
   'agent.usage.config','agent.usage.configure','agent.usage.history',
   'input.history','input.get','input.parents','draft.add','draft.update','draft.remove',
   'say.submit','worker.transcript_latest','worker.transcript_page','worker.transcript_step','worker.transcript_search',
+  'worker.runs_page','worker.artifacts_page','worker.artifact',
   'worker.reserve','worker.reserve_all','worker.auto_merge','worker.resolve','worker.resolve_divergence','worker.unreserve','worker.approve_merge',
   'worker.cancel','worker.retry','worker.cleanup','worker.interrupt','worker.resume','worker.configure',
   'worker.reopen','worker.sync_parent','worker.resolve_sync','worker.delete_preview','worker.delete',

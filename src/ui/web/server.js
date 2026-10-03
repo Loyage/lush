@@ -114,7 +114,16 @@ function cookieValue(request, name) {
   return null;
 }
 function safeNext(value) {
-  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : '/';
+  // HTTP URL parsing turns backslashes into slashes and strips some controls.
+  // Validate both the submitted path and the normalized Location (dot segments
+  // can otherwise turn /a/..//host into a protocol-relative redirect).
+  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(value)) return '/';
+  const base = 'http://lush.invalid';
+  try {
+    const parsed = new URL(value, base);
+    if (parsed.origin !== base || parsed.pathname.startsWith('//')) return '/';
+    return parsed.pathname + parsed.search + parsed.hash;
+  } catch { return '/'; }
 }
 function escapeHtml(value) {
   return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
@@ -130,15 +139,16 @@ function originAllowed(request, url, origins) {
   const navigation = request.method === 'GET' && request.headers.get('sec-fetch-mode') === 'navigate' && request.headers.get('sec-fetch-dest') === 'document';
   // 顶层导航只是「有人从别的站点点了链接进来」，后面还有认证拦着；跨站子请求才是 CSRF 的形状。
   if (site === 'cross-site' && !navigation) return false;
-  // Sec-Fetch-* 由浏览器自己填，网页改不了；浏览器既然说不是跨站就不必再拿 Origin 复算一遍。
-  // 内嵌 webview / 沙箱 iframe / 部分隐私扩展会报 Origin: null 却依然是同源，硬要 Origin 会白挡下正常的个人使用。
-  if (site) return true;
-  // 没有 Sec-Fetch（旧浏览器）时退回 Origin 校验。
+  // same-site is not same-origin (ports, schemes and sibling domains differ).
+  // Fetch Metadata may reject a request, but cannot override an explicit Origin.
   const origin = request.headers.get('origin');
+  // Preserve the established old-client/webview opaque or missing-origin policy.
   if (!origin || origin === 'null') return true;
-  let parsed;
-  try { parsed = new URL(origin); } catch { parsed = null; }
-  return Boolean(parsed) && (parsed.host === url.host || origins.includes(parsed.origin));
+  try {
+    const parsed = new URL(origin);
+    return parsed.origin !== 'null' && origin === parsed.origin
+      && (parsed.origin === url.origin || origins.includes(parsed.origin));
+  } catch { return false; }
 }
 
 

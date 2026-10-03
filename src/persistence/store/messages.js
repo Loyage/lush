@@ -1,3 +1,5 @@
+import { check, id } from '../../core/types.js';
+
 /** 收件箱。 */
 export const messages = {
   message(taskId, body, sender = null) { return Number(this.run('INSERT INTO messages(task_id,sender_id,body) VALUES (?,?,?)', taskId, sender, body).lastInsertRowid); },
@@ -10,4 +12,57 @@ export const messages = {
     return { id: row.id, inserted };
   },
   unread(taskId) { return this.all('SELECT * FROM messages WHERE task_id=? AND consumed=0 ORDER BY id', taskId); },
+  /**
+   * Bounded inbox read for one invocation. Row metadata is read without bodies so the
+   * delivered batch, not the whole mailbox, defines the startup prompt size; complete
+   * records stay in SQLite until a later batch delivers them.
+   *
+   * User messages (`sender_id IS NULL`) are delivered first in id order and are never
+   * deferred by the byte budget, because they are the reason the invocation was woken.
+   * Remaining budget then fills older-to-newer runtime signals (FIFO). A message larger
+   * than the whole budget is still delivered whole — never truncated or summarized — so
+   * batching always makes progress and the next call starts with that record.
+   */
+  unreadPage(taskId, { limit = 50, bytes = 262144 } = {}) {
+    const taskIdValue = id(taskId);
+    check(Number.isInteger(limit) && limit >= 1 && limit <= 1000, 'invalid message page limit');
+    check(Number.isInteger(bytes) && bytes >= 1, 'invalid message page byte budget');
+    // CAST AS BLOB counts UTF-8 bytes, not SQLite characters, so the budget matches the JSON payload.
+    const pending = this.all(`SELECT id, sender_id, length(CAST(body AS BLOB)) AS size FROM messages
+      WHERE task_id=? AND consumed=0 ORDER BY id`, taskIdValue);
+    const chosen = []; let used = 0;
+    const take = row => { chosen.push(row.id); used += row.size; };
+    for (const row of pending) {
+      if (chosen.length >= limit) break;
+      if (row.sender_id !== null) continue;
+      take(row);
+    }
+    const already = new Set(chosen);
+    for (const row of pending) {
+      if (chosen.length >= limit) break;
+      if (row.sender_id === null || already.has(row.id)) continue;
+      if (chosen.length > 0 && used + row.size > bytes) continue;
+      take(row);
+    }
+    // Preserve delivery order (user messages first, then FIFO); do not re-sort by id.
+    const rows = chosen.length
+      ? this.all(`SELECT * FROM messages WHERE id IN (${chosen.map(() => '?').join(',')})`, ...chosen) : [];
+    const byId = new Map(rows.map(row => [row.id, row]));
+    const messages = chosen.map(rowId => byId.get(rowId)).filter(Boolean);
+    const delivered = new Set(messages.map(row => row.id));
+    const omitted = pending.filter(row => !delivered.has(row.id));
+    const sizes = new Map(pending.map(row => [row.id, row.size]));
+    let deliveredBytes = 0, oversize = 0;
+    for (const row of messages) {
+      const size = sizes.get(row.id) ?? Buffer.byteLength(row.body);
+      deliveredBytes += size;
+      if (size > bytes) { row.oversize = true; oversize += 1; }
+    }
+    // Compare against the strict id-ascending prefix: a delivered user message that jumps
+    // ahead of an older runtime signal is a real reorder and must be reported as one.
+    const strictPrefix = pending.slice(0, messages.length).map(row => row.id);
+    return { messages, has_more: omitted.length > 0, pending: omitted.length,
+      bytes: deliveredBytes, truncated_bytes: omitted.reduce((sum, row) => sum + row.size, 0),
+      reordered: messages.some((row, index) => row.id !== strictPrefix[index]), oversize };
+  },
 };

@@ -1,8 +1,28 @@
 # 运行时、调度与持久化改进建议
 
-本文供维护者筛选生命周期可靠性、SQLite 一致性与运行成本的后续工作；只记录审查建议，不实施功能。实现范围为 `src/core/project/`、`src/persistence/`、`src/daemon/`、`src/agent/`，不评价 Git 合并策略、公网或 Web UI。
+本文供维护者筛选生命周期可靠性、SQLite 一致性与运行成本的后续工作；保留最初审查证据，并逐项记录后续复核与实施状态。实现范围为 `src/core/project/`、`src/persistence/`、`src/daemon/`、`src/agent/`，不评价 Git 合并策略、公网或 Web UI。
 
-## 范围、基线与验证
+## 当前复核（2026-10-02）
+
+复核基线为 `81257d12e3001214e7f03bc4ee2398f834e35ee3`。先读设计入口、执行过程理念、模块地图 / Runtime 分章，以及项目身份与恢复、invocation、Git 边界、回收契约。旧行与历史内部实现不因公开功能删除而迁移或自动重播；以下「关闭」不等于修改了旧实现。
+
+| 条目 | 当前结论 | 本轮行动 / 后续 |
+|---|---|---|
+| R-01 | 已修复；清空属于历史内部入口 | 保留维护门 / 在途写入排空；不恢复公开 clear/delete |
+| R-02 | 已修复 | 当前仍为内核 flock；全量测试包含锁回归 |
+| R-03 | 用户确认后已修复父死亡兜底 | 内部 guard 进程 + stdin EOF 监护，仅清理自己的进程组；不按历史 PID 杀进程，macOS/Linux |
+| R-04 | 本轮已修复 | 事务建立 Run + running 准入；恢复关闭全部遗留 running Run，记录观察时间及未知实际退出时间 |
+| R-05 | 随旧 Plan/spec 调度关闭 | compilePlans/materializeSpec 仅历史内部实现，新 pump 不调用，公开 spec/plan 入口不存在 |
+| R-06 | 已实施分批投递 | 用户消息优先 + FIFO 填充；单条超预算整体投递；只消费已投递项，原文不截断 |
+| R-07 | 本轮部分修复 | queued ID 限定 depMap、parent_id 限定孩子摘要；Run/Artifact SQL 窗口及继续读取契约待决定 |
+
+**验证与边界**：只在独立 Worker worktree 修改代码；Git 写操作 / SQLite fixture / 受控交错均使用测试临时项目，未重启或操作用户 daemon。`bun run doctor` 仅只读，报告 daemon 与 worktree 代码路径不同（fingerprint 相同），没有据此换版。
+
+- 定向 `bun run test test/project/recovery.test.js test/project/token-efficiency.test.js test/workspaces/archive.test.js test/workspaces/merge.test.js test/workspaces/cleanup.test.js`：**50 pass / 0 fail**，日志 `/tmp/lush-review-104/targeted-rerun.log`。首次为 45 pass / 2 fail（新测试误用 decorate 前的字段、依赖英文 Git 错误），修正测试断言后完整重跑；首次日志 `/tmp/lush-review-104/targeted.log`。
+- 实际完整执行 `bun run test`：**1108 pass / 1 fail / 1 error**，唯一错误是 `test/packaging/windows-desktop.test.js` 无法载入 `@electron/asar`，不是全套成功；完整日志 `/tmp/lush-review-104/full.log`。未安装依赖或操作用户服务。
+- 用户已选择运行时资源与异常恢复作为下一批调查方向（Notice #77），并在 Notice #81 逐项确认方案。R-03（内部 guard 兜底）、R-06（用户消息优先 + FIFO 分批，50 条/256 KiB）、R-07（最新窗口 + 分页方法）均已按方案实现并合入开发分支；S-05（连接预算）与 G-04（归档续办）同批实现。预算数字与公共 API 见[运行时与异常恢复方案草案](runtime-next.md)与各 RPC 参考，完整验证边界以本轮日志为准，尚未进入 main。
+
+## 原审查范围、基线与验证（历史证据）
 
 - HEAD 与指定基线完全一致：`99fcbc993640c057488532a19ca08814ab60b73e`；开始时工作区干净，唯一交付为本文，无提交、合并或推送。
 - 已阅读 [开发约定](../../AGENTS.md)、[文档约定](../contributing/documentation.md)、[模块地图](../engineering/modules.md)、[Runtime 分章](../engineering/modules-runtime.md)、[接口与测试分章](../engineering/modules-interfaces.md)、[执行过程理念](../design/agent-process.md)、[Token 效率](../engineering/token-efficiency.md)。
@@ -15,7 +35,9 @@
 
 ## R-01 · 清空跨越异步回收后，会删除期间新接收的数据
 
-**P1 · 已复现 · M · 已完成（2026-09-26，提交 `1d84d59`）**
+**P1 · 已复现 · M · 已完成（2026-09-26，提交 `1d84d59`）；2026-10-02 复核：修复保留，公开清空入口已下线**
+
+- **当前依据**：`project/lifecycle.js` 的 clearing / drainWrites 与 `project/base.js` 的 write 门仍保留；当前 RPC 白名单无 clear/delete。原回归文件已随入口收敛移除，不把下列旧测试路径当作当前可运行测试。
 
 - **完成口径**：采用「回收期间暂拒新写入」。`clear()` 同步关闭写入门，draft / 输入 / say / retry / spawn 立即被拒；已经获准、跨 await 的在途写入由 `write()` 计数，purge 前 `drainWrites()` 等其收尾；输入在 Git 锚点返回后再次复查门。回归：`test/task-clear.test.js`（回收在途时拒绝、锚点在途时拒绝并回滚锚点）。
 - **证据**：`src/core/project/lifecycle.js` 的 `clear()` / `reclaimThenPurge()`（126–146 行）只在首次检查活动Worker，随后两次 `await`；`src/persistence/store/tasks.js` 的 `purge()`（43–55 行）最终无条件清全表，并不使用开始时的对象集合。
@@ -27,7 +49,9 @@
 
 ## R-02 · 陈旧 daemon 锁的回收存在双持有竞态
 
-**P1 · 已复现（锁原语） · L · 已完成（2026-09-26，提交 `f36cd45`）**
+**P1 · 已复现（锁原语） · L · 已完成（2026-09-26，提交 `f36cd45`）；2026-10-02 复核：仍已修复**
+
+- **当前依据**：`daemon/locking.js` 继续使用 LOCK_EX / LOCK_NB，release 不删除 inode；`test/locking.test.js` 本轮全量执行通过。
 
 - **完成口径**：改用 `bun:ffi` 调用内核 `flock(2)`（零第三方依赖，Linux/macOS 可用）：获取/释放原子，进程退出（含 SIGKILL）自动释放；锁文件里的 PID 只作状态展示，不再决定归属。回归：`test/locking.test.js`（单进程互斥、陈旧 PID 文件、6 进程并发不重叠持有）。
 - **证据**：`src/daemon/locking.js` 的 `DaemonLock.acquire()`（46–65 行）先读旧 PID/检查存活，再按路径 `rmSync`；检查与删除不是同一个原子操作。
@@ -39,7 +63,10 @@
 
 ## R-03 · 宿主被强杀后，detached agent 仍能继续修改工作区
 
-**P1（按潜在影响）· 已复现（真实 provider + 伪 agent）· 已知限制的加固建议 · M**
+**P1（按潜在影响）· 已复现（真实 provider + 伪 agent）· 已按用户确认策略修复（2026-10-02，Notice #81）· M**
+
+- **已实施**：`agent/provider.js` 的 spawnAgent 不再直接启动 pi/codex，而是以 stdin 管道启动内部守护 `bin/lush-agent-guard`；守护在同一进程组内运行真实命令、转发 stdout/stderr 与退出码，daemon 任意退出（含 SIGKILL）导致 stdin EOF 后在有界时间内结束该进程组。只清理自己启动的进程组，不按历史 PID 杀进程、不匹配进程名、不写跨重启 PID 表；daemon 正常 stop 仍走 abort→finally 路径。macOS/Linux 承诺，不依赖 Windows/pdeathsig。回归见 `test/agent/guard.test.js`；契约登记在[模块地图](../engineering/modules-runtime.md)。
+- **修复前依据**：`agent/provider.js` spawnAgent 为 detached:true / stdin ignore，清理仅在 abort/finally；下文 preview-runner 已随展示功能删除。
 
 - **证据**：`src/agent/provider.js` 的 `spawnAgent()`（30–64 行）使用 `detached:true`、stdin ignore，清理仅在宿主收到 abort 或执行 finally 时发生；`src/daemon/main.js` 的 `serve()`（27–34 行）依赖 finally 调用 shutdown。
 - **最小复现**：临时宿主通过实际 `PiProvider` 启动只向临时文件写 pulse 的伪 Pi；SIGKILL 宿主后，子进程仍存活且 pulse 持续增加。实验末手动清理该已知进程组，未使用真实模型或用户 daemon。
@@ -50,7 +77,10 @@
 
 ## R-04 · 恢复只结算 Worker，遗留 Run 永远显示 running
 
-**P2 · 已复现 · M**
+**P2 · 已复现 · M · 本轮已完成（2026-10-02）**
+
+- **完成口径**：`scheduling.invoke()` 在一个 SQLite 事务内 startRun + 更新 Worker running/calls/wakes；`lifecycle.recover()` 同事务清凭证、将全部遗留 running Run 标 failed、结算当前新式 running Worker。Run 的 ended_at 是新宿主确认中断的观察时间，不是实际子进程退出时间；error 与 `invocation.recovered {observed_at,actual_exit_at:null}` 明确说明。旧 completed Run / Artifact 不重写，parked / legacy Worker 状态不被自动恢复调用；不重放未知文件副作用。
+- **回归**：`test/project/recovery.test.js` 覆盖 running、queued、waiting、awaiting、paused、completed Worker 所属的遗留 Run，幂等恢复、已完成 Run 不变、无伪造成功 Artifact，以及准入失败时 Run 插入回滚。以下保留原漏洞证据。
 
 - **证据**：`src/core/project/lifecycle.js` 的 `recover()`（248–264 行）修复 Worker/凭证/合并状态，但没有修复 `agent_runs`；`src/persistence/store/runs.js` 的 `startRun()` / `finishRun()`（107–118 行）是独立写入；`src/core/project/scheduling.js` 的 `invoke()`（113–115 行）建 Run 与改 Worker 也不在同一事务。
 - **最小复现**：fixture 创建 Run 并把 Worker 置 running，模拟新宿主空 running Map 后执行 recover：Worker 为 failed，Run 仍为 running、`ended_at=null`。
@@ -61,7 +91,9 @@
 
 ## R-05 · 暂时达到活动Worker上限，被当成永久计划编译错误
 
-**P2 · 已复现 · M**
+**已关闭（2026-10-02 复核）：旧 Plan/spec 编译没有当前公开入口或调度调用，不实施过时产品方案。**
+
+- **当前依据**：`rpc/registry.js` 不开放 spec/plan，`project/scheduling.js` 不调用 compilePlans，只准入 say/child。内部 compilePlans 仍可能将容量不足记 dropped，但新用户路径到不了它；不迁移旧记录、不自动重编历史需求。若未来恢复该功能，需要重新确认背压语义。以下为原 P2 / M 证据。
 
 - **证据**：`src/core/project/tasks.js` 的 `materializeSpec()`（72–95 行）在活动Worker达到 1000 时抛错；`src/core/project/specs.js` 的 `compilePlans()`（14–41 行）捕获所有错误后直接 dropSpec，依赖它的 spec 也会被丢弃。
 - **最小复现**：fixture 放置 999 个活动Worker与一个已完成 planner，后者有两个合法 research spec；调用 compilePlans，第一项 planned，第二项 dropped，原因是 `计划编译失败：too many active tasks`。
@@ -72,7 +104,11 @@
 
 ## R-06 · 因果上下文已收敛，但未读 inbox 没有总量预算
 
-**P2 · 已复现（输入规模） · M**
+**P2 · 已复现（输入规模） · M；2026-10-02 已实施分批投递（用户已确认方案）**
+
+- **完成口径**：读取端分批。`Store.unreadPage(taskId,{limit=50,bytes=262144})` 先只读 id/发送者/UTF-8 字节数，保证启动文件大小由“投递批次”而不是整箱决定；`invoke` 只把该批交给 provider 并在启动 JSON 写 `messages_page:{delivered,has_more,pending,truncated_bytes,reordered}`。默认 FIFO（id 升序），但用户消息（`sender_id IS NULL`）先按 id 升序全部纳入且不受字节预算限制，剩余额度再 FIFO 填充，顺序调整时 `reordered:true`。单条超预算整体投递并标 `oversize`，绝不截断或摘要。只消费本批已投递 id，未投递原文保持未读；不新增唤醒通道或实体，不改 `hasActionableMessages` 判定。
+- **回归**：`test/project/token-efficiency.test.js` 新增 `unreadPage` 计数/字节边界、用户消息优先与 `reordered`、超长单条整体投递、仅有运行信号时仍推进；`invoke` 首批有界且 `messages_page` 与事件一致、只消费已投递、剩余转回 queued；失败重试不丢已投递批次；park 只消费本批、回答后剩余原文继续投递；Pi 启动文件携带 `messages_page`。定向 **10 pass / 0 fail**（`/tmp/inbox-budget-targeted5.ni6mlt.log`）。
+- **代价与限制**：消息多时 invocation 次数增加（有界轮次换有界上下文）；`limit`/`bytes` 目前是内部默认，未开公共配置或新 RPC；未实测模型上下文上限与真实费用。
 
 - **证据**：`src/persistence/store/messages.js` 的 `unread()`（4 行）读取全部未读消息；`src/core/project/scheduling.js` 的 `invoke()`（104、135–138 行）整批传给 provider；`src/agent/provider.js` 的 `sessionFiles()`（13–23 行）原样序列化 messages，没有总字节上限。
 - **最小复现**：等待中的Worker通过公开 `project.message()` 接收 100 条各 32,000 字符的合法消息；unread 一次返回全部 3,200,000 字符。未调用模型，因此不把实际 token/费用或模型超限当成已测结果。
@@ -83,11 +119,14 @@
 
 ## R-07 · 首页有界读之外，调度与单Worker详情仍随全历史增长
 
-**P2 · 已复现（读取规模；延迟待量测） · M**
+**P2 · 已复现（读取规模；延迟待量测） · M · 本轮已完成（2026-10-02，用户确认 R-07 方案后）**
 
-- **证据**：`src/core/project/scheduling.js` 的 `pump()`（53–59 行）无条件 `depMap()`；`src/persistence/store/deps.js` 的 `depMap()`（24–35 行）已有 taskIds 参数但此处未用。`src/core/project/tasks.js` 的 `inspect()`（130–148 行）先 summaries 全表再筛直接孩子，Run/Artifact 也是全量读取后 bounded。
+- **完成口径**：pump 先取当前 queued say/child，depMap 只查这些 ID（空闲时不查询依赖行）；inspect 用已有 tasks_parent 索引条件直接投影原口径的孩子摘要，不再 summaries 全表后 filter。单Worker详情的 Run/Artifact 改为 SQL 级最新窗口：新增 `Store.runsPage` / `artifactsPage`（`ORDER BY id DESC LIMIT n+1` 后升序，`before` 游标，`limit` 1..200），`inspect.runs` / `artifacts` 只给最新 50 条并附 `runs_page` / `artifacts_page:{has_more,cursor,limit,truncated}`；新增只读用户 RPC `worker.runs_page` / `worker.artifacts_page` / `worker.artifact(id)`（后者读完整 payload，写入 512 KB 上限不变）。Artifact 窗口对超过 8192 字节的 payload 只投影原文前缀并标 `payload_truncated` / `payload_bytes`，不冒充完整结论。有执行计划时在 1000 条上限内读计划窗口的调用区间，保持用时/等待投影不依赖首屏窗口。Web 未新增路由（现无消费者）；旧字段与历史行保留，不迁移、不重写。
+- **回归与限制**：`test/project/limits.test.js` 覆盖 120 条游标遍历无重复无跳过、10000 Run + 400 Artifact 时 inspect 只读 ≤51 行且包含最新记录且字节有界、进度重建能使用首屏窗口之外的早期调用区间、大 payload 标记与完整读取、分页参数/用户专属校验；定向 7 pass（日志 `/tmp/lush-118-limits3.VAcgAq.log`）。未量测 10万行与生产延迟；调度热路径与 `verify.js` 的完整证据读取未改。
+
+- **证据（历史）**：`src/core/project/scheduling.js` 的 `pump()`（53–59 行）无条件 `depMap()`；`src/persistence/store/deps.js` 的 `depMap()`（24–35 行）已有 taskIds 参数但此处未用。`src/core/project/tasks.js` 的 `inspect()`（130–148 行）先 summaries 全表再筛直接孩子，Run/Artifact 也是全量读取后 bounded。
 - **最小复现**：1500 个终态Worker、1499 条历史依赖、零 queued Worker；记录 Store.all 返回规模：空闲 pump 仍取 1499 条边，inspect 一个无子Worker叶子仍取 1500 条Worker摘要。
 - **触发与影响**：长期使用、频繁消息/结算 kick 或详情读取；同步 SQLite 查询和 JS 全量组装与历史量绑定，可能拖延取消/唤醒/超时回调。这里只确认读取规模，尚无生产延迟或 OOM 结论。
 - **现有保护/反例**：overview 的聚合计数、分页和输出 bounded 不是失效；它们不能给上述数据库读取/JSON 解析提供内存上界，不能用返回包很小证明热路径廉价。
 - **建议与取舍**：pump 先取待准入 ID，仅查这些Worker依赖；inspect 按 parent_id 查询直接孩子。Run/Artifact 的 SQL 级预算及继续读取接口是公共 API 选择，需确认兼容策略，保留历史原文而非删记录。
-- **验收**：固定相同活动 DAG，把历史扩至 1千/1万/10万，记录读取行数、分配量和延迟；空闲 pump 不读历史依赖，叶子 inspect 不扫描其他Worker；大 Run/Artifact 有可继续读取且不误导为完整的有界窗口。
+- **验收**：固定相同活动 DAG，把历史扩至 1千/1万/10万，记录读取行数、分配量和延迟；空闲 pump 不读历史依赖，叶子 inspect 不扫描其他Worker；大 Run/Artifact 有可继续读取且不误导为完整的有界窗口。1千/1万行读取行数与字节上界已由本轮回归固定；10万行与延迟测量仍待补。

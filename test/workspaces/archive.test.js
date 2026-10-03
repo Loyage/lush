@@ -29,6 +29,35 @@ function writeSession(f, taskId) {
   return file;
 }
 
+for (const condition of ['locked', 'prunable', 'submodule']) {
+  test(`archive preflights ${condition} descendants before removing any parent, even with discard`, async () => {
+    const f = await setup();
+    try {
+      const child = await f.project.spawn(f.task.id, 'descendant');
+      const parentCwd = await change(f, f.task);
+      const childCwd = await change(f, child, 'child', 'child.txt');
+      const parentBranch = f.store.task(f.task.id).branch;
+      if (condition === 'locked') await git(f.root, 'worktree', 'lock', '--reason', 'keep this\ncheckout', childCwd);
+      if (condition === 'prunable') fs.rmSync(childCwd, { recursive: true });
+      if (condition === 'submodule') {
+        const source = path.join(f.config.home, 'submodule-source'); fs.mkdirSync(source);
+        await repo(source);
+        await git(childCwd, '-c', 'protocol.file.allow=always', 'submodule', 'add', source, 'module');
+        await git(childCwd, 'commit', '-am', 'add submodule');
+      }
+      await expect(f.project.archiveBranch(parentBranch, { discard_worktree: true })).rejects.toThrow(
+        condition === 'submodule' ? 'initialized submodules' : condition);
+      expect(fs.existsSync(parentCwd)).toBe(true);
+      expect(await git(f.root, 'rev-parse', parentBranch)).toBe(f.store.task(f.task.id).head_commit);
+      expect(await git(f.root, 'rev-parse', child.branch)).toBeTruthy();
+      expect(f.store.branch(parentBranch).status).toBe('active');
+      expect(f.store.branch(child.branch).status).toBe('active');
+      expect(f.store.task(f.task.id).workspace).toBe(parentCwd);
+      expect(f.store.all("SELECT * FROM events WHERE type='branch.archived'")).toEqual([]);
+    } finally { await f.close(); }
+  });
+}
+
 test('archiving removes the worktree and ref but keeps the task row, branch field and transcript', async () => {
   const f = await setup();
   try {
@@ -206,6 +235,124 @@ test('子树里有一条后代没干完，整棵子树都不归档、且无副�
     expect(fs.existsSync(firstCwd)).toBe(true);
     expect(fs.existsSync(stackedCwd)).toBe(true);
     expect(f.store.branch(firstBranch).status).toBe('active');
+  } finally { await f.close(); }
+});
+
+test('子树第二条失败时保留已归档的第一条，库与磁盘一致，并可用 --continue 续办', async () => {
+  const f = await setup();
+  try {
+    const stacked = await f.project.spawn(f.task.id, 'stacked work', undefined, [], 'stacked-work');
+    const firstCwd = await change(f, f.task);
+    const stackedCwd = await change(f, stacked, 'stacked\n', 'stacked.txt');
+    const firstBranch = f.store.task(f.task.id).branch;
+    const stackedBranch = f.store.task(stacked.id).branch;
+
+    // 第一遍检查全部通过；第二遍在删第二条时注入未知失败。
+    const original = f.project.workspaces.git.bind(f.project.workspaces);
+    f.project.workspaces.git = async (cwd, ...args) => {
+      if (cwd === f.root && args[0] === 'worktree' && args[1] === 'remove' && args.at(-1) === stackedCwd) {
+        throw new Error('injected remove failure');
+      }
+      return original(cwd, ...args);
+    };
+    let result;
+    try { result = await f.project.archiveBranch(firstBranch); } finally { f.project.workspaces.git = original; }
+
+    expect(result.archived).toBe(true);
+    expect(result.count).toBe(1);
+    expect(result.branches.map(outcome => outcome.branch)).toEqual([firstBranch]);
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0]).toMatchObject({ branch: stackedBranch, ref: 'kept' });
+    expect(result.failed[0].reason).toContain('injected remove failure');
+    expect(result.remaining).toEqual([]);
+    // 已删的那条：库里归档、workspace 清空；失败的那条：目录与记录原样保留。
+    expect(fs.existsSync(firstCwd)).toBe(false);
+    expect(f.store.branch(firstBranch).status).toBe('archived');
+    expect(f.store.task(f.task.id).workspace).toBe(null);
+    expect(fs.existsSync(stackedCwd)).toBe(true);
+    expect(f.store.branch(stackedBranch).status).toBe('active');
+    expect(f.store.task(stacked.id).workspace).toBe(stackedCwd);
+    // 失败的那条没有被写成已归档；已归档的那条有事件。
+    const archivedEvents = f.store.all("SELECT data FROM events WHERE type='branch.archived' ORDER BY id").map(row => JSON.parse(row.data));
+    expect(archivedEvents.some(data => data.branch === firstBranch)).toBe(true);
+    expect(archivedEvents.some(data => data.branch === stackedBranch)).toBe(false);
+    const ledger = JSON.parse(f.store.get("SELECT data FROM events WHERE type='branch.archive' ORDER BY id DESC LIMIT 1").data);
+    expect(ledger).toMatchObject({ branch: firstBranch, continued: false, completed: [firstBranch],
+      failed: [{ branch: stackedBranch }], remaining: [] });
+
+    // 根已归档：不续办仍按旧语义拒绝。
+    await expect(f.project.archiveBranch(firstBranch)).rejects.toThrow(/already archived/);
+
+    // 显式续办：只处理剩余后代，根不必重新归档。
+    const continued = await f.project.archiveBranch(firstBranch, { continue: true });
+    expect(continued.continued).toBe(true);
+    expect(continued.count).toBe(1);
+    expect(continued.branches.map(outcome => outcome.branch)).toEqual([stackedBranch]);
+    expect(fs.existsSync(stackedCwd)).toBe(false);
+    expect(f.store.branch(stackedBranch).status).toBe('archived');
+    expect(f.store.task(stacked.id).workspace).toBe(null);
+
+    // 幂等：没有剩余时明确返回 no_remainder，不报错也不重复删。
+    const done = await f.project.archiveBranch(firstBranch, { continue: true });
+    expect(done).toMatchObject({ continued: true, no_remainder: true, count: 0, branches: [] });
+    expect(f.store.branch(stackedBranch).status).toBe('archived');
+    // 根仍活动时 continue 没有意义：要求正常归档。
+    expect(fs.existsSync(stackedCwd)).toBe(false);
+  } finally { await f.close(); }
+});
+
+test('子树根失败时未处理的后代如实列为 remaining，且不谎报归档', async () => {
+  const f = await setup();
+  try {
+    const stacked = await f.project.spawn(f.task.id, 'stacked work', undefined, [], 'stacked-work');
+    const firstCwd = await change(f, f.task);
+    const stackedCwd = await change(f, stacked, 'stacked\n', 'stacked.txt');
+    const firstBranch = f.store.task(f.task.id).branch;
+    const stackedBranch = f.store.task(stacked.id).branch;
+
+    const original = f.project.workspaces.git.bind(f.project.workspaces);
+    f.project.workspaces.git = async (cwd, ...args) => {
+      if (cwd === f.root && args[0] === 'worktree' && args[1] === 'remove' && args.at(-1) === firstCwd) {
+        throw new Error('injected root failure');
+      }
+      return original(cwd, ...args);
+    };
+    let result;
+    try { result = await f.project.archiveBranch(firstBranch); } finally { f.project.workspaces.git = original; }
+
+    expect(result.archived).toBe(false);
+    expect(result.count).toBe(0);
+    expect(result.branches).toEqual([]);
+    expect(result.failed.map(entry => entry.branch)).toEqual([firstBranch]);
+    expect(result.remaining).toEqual([stackedBranch]);
+    // 一条都没删：两个目录、两条活动分支都还在。
+    expect(fs.existsSync(firstCwd)).toBe(true);
+    expect(fs.existsSync(stackedCwd)).toBe(true);
+    expect(f.store.branch(firstBranch).status).toBe('active');
+    expect(f.store.branch(stackedBranch).status).toBe('active');
+    expect(f.store.task(f.task.id).workspace).toBe(firstCwd);
+    // 根仍活动时 continue 无意义；直接重试正常归档即可（幂等，不重复删）。
+    await expect(f.project.archiveBranch(firstBranch, { continue: true })).rejects.toThrow(/still active/);
+    const retried = await f.project.archiveBranch(firstBranch);
+    expect(retried.count).toBe(2);
+    expect(fs.existsSync(firstCwd)).toBe(false);
+    expect(fs.existsSync(stackedCwd)).toBe(false);
+  } finally { await f.close(); }
+});
+
+test('branch.archive RPC 透传 continue 并拒绝未知参数', async () => {
+  const f = await setup();
+  try {
+    const stacked = await f.project.spawn(f.task.id, 'stacked work', undefined, [], 'stacked-work');
+    await change(f, f.task);
+    await change(f, stacked, 'stacked\n', 'stacked.txt');
+    const firstBranch = f.store.task(f.task.id).branch;
+    const rpc = new Dispatcher(f.project, createSignal(), {});
+    await expect(rpc.dispatch('branch.archive', { branch: firstBranch, continue: true, nope: true })).rejects.toThrow('unknown parameter');
+    await expect(rpc.dispatch('branch.archive', { branch: firstBranch, continue: true })).rejects.toThrow(/still active/);
+    await rpc.dispatch('branch.archive', { branch: firstBranch });
+    const done = await rpc.dispatch('branch.archive', { branch: firstBranch, continue: true });
+    expect(done).toMatchObject({ branch: firstBranch, continued: true, no_remainder: true, count: 0, branches: [] });
   } finally { await f.close(); }
 });
 

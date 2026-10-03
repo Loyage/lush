@@ -184,6 +184,67 @@ test('web accepts a configured public origin behind a Host-rewriting proxy', asy
   } finally { await f.close(); }
 });
 
+test('explicit Origin cannot be overridden by same-site metadata and denied logout preserves the session', async () => {
+  const password = 'test-only-password';
+  const f = await setup({ auth: { username: 'owner', password, origin: 'https://lush.example.com' } });
+  const form = new URLSearchParams({ username: 'owner', password }).toString();
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  const origins = [f.url.replace('http:', 'https:'), 'http://localhost:' + f.web.port,
+    'http://127.0.0.1:' + (f.web.port === 65535 ? f.web.port - 1 : f.web.port + 1),
+    'https://evil.invalid', 'garbage', f.url + '/path', 'file:///tmp/opaque'];
+  try {
+    const login = await fetch(f.url + '/login', { method: 'POST', headers: { ...headers, Origin: f.url }, body: form });
+    expect(login.status).toBe(303);
+    const cookie = login.headers.get('set-cookie').split(';')[0];
+    for (const site of ['same-site', 'same-origin', 'none']) {
+      for (const origin of origins) {
+        const untrusted = { Origin: origin, 'Sec-Fetch-Site': site, Cookie: cookie };
+        expect((await fetch(f.url + '/login', { method: 'POST', headers: { ...headers, ...untrusted }, body: form })).status).toBe(403);
+        expect((await fetch(f.url + '/logout', { method: 'POST', headers: untrusted })).status).toBe(403);
+        expect((await fetch(f.url + '/api/action', { method: 'POST', headers: { ...untrusted, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ method: 'draft.add', params: { content: 'must not be stored' } }) })).status).toBe(403);
+      }
+    }
+    expect(f.store.get('SELECT count(*) AS n FROM drafts').n).toBe(0);
+    expect((await fetch(f.url + '/api/snapshot', { headers: { Cookie: cookie } })).status).toBe(200);
+    for (const origin of [f.url, 'https://lush.example.com', 'null', undefined]) {
+      const compatible = { ...headers, 'Sec-Fetch-Site': 'same-site', ...(origin ? { Origin: origin } : {}) };
+      expect((await fetch(f.url + '/login', { method: 'POST', headers: compatible, body: form })).status).toBe(303);
+    }
+    expect((await fetch(f.url + '/login', { method: 'POST', headers: { ...headers, Origin: 'https://lush.example.com', 'Sec-Fetch-Site': 'cross-site' }, body: form })).status).toBe(403);
+    expect((await fetch(f.url + '/logout', { method: 'POST', headers: { Cookie: cookie, Origin: f.url, 'Sec-Fetch-Site': 'same-origin' } })).status).toBe(303);
+    expect((await fetch(f.url + '/api/snapshot', { headers: { Cookie: cookie } })).status).toBe(401);
+  } finally { await f.close(); }
+});
+
+test('login next stays on origin after URL normalization, including backslash and control variants', async () => {
+  const password = 'test-only-password';
+  const f = await setup({ auth: { username: 'owner', password } });
+  const cases = [
+    ['/', '/'],
+    ['/p/abcdef0123456789/?q=one%20two#worker-1', '/p/abcdef0123456789/?q=one%20two#worker-1'],
+    ['/\\audit.invalid/', '/'], ['/\\\\audit.invalid/', '/'],
+    ['/a/../settings?q=yes#theme', '/settings?q=yes#theme'],
+    ['//audit.invalid/', '/'], ['https://audit.invalid/', '/'],
+    ['/\t/audit.invalid/', '/'], ['/\n/audit.invalid/', '/'], ['/\r/audit.invalid/', '/'],
+    ['/\u0000audit.invalid/', '/'], ['/safe\u007fpath', '/'],
+    ['/a/..//audit.invalid/', '/'], ['/%2e%2e//audit.invalid/', '/'],
+  ];
+  try {
+    for (const [next, expected] of cases) {
+      const response = await fetch(f.url + '/login', { method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ username: 'owner', password, next }).toString() });
+      expect(response.status).toBe(303);
+      const location = response.headers.get('location');
+      expect(new URL(location, f.url).origin).toBe(new URL(f.url).origin);
+      expect(location).toBe(expected);
+      const login = await fetch(f.url + '/login?next=' + encodeURIComponent(next));
+      expect(await login.text()).toContain(`name="next" value="${expected}"`);
+    }
+  } finally { await f.close(); }
+});
+
 test('RPC rejects invalid frames, unknown params, invalid ids and cross-project tokens', async () => {
   const f = await setup(); await repo(f.root);
   try {

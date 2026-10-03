@@ -79,12 +79,13 @@
 | 执行过程阅读 | `test/transcript*.test.js`、`test/web/{transcript-reader,dom-transcript-reader,dom-transcript-view,dom-results}.test.js` |
 | Agent 状态 | `test/agent/{status,usage-query,usage-settings,codex-usage-parsing,usage-auth-codex}.test.js`（fake Pi SDK、密钥命令不执行、脱敏身份、内置/HTTP mock 查询、独立Codex刷新/锁/写回和安全设置）、`test/project/{agent-usage,agent-usage-provider,codex-usage-history}.test.js`（存储/定时采样/热更新/有界历史/联调）、`test/web/{agent-status-api,agent-usage-api,dom-agent-status,dom-agent-usage}.test.js`（用户鉴权/项目路由、配置表单/缓存曲线/异步状态） |
 | 运行设置与 Agent | `test/runtime-settings.test.js`、`test/config*.test.js`、`test/agent-settings.test.js`、`test/soft-budget.test.js` |
+| 测试环境隔离 | `test/helpers.test.js`（子进程 HOME/XDG 与全局/系统 Git 配置隔离、合成 hook/签名/环境污染及退出回收；生产 Git 环境不变） |
 | 文档 | `test/docs-check.test.js`、`test/docs-search.test.js`、`test/markdown.test.js`、`test/mermaid-docs.test.js`、`test/web/docs.test.js` |
 | 历史遗留（内部实现仍在，无公开入口） | `test/drafts/**`、`test/project/{intent-layer,plan-gate,specs-queue,candidates,analysis,explanations,intro,sleep,verification-evidence}.test.js`、`test/{candidate-cli,sleep-cli,merge-all,orchestrate,verify,task-clear,task-delete,usage-*}.test.js` 及其 `test/web/*` 对应文件；它们验证的是历史兼容与内存实现，不能当作公开能力 |
 
 `.github/workflows/code-reader-posix.yml` 独立运行代码读取器的 Linux/macOS 聚焦回归，覆盖最低支持 Bun 1.2.0 和当前固定 Bun 1.4.2；无 native 包或编译步骤。Linux 本地通过不等于 macOS 实测，Darwin loader mock 也不能替代 macOS job 的结果。
 
-`test/helpers.js`、`test/dom-stub.js` 是被多个文件共用的**公共面**：只增不改，改签名会同时影响所有分区。
+`test/helpers.js`、`test/dom-stub.js` 是被多个文件共用的**公共面**：保持公共签名兼容，改签名会同时影响所有分区。`helpers.env(extra)` 与 `git(root,...args)` 为测试子进程隔离 HOME/XDG、全局/系统 Git 配置及继承的 `GIT_*`；`extra` 可显式注入受控配置，不修改进程级环境或生产 Git 行为。直接自建环境/spawn 的测试需自行隔离。
 
 ---
 

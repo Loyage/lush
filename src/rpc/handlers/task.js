@@ -33,6 +33,16 @@ export const handlers = {
     check(Number.isInteger(limit) && limit > 0 && limit <= 200, 'history limit must be 1..200');
     return p.store.historyPage(taskId, before, limit);
   },
+  /** 详情窗口之外的继续读取：只读用户方法，旧全量 `inspect` 字段保持兼容。 */
+  'worker.runs_page'(p, params) {
+    const taskId = id(params.id); p.store.task(taskId);
+    return p.store.runsPage(taskId, { before: params.before ?? null, limit: params.limit ?? 50 });
+  },
+  'worker.artifacts_page'(p, params) {
+    const taskId = id(params.id); p.store.task(taskId);
+    return p.store.artifactsPage(taskId, { before: params.before ?? null, limit: params.limit ?? 50 });
+  },
+  'worker.artifact'(p, params) { return p.store.artifact(id(params.id)); },
   'worker.diff'(p, params, actor) { return p.diff(params.id); },
   'worker.code_state'(p, { id: taskId, _token, ...options }) { return p.codeState(id(taskId), options); },
   'worker.code_tree'(p, { id: taskId, _token, ...options }) { return p.codeTree(id(taskId), options); },

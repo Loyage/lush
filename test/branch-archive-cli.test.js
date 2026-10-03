@@ -15,14 +15,42 @@ const RESULT = {
 test('lush branch archive forwards BRANCH and --discard to branch.archive', async () => {
   const plain = clientStub(RESULT);
   expect(await run('branch', ['archive', 'lush/h/7-feat'], { client: plain, json: true })).toEqual(RESULT);
-  expect(plain.calls).toEqual([{ method: 'branch.archive', params: { branch: 'lush/h/7-feat', discard: false } }]);
+  expect(plain.calls).toEqual([{ method: 'branch.archive', params: { branch: 'lush/h/7-feat', discard: false, continue: false } }]);
 
   const discard = clientStub(RESULT);
   await run('branch', ['archive', 'lush/h/7-feat', '--discard'], { client: discard, json: true });
-  expect(discard.calls).toEqual([{ method: 'branch.archive', params: { branch: 'lush/h/7-feat', discard: true } }]);
+  expect(discard.calls).toEqual([{ method: 'branch.archive', params: { branch: 'lush/h/7-feat', discard: true, continue: false } }]);
+
+  // G-04 续办：--continue 翻译成同一接口的 continue 参数。
+  const continued = clientStub({ ...RESULT, continued: true, no_remainder: true, count: 0, branches: [] });
+  await run('branch', ['archive', 'lush/h/7-feat', '--continue'], { client: continued, json: true });
+  expect(continued.calls).toEqual([{ method: 'branch.archive', params: { branch: 'lush/h/7-feat', discard: false, continue: true } }]);
 
   // 未知参数/缺分支不能悄悄当成别的命令。
   await expect(run('branch', ['archive', 'a', 'b'], { client: clientStub(RESULT), json: true })).rejects.toThrow();
+});
+
+test('non-json output reports no-remainder continuations and failures with remaining branches', async () => {
+  const logs = [];
+  const original = console.log;
+  console.log = (...args) => logs.push(args.join(' '));
+  try {
+    await run('branch', ['archive', 'lush/h/7-feat', '--continue'],
+      { client: clientStub({ ...RESULT, continued: true, no_remainder: true, count: 0, branches: [] }), json: false });
+    const noRemainder = logs.join('\n');
+    expect(noRemainder).toContain('没有剩余的未归档后代分支');
+    logs.length = 0;
+    await run('branch', ['archive', 'lush/h/7-feat'],
+      { client: clientStub({ ...RESULT, count: 1, branches: [RESULT], failed: [
+        { branch: 'lush/h/8-follow-up', reason: 'injected remove failure', worktree: 'absent', ref: 'kept', tip: 'deadbeef' }],
+        remaining: ['lush/h/9-later'] }), json: false });
+    const partial = logs.join('\n');
+    expect(partial).toContain('未归档');
+    expect(partial).toContain('injected remove failure');
+    expect(partial).toContain('未处理');
+    expect(partial).toContain('lush/h/9-later');
+    expect(partial).toContain('--continue');
+  } finally { console.log = original; }
 });
 
 test('the unknown branch command hint mentions archive', async () => {

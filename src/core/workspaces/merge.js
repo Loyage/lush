@@ -69,6 +69,21 @@ async function checkTaskSquashObjects(workspaces, receipt) {
     'diverged source must be repaired before worker squash');
 }
 
+/** External Git is outside our queue: never report success for a different checkout/ref.
+ * This detects drift, but cannot undo or prevent another process touching the worktree.
+ * Leave all evidence in place rather than reset a user's checkout on failure.
+ */
+async function verifyFastForward(workspaces, branch, commit, workspace) {
+  const message = `fast-forward target ${branch} changed during landing; inspect refs and worktree before retrying`;
+  check(await workspaces.git(workspaces.config.project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`) === commit, message);
+  if (workspace) {
+    check(await workspaces.git(workspace, 'symbolic-ref', '--quiet', 'HEAD') === `refs/heads/${branch}`
+      && await workspaces.git(workspace, 'rev-parse', 'HEAD') === commit, message);
+    await workspaces.clean(workspace);
+  }
+  check(await workspaces.git(workspaces.config.project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`) === commit, message);
+}
+
 /** 分支关系、批准合并的预检与落地。 */
 export const methods = {
   /** 尚未落成/完成分支、但未来可能改变 child 的任务，也必须阻止 child 提前向上交付。 */
@@ -198,6 +213,7 @@ export const methods = {
       // 未检出的父分支没有 index/worktree 要同步；compare-and-swap 更新 ref，外部进程抢先推进就安全失败。
       await this.git(this.config.project, 'update-ref', `refs/heads/${state.parent}`, landed, expectedParent ?? state.parent_head);
     }
+    await verifyFastForward(this, state.parent, landed, parentWorkspace);
     return { ...state, status: 'integrated', merged: true, new_head: landed, landed };
   },
 
@@ -388,6 +404,7 @@ export const methods = {
     } else {
       await this.git(project, 'update-ref', `refs/heads/${branch}`, to, head);
     }
+    await verifyFastForward(this, branch, to, workspace);
     return { branch, from: head, to, already_at: false };
   },
 
@@ -414,6 +431,7 @@ export const methods = {
       // 未检出的子分支没有 index/worktree 要同步；compare-and-swap 保证外部进程抢先推进时安全失败。
       await this.git(this.config.project, 'update-ref', `refs/heads/${state.child}`, state.parent_head, state.child_head);
     }
+    await verifyFastForward(this, state.child, state.parent_head, childWorkspace);
     return { ...state, caught_up: true, ahead: 0, behind: 0, from: state.child_head, to: state.parent_head,
       child_head: state.parent_head, new_head: state.parent_head, merged: false };
   },
@@ -547,7 +565,8 @@ export const methods = {
           already_integrated: outcome.already_integrated === true });
         return { task: this.store.task(task.id), conflict: null, branch: outcome };
       } catch (error) {
-        // 新路径只有 ff-only / compare-and-swap，不会留下需要人工检查的 merge 中间态。
+        // ff-only/CAS does not create a content-conflict merge state. External checkout/ref
+        // drift can still leave a different branch advanced: preserve that evidence, never reset.
         this.store.update(task.id, { integration: 'pending', integration_error: error.message });
         this.store.event(task.id, 'merge.failed', { error: error.message, files: [] });
         throw error;

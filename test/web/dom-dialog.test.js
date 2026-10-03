@@ -71,6 +71,24 @@ test('输入弹窗：确认返回内容，输入框回车也提交，取消返�
   expect(await dropped).toBe(null);
 });
 
+test('IME 候选确认回车不提交；composition 状态、isComposing 和 229 均受保护', async () => {
+  const pending = promptDialog({ title: '中文输入', value: '未完成的组词' });
+  const input = modal().querySelector('input');
+  const candidate = extra => {
+    let prevented = false;
+    input.onkeydown({ key: 'Enter', preventDefault() { prevented = true; }, ...extra });
+    expect(prevented).toBe(false);
+    expect(modal().hidden).toBe(false);
+    expect(modal().querySelector('input')).toBe(input);
+  };
+  candidate({ isComposing: true });
+  candidate({ keyCode: 229 });
+  input.oncompositionstart(); candidate({}); input.oncompositionend();
+  input.value = '完整中文';
+  input.onkeydown({ key: 'Enter', preventDefault() {} });
+  expect(await pending).toBe('完整中文');
+});
+
 test('焦点：确认键收到焦点，输入框优先；关闭后还给打开它的那个元素，Tab 不跑出弹窗', async () => {
   const opener = dom.document.createElement('button');
   opener.focus();

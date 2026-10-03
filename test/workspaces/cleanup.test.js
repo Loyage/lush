@@ -7,6 +7,53 @@ import { Dispatcher } from '../../src/rpc/protocol.js';
 import { createSignal } from '../../src/signal.js';
 import { setup, change } from './harness.js';
 
+test('explicit cleanup reclaims historical Candidate baselines and preserves failed-removal pointers for retry', async () => {
+  const f = await setup();
+  try {
+    const candidate = f.store.createCandidate({ input_id: f.task.input_id, branch: f.task.branch,
+      commit: f.task.base_commit, baseline_branch: 'main', baseline_commit: f.task.base_commit });
+    for (const status of ['completed', 'failed', 'cancelled']) {
+      const verifier = f.store.create({ role: 'verifier', goal: 'historical candidate verification', review_candidate_id: candidate.id });
+      const dir = path.join(f.config.home, 'worktrees', `candidate-${verifier.id}-base`);
+      await git(f.root, 'worktree', 'add', '--detach', dir, f.task.base_commit);
+      f.store.update(verifier.id, { status, baseline_workspace: dir });
+      await git(f.root, 'worktree', 'lock', dir);
+      await expect(f.project.workspaces.cleanup(verifier.id)).rejects.toThrow('git worktree');
+      expect(f.store.task(verifier.id).baseline_workspace).toBe(dir);
+      expect(fs.existsSync(dir)).toBe(true);
+      await git(f.root, 'worktree', 'unlock', dir);
+      expect((await f.project.workspaces.cleanup(verifier.id)).cleanup).toEqual({ id: verifier.id,
+        worktree: 'removed', branch: 'absent', reason: null });
+      expect(fs.existsSync(dir)).toBe(false);
+      expect(f.store.task(verifier.id).baseline_workspace).toBeNull();
+      expect((await f.project.workspaces.cleanup(verifier.id)).cleanup.worktree).toBe('absent');
+    }
+  } finally { await f.close(); }
+});
+
+for (const outcome of ['completed', 'failed', 'cancelled']) {
+  test(`historical Candidate invocation ${outcome} removes its derived baseline`, async () => {
+    const f = await setup();
+    try {
+      const candidate = f.store.createCandidate({ input_id: f.task.input_id, branch: f.task.branch,
+        commit: f.task.base_commit, baseline_branch: 'main', baseline_commit: f.task.base_commit });
+      const verifier = f.store.create({ role: 'verifier', goal: 'historical verification', review_candidate_id: candidate.id });
+      let baseline;
+      f.project.provider = { async run({ api, task }) {
+        baseline = api.store.task(task.id).baseline_workspace;
+        expect(fs.existsSync(baseline)).toBe(true);
+        if (outcome === 'failed') throw new Error('controlled verification failure');
+        if (outcome === 'cancelled') api.cancel(task.id);
+        return 'done';
+      } };
+      await f.project.invoke(verifier.id, { controller: new AbortController(), token: 'test', recordId: null });
+      expect(f.store.task(verifier.id).status).toBe(outcome);
+      expect(f.store.task(verifier.id).baseline_workspace).toBeNull();
+      expect(fs.existsSync(baseline)).toBe(false);
+    } finally { await f.close(); }
+  });
+}
+
 test('cleanup refuses unmerged work, including commits on failed tasks', async () => {
   const f = await setup();
   try {

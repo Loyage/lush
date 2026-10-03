@@ -6,14 +6,23 @@
 
 `src/core/project/context.js` 按Worker因果关系组装上下文，不注入全项目 `recent_tasks`。
 
-- 普通Worker携带父Worker摘要、最多 50 个直接子Worker摘要、依赖、所属输入的用户引用、未决 notice；未读消息单独送达。
+- 普通Worker携带父Worker摘要、最多 50 个直接子Worker摘要、依赖、所属输入的用户引用、未决 notice；未读消息按下面的预算分批送达。
 - goal / error 摘要分别至多 500 / 1000 字符；仅依赖附带至多 1500 字符的结果，避免重复子Worker成功收据。
 - 截断明确标记。需要原文时按 Worker ID inspect / transcript，不能把截断当作不存在。
 - planner、verifier、merger、explainer 保留各自专用上下文。explainer 仍不获得任意项目上下文、Worker凭证或工具。
 - 启动文件使用多行 JSON，去除 token hash 与重复的完整 prompt 配置；当前Worker上一轮结果限 2000 字符并标记。
 - Pi 使用 `@task-N-input.md` 直接附带输入文件，不必再消耗一次模型响应去 read；原始文件仍保留在 sessions。
 
-内置 prompt 要求按需读取、缩小搜索范围并排除生成物；成功测试只报告命令、范围、计数和日志路径，失败保留相关错误。它们是模型指导，不是删除工具输出或日志的硬过滤器。
+### 未读 inbox 的投递预算
+
+`Store.unreadPage(taskId, {limit=50, bytes=262144})` 只读元数据（id、是否用户消息、UTF-8 字节数），选出本轮的投递批次，再读取这些记录的完整正文；完整原文始终留在 SQLite，不截断也不摘要。
+
+- **用户消息优先**：`sender_id IS NULL` 的用户消息先按 id 升序全部纳入，不受字节预算限制（仍受条数上限约束），因为它们是唤醒这次 invocation 的原因；剩余预算再按 id 升序（FIFO）填充运行时的 Worker 信号。批次顺序与 id 顺序不一致时 `messages_page.reordered` 如实标注。
+- **单条超预算整体投递**：某个候选放不进剩余预算时，如果批次为空或是用户消息仍会整条投递并标 `oversize`，保证每次 invocation 至少消费一条、不饿死、不摘要；放不进的可稍后再送。
+- **启动文件显式声明**：`task-<id>-input.md` 增加 `messages_page:{delivered,has_more,pending,truncated_bytes,reordered}`，Agent 能区分“收件箱已清空”和“这只是第一批”，不会把未投递消息当作不存在。
+- **只消费已投递项**：成功收尾（含 park）只把本批 id 标 `consumed`；未投递原文保持未读，`hasActionableMessages` 判定口径不变，因此下一轮 invocation（含回答问卷、失败重试、子Worker唤醒）会继续投递剩余消息，无 lost wakeup、也不丢原文。
+
+消息多时 invocation 次数会增加，这是把无界上下文换成有界轮次的显式取舍；不新增实体、唤醒通道或 RPC 接口。
 
 ## 当前 say 与快速路由
 

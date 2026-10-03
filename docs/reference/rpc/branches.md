@@ -8,7 +8,7 @@
 | `branch tree [--verbose]` | `branch.tree` | `{}` | 用户与 agent，只读 |
 | `branch show BRANCH\|TASK_ID` | `branch.show` | `{branch}` | 用户与 agent，只读 |
 | `branch bind BRANCH COMMIT` | `branch.bind` | `{branch, commit}`（本地分支的固定 HEAD） | 用户专属 |
-| `branch archive BRANCH [--discard]` | `branch.archive` | `{branch, discard?}` | 用户专属 |
+| `branch archive BRANCH [--discard] [--continue]` | `branch.archive` | `{branch, discard?, continue?}` | 用户专属 |
 
 谱系是创建时显式写下的 `parent → child`，不是 commit graph 或Worker树。`branch.bind` 确认一条非 main 的本地分支及当前固定 HEAD，为它新建静息 `owner` 根 Worker；重复绑定、错误 HEAD、缺失 ref、相关旧Worker仍活动或已归档/删除的历史记录均拒绝。已有旧 Worker 与 `branches.task_id` 均不改写；`branch.tree/show` 当前所有者投影显示新 owner，但旧 Worker 仍可按 id 查看。只有绑定后，新 say 才能挂到那条分支；owner 不接受任意消息或运行不受限 Agent。daemon 启动时已有本地 main ref 则自动确保同一个静息根；无 ref 时不会凭空造 main。
 
@@ -38,7 +38,11 @@ Git 读取共享 15 秒截止时间，stdout 上限 4 MiB；每页最多 100 次
 
 **归档的是一条子树**：传进来的 `branch` 是子树根，它的全部后代一起归档（已归档 / 回收过的后代跳过），不会留下一批「父分支已不在」的后代。
 
-门槛：子树根必须已登记、不是 `archived` / `deleted`，当前检出分支不在子树里，且整棵子树都没有未终态Worker。`discard:false` 时，子树里任一脏 worktree 都会在动任何东西之前失败（不会留下归档了一半的子树）。返回示例：
+门槛：子树根必须已登记、不是 `archived` / `deleted`，当前检出分支不在子树里，且整棵子树都没有未终态Worker。`discard:false` 时，子树里任一脏 worktree 都会在动任何东西之前失败（不会留下归档了一半的子树）；`locked` / `prunable` / 已初始化 submodule 也在删除任何一条之前整树拒绝。
+
+一条分支 settle 后立即回写 `branches.status` 与Worker的 `workspace`，因此第二遍删除里撞上未知失败（I/O、外部程序）时不会留下「库说还在、磁盘已经没了」：已删的逐条保留，失败项进 `failed`，没轮到处理的进 `remaining`，并写一条 `branch.archive` 事件记录 `targets/completed/failed`。
+
+返图示例：
 
 ```json
 {
@@ -53,12 +57,16 @@ Git 读取共享 15 秒截止时间，stdout 上限 4 MiB；每页最多 100 次
   "ref": "deleted",
   "tip": "...",
   "discarded": false,
+  "failed": [],
+  "remaining": [],
   "tasks": [{ "id": 7, "status": "completed" }],
   "sessions": [".lush/sessions/...jsonl"]
 }
 ```
 
-顶层的 `worktree` / `ref` / `tip` / `discarded` 描述的是**子树根**（调用方问的那一条），整棵子树逐条看 `branches`，`count` 是这次一共归档了几条分支。CLI 的 `lush branch archive BRANCH [--discard]` 非 JSON 输出由 `printBranchArchive` 打印，每条分支一行。
+顶层的 `worktree` / `ref` / `tip` / `discarded` 描述的是**子树根**（调用方问的那一条），整棵子树逐条看 `branches`；`count` 是这次归档了几条，`failed` 逐条给出 `{branch, reason, worktree, ref, tip}`，`remaining` 是没轮到处理的分支名。CLI 的 `lush branch archive BRANCH [--discard] [--continue]` 非 JSON 输出由 `printBranchArchive` 打印，每条分支一行，并在尾部列出 `failed` / `remaining`。
+
+**显式续办 `continue:true`（`--continue`）**：上一次在子树中途失败后，根可能已经是 `archived`，但还有几条后代仍在磁盘上。此时传 `continue:true` 从 `branches.parent` 谱系重算剩余的活动后代并只归档这些；根已归档不是错误，不会重复删除，也不要求先重新归档根。没有剩余后代时明确返回 `no_remainder:true` 与 `count:0`，不报 `already archived`。根仍是 `active` 时 `continue:true` 被拒（正常归档即可）；重复调用幂等。
 
 被归档分支名下的 Worker 记录仍可从 `branch show` / `branch.archive` 事件 / Worker详情查询；Worker 图默认隐藏，可显式显示。
 

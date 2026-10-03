@@ -40,11 +40,12 @@ async function taskDataset(count) {
   try {
     f.store.transaction(() => {
       for (let index = 0; index < count; index += 1) {
-        const task = f.store.create({ input_id: null, role: 'research', goal: `task ${index} ${'x'.repeat(80)}` });
+        const task = f.store.create({ input_id: null, role: 'agent', task_kind: 'say', goal: `task ${index} ${'x'.repeat(80)}` });
         f.store.update(task.id, { status: 'completed', result: 'done' });
       }
     });
-    // These are the real homepage and compatibility client paths, including summary, ladder and activity.
+    // Current Worker-centred overview and its snapshot alias, via an in-process
+    // dispatcher (not socket RPC); rendering uses the DOM stub, not a browser.
     const overview = await timedAsync(() => f.client.overview());
     const legacy = await timedAsync(() => f.client.snapshot());
     renderTree(overview.value); // warm this data shape before measuring recurring refresh work
@@ -52,7 +53,8 @@ async function taskDataset(count) {
     const treeText = deepText(dom.node('tasks'));
     return { tasks: count, overview_bytes: bytes(overview.value), legacy_bytes: bytes(legacy.value),
       overview_ms: +overview.ms.toFixed(3), legacy_ms: +legacy.ms.toFixed(3), render_ms: +render.ms.toFixed(3),
-      shown: overview.value.tasks.length, historical: overview.value.task_page.historical,
+      shown: overview.value.tasks.length, page_limit: overview.value.task_page.limit,
+      historical: overview.value.task_page.historical,
       truncated: overview.value.task_page.truncated, has_more: overview.value.task_page.has_more,
       ui_truncation: treeText.includes('列表已截断'), ui_paging: treeText.includes('加载更早 50 个') };
   } finally { f.close(); }
@@ -91,13 +93,18 @@ for (const [label, size] of [['small', 64 * 1024], ['medium', 2 * 1024 * 1024], 
 }
 const report = {
   environment: { bun: Bun.version, platform: `${process.platform}/${process.arch}` },
+  measurement_scope: { overview: 'in-process dispatcher projection', render: 'DOM stub (no browser layout)',
+    timer_delay: 'same-process event-loop delay (not competing socket RPC)' },
   task_sets: taskSets, log_sets: logSets, thresholds_ms: thresholds,
 };
 const violations = [];
 for (const set of report.task_sets) {
   if (set.overview_ms > thresholds.overview) violations.push(`${set.tasks} tasks overview ${set.overview_ms}ms > ${thresholds.overview}ms`);
   if (set.render_ms > thresholds.render) violations.push(`${set.tasks} tasks render ${set.render_ms}ms > ${thresholds.render}ms`);
-  if (set.tasks >= 1000 && (set.shown !== 50 || !set.truncated || !set.has_more || !set.ui_truncation || !set.ui_paging)) {
+  // Follow the public bounded window, rather than a retired hard-coded size.
+  if (!Number.isInteger(set.page_limit) || set.page_limit < 1 || set.page_limit > 200 ||
+      set.shown !== Math.min(set.tasks, set.page_limit) ||
+      (set.tasks > set.page_limit && (!set.truncated || !set.has_more || !set.ui_truncation || !set.ui_paging))) {
     violations.push(`${set.tasks} tasks did not expose the bounded UI truncation/page controls`);
   }
 }

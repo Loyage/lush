@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const DEFAULT_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MAX_RECOMMENDED_BYTES = 50 * 1024;
+const MAX_RECOMMENDED_LINES = 150;
 
 const posix = value => value.split(path.sep).join('/');
 
@@ -19,39 +20,30 @@ function walk(dir, out = []) {
   return out;
 }
 
-function withoutFencedCode(source) {
+// One fence state for both prose and Mermaid: a shorter marker or an info
+// string cannot close a block, and nested examples are not live diagrams.
+function scanFences(source) {
   const kept = [];
-  let fence = null;
-  for (const line of source.replace(/\r\n?/g, '\n').split('\n')) {
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (marker) {
-      if (!fence) fence = marker[0];
-      else if (marker[0] === fence) fence = null;
-      kept.push('');
-      continue;
-    }
-    kept.push(fence ? '' : line);
-  }
-  return kept.join('\n');
-}
-
-function mermaidFenceErrors(source) {
-  const errors = [];
-  const lines = source.replace(/\r\n?/g, '\n').split('\n');
   let open = null;
+  const lines = source.replace(/\r\n?/g, '\n').split('\n');
   for (let index = 0; index < lines.length; index++) {
-    const match = /^ {0,3}(`{3,}|~{3,})\s*([^\s`]*)/.exec(lines[index]);
-    if (!match) continue;
-    if (!open && match[2].toLowerCase() === 'mermaid') open = { marker: match[1][0], line: index + 1 };
-    else if (open && match[1][0] === open.marker && !match[2]) open = null;
+    const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(lines[index]);
+    if (open) {
+      if (match && match[1][0] === open.marker && match[1].length >= open.length && !match[2].trim()) open = null;
+      kept.push('');
+    } else if (match && !(match[1][0] === '`' && match[2].includes('`'))) {
+      open = { marker: match[1][0], length: match[1].length, line: index + 1,
+        mermaid: match[2].trim().split(/\s+/)[0].toLowerCase() === 'mermaid' };
+      kept.push('');
+    } else kept.push(lines[index]);
   }
-  if (open) errors.push(`Mermaid fence opened on line ${open.line} is not closed`);
-  return errors;
+  return { prose: kept.join('\n'), errors: open?.mermaid
+    ? [`Mermaid fence opened on line ${open.line} is not closed`] : [] };
 }
 
 function markdownLinks(source) {
   const links = [];
-  const text = withoutFencedCode(source);
+  const text = scanFences(source).prose;
   const pattern = /!?\[[^\]]*\]\(\s*([^\s)]+)(?:\s+["'][^"']*["'])?\s*\)/g;
   for (const match of text.matchAll(pattern)) links.push(match[1].replace(/^<|>$/g, ''));
   return links;
@@ -73,11 +65,13 @@ export function checkDocs(root = DEFAULT_ROOT) {
   for (const file of markdown) {
     const relative = posix(path.relative(root, file));
     const source = fs.readFileSync(file, 'utf8');
-    const prose = withoutFencedCode(source);
+    const { prose, errors: fenceErrors } = scanFences(source);
     const h1 = prose.match(/^#\s+\S.*$/gm) || [];
     if (h1.length !== 1) errors.push(`${relative}: expected exactly one level-1 heading, found ${h1.length}`);
     if (Buffer.byteLength(source) > MAX_RECOMMENDED_BYTES) warnings.push(`${relative}: exceeds the recommended 50KB size`);
-    for (const message of mermaidFenceErrors(source)) errors.push(`${relative}: ${message}`);
+    const lineCount = source.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n').length;
+    if (lineCount > MAX_RECOMMENDED_LINES) warnings.push(`${relative}: ${lineCount} lines exceeds the recommended ${MAX_RECOMMENDED_LINES}; consider splitting prose (reference tables may remain longer)`);
+    for (const message of fenceErrors) errors.push(`${relative}: ${message}`);
 
     for (const raw of markdownLinks(source)) {
       if (!raw || raw.startsWith('#') || raw.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(raw)) continue;

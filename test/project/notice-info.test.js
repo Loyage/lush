@@ -111,7 +111,11 @@ test('notice.list 仍返回 info 行，200 条提醒也挤不掉那条 open 问�
   try {
     const settled = workerTask(f);
     f.project.finish(settled.id, 'completed', 'done');
-    for (let i = 0; i < 200; i++) f.project.notify(settled.id, `提醒 ${i}`, 'body');
+    // This case measures list ordering, not 400 individual durable commits.
+    // Batch fixture setup so filesystem latency cannot exhaust the test timeout.
+    f.store.transaction(() => {
+      for (let i = 0; i < 200; i++) f.project.notify(settled.id, `提醒 ${i}`, 'body');
+    });
 
     const holder = f.store.create({ input_id: null, role: 'worker', name: 'holder', goal: '还停在等你答复' });
     f.store.update(holder.id, { status: 'waiting' });

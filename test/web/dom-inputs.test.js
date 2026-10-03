@@ -199,6 +199,23 @@ test('编辑/发射单飞，保存失败保留全部本地编辑并且不发射'
   intercept = null; await btn('保存', panel()).onclick(); expect(calls.at(-1).params.expected_revision).toBe(3);
 });
 
+test('保存 500、离线或远端删除后，轮询与刷新仍保留文字/父身份/引用，允许重试', async () => {
+  for (const failure of [() => ({ ok: false, status: 500, json: async () => ({ error: '保存失败' }) }),
+    () => Promise.reject(new Error('离线')), () => ({ ok: false, status: 404, json: async () => ({ error: '远端已删除' }) })]) {
+    activateDetailView({ view: 'overview' }); rows = [fixture(), fixture('input', 2)];
+    intercept = null; await openInputs(); await openDraft();
+    const node = editor(); node.value = '保留本地修改'; parentSelect().value = '900';
+    const delayed = deferred(); intercept = (_path, body) => body?.method === 'draft.update' ? delayed.promise : null;
+    const saving = btn('保存', panel()).onclick();
+    await dom.intervalFor(1500)(); await btn('刷新列表').onclick();
+    delayed.resolve(failure());
+    await saving;
+    expect(editor()).toBe(node); expect(node.value).toBe('保留本地修改'); expect(node.disabled).toBe(false);
+    expect(parentSelect().value).toBe('900'); expect(deepText(panel())).toContain('当时所见');
+    intercept = null; await btn('保存', panel()).onclick(); expect(deepText(panel())).toContain('已保存');
+  }
+});
+
 test('保存成功但发射失败保留更新修订，重试不会重复保存旧内容', async () => {
   await openInputs(); await openDraft(); editor().value = '已经保存的编辑';
   intercept = (_path, body) => body?.method === 'say.submit' ? Promise.reject(new Error('父分支暂时被冻结')) : null;

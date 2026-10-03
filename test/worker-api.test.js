@@ -12,6 +12,7 @@ const reads = {
   transcript: ['id','after','limit'], transcript_latest: ['id','after','before','limit'],
   transcript_page: ['id','seq','offset'], transcript_step: ['id','seq','offset'],
   transcript_search: ['id','query','kind','tool','errors','after','limit'],
+  runs_page: ['id','before','limit'], artifacts_page: ['id','before','limit'], artifact: ['id'],
 };
 const writes = {
   spawn: ['parent','goal','name'], integrate: ['id','commit'], reserve: ['id','kind'], reserve_all: ['branch'],
@@ -22,7 +23,8 @@ const writes = {
   resume: ['id','profile'], configure: ['id','profile'], delete: ['id','revision','confirm'],
 };
 const userOnly = new Set(['code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
-  'transcript_search','reserve','reserve_all','auto_merge','resolve','resolve_divergence','unreserve','approve_merge',
+  'transcript_search','runs_page','artifacts_page','artifact',
+  'reserve','reserve_all','auto_merge','resolve','resolve_divergence','unreserve','approve_merge',
   'cancel','retry','cleanup','interrupt','resume','configure','reopen','sync_parent','resolve_sync','delete_preview','delete']);
 const agentOnly = new Set(['integrate','resolve_child_divergence']);
 const contract = { ...reads, ...writes };

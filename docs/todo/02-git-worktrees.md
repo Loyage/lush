@@ -1,8 +1,27 @@
 # Git / Worktree 与交付安全审查
 
-本文面向维护者，检查代码隔离、交付冻结、回收安全与多分支成本；仅列改进建议，不实施功能。入口为 `src/core/workspaces/` 与 `src/core/project/` 的分支、Candidate、Integration、Showcase 模块。
+本文面向维护者，检查代码隔离、交付冻结、回收安全与多分支成本；保留原审查证据，并逐项记录后续复核与实施。当前入口为 `src/core/workspaces/` 与 `src/core/project/`；Candidate 为历史兼容，Showcase 已删除，不能把旧模块名单当成现行产品面。
 
-## 范围、基线与验证
+## 当前复核（2026-10-02）
+
+复核基线 `81257d12e3001214e7f03bc4ee2398f834e35ee3`；设计入口没有独立 Git 理念，按模块地图 / Runtime 分章、Git 边界、回收契约确认取舍，不自行改变批准、源侧解分歧或历史兼容边界。
+
+| 条目 | 当前结论 | 本轮行动 / 后续 |
+|---|---|---|
+| G-01 | 原缺陷已修复 | branchResourceUsers 保留输入锚点 / verifier / 未收尾资源准入；不再套用已删除 Showcase 功能 |
+| G-02 | 原最低核验已修复，且 Candidate 已无公开创建 / 调度入口 | 保留历史代码；不引入新 detached Candidate 验收产品 |
+| G-03 | 外部并发已知限制，本轮完成侦测错误成功的加固 | ff-only 后复核真实目标 ref / 检出身份 / HEAD / clean；不 reset，不承诺消除外部 checkout 竞态 |
+| G-04 | 本轮部分完成 | 全子树删除前预检 locked / prunable / initialized submodule；未知 I/O 部分失败续办协议仍待决定 |
+| G-05 | 历史兼容缺陷，本轮补显式清理与 invocation 收尾 | Candidate baseline 与普通 verifier 一样回收；不恢复旧自动调度 / verifier 产品入口 |
+| G-06 | 已关闭 | 展示 / 图准入投影已删除，无现行成本路径 |
+
+**验证**：Git 变更全部在测试临时仓库；未操作用户 daemon、外部工作区或密钥。定向 5 文件 **50 pass / 0 fail**（完整日志 `/tmp/lush-review-104/targeted-rerun.log`）；完整 `bun run test` **1108 pass / 1 fail / 1 error**，阻塞为缺少打包开发依赖 `@electron/asar`，完整日志 `/tmp/lush-review-104/full.log`，不宣称全套成功。首次定向 45 / 2 的断言问题及修正见[运行时专题验证记录](01-runtime-persistence.md#当前复核2026-10-02)。
+
+**供统一问卷的待决项**：G-03 保持「禁止外部并发 + 检测漂移」边界，或更强隔离用户 checkout / 协作锁设计（跨平台、行为变化均需确认）；G-04 维持失败现场、手动检查剩余分支，或持久逐项结果并允许显式续办（需定义入口、审计与兼容）。本轮不发独立 Notice、不扩张公共接口。
+
+G-04 已随用户选择的运行时工作包进入方案设计：推荐复用现有事件与资源事实（不新增实体），逐条回报磁盘结果并在库内对齐，再以显式 `--continue` 续办；边界、审计与回归见[运行时与异常恢复方案草案](runtime-next.md)，尚未实现。
+
+## 原审查范围、基线与验证（历史证据）
 
 - HEAD：`99fcbc993640c057488532a19ca08814ab60b73e`，与指定基线一致；审查前工作树干净。
 - 已读 [模块地图](../engineering/modules.md)、[Runtime 分章](../engineering/modules-runtime.md)、[接口与测试](../engineering/modules-interfaces.md)、[设计入口](../design/README.md)、[文档约定](../contributing/documentation.md)，并核对 [Git 边界](../engineering/git-boundary.md)、[回收](../engineering/cleanup.md)、[合并](../engineering/merge.md)、[验收闭环](../engineering/review-loop.md)。设计入口暂无 Git 专题，未自行增设产品原则。
@@ -15,7 +34,9 @@
 
 ## G-01 归档准入漏掉实际使用输入工作区的活动Worker
 
-**P1 · 已复现 · 预估 M · 已完成（2026-09-26，提交 `a8c1699`）**
+**P1 · 已复现 · 预估 M · 已完成（2026-09-26，提交 `a8c1699`）；2026-10-02 复核：原缺陷修复保留**
+
+- **当前依据**：`project/branches.js` 的 branchResourceUsers / archiveBranch 仍检查 branchless 输入锚点使用者、检验服务对象、running Map 与 cleanup busy。当前测试保留未收尾 invocation 用例并通过；不把最初目标里的所有并发原子性要求等同于已经完成，未知外部变化仍以 G-04 限制处理。
 
 - **完成口径**：`branchResourceUsers()` 统一「谁在用这些 worktree / ref」：拥有分支的Worker、输入锚点下的 planner/worker/merger 与 say、引用被检验Worker或候选的 verifier、以这些分支为目标的进行中工作，以及 running 中未收尾或正在 cleanup 的Worker。任一活动使用者即拒绝且无副作用。回归：`test/workspaces/archive.test.js`（running planner、queued branchless worker、活动 verifier、终态未收尾四例）。
 - **依据**：`src/core/project/branches.js`，`archiveBranch()`，170–186 行，仅按 `tasks.branch IN (...)` 查未终态Worker；`src/core/workspaces/worktree.js`，`ensure()`，127–132 行，planner 实际使用输入 anchor，而 Worker 本身没有 branch。归档前也没有 `running` / `busy` 收尾检查。
@@ -25,7 +46,9 @@
 
 ## G-02 Candidate 固定的是 HEAD，实际验收仍可读取脏文件树
 
-**P1 · 已复现 · 预估 M · 已完成（2026-09-26，提交 `0dc36ef`）**
+**P1 · 已复现 · 预估 M · 已完成（2026-09-26，提交 `0dc36ef`）；2026-10-02 复核：历史最低核验保留，当前产品入口已下线**
+
+- **当前依据**：Workspaces.ensure 的 Candidate 源 HEAD / dirt 检查与 invocation 结束前 assertCandidateVerification 的源 / baseline 核验仍在源码；当前 RPC 无 candidate/verify 创建入口，pump 不调度历史 verifier。旧 Candidate 测试文件已移除，下文回归名是历史证据，不是本轮执行命令。开始/结束检查不证明期间未变动，也不宣称实现了隔离验收；未来若恢复产品应重新确认独立检出方案。
 
 - **完成口径**：采用「开始/结算核验」而非独立检出。`ensure()` 与结算前都调用 `assertCandidateVerification()`：锚点 worktree 必须 HEAD 等于固定提交且干净，对照检出必须停在 baseline 提交且干净；不符即 invocation 失败、候选标 failed，不记为该 commit 的通过证据。回归：`test/project/candidates.test.js`（开始前脏、运行中提交漂移、对照检出被改动）。
 - **依据**：`src/core/workspaces/worktree.js`，`ensure()`，100–128 行，只核对源工作区 HEAD 等于 `candidate.commit_hash`，不检查脏树；`finish()`，209–225 行，对没有 `task.workspace` 的 verifier 直接返回。`src/core/project/verify.js`，`verificationEvidence()`，43–48 行，把 Candidate 元数据直接标为 `tested_commit`。
@@ -35,7 +58,10 @@
 
 ## G-03 外部切换检出可让 fast-forward 落到错误分支并报告成功
 
-**P1（按潜在影响）· 已复现（确定性交错）· 外部并发边界的加固建议 · 预估 L**
+**P1（按潜在影响）· 已复现（确定性交错）· 外部并发已知限制 · 本轮完成错误成功侦测（2026-10-02），更强隔离待决**
+
+- **完成口径**：当前 v2 主路径已使用精确 Squash 凭据 + 双 ref 事务 + 工作区复核，不能继续用旧 ff-only 证据代指它。历史 mergeBranchUnsafe / catchupBranchUnsafe 及当前也使用的 fastForwardBranchUnsafe 则补统一后置核验：实际目标 ref 为固定落地 SHA，有检出时 symbolic-ref / HEAD 身份及 clean 一致，最后再次读目标 ref。失败不写 merged / caught_up，不自动回退/reset；错误现场可能仍包含被外部切换的分支接收提交，这一限制明确保留。
+- **回归**：`test/workspaces/merge.test.js` 对 merge / catchup / fast-forward 各注入检查后 checkout、detached、落地后外部提交，9 例均拒绝错误成功并保留现场。此加固不能锁住外部 Git，也不能消除最后检查之后的变化；更强 checkout 隔离 / 协作锁是待决架构，不在本轮擅定。
 
 - **依据**：`src/core/workspaces/merge.js`，`mergeBranchUnsafe()`，76–87 行，先 `symbolic-ref` 校验再执行独立 `git merge --ff-only`；`catchupBranchUnsafe()`，105–115 行结构相同。Lush 队列只串行自身请求，不能锁住外部 checkout。
 - **触发与影响**：建立 main、同起点 unrelated、领先的 feature；在 parent 身份检查后、真正 merge 前由测试拦截插入 `git checkout unrelated`。结果返回 `parent=main, merged=true`，实际 main 未变、unrelated 收到 feature commit；这不是内容冲突，也不是未检出 ref 的 CAS 路径。[使用说明](../../README.md)已要求不要让其它程序同时修改正在合并的工作树；本项违反该使用前提，属于防御性加固，不应称为遵守前提时仍必现的合并缺陷。
@@ -44,7 +70,10 @@
 
 ## G-04 子树归档遇到锁定后代会部分完成且无法原入口重试
 
-**P2 · 已复现 · 预估 M**
+**P2 · 已复现 · 预估 M · 本轮部分完成（2026-10-02）**
+
+- **完成口径**：archiveBranches 在第一遍读一次 NUL 分隔 worktree metadata；任一后代 locked / prunable（含缺目录注册）或包含已初始化 submodule 时，全子树在任何删除前拒绝。`discard_worktree` 仅授权丢未提交修改，不能绕过上述安全门；不使用双 force，不扩大删除范围。NUL 解析保留路径 / 原因中的空白、引号和换行。
+- **回归与剩余项**：`test/workspaces/archive.test.js` 覆盖 locked（带换行原因）、prunable、initialized submodule，显式 discard 也拒绝，父目录/ref/状态/指针/审计不变。第二遍外部锁变化或 I/O 失败仍可能半归档；逐项持久 outcome、同步 Worker 指针 / 审计及显式安全续办尚未实现，接口/产品语义交父统一询问。下列原证据保留，不把预检修复夸大为跨目录原子删除。
 
 - **依据**：`src/core/workspaces/cleanup.js`，`archiveBranches()`，42–85 行，第一遍只收集 tip/路径并检查 clean，第二遍逐条 remove/ref-delete/标 archived；`src/core/project/branches.js`，`archiveBranch()`，174–177、186–213 行，根已 archived 时拒绝，Worker指针与事件仅在整批 Git 成功后更新。
 - **触发与影响**：父、子 worktree 都干净，提前 `git worktree lock <child>`；归档父分支先删除父目录/ref 并标 archived，再在子目录报 locked。观测父 archived、子 active；重试父直接报 `already archived`，一次已知、可预检的状态造成半棵树归档和审计/指针更新遗漏。
@@ -53,7 +82,11 @@
 
 ## G-05 Candidate verifier 的 baseline 不在正常完成与手动清理路径中
 
-**P2 · 已复现 · 预估 S**
+**P2 · 已复现 · 预估 S · 本轮完成历史兼容回收（2026-10-02）**
+
+- **完成口径**：Candidate 创建 / 验收已没有当前公开入口，旧 verifier 不自动调度；但已有 baseline 仍可从显式 worker.cleanup 回收。Workspaces.release 同时识别 verifies_task_id / review_candidate_id；invoke finally 同样识别两者（供历史内部调用），失败保留路径供检查重试。沿用既有派生 baseline 的单 force 回收，不增加 Showcase 回收、不恢复旧重启自动清理/调度。
+- **回归**：`test/workspaces/cleanup.test.js` 覆盖历史 Candidate 成功 / 失败 / 取消的 invocation 收尾；三个终态下显式 cleanup 锁失败保存路径、解锁重试后删除、重复 cleanup 报 absent。旧 worker verifier 与 Showcase 保留安全测试亦在全量运行中通过。
+- **原恢复说明已过时**：当前 recover 不自动恢复旧 verifier，也不自动删除旧 Candidate baseline；下文“重启可回收”仅描述原审查版本，不能据此建议重启真实 daemon。
 
 - **依据**：`src/core/project/scheduling.js`，`invoke()` 的 finally，197–203 行，只给 `verifies_task_id` 回收 baseline；`src/core/workspaces/cleanup.js`，`release()`，112–145 行，也只识别此字段。Candidate verifier 使用 `review_candidate_id`，但 `ensure()` 同样创建 `baseline_workspace`。
 - **触发与影响**：G-02 的 verifier 完成后 baseline 目录仍在，再 `workspaces.cleanup(id)` 返回 worktree/branch 均 absent、reason=null，目录仍在、指针未清。多版本验收积累完整 checkout，用户清理结果还误导为没有资源。
@@ -63,7 +96,9 @@
 
 ## G-06 图读取重复执行完整 Showcase 准入（随功能删除关闭）
 
-**已关闭：预约展示、效果展示与图准入投影整体删除，不再执行下述历史调用。**
+**已关闭：预约展示、效果展示与图准入投影整体删除，不再执行下述历史调用；2026-10-02 复核确认，无需实施旧优化方案。**
+
+- **当前依据**：模块地图明确 Showcase 已整体删除，当前 graph 不再执行 showcaseEligibility，也不存在其工作区实现。原 20 分支 Git 调用测量是旧功能证据，不用来推断当前 Worker 图成本。
 
 以下保留原始成本测量记录，不是当前待实施方案。
 

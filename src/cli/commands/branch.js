@@ -61,8 +61,11 @@ export async function run(command, args, ctx) {
   } else if (verb === 'archive') {
     const discard = args.includes('--discard');
     if (discard) args.splice(args.indexOf('--discard'), 1);
+    // G-04 续办：根已归档但子树里还有未完成的后代时，显式继续剩余部分。
+    const continuing = args.includes('--continue');
+    if (continuing) args.splice(args.indexOf('--continue'), 1);
     exact(args, 1);
-    value = await client.request('branch.archive', { branch: args[0], discard });
+    value = await client.request('branch.archive', { branch: args[0], discard, continue: continuing });
     if (!json) { printBranchArchive(value); return; }
   } else if (verb === 'summary') {
     // 两种形式：`branch summary "一句话"` 写自己的分支；`branch summary BRANCH "一句话"` 点名分支（用户）。

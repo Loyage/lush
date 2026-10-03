@@ -102,6 +102,52 @@ export function artifactPayload(kind, source) {
     verification: unknownVerification() };
 }
 
+/** A paged read must stay a bounded window; callers page backwards from `cursor`. */
+const PAGE_MIN = 1;
+const PAGE_MAX = 200;
+const DEFAULT_PAGE = 50;
+/** Window projection of an Artifact payload: raw text prefix, never a silent truncation. */
+const PAYLOAD_WINDOW_BYTES = 8192;
+
+function pageLimit(limit, name) {
+  const size = Number(limit ?? DEFAULT_PAGE);
+  check(Number.isInteger(size) && size >= PAGE_MIN && size <= PAGE_MAX, `${name} limit must be ${PAGE_MIN}..${PAGE_MAX}`);
+  return size;
+}
+
+function pageCursor(before, name) {
+  if (before === null || before === undefined) return null;
+  const value = Number(before);
+  check(Number.isSafeInteger(value) && value > 0, `invalid ${name} cursor`);
+  return value;
+}
+
+/** Newest-first SQL window, returned oldest→newest; `cursor` is the oldest returned id. */
+function pageResult(rows, size) {
+  const items = rows.slice(0, size).reverse();
+  return { items, has_more: rows.length > size, cursor: items.at(0)?.id ?? null, limit: size };
+}
+
+/** Byte-prefix without splitting a UTF-8 sequence; the complete payload stays in SQLite. */
+function payloadPrefix(value, max) {
+  return Buffer.from(value, 'utf8').subarray(0, max).toString('utf8').replace(/\uFFFD+$/, '');
+}
+
+function projectArtifact(row) {
+  let metadata = {};
+  try { metadata = JSON.parse(row.metadata || '{}'); } catch { /* preserve malformed historical metadata as empty */ }
+  return { ...row, payload: artifactPayload(row.kind, row.payload), metadata };
+}
+
+/** Window projection: complete payloads parse normally; larger ones keep a marked raw prefix. */
+function artifactWindow(row) {
+  const raw = typeof row.payload === 'string' ? row.payload : String(row.payload ?? '');
+  const bytes = Buffer.byteLength(raw);
+  if (bytes <= PAYLOAD_WINDOW_BYTES) return { ...projectArtifact(row), payload_truncated: false };
+  return { ...projectArtifact({ ...row, payload: payloadPrefix(raw, PAYLOAD_WINDOW_BYTES) }),
+    payload_truncated: true, payload_bytes: bytes };
+}
+
 /** Durable invocation attempts and structured artifacts. */
 export const runs = {
   startRun(task, agent = {}) {
@@ -139,13 +185,33 @@ export const runs = {
       id(task_id), run_id === null ? null : id(run_id), input_id, kind, body, JSON.stringify(metadata ?? {}));
     return this.artifact(Number(row.lastInsertRowid));
   },
+  /** Complete Artifact by id; the payload keeps its existing 512 KB write cap. */
   artifact(artifactId) {
     const row = this.get('SELECT * FROM artifacts WHERE id=?', id(artifactId));
     check(row, `artifact ${artifactId} not found`);
-    let metadata = {};
-    try { metadata = JSON.parse(row.metadata || '{}'); } catch { /* preserve malformed historical metadata as empty */ }
-    return { ...row, payload: artifactPayload(row.kind, row.payload), metadata };
+    return projectArtifact(row);
   },
   artifactsForTask(taskId) { return this.all('SELECT id FROM artifacts WHERE task_id=? ORDER BY id', id(taskId)).map(row => this.artifact(row.id)); },
   artifactsForInput(inputId) { return this.all('SELECT id FROM artifacts WHERE input_id=? ORDER BY id', id(inputId)).map(row => this.artifact(row.id)); },
+  /** Bounded newest-first Run window; `before` continues strictly older, no skips or repeats. */
+  runsPage(taskId, { before = null, limit = DEFAULT_PAGE } = {}) {
+    const size = pageLimit(limit, 'run');
+    const cursor = pageCursor(before, 'run');
+    const task = id(taskId);
+    const rows = cursor === null
+      ? this.all('SELECT * FROM agent_runs WHERE task_id=? ORDER BY id DESC LIMIT ?', task, size + 1)
+      : this.all('SELECT * FROM agent_runs WHERE task_id=? AND id<? ORDER BY id DESC LIMIT ?', task, cursor, size + 1);
+    return pageResult(rows, size);
+  },
+  /** Same contract for Artifacts; each window item carries the marked payload projection. */
+  artifactsPage(taskId, { before = null, limit = DEFAULT_PAGE } = {}) {
+    const size = pageLimit(limit, 'artifact');
+    const cursor = pageCursor(before, 'artifact');
+    const task = id(taskId);
+    const rows = cursor === null
+      ? this.all('SELECT * FROM artifacts WHERE task_id=? ORDER BY id DESC LIMIT ?', task, size + 1)
+      : this.all('SELECT * FROM artifacts WHERE task_id=? AND id<? ORDER BY id DESC LIMIT ?', task, cursor, size + 1);
+    const page = pageResult(rows, size);
+    return { ...page, items: page.items.map(artifactWindow) };
+  },
 };

@@ -5,6 +5,7 @@
  */
 export function createWriter(socket) {
   const queue = [];
+  let pendingBytes = 0;
   let ending = false;
   let ended = false;
   let dead = false;
@@ -29,19 +30,23 @@ export function createWriter(socket) {
       } catch {
         dead = true;
         queue.length = 0;
+        pendingBytes = 0;
         return;
       }
       if (typeof written !== 'number' || written < 0) {
         dead = true;
         queue.length = 0;
+        pendingBytes = 0;
         return;
       }
       if (written === 0) return; // backpressure: wait for drain
       if (written >= chunk.length) {
+        pendingBytes -= chunk.length;
         queue.shift();
         continue;
       }
       queue[0] = chunk.subarray(written);
+      pendingBytes -= written;
       return;
     }
     finish();
@@ -50,7 +55,9 @@ export function createWriter(socket) {
   return {
     write(data) {
       if (dead) return;
-      queue.push(Buffer.isBuffer(data) ? data : Buffer.from(data));
+      const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
+      queue.push(chunk);
+      pendingBytes += chunk.length;
       flush();
     },
     drain: flush,
@@ -63,9 +70,14 @@ export function createWriter(socket) {
     fail() {
       dead = true;
       queue.length = 0;
+      pendingBytes = 0;
     },
     get pending() {
       return queue.length;
+    },
+    /** Bytes accepted by write() but not yet handed to the socket. */
+    get pendingBytes() {
+      return pendingBytes;
     },
   };
 }

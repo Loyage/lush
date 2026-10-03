@@ -63,9 +63,12 @@ function open({ title, message = null, detail = null, confirmLabel, cancelLabel,
     input.setAttribute('type', 'text');
     input.value = field.value ?? '';
     if (field.placeholder) input.setAttribute('placeholder', field.placeholder);
-    // 输入框里按 Enter 就是提交，不必先摸鼠标（原生 prompt 也是这样）。
+    // 候选确认不是提交；与主输入区一致，兼容缺少 isComposing 的 IME 事件。
+    let composing = false;
+    input.oncompositionstart = () => { composing = true; };
+    input.oncompositionend = () => { composing = false; };
     input.onkeydown = event => {
-      if (event.key !== 'Enter') return;
+      if (event.key !== 'Enter' || composing || event.isComposing || event.keyCode === 229) return;
       event.preventDefault?.();
       active?.(String(input.value));
     };

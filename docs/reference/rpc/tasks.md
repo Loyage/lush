@@ -113,6 +113,10 @@ say 的 pending merge 请求若与直接父分支分歧（`blocked_code='diverge
 
 每次 provider invocation 先写一条 `agent_runs` 行（attempt / role / provider / started_at / ended_at / result / error），正常结束时写 version 2 `run.result` Artifact。Envelope 保留 outcome / summary / changes / evidence / decisions / risks / artifacts / followups，并用独立的 `invocation.status` 与 `verification.status` 区分“调用正常返回”和 `pass` / `fail` / `partial` / `unverified`。`pass` 必须没有 `failures` / `unverified`，但允许记录 `baseline_failures` / `residual_risks`；旧 payload 不重写，缺少或包含矛盾结构化证据时读作 `unknown`。`worker.inspect` 返回该Worker的 `runs` 与 `artifacts`。Worker 的 `calls` / `agent_wakes` 仍用于兼容读模型。
 
+首屏只给最新窗口：`worker.inspect` 的 `runs` / `artifacts` 是最新 50 条（升序），并附 `runs_page` / `artifacts_page:{has_more,cursor,limit,truncated}`；更早的记录用 `worker.runs_page {id,before?,limit?}` / `worker.artifacts_page {id,before?,limit?}` 继续读取（`limit` 1..200，默认 50，`before` 为上一页的 `cursor`，按 id 严格变早，不重复也不跳过）。`truncated` 表示这一页被字节预算进一步裁剪；`has_more` 表示仍有更早记录。这些只读方法仅用户可调用，旧全量调用读取路径不再返回无界历史，历史行原样保留在 SQLite。
+
+Artifact 窗口为了有界响应只投影 `payload`：完整 payload 正常解析；超过 8192 字节的只给原始文本前缀（`payload_truncated:true` 与 `payload_bytes` 记录完整大小），不校验、不冒充完整结论。需要完整 payload 时用只读 `worker.artifact {id}`（既有写入上限 512000 字节不变）。窗口投影不是数据迁移：旧行、旧 payload 与已保存的验收证据都不重写，verifier / Candidate 的完整读取路径仍走原有接口。
+
 `worker.cancel` 取消整棵子树（不可恢复的终态）；`worker.retry` 是用户显式重试。Worker树不再把取消当主入口：`worker.interrupt` 先停调用进入非终态 `paused`，工作区 / 提交 / pi 会话 / 消息 / `calls` 全部保留（只停当前 Worker，不级联子Worker）；暂停中可 `worker.message` 追加说明或 `worker.configure` 固定本轮 Agent Profile，`worker.resume` 才重新排队并沿用会话继续，结算时清除临时 Profile。对 pi 后端先在可验证安全边界（`turn_end`）收尾，超过 30 秒仍未收敛才强制结束本轮 invocation；其它后端直接终止进程。`worker.cancel` 仍是唯一的终态放弃入口（Web 只在暂停后作为次级「放弃Worker」出现），带未集成合并请求或正在展示的 say 拒绝暂停。
 
 相关：[审阅与过程读模型](inspect.md) · [分支合并](../../engineering/merge.md) · [维护与回收](maintenance.md) · [Worker 中心输入](../../engineering/task-centered-input-design.md)

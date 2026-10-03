@@ -30,7 +30,7 @@ Worker 是原 Task 的整体更名，含义仍是持久的 Agent + Process；父
 - `worker.spawn`：只可在活动 say/child 下派 agent 子 Worker；不再接受 role、deps 或 spec。
 - `worker.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。
 - `branch.history {cursor?,limit?}`：用户专属只读 main 第一父链历史与精确交付 Worker / 原始 say 追溯；Web `GET /api/versions`，不新增 CLI 写入口，见 [版本迭代](version-history.md)。
-- `worker.inspect` / `worker.page` / `worker.graph` / `worker.diff` / `worker.history*` / `worker.transcript*`：按需只读审阅；支持 CLI 与 Web。
+- `worker.inspect` / `worker.page` / `worker.graph` / `worker.diff` / `worker.history*` / `worker.transcript*` / `worker.runs_page` / `worker.artifacts_page` / `worker.artifact`：按需只读审阅；支持 CLI 与 Web。
 - `worker.integrate`：运行中的直接父 Agent 核对固定子提交并快进；`worker.resolve_child_divergence` 为父侧分歧派隔离Worker。
 - `worker.auto_merge {id,enabled}`：用户专属的持久自动合并开关；新 say 默认关闭，新 child 默认开启且不可关闭，开发就绪后不能调整。与单次请求分离，语义见 [Worker RPC](../reference/rpc/tasks.md#自动合并开关与本轮合并)。
 - `worker.reserve {kind:'merge'}` / `worker.reserve_all {branch}` / `worker.unreserve` / `worker.resolve_divergence` / `worker.approve_merge`：冻结、复查、解分歧和由用户批准固定 commit + baseline；`reserve_all` 把一条分支下所有已静息待合并的 Worker 逐条按同一套准入放入 v2 merge 队列，当前 version 2 请求由父 Worker 自有队列的 runtime 串行 Squash（含 main），不创建 merge Worker、不改父子关系、不额外调用父 Agent；旧 version 1 仍需固定提交批准，旧 version 2 merge 身份／在途重挂只作历史兼容。

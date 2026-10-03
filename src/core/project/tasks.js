@@ -8,6 +8,32 @@ import { forkCheckpoint } from '../../agent/fork.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, iterationViews } from './iteration.js';
 
 export const DEP_KINDS = new Set(['code', 'order']);
+/** `inspect` ships the newest Run/Artifact rows only; older evidence stays behind `*_page` cursors. */
+const RUN_WINDOW = 50;
+const PAGE_MAX = 200;
+/** Work/wait projection needs the plan's invocation intervals; a Worker cannot exceed the call limit (≤1000). */
+const PROGRESS_RUN_LIMIT = 1000;
+
+/** Flatten bounded newest-first pages into one ascending window; `has_more` reports older rows beyond it. */
+function collectRuns(store, taskId, max) {
+  const pages = [];
+  let page = store.runsPage(taskId, { before: null, limit: Math.min(PAGE_MAX, max) });
+  pages.push(page);
+  let seen = page.items.length;
+  while (page.has_more && seen < max) {
+    page = store.runsPage(taskId, { before: page.cursor, limit: Math.min(PAGE_MAX, max - seen) });
+    pages.push(page);
+    seen += page.items.length;
+  }
+  return { items: pages.reverse().flatMap(part => part.items), has_more: page.has_more };
+}
+
+/** Bounded-window metadata: `has_more` offers older pages, `truncated` marks a byte-trimmed window. */
+function pageView(page, returned, limit) {
+  return { has_more: page.has_more || returned.length < page.items.length,
+    cursor: returned.at(0)?.id ?? null, limit,
+    truncated: returned.length < Math.min(limit, page.items.length) };
+}
 function normalizeDeps(deps) {
   check(Array.isArray(deps), 'deps must be an array');
   check(deps.length <= 32, 'at most 32 dependencies per worker');
@@ -184,12 +210,20 @@ export default {
     // runtime configuration, not part of the task read model (agents can call worker.inspect).
     const { retry_profile: _retryProfile, ...storedTask } = this.store.task(taskId);
     // 详情页要显示工作用时与等待行：先取这一轮的调用区间，计划时长才能只算真正运行的时间。
-    const runs = this.store.runsForTask(storedTask.id);
-    const task = { ...this.progressView(storedTask, runs), ...iterationViews(this.store, [storedTask]).get(storedTask.id) };
+    // 有执行计划时读计划窗口内足够重建用时的有界调用记录；否则只取展示窗口。
+    const runsRead = storedTask.progress_plan
+      ? collectRuns(this.store, storedTask.id, PROGRESS_RUN_LIMIT)
+      : this.store.runsPage(storedTask.id, { limit: RUN_WINDOW });
+    const progressRuns = runsRead.items;
+    const task = { ...this.progressView(storedTask, progressRuns), ...iterationViews(this.store, [storedTask]).get(storedTask.id) };
     // 与任务树 / 分支图同一口径：这条输入的 planner 带 input.route 事件就是快速路由。
     task.route = storedTask.input_id !== null && this.store.routedInputIds().has(storedTask.input_id);
     const resolution = task.task_kind === 'child' ? this.store.get(
       "SELECT data FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1", task.id) : null;
+    // 首屏只给最新窗口；更早的调用与产物用 `runs_page` / `artifacts_page` 游标继续读取。
+    const runs = bounded(progressRuns.length > RUN_WINDOW ? progressRuns.slice(-RUN_WINDOW) : progressRuns, 200000);
+    const artifactsRead = this.store.artifactsPage(task.id, { limit: RUN_WINDOW });
+    const artifacts = bounded(artifactsRead.items, 200000);
     return { ...task, auto_merge: this.autoMergeView(storedTask), merge_readiness: this.mergeReadiness(storedTask),
       parent_task_kind: task.parent_id ? this.store.task(task.parent_id).task_kind : null,
       ...(resolution ? { divergence_resolution: { ...JSON.parse(resolution.data),
@@ -197,16 +231,20 @@ export default {
       deps: this.store.depsDetail(task.id), dependents: this.store.dependentsDetail(task.id),
       ...(task.role === 'planner' ? { specs: bounded(this.store.specsByPlanner(task.id), 200000) } : {}),
       ...(task.role === 'scheduler' ? { specs: bounded(this.store.specsForBatch(task.id), 200000) } : {}),
-      children: bounded(this.decorate(this.store.summaries().filter(child => child.parent_id === task.id)), 100000),
+      children: bounded(this.decorate(this.store.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
+        agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation
+        FROM tasks WHERE parent_id=? ORDER BY id`, task.id)), 100000),
       messages: bounded(this.store.all('SELECT * FROM messages WHERE task_id=? ORDER BY id DESC LIMIT 100', task.id), 200000),
       notices: bounded(this.store.all(`${NOTICE_SELECT} WHERE task_id=? ORDER BY id DESC LIMIT 100`, task.id), 200000),
       // worker 带着自己的检验记录与合并冲突处理记录；verifier 带着自己的报告路径。都是只读投影。
       verifications: task.role === 'worker' ? bounded(this.store.verifications(task.id).map(row => ({ ...row, has_report: this.hasReport(row.id) })), 200000) : undefined,
       resolutions: task.role === 'worker' ? bounded(this.store.resolutions(task.id), 200000) : undefined,
       report: task.role === 'verifier' && this.hasReport(task.id) ? this.reportPath(task.id) : null,
-      runs: bounded(runs, 200000),
-      artifacts: bounded(this.store.artifactsForTask(task.id), 200000),
-      agent: agentView(task, this.running.get(task.id) ?? null, runs.at(-1) ?? null) };
+      runs,
+      artifacts,
+      runs_page: pageView(runsRead, runs, RUN_WINDOW),
+      artifacts_page: pageView(artifactsRead, artifacts, RUN_WINDOW),
+      agent: agentView(task, this.running.get(task.id) ?? null, progressRuns.at(-1) ?? null) };
   },
 
   diff(taskId) { return this.workspaces.diff(this.store.task(taskId)); }

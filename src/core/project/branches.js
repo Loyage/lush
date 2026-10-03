@@ -262,15 +262,30 @@ export default {
     return [...users];
   },
 
-  async archiveBranch(branch, { discard_worktree = false } = {}) {
+  async archiveBranch(branch, { discard_worktree = false, continue: continueArchive = false } = {}) {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
     const record = this.store.branch(name);
     check(record, `${name} is not a registered branch; run 'lush branch import' first`);
-    check(record.status !== 'archived' && record.status !== 'deleted', `branch ${name} is already ${record.status}`);
     // 已经归档／回收过的分支不再归档一次（记录已是终态），但也不拦着其余的。
-    const targets = [name, ...descendantsOf(this.store.branches(), name)]
+    const subtreeActive = [name, ...descendantsOf(this.store.branches(), name)]
       .filter(target => this.store.branch(target)?.status === 'active');
+    // G-04：一次归档可能在第二条分支上撞上未知失败，库只写下了已成的部分。续办从谱系事实重算
+    // 剩余活动后代，只删这些；根已归档不算错误，重复调用也不会重复删。
+    let targets;
+    if (continueArchive) {
+      check(record.status === 'archived' || record.status === 'deleted',
+        `branch ${name} is still active; archive it normally instead of continuing`);
+      targets = subtreeActive.filter(target => target !== name);
+      if (!targets.length) {
+        return { branch: name, archived: record.status === 'archived', continued: true, no_remainder: true,
+          count: 0, branches: [], failed: [], remaining: [], tasks: [], sessions: [],
+          worktree: 'absent', ref: 'absent', tip: null, discarded: false };
+      }
+    } else {
+      check(record.status !== 'archived' && record.status !== 'deleted', `branch ${name} is already ${record.status}`);
+      targets = subtreeActive;
+    }
     for (const target of targets) {
       const frozen = this.branchFreeze(target);
       // 允许用户显式归档一条已结束但未落地的解分歧分支：这是释放它留下的冻结的唯一清理动作。
@@ -305,36 +320,67 @@ export default {
     const cleaning = [...this.workspaces.busy].filter(id => users.has(id));
     check(cleaning.length === 0, `branch ${name} is being cleaned up (worker #${cleaning[0]})`);
     check(unfinished.length === 0, `branch ${name} still has unfinished workers: ${unfinished.map(task => `#${task.id}`).join(', ')}`);
-    const outcomes = await this.workspaces.archiveBranches(targets, { discard_worktree });
-    const tips = new Map(outcomes.map(outcome => [outcome.branch, outcome.tip]));
-    // 目录已经删了，tasks.workspace 不能再指着一个不存在的路径；branch 字段是历史，必须留着。
-    const archived = this.store.all(`SELECT id, status, branch FROM tasks WHERE branch IN (${placeholders}) ORDER BY id`, ...targets);
+    // 子树里每条分支名下的任务行先收好：每条分支 settle 时就立刻把库改成磁盘的事实，
+    // 所以第 N 条失败也不会留下「库说还在、目录已经没了」的前 N-1 条。
+    const tasksByBranch = new Map(targets.map(target => [target,
+      this.store.all('SELECT id, status, branch FROM tasks WHERE branch=? ORDER BY id', target)]));
+    const onOutcome = outcome => {
+      const tasks = tasksByBranch.get(outcome.branch) ?? [];
+      this.store.transaction(() => {
+        // 目录已经删了，tasks.workspace 不能再指着一个不存在的路径；branch 字段是历史，必须留着。
+        if (outcome.worktree === 'removed') {
+          for (const task of tasks) {
+            this.store.update(task.id, { workspace: null });
+            this.store.event(task.id, 'workspace.removed', { branch: outcome.branch, workspace: null });
+          }
+        }
+        if (outcome.reason === null) {
+          for (const task of tasks) {
+            this.store.event(task.id, 'branch.archived', { branch: outcome.branch, tip: outcome.tip ?? null, task_id: task.id });
+          }
+        }
+      });
+    };
+    const { outcomes, failed, remaining } = await this.workspaces.archiveBranches(targets, { discard_worktree, onOutcome });
     // pi 会话文件在 <home>/sessions 下，不随 worktree 消失；把位置写进事件，将来 task 行被 clear 掉也能查回。
     const sessions = [];
-    const sessionsByBranch = new Map(targets.map(target => [target, []]));
-    for (const task of archived) {
-      const files = sessionFiles(this.config, task.id).map(file => path.join(this.config.home, 'sessions', file));
-      sessions.push(...files);
-      sessionsByBranch.get(task.branch)?.push(...files);
+    for (const outcome of outcomes) {
+      const own = tasksByBranch.get(outcome.branch) ?? [];
+      sessions.push(...own.flatMap(task => sessionFiles(this.config, task.id).map(file => path.join(this.config.home, 'sessions', file))));
     }
+    const failedByBranch = new Map(failed.map(outcome => [outcome.branch, outcome]));
+    const host = this.archiveEventHost(this.store.branch(name)?.task_id ?? null,
+      targets.flatMap(target => tasksByBranch.get(target) ?? []));
     this.store.transaction(() => {
-      for (const task of archived) {
-        this.store.update(task.id, { workspace: null });
-        this.store.event(task.id, 'branch.archived', { branch: task.branch, tip: tips.get(task.branch) ?? null, task_id: task.id });
+      // 每条真正归档的分支各留一条事件（含会话文件位置）：这条分支的原始记录就算以后被 clear 掉
+      // 也查得回。失败与未处理的分支不写归档事件，库反映磁盘。
+      for (const outcome of outcomes) {
+        const own = tasksByBranch.get(outcome.branch) ?? [];
+        const files = own.flatMap(task => sessionFiles(this.config, task.id).map(file => path.join(this.config.home, 'sessions', file)));
+        const owner = own.some(task => task.id === this.store.branch(outcome.branch)?.task_id) ? this.store.branch(outcome.branch).task_id : own[0]?.id ?? null;
+        this.store.event(owner, 'branch.archived', { branch: outcome.branch, tip: outcome.tip ?? null, sessions: files });
       }
-      // 每条被归档的分支各留一条事件（含会话文件位置）：这条分支的原始记录就算以后被 clear 掉也查得回。
-      for (const target of targets) {
-        const own = archived.filter(task => task.branch === target);
-        const owner = own.some(task => task.id === this.store.branch(target)?.task_id) ? this.store.branch(target).task_id : own[0]?.id ?? null;
-        this.store.event(owner, 'branch.archived', { branch: target, tip: tips.get(target) ?? null, sessions: sessionsByBranch.get(target) ?? [] });
-      }
+      // 一次归档一份总账：目标、已成、失败与未处理，便于事后诊断与续办。
+      if (host !== null) this.store.event(host, 'branch.archive', { branch: name, continued: continueArchive, targets,
+        completed: outcomes.map(outcome => outcome.branch), failed: failed.map(outcome => ({ branch: outcome.branch, reason: outcome.reason })),
+        remaining: remaining.map(outcome => outcome.branch) });
     });
-    const root = outcomes.find(outcome => outcome.branch === name) ?? outcomes[0] ?? {};
+    const root = outcomes.find(outcome => outcome.branch === name) ?? failedByBranch.get(name) ?? {};
     // 顶层 worktree / ref / tip / discarded 描述的是子树根（调用方问的那条）；整棵子树看 branches。
     this.kick(); // 被冻结的 queued Agent 可以在归档释放冻结后重新准入。
-    return { branch: name, archived: true, count: outcomes.length, branches: outcomes,
+    return { branch: name, archived: outcomes.some(outcome => outcome.branch === name) || record.status === 'archived',
+      continued: continueArchive, count: outcomes.length, branches: outcomes,
+      failed: failed.map(outcome => ({ branch: outcome.branch, reason: outcome.reason, worktree: outcome.worktree, ref: outcome.ref, tip: outcome.tip })),
+      remaining: remaining.map(outcome => outcome.branch),
       worktree: root.worktree ?? 'absent', ref: root.ref ?? 'absent', tip: root.tip ?? null, discarded: root.discarded === true,
-      tasks: archived.map(task => ({ id: task.id, status: task.status })), sessions };
+      tasks: outcomes.flatMap(outcome => (tasksByBranch.get(outcome.branch) ?? []).map(task => ({ id: task.id, status: task.status }))),
+      sessions };
+  },
+
+  /** 归档总账事件挂在哪条 Worker 行上：根分支自己的任务，否则子树里任一任务；都没有就不写。 */
+  archiveEventHost(rootTaskId, tasks) {
+    if (rootTaskId !== null && rootTaskId !== undefined) return rootTaskId;
+    return tasks[0]?.id ?? null;
   },
 
   /**

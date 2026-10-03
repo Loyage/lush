@@ -237,6 +237,10 @@ export function printBranchImport(result) {
 }
 /** 归档结果：一条分支一行（归档的是整棵子树，所以可能不止一行），后面是保留下来的东西。 */
 export function printBranchArchive(result) {
+  if (result.no_remainder) {
+    console.log(`${result.branch} 没有剩余的未归档后代分支，无需继续。`);
+    return;
+  }
   const branches = Array.isArray(result.branches) && result.branches.length ? result.branches : [result];
   console.log(`已归档 ${result.branch}${branches.length > 1 ? `（连同 ${branches.length - 1} 条后代分支，共 ${branches.length} 条）` : ''}`);
   for (const entry of branches) {
@@ -248,6 +252,14 @@ export function printBranchArchive(result) {
   console.log(`保留 Worker\t${result.tasks.length} 个${result.tasks.length ? `：${result.tasks.map(task => `#${task.id} ${task.status}`).join('、')}` : ''}`);
   console.log(`会话文件\t${result.sessions.length} 个`);
   for (const file of result.sessions) console.log(`  ${file}`);
+  // G-04：未知失败不会丢掉已完成的逐条结果；剩余部分可用 `--continue` 显式续办。
+  if (result.failed?.length) {
+    console.log(`未归档\t${result.failed.length} 条`);
+    for (const entry of result.failed) console.log(`  ${entry.branch}\t${entry.reason}`);
+  }
+  if (result.remaining?.length) {
+    console.log(`未处理\t${result.remaining.length} 条：${result.remaining.join('、')}（可重试 branch archive ${result.branch} --continue）`);
+  }
 }
 export function printTimeline(page) {
   const start = Date.parse(page.start), end = Date.parse(page.end), span = Math.max(end - start, 1);

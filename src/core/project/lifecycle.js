@@ -356,11 +356,23 @@ export default {
     // 否则下一次调用会在第一个安全边界被一条早已失效的请求误停。
     fs.rmSync(path.join(this.config.home, 'preempt'), { recursive: true, force: true });
     // A credential dies with the invocation that issued it; nothing survives a restart.
-    this.store.run('UPDATE tasks SET agent_token_hash=NULL');
+    this.store.transaction(() => {
+      this.store.run('UPDATE tasks SET agent_token_hash=NULL');
+      // The new host observes an interruption, not the actual exit time of an external
+      // process. Close every orphan Run (including parked/legacy ones), without replay
+      // or fabricated success evidence; preserve completed historical Runs unchanged.
+      for (const run of this.store.all("SELECT id,task_id FROM agent_runs WHERE status='running' ORDER BY id")) {
+        const closed = this.store.finishRun(run.id, 'failed', {
+          error: 'daemon interrupted; ended_at records recovery observation, not actual process exit',
+        });
+        this.store.event(run.task_id, 'invocation.recovered', { run_id: run.id,
+          observed_at: closed.ended_at, actual_exit_at: null });
+      }
+      // Never replay an invocation with unknown filesystem side effects.
+      for (const task of this.store.tasks()) if (task.status === 'running' && ['say','child','analysis'].includes(task.task_kind))
+        this.cancel(task.id, 'daemon interrupted; inspect worktree and explicitly retry', 'failed');
+    });
     // Historical quick-intro rows are retained unchanged; the feature is no longer resumed.
-    // Never replay an invocation with unknown filesystem side effects.
-    for (const task of this.store.tasks()) if (task.status === 'running' && ['say','child','analysis'].includes(task.task_kind))
-      this.cancel(task.id, 'daemon interrupted; inspect worktree and explicitly retry', 'failed');
     this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('say','child')");
     this.recoverTaskDeliveries();
     // Older retries discarded a withdrawn booking while leaving the source under its queue.

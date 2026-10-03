@@ -53,7 +53,7 @@ export const handlers = {
   'branch.orchestrate'(p, params, actor) { return p.orchestrate(params.branch); },
   'branch.orchestrate_cancel'(p, params, actor) { return p.cancelOrchestrate(params.branch); },
   // 归档会删 worktree 与本地 ref，是用户专属写操作；discard 只在明确要求时才丢弃脏工作区。
-  'branch.archive'(p, params, actor) { return p.archiveBranch(params.branch, { discard_worktree: params.discard === true }); },
+  'branch.archive'(p, params, actor) { return p.archiveBranch(params.branch, { discard_worktree: params.discard === true, continue: params.continue === true }); },
   /**
    * 一句话摘要（agent 可写的元数据，所以既不在 USER_ONLY 也不在 AGENT_ONLY）：
    * 显式 branch 优先；省略时 agent 写自己的分支，用户（actor=null）必须点名。agent 越权写别人的分支直接报错。

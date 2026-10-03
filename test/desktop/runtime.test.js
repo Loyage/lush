@@ -146,6 +146,32 @@ test('IPC rejects foreign windows, subframes, wrong paths and redirects to anoth
   } finally { f.close(); }
 });
 
+test('directory picker rejects untrusted senders before opening a dialog and cancellation returns null', async () => {
+  const f = fixture();
+  try {
+    await f.desktop.start();
+    const chooser = f.all[0], local = await f.desktop.openLocal();
+    const handler = f.handlers.get('lush:choose-project');
+    await expect(handler({ sender: { id: 999 }, senderFrame: {} })).rejects.toThrow('untrusted');
+    await expect(handler(f.event(local, { url: 'http://127.0.0.1:4318/' }))).rejects.toThrow('untrusted');
+    await expect(f.invoke('lush:choose-project', chooser)).rejects.toThrow('untrusted');
+    for (const url of ['https://evil.test/', 'http://127.0.0.1:4319/', 'http://127.0.0.1:4318/api/worker/1/report']) {
+      local.webContents.mainFrame.url = url;
+      await expect(f.invoke('lush:choose-project', local)).rejects.toThrow('untrusted');
+    }
+    local.webContents.mainFrame.url = 'http://127.0.0.1:4318/p/abcdef0123456789/';
+    local.webContents.openHandler({ url: 'http://127.0.0.1:4318/p/abcdef0123456789/api/worker/1/report' });
+    const preview = f.all.at(-1);
+    expect(preview.options.webPreferences.preload).toBeUndefined();
+    await expect(f.invoke('lush:choose-project', preview)).rejects.toThrow('untrusted');
+    expect(f.stats().picks).toBe(0);
+    expect(await f.invoke('lush:choose-project', local)).toBe('/local/project');
+    expect(f.stats().picks).toBe(1);
+    f.electron.dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
+    expect(await f.invoke('lush:choose-project', local)).toBeNull();
+  } finally { f.close(); }
+});
+
 test('project popups remain owned and scoped; previews have no preload; external schemes are blocked', async () => {
   const f = fixture();
   try {

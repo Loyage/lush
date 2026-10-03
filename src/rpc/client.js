@@ -2,6 +2,14 @@ import { LushError, isPlainObject, jsonLoad } from '../core/types.js';
 import { createWriter } from '../socket_io.js';
 import { encode, MAX_FRAME } from './protocol.js';
 
+/**
+ * The daemon refuses a frame it never executed (per-connection transfer budget)
+ * with this code and "safe to retry"; it mirrors RPCServer's notExecutedCode.
+ * A plain disconnect means the opposite: a dispatched request may have run, so
+ * callers must inspect instead of blindly retrying a mutation.
+ */
+export const NOT_EXECUTED_CODE = -32022;
+
 export class RPCClient {
   constructor(path, timeout = 130) {
     this.path = path;
@@ -63,7 +71,8 @@ export class RPCClient {
               resolveLine(payload);
             });
           },
-          close: () => finish(() => rejectLine(new LushError('daemon disconnected', -32021))),
+          close: () => finish(() => rejectLine(new LushError(
+            'daemon disconnected; a dispatched request may have run, inspect before retrying', -32021))),
           error: (_handle, err) => finish(() => rejectLine(err)),
           drain: () => writer?.drain(),
         },

@@ -8,6 +8,7 @@ import { agentEnvironment } from './environment.js';
 import { forkCheckpoint } from './fork.js';
 
 const BIN = fileURLToPath(new URL('../../bin', import.meta.url));
+const GUARD = path.join(BIN, 'lush-agent-guard');
 const MAX_RESULT = 256000;
 const PI_RUNTIME = fileURLToPath(new URL('./pi-runtime.js', import.meta.url));
 
@@ -41,7 +42,7 @@ function takePreemptMark(paths) {
     requested_at: request.requested_at ?? null, stopped_at: stop.stopped_at ?? null };
 }
 
-function sessionFiles(config, task, context, messages, agent) {
+function sessionFiles(config, task, context, messages, agent, messagesPage = null) {
   const sessions = path.join(config.home, 'sessions');
   fs.mkdirSync(sessions, { recursive: true, mode: 0o700 });
   const promptFile = path.join(sessions, `task-${task.id}-input.md`);
@@ -51,7 +52,10 @@ function sessionFiles(config, task, context, messages, agent) {
     safeTask.result = safeTask.result.slice(0, 2000); safeTask.result_truncated = true;
   }
   const profile = { agent: agent.agent, model: agent.model, thinking: agent.thinking, soft_budget: agent.soft_budget };
-  fs.writeFileSync(promptFile, JSON.stringify({ task: safeTask, project: config.project, agent: profile, ...context, messages }, null, 2) + '\n', { mode: 0o600 });
+  // `messages_page` is explicit so the Agent can tell a bounded batch from a drained inbox:
+  // undelivered originals remain unread in SQLite and arrive on a later invocation.
+  fs.writeFileSync(promptFile, JSON.stringify({ task: safeTask, project: config.project, agent: profile, ...context,
+    ...(messagesPage ? { messages_page: messagesPage } : {}), messages }, null, 2) + '\n', { mode: 0o600 });
   const prompt = agentPrompt(config, task.role, agent, task.task_kind ?? null);
   fs.writeFileSync(systemFile, prompt.text, { mode: 0o600 });
   const environment = agentEnvironment(config, task.role);
@@ -61,8 +65,13 @@ function sessionFiles(config, task, context, messages, agent) {
 }
 
 async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, onStdout = null, extraEnv = {} }) {
-  const child = cp.spawn(command, args, {
-    cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
+  // The daemon never starts pi/codex directly: it starts the internal guard detached and owns
+  // its stdin pipe. The guard runs the real command in the same process group, forwards
+  // stdout/stderr and the exit code, and kills that group if the daemon dies (stdin EOF) —
+  // including SIGKILL, which skips this process's abort/finally path entirely. The guard
+  // receives stdin='pipe' and never has it forwarded downstream.
+  const child = cp.spawn(process.execPath, [GUARD, command, ...args], {
+    cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...config.env, ...extraEnv, LUSH_TASK_ID: String(config.taskId ?? ''), LUSH_AGENT_TOKEN: token,
       PATH: `${BIN}${path.delimiter}${extraEnv.PATH ?? config.env.PATH ?? ''}` },
   });
@@ -105,12 +114,13 @@ async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, 
 
 export class PiProvider {
   constructor(config) { this.config = config; }
-  async run({ task, context, messages, cwd, token, signal, onSpawn, agent, forkPointer = null }) {
+  async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, agent, forkPointer = null }) {
     const config = this.config;
     const explaining = task.role === 'explainer';
     const isolated = explaining || task.role === 'butler';
     if (isolated && Object.keys(agent.soft_budget || {}).length) throw new Error('explainer/butler does not support soft_budget');
-    const files = sessionFiles(config, task, explaining ? { explanation: context.explanation } : context, isolated ? [] : messages, agent);
+    const files = sessionFiles(config, task, explaining ? { explanation: context.explanation } : context,
+      isolated ? [] : messages, agent, isolated ? null : messagesPage);
     const args = ['--print', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes'];
     if (isolated) args.push('--no-tools', '--no-context-files', '--no-approve');
     else {
@@ -156,10 +166,10 @@ function writeThread(file, threadId) {
 
 export class CodexProvider {
   constructor(config) { this.config = config; }
-  async run({ task, context, messages, cwd, token, signal, onSpawn, agent }) {
+  async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, agent }) {
     const config = this.config;
     if (['explainer','butler'].includes(task.role)) throw new Error('isolated agents require Pi no-tools mode');
-    const files = sessionFiles(config, task, context, messages, agent);
+    const files = sessionFiles(config, task, context, messages, agent, messagesPage);
     if (Object.keys(agent.soft_budget || {}).length) throw new Error('soft_budget is supported only by Pi');
     const stateFile = path.join(files.sessions, `codex-task-${task.id}.json`);
     const resultFile = path.join(files.sessions, `codex-task-${task.id}-result.md`);

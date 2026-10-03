@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./src/ui/desktop/main.js",
   "private": true,
-  "bin": { "lush": "./bin/lush", "lush-host": "./bin/lush-host", "lushd": "./bin/lushd" },
+  "bin": { "lush": "./bin/lush", "lush-host": "./bin/lush-host", "lushd": "./bin/lushd", "lush-agent-guard": "./bin/lush-agent-guard" },
   "exports": { ".": "./src/index.js" },
   "scripts": {
     "test": "bun test --parallel=4",

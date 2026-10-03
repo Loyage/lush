@@ -13,6 +13,38 @@ function docsFixture() {
   return root;
 }
 
+test('docs check respects fence length, marker, closing whitespace and nested examples', () => {
+  const root = docsFixture();
+  try {
+    const file = path.join(root, 'docs', 'guide', 'README.md');
+    for (const fence of ['````', '~~~~']) {
+      for (const invalidClose of [fence.slice(1), fence + 'mermaid', fence[0] === '`' ? '~~~~' : '````']) {
+        fs.writeFileSync(file, `# Guide\n${fence}mermaid\nflowchart LR\n${invalidClose}\n`);
+        expect(checkDocs(root).errors).toContain('docs/guide/README.md: Mermaid fence opened on line 2 is not closed');
+      }
+      fs.writeFileSync(file, `# Guide\n${fence}mermaid\nflowchart LR\n${fence}${fence[0]}  \t\n`);
+      expect(checkDocs(root).errors).toEqual([]);
+    }
+    // All headings and links here are examples, not documentation to validate.
+    fs.writeFileSync(file, '# Guide\n````markdown\n```mermaid\n# Fake H1\n[Fake](missing.md)\n```\n````\n');
+    expect(checkDocs(root).errors).toEqual([]);
+    fs.writeFileSync(file, '# Guide\n~~~~text\n```mermaid\n# Fake H1\n[Fake](missing.md)\n~~~~\n');
+    expect(checkDocs(root).errors).toEqual([]);
+    fs.writeFileSync(file, '# Guide\n````text\n```\n````\n[Real](missing.md)\n');
+    expect(checkDocs(root).errors).toContain('docs/guide/README.md: missing link target: missing.md');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('docs check warns about long chapters without introducing a hard gate', () => {
+  const root = docsFixture();
+  try {
+    fs.writeFileSync(path.join(root, 'docs', 'guide', 'README.md'), '# Guide\n' + 'Short line\n'.repeat(200));
+    const result = checkDocs(root);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.join('\n')).toContain('201 lines exceeds the recommended 150');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('docs check accepts linked Markdown and closed Mermaid fences', () => {
   const root = docsFixture();
   try {

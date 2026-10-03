@@ -1,0 +1,91 @@
+#!/usr/bin/env bun
+// Internal agent supervisor. The daemon spawns this script detached with a stdin pipe and
+// keeps the write end for the whole invocation; the guard starts the real pi/codex in that
+// same process group and forwards stdout/stderr and the exit code. stdin is not forwarded:
+// it only carries daemon liveness. When the daemon exits for any reason — including SIGKILL,
+// which skips every Lush cleanup path — the pipe reaches EOF and the guard SIGKILLs its whole
+// process group within a bounded time, so no external agent outlives the daemon.
+//
+// Boundary: this guard only ever kills the process group it leads (the wrapped agent and the
+// descendants it spawned). It never reads historical PIDs, never matches process names and
+// never persists a PID table. macOS/Linux only (standard stdin EOF + process groups).
+import cp from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+
+// Bounded grace before waiting on straggler descendants that keep the wrapped stdio open
+// after the direct child already exited.
+const GRACE_MS = 250;
+const [command, ...args] = process.argv.slice(2);
+if (!command) {
+  process.stderr.write('lush-agent-guard: missing command\n');
+  process.exit(2);
+}
+
+let child = null;
+let finishing = false;
+let childExit = null;
+let stdoutEnded = false;
+let stderrEnded = false;
+let flushTimer = null;
+
+function exitCode() {
+  if (!childExit) return 1;
+  if (typeof childExit.code === 'number') return childExit.code;
+  const number = childExit.signal ? os.constants.signals[childExit.signal] : null;
+  return number ? 128 + number : 1;
+}
+
+// The guard is the process-group leader (the daemon spawns it detached), and the wrapped
+// agent inherits that group. `-process.pid` is therefore exactly this invocation's subtree.
+function killGroup(signal) {
+  try { process.kill(-process.pid, signal); }
+  catch { try { child?.kill(signal); } catch { /* already gone */ } }
+}
+
+function finish() {
+  if (finishing) return;
+  finishing = true;
+  clearTimeout(flushTimer);
+  process.exitCode = exitCode();
+  // A descendant may keep the inherited stdio open after the direct child exited. Drop the
+  // internal pipes so the guard can exit and the daemon's kill(-pgid) can reap the subtree.
+  try { child?.stdout?.destroy(); } catch { /* ignore */ }
+  try { child?.stderr?.destroy(); } catch { /* ignore */ }
+  try { process.stdin.destroy(); } catch { /* ignore */ }
+}
+
+child = cp.spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
+child.stdout.on('data', chunk => { process.stdout.write(chunk); });
+child.stderr.on('data', chunk => { process.stderr.write(chunk); });
+child.stdout.on('end', () => { stdoutEnded = true; if (childExit && stderrEnded) finish(); });
+child.stderr.on('end', () => { stderrEnded = true; if (childExit && stdoutEnded) finish(); });
+child.on('exit', (code, signal) => {
+  childExit = { code, signal };
+  if (stdoutEnded && stderrEnded) { finish(); return; }
+  flushTimer = setTimeout(finish, GRACE_MS);
+});
+child.on('error', error => {
+  process.stderr.write(`lush-agent-guard: ${error.message}\n`);
+  finishing = true;
+  process.exit(127);
+});
+
+// stdin EOF means the daemon is gone, but only when the daemon actually gave us a pipe. A
+// direct/manual run has /dev/null or a terminal on fd 0, which reports EOF immediately and
+// must not kill the wrapped command. Kill the whole group on a real pipe EOF; the guard is in
+// that group, so the SIGKILL also terminates the guard itself. No write ever arrives here.
+const S_IFMT = fs.constants.S_IFMT ?? 0o170000;
+let daemonPipe = false;
+try {
+  const kind = fs.fstatSync(0).mode & S_IFMT;
+  daemonPipe = kind === 0o010000 /* FIFO pipe */ || kind === 0o140000 /* socketpair */;
+} catch { daemonPipe = false; }
+if (daemonPipe) {
+  process.stdin.resume();
+  // Kill immediately: a pending timer cancelled by a coincident normal exit would let
+  // grandchildren outlive the (now dead) daemon that would otherwise reap them.
+  const daemonGone = () => { if (!finishing) killGroup('SIGKILL'); };
+  process.stdin.on('end', daemonGone);
+  process.stdin.on('error', daemonGone);
+}

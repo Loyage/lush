@@ -89,7 +89,8 @@ export default {
       if (this.hasActionableMessages(taskId)) this.wake(taskId);
     }
     // Legacy planner/spec rows are retained on disk but no longer scheduled.
-    const dependencies = this.store.depMap();
+    const queued = this.store.all("SELECT * FROM tasks WHERE status='queued' AND task_kind IN ('say','child') ORDER BY id");
+    const dependencies = this.store.depMap(queued.map(task => task.id));
     const freezes = new Map(this.branchFreeze().map(info => [info.branch, info]));
     const taskBranch = task => {
       if (task.branch || task.target_branch) return task.branch ?? task.target_branch;
@@ -105,7 +106,7 @@ export default {
     let controlRunning = [...this.running.values()].filter(run => ['planner','scheduler'].includes(run.role)).length;
     let butlerRunning = [...this.running.values()].filter(run => run.role === 'butler').length;
     let executionRunning = this.running.size - controlRunning - butlerRunning;
-    for (const task of this.store.all("SELECT * FROM tasks WHERE status='queued' ORDER BY id")) {
+    for (const task of queued) {
       if (!['say','child'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
       if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.
       if (this.running.has(task.id) || this.taskSyncBusy?.has(task.id)) continue;
@@ -286,7 +287,11 @@ export default {
       ? run.controller.signal.reason.message
       : typeof run.controller.signal.reason === 'string' && run.controller.signal.reason
         ? run.controller.signal.reason : 'agent invocation interrupted';
-    const messages = this.store.unread(taskId);
+    // Deliver a bounded batch; undelivered originals stay unread for the next invocation.
+    const page = this.store.unreadPage(taskId);
+    const messages = page.messages;
+    const messagesPage = { delivered: messages.length, has_more: page.has_more, pending: page.pending,
+      truncated_bytes: page.truncated_bytes, reordered: page.reordered };
     try {
       let task = this.store.task(taskId);
       check(task.calls < this.config.maxCalls, 'worker invocation limit reached');
@@ -295,9 +300,14 @@ export default {
       const retryProfile = task.retry_profile ? this.agentSettings.retryProfile(task.role, JSON.parse(task.retry_profile)) : null;
       const agent = retryProfile || this.provider.resolve?.(task) || { agent: this.config.provider, model: '', thinking: '', default_prompt: '', append_prompt: '' };
       run.agent = agent;
-      const record = this.store.startRun(task, agent);
+      // Run identity and admission counters are one durable boundary; a crash cannot leave
+      // a newly inserted Run attached to a still-queued Worker.
+      const record = this.store.transaction(() => {
+        const record = this.store.startRun(task, agent);
+        this.store.update(taskId, { status: 'running', calls: task.calls + 1, agent_wakes: task.agent_wakes + 1 });
+        return record;
+      });
       run.recordId = record.id;
-      this.store.update(taskId, { status: 'running', calls: task.calls + 1, agent_wakes: task.agent_wakes + 1 });
       // 新一轮拆解：上一轮被驳回的闸门清零，这一轮要不要再请你批准由 planner 自己判断。
       if (task.role === 'planner' && task.plan_gate === 'rejected') this.store.update(taskId, { plan_gate: null });
       this.store.touchAgent(taskId);
@@ -328,7 +338,7 @@ export default {
       const forkPointer = task.base_commit ? this.store.get(
         'SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', task.base_commit) : null;
       const result = await this.provider.run({ task: providerTask, cwd, token: run.token, signal: run.controller.signal, agent,
-        onSpawn: pid => { run.pid = pid; }, messages, api: this,
+        onSpawn: pid => { run.pid = pid; }, messages, messagesPage, api: this,
         context, forkPointer,
       });
       clearTimeout(timer);
@@ -471,7 +481,7 @@ export default {
       // 对照基线 / 只读分析检出都是派生的只读检出：invocation 一结束就回收，不把每次调用都堆在磁盘上。
       // 失败也不保留——结论/错误已入库，重建一次很便宜；下次调用会在那时的分支顶端重建。
       const settled = this.store.task(taskId);
-      if (settled.verifies_task_id || settled.task_kind === 'analysis') {
+      if (settled.verifies_task_id || settled.review_candidate_id || settled.task_kind === 'analysis') {
         await this.workspaces.removeBaseline(taskId).catch(error => console.error(`derived checkout ${taskId}: ${error.message}`));
       }
     }

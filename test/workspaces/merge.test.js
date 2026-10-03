@@ -4,6 +4,52 @@ import path from 'node:path';
 import { fixture, repo, git, until } from '../helpers.js';
 import { setup, change } from './harness.js';
 
+for (const operation of ['merge', 'catchup', 'fast-forward']) {
+  for (const drift of ['checkout', 'detached', 'advance']) {
+    test(`${operation} does not report success after external ${drift} during landing`, async () => {
+      const f = await setup();
+      try {
+        const base = await git(f.root, 'rev-parse', 'main');
+        await git(f.root, 'branch', 'unrelated', base);
+        let target, cwd, landed;
+        if (operation === 'catchup') {
+          f.store.update(f.task.id, { status: 'completed' });
+          fs.writeFileSync(path.join(f.root, 'main.txt'), 'ahead');
+          await git(f.root, 'add', 'main.txt'); await git(f.root, 'commit', '-m', 'parent ahead');
+          target = f.task.branch; cwd = f.task.workspace; landed = await git(f.root, 'rev-parse', 'main');
+        } else {
+          await change(f, f.task);
+          target = 'main'; cwd = f.root; landed = f.store.task(f.task.id).head_commit;
+        }
+        const workspaces = f.project.workspaces, original = workspaces.git.bind(workspaces);
+        let injected = false;
+        workspaces.git = async (dir, ...args) => {
+          if (!injected && dir === cwd && args[0] === 'merge' && args[1] === '--ff-only') {
+            injected = true;
+            if (drift === 'checkout') await git(cwd, 'checkout', 'unrelated');
+            if (drift === 'detached') await git(cwd, 'checkout', '--detach', base);
+            const result = await original(dir, ...args);
+            if (drift === 'advance') await git(cwd, 'commit', '--allow-empty', '-m', 'external advancement');
+            return result;
+          }
+          return original(dir, ...args);
+        };
+        const action = operation === 'merge' ? workspaces.merge(f.task.id)
+          : operation === 'catchup' ? workspaces.catchupBranch(f.task.branch)
+          : workspaces.fastForwardBranch('main', landed);
+        await expect(action).rejects.toThrow('changed during landing');
+        expect(injected).toBe(true);
+        if (operation === 'merge') expect(f.store.task(f.task.id).integration).toBe('pending');
+        if (drift !== 'advance') expect(await git(f.root, 'rev-parse', target)).toBe(base);
+        // No automatic reset/checkout hides the failed operation's evidence.
+        if (drift === 'checkout') expect(await git(cwd, 'rev-parse', 'unrelated')).toBe(landed);
+        if (drift === 'detached') expect(await git(cwd, 'rev-parse', 'HEAD')).toBe(landed);
+        if (drift === 'advance') expect(await git(cwd, 'log', '-1', '--format=%s')).toBe('external advancement');
+      } finally { await f.close(); }
+    });
+  }
+}
+
 test('worker branch is isolated, committed results stay pending until explicit merge', async () => {
   const f = await setup();
   try {

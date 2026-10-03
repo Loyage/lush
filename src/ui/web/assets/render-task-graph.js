@@ -372,8 +372,15 @@ export function renderTaskGraph(graph) {
   const nodes = listed.filter(node => !hidden.has(node.status));
   const view = { ...full, nodes };
   const host = $('detail');
-  const before = captureGraph(host);
   const saved = collapsed();
+  // Polls often return identical bounded data. Preserve DOM identity and reading state
+  // unless content, local display preferences, the deletion filter or the layout width changed.
+  // A stale graph response can still list a just-deleted subtree, so the filter set is part of the key.
+  const renderKey = JSON.stringify([graph, minimal, [...saved].sort(), [...hidden].sort(),
+    ui.taskGraphShowArchived, [...ui.taskGraphFilesExpanded].sort(), host.clientWidth,
+    [...ui.deletedWorkerIds].sort((a, b) => a - b)]);
+  if (host.querySelector('.task-graph')?.dataset.renderKey === renderKey) return;
+  const before = captureGraph(host);
   const forest = taskForest(view);
   const mergeAllByBranch = mergeAllCandidates(view);
   // 用 all 而不是 nodes：可见子 Task 的父 Task 可能只是被归档藏起来，不该被说成「不在当前图中」。
@@ -479,6 +486,7 @@ export function renderTaskGraph(graph) {
       control.dataset.graphFocus ||= `control-${card.dataset.taskId}-${encodeURIComponent(label)}`;
     });
   }
+  box.dataset.renderKey = renderKey;
   host.replaceChildren(box);
   restoreGraph(host, box, before);
   if (focusKey) (host.querySelector(`[data-graph-focus="${focusKey}"]`)

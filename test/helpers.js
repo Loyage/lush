@@ -5,7 +5,22 @@ import { Config } from '../src/config.js';
 import { Store } from '../src/persistence/store.js';
 import { Project } from '../src/core/project.js';
 export function temp() { return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-test-'))); }
-export function env(extra = {}) { const out = { ...process.env }; for (const key of Object.keys(out)) if (key.startsWith('LUSH_')) delete out[key]; return { ...out, LUSH_PROVIDER: 'mock', ...extra }; }
+// Shared, immutable test-only home; children inherit it without mutating process.env.
+let testHome;
+function isolatedHome() {
+  if (!testHome) {
+    testHome = temp();
+    process.once('exit', () => fs.rmSync(testHome, { recursive: true, force: true }));
+  }
+  return testHome;
+}
+export function env(extra = {}) {
+  const out = { ...process.env };
+  for (const key of Object.keys(out)) if (key.startsWith('LUSH_') || key.startsWith('GIT_')) delete out[key];
+  return { ...out, HOME: isolatedHome(), XDG_CONFIG_HOME: isolatedHome(),
+    GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_SYSTEM: os.devNull, GIT_CONFIG_GLOBAL: os.devNull,
+    LUSH_PROVIDER: 'mock', ...extra };
+}
 export function fixture(provider, extra = {}) {
   const root = temp(); const config = new Config({ project: root, env: env(extra) }); config.prepare();
   const store = new Store(path.join(config.home, 'project.db'), root);
@@ -19,7 +34,7 @@ export async function until(fn, timeout = 4000) {
 }
 export function gate() { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; }
 export async function git(root, ...args) {
-  const proc = Bun.spawn(['git','-C',root,...args], { stdout:'pipe',stderr:'pipe' });
+  const proc = Bun.spawn(['git','-C',root,...args], { env: env(), stdout:'pipe',stderr:'pipe' });
   const [out,err,code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   if (code) throw new Error(err); return out.trim();
 }

@@ -41,6 +41,54 @@ test('Task 图以 Task 为节点；旧 #graph 不再打开分支图', async () =
   expect(deepText(dom.node('detail'))).toContain('实现功能');
 });
 
+test('相同 Worker 图轮询保留节点身份；内容变化更新，折叠不挂载后代', async () => {
+  const { loadTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
+  await dom.node('task-graph-open').onclick();
+  const host = dom.node('detail'), tree = host.querySelector('.task-graph');
+  const card = host.querySelector('[data-task-id="2"]');
+  card.querySelector('button').focus(); host.scrollTop = 160;
+  await loadTaskGraph(); await loadTaskGraph();
+  expect(host.querySelector('.task-graph')).toBe(tree);
+  expect(host.querySelector('[data-task-id="2"]')).toBe(card);
+  expect(document.activeElement).toBe(card.querySelector('button')); expect(host.scrollTop).toBe(160);
+  const title = graph.nodes[1].title;
+  graph.nodes[1].title = '更新后的目标'; await loadTaskGraph();
+  expect(host.querySelector('.task-graph')).not.toBe(tree); expect(deepText(host)).toContain('更新后的目标');
+  graph.nodes[1].title = title;
+  const folded = host.querySelector('[data-task-id="1"]').querySelector('button');
+  await folded.onclick();
+  expect(host.querySelector('[data-task-id="2"]')).toBeNull();
+  const collapsed = host.querySelector('.task-graph'); await loadTaskGraph();
+  expect(host.querySelector('.task-graph')).toBe(collapsed);
+  await host.querySelector('[data-task-id="1"]').querySelector('button').onclick();
+  expect(host.querySelector('[data-task-id="2"]')).toBeTruthy();
+});
+
+test('20 / 200 Worker 有界 fixture：相同轮询零节点构造，折叠只挂载根卡片', async () => {
+  const { loadTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
+  const previous = { nodes: graph.nodes, total: graph.total };
+  const create = document.createElement; let constructed = 0;
+  document.createElement = (...args) => { constructed++; return create(...args); };
+  try {
+    for (const size of [20, 200]) {
+      graph.nodes = Array.from({ length: size }, (_, i) => ({ id: i + 1, parent_id: i ? 1 : null,
+        task_kind: i ? 'say' : 'main', role: 'agent', status: 'waiting', title: `节点 ${i + 1}` }));
+      graph.total = size; await loadTaskGraph();
+      expect(dom.node('detail').querySelectorAll('.task-graph-card')).toHaveLength(size);
+      const fullConstruction = constructed; constructed = 0;
+      await loadTaskGraph(); expect(constructed).toBe(0);
+      await dom.node('detail').querySelector('[data-task-id="1"]').querySelector('button').onclick();
+      expect(dom.node('detail').querySelectorAll('.task-graph-card')).toHaveLength(1);
+      expect(constructed).toBeLessThan(fullConstruction);
+      await dom.node('detail').querySelector('[data-task-id="1"]').querySelector('button').onclick();
+      expect(dom.node('detail').querySelectorAll('.task-graph-card')).toHaveLength(size);
+      constructed = 0;
+    }
+  } finally {
+    document.createElement = create; Object.assign(graph, previous); await loadTaskGraph();
+  }
+});
+
 test('Task 图默认隐藏已归档 Task，可用「显示已归档」开关就地查看', async () => {
   const archived = { id: 99, parent_id: 1, task_kind: 'say', role: 'agent', status: 'completed',
     title: '已归档的工作', branch: 'lush/task-99', workspace: null, integration: 'merged',

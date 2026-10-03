@@ -37,10 +37,15 @@ export const methods = {
    * 所以这里是唯一一条「不做祖先检查」的删除路径，调用方（Project#archiveBranch）负责先证明
    * 「这棵子树的活都收尾了」。仍然不做 force：ref 用 compare-and-delete，只会删掉我们看过的那一个 tip。
    *
-   * 两遍走：第一遍只读地收集 tip / worktree 并把所有会失败的事检查完（脏 worktree、主检出），
-   * 第二遍才开始删。这样「子树里有脏 worktree」不会留下归档了一半的分支。
+   * 两遍走：第一遍只读地收集 tip / worktree 并把所有会失败的事检查完（脏 worktree、主检出、locked /
+   * prunable / 已初始化 submodule），第二遍才开始删。这样「子树里有脏 worktree」不会留下归档了一半的分支。
+   *
+   * G-04：第二遍里仍可能撞上未知失败（I/O、外部程序）。这时不能丢掉已经删掉的部分——每条分支一
+   * settle 就通过 `onOutcome` 逐条回报（reason 为 null 表示完整归档），并停下来把没处理的分支列进
+   * `remaining`。调用方（`Project#archiveBranch`）据此让库与磁盘一致，而不是抛错后留下「库说还在、
+   * 磁盘已经没了」的半棵树。
    */
-  archiveBranches(branches, { discard_worktree = false } = {}) {
+  archiveBranches(branches, { discard_worktree = false, onOutcome = null } = {}) {
     return this.exclusive(async () => {
       const project = this.config.project;
       const names = [...new Set(branches.map(branch => String(branch ?? '').trim()))];
@@ -57,17 +62,31 @@ export const methods = {
         check(snapshot?.branch && !names.includes(snapshot.branch) && !names.includes(task.branch),
           `legacy showcase #${task.id} retains worktrees; preserve and inspect them manually before archive`);
       }
+      // NUL records preserve paths/reasons containing whitespace, quotes or newlines.
+      // Known Git refusal conditions must reject the entire subtree before any removal,
+      // even when discard_worktree allows dirt (it never authorizes bypassing locks).
+      const records = (await this.gitOutput(project, 'worktree', 'list', '--porcelain', '-z'))
+        .split('\0\0').map(record => record.split('\0'));
       const plan = [];
       for (const branch of names) {
         // 先把 tip 记下来：后面 update-ref -d 用它做 compare-and-delete，检查之后被谁动过就拒绝。
         let tip = null;
         try { tip = await this.git(project, 'rev-parse', `refs/heads/${branch}`); } catch { /* ref 本就不在 */ }
-        const workspace = await this.workspaceForBranch(branch);
+        const metadata = records.find(fields => fields.includes(`branch refs/heads/${branch}`));
+        const workspace = metadata?.find(field => field.startsWith('worktree '))?.slice('worktree '.length) ?? null;
+        check(!metadata?.some(field => field === 'locked' || field.startsWith('locked ')), `worktree is locked: ${workspace}`);
+        check(!metadata?.some(field => field === 'prunable' || field.startsWith('prunable ')), `worktree is prunable; inspect registration before archive: ${workspace}`);
         const present = Boolean(workspace) && fs.existsSync(workspace);
         if (present) {
           check(!retainedPaths.has(fs.realpathSync(workspace)), 'legacy showcase worktrees cannot be archived as ordinary branch checkouts');
           // 主检出是用户现场，不是某条分支的临时工作区；即便调用方漏了「当前分支不可归档」也该在这里挡住。
           check(fs.realpathSync(workspace) !== fs.realpathSync(project), `refusing to archive the project checkout: ${workspace}`);
+          const index = await this.gitOutput(workspace, 'ls-files', '--stage');
+          if (/^160000 /m.test(index)) {
+            const submodules = await this.gitOutput(workspace, 'submodule', 'status');
+            check(submodules.split('\n').filter(Boolean).every(line => line.startsWith('-')),
+              `worktree contains initialized submodules; inspect before archive: ${workspace}`);
+          }
           if (!discard_worktree) {
             try { await this.clean(workspace); }
             catch (error) {
@@ -76,32 +95,48 @@ export const methods = {
             }
           }
         }
-        plan.push({ branch, tip, workspace, present, worktree: 'absent', ref: 'absent', discarded: false });
+        plan.push({ branch, tip, workspace, present, worktree: 'absent', ref: tip === null ? 'absent' : 'kept', discarded: false });
       }
 
       const outcomes = [];
-      for (const entry of plan) {
-        if (entry.present) {
-          if (discard_worktree) entry.discarded = (await this.porcelain(entry.workspace)) !== '';
-          await this.git(project, 'worktree', 'remove', ...(discard_worktree ? ['--force'] : []), entry.workspace);
-          entry.worktree = 'removed';
+      const failed = [];
+      const remaining = [];
+      for (let index = 0; index < plan.length; index += 1) {
+        const entry = plan[index];
+        try {
+          if (entry.present) {
+            if (discard_worktree) entry.discarded = (await this.porcelain(entry.workspace)) !== '';
+            await this.git(project, 'worktree', 'remove', ...(discard_worktree ? ['--force'] : []), entry.workspace);
+            entry.worktree = 'removed';
+          }
+          if (entry.tip !== null) {
+            // 走到这里通常已经被上面的 remove 解除了检出；分支被别处检出时不能删，否则那个 HEAD 会失效。
+            check(!(await this.checkedOut(entry.branch)), `branch ${entry.branch} is still checked out in a worktree`);
+            await this.git(project, 'update-ref', '-d', `refs/heads/${entry.branch}`, entry.tip);
+            entry.ref = 'deleted';
+          }
+          this.store.markBranchArchived(entry.branch);
+          const outcome = { branch: entry.branch, worktree: entry.worktree, ref: entry.ref, tip: entry.tip, discarded: entry.discarded, reason: null };
+          if (onOutcome) await onOutcome(outcome);
+          outcomes.push(outcome);
+        } catch (error) {
+          // 未知失败：保留已经 settle 的逐条事实，停止继续删，其余分支如实列为未处理。
+          const outcome = { branch: entry.branch, worktree: entry.worktree, ref: entry.ref, tip: entry.tip, discarded: entry.discarded, reason: error.message };
+          if (onOutcome) await onOutcome(outcome);
+          failed.push(outcome);
+          remaining.push(...plan.slice(index + 1).map(row => ({ branch: row.branch, worktree: row.worktree, ref: row.ref, tip: row.tip, discarded: row.discarded })));
+          break;
         }
-        if (entry.tip !== null) {
-          // 走到这里通常已经被上面的 remove 解除了检出；分支被别处检出时不能删，否则那个 HEAD 会失效。
-          check(!(await this.checkedOut(entry.branch)), `branch ${entry.branch} is still checked out in a worktree`);
-          await this.git(project, 'update-ref', '-d', `refs/heads/${entry.branch}`, entry.tip);
-          entry.ref = 'deleted';
-        }
-        this.store.markBranchArchived(entry.branch);
-        outcomes.push({ branch: entry.branch, worktree: entry.worktree, ref: entry.ref, tip: entry.tip, discarded: entry.discarded, reason: null });
       }
-      return outcomes;
+      return { outcomes, failed, remaining };
     });
   },
 
-  /** 归档单条分支：`archiveBranches` 的退化情形（不带子树）。 */
-  archiveBranch(branch, options = {}) {
-    return this.archiveBranches([branch], options).then(outcomes => outcomes[0]);
+  /** 归档单条分支：`archiveBranches` 的退化情形（不带子树）。失败时按单条语义抛出原因。 */
+  async archiveBranch(branch, options = {}) {
+    const { outcomes, failed } = await this.archiveBranches([branch], options);
+    if (failed.length) throw new Error(failed[0].reason);
+    return outcomes[0];
   },
   /**
    * 回收一个已结束任务的磁盘状态：它自己的 worktree、检验对照检出与任务分支。
@@ -110,7 +145,7 @@ export const methods = {
   async release(task, { keepBranch = false } = {}) {
     check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     // 检验任务没有 branch/integration，只有派生出来的对照检出。
-    if (task.verifies_task_id) {
+    if (task.verifies_task_id || task.review_candidate_id) {
       if (!task.baseline_workspace) return { id: task.id, worktree: 'absent', branch: 'absent', reason: null };
       const dir = task.baseline_workspace;
       await this.git(this.config.project, 'worktree', 'remove', '--force', dir);
