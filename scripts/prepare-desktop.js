@@ -50,7 +50,7 @@ export function prepareDesktopPayload(root = ROOT, { payloadDir, replace = false
 export function desktopPayloadWarning(root = ROOT) {
   try { verifyDesktopRemotePayload(root, path.join(root, BUILD_DIR)); return null; }
   catch (error) {
-    return `SSH 自动部署运行包尚未就绪：${error.message}\n请从可信的同源码 CI 运行下载 lush-remote-payload，解压后执行 bun run desktop:prepare /path/to/payload（替换旧生成物时显式加 --replace）。\n不会自动下载或在 Mac / Windows 构建 Linux 程序。本地与“远程 Host”入口仍可使用。详见 docs/deployment/desktop-build-agent.md。`;
+    return `SSH 自动部署运行包尚未就绪：${error.message}\n开发可使用可信的同源码本地构建包或 CI artifact（lush-remote-payload），无需发布 tag；准备好 manifest 与两架构 archive 后执行 bun run desktop:prepare /path/to/payload（替换旧生成物时显式加 --replace）。\n启动和预检不会下载，也不在 Mac / Windows 构建 Linux 程序；已发布版本可在连接页确认安装后自动下载匹配身份的固定 GitHub Release。本地与“远程 Host”入口仍可使用。详见 docs/deployment/desktop-build-agent.md。`;
   }
 }
 

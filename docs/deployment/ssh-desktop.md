@@ -6,7 +6,7 @@
 
 1. 本机准备系统 OpenSSH，配置 `~/.ssh/config` 的 Host 别名（Windows 通常为 `%USERPROFILE%\.ssh\config`）。先在终端执行 `ssh my-server true`，核对服务器指纹并准备密钥 / ssh-agent。桌面只支持已就绪的公钥认证，不输入或保存密码、私钥、解锁口令。
 2. 打开 Lush 桌面连接页，在「通过 SSH 打开服务器 → 本机 SSH 配置」直接点击 `my-server`，自动预检；兼容且已安装时直接打开远程窗口，首次安装则显示确认计划。也可在「手动输入服务器」填写别名并点击「预检服务器」，再确认连接。首期需 Linux x64 / ARM64；远端需 shell、GNU tar/gzip、sha256sum 和基础 Unix 工具。私有 Bun 还需对应 CPU 与 Linux/glibc 运行条件，不保证任意发行版都兼容。
-3. 核对目标、安装目录、Lush / Bun 版本、本地入口和执行步骤，点击「确认安装并连接」。可信客户端上传随发行提供的运行包，验证后原子安装到 SSH 用户目录；不从服务器下载脚本、不 sudo、不修改 PATH、防火墙或自启服务。
+3. 核对目标、安装目录、Lush / Bun 版本、源码指纹、本地入口和执行步骤，点击「确认安装并连接」。优先使用已验证的本机运行包；缺包时计划显示固定 GitHub Release 地址，确认后才下载目标架构包、校验并缓存，然后上传并原子安装到 SSH 用户目录。下载失败或对应 Release 未发布时不安装，不使用旧版本 / latest 替代；不从服务器下载脚本、不 sudo、不修改 PATH、防火墙或自启服务。
 4. 工作窗口加载远端 Host。填写**远端项目目录**，Host 按需启动或连接该项目 daemon。项目需 Git 初始提交；Agent 和模型认证仍需在远端准备，连接成功不等于 Agent 已认证。
 
 首屏列表只读取本机用户 `.ssh/config` 及其 Include 文件，支持相对用户 `.ssh/` 的路径、`~/`、绝对路径和文件通配符，去重展示符合连接输入限制的明确 Host。不会显示 `Host *` / 否定规则或配置原文，也不执行 Match 条件；条件中的静态别名可能被列出，实际解析以 OpenSSH 为准。动态 Include（环境变量 / `%` token / 其它用户 `~user`）不展开，并提示列表可能不完整。配置读取有文件、大小、递归和数量上限，失败或截断就地提示，仍可手动输入；聚焦连接页时重新读取，不修改配置。
@@ -36,13 +36,24 @@
 
 这些目录不是项目数据库；项目状态仍在各项目 `.lush/`。失败上传可能保留暂存文件，已存在但身份不符的版本目录不会被覆盖。profile 与版本 / origin 绑定，现有 Host 版本不兼容时拒绝自动重启；首期不提供一键升级或卸载。清理和停服务应先确认范围与活动工作，交给[Agent 指导](ssh-desktop-agent.md)。
 
+## 开发时使用本地 payload
+
+未发布的开发版本无需打 tag；从可信同源码 CI 下载 `lush-remote-payload`，或使用原生 Linux 构建 / 汇总的本地运行包。在对应源码目录显式导入：
+
+```bash
+bun run desktop:prepare /absolute/path/to/payload
+bun run desktop
+```
+
+已有旧生成物需明确加 `--replace`。本地匹配包优先用于预检与确认后的 SSH 上传，不访问 GitHub。导入需要双架构及当前源码指纹一致；未提交的源码修改也须用相同修改后的源码重建，不能用旧包代替。普通 push 仍产出 CI artifact，只有正式版本 tag 才发布供自动下载的 Release；详见[开发与发布指导](desktop-build-agent.md)。
+
 ## 常见问题
 
 | 现象 | 处理 |
 |---|---|
 | 公钥或主机校验失败 | 先在终端核对指纹、登录 / 解锁密钥；不禁用安全检查 |
 | 别名已有端口转发 | 给 Lush 使用不预设 LocalForward / RemoteForward / DynamicForward 的 SSH 别名 |
-| 缺少目标架构运行包 | 使用携带双架构包的可信客户端；源码开发按[产物准备指导](desktop-build-agent.md#2-mac--windows-源码开发准备)显式导入同检出 CI 包，不在 Mac / Windows 构建 Linux Bun，无自动下载兜底 |
+| 缺少目标架构运行包 | 核对预检中的固定 Release，确认安装后软件自动下载并校验；未发布 / 私有 / 网络不可达时按[产物准备指导](desktop-build-agent.md#2-mac--windows-源码开发准备)手工导入同检出 CI 包，不在 Mac / Windows 构建 Linux Bun |
 | 本地固定端口占用 | 释放该端口；不静默换端口或复用另一个服务器的身份 |
 | 远端安装 / 版本拒绝 | 查看安装目录及 profile 的 `host.log`；不删 `.lush/`、强杀或覆盖版本 |
 | SSH 记录损坏 | SSH 入口报错，但本地 / URL 连接仍可用；记录不会被静默重置 |

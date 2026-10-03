@@ -26,7 +26,7 @@ function elf(target) {
 }
 export function createRemotePayload(root, directory, targets = TARGETS) {
   for (const dir of ['src', 'bin', 'docs']) fs.mkdirSync(path.join(root, dir), { recursive: true });
-  for (const name of ['src/identity.js', 'README.md', 'docs/README.md', 'bin/lush', 'bin/lush-host', 'bin/lushd']) {
+  for (const name of ['src/identity.js', 'README.md', 'docs/README.md', 'bin/lush', 'bin/lush-host', 'bin/lush-host-worker', 'bin/lushd']) {
     if (!fs.existsSync(path.join(root, name))) fs.writeFileSync(path.join(root, name), name.endsWith('.md') ? '# Fixture\n' : '// fixture\n');
   }
   if (!fs.existsSync(path.join(root, 'package.json'))) fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '0.2.0', type: 'module' }));

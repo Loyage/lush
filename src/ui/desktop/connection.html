@@ -32,8 +32,8 @@
         <p id="ssh-target"></p>
         <pre id="ssh-plan-details" tabindex="0"></pre>
         <ul id="ssh-warnings"></ul>
-        <p>仅在 SSH 用户目录安装 Lush 和私有 Bun，不使用 sudo，不更改系统 PATH、防火墙或自启服务。随后启动远端 Host，并由远端页面选择项目、启动或连接其 daemon。Git、Agent 及认证需在远端准备；连接成功不代表模型已就绪。</p>
-        <span class="help-host" data-help="确认展示的服务器与计划后，按需安装 Lush / 私有 Bun并启动远端入口；不复制模型凭证、不重启活动 daemon，也不提交开发请求"><button id="ssh-confirm" type="button">确认连接</button></span>
+        <p>本机缺少匹配运行包时，确认后从计划中的固定 GitHub Release 下载到本机缓存，校验版本、源码指纹及哈希后才上传；下载失败不安装。仅在 SSH 用户目录安装 Lush 和私有 Bun，不使用 sudo，不更改系统 PATH、防火墙或自启服务。随后启动远端 Host，并由远端页面选择项目、启动或连接其 daemon。Git、Agent 及认证需在远端准备；连接成功不代表模型已就绪。</p>
+        <span class="help-host" data-help="确认展示的服务器与计划后，按需从固定 GitHub Release 下载并校验运行包，再安装 Lush / 私有 Bun并启动远端入口；不复制模型凭证、不重启活动 daemon，也不提交开发请求"><button id="ssh-confirm" type="button">确认连接</button></span>
       </div>
       <div class="ssh-actions">
         <span class="help-host" data-help="取消本次 SSH 检查或连接及尚未使用的安装授权；安装已落地的文件可能保留，不停止远端 Host、daemon 或 Worker"><button id="ssh-cancel" type="button" class="secondary" disabled>取消本次操作</button></span>

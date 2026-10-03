@@ -23,7 +23,7 @@
 
 由构建工具在原生 Linux x64 / ARM64 环境生成运行包。输入是可信源码检出和固定版本 Bun；发行渠道或可信客户端携带 manifest 与对应 archive。用户运行时不执行未经验证的网络安装脚本。
 
-默认开发产物目录为 `node_modules/lush-remote-build/payload/`，与项目 `.lush/` 无关。桌面发行将产物放在独立 resources 的 `remote-payload/`；客户端只安装它所信任的随发行提供的产物。原生 Linux 开发检出可仅生成本机架构；Mac / Windows 开发者显式导入可信同检出的双架构 CI 包，不跨编译、不在启动时静默下载。缺少目标产物必须清晰报错，但不禁用本地 / URL 入口，不能假称全平台已验证。macOS 安装包另外携带本机架构的私有 Bun 与白名单后台，和 Linux 包分目录，Windows 不获得本机后台。发行 / 开发产物准备见[构建指导](../deployment/desktop-build-agent.md)。
+默认开发产物目录为 `node_modules/lush-remote-build/payload/`，与项目 `.lush/` 无关。桌面发行将产物放在独立 resources 的 `remote-payload/`，优先使用已验证的本机产物及独立 userData 缓存。原生 Linux 开发检出可仅生成本机架构；Mac / Windows 可显式导入可信同检出的双架构 CI 包，或在确认安装计划后下载匹配目标架构的 GitHub Release 包。不跨编译、不在启动或预检时静默下载；缺包不禁用本地 / URL 入口，不能假称全平台已验证。macOS 安装包另外携带本机架构的私有 Bun 与白名单后台，和 Linux 包分目录，Windows 不获得本机后台。发行 / 开发产物准备见[构建指导](../deployment/desktop-build-agent.md)。
 
 manifest 接口（版本 1）：
 
@@ -43,7 +43,15 @@ manifest 接口（版本 1）：
 }
 ```
 
-archive 根目录包含 `bun`、`bin/`、完整 `src/`、`docs/`、`README.md`、`package.json` 和 `remote.json`。`docs/` 仅允许 Markdown 与 `scripts/build-remote.js` 中逐文件列出的已审核第三方许可证；源码采集与归档校验使用同一白名单，不泛化允许 `.txt`。`remote.json` 标记 version、target、lush_version、fingerprint、bun_version、bun_sha256，与 manifest 对应。不含外层目录、不跟随符号链接。保留源码以保持现有代码指纹一致，但不安装 Electron 二进制或任何 node_modules；远端执行仅使用 Bun 与现有服务入口。
+archive 根目录包含 `bun`、`bin/`、完整 `src/`、`docs/`、`README.md`、`package.json` 和 `remote.json`。`docs/` 仅允许 Markdown 与共享校验器 `src/ui/desktop/remote-artifact.js` 中逐文件列出的已审核第三方许可证；源码采集与归档校验使用同一白名单，不泛化允许 `.txt`。`remote.json` 标记 version、target、lush_version、fingerprint、bun_version、bun_sha256，与 manifest 对应。不含外层目录、不跟随符号链接。保留源码以保持现有代码指纹一致，但不安装 Electron 二进制或任何 node_modules；远端执行仅使用 Bun 与现有服务入口。
+
+## 确认后的 Release 下载
+
+- 固定可信发布者为 `Loyage/lush`，使用 `payload-v<lush_version>-<fingerprint>` 标签；不取 latest，不接受服务器或渲染器指定的下载 URL、仓库、路径或 token。源码开发按当前完整 src / bin / package.json 的可移植指纹定位；安装包把原检出的身份封入 ASAR manifest，不能拿裁剪后的桌面源码重新计算。
+- 预检只读远端环境并展示固定 Release 地址、目标架构、版本 / 指纹、下载上限和安装范围，不下载 manifest。仅凭远端 metadata 不能证明可信，缺本机包时即使远端已有安装也先请求确认。
+- 用户确认后下载 manifest 和目标 archive。只允许 HTTPS 固定 Release 路径及 GitHub 官方资源 CDN 重定向，不携带 Cookie / 认证，不抓取本机 GitHub 凭证；有大小、超时、重定向和取消边界。未发布 / 私有 Release 明确报错，保留手工导入入口。
+- 校验严格 manifest、版本、源码身份、SHA-256、ustar 路径 / 模式与 ELF / Bun 身份后原子落入 `userData/payload-cache/<tag>/<target>/`；不执行 Linux Bun、不覆盖手工生成物或已有缓存。下载后重新核对服务器身份、平台、运行时与计划，发生变化须重新确认。
+- 发布工作流只由本仓库正式 `vX.Y.Z` tag 的 push 触发，版本必须等于 package.json，提交必须在 main 历史中；先复用原生双架构构建 / 烟测，再由依赖其成功的独立写权限 job 校验同运行 artifact 与固定 tag 提交并发布三份资源。下载仍用固定身份 `payload-v<version>-<fingerprint>` Release，不覆盖已有匹配资源。普通 main push、PR、手动 / 复用构建只生成 artifact；未发布的开发源码保留本地构建及 `desktop:prepare DIR` 路径，本机匹配包优先，不要求 GitHub 或发布 tag。桌面安装器仍仅 artifact，这不是客户端自动更新。
 
 ## 模块接缝
 
@@ -51,7 +59,9 @@ archive 根目录包含 `bun`、`bin/`、完整 `src/`、`docs/`、`README.md`�
 - `scripts/desktop-remote-payload.js`：Mac / Windows 桌面打包在独立 resources 中携带两架构 Linux 运行包，拒绝与客户端源码身份不一致、缺失架构、校验失败或包含额外文件的产物；afterPack 再比较实际包装与审核 staged 字节。Windows 只执行 Electron，不执行 Linux Bun。
 - `scripts/desktop-local-runtime.js`：macOS 原生私有 Bun / 后台资源，Mach-O、系统依赖、哈希与身份检查；构建和包装后分别 smoke，拒绝 Nix 私有 dylib / RPATH，不把 runtime node_modules、项目或凭证打包。
 - `scripts/prepare-desktop.js` / `start-desktop.js`：显式导入同检出 Linux CI 产物，替换旧生成物需 `--replace`；源码启动只给准备提示，不静默联网。
-- `src/ui/desktop/ssh.js` 与对应 desktop 测试：Node 环境可用，不依赖 Bun；提供 `createSSHManager({payloadDir,userData,spawn?,...})`。
+- `src/ui/desktop/remote-artifact.js`：原生构建与客户端共用的 Node-only 完整性校验，不执行或提取运行包。
+- `src/ui/desktop/ssh-release.js`：固定 Release 来源、离线匹配、确认后下载与原子缓存；`main.js` 装配客户端身份与系统代理网络栈。
+- `src/ui/desktop/ssh.js` 与对应 desktop 测试：Node 环境可用，不依赖 Bun；提供 `createSSHManager({payloadDir,payloadProvider?,userData,spawn?,...})`。
 - Manager 接口：`list()` 返回仅元数据的连接记录；`inspect(profile)` 返回有界检查和安装计划；`connect(profile,{install:false|true})` 返回 `{url,profile,...}`，需要安装但未获授权时拒绝并指导先预检/确认；`disconnect(id)` 只停止自有 SSH 进程；`dispose()` 退出清理自有隧道，不停止远端 daemon。
 - profile 输入：`{id?,alias}`，alias 是安全的 SSH Host 别名 / 主机名，首期不接受自由命令、URL、密码或附加 SSH 参数；id 由可信主进程生成。inspect 返回 `{profile,ready,requiresInstall,plan,warnings}`；plan 是白名单 JSON，展示远端用户目录、版本、平台、安装与启动范围，不含秘密。
 - 已保存 profile 应保持稳定本地入口身份；不同服务器不能因复用回环端口而共享登录 Cookie。端口不可用时不静默改成另一个服务器的 origin。

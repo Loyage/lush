@@ -103,7 +103,7 @@ function mock(f, settings={}) {
       throw new Error('unexpected script');
     },{gate:settings.gate});return call.child;
   };
-  const manager=createSSHManager({payloadDir:f.payloadDir,userData:f.userData,spawn,choosePort:async excluded=>{let port=14318;while(excluded.has(port))port++;return port;},
+  const manager=createSSHManager({payloadDir:f.payloadDir,payloadProvider:settings.payloadProvider,userData:f.userData,spawn,choosePort:async excluded=>{let port=14318;while(excluded.has(port))port++;return port;},
     checkPort:settings.checkPort??(async()=>{}),checkTunnel:settings.checkTunnel??(async()=>{}),timeoutMs:settings.timeoutMs??1000,env:{...process.env,LUSH_AGENT_TOKEN:'must-not-leak',OPENAI_API_KEY:'must-not-transfer'}});
   return {manager,calls,tunnels,probe};
 }
@@ -164,6 +164,73 @@ test('installation needs an unchanged inspected plan and explicit authorization'
     m.manager.disconnect(preview.profile.id);await tick();expect(m.tunnels[0].killed).toBe(true);expect(m.manager.list()[0].connected).toBe(false);
     expect(m.calls.every(c=>!c.args.join(' ').includes('host-stop'))).toBe(true);
   } finally {m.manager.dispose();await tick();f.cleanup();}
+});
+
+function missingPayload(f, download) {
+  const payload=loadRemotePayload(f.payloadDir,'linux-x64');
+  return {resolve:()=>({target:payload.target,fingerprint:payload.fingerprint,lushVersion:payload.lushVersion,bunVersion:payload.bunVersion,
+    download:{repository:'Loyage/lush',tag:`payload-v0.2.0-${FP}`,releaseURL:`https://github.com/Loyage/lush/releases/tag/payload-v0.2.0-${FP}`,maximumBytes:256*1024*1024}}),
+    download:(_target,options)=>download(payload,options)};
+}
+
+test('missing payload remains offline until an unchanged plan receives explicit install authorization',async()=> {
+  const f=fixture();let downloads=0;
+  const p=missingPayload(f,async payload=>{downloads++;return payload;});
+  const m=mock(f,{payloadProvider:p});try {
+    await expect(m.manager.connect({alias:'server'},{install:true})).rejects.toThrow('重新预检');
+    const preview=await m.manager.inspect({alias:'server'});
+    expect(preview.requiresInstall).toBe(true);expect(preview.plan.download.repository).toBe('Loyage/lush');
+    expect(preview.plan.uploadBytes).toBe(null);expect(downloads).toBe(0);
+    await expect(m.manager.connect(preview.profile)).rejects.toThrow('明确确认');expect(downloads).toBe(0);
+    await m.manager.connect(preview.profile,{install:true});expect(downloads).toBe(1);
+    expect(m.calls.filter(c=>c.input?.toString().includes('# lush-ssh:probe'))).toHaveLength(10);
+    expect(m.calls.some(c=>c.input?.equals(f.archive))).toBe(true);
+  }finally{m.manager.dispose();await tick();f.cleanup();}
+});
+
+test('download failure revokes confirmation and performs no upload, installation or Host call',async()=> {
+  const f=fixture();let downloads=0;
+  const m=mock(f,{payloadProvider:missingPayload(f,async()=>{downloads++;throw new Error('release missing');})});try {
+    const preview=await m.manager.inspect({alias:'server'});
+    await expect(m.manager.connect(preview.profile,{install:true})).rejects.toThrow('release missing');
+    await expect(m.manager.connect(preview.profile,{install:true})).rejects.toThrow('重新预检');
+    expect(downloads).toBe(1);expect(m.calls.every(c=>c.args.includes('-G') || c.input?.toString().includes('# lush-ssh:probe'))).toBe(true);
+  }finally{m.manager.dispose();await tick();f.cleanup();}
+});
+
+test('cancellation during download prevents late bytes from triggering any remote write',async()=> {
+  const f=fixture();let resolve,signal,start;
+  const started=new Promise(r=>{start=r;});
+  const payload=loadRemotePayload(f.payloadDir,'linux-x64');
+  const p=missingPayload(f,(_payload,options)=>new Promise(r=>{signal=options.signal;resolve=r;start();}));
+  const m=mock(f,{payloadProvider:p});try {
+    const preview=await m.manager.inspect({alias:'server'});
+    const pending=m.manager.connect(preview.profile,{install:true});pending.catch(()=>{});await started;
+    m.manager.disconnect(preview.profile.id);expect(signal.aborted).toBe(true);resolve(payload);
+    await expect(pending).rejects.toThrow('已取消');expect(m.tunnels).toHaveLength(0);
+    expect(m.calls.some(c=>c.input?.equals(f.archive))).toBe(false);
+  }finally{m.manager.dispose();await tick();f.cleanup();}
+});
+
+test('remote identity and architecture are rechecked after download before any upload',async()=> {
+  for(const change of [{home:'/srv/different-user'},{arch:'aarch64'}]) {
+    const f=fixture();let m;
+    const p=missingPayload(f,async payload=>{Object.assign(m.probe,change);return payload;});
+    m=mock(f,{payloadProvider:p});try {
+      const preview=await m.manager.inspect({alias:'server'});
+      await expect(m.manager.connect(preview.profile,{install:true})).rejects.toThrow();
+      expect(m.calls.some(c=>c.input?.equals(f.archive))).toBe(false);expect(m.tunnels).toHaveLength(0);
+    }finally{m.manager.dispose();await tick();f.cleanup();}
+  }
+});
+
+test('after acquiring trusted metadata an existing installation is reused without another upload',async()=> {
+  const f=fixture();let downloads=0;
+  const m=mock(f,{installed:true,payloadProvider:missingPayload(f,async payload=>{downloads++;return payload;})});try {
+    const preview=await m.manager.inspect({alias:'server'});expect(preview.ready).toBe(false);
+    await m.manager.connect(preview.profile,{install:true});expect(downloads).toBe(1);
+    expect(m.calls.some(c=>c.input?.equals(f.archive))).toBe(false);expect(m.tunnels).toHaveLength(1);
+  }finally{m.manager.dispose();await tick();f.cleanup();}
 });
 
 test('existing installation connects without uploading or reinstalling',async()=> {

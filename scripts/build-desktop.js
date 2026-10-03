@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { listPackage, statFile, extractFile, uncache } from '@electron/asar';
 import { DESKTOP_PAYLOAD_DIR, REMOTE_RESOURCE_FILES, stageDesktopRemotePayload, verifyDesktopRemotePayload } from './desktop-remote-payload.js';
 import { LOCAL_RUNTIME_DIR, stageDesktopLocalRuntime, verifyDesktopLocalRuntime } from './desktop-local-runtime.js';
+import { remoteSourceIdentity } from './build-remote.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Generated output stays in ignored node_modules, never in a project's .lush directory.
@@ -18,6 +19,8 @@ export const APP_FILES = Object.freeze([
   'src/ui/desktop/ssh-config.js',
   'src/ui/desktop/ssh-scripts.js',
   'src/ui/desktop/ssh-payload.js',
+  'src/ui/desktop/ssh-release.js',
+  'src/ui/desktop/remote-artifact.js',
   'src/ui/desktop/preload.cjs',
   'src/ui/desktop/connection-preload.cjs',
   'src/ui/desktop/connection.html',
@@ -25,7 +28,7 @@ export const APP_FILES = Object.freeze([
   'src/ui/desktop/connection.css',
   'src/ui/web/assets/help.js',
 ]);
-const MANIFEST_KEYS = ['name', 'version', 'description', 'type', 'main'];
+const MANIFEST_KEYS = ['name', 'version', 'description', 'type', 'main', 'lushRemote'];
 
 export function desktopFiles(platform = 'win32') {
   if (!['win32', 'darwin'].includes(platform)) throw new Error('Only Windows and macOS desktop packaging is supported');
@@ -53,11 +56,10 @@ export function stageDesktop(root = ROOT, platform = 'win32') {
   for (const part of ['node_modules', BUILD_DIR, `${BUILD_DIR}/app`, `${BUILD_DIR}/dist`]) rejectSymlink(path.join(root, part));
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(pkg.version)) throw new Error('Invalid desktop version');
-  const manifest = Object.fromEntries(MANIFEST_KEYS.map(key => [key, pkg[key]]));
+  const manifest = Object.fromEntries(MANIFEST_KEYS.filter(key => key !== 'lushRemote').map(key => [key, pkg[key]]));
   if (manifest.main !== './src/ui/desktop/main.js' || manifest.type !== 'module') throw new Error('Unexpected Electron entry point');
   fs.rmSync(paths.app, { recursive: true, force: true });
   fs.mkdirSync(paths.app, { recursive: true });
-  fs.writeFileSync(path.join(paths.app, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   for (const file of files) {
     const source = path.resolve(root, file);
     if (fs.realpathSync(source) !== source || !fs.statSync(source).isFile()) throw new Error(`Unsafe desktop source: ${file}`);
@@ -65,6 +67,8 @@ export function stageDesktop(root = ROOT, platform = 'win32') {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.copyFileSync(source, target);
   }
+  manifest.lushRemote = remoteSourceIdentity(root);
+  fs.writeFileSync(path.join(paths.app, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   return paths;
 }
 
@@ -100,7 +104,7 @@ export function verifyArchive(archive, app, platform = 'win32') {
   }
   const manifest = JSON.parse(extractFile(archive, 'package.json').toString());
   const staged = JSON.parse(fs.readFileSync(path.join(app, 'package.json'), 'utf8'));
-  for (const key of MANIFEST_KEYS) if (manifest[key] !== staged[key]) throw new Error(`Unexpected packaged manifest: ${key}`);
+  for (const key of MANIFEST_KEYS) if (JSON.stringify(manifest[key]) !== JSON.stringify(staged[key])) throw new Error(`Unexpected packaged manifest: ${key}`);
   for (const key of ['dependencies', 'devDependencies', 'bin', 'exports', 'scripts']) if (manifest[key]) throw new Error(`Unexpected packaged manifest: ${key}`);
   for (const file of files) {
     if (!extractFile(archive, file).equals(fs.readFileSync(path.join(app, file)))) throw new Error(`Packaged file differs from staged source: ${file}`);

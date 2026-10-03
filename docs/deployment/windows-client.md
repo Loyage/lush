@@ -44,7 +44,7 @@ ssh -N -p 2222 -L 127.0.0.1:4318:127.0.0.1:4318 user@remote-machine
 
 构建使用资源白名单，交付桌面连接壳、帮助资源及两架构可信 Linux 运行包；它们用于远端部署，不在 Windows 执行。不携带 `.lush`、Agent 凭证、用户项目代码或 Windows 本地后台。这既减少安装内容，也避免把开发机数据带给用户。
 
-源码开发入口仍是 `bun run desktop`，Windows 同样仅支持远程连接；SSH 自动部署先按[产物准备指导](desktop-build-agent.md#2-mac--windows-源码开发准备)执行 `bun run desktop:prepare DIR`，不会自动下载。构建依赖不等于安装后运行时依赖；Linux staging 和模拟测试不能证明 Windows 安装器可用。当前默认不含签名与自动更新，正式发行需另外管理证书与发布权限，不要求普通用户调整系统保护。
+源码开发入口仍是 `bun run desktop`，Windows 同样仅支持远程连接；SSH 自动部署缺包时，在用户确认安装计划后自动下载匹配源码身份的固定 GitHub Release；启动和预检不下载。离线 / 手工准备按[产物准备指导](desktop-build-agent.md#2-mac--windows-源码开发准备)执行 `bun run desktop:prepare DIR`。构建依赖不等于安装后运行时依赖；Linux staging 和模拟测试不能证明 Windows 安装器可用。当前默认不含签名与自动更新，正式发行需另外管理证书与发布权限，不要求普通用户调整系统保护。
 
 ## 发布前验证
 

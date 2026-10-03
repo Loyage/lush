@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { prepareDesktopPayload, desktopPayloadWarning } from '../../scripts/prepare-desktop.js';
 import { createRemotePayload } from './remote-fixture.js';
+import { createReleasePayloadProvider, desktopReleaseIdentity } from '../../src/ui/desktop/ssh-release.js';
 let root, input;
 beforeEach(() => {
   root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-prepare-')));
@@ -21,6 +22,25 @@ test('explicit import checks both architectures and identity without executing L
   expect(prepareDesktopPayload(root, { payloadDir: input }).directory).toBe(result.directory);
   expect(prepareDesktopPayload(root, { payloadDir: result.directory }).directory).toBe(result.directory);
   expect(() => prepareDesktopPayload(root)).toThrow('Usage:');
+});
+
+test('unreleased development sources prepare local payloads and serve both SSH targets without GitHub', async () => {
+  fs.appendFileSync(path.join(root, 'src/identity.js'), '// unpublished development edit\n');
+  const manifest = createRemotePayload(root, input);
+  const prepared = prepareDesktopPayload(root, { payloadDir: input });
+  let requests = 0;
+  const userData = path.join(root, 'desktop-user-data');
+  const provider = createReleasePayloadProvider({
+    payloadDir: prepared.directory, userData, identity: desktopReleaseIdentity(root),
+    fetchImpl: () => { requests++; throw new Error('GitHub must not be needed for local development'); },
+  });
+  for (const target of ['linux-x64', 'linux-arm64']) {
+    expect(provider.resolve(target).download).toBeUndefined();
+    const payload = await provider.download(target);
+    expect(payload.fingerprint).toBe(manifest.fingerprint);
+    expect(payload.archiveSha256).toBe(manifest.targets[target].sha256);
+  }
+  expect(requests).toBe(0); expect(fs.existsSync(userData)).toBe(false);
 });
 
 test('missing architecture, corruption and different source identity reject before replacing generated files', () => {

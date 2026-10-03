@@ -63,6 +63,8 @@ function renderSSHPlan(inspection) {
     `远端平台：${plan.target ?? '未提供'}`,
     `安装目录：${plan.installDirectory ?? '未提供'}`,
     `Lush 版本：${plan.version ?? '未提供'}`,
+    `源码指纹：${plan.fingerprint ?? '未提供'}`,
+    plan.download ? `运行包来源：${plan.download.releaseURL}（确认后下载目标架构，最大 ${Math.ceil(plan.download.maximumBytes / 1024 / 1024)} MiB；完成校验前不安装）` : '运行包来源：已验证的本机产物或下载缓存',
     `使用运行时：${plan.useExistingBun ? '远端已有 Bun' : '用户私有 Bun'} ${plan.bunVersion ?? ''}`,
     `私有 Bun：${plan.privateBunVersion ?? '未提供'}（随包保留为备用，不修改系统 PATH）`,
     `本地入口：${plan.origin ?? '未提供'}`,
@@ -196,7 +198,7 @@ sshConfirm.addEventListener('click', () => {
   if (busy || !sshInspection?.confirmation || !(sshInspection.ready || sshInspection.requiresInstall)) return;
   const confirmation = { confirmation: sshInspection.confirmation, install: sshInspection.requiresInstall };
   clearSSHPlan();
-  void run(() => bridge.sshConnect(confirmation), confirmation.install ? '正在安装确认的运行包并建立 SSH 隧道…' : '正在启动远端入口并建立 SSH 隧道…', sshConnectedMessage, 'ssh-connect');
+  void run(() => bridge.sshConnect(confirmation), confirmation.install ? '正在获取并校验确认的运行包，随后安装并建立 SSH 隧道…' : '正在启动远端入口并建立 SSH 隧道…', sshConnectedMessage, 'ssh-connect');
 });
 sshCancel.addEventListener('click', () => { if (!sshCancel.disabled) void cancelSSH(); });
 paintBusy();

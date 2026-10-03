@@ -100,7 +100,7 @@ function parseProbe(output) {
 function compatibleBun(probe) { const match = /^1\.(\d+)\./.exec(probe.bun_version); return Boolean(probe.bun_path && match && Number(match[1]) >= 2); }
 
 /** System SSH only; the remote page never receives this manager or an arbitrary execution capability. */
-export function createSSHManager({payloadDir, userData, spawn = cp.spawn, env = process.env, timeoutMs = 30000,
+export function createSSHManager({payloadDir, payloadProvider, userData, spawn = cp.spawn, env = process.env, timeoutMs = 30000,
   tunnelTimeoutMs = 15000, choosePort = freePort, checkPort = assertFree, checkTunnel = probeTunnel, onState = () => {}} = {}) {
   const records = new Map(), operations = new Map(), tunnels = new Map(), children = new Set(), previews = new Map(), cancellations = new Map();
   let disposed = false, allocation = Promise.resolve();
@@ -214,16 +214,17 @@ export function createSSHManager({payloadDir, userData, spawn = cp.spawn, env = 
     check(!row.identity || row.identity===identity,'REMOTE_CHANGED','此 SSH 别名的目标或用户身份已变化；请使用新的 SSH 别名和连接记录，不能复用旧登录入口。');
     if (!row.identity) { row.identity=identity; persist(); }
   }
-  async function preflight(op,row) {
+  async function preflight(op,row,fixedPayload = null) {
     const configHash=await configuration(op,row);
     const initial=parseProbe(await script(op,row,probeScript(null))); bind(row,initial,configHash);
     const target=initial.arch==='x86_64' ? 'linux-x64' : 'linux-arm64';
-    const payload=loadRemotePayload(payloadDir,target);
+    const payload=fixedPayload || (payloadProvider ? payloadProvider.resolve(target) : loadRemotePayload(payloadDir,target));
+    check(payload.target===target,'PREVIEW_REQUIRED','下载期间远端架构发生变化，请重新预检');
     const probe=parseProbe(await script(op,row,probeScript(payload))); bind(row,probe,configHash);
     check(probe.arch===initial.arch,'REMOTE_CHANGED','远端平台在预检期间发生变化，请重新连接');
     check(probe.tar && probe.sha256sum,'MISSING_TOOLS','远端缺少 tar 或 sha256sum，请先准备基础工具；不会安装系统软件。');
     let installed=false;
-    if (probe.root_exists==='1') {
+    if (probe.root_exists==='1' && !payload.download) {
       let metadata; try { metadata=JSON.parse(probe.metadata); } catch { throw fail('INSTALL_IDENTITY','远端版本目录已存在但元数据无效；不会覆盖或删除它。'); }
       check(metadata && typeof metadata==='object' && metadata.version===1 && metadata.target===target && metadata.fingerprint===payload.fingerprint && metadata.lush_version===payload.lushVersion
         && metadata.bun_version===payload.bunVersion && metadata.bun_sha256===payload.bunSha256 && probe.installed_bun_sha===payload.bunSha256,
@@ -233,10 +234,12 @@ export function createSSHManager({payloadDir, userData, spawn = cp.spawn, env = 
     if (!probe.git) warnings.push('远端未发现 Git：连接界面不代表项目已具备开发条件。');
     if (!probe.pi && !probe.codex) warnings.push('远端未发现 Pi/Codex：请另行安装并认证 Agent，不会复制本地凭证。');
     warnings.push('仅检测工具是否存在，未验证 Agent 登录或调用模型。');
+    if (payload.download) warnings.push('本机缺少匹配运行包：确认安装后才从固定 GitHub Release 下载并校验；发布不存在或下载失败时不安装。远端已有目录也须在下载后重新校验。');
     const plan={alias:row.alias,target,remoteHome:probe.home,installDirectory:`${probe.home}/.local/share/lush/remote/versions/${payload.fingerprint}-${target}`,
       version:payload.lushVersion,fingerprint:payload.fingerprint,bunVersion:compatibleBun(probe) ? probe.bun_version : payload.bunVersion,
-      privateBun:true,useExistingBun:compatibleBun(probe),privateBunVersion:payload.bunVersion,uploadBytes:payload.archive.length,hostScope:`${probe.home}/.local/share/lush/remote/profiles/${row.id}`,
-      origin:`http://127.0.0.1:${row.port}`,operations:installed ? ['复用匹配版本','启动或连接回环 Host','建立 SSH 隧道'] : ['上传并校验运行包','原子安装用户级 Lush 与私有 Bun','启动回环 Host','建立 SSH 隧道'],
+      privateBun:true,useExistingBun:compatibleBun(probe),privateBunVersion:payload.bunVersion,uploadBytes:payload.archive?.length ?? null,hostScope:`${probe.home}/.local/share/lush/remote/profiles/${row.id}`,
+      origin:`http://127.0.0.1:${row.port}`,...(payload.download ? {download:payload.download} : {}),
+      operations:installed ? ['复用匹配版本','启动或连接回环 Host','建立 SSH 隧道'] : [...(payload.download ? ['从固定 GitHub Release 下载并校验','重新预检远端安装状态'] : []),'上传并校验运行包（已安装则复用）','原子安装用户级 Lush 与私有 Bun','启动回环 Host','建立 SSH 隧道'],
       agentAuthenticationChecked:false};
     return {public:{profile:publicProfile(row),ready:installed,requiresInstall:!installed,plan,warnings},payload,probe,signature:hash(JSON.stringify([row.identity,plan,payload.archiveSha256]))};
   }
@@ -284,10 +287,24 @@ export function createSSHManager({payloadDir, userData, spawn = cp.spawn, env = 
     return operation(row,'connect',async op=> {
       if(tunnels.has(row.id)) return {url:`http://127.0.0.1:${row.port}/`,profile:publicProfile(row),reused:true};
       await checkPort(row.port);
-      const result=await preflight(op,row);
+      let result=await preflight(op,row);
       if(result.public.requiresInstall) {
         check(install,'INSTALL_REQUIRED','需要首次安装远端 Lush；请先预检并明确确认安装计划。');
         check(previews.get(row.id)===result.signature,'PREVIEW_REQUIRED','安装计划尚未确认或已变化，请重新预检后确认。');
+        previews.delete(row.id);
+        if(result.payload.download) {
+          const confirmed=result;
+          const payload=await payloadProvider.download(result.payload.target,{signal:op.controller.signal});
+          check(!op.controller.signal.aborted,'CANCELLED','SSH 下载已取消，不会上传或安装');
+          check(!payload.download && payload.fingerprint===confirmed.payload.fingerprint && payload.lushVersion===confirmed.payload.lushVersion
+            && payload.bunVersion===confirmed.payload.bunVersion,'PAYLOAD_INVALID','下载运行包与已确认计划不一致');
+          result=await preflight(op,row,payload);
+          const stablePlan=plan=>Object.fromEntries(Object.entries(plan).filter(([key])=>!['download','operations','uploadBytes'].includes(key)));
+          check(JSON.stringify(stablePlan(result.public.plan))===JSON.stringify(stablePlan(confirmed.public.plan)),
+            'PREVIEW_REQUIRED','下载期间服务器或安装计划发生变化，请重新预检后确认');
+        }
+      }
+      if(result.public.requiresInstall) {
         const upload=`${row.id}-${randomUUID()}.tar.gz`;
         check(await script(op,row,uploadScript(upload),result.payload.archive)==='LUSH_SSH_UPLOADED\n','REMOTE_OUTPUT','运行包上传返回值无效');
         check(await script(op,row,installScript(result.payload,upload))==='LUSH_SSH_INSTALLED\n','REMOTE_OUTPUT','运行包安装返回值无效');

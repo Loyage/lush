@@ -16,7 +16,7 @@ for (const id of ['open-local', 'open-remote', 'ssh-inspect', 'ssh-confirm', 'ss
 }
 const state = { records: [], inspected: [], connected: [], disconnected: [], canceled: 0, locals: 0,
   config: { hosts: [{ alias: 'config-server' }, { alias: 'new-config-server' }], warnings: [] }, configFailure: null, recordsFailure: null,
-  requiresInstall: true, notReady: false, inspectGate: null, connectGate: null, inspectFailure: null, connectFailure: null, remoteCalls: 0 };
+  requiresInstall: true, download: null, notReady: false, inspectGate: null, connectGate: null, inspectFailure: null, connectFailure: null, remoteCalls: 0 };
 const stableId = '0123456789abcdef0123456789abcdef';
 dom.window.lushConnections = {
   localSupported: false,
@@ -32,7 +32,8 @@ dom.window.lushConnections = {
     if (state.inspectFailure) throw new Error(state.inspectFailure);
     return { profile: { ...profile, id: profile.id ?? stableId }, confirmation: state.notReady ? null : 'opaque-confirmation',
       ready: !state.requiresInstall && !state.notReady, requiresInstall: state.requiresInstall,
-      plan: { install_dir: '/home/server/.local/share/lush', bun: 'private', target: 'linux-arm64', note: '<img src=x onerror=bad()>' },
+      plan: { install_dir: '/home/server/.local/share/lush', bun: 'private', target: 'linux-arm64', note: '<img src=x onerror=bad()>',
+        ...(state.download ? { download: state.download, fingerprint: '0123456789abcdef' } : {}) },
       warnings: ['Git and Agent authentication must be prepared remotely'] };
   },
   sshConnect: async confirmation => {
@@ -246,6 +247,21 @@ test('config automatic connection errors preserve the selected alias and do not 
   expect(dom.node('ssh-alias').value).toBe('still-selectable'); expect(dom.node('ssh-plan').hidden).toBe(true);
   fire('ssh-confirm', 'click'); await flush(); expect(state.connected).toHaveLength(before + 1);
   state.connectFailure = null;
+});
+
+test('Release download source and limits are visible before a single-use install confirmation', async () => {
+  state.requiresInstall = true; state.notReady = false; state.inspectFailure = null; state.connectFailure = null;
+  state.download = { releaseURL: 'https://github.com/Loyage/lush/releases/tag/payload-v0.2.0-0123456789abcdef', maximumBytes: 256 * 1024 * 1024 };
+  dom.node('ssh-alias').value = 'download-server';
+  const before = state.connected.length;
+  fire('ssh-form', 'submit'); await flush();
+  expect(state.connected).toHaveLength(before);
+  expect(dom.node('ssh-plan-details').textContent).toContain(state.download.releaseURL);
+  expect(dom.node('ssh-plan-details').textContent).toContain('确认后下载目标架构，最大 256 MiB');
+  expect(dom.node('ssh-plan-details').textContent).toContain('源码指纹：0123456789abcdef');
+  fire('ssh-confirm', 'click'); await flush();
+  expect(state.connected.at(-1)).toEqual({ confirmation: 'opaque-confirmation', install: true });
+  state.download = null;
 });
 
 test('SSH entry explains installation boundaries without model-call styling or credential fields', () => {

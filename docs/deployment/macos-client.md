@@ -25,7 +25,7 @@ shasum -a 256 Lush-<version>-macos-<arch>.zip
 
 ## 源码启动与验收边界
 
-`bun run desktop` 的源码本地模式仍使用开发者提供的 Bun；它不等同于安装包内置运行时。SSH 自动部署前需显式取得同检出的 Linux CI 产物并执行 `bun run desktop:prepare DIR`，缺包时不会自动下载，见[开发产物准备](desktop-build-agent.md#2-mac--windows-源码开发准备)。
+`bun run desktop` 的源码本地模式仍使用开发者提供的 Bun；它不等同于安装包内置运行时。SSH 自动部署缺包时，预检展示匹配源码身份的固定 GitHub Release，用户确认安装后才自动下载并校验；启动和预检不下载。离线 / 手工准备仍可显式取得同检出的 Linux CI 产物并执行 `bun run desktop:prepare DIR`，见[开发产物准备](desktop-build-agent.md#2-mac--windows-源码开发准备)。
 
 CI 分别构建原生架构、校验 ASAR / resources 并烟测 Bun / Host；真实 Electron、安装 / Gatekeeper、项目选择、中文输入、通知、跨机器 SSH 和模型调用须单独验收。工作流尚未运行、模拟窗口测试或文件生成不能被描述为已可发布。
 

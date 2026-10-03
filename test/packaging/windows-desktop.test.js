@@ -19,6 +19,7 @@ beforeEach(() => {
     fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
     fs.copyFileSync(path.join(ROOT, file), path.join(root, file));
   }
+  createRemotePayload(root, path.join(root, 'node_modules/lush-remote-build/payload'));
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
@@ -44,7 +45,9 @@ describe('Windows remote-only application boundary', () => {
     const { app } = stageDesktop(root);
     expect(walk(app)).toEqual(['package.json', ...APP_FILES].sort());
     const manifest = JSON.parse(fs.readFileSync(path.join(app, 'package.json'), 'utf8'));
-    expect(Object.keys(manifest).sort()).toEqual(['description', 'main', 'name', 'type', 'version']);
+    expect(Object.keys(manifest).sort()).toEqual(['description', 'lushRemote', 'main', 'name', 'type', 'version']);
+    expect(manifest.lushRemote.lush_version).toBe(pkg.version);
+    expect(manifest.lushRemote.fingerprint).toMatch(/^[a-f0-9]{16}$/);
     expect(manifest.main).toBe('./src/ui/desktop/main.js');
     validateStage(app);
     expect(fs.existsSync(path.join(app, 'node_modules'))).toBe(false);
@@ -93,6 +96,16 @@ describe('Windows remote-only application boundary', () => {
     expect(verifyArchive(archive, app)).toEqual(['package.json', ...APP_FILES].sort());
     fs.appendFileSync(path.join(app, 'src/ui/desktop/connection.css'), '\n/* changed */');
     expect(() => verifyArchive(archive, app)).toThrow('differs from staged source');
+  });
+  test('packaged Release identity is sealed independently of the bundled payload', async () => {
+    const { archive, app } = await archiveStage();
+    const bad = path.join(root, 'tampered-app'); fs.cpSync(app, bad, { recursive: true });
+    const file = path.join(bad, 'package.json');
+    const manifest = JSON.parse(fs.readFileSync(file));
+    manifest.lushRemote.fingerprint = '0000000000000000';
+    fs.writeFileSync(file, JSON.stringify(manifest));
+    await createPackage(bad, archive);
+    expect(() => verifyArchive(archive, app)).toThrow('Unexpected packaged manifest: lushRemote');
   });
   test('unexpected credential file in ASAR is rejected', async () => {
     const paths = stageDesktop(root);
