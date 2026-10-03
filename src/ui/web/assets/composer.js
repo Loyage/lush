@@ -104,6 +104,21 @@ export function syncComposer() {
   const input = $('input');
   const label = followup ? `Worker #${target.id}` : target.task
     ? `Worker #${target.task.id} · ${target.branch}` : selectedParentLabel() || 'main';
+  $('input-form').dataset.mode = followup ? 'append' : 'create';
+  $('input-form').dataset.blocked = String(Boolean(target.reason));
+  const modeText = {
+    'composer-mode-icon': followup ? '↳' : '＋',
+    'composer-mode-title': followup ? '继续当前 Worker' : '新建独立 Worker',
+    'composer-mode-target': followup ? `追加到 ${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `父 Worker：${label}`,
+    'composer-mode-behavior': target.reason || (followup
+      ? `不创建新 Worker · Enter 追加${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
+      : '独立工作区 · Enter 暂存 · 点击创建后待开始'),
+  };
+  // Keep mode/destination visible while typing, without repeating live announcements on every keystroke.
+  for (const [id, text] of Object.entries(modeText)) {
+    const node = $(id);
+    if (node.textContent !== text) node.textContent = text;
+  }
   input.placeholder = target.reason ? `${label}：${target.reason}` : followup
     ? `追加给 ${label} · Enter 发送 · Shift+Enter 换行${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
     : `在 ${label} 下创建子 Worker · Enter 暂存 · Ctrl/⌘+Enter 仅创建 · Shift+Enter 换行`;
@@ -111,7 +126,7 @@ export function syncComposer() {
   input.disabled = Boolean(target.reason);
   const disabled = Boolean(ui.composerSubmitting || target.reason) || !input.value.trim();
   $('draft-commit').disabled = disabled;
-  $('draft-commit').textContent = followup ? '追加输入' : '发送';
+  $('draft-commit').textContent = followup ? '追加输入' : '创建 Worker';
   const help = agentHelp(target.reason || (followup
     ? `追加给 ${label}，不创建新 Worker；运行中会在安全边界处理，暂停中需显式开始 / 继续。`
     : `在 ${label} 下创建独立 Worker；默认待开始，Ctrl/⌘+Shift+Enter 直接开始。`));

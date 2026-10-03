@@ -38,7 +38,9 @@ test('HTML ships startup controls, read-only navigation and collapsed composer',
     expect(html).toContain('action="/logout"');
     expect(html).toMatch(/<div id="composer-details"[^>]*hidden/);
     expect(html).toMatch(/id="composer-expand"[^>]*aria-expanded="false"[^>]*aria-controls="composer-details"/);
-    expect(html).toMatch(/id="draft-commit"[^>]*class="agent-call"/);
+    expect(html).toMatch(/id="draft-commit"[^>]*class="agent-call">创建 Worker/);
+    expect(html).toMatch(/id="composer-mode"[^>]*role="status"[^>]*aria-live="polite"/);
+    expect(html).toMatch(/id="input"[^>]*aria-describedby="composer-mode-title composer-mode-target composer-mode-behavior"/);
     expect(html).not.toContain('input-highlight');
     expect(html).not.toContain('id="input-direct"');
   } finally { await f.close(); }
@@ -49,6 +51,9 @@ test('styles retain Agent-call visibility, both themes and system/application re
   try {
     const css = await (await fetch(f.url + '/styles.css')).text();
     expect(css).toContain(':root[data-theme="dark"]');
+    expect(css).toContain('#input-form[data-mode="append"] .composer-mode');
+    expect(css).toContain('#input-form[data-mode="create"] .composer-input textarea');
+    expect(css).toContain('.composer-mode-behavior{flex-basis:100%}');
     expect(css).toMatch(/button\.agent-call\s*\{[^}]*var\(--violet-ink\)/);
     expect(css).toMatch(/\.help-host\s*\{[^}]*display:\s*contents/);
     expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[^}]*animation:\s*none!important/);

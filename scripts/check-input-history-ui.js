@@ -61,7 +61,7 @@ async function rpc(path, body, method = 'POST') {
 }
 const execute = script => rpc(`/session/${session}/execute/sync`, { script, args: [] });
 const setTheme = theme => rpc(`/session/${session}/execute/async`, {
-  script: `const done=arguments[0];import('/prefs.js').then(({setPref})=>{setPref('theme','${theme}');requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>done(true),250)));});`, args: [],
+  script: `const done=arguments[0];Promise.all([import('/prefs.js'),import('/appearance.js')]).then(([{setPref},{refreshTheme}])=>{setPref('theme','${theme}');refreshTheme();requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>done(true),250)));});`, args: [],
 });
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 const waitFor = expression => rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0];let n=0;const check=()=>(${expression})?done(true):++n>150?done(false):setTimeout(check,20);check();`, args: [] });
@@ -73,6 +73,20 @@ async function keys(actions) {
   await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions }] });
 }
 const press = value => keys([{ type: 'keyDown', value }, { type: 'keyUp', value }]);
+async function checkComposerMode(mode, theme, width) {
+  const layout = await execute(`const form=document.querySelector('#input-form'),band=document.querySelector('#composer-mode'),box=document.querySelector('#input');
+    const rect=band.getBoundingClientRect();return {theme:document.documentElement.dataset.theme,viewport:innerWidth,mode:form.dataset.mode,title:document.querySelector('#composer-mode-title').textContent,
+      target:document.querySelector('#composer-mode-target').textContent,behavior:document.querySelector('#composer-mode-behavior').textContent,
+      button:document.querySelector('#draft-commit').textContent,color:getComputedStyle(band).borderLeftColor,
+      fits:rect.width>0 && rect.top>=0 && rect.bottom<=innerHeight && rect.left>=0 && rect.right<=innerWidth && band.scrollWidth<=band.clientWidth+1,
+      childrenFit:[...band.children].every(n=>{const r=n.getBoundingClientRect();return r.left>=rect.left && r.right<=rect.right+1 && r.bottom<=rect.bottom;}),
+      described:box.getAttribute('aria-describedby').includes('composer-mode-behavior')};`);
+  assert(layout.theme===theme && layout.mode===mode && layout.fits && layout.childrenFit && layout.described, `mode band clipped/inaccessible ${mode} ${theme} ${width}: ${JSON.stringify(layout)}`);
+  assert(mode==='create'
+    ? layout.title==='新建独立 Worker' && layout.target.includes('父 Worker') && layout.behavior.includes('Enter 暂存') && layout.button==='创建 Worker'
+    : layout.title==='继续当前 Worker' && layout.target.includes('Worker #1') && layout.behavior.includes('不创建新 Worker') && layout.behavior.includes('Enter 追加') && layout.button==='追加输入', `wrong mode copy: ${JSON.stringify(layout)}`);
+  console.log(`PASS persistent ${mode} mode band ${theme} ${layout.viewport}px viewport (${layout.color})`);
+}
 try {
   let ready = false;
   for (let i = 0; i < 100; i++) {
@@ -123,6 +137,8 @@ try {
       box.focus();const expanded=box.getBoundingClientRect().height;box.blur();const restored=box.getBoundingClientRect().height;
       return {collapsed,expanded,restored,overflow:document.documentElement.scrollWidth>innerWidth+1};`);
     assert(focus.expanded>focus.collapsed+20 && Math.abs(focus.restored-focus.collapsed)<1 && !focus.overflow, `focus expansion failed ${theme} ${width}: ${JSON.stringify(focus)}`);
+    await execute(`const box=document.querySelector('#input');box.value='输入文字后模式提示依然可见';box.dispatchEvent(new Event('input'));`);
+    await checkComposerMode('create', theme, layout.viewport);
     console.log(`PASS history/editor/composer layout and focus expansion ${theme} ${layout.viewport}px viewport (window ${width}x${height})`);
   }
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
@@ -149,6 +165,15 @@ try {
   await execute(`location.hash='#worker-1';`);
   assert(await waitFor('document.querySelector("#input").placeholder.includes("追加给 Worker #1")'), 'Worker destination did not activate: '+JSON.stringify(await execute(`return {placeholder:document.querySelector('#input').placeholder,detail:document.querySelector('#detail').textContent.slice(0,400),error:window.detailError,hash:location.hash};`)));
   assert(await execute(`return document.querySelector('#input-buffer-help').hidden && document.querySelector('#composer-expand').hidden && document.querySelector('#input').placeholder.includes('需开始 / 继续');`), 'followup controls/pause hint incorrect');
+  for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [900, 700], [390, 844]]) {
+    await rpc(`/session/${session}/window/rect`, { width, height });
+    await setTheme(theme);
+    await execute(`const box=document.querySelector('#input');box.value='正在追加当前工作';box.dispatchEvent(new Event('input'));`);
+    await checkComposerMode('append', theme, width);
+    if (width===390) await Bun.write(`/tmp/lush-composer-append-${theme}.png`, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
+  }
+  await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
+  await setTheme('light');
   await execute(`const box=document.querySelector('#input');box.value='当前 Worker 的后续要求';box.dispatchEvent(new Event('input'));box.focus();`);
   await press('\uE007');
   assert(await waitFor('window.calls.at(-1)?.method==="worker.message" && document.querySelector("#input").value===""'), 'Enter did not append');

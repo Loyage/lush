@@ -189,6 +189,49 @@ test('追加单飞、失败重试、迟到导航和引用均保住正文，不�
   expect(input().placeholder).toContain('main');
 });
 
+test('常驻模式条在打字、导航、父选择及阻塞状态下准确区分新建与追加', () => {
+  const form = dom.node('input-form'), title = dom.node('composer-mode-title');
+  const target = dom.node('composer-mode-target'), behavior = dom.node('composer-mode-behavior');
+  expect(form.dataset.mode).toBe('create');
+  expect(title.textContent).toBe('新建独立 Worker');
+  expect(target.textContent).toBe('父 Worker：main');
+  expect(behavior.textContent).toContain('Enter 暂存');
+  expect(behavior.textContent).toContain('待开始');
+  expect(dom.node('draft-commit').textContent).toBe('创建 Worker');
+  dom.node('input-parent').value = 'feature/old-parent'; type('有文字也要看得见');
+  expect(target.textContent).toContain('#800');
+  expect(title.hidden).toBe(false);
+
+  openWorker({ goal: '修复当前问题' });
+  expect(form.dataset.mode).toBe('append');
+  expect(dom.node('composer-mode-icon').textContent).toBe('↳');
+  expect(title.textContent).toBe('继续当前 Worker');
+  expect(target.textContent).toContain('Worker #126');
+  expect(target.textContent).toContain('修复当前问题');
+  expect(behavior.textContent).toBe('不创建新 Worker · Enter 追加');
+  expect(dom.node('draft-commit').textContent).toBe('追加输入');
+  type('追加文字'); expect(target.textContent).toContain('#126');
+  openWorker({ status: 'paused' }); expect(behavior.textContent).toContain('需开始 / 继续');
+  openWorker({ status: 'completed' });
+  expect(form.dataset.blocked).toBe('true');
+  expect(behavior.textContent).toContain('已完成');
+  expect(target.textContent).toContain('#126');
+  expect(input().value).toBe('追加文字');
+  ui.composerTask = null; syncComposer(); expect(behavior.textContent).toContain('正在读取');
+
+  openWorker({ task_kind: 'owner', branch: 'release', status: 'waiting' });
+  expect(form.dataset.mode).toBe('create');
+  expect(target.textContent).toContain('父 Worker：Worker #126 · release');
+  expect(behavior.textContent).toContain('Enter 暂存');
+  openResource('tasks');
+  expect(form.dataset.mode).toBe('create');
+  expect(form.dataset.blocked).toBe('false');
+  expect(title.textContent).toBe('新建独立 Worker');
+  expect(dom.node('composer-mode-icon').textContent).toBe('＋');
+  // Returning to new-work mode retains the explicitly chosen parent, not the inbox/owner target.
+  expect(target.textContent).toContain('#800');
+});
+
 test('暂存不标 Agent，发送保留标识与禁用宿主帮助', async () => {
   expect(dom.node('input-buffer').classList.contains('agent-call')).toBe(false);
   expect(dom.node('input-send-help').getAttribute('data-help')).toContain('token');
