@@ -19,6 +19,7 @@ const dom = installDom({ fetch: async (url, options) => {
 dom.document.createElementNS = (_namespace, tag) => dom.document.createElement(tag);
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { syncComposer } = await import('../../src/ui/web/assets/composer.js');
+const { overview } = await import('../../src/ui/web/assets/navigate.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const { renderStatistics } = await import('../../src/ui/web/assets/render-statistics.js');
 const { openAgentStatus } = await import('../../src/ui/web/assets/render-agent-status.js');
@@ -45,6 +46,7 @@ test('Web 直接发送只发当前正文：防重复、保留并发编辑与其�
   expect(dom.node('input').value).toBe('new thought');
   expect(world.state.drafts.map(row => row.id)).toEqual([11]);
   expect(dom.node('error').textContent).toContain('待开始');
+  await overview(); // The prior send opened its Worker; explicitly return to new-Worker mode.
   fail = true;
   await dom.node('input-form').onsubmit({ preventDefault() {} });
   expect(dom.node('error').textContent).toContain('send failed');

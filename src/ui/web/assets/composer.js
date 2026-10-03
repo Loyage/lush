@@ -1,6 +1,7 @@
 import { $, el } from './dom.js';
 import { action, api } from './api.js';
-import { taskTitle, isHistoricalDelivery } from './format.js';
+import { taskTitle, isHistoricalDelivery, TERMINAL_STATUS } from './format.js';
+import { iterationBlocker } from './render-iteration.js';
 import { show } from './messages.js';
 import { detail, refresh } from './navigate.js';
 import { ui } from './state.js';
@@ -24,6 +25,20 @@ export function parentTasks(tasks = []) {
     && !task.archived && !task.branch_archive?.archived && !task.branch_info?.archived && !task.freeze
     && !isHistoricalDelivery(task) && task.reservation?.status !== 'requested').sort((a, b) => a.id - b.id);
 }
+/** Derive the destination from the current page, never from a stale overview selection. */
+function destination() {
+  if (ui.view?.id !== 'task') return { branch: $('input-parent')?.value.trim() || 'main' };
+  const id = ui.selected;
+  const task = ui.composerTask?.id === id ? ui.composerTask : null;
+  if (!task) return { id, reason: ui.composerError || '正在读取 Worker；加载成功后才能输入。' };
+  if (['main', 'owner'].includes(task.task_kind)) return { branch: task.branch, task, reason: iterationBlocker(task) };
+  const reason = isHistoricalDelivery(task) || !['say', 'child'].includes(task.task_kind)
+    ? '此 Worker 不支持追加输入。'
+    : TERMINAL_STATUS.has(task.status)
+      ? (task.status === 'completed' ? 'Worker 已完成；请先显式恢复开发。' : 'Worker 已结束；请先重试。')
+      : iterationBlocker(task);
+  return { id, task, reason };
+}
 function selectedParentLabel() {
   const select = $('input-parent');
   if (!select?.value) return null;
@@ -31,7 +46,7 @@ function selectedParentLabel() {
   return option?.dataset.label ?? option?.textContent ?? select.value;
 }
 export function paintComposerDetails() {
-  const open = Boolean(ui.composerExpanded);
+  const open = Boolean(ui.composerExpanded) && ui.view?.id !== 'task';
   if ($('composer-details')) $('composer-details').hidden = !open;
   if ($('composer-shortcuts')) $('composer-shortcuts').hidden = !open;
   const toggle = $('composer-expand');
@@ -49,7 +64,7 @@ export function renderParentOptions() {
   if (select.dataset.signature === signature) { paintComposerDetails(); return; }
   select.dataset.signature = signature;
   const previous = select.value;
-  const placeholder = el('option', '当前检出分支（默认）'); placeholder.value = '';
+  const placeholder = el('option', 'main（默认父 Worker）'); placeholder.value = '';
   const options = tasks.map(task => {
     const option = el('option', `#${task.id} ${taskTitle(task)} · ${task.branch}`);
     option.value = task.branch; option.dataset.label = `#${task.id} ${taskTitle(task)}`;
@@ -71,7 +86,7 @@ export function loadComposerParents() {
       const data = await api('/api/input-parents');
       if (!current()) return;
       if (!Array.isArray(data.items)) throw new Error('父 Worker 列表格式不兼容');
-      ui.composerParents = data.items; renderParentOptions();
+      ui.composerParents = data.items; syncComposer();
     } catch (error) { if (current()) show(`父 Worker 列表读取失败：${error.message}`, 'error'); }
     finally { identity.parentsPending = null; }
   })();
@@ -84,9 +99,30 @@ export function toggleComposerDetails(force) {
 }
 export function syncComposer() {
   renderParentOptions();
-  const disabled = Boolean(ui.composerSubmitting) || !$('input').value.trim();
+  const target = destination(), followup = target.id != null;
+  const input = $('input');
+  const label = followup ? `Worker #${target.id}` : target.task
+    ? `Worker #${target.task.id} · ${target.branch}` : selectedParentLabel() || 'main';
+  input.placeholder = target.reason ? `${label}：${target.reason}` : followup
+    ? `追加给 ${label} · Enter 发送 · Shift+Enter 换行${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
+    : `在 ${label} 下创建子 Worker · Enter 暂存 · Ctrl/⌘+Enter 仅创建 · Shift+Enter 换行`;
+  input.setAttribute('aria-label', input.placeholder);
+  input.disabled = Boolean(target.reason);
+  const disabled = Boolean(ui.composerSubmitting || target.reason) || !input.value.trim();
   $('draft-commit').disabled = disabled;
-  if ($('input-buffer')) $('input-buffer').disabled = disabled;
+  $('draft-commit').textContent = followup ? '追加输入' : '发送';
+  const help = agentHelp(target.reason || (followup
+    ? `追加给 ${label}，不创建新 Worker；运行中会在安全边界处理，暂停中需显式开始 / 继续。`
+    : `在 ${label} 下创建独立 Worker；默认待开始，Ctrl/⌘+Shift+Enter 直接开始。`));
+  $('draft-commit').setAttribute('data-help', help);
+  $('input-send-help')?.setAttribute('data-help', help);
+  if ($('input-buffer')) { $('input-buffer').disabled = disabled; $('input-buffer').hidden = followup; }
+  if ($('input-buffer-help')) $('input-buffer-help').hidden = followup;
+  // Details are only for choosing the parent of a new Worker, not for changing an inbox destination.
+  if (ui.view?.id === 'task') {
+    $('composer-details').hidden = true; $('composer-shortcuts').hidden = true;
+  }
+  $('composer-expand').hidden = ui.view?.id === 'task';
 }
 
 /** One flight across buffering, button submission and all keyboard shortcuts. */
@@ -96,18 +132,26 @@ async function submitInput(mode) {
   const identity = ui.composerIdentity, editRevision = ui.composerEditRevision, view = ui.view;
   const referenceRevision = ui.composerReferenceRevision;
   const references = composerReferences(), signature = JSON.stringify(references);
-  const branch = $('input-parent').value.trim();
+  const target = destination(), branch = target.branch;
+  if (target.reason) { show(target.reason, 'error'); return; }
+  if (target.id != null && mode === 'buffer') return;
   ui.composerSubmitting = true; syncComposer();
   try {
-    if (branch && !ui.composerParents?.some(task => task.branch === branch)) throw new Error('所选父 Worker 已不可用，请展开输入区重新选择。');
+    if (target.id != null && references.length) throw new Error('追加输入暂不支持引用附件；引用已保留，请先移除引用，或返回概览暂存 / 创建带引用的新 Worker。');
+    if (branch && branch !== 'main' && !target.task && !ui.composerParents?.some(task => task.branch === branch)) throw new Error('所选父 Worker 已不可用，请展开输入区重新选择。');
     const params = { content, references, ...(branch ? { branch } : {}) };
-    const result = await action(mode === 'buffer' ? 'draft.add' : 'say.submit', mode === 'buffer' ? params : { ...params, start: mode === 'start' });
+    const result = target.id != null
+      ? await action('worker.message', { id: target.id, body: content })
+      : await action(mode === 'buffer' ? 'draft.add' : 'say.submit', mode === 'buffer' ? params : { ...params, start: mode === 'start' });
     if (ui.composerIdentity !== identity) return;
     // Never consume text or references authored while the request was in flight (even an edit-and-undo).
-    const untouched = ui.composerEditRevision === editRevision && input.value === value
+    const untouched = ui.view === view && ui.composerEditRevision === editRevision && input.value === value
       && ui.composerReferenceRevision === referenceRevision && JSON.stringify(composerReferences()) === signature;
     if (untouched) { input.value = ''; setComposerReferences([]); }
-    if (mode === 'buffer') {
+    if (target.id != null) {
+      show(`已追加给 Worker #${target.id}${target.task.status === 'paused' ? '；开始 / 继续后处理' : ''}。`);
+      if (ui.view === view) await detail(target.id);
+    } else if (mode === 'buffer') {
       show(`已暂存输入 #${result.id}，可到「历史输入」编辑或发射；未创建 Worker、未调用 Agent。`);
       ui.inputsPage?.added?.();
     } else {
@@ -120,9 +164,9 @@ async function submitInput(mode) {
 }
 export function buffer() { return submitInput('buffer'); }
 
-/** Enter buffers; Shift+Enter inserts a newline; Ctrl/Meta shortcuts retain their existing meanings. */
+/** Enter buffers new work or appends in a Worker inbox; Shift+Enter always inserts a newline. */
 export function initComposer() {
-  ui.composerIdentity = {}; ui.composerEditRevision = 0;
+  ui.composerIdentity = {}; ui.composerEditRevision = 0; ui.syncComposer = syncComposer;
   const sendHelp = agentHelp('发送后创建独立 Worker；默认先停在「待开始」，可配置后开始。⌘ / Ctrl+Shift+Enter 直接开始。');
   $('draft-commit').setAttribute('data-help', sendHelp);
   $('input-send-help')?.setAttribute('data-help', sendHelp);
@@ -130,7 +174,7 @@ export function initComposer() {
   $('composer-expand').onclick = () => toggleComposerDetails();
   if ($('input-buffer')) $('input-buffer').onclick = buffer;
   renderParentOptions();
-  $('input-parent').onchange = paintComposerDetails;
+  $('input-parent').onchange = syncComposer;
   $('input-form').onsubmit = event => { event.preventDefault(); return submitInput(ui.composerStartNow ? 'start' : 'create'); };
   $('input').oninput = () => { ui.composerEditRevision++; syncComposer(); };
   let composing = false;
@@ -142,7 +186,7 @@ export function initComposer() {
     if (!event.metaKey && !event.ctrlKey && event.shiftKey) return;
     event.preventDefault();
     if (event.repeat) return;
-    if (!event.metaKey && !event.ctrlKey) return buffer();
+    if (!event.metaKey && !event.ctrlKey) return destination().id != null ? submitInput('create') : buffer();
     return submitInput(event.shiftKey ? 'start' : 'create');
   };
   syncComposer();

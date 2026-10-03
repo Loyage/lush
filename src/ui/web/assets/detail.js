@@ -28,6 +28,7 @@ export async function loadDetail(taskId) {
   } catch (error) {
     if (!current()) return;
     renderDetailError(taskId, error.message);
+    ui.composerTask = null; ui.composerError = 'Worker 读取失败；请重新打开详情。'; ui.syncComposer?.();
     throw error;
   }
   if (!current()) return;
@@ -58,6 +59,7 @@ export async function loadDetail(taskId) {
   timeline.onMore = before => loadHistory(taskId, before);
   ui.selectedRevision = task.updated_at; ui.detailTask = taskId; ui.detailRenderedAt = Date.now(); ui.detailDirty = false;
   renderDetail(task, timeline, diff, usage);
+  ui.composerTask = task; ui.composerError = null; ui.syncComposer?.();
   $('detail').scrollTop = scrolled;
   if (navigated && window.matchMedia?.('(max-width: 760px)')?.matches) {
     $('sidebar').classList.remove('mobile-open');

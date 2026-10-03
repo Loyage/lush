@@ -17,6 +17,7 @@ window.fetch=async(url,options={})=>{
  const path=new URL(url,location.href).pathname;const json=data=>({ok:true,json:async()=>structuredClone(data)});
  if(path==='/api/inputs')return json({items:window.rows,next_cursor:null});
  if(path==='/api/input-parents')return json({items:world.state.inputParents});
+ if(path==='/api/worker/1'){const task=await(await world.fetchImpl(url,options)).json();return json({...task,task_kind:'say',status:window.workerStatus||'paused',agent:{...task.agent,active:false}});}
  const match=/^\\/api\\/input\\/(draft|input)\\/(\\d+)$/.exec(path);
  if(match)return json(window.rows.find(row=>row.kind===match[1]&&row.id===Number(match[2])));
  if(path==='/api/action'){
@@ -118,7 +119,11 @@ try {
       controls:[...composer.querySelectorAll('.composer-actions button')].filter(n=>!n.hidden).map(n=>{const r=n.getBoundingClientRect();return {text:n.textContent,width:r.width,x:r.x,right:r.right};})};`);
     assert(!layout.pageOverflow && !layout.detailOverflow && !layout.composerOverflow && layout.editorWidth >= 200, `layout overflow ${theme} ${width}: ${JSON.stringify(layout)}`);
     assert(layout.controls.every(c => c.width >= 20 && c.x >= 0 && c.right <= layout.viewport), `composer controls clipped: ${JSON.stringify(layout)}`);
-    console.log(`PASS history/editor/composer layout ${theme} ${layout.viewport}px viewport (window ${width}x${height})`);
+    const focus = await execute(`const box=document.querySelector('#input');box.blur();const collapsed=box.getBoundingClientRect().height;
+      box.focus();const expanded=box.getBoundingClientRect().height;box.blur();const restored=box.getBoundingClientRect().height;
+      return {collapsed,expanded,restored,overflow:document.documentElement.scrollWidth>innerWidth+1};`);
+    assert(focus.expanded>focus.collapsed+20 && Math.abs(focus.restored-focus.collapsed)<1 && !focus.overflow, `focus expansion failed ${theme} ${width}: ${JSON.stringify(focus)}`);
+    console.log(`PASS history/editor/composer layout and focus expansion ${theme} ${layout.viewport}px viewport (window ${width}x${height})`);
   }
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await execute(`const input=document.querySelector('#input');input.value='键盘暂存';input.dispatchEvent(new Event('input',{bubbles:true}));input.focus();`);
@@ -141,6 +146,23 @@ try {
   assert(await execute(`const calls=window.calls.slice(-2);return calls[0].method==='draft.update' && calls[1].method==='say.submit' && calls[1].params.expected_revision===2 && calls[1].params.start===true && !('content' in calls[1].params);`), 'save/fire contract invalid');
   assert(await execute(`return document.querySelectorAll('img').length===0;`), 'unsafe input rendered as markup');
   await execute(`document.querySelector('#input').value='';document.querySelector('#input').dispatchEvent(new Event('input'));`);
+  await execute(`location.hash='#worker-1';`);
+  assert(await waitFor('document.querySelector("#input").placeholder.includes("追加给 Worker #1")'), 'Worker destination did not activate: '+JSON.stringify(await execute(`return {placeholder:document.querySelector('#input').placeholder,detail:document.querySelector('#detail').textContent.slice(0,400),error:window.detailError,hash:location.hash};`)));
+  assert(await execute(`return document.querySelector('#input-buffer-help').hidden && document.querySelector('#composer-expand').hidden && document.querySelector('#input').placeholder.includes('需开始 / 继续');`), 'followup controls/pause hint incorrect');
+  await execute(`const box=document.querySelector('#input');box.value='当前 Worker 的后续要求';box.dispatchEvent(new Event('input'));box.focus();`);
+  await press('\uE007');
+  assert(await waitFor('window.calls.at(-1)?.method==="worker.message" && document.querySelector("#input").value===""'), 'Enter did not append');
+  assert(await execute(`const c=window.calls.at(-1);return c.params.id===1 && c.params.body==='当前 Worker 的后续要求';`), 'followup sent to wrong Worker');
+  await execute(`const box=document.querySelector('#input');box.value='点击发送保留内容';box.dispatchEvent(new Event('input'));box.focus();`);
+  await click('#draft-commit');
+  assert(await waitFor('window.calls.at(-1)?.params.body==="点击发送保留内容" && document.querySelector("#input").value===""'), 'blur shrink prevented button send');
+  await execute(`window.workerStatus='completed';location.hash='#workers';`);
+  assert(await waitFor('document.querySelector("#input").placeholder.includes("在 main 下创建子 Worker")'), 'list did not restore main');
+  await execute(`location.hash='#worker-1';`);
+  assert(await waitFor('document.querySelector("#input").disabled && document.querySelector("#input").placeholder.includes("已完成")'), 'terminal Worker was not blocked');
+  await execute(`location.hash='#workers';`);
+  assert(await waitFor('!document.querySelector("#input").disabled && document.querySelector("#input").placeholder.includes("在 main 下创建子 Worker")'), 'back navigation did not restore main');
+  console.log('PASS real browser Worker followup Enter/button routing, paused hint, terminal guard and navigation restoration');
   const screenshot = process.argv[2] || '/tmp/lush-input-history-ui.png';
   await Bun.write(screenshot, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
   console.log(`PASS independent detail/browser back, real keyboard buffering/newline, duplicate/in-flight preservation, Agent help and edit/fire; screenshots: ${listScreenshot}, ${screenshot}`);

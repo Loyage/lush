@@ -10,6 +10,7 @@ const dom = installDom({ fetch: world.fetchImpl });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { setComposerReferences } = await import('../../src/ui/web/assets/context-references.js');
 const { renderParentOptions } = await import('../../src/ui/web/assets/composer.js');
+const { overview } = await import('../../src/ui/web/assets/navigate.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
 dom.node('side-nav').replaceChildren();
 await boot();
@@ -65,6 +66,7 @@ test('引用卡片始终可见，1.5s 轮询不改变输入区折叠态', async 
 test('⌘/Ctrl+Enter 创建待开始，⌘/Ctrl+Shift+Enter 直接运行', async () => {
   const lastSend = () => [...world.state.actions].reverse().find(row => row.method === 'say.submit');
   const fire = async (shift, content) => {
+    await overview();
     dom.node('input').value = content;
     dom.node('input').oninput({});
     await dom.node('input').onkeydown({ key: 'Enter', metaKey: true, shiftKey: shift, isComposing: false, preventDefault() {} });

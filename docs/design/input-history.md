@@ -20,7 +20,7 @@
 
 ## 交互与失败保护
 
-- Enter 暂存、Shift+Enter 换行；Ctrl/⌘+Enter 与 Ctrl/⌘+Shift+Enter 保留创建与立即执行的既有差别。中文输入法确认候选不能误触暂存。
+- 新 Worker 输入模式：Enter 暂存、Shift+Enter 换行；Ctrl/⌘+Enter 与 Ctrl/⌘+Shift+Enter 保留创建与立即执行的差别。具体 say/child 详情模式：Enter 追加给当前 Worker、Shift+Enter 换行，隐藏暂存；影子文字明确目标及回车行为，不可追加时禁用并说明，不静默改投。main/owner 详情仍创建子 Worker，其它页面默认 main。中文输入法确认候选不能误触暂存或发送。
 - 提供可见按钮，不要求触屏用户记快捷键。只有真正启动 Agent 的动作才带调用代价标识；参见[按钮帮助](ui-guidance.md)。
 - 重复按键与点击不能创建多个 Worker。多标签编辑必须检测版本冲突，不以最后一次请求偷偷覆盖前一次保存。
 - 请求失败保留原文与引用；请求在途时新打的字、新加的引用不得被旧请求的成功回调清掉。

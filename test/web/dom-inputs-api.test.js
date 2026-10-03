@@ -8,12 +8,33 @@ let fixture;
 const dom = installDom({ fetch: (url, options) => httpFetch(fixture.url + url, options) });
 const { ui, resetUiState } = await import('../../src/ui/web/assets/state.js');
 const { initComposer } = await import('../../src/ui/web/assets/composer.js');
+const { loadDetail } = await import('../../src/ui/web/assets/detail.js');
+const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { openInputs } = await import('../../src/ui/web/assets/render-inputs.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
 const { setComposerReferences } = await import('../../src/ui/web/assets/context-references.js');
 afterAll(() => dom.restore());
 const root = () => dom.node('detail');
 const btn = (label, host = root()) => host.querySelectorAll('button').find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
+
+test('真实 API：详情页 Enter 给暂停 Worker 追加消息，不创建 Input/Draft/Worker', async () => {
+  fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
+  const restore = registerNavigation({ refresh: async () => {}, detail: loadDetail });
+  try {
+    resetUiState(); dom.node('input').value = ''; dom.node('input-parent').value = '';
+    await initComposer();
+    const { task } = await fixture.project.say('初始要求', 'main', [], null, false);
+    await loadDetail(task.id);
+    const before = ['tasks', 'inputs', 'drafts'].map(table => fixture.store.all(`SELECT * FROM ${table}`).length);
+    const input = dom.node('input'); expect(input.placeholder).toContain(`追加给 Worker #${task.id}`);
+    expect(input.placeholder).toContain('需开始 / 继续');
+    input.value = '后续要求'; input.oninput(); await input.onkeydown({ key: 'Enter', preventDefault() {} });
+    expect(input.value).toBe(''); expect(fixture.store.task(task.id).status).toBe('paused');
+    expect(fixture.store.all('SELECT * FROM messages WHERE task_id = ? AND sender_id IS NULL', task.id).at(-1).body).toBe('后续要求');
+    expect(['tasks', 'inputs', 'drafts'].map(table => fixture.store.all(`SELECT * FROM ${table}`).length)).toEqual(before);
+    activateDetailView({ view: 'overview' }); expect(input.placeholder).toContain('在 main 下创建子 Worker');
+  } finally { restore(); await fixture.close(); }
+});
 
 test('真实 API 串联：Enter 暂存、空筛选/正文检索、保存修订与仅创建、原文引用只读', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
