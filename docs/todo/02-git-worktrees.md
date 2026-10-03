@@ -11,15 +11,15 @@
 | G-01 | 原缺陷已修复 | branchResourceUsers 保留输入锚点 / verifier / 未收尾资源准入；不再套用已删除 Showcase 功能 |
 | G-02 | 原最低核验已修复，且 Candidate 已无公开创建 / 调度入口 | 保留历史代码；不引入新 detached Candidate 验收产品 |
 | G-03 | 外部并发已知限制，本轮完成侦测错误成功的加固 | ff-only 后复核真实目标 ref / 检出身份 / HEAD / clean；不 reset，不承诺消除外部 checkout 竞态 |
-| G-04 | 本轮部分完成 | 全子树删除前预检 locked / prunable / initialized submodule；未知 I/O 部分失败续办协议仍待决定 |
+| G-04 | 已完成预检及部分失败续办 | 全子树删除前预检；逐项回写磁盘结果，并允许显式 `--continue` |
 | G-05 | 历史兼容缺陷，本轮补显式清理与 invocation 收尾 | Candidate baseline 与普通 verifier 一样回收；不恢复旧自动调度 / verifier 产品入口 |
 | G-06 | 已关闭 | 展示 / 图准入投影已删除，无现行成本路径 |
 
-**验证**：Git 变更全部在测试临时仓库；未操作用户 daemon、外部工作区或密钥。定向 5 文件 **50 pass / 0 fail**（完整日志 `/tmp/lush-review-104/targeted-rerun.log`）；完整 `bun run test` **1108 pass / 1 fail / 1 error**，阻塞为缺少打包开发依赖 `@electron/asar`，完整日志 `/tmp/lush-review-104/full.log`，不宣称全套成功。首次定向 45 / 2 的断言问题及修正见[运行时专题验证记录](01-runtime-persistence.md#当前复核2026-10-02)。
+**验证**：Git 变更全部在测试临时仓库；未操作用户 daemon、外部工作区或密钥。定向 5 文件 **50 pass / 0 fail**（完整日志 `/tmp/lush-review-104/targeted-rerun.log`）；完整 `bun run test` **1108 pass / 1 fail / 1 error**，阻塞为缺少打包开发依赖 `@electron/asar`，完整日志 `/tmp/lush-review-104/full.log`，不宣称全套成功。首次定向 45 / 2 的失败来自新测试误用 decorate 前字段及依赖英文 Git 错误；修正断言后完整重跑通过，首次日志 `/tmp/lush-review-104/targeted.log`。
 
-**供统一问卷的待决项**：G-03 保持「禁止外部并发 + 检测漂移」边界，或更强隔离用户 checkout / 协作锁设计（跨平台、行为变化均需确认）；G-04 维持失败现场、手动检查剩余分支，或持久逐项结果并允许显式续办（需定义入口、审计与兼容）。本轮不发独立 Notice、不扩张公共接口。
+**剩余待决项**：G-03 保持「禁止外部并发 + 检测漂移」边界，或设计更强 checkout 隔离 / 协作锁（跨平台、行为变化均需确认）。
 
-G-04 已随用户选择的运行时工作包进入方案设计：推荐复用现有事件与资源事实（不新增实体），逐条回报磁盘结果并在库内对齐，再以显式 `--continue` 续办；边界、审计与回归见[运行时与异常恢复方案草案](runtime-next.md)，尚未实现。
+2026-10-03 核对 `8dbde1b`：G-04 已按 Notice #81 实现逐项结果回写、`{archived,failed,remaining}` 返回及显式 `branch archive --continue`，不再待决；现行契约见[工作区与分支回收](../engineering/cleanup.md)，回归见 `test/workspaces/archive.test.js` 与 `test/branch-archive-cli.test.js`。下文较早实施记录仅为历史。
 
 ## 原审查范围、基线与验证（历史证据）
 
@@ -70,10 +70,10 @@ G-04 已随用户选择的运行时工作包进入方案设计：推荐复用现
 
 ## G-04 子树归档遇到锁定后代会部分完成且无法原入口重试
 
-**P2 · 已复现 · 预估 M · 本轮部分完成（2026-10-02）**
+**P2 · 已复现 · 预估 M · 已完成预检与显式续办（2026-10-02，Notice #81）**
 
 - **完成口径**：archiveBranches 在第一遍读一次 NUL 分隔 worktree metadata；任一后代 locked / prunable（含缺目录注册）或包含已初始化 submodule 时，全子树在任何删除前拒绝。`discard_worktree` 仅授权丢未提交修改，不能绕过上述安全门；不使用双 force，不扩大删除范围。NUL 解析保留路径 / 原因中的空白、引号和换行。
-- **回归与剩余项**：`test/workspaces/archive.test.js` 覆盖 locked（带换行原因）、prunable、initialized submodule，显式 discard 也拒绝，父目录/ref/状态/指针/审计不变。第二遍外部锁变化或 I/O 失败仍可能半归档；逐项持久 outcome、同步 Worker 指针 / 审计及显式安全续办尚未实现，接口/产品语义交父统一询问。下列原证据保留，不把预检修复夸大为跨目录原子删除。
+- **回归与剩余项**：`test/workspaces/archive.test.js` 覆盖 locked（带换行原因）、prunable、initialized submodule，显式 discard 也拒绝，父目录/ref/状态/指针/审计不变。第二遍外部锁变化或 I/O 失败仍可能半归档；当前已逐项回写 outcome、Worker 指针与审计，并以显式 `--continue` 续办，不自动回滚或绕过锁。下列原证据保留，不把预检修复夸大为跨目录原子删除。
 
 - **依据**：`src/core/workspaces/cleanup.js`，`archiveBranches()`，42–85 行，第一遍只收集 tip/路径并检查 clean，第二遍逐条 remove/ref-delete/标 archived；`src/core/project/branches.js`，`archiveBranch()`，174–177、186–213 行，根已 archived 时拒绝，Worker指针与事件仅在整批 Git 成功后更新。
 - **触发与影响**：父、子 worktree 都干净，提前 `git worktree lock <child>`；归档父分支先删除父目录/ref 并标 archived，再在子目录报 locked。观测父 archived、子 active；重试父直接报 `already archived`，一次已知、可预检的状态造成半棵树归档和审计/指针更新遗漏。

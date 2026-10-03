@@ -1,6 +1,6 @@
 # 多项目改造的实施顺序与验收
 
-本篇承接[身份与边界](01-boundaries.md)，保留原实施顺序、涉及文件和每阶段的可验收结果；已确认的产品语义不再重复待决，新增范围仍须先确认。现有模块职责入口见 [Web 模块地图](../../engineering/modules-web.md) 与 [CLI／RPC 模块地图](../../engineering/modules-interfaces.md)。
+本篇承接现行[三层边界](../../engineering/host-boundary.md)，保留原实施顺序、涉及文件和每阶段的可验收结果；已确认的产品语义不再重复待决，新增范围仍须先确认。现有模块职责入口见 [Web 模块地图](../../engineering/modules-web.md) 与 [CLI／RPC 模块地图](../../engineering/modules-interfaces.md)。
 
 **实施状态（2026-09-26）**：第 0～2 阶段已实施并附回归（`test/web/multi-project.test.js`、`test/web/project-route.test.js`，以及更新后的 `test/web/launcher.test.js`）；第 3 阶段只实施了项目列表的有界摘要与通知保持「按项目、首屏不补发、默认关闭」，**不做**跨项目总待办 / 跨项目执行按钮。下面各阶段保留原验收标准作为回归口径。
 
@@ -36,4 +36,4 @@
 
 **原完成标准（核心身份隔离已有回归，完整真实宿主／性能矩阵尚未全验收）**：A、B 同时运行且在工作台可独立查看／操作；切换 B 不改变 A 标签的请求目标、未提交文字或导航；所有项目读写入口都拒绝缺失／不允许的项目身份；单项目 Web、CLI 与人工合并约束保持原样。未完成身份隔离时，不把“项目列表已显示”视为交付。
 
-[← 上一篇：身份与安全边界](01-boundaries.md) · [返回规划索引](README.md)
+[现行身份与安全边界](../../engineering/host-boundary.md) · [返回规划索引](README.md)

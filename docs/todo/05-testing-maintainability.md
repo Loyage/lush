@@ -91,7 +91,7 @@
 
 **P2｜当前：仍合理，已修陈旧 fixture，证据分层待决｜历史：代码确认｜预估 M**
 
-- **当前复核与实施**：实测原脚本退出 1，1000/10000 Worker 的 `shown=0`；原因是历史 research fixture 缺 `task_kind`，被当前 overview 的 Worker 类型过滤，并非业务性能退化。改用当前 agent/say fixture，现有结构预算随公开 `page.limit` 检查，不再假定退休的 50 条窗口；没有放宽字节/时间预算。报告增加 `measurement_scope` 明示同进程 dispatcher、DOM stub、事件循环延迟，不更名旧字段或伪称真实 socket RPC。重复采样、Git/OS 身份、报告归档与自动 CI 尚未增加；是否只观察耗时或设硬门禁仍待决。
+- **当前复核与实施**：实测原脚本退出 1，1000/10000 Worker 的 `shown=0`；原因是历史 research fixture 缺 `task_kind`，被当前 overview 的 Worker 类型过滤，并非业务性能退化。改用当前 agent/say fixture，现有结构预算随公开 `page.limit` 检查，不再假定退休的 50 条窗口；没有放宽字节/时间预算。报告增加 `measurement_scope` 明示同进程 dispatcher、DOM stub、事件循环延迟，不更名旧字段或伪称真实 socket RPC。重复采样、Git/OS 身份、报告归档与自动 CI 尚未增加；是否只观察耗时或设硬门禁仍待决。运行时 R-07 的最新窗口 / 分页功能已完成，但 10 万行历史规模、分配量与生产延迟量测仍待补，作为本条性能证据方向保留。
 
 - **依据**：`scripts/measure-read-performance.js` 的 `fixture()`（26–35 行）将 client.request 直接接到 Dispatcher；`taskDataset()`（38–59 行）和 `logDataset()`（69–83 行）各单次采样，渲染使用 DOM stub；顶层阈值/报告（85–113 行）有固定预算、无分位数和历史归档。CI 的 `jobs.test`（18–29 行）没有执行此脚本。
 - **触发与影响**：本次性能预算全部通过，但 `other_rpc_timer_delay` 实际是同进程定时器延迟，不是真实竞争 RPC 延迟；同一脚本也没有测浏览器布局。没有自动留存时，难区分增长趋势、机器噪声与单次回退，且脚本自身长期可能不被运行。

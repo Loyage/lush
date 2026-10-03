@@ -16,7 +16,7 @@
 - [已合并 Worker 的持续迭代](engineering/task-iteration.md)：追加输入、多轮交付、验收与归档、安全父同步及历史显式恢复。
 - [模块设计理念](design/README.md)：修改相关模块前了解目标与取舍，不当作已实现功能清单。
 - [接口参考](reference/README.md)：CLI / RPC / HTTP / Web；[贡献指南](contributing/README.md)说明开发及文档写法。
-- [改进候选清单](todo/README.md)：待评审建议，按旧基线审查，不代表批准实施。
+- [改进候选清单](todo/README.md)：保留尚未完成的建议与验证方向，已完成文档移出待办；候选不代表批准实施。
 
 旧 Intent / Plan / Candidate、草稿、效果展示、介绍、托管模式与旧合并编排的旧行、会话与工作区不迁移、不删除，但不再有公开入口，也不参与新 say 的创建与交付；内部遗留实现与测试仍在清理中，不能把公开白名单当作已完成的物理删码证明。
 
