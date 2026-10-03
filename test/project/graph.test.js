@@ -75,6 +75,23 @@ test('graph reports branch stacking, ahead/behind and merge state', async () => 
   } finally { await f.close(); }
 });
 
+test('both graph summaries advance past unconfirmed progress and do not claim it is complete', async () => {
+  const f = await setup();
+  try {
+    f.project.reportProgressPlan(f.task.id, ['missed', 'reported', 'next'].map(key => ({ key, label: key })));
+    f.project.completeProgressStep(f.task.id, 'reported');
+    for (const graph of [await f.project.taskGraph(), await f.project.graph()]) {
+      expect(graph.nodes.find(node => node.id === f.task.id).progress)
+        .toMatchObject({ completed: 1, total: 3, current: { key: 'next' } });
+    }
+    f.project.completeProgressStep(f.task.id, 'next');
+    for (const graph of [await f.project.taskGraph(), await f.project.graph()]) {
+      expect(graph.nodes.find(node => node.id === f.task.id).progress)
+        .toMatchObject({ completed: 2, total: 3, current: null });
+    }
+  } finally { await f.close(); }
+});
+
 test('graph carries resolve and verify edges and tolerates missing worktree/branch', async () => {
   const f = await setup();
   try {

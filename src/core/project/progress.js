@@ -80,9 +80,11 @@ export function projectProgress(progress, runs, status, now = Date.now(), taskKi
     : now;
 
   const steps = progress.items.map(item => {
+    // 缺失切换边界时，不能把未知投影成 0，也不能继续把后续调用计入漏报步骤。
+    if (item.timing_unknown) return { ...item, kind: 'step', work_ms: null, active_since: null, wait_ms: 0, duration_ms: null };
     const stepStart = millis(item.started_at);
     if (stepStart === null) return { ...item, kind: 'step', work_ms: 0, active_since: null, wait_ms: 0 };
-    const stepEnd = item.status === 'completed' ? (millis(item.completed_at) ?? stepStart) : now;
+    const stepEnd = item.status === 'completed' ? (millis(item.completed_at) ?? stepStart) : planEnd;
     // 正在进行且此刻真有 run 在跑：把这条未结束的 run 交给前端自己推进，避免读模型每一帧都变。
     if (!terminal && openStart !== null && item.status !== 'completed' && stepEnd === now) {
       const activeSince = Math.max(stepStart, openStart);
@@ -113,8 +115,9 @@ export function projectProgress(progress, runs, status, now = Date.now(), taskKi
     wait_ms: waiting ? totalWait - (planEnd - last[0]) : totalWait,
     waiting_since: waiting ? new Date(last[0]).toISOString() : null,
   };
-  const currentIndex = steps.findIndex(item => item.status !== 'completed');
-  const at = currentIndex === -1 ? steps.length : currentIndex;
+  const currentIndex = steps.findIndex(item => item.status !== 'completed' && !item.unconfirmed && item.started_at);
+  const pendingIndex = currentIndex === -1 ? steps.findIndex(item => item.status !== 'completed' && !item.unconfirmed) : currentIndex;
+  const at = pendingIndex === -1 ? steps.length : pendingIndex;
   return { ...progress, items: [...steps.slice(0, at), waitItem, ...steps.slice(at)], updated_at: progress.updated_at };
 }
 
@@ -129,9 +132,12 @@ function decode(raw) {
         const started_at = timestamp(item.started_at);
         const completed_at = status === 'completed' ? timestamp(item.completed_at) : null;
         const storedDuration = typeof item.duration_ms === 'number' ? item.duration_ms : NaN;
-        const duration_ms = status === 'completed'
+        const timing_unknown = item.timing_unknown === true;
+        const duration_ms = status === 'completed' && !timing_unknown
           ? (Number.isFinite(storedDuration) && storedDuration >= 0 ? storedDuration : elapsed(started_at, completed_at)) : null;
-        return { key: item.key, label: item.label, status, started_at, completed_at, duration_ms };
+        return { key: item.key, label: item.label, status, started_at, completed_at, duration_ms,
+          ...(timing_unknown ? { timing_unknown: true } : {}),
+          ...(status === 'pending' && item.unconfirmed === true ? { unconfirmed: true } : {}) };
       });
     if (!items.length) return null;
     return { version: 1, items, updated_at: timestamp(value.updated_at) };
@@ -189,17 +195,16 @@ export default {
     const normalized = normalizeSteps(steps);
     const previous = decode(task.progress_plan);
     const previousByKey = new Map((previous?.items || []).map(item => [item.key, item]));
-    const previousCurrent = (previous?.items || []).find(item => item.status === 'pending' && item.started_at)
-      ?? (previous?.items || []).find(item => item.status === 'pending') ?? null;
+    const previousCurrent = (previous?.items || []).find(item => item.status === 'pending' && !item.unconfirmed && item.started_at) ?? null;
     const now = new Date().toISOString();
     const progress = { version: 1, items: normalized.map(step => {
       const old = previousByKey.get(step.key);
-      return old?.status === 'completed'
-        ? { ...step, status: 'completed', started_at: old.started_at, completed_at: old.completed_at, duration_ms: old.duration_ms }
+      return old ? { ...old, ...step }
         : { ...step, status: 'pending', started_at: null, completed_at: null, duration_ms: null };
     }), updated_at: now };
-    const current = progress.items.find(item => item.status === 'pending');
-    if (current) current.started_at = current.key === previousCurrent?.key ? previousCurrent.started_at ?? now : now;
+    const current = progress.items.find(item => item.key === previousCurrent?.key)
+      ?? progress.items.find(item => item.status === 'pending' && !item.unconfirmed);
+    if (current && !current.started_at) current.started_at = now;
     const preserved = progress.items.filter(item => item.status === 'completed').length;
     this.store.transaction(() => {
       this.store.setProgressPlan(task.id, progress);
@@ -219,19 +224,38 @@ export default {
     check(item, `progress step '${key}' is not in the current plan`);
     if (item.status === 'completed') return { task_id: task.id, progress, unchanged: true };
     const now = new Date().toISOString();
-    if (!item.started_at) {
-      const current = progress.items.find(step => step.status === 'pending');
-      // 旧计划没有 started_at 时，以最近一次计划变化近似恢复当前步骤；越序完成的未来步骤从此刻计为 0。
-      item.started_at = current === item ? progress.updated_at ?? now : now;
-    }
-    item.status = 'completed'; item.completed_at = now; item.duration_ms = elapsed(item.started_at, now) ?? 0; progress.updated_at = now;
-    const next = progress.items.find(step => step.status === 'pending');
-    for (const step of progress.items) if (step.status === 'pending' && step !== next) step.started_at = null;
+    const current = progress.items.find(step => step.status === 'pending' && !step.unconfirmed && step.started_at)
+      ?? progress.items.find(step => step.status === 'pending' && !step.unconfirmed);
+    const index = progress.items.indexOf(item), currentIndex = progress.items.indexOf(current);
+    const advances = current && index >= currentIndex && !item.unconfirmed;
+    if (advances && item !== current) {
+      // 后续完成证明执行已经越过这些待办，但不证明它们已完成或何时切换。
+      for (const step of progress.items.slice(currentIndex, index)) {
+        if (step.status === 'pending') {
+          step.unconfirmed = true;
+          step.timing_unknown = true;
+          step.duration_ms = null;
+        }
+      }
+      item.timing_unknown = true;
+    } else if (!item.started_at && current === item) {
+      // 旧计划缺失开始时间时保留顺序汇报的既有恢复口径。
+      item.started_at = progress.updated_at ?? now;
+    } else if (!item.started_at) item.timing_unknown = true;
+    item.status = 'completed'; item.completed_at = now;
+    item.duration_ms = item.timing_unknown ? null : elapsed(item.started_at, now);
+    delete item.unconfirmed;
+    progress.updated_at = now;
+    // 补报被跳过的旧步骤只改完成度，不能把当前步骤重置或倒退。
+    const next = advances ? (progress.items.slice(index + 1).find(step => step.status === 'pending' && !step.unconfirmed)
+      ?? progress.items.find(step => step.status === 'pending' && !step.unconfirmed)) : null;
     if (next && !next.started_at) next.started_at = now;
     this.store.transaction(() => {
       this.store.setProgressPlan(task.id, progress);
       this.store.event(task.id, 'progress.completed', { step: key, label: item.label, duration_ms: item.duration_ms,
-        completed: progress.items.filter(step => step.status === 'completed').length, total: progress.items.length });
+        completed: progress.items.filter(step => step.status === 'completed').length, total: progress.items.length,
+        timing_unknown: item.timing_unknown === true,
+        unconfirmed: progress.items.filter(step => step.unconfirmed).map(step => step.key) });
     });
     return { task_id: task.id, progress, unchanged: false };
   },

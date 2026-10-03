@@ -121,6 +121,39 @@ test('终态 task 冻结未完成步骤，不再挂持续上涨的 live tick', a
   expect(graph.querySelector('.is-running-duration')).toBeNull();
 });
 
+test('漏报步骤不再占据当前行或实时计时，未知用时不伪装成 0 秒', async () => {
+  const { renderTaskProgress, renderCompactProgress, renderGraphProgress, refreshProgressDurations, progressStats } =
+    await import('../../src/ui/web/assets/render-progress.js');
+  const progress = { version: 1, items: [
+    { key: 'missed', label: '漏报步骤', status: 'pending', started_at: iso(NOW - 60000), unconfirmed: true, timing_unknown: true, work_ms: null },
+    { key: 'reported', label: '越序完成', status: 'completed', started_at: null, duration_ms: null, timing_unknown: true, work_ms: null },
+    { key: 'next', label: '继续执行', status: 'pending', started_at: iso(NOW - 4000), work_ms: 2000, active_since: iso(NOW - 1000) },
+  ] };
+  expect(progressStats(progress)).toMatchObject({ total: 3, completed: 1, current: { key: 'next' } });
+  expect(progressStats({ ...progress, items: [
+    { key: 'added', label: '新增前置待办', status: 'pending', started_at: null }, ...progress.items,
+  ] }).current.key).toBe('next');
+  const panel = renderTaskProgress(progress);
+  expect(deepText(panel)).toContain('未确认完成 · 用时未知');
+  expect(deepText(panel.querySelector('.is-current'))).toContain('继续执行');
+  expect(panel.querySelector('.is-complete-duration').textContent).toBe('用时未知');
+  expect(panel.querySelectorAll('.is-running-duration')).toHaveLength(1);
+  refreshProgressDurations(panel);
+  expect(deepText(panel)).not.toContain('用时 0 秒');
+  for (const render of [renderCompactProgress, renderGraphProgress]) {
+    expect(deepText(render(progress))).toContain('继续执行');
+    const end = { ...progress, items: progress.items.map(item => item.key === 'next'
+      ? { ...item, status: 'completed', duration_ms: 3000, active_since: null } : item) };
+    const text = deepText(render(end));
+    expect(text).toContain('仍有步骤未确认完成');
+    expect(text).not.toContain('计划已全部完成');
+    expect(render(end).querySelector('.is-running-duration')).toBeNull();
+  }
+  const stopped = renderTaskProgress(progress, { status: 'failed', endedAt: iso(NOW) });
+  expect(deepText(stopped)).toContain('未确认完成 · 用时未知');
+  expect(stopped.querySelector('.is-running-duration')).toBeNull();
+});
+
 test('等待时间单独成条：不计入 Agent 工作用时，并实时计时', async () => {
   const { renderTaskProgress, renderCompactProgress, renderGraphProgress, refreshProgressDurations } =
     await import('../../src/ui/web/assets/render-progress.js');

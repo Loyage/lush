@@ -96,6 +96,10 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 前端 `task-graph-merge.js` 统一新协议阶段/排序及关系 DOM，子卡片目标只用真实 `parent_id` 与 `target_branch`，不把布局祖先当交付目标。`taskForest` 保留根 ID 降序，只在同一真实父的兄弟槽位按 executing/resolving、requested、其它分组，组内 ID 降序；该顺序不是 runtime 执行次序。`task-graph-motion.js` 为整树刷新记录可见卡片位置，仅同一视图结构下真实兄弟换序播放 250ms FLIP（不移动连线），保留阅读锚点、滚动和焦点；首次加载、筛选、折叠、模式/窗口尺寸变化不播放，编辑、选区、弹层、未结束动效期间暂缓刷新，遵循系统/应用减少动效设置。无后台计时器或全局监听。
 
+## 进展漏报的计时接缝
+
+`progress plan` / `complete` 命令与 RPC 不增加入口。version 1 计划条目可附加 `unconfirmed:true`（被越序跳过、仍 pending，不占完成数也不作为当前执行步骤）与 `timing_unknown:true`（无法分配真实耗时，`duration_ms/work_ms` 为 null，不挂 live tick）。越序完成推进到后续未跳过待办；补报旧步骤只更新完成度，不打断当前计时。Runtime 投影、两种图摘要与 Web 详情必须采用一致的当前步骤选择，旧记录不迁移。具体行为见[Agent 环境](../reference/agent-environment.md)。
+
 ## Agent 管理与状态查询接缝
 
 用量扩展的完整字段与文件契约见 [Agent 额度查询与历史曲线](agent-usage.md)，操作说明见 [Agent 状态](../reference/rpc/agents.md)。

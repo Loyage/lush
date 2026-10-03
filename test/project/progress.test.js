@@ -88,6 +88,91 @@ test('agent progress is bound to its live task and preserves completed stable ke
   } finally { await f.close(); }
 });
 
+test('out-of-order completion advances without inventing timing or completing missed steps; late reports do not rewind', async () => {
+  const f = fixture();
+  try {
+    const task = f.store.create({ role: 'agent', goal: 'miss a completion', task_kind: 'order' });
+    const steps = ['inspect', 'implement', 'test', 'commit'].map(key => ({ key, label: key }));
+    const initial = f.project.reportProgressPlan(task.id, steps).progress;
+    initial.items[0].started_at = at(0);
+    f.store.setProgressPlan(task.id, initial);
+    const result = f.project.completeProgressStep(task.id, 'implement').progress;
+    expect(result.items[0]).toMatchObject({ status: 'pending', unconfirmed: true, timing_unknown: true, duration_ms: null });
+    expect(result.items[1]).toMatchObject({ status: 'completed', timing_unknown: true, started_at: null, duration_ms: null });
+    expect(result.items[2].started_at).toBe(result.items[1].completed_at);
+    expect(result.items[3].started_at).toBeNull();
+    // Idempotent repeats and replans must not resurrect the missed step's clock.
+    expect(f.project.completeProgressStep(task.id, 'implement').unchanged).toBe(true);
+    const replan = f.project.reportProgressPlan(task.id, steps).progress;
+    expect(replan.items[0].unconfirmed).toBe(true);
+    expect(replan.items[2].started_at).toBe(result.items[2].started_at);
+    expect(f.project.inspect(task.id).progress.items[1].duration_ms).toBeNull();
+    expect(f.project.decorate(f.store.summaries('work')).find(row => row.id === task.id).progress.items[0].unconfirmed).toBe(true);
+    const late = f.project.completeProgressStep(task.id, 'inspect').progress;
+    expect(late.items[0]).toMatchObject({ status: 'completed', timing_unknown: true, duration_ms: null });
+    expect(late.items[0].unconfirmed).toBeUndefined();
+    expect(late.items[2].started_at).toBe(result.items[2].started_at);
+    const tested = f.project.completeProgressStep(task.id, 'test').progress;
+    expect(tested.items[2].duration_ms).toBeGreaterThanOrEqual(0);
+    expect(tested.items[3].started_at).toBe(tested.items[2].completed_at);
+    const event = f.store.history(task.id, 0).find(row => row.type === 'progress.completed');
+    expect(event.data).toMatchObject({ duration_ms: null, timing_unknown: true, unconfirmed: ['inspect'] });
+  } finally { await f.close(); }
+});
+
+test('multiple missed steps, replans and all-unconfirmed remainder never become the active step', async () => {
+  const f = fixture();
+  try {
+    const task = f.store.create({ role: 'agent', goal: 'several missed reports', task_kind: 'order' });
+    const steps = ['a', 'b', 'c', 'd'].map(key => ({ key, label: key }));
+    f.project.reportProgressPlan(task.id, steps);
+    f.project.completeProgressStep(task.id, 'c');
+    const reordered = f.project.reportProgressPlan(task.id, [steps[1], steps[3], steps[0], steps[2]]).progress;
+    expect(reordered.items.filter(item => item.unconfirmed).map(item => item.key)).toEqual(['b', 'a']);
+    expect(reordered.items.find(item => item.key === 'd').started_at).toBeTruthy();
+    f.project.completeProgressStep(task.id, 'd');
+    const end = f.project.reportProgressPlan(task.id, steps).progress;
+    expect(end.items.filter(item => item.status === 'pending').every(item => item.unconfirmed)).toBe(true);
+    expect(end.items.filter(item => item.status === 'completed')).toHaveLength(2);
+    // Reloaded JSON, not just an in-memory object, retains unknown timing.
+    expect(f.project.progressView(f.store.task(task.id)).progress.items[2].duration_ms).toBeNull();
+  } finally { await f.close(); }
+});
+
+test('replanning with a new earlier pending key preserves the active clock, then starts the remaining key', async () => {
+  const f = fixture();
+  try {
+    const task = f.store.create({ role: 'agent', goal: 'reorder plan', task_kind: 'order' });
+    const step = key => ({ key, label: key });
+    const initial = f.project.reportProgressPlan(task.id, [step('active')]).progress;
+    const replanned = f.project.reportProgressPlan(task.id, [step('added'), step('active')]).progress;
+    expect(replanned.items[0].started_at).toBeNull();
+    expect(replanned.items[1].started_at).toBe(initial.items[0].started_at);
+    const completed = f.project.completeProgressStep(task.id, 'active').progress;
+    expect(completed.items[0].started_at).toBe(completed.items[1].completed_at);
+  } finally { await f.close(); }
+});
+
+test('unknown timing remains unknown with open runs and waiting; terminal projections stay frozen', () => {
+  const progress = { version: 1, items: [
+    { key: 'missed', label: '漏报', status: 'pending', started_at: at(0), unconfirmed: true, timing_unknown: true },
+    { key: 'reported', label: '越序完成', status: 'completed', started_at: null, completed_at: at(10 * SEC), duration_ms: null, timing_unknown: true },
+    { key: 'next', label: '下一步', status: 'pending', started_at: at(10 * SEC), duration_ms: null },
+  ] };
+  const runs = [{ started_at: at(0), ended_at: at(4 * SEC) }, { started_at: at(10 * SEC), ended_at: null }];
+  const running = projectProgress(progress, runs, 'running', 15 * SEC);
+  expect(running.items.map(item => item.key)).toEqual(['missed', 'reported', '__wait__', 'next']);
+  for (const item of running.items.filter(item => item.timing_unknown)) {
+    expect(item).toMatchObject({ duration_ms: null, work_ms: null, active_since: null });
+  }
+  expect(running.items.find(item => item.key === 'next')).toMatchObject({ work_ms: 0, active_since: at(10 * SEC) });
+  runs[1].ended_at = at(14 * SEC);
+  const waiting = projectProgress(progress, runs, 'waiting', 20 * SEC);
+  expect(waiting.items.find(item => item.key === '__wait__')).toMatchObject({ wait_ms: 6 * SEC, waiting_since: at(14 * SEC) });
+  expect(waiting.items.find(item => item.key === 'next')).toMatchObject({ work_ms: 4 * SEC, active_since: null });
+  expect(projectProgress(progress, runs, 'failed', 20 * SEC)).toEqual(projectProgress(progress, runs, 'failed', 900 * SEC));
+});
+
 test('progress timing excludes waiting and surfaces it as a separate plan entry', () => {
   const progress = { version: 1, updated_at: at(0), items: [
     { key: 'inspect', label: '确认现状', status: 'completed', started_at: at(0), completed_at: at(10 * SEC), duration_ms: 10 * SEC },

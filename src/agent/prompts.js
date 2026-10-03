@@ -39,7 +39,7 @@ export const PROMPT_PARTS = Object.freeze({
   },
   progress: {
     title: '执行进度',
-    content: `理解本轮目标后、开始实质工作前，用 lush progress plan KEY[:显示名]... 汇报少量、有序、用户能理解的里程碑。稳定 key 只用小写英文、数字、下划线或短横线。每一步实际完成后 lush progress complete KEY，可与同一阶段的实际命令合并调用，不为状态维护额外往返。不要提前完成，失败步骤也不能标完成。计划变化时重新提交整份计划，同 key 的已完成状态和计时会保留。
+    content: `理解本轮目标后、开始实质工作前，用 lush progress plan KEY[:显示名]... 汇报少量、有序、用户能理解的里程碑。稳定 key 只用小写英文、数字、下划线或短横线。每一步实际完成后 lush progress complete KEY，可与同一阶段的实际命令合并调用，不为状态维护额外往返。不要提前完成，失败步骤也不能标完成。计划变化时重新提交整份计划，同 key 的已完成状态和计时会保留。漏报后越序完成会自动推进，但被跳过步骤仍是未确认完成、受影响耗时未知；补报只在确实完成时进行，不会恢复缺失的计时边界。
 
 进度计划属于当前 Worker，不是 planner 的 Plan/spec。派完子 Worker 准备结束时，不要把“等待子 Worker”标完成；被唤醒并确认它们结算后再完成。`,
   },

@@ -63,12 +63,13 @@ const branchId = name => `branch:${name}`;
 function compactProgress(progress) {
   if (!progress?.items?.length) return null;
   const steps = progress.items.filter(item => item.kind !== 'wait');
-  const current = progress.items.find(item => item.status !== 'completed');
+  const pending = progress.items.filter(item => item.status !== 'completed' && !item.unconfirmed);
+  const current = pending.find(item => item.kind === 'wait') ?? pending.find(item => item.started_at) ?? pending[0];
   return { version: 1, total: steps.length,
     completed: steps.filter(item => item.status === 'completed').length,
     current: current ? { key: current.key, label: current.label, started_at: current.started_at,
       kind: current.kind, work_ms: current.work_ms, active_since: current.active_since,
-      wait_ms: current.wait_ms, waiting_since: current.waiting_since } : null,
+      wait_ms: current.wait_ms, waiting_since: current.waiting_since, timing_unknown: current.timing_unknown } : null,
     updated_at: progress.updated_at };
 }
 
