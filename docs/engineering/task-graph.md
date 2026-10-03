@@ -4,6 +4,10 @@ Worker 图是 `#worker-graph` / `worker.graph` / `/api/worker-graph` 的有界�
 
 交付后的 Worker 显示 say「待验收」/ child「待父确认」（`awaiting_acceptance`），使用独立状态色与筛选/计数，不当作已完成。Worker 图与详情通过 `render-iteration.js` 共用验收完成、历史继续开发、同步父分支和紫色 Agent 解决同步冲突；追加输入继续当前 Worker，验收不归档，归档不重建。详见[持续迭代](task-iteration.md)。
 
+## 展示模式
+
+默认使用极简模式：等高双行展示标题、状态、待决与进度/合并摘要，操作收进省略号菜单。顶部「详情模式」默认未勾选，主动勾选后展开目标、结果、进度、分支诊断与操作，取消勾选回到极简。模式偏好按项目保存在当前客户端，保留已有显式选择；无偏好、坏值或恢复默认设置时使用极简。两种模式共用折叠、筛选与归档显示，切换不丢弃未提交的待决答复，不改变 Worker 事实。
+
 ## 合并关系、展示排序与动效
 
 卡片中的合并关系只认持久预约 `version=2,kind=merge,queue_protocol=1` 且预约父 ID 与真实 `parent_id` 一致。executing 显示「合并中」、resolving 显示「分歧处理中」，轻微呼吸点表达处理阶段，不代表源 Agent 正在运行；requested 显示静态「已请求等待合并」。pending/自动合并开关不算已请求；suspended 为静态「交付挂起」，blocked 为静态「落地待核验」（仍占执行位，但不冒充推进中）；integrated 沿用已合并结果。历史协议不推断当前执行位，Git 分歧不冒充合并分歧处理。

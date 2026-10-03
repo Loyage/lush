@@ -28,6 +28,7 @@ const { parentTasks } = await import('../../src/ui/web/assets/composer.js');
 const { matchTask } = await import('../../src/ui/web/assets/sidebar.js');
 const { renderOverview } = await import('../../src/ui/web/assets/render-overview.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
+ui.taskGraphMinimal = false; // 验证详情模式中的迭代操作。
 afterAll(() => dom.restore());
 const task = { id: 70, task_kind: 'say', role: 'agent', status: 'awaiting_acceptance', integration: 'merged',
   parent_id: 1, goal: 'iterate', title: 'iterate', branch: 'feature/iterate', target_branch: 'main', workspace: '/tmp/work',

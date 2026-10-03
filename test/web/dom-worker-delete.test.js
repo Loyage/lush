@@ -206,6 +206,7 @@ test('mutation failure retains the original view/cache and retry obtains a new p
 
 test('a successful graph deletion refreshes the same graph and filters even a stale graph response', async () => {
   activateDetailView({ view: 'task-graph' });
+  ui.taskGraphMinimal = false; // 此场景从详情模式的就地删除入口操作。
   renderTaskGraph({ total: 2, nodes: [task, child], edges: [] });
   const pending = buttonOf(dom.node('detail').querySelector('[data-task-id="70"]'), '删除').onclick(); await flush();
   await answerDialog(dom, '彻底删除'); await pending;

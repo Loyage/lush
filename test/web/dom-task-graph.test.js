@@ -14,6 +14,9 @@ const dom = installDom({ fetch: (url, options) => {
 } });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
+const { setPref } = await import('../../src/ui/web/assets/prefs.js');
+// 此文件验证完整卡片；默认极简与切换由 dom-task-graph-minimal 覆盖。
+setPref('taskGraphMinimal', false);
 await boot();
 afterAll(() => dom.restore());
 

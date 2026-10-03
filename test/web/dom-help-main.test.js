@@ -16,6 +16,8 @@ const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.
 const { noticePanel } = await import('../../src/ui/web/assets/render-notices.js');
 const { formDialog } = await import('../../src/ui/web/assets/dialog.js');
 dom.node('side-nav').replaceChildren();
+const { setPref } = await import('../../src/ui/web/assets/prefs.js');
+setPref('taskGraphMinimal', false); // 验证详情模式中可见按钮的帮助。
 await boot();
 
 afterAll(() => { hideHelp(); dom.restore(); });

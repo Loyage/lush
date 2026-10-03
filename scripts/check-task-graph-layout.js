@@ -87,7 +87,10 @@ try {
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
   assert(await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0];let n=0;const check=()=>window.ready?done(true):++n>100?done(false):setTimeout(check,30);check();`, args: [] }), 'fixture did not load');
-  await click('[data-graph-focus="minimal-mode"]');
+  assert(await execute(`return !document.querySelector('[data-graph-focus="detail-mode"]').checked && !!document.querySelector('.task-graph-minimal');`), 'tree did not default to minimal mode');
+  await click('[data-graph-focus="detail-mode"]');
+  assert(await execute(`return document.querySelector('[data-graph-focus="detail-mode"]').checked && !document.querySelector('.task-graph-minimal') && !!document.querySelector('.task-graph-result');`), 'details checkbox did not expand cards');
+  await click('[data-graph-focus="detail-mode"]');
   for (const theme of ['light', 'dark']) for (const [width, height] of [[1440,900],[900,700],[390,844]]) {
     await rpc(`/session/${session}/window/rect`, { width, height });
     await execute(`document.documentElement.dataset.theme='${theme}'`);
@@ -96,7 +99,7 @@ try {
       return {heights:cards.map(n=>n.getBoundingClientRect().height),
         overflow:cards.some(n=>{const h=n.querySelector('.task-graph-head');return h.scrollWidth>h.clientWidth+1;}),
         titleWidths:cards.map(n=>n.querySelector('.task-graph-title').getBoundingClientRect().width),
-        checkbox:document.querySelector('[data-graph-focus="minimal-mode"]').getBoundingClientRect().width,
+        checkbox:document.querySelector('[data-graph-focus="detail-mode"]').getBoundingClientRect().width,
         pageOverflow:document.documentElement.scrollWidth>innerWidth,
         paragraphs:document.querySelectorAll('.task-graph-goal,.task-graph-result,.task-graph-git').length};`);
     assert(layout.heights.length===8 && layout.heights.every(h=>h===68), `nonuniform rows: ${JSON.stringify(layout)}`);
@@ -153,7 +156,7 @@ try {
   assert(await execute(`delete document.documentElement.dataset.reducedMotion;const n=document.querySelector('[data-task-id="2"]');const r=document.createRange();r.selectNodeContents(n.querySelector('.task-graph-title'));getSelection().addRange(r);window.graph.nodes[2].reservation.status='executing';window.paint();const kept=n===document.querySelector('[data-task-id="2"]');getSelection().removeAllRanges();return kept;`), 'selection did not protect tree');
   console.log('PASS real FLIP duration, no polling restart, reading anchor/focus, reduced motion and selection protection');
   await rpc(`/session/${session}/refresh`, {});
-  assert(await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0];let n=0;const check=()=>window.ready?done(document.querySelector('[data-graph-focus="minimal-mode"]').checked):++n>100?done(false):setTimeout(check,30);check();`, args: [] }), 'preference did not survive reload');
+  assert(await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0];let n=0;const check=()=>window.ready?done(!document.querySelector('[data-graph-focus="detail-mode"]').checked):++n>100?done(false):setTimeout(check,30);check();`, args: [] }), 'preference did not survive reload');
   await execute(`document.documentElement.dataset.theme='light';`);
   const screenshotPath = process.argv[2] || '/tmp/lush-task-graph-layout.png';
   await Bun.write(screenshotPath, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));

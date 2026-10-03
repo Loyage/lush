@@ -13,6 +13,7 @@ const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.
 const { ui } = await import('../../src/ui/web/assets/state.js');
 function renderGraph(graph) {
   activateDetailView({ view: 'task-graph' });
+  ui.taskGraphMinimal = false; // 验证详情模式中的交付操作。
   renderTaskGraph(graph);
 }
 dom.node('side-nav').replaceChildren();

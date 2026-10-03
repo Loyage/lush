@@ -18,6 +18,8 @@ const dom = installDom({ fetch: (url, options) => {
   return world.fetchImpl(url, options);
 } });
 const { boot } = await import('../../src/ui/web/assets/app.js');
+const { setPref } = await import('../../src/ui/web/assets/prefs.js');
+setPref('taskGraphMinimal', false); // 验证详情模式中的就地操作。
 await boot();
 afterAll(() => dom.restore());
 

@@ -29,7 +29,11 @@ test('原 Studio 页面在核心 API 下可加载、发送 say 并打开 Worker 
   expect(deepText(dom.node('detail'))).not.toContain('Task 图');
   expect(dom.node('view-title').textContent).toBe('Worker 树');
   expect(document.title).toBe('Lush · Worker 树');
-  // 真 RPC → HTTP → Worker 卡片，验证合入后的诊断字段，不只依赖 DOM fixture。
+  const details = dom.node('detail').querySelector('[data-graph-focus="detail-mode"]');
+  expect(details.checked).toBe(false);
+  expect(dom.node('detail').querySelector('.task-graph-minimal')).toBeTruthy();
+  details.checked = true; details.onchange();
+  // 真 RPC → HTTP → 详情模式 Worker 卡片，验证合入后的诊断字段，不只依赖 DOM fixture。
   const graph = await (await localFetch(f.url + '/api/worker-graph')).json();
   const node = graph.nodes.find(row => row.id === task.id);
   expect(node.branch_info).toMatchObject({ parent: 'main', current: false,

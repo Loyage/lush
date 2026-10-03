@@ -446,20 +446,20 @@ export function renderTaskGraph(graph) {
   const mode = el('label', undefined, 'task-graph-mode');
   const checkbox = el('input');
   checkbox.type = 'checkbox';
-  checkbox.checked = minimal;
-  checkbox.dataset.graphFocus = 'minimal-mode';
+  checkbox.checked = !minimal;
+  checkbox.dataset.graphFocus = 'detail-mode';
   checkbox.onchange = () => {
     if (hasPendingInput()) {
-      checkbox.checked = minimal;
+      checkbox.checked = !minimal;
       show('请先提交或清空正在编辑的待决答复，再切换显示模式。');
       return;
     }
-    setPref('taskGraphMinimal', checkbox.checked);
+    setPref('taskGraphMinimal', !checkbox.checked);
     renderTaskGraph(full);
-    host.querySelector('[data-graph-focus="minimal-mode"]')?.focus({ preventScroll: true });
+    host.querySelector('[data-graph-focus="detail-mode"]')?.focus({ preventScroll: true });
   };
-  mode.append(checkbox, el('span', '极简模式'));
-  mode.setAttribute('data-help', '以等高双行浏览 Worker 状态与进度；完整信息在详情，操作收进省略号菜单。仅改变显示，按项目记住选择。');
+  mode.append(checkbox, el('span', '详情模式'));
+  mode.setAttribute('data-help', '勾选后展开 Worker 的目标、结果、进度、分支诊断与操作；取消勾选回到默认的极简双行展示。仅改变显示，按项目记住选择。');
   hero.append(summary, mode, button('刷新', () => loadTaskGraph(), 'ghost'));
   box.append(hero);
   if (view.truncated) box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Worker；父节点可能在截断范围外。`, 'hint'));
