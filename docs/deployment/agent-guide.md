@@ -120,8 +120,8 @@ socket 位于用户私有临时目录，只为通信；持久状态始终在项�
 ```bash
 bun run doctor --project /absolute/path/to/my-project       # daemon 代码身份
 bun run host-status --project /absolute/path/to/my-project  # Host 身份与日志
-# 以下是需要时在 Lush 源码目录完整运行的仓库检查，不是 GUI 或模型验收。
-bun run test
+# 以下是需要时在 Lush 源码目录运行的仓库检查，不是 GUI 或模型验收。
+bun run test          # 通用测试（不含打包专项）；使用可控假 Agent，不调用付费模型
 bun run docs:check
 ```
 

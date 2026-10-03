@@ -41,7 +41,9 @@ test('a planner spec owning an external Worker is not silently forgotten',async(
 test('oversized subtree refuses rather than presenting a silently incomplete deletion scope',async()=>{
   const f=await setup();
   try{
-    for(let i=0;i<200;i++) f.store.create({parent_id:f.task.id,role:'agent',task_kind:'child',goal:'child',status:'cancelled'});
+    f.store.transaction(()=>{
+      for(let i=0;i<200;i++) f.store.create({parent_id:f.task.id,role:'agent',task_kind:'child',goal:'child',status:'cancelled'});
+    });
     await expect(f.project.deleteTaskPreview(f.task.id)).rejects.toThrow('too large');
     expect(fs.existsSync(f.task.workspace)).toBe(true);
   }finally{await f.close();}

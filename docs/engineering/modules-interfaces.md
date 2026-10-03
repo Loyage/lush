@@ -57,8 +57,11 @@
 
 ## 测试：`test/`
 
-拆分只搬文件、不改断言。测试文件之间共享模块注册表，所以**每个测试文件必须自给自足**
-（自己的 fixture / world / DOM stub），不要靠别的文件先跑过。
+测试文件必须自给自足（自己的 fixture / world / DOM stub），不要靠别的文件先跑过。
+
+`bun run test` 是无需第三方开发依赖的通用套件：并行运行全部测试，明确排除 `test/packaging/`。`bun run test:packaging` 单独运行需要 Electron 开发依赖的打包契约；`bun run test:all` 合并运行两者。`test:serial` 保留原生 `bun test`，供最低支持 Bun 与聚焦串行诊断使用；不指定路径时也包含打包专项。质量 CI 将通用与打包套件分成独立 job，Windows CI 仍执行打包测试和真实构建；专项未执行不能称为全套通过。
+
+数据规模边界只在负责该边界的后端测试完整验证；HTTP / DOM 层用小规模数据验证参数、游标、刷新和交互。批量造库使用测试事务，不关闭生产持久化或安全设置。Web 资源测试只保留模块可加载、CSP、启动落点、Agent 标识与减动效契约，不锁定精确颜色、字体或 CSS 排版。
 
 当前测试按分区落位：
 
@@ -70,7 +73,7 @@
 | Git / worktree | `test/workspaces/{naming,merge,cleanup,genealogy,anchor,archive,branch-diagnostics,branch-first,safety,task-squash}.test.js`（task-squash 核验精确凭据、双 ref 事务、guard、dirty/drift 与失败保留现场）；`safety` 直接验证通用 Git 安全门、历史展示 worktree 保留与 DB 附属数据只读兼容 |
 | 服务重启 | `test/service-restart.test.js`、`test/web/service-restart.test.js`、`test/integration/service-restart.test.js`（idle 准入、鉴权/路由、真实进程与桌面所有权） |
 | main 版本迭代 | `test/workspaces/version-history.test.js`（SHA-256/Unicode/配置与环境隔离）、`test/project/version-history.test.js`（真实第一父链/多轮交付/历史证据/伪标题/分页/安全大小/无 main）、`test/web/version-history-api.test.js`（RPC 权限/窄参数/认证/Origin/多项目隔离） |
-| Web 读面与安全 | `test/web/{security,assets,read-models,project-route,core-studio,multi-project,launcher}.test.js` |
+| Web 读面与安全 | `test/web/{security,assets,read-models,project-route,core-studio,multi-project,launcher}.test.js`；assets 以一次模块图加载冒烟验证资源/CSP，并保留启动与供应资源契约 |
 | Web DOM | `test/web/dom-*.test.js`（各自 `boot()`） |
 | Windows 打包 | `test/packaging/windows-desktop.test.js`（白名单 / 清理隔离 / 静态依赖边界 / 真实 ASAR / 固定版本构建配置 schema / 安装器校验和 / CI 交付契约，不冒充 Windows 运行验证） |
 | 桌面连接 | `test/desktop/{connections,runtime,local-host,connection-ui}.test.js`（地址 / 持久化 / 模拟 Electron 安全与窗口 / 真实临时 Host 生命周期 / 连接页 DOM） |
@@ -81,7 +84,7 @@
 | 运行设置与 Agent | `test/runtime-settings.test.js`、`test/config*.test.js`、`test/agent-settings.test.js`、`test/soft-budget.test.js` |
 | 测试环境隔离 | `test/helpers.test.js`（子进程 HOME/XDG 与全局/系统 Git 配置隔离、合成 hook/签名/环境污染及退出回收；生产 Git 环境不变） |
 | 文档 | `test/docs-check.test.js`、`test/docs-search.test.js`、`test/markdown.test.js`、`test/mermaid-docs.test.js`、`test/web/docs.test.js` |
-| 历史遗留（内部实现仍在，无公开入口） | `test/drafts/**`、`test/project/{intent-layer,plan-gate,specs-queue,candidates,analysis,explanations,intro,sleep,verification-evidence}.test.js`、`test/{candidate-cli,sleep-cli,merge-all,orchestrate,verify,task-clear,task-delete,usage-*}.test.js` 及其 `test/web/*` 对应文件；它们验证的是历史兼容与内存实现，不能当作公开能力 |
+| 历史兼容与安全 | `test/input-routes.test.js` 仅保留旧配置格式校验；`test/{butler,explainer}-provider.test.js` 保留无工具/无凭证隔离；`test/web/dom-merge.test.js` 保留旧 Notice 审批语义；历史记录读取、删除共享引用与交付恢复由各现行分区覆盖。旧 Candidate 命令、快速路由匹配、休眠批量交付面板和项目统计的成功路径测试已移除；拒绝旧公开入口由 core-api / help-guard 覆盖 |
 
 `.github/workflows/code-reader-posix.yml` 独立运行代码读取器的 Linux/macOS 聚焦回归，覆盖最低支持 Bun 1.2.0 和当前固定 Bun 1.4.2；无 native 包或编译步骤。Linux 本地通过不等于 macOS 实测，Darwin loader mock 也不能替代 macOS job 的结果。
 

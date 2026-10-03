@@ -4,7 +4,8 @@ import { HANDLERS } from '../src/rpc/dispatcher.js';
 import { HELP } from '../src/cli/help.js';
 
 const removed = ['input.submit','draft.commit','spec.add','plan.approve','candidate.accept',
-  'showcase.start','sleep.start','explanation.start','intro.start','task.verify','task.merge','branch.merge_all'];
+  'showcase.start','sleep.start','explanation.start','intro.start','task.verify','task.merge','branch.merge_all',
+  'worker.merge_many','system.usage'];
 
 test('only worker-centred methods are externally dispatchable', () => {
   expect(Object.keys(HANDLERS).sort()).toEqual(Object.keys(PARAMS).sort());

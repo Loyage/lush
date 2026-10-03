@@ -9,16 +9,24 @@ import { setup, fetch as httpFetch } from './harness.js';
 
 const base = { task_id: 1, created_at: '2026-01-01T00:00:00Z', kind: 'question', body: '原始问题正文' };
 
-test('records HTTP endpoint validates filters and exposes stored history beyond snapshot limit', async () => {
+test('records HTTP endpoint forwards filters and continuation cursors across stored history', async () => {
   const f = await setup();
   try {
     const task = f.store.create({ input_id: null, role: 'worker', goal: 'notice route' });
-    for (let i = 0; i < 205; i++) f.store.run("INSERT INTO notices(task_id,title,body,status,answer) VALUES (?,?,?,'answered',?)", task.id, `record ${i}`, 'body', 'decision');
-    const first = await (await httpFetch(f.url + '/api/notices?status=answered&limit=100')).json();
-    expect(first.notices).toHaveLength(100); expect(first.has_more).toBe(true);
-    const second = await (await httpFetch(f.url + `/api/notices?status=answered&limit=100&before=${first.cursor}`)).json();
-    const last = await (await httpFetch(f.url + `/api/notices?status=answered&limit=100&before=${second.cursor}`)).json();
-    expect(last.notices).toHaveLength(5); expect(last.has_more).toBe(false);
+    // The >200-record boundary belongs to project/notice-page; HTTP needs only three pages.
+    f.store.transaction(() => {
+      for (let i = 0; i < 7; i++) f.store.run("INSERT INTO notices(task_id,title,body,status,answer) VALUES (?,?,?,'answered',?)", task.id, `record ${i}`, 'body', 'decision');
+      f.store.run("INSERT INTO notices(task_id,title,body,status) VALUES (?,?,?,'open')", task.id, 'not answered', 'body');
+    });
+    const first = await (await httpFetch(f.url + '/api/notices?status=answered&limit=3')).json();
+    expect(first.notices).toHaveLength(3); expect(first.has_more).toBe(true);
+    const second = await (await httpFetch(f.url + `/api/notices?status=answered&limit=3&before=${first.cursor}`)).json();
+    expect(second.notices).toHaveLength(3); expect(second.has_more).toBe(true);
+    const last = await (await httpFetch(f.url + `/api/notices?status=answered&limit=3&before=${second.cursor}`)).json();
+    expect(last.notices).toHaveLength(1); expect(last.has_more).toBe(false);
+    const rows = [...first.notices, ...second.notices, ...last.notices];
+    expect(new Set(rows.map(row => row.id)).size).toBe(7);
+    expect(rows.every(row => row.status === 'answered')).toBe(true);
     expect(last.notices.at(-1).answer).toBe('decision');
     expect((await httpFetch(f.url + '/api/notices?status=unknown')).status).toBe(400);
     expect((await httpFetch(f.url + '/api/notices?before=nope')).status).toBe(400);
@@ -85,7 +93,8 @@ test('decision panel loads history, preserves edits across polls, answers inline
 });
 
 test('revision marks old pages stale without background reads; explicit reload preserves loaded depth and edits', async () => {
-  const rows = Array.from({ length: 205 }, (_, i) => ({ ...base, id: 205 - i, title: `问题 ${205 - i}`, status: 'open' }));
+  // Short server pages exercise loaded depth/reload without rendering hundreds of mock cards.
+  const rows = Array.from({ length: 8 }, (_, i) => ({ ...base, id: 8 - i, title: `问题 ${8 - i}`, status: 'open' }));
   let reads = 0, fail = false, onRead = null;
   const dom = installDom({ fetch: async url => {
     const json = value => ({ ok: true, json: async () => structuredClone(value) });
@@ -96,24 +105,24 @@ test('revision marks old pages stale without background reads; explicit reload p
     const params = new URL(url, 'http://localhost').searchParams;
     const before = Number(params.get('before') || Infinity), status = params.get('status') || 'all';
     const matching = rows.filter(row => row.id < before && (status === 'all' || row.status === status));
-    const notices = matching.slice(0, Number(params.get('limit') || 100));
+    const notices = matching.slice(0, Math.min(Number(params.get('limit') || 3), 3));
     return json({ notices, cursor: notices.at(-1)?.id, has_more: matching.length > notices.length });
   } });
   resetUiState(); initNoticeRecords(); ui.indexOpen = 'notices';
-  const snapshot = revision => ({ revision, notices: structuredClone(rows.slice(0, 100)) });
+  const snapshot = revision => ({ revision, notices: structuredClone(rows.slice(0, 3)) });
   try {
     renderNotices(snapshot(1)); await until(() => !ui.noticeRecords.pending && ui.noticeRecords.page);
     await loadNoticeRecords({ more: true });
-    expect(ui.noticeRecords.rows).toHaveLength(200);
-    await openNotice(205);
+    expect(ui.noticeRecords.rows).toHaveLength(6);
+    await openNotice(8);
     const input = dom.node('notice-record-detail').querySelector('textarea'); input.value = '不要丢弃这个答案';
     const list = dom.node('notices'); list.scrollTop = 77;
-    rows.find(row => row.id === 6).status = 'answered';
+    rows.find(row => row.id === 3).status = 'answered';
     const beforePoll = reads;
     renderNotices(snapshot(2)); renderNotices(snapshot(2));
     expect(reads).toBe(beforePoll);
     expect(deepText(dom.node('notice-pagination'))).toContain('列表可能已过期');
-    expect(ui.noticeRecords.rows.find(row => row.id === 6).status).toBe('open');
+    expect(ui.noticeRecords.rows.find(row => row.id === 3).status).toBe('open');
     expect(list.scrollTop).toBe(77);
     expect(dom.node('notice-record-detail').querySelector('textarea')).toBe(input);
     const reload = findByText(dom.node('notice-pagination'), '刷新已加载记录');
@@ -122,9 +131,9 @@ test('revision marks old pages stale without background reads; explicit reload p
     await reload.onclick();
     expect(reads - beforePoll).toBe(2);
     expect(ui.noticeRecords.loadedPages).toBe(2);
-    expect(ui.noticeRecords.rows).toHaveLength(200);
-    expect(ui.noticeRecords.rows.some(row => row.id === 6)).toBe(false);
-    expect(ui.noticeRecords.selected).toBe(205);
+    expect(ui.noticeRecords.rows).toHaveLength(6);
+    expect(ui.noticeRecords.rows.some(row => row.id === 3)).toBe(false);
+    expect(ui.noticeRecords.selected).toBe(8);
     expect(ui.noticeRecords.stale).toBe(false);
     expect(dom.node('notice-record-detail').querySelector('textarea')).toBe(input);
     expect(input.value).toBe('不要丢弃这个答案');

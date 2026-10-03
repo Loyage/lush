@@ -8,8 +8,10 @@
   "bin": { "lush": "./bin/lush", "lush-host": "./bin/lush-host", "lushd": "./bin/lushd", "lush-agent-guard": "./bin/lush-agent-guard" },
   "exports": { ".": "./src/index.js" },
   "scripts": {
-    "test": "bun test --parallel=4",
+    "test": "bun test --parallel=4 --path-ignore-patterns='**/packaging/**'",
     "test:serial": "bun test",
+    "test:packaging": "bun test ./test/packaging",
+    "test:all": "bun test --parallel=4",
     "docs:check": "bun ./scripts/docs-check.js",
     "measure:read-performance": "bun ./scripts/measure-read-performance.js",
     "lush": "bun ./bin/lush",

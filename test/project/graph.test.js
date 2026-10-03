@@ -185,12 +185,13 @@ test('graph caps edges at 2000 and marks the result truncated', async () => {
   const f = await setup();
   try {
     const created = [];
-    for (let index = 0; index < 70; index += 1) {
-      const task = f.store.create({ input_id: null, role: 'worker', goal: `task ${index}` });
-      f.store.update(task.id, { branch: `lush/test/${task.id}-edge` });
-      created.push(task.id);
-    }
     f.store.transaction(() => {
+      // 64 * 63 / 2 = 2016 dependencies: just beyond the real 2000-edge boundary.
+      for (let index = 0; index < 64; index += 1) {
+        const task = f.store.create({ input_id: null, role: 'worker', goal: `task ${index}` });
+        f.store.update(task.id, { branch: `lush/test/${task.id}-edge` });
+        created.push(task.id);
+      }
       for (let i = 0; i < created.length; i += 1) {
         for (let j = i + 1; j < created.length; j += 1) f.store.addDep(created[j], created[i], 'order');
       }

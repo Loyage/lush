@@ -10,7 +10,9 @@ test('large results do not inflate task listings and event history stays paginat
     f.project.stopping = true;
     const task = f.store.create({ input_id: null, role: 'research', goal: 'large' });
     f.store.update(task.id,{result:'x'.repeat(250000),status:'completed'});
-    for (let i=0;i<10;i++) f.store.event(task.id,'output',{result:'x'.repeat(250000)});
+    f.store.transaction(() => {
+      for (let i=0;i<10;i++) f.store.event(task.id,'output',{result:'x'.repeat(250000)});
+    });
     const client = new RPCClient(f.config.socket);
     const tasks = await client.request('worker.list'); expect(tasks[0].result).toBeUndefined();
     const first = await client.request('worker.history',{id:task.id});
@@ -25,7 +27,9 @@ test('recent event history is cursor-paged and explicitly reports truncation', a
   try {
     f.project.stopping = true;
     const task = f.store.create({ input_id: null, role: 'research', goal: 'history' });
-    for (let index = 0; index < 220; index += 1) f.store.event(task.id, 'tick', { index });
+    f.store.transaction(() => {
+      for (let index = 0; index < 220; index += 1) f.store.event(task.id, 'tick', { index });
+    });
     const recent = await (await fetch(f.url + `/api/worker/${task.id}/history-page`)).json();
     expect(recent.events).toHaveLength(100); expect(recent.truncated).toBe(true);
     expect(recent.events[0].id).toBeLessThan(recent.events.at(-1).id);

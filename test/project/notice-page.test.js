@@ -9,8 +9,10 @@ test('notice history pages traverse more than 200 records, including retained an
   const f = fixture({ async run() { return 'ok'; } });
   try {
     const task = f.store.create({ input_id: null, role: 'worker', goal: 'history' });
-    for (let i = 0; i < 245; i++) f.store.run('INSERT INTO notices(task_id,title,body,kind,status,answer) VALUES (?,?,?,?,?,?)',
-      task.id, `question ${i}`, 'original', ['question','plan','questionnaire','info'][i % 4], ['open','answered','dismissed','sent'][i % 4], `answer ${i}`);
+    f.store.transaction(() => {
+      for (let i = 0; i < 245; i++) f.store.run('INSERT INTO notices(task_id,title,body,kind,status,answer) VALUES (?,?,?,?,?,?)',
+        task.id, `question ${i}`, 'original', ['question','plan','questionnaire','info'][i % 4], ['open','answered','dismissed','sent'][i % 4], `answer ${i}`);
+    });
     const rows = []; let before = null;
     do {
       const result = page(f, { before, limit: 17 });
@@ -39,7 +41,9 @@ test('notice pagination byte bound keeps a continuation cursor instead of silent
   const f = fixture({ async run() { return 'ok'; } });
   try {
     const task = f.store.create({ input_id: null, role: 'worker', goal: 'large history' });
-    for (let i = 0; i < 40; i++) f.store.run('INSERT INTO notices(task_id,title,body) VALUES (?,?,?)', task.id, `large ${i}`, '中'.repeat(30000));
+    f.store.transaction(() => {
+      for (let i = 0; i < 40; i++) f.store.run('INSERT INTO notices(task_id,title,body) VALUES (?,?,?)', task.id, `large ${i}`, '中'.repeat(30000));
+    });
     const first = page(f, { limit: 100 });
     expect(first.notices.length).toBeLessThan(40);
     expect(first.has_more).toBe(true);

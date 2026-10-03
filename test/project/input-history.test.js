@@ -10,12 +10,14 @@ setDefaultTimeout(15000);
 const reference = { version: 1, kind: 'text', target: {}, label: 'quote', quote: 'saved selection', location: {}, captured_at: '2026-01-01T00:00:00.000Z' };
 const setup = async () => { const f = fixture(); f.project.stopping = true; await repo(f.root); f.call = (method, params = {}) => new Dispatcher(f.project).dispatch(method, params); return f; };
 function insert(f, content, status, calls = 1, integration = 'none', reservation = null) {
-  const inputId = f.store.nextInputId();
-  f.store.run('INSERT INTO inputs(id,content) VALUES (?,?)', inputId, content);
-  const task = f.store.create({ input_id: inputId, role: 'agent', task_kind: 'say', goal: content });
-  f.store.update(task.id, { status, calls, integration, reservation: reservation ? JSON.stringify(reservation) : null });
-  f.store.run('UPDATE inputs SET task_id=? WHERE id=?', task.id, inputId);
-  return { inputId, taskId: task.id };
+  return f.store.transaction(() => {
+    const inputId = f.store.nextInputId();
+    f.store.run('INSERT INTO inputs(id,content) VALUES (?,?)', inputId, content);
+    const task = f.store.create({ input_id: inputId, role: 'agent', task_kind: 'say', goal: content });
+    f.store.update(task.id, { status, calls, integration, reservation: reservation ? JSON.stringify(reservation) : null });
+    f.store.run('UPDATE inputs SET task_id=? WHERE id=?', task.id, inputId);
+    return { inputId, taskId: task.id };
+  });
 }
 
 test('history projects all task states independently of current delivery, preserves orphan inputs and excludes messages/submitted drafts', async () => {

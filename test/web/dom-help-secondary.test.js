@@ -1,16 +1,13 @@
 import { test, expect, afterAll } from 'bun:test';
-import fs from 'node:fs';
 import { installDom, allByTag, deepText } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
-// 其余 Web 面板的按钮帮助标注（spec #176 基础设施之后的逐按钮应用）。
-// 本 SCOPE 里的模块没有 Agent 启动按钮：只断言 data-help / aria-label，不出现 agent-call。
-// （render-drafts.js 现在每条的「执行」会调用 Agent，已从这份「不出现 agent-call」清单移出。）
+// 现行 Web 面板的按钮帮助标注：在渲染后的 DOM 验证标识，不扫描休眠模块源码。
 // 每个 DOM 测试文件都自给自足：先装自己的 world / DOM，再显式 boot 一次（模块注册表在文件之间共享）。
 const world = makeWorld();
 const baseFetch = world.fetchImpl;
-// 把快照里的任务都改成终态，概览才进「维护与安全回收」分支、画出「清空任务看板」。
+// 固定静息快照，避免本文件的帮助标注用例受到热 Worker 刷新影响。
 const dom = installDom({ fetch: async (url, options) => {
   const response = await baseFetch(url, options);
   if (String(url) !== '/api/snapshot') return response;
@@ -21,7 +18,6 @@ const dom = installDom({ fetch: async (url, options) => {
   return { ok: true, status: 200, json: async () => data };
 } });
 const { boot } = await import('../../src/ui/web/assets/app.js');
-const { ui } = await import('../../src/ui/web/assets/state.js');
 dom.node('side-nav').replaceChildren();
 await boot();
 afterAll(() => dom.restore());
@@ -29,14 +25,7 @@ afterAll(() => dom.restore());
 /** 只在按钮里按文字找：页面文案常常包含同一个短语（如“未单独配置”），不能误判到说明文字。 */
 const buttonOf = (root, text) => allByTag(root, 'button').find(node => node.textContent.includes(text));
 
-/** 本 spec 负责的文件：帮助标注只加在这里，且不得出现 Agent 触发标识。 */
-const SCOPE = [
-  'render-overview.js', 'render-ladder.js', 'render-tree.js', 'render-history.js',
-  'render-agent.js', 'render-transcript.js', 'transcript-reader.js', 'transcript-view.js', 'render-results.js', 'transcript-body.js',
-  'structured-value.js', 'render-settings.js', 'render-docs.js', 'render-specs.js', 'render-verify.js',
-  'render-resolutions.js', 'notice-banner.js', 'notice-notifications.js', 'render-statistics.js',
-  'project-picker.js', 'filters-ui.js', 'sidebar-init.js',
-];test('待决提醒横幅：说明性 title 迁移到 data-help，且不标 agent-call', async () => {
+test('待决提醒横幅：说明性 title 迁移到 data-help，且不标 agent-call', async () => {
   world.state.notices = [{ id: 9, task_id: 4, kind: 'question', title: '最新问题', body: '请回答', status: 'open', created_at: iso(NOW) }];
   await dom.intervalFor(1500)();
   const main = dom.node('notice-banner').querySelector('.notice-banner-main');
@@ -66,7 +55,7 @@ test('「打开执行详情」打开只读全屏阅读器，带 data-help 且不
   expect(reader.classList.contains('agent-call')).toBe(false);
 });
 
-test('左栏导航、待提交意图与批量交付的标注：迁移 title、补符号按钮与 aria-label', async () => {
+test('左栏导航与缓冲输入带帮助，发送明确标识 Agent 代价', async () => {
   // 左栏导航：title 迁移到 data-help
   const nav = dom.node('side-nav').querySelector('.nav-item');
   expect(nav.getAttribute('data-help')).toContain('在右侧打开');
@@ -83,13 +72,6 @@ test('左栏导航、待提交意图与批量交付的标注：迁移 title、�
   expect(buttonOf(drafts, '移除').getAttribute('data-help')).toContain('不可删');
   expect(drafts.querySelector('.context-remove').getAttribute('data-help')).toContain('不改动输入原文');
 
-  // 批量交付：文字由 sync() 补上，再给两个合并按钮补 aria-label；勾选框的说明迁移为 data-help
-  const { renderLadder } = await import('../../src/ui/web/assets/render-ladder.js');
-  const ladder = renderLadder(ui.lastSnapshot);
-  expect(buttonOf(ladder, '合并本分支选中').getAttribute('aria-label')).toContain('勾选');
-  expect(buttonOf(ladder, '合并本分支全部可交付').getAttribute('aria-label')).toContain('全部');
-  expect(ladder.querySelector('input.pick').getAttribute('data-help')).toBeTruthy();
-  expect(buttonOf(ladder, '清空选择').getAttribute('data-help')).toBeNull();
 });
 
 test('设置页的 Agent / 系统按钮按标准补 data-help', async () => {
@@ -106,20 +88,4 @@ test('设置页的 Agent / 系统按钮按标准补 data-help', async () => {
   expect(buttonOf(panel, '恢复环境默认').getAttribute('data-help')).toContain('并发');
   tabOf('interface').onclick();
   expect(deepText(panel)).toContain('Markdown 渲染');
-});
-
-test('本范围没有 Agent 触发标识：文件里不出现 agent-call / agentHelp', async () => {
-  const dir = new URL('../../src/ui/web/assets/', import.meta.url);
-  const read = file => fs.readFileSync(new URL(file, dir), 'utf8');
-  for (const file of SCOPE) {
-    const source = read(file);
-    expect(/\bagent-call\b/.test(source)).toBe(false);
-    expect(/\bagentHelp\b/.test(source)).toBe(false);
-  }
-  // 无法方便地在 DOM 里单独装配、但已按标准补上的帮助文案（环境变量显示 / 删除、符号按钮、步骤头）。
-  expect(read('render-settings.js')).toContain('以明文显示这条环境变量的值');
-  expect(read('render-settings.js')).toContain('从编辑列表移除这条变量');
-  expect(read('render-drafts.js')).toContain('从这条待提交意图移除该引用');
-  expect(read('render-transcript.js')).toContain('点击展开／收起这一步的正文');
-  expect(read('sidebar-init.js')).toContain('在右侧打开');
 });

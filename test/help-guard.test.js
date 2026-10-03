@@ -60,6 +60,19 @@ test('子命令里的裸 --help 只打印帮助，不落库也不发 RPC', async
   }
 });
 
+test('retired CLI commands are rejected without issuing RPCs', async () => {
+  const f = fixture();
+  const rpc = spyRpc();
+  try {
+    await withoutLushEnv(async () => {
+      for (const command of ['candidate', 'draft', 'plan', 'spec', 'sleep']) {
+        await expect(main([command, 'list', '--project', f.root])).rejects.toThrow(`unknown command: ${command}`);
+      }
+    });
+    expect(rpc.calls).toHaveLength(0);
+  } finally { rpc.restore(); await f.close(); }
+});
+
 test('顶层 help / --help / -h / 空参仍打印 HELP', async () => {
   for (const argv of [[], ['help'], ['--help'], ['-h']]) {
     expect(await helpText(argv)).toContain(HELP);
