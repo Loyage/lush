@@ -56,6 +56,13 @@ test('three siblings: the repair owns the logical parent slot across invocations
     expect(signal).toMatchObject({ version: 1, signal: 'merge.repair', source_task_id: one.parent_id,
       target_task_id: two.id, payload: { delivery_id: fixed.delivery_id, attempt_id: fixed.attempt_id,
         parent_commit: fixed.baseline, source_commit: fixed.original_commit } });
+    expect(signal.payload.instruction).toContain(`固定父提交 ${fixed.baseline}`);
+    expect(signal.payload.instruction).toContain(`原源提交 ${fixed.original_commit}`);
+    expect(signal.payload.instruction).toContain('双方从共同祖先以来的提交和 diff（含改名）');
+    expect(signal.payload.instruction).toContain('检查自己的改动是否需要跟随父侧的改名、接口迁移或架构重构');
+    expect(signal.payload.instruction).toContain('即使没有文本冲突也要做语义迁移检查');
+    expect(signal.payload.instruction).toContain('结果说明检查结论与未验证风险');
+    expect(signal.payload.instruction).toContain('不要修改父分支');
     const baseline = await git(f.root, 'rev-parse', 'main');
     await drive(f, one.parent_id);
     expect(await git(f.root, 'rev-parse', 'main')).toBe(baseline);

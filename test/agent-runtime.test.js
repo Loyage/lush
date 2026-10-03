@@ -57,6 +57,25 @@ test('agent prompt distinguishes persistent auto-merge hooks from delivery and a
   expect(prompt).not.toContain('收到 merge Task 的分歧消息');
 });
 
+test('source-side repair prompts require commit review and semantic migration checks', () => {
+  for (const role of ['agent', 'worker', 'merger']) {
+    const prompt = builtInPrompt(role);
+    expect(prompt).toContain('仅在 runtime 明确授权的分歧修复或父同步冲突修复中');
+    for (const command of ['git merge-base', 'git log', 'git show', 'git diff --find-renames']) {
+      expect(prompt).toContain(command);
+    }
+    expect(prompt).toContain('双方从共同祖先以来的增量');
+    expect(prompt).toContain('不能只看提交标题或冲突标记');
+    expect(prompt).toContain('公共接口／数据模型迁移、模块拆分与架构重构');
+    expect(prompt).toContain('自己的新增／修改代码、调用点、测试和文档');
+    expect(prompt).toContain('即使没有文本冲突也必须做语义迁移检查');
+    expect(prompt).toContain('语义或架构取舍有歧义时先通过 Notice 问用户');
+    expect(prompt).toContain('实际运行覆盖受影响路径的测试');
+    expect(prompt).toContain('参考的固定提交、发现的迁移及适配、测试结果和未验证风险');
+    expect(prompt).toContain('此步骤不授权普通 Worker 自行同步父分支');
+  }
+});
+
 test('settings replacement, project/local overlays and settings append have explicit order', () => {
   const root = temp();
   try {

@@ -533,7 +533,9 @@ export default {
             this.store.signal(task.id, parentId, 'merge.repair', key, JSON.stringify({ version: 1, signal: 'merge.repair', key,
               source_task_id: parentId, target_task_id: task.id, payload: {
                 instruction: `合并分歧：请在你的工作区合入固定父提交 ${request.baseline}，保留原源提交 ${request.original_commit}，`
-                  + `解决冲突、测试并提交；不要修改父分支。交付 ${request.delivery_id} 尝试 ${request.attempt_id}。`, ...payload } }));
+                  + `合入前先查看双方从共同祖先以来的提交和 diff（含改名），检查自己的改动是否需要跟随父侧的改名、接口迁移或架构重构，`
+                  + `即使没有文本冲突也要做语义迁移检查；再解决冲突、适配、测试并提交，结果说明检查结论与未验证风险；不要修改父分支。`
+                  + `交付 ${request.delivery_id} 尝试 ${request.attempt_id}。`, ...payload } }));
             this.store.event(task.id, 'merge.divergence_returned', payload);
           });
           this.kick(); return;
