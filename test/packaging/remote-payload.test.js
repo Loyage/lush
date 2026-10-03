@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
-import { BUILD_DIR, BUN_VERSION, TARGETS, nativeTarget, inspectRuntimeBinary, buildRemotePayload, verifyRemotePayload, mergeRemotePayloads } from '../../scripts/build-remote.js';
+import { BUILD_DIR, BUN_VERSION, TARGETS, nativeTarget, inspectRuntimeBinary, collectRuntimeSources, buildRemotePayload, verifyRemotePayload, mergeRemotePayloads } from '../../scripts/build-remote.js';
+import { createRemotePayload } from './remote-fixture.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -92,7 +93,7 @@ function rewrite(directory, mutate, target = nativeTarget()) {
   } finally { fs.rmSync(stage, { recursive: true, force: true }); }
 }
 
-beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-remote-packaging-')); setup(root); });
+beforeEach(() => { root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-remote-packaging-'))); setup(root); });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
 test('only explicit native Linux targets are accepted', () => {
@@ -100,6 +101,42 @@ test('only explicit native Linux targets are accepted', () => {
   expect(nativeTarget('linux', 'x64')).toBe('linux-x64');
   expect(nativeTarget('linux', 'arm64')).toBe('linux-arm64');
   for (const [platform, arch] of [['win32', 'x64'], ['darwin', 'arm64'], ['linux', 'ia32']]) expect(() => nativeTarget(platform, arch)).toThrow('native Linux');
+});
+
+test('reviewed third-party licenses are collected and accepted in remote archives on every platform', () => {
+  const licenses = ['mtrojnar-pi-usage.txt', 'pi-usage-meters.txt', 'pi.txt'];
+  const source = path.join(ROOT, 'docs/third-party/licenses');
+  expect(fs.readdirSync(source).sort()).toEqual(licenses);
+  for (const name of licenses) {
+    const file = path.join(root, 'docs/third-party/licenses', name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.copyFileSync(path.join(source, name), file);
+  }
+  const files = collectRuntimeSources(root);
+  const directory = path.join(root, 'licensed-payload');
+  const manifest = createRemotePayload(root, directory);
+  expect(verifyRemotePayload(directory, { requireTargets: TARGETS })).toEqual(manifest);
+  for (const name of licenses) {
+    const bytes = fs.readFileSync(path.join(source, name));
+    expect(files.get(`docs/third-party/licenses/${name}`)).toEqual(bytes);
+    for (const entry of Object.values(manifest.targets)) {
+      expect(gunzipSync(fs.readFileSync(path.join(directory, entry.file))).includes(bytes)).toBe(true);
+    }
+  }
+});
+
+test('license exceptions do not allow unreviewed text files in sources or archives', () => {
+  for (const name of ['docs/secret.txt', 'docs/third-party/licenses/secret.txt', 'docs/third-party/licenses/nested/pi.txt']) {
+    const file = path.join(root, name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, 'credential sentinel');
+    expect(() => collectRuntimeSources(root)).toThrow(`Unreviewed source file: ${name}`);
+    fs.unlinkSync(file);
+    const directory = path.join(root, `unreviewed-${path.basename(path.dirname(file))}`);
+    createRemotePayload(root, directory);
+    addEntry(directory, name);
+    expect(() => verifyRemotePayload(directory)).toThrow(`Unsafe or duplicate archive entry: ${name}`);
+  }
 });
 
 test('ELF validation rejects wrong architecture, Nix loaders, private RPATHs and malformed headers', () => {

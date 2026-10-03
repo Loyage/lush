@@ -43,7 +43,7 @@ manifest 接口（版本 1）：
 }
 ```
 
-archive 根目录包含 `bun`、`bin/`、完整 `src/`、`docs/`、`README.md`、`package.json` 和 `remote.json`。`remote.json` 标记 version、target、lush_version、fingerprint、bun_version、bun_sha256，与 manifest 对应。不含外层目录、不跟随符号链接。保留源码以保持现有代码指纹一致，但不安装 Electron 二进制或任何 node_modules；远端执行仅使用 Bun 与现有服务入口。
+archive 根目录包含 `bun`、`bin/`、完整 `src/`、`docs/`、`README.md`、`package.json` 和 `remote.json`。`docs/` 仅允许 Markdown 与 `scripts/build-remote.js` 中逐文件列出的已审核第三方许可证；源码采集与归档校验使用同一白名单，不泛化允许 `.txt`。`remote.json` 标记 version、target、lush_version、fingerprint、bun_version、bun_sha256，与 manifest 对应。不含外层目录、不跟随符号链接。保留源码以保持现有代码指纹一致，但不安装 Electron 二进制或任何 node_modules；远端执行仅使用 Bun 与现有服务入口。
 
 ## 模块接缝
 

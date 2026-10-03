@@ -12,6 +12,12 @@ export const BUN_VERSION = '1.4.2';
 export const TARGETS = Object.freeze(['linux-x64', 'linux-arm64']);
 const SOURCE_DIRS = ['bin', 'src', 'docs'];
 const SOURCE_FILES = ['README.md', 'package.json'];
+// Preserve reviewed upstream notices without allowing arbitrary docs text files.
+const LICENSE_FILES = new Set([
+  'docs/third-party/licenses/mtrojnar-pi-usage.txt',
+  'docs/third-party/licenses/pi-usage-meters.txt',
+  'docs/third-party/licenses/pi.txt',
+]);
 const MAX_ARCHIVE = 256 * 1024 * 1024, MAX_UNPACKED = 512 * 1024 * 1024;
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const fail = message => { throw new Error(message); };
@@ -57,7 +63,7 @@ function sourceName(name, directory = false) {
   if (directory) return SOURCE_DIRS.some(dir => name === dir || name.startsWith(`${dir}/`));
   if (SOURCE_FILES.includes(name) || name === 'bun' || name === 'remote.json') return true;
   if (name.startsWith('bin/')) return /^bin\/[a-z0-9-]+$/.test(name);
-  if (name.startsWith('docs/')) return name.endsWith('.md');
+  if (name.startsWith('docs/')) return name.endsWith('.md') || LICENSE_FILES.has(name);
   return name.startsWith('src/') && /\.(?:js|cjs|html|css|json|md|txt)$/.test(name);
 }
 
