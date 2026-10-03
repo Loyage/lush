@@ -13,7 +13,10 @@ const root = app.isPackaged ? app.getAppPath() : path.resolve(HERE, '../../..');
 let localHost = null;
 if (process.platform !== 'win32') {
   const { createLocalHost } = await import('./local-host.js');
-  localHost = createLocalHost({ root });
+  const runtimeRoot = app.isPackaged && process.platform === 'darwin'
+    ? path.join(process.resourcesPath, 'local-runtime') : root;
+  localHost = createLocalHost({ root: runtimeRoot,
+    ...(app.isPackaged && process.platform === 'darwin' ? { bun: path.join(runtimeRoot, 'bun') } : {}) });
 }
 if (process.platform === 'win32') app.setAppUserModelId('dev.lush.desktop');
 let sshManager = null, sshError = null;

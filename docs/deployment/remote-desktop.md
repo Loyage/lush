@@ -13,11 +13,11 @@
 ## 使用方式
 
 1. SSH-only Linux 可先按[桌面 SSH 部署](ssh-desktop.md)预检并确认用户目录安装；已有后台也可手工准备 Lush、Bun、Git 及 Agent。Agent 模型认证在远端配置，项目必须存在于该机器。
-2. 本地运行 `bun run desktop`，或安装 Windows 客户端。首启显示连接页，macOS / Linux 可选择「打开本地窗口」，Windows 仅提供远程连接。输入远程 Host **根地址**，例如 `https://lush.example.com`；Windows 安装与构建见[Windows 客户端](windows-client.md)。
+2. 本地运行 `bun run desktop`，或使用[macOS](macos-client.md) / [Windows](windows-client.md) 客户端产物。首启显示连接页，macOS / Linux 可选择「打开本地窗口」，Windows 仅提供远程连接。输入远程 Host **根地址**，例如 `https://lush.example.com`；Windows 安装与构建见[Windows 客户端](windows-client.md)。
 3. 远程窗口直接加载该 Host 的页面；有认证时先登录，再从远端项目列表选择项目。输入项目路径时，必须填写**远程机器的路径**，不能使用本地目录选择器。
 4. 通过桌面「连接」菜单打开更多本地或远程窗口。一个工作窗口固定属于一个 Host，在该 Host 内打开其它项目会创建独立窗口，不替换已有输入。
 
-桌面本地模式仅支持 macOS / Linux，需要本机 Bun；远程模式不启动本地 Host，也不需要本机 Bun。Windows 安装包直接运行内置 Electron；开发入口 `bun run desktop` 本身仍通过 Bun 启动 Electron。本地与多个远程窗口可以同时存在，无须同步项目目录、挂载文件系统或复制 `.lush`。
+桌面本地模式仅支持 macOS / Linux：源码启动需要本机 Bun，macOS 安装包携带私有 Bun；远程模式不启动本地 Host，也不需要本机 Bun。Windows 安装包直接运行内置 Electron；开发入口 `bun run desktop` 本身仍通过 Bun 启动 Electron。本地与多个远程窗口可以同时存在，无须同步项目目录、挂载文件系统或复制 `.lush`。
 
 ## HTTPS 与 SSH 隧道
 

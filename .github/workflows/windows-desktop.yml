@@ -12,8 +12,7 @@ on:
       - docs/**
       - README.md
       - scripts/build-remote.js
-      - scripts/desktop-remote-payload.js
-      - scripts/build-desktop.js
+      - scripts/*desktop*.js
       - test/packaging/**
       - .github/workflows/remote-payload.yml
       - .github/workflows/windows-desktop.yml
@@ -27,8 +26,7 @@ on:
       - docs/**
       - README.md
       - scripts/build-remote.js
-      - scripts/desktop-remote-payload.js
-      - scripts/build-desktop.js
+      - scripts/*desktop*.js
       - test/packaging/**
       - .github/workflows/remote-payload.yml
       - .github/workflows/windows-desktop.yml
@@ -64,9 +62,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: lush-remote-payload
-          path: node_modules/lush-remote-build/payload
-      - name: Verify both private Linux runtimes against this checkout
-        run: bun run scripts/build-remote.js --verify node_modules/lush-remote-build/payload
+          path: node_modules/lush-remote-inputs/combined
+      - name: Explicitly prepare verified same-checkout Linux payloads
+        run: bun run desktop:prepare node_modules/lush-remote-inputs/combined
       - name: Packaging and portable desktop unit tests
         run: bun test test/packaging test/desktop
       - name: Build Windows installer (never publish)

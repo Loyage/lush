@@ -13,7 +13,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 let root;
 beforeEach(() => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-packaging-'));
+  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-packaging-')));
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify(pkg));
   for (const file of APP_FILES) {
     fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
@@ -143,7 +143,7 @@ describe('Windows builder and delivery configuration', () => {
     const staged = stageDesktopRemotePayload(root);
     fs.cpSync(staged, path.join(appOutDir, 'resources/remote-payload'), { recursive: true });
     await config.afterPack({ electronPlatformName: 'win32', appOutDir });
-    await expect(config.afterPack({ electronPlatformName: 'linux' })).rejects.toThrow('Only Windows');
+    await expect(config.afterPack({ electronPlatformName: 'linux' })).rejects.toThrow('matching desktop packaging');
   });
   test('installer checksum has an unambiguous filename and SHA-256', () => {
     const output = buildPaths(root).output;

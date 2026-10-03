@@ -6,7 +6,7 @@ import { stageDesktopRemotePayload, verifyDesktopRemotePayload, REMOTE_RESOURCE_
 import { createRemotePayload } from './remote-fixture.js';
 let root, input;
 beforeEach(() => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-desktop-remote-'));
+  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-desktop-remote-')));
   input = path.join(root, 'node_modules/lush-remote-build/payload');
   createRemotePayload(root, input);
 });

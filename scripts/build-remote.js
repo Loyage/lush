@@ -61,7 +61,7 @@ function sourceName(name, directory = false) {
   return name.startsWith('src/') && /\.(?:js|cjs|html|css|json|md|txt)$/.test(name);
 }
 
-function collectSources(root) {
+export function collectRuntimeSources(root = ROOT) {
   const files = new Map();
   const walk = name => {
     const file = safePath(path.join(root, name));
@@ -98,7 +98,7 @@ function fingerprint(files) {
 
 /** Read source identity without executing source or a runtime; also used by desktop packaging. */
 export function remoteSourceIdentity(root = ROOT) {
-  const files = collectSources(safePath(root, 'directory'));
+  const files = collectRuntimeSources(safePath(root, 'directory'));
   return { lush_version: JSON.parse(files.get('package.json').toString('utf8')).version, fingerprint: fingerprint(files) };
 }
 
@@ -262,7 +262,7 @@ export function verifyRemotePayload(directory, { requireTargets = [], smoke = fa
 /** Native only. The caller selects a trusted, portable fixed-version Bun, never a downloaded installer script. */
 export function buildRemotePayload({ root = ROOT, bun = process.execPath, out, run = spawnSync } = {}) {
   root = safePath(root, 'directory');
-  const target = nativeTarget(), files = collectSources(root), runtime = safePath(bun, 'file');
+  const target = nativeTarget(), files = collectRuntimeSources(root), runtime = safePath(bun, 'file');
   if (fs.statSync(runtime).size > 128 * 1024 * 1024) fail('Runtime binary is too large');
   const binary = fs.readFileSync(runtime);
   inspectRuntimeBinary(binary, target);

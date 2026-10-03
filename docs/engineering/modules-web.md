@@ -147,13 +147,13 @@ SSH 接入边界见[设计契约](../design/remote-ssh.md)，使用与构建见[
 | `src/host/supervisor.js` | `bin/lush-host` 的稳定进程所有者，等 worker 退出75后在同端口重新启动；普通退出不重放，退出时停止唯一 worker | `superviseHost(args?)` |
 | `src/ui/web/docs.js` | 扫描随代码发布的 Markdown 文档与搜索字段 | `docsIndex()`、`docsSearchIndex()`、`readDoc()` |
 | `src/host/registry.js` | 跨项目的登记列表、最后路径缓存、稳定路由 ID 派生、绝对目录 canonicalize、无项目 Web 控制配置 | `launcherStateDir()`、`readLauncherState()`、`writeLauncherState()`、`removeLauncherProject()`、`projectRouteId()`、`canonicalProjectPath()`、`launcherWebConfig()` |
-| `src/ui/desktop/main.js` | Electron 装配：userData / AppUserModelID、SSH manager 与运行包路径；SSH 元数据错误不禁用旧入口；仅非 Windows 加载本地 Host | Electron `main` 入口 |
+| `src/ui/desktop/main.js` | Electron 装配：userData / AppUserModelID、SSH manager 与运行包路径；SSH 元数据错误不禁用旧入口；仅非 Windows 加载本地 Host，macOS 安装包固定使用独立 `resources/local-runtime/` 的私有 Bun / 后台，不依赖系统 PATH | Electron `main` 入口 |
 | `src/ui/desktop/runtime.js` | 窗口 / 导航 / 通知 IPC；SSH 稳定身份、单次安装授权、取消与退出；直接加载所选 Host，不复制业务 API | `createDesktop({electron,userData,localHost?,sshManager?,sshError?,platform?,store?})`；Windows 拒绝本地启动 |
 | `src/ui/desktop/ssh.js` | Node-only 系统 OpenSSH：安全 argv / 环境、有界输出、超时 / 取消、身份 / 固定端口、只读预检、上传 / 安装、Host 与自有隧道生命周期 | `createSSHManager()` → `list()` / `inspect()` / `connect()` / `disconnect()` / `dispose()` |
 | `src/ui/desktop/ssh-config.js` | Node-only 只读枚举用户 SSH config / Include 的明确 Host；有界文件 / 通配符 / 递归读取、去重与安全警告，不执行配置命令、不暴露原文 | `readSSHConfig({home?})` → `{hosts:[{alias}],warnings}`，仅主进程决定用户目录 |
 | `src/ui/desktop/ssh-scripts.js` | 固定远端 shell：只读探测、受限暂存、哈希校验与原子安装、profile 绑定及回环 Host 启动；不停止 daemon | `shellQuote()`、`probeScript()`、`uploadScript()`、`installScript()`、`hostScript()` |
 | `src/ui/desktop/ssh-payload.js` | 不执行 Linux 二进制的客户端验证：manifest / archive / Bun 哈希、源码身份、ustar 文件与路径安全 | `readRemoteTar()`、`loadRemotePayload()` |
-| `src/ui/desktop/local-host.js` | single-flight 启动随机端口临时 Host，处理启动失败、超时及退出；仅本地窗口需要 Bun，桌面退出只停自己持有的 Host | `createLocalHost(options?)` → `start()` / `stop()` |
+| `src/ui/desktop/local-host.js` | single-flight 启动随机端口临时 Host，处理启动失败、超时及退出；打包 macOS 使用私有 Bun，源码本地窗口需要系统 Bun，桌面退出只停自己持有的 Host | `createLocalHost(options?)` → `start()` / `stop()` |
 | `src/ui/desktop/connections.js` | Host 根地址校验（HTTPS / 回环 HTTP）、会话分区与页面身份判定、最近连接和按 Host 的系统提醒开关/告知分类渠道偏好（本地为稳定 local 身份）；白名单布尔规范化；另以独立 `ui-preferences.json` 保存本地非通知受管界面偏好，按名称 / 值校验、按键同步 RMW / revision，不含项目事实或密码 | `normalizeHostUrl()`、`sameHost()`、`sessionPartition()`、`isProjectPage()`、`ConnectionStore` |
 | `src/ui/desktop/connection.html` / `connection.js` / `connection.css` | 可信连接页：本地 / URL / 本机 SSH 配置列表、预检、首次安装确认、取消 / 断开、元数据记录与就地错误；配置项 / 记录点击后预检，已安装直接连接，手填仍确认；Windows 禁用本地；复用 Web `help.js` | 桌面内部页面，无业务 API |
 | `src/ui/desktop/connection-preload.cjs` | 仅连接页的打开 / 记录及窄 SSH IPC；不接收自由命令或远端渲染器授权 | `lushConnections`：`localSupported`、`list/openLocal/openRemote/remove`、`sshConfig/sshList/sshInspect/sshConnect/sshCancel/sshDisconnect` |

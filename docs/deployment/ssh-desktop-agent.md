@@ -13,6 +13,8 @@
 
 ## 源码开发准备运行包
 
+**Mac / Windows 不需要也不能直接构建 Linux 包。** 从可信同检出的 CI 下载并解压 `lush-remote-payload` 后，执行 `bun run desktop:prepare DIR`；替换自己的旧产物须显式 `--replace`。来源信任、指纹匹配与双平台打包步骤统一见[桌面构建与开发准备](desktop-build-agent.md)。启动 Desktop 不自动下载；本地 / URL 入口不依赖 Linux 运行包。
+
 在可信 Lush 检出中，通过原生 Linux 构建目标架构。运行包只使用固定版本可移植 Bun 1.4.2；Nix-patched ELF 的 `/nix/store` loader / RPATH 会被拒绝，不尝试修改 Nix 环境或把它当成通用运行时。
 
 ```bash
@@ -30,9 +32,9 @@ bun run remote:merge /path/to/x64-payload /path/to/arm64-payload --out /path/to/
 bun run remote:verify /path/to/combined-payload
 ```
 
-Windows 打包需将两架构产物放在默认目录。构建链验证源码身份、哈希、ELF、ustar、完整架构及实际包装字节，然后将它们放在独立 `resources/remote-payload/`；Windows 不执行 Linux Bun。安装器因此增加两份压缩运行包的体积，而不是增加一套本地后台。维护者构建见[Windows Agent 指导](windows-client-agent.md#4-仅维护者构建与交付安装包)。
+Windows 与 macOS 打包均需将两架构产物放在默认目录。构建链验证源码身份、哈希、ELF、ustar、完整架构及实际包装字节，然后将它们放在独立 `resources/remote-payload/`；Windows 不执行 Linux Bun。安装器因此增加两份压缩运行包的体积，而不是增加一套本地后台。维护者构建见[Windows Agent 指导](windows-client-agent.md#4-仅维护者构建与交付安装包)。
 
-CI 的 `remote-payload.yml` 在原生 x64 / ARM64 runner 构建与烟测；`windows-desktop.yml` 复用并下载合并产物。仅上传 artifact，不发布 Release、不设置自动更新。不把工作流存在当作已执行成功。
+CI 的 `remote-payload.yml` 在原生 x64 / ARM64 runner 构建与烟测；`windows-desktop.yml` / `macos-desktop.yml` 复用并下载合并产物，显式 `desktop:prepare` 校验同检出身份。仅上传 artifact，不发布 Release、不设置自动更新。不把工作流存在当作已执行成功。
 
 ## 日志与停止范围
 

@@ -46,7 +46,7 @@ bun run desktop:build:win
 bun run desktop:verify:win
 ```
 
-构建前还必须把同一可信检出的原生 Linux x64 / ARM64 运行包汇总到 `node_modules/lush-remote-build/payload/`，步骤见[SSH 运行包指导](ssh-desktop-agent.md#源码开发准备运行包)。缺包或身份不匹配会拒绝构建，Windows 不执行 Linux Bun。CI 自动复用原生运行包工作流，手工构建不能跳过这一步。
+构建前还必须把同一可信检出的原生 Linux x64 / ARM64 运行包汇总到 `node_modules/lush-remote-build/payload/`，通过 `bun run desktop:prepare DIR` 显式导入；来源与步骤见[跨平台构建指导](desktop-build-agent.md#2-mac--windows-源码开发准备)。缺包或身份不匹配会拒绝构建，Windows 不执行 Linux Bun。CI 自动复用原生运行包工作流，手工构建不能跳过这一步。
 
 构建需要联网下载 Electron / NSIS。不得用 Linux staging 或模拟 Windows 测试声称完成 Windows 安装器构建。
 

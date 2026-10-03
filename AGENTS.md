@@ -26,7 +26,8 @@ bun run tree
 bun run inspect 3
 bun run host                     # 后台启动全局 Web 项目选择器；自动恢复上次项目并启动/连接 daemon
 bun run host --project PATH      # 兼容的单项目 Web；日志在该项目 .lush/host.log
-bun run desktop                 # Electron 桌面版；独立随机端口，可与 Web 同时打开
+bun run desktop                 # 源码 Electron；本地独立随机端口，SSH 缺包只给准备提示
+bun run desktop:prepare DIR     # 显式导入可信同检出 Linux 双架构 CI 包；替换旧生成物需 --replace
 bun run host-status              # 在不在跑、跑的是不是这份代码、日志在哪
 bun run host-restart             # 改完 src/ui/web/ 停掉那个后台 Web 再按当前代码起一个新的
 bun run host-stop                # 停掉后台 Web（只停命令行确实是 Lush Web 的进程）
@@ -61,7 +62,7 @@ bun run stop
 
 修改账号连接、凭证托管、余额/套餐观测、显式连接绑定与被动响应反馈前，先读 `docs/design/account-resources.md`；字段与模块边界见 `docs/engineering/agent-connections.md`，旧状态/历史兼容见 `docs/engineering/agent-usage.md`。私有权限不是沙箱，不得把凭证或原始认证响应放进读 API、会话或错误。
 
-桌面 SSH 接入、部署脚本和远端产物修改前，先读 `docs/design/remote-ssh.md`；使用与构建边界见 `docs/deployment/ssh-desktop.md` 和 `ssh-desktop-agent.md`。真实回环 SSH 验证不等于跨机器、ARM64、Electron 或 Windows 发布验收。
+桌面 SSH 接入、部署脚本和远端产物修改前，先读 `docs/design/remote-ssh.md`；使用与构建边界见 `docs/deployment/ssh-desktop.md`、`ssh-desktop-agent.md` 和 `desktop-build-agent.md`。Mac / Windows 发行携带双架构 Linux 包，源码开发显式导入，不在启动时静默下载；macOS 安装包另携带本机私有 Bun / 后台，Windows 不启动本机后台。真实回环 SSH 验证不等于跨机器、ARM64、Electron 或 Windows 发布验收。
 
 - `src/config.js`：项目发现与不可变绑定。
 - `src/persistence/store.js`：SQLite 事实来源。

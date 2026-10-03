@@ -79,7 +79,7 @@ export function loadRemotePayload(payloadDir, target) {
     return { target, fingerprint: manifest.fingerprint, lushVersion: manifest.lush_version, bunVersion: row.bun_version,
       bunSha256: row.bun_sha256, archiveSha256: row.sha256, archive, file: row.file };
   } catch (error) {
-    const failure = new Error(`无法使用可信远端运行包：${error.message}。请构建 remote payload 或安装含目标架构产物的客户端。`);
+    const failure = new Error(`无法使用可信远端运行包：${error.message}。源码开发请先从可信同检出的 CI 下载 lush-remote-payload，执行 bun run desktop:prepare /path/to/payload；或安装含目标架构产物的客户端。`);
     failure.code = 'PAYLOAD_INVALID';
     throw failure;
   }

@@ -10,7 +10,8 @@ function noSymlinks(directory) {
   let current = path.parse(absolute).root;
   for (const part of absolute.slice(current.length).split(path.sep)) {
     current = path.join(current, part);
-    if (fs.existsSync(current) && fs.lstatSync(current).isSymbolicLink()) throw new Error(`Remote resource path must not be a symlink: ${current}`);
+    try { if (fs.lstatSync(current).isSymbolicLink()) throw new Error(`Remote resource path must not be a symlink: ${current}`); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   return absolute;
 }
@@ -20,7 +21,7 @@ export function verifyDesktopRemotePayload(root, directory, { stagedDir } = {}) 
   const manifest = verifyRemotePayload(noSymlinks(directory), { requireTargets: TARGETS });
   const expected = remoteSourceIdentity(root);
   if (manifest.lush_version !== expected.lush_version || manifest.fingerprint !== expected.fingerprint) {
-    throw new Error('Remote payload does not match desktop source identity; rebuild both native payloads from this checkout');
+    throw new Error(`Remote payload does not match desktop source identity (expected ${expected.lush_version}/${expected.fingerprint}, got ${manifest.lush_version}/${manifest.fingerprint}); rebuild both native payloads from this checkout`);
   }
   if (stagedDir) {
     verifyRemotePayload(noSymlinks(stagedDir), { requireTargets: TARGETS });
@@ -33,7 +34,7 @@ export function verifyDesktopRemotePayload(root, directory, { stagedDir } = {}) 
   return manifest;
 }
 
-/** Reviewed Linux payloads are separate resources, never executable Windows application modules. */
+/** Reviewed Linux payloads are separate resources, never executable client application modules. */
 export function stageDesktopRemotePayload(root, { payloadDir = path.join(root, BUILD_DIR) } = {}) {
   verifyDesktopRemotePayload(root, payloadDir);
   const directory = noSymlinks(path.join(root, DESKTOP_PAYLOAD_DIR));

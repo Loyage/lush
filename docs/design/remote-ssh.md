@@ -23,7 +23,7 @@
 
 由构建工具在原生 Linux x64 / ARM64 环境生成运行包。输入是可信源码检出和固定版本 Bun；发行渠道或可信客户端携带 manifest 与对应 archive。用户运行时不执行未经验证的网络安装脚本。
 
-默认开发产物目录为 `node_modules/lush-remote-build/payload/`，与项目 `.lush/` 无关。桌面发行将产物放在独立 resources 的 `remote-payload/`；客户端只安装它所信任的随发行提供的产物。开发检出可仅生成本机架构，缺少目标产物必须清晰报错，不能假称全平台已验证。
+默认开发产物目录为 `node_modules/lush-remote-build/payload/`，与项目 `.lush/` 无关。桌面发行将产物放在独立 resources 的 `remote-payload/`；客户端只安装它所信任的随发行提供的产物。原生 Linux 开发检出可仅生成本机架构；Mac / Windows 开发者显式导入可信同检出的双架构 CI 包，不跨编译、不在启动时静默下载。缺少目标产物必须清晰报错，但不禁用本地 / URL 入口，不能假称全平台已验证。macOS 安装包另外携带本机架构的私有 Bun 与白名单后台，和 Linux 包分目录，Windows 不获得本机后台。发行 / 开发产物准备见[构建指导](../deployment/desktop-build-agent.md)。
 
 manifest 接口（版本 1）：
 
@@ -48,7 +48,9 @@ archive 根目录包含 `bun`、`bin/`、完整 `src/`、`docs/`、`README.md`�
 ## 模块接缝
 
 - `scripts/build-remote.js` 与对应 packaging 测试：原生平台产物、白名单、manifest、校验与多架构汇总；`remoteSourceIdentity()` 不执行源码或外来运行时即可读取预期身份。
-- `scripts/desktop-remote-payload.js`：桌面打包在独立 resources 中携带两架构运行包，拒绝与客户端源码身份不一致、缺失架构、校验失败或包含额外文件的产物；afterPack 再比较实际包装与审核 staged 字节。Windows 只执行 Electron，不执行 Linux Bun。
+- `scripts/desktop-remote-payload.js`：Mac / Windows 桌面打包在独立 resources 中携带两架构 Linux 运行包，拒绝与客户端源码身份不一致、缺失架构、校验失败或包含额外文件的产物；afterPack 再比较实际包装与审核 staged 字节。Windows 只执行 Electron，不执行 Linux Bun。
+- `scripts/desktop-local-runtime.js`：macOS 原生私有 Bun / 后台资源，Mach-O、系统依赖、哈希与身份检查；构建和包装后分别 smoke，拒绝 Nix 私有 dylib / RPATH，不把 runtime node_modules、项目或凭证打包。
+- `scripts/prepare-desktop.js` / `start-desktop.js`：显式导入同检出 Linux CI 产物，替换旧生成物需 `--replace`；源码启动只给准备提示，不静默联网。
 - `src/ui/desktop/ssh.js` 与对应 desktop 测试：Node 环境可用，不依赖 Bun；提供 `createSSHManager({payloadDir,userData,spawn?,...})`。
 - Manager 接口：`list()` 返回仅元数据的连接记录；`inspect(profile)` 返回有界检查和安装计划；`connect(profile,{install:false|true})` 返回 `{url,profile,...}`，需要安装但未获授权时拒绝并指导先预检/确认；`disconnect(id)` 只停止自有 SSH 进程；`dispose()` 退出清理自有隧道，不停止远端 daemon。
 - profile 输入：`{id?,alias}`，alias 是安全的 SSH Host 别名 / 主机名，首期不接受自由命令、URL、密码或附加 SSH 参数；id 由可信主进程生成。inspect 返回 `{profile,ready,requiresInstall,plan,warnings}`；plan 是白名单 JSON，展示远端用户目录、版本、平台、安装与启动范围，不含秘密。
