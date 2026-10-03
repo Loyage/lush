@@ -5,7 +5,7 @@ import { makeWorld } from './dom-world.js';
 const world = makeWorld();
 const graph = { nodes: [
   { id: 1, parent_id: null, task_kind: 'main', role: 'agent', status: 'waiting', title: 'main', branch: 'main', children: [] },
-  { id: 2, parent_id: 1, task_kind: 'say', role: 'agent', status: 'waiting', title: '实现功能', branch: 'lush/task-2', workspace: '/tmp/task-2', has_rule: true },
+  { id: 2, parent_id: 1, task_kind: 'order', role: 'agent', status: 'waiting', title: '实现功能', branch: 'lush/task-2', workspace: '/tmp/task-2', has_rule: true },
 ], total: 2, truncated: false };
 let requests = 0;
 const dom = installDom({ fetch: (url, options) => {
@@ -32,7 +32,7 @@ test('Task 图以 Task 为节点；旧 #graph 不再打开分支图', async () =
     const head = dom.node('detail').querySelector(`[data-task-id="${id}"]`).querySelector('.task-graph-head');
     expect(head.querySelector('.role-badge')).toBeNull();
     expect(deepText(head)).not.toContain('agent');
-    expect(deepText(head)).toContain(id === 1 ? 'main' : 'say');
+    expect(deepText(head)).toContain(id === 1 ? 'main' : '指令');
   }
   expect(requests).toBeGreaterThan(0);
   dom.location.hash = '#graph';
@@ -75,7 +75,7 @@ test('20 / 200 Worker 有界 fixture：相同轮询零节点构造，折叠只�
   try {
     for (const size of [20, 200]) {
       graph.nodes = Array.from({ length: size }, (_, i) => ({ id: i + 1, parent_id: i ? 1 : null,
-        task_kind: i ? 'say' : 'main', role: 'agent', status: 'waiting', title: `节点 ${i + 1}` }));
+        task_kind: i ? 'order' : 'main', role: 'agent', status: 'waiting', title: `节点 ${i + 1}` }));
       graph.total = size; await loadTaskGraph();
       expect(dom.node('detail').querySelectorAll('.task-graph-card')).toHaveLength(size);
       const fullConstruction = constructed; constructed = 0;
@@ -93,9 +93,9 @@ test('20 / 200 Worker 有界 fixture：相同轮询零节点构造，折叠只�
 });
 
 test('Task 图默认隐藏已归档 Task，可用「显示已归档」开关就地查看', async () => {
-  const archived = { id: 99, parent_id: 1, task_kind: 'say', role: 'agent', status: 'completed',
+  const archived = { id: 99, parent_id: 1, task_kind: 'order', role: 'agent', status: 'completed',
     title: '已归档的工作', branch: 'lush/task-99', workspace: null, integration: 'merged',
-    branch_info: { parent: 'main', archived: true, current_head: null, diagnostics: null, subtree_say: 0, merge_run: null },
+    branch_info: { parent: 'main', archived: true, current_head: null, diagnostics: null, subtree_order: 0, merge_run: null },
     children: [] };
   graph.nodes.push(archived); graph.total += 1;
   try {
@@ -134,7 +134,7 @@ test('Task 图默认隐藏已归档 Task，可用「显示已归档」开关就�
 
 test('Task 图：历史内部合并队列随父 Task 归档，不隐藏独立工作子 Task', async () => {
   const saved = [...graph.nodes], total = graph.total;
-  const parent = { id: 99, parent_id: 1, task_kind: 'say', role: 'agent', status: 'completed',
+  const parent = { id: 99, parent_id: 1, task_kind: 'order', role: 'agent', status: 'completed',
     title: '归档父任务', branch: 'lush/task-99', archived: true, branch_info: { archived: true } };
   const queue = { id: 100, parent_id: 99, task_kind: 'merge', role: 'agent', status: 'completed',
     title: '父任务的内部合并队列', branch: null, branch_info: null, archived: true };
@@ -182,9 +182,9 @@ test('Task 图不再包含历史展示类型，普通分支仍写 worktree', asy
     await dom.node('task-graph-open').onclick();
     expect(dom.node('detail').querySelector('[data-task-id="3"]')).toBeNull();
     // 普通有分支的 Task 不应被误标。
-    const sayCard = dom.node('detail').querySelector('[data-task-id="2"]');
-    expect(deepText(sayCard)).toContain('worktree：/tmp/task-2');
-    expect(deepText(sayCard)).not.toContain('detached worktree');
+    const orderCard = dom.node('detail').querySelector('[data-task-id="2"]');
+    expect(deepText(orderCard)).toContain('worktree：/tmp/task-2');
+    expect(deepText(orderCard)).not.toContain('detached worktree');
   } finally {
     graph.nodes.pop();
     await dom.node('task-graph-open').onclick();
@@ -248,10 +248,10 @@ test('Task 图：卡片按真实状态配色，一键编排入口已下线', asy
 
     // 颜色按真实状态分开：主 Task 在等、子 Task 在跑，一眼可辨。
     const mainCard = dom.node('detail').querySelector('[data-task-id="1"]');
-    const sayCard = dom.node('detail').querySelector('[data-task-id="2"]');
+    const orderCard = dom.node('detail').querySelector('[data-task-id="2"]');
     expect(mainCard.classList.contains('task-graph-waiting')).toBe(true);
-    expect(sayCard.classList.contains('task-graph-running')).toBe(true);
-    expect(sayCard.querySelector('.badge.b-running')).toBeTruthy();
+    expect(orderCard.classList.contains('task-graph-running')).toBe(true);
+    expect(orderCard.querySelector('.badge.b-running')).toBeTruthy();
 
     // 旧 `branch.orchestrate_plan` / `branch.orchestrate` 一键编排卡片已下线，不再给任何编排按钮。
     expect(mainCard.querySelectorAll('button').some(node => node.textContent.includes('编排'))).toBe(false);
@@ -301,7 +301,7 @@ test('Task 图：分支合并状态进卡片首行标签，facts 行不再重复
 test('Task 图：旧 v2 merge 卡片保留历史标记及状态筛选，空闲记录可回看', async () => {
   const merge = { id: 5, parent_id: 1, task_kind: 'merge', role: 'agent', status: 'waiting',
     title: '串行处理 Task #1 的合并请求', branch: null, workspace: null, target_branch: 'main' };
-  const child = { id: 6, parent_id: 5, task_kind: 'say', role: 'agent', status: 'running', title: '等待合并的工作',
+  const child = { id: 6, parent_id: 5, task_kind: 'order', role: 'agent', status: 'running', title: '等待合并的工作',
     branch: 'lush/task-6', workspace: '/tmp/task-6', target_branch: 'main', integration: 'pending',
     reservation: { version: 2, kind: 'merge', status: 'requested' } };
   const roots = () => [...dom.node('detail').querySelector('.task-graph').children]
@@ -346,7 +346,7 @@ test('Task 图：旧 v2 merge 卡片保留历史标记及状态筛选，空闲�
 });
 
 test('Task 图：表头状态图例即开关，按状态隐藏后可一键恢复，偏好写进受管 localStorage 键', async () => {
-  graph.nodes.push({ id: 7, parent_id: 2, task_kind: 'say', role: 'agent', status: 'completed', title: '已经收尾的工作',
+  graph.nodes.push({ id: 7, parent_id: 2, task_kind: 'order', role: 'agent', status: 'completed', title: '已经收尾的工作',
     branch: 'lush/task-7', workspace: null, integration: 'merged' });
   graph.total += 1;
   const chip = status => dom.node('detail').querySelector(`.task-graph-status-toggle[data-status="${status}"]`);

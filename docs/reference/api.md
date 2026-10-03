@@ -6,7 +6,7 @@
 
 无 `--project` 的 `host [port]` 后台启动全局项目选择器：首次要求绝对目录，之后从用户配置目录恢复上次项目，并自动启动或连接所选项目 daemon；带 `--project` / `LUSH_PROJECT` 时保持单项目绑定模式（日志 `.lush/host.log`，不替用户启动 daemon）。命令等 Web 真的占住端口就返回；同一端口已经有 Lush Web 时幂等报告「已在运行」，不换进程。两种模式默认都只监听本机；单项目存在 `.lush/web.json` 时改为公网监听并启用登录认证，全局模式则读取用户配置目录的 `web.json`，且要求其中的 `projects` 非空绝对路径白名单。Electron 临时 host 不使用全局公网配置。`host-restart [port]` 先停掉端口上那个后台 Web 再按当前代码起一个新的：Web 不跟着代码换版本，改完 `src/ui/web/` 之后用它。`host-stop [port]` 停掉后台 Web，`host-status [port]` 通过 `current_code` / `host_code`（以及同义的 `identities.current/host`）分别报告磁盘与进程的目录、版本和指纹；不一致时 `update_hint.command` 精确包含端口及项目作用域，但命令本身不会执行。停只能停命令行确实是 Lush Web 的进程，别的程序占着端口时报出它的命令行交还给你。`host --foreground`（即 `bin/lush-host`）占住终端，只在调试时用。
 
-本页是索引：CLI 与 RPC 表格、返回值和错误信息都在下面各章里。若要先理解从输入到交付的实际操作顺序，请读[当前 say 流程](../task-flow.md)。
+本页是索引：CLI 与 RPC 表格、返回值和错误信息都在下面各章里。若要先理解从输入到交付的实际操作顺序，请读[当前指令流程](../task-flow.md)。
 
 公开实体入口统一为 `lush worker` / RPC `worker.*`，旧 Task 命令与方法不保留别名；`notice --worker` / `config worker-call-limit` 与保留的内部字段之间的映射见[更名边界](../engineering/core-api.md#worker-更名与兼容边界)。
 
@@ -14,7 +14,7 @@
 
 | 命令 | 章节 |
 |---|---|
-| `lush say` | [一条 say 输入如何交付](../task-flow.md) |
+| `lush order`（指令；旧 say 无别名） | [一条指令输入如何交付](../task-flow.md) |
 | `lush worker list` / `tree` / `inspect` / `spawn` / `message` / `cancel` / `retry` / `integrate` / `reserve` / `unreserve` / `resolve` / `resolve-divergence` / `resolve-child-divergence` / `approve-merge` / `cleanup` | [Worker、Run 与 Artifact](rpc/tasks.md) |
 | `lush worker inspect` / `history` / `transcript` / `wait`（`worker.diff` / `worker.usage` 仅 RPC） | [审阅与过程读模型](rpc/inspect.md) |
 | `lush worker cleanup [--keep-branch]` / `worker delete ID [--confirm --revision REV]` | [磁盘回收与彻底删除](rpc/maintenance.md) |

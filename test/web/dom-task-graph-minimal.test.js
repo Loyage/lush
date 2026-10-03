@@ -17,7 +17,7 @@ const enable = () => { mode().checked = false; mode().onchange(); };
 const enableDetails = () => { mode().checked = true; mode().onchange(); };
 const fixture = () => ({ total: 3, truncated: false, nodes: [
   { id: 1, parent_id: null, task_kind: 'main', role: 'agent', title: 'main', status: 'waiting', branch: 'main' },
-  { id: 2, parent_id: 1, task_kind: 'say', role: 'agent', title: '极简任务树'.repeat(20), status: 'running',
+  { id: 2, parent_id: 1, task_kind: 'order', role: 'agent', title: '极简任务树'.repeat(20), status: 'running',
     branch: 'lush/task-2', integration: 'pending', goal_preview: '完整目标正文', result_preview: '完整结果正文',
     waiting_reason: '旧的等待原因', progress: { total: 3, completed: 1, current: { label: '实现双行' } } },
   { id: 3, parent_id: 1, task_kind: 'child', role: 'agent', title: '确认接口', status: 'awaiting',

@@ -359,7 +359,7 @@ test('branch.archive RPC 透传 continue 并拒绝未知参数', async () => {
 test('branch.archive is user-only: an agent token is rejected', async () => {
   const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
-    await f.project.say('work');
+    await f.project.order('work');
     await until(() => provider.calls.length === 1);
     const rpc = new Dispatcher(f.project, createSignal(), {});
     // 归档会删 worktree 与本地 ref，是用户专属写操作，agent 不得调用。

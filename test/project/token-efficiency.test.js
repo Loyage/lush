@@ -91,7 +91,7 @@ test('cancellation while resolving startup context cannot launch a provider with
   f.project.invocationContext = async () => { entered = true; await ready.promise; return {}; };
   try {
     await repo(f.root);
-    const task = (await f.project.say('cancel during context')).task;
+    const task = (await f.project.order('cancel during context')).task;
     await until(() => entered);
     f.project.cancel(task.id); ready.resolve();
     await until(() => !f.project.running.has(task.id));
@@ -151,31 +151,31 @@ test('invoke delivers one bounded batch, writes messages_page, consumes only del
     async run(ctx) { seen.push(ctx); return 'ok'; } };
   const f = fixture(provider); await repo(f.root); f.project.stopping = true;
   try {
-    const say = (await f.project.say('batched inbox')).task;
-    f.store.update(say.id, { status: 'waiting' });
+    const order = (await f.project.order('batched inbox')).task;
+    f.store.update(order.id, { status: 'waiting' });
     const body = label => `${label} ${'z'.repeat(400)}`;
     const runtime = [], users = [];
-    for (let i = 0; i < 40; i++) runtime.push(f.store.message(say.id, body(`early-${i}`), say.id));
-    for (let i = 0; i < 5; i++) users.push(f.store.message(say.id, body(`user-${i}`)));
-    for (let i = 0; i < 20; i++) runtime.push(f.store.message(say.id, body(`late-${i}`), say.id));
-    const originals = new Map(f.store.unread(say.id).map(row => [row.id, row.body]));
+    for (let i = 0; i < 40; i++) runtime.push(f.store.message(order.id, body(`early-${i}`), order.id));
+    for (let i = 0; i < 5; i++) users.push(f.store.message(order.id, body(`user-${i}`)));
+    for (let i = 0; i < 20; i++) runtime.push(f.store.message(order.id, body(`late-${i}`), order.id));
+    const originals = new Map(f.store.unread(order.id).map(row => [row.id, row.body]));
 
-    await f.project.invoke(say.id, { controller: new AbortController(), token: 'test', recordId: null });
+    await f.project.invoke(order.id, { controller: new AbortController(), token: 'test', recordId: null });
     expect(seen).toHaveLength(1);
     expect(seen[0].messages).toHaveLength(50);
     expect(seen[0].messages.slice(0, 5).map(row => row.id)).toEqual(users);
     expect(seen[0].messagesPage).toEqual({ delivered: 50, has_more: true, pending: 15, truncated_bytes: expect.any(Number), reordered: true });
-    const started = JSON.parse(f.store.get("SELECT data FROM events WHERE task_id=? AND type='invocation.started' ORDER BY id DESC LIMIT 1", say.id).data);
+    const started = JSON.parse(f.store.get("SELECT data FROM events WHERE task_id=? AND type='invocation.started' ORDER BY id DESC LIMIT 1", order.id).data);
     expect(started.message_ids).toEqual(seen[0].messages.map(row => row.id));
     // Only the delivered batch is consumed; the remaining 15 stay complete and actionable.
-    expect(f.store.unread(say.id)).toHaveLength(15);
-    expect(f.store.task(say.id).status).toBe('queued');
+    expect(f.store.unread(order.id)).toHaveLength(15);
+    expect(f.store.task(order.id).status).toBe('queued');
 
-    await f.project.invoke(say.id, { controller: new AbortController(), token: 'test', recordId: null });
+    await f.project.invoke(order.id, { controller: new AbortController(), token: 'test', recordId: null });
     expect(seen).toHaveLength(2);
     expect(seen[1].messages).toHaveLength(15);
     expect(seen[1].messagesPage).toMatchObject({ delivered: 15, has_more: false, pending: 0, reordered: false });
-    expect(f.store.unread(say.id)).toHaveLength(0);
+    expect(f.store.unread(order.id)).toHaveLength(0);
     // Every original body was delivered exactly once and byte-for-byte intact (no summary).
     for (const [id, text] of originals) expect(seen.flatMap(ctx => ctx.messages).find(row => row.id === id).body).toBe(text);
     expect(seen.flatMap(ctx => ctx.messages)).toHaveLength(65);
@@ -188,16 +188,16 @@ test('a failed invocation leaves the delivered batch unconsumed for an explicit 
     async run(ctx) { calls += 1; if (calls === 1) throw new Error('controlled provider failure'); return 'ok'; } };
   const f = fixture(provider); await repo(f.root); f.project.stopping = true;
   try {
-    const say = (await f.project.say('retry inbox')).task;
-    f.store.update(say.id, { status: 'waiting' });
-    f.store.message(say.id, 'first input');
-    await f.project.invoke(say.id, { controller: new AbortController(), token: 'test', recordId: null });
-    expect(f.store.task(say.id).status).toBe('failed');
-    expect(f.store.unread(say.id)).toHaveLength(1);
-    f.store.update(say.id, { status: 'queued' });
-    await f.project.invoke(say.id, { controller: new AbortController(), token: 'test', recordId: null });
-    expect(f.store.unread(say.id)).toHaveLength(0);
-    expect(f.store.task(say.id).status).not.toBe('failed');
+    const order = (await f.project.order('retry inbox')).task;
+    f.store.update(order.id, { status: 'waiting' });
+    f.store.message(order.id, 'first input');
+    await f.project.invoke(order.id, { controller: new AbortController(), token: 'test', recordId: null });
+    expect(f.store.task(order.id).status).toBe('failed');
+    expect(f.store.unread(order.id)).toHaveLength(1);
+    f.store.update(order.id, { status: 'queued' });
+    await f.project.invoke(order.id, { controller: new AbortController(), token: 'test', recordId: null });
+    expect(f.store.unread(order.id)).toHaveLength(0);
+    expect(f.store.task(order.id).status).not.toBe('failed');
   } finally { await f.close(); }
 });
 
@@ -213,27 +213,27 @@ test('a parked questionnaire consumes only the delivered batch and the remainder
     } };
   const f = fixture(provider); await repo(f.root); f.project.stopping = true;
   try {
-    const say = (await f.project.say('parked inbox')).task;
-    f.store.update(say.id, { status: 'queued' });
+    const order = (await f.project.order('parked inbox')).task;
+    f.store.update(order.id, { status: 'queued' });
     const body = (label, pad) => `${label} ${'q'.repeat(pad)}`;
-    for (let i = 0; i < 55; i++) f.store.message(say.id, body(`signal-${i}`, 300), say.id);
-    f.store.message(say.id, body('user-last', 300));
-    const originals = new Map(f.store.unread(say.id).map(row => [row.id, row.body]));
+    for (let i = 0; i < 55; i++) f.store.message(order.id, body(`signal-${i}`, 300), order.id);
+    f.store.message(order.id, body('user-last', 300));
+    const originals = new Map(f.store.unread(order.id).map(row => [row.id, row.body]));
     f.project.stopping = false; f.project.pump();
-    await until(() => seen.length === 1 && !f.project.running.has(say.id));
+    await until(() => seen.length === 1 && !f.project.running.has(order.id));
     f.project.stopping = true;
     // The park consumed exactly the delivered batch; the undelivered originals are untouched.
     expect(seen[0].messages).toHaveLength(50);
     expect(seen[0].messages[0].body).toBe(body('user-last', 300));
     expect(seen[0].messagesPage).toMatchObject({ has_more: true, pending: 6, reordered: true });
-    const notice = f.store.get("SELECT * FROM notices WHERE task_id=? AND status='open'", say.id);
+    const notice = f.store.get("SELECT * FROM notices WHERE task_id=? AND status='open'", order.id);
     expect(notice.kind).toBe('questionnaire');
-    expect(f.store.unread(say.id)).toHaveLength(6);
+    expect(f.store.unread(order.id)).toHaveLength(6);
 
     // Answering re-queues the Worker; the remaining originals are delivered intact and consumed.
     f.project.stopping = false;
     f.project.answer(notice.id, { answers: [{ selected: [0], custom: '' }] });
-    await until(() => seen.length === 2 && !f.project.running.has(say.id) && f.store.unread(say.id).length === 0);
+    await until(() => seen.length === 2 && !f.project.running.has(order.id) && f.store.unread(order.id).length === 0);
     // The remaining six signals plus the runtime receipt for this answer.
     expect(seen[1].messages).toHaveLength(7);
     expect(seen[1].messages.some(row => row.body.includes('notice_id'))).toBe(true);

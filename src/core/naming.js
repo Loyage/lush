@@ -39,7 +39,7 @@ function goalSlug(goal) {
   return kept.length ? slugify(kept.join('-')) || null : null;
 }
 
-/** `<id>-<slug>`: the id keeps names unique and greppable, the slug says what the task is. */
+/** `<id>-<slug>`: the id keeps names unique and greppable, the slug describes what the task is. */
 export function taskLabel(id, name) {
   return name ? `${id}-${name}` : `task-${id}`;
 }

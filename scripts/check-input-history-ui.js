@@ -17,7 +17,7 @@ window.fetch=async(url,options={})=>{
  const path=new URL(url,location.href).pathname;const json=data=>({ok:true,json:async()=>structuredClone(data)});
  if(path==='/api/inputs')return json({items:window.rows,next_cursor:null});
  if(path==='/api/input-parents')return json({items:world.state.inputParents});
- if(path==='/api/worker/1'){const task=await(await world.fetchImpl(url,options)).json();return json({...task,task_kind:'say',status:window.workerStatus||'paused',agent:{...task.agent,active:false}});}
+ if(path==='/api/worker/1'){const task=await(await world.fetchImpl(url,options)).json();return json({...task,task_kind:'order',status:window.workerStatus||'paused',agent:{...task.agent,active:false}});}
  const match=/^\\/api\\/input\\/(draft|input)\\/(\\d+)$/.exec(path);
  if(match)return json(window.rows.find(row=>row.kind===match[1]&&row.id===Number(match[2])));
  if(path==='/api/action'){
@@ -26,7 +26,7 @@ window.fetch=async(url,options={})=>{
   if(body.method==='draft.add'){const row={...base,...p,kind:'draft',id:Math.max(...window.rows.map(r=>r.id))+1,task_id:null,status:'draft',revision:1};window.rows.unshift(row);return json(row);}
   if(body.method==='draft.update'){const row=window.rows.find(r=>r.kind==='draft'&&r.id===p.id);Object.assign(row,p,{revision:row.revision+1});if(p.branch)row.parent_id=world.state.inputParents.find(t=>t.branch===p.branch).id;return json(row);}
   if(body.method==='draft.remove'){window.rows=window.rows.filter(r=>!(r.kind==='draft'&&r.id===p.id));return json({id:p.id});}
-  if(body.method==='say.submit'&&p.draft_id){const row=window.rows.find(r=>r.kind==='draft'&&r.id===p.draft_id);row.kind='input';row.task_id=1;row.status=p.start?'queued':'created';row.revision=null;return json({id:row.id,task:{id:1}});}
+  if(body.method==='order.submit'&&p.draft_id){const row=window.rows.find(r=>r.kind==='draft'&&r.id===p.draft_id);row.kind='input';row.task_id=1;row.status=p.start?'queued':'created';row.revision=null;return json({id:row.id,task:{id:1}});}
  }
  return world.fetchImpl(url,options);
 };
@@ -129,7 +129,7 @@ try {
   await execute(`const input=document.querySelector('#input');input.value='键盘暂存';input.dispatchEvent(new Event('input',{bubbles:true}));input.focus();`);
   await press('\uE007');
   assert(await waitFor('window.calls.some(c=>c.method==="draft.add") && document.querySelector("#input").value===""'), 'real Enter did not buffer');
-  assert(await execute('return window.calls.length===1 && window.calls[0].method==="draft.add"'), 'Enter also submitted say');
+  assert(await execute('return window.calls.length===1 && window.calls[0].method==="draft.add"'), 'Enter also submitted order');
   await execute(`const input=document.querySelector('#input');input.value='两行';input.focus();input.setSelectionRange(2,2);`);
   await keys([{ type: 'keyDown', value: '\uE008' }, { type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }, { type: 'keyUp', value: '\uE008' }]);
   assert(await execute(`return document.querySelector('#input').value==='两行\\n' && window.calls.length===1;`), 'Shift+Enter did not insert newline');
@@ -143,7 +143,7 @@ try {
   assert(help.focused && help.visible && help.text.includes('token'), `Agent focus help missing: ${JSON.stringify(help)}`);
   await click('.input-detail .agent-call');
   assert(await waitFor('document.querySelector(".input-detail").textContent.includes("已发射并开始")'), 'draft was not fired');
-  assert(await execute(`const calls=window.calls.slice(-2);return calls[0].method==='draft.update' && calls[1].method==='say.submit' && calls[1].params.expected_revision===2 && calls[1].params.start===true && !('content' in calls[1].params);`), 'save/fire contract invalid');
+  assert(await execute(`const calls=window.calls.slice(-2);return calls[0].method==='draft.update' && calls[1].method==='order.submit' && calls[1].params.expected_revision===2 && calls[1].params.start===true && !('content' in calls[1].params);`), 'save/fire contract invalid');
   assert(await execute(`return document.querySelectorAll('img').length===0;`), 'unsafe input rendered as markup');
   await execute(`document.querySelector('#input').value='';document.querySelector('#input').dispatchEvent(new Event('input'));`);
   await execute(`location.hash='#worker-1';`);

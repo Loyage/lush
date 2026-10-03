@@ -142,7 +142,7 @@ function decode(raw) {
 const RESERVATION_STATUSES = new Set(['pending','preparing','requested','started','integrated','completed','failed','cancelled']);
 const MERGE_RESERVATION_STATUSES = new Set([...RESERVATION_STATUSES, 'executing', 'resolving', 'suspended', 'blocked', 'withdrawn']);
 
-/** 存储形态解码：version 1 是旧形态（merge / showcase），version 2 是新式 say/child 的合并预约。
+/** 存储形态解码：version 1 是旧形态（merge / showcase），version 2 是新式 order/child 的合并预约。
  *  两者都要原样交给 UI（`render-delivery.js` 按 `version === 2` 分支已被设计好），
  *  认不出的形态才降级成 `{status:'invalid'}`，让它以「预约状态需检查」的形式可见而不是消失。 */
 function decodeReservation(raw) {

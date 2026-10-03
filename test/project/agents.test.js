@@ -15,7 +15,7 @@ function controlled() {
 test('one task keeps one agent identity while its credential rotates every wake', async () => {
   const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
-    const task = (await f.project.say('identity')).task;
+    const task = (await f.project.order('identity')).task;
     await until(() => provider.calls.length === 1);
     const first = f.project.running.get(task.id).token;
     expect(f.project.inspect(task.id).agent).toMatchObject({ id: `agent#${task.id}`, task_id: task.id, role: 'agent', wakes: 1, active: true });
@@ -39,7 +39,7 @@ test('one task keeps one agent identity while its credential rotates every wake'
     expect(f.store.task(task.id).agent_last_seen_at).not.toBe(seen);
 
     provider.calls[1].done.resolve('second');
-    // A say Task stays idle between invocations rather than completing on an ordinary return.
+    // A order Task stays idle between invocations rather than completing on an ordinary return.
     await until(() => f.project.running.size === 0 && f.store.task(task.id).status === 'waiting');
     await expect(rpc.dispatch('worker.list', { _token: second })).rejects.toThrow('token');
     expect(f.store.task(task.id).agent_token_hash).toBeNull();
@@ -50,7 +50,7 @@ test('one task keeps one agent identity while its credential rotates every wake'
 test('every live task owns exactly one agent, parked ancestors included', async () => {
   const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY:'2' }); await repo(f.root);
   try {
-    const parent = (await f.project.say('parent')).task;
+    const parent = (await f.project.order('parent')).task;
     await until(() => provider.calls.length === 1);
     const child = await f.project.spawn(parent.id, 'child', undefined, [], 'child');
     provider.calls[0].done.resolve('delegated');
@@ -66,7 +66,7 @@ test('every live task owns exactly one agent, parked ancestors included', async 
 test('a notice parks only its task, answer wakes it, duplicate answers fail', async () => {
   const f = fixture({ async run({ task, api }) { if (task.calls === 1) api.notice(task.id, 'Which design?', 'A or B'); return 'waiting'; } }); await repo(f.root);
   try {
-    const task = (await f.project.say('work')).task;
+    const task = (await f.project.order('work')).task;
     await until(() => f.store.task(task.id).status === 'awaiting');
     expect(f.project.running.size).toBe(0);
     const notice = f.store.get('SELECT * FROM notices');
@@ -80,7 +80,7 @@ test('a notice parks only its task, answer wakes it, duplicate answers fail', as
 test('agent capabilities cannot approve merges, spoof parents or message siblings', async () => {
   const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
-    const root = (await f.project.say('root')).task;
+    const root = (await f.project.order('root')).task;
     await until(() => provider.calls.length === 1);
     const a = await f.project.spawn(root.id,'alpha work', undefined, [], 'alpha');
     const b = await f.project.spawn(root.id,'beta work', undefined, [], 'beta');

@@ -7,7 +7,7 @@ import { methods } from '../../src/core/workspaces/task-sync.js';
 async function setup() {
   const f = fixture(); f.project.stopping = true;
   Object.assign(f.project.workspaces, methods); await repo(f.root);
-  const { task } = await f.project.say('sync');
+  const { task } = await f.project.order('sync');
   f.store.update(task.id, { status: 'waiting' });
   fs.writeFileSync(path.join(f.root, 'parent.txt'), 'parent\n');
   await git(f.root, 'add', 'parent.txt'); await git(f.root, 'commit', '-m', 'parent');

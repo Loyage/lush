@@ -143,13 +143,13 @@ export const methods = {
       this.store.event(task.id, 'analysis.checkout', { workspace: dir, commit, branch: task.target_branch });
       return dir;
     });
-    if (task.task_kind === 'say') {
-      // A say Task owns the input branch itself. Never create a second worker branch for it.
+    if (task.task_kind === 'order') {
+      // A order Task owns the input branch itself. Never create a second worker branch for it.
       const anchor = this.inputAnchor(task);
-      check(anchor?.workspace && fs.existsSync(anchor.workspace), `say #${task.id} has no worktree; inspect before retrying`);
+      check(anchor?.workspace && fs.existsSync(anchor.workspace), `order #${task.id} has no worktree; inspect before retrying`);
       const root = fs.realpathSync(await this.git(anchor.workspace, 'rev-parse', '--show-toplevel'));
-      check(root === anchor.workspace && task.workspace === anchor.workspace, 'say worktree identity changed');
-      check(await this.git(anchor.workspace, 'symbolic-ref', '--short', 'HEAD') === task.branch, 'say branch changed');
+      check(root === anchor.workspace && task.workspace === anchor.workspace, 'order worktree identity changed');
+      check(await this.git(anchor.workspace, 'symbolic-ref', '--short', 'HEAD') === task.branch, 'order branch changed');
       return anchor.workspace;
     }
     // verifier 不修改代码：它站在被检验的 worktree 里演示，另拉一个目标分支的只读对照。
@@ -215,7 +215,7 @@ export const methods = {
       const branchSync = task.role === 'merger' && !resolves && Boolean(task.base_commit && task.target_branch);
       // 没有 code 依赖、也不是 merger 时，基线来自这条输入的分支起点。输入分支之后可以聚合子分支，
       // 但一个已经派出的并行任务仍从输入提交时冻结的 commit 开始，不会随合并时机漂移。
-      // 终态 say 的独立解分歧子 Task 也是 task_kind='child'，但没有父任务（用 resolves_task_id 关联）。
+      // 终态 order 的独立解分歧子 Task 也是 task_kind='child'，但没有父任务（用 resolves_task_id 关联）。
       const owner = task.task_kind === 'child' && task.parent_id && !resolves ? this.store.task(task.parent_id) : null;
       check(!owner || owner.branch, 'new child Worker has no parent branch');
       const anchor = (resolves || branchSync || owner) ? null : this.inputAnchor(task);

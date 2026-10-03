@@ -75,7 +75,7 @@ test('worker branch is isolated, committed results stay pending until explicit m
 test('review diff is read-only and reports commits, files and dirty worktrees', async () => {
   const f = await setup();
   try {
-    // 新模型里 say 一创建就有分支与 worktree：还没干活时是「没有提交」的空 diff，而不是 null。
+    // 新模型里 order 一创建就有分支与 worktree：还没干活时是「没有提交」的空 diff，而不是 null。
     expect(await f.project.workspaces.diff(f.store.task(f.task.id)))
       .toMatchObject({ committed: false, head_commit: null, files: [], pending: [] });
     const cwd = await change(f, f.task);
@@ -102,13 +102,13 @@ test('review diff is read-only and reports commits, files and dirty worktrees', 
   } finally { await f.close(); }
 });
 
-test('independent say Tasks get different worktrees and land one at a time', async () => {
+test('independent order Tasks get different worktrees and land one at a time', async () => {
   const f = await setup();
   try {
-    const other = await f.project.say('other');
+    const other = await f.project.order('other');
     const b = f.store.task(other.task.id);
     await Promise.all([change(f,f.task,'A','a.txt'), change(f,b,'B','b.txt')]);
-    // 两条 say 各有独立 worktree，互不干扰；落地顺序由 v2 队列串行决定（见 merge-queue 用例）。
+    // 两条 order 各有独立 worktree，互不干扰；落地顺序由 v2 队列串行决定（见 merge-queue 用例）。
     expect(b.workspace).not.toBe(f.store.task(f.task.id).workspace);
     expect(fs.existsSync(path.join(b.workspace,'b.txt'))).toBe(true);
     expect(fs.existsSync(path.join(f.store.task(f.task.id).workspace,'a.txt'))).toBe(true);
@@ -120,7 +120,7 @@ test('independent say Tasks get different worktrees and land one at a time', asy
 test('父分支前进之后，第二条分支不会被覆盖：分歧交回源 Task，主树一个字节不动', async () => {
   const f = await setup();
   try {
-    const other = await f.project.say('other');
+    const other = await f.project.order('other');
     const b = f.store.task(other.task.id);
     await change(f,f.task,'A\n'); await change(f,b,'B\n');
     // 第一条落地，main 前进。
@@ -141,9 +141,9 @@ test('父分支前进之后，第二条分支不会被覆盖：分歧交回源 T
 test('dirty main tree no longer blocks worktrees, but still blocks merge and dirty worker', async () => {
   const f = await setup();
   try {
-    // 主树有未提交改动：say 只基于已提交的 HEAD 建 worktree，允许开工；分歧写进事件供审阅。
+    // 主树有未提交改动：order 只基于已提交的 HEAD 建 worktree，允许开工；分歧写进事件供审阅。
     fs.writeFileSync(path.join(f.root, 'file.txt'), 'uncommitted\n');
-    const fresh = await f.project.say('dirty main work');
+    const fresh = await f.project.order('dirty main work');
     const task = fresh.task;
     const cwd = task.workspace;
     expect(cwd).toBe(path.join(f.config.home, 'worktrees', `input-${fresh.id}`));
@@ -171,7 +171,7 @@ test('dirty main tree no longer blocks worktrees, but still blocks merge and dir
 test('merge refuses a task that has not finished', async () => {
   const f = await setup();
   try {
-    // 新路径（say/child）用固定提交 + compare-and-swap 落地，不再要求用户把检出切到目标分支。
+    // 新路径（order/child）用固定提交 + compare-and-swap 落地，不再要求用户把检出切到目标分支。
     await expect(f.project.workspaces.merge(f.task.id)).rejects.toThrow('completed');
     await change(f,f.task); await git(f.root,'checkout','-b','other');
     expect((await f.project.workspaces.merge(f.task.id)).branch).toBeTruthy();
@@ -194,19 +194,19 @@ test('an interrupted merge can only be reconciled by another explicit approval',
   } finally { await f.close(); }
 });
 
-test('end-to-end say Agent works inside its worktree and cannot silently finish dirty', async () => {
+test('end-to-end order Agent works inside its worktree and cannot silently finish dirty', async () => {
   const f = fixture({ async run({ cwd }) {
     fs.writeFileSync(path.join(cwd,'new.txt'),'not committed');
     return 'done';
   } });
   try {
     await repo(f.root);
-    // 主树带未提交改动：say 仍然能开工（基于已提交 HEAD），但 Lush 不会动这份改动。
+    // 主树带未提交改动：order 仍然能开工（基于已提交 HEAD），但 Lush 不会动这份改动。
     fs.writeFileSync(path.join(f.root,'wip.txt'),'uncommitted');
-    const say = await f.project.say('edit');
+    const order = await f.project.order('edit');
     f.project.kick();
-    await until(() => f.store.task(say.task.id).status !== 'running' && f.store.task(say.task.id).status !== 'queued');
-    const task = f.store.task(say.task.id);
+    await until(() => f.store.task(order.task.id).status !== 'running' && f.store.task(order.task.id).status !== 'queued');
+    const task = f.store.task(order.task.id);
     expect(task.status).toBe('failed'); expect(task.error).toContain('dirty');
     expect(task.error).toContain('new.txt');
     expect(fs.existsSync(path.join(task.workspace,'new.txt'))).toBe(true);

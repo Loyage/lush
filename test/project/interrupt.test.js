@@ -31,7 +31,7 @@ function controlled(agent = 'pi') {
 async function start(f) {
   f.project.stopping = true;
   await repo(f.root);
-  const { task } = await f.project.say('interruptible work');
+  const { task } = await f.project.order('interruptible work');
   f.project.stopping = false; f.project.kick();
   await until(() => f.project.provider.calls.length === 1);
   return task;
@@ -234,7 +234,7 @@ test('queued pause and run configuration are preserved; running pending pause ma
     provider.calls[1].done.resolve('configured');
     await until(() => !f.project.running.has(task.id));
     f.project.stopping = true;
-    const queued = (await f.project.say('queue then pause')).task;
+    const queued = (await f.project.order('queue then pause')).task;
     expect(f.project.interrupt(queued.id)).toMatchObject({ status: 'paused', interrupt_state: null });
     expect(f.project.interrupt(queued.id).status).toBe('paused');
     expect(f.project.resumeTask(queued.id).status).toBe('queued');
@@ -247,7 +247,7 @@ test('interrupt/resume/configure retain target guards and user-only RPC authoriz
   try {
     const root = await f.project.ensureMainTask();
     expect(() => f.project.interrupt(root.id)).toThrow('permanent root');
-    const { task } = await f.project.say('guards');
+    const { task } = await f.project.order('guards');
     f.store.update(task.id, { status: 'waiting' });
     expect(() => f.project.resumeTask(task.id)).toThrow('only paused workers');
     expect(() => f.project.configureTask(task.id, { agent: 'pi' })).toThrow('only paused');
@@ -270,7 +270,7 @@ test('restart never replays a resuming old invocation, and clears its stale cont
   const f = fixture();
   f.project.stopping = true; await repo(f.root);
   try {
-    const { task } = await f.project.say('unknown old execution');
+    const { task } = await f.project.order('unknown old execution');
     f.store.update(task.id, { status: 'queued', interrupt_state: 'resuming' });
     f.project.recover();
     expect(f.store.task(task.id)).toMatchObject({ status: 'failed', interrupt_state: null, calls: 0 });
@@ -281,7 +281,7 @@ test('restart never replays a resuming old invocation, and clears its stale cont
 test('old databases gain only a nullable interrupt column without backfilling historical workers', () => {
   const root = temp(), file = path.join(root, 'store.db');
   let store = new Store(file, root);
-  const task = store.create({ input_id: null, role: 'agent', goal: 'historical', task_kind: 'say' });
+  const task = store.create({ input_id: null, role: 'agent', goal: 'historical', task_kind: 'order' });
   const original = store.task(task.id);
   store.close();
   const db = new Database(file);

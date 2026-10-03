@@ -5,8 +5,8 @@ import { fixture, repo, git, gate } from '../helpers.js';
 
 async function setup() {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
-  const say = await f.project.say('mistyped input');
-  return {...f,task:f.store.task(say.task.id),inputId:say.task.input_id};
+  const order = await f.project.order('mistyped input');
+  return {...f,task:f.store.task(order.task.id),inputId:order.task.input_id};
 }
 async function remove(f,id=f.task.id) {
   const preview = await f.project.deleteTaskPreview(id);
@@ -113,7 +113,7 @@ test('ref changes invalidate preview; invocation exit, sync, cleanup, and outsta
 test('external dependents, resolver references, genealogy and unsubmitted drafts refuse deletion',async()=>{
   const f=await setup();
   try {
-    const other=(await f.project.say('keep this input')).task;
+    const other=(await f.project.order('keep this input')).task;
     f.project.cancel(f.task.id);
     f.store.addDep(other.id,f.task.id,'order');
     expect((await f.project.deleteTaskPreview(f.task.id)).blockers.join(' ')).toContain('dependent');
@@ -151,7 +151,7 @@ test('during cleanup new writes/retry/reopen are rejected; failed cleanup retain
     const deleting=f.project.deleteTask(f.task.id,{confirm:true,revision:preview.revision});
     await entered.promise;
     expect(()=>f.project.retry(f.task.id)).toThrow('deletion');
-    await expect(f.project.say('do not create')).rejects.toThrow('deletion');
+    await expect(f.project.order('do not create')).rejects.toThrow('deletion');
     expect(()=>f.project.reopenTask(f.task.id)).toThrow('deletion');
     release.resolve(); await expect(deleting).rejects.toThrow('injected');
     expect(f.store.task(f.task.id).status).toBe('cancelled');

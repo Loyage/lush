@@ -41,8 +41,8 @@ async function hostFixture() {
       calls.push({ project, method, params });
       if (method === 'notice.page') return { notices: [{ id: 8, task_id: 7, kind: 'questionnaire',
         body: JSON.stringify({ questions: [{ options: [{ previewHtml: '<p>safe preview</p>' }] }] }) }] };
-      if (method === 'worker.inspect') return { id: 7, task_kind: 'say', role: 'verifier' };
-      return { project, task_id: 7, task_kind: 'say' };
+      if (method === 'worker.inspect') return { id: 7, task_kind: 'order', role: 'verifier' };
+      return { project, task_id: 7, task_kind: 'order' };
     } },
   }) });
   const url = `http://127.0.0.1:${web.port}`;
@@ -61,8 +61,8 @@ test('worker HTTP reads forward only the new namespace with unchanged typed para
       expect(response.status).toBe(200);
       expect(response.headers.get('cache-control')).toBe('no-store');
       const body = await response.json();
-      if (verb === 'inspect') expect(body.task_kind).toBe('say');
-      else expect(body).toEqual({ project: f.a, task_id: 7, task_kind: 'say' });
+      if (verb === 'inspect') expect(body.task_kind).toBe('order');
+      else expect(body).toEqual({ project: f.a, task_id: 7, task_kind: 'order' });
       expect(f.calls.at(-1)).toEqual({ project: f.a, method: `worker.${verb}`, params });
       const before = f.calls.length;
       expect((await fetch(`${f.urlA}/api/${legacy(route)}`)).status).toBe(404);
@@ -83,7 +83,7 @@ test('worker HTTP mutation whitelist accepts renamed actions, rejects every old 
     for (const verb of mutations) {
       const response = await post(f.urlA, `worker.${verb}`, { id: 7 });
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ project: f.a, task_id: 7, task_kind: 'say' });
+      expect(await response.json()).toEqual({ project: f.a, task_id: 7, task_kind: 'order' });
       expect(f.calls.at(-1)).toEqual({ project: f.a, method: `worker.${verb}`, params: { id: 7 } });
       const before = f.calls.length;
       expect((await post(f.urlA, `task.${verb}`, { id: 7 })).status).toBe(400);

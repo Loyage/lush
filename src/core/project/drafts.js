@@ -43,7 +43,7 @@ export default {
     });
   },
 
-  /** say --draft / Web 草稿行：一次只发送选中的草稿，不触碰其它缓存。 */
+  /** order --draft / Web 草稿行：一次只发送选中的草稿，不触碰其它缓存。 */
   async submitDraft(draftId, branch = null) {
     const result = await this.commitDrafts([draftId], branch);
     return result.inputs[0];

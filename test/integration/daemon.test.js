@@ -26,11 +26,11 @@ test('real daemons: project isolation, duplicate start, immediate input, restart
     expect(diagnosis.host).toMatchObject({ running: false, code_match: null });
     expect(diagnosis.update_hints).toEqual([]);
     expect((await cli(a,['start'])).already_running).toBe(true);
-    const input = await cli(a,['say','original input']);
+    const input = await cli(a,['order','original input']);
     expect((await idle(ca,input.task.id)).status).toBe('waiting');
     const booked = await ca.request('worker.reserve', { id: input.task.id, kind: 'merge' });
     expect(booked.reservation.status).toBe('pending');
-    expect((await cb.request('worker.list')).filter(task => task.task_kind === 'say')).toEqual([]);
+    expect((await cb.request('worker.list')).filter(task => task.task_kind === 'order')).toEqual([]);
     const before = await ca.request('worker.tree');
     const restarted = await cli(a,['daemon-restart']); expect(restarted.pid).not.toBe(sa.pid);
     const after = await ca.request('worker.tree');
@@ -51,16 +51,16 @@ test('real daemons: project isolation, duplicate start, immediate input, restart
   }
 }, 30000);
 
-test('daemon starts without a main ref but new say refuses to invent one', async () => {
+test('daemon starts without a main ref but new order refuses to invent one', async () => {
   const root = temp(); await repo(root); await git(root, 'branch', '-m', 'trunk');
   try {
     await cli(root, ['start']);
     const client = new UIClient(Config.fromEnv(env(), root));
     expect((await client.request('worker.list')).filter(task => task.task_kind === 'main')).toEqual([]);
-    await expect(client.request('say.submit', { content: 'write a thing', branch: 'trunk' }))
+    await expect(client.request('order.submit', { content: 'write a thing', branch: 'trunk' }))
       .rejects.toThrow('explicitly bound Worker');
-    await expect(client.request('say.submit', { content: 'write a thing', branch: 'main' }))
+    await expect(client.request('order.submit', { content: 'write a thing', branch: 'main' }))
       .rejects.toThrow('local main branch');
-    expect((await client.request('worker.list')).filter(task => task.task_kind === 'say')).toEqual([]);
+    expect((await client.request('worker.list')).filter(task => task.task_kind === 'order')).toEqual([]);
   } finally { await cli(root, ['stop']).catch(() => {}); fs.rmSync(root, { recursive: true, force: true }); }
 }, 30000);

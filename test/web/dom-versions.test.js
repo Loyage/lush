@@ -7,7 +7,7 @@ const sha = char => char.repeat(40);
 const commit = (char = 'a', tasks = []) => ({ commit: sha(char), short_commit: char.repeat(7), parents: [],
   subject: `提交 ${char}`, author: { name: '开发者' }, committed_at: '2026-10-02T09:00:00Z',
   association: tasks.length ? 'verified' : 'unassociated', tasks });
-const task = { id: 12, task_kind: 'say', goal: '开发版本迭代', input: { id: 7, content: '原始 say\n保留换行' }, evidence: 'task.merge_integrated' };
+const task = { id: 12, task_kind: 'order', goal: '开发版本迭代', input: { id: 7, content: '原始指令\n保留换行' }, evidence: 'task.merge_integrated' };
 const fixture = () => ({ branch: 'main', tip: sha('a'), commits: [commit('a', [task]), commit('b')], cursor: 'opaque +/cursor', has_more: true });
 const json = data => ({ ok: true, json: async () => data });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
@@ -40,8 +40,8 @@ test('版本迭代平级导航、hash、页面身份、移动端与只读轮询�
   expect(dom.node('resource-panels').hidden).toBe(true); expect(dom.node('detail').hidden).toBe(false);
   expect(dom.node('sidebar').classList.contains('mobile-open')).toBe(false);
   expect(text()).toContain(sha('a')); expect(text()).toContain('2026-10-02T09:00:00Z'); expect(text()).toContain('开发者');
-  expect(text()).toContain('查看 Worker #12'); expect(text()).toContain('开发版本迭代'); expect(text()).toContain('原始 say #7');
-  expect(text()).toContain('原始 say\n保留换行'); expect(text()).toContain('未关联 Worker');
+  expect(text()).toContain('查看 Worker #12'); expect(text()).toContain('开发版本迭代'); expect(text()).toContain('原始指令 #7');
+  expect(text()).toContain('原始指令\n保留换行'); expect(text()).toContain('未关联 Worker');
   expect(refresh().getAttribute('data-help')).toContain('不启动 Agent');
   expect(dom.node('detail').querySelectorAll('.agent-call')).toHaveLength(0);
   const content = text(), pushes = dom.pushed(); await openVersions();

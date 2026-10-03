@@ -12,7 +12,7 @@ test('commit adapter records a Pi entry and a child forks from that exact commit
   const f = fixture(); f.project.stopping = true;
   await repo(f.root);
   try {
-    const parent = await f.project.say('parent work');
+    const parent = await f.project.order('parent work');
     const task = parent.task;
     const sessions = path.join(f.config.home, 'sessions');
     fs.mkdirSync(sessions, { recursive: true });
@@ -36,7 +36,7 @@ test('commit adapter records a Pi entry and a child forks from that exact commit
     const checkpoint = forkCheckpoint(f.config.home, { ...pointer, commit: sha });
     const entries = fs.readFileSync(checkpoint, 'utf8').trim().split('\n').map(JSON.parse);
     expect(entries.map(entry => entry.id)).toEqual([header.id, 'a1', 'a2']);
-    const input = await f.project.say('user intent forks the parent', task.branch);
+    const input = await f.project.order('user intent forks the parent', task.branch);
     expect(input.task).toMatchObject({ parent_id: task.id, base_commit: sha, target_branch: task.branch });
     expect(input.anchor.commit).toBe(sha);
     const child = await f.project.spawn(task.id, 'child task', 'agent', [], 'child-task');
@@ -61,11 +61,11 @@ test('a parent commit without Pi context still makes a worktree; forged checkpoi
   const f = fixture(); f.project.stopping = true;
   await repo(f.root);
   try {
-    const say = await f.project.say('initial input');
-    expect(f.store.get('SELECT * FROM commit_contexts WHERE commit_hash=?', say.anchor.commit)).toBeNull();
-    const child = await f.project.spawn(say.task.id, 'child task', 'agent', [], 'child-task');
-    expect(child.base_commit).toBe(say.anchor.commit);
-    expect(await git(child.workspace, 'rev-parse', 'HEAD')).toBe(say.anchor.commit);
+    const order = await f.project.order('initial input');
+    expect(f.store.get('SELECT * FROM commit_contexts WHERE commit_hash=?', order.anchor.commit)).toBeNull();
+    const child = await f.project.spawn(order.task.id, 'child task', 'agent', [], 'child-task');
+    expect(child.base_commit).toBe(order.anchor.commit);
+    expect(await git(child.workspace, 'rev-parse', 'HEAD')).toBe(order.anchor.commit);
     expect(() => forkCheckpoint(f.config.home, { session: '/tmp/foreign.jsonl', entry: 'a', commit: 'a'.repeat(40) })).toThrow('outside');
   } finally { await f.close(); }
 });

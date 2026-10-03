@@ -46,7 +46,7 @@ test('HTTP deletion clears a real temporary Git subtree, original Input and excl
   f.project.stopping = true; // No provider invocation; real resources, not mocked cleanup.
   try {
     await repo(f.root);
-    const { task } = await f.project.say('mistyped input');
+    const { task } = await f.project.order('mistyped input');
     const child = await f.project.spawn(task.id, 'unwanted child', undefined, [], 'typo-child');
     const cwd = f.store.task(child.id).workspace;
     fs.writeFileSync(path.join(cwd, 'file.txt'), 'unmerged implementation');
@@ -86,7 +86,7 @@ test('HTTP stale resource revision refuses without side effects and a fresh prev
   const f = await setup(); f.project.stopping = true;
   try {
     await repo(f.root);
-    const { task } = await f.project.say('typo');
+    const { task } = await f.project.order('typo');
     f.project.cancel(task.id);
     const preview = await (await fetch(f.url + `/api/worker/${task.id}/delete-preview`)).json();
     const file = path.join(task.workspace, 'late.txt'); fs.writeFileSync(file, 'new work after preview');

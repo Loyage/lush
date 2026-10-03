@@ -1,4 +1,5 @@
 import { $, badge, button, el, roleBadge } from './dom.js';
+import { workerKind, workerKindLabel } from './worker-kind.js';
 import { api, action } from './api.js';
 import { confirmDialog, promptDialog } from './dialog.js';
 import { agentHelp } from './help.js';
@@ -22,10 +23,10 @@ const ACTIVE = new Set(['running', 'queued', 'waiting', 'awaiting', 'awaiting_ac
 const ENDED = new Set(['completed', 'failed', 'cancelled']);
 /** 状态计数 / 图例的固定顺序：先是活动态，再到终结态；只画出现过的。 */
 const STATUS_ORDER = ['running', 'queued', 'waiting', 'awaiting', 'awaiting_acceptance', 'completed', 'failed', 'cancelled'];
-/** 图上画成卡片的 Task：自己拥有分支 / worktree 的 main / owner / say / child。
+/** 图上画成卡片的 Task：自己拥有分支 / worktree 的 main / owner / 指令 / child。
  *  planner / scheduler 是历史意图层记录，不在这里画；merge Task 是旧 version 2 的历史队列身份，
  *  和别的 Task 一样由表头的状态开关决定显示与否，不按队列活跃度自动收起。 */
-const VISIBLE_KINDS = new Set(['say', 'child', 'main', 'owner', 'merge']);
+const VISIBLE_KINDS = new Set(['order', 'child', 'main', 'owner', 'merge']);
 /** 在飞的合并预约：已预约等静息 / 已发请求待落地 / 已退回源侧解分歧。 */
 const IN_FLIGHT = new Set(['pending', 'requested', 'resolving']);
 
@@ -75,14 +76,14 @@ function taskVisualState(node) {
 }
 
 /**
- * 「合并所有」的候选：目标分支就是这条 Task、已静息且仍待集成的 say/child。展示层只做只读筛选
+ * 「合并所有」的候选：目标分支就是这条 Task、已静息且仍待集成的 order/child。展示层只做只读筛选
  * （v2 预约 JSON 不在图里展开，所以按状态 + 集成口径判断），真正能不能发出请求由 runtime 的
  * `worker.reserve_all` → `reserveMergeAll` 再逐条校验一次。
  */
 function mergeAllCandidates(graph) {
   const byBranch = new Map();
   for (const node of graph.nodes || []) {
-    if (!['say', 'child'].includes(node.task_kind)) continue;
+    if (!['order', 'child'].includes(workerKind(node))) continue;
     if (node.status !== 'waiting' || node.integration !== 'pending') continue;
     if (!node.target_branch) continue;
     if (node.reservation?.kind && node.reservation.kind !== 'merge') continue;
@@ -153,7 +154,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   // 用与任务详情同一份 INTEGRATION 文案与配色；none（没有独有提交）/ 未知值不占位。
   const merge = INTEGRATION[node.integration];
   if (!minimal && merge) head.append(badge(merge, node.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
-  if (!minimal && node.task_kind) head.append(badge(node.task_kind === 'merge' ? 'merge（历史）' : node.task_kind));
+  if (!minimal && node.task_kind) head.append(badge(node.task_kind === 'merge' ? 'merge（历史）' : workerKindLabel(node)));
   if (!minimal && node.freeze && node.freeze.task_id !== node.id) head.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
   row.append(head);
@@ -193,7 +194,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   if (node.updated_at) facts.append(el('span', `更新 ${absolute(node.updated_at)}`, 'meta'));
   row.append(facts);
   if (node.integration_error) row.append(el('p', `集成受阻：${node.integration_error}`, 'hint'));
-  if (node.task_kind !== 'say' && node.delivery?.blocked_reason) row.append(el('p', `交付受阻：${node.delivery.blocked_reason}`, 'hint'));
+  if (workerKind(node) !== 'order' && node.delivery?.blocked_reason) row.append(el('p', `交付受阻：${node.delivery.blocked_reason}`, 'hint'));
   if (node.parent_id && !ui.taskGraphIds?.has(node.parent_id)) row.append(el('p', `父 Worker #${node.parent_id} 不在当前图中`, 'hint'));
 
   if (node.branch_info && !node.branch_info.archived) {
@@ -259,7 +260,7 @@ function appendTaskActions(row, node, mergeAllByBranch) {
   if (controls) row.append(controls);
   const deletion = workerDeleteControl(node, { refresh: loadTaskGraph });
   if (deletion) row.append(deletion);
-  if (['say', 'child'].includes(node.task_kind) && !ENDED.has(node.status) && !isHistoricalDelivery(node)) {
+  if (['order', 'child'].includes(workerKind(node)) && !ENDED.has(node.status) && !isHistoricalDelivery(node)) {
     row.append(guardedAction(button('向此 Worker 输入', async () => {
       const body = await promptDialog({ title: `发给 Worker #${node.id}`, label: '输入', confirmLabel: '发送消息',
         confirmHelp: agentHelp('把输入交给这条 Worker；固定规则可请求 Agent 在安全点提前收尾，否则轮末投递。'), agent: true });
@@ -345,7 +346,7 @@ export function renderTaskGraph(graph) {
   const raw = (graph.nodes || []).filter(node => !ui.deletedWorkerIds.has(node.id));
   const byId = new Map(raw.map(node => [node.id, node]));
   // merge 与其它 Task 一视同仁：画不画由表头的状态开关决定，不再按队列活跃度整层收起。
-  const visible = new Set(raw.filter(node => VISIBLE_KINDS.has(node.task_kind)).map(node => node.id));
+  const visible = new Set(raw.filter(node => VISIBLE_KINDS.has(workerKind(node))).map(node => node.id));
   // 被筛掉的中间 Task 不制造孤儿：父指到最近的可见祖先，所以归档 / 状态筛选藏起来的父 Task 不会把子 Task 一起带走。
   // 祖先都不在这一页（被截断 / 真的缺节点）时保留原 parent_id，照旧画成根并写明「父 Task 不在当前图中」。
   const parentInView = node => {

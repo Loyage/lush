@@ -64,7 +64,7 @@ test('引用卡片始终可见，1.5s 轮询不改变输入区折叠态', async 
 });
 
 test('⌘/Ctrl+Enter 创建待开始，⌘/Ctrl+Shift+Enter 直接运行', async () => {
-  const lastSend = () => [...world.state.actions].reverse().find(row => row.method === 'say.submit');
+  const lastSend = () => [...world.state.actions].reverse().find(row => row.method === 'order.submit');
   const fire = async (shift, content) => {
     await overview();
     dom.node('input').value = content;

@@ -7,7 +7,7 @@ import { fixture, repo, git, until } from '../helpers.js';
 async function stranded(f, historical = false) {
   f.project.stopping = true;
   await repo(f.root);
-  const { task } = await f.project.say('recover delivery');
+  const { task } = await f.project.order('recover delivery');
   fs.writeFileSync(path.join(task.workspace, 'child.txt'), 'child work\n');
   await git(task.workspace, 'add', 'child.txt');
   await git(task.workspace, 'commit', '-m', 'child work');

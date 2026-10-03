@@ -61,9 +61,9 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         integration TEXT NOT NULL DEFAULT 'none', target_branch TEXT, integration_error TEXT,
         -- layer: 'intent'（planner 拆解 / scheduler 编排）不进任务树；'work' 才是用户要的开发任务链。
         layer TEXT NOT NULL DEFAULT 'work',
-        -- NULL/legacy=旧任务；main/owner 是静息根；say 直接管理输入；历史专用节点只保留记录。
+        -- NULL/legacy=旧任务；main/owner 是静息根；order 直接管理输入；历史专用节点只保留记录。
         task_kind TEXT,
-        -- say/child 的合并预约；versioned JSON，NULL 表示未预约，历史其它预约只保留记录。
+        -- order/child 的合并预约；versioned JSON，NULL 表示未预约，历史其它预约只保留记录。
         reservation TEXT,
         auto_merge TEXT,
         -- plan_gate: planner 这一轮拆解的审批闸门：NULL=没申请批准（直接编排）/ proposed=等你批准 / approved / rejected。

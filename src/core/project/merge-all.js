@@ -97,7 +97,7 @@ export default {
     const branches = [name, ...descendants];
     const placeholders = branches.map(() => '?').join(',');
     check(!this.store.get(`SELECT id FROM tasks WHERE branch IN (${placeholders})
-      AND (task_kind IN ('owner','say','child') OR (task_kind='main' AND branch<>?)) LIMIT 1`, ...branches, name),
+      AND (task_kind IN ('owner','order','say','child') OR (task_kind='main' AND branch<>?)) LIMIT 1`, ...branches, name),
       'new Worker branches cannot use legacy branch.merge_all; merge old branches individually');
     const existing = this.store.branchMergeRun(name);
     check(!existing || !['running', 'paused'].includes(existing.status),

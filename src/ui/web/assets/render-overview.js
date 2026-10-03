@@ -1,4 +1,5 @@
 import { $, block, button, el, kv } from './dom.js';
+import { workerKind, workerKindLabel } from './worker-kind.js';
 import { HOT, absolute, statusOf } from './format.js';
 import { detail } from './navigate.js';
 import { openNotice } from './render-notices.js';
@@ -6,9 +7,9 @@ import { ui } from './state.js';
 
 /** Worker-first homepage using the existing studio layout, without old Intent/Plan/Candidate controls. */
 export function renderOverview(data) {
-  const tasks = (data.tasks || []).filter(task => ['say','child','main','owner'].includes(task.task_kind));
+  const tasks = (data.tasks || []).filter(task => ['order','child','main','owner'].includes(workerKind(task)));
   const open = (data.notices || []).filter(notice => notice.status === 'open' && notice.kind !== 'info');
-  const acceptance = tasks.filter(task => task.status === 'awaiting_acceptance' && task.task_kind === 'say');
+  const acceptance = tasks.filter(task => task.status === 'awaiting_acceptance' && workerKind(task) === 'order');
   const parentConfirmation = tasks.filter(task => task.status === 'awaiting_acceptance' && task.task_kind === 'child');
   const active = tasks.filter(task => HOT.has(task.status) && task.status !== 'awaiting_acceptance' && !['main','owner'].includes(task.task_kind));
   const key = JSON.stringify([data.revision, tasks.map(task => `${task.id}:${task.updated_at}`), open.map(notice => notice.id)]);
@@ -25,7 +26,7 @@ export function renderOverview(data) {
 
   const metrics = el('div', undefined, 'metrics');
   for (const [label, value, note, tone] of [
-    ['Worker', tasks.length, 'say、子 Worker 与分支所有者', 'blue'],
+    ['Worker', tasks.length, '指令、子 Worker 与分支所有者', 'blue'],
     ['进行中', active.length, `${data.status.agents?.length ?? 0} 个 Agent 正在调用`, 'violet'],
     ['待验收', acceptance.length, `${parentConfirmation.length} 个派生 Worker 待父确认，无需你验收`, 'violet'],
     ['待我处理', open.length, open.length ? '需要你的答复' : '没有待答复问题', 'green'],
@@ -40,7 +41,7 @@ export function renderOverview(data) {
   if (!tasks.length) work.append(el('p', '还没有 Worker。在底部输入框描述目标即可开始。', 'empty-state compact'));
   for (const task of [...tasks].sort((a, b) => b.id - a.id).slice(0, 20)) {
     const row = el('div', undefined, 'branch-row');
-    row.append(el('span', `#${task.id}`, 'tid'), button(task.goal || task.task_kind, () => detail(task.id), 'link'),
+    row.append(el('span', `#${task.id}`, 'tid'), button(task.goal || workerKindLabel(task), () => detail(task.id), 'link'),
       el('span', statusOf(task).label, `chip c-${task.status}`));
     if (task.branch) row.append(el('span', task.branch, 'meta mono'));
     work.append(row);

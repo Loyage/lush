@@ -38,8 +38,8 @@ afterAll(() => { restoreNav(); dom.restore(); });
 test('Enter 暂存/Shift 换行/Ctrl 与 Meta 创建/开始的完整键盘矩阵', async () => {
   for (const [keys, method, start, handled] of [
     [{}, 'draft.add', undefined, true], [{ shiftKey: true }, null, undefined, false],
-    [{ ctrlKey: true }, 'say.submit', false, true], [{ metaKey: true }, 'say.submit', false, true],
-    [{ ctrlKey: true, shiftKey: true }, 'say.submit', true, true], [{ metaKey: true, shiftKey: true }, 'say.submit', true, true],
+    [{ ctrlKey: true }, 'order.submit', false, true], [{ metaKey: true }, 'order.submit', false, true],
+    [{ ctrlKey: true, shiftKey: true }, 'order.submit', true, true], [{ metaKey: true, shiftKey: true }, 'order.submit', true, true],
     [{ altKey: true }, null, undefined, false],
   ]) {
     calls.length = 0; type('想法\n第二行'); expect(await enter(keys)).toBe(handled);
@@ -47,7 +47,7 @@ test('Enter 暂存/Shift 换行/Ctrl 与 Meta 创建/开始的完整键盘矩阵
     if (method) { expect(calls[0].method).toBe(method); expect(calls[0].params.start).toBe(start); }
   }
   type('按钮发送'); await dom.node('input-form').onsubmit({ preventDefault() {} });
-  expect(calls.at(-1)).toMatchObject({ method: 'say.submit', params: { start: false } });
+  expect(calls.at(-1)).toMatchObject({ method: 'order.submit', params: { start: false } });
   type('按钮暂存'); await dom.node('input-buffer').onclick(); expect(calls.at(-1).method).toBe('draft.add');
 });
 
@@ -124,7 +124,7 @@ test('父候选查询单飞，迟到旧初始化结果不可覆盖新候选', as
 function openWorker(overrides = {}) {
   ui.selected = 126;
   activateDetailView({ view: 'task', key: 'task-126' });
-  ui.composerTask = { id: 126, task_kind: 'say', status: 'running', branch: 'lush/126', ...overrides };
+  ui.composerTask = { id: 126, task_kind: 'order', status: 'running', branch: 'lush/126', ...overrides };
   syncComposer();
 }
 
@@ -166,7 +166,7 @@ test('读取中/终态/只读/归档/冻结不改投 main；main 与 owner 创�
   ui.composerError = null;
   for (const [task_kind, branch] of [['main', 'main'], ['owner', 'release']]) {
     openWorker({ task_kind, branch, status: 'waiting' }); type('新的独立工作'); await enter({ ctrlKey: true });
-    expect(calls.at(-1)).toMatchObject({ method: 'say.submit', params: { branch, start: false } });
+    expect(calls.at(-1)).toMatchObject({ method: 'order.submit', params: { branch, start: false } });
   }
   openWorker({ status: 'paused' }); expect(input().placeholder).toContain('需开始 / 继续');
   type('暂停追加'); await enter(); expect(calls.at(-1).method).toBe('worker.message');

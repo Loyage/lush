@@ -5,7 +5,7 @@ import { fixture, repo } from '../helpers.js';
 async function setup() {
   const f = fixture(); Object.assign(f.project, iteration); f.project.stopping = true;
   await repo(f.root);
-  const { task } = await f.project.say('read model');
+  const { task } = await f.project.order('read model');
   f.store.update(task.id, { status: 'waiting', result: 'answer' });
   return { ...f, task };
 }
@@ -71,7 +71,7 @@ test('batched iteration projection uses bounded indexed latest-event reads and d
       f.store.event(task.id, 'task.accepted', {});
       return f.store.task(task.id);
     }));
-    const unrelated = f.store.create({ role: 'agent', task_kind: 'say', goal: 'not selected' });
+    const unrelated = f.store.create({ role: 'agent', task_kind: 'order', goal: 'not selected' });
     f.store.event(unrelated.id, 'task.parent_sync_conflict', { source_commit: 'x', parent_commit: 'y', reason: 'must not leak' });
     f.store.transaction(() => {
       for (let index = 0; index < 2500; index++) f.store.event(tasks[0].id, 'invocation.started', { index });

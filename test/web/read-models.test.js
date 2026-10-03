@@ -45,7 +45,7 @@ test('web no longer exposes the removed input flow judgement', async () => {
   const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,params})});
   try {
-    expect((await post('say.submit',{content:'了解调度器怎么工作'})).status).toBe(200);
+    expect((await post('order.submit',{content:'了解调度器怎么工作'})).status).toBe(200);
     const page = await pageSource(f.url);
     // 旧名称在此拼接：既验证页面与接口不再暴露它们，又不给仓库留下已移除的字面量。
     const removedMethod = ['input', 'flow'].join('.');

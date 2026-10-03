@@ -1,12 +1,12 @@
 import {test,expect} from 'bun:test';
 import fs from 'node:fs';
 import {fixture,repo} from '../helpers.js';
-async function setup(){const f=fixture();f.project.stopping=true;await repo(f.root);const task=(await f.project.say('unneeded original')).task;f.project.cancel(task.id);return {...f,task:f.store.task(task.id)};}
+async function setup(){const f=fixture();f.project.stopping=true;await repo(f.root);const task=(await f.project.order('unneeded original')).task;f.project.cancel(task.id);return {...f,task:f.store.task(task.id)};}
 
 test('external historical Input artifacts prevent deleting their still-used Input',async()=>{
   const f=await setup();
   try{
-    const other=(await f.project.say('keep')).task;
+    const other=(await f.project.order('keep')).task;
     f.store.addArtifact({task_id:other.id,input_id:f.task.input_id,kind:'historical',payload:'keep'});
     const preview=await f.project.deleteTaskPreview(f.task.id);
     expect(preview.can_delete).toBe(false);expect(preview.blockers.join(' ')).toContain('external artifacts');
@@ -17,7 +17,7 @@ test('external historical Input artifacts prevent deleting their still-used Inpu
 test('another Worker candidate pointer blocks deletion of a historical candidate',async()=>{
   const f=await setup();
   try{
-    const other=(await f.project.say('keep')).task;
+    const other=(await f.project.order('keep')).task;
     const result=f.store.run("INSERT INTO review_candidates(input_id,version,branch,commit_hash,baseline_branch,baseline_commit,status) VALUES (?,1,?,?,?,?,'failed')",f.task.input_id,f.task.branch,f.task.base_commit,'main',f.task.base_commit);
     f.store.run('UPDATE tasks SET review_candidate_id=? WHERE id=?',Number(result.lastInsertRowid),other.id);
     expect((await f.project.deleteTaskPreview(f.task.id)).blockers.join(' ')).toContain('candidate is still referenced');
@@ -31,7 +31,7 @@ test('another Worker candidate pointer blocks deletion of a historical candidate
 test('a planner spec owning an external Worker is not silently forgotten',async()=>{
   const f=await setup();
   try{
-    const other=(await f.project.say('keep')).task;
+    const other=(await f.project.order('keep')).task;
     f.store.run("INSERT INTO task_specs(input_id,planner_task_id,seq,goal,task_id) VALUES (?,?,1,'historical spec',?)",f.task.input_id,f.task.id,other.id);
     expect((await f.project.deleteTaskPreview(f.task.id)).blockers.join(' ')).toContain('owns external Worker');
     expect(f.store.task(other.id).id).toBe(other.id);

@@ -1,6 +1,6 @@
 # 生命周期不变量
 
-本文件列出当前 say 主链必须守住的状态与 Git 约束；当前主链见[核心架构](../core-architecture.md)。旧 Intent / Plan / Candidate 的行只在磁盘上保留，不再产生新工作。
+本文件列出当前指令主链必须守住的状态与 Git 约束；当前主链见[核心架构](../core-architecture.md)。旧 Intent / Plan / Candidate 的行只在磁盘上保留，不再产生新工作。
 
 <a id="status"></a>- 状态：queued / running / waiting / awaiting / paused / completed / failed / cancelled。`paused` 是用户显式「中断」在安全点生效后的非终态停顿：消息照收，不自动唤醒。`interrupt_state=requested` 只表示暂停意愿，旧 invocation 仍占槽并可安全使用 RPC；继续可撤销尚未触发的意愿，已触发则以 queued/resuming 等待旧调用真实退出。所有后端均不因中断等待超时强杀，只有真实释放执行位后才允许新调用。
 <a id="credential"></a>- 一个 Worker 同时只有一个 invocation，且只有一个 agent 身份；身份跨唤醒不变，凭证只在该 invocation 活动期间有效，重启后全部作废。
@@ -10,10 +10,10 @@
 <a id="transaction"></a>- 取消、notice 答复与 completion 的核心状态变更都在同步短事务中完成；事务内不等待模型或 Git。
 <a id="retry"></a>- 重试必须是用户显式动作，且父Worker不能已终态。
 <a id="history"></a>- 默认保留Worker历史；工作区清理与Worker终态是不同操作。`worker.cleanup` / `branch.archive` 保留记录，只有用户基于预检 revision 明确确认 `worker.delete` 才清除所选终态子树及专属历史资源；活动调用、外部依赖与共享资源受保护，ID 不复用。旧 `task.delete` / `task.clear` 没有兼容入口。
-<a id="input-branch"></a>- 新 `say` 从父分支已提交 tip 创建独立分支与 worktree；`created_from_commit` / 谱系 parent 创建后不变，分支 tip 只能通过沿 direct-parent 边的 fast-forward 前进。
-<a id="conflict"></a>- 所有写入只沿 recorded direct-parent 边、只做 fast-forward。父子分歧时不在父侧 no-ff；在子侧吸收冻结的父提交并测试，再逐层 ff。新 say 的代码落地由运行中的直接父 Agent `worker.integrate` 或用户 `worker.approve_merge` 按固定提交推进。
+<a id="input-branch"></a>- 新 `order` 从父分支已提交 tip 创建独立分支与 worktree；`created_from_commit` / 谱系 parent 创建后不变，分支 tip 只能通过沿 direct-parent 边的 fast-forward 前进。
+<a id="conflict"></a>- 所有写入只沿 recorded direct-parent 边、只做 fast-forward。父子分歧时不在父侧 no-ff；在子侧吸收冻结的父提交并测试，再逐层 ff。新指令的代码落地由运行中的直接父 Agent `worker.integrate` 或用户 `worker.approve_merge` 按固定提交推进。
 <a id="genealogy"></a>- 分支谱系只在分支被创建那一刻写入，之后不可变：merge 不改写 parent，重试不重写已有记录；分支被删除或归档只标 `status`。没有 recorded parent 的分支只能查看，不能作为合并依据。
-<a id="leaf-first"></a>- 一条分支还有未进入自己的直接子分支时不得向上合并。新 say / child 不自动集成，须父 Agent 或用户确认。
+<a id="leaf-first"></a>- 一条分支还有未进入自己的直接子分支时不得向上合并。新指令 / child 不自动集成，须父 Agent 或用户确认。
 <a id="run"></a>- 每次 provider invocation 先写一条 `agent_runs`，结束（成功 / 失败 / 取消 / 抢占）后写终态；重试与唤醒产生新的 Run，不覆盖 Run 历史。Worker 的 `calls` / `agent_wakes` 只是兼容读模型。
 <a id="control-lane"></a>- 控制（control lane）与执行（execution lane）分开计数；执行面的长Worker不得饿死新输入的准入。等依赖、等子Worker、等用户的 Worker 不占调用槽。
 <a id="delivery-lock"></a>- 合并请求一旦发出就冻结父分支基线与 Lush 侧写入；在集成或用户显式撤销前，同一父分支只接受一个未集成请求，也不允许归档源分支。

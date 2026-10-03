@@ -3,7 +3,7 @@ import { answerDialog, deepText, dialogText, installDom } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 
 const world = makeWorld();
-const task = { id: 70, parent_id: 1, input_id: 57, task_kind: 'say', role: 'agent', status: 'cancelled',
+const task = { id: 70, parent_id: 1, input_id: 57, task_kind: 'order', role: 'agent', status: 'cancelled',
   integration: 'none', title: '错误输入', goal: '错误输入', calls: 0, children: [], deps: [], dependents: [],
   branch: 'lush/example/70-typo', workspace: '/tmp/example/.lush/worktrees/70-typo', target_branch: 'main' };
 const child = { ...task, id: 71, parent_id: 70, task_kind: 'child', title: '子 Worker', goal: '子 Worker' };

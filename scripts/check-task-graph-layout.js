@@ -15,14 +15,14 @@ registerNavigation({detail:id=>{window.openedTask=id;}});
 window.graph={total:9,nodes:[
 {id:1,parent_id:null,task_kind:'main',role:'agent',title:'main',status:'waiting',branch:'main'},
 ...['running','awaiting','awaiting_acceptance','failed','completed','paused','waiting'].map((status,i)=>({
-id:i+2,parent_id:i===6?2:1,task_kind:'say',role:'agent',status,branch:'task-'+i,
+id:i+2,parent_id:i===6?2:1,task_kind:'order',role:'agent',status,branch:'task-'+i,
 title:'Worker '+(i+2)+' '+('长标题用于确认固定高度和截断 '.repeat(i?2:20)),
 integration:i===4?'merged':'pending',notice_count:i===1?3:0,
 notice:i===1?{id:1,kind:'question',title:'确认接口',body:'待决问题'}:null,
 waiting_reason:'等待用户确认接口兼容范围',goal_preview:'完整目标',result_preview:'完整结果'.repeat(200),
 progress:i===5?null:{total:5,completed:i===4?5:2,current:i===4?null:{label:'实现 Worker 树双行摘要 '.repeat(10)}}
 })),
-{id:99,parent_id:1,task_kind:'say',role:'agent',title:'已归档 Worker',status:'completed',archived:true}
+{id:99,parent_id:1,task_kind:'order',role:'agent',title:'已归档 Worker',status:'completed',archived:true}
 ]};
 for (const node of window.graph.nodes) node.merge_queue={counts:{},total:0,items:[],truncated:false};
 window.graph.nodes[0].merge_queue={counts:{resolving:1,requested:7,blocked:1},total:9,truncated:true,

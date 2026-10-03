@@ -96,7 +96,7 @@ test('worker lifecycle RPC forwards existing internal methods, actors and persis
 
 test('worker spawn preserves own-parent delegation and rejects retired creation arguments', async () => {
   const calls = [], result = { id: 8, parent_id: 42, task_kind: 'child' };
-  let kind = 'say';
+  let kind = 'order';
   const project = { actor: () => 42, store: { task: () => ({ task_kind: kind }) },
     spawn(...args) { calls.push(args); return result; } };
   const rpc = new Dispatcher(project);
@@ -106,6 +106,6 @@ test('worker spawn preserves own-parent delegation and rejects retired creation 
   for (const key of ['role','deps','spec'])
     await expect(rpc.dispatch('worker.spawn', { goal: 'child', [key]: 'legacy', _token: 'live' })).rejects.toThrow('unknown parameter');
   kind = 'main';
-  await expect(rpc.dispatch('worker.spawn', { goal: 'child', _token: 'live' })).rejects.toThrow('only say/child Workers');
+  await expect(rpc.dispatch('worker.spawn', { goal: 'child', _token: 'live' })).rejects.toThrow('only order/child Workers');
   expect(calls).toHaveLength(1);
 });

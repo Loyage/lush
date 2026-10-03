@@ -8,7 +8,7 @@ const REFRESH_HELP = '重新读取当前项目 main 的最新主线历史并从�
 const MORE_HELP = '沿首次读取时固定的 main 提交继续查看更早版本；不会混入刷新前后新增的提交。';
 const text = (value, fallback = '未知') => typeof value === 'string' && value ? value : fallback;
 
-/** Commit metadata and original say are always plain text, never executable markup. */
+/** Commit metadata and original order are always plain text, never executable markup. */
 export function renderVersionCommit(commit) {
   const card = el('li', undefined, 'version-commit'); card.dataset.commit = commit.commit;
   card.append(el('h2', text(commit.subject, '（无提交摘要）')));
@@ -32,8 +32,8 @@ export function renderVersionCommit(commit) {
       if (task.goal_truncated) entry.append(el('p', 'Worker 目标已截断，可在详情中查看完整内容。', 'hint'));
       if (task.input) {
         const input = el('details', undefined, 'version-input');
-        input.append(el('summary', `原始 say #${task.input.id}`), el('p', text(task.input.content, '（空输入）'), 'version-say'));
-        if (task.input.truncated || task.input.content_truncated) input.append(el('p', '原始 say 内容已截断。', 'hint'));
+        input.append(el('summary', `原始指令 #${task.input.id}`), el('p', text(task.input.content, '（空输入）'), 'version-order'));
+        if (task.input.truncated || task.input.content_truncated) input.append(el('p', '原始指令内容已截断。', 'hint'));
         entry.append(input);
       }
       card.append(entry);

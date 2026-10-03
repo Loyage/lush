@@ -159,7 +159,7 @@ export default {
     if (options.internal !== true) this.assertBranchWritable(name, 'merge it into its parent');
     const record = this.store.branch(name);
     check(record && record.parent && record.parent_relation === 'recorded', `${name} has no recorded direct parent`);
-    check(!this.store.get("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say','child')", name),
+    check(!this.store.get("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','order','say','child')", name),
       'new Worker branch cannot use legacy branch.merge');
     if (record.task_id !== null) {
       const task = this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
@@ -191,7 +191,7 @@ export default {
   async syncBranch(branch, options = {}) {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
-    check(!this.store.get("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say','child')", name),
+    check(!this.store.get("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','order','say','child')", name),
       'new Worker branch cannot use legacy branch.sync');
     const state = await this.workspaces.branchState(name);
     check(state.status === 'diverged', `${name} is ${state.status}; branch sync is only needed after divergence`);
@@ -242,7 +242,7 @@ export default {
       if (input.task_id !== null && input.task_id !== undefined) users.add(input.task_id);
       // Only roles whose worktree is the input anchor actually hold it; coordinators/research run in the project root.
       for (const row of this.store.all(`SELECT id FROM tasks WHERE input_id=?
-        AND (role IN ('planner','worker','merger') OR task_kind='say')`, input.id)) users.add(row.id);
+        AND (role IN ('planner','worker','merger') OR task_kind IN ('order','say'))`, input.id)) users.add(row.id);
     }
     // 检验别的任务或候选：被检验对象落在这些分支上时，verifier 的检出/对照都在用它们。
     for (const row of this.store.all(`SELECT id, verifies_task_id, review_candidate_id FROM tasks
@@ -295,10 +295,10 @@ export default {
     }
     // 已发出未集成的请求：源分支就是那次交付本身，归档它会让父分支的交付锁永远没有落地对象。
     const requested = this.store.all(`SELECT t.id,t.branch,t.reservation FROM tasks t
-      WHERE t.task_kind='say' AND t.reservation IS NOT NULL AND t.branch IN (${targets.map(() => '?').join(',')})`, ...targets)
+      WHERE t.task_kind IN ('order','say') AND t.reservation IS NOT NULL AND t.branch IN (${targets.map(() => '?').join(',')})`, ...targets)
       .filter(row => { try { const value = JSON.parse(row.reservation); return value?.kind === 'merge' && value.status === 'requested'; } catch { return false; } });
     check(requested.length === 0,
-      `branch ${requested[0]?.branch} still has an outstanding merge request from say #${requested[0]?.id}; integrate or withdraw it before archiving`);
+      `branch ${requested[0]?.branch} still has an outstanding merge request from order #${requested[0]?.id}; integrate or withdraw it before archiving`);
     const state = await gitState(this.workspaces, this.config.project);
     check(!targets.includes(state.current_branch), `cannot archive the branch currently checked out: ${state.current_branch}`);
     // 整棵子树上的任务都必须已终态：归档把这条分支的工作收起来，活还没完的状态不该被藏掉。
@@ -391,7 +391,7 @@ export default {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
     if (options.internal !== true) this.assertBranchWritable(name, 'catch it up with its parent');
-    check(!this.store.get("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say','child')", name),
+    check(!this.store.get("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','order','say','child')", name),
       'new Worker branch cannot use legacy branch.catchup');
     const record = this.store.branch(name);
     check(record && record.parent && record.parent_relation === 'recorded', `${name} has no recorded direct parent`);

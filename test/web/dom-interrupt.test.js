@@ -27,7 +27,7 @@ const { AGENT_NOTE } = await import('../../src/ui/web/assets/help.js');
 let refreshed = [];
 const restoreNavigation = registerNavigation({ refresh: async () => {}, detail: async id => { refreshed.push(id); }, overview: async () => {} });
 setTimers({ setTimeout: () => 1, clearTimeout: () => {}, now: () => 0 });
-const task = { id: 70, task_kind: 'say', role: 'agent', status: 'running', interrupt_state: null,
+const task = { id: 70, task_kind: 'order', role: 'agent', status: 'running', interrupt_state: null,
   parent_id: 1, goal: '可撤销中断', title: '可撤销中断', branch: 'feature/interrupt', target_branch: 'main',
   agent_wakes: 1, calls: 0, children: [], deps: [], dependents: [], integration: 'none' };
 const buttonOf = label => dom.node('detail').querySelectorAll('button').find(node => node.textContent === label);

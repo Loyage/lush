@@ -1,4 +1,5 @@
 import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } from './dom.js';
+import { workerKind } from './worker-kind.js';
 import { action } from './api.js';
 import { confirmDialog, formDialog } from './dialog.js';
 import { configureTask } from './retry-dialog.js';
@@ -88,7 +89,7 @@ export function renderDetail(task, history, diff, usage) {
   if (!readOnly && notice && notice.task_id === task.id) panel.prepend(noticePanel(notice, task));
 
   const actions = el('div', undefined, 'actions task-actions');
-  if (!readOnly && ['say','child'].includes(task.task_kind) && !TERMINAL_STATUS.has(task.status)) {
+  if (!readOnly && ['order','child'].includes(workerKind(task)) && !TERMINAL_STATUS.has(task.status)) {
     const help = agentHelp('把追加输入发给该 Worker 的 Agent。若它正在调用，会请它在当前一轮工具都结束后收尾，下一轮先读这条输入；暂停中的 Worker 需点「开始 / 继续」后处理。');
     actions.append(guardedAction(button('追加输入', async () => {
       const field = el('div', undefined, 'modal-field');
@@ -158,7 +159,7 @@ export function renderDetail(task, history, diff, usage) {
       actions.append(host);
     } else actions.append(node);
   }
-  if (!readOnly && ['failed', 'cancelled'].includes(task.status) && ['say','child'].includes(task.task_kind)
+  if (!readOnly && ['failed', 'cancelled'].includes(task.status) && ['order','child'].includes(workerKind(task))
     && !task.divergence_resolution) actions.append(button('检查后重试', async () => {
     const confirmed = await confirmDialog({ title: `重试 Worker #${task.id}？`,
       message: '先检查失败工作区与提交。重试不会回滚此前 Agent 的文件副作用。', confirmLabel: '重试',
@@ -170,23 +171,23 @@ export function renderDetail(task, history, diff, usage) {
   if (!readOnly && task.branch_archive?.archivable && task.status !== 'awaiting_acceptance') actions.append(button('归档', () => runBranchArchive(
     { name: task.branch, subtreeBranches: task.branch_archive.subtree_branches }, { refresh: () => detail(task.id) }), 'ghost',
     { help: BRANCH_ARCHIVE_HELP }));
-  // 没有代码改动的 say 给一个与「取消」区分的收尾：已解决=没有别的需求，取消=因别的原因放弃。
+  // 没有代码改动的指令给一个与「取消」区分的收尾：已解决=没有别的需求，取消=因别的原因放弃。
   const iterationBase = task.iteration_base_commit || task.base_commit;
   const noCommittedChange = !task.head_commit || !iterationBase || task.head_commit === iterationBase;
-  if (!readOnly && task.task_kind === 'say' && !TERMINAL_STATUS.has(task.status) && task.status !== 'awaiting_acceptance' && noCommittedChange) actions.append(button('已解决', async () => {
+  if (!readOnly && workerKind(task) === 'order' && !TERMINAL_STATUS.has(task.status) && task.status !== 'awaiting_acceptance' && noCommittedChange) actions.append(button('已解决', async () => {
     const confirmed = await confirmDialog({
-      title: `把 say #${task.id} 标记为已解决？`,
-      message: '适用于这次输入只是想了解/确认、没有代码改动的情况：Worker 结算为「已完成」，答案作为结果保留，并解除它占用的唤醒。它与「放弃 Worker」不同——那是因别的原因放弃正在进行的工作；这里代表你确认没有别的需求了。如需继续追问，请在标记前直接给这个 Worker 发消息；标记后请作为新的 say 发送。',
+      title: `把指令 #${task.id} 标记为已解决？`,
+      message: '适用于这次输入只是想了解/确认、没有代码改动的情况：Worker 结算为「已完成」，答案作为结果保留，并解除它占用的唤醒。它与「放弃 Worker」不同——那是因别的原因放弃正在进行的工作；这里代表你确认没有别的需求了。如需继续追问，请在标记前直接给这个 Worker 发消息；标记后请作为新的指令发送。',
       confirmLabel: '标记已解决',
       confirmHelp: '仅在没有提交、工作区干净时允许；Worker 变为已完成，不发起合并请求，也不删除分支与工作区。',
     });
     if (!confirmed) return;
-    try { await action('worker.resolve', { id: task.id }); show(`say #${task.id} 已标记为已解决`); }
+    try { await action('worker.resolve', { id: task.id }); show(`指令 #${task.id} 已标记为已解决`); }
     catch (error) { show(error.message, 'error'); }
     await detail(task.id);
-  }, 'ghost', { help: '把没有代码改动的 say 结算为已完成（保留答案），用来区分「没有别的要求」和「放弃 Worker」；有提交时请改用请求合并或放弃。' }));
+  }, 'ghost', { help: '把没有代码改动的指令结算为已完成（保留答案），用来区分「没有别的要求」和「放弃 Worker」；有提交时请改用请求合并或放弃。' }));
   // 中断只是可撤销的意图；请求期间即可继续、调整下一轮设置或明确放弃。
-  const liveWorkTask = !readOnly && ['say','child'].includes(task.task_kind) && !TERMINAL_STATUS.has(task.status);
+  const liveWorkTask = !readOnly && ['order','child'].includes(workerKind(task)) && !TERMINAL_STATUS.has(task.status);
   const interruptRequested = task.interrupt_state === 'requested';
   const resuming = task.interrupt_state === 'resuming';
   if (liveWorkTask && !interruptRequested && !['paused', 'awaiting_acceptance'].includes(task.status)) actions.append(button('中断', async () => {
@@ -223,7 +224,7 @@ export function renderDetail(task, history, diff, usage) {
     }, 'danger', { help: '放弃这条 Worker 及它下面的全部子 Worker，工作区与分支保留；这是不可恢复的终态操作。' }));
   }
   if (task.divergence_resolution) {
-    actions.append(button(`查看源 say #${task.parent_id}`, () => detail(task.parent_id), 'link'));
+    actions.append(button(`查看源指令 #${task.parent_id}`, () => detail(task.parent_id), 'link'));
   }
   const deletion = workerDeleteControl(task);
   if (deletion) actions.append(deletion);
@@ -233,15 +234,15 @@ export function renderDetail(task, history, diff, usage) {
   if (interruptHint) panel.append(el('p', interruptHint, 'hint interrupt-reason'));
   if (task.divergence_resolution && TERMINAL_STATUS.has(task.status) && task.integration !== 'merged') {
     const archived = task.divergence_resolution.branch_status === 'archived';
-    // 三种来源：终态 say 的独立解分歧（runtime 驱动）、活动 say 自己的合并请求（用户驱动），
+    // 三种来源：终态指令的独立解分歧（runtime 驱动）、活动指令自己的合并请求（用户驱动），
     // 或一个已完子任务的固定提交（直接父 Agent 驱动）。
-    const terminalSay = task.resolves_task_id !== null
+    const terminalOrder = task.resolves_task_id !== null
       && task.resolves_task_id === task.divergence_resolution.source_task_id;
-    const repairsSay = task.divergence_resolution.source_task_id === task.parent_id;
-    const retry = terminalSay
-      ? `返回源 say #${task.divergence_resolution.source_task_id}，在分歧仍存在且预约可分派时可重新派独立子 Worker。`
-      : repairsSay
-        ? '返回源 say，在静息且分歧仍存在时可重新派独立子 Worker。'
+    const repairsOrder = task.divergence_resolution.source_task_id === task.parent_id;
+    const retry = terminalOrder
+      ? `返回源指令 #${task.divergence_resolution.source_task_id}，在分歧仍存在且预约可分派时可重新派独立子 Worker。`
+      : repairsOrder
+        ? '返回源指令，在静息且分歧仍存在时可重新派独立子 Worker。'
         : `由直接父 Agent #${task.parent_id} 再派一个以同一固定提交为基线的解分歧子 Worker（worker resolve-child-divergence）。`;
     panel.append(el('p', archived
       ? `解分歧子 Worker 已归档，Worker、固定提交记录和会话仍保留。${retry}`

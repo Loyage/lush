@@ -11,7 +11,7 @@ async function world() {
   return f;
 }
 async function source(f, name) {
-  const { task } = await f.project.say(name);
+  const { task } = await f.project.order(name);
   fs.writeFileSync(path.join(task.workspace, `${name}.txt`), name);
   await git(task.workspace, 'add', '.'); await git(task.workspace, 'commit', '-m', name);
   f.store.update(task.id, { status: 'waiting', result: 'tested' });
@@ -116,7 +116,7 @@ test('failed repair releases the slot without pretending success or replaying it
 test('parent in-flight invocation blocks acquisition even if its Task is already waiting', async () => {
   const f = await world();
   try {
-    const { task: parent } = await f.project.say('parent'); f.store.update(parent.id, { status: 'waiting' });
+    const { task: parent } = await f.project.order('parent'); f.store.update(parent.id, { status: 'waiting' });
     const child = await f.project.spawn(parent.id, 'child');
     fs.writeFileSync(path.join(child.workspace, 'child.txt'), 'child');
     await git(child.workspace, 'add', '.'); await git(child.workspace, 'commit', '-m', 'child');

@@ -11,16 +11,16 @@ console.log(JSON.stringify({ delivery: data.input.startsWith('later:') ? 'messag
 test('Task graph keeps owner, child and old tasks with branches as attributes', async () => {
   const f = fixture({ run: async () => 'done' }); await repo(f.root);
   try {
-    const input = await f.project.say('work');
+    const input = await f.project.order('work');
     const graph = await f.project.taskGraph();
-    const say = graph.nodes.find(node => node.id === input.task.id);
+    const order = graph.nodes.find(node => node.id === input.task.id);
     const main = graph.nodes.find(node => node.task_kind === 'main');
-    expect(say.parent_id).toBe(main.id);
-    expect(say.branch).toBe(input.task.branch);
-    expect(say.workspace).toBe(input.task.workspace);
-    expect(graph.edges).toContainEqual({ from: main.id, to: say.id });
+    expect(order.parent_id).toBe(main.id);
+    expect(order.branch).toBe(input.task.branch);
+    expect(order.workspace).toBe(input.task.workspace);
+    expect(graph.edges).toContainEqual({ from: main.id, to: order.id });
     expect(graph.nodes.every(node => node.kind === 'task')).toBe(true);
-    expect(taskForest(graph)[0].children[0].id).toBe(say.id);
+    expect(taskForest(graph)[0].children[0].id).toBe(order.id);
   } finally { await f.close(); }
 });
 
@@ -28,7 +28,7 @@ test('Task graph projects current Git diagnostics, compact progress, waiting and
   const hold = gate();
   const f = fixture({ run: async () => { await hold.promise; return 'done'; } }); await repo(f.root);
   try {
-    const created = await f.project.say('实施功能\n验收条件');
+    const created = await f.project.order('实施功能\n验收条件');
     await until(() => f.store.all("SELECT id FROM events WHERE task_id=? AND type='invocation.started'", created.task.id).length > 0);
     f.store.setProgressPlan(created.task.id, { version: 1, items: [
       { key: 'inspect', label: '现状', status: 'completed' },
@@ -53,7 +53,7 @@ test('Task graph projects current Git diagnostics, compact progress, waiting and
 test('graph progress counts only planned work, including after all work finishes while waiting for signals', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const { task } = await f.project.say('four work milestones');
+    const { task } = await f.project.order('four work milestones');
     const now = Date.now(), at = offset => new Date(now + offset).toISOString();
     const run = f.store.startRun(task);
     f.store.run('UPDATE agent_runs SET started_at=?, ended_at=?, status=? WHERE id=?',
@@ -93,13 +93,13 @@ test('graph progress counts only planned work, including after all work finishes
 test('Task graph projects branch-level merge orchestration state read-only', async () => {
   const f = fixture({ run: async () => 'done' }); await repo(f.root);
   try {
-    const input = await f.project.say('work');
+    const input = await f.project.order('work');
     const graph = await f.project.taskGraph();
     const main = graph.nodes.find(node => node.task_kind === 'main');
-    const say = graph.nodes.find(node => node.id === input.task.id);
-    // 主 Task 的分支下挂着 1 条 say 子分支；say 自己没有子分支，不冒充有。
-    expect(main.branch_info.subtree_say).toBe(1);
-    expect(say.branch_info.subtree_say).toBe(0);
+    const order = graph.nodes.find(node => node.id === input.task.id);
+    // 主 Task 的分支下挂着 1 条 order 子分支；order 自己没有子分支，不冒充有。
+    expect(main.branch_info.subtree_order).toBe(1);
+    expect(order.branch_info.subtree_order).toBe(0);
     // 没有活动编排运行时不编造一个。
     expect(main.branch_info.merge_run).toBeNull();
 
@@ -118,7 +118,7 @@ test('Task graph projects branch-level merge orchestration state read-only', asy
 test('archiving a parent also archives its branchless merge queue without changing task facts', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const { task: parent } = await f.project.say('parent');
+    const { task: parent } = await f.project.order('parent');
     f.store.update(parent.id, { status: 'completed' });
     const queue = f.store.create({ parent_id: parent.id, role: 'agent', task_kind: 'merge', goal: 'internal queue' });
     f.store.update(queue.id, { status: 'completed', target_branch: parent.branch });
@@ -151,7 +151,7 @@ test('archiving a parent also archives its branchless merge queue without changi
 test('historical merge queues inherit archive even when their parent is outside the bounded Task graph', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const { task: parent } = await f.project.say('old parent');
+    const { task: parent } = await f.project.order('old parent');
     f.store.update(parent.id, { status: 'completed' });
     await f.project.archiveBranch(parent.branch);
     f.store.transaction(() => {
@@ -175,7 +175,7 @@ test('historical merge queues inherit archive even when their parent is outside 
 test('an active internal merge queue blocks parent archive rather than being hidden with unfinished work', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const { task: parent } = await f.project.say('parent');
+    const { task: parent } = await f.project.order('parent');
     f.store.update(parent.id, { status: 'completed' });
     const queue = f.store.create({ parent_id: parent.id, role: 'agent', task_kind: 'merge', goal: 'active queue' });
     f.store.update(queue.id, { status: 'waiting', target_branch: parent.branch });
@@ -193,24 +193,24 @@ test('Task input rule is frozen from committed fork, chooses delivery, and falls
     fs.mkdirSync(path.join(f.root, '.lush-task'));
     fs.writeFileSync(path.join(f.root, '.lush-task/input.mjs'), rule);
     await git(f.root, 'add', '.lush-task/input.mjs'); await git(f.root, 'commit', '-m', 'input rule');
-    const say = await f.project.say('work');
-    await until(() => f.project.running.has(say.task.id));
-    expect(fs.readFileSync(snapshotPath(f.config.home, say.task.id), 'utf8').trim()).toBe(rule.trim());
-    expect((await f.project.taskGraph()).nodes.find(node => node.id === say.task.id).has_rule).toBe(true);
-    const child = await f.project.spawn(say.task.id, 'child');
+    const order = await f.project.order('work');
+    await until(() => f.project.running.has(order.task.id));
+    expect(fs.readFileSync(snapshotPath(f.config.home, order.task.id), 'utf8').trim()).toBe(rule.trim());
+    expect((await f.project.taskGraph()).nodes.find(node => node.id === order.task.id).has_rule).toBe(true);
+    const child = await f.project.spawn(order.task.id, 'child');
     expect(fs.readFileSync(snapshotPath(f.config.home, child.id), 'utf8').trim()).toBe(rule.trim());
     // Changing the worktree after creation does not change the fixed rule.
-    fs.writeFileSync(path.join(say.task.workspace, '.lush-task/input.mjs'), 'console.log(JSON.stringify({delivery:"interrupt"}))');
-    f.project.message(say.task.id, 'later: wait');
-    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='preempt.requested'", say.task.id)).toHaveLength(0);
-    f.project.message(say.task.id, 'urgent');
-    expect(f.store.all("SELECT data FROM events WHERE task_id=? AND type='task.input_routed'", say.task.id)
+    fs.writeFileSync(path.join(order.task.workspace, '.lush-task/input.mjs'), 'console.log(JSON.stringify({delivery:"interrupt"}))');
+    f.project.message(order.task.id, 'later: wait');
+    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='preempt.requested'", order.task.id)).toHaveLength(0);
+    f.project.message(order.task.id, 'urgent');
+    expect(f.store.all("SELECT data FROM events WHERE task_id=? AND type='task.input_routed'", order.task.id)
       .map(row => JSON.parse(row.data).delivery)).toEqual(['message', 'interrupt']);
     // A broken rule cannot silently drop an input; failure and fallback are auditable.
-    fs.writeFileSync(snapshotPath(f.config.home, say.task.id), 'process.exit(7)');
-    f.project.message(say.task.id, 'still deliver');
-    expect(f.store.unread(say.task.id).map(item => item.body)).toContain('still deliver');
-    expect(JSON.parse(f.store.all("SELECT data FROM events WHERE task_id=? AND type='task.input_routed' ORDER BY id DESC LIMIT 1", say.task.id)[0].data))
+    fs.writeFileSync(snapshotPath(f.config.home, order.task.id), 'process.exit(7)');
+    f.project.message(order.task.id, 'still deliver');
+    expect(f.store.unread(order.task.id).map(item => item.body)).toContain('still deliver');
+    expect(JSON.parse(f.store.all("SELECT data FROM events WHERE task_id=? AND type='task.input_routed' ORDER BY id DESC LIMIT 1", order.task.id)[0].data))
       .toMatchObject({ delivery: 'interrupt', source: 'fallback' });
   } finally { paused.resolve(); await f.close(); }
 });

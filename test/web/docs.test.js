@@ -113,7 +113,7 @@ test('the docs module resolves only bundled Markdown', async () => {
   }
   expect(readDoc('readme').markdown).toContain('# Lush');
   expect(readDoc('docs-core-architecture')).toMatchObject({ format: 'markdown' });
-  expect(readDoc('docs-core-architecture').markdown).toContain('新 `say` 保存 Input');
+  expect(readDoc('docs-core-architecture').markdown).toContain('新 `order` 保存 Input');
   expect(readDoc('docs-core-architecture').markdown).toContain('```mermaid');
   // 任何不在索引里的字符串都读不出东西——请求里的路径永远不会被拼进文件名
   for (const attempt of ['../package.json', 'docs/../package.json', 'package.json', '', 'README']) {

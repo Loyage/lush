@@ -34,7 +34,7 @@
     "desktop:stage:win": "bun ./scripts/build-desktop.js --stage",
     "desktop:build:win": "bun ./scripts/build-desktop.js --build",
     "desktop:verify:win": "bun ./scripts/build-desktop.js --verify",
-    "say": "bun ./scripts/ops.js say",
+    "order": "bun ./scripts/ops.js order",
     "draft": "bun ./scripts/ops.js draft",
     "drafts": "bun ./scripts/ops.js drafts",
     "intent": "bun ./scripts/ops.js intent",

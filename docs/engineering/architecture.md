@@ -7,12 +7,12 @@
 ## 当前主链
 
 ```text
-CLI / Web → say.submit → Input + 独立 say Worker / worktree
+CLI / Web → order.submit → Input + 独立 order Worker / worktree
   → Agent 自行执行或派独立子 Worker → 持久信号 → 父 Agent 确认固定子提交
   → 合并预约 → 父 Agent 集成 / 用户批准 main(或 owner)
 ```
 
-业务事实落 SQLite，代码事实落 Git；RPC 校验身份与权限，Project 管生命周期，Workspaces 串行 Git 写入。所有者 Worker 负责接收请求，不持续占模型槽。分支提交和 Worker 结果必须分别检查。旧 Intent / Plan / Candidate 的记录、会话与工作区保留在磁盘上，但不再有公开入口，也不参与新 say；公开能力见[核心 API 收敛](core-api.md)。
+业务事实落 SQLite，代码事实落 Git；RPC 校验身份与权限，Project 管生命周期，Workspaces 串行 Git 写入。所有者 Worker 负责接收请求，不持续占模型槽。分支提交和 Worker 结果必须分别检查。旧 Intent / Plan / Candidate 的记录、会话与工作区保留在磁盘上，但不再有公开入口，也不参与新指令；公开能力见[核心 API 收敛](core-api.md)。
 
 ## 按主题阅读
 

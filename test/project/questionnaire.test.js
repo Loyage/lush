@@ -49,8 +49,8 @@ test('posting stops the invocation, releases its slot, gates other messages, and
   const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '1' });
   try {
     await repo(f.root);
-    const task = (await f.project.say('choose')).task;
-    const other = (await f.project.say('independent')).task;
+    const task = (await f.project.order('choose')).task;
+    const other = (await f.project.order('independent')).task;
     await until(() => provider.calls.length === 1);
     const token = f.project.running.get(task.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});
@@ -95,7 +95,7 @@ test('answer during abort unwinding is not lost; cancellation still wins', async
   const calls = [], f = fixture({ run(ctx) { const done = gate(); calls.push({ ...ctx, done }); return done.promise; } });
   try {
     await repo(f.root);
-    const task = (await f.project.say('race')).task;
+    const task = (await f.project.order('race')).task;
     await until(() => calls.length === 1);
     const notice = f.project.notice(task.id, 'Choose', '', 'question', questions());
     f.project.answer(notice.id, answer());
@@ -116,7 +116,7 @@ test('awaiting questionnaires survive shutdown/recovery, unrelated inbox does no
   const provider = controlled(), f = fixture(provider);
   try {
     await repo(f.root);
-    const task = (await f.project.say('recover')).task;
+    const task = (await f.project.order('recover')).task;
     await until(() => provider.calls.length === 1);
     const notice = f.project.notice(task.id, 'Choose', '', 'question', questions());
     f.project.message(task.id, 'extra');
@@ -137,7 +137,7 @@ test('a child completing cannot wake a parent gated on a questionnaire', async (
   const provider = controlled(), f = fixture(provider);
   try {
     await repo(f.root);
-    const parent = (await f.project.say('parent')).task;
+    const parent = (await f.project.order('parent')).task;
     await until(() => provider.calls.length === 1);
     const child = await f.project.spawn(parent.id, 'child', undefined, [], 'child');
     await until(() => provider.calls.length === 2);

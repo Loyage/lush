@@ -27,7 +27,7 @@ if (context.task.calls === 1) {
   try {
     await repo(root);
     await cli(root, ['start'], { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake });
-    const { task } = await cli(root, ['say', 'choose a layout']);
+    const { task } = await cli(root, ['order', 'choose a layout']);
     let client = new UIClient(Config.fromEnv(env(), root));
     let waiting;
     for (let i = 0; i < 400; i++) {

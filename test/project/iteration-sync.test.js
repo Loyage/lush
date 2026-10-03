@@ -7,7 +7,7 @@ import { fixture, repo, git, until } from '../helpers.js';
 async function prepared(provider) {
   const f = fixture(provider); Object.assign(f.project, iteration); f.project.stopping = true;
   await repo(f.root);
-  const { task: parent } = await f.project.say('parent'); f.store.update(parent.id, { status: 'waiting' });
+  const { task: parent } = await f.project.order('parent'); f.store.update(parent.id, { status: 'waiting' });
   const child = await f.project.spawn(parent.id, 'sync repair', undefined, [], 'sync-repair');
   f.store.update(child.id, { status: 'waiting' });
   return { ...f, parent, child };

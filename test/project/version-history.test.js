@@ -11,7 +11,7 @@ async function commit(f, text) {
 }
 async function world() { const f = fixture(); await repo(f.root); f.main = await f.project.bootstrapMain(); return f; }
 function task(f, goal = 'current Task goal', target = 'main') {
-  const row = f.store.create({ role: 'agent', goal, parent_id: f.main.id, task_kind: 'say' });
+  const row = f.store.create({ role: 'agent', goal, parent_id: f.main.id, task_kind: 'order' });
   f.store.update(row.id, { target_branch: target }); return row;
 }
 function legacyTask(f, goal, target = 'main') {
@@ -46,7 +46,7 @@ test('exact main landing evidence binds each delivery, original input and histor
   const f = await world();
   try {
     const parent = f.main, t = task(f), child = task(f, 'child', 'feature');
-    f.store.run('INSERT INTO inputs(id,content,task_id) VALUES (?,?,?)', 91, 'original say differs from goal', t.id);
+    f.store.run('INSERT INTO inputs(id,content,task_id) VALUES (?,?,?)', 91, 'original order differs from goal', t.id);
     f.store.run('UPDATE tasks SET input_id=? WHERE id=?', 91, t.id);
     const a = await commit(f, 'first delivery'), b = await commit(f, 'second delivery');
     const fake = await commit(f, `Merge task #${t.id}: pretend`), side = await commit(f, 'non-main delivery');
@@ -62,7 +62,7 @@ test('exact main landing evidence binds each delivery, original input and histor
     f.store.run('INSERT INTO events(task_id,type,data) VALUES (?,?,?)', t.id, 'task.merge_integrated', '{invalid');
     const result = await f.project.branchHistory(), by = new Map(result.commits.map(c => [c.commit, c]));
     expect(by.get(a).tasks.map(t => t.id).sort()).toEqual([t.id, old.id].sort());
-    expect(by.get(b).tasks).toHaveLength(1); expect(by.get(b).tasks[0]).toMatchObject({ id: t.id, input: { id: 91, content: 'original say differs from goal' }, evidence: 'task.merge_integrated' });
+    expect(by.get(b).tasks).toHaveLength(1); expect(by.get(b).tasks[0]).toMatchObject({ id: t.id, input: { id: 91, content: 'original order differs from goal' }, evidence: 'task.merge_integrated' });
     expect(by.get(a).tasks.find(t => t.id === old.id).evidence).toBe('merged');
     expect(by.get(fake).association).toBe('unassociated'); expect(by.get(side).association).toBe('unassociated');
     // Missing parent evidence must not fall back to misleading current target_branch.
@@ -140,10 +140,10 @@ test('oversized whole pages fail explicitly while smaller pages remain readable'
   } finally { await f.close(); }
 });
 
-test('large original says fail explicitly instead of silent truncation', async () => {
+test('large original orders fail explicitly instead of silent truncation', async () => {
   const f = await world();
   try {
-    const t = task(f), sha = await commit(f, 'huge say');
+    const t = task(f), sha = await commit(f, 'huge order');
     f.store.run('INSERT INTO inputs(id,content,task_id) VALUES (?,?,?)', 1, 'x'.repeat(131073), t.id);
     f.store.run('UPDATE tasks SET input_id=? WHERE id=?', 1, t.id);
     f.store.event(t.id, 'task.merge_integrated', { commit: sha, parent_id: f.main.id });

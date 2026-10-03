@@ -24,15 +24,15 @@
 
 消息多时 invocation 次数会增加，这是把无界上下文换成有界轮次的显式取舍；不新增实体、唤醒通道或 RPC 接口。
 
-## 当前 say 与快速路由
+## 当前指令与快速路由
 
-当前 `say` 一条输入直接创建 Worker，不经过 planner、快速路由或 Plan Compiler；Agent 自行判断亲做还是派子Worker。旧 `input.submit` / 批量 `draft.commit` 与运行设置里的前缀表、worker/research 根Worker与零 invocation 的 planner 占位不再有公开入口；旧记录保留在磁盘上。
+当前 `order` 一条输入直接创建 Worker，不经过 planner、快速路由或 Plan Compiler；Agent 自行判断亲做还是派子Worker。旧 `input.submit` / 批量 `draft.commit` 与运行设置里的前缀表、worker/research 根Worker与零 invocation 的 planner 占位不再有公开入口；旧记录保留在磁盘上。
 
 ## 父Worker合并唤醒
 
 普通成功子Worker的结算消息仍立即落库，但父Worker在还有非终态直接子Worker时不因此再调用模型。最后一个子Worker终态后，一次性投递未读收据。
 
-- 历史 coordinator 依据 runtime 写入的 `child.completed` 事件与 message ID 延后收据；新式 say/child 同样依据 `task.signal` 事件认证 `child.completed` / `merge.completed` 收据，在本波直接子Worker全部终态后唤醒。`merge.requested` 只由 runtime 队列处理，不触发开发 Agent。
+- 历史 coordinator 依据 runtime 写入的 `child.completed` 事件与 message ID 延后收据；新式 指令/child 同样依据 `task.signal` 事件认证 `child.completed` / `merge.completed` 收据，在本波直接子Worker全部终态后唤醒。`merge.requested` 只由 runtime 队列处理，不触发开发 Agent。
 - 显式用户/agent 消息、失败与取消结算仍及时变成可调度；正在运行的 invocation 不被强行插入消息。
 - 不能按消息正文猜测是否为成功收据，否则显式求助可能丢失。
 - park / invocation finally / 异常处理 / daemon recover 使用同一判断，既防止空转，也避免父Worker尚未清理时的 lost wakeup。

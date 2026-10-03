@@ -121,7 +121,7 @@ export default {
    * 不写库、不改 git，所以轮询与 `project.stopping` 期间也能安全跑。
    *
    * 每个节点的 `branch_info` 除了实时 ref 与 Git 诊断，还投影这条 Task 自己的分支上「合并编排」所需的
-   * 两个只读字段：`subtree_say`（分支谱系里还有多少条 say 子分支，决定是否值得给编排入口）与
+   * 两个只读字段：`subtree_order`（分支谱系里还有多少条 order 子分支，决定是否值得给编排入口）与
    * `merge_run`（该分支仍在跑的合并运行摘要 `{mode,status,done,total,task_id}`，没有则 null）。
    * 两者只读 `branches` / `branches.merge_run`，不触发任何执行。
    * `current` 表示 canonical 项目目录当前检出；`relation` 比较登记父分支与本分支的固定 tip，
@@ -166,9 +166,9 @@ export default {
     const records = new Map(branchRows.map(row => [row.branch, row]));
     const activeBranches = branchRows.filter(row => row.status === 'active');
     const activeRuns = new Map(this.store.activeBranchMergeRuns().map(({ target, run }) => [target, run]));
-    const sayBranches = new Set(this.store.all("SELECT branch FROM tasks WHERE task_kind='say' AND branch IS NOT NULL")
+    const orderBranches = new Set(this.store.all("SELECT branch FROM tasks WHERE task_kind IN ('order','say') AND branch IS NOT NULL")
       .map(row => row.branch));
-    // 一次把分支树拼好并记忆化「分支下的 say 子分支数」，避免每个 Task 节点各扫一遍全部分支。
+    // 一次把分支树拼好并记忆化「分支下的 order 子分支数」，避免每个 Task 节点各扫一遍全部分支。
     const branchChildren = new Map();
     for (const row of activeBranches) {
       const parent = row.parent && row.parent !== row.branch ? row.parent : null;
@@ -176,17 +176,17 @@ export default {
       if (!branchChildren.has(parent)) branchChildren.set(parent, []);
       branchChildren.get(parent).push(row.branch);
     }
-    const sayDescendants = new Map();
-    const countSayDescendants = (name, seen = new Set()) => {
-      if (sayDescendants.has(name)) return sayDescendants.get(name);
+    const orderDescendants = new Map();
+    const countOrderDescendants = (name, seen = new Set()) => {
+      if (orderDescendants.has(name)) return orderDescendants.get(name);
       if (seen.has(name)) return 0; // 坏数据成环时见好就收，不让计数卡死。
       seen.add(name);
       let total = 0;
       for (const child of branchChildren.get(name) || []) {
-        if (sayBranches.has(child)) total += 1;
-        total += countSayDescendants(child, seen);
+        if (orderBranches.has(child)) total += 1;
+        total += countOrderDescendants(child, seen);
       }
-      sayDescendants.set(name, total);
+      orderDescendants.set(name, total);
       return total;
     };
     const branchNames = [...new Set(selected.map(row => row.branch).filter(Boolean))];
@@ -276,8 +276,8 @@ export default {
       // 不沿 target_branch 或祖先传播：独立工作子 Task 仍按自己的分支归档事实判断。
       const archived = branch?.status === 'archived' || (row.task_kind === 'merge' && !row.branch
         && records.get(parent_branch)?.status === 'archived');
-      // 这条分支下还有多少个 say 子分支：决定卡片上「编排合并全部子 Task」入口是否有意义。
-      const subtree_say = row.branch ? countSayDescendants(row.branch) : 0;
+      // 这条分支下还有多少个 order 子分支：决定卡片上「编排合并全部子 Task」入口是否有意义。
+      const subtree_order = row.branch ? countOrderDescendants(row.branch) : 0;
       const mergeRun = row.branch ? activeRuns.get(row.branch) ?? null : null;
       return { ...row, ...iterations.get(row.id), kind: 'task', archived, title: summarize(goal) || row.name || `Worker #${row.id}`,
         goal_preview: String(goal ?? '').slice(0, 600),
@@ -295,7 +295,7 @@ export default {
           archivable: archivability.get(row.branch)?.archivable === true,
           subtree_branches: archivability.get(row.branch)?.subtree_branches ?? 0,
           current_head: refs.get(row.branch) ?? null, diagnostics: diagnostics.get(row.branch) ?? null,
-          subtree_say, merge_run: mergeRun ? { mode: mergeRun.mode ?? 'merge_all', status: mergeRun.status,
+          subtree_order, merge_run: mergeRun ? { mode: mergeRun.mode ?? 'merge_all', status: mergeRun.status,
             done: mergeRun.done?.length ?? 0, total: mergeRun.order?.length ?? 0, task_id: mergeRun.task_id ?? null } : null } : null,
         workspace_state: row.workspace ? (fs.existsSync(row.workspace) ? 'present' : 'missing') : 'none',
         has_result: Boolean(row.has_result),
@@ -334,10 +334,10 @@ export default {
         FROM tasks WHERE role IN (${TASK_ROLE_SQL}) ORDER BY id DESC`);
       // 没有可归属分支也没有 worktree（含已完整回收）的任务不进图。verifier 的 branch 是上面只读派生的
       // 服务对象分支，所以 Candidate 验收即使清掉 baseline worktree 后也仍留在正确的输入分支下。
-      // role='agent' 里只有 say 与新派生的 child 是「自己拥有分支与 worktree」的工作 Task，必须画成任务行；
+      // role='agent' 里只有 order 与新派生的 child 是「自己拥有分支与 worktree」的工作 Task，必须画成任务行；
       // main/owner 是分支所有者（同样的信息已经落在 branch 节点的 title / source_id 上，不重复画），
       // analysis 是只读分离检出（无分支），都不进任务节点。
-      const candidates = rows.filter(row => (row.role !== 'agent' || row.task_kind === 'say' || row.task_kind === 'child')
+      const candidates = rows.filter(row => (row.role !== 'agent' || row.task_kind === 'order' || row.task_kind === 'child')
         && (row.branch || row.workspace || row.baseline_workspace));
 
       // 分支节点名：记录 ∪ 现在的 ref ∪ 当前检出 ∪ 占位父名。记录是历史事实，ref 是现状，
@@ -560,8 +560,8 @@ export default {
           kind: 'task', id: row.id, role: row.role, name: row.name ?? null,
           task_kind: row.task_kind ?? null, parent_id: row.parent_id ?? null,
           parent_task_kind: row.parent_task_kind ?? null,
-          reservation: row.task_kind === 'say' ? this.progressView(row).reservation : null,
-          has_result: row.task_kind === 'say' && row.result !== null,
+          reservation: row.task_kind === 'order' ? this.progressView(row).reservation : null,
+          has_result: row.task_kind === 'order' && row.result !== null,
           goal: String(row.goal ?? '').slice(0, 120),
           status: row.status, integration: row.integration, route: isRouted(row.input_id),
           branch: row.branch ?? null, workspace: workspacePath, workspace_state, branch_state,

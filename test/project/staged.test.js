@@ -5,7 +5,7 @@ import { normalizeAgentProfile } from '../../src/agent/settings.js';
 
 const baseProfile = { agent: 'mock', model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] };
 
-test('say start:false creates a paused「待开始」Task that stays put until task.resume', async () => {
+test('order start:false creates a paused「待开始」Task that stays put until task.resume', async () => {
   const runs = [];
   const f = fixture({
     resolve: () => ({ ...baseProfile }),
@@ -13,7 +13,7 @@ test('say start:false creates a paused「待开始」Task that stays put until t
   });
   await repo(f.root);
   try {
-    const response = await f.project.say('先暂存这条', null, [], null, false);
+    const response = await f.project.order('先暂存这条', null, [], null, false);
     expect(response.task.status).toBe('paused');
     expect(response.task.agent_wakes).toBe(0);
     expect(runs).toHaveLength(0);
@@ -38,7 +38,7 @@ test('resume profile freezes per-task env and rejects unsafe names', async () =>
   });
   f.project.stopping = true; await repo(f.root);
   try {
-    const response = await f.project.say('带环境变量', null, [], null, false);
+    const response = await f.project.order('带环境变量', null, [], null, false);
     expect(() => f.project.resumeTask(response.task.id, { ...baseProfile, agent: 'pi', env: { 'BAD-NAME': 'x' } }))
       .toThrow('invalid environment variable name');
     expect(f.store.task(response.task.id).status).toBe('paused');
@@ -49,12 +49,12 @@ test('resume profile freezes per-task env and rejects unsafe names', async () =>
   } finally { await f.close(); }
 });
 
-test('resume / configure / say.submit start are user-only and env is validated on the profile', () => {
+test('resume / configure / order.submit start are user-only and env is validated on the profile', () => {
   expect(assertAllowed('worker.resume', { id: 1, profile: {} }, null)).toBeNull();
   expect(() => assertAllowed('worker.resume', { id: 1 }, 42)).toThrow('requires user approval');
   expect(assertAllowed('worker.configure', { id: 1 }, null)).toBeNull();
-  expect(assertAllowed('say.submit', { content: 'x', start: false }, null)).toBeNull();
-  expect(() => assertAllowed('say.submit', { content: 'x', bogus: 1 }, null)).toThrow('unknown parameter');
+  expect(assertAllowed('order.submit', { content: 'x', start: false }, null)).toBeNull();
+  expect(() => assertAllowed('order.submit', { content: 'x', bogus: 1 }, null)).toThrow('unknown parameter');
   expect(normalizeAgentProfile({ agent: 'pi', env: { OK: '1' } }).env).toEqual({ OK: '1' });
   expect(() => normalizeAgentProfile({ agent: 'pi', env: { LUSH_SECRET: 'x' } })).toThrow('reserved by Lush');
   expect(normalizeAgentProfile({ agent: 'pi' }).env).toBeUndefined();

@@ -30,7 +30,7 @@ const { renderOverview } = await import('../../src/ui/web/assets/render-overview
 const { ui } = await import('../../src/ui/web/assets/state.js');
 ui.taskGraphMinimal = false; // 验证详情模式中的迭代操作。
 afterAll(() => dom.restore());
-const task = { id: 70, task_kind: 'say', role: 'agent', status: 'awaiting_acceptance', integration: 'merged',
+const task = { id: 70, task_kind: 'order', role: 'agent', status: 'awaiting_acceptance', integration: 'merged',
   parent_id: 1, goal: 'iterate', title: 'iterate', branch: 'feature/iterate', target_branch: 'main', workspace: '/tmp/work',
   accepted: false, parent_sync_conflict: null, calls: 0, reservation: { version: 2, kind: 'merge', status: 'integrated' }, children: [], deps: [], dependents: [],
   base_commit: 'a'.repeat(40), iteration_base_commit: 'b'.repeat(40), head_commit: 'b'.repeat(40) };

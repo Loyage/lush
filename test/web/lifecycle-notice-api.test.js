@@ -2,12 +2,12 @@ import { test, expect } from 'bun:test';
 import { fetch, setup } from './harness.js';
 import { repo, until } from '../helpers.js';
 
-test('real say completion reaches HTTP snapshot and opens a readable Task without rescheduling', async () => {
+test('real order completion reaches HTTP snapshot and opens a readable Task without rescheduling', async () => {
   const f = await setup();
   try {
     await repo(f.root);
     f.project.provider = { async run() { return '本轮实际收尾结果'; } };
-    const { task } = await f.project.say('用户直接创建的工作');
+    const { task } = await f.project.order('用户直接创建的工作');
     await until(() => f.store.task(task.id).status === 'waiting' && !f.project.running.has(task.id));
     const snapshot = await (await fetch(f.url + '/api/snapshot')).json();
     const notices = snapshot.notices.filter(row => row.task_id === task.id);
@@ -33,7 +33,7 @@ test('real say completion reaches HTTP snapshot and opens a readable Task withou
 test('HTTP lifecycle info unread page and read action preserve decision and Task state', async () => {
   const f = await setup();
   try {
-    const task = f.store.create({ input_id: null, role: 'agent', task_kind: 'say', goal: '告知 API' });
+    const task = f.store.create({ input_id: null, role: 'agent', task_kind: 'order', goal: '告知 API' });
     f.store.update(task.id, { status: 'waiting' });
     const notice = f.store.transaction(() => {
       const eventId = f.store.event(task.id, 'task.idle', {});

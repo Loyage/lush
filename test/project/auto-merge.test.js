@@ -16,10 +16,10 @@ async function setup(provider) {
   const f = fixture(provider); f.project.stopping = true; await repo(f.root); return f;
 }
 
-test('new say hook is off; new delegated child is on and locked through both mutation routes', async () => {
+test('new order hook is off; new delegated child is on and locked through both mutation routes', async () => {
   const f = await setup();
   try {
-    const { task } = await f.project.say('parent');
+    const { task } = await f.project.order('parent');
     expect(settings(f, task.id)).toEqual({ version: 1, enabled: false, locked: false });
     expect(f.store.task(task.id).reservation).toBeNull();
     const child = await f.project.spawn(task.id, 'child');
@@ -39,7 +39,7 @@ test('new say hook is off; new delegated child is on and locked through both mut
 test('toggle persists a hook, cancels only automatic pending intent, and validates booleans', async () => {
   const f = await setup();
   try {
-    const { task } = await f.project.say('toggle');
+    const { task } = await f.project.order('toggle');
     for (const value of ['true', 1, null, undefined]) await expect(f.project.setTaskAutoMerge(task.id, value)).rejects.toThrow('boolean');
     expect((await f.project.setTaskAutoMerge(task.id, true)).auto_merge).toMatchObject({ enabled: true, editable: true });
     expect(booking(f, task.id)).toMatchObject({ status: 'pending', auto_merge: true });
@@ -61,13 +61,13 @@ test('toggle persists a hook, cancels only automatic pending intent, and validat
   } finally { await f.close(); }
 });
 
-test('switching a new say hook off before its invocation ends prevents automatic requests and survives restart', async () => {
+test('switching a new order hook off before its invocation ends prevents automatic requests and survives restart', async () => {
   const entered = gate(), pause = gate();
   const f = await setup({ resolve() { return { agent: 'mock' }; }, async run({ task }) {
     await commit(task, 'disabled'); entered.resolve(); await pause.promise; return 'done without merge';
   } });
   try {
-    const { task } = await f.project.say('disable before delivery');
+    const { task } = await f.project.order('disable before delivery');
     const baseline = await git(f.root, 'rev-parse', 'main');
     await f.project.setTaskAutoMerge(task.id, true);
     f.project.stopping = false; f.project.kick();
@@ -89,7 +89,7 @@ test('switching a new say hook off before its invocation ends prevents automatic
 test('completed work, sent requests, repair, terminal status and parent sync prohibit changing the hook', async () => {
   const f = await setup();
   try {
-    const { task } = await f.project.say('guard');
+    const { task } = await f.project.order('guard');
     await commit(task); f.store.update(task.id, { status: 'waiting' });
     await f.project.workspaces.finish(f.store.task(task.id));
     expect(f.project.inspect(task.id).merge_readiness.ready).toBe(true);
@@ -117,7 +117,7 @@ test('completed work, sent requests, repair, terminal status and parent sync pro
 test('legacy NULL settings and legacy approvals remain unchanged through recovery', async () => {
   const f = await setup();
   try {
-    const { task } = await f.project.say('old parent');
+    const { task } = await f.project.order('old parent');
     const child = await f.project.spawn(task.id, 'old withdrawn child');
     f.store.update(child.id, { auto_merge: null, reservation: null, status: 'waiting' });
     f.store.update(task.id, { auto_merge: null, status: 'waiting', reservation: JSON.stringify({ version: 1, kind: 'merge', status: 'pending' }) });
@@ -135,7 +135,7 @@ test('legacy NULL settings and legacy approvals remain unchanged through recover
 test('legacy one-shot v2 intent stays explicit when the persistent hook is enabled then disabled', async () => {
   const f = await setup();
   try {
-    const { task } = await f.project.say('old v2 intent');
+    const { task } = await f.project.order('old v2 intent');
     const original = { version: 2, kind: 'merge', status: 'pending', created_at: '2026-01-01T00:00:00.000Z' };
     f.store.update(task.id, { auto_merge: null, reservation: JSON.stringify(original) });
     expect(f.project.inspect(task.id).auto_merge).toMatchObject({ enabled: false, locked: false, editable: true });
@@ -159,7 +159,7 @@ test('cancelled sent intent stays withdrawn on restart; explicit retry must fini
     calls++; await commit(task, 'retry-work'); entered.resolve(); await pause.promise; return 'reviewed and continued';
   } });
   try {
-    const { task } = await f.project.say('cancel and retry');
+    const { task } = await f.project.order('cancel and retry');
     await f.project.setTaskAutoMerge(task.id, true); await commit(task, 'original');
     f.store.update(task.id, { status: 'waiting' });
     await f.project.settleQueuedMerge(task.id);
@@ -194,7 +194,7 @@ test('cancelled sent intent stays withdrawn on restart; explicit retry must fini
 test('hook cannot bypass invocation, child, unread-message, user-answer or dirty-worktree barriers', async () => {
   const f = await setup();
   try {
-    const { task } = await f.project.say('barriers');
+    const { task } = await f.project.order('barriers');
     await f.project.setTaskAutoMerge(task.id, true);
     await commit(task); f.store.update(task.id, { status: 'waiting' });
     f.project.running.set(task.id, {});
@@ -226,7 +226,7 @@ test('hook cannot bypass invocation, child, unread-message, user-answer or dirty
 test('disabling during an asynchronous safe-point check cannot emit a stale automatic request', async () => {
   const f = await setup();
   try {
-    const { task } = await f.project.say('race');
+    const { task } = await f.project.order('race');
     await commit(task); f.store.update(task.id, { status: 'waiting' });
     // HEAD has not yet been registered, so the toggle remains editable while finish awaits Git.
     const finish = f.project.workspaces.finish.bind(f.project.workspaces), pause = gate(), entered = gate();
@@ -243,7 +243,7 @@ test('disabling during an asynchronous safe-point check cannot emit a stale auto
 test('late input during no-change child Git checks cannot be overwritten by automatic delivery', async () => {
   const f = await setup(), pause = gate();
   try {
-    const { task: parent } = await f.project.say('late input');
+    const { task: parent } = await f.project.order('late input');
     const child = await f.project.spawn(parent.id, 'research');
     f.store.update(child.id, { status: 'waiting' });
     const branchState = f.project.workspaces.branchState.bind(f.project.workspaces), entered = gate();
@@ -260,7 +260,7 @@ test('late input during no-change child Git checks cannot be overwritten by auto
   } finally { pause.resolve(); await f.close(); }
 });
 
-test('persistent say hook automatically delivers multiple rounds and settles no-op follow-up', async () => {
+test('persistent order hook automatically delivers multiple rounds and settles no-op follow-up', async () => {
   let rounds = 0;
   const f = await setup({ resolve() { return { agent: 'mock' }; }, async run({ task, messages }) {
     const repair = messages.find(row => row.body.includes('合并分歧'));
@@ -269,7 +269,7 @@ test('persistent say hook automatically delivers multiple rounds and settles no-
     return 'done';
   } });
   try {
-    const { task } = await f.project.say('persistent');
+    const { task } = await f.project.order('persistent');
     await f.project.setTaskAutoMerge(task.id, true);
     f.project.stopping = false; f.project.kick();
     await until(() => f.store.task(task.id).status === 'awaiting_acceptance', 10000);
@@ -294,7 +294,7 @@ test('a no-change child keeps its locked hook for a later coding round', async (
     return 'answer';
   } });
   try {
-    const { task: parent } = await f.project.say('parent'); f.store.update(parent.id, { status: 'waiting' });
+    const { task: parent } = await f.project.order('parent'); f.store.update(parent.id, { status: 'waiting' });
     const child = await f.project.spawn(parent.id, 'first research');
     f.project.stopping = false; f.project.kick();
     await until(() => f.store.task(child.id).status === 'awaiting_acceptance' && !f.project.running.has(child.id));
@@ -311,10 +311,10 @@ test('restart restores enabled pending hooks but never replays an interrupted Ag
   const f = await setup();
   let reopened, runtime;
   try {
-    const { task } = await f.project.say('restart safe point');
+    const { task } = await f.project.order('restart safe point');
     await f.project.setTaskAutoMerge(task.id, true); await commit(task);
     f.store.update(task.id, { status: 'waiting', reservation: null }); // crash before re-arming
-    const { task: interrupted } = await f.project.say('interrupted');
+    const { task: interrupted } = await f.project.order('interrupted');
     await f.project.setTaskAutoMerge(interrupted.id, true);
     f.store.update(interrupted.id, { status: 'running' });
     reopened = new Store(path.join(f.config.home, 'project.db'), f.root);
@@ -336,7 +336,7 @@ test('opening an old database only adds the nullable hook column without rewriti
   const f = await setup();
   let reopened;
   try {
-    const { task } = await f.project.say('old database');
+    const { task } = await f.project.order('old database');
     const old = new Database(path.join(f.config.home, 'project.db'));
     old.exec('ALTER TABLE tasks DROP COLUMN auto_merge'); old.close();
     reopened = new Store(path.join(f.config.home, 'project.db'), f.root);

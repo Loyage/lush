@@ -2,7 +2,7 @@ import { test,expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture,repo,git } from '../helpers.js';
-async function setup(){const f=fixture();f.project.stopping=true;await repo(f.root);const task=(await f.project.say('discard input')).task;f.project.cancel(task.id);return {...f,task:f.store.task(task.id)};}
+async function setup(){const f=fixture();f.project.stopping=true;await repo(f.root);const task=(await f.project.order('discard input')).task;f.project.cancel(task.id);return {...f,task:f.store.task(task.id)};}
 async function remove(f){const preview=await f.project.deleteTaskPreview(f.task.id);return f.project.deleteTask(f.task.id,{confirm:true,revision:preview.revision});}
 
 test('detached baseline checkout is discovered and removed with its Worker',async()=>{

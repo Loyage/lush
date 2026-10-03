@@ -111,7 +111,7 @@ curl --fail --silent --show-error --output /dev/null http://127.0.0.1:4318/
 
 ## 6. 交付配置结果
 
-默认验收不提交 `say`、不创建测试 Worker、不调用付费模型。用户同意后才可在隔离临时项目做真实 Agent 烟测，说明费用与文件改动范围，并仅清理自己创建的资源。仓库测试如需运行，必须完整执行 `bun run test` 并保留失败日志；Linux 测试不能替代 Windows 连通验证。
+默认验收不提交 `order`、不创建测试 Worker、不调用付费模型。用户同意后才可在隔离临时项目做真实 Agent 烟测，说明费用与文件改动范围，并仅清理自己创建的资源。仓库测试如需运行，必须完整执行 `bun run test` 并保留失败日志；Linux 测试不能替代 Windows 连通验证。
 
 报告：Windows / WSL / 发行版信息、工具版本、Lush 与项目路径、Agent 配置（不含密钥）、Host 地址、代码身份检查、实际验证和未验证项、日志位置。明确这是 Linux 后台方案，不是 Windows 原生后台认证。
 

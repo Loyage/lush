@@ -1,5 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { SCHEMA, bindProject } from './schema.js';
+import { normalizeOrderRecord } from '../../core/order-kind.js';
 
 /**
  * 加列式 schema 演进：只给已有的表补缺失的可空列，不改类型、不重写任何行。
@@ -36,8 +37,10 @@ function addMissingColumns(db) {
   // Old free-text messages have NULL keys, so a partial unique index adds no new restriction to history.
   db.query(`CREATE UNIQUE INDEX IF NOT EXISTS messages_signal_once ON messages(task_id,sender_id,signal_key)
     WHERE signal_key IS NOT NULL`).run();
-  db.query(`CREATE UNIQUE INDEX IF NOT EXISTS tasks_new_branch_owner ON tasks(branch)
-    WHERE task_kind IN ('main','say','owner') AND branch IS NOT NULL`).run();
+  // Use a new index name: existing databases retain the old partial index definition.
+  // Both historical and current orders must participate in the same ownership constraint.
+  db.query(`CREATE UNIQUE INDEX IF NOT EXISTS tasks_order_branch_owner ON tasks(branch)
+    WHERE task_kind IN ('main','order','say','owner') AND branch IS NOT NULL`).run();
 }
 
 /** 打开数据库、事务与 id 分配。 */
@@ -49,8 +52,8 @@ export class StoreBase {
     addMissingColumns(this.db);
   }
   run(sql, ...params) { return this.db.query(sql).run(...params); }
-  get(sql, ...params) { return this.db.query(sql).get(...params); }
-  all(sql, ...params) { return this.db.query(sql).all(...params); }
+  get(sql, ...params) { return normalizeOrderRecord(this.db.query(sql).get(...params)); }
+  all(sql, ...params) { return this.db.query(sql).all(...params).map(normalizeOrderRecord); }
   transaction(fn) { return this.db.transaction(fn)(); }
   close() { this.db.close(); }
   /** Highest task id ever handed out, kept in meta so a cleared project never reuses an id. */

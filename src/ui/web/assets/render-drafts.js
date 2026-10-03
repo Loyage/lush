@@ -51,7 +51,7 @@ function draftItem(draft) {
   const row = el('span', undefined, 'row');
   const run = button('发送', () => {
     const branch = $('input-parent').value.trim();
-    return action('say.submit', { draft_id: draft.id, ...(branch ? { branch } : {}) });
+    return action('order.submit', { draft_id: draft.id, ...(branch ? { branch } : {}) });
   }, 'run', { agent: true, help: agentHelp(`只发送草稿 #${draft.id}，不触碰输入框或其它草稿。`) });
   run.setAttribute('aria-label', `发送草稿 #${draft.id}`);
   const edit = button('编辑', () => startDraftEdit(draft), 'edit');

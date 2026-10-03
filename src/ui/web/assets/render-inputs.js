@@ -284,7 +284,7 @@ export function openInputs({ item = null, push = true } = {}) {
             message.textContent = '已保存。'; state.items.set(keyOf(saved), saved); paintList(); return;
           }
           // No content/branch/references here: the server atomically consumes the saved revision.
-          const result = await action('say.submit', { draft_id: saved.id, expected_revision: saved.revision, start: kind === 'start' });
+          const result = await action('order.submit', { draft_id: saved.id, expected_revision: saved.revision, start: kind === 'start' });
           if (!current()) return;
           panel.replaceChildren(el('h2', kind === 'start' ? '已发射并开始' : '已创建·待开始'),
             button(`查看 Worker #${result.task.id}`, () => detail(result.task.id)));

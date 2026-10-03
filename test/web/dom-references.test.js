@@ -36,9 +36,9 @@ test('任务、任务子树与任意选中文字可以经右键加入输入引�
 
   const input = dom.node('input'); input.value = '针对这些内容提出修改建议';
   await dom.node('input-form').onsubmit({ preventDefault() {} });
-  // 引用随这条 say 一起提交；草稿缓存已下线，不再单独写 draft。
-  await until(() => world.state.actions.some(action => action.method === 'say.submit'));
-  const sent = world.state.actions.find(action => action.method === 'say.submit');
+  // 引用随这条指令一起提交；草稿缓存已下线，不再单独写 draft。
+  await until(() => world.state.actions.some(action => action.method === 'order.submit'));
+  const sent = world.state.actions.find(action => action.method === 'order.submit');
   expect(sent.params.references.map(row => row.kind)).toEqual(['task', 'text']);
   expect(sent.params.references[0]).toMatchObject({ kind: 'task', target: { task_id: 1 },
     label: 'Worker #1', location: { view: 'task-tree', task_id: 1 } });

@@ -17,9 +17,9 @@ test('depth and invocation limits bound runaway agents', async () => {
   const f = fixture({ async run({task, api}) { api.message(task.id, 'again'); return 'loop'; } }, {LUSH_TASK_CALLS:'2', LUSH_MAX_DEPTH:'3'}); await repo(f.root);
   try {
     f.project.stopping = true;
-    const root = (await f.project.say('root')).task;
+    const root = (await f.project.order('root')).task;
     const child = await f.project.spawn(root.id,'child', undefined, [], 'child');
-    // depth: main → say root → child is already at the limit.
+    // depth: main → order root → child is already at the limit.
     expect(() => f.project.spawn(child.id,'too deep', undefined, [], 'deep')).toThrow('nesting');
     f.project.stopping = false;
     f.project.kick();
@@ -31,7 +31,7 @@ test('depth and invocation limits bound runaway agents', async () => {
 test('timeout aborts invocation and frees the agent slot', async () => {
   const provider = controlled(), f = fixture(provider, {LUSH_CALL_TIMEOUT:'1'}); await repo(f.root);
   try {
-    const task = (await f.project.say('timeout')).task;
+    const task = (await f.project.order('timeout')).task;
     await until(() => f.store.task(task.id).status === 'failed');
     expect(provider.calls[0].signal.aborted).toBe(true);
     expect(f.store.task(task.id).error).toBe('agent invocation timed out after 1 second');
@@ -44,7 +44,7 @@ test('timeout aborts invocation and frees the agent slot', async () => {
 
 /** R-07：inspect 首屏只读最新窗口，更早的调用与产物用游标继续读取。 */
 function seededTask(f, { runs = 0, artifacts = 0, bigArtifacts = 0 } = {}) {
-  const task = f.store.create({ input_id: null, role: 'agent', goal: 'bounded inspect', task_kind: 'say' });
+  const task = f.store.create({ input_id: null, role: 'agent', goal: 'bounded inspect', task_kind: 'order' });
   // Fixture setup may be large; batch it so the test measures the read path, not per-row commit cost.
   return f.store.transaction(() => {
     for (let index = 0; index < runs; index++) f.store.finishRun(f.store.startRun(task).id, 'completed', { result: `run ${index}` });
@@ -119,7 +119,7 @@ test('inspect reads a bounded, newest-first history window and never scans older
 test('a small Run window still rebuilds progress instead of losing earlier work time', async () => {
   const f = fixture(); await repo(f.root);
   try {
-    const root = f.store.create({ input_id: null, role: 'agent', goal: 'progress window', task_kind: 'say' });
+    const root = f.store.create({ input_id: null, role: 'agent', goal: 'progress window', task_kind: 'order' });
     // 第一步的调用区间在首屏 50 条窗口之外；进度重建仍必须看到它，否则用时会被静默算成 0。
     const first = f.store.startRun(root);
     f.store.update(root.id, { status: 'running' });

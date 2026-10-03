@@ -105,7 +105,7 @@ async function taskDataset(count, dom, renderTree) {
   try {
     f.store.transaction(() => {
       for (let index = 0; index < count; index += 1) {
-        const task = f.store.create({ input_id: null, role: 'agent', task_kind: 'say', goal: `task ${index} ${'x'.repeat(80)}` });
+        const task = f.store.create({ input_id: null, role: 'agent', task_kind: 'order', goal: `task ${index} ${'x'.repeat(80)}` });
         f.store.update(task.id, { status: 'completed', result: 'done' });
       }
     });

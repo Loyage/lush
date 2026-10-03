@@ -71,7 +71,7 @@ export const handlers = {
   'worker.spawn'(p, params, actor) {
     const parent = params.parent ?? actor;
     check(actor === null || id(parent) === actor, 'agents may delegate only from their own worker');
-    check(['say','child'].includes(p.store.task(id(parent)).task_kind), 'only say/child Workers can delegate');
+    check(['order','child'].includes(p.store.task(id(parent)).task_kind), 'only order/child Workers can delegate');
     return p.spawn(parent, params.goal, 'agent', [], params.name ?? null);
   },
   'worker.integrate'(p, params, actor) { return p.integrateChild(actor, params.id, params.commit); },
@@ -83,7 +83,7 @@ export const handlers = {
   'worker.reopen'(p, params) { return p.reopenTask(params.id); },
   'worker.sync_parent'(p, params) { return p.syncTaskParent(params.id); },
   'worker.resolve_sync'(p, params) { return p.resolveTaskSync(params.id); },
-  'worker.resolve_divergence'(p, params) { return p.resolveSayDivergence(params.id); },
+  'worker.resolve_divergence'(p, params) { return p.resolveOrderDivergence(params.id); },
   'worker.analyze'(p, params) { return p.analyze(params.id, params.question); },
   'worker.resolve_child_divergence'(p, params, actor) { return p.resolveChildDivergence(actor, params.id); },
   'worker.unreserve'(p, params) { return p.unreserveTask(params.id); },

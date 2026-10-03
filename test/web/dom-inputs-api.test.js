@@ -23,7 +23,7 @@ test('真实 API：详情页 Enter 给暂停 Worker 追加消息，不创建 Inp
   try {
     resetUiState(); dom.node('input').value = ''; dom.node('input-parent').value = '';
     await initComposer();
-    const { task } = await fixture.project.say('初始要求', 'main', [], null, false);
+    const { task } = await fixture.project.order('初始要求', 'main', [], null, false);
     await loadDetail(task.id);
     const before = ['tasks', 'inputs', 'drafts'].map(table => fixture.store.all(`SELECT * FROM ${table}`).length);
     const input = dom.node('input'); expect(input.placeholder).toContain(`追加给 Worker #${task.id}`);
@@ -46,7 +46,7 @@ test('真实 API 串联：Enter 暂存、空筛选/正文检索、保存修订�
     setComposerReferences([{ version: 1, kind: 'text', target: {}, label: '引用快照', quote: '捕获时所见', location: {}, captured_at: '2026-10-02T00:00:00Z' }]);
     await input.onkeydown({ key: 'Enter', preventDefault() {} });
     expect(input.value).toBe('');
-    expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='say'")).toHaveLength(0);
+    expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")).toHaveLength(0);
     await openInputs(); expect(root().querySelectorAll('.input-record')).toHaveLength(1);
     const form = root().querySelector('.inputs-filters');
     // Both selects default to empty: send no enum restriction, not invalid status='' / integration=''.
@@ -64,8 +64,8 @@ test('真实 API 串联：Enter 暂存、空筛选/正文检索、保存修订�
     await btn('保存', panel).onclick(); expect(deepText(panel)).toContain('已保存。');
     const saved = fixture.store.all('SELECT * FROM drafts')[0]; expect(saved.revision).toBe(2);
     await btn('仅创建', panel).onclick(); expect(deepText(panel)).toContain('已创建·待开始');
-    expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='say'")).toHaveLength(1);
-    expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='say'")[0].status).toBe('paused');
+    expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")).toHaveLength(1);
+    expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")[0].status).toBe('paused');
     expect(root().querySelectorAll('.input-record')).toHaveLength(1);
     expect(root().querySelector('.input-record').dataset.input).toMatch(/^input:/);
     await btn('← 返回历史输入').onclick();

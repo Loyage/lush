@@ -38,7 +38,7 @@
 
 - **当前依据**：`project/branches.js` 的 branchResourceUsers / archiveBranch 仍检查 branchless 输入锚点使用者、检验服务对象、running Map 与 cleanup busy。当前测试保留未收尾 invocation 用例并通过；不把最初目标里的所有并发原子性要求等同于已经完成，未知外部变化仍以 G-04 限制处理。
 
-- **完成口径**：`branchResourceUsers()` 统一「谁在用这些 worktree / ref」：拥有分支的Worker、输入锚点下的 planner/worker/merger 与 say、引用被检验Worker或候选的 verifier、以这些分支为目标的进行中工作，以及 running 中未收尾或正在 cleanup 的Worker。任一活动使用者即拒绝且无副作用。回归：`test/workspaces/archive.test.js`（running planner、queued branchless worker、活动 verifier、终态未收尾四例）。
+- **完成口径**：`branchResourceUsers()` 统一「谁在用这些 worktree / ref」：拥有分支的Worker、输入锚点下的 planner/worker/merger 与指令、引用被检验Worker或候选的 verifier、以这些分支为目标的进行中工作，以及 running 中未收尾或正在 cleanup 的Worker。任一活动使用者即拒绝且无副作用。回归：`test/workspaces/archive.test.js`（running planner、queued branchless worker、活动 verifier、终态未收尾四例）。
 - **依据**：`src/core/project/branches.js`，`archiveBranch()`，170–186 行，仅按 `tasks.branch IN (...)` 查未终态Worker；`src/core/workspaces/worktree.js`，`ensure()`，127–132 行，planner 实际使用输入 anchor，而 Worker 本身没有 branch。归档前也没有 `running` / `busy` 收尾检查。
 - **触发与影响**：让 mock planner 停在 `run()`（状态 running、branch=null），归档其输入分支；调用返回 `archived=true`，planner cwd 已被删除。尚未建分支的 worker、共享源目录的 verifier 同样需要关联准入，不能仅凭Worker branch 判断资源无人使用；会中断执行，`--discard` 情况下还可能删除活动产物。
 - **建议与取舍**：归档安全门覆盖 input anchor、Worker依赖/后代、verifier 服务对象与实际工作区使用者，并在 Git 串行区间内重检；为待归档分支建立短期操作保留，避免排队后又准入新Worker。可复用 Showcase 的关联检查思路，但归档允许 failed/cancelled，不能照抄“全部成功”的产品条件。

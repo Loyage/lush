@@ -5,17 +5,17 @@ import { run as system } from '../src/cli/commands/system.js';
 import { fixture } from './helpers.js';
 import { codeIdentity } from '../src/identity.js';
 
-test('ordinary say submits content and branch without extra flags', async () => {
+test('ordinary order submits content and branch without extra flags', async () => {
   const calls = [], client = { request: async (method, params) => { calls.push({ method, params }); return params; } };
-  await intent('say', ['fix it', '--branch', 'main'], { client });
-  await intent('say', ['plan it'], { client });
+  await intent('order', ['fix it', '--branch', 'main'], { client });
+  await intent('order', ['plan it'], { client });
   expect(calls).toEqual([
-    { method: 'say.submit', params: { content: 'fix it', branch: 'main' } },
-    { method: 'say.submit', params: { content: 'plan it' } },
+    { method: 'order.submit', params: { content: 'fix it', branch: 'main' } },
+    { method: 'order.submit', params: { content: 'plan it' } },
   ]);
 });
 
-test('worker reserve and unreserve pass one explicit say Worker and kind', async () => {
+test('worker reserve and unreserve pass one explicit order Worker and kind', async () => {
   const calls = [], client = { request: async (method, params) => { calls.push({ method, params }); return params; } };
   await worker('worker', ['reserve', '7', 'merge'], { client, json: true });
   await worker('worker', ['reserve-all', 'main'], { client, json: true });

@@ -9,7 +9,7 @@ test('web creates a paused「待开始」Worker and worker.resume queues it with
   });
   const snapshot = async () => (await fetch(f.url + '/api/snapshot')).json();
   try {
-    const created = await (await post('say.submit', { content: '先暂存这条', start: false })).json();
+    const created = await (await post('order.submit', { content: '先暂存这条', start: false })).json();
     expect(created.task.status).toBe('paused');
     let snap = await snapshot();
     expect(snap.tasks.find(task => task.id === created.task.id)).toMatchObject({ status: 'paused' });
@@ -38,7 +38,7 @@ test('web resume is idempotent for queued work but refuses idle work without a p
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }),
   });
   try {
-    const created = await (await post('say.submit', { content: '直接开始', start: true })).json();
+    const created = await (await post('order.submit', { content: '直接开始', start: true })).json();
     expect(created.task.status).toBe('queued');
     const again = await post('worker.resume', { id: created.task.id });
     expect(again.status).toBe(200);
@@ -48,7 +48,7 @@ test('web resume is idempotent for queued work but refuses idle work without a p
     const idle = await post('worker.resume', { id: created.task.id });
     expect(idle.status).toBe(400);
     expect((await idle.json()).error).toContain('only paused workers');
-    const invalid = await post('say.submit', { content: 'x', start: false, _token: 'forged' });
+    const invalid = await post('order.submit', { content: 'x', start: false, _token: 'forged' });
     expect(invalid.status).toBe(400);
   } finally { await f.close(); }
 });

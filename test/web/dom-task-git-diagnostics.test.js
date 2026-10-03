@@ -13,7 +13,7 @@ afterAll(() => dom.restore());
 function paint(branch, extra = {}) {
   activateDetailView({ view: 'task-graph' });
   ui.taskGraphMinimal = false; // Git 诊断在详情模式中展开。
-  renderTaskGraph({ total: 1, nodes: [{ id: 21, task_kind: 'say', role: 'agent', status: 'waiting',
+  renderTaskGraph({ total: 1, nodes: [{ id: 21, task_kind: 'order', role: 'agent', status: 'waiting',
     title: 'Git 诊断测试', branch: 'feature', integration: 'pending', branch_info: branch, ...extra }] });
   return dom.node('detail').querySelector('[data-task-id="21"]');
 }

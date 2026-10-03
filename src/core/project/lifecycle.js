@@ -36,7 +36,7 @@ function settlementReminder(task, status) {
       ].join('\n'),
     };
   }
-  const reservation = task.task_kind === 'say' && task.reservation ? JSON.parse(task.reservation) : null;
+  const reservation = task.task_kind === 'order' && task.reservation ? JSON.parse(task.reservation) : null;
   return {
     title: `分支 ${task.branch}：Worker #${task.id} ${label}`,
     body: [
@@ -59,23 +59,23 @@ export default {
       AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1`, task.id) : null;
     const resolutionSource = resolutionEvent ? JSON.parse(resolutionEvent.data).source_task_id : task.resolves_task_id;
     const request = options.mergeRequest ?? null;
-    // 用户对一次「只想了解」的 say 显式收尾：没有代码改动，也不产生合并请求。
+    // 用户对一次「只想了解」的 order 显式收尾：没有代码改动，也不产生合并请求。
     const resolvedByUser = options.resolvedByUser === true;
     if (resolvedByUser) {
-      check(task.task_kind === 'say' && status === 'completed' && !request,
-        'a user-resolved settlement belongs to a new say Worker');
-    } else if (task.task_kind === 'say' && status === 'completed') {
+      check(task.task_kind === 'order' && status === 'completed' && !request,
+        'a user-resolved settlement belongs to a new order Worker');
+    } else if (task.task_kind === 'order' && status === 'completed') {
       const reservation = task.reservation ? JSON.parse(task.reservation) : null;
-      check(request, 'a new say Worker completes only with its pinned merge request or explicit user resolution');
+      check(request, 'a new order Worker completes only with its pinned merge request or explicit user resolution');
       {
         check(reservation?.kind === 'merge' && reservation.status === 'pending'
           && task.status === 'waiting' && task.head_commit === request.commit && task.parent_id === request.parent_id,
-        'a new say Worker completes only with its pinned merge request');
+        'a new order Worker completes only with its pinned merge request');
         const parent = this.store.task(task.parent_id);
-        check(['main','owner','say'].includes(parent.task_kind) && !TERMINAL.has(parent.status),
+        check(['main','owner','order'].includes(parent.task_kind) && !TERMINAL.has(parent.status),
           'merge request parent is no longer active');
       }
-    } else check(!request, 'delivery settlement belongs to a say Worker');
+    } else check(!request, 'delivery settlement belongs to a order Worker');
     if (task.role === 'butler' && status !== 'completed') {
       const source = this.butlerContext(task.id);
       this.finishSleepChoice(source.choice_id, { status: 'interrupted', reason: error || '管家中断，未执行选择' });
@@ -103,11 +103,11 @@ export default {
         ...(resolvedByUser ? { reservation: null } : {}) });
       if (resolvedByUser) this.store.event(task.id, 'task.resolved', { head_commit: task.head_commit ?? null });
       this.store.run("UPDATE notices SET status='dismissed',answer='worker ended' WHERE task_id=? AND status='open'", task.id);
-      // Historical branch settlements keep their old info reminder. User-created say/analysis
+      // Historical branch settlements keep their old info reminder. User-created order/analysis
       // use the lifecycle hook below instead, so a failure cannot create two notices.
       // Both remain info/sent, outside every open-decision/blocking query.
       if ((status === 'completed' || status === 'failed') && task.branch
-        && !['say','analysis'].includes(task.task_kind)) {
+        && !['order','analysis'].includes(task.task_kind)) {
         const reminder = settlementReminder(this.store.task(task.id), status);
         this.notify(task.id, reminder.title, reminder.body);
       }
@@ -119,9 +119,9 @@ export default {
         else if (status === 'completed' || status === 'failed') this.store.discardBatch(task.id, `scheduler 未覆盖该 spec（${status}）`);
       }
       if (task.parent_id && !resolutionEvent && !request && !TERMINAL.has(this.store.task(task.parent_id).status)
-        && !(['say','analysis','merge'].includes(task.task_kind) && ['main','owner'].includes(this.store.task(task.parent_id).task_kind))) {
+        && !(['order','analysis','merge'].includes(task.task_kind) && ['main','owner'].includes(this.store.task(task.parent_id).task_kind))) {
         const parent = this.store.task(task.parent_id);
-        if (task.task_kind === 'child' && ['say','child'].includes(parent.task_kind)) {
+        if (task.task_kind === 'child' && ['order','child'].includes(parent.task_kind)) {
           const key = `${task.task_kind}:${task.id}:settlement:${settlementEvent}`;
           const type = `${task.task_kind}.${status}`;
           const payload = { result: result?.slice(0, 2000) ?? null, error,
@@ -167,12 +167,12 @@ export default {
             integration_error: `resolution worker #${task.id} ${status}${error ? `: ${error}` : ''}` });
           this.store.event(target.id, 'merge.conflict.abandoned', { resolution: task.id, status });
         } else {
-          // 终态 say 的独立解分歧子 Task 没做成：把预约落回可分派的 diverged，保留失败现场。
+          // 终态 order 的独立解分歧子 Task 没做成：把预约落回可分派的 diverged，保留失败现场。
           this.noteTerminalDivergenceFailure({ ...task, resolves_task_id: resolutionSource }, status, error);
         }
       }
     });
-    // 终态 say 的独立解分歧子 Task 完成：由 runtime 把产物推进回 say 分支并重新发合并请求。
+    // 终态 order 的独立解分歧子 Task 完成：由 runtime 把产物推进回 order 分支并重新发合并请求。
     if (resolutionSource && status === 'completed') this.scheduleTerminalDivergenceFinalize(task.id);
     // Work compiled from a Plan is automatically aggregated inside the private Intent branch. The user still
     // approves only the frozen Review Candidate when it moves from the Intent branch to the target branch.
@@ -182,7 +182,7 @@ export default {
     // 一键合并 / 合并编排若正等这个 merger 或解分歧子任务，结算后自动继续下一步。
     if (task.role === 'merger' || task.resolves_task_id !== null) this.resumeMergeRun(task.id);
     if (task.parent_id && !resolutionEvent
-      && !(task.task_kind === 'say' && ['main','owner'].includes(this.store.task(task.parent_id).task_kind)))
+      && !(task.task_kind === 'order' && ['main','owner'].includes(this.store.task(task.parent_id).task_kind)))
       this.wake(task.parent_id);
     // A settled dependency releases every queued dependent; still-blocked ones stay queued.
     for (const edge of this.store.dependents(task.id)) this.wake(edge.task_id);
@@ -194,7 +194,7 @@ export default {
   cancel(taskId, reason = 'cancelled by user', status = 'cancelled') {
     const task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
-    check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; cancel individual say Workers instead');
+    check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; cancel individual order Workers instead');
     if (TERMINAL.has(task.status)) return task;
     const mergeBooking = task.reservation ? JSON.parse(task.reservation) : null;
     const inbound = this.activeTaskMerge(task.id);
@@ -257,7 +257,7 @@ export default {
     const anchors = this.store.all(`SELECT id, anchor_branch, anchor_commit, anchor_workspace FROM inputs
       WHERE anchor_branch IS NOT NULL ORDER BY id`);
     // The checks above are synchronous, so from here on every new write is refused until purge is done.
-    // A write already in flight re-checks this flag after its asynchronous Git step (see inputs/say).
+    // A write already in flight re-checks this flag after its asynchronous Git step (see inputs/order).
     this.clearing = true;
     return this.reclaimThenPurge(this.store.tasks(), anchors.map(input => ({ id: input.id,
       branch: input.anchor_branch, commit: input.anchor_commit, workspace: input.anchor_workspace })))
@@ -312,21 +312,21 @@ export default {
     check(task.role !== 'butler', '管家决定不允许重放；请手动处理原 Notice');
     const divergenceChild = task.task_kind === 'child' && this.store.get(
       "SELECT id FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' LIMIT 1", task.id);
-    check(!divergenceChild, '解分歧子Worker不重放未知文件副作用：先检查现场，显式归档旧分支，再从源 say 重新派独立子Worker');
+    check(!divergenceChild, '解分歧子Worker不重放未知文件副作用：先检查现场，显式归档旧分支，再从源指令重新派独立子Worker');
     // 冻结中的分支不接受重试：重试会重新产出提交、推进分支，扰动正在进行的合并。
     if (task.branch) this.assertBranchWritable(task.branch, 'retry a worker on it');
     check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'showcase functionality has been removed; historical Workers are read-only');
     this.restoreUnrequestedTaskParent(task.id);
     task = this.store.task(task.id);
     assertTaskAncestorsOpen(this, task);
-    if (task.task_kind === 'say' && task.reservation) {
+    if (task.task_kind === 'order' && task.reservation) {
       const reservation = JSON.parse(task.reservation);
       check(reservation.kind === 'merge', 'historical delivery reservation is no longer supported');
     }
     if (task.parent_id) {
       const parent = this.store.task(task.parent_id);
       if (parent.task_kind === 'merge' && parent.name === 'merge' && parent.status === 'completed'
-        && ['say','child'].includes(task.task_kind) && task.integration !== 'merged') {
+        && ['order','child'].includes(task.task_kind) && task.integration !== 'merged') {
         check(!TERMINAL.has(this.store.task(parent.parent_id).status), 'original parent has ended; inspect the branch');
         this.store.update(parent.id, { status: 'waiting' });
         this.store.event(parent.id, 'merge.queue_reopened', { task_id: task.id });
@@ -370,27 +370,27 @@ export default {
       }
       // Never replay an invocation with unknown filesystem side effects.
       for (const task of this.store.tasks()) if ((task.status === 'running' || task.interrupt_state === 'resuming')
-        && ['say','child','analysis'].includes(task.task_kind))
+        && ['order','child','analysis'].includes(task.task_kind))
         this.cancel(task.id, 'daemon interrupted; inspect worktree and explicitly retry', 'failed');
       for (const task of this.store.tasks()) if (task.interrupt_state === 'requested')
         this.store.update(task.id, { status: 'paused', interrupt_state: null });
     });
     // Historical quick-intro rows are retained unchanged; the feature is no longer resumed.
-    this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('say','child')");
+    this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('order','say','child')");
     this.recoverTaskDeliveries();
     // Older retries discarded a withdrawn booking while leaving the source under its queue.
     // Restore the audited owner before wake/settlement; no approval or invocation is recreated.
-    for (const task of this.store.tasks()) if (['say','child'].includes(task.task_kind)) {
+    for (const task of this.store.tasks()) if (['order','child'].includes(task.task_kind)) {
       try { this.restoreUnrequestedTaskParent(task.id); }
       catch (error) { this.store.update(task.id, { integration_error: error.message }); }
     }
     // A crash can land between committing an inbox message and queueing its owner.
     for (const task of this.store.tasks()) {
-      if (['say','child'].includes(task.task_kind) && !TERMINAL.has(task.status) && this.hasActionableMessages(task.id)) this.wake(task.id);
+      if (['order','child'].includes(task.task_kind) && !TERMINAL.has(task.status) && this.hasActionableMessages(task.id)) this.wake(task.id);
     }
     // 中断的检验已经标成失败；对照基线是派生状态，顺手回收掉。
     for (const task of this.store.tasks()) {
-      if (['say','child'].includes(task.task_kind) && task.baseline_workspace && TERMINAL.has(task.status)) {
+      if (['order','child'].includes(task.task_kind) && task.baseline_workspace && TERMINAL.has(task.status)) {
         this.workspaces.removeBaseline(task.id).catch(error => console.error(`verification ${task.id}: baseline cleanup failed: ${error.message}`));
       }
     }
@@ -398,7 +398,7 @@ export default {
     // Re-arm only persisted hooks; NULL historical settings never acquire new intent.
     for (const task of this.store.tasks()) if (task.status === 'waiting') this.armTaskAutoMerge(task.id);
     // 只续推已经静息的预约；running invocation 的未知文件副作用仍保留现场，不自动重播。
-    for (const task of this.store.tasks()) if (['say','child'].includes(task.task_kind) && task.status === 'waiting' && task.reservation) {
+    for (const task of this.store.tasks()) if (['order','child'].includes(task.task_kind) && task.status === 'waiting' && task.reservation) {
       let pendingMerge = false;
       try { const value = JSON.parse(task.reservation); pendingMerge = value.kind === 'merge' && value.status === 'pending'; }
       catch { /* invalid state remains visible for inspection */ }
@@ -409,7 +409,7 @@ export default {
       }
     }
     // 已发出的请求也要复查：重启期间父分支可能被推进、源分支可能被外部改动，而 pending 复查不覆盖它。
-    for (const task of this.store.tasks()) if (['say','child'].includes(task.task_kind) && task.reservation) {
+    for (const task of this.store.tasks()) if (['order','child'].includes(task.task_kind) && task.reservation) {
       let requested = false;
       try { requested = JSON.parse(task.reservation)?.status === 'requested'; } catch { /* leave corrupt state visible */ }
       if (requested) {
@@ -420,7 +420,7 @@ export default {
       }
     }
     // A returned source must not resume an invocation with unknown side effects after restart.
-    for (const task of this.store.tasks()) if (['say','child'].includes(task.task_kind) && task.reservation) {
+    for (const task of this.store.tasks()) if (['order','child'].includes(task.task_kind) && task.reservation) {
       let booking;
       try { booking = JSON.parse(task.reservation); } catch { continue; }
       if (booking.version === 2 && booking.status === 'resolving' && task.status === 'queued') {
@@ -440,7 +440,7 @@ export default {
         catch (error) { this.store.update(task.id, { integration_error: `已合并；归还原父Worker受阻：${error.message}` }); }
       }
     }
-    // 崩溃可能落在「独立解分歧子 Task 已结算」与「runtime 推进 say 分支」之间：重启后补跑收尾。
+    // 崩溃可能落在「独立解分歧子 Task 已结算」与「runtime 推进 order 分支」之间：重启后补跑收尾。
     for (const task of this.store.tasks()) {
       if (task.status === 'completed' && (task.resolves_task_id !== null
         || (task.task_kind === 'child' && this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' LIMIT 1", task.id))))

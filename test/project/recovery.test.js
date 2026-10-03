@@ -4,7 +4,7 @@ import { fixture, repo, until } from '../helpers.js';
 test('recovery closes orphan Runs once, including parked and legacy records, without fabricating an exit time', async () => {
   const f = fixture(); await repo(f.root); f.project.stopping = true;
   try {
-    const root = (await f.project.say('interrupted')).task;
+    const root = (await f.project.order('interrupted')).task;
     f.store.update(root.id, { status: 'running' });
     const running = f.store.startRun(root);
     const legacy = ['queued', 'waiting', 'awaiting', 'paused', 'completed'].map(status => {
@@ -38,7 +38,7 @@ test('recovery closes orphan Runs once, including parked and legacy records, wit
 test('Run creation rolls back if Worker admission fails', async () => {
   const f = fixture(); await repo(f.root); f.project.stopping = true;
   try {
-    const task = (await f.project.say('atomic admission')).task;
+    const task = (await f.project.order('atomic admission')).task;
     const update = f.store.update.bind(f.store);
     f.store.update = (id, patch) => {
       if (patch.status === 'running') throw new Error('injected admission failure');
@@ -55,7 +55,7 @@ test('recovery does not replay running tasks or interrupted merges', async () =>
   const f = fixture(); await repo(f.root);
   try {
     f.project.stopping = true;
-    const root = (await f.project.say('root')).task;
+    const root = (await f.project.order('root')).task;
     const child = await f.project.spawn(root.id,'child', undefined, [], 'child');
     f.store.update(root.id,{status:'running',integration:'merging'});
     f.store.armAgent(root.id, 'deadbeef');
@@ -71,7 +71,7 @@ test('recovery repairs a committed inbox message whose wake-up was interrupted',
   const f = fixture(); await repo(f.root);
   try {
     f.project.stopping = true;
-    const root = (await f.project.say('waiting root')).task;
+    const root = (await f.project.order('waiting root')).task;
     f.store.update(root.id,{status:'waiting'});
     f.store.message(root.id,'child result committed before daemon died');
     f.project.recover();

@@ -29,7 +29,7 @@ async function deliver(f, source) {
   return f.store.task(source.id);
 }
 async function sourceTask(f, name = 'source') {
-  const { task } = await f.project.say(name);
+  const { task } = await f.project.order(name);
   await commit(task.workspace, `${name}.txt`, 'first\n');
   f.store.update(task.id, { status: 'waiting', result: 'first delivery' });
   return task;
@@ -99,7 +99,7 @@ test('no-change delegated delivery waits for parent confirmation and is not a hi
   const f = setup({ resolve() { return { agent: 'mock' }; }, async run() { return 'collected'; } });
   await repo(f.root);
   try {
-    const { task: parent } = await f.project.say('parent'); f.store.update(parent.id, { status: 'waiting' });
+    const { task: parent } = await f.project.order('parent'); f.store.update(parent.id, { status: 'waiting' });
     const child = await f.project.spawn(parent.id, 'answer first, code later');
     f.project.stopping = false; f.project.kick();
     await until(() => f.store.task(child.id).status === 'awaiting_acceptance' && f.store.task(parent.id).calls === 1 && f.store.task(parent.id).status === 'waiting');
@@ -114,7 +114,7 @@ test('no-change delegated delivery waits for parent confirmation and is not a hi
 test('delivered unaccepted descendants do not block parent delivery, but must be accepted before parent completion', async () => {
   const f = setup(); await repo(f.root);
   try {
-    const { task: parent } = await f.project.say('parent'); f.store.update(parent.id, { status: 'waiting' });
+    const { task: parent } = await f.project.order('parent'); f.store.update(parent.id, { status: 'waiting' });
     const child = await f.project.spawn(parent.id, 'child');
     await commit(child.workspace, 'nested.txt', 'nested\n'); f.store.update(child.id, { status: 'waiting' });
     await deliver(f, child);
@@ -137,7 +137,7 @@ test('delivered unaccepted descendants do not block parent delivery, but must be
 test('settled source diagnostics in an idle runtime merge queue do not block parent acceptance', async () => {
   const f = setup(); await repo(f.root);
   try {
-    const { task: parent } = await f.project.say('parent'); f.store.update(parent.id, { status: 'waiting' });
+    const { task: parent } = await f.project.order('parent'); f.store.update(parent.id, { status: 'waiting' });
     const child = await f.project.spawn(parent.id, 'child');
     await commit(child.workspace, 'nested.txt', 'nested\n'); f.store.update(child.id, { status: 'waiting' });
     await deliver(f, child);
@@ -195,7 +195,7 @@ test('new queue input during Git acceptance checks is not hidden by historical d
 test('accepted and archived child resources do not block later parent acceptance', async () => {
   const f = setup(); await repo(f.root);
   try {
-    const { task: parent } = await f.project.say('parent'); f.store.update(parent.id, { status: 'waiting' });
+    const { task: parent } = await f.project.order('parent'); f.store.update(parent.id, { status: 'waiting' });
     const child = await f.project.spawn(parent.id, 'child');
     await commit(child.workspace, 'archived-child.txt', 'child\n');
     f.store.update(child.id, { status: 'waiting' });
@@ -268,7 +268,7 @@ test('historical reopen is explicit, does not call Agent, preserves rows and rej
   try {
     const source = await sourceTask(f); const delivered = await deliver(f, source);
     f.store.update(source.id, { status: 'completed', iteration_base_commit: null, calls: 9 });
-    const old = f.store.create({ role: 'agent', task_kind: 'say', goal: 'unrelated historical row' });
+    const old = f.store.create({ role: 'agent', task_kind: 'order', goal: 'unrelated historical row' });
     f.store.update(old.id, { status: 'completed', integration: 'merged' });
     f.project.recover();
     expect(f.store.task(source.id).status).toBe('completed');

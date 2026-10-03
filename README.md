@@ -3,7 +3,7 @@
 **一丁点儿时间不浪费。**
 **Not a single moment wasted.**
 
-Lush 是项目级的多 agent 开发应用。你描述想要的结果，Lush 在独立的 Git 分支与 worktree 里并行拆解、实现与验证，把成果冻结成精确的提交，最后由你明确批准落地。当前输入路径是 **say**：一条输入直连一个拥有独立分支与 worktree 的 Worker，它自己判断亲自做还是再派子 Worker。旧 Intent / Plan / Candidate 的对外操作已下线；磁盘历史数据、会话与工作区原样保留，不自动迁移或删除。它面向长期维护真实代码库、希望把重复开发真正并行起来的开发者。
+Lush 是项目级的多 agent 开发应用。你描述想要的结果，Lush 在独立的 Git 分支与 worktree 里并行拆解、实现与验证，把成果冻结成精确的提交，最后由你明确批准落地。当前输入路径是 **order（指令）**：一条输入直连一个拥有独立分支与 worktree 的 Worker，它自己判断亲自做还是再派子 Worker。旧 Intent / Plan / Candidate 的对外操作已下线；磁盘历史数据、会话与工作区原样保留，不自动迁移或删除。它面向长期维护真实代码库、希望把重复开发真正并行起来的开发者。
 
 Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行时依赖。后台支持 macOS 与 Linux；Windows 可连接远程 Host，或按[WSL2 方案](docs/deployment/windows-wsl2.md)在本机运行 Linux 后台。客户端安装见[Windows 客户端](docs/deployment/windows-client.md)。
 
@@ -15,7 +15,9 @@ Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行
 
 ### 输入与 Worker 相连：围绕目标，而不是工作清单
 
-每条 say 输入保存原话、引用及其 Worker，便于回看目标和结果，而不必从 Git 分支名猜测。当前对外入口只服务 Worker 中心工作流。
+每条指令输入保存原话、引用及其 Worker，便于回看目标和结果，而不必从 Git 分支名猜测。当前对外入口只服务 Worker 中心工作流。
+
+CLI 使用 `lush order '目标'`（源码快捷命令 `bun run order`），RPC / Web 使用 `order.submit`；旧 `say` 入口不保留别名。新 Worker 类型为 `order`，历史 `say` 仅在读取边界兼容为指令，不迁移数据库、分支或工作区。Input、历史输入与暂存的名称不变；详见[指令更名边界](docs/engineering/core-api.md#指令更名与历史读取边界)。
 
 ### 精确的 commit，而不是笼统的“完成了”
 
@@ -42,10 +44,10 @@ Host 不进行跨项目调度。共享同一份 Lush 代码的不同项目互不
 - **暂存与回看**：Enter 把想法保存到项目缓冲区，Shift+Enter 换行；在「历史输入」中搜索原始指令、编辑暂存并逐条发射。暂存不创建 Worker，也不调用 Agent。见[历史输入与暂存](docs/input-history.md)。
 - **发送**：「发送」或 Ctrl/⌘+Enter 只提交输入框里这一条，创建有独立分支与 worktree 的待开始 Worker；Ctrl/⌘+Shift+Enter 创建并立即开始。不走旧 planner 或快速路由。
 - **静息与唤醒**：Agent 一轮结束后 Worker 静息但不终结；新消息、子Worker结算或用户追加说明会唤醒同一个 Worker（用户追加说明时会在本轮工具结束后收口，不打断正在执行的命令）。
-- **交付**：你直接说的话对应的 say Worker 默认关闭自动合并，可在开发时勾选「自动合并」（跨轮保留），或在就绪后点击「合并」；Agent 派出的新 child 默认开启且不可关闭自动合并，无需逐个操作。安全点固定源提交后由父 Worker 自有队列的 runtime 串行 Squash，不创建 merge Worker、不改变父子关系，也不额外调用父 Agent。分歧由原 Worker 合入固定父基线，修复期间保留父执行位；挂起后恢复重新排队。无提交的干净 child 直接交付结果等父确认。`completed` 不等于已合并；落地保留分支和工作区，归档仍由你决定。
+- **交付**：你直接说的话对应的指令 Worker 默认关闭自动合并，可在开发时勾选「自动合并」（跨轮保留），或在就绪后点击「合并」；Agent 派出的新 child 默认开启且不可关闭自动合并，无需逐个操作。安全点固定源提交后由父 Worker 自有队列的 runtime 串行 Squash，不创建 merge Worker、不改变父子关系，也不额外调用父 Agent。分歧由原 Worker 合入固定父基线，修复期间保留父执行位；挂起后恢复重新排队。无提交的干净 child 直接交付结果等父确认。`completed` 不等于已合并；落地保留分支和工作区，归档仍由你决定。
 - **提问**：通过 Notice 向用户询问关键决策；补充需求通过 `worker message` 送到现有 Worker。
 
-以上是当前输入路径。完整操作过程见[一条 say 输入如何交付](docs/task-flow.md)；设计边界见[Worker 中心输入](docs/engineering/task-centered-input-design.md)。当前接口白名单及旧数据边界见[核心 API 收敛](docs/engineering/core-api.md)。公开入口现统一为 `lush worker`、RPC `worker.*` 与 Web Worker 路由；这是不保留旧 Task 入口别名的破坏性更名，已有数据不迁移，保留字段与事件见[更名边界](docs/engineering/core-api.md#worker-更名与兼容边界)。
+以上是当前输入路径。完整操作过程见[一条指令输入如何交付](docs/task-flow.md)；设计边界见[Worker 中心输入](docs/engineering/task-centered-input-design.md)。当前接口白名单及旧数据边界见[核心 API 收敛](docs/engineering/core-api.md)。公开入口现统一为 `lush worker`、RPC `worker.*` 与 Web Worker 路由；这是不保留旧 Task 入口别名的破坏性更名，已有数据不迁移，保留字段与事件见[更名边界](docs/engineering/core-api.md#worker-更名与兼容边界)。
 
 ## 部署方式
 
@@ -67,7 +69,7 @@ Host 默认只监听本机，远程 Electron 窗口本身不启动监听服务�
 ## 接下来读什么
 
 - [文档总览](docs/README.md)：完整文档地图与推荐阅读顺序。
-- [一条 say 输入如何交付](docs/task-flow.md)：当前输入与交付流程。
-- [Worker 中心输入](docs/engineering/task-centered-input-design.md)：say / 子Worker / 预约的设计边界。
+- [一条指令输入如何交付](docs/task-flow.md)：当前输入与交付流程。
+- [Worker 中心输入](docs/engineering/task-centered-input-design.md)：指令 / 子Worker / 预约的设计边界。
 - [核心 API 收敛](docs/engineering/core-api.md)：当前公开接口和旧数据边界。
 - [核心架构](docs/core-architecture.md)：Worker、Agent 与 Git 交付边界。

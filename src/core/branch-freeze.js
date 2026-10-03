@@ -37,7 +37,7 @@ export function branchFreeze(store) {
   }
 
   for (const task of store.all(`SELECT id, branch, target_branch, reservation FROM tasks
-    WHERE task_kind IN ('say','child') AND target_branch IS NOT NULL AND reservation IS NOT NULL
+    WHERE task_kind IN ('order','say','child') AND target_branch IS NOT NULL AND reservation IS NOT NULL
     ORDER BY CASE WHEN json_valid(reservation) AND json_extract(reservation,'$.status') IN ('executing','resolving','blocked') THEN 0 ELSE 1 END,id`)) {
     let request = null;
     // 损坏的 reservation 不参与冻结：它自己阻塞不了写，必须保持可检查、可撤销。

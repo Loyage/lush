@@ -253,7 +253,7 @@ test('graph labels each branch with origin, title and source', async () => {
     expect(nodes.get('branch:lush/test/input-1-anchor').created_at)
       .toBe(f.store.branch('lush/test/input-1-anchor').created_at);
 
-    // say 分支同时是输入的锚点分支，所以 origin 是 input，标题取输入内容，source_id 是 input id。
+    // order 分支同时是输入的锚点分支，所以 origin 是 input，标题取输入内容，source_id 是 input id。
     expect(nodes.get(`branch:${worker.branch}`))
       .toMatchObject({ origin: 'input', title: 'implement', source_id: worker.input_id });
 
@@ -476,7 +476,7 @@ test('graph carries each task pending notice and its count', async () => {
     expect(nodes.get('branch:lush/test/input-1-anchor')).not.toHaveProperty('notice');
 
     // 结算会把该任务剩下的 open notice 置为 dismissed：终态任务 notice===null，count===0。
-    // say 的结算只跟着固定合并请求走，所以用一条 child Task 验证同一套口径。
+    // order 的结算只跟着固定合并请求走，所以用一条 child Task 验证同一套口径。
     const child = await f.project.spawn(f.task.id, 'settle me');
     const childNotice = f.project.notice(child.id, 'child 待决', '子任务的问题');
     expect(f.store.get('SELECT status FROM notices WHERE id=?', childNotice.id).status).toBe('open');

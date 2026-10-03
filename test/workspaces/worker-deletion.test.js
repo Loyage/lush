@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fixture,repo,git } from '../helpers.js';
 async function setup(){
   const f=fixture(); f.project.stopping=true; await repo(f.root);
-  const say=await f.project.say('unwanted work'); const task=f.store.task(say.task.id); f.project.cancel(task.id);
+  const order=await f.project.order('unwanted work'); const task=f.store.task(order.task.id); f.project.cancel(task.id);
   return {...f,task};
 }
 async function remove(f){const preview=await f.project.deleteTaskPreview(f.task.id); return f.project.deleteTask(f.task.id,{confirm:true,revision:preview.revision});}
@@ -127,7 +127,7 @@ test('locked worktree, a new checkout branch and shared paths are rejected',asyn
     await git(f.task.workspace,'checkout','-b','unexpected-ref');
     expect((await f.project.deleteTaskPreview(f.task.id)).blockers.join(' ')).toContain('another branch');
     await git(f.task.workspace,'checkout',f.task.branch);
-    const other=(await f.project.say('keep work')).task;
+    const other=(await f.project.order('keep work')).task;
     f.store.update(other.id,{baseline_workspace:f.task.workspace});
     expect((await f.project.deleteTaskPreview(f.task.id)).blockers.join(' ')).toContain('shared');
     expect(fs.existsSync(f.task.workspace)).toBe(true);

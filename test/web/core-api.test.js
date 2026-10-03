@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { repo } from '../helpers.js';
 import { fetch, setup } from './harness.js';
 
-test('Web exposes say and worker reads, not legacy mutations or pages', async () => {
+test('Web exposes order and worker reads, not legacy mutations or pages', async () => {
   const f = await setup(); await repo(f.root);
   try {
     const page = await fetch(f.url);
@@ -20,15 +20,16 @@ test('Web exposes say and worker reads, not legacy mutations or pages', async ()
     });
     const legacy = await post('input.submit', { content: 'old' });
     expect(legacy.status).toBe(400);
+    expect((await post('say.submit', { content: 'removed public alias' })).status).toBe(400);
     // 本地分支绑定按用户决定仅保留 CLI / RPC，不留 Web 动作入口。
     expect((await post('branch.bind', { branch: 'feature', commit: 'a'.repeat(40) })).status).toBe(400);
     expect((await fetch(f.url + '/api/graph')).status).toBe(404);
     expect((await fetch(f.url + '/api/overview')).status).toBe(200);
     expect((await fetch(f.url + '/api/snapshot')).status).toBe(200);
-    const sent = await post('say.submit', { content: '新目标' });
+    const sent = await post('order.submit', { content: '新目标' });
     expect(sent.status).toBe(200);
     const created = await sent.json();
-    expect(created.task.task_kind).toBe('say');
+    expect(created.task.task_kind).toBe('order');
     expect((await fetch(f.url + `/api/worker/${created.task.id}`)).status).toBe(200);
     const overview = await (await fetch(f.url + '/api/overview')).json();
     expect(overview.tasks.some(task => task.id === created.task.id)).toBe(true);

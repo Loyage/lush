@@ -1,4 +1,5 @@
 import { button, el } from './dom.js';
+import { workerKind } from './worker-kind.js';
 import { action, api } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
@@ -8,7 +9,7 @@ import { isHistoricalDelivery } from './format.js';
 import { runBranchArchive } from './branch-archive.js';
 import { refresh as refreshOverview } from './navigate.js';
 
-export const isIterationTask = task => ['say', 'child'].includes(task.task_kind);
+export const isIterationTask = task => ['order', 'child'].includes(workerKind(task));
 export function iterationBlocker(task) {
   if (!task.branch || task.archived || task.branch_archive?.archived || task.branch_info?.archived)
     return '分支已归档或不可用；不会重建工作区。';

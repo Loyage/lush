@@ -23,7 +23,7 @@ export { HELP };
 const COMMANDS = new Map();
 for (const [module, names] of [
   [system, ['daemon', 'status', 'doctor', 'log', 'host', 'host-restart', 'host-stop', 'host-status']],
-  [intent, ['say']],
+  [intent, ['order']],
   [worker, ['worker']],
   [progress, ['progress']],
   [notice, ['notice']],

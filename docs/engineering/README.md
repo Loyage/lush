@@ -4,7 +4,7 @@
 
 ## 推荐阅读顺序
 
-1. [核心架构](../core-architecture.md)：当前 say 主链。
+1. [核心架构](../core-architecture.md)：当前指令主链。
 2. [执行模型](execution-model.md)：Worker、Agent、Run 与唤醒。
 3. [交付与验收](review-loop.md)：自动合并、多轮验收与显式归档。
 4. [工程架构索引](architecture.md)：源码主题入口。
@@ -14,7 +14,7 @@
 
 - [核心 API 收敛](core-api.md)：当前公开能力与已下线功能边界。
 - [数据流](data-flow.md)
-- [Worker 中心输入](task-centered-input-design.md)：当前 say 的设计约束。
+- [Worker 中心输入](task-centered-input-design.md)：当前指令的设计约束。
 - [已合并 Worker 的持续迭代](task-iteration.md)：验收/归档分离、安全父同步和历史兼容。
 - [Worker 图与固定输入规则](task-graph.md)：Worker 视角、可信规则执行与读面边界。
 - [一次 invocation 与多级协作](invocation.md)

@@ -29,7 +29,7 @@ const history = `WITH source AS (
     WHEN integration='merged' AND NOT EXISTS (
       SELECT 1 FROM events e WHERE e.task_id=original_task_id AND e.type='task.iteration_started'
         AND e.id > coalesce((SELECT max(done.id) FROM events done WHERE done.task_id=original_task_id
-          AND done.type IN ('task.merge_integrated','child.integrated','say.integrated')),0)
+          AND done.type IN ('task.merge_integrated','child.integrated','order.integrated','say.integrated')),0)
     ) THEN 'merged'
     WHEN integration='merged' AND json_extract(booking,'$.kind')='merge'
       AND json_extract(booking,'$.status')='integrated' THEN 'merged'

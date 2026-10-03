@@ -1,5 +1,6 @@
 import { RPCClient } from '../rpc/client.js';
 import { check, LushError } from '../core/types.js';
+import { normalizeOrderRecord } from '../core/order-kind.js';
 export class UIClient {
   constructor(config, token = null) { this.config = config; this.token = token; this.rpc = new RPCClient(config.socket, 30); }
   async request(method, params = {}) {
@@ -28,7 +29,7 @@ export class UIClient {
       // A separate bounded page also keeps newer read history from crowding them out.
       this.request('notice.page', { status: 'unread', limit: 100 }),
     ]);
-    const tasks = activity.tasks.filter(task => ['say','child','main','owner'].includes(task.task_kind));
+    const tasks = activity.tasks.map(normalizeOrderRecord).filter(task => ['order','child','main','owner'].includes(task.task_kind));
     const ids = new Set(tasks.map(task => task.id));
     return { revision: status.revision, status, tasks, task_page: activity.page,
       notices: [...new Map([...page.notices.filter(notice => ids.has(notice.task_id)), ...unread.notices]

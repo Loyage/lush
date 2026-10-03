@@ -540,7 +540,7 @@ function runtimeFieldsEditor(runtime, fields, plain, note) {
 
 /**
  * 「输入前缀（仅旧提交路径）」编辑器：列出命中后直接派活的前缀与目标，可增删。
- * 新 say 不走快速路由，输入框也不再高亮前缀；这张表只影响旧客户端提交（`input.submit` / 旧批量 `draft.commit`）。
+ * 新指令不走快速路由，输入框也不再高亮前缀；这张表只影响旧客户端提交（`input.submit` / 旧批量 `draft.commit`）。
  * 保存写 system.configure 的 input_routes，恢复默认送 null 清除项目覆盖。
  * 只读 fast path：这里只是把同一套结构交给核心，真正的匹配规则在 core 与浏览器 input-routes.js。
  */
@@ -550,7 +550,7 @@ function inputRoutesEditor(runtime) {
   const fallback = { value: DEFAULT_INPUT_ROUTES.map(route => ({ ...route })), default: DEFAULT_INPUT_ROUTES.map(route => ({ ...route })), overridden: false };
   const entry = runtime.input_routes || fallback;
   const section = block('输入前缀（仅旧提交路径）');
-  section.append(el('p', '以这些前缀开头的旧提交（`input.submit` / 旧批量 `draft.commit`）不调用规划模型，直接按目标创建根 Worker：worker 进入开发流程，research 只做调研。新 say 不走快速路由，输入框也不再高亮前缀。', 'settings-note settings-section-note'));
+  section.append(el('p', '以这些前缀开头的旧提交（`input.submit` / 旧批量 `draft.commit`）不调用规划模型，直接按目标创建根 Worker：worker 进入开发流程，research 只做调研。新指令不走快速路由，输入框也不再高亮前缀。', 'settings-note settings-section-note'));
 
   const list = el('div', undefined, 'settings-route-list'); list.dataset.routeList = '';
   const addRow = (prefix = '', target = 'worker') => {

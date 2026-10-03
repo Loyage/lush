@@ -18,7 +18,7 @@
 | `cli/args.js` | 参数解析与两种输出 | `option`、`exact`、`print` |
 | `cli/print.js` | 树 / 会话 / 用量 / 分支谱系的渲染 | `printTree`、`printTranscript`、`transcriptStepText`、`printUsage`、`printBranchTree`、`printBranchShow`、`printBranchArchive` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `host` / `host-restart` / `host-stop` / `host-status`；无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式；`doctor` / `host-status` 分列磁盘、daemon、Web 身份并只给显式更新提示 | `run` |
-| `cli/commands/intent.js` | `say`（新输入的唯一入口） | `run` |
+| `cli/commands/intent.js` | `order`（新输入的唯一入口） | `run` |
 | `cli/commands/task.js` | `worker`（list / tree / inspect / spawn / message / transcript [--follow] / history / wait / integrate / auto-merge ID on\|off / reserve / accept / reopen / sync-parent / resolve-sync / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup / delete ID [--confirm --revision REV]） | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
 | `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 Agent 的 Worker） | `run` |
 | `cli/commands/notice.js` | `notice list/post/answer/dismiss/read`（read 为用户专属，只将 info 告知标已读） | `run` |
@@ -39,7 +39,7 @@
 | `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验。**唯一公开面**：未列入 `PARAMS` 的方法一律 `unknown method` | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
 | `rpc/handlers/system.js` | 用户专属 `system.configure`、`system.stop_if_idle`（同步 idle 准入并关闭调度，见[服务重启](../reference/web-routes.md#服务重启)）；只读 `system.status`（兼容完整状态）与 `system.summary`（首页用持久 revision/索引聚合的无 Agent 全配置摘要）；`graph.get`；`agent.*`（含用户专属配置与环境文件，以及按需读取脱敏 Pi 账号/安装状态的 `agent.status`，不纳入快照）；历史 `sleep.*` / `system.usage` 仍可被内部调用，但不在白名单 | `handlers` |
-| `rpc/handlers/task.js` | `worker.*`：`graph` / `list` / `activity` / `page` / `tree` / `inspect` / `history` / `history_page` / `diff` / 用户专属 `code_state` / `code_tree` / `code_file` / `usage` / `transcript*`、`spawn`、agent-only 的 `integrate` / `resolve_child_divergence` / `progress.*`，共享但按身份校验的 `accept`（用户验收 say / 直接父 Agent 确认 child），以及用户专属的 `auto_merge` / `reserve` / `unreserve` / `reopen` / `sync_parent` / `resolve_sync` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` / `delete_preview` / `delete`（确认与 revision 必填） | `handlers` |
+| `rpc/handlers/task.js` | `worker.*`：`graph` / `list` / `activity` / `page` / `tree` / `inspect` / `history` / `history_page` / `diff` / 用户专属 `code_state` / `code_tree` / `code_file` / `usage` / `transcript*`、`spawn`、agent-only 的 `integrate` / `resolve_child_divergence` / `progress.*`，共享但按身份校验的 `accept`（用户验收指令 / 直接父 Agent 确认 child），以及用户专属的 `auto_merge` / `reserve` / `unreserve` / `reopen` / `sync_parent` / `resolve_sync` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` / `delete_preview` / `delete`（确认与 revision 必填） | `handlers` |
 | `rpc/handlers/notice.js` | `notice.list/page/post/answer/dismiss/read`；list 待决优先、其次未读生命周期 info；page 的 `unread` 仅筛新生命周期告知；read 幂等、不答复也不唤醒 | `handlers` |
 | `rpc/handlers/branch.js` | `branch.history/tree/show/bind/archive`（`branch.history` / `branch.bind` / `branch.archive` 在 `USER_ONLY`）；history 只读 main 第一父链 | `handlers` |
 | `rpc/handlers/input.js` | 历史 `input.*` / `draft.*`：源码保留，不在白名单 | `handlers` |
@@ -68,7 +68,7 @@
 
 | 分区 | 文件 |
 |---|---|
-| Worker 中心主链 | `test/project/say.test.js`、`merge-queue.test.js`、`parent-delivery.test.js`（父自有队列顺序/执行位/暂停重排/取消与精确恢复）、`delivery-compatibility.test.js`（重复交付/代码依赖/旧 v2 审计与 Git/DB 窗口/源漂移）、`delivery-review.test.js`（拒绝非法 sender 无副作用、busy 挂起/取消真实自动唤醒、父前进后精确恢复读模型）、`task-signals.test.js`、`task-centered-graph.test.js`、`lifecycle.test.js`、`scheduling.test.js`、`preempt.test.js`、`progress.test.js`、`recovery.test.js`、`limits.test.js`、`agents.test.js`、`status.test.js` |
+| Worker 中心主链 | `test/project/order.test.js`、`merge-queue.test.js`、`parent-delivery.test.js`（父自有队列顺序/执行位/暂停重排/取消与精确恢复）、`delivery-compatibility.test.js`（重复交付/代码依赖/旧 v2 审计与 Git/DB 窗口/源漂移）、`delivery-review.test.js`（拒绝非法 sender 无副作用、busy 挂起/取消真实自动唤醒、父前进后精确恢复读模型）、`task-signals.test.js`、`task-centered-graph.test.js`、`lifecycle.test.js`、`scheduling.test.js`、`preempt.test.js`、`progress.test.js`、`recovery.test.js`、`limits.test.js`、`agents.test.js`、`status.test.js` |
 | Worker 彻底删除入口 | `test/worker-delete-api.test.js`（用户权限、确认/revision 与 CLI 两步预检）、`test/web/worker-delete-api.test.js`（登录/Origin/参数边界与真实临时 Git 项目 HTTP→RPC→资源清理联调）；后端与 DOM 回归由各自分区维护 |
 | 公开面契约 | `test/core-api.test.js`（RPC 白名单）、`test/help-guard.test.js`（帮助与命令面）、`test/web/core-api.test.js`、`test/task-iteration-api.test.js`（四个用户专属接口/CLI mock）、`test/web/iteration-api.test.js`（HTTP mock）、`test/web/dom-iteration.test.js`（共享迭代动作） |
 | Git / worktree | `test/workspaces/{naming,merge,cleanup,genealogy,anchor,archive,branch-diagnostics,branch-first,safety,task-squash}.test.js`（task-squash 核验精确凭据、双 ref 事务、guard、dirty/drift 与失败保留现场）；`safety` 直接验证通用 Git 安全门、历史展示 worktree 保留与 DB 附属数据只读兼容 |
@@ -86,7 +86,7 @@
 | 本地性能报告契约 | `test/read-performance.test.js`（参数 / 统计 / 原样本预算 / 输出不覆盖 / Git 身份与降级；不在通用套件重复运行大规模测量） |
 | 测试环境隔离 | `test/helpers.test.js`（子进程 HOME/XDG 与全局/系统 Git 配置隔离、合成 hook/签名/环境污染及退出回收；生产 Git 环境不变） |
 | 文档 | `test/docs-check.test.js`、`test/docs-search.test.js`、`test/markdown.test.js`、`test/mermaid-docs.test.js`、`test/web/docs.test.js` |
-| 历史兼容与安全 | `test/input-routes.test.js` 仅保留旧配置格式校验；`test/{butler,explainer}-provider.test.js` 保留无工具/无凭证隔离；`test/web/dom-merge.test.js` 保留旧 Notice 审批语义；历史记录读取、删除共享引用与交付恢复由各现行分区覆盖。旧 Candidate 命令、快速路由匹配、休眠批量交付面板和项目统计的成功路径测试已移除；拒绝旧公开入口由 core-api / help-guard 覆盖 |
+| 历史兼容与安全 | `test/project/order-compatibility.test.js` 覆盖旧类型只读投影、父类型、名称/路径/原话不变、混合类型唯一索引、父候选、派生、调度告知、历史落地证据与旧入口拒绝；`test/input-routes.test.js` 仅保留旧配置格式校验；`test/{butler,explainer}-provider.test.js` 保留无工具/无凭证隔离；`test/web/dom-merge.test.js` 保留旧 Notice 审批语义；历史记录读取、删除共享引用与交付恢复由各现行分区覆盖。旧 Candidate 命令、快速路由匹配、休眠批量交付面板和项目统计的成功路径测试已移除；拒绝旧公开入口由 core-api / help-guard 覆盖 |
 
 `.github/workflows/code-reader-posix.yml` 独立运行代码读取器的 Linux/macOS 聚焦回归，覆盖最低支持 Bun 1.2.0 和当前固定 Bun 1.4.2；无 native 包或编译步骤。Linux 本地通过不等于 macOS 实测，Darwin loader mock 也不能替代 macOS job 的结果。
 

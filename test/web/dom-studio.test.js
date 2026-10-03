@@ -16,7 +16,7 @@ test('概览：Task 指标、最近任务、待决与运行时折叠跨重画保
   const data = { ...ui.lastSnapshot,
     tasks: [
       { id: 1, task_kind: 'main', role: 'agent', goal: '管理 main 分支及子任务合并请求', status: 'waiting', integration: 'none', branch: 'main' },
-      { id: 7, task_kind: 'say', role: 'agent', goal: '正在改点什么', status: 'running', integration: 'none', branch: 'lush/demo/7' },
+      { id: 7, task_kind: 'order', role: 'agent', goal: '正在改点什么', status: 'running', integration: 'none', branch: 'lush/demo/7' },
     ],
     notices: [
       { id: 900, task_id: 7, kind: 'info', status: 'sent', title: '分支 lush/demo/7 有变化' },

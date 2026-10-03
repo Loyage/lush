@@ -6,11 +6,11 @@ import { makeWorld } from './dom-world.js';
 const world = makeWorld();
 const graph = { nodes: [
   { id: 1, parent_id: null, task_kind: 'main', role: 'agent', status: 'waiting', title: 'main', branch: 'main', children: [] },
-  { id: 2, parent_id: 1, task_kind: 'say', role: 'agent', status: 'waiting', title: '实现功能', branch: 'lush/task-2',
+  { id: 2, parent_id: 1, task_kind: 'order', role: 'agent', status: 'waiting', title: '实现功能', branch: 'lush/task-2',
     workspace: '/tmp/task-2', target_branch: 'main', integration: 'pending', children: [] },
-  { id: 3, parent_id: 1, task_kind: 'say', role: 'agent', status: 'running', title: '还在跑', branch: 'lush/task-3',
+  { id: 3, parent_id: 1, task_kind: 'order', role: 'agent', status: 'running', title: '还在跑', branch: 'lush/task-3',
     workspace: '/tmp/task-3', target_branch: 'main', integration: 'pending', children: [] },
-  { id: 4, parent_id: 1, task_kind: 'say', role: 'agent', status: 'waiting', title: '目标在别处', branch: 'lush/task-4',
+  { id: 4, parent_id: 1, task_kind: 'order', role: 'agent', status: 'waiting', title: '目标在别处', branch: 'lush/task-4',
     workspace: '/tmp/task-4', target_branch: 'release', integration: 'pending', children: [] },
 ], total: 4, truncated: false };
 const dom = installDom({ fetch: (url, options) => {

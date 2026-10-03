@@ -6,9 +6,9 @@ lush [--project PATH] [--json] <command>
   status                             项目与 Worker 状态
   host|host-restart|host-stop|host-status  整机 Lush Host（Web 工作台入口）
 
-  say '目标' [--branch NAME]          创建独立 Worker、分支与 worktree
+  order '目标' [--branch NAME]        提交指令，创建独立 Worker、分支与 worktree
   worker list|tree|inspect ID         查看 Worker
-  worker spawn '目标' --parent ID [--name NAME]  在 say/child 下派 agent 子 Worker
+  worker spawn '目标' --parent ID [--name NAME]  在指令/child 下派 agent 子 Worker
   worker message ID '说明'            给现有 Worker 追加消息
   worker transcript ID [--follow]     查看执行记录
   worker history ID                  查看事件
@@ -18,7 +18,7 @@ lush [--project PATH] [--json] <command>
   worker unreserve ID                撤销尚未发出的合并预约
   worker integrate CHILD COMMIT      历史 Worker 的父 Agent 确认固定子提交
   worker resolve-child-divergence ID 历史解分歧子 Worker
-  worker resolve-divergence ID       历史 say 解分歧入口
+  worker resolve-divergence ID       历史指令解分歧入口
   worker approve-merge ID COMMIT BASELINE  历史请求的用户批准入口
   worker accept ID                   用户验收 / 父 Agent 确认已交付 child（不归档）
   worker reopen ID                   历史已合并 Worker 恢复待验收（不调用 Agent）
@@ -40,6 +40,6 @@ lush [--project PATH] [--json] <command>
   agent show|models|set|reset|prompt|env|init  配置 Agent
   config show|set|reset              设置并发和调用限额（worker-call-limit 为单 Worker 调用上限）
 
-新输入只走 say；旧 Intent/Plan/Candidate、展示、介绍、托管、草稿和批量合并不再提供 API。
+新指令只走 order；旧 Intent/Plan/Candidate、展示、介绍、托管、草稿和批量合并不再提供 API。
 旧数据不迁移；仅用户明确确认 worker delete 时清除所选 Worker 的专属历史与资源。
 `;

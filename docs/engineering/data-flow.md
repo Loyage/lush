@@ -10,6 +10,6 @@ CLI / Web → RPC（身份、参数、权限） → Project（Input / Worker / �
                                          └→ 只读投影 → CLI / Web
 ```
 
-新 say 直接关联 Input 与 Worker，引用作为 Input/Draft 附件持久化；下一轮 Agent 读取引用快照与可解析的当前状态，不在正文中插隐藏标记。子Worker信号先写 Message/Event 再唤醒父 Worker，父 Agent 显式确认固定子提交；合并预约与 main/owner 的用户批准分开处理。
+新指令直接关联 Input 与 Worker，引用作为 Input/Draft 附件持久化；下一轮 Agent 读取引用快照与可解析的当前状态，不在正文中插隐藏标记。子Worker信号先写 Message/Event 再唤醒父 Worker，父 Agent 显式确认固定子提交；合并预约与 main/owner 的用户批准分开处理。
 
 SQLite 是 Input、Worker、Message、Notice、Event 及 Run/Artifact 等结构化事实来源；Git ref/worktree 是代码事实来源，不能仅凭数据库标记断言某提交已落地。UI 不直接操作数据库或 Git。旧 Intent / Plan / Candidate 与 planner / scheduler 的记录保留在磁盘上，但不再由公开入口产生新工作。

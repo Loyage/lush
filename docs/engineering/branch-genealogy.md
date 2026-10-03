@@ -41,7 +41,7 @@ Git 不保存「B 是从 A 创建的」这种关系：`merge-base`、reflog、co
 
 创建与状态写入都在 Git 边界里，没有第二套分支创建机制；谱系行的写入口只有下面这些：
 
-1. **创建**：新 say / 子 Worker 在 `git worktree add -b <branch> <dir> <commit>` **之前**先落库。新 say 的 parent 是用户生效的父分支（main 或已绑定的 owner）；子 Worker 的 parent 是父 Worker 分支；解分歧子 Worker 的 parent 是它要修复的源分支。Worker `target_branch` 与这个直接 parent 一致。旧记录里仍会有输入分支（通过 `inputs.anchor_branch` 关联）与 planner / worker 分支，它们同样遵守谱系不可变规则。
+1. **创建**：新指令 / 子 Worker 在 `git worktree add -b <branch> <dir> <commit>` **之前**先落库。新指令的 parent 是用户生效的父分支（main 或已绑定的 owner）；子 Worker 的 parent 是父 Worker 分支；解分歧子 Worker 的 parent 是它要修复的源分支。Worker `target_branch` 与这个直接 parent 一致。旧记录里仍会有输入分支（通过 `inputs.anchor_branch` 关联）与 planner / worker 分支，它们同样遵守谱系不可变规则。
 2. **回收**：`Workspaces#dropBranch`（Worker分支）与 `Workspaces#dropAnchor`（兼容命名：输入分支）在 compare-and-delete 成功后标 `deleted`，不删谱系行。
 3. **归档**：`Workspaces#archiveBranches`（经 `Project#archiveBranch`）删掉**整棵子树**里每一条的 worktree 与本地 ref 后逐条标 `archived`，同样不删行。它明知分支可能未合并也允许删，保留Worker行、消息、事件与 pi 会话文件，是显式放弃代码的路径——与回收的区别见 [工作区与分支回收](cleanup.md)。
 

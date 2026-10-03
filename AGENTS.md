@@ -11,6 +11,8 @@ Lush 是**项目级的多 agent 开发应用**。Bun / JavaScript / SQLite；dae
 - 实体只有 Input / Worker / Agent / Message / Notice / Event。不要引入电脑级调度。
 - 公开入口全面使用 Worker：CLI `lush worker`、RPC `worker.*`、HTTP `/api/worker/<id>` / `/api/workers` / `/api/worker-graph`，不留旧 Task 别名。存储字段、事件、环境变量与内部路径的保留边界以 `docs/engineering/core-api.md` 为准，不做数据迁移或机械改名。
 
+用户提交统一称 order（指令）：CLI `lush order`、RPC/Web `order.submit`、快捷命令 `bun run order`；旧 say 公开入口无别名。新记录 `task_kind='order'`，历史 `task_kind='say'` 只在读取/类型判定边界兼容，不迁移已有行、分支/worktree 或会话；Input、历史输入、暂存仍保持独立名称。权威边界见 `docs/engineering/core-api.md`。
+
 ## 命令一律走 bun run
 
 ```bash
@@ -18,7 +20,7 @@ bun run doctor                  # 首先确认项目 / home / daemon 的代码�
 bun run test
 bun run start                   # 只启动所选项目；已有 daemon 不会换版本
 bun run daemon-restart          # 运行代码、提示词或配置变更后重启
-bun run say '输入'              # 立即提交单条输入，不等开发完成
+bun run order '输入'              # 立即提交单条输入，不等开发完成
 # Web 主输入 Enter 暂存；“历史输入”编辑/逐条发射。旧 draft CLI 不再注册。
 bun run tree
 bun run inspect 3
@@ -40,7 +42,7 @@ bun run stop
 ## 安全与持久化
 
 - Git 操作通过 `src/core/workspaces.js`，无 shell 插值，所有 Lush Git 变更串行。
-- 每个 worker 独立 worktree / 分支；历史 worker 的合并仍由用户批准。新式 say/child 的 version 2 交付由父 Worker 自有队列的 runtime 串行 Squash（含 main），不额外调用父 Agent。say 默认关闭自动合并，由用户开启 hook 或显式请求；新 child 默认开启且锁定。分歧由原 Worker 在源侧吸收固定父基线，修复期间保留父执行位；挂起释放，恢复重新排队并固定新基线。落地后待验收，分支/worktree 保留，验收与显式归档分开。
+- 每个 worker 独立 worktree / 分支；历史 worker 的合并仍由用户批准。新式 指令/child 的 version 2 交付由父 Worker 自有队列的 runtime 串行 Squash（含 main），不额外调用父 Agent。指令默认关闭自动合并，由用户开启 hook 或显式请求；新 child 默认开启且锁定。分歧由原 Worker 在源侧吸收固定父基线，修复期间保留父执行位；挂起释放，恢复重新排队并固定新基线。落地后待验收，分支/worktree 保留，验收与显式归档分开。
 - 不强制 reset / clean / 删除工作区，不自动提交用户已有改动。失败工作区也有价值。
 - `completed` 不等于 `merged`。保留独立的Worker状态与 integration 状态。
 - 新 Worker 父子关系创建后始终保持委派关系；当前 version 2 交付不创建 merge Worker、不改源 Worker 的 `parent_id`。持久预约是交付事实，Message/Event 仅通知；按入队顺序、代码依赖优先，取得父执行位后才固定尝试基线。旧 version 1 语义不改；旧 version 2 merge 身份和在途重挂只凭明确预约/审计恢复原父，不猜身份、不删历史。终态 Worker 不允许活动后代。依赖边（`task_deps`）只在 spawn 时写入，之后不可变。

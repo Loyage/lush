@@ -11,14 +11,14 @@ function lifecycle(f, kind, status, type) {
 test('overview includes analysis and older lifecycle reminders outside the homepage Worker/history windows', async () => {
   const f = await setup();
   try {
-    const idle = lifecycle(f, 'say', 'waiting', 'task.idle');
+    const idle = lifecycle(f, 'order', 'waiting', 'task.idle');
     // The source event remains valid even after the Worker leaves the activity window.
     f.store.update(idle.task.id, { status: 'completed' });
     const analysis = lifecycle(f, 'analysis', 'completed', 'completed');
     const failed = lifecycle(f, 'analysis', 'failed', 'analysis.fork_failed');
     f.store.transaction(() => {
       for (let i = 0; i < 105; i++) {
-        const task = f.store.create({ input_id: null, role: 'agent', task_kind: 'say', goal: `new history ${i}` });
+        const task = f.store.create({ input_id: null, role: 'agent', task_kind: 'order', goal: `new history ${i}` });
         f.store.update(task.id, { status: 'completed' });
         f.project.notify(task.id, `historical info ${i}`);
       }
@@ -44,7 +44,7 @@ test('overview includes analysis and older lifecycle reminders outside the homep
 test('overview deduplicates unread reminders also present in its historical page', async () => {
   const f = await setup();
   try {
-    const { notice } = lifecycle(f, 'say', 'waiting', 'task.idle');
+    const { notice } = lifecycle(f, 'order', 'waiting', 'task.idle');
     const snapshot = await (await fetch(f.url + '/api/snapshot')).json();
     expect(snapshot.notices.filter(row => row.id === notice.id)).toHaveLength(1);
   } finally { await f.close(); }

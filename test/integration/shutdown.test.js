@@ -16,7 +16,7 @@ setInterval(() => {}, 1000);
 `, {mode:0o755});
   try {
     await cli(root,['start'],{LUSH_PROVIDER:'pi',LUSH_PI_COMMAND:fake});
-    const input = await cli(root,['say','long']);
+    const input = await cli(root,['order','long']);
     await until(() => fs.existsSync(path.join(root,'.lush','grandchild.pid')));
     const pid = Number(fs.readFileSync(path.join(root,'.lush','child.pid'),'utf8'));
     const grandchild = Number(fs.readFileSync(path.join(root,'.lush','grandchild.pid'),'utf8'));

@@ -116,26 +116,26 @@ test('a user message stops the running turn at the safe boundary without failing
   const f = fixture(null, { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub(), STUB_WAIT_MS: '8000' });
   await repo(f.root);
   try {
-    const say = await f.project.say('long running work');
+    const order = await f.project.order('long running work');
     const dir = path.join(f.config.home, 'preempt');
     await until(() => fs.existsSync(dir) && fs.readdirSync(dir).some(name => name.startsWith('started-')));
-    f.project.message(say.task.id, 'urgent correction');
+    f.project.message(order.task.id, 'urgent correction');
     // 抢占被记成独立结果：不是失败，也没有把 task 结算掉。
     await until(() => f.store.all('SELECT status FROM agent_runs ORDER BY id').some(run => run.status === 'preempted'));
-    const task = f.store.task(say.task.id);
+    const task = f.store.task(order.task.id);
     expect(task.status).not.toBe('failed');
-    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='failed'", say.task.id)).toHaveLength(0);
-    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='invocation.preempted'", say.task.id)).toHaveLength(1);
-    const requested = f.store.all("SELECT data FROM events WHERE task_id=? AND type='preempt.requested'", say.task.id);
+    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='failed'", order.task.id)).toHaveLength(0);
+    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='invocation.preempted'", order.task.id)).toHaveLength(1);
+    const requested = f.store.all("SELECT data FROM events WHERE task_id=? AND type='preempt.requested'", order.task.id);
     expect(requested).toHaveLength(1);
     expect(JSON.parse(requested[0].data).reason).toBe('user message');
     // 这条输入没有被丢掉：下一轮调用读到它，任务照常静息。
     await until(() => f.project.running.size === 0, 8000);
-    await until(() => f.store.task(say.task.id).status === 'waiting', 8000);
+    await until(() => f.store.task(order.task.id).status === 'waiting', 8000);
     expect(f.store.all('SELECT status FROM agent_runs ORDER BY id').map(run => run.status)).toEqual(['preempted', 'completed']);
-    expect(f.store.all('SELECT consumed FROM messages WHERE task_id=?', say.task.id)).toEqual([{ consumed: 1 }]);
-    expect(fs.existsSync(say.task.workspace)).toBe(true);
-    expect(fs.existsSync(path.join(dir, `task-${say.task.id}.request.json`))).toBe(false);
+    expect(f.store.all('SELECT consumed FROM messages WHERE task_id=?', order.task.id)).toEqual([{ consumed: 1 }]);
+    expect(fs.existsSync(order.task.workspace)).toBe(true);
+    expect(fs.existsSync(path.join(dir, `task-${order.task.id}.request.json`))).toBe(false);
   } finally { await f.close(); }
 });
 
@@ -156,17 +156,17 @@ test('backends without a verified safe boundary keep delivery at turn end and ar
   const f = fixture({ run: async () => { await proceed.promise; return 'finished anyway'; } });
   await repo(f.root);
   try {
-    const say = await f.project.say('work on another backend');
-    await until(() => f.project.running.has(say.task.id));
-    expect(f.project.requestPreempt(say.task.id, 'user message')).toBe(false);
-    f.project.message(say.task.id, 'note for later');
-    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='preempt.requested'", say.task.id)).toHaveLength(0);
+    const order = await f.project.order('work on another backend');
+    await until(() => f.project.running.has(order.task.id));
+    expect(f.project.requestPreempt(order.task.id, 'user message')).toBe(false);
+    f.project.message(order.task.id, 'note for later');
+    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='preempt.requested'", order.task.id)).toHaveLength(0);
     proceed.resolve();
-    await until(() => !f.project.running.has(say.task.id));
-    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='invocation.preempted'", say.task.id)).toHaveLength(0);
+    await until(() => !f.project.running.has(order.task.id));
+    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='invocation.preempted'", order.task.id)).toHaveLength(0);
     // 后端没有安全边界：不做主动收尾，但这条输入仍在轮末投递（会再跑一轮把它读掉）。
     expect(f.store.all('SELECT status FROM agent_runs ORDER BY id').every(run => run.status === 'completed')).toBe(true);
-    await until(() => f.store.all('SELECT consumed FROM messages WHERE task_id=?', say.task.id)
+    await until(() => f.store.all('SELECT consumed FROM messages WHERE task_id=?', order.task.id)
       .every(row => row.consumed === 1));
   } finally { proceed.resolve(); await f.close(); }
 });

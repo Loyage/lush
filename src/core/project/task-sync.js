@@ -34,7 +34,7 @@ function release(project, taskId, parentId) {
 export default {
   assertTaskSyncable(taskId) {
     const task = this.store.task(id(taskId));
-    check(['say', 'child'].includes(task.task_kind), 'only say/child Workers can synchronize their direct parent');
+    check(['order', 'child'].includes(task.task_kind), 'only order/child Workers can synchronize their direct parent');
     check(!TERMINAL.has(task.status), 'ended Workers must first use worker.reopen');
     check(['waiting', 'paused', 'awaiting_acceptance'].includes(task.status),
       'Worker must be idle and not queued, running, or waiting for a user decision');
@@ -49,7 +49,7 @@ export default {
     check(this.subtreeTasks(task.id).every(child => child.id === task.id
       || (isSettled(child) && !this.running.has(child.id))), 'Worker has active descendants');
     const parent = this.store.task(task.parent_id);
-    check(['main', 'owner', 'say', 'child'].includes(parent.task_kind) && !TERMINAL.has(parent.status)
+    check(['main', 'owner', 'order', 'child'].includes(parent.task_kind) && !TERMINAL.has(parent.status)
       && parent.branch === task.target_branch, 'Worker parent identity no longer matches its fixed Git target');
     check(parent.status !== 'running' && parent.status !== 'queued' && !this.running.has(parent.id),
       'parent Worker must be idle before synchronizing');

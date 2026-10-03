@@ -19,7 +19,7 @@ CLI 的 `--worker` 映射到保留的 RPC 参数 `task`，不接受旧 `--task` 
 
 ## 生命周期告知
 
-内置 hook 只覆盖用户直接创建的 `say` / `analysis`。say 正常完成一轮工作、无待决问题、未处理输入或未结算子Worker后，以 `task.idle` 事件生成“本轮已结束”的告知；它仍可能在等待合并或进一步指示，并不代表验收完成。同步修复的轮末也使用相同事件。超时、调用失败、daemon 中断恢复及分析检出失败保存失败原因。子 Worker 与内部 main/owner/merge 不触发此 hook；等待子Worker、问卷、用户主动暂停/取消和安全抢占不额外告知。
+内置 hook 只覆盖用户直接创建的 `order` / `analysis`。指令正常完成一轮工作、无待决问题、未处理输入或未结算子Worker后，以 `task.idle` 事件生成“本轮已结束”的告知；它仍可能在等待合并或进一步指示，并不代表验收完成。同步修复的轮末也使用相同事件。超时、调用失败、daemon 中断恢复及分析检出失败保存失败原因。子 Worker 与内部 main/owner/merge 不触发此 hook；等待子Worker、问卷、用户主动暂停/取消和安全抢占不额外告知。
 
 告知固定 `kind='info' / status='sent'`，不进入 open 问题口径，不阻塞调度、合并或验收。Notice 的可空 `source_event_id INTEGER` 指向来源 Event，并以唯一索引去重；`read_at TEXT` 保存已读时间。Worker状态、来源事件和告知同事务写入，旧 Notice 的新字段保持 NULL，不回填、不补发历史完成通知。
 

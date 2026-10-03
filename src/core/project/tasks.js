@@ -60,10 +60,10 @@ export default {
     this.assertWritable('delegate a worker');
     const parent = this.store.task(parentId);
     assertTaskNotSyncing(this, parent.id);
-    check(!['main','owner'].includes(parent.task_kind), 'branch owner Workers accept new say Workers, not unrestricted spawned work');
+    check(!['main','owner'].includes(parent.task_kind), 'branch owner Workers accept new order Workers, not unrestricted spawned work');
     check(parent.task_kind !== 'analysis', 'read-only analysis Workers do not delegate; ask a new question instead');
-    const taskKind = ['say','child'].includes(parent.task_kind) ? 'child' : null;
-    check(taskKind === 'child', 'only say/child Workers can delegate');
+    const taskKind = ['order','child'].includes(parent.task_kind) ? 'child' : null;
+    check(taskKind === 'child', 'only order/child Workers can delegate');
     check(role === undefined || role === 'agent', 'child role must be agent');
     check(Array.isArray(deps) && deps.length === 0 && specId === null, 'legacy deps and specs are not supported');
     if (parent.branch) this.assertBranchWritable(parent.branch, 'delegate more work while resolving divergence');

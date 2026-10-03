@@ -4,7 +4,7 @@
 
 ## 分支与 worktree
 
-- 新 say：从父分支（main 或已绑定 owner）的已提交 tip 创建 `lush/<hash>/<id>-<name>` 与 `.lush/worktrees/<id>-<name>`，Agent cwd 就是这里。
+- 新指令：从父分支（main 或已绑定 owner）的已提交 tip 创建 `lush/<hash>/<id>-<name>` 与 `.lush/worktrees/<id>-<name>`，Agent cwd 就是这里。
 - 子 Worker：从父分支当前已提交 tip 创建独立的直接子分支与 worktree。
 - 当前 version 2 分歧：原 Worker 在自己的 worktree 吸收固定父提交、保留原源提交并测试；历史 version 1 的独立解分歧子 Worker 从源侧固定提交创建分支/worktree。
 - 归档与回收：`branch.archive` 与 `worker.cleanup`，见[分支谱系](branch-genealogy.md)与[工作区回收](cleanup.md)。
@@ -13,7 +13,7 @@
 
 ## 父分支选择
 
-新 say 可传 `branch`。它必须精确命中 `refs/heads/<branch>`，不接受 tag、SHA 或 rev 表达式；省略时使用项目当前检出分支。父分支不必在项目主 worktree 检出，也可以由另一个 worktree 持有；非 main 分支必须先 `branch.bind` 显式绑定 owner，否则新 say 直接拒绝。
+新指令可传 `branch`。它必须精确命中 `refs/heads/<branch>`，不接受 tag、SHA 或 rev 表达式；省略时使用项目当前检出分支。父分支不必在项目主 worktree 检出，也可以由另一个 worktree 持有；非 main 分支必须先 `branch.bind` 显式绑定 owner，否则新指令直接拒绝。
 
 未提交修改不会进入新分支。
 

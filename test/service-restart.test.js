@@ -18,7 +18,7 @@ test('idle stop atomically closes scheduling and RPC admission without changing 
     expect(f.project.stopping).toBe(true);
     f.project.kick();
     expect(f.project.scheduled).toBe(false);
-    await expect(rpc.dispatch('say.submit', { content: 'must not start' })).rejects.toThrow('正在停止');
+    await expect(rpc.dispatch('order.submit', { content: 'must not start' })).rejects.toThrow('正在停止');
     await expect(rpc.dispatch('system.stop_if_idle')).rejects.toThrow('正在停止');
     expect(await rpc.dispatch('system.summary')).toBeObject();
   } finally { await f.close(); }

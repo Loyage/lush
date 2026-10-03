@@ -124,7 +124,7 @@ test('a branch with post-review commits is kept until its whole tip reaches the 
 test('cleaned failed child worktree can be recreated by rebuilding its branch from base', async () => {
   const f = await setup();
   try {
-    // say 的 worktree 是输入锚点，回收后只能检查、不会重建；可以重建的是它下面的 child。
+    // order 的 worktree 是输入锚点，回收后只能检查、不会重建；可以重建的是它下面的 child。
     const child = await f.project.spawn(f.task.id, 'cleaned work');
     const cwd = child.workspace;
     const branch = f.store.task(child.id).branch;
@@ -139,27 +139,27 @@ test('cleaned failed child worktree can be recreated by rebuilding its branch fr
   } finally { await f.close(); }
 });
 
-/** v2 合并落地的 say：分支、worktree 与预约都还在，等用户决定何时归档。 */
-async function squashedSay(f, name) {
-  const say = await f.project.say(name);
-  fs.writeFileSync(path.join(say.task.workspace, `${name}.txt`), `${name}\n`);
-  await git(say.task.workspace, 'add', `${name}.txt`);
-  await git(say.task.workspace, 'commit', '-m', `${name} one`);
-  f.store.update(say.task.id, { status: 'waiting', result: 'done' });
-  await f.project.reserveTask(say.task.id, 'merge');
+/** v2 合并落地的 order：分支、worktree 与预约都还在，等用户决定何时归档。 */
+async function squashedOrder(f, name) {
+  const order = await f.project.order(name);
+  fs.writeFileSync(path.join(order.task.workspace, `${name}.txt`), `${name}\n`);
+  await git(order.task.workspace, 'add', `${name}.txt`);
+  await git(order.task.workspace, 'commit', '-m', `${name} one`);
+  f.store.update(order.task.id, { status: 'waiting', result: 'done' });
+  await f.project.reserveTask(order.task.id, 'merge');
   f.project.stopping = false;
-  await f.project.driveTaskMerge(say.task.parent_id);
-  const merged = f.store.task(say.task.id);
+  await f.project.driveTaskMerge(order.task.parent_id);
+  const merged = f.store.task(order.task.id);
   expect(merged).toMatchObject({ status: 'awaiting_acceptance', integration: 'merged' });
   await iteration.acceptTask.call(f.project, merged.id);
   expect(JSON.parse(merged.reservation)).toMatchObject({ version: 2, status: 'integrated' });
   return merged;
 }
 
-test('cleanup and delete survive a v2 say whose branch was archived before reclamation', async () => {
+test('cleanup and delete survive a v2 order whose branch was archived before reclamation', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const merged = await squashedSay(f, 'archived-first');
+    const merged = await squashedOrder(f, 'archived-first');
     const branch = merged.branch;
     // 用户先显式归档分支：ref / worktree 都没了，tasks.branch 作为历史指针留下。
     await f.project.archiveBranch(branch);

@@ -76,7 +76,7 @@ test('opening an old database adds only nullable signal columns and preserves ol
     first.message(task.id, 'old message'); first.close();
     const old = new Database(file);
     old.query('DROP INDEX messages_signal_once').run();
-    old.query('DROP INDEX tasks_new_branch_owner').run();
+    old.query('DROP INDEX tasks_order_branch_owner').run();
     old.query('ALTER TABLE messages DROP COLUMN signal_key').run();
     old.query('ALTER TABLE messages DROP COLUMN signal_type').run();
     old.query('ALTER TABLE tasks DROP COLUMN reservation').run();
@@ -88,7 +88,7 @@ test('opening an old database adds only nullable signal columns and preserves ol
       expect(reopened.get('SELECT count(*) AS n FROM messages').n).toBe(1);
       expect(reopened.all('PRAGMA index_list(messages)').some(row => row.name === 'messages_signal_once')).toBe(true);
       expect(reopened.task(task.id)).toMatchObject({ task_kind: null, reservation: null });
-      expect(reopened.all('PRAGMA index_list(tasks)').some(row => row.name === 'tasks_new_branch_owner')).toBe(true);
+      expect(reopened.all('PRAGMA index_list(tasks)').some(row => row.name === 'tasks_order_branch_owner')).toBe(true);
     } finally { reopened.close(); }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

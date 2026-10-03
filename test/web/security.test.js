@@ -16,16 +16,16 @@ test('web is project scoped, submits immediately and exposes no Service views', 
     const page = await fetch(f.url); const html = await page.text();
     expect(html).toContain('Worker 列表'); expect(html).not.toContain('Service');
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
-    const submit = await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'say.submit',params:{content:'web request'}})});
+    const submit = await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'order.submit',params:{content:'web request'}})});
     expect(submit.status).toBe(200);
     const snapshot = await (await fetch(f.url+'/api/snapshot')).json();
     expect(snapshot.status.project).toBe(f.root);
-    // 概览读模型只投影 say/child/main/owner：旧 inputs / timeline / ladder 都不再下发。
-    const say = snapshot.tasks.find(task => task.task_kind === 'say');
-    expect(say.goal).toBe('web request');
+    // 概览读模型只投影 order/child/main/owner：旧 inputs / timeline / ladder 都不再下发。
+    const order = snapshot.tasks.find(task => task.task_kind === 'order');
+    expect(order.goal).toBe('web request');
     expect(snapshot.inputs).toEqual([]);
     expect(snapshot.ladder.nodes).toBeUndefined();
-    const task = await (await fetch(f.url+`/api/worker/${say.id}`)).json(); expect(task.task_kind).toBe('say');
+    const task = await (await fetch(f.url+`/api/worker/${order.id}`)).json(); expect(task.task_kind).toBe('order');
   } finally { await f.close(); }
 });
 
@@ -92,7 +92,7 @@ test('web reads and saves per-target Agent environment through user-only narrow 
 test('web exposes only read-only worker routes and rejects other paths', async () => {
   const f = await setup(); await repo(f.root);
   try {
-    await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'say.submit',params:{content:'read routes'}})});
+    await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'order.submit',params:{content:'read routes'}})});
     expect((await fetch(f.url+'/api/worker/1/history')).status).toBe(200);
     const history = await (await fetch(f.url+'/api/worker/1/history')).json();
     expect(history[0].type).toBe('created');
@@ -180,7 +180,7 @@ test('web accepts a configured public origin behind a Host-rewriting proxy', asy
     // 同一台设备登进来的写操作（无 Sec-Fetch + Origin: null）也不能误杀。
     const noop = await fetch(f.url + '/login', { method: 'POST', headers: { ...headers, Origin: 'null' }, body: form });
     const noopCookie = noop.headers.get('set-cookie')?.split(';')[0];
-    expect((await fetch(f.url + '/api/action', { method: 'POST', headers: { Cookie: noopCookie, 'Content-Type': 'application/json', Origin: 'null' }, body: JSON.stringify({ method: 'say.submit', params: { content: 'test' } }) })).status).toBe(200);
+    expect((await fetch(f.url + '/api/action', { method: 'POST', headers: { Cookie: noopCookie, 'Content-Type': 'application/json', Origin: 'null' }, body: JSON.stringify({ method: 'order.submit', params: { content: 'test' } }) })).status).toBe(200);
   } finally { await f.close(); }
 });
 
@@ -255,7 +255,7 @@ test('RPC rejects invalid frames, unknown params, invalid ids and cross-project 
     await expect(client.request('worker.inspect',{id:-1})).rejects.toThrow('positive');
     await expect(client.request('worker.usage',{id:-1})).rejects.toThrow('positive');
     await expect(client.request('worker.usage',{id:1,after:0})).rejects.toThrow('unknown parameter');
-    await expect(client.request('say.submit',{content:'x',sid:0})).rejects.toThrow('unknown parameter');
+    await expect(client.request('order.submit',{content:'x',sid:0})).rejects.toThrow('unknown parameter');
     await expect(client.request('input.list',{_token:'foreign'})).rejects.toThrow();
     // 客户端比 daemon 新时不能只说 unknown method，要给出重启这一步
     await expect(new UIClient(f.config).request('service.list',{})).rejects.toThrow('daemon restart');
@@ -312,7 +312,7 @@ test('web serves core architecture as Markdown and has no standalone documentati
     const response = await fetch(f.url+'/api/docs/docs-core-architecture');
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.markdown).toContain('新 `say` 保存 Input');
+    expect(body.markdown).toContain('新 `order` 保存 Input');
     expect(body.markdown).toContain('```mermaid');
     // 文档系统不再暴露 authored HTML；运行时 verifier 报告仍走独立的 task report 路由。
     expect((await fetch(f.url+'/api/docs/docs-core-architecture/html')).status).toBe(404);

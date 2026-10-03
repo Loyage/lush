@@ -26,7 +26,7 @@ test('project restart changes daemon only, single-flights clicks and keeps pause
     await Promise.all([repo(root), repo(other)]);
     const [before, untouched] = await Promise.all([cli(root, ['daemon', 'start']), cli(other, ['daemon', 'start'])]);
     const client = new UIClient(new Config({ project: root, env: env() }));
-    const task = await client.request('say.submit', { content: 'keep paused', start: false });
+    const task = await client.request('order.submit', { content: 'keep paused', start: false });
     const web = await cli(root, ['host', String(port)]), url = `http://127.0.0.1:${port}`;
     const [a, b] = await Promise.all([post(url + '/api/service/restart'), post(url + '/api/service/restart')]);
     expect([a.status, b.status].sort()).toEqual([200, 400]);

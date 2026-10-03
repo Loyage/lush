@@ -31,7 +31,7 @@ function expectAgentButton(node) {
   expect(node.getAttribute('data-help')).toContain(AGENT_NOTE);
 }
 
-const followupTask = { id: 900, role: 'agent', task_kind: 'say', parent_id: 1, parent_task_kind: 'main',
+const followupTask = { id: 900, role: 'agent', task_kind: 'order', parent_id: 1, parent_task_kind: 'main',
   goal: '需要追加输入', status: 'waiting', integration: 'none', calls: 0, deps: [], dependents: [],
   children: [], messages: [], notices: [], branch: 'feature/followup', workspace: '/tmp/followup' };
 
@@ -134,7 +134,7 @@ test('禁用的「合并已被冻结」把 data-help 放在 span.help-host 上�
 
 test('Task 图「归档」只带 data-help，旧分支动作入口不再渲染', async () => {
   activateDetailView({ view: 'task-graph' });
-  renderTaskGraph({ total: 1, nodes: [{ id: 2, task_kind: 'say', role: 'agent', status: 'completed',
+  renderTaskGraph({ total: 1, nodes: [{ id: 2, task_kind: 'order', role: 'agent', status: 'completed',
     title: '已完成任务', branch: 'feature', branch_info: { archivable: true, current_head: 'abc' } }] });
   const detail = dom.node('detail');
   const archive = buttonByText(detail, '归档');

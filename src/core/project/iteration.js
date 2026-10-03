@@ -138,8 +138,8 @@ export default {
       const run = this.running.get(parent.id);
       check(parent.status === 'running' && run && run === invocation && !run.parked && !run.controller.signal.aborted,
         'parent Agent is no longer active');
-      check(['say', 'child'].includes(parent.task_kind) && task.task_kind === 'child' && task.parent_id === parent.id,
-        'agents may confirm only their own direct child, never a user-created say');
+      check(['order', 'child'].includes(parent.task_kind) && task.task_kind === 'child' && task.parent_id === parent.id,
+        'agents may confirm only their own direct child, never a user-created order');
       assertTaskAncestorsOpen(this, task);
       check(['awaiting_acceptance', 'completed'].includes(task.status), 'child must be delivered before parent confirmation');
     };
@@ -147,7 +147,7 @@ export default {
     assertTaskNotSyncing(this, id(taskId));
     return this.workspaces.exclusive(async () => {
       let task = this.store.task(id(taskId));
-      check(['say', 'child'].includes(task.task_kind), 'only say/child Workers can be accepted');
+      check(['order', 'child'].includes(task.task_kind), 'only order/child Workers can be accepted');
       authorize(task);
       assertTaskNotSyncing(this, task.id);
       if (task.status === 'completed') return task;
@@ -212,7 +212,7 @@ export default {
     return this.workspaces.exclusive(async () => {
       const task = this.store.task(id(taskId));
       assertTaskNotSyncing(this, task.id);
-      check(['say', 'child'].includes(task.task_kind) && task.status === 'completed', 'only completed say/child Workers can be reopened');
+      check(['order', 'child'].includes(task.task_kind) && task.status === 'completed', 'only completed order/child Workers can be reopened');
       assertTaskAncestorsOpen(this, task);
       check(!this.running.has(task.id) && !this.workspaces.busy.has(task.id), 'Agent or cleanup is still in flight');
       check(task.branch && task.workspace && fs.existsSync(task.workspace)

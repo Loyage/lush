@@ -4,7 +4,7 @@ import { renderGoal } from '../../src/ui/web/assets/render-goal.js';
 import { renderDetail } from '../../src/ui/web/assets/render-detail.js';
 
 const at = '2026-10-02T09:00:00Z';
-const task = { id: 7, role: 'agent', task_kind: 'say', status: 'waiting', goal: '**原始目标**',
+const task = { id: 7, role: 'agent', task_kind: 'order', status: 'waiting', goal: '**原始目标**',
   created_at: at, updated_at: at, result: '最新结果' };
 const event = (id, body, sender = null) => ({ id, task_id: 7, type: 'message', created_at: at, data: { sender, body } });
 const expand = node => { node.open = true; for (const handler of node.listeners.toggle || []) handler(); };

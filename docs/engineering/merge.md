@@ -1,10 +1,10 @@
 # 分支合并与收敛
 
-Lush 的合并单位是分支谱系中的一条 `direct child → parent` 边。Worker 提供审阅结果和 agent 审计，代码是否能落地由 Branch + Git commit graph 决定；新 say / child 的落地只接受**固定提交**，绝不 no-ff、绝不 rebase。
+Lush 的合并单位是分支谱系中的一条 `direct child → parent` 边。Worker 提供审阅结果和 agent 审计，代码是否能落地由 Branch + Git commit graph 决定；新指令 / child 的落地只接受**固定提交**，绝不 no-ff、绝不 rebase。
 
 ## 当前 version 2：父 Worker 自有交付队列
 
-新式 say/child 的预约由父 Worker 自有队列的 runtime 串行 Squash（`queue_protocol=1`），包括 main / owner，不创建 `task_kind='merge'`、不改源 Worker 的 `parent_id`，不额外调用父 Agent 或要求 `worker.integrate`。say 默认关闭自动合并，由用户开启跨轮 hook 或显式请求；新 child 默认开启且锁定。无提交的干净 child 直接交付结果、等父确认，不产生合并提交。
+新式 指令/child 的预约由父 Worker 自有队列的 runtime 串行 Squash（`queue_protocol=1`），包括 main / owner，不创建 `task_kind='merge'`、不改源 Worker 的 `parent_id`，不额外调用父 Agent 或要求 `worker.integrate`。指令默认关闭自动合并，由用户开启跨轮 hook 或显式请求；新 child 默认开启且锁定。无提交的干净 child 直接交付结果、等父确认，不产生合并提交。
 
 ### 请求与尝试分开
 
@@ -19,7 +19,7 @@ Lush 的合并单位是分支谱系中的一条 `direct child → parent` 边。
 
 Git 写入前再次复核取消、新输入、固定 refs、清洁度与祖先保留。`prepareTaskSquashUnsafe` 先生成未落地提交，将精确落地凭据持久化到 `reservation.landing_receipt`（含落地提交、固定源提交、父基线与树）后，`applyTaskSquashUnsafe` 受检推进父工作区/ref；Git 成功而 DB 尚未写入时，恢复只能按精确提交、父、树与目标祖先核验凭据，未知副作用不重放。接口契约见[模块地图](modules.md)。
 
-落地进入非终态 `awaiting_acceptance` / `integration='merged'`，保留原父子关系及分支/worktree/会话。追加输入继续当前 Worker；say 用户验收 / child 直接父 Agent 确认（`worker.accept`）与显式归档分开。本轮使用 `iteration_base_commit`，原始起点不改写。安全父同步只在源侧吸收固定父提交，冲突先诊断、另点 Agent；详见[持续迭代](task-iteration.md)。
+落地进入非终态 `awaiting_acceptance` / `integration='merged'`，保留原父子关系及分支/worktree/会话。追加输入继续当前 Worker；指令用户验收 / child 直接父 Agent 确认（`worker.accept`）与显式归档分开。本轮使用 `iteration_base_commit`，原始起点不改写。安全父同步只在源侧吸收固定父提交，冲突先诊断、另点 Agent；详见[持续迭代](task-iteration.md)。
 
 ### Agent 的语义迁移检查
 
@@ -48,16 +48,16 @@ Git 写入前再次复核取消、新输入、固定 refs、清洁度与祖先�
 
 ## 历史 version 1：谁可以推进
 
-- **直接父 Worker 是活动 say / child 时**：只有该 Agent 能在运行中调用 `worker.integrate`，核对子Worker固定提交并快进；不能推进 main，父分支不干净、HEAD 漂移、子Worker未结算或有未集成后代时保留现场并拒绝。
+- **直接父 Worker 是活动指令 / child 时**：只有该 Agent 能在运行中调用 `worker.integrate`，核对子Worker固定提交并快进；不能推进 main，父分支不干净、HEAD 漂移、子Worker未结算或有未集成后代时保留现场并拒绝。
 - **父是 main / owner 时**：只有用户按请求里的 **commit + baseline** 调用 `worker.approve_merge` 批准快进。批准前在 Git 串行区复核源 ref、父 ref、工作区与后代，任何漂移拒绝旧批准；提交已落地而 DB 尚未记录时，相同固定值可幂等核对（不再要求旧 baseline）。
 
 ## 历史 version 1：交付锁与冻结
 
-say 的合并请求（`worker.reserve {kind:'merge'}`）在静息、后代结算、工作区干净且可快进时冻结源 `commit` 与父 `baseline`，并在同一事务向父 Worker 发去重信号。请求**不等于批准**。
+指令的合并请求（`worker.reserve {kind:'merge'}`）在静息、后代结算、工作区干净且可快进时冻结源 `commit` 与父 `baseline`，并在同一事务向父 Worker 发去重信号。请求**不等于批准**。
 
-请求发出后 `target_branch` 进入分支写冻结（`status.branch_freeze` / `graph.get` 的 branch 节点 `freeze`，`kind='delivery'`）：不再接受任何 Lush 侧写入（新建 say、`worker.retry`、`branch.archive` 等），另一个 say 的同类请求保持 pending 并记 `blocked_code='parent_locked'`；父为 say 时只有锁持有者自己的 `worker.integrate` 能写这条分支。解除只有集成或用户显式撤销（`worker.unreserve`，另记 `task.request_withdrawn`）。源分支也不能被归档：`branch.archive` 拒绝源分支带未集成请求的子树。
+请求发出后 `target_branch` 进入分支写冻结（`status.branch_freeze` / `graph.get` 的 branch 节点 `freeze`，`kind='delivery'`）：不再接受任何 Lush 侧写入（新建指令、`worker.retry`、`branch.archive` 等），另一个指令的同类请求保持 pending 并记 `blocked_code='parent_locked'`；父为指令时只有锁持有者自己的 `worker.integrate` 能写这条分支。解除只有集成或用户显式撤销（`worker.unreserve`，另记 `task.request_withdrawn`）。源分支也不能被归档：`branch.archive` 拒绝源分支带未集成请求的子树。
 
-daemon 挡不住父分支自己的 say Agent 提交，也不挡外部 git：那时请求会失去快进前提，`noteBranchAdvance` / `worker.integrate` / `worker.approve_merge` 会把诊断写进 `reservation.blocked_code='parent_moved'` 与 `blocked_reason`。此时可撤销请求，或先把该固定提交合入父分支再幂等关闭。
+daemon 挡不住父分支自己的指令 Agent 提交，也不挡外部 git：那时请求会失去快进前提，`noteBranchAdvance` / `worker.integrate` / `worker.approve_merge` 会把诊断写进 `reservation.blocked_code='parent_moved'` 与 `blocked_reason`。此时可撤销请求，或先把该固定提交合入父分支再幂等关闭。
 
 ## 历史 version 1：在子侧收敛
 
@@ -69,16 +69,16 @@ daemon 挡不住父分支自己的 say Agent 提交，也不挡外部 git：那�
 4. runtime 在父 Agent 安全结束后核对产物同时包含两端固定提交；
 5. 依次 fast-forward 源 child 与父分支（main / owner 仍须用户按固定值批准）。
 
-`worker.resolve_child_divergence` 由执行中的直接父 Agent 发起；`worker.resolve_divergence` 由用户发起，用于活动 say 或展示交付后的终态 say。重复请求返回未集成的同一活动 child；已完成但不合格或已失败 / 取消的 child 需用户检查并显式归档其仍活动的旧分支（保留 Worker / 事件 / 会话，未提交文件必须另行确认丢弃）后才可重新派。该类子 Worker 不走 `worker.retry` 重放未知文件副作用。
+`worker.resolve_child_divergence` 由执行中的直接父 Agent 发起；`worker.resolve_divergence` 由用户发起，用于活动指令或展示交付后的终态指令。重复请求返回未集成的同一活动 child；已完成但不合格或已失败 / 取消的 child 需用户检查并显式归档其仍活动的旧分支（保留 Worker / 事件 / 会话，未提交文件必须另行确认丢弃）后才可重新派。该类子 Worker 不走 `worker.retry` 重放未知文件副作用。
 
-冻结语义由 `src/core/branch-freeze.js` 从已有事实现算：目标分支上活动的运行、未结束的解分歧Worker、以及已发出但尚未集成的合并请求分别冻结相应分支。它拦截新建 say、`worker.retry` / `worker.cleanup` / `branch.archive`；`worker.cancel` 保持可用（释放路径）。
+冻结语义由 `src/core/branch-freeze.js` 从已有事实现算：目标分支上活动的运行、未结束的解分歧Worker、以及已发出但尚未集成的合并请求分别冻结相应分支。它拦截新建指令、`worker.retry` / `worker.cleanup` / `branch.archive`；`worker.cancel` 保持可用（释放路径）。
 
 ## 历史 version 1：从叶子向根
 
 一条分支还有未进入自己的直接子分支时，向上落地会被拒绝。典型顺序：
 
 ```text
-解分歧 child → 子 Worker 分支 → say 分支 → 用户指定父分支
+解分歧 child → 子 Worker 分支 → order 分支 → 用户指定父分支
 ```
 
 并行 sibling 都进入同一个父分支。第一个 sibling 落地会推进父分支，后续 sibling 的固定提交往往因此不再能快进；它们按上述子侧解分歧流程逐个重新确认。系统宁可要求显式解分歧，也不在聚合分支上产生未经独立测试的 merge commit。

@@ -17,7 +17,7 @@ const calls = [], reads = [], world = makeWorld();
 const dom = installDom({ fetch: async (url, options = {}) => {
   const route = new URL(String(url), 'http://localhost'), path = route.pathname.replace(/^\/p\/[^/]+/, '');
   const body = options.body ? JSON.parse(options.body) : null;
-  if (body && ['draft.update', 'draft.remove', 'say.submit'].includes(body.method)) {
+  if (body && ['draft.update', 'draft.remove', 'order.submit'].includes(body.method)) {
     calls.push(body); const intercepted = intercept?.(path, body, route); if (intercepted) return intercepted;
     const { method, params } = body, old = rows.find(row => row.kind === 'draft' && row.id === (params.id ?? params.draft_id));
     if (params.expected_revision !== old?.revision) return { ok: false, json: async () => ({ error: 'revision conflict' }) };
@@ -27,7 +27,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
       return json(old);
     }
     rows = rows.filter(row => row !== old);
-    if (method === 'say.submit') { rows.unshift(fixture('input', 3, { content: old.content, task_id: 33, status: params.start ? 'queued' : 'created', merge_status: 'none', integration: 'none' })); return json({ id: 3, task: { id: 33 } }); }
+    if (method === 'order.submit') { rows.unshift(fixture('input', 3, { content: old.content, task_id: 33, status: params.start ? 'queued' : 'created', merge_status: 'none', integration: 'none' })); return json({ id: 3, task: { id: 33 } }); }
     return json({ id: old.id });
   }
   if (path === '/api/input-parents' || path === '/api/inputs' || path.startsWith('/api/input/')) {
@@ -159,7 +159,7 @@ test('完整详情修订用于编辑保存，父 Task 来自完整列表，保�
   expect(calls).toEqual([{ method: 'draft.update', params: { id: 1, expected_revision: 3, content: '修改后的正文\n保留换行', references: [], branch: 'feature/old' } }]);
   expect(editor().value).toBe('修改后的正文\n保留换行'); expect(deepText(panel())).toContain('已保存');
   await btn('发射并开始', panel()).onclick();
-  expect(calls.at(-1)).toEqual({ method: 'say.submit', params: { draft_id: 1, expected_revision: 4, start: true } });
+  expect(calls.at(-1)).toEqual({ method: 'order.submit', params: { draft_id: 1, expected_revision: 4, start: true } });
   expect(text()).toContain('已发射并开始'); expect(root().querySelectorAll('.input-record')).toHaveLength(2);
   expect(root().querySelectorAll('.input-record').some(card => card.dataset.input === 'draft:1')).toBe(false);
   expect(root().querySelectorAll('.input-record').filter(card => card.dataset.input === 'input:3')).toHaveLength(1);
@@ -168,7 +168,7 @@ test('完整详情修订用于编辑保存，父 Task 来自完整列表，保�
 test('仅创建先保存再以新版本发射，不带正文/branch；关联 Task 导航不调用 Agent', async () => {
   await openInputs(); await openDraft(); editor().value = '新正文';
   await btn('仅创建', panel()).onclick();
-  expect(calls.map(call => call.method)).toEqual(['draft.update', 'say.submit']);
+  expect(calls.map(call => call.method)).toEqual(['draft.update', 'order.submit']);
   expect(calls[0].params).not.toHaveProperty('branch');
   expect(calls[1].params).toEqual({ draft_id: 1, expected_revision: 4, start: false });
   let opened; const restore = registerNavigation({ detail: async id => { opened = id; } });
@@ -218,11 +218,11 @@ test('保存 500、离线或远端删除后，轮询与刷新仍保留文字/父
 
 test('保存成功但发射失败保留更新修订，重试不会重复保存旧内容', async () => {
   await openInputs(); await openDraft(); editor().value = '已经保存的编辑';
-  intercept = (_path, body) => body?.method === 'say.submit' ? Promise.reject(new Error('父分支暂时被冻结')) : null;
+  intercept = (_path, body) => body?.method === 'order.submit' ? Promise.reject(new Error('父分支暂时被冻结')) : null;
   await btn('发射并开始', panel()).onclick();
-  expect(editor().value).toBe('已经保存的编辑'); expect(calls.map(call => call.method)).toEqual(['draft.update', 'say.submit']);
+  expect(editor().value).toBe('已经保存的编辑'); expect(calls.map(call => call.method)).toEqual(['draft.update', 'order.submit']);
   intercept = null; await btn('发射并开始', panel()).onclick();
-  expect(calls.map(call => call.method)).toEqual(['draft.update', 'say.submit', 'say.submit']); expect(calls.at(-1).params.expected_revision).toBe(4);
+  expect(calls.map(call => call.method)).toEqual(['draft.update', 'order.submit', 'order.submit']); expect(calls.at(-1).params.expected_revision).toBe(4);
 });
 
 test('删除草稿走应用内确认，取消无动作、确认单飞且使用详情版本', async () => {

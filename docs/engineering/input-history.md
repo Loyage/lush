@@ -29,13 +29,13 @@
 | `draft.add` | `{content,references?,branch?}`：保存并返回完整 draft 条目；省略 branch 时解析 canonical 项目当时检出的分支所有者 |
 | `draft.update` | `{id,content,references?,branch?,expected_revision}`：只更新未发射条目；省略 references 或 branch 保留原值 |
 | `draft.remove` | `{id,expected_revision}`：只删除未发射条目，不删除 Input |
-| `say.submit` 草稿路径 | `{draft_id,expected_revision,start?}`：从保存的父身份、正文与引用创建 say Worker，不接受额外正文、引用或 branch |
+| `order.submit` 草稿路径 | `{draft_id,expected_revision,start?}`：从保存的父身份、正文与引用创建指令 Worker，不接受额外正文、引用或 branch |
 
-这些动作通过 `POST /api/action` 的窄白名单调用，不恢复 `input.submit` 或旧 `draft.commit`。`say.submit` 的直接正文路径和 `start` 语义不变；草稿 `start:true` 发射并开始，`start:false` 仅创建待开始 Worker。
+这些动作通过 `POST /api/action` 的窄白名单调用，不恢复 `input.submit` 或旧 `draft.commit`。`order.submit` 的直接正文路径和 `start` 语义不变；草稿 `start:true` 发射并开始，`start:false` 仅创建待开始 Worker。
 
 新草稿 revision 从 1 递增。更新、删除与发射必须显式携带 `expected_revision`；旧草稿用显式 `null` 匹配尚无版本的历史行，不能省略字段绕过校验。旧草稿没有父身份时，先选择父 Worker 并保存，再发射。历史行不批量回填或改写。
 
-发射沿用当前 say 协议，在创建 Git 锚点后的数据库事务内复核草稿版本、正文、引用和父身份，提交成功才回写 `input_id`。重复发射不能创建第二个 Worker；编辑/删除竞态导致旧提交失败而不是执行过期文字。Git 创建失败只清理本次自建锚点，保留用户草稿及已有工作区。
+发射沿用当前指令协议，在创建 Git 锚点后的数据库事务内复核草稿版本、正文、引用和父身份，提交成功才回写 `input_id`。重复发射不能创建第二个 Worker；编辑/删除竞态导致旧提交失败而不是执行过期文字。Git 创建失败只清理本次自建锚点，保留用户草稿及已有工作区。
 
 缓冲区不新增Worker实体，不产生 Agent 调度信号，不为保存想法冻结提交；真正的工作区基线在发射时固定。
 
@@ -43,7 +43,7 @@
 
 - `src/core/project/input-history.js`：公共草稿动作、父身份校验、历史详情与列表接缝。
 - `src/persistence/store/input-history.js`：数据库有界分页与状态投影。
-- `src/core/project/say.js`：草稿发射沿用 say 的事务与工作区准入。
+- `src/core/project/order.js`：草稿发射沿用指令的事务与工作区准入。
 - `src/ui/web/assets/render-inputs.js` / `styles-inputs.css`：`#inputs` 页面、显式查询与分页、暂存编辑、原文详情。
 - `src/ui/web/assets/composer.js`：主输入框快捷键、暂存与直接发送，独立完整父候选读面。
 

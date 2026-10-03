@@ -29,7 +29,7 @@ export default {
           : row.event_legacy === 1 && row.task_kind === null && row.target_branch === 'main';
       if (!isMain) continue;
       check(row.goal.length <= 16384 && (row.input_content?.length ?? 0) <= 131072,
-        'version history Worker or say text exceeds safe size');
+        'version history Worker or order text exceeds safe size');
       const tasks = byCommit.get(row.landed_commit);
       if (!tasks || tasks.has(row.id)) continue;
       tasks.set(row.id, { id: row.id, goal: row.goal, task_kind: row.task_kind ?? 'legacy',
@@ -39,7 +39,7 @@ export default {
       const tasks = [...byCommit.get(row.commit).values()];
       return { ...row, association: tasks.length ? 'verified' : 'unassociated', tasks };
     });
-    // Fit comfortably within the RPC 1 MiB frame; never silently crop original says.
+    // Fit comfortably within the RPC 1 MiB frame; never silently crop original orders.
     check(Buffer.byteLength(JSON.stringify(page)) <= 512 * 1024, 'version history response exceeds safe size; request a smaller page');
     return page;
   },

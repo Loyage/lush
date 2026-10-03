@@ -9,9 +9,9 @@ import { handlers } from '../../src/rpc/handlers/notice.js';
 import { assertAllowed } from '../../src/rpc/registry.js';
 import { run } from '../../src/cli/commands/notice.js';
 
-function userTask(f, kind = 'say', patch = {}) {
+function userTask(f, kind = 'order', patch = {}) {
   const row = f.store.create({ input_id: null, role: 'agent', task_kind: kind, goal: '用户的目标' });
-  f.store.update(row.id, { status: 'waiting', ...(kind === 'say' ? { branch: `lush/test/${row.id}`, workspace: f.root } : {}), ...patch });
+  f.store.update(row.id, { status: 'waiting', ...(kind === 'order' ? { branch: `lush/test/${row.id}`, workspace: f.root } : {}), ...patch });
   return f.store.task(row.id);
 }
 const rows = (f, taskId) => f.store.all('SELECT * FROM notices WHERE task_id=? ORDER BY id', taskId);
@@ -47,7 +47,7 @@ test('new lifecycle notices use Worker terminology without rewriting historical 
   } finally { await f.close(); }
 });
 
-test('successful user say invocation emits one unread info, another completed round emits another', async () => {
+test('successful user order invocation emits one unread info, another completed round emits another', async () => {
   const f = fixture({ async run() { return '结果'; } });
   try {
     stubGit(f);
@@ -194,11 +194,11 @@ test('recovery marks running user Tasks and queued divergence repair failed exac
   const f = fixture({ async run() { return 'unused'; } });
   try {
     f.project.stopping = true;
-    const say = userTask(f, 'say', { status: 'running' });
+    const order = userTask(f, 'order', { status: 'running' });
     const analysis = userTask(f, 'analysis', { status: 'running' });
-    const repair = userTask(f, 'say', { status: 'queued', reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'resolving' }) });
+    const repair = userTask(f, 'order', { status: 'queued', reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'resolving' }) });
     f.project.recover(); f.project.recover();
-    for (const task of [say, analysis, repair]) {
+    for (const task of [order, analysis, repair]) {
       expect(f.store.task(task.id).status).toBe('failed');
       expect(rows(f, task.id)).toHaveLength(1);
       expect(rows(f, task.id)[0].body).toContain('daemon interrupted');

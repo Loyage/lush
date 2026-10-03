@@ -50,7 +50,7 @@ export default {
     const target = branch ?? await this.workspaces.git(this.config.project, 'symbolic-ref', '--short', 'HEAD')
       .catch(() => { throw new Error('select a local parent branch before buffering from detached HEAD'); });
     if (target === 'main') await this.ensureMainTask();
-    const parent = this.store.get("SELECT * FROM tasks WHERE branch=? AND task_kind IN ('main','owner','say')", target);
+    const parent = this.store.get("SELECT * FROM tasks WHERE branch=? AND task_kind IN ('main','owner','order','say')", target);
     check(parent, `branch ${target} needs an explicitly bound Worker`);
     this.assertInputParent(parent.id, target);
     await this.workspaces.git(this.config.project, 'show-ref', '--verify', `refs/heads/${target}`)
@@ -60,7 +60,7 @@ export default {
 
   assertInputParent(parentId, branch = undefined) {
     const parent = this.store.task(id(parentId));
-    check(['main','owner','say'].includes(parent.task_kind) && parent.branch && (branch === undefined || parent.branch === branch)
+    check(['main','owner','order'].includes(parent.task_kind) && parent.branch && (branch === undefined || parent.branch === branch)
       && !TERMINAL.has(parent.status), `parent worker #${parent.id} is no longer available; select an active parent Worker`);
     const record = this.store.branch(parent.branch);
     check(!record || !['deleted','archived'].includes(record.status), 'parent branch was deleted or archived; select another parent Worker');
@@ -70,7 +70,7 @@ export default {
 
   async inputParents() {
     const rows = this.store.all(`SELECT id,branch,substr(goal,1,1000) AS goal FROM tasks
-      WHERE task_kind IN ('main','owner','say') AND branch IS NOT NULL
+      WHERE task_kind IN ('main','owner','order','say') AND branch IS NOT NULL
         AND status NOT IN ('completed','failed','cancelled') ORDER BY id DESC LIMIT ?`, MAX_PARENTS + 1);
     check(rows.length <= MAX_PARENTS, `too many parent Worker candidates (limit ${MAX_PARENTS}); narrow the active parent set before selecting a parent`);
     const refs = new Set((await this.workspaces.git(this.config.project, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/')).split('\n'));
@@ -130,6 +130,6 @@ export default {
 
   submitBufferedDraft(draftId, revision, start = true) {
     expectedRevision(revision);
-    return this.say(undefined, null, [], id(draftId), start, revision);
+    return this.order(undefined, null, [], id(draftId), start, revision);
   },
 };

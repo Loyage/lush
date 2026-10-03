@@ -5,7 +5,7 @@ const RESOURCE_META = new Map(SIDEBAR_SECTIONS.map(section => [section.id, secti
 const PAGES = {
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
   'task-graph': ['Worker 树', '工作', 'Worker 父子关系 · Agent、分支与 worktree'],
-  versions: ['版本迭代', '工作', 'main 主线历史 · 提交与 Worker / say 追溯'],
+  versions: ['版本迭代', '工作', 'main 主线历史 · 提交与 Worker / 指令追溯'],
   inputs: ['历史输入', '工作', '暂存想法 · 全库原始输入检索与发射'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],
   settings: ['系统设置', '其他', '界面偏好、运行参数与系统状态'],

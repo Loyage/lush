@@ -30,14 +30,18 @@
 3. **一个分区只改自己分区里的文件。** 分区见下；跨分区要改的东西，先在 `docs/engineering/modules.md`
    里加一条接口，而不是直接伸手。
 
+## 指令命名接缝
+
+公开提交只使用 CLI `order` / RPC `order.submit` / `bun run order`，新 Worker 的 `task_kind='order'`。历史 `say` 仅在读/类型判定边界兼容，不迁移持久行、分支或工作区；Input / 历史输入 / 暂存名称不变。完整规则见[指令更名边界](core-api.md#指令更名与历史读取边界)。Runtime 主模块路径为 `project/order.js`（`order` / `sendOrder` / `resolveOrderDivergence`）；共享模块 `src/core/order-kind.js` 的纯函数 `normalizeOrderRecord(row)` 在 Store `get` / `all` 的只读行投影中统一历史类型，SQL 类型筛选仍兼容旧值；前端纯兼容模块为 `worker-kind.js`；浏览器发送只走 `order.submit`，类型标签统一为「指令」。
+
 ## 当前公开面
 
-Worker 更名中的公开入口与保留字段、事件、内部路径边界见[核心 API 收敛](core-api.md#worker-更名与兼容边界)。精简后的 RPC / CLI / Web 白名单以[核心 API 收敛](core-api.md)和 `src/rpc/registry.js` 为准：`system.*`、`agent.*`、`say.submit`、`worker.*`（含 `spawn` / `integrate` / `auto_merge` / `reserve` / `resolve*` / `unreserve` / `approve_merge` / `message` / `cancel` / `retry` / `interrupt` / `resume` / `configure` / `cleanup` 与只读读面）、`progress.*`、`notice.*`、`branch.tree/show/bind/archive`、`graph.get`。用户专属输入缓冲与检索另开放 `input.history/get/parents`、`draft.add/update/remove`，`say.submit` 支持带版本的单条草稿发射，见[历史输入接口](input-history.md)。CLI 只注册 `daemon` / `status` / `doctor` / `log` / `web*` / `say` / `worker` / `progress` / `notice` / `branch` / `agent` / `config`；其余命令模块（draft / intent / spec / plan / candidate / sleep）不再挂载，handlers 中未列入白名单的方法一律返回 `unknown method`。
+Worker 更名中的公开入口与保留字段、事件、内部路径边界见[核心 API 收敛](core-api.md#worker-更名与兼容边界)。精简后的 RPC / CLI / Web 白名单以[核心 API 收敛](core-api.md)和 `src/rpc/registry.js` 为准：`system.*`、`agent.*`、`order.submit`、`worker.*`（含 `spawn` / `integrate` / `auto_merge` / `reserve` / `resolve*` / `unreserve` / `approve_merge` / `message` / `cancel` / `retry` / `interrupt` / `resume` / `configure` / `cleanup` 与只读读面）、`progress.*`、`notice.*`、`branch.tree/show/bind/archive`、`graph.get`。用户专属输入缓冲与检索另开放 `input.history/get/parents`、`draft.add/update/remove`，`order.submit` 支持带版本的单条草稿发射，见[历史输入接口](input-history.md)。CLI 只注册 `daemon` / `status` / `doctor` / `log` / `web*` / `order` / `worker` / `progress` / `notice` / `branch` / `agent` / `config`；其余命令模块（draft / intent / spec / plan / candidate / sleep）不再挂载，handlers 中未列入白名单的方法一律返回 `unknown method`。
 
 以下仍是可调用的公共面：
 
 - CLI 命令与 `lush help` 的语义。`lush config [show]` 打印运行设置的生效值 / 环境默认值 / 是否被覆盖与设置文件路径，`lush config set concurrency|control-concurrency|call-timeout|worker-call-limit|max-depth N` 写回，`lush config reset [concurrency|control-concurrency|call-timeout|worker-call-limit|max-depth|all]` 清除覆盖；`--json` 输出与 `system.status.settings` 同一份结构化读模型。两端都是用户专属，agent 调用被拒。命令面用连字符（`control-concurrency`），设置文件与 RPC 里是下划线（`control_concurrency`）。
-- SQLite schema、表名、列名与 `meta.task_id_high` / `meta.input_id_high` / `meta.overview_revision` 的行为。`overview_revision` 由读模型相关表的触发器单调推进，技术聚合表 `overview_task_counts` 由 Worker 触发器维护精确 layer/status 计数，首页用两者做 O(1) 失效与统计（它不是业务实体）。`tasks.progress_plan` 附属 JSON 保存 versioned 计划，读模型统一投影为 `progress`（有 `agent_runs` 时按调用区间重算工作用时，并把非 running 的等待投影成一条 `kind:'wait'` 条目；不改写存储的 `progress_plan`）。`agents` 之外的新核心表（`agent_runs` / `artifacts`）承载每次调用与结果；`artifacts.payload` 使用同一 JSON 文本列，`run.result` 是 version 2 envelope，分开记录 invocation 完成与 `pass` / `fail` / `partial` / `unverified` 验收结论；`pass` 必须没有 `failures` / `unverified`，但可以保留 `baseline_failures` / `residual_risks`；旧 payload 不重写，读取时缺失或自相矛盾的证据明确投影为 `unknown`。历史表（`inputs` / `drafts` / `task_specs` / `review_candidates` / `introductions`）与列（`branches.showcase_reservation` / `branches.merge_run` / `tasks.review_candidate_id` / `tasks.retry_profile`）只加不改、不重写已有行，其中仅 `inputs` / `drafts` 由当前 say 与新缓冲区路径继续写入，其他历史链无新的公开写入口。
+- SQLite schema、表名、列名与 `meta.task_id_high` / `meta.input_id_high` / `meta.overview_revision` 的行为。`overview_revision` 由读模型相关表的触发器单调推进，技术聚合表 `overview_task_counts` 由 Worker 触发器维护精确 layer/status 计数，首页用两者做 O(1) 失效与统计（它不是业务实体）。`tasks.progress_plan` 附属 JSON 保存 versioned 计划，读模型统一投影为 `progress`（有 `agent_runs` 时按调用区间重算工作用时，并把非 running 的等待投影成一条 `kind:'wait'` 条目；不改写存储的 `progress_plan`）。`agents` 之外的新核心表（`agent_runs` / `artifacts`）承载每次调用与结果；`artifacts.payload` 使用同一 JSON 文本列，`run.result` 是 version 2 envelope，分开记录 invocation 完成与 `pass` / `fail` / `partial` / `unverified` 验收结论；`pass` 必须没有 `failures` / `unverified`，但可以保留 `baseline_failures` / `residual_risks`；旧 payload 不重写，读取时缺失或自相矛盾的证据明确投影为 `unknown`。历史表（`inputs` / `drafts` / `task_specs` / `review_candidates` / `introductions`）与列（`branches.showcase_reservation` / `branches.merge_run` / `tasks.review_candidate_id` / `tasks.retry_profile`）只加不改、不重写已有行，其中仅 `inputs` / `drafts` 由当前指令与新缓冲区路径继续写入，其他历史链无新的公开写入口。
 - `src/index.js` 的导出、`bin/*` 的行为。
 - Web 路由与 asset 路径：`server.js` 只按 basename 服务 `assets/` 下的 `.js` / `.css`，
   所以**新增前端模块不需要改 server.js**。带 `--project` 的单项目 Web 继续用无前缀的 `/api/**`；无 `--project` 的全局工作台改为**每项目一条稳定身份路由**：`/p/<project-id>/**` 下的页面、GET 与 `POST /api/action` 都按请求自带的项目身份解析（ID 由 canonical 路径派生，只在已登记集合里反查，不把 URL 片段当路径），`GET /api/snapshot` 因此不再有可被别的标签页切换的「当前项目」。宿主级路由留在无前缀：`GET /api/host`（模式、已登记列表、上次打开）、`GET /api/host/projects`（仅探测已登记目录的 lushd，返回 `running` 与有界摘要；不启动项目）、`POST /api/host/select`（登记并连接，返回路由 ID，不设全局当前项目）、`POST /api/host/remove`（只删入口并断开 Web 连接），以及「文档」视图的 `/api/docs`、`/api/docs/search-index` 与 `/api/docs/<id>`——数据源是 `src/ui/web/docs.js`，只读随代码发布的 `docs/**/*.md` 与 `README.md`，与当前项目目录无关，只按扫出来的 id 查表命中。项目读取与写动作的完整白名单见[Web 路由](../reference/web-routes.md)（`CORE_READS` / `CORE_WORKER_READ` / `CORE_DOC_READ` / `MUTATIONS`）。认证边界也在 `server.js`：项目绑定模式读取 `.lush/web.json`，全局启动器读取用户配置目录的 `web.json`；无对应配置时只监听本机，有配置时监听公网，并用 `/login`、`/logout` 与 HttpOnly 会话 Cookie 保护全部页面、资源和 API。全局公网配置必须额外提供 `projects` 绝对路径白名单，且项目注册表不允许把白名单外的路径解析成可访问身份；本地无认证启动器仍可输入任意现存绝对目录。
@@ -54,13 +58,13 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
   这是换版的正路。`doctor` / `host-status` 只读这些状态，把当前磁盘、daemon、Web 的代码目录 / 版本 / 指纹
   分开报告；不一致只产生带项目与端口的更新提示，不触发重启。
 - 环境变量与 agent capability 语义（`LUSH_PROJECT` / `LUSH_HOME` / `LUSH_TASK_ID` / `LUSH_AGENT_TOKEN`）。`LUSH_TASK_ID` 是与当前 agent 直接绑定的 Worker，不是 Worker 树上的 `tasks.parent_id`；进度 RPC 仍以一次性 token 解析出的 actor 为准，不信任环境变量中的 ID。项目级 Agent 配置固定写在 `<project>/.lush/agent.json`：默认配置 + planner / coordinator / worker / research / verifier / merger / explainer / butler 八类角色覆盖（专用角色不再有公开创建入口，但配置读取与历史调用仍可用）；写入原子替换，运行中的 invocation 不打断，下一次调用动态读取并生效。每份 profile 分 `default_prompt` 与 `append_prompt`：前者非空时替换该角色的内置组合（UI 明确警告能力、权限与交付协议可能失效），后者追加在共享/本机文件补充之后；旧 `prompt` 字段按 `append_prompt` 兼容读取。内置规则由 `PROMPT_PARTS` 按角色组合；再叠加可提交的 `.lush-agent/{common,ROLE}.md` 与本机 `.lush/agent/{common,ROLE}.md`。Agent 子进程环境在 daemon 环境之上热加载 `.lush/agent/agent.env` 和角色 env，`LUSH_*` 不可覆盖；Web 键值编辑器把文件规范化为 owner-only 的 `NAME="value"`，空表删除对应文件。profile 另存 `extensions` / `skills` 路径列表，只给普通 Pi invocation 以显式参数加载，Codex 与无工具 explainer / butler 保留配置但不使用。
-- 项目级运行设置固定写在 `<home>/settings.json`（version 1，权限 `600`），唯一读写入口是 `src/core/settings.js` 的 `RuntimeSettings`；目前有数字键 `concurrency`（1..64）、`control_concurrency`（1..16）、`call_timeout`（1..86400）、`task_call_limit`（1..1000）、`max_depth`（1..64），`null` / 缺键表示回退默认。`LUSH_CONCURRENCY` / `LUSH_CONTROL_CONCURRENCY` / `LUSH_CALL_TIMEOUT` / `LUSH_TASK_CALLS` / `LUSH_MAX_DEPTH` 只提供各自的默认值；daemon 启动时读出生效值，运行时写盘后同步内存并重新准入，不需要重启。历史设置键 `input_routes` 与旧提交路径一起保留在文件中，但不再有公开写入口，也不影响新 say。
+- 项目级运行设置固定写在 `<home>/settings.json`（version 1，权限 `600`），唯一读写入口是 `src/core/settings.js` 的 `RuntimeSettings`；目前有数字键 `concurrency`（1..64）、`control_concurrency`（1..16）、`call_timeout`（1..86400）、`task_call_limit`（1..1000）、`max_depth`（1..64），`null` / 缺键表示回退默认。`LUSH_CONCURRENCY` / `LUSH_CONTROL_CONCURRENCY` / `LUSH_CALL_TIMEOUT` / `LUSH_TASK_CALLS` / `LUSH_MAX_DEPTH` 只提供各自的默认值；daemon 启动时读出生效值，运行时写盘后同步内存并重新准入，不需要重启。历史设置键 `input_routes` 与旧提交路径一起保留在文件中，但不再有公开写入口，也不影响新指令。
 - `src/core/genealogy.js`（分支谱系的纯逻辑：`buildForest` / `pruneHidden` / `parentOf` / `childrenOf` / `ancestorsOf` /
   `descendantsOf` / `rootOf` / `chainOf`）与 `types.js` / `naming.js` 一样是共享纯模块：不碰 git、不写盘、
   不渲染，只被 `project/branches.js` 与 `test/branch-tree.test.js` 使用。`naming.js` 导出 `slugify` /
   `taskSlug` / `taskLabel` 与 `inputLabel(id)`（历史输入聚合分支的 `input-<id>` 名）。
 
-当前接缝（尚未完成全类型统一）：新式 say/child 的 Git 基线在创建时固定，say 以输入时选定的父 ref 建 worktree，child 派生时在 Git 串行队列里立即从父分支 tip 建 worktree；analysis 创建时固定只读 detached worktree。其它专用 Worker、旧 Worker 与额外绑定的 owner 根 Worker 尚未迁入统一 fork 创建路径。`commit_contexts` 是项目本地的提交→Pi session/entry 附属索引；Agent 的 `git commit` 成功后记录当时可复用的上下文指针，外部提交没有指针时子 Pi 从空会话起步。子 Pi 首次运行用固定 entry 截出的 checkpoint 调 `--fork`，后续 invocation 继续自己的会话。旧 Worker/commit 不回填。
+当前接缝（尚未完成全类型统一）：新式 指令/child 的 Git 基线在创建时固定，指令以输入时选定的父 ref 建 worktree，child 派生时在 Git 串行队列里立即从父分支 tip 建 worktree；analysis 创建时固定只读 detached worktree。其它专用 Worker、旧 Worker 与额外绑定的 owner 根 Worker 尚未迁入统一 fork 创建路径。`commit_contexts` 是项目本地的提交→Pi session/entry 附属索引；Agent 的 `git commit` 成功后记录当时可复用的上下文指针，外部提交没有指针时子 Pi 从空会话起步。子 Pi 首次运行用固定 entry 截出的 checkpoint 调 `--fork`，后续 invocation 继续自己的会话。旧 Worker/commit 不回填。
 
 ## 本地桌面受管偏好接缝
 
@@ -80,11 +84,11 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 ## 历史输入与输入缓冲区
 
-修改输入框、暂存与原始指令检索前先读[历史输入与缓冲区理念](../design/input-history.md)；用户操作见[历史输入与暂存](../input-history.md)。缓冲区只持久保存想法，不创建Worker或调用 Agent；发射必须走当前 say 协议，不恢复旧 planner 或批量 `draft.commit`。历史检索覆盖原始 Input 与未提交 Draft，不含 Worker 追加消息；Worker状态与合并状态独立投影。公共 API、状态枚举、版本校验与文件职责见[历史输入接口](input-history.md)；`#inputs` 由 `render-inputs.js` / `styles-inputs.css` 实现，`openInputs()` 为页面入口，主输入框父候选读面不再依赖 overview。
+修改输入框、暂存与原始指令检索前先读[历史输入与缓冲区理念](../design/input-history.md)；用户操作见[历史输入与暂存](../input-history.md)。缓冲区只持久保存想法，不创建Worker或调用 Agent；发射必须走当前指令协议，不恢复旧 planner 或批量 `draft.commit`。历史检索覆盖原始 Input 与未提交 Draft，不含 Worker 追加消息；Worker状态与合并状态独立投影。公共 API、状态枚举、版本校验与文件职责见[历史输入接口](input-history.md)；`#inputs` 由 `render-inputs.js` / `styles-inputs.css` 实现，`openInputs()` 为页面入口，主输入框父候选读面不再依赖 overview。
 
 ## Worker 图与固定输入规则
 
-`worker.graph` / `/api/worker-graph` 是以 Worker 父子关系为边的有界读面；Web 的 `#worker-graph` 为主视角，旧 `#graph` 分支视图及 `/api/graph` HTTP 路由已移除；精简 Git 父分支、当前检出与关系诊断移入 Worker 卡片，完整谱系与未绑定分支绑定只保留 CLI / RPC。Worker 卡片按真实状态配色，读面投影 `archived`（内部 merge 队列随直接父 Worker 归档，详见 [Worker 图](task-graph.md)）及 `branch_info.subtree_say` / `branch_info.merge_run` 作为交付诊断；旧 `branch.orchestrate_plan` / `branch.orchestrate` 一键编排入口已下线。新 say 从已提交 fork 读取 `.lush-task/input.mjs` 并冻结在项目 `.lush/task-rules/`；用户后续消息由固定规则返回 `message` 或安全点软抢占的 `interrupt`，失败回退并留事件。子 Worker 继承直接父的规则快照。可信代码风险与读面边界见 [Worker 图与固定输入规则](task-graph.md)。
+`worker.graph` / `/api/worker-graph` 是以 Worker 父子关系为边的有界读面；Web 的 `#worker-graph` 为主视角，旧 `#graph` 分支视图及 `/api/graph` HTTP 路由已移除；精简 Git 父分支、当前检出与关系诊断移入 Worker 卡片，完整谱系与未绑定分支绑定只保留 CLI / RPC。Worker 卡片按真实状态配色，读面投影 `archived`（内部 merge 队列随直接父 Worker 归档，详见 [Worker 图](task-graph.md)）及 `branch_info.subtree_order` / `branch_info.merge_run` 作为交付诊断；旧 `branch.orchestrate_plan` / `branch.orchestrate` 一键编排入口已下线。新指令从已提交 fork 读取 `.lush-task/input.mjs` 并冻结在项目 `.lush/task-rules/`；用户后续消息由固定规则返回 `message` 或安全点软抢占的 `interrupt`，失败回退并留事件。子 Worker 继承直接父的规则快照。可信代码风险与读面边界见 [Worker 图与固定输入规则](task-graph.md)。
 
 ### Worker 图合并关系读面接缝
 
@@ -110,7 +114,7 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 ## main 版本迭代
 
-用户已确认的[版本迭代契约](version-history.md)规定只读 `branch.history(cursor?,limit?)` / `GET /api/versions` 与工作分组的 `#versions` 页面：第一父链有界分页，固定 tip，以精确交付证据关联 Worker / 原始 say，不凭标题猜测，不新增提交级 diff 或 Git 写操作。Git、Project/RPC 与前端分别遵循该文档的字段和职责边界。
+用户已确认的[版本迭代契约](version-history.md)规定只读 `branch.history(cursor?,limit?)` / `GET /api/versions` 与工作分组的 `#versions` 页面：第一父链有界分页，固定 tip，以精确交付证据关联 Worker / 原始指令，不凭标题猜测，不新增提交级 diff 或 Git 写操作。Git、Project/RPC 与前端分别遵循该文档的字段和职责边界。
 
 ## 页面导航与全类型 Worker 列表
 
@@ -126,7 +130,7 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 ## 已合并 Worker 的多轮交付接缝
 
-[持续迭代](task-iteration.md)规定新式 say/child 合并后的非终态 `awaiting_acceptance`、显式验收与归档分离、安全父同步及历史显式恢复。`worker.accept` 调用 `Project.acceptTask(taskId, actor=null)`：用户验收 say；运行中的直接父 Agent 可确认已交付的 child，不能验收自己、兄弟或用户创建的 say，审计 `task.accepted` 区分 `accepted_by:'user'|'parent'` 与 `parent_id`。用户仍可显式确认 child，但不再要求逐个点击；父 Worker 的后代须已结算，不能用父验收隐式掩盖未确认成果。USER_ONLY `worker.reopen/sync_parent/resolve_sync` 分别调用 `Project.reopenTask/syncTaskParent/resolveTaskSync`；验收、恢复、同步不调用 Agent，只有 resolve_sync 显式启动当前 Worker Agent。Worker 详情/图共用 `render-iteration.js`；读模型 `accepted:boolean` 防止已验收记录误重开，`parent_sync_conflict` 提供固定提交诊断。保留原始 `base_commit`，本轮用可空 `iteration_base_commit`，不批量迁移旧行。
+[持续迭代](task-iteration.md)规定新式 指令/child 合并后的非终态 `awaiting_acceptance`、显式验收与归档分离、安全父同步及历史显式恢复。`worker.accept` 调用 `Project.acceptTask(taskId, actor=null)`：用户验收指令；运行中的直接父 Agent 可确认已交付的 child，不能验收自己、兄弟或用户创建的指令，审计 `task.accepted` 区分 `accepted_by:'user'|'parent'` 与 `parent_id`。用户仍可显式确认 child，但不再要求逐个点击；父 Worker 的后代须已结算，不能用父验收隐式掩盖未确认成果。USER_ONLY `worker.reopen/sync_parent/resolve_sync` 分别调用 `Project.reopenTask/syncTaskParent/resolveTaskSync`；验收、恢复、同步不调用 Agent，只有 resolve_sync 显式启动当前 Worker Agent。Worker 详情/图共用 `render-iteration.js`；读模型 `accepted:boolean` 防止已验收记录误重开，`parent_sync_conflict` 提供固定提交诊断。保留原始 `base_commit`，本轮用可空 `iteration_base_commit`，不批量迁移旧行。
 
 ## 展示功能已移除
 
@@ -142,13 +146,13 @@ Git 接缝新增 `prepareTaskSquashUnsafe(child,source,baseline,message)` 返回
 
 ## 新式 Worker 的自动合并（version 2）
 
-自动合并设置接缝：`worker.auto_merge {id,enabled}` 是用户专属开关接口，与一次性交付的 `worker.reserve {kind:'merge'}` 分开；Worker 详情与 Worker 图投影 `auto_merge:{enabled,locked,editable,reason}`（不支持的 Worker 为 null）。设置持久化在可空 `tasks.auto_merge` JSON（`{version:1,enabled,locked}`），自动产生的 pending 意图带 `reservation.auto_merge:true`，跨 invocation、daemon 重启与后续开发轮次保留，不以合并请求的生命周期代替设置。新 say 默认关闭，新派生 child 默认开启并锁定，服务端拒绝关闭（含通过 `worker.unreserve` 绕过）；历史 Worker 不批量回填或改写已有撤销决定。`editable` 只允许尚未交付就绪且没有已发请求的活动Worker调整；`reason` 解释不可操作原因。CLI 使用 `worker auto-merge ID on|off`。开启只安装 runtime hook，不新增父 Agent 或用户审批：安全点满足交付条件后复用现有 version 2 请求与父队列准入。显式「合并」继续走 `worker.reserve`，不改变持久开关。Web 详情/Worker 图共用复选框；后端 `merge_readiness.ready` 为真时只显示「合并」，请求已发出或已合并时展示对应进度/结果，不重复发起。禁用子Worker复选框须说明由父Worker派生、自动合并不可关闭。
+自动合并设置接缝：`worker.auto_merge {id,enabled}` 是用户专属开关接口，与一次性交付的 `worker.reserve {kind:'merge'}` 分开；Worker 详情与 Worker 图投影 `auto_merge:{enabled,locked,editable,reason}`（不支持的 Worker 为 null）。设置持久化在可空 `tasks.auto_merge` JSON（`{version:1,enabled,locked}`），自动产生的 pending 意图带 `reservation.auto_merge:true`，跨 invocation、daemon 重启与后续开发轮次保留，不以合并请求的生命周期代替设置。新指令默认关闭，新派生 child 默认开启并锁定，服务端拒绝关闭（含通过 `worker.unreserve` 绕过）；历史 Worker 不批量回填或改写已有撤销决定。`editable` 只允许尚未交付就绪且没有已发请求的活动Worker调整；`reason` 解释不可操作原因。CLI 使用 `worker auto-merge ID on|off`。开启只安装 runtime hook，不新增父 Agent 或用户审批：安全点满足交付条件后复用现有 version 2 请求与父队列准入。显式「合并」继续走 `worker.reserve`，不改变持久开关。Web 详情/Worker 图共用复选框；后端 `merge_readiness.ready` 为真时只显示「合并」，请求已发出或已合并时展示对应进度/结果，不重复发起。禁用子Worker复选框须说明由父Worker派生、自动合并不可关闭。
 
-交付按钮的只读接缝：`project/say.js` 的 `mergeReadiness(task)` 在 `worker.inspect` 与 `worker.graph` 投影 `merge_readiness:{ready,reason}`（仅 say/child）。复用 `reservationWaitReason` 检查调用收尾、子 Worker 结算、待决与未处理消息，并检查登记的待交付提交；`waiting` 本身不代表本轮交付就绪。该字段只表示可以尝试发起请求，Git 清洁度、ref 和后代分支仍由预约准入最终复核，不是合并授权。`render-delivery.js` 以此字段选择开发阶段的「自动合并」复选框或就绪后的「合并」按钮；缺少设置投影时保守只读，已有请求只展示进度与受检复查。
+交付按钮的只读接缝：`project/order.js` 的 `mergeReadiness(task)` 在 `worker.inspect` 与 `worker.graph` 投影 `merge_readiness:{ready,reason}`（仅 指令/child）。复用 `reservationWaitReason` 检查调用收尾、子 Worker 结算、待决与未处理消息，并检查登记的待交付提交；`waiting` 本身不代表本轮交付就绪。该字段只表示可以尝试发起请求，Git 清洁度、ref 和后代分支仍由预约准入最终复核，不是合并授权。`render-delivery.js` 以此字段选择开发阶段的「自动合并」复选框或就绪后的「合并」按钮；缺少设置投影时保守只读，已有请求只展示进度与受检复查。
 
-用户创建的 say 由持久 hook 或显式 `worker.reserve` 授权；新 child 默认开启且锁定 hook，旧 child 不回填。运行中只保存 pending 意图。真实源安全点检查调用实际退出、消息/待决/后代结算、源 ref 与工作区后，用请求 Event ID 保存交付标识及入队顺序；无代码 child 只交结果，进入待父确认。新请求不创建 merge Worker、不重挂，目标始终是直接父分支。父 runtime 在写执行位上固定基线、串行 Squash 为一条提交；源侧修复保留执行位，失败/问卷挂起释放，恢复重新排队。不额外启动父 Agent，main/owner 静息；普通消息在每项落地边界优先调度。精确预制 SHA 和 landing_receipt 在父侧写入前保存，重启仅核对凭据，不重放未知 apply。
+用户创建的指令由持久 hook 或显式 `worker.reserve` 授权；新 child 默认开启且锁定 hook，旧 child 不回填。运行中只保存 pending 意图。真实源安全点检查调用实际退出、消息/待决/后代结算、源 ref 与工作区后，用请求 Event ID 保存交付标识及入队顺序；无代码 child 只交结果，进入待父确认。新请求不创建 merge Worker、不重挂，目标始终是直接父分支。父 runtime 在写执行位上固定基线、串行 Squash 为一条提交；源侧修复保留执行位，失败/问卷挂起释放，恢复重新排队。不额外启动父 Agent，main/owner 静息；普通消息在每项落地边界优先调度。精确预制 SHA 和 landing_receipt 在父侧写入前保存，重启仅核对凭据，不重放未知 apply。
 
-正常落地保持委派关系与 worktree，进入 `awaiting_acceptance/integration=merged`；say 用户验收、child 直接父确认、显式归档分开。`Workspaces#squashedLanded` 让保留的已落地分支不阻塞父交付；归档仍严格核验树、源 ref、清洁度。旧 v2 merge 身份、重挂事件与历史记录保留，兼容恢复仅用明确 parent_id/匹配 audit 归位；旧落地窗只按精确单父、树、完整标题核对，未知保留错误。旧 version 1 手动审批不改。
+正常落地保持委派关系与 worktree，进入 `awaiting_acceptance/integration=merged`；指令用户验收、child 直接父确认、显式归档分开。`Workspaces#squashedLanded` 让保留的已落地分支不阻塞父交付；归档仍严格核验树、源 ref、清洁度。旧 v2 merge 身份、重挂事件与历史记录保留，兼容恢复仅用明确 parent_id/匹配 audit 归位；旧落地窗只按精确单父、树、完整标题核对，未知保留错误。旧 version 1 手动审批不改。
 
 ### 历史 v2 重挂兼容与中断恢复
 
@@ -156,8 +160,8 @@ Git 接缝新增 `prepareTaskSquashUnsafe(child,source,baseline,message)` 返回
 
 ## 交付锁与合并编排（历史 version 1）
 
-- 新的 Worker 中心交付只走固定提交：合并预约（`tasks.reservation`，`kind='merge'`）在静息、后代结算、工作区干净且可快进时冻结源 `commit` 与父 `baseline`，向父 Worker 发去重请求；父为 say 时由运行中的直接父 Agent `worker.integrate` 确认，父为 main/owner 时由用户 `worker.approve_merge` 批准。请求未解决时父分支受交付锁保护。
-- `src/core/branch-freeze.js` 从已有事实现算分支写冻结：任何未结束的解分歧 Worker 冻结其目标分支 + 全部后代 + 其直接父分支；已发出但尚未集成的 say 合并请求（`reservation` 里 `kind=merge`、`status=requested`）冻结其 `target_branch` **本身**（不冻结请求者与兄弟 say 自己的分支）——请求已经把父分支基线固定成那个 commit，父分支再前进就只能作废重做。交付锁同时保证同一个父分支一次只接受一个未集成请求：`settleReservedMerge` 见到别人的交付锁就保持 pending 并记 `parent_locked`，`integrateChild` / `approveReservedMerge` 只允许锁持有者自己落地。冻结拦截新建 say、`worker.retry` / `worker.cleanup` / `branch.archive`；`worker.cancel` 保持可用（释放路径）；源分支带着未集成请求时 `branch.archive` 也拒绝（删了它父分支的交付锁就永远没有落地对象）。冻结经 `status.branch_freeze` / `status.merge_runs` 与 `graph.get` 的 branch 节点 `freeze` / `merge_run` 下发。
+- 新的 Worker 中心交付只走固定提交：合并预约（`tasks.reservation`，`kind='merge'`）在静息、后代结算、工作区干净且可快进时冻结源 `commit` 与父 `baseline`，向父 Worker 发去重请求；父为指令时由运行中的直接父 Agent `worker.integrate` 确认，父为 main/owner 时由用户 `worker.approve_merge` 批准。请求未解决时父分支受交付锁保护。
+- `src/core/branch-freeze.js` 从已有事实现算分支写冻结：任何未结束的解分歧 Worker 冻结其目标分支 + 全部后代 + 其直接父分支；已发出但尚未集成的指令合并请求（`reservation` 里 `kind=merge`、`status=requested`）冻结其 `target_branch` **本身**（不冻结请求者与兄弟指令自己的分支）——请求已经把父分支基线固定成那个 commit，父分支再前进就只能作废重做。交付锁同时保证同一个父分支一次只接受一个未集成请求：`settleReservedMerge` 见到别人的交付锁就保持 pending 并记 `parent_locked`，`integrateChild` / `approveReservedMerge` 只允许锁持有者自己落地。冻结拦截新建指令、`worker.retry` / `worker.cleanup` / `branch.archive`；`worker.cancel` 保持可用（释放路径）；源分支带着未集成请求时 `branch.archive` 也拒绝（删了它父分支的交付锁就永远没有落地对象）。冻结经 `status.branch_freeze` / `status.merge_runs` 与 `graph.get` 的 branch 节点 `freeze` / `merge_run` 下发。
 - 旧的一键合并（`branch.merge_all`）与合并编排（`branch.orchestrate*`）不再有公开入口；`project/merge-all.js` 与 `project/orchestrate.js` 的内部实现及 `branches.merge_run` 列保留，只为读懂历史行与后续清理。
 
 ## Notice 提醒与历史接缝
@@ -166,7 +170,7 @@ Git 接缝新增 `prepareTaskSquashUnsafe(child,source,baseline,message)` 返回
 
 ### 用户创建 Worker 的告知型生命周期 hook
 
-- 内置 runtime hook（不执行仓库程序、不调用 Agent）仅为用户直接创建的 `say` / `analysis` Worker 生成生命周期告知。工作收尾且无待决、未处理消息或未结算子Worker时告知本轮静息；异常停止（超时、调用失败、daemon 中断恢复）告知失败原因。等待子Worker、待决、用户主动暂停/取消和安全抢占不产生额外告知。静息不是验收完成，也不承诺已合并。
+- 内置 runtime hook（不执行仓库程序、不调用 Agent）仅为用户直接创建的 `order` / `analysis` Worker 生成生命周期告知。工作收尾且无待决、未处理消息或未结算子Worker时告知本轮静息；异常停止（超时、调用失败、daemon 中断恢复）告知失败原因。等待子Worker、待决、用户主动暂停/取消和安全抢占不产生额外告知。静息不是验收完成，也不承诺已合并。
 - 复用 Notice 的 `kind='info' / status='sent'`，新增可空 `source_event_id`（唯一的来源生命周期 Event ID）与 `read_at`（成功打开 Worker 或显式「已知」后的已读时间）；旧 Notice 不回填、不作为新增未读告知。状态/来源事件/告知同事务保存，以来源 ID 幂等；历史终态提醒兼容保留，用户创建 Worker 不重复生成旧结算提醒。
 - 跨分区契约：用户专属 `notice.read {id}` 幂等标记 info Notice 已读，不答复、不唤醒 Worker；`notice.page {status:'unread'}` 仅返回 `kind=info,status=sent,source_event_id IS NOT NULL,read_at IS NULL`。`notice.list` 的有界快照优先包含待决与未读告知，返回完整新字段。Web `POST /api/action` 开放 `notice.read`。
 - Notice 读面以同 Worker 的来源 Event 投影 `lifecycle_type`（idle / analysis / failed / NULL），不按标题或当前状态猜测，不增列或重写历史。
@@ -198,7 +202,7 @@ Pi 的 request→stop 原子 rename 是安全点认领；daemon 通过 unlink re
 
 | 分区 | 入口 | 细粒度模块 | 独立可并行 |
 |---|---|---|---|
-| Worker 编排 | `src/core/project.js` | `src/core/project/`（含 say、预约、集成、生命周期） | ✅ |
+| Worker 编排 | `src/core/project.js` | `src/core/project/`（含指令、预约、集成、生命周期） | ✅ |
 | Git 边界 | `src/core/workspaces.js` | `src/core/workspaces/`（5 个） | ✅ |
 | 持久化 | `src/persistence/store.js` | `src/persistence/store/`（含分支、run 与引用元数据） | ✅ |
 | 前端 | `src/ui/web/assets/app.js` | `src/ui/web/assets/`（见下表） | ✅ |
@@ -208,15 +212,15 @@ Pi 的 request→stop 原子 rename 是安全点认领；daemon 通过 unlink re
 
 前六个分区 **互不共享文件**，可以同时开工。测试分区要等它们落地，否则测的是半成品。
 
-历史 version 1 的预约是 `tasks.reservation` 可空 versioned JSON 附属状态：仅 say Worker 可设置 `merge` 的一个 pending 意图，同类重复幂等；User-only `worker.reserve` / `worker.unreserve` 与 Event 同事务。`merge` 预约只在 say 静息、工作区可检验且子 Worker 已结算时冻结提交与直接父基线，在结算事务内写一次父 Worker 信号并结束源 Worker；用户另用固定 commit + baseline 批准 main/owner 的快进，Git 串行区内复核双方 ref。同类重复 `worker.reserve` 不重建预约，而是显式重查 pending 状态：执行屏障、未读消息和子 Worker 等待原因也记在 `blocked_reason`，成功后由结算事务清掉；Web 的「复查预约」与 CLI 原命令共享此路径，不自动轮询外部 Git 变化。User-only `worker.resolve` 另给无代码改动的 say 一个与取消区分的收尾：工作区干净、分支无新提交、没有活动 Agent/请求时以 `completed` + `integration='none'` 结算并保留 `result`，不移动任何 ref；有提交仍须走 `worker.reserve` 或 `worker.cancel`。
+历史 version 1 的预约是 `tasks.reservation` 可空 versioned JSON 附属状态：仅指令 Worker 可设置 `merge` 的一个 pending 意图，同类重复幂等；User-only `worker.reserve` / `worker.unreserve` 与 Event 同事务。`merge` 预约只在指令静息、工作区可检验且子 Worker 已结算时冻结提交与直接父基线，在结算事务内写一次父 Worker 信号并结束源 Worker；用户另用固定 commit + baseline 批准 main/owner 的快进，Git 串行区内复核双方 ref。同类重复 `worker.reserve` 不重建预约，而是显式重查 pending 状态：执行屏障、未读消息和子 Worker 等待原因也记在 `blocked_reason`，成功后由结算事务清掉；Web 的「复查预约」与 CLI 原命令共享此路径，不自动轮询外部 Git 变化。User-only `worker.resolve` 另给无代码改动的指令一个与取消区分的收尾：工作区干净、分支无新提交、没有活动 Agent/请求时以 `completed` + `integration='none'` 结算并保留 `result`，不移动任何 ref；有提交仍须走 `worker.reserve` 或 `worker.cancel`。
 
-daemon 启动在 project identity/Store 建立后、RPC 开放前幂等执行 `Project.bootstrapMain()`：只有本地 main ref 存在才确立唯一静息 main Worker；无 main 时保持 daemon 可用、首次新 say 给明确错误，不自动造 ref，也不触发 provider。恢复仍保留未知副作用不重放。
+daemon 启动在 project identity/Store 建立后、RPC 开放前幂等执行 `Project.bootstrapMain()`：只有本地 main ref 存在才确立唯一静息 main Worker；无 main 时保持 daemon 可用、首次新指令给明确错误，不自动造 ref，也不触发 provider。恢复仍保留未知副作用不重放。
 
-显式分支绑定：用户选定本地 `BRANCH` 与当时的 `HEAD COMMIT` 后，`branch.bind` 为非 main 且尚无新 Worker 所有者的分支创建独立、永不执行不受限 provider 的静息 `task_kind='owner'` 根 Worker。旧分支记录和旧 Worker 不回写；`branch.tree/show` 派生的新 owner 投影覆盖旧 task_id 的当前所有者显示，历史仍可按旧 Worker id 查看。无绑定的新 say 继续拒绝，不猜祖先。
+显式分支绑定：用户选定本地 `BRANCH` 与当时的 `HEAD COMMIT` 后，`branch.bind` 为非 main 且尚无新 Worker 所有者的分支创建独立、永不执行不受限 provider 的静息 `task_kind='owner'` 根 Worker。旧分支记录和旧 Worker 不回写；`branch.tree/show` 派生的新 owner 投影覆盖旧 task_id 的当前所有者显示，历史仍可按旧 Worker id 查看。无绑定的新指令继续拒绝，不猜祖先。
 
-新 say 入口增量：`say.submit(content?,branch?,references?)` 与旧 `input.submit` 分开，后者不再有公开入口；新 Input 直连 `role='agent'`、`task_kind='say'` 的 Worker，main 是 `task_kind='main'` 的静息根 Worker。`tasks.task_kind` 只加列不重写历史；新提交必须先校验父分支有明确的 Worker 所有者。实现职责放 `src/core/project/say.js`、现有 Git 边界与 Store，不新增全局调度器。
+新指令入口增量：`order.submit(content?,branch?,references?)` 与旧 `input.submit` 分开，后者不再有公开入口；新 Input 直连 `role='agent'`、`task_kind='order'` 的 Worker，main 是 `task_kind='main'` 的静息根 Worker。`tasks.task_kind` 只加列不重写历史；新提交必须先校验父分支有明确的 Worker 所有者。实现职责放 `src/core/project/order.js`、现有 Git 边界与 Store，不新增全局调度器。
 
-历史 Worker 中心路径的子代码只允许执行中的直接父 Agent 经 `worker.integrate {id,commit}` 确认固定 child HEAD（当前 v2 交付由父 runtime 队列推进，拒绝绕过） 并在 Git 串行锁下 ff-only 快进至父分支。新 say 的 pending merge 请求若与直接父分支分歧，用户可 `worker.resolve_divergence {id}` 创建一个独立 child（基线固定为源 tip，目标固定为源 say 分支，Worker 目标要求合入当时固定的父 tip 并测试）；活动 say 的 child 挂在其子树下，由 `worker.integrate` 确认。父 say Agent 收到子 Worker 完成信号后用 `worker.integrate` 确认固定 child commit；该确认额外校验 child commit 同时含最初源/父 tip，之后用户复查预约或自然轮末重新按最新父 tip 准入。兄弟子 Worker 先落地或父分支自己提交后，已完普通子 Worker 的固定提交同样不再能快进：执行中的直接父 Agent 用 `worker.resolve_child_divergence {id}` 从该固定提交拉起同构的解分歧子 Worker，解分歧后仍由 `worker.integrate` 确认。`worker.integrate` 不能推进 main；父分支不干净、HEAD 漂移、子 Worker 未结算或有未集成后代时保留现场并拒绝。实现放 `src/core/project/say.js`，Git 写入复用 `workspaces.mergeBranchUnsafe`。
+历史 Worker 中心路径的子代码只允许执行中的直接父 Agent 经 `worker.integrate {id,commit}` 确认固定 child HEAD（当前 v2 交付由父 runtime 队列推进，拒绝绕过） 并在 Git 串行锁下 ff-only 快进至父分支。新指令的 pending merge 请求若与直接父分支分歧，用户可 `worker.resolve_divergence {id}` 创建一个独立 child（基线固定为源 tip，目标固定为源指令分支，Worker 目标要求合入当时固定的父 tip 并测试）；活动指令的 child 挂在其子树下，由 `worker.integrate` 确认。父指令 Agent 收到子 Worker 完成信号后用 `worker.integrate` 确认固定 child commit；该确认额外校验 child commit 同时含最初源/父 tip，之后用户复查预约或自然轮末重新按最新父 tip 准入。兄弟子 Worker 先落地或父分支自己提交后，已完普通子 Worker 的固定提交同样不再能快进：执行中的直接父 Agent 用 `worker.resolve_child_divergence {id}` 从该固定提交拉起同构的解分歧子 Worker，解分歧后仍由 `worker.integrate` 确认。`worker.integrate` 不能推进 main；父分支不干净、HEAD 漂移、子 Worker 未结算或有未集成后代时保留现场并拒绝。实现放 `src/core/project/order.js`，Git 写入复用 `workspaces.mergeBranchUnsafe`。
 
 Worker 中心输入的持久信号增量：`messages` 增加可空 `signal_type` / `signal_key`（旧自由文本消息不变），`(task_id,sender_id,signal_key)` 部分唯一索引保证子→父同一次信号只写一条；`Store.signal()` 与 `Project.sendTaskSignal()` 只供 runtime 内部使用，事务同写 Event/Message，先落库后唤醒。边界见[Worker 中心输入](task-centered-input-design.md)和[一次 invocation](invocation.md)。
 

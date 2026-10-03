@@ -16,7 +16,7 @@ import { ROLE } from './format.js';
  */
 export const SIDEBAR_SECTIONS = [
   { id: 'notices', label: '待我处理', long: '待我处理', icon: '◔', description: '提问、答复与提醒' },
-  { id: 'tasks', label: 'Worker 列表', long: 'Worker 列表', icon: '✓', description: 'say、子 Worker 与执行过程' },
+  { id: 'tasks', label: 'Worker 列表', long: 'Worker 列表', icon: '✓', description: '指令、子 Worker 与执行过程' },
 ];
 export const COLLAPSED_KEY = 'lush.sidebar.collapsed';
 export const FILTERS_KEY = 'lush.sidebar.filters';

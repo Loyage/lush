@@ -129,7 +129,7 @@ test('runtime max_depth override reaches later spawns without restart', async ()
   const f = fixture(controlled(), { LUSH_MAX_DEPTH: '3' });
   await repo(f.root);
   try {
-    const root = (await f.project.say('root')).task;
+    const root = (await f.project.order('root')).task;
     const child = await f.project.spawn(root.id, 'child', undefined, [], 'child');
     expect(() => f.project.spawn(child.id, 'too deep', undefined, [], 'too-deep')).toThrow('nesting');
     // 调高后同一个 daemon 立即允许更深的派生，不需要重启。
@@ -191,8 +191,8 @@ test('raising the limit admits queued work immediately; lowering it cancels noth
   const f = fixture(provider, { LUSH_CONCURRENCY: '1' });
   await repo(f.root);
   try {
-    const first = (await f.project.say('first')).task;
-    const second = (await f.project.say('second')).task;
+    const first = (await f.project.order('first')).task;
+    const second = (await f.project.order('second')).task;
     await until(() => f.project.running.size === 1);
     expect(f.project.running.has(first.id)).toBe(true);
     expect(f.project.status().settings.concurrency).toEqual({ value: 1, default: 1, overridden: false });

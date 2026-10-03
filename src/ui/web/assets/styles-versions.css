@@ -14,9 +14,9 @@
 .version-associated{color:var(--accent);font-size:12px}
 .version-unassociated{color:var(--muted);font-size:12px}
 .version-task{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}
-.version-goal,.version-say{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}
+.version-goal,.version-order{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}
 .version-input{margin-top:12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px}
 .version-input summary{cursor:pointer;color:var(--muted);font-size:13px}
-.version-say{margin-bottom:0;font-size:13px}
+.version-order{margin-bottom:0;font-size:13px}
 .versions-footer{display:flex;justify-content:center;margin:24px 0}
 @media(max-width:640px){.versions-head{flex-direction:column}.version-commit{padding:16px}.version-metadata{flex-direction:column;align-items:flex-start}.version-sha{max-width:100%}}

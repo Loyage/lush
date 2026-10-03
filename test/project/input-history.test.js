@@ -13,7 +13,7 @@ function insert(f, content, status, calls = 1, integration = 'none', reservation
   return f.store.transaction(() => {
     const inputId = f.store.nextInputId();
     f.store.run('INSERT INTO inputs(id,content) VALUES (?,?)', inputId, content);
-    const task = f.store.create({ input_id: inputId, role: 'agent', task_kind: 'say', goal: content });
+    const task = f.store.create({ input_id: inputId, role: 'agent', task_kind: 'order', goal: content });
     f.store.update(task.id, { status, calls, integration, reservation: reservation ? JSON.stringify(reservation) : null });
     f.store.run('UPDATE inputs SET task_id=? WHERE id=?', task.id, inputId);
     return { inputId, taskId: task.id };
@@ -69,7 +69,7 @@ test('history projects all task states independently of current delivery, preser
     f.store.message(created.taskId, 'only in a followup', null);
     expect(f.project.inputHistory({ q: 'only in a followup' }).items).toEqual([]);
     const d = await f.call('draft.add', { content: 'submitted once' });
-    await f.call('say.submit', { draft_id: d.id, expected_revision: d.revision });
+    await f.call('order.submit', { draft_id: d.id, expected_revision: d.revision });
     expect(f.project.inputHistory({ q: 'submitted once' }).items.map(item => item.kind)).toEqual(['input']);
   } finally { await f.close(); }
 });
@@ -120,16 +120,16 @@ test('buffer remembers parent identity across branch switches, freezes baseline 
     await git(f.root, 'checkout', '-b', 'unbound');
     const edited = await f.call('draft.update', { id: d.id, content: d.content, expected_revision: 1 });
     expect(edited).toMatchObject({ parent_id: d.parent_id, branch: 'main', revision: 2, references: [reference] });
-    const sent = await f.call('say.submit', { draft_id: d.id, expected_revision: 2, start: false });
+    const sent = await f.call('order.submit', { draft_id: d.id, expected_revision: 2, start: false });
     expect(sent.task).toMatchObject({ parent_id: d.parent_id, base_commit: next, status: 'paused', calls: 0 });
     expect(f.project.inputGet('input', sent.id)).toMatchObject({ content: d.content, status: 'created', references: [{ segment: 1, ...reference }] });
-    await expect(f.call('say.submit', { draft_id: d.id, expected_revision: 2 })).rejects.toThrow('already submitted');
+    await expect(f.call('order.submit', { draft_id: d.id, expected_revision: 2 })).rejects.toThrow('already submitted');
     const owner = await f.project.bindBranch('unbound', next);
     const another = await f.call('draft.add', { content: 'auto parent now unbound' });
     expect(another.parent_id).toBe(owner.id);
     const reassigned = await f.call('draft.update', { id: another.id, content: 'new parent', branch: 'main', references: [], expected_revision: 1 });
     expect(reassigned.parent_id).toBe(d.parent_id);
-    const started = await f.call('say.submit', { draft_id: another.id, expected_revision: 2 });
+    const started = await f.call('order.submit', { draft_id: another.id, expected_revision: 2 });
     expect(started.task.status).toBe('queued');
   } finally { await f.close(); }
 });
@@ -142,11 +142,11 @@ test('strict revision locking rejects overwrite/delete/fire races and never reus
     const updates = await Promise.allSettled(['a','b'].map(content => f.call('draft.update', { id: d.id, content, expected_revision: 1 })));
     expect(updates.filter(row => row.status === 'fulfilled')).toHaveLength(1);
     await expect(f.call('draft.remove', { id: d.id, expected_revision: 1 })).rejects.toThrow('changed');
-    await expect(f.call('say.submit', { draft_id: d.id, expected_revision: 1 })).rejects.toThrow('changed');
+    await expect(f.call('order.submit', { draft_id: d.id, expected_revision: 1 })).rejects.toThrow('changed');
     await f.call('draft.remove', { id: d.id, expected_revision: 2 });
     const next = await f.call('draft.add', { content: 'next' });
     expect(next.id).toBeGreaterThan(d.id);
-    const results = await Promise.allSettled([1,2].map(() => f.call('say.submit', { draft_id: next.id, expected_revision: 1 })));
+    const results = await Promise.allSettled([1,2].map(() => f.call('order.submit', { draft_id: next.id, expected_revision: 1 })));
     expect(results.filter(row => row.status === 'fulfilled')).toHaveLength(1);
     expect(f.store.all('SELECT * FROM inputs')).toHaveLength(1);
     const branches = await git(f.root, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/lush/');
@@ -161,7 +161,7 @@ for (const action of ['edit','delete','parent_ended']) test(`async anchor race: 
     const ready = gate(), resume = gate(), original = f.project.anchorInput.bind(f.project);
     let anchor;
     f.project.anchorInput = async (...args) => { const result = await original(...args); anchor = result.anchor; ready.resolve(); await resume.promise; return result; };
-    const pending = f.call('say.submit', { draft_id: d.id, expected_revision: 1 });
+    const pending = f.call('order.submit', { draft_id: d.id, expected_revision: 1 });
     const failure = pending.then(() => null, error => error);
     await ready.promise;
     if (action === 'edit') await f.call('draft.update', { id: d.id, content: 'edited', expected_revision: 1 });
@@ -183,12 +183,12 @@ test('legacy drafts remain unowned/unversioned on reopen, require explicit paren
     expect(reopened.draft(legacy.id)).toMatchObject({ parent_id: null, revision: null, content: 'legacy' });
     expect(reopened.draft(fresh.id)).toMatchObject({ parent_id: fresh.parent_id, revision: 1 });
     expect(reopened.draftReferences(legacy.id)).toEqual([reference]); reopened.close();
-    await expect(f.call('say.submit', { draft_id: legacy.id, expected_revision: null })).rejects.toThrow('no saved parent');
+    await expect(f.call('order.submit', { draft_id: legacy.id, expected_revision: null })).rejects.toThrow('no saved parent');
     const unowned = await f.call('draft.update', { id: legacy.id, content: 'still legacy', expected_revision: null });
     expect(unowned.parent_id).toBeNull();
     const owned = await f.call('draft.update', { id: legacy.id, content: 'legacy ready', branch: 'main', expected_revision: 1 });
     expect(owned.parent_id).toBe(fresh.parent_id);
-    await f.call('say.submit', { draft_id: legacy.id, expected_revision: 2 });
+    await f.call('order.submit', { draft_id: legacy.id, expected_revision: 2 });
     reopened = new Store(path.join(f.config.home, 'project.db'), f.root);
     expect(reopened.draft(legacy.id).input_id).not.toBeNull(); reopened.close();
     // Real old schema: added numeric fields remain NULL without rewriting content/timestamps.
@@ -207,17 +207,17 @@ test('parent choices enumerate beyond overview, omit ended/missing/archived ance
       for (let i = 0; i < 260; i++) f.store.create({ role: 'agent', goal: 'newer unrelated Task' });
     });
     expect((await f.call('input.parents')).items).toEqual([{ id: d.parent_id, branch: 'main', goal: '管理 main 分支及子Worker合并请求' }]);
-    const sent = await f.call('say.submit', { content: 'eligible say', start: false });
+    const sent = await f.call('order.submit', { content: 'eligible order', start: false });
     expect((await f.call('input.parents')).items.map(item => item.id)).toContain(sent.task.id);
-    const sub = await f.call('draft.add', { content: 'under say', branch: sent.task.branch });
+    const sub = await f.call('draft.add', { content: 'under order', branch: sent.task.branch });
     f.store.update(sent.task.id, { status: 'completed' });
-    await expect(f.call('say.submit', { draft_id: sub.id, expected_revision: 1 })).rejects.toThrow('no longer available');
+    await expect(f.call('order.submit', { draft_id: sub.id, expected_revision: 1 })).rejects.toThrow('no longer available');
     expect((await f.call('input.parents')).items.map(item => item.id)).not.toContain(sent.task.id);
     await git(f.root, 'branch', 'missing-later');
     const owner = await f.project.bindBranch('missing-later', await git(f.root, 'rev-parse', 'main'));
     const missing = await f.call('draft.add', { content: 'missing ref', branch: owner.branch });
     await git(f.root, 'branch', '-d', owner.branch);
-    await expect(f.call('say.submit', { draft_id: missing.id, expected_revision: 1 })).rejects.toThrow('does not exist');
+    await expect(f.call('order.submit', { draft_id: missing.id, expected_revision: 1 })).rejects.toThrow('does not exist');
     expect((await f.call('input.parents')).items.map(item => item.id)).not.toContain(owner.id);
     f.store.transaction(() => {
       for (let i = 0; i < 2001; i++) {
@@ -232,15 +232,15 @@ test('parent choices enumerate beyond overview, omit ended/missing/archived ance
 test('new RPC methods are user-only, strictly validate params, and legacy planner entrypoints stay closed', async () => {
   const f = await setup();
   try {
-    for (const method of ['input.history','input.get','input.parents','draft.add','draft.update','draft.remove','say.submit']) {
+    for (const method of ['input.history','input.get','input.parents','draft.add','draft.update','draft.remove','order.submit']) {
       expect(() => assertAllowed(method, {}, 1)).toThrow('requires user approval');
       await expect(f.call(method, { alien: 1 })).rejects.toThrow('unknown parameter');
     }
     for (const method of ['input.submit','draft.commit','draft.list','input.list']) await expect(f.call(method)).rejects.toThrow('unknown method');
     for (const params of [{ content: '' }, { content: 'x'.repeat(32001) }, { content: 'ok', references: null }, { content: 'ok', branch: null }]) await expect(f.call('draft.add', params)).rejects.toThrow();
-    for (const start of ['false', 0, null]) await expect(f.call('say.submit', { content: 'x', start })).rejects.toThrow('boolean');
-    for (const field of ['content','references','branch']) await expect(f.call('say.submit', { draft_id: 1, expected_revision: 1, [field]: 'x' })).rejects.toThrow('cannot be combined');
-    await expect(f.call('say.submit', { draft_id: 1 })).rejects.toThrow('expected_revision');
+    for (const start of ['false', 0, null]) await expect(f.call('order.submit', { content: 'x', start })).rejects.toThrow('boolean');
+    for (const field of ['content','references','branch']) await expect(f.call('order.submit', { draft_id: 1, expected_revision: 1, [field]: 'x' })).rejects.toThrow('cannot be combined');
+    await expect(f.call('order.submit', { draft_id: 1 })).rejects.toThrow('expected_revision');
     await expect(f.call('input.get', { kind: 'task', id: 1 })).rejects.toThrow('kind');
     await expect(f.call('input.get', { kind: 'input', id: 1.1 })).rejects.toThrow('id');
   } finally { await f.close(); }
@@ -249,7 +249,7 @@ test('new RPC methods are user-only, strictly validate params, and legacy planne
 test('buffering tolerates temporary parent invocation/sync/freeze but firing uses full admission', async () => {
   const f = await setup();
   try {
-    const parent = await f.project.say('busy parent', 'main', [], null, false);
+    const parent = await f.project.order('busy parent', 'main', [], null, false);
     f.store.update(parent.task.id, { status: 'running' });
     f.project.taskSyncBusy = new Set([parent.task.id]);
     const original = f.project.assertBranchWritable;
@@ -257,21 +257,21 @@ test('buffering tolerates temporary parent invocation/sync/freeze but firing use
     const draft = await f.call('draft.add', { content: 'save my idea', branch: parent.task.branch });
     expect(draft.parent_id).toBe(parent.task.id);
     expect((await f.call('input.parents')).items.map(row => row.id)).toContain(parent.task.id);
-    await expect(f.call('say.submit', { draft_id: draft.id, expected_revision: 1 })).rejects.toThrow('temporarily frozen');
+    await expect(f.call('order.submit', { draft_id: draft.id, expected_revision: 1 })).rejects.toThrow('temporarily frozen');
     expect(f.project.inputGet('draft', draft.id).content).toBe('save my idea');
     f.project.assertBranchWritable = original;
     f.project.taskSyncBusy.clear();
   } finally { await f.close(); }
 });
 
-test('draft start=false does not invoke an Agent; default start runs the normal say lifecycle', async () => {
+test('draft start=false does not invoke an Agent; default start runs the normal order lifecycle', async () => {
   const f = fixture(); await repo(f.root);
   const call = (method, params) => new Dispatcher(f.project).dispatch(method, params);
   try {
     const d = await call('draft.add', { content: 'create only' });
-    const paused = await call('say.submit', { draft_id: d.id, expected_revision: 1, start: false });
+    const paused = await call('order.submit', { draft_id: d.id, expected_revision: 1, start: false });
     const next = await call('draft.add', { content: 'actually run' });
-    const running = await call('say.submit', { draft_id: next.id, expected_revision: 1 });
+    const running = await call('order.submit', { draft_id: next.id, expected_revision: 1 });
     await until(() => f.store.task(running.task.id).status === 'waiting');
     expect(f.store.task(running.task.id).calls).toBe(1);
     expect(f.store.task(paused.task.id)).toMatchObject({ status: 'paused', calls: 0 });
@@ -288,7 +288,7 @@ test('Git error after creating a self-owned anchor cleans it and leaves the buff
       if (args[0] === 'worktree' && args[1] === 'add') throw new Error('simulated Git failure after creation');
       return result;
     };
-    await expect(f.call('say.submit', { draft_id: d.id, expected_revision: 1 })).rejects.toThrow('simulated Git');
+    await expect(f.call('order.submit', { draft_id: d.id, expected_revision: 1 })).rejects.toThrow('simulated Git');
     expect(f.project.inputGet('draft', d.id)).toEqual(d);
     expect(f.store.all('SELECT * FROM inputs')).toHaveLength(0);
     expect(await git(f.root, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/lush/')).toBe('');

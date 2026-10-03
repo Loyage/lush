@@ -385,7 +385,7 @@ export const methods = {
   /**
    * 把一条分支快进到一个已经包含它当前顶端的提交（例如独立解分歧子任务的产物）。
    * 有检出的 worktree 就在里面 `git merge --ff-only`，否则 compare-and-swap ref；不产生 merge commit，
-   * 也不接受非快进的移动。终态 say 吸收解分歧固定提交后重新发合并请求时用到。
+   * 也不接受非快进的移动。终态 order 吸收解分歧固定提交后重新发合并请求时用到。
    */
   async fastForwardBranchUnsafe(branch, to) {
     const project = this.config.project;

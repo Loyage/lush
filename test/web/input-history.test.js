@@ -20,12 +20,12 @@ test('HTTP input history/detail/parent reads and versioned draft actions use tas
     const updated = await post('draft.update', { id: d.id, content: 'updated snapshot', expected_revision: 1 });
     expect(updated.body.revision).toBe(2);
     expect((await post('draft.remove', { id: d.id, expected_revision: 1 })).status).toBe(400);
-    const sent = await post('say.submit', { draft_id: d.id, expected_revision: 2, start: false });
+    const sent = await post('order.submit', { draft_id: d.id, expected_revision: 2, start: false });
     expect(sent.status).toBe(200); expect(sent.body.task.status).toBe('paused');
     expect((await get(`/api/input/input/${sent.body.id}`)).body).toMatchObject({ status: 'created', content: 'updated snapshot', references: [] });
     expect((await get('/api/inputs')).body.items).toHaveLength(1);
     expect((await get(`/api/input/draft/${d.id}`)).status).toBe(400);
-    expect((await post('say.submit', { draft_id: d.id, expected_revision: 2 })).status).toBe(400);
+    expect((await post('order.submit', { draft_id: d.id, expected_revision: 2 })).status).toBe(400);
     const second = (await post('draft.add', { content: 'delete me' })).body;
     expect((await post('draft.remove', { id: second.id, expected_revision: second.revision })).status).toBe(200);
     for (const path of ['/api/inputs?status=all','/api/inputs?limit=0','/api/inputs?q=x&q=y','/api/inputs?alien=1','/api/input-parents?extra=1',`/api/input/input/${sent.body.id}?extra=1`]) expect((await get(path)).status).toBe(400);

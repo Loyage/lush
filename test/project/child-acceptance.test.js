@@ -7,7 +7,7 @@ import { tokenHash } from '../../src/core/project/internal.js';
 
 async function setup() {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
-  const parent = (await f.project.say('user goal')).task;
+  const parent = (await f.project.order('user goal')).task;
   f.store.update(parent.id, { status: 'waiting' });
   const child = await f.project.spawn(parent.id, 'delegated answer');
   await f.project.workspaces.finish(child);
@@ -23,15 +23,15 @@ async function setup() {
   return { ...f, parent, child, token, run, rpc, confirm, close };
 }
 
-test('only the live direct delegator can confirm child results; user say and other Tasks remain protected', async () => {
+test('only the live direct delegator can confirm child results; user order and other Tasks remain protected', async () => {
   const f = await setup();
   try {
-    const siblingSay = (await f.project.say('another user goal', f.parent.branch)).task;
-    const other = (await f.project.say('unrelated')).task;
+    const siblingOrder = (await f.project.order('another user goal', f.parent.branch)).task;
+    const other = (await f.project.order('unrelated')).task;
     f.store.update(other.id, { status: 'waiting' });
     const otherChild = await f.project.spawn(other.id, 'not mine');
     await expect(f.confirm(f.parent.id)).rejects.toThrow('own direct child');
-    await expect(f.confirm(siblingSay.id)).rejects.toThrow('user-created say');
+    await expect(f.confirm(siblingOrder.id)).rejects.toThrow('user-created order');
     await expect(f.confirm(otherChild.id)).rejects.toThrow('own direct child');
     await expect(f.rpc.dispatch('worker.accept', { id: f.child.id, parent: f.parent.id, _token: f.token })).rejects.toThrow('unknown parameter');
     const result = await f.confirm(f.child.id);
@@ -115,7 +115,7 @@ test('a parent requests revisions then confirms a no-code child without any user
   } });
   f.project.stopping = true; await repo(f.root);
   try {
-    const parent = (await f.project.say('user goal')).task; parentId = parent.id;
+    const parent = (await f.project.order('user goal')).task; parentId = parent.id;
     f.store.update(parent.id, { status: 'waiting' });
     childId = (await f.project.spawn(parent.id, 'answer')).id;
     f.project.stopping = false; f.project.kick();

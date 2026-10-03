@@ -1,6 +1,6 @@
 # Run、invocation 与多级协作
 
-本文说明每次 provider 调用与持久 Worker 的边界。新 say 与历史遗留 Worker 共用同一套 Run 记录；旧 WorkItem 只是兼容读模型。
+本文说明每次 provider 调用与持久 Worker 的边界。新指令与历史遗留 Worker 共用同一套 Run 记录；旧 WorkItem 只是兼容读模型。
 
 ## Worker 与 Run
 
@@ -19,7 +19,7 @@ Worker 的累计 calls / wakes 继续用于兼容读模型，Run 保存每次调
 
 1. Dispatcher 按Worker就绪状态与相应 lane 的容量选择 queued Worker。
 2. `running` Map 占位，签发本次 invocation token，创建 `agent_runs` 行。
-3. 准备 cwd：say / child 使用独立 worktree；解分歧 Worker 使用从固定提交拉起的独立 worktree；旧记录里可能还有输入 worktree 或对照检出。
+3. 准备 cwd：指令 / child 使用独立 worktree；解分歧 Worker 使用从固定提交拉起的独立 worktree；旧记录里可能还有输入 worktree 或对照检出。
 4. 读取启动时未消费消息、相关工作与 Artifact 上下文；对带 Input 的普通Worker读取其引用快照并按稳定目标解析本轮最新状态，组成 `referenced_context`。provider 按 role 组合命名 Prompt 片段，叠加 `agent.json`、项目/本机补充并热加载公共/角色 env 后启动 Pi 或 Codex。
 5. 成功返回后消费启动时消息，保存 Worker 兼容 result、结束 Run、写 Artifact。
 6. 判定未读消息、Decision、活动子Worker与工作区提交，进入 queued / awaiting / waiting / completed。
@@ -40,4 +40,4 @@ waiting / awaiting / paused 不占 agent 槽，也不运行 sleep/poll 子进程
 
 ## 协作与集成
 
-新 say / child Agent 可以派子Worker；普通成功收据在本波直接子Worker全部终态后合并唤醒，失败、取消和显式消息仍及时可调度，详见[合并唤醒](token-efficiency.md#父Worker合并唤醒)。Agent 派出的 child 在创建时默认预约合入直接父 Worker；轮末安全结束、消息已处理、后代已结算且工作区干净后，runtime 在真实安全点固定源提交并交给父 Worker 自有队列串行 Squash，不创建 merge Worker、不改父子关系，不额外调用父 Agent 或要求手动集成。干净且无新提交的 child 直接交付结果、进入 awaiting_acceptance 等父确认。成功收据等本波子Worker全部结算再唤醒父 Agent，避免父 Agent 与队列争用分支。用户直接创建的 say 仍由用户决定何时预约合并（含进入 main/owner）；取得父执行位后才固定父基线；分歧退回原 Worker 合入固定父提交、保留原源提交并测试，修复期间保留父执行位。挂起释放，恢复重新排队并固定新基线。旧 version 1 请求继续保留原来的手动确认边界，旧 version 2 merge 身份与在途重挂仅按明确预约／审计兼容恢复；见[分支合并](merge.md)。
+新指令 / child Agent 可以派子Worker；普通成功收据在本波直接子Worker全部终态后合并唤醒，失败、取消和显式消息仍及时可调度，详见[合并唤醒](token-efficiency.md#父Worker合并唤醒)。Agent 派出的 child 在创建时默认预约合入直接父 Worker；轮末安全结束、消息已处理、后代已结算且工作区干净后，runtime 在真实安全点固定源提交并交给父 Worker 自有队列串行 Squash，不创建 merge Worker、不改父子关系，不额外调用父 Agent 或要求手动集成。干净且无新提交的 child 直接交付结果、进入 awaiting_acceptance 等父确认。成功收据等本波子Worker全部结算再唤醒父 Agent，避免父 Agent 与队列争用分支。用户直接创建的指令仍由用户决定何时预约合并（含进入 main/owner）；取得父执行位后才固定父基线；分歧退回原 Worker 合入固定父提交、保留原源提交并测试，修复期间保留父执行位。挂起释放，恢复重新排队并固定新基线。旧 version 1 请求继续保留原来的手动确认边界，旧 version 2 merge 身份与在途重挂仅按明确预约／审计兼容恢复；见[分支合并](merge.md)。

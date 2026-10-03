@@ -22,9 +22,9 @@ export default {
       const from = this.store.task(sender);
       check(target.parent_id === from.id || from.parent_id === target.id, 'agents may message only a direct parent or child');
     }
-    // Rules are frozen when a say Task is created. Failure is visible, but never discards the input.
+    // Rules are frozen when a order Task is created. Failure is visible, but never discards the input.
     let decision = { delivery: 'message', source: 'agent' }, ruleError = null;
-    if (sender === null && ['say', 'child'].includes(target.task_kind)) {
+    if (sender === null && ['order', 'child'].includes(target.task_kind)) {
       try { decision = decideTaskInput(this.config.home, target, body); }
       catch (error) { ruleError = error.message; decision = { delivery: 'interrupt', source: 'fallback' }; }
     } else if (sender === null) decision = { delivery: 'interrupt', source: 'default' };
@@ -106,7 +106,7 @@ export default {
   /** Built-in lifecycle hook. Caller commits Task state, source Event and Notice together. */
   notifyTaskLifecycle(taskId, sourceEventId) {
     const task = this.store.task(taskId);
-    if (!['say','analysis'].includes(task.task_kind)) return null;
+    if (!['order','analysis'].includes(task.task_kind)) return null;
     const event = this.store.get('SELECT * FROM events WHERE id=? AND task_id=?', id(sourceEventId), task.id);
     check(event, 'lifecycle source event does not belong to this Worker');
     const failed = task.status === 'failed' && ['failed','merge.repair_interrupted','analysis.fork_failed'].includes(event.type);

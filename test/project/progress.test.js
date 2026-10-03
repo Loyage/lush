@@ -19,7 +19,7 @@ function controlled() {
 test('预约读模型：version 2 的合并请求原样交给 UI，旧形态继续可读，认不出的才降级成 invalid', async () => {
   const f = fixture(); await repo(f.root);
   try {
-    const task = f.store.create({ role: 'agent', goal: 'deliver something', task_kind: 'say' });
+    const task = f.store.create({ role: 'agent', goal: 'deliver something', task_kind: 'order' });
     const booking = { version: 2, kind: 'merge', status: 'resolving', commit: 'abc123', parent_id: 1, blocked_reason: '父分支已分歧' };
     f.store.update(task.id, { reservation: JSON.stringify(booking) });
     expect(f.project.progressView(f.store.task(task.id)).reservation)
@@ -48,7 +48,7 @@ test('预约读模型：version 2 的合并请求原样交给 UI，旧形态继�
 test('agent progress is bound to its live task and preserves completed stable keys across replans', async () => {
   const provider = controlled(), f = fixture(provider); await repo(f.root);
   try {
-    const task = (await f.project.say('coordinate progress')).task;
+    const task = (await f.project.order('coordinate progress')).task;
     await until(() => provider.calls.length === 1);
     const token = f.project.running.get(task.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});
@@ -123,7 +123,7 @@ test('a parked parent shows waiting as its own plan entry in inspect and tree su
   const provider = controlled(), f = fixture(provider);
   await repo(f.root);
   try {
-    const parent = (await f.project.say('parent waits for child')).task;
+    const parent = (await f.project.order('parent waits for child')).task;
     await until(() => provider.calls.length === 1);
     const token = f.project.running.get(parent.id).token;
     const rpc = new Dispatcher(f.project, createSignal(), {});

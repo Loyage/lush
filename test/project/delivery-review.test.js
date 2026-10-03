@@ -10,7 +10,7 @@ async function setup() {
   return f;
 }
 async function source(f, name) {
-  const { task } = await f.project.say(name);
+  const { task } = await f.project.order(name);
   fs.writeFileSync(path.join(task.workspace, `${name}.txt`), name);
   await git(task.workspace, 'add', '.'); await git(task.workspace, 'commit', '-m', name);
   f.store.update(task.id, { status: 'waiting', result: 'tested' });
@@ -22,7 +22,7 @@ test('an unauthorized sender cannot suspend a resolving delivery or consume its 
   const f = await setup();
   try {
     const target = await source(f, 'target');
-    const intruder = f.store.create({ parent_id: target.parent_id, role: 'agent', task_kind: 'say', goal: 'unrelated sender' });
+    const intruder = f.store.create({ parent_id: target.parent_id, role: 'agent', task_kind: 'order', goal: 'unrelated sender' });
     fs.writeFileSync(path.join(f.root, 'parent.txt'), 'parent changed');
     await git(f.root, 'add', '.'); await git(f.root, 'commit', '-m', 'parent diverged');
     f.project.kick = () => {}; f.project.stopping = false;

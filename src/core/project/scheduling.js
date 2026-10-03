@@ -44,7 +44,7 @@ export default {
   hasActionableMessages(taskId) {
     if (!this.store.get("SELECT id FROM messages WHERE task_id=? AND consumed=0 AND (signal_key IS NULL OR signal_key NOT LIKE 'merge-v2:%') LIMIT 1", taskId)) return false;
     const task = this.store.get('SELECT role,task_kind FROM tasks WHERE id=?', taskId);
-    if (!(task.role === 'coordinator' || ['say','child'].includes(task.task_kind)) || !this.store.get(`SELECT id FROM tasks WHERE parent_id=?
+    if (!(task.role === 'coordinator' || ['order','child'].includes(task.task_kind)) || !this.store.get(`SELECT id FROM tasks WHERE parent_id=?
       AND status NOT IN ('completed','failed','cancelled','awaiting_acceptance') LIMIT 1`, taskId)) return true;
     // Only runtime-attested success receipts wait; explicit messages remain urgent.
     // Runtime merge requests never wake the development Agent, even alongside a receipt.
@@ -52,7 +52,7 @@ export default {
       AND (m.signal_key IS NULL OR m.signal_key NOT LIKE 'merge-v2:%')
       AND NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id=m.task_id
         AND (e.type='child.completed' OR (? AND e.type='task.signal' AND json_extract(e.data,'$.signal') IN ('child.completed','merge.completed')))
-        AND json_extract(e.data,'$.message_id')=m.id) LIMIT 1`, taskId, ['say','child'].includes(task.task_kind) ? 1 : 0));
+        AND json_extract(e.data,'$.message_id')=m.id) LIMIT 1`, taskId, ['order','child'].includes(task.task_kind) ? 1 : 0));
   },
 
   wake(taskId) {
@@ -70,7 +70,7 @@ export default {
     if (task.reservation && JSON.parse(task.reservation).status === 'suspended'
       && !this.questionPending(task.id) && this.hasActionableMessages(task.id)) this.resumeQueuedTaskMerge(task.id);
     if (!TERMINAL.has(task.status) && !this.running.has(task.id)) {
-      const deferred = (task.role === 'coordinator' || ['say','child'].includes(task.task_kind))
+      const deferred = (task.role === 'coordinator' || ['order','child'].includes(task.task_kind))
         && this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 LIMIT 1', task.id)
         && !this.hasActionableMessages(task.id);
       this.store.update(task.id, { status: this.questionPending(task.id) ? 'awaiting' : deferred ? 'waiting' : 'queued' });
@@ -94,7 +94,7 @@ export default {
       if (this.hasActionableMessages(taskId)) this.wake(taskId);
     }
     // Legacy planner/spec rows are retained on disk but no longer scheduled.
-    const queued = this.store.all("SELECT * FROM tasks WHERE status='queued' AND task_kind IN ('say','child') ORDER BY id");
+    const queued = this.store.all("SELECT * FROM tasks WHERE status='queued' AND task_kind IN ('order','say','child') ORDER BY id");
     const dependencies = this.store.depMap(queued.map(task => task.id));
     const freezes = new Map(this.branchFreeze().map(info => [info.branch, info]));
     const taskBranch = task => {
@@ -112,7 +112,7 @@ export default {
     let butlerRunning = [...this.running.values()].filter(run => run.role === 'butler').length;
     let executionRunning = this.running.size - controlRunning - butlerRunning;
     for (const task of queued) {
-      if (!['say','child'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
+      if (!['order','child'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
       if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.
       if (this.running.has(task.id) || this.taskSyncBusy?.has(task.id)) continue;
       try { assertTaskAncestorsOpen(this, task); } catch { continue; }
@@ -151,14 +151,14 @@ export default {
           if (released.interrupt_state === 'requested') this.store.event(task.id, 'task.paused', { run_id: run.recordId });
         });
         this.running.delete(task.id);
-        if (!this.stopping && ['say','child'].includes(task.task_kind)) {
+        if (!this.stopping && ['order','child'].includes(task.task_kind)) {
           const current = this.store.task(task.id);
           const booking = current.reservation ? JSON.parse(current.reservation) : null;
           if (booking?.version === 2 && ['requested','executing','resolving','blocked'].includes(booking.status)) this.scheduleTaskMerge(booking.parent_id);
           if (booking?.status === 'resolving' && ['awaiting','paused'].includes(current.status))
             this.suspendTaskMerge(task.id, '源侧修复等待用户或已暂停');
           if (current.branch) {
-            const parent = this.store.get('SELECT id FROM tasks WHERE branch=? AND task_kind IN (\'main\',\'owner\',\'say\',\'child\')', current.branch);
+            const parent = this.store.get('SELECT id FROM tasks WHERE branch=? AND task_kind IN (\'main\',\'owner\',\'order\',\'say\',\'child\')', current.branch);
             if (parent) this.scheduleTaskMerge(parent.id);
           }
         }
@@ -175,7 +175,7 @@ export default {
           this.armTaskAutoMerge(task.id);
           const settled = this.store.task(task.id);
           let reservation = null;
-          try { reservation = ['say','child'].includes(settled.task_kind) && settled.reservation ? JSON.parse(settled.reservation) : null; }
+          try { reservation = ['order','child'].includes(settled.task_kind) && settled.reservation ? JSON.parse(settled.reservation) : null; }
           catch { /* invalid state stays visible for inspection */ }
           if (settled.status === 'waiting' && reservation?.kind === 'merge' && !taskSyncDeliveryPaused(this, task.id)) {
             const settle = reservation.version === 2 ? this.settleQueuedMerge(task.id) : this.settleReservedMerge(task.id);
@@ -218,8 +218,8 @@ export default {
   interrupt(taskId, reason = 'interrupted by user') {
     const task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
-    check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; interrupt individual say Workers instead');
-    check(['say','child'].includes(task.task_kind), 'only say/child Workers can be paused');
+    check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; interrupt individual order Workers instead');
+    check(['order','child'].includes(task.task_kind), 'only order/child Workers can be paused');
     check(!TERMINAL.has(task.status), 'worker has ended; retry it or submit a new input');
     if (task.status === 'paused' || task.interrupt_state === 'requested') return task;
     const booking = task.reservation ? JSON.parse(task.reservation) : null;
@@ -244,7 +244,7 @@ export default {
     const task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
     check(task.status === 'paused' || task.interrupt_state === 'requested', 'only paused workers can adjust run settings');
-    check(['say','child'].includes(task.task_kind), 'only say/child Workers can adjust run settings');
+    check(['order','child'].includes(task.task_kind), 'only order/child Workers can adjust run settings');
     const retryProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile(task.role, profile);
     this.store.transaction(() => {
       this.store.update(task.id, { retry_profile: retryProfile ? JSON.stringify(retryProfile) : null });
@@ -259,7 +259,7 @@ export default {
     const task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
     assertTaskAncestorsOpen(this, task);
-    check(['say','child'].includes(task.task_kind), 'only say/child Workers can be resumed');
+    check(['order','child'].includes(task.task_kind), 'only order/child Workers can be resumed');
     // Duplicate resume is harmless, including a stale UI click after release.
     if (!task.interrupt_state && ['running','queued'].includes(task.status)) return task;
     check(task.status === 'paused' || task.interrupt_state, 'only paused workers can be resumed');
@@ -373,7 +373,7 @@ export default {
       }
       // Explicit synchronization repair is validated before recording a successful invocation.
       // The hook owns its own Git exclusive lock and never delivers into the parent.
-      if (['say','child'].includes(task.task_kind) && this.store.task(taskId).status !== 'paused'
+      if (['order','child'].includes(task.task_kind) && this.store.task(taskId).status !== 'paused'
         && !this.store.task(taskId).interrupt_state && !run.resumeRequested
         && this.store.unread(taskId).every(row => messages.some(message => message.id === row.id))
         && !this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open'", taskId)
@@ -423,7 +423,7 @@ export default {
       if (this.store.children(taskId).some(child => !isSettled(child))) {
         this.store.update(taskId, { status: 'waiting' }); return;
       }
-      if (['say','child'].includes(task.task_kind)) {
+      if (['order','child'].includes(task.task_kind)) {
         if (run.syncResolved) {
           check(this.store.task(taskId).head_commit === run.syncHead, 'synchronization repair HEAD changed before settlement');
           this.store.transaction(() => {
@@ -444,7 +444,7 @@ export default {
         });
         // Spawned children already carry a merge reservation; the invocation cleanup
         // releases ownership before requesting their automatic delivery. A user-created
-        // say still keeps its branch until the user explicitly reserves or ends it.
+        // order still keeps its branch until the user explicitly reserves or ends it.
         // 这条分支自己前进了（本轮新提交）：挂在它上面的未集成请求要如实变成失效状态，
         // 而不是继续显示“等待集成”。daemon 阻止不了这次提交，所以只如实记录检查结果。
         await this.noteBranchAdvance(taskId);

@@ -40,7 +40,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 | `GET /api/workers?scope=&before=&limit=` | `worker.page`，有界Worker分页，`scope` 为 `work` / `all` |
 | `GET /api/notices?status=&before=&limit=` | `notice.page`：全部类型事项与处理结果的按需分页；过滤掉旧 `plan` 类型；参数和留档语义见[待决问题](rpc/notices.md) |
 | `GET /api/worker-graph` | Worker 父子读面（`worker.graph`） |
-| `GET /api/versions?cursor=&limit=` | 用户专属只读 `branch.history`，main 第一父链、固定 tip 分页与精确 Worker/原始 say 关联；见 [分支 RPC](rpc/branches.md#branchhistory) |
+| `GET /api/versions?cursor=&limit=` | 用户专属只读 `branch.history`，main 第一父链、固定 tip 分页与精确 Worker/原始指令关联；见 [分支 RPC](rpc/branches.md#branchhistory) |
 | `GET /api/agent/config` | `agent.config` |
 | `GET /api/agent/status` | 用户专属 `agent.status {}`，当前项目 Pi 安装、模型目录、资源、脱敏账号与可查询余额/额度；仅进入页面和手动刷新时读取，详见 [Agent 状态](rpc/agents.md) |
 | `GET /api/agent/usage/config` | 用户专属 `agent.usage.config {}`；声明式查询模板与采样设置，见 [Agent 状态](rpc/agents.md) |
@@ -72,6 +72,6 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 ## 用户动作
 
-`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`agent.usage.configure`、`system.configure`、`say.submit`、`draft.add`、`draft.update`、`draft.remove`、`worker.spawn`、`worker.message`、`worker.auto_merge`、`worker.reserve`、`worker.reserve_all`、`worker.accept`、`worker.reopen`、`worker.sync_parent`、`worker.resolve_sync`、`worker.resolve`、`worker.resolve_divergence`、`worker.unreserve`、`worker.approve_merge`、`worker.cancel`、`worker.retry`、`worker.interrupt`、`worker.resume`、`worker.configure`、`worker.cleanup`、`worker.delete`、`notice.answer`、`notice.dismiss`、`notice.read`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。
+`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`agent.usage.configure`、`system.configure`、`order.submit`、`draft.add`、`draft.update`、`draft.remove`、`worker.spawn`、`worker.message`、`worker.auto_merge`、`worker.reserve`、`worker.reserve_all`、`worker.accept`、`worker.reopen`、`worker.sync_parent`、`worker.resolve_sync`、`worker.resolve`、`worker.resolve_divergence`、`worker.unreserve`、`worker.approve_merge`、`worker.cancel`、`worker.retry`、`worker.interrupt`、`worker.resume`、`worker.configure`、`worker.cleanup`、`worker.delete`、`notice.answer`、`notice.dismiss`、`notice.read`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。
 
 任何不在上述白名单的写入（含已下线的批量草稿提交、Candidate 验收、托管模式、展示、介绍与旧合并入口）都不再提供 Web 操作。

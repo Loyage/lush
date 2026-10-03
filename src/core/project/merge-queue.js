@@ -3,7 +3,7 @@ import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReserva
   resumeTaskDelivery, taskSyncDeliveryPaused } from './iteration.js';
 
 const reservationOf = task => task.reservation ? JSON.parse(task.reservation) : null;
-const codeTask = task => ['say', 'child'].includes(task.task_kind);
+const codeTask = task => ['order', 'child'].includes(task.task_kind);
 
 const ACTIVE = ['executing', 'resolving', 'blocked'];
 const FROZEN = ['requested', ...ACTIVE];
@@ -44,7 +44,7 @@ export default {
     check(typeof enabled === 'boolean', 'enabled must be a boolean');
     const task = this.store.task(id(taskId));
     const before = this.autoMergeView(task);
-    check(before, 'only version 2 say/child Workers support auto merge');
+    check(before, 'only version 2 order/child Workers support auto merge');
     if (before.enabled === enabled) return { task_id: task.id, changed: false, auto_merge: before };
     check(before.editable, before.reason);
     assertTaskAncestorsOpen(this, task);
@@ -64,7 +64,7 @@ export default {
 
   async requestTaskMerge(taskId) {
     let task = this.store.task(id(taskId));
-    check(codeTask(task), 'only say/child code Workers can request a merge');
+    check(codeTask(task), 'only order/child code Workers can request a merge');
     this.restoreUnrequestedTaskParent(task.id);
     task = this.store.task(task.id);
     assertTaskAncestorsOpen(this, task);
@@ -149,7 +149,7 @@ export default {
       assertTaskAncestorsOpen(this, task);
       const originalParent = this.store.task(task.parent_id);
       check(!prior.parent_id || prior.parent_id === task.parent_id, 'delivery parent changed');
-      check(['say','child','main','owner'].includes(originalParent.task_kind) && !TERMINAL.has(originalParent.status),
+      check(['order','child','main','owner'].includes(originalParent.task_kind) && !TERMINAL.has(originalParent.status),
         'merge needs an active direct parent');
       const state = await this.workspaces.branchState(task.branch);
       check(state.parent === originalParent.branch && state.child_head === task.head_commit && state.parent_head,
@@ -261,7 +261,7 @@ export default {
     check(target && audit?.from === target && audit?.to === queue.id && queue.parent_id === target,
       'cannot recover merge parent without matching reparent audit');
     const parent = this.store.task(target);
-    check(['say','child','main','owner'].includes(parent.task_kind)
+    check(['order','child','main','owner'].includes(parent.task_kind)
       && parent.branch === task.target_branch && this.store.branch(task.branch)?.parent === parent.branch,
       'cannot recover merge parent: branch ownership changed');
     this.store.transaction(() => {
@@ -461,7 +461,7 @@ export default {
         if (foreignLock && (!row || foreignLock.task_id !== row.id || foreignLock.kind !== 'delivery')) return;
         if (!row) {
           // Each landing is a scheduling boundary: urgent ordinary input gets its turn.
-          if (this.hasActionableMessages(parentId) && ['say','child'].includes(parent.task_kind)) {
+          if (this.hasActionableMessages(parentId) && ['order','child'].includes(parent.task_kind)) {
             this.wake(parentId); return;
           }
           const candidates = this.store.all(`SELECT * FROM tasks WHERE json_valid(reservation) AND json_extract(reservation,'$.version')=2

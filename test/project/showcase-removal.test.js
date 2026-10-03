@@ -5,22 +5,22 @@ import { Dispatcher } from '../../src/rpc/dispatcher.js';
 test('showcase runtime and reservation APIs are removed without changing merge or Git state', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
-    const say = await f.project.say('ordinary work');
+    const order = await f.project.order('ordinary work');
     const head = await git(f.root, 'rev-parse', 'main');
     const count = f.store.all('SELECT id FROM tasks').length;
     const rpc = new Dispatcher(f.project);
-    await expect(rpc.dispatch('worker.reserve', { id: say.task.id, kind: 'showcase' })).rejects.toThrow('only merge delivery is supported');
+    await expect(rpc.dispatch('worker.reserve', { id: order.task.id, kind: 'showcase' })).rejects.toThrow('only merge delivery is supported');
     for (const method of ['showcase.start', 'showcase.list', 'showcase.preview', 'showcase.stop', 'branch.reserve_showcase'])
-      await expect(rpc.dispatch(method, { id: say.task.id, branch: say.task.branch })).rejects.toThrow('unknown method');
+      await expect(rpc.dispatch(method, { id: order.task.id, branch: order.task.branch })).rejects.toThrow('unknown method');
     for (const method of ['bookShowcase', 'signalReservedShowcase', 'startReservedShowcase', 'settleReservedShowcase',
       'startShowcase', 'showcaseEligibility', 'reserveShowcase', 'showcases', 'startShowcasePreview', 'retryShowcase'])
       expect(f.project[method]).toBeUndefined();
     expect(f.store.all('SELECT id FROM tasks')).toHaveLength(count);
-    expect(f.store.task(say.task.id).reservation).toBeNull();
+    expect(f.store.task(order.task.id).reservation).toBeNull();
     expect(await git(f.root, 'rev-parse', 'main')).toBe(head);
     const graph = await f.project.graph();
     expect(graph.nodes.filter(node => node.kind === 'branch').every(node => !('showcase' in node))).toBe(true);
-    expect((await f.project.reserveTask(say.task.id, 'merge')).reservation.kind).toBe('merge');
+    expect((await f.project.reserveTask(order.task.id, 'merge')).reservation.kind).toBe('merge');
   } finally { await f.close(); }
 });
 

@@ -3,7 +3,7 @@ import { fixture } from '../helpers.js';
 import { handlers } from '../../src/rpc/handlers/notice.js';
 import { UIClient } from '../../src/ui/client.js';
 
-function worker(f, kind = 'say', status = 'waiting') {
+function worker(f, kind = 'order', status = 'waiting') {
   const task = f.store.create({ input_id: null, role: 'agent', task_kind: kind, goal: '分类不可由标题猜测' });
   f.store.update(task.id, { status });
   return f.store.task(task.id);
@@ -22,9 +22,9 @@ test('lifecycle_type is projected consistently from source Events across list/pa
   const f = fixture(); f.project.stopping = true;
   try {
     const cases = [
-      ['say', 'waiting', 'task.idle', 'idle'],
-      ['say', 'failed', 'failed', 'failed'],
-      ['say', 'failed', 'merge.repair_interrupted', 'failed'],
+      ['order', 'waiting', 'task.idle', 'idle'],
+      ['order', 'failed', 'failed', 'failed'],
+      ['order', 'failed', 'merge.repair_interrupted', 'failed'],
       ['analysis', 'failed', 'analysis.fork_failed', 'failed'],
       ['analysis', 'completed', 'completed', 'analysis'],
     ];

@@ -9,7 +9,7 @@ async function setup() {
   const f = fixture(); f.project.stopping = true;
   Object.assign(f.project, projectSync); Object.assign(f.project.workspaces, gitSync);
   await repo(f.root);
-  const { task } = await f.project.say('sync');
+  const { task } = await f.project.order('sync');
   f.store.update(task.id, { status: 'awaiting_acceptance' });
   return { ...f, task: f.store.task(task.id) };
 }
@@ -180,7 +180,7 @@ test('active descendants, idle-parent and parent delivery freeze prevent synchro
     f.store.update(f.task.parent_id, { status: 'running' });
     await expect(f.project.syncTaskParent(f.task.id)).rejects.toThrow('parent Worker');
     f.store.update(f.task.parent_id, { status: 'waiting' });
-    const sibling = await f.project.say('sibling');
+    const sibling = await f.project.order('sibling');
     f.store.update(sibling.task.id, { status: 'waiting', reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'requested',
       parent_id: f.task.parent_id, commit: f.task.base_commit, baseline: f.task.base_commit }) });
     await expect(f.project.syncTaskParent(f.task.id)).rejects.toThrow('frozen');

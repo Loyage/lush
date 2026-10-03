@@ -1,4 +1,5 @@
 import { $, el } from './dom.js';
+import { workerKind } from './worker-kind.js';
 import { action, api } from './api.js';
 import { taskTitle, isHistoricalDelivery, TERMINAL_STATUS } from './format.js';
 import { iterationBlocker } from './render-iteration.js';
@@ -20,7 +21,7 @@ export function toggleDraftPanel(force) {
 }
 // Legacy pure projection; the active composer uses the complete /api/input-parents read model.
 export function parentTasks(tasks = []) {
-  return tasks.filter(task => ['main', 'owner', 'say'].includes(task.task_kind) && task.branch
+  return tasks.filter(task => ['main', 'owner', 'order'].includes(workerKind(task)) && task.branch
     && ['queued', 'running', 'waiting', 'awaiting', 'awaiting_acceptance', 'paused'].includes(task.status)
     && !task.archived && !task.branch_archive?.archived && !task.branch_info?.archived && !task.freeze
     && !isHistoricalDelivery(task) && task.reservation?.status !== 'requested').sort((a, b) => a.id - b.id);
@@ -32,7 +33,7 @@ function destination() {
   const task = ui.composerTask?.id === id ? ui.composerTask : null;
   if (!task) return { id, reason: ui.composerError || '正在读取 Worker；加载成功后才能输入。' };
   if (['main', 'owner'].includes(task.task_kind)) return { branch: task.branch, task, reason: iterationBlocker(task) };
-  const reason = isHistoricalDelivery(task) || !['say', 'child'].includes(task.task_kind)
+  const reason = isHistoricalDelivery(task) || !['order', 'child'].includes(workerKind(task))
     ? '此 Worker 不支持追加输入。'
     : TERMINAL_STATUS.has(task.status)
       ? (task.status === 'completed' ? 'Worker 已完成；请先显式恢复开发。' : 'Worker 已结束；请先重试。')
@@ -142,7 +143,7 @@ async function submitInput(mode) {
     const params = { content, references, ...(branch ? { branch } : {}) };
     const result = target.id != null
       ? await action('worker.message', { id: target.id, body: content })
-      : await action(mode === 'buffer' ? 'draft.add' : 'say.submit', mode === 'buffer' ? params : { ...params, start: mode === 'start' });
+      : await action(mode === 'buffer' ? 'draft.add' : 'order.submit', mode === 'buffer' ? params : { ...params, start: mode === 'start' });
     if (ui.composerIdentity !== identity) return;
     // Never consume text or references authored while the request was in flight (even an edit-and-undo).
     const untouched = ui.view === view && ui.composerEditRevision === editRevision && input.value === value

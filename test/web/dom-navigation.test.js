@@ -172,7 +172,7 @@ test('全部现行角色和历史调度类型始终可选，未知类型也不�
 test('任务列表与详情省略通用 agent 角色标签，保留专用角色和 Agent 运行信息', async () => {
   await dom.node('home').onclick();
   const snapshot = ui.lastSnapshot;
-  const base = { id: 401, parent_id: 1, input_id: null, role: 'agent', task_kind: 'say',
+  const base = { id: 401, parent_id: 1, input_id: null, role: 'agent', task_kind: 'order',
     goal: '普通任务', status: 'completed', integration: 'none', calls: 0,
     created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   try {

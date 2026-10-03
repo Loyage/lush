@@ -2,7 +2,7 @@ import { check } from '../../core/types.js';
 
 /** input.* / draft.* */
 export const handlers = {
-  'say.submit'(p, params) {
+  'order.submit'(p, params) {
     check(params.start === undefined || typeof params.start === 'boolean', 'start must be boolean');
     if (Object.hasOwn(params, 'draft_id')) {
       check(!['content','references','branch'].some(key => Object.hasOwn(params, key)),
@@ -11,7 +11,7 @@ export const handlers = {
     }
     check(!Object.hasOwn(params, 'expected_revision'), 'expected_revision requires draft_id');
     check(params.branch === undefined || (typeof params.branch === 'string' && params.branch.trim().length > 0 && params.branch.length <= 512), 'invalid branch');
-    return p.say(params.content, params.branch ?? null, params.references === undefined ? [] : params.references, null, params.start !== false);
+    return p.order(params.content, params.branch ?? null, params.references === undefined ? [] : params.references, null, params.start !== false);
   },
   'input.history'(p, params) { return p.inputHistory(params); },
   'input.get'(p, params) { return p.inputGet(params.kind, params.id); },
