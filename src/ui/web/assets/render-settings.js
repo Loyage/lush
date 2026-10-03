@@ -144,7 +144,7 @@ function field(label, control, note = '', extraClass = '') {
 const modelCatalogs = new Map();
 let resourceCatalog = null;
 
-function profileEditor(settings, profile, target, title, subtitle, repaint) {
+function profileEditor(settings, profile, target, title, subtitle, repaint, ownsPage) {
   const card = el('section', undefined, 'agent-profile'); card.dataset.agentTarget = target;
   const head = el('div', undefined, 'agent-profile-head');
   const copy = el('div'); copy.append(el('h3', title), el('p', subtitle, 'settings-note'));
@@ -155,6 +155,32 @@ function profileEditor(settings, profile, target, title, subtitle, repaint) {
   selectOptions(backend, settings.options.agents, profile.agent, value => value === 'pi' ? 'Pi' : 'Codex');
   const model = el('input'); model.className = 'agent-model'; model.dataset.agentField = 'model'; model.value = profile.model || '';
   model.maxLength = 256;
+  const connection = el('select'); connection.dataset.agentField = 'connection_id'; connection.className = 'agent-select';
+  const connectionBox = el('div', undefined, 'agent-connection-binding');
+  const connectionNote = el('span', '仅 Pi 支持显式账号连接；需填写 provider/model 物理模型，不自动路由。空选项保留原 CLI 认证。', 'settings-note');
+  const connectionChoices = new Map();
+  function paintConnections(selected = connection.value || '') {
+    connection.replaceChildren(); const blank = el('option', '原 CLI 认证（不绑定项目连接）'); blank.value = ''; connection.append(blank);
+    for (const entry of connectionChoices.values()) {
+      const option = el('option', `${entry.label} · ${entry.provider}${entry.enabled ? '' : '（停用）'}`); option.value = entry.id; connection.append(option);
+    }
+    if (selected && !connectionChoices.has(selected)) { const missing = el('option', `已配置连接 ${selected}（未读取 / 不可用）`); missing.value = selected; connection.append(missing); }
+    connection.value = selected;
+  }
+  paintConnections(profile.connection_id || '');
+  const loadConnectionsHost = el('span', undefined, 'help-host');
+  const connectionHelp = '只读取当前项目的连接配置和本地凭证状态，不查询上游、不调用 Agent；不会覆盖当前模型或未保存的连接选择。';
+  loadConnectionsHost.setAttribute('data-help', connectionHelp);
+  const loadConnections = button('读取项目连接', async () => {
+    if (!ownsPage()) return;
+    try {
+      const value = await api('/api/agent/connections'); if (!ownsPage()) return;
+      if (value?.version !== 1 || !Array.isArray(value.connections)) throw new Error('invalid connections');
+      connectionChoices.clear(); for (const entry of value.connections) connectionChoices.set(entry.id, entry);
+      paintConnections(); connectionNote.textContent = '选择连接后需填写相匹配的 provider/model。停用或凭证不可用的连接不能启动；此列表未联网验证模型。';
+    } catch { if (ownsPage()) connectionNote.textContent = '连接列表读取失败；当前选择保留，请到账号连接页检查。'; }
+  }, 'ghost', { help: connectionHelp });
+  loadConnectionsHost.append(loadConnections); connectionBox.append(connection, loadConnectionsHost, connectionNote);
   const thinking = el('select'); thinking.className = 'agent-select'; thinking.dataset.agentField = 'thinking';
   const budgetControls = {};
   for (const [key, max] of [['responses', 10000], ['tokens', 1000000000]]) {
@@ -245,6 +271,7 @@ function profileEditor(settings, profile, target, title, subtitle, repaint) {
     const agent = backend.value;
     if (clear) { model.value = ''; thinking.value = ''; }
     model.placeholder = `${agent} CLI 默认模型`;
+    connection.disabled = loadConnections.disabled = agent !== 'pi';
     selectOptions(thinking, settings.options.thinking[agent] || [''], clear ? '' : profile.thinking, thinkingLabel);
     paintModels(); paintResources();
   };
@@ -261,6 +288,7 @@ function profileEditor(settings, profile, target, title, subtitle, repaint) {
 
   form.append(field('Agent', backend, '执行该类 Worker 的 CLI。'),
     field('模型', modelBox, '留空使用所选 CLI 的默认模型；也可以读取 CLI 当前目录或直接填写模型 ID。'),
+    field('账号连接', connectionBox, '显式绑定仅在下一次 invocation 生效，不热改正在运行的账号。'),
     field('思考深度', thinking, '可用等级随 Agent 变化。'),
     field('软预算：模型响应数', budgetControls.responses, '每次 invocation 单独计数；达到阈值提醒收尾，不强制终止。仅 Pi；解释角色不继承。'),
     field('软预算：累计 token', budgetControls.tokens, '包含缓存读取，非上下文长度；留空关闭。Codex 不支持，切换前需清空。'),
@@ -310,8 +338,17 @@ function profileEditor(settings, profile, target, title, subtitle, repaint) {
         confirmLabel: '仍然替换并保存', danger: true });
       if (!confirmed) return;
     }
+    const chosenConnection = backend.value === 'pi' ? connection.value : '';
+    if (chosenConnection) {
+      const selected = connectionChoices.get(chosenConnection), selectedModel = model.value.trim();
+      if (!/^[a-z][a-z0-9_-]*\/.+$/i.test(selectedModel) || (selected && (!selected.enabled || !selectedModel.startsWith(`${selected.provider}/`)
+        || (selected.models?.length && !selected.models.includes(selectedModel.slice(selected.provider.length + 1)))))) {
+        show('账号连接需要启用且匹配固定 provider/model 及模型范围；请先检查连接和模型。', 'error'); return;
+      }
+    }
     const next = {
       agent: backend.value, model: model.value.trim(), thinking: thinking.value,
+      ...(chosenConnection ? { connection_id: chosenConnection } : {}),
       default_prompt: nextDefaultPrompt, append_prompt: appendPrompt.value.trim(),
       extensions: [...selectedExtensions], skills: [...selectedSkills],
       soft_budget: Object.fromEntries(Object.entries(budgetControls).filter(([, input]) => input.value.trim() !== '')
@@ -442,7 +479,7 @@ function environmentEditor(settings, repaint) {
 }
 
 /** Shared subpanel: its owner supplies configuration and an identity-guarded repaint callback. */
-export function renderAgentSettings(settings, repaint) {
+export function renderAgentSettings(settings, repaint, { ownsPage = () => true } = {}) {
   const content = el('div', undefined, 'settings-tab-panel agent-settings');
   if (!settings) {
     const waiting = block('Agent 配置');
@@ -452,13 +489,13 @@ export function renderAgentSettings(settings, repaint) {
   const intro = el('div', undefined, 'agent-callout');
   intro.append(el('strong', '项目级 · 动态生效'), el('p', `配置保存在 ${settings.file}。正在运行的调用保持不变，排队 Worker 与后续唤醒会读取最新配置。`, 'settings-note'));
   content.append(intro);
-  content.append(profileEditor(settings, settings.default, 'default', '默认 Agent', '所有未单独配置的 Worker 行为都继承这里。', repaint));
+  content.append(profileEditor(settings, settings.default, 'default', '默认 Agent', '所有未单独配置的 Worker 行为都继承这里。', repaint, ownsPage));
 
   const roles = block('按 Worker 行为覆盖'); roles.classList.add('agent-roles-block');
   roles.append(el('p', '只为需要不同模型、思考深度或工作方式的行为建立覆盖；其余保持继承，后续调整默认值时会一起更新。', 'settings-note settings-section-note'));
   const list = el('div', undefined, 'agent-role-list');
   for (const item of settings.options.roles.filter(item => item.id === 'agent')) {
-    if (settings.roles[item.id]) list.append(profileEditor(settings, settings.roles[item.id], item.id, item.label, `仅用于 ${item.id} 角色。`, repaint));
+    if (settings.roles[item.id]) list.append(profileEditor(settings, settings.roles[item.id], item.id, item.label, `仅用于 ${item.id} 角色。`, repaint, ownsPage));
     else list.append(inheritedRole(settings, item.id, repaint));
   }
   roles.append(list); content.append(roles, environmentEditor(settings, repaint));

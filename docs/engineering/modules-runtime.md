@@ -17,6 +17,9 @@
 | 文件 | 职责 | 导出 |
 |---|---|---|
 | `agent/prompts.js` | 命名内置 Prompt 片段、按角色组合，并叠加可提交、本机与 `agent.json` 补充 | `AGENT_ROLES`、`PROMPT_PARTS`、`ROLE_PROMPT_PARTS`、`builtInPrompt(role)`、`agentPrompt(config,role,profile)` |
+| `agent/connections*.js` | 项目多账号凭证的私有文件、安全 OAuth 登录/刷新和结构化资源查询；固定审查 MIT 来源，认证私密结果不返回 RPC | `ConnectionManager`（字段/接口见[连接器契约](agent-connections.md)） |
+| `core/agent-connections.js` / `store/agent-connections.js` | 项目连接观测服务与附属采样持久化；身份/端点隔离、迟到保护、旧值、有界历史和显式后台采样 | `AgentConnectionsService`、Store mixin |
+| `agent/connection-runtime.js` | Pi 显式绑定校验、隔离私有临时认证与安全模型元数据、Codex套餐头解析、受限观测读取；不复制refresh token | `validateRuntimeConnection()`、`createRuntimeConnection()`、`parseConnectionHeaders()`、`readRuntimeObservations()` |
 | `agent/environment.js` | 每次 invocation 热加载 `.lush/agent/agent.env` 与角色 env，校验并叠加环境；为 Web/RPC 提供按公共/角色文件读取与 owner-only 原子写入，空表删除文件 | `AGENT_ENV_TARGETS`、`parseAgentEnv(source,file)`、`readAgentEnvironment(config,target)`、`saveAgentEnvironment(config,target,values)`、`agentEnvironment(config,role)` |
 | `agent/settings.js` | `.lush/agent.json` 的兼容读取、校验、原子写入、角色继承与 Web 选项（含各角色内置 Prompt）；旧 `prompt` 迁到 `append_prompt`，资源选择存 `extensions` / `skills` | `AGENT_ROLES`、`AGENT_BACKENDS`、`THINKING_LEVELS`、`MODEL_PRESETS`、`normalizeAgentConfig()`、`normalizeAgentProfile()`、`normalizeSoftBudget(value)`、`AgentSettings` |
 | `agent/status.js` | 完整 Pi 安装/模型/资源/脱敏账号状态与轻量账号额度查询；公共/agent 环境和配置热读，按真实凭证/环境摘要单飞，两入口共用 query_id；不启动模型，已选官方 Codex 可独立刷新过期 OAuth，响应适配 1 MiB RPC 帧 | `discoverAgentStatus(config,profile,options?)`、`discoverAgentUsage(config,profile,options?)` |
@@ -31,7 +34,7 @@
 | `agent/models.js` | 有界、超时地读取 Pi / Codex CLI 模型目录，只投影安全的模型元数据，失败回退内置预设 | `discoverAgentModels(config, agent)` |
 | `agent/resources.js` | 不执行资源代码地发现用户/项目 Pi 扩展、Skills 与已安装 package 资源；CLI 列表失败时保留本地目录结果 | `discoverAgentResources(config, options?)`（options.packages 提供只读包目录，options.warning 提供安全来源说明，options.extensions/skills 补充 Lush 当前选择；扩展/Skills 最多各 500 项，默认维持旧 CLI 发现） |
 | `agent/provider.js` | 动态后端路由、Pi / Codex invocation、Codex thread 恢复与每轮 token 用量留存（不伪造费用）；调用 Prompt 与 env 组合器；子进程因 AbortSignal 结束时保留 scheduler / lifecycle 写入的具体超时或取消原因；关闭进程后核对本 task/run 的 stop 认领标记（<home>/preempt，无论采纳与否立即清掉）并抛 `AgentPreempted`；Pi run 可接收内部 `onPreempt` 回调，在清理标记前锁存已触发的抢占事实 | `PiProvider`、`CodexProvider`、`AgentProvider`、`MockProvider`、`AgentPreempted`、`preemptPaths` |
-| `agent/pi-runtime.js` | 内置 Pi extension；记录 invocation 身份、工具边界写本轮 Pi entry 指针；软预算提醒与安全抢占（turn_end 原子认领 request→stop、调用 ctx.abort 阻止自动续轮） | 默认导出 `lushRuntime(pi)` |
+| `agent/pi-runtime.js` | 内置 Pi extension；仅对实际绑定的 Codex 模型/端点采集白名单套餐头，写有界安全临时文件供进程退出吸收；记录 invocation 身份、工具边界写本轮 Pi entry 指针；软预算提醒与安全抢占（turn_end 原子认领 request→stop、调用 ctx.abort 阻止自动续轮） | 默认导出 `lushRuntime(pi)` |
 | `agent/fork.js` / `bin/git` | 固定提交的 Pi 指针截取单分支 checkpoint 供 Pi `--fork`；Agent 的 Git commit adapter 登记成功提交的指针，其余 Git 命令透传 | `forkCheckpoint`、`readCommitPointer`；`bin/git` 为 Agent PATH 入口 |
 | `agent/guide.js` | 旧调用方兼容出口；内置 Prompt 的事实来源是 `prompts.js` | `GUIDE` |
 | `core/transcript-reader.js` | 完整Worker会话的流式检索、按类型／工具／失败过滤、步骤分段原文与同会话调用 ID 配对；单行超过 16 MiB 明确报不完整，不受快速视图前 8 MiB 的范围限制 | `searchTranscript(config,taskId,options)`、`transcriptStep(config,taskId,seq,offset)`、`transcriptPage(config,taskId,seq?,offset?)`（连续完整文字，有界分段） |

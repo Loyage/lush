@@ -1,0 +1,29 @@
+.agent-connections-panel{min-width:0}
+.agent-connection-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0}
+.agent-connection-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:16px;margin:16px 0 24px}
+.agent-connection-card{min-width:0;border:1px solid var(--line-soft);border-radius:12px;background:var(--bg);padding:18px}
+.agent-connection-card h3{margin:0 0 14px;font-size:16px;overflow-wrap:anywhere}
+.agent-connection-card .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.agent-connection-card .kv span{overflow-wrap:anywhere}
+.agent-connection-resources{margin-top:16px;border-top:1px solid var(--line-soft);padding-top:8px}
+.agent-connection-resource{margin-top:12px;border-top:1px solid var(--line-soft);padding-top:12px}
+.agent-connection-resource h4{font-size:13px;margin:0 0 7px;overflow-wrap:anywhere}
+.agent-connection-resource p{overflow-wrap:anywhere}
+.agent-connection-last-success{margin-top:14px;padding:0 12px 12px;border-left:3px solid var(--awaiting);background:var(--amber-soft)}
+.agent-connection-consumers{margin-top:12px;overflow-wrap:anywhere;font-size:12px}
+.agent-connection-consumers a{color:var(--accent);text-decoration:underline}
+.agent-connection-form,.agent-connection-history-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:14px 0}
+.agent-connection-form>.hint{grid-column:1/-1}
+.agent-connection-field{display:flex;flex-direction:column;gap:7px;min-width:0;font-size:12px;color:var(--muted)}
+.agent-connection-field input,.agent-connection-field select,.agent-connection-binding select{width:100%;min-width:0;box-sizing:border-box;border:1px solid var(--line-soft);border-radius:7px;padding:9px 11px;background:var(--bg);color:var(--text);font:inherit}
+.agent-connection-field input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
+.agent-connection-secret{min-width:0}
+.agent-connection-binding{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.agent-connection-binding select{flex:1 1 190px}
+.agent-connection-binding .settings-note{flex-basis:100%}
+.agent-connection-history-series{margin:18px 0 26px}
+.agent-connection-editor-feedback,.agent-connections-feedback,.agent-connection-history-feedback{overflow-wrap:anywhere}
+.agent-connection-form a{overflow-wrap:anywhere;color:var(--accent);align-self:start}
+.agent-connection-actions .danger{color:var(--failed)}
+.agent-connections-panel input:focus-visible,.agent-connections-panel select:focus-visible,.agent-connections-panel a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:640px){.agent-connection-form,.agent-connection-history-controls{grid-template-columns:minmax(0,1fr)}.agent-connection-card{padding:14px}.agent-connection-card .grid{grid-template-columns:minmax(0,1fr)}.agent-connection-actions button{min-height:40px}}

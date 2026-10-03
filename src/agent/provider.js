@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { agentPrompt } from './prompts.js';
 import { agentEnvironment } from './environment.js';
 import { forkCheckpoint } from './fork.js';
+import { createRuntimeConnection, readRuntimeObservations } from './connection-runtime.js';
 
 const BIN = fileURLToPath(new URL('../../bin', import.meta.url));
 const GUARD = path.join(BIN, 'lush-agent-guard');
@@ -50,7 +51,8 @@ function sessionFiles(config, task, context, messages, agent, messagesPage = nul
   if (typeof safeTask.result === 'string' && safeTask.result.length > 2000) {
     safeTask.result = safeTask.result.slice(0, 2000); safeTask.result_truncated = true;
   }
-  const profile = { agent: agent.agent, model: agent.model, thinking: agent.thinking, soft_budget: agent.soft_budget };
+  const profile = { agent: agent.agent, model: agent.model, thinking: agent.thinking, soft_budget: agent.soft_budget,
+    ...(agent.connection_id ? { connection_id: agent.connection_id } : {}) };
   // `messages_page` is explicit so the Agent can tell a bounded batch from a drained inbox:
   // undelivered originals remain unread in SQLite and arrive on a later invocation.
   fs.writeFileSync(promptFile, JSON.stringify({ task: safeTask, project: config.project, agent: profile, ...context,
@@ -114,7 +116,8 @@ async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, 
 
 export class PiProvider {
   constructor(config) { this.config = config; }
-  async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onPreempt = null, agent, forkPointer = null }) {
+  async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onPreempt = null, agent, forkPointer = null,
+    connectionRuntime = null, onConnectionObservation = null }) {
     const config = this.config;
     const explaining = task.role === 'explainer';
     const isolated = explaining || task.role === 'butler';
@@ -139,13 +142,32 @@ export class PiProvider {
     if (agent.thinking) args.unshift('--thinking', agent.thinking);
     if (agent.model) args.unshift('--model', agent.model);
     // Backward-compatible provider override for unqualified pi model IDs.
-    if (config.env.LUSH_PI_PROVIDER) args.unshift('--provider', config.env.LUSH_PI_PROVIDER);
-    return spawnAgent(config.env.LUSH_PI_COMMAND || 'pi', args, {
-      config: { ...config, taskId: task.id, runId: context.invocation?.run_id ?? null }, cwd, token: isolated ? '' : token, signal, onSpawn, onPreempt,
-      extraEnv: { ...files.environment.values, LUSH_RUNTIME_CONTEXT: JSON.stringify({ ...context.invocation,
-        task_id: task.id, role: task.role, soft_budget: agent.soft_budget, preempt_dir: path.join(config.home, 'preempt'),
-        sessions_dir: files.sessions }) },
-    });
+    if (!agent.connection_id && config.env.LUSH_PI_PROVIDER) args.unshift('--provider', config.env.LUSH_PI_PROVIDER);
+    const managed = agent.connection_id ? createRuntimeConnection(config, agent, connectionRuntime, files.environment.values) : null;
+    // Project Pi configuration can override model URLs/headers. Never let it redirect a managed credential.
+    if (managed && !isolated) args.push('--no-approve');
+    try {
+      const result = await spawnAgent(config.env.LUSH_PI_COMMAND || 'pi', args, {
+        config: { ...config, taskId: task.id, runId: context.invocation?.run_id ?? null }, cwd, token: isolated ? '' : token, signal, onSpawn, onPreempt,
+        extraEnv: { ...files.environment.values, ...(managed ? { PI_CODING_AGENT_DIR: managed.dir } : {}),
+          LUSH_RUNTIME_CONTEXT: JSON.stringify({ ...context.invocation,
+            task_id: task.id, role: task.role, soft_budget: agent.soft_budget, preempt_dir: path.join(config.home, 'preempt'),
+            sessions_dir: files.sessions, ...(managed ? { connection: { ...managed.binding, observations_file: managed.observations } } : {}) }) },
+      });
+      const secret = managed ? (connectionRuntime.credential.key || connectionRuntime.credential.access) : null;
+      return secret ? result.replaceAll(secret, '[redacted]') : result;
+    } catch (error) {
+      // A managed CLI may echo auth in stderr. Never persist its raw diagnostic text.
+      if (managed && !(error instanceof AgentPreempted) && !signal.aborted) throw new Error('managed Pi invocation failed; check model and connection configuration');
+      throw error;
+    } finally {
+      if (managed) {
+        try {
+          for (const observation of readRuntimeObservations(managed)) await onConnectionObservation?.(observation);
+        } catch { /* Observation failure must not change the invocation's completion/side effects. */ }
+        fs.rmSync(managed.dir, { recursive: true, force: true });
+      }
+    }
   }
 }
 

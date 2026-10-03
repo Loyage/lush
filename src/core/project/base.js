@@ -3,6 +3,7 @@ import { AgentProvider, MockProvider } from '../../agent/provider.js';
 import { AgentSettings } from '../../agent/settings.js';
 import { QuickIntroSettings } from '../quick-intro.js';
 import { AgentUsageService } from '../agent-usage.js';
+import { AgentConnectionsService } from '../agent-connections.js';
 import { check } from '../types.js';
 
 // 构造与实例状态（config / store / provider / workspaces / running / stopping / scheduled / ancestry）。
@@ -27,6 +28,7 @@ export class ProjectBase {
     // 一键合并的异步驱动状态：driving 表示某目标正有一轮在跑，避免同目标重复驱动。
     this.mergeRunsDriving = new Set();
     this.agentUsage = new AgentUsageService(this);
+    this.agentConnections = new AgentConnectionsService(this);
   }
 
   /** R-01: reject writes that would create rows while a clear is reclaiming disk. */

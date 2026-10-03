@@ -4,7 +4,7 @@
 
 ## 页面与数据来源
 
-其他分组的「Agent 管理」沿用 `#agent-status` 地址，分「状态 / 设置」两个页签，默认打开状态。设置页签容纳项目默认 Agent、角色覆盖、模型、思考深度、软预算、Prompt、扩展 / Skills 与环境变量；配置按需读取，保存只影响后续调用，不会启动 Agent。切换页签保留已查询状态和未保存输入。
+其他分组的「Agent 管理」沿用 `#agent-status` 地址，分「状态 / 账号连接 / 设置」页签，默认打开旧状态。账号连接独立管理托管账号，不改旧查询和历史。设置页签容纳项目默认 Agent、角色覆盖、模型、思考深度、软预算、Prompt、扩展 / Skills 与环境变量；配置按需读取，保存只影响后续调用，不会启动 Agent。切换页签保留已查询状态和未保存输入。
 
 原「设置」更名为「系统设置」（`#settings`），仅管理界面偏好与系统运行参数。Agent 管理的状态页签展示：
 
@@ -16,6 +16,42 @@
 - **查询设置与剩余量历史**：页面表单配置查询来源、范围、后台采样及保留期；账号和指标分别成图，附数据表。
 
 页面不自动轮询。进入页面或点击「刷新状态」发起查询并自动缓存；查看历史、切换范围或点击「刷新历史缓存」只读本地数据。实时状态查询整体失败时，仍可独立读取查询设置和缓存历史。
+
+## 托管账号连接
+
+在「账号连接」添加 DeepSeek、OpenRouter、Z.AI、Kimi API Key 或 Codex OAuth 连接。同服务商可保存多个账号，每项有独立名称、模型端点、认证诊断、模型范围和资源观测。密钥仅在录入/更换时提交，读 API 不返回秘密或前缀；保存后输入清空。不自动导入外部 Pi/Codex 凭证。
+
+配置与秘密在项目 `.lush/credentials/agent-connections.json`，目录 0700、文件 0600。这不是静态加密保险箱或 Agent 沙箱；同一系统用户仍可读取，权限无法验证的平台拒绝托管。删除连接不删除旧历史或外部认证。跨目标更换端点需重新录入密钥，不将旧密钥自动发向新服务器。
+
+Codex 登录采用 PKCE：开始登录后打开授权链接，在服务商完成认证，再将最终 `http://localhost:1455/auth/callback?...` URL 粘贴回来。首版不启动本机回调服务器，浏览器可能显示连接失败；复制地址栏的最终 URL 即可。它支持远端 Host，不把浏览器的 localhost 当 daemon 本机。授权状态有时限、一次性使用；刷新只写 Lush 自己的凭证，不覆盖外部客户端。
+
+连接页进入只读本地列表和缓存，单项/全部刷新显式联网；后台采样默认关闭。现金余额、Key预算和订阅窗口分开，OpenRouter credits 与 Key预算独立取得，缺少权限不抹掉成功指标。失败/未知不显示成零，旧成功值明确带旧时间。历史按账号与端点来源分段，不把账户余额差归因为 Lush 独占消费。
+
+设置页可以显式选择连接，或通过 CLI：
+
+```bash
+bun run lush agent set default --agent pi --model deepseek/deepseek-chat --connection CONNECTION_UUID
+bun run lush agent set default --connection off
+```
+
+绑定仅支持 Pi、固定物理模型，模型服务商和限制范围必须匹配。保存只影响后续 invocation，不自动切换模型、账号、付费资源或执行后端。临时 Pi目录只携带 access token，不复制 OAuth refresh token；长调用期间 access 过期可能失败，下一次调用再由 Lush协调刷新。保留原全局 Pi 的行为设置与上下文，但不继承外部凭证、模型端点/头和自动资源发现；绑定时 `--no-approve` 禁用 trust-gated 项目 `.pi` 配置，避免它覆盖模型端点并转发托管密钥，显式选择的扩展/Skills仍加载。
+
+已绑定的正常 Codex 请求可被动采集明确的套餐百分比/窗口头，在 invocation 退出时写入历史（不是实时轮询）；普通 RPM/TPM 头不代表套餐额度，WebSocket 等没有头的路径仍需专用查询。消费者只显示真正冻结了该连接的本项目运行 Worker。
+
+新增接口全部用户专属，管理/登录/查询均禁止 Agent token，秘密和回调 URL不进事件或错误：
+
+| RPC | HTTP / 参数 |
+|---|---|
+| `agent.connections.list {}` | `GET /api/agent/connections`，本地列表/缓存 |
+| `agent.connections.save {connection,credential?}` | POST action；创建或更新，credential 可选 `{api_key}`，省略保留秘密 |
+| `agent.connections.remove {id}` | POST action；移除连接/自己的秘密，保留历史 |
+| `agent.connections.sampling {sampling}` | POST action；enabled / interval_minutes / retention_days |
+| `agent.connections.query {id?}` | POST action；省略 ID 刷新 enabled 连接 |
+| `agent.connections.history {id,days?}` | `GET /api/agent/connections/history?id=&days=`，1/7/30/90天 |
+| `agent.connections.login.start {id}` | POST action；返回授权 URL、login_id、截止时间 |
+| `agent.connections.login.finish {id,login_id,redirect_url}` | POST action；校验并一次性兑换回调 |
+
+完整字段与安全/模块接缝见[账号连接契约](../../engineering/agent-connections.md)。下面是仍保留的旧 Pi状态查询，不会迁移或覆盖已有配置。
 
 ## 内置查询
 

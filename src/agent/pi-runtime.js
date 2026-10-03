@@ -1,12 +1,31 @@
 /** Trusted, dependency-free Pi extension. No tools, processes or background timers. */
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseConnectionHeaders } from './connection-runtime.js';
 
 export default function lushRuntime(pi) {
   let settings;
   try { settings = JSON.parse(process.env.LUSH_RUNTIME_CONTEXT || '{}'); }
   catch { throw new Error('invalid Lush runtime context'); }
   const budget = settings.soft_budget || {};
+  // Passive only: no fetch, credentials, model probes or timers. The daemon absorbs the bounded file at process exit.
+  const connection = settings.connection;
+  const observations = [];
+  if (connection?.observations_file && connection.provider === 'openai-codex') pi.on('after_provider_response', (event, ctx) => {
+    if (!ctx.model || `${ctx.model.provider}/${ctx.model.id}` !== connection.model) return;
+    try {
+      if (new URL(ctx.model.baseUrl).origin !== new URL(connection.endpoint).origin) return;
+      const observation = parseConnectionHeaders(connection.provider, event.headers, event.status);
+      if (!observation) return;
+      if (observations.length === 64) observations.shift();
+      observations.push(observation);
+      const temporary = `${connection.observations_file}.${process.pid}.tmp`;
+      try {
+        fs.writeFileSync(temporary, JSON.stringify(observations), { mode: 0o600, flag: 'wx' });
+        fs.renameSync(temporary, connection.observations_file);
+      } finally { fs.rmSync(temporary, { force: true }); }
+    } catch { /* Observability must never cause another request or fail an otherwise successful model call. */ }
+  });
   // Commit wrappers use the last complete context boundary, not the in-flight assistant
   // tool-call message (which can be missing sibling tool results). This marker is scoped
   // to the current invocation and is not itself a model-visible session entry.

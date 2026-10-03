@@ -22,7 +22,7 @@ const ROLE_LABELS = {
 };
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_PROMPT_BYTES = 32 * 1024;
-const PROFILE_KEYS = new Set(['agent', 'model', 'thinking', 'prompt', 'default_prompt', 'append_prompt', 'extensions', 'skills', 'soft_budget', 'env']);
+const PROFILE_KEYS = new Set(['agent', 'model', 'thinking', 'prompt', 'default_prompt', 'append_prompt', 'extensions', 'skills', 'soft_budget', 'env', 'connection_id']);
 
 export function normalizeSoftBudget(value) {
   if (value === undefined || value === null) return {};
@@ -58,6 +58,12 @@ export function normalizeAgentProfile(value, name = 'profile') {
   const agent = text(value.agent ?? '', `${name}.agent`, 32);
   check(AGENT_BACKENDS.includes(agent), `${name}.agent must be pi or codex`);
   const model = text(value.model ?? '', `${name}.model`, 256).trim();
+  const connection_id = text(value.connection_id ?? '', `${name}.connection_id`, 128).trim();
+  if (connection_id) {
+    check(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(connection_id), 'connection_id must be a connection UUID');
+    check(agent === 'pi', 'managed connections support only Pi');
+    check(/^[a-z][a-z0-9_-]*\/.+$/i.test(model), 'managed connection requires a qualified physical model');
+  }
   const thinking = text(value.thinking ?? '', `${name}.thinking`, 32).trim();
   check(THINKING_LEVELS[agent].includes(thinking), `${name}.thinking is not supported by ${agent}`);
   const default_prompt = text(value.default_prompt ?? '', `${name}.default_prompt`, MAX_PROMPT_BYTES).trim();
@@ -72,7 +78,7 @@ export function normalizeAgentProfile(value, name = 'profile') {
   // Per-task env overrides are the innermost layer; stored only when non-empty so profiles stay byte-stable.
   const env = normalizeAgentEnv(value.env ?? {});
   return { agent, model, thinking, default_prompt, append_prompt, extensions, skills,
-    ...(enabled ? { soft_budget } : {}), ...(Object.keys(env).length ? { env } : {}) };
+    ...(enabled ? { soft_budget } : {}), ...(Object.keys(env).length ? { env } : {}), ...(connection_id ? { connection_id } : {}) };
 }
 
 function envDefault(config) {

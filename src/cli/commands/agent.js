@@ -89,7 +89,7 @@ export async function run(command, args, { client, json }) {
   const target = args.shift();
   check(TARGETS.has(target), 'agent set target must be default or a Worker role');
   const supplied = name => args.includes(name);
-  const hasAgent = supplied('--agent'), hasModel = supplied('--model'), hasThinking = supplied('--thinking');
+  const hasAgent = supplied('--agent'), hasModel = supplied('--model'), hasThinking = supplied('--thinking'), hasConnection = supplied('--connection');
   const hasDefaultPrompt = supplied('--default-prompt');
   const hasExplicitAppend = supplied('--append-prompt'), hasLegacyPrompt = supplied('--prompt');
   const hasAppendPrompt = hasExplicitAppend || hasLegacyPrompt;
@@ -97,21 +97,27 @@ export async function run(command, args, { client, json }) {
   const backend = option(args, '--agent');
   const model = option(args, '--model');
   const thinking = option(args, '--thinking');
+  const connection = option(args, '--connection');
   const budgetResponses = option(args, '--budget-responses');
   const budgetTokens = option(args, '--budget-tokens');
   const hasBudget = budgetResponses !== null || budgetTokens !== null;
   const defaultPrompt = option(args, '--default-prompt');
   const appendPrompt = hasExplicitAppend ? option(args, '--append-prompt') : option(args, '--prompt');
   exact(args, 0);
-  check(hasAgent || hasModel || hasThinking || hasDefaultPrompt || hasAppendPrompt || hasBudget, 'agent set requires at least one setting');
+  check(hasAgent || hasModel || hasThinking || hasConnection || hasDefaultPrompt || hasAppendPrompt || hasBudget, 'agent set requires at least one setting');
   const base = target === 'default' ? current.default : (current.roles[target] || current.resolved[target]);
   const next = { ...base };
   if (hasAgent) next.agent = backend;
   if (hasModel) next.model = model;
   if (hasThinking) next.thinking = thinking;
+  if (hasConnection) {
+    if (connection === 'off' || !connection) delete next.connection_id;
+    else next.connection_id = connection;
+  }
   if (hasDefaultPrompt) next.default_prompt = defaultPrompt;
   if (hasAppendPrompt) next.append_prompt = appendPrompt;
   if (hasAgent && backend !== base.agent) {
+    if (backend !== 'pi' && !hasConnection) delete next.connection_id;
     if (!hasModel) next.model = '';
     if (!hasThinking) next.thinking = '';
   }

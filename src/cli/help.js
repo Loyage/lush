@@ -38,6 +38,7 @@ lush [--project PATH] [--json] <command>
   notice post '标题' [--worker ID] [--body '正文']  发给指定 Worker（Agent 默认当前 Worker）
   progress plan|complete             Agent 汇报进度
   agent show|models|set|reset|prompt|env|init  配置 Agent
+  agent set TARGET --connection UUID|off --model PROVIDER/MODEL  显式选择 Pi 账号连接（不自动路由）
   config show|set|reset              设置并发和调用限额（worker-call-limit 为单 Worker 调用上限）
 
 新指令只走 order；旧 Intent/Plan/Candidate、展示、介绍、托管、草稿和批量合并不再提供 API。

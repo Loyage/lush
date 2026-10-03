@@ -10,7 +10,7 @@
 其中 `ctx = { client, json }`；返回 `undefined` 表示「已经自己打印过，主流程不要再 print」。
 `option` / `exact` / `print` 从 `args.js` 直接 import。
 
-`main.js` 的 `COMMANDS` 表只挂载下面这些名字；`help.js` 的 `HELP` 是当前命令面的权威文本。
+`main.js` 的 `COMMANDS` 表只挂载下面这些名字；`help.js` 的 `HELP` 是当前命令面的权威文本。`agent set TARGET --connection UUID|off` 显式绑定/取消 Pi 连接，要求 qualified 物理模型，不做自动路由。连接管理的 `agent.connections.*` 全部用户专属 RPC，列表/历史通过 GET，秘密写入/登录/显式刷新仅 POST action；见[连接器契约](agent-connections.md)。
 
 | 文件 | 命令 | 导出 |
 |---|---|---|

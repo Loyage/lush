@@ -102,7 +102,9 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 ## Agent 管理与状态查询接缝
 
-用量扩展的完整字段与文件契约见 [Agent 额度查询与历史曲线](agent-usage.md)，操作说明见 [Agent 状态](../reference/rpc/agents.md)。
+托管多账号的字段/凭证/API/显式 Pi 绑定契约见[账号资源连接器](agent-connections.md)，设计取舍见[账号资源理念](../design/account-resources.md)。`agent.connections.*` 全部用户专属；独立连接页读本地列表，显式刷新/可选采样，保留旧状态与历史，不迁移外部凭证。Pi profile 可选 `connection_id`，固定物理模型、隔离 invocation 认证目录；正常 Codex 套餐头在进程退出时吸收，不自动路由。
+
+旧用量扩展的完整字段与文件契约见 [Agent 额度查询与历史曲线](agent-usage.md)，操作说明见 [Agent 状态](../reference/rpc/agents.md)。
 
 平级页面 `#agent-status`（其他分组，标题「Agent 管理」，保留原地址）。默认「状态」页签展示查询和用量历史；「设置」页签承接项目默认、Agent 角色覆盖、模型、Prompt、资源与环境变量编辑，按需读取 `/api/agent/config`，保存沿用原接口，不依赖 overview 携带完整配置。页签切换保留状态结果和未保存的设置输入；异步读取与保存按页面身份保护。独立的「系统设置」`#settings` 仅保留界面与系统页签。进入 Agent 管理页面与手动刷新时读取用户专属 `agent.status` / `GET /api/agent/status`，不纳入 overview 或页面轮询，不启动模型调用。可显式启用 daemon 轻量定时采样，默认关闭、间隔 5 分钟、历史保留 90 天。数据来自当前项目 daemon 的 Pi 命令与公共 + `agent` 角色环境，明确不是浏览器本机或某个已运行 invocation 的状态。
 

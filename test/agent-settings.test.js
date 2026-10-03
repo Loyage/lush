@@ -89,6 +89,28 @@ test('agent CLI edits and resets one role without replacing the other profiles',
   expect(value.roles.merger).toBeUndefined();
 });
 
+test('agent CLI binds a managed connection, preserves it on model edits and clears it explicitly or on backend change', async () => {
+  const id = '9e32c7e1-9b59-4ec2-a4b0-8fbbf224ef87';
+  let profile = { agent: 'pi', model: 'deepseek/deepseek-chat', thinking: '' };
+  const client = { token: null, async request(method, params) {
+    if (method === 'agent.config') return { version: 1, default: profile, roles: {}, resolved: { agent: profile } };
+    expect(method).toBe('agent.configure');
+    profile = params.config.default;
+    return params.config;
+  } };
+  await runAgentCommand('agent', ['set', 'default', '--connection', id], { client });
+  expect(profile.connection_id).toBe(id);
+  await runAgentCommand('agent', ['set', 'default', '--model', 'deepseek/deepseek-reasoner'], { client });
+  expect(profile.connection_id).toBe(id);
+  await runAgentCommand('agent', ['set', 'default', '--connection', 'off'], { client });
+  expect(profile.connection_id).toBeUndefined();
+  await runAgentCommand('agent', ['set', 'default', '--connection', id], { client });
+  await runAgentCommand('agent', ['set', 'default', '--agent', 'codex'], { client });
+  expect(profile.connection_id).toBeUndefined();
+  expect(profile.model).toBe('');
+  await expect(runAgentCommand('agent', ['set', 'default', '--connection', id], { client: { ...client, token: 'agent' } })).rejects.toThrow();
+});
+
 test('agent CLI exposes the selected backend model catalog', async () => {
   const calls = [];
   const client = { token: null, async request(method, params) { calls.push({ method, params }); return { agent: params.agent, models: [] }; } };

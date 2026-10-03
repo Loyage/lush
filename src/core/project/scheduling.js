@@ -5,6 +5,7 @@ import { check, TERMINAL, LushError, isSettled } from '../types.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, resumeTaskDelivery, taskDeliveryState, taskSyncDeliveryPaused } from './iteration.js';
 import { tokenHash } from './internal.js';
 import { AgentPreempted } from '../../agent/provider.js';
+import { validateRuntimeConnection } from '../../agent/connection-runtime.js';
 
 /** A claimed boundary cannot be cancelled, even while the process is still exiting. */
 function claimedStop(project, taskId, run) {
@@ -18,7 +19,8 @@ function claimedStop(project, taskId, run) {
 function profileEvent(profile) {
   return { agent: profile.agent, model: profile.model || null, thinking: profile.thinking || null,
     default_prompt_overridden: Boolean(profile.default_prompt), append_prompt: Boolean(profile.append_prompt),
-    extensions: profile.extensions.length, skills: profile.skills.length, soft_budget: profile.soft_budget || null };
+    extensions: profile.extensions.length, skills: profile.skills.length, soft_budget: profile.soft_budget || null,
+    ...(profile.connection_id ? { connection_id: profile.connection_id } : {}) };
 }
 
 /** 调度、invocation 生命周期、凭证。 */
@@ -357,7 +359,17 @@ export default {
       const { retry_profile: _retryProfile, ...providerTask } = this.progressView(task);
       const forkPointer = task.base_commit ? this.store.get(
         'SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', task.base_commit) : null;
+      const connectionRuntime = agent.connection_id ? await this.agentConnections.prepareRuntime(agent.connection_id) : null;
+      if (connectionRuntime) {
+        validateRuntimeConnection(agent, connectionRuntime);
+        run.connectionBinding = { id: agent.connection_id, account_key: connectionRuntime.account_key, source_key: connectionRuntime.source_key };
+        this.store.event(taskId, 'invocation.connection', { run_id: run.recordId, connection_id: agent.connection_id,
+          account_key: connectionRuntime.account_key, model: agent.model });
+      }
+      if (run.controller.signal.aborted) throw new Error(abortMessage());
       const result = await this.provider.run({ task: providerTask, cwd, token: run.token, signal: run.controller.signal, agent,
+        connectionRuntime, onConnectionObservation: connectionRuntime ? observation => this.agentConnections.observe(
+          agent.connection_id, connectionRuntime.account_key, connectionRuntime.source_key, observation) : null,
         onSpawn: pid => { run.pid = pid; }, onPreempt: () => { run.boundaryClaimed = true; }, messages, messagesPage, api: this,
         context, forkPointer,
       });
@@ -496,6 +508,7 @@ export default {
       const current = this.store.task(taskId);
       if (!run.parked && !TERMINAL.has(current.status) && current.status !== 'paused') this.cancel(taskId, message, 'failed');
     } finally {
+      delete run.connectionBinding;
       clearTimeout(timer);
       if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {
         const task = this.store.task(taskId);

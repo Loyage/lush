@@ -3,6 +3,37 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       -- Keep schema creation atomic and avoid an fsync for each CREATE on a new project.
       BEGIN;
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      -- Managed connections have independent observations and config revisions; never migrate legacy usage.
+      CREATE TABLE IF NOT EXISTS agent_connection_state (
+        connection_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, revision TEXT NOT NULL,
+        account_key TEXT, source_key TEXT);
+      CREATE TABLE IF NOT EXISTS agent_connection_queries (
+        id INTEGER PRIMARY KEY, query_key TEXT NOT NULL UNIQUE,
+        connection_id TEXT NOT NULL, revision TEXT, provider TEXT NOT NULL,
+        account_key TEXT NOT NULL, source_key TEXT NOT NULL,
+        checked_at TEXT NOT NULL, status TEXT NOT NULL, error_code TEXT, source TEXT NOT NULL, payload TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS agent_connection_queries_current
+        ON agent_connection_queries(connection_id,revision,account_key,source_key,checked_at DESC,id DESC);
+      CREATE INDEX IF NOT EXISTS agent_connection_queries_success
+        ON agent_connection_queries(connection_id,account_key,source_key,checked_at DESC,id DESC)
+        WHERE status IN ('available','partial');
+      CREATE INDEX IF NOT EXISTS agent_connection_queries_time ON agent_connection_queries(checked_at);
+      CREATE TABLE IF NOT EXISTS agent_connection_series (
+        id TEXT PRIMARY KEY, connection_id TEXT NOT NULL, provider TEXT NOT NULL,
+        account_key TEXT NOT NULL, source_key TEXT NOT NULL, metric_id TEXT NOT NULL,
+        kind TEXT, scope TEXT NOT NULL, label TEXT NOT NULL, unit TEXT, window_seconds INTEGER,
+        models TEXT NOT NULL, last_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS agent_connection_series_account
+        ON agent_connection_series(connection_id,account_key,source_key,last_at DESC);
+      CREATE TABLE IF NOT EXISTS agent_connection_points (
+        series_id TEXT NOT NULL REFERENCES agent_connection_series(id) ON DELETE CASCADE,
+        query_id INTEGER NOT NULL REFERENCES agent_connection_queries(id) ON DELETE CASCADE,
+        checked_at TEXT NOT NULL, remaining REAL, total REAL, used REAL, used_percent REAL,
+        status TEXT NOT NULL, reset_at TEXT, error_code TEXT, source TEXT NOT NULL,
+        PRIMARY KEY (series_id,query_id));
+      CREATE INDEX IF NOT EXISTS agent_connection_points_time
+        ON agent_connection_points(series_id,checked_at DESC,query_id DESC);
+      CREATE INDEX IF NOT EXISTS agent_connection_points_query ON agent_connection_points(query_id);
       -- Sanitized project-local account observations; technical cache, not task facts.
       CREATE TABLE IF NOT EXISTS agent_usage_queries (
         id INTEGER PRIMARY KEY, query_key TEXT NOT NULL UNIQUE,

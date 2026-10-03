@@ -1,0 +1,324 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { check, LushError } from './types.js';
+import { connectionErrorCode, normalizeConnectionObservation, validConnectionHash, validConnectionId } from '../persistence/store/agent-connections.js';
+
+const require = createRequire(import.meta.url);
+const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const PROVIDERS = new Set(['deepseek','openrouter','zai','kimi-coding','openai-codex']);
+const safeText = (value, max = 256) => typeof value === 'string'
+  ? value.replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, '').slice(0, max) : null;
+const failure = () => new LushError('连接操作失败，请检查连接配置、权限或重新登录。');
+const identityKey = (id, account, source) => hash([id,account,source]);
+const fingerprint = connection => hash([connection.id,connection.label,connection.provider,connection.endpoint,
+  connection.auth_type,connection.enabled,connection.models,connection.credential.identity]);
+
+function boundedObservation(observation, budget) {
+  const view = { ...observation, resources: [] };
+  let truncated = false;
+  for (const resource of observation.resources) {
+    view.resources.push(resource);
+    if (Buffer.byteLength(JSON.stringify(view)) > budget) { view.resources.pop(); truncated = true; }
+  }
+  return { view, truncated };
+}
+
+function publicConnection(connection) {
+  check(validConnectionId(connection?.id) && PROVIDERS.has(connection.provider), 'invalid connection configuration');
+  const url = new URL(connection.endpoint);
+  check(url.protocol === 'https:' && !url.username && !url.password && !url.hash && !url.search && url.href.length <= 2048, 'invalid connection endpoint');
+  check(['api_key','oauth'].includes(connection.auth_type), 'invalid connection authentication type');
+  const status = ['configured','unconfigured','expired','unknown'].includes(connection.credential?.status) ? connection.credential.status : 'unknown';
+  const expires = connection.credential?.expires_at;
+  return { id: connection.id, label: safeText(connection.label, 256) || connection.provider, provider: connection.provider,
+    endpoint: url.href, auth_type: connection.auth_type, enabled: connection.enabled === true,
+    models: [...new Set((Array.isArray(connection.models) ? connection.models : []).slice(0, 100).map(model => safeText(model)).filter(Boolean))],
+    credential: { status, identity: safeText(connection.credential?.identity, 120),
+      expires_at: typeof expires === 'string' && Number.isFinite(Date.parse(expires)) ? new Date(expires).toISOString() : null } };
+}
+function sampling(value) {
+  check(value && typeof value === 'object' && Object.keys(value).every(key => ['enabled','interval_minutes','retention_days'].includes(key)), 'invalid connection sampling settings');
+  check(typeof value.enabled === 'boolean' && Number.isInteger(value.interval_minutes) && value.interval_minutes >= 1 && value.interval_minutes <= 1440
+    && Number.isInteger(value.retention_days) && value.retention_days >= 1 && value.retention_days <= 3650, 'invalid connection sampling settings');
+  return { enabled: value.enabled, interval_minutes: value.interval_minutes, retention_days: value.retention_days };
+}
+
+/** Project-owned managed account cache; no model calls, no secrets in public views. */
+export class AgentConnectionsService {
+  constructor(project, options = {}) {
+    this.project = project; this.store = project.store;
+    // Loading is lazy: ordinary Worker/status operations do not read credential files or initialize auth.
+    this.manager = options.manager || null; this.managerOptions = options.managerOptions || {};
+    this.now = options.now || Date.now;
+    this.setTimer = options.setTimeout || setTimeout; this.clearTimer = options.clearTimeout || clearTimeout;
+    this.flights = new Map(); this.pending = new Set(); this.bindings = new Map();
+    this.active = 0; this.waiters = []; this.limit = 3;
+    this.timer = null; this.generation = 0; this.closed = false; this.warning = null;
+  }
+  getManager() {
+    if (!this.manager) {
+      const { ConnectionManager } = require('../agent/connections.js');
+      this.manager = new ConnectionManager(this.project.config, this.managerOptions);
+    }
+    return this.manager;
+  }
+  config() {
+    try {
+      const config = this.getManager().config();
+      check(config?.version === 1 && Array.isArray(config.connections) && config.connections.length <= 50, 'invalid connection configuration');
+      const connections = config.connections.map(publicConnection);
+      check(new Set(connections.map(connection => connection.id)).size === connections.length, 'duplicate connection identity');
+      const result = { version: 1, sampling: sampling(config.sampling), connections };
+      check(Buffer.byteLength(JSON.stringify(result)) <= 500000, 'connection configuration exceeds read budget');
+      return result;
+    } catch { throw failure(); }
+  }
+  assertOpen() { check(!this.closed && !this.project.stopping, 'project is stopping'); }
+  identity(id) {
+    try {
+      const value = this.getManager().identity(id);
+      check(validConnectionHash(value?.account_key) && validConnectionHash(value?.source_key)
+        && typeof value.revision === 'string' && value.revision.length > 0 && value.revision.length <= 256, 'invalid connection identity');
+      return { account_key: value.account_key, source_key: value.source_key, revision: value.revision };
+    } catch { throw failure(); }
+  }
+  snapshot(id, config = this.config()) {
+    check(validConnectionId(id), 'invalid connection id');
+    const connection = config.connections.find(item => item.id === id);
+    check(connection, 'connection not found');
+    const identity = this.identity(id);
+    // Credential revision is intentionally not the persisted cache namespace:
+    // ordinary OAuth refresh must not hide still-valid same-account observations.
+    const state = this.store.ensureAgentConnectionState(id,hash([fingerprint(connection),identity.account_key,identity.source_key]));
+    this.store.rememberAgentConnectionIdentity(id,state.revision,identity.account_key,identity.source_key);
+    return { connection, state: { ...state, account_key: identity.account_key, source_key: identity.source_key }, identity };
+  }
+  current(snapshot, allowRefresh = false) {
+    try {
+      const current = this.snapshot(snapshot.connection.id);
+      return current.state.revision === snapshot.state.revision
+        && ((allowRefresh && snapshot.connection.auth_type === 'oauth') || current.identity.revision === snapshot.identity.revision);
+    } catch { return false; }
+  }
+  prune(policy = this.config().sampling) {
+    this.store.pruneAgentConnections(new Date(this.now() - policy.retention_days * 86400000).toISOString());
+  }
+  list() {
+    const config = this.config(), checked_at = new Date(this.now()).toISOString();
+    let remainingBytes = 64000;
+    const observationBudget = Math.max(1000, Math.floor((600000 - Buffer.byteLength(JSON.stringify(config)) - remainingBytes) / Math.max(1,config.connections.length)));
+    const connections = config.connections.map(connection => {
+      const { state } = this.snapshot(connection.id, config);
+      const current = this.store.latestAgentConnectionObservation(connection.id,state.revision,state.account_key,state.source_key)
+        || normalizeConnectionObservation({ status: 'unknown', checked_at, source: 'none', resources: [] });
+      const { view: observation, truncated: observation_truncated } = boundedObservation(current,observationBudget);
+      let last_success = null, last_success_truncated = false;
+      if (!['available','partial'].includes(observation.status)) {
+        const old = this.store.lastAgentConnectionSuccess(connection.id,state.account_key,state.source_key);
+        if (old) {
+          const bytes = Buffer.byteLength(JSON.stringify(old));
+          if (bytes <= Math.min(16384, remainingBytes)) { last_success = old; remainingBytes -= bytes; }
+          else last_success_truncated = true;
+        }
+      }
+      const consumers = [...this.project.running.entries()].filter(([, run]) =>
+        !run.parked && !run.controller?.signal?.aborted && run.connectionBinding?.id === connection.id
+        && run.connectionBinding.account_key === state.account_key && run.connectionBinding.source_key === state.source_key)
+        .slice(0, 100).map(([task_id, run]) => ({ task_id, model: safeText(run.agent.model) }));
+      return { ...connection, observation, last_success, consumers, ...(observation_truncated ? { observation_truncated: true } : {}),
+        ...(last_success_truncated ? { last_success_truncated: true } : {}) };
+    });
+    return { ...config, checked_at, connections, ...(this.warning ? { warning: this.warning } : {}) };
+  }
+  track(promise) {
+    this.pending.add(promise);
+    promise.then(() => this.pending.delete(promise), () => this.pending.delete(promise));
+    return promise;
+  }
+  operation(action, fn) {
+    this.assertOpen();
+    return this.track(this.project.write(action, async () => {
+      try { return await fn(); } catch { throw failure(); }
+    }));
+  }
+  save(connection, credential = null) {
+    return this.operation('save agent connection', () => {
+      const saved = publicConnection(this.getManager().save(connection,credential));
+      const snapshot = this.snapshot(saved.id);
+      this.store.ensureAgentConnectionState(saved.id,snapshot.state.fingerprint,true);
+      this.schedule(this.config().sampling);
+      return saved;
+    });
+  }
+  remove(id) {
+    check(validConnectionId(id), 'invalid connection id');
+    return this.operation('remove agent connection', () => {
+      this.getManager().remove(id);
+      this.store.forgetAgentConnectionState(id);
+      for (const [key,binding] of this.bindings) if (binding.id === id) this.bindings.delete(key);
+      this.schedule(this.config().sampling);
+      return { removed: id };
+    });
+  }
+  configureSampling(value) {
+    const policy = sampling(value);
+    return this.operation('configure connection sampling', () => {
+      const saved = sampling(this.getManager().configureSampling(policy));
+      this.prune(saved); this.schedule(saved); return saved;
+    });
+  }
+  async acquire() {
+    if (this.active < this.limit) { this.active++; return; }
+    await new Promise((resolve,reject) => this.waiters.push({ resolve, reject }));
+  }
+  release() {
+    const next = this.waiters.shift();
+    if (next) next.resolve(); else this.active--;
+  }
+  queryOne(snapshot) {
+    const key = `${snapshot.connection.id}:${snapshot.state.revision}:${snapshot.identity.revision}`;
+    if (this.flights.has(key)) return this.flights.get(key);
+    const pending = this.project.write('query agent connection', async () => {
+      await this.acquire();
+      try {
+        if (!this.current(snapshot) || this.closed) return;
+        let result;
+        try { result = await this.getManager().query(snapshot.connection.id); }
+        catch (error) {
+          const code = connectionErrorCode(error?.connectionCode || error?.usageCode || error?.error_code) || 'unknown';
+          result = { id: snapshot.connection.id,
+            account_key: snapshot.state.account_key || hash([snapshot.connection.id,'unknown-account']),
+            source_key: snapshot.state.source_key || hash([snapshot.connection.provider,snapshot.connection.endpoint,'unknown-source']),
+            observation: { status: 'error', checked_at: new Date(this.now()).toISOString(), source: 'none', error_code: code, resources: [] } };
+        }
+        if (!this.current(snapshot,true)) return;
+        check(result?.id === snapshot.connection.id && validConnectionHash(result.account_key) && validConnectionHash(result.source_key), 'invalid connection query result');
+        const currentIdentity = this.identity(result.id);
+        if (result.account_key !== currentIdentity.account_key || result.source_key !== currentIdentity.source_key) return;
+        const observation = normalizeConnectionObservation(result.observation,new Date(this.now()).toISOString());
+        this.prune();
+        this.store.rememberAgentConnectionIdentity(result.id,snapshot.state.revision,result.account_key,result.source_key);
+        this.store.recordAgentConnectionObservation({ connection_id: result.id, revision: snapshot.state.revision,
+          provider: snapshot.connection.provider, account_key: result.account_key, source_key: result.source_key,
+          query_key: randomUUID(), observation });
+      } finally { this.release(); }
+    }).finally(() => { this.flights.delete(key); });
+    this.flights.set(key,pending); this.track(pending);
+    return pending;
+  }
+  query(id = null) {
+    this.assertOpen();
+    check(id === null || validConnectionId(id), 'invalid connection id');
+    const config = this.config();
+    const connections = id === null ? config.connections.filter(connection => connection.enabled)
+      : [this.snapshot(id,config).connection];
+    check(connections.every(connection => connection.enabled), 'connection is disabled');
+    const operations = connections.map(connection => this.queryOne(this.snapshot(connection.id,config)));
+    return this.track(Promise.allSettled(operations).then(results => {
+      this.assertOpen();
+      if (results.some(result => result.status === 'rejected')) throw failure();
+      return this.list();
+    }));
+  }
+  history(id, days = 7) {
+    check(validConnectionId(id), 'invalid connection id');
+    check([1,7,30,90].includes(days), 'connection history days must be 1, 7, 30 or 90');
+    const policy = this.config().sampling;
+    this.prune(policy);
+    const now = this.now();
+    return this.store.readAgentConnectionHistory({ id, from: new Date(now - Math.min(days,policy.retention_days) * 86400000).toISOString(),
+      to: new Date(now).toISOString(), retention_days: policy.retention_days });
+  }
+  prepareRuntime(id) {
+    const snapshot = this.snapshot(id);
+    check(snapshot.connection.enabled, 'connection is disabled');
+    return this.operation('prepare agent connection', async () => {
+      const result = await this.getManager().prepareRuntime(id);
+      check(this.current(snapshot,true), 'connection changed during runtime preparation');
+      check(result?.connection?.id === id && validConnectionHash(result.account_key) && validConnectionHash(result.source_key), 'invalid connection runtime identity');
+      const currentIdentity = this.identity(id);
+      check(result.account_key === currentIdentity.account_key && result.source_key === currentIdentity.source_key, 'connection identity changed during runtime preparation');
+      this.store.rememberAgentConnectionIdentity(id,snapshot.state.revision,result.account_key,result.source_key);
+      this.bindings.set(identityKey(id,result.account_key,result.source_key), { id, provider: snapshot.connection.provider, revision: snapshot.state.revision });
+      check(this.bindings.size <= 1000, 'too many prepared connection identities');
+      return result; // INTERNAL ONLY: never registered with RPC or returned by a public view.
+    });
+  }
+  observe(id, account_key, source_key, observation) {
+    check(validConnectionId(id) && validConnectionHash(account_key) && validConnectionHash(source_key), 'invalid connection observation identity');
+    const binding = this.bindings.get(identityKey(id,account_key,source_key));
+    check(binding, 'connection observation has no frozen runtime binding');
+    // Shutdown may already have cancelled proactive queries while an Agent is
+    // delivering its final passive feedback. Track this trusted write as well.
+    return this.track(this.project.write('observe agent connection', () => {
+      const safe = normalizeConnectionObservation(observation,new Date(this.now()).toISOString());
+      check(safe.source === 'response_headers', 'invalid passive connection observation source');
+      this.prune(this.config().sampling);
+      const current = this.snapshot(id);
+      check(current.connection.enabled && current.state.revision === binding.revision
+        && current.identity.account_key === account_key && current.identity.source_key === source_key,
+      'connection identity changed since runtime preparation');
+      const revision = binding.revision;
+      this.store.rememberAgentConnectionIdentity(id,revision,account_key,source_key);
+      const recorded = this.store.recordAgentConnectionObservation({ connection_id: id, revision, provider: binding.provider,
+        account_key, source_key, query_key: hash([id,account_key,source_key,safe]), observation: safe });
+      return { recorded };
+    }));
+  }
+  loginStart(id) {
+    check(validConnectionId(id), 'invalid connection id');
+    return this.operation('start connection login', async () => {
+      const result = await this.getManager().loginStart(id);
+      // These are expected authorization URL/state values, not credentials. The
+      // callback entered by the user never appears in a return value or event.
+      const url = new URL(result.url), redirect = new URL(result.redirect_uri);
+      check(result.id === id && validConnectionId(result.login_id) && url.protocol === 'https:' && url.origin === 'https://auth.openai.com'
+        && !url.username && !url.password && redirect.origin === 'http://localhost:1455' && redirect.pathname === '/auth/callback', 'invalid login response');
+      const expires_at = typeof result.expires_at === 'string' && Number.isFinite(Date.parse(result.expires_at)) ? new Date(result.expires_at).toISOString() : null;
+      check(expires_at, 'invalid login expiry');
+      return { id, login_id: result.login_id, url: url.href, expires_at, redirect_uri: redirect.href,
+        instructions: '在浏览器完成授权后，将跳转到 localhost 的完整回调 URL 粘贴回来；远端环境无需本机回调服务。' };
+    });
+  }
+  loginFinish(id, login_id, redirect_url) {
+    check(validConnectionId(id) && validConnectionId(login_id) && typeof redirect_url === 'string' && redirect_url.length <= 10000, 'invalid connection login completion');
+    return this.operation('complete connection login', async () => {
+      const saved = publicConnection(await this.getManager().loginFinish(id,login_id,redirect_url));
+      const snapshot = this.snapshot(saved.id);
+      this.store.ensureAgentConnectionState(saved.id,snapshot.state.fingerprint,true);
+      return saved;
+    });
+  }
+  start() {
+    try { const config = this.config(); this.prune(config.sampling); this.schedule(config.sampling); }
+    catch { this.warning = '连接配置无法安全读取，后台采样未启用。'; }
+  }
+  schedule(policy) {
+    this.generation++;
+    if (this.timer !== null) this.clearTimer(this.timer);
+    this.timer = null;
+    if (!policy.enabled || this.closed || this.project.stopping) return;
+    const generation = this.generation;
+    this.timer = this.setTimer(async () => {
+      this.timer = null;
+      try { await this.query(); this.warning = null; }
+      catch { this.warning = '后台连接观测失败，没有取得新的可确认资源数据。'; }
+      finally {
+        if (!this.closed && !this.project.stopping && this.generation === generation) {
+          try { this.schedule(this.config().sampling); }
+          catch { this.warning = '连接配置无法安全读取，后台采样已停止。'; }
+        }
+      }
+    },policy.interval_minutes * 60000);
+    this.timer?.unref?.();
+  }
+  async stop() {
+    this.closed = true; this.generation++;
+    if (this.timer !== null) this.clearTimer(this.timer);
+    this.timer = null;
+    for (const waiter of this.waiters.splice(0)) waiter.reject(failure());
+    // Do not initialize a credential manager just to close an unused project.
+    if (this.manager) { try { await this.manager.stop(); } catch { /* no raw auth diagnostics */ } }
+    await Promise.allSettled([...this.pending]);
+  }
+}

@@ -33,6 +33,7 @@
 | `render-versions.js` | 工作分组 `#versions` 的只读 main 第一父链历史：显式加载、固定 tip 分页、刷新作废旧请求、失败保留旧历史并明确提示、无 main 空态；安全文本呈现提交 SHA / 作者 / 时间 / 摘要、精确关联的 Worker 与原始指令，跳转走 navigate 接缝，不执行 Agent；契约见[版本迭代](version-history.md) | `openVersions()`、`renderVersionCommit(commit)` |
 | `styles-versions.css` | 版本迭代卡片、main tip 与完整 SHA、原始指令折叠和响应式布局，沿用双主题 token，无内联样式 | CSS |
 | `render-agent-status.js` | `#agent-status`「Agent 管理」入口，默认状态页签展示查询与用量，设置页签按需读 `/api/agent/config`，通过共享 `renderAgentSettings` 子面板编辑；切换页签保留已查结果与未保存输入，配置读取失败可重试，读取 / 保存有页面身份保护；进入页面与手动刷新时读取当前项目 `/api/agent/status`，不自动轮询、不启动模型；安全文本 DOM 展示 Pi 版本/路径/配置作用域、账号凭证状态与脱敏身份、余额/额度及无法查询原因、模型搜索和服务商筛选（区分 local 本地目录、cli 目录与 presets 预设，均不冒充联网验证）、安装包与资源折叠目录；单飞刷新、页面身份保护、加载/失败重试，保留上次结果时明确标旧 | `openAgentStatus()`、`renderAgentStatus(data)` |
+| `render-agent-connections.js` / `styles-agent-connections.css` | 项目托管账号连接tab，配置/密钥只写/OAuth手动回调、结构化资源、旧值/认证诊断、采样/历史和实际消费者；显式profile连接选择在render-settings接入 | `createAgentConnections({ownsPage})`，契约见[账号连接](agent-connections.md) |
 | `render-agent-usage.js` | 用量配置及缓存历史子面板；只读历史范围/账号/指标过滤、SVG 剩余量观测曲线和数据表、旧值/失败/重置/截断提示，页面身份和配置编辑版本保护 | `createAgentUsage({ownsPage})`、`renderUsageSeries(series,range,config)` |
 | `agent-usage-form.js` | HTTP 查询与字段映射、查询范围、可选后台间隔和历史期限表单；环境引用说明与结构校验，无脚本编辑 | `usageConfigForm()`、`defaultUsageConfig()` |
 | `usage-window.js` | 仅按接口实际秒数格式化可读额度窗口与固定安全错误分类；未知时长不猜每日，额度查询/历史共用文案 | `usageWindow(seconds)`、`usageErrorLabels` |

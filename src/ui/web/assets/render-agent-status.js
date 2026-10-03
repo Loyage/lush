@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { createAgentUsage } from './render-agent-usage.js';
+import { createAgentConnections } from './render-agent-connections.js';
 import { renderAgentSettings } from './render-settings.js';
 import { usageWindow, usageErrorLabels } from './usage-window.js';
 
@@ -177,21 +178,24 @@ export function openAgentStatus() {
   if (ui.agentStatusPage?.view === view) return ui.agentStatusPage.pending || Promise.resolve();
   const page = el('div', undefined, 'agent-status-page');
   const header = el('header', undefined, 'agent-status-head'), copy = el('div');
-  copy.append(el('h1', 'Agent 管理'), el('p', '管理项目 Agent 配置，并查看 Pi 安装、模型、账号、余额与额度历史。状态在进入页面和手动刷新时查询；页面不自动轮询，可显式启用后台采样。查询与保存配置均不启动 Agent 或模型调用。', 'hint'));
+  copy.append(el('h1', 'Agent 管理'), el('p', '管理项目 Agent 配置和多个账号连接，并查看 Pi 安装、模型、余额与额度历史。连接页只读本地配置，资源显式刷新；旧状态页在进入页面和手动刷新时查询。页面不自动轮询，可显式启用后台采样。查询与保存配置均不启动 Agent 或模型调用。', 'hint'));
   const feedback = el('p', undefined, 'hint agent-status-feedback'); feedback.setAttribute('role', 'status');
   const result = el('div');
   const state = { view, pending: null, data: null, tab: 'status', config: ui.lastSnapshot?.status?.agent_config, configPending: null }; ui.agentStatusPage = state;
   const ownsPage = () => ui.view === view && ui.agentStatusPage === state;
   const usage = createAgentUsage({ ownsPage }); usage.node.hidden = true;
+  const connections = createAgentConnections({ ownsPage }); let connectionsLoaded = false;
+  const connectionsPanel = el('div', undefined, 'agent-management-connections'); connectionsPanel.id = 'agent-management-connections';
+  connectionsPanel.append(connections.node);
   const statusPanel = el('div', undefined, 'agent-management-status'); statusPanel.id = 'agent-management-status';
   const settingsPanel = el('div', undefined, 'agent-management-settings'); settingsPanel.id = 'agent-management-settings';
-  for (const [panel, tab] of [[statusPanel, 'status'], [settingsPanel, 'settings']]) {
+  for (const [panel, tab] of [[statusPanel, 'status'], [connectionsPanel, 'connections'], [settingsPanel, 'settings']]) {
     panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', `agent-management-tab-${tab}`);
   }
   const repaintSettings = config => {
     if (!ownsPage()) return;
     if (config) state.config = config;
-    settingsPanel.replaceChildren(renderAgentSettings(state.config, repaintSettings));
+    settingsPanel.replaceChildren(renderAgentSettings(state.config, repaintSettings, { ownsPage }));
   };
   const loadConfig = () => {
     if (!ownsPage()) return Promise.resolve();
@@ -224,11 +228,12 @@ export function openAgentStatus() {
     for (const [key, node] of tabButtons) {
       node.classList.toggle('active', key === id); node.setAttribute('aria-selected', String(key === id));
     }
-    statusPanel.hidden = id !== 'status'; settingsPanel.hidden = id !== 'settings'; refreshHost.hidden = id !== 'status';
+    statusPanel.hidden = id !== 'status'; connectionsPanel.hidden = id !== 'connections'; settingsPanel.hidden = id !== 'settings'; refreshHost.hidden = id !== 'status';
+    if (id === 'connections' && !connectionsLoaded) { connectionsLoaded = true; return connections.load(); }
     if (id === 'settings' && !settingsPanel.childNodes.length) return loadConfig();
     return Promise.resolve();
   };
-  for (const [id, label, detail] of [['status', '状态', '安装、账号与额度'], ['settings', '设置', 'Worker 行为与模型']]) {
+  for (const [id, label, detail] of [['status', '状态', '旧环境、安装与额度'], ['connections', '账号连接', '多账号、登录与资源'], ['settings', '设置', 'Worker 行为与模型']]) {
     const node = button('', () => selectTab(id), 'settings-tab'); node.dataset.agentTab = id; node.id = `agent-management-tab-${id}`;
     node.setAttribute('role', 'tab'); node.setAttribute('aria-controls', `agent-management-${id}`);
     node.append(el('strong', label), el('span', detail)); tabButtons.set(id, node); tabs.append(node);
@@ -265,7 +270,7 @@ export function openAgentStatus() {
   const refreshHost = el('span', undefined, 'help-host'); refreshHost.setAttribute('data-help', REFRESH_HELP);
   const refresh = button('刷新状态', load, 'agent-status-refresh', { help: REFRESH_HELP });
   refreshHost.append(refresh); header.append(copy, refreshHost); statusPanel.append(feedback, result, usage.node);
-  page.append(header, tabs, statusPanel, settingsPanel); $('detail').replaceChildren(page);
+  page.append(header, tabs, statusPanel, connectionsPanel, settingsPanel); $('detail').replaceChildren(page);
   selectTab('status');
   return load();
 }

@@ -351,6 +351,7 @@ export default {
 
   recover() {
     this.agentUsage.start();
+    this.agentConnections.start();
     // Legacy automation authorization is retained on disk but is not reactivated.
     // 抢占通道是进程内运行时状态：重启后不可能还有 invocation 在跑，残留请求必须清掉，
     // 否则下一次调用会在第一个安全边界被一条早已失效的请求误停。
@@ -452,6 +453,7 @@ export default {
   async shutdown() {
     this.stopping = true;
     const usageStopped = this.agentUsage.stop();
+    const connectionsStopped = this.agentConnections.stop();
     clearInterval(this.sleepTimer); this.sleepTimer = null;
     await this.sleepWatchPromise;
     await this.sleepTickPromise;
@@ -464,5 +466,6 @@ export default {
     await Promise.allSettled([...this.running.values()].map(run => run.promise));
     await this.workspaces.queue;
     await usageStopped;
+    await connectionsStopped;
   }
 };

@@ -16,6 +16,7 @@ export const isHistoricalDelivery = task => task.role === 'showcase' || task.tas
 export const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验', merger: '解冲突', explainer: '执行介绍', butler: '管家' };
 export const EVENTS = {
   created: '创建 Worker', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
+  'invocation.connection': '绑定账号连接',
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
   'task.signal': 'Worker 信号', 'child.completed': '子 Worker 完成', 'child.integrated': '子 Worker 已集成',
   'task.merge_requested': '请求合并', 'task.merge_approved': '批准合并', 'task.merge_integrated': '已合入父分支',
