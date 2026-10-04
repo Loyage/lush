@@ -2,9 +2,9 @@
 
 完整 CLI 帮助：`bun run help`。全局参数 `--project PATH`、`--json` 可放在命令前后。
 
-`daemon start/restart` 是客户端工作流，不是 RPC。`doctor` 默认提供简短身份摘要，`--verbose` 才附带完整 daemon 状态（含 Agent 配置）。它检查本地项目配置，并把当前磁盘代码、该项目 daemon、以及该项目状态目录记录的后台 Web 三份身份分别列在 `identities.current/daemon/host`；保留旧的顶层 `fingerprint` / `code_match` 字段供脚本兼容。发现代码不一致时只返回 `update_hints` 并在 stderr 给出带正确 `--project` 的命令，绝不自动重启。项目 `doctor` 不猜测无项目启动器的 Web；诊断全局启动器请运行无 `--project` 的 `host-status`。
+`daemon start/restart` 是客户端工作流，不是 RPC。`doctor` 默认提供简短身份摘要，`--verbose` 才附带完整 daemon 状态（含 Agent 配置）。它检查本地项目配置，并把当前磁盘代码、该项目 daemon、以及该项目状态目录记录的后台 Web 三份身份分别列在 `identities.current/daemon/host`；保留旧的顶层 `fingerprint` / `code_match` 字段供脚本兼容。发现代码不一致时只返回 `update_hints` 并在 stderr 给出带正确 `--project` 的命令，绝不自动重启。项目 `doctor` 不猜测无项目启动器的 Web；诊断全局启动器请运行 `bun run lush host status`。
 
-无 `--project` 的 `host [port]` 后台启动全局项目选择器：首次要求绝对目录，之后从用户配置目录恢复上次项目，并自动启动或连接所选项目 daemon；带 `--project` / `LUSH_PROJECT` 时保持单项目绑定模式（日志 `.lush/host.log`，不替用户启动 daemon）。命令等 Web 真的占住端口就返回；同一端口已经有 Lush Web 时幂等报告「已在运行」，不换进程。两种模式默认都只监听本机；单项目存在 `.lush/web.json` 时改为公网监听并启用登录认证，全局模式则读取用户配置目录的 `web.json`，且要求其中的 `projects` 非空绝对路径白名单。Electron 临时 host 不使用全局公网配置。`host-restart [port]` 先停掉端口上那个后台 Web 再按当前代码起一个新的：Web 不跟着代码换版本，改完 `src/ui/web/` 之后用它。`host-stop [port]` 停掉后台 Web，`host-status [port]` 通过 `current_code` / `host_code`（以及同义的 `identities.current/host`）分别报告磁盘与进程的目录、版本和指纹；不一致时 `update_hint.command` 精确包含端口及项目作用域，但命令本身不会执行。停只能停命令行确实是 Lush Web 的进程，别的程序占着端口时报出它的命令行交还给你。`host --foreground`（即 `bin/lush-host`）占住终端，只在调试时用。
+`bun run lush host start [PORT]` 后台启动 Host：无 `--project` 时进入全局项目工作台；带 `--project` / `LUSH_PROJECT` 时保持单项目绑定模式（日志 `.lush/host.log`，不替用户启动 daemon）。首次全局启动可要求绝对目录，之后使用已登记项目；命令等 Web 真的占住端口就返回，同端口已运行时幂等报告，不换进程。两种模式默认都只监听本机；单项目存在 `.lush/web.json` 时改为公网监听并启用登录认证，全局模式读取用户配置目录的 `web.json`，且要求其中的 `projects` 非空绝对路径白名单。Electron 临时 Host 不使用全局公网配置。`bun run lush host restart [PORT]` 先停旧 Host 再按当前代码启动；改完 `src/ui/web/` 后使用。`bun run lush host stop [PORT]` 停止后台 Host，`bun run lush host status [PORT]` 通过 `current_code` / `host_code`（以及同义的 `identities.current/host`）分别报告磁盘与进程的目录、版本和指纹；不一致时 `update_hint.command` 精确包含端口及项目作用域。停止操作只会停止确认属于 Lush 的 Web 进程；端口由其他程序占用时会报告命令行，不会触碰它。调试前台运行使用 `bun run lush host start --foreground`。
 
 本页是索引：CLI 与 RPC 表格、返回值和错误信息都在下面各章里。若要先理解从输入到交付的实际操作顺序，请读[当前指令流程](../task-flow.md)。
 

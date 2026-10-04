@@ -153,7 +153,7 @@ const existing = liveWebState({home: profile});
 if (existing && (existing.fingerprint !== fingerprint || path.resolve(existing.code_dir) !== path.resolve(root))) throw new Error('existing Host version differs; do not restart automatically');
 const env = {...process.env, LUSH_GLOBAL_CONFIG: profile, LUSH_WEB_SSH_ORIGIN: origin};
 for (const key of ['LUSH_PROJECT', 'LUSH_HOME', 'LUSH_TASK_ID', 'LUSH_AGENT_TOKEN', 'LUSH_WEB_EPHEMERAL', 'LUSH_WEB_LAUNCHER']) delete env[key];
-const result = cp.spawnSync(process.execPath, [path.join(root, 'bin/lush'), existing ? 'host-status' : 'host', ...(existing ? [] : ['0']), '--json'], {cwd: root, env, encoding:'utf8', timeout: 20000, maxBuffer: 128 * 1024});
+const result = cp.spawnSync(process.execPath, [path.join(root, 'bin/lush'), 'host', ...(existing ? ['status'] : ['start', '0']), '--json'], {cwd: root, env, encoding:'utf8', timeout: 20000, maxBuffer: 128 * 1024});
 if (result.error || result.status !== 0) throw new Error('Host start/status failed; inspect remote profile host.log');
 const report = JSON.parse(result.stdout);
 if (!report.running || report.code_match !== true || report.current_code?.fingerprint !== fingerprint || !Number.isSafeInteger(report.port) || report.port < 1 || report.port > 65535 || !Number.isSafeInteger(report.pid) || report.pid < 1 || report.url !== 'http://127.0.0.1:' + report.port) throw new Error('unexpected Host identity or listener');

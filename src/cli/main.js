@@ -22,7 +22,7 @@ export { HELP };
  */
 const COMMANDS = new Map();
 for (const [module, names] of [
-  [system, ['daemon', 'status', 'doctor', 'log', 'host', 'host-restart', 'host-stop', 'host-status']],
+  [system, ['daemon', 'status', 'doctor', 'log', 'host:start', 'host:stop', 'host:restart', 'host:status']],
   [intent, ['order']],
   [worker, ['worker']],
   [progress, ['progress']],
@@ -47,10 +47,16 @@ export async function main(argv = process.argv.slice(2)) {
   if (!args.length || ['help','--help','-h'].includes(args[0]) || args.includes('--help') || args.includes('-h')) {
     console.log(HELP); return;
   }
-  const command = args.shift();
+  let command = args.shift();
+  if (command === 'host') {
+    if (!['start', 'stop', 'restart', 'status'].includes(args[0])) {
+      throw new Error('host requires start|stop|restart|status; run lush help');
+    }
+    command = `host:${args.shift()}`;
+  }
   const handler = COMMANDS.get(command);
   if (!handler) throw new Error(`unknown command: ${command}; run lush help`);
-  const globalWeb = ['host', 'host-restart', 'host-stop', 'host-status'].includes(command) && !projectPath && !process.env.LUSH_PROJECT;
+  const globalWeb = command.startsWith('host:') && !projectPath && !process.env.LUSH_PROJECT;
   const selectedConfig = globalWeb ? launcherWebConfig(process.env) : Config.fromEnv(process.env, process.cwd(), projectPath);
   const client = globalWeb
     ? { config: selectedConfig, token: process.env.LUSH_AGENT_TOKEN || null }

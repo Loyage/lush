@@ -12,9 +12,12 @@ import {
 // 「什么样的命令行才算 Lush Web」，以及「先 SIGTERM、超时才 SIGKILL」的顺序。
 
 test('只把 Lush Web 的命令行当成自己人', () => {
+  expect(isLushWebCommand('bun ./bin/lush host start --foreground')).toBe(true);
+  expect(isLushWebCommand('bun ./scripts/ops.js host start --foreground')).toBe(true);
+  // 旧版本遗留的 Host 进程仍需识别，才能安全地停止它。
   expect(isLushWebCommand('/nix/store/x-bun/bin/bun ./scripts/ops.js host 4318 --project /tmp/a')).toBe(true);
   expect(isLushWebCommand('bun run host 4318 --project /tmp/a')).toBe(true);
-  // host-restart 停完就在同一个进程里当监听者，命令行留着 -restart：下一次重启必须认得出它
+  // 旧 host-restart 进程可能仍在监听，必须识别以便安全回收。
   expect(isLushWebCommand('bun ./scripts/ops.js host-restart 4318 --project /tmp/a')).toBe(true);
   expect(isLushWebCommand('/nix/store/x-bun/bin/bun run host-restart 4318')).toBe(true);
   expect(isLushWebCommand('/usr/local/bin/bun /Users/x/lush/bin/lush-host 4318')).toBe(true);

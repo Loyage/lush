@@ -40,7 +40,7 @@ CI 的 `remote-payload.yml` 在原生 x64 / ARM64 runner 构建与烟测；`wind
 
 远端安装与 profile 目录由预检计划提供，`profiles/<id>/host.log` 为入口日志。项目 daemon 日志在对应 `<project>/.lush/daemon.log`。不得因为入口错误删除项目状态。
 
-桌面「断开隧道」不是停止后台。只有用户确认没有需要保留的活动工作后，才可用计划中的私有 Bun / CLI 停止匹配 profile 或指定项目。运行包不含源码仓库的 `scripts/ops.js`，因此内部使用 `bun bin/lush`，不要对运行包调用 `bun run host`。不要靠手工改绑定、覆盖目录或强杀来更新版本。
+桌面「断开隧道」不是停止后台。只有用户确认没有需要保留的活动工作后，才可用计划中的私有 Bun / CLI 停止匹配 profile 或指定项目。运行包不含源码仓库的 `scripts/ops.js`，因此内部使用 `bun bin/lush`，不要对运行包调用 `bun run lush host start`。不要靠手工改绑定、覆盖目录或强杀来更新版本。
 
 ## 验证
 

@@ -126,7 +126,7 @@ test.skipIf(!enabled)('desktop IPC and real loopback SSH install a portable payl
       if (fs.existsSync(bin)) {
         const commands = [];
         if (fs.existsSync(path.join(project, '.lush/daemon.lock'))) commands.push([[cli, '--project', project, 'daemon', 'stop', '--json'], remoteEnv]);
-        if (fs.existsSync(path.join(inspection.plan.hostScope, 'host.state.json'))) commands.push([[cli, 'host-stop', '--json'], { ...remoteEnv, LUSH_GLOBAL_CONFIG: inspection.plan.hostScope }]);
+        if (fs.existsSync(path.join(inspection.plan.hostScope, 'host.state.json'))) commands.push([[cli, 'host', 'stop', '--json'], { ...remoteEnv, LUSH_GLOBAL_CONFIG: inspection.plan.hostScope }]);
         for (const [args, environment] of commands) {
           try { command(bin, args, { env: environment, cwd: installed }); }
           catch (error) { failure ||= error; }

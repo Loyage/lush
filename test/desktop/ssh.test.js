@@ -162,7 +162,7 @@ test('installation needs an unchanged inspected plan and explicit authorization'
     const tunnel=m.calls.find(c=>c.args.includes('-N'));expect(tunnel.args).toContain(`127.0.0.1:14318:127.0.0.1:${REMOTE_PORT}`);expect(tunnel.args).toContain('ExitOnForwardFailure=yes');
     const before=m.calls.length;expect((await m.manager.connect(preview.profile)).reused).toBe(true);expect(m.calls).toHaveLength(before);
     m.manager.disconnect(preview.profile.id);await tick();expect(m.tunnels[0].killed).toBe(true);expect(m.manager.list()[0].connected).toBe(false);
-    expect(m.calls.every(c=>!c.args.join(' ').includes('host-stop'))).toBe(true);
+    expect(m.calls.every(c=>!c.args.join(' ').includes('host stop'))).toBe(true);
   } finally {m.manager.dispose();await tick();f.cleanup();}
 });
 

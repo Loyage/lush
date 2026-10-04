@@ -1,6 +1,6 @@
 /**
  * Lush Host 后台进程的身份识别、状态记录与安全回收。
- * 改完 UI/Host 代码后，必须通过 host-restart 换掉旧进程；
+ * 改完 UI/Host 代码后，必须通过 `lush host restart` 换掉旧进程；
  * 只停止命令行确实属于 lush-host 的进程，别人的监听者一律拒绝触碰。
  */
 import cp from 'node:child_process';
@@ -12,9 +12,10 @@ import { codeIdentity } from '../identity.js';
 /** 只有这些命令行才会被当成 Lush Host。 */
 const RUNTIME = /(?:^|\/)(?:bun|node|deno)(?:\s|$)/;
 const WEB_COMMANDS = [
-  // 后台启动的是 bin/lush-host；前台调试命令为 ops.js host --foreground。
-  /(?:^|\s|\/)ops\.js\s+host(?:-restart)?(?:\s|$)/,
-  /(?:^|\s)run\s+host(?:-restart)?(?:\s|$)/,
+  // 后台启动的是 bin/lush-host；前台调试命令为 ops.js host start --foreground。
+  /(?:^|\s|\/)ops\.js\s+(?:host(?:-restart|-start)?|host\s+(?:start|restart))(?:\s|$)/,
+  /(?:^|\s|\/)bin\/lush\s+host\s+(?:start|restart)(?:\s|$)/,
+  /(?:^|\s)run\s+(?:host(?:-restart|-start)?|host\s+(?:start|restart))(?:\s|$)/,
   /(?:^|\s|\/)lush-host(?:-worker)?(?:\s|$)/,
 ];
 /** web.json 是登录配置，Host 状态另放一个文件。 */
@@ -251,6 +252,6 @@ export async function busyPortHint(port) {
   const owners = ownersOf(pids);
   if (!owners.length) return '';
   const web = owners.filter(owner => owner.lush);
-  if (web.length) return `\n端口 ${port} 上已有一个 Lush Web 进程（pid ${web.map(owner => owner.pid).join(', ')}，跑的很可能仍是旧代码）：用 bun run host-restart ${port} 换成本地代码。`;
+  if (web.length) return `\n端口 ${port} 上已有一个 Lush Web 进程（pid ${web.map(owner => owner.pid).join(', ')}，跑的很可能仍是旧代码）：用 bun run lush host restart ${port} 换成本地代码。`;
   return `\n端口 ${port} 被 pid ${owners.map(owner => owner.pid).join(', ')} 占用，命令行不是 Lush Web，没有动它：\n${owners.map(owner => `  ${owner.command}`).join('\n')}`;
 }

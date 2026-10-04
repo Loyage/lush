@@ -67,13 +67,13 @@ git -C /home/alice/projects/demo config --get user.email
 ```bash
 cd /home/alice/tools/lush
 bun run start --project /home/alice/projects/demo
-bun run host 4318 --project /home/alice/projects/demo
+bun run lush host start 4318 --project /home/alice/projects/demo
 bun run doctor --project /home/alice/projects/demo
-bun run host-status --project /home/alice/projects/demo
+bun run lush host status --project /home/alice/projects/demo
 bun run lush --project /home/alice/projects/demo agent show
 ```
 
-显式单项目 Host 不替用户启动 daemon，所以必须先 `start`。已有 daemon 的 `start` 不会自动更换运行代码；身份不匹配时先检查活动 invocation，经用户同意后用 `daemon-restart`，Host 单独用 `host-restart`。不要因为状态检查失败就强杀进程。
+显式单项目 Host 不替用户启动 daemon，所以必须先 `start`。已有 daemon 的 `start` 不会自动更换运行代码；身份不匹配时先检查活动 invocation，经用户同意后用 `daemon-restart`，Host 单独用 `bun run lush host restart`。不要因为状态检查失败就强杀进程。
 
 默认后端为 Pi。如果用户选择 Codex，或需要指定 Pi 模型，先读取可用模型目录，再按明确选择配置；不要照抄占位模型：
 
@@ -101,7 +101,7 @@ curl --fail --silent --show-error --output /dev/null http://127.0.0.1:4318/
 
 | 现象 | 优先检查 |
 |---|---|
-| WSL 内 HTTP 失败 | `host-status`、它报告的日志、端口冲突、现有认证配置 |
+| WSL 内 HTTP 失败 | `bun run lush host status`、它报告的日志、端口冲突、现有认证配置 |
 | WSL 成功、Windows 失败 | WSL 版本 / 网络模式 / localhost 转发；参考 [WSL 网络说明](https://learn.microsoft.com/windows/wsl/networking) |
 | Agent 找不到或认证失败 | WSL 用户、Linux PATH、所选 CLI 的认证和实际启动环境 |
 | 模型网络失败 | WSL 内的 DNS / 代理；Windows 代理地址在 NAT 模式下不一定能用 Linux `127.0.0.1` 访问 |
@@ -118,7 +118,7 @@ curl --fail --silent --show-error --output /dev/null http://127.0.0.1:4318/
 交付下次启动命令，以及下面的停止命令（在 Lush 源码目录执行）；停止只在用户确认、无须保留活动工作时操作。默认不配置自启 / systemd / Windows Service。
 
 ```bash
-bun run host-stop --project /home/alice/projects/demo
+bun run lush host stop --project /home/alice/projects/demo
 bun run stop --project /home/alice/projects/demo
 ```
 

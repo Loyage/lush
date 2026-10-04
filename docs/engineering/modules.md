@@ -52,10 +52,10 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 - Web 进程的生命周期在 `src/host/control.js`：`webListenerPids(port)` 认出端口上的监听者，
   `webOwners(config, port)` 把端口与 `.lush/host.state.json`（后台 Web 自己写的 pid / 端口 / 代码指纹）
   合起来给出「谁在听、命令行是不是 Lush Web」，`stopStaleWeb(port)` 只停命令行确实是 Lush Web 的进程
-  （`bin/lush-host` / `ops.js host`，先 SIGTERM、超时才 SIGKILL），`busyPortHint(port)`
-  在端口被别人占着时把命令行原样报出来。`bun run host` 就是「后台 spawn `bin/lush-host` + 等它占住端口」
-  （`waitForWebState`），`host-restart` 就是「停下旧的 + 后台起一个新的」；Web 进程不会跟着代码换版本，
-  这是换版的正路。`doctor` / `host-status` 只读这些状态，把当前磁盘、daemon、Web 的代码目录 / 版本 / 指纹
+  （`bin/lush-host` / `ops.js host start`，先 SIGTERM、超时才 SIGKILL），`busyPortHint(port)`
+  在端口被别人占着时把命令行原样报出来。`bun run lush host start`就是「后台 spawn `bin/lush-host` + 等它占住端口」
+  （`waitForWebState`），`lush host restart` 就是「停下旧的 + 后台起一个新的」，`lush host stop` 停止 Web；Web 进程不会跟着代码换版本，
+  这是换版的正路。`doctor` / `lush host status` 只读这些状态，把当前磁盘、daemon、Web 的代码目录 / 版本 / 指纹
   分开报告；不一致只产生带项目与端口的更新提示，不触发重启。
 - 环境变量与 agent capability 语义（`LUSH_PROJECT` / `LUSH_HOME` / `LUSH_TASK_ID` / `LUSH_AGENT_TOKEN`）。`LUSH_TASK_ID` 是与当前 agent 直接绑定的 Worker，不是 Worker 树上的 `tasks.parent_id`；进度 RPC 仍以一次性 token 解析出的 actor 为准，不信任环境变量中的 ID。项目级 Agent 配置固定写在 `<project>/.lush/agent.json`：默认配置 + planner / coordinator / worker / research / verifier / merger / explainer / butler 八类角色覆盖（专用角色不再有公开创建入口，但配置读取与历史调用仍可用）；写入原子替换，运行中的 invocation 不打断，下一次调用动态读取并生效。每份 profile 分 `default_prompt` 与 `append_prompt`：前者非空时替换该角色的内置组合（UI 明确警告能力、权限与交付协议可能失效），后者追加在共享/本机文件补充之后；旧 `prompt` 字段按 `append_prompt` 兼容读取。内置规则由 `PROMPT_PARTS` 按角色组合；再叠加可提交的 `.lush-agent/{common,ROLE}.md` 与本机 `.lush/agent/{common,ROLE}.md`。Agent 子进程环境在 daemon 环境之上热加载 `.lush/agent/agent.env` 和角色 env，`LUSH_*` 不可覆盖；Web 键值编辑器把文件规范化为 owner-only 的 `NAME="value"`，空表删除对应文件。profile 另存 `extensions` / `skills` 路径列表，只给普通 Pi invocation 以显式参数加载，Codex 与无工具 explainer / butler 保留配置但不使用。
 - 项目级运行设置固定写在 `<home>/settings.json`（version 1，权限 `600`），唯一读写入口是 `src/core/settings.js` 的 `RuntimeSettings`；目前有数字键 `concurrency`（1..64）、`control_concurrency`（1..16）、`call_timeout`（1..86400）、`task_call_limit`（1..1000）、`max_depth`（1..64），`null` / 缺键表示回退默认。`LUSH_CONCURRENCY` / `LUSH_CONTROL_CONCURRENCY` / `LUSH_CALL_TIMEOUT` / `LUSH_TASK_CALLS` / `LUSH_MAX_DEPTH` 只提供各自的默认值；daemon 启动时读出生效值，运行时写盘后同步内存并重新准入，不需要重启。历史设置键 `input_routes` 与旧提交路径一起保留在文件中，但不再有公开写入口，也不影响新指令。

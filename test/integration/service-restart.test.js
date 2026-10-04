@@ -27,7 +27,7 @@ test('project restart changes daemon only, single-flights clicks and keeps pause
     const [before, untouched] = await Promise.all([cli(root, ['daemon', 'start']), cli(other, ['daemon', 'start'])]);
     const client = new UIClient(new Config({ project: root, env: env() }));
     const task = await client.request('order.submit', { content: 'keep paused', start: false });
-    const web = await cli(root, ['host', String(port)]), url = `http://127.0.0.1:${port}`;
+    const web = await cli(root, ['host', 'start', String(port)]), url = `http://127.0.0.1:${port}`;
     const [a, b] = await Promise.all([post(url + '/api/service/restart'), post(url + '/api/service/restart')]);
     expect([a.status, b.status].sort()).toEqual([200, 400]);
     const result = await (a.status === 200 ? a : b).json();
@@ -38,7 +38,7 @@ test('project restart changes daemon only, single-flights clicks and keeps pause
     expect((await client.request('worker.inspect', { id: task.task.id })).status).toBe('paused');
     expect((await client.request('worker.inspect', { id: task.task.id })).calls).toBe(0);
   } finally {
-    await cli(root, ['host-stop', String(port)]).catch(() => {});
+    await cli(root, ['host', 'stop', String(port)]).catch(() => {});
     await Promise.all([cli(root, ['daemon', 'stop']).catch(() => {}), cli(other, ['daemon', 'stop']).catch(() => {})]);
     fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(other, { recursive: true, force: true });
   }
@@ -49,7 +49,7 @@ test('Host restart flushes acceptance, changes worker on same port, leaves proje
   try {
     await repo(root);
     const daemon = await cli(root, ['daemon', 'start']);
-    const web = await cli(root, ['host', String(port)]), url = `http://127.0.0.1:${port}`;
+    const web = await cli(root, ['host', 'start', String(port)]), url = `http://127.0.0.1:${port}`;
     const before = await fetch(url + '/api/host').then(r => r.json());
     expect(before).toMatchObject({ pid: web.pid, restart_supported: true });
     const stateBefore = JSON.parse(fs.readFileSync(path.join(root, '.lush/host.state.json'), 'utf8'));
@@ -64,7 +64,7 @@ test('Host restart flushes acceptance, changes worker on same port, leaves proje
     expect(stateAfter.port).toBe(port);
     expect((await cli(root, ['daemon', 'status'])).pid).toBe(daemon.pid);
   } finally {
-    await cli(root, ['host-stop', String(port)]).catch(() => {});
+    await cli(root, ['host', 'stop', String(port)]).catch(() => {});
     await cli(root, ['daemon', 'stop']).catch(() => {});
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -119,7 +119,7 @@ test('real authenticated Host restart invalidates old session and still accepts 
   try {
     fs.mkdirSync(path.join(root, '.lush'), { recursive: true });
     fs.writeFileSync(path.join(root, '.lush/web.json'), JSON.stringify({ version: 1, username: 'owner', password }), { mode: 0o600 });
-    const web = await cli(root, ['host', String(port)]), url = `http://127.0.0.1:${port}`;
+    const web = await cli(root, ['host', 'start', String(port)]), url = `http://127.0.0.1:${port}`;
     const login = () => fetch(url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: `username=owner&password=${encodeURIComponent(password)}` });
     const oldLogin = await login(), Cookie = oldLogin.headers.get('set-cookie').split(';')[0];
@@ -137,7 +137,7 @@ test('real authenticated Host restart invalidates old session and still accepts 
     expect(next.pid).not.toBe(web.pid);
     expect(next.restart_supported).toBe(true);
   } finally {
-    await cli(root, ['host-stop', String(port)]).catch(() => {});
+    await cli(root, ['host', 'stop', String(port)]).catch(() => {});
     fs.rmSync(root, { recursive: true, force: true });
   }
 }, 20000);

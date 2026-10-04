@@ -156,7 +156,7 @@ test('SSH refuses a supplied alternate auth configuration before password hashin
 });
 
 test('CLI validates SSH scope before host startup or restart side effects', async () => {
-  for (const command of ['host', 'host-restart']) {
+  for (const command of ['host:start', 'host:restart']) {
     const f = fixture({ LUSH_WEB_SSH_ORIGIN: 'https://evil.invalid:14318' });
     try {
       const config = launcherWebConfig(f.env);

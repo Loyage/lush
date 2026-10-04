@@ -4,7 +4,7 @@ lush [--project PATH] [--json] <command>
   daemon start|stop|restart|status     项目 daemon
   doctor [--verbose]                 检查运行代码身份
   status                             项目与 Worker 状态
-  host|host-restart|host-stop|host-status  整机 Lush Host（Web 工作台入口）
+  host start|stop|restart|status [PORT]  整机 Lush Host（Web 工作台入口）
 
   order '目标' [--branch NAME]        提交指令，创建独立 Worker、分支与 worktree
   worker list|tree|inspect ID         查看 Worker

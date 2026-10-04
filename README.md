@@ -30,7 +30,7 @@ CLI 使用 `lush order '目标'`（源码快捷命令 `bun run order`），RPC /
 ### 三层：Lush UI → Lush Host → lushd
 
 - **Lush UI**：浏览器页面／Electron 窗口，只展示状态和发送带项目身份的请求；没有项目数据库或 Agent 调度器。
-- **Lush Host**（`bin/lush-host` / `bun run host`）：本机入口，提供 UI、认证、项目登记、连接与请求转发。一个 Host 可连接多个项目；列表只探测已登记项目的 lushd，打开项目时按需连接或启动。它的 `launcher.json` 仅是界面元数据，不是项目事实来源。
+- **Lush Host**（`bin/lush-host` / `bun run lush host start`）：本机入口，提供 UI、认证、项目登记、连接与请求转发。一个 Host 可连接多个项目；列表只探测已登记项目的 lushd，打开项目时按需连接或启动。它的 `launcher.json` 仅是界面元数据，不是项目事实来源。
 - **lushd**（`bin/lushd`）：每个 canonical 项目目录一个 daemon，独占该项目的 SQLite、RPC、Agent 与 Git 工作区；事实写入 `<project>/.lush/`。CLI `lush` 也是项目客户端，可直接连接 lushd。
 
 Host 不进行跨项目调度。共享同一份 Lush 代码的不同项目互不干扰；项目 API 始终带 `/p/<project-id>/` 身份，宿主 API 在 `/api/host`。
@@ -55,7 +55,7 @@ Lush 提供两种图形化使用方式，两者复用同一份 Web UI 与 API：
 
 | 方式 | 适合场景 | 启动 |
 |---|---|---|
-| 本地 Web | 日常使用的主工作台，用浏览器打开 | 在 Lush 源码目录执行 `bun run host`；首次选择项目，之后新窗口落在上次项目，可同时打开多个项目 |
+| 本地 Web | 日常使用的主工作台，用浏览器打开 | 在 Lush 源码目录执行 `bun run lush host start`；直接进入主体，在项目管理里打开独立项目窗口 |
 | 桌面应用 | macOS / Linux 可选择本地目录；Windows 为远程客户端，独立窗口可同时工作 | 源码：准备开发依赖后 `bun run desktop`，SSH 自动部署另需显式[准备运行包](docs/deployment/desktop-build-agent.md)；macOS 安装包携带本机 Bun，Windows 仅远程，见[Mac](docs/deployment/macos-client.md) / [Windows](docs/deployment/windows-client.md)与[远程桌面部署](docs/deployment/remote-desktop.md) |
 
 Host 默认只监听回环。SSH-only Linux 可在本地 Electron 使用[SSH 预检与确认部署](docs/deployment/ssh-desktop.md)，自动建立自有隧道、安装用户私有运行包并打开远端 Host；项目与 Agent 仍在远端。原有认证 HTTPS 和手工隧道见[远程 Host](docs/deployment/remote-host.md)。其它部署形态统一见[用户 / Agent 配套教程索引](docs/deployment/README.md)。

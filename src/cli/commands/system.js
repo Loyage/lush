@@ -7,8 +7,8 @@ import { check } from '../../core/types.js';
 import { exact } from '../args.js';
 
 const DEFAULT_WEB_PORT = 4318;
-const HOST_START = ['host', 'host-restart'];
-const HOST_COMMANDS = [...HOST_START, 'host-stop', 'host-status'];
+const HOST_START = ['host:start', 'host:restart'];
+const HOST_COMMANDS = [...HOST_START, 'host:stop', 'host:status'];
 
 /** 对应作用域的 web.json 存在即公网模式；Electron 临时 host 永远只监听回环。 */
 function publicWeb(config) {
@@ -31,7 +31,7 @@ function commandText(parts) {
 
 function webUpdateHint(config, report) {
   if (report.code_match !== false) return null;
-  const command = ['bun', 'run', 'host-restart', String(report.port), ...(!config.launcher && config.project ? ['--project', config.project] : [])];
+  const command = ['bun', 'run', 'lush', 'host', 'restart', String(report.port), ...(!config.launcher && config.project ? ['--project', config.project] : [])];
   return { process: 'host', reason: 'code_mismatch', project: config.project ?? null, pid: report.pid, command,
     message: `端口 ${report.port} 上的 Web 与当前磁盘代码不一致；只在准备好清空 Web 登录会话时运行 ${commandText(command)}` };
 }
@@ -59,7 +59,7 @@ function logTail(config, lines = 3) {
 
 /**
  * 前台服务：占住终端直到被杀。后台启动的真正就是它（`bin/lush-host`），
- * 调试时也可以 `bun run host --foreground` 直接盯着日志。
+ * 调试时也可以 `bun run lush host start --foreground` 直接盯着日志。
  */
 async function serveWeb(config, port) {
   const control = await import('../../host/control.js');
@@ -225,9 +225,9 @@ export async function run(command, args, ctx) {
     }
     const control = await import('../../host/control.js');
     const port = resolvePort(args[0], control.liveWebState(config));
-    if (command === 'host') value = await webStart(config, port, foreground);
-    else if (command === 'host-restart') value = await webRestart(config, port, foreground);
-    else if (command === 'host-stop') {
+    if (command === 'host:start') value = await webStart(config, port, foreground);
+    else if (command === 'host:restart') value = await webRestart(config, port, foreground);
+    else if (command === 'host:stop') {
       const result = await stopWeb(config, port);
       value = { ...(await webReport(config, port)), running: false, pid: null, pids: [], stopped: result.stopped };
       if (result.stuck.length) value.stuck = result.stuck;
