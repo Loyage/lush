@@ -6,6 +6,7 @@ on:
   workflow_call:
   pull_request:
     paths:
+      - .gitattributes
       - package.json
       - src/**
       - bin/**
@@ -17,6 +18,7 @@ on:
   push:
     branches: [main]
     paths:
+      - .gitattributes
       - package.json
       - src/**
       - bin/**

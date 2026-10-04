@@ -2,6 +2,7 @@ import { test, expect, beforeEach, afterEach } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { prepareDesktopPayload, desktopPayloadWarning } from '../../scripts/prepare-desktop.js';
 import { createRemotePayload } from './remote-fixture.js';
 import { createReleasePayloadProvider, desktopReleaseIdentity } from '../../src/ui/desktop/ssh-release.js';
@@ -12,6 +13,54 @@ beforeEach(() => {
   createRemotePayload(root, input);
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+function git(...args) {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) if (key.startsWith('GIT_')) delete env[key];
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_SYSTEM: os.devNull, GIT_CONFIG_GLOBAL: os.devNull });
+  const result = spawnSync('git', ['-C', root, ...args], { env, encoding: 'utf8', timeout: 10000 });
+  if (result.error || result.status !== 0) throw new Error(`Fixture Git failed: ${result.error?.message || result.stderr}`);
+  return result.stdout.trim();
+}
+function commitSources(attributes = false) {
+  const packageFile = path.join(root, 'package.json');
+  fs.writeFileSync(packageFile, `${JSON.stringify(JSON.parse(fs.readFileSync(packageFile)), null, 2)}\n`);
+  fs.mkdirSync(path.join(root, 'src/nested'));
+  fs.writeFileSync(path.join(root, 'src/nested/module.js'), 'export const value = "测试";\n');
+  createRemotePayload(root, input);
+  if (attributes) fs.copyFileSync(path.resolve(import.meta.dir, '../../.gitattributes'), path.join(root, '.gitattributes'));
+  git('init', '-b', 'main');
+  git('-c', 'core.autocrlf=false', 'add', 'src', 'bin', 'docs', 'README.md', 'package.json', ...(attributes ? ['.gitattributes'] : []));
+  git('-c', 'user.name=Lush Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'fixture');
+}
+
+test('without checkout attributes, Git autocrlf reproduces the cross-platform identity rejection', () => {
+  commitSources();
+  const checkout = path.join(root, 'crlf-checkout');
+  git('-c', 'core.autocrlf=true', 'clone', '--no-hardlinks', root, checkout);
+  expect(fs.readFileSync(path.join(checkout, 'src/identity.js'), 'utf8')).toContain('\r\n');
+  expect(desktopReleaseIdentity(checkout).fingerprint).not.toBe(desktopReleaseIdentity(root).fingerprint);
+  expect(() => prepareDesktopPayload(checkout, { payloadDir: input })).toThrow('does not match');
+  expect(fs.existsSync(path.join(checkout, 'node_modules/lush-remote-build/payload'))).toBe(false);
+});
+
+test('runtime checkout attributes keep both autocrlf settings byte-identical and prepare the same Linux payload', () => {
+  commitSources(true);
+  for (const autocrlf of ['false', 'true']) {
+    const checkout = path.join(root, `checkout-${autocrlf}`);
+    git('-c', `core.autocrlf=${autocrlf}`, 'clone', '--no-hardlinks', root, checkout);
+    for (const name of ['src/identity.js', 'src/nested/module.js', 'bin/lush', 'package.json']) {
+      expect(fs.readFileSync(path.join(checkout, name))).toEqual(fs.readFileSync(path.join(root, name)));
+      expect(fs.readFileSync(path.join(checkout, name), 'utf8')).not.toContain('\r\n');
+    }
+    expect(desktopReleaseIdentity(checkout)).toEqual(desktopReleaseIdentity(root));
+    const prepared = prepareDesktopPayload(checkout, { payloadDir: input });
+    expect(prepared.manifest.fingerprint).toBe(desktopReleaseIdentity(root).fingerprint);
+    expect(desktopPayloadWarning(checkout)).toBe(null);
+    fs.appendFileSync(path.join(checkout, 'src/identity.js'), '// actual source edit\n');
+    expect(() => prepareDesktopPayload(checkout, { payloadDir: input, replace: true })).toThrow('does not match');
+  }
+});
 
 test('explicit import checks both architectures and identity without executing Linux Bun', () => {
   expect(desktopPayloadWarning(root)).toContain('bun run desktop:prepare');
@@ -90,8 +139,9 @@ test('source launcher and both installer workflows prepare explicitly, never dow
   const launcher = fs.readFileSync(path.join(checkout, 'scripts/start-desktop.js'), 'utf8');
   expect(launcher).toContain('desktopPayloadWarning(root)');
   expect(launcher).not.toContain('fetch(');
-  for (const file of ['windows-desktop.yml', 'macos-desktop.yml']) {
+  for (const file of ['windows-desktop.yml', 'macos-desktop.yml', 'remote-payload.yml']) {
     const workflow = fs.readFileSync(path.join(checkout, '.github/workflows', file), 'utf8');
-    expect(workflow).toContain('bun run desktop:prepare node_modules/lush-remote-inputs/combined');
+    expect(workflow.match(/- \.gitattributes/g)).toHaveLength(2);
+    if (file !== 'remote-payload.yml') expect(workflow).toContain('bun run desktop:prepare node_modules/lush-remote-inputs/combined');
   }
 });

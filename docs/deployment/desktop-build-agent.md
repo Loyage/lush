@@ -34,6 +34,8 @@ bun run desktop:prepare 'C:\build-inputs\lush-remote-payload'
 bun run desktop
 ```
 
+仓库 `.gitattributes` 固定运行时源码为 LF，新 Windows / macOS / Linux 检出应具有相同字节与指纹。若已有 Windows 工作区仍含 CRLF，先保留自己的修改，再以 LF 保存相关源码或使用新的干净检出；不要用 reset / clean 覆盖工作区，也不要绕过指纹校验。
+
 只写入 `node_modules/lush-remote-build/payload/`，不修改 `.lush/` 或服务器。不执行 Linux Bun。两份架构缺项、哈希错误、额外文件、链接或不同源码身份均拒绝。macOS 的 `/tmp` / `/var` 可能是系统符号链接；严格构建输入使用其真实路径，不为便利放宽路径检查。
 
 源码改变后，旧产物不能冒充当前检出。取得新检出的可信 CI 包后，只有用户明确同意替换自己的旧生成物才执行：

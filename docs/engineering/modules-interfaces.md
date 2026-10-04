@@ -61,6 +61,8 @@
 
 `.github/workflows/publish-remote-payload.yml` 仅由 `Loyage/lush` 的正式 `vX.Y.Z` tag push 触发，校验 package.json 版本及 main 历史后复用原生构建；依赖其成功的独立 Release 写权限 job 使用同运行 artifact 与固定 tag SHA 检出验证，发布 `payload-v<version>-<fingerprint>` 的三份资源，不替换已有匹配 Release。普通 main push、PR、手动 / 复用构建仍只有 artifact。下载器只在授权后取固定身份标签；本地构建 / `desktop:prepare DIR` 继续优先且不依赖 tag、Release 或联网，既有桌面安装器仍无自动发布或更新。
 
+根 `.gitattributes` 固定 `src/`、`bin/`、`package.json` 的 LF 检出，避免 Windows autocrlf 改变代码身份；运行包 / 双平台桌面 workflow 的 PR 与 main path filters 包含该文件，不能通过忽略字节差异修复身份失败。
+
 `.github/workflows/remote-payload.yml` 由原生 Linux x64 / ARM64 runner 构建与烟测，汇总为 `lush-remote-payload` artifact；Windows 与 macOS workflow 复用此工作流，下载并独立校验运行包，再构建客户端。macOS workflow 在原生 x64 / ARM64 runner 携带固定版本本机 Bun 与后台，验证后上传未签名 ZIP 和校验和，不发布 Release；源码开发者显式下载可信同检出 artifact，再使用 `desktop:prepare` 导入。
 
 `.github/workflows/windows-desktop.yml` 在 Windows runner 实际生成并校验 NSIS 安装器，手动、相关 PR 或 main 提交触发，仅上传 14 天保留的安装器与校验和 artifact。无 tag 发布、GitHub Release 写权限或签名密钥；真实 Windows 安装与远程连接仍需人工验收。Windows 主入口不得静态导入未打包的 `local-host.js`；macOS 本地入口按平台延迟加载，独立后台资源不进入 ASAR 或 Windows 包。
@@ -86,7 +88,7 @@
 | Web 读面与安全 | `test/web/{security,assets,read-models,project-route,core-studio,multi-project,launcher}.test.js`；assets 以一次模块图加载冒烟验证资源/CSP，并保留启动与供应资源契约 |
 | Web DOM | `test/web/dom-*.test.js`（各自 `boot()`） |
 | 远端运行包与桌面资源 | `test/packaging/remote-payload.test.js`（归档 / ELF / 哈希 / 固定版本 / 代码身份 / 原生可选烟测）、`desktop-remote-payload.test.js`（resources / 两架构 / 当前源码身份 / 包装字节 / 失败保留）；`remote-fixture.js` 是纯 ELF/ustar 测试数据生成器，不是实际运行时 |
-| macOS 打包与开发准备 | `test/packaging/macos-desktop.test.js`（平台 staging / ASAR / 双架构配置 / resources / ZIP 校验和 / CI 契约）、`desktop-local-runtime.test.js`（Mach-O / 版本 / 依赖 / 身份 / 哈希 / 原生可选 smoke）、`desktop-prepare.test.js`（显式导入 / 拒绝不同身份 / 替换授权 / 链接与状态保护） |
+| macOS 打包与开发准备 | `test/packaging/macos-desktop.test.js`（平台 staging / ASAR / 双架构配置 / resources / ZIP 校验和 / CI 契约）、`desktop-local-runtime.test.js`（Mach-O / 版本 / 依赖 / 身份 / 哈希 / 原生可选 smoke）、`desktop-prepare.test.js`（实际 Git autocrlf 检出一致性 / 显式导入 / 拒绝不同身份 / 替换授权 / 链接与状态保护） |
 | Windows 打包 | `test/packaging/windows-desktop.test.js`（白名单 / 清理隔离 / 静态依赖边界 / 真实 ASAR / 固定版本构建配置 schema / 安装器校验和 / CI 交付契约，不冒充 Windows 运行验证） |
 | 桌面连接与 SSH | `test/desktop/{connections,runtime,local-host,connection-ui,ssh,ssh-release,ssh-connection-ui,windows-connection-ui}.test.js`（窗口 / IPC / 一次安装授权 / 确认后 Release 下载、来源 / 身份 / 大小 / 取消与缓存安全 / 元数据 / 隔离 shell 安装）；`test/web/ssh-origin.test.js`（默认与显式 Host / Origin 边界）；可选 `test/integration/ssh-remote-live.test.js`（生产桌面 IPC / 授权 + 真实 sshd、私有 Bun、Host、项目 daemon、重连；仅窗口模拟） |
 | Notice 记录与提醒 | `test/project/{notice-page,notice-info,lifecycle-notice,notice-lifecycle-type,questionnaire}.test.js`、`test/web/{notice-records,notice-notifications,lifecycle-notice-api,overview-lifecycle-notices,dom-lifecycle-notices,settings,questionnaire}.test.js`；真实 Firefox 独立临时 fixture：`bun run ./test/web/check-notice-banner-browser.js`（精确桌面/390px 视口、WebDriver 原生触摸）与 `bun run ./test/web/check-notice-interaction.js`（CSP、键盘/PointerEvents）；两者需 Firefox/geckodriver，不连接用户 daemon |

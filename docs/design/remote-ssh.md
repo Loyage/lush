@@ -45,6 +45,8 @@ manifest 接口（版本 1）：
 
 archive 根目录包含 `bun`、`bin/`、完整 `src/`、`docs/`、`README.md`、`package.json` 和 `remote.json`。`docs/` 仅允许 Markdown 与共享校验器 `src/ui/desktop/remote-artifact.js` 中逐文件列出的已审核第三方许可证；源码采集与归档校验使用同一白名单，不泛化允许 `.txt`。`remote.json` 标记 version、target、lush_version、fingerprint、bun_version、bun_sha256，与 manifest 对应。不含外层目录、不跟随符号链接。保留源码以保持现有代码指纹一致，但不安装 Electron 二进制或任何 node_modules；远端执行仅使用 Bun 与现有服务入口。
 
+源码指纹仍比较原始字节，不能在校验时忽略换行或跳过哈希。仓库 `.gitattributes` 将 `src/`、`bin/` 与 `package.json` 固定为 LF 检出，覆盖 Windows 的 `core.autocrlf` 转换；同提交的跨平台构建应读取相同源码字节，不修改既有指纹算法或迁移历史产物。
+
 ## 确认后的 Release 下载
 
 - 固定可信发布者为 `Loyage/lush`，使用 `payload-v<lush_version>-<fingerprint>` 标签；不取 latest，不接受服务器或渲染器指定的下载 URL、仓库、路径或 token。源码开发按当前完整 src / bin / package.json 的可移植指纹定位；安装包把原检出的身份封入 ASAR manifest，不能拿裁剪后的桌面源码重新计算。
