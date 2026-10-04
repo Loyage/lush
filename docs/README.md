@@ -15,6 +15,7 @@
 - [核心架构](core-architecture.md) → [执行模型](engineering/execution-model.md) → [交付与验收](engineering/review-loop.md) → [工程架构索引](engineering/architecture.md)：当前主链的连续阅读。
 - [Worker 图与固定输入规则](engineering/task-graph.md)：实现、可信代码风险与读面边界；[Worker 中心输入](engineering/task-centered-input-design.md)：当前指令的设计约束。
 - [已合并 Worker 的持续迭代](engineering/task-iteration.md)：追加输入、多轮交付、验收与归档、安全父同步及历史显式恢复。
+- [工作台与开发环境](design/workbench.md)：主体启动、独立项目窗口、SSH 执行位置与后台开关；[工程接缝](engineering/workbench.md)记录接入范围与限制。
 - [模块设计理念](design/README.md)：修改相关模块前了解目标与取舍，不当作已实现功能清单。
 - [接口参考](reference/README.md)：CLI / RPC / HTTP / Web；[贡献指南](contributing/README.md)说明开发及文档写法。
 - [改进候选清单](todo/README.md)：保留尚未完成的建议与验证方向，已完成文档移出待办；候选不代表批准实施。

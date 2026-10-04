@@ -18,6 +18,10 @@
 - 用户只读 `worker.transcript_search(id,query?,kind?,tool?,errors?,after?,limit?)` 与 `worker.transcript_step(id,seq,offset?)`：前者跨完整 Worker 会话检索、分页摘要，后者按步骤读取分段原文及关联上下文；HTTP 用 `/api/worker/<id>/transcript-search`、`transcript-step`。
 - 终端跟随不新增 RPC：`lush worker transcript ID [--after N] --follow` 先按 `worker.transcript` 分页打印已有记录，再用 `worker.transcript_latest` 以游标轮询新步骤，直到 Ctrl-C；仅用户可运行，`--json` 不适用。
 
+## 工作台改造接缝
+
+用户已确认：启动直接进入主体，每项目独立窗口，Web SSH 在 Web 服务所在机器执行，关闭/断开后后台继续。修改启动、环境与项目入口前阅读[工作台设计](../design/workbench.md)；文件分工与新增接口以[工作台接入契约](workbench.md)为准。该接缝优先于下文旧首启连接页/项目闸门描述；逐步交付不得宣称尚未验收能力。
+
 ## 三条规矩
 
 1. **入口路径不变。** `src/core/project.js`、`src/core/workspaces.js`、`src/persistence/store.js`、

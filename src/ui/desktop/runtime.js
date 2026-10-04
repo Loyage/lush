@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
-import { ConnectionStore, isProjectPage, normalizeHostUrl, sameHost, sessionPartition } from './connections.js';
+import { ConnectionStore, gatewayNoticeKey, isProjectPage, normalizeHostUrl, sameHost, sessionPartition, workspaceIdentity } from './connections.js';
 import { readSSHConfig } from './ssh-config.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -16,7 +16,7 @@ export function createDesktop({ electron, userData, localHost, sshManager = null
   const { app, BrowserWindow, dialog, ipcMain, shell, Notification, Menu } = electron;
   const windows = new Map(), banners = new Map(), sessions = new WeakSet();
   const localSupported = platform !== 'win32' && Boolean(localHost);
-  let chooser = null, quitting = false, ready = false, localPending = null;
+  let chooser = null, quitting = false, ready = false, localPending = null, startupFailure = null;
   const sshInFlight = new Map(), sshProfiles = new Map();
 
   function requireSSH() {
@@ -146,8 +146,23 @@ export function createDesktop({ electron, userData, localHost, sshManager = null
     const entry = windows.get(event.sender.id);
     if (!entry || entry.kind !== kind || entry.window.isDestroyed() || event.senderFrame !== event.sender.mainFrame) throw new Error('untrusted desktop sender');
     const value = event.senderFrame.url;
-    if (kind === 'chooser' ? value !== CONNECTION_PAGE : !sameHost(value, entry.hostUrl) || !isProjectPage(value)) throw new Error('untrusted desktop sender');
+    if (kind === 'chooser') {
+      if (value !== CONNECTION_PAGE) throw new Error('untrusted desktop sender');
+      return entry;
+    }
+    const pageIdentity = sameHost(value, entry.hostUrl) ? workspaceIdentity(value) : null;
+    if (!pageIdentity) throw new Error('untrusted desktop sender');
+    entry.pageIdentity = pageIdentity;
     return entry;
+  }
+  function noticeKey(entry) {
+    return entry.pageIdentity?.type === 'gateway' ? gatewayNoticeKey(entry.hostUrl, entry.pageIdentity.environment) : entry.preferenceKey;
+  }
+  function currentNoticeKey(entry) {
+    if (entry.kind !== 'workspace' || entry.window.isDestroyed()) return null;
+    const value = entry.window.webContents.mainFrame.url;
+    const identity = sameHost(value, entry.hostUrl) ? workspaceIdentity(value) : null;
+    return identity?.type === 'gateway' ? gatewayNoticeKey(entry.hostUrl, identity.environment) : identity ? entry.preferenceKey : null;
   }
   function secureSession(session) {
     if (sessions.has(session)) return;
@@ -187,11 +202,11 @@ export function createDesktop({ electron, userData, localHost, sshManager = null
     return win;
   }
   function showError(error) { if (!quitting) dialog.showErrorBox('Lush 连接失败', error.message); }
-  function windowOptions(mode, hostUrl, kind, sshProfile = null) {
+  function windowOptions(mode, hostUrl, kind, sshProfile = null, capabilityMode = mode) {
     return { width: 1440, height: 920, minWidth: 880, minHeight: 620,
       title: sshProfile ? `Lush · SSH ${sshProfile.alias} · ${new URL(hostUrl).host}` : mode === 'remote' ? `Lush · 远程 ${new URL(hostUrl).host}` : 'Lush · 本地', backgroundColor: '#111719',
       webPreferences: {
-        ...(kind === 'workspace' ? { preload: path.join(HERE, 'preload.cjs'), additionalArguments: [`--lush-desktop-mode=${mode}`] } : {}),
+        ...(kind === 'workspace' ? { preload: path.join(HERE, 'preload.cjs'), additionalArguments: [`--lush-desktop-mode=${capabilityMode}`] } : {}),
         partition: sshProfile ? `persist:lush-ssh-${createHash('sha256').update(`${sshProfile.id}:${sshProfile.alias}`).digest('hex')}` : sessionPartition(mode, hostUrl),
         contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: false,
       } };
@@ -199,8 +214,11 @@ export function createDesktop({ electron, userData, localHost, sshManager = null
   async function openWorkspace(mode, hostUrl, target = hostUrl, kind = 'workspace', sshProfile = null) {
     if (quitting) throw new Error('桌面正在退出');
     if (!sameHost(target, hostUrl)) throw new Error('目标不属于所选 Host');
-    const win = track(new BrowserWindow(windowOptions(mode, hostUrl, kind, sshProfile)), { kind, mode, hostUrl, sshProfile,
-      preferenceKey: mode === 'local' ? 'local' : normalizeHostUrl(hostUrl) });
+    const identity = workspaceIdentity(target);
+    if (kind === 'workspace' && !identity) throw new Error('目标不是受信任的工作台页面');
+    const capabilityMode = identity?.type === 'gateway' ? 'gateway' : mode;
+    const win = track(new BrowserWindow(windowOptions(mode, hostUrl, kind, sshProfile, capabilityMode)), { kind, mode, hostUrl, sshProfile,
+      pageIdentity: identity, preferenceKey: mode === 'local' ? 'local' : normalizeHostUrl(hostUrl) });
     // Keep endpoint identity in the native title even when the remote document changes its title.
     win.on('page-title-updated', event => event.preventDefault());
     try { await win.loadURL(target); }
@@ -217,7 +235,9 @@ export function createDesktop({ electron, userData, localHost, sshManager = null
     localPending = (async () => {
       if (!localHost) throw new Error('本地 Host 未配置');
       const url = await localHost.start();
-      return await openWorkspace('local', url);
+      const win = await openWorkspace('local', url);
+      startupFailure = null;
+      return win;
     })().finally(() => { localPending = null; });
     return localPending;
   }
@@ -230,8 +250,8 @@ export function createDesktop({ electron, userData, localHost, sshManager = null
   function showConnections() {
     if (quitting) return null;
     if (chooser && !chooser.isDestroyed()) { focus(chooser); return chooser; }
-    chooser = track(new BrowserWindow({ width: 720, height: 700, minWidth: 520, minHeight: 560,
-      title: 'Lush · 连接', backgroundColor: '#111719', webPreferences: {
+    chooser = track(new BrowserWindow({ width: 1180, height: 780, minWidth: 760, minHeight: 560,
+      title: 'Lush · 工作台', backgroundColor: '#111719', webPreferences: {
         preload: path.join(HERE, 'connection-preload.cjs'), contextIsolation: true, nodeIntegration: false,
         sandbox: true, webviewTag: false, partition: 'persist:lush-connections',
       } }), { kind: 'chooser' });
@@ -242,9 +262,9 @@ export function createDesktop({ electron, userData, localHost, sshManager = null
     const recent = store.list();
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       ...(platform === 'darwin' ? [{ role: 'appMenu' }] : []),
-      { label: '连接', submenu: [
-        { label: '连接远程 Host / SSH…', accelerator: 'CmdOrCtrl+Shift+O', click: showConnections },
-        { label: localSupported ? '新建本地窗口' : '本地窗口不可用（请连接远程 Host）', enabled: localSupported,
+      { label: '工作台', submenu: [
+        { label: '项目与环境…', accelerator: 'CmdOrCtrl+Shift+O', click: showConnections },
+        { label: localSupported ? '新建本地工作台窗口' : '本地运行环境不可用（管理远程环境…）', enabled: localSupported,
           accelerator: 'CmdOrCtrl+Shift+N', click: () => { void openLocal().catch(showError); } },
         { label: '最近远程连接', enabled: recent.length > 0, submenu: recent.map(url => ({ label: url, click: () => { void openRemote(url).catch(showError); } })) },
         { type: 'separator' }, { role: 'close' }, ...(platform === 'darwin' ? [] : [{ role: 'quit' }]),
@@ -254,6 +274,8 @@ export function createDesktop({ electron, userData, localHost, sshManager = null
     ]));
   }
   function installIPC() {
+    ipcMain.handle('lush:startup-state', event => { trusted(event, 'chooser'); return { localSupported, failure: startupFailure }; });
+    ipcMain.handle('lush:open-connections', event => { trusted(event); showConnections(); return true; });
     ipcMain.handle('lush:connections-list', event => { trusted(event, 'chooser'); return store.list(); });
     ipcMain.handle('lush:connections-remove', (event, value) => { trusted(event, 'chooser'); store.remove(value); rebuildMenu(); return store.list(); });
     ipcMain.handle('lush:open-local', event => { trusted(event, 'chooser'); return openLocal().then(() => true); });
@@ -273,21 +295,19 @@ export function createDesktop({ electron, userData, localHost, sshManager = null
     });
     ipcMain.handle('lush:choose-project', async event => {
       const entry = trusted(event);
-      if (entry.mode !== 'local') throw new Error('remote windows cannot choose local directories');
+      if (entry.mode !== 'local' || entry.pageIdentity.type !== 'host' || entry.pageIdentity.route === 'login') throw new Error('remote and gateway windows cannot choose local directories');
       const result = await dialog.showOpenDialog(entry.window, { title: '选择 Lush 项目目录', properties: ['openDirectory', 'createDirectory'] });
       return result.canceled ? null : result.filePaths[0];
     });
     ipcMain.handle('lush:ui-preferences', (event, change) => {
       const entry = trusted(event);
-      if (entry.mode !== 'local') throw new Error('remote windows cannot access local UI preferences');
+      if (entry.mode !== 'local' || entry.pageIdentity.type !== 'host') throw new Error('remote and gateway windows cannot access local UI preferences');
       const projectFor = row => {
         const url = row.window.webContents.mainFrame.url;
         if (!sameHost(url, row.hostUrl)) throw new Error('untrusted desktop preference page');
-        const pathname = new URL(url).pathname;
-        if (pathname === '/') return null;
-        const id = /^\/p\/([a-f0-9]{16})\/?$/.exec(pathname)?.[1];
-        if (!id) throw new Error('untrusted desktop preference page');
-        return id;
+        const identity = workspaceIdentity(url);
+        if (!identity || identity.type !== 'host' || identity.route === 'login') throw new Error('untrusted desktop preference page');
+        return identity.project;
       };
       const result = store.uiPreferences(projectFor(entry), change);
       if (change !== undefined) for (const row of windows.values()) {
@@ -299,24 +319,24 @@ export function createDesktop({ electron, userData, localHost, sshManager = null
     });
     ipcMain.handle('lush:notice-preferences', (event, value) => {
       const entry = trusted(event);
-      return store.noticePreferences(entry.preferenceKey, value);
+      return store.noticePreferences(noticeKey(entry), value);
     });
     ipcMain.handle('lush:notification-settings', (event, enabled) => {
-      const entry = trusted(event), supported = Notification.isSupported();
+      const entry = trusted(event), supported = Notification.isSupported(), preferenceKey = noticeKey(entry);
       if (enabled !== undefined) {
-        store.setEnabled(entry.preferenceKey, enabled);
-        if (!enabled) for (const row of windows.values()) if (row.preferenceKey === entry.preferenceKey) closeBanners(row.window.webContents.id);
+        store.setEnabled(preferenceKey, enabled);
+        if (!enabled) for (const row of windows.values()) if (currentNoticeKey(row) === preferenceKey) closeBanners(row.window.webContents.id);
       }
-      return { enabled: supported && store.enabled(entry.preferenceKey), supported };
+      return { enabled: supported && store.enabled(preferenceKey), supported };
     });
     ipcMain.handle('lush:notice', (event, payload) => {
-      const entry = trusted(event);
-      if (!store.enabled(entry.preferenceKey) || !Notification.isSupported()) return false;
+      const entry = trusted(event), preferenceKey = noticeKey(entry);
+      if (!store.enabled(preferenceKey) || !Notification.isSupported()) return false;
       if (!payload || !['title', 'body', 'tag'].every(key => typeof payload[key] === 'string' && payload[key].length <= 4000)) throw new Error('invalid notification');
       const target = payload.notice_id === undefined && payload.task_id === undefined ? null : { notice_id: payload.notice_id, task_id: payload.task_id };
       if (target && ![target.notice_id, target.task_id].every(value => Number.isSafeInteger(value) && value > 0)) throw new Error('invalid notification target');
       const sourcePath = new URL(event.senderFrame.url).pathname;
-      const key = `${entry.preferenceKey}:${payload.tag}`;
+      const key = `${preferenceKey}:${payload.tag}`;
       banners.get(key)?.banner.close();
       const banner = new Notification({ title: payload.title, body: payload.body });
       banners.set(key, { banner, id: event.sender.id });
@@ -342,18 +362,28 @@ export function createDesktop({ electron, userData, localHost, sshManager = null
   }
   function start() {
     if (!app.requestSingleInstanceLock()) { app.quit(); return Promise.resolve(); }
+    const openInitialWorkbench = async () => {
+      if (!localSupported) { showConnections(); return; }
+      try { await openLocal(); }
+      catch (error) {
+        startupFailure = `本地工作台启动失败：${error.message}`;
+        showConnections();
+        showError(new Error(`${startupFailure}。你仍可在工作台中管理环境、打开 HTTPS Host 或使用 SSH。`));
+      }
+    };
     app.on('second-instance', () => {
       if (!ready || quitting) return;
       const focused = BrowserWindow.getFocusedWindow();
       const win = focused || [...windows.values()].find(entry => entry.kind === 'workspace')?.window;
-      if (win) focus(win); else showConnections();
+      if (win) focus(win); else void openInitialWorkbench();
     });
     app.on('before-quit', dispose);
     app.on('window-all-closed', () => { if (platform !== 'darwin') app.quit(); });
-    return app.whenReady().then(() => {
+    return app.whenReady().then(async () => {
       if (quitting) return;
-      ready = true; installIPC(); rebuildMenu(); showConnections();
-      app.on('activate', () => { if (!windows.size) showConnections(); });
+      ready = true; installIPC(); rebuildMenu();
+      await openInitialWorkbench();
+      app.on('activate', () => { if (!windows.size) void openInitialWorkbench(); });
     });
   }
   return { start, openLocal, openRemote, showConnections, dispose };

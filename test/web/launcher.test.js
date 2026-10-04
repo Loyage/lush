@@ -80,7 +80,7 @@ test('全局公网 Web 缺少项目白名单时拒绝启动', () => {
   } finally { fs.rmSync(global, { recursive: true, force: true }); }
 });
 
-test('无项目 Web 首次要求选择绝对路径，登记后按项目身份路由与恢复', async () => {
+test('无项目 Web 首次进入工作台项目管理，显式登记后按项目身份路由', async () => {
   const root = temp();
   const global = temp();
   const env = { ...process.env, LUSH_GLOBAL_CONFIG: global };
@@ -89,7 +89,9 @@ test('无项目 Web 首次要求选择绝对路径，登记后按项目身份路
   const url = `http://127.0.0.1:${web.port}`;
   try {
     expect((await fetch(url + '/')).status).toBe(200);
-    expect(await (await fetch(url + '/')).text()).toContain('id="project-gate"');
+    const shell = await (await fetch(url + '/')).text();
+    expect(shell).toContain('id="projects-open"');
+    expect(shell).not.toContain('id="project-gate"');
     expect((await fetch(url + '/project-picker.js')).status).toBe(200);
     expect(await (await fetch(url + '/api/host')).json()).toMatchObject({ mode: 'host', project: null, last_project: null, projects: [] });
     expect((await fetch(url + '/api/launcher')).status).not.toBe(200);
@@ -117,6 +119,11 @@ test('无项目 Web 首次要求选择绝对路径，登记后按项目身份路
     // 只报告「上次打开」供新窗口决定落点；不因此自动连接或启动 daemon。
     expect(status).toMatchObject({ project: null, last_project: fs.realpathSync(root), last_project_id: id, projects: [{ id, project: fs.realpathSync(root), }] });
     expect(restoredCalls).toEqual([]);
+    // 列表与恢复都不偷启后台；用户显式打开走 select，之后项目 API 才可用。
+    expect((await fetch(`http://127.0.0.1:${restored.port}/p/${id}/api/snapshot`)).status).toBe(400);
+    expect(restoredCalls).toEqual([]);
+    const reopened = await fetch(`http://127.0.0.1:${restored.port}/api/host/select`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: root }) });
+    expect(reopened.status).toBe(200);
     expect((await fetch(`http://127.0.0.1:${restored.port}/p/${id}/api/snapshot`)).status).toBe(200);
     expect(restoredCalls).toEqual([fs.realpathSync(root)]);
   } finally {

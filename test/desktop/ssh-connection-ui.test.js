@@ -272,6 +272,8 @@ test('SSH entry explains installation boundaries without model-call styling or c
   expect(html).not.toContain('type="password"'); expect(html).not.toContain('agent-call');
   expect(source).not.toContain('innerHTML'); expect(source).not.toContain('window.confirm');
   expect(html).toContain('data-help="只通过 SSH 检查');
-  expect(html.indexOf('aria-labelledby="ssh-heading"')).toBeLessThan(html.indexOf('aria-labelledby="local-heading"'));
+  expect(html.indexOf('aria-labelledby="local-heading"')).toBeLessThan(html.indexOf('aria-labelledby="ssh-heading"'));
+  expect(html).toContain('data-workbench-view="projects"');
+  expect(html).toContain('data-workbench-view="environments" hidden');
   expect(html.indexOf('id="ssh-config-hosts"')).toBeLessThan(html.indexOf('id="ssh-form"'));
 });

@@ -2,7 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { Config } from '../config.js';
 import { UIClient } from '../ui/client.js';
-import { daemon } from '../cli/daemon.js';
+import { startProjectDaemon, stopProjectDaemon } from './service-control.js';
 import { check } from '../core/types.js';
 import { canonicalProjectPath, readLauncherState, removeLauncherProject, projectRouteId, writeLauncherState } from './registry.js';
 
@@ -12,13 +12,21 @@ export function createProjectHost(initialConfig = null, options = {}) {
   const allowedProjects = options.allowedProjects ? new Set(options.allowedProjects) : null;
   const openProject = options.openProject || (async project => {
     const config = new Config({ project, env });
-    await daemon(config, 'start');
+    await startProjectDaemon(config);
     return { config, client: new UIClient(config) };
   });
+  // Attaching an API client is read-only. A stale tab or a second Host must never
+  // undo an explicit stop merely by polling a registered project.
+  const attachProject = options.attachProject || (async project => {
+    const config = new Config({ project, env });
+    return { config, client: new UIClient(config) };
+  });
+  const stopProject = options.stopProject || stopProjectDaemon;
   const boundProject = initialConfig ? initialConfig.project : null;
   /** 每个 canonical 路径一份连接与客户端；连接失败只脏这一格，不影响其它项目。 */
   const connections = new Map();
   const inflight = new Map();
+  const stopping = new Set();
   const failures = new Map();
   /** 摘要读取的退避：不可达项目不每轮重试，但不影响其它项目的行。 */
   const summaryBackoff = new Map();
@@ -50,20 +58,27 @@ export function createProjectHost(initialConfig = null, options = {}) {
     return null;
   }
 
-  /** 同一项目的并发打开只做一次启动 / 连接尝试（single-flight）。 */
-  async function connect(project) {
-    const existing = connections.get(project);
-    if (existing) return existing;
+  /** Only explicit select/start may launch a daemon; API attachment never does. */
+  async function connect(project, start = false) {
+    check(!stopping.has(project), '项目后台正在停止，请稍后再试');
     const pending = inflight.get(project);
-    if (pending) return await pending;
+    if (pending) {
+      await pending;
+      // A read-only attachment is not evidence that explicit start completed.
+      if (!start || pending.startsDaemon) return connections.get(project);
+      return await connect(project, true);
+    }
+    const existing = connections.get(project);
+    if (existing && !start) return existing;
     const attempt = (async () => {
-      const next = await openProject(project);
+      const next = await (start ? openProject : attachProject)(project);
       check(next?.config && next?.client, 'project opener returned an invalid binding');
       connections.set(project, next);
       failures.delete(project);
       summaryBackoff.delete(project);
       return next;
     })();
+    attempt.startsDaemon = start;
     inflight.set(project, attempt);
     try { return await attempt; }
     catch (error) { failures.set(project, error.message); throw error; }
@@ -83,7 +98,13 @@ export function createProjectHost(initialConfig = null, options = {}) {
     const project = canonicalProjectPath(value, env);
     check(!allowedProjects || allowedProjects.has(project), `项目不在全局 Web 白名单中：${project}`);
     writeLauncherState(project, env);
-    await connect(project);
+    await connect(project, true);
+    return project;
+  }
+
+  function requirePath(id) {
+    const project = routePath(id);
+    check(project, `未知或已失效的项目身份：${id}（请刷新页面或从项目列表重新打开）`);
     return project;
   }
 
@@ -92,7 +113,7 @@ export function createProjectHost(initialConfig = null, options = {}) {
     async status() {
       const state = launcher ? readLauncherState(env) : { last_project: boundProject };
       const last = state.last_project && (!allowedProjects || allowedProjects.has(state.last_project)) ? state.last_project : null;
-      return { mode: launcher ? 'host' : 'bound', project: boundProject,
+      return { mode: launcher ? 'host' : 'bound', project: boundProject, project_control: true,
         last_project: last, last_project_id: last ? projectRouteId(last) : null,
         error: null, ...(launcher && allowedProjects ? { allowed_projects: [...allowedProjects] } : {}),
         projects: entries() };
@@ -125,17 +146,32 @@ export function createProjectHost(initialConfig = null, options = {}) {
       }));
     },
     async select(value) { return await select(value); },
-    /** 项目页请求：解析 ID、必要时连接；未知 / 失效身份显式报错，绝不回退到「当前项目」。 */
-    async openRoute(id) {
-      const project = routePath(id);
-      check(project, `未知或已失效的项目身份：${id}（请刷新页面或从项目列表重新打开）`);
-      return await connect(project);
+    async start(id) {
+      const project = requirePath(id);
+      await connect(project, true);
+      return { started: true, id: projectRouteId(project), project };
     },
+    async stop(id) {
+      const project = requirePath(id);
+      check(!stopping.has(project) && !inflight.has(project), '项目后台正在启动、停止或连接，请稍后再试');
+      stopping.add(project);
+      try {
+        const config = connections.get(project)?.config || new Config({ project, env });
+        const result = await stopProject(config);
+        connections.delete(project);
+        failures.delete(project);
+        summaryBackoff.delete(project);
+        return { ...result, id: projectRouteId(project) };
+      } finally { stopping.delete(project); }
+    },
+    /** API requests attach only; unavailable projects stay offline until explicit start. */
+    async openRoute(id) { return await connect(requirePath(id)); },
     /** 从列表移除：只删入口并断开 Web 连接，不停止 daemon。 */
     remove(id) {
       check(launcher, 'this Web UI is bound to one project');
       const project = routePath(id);
       check(project, `未知的项目身份：${id}`);
+      check(!stopping.has(project) && !inflight.has(project), '项目后台正在启动、停止或连接，请稍后再试');
       const state = removeLauncherProject(project, env);
       connections.delete(project);
       failures.delete(project);

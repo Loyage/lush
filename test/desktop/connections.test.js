@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { normalizeHostUrl, sameHost, sessionPartition, isProjectPage, ConnectionStore } from '../../src/ui/desktop/connections.js';
+import { normalizeHostUrl, sameHost, sessionPartition, isProjectPage, workspaceIdentity, gatewayNoticeKey, ConnectionStore } from '../../src/ui/desktop/connections.js';
 
 const temporary = () => fs.mkdtempSync(path.join(os.tmpdir(), 'lush-desktop-test-'));
 
@@ -28,8 +28,16 @@ test('workspace origins and session partitions never confuse local and remote or
   expect(sessionPartition('remote', host)).not.toBe(sessionPartition('remote', 'https://two.example.com'));
   expect(sessionPartition('local', 'http://127.0.0.1:1234/')).toBe(sessionPartition('local', 'http://127.0.0.1:5678/'));
   expect(sessionPartition('remote', 'http://127.0.0.1:1234/')).not.toBe(sessionPartition('local', 'http://127.0.0.1:1234/'));
-  for (const value of ['/', '/login', '/p/abcdef0123456789/', '/p/abcdef0123456789/#notices']) expect(isProjectPage(host.slice(0, -1) + value)).toBe(true);
-  for (const value of ['/api/docs/a', '/p/abcdef0123456789/api/worker/1/report', '/unknown']) expect(isProjectPage(host.slice(0, -1) + value)).toBe(false);
+  const hex = '0123456789abcdef0123456789abcdef', uuid = '123e4567-e89b-42d3-a456-426614174000';
+  for (const value of ['/', '/login', '/p/abcdef0123456789/', '/p/abcdef0123456789/#notices', `/e/${hex}/`, `/e/${uuid}/p/abcdef0123456789/`]) {
+    expect(isProjectPage(host.slice(0, -1) + value)).toBe(true);
+  }
+  expect(workspaceIdentity(`${host}e/${hex}/p/abcdef0123456789/`)).toEqual({ type: 'gateway', environment: hex,
+    project: 'abcdef0123456789', route: 'project' });
+  for (const value of ['/api/docs/a', '/p/abcdef0123456789/api/worker/1/report', '/unknown', '/e/not-an-id/',
+    `/e/${hex}/api/host`, `/e/${hex}/p/not-a-project/`, `/e/${uuid}/p/abcdef0123456789/extra`]) {
+    expect(isProjectPage(host.slice(0, -1) + value)).toBe(false);
+  }
 });
 
 test('connection shortcuts are canonical, bounded and persist independently of cookies and notices', () => {
@@ -52,6 +60,11 @@ test('connection shortcuts are canonical, bounded and persist independently of c
     expect(fs.statSync(store.file).mode & 0o777).toBe(0o600);
     expect(fs.readdirSync(dir)).toEqual(['connections.json']);
     expect(() => store.setEnabled('local', 'yes')).toThrow();
+    const gatewayA = gatewayNoticeKey('https://one.example.com/', '0123456789abcdef0123456789abcdef');
+    const gatewayB = gatewayNoticeKey('https://one.example.com/', 'fedcba9876543210fedcba9876543210');
+    store.setEnabled(gatewayA, true);
+    expect(store.enabled(gatewayA)).toBe(true); expect(store.enabled(gatewayB)).toBe(false);
+    expect(() => store.setEnabled('gateway:forged', true)).toThrow();
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

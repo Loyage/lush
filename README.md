@@ -33,7 +33,7 @@ CLI 使用 `lush order '目标'`（源码快捷命令 `bun run order`），RPC /
 - **Lush Host**（`bin/lush-host` / `bun run lush host start`）：本机入口，提供 UI、认证、项目登记、连接与请求转发。一个 Host 可连接多个项目；列表只探测已登记项目的 lushd，打开项目时按需连接或启动。它的 `launcher.json` 仅是界面元数据，不是项目事实来源。
 - **lushd**（`bin/lushd`）：每个 canonical 项目目录一个 daemon，独占该项目的 SQLite、RPC、Agent 与 Git 工作区；事实写入 `<project>/.lush/`。CLI `lush` 也是项目客户端，可直接连接 lushd。
 
-Host 不进行跨项目调度。共享同一份 Lush 代码的不同项目互不干扰；项目 API 始终带 `/p/<project-id>/` 身份，宿主 API 在 `/api/host`。
+Host 不进行跨项目调度。共享同一份 Lush 代码的不同项目互不干扰；项目 API 带 `/p/<project-id>/` 身份，受管 SSH 环境另带 `/e/<environment-id>/` 前缀。主体中的「项目管理」「环境与连接」区分打开窗口、连接环境和启停后台；关闭窗口或断开 SSH 不停止开发。设计与施工边界见[工作台与开发环境](docs/design/workbench.md)及[接入契约](docs/engineering/workbench.md)。
 
 ### 人类把关：Agent 不是沙箱
 

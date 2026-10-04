@@ -12,11 +12,25 @@ const sshAlias = document.getElementById('ssh-alias');
 const sshPlan = document.getElementById('ssh-plan');
 const sshConfirm = document.getElementById('ssh-confirm');
 const sshCancel = document.getElementById('ssh-cancel');
+const viewTitles = { projects: '项目', environments: '环境', settings: '设置', help: '帮助' };
+function openView(name) {
+  if (!Object.hasOwn(viewTitles, name)) return;
+  for (const view of document.querySelectorAll('[data-workbench-view]')) view.hidden = view.dataset.workbenchView !== name;
+  for (const item of document.querySelectorAll('[data-workbench-nav]')) {
+    const active = item.dataset.workbenchNav === name;
+    item.classList.toggle('active', active);
+    if (active) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current');
+  }
+  const title = document.getElementById('view-title');
+  if (title) title.textContent = viewTitles[name];
+}
+for (const item of document.querySelectorAll('[data-workbench-nav]')) item.addEventListener('click', () => openView(item.dataset.workbenchNav));
+for (const item of document.querySelectorAll('[data-open-view]')) item.addEventListener('click', () => openView(item.dataset.openView));
 if (!localSupported) {
-  const reason = 'Windows 客户端仅连接远程 Linux / macOS Lush Host，不启动本地后台，也不需要本机 Bun。';
+  const reason = 'Windows 客户端不启动本地 Bun、Host 或 daemon；请在「环境」中连接 Linux / macOS Host。';
   document.getElementById('local-help').textContent = reason;
   document.getElementById('local-help-host').dataset.help = reason;
-  document.getElementById('connection-intro').textContent = '连接远程 Host，在独立窗口中管理项目。关闭窗口不会停止远端 Worker 或服务。';
+  document.getElementById('connection-intro').textContent = '这是可用的本机管理工作台。你可以管理环境并打开远程项目；关闭窗口不会停止远端 Worker 或服务。';
 }
 
 function paintBusy() {
@@ -203,6 +217,9 @@ sshConfirm.addEventListener('click', () => {
 sshCancel.addEventListener('click', () => { if (!sshCancel.disabled) void cancelSSH(); });
 paintBusy();
 initHelp();
+if (typeof bridge.startupState === 'function') void bridge.startupState().then(state => {
+  if (state?.failure) error.textContent = `${state.failure}。管理工作台仍可使用。`;
+}).catch(() => {});
 void refresh().catch(failure => { error.textContent = `无法读取连接记录：${failure.message}`; });
 window.addEventListener('focus', () => { if (!busy) void refresh().catch(failure => { error.textContent = failure.message; }); });
 window.addEventListener('pagehide', () => { if (sshSupported) void bridge.sshCancel().catch(() => {}); });

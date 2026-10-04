@@ -4,6 +4,11 @@ import { createHash, randomUUID } from 'node:crypto';
 
 const MAX_RECENT = 12;
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+const PROJECT_ID = '[a-f0-9]{16}';
+const ENVIRONMENT_ID = '(?:[a-f0-9]{32}|[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})';
+const LOCAL_ROOT = new RegExp(`^/(?:$|login$|p/(${PROJECT_ID})(?:/|/login)?$)`);
+const GATEWAY_ROOT = new RegExp(`^/e/(${ENVIRONMENT_ID})(?:/p/(${PROJECT_ID}))?/?$`);
+const GATEWAY_NOTICE_KEY = new RegExp(`^gateway:[a-f0-9]{64}:${ENVIRONMENT_ID}$`);
 
 // Only serialized UI preferences, never renderer-selected storage keys or paths.
 const SHARED_UI = new Set(['theme', 'markdown', 'reduceMotion', 'polling', 'toastDuration', 'transcriptOrder']);
@@ -78,9 +83,29 @@ export function sessionPartition(mode, hostUrl) {
   return mode === 'local' ? 'persist:lush-local' : `persist:lush-remote-${createHash('sha256').update(normalizeHostUrl(hostUrl)).digest('hex')}`;
 }
 
-export function isProjectPage(value) {
-  try { return /^(?:\/|\/login|\/p\/[a-f0-9]{16}\/?|\/p\/[a-f0-9]{16}\/login)$/.test(new URL(value).pathname); }
-  catch { return false; }
+export function workspaceIdentity(value) {
+  try {
+    const pathname = new URL(value).pathname;
+    const gateway = GATEWAY_ROOT.exec(pathname);
+    if (gateway) return { type: 'gateway', environment: gateway[1], project: gateway[2] || null, route: gateway[2] ? 'project' : 'root' };
+    const local = LOCAL_ROOT.exec(pathname);
+    if (!local) return null;
+    return { type: 'host', environment: null, project: local[1] || null,
+      route: pathname.endsWith('/login') || pathname === '/login' ? 'login' : local[1] ? 'project' : 'root' };
+  } catch { return null; }
+}
+
+export function isProjectPage(value) { return workspaceIdentity(value) !== null; }
+
+/** Native-notice state for gateway pages is isolated by both entry Host and environment identity. */
+export function gatewayNoticeKey(hostUrl, environment) {
+  if (typeof environment !== 'string' || !new RegExp(`^${ENVIRONMENT_ID}$`).test(environment)) throw new Error('invalid gateway environment identity');
+  return `gateway:${createHash('sha256').update(normalizeHostUrl(hostUrl)).digest('hex')}:${environment}`;
+}
+
+function normalizeNoticeKey(key) {
+  if (key === 'local' || typeof key === 'string' && GATEWAY_NOTICE_KEY.test(key)) return key;
+  return normalizeHostUrl(key);
 }
 
 /** Client metadata / managed UI only; login cookies belong to Electron's per-Host session partition. */
@@ -99,7 +124,7 @@ export class ConnectionStore {
     if (raw.notifications && typeof raw.notifications === 'object') {
       for (const [key, enabled] of Object.entries(raw.notifications)) {
         if (typeof enabled !== 'boolean') continue;
-        try { notifications[key === 'local' ? key : normalizeHostUrl(key)] = enabled; } catch { /* ignore */ }
+        try { notifications[normalizeNoticeKey(key)] = enabled; } catch { /* ignore */ }
       }
     }
     // Preserve the old desktop preference for local windows only, never for new remote Hosts.
@@ -110,7 +135,7 @@ export class ConnectionStore {
     const noticeChannels = {};
     if (raw.noticeChannels && typeof raw.noticeChannels === 'object' && !Array.isArray(raw.noticeChannels)) {
       for (const [key, value] of Object.entries(raw.noticeChannels)) {
-        try { noticeChannels[key === 'local' ? key : normalizeHostUrl(key)] = normalizeNoticePreferences(value); }
+        try { noticeChannels[normalizeNoticeKey(key)] = normalizeNoticePreferences(value); }
         catch { /* Invalid endpoints must not become preference identities. */ }
       }
     }
@@ -169,7 +194,7 @@ export class ConnectionStore {
     this.write(state); // Forgetting a shortcut deliberately does not erase cookies or running windows.
   }
   noticePreferences(key, value) {
-    key = key === 'local' ? key : normalizeHostUrl(key);
+    key = normalizeNoticeKey(key);
     const state = this.read();
     if (value !== undefined) {
       state.noticeChannels[key] = normalizeNoticePreferences(value);
@@ -180,7 +205,7 @@ export class ConnectionStore {
   enabled(key) { return this.read().notifications[key] === true; }
   setEnabled(key, enabled) {
     if (typeof enabled !== 'boolean') throw new Error('invalid notification preference');
-    key = key === 'local' ? key : normalizeHostUrl(key);
+    key = normalizeNoticeKey(key);
     const state = this.read(); state.notifications[key] = enabled; this.write(state);
   }
 }

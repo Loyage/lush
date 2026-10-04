@@ -8,7 +8,7 @@ import { createDesktop } from '../../src/ui/desktop/runtime.js';
 export function desktopFixture(platform = 'linux', sshManager = null, sshError = null, sshConfig = () => ({ hosts: [], warnings: [] })) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-desktop-runtime-'));
   const all = [], notices = [], handlers = new Map(), sessions = new Map(), errors = [], external = [];
-  let starts = 0, stops = 0, picks = 0, failNext = false, template, localUrl = 'http://127.0.0.1:4318/';
+  let starts = 0, stops = 0, picks = 0, failNext = false, localRunning = false, localError = null, template, localUrl = 'http://127.0.0.1:4318/';
   const app = new EventEmitter();
   Object.assign(app, { requestSingleInstanceLock: () => true, whenReady: async () => {}, quit: () => app.emit('before-quit') });
   class BrowserWindow extends EventEmitter {
@@ -47,11 +47,14 @@ export function desktopFixture(platform = 'linux', sshManager = null, sshError =
     shell: { openExternal: async url => external.push(url) },
     dialog: { showErrorBox: (...args) => errors.push(args), showOpenDialog: async () => { picks++; return { canceled: false, filePaths: ['/local/project'] }; } },
   };
-  const desktop = createDesktop({ electron, userData: dir, platform, sshManager, sshError, sshConfig, localHost: { start: async () => { starts++; return localUrl; }, stop: () => { stops++; } } });
+  const desktop = createDesktop({ electron, userData: dir, platform, sshManager, sshError, sshConfig, localHost: {
+    start: async () => { if (localError) throw new Error(localError); if (!localRunning) { starts++; localRunning = true; } return localUrl; },
+    stop: () => { if (localRunning) { stops++; localRunning = false; } },
+  } });
   const event = (win, frame = win.webContents.mainFrame) => ({ sender: win.webContents, senderFrame: frame });
   const invoke = async (name, win, ...args) => handlers.get(name)(event(win), ...args);
   return { desktop, all, notices, errors, external, event, handlers, invoke, electron,
-    stats: () => ({ starts, stops, picks, template }), fail: () => { failNext = true; },
+    stats: () => ({ starts, stops, picks, template }), fail: () => { failNext = true; }, failLocal: message => { localError = message; },
     changeLocalUrl: url => { localUrl = url; },
     close: () => { desktop.dispose(); for (const win of all) if (!win.isDestroyed()) win.destroy(); fs.rmSync(dir, { recursive: true, force: true }); } };
 }

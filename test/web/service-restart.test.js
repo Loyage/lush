@@ -50,7 +50,7 @@ test('host restart acknowledges before callback and refuses duplicate requests',
 });
 
 test('project restart resolves only request project identity; missing and unknown identities never fall back', async () => {
-  const a = await setup(), b = await setup(), global = temp(), launcherEnv = env({ XDG_CONFIG_HOME: global });
+  const a = await setup(), b = await setup(), global = temp(), launcherEnv = env({ LUSH_GLOBAL_CONFIG: global });
   writeLauncherState(a.root, launcherEnv); writeLauncherState(b.root, launcherEnv);
   const web = startWeb(null, 0, { env: launcherEnv, openProject: async project => {
     const f = project === a.root ? a : b;

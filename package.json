@@ -13,6 +13,7 @@
     "test:packaging": "bun test ./test/packaging",
     "test:all": "bun test --parallel=4",
     "docs:check": "bun ./scripts/docs-check.js",
+    "check:workbench": "bun ./scripts/check-workbench.js",
     "measure:read-performance": "bun ./scripts/measure-read-performance.js",
     "lush": "bun ./bin/lush",
     "lushd": "bun ./bin/lushd",

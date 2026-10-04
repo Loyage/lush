@@ -14,7 +14,7 @@
 import { COLLAPSED_KEY, FILTERS_KEY, parseCollapsed, parseFilters, serializeCollapsed } from './sidebar.js';
 import { SORT_MODES } from './tree-order.js';
 import { STATUS } from './format.js';
-import { projectRoute } from './route.js';
+import { preferenceScope, projectRoute } from './route.js';
 
 export const MARKDOWN_KEY = 'lush.markdown';
 export const THEME_KEY = 'lush.theme';
@@ -145,8 +145,8 @@ function prefKey(def) {
 
 /** 把一个 localStorage 键挂到当前项目下；单项目模式 / 全局根保持原键。供 prefs 以外的模块（Task 图折叠等）复用。 */
 export function scopedKey(base) {
-  const id = projectRoute();
-  return id ? `${base}:${id}` : base;
+  const scope = preferenceScope();
+  return scope ? `${base}:${scope}` : base;
 }
 
 /** localStorage 是否可写：隐私模式 / 内嵌 webview 里写不进去，调用方切换到内存兜底。 */

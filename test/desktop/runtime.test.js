@@ -9,7 +9,7 @@ test('SSH config discovery is chooser-only, read-only and independent of SSH met
   const result = { hosts: [{ alias: 'configured-server' }], warnings: [] };
   const f = fixture('win32', null, 'bad records', () => { reads++; return result; });
   try {
-    await f.desktop.start(); const chooser = f.all[0];
+    await f.desktop.start(); const chooser = f.desktop.showConnections();
     expect(reads).toBe(0);
     expect(await f.invoke('lush:ssh-config', chooser, { path: '/must-not-be-used' })).toEqual(result);
     expect(reads).toBe(1); expect(f.stats().starts).toBe(0); expect(f.all).toHaveLength(1);
@@ -22,21 +22,22 @@ test('SSH config discovery is chooser-only, read-only and independent of SSH met
 test('SSH initialization errors preserve local and URL workflows and are reported only on SSH use', async () => {
   const f = fixture('linux', null, 'SSH 连接记录损坏；未重置记录');
   try {
-    await f.desktop.start(); const chooser = f.all[0];
+    await f.desktop.start(); const chooser = f.desktop.showConnections();
     await expect(f.invoke('lush:ssh-inspect', chooser, { alias: 'server' })).rejects.toThrow('未重置记录');
     await f.desktop.openLocal(); await f.desktop.openRemote('https://existing.example.com');
-    expect(f.stats().starts).toBe(1); expect(f.all).toHaveLength(3);
+    expect(f.stats().starts).toBe(1); expect(f.all).toHaveLength(4);
   } finally { f.close(); }
 });
 
-test('connection page starts without Bun, then local and multiple remote windows coexist safely', async () => {
+test('supported desktop starts in the local workbench and can open the management shell and more windows', async () => {
   const f = fixture();
   try {
-    await f.desktop.start(); const chooser = f.all[0];
-    expect(f.stats().starts).toBe(0);
+    await f.desktop.start(); const localStartup = f.all[0], chooser = f.desktop.showConnections();
+    expect(f.stats().starts).toBe(1);
+    expect(localStartup.webContents.mainFrame.url).toBe('http://127.0.0.1:4318/');
     expect(chooser.webContents.mainFrame.url).toEndWith('/connection.html');
     await f.invoke('lush:open-remote', chooser, 'https://one.example.com');
-    const remote = f.all[1];
+    const remote = f.all.at(-1);
     const local = await f.desktop.openLocal();
     const other = await f.desktop.openRemote('https://two.example.com');
     expect(f.stats().starts).toBe(1);
@@ -62,10 +63,68 @@ test('connection page starts without Bun, then local and multiple remote windows
   } finally { f.close(); }
 });
 
+test('local startup failure falls back to the trusted management workbench without quitting', async () => {
+  const f = fixture();
+  try {
+    f.failLocal('private runtime is unavailable');
+    await f.desktop.start();
+    expect(f.all).toHaveLength(1);
+    expect(f.all[0].webContents.mainFrame.url).toEndWith('/connection.html');
+    expect(f.errors[0][0]).toBe('Lush 连接失败');
+    expect(f.errors[0][1]).toContain('管理环境');
+    expect(await f.invoke('lush:startup-state', f.all[0])).toEqual({ localSupported: true,
+      failure: '本地工作台启动失败：private runtime is unavailable' });
+    expect(f.stats().stops).toBe(0);
+  } finally { f.close(); }
+});
+
+test('workspace management trampoline opens only the trusted shell and grants no SSH IPC', async () => {
+  const f = fixture();
+  try {
+    await f.desktop.start();
+    const remote = await f.desktop.openRemote('https://one.example.com');
+    expect(await f.invoke('lush:open-connections', remote)).toBe(true);
+    const shell = f.all.at(-1);
+    expect(shell.webContents.mainFrame.url).toEndWith('/connection.html');
+    expect(shell.options.webPreferences.preload).toEndWith('connection-preload.cjs');
+    await expect(f.invoke('lush:ssh-list', remote)).rejects.toThrow('untrusted');
+    expect(() => f.handlers.get('lush:open-connections')(f.event(remote, { url: remote.webContents.mainFrame.url }))).toThrow('untrusted');
+  } finally { f.close(); }
+});
+
+test('gateway routes are owned workspaces with remote-like capabilities and invalid identities remain previews', async () => {
+  const f = fixture(), environment = '0123456789abcdef0123456789abcdef', project = 'abcdef0123456789';
+  try {
+    await f.desktop.start(); const local = f.all[0];
+    local.webContents.openHandler({ url: `http://127.0.0.1:4318/e/${environment}/p/${project}/` });
+    const gateway = f.all.at(-1);
+    expect(path.basename(gateway.options.webPreferences.preload)).toBe('preload.cjs');
+    expect(gateway.options.webPreferences.additionalArguments).toContain('--lush-desktop-mode=gateway');
+    expect(gateway.options.webPreferences.partition).toBe(local.options.webPreferences.partition);
+    expect(await f.invoke('lush:open-connections', gateway)).toBe(true);
+    await expect(f.invoke('lush:choose-project', gateway)).rejects.toThrow('gateway');
+    await expect(f.invoke('lush:ui-preferences', gateway)).rejects.toThrow('gateway');
+    await expect(f.invoke('lush:ssh-list', gateway)).rejects.toThrow('untrusted');
+    local.webContents.mainFrame.url = `http://127.0.0.1:4318/e/${environment}/`;
+    await expect(f.invoke('lush:choose-project', local)).rejects.toThrow('gateway');
+    await expect(f.invoke('lush:ui-preferences', local)).rejects.toThrow('gateway');
+
+    local.webContents.openHandler({ url: `http://127.0.0.1:4318/e/${environment}/api/host` });
+    const invalid = f.all.at(-1);
+    expect(invalid.options.webPreferences.preload).toBeUndefined();
+    await expect(f.invoke('lush:open-connections', invalid)).rejects.toThrow('untrusted');
+    for (const path of ['/e/not-an-id/', `/e/${environment}/p/not-a-project/`, `/e/${environment}/p/${project}/extra`]) {
+      local.webContents.mainFrame.url = `http://127.0.0.1:4318${path}`;
+      await expect(f.invoke('lush:choose-project', local)).rejects.toThrow('untrusted');
+    }
+  } finally { f.close(); }
+});
+
 test('Windows is remote-only: menu, direct calls and trusted IPC never start a local Host', async () => {
   const f = fixture('win32');
   try {
-    await f.desktop.start(); const chooser = f.all[0];
+    await f.desktop.start(); const chooser = f.desktop.showConnections();
+    expect(f.stats().template[0].label).toBe('工作台');
     const item = f.stats().template[0].submenu.find(row => row.accelerator === 'CmdOrCtrl+Shift+N');
     expect(item.enabled).toBe(false); expect(item.label).toContain('不可用');
     await expect(f.desktop.openLocal()).rejects.toThrow('Windows 不会启动');
@@ -95,7 +154,7 @@ test('connection preload reports Windows local support without exposing platform
     bridge.sshConnect({ confirmation: 'opaque', install: true }); bridge.sshCancel(); bridge.sshDisconnect('record-id');
     expect(calls.slice(1)).toEqual([['lush:ssh-config'], ['lush:ssh-list'], ['lush:ssh-inspect', { alias: 'server' }],
       ['lush:ssh-connect', { confirmation: 'opaque', install: true }], ['lush:ssh-cancel'], ['lush:ssh-disconnect', 'record-id']]);
-    expect(Object.keys(bridge).sort()).toEqual(['localSupported', 'list', 'openLocal', 'openRemote', 'remove',
+    expect(Object.keys(bridge).sort()).toEqual(['localSupported', 'startupState', 'list', 'openLocal', 'openRemote', 'remove',
       'sshConfig', 'sshList', 'sshInspect', 'sshConnect', 'sshCancel', 'sshDisconnect'].sort());
   }
 });
@@ -128,7 +187,7 @@ test('directory picker rejects untrusted senders before opening a dialog and can
   const f = fixture();
   try {
     await f.desktop.start();
-    const chooser = f.all[0], local = await f.desktop.openLocal();
+    const chooser = f.desktop.showConnections(), local = await f.desktop.openLocal();
     const handler = f.handlers.get('lush:choose-project');
     await expect(handler({ sender: { id: 999 }, senderFrame: {} })).rejects.toThrow('untrusted');
     await expect(handler(f.event(local, { url: 'http://127.0.0.1:4318/' }))).rejects.toThrow('untrusted');
@@ -166,14 +225,14 @@ test('project popups remain owned and scoped; previews have no preload; external
     expect(f.external).toEqual([]);
     remote.webContents.openHandler({ url: 'https://docs.example.com/' });
     expect(f.external).toEqual(['https://docs.example.com/']);
-    expect(f.stats().starts).toBe(0);
+    expect(f.stats().starts).toBe(1);
   } finally { f.close(); }
 });
 
 test('local UI IPC derives project identity, persists across ports and broadcasts only trusted local snapshots', async () => {
   const f = fixture(), a = 'aaaaaaaaaaaaaaaa', b = 'bbbbbbbbbbbbbbbb';
   try {
-    await f.desktop.start(); const chooser = f.all[0], local = await f.desktop.openLocal();
+    await f.desktop.start(); const chooser = f.desktop.showConnections(), local = await f.desktop.openLocal();
     const handler = f.handlers.get('lush:ui-preferences');
     const remote = await f.desktop.openRemote('http://127.0.0.1:4318/');
     expect(() => handler(f.event(remote))).toThrow('remote');
@@ -236,11 +295,29 @@ test('notice preference IPC shares a stable local identity and isolates canonica
   } finally { f.close(); }
 });
 
+test('gateway native notice settings are isolated by entry Host and environment identity', async () => {
+  const f = fixture(), first = '0123456789abcdef0123456789abcdef', second = 'fedcba9876543210fedcba9876543210';
+  try {
+    await f.desktop.start(); const local = f.all[0];
+    local.webContents.openHandler({ url: `http://127.0.0.1:4318/e/${first}/` }); const a = f.all.at(-1);
+    local.webContents.openHandler({ url: `http://127.0.0.1:4318/e/${second}/` }); const b = f.all.at(-1);
+    expect(await f.invoke('lush:notification-settings', a)).toMatchObject({ enabled: false });
+    await f.invoke('lush:notification-settings', a, true);
+    expect(await f.invoke('lush:notification-settings', a)).toMatchObject({ enabled: true });
+    expect(await f.invoke('lush:notification-settings', b)).toMatchObject({ enabled: false });
+    expect(await f.invoke('lush:notification-settings', local)).toMatchObject({ enabled: false });
+    const defaults = await f.invoke('lush:notice-preferences', b);
+    await f.invoke('lush:notice-preferences', a, { failed: { system: false } });
+    expect((await f.invoke('lush:notice-preferences', a)).failed.system).toBe(false);
+    expect((await f.invoke('lush:notice-preferences', b))).toEqual(defaults);
+  } finally { f.close(); }
+});
+
 test('notice preference IPC never accepts caller identities, foreign frames, chooser or preview windows', async () => {
   const f = fixture();
   try {
     await f.desktop.start();
-    const chooser = f.all[0], remote = await f.desktop.openRemote('https://one.example.com');
+    const chooser = f.desktop.showConnections(), remote = await f.desktop.openRemote('https://one.example.com');
     const handler = f.handlers.get('lush:notice-preferences');
     for (const value of [undefined, { failed: { system: false }, host: 'https://two.example.com/', path: '/tmp/file' }]) {
       expect(() => handler({ sender: { id: 999 }, senderFrame: {} }, value)).toThrow('untrusted');
@@ -318,8 +395,12 @@ test('notification preload validates target and restores only a safe source proj
   expect(location.hash).toBe('#notice-50');
   click({}, { notice_id: 51, task_id: 4, pathname: '/p/1111111111111111/' });
   expect(location.href).toBe('/p/1111111111111111/#notice-51');
+  const environment = '0123456789abcdef0123456789abcdef';
+  click({}, { notice_id: 52, task_id: 4, pathname: `/e/${environment}/p/1111111111111111/` });
+  expect(location.href).toBe(`/e/${environment}/p/1111111111111111/#notice-52`);
   for (const target of [{ notice_id: '50', task_id: 4, pathname: '/' }, { notice_id: 50, task_id: -1, pathname: '/' },
-    { notice_id: 50, task_id: 4, pathname: '//evil.test' }, { notice_id: 50, task_id: 4, pathname: '/api/action' }]) {
+    { notice_id: 50, task_id: 4, pathname: '//evil.test' }, { notice_id: 50, task_id: 4, pathname: '/api/action' },
+    { notice_id: 50, task_id: 4, pathname: `/e/${environment}/api/host` }]) {
     location.hash = ''; location.href = '';
     click({}, target); expect(location.hash).toBe(''); expect(location.href).toBe('');
   }
@@ -334,7 +415,7 @@ test('network failure closes only the failed window, preserves others and surfac
     await expect(f.desktop.openRemote('https://two.example.com')).rejects.toThrow('不会自动重发 Worker 操作');
     expect(f.all.at(-1).destroyed).toBe(true); expect(good.destroyed).toBe(false);
     await expect(f.desktop.openRemote('http://evil.test')).rejects.toThrow('HTTPS');
-    expect(f.stats().starts).toBe(0);
+    expect(f.stats().starts).toBe(1);
     f.desktop.dispose();
     await expect(f.desktop.openRemote('https://three.example.com')).rejects.toThrow('退出');
   } finally { f.close(); }
@@ -357,7 +438,7 @@ test('early activation cannot create a window before Electron is ready or after 
 
 test('sandboxed preloads expose only mode-specific capabilities, never a generic IPC channel', () => {
   const source = fs.readFileSync(new URL('../../src/ui/desktop/preload.cjs', import.meta.url), 'utf8');
-  for (const mode of ['local', 'remote', 'unknown']) {
+  for (const mode of ['local', 'remote', 'gateway', 'unknown']) {
     let bridge, exposed; const calls = [];
     vm.runInNewContext(source, { require: name => {
       if (name !== 'electron') throw new Error('unexpected require');
@@ -365,13 +446,15 @@ test('sandboxed preloads expose only mode-specific capabilities, never a generic
         ipcRenderer: { invoke: (...args) => calls.push(args), on: () => {} } };
     }, process: { argv: [`--lush-desktop-mode=${mode}`], platform: 'linux' }, window: { location: {} } });
     expect(exposed).toBe('lushDesktop'); expect(bridge.invoke).toBeUndefined();
+    expect(bridge.mode).toBe(['local', 'gateway'].includes(mode) ? mode : 'remote');
     expect(Boolean(bridge.chooseProject)).toBe(mode === 'local');
-    bridge.notifyNotice({ title: 'x' }); expect(calls[0][0]).toBe('lush:notice');
+    bridge.openConnections(); expect(calls[0]).toEqual(['lush:open-connections']);
+    bridge.notifyNotice({ title: 'x' }); expect(calls[1][0]).toBe('lush:notice');
     bridge.noticePreferences();
     const prefs = { idle: { banner: false, system: true } };
     bridge.noticePreferences(prefs);
     bridge.notificationSettings(); bridge.notificationSettings(true);
-    expect(calls.slice(1)).toEqual([['lush:notice-preferences', undefined], ['lush:notice-preferences', prefs],
+    expect(calls.slice(2)).toEqual([['lush:notice-preferences', undefined], ['lush:notice-preferences', prefs],
       ['lush:notification-settings', undefined], ['lush:notification-settings', true]]);
     if (mode === 'local') {
       bridge.readPreferences(); bridge.writePreference('theme', 'dark'); bridge.resetPreferences();
@@ -379,7 +462,7 @@ test('sandboxed preloads expose only mode-specific capabilities, never a generic
       expect(() => bridge.onPreferencesChanged('not a callback')).toThrow();
     }
     expect(Object.keys(bridge).sort()).toEqual([...(mode === 'local' ? ['chooseProject', 'readPreferences', 'writePreference', 'resetPreferences', 'onPreferencesChanged'] : []),
-      'mode', 'noticePreferences', 'notificationSettings', 'notifyNotice', 'platform'].sort());
+      'mode', 'noticePreferences', 'notificationSettings', 'notifyNotice', 'openConnections', 'platform'].sort());
   }
 });
 
@@ -412,7 +495,7 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
 test('SSH first install needs a saved preflight and single-use confirmation; managed URLs never become ordinary shortcuts', async () => {
   const ssh = mockSSH(), f = fixture('win32', ssh.manager);
   try {
-    await f.desktop.start(); const chooser = f.all[0];
+    await f.desktop.start(); const chooser = f.desktop.showConnections();
     await expect(f.invoke('lush:ssh-connect', chooser, { confirmation: 'made-up', install: true })).rejects.toThrow('先预检');
     expect(ssh.connected).toEqual([]);
     const inspection = await f.invoke('lush:ssh-inspect', chooser, { alias: 'my-server' });
@@ -440,7 +523,7 @@ test('SSH first install needs a saved preflight and single-use confirmation; man
 test('SSH identities come from saved records or the main process and cannot be rebound to another alias', async () => {
   const ssh = mockSSH(), f = fixture('linux', ssh.manager);
   try {
-    await f.desktop.start(); const chooser = f.all[0];
+    await f.desktop.start(); const chooser = f.desktop.showConnections();
     const id = '0123456789abcdef0123456789abcdef';
     ssh.state.records = [{ id, alias: 'saved-server', connected: false }];
     const existing = await f.invoke('lush:ssh-inspect', chooser, { alias: 'saved-server' });
@@ -461,7 +544,7 @@ test('SSH identities come from saved records or the main process and cannot be r
 test('every SSH IPC rejects workspaces, previews, foreign senders and chooser subframes', async () => {
   const ssh = mockSSH(), f = fixture('linux', ssh.manager);
   try {
-    await f.desktop.start(); const chooser = f.all[0], remote = await f.desktop.openRemote('https://server.example.com');
+    await f.desktop.start(); const chooser = f.desktop.showConnections(), remote = await f.desktop.openRemote('https://server.example.com');
     remote.webContents.openHandler({ url: 'https://server.example.com/api/docs/example' });
     const preview = f.all.at(-1);
     for (const name of ['lush:ssh-config', 'lush:ssh-list', 'lush:ssh-inspect', 'lush:ssh-connect', 'lush:ssh-cancel', 'lush:ssh-disconnect']) {
@@ -477,7 +560,7 @@ test('every SSH IPC rejects workspaces, previews, foreign senders and chooser su
 test('SSH cancellation revokes plans and prevents late checks or connections from opening windows', async () => {
   const ssh = mockSSH(), f = fixture('linux', ssh.manager);
   try {
-    await f.desktop.start(); const chooser = f.all[0];
+    await f.desktop.start(); const chooser = f.desktop.showConnections();
     const checked = await f.invoke('lush:ssh-inspect', chooser, { alias: 'server' });
     await f.invoke('lush:ssh-cancel', chooser);
     await expect(f.invoke('lush:ssh-connect', chooser, { confirmation: checked.confirmation, install: true })).rejects.toThrow('先预检');
@@ -495,7 +578,7 @@ test('SSH cancellation revokes plans and prevents late checks or connections fro
     const failedConnect = connecting.catch(error => error);
     await f.invoke('lush:ssh-cancel', chooser); connectGate.resolve();
     expect((await failedConnect).message).toContain('已取消');
-    expect(f.all).toHaveLength(1);
+    expect(f.all).toHaveLength(2);
     expect(ssh.disconnected).toContain(next.profile.id);
   } finally { f.close(); }
 });
@@ -503,7 +586,7 @@ test('SSH cancellation revokes plans and prevents late checks or connections fro
 test('SSH chooser reload and close invalidate pending authorizations while workspace close keeps its tunnel', async () => {
   const ssh = mockSSH(), f = fixture('linux', ssh.manager);
   try {
-    await f.desktop.start(); const chooser = f.all[0];
+    await f.desktop.start(); const chooser = f.desktop.showConnections();
     const inspection = await f.invoke('lush:ssh-inspect', chooser, { alias: 'server' });
     chooser.webContents.emit('did-start-navigation', {}, chooser.webContents.mainFrame.url, false, true);
     await expect(f.invoke('lush:ssh-connect', chooser, { confirmation: inspection.confirmation, install: true })).rejects.toThrow('先预检');
@@ -511,7 +594,7 @@ test('SSH chooser reload and close invalidate pending authorizations while works
     const next = await f.invoke('lush:ssh-inspect', chooser, { alias: 'server' });
     await f.invoke('lush:ssh-connect', chooser, { confirmation: next.confirmation, install: true });
     expect(ssh.connected.at(-1).options.install).toBe(false); // Cannot use the flag to install without an install plan.
-    const workspace = f.all[1], partition = workspace.options.webPreferences.partition;
+    const workspace = f.all[2], partition = workspace.options.webPreferences.partition;
     workspace.webContents.openHandler({ url: 'http://127.0.0.1:14318/p/abcdef0123456789/' });
     expect(f.all.at(-1).options.webPreferences.partition).toBe(partition);
     workspace.destroy(); expect(ssh.disconnected).toEqual([]);
@@ -532,7 +615,7 @@ test('SSH chooser reload and close invalidate pending authorizations while works
 test('SSH closed chooser rejects late inspection and strict profile validation does not pass commands to the manager', async () => {
   const ssh = mockSSH(), f = fixture('linux', ssh.manager);
   try {
-    await f.desktop.start(); const chooser = f.all[0];
+    await f.desktop.start(); const chooser = f.desktop.showConnections();
     for (const value of [null, { alias: '-oProxyCommand=evil' }, { alias: 'server;echo secret' }, { alias: 'user@server' }, { alias: 'server', password: 'secret' }]) {
       await expect(f.invoke('lush:ssh-inspect', chooser, value)).rejects.toThrow('Host 别名');
     }
@@ -542,6 +625,6 @@ test('SSH closed chooser rejects late inspection and strict profile validation d
     const failed = pending.catch(error => error);
     chooser.destroy(); gate.resolve();
     expect((await failed).message).toContain('已取消');
-    expect(ssh.disconnected).toHaveLength(1); expect(f.all).toHaveLength(1);
+    expect(ssh.disconnected).toHaveLength(1); expect(f.all).toHaveLength(2);
   } finally { f.close(); }
 });

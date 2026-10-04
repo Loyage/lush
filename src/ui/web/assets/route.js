@@ -1,37 +1,73 @@
 /**
- * 当前页面的项目身份只来自地址本身：`/p/<id>/...` 是本页所属项目，`/` 表示单项目模式或全局项目列表。
- *
- * 这是多项目隔离的根据：标签页 A 的每个请求都带 A 的 `/p/<id>/`，服务端按 ID 校验；
- * 任何「全局最后选中的项目」都不会改变这个页面的请求目标，所以别的标签页切项目不可能把
- * A 的写操作送到 B。模块不 import 任何东西，`api.js` 与 `prefs.js` 都以它为准。
+ * 工作台身份只来自地址：本地项目 `/p/<pid>/`，远端环境 `/e/<eid>/`，
+ * 远端项目 `/e/<eid>/p/<pid>/`。未知/离线环境仍保留环境身份，绝不回落本地项目。
  */
-const ROUTE = /^\/p\/([a-z0-9]{16})(?:\/|$)/;
+const PROJECT_ID = '[a-z0-9]{16}';
+// 接受有界安全段以便未知/未来环境身份仍保持离线 shell；服务端会进一步校验已知 UUID。
+const ENV_ID = '[A-Za-z0-9_-]{1,128}';
+const LOCAL_PROJECT = new RegExp(`^/p/(${PROJECT_ID})(?:/|$)`);
+const ENVIRONMENT = new RegExp(`^/e/(${ENV_ID})(?:/|$)`);
+const ENV_PROJECT = new RegExp(`^/e/(${ENV_ID})/p/(${PROJECT_ID})(?:/|$)`);
 
 function pathname() { return globalThis.location?.pathname || '/'; }
 
-/** 本页所属项目的路由 ID；不在项目页面（单项目模式或全局列表）时为 null。 */
-export function projectRoute() {
-  return ROUTE.exec(pathname())?.[1] ?? null;
+export function routeContext() {
+  const path = pathname();
+  const remote = ENV_PROJECT.exec(path);
+  if (remote) return { environment: remote[1], project: remote[2], remote: true };
+  const environment = ENVIRONMENT.exec(path);
+  if (environment) return { environment: environment[1], project: null, remote: true };
+  const local = LOCAL_PROJECT.exec(path);
+  if (!local && /^\/(?:e|p)(?:\/|$)/.test(path)) return { environment: null, project: null, remote: path.startsWith('/e'), invalid: true };
+  return { environment: null, project: local?.[1] ?? null, remote: false };
 }
 
-/** 本页项目的 URL 前缀（`/p/<id>`）；单项目模式 / 全局根为空。 */
+export function environmentRoute() { return routeContext().environment; }
+export function projectRoute() { return routeContext().project; }
+
+/** 当前环境入口；本地为空。 */
+export function environmentBase() {
+  const id = environmentRoute();
+  return id ? `/e/${encodeURIComponent(id)}` : '';
+}
+
+/** 当前项目 API 前缀。环境存在时始终保留 `/e/<id>`，即使项目不存在。 */
 export function projectBase() {
-  const id = projectRoute();
-  return id ? `/p/${id}` : '';
+  const route = routeContext();
+  if (route.environment && route.project) return `/e/${encodeURIComponent(route.environment)}/p/${route.project}`;
+  if (route.project) return `/p/${route.project}`;
+  return environmentBase();
 }
 
 /**
- * 把站内项目 API 路径挂到本页项目前缀下：`/api/worker/1` → `/p/<id>/api/worker/1`。
- * 启动器与随代码发布的文档是宿主级资源，始终留在无前缀路径（它们不属于任何项目）。
+ * 项目 API 跟随环境+项目；`/api/host` 属于当前环境（远端为 `/e/<id>/api/host`）。
+ * 只有入口 Host 自己的环境管理 `/api/environments` 与随版本发布的文档永远不经 `/e` 代理。
  */
 export function projectApi(path) {
+  if (!path.startsWith('/api/')) return path;
+  if (path.startsWith('/api/environments') || path.startsWith('/api/docs')) return path;
+  if (routeContext().invalid) throw new Error('当前环境或项目地址无效；未回落到本地项目');
+  if (path.startsWith('/api/host')) {
+    const environment = environmentBase();
+    return environment ? `${environment}${path}` : path;
+  }
   const base = projectBase();
-  if (!base || !path.startsWith('/api/')) return path;
-  if (path.startsWith('/api/host') || path.startsWith('/api/docs')) return path;
-  return `${base}${path}`;
+  return base ? `${base}${path}` : path;
 }
 
-/** 打开某个项目的地址；`suffix` 带 hash 时可直接深链接到任务或页面。 */
-export function projectHref(id, suffix = '/') {
-  return `/p/${id}${suffix}`;
+export function environmentHref(id, suffix = '/') {
+  return `/e/${encodeURIComponent(id)}${suffix}`;
+}
+
+/** 默认在当前环境内打开项目；传 null 可显式生成本地项目地址。 */
+export function projectHref(id, suffix = '/', environment = environmentRoute()) {
+  if (typeof id !== 'string' || !/^[a-f0-9]{16}$/.test(id)) throw new Error('无效的项目身份');
+  return environment ? `/e/${encodeURIComponent(environment)}/p/${id}${suffix}` : `/p/${id}${suffix}`;
+}
+
+/** 偏好隔离身份。本地项目继续只用 pid，兼容已有 localStorage 键。 */
+export function preferenceScope() {
+  const route = routeContext();
+  if (route.environment) return route.project ? `e:${route.environment}:p:${route.project}` : `e:${route.environment}`;
+  return route.project;
 }

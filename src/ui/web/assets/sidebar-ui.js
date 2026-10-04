@@ -3,6 +3,9 @@ import { ui } from './state.js';
 
 const RESOURCE_META = new Map(SIDEBAR_SECTIONS.map(section => [section.id, section]));
 const PAGES = {
+  projects: ['项目管理', '工作台', '登记、打开与安全控制项目后台'],
+  environments: ['开发环境', '工作台', '本地、SSH 与 HTTPS Host 连接'],
+  unavailable: ['项目不可用', '工作台', '项目离线时仍可使用环境、设置与帮助'],
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
   'task-graph': ['Worker 树', '工作', 'Worker 父子关系 · Agent、分支与 worktree'],
   versions: ['版本迭代', '工作', 'main 主线历史 · 提交与 Worker / 指令追溯'],
@@ -20,7 +23,11 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
   const hintNode = node('view-hint'); if (hintNode) hintNode.textContent = hint;
   if (globalThis.document) document.title = `Lush · ${title}`;
   const back = node('view-back');
-  if (back) { back.disabled = Boolean(root); back.title = root ? '已经在项目概览' : '返回上一页面'; }
+  if (back) {
+    back.disabled = Boolean(root);
+    back.removeAttribute('title');
+    back.setAttribute('data-help', root ? '已经在项目概览' : '返回上一页面');
+  }
 }
 
 /** 页面身份是唯一导航状态；旧读标记在此统一投影，面板不得各自设置。 */

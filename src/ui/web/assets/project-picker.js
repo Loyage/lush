@@ -1,22 +1,29 @@
 import { api } from './api.js';
-import { projectHref, projectRoute } from './route.js';
+import { confirmDialog } from './dialog.js';
+import { el } from './dom.js';
+import { projectHref, projectRoute, environmentRoute } from './route.js';
+import { activateDetailView } from './sidebar-ui.js';
+import { ui } from './state.js';
 
 function node(id) { return globalThis.document?.getElementById?.(id) ?? null; }
 let launcher = false;
+let hostStatus = null;
+let projectUsable = false;
+let managerRequest = 0;
 
-function setError(message = '') {
-  const target = node('project-error');
-  if (target) { target.textContent = message; target.hidden = !message; }
+export function workbenchStatus() {
+  return { launcher, host: hostStatus, projectUsable, environment: environmentRoute(), project: projectRoute() };
 }
 
-/* ---------- 项目列表（宿主级界面元数据 + 已连接项目的有界摘要） ---------- */
+function setError(message = '', target = node('project-error')) {
+  if (target) { target.textContent = message; target.hidden = !message; }
+}
 
 function summaryText(row) {
   if (row.error) return row.error;
   if (row.running === false) return row.connected ? 'lushd 未运行' : '未运行';
-  if (!row.connected && !row.running) return '未打开';
   const summary = row.summary;
-  if (!summary) return '已连接';
+  if (!summary) return row.running ? '运行中' : '未打开';
   const parts = [];
   if (summary.notices > 0) parts.push(`待决 ${summary.notices}`);
   if (summary.waiting_approval > 0) parts.push(`待批计划 ${summary.waiting_approval}`);
@@ -24,188 +31,199 @@ function summaryText(row) {
   return parts.length ? parts.join(' · ') : '空闲';
 }
 
-/**
- * 每个项目一个链接：href 就是该项目的稳定身份路由，浏览器前进 / 后退与深链接都直接可用。
- * 已经打开着别的项目时用新标签打开，当前标签的输入与导航不因「看看另一个项目」被清空。
- */
-function projectItems(rows) {
-  const document = globalThis.document;
-  if (!document) return [];
-  const current = projectRoute();
-  const newTab = Boolean(current);
-  return rows.map(row => {
-    const item = document.createElement('li');
-    item.className = 'project-item';
-    if (row.id === current) item.dataset.current = 'true';
-    const link = document.createElement('a');
-    link.className = 'project-open';
-    link.href = projectHref(row.id);
-    if (newTab) { link.target = '_blank'; link.rel = 'noopener'; }
-    const name = document.createElement('strong'); name.textContent = row.name;
-    const path = document.createElement('small'); path.textContent = row.project;
-    link.append(name, path);
-    const status = document.createElement('span');
-    status.className = row.error ? 'project-status error' : 'project-status';
-    status.textContent = summaryText(row);
-    item.append(link, status);
+function controlCapability() {
+  const value = hostStatus?.capabilities?.project_control ?? hostStatus?.project_control;
+  return value === true || value?.supported === true;
+}
+
+async function projectControl(kind, row, status, repaint) {
+  const copy = {
+    start: ['启动项目后台？', `启动 ${row.name || row.project} 的项目 daemon。`, '启动'],
+    stop: ['停止项目后台？', '仅在没有活动调用、Git 写入或其它繁忙工作时安全停止；不会取消 Worker。', '停止'],
+    remove: ['移除项目入口？', '只从此 Host 的项目列表移除入口并断开 Web 连接，不停止项目后台，也不删除项目数据。', '移除'],
+  }[kind];
+  if (!copy) return;
+  const confirmed = await confirmDialog({ title: copy[0], message: copy[1], detail: row.project || '', confirmLabel: copy[2], danger: kind !== 'start' });
+  if (!confirmed) return;
+  status.textContent = `${copy[2]}中…`;
+  try {
+    const endpoint = kind === 'remove' ? '/api/host/remove' : `/api/host/projects/${kind}`;
+    await api(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: row.id }) });
+    await repaint();
+  } catch (error) { status.textContent = error.message; status.classList.add('error'); }
+}
+
+function projectItem(row, repaint, { compact = false } = {}) {
+  const item = el('li', undefined, 'project-item');
+  const link = el('a', undefined, 'project-open');
+  link.href = projectHref(row.id); link.target = '_blank'; link.rel = 'noopener';
+  link.append(el('strong', row.name || '未命名项目'), el('small', row.project || '路径不可用'));
+  // Keep a real link for modifier clicks and popup-blocked fallback. Ordinary
+  // open is explicit start, never a side effect of reading the project list.
+  let opening = false;
+  if (controlCapability() || launcher) link.onclick = event => {
+    if (event?.button > 0 || event?.metaKey || event?.ctrlKey || event?.shiftKey || event?.altKey) return;
+    event?.preventDefault?.();
+    if (opening) return;
+    opening = true;
+    const popup = reserveProjectWindow();
+    const endpoint = controlCapability() ? '/api/host/projects/start' : '/api/host/select';
+    const body = controlCapability() ? { id: row.id } : { project: row.project };
+    void api(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(result => {
+        const target = projectHref(result?.id || row.id);
+        if (!completeProjectWindow(popup, target)) {
+          link.onclick = null;
+          status.textContent = '后台已就绪；点此项目在新窗口打开';
+        }
+      })
+      .catch(error => { popup?.close?.(); status.textContent = error.message; status.classList.add('error'); })
+      .finally(() => { opening = false; });
+  };
+  const status = el('span', summaryText(row), `project-status${row.error ? ' error' : ''}`);
+  item.append(link, status);
+  if (!compact) {
+    const actions = el('span', undefined, 'project-item-actions');
+    if (controlCapability()) {
+      const kind = row.running ? 'stop' : 'start';
+      const control = el('button', kind === 'stop' ? '停止后台' : '启动后台', 'ghost'); control.type = 'button';
+      control.setAttribute('data-help', kind === 'stop' ? '通过空闲准入安全停止项目后台；不会取消 Worker 或删除项目' : '显式启动这个项目的后台；读取列表不会自动启动');
+      control.onclick = () => void projectControl(kind, row, status, repaint); actions.append(control);
+    }
     if (launcher) {
-      const remove = document.createElement('button');
-      remove.type = 'button'; remove.className = 'ghost project-remove';
-      remove.textContent = '移除';
-      remove.setAttribute('data-help', '只从项目列表移除入口并断开这个 Web 连接，不会停止项目的 daemon；停止请用项目命令');
-      remove.onclick = () => void removeProject(row, item);
-      item.append(remove);
+      const remove = el('button', '移除入口', 'ghost project-remove'); remove.type = 'button';
+      remove.setAttribute('data-help', '只删除这个 Host 保存的项目入口，不停止后台、不删除项目或 Worker 数据');
+      remove.onclick = () => void projectControl('remove', row, status, repaint); actions.append(remove);
     }
-    return item;
-  });
+    item.append(actions);
+  }
+  return item;
 }
 
-function paint(containerId, rows) {
+function paint(containerId, rows, repaint = refreshProjectList, options) {
   const list = node(containerId);
-  if (list) list.replaceChildren(...projectItems(rows));
+  if (list) list.replaceChildren(...rows.map(row => projectItem(row, repaint, options)));
 }
 
-async function removeProject(row, item) {
-  item.querySelector?.('.project-remove')?.setAttribute('disabled', '');
-  try {
-    await api('/api/host/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: row.id }) });
-    item.remove?.();
-    if (row.id === projectRoute() && typeof globalThis.location?.assign === 'function') globalThis.location.assign('/');
-  } catch (error) { setError(error.message); item.querySelector?.('.project-remove')?.removeAttribute('disabled'); }
-}
-
-/** 读取项目列表与已经连接项目的有界摘要（`system.summary`：状态 + 待决数），不启动没打开过的 daemon。 */
+/** 只探测已登记项目；不会 select、启动或写项目。 */
 export async function refreshProjectList() {
-  const panel = node('project-list-panel');
-  const gate = node('project-gate');
-  const visible = (panel && !panel.hidden) || (gate && !gate.hidden);
-  if (!visible) return;
+  const list = node('project-list');
+  const recent = node('project-recent-list');
+  if (!list && !recent) return;
   try {
-    const { projects } = await api('/api/host/projects');
-    paint('project-list', projects);
-    paint('project-recent-list', projects);
-    const recent = node('project-recent');
-    if (recent) recent.hidden = projects.length === 0;
-  } catch { /* 列表读取失败不影响项目页面本身 */ }
+    const { projects = [] } = await api('/api/host/projects');
+    paint('project-list', projects, refreshProjectList);
+    paint('project-recent-list', projects, refreshProjectList, { compact: true });
+    const box = node('project-recent'); if (box) box.hidden = projects.length === 0;
+  } catch { /* Offline list refresh must not become an unhandled rejection or erase inputs. */ }
 }
 
-/* ---------- 选择 / 切换 ---------- */
-
-export function openProjectPicker(status = {}) {
-  const gate = node('project-gate');
-  if (!gate) return;
-  const input = node('project-path');
-  const project = status.project || status.last_project || status.allowed_projects?.[0] || '';
-  if (input) input.value = project;
-  const list = node('project-options');
-  if (list) list.replaceChildren(...(status.allowed_projects || []).map(value => {
-    const option = list.ownerDocument.createElement('option'); option.value = value; return option;
-  }));
-  const hint = node('project-hint');
-  if (hint) hint.textContent = status.allowed_projects
-    ? '公网启动器只能打开全局 web.json 白名单中的项目。'
-    : '首次打开必须指定绝对路径。之后会自动恢复最后使用的项目，也可以随时切换。';
-  setError(status.error || '');
-  const cancel = node('project-cancel');
-  if (cancel) { cancel.hidden = !projectRoute() && !status.project; cancel.onclick = () => closeProjectPicker(); }
-  gate.hidden = false;
-  gate.setAttribute('aria-hidden', 'false');
-  node('project-app')?.setAttribute?.('inert', '');
-  paint('project-recent-list', status.projects || []);
-  const recent = node('project-recent');
-  if (recent) recent.hidden = !(status.projects || []).length;
-  input?.focus?.();
-  void refreshProjectList();
-}
-
-export function closeProjectPicker() {
-  const gate = node('project-gate');
-  if (gate) { gate.hidden = true; gate.setAttribute('aria-hidden', 'true'); }
-  node('project-app')?.removeAttribute?.('inert');
-}
-
-async function selectProject() {
-  const input = node('project-path');
-  const submit = node('project-submit');
-  if (submit) submit.disabled = true;
-  setError();
+function reserveProjectWindow() {
   try {
-    const result = await api('/api/host/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: input?.value || '' }) });
-    if (!result?.id) throw new Error('启动器没有返回项目身份，请刷新页面后重试');
-    closeProjectPicker();
-    const target = projectHref(result.id);
-    // 在别的项目页面里切换：新标签打开，当前标签的输入与页面保持不变。
-    if (projectRoute() && typeof globalThis.open === 'function') globalThis.open(target, '_blank', 'noopener');
-    else globalThis.location?.assign?.(target);
-  } catch (error) {
-    setError(error.message);
-    if (submit) submit.disabled = false;
-  }
+    const popup = globalThis.open?.('about:blank', '_blank') ?? globalThis.window?.open?.('about:blank', '_blank') ?? null;
+    if (popup) popup.opener = null;
+    return popup;
+  } catch { return null; }
 }
 
-async function openSwitcher() {
-  try { openProjectPicker(await api('/api/host')); }
-  catch (error) { setError(error.message); }
-}
-
-function bindPicker(status) {
-  const form = node('project-form');
-  if (form && !form.dataset.bound) {
-    form.dataset.bound = 'true';
-    form.addEventListener('submit', event => { event.preventDefault(); void selectProject(); });
-  }
-  const choose = node('project-choose');
-  const desktop = globalThis.lushDesktop;
-  if (choose) {
-    choose.hidden = !desktop?.chooseProject;
-    choose.onclick = async () => {
-      const selected = await desktop.chooseProject();
-      if (selected && node('project-path')) node('project-path').value = selected;
-    };
-  }
-  const panel = node('project-list-panel');
-  if (panel) panel.hidden = !launcher;
-  const refresh = node('project-list-refresh');
-  if (refresh) refresh.onclick = () => void refreshProjectList();
-  const switcher = node('project-switch');
-  if (switcher) {
-    switcher.hidden = !launcher;
-    switcher.onclick = () => void openSwitcher();
-  }
-  void status;
-}
-
-/** 返回 false 表示首启尚未落到具体项目，调用方不得启动项目轮询。 */
-export async function ensureProject() {
-  let status;
-  try { status = await api('/api/host'); }
-  catch (error) {
-    // 兼容尚未提供启动器端点的旧 Web；真正的连接错误仍会在随后的 snapshot 中显示。
-    if (/404|no route|not found/i.test(error.message)) return true;
-    throw error;
-  }
-  launcher = status.mode === 'host';
-  bindPicker(status);
-  if (!launcher) { closeProjectPicker(); return true; }
-
-  const current = projectRoute();
-  if (current) {
-    // 已在一个项目页面：项目身份来自地址，不需要也不允许服务端再决定「当前项目」。
-    if (!(status.projects || []).some(row => row.id === current)) {
-      openProjectPicker({ ...status, error: '这个项目已从列表移除；请重新打开，或换一个项目。' });
-      return false;
-    }
-    closeProjectPicker();
-    void refreshProjectList();
+function completeProjectWindow(popup, target) {
+  if (popup) { popup.location.href = target; return true; }
+  const bridge = globalThis.window?.lushDesktop ?? globalThis.lushDesktop;
+  if (bridge?.platform) {
+    // Electron owns popups and intentionally returns no renderer WindowProxy.
+    // Its main process validates the actual same-Host project URL.
+    (globalThis.open ?? globalThis.window?.open)?.(target, '_blank', 'noopener');
     return true;
   }
-
-  // 根路径：恢复上次项目只决定新窗口首次落点，不覆盖已经打开的页面。
-  const restored = status.last_project_id && (status.projects || []).some(row => row.id === status.last_project_id);
-  if (restored && typeof globalThis.location?.replace === 'function') {
-    globalThis.location.replace(projectHref(status.last_project_id) + (globalThis.location.hash || ''));
-    return false;
-  }
-  openProjectPicker(status);
   return false;
+}
+
+async function selectProject(input, submit, error) {
+  const project = input?.value || '';
+  // 必须在用户 submit 的同步调用栈中预约窗口；等待 select 后再 open 会被浏览器拦截。
+  const popup = reserveProjectWindow();
+  if (submit) submit.disabled = true;
+  setError('', error);
+  try {
+    const result = await api('/api/host/select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project }) });
+    if (!result?.id) throw new Error('启动器没有返回项目身份，请刷新后重试');
+    const target = projectHref(result.id);
+    if (!completeProjectWindow(popup, target)) {
+      const fallback = node('project-open-fallback');
+      if (fallback) { fallback.href = target; fallback.hidden = false; fallback.focus?.(); }
+      else setError('浏览器阻止了新窗口；请允许弹出窗口后重试。', error);
+    }
+    void refreshProjectList();
+  } catch (cause) {
+    popup?.close?.(); setError(cause.message, error);
+  } finally { if (submit) submit.disabled = false; }
+}
+
+function managerForm() {
+  const form = el('form', undefined, 'project-manager-form');
+  const input = el('input'); input.id = 'project-manager-path'; input.name = 'project'; input.required = true;
+  input.autocomplete = 'off'; input.spellcheck = false; input.placeholder = '/absolute/path/to/project';
+  const submit = el('button', '在新窗口打开', 'primary'); submit.type = 'submit';
+  const choose = el('button', '选择文件夹…', 'ghost'); choose.type = 'button';
+  const desktop = globalThis.window?.lushDesktop ?? globalThis.lushDesktop;
+  choose.hidden = Boolean(environmentRoute()) || typeof desktop?.chooseProject !== 'function';
+  choose.onclick = async () => { const selected = await desktop.chooseProject(); if (selected) input.value = selected; };
+  const error = el('p', undefined, 'error'); error.hidden = true; error.setAttribute('role', 'alert');
+  const fallback = el('a', '浏览器阻止了弹出窗口；点此打开项目', 'project-popup-fallback');
+  fallback.id = 'project-open-fallback'; fallback.target = '_blank'; fallback.rel = 'noopener'; fallback.hidden = true;
+  form.onsubmit = event => { event.preventDefault(); void selectProject(input, submit, error); };
+  form.append(el('label', '项目目录'), el('div', undefined, 'project-path-row'));
+  form.children[1].append(input, choose, submit);
+  form.append(el('p', '登记和打开是显式操作。列表刷新不会启动项目；每个项目始终在独立窗口或标签页打开。', 'hint'), error, fallback);
+  return form;
+}
+
+export async function openProjectManager({ push = true } = {}) {
+  const identity = activateDetailView({ view: 'projects', title: '项目管理', context: '工作台', hint: '登记、打开与安全控制项目后台', push, hash: '#projects' });
+  const panel = node('detail');
+  const view = el('div', undefined, 'workbench-view project-manager');
+  const head = el('header', undefined, 'workbench-hero');
+  head.append(el('span', 'PROJECTS', 'eyebrow'), el('h1', '项目管理'), el('p', '项目视图与后台生命周期彼此独立。关闭标签不会停止开发。', 'hint'));
+  const list = el('ul', undefined, 'project-list project-manager-list'); list.id = 'project-list';
+  const empty = el('div', undefined, 'workbench-empty'); empty.append(el('strong', '还没有项目入口'), el('p', '输入一个绝对目录登记项目，或先浏览设置和帮助文档。'));
+  view.append(head);
+  if (launcher && hostStatus?.mode !== 'offline') view.append(managerForm());
+  view.append(empty, list); panel?.replaceChildren(view);
+  const request = ++managerRequest;
+  try {
+    const { projects = [] } = await api('/api/host/projects');
+    if (request !== managerRequest || identity !== ui.view) return;
+    empty.hidden = projects.length > 0;
+    list.replaceChildren(...projects.map(row => projectItem(row, () => openProjectManager({ push: false }))));
+  } catch (error) {
+    if (request === managerRequest) { empty.hidden = false; empty.querySelector('strong').textContent = '项目列表暂时不可用'; empty.querySelector('p').textContent = error.message; }
+  }
+}
+
+/** 旧浮层入口改为主内容项目管理；不再 inert 整个应用。 */
+export function openProjectPicker() { return openProjectManager(); }
+export function closeProjectPicker() { const gate = node('project-gate'); if (gate) gate.hidden = true; node('project-app')?.removeAttribute?.('inert'); }
+
+/**
+ * 启动工作台 shell。返回 true 只表示 shell 可继续装配，不代表存在项目；调用方通过
+ * workbenchStatus().projectUsable 决定是否启动项目轮询/输入写操作。
+ */
+export async function ensureProject() {
+  hostStatus = null; launcher = false; projectUsable = false;
+  closeProjectPicker();
+  try {
+    hostStatus = await api('/api/host');
+    launcher = hostStatus.mode === 'host';
+  } catch (error) {
+    if (/404|no route|not found/i.test(error.message)) {
+      hostStatus = { mode: 'bound' }; launcher = false; projectUsable = !environmentRoute(); return true;
+    }
+    hostStatus = { mode: 'offline', error: error.message }; launcher = true; projectUsable = false; return true;
+  }
+  const current = projectRoute();
+  if (!launcher) projectUsable = !environmentRoute() || Boolean(current);
+  else projectUsable = Boolean(current && (hostStatus.projects || []).some(row => row.id === current));
+  const panel = node('project-list-panel'); if (panel) panel.hidden = !launcher;
+  const switcher = node('project-switch'); if (switcher) { switcher.hidden = !launcher; switcher.onclick = () => void openProjectManager(); }
+  return true;
 }

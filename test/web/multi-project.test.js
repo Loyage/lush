@@ -52,7 +52,7 @@ test('S-01：项目 A 的写请求不会因别的标签页打开 B 而落到 B',
 
     // 项目页与会话页是同一份 shell；全局根页面是项目启动器。
     expect((await fetch(`${url}/p/${idA}/`)).status).toBe(200);
-    expect(await (await fetch(`${url}/p/${idA}/`)).text()).toContain('id="project-gate"');
+    expect(await (await fetch(`${url}/p/${idA}/`)).text()).toContain('id="projects-open"');
     expect(await (await fetch(`${url}/p/${idA}/`)).text()).toContain('id="project-list-panel"');
     // 宿主级资源与文档不挂项目前缀。
     expect((await fetch(`${url}/app.js`)).status).toBe(200);

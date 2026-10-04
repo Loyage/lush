@@ -1,0 +1,14 @@
+/* 无项目也可使用的统一工作台：项目与环境管理共享双主题 token。 */
+.workbench-view{max-width:1040px;margin:0 auto;padding:clamp(20px,4vw,52px);display:grid;gap:22px}
+.workbench-hero{display:grid;gap:4px}.workbench-hero h1{margin:0;font-size:clamp(1.7rem,4vw,2.5rem);line-height:1.15}
+.workbench-card,.project-manager-form{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px}
+.workbench-card h2,.workbench-card h3{margin:0 0 8px}.workbench-empty{border:1px dashed var(--line);border-radius:var(--radius);padding:24px;color:var(--muted);background:var(--panel-2)}
+.workbench-empty strong{display:block;color:var(--text);font-size:1.08rem}.project-manager-form,.environment-form{display:grid;gap:10px}
+.project-manager-form label,.environment-form label{font-weight:700}.project-path-row{display:flex;gap:8px;align-items:stretch}.project-path-row input,.environment-form input{min-width:0;flex:1}
+.project-manager-list,.environment-connections{display:grid;gap:10px;padding:0;margin:0;list-style:none}.project-manager-list .project-item,.environment-connection{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+.project-open{min-width:0;display:grid;text-decoration:none;color:var(--text)}.project-open small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-status,.environment-status{color:var(--muted)}.project-status.error,.environment-status.error{color:var(--failed)}
+.project-item-actions{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.environment-form label{display:grid;gap:8px}.environment-open{display:inline-flex;width:max-content;text-decoration:none}.environment-execution{padding:10px 12px;border-left:3px solid var(--accent);background:var(--accent-soft)}
+.environment-connections{margin-top:12px}.environment-connection span:first-child{display:grid}.workbench-nav{margin-bottom:4px}
+.workspace-link:disabled{opacity:.52;cursor:not-allowed}.project-popup-fallback{width:max-content}.warning{color:var(--waiting)}
+@media(max-width:700px){.workbench-view{padding:16px}.project-path-row{display:grid}.project-manager-list .project-item,.environment-connection{grid-template-columns:1fr}.project-status{grid-column:1}.project-item-actions{justify-content:stretch}.project-item-actions>*{flex:1}.workbench-card,.project-manager-form{padding:16px}}
+@media(prefers-reduced-motion:reduce){.workbench-view *{scroll-behavior:auto!important}}

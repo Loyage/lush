@@ -4,65 +4,116 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Lush · 连接</title>
+  <title>Lush · 工作台</title>
   <link rel="stylesheet" href="./connection.css">
   <script type="module" src="./connection.js"></script>
 </head>
 <body>
-  <main>
-    <h1>Lush</h1>
-    <p id="connection-intro">本地与远程使用独立窗口，可以同时工作。窗口关闭不会停止项目 daemon。</p>
+  <aside class="workbench-sidebar" aria-label="工作台导航">
+    <div class="brand"><span class="brand-mark">L</span><div><strong>Lush</strong><small>Desktop Workbench</small></div></div>
+    <nav>
+      <button class="nav-item active" type="button" data-workbench-nav="projects" aria-current="page"><span aria-hidden="true">▦</span>项目</button>
+      <button class="nav-item" type="button" data-workbench-nav="environments"><span aria-hidden="true">◎</span>环境</button>
+      <button class="nav-item" type="button" data-workbench-nav="settings"><span aria-hidden="true">⚙</span>设置</button>
+      <button class="nav-item" type="button" data-workbench-nav="help"><span aria-hidden="true">?</span>帮助</button>
+    </nav>
+    <p class="sidebar-note">关闭窗口只关闭视图，不停止 Host、daemon 或 Worker。</p>
+  </aside>
+
+  <main class="workbench-main">
+    <header class="topbar">
+      <div><p class="eyebrow">可信本机管理界面</p><h1 id="view-title">项目</h1></div>
+      <span class="trust-badge">Desktop</span>
+    </header>
     <p id="connection-status" role="status" aria-live="polite"></p>
     <p id="connection-error" role="alert"></p>
-    <section aria-labelledby="ssh-heading">
-      <h2 id="ssh-heading">通过 SSH 打开服务器</h2>
-      <h3>本机 SSH 配置</h3>
-      <p id="ssh-config-help">读取本机用户 SSH config 及 Include 中的明确 Host 别名，不显示配置原文或密钥。点击服务器后自动预检；已安装则直接连接，首次安装仍需确认计划。</p>
-      <p id="ssh-config-status" role="status" aria-live="polite">正在读取本机 SSH 配置…</p>
-      <ul id="ssh-config-hosts" aria-describedby="ssh-config-help"></ul>
-      <h3>手动输入服务器</h3>
-      <form id="ssh-form">
-        <label for="ssh-alias">SSH Host 别名 / 主机名</label>
-        <input id="ssh-alias" type="text" maxlength="253" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*" placeholder="my-server" autocomplete="off" spellcheck="false" required aria-describedby="ssh-help">
-        <p id="ssh-help">使用系统 SSH 配置中的 Host。请先在终端执行 ssh my-server，核对主机身份并配置密钥 / ssh-agent。这里不输入或保存密码、私钥或模型凭证。</p>
-        <span class="help-host" data-help="只通过 SSH 检查远端环境与安装计划，不安装服务，不调用模型，也不修改项目"><button id="ssh-inspect" type="submit">预检服务器</button></span>
-      </form>
-      <div id="ssh-plan" class="ssh-plan" hidden aria-labelledby="ssh-plan-heading">
-        <h3 id="ssh-plan-heading">确认远端计划</h3>
-        <p id="ssh-target"></p>
-        <pre id="ssh-plan-details" tabindex="0"></pre>
-        <ul id="ssh-warnings"></ul>
-        <p>本机缺少匹配运行包时，确认后从计划中的固定 GitHub Release 下载到本机缓存，校验版本、源码指纹及哈希后才上传；下载失败不安装。仅在 SSH 用户目录安装 Lush 和私有 Bun，不使用 sudo，不更改系统 PATH、防火墙或自启服务。随后启动远端 Host，并由远端页面选择项目、启动或连接其 daemon。Git、Agent 及认证需在远端准备；连接成功不代表模型已就绪。</p>
-        <span class="help-host" data-help="确认展示的服务器与计划后，按需从固定 GitHub Release 下载并校验运行包，再安装 Lush / 私有 Bun并启动远端入口；不复制模型凭证、不重启活动 daemon，也不提交开发请求"><button id="ssh-confirm" type="button">确认连接</button></span>
+
+    <div class="view active" data-workbench-view="projects">
+      <section class="hero" aria-labelledby="projects-heading">
+        <p class="eyebrow">WORKBENCH</p>
+        <h2 id="projects-heading">继续开发</h2>
+        <p id="connection-intro">项目在各自窗口中打开，未选择项目时工作台仍可管理环境与帮助。窗口关闭不会停止项目 daemon。</p>
+      </section>
+      <div class="card-grid">
+        <section class="card primary-card" aria-labelledby="local-heading">
+          <div class="card-heading"><span class="card-icon">⌂</span><div><h2 id="local-heading">本机工作台</h2><p>打开完整项目工作台；每个项目继续使用独立窗口。</p></div></div>
+          <p id="local-help">源码启动需要本机 Bun；macOS 安装包使用随包私有运行时。</p>
+          <span id="local-help-host" class="help-host"><button id="open-local" type="button" aria-describedby="local-help">打开本机工作台</button></span>
+        </section>
+        <section class="card" aria-labelledby="recent-heading">
+          <div class="card-heading"><span class="card-icon">↗</span><div><h2 id="recent-heading">最近的远程工作台</h2><p>从已保存的 HTTPS Host 继续。</p></div></div>
+          <p>仅移除记录不会退出登录、关闭窗口或停止远端服务。</p>
+          <ul id="recent-connections"></ul>
+        </section>
       </div>
-      <div class="ssh-actions">
-        <span class="help-host" data-help="取消本次 SSH 检查或连接及尚未使用的安装授权；安装已落地的文件可能保留，不停止远端 Host、daemon 或 Worker"><button id="ssh-cancel" type="button" class="secondary" disabled>取消本次操作</button></span>
-      </div>
-      <h3>SSH 连接记录</h3>
-      <p>点击记录自动预检；已安装则直接连接，首次安装需确认。记录只保存入口元数据。断开隧道不停止远端开发；已打开的窗口会离线，重新连接不会自动重发 Worker 操作。</p>
-      <ul id="ssh-connections"></ul>
-    </section>
-    <section aria-labelledby="local-heading">
-      <h2 id="local-heading">本地项目</h2>
-      <p id="local-help">源码启动需要本机 Bun；macOS 安装包已携带私有 Bun。打开后可选择本地项目目录。</p>
-      <span id="local-help-host" class="help-host"><button id="open-local" type="button" aria-describedby="local-help">打开本地窗口</button></span>
-    </section>
-    <section aria-labelledby="remote-heading">
-      <h2 id="remote-heading">远程 Host</h2>
-      <form id="remote-form">
-        <label for="host-url">Host 根地址</label>
-        <input id="host-url" type="url" maxlength="2048" placeholder="https://lush.example.com" autocomplete="url" spellcheck="false" required aria-describedby="remote-help">
-        <p id="remote-help">只连接你信任的 Lush Host。公网使用 HTTPS；SSH 隧道请自行建立，再填 http://127.0.0.1:端口。这里不保存密码或 SSH 密钥。</p>
-        <button id="open-remote" type="submit">打开远程窗口</button>
-      </form>
-      <p>登录和项目选择在远端页面完成，项目路径属于远程机器。远程模式不需要本机 Bun。</p>
-    </section>
-    <section aria-labelledby="recent-heading">
-      <h2 id="recent-heading">最近远程连接</h2>
-      <p>仅移除记录不会退出登录、关闭窗口或停止远端服务。</p>
-      <ul id="recent-connections"></ul>
-    </section>
-    <p class="hint">可随时通过桌面「连接」菜单打开更多窗口。连接失败可重试；不会自动重发 Worker 操作。</p>
+      <section class="empty-guidance">
+        <h2>项目不在这台机器？</h2>
+        <p>前往「环境」连接 SSH 服务器或已有 HTTPS Host。项目路径始终属于其所在环境。</p>
+        <button type="button" class="secondary" data-open-view="environments">管理环境</button>
+      </section>
+    </div>
+
+    <div class="view" data-workbench-view="environments" hidden>
+      <section class="hero">
+        <p class="eyebrow">ENVIRONMENTS</p><h2>开发环境</h2>
+        <p>环境表示项目实际所在的机器与用户。SSH 与 HTTPS 是接入方式，不是项目类型。</p>
+      </section>
+      <section class="card" aria-labelledby="ssh-heading">
+        <h2 id="ssh-heading">通过 SSH 连接 Linux 服务器</h2>
+        <h3>本机 SSH 配置</h3>
+        <p id="ssh-config-help">读取本机用户 SSH config 及 Include 中的明确 Host 别名，不显示配置原文或密钥。点击服务器后自动预检；已安装则直接连接，首次安装仍需确认计划。</p>
+        <p id="ssh-config-status" role="status" aria-live="polite">正在读取本机 SSH 配置…</p>
+        <ul id="ssh-config-hosts" aria-describedby="ssh-config-help"></ul>
+        <h3>手动输入服务器</h3>
+        <form id="ssh-form">
+          <label for="ssh-alias">SSH Host 别名 / 主机名</label>
+          <input id="ssh-alias" type="text" maxlength="253" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*" placeholder="my-server" autocomplete="off" spellcheck="false" required aria-describedby="ssh-help">
+          <p id="ssh-help">使用系统 SSH 配置中的 Host。请先在终端执行 ssh my-server，核对主机身份并配置密钥 / ssh-agent。这里不输入或保存密码、私钥或模型凭证。</p>
+          <span class="help-host" data-help="只通过 SSH 检查远端环境与安装计划，不安装服务，不调用模型，也不修改项目"><button id="ssh-inspect" type="submit">预检服务器</button></span>
+        </form>
+        <div id="ssh-plan" class="ssh-plan" hidden aria-labelledby="ssh-plan-heading">
+          <h3 id="ssh-plan-heading">确认远端计划</h3>
+          <p id="ssh-target"></p>
+          <pre id="ssh-plan-details" tabindex="0"></pre>
+          <ul id="ssh-warnings"></ul>
+          <p>本机缺少匹配运行包时，确认后从计划中的固定 GitHub Release 下载到本机缓存，校验版本、源码指纹及哈希后才上传；下载失败不安装。仅在 SSH 用户目录安装 Lush 和私有 Bun，不使用 sudo，不更改系统 PATH、防火墙或自启服务。随后启动远端 Host，并由远端页面选择项目、启动或连接其 daemon。Git、Agent 及认证需在远端准备；连接成功不代表模型已就绪。</p>
+          <span class="help-host" data-help="确认展示的服务器与计划后，按需从固定 GitHub Release 下载并校验运行包，再安装 Lush / 私有 Bun并启动远端入口；不复制模型凭证、不重启活动 daemon，也不提交开发请求"><button id="ssh-confirm" type="button">确认连接</button></span>
+        </div>
+        <div class="ssh-actions"><span class="help-host" data-help="取消本次 SSH 检查或连接及尚未使用的安装授权；安装已落地的文件可能保留，不停止远端 Host、daemon 或 Worker"><button id="ssh-cancel" type="button" class="secondary" disabled>取消本次操作</button></span></div>
+        <h3>SSH 连接记录</h3>
+        <p>点击记录自动预检；已安装则直接连接，首次安装需确认。断开隧道不停止远端开发。</p>
+        <ul id="ssh-connections"></ul>
+      </section>
+      <section class="card" aria-labelledby="remote-heading">
+        <h2 id="remote-heading">已有 HTTPS Host</h2>
+        <form id="remote-form">
+          <label for="host-url">Host 根地址</label>
+          <input id="host-url" type="url" maxlength="2048" placeholder="https://lush.example.com" autocomplete="url" spellcheck="false" required aria-describedby="remote-help">
+          <p id="remote-help">只连接你信任的 Lush Host。公网使用 HTTPS；SSH 隧道请自行建立，再填 http://127.0.0.1:端口。这里不保存密码或 SSH 密钥。</p>
+          <button id="open-remote" type="submit">打开远程工作台</button>
+        </form>
+        <p>登录和项目选择在远端页面完成，项目路径属于远程机器。</p>
+      </section>
+    </div>
+
+    <div class="view" data-workbench-view="settings" hidden>
+      <section class="hero"><p class="eyebrow">SETTINGS</p><h2>桌面设置</h2><p>项目与 Agent 设置保存在对应项目中；这里说明桌面壳的固定行为。</p></section>
+      <section class="card setting-list">
+        <div><strong>窗口与会话</strong><p>每个 Host 使用隔离会话，每个项目在独立窗口打开，不覆盖其他窗口的输入。</p></div>
+        <div><strong>后台所有权</strong><p>关闭窗口不会停止项目 daemon。退出桌面只回收桌面自己启动的本地 Host 与 SSH 隧道。</p></div>
+        <div><strong>安全边界</strong><p>远程页面不能调用本机 SSH、读取 SSH 配置或执行任意本机命令。</p></div>
+      </section>
+    </div>
+
+    <div class="view" data-workbench-view="help" hidden>
+      <section class="hero"><p class="eyebrow">HELP</p><h2>使用帮助</h2><p>连接失败不会自动重发 Worker 操作。修复环境后请显式重试。</p></section>
+      <section class="card help-list">
+        <div><h3>本机项目</h3><p>macOS / Linux 通常直接进入完整工作台。若本地 Host 启动失败，本管理壳仍可用于环境连接。</p></div>
+        <div><h3>Windows</h3><p>当前 Windows 客户端不启动本地 Bun、Host 或 daemon。请在「环境」中连接 Linux / macOS Host。</p></div>
+        <div><h3>SSH 主机信任</h3><p>先在终端连接一次并核对主机指纹。Lush 不关闭主机校验，也不保存密码或私钥。</p></div>
+        <div><h3>完整文档</h3><p>打开任一项目工作台后，使用侧栏「帮助文档」查看随当前版本发布的文档。</p></div>
+      </section>
+    </div>
   </main>
 </body>
 </html>

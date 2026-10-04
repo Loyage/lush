@@ -11,6 +11,7 @@ import { SORT_MODES } from './tree-order.js';
 import { notificationControl } from './notice-notifications.js';
 import { DEFAULT_INPUT_ROUTES, ROUTE_TARGETS } from './input-routes.js';
 import { serviceRestartControls } from './service-restart.js';
+import { workbenchStatus } from './project-picker.js';
 
 const TABS = [
   { id: 'interface', label: '界面', note: '阅读、外观与行为' },
@@ -718,6 +719,12 @@ function quickIntroEditor(config, plain) {
 function systemTab() {
   const content = el('div', undefined, 'settings-tab-panel');
   const snapshot = ui.lastSnapshot?.status ?? null;
+  if (!workbenchStatus().projectUsable) {
+    const unavailable = block('项目系统');
+    unavailable.append(el('p', '当前没有可用项目。界面设置仍可使用；打开项目后才能查看运行参数、路径和服务控制。', 'settings-note settings-readonly'));
+    content.append(unavailable);
+    return content;
+  }
   content.append(serviceRestartControls());
   const section = block('运行状态');
   section.append(el('p', '这里展示 daemon 的当前状态。Agent 配置请在 Agent 页修改；并发额度与调用 / 拆解限额可在下方改写并立即生效，不需要重启 daemon。', 'settings-note settings-readonly'));
@@ -773,7 +780,8 @@ export function renderSettings() {
   const panel = $('detail'); panel.dataset.view = 'settings';
   const view = el('div', undefined, 'settings-view');
   const head = el('div', undefined, 'settings-head');
-  const intro = el('div'); intro.append(el('span', 'PROJECT SETTINGS', 'eyebrow'), el('h1', '系统设置'), el('p', '管理当前浏览器的界面偏好与项目系统运行参数；Agent 配置请前往“Agent 管理”。', 'hint'));
+  const intro = el('div'); intro.append(el('span', 'SYSTEM SETTINGS', 'eyebrow'), el('h1', '系统设置'),
+    el('p', workbenchStatus().projectUsable ? '管理当前浏览器的界面偏好与项目系统运行参数；Agent 配置请前往“Agent 管理”。' : '管理当前浏览器的界面偏好；打开项目后可查看项目运行参数。', 'hint'));
   head.append(intro); view.append(head, tabBar());
   view.append(activeTab === 'interface' ? interfaceTab() : systemTab());
   panel.replaceChildren(view);

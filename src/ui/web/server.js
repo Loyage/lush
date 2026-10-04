@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import http from 'node:http';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { canonicalProjectPath, launcherWebConfig, projectRouteId } from '../../host/registry.js';
@@ -8,9 +9,11 @@ import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
 import { previewResponse } from './notice-preview.js';
 import { check, id, isPlainObject } from '../../core/types.js';
 import { restartProjectDaemon } from '../../host/service-control.js';
+import { createEnvironmentManager, sshHostAllowlist } from '../../host/environments.js';
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
 const AUTH_FILE = 'web.json';
 const SESSION_COOKIE = 'lush_session';
+const ENVIRONMENT_SESSION_COOKIE = 'lush_environment_session';
 const SESSION_SECONDS = 12 * 60 * 60;
 const WEB_HOSTS = new WeakMap();
 /**
@@ -134,6 +137,75 @@ function loginPage(error = '', next = '/') {
 </style></head><body><main class="login"><h1>Lush</h1><p>登录后访问项目 Web UI</p>${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ''}<form method="post" action="/login"><input type="hidden" name="next" value="${escapeHtml(safeNext(next))}"><label for="username">账号</label><input id="username" name="username" autocomplete="username" required autofocus><label for="password">密码</label><input id="password" name="password" type="password" autocomplete="current-password" required><button type="submit">登录</button></form><p class="warning">公网访问请在本服务前配置 HTTPS 反向代理，避免账号密码被明文传输。</p></main></body></html>`;
 }
 /** 请求自带的 host 就是浏览器看到的 host；反向代理改写过 Host 时两者才会不一致，需要用 web.json 的 origin 显式登记对外地址。 */
+function remoteProjectGet(pathname) {
+  return CORE_READS.has(pathname) && !pathname.startsWith('/api/docs')
+    || CORE_WORKER_READ.test(pathname) && !pathname.endsWith('/report')
+      && !CORE_NOTICE_PREVIEW.test(pathname)
+    || CORE_INPUT_READ.test(pathname);
+}
+
+async function boundedRemoteJson(origin, pathname, request = null) {
+  const method = request?.method || 'GET';
+  const headers = { Accept: 'application/json' };
+  let body;
+  if (method === 'POST') {
+    check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
+    const value = await request.json();
+    check(isPlainObject(value), 'remote mutation requires a JSON object');
+    if (pathname.endsWith('/api/action')) {
+      check(Object.keys(value).every(key => ['method', 'params'].includes(key)) && MUTATIONS.has(value.method), 'method not allowed from Web UI');
+      check(value.params === undefined || isPlainObject(value.params) && !Object.hasOwn(value.params, '_token'), 'agent tokens are not accepted by Web UI');
+    } else if (pathname.endsWith('/api/service/restart')) {
+      check(Object.keys(value).length === 0, 'restart body must be empty');
+    } else if (pathname === '/api/host/select') {
+      check(Object.keys(value).length === 1 && typeof value.project === 'string', 'select body must contain only project');
+    } else {
+      check(Object.keys(value).length === 1 && typeof value.id === 'string' && /^[a-f0-9]{16}$/.test(value.id), 'project control body must contain only id');
+    }
+    body = JSON.stringify(value);
+    headers['Content-Type'] = 'application/json';
+  }
+  return await new Promise((resolve, reject) => {
+    const target = new URL(origin + pathname);
+    const outgoing = http.request({ hostname: '127.0.0.1', port: Number(target.port), path: target.pathname + target.search,
+      method, headers, timeout: 5000 }, response => {
+      const status = response.statusCode || 502;
+      if (status >= 300 && status < 400) { outgoing.destroy(new Error('远端 Host 返回了不允许的重定向')); return; }
+      if (response.headers['content-type']?.split(';')[0] !== 'application/json') { outgoing.destroy(new Error('远端 Host 未返回 JSON')); return; }
+      const declared = response.headers['content-length'];
+      if (declared !== undefined && (!/^\d+$/.test(declared) || Number(declared) > 2 * 1024 * 1024)) {
+        outgoing.destroy(new Error('远端 Host JSON 超过大小限制')); return;
+      }
+      const chunks = []; let size = 0, failed = false;
+      response.on('data', chunk => {
+        size += chunk.length;
+        if (size > 2 * 1024 * 1024) { failed = true; outgoing.destroy(new Error('远端 Host JSON 超过大小限制')); }
+        else chunks.push(chunk);
+      });
+      response.on('aborted', () => reject(new Error('远端环境响应在完成前中断')));
+      response.on('error', error => reject(new Error(`远端环境响应失败：${error.message}`)));
+      response.on('end', () => {
+        if (failed) return;
+        let value; try { value = JSON.parse(Buffer.concat(chunks, size).toString('utf8')); }
+        catch { reject(new Error('远端 Host 返回了无效 JSON')); return; }
+        resolve({ status, value });
+      });
+    });
+    const deadline = setTimeout(() => outgoing.destroy(new Error('远端环境响应超过总时间限制')), 15000);
+    outgoing.on('close', () => clearTimeout(deadline));
+    outgoing.on('timeout', () => outgoing.destroy(new Error('远端环境离线或响应超时')));
+    outgoing.on('error', error => reject(error.message === '远端 Host JSON 超过大小限制' ? error : new Error(`远端环境离线或响应失败：${error.message}`)));
+    outgoing.end(body);
+  });
+}
+
+async function validateRemoteHost(origin) {
+  const probe = await boundedRemoteJson(origin, '/api/host');
+  check(probe.status === 200 && probe.value?.mode === 'host' && Number.isSafeInteger(probe.value.pid) && probe.value.pid > 0
+    && Array.isArray(probe.value.projects), 'SSH 隧道未连接到兼容的 Lush Host 身份');
+  return probe.value;
+}
+
 function originAllowed(request, url, origins) {
   const site = request.headers.get('sec-fetch-site');
   const navigation = request.method === 'GET' && request.headers.get('sec-fetch-mode') === 'navigate' && request.headers.get('sec-fetch-dest') === 'document';
@@ -171,14 +243,18 @@ export function startWeb(config, port = 4318, options = {}) {
   const launcher = !config;
   // Validate before auth loading can rewrite a plaintext password or a listener is created.
   const sshOrigin = sshLoopbackOrigin(env, config);
+  sshHostAllowlist(env); // Validate before auth loading can rewrite a plaintext password or create a listener.
   const sshHost = sshOrigin ? new URL(sshOrigin).host : null;
   const authConfig = options.authConfig === undefined ? (config || launcherWebConfig(env)) : options.authConfig;
   check(!sshOrigin || !authConfig || !fs.existsSync(path.join(authConfig.home, AUTH_FILE)),
     'LUSH_WEB_SSH_ORIGIN requires an unauthenticated loopback Host; it conflicts with the supplied Web auth configuration');
   const auth = authConfig ? loadAuth(authConfig, { launcher }) : null;
   check(!sshOrigin || !auth, 'LUSH_WEB_SSH_ORIGIN cannot be used with an authenticated Web Host');
-  const projectHost = createProjectHost(config, { ...options, env, allowedProjects: launcher ? auth?.projects : null });
-  const sessions = new Map();
+  const projectHost = options.projectHost || createProjectHost(config, { ...options, env, allowedProjects: launcher ? auth?.projects : null });
+  const environments = options.environmentManager || createEnvironmentManager({ env,
+    scope: config || authConfig || launcherWebConfig(env), publicAccess: Boolean(auth), sshManager: options.sshManager,
+    managerFactory: options.sshManagerFactory, readConfig: options.readSSHConfig });
+  const sessions = new Map(), environmentSessions = new Map();
   const failures = new Map();
   let hostRestarting = false;
   const emptyJson = async request => {
@@ -206,7 +282,7 @@ export function startWeb(config, port = 4318, options = {}) {
       const token = cookieValue(request, SESSION_COOKIE);
       const expires = token && sessions.get(token);
       const authenticated = !auth || (expires && expires > Date.now());
-      if (token && expires && expires <= Date.now()) sessions.delete(token);
+      if (token && expires && expires <= Date.now()) { environments.cancel(token); sessions.delete(token); }
 
       if (request.method === 'GET' && url.pathname === '/login') {
         if (!auth || authenticated) return new Response(null, { status: 303, headers: { Location: '/' } });
@@ -234,7 +310,7 @@ export function startWeb(config, port = 4318, options = {}) {
         failures.delete(remote);
         const session = randomBytes(32).toString('base64url');
         sessions.set(session, Date.now() + SESSION_SECONDS * 1000);
-        for (const [key, expiry] of sessions) if (expiry <= Date.now()) sessions.delete(key);
+        for (const [key, expiry] of sessions) if (expiry <= Date.now()) { environments.cancel(key); sessions.delete(key); }
         const secure = url.protocol === 'https:' || request.headers.get('x-forwarded-proto')?.split(',')[0].trim() === 'https';
         const cookie = `${SESSION_COOKIE}=${session}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_SECONDS}${secure ? '; Secure' : ''}`;
         return new Response(null, { status: 303, headers: { Location: safeNext(form.get('next')), 'Set-Cookie': cookie, ...headers } });
@@ -245,14 +321,14 @@ export function startWeb(config, port = 4318, options = {}) {
         return new Response(null, { status: 303, headers: { Location: `/login?next=${encodeURIComponent(url.pathname + url.search)}`, ...headers } });
       }
       if (request.method === 'POST' && url.pathname === '/logout') {
-        if (token) sessions.delete(token);
+        if (token) { environments.cancel(token); sessions.delete(token); }
         return new Response(null, { status: 303, headers: { Location: '/login', 'Set-Cookie': `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`, ...headers } });
       }
 
       try {
         // ---- 宿主级路由：启动器等不属于任何项目的接口先于项目路由匹配 ----
         if (request.method === 'GET' && url.pathname === '/api/host') return json({ ...await projectHost.status(),
-          pid: process.pid, restart_supported: typeof options.restartHost === 'function' });
+          pid: process.pid, restart_supported: typeof options.restartHost === 'function', project_control: true });
         if (request.method === 'POST' && url.pathname === '/api/host/restart') {
           await emptyJson(request);
           check(typeof options.restartHost === 'function', '当前嵌入界面不支持重启服务，请使用命令行重启 Host');
@@ -263,6 +339,83 @@ export function startWeb(config, port = 4318, options = {}) {
           return json({ restarting: true });
         }
         if (request.method === 'GET' && url.pathname === '/api/host/projects') return json({ projects: await projectHost.projects() });
+        if (request.method === 'POST' && ['/api/host/projects/start', '/api/host/projects/stop'].includes(url.pathname)) {
+          check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
+          const body = await request.json();
+          check(isPlainObject(body) && Object.keys(body).length === 1 && typeof body.id === 'string' && /^[a-f0-9]{16}$/.test(body.id),
+            'project control body must contain only a registered project id');
+          const method = url.pathname.endsWith('/start') ? 'start' : 'stop';
+          check(typeof projectHost[method] === 'function', 'project background control is unavailable');
+          return json(await projectHost[method](body.id));
+        }
+        // ---- 工作台环境：授权留在入口 Host；远端只暴露受限 JSON 数据面 ----
+        if (url.pathname === '/api/environments' || url.pathname.startsWith('/api/environments/')) {
+          let environmentSession = auth ? token : cookieValue(request, ENVIRONMENT_SESSION_COOKIE);
+          let sessionCookie = null;
+          if (!auth) {
+            for (const [key, expiry] of environmentSessions) if (expiry <= Date.now()) { environments.cancel(key); environmentSessions.delete(key); }
+            if (!environmentSessions.has(environmentSession)) {
+              check(environmentSessions.size < 1024, '环境会话过多，请稍后重试');
+              environmentSession = randomBytes(32).toString('base64url');
+              environmentSessions.set(environmentSession, Date.now() + SESSION_SECONDS * 1000);
+              sessionCookie = `${ENVIRONMENT_SESSION_COOKIE}=${environmentSession}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_SECONDS}`;
+            }
+          }
+          const environmentJson = (body, status = 200) => json(body, status, sessionCookie ? { 'Set-Cookie': sessionCookie } : {});
+          if (request.method === 'GET' && url.pathname === '/api/environments') return environmentJson(environments.status());
+          check(request.method === 'POST', 'environment endpoint method not allowed');
+          check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
+          const body = await request.json();
+          if (url.pathname === '/api/environments/ssh/inspect') return environmentJson(await environments.inspect(environmentSession, body));
+          if (url.pathname === '/api/environments/ssh/connect') return environmentJson(await environments.connect(environmentSession, body));
+          if (url.pathname === '/api/environments/ssh/disconnect') {
+            check(isPlainObject(body) && Object.keys(body).length === 1, 'disconnect body must contain only id');
+            return environmentJson(environments.disconnect(body.id));
+          }
+          if (url.pathname === '/api/environments/ssh/cancel') {
+            check(isPlainObject(body) && Object.keys(body).length === 0, 'cancel body must be empty');
+            return environmentJson(environments.cancel(environmentSession));
+          }
+          return environmentJson({ error: 'not found' }, 404);
+        }
+        const environmentRoute = /^\/e\/([a-f0-9-]+)(\/.*)?$/.exec(url.pathname);
+        if (environmentRoute) {
+          const environmentId = environmentRoute[1], environmentPath = environmentRoute[2] || '/';
+          check(/^(?:[a-f0-9]{32}|[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$/.test(environmentId), '环境身份无效');
+          const environmentProjectPage = /^\/p\/([a-f0-9]{16})\/?$/.exec(environmentPath);
+          // A local shell grants no remote authority. Keep it available even if
+          // the environment is disconnected, removed or temporarily unreachable.
+          if (request.method === 'GET' && (environmentPath === '/' || environmentProjectPage)) {
+            const file = assetFile('/');
+            return new Response(Bun.file(file), { headers });
+          }
+          // Documentation is part of this trusted release, never read from or proxied to the remote environment.
+          if (request.method === 'GET' && environmentPath === '/api/docs') return json({ docs: docsIndex() });
+          if (request.method === 'GET' && environmentPath === '/api/docs/search-index') return json({ docs: docsSearchIndex() });
+          const environmentDoc = request.method === 'GET' && /^\/api\/docs\/([a-z0-9._-]+)$/.exec(environmentPath);
+          if (environmentDoc) {
+            const found = readDoc(environmentDoc[1]);
+            return found ? json(found) : json({ error: `no such document: ${environmentDoc[1]}` }, 404);
+          }
+          const remoteOrigin = environments.endpoint(environmentId);
+          const remoteHost = await validateRemoteHost(remoteOrigin);
+          let remotePath = null;
+          if (environmentPath === '/api/host' && request.method === 'GET') return json({ ...remoteHost, restart_supported: false,
+            environment: environments.describe?.(environmentId) || { id: environmentId } });
+          if (/^\/api\/host(?:\/projects)?$/.test(environmentPath) && request.method === 'GET') remotePath = environmentPath;
+          else if (/^\/api\/host\/(?:select|remove|projects\/(?:start|stop))$/.test(environmentPath) && request.method === 'POST') remotePath = environmentPath;
+          else {
+            const remoteProject = /^\/p\/([a-f0-9]{16})(\/api\/.*)$/.exec(environmentPath);
+            if (remoteProject) {
+              check(remoteHost.projects.some(row => row?.id === remoteProject[1]), '远端 Host 未登记此项目身份');
+              if (request.method === 'GET' && remoteProjectGet(remoteProject[2])) remotePath = environmentPath + url.search;
+              else if (request.method === 'POST' && ['/api/action', '/api/service/restart'].includes(remoteProject[2])) remotePath = environmentPath;
+            }
+          }
+          check(remotePath, '远端数据网关不允许此路径或响应类型');
+          const remote = await boundedRemoteJson(remoteOrigin, remotePath, request.method === 'POST' ? request : null);
+          return json(remote.value, remote.status);
+        }
         if (request.method === 'POST' && url.pathname === '/api/host/select') {
           check(projectHost.launcher, 'project switching is disabled for this Web UI');
           check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
@@ -469,6 +622,8 @@ export function startWeb(config, port = 4318, options = {}) {
     },
   });
   WEB_HOSTS.set(server, projectHost);
+  const stop = server.stop.bind(server);
+  server.stop = closeActiveConnections => { environments.dispose(); return stop(closeActiveConnections); };
   return server;
 }
 

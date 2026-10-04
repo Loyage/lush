@@ -1,4 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
+import fs from 'node:fs';
 import { installDom } from '../dom-stub.js';
 
 const dom = installDom(), document = dom.document, focusHandlers = [];
@@ -23,13 +24,22 @@ const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve();
 const fire = (id, type) => { for (const handler of dom.node(id).listeners[type] || []) handler({ preventDefault() {} }); };
 afterAll(() => dom.restore());
 
+test('Windows management shell starts on Projects with environment forms behind navigation', () => {
+  const html = fs.readFileSync(new URL('../../src/ui/desktop/connection.html', import.meta.url), 'utf8');
+  for (const view of ['projects', 'environments', 'settings', 'help']) expect(html).toContain(`data-workbench-nav="${view}"`);
+  expect(html).toContain('data-workbench-view="projects"');
+  expect(html).toContain('data-workbench-view="environments" hidden');
+  expect(html.indexOf('data-workbench-view="projects"')).toBeLessThan(html.indexOf('id="ssh-form"'));
+  expect(html.indexOf('data-workbench-view="environments" hidden')).toBeLessThan(html.indexOf('id="ssh-form"'));
+});
+
 test('Windows explains remote-only support and blocks even synthetic local clicks', async () => {
   await flush();
   expect(dom.node('open-local').disabled).toBe(true);
   expect(dom.node('open-remote').disabled).toBe(false);
-  expect(dom.node('local-help').textContent).toContain('不需要本机 Bun');
-  expect(dom.node('local-help-host').dataset.help).toContain('不启动本地后台');
-  expect(dom.node('connection-intro').textContent).toContain('远程 Host');
+  expect(dom.node('local-help').textContent).toContain('不启动本地 Bun');
+  expect(dom.node('local-help-host').dataset.help).toContain('不启动本地 Bun');
+  expect(dom.node('connection-intro').textContent).toContain('本机管理工作台');
   fire('open-local', 'click'); await flush();
   expect(localCalls).toBe(0);
 });

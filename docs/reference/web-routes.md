@@ -12,12 +12,19 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 ## 宿主级路由
 
-- `GET /`、`/app.js`、`/styles.css`、`/assets/**`：Web 资源（无项目前缀）。全局模式下 `/` 是项目启动器与列表，`/p/<id>/` 是该项目的工作台。
+- `GET /`、`/app.js`、`/styles.css`、`/assets/**`：Web 资源（无项目前缀）。全局模式下 `/` 是可在未选项目时使用的完整主体，`#projects` / `#environments` 管理项目与环境；`/p/<id>/` 是该项目的工作台。
 - `GET /api/host`：返回 `mode`、上次打开的项目（`last_project` / `last_project_id`）与已登记项目列表（`projects`，含 `connected` / `last`；`mode` 为 `host` 或 `bound`）。只报告上次落点，不因此自动启动或连接任何 daemon。另返回当前服务进程的 `pid` 与 `restart_supported`；嵌入式 Host 不支持进程重启时为 `false`。
 - `GET /api/host/projects`：项目列表对已登记目录检查项目 socket，并对可达的 lushd 有界读取 `system.summary`，返回 `running` 与摘要；`connected` 仅表示 Host 已打开连接，二者不是同一状态。读取列表不会启动任何 lushd，未登记项目不会被扫描；单个项目失败只影响自己那一行。
 - `POST /api/host/select`：仅全局模式可用，JSON `{project}` 必须是现存目录的绝对路径（公网模式还必须在白名单内）；登记该项目、按需启动 / 连接 daemon，返回该项目稳定路由 ID（`id`）。它不再设置全局「当前项目」，页面归属由前端跳到 `/p/<id>/` 决定。
-- `POST /api/host/remove`：仅全局模式可用，JSON `{id}` 只从列表移除入口并断开这个 Web 连接，**不停止 daemon**；停 daemon 仍走显式项目命令。
+- `POST /api/host/projects/start` / `stop`：JSON `{id}`，只允许已登记的项目身份。启动是显式操作；停止复用 daemon 的空闲准入并等待退出，不取消 Worker、不强杀；忙碌拒绝。`/api/host` 的 `project_control:true` 宣告支持。项目 API、旧标签轮询、另一个 Host 的附着都不会重新启动已停止的项目。
+- `POST /api/host/remove`：仅全局模式可用，JSON `{id}` 只从列表移除入口并断开这个 Web 连接，**不停止 daemon**；停止走上述独立入口。
 - `GET /api/docs`、`GET /api/docs/search-index`、`GET /api/docs/<id>`：「文档」视图的目录、搜索索引与 Markdown 正文，读的是随这份代码发布的 `docs/**/*.md` 与 `README.md`（`src/ui/web/docs.js`），与当前项目目录无关。搜索索引只在用户第一次搜索时返回标题、小节、正文、普通代码与低权重 Mermaid 字段，匹配和排序在浏览器完成。id 由相对路径推出，只按已扫出的表命中，请求里的路径片段不进文件系统；未命中返回 404。
+
+## 环境管理与受管 SSH
+
+`GET /api/environments` 返回服务执行机器/用户、SSH 能力、允许别名和连接记录；`POST /api/environments/ssh/inspect|connect|cancel|disconnect` 的参数、一次性授权、执行位置和公网 `LUSH_SSH_HOSTS` 白名单见[工作台接入契约](../engineering/workbench.md)。这些是入口 Host 级端点，不随当前远程项目前缀改变。
+
+受管环境页面使用 `/e/<environment-id>/` 或 `/e/<environment-id>/p/<project-id>/`，界面资源由入口 Host 提供，已知项目 JSON API 经已连接的受管 SSH 隧道转发。不得代理任意 URL、远端脚本或透传入口 Cookie。HTTPS Host 暂保留独立 origin 的窗口，不通过此隧道代理。
 
 ## 服务重启
 

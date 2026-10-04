@@ -13,7 +13,7 @@ import { openAgentStatus } from './render-agent-status.js';
 import { openVersions } from './render-versions.js';
 import { openInputs } from './render-inputs.js';
 import { initSidebar } from './sidebar-init.js';
-import { openResource, paintCollapsed } from './sidebar-ui.js';
+import { activateDetailView, openResource, paintCollapsed } from './sidebar-ui.js';
 import { resetUiState, ui } from './state.js';
 import { initComposer } from './composer.js';
 import { SORT_MODES } from './tree-order.js';
@@ -22,7 +22,8 @@ import { hideHelp, initHelp } from './help.js';
 import { resetTranscriptReaders } from './transcript-reader.js';
 import { closeTranscriptView } from './transcript-view.js';
 import { closeExplanationPanel } from './explanations.js';
-import { ensureProject, refreshProjectList } from './project-picker.js';
+import { ensureProject, openProjectManager, refreshProjectList, workbenchStatus } from './project-picker.js';
+import { openEnvironments } from './environments.js';
 import { initNoticeNotifications, resetNoticeNotifier } from './notice-notifications.js';
 import { initNoticeRecords, openNotice } from './render-notices.js';
 
@@ -60,10 +61,31 @@ function openDocsView(id = null) { return openDocs(id).catch(error => { show(err
 
 // 地址栏是唯一的路由源：设置 / Agent 状态 / Task 图 / 文档 / Task；其余回概览。
 // 每个分支都把 promise 返回出去：浏览器不看返回值，但测试能 await 到「画完」为止。
+function noProjectView() {
+  const status = workbenchStatus();
+  const identity = activateDetailView({ view: 'unavailable', title: '项目不可用', context: '工作台',
+    hint: '当前地址没有可用项目', push: false, hash: location.hash || undefined });
+  const panel = $('detail');
+  if (ui.view !== identity) return;
+  const box = el('div', undefined, 'workbench-view');
+  const empty = el('div', undefined, 'workbench-empty');
+  empty.append(el('strong', status.environment ? '远端环境或项目当前不可用' : '还没有打开项目'),
+    el('p', status.environment ? '保留了地址中的环境身份，没有回落到本地项目。你仍可管理环境、界面设置并阅读帮助。' : '项目管理、环境、界面设置和帮助仍可使用。'));
+  box.append(empty); panel.replaceChildren(box);
+}
+
 function onHashChange() {
   hideHelp(); // 换页前先把上一页的按钮提示收掉，避免固定浮层跨页残留。
   const report = error => { show(error.message, 'error'); };
+  if (location.hash === '#projects') return openProjectManager({ push: false });
+  if (location.hash === '#environments') return openEnvironments({ push: false });
   if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
+  const doc = docsTarget(location.hash);
+  if (doc) return openDocsView(doc.id);
+  if (!workbenchStatus().projectUsable) {
+    if (!location.hash) return openProjectManager({ push: false });
+    return noProjectView();
+  }
   if (location.hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
   if (location.hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();
   if (location.hash === '#inputs') return openInputs({ push: false });
@@ -77,8 +99,6 @@ function onHashChange() {
   const resourceRoute = /^#(notices|workers)$/.exec(location.hash)?.[1];
   const resource = resourceRoute === 'workers' ? 'tasks' : resourceRoute;
   if (resource) return openResource(resource, { push: false });
-  const doc = docsTarget(location.hash);
-  if (doc) return openDocsView(doc.id);
   const next = linked(location.hash);
   // 未知或已移除的 hash（包括旧 #graph）回项目概览。
   if (!next) return overview().catch(report);
@@ -118,48 +138,72 @@ export async function boot() {
   await initNoticeNotifications();
   initAppearance();                              // 按当前 DOM 重新绑定主题与头部按钮
   applyReducedMotion(readPref('reduceMotion'));
-  if (!await ensureProject()) return;
-  syncSidebarSortSelect();
-  $('sidebar-sort').addEventListener('change', onSidebarSortChange);
-  projectTimer = setInterval(() => { void refreshProjectList(); }, PROJECT_LIST_INTERVAL_MS);
-  projectVisibilityListener = () => { if (document.visibilityState === 'visible') void refreshProjectList(); };
-  addEventListener('visibilitychange', projectVisibilityListener);
+  // Global navigation does not wait for a remote Host probe or a project daemon.
+  initHelp();
+  $('projects-open').onclick = () => openProjectManager();
+  $('environments-open').onclick = () => openEnvironments();
+  $('settings-open').onclick = () => openSettings();
+  $('docs-open').onclick = () => openDocsView();
+  await ensureProject();
+  const context = workbenchStatus();
+  const projectReady = context.projectUsable;
+  const desktop = globalThis.window?.lushDesktop ?? globalThis.lushDesktop;
+  const environmentLabel = context.environment ? `SSH · ${context.host?.environment?.alias || context.environment.slice(0, 8)}`
+    : desktop?.mode === 'local' ? '本机' : '当前 Host';
+  if ($('environment-context')) $('environment-context').textContent = environmentLabel;
+  if (!projectReady) {
+    $('project').textContent = context.project ? '项目不可用' : '未打开项目';
+    $('connection').textContent = context.host?.mode === 'offline' ? '环境离线' : '工作台已就绪';
+  }
   initContextReferences();
   initHelp();                                    // 统一按钮帮助提示（document 级委托，可重复装配）
-  const composerReady = initComposer();
-  // 平级页面共享切换接缝；品牌回概览。入口返回 promise，测试可等到画完。
-  const goOverview = () => overview().catch(error => { show(error.message, 'error'); });
+  // 工作台导航永远先可用；没有项目时不装配任何项目写入口或轮询。
+  const goOverview = () => projectReady ? overview().catch(error => { show(error.message, 'error'); }) : openProjectManager();
   $('home').onclick = goOverview;
   $('overview-open').onclick = goOverview;
+  $('projects-open').onclick = () => openProjectManager();
+  $('environments-open').onclick = () => openEnvironments();
   $('settings-open').onclick = () => openSettings();
-  if ($('agent-status-open')) $('agent-status-open').onclick = () => openAgentStatus();
-  if ($('versions-open')) $('versions-open').onclick = () => openVersions();
-  if ($('inputs-open')) $('inputs-open').onclick = () => openInputs();
-  if ($('input-history')) $('input-history').onclick = () => openInputs();
+  $('docs-open').onclick = () => openDocsView();
+  const projectOnly = ['overview-open','task-graph-open','inputs-open','versions-open','agent-status-open'];
+  for (const id of projectOnly) { const target = $(id); target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); }
+  const composerShell = $('composer-shell'); if (composerShell) composerShell.hidden = !projectReady;
+  const composerReady = projectReady ? initComposer() : Promise.resolve();
+  if (projectReady) {
+    syncSidebarSortSelect();
+    $('sidebar-sort').addEventListener('change', onSidebarSortChange);
+    if (workbenchStatus().launcher) {
+      projectTimer = setInterval(() => { void refreshProjectList(); }, PROJECT_LIST_INTERVAL_MS);
+      projectVisibilityListener = () => { if (document.visibilityState === 'visible') void refreshProjectList(); };
+      addEventListener('visibilitychange', projectVisibilityListener);
+    }
+  }
+  if ($('agent-status-open')) $('agent-status-open').onclick = () => projectReady ? openAgentStatus() : noProjectView();
+  if ($('versions-open')) $('versions-open').onclick = () => projectReady ? openVersions() : noProjectView();
+  if ($('inputs-open')) $('inputs-open').onclick = () => projectReady ? openInputs() : noProjectView();
+  if ($('input-history')) $('input-history').onclick = () => projectReady ? openInputs() : noProjectView();
   $('sidebar-toggle').onclick = () => {
     const open = $('sidebar').classList.toggle('mobile-open');
     $('sidebar-toggle').setAttribute('aria-expanded', String(open));
     $('sidebar-toggle').textContent = open ? '收起菜单' : '导航菜单';
   };
-  $('task-graph-open').onclick = () => openTaskGraph().catch(error => { show(error.message, 'error'); });
-  $('docs-open').onclick = () => openDocsView();
+  $('task-graph-open').onclick = () => projectReady ? openTaskGraph().catch(error => { show(error.message, 'error'); }) : noProjectView();
   $('view-back').onclick = () => {
     if ($('view-back').disabled) return;
     if (typeof window.history.back === 'function') return window.history.back();
     return goOverview();
   };
-  initSidebar();
-  initNoticeRecords();
+  if (projectReady) { initSidebar(); initNoticeRecords(); }
   hashListener = onHashChange;
   addEventListener('hashchange', hashListener);
   // 先确定页面归属，再开始取数；首次加载期间的导航也不会被启动逻辑抢回。
   const initialView = onHashChange();
-  await refresh();
+  if (projectReady) await refresh();
   await initialView;
   await composerReady;
   // 深链接设置页可能先于概览摘要到达；摘要就绪后补画配置与系统信息。
   if (ui.settingsOpen) openSettings();
-  startTimers();
+  if (projectReady) startTimers();
 }
 
 await boot();
