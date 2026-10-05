@@ -5,6 +5,7 @@ import { AGENT_ROLES, agentPrompt } from '../../agent/prompts.js';
 import { agentEnvironment } from '../../agent/environment.js';
 import { AgentSettings } from '../../agent/settings.js';
 import { exact, option } from '../args.js';
+import { runPackages } from './agent-packages.js';
 
 const TARGETS = new Set(['default', ...AGENT_ROLES]);
 
@@ -109,6 +110,11 @@ export async function run(command, args, { client, json }) {
   }
 
   check(!client.token, 'agents cannot change Agent configuration');
+  if (verb === 'sources' || verb === 'resources') {
+    const { runSources, runResources } = await import('./agent-sources.js');
+    return (verb === 'sources' ? runSources : runResources)(args, client, { json });
+  }
+  if (verb === 'packages') return runPackages(args, { client, json });
   if (verb === 'network') return network(args, client);
   if (verb === 'show') { exact(args, 0); return client.request('agent.config'); }
   if (verb === 'models') {
@@ -131,10 +137,13 @@ export async function run(command, args, { client, json }) {
   check(TARGETS.has(target), 'agent set target must be default or a Worker role');
   const supplied = name => args.includes(name);
   const hasAgent = supplied('--agent'), hasModel = supplied('--model'), hasThinking = supplied('--thinking'), hasConnection = supplied('--connection');
+  const hasConfigMode = supplied('--config-mode');
   const hasDefaultPrompt = supplied('--default-prompt');
   const hasExplicitAppend = supplied('--append-prompt'), hasLegacyPrompt = supplied('--prompt');
   const hasAppendPrompt = hasExplicitAppend || hasLegacyPrompt;
   check(!(hasExplicitAppend && hasLegacyPrompt), 'use either --append-prompt or the legacy --prompt alias');
+  const configMode = option(args, '--config-mode');
+  if (hasConfigMode) check(['lush', 'pi'].includes(configMode), '--config-mode must be lush or pi');
   const backend = option(args, '--agent');
   const model = option(args, '--model');
   const thinking = option(args, '--thinking');
@@ -145,9 +154,10 @@ export async function run(command, args, { client, json }) {
   const defaultPrompt = option(args, '--default-prompt');
   const appendPrompt = hasExplicitAppend ? option(args, '--append-prompt') : option(args, '--prompt');
   exact(args, 0);
-  check(hasAgent || hasModel || hasThinking || hasConnection || hasDefaultPrompt || hasAppendPrompt || hasBudget, 'agent set requires at least one setting');
+  check(hasAgent || hasConfigMode || hasModel || hasThinking || hasConnection || hasDefaultPrompt || hasAppendPrompt || hasBudget, 'agent set requires at least one setting');
   const base = target === 'default' ? current.default : (current.roles[target] || current.resolved[target]);
-  const next = { ...base };
+  let next = { ...base };
+  if (hasConfigMode) next.config_mode = configMode;
   if (hasAgent) next.agent = backend;
   if (hasModel) next.model = model;
   if (hasThinking) next.thinking = thinking;
@@ -169,6 +179,15 @@ export async function run(command, args, { client, json }) {
       if (value === 'off') delete next.soft_budget[key];
       else next.soft_budget[key] = Number(value);
     }
+  }
+  if (next.agent !== 'pi') {
+    check(!hasConfigMode || configMode === 'lush', 'Pi default configuration requires the Pi backend');
+    delete next.config_mode;
+  }
+  if (next.config_mode === 'pi') {
+    check(!(hasModel || hasThinking || hasConnection || hasDefaultPrompt || hasAppendPrompt || hasBudget),
+      'Pi default configuration cannot mix managed overrides; select --config-mode lush first');
+    next = { agent: 'pi', config_mode: 'pi' };
   }
   const roles = { ...current.roles };
   if (target === 'default') return client.request('agent.configure', { config: { version: 1, default: next, roles } });

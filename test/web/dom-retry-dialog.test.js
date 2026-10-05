@@ -67,7 +67,7 @@ test('检查后重试编辑完整 Profile，并只把覆盖参数提交给 worke
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
   expect(actions[0]).toEqual({ method: 'worker.retry', params: { id: 42, profile: {
-    agent: 'pi', connection_id: codexId, model: 'openai-codex/gpt-5.4-mini', thinking: 'high', default_prompt: '',
+    agent: 'pi', config_mode: 'lush', connection_id: codexId, model: 'openai-codex/gpt-5.4-mini', thinking: 'high', default_prompt: '',
     append_prompt: '先复盘错误，再做最小修复', extensions: ['/tmp/review.js'], skills: [], soft_budget: {}, env: { ...commonEnv, ...roleEnv },
   } } });
 });
@@ -147,6 +147,51 @@ test('Worker连接模型越界不提交，Codex切换不携带托管连接，加
   } finally { profile.connection_id = codexId; profile.model = originalModel; }
 });
 
+test('Pi 默认模式只提交后端与模式，切回 Lush 保留未保存编辑', async () => {
+  actions.length = 0;
+  const pending = configureTask({ id: 47, role: 'worker', status: 'paused' });
+  await until(() => dialogButton(dom, '保存设置'));
+  const modal = dom.node('modal');
+  const mode = modal.querySelector('[data-retry-field="config_mode"]');
+  expect(mode.value).toBe('lush');
+  const model = modal.querySelector('[data-retry-field="model"]');
+  model.value = 'openai-codex/gpt-5.4-mini';
+  mode.value = 'pi'; mode.onchange();
+  expect(deepText(modal)).toContain('Pi 默认配置');
+  expect(deepText(modal)).toContain('不自动批准未受信项目');
+  expect(modal.querySelector('[data-config-managed="managed"]').hidden).toBe(true);
+  expect(model.disabled).toBe(true);
+  expect(modal.querySelector('[data-retry-field="agent"]').value).toBe('pi');
+  // Pi 模式不需要连接与模型即可保存。
+  await dialogButton(dom, '保存设置').onclick(); expect(await pending).toBe(true);
+  expect(actions).toEqual([{ method: 'worker.configure', params: { id: 47, profile: { agent: 'pi', config_mode: 'pi' } } }]);
+  // 切回 Lush 时仍保留刚才输入的模型，不被模式切换清空。
+  actions.length = 0;
+  const reopened = configureTask({ id: 48, role: 'worker', status: 'paused' });
+  await until(() => dialogButton(dom, '保存设置'));
+  const second = dom.node('modal'), secondMode = second.querySelector('[data-retry-field="config_mode"]');
+  const secondModel = second.querySelector('[data-retry-field="model"]');
+  secondModel.value = 'openai-codex/gpt-5.4-mini';
+  secondMode.value = 'pi'; secondMode.onchange(); secondMode.value = 'lush'; secondMode.onchange();
+  expect(second.querySelector('[data-config-managed="managed"]').hidden).toBe(false);
+  expect(secondModel.value).toBe('openai-codex/gpt-5.4-mini');
+  await dialogButton(dom, '不修改').onclick(); expect(await reopened).toBe(false);
+  expect(actions).toHaveLength(0);
+});
+
+test('隔离的 explainer 角色不能切到 Pi 默认配置', async () => {
+  actions.length = 0;
+  const pending = configureTask({ id: 49, role: 'explainer', status: 'paused' });
+  await until(() => dialogButton(dom, '保存设置'));
+  const modal = dom.node('modal');
+  const mode = modal.querySelector('[data-retry-field="config_mode"]');
+  const piOption = [...mode.children].find(node => node.value === 'pi');
+  expect(piOption.disabled).toBe(true);
+  expect(deepText(modal)).toContain('隔离的 explainer / butler 必须使用 Lush 配置');
+  await dialogButton(dom, '不修改').onclick(); expect(await pending).toBe(false);
+  expect(actions).toHaveLength(0);
+});
+
 test('取消Worker配置后连接列表迟到不改变其他页面，也不发起重试', async () => {
   actions.length = 0; let resolve;
   connectionResponse = new Promise(done => { resolve = done; });
@@ -187,7 +232,7 @@ test('加载默认参数恢复角色的 Prompt、资源与软预算，并正确�
     await dialogButton(dom, '保存设置').onclick();
     expect(await pending).toBe(true);
     expect(actions).toEqual([{ method: 'worker.configure', params: { id: 46, profile: {
-      ...defaults, env: { ...commonEnv, ...roleEnv, ...defaults.env },
+      ...defaults, config_mode: 'lush', env: { ...commonEnv, ...roleEnv, ...defaults.env },
     } } }]);
   } finally {
     delete settings.resolved.planner; delete settings.options.default_prompts.planner;

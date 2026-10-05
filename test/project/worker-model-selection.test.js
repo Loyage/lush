@@ -35,7 +35,7 @@ test('narrow update preserves all existing overrides and exposes only next-invoc
     f.project.configureTask(f.task.id, rich());
     const before = stored(f), result = f.project.configureTaskModelSelection(f.task.id, selection);
     expect(stored(f)).toEqual({ ...before, ...selection });
-    expect(result).toEqual({ id: f.task.id, model_selection: { agent: 'pi', ...selection, thinking: 'high', explicit: true } });
+    expect(result).toEqual({ id: f.task.id, model_selection: { agent: 'pi', config_mode: 'lush', ...selection, thinking: 'high', explicit: true } });
     noSecrets(result); noSecrets(f.project.inspect(f.task.id).model_selection);
     expect(f.project.inspect(f.task.id).retry_profile).toBeUndefined();
     expect(f.project.inspect(f.task.id).agent.connection_id).toBeNull();
@@ -51,7 +51,7 @@ test('without an override the effective role profile is the baseline, not the pr
     f.project.configureAgents({ version: 1, default: { agent: 'pi', model: 'default-model' }, roles: { agent: rich() } });
     const expected = f.project.agentSettings.resolve('agent');
     const first = f.project.inspect(f.task.id).model_selection;
-    expect(first).toEqual({ agent: 'pi', connection_id: null, model: 'openai-codex/old', thinking: 'high', explicit: false });
+    expect(first).toEqual({ agent: 'pi', config_mode: 'lush', connection_id: null, model: 'openai-codex/old', thinking: 'high', explicit: false });
     noSecrets(first);
     f.project.configureTaskModelSelection(f.task.id, selection);
     expect(stored(f)).toEqual({ ...expected, ...selection });
@@ -66,7 +66,7 @@ test('safe inspection remains lazy and never touches managed credentials, includ
   const f = setup();
   try {
     f.project.agentConnections.config = () => { throw new Error('MUST_NOT_READ_CREDENTIALS'); };
-    expect(f.project.inspect(f.task.id).model_selection).toEqual({ agent: 'pi', connection_id: null, model: '', thinking: '', explicit: false });
+    expect(f.project.inspect(f.task.id).model_selection).toEqual({ agent: 'pi', config_mode: 'lush', connection_id: null, model: '', thinking: '', explicit: false });
     f.project.configureTask(f.task.id, { ...rich(), connection_id: ID, model: 'deepseek/old' });
     expect(f.project.inspect(f.task.id).model_selection).toMatchObject({ connection_id: ID, model: 'deepseek/old', explicit: true });
     noSecrets(f.project.inspect(f.task.id).model_selection);
@@ -159,7 +159,7 @@ test('backend is not changed and no Pi binding is silently added to Codex', asyn
     const before = stored(f);
     expect(() => f.project.configureTaskModelSelection(f.task.id, selection)).toThrow('only Pi');
     expect(stored(f)).toEqual(before);
-    expect(f.project.inspect(f.task.id).model_selection).toEqual({ agent: 'codex', connection_id: null, model: 'codex-model', thinking: '', explicit: true });
+    expect(f.project.inspect(f.task.id).model_selection).toEqual({ agent: 'codex', config_mode: 'lush', connection_id: null, model: 'codex-model', thinking: '', explicit: true });
   } finally { await f.close(); }
 });
 

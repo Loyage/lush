@@ -5,13 +5,15 @@ export const handlers = {
   'order.submit'(p, params) {
     check(params.start === undefined || typeof params.start === 'boolean', 'start must be boolean');
     if (Object.hasOwn(params, 'draft_id')) {
-      check(!['content','references','branch'].some(key => Object.hasOwn(params, key)),
-        'draft_id cannot be combined with content, references or branch; edit the draft first');
+      check(!['content','references','branch','profile'].some(key => Object.hasOwn(params, key)),
+        'draft_id cannot be combined with content, references, branch or profile; edit the draft first');
       return p.submitBufferedDraft(params.draft_id, params.expected_revision, params.start !== false);
     }
     check(!Object.hasOwn(params, 'expected_revision'), 'expected_revision requires draft_id');
     check(params.branch === undefined || (typeof params.branch === 'string' && params.branch.trim().length > 0 && params.branch.length <= 512), 'invalid branch');
-    return p.order(params.content, params.branch ?? null, params.references === undefined ? [] : params.references, null, params.start !== false);
+    check(params.profile === undefined || (params.profile !== null && typeof params.profile === 'object' && !Array.isArray(params.profile)), 'invalid profile');
+    // `profile` is a full Worker profile override for the new order; the Project layer validates it.
+    return p.order(params.content, params.branch ?? null, params.references === undefined ? [] : params.references, null, params.start !== false, undefined, params.profile);
   },
   'input.history'(p, params) { return p.inputHistory(params); },
   'input.get'(p, params) { return p.inputGet(params.kind, params.id); },

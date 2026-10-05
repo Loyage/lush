@@ -474,12 +474,19 @@ test('profile显式选择连接，保留已配置ID；检查固定模型和Pi限
   const root = renderAgentSettings(settings, repaint, { ownsPage: () => current }), profile = root.querySelector('[data-agent-target="default"]');
   const choice = profile.querySelector('[data-agent-field="connection_id"]'); expect(choice.value).toBe(data.connections[0].id);
   await btn(profile, '读取项目连接').onclick(); expect(choice.value).toBe(data.connections[0].id);
-  expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections']);
+  // 连接列表单飞读取；已选来源另读一次本地模型目录缓存、页面另读一次本地资源目录，但都不查询额度、不启动模型。
+  expect(requests.map(entry => entry.url).filter(url => !String(url).startsWith('/api/agent/connections/models')
+    && url !== '/api/agent/packages' && url !== '/api/agent/resources')).toEqual(['/api/agent/connections']);
+  expect(requests.map(entry => entry.url)).toContain(`/api/agent/connections/models?id=${data.connections[0].id}`);
   const model = profile.querySelector('[data-agent-field="model"]'); model.value = 'wrong-provider/model';
   const before = world.state.actions.length; await btn(profile, '保存配置').onclick(); expect(world.state.actions).toHaveLength(before);
   model.value = 'deepseek/deepseek-chat'; await btn(profile, '保存配置').onclick();
-  expect(world.state.actions.at(-1).params.config.default.connection_id).toBe(data.connections[0].id);
-  expect(normalizeAgentProfile(world.state.actions.at(-1).params.config.default).connection_id).toBe(data.connections[0].id);
+  const savedDefault = world.state.actions.at(-1).params.config.default;
+  expect(savedDefault.connection_id).toBe(data.connections[0].id);
+  expect(savedDefault.config_mode).toBe('lush');
+  // config_mode 由 Agent 配置契约扩展提供；这里只用核心校验既有托管字段仍然合法。
+  const { config_mode: ignoredMode, ...coreProfile } = savedDefault;
+  expect(normalizeAgentProfile(coreProfile).connection_id).toBe(data.connections[0].id);
   const backend = profile.querySelector('[data-agent-field="agent"]'); backend.value = 'codex'; for (const fn of backend.listeners.change) fn();
   expect(choice.disabled).toBe(true);
   await btn(profile, '保存配置').onclick(); expect(world.state.actions.at(-1).params.config.default).not.toHaveProperty('connection_id');

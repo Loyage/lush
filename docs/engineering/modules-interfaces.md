@@ -10,7 +10,7 @@
 其中 `ctx = { client, json }`；返回 `undefined` 表示「已经自己打印过，主流程不要再 print」。
 `option` / `exact` / `print` 从 `args.js` 直接 import。
 
-`main.js` 的 `COMMANDS` 表只挂载下面这些名字；`help.js` 的 `HELP` 是当前命令面的权威文本。`agent set TARGET --connection UUID|off` 显式绑定/取消 Pi 连接，要求 qualified 物理模型，不做自动路由。未来策略的安全资源读接口 `agent.selection.resources {}` 也是用户专属，只读本地观测，GET `/api/agent/selection/resources` 不接受查询参数；受信策略接口见[共享模型选择](managed-model-selection.md)。连接管理的 `agent.connections.*` 全部用户专属 RPC，列表/历史通过 GET，秘密写入/登录/显式刷新仅 POST action；见[连接器契约](agent-connections.md)。
+`main.js` 的 `COMMANDS` 表只挂载下面这些名字；`help.js` 的 `HELP` 是当前命令面的权威文本。`agent set TARGET --connection UUID|off` 显式绑定/取消 Pi 连接，要求 qualified 物理模型，不做自动路由。未来策略的安全资源读接口 `agent.selection.resources {}` 也是用户专属，只读本地观测，GET `/api/agent/selection/resources` 不接受查询参数；受信策略接口见[共享模型选择](managed-model-selection.md)。连接管理的 `agent.connections.*` 全部用户专属 RPC，列表/历史通过 GET，秘密写入/登录/显式刷新仅 POST action；见[连接器契约](agent-connections.md)。模型目录只读走 GET `/api/agent/connections/models?id=...`、显式刷新与资源安装只经 POST action，`agent.packages.*` 与目录 RPC 均用户专属；见[模型目录契约](agent-model-catalog.md)。
 
 | 文件 | 命令 | 导出 |
 |---|---|---|
@@ -18,12 +18,14 @@
 | `cli/args.js` | 参数解析与两种输出 | `option`、`exact`、`print` |
 | `cli/print.js` | 树 / 会话 / 用量 / 分支谱系的渲染 | `printTree`、`printTranscript`、`transcriptStepText`、`printUsage`、`printBranchTree`、`printBranchShow`、`printBranchArchive` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `host start|stop|restart|status`；无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式；`doctor` / `host status` 分列磁盘、daemon、Web 身份并只给显式更新提示 | `run` |
-| `cli/commands/intent.js` | `order`（新输入的唯一入口） | `run` |
+| `cli/commands/intent.js` | `order`（新输入的唯一入口），`--profile-file PATH` 从 owner-only 普通 JSON 文件读取完整运行覆盖 | `run` |
 | `cli/commands/task.js` | `worker`（list / tree / inspect / spawn / message / transcript [--follow] / history / wait / integrate / auto-merge ID on\|off / reserve / accept / reopen / sync-parent / resolve-sync / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup / delete ID [--confirm --revision REV]） | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
 | `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 Agent 的 Worker） | `run` |
 | `cli/commands/notice.js` | `notice list/post/answer/dismiss/read`（read 为用户专属，只将 info 告知标已读） | `run` |
 | `cli/commands/branch.js` | `branch tree / show / bind / archive` | `run` |
-| `cli/commands/agent.js` | `agent show/models/set/reset` 配置 profile；`prompt/env` 查看最终组合和环境来源，`network show/set --file PATH/reset` 管理出站代理（[契约](outbound-network.md)），`init` 创建共享/本机补充；`--prompt` 只作旧版 `--append-prompt` 别名 | `run` |
+| `cli/commands/agent.js` | `agent show/models/set/reset` 配置 profile；`prompt/env` 查看最终组合和环境来源，`network show/set --file PATH/reset` 管理出站代理（[契约](outbound-network.md)），`init` 创建共享/本机补充；`--prompt` 只作旧版 `--append-prompt` 别名；`--config-mode lush|pi` 显式选择运行配置模式，`sources` / `resources` 分派到 `agent-sources.js`，`packages` 分派到 `agent-packages.js` | `run` |
+| `cli/commands/agent-sources.js` | `agent sources list/show/models ID [--refresh]/refresh [ID]/save --file PATH/remove ID/login ID`（设备码 start/poll/cancel 与备用回调私密文件）与只读 `agent resources`；用户专属，凭证不进 argv/输出 | `runSources(args,client,{json?})`、`runResources(args,client,{json?})`（[目录契约](agent-model-catalog.md)） |
+| `cli/commands/agent-packages.js` | `agent packages list/install SOURCE/remove ID/update ID`；用户专属，安装与启用分离 | `runPackages(args,client)`（兼容 context） |
 | `cli/commands/config.js` | `config show / set / reset`：读 `system.status.settings`、写 `system.configure`；用户专属，agent 调用被拒 | `run` |
 
 历史命令模块（`draft.js` / `plan.js` / `spec.js` / `candidate.js` / `sleep.js`）仍在源码里，但 `COMMANDS` 不再挂载它们；`lush help` 也不列出，执行会报 `unknown command`。
@@ -37,7 +39,7 @@
 | 文件 | 职责 | 导出 |
 |---|---|---|
 | `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
-| `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验。**唯一公开面**：未列入 `PARAMS` 的方法一律 `unknown method` | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
+| `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验。**唯一公开面**：未列入 `PARAMS` 的方法一律 `unknown method`。含用户专属连接模型目录 `agent.connections.models(.refresh)` 与资源安装 `agent.packages.*`，`order.submit` 预置可选 `profile` 覆盖参数 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
 | `rpc/handlers/system.js` | 用户专属 `system.configure`、`system.stop_if_idle`（同步 idle 准入并关闭调度，见[服务重启](../reference/web-routes.md#服务重启)）；只读 `system.status`（兼容完整状态）与 `system.summary`（首页用持久 revision/索引聚合的无 Agent 全配置摘要）；`graph.get`；`agent.*`（含用户专属配置与环境文件，以及按需读取脱敏 Pi 账号/安装状态的 `agent.status`，不纳入快照）；历史 `sleep.*` / `system.usage` 仍可被内部调用，但不在白名单 | `handlers` |
 | `rpc/handlers/task.js` | `worker.*`：`graph` / `list` / `activity` / `page` / `tree` / `inspect` / `history` / `history_page` / `diff` / 用户专属 `code_state` / `code_tree` / `code_file` / `usage` / `transcript*`、`spawn`、agent-only 的 `integrate` / `resolve_child_divergence` / `progress.*`，共享但按身份校验的 `accept`（用户验收指令 / 直接父 Agent 确认 child），以及用户专属的 `auto_merge` / `reserve` / `unreserve` / `reopen` / `sync_parent` / `resolve_sync` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` / `delete_preview` / `delete`（确认与 revision 必填） | `handlers` |
 | `rpc/handlers/notice.js` | `notice.list/page/post/answer/dismiss/read`；list 待决优先、其次未读生命周期 info；page 的 `unread` 仅筛新生命周期告知；read 幂等、不答复也不唤醒 | `handlers` |

@@ -426,7 +426,7 @@ export default {
     this.store.transaction(() => {
       const { task, request, parent } = this.assertTaskMergeAttempt(taskId, attemptId, true);
       this.store.update(task.id, { status: 'awaiting_acceptance', integration: 'merged', integration_error: null,
-        iteration_base_commit: request.commit, retry_profile: null,
+        iteration_base_commit: request.commit,
         reservation: JSON.stringify({ ...request, status: 'integrated', landed_commit: landedCommit,
           integrated_at: new Date().toISOString() }) });
       this.store.update(parent.id, { head_commit: parentHead });

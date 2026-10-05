@@ -139,6 +139,8 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 Codex 托管登录的默认设备码与备用回调入口见[设备码登录契约](codex-device-login.md)：新增用户专属 `agent.connections.device.start/poll/cancel`，Manager/Service 同名方法，Project 使用 `startConnectionDeviceLogin/pollConnectionDeviceLogin/cancelConnectionDeviceLogin`。只在当前登录页面按服务端间隔检查授权，不启动模型或修改外部 Pi 凭证。
 
+托管来源的自动模型目录、缓存隔离、后台低频刷新与 `agent sources` / `agent resources` 命令面见[模型目录与来源 CLI](agent-model-catalog.md)：用户专属 `agent.connections.models(.refresh)`（`SELECT` 读本地缓存，刷新仅 POST action），`agent.selection.resources` 每连接附带只读 `model_catalog`；CLI 子模块 `cli/commands/agent-sources.js` 导出 `runSources` / `runResources`，由 `agent.js` 分派。目录不代表额度或请求必然成功，`connection.models` 仍是手动限制。
+
 旧用量扩展的完整字段与文件契约见 [Agent 额度查询与历史曲线](agent-usage.md)，操作说明见 [Agent 状态](../reference/rpc/agents.md)。
 
 平级「Agent 配置」`#agent-status` 保留旧地址，默认配置分模型与运行、工作方式、高级项，按需读取 `/api/agent/config`，不依赖 overview 的完整配置。高级诊断显式触发 `agent.status` / GET `/api/agent/status`，配置默认打开不查上游。诊断数据来自项目 Lush 独立 Pi，不是用户默认 Pi、浏览器本机或当前 invocation 快照；旧历史保留，不导入托管来源。独立「模型来源」`#model-sources` 与 `#model-source-UUID` 只读本地列表/缓存，显式登录/额度刷新；来源选择不改变项目默认。两页保存/读取有页面身份保护，不被轮询覆盖，不启动模型。系统设置 `#settings` 保留界面/系统页签并承载项目出站网络；采样默认关闭、间隔 5 分钟、保留 90 天。

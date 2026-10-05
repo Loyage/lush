@@ -40,7 +40,9 @@ test('读取期间用户改模型与来源保持不变，重复读取单飞', as
   const first = picker.load(), second = picker.load();
   model.value = 'openai-compatible/model-b';
   pending.resolve(json({ version: 1, connections: rows })); await Promise.all([first, second]); intercept = null;
-  expect(calls).toHaveLength(1); expect(picker.value()).toBe(id); expect(model.value).toBe('openai-compatible/model-b');
+  // 连接列表单飞；另有一次对已选来源的本地缓存目录读取，不是联网刷新。
+  expect(calls.filter(call => call.url === '/api/agent/connections')).toHaveLength(1);
+  expect(picker.value()).toBe(id); expect(model.value).toBe('openai-compatible/model-b');
   expect(picker.validate()).toBeNull(); expect(deepText(picker.node)).toContain('我的中转 API');
 });
 

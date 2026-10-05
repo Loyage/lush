@@ -86,7 +86,8 @@ const sessionDir = config => path.join(config.home, 'sessions');
 export function sessionFiles(config, taskId) {
   const dir = sessionDir(config);
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir).filter(name => name.endsWith(`_lush-task-${taskId}.jsonl`)).sort();
+  return fs.readdirSync(dir).filter(name => name.endsWith(`_lush-task-${taskId}.jsonl`)
+    || name.endsWith(`_lush-task-${taskId}-pi.jsonl`)).sort();
 }
 
 /** Small synchronous reads keep one giant JSONL file from becoming one giant main-thread pause. */

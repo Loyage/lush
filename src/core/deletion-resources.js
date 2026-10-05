@@ -51,7 +51,7 @@ export function workerFiles(config, tasks, contexts) {
   const names = present(sessions) ? fs.readdirSync(sessions) : [];
   for (const task of tasks) {
     const id = task.id;
-    for (const name of names) if (name.endsWith(`_lush-task-${id}.jsonl`) ||
+    for (const name of names) if (name.endsWith(`_lush-task-${id}.jsonl`) || name.endsWith(`_lush-task-${id}-pi.jsonl`) ||
       new RegExp(`^(?:task-${id}-(?:input|system)\\.md|task-${id}-context\\.json(?:\\.\\d+\\.tmp)?|decision-${id}\\.json|codex-task-${id}(?:-result\\.md|\\.json(?:\\.\\d+\\.tmp)?))$`).test(name)) add(path.join(sessions, name));
     add(path.join(home, 'task-rules', `task-${id}.mjs`));
     for (const suffix of ['request.json', 'stop.json']) add(path.join(home, 'preempt', `task-${id}.${suffix}`));
@@ -66,7 +66,9 @@ export function workerFiles(config, tasks, contexts) {
       if (new RegExp(`^${context.commit_hash}\\.jsonl\\.\\d+\\.tmp$`).test(name)) add(path.join(checkpoints, name));
     if (context.session_path) {
       check(path.resolve(context.session_path).startsWith(path.resolve(sessions) + path.sep), 'commit context session is outside project sessions');
-      check(path.basename(context.session_path).endsWith(`_lush-task-${context.task_id}.jsonl`), 'commit context session has unknown Worker ownership');
+      const name = path.basename(context.session_path);
+      check(name.endsWith(`_lush-task-${context.task_id}.jsonl`)
+        || name.endsWith(`_lush-task-${context.task_id}-pi.jsonl`), 'commit context session has unknown Worker ownership');
       add(path.resolve(context.session_path));
     }
   }

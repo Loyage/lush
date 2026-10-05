@@ -1,4 +1,4 @@
-import { $, el } from './dom.js';
+import { $, button, el } from './dom.js';
 import { workerKind } from './worker-kind.js';
 import { action, api } from './api.js';
 import { taskTitle, isHistoricalDelivery, TERMINAL_STATUS } from './format.js';
@@ -8,6 +8,86 @@ import { detail, refresh } from './navigate.js';
 import { ui } from './state.js';
 import { composerReferences, renderComposerReferences, setComposerReferences } from './context-references.js';
 import { agentHelp } from './help.js';
+import { confirmDialog, closeDialog, formDialog } from './dialog.js';
+import { createProfileForm } from './agent-profile-form.js';
+import { normalizeConfigMode } from './agent-config-mode.js';
+
+// 本条指令可选的运行设置：只打开设置，不调用 Agent；派生 Worker 由后端自动继承。
+export const RUN_SETTINGS_HELP = '打开本条指令的运行设置：先选由 Lush 掌握配置，还是交给执行机器上用户自己的 Pi 默认配置。只打开设置，不调用 Agent；派生 Worker 自动继承本次选择，不逐个确认。';
+
+/** 运行设置按钮文案：未选择覆盖时明确显示沿用项目默认。 */
+export function runSettingsLabel() {
+  if (!ui.composerProfile) return '运行设置：项目默认';
+  return `运行设置：${normalizeConfigMode(ui.composerProfile.config_mode) === 'pi' ? 'Pi 默认配置' : 'Lush 配置'}`;
+}
+
+// 动态插入的按钮节点：DOM 测试的 stub 只能按 id 查静态元素，所以这里保留引用并统一经它重画。
+let runSettingsButton = null;
+
+export function paintRunSettings() {
+  if (!runSettingsButton) return;
+  runSettingsButton.textContent = runSettingsLabel();
+  runSettingsButton.hidden = $('input-form')?.dataset.mode === 'append';
+}
+
+/**
+ * 打开「本条指令的运行设置」弹窗：完整 Profile（Lush）或 Pi 默认模式，确认后只存在本次会话里，
+ * 随下一次 order.submit 一起发送；取消或「恢复项目默认」不改变已有输入。
+ */
+export async function openComposerRunSettings() {
+  const view = ui.view;
+  const ownsPage = () => ui.view === view;
+  if (!ownsPage()) return;
+  let settings = ui.lastSnapshot?.status?.agent_config;
+  if (!settings) {
+    try { settings = await api('/api/agent/config'); }
+    catch (error) { show(`无法读取项目 Agent 配置：${error.message}`, 'error'); return; }
+  }
+  if (!ownsPage() || !settings) return;
+  const role = 'agent';
+  const base = { ...(settings.resolved?.[role] || settings.default || {}) };
+  const initial = ui.composerProfile ? { ...ui.composerProfile } : { ...base, config_mode: normalizeConfigMode(base.config_mode) };
+  const form = createProfileForm({ profile: initial, settings, role, ownsPage });
+  const content = el('div', undefined, 'retry-profile-form-wrap');
+  content.append(form.node, el('p', '确认后，本条指令创建 Worker 时会带上这份运行设置；派生 Worker 自动继承，不逐个弹窗。', 'retry-scope-note'));
+  let requestedDefault = false;
+  const useDefault = button('恢复项目默认（本条不覆盖）', () => { requestedDefault = true; closeDialog(); }, 'ghost',
+    { help: '本条指令改回沿用项目默认运行配置；不修改输入内容，也不调用 Agent' });
+  content.append(useDefault);
+  await form.ready;
+  if (!ownsPage()) return;
+  for (;;) {
+    requestedDefault = false;
+    const confirmed = await formDialog({
+      title: '新建指令的运行设置', message: '默认使用 Lush 托管配置；也可以选择执行机器上用户自己的 Pi 默认配置。',
+      content, confirmLabel: '使用这份设置', cancelLabel: '取消', agent: false,
+      confirmHelp: '把这份运行设置固定给将要创建的那条指令；只保存设置，不调用 Agent、不创建 Worker。',
+    });
+    if (requestedDefault && ownsPage()) {
+      ui.composerProfile = null; paintRunSettings();
+      show('本条指令将沿用项目默认运行配置。'); return;
+    }
+    if (!confirmed || ui.view !== view) return;
+    const error = form.validate();
+    if (error) { show(error, 'error'); continue; }
+    break;
+  }
+  const profile = form.collect();
+  const builtIn = form.builtInPrompt;
+  const entered = form.defaultPromptValue();
+  const nextDefault = entered === builtIn.trim() ? '' : entered;
+  if (form.mode() !== 'pi' && nextDefault && nextDefault !== (initial.default_prompt || '')) {
+    const accepted = await confirmDialog({ title: '用自定义 Prompt 创建指令？',
+      message: '自定义内容会替换 Lush 内置 Worker 规则，只对这一条指令及其派生 Worker 生效。',
+      detail: '可能影响：Worker API 使用、权限边界、子 Worker 协作、工作区安全和交付流程。',
+      confirmLabel: '仍然使用', cancelLabel: '取消', danger: true, agent: false,
+      confirmHelp: '把这份自定义 Prompt 固定给将要创建的指令。' });
+    if (!accepted || !ownsPage()) return;
+  }
+  ui.composerProfile = profile; paintRunSettings();
+  show(`本条指令将使用${normalizeConfigMode(profile.config_mode) === 'pi' ? 'Pi 默认配置' : 'Lush 配置'}运行设置；创建 Worker 时生效。`);
+}
+
 
 // Historical panel helpers remain for legacy readers; new drafts live in #inputs.
 export function paintDraftPanel() {
@@ -139,6 +219,7 @@ export function syncComposer() {
     $('composer-details').hidden = true; $('composer-shortcuts').hidden = true;
   }
   $('composer-expand').hidden = ui.view?.id === 'task';
+  paintRunSettings();
 }
 
 /** One flight across buffering, button submission and all keyboard shortcuts. */
@@ -158,7 +239,8 @@ async function submitInput(mode) {
     const params = { content, references, ...(branch ? { branch } : {}) };
     const result = target.id != null
       ? await action('worker.message', { id: target.id, body: content })
-      : await action(mode === 'buffer' ? 'draft.add' : 'order.submit', mode === 'buffer' ? params : { ...params, start: mode === 'start' });
+      : await action(mode === 'buffer' ? 'draft.add' : 'order.submit', mode === 'buffer' ? params
+        : { ...params, start: mode === 'start', ...(ui.composerProfile ? { profile: ui.composerProfile } : {}) });
     if (ui.composerIdentity !== identity) return;
     // Never consume text or references authored while the request was in flight (even an edit-and-undo).
     const untouched = ui.view === view && ui.composerEditRevision === editRevision && input.value === value
@@ -171,6 +253,8 @@ async function submitInput(mode) {
       show(`已暂存输入 #${result.id}，可到「历史输入」编辑或发射；未创建 Worker、未调用 Agent。`);
       ui.inputsPage?.added?.();
     } else {
+      // 运行设置只绑定这一条指令；创建成功后回到项目默认，避免下一条指令悄悄沿用。
+      ui.composerProfile = null; paintRunSettings();
       show(mode === 'start' ? `已创建并开始 Worker #${result.task.id}` : `已创建 Worker #${result.task.id}（待开始），可配置后开始`);
       await refresh();
       if (ui.composerIdentity === identity && ui.view === view) await detail(result.task.id);
@@ -183,6 +267,16 @@ export function buffer() { return submitInput('buffer'); }
 /** Enter buffers new work or appends in a Worker inbox; Shift+Enter always inserts a newline. */
 export function initComposer() {
   ui.composerIdentity = {}; ui.composerEditRevision = 0; ui.syncComposer = syncComposer;
+  // 每次装配（含 boot 重跑）都从项目默认开始，不让上一条指令的运行设置跨会话残留。
+  ui.composerProfile = null;
+  runSettingsButton = button(runSettingsLabel(), () => openComposerRunSettings(), 'ghost composer-run-settings', { help: RUN_SETTINGS_HELP });
+  runSettingsButton.id = 'composer-run-settings'; runSettingsButton.dataset.composerRunSettings = '';
+  const anchor = $('input-buffer-help');
+  const host = anchor?.parentNode ?? $('composer-shell') ?? null;
+  // 重复 boot 时先移除上次装的按钮，避免入口重复。
+  host?.querySelector?.('.composer-run-settings')?.remove?.();
+  if (anchor?.parentNode) anchor.parentNode.insertBefore(runSettingsButton, anchor);
+  else host?.append(runSettingsButton);
   const sendHelp = agentHelp('发送后创建独立 Worker；默认先停在「待开始」，可配置后开始。⌘ / Ctrl+Shift+Enter 直接开始。');
   $('draft-commit').setAttribute('data-help', sendHelp);
   $('input-send-help')?.setAttribute('data-help', sendHelp);

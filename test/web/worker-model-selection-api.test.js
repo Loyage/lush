@@ -26,7 +26,7 @@ test('real RPC and HTTP narrow configuration preserve private overrides with saf
   try {
     const before = JSON.parse(f.store.task(task.id).retry_profile);
     const rpc = await new RPCClient(f.config.socket).request('worker.configure', { id: task.id, model_selection: choice });
-    expect(rpc).toEqual({ id: task.id, model_selection: { agent: 'pi', ...choice, thinking: 'high', explicit: true } });
+    expect(rpc).toEqual({ id: task.id, model_selection: { agent: 'pi', config_mode: 'lush', ...choice, thinking: 'high', explicit: true } });
     noSecrets(rpc);
     const response = await post(f, { id: task.id, model_selection: choice });
     expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('no-store');

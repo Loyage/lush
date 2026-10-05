@@ -1,6 +1,7 @@
 import { test, expect, afterAll } from 'bun:test';
 import fs from 'node:fs';
 import { installDom, deepText, findByText } from '../dom-stub.js';
+import { until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
 
 const fixture = () => ({ version: 1, agent: 'pi', checked_at: '2026-10-01T09:00:00.000Z',
@@ -53,6 +54,9 @@ test('Agent配置独立导航默认读取配置，不查询旧账号；页面标
   expect(pageText()).toContain('不继承用户全局 Pi 设置或 Prompt');
   expect(refresh().parentNode.hidden).toBe(true); expect(calls).toBe(before);
   await findByText(detail().querySelector('[data-agent-target="default"]'), '读取项目连接').onclick();
+  // 打开 Agent 配置只读一次已安装包目录（/api/agent/packages，失败退回 /api/agent/resources）。
+  // 这次异步读取完成前「读取中…」会随完成变成结果，先等它就绪再断言“重复打开 + 轮询不改动页面”。
+  await until(() => !pageText().includes('读取中…'));
   const content = pageText(), pushes = dom.pushed(); await openAgentStatus();
   await dom.intervalFor(1500)(); await dom.intervalFor(3000)();
   expect(calls).toBe(before); expect(pageText()).toBe(content); expect(dom.pushed()).toBe(pushes);

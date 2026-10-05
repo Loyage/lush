@@ -14,6 +14,7 @@ import { serviceRestartControls } from './service-restart.js';
 import { workbenchStatus } from './project-picker.js';
 import { createAgentConnectionPicker } from './agent-connection-picker.js';
 import { renderNetworkSettings } from './agent-network-settings.js';
+import { CONFIG_MODES, PI_MODE_HELP, normalizeConfigMode, profileForMode } from './agent-config-mode.js';
 
 const TABS = [
   { id: 'interface', label: '界面', note: '阅读、外观与行为' },
@@ -145,7 +146,65 @@ function field(label, control, note = '', extraClass = '') {
 }
 
 const modelCatalogs = new Map();
-let resourceCatalog = null;
+
+/**
+ * Agent 配置页共享的已安装资源目录。优先读只读的 /api/agent/packages（含包管理与资源路径）；
+ * 旧 daemon 没有该接口时退回 /api/agent/resources，只显示目录发现结果并说明安装管理不可用。
+ * 打开页面只读本地，不联网安装、不查询额度、不调用 Agent。
+ */
+let packagesCatalog = null;
+const resourceValue = entry => entry?.path || entry?.id || '';
+const resourceLabel = entry => entry?.name || entry?.label || String(resourceValue(entry)).split('/').at(-1) || '未命名资源';
+const normalizeResourceEntries = rows => (Array.isArray(rows) ? rows : []).map(entry => ({
+  value: resourceValue(entry), label: resourceLabel(entry),
+  description: entry?.description || '', source: entry?.source || '',
+})).filter(entry => entry.value);
+async function loadPackagesCatalog(force = false) {
+  if (!force && packagesCatalog) return packagesCatalog;
+  try {
+    const data = await api('/api/agent/packages');
+    if (data?.version !== 1 || !Array.isArray(data.packages)) throw new Error('接口数据格式不兼容');
+    const resources = data.resources || {};
+    packagesCatalog = { source: 'packages', installable: true, packages: data.packages,
+      resources: { extensions: normalizeResourceEntries(resources.extensions), skills: normalizeResourceEntries(resources.skills) },
+      warning: data.warning || null };
+  } catch (error) {
+    try {
+      const legacy = await api('/api/agent/resources');
+      packagesCatalog = { source: 'resources', installable: false,
+        packages: Array.isArray(legacy.packages) ? legacy.packages : [],
+        resources: { extensions: normalizeResourceEntries(legacy.extensions), skills: normalizeResourceEntries(legacy.skills) },
+        warning: `已安装包管理不可用（${error.message}）；仅显示本地目录发现到的资源，安装 / 移除 / 更新暂不可用。` };
+    } catch (second) {
+      packagesCatalog = { source: 'resources', installable: false, packages: [],
+        resources: { extensions: [], skills: [] }, warning: `资源目录读取失败：${second.message}` };
+    }
+  }
+  return packagesCatalog;
+}
+
+/** 禁用按钮不派发事件，提示必须由外层 `.help-host` 承载；可点按钮直接返回原按钮。 */
+function guardedButton(label, enabled, reason, fn, className = 'ghost') {
+  const node = button(label, fn, className);
+  if (enabled) return node;
+  node.disabled = true;
+  const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', reason); host.append(node);
+  return host;
+}
+
+/** 客户端先拒绝未固定版本的远端来源；后端仍会再校验，这里只负责尽早给出可操作的提示。 */
+function fixedSourceError(source) {
+  const value = String(source || '').trim();
+  if (!value) return '请填写安装来源。';
+  if (/^npm:(?:@[^/@\s]+\/)?[^@/\s]+@[^@\s]+$/.test(value)) return null;
+  if (value.startsWith('npm:')) return 'npm 包必须固定版本，例如 npm:@example/pi-tools@1.0.0；不接受浮动版本。';
+  if (/^git:[^\s@]+@[^\s@]+$/.test(value)) return null;
+  if (value.startsWith('git:')) return 'git 来源必须固定 commit 或 tag，例如 git:github.com/example/pi-tools@v1。';
+  if (/^https?:\/\/[^\s@/]+\/[^\s@]+@[^\s@]+$/.test(value)) return null;
+  if (/^https?:\/\//i.test(value)) return '远端 URL 按 git 来源处理，必须固定 commit 或 tag，例如 https://github.com/example/pi-tools@v1。';
+  if (/^(\.\.?\/|\/|~\/)/.test(value)) return null;
+  return '不支持的来源；请使用固定版本的 npm:、固定 commit/tag 的 git:，或显式本地路径。';
+}
 
 function profileEditor(settings, profile, target, title, subtitle, repaint, ownsPage, savedSummary = null) {
   const card = el('section', undefined, 'agent-profile'); card.dataset.agentTarget = target;
@@ -155,6 +214,16 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
 
   const form = el('div', undefined, 'agent-form-grid');
   const runtime = el('section', undefined, 'agent-config-section'); runtime.append(el('h4', '模型与运行'));
+  const managedFields = [];
+  const managedField = (label, control, note, extraClass) => {
+    const node = field(label, control, note, extraClass); node.dataset.agentManaged = 'true'; managedFields.push(node); return node;
+  };
+  const mode = el('select'); mode.className = 'agent-select'; mode.dataset.agentField = 'config_mode';
+  for (const item of CONFIG_MODES) { const option = el('option', item.label); option.value = item.id; option.title = item.note; mode.append(option); }
+  mode.value = normalizeConfigMode(profile.config_mode);
+  const modeNote = el('span', undefined, 'settings-note');
+  const modeField = field('配置模式', mode, '', 'config-mode-field'); modeField.append(modeNote);
+  let lushBackend = settings.options.agents.includes(profile.agent) ? profile.agent : 'pi';
   const workstyle = el('details', undefined, 'agent-config-section'); workstyle.append(el('summary', '工作方式：Prompt、扩展与 Skills'));
   const advanced = el('details', undefined, 'agent-config-section'); advanced.append(el('summary', '高级设置：替换内置 Prompt'));
   const backend = el('select'); backend.className = 'agent-select'; backend.dataset.agentField = 'agent';
@@ -162,7 +231,7 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
   const model = el('input'); model.className = 'agent-model'; model.dataset.agentField = 'model'; model.value = profile.model || '';
   model.maxLength = 256;
   const connectionPicker = createAgentConnectionPicker({ backend, model, connectionId: profile.connection_id || '',
-    ownsPage, onChange: () => paintModels() });
+    ownsPage, onChange: () => { paintModels(); if (backend.value === 'pi' && normalizeConfigMode(mode.value) === 'lush') syncThinking(false); } });
   const connection = connectionPicker.connection; connection.dataset.agentField = 'connection_id';
   const thinking = el('select'); thinking.className = 'agent-select'; thinking.dataset.agentField = 'thinking';
   const budgetControls = {};
@@ -184,7 +253,9 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
       const saved = settings.default, row = connectionPicker.entry();
       const source = saved.agent === 'pi' ? (saved.connection_id
         ? (row?.id === saved.connection_id ? row.label : `托管来源 ${saved.connection_id}`) : '未选择来源') : 'Codex CLI 自身认证';
-      savedSummary.textContent = `${saved.agent === 'pi' ? 'Pi' : 'Codex'} → ${source} → ${saved.model || (saved.agent === 'pi' ? '请选择来源内模型' : 'CLI 默认模型')} · 项目默认（已保存），下一次调用生效`;
+      savedSummary.textContent = normalizeConfigMode(saved.config_mode) === 'pi'
+        ? 'Pi 默认配置（执行机器 Pi）· 项目默认（已保存），下一次调用生效'
+        : `${saved.agent === 'pi' ? 'Pi' : 'Codex'} → ${source} → ${saved.model || (saved.agent === 'pi' ? '请选择来源内模型' : 'CLI 默认模型')} · 项目默认（已保存），下一次调用生效`;
     }
     loadModels.hidden = agent === 'pi';
     if (agent === 'pi') {
@@ -231,45 +302,62 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
   const paintResourceGroup = (title, entries, selected, kind) => {
     const group = el('fieldset', undefined, 'resource-group');
     group.append(el('legend', `${title}（${entries.length}）`));
-    const known = new Set(entries.map(entry => entry.id));
+    const known = new Set(entries.map(entry => entry.value));
     const rows = [...entries];
-    for (const id of selected) if (!known.has(id)) rows.push({ id, label: id.split('/').at(-1), source: '已配置但当前未发现', missing: true });
+    for (const value of selected) if (!known.has(value)) rows.push({ value, label: value.split('/').at(-1), source: '已配置但当前未发现', missing: true });
     if (!rows.length) group.append(el('p', '没有发现可选项。', 'settings-note'));
     for (const entry of rows) {
       const wrap = el('label', undefined, `resource-choice${entry.missing ? ' missing' : ''}`);
-      const input = el('input'); input.type = 'checkbox'; input.dataset.resourceKind = kind; input.value = entry.id;
-      input.checked = selected.has(entry.id); input.disabled = backend.value !== 'pi';
-      input.addEventListener('change', () => input.checked ? selected.add(entry.id) : selected.delete(entry.id));
+      const input = el('input'); input.type = 'checkbox'; input.dataset.resourceKind = kind; input.value = entry.value;
+      input.checked = selected.has(entry.value); input.disabled = backend.value !== 'pi' || mode.value === 'pi';
+      input.addEventListener('change', () => input.checked ? selected.add(entry.value) : selected.delete(entry.value));
       const copy = el('span'); copy.append(el('strong', entry.label), el('small', entry.description || entry.source || 'Pi 资源'));
       wrap.append(input, copy); group.append(wrap);
     }
     return group;
   };
   const paintResources = () => {
-    const pi = backend.value === 'pi';
+    const pi = backend.value === 'pi' && mode.value === 'lush';
     loadResources.disabled = !pi;
-    if (!pi) {
+    if (mode.value === 'pi') {
+      resourcesNote.textContent = 'Pi 默认配置由执行机器的 Pi 目录自行决定资源，这里不注入 Lush 的扩展与 Skills。';
+    } else if (!pi) {
       resourcesNote.textContent = 'Pi 扩展与 Skills 不会传给 Codex；选择会保留，切回 Pi 后生效。';
-    } else if (resourceCatalog?.warning) resourcesNote.textContent = resourceCatalog.warning;
-    else resourcesNote.textContent = resourceCatalog ? '目录来自本项目 Lush 独立 Pi 配置；只加载显式勾选项，扩展拥有当前用户的完整系统权限。' : '按需读取本项目 Lush 独立 Pi 目录中的已安装资源。';
-    resourceChoices.replaceChildren(...(resourceCatalog ? [
-      paintResourceGroup('扩展', resourceCatalog.extensions || [], selectedExtensions, 'extensions'),
-      paintResourceGroup('Skills', resourceCatalog.skills || [], selectedSkills, 'skills'),
+    } else if (packagesCatalog?.warning) resourcesNote.textContent = packagesCatalog.warning;
+    else resourcesNote.textContent = packagesCatalog
+      ? '只加载显式勾选的资源；扩展拥有当前用户的完整系统权限，不是沙箱。安装与移除在页面顶部的「已安装插件与 Skills」里进行。'
+      : '按需读取本项目 Lush 独立 Pi 目录中的已安装资源；安装与移除在页面顶部的「已安装插件与 Skills」里进行。';
+    resourceChoices.replaceChildren(...(packagesCatalog?.resources ? [
+      paintResourceGroup('扩展', packagesCatalog.resources.extensions || [], selectedExtensions, 'extensions'),
+      paintResourceGroup('Skills', packagesCatalog.resources.skills || [], selectedSkills, 'skills'),
     ] : []));
   };
   loadResources.onclick = async () => {
     loadResources.disabled = true; loadResources.textContent = '读取中…';
-    try { resourceCatalog = await api('/api/agent/resources'); paintResources(); }
-    catch (error) { show(error.message, 'error'); }
-    finally { loadResources.textContent = '重新读取'; loadResources.disabled = backend.value !== 'pi'; }
+    try { await loadPackagesCatalog(true); if (ownsPage()) paintResources(); }
+    catch (error) { if (ownsPage()) show(error.message, 'error'); }
+    finally { if (ownsPage()) { loadResources.textContent = '重新读取'; loadResources.disabled = backend.value !== 'pi' || mode.value === 'pi'; } }
   };
 
+  // 思考深度：目录确有元数据时收窄到该模型声明的等级；已保存值不被静默丢弃，未知时保留原选项。
+  const syncThinking = (clear, chosen = undefined) => {
+    const agent = backend.value;
+    let levels = settings.options.thinking[agent] || [''];
+    const current = clear ? '' : (chosen ?? (thinking.value || profile.thinking));
+    const supported = agent === 'pi' ? connectionPicker.thinkingLevels?.() : null;
+    if (supported) {
+      levels = ['', ...supported];
+      // 目录未声明的已保存等级仍保留为可选项，不静默改写成别的等级。
+      if (current && !levels.includes(current)) levels.push(current);
+    }
+    selectOptions(thinking, levels, current, thinkingLabel);
+  };
   const syncBackend = clear => {
     const agent = backend.value;
     if (clear) { model.value = ''; thinking.value = ''; }
     model.placeholder = agent === 'pi' ? '请选择来源内模型（provider/model）' : 'Codex CLI 默认模型';
     connectionPicker.sync();
-    selectOptions(thinking, settings.options.thinking[agent] || [''], clear ? '' : profile.thinking, thinkingLabel);
+    syncThinking(clear);
     paintModels(); paintResources();
   };
   backend.addEventListener('change', () => syncBackend(true));
@@ -285,12 +373,14 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
     finally { if (ownsPage()) { paintModels(); loadModels.textContent = '重新读取'; } }
   };
 
-  runtime.append(field('执行后端', backend, '执行该类 Worker 的 CLI；托管模型来源当前仅支持 Pi。'),
-    field('模型来源', connectionPicker.node, '先选来源，再选匹配模型。API Key 与登录由项目统一托管，下一次调用生效。'),
-    field('模型', modelBox, 'Pi 必须选择托管来源内的明确模型；仅 Codex CLI 可留空使用自身默认模型。'),
-    field('思考深度', thinking, '可用等级随 Agent 变化。'),
-    field('软预算：模型响应数', budgetControls.responses, '每次 invocation 单独计数；达到阈值提醒收尾，不强制终止。仅 Pi；解释角色不继承。'),
-    field('软预算：累计 token', budgetControls.tokens, '包含缓存读取，非上下文长度；留空关闭。Codex 不支持，切换前需清空。'));
+  // 执行后端始终可见（切换配置模式时它的可选范围会变），其余托管字段随模式整体隐藏。
+  runtime.append(modeField,
+    field('执行后端', backend, '执行该类 Worker 的 CLI；Pi 默认配置模式下固定为 Pi。'),
+    managedField('模型来源', connectionPicker.node, '先选来源，再选匹配模型。API Key 与登录由项目统一托管，下一次调用生效。'),
+    managedField('模型', modelBox, 'Pi 必须选择托管来源内的明确模型；仅 Codex CLI 可留空使用自身默认模型。'),
+    managedField('思考深度', thinking, '可用等级随 Agent 与来源模型变化。'),
+    managedField('软预算：模型响应数', budgetControls.responses, '每次 invocation 单独计数；达到阈值提醒收尾，不强制终止。仅 Pi；解释角色不继承。'),
+    managedField('软预算：累计 token', budgetControls.tokens, '包含缓存读取，非上下文长度；留空关闭。Codex 不支持，切换前需清空。'));
 
   const roleDefaults = settings.options.default_prompts || null;
   const builtInPrompt = target === 'default' && roleDefaults ? '' : (roleDefaults?.[target] || settings.options.default_prompt || '');
@@ -325,32 +415,64 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
   workstyle.append(field('追加 Prompt', appendPrompt, '追加在最终默认 Prompt 之后，适合补充项目约定。', 'prompt-field'),
     field('插件与 Skills', resourcesBox, '从 Lush 独立 Pi 目录发现资源；保留显式配置的资源路径，每个 Agent 配置独立保存。', 'resource-field'));
   form.append(runtime, workstyle, advanced);
-  card.append(form); syncBackend(false);
+  const syncMode = clearManaged => {
+    const lush = normalizeConfigMode(mode.value) === 'lush';
+    card.dataset.configMode = lush ? 'lush' : 'pi';
+    if (lush) {
+      if (backend.value === 'pi' && lushBackend !== 'pi') { backend.value = lushBackend; syncBackend(false); }
+      backend.disabled = false;
+    } else {
+      if (backend.value !== 'pi') lushBackend = backend.value;
+      backend.value = 'pi';
+      backend.disabled = true;
+      if (clearManaged) {
+        model.value = ''; thinking.value = '';
+        for (const input of Object.values(budgetControls)) input.value = '';
+        defaultPrompt.value = ''; appendPrompt.value = '';
+        selectedExtensions.clear(); selectedSkills.clear(); syncPromptState();
+        connectionPicker.reset('');
+      }
+    }
+    for (const node of managedFields) node.hidden = !lush;
+    workstyle.hidden = !lush;
+    advanced.hidden = !lush;
+    modeNote.textContent = lush
+      ? '使用 Lush 托管的模型来源、模型、思考深度、Prompt 与资源；对自己的配置掌握力更强。'
+      : PI_MODE_HELP;
+    paintModels(); paintResources(); syncThinking(!lush);
+  };
+  mode.addEventListener('change', () => syncMode(true));
+  card.append(form); syncBackend(false); syncMode(normalizeConfigMode(profile.config_mode) === 'pi');
   void connectionPicker.load();
 
   const actions = el('div', undefined, 'agent-profile-actions');
   actions.append(button('保存配置', async () => {
     if (!ownsPage()) return;
-    const connectionError = connectionPicker.validate();
-    if (connectionError) { show(connectionError, 'error'); return; }
-    const enteredDefaultPrompt = defaultPrompt.value.trim();
-    const nextDefaultPrompt = enteredDefaultPrompt === builtInPrompt.trim() ? '' : enteredDefaultPrompt;
-    if (nextDefaultPrompt && nextDefaultPrompt !== (profile.default_prompt || '')) {
-      const confirmed = await confirmDialog({ title: '替换 Lush 内置 Prompt？',
-        message: '保存后，下一次 Agent 调用将不再收到 Lush 内置 Worker 规则。',
-        detail: '可能影响：Worker API 使用、权限边界、子 Worker 协作、工作区安全和交付流程。\n请确认你的 Prompt 已完整覆盖这些要求。',
-        confirmLabel: '仍然替换并保存', danger: true });
-      if (!confirmed || !ownsPage()) return;
+    const selectedMode = normalizeConfigMode(mode.value);
+    let nextDefaultPrompt = '';
+    if (selectedMode === 'lush') {
+      const connectionError = connectionPicker.validate();
+      if (connectionError) { show(connectionError, 'error'); return; }
+      const enteredDefaultPrompt = defaultPrompt.value.trim();
+      nextDefaultPrompt = enteredDefaultPrompt === builtInPrompt.trim() ? '' : enteredDefaultPrompt;
+      if (nextDefaultPrompt && nextDefaultPrompt !== (profile.default_prompt || '')) {
+        const confirmed = await confirmDialog({ title: '替换 Lush 内置 Prompt？',
+          message: '保存后，下一次 Agent 调用将不再收到 Lush 内置 Worker 规则。',
+          detail: '可能影响：Worker API 使用、权限边界、子 Worker 协作、工作区安全和交付流程。\n请确认你的 Prompt 已完整覆盖这些要求。',
+          confirmLabel: '仍然替换并保存', danger: true });
+        if (!confirmed || !ownsPage()) return;
+      }
     }
-    const chosenConnection = backend.value === 'pi' ? connection.value : '';
-    const next = {
+    const chosenConnection = selectedMode === 'lush' && backend.value === 'pi' ? connection.value : '';
+    // Pi 默认模式只提交后端与模式；托管来源、模型、思考深度、Prompt、资源与预算全部丢弃。
+    const next = profileForMode(selectedMode, {
       agent: backend.value, model: model.value.trim(), thinking: thinking.value,
       ...(chosenConnection ? { connection_id: chosenConnection } : {}),
       default_prompt: nextDefaultPrompt, append_prompt: appendPrompt.value.trim(),
       extensions: [...selectedExtensions], skills: [...selectedSkills],
       soft_budget: Object.fromEntries(Object.entries(budgetControls).filter(([, input]) => input.value.trim() !== '')
         .map(([key, input]) => [key, Number(input.value)])),
-    };
+    });
     const roles = { ...settings.roles };
     const config = target === 'default'
       ? { version: 1, default: next, roles }
@@ -376,7 +498,9 @@ function inheritedRole(settings, role, repaint) {
   const card = el('section', undefined, 'agent-role-summary'); card.dataset.agentTarget = role;
   const copy = el('div', undefined, 'agent-role-copy');
   const source = resolved.agent === 'pi' ? (resolved.connection_id ? `来源 ${resolved.connection_id}` : '未选择来源') : 'Codex CLI 自身认证';
-  copy.append(el('h3', meta.label), el('p', `${resolved.agent} · ${source} · ${resolved.model || (resolved.agent === 'pi' ? '请选择来源内模型' : 'CLI 默认模型')} · ${thinkingLabel(resolved.thinking)}`, 'settings-note'));
+  const summary = normalizeConfigMode(resolved.config_mode) === 'pi' ? 'Pi 默认配置（执行机器 Pi）'
+    : `${resolved.agent} · ${source} · ${resolved.model || (resolved.agent === 'pi' ? '请选择来源内模型' : 'CLI 默认模型')} · ${thinkingLabel(resolved.thinking)}`;
+  copy.append(el('h3', meta.label), el('p', summary, 'settings-note'));
   card.append(copy, el('span', '继承默认', 'badge b-neutral'), button('单独配置', async () => {
     const saved = await action('agent.configure', { config: { version: 1, default: settings.default,
       roles: { ...settings.roles, [role]: { ...resolved } } } });
@@ -476,6 +600,98 @@ function environmentEditor(settings, repaint) {
   return section;
 }
 
+const PACKAGE_SOURCE_HELP = '安装到本项目的 Lush 独立 Pi 目录，不改用户默认 Pi。来源必须固定版本：npm:name@1.0.0、git:host/repo@commit-or-tag，或显式本地路径（./、../、/、~/）。安装不会自动启用，也不会调用 Agent。';
+
+/** 项目级插件与 Skills 安装管理：安装与启用分开，安装 / 更新 / 移除都不调用 Agent。 */
+function packagesManager(ownsPage) {
+  const section = block('已安装插件与 Skills'); section.classList.add('agent-packages');
+  section.append(el('p', '安装库属于本项目的 Lush 独立 Pi 目录，不改用户默认 Pi。安装与启用分开：安装不会自动勾选任何 Agent 的扩展 / Skills，启用仍在各 Agent 配置的「工作方式」里选择。安装、更新、移除都不调用 Agent 或模型。', 'settings-note settings-section-note'));
+  const warning = el('p', undefined, 'settings-warning'); warning.hidden = true; warning.dataset.packageWarning = '';
+  const toolbar = el('div', undefined, 'agent-package-toolbar');
+  const state = el('span', undefined, 'settings-note'); state.dataset.packageState = '';
+  const list = el('div', undefined, 'agent-package-list'); list.dataset.packageList = '';
+  const errorBox = el('p', undefined, 'settings-error'); errorBox.hidden = true; errorBox.dataset.packageError = '';
+  const source = el('input'); source.type = 'text'; source.className = 'agent-package-source'; source.dataset.packageSource = '';
+  source.placeholder = 'npm:@example/pi-tools@1.0.0 或 git:github.com/example/pi-tools@v1 或 ./local-package';
+  source.maxLength = 512; source.spellcheck = false; source.autocomplete = 'off';
+  source.setAttribute('aria-label', '要安装的 Pi 包来源（必须固定版本）');
+  const installRow = el('div', undefined, 'agent-package-install'); installRow.append(source);
+  const fail = message => { errorBox.textContent = message; errorBox.hidden = false; };
+  const clearInstall = () => { for (const node of [...installRow.children]) if (node !== source) node.remove(); };
+  let pending = false;
+  const reload = button('读取已安装包', () => load(true), 'ghost agent-package-load',
+    { help: '读取本项目 Lush 独立 Pi 目录中的已安装包与资源；只读本地，不联网安装、不查询额度、不调用 Agent。' });
+  toolbar.append(reload, state);
+  async function load(force) {
+    if (!ownsPage() || pending) return;
+    pending = true; reload.disabled = true; reload.textContent = '读取中…';
+    try { await loadPackagesCatalog(force); if (ownsPage()) paint(); }
+    catch (error) { if (ownsPage()) fail(error.message); }
+    finally { pending = false; if (ownsPage()) { reload.disabled = false; reload.textContent = '重新读取'; } }
+  }
+  const mutate = async (method, params, success) => {
+    errorBox.hidden = true;
+    try {
+      await action(method, params);
+      await loadPackagesCatalog(true);
+      if (ownsPage()) { paint(); show(success); }
+      return true;
+    } catch (error) { if (ownsPage()) fail(error.message); return false; }
+  };
+  const removePackage = async (entry, label) => {
+    const confirmed = await confirmDialog({ title: '移除已安装包？',
+      message: `将从本项目的 Lush 独立 Pi 安装库移除「${label}」。`,
+      detail: '不会删除用户默认 Pi 的安装，也不会取消各 Agent 已勾选的启用路径；找不到的显式路径会保留为“已配置但当前未发现”。',
+      confirmLabel: '移除该包', danger: true });
+    if (!confirmed || !ownsPage()) return;
+    await mutate('agent.packages.remove', { id: entry.id }, `已移除 ${label}。`);
+  };
+  const install = async () => {
+    const value = source.value.trim();
+    const invalid = fixedSourceError(value);
+    if (invalid) { fail(invalid); return; }
+    if (await mutate('agent.packages.install', { source: value }, `已安装 ${value}；安装不会自动启用，请在 Agent 配置的「工作方式」里勾选。`)) source.value = '';
+  };
+  const packageRow = entry => {
+    const row = el('div', undefined, 'agent-package-row');
+    const copy = el('div', undefined, 'agent-package-copy');
+    const label = entry.label || entry.source || entry.id || '未命名包';
+    copy.append(el('strong', label));
+    if (entry.label && entry.source) copy.append(el('small', `来源：${entry.source}`));
+    const meta = [entry.version ? `版本 ${entry.version}` : null, entry.requested ? `引用 ${entry.requested}` : null, entry.root || null].filter(Boolean).join(' · ');
+    if (meta) copy.append(el('small', meta));
+    const canEdit = Boolean(entry.id) && packagesCatalog?.installable;
+    const reason = '这个 daemon 未提供安装管理接口或包 ID；升级 daemon 后再试。';
+    const actions = el('div', undefined, 'agent-package-actions');
+    actions.append(
+      guardedButton('更新', canEdit, reason, () => mutate('agent.packages.update', { id: entry.id }, `已更新 ${label}。`)),
+      guardedButton('移除', canEdit, reason, () => removePackage(entry, label)));
+    row.append(copy, actions); return row;
+  };
+  const paint = () => {
+    const catalog = packagesCatalog;
+    clearInstall();
+    if (!catalog) {
+      list.replaceChildren(el('p', '尚未读取已安装包。', 'settings-note'));
+      state.textContent = ''; warning.hidden = true;
+      installRow.append(guardedButton('安装', false, '请先读取已安装包，确认 daemon 是否提供安装管理接口。', () => {}, 'primary agent-package-install'));
+      return;
+    }
+    warning.hidden = !catalog.warning; warning.textContent = catalog.warning || '';
+    const packages = catalog.packages || [];
+    state.textContent = `${catalog.installable ? '已安装包管理可用' : '只读目录发现'} · ${packages.length} 个包`;
+    list.replaceChildren(...(packages.length ? packages.map(packageRow) : [el('p', '未发现已安装的 Pi 包。', 'settings-note')]));
+    installRow.append(catalog.installable
+      ? button('安装', install, 'primary agent-package-install', { help: PACKAGE_SOURCE_HELP })
+      : guardedButton('安装', false, '当前 daemon 没有提供安装管理接口；升级 daemon 后再试。', () => {}, 'primary agent-package-install'));
+  };
+  paint();
+  section.append(toolbar, warning, list, installRow, errorBox);
+  // 打开配置页只读一次本地目录（有缓存后不重复）；失败会退回只读发现并说明安装管理不可用。
+  if (!packagesCatalog) void load(false);
+  return section;
+}
+
 /** Shared subpanel: its owner supplies configuration and an identity-guarded repaint callback. */
 export function renderAgentSettings(settings, repaint, { ownsPage = () => true } = {}) {
   const content = el('div', undefined, 'settings-tab-panel agent-settings');
@@ -485,9 +701,10 @@ export function renderAgentSettings(settings, repaint, { ownsPage = () => true }
     content.append(waiting); return content;
   }
   const intro = el('div', undefined, 'agent-callout');
-  intro.append(el('strong', '项目级 · 独立 Pi 配置'), el('p', `配置保存在 ${settings.file}。Pi 使用 Lush 独立配置，不继承用户全局 Pi 设置或 Prompt；项目 AGENTS 与显式资源保留。所有 Pi 调用必须选择 Lush 模型来源与明确模型。正在运行的调用保持不变，后续调用读取最新配置。`, 'settings-note'));
+  intro.append(el('strong', '项目级 · 双配置模式'), el('p', `每个 Agent 先选配置模式：Lush 配置使用 Lush 托管的来源、模型、Prompt 与资源，Pi 调用不继承用户全局 Pi 设置或 Prompt；Pi 默认配置使用执行机器上的 Pi 目录。配置保存在 ${settings.file}，项目 AGENTS 与显式资源保留。正在运行的调用保持不变，后续调用读取最新配置。`, 'settings-note'));
   const summary = el('p', undefined, 'agent-default-summary'); summary.setAttribute('role', 'status');
   content.append(intro, summary);
+  content.append(packagesManager(ownsPage));
   content.append(profileEditor(settings, settings.default, 'default', '默认 Agent', '所有未单独配置的 Worker 行为都继承这里。', repaint, ownsPage, summary));
 
   const roles = block('按 Worker 行为覆盖'); roles.classList.add('agent-roles-block');

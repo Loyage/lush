@@ -16,6 +16,7 @@ const methods={
   'agent.connections.sampling':['sampling'], 'agent.connections.query':['id'], 'agent.connections.history':['id','days'],
   'agent.connections.login.start':['id'], 'agent.connections.login.finish':['id','login_id','redirect_url'],
   'agent.connections.device.start':['id'], 'agent.connections.device.poll':['id','login_id'], 'agent.connections.device.cancel':['id','login_id'],
+  'agent.connections.models':['id'], 'agent.connections.models.refresh':['id'],
 };
 
 test('connection RPC surface is narrow and entirely user-only, with no secret read or passive write methods',()=>{
@@ -166,4 +167,44 @@ test('global connection routes preserve project identity for reads/query/login/w
     expect((await fetch(url+'/api/agent/connections')).status).toBe(400);
     expect((await fetch(`${url}/p/${'0'.repeat(16)}/api/agent/connections`)).status).toBe(400);
   } finally {web.stop(true);for(const dir of [a,b,global])fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('model catalog and package RPCs are user-only with narrow parameters',()=>{
+  const methods={ 'agent.packages.list':[], 'agent.packages.install':['source'], 'agent.packages.remove':['id'], 'agent.packages.update':['id'] };
+  for(const [method,params] of Object.entries(methods)){
+    expect(PARAMS[method]).toEqual(params);expect(USER_ONLY.has(method)).toBe(true);
+    expect(assertAllowed(method,{},null)).toBeNull();
+    expect(()=>assertAllowed(method,{},99)).toThrow('requires user approval');
+    expect(()=>assertAllowed(method,{command:'SECRET'},null)).toThrow('unknown parameter');
+  }
+  for(const method of ['agent.connections.models','agent.connections.models.refresh']) expect(USER_ONLY.has(method)).toBe(true);
+});
+
+test('model catalog HTTP read requires one connection id; refresh stays an explicit action',async()=>{
+  const f=await setup(),manager=new ManagerStub();
+  let current={version:1,id:'conn-one',checked_at:'2026-01-10T12:00:00.000Z',status:'unknown',source:'none',models:[],warning:null,error_code:null};
+  manager.catalog=()=>current;
+  manager.catalogRefresh=async()=>{current={...current,status:'fresh',source:'listing'};return current;};
+  install(f,{manager});
+  try {
+    const read=await fetch(f.url+'/api/agent/connections/models?id=conn-one');
+    expect(read.status).toBe(200);expect(read.headers.get('cache-control')).toBe('no-store');
+    expect((await read.json()).status).toBe('unknown');
+    for(const suffix of ['', '?id=conn-one&secret=x', '?id=conn-one&id=conn-two', '?days=7']) expect((await fetch(f.url+'/api/agent/connections/models'+suffix)).status).toBe(400);
+    const refreshed=await action(f.url,'agent.connections.models.refresh',{id:'conn-one'});
+    expect(refreshed.status).toBe(200);expect((await refreshed.json()).status).toBe('fresh');
+    expect((await action(f.url,'agent.connections.models',{id:'conn-one'})).status).toBe(400);
+  } finally {await f.close();}
+});
+
+test('installed resource list is a no-store local read and install stays an explicit action',async()=>{
+  const f=await setup();
+  try {
+    const listed=await fetch(f.url+'/api/agent/packages');
+    expect(listed.status).toBe(200);expect(listed.headers.get('cache-control')).toBe('no-store');
+    const body=await listed.json();expect(body.version).toBe(1);expect(Array.isArray(body.packages)).toBe(true);
+    expect((await fetch(f.url+'/api/agent/packages?token=SECRET')).status).toBe(400);
+    expect((await action(f.url,'agent.packages.list')).status).toBe(400);
+    expect((await action(f.url,'agent.packages.install',{source:'npm:anything'})).status).toBe(400);
+  } finally {await f.close();}
 });

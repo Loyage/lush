@@ -82,8 +82,9 @@ export default {
     }
     check(this.store.children(task.id).every(child => TERMINAL.has(child.status)), 'cannot finish with active or unaccepted children');
     this.store.transaction(() => {
-      // A retry profile is scoped to this attempt. Terminal settlement removes it so a later
-      // explicit retry starts from the then-current project/role profile unless the user adjusts it again.
+      // New Worker run settings are persistent selections, not one-attempt retry hints.
+      // Keep them across failures/settlement so a later retry cannot silently switch config modes.
+      // Historical task protocols retain their attempt-scoped behavior.
       if (request) {
         const reservation = JSON.parse(task.reservation);
         const { blocked_reason: _previousReason, blocked_code: _previousCode, ...cleanReservation } = reservation;
@@ -99,7 +100,8 @@ export default {
           source_task_id: task.id, signal: 'merge.requested', key });
         this.store.update(task.id, { reservation: JSON.stringify(requested) });
       }
-      this.store.update(task.id, { status, result, error, retry_profile: null, interrupt_state: null,
+      this.store.update(task.id, { status, result, error,
+        retry_profile: ['order','say','child'].includes(task.task_kind) ? task.retry_profile : null, interrupt_state: null,
         ...(resolvedByUser ? { reservation: null } : {}) });
       if (resolvedByUser) this.store.event(task.id, 'task.resolved', { head_commit: task.head_commit ?? null });
       this.store.run("UPDATE notices SET status='dismissed',answer='worker ended' WHERE task_id=? AND status='open'", task.id);
@@ -338,7 +340,8 @@ export default {
       ...(booking?.version === 2 && booking.status === 'withdrawn' ? { reservation:
         task.status === 'failed' && booking.retry_status
           ? JSON.stringify({ version: 2, kind: 'merge', status: 'pending', auto_merge: booking.auto_merge }) : null } : {}),
-      retry_profile: retryProfile ? JSON.stringify(retryProfile) : null });
+      retry_profile: retryProfile ? JSON.stringify(retryProfile)
+        : ['order','say','child'].includes(task.task_kind) ? task.retry_profile : null });
     this.resumeQueuedTaskMerge(task.id);
     this.store.event(task.id, 'retry', retryProfile ? {
       profile_override: true, agent: retryProfile.agent, model: retryProfile.model || null,
@@ -454,6 +457,7 @@ export default {
     this.stopping = true;
     const usageStopped = this.agentUsage.stop();
     const connectionsStopped = this.agentConnections.stop();
+    const packagesStopped = this.agentPackageManager.stop();
     clearInterval(this.sleepTimer); this.sleepTimer = null;
     await this.sleepWatchPromise;
     await this.sleepTickPromise;
@@ -467,5 +471,6 @@ export default {
     await this.workspaces.queue;
     await usageStopped;
     await connectionsStopped;
+    await packagesStopped;
   }
 };

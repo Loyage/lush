@@ -68,6 +68,9 @@ try {
     if (url.pathname === '/api/agent/connections') return Response.json(world.state.agentConnections);
     if (url.pathname === '/api/agent/config') return Response.json(world.state.agentConfig);
     if (url.pathname === '/api/agent/resources') return Response.json({ extensions: [], skills: [], warning: null });
+    // Agent 配置页与来源选择读取的本地目录；fixture 只给空/未确认结果，不联网、不调用模型。
+    if (url.pathname === '/api/agent/packages') return Response.json({ version: 1, packages: [], resources: { extensions: [], skills: [] }, truncated: false });
+    if (url.pathname === '/api/agent/connections/models') return Response.json({ version: 1, id: url.searchParams.get('id'), checked_at: null, status: 'unsupported', source: null, models: [] });
     if (url.pathname === '/api/agent/usage/config') return Response.json(world.state.agentUsageConfig);
     if (url.pathname === '/api/agent/usage/history') return Response.json(world.state.agentUsageHistory);
     return Response.json({ error: `Unexpected request: ${url.pathname}` }, { status: 400 });
@@ -116,7 +119,8 @@ try {
     if (width < 640) await click('.model-source-row:last-child');
     console.log(`PASS Agent/source layout and interaction ${theme}/${width}`);
   }
-  assert(calls.every(route => ['/api/agent/connections', '/api/agent/config', '/api/agent/status', '/api/agent/usage/config', '/api/agent/usage/history'].includes(route)), `Unexpected API: ${calls.join(',')}`);
+  assert(calls.every(route => ['/api/agent/connections', '/api/agent/connections/models', '/api/agent/packages',
+    '/api/agent/config', '/api/agent/status', '/api/agent/usage/config', '/api/agent/usage/history'].includes(route)), `Unexpected API: ${calls.join(',')}`);
   assert(await execute('return window.browserErrors.length===0'), 'Browser emitted errors');
   passed = true; console.log(`PASS mock-only two-page layouts, narrow screen navigation, local search, focus and draft preservation. Screenshots: ${output}`);
 } catch (error) {

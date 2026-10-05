@@ -6,7 +6,7 @@ lush [--project PATH] [--json] <command>
   status                             项目与 Worker 状态
   host start|stop|restart|status [PORT]  整机 Lush Host（Web 工作台入口）
 
-  order '目标' [--branch NAME]        提交指令，创建独立 Worker、分支与 worktree
+  order '目标' [--branch NAME] [--profile-file PATH]  提交指令，可从私有 JSON 选择运行配置
   worker list|tree|inspect ID         查看 Worker
   worker spawn '目标' --parent ID [--name NAME]  在指令/child 下派 agent 子 Worker
   worker message ID '说明'            给现有 Worker 追加消息
@@ -38,6 +38,11 @@ lush [--project PATH] [--json] <command>
   notice post '标题' [--worker ID] [--body '正文']  发给指定 Worker（Agent 默认当前 Worker）
   progress plan|complete             Agent 汇报进度
   agent show|models|set|reset|prompt|env|init|network  配置 Agent
+  agent sources list|show ID|refresh [ID]|models ID [--refresh]  来源、额度与缓存模型目录
+  agent sources save --file PATH|remove ID|login ID  托管连接管理与显式登录
+  agent resources                          本地来源/模型/额度安全 JSON 读面（不联网）
+  agent packages list|install SOURCE|remove ID|update ID  项目插件/Skills安装（不自动启用）
+  agent set TARGET --config-mode lush|pi    默认 Lush 托管；显式 Pi 默认不混入托管设置
   agent network show                       读取项目出站代理设置（认证不回显）
   agent network set --file PATH             从私有 JSON 文件保存代理，不在参数中填写密码
   agent network reset                      恢复继承后台启动环境，后续请求与 Agent 生效

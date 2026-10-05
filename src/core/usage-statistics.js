@@ -4,7 +4,8 @@ import path from 'node:path';
 import { check } from './types.js';
 import { usageAttribution } from './usage-attribution.js';
 
-const SESSION = /_lush-task-\d+\.jsonl$/;
+// Both config modes belong to one Worker even though runtime sessions are isolated.
+const SESSION = /_lush-task-(\d+)(?:-pi)?\.jsonl$/;
 const MAX_LINE = 16 * 1024 * 1024;
 const MAX_BUCKETS = 1500;
 const CACHE_ROWS = 100000;
@@ -60,7 +61,7 @@ async function readFile(file, stat) {
     cache.delete(file); cache.set(file, previous);
     return previous;
   }
-  const result = { signature: key, task_id: Number(file.match(/_lush-task-(\d+)\.jsonl$/)[1]), rows: [], malformed: 0, incomplete: 0 };
+  const result = { signature: key, task_id: Number(file.match(SESSION)[1]), rows: [], malformed: 0, incomplete: 0 };
   let invocation = null;
   let model = { provider: 'unknown', model: 'unknown' };
   let tail = '', skipping = false;

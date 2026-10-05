@@ -5,6 +5,7 @@ import path from 'node:path';
 import { readInputRule, saveInputRule, snapshotPath } from '../task-input-rule.js';
 import { forkCheckpoint } from '../../agent/fork.js';
 import { checkDraftRevision } from './input-history.js';
+import { profileEvent } from './internal.js';
 
 function storedReservation(raw) {
   if (raw === null) return null;
@@ -860,13 +861,25 @@ export default {
     });
   },
 
-  /** Every new order is one Input and one branch-owning Task, regardless of whether it writes code. */
-  order(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined) {
-    return this.write('send this order', () => this.sendOrder(content, branch, references, draftId, start, expectedRevision));
+  /**
+   * Every new order is one Input and one branch-owning Task, regardless of whether it writes code.
+   * The trailing `profile` is the optional full run-settings override used by the `order.submit`
+   * RPC path; it is validated before the Git anchor is created and cleared at terminal settlement.
+   */
+  order(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null) {
+    return this.write('send this order', () => this.sendOrder(content, branch, references, draftId, start, expectedRevision, profile));
+  },
+
+  /** Convenience wrapper for the same creation-time override without the legacy positional options. */
+  submitOrder(content, branch = null, references = [], profile = null, start = true) {
+    return this.write('send this order', () => this.sendOrder(content, branch, references, null, start, undefined, profile));
   },
 
   /** The body of order(); runs under the clear gate so an anchor created before a clear cannot commit after its purge. */
-  async sendOrder(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined) {
+  async sendOrder(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null) {
+    // A buffered draft has no run-settings step of its own; reject the mix instead of silently dropping it.
+    check(draftId === null || draftId === undefined || profile === null || profile === undefined,
+      'a buffered draft cannot carry run settings; configure the Worker after sending it');
     let draft = null, draftReferences = null;
     const buffered = expectedRevision !== undefined;
     if (draftId !== null && draftId !== undefined) {
@@ -883,6 +896,9 @@ export default {
       references = draftReferences;
     }
     text(content, 'input');
+    // Resolve the optional creation-time override before creating the Git anchor: an invalid
+    // profile must fail without leaving a half-created input branch behind.
+    const runProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile('agent', profile);
     const normalized = this.normalizeReferences(references);
     if (branch !== null && branch !== undefined) text(branch, 'branch');
     const target = branch ?? await this.workspaces.git(this.config.project, 'symbolic-ref', '--short', 'HEAD')
@@ -933,7 +949,9 @@ export default {
           name: `order-${inputId}`, task_kind: 'order' });
         this.store.update(task.id, { branch: anchor.branch, workspace: anchor.workspace,
           auto_merge: JSON.stringify({ version: 1, enabled: false, locked: false }),
-          base_commit: anchor.commit, target_branch: target, ...(start ? {} : { status: 'paused' }) });
+          base_commit: anchor.commit, target_branch: target, ...(start ? {} : { status: 'paused' }),
+          ...(runProfile ? { retry_profile: JSON.stringify(runProfile) } : {}) });
+        if (runProfile) this.store.event(task.id, 'task.configured', { ...profileEvent(runProfile), profile_override: true, via: 'order' });
         if (rule !== null) {
           ruleTaskId = task.id;
           saveInputRule(this.config.home, task.id, rule);

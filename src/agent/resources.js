@@ -134,6 +134,26 @@ function packageEntries(extensions, skills, root, source) {
   else skillEntries(skills, path.join(root, 'skills'), source);
 }
 
+/** Exported for the package manager: raw extension or skill rows found in one directory. */
+export function scanDirectoryResources(root, kind, source) {
+  const rows = new Map();
+  if (kind === 'extension') extensionEntries(rows, root, source);
+  else skillEntries(rows, root, source);
+  return [...rows.values()];
+}
+
+/** Exported for the package manager: extensions/skills a Pi package root exposes, without executing it. */
+export function scanPackageResources(root, options = {}) {
+  const extensions = new Map(), skills = new Map();
+  const source = options.source || root;
+  let stat = null;
+  try { stat = fs.statSync(root); } catch { stat = null; }
+  if (!stat) return { extensions: [], skills: [] };
+  if (!stat.isDirectory()) { addExtension(extensions, root, source); return { extensions: [...extensions.values()], skills: [] }; }
+  packageEntries(extensions, skills, root, source);
+  return { extensions: [...extensions.values()], skills: [...skills.values()] };
+}
+
 function installedPackages(output) {
   const rows = [];
   let source = '';

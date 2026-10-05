@@ -38,4 +38,5 @@
 - [模块地图总览](modules.md)
 - [Runtime 与持久化模块](modules-runtime.md)
 - [Web 前端模块](modules-web.md)
+- [Web 端 Agent 配置与运行设置](web-agent-configuration.md)：双配置模式、模型目录缓存、扩展与 Skills 安装管理的浏览器侧职责与失败边界。
 - [CLI、RPC 与测试模块](modules-interfaces.md)

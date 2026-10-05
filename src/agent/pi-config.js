@@ -70,6 +70,19 @@ export function ensurePiConfiguration(config) {
   finally { fs.rmSync(temporary, { force: true }); }
 }
 
+/**
+ * Pi-default mode: the machine's own Pi configuration stays authoritative. Only stale nested-session
+ * metadata is dropped; ambient provider credentials and an explicit PI_CODING_AGENT_DIR are kept
+ * so the user's Pi authentication still works. Not used by the managed Lush path.
+ */
+export function defaultPiEnvironment(config, environment = config.env) {
+  const values = { ...environment };
+  for (const key of Object.keys(values)) {
+    if (key.startsWith('PI_SESSION') || ['PI_PROVIDER', 'PI_MODEL', 'PI_REASONING_LEVEL', 'PI_CODING_AGENT_SESSION_DIR'].includes(key)) delete values[key];
+  }
+  return values;
+}
+
 /** Configuration isolation is not an OS sandbox. Keep tool env, but never Pi's ambient model authentication. */
 export function isolatedPiEnvironment(config, environment = config.env, directory = piConfigDirectory(config)) {
   const values = { ...environment };

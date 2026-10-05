@@ -3,12 +3,17 @@ import { button, el } from './dom.js';
 import { formDialog } from './dialog.js';
 import { createAgentConnectionPicker } from './agent-connection-picker.js';
 import { TERMINAL_STATUS, isHistoricalDelivery } from './format.js';
+import { normalizeConfigMode } from './agent-config-mode.js';
 import { workerKind } from './worker-kind.js';
 import { ui } from './state.js';
 import { show } from './messages.js';
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const SAVE_HELP = '仅保存本 Worker 下一次调用的模型来源与模型，后台保留其他运行覆盖；不启动 Agent，不自动继续，不改变当前调用。';
+const PI_MODE_REASON = '该 Worker 使用 Pi 默认配置（执行机器的 Pi 自行决定来源与模型）；请用完整运行设置切换配置模式后，再在这里选择托管来源。';
+
+/** Worker 下一次调用是否走 Pi 默认配置；摘要缺失时按默认 Lush 处理。 */
+export const nextConfigMode = task => normalizeConfigMode(task?.model_selection?.config_mode ?? task?.retry_profile?.config_mode);
 
 export function canConfigureModelSource(task) {
   return !isHistoricalDelivery(task) && ['order', 'child'].includes(workerKind(task))
@@ -34,16 +39,20 @@ export function modelSourceSummary(task, history = []) {
   }
   node.append(el('p', `当前调用来源：${current}`, 'hint'));
   const next = task.model_selection;
-  node.append(el('p', next
-    ? `下一次配置：${next.agent} → ${next.connection_id || (next.agent === 'pi' ? '未选择来源（不会回退外部 Pi）' : 'Codex CLI 自身认证')} → ${next.model || '未指定模型'} · ${next.explicit ? 'Worker 独立覆盖' : '继承项目 / 角色配置'}`
-    : '下一次配置：未知（后台未提供安全模型选择摘要）', 'hint'));
+  // Pi 默认模式下没有托管来源：摘要明确说明由执行机器 Pi 决定，且不由这个窄入口切换。
+  node.append(el('p', next && nextConfigMode(task) === 'pi'
+    ? `下一次配置：Pi 默认配置（执行机器的 Pi 自行决定来源与模型）· ${next.explicit ? 'Worker 独立覆盖' : '继承项目 / 角色配置'}`
+    : next
+      ? `下一次配置：${next.agent} → ${next.connection_id || (next.agent === 'pi' ? '未选择来源（不会回退外部 Pi）' : 'Codex CLI 自身认证')} → ${next.model || '未指定模型'} · ${next.explicit ? 'Worker 独立覆盖' : '继承项目 / 角色配置'}`
+      : '下一次配置：未知（后台未提供安全模型选择摘要）', 'hint'));
   return node;
 }
 
 export function modelSourceControl(task, onSaved = () => {}) {
   if (!canConfigureModelSource(task)) return null;
   const reason = !task.model_selection ? '后台尚未提供安全模型选择摘要，请更新后台后刷新详情。'
-    : task.model_selection.agent !== 'pi' ? 'Codex CLI 不支持 Lush 托管来源；切换执行后端请使用完整运行设置。' : null;
+    : nextConfigMode(task) === 'pi' ? PI_MODE_REASON
+      : task.model_selection.agent !== 'pi' ? 'Codex CLI 不支持 Lush 托管来源；切换执行后端请使用完整运行设置。' : null;
   const node = button('切换模型来源', async () => { if (await configureModelSource(task)) await onSaved(); }, 'ghost', { help: reason || SAVE_HELP });
   if (!reason) return node;
   node.disabled = true;
@@ -52,7 +61,8 @@ export function modelSourceControl(task, onSaved = () => {}) {
 
 /** Submit a narrow patch, never round-trip Prompt/env or reconstruct a full Worker profile. */
 export async function configureModelSource(task) {
-  if (!canConfigureModelSource(task) || task.model_selection?.agent !== 'pi') return false;
+  // Pi 默认模式不得经这个窄入口提交托管 model_selection；切换模式走完整运行设置。
+  if (!canConfigureModelSource(task) || task.model_selection?.agent !== 'pi' || nextConfigMode(task) === 'pi') return false;
   const view = ui.view;
   let active = true;
   const ownsPage = () => active && ui.view === view;

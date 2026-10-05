@@ -104,6 +104,30 @@ test('retry can freeze a complete task-local Agent profile without changing proj
   } finally { await f.close(); }
 });
 
+test('new Worker run settings survive failure, implicit retry and cancellation', async () => {
+  const seen = [];
+  const f = fixture({ async run({ agent }) { seen.push(agent); throw new Error('controlled failure'); } });
+  await repo(f.root);
+  try {
+    f.project.stopping = true;
+    const task = (await f.project.order('persistent configuration')).task;
+    const profile = f.project.agentSettings.retryProfile('agent', { agent: 'pi', model: 'provider/model', thinking: 'high',
+      append_prompt: 'keep this', extensions: ['/explicit/plugin'], skills: ['/explicit/skill'] });
+    const saved = JSON.stringify(profile);
+    f.store.update(task.id, { retry_profile: saved });
+    f.project.stopping = false; f.project.kick();
+    await until(() => f.store.task(task.id).status === 'failed');
+    expect(f.store.task(task.id).retry_profile).toBe(saved);
+    f.project.retry(task.id);
+    await until(() => seen.length === 2 && f.store.task(task.id).status === 'failed');
+    expect(seen[1]).toEqual(profile);
+    expect(f.store.task(task.id).retry_profile).toBe(saved);
+    f.project.retry(task.id); f.project.cancel(task.id);
+    await until(() => f.store.task(task.id).status === 'cancelled' && !f.project.running.has(task.id));
+    expect(f.store.task(task.id).retry_profile).toBe(saved);
+  } finally { await f.close(); }
+});
+
 test('invalid retry profile does not queue or mutate a stopped task', async () => {
   const f = fixture({ async run() { throw new Error('stop'); } }); await repo(f.root);
   try {

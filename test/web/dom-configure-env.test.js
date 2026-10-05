@@ -60,7 +60,7 @@ test('configureTask 保存 paused 任务的本轮运行设置，并把按任务�
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
   expect(actions[0]).toEqual({ method: 'worker.configure', params: { id: 43, profile: {
-    agent: 'pi', connection_id: connectionId, model: 'openai-codex/gpt-5.4', thinking: 'medium', default_prompt: '',
+    agent: 'pi', config_mode: 'lush', connection_id: connectionId, model: 'openai-codex/gpt-5.4', thinking: 'medium', default_prompt: '',
     append_prompt: '', extensions: [], skills: [], soft_budget: {}, env: { API_BASE: 'https://example.invalid', TOKEN: 'abc' },
   } } });
 });
@@ -94,7 +94,7 @@ test('待开始任务可加载全部默认参数，含公共与角色环境变�
   await dialogButton(dom, '保存设置').onclick();
   expect(await pending).toBe(true);
   expect(actions).toEqual([{ method: 'worker.configure', params: { id: 44, profile: {
-    ...profile, env: { ...commonValues, ...roleValues },
+    ...profile, config_mode: 'lush', env: { ...commonValues, ...roleValues },
   } } }]);
 });
 

@@ -18,6 +18,8 @@ export default {
   removeAgentConnection(id) { return this.agentConnections.remove(id); },
   configureConnectionSampling(sampling) { return this.agentConnections.configureSampling(sampling); },
   queryAgentConnections(id) { return this.agentConnections.query(id); },
+  agentConnectionModels(id) { return this.agentConnections.models(id); },
+  refreshAgentConnectionModels(id) { return this.agentConnections.modelsRefresh(id ?? null); },
   agentConnectionHistory(id, days) { return this.agentConnections.history(id, days); },
   startConnectionDeviceLogin(id) { return this.agentConnections.deviceStart(id); },
   pollConnectionDeviceLogin(id, loginId) { return this.agentConnections.devicePoll(id, loginId); },

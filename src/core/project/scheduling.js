@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { check, TERMINAL, LushError, isSettled, isPlainObject } from '../types.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, resumeTaskDelivery, taskDeliveryState, taskSyncDeliveryPaused } from './iteration.js';
-import { tokenHash, workerRunProfile, workerModelSelection } from './internal.js';
+import { tokenHash, workerRunProfile, workerModelSelection, profileEvent } from './internal.js';
 import { AgentPreempted } from '../../agent/provider.js';
 import { validateRuntimeConnection } from '../../agent/connection-runtime.js';
 
@@ -13,14 +13,6 @@ function claimedStop(project, taskId, run) {
     const stop = JSON.parse(fs.readFileSync(path.join(project.config.home, 'preempt', `task-${taskId}.stop.json`), 'utf8'));
     return stop.task_id === taskId && stop.run_id === (run.recordId ?? null);
   } catch { return false; }
-}
-
-/** 运行设置调整事件只记可公开的字段，与 retry 事件同一记账口径。 */
-function profileEvent(profile) {
-  return { agent: profile.agent, model: profile.model || null, thinking: profile.thinking || null,
-    default_prompt_overridden: Boolean(profile.default_prompt), append_prompt: Boolean(profile.append_prompt),
-    extensions: profile.extensions.length, skills: profile.skills.length, soft_budget: profile.soft_budget || null,
-    ...(profile.connection_id ? { connection_id: profile.connection_id } : {}) };
 }
 
 /** 调度、invocation 生命周期、凭证。 */
@@ -273,6 +265,7 @@ export default {
     return this.store.transaction(() => {
       const current = this.store.task(task.id), base = workerRunProfile(this, current);
       check(base.agent === 'pi', 'managed connections support only Pi');
+      check(base.config_mode !== 'pi', 'model selection requires Lush configuration; switch the Worker back first');
       // config() is a local public projection. Do not query, refresh OAuth, or read private runtime credentials.
       const connection = this.agentConnections.config().connections.find(item => item.id === selection.connection_id);
       check(connection && connection.enabled, 'model_selection connection is unavailable');
@@ -363,7 +356,7 @@ export default {
       let agent = retryProfile || this.provider.resolve?.(task) || { agent: this.config.provider, model: '', thinking: '', default_prompt: '', append_prompt: '' };
       // The optional trusted hook selects only a connection/model, before Run metadata is frozen.
       // No hook and explicit Worker profiles preserve the old path without credential reads or an extra async boundary.
-      if (this.agentSelection.enabled && !retryProfile) {
+      if (this.agentSelection.enabled && !retryProfile && agent.config_mode !== 'pi') {
         armDeadline();
         agent = await this.agentSelection.select(task, agent, { signal: run.controller.signal });
         if (run.controller.signal.aborted || this.stopping) throw new Error(abortMessage());

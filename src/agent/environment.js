@@ -127,6 +127,13 @@ export function saveAgentEnvironment(config, target, values) {
   return readAgentEnvironment(config, target);
 }
 
+/** Pi-default mode uses the machine's own Pi environment; no Lush Agent env file is injected. */
+export function emptyAgentEnvironment(role) {
+  const resolvedRole = role === 'scheduler' ? 'planner' : role;
+  check(AGENT_ROLES.includes(resolvedRole), `role must be one of ${AGENT_ROLES.join(', ')}`);
+  return { role, resolved_role: resolvedRole, values: {}, sources: [], files: [] };
+}
+
 export function agentEnvironment(config, role) {
   const resolvedRole = role === 'scheduler' ? 'planner' : role;
   check(AGENT_ROLES.includes(resolvedRole), `role must be one of ${AGENT_ROLES.join(', ')}`);

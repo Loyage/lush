@@ -1,7 +1,7 @@
 import { check, id, text, TERMINAL, bounded, isPlainObject } from '../types.js';
 import { taskSlug } from '../naming.js';
 import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
-import { agentView, workerModelSelection } from './internal.js';
+import { agentView, workerModelSelection, inheritedRunProfile, profileEvent } from './internal.js';
 import fs from 'node:fs';
 import { saveInputRule, snapshotPath } from '../task-input-rule.js';
 import { forkCheckpoint } from '../../agent/fork.js';
@@ -118,10 +118,16 @@ export default {
           this.store.update(liveParent.id, { status: 'waiting' });
         }
         const created = this.store.create({ parent_id: parent.id, input_id: inheritedInput, role, goal, name: slug, task_kind: taskKind });
+        // Freeze the parent's effective run settings (mode/source/model/budget) for the child: the
+        // current invocation wins, then its task-local override, then the effective default.
+        const inherited = inheritedRunProfile(this, liveParent, this.running.get(liveParent.id) ?? null);
         this.store.update(created.id, { auto_merge: JSON.stringify({ version: 1, enabled: true, locked: true }),
           reservation: JSON.stringify({ version: 2, kind: 'merge', auto_merge: true,
-            status: 'pending', created_at: new Date().toISOString() }) });
+            status: 'pending', created_at: new Date().toISOString() }),
+          ...(inherited ? { retry_profile: JSON.stringify(inherited) } : {}) });
         this.store.event(created.id, 'task.reserved', { kind: 'merge', version: 2, via: 'spawn' });
+        if (inherited) this.store.event(created.id, 'task.configured',
+          { ...profileEvent(inherited), profile_override: true, inherited_from: liveParent.id });
         this.assertDeps(created.id, liveParent, merged);
         if (parentRule !== null) {
           ruleTaskId = created.id;

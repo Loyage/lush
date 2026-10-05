@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { networkSnapshot } from '../agent/network.js';
 import { check, LushError } from './types.js';
+import { normalizeCatalog } from '../agent/connections-catalog.js';
 import { connectionErrorCode, normalizeConnectionObservation, validConnectionHash, validConnectionId } from '../persistence/store/agent-connections.js';
 
 const require = createRequire(import.meta.url);
@@ -57,8 +58,14 @@ export class AgentConnectionsService {
     this.now = options.now || Date.now;
     this.setTimer = options.setTimeout || setTimeout; this.clearTimer = options.clearTimeout || clearTimeout;
     this.flights = new Map(); this.pending = new Set(); this.bindings = new Map();
+    this.catalogFlights = new Map();
     this.active = 0; this.waiters = []; this.limit = 3;
     this.timer = null; this.generation = 0; this.closed = false; this.warning = null;
+    this.catalogTimer = null; this.catalogGeneration = 0; this.started = false;
+    this.catalogIntervalMs = Number.isFinite(options.catalogIntervalMs) && options.catalogIntervalMs > 0
+      ? options.catalogIntervalMs : 6 * 60 * 60 * 1000;
+    this.catalogDeferMs = Number.isFinite(options.catalogDeferMs) && options.catalogDeferMs > 0
+      ? options.catalogDeferMs : 20000;
   }
   getManager() {
     if (!this.manager) {
@@ -108,6 +115,91 @@ export class AgentConnectionsService {
   prune(policy = this.config().sampling) {
     this.store.pruneAgentConnections(new Date(this.now() - policy.retention_days * 86400000).toISOString());
   }
+  /** Read-only model catalog for one connection; local cache, no network, no model request. */
+  models(id) {
+    check(validConnectionId(id), 'invalid connection id');
+    try {
+      const manager = this.getManager();
+      const value = typeof manager.catalog === 'function' ? manager.catalog(id) : null;
+      return normalizeCatalog(value || this.unknownCatalog(id), id, this.now);
+    } catch { throw failure(); }
+  }
+  unknownCatalog(id, warning = '尚未同步模型目录。') {
+    return { version: 1, id, checked_at: new Date(this.now()).toISOString(), status: 'unknown',
+      source: 'none', models: [], warning, error_code: null };
+  }
+  catalogList() {
+    const config = this.config();
+    const catalogs = []; let bytes = 0;
+    for (const connection of config.connections) {
+      const catalog = this.models(connection.id);
+      const size = Buffer.byteLength(JSON.stringify(catalog));
+      if (catalogs.length && bytes + size > 300000) break;
+      bytes += size; catalogs.push(catalog);
+    }
+    return { version: 1, checked_at: new Date(this.now()).toISOString(), catalogs };
+  }
+  refreshCatalogOne(snapshot) {
+    const id = snapshot.connection.id;
+    const key = `${id}:${snapshot.state.revision}:${snapshot.identity.revision}`;
+    if (this.catalogFlights.has(key)) return this.catalogFlights.get(key);
+    const pending = this.project.write('refresh agent connection models', async () => {
+      await this.acquire();
+      try {
+        if (!this.current(snapshot) || this.closed) return;
+        try { await this.getManager().catalogRefresh(id); }
+        catch { /* keep the last good catalog; failures never fabricate a listing */ }
+      } finally { this.release(); }
+    }).finally(() => { this.catalogFlights.delete(key); });
+    this.catalogFlights.set(key, pending); this.track(pending);
+    return pending;
+  }
+  modelsRefresh(id = null) {
+    this.assertOpen();
+    check(id === null || validConnectionId(id), 'invalid connection id');
+    if (typeof this.getManager().catalogRefresh !== 'function') {
+      return Promise.resolve(id === null ? this.catalogList() : this.models(id));
+    }
+    const config = this.config();
+    const connections = id === null ? config.connections.filter(connection => connection.enabled)
+      : [this.snapshot(id, config).connection];
+    const operations = connections.filter(connection => connection.enabled)
+      .map(connection => this.refreshCatalogOne(this.snapshot(connection.id, config)));
+    if (!operations.length) return Promise.resolve(id === null ? this.catalogList() : this.models(id));
+    return this.track(Promise.allSettled(operations).then(results => {
+      this.assertOpen();
+      if (results.some(result => result.status === 'rejected')) throw failure();
+      return id === null ? this.catalogList() : this.models(id);
+    }));
+  }
+  /**
+   * A newly saved/logged-in connection is synced by a deferred background task,
+   * never inside the save call itself: read paths and tests that never start the
+   * service stay local-only, while a running daemon refreshes soon after an edit.
+   */
+  syncCatalog() {
+    if (typeof this.getManager().catalogRefresh !== 'function' || !this.started || this.closed || this.project.stopping) return;
+    this.scheduleCatalog(this.catalogDeferMs);
+  }
+  scheduleCatalog(delayMs = this.catalogIntervalMs) {
+    this.catalogGeneration++;
+    if (this.catalogTimer !== null) this.clearTimer(this.catalogTimer);
+    this.catalogTimer = null;
+    if (!this.started || this.closed || this.project.stopping) return;
+    let config;
+    try { config = this.config(); } catch { return; }
+    if (typeof this.getManager().catalogRefresh !== 'function') return;
+    if (!config.connections.some(connection => connection.enabled)) return;
+    const generation = this.catalogGeneration;
+    this.catalogTimer = this.setTimer(async () => {
+      this.catalogTimer = null;
+      try { await this.modelsRefresh(null); } catch { /* keep the last good catalog */ }
+      finally {
+        if (this.started && !this.closed && !this.project.stopping && this.catalogGeneration === generation) this.scheduleCatalog();
+      }
+    }, delayMs);
+    this.catalogTimer?.unref?.();
+  }
   list() {
     const config = this.config(), checked_at = new Date(this.now()).toISOString();
     let remainingBytes = 64000;
@@ -152,6 +244,7 @@ export class AgentConnectionsService {
       const snapshot = this.snapshot(saved.id);
       this.store.ensureAgentConnectionState(saved.id,snapshot.state.fingerprint,true);
       this.schedule(this.config().sampling);
+      this.syncCatalog();
       return saved;
     });
   }
@@ -161,6 +254,7 @@ export class AgentConnectionsService {
       this.getManager().remove(id);
       this.store.forgetAgentConnectionState(id);
       for (const [key,binding] of this.bindings) if (binding.id === id) this.bindings.delete(key);
+      for (const key of [...this.catalogFlights.keys()]) if (key.startsWith(`${id}:`)) this.catalogFlights.delete(key);
       this.schedule(this.config().sampling);
       return { removed: id };
     });
@@ -301,6 +395,7 @@ export class AgentConnectionsService {
       // snapshot tracks the new account/config once; repeated completion reads
       // must not repeatedly rotate the persisted cache namespace.
       this.snapshot(id);
+      this.syncCatalog();
       return { id, login_id, status: 'complete', connection };
     }, deviceFailure);
   }
@@ -332,11 +427,13 @@ export class AgentConnectionsService {
       const saved = publicConnection(await this.getManager().loginFinish(id,login_id,redirect_url));
       const snapshot = this.snapshot(saved.id);
       this.store.ensureAgentConnectionState(saved.id,snapshot.state.fingerprint,true);
+      this.syncCatalog();
       return saved;
     });
   }
   start() {
-    try { const config = this.config(); this.prune(config.sampling); this.schedule(config.sampling); }
+    this.started = true;
+    try { const config = this.config(); this.prune(config.sampling); this.schedule(config.sampling); this.scheduleCatalog(); }
     catch { this.warning = '连接配置无法安全读取，后台采样未启用。'; }
   }
   schedule(policy) {
@@ -359,9 +456,12 @@ export class AgentConnectionsService {
     this.timer?.unref?.();
   }
   async stop() {
-    this.closed = true; this.generation++;
+    this.closed = true; this.started = false; this.generation++; this.catalogGeneration++;
     if (this.timer !== null) this.clearTimer(this.timer);
     this.timer = null;
+    if (this.catalogTimer !== null) this.clearTimer(this.catalogTimer);
+    this.catalogTimer = null;
+    this.catalogFlights.clear();
     for (const waiter of this.waiters.splice(0)) waiter.reject(failure());
     // Do not initialize a credential manager just to close an unused project.
     if (this.manager) { try { await this.manager.stop(); } catch { /* no raw auth diagnostics */ } }

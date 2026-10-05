@@ -199,13 +199,16 @@ export function builtInPrompt(role) {
 export function agentPrompt(config, role, profile = {}, taskKind = null) {
   const resolved = canonicalRole(role);
   check(AGENT_ROLES.includes(resolved), `role must be one of ${AGENT_ROLES.join(', ')}`);
+  const piMode = profile.config_mode === 'pi';
   const names = taskKind === 'analysis' ? ANALYSIS_PROMPT_PARTS : ROLE_PROMPT_PARTS[resolved];
-  const parts = profile.default_prompt
+  const parts = !piMode && profile.default_prompt
     ? [{ name: 'settings.default_prompt', title: 'Agent 配置：替代 Prompt', source: path.join(config.home, 'agent.json'), content: profile.default_prompt }]
     : names.map(name => ({ name, title: PROMPT_PARTS[name].title, source: 'builtin', content: PROMPT_PARTS[name].content }));
   const projectDir = path.join(config.project, '.lush-agent');
   const localDir = path.join(config.home, 'agent');
-  for (const part of [
+  // Pi-default mode keeps only Lush's built-in Worker instructions; project/local Prompt overlays,
+  // a replacement Prompt and an appended Prompt belong to Lush configuration and are not injected.
+  if (!piMode) for (const part of [
     optionalPart('project.common', '项目共享补充：所有角色', path.join(projectDir, 'common.md')),
     optionalPart(`project.${resolved}`, `项目共享补充：${resolved}`, path.join(projectDir, `${resolved}.md`)),
     optionalPart('local.common', '本机补充：所有角色', path.join(localDir, 'common.md')),
@@ -215,8 +218,9 @@ export function agentPrompt(config, role, profile = {}, taskKind = null) {
   const text = parts.map(part => part.name === 'settings.default_prompt' ? part.content.trim() : render(part)).join('\n\n');
   check(Buffer.byteLength(text) <= 65536, `assembled ${resolved} prompt exceeds 65536 bytes`);
   return { role, resolved_role: resolved, parts, text, customization: {
-    project: [path.join(projectDir, 'common.md'), path.join(projectDir, `${resolved}.md`)],
-    local: [path.join(localDir, 'common.md'), path.join(localDir, `${resolved}.md`)],
+    mode: piMode ? 'pi' : 'lush',
+    project: piMode ? [] : [path.join(projectDir, 'common.md'), path.join(projectDir, `${resolved}.md`)],
+    local: piMode ? [] : [path.join(localDir, 'common.md'), path.join(localDir, `${resolved}.md`)],
     settings: path.join(config.home, 'agent.json'),
   } };
 }

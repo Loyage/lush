@@ -5,6 +5,7 @@ import { QuickIntroSettings } from '../quick-intro.js';
 import { AgentUsageService } from '../agent-usage.js';
 import { AgentConnectionsService } from '../agent-connections.js';
 import { AgentSelectionService } from '../agent-selection.js';
+import { AgentPackages } from '../../agent/packages.js';
 import { check } from '../types.js';
 
 // 构造与实例状态（config / store / provider / workspaces / running / stopping / scheduled / ancestry）。
@@ -31,6 +32,7 @@ export class ProjectBase {
     this.agentUsage = new AgentUsageService(this);
     this.agentConnections = new AgentConnectionsService(this);
     this.agentSelection = new AgentSelectionService(this, { strategy: options.modelSelectionStrategy ?? null });
+    this.agentPackageManager = new AgentPackages(config, options.agentPackages ?? {});
   }
 
   /** R-01: reject writes that would create rows while a clear is reclaiming disk. */

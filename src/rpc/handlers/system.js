@@ -48,6 +48,13 @@ export const handlers = {
   'agent.connections.device.start'(p, params) { return p.startConnectionDeviceLogin(params.id); },
   'agent.connections.device.poll'(p, params) { return p.pollConnectionDeviceLogin(params.id, params.login_id); },
   'agent.connections.device.cancel'(p, params) { return p.cancelConnectionDeviceLogin(params.id, params.login_id); },
+  'agent.connections.models'(p, params) { return p.agentConnectionModels(params.id); },
+  'agent.connections.models.refresh'(p, params) { return p.refreshAgentConnectionModels(params.id ?? null); },
+  // 资源安装由资源分区的新 mixin 实现；此处只固定用户专属 RPC 与安全投影边界。
+  'agent.packages.list'(p) { return p.agentPackages(); },
+  'agent.packages.install'(p, params) { return p.installAgentPackage(params.source); },
+  'agent.packages.remove'(p, params) { return p.removeAgentPackage(params.id); },
+  'agent.packages.update'(p, params) { return p.updateAgentPackage(params.id); },
   'agent.connections.login.start'(p, params) { return p.startConnectionLogin(params.id); },
   'agent.connections.login.finish'(p, params) { return p.finishConnectionLogin(params.id, params.login_id, params.redirect_url); },
   // 环境变量值可能包含密钥：读取与写入都只允许本地用户/Web 登录会话，不向 agent token 开放。

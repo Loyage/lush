@@ -6,6 +6,7 @@ import { DEFAULT_ENDPOINTS, digest, secret, fields, validId, normalizeConnection
 import { queryConnection } from './connections-query.js';
 import { authorization, callbackCode, REDIRECT_URI, exchange, refresh } from './connections-oauth.js';
 import { ConnectionDeviceLogins } from './connections-device.js';
+import { ConnectionCatalogFile, LISTINGS, catalogKey, listingUrl, localModels, manualModels, normalizeCatalog } from './connections-catalog.js';
 import { networkSnapshot } from './network.js';
 
 function publicConnection(row, now) {
@@ -27,7 +28,8 @@ export class ConnectionManager {
   constructor(config, options = {}) {
     check(typeof config?.home === 'string' && config.home.length > 0, 'connection home is required');
     this.networkConfig = config;
-    this.file = new ConnectionFile(config.home); this.options = options; this.now = options.now || Date.now;
+    this.file = new ConnectionFile(config.home); this.catalogs = new ConnectionCatalogFile(this.file);
+    this.options = options; this.now = options.now || Date.now;
     this.logins = new Map(); this.flights = new Map(); this.pending = new Set();
     this.devices = new ConnectionDeviceLogins(this, publicConnection);
     this.controller = new AbortController(); this.closed = false;
@@ -201,6 +203,72 @@ export class ConnectionManager {
         if (this.logins.get(login_id) !== login || login.expires <= this.now()) fail('login_expired');
         return publicConnection(this._publish(id, digest(row), credential), this.now());
       } finally { if (this.logins.get(login_id) === login) this.logins.delete(login_id); }
+    });
+  }
+  /** Cached, identity-scoped model catalog. Local read only; never contacts the provider. */
+  catalog(id) {
+    const row = this._row(id), ident = identity(row), key = catalogKey(row, ident);
+    const stored = this.catalogs.get(key);
+    if (stored) return stored;
+    return normalizeCatalog(this._synthesized(row), id, this.now);
+  }
+  _synthesized(row) {
+    const manual = manualModels(row);
+    const checked_at = new Date(this.now()).toISOString();
+    if (!row.enabled) return { version: 1, id: row.id, checked_at, status: 'unknown',
+      source: manual.length ? 'manual' : 'none', models: manual, warning: '连接已禁用；未同步模型目录。', error_code: null };
+    if (manual.length) return { version: 1, id: row.id, checked_at, status: 'unknown', source: 'manual', models: manual,
+      warning: '仅显示用户配置的模型范围；尚未与账号同步验证可用性或额度。', error_code: null };
+    return { version: 1, id: row.id, checked_at, status: 'unknown', source: 'none', models: [],
+      warning: '尚未同步模型目录；刷新后显示可用模型。', error_code: null };
+  }
+  _fallbackModels(row, failed) {
+    const manual = manualModels(row);
+    if (manual.length) return Promise.resolve({ status: 'cached', source: 'manual', models: manual,
+      warning: '显示用户配置的模型范围；未与账号同步验证可用性或额度。', error_code: failed?.error_code ?? null });
+    const source = this.options.piModels || (async () => {
+      const { discoverPiModelMetadata } = await import('./status.js');
+      return discoverPiModelMetadata(this.networkConfig);
+    });
+    return Promise.resolve().then(source).then(metadata => {
+      const local = localModels(row, metadata);
+      if (local.length) return { status: 'cached', source: 'pi-local', models: local,
+        warning: '来自 Lush 独立 Pi 本地元数据，未联网验证账号可用性；实际调用仍须选择匹配来源。', error_code: failed?.error_code ?? null };
+      return null;
+    }).catch(() => null).then(fallback => fallback || (failed?.status === 'error'
+      ? { status: 'error', source: 'none', models: [], warning: failed.warning, error_code: failed.error_code }
+      : { status: 'unsupported', source: 'none', models: [], warning: '没有已授权的目录接口，也没有可用的本地模型元数据或手动范围；请手动指定模型。', error_code: null }));
+  }
+  /** Refresh one catalog from an audited listing / local metadata. Late or changed config is discarded. */
+  catalogRefresh(id) {
+    return this._track(async () => {
+      const row = this._row(id), ident = identity(row), key = catalogKey(row, ident);
+      const checked_at = new Date(this.now()).toISOString();
+      if (!row.enabled) return normalizeCatalog(this._synthesized(row), id, this.now);
+      let result = null;
+      const listing = LISTINGS[row.provider];
+      if (listing) {
+        try {
+          const headers = { Accept: 'application/json' };
+          if (listing.auth && row.credential?.type === 'api_key' && row.credential.key) headers.Authorization = `Bearer ${row.credential.key}`;
+          const data = await this._request(listingUrl(row, listing), { method: 'GET', headers });
+          result = { status: 'fresh', source: 'listing', models: listing.parse(data, row.provider), warning: null, error_code: null };
+        } catch (error) {
+          const code = error?.connectionCode || 'network';
+          result = { status: 'error', source: 'none', models: [], error_code: code,
+            warning: code === 'unsupported' ? '此前服务商目录接口不可用。' : '无法从服务商目录接口取得模型列表。' };
+        }
+      }
+      if (!result || result.status !== 'fresh') result = await this._fallbackModels(row, result);
+      this._alive();
+      const latest = this.file.read().connections.find(entry => entry.id === id);
+      const after = latest ? identity(latest) : null;
+      if (!latest || !after || after.account_key !== ident.account_key || after.source_key !== ident.source_key
+        || latest.provider !== row.provider || latest.endpoint !== row.endpoint
+        || digest(latest.models) !== digest(row.models)) return null;
+      const catalog = normalizeCatalog({ ...result, version: 1, id, checked_at }, id, this.now);
+      await this.catalogs.put(key, catalog);
+      return catalog;
     });
   }
   async stop() {

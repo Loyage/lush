@@ -41,7 +41,9 @@ for (const explicit of [false, true]) test(`轻量保存只提交窄选择，不
   expect(deepText(dom.node('modal'))).toContain('不改变仍在运行的调用');
   await dialogButton(dom, '保存来源与模型').onclick(); expect(await pending).toBe(true);
   expect(actions).toEqual([{ method: 'worker.configure', params: { id: 51, model_selection: { connection_id: second, model: 'openai-compatible/model-1' } } }]);
-  expect(requests).toEqual(['/api/agent/connections', '/api/action']);
+  // 选择新来源会额外读取该来源的本地模型目录缓存；这不是额度查询，也不改变保存的窄选择。
+  expect(requests.filter(url => !String(url).startsWith('/api/agent/connections/models'))).toEqual(['/api/agent/connections', '/api/action']);
+  expect(requests).toContain(`/api/agent/connections/models?id=${second}`);
   expect(JSON.stringify(worker.retry_profile)).toBe(before); expect(worker.model_selection.explicit).toBe(true);
 });
 
@@ -121,4 +123,41 @@ test('当前来源只取当前运行的绑定事件，不从下次选择或旧�
   const current = { ...old, data: JSON.stringify({ run_id: 9, connection_id: second, model: 'openai-compatible/model-1' }) };
   const summary = deepText(modelSourceSummary(worker, [old, current]));
   expect(summary).toContain(`当前调用来源：${second}`); expect(summary).toContain(`下一次配置：pi → ${first}`); expect(summary).toContain('继承项目 / 角色配置');
+});
+
+test('Pi 默认模式摘要说明由执行机器 Pi 决定，不冒称托管来源或模型', () => {
+  const piTask = task({ model_selection: { agent: 'pi', config_mode: 'pi', model: '', explicit: true },
+    retry_profile: { config_mode: 'pi' } });
+  const summary = modelSourceSummary(piTask);
+  expect(deepText(summary)).toContain('Pi 默认配置');
+  expect(deepText(summary)).toContain('执行机器的 Pi 自行决定来源与模型');
+  expect(deepText(summary)).not.toContain(first);
+  const lush = modelSourceSummary(task());
+  expect(deepText(lush)).toContain(`下一次配置：pi → ${first}`);
+});
+
+test('Pi 默认模式禁用窄来源入口，指向完整运行设置且绝不提交 managed model_selection', async () => {
+  actions.length = 0; requests.length = 0;
+  const piTask = task({ model_selection: { agent: 'pi', config_mode: 'pi', model: '', explicit: true } });
+  expect(canConfigureModelSource(piTask)).toBe(true);
+  const host = modelSourceControl(piTask);
+  expect(host.tagName).toBe('SPAN');
+  const control = host.querySelector('button');
+  expect(control.disabled).toBe(true);
+  expect(host.getAttribute('data-help')).toContain('完整运行设置');
+  expect(await configureModelSource(piTask)).toBe(false);
+  expect(actions).toHaveLength(0); expect(requests).toHaveLength(0);
+  // retry_profile 上的模式同样生效（inspect 摘要缺失时不误开托管入口）。
+  const viaProfile = task({ model_selection: { agent: 'pi', model: '', explicit: true }, retry_profile: { config_mode: 'pi' } });
+  expect(modelSourceControl(viaProfile).querySelector('button').disabled).toBe(true);
+  expect(await configureModelSource(viaProfile)).toBe(false);
+  expect(actions).toHaveLength(0);
+});
+
+test('Lush 模式窄入口仍只提交连接与模型，不携带 config_mode', async () => {
+  actions.length = 0; requests.length = 0;
+  const pending = configureModelSource(task()); await ready(); setModel();
+  await dialogButton(dom, '保存来源与模型').onclick(); expect(await pending).toBe(true);
+  expect(actions).toEqual([{ method: 'worker.configure', params: { id: 51, model_selection: { connection_id: second, model: 'openai-compatible/model-1' } } }]);
+  expect(actions[0].params.model_selection).not.toHaveProperty('config_mode');
 });

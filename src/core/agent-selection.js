@@ -43,9 +43,17 @@ export class AgentSelectionService {
     try {
       const list = this.project.agentConnections.list();
       return { version: 1, checked_at: list.checked_at,
-        connections: list.connections.map(connection => ({ ...connection, supported_agents: ['pi'] })),
+        connections: list.connections.map(connection => ({ ...connection, supported_agents: ['pi'],
+          model_catalog: this.modelCatalog(connection.id, list.checked_at) })),
         ...(list.warning ? { warning: list.warning } : {}) };
     } catch { throw failed(); }
+  }
+
+  /** Cached catalog for the strategy/read face; a broken catalog must not fail the whole list. */
+  modelCatalog(id, checked_at) {
+    try { return this.project.agentConnections.models(id); }
+    catch { return { version: 1, id, checked_at, status: 'unknown', source: 'none', models: [],
+      warning: '模型目录暂不可读。', error_code: null }; }
   }
 
   async select(task, profile, { explicit = false, signal } = {}) {

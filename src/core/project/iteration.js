@@ -195,7 +195,7 @@ export default {
       this.store.transaction(() => {
         const booking = bookingOf(task);
         if (booking?.status === 'pending') this.store.event(task.id, 'task.unreserved', { reservation: booking, reason: 'accepted after parent sync' });
-        this.store.update(task.id, { status: 'completed', error: null, retry_profile: null,
+        this.store.update(task.id, { status: 'completed', error: null,
           ...(booking?.status === 'pending' ? { reservation: null } : {}) });
         this.store.armAgent(task.id, null);
         this.store.event(task.id, 'task.accepted', { head_commit: task.head_commit, integration: task.integration,
@@ -230,7 +230,7 @@ export default {
       check(integration !== 'pending', 'historical Worker has undelivered changes; inspect before reopening');
       this.store.transaction(() => {
         this.store.update(task.id, { status: 'awaiting_acceptance', integration, error: null,
-          iteration_base_commit: task.iteration_base_commit ?? head, retry_profile: null });
+          iteration_base_commit: task.iteration_base_commit ?? head });
         this.store.armAgent(task.id, null);
         this.store.event(task.id, 'task.reopened', { head_commit: head, previous_status: task.status });
       });

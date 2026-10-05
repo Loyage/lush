@@ -22,7 +22,7 @@ const ROLE_LABELS = {
 };
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_PROMPT_BYTES = 32 * 1024;
-const PROFILE_KEYS = new Set(['agent', 'model', 'thinking', 'prompt', 'default_prompt', 'append_prompt', 'extensions', 'skills', 'soft_budget', 'env', 'connection_id']);
+const PROFILE_KEYS = new Set(['agent', 'config_mode', 'model', 'thinking', 'prompt', 'default_prompt', 'append_prompt', 'extensions', 'skills', 'soft_budget', 'env', 'connection_id']);
 
 export function normalizeSoftBudget(value) {
   if (value === undefined || value === null) return {};
@@ -57,6 +57,16 @@ export function normalizeAgentProfile(value, name = 'profile') {
   check(Object.keys(value).every(key => PROFILE_KEYS.has(key)), `${name} has an unknown field`);
   const agent = text(value.agent ?? '', `${name}.agent`, 32);
   check(AGENT_BACKENDS.includes(agent), `${name}.agent must be pi or codex`);
+  const config_mode = text(value.config_mode ?? '', `${name}.config_mode`, 16).trim();
+  check(['', 'lush', 'pi'].includes(config_mode), `${name}.config_mode must be lush or pi`);
+  check(config_mode !== 'pi' || agent === 'pi', `${name}: Pi default configuration is available only for the Pi backend`);
+  check(config_mode !== 'pi' || !['roles.explainer', 'roles.butler'].includes(name),
+    `${name}: isolated agents require Lush configuration`);
+  // Pi-default mode keeps the backend and mode only: nothing managed by Lush may leak into the
+  // effective profile. A later switch back to Lush has to opt in again to each of these.
+  if (config_mode === 'pi') {
+    return { agent, model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [], config_mode: 'pi' };
+  }
   const model = text(value.model ?? '', `${name}.model`, 256).trim();
   const connection_id = text(value.connection_id ?? '', `${name}.connection_id`, 128).trim();
   if (connection_id) {
@@ -137,13 +147,15 @@ export class AgentSettings {
     const resolved = {};
     for (const role of AGENT_ROLES) {
       resolved[role] = { ...(stored.roles[role] || stored.default) };
-      // The isolated, no-extension explainer never inherits a development budget.
-      if (['explainer','butler'].includes(role)) delete resolved[role].soft_budget;
+      // The isolated, no-extension explainer never inherits a development budget or Pi-default mode.
+      if (['explainer','butler'].includes(role)) { delete resolved[role].soft_budget; delete resolved[role].config_mode; }
     }
     return {
       ...stored, resolved, file: this.file, runtime_agent: this.config.provider === 'mock' ? 'mock' : stored.default.agent,
       options: {
         agents: [...AGENT_BACKENDS],
+        // Which configuration source a Pi invocation uses: Lush-managed or the machine's own Pi.
+        config_modes: ['lush', 'pi'],
         roles: AGENT_ROLES.map(id => ({ id, label: ROLE_LABELS[id] })),
         thinking: Object.fromEntries(Object.entries(THINKING_LEVELS).map(([key, values]) => [key, [...values]])),
         models: Object.fromEntries(Object.entries(MODEL_PRESETS).map(([key, values]) => [key, [...values]])),

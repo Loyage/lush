@@ -44,6 +44,22 @@ test('queue order is durable request order, not Task ID; enqueue does not pin th
   } finally { await f.close(); }
 });
 
+test('run settings survive squash delivery and acceptance', async () => {
+  const f = await world();
+  try {
+    const task = await source(f, 'persistent-profile');
+    const profile = JSON.stringify(f.project.agentSettings.retryProfile('agent', { agent: 'pi', model: 'provider/model',
+      thinking: 'high', extensions: ['/explicit/plugin'], skills: ['/explicit/skill'] }));
+    f.store.update(task.id, { retry_profile: profile });
+    await queue(f, task); await drive(f, task.parent_id);
+    expect(f.store.task(task.id).integration).toBe('merged');
+    expect(f.store.task(task.id).retry_profile).toBe(profile);
+    await f.project.acceptTask(task.id);
+    expect(f.store.task(task.id).status).toBe('completed');
+    expect(f.store.task(task.id).retry_profile).toBe(profile);
+  } finally { await f.close(); }
+});
+
 test('three siblings: the repair owns the logical parent slot across invocations', async () => {
   const f = await world();
   try {
