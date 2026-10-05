@@ -51,15 +51,18 @@ export function normalizeSampling(value) {
 export function normalizeConnection(value, id) {
   fields(value, ['id','label','provider','endpoint','auth_type','enabled','models'], 'connection');
   check(validId(id), 'connection id is invalid');
-  check(Object.hasOwn(DEFAULT_ENDPOINTS, value.provider), 'connection provider is unsupported');
+  const compatible = value.provider === 'openai-compatible';
+  check(compatible || Object.hasOwn(DEFAULT_ENDPOINTS, value.provider), 'connection provider is unsupported');
   const auth_type = value.provider === 'openai-codex' ? 'oauth' : 'api_key';
   check(value.auth_type === auth_type, 'connection authentication type is unsupported');
+  if (compatible) check(typeof value.endpoint === 'string' && value.endpoint.trim().length > 0, 'compatible API requires an explicit endpoint');
   const endpoint = value.endpoint === undefined || value.endpoint === '' ? DEFAULT_ENDPOINTS[value.provider] : value.endpoint;
   check(typeof endpoint === 'string' && endpoint.length <= 2048, 'connection endpoint is invalid');
   let url; try { url = new URL(endpoint); } catch { check(false, 'connection endpoint is invalid'); }
   check(url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash, 'connection endpoint must be HTTPS without secrets, query or fragment');
   const models = value.models ?? [];
   check(Array.isArray(models) && models.length <= 100, 'connection models must be a bounded list');
+  if (compatible) check(models.length > 0, 'compatible API requires explicit model IDs');
   const normalizedModels = models.map(model => safeText(model, 'model', 256));
   check(new Set(normalizedModels).size === normalizedModels.length, 'connection models must be unique');
   check(value.enabled === undefined || typeof value.enabled === 'boolean', 'connection enabled must be boolean');

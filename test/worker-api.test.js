@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { PARAMS, USER_ONLY, AGENT_ONLY, assertAllowed } from '../src/rpc/registry.js';
 import { Dispatcher, HANDLERS } from '../src/rpc/dispatcher.js';
 
-// Public spelling changes only: parameter/authority contracts stay identical.
+// Strict public namespace; authority stays unchanged when optional profile selection is added.
 const reads = {
   graph: [], list: ['after','limit'], activity: ['limit','scope'], page: ['before','limit','scope'],
   tree: ['id'], inspect: ['id'], history: ['id','after'], history_page: ['id','before','limit'],
@@ -19,7 +19,7 @@ const writes = {
   auto_merge: ['id','enabled'], resolve: ['id'], resolve_divergence: ['id'], accept: ['id'],
   reopen: ['id'], sync_parent: ['id'], resolve_sync: ['id'], resolve_child_divergence: ['id'],
   unreserve: ['id'], approve_merge: ['id','commit','baseline'], message: ['id','body'],
-  cancel: ['id'], retry: ['id'], cleanup: ['id','keep_branch'], interrupt: ['id'],
+  cancel: ['id'], retry: ['id','profile'], cleanup: ['id','keep_branch'], interrupt: ['id'],
   resume: ['id','profile'], configure: ['id','profile'], delete: ['id','revision','confirm'],
 };
 const userOnly = new Set(['code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
@@ -78,6 +78,7 @@ test('worker lifecycle RPC forwards existing internal methods, actors and persis
     ['sync_parent', 'syncTaskParent', { id: 7 }, [7]],
     ['resolve_sync', 'resolveTaskSync', { id: 7 }, [7]],
     ['auto_merge', 'setTaskAutoMerge', { id: 7, enabled: true }, [7, true]],
+    ['retry', 'retry', { id: 7, profile: { agent: 'pi', model: 'deepseek/chat' } }, [7, { agent: 'pi', model: 'deepseek/chat' }]],
     ['message', 'message', { id: 7, body: 'follow up' }, [7, 'follow up', null]],
     ['reserve', 'reserveTask', { id: 7, kind: 'merge' }, [7, 'merge']],
   ];

@@ -106,6 +106,8 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 ## Agent 管理与状态查询接缝
 
+共享 API、自定义 OpenAI 兼容端点、单 Worker 显式选择和默认关闭的受信调用前策略接口，新增分工与接口见[共享模型选择](managed-model-selection.md)（用户决定 #142）。该增补不改变未绑定连接、未注入策略时的原 Agent 行为。
+
 托管多账号的字段/凭证/API/显式 Pi 绑定契约见[账号资源连接器](agent-connections.md)，设计取舍见[账号资源理念](../design/account-resources.md)。`agent.connections.*` 全部用户专属；独立连接页读本地列表，显式刷新/可选采样，保留旧状态与历史，不迁移外部凭证。Pi profile 可选 `connection_id`，固定物理模型、隔离 invocation 认证目录；正常 Codex 套餐头在进程退出时吸收，不自动路由。
 
 Codex 托管登录的默认设备码与备用回调入口见[设备码登录契约](codex-device-login.md)：新增用户专属 `agent.connections.device.start/poll/cancel`，Manager/Service 同名方法，Project 使用 `startConnectionDeviceLogin/pollConnectionDeviceLogin/cancelConnectionDeviceLogin`。只在当前登录页面按服务端间隔检查授权，不启动模型或修改外部 Pi 凭证。

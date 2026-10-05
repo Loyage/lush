@@ -4,6 +4,10 @@ import { until } from '../helpers.js';
 
 const actions = [];
 const environmentReads = [];
+const id = '44444444-4444-4444-8444-444444444444';
+const managedConnections = [{ id, label: '兼容服务', provider: 'openai-compatible', endpoint: 'https://models.example/v1',
+  enabled: true, auth_type: 'api_key', models: ['custom-model'], credential: { status: 'configured' } }];
+let connectionResponse = null;
 const commonEnv = { SHARED: 'common', COMMON: 'only-common' };
 const roleEnv = { SHARED: 'role', ROLE: 'only-role' };
 const profile = { agent: 'pi', model: 'openai-codex/gpt-5.4', thinking: 'medium', default_prompt: '', append_prompt: '',
@@ -19,6 +23,7 @@ const settings = {
 const response = value => ({ ok: true, status: 200, json: async () => value });
 const dom = installDom({ fetch: async (url, options = {}) => {
   if (url === '/api/agent/config') return response(settings);
+  if (url === '/api/agent/connections') return connectionResponse || response({ version: 1, connections: managedConnections });
   if (url.startsWith('/api/agent/environment?target=')) {
     const target = new URL(url, 'http://localhost').searchParams.get('target');
     environmentReads.push(target);
@@ -89,6 +94,62 @@ test('请求中断但仍在运行时可以保存设置，不冒充已暂停或�
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
   expect(actions[0]).toMatchObject({ method: 'worker.configure', params: { id: 43 } });
+});
+
+test('Worker暂停配置和失败重试可绑定共享连接与匹配模型，保存不启动且重试带调用标识', async () => {
+  for (const configuring of [true, false]) {
+    actions.length = 0;
+    const pending = configuring ? configureTask({ id: 50, role: 'worker', status: 'paused' }) : retryTask({ id: 50, role: 'worker', status: 'failed' });
+    const label = configuring ? '保存设置' : '使用这些设置重试';
+    await until(() => dialogButton(dom, label));
+    const modal = dom.node('modal'), model = modal.querySelector('[data-retry-field="model"]');
+    model.value = 'unsaved/model'; await dialogButton(dom, '读取项目连接').onclick(); expect(model.value).toBe('unsaved/model');
+    const connection = modal.querySelector('[data-retry-field="connection_id"]'); connection.value = id; connection.onchange();
+    expect(model.value).toBe('unsaved/model'); expect(modal.querySelector('[data-retry-field="model-choice"]').disabled).toBe(true);
+    const choices = modal.querySelector('[data-connection-model="choice"]');
+    expect(choices.children.map(node => node.value)).toEqual(['', 'openai-compatible/custom-model']);
+    choices.value = 'openai-compatible/custom-model'; choices.onchange();
+    expect(dialogButton(dom, label).classList.contains('agent-call')).toBe(!configuring);
+    if (!configuring) expect(dialogButton(dom, label).getAttribute('data-help')).toContain('token');
+    await dialogButton(dom, label).onclick(); expect(await pending).toBe(true);
+    expect(actions).toHaveLength(1); expect(actions[0]).toMatchObject({ method: configuring ? 'worker.configure' : 'worker.retry',
+      params: { id: 50, profile: { connection_id: id, model: 'openai-compatible/custom-model', agent: 'pi' } } });
+  }
+});
+
+test('Worker连接模型越界不提交，Codex切换不携带托管连接，加载默认恢复原连接和模型', async () => {
+  actions.length = 0; profile.connection_id = id; const originalModel = profile.model; profile.model = 'openai-compatible/custom-model';
+  try {
+    const pending = configureTask({ id: 51, role: 'worker', status: 'paused' });
+    await until(() => dialogButton(dom, '保存设置'));
+    const modal = dom.node('modal'), connection = modal.querySelector('[data-retry-field="connection_id"]');
+    await dialogButton(dom, '读取项目连接').onclick();
+    connection.value = ''; connection.onchange(); modal.querySelector('[data-retry-field="model"]').value = 'edited';
+    await dialogButton(dom, '加载默认参数').onclick();
+    expect(connection.value).toBe(id); expect(modal.querySelector('[data-retry-field="model"]').value).toBe(profile.model);
+    modal.querySelector('[data-retry-field="model"]').value = 'openai-compatible/not-allowed';
+    await dialogButton(dom, '保存设置').onclick(); await until(() => dialogButton(dom, '保存设置'));
+    expect(actions).toHaveLength(0); expect(dom.node('modal').querySelector('[data-retry-field="model"]').value).toBe('openai-compatible/not-allowed');
+    expect(deepText(dom.node('modal'))).toContain('模型范围');
+    await dialogButton(dom, '不修改').onclick(); expect(await pending).toBe(false);
+    const switching = configureTask({ id: 51, role: 'worker', status: 'paused' });
+    await until(() => dialogButton(dom, '保存设置'));
+    const backend = dom.node('modal').querySelector('[data-retry-field="agent"]'); backend.value = 'codex'; backend.onchange();
+    expect(dom.node('modal').querySelector('[data-retry-field="connection_id"]').disabled).toBe(true);
+    await dialogButton(dom, '保存设置').onclick(); expect(await switching).toBe(true);
+    expect(actions[0].params.profile).not.toHaveProperty('connection_id');
+  } finally { delete profile.connection_id; profile.model = originalModel; }
+});
+
+test('取消Worker配置后连接列表迟到不改变其他页面，也不发起重试', async () => {
+  actions.length = 0; let resolve;
+  connectionResponse = new Promise(done => { resolve = done; });
+  const pending = configureTask({ id: 52, role: 'worker', status: 'paused' });
+  await until(() => dialogButton(dom, '保存设置'));
+  const loading = dialogButton(dom, '读取项目连接').onclick();
+  await dialogButton(dom, '不修改').onclick(); expect(await pending).toBe(false);
+  const before = deepText(dom.node('modal')); resolve(response({ version: 1, connections: managedConnections })); await loading;
+  expect(deepText(dom.node('modal'))).toBe(before); expect(actions).toHaveLength(0); connectionResponse = null;
 });
 
 test('加载默认参数恢复角色的 Prompt、资源与软预算，并正确解析 scheduler 的 planner 环境', async () => {

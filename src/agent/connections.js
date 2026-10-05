@@ -153,7 +153,8 @@ export class ConnectionManager {
       try {
         if (!row.enabled) fail('disabled');
         // Refuse a proxy before ANY token refresh: query is not authorization to send proxy credentials to an issuer.
-        if (new URL(row.endpoint).origin !== new URL(DEFAULT_ENDPOINTS[row.provider]).origin)
+        if (!Object.hasOwn(DEFAULT_ENDPOINTS, row.provider)
+          || new URL(row.endpoint).origin !== new URL(DEFAULT_ENDPOINTS[row.provider]).origin)
           return { id, ...binding, observation: unavailable('unsupported', checked_at, 'unsupported') };
         const runtime = await this._runtime(row, 30000); binding = { account_key: runtime.account_key, source_key: runtime.source_key };
         observation = await queryConnection(runtime.connection, runtime.credential, checked_at, (url,init) => this._request(url,init));

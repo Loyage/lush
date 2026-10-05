@@ -34,6 +34,10 @@ export function validateRuntimeConnection(agent, runtime) {
   check(typeof agent.model === 'string' && agent.model.startsWith(prefix) && agent.model.length > prefix.length,
     'managed connection requires its qualified physical model');
   const modelId = agent.model.slice(prefix.length);
+  if (connection.provider === 'openai-compatible') {
+    check(Array.isArray(connection.models) && connection.models.length > 0, 'compatible API requires explicit model IDs');
+    check(connection.auth_type === 'api_key', 'compatible API requires API key authentication');
+  }
   check(!connection.models?.length || connection.models.includes(modelId), 'model is outside managed connection scope');
   let endpoint;
   try { endpoint = new URL(connection.endpoint); } catch { throw new Error('invalid managed model endpoint'); }
@@ -70,8 +74,16 @@ export function createRuntimeConnection(config, agent, runtime, environment = {}
       const text = readLocal(path.join(originalDir, name));
       if (text !== null) fs.writeFileSync(path.join(dir, name), text, { mode: 0o600, flag: 'wx' });
     }
-    const source = readJson(path.join(originalDir, 'models.json'))?.providers?.[connection.provider];
-    const provider = { baseUrl: connection.endpoint };
+    const compatible = connection.provider === 'openai-compatible';
+    // A generic endpoint must not inherit another endpoint's protocol, capabilities or compatibility flags.
+    const source = compatible ? null : readJson(path.join(originalDir, 'models.json'))?.providers?.[connection.provider];
+    const provider = compatible ? {
+      baseUrl: connection.endpoint, api: 'openai-completions',
+      // These are conservative local operating budgets, NOT discovered upstream limits or prices.
+      // Text/tool calls only; no advertised image, reasoning or cache capabilities.
+      models: [{ id: modelId, name: modelId, reasoning: false, input: ['text'],
+        contextWindow: 32768, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
+    } : { baseUrl: connection.endpoint };
     if (object(source)) {
       if (typeof source.api === 'string') provider.api = source.api;
       if (Array.isArray(source.models)) {

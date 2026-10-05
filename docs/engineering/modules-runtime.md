@@ -30,6 +30,7 @@
 | `agent/usage-query-run.js` | 已选服务商与 custom 覆盖策略、最多四并发、query_id 及来源身份，未选账号不生成查询事实 | `runUsageQueries(context,options)` |
 | `agent/usage-auth-codex.js` | 独立 Codex OAuth access 刷新，兼容原 auth.json 和锁目录协议；固定认证 HTTPS 请求、有界响应/超时、跨进程锁/heartbeat与校验写回，不加载 Pi 运行时、不覆盖其他服务商 | `resolveCodexUsageCredential(authFile,expected,options)`（内部私密结果，永不直接投影 RPC）；字段契约见 [额度查询](agent-usage.md#codex-追加完善接缝) |
 | `agent/usage-settings.js` | 项目 `agent-usage.json` owner-only 原子读写、声明式 HTTP 模板与字段路径严格校验，默认关闭后台/5分钟/90天 | `normalizeUsageConfig()`、`UsageSettings` |
+| `core/agent-selection.js` | 默认关闭的受信调用前模型策略与安全本地资源读面；最小冻结输入、严格连接/模型输出、Worker 显式覆盖优先、取消/迟到和配置版本保护，不执行用户脚本 | `AgentSelectionService(project,{strategy?})`：`resources()`、`select(task,profile,{explicit?,signal?})`；Project 构造第 4 参数 `{modelSelectionStrategy}`，契约见[共享模型选择](managed-model-selection.md) |
 | `core/agent-usage.js` | 项目用量服务：保存安全观测、query_id 去重、失败附旧成功值、保留期、显式后台采样和在途关闭；Provider 负责热读单飞 | `AgentUsageService`、`usageSourceKey(config,provider)` |
 | `agent/models.js` | 有界、超时地读取 Pi / Codex CLI 模型目录，只投影安全的模型元数据，失败回退内置预设 | `discoverAgentModels(config, agent)` |
 | `agent/resources.js` | 不执行资源代码地发现用户/项目 Pi 扩展、Skills 与已安装 package 资源；CLI 列表失败时保留本地目录结果 | `discoverAgentResources(config, options?)`（options.packages 提供只读包目录，options.warning 提供安全来源说明，options.extensions/skills 补充 Lush 当前选择；扩展/Skills 最多各 500 项，默认维持旧 CLI 发现） |
@@ -69,7 +70,7 @@
 | `core/sleep-policy.js` | 开启选项及结构化决策校验、确定性推荐策略与共享风险说明 | `SLEEP_WARNING`、`sleepOptions`、`recommendedChoice`、`validateSleepChoice` |
 | `project/base.js` | 构造与实例状态（`config` / `store` / `agentSettings` / `quickIntro` / `provider` / `workspaces` / `running` / `introRunning` / `stopping` / `scheduled` / `ancestry`） | `class ProjectBase` |
 | `project/internal.js` | 两个跨模块的私有助手 | `agentView(task, run, latestRun)`、`tokenHash(token)` |
-| `project/agents.js` | 项目级 Agent 配置与环境文件读写接缝；配置和 env 都动态生效，按需查询 Pi / Codex 本机模型目录及 Pi 扩展/Skills，写入只允许用户侧 RPC；env 读取因含密钥也只允许用户 | `agentConfig()`、`agentModels(agent)`、`agentResources()`、`agentStatus()`、`agentUsageConfig()`、`configureAgentUsage(config)`、`agentUsageHistory(options)`、`agentEnvironment(target)`、`configureAgentEnvironment(target,values)`、`configureAgents(value)` |
+| `project/agents.js` | 项目级 Agent 配置与环境文件读写接缝；配置和 env 都动态生效，按需查询 Pi / Codex 本机模型目录及 Pi 扩展/Skills，写入只允许用户侧 RPC；env 读取因含密钥也只允许用户 | `agentConfig()`、`agentModels(agent)`、`agentResources()`、`agentStatus()`、`agentSelectionResources()`、`agentUsageConfig()`、`configureAgentUsage(config)`、`agentUsageHistory(options)`、`agentEnvironment(target)`、`configureAgentEnvironment(target,values)`、`configureAgents(value)` |
 | `project/settings.js` | 项目级运行设置接缝：把运行设置的读模型喂给 `system.status`，并把用户侧的 `system.configure` 接到 `Config.configureRuntime` | `runtimeSettings()`、`configureRuntimeSettings(patch)` |
 | `project/status.js` | 项目级读模型与廉价 `revision`；首页 `system.summary` 走独立的 `summary()`，用持久 `meta.overview_revision` 与覆盖索引聚合且不打开 Agent / 快速介绍配置，兼容 `system.status` 仍镜像完整 `agent_config` / `intro_config`，设置页再按需读取；运行设置另给 `settings` 镜像（并发额度 + 调用 / 拆解限额），顶层同名字段仍是生效值 | `overviewRevision()`、`summary()`、`status(includeAgentConfig=true)` |
 | `project/deps.js` | 依赖边的读模型与结构校验；`decorate` 按 `input_id` 命中 `routedInputIds()` 给出 `route` 布尔（快速路由Worker标记），并批量取回这一批Worker的 `agent_runs`，让Worker树 / Worker列表的紧凑进度也按「工作用时 + 等待」投影而不是墙钟 | `decorate(tasks)`、`blockedBy(taskId)`、`assertDeps(taskId, parent, edges)` |

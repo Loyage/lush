@@ -4,12 +4,13 @@ import { AgentSettings } from '../../agent/settings.js';
 import { QuickIntroSettings } from '../quick-intro.js';
 import { AgentUsageService } from '../agent-usage.js';
 import { AgentConnectionsService } from '../agent-connections.js';
+import { AgentSelectionService } from '../agent-selection.js';
 import { check } from '../types.js';
 
 // 构造与实例状态（config / store / provider / workspaces / running / stopping / scheduled / ancestry）。
 /** One project, a persistent task tree, and a bounded pool of disposable agents. */
 export class ProjectBase {
-  constructor(config, store, provider = null) {
+  constructor(config, store, provider = null, options = {}) {
     this.config = config; this.store = store;
     this.agentSettings = new AgentSettings(config);
     this.quickIntro = new QuickIntroSettings(config);
@@ -29,6 +30,7 @@ export class ProjectBase {
     this.mergeRunsDriving = new Set();
     this.agentUsage = new AgentUsageService(this);
     this.agentConnections = new AgentConnectionsService(this);
+    this.agentSelection = new AgentSelectionService(this, { strategy: options.modelSelectionStrategy ?? null });
   }
 
   /** R-01: reject writes that would create rows while a clear is reclaiming disk. */

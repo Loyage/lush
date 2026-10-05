@@ -38,6 +38,7 @@ export const handlers = {
   'agent.usage.config'(p) { return p.agentUsageConfig(); },
   'agent.usage.configure'(p, params) { return p.configureAgentUsage(params.config); },
   'agent.usage.history'(p, params) { return p.agentUsageHistory(params); },
+  'agent.selection.resources'(p) { return p.agentSelectionResources(); },
   'agent.connections.list'(p) { return p.agentConnectionsList(); },
   'agent.connections.save'(p, params) { return p.saveAgentConnection(params.connection, params.credential); },
   'agent.connections.remove'(p, params) { return p.removeAgentConnection(params.id); },

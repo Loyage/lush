@@ -12,6 +12,7 @@ import { notificationControl } from './notice-notifications.js';
 import { DEFAULT_INPUT_ROUTES, ROUTE_TARGETS } from './input-routes.js';
 import { serviceRestartControls } from './service-restart.js';
 import { workbenchStatus } from './project-picker.js';
+import { createAgentConnectionPicker } from './agent-connection-picker.js';
 
 const TABS = [
   { id: 'interface', label: '界面', note: '阅读、外观与行为' },
@@ -156,32 +157,9 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
   selectOptions(backend, settings.options.agents, profile.agent, value => value === 'pi' ? 'Pi' : 'Codex');
   const model = el('input'); model.className = 'agent-model'; model.dataset.agentField = 'model'; model.value = profile.model || '';
   model.maxLength = 256;
-  const connection = el('select'); connection.dataset.agentField = 'connection_id'; connection.className = 'agent-select';
-  const connectionBox = el('div', undefined, 'agent-connection-binding');
-  const connectionNote = el('span', '仅 Pi 支持显式账号连接；需填写 provider/model 物理模型，不自动路由。空选项保留原 CLI 认证。', 'settings-note');
-  const connectionChoices = new Map();
-  function paintConnections(selected = connection.value || '') {
-    connection.replaceChildren(); const blank = el('option', '原 CLI 认证（不绑定项目连接）'); blank.value = ''; connection.append(blank);
-    for (const entry of connectionChoices.values()) {
-      const option = el('option', `${entry.label} · ${entry.provider}${entry.enabled ? '' : '（停用）'}`); option.value = entry.id; connection.append(option);
-    }
-    if (selected && !connectionChoices.has(selected)) { const missing = el('option', `已配置连接 ${selected}（未读取 / 不可用）`); missing.value = selected; connection.append(missing); }
-    connection.value = selected;
-  }
-  paintConnections(profile.connection_id || '');
-  const loadConnectionsHost = el('span', undefined, 'help-host');
-  const connectionHelp = '只读取当前项目的连接配置和本地凭证状态，不查询上游、不调用 Agent；不会覆盖当前模型或未保存的连接选择。';
-  loadConnectionsHost.setAttribute('data-help', connectionHelp);
-  const loadConnections = button('读取项目连接', async () => {
-    if (!ownsPage()) return;
-    try {
-      const value = await api('/api/agent/connections'); if (!ownsPage()) return;
-      if (value?.version !== 1 || !Array.isArray(value.connections)) throw new Error('invalid connections');
-      connectionChoices.clear(); for (const entry of value.connections) connectionChoices.set(entry.id, entry);
-      paintConnections(); connectionNote.textContent = '选择连接后需填写相匹配的 provider/model。停用或凭证不可用的连接不能启动；此列表未联网验证模型。';
-    } catch { if (ownsPage()) connectionNote.textContent = '连接列表读取失败；当前选择保留，请到账号连接页检查。'; }
-  }, 'ghost', { help: connectionHelp });
-  loadConnectionsHost.append(loadConnections); connectionBox.append(connection, loadConnectionsHost, connectionNote);
+  const connectionPicker = createAgentConnectionPicker({ backend, model, connectionId: profile.connection_id || '',
+    ownsPage, onChange: () => paintModels() });
+  const connection = connectionPicker.connection; connection.dataset.agentField = 'connection_id';
   const thinking = el('select'); thinking.className = 'agent-select'; thinking.dataset.agentField = 'thinking';
   const budgetControls = {};
   for (const [key, max] of [['responses', 10000], ['tokens', 1000000000]]) {
@@ -198,6 +176,11 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
 
   const paintModels = () => {
     const agent = backend.value;
+    if (connectionPicker.value()) {
+      choices.replaceChildren(el('span', '使用下方账号连接内的模型选项，或填写匹配的 provider/model；不混入其他账号的 CLI 预设。', 'settings-note'));
+      loadModels.disabled = true; return;
+    }
+    loadModels.disabled = false;
     const preset = settings.options.models[agent] || [];
     const catalog = modelCatalogs.get(agent);
     const nodes = [];
@@ -272,24 +255,26 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
     const agent = backend.value;
     if (clear) { model.value = ''; thinking.value = ''; }
     model.placeholder = `${agent} CLI 默认模型`;
-    connection.disabled = loadConnections.disabled = agent !== 'pi';
+    connectionPicker.sync();
     selectOptions(thinking, settings.options.thinking[agent] || [''], clear ? '' : profile.thinking, thinkingLabel);
     paintModels(); paintResources();
   };
   backend.addEventListener('change', () => syncBackend(true));
   loadModels.onclick = async () => {
+    if (!ownsPage() || connectionPicker.value()) return;
     const agent = backend.value;
     loadModels.disabled = true; loadModels.textContent = '读取中…';
     try {
       const catalog = await api(`/api/agent/models?agent=${encodeURIComponent(agent)}`);
+      if (!ownsPage()) return;
       modelCatalogs.set(agent, catalog); paintModels();
-    } catch (error) { show(error.message, 'error'); }
-    finally { loadModels.disabled = false; loadModels.textContent = '重新读取'; }
+    } catch (error) { if (ownsPage()) show(error.message, 'error'); }
+    finally { if (ownsPage()) { paintModels(); loadModels.textContent = '重新读取'; } }
   };
 
   form.append(field('Agent', backend, '执行该类 Worker 的 CLI。'),
     field('模型', modelBox, '留空使用所选 CLI 的默认模型；也可以读取 CLI 当前目录或直接填写模型 ID。'),
-    field('账号连接', connectionBox, '显式绑定仅在下一次 invocation 生效，不热改正在运行的账号。'),
+    field('账号连接', connectionPicker.node, 'API Key 与登录统一保存，按后端能力使用；显式绑定仅在下一次 invocation 生效。'),
     field('思考深度', thinking, '可用等级随 Agent 变化。'),
     field('软预算：模型响应数', budgetControls.responses, '每次 invocation 单独计数；达到阈值提醒收尾，不强制终止。仅 Pi；解释角色不继承。'),
     field('软预算：累计 token', budgetControls.tokens, '包含缓存读取，非上下文长度；留空关闭。Codex 不支持，切换前需清空。'),
@@ -330,6 +315,7 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
 
   const actions = el('div', undefined, 'agent-profile-actions');
   actions.append(button('保存配置', async () => {
+    if (!ownsPage()) return;
     const enteredDefaultPrompt = defaultPrompt.value.trim();
     const nextDefaultPrompt = enteredDefaultPrompt === builtInPrompt.trim() ? '' : enteredDefaultPrompt;
     if (nextDefaultPrompt && nextDefaultPrompt !== (profile.default_prompt || '')) {
@@ -340,13 +326,8 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
       if (!confirmed) return;
     }
     const chosenConnection = backend.value === 'pi' ? connection.value : '';
-    if (chosenConnection) {
-      const selected = connectionChoices.get(chosenConnection), selectedModel = model.value.trim();
-      if (!/^[a-z][a-z0-9_-]*\/.+$/i.test(selectedModel) || (selected && (!selected.enabled || !selectedModel.startsWith(`${selected.provider}/`)
-        || (selected.models?.length && !selected.models.includes(selectedModel.slice(selected.provider.length + 1)))))) {
-        show('账号连接需要启用且匹配固定 provider/model 及模型范围；请先检查连接和模型。', 'error'); return;
-      }
-    }
+    const connectionError = connectionPicker.validate();
+    if (connectionError) { show(connectionError, 'error'); return; }
     const next = {
       agent: backend.value, model: model.value.trim(), thinking: thinking.value,
       ...(chosenConnection ? { connection_id: chosenConnection } : {}),

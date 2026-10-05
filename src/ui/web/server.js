@@ -31,7 +31,7 @@ function assetFile(pathname) {
 }
 const MUTATIONS = new Set(['agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.poll','agent.connections.device.cancel','system.configure','order.submit','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive']);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
-const CORE_READS = new Set(['/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/notices','/api/worker-graph','/api/versions','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/environment','/api/docs','/api/docs/search-index']);
+const CORE_READS = new Set(['/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/notices','/api/worker-graph','/api/versions','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/selection/resources','/api/agent/environment','/api/docs','/api/docs/search-index']);
 const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:history|history-page|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的 Worker 读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/worker\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
@@ -497,6 +497,10 @@ export function startWeb(config, port = 4318, options = {}) {
           if (url.pathname === '/api/agent/models') return json(await client.request('agent.models', { agent: url.searchParams.get('agent') || '' }));
           if (url.pathname === '/api/agent/resources') return json(await client.request('agent.resources'));
           if (url.pathname === '/api/agent/status') return json(await client.request('agent.status'));
+          if (url.pathname === '/api/agent/selection/resources') {
+            check(!url.search, 'model selection resources accepts no query parameters');
+            return json(await client.request('agent.selection.resources'));
+          }
           if (url.pathname === '/api/agent/connections') {
             check(!url.search, 'connection list accepts no query parameters');
             return json(await client.request('agent.connections.list'));

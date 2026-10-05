@@ -12,6 +12,7 @@ export default {
   configureAgentUsage(value) { return this.agentUsage.configure(value); },
   agentUsageHistory(options) { return this.agentUsage.history(options); },
   agentConnectionsList() { return this.agentConnections.list(); },
+  agentSelectionResources() { return this.agentSelection.resources(); },
   saveAgentConnection(connection, credential) { return this.agentConnections.save(connection, credential); },
   removeAgentConnection(id) { return this.agentConnections.remove(id); },
   configureConnectionSampling(sampling) { return this.agentConnections.configureSampling(sampling); },

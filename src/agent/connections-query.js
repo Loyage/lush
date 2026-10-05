@@ -152,7 +152,8 @@ function parse(provider, data, checked_at) {
 }
 
 export async function queryConnection(connection, credential, checked_at, request) {
-  if (new URL(connection.endpoint).origin !== new URL(DEFAULT_ENDPOINTS[connection.provider]).origin)
+  if (!Object.hasOwn(DEFAULT_ENDPOINTS, connection.provider)
+    || new URL(connection.endpoint).origin !== new URL(DEFAULT_ENDPOINTS[connection.provider]).origin)
     return unavailable('unsupported', checked_at, 'unsupported');
   const token = credential.type === 'oauth' ? credential.access : credential.key;
   const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };

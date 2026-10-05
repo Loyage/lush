@@ -309,6 +309,12 @@ export default {
       ? run.controller.signal.reason.message
       : typeof run.controller.signal.reason === 'string' && run.controller.signal.reason
         ? run.controller.signal.reason : 'agent invocation interrupted';
+    const armDeadline = () => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        run.controller.abort(new Error(timeoutMessage));
+      }, this.config.timeout * 1000);
+    };
     // Deliver a bounded batch; undelivered originals stay unread for the next invocation.
     const page = this.store.unreadPage(taskId);
     const messages = page.messages;
@@ -320,7 +326,18 @@ export default {
       // An explicit retry may freeze a complete task-local profile. It wins over dynamic
       // project defaults for every invocation in this attempt and is cleared at settlement.
       const retryProfile = task.retry_profile ? this.agentSettings.retryProfile(task.role, JSON.parse(task.retry_profile)) : null;
-      const agent = retryProfile || this.provider.resolve?.(task) || { agent: this.config.provider, model: '', thinking: '', default_prompt: '', append_prompt: '' };
+      let agent = retryProfile || this.provider.resolve?.(task) || { agent: this.config.provider, model: '', thinking: '', default_prompt: '', append_prompt: '' };
+      // The optional trusted hook selects only a connection/model, before Run metadata is frozen.
+      // No hook and explicit Worker profiles preserve the old path without credential reads or an extra async boundary.
+      if (this.agentSelection.enabled && !retryProfile) {
+        armDeadline();
+        agent = await this.agentSelection.select(task, agent, { signal: run.controller.signal });
+        if (run.controller.signal.aborted || this.stopping) throw new Error(abortMessage());
+        const live = this.store.task(taskId);
+        // A pause/resume accepted while the hook was pending must not launch the old resolved profile.
+        if (live.status === 'paused' || live.interrupt_state || run.resumeRequested) return;
+        check(live.status === 'queued' && !TERMINAL.has(live.status), 'worker is no longer eligible to start');
+      }
       run.agent = agent;
       // Run identity and admission counters are one durable boundary; a crash cannot leave
       // a newly inserted Run attached to a still-queued Worker.
@@ -347,10 +364,7 @@ export default {
       task = this.store.task(taskId);
       this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, message_ids: messages.map(message => message.id),
         agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null });
-      timer = setTimeout(() => {
-        timedOut = true;
-        run.controller.abort(new Error(timeoutMessage));
-      }, this.config.timeout * 1000);
+      if (!timer) armDeadline();
       run.messages = messages;
       const context = await this.invocationContext(task, run);
       if (run.controller.signal.aborted) throw new Error(abortMessage());

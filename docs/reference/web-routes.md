@@ -52,6 +52,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 | `GET /api/versions?cursor=&limit=` | 用户专属只读 `branch.history`，main 第一父链、固定 tip 分页与精确 Worker/原始指令关联；见 [分支 RPC](rpc/branches.md#branchhistory) |
 | `GET /api/agent/config` | `agent.config` |
 | `GET /api/agent/status` | 用户专属 `agent.status {}`，当前项目 Pi 安装、模型目录、资源、脱敏账号与可查询余额/额度；仅进入页面和手动刷新时读取，详见 [Agent 状态](rpc/agents.md) |
+| `GET /api/agent/selection/resources` | 用户专属 `agent.selection.resources {}`；本地托管 API/模型范围、执行后端能力、余额状态与观测时间，不含秘密、不联网；不接受查询参数 |
 | `GET /api/agent/connections` | 用户专属 `agent.connections.list {}`；只读取项目托管连接及缓存，不导入 Pi 登录 |
 | `GET /api/agent/connections/history?id=&days=` | 用户专属 `agent.connections.history`；本地连接历史，不访问上游 |
 | `GET /api/agent/usage/config` | 用户专属 `agent.usage.config {}`；声明式查询模板与采样设置，见 [Agent 状态](rpc/agents.md) |

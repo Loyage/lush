@@ -5,7 +5,7 @@ import { connectionErrorCode, normalizeConnectionObservation, validConnectionHas
 
 const require = createRequire(import.meta.url);
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const PROVIDERS = new Set(['deepseek','openrouter','zai','kimi-coding','openai-codex']);
+const PROVIDERS = new Set(['deepseek','openrouter','zai','kimi-coding','openai-codex','openai-compatible']);
 const safeText = (value, max = 256) => typeof value === 'string'
   ? value.replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, '').slice(0, max) : null;
 const failure = () => new LushError('连接操作失败，请检查连接配置、权限或重新登录。');

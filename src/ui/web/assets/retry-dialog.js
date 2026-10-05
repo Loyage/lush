@@ -3,6 +3,8 @@ import { button, el } from './dom.js';
 import { confirmDialog, formDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { show } from './messages.js';
+import { createAgentConnectionPicker } from './agent-connection-picker.js';
+import { ui } from './state.js';
 
 const roleProfile = (settings, role) => {
   const resolved = role === 'scheduler' ? 'planner' : role;
@@ -73,6 +75,8 @@ export async function configureTask(task) {
 
 async function profileDialog(task, options) {
   const configuring = options.method === 'worker.configure';
+  const view = ui.view; let active = true;
+  const ownsPage = () => active && ui.view === view;
   try {
     const settings = await api('/api/agent/config');
     const { role, profile } = roleProfile(settings, task.role);
@@ -103,6 +107,9 @@ async function profileDialog(task, options) {
     const modelChoices = el('select'); modelChoices.dataset.retryField = 'model-choice';
     modelChoices.onchange = () => { if (modelChoices.value) model.value = modelChoices.value; };
     modelBox.append(model, modelChoices);
+    const connectionPicker = createAgentConnectionPicker({ backend, model, connectionId: profile.connection_id || '',
+      ownsPage, onChange: () => paintModels() });
+    connectionPicker.connection.dataset.retryField = 'connection_id';
 
     const thinking = el('select'); thinking.dataset.retryField = 'thinking';
     const budgetResponses = el('input'); budgetResponses.type = 'number'; budgetResponses.min = '1'; budgetResponses.max = '10000';
@@ -140,6 +147,10 @@ async function profileDialog(task, options) {
 
     const paintModels = () => {
       const agent = backend.value;
+      if (connectionPicker.value()) {
+        modelChoices.replaceChildren(option('', '使用账号连接内的模型选项…')); modelChoices.disabled = true; return;
+      }
+      modelChoices.disabled = false;
       const values = new Map();
       for (const id of settings.options?.models?.[agent] || []) values.set(id, id);
       for (const entry of catalogs.get(agent)?.models || []) values.set(entry.id, entry.label && entry.label !== entry.id ? `${entry.label} · ${entry.id}` : entry.id);
@@ -147,10 +158,10 @@ async function profileDialog(task, options) {
       modelChoices.value = '';
     };
     const loadModels = async agent => {
-      if (catalogs.has(agent)) return;
+      if (connectionPicker.value() || catalogs.has(agent)) return;
       try { catalogs.set(agent, await api(`/api/agent/models?agent=${encodeURIComponent(agent)}`)); }
       catch (error) { catalogs.set(agent, { models: [], warning: error.message }); }
-      if (backend.value === agent) paintModels();
+      if (ownsPage() && backend.value === agent) paintModels();
     };
     const paintResources = () => {
       const enabled = backend.value === 'pi';
@@ -165,6 +176,7 @@ async function profileDialog(task, options) {
       const agent = backend.value;
       if (clear) { model.value = ''; thinking.value = ''; }
       model.placeholder = `${agent} CLI 默认模型`;
+      connectionPicker.sync();
       const levels = settings.options?.thinking?.[agent] || [''];
       const selected = clear || !inheritedBackend || !levels.includes(profile.thinking) ? '' : profile.thinking;
       thinking.replaceChildren(...levels.map(value => option(value, thinkingLabel(value)))); thinking.value = selected;
@@ -177,6 +189,7 @@ async function profileDialog(task, options) {
     grid.append(
       field('Agent', backend, '只覆盖本轮运行，不修改项目或角色默认配置。'),
       field('模型', modelBox, '可直接填写模型 ID，或从预设与本机目录中选择。'),
+      field('账号连接', connectionPicker.node, '只覆盖本 Worker 的后续调用；API Key 与登录共享保存，当前仅 Pi 支持托管连接。'),
       field('思考深度', thinking, '可用等级随 Agent 变化。'),
       field('软预算：响应数', budgetResponses, '留空关闭；仅 Pi。'),
       field('软预算：累计 token', budgetTokens, '留空关闭；仅 Pi。'),
@@ -188,6 +201,7 @@ async function profileDialog(task, options) {
     const restoreDefaults = button('加载默认参数', () => {
       backend.value = inheritedBackend ? profile.agent : availableAgents[0];
       model.value = inheritedBackend ? (profile.model || '') : '';
+      connectionPicker.reset(profile.connection_id || '');
       budgetResponses.value = String(profile.soft_budget?.responses ?? '');
       budgetTokens.value = String(profile.soft_budget?.tokens ?? '');
       defaultPrompt.value = profile.default_prompt || builtInPrompt;
@@ -204,21 +218,29 @@ async function profileDialog(task, options) {
     try { resources = await api('/api/agent/resources'); }
     catch (error) { resources = { extensions: [], skills: [], warning: `资源目录读取失败：${error.message}` }; }
     await loadModels(backend.value);
+    if (!ownsPage()) return false;
     syncBackend(false);
 
-    const confirmed = await formDialog({
-      title: configuring ? `调整 Worker #${task.id} 的运行设置` : `检查后重试 Worker #${task.id}`,
-      message: configuring
-        ? '这些设置用于下一次 Agent 调用，不改变仍在运行的调用。尚未生效的中断可用「继续」撤销；Worker 结算后设置自动清除。'
-        : `Worker 因“${task.status === 'cancelled' ? '已取消' : '失败'}”停止。请检查并调整 ${task.role} Agent；这些设置只用于本轮重试。`,
-      content: form, confirmLabel: configuring ? '保存设置' : '使用这些设置重试',
-      cancelLabel: configuring ? '不修改' : '暂不重试', cardClass: 'retry-modal',
-      agent: !configuring,
-      confirmHelp: configuring
-        ? '保存这次运行设置，在下一次 Agent 调用时生效；不改变当前调用，也不自动继续。'
-        : agentHelp('用上面选定的 Agent 设置重新启动这个 Worker。'),
-    });
-    if (!confirmed) return false;
+    // Keep the same live form when a managed model is invalid, so fixing it does not lose other edits.
+    for (;;) {
+      const confirmed = await formDialog({
+        title: configuring ? `调整 Worker #${task.id} 的运行设置` : `检查后重试 Worker #${task.id}`,
+        message: configuring
+          ? '这些设置用于下一次 Agent 调用，不改变仍在运行的调用。尚未生效的中断可用「继续」撤销；Worker 结算后设置自动清除。'
+          : `Worker 因“${task.status === 'cancelled' ? '已取消' : '失败'}”停止。请检查并调整 ${task.role} Agent；这些设置只用于本轮重试。`,
+        content: form, confirmLabel: configuring ? '保存设置' : '使用这些设置重试',
+        cancelLabel: configuring ? '不修改' : '暂不重试', cardClass: 'retry-modal',
+        agent: !configuring,
+        confirmHelp: configuring
+          ? '保存这次运行设置，在下一次 Agent 调用时生效；不改变当前调用，也不自动继续。'
+          : agentHelp('用上面选定的 Agent 设置重新启动这个 Worker。'),
+      });
+      if (!confirmed || ui.view !== view) return false;
+      const connectionError = connectionPicker.validate();
+      if (connectionError) { show(connectionError, 'error'); continue; }
+      break;
+    }
+    active = false;
 
     const enteredDefault = defaultPrompt.value.trim();
     const nextDefault = enteredDefault === builtInPrompt.trim() ? '' : enteredDefault;
@@ -241,6 +263,7 @@ async function profileDialog(task, options) {
     const envValues = parseEnvLines(env.value);
     const taskProfile = {
       agent: backend.value, model: model.value.trim(), thinking: thinking.value,
+      ...(connectionPicker.value() ? { connection_id: connectionPicker.value() } : {}),
       default_prompt: nextDefault, append_prompt: appendPrompt.value.trim(),
       extensions: [...selectedExtensions], skills: [...selectedSkills], soft_budget: softBudget,
       ...(Object.keys(envValues).length ? { env: envValues } : {}),
@@ -253,5 +276,5 @@ async function profileDialog(task, options) {
   } catch (error) {
     show(configuring ? `无法保存运行设置：${error.message}` : `无法重试：${error.message}`, 'error');
     return false;
-  }
+  } finally { active = false; }
 }

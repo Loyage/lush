@@ -4,7 +4,7 @@ import { confirmDialog } from './dialog.js';
 import { renderUsageSeries } from './render-agent-usage.js';
 import { usageErrorLabels, usageWindow } from './usage-window.js';
 
-const PROVIDERS = [['deepseek', 'DeepSeek'], ['openrouter', 'OpenRouter'], ['zai', 'Z.AI'], ['kimi-coding', 'Kimi Coding'], ['openai-codex', 'Codex 订阅']];
+const PROVIDERS = [['deepseek', 'DeepSeek'], ['openrouter', 'OpenRouter'], ['zai', 'Z.AI'], ['kimi-coding', 'Kimi Coding'], ['openai-codex', 'Codex 订阅'], ['openai-compatible', '自定义 OpenAI 兼容 API']];
 const SOURCES = { usage_api: '专用余额 / 额度接口', client_rpc: '原生客户端协议', response_headers: '正常模型响应（调用结束后采集）', none: '尚无观测来源' };
 const CREDENTIALS = { configured: '已配置（不代表已联网验证）', unconfigured: '未配置', expired: '已过期', unknown: '未知' };
 const STATUSES = { available: '观测成功', partial: '部分指标可用', unknown: '尚未取得当前数据', error: '查询失败（不代表资源耗尽）', unsupported: '此连接无法查询', unconfigured: '缺少查询凭证' };
@@ -200,6 +200,7 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
       if (connection.credential?.identity) grid.append(kv('账号身份（脱敏）', connection.credential.identity));
       if (connection.credential?.expires_at) grid.append(kv('凭证到期', time(connection.credential.expires_at)));
       card.append(grid); note(card, `模型范围：${array(connection.models).length ? connection.models.join('、') : '未限定（不代表已验证模型可用）'}`);
+      if (connection.provider === 'openai-compatible') note(card, '自定义 OpenAI Chat Completions 兼容 API；余额查询尚不支持，不代表余额为零。运行时仅供 Pi 显式绑定，不自动切换账号。当前适配按文本/工具调用配置；32K 上下文、4K 输出是本地运行预算，不是已验证的上游限额或价格。');
       note(card, '以下为缓存观测，不保证当前仍有额度；窗口到期或账号变化后需重新查询。');
       card.append(renderConnectionResources(connection.observation));
       const previous = connection.last_success;
@@ -260,12 +261,17 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
     const key = field(credentialWrap, 'API Key（仅写入，更换时才填写）', 'api_key', 'password', '', '留空保留已有密钥。提交后立即清空，不回显、不保存到浏览器。');
     key.autocomplete = 'new-password'; key.maxLength = 8192; key.setAttribute('spellcheck', 'false');
     const oauthNote = el('p', 'Codex 使用 OAuth：先保存连接，再点击卡片“登录 / 重新登录”。不接受手动录入 OAuth token。', 'hint');
-    form.append(credentialWrap, oauthNote);
+    const compatibleNote = el('p', '自定义 API 必须填写 HTTPS 模型端点（通常含 /v1）和至少一个物理模型 ID；仅支持 OpenAI Chat Completions 协议，未联网验证可用性。当前按文本/工具调用配置，32K 上下文、4K 输出为本地运行预算，不代表上游实际限额。余额查询尚不支持，不代表余额为零。', 'hint');
+    form.append(credentialWrap, oauthNote, compatibleNote);
     const localFeedback = el('p', undefined, 'hint agent-connection-editor-feedback'); localFeedback.setAttribute('role', 'status');
     const changed = () => { editorRevision++; invalidateLogin(); };
     for (const input of [label, endpoint, models, key]) input.oninput = changed;
     enabled.onchange = changed;
-    const syncAuth = () => { const oauth = provider.value === 'openai-codex'; credentialWrap.hidden = oauth; oauthNote.hidden = !oauth; key.value = ''; };
+    const syncAuth = () => {
+      const oauth = provider.value === 'openai-codex', compatible = provider.value === 'openai-compatible';
+      credentialWrap.hidden = oauth; oauthNote.hidden = !oauth; compatibleNote.hidden = !compatible;
+      endpoint.required = models.required = compatible; key.value = '';
+    };
     provider.onchange = () => { endpoint.value = ''; changed(); syncAuth(); }; syncAuth();
     const actions = el('div', undefined, 'agent-connection-actions');
     actions.append(button('保存连接', async () => {
@@ -274,8 +280,10 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
       try {
         const name = label.value.trim(); if (!name) throw new Error('请填写连接名称。');
         const url = endpoint.value.trim();
+        if (provider.value === 'openai-compatible' && !url) throw new Error('自定义兼容 API 必须填写 HTTPS 模型端点。');
         if (url) { const parsed = new URL(url); if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('模型端点必须是无凭证、无查询参数、无片段的 HTTPS 地址。'); }
         const ids = models.value.split(/[,，\n]/).map(value => value.trim()).filter(Boolean);
+        if (provider.value === 'openai-compatible' && !ids.length) throw new Error('自定义兼容 API 必须填写至少一个物理模型 ID。');
         if (ids.length > 50 || new Set(ids).size !== ids.length || ids.some(id => id.length > 256)) throw new Error('模型 ID 不可重复，最多 50 个，每个最长 256 字符。');
         const value = { ...(connection ? { id: connection.id } : {}), label: name, provider: provider.value, auth_type: provider.value === 'openai-codex' ? 'oauth' : 'api_key',
           enabled: enabled.checked, models: ids, ...(url ? { endpoint: url } : {}) };

@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import { answerDialog, deepText, installDom } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 import { normalizeAgentProfile } from '../../src/agent/settings.js';
+import { normalizeConnection } from '../../src/agent/connections-utils.js';
+import { validateRuntimeConnection } from '../../src/agent/connection-runtime.js';
 
 const world = makeWorld(), requests = [], actions = [];
 const json = value => ({ ok: true, status: 200, json: async () => value });
@@ -464,6 +466,74 @@ test('连接profile本地列表的迟到响应不在离页后显示错误或重�
   const profile = root.querySelector('[data-agent-target="default"]'), pending = deferred(); intercept = url => url === '/api/agent/connections' ? pending.promise : undefined;
   const reading = btn(profile, '读取项目连接').onclick(); current = false;
   const before = deepText(root); pending.resolve(json(data)); await reading; expect(deepText(root)).toBe(before);
+});
+
+test('自定义兼容API必须显式填写端点和模型，密钥只写且余额未知不冒充零', async () => {
+  const p = await panel();
+  const provider = field(p.node, 'provider'); provider.value = 'openai-compatible'; provider.onchange();
+  expect(field(p.node, 'endpoint').required).toBe(true); expect(field(p.node, 'models').required).toBe(true);
+  expect(deepText(p.node)).toContain('仅支持 OpenAI Chat Completions');
+  change(field(p.node, 'label'), '兼容服务');
+  await btn(p.node, '保存连接').onclick(); expect(actions).toHaveLength(0);
+  expect(deepText(p.node)).toContain('必须填写 HTTPS 模型端点');
+  change(field(p.node, 'endpoint'), 'https://models.example/v1');
+  await btn(p.node, '保存连接').onclick(); expect(actions).toHaveLength(0);
+  expect(deepText(p.node)).toContain('至少一个物理模型 ID');
+  change(field(p.node, 'models'), 'my-model, vendor/second-model'); change(field(p.node, 'api_key'), 'PRIVATE-COMPATIBLE-KEY');
+  await btn(p.node, '保存连接').onclick();
+  expect(actions[0]).toEqual({ method: 'agent.connections.save', params: { connection: {
+    label: '兼容服务', provider: 'openai-compatible', endpoint: 'https://models.example/v1', models: ['my-model', 'vendor/second-model'],
+    auth_type: 'api_key', enabled: true,
+  }, credential: { api_key: 'PRIVATE-COMPATIBLE-KEY' } } });
+  expect(deepText(p.node)).not.toContain('PRIVATE-COMPATIBLE-KEY');
+  const saved = data.connections.at(-1), actual = normalizeConnection(actions[0].params.connection, saved.id);
+  expect(actual).toMatchObject({ provider: 'openai-compatible', endpoint: 'https://models.example/v1', models: ['my-model', 'vendor/second-model'], auth_type: 'api_key' });
+  expect(() => validateRuntimeConnection({ agent: 'pi', connection_id: actual.id, model: 'openai-compatible/vendor/second-model' },
+    { connection: actual, credential: { type: 'api_key', key: 'MOCK-KEY' } })).not.toThrow();
+  expect(deepText(card(p, saved.id))).toContain('余额查询尚不支持，不代表余额为零');
+  expect(deepText(card(p, saved.id))).toContain('本地运行预算，不是已验证的上游限额或价格');
+});
+
+test('默认和角色profile只呈现连接匹配模型，切换不覆盖草稿并保存完整物理名', async () => {
+  const custom = connection({ id: '44444444-4444-4444-8444-444444444444', label: '兼容服务', provider: 'openai-compatible',
+    endpoint: 'https://models.example/v1', models: ['vendor/my-model'], consumers: [] });
+  data.connections.push(custom);
+  const settings = structuredClone(world.state.agentConfig); settings.default.agent = 'pi'; settings.roles.agent = { ...settings.default };
+  const root = renderAgentSettings(settings, () => {}, { ownsPage: () => current });
+  for (const target of ['default', 'agent']) {
+    const profile = root.querySelector(`[data-agent-target="${target}"]`);
+    const choice = profile.querySelector('[data-agent-field="connection_id"]'), model = profile.querySelector('[data-agent-field="model"]');
+    model.value = 'unsaved/model'; await btn(profile, '读取项目连接').onclick(); expect(model.value).toBe('unsaved/model');
+    choice.value = custom.id; choice.onchange(); expect(model.value).toBe('unsaved/model');
+    const picker = profile.querySelector('[data-connection-model="choice"]');
+    expect(picker.children.map(node => node.value)).toEqual(['', 'openai-compatible/vendor/my-model']);
+    expect(profile.querySelectorAll('.model-preset')).toHaveLength(0);
+    picker.value = 'openai-compatible/vendor/my-model'; picker.onchange(); await btn(profile, '保存配置').onclick();
+    const saved = world.state.actions.at(-1).params.config;
+    expect(target === 'default' ? saved.default : saved.roles.agent).toMatchObject({ connection_id: custom.id, model: 'openai-compatible/vendor/my-model' });
+    choice.value = ''; choice.onchange(); expect(model.value).toBe('openai-compatible/vendor/my-model');
+    await btn(profile, '保存配置').onclick();
+    const unbound = world.state.actions.at(-1).params.config;
+    expect(target === 'default' ? unbound.default : unbound.roles.agent).not.toHaveProperty('connection_id');
+  }
+  expect(requests.some(row => row.url.startsWith('/api/agent/models'))).toBe(false);
+  expect(actions.some(row => row.method === 'agent.connections.query')).toBe(false);
+});
+
+test('连接读取单飞且在读取期间保留最新连接选择和模型草稿，停用连接无法保存', async () => {
+  const settings = structuredClone(world.state.agentConfig); settings.default.agent = 'pi';
+  const root = renderAgentSettings(settings, () => {}, { ownsPage: () => current });
+  const profile = root.querySelector('[data-agent-target="default"]'), pending = deferred();
+  const choice = profile.querySelector('[data-agent-field="connection_id"]'), model = profile.querySelector('[data-agent-field="model"]');
+  intercept = url => url === '/api/agent/connections' ? pending.promise : undefined;
+  const a = btn(profile, '读取项目连接').onclick(), b = btn(profile, '读取项目连接').onclick();
+  expect(requests).toHaveLength(1);
+  choice.value = data.connections[1].id; model.value = 'draft/value';
+  data.connections[1].enabled = false;
+  pending.resolve(json(data)); await Promise.all([a, b]);
+  expect(choice.value).toBe(data.connections[1].id); expect(model.value).toBe('draft/value');
+  model.value = 'deepseek/deepseek-chat'; const before = world.state.actions.length;
+  await btn(profile, '保存配置').onclick(); expect(world.state.actions).toHaveLength(before);
 });
 
 test('发布入口加载连接样式且无秘密localStorage或HTML插值代码', () => {
