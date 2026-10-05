@@ -151,17 +151,18 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   title.dataset.graphFocus = `title-${node.id}`;
   head.append(title, ...(minimal || node.role === 'agent' ? [] : [roleBadge(node.role)]), badge(node.status === 'waiting' && !node.children_active && !interruptReason(node) ? '静息' : statusOf(node).label,
     `b-${node.status}`));
-  // 分支合并状态放进卡片首行的标签：与任务状态并排，一眼看清这条 Task 的改动合进父分支没有。
+  // 资源消耗紧跟任务状态，排在合并状态标签前面；极简模式的合并标签在第二行，由 minimalSummary 渲染。
+  if (!minimal) head.append(resourceSummary(node, folded.has(node.id)));
+  // 分支合并状态标签：一眼看清这条 Task 的改动合进父分支没有。
   // 用与任务详情同一份 INTEGRATION 文案与配色；none（没有独有提交）/ 未知值不占位。
   const merge = INTEGRATION[node.integration];
   if (!minimal && merge) head.append(badge(merge, node.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
   if (!minimal && node.task_kind) head.append(badge(node.task_kind === 'merge' ? 'merge（历史）' : workerKindLabel(node)));
   if (!minimal && node.freeze && node.freeze.task_id !== node.id) head.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
-  head.append(resourceSummary(node, folded.has(node.id)));
   row.append(head);
   if (minimal) {
-    row.append(minimalSummary(node, queueNote), taskActionsMenu(node, mergeAllByBranch));
+    row.append(minimalSummary(node, queueNote, folded), taskActionsMenu(node, mergeAllByBranch));
     return row;
   }
 
@@ -274,7 +275,7 @@ function appendTaskActions(row, node, mergeAllByBranch) {
   }
 }
 
-function minimalSummary(node, queueNote) {
+function minimalSummary(node, queueNote, folded = new Set()) {
   const line = el('div', undefined, 'task-graph-minimal-summary');
   const stats = progressStats(node.progress);
   const count = stats.total ? `${stats.completed}/${stats.total}` : '';
@@ -290,6 +291,8 @@ function minimalSummary(node, queueNote) {
   line.append(interruptHint ? text : relations || text);
   if (node.freeze && node.freeze.task_id !== node.id) line.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (isArchivedTask(node)) line.append(badge('已归档'));
+  // 资源消耗排在合并状态标签前面；收拢时这里显示的是整棵子树的合计。
+  line.append(resourceSummary(node, folded.has(node.id)));
   const merge = INTEGRATION[node.integration];
   if (merge) line.append(badge(merge, node.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
   return line;

@@ -20,16 +20,21 @@ test('lifetime own/subtree totals include all 205 descendants and all sessions, 
     }
     const file = save(f.config, 1, [message(1)]);
     fs.writeFileSync(file.replace('resources_', 'second_'), JSON.stringify(message(1)) + '\n');
-    const totals = await readWorkerResources(f.config, tasks);
-    expect(totals.get(1).own).toMatchObject({ input: 70, output: 6, cost: .4, running: false });
+    const runs = tasks.map(task => ({ task_id: task.id, started_at: '2026-01-01T00:00:00.000Z',
+      ended_at: task.status === 'running' ? null : '2026-01-01T00:00:01.000Z' }));
+    const totals = await readWorkerResources(f.config, tasks, runs);
+    expect(totals.get(1).own).toMatchObject({ input: 70, output: 6, cost: .4, run_ms: 1000, running: false });
     expect(totals.get(1).subtree.input).toBe(207 * 35);
     expect(totals.get(1).subtree.cost).toBeCloseTo(207 * .2);
     expect(totals.get(1).subtree.running).toBe(true);
+    // 未结束的 run 计到 now，但不能把无效时间伪造成 0。
+    expect(totals.get(1).subtree.run_ms).toBeGreaterThanOrEqual(206 * 1000);
     expect(totals.get(2).subtree).toMatchObject({ input: 70, output: 6, running: true });
     fs.appendFileSync(file, JSON.stringify(message(1)) + '\n');
     tasks.at(-1).status = 'waiting';
     const updated = await readWorkerResources(f.config, tasks);
     expect(updated.get(1).own.input).toBe(105);
+    expect(updated.get(1).own.run_ms).toBe(0);
     expect(updated.get(1).subtree.running).toBe(false);
   } finally { await f.close(); }
 });
@@ -40,6 +45,8 @@ test('worker.graph exposes complete subtree usage even when the spending child i
     const child = f.store.create({ role: 'agent', task_kind: 'child', parent_id: main.id, goal: 'spending' });
     f.store.update(child.id, { status: 'completed' });
     save(f.config, child.id, [message(child.id)]);
+    f.store.run('INSERT INTO agent_runs(task_id,attempt,role,started_at,ended_at) VALUES(?,?,?,?,?)',
+      child.id, 1, 'agent', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:01.000Z');
     f.store.transaction(() => {
       for (let i = 0; i < 205; i++) {
         const row = f.store.create({ role: 'agent', task_kind: 'child', parent_id: main.id, goal: 'recent' });
@@ -51,7 +58,7 @@ test('worker.graph exposes complete subtree usage even when the spending child i
     expect(graph.truncated).toBe(true);
     expect(graph.nodes.some(row => row.id === child.id)).toBe(false);
     expect(graph.nodes.find(row => row.id === main.id).resources).toMatchObject({
-      own: { input: 0, cost: 0 }, subtree: { input: 35, output: 3, cost: .2 },
+      own: { input: 0, cost: 0, run_ms: 0 }, subtree: { input: 35, output: 3, cost: .2, run_ms: 1000 },
     });
     expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(before);
   } finally { await f.close(); }

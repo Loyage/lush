@@ -143,7 +143,8 @@ export default {
     const selected = rows.slice(0, limit);
     const ids = selected.map(row => row.id);
     const resources = await readWorkerResources(this.config,
-      this.store.all('SELECT id,parent_id,status FROM tasks')).catch(() => new Map());
+      this.store.all('SELECT id,parent_id,status FROM tasks'),
+      this.store.all('SELECT task_id,started_at,ended_at FROM agent_runs')).catch(() => new Map());
     const iterations = iterationViews(this.store, selected);
     const mergeQueues = mergeQueueSummaries(this.store, ids);
     // 一批取回调用区间：任务图上的紧凑进度也要把等待排除在 Agent 工作用时之外。

@@ -26,8 +26,8 @@ progress:i===5?null:{total:5,completed:i===4?5:2,current:i===4?null:{label:'实�
 ]};
 for (const node of window.graph.nodes) {
   node.merge_queue={counts:{},total:0,items:[],truncated:false};
-  node.resources={own:{input:121000,output:18000,cost:2.24,running:node.status==='running'},
-    subtree:{input:968000,output:144000,cost:17.92,running:true}};
+  node.resources={own:{input:121000,output:18000,cost:2.24,run_ms:3661000,running:node.status==='running'},
+    subtree:{input:968000,output:144000,cost:17.92,run_ms:7322000,running:true}};
 }
 window.graph.nodes[0].merge_queue={counts:{resolving:1,requested:7,blocked:1},total:9,truncated:true,
   items:[{id:2,status:'resolving'},{id:900,status:'requested'},{id:901,status:'blocked'}]};
@@ -96,7 +96,8 @@ try {
   assert(await execute(`return document.querySelector('[data-graph-focus="detail-mode"]').checked && !document.querySelector('.task-graph-minimal') && !!document.querySelector('.task-graph-result');`), 'details checkbox did not expand cards');
   await click('[data-graph-focus="detail-mode"]');
   assert(await execute(`const usage=document.querySelector('[data-task-id="2"] .task-graph-usage');
-    return usage.textContent.includes('$2.24') && getComputedStyle(usage).animationName==='task-usage-live'
+    return usage.textContent.includes('$2.24') && usage.firstElementChild.classList.contains('task-graph-usage-runtime')
+      && usage.textContent.includes('运行 1 小时 1 分') && getComputedStyle(usage).animationName==='task-usage-live'
       && getComputedStyle(usage.querySelector('.task-graph-usage-input')).color!==getComputedStyle(usage.querySelector('.task-graph-usage-output')).color;`), 'resource values, colors or running animation missing');
   await click('[data-graph-focus="fold-1"]');
   assert(await execute(`const usage=document.querySelector('[data-task-id="1"] .task-graph-usage');

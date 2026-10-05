@@ -145,12 +145,30 @@ function bucketStarts(start, end, interval) {
   return out;
 }
 
+/** compact 工作用时：run 区间之和，未结束的算到 now；无效行不伪造时长。 */
+function runMs(runs, now) {
+  let total = 0;
+  for (const run of runs) {
+    const start = Date.parse(run?.started_at);
+    const end = run?.ended_at ? Date.parse(run.ended_at) : now;
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) total += end - start;
+  }
+  return total;
+}
+
 /** Compact lifetime resource summaries, independent of graph/group limits. */
-export async function readWorkerResources(config, tasks) {
+export async function readWorkerResources(config, tasks, runs = []) {
   const dir = path.join(config.home, 'sessions');
   if (!pending.has(dir)) pending.set(dir, scan(dir).finally(() => pending.delete(dir)));
   const source = await pending.get(dir);
+  const now = Date.now();
+  const runsByTask = new Map();
+  for (const run of runs) {
+    const list = runsByTask.get(run.task_id);
+    if (list) list.push(run); else runsByTask.set(run.task_id, [run]);
+  }
   const own = new Map(tasks.map(task => [task.id, { input: 0, output: 0, cost: 0,
+    run_ms: runMs(runsByTask.get(task.id) ?? [], now),
     unknown_tokens: 0, unknown_cost: 0, incomplete: source.unreadable > 0,
     running: task.status === 'running' }]));
   const observed = new Set();
@@ -178,7 +196,7 @@ export async function readWorkerResources(config, tasks) {
     for (let parent = byId.get(task.parent_id); parent && !seen.has(parent.id); parent = byId.get(parent.parent_id)) {
       seen.add(parent.id);
       const total = result.get(parent.id).subtree, row = own.get(task.id);
-      for (const key of ['input', 'output', 'cost', 'unknown_tokens', 'unknown_cost']) total[key] += row[key];
+      for (const key of ['input', 'output', 'cost', 'run_ms', 'unknown_tokens', 'unknown_cost']) total[key] += row[key];
       total.incomplete ||= row.incomplete; total.running ||= row.running;
     }
   }

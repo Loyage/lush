@@ -45,7 +45,7 @@
 | `agent/guide.js` | 旧调用方兼容出口；内置 Prompt 的事实来源是 `prompts.js` | `GUIDE` |
 | `core/transcript-reader.js` | 完整Worker会话的流式检索、按类型／工具／失败过滤、步骤分段原文与同会话调用 ID 配对；单行超过 16 MiB 明确报不完整，不受快速视图前 8 MiB 的范围限制 | `searchTranscript(config,taskId,options)`、`transcriptStep(config,taskId,seq,offset)`、`transcriptPage(config,taskId,seq?,offset?)`（连续完整文字，有界分段） |
 | `core/transcript.js` | 兼容快速记录与用量投影；保留调用身份；与全文读面共享步骤投影；`readTranscriptLatest` 另做一次完整的异步流式扫描，尾部不受前 8 MiB 窗口限制，只保留 `limit` 大小的环形窗口与当前 token 批次 | `projectRecord(record,max?)`、`readTranscript`、`readTranscriptLatest(config,taskId,{after,before,limit})`、`readUsage`、`sessionFiles`、`transcriptReadStats` |
-| `core/usage-statistics.js` | 项目完整会话的异步流式只读统计；有限 LRU 精简用量缓存、并发扫描单飞、时间过滤、UTC 分桶、provider/model 汇总与覆盖说明 | `readUsageStatistics(config,options,metadata?)`、`readWorkerResources(config,tasks)`（完整 Worker 自身/子树消耗摘要；字段见 modules.md） |
+| `core/usage-statistics.js` | 项目完整会话的异步流式只读统计；有限 LRU 精简用量缓存、并发扫描单飞、时间过滤、UTC 分桶、provider/model 汇总与覆盖说明 | `readUsageStatistics(config,options,metadata?)`、`readWorkerResources(config,tasks,runs?)`（完整 Worker 自身/子树消耗与工作时长摘要；字段见 modules.md） |
 | `core/usage-attribution.js` | 使用显式身份或唯一 Run 时间区间生成有界 Worker / role / invocation 统计（内部字段仍为 `task`），无法确认时保留 unknown | `usageAttribution(metadata)` |
 
 ## 运行设置：`src/core/settings.js`

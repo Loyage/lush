@@ -35,27 +35,41 @@ beforeEach(async () => {
 afterAll(() => dom.restore());
 
 test('资源消耗在两种模式显示自身，折叠显示后端完整子树合计并只为运行中的统计闪烁', async () => {
-  const own = { input: 121000, output: 18000, cost: 2.24, running: false };
+  const own = { input: 121000, output: 18000, cost: 2.24, run_ms: 3661000, running: false };
   graph.nodes[0].children_total = 20;
-  graph.nodes[0].resources = { own, subtree: { ...own, input: 242000, cost: 4.48, running: true } };
-  graph.nodes[1].resources = { own: { ...own, running: true } };
+  graph.nodes[0].resources = { own, subtree: { ...own, input: 242000, cost: 4.48, run_ms: 7322000, running: true } };
+  graph.nodes[1].resources = { own: { ...own, run_ms: 61000, running: true } };
   renderTaskGraph(graph);
   let summary = card(1).querySelector('.task-graph-usage');
+  expect(summary.children[0].className).toContain('task-graph-usage-runtime');
+  expect(summary.children[0].textContent).toContain('运行 1 小时 1 分');
   expect(deepText(summary)).toContain('↑121.0k');
   expect(deepText(summary)).toContain('↓18.0k');
   expect(deepText(summary)).toContain('$2.24');
   expect(summary.classList.contains('is-live')).toBe(false);
+  // 极简模式：消耗在第二行，紧接合并状态标签之前。
+  const placed = card(2).querySelector('.task-graph-minimal-summary').querySelector('.task-graph-usage');
+  expect(placed).toBeTruthy();
+  const siblings = placed.parentNode.children;
+  expect(siblings[siblings.indexOf(placed) + 1].textContent).toContain('待合并');
+  expect(card(2).querySelector('.task-graph-head').querySelector('.task-graph-usage')).toBeNull();
   expect(card(2).querySelector('.task-graph-usage').classList.contains('is-live')).toBe(true);
+  expect(deepText(card(3).querySelector('.task-graph-usage'))).toContain('运行 —');
   expect(deepText(card(3).querySelector('.task-graph-usage'))).toContain('↑—');
   await card(1).querySelector('button').onclick();
   summary = card(1).querySelector('.task-graph-usage');
   expect(summary.classList.contains('is-aggregate')).toBe(true);
   expect(summary.classList.contains('is-live')).toBe(true);
+  expect(deepText(summary)).toContain('运行 2 小时 2 分');
   expect(deepText(summary)).toContain('$4.48');
   expect(summary.getAttribute('data-help')).toContain('图外节点');
   enableDetails();
   expect(deepText(card(1).querySelector('.task-graph-usage'))).toContain('$4.48');
   await card(1).querySelector('button').onclick();
+  // 详情模式：消耗排在首行状态标签之后、合并状态标签之前。
+  const detailUsage = card(2).querySelector('.task-graph-head').querySelector('.task-graph-usage');
+  const headSiblings = detailUsage.parentNode.children;
+  expect(headSiblings[headSiblings.indexOf(detailUsage) + 1].textContent).toContain('待合并');
   expect(deepText(card(1).querySelector('.task-graph-usage'))).toContain('$2.24');
   graph.nodes[1].resources.own.unknown_cost = 1;
   graph.nodes[1].resources.own.running = false;
