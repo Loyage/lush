@@ -24,6 +24,7 @@ lush [--project PATH] [--json] <command>
   worker reopen ID                   历史已合并 Worker 恢复待验收（不调用 Agent）
   worker sync-parent ID              安全同步父提交；冲突只返回诊断
   worker resolve-sync ID             调用 Agent 解决已记录的同步冲突
+  worker clear-override ID           清除本 Worker 的独立运行覆盖，回到项目默认
   worker resolve ID                  无代码改动时标记已解决
   worker cancel|retry ID             停止或显式重试
   worker interrupt|resume ID         请求安全点暂停 / 非阻塞继续

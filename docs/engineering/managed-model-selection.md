@@ -20,8 +20,10 @@
 
 - 项目默认/角色配置保留现有 connection_id + model 字段。Web 从本地连接列表展示匹配模型供选择；可填写内置服务商未限定的模型。
 - 单 Worker 的暂停配置、继续与失败重试复用既有 profile 接口，补全显式连接选择和匹配模型。保存配置不调用 Agent；继续/重试才调用，必须沿用 agent-call 标识。不切换进行中的 invocation。
-- Pi 未绑定来源时明确失败并提示选择来源，不读取外部凭证、不隐式联网或回退外部 Pi。Codex CLI 仍保留自己的认证。独立 Pi 基础设置在 `<home>/pi/`，运行快照通过 `PI_CODING_AGENT_DIR` 注入，项目 `.pi` 不能重定向托管端点；显式资源与项目上下文保留。
-- `worker.configure {id,model_selection:{connection_id,model}}` 与 `profile` 互斥，仅切换 Pi 来源/模型，后台保留其他完整覆盖，无覆盖时基于有效角色默认建立覆盖。不扩大暂停/请求中断准入，不自动继续、不联网刷新。`worker.inspect.model_selection` 为 `{agent,connection_id,model,thinking,explicit}` 无秘密下次选择摘要，不能当作当前实际绑定。
+- Worker 的 task-local 覆盖跨交付、验收、无参数重试与合并轮次保留（`config_mode`、来源/模型与其它覆盖）；只有用户显式 `worker.clear_override {id}` 或重新保存完整覆盖才改变，不因交付自动切回项目默认或另一个模式。`worker.inspect.model_selection.explicit` 标明是否存在覆盖，Web 据此显示「清除运行覆盖」入口。该持续语义以[项目 Agent 配置与双模式运行](agent-configuration-v2.md)为准，优先于 #154 的一次调用范围。
+- Lush 模式（`config_mode` 缺省/lush）的 Pi 调用必须绑定托管来源；未绑定时在创建 Run 与启动进程之前被拦截：Worker 保持非终态并写 `invocation.blocked` 与 info 提醒，提示去「Agent 配置」选择来源或在本 Worker 切换为 Pi 默认配置；输入与工作区不丢，不读取外部凭证。`config_mode:'pi'` 不算缺来源，不拦截。
+- Pi 未绑定来源时明确失败并提示选择来源，不读取外部凭证、不隐式联网或回退外部 Pi；调度器在真正启动前拦截并保留输入，而不是先运行一轮再在后续迭代失败。需要执行机器 Pi 默认配置时由用户显式选择 `config_mode:'pi'`，不是自动回退。Codex CLI 仍保留自己的认证。独立 Pi 基础设置在 `<home>/pi/`，运行快照通过 `PI_CODING_AGENT_DIR` 注入，项目 `.pi` 不能重定向托管端点；显式资源与项目上下文保留。
+- `worker.configure {id,model_selection:{connection_id,model}}` 与 `profile` 互斥，仅切换 Pi 来源/模型，后台保留其他完整覆盖，无覆盖时基于有效角色默认建立覆盖。不扩大暂停/请求中断准入，不自动继续、不联网刷新。`worker.inspect.model_selection` 为 `{agent,config_mode,connection_id,model,thinking,explicit}` 无秘密下次选择摘要，不能当作当前实际绑定。
 - 明确设置的 Worker retry_profile 优先，不被自动策略覆盖；项目默认是策略的基线。策略返回空表示保留原配置，不能自动降级或换执行后端。
 
 ## Lush Pi 配置与诊断边界

@@ -9,6 +9,7 @@ import { agentNetworkEnvironment, mergeNetworkEnvironment, redactNetworkText } f
 import { forkCheckpoint } from './fork.js';
 import { createRuntimeConnection, readRuntimeObservations } from './connection-runtime.js';
 import { defaultPiEnvironment, isolatedPiEnvironment } from './pi-config.js';
+import { MISSING_PI_SOURCE_MESSAGE } from './settings.js';
 
 const BIN = fileURLToPath(new URL('../../bin', import.meta.url));
 const GUARD = path.join(BIN, 'lush-agent-guard');
@@ -121,12 +122,14 @@ async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, 
 
 export class PiProvider {
   constructor(config) { this.config = config; }
+  /** The scheduler uses this to refuse before spawning; custom test providers leave it unset. */
+  requiresPiSource = true;
   async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onPreempt = null, agent, forkPointer = null,
     connectionRuntime = null, onConnectionObservation = null }) {
     const config = this.config;
     const piMode = agent?.config_mode === 'pi';
     if (piMode && agent.agent !== 'pi') throw new Error('Pi default mode requires the Pi backend');
-    if (!piMode && !agent?.connection_id) throw new Error('Pi requires a Lush model source; select a source in Agent configuration before the next invocation');
+    if (!piMode && !agent?.connection_id) throw new Error(MISSING_PI_SOURCE_MESSAGE);
     const explaining = task.role === 'explainer';
     const isolated = explaining || task.role === 'butler';
     if (isolated && piMode) throw new Error('explainer/butler requires Lush configuration');
@@ -275,6 +278,8 @@ export class AgentProvider {
     this.config = config; this.settings = settings;
     this.backends = { pi: new PiProvider(config), codex: new CodexProvider(config) };
   }
+  /** Real managed Pi cannot run without a bound Lush source; the router inherits that requirement. */
+  requiresPiSource = true;
   resolve(task) { return this.settings.resolve(task.role); }
   run(options) {
     const agent = options.agent || this.resolve(options.task);

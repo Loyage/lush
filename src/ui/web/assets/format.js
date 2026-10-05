@@ -55,7 +55,7 @@ export const EVENTS = {
   'merge.run.started': '开始批量合并', 'merge.run.paused': '批量合并已暂停',
   'merge.run.cancelled': '批量合并已取消', 'merge.run.completed': '批量合并已完成', 'merge.run.failed': '批量合并失败',
   'task.interrupted': '接受中断请求', 'task.paused': '已安全暂停', 'task.resumed': '接受继续请求', 'task.configured': '调整运行设置',
-  'invocation.preempted': '安全中断', 'task.interrupt_timeout': '中断超时强制终止',
+  'invocation.preempted': '安全中断', 'invocation.blocked': '未启动：缺少模型来源', 'task.interrupt_timeout': '中断超时强制终止',
   'invocation.recovered': '已恢复调用记录', 'preempt.requested': '请求安全中断调用',
   'notice.read': '提醒已读', 'dep.added': '添加依赖关系', 'explanation.requested': '请求执行步骤介绍',
   'input.draft': '输入已关联暂存记录', 'input.anchor': '已固定输入代码基线', 'input.route': '输入已按前缀分派',

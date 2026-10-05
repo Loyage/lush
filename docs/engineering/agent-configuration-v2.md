@@ -6,7 +6,7 @@
 
 1. 模型来源：一个账号/Key 一个稳定 connection ID；同服务商多个账号独立凭证、模型可见范围和额度。沿用连接文件及额度历史，不迁移外部 Pi 凭证。
 2. 项目工作配置：Agent 默认 profile、扩展/Skills 安装库和显式启用路径。安装不等于启用，更新显式执行，第三方代码不是沙箱。
-3. Worker：完整 profile 覆盖优先于项目默认，创建时可编辑；子 Worker 在 spawn 时继承父有效 profile（无明确覆盖时），之后独立保存。保存不启动调用，不改变当前 invocation。新式 order/child（含历史 say 读取兼容）的运行覆盖跨失败、无参数重试、结算、合并与验收保留；仅用户显式清除/更换覆盖才改变，不能因交付自动切回另一个模式。旧 Task 协议的 attempt-scoped retry 行为不变。
+3. Worker：完整 profile 覆盖优先于项目默认，创建时可编辑；子 Worker 在 spawn 时继承父有效 profile（无明确覆盖时），之后独立保存。保存不启动调用，不改变当前 invocation。新式 order/child（含历史 say 读取兼容）的运行覆盖跨失败、无参数重试、结算、合并与验收保留；仅用户显式 `worker.clear_override {id}`（Web「清除运行覆盖」/CLI `worker clear-override ID`）或重新保存完整覆盖才改变，不能因交付自动切回另一个模式。旧 Task 协议的 attempt-scoped retry 行为不变。
 
 ## Profile 模式
 

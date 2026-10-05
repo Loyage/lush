@@ -3,7 +3,7 @@ import { workerKind } from './worker-kind.js';
 import { action } from './api.js';
 import { confirmDialog, formDialog } from './dialog.js';
 import { configureTask } from './retry-dialog.js';
-import { modelSourceControl, modelSourceSummary } from './worker-model-source.js';
+import { clearOverrideControl, modelSourceControl, modelSourceSummary } from './worker-model-source.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, runWorkMs, statusOf, interruptReason, taskTitle, worktreeLabel, isHistoricalDelivery } from './format.js';
 import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
@@ -229,6 +229,8 @@ export function renderDetail(task, history, diff, usage) {
   }
   const sourceControl = modelSourceControl(task, () => detail(task.id));
   if (sourceControl) actions.append(sourceControl);
+  const clearOverride = clearOverrideControl(task, () => detail(task.id));
+  if (clearOverride) actions.append(clearOverride);
   const deletion = workerDeleteControl(task);
   if (deletion) actions.append(deletion);
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));

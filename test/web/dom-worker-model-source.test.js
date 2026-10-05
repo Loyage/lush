@@ -19,7 +19,8 @@ const dom = installDom({ fetch: async (url, options = {}) => {
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
 const restore = registerNavigation({ refresh: async () => {} });
-const { configureModelSource, canConfigureModelSource, modelSourceControl, modelSourceSummary } = await import('../../src/ui/web/assets/worker-model-source.js');
+const { configureModelSource, canConfigureModelSource, modelSourceControl, modelSourceSummary,
+  clearOverrideControl, canClearOverride } = await import('../../src/ui/web/assets/worker-model-source.js');
 const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
 afterAll(() => { restore(); dom.restore(); });
 const task = (extra = {}) => ({ id: 51, task_kind: 'order', status: 'paused', role: 'agent', model_selection: {
@@ -103,6 +104,26 @@ test('详情提供独立来源入口和后续配置摘要，完整运行设置�
   expect(deepText(panel)).toContain('下一次配置：pi');
   renderDetail({ ...worker, status: 'running' }, [], null, null);
   expect(findByText(panel, '切换模型来源')).toBeNull();
+});
+
+test('已合并 Worker 可显式清除运行覆盖，入口不调用 Agent 且对活跃/终态隐藏', async () => {
+  actions.length = 0;
+  const explicit = () => ({ agent: 'pi', connection_id: first, model: 'openai-compatible/model-0', thinking: 'medium', explicit: true });
+  const worker = task({ status: 'awaiting_acceptance', model_selection: explicit() });
+  const control = clearOverrideControl(worker);
+  expect(control).not.toBeNull();
+  expect(control.classList.contains('agent-call')).toBe(false);
+  expect(control.getAttribute('data-help')).toContain('回到项目/角色默认');
+  const pending = control.onclick();
+  await until(() => dialogButton(dom, '清除覆盖'));
+  expect(deepText(dom.node('modal'))).toContain('只有你显式清除或重新保存覆盖才会改变它');
+  await dialogButton(dom, '清除覆盖').onclick();
+  await pending;
+  expect(actions).toEqual([{ method: 'worker.clear_override', params: { id: 51 } }]);
+  expect(canClearOverride(task({ status: 'awaiting_acceptance' }))).toBe(false);
+  expect(clearOverrideControl(task({ status: 'awaiting_acceptance' }))).toBeNull();
+  expect(canClearOverride(task({ status: 'running', model_selection: explicit(), agent: { active: true } }))).toBe(false);
+  expect(canClearOverride(task({ status: 'completed', model_selection: explicit() }))).toBe(false);
 });
 
 test('运行时来源字段优先于历史，显式null不从旧事件猜测绑定', () => {

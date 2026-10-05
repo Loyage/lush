@@ -78,6 +78,23 @@ test('multi-round Squash retains parent advances, Task identity, conversation an
   } finally { await f.close(); }
 });
 
+test('delivery landing keeps the explicit task-local profile for the next iteration', async () => {
+  const f = setup({ resolve() { return { agent: 'mock' }; }, async run() { return 'kept'; } });
+  await repo(f.root);
+  try {
+    const source = await sourceTask(f);
+    const profile = { agent: 'pi', model: 'deepseek/chat', thinking: '', default_prompt: '', append_prompt: '',
+      extensions: [], skills: [], connection_id: '9eebd857-0711-45e8-a1c1-98d6ec24ce02' };
+    f.store.update(source.id, { retry_profile: JSON.stringify(profile) });
+    const landed = await deliver(f, source);
+    expect(landed.status).toBe('awaiting_acceptance');
+    expect(JSON.parse(f.store.task(source.id).retry_profile)).toEqual(profile);
+    // New Worker run settings persist across delivery and acceptance; only an explicit clear changes them.
+    await f.project.acceptTask(source.id);
+    expect(JSON.parse(f.store.task(source.id).retry_profile)).toEqual(profile);
+  } finally { await f.close(); }
+});
+
 test('a no-op follow-up consumes the old booking without losing Squash cleanup evidence', async () => {
   const f = setup({ resolve() { return { agent: 'mock' }; }, async run() { return 'nothing else needed'; } });
   await repo(f.root);

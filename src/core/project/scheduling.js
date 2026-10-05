@@ -6,6 +6,7 @@ import { assertTaskAncestorsOpen, assertTaskNotSyncing, resumeTaskDelivery, task
 import { tokenHash, workerRunProfile, workerModelSelection, profileEvent } from './internal.js';
 import { AgentPreempted } from '../../agent/provider.js';
 import { validateRuntimeConnection } from '../../agent/connection-runtime.js';
+import { MISSING_PI_SOURCE_MESSAGE } from '../../agent/settings.js';
 
 /** A claimed boundary cannot be cancelled, even while the process is still exiting. */
 function claimedStop(project, taskId, run) {
@@ -282,6 +283,32 @@ export default {
     });
   },
 
+  /**
+   * 用户专属：移除本 Worker 的 task-local 运行覆盖（模型来源、Prompt、扩展、预算等），
+   * 让下一次调用回到当前的项目/角色默认。只影响后续调用，不启动 Agent，不触碰当前调用。
+   * 交付落地不再清空覆盖，因此这是把某个已合并 Worker 退回项目默认的唯一显式入口。
+   */
+  clearTaskProfile(taskId) {
+    this.assertWritable('clear a worker profile override');
+    const task = this.store.task(taskId);
+    assertTaskNotSyncing(this, task.id);
+    check(['order','child'].includes(task.task_kind), 'only order/child Workers keep a task-local profile');
+    check(!TERMINAL.has(task.status), 'worker has ended; retry or reopen it before clearing its override');
+    check(!this.running.has(task.id), 'Agent is invoking; wait for the safe point before clearing the override');
+    const booking = task.reservation ? JSON.parse(task.reservation) : null;
+    check(!(booking?.version === 2 && ['requested','executing','resolving','blocked','suspended'].includes(booking.status)),
+      'delivery is in flight; wait for it to settle before clearing the override');
+    if (task.branch) this.assertBranchWritable(task.branch, 'clear this worker override on it');
+    return this.store.transaction(() => {
+      if (task.retry_profile) {
+        this.store.update(task.id, { retry_profile: null });
+        this.store.event(task.id, 'task.configured', { profile_override: false });
+      }
+      const current = this.store.task(task.id);
+      return { id: task.id, model_selection: workerModelSelection(this, current) };
+    });
+  },
+
   /** 继续立即接受：未认领则撤销请求；已认领则排队，内部等待旧 invocation 真实退出。 */
   resumeTask(taskId, profile = null) {
     this.assertWritable('resume a worker');
@@ -364,6 +391,18 @@ export default {
         // A pause/resume accepted while the hook was pending must not launch the old resolved profile.
         if (live.status === 'paused' || live.interrupt_state || run.resumeRequested) return;
         check(live.status === 'queued' && !TERMINAL.has(live.status), 'worker is no longer eligible to start');
+      }
+      // Lush-mode Pi invocations must bind a managed source before we create a Run or a provider
+      // process. Pi-default mode (`config_mode: 'pi'`) intentionally has no managed source and is skipped.
+      // Refuse before starting, keep the unread input for the next attempt, and point at the configuration page.
+      if (this.provider.requiresPiSource && agent.agent === 'pi' && agent.config_mode !== 'pi' && !agent.connection_id) {
+        this.store.transaction(() => {
+          this.store.event(taskId, 'invocation.blocked', { reason: 'missing_model_source', agent: 'pi', model: agent.model || null });
+          if (!TERMINAL.has(this.store.task(taskId).status)) this.store.update(taskId, { status: 'paused' });
+        });
+        this.notify(taskId, 'Worker 未启动：缺少 Lush 模型来源',
+          `${MISSING_PI_SOURCE_MESSAGE}。请在「Agent 配置」为项目默认选择来源，或在本 Worker 的运行设置里选择来源 / 切换为 Pi 默认配置后继续。`);
+        return;
       }
       run.agent = agent;
       // Run identity and admission counters are one durable boundary; a crash cannot leave

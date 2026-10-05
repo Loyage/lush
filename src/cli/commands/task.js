@@ -113,7 +113,7 @@ export async function run(command, args, ctx) {
       while (!TERMINAL.has(value.status));
       if (value.status !== 'completed') process.exitCode = 1;
     } else {
-      check(['inspect','cancel','retry','interrupt','resume','integrate','reserve','reserve-all','auto-merge','resolve','accept','reopen','sync-parent','resolve-sync','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup','delete'].includes(verb), 'unknown worker command');
+      check(['inspect','cancel','retry','interrupt','resume','integrate','reserve','reserve-all','auto-merge','resolve','accept','reopen','sync-parent','resolve-sync','clear-override','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup','delete'].includes(verb), 'unknown worker command');
       if (verb === 'integrate') {
         exact(args, 2);
         value = await client.request('worker.integrate', { id: id(args[0]), commit: args[1] });
@@ -133,7 +133,7 @@ export async function run(command, args, ctx) {
       } else if (verb === 'resolve-divergence') {
         exact(args, 1);
         value = await client.request('worker.resolve_divergence', { id: id(args[0]) });
-      } else if (verb === 'sync-parent' || verb === 'resolve-sync') {
+      } else if (verb === 'sync-parent' || verb === 'resolve-sync' || verb === 'clear-override') {
         exact(args, 1);
         value = await client.request(`worker.${verb.replaceAll('-', '_')}`, { id: id(args[0]) });
       } else if (verb === 'unreserve') {

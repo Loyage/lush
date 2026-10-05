@@ -20,6 +20,9 @@ const ROLE_LABELS = {
   agent: '直接 Worker', planner: '规划 Worker', coordinator: '协调 Worker', worker: '开发 Worker', research: '调研 Worker',
   verifier: '检验 Worker', merger: '分支分歧解决', explainer: '执行过程介绍（Pi 无工具）', butler: '托管模式管家（Pi 无工具）',
 };
+/** One wording for every boundary that refuses to start an unbounded Pi invocation. */
+export const MISSING_PI_SOURCE_MESSAGE = 'Pi requires a Lush model source; select a source in Agent configuration before the next invocation';
+
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_PROMPT_BYTES = 32 * 1024;
 const PROFILE_KEYS = new Set(['agent', 'config_mode', 'model', 'thinking', 'prompt', 'default_prompt', 'append_prompt', 'extensions', 'skills', 'soft_budget', 'env', 'connection_id']);

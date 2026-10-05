@@ -425,6 +425,9 @@ export default {
   finalizeTaskMerge(taskId, attemptId, landedCommit, parentHead = landedCommit) {
     this.store.transaction(() => {
       const { task, request, parent } = this.assertTaskMergeAttempt(taskId, attemptId, true);
+      // 落地进入非终态 awaiting_acceptance，同一 Worker 之后仍会继续开发；这里保留它的
+      // task-local 运行配置（含显式模型来源），否则追加输入会静默退回项目默认并在启动时失败。
+      // 只有终态结算（finish/accept）或用户显式「清除覆盖」才移除 retry_profile。
       this.store.update(task.id, { status: 'awaiting_acceptance', integration: 'merged', integration_error: null,
         iteration_base_commit: request.commit,
         reservation: JSON.stringify({ ...request, status: 'integrated', landed_commit: landedCommit,

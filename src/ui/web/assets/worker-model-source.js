@@ -1,6 +1,6 @@
 import { action } from './api.js';
 import { button, el } from './dom.js';
-import { formDialog } from './dialog.js';
+import { confirmDialog, formDialog } from './dialog.js';
 import { createAgentConnectionPicker } from './agent-connection-picker.js';
 import { TERMINAL_STATUS, isHistoricalDelivery } from './format.js';
 import { normalizeConfigMode } from './agent-config-mode.js';
@@ -18,6 +18,13 @@ export const nextConfigMode = task => normalizeConfigMode(task?.model_selection?
 export function canConfigureModelSource(task) {
   return !isHistoricalDelivery(task) && ['order', 'child'].includes(workerKind(task))
     && !TERMINAL_STATUS.has(task.status) && (task.status === 'paused' || task.interrupt_state === 'requested');
+}
+
+/** Task-local overrides survive delivery now; clearing one is an explicit, non-Agent action. */
+export function canClearOverride(task) {
+  return !isHistoricalDelivery(task) && ['order', 'child'].includes(workerKind(task))
+    && !TERMINAL_STATUS.has(task.status) && task.status !== 'running'
+    && task.model_selection?.explicit === true && !task.agent?.active;
 }
 
 /** Runtime binding is authoritative; old backends can fall back to a same-run connection event. */
@@ -46,6 +53,24 @@ export function modelSourceSummary(task, history = []) {
       ? `下一次配置：${next.agent} → ${next.connection_id || (next.agent === 'pi' ? '未选择来源（不会回退外部 Pi）' : 'Codex CLI 自身认证')} → ${next.model || '未指定模型'} · ${next.explicit ? 'Worker 独立覆盖' : '继承项目 / 角色配置'}`
       : '下一次配置：未知（后台未提供安全模型选择摘要）', 'hint'));
   return node;
+}
+
+export function clearOverrideControl(task, onCleared = () => {}) {
+  if (!canClearOverride(task)) return null;
+  const help = '移除本 Worker 的独立运行覆盖（配置模式、模型来源、模型、Prompt、扩展、Skills、软预算与环境变量），下一次调用回到项目/角色默认；不启动 Agent，不改变当前调用。项目默认若是 Lush 模式且未绑定来源，会在启动前被拦截并提示配置。';
+  return button('清除运行覆盖', async () => {
+    const confirmed = await confirmDialog({
+      title: `清除 Worker #${task.id} 的运行覆盖？`,
+      message: '本 Worker 的独立运行覆盖将被移除，下一次调用改用项目/角色默认。此操作不启动 Agent，也不改变当前调用；只有你显式清除或重新保存覆盖才会改变它。',
+      confirmLabel: '清除覆盖', cancelLabel: '保留', danger: true,
+    });
+    if (!confirmed) return;
+    try {
+      await action('worker.clear_override', { id: task.id });
+      show('已清除本 Worker 的运行覆盖；下一次调用使用项目 / 角色默认。');
+      await onCleared();
+    } catch (error) { show(`无法清除覆盖：${error.message}`, 'error'); }
+  }, 'ghost', { help });
 }
 
 export function modelSourceControl(task, onSaved = () => {}) {

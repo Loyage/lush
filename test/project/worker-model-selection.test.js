@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { fixture } from '../helpers.js';
+import { fixture, repo, until } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { PARAMS, USER_ONLY, assertAllowed } from '../../src/rpc/registry.js';
 import { agentView } from '../../src/core/project/internal.js';
@@ -211,6 +211,50 @@ test('corrupt private profile reports fixed safe error, never its prompt/env con
     expect(() => f.project.inspect(f.task.id)).toThrow('worker run configuration unavailable');
     expect(() => f.project.configureTaskModelSelection(f.task.id, selection)).toThrow('worker run configuration unavailable');
     expect(count(f)).toBe(0);
+  } finally { await f.close(); }
+});
+
+test('clear override removes the task-local profile only, and only for idle order/child workers', async () => {
+  const f = setup();
+  try {
+    f.project.configureTask(f.task.id, rich());
+    const before = count(f);
+    const cleared = f.project.clearTaskProfile(f.task.id);
+    expect(f.store.task(f.task.id).retry_profile).toBeNull();
+    expect(count(f)).toBe(before + 1);
+    expect(cleared).toEqual({ id: f.task.id, model_selection: expect.objectContaining({ explicit: false, connection_id: null }) });
+    noSecrets(cleared);
+    // Idempotent: nothing to clear means no new audit event.
+    const after = count(f);
+    f.project.clearTaskProfile(f.task.id);
+    expect(count(f)).toBe(after);
+    f.project.running.set(f.task.id, {});
+    expect(() => f.project.clearTaskProfile(f.task.id)).toThrow('invoking');
+    f.project.running.clear();
+    f.store.update(f.task.id, { status: 'completed' });
+    expect(() => f.project.clearTaskProfile(f.task.id)).toThrow('ended');
+    const analysis = f.store.create({ parent_id: null, role: 'agent', task_kind: 'analysis', goal: 'read-only' });
+    f.store.update(analysis.id, { status: 'paused' });
+    expect(() => f.project.clearTaskProfile(analysis.id)).toThrow('only order/child');
+  } finally { f.project.running.clear(); await f.close(); }
+});
+
+test('a source-less Pi invocation is blocked before a Run or provider process starts', async () => {
+  const calls = [];
+  const provider = { requiresPiSource: true, resolve() { return { agent: 'pi', model: 'openai-codex/old' }; },
+    async run() { calls.push('run'); throw new Error('MUST_NOT_RUN'); } };
+  const f = fixture(provider);
+  try {
+    await repo(f.root);
+    const { task } = await f.project.order('pi without a source');
+    await until(() => f.store.task(task.id).status === 'paused' && !f.project.running.has(task.id));
+    expect(calls).toEqual([]);
+    const blocked = f.store.history(task.id).filter(event => event.type === 'invocation.blocked');
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0].data.reason).toBe('missing_model_source');
+    expect(f.store.all('SELECT id FROM agent_runs WHERE task_id=?', task.id)).toEqual([]);
+    expect(f.store.all("SELECT title,kind FROM notices WHERE task_id=?", task.id)
+      .some(row => row.kind === 'info' && row.title.includes('缺少 Lush 模型来源'))).toBe(true);
   } finally { await f.close(); }
 });
 

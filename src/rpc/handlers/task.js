@@ -99,6 +99,7 @@ export const handlers = {
       : p.configureTask(id(params.id), params.profile ?? null);
   },
   'worker.retry'(p, params, actor) { return p.retry(params.id, params.profile ?? null); },
+  'worker.clear_override'(p, params) { return p.clearTaskProfile(params.id); },
   'worker.merge'(p, params, actor) { return p.approveMerge(id(params.id)); },
   'worker.merge_many'(p, params, actor) { return p.approveMergeMany(params.ids); },
   'worker.verify'(p, params, actor) { return p.verify(id(params.id)); },

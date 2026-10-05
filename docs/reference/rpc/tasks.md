@@ -1,6 +1,6 @@
 # Worker、Run 与 Artifact
 
-本节管 Worker 的创建、沟通与交付：`worker.spawn` / `worker.message` / `worker.integrate` / `worker.auto_merge` / `worker.reserve` / `worker.resolve*` / `worker.cancel` / `worker.retry` / `worker.interrupt` / `worker.resume` / `worker.configure` / `worker.cleanup`，以及只读的 `worker.list` / `worker.tree` / `worker.graph` / `worker.activity` / `worker.page`。当前公开白名单以[核心 API 收敛](../../engineering/core-api.md)与 `src/rpc/registry.js` 为准；Worker 图与固定输入规则见[工程说明](../../engineering/task-graph.md)。
+本节管 Worker 的创建、沟通与交付：`worker.spawn` / `worker.message` / `worker.integrate` / `worker.auto_merge` / `worker.reserve` / `worker.resolve*` / `worker.cancel` / `worker.retry` / `worker.interrupt` / `worker.resume` / `worker.configure` / `worker.clear_override` / `worker.cleanup`，以及只读的 `worker.list` / `worker.tree` / `worker.graph` / `worker.activity` / `worker.page`。当前公开白名单以[核心 API 收敛](../../engineering/core-api.md)与 `src/rpc/registry.js` 为准；Worker 图与固定输入规则见[工程说明](../../engineering/task-graph.md)。
 
 `worker.graph {}` 是用户与 Agent 均可读的 Worker 父子读面，Web GET `/api/worker-graph` 对应：`{nodes,edges,truncated,total}`。最多 200 条节点，优先保留分支所有者与活动Worker；节点含 `goal_preview`（最多 600 字）、`result_preview`（最多 320 字）、`waiting_reason`、`progress`（有界完成数和当前步骤；当前步骤可能是 runtime 生成的等待条目，等待不计入 Agent 工作用时也不占完成度）、`notice`（最新一条 open 待决，正文最多 1000 字）、`notice_count`、`children_total/active`、`reservation`、`has_result`、`branch` / `workspace`、`branch_info`（实时 ref、与 `graph.get` 同源的 Git 诊断，以及合并运行投影：`subtree_order` 是这条分支下属还有多少条指令子分支、`merge_run` 是这条分支上仍在跑的合并运行 `{mode,status,done,total,task_id}`，没有则 null）、`freeze`（写冻结原因）与 `resolves_task_id`（被修复的源 Worker；父子边仍只表示负责集成的归属），以及 `has_rule`（仅表示存在固定输入规则），边是 `{from:parentId,to:childId}`。完整分支谱系仍由 `graph.get` 提供；`worker.graph` 不依赖它，全程只读，不写运行态或事件。
 
@@ -40,6 +40,7 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | `worker resolve-child-divergence CHILD_ID` | `worker.resolve_child_divergence` | `{id}`；agent-only |
 | `worker cancel ID` | `worker.cancel` | `{id}` |
 | `worker retry ID` | `worker.retry` | `{id}` |
+| `worker clear-override ID` | `worker.clear_override` | `{id}`；用户专属；清除本 Worker 的 task-local 运行覆盖（配置模式、来源、模型、Prompt、扩展、预算、环境变量），下一次调用回到项目/角色默认；不启动 Agent |
 | `worker interrupt ID` | `worker.interrupt` | `{id}`；用户专属，请求安全点暂停（静息时直接 `paused`） |
 | `worker resume ID` | `worker.resume` | `{id, profile?}`；用户专属，撤销尚未触发的暂停，或立即接受排队继续 |
 | —（Web 调整设置 / 切换模型来源） | `worker.configure` | `{id, profile}` 或 `{id, model_selection:{connection_id,model}}`，两者互斥；用户专属，`paused` 或暂停请求期间保存下一次配置，窄更新保留其他覆盖 |
@@ -117,8 +118,8 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 
 Artifact 窗口为了有界响应只投影 `payload`：完整 payload 正常解析；超过 8192 字节的只给原始文本前缀（`payload_truncated:true` 与 `payload_bytes` 记录完整大小），不校验、不冒充完整结论。需要完整 payload 时用只读 `worker.artifact {id}`（既有写入上限 512000 字节不变）。窗口投影不是数据迁移：旧行、旧 payload 与已保存的验收证据都不重写，verifier / Candidate 的完整读取路径仍走原有接口。
 
-`worker.cancel` 取消整棵子树（不可恢复的终态）；`worker.retry` 是用户显式重试。`worker.interrupt` 表达希望暂停的信号，只针对当前 Worker，不级联子Worker，保留工作区 / 提交 / Pi 会话 / 消息 / `calls`。运行中读面为 `interrupt_state='requested'`，实际状态仍是 `running`，当前 Agent 的工具与 RPC 可安全收尾；静息时直接进入非终态 `paused`。Pi 在本轮工具全部结束的 `turn_end` 原子认领并停止后续模型轮次；没有可验证安全点的后端等本次调用自然结束。不再因中断等待超时强杀，但调用总超时与显式放弃仍有效。
+`worker.cancel` 取消整棵子树（不可恢复的终态）；`worker.retry` 是用户显式重试。Worker 的 task-local 运行覆盖（`config_mode`、来源/模型/Prompt/扩展等）跨交付、验收、无参数重试与合并保留，只有用户显式 `worker.clear_override` 或重新保存完整覆盖才改变；持续语义见[项目 Agent 配置与双模式运行](../../engineering/agent-configuration-v2.md)。`worker.interrupt` 表达希望暂停的信号，只针对当前 Worker，不级联子Worker，保留工作区 / 提交 / Pi 会话 / 消息 / `calls`。运行中读面为 `interrupt_state='requested'`，实际状态仍是 `running`，当前 Agent 的工具与 RPC 可安全收尾；静息时直接进入非终态 `paused`。Pi 在本轮工具全部结束的 `turn_end` 原子认领并停止后续模型轮次；没有可验证安全点的后端等本次调用自然结束。不再因中断等待超时强杀，但调用总超时与显式放弃仍有效。
 
-`worker.resume` 不要求旧调用已退出：未认领时撤销暂停，继续原调用；已认领或正在收尾时立即接受，读面为 `queued` / `interrupt_state='resuming'`，内部等旧 invocation 真正退出后重新准入，不会重叠调用。重复中断 / 继续幂等；继续不撤销独立的用户消息抢占。真实暂停或恢复准入后 `interrupt_state` 清为 null。暂停意愿期间也可追加说明或 `worker.configure` 保存下一次调用的设置；不会暗中改变当前调用。来源/模型窄更新仅限 Pi 托管连接，后台保留完整已有覆盖；`worker.inspect.model_selection` 为无秘密的下次选择摘要，不代表当前实际绑定。字段和隔离规则见[Agent 配置与模型来源](agents.md)。重启仍不自动重放未知副作用的调用。已发出的冻结合并请求仍拒绝暂停。
+`worker.resume` 不要求旧调用已退出：未认领时撤销暂停，继续原调用；已认领或正在收尾时立即接受，读面为 `queued` / `interrupt_state='resuming'`，内部等旧 invocation 真正退出后重新准入，不会重叠调用。重复中断 / 继续幂等；继续不撤销独立的用户消息抢占。真实暂停或恢复准入后 `interrupt_state` 清为 null。暂停意愿期间也可追加说明或 `worker.configure` 保存下一次调用的设置；不会暗中改变当前调用。来源/模型窄更新仅限 Pi 托管连接，后台保留完整已有覆盖；`worker.inspect.model_selection` 为无秘密的下次选择摘要，不代表当前实际绑定。`worker.inspect.model_selection.explicit` 为 `true` 时，Web 提供「清除运行覆盖」入口回到项目/角色默认；运行中的调用被拒绝，必须等安全点。项目默认未绑定 Lush 来源时，Pi 调用在创建 Run/启动进程之前被拦截：Worker 回到 `paused`、写 `invocation.blocked` 与一条 info 提醒，输入保留，提示去「Agent 配置」选择来源。字段和隔离规则见[Agent 配置与模型来源](agents.md)。重启仍不自动重放未知副作用的调用。已发出的冻结合并请求仍拒绝暂停。
 
 相关：[审阅与过程读模型](inspect.md) · [分支合并](../../engineering/merge.md) · [维护与回收](maintenance.md) · [Worker 中心输入](../../engineering/task-centered-input-design.md)
