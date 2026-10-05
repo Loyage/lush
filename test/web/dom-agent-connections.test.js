@@ -383,6 +383,31 @@ test('设备码开始拒绝非官方链接、过期或无效间隔并安全取�
   expect(deviceRequests('cancel')).toHaveLength(6); expect(p.node.querySelectorAll('img')).toHaveLength(0);
 });
 
+test('设备码失败展示固定分类和恢复建议，不透传错误或秘密', async () => {
+  const clock = deviceClock(), p = await panel(clock), codex = data.connections[2];
+  for (const [message, expected] of [
+    ['Codex device login failed (timeout)', '超过 8 秒'],
+    ['Codex device login failed (network)', '后台机器的网络或代理'],
+    ['Codex device login failed (unsupported)', '未开放设备码接口'],
+    ['Codex device login failed (unauthorized)', 'OpenAI 拒绝'],
+    ['Codex device login failed (invalid_response)', '响应格式'],
+    ['Codex device login failed (unknown)', '私有文件权限'],
+    ['unknown method: agent.connections.device.start', '分别重启两者'],
+    ['method not allowed from Web UI', '分别重启两者'],
+    ['Failed to fetch', '浏览器无法连接'],
+    ['RAW-PRIVATE-DEVICE-TOKEN', '未取得可识别'],
+    ['Codex device login failed (timeout) RAW-PRIVATE-DEVICE-TOKEN', '未取得可识别'],
+  ]) {
+    intercept = (url, opts) => url === '/api/action' && JSON.parse(opts.body).method === 'agent.connections.device.start' ? fail(message) : undefined;
+    await btn(card(p, codex.id), '登录 / 重新登录').onclick();
+    expect(deepText(p.node)).toContain(expected); expect(deepText(p.node)).not.toContain('RAW-PRIVATE-DEVICE-TOKEN');
+    expect(field(p.node, 'user_code')).toBeNull(); expect(clock.timers.size).toBe(0);
+  }
+  intercept = (url, opts) => url === '/api/action' && JSON.parse(opts.body).method === 'agent.connections.device.start'
+    ? json(clock.login({ expires_at: new Date(clock.now() - 1).toISOString() })) : undefined;
+  await btn(card(p, codex.id), '登录 / 重新登录').onclick(); expect(deepText(p.node)).toContain('系统时间');
+});
+
 test('设备码poll拒绝会话错配或过小间隔，不展示原始错误', async () => {
   const clock = deviceClock(), p = await panel(clock), codex = data.connections[2];
   for (const values of [{ login_id: 'wrong' }, { interval_seconds: 0 }]) {

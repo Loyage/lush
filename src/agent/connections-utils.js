@@ -87,6 +87,9 @@ export async function requestJson(url, init = {}, options = {}) {
       let response; try { response = await fetcher(url, { ...init, signal: controller.signal, redirect: 'error' }); }
       catch { if (parent?.aborted) fail('stopped'); fail('network'); }
       if (response.redirected || response.status >= 300 && response.status < 400) fail('network');
+      // Device-start 404 means the provider has not enabled this login flow.
+      // Do not read its potentially sensitive error body.
+      if (options.deviceAuthStart === true && response.status === 404) fail('unsupported');
       // Only the fixed Codex device-poll adapter opts in. Error bodies stay private
       // and bounded; ordinary balance/login requests never read error bodies.
       const devicePoll = options.deviceAuthPoll === true;

@@ -36,6 +36,14 @@ test('device start exposes only short code, official URI and bounded timing; it 
   noSecrets(login); expect(fs.readFileSync(path.join(f.root, 'auth.json'), 'utf8')).toBe('external-secret');
 });
 
+test('a disabled device-start endpoint is classified without reading or returning its error body', async () => {
+  const f = fixture(async () => new Response('private-device-id private-code', { status: 404 }));
+  const row = f.manager.save(config());
+  try { await f.manager.deviceStart(row.id); throw new Error('expected failure'); }
+  catch (error) { expect(error.connectionCode).toBe('unsupported'); noSecrets({ message: error.message }); }
+  expect(f.manager.devices.sessions.size).toBe(0); expect(f.requests).toHaveLength(1);
+});
+
 test('server interval limits early polls; pending statuses do not read 403/404 bodies or expose IDs', async () => {
   let status = 403; const f = fixture(async url => url === USER ? Response.json(device()) : new Response('private-device-id', { status }));
   const row = f.manager.save(config()), login = await f.manager.deviceStart(row.id);

@@ -112,6 +112,20 @@ test('device actions return only safe projections, require user approval and pre
   } finally {await f.close();}
 });
 
+test('device failures retain only fixed diagnostic categories across HTTP/RPC, never upstream messages', async () => {
+  const f = await setup(), manager = new ManagerStub([connection({ provider: 'openai-codex', auth_type: 'oauth', endpoint: 'https://chatgpt.com/backend-api' })]);
+  install(f, { manager });
+  try {
+    for (const code of ['network','timeout','unsupported','unauthorized','rate_limited','invalid_response','auth_changed','login_expired','SECRET-CODE']) {
+      manager.deviceStart = () => { const error = new Error('ABCD-EFGH SECRET-DEVICE SECRET-TOKEN'); error.connectionCode = code; throw error; };
+      const response = await action(f.url, 'agent.connections.device.start', { id: 'conn-one' });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: `Codex device login failed (${code === 'SECRET-CODE' ? 'unknown' : code})` });
+    }
+    expect(f.store.get('SELECT COUNT(*) AS n FROM events').n).toBe(0);
+  } finally { await f.close(); }
+});
+
 test('all connection reads and writes require the existing Web login session',async()=>{
   const f=await setup({auth:{username:'owner',password:'test-only-password'}});install(f);
   try {

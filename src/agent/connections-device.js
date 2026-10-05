@@ -40,7 +40,7 @@ export class ConnectionDeviceLogins {
         status: 'starting', controller: new AbortController() };
       this.sessions.set(loginId, session);
       try {
-        const data = await this.request(session, USER_CODE_URL, jsonPost({ client_id: CODEX_CLIENT_ID }));
+        const data = await this.request(session, USER_CODE_URL, jsonPost({ client_id: CODEX_CLIENT_ID }), { deviceAuthStart: true });
         this.current(loginId, session);
         const interval = typeof data?.interval === 'string' && data.interval.trim() ? Number(data.interval) : data?.interval;
         if (!object(data) || !secret(data.device_auth_id) || typeof data.user_code !== 'string'

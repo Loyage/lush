@@ -10,7 +10,7 @@
 - `agent.connections.device.poll {id,login_id}` → `{id,login_id,status:'pending',interval_seconds,expires_at}` 或 `{id,login_id,status:'complete',connection}`（connection 为现有公开连接，不含 token）。
 - `agent.connections.device.cancel {id,login_id}` → `{id,login_id,status:'cancelled'}`；当前会话取消幂等，不能取消别的连接会话。
 
-Manager 方法 `deviceStart(id)`、`devicePoll(id,login_id)`、`deviceCancel(id,login_id)`；Service 同名；Project 方法 `startConnectionDeviceLogin`、`pollConnectionDeviceLogin`、`cancelConnectionDeviceLogin`。所有写回通过现有项目写入准入，poll 为显式 action，不增加 GET 或后台 daemon 采样。失败只返回固定安全错误，不把上游响应、设备授权秘密、token 或设备码放入错误、审计事件与历史。
+Manager 方法 `deviceStart(id)`、`devicePoll(id,login_id)`、`deviceCancel(id,login_id)`；Service 同名；Project 方法 `startConnectionDeviceLogin`、`pollConnectionDeviceLogin`、`cancelConnectionDeviceLogin`。所有写回通过现有项目写入准入，poll 为显式 action，不增加 GET 或后台 daemon 采样。失败只返回固定安全错误，不把上游响应、设备授权秘密、token 或设备码放入错误、审计事件与历史。设备码 action 的错误消息为 `Codex device login failed (<category>)`，category 仅取 network/timeout/unsupported/unauthorized/rate_limited/invalid_response/auth_changed/auth_locked/login_expired/stopped/unsupported_platform/unknown；不透传 Provider 的错误原文或任意分类。Web 只将精确匹配的固定分类映射为本地提示，未识别错误保持通用提示；浏览器判断到期时提示核对双方系统时间。设备码 start 的 HTTP 404 分类为 unsupported，poll 的 403/404 仍按协议视作等待。
 
 ## 协议与生命周期
 

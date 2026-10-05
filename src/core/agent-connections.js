@@ -9,6 +9,10 @@ const PROVIDERS = new Set(['deepseek','openrouter','zai','kimi-coding','openai-c
 const safeText = (value, max = 256) => typeof value === 'string'
   ? value.replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, '').slice(0, max) : null;
 const failure = () => new LushError('连接操作失败，请检查连接配置、权限或重新登录。');
+// Only trusted categories cross RPC. Never preserve provider messages or responses.
+const DEVICE_FAILURE_CODES = new Set(['network','timeout','unsupported','unauthorized','rate_limited',
+  'invalid_response','auth_changed','auth_locked','login_expired','stopped','unsupported_platform']);
+const deviceFailure = error => new LushError(`Codex device login failed (${DEVICE_FAILURE_CODES.has(error?.connectionCode) ? error.connectionCode : 'unknown'})`);
 const identityKey = (id, account, source) => hash([id,account,source]);
 const fingerprint = connection => hash([connection.id,connection.label,connection.provider,connection.endpoint,
   connection.auth_type,connection.enabled,connection.models,connection.credential.identity]);
@@ -135,10 +139,10 @@ export class AgentConnectionsService {
     promise.then(() => this.pending.delete(promise), () => this.pending.delete(promise));
     return promise;
   }
-  operation(action, fn) {
+  operation(action, fn, projectError = failure) {
     this.assertOpen();
     return this.track(this.project.write(action, async () => {
-      try { return await fn(); } catch { throw failure(); }
+      try { return await fn(); } catch (error) { throw projectError(error); }
     }));
   }
   save(connection, credential = null) {
@@ -275,7 +279,7 @@ export class AgentConnectionsService {
       const pending = this.devicePending(id, result.login_id, result);
       return { id, login_id: result.login_id, verification_uri: result.verification_uri, user_code: result.user_code,
         expires_at: pending.expires_at, interval_seconds: pending.interval_seconds };
-    });
+    }, deviceFailure);
   }
   devicePending(id, login_id, result) {
     const expires = typeof result.expires_at === 'string' ? Date.parse(result.expires_at) : NaN;
@@ -296,14 +300,14 @@ export class AgentConnectionsService {
       // must not repeatedly rotate the persisted cache namespace.
       this.snapshot(id);
       return { id, login_id, status: 'complete', connection };
-    });
+    }, deviceFailure);
   }
   deviceCancel(id, login_id) {
     check(validConnectionId(id) && validConnectionId(login_id), 'invalid device login');
     return this.operation('cancel connection device login', async () => {
       await this.getManager().deviceCancel(id, login_id);
       return { id, login_id, status: 'cancelled' };
-    });
+    }, deviceFailure);
   }
   loginStart(id) {
     check(validConnectionId(id), 'invalid connection id');

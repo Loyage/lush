@@ -15,6 +15,31 @@ const finite = value => typeof value === 'number' && Number.isFinite(value);
 const amount = value => finite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 8 }) : '未知';
 const time = value => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : '时间未知';
 const successful = value => ['available', 'partial'].includes(value?.status);
+const DEVICE_FAILURE_REASONS = {
+  network: '项目后台无法连接 OpenAI，请检查后台机器的网络或代理。',
+  timeout: 'OpenAI 请求超过 8 秒未完成，请稍后重试或检查后台网络。',
+  unsupported: 'OpenAI 未开放设备码接口，请显式使用备用回调登录。',
+  unauthorized: 'OpenAI 拒绝了设备码请求，请检查账号是否允许 Codex 设备码登录，或使用备用方式。',
+  rate_limited: 'OpenAI 限制了请求频率，请稍后重试。',
+  invalid_response: '设备码响应格式不兼容或超过安全限制，请使用备用登录并报告此分类。',
+  auth_changed: '连接配置或登录会话已更换，请重新发起登录。',
+  auth_locked: '凭证正在被更新，请稍后重试。',
+  login_expired: '本次登录已过期或被取消，请重新发起。',
+  stopped: '项目后台已停止或本次请求被取消。',
+  unsupported_platform: '后台平台无法安全托管凭证。',
+  unknown: '后台未能确认失败类型；请检查连接配置和私有文件权限。',
+};
+function deviceFailureReason(error) {
+  const match = /^Codex device login failed \(([a-z_]+)\)$/.exec(error?.message || '');
+  if (match && Object.hasOwn(DEVICE_FAILURE_REASONS, match[1])) return `（${match[1]}）${DEVICE_FAILURE_REASONS[match[1]]}`;
+  if (error?.message === 'device_login_clock') return '浏览器判断设备码已过期，请核对浏览器与后台机器的系统时间。';
+  if (error?.message === 'device_login_invalid_response') return DEVICE_FAILURE_REASONS.invalid_response;
+  if (error?.message === 'method not allowed from Web UI' || error?.message === 'unknown method: agent.connections.device.start')
+    return '当前 Host 或项目后台不支持设备码接口，请更新并分别重启两者。';
+  if (['Failed to fetch','NetworkError when attempting to fetch resource.'].includes(error?.message))
+    return '浏览器无法连接 Lush 服务，请检查连接后重试。';
+  return '未取得可识别的错误分类，请重试或使用备用回调登录。';
+}
 const post = (method, params) => api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
 const note = (parent, value, warning = false) => parent.append(el('p', value, warning ? 'agent-status-warning' : 'hint'));
 
@@ -281,11 +306,12 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
         || login.verification_uri !== 'https://auth.openai.com/codex/device'
         || typeof login.user_code !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(login.user_code)
         || !finite(login.interval_seconds) || login.interval_seconds < 1 || login.interval_seconds > 900
-        || !Number.isFinite(Date.parse(login.expires_at)) || Date.parse(login.expires_at) <= now()) throw new Error('invalid device response');
-    } catch {
+        || !Number.isFinite(Date.parse(login.expires_at))) throw new Error('device_login_invalid_response');
+      if (Date.parse(login.expires_at) <= now()) throw new Error('device_login_clock');
+    } catch (error) {
       if (login?.id === connection.id && login.login_id) void cancelDevice(login);
       if (loginVisible() && revision === editorRevision && loginStamp === loginSequence)
-        message('无法获取设备码，请重试或显式选择备用回调登录；未改变已有凭证。', true);
+        message(`无法获取设备码：${deviceFailureReason(error)} 未改变已有凭证。`, true);
       return;
     }
     editId = connection.id; editorRevision++;
@@ -331,7 +357,7 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
         login.expires_at = result.expires_at;
         loginFeedback.textContent = `等待授权；每 ${result.interval_seconds} 秒检查一次，服务限流时会延长间隔。`;
         schedule(result.interval_seconds);
-      } catch { end('登录检查未完成，可能已过期、被拒绝或网络不可用；请重新登录或显式使用备用回调方式。已有凭证不变。'); }
+      } catch (error) { end(`登录检查未完成：${deviceFailureReason(error)} 请重新登录或显式使用备用回调方式。已有凭证不变。`); }
     }
     const actions = el('div', undefined, 'agent-connection-actions');
     const copyHost = helped('复制设备码', async () => {
