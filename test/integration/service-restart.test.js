@@ -7,6 +7,8 @@ import { UIClient } from '../../src/ui/client.js';
 import { temp, repo, env, until } from '../helpers.js';
 import { cli, freePort, waitForWeb } from './harness.js';
 import { fetch } from '../web/harness.js';
+import { installDom, deepText } from '../dom-stub.js';
+import { serviceRestartControls, waitForHostRestart } from '../../src/ui/web/assets/service-restart.js';
 
 const post = (url, body = {}, headers = {}) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -67,6 +69,41 @@ test('Host restart flushes acceptance, changes worker on same port, leaves proje
     await cli(root, ['host', 'stop', String(port)]).catch(() => {});
     await cli(root, ['daemon', 'stop']).catch(() => {});
     fs.rmSync(root, { recursive: true, force: true });
+  }
+}, 30000);
+
+test('全部重启按钮更换后台与Host进程，保留静息Worker且不动其他项目', async () => {
+  const root = temp(), other = temp(), port = freePort(), dom = installDom();
+  try {
+    await Promise.all([repo(root), repo(other)]);
+    const [daemon, untouched] = await Promise.all([cli(root, ['daemon', 'start']), cli(other, ['daemon', 'start'])]);
+    const client = new UIClient(new Config({ project: root, env: env() }));
+    const task = await client.request('order.submit', { content: 'keep paused through all restart', start: false });
+    const web = await cli(root, ['host', 'start', String(port)]), url = `http://127.0.0.1:${port}`;
+    const calls = []; let reloads = 0, confirmations = 0;
+    const section = serviceRestartControls({ confirm: async () => { confirmations++; return true; }, reload: () => reloads++,
+      recover: pid => waitForHostRestart(pid, { fetchHost: () => fetch(url + '/api/host') }),
+      request: async (route, options) => {
+        calls.push(route);
+        const response = await fetch(url + route, options), value = await response.json();
+        if (!response.ok) throw new Error(value.error);
+        return value;
+      } });
+    const button = section.querySelector('[data-service-restart="all"]');
+    await until(() => !button.disabled);
+    await button.onclick();
+    expect(deepText(section)).not.toContain('失败');
+    expect(confirmations).toBe(1); expect(reloads).toBe(1);
+    expect(calls).toEqual(['/api/host', '/api/host', '/api/service/restart', '/api/host/restart']);
+    expect((await fetch(url + '/api/host').then(r => r.json())).pid).not.toBe(web.pid);
+    expect((await cli(root, ['daemon', 'status'])).pid).not.toBe(daemon.pid);
+    expect((await cli(other, ['daemon', 'status'])).pid).toBe(untouched.pid);
+    expect(await client.request('worker.inspect', { id: task.task.id })).toMatchObject({ status: 'paused', calls: 0 });
+  } finally {
+    dom.restore();
+    await cli(root, ['host', 'stop', String(port)]).catch(() => {});
+    await Promise.all([cli(root, ['daemon', 'stop']).catch(() => {}), cli(other, ['daemon', 'stop']).catch(() => {})]);
+    fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(other, { recursive: true, force: true });
   }
 }, 30000);
 

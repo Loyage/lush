@@ -30,6 +30,8 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 两个入口必须使用同源、已登录的 JSON `{}` 请求；不得传项目路径、强制停止选项或 Agent token。它们不经过通用 `/api/action`。
 
+系统设置的「全部重启」按钮一次确认后依次调用项目重启、Host 重启，不新增接口，也不代表重启全部项目。先检查 Host 支持能力，后台重启成功后才重启界面；后台忙碌或失败时不重启界面。后台已成功但界面重启或恢复失败时就地说明部分完成，不自动重试。Host 不支持按钮重启时禁用此按钮，恢复与登录行为沿用独立界面重启。
+
 - `POST /api/host/restart`：宿主级，无项目前缀；返回 `{restarting:true}` 后当前 Host worker 退出，由它的 supervisor 在原端口启动全新进程，加载磁盘代码。不停止任何项目 daemon。影响连接此 Host 的全部页面，登录会话会清空；前端可有界读取 `/api/host`，等 `pid` 改变或 401 后重新登录。仅通过 `bin/lush-host` 启动的受监督 Host 支持该操作；直接嵌入 `startWeb()` / 直接 CLI 前台调试默认不支持。
 - `POST /api/service/restart`：项目级，全局模式必须带 `/p/<project-id>` 前缀。Host 调用用户专属、无参数的 RPC `system.stop_if_idle`；daemon 同步检查 invocation（包括尚未退栈的已停驻调用）、模型调用、排队及执行中的 Git 工作、合并与后台写入，忙碌即拒绝。准入后封闭调度与新 RPC 写入，返回 `{stopping:true}` 并正常退出。Host 等项目锁释放后启动新 daemon，返回 `{restarted:true,project,pid}`；不强杀、不自动重放调用，也不操作其他项目。重复点击会被拒绝；停止/启动超时报错并保留日志，需检查项目 `.lush/daemon.log`。
 
