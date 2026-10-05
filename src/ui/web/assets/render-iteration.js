@@ -61,7 +61,7 @@ export function iterationControls(task, { refresh = () => {}, events = [] } = {}
         ? '后代尚未确认或结算；派生 Worker 由其直接父 Agent 检查并确认，无需你逐个验收。' : null);
       panel.append(el('p', task.task_kind === 'child'
         ? `本轮已交付，等待父 Worker #${task.parent_id} 的 Agent 检查并确认；无需你验收。需要修改时可追加输入，分支与 worktree 保留。`
-        : '本轮已交付，等待你验收；追加输入可继续当前 Worker。派生 Worker 由父 Agent 检查并确认，无需你逐个验收。选择「仅验收」保留分支与 worktree，或选择「验收并归档」在验收后删除代码现场。', 'hint'));
+        : '本轮已交付，等待你验收；追加输入可继续当前 Worker。派生 Worker 由父 Agent 检查并确认，无需你逐个验收。选择「仅验收」保留分支与 worktree，或点击「验收并归档」直接验收并删除本分支及后代的 worktree 与本地 ref，不再弹窗确认。', 'hint'));
       if (task.task_kind !== 'child') {
         let accepting = false, accepted = false;
         const acceptTask = async () => {
@@ -89,7 +89,7 @@ export function iterationControls(task, { refresh = () => {}, events = [] } = {}
         };
         actions.append(
           guardedAction(button('验收并归档', () => accept(true), undefined, {
-            help: `一次确认后先验收，再删除代码现场；不调用 Agent，归档失败不撤销验收。${BRANCH_ARCHIVE_HELP}`,
+            help: `点击即先验收，再删除代码现场，不再弹窗确认；不调用 Agent，归档失败不撤销验收。${BRANCH_ARCHIVE_HELP}`,
           }), acceptanceReason),
           guardedAction(button('仅验收', () => accept(false), 'ghost', {
             help: '点击即确认成果并结算为已完成，保留分支与 worktree；不调用 Agent，也不再询问归档。',

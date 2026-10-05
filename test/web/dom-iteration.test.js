@@ -73,7 +73,7 @@ test('accept-only immediately accepts without any dialog or archive and never st
   expect(iterationControls({ ...task, status: 'completed' }, { events: [{ type: 'task.accepted' }] })).toBeNull();
 });
 
-test('accept-and-archive confirms once beforehand, waits for acceptance and suppresses cross-button clicks', async () => {
+test('accept-and-archive directly accepts without a dialog, waits for success and suppresses cross-button clicks', async () => {
   let release;
   acceptGate = new Promise(resolve => { release = resolve; });
   const sequence = [];
@@ -84,15 +84,13 @@ test('accept-and-archive confirms once beforehand, waits for acceptance and supp
   const before = calls.length;
   const pending = accept.onclick();
   expect(accept.disabled).toBe(true);
-  expect(calls.length).toBe(before);
-  expect(dialogText(dom)).toContain('2 条后代分支');
-  expect(dialogText(dom)).toContain('未提交改动会被丢弃');
-  expect(dialogText(dom)).toContain('归档失败不撤销验收');
-  const confirm = buttonOf(dom.node('modal'), '验收并归档');
-  expect(confirm.classList.contains('agent-call')).toBe(false);
-  expect(confirm.getAttribute('data-help')).toContain('删除 worktree 与本地 ref');
-  await buttonOf(panel, '仅验收').onclick();
-  await answerDialog(dom, '验收并归档');
+  expect(calls.slice(before)).toEqual([{ method: 'worker.accept', params: { id: 70 } }]);
+  expect(dom.node('modal').hidden).toBe(true);
+  expect(accept.classList.contains('agent-call')).toBe(false);
+  expect(accept.getAttribute('data-help')).toContain('不再弹窗确认');
+  expect(accept.getAttribute('data-help')).toContain('归档失败不撤销验收');
+  expect(accept.getAttribute('data-help')).toContain('删除 worktree 与本地 ref');
+  expect(accept.getAttribute('data-help')).toContain('全部后代分支');
   await accept.onclick(); await buttonOf(panel, '仅验收').onclick(); await flush();
   expect(calls.slice(before)).toEqual([{ method: 'worker.accept', params: { id: 70 } }]);
   expect(dom.node('modal').hidden).toBe(true);
@@ -110,15 +108,13 @@ test('failed acceptance skips archive and can retry; archive failure never repea
   const accept = buttonOf(panel, '验收并归档');
   failedMethod = 'worker.accept';
   let before = calls.length;
-  let pending = accept.onclick();
-  await answerDialog(dom, '验收并归档'); await pending;
+  await accept.onclick();
   expect(dom.node('modal').hidden).toBe(true);
   expect(accept.disabled).toBe(false);
   expect(calls.slice(before).map(call => call.method)).toEqual(['worker.accept']);
   expect(dom.node('error').textContent).toContain('安全检查拒绝');
   failedMethod = 'branch.archive'; before = calls.length;
-  pending = accept.onclick();
-  await answerDialog(dom, '验收并归档'); await pending;
+  await accept.onclick();
   expect(calls.slice(before).map(call => call.method)).toEqual(['worker.accept', 'branch.archive']);
   expect(dom.node('error').textContent).toContain('安全检查拒绝');
   await accept.onclick(); await buttonOf(panel, '仅验收').onclick();
@@ -134,7 +130,6 @@ test('refresh failure after acceptance cannot repeat acceptance or prevent expli
     const accept = buttonOf(panel, label);
     const before = calls.length;
     const pending = accept.onclick();
-    if (label === '验收并归档') await answerDialog(dom, label);
     await pending;
     expect(dom.node('error').textContent).toContain('刷新失败');
     expect(dom.node('modal').hidden).toBe(true);
@@ -144,34 +139,33 @@ test('refresh failure after acceptance cannot repeat acceptance or prevent expli
   }
 });
 
-test('detail and full/minimal graph share both actions; cancelling or closing changes nothing', async () => {
+test('detail and full/minimal graph directly execute both acceptance choices without any modal', async () => {
   for (const view of ['detail', 'graph', 'minimal-graph']) {
-    ui.lastSnapshot = null;
-    ui.taskGraphMinimal = view === 'minimal-graph';
-    if (view === 'detail') renderDetail(task, null, null, null);
-    else {
-      activateDetailView({ view: 'task-graph' });
-      renderTaskGraph({ total: 1, nodes: [{ ...task, branch_info: { subtree_branches: 1 } }], edges: [] });
-    }
-    const panel = dom.node('detail');
-    if (view === 'minimal-graph') panel.querySelector('.task-graph-more-trigger').onclick();
-    const archive = buttonOf(panel, '验收并归档');
-    expect(archive.classList.contains('agent-call')).toBe(false);
-    const before = calls.length;
-    for (const close of ['取消', 'Escape', 'background']) {
-      const pending = archive.onclick();
-      expect(calls.length).toBe(before);
-      expect(dialogText(dom)).toContain('先完成验收，再归档');
-      if (view !== 'detail') expect(dialogText(dom)).toContain('1 条后代分支');
-      if (close === '取消') await answerDialog(dom, close);
-      else if (close === 'Escape') dom.node('modal').onkeydown({ key: 'Escape', preventDefault() {} });
-      else dom.node('modal').onclick({ target: dom.node('modal') });
+    for (const label of ['仅验收', '验收并归档']) {
+      ui.lastSnapshot = null;
+      ui.taskGraphMinimal = view === 'minimal-graph';
+      // A fresh fixture must not reuse controls whose previous acceptance already succeeded.
+      dom.node('detail').replaceChildren();
+      if (view === 'detail') renderDetail(task, null, null, null);
+      else {
+        activateDetailView({ view: 'task-graph' });
+        renderTaskGraph({ total: 1, nodes: [{ ...task, branch_info: { subtree_branches: 1 } }], edges: [] });
+      }
+      const panel = dom.node('detail');
+      if (view === 'minimal-graph') panel.querySelector('.task-graph-more-trigger').onclick();
+      const accept = buttonOf(panel, label);
+      expect(accept.classList.contains('agent-call')).toBe(false);
+      const before = calls.length;
+      const pending = accept.onclick();
+      expect(calls.at(-1)).toEqual({ method: 'worker.accept', params: { id: task.id } });
+      expect(dom.node('modal').hidden).toBe(true);
       await pending;
-      expect(calls.length).toBe(before);
+      expect(calls.slice(before)).toEqual(label === '仅验收'
+        ? [{ method: 'worker.accept', params: { id: task.id } }]
+        : [{ method: 'worker.accept', params: { id: task.id } },
+          { method: 'branch.archive', params: { branch: task.branch, discard: true } }]);
+      expect(dom.node('modal').hidden).toBe(true);
     }
-    await buttonOf(panel, '仅验收').onclick();
-    expect(calls.slice(before).map(call => call.method)).toEqual(['worker.accept']);
-    expect(dom.node('modal').hidden).toBe(true);
   }
   ui.taskGraphMinimal = false;
 });
