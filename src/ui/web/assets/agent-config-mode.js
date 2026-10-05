@@ -16,6 +16,8 @@ export const CONFIG_MODES = [
 ];
 export const CONFIG_MODE_IDS = CONFIG_MODES.map(mode => mode.id);
 export const DEFAULT_CONFIG_MODE = 'lush';
+/** Pi 支持的思考等级；与后端 `settings.THINKING_LEVELS.pi` 同序，仅用于连接默认设定的下拉展示。 */
+export const PI_THINKING_LEVELS = Object.freeze(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 export const PI_MODE_HELP = 'Pi 默认配置由执行机器的 Pi 目录自行管理认证、模型、资源与项目信任；Lush 仍提供任务指令、会话、消息与必需运行协议，不自动批准未受信项目。';
 
 /** 只认已知模式；未知值按默认 Lush 处理，不猜测。 */

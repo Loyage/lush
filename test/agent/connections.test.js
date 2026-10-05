@@ -433,3 +433,19 @@ test('request helper never follows a redirect and aborts non-cooperative transpo
   const controller=new AbortController(),pending=requestJson('https://example.invalid',{},{fetch:()=>new Promise(()=>{}),signal:controller.signal});controller.abort();
   await expect(pending).rejects.toThrow('Connection operation unavailable');
 });
+
+// 连接默认设定只服务运行设置的一键填入，不参与凭证、身份或额度历史。
+test('connection default model and thinking persist within the declared range and can be cleared', async () => {
+  const { manager } = fixture();
+  const row = manager.save(config('deepseek', { models: ['deepseek-chat', 'deepseek-reasoner'],
+    default_model: 'deepseek-chat', default_thinking: 'high' }), { api_key: 'private-key' });
+  expect(row.default_model).toBe('deepseek-chat'); expect(row.default_thinking).toBe('high');
+  expect(manager.config().connections[0]).toMatchObject({ default_model: 'deepseek-chat', default_thinking: 'high' });
+  expect(() => manager.save(config('deepseek', { models: ['deepseek-chat'], default_model: 'deepseek-reasoner' }))).toThrow();
+  expect(() => manager.save(config('deepseek', { default_thinking: 'ultra' }))).toThrow();
+  expect(() => manager.save(config('deepseek', { default_setting: 'untracked' }))).toThrow();
+  const cleared = manager.save(edit(row, { default_model: '', default_thinking: '' }), { api_key: '' });
+  expect(cleared.default_model).toBe(''); expect(cleared.default_thinking).toBe('');
+  expect((await manager.prepareRuntime(row.id)).credential.key).toBe('private-key');
+  noSecrets(cleared);
+});

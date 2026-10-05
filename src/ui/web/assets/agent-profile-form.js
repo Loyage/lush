@@ -119,6 +119,21 @@ export function createProfileForm({ profile, settings, role, ownsPage = () => tr
   const connectionPicker = createAgentConnectionPicker({ backend, model, connectionId: initial.connection_id || '',
     ownsPage, onChange: () => paintModels() });
   connectionPicker.connection.dataset.retryField = 'connection_id';
+  const fillNote = el('span', undefined, 'settings-note');
+  const fillDefaults = button('填入来源默认（模型 + 思考深度）', () => {
+    const row = connectionPicker.entry();
+    if (!row) { fillNote.textContent = '请先读取并选择模型来源。'; return; }
+    const applied = [];
+    if (row.default_model) { model.value = `${row.provider}/${row.default_model}`; applied.push('模型'); }
+    const levels = [...thinking.children].map(option => option.value);
+    if (row.default_thinking && levels.includes(row.default_thinking)) { thinking.value = row.default_thinking; applied.push('思考深度'); }
+    if (!applied.length) { fillNote.textContent = '该来源未设置默认模型或思考深度。'; return; }
+    fillNote.textContent = `已填入来源默认${applied.join('与')}；保存前仍可修改。`;
+    connectionPicker.sync(); onChange();
+  }, 'ghost', { help: '把所选来源保存的默认模型与思考深度填入本表单；只改这两项，不调用 Agent，保存前仍可修改。' });
+  fillDefaults.type = 'button';
+  const defaultsRow = el('div', undefined, 'profile-source-defaults'); defaultsRow.append(fillDefaults, fillNote);
+  const connectionControl = el('div', undefined, 'retry-connection-control'); connectionControl.append(connectionPicker.node, defaultsRow);
 
   const thinking = el('select'); thinking.dataset.retryField = 'thinking';
   thinking.onchange = () => onChange();
@@ -200,7 +215,7 @@ export function createProfileForm({ profile, settings, role, ownsPage = () => tr
   grid.append(
     field('Agent', backend, '只覆盖本轮运行，不修改项目或角色默认配置。'),
     field('模型', modelBox, '可直接填写模型 ID，或从预设与本机目录中选择。'),
-    field('账号连接', connectionPicker.node, '只覆盖本 Worker 的后续调用；API Key 与登录共享保存，当前仅 Pi 支持托管连接。'),
+    field('账号连接', connectionControl, '只覆盖本 Worker 的后续调用；API Key 与登录共享保存，当前仅 Pi 支持托管连接。'),
     field('思考深度', thinking, '可用等级随 Agent 变化。'),
     field('软预算：响应数', budgetResponses, '留空关闭；仅 Pi。'),
     field('软预算：累计 token', budgetTokens, '留空关闭；仅 Pi。'),

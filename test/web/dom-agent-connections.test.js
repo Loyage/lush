@@ -117,7 +117,7 @@ test('添加和更换密钥只写password请求，提交立即清空，不回显
   const saving = btn(p.node, '保存连接').onclick();
   expect(key.value).toBe(''); expect(deepText(p.node)).not.toContain(secret);
   const request = JSON.parse(requests.at(-1).options.body);
-  expect(request).toEqual({ method: 'agent.connections.save', params: { connection: { label: '新账号', provider: 'deepseek', auth_type: 'api_key', enabled: true, models: [] }, credential: { api_key: secret } } });
+  expect(request).toEqual({ method: 'agent.connections.save', params: { connection: { label: '新账号', provider: 'deepseek', auth_type: 'api_key', enabled: true, models: [], default_model: '', default_thinking: '' }, credential: { api_key: secret } } });
   pending.resolve(fail(`SERVER ECHO ${secret}`)); await saving;
   expect(deepText(p.node)).not.toContain(secret); expect(deepText(p.node)).toContain('保存连接失败'); expect(key.value).toBe('');
   expect(globalThis.localStorage.getItem('api_key')).toBeNull();
@@ -170,6 +170,41 @@ test('结构化现金、Key预算和套餐窗口不互换；百分比、零和�
   expect(text).toContain('百分比不是实际 token'); expect(text).toContain('gpt-test');
   const failed = renderConnectionResources(observation({ status: 'error', resources: [resource({ remaining: 999 })] }));
   expect(deepText(failed)).toContain('查询失败（不代表资源耗尽）'); expect(deepText(failed)).not.toContain('999');
+});
+
+test('套餐额度用进度条表达已用比例与窗口，现金余额仍显金额，详细口径收进折叠区', () => {
+  const root = renderConnectionResources(observation({ resources: [
+    resource({ id: 'five', kind: 'quota', scope: 'account', label: '主要窗口', unit: '%', remaining: 75, total: 100, used: 25, used_percent: 25, window_seconds: 18000, reset_at: at }),
+    resource({ id: 'seven', kind: 'quota', scope: 'account', label: '次要窗口', unit: '%', remaining: 10, total: 100, used: 90, used_percent: 90, window_seconds: 604800, reset_at: at }),
+    resource({ id: 'cash', kind: 'balance', scope: 'account', label: '账户余额', unit: 'USD', remaining: 12.5 }),
+  ] }));
+  const bars = root.querySelectorAll('.agent-quota-bar');
+  expect(bars).toHaveLength(2);
+  expect(bars[0].getAttribute('role')).toBe('progressbar'); expect(bars[0].getAttribute('aria-valuenow')).toBe('25');
+  expect(bars[0].classList.contains('is-low')).toBe(true); expect(bars[1].classList.contains('is-high')).toBe(true);
+  expect(root.querySelectorAll('.agent-quota-fill')[0].style.width).toBe('25%');
+  expect(deepText(root)).toContain('5 小时窗口'); expect(deepText(root)).toContain('7 天（周）窗口');
+  expect(deepText(root)).toContain('剩余 12.5 USD'); expect(deepText(root)).toContain('重置');
+  expect(root.querySelectorAll('.agent-connection-resource-details')).toHaveLength(3);
+});
+
+test('模型来源详情可设置默认模型与思考深度，保存后供运行设置快速填入', async () => {
+  const p = await panel(); await btn(card(p), '编辑').onclick();
+  change(field(p.node, 'models'), 'deepseek-chat, deepseek-reasoner');
+  const defaultModel = field(p.node, 'default_model');
+  expect([...defaultModel.parentNode.querySelector('datalist').children].map(option => option.value)).toEqual(['deepseek-chat', 'deepseek-reasoner']);
+  defaultModel.value = 'deepseek-chat';
+  field(p.node, 'default_thinking').value = 'high';
+  await btn(p.node, '保存连接').onclick();
+  expect(actions.at(-1).params.connection).toMatchObject({ default_model: 'deepseek-chat', default_thinking: 'high' });
+  expect(deepText(card(p))).toContain('deepseek-chat · high');
+  // 默认模型超出声明范围时客户端拒绝提交，不交给服务端猜测。
+  await btn(card(p), '编辑').onclick();
+  change(field(p.node, 'models'), 'deepseek-reasoner');
+  field(p.node, 'default_model').value = 'deepseek-chat';
+  const before = actions.length;
+  await btn(p.node, '保存连接').onclick();
+  expect(actions).toHaveLength(before); expect(deepText(p.node)).toContain('默认模型必须在上方的模型 ID 范围内');
 });
 
 test('资源查询失败展示旧成功时间，旧值不伪装成最新；响应数据仅文本渲染', async () => {
@@ -515,7 +550,7 @@ test('自定义兼容API必须显式填写端点和模型，密钥只写且余�
   await btn(p.node, '保存连接').onclick();
   expect(actions[0]).toEqual({ method: 'agent.connections.save', params: { connection: {
     label: '兼容服务', provider: 'openai-compatible', endpoint: 'https://models.example/v1', models: ['my-model', 'vendor/second-model'],
-    auth_type: 'api_key', enabled: true,
+    auth_type: 'api_key', enabled: true, default_model: '', default_thinking: '',
   }, credential: { api_key: 'PRIVATE-COMPATIBLE-KEY' } } });
   expect(deepText(p.node)).not.toContain('PRIVATE-COMPATIBLE-KEY');
   const saved = data.connections.at(-1), actual = normalizeConnection(actions[0].params.connection, saved.id);

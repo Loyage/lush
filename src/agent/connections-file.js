@@ -30,7 +30,7 @@ function validate(data) {
     if (data.version !== 1 || !Array.isArray(data.connections) || data.connections.length > 50) fail('auth_changed');
     const ids = new Set();
     const connections = data.connections.map(row => {
-      fields(row, ['id','label','provider','endpoint','auth_type','enabled','models','revision','credential'], 'stored connection');
+      fields(row, ['id','label','provider','endpoint','auth_type','enabled','models','default_model','default_thinking','revision','credential'], 'stored connection');
       if (!validId(row.id) || ids.has(row.id) || !validId(row.revision)) fail('auth_changed'); ids.add(row.id);
       const { revision, credential, ...config } = row;
       return { ...normalizeConnection(config, row.id), revision, credential: validateCredential(credential, row.auth_type) };

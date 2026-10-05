@@ -1,6 +1,7 @@
 import { block, button, el, kv } from './dom.js';
 import { api } from './api.js';
 import { confirmDialog } from './dialog.js';
+import { PI_THINKING_LEVELS } from './agent-config-mode.js';
 import { renderUsageSeries } from './render-agent-usage.js';
 import { usageErrorLabels, usageWindow } from './usage-window.js';
 
@@ -66,6 +67,25 @@ function positive(input, max, name) {
   return value;
 }
 
+/** 已用比例只从结构化字段推导，缺失时返回 null，绝不把未知当零。 */
+const quotaPercent = resource => {
+  if (finite(resource.used_percent)) return Math.max(0, Math.min(100, resource.used_percent));
+  if (finite(resource.used) && finite(resource.total) && resource.total > 0) return Math.max(0, Math.min(100, resource.used / resource.total * 100));
+  if (finite(resource.remaining) && finite(resource.total) && resource.total > 0) return Math.max(0, Math.min(100, (resource.total - resource.remaining) / resource.total * 100));
+  return null;
+};
+const quotaLevel = percent => percent >= 85 ? 'is-high' : percent >= 60 ? 'is-mid' : 'is-low';
+function quotaBar(resource, percent) {
+  const bar = el('div', undefined, `agent-quota-bar ${quotaLevel(percent)}`);
+  bar.setAttribute('role', 'progressbar');
+  bar.setAttribute('aria-label', `${text(resource.label, '未命名指标')} 已用 ${amount(percent)}%`);
+  bar.setAttribute('aria-valuemin', '0'); bar.setAttribute('aria-valuemax', '100');
+  bar.setAttribute('aria-valuenow', String(Math.round(percent)));
+  const fill = el('div', undefined, 'agent-quota-fill');
+  fill.style.width = `${Math.max(2, percent)}%`;
+  bar.append(fill); return bar;
+}
+
 /** Render only structured public resources, never parse terminal output or infer quota from RPM headers. */
 export function renderConnectionResources(observation = {}) {
   observation ||= {};
@@ -79,16 +99,36 @@ export function renderConnectionResources(observation = {}) {
   for (const resource of array(observation.resources)) {
     if (!['balance', 'quota'].includes(resource.kind)) continue;
     const entry = el('section', undefined, 'agent-connection-resource');
-    entry.append(el('h4', text(resource.label, '未命名指标')));
-    note(entry, `${resource.kind === 'balance' ? '现金余额' : resource.scope === 'key' ? 'API Key 消费额度（非账户余额）' : '套餐 / API 额度（非现金余额）'} · ${SCOPES[resource.scope] || '范围未知'}`);
-    entry.append(el('p', `剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`, 'agent-status-amount'));
-    if (finite(resource.total)) note(entry, `总量 ${amount(resource.total)} ${text(resource.unit, '单位未知')}`);
-    if (finite(resource.used)) note(entry, `已用 ${amount(resource.used)} ${text(resource.unit, '单位未知')}`);
-    if (finite(resource.used_percent)) note(entry, `已用比例 ${amount(resource.used_percent)} %`);
-    if (resource.kind === 'quota') note(entry, usageWindow(resource.window_seconds));
-    if (resource.reset_at) note(entry, `重置时间：${time(resource.reset_at)}`);
-    if (resource.unit === '%') note(entry, '百分比不是实际 token、请求总量或金额。');
-    if (array(resource.models).length) note(entry, `适用模型：${resource.models.join('、')}`);
+    const head = el('div', undefined, 'agent-connection-resource-head');
+    head.append(el('h4', text(resource.label, '未命名指标')));
+    if (resource.kind === 'quota' && Number.isSafeInteger(resource.window_seconds) && resource.window_seconds > 0)
+      head.append(el('span', usageWindow(resource.window_seconds), 'agent-connection-window'));
+    entry.append(head);
+    const percent = resource.kind === 'quota' ? quotaPercent(resource) : null;
+    if (percent !== null) {
+      const row = el('div', undefined, 'agent-quota-row');
+      row.append(quotaBar(resource, percent), el('span', `${amount(percent)}%`, 'agent-quota-percent'));
+      entry.append(row);
+      const summary = [];
+      if (finite(resource.remaining)) summary.push(`剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`);
+      if (resource.reset_at) summary.push(`重置 ${time(resource.reset_at)}`);
+      if (summary.length) note(entry, summary.join(' · '));
+    } else {
+      entry.append(el('p', `剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`, 'agent-status-amount'));
+      if (resource.reset_at) note(entry, `重置时间：${time(resource.reset_at)}`);
+    }
+    // 详细口径收进折叠区，主视图只留进度与关键时间，事实仍完整可读。
+    const details = el('details', undefined, 'agent-connection-resource-details');
+    details.append(el('summary', '指标说明与原始读数'));
+    note(details, `${resource.kind === 'balance' ? '现金余额' : resource.scope === 'key' ? 'API Key 消费额度（非账户余额）' : '套餐 / API 额度（非现金余额）'} · ${SCOPES[resource.scope] || '范围未知'}`);
+    if (finite(resource.total)) note(details, `总量 ${amount(resource.total)} ${text(resource.unit, '单位未知')}`);
+    if (finite(resource.used)) note(details, `已用 ${amount(resource.used)} ${text(resource.unit, '单位未知')}`);
+    if (finite(resource.used_percent)) note(details, `已用比例 ${amount(resource.used_percent)} %`);
+    if (resource.kind === 'quota') note(details, usageWindow(resource.window_seconds));
+    if (resource.reset_at) note(details, `重置时间：${time(resource.reset_at)}`);
+    if (resource.unit === '%') note(details, '百分比不是实际 token、请求总量或金额。');
+    if (array(resource.models).length) note(details, `适用模型：${resource.models.join('、')}`);
+    entry.append(details);
     root.append(entry);
   }
   return root;
@@ -265,6 +305,8 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       grid.append(kv('服务商', text(connection.provider)), kv('模型端点', text(connection.endpoint)), kv('连接 ID', connection.id),
         kv('认证', connection.auth_type === 'oauth' ? 'OAuth 登录' : 'API Key'), kv('本地凭证', CREDENTIALS[connection.credential?.status] || '未知'),
         kv('连接状态', connection.enabled ? '启用' : '停用'));
+      const defaults = [connection.default_model, connection.default_thinking].filter(Boolean).join(' · ');
+      if (defaults) grid.append(kv('默认设定（运行设置快速填入）', defaults));
       if (connection.credential?.identity) grid.append(kv('账号身份（脱敏）', connection.credential.identity));
       if (connection.credential?.expires_at) grid.append(kv('凭证到期', time(connection.credential.expires_at)));
       connectionSection.append(grid); note(connectionSection, `模型范围：${array(connection.models).length ? connection.models.join('、') : '未限定（不代表已验证模型可用）'}`);
@@ -326,6 +368,12 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     const provider = select(form, '服务商', 'provider', PROVIDERS, connection?.provider || 'deepseek');
     const endpoint = field(form, '模型端点（HTTPS，可留空）', 'endpoint', 'url', connection?.endpoint || '', '留空采用该服务商官方模型端点；代理密钥不能发往官方余额接口。'); endpoint.maxLength = 2048;
     const models = field(form, '模型 ID 范围（逗号分隔，可留空）', 'models', 'text', array(connection?.models).join(', '), '填写物理模型 ID，不额外添加服务商前缀。这里只是限制，不进行付费可用性探测。'); models.maxLength = 8192;
+    const defaultModel = field(form, '默认模型（可选）', 'default_model', 'text', connection?.default_model || '', '填写物理模型 ID（可留空）；填写了模型 ID 范围时须在范围内。用于「运行设置」一键填入，不代表已验证可用。');
+    defaultModel.maxLength = 256;
+    const defaultModelList = el('datalist'); defaultModelList.id = 'connection-default-model-options';
+    defaultModel.setAttribute('list', defaultModelList.id); defaultModel.parentNode.append(defaultModelList);
+    const defaultThinking = select(form, '默认思考深度（可选）', 'default_thinking',
+      [['', '不设置'], ...PI_THINKING_LEVELS.map(level => [level, level])], connection?.default_thinking || '');
     const enabled = field(form, '启用连接', 'enabled', 'checkbox', connection?.enabled ?? true);
     const credentialWrap = el('div', undefined, 'agent-connection-secret');
     const key = field(credentialWrap, 'API Key（仅写入，更换时才填写）', 'api_key', 'password', '', '留空保留已有密钥。提交后立即清空，不回显、不保存到浏览器。');
@@ -335,7 +383,13 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     form.append(credentialWrap, oauthNote, compatibleNote);
     const localFeedback = el('p', undefined, 'hint agent-connection-editor-feedback'); localFeedback.setAttribute('role', 'status');
     const changed = () => { editorRevision++; invalidateLogin(); };
+    const rebuildDefaultModels = () => {
+      const ids = models.value.split(/[,，\n]/).map(value => value.trim()).filter(Boolean);
+      defaultModelList.replaceChildren(...ids.map(id => { const option = el('option'); option.value = id; return option; }));
+    };
+    rebuildDefaultModels();
     for (const input of [label, endpoint, models, key]) input.oninput = changed;
+    models.oninput = () => { changed(); rebuildDefaultModels(); };
     enabled.onchange = changed;
     const syncAuth = () => {
       const oauth = provider.value === 'openai-codex', compatible = provider.value === 'openai-compatible';
@@ -355,8 +409,10 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
         const ids = models.value.split(/[,，\n]/).map(value => value.trim()).filter(Boolean);
         if (provider.value === 'openai-compatible' && !ids.length) throw new Error('自定义兼容 API 必须填写至少一个物理模型 ID。');
         if (ids.length > 50 || new Set(ids).size !== ids.length || ids.some(id => id.length > 256)) throw new Error('模型 ID 不可重复，最多 50 个，每个最长 256 字符。');
+        if (defaultModel.value && ids.length && !ids.includes(defaultModel.value)) throw new Error('默认模型必须在上方的模型 ID 范围内。');
         const value = { ...(connection ? { id: connection.id } : {}), label: name, provider: provider.value, auth_type: provider.value === 'openai-codex' ? 'oauth' : 'api_key',
-          enabled: enabled.checked, models: ids, ...(url ? { endpoint: url } : {}) };
+          enabled: enabled.checked, models: ids, default_model: defaultModel.value.trim(), default_thinking: defaultThinking.value,
+          ...(url ? { endpoint: url } : {}) };
         params = { connection: value, ...(value.auth_type === 'api_key' && key.value.trim() ? { credential: { api_key: key.value.trim() } } : {}) };
       } catch (error) { localFeedback.textContent = error instanceof TypeError ? '模型端点不是有效 HTTPS 地址。' : error.message; localFeedback.setAttribute('role', 'alert'); return; }
       // Only the request body briefly contains the secret. Clear the live input even when the write fails.

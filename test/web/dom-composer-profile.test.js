@@ -135,3 +135,23 @@ test('追加输入模式隐藏运行设置入口，返回概览后恢复', async
   await overview();
   expect(button().hidden).toBe(false);
 });
+
+test('运行设置可按来源默认一键填入模型与思考深度，未读来源给出提示且不调用 Agent', async () => {
+  const connection = world.state.agentConnections.connections[0];
+  connection.default_model = 'second-model'; connection.default_thinking = 'high';
+  try {
+    const modal = await openDialog();
+    await dialogButton(dom, '填入来源默认（模型 + 思考深度）').onclick();
+    expect(deepText(modal)).toContain('请先读取并选择模型来源');
+    await dialogButton(dom, '读取项目连接').onclick();
+    const select = modal.querySelector('[data-retry-field="connection_id"]');
+    select.value = CONNECTION; select.onchange();
+    await dialogButton(dom, '填入来源默认（模型 + 思考深度）').onclick();
+    expect(modal.querySelector('[data-retry-field="model"]').value).toBe('openai-compatible/second-model');
+    expect(modal.querySelector('[data-retry-field="thinking"]').value).toBe('high');
+    expect(world.state.actions.filter(row => row.method === 'order.submit')).toHaveLength(0);
+    await dialogButton(dom, '取消').onclick();
+  } finally {
+    delete connection.default_model; delete connection.default_thinking;
+  }
+});

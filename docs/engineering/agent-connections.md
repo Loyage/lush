@@ -17,7 +17,7 @@
 公开连接字段：
 
 ```js
-{ id, label, provider, endpoint, auth_type, enabled, models,
+{ id, label, provider, endpoint, auth_type, enabled, models, default_model, default_thinking,
   credential: {status, identity, expires_at} }
 ```
 
@@ -25,13 +25,14 @@
 - provider 是 deepseek/openrouter/zai/kimi-coding/openai-codex；endpoint 是模型端点，默认官方模型端点，必须明确显示；不在 URL 中放秘密。
 - auth_type 为 api_key/oauth；Codex 只支持 oauth，其他只支持 api_key。
 - models 是可空的模型 ID 限制列表（物理 model id，不含 provider 前缀），不声称联网验证可用。
+- default_model / default_thinking 是可空的默认设定：物理模型 ID（非空时必须在 models 范围内）与 Pi 思考等级（`settings.THINKING_LEVELS.pi`）。它们只供「运行设置」一键填入，不参与连接身份、凭证轮换或额度历史。
 - credential.status 为 configured/unconfigured/expired/unknown；存在本地凭证不代表验证登录成功；identity 服务端脱敏；expires_at 为 ISO/null。
 - 凭证内保存的秘密从不放进公开连接。采样默认 `{enabled:false,interval_minutes:5,retention_days:90}`，校验范围同旧 usage 设置。
 
 Manager 方法：
 
 - `config()` -> `{version:1,sampling,connections:[公开连接]}`，本地只读，不联网。
-- `save(connection, credential=null)` -> 公开连接。connection 全量公开配置 `{id?,label,provider,endpoint?,auth_type,enabled?,models?}`；不允许未知字段。credential 可选 `{api_key:string}`，省略/空不更换秘密；不得通过此方法写入任意 OAuth token。改 provider/auth_type 不沿用旧秘密。
+- `save(connection, credential=null)` -> 公开连接。connection 全量公开配置 `{id?,label,provider,endpoint?,auth_type,enabled?,models?,default_model?,default_thinking?}`；不允许未知字段。credential 可选 `{api_key:string}`，省略/空不更换秘密；不得通过此方法写入任意 OAuth token。改 provider/auth_type 不沿用旧秘密。
 - `remove(id)` -> `{removed:id}`；不存在 ID 明确失败。
 - `configureSampling(sampling)` -> sampling。
 - `identity(id)` -> 私密同步 `{account_key,source_key,revision}`，前两项与 query/prepareRuntime 一致；revision 是配置/凭证变动指纹，供迟到与外部更换校验，不经 RPC 返回。
@@ -83,7 +84,9 @@ HTTP GET `/api/agent/connections`、GET `/api/agent/connections/history?id=&days
 
 ## Web
 
-用户决定 #152/#154：托管账号集中在独立「模型来源」页面（`#model-sources`），不再是 Agent 管理 tab；Agent 配置保留 `#agent-status`。`render-model-sources.js` 导出 `openModelSources({connectionId?})`；`render-agent-connections.js` 导出 `createAgentConnections({ownsPage,connectionId?})`，保留 `{node,load()}` 并增加来源选择与清理接口。本地列表、显式刷新单项/全部、添加/编辑/删除连接、密钥 password 输入（更换时才写，提交后清空）、采样设置、Codex 打开授权链接与粘贴回调、认证诊断、独立现金/Key预算/套餐窗口、旧值/来源/时间、历史和实际消费者。高级旧 HTTP 映射保留在旧状态页，不能成为首选流程。删除需确认，说明不删除历史。登录会联网但不调用 Agent，使用 help，不标 agent-call。
+用户决定 #152/#154：托管账号集中在独立「模型来源」页面（`#model-sources`），不再是 Agent 管理 tab；Agent 配置保留 `#agent-status`。`render-model-sources.js` 导出 `openModelSources({connectionId?})`；`render-agent-connections.js` 导出 `createAgentConnections({ownsPage,connectionId?})`，保留 `{node,load()}` 并增加来源选择与清理接口。本地列表、显式刷新单项/全部、添加/编辑/删除连接、密钥 password 输入（更换时才写，提交后清空）、采样设置、Codex 打开授权链接与粘贴回调、认证诊断、独立现金/Key预算/套餐窗口、旧值/来源/时间、历史和实际消费者。套餐额度用进度条表达已用比例并标出窗口（如 5 小时 / 7 天）与重置时间，详细口径、适用范围与原始读数收进折叠区；现金余额仍显金额，不用无总数的进度条。详情编辑器可设置 `default_model` / `default_thinking`。高级旧 HTTP 映射保留在旧状态页，不能成为首选流程。删除需确认，说明不删除历史。登录会联网但不调用 Agent，使用 help，不标 agent-call。
+
+「运行设置」共用表单（`agent-profile-form.js`）在已选托管来源时可一键填入该来源的默认模型（限定为 `provider/model`）与思考深度；只改这两项，未读来源或无默认时给就地提示，不调用 Agent，保存前仍可修改。来源选择本身不自动改模型或思考深度。
 
 配置页 profile 的 `connection_id` 为后续 Pi 调用必需来源（空不会恢复外部 Pi 认证）；由 parent 实现后端校验与执行绑定。Web可从 list API加载可用连接选项；首版只支持 Pi绑定（Codex执行后端仍走原凭证），明确提示固定物理 provider/model且模型限制必须匹配。配置保存不改变正在运行的 invocation。
 

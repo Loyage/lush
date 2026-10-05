@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { LushError, check, isPlainObject } from '../core/types.js';
+import { THINKING_LEVELS } from './settings.js';
 
 export const DEFAULT_ENDPOINTS = Object.freeze({
   deepseek: 'https://api.deepseek.com', openrouter: 'https://openrouter.ai/api/v1',
@@ -49,7 +50,7 @@ export function normalizeSampling(value) {
   return { enabled: value.enabled, interval_minutes: value.interval_minutes, retention_days: value.retention_days };
 }
 export function normalizeConnection(value, id) {
-  fields(value, ['id','label','provider','endpoint','auth_type','enabled','models'], 'connection');
+  fields(value, ['id','label','provider','endpoint','auth_type','enabled','models','default_model','default_thinking'], 'connection');
   check(validId(id), 'connection id is invalid');
   const compatible = value.provider === 'openai-compatible';
   check(compatible || Object.hasOwn(DEFAULT_ENDPOINTS, value.provider), 'connection provider is unsupported');
@@ -66,8 +67,16 @@ export function normalizeConnection(value, id) {
   const normalizedModels = models.map(model => safeText(model, 'model', 256));
   check(new Set(normalizedModels).size === normalizedModels.length, 'connection models must be unique');
   check(value.enabled === undefined || typeof value.enabled === 'boolean', 'connection enabled must be boolean');
+  const optionalText = (input, label, max) => input === undefined || input === null || input === ''
+    ? '' : safeText(input, label, max);
+  // 默认设定只影响运行设置的一次「快速填入」，不参与连接身份、凭证或额度历史。
+  const default_model = optionalText(value.default_model, 'connection default model', 256);
+  const default_thinking = optionalText(value.default_thinking, 'connection default thinking', 32);
+  check(THINKING_LEVELS.pi.includes(default_thinking), 'connection default thinking is unsupported');
+  if (default_model && normalizedModels.length) check(normalizedModels.includes(default_model), 'connection default model must be within the model range');
   return { id, label: safeText(value.label, 'connection label'), provider: value.provider,
-    endpoint: url.href.replace(/\/$/, ''), auth_type, enabled: value.enabled ?? true, models: normalizedModels };
+    endpoint: url.href.replace(/\/$/, ''), auth_type, enabled: value.enabled ?? true, models: normalizedModels,
+    default_model, default_thinking };
 }
 
 /** Bounded JSON request. Includes headers AND body in the deadline; no error response body is read. */
