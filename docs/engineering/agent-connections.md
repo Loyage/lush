@@ -85,6 +85,10 @@ Agent 管理页新增“账号连接” tab，`render-agent-connections.js` 导�
 
 配置页 profile 可选 `connection_id`（空代表旧 CLI 认证）；由 parent 实现后端校验与执行绑定。Web可从 list API加载可用连接选项；首版只支持 Pi绑定（Codex执行后端仍走原凭证），明确提示固定物理 provider/model且模型限制必须匹配。配置保存不改变正在运行的 invocation。
 
+## Codex 设备码登录追加
+
+用户决定 #135：新增默认设备码登录，原回调 URL 登录保留为显式备用。新增用户专属 `agent.connections.device.start/poll/cancel`，协议、生命周期、Web 自动确认及文件分工见[Codex 设备码登录](codex-device-login.md)。仍只托管本项目凭证，不读取或改写外部 Pi 登录，不调用模型。
+
 ## Pi 显式绑定与被动观测（parent）
 
 在 Agent profile 加可选 connection_id，仅 Pi允许。每次 invocation 用 prepareRuntime 冻结连接与账号，验证模型 provider/id、models范围。使用受控 invocation 私有 Pi认证目录把秘密提供给子进程，不放 argv/上下文/日志，不更改外部 Pi配置。明确指定物理模型；没有连接时旧行为不变。临时 Pi 认证只携带 access token，不复制可轮换的 refresh token；若长调用期间 access token 过期，当前调用安全失败，下一次由 Lush 协调刷新，不允许多个 Worker 竞争刷新。保留原全局 Pi 的受控行为设置与上下文文件，但不继承外部凭证、模型端点/请求头和自动资源发现；传 `--no-approve` 禁用 trust-gated 项目 `.pi` 配置，避免覆盖托管端点，显式扩展/Skills仍保留。本轮不实现虚拟模型、自动降级或付费切换。

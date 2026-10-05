@@ -18,7 +18,7 @@
 |---|---|---|
 | `agent/prompts.js` | 命名内置 Prompt 片段、按角色组合，并叠加可提交、本机与 `agent.json` 补充 | `AGENT_ROLES`、`PROMPT_PARTS`、`ROLE_PROMPT_PARTS`、`builtInPrompt(role)`、`agentPrompt(config,role,profile)` |
 | `agent/connections*.js` | 项目多账号凭证的私有文件、安全 OAuth 登录/刷新和结构化资源查询；固定审查 MIT 来源，认证私密结果不返回 RPC | `ConnectionManager`（字段/接口见[连接器契约](agent-connections.md)） |
-| `core/agent-connections.js` / `store/agent-connections.js` | 项目连接观测服务与附属采样持久化；身份/端点隔离、迟到保护、旧值、有界历史和显式后台采样 | `AgentConnectionsService`、Store mixin |
+| `core/agent-connections.js` / `store/agent-connections.js` | 项目连接观测服务与附属采样持久化；身份/端点隔离、迟到保护、旧值、有界历史和显式后台采样；服务层核验设备码登录的安全投影，`deviceStart/devicePoll/deviceCancel` 经项目准入转发 Manager，不持久化未完成设备登录 | `AgentConnectionsService`、Store mixin；[设备码契约](codex-device-login.md) |
 | `agent/connection-runtime.js` | Pi 显式绑定校验、隔离私有临时认证与安全模型元数据、Codex套餐头解析、受限观测读取；不复制refresh token | `validateRuntimeConnection()`、`createRuntimeConnection()`、`parseConnectionHeaders()`、`readRuntimeObservations()` |
 | `agent/environment.js` | 每次 invocation 热加载 `.lush/agent/agent.env` 与角色 env，校验并叠加环境；为 Web/RPC 提供按公共/角色文件读取与 owner-only 原子写入，空表删除文件 | `AGENT_ENV_TARGETS`、`parseAgentEnv(source,file)`、`readAgentEnvironment(config,target)`、`saveAgentEnvironment(config,target,values)`、`agentEnvironment(config,role)` |
 | `agent/settings.js` | `.lush/agent.json` 的兼容读取、校验、原子写入、角色继承与 Web 选项（含各角色内置 Prompt）；旧 `prompt` 迁到 `append_prompt`，资源选择存 `extensions` / `skills` | `AGENT_ROLES`、`AGENT_BACKENDS`、`THINKING_LEVELS`、`MODEL_PRESETS`、`normalizeAgentConfig()`、`normalizeAgentProfile()`、`normalizeSoftBudget(value)`、`AgentSettings` |

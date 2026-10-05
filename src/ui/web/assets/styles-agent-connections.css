@@ -17,6 +17,8 @@
 .agent-connection-field{display:flex;flex-direction:column;gap:7px;min-width:0;font-size:12px;color:var(--muted)}
 .agent-connection-field input,.agent-connection-field select,.agent-connection-binding select{width:100%;min-width:0;box-sizing:border-box;border:1px solid var(--line-soft);border-radius:7px;padding:9px 11px;background:var(--bg);color:var(--text);font:inherit}
 .agent-connection-field input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
+.agent-connection-field input.agent-device-code{font:600 20px ui-monospace,monospace;letter-spacing:.12em}
+.agent-device-feedback{overflow-wrap:anywhere}
 .agent-connection-secret{min-width:0}
 .agent-connection-binding{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .agent-connection-binding select{flex:1 1 190px}

@@ -4,9 +4,11 @@
 import { randomBytes, createHash } from 'node:crypto';
 import { fail, object, secret } from './connections-utils.js';
 
-const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
+export const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
+const CLIENT_ID = CODEX_CLIENT_ID;
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
 export const REDIRECT_URI = 'http://localhost:1455/auth/callback';
+export const DEVICE_REDIRECT_URI = 'https://auth.openai.com/deviceauth/callback';
 export function authorization() {
   const verifier = randomBytes(32).toString('base64url');
   const challenge = createHash('sha256').update(verifier).digest('base64url');
@@ -45,9 +47,10 @@ function credential(data, now, expectedAccountId = null) {
 }
 const post = (request, body) => request(TOKEN_URL, { method: 'POST',
   headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams(body) });
-export async function exchange(code, verifier, request, now) {
+export async function exchange(code, verifier, request, now, redirectUri = REDIRECT_URI) {
+  if (![REDIRECT_URI, DEVICE_REDIRECT_URI].includes(redirectUri)) fail('invalid_callback');
   return credential(await post(request, { grant_type: 'authorization_code', client_id: CLIENT_ID,
-    code, code_verifier: verifier, redirect_uri: REDIRECT_URI }), now);
+    code, code_verifier: verifier, redirect_uri: redirectUri }), now);
 }
 export async function refresh(previous, request, now) {
   return credential(await post(request, { grant_type: 'refresh_token', client_id: CLIENT_ID,

@@ -70,7 +70,8 @@ export function renderConnectionResources(observation = {}) {
 }
 
 /** Local list reads and explicit remote queries; retain editor drafts and reject late page responses. */
-export function createAgentConnections({ ownsPage }) {
+export function createAgentConnections({ ownsPage, setTimeout: setTimer = globalThis.setTimeout,
+  clearTimeout: clearTimer = globalThis.clearTimeout, now = Date.now }) {
   const node = el('div', undefined, 'agent-connections-panel');
   const intro = block('项目账号连接');
   note(intro, '连接区分服务商、端点和账号。密钥由本项目 Lush 管理，存放在严格权限的私有文件中，不提供静态加密；系统当前用户仍可读取。');
@@ -96,7 +97,26 @@ export function createAgentConnections({ ownsPage }) {
   let data = null, listFlight = null, version = 0, editorRevision = 0, saving = false, samplingDirty = false, samplingRevision = 0, samplingSaving = false;
   let historySequence = 0, historyFlight = null, historyKey = '', activeHistoryKey = '', editId = null, loginSequence = 0;
   const queries = new Map(), historyChoices = new Map();
+  let deviceSession = null;
   const current = () => ownsPage();
+  const loginVisible = () => {
+    if (!current()) return false;
+    for (let parent = node; parent; parent = parent.parentNode) if (parent.hidden) return false;
+    return true;
+  };
+  const cancelDevice = login => post('agent.connections.device.cancel', { id: login.id, login_id: login.login_id }).catch(() => {});
+  function stopDevice(cancel = true) {
+    const session = deviceSession; if (!session) return;
+    deviceSession = null; clearTimer(session.timer); session.observer?.disconnect();
+    globalThis.removeEventListener?.('pagehide', session.leave);
+    session.code.value = ''; session.login.user_code = '';
+    session.copy.disabled = true;
+    if (cancel) {
+      session.feedback.textContent = '本次自动登录检查已停止；如需继续，请重新发起登录。';
+      void cancelDevice(session.login);
+    }
+  }
+  function invalidateLogin() { ++loginSequence; stopDevice(); }
   const message = (value, error = false) => {
     if (!current()) return;
     feedback.textContent = value; feedback.className = error ? 'agent-status-warning agent-connections-feedback' : 'hint agent-connections-feedback';
@@ -180,14 +200,16 @@ export function createAgentConnections({ ownsPage }) {
       refresh.children[0].disabled = !connection.enabled; actions.append(refresh);
       actions.append(button('编辑', () => { if (current()) paintEditor(connection); }, 'ghost'),
         helped('查看历史', () => { historyConnection.value = connection.id; historyId.value = ''; return loadHistory(); }, '只读取此连接本地历史，不访问服务商；不同账号与指标分开显示。'));
-      if (connection.auth_type === 'oauth') actions.append(helped('登录 / 重新登录', () => beginLogin(connection), '发起本项目独立 Codex OAuth 登录；会访问授权服务，不覆盖外部客户端登录，不调用 Agent。'));
+      if (connection.auth_type === 'oauth') actions.append(
+        helped('登录 / 重新登录', () => beginDeviceLogin(connection), '显示设备码和 OpenAI 官方授权链接，自动检查授权并保存本项目登录；不改外部客户端凭证，不调用 Agent 或模型。'),
+        helped('备用：回调 URL 登录', () => beginLogin(connection), '设备码不可用时可显式使用浏览器回调登录，需要手动粘贴回调 URL；不自动切换，不调用 Agent 或模型。'));
       actions.append(helped('删除连接', async () => {
         if (!current()) return;
         const accepted = await confirmDialog({ title: '删除账号连接？', message: `将删除“${connection.label}”的项目配置和凭证。`,
           detail: '历史观测保留；外部客户端凭证不变。已有运行中的 invocation 不会热切换账号。', confirmLabel: '删除连接', danger: true,
           confirmHelp: '删除本项目的连接配置及凭证，保留历史观测与外部客户端登录。' });
         if (!accepted || !current()) return;
-        ++version;
+        ++version; if (deviceSession?.login.id === connection.id) invalidateLogin();
         try {
           await post('agent.connections.remove', { id: connection.id }); if (!current()) return;
           if (editId === connection.id) paintEditor();
@@ -200,6 +222,7 @@ export function createAgentConnections({ ownsPage }) {
     cards.replaceChildren(...nodes);
   }
   function paintEditor(connection = null) {
+    invalidateLogin();
     editId = connection?.id || null; editorRevision++;
     editor.querySelector('h2').textContent = connection ? '编辑连接' : '添加连接';
     const form = el('div', undefined, 'agent-connection-form');
@@ -214,7 +237,7 @@ export function createAgentConnections({ ownsPage }) {
     const oauthNote = el('p', 'Codex 使用 OAuth：先保存连接，再点击卡片“登录 / 重新登录”。不接受手动录入 OAuth token。', 'hint');
     form.append(credentialWrap, oauthNote);
     const localFeedback = el('p', undefined, 'hint agent-connection-editor-feedback'); localFeedback.setAttribute('role', 'status');
-    const changed = () => { editorRevision++; };
+    const changed = () => { editorRevision++; invalidateLogin(); };
     for (const input of [label, endpoint, models, key]) input.oninput = changed;
     enabled.onchange = changed;
     const syncAuth = () => { const oauth = provider.value === 'openai-codex'; credentialWrap.hidden = oauth; oauthNote.hidden = !oauth; key.value = ''; };
@@ -245,9 +268,94 @@ export function createAgentConnections({ ownsPage }) {
     }), button('取消编辑', () => { if (current()) paintEditor(); }, 'ghost'));
     editorHost.replaceChildren(form, localFeedback, actions);
   }
+  async function beginDeviceLogin(connection) {
+    if (!loginVisible()) return;
+    invalidateLogin(); ++version;
+    const revision = editorRevision, loginStamp = loginSequence;
+    message('正在获取 Codex 设备码…');
+    let login;
+    try {
+      login = await post('agent.connections.device.start', { id: connection.id });
+      if (!loginVisible() || revision !== editorRevision || loginStamp !== loginSequence) { if (login?.id === connection.id && login.login_id) void cancelDevice(login); return; }
+      if (login.id !== connection.id || typeof login.login_id !== 'string' || !login.login_id || login.login_id.length > 128
+        || login.verification_uri !== 'https://auth.openai.com/codex/device'
+        || typeof login.user_code !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(login.user_code)
+        || !finite(login.interval_seconds) || login.interval_seconds < 1 || login.interval_seconds > 900
+        || !Number.isFinite(Date.parse(login.expires_at)) || Date.parse(login.expires_at) <= now()) throw new Error('invalid device response');
+    } catch {
+      if (login?.id === connection.id && login.login_id) void cancelDevice(login);
+      if (loginVisible() && revision === editorRevision && loginStamp === loginSequence)
+        message('无法获取设备码，请重试或显式选择备用回调登录；未改变已有凭证。', true);
+      return;
+    }
+    editId = connection.id; editorRevision++;
+    editor.querySelector('h2').textContent = 'Codex 设备码登录';
+    const form = el('div', undefined, 'agent-connection-form'), link = el('a', '打开 OpenAI 设备码授权页面');
+    link.href = login.verification_uri; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    link.setAttribute('data-help', '在 OpenAI 官方页面输入下方设备码，完成本人发起的授权；Lush 会自动确认，不需要粘贴回调 URL。');
+    note(form, `登录连接：${connection.label} · 设备码到期：${time(login.expires_at)}`); form.append(link);
+    const code = field(form, '设备码（在官方页面输入）', 'user_code', 'text', login.user_code);
+    code.readOnly = true; code.className = 'agent-device-code'; code.autocomplete = 'off'; code.setAttribute('spellcheck', 'false');
+    note(form, '仅授权自己发起的设备码，不要分享。若服务商要求，请在 ChatGPT 安全设置中启用 Codex 设备码登录。');
+    note(form, '无需回调端口或粘贴 URL；离开此页将停止检查，不在后台继续登录。外部 Pi 登录保持不变，不调用 Agent 或模型。');
+    const loginFeedback = el('p', '等待你在官方页面授权，完成后将自动保存…', 'hint agent-device-feedback'); loginFeedback.setAttribute('role', 'status');
+    const session = { login, code, feedback: loginFeedback, deadline: Math.min(Date.parse(login.expires_at), now() + 15 * 60000),
+      copy: null, timer: null, observer: null, leave: () => stopDevice() }; deviceSession = session;
+    const active = () => deviceSession === session && loginStamp === loginSequence && loginVisible();
+    const end = value => {
+      if (deviceSession !== session) return;
+      const visible = active(); stopDevice();
+      if (visible) { loginFeedback.textContent = value; loginFeedback.setAttribute('role', 'alert'); }
+    };
+    const schedule = seconds => {
+      if (!active()) { stopDevice(); return; }
+      const remaining = Math.min(Date.parse(login.expires_at), session.deadline) - now();
+      if (remaining <= 0) { end('设备码已过期，请重新发起登录。'); return; }
+      session.timer = setTimer(poll, Math.min(seconds * 1000, remaining));
+    };
+    async function poll() {
+      if (!active()) { if (deviceSession === session) stopDevice(); return; }
+      if (Math.min(Date.parse(login.expires_at), session.deadline) <= now()) { end('设备码已过期，请重新发起登录。'); return; }
+      try {
+        const result = await post('agent.connections.device.poll', { id: login.id, login_id: login.login_id });
+        if (!active()) { if (deviceSession === session) stopDevice(); return; }
+        if (result?.id !== login.id || result.login_id !== login.login_id) throw new Error('invalid device response');
+        if (result.status === 'complete' && result.connection?.id === login.id) {
+          stopDevice(false); paintEditor(); const completedStamp = loginSequence;
+          await load(true);
+          if (current() && completedStamp === loginSequence) message('本项目设备码登录已保存，外部客户端登录未改动。');
+          return;
+        }
+        if (result.status !== 'pending' || !finite(result.interval_seconds) || result.interval_seconds < 1 || result.interval_seconds > 900
+          || !Number.isFinite(Date.parse(result.expires_at)) || Date.parse(result.expires_at) > Date.parse(login.expires_at)) throw new Error('invalid device response');
+        login.expires_at = result.expires_at;
+        loginFeedback.textContent = `等待授权；每 ${result.interval_seconds} 秒检查一次，服务限流时会延长间隔。`;
+        schedule(result.interval_seconds);
+      } catch { end('登录检查未完成，可能已过期、被拒绝或网络不可用；请重新登录或显式使用备用回调方式。已有凭证不变。'); }
+    }
+    const actions = el('div', undefined, 'agent-connection-actions');
+    const copyHost = helped('复制设备码', async () => {
+      if (!active()) return;
+      try {
+        if (!globalThis.navigator?.clipboard?.writeText) throw new Error('clipboard unavailable');
+        await globalThis.navigator.clipboard.writeText(code.value);
+        if (active()) loginFeedback.textContent = '设备码已复制；请在官方页面授权，Lush 将自动确认。';
+      } catch { if (active()) { code.focus(); code.select?.(); loginFeedback.textContent = '无法自动复制；请手动选中上方设备码复制。'; } }
+    }, '仅复制当前短期设备码到系统剪贴板，不保存到浏览器；请只在 OpenAI 官方页面输入，不分享。');
+    session.copy = copyHost.children[0];
+    actions.append(copyHost, helped('取消登录', () => { if (active()) { stopDevice(); paintEditor(); message('设备码登录已取消；已有凭证不变。'); } }, '停止自动检查并取消本次设备码登录，不删除已有账号凭证。'));
+    editorHost.replaceChildren(form, loginFeedback, actions);
+    globalThis.addEventListener?.('pagehide', session.leave);
+    if (typeof globalThis.MutationObserver === 'function') {
+      session.observer = new globalThis.MutationObserver(() => { if (!loginVisible()) stopDevice(); });
+      session.observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
+    }
+    message('设备码已获取；请在 OpenAI 官方页面输入短码，授权后自动完成。');
+    schedule(login.interval_seconds);
+  }
   async function beginLogin(connection) {
     if (!current()) return;
-    ++version; const revision = editorRevision, loginStamp = ++loginSequence; message('正在创建独立 OAuth 登录请求…');
+    invalidateLogin(); ++version; const revision = editorRevision, loginStamp = loginSequence; message('正在创建独立 OAuth 登录请求…');
     let login;
     try {
       login = await post('agent.connections.login.start', { id: connection.id }); if (!current() || revision !== editorRevision || loginStamp !== loginSequence) return;
@@ -277,10 +385,11 @@ export function createAgentConnections({ ownsPage }) {
       } catch { loginFeedback.textContent = '回调地址不匹配；请复制本次授权后的完整地址，输入已清空。'; return; }
       finishing = true; ++version; const finishRevision = editorRevision; loginFeedback.textContent = '正在验证并保存本项目登录…';
       try {
-        await post('agent.connections.login.finish', { id: connection.id, login_id: login.login_id, redirect_url }); if (!current()) return;
-        if (finishRevision === editorRevision && loginStamp === loginSequence) paintEditor();
-        await load(true); if (loginStamp === loginSequence) message('本项目登录已保存，外部客户端登录未改动。');
-      } catch { if (current()) { loginFeedback.textContent = '登录未完成；回调输入已清空，请重新发起登录。不会回显授权码或上游错误。'; loginFeedback.setAttribute('role', 'alert'); } }
+        await post('agent.connections.login.finish', { id: connection.id, login_id: login.login_id, redirect_url });
+        if (!current() || finishRevision !== editorRevision || loginStamp !== loginSequence) return;
+        paintEditor(); const completedStamp = loginSequence;
+        await load(true); if (completedStamp === loginSequence) message('本项目登录已保存，外部客户端登录未改动。');
+      } catch { if (current() && finishRevision === editorRevision && loginStamp === loginSequence) { loginFeedback.textContent = '登录未完成；回调输入已清空，请重新发起登录。不会回显授权码或上游错误。'; loginFeedback.setAttribute('role', 'alert'); } }
       finally { finishing = false; }
     }, '仅兑换本次授权码并保存本项目 OAuth 凭证；不会修改外部客户端登录，也不会调用模型。'),
     button('取消登录', () => { if (current()) { callback.value = ''; paintEditor(); } }, 'ghost'));

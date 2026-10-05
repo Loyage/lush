@@ -23,7 +23,9 @@
 
 配置与秘密在项目 `.lush/credentials/agent-connections.json`，目录 0700、文件 0600。这不是静态加密保险箱或 Agent 沙箱；同一系统用户仍可读取，权限无法验证的平台拒绝托管。删除连接不删除旧历史或外部认证。跨目标更换端点需重新录入密钥，不将旧密钥自动发向新服务器。
 
-Codex 登录采用 PKCE：开始登录后打开授权链接，在服务商完成认证，再将最终 `http://localhost:1455/auth/callback?...` URL 粘贴回来。首版不启动本机回调服务器，浏览器可能显示连接失败；复制地址栏的最终 URL 即可。它支持远端 Host，不把浏览器的 localhost 当 daemon 本机。授权状态有时限、一次性使用；刷新只写 Lush 自己的凭证，不覆盖外部客户端。
+Codex 默认设备码登录：先添加并保存 `openai-codex` 连接，再点击卡片“登录 / 重新登录”，复制短设备码，打开 OpenAI 官方授权页面输入该码。完成授权后，Lush 按服务端指定间隔自动确认并保存，无需回调端口或粘贴 URL。设备码最多有效 15 分钟，取消、离开登录面板或更换编辑会停止检查；失败可重新发起。若服务商要求，请在 ChatGPT 安全设置允许 Codex 设备码登录；只授权本人发起的设备码，不要分享。
+
+“备用：回调 URL 登录”保留原 PKCE 流程：打开授权链接，完成认证后将最终 `http://localhost:1455/auth/callback?...` URL 粘贴回来。不启动本机回调服务器，浏览器可能显示连接失败，复制地址栏最终 URL 即可；支持远端 Host。两种方式均有时限、一次性兑换、不自动切换，刷新只写 Lush 自己的凭证，不覆盖外部客户端。
 
 连接页进入只读本地列表和缓存，单项/全部刷新显式联网；后台采样默认关闭。现金余额、Key预算和订阅窗口分开，OpenRouter credits 与 Key预算独立取得，缺少权限不抹掉成功指标。失败/未知不显示成零，旧成功值明确带旧时间。历史按账号与端点来源分段，不把账户余额差归因为 Lush 独占消费。
 
@@ -49,7 +51,10 @@ bun run lush agent set default --connection off
 | `agent.connections.query {id?}` | POST action；省略 ID 刷新 enabled 连接 |
 | `agent.connections.history {id,days?}` | `GET /api/agent/connections/history?id=&days=`，1/7/30/90天 |
 | `agent.connections.login.start {id}` | POST action；返回授权 URL、login_id、截止时间 |
-| `agent.connections.login.finish {id,login_id,redirect_url}` | POST action；校验并一次性兑换回调 |
+| `agent.connections.login.finish {id,login_id,redirect_url}` | POST action；校验并一次性兑换备用回调 |
+| `agent.connections.device.start {id}` | POST action；返回 login_id、官方授权页、用户短码、截止时间和检查间隔 |
+| `agent.connections.device.poll {id,login_id}` | POST action；单次检查，返回 pending 或 complete（公开连接），不返回设备授权 ID 或 token |
+| `agent.connections.device.cancel {id,login_id}` | POST action；幂等取消指定设备码会话，不删除已有凭证 |
 
 完整字段与安全/模块接缝见[账号连接契约](../../engineering/agent-connections.md)。下面是仍保留的旧 Pi状态查询，不会迁移或覆盖已有配置。
 

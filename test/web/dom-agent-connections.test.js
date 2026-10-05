@@ -41,6 +41,10 @@ const dom = installDom({ fetch: async (url, options) => {
       }
       if (action.method === 'agent.connections.remove') { data.connections = data.connections.filter(entry => entry.id !== action.params.id); return json({ removed: action.params.id }); }
       if (action.method === 'agent.connections.sampling') { data.sampling = action.params.sampling; return json(data.sampling); }
+      if (action.method === 'agent.connections.device.start') return json({ id: action.params.id, login_id: 'device-1',
+        verification_uri: 'https://auth.openai.com/codex/device', user_code: 'ABCD-EFGH', interval_seconds: 5, expires_at: new Date(Date.now() + 10 * 60000).toISOString() });
+      if (action.method === 'agent.connections.device.poll') return json({ ...action.params, status: 'pending', interval_seconds: 5, expires_at: new Date(Date.now() + 10 * 60000).toISOString() });
+      if (action.method === 'agent.connections.device.cancel') return json({ ...action.params, status: 'cancelled' });
       if (action.method === 'agent.connections.login.start') return json({ id: action.params.id, login_id: 'login-1', url: 'https://auth.openai.com/oauth/authorize?state=SAFE',
         redirect_uri: 'http://localhost:1455/auth/callback', expires_at: '2099-10-01T09:00:00.000Z', instructions: 'paste callback' });
       if (action.method === 'agent.connections.login.finish') return json(connection({ id: action.params.id, provider: 'openai-codex', auth_type: 'oauth' }));
@@ -61,7 +65,19 @@ const field = (root, key) => root.querySelector(`[data-connection-field="${key}"
 const btn = (root, label) => root.querySelectorAll('button').find(node => node.textContent === label);
 const card = (panel, id = data.connections[0].id) => panel.node.querySelector(`[data-connection-id="${id}"]`);
 const change = (input, value) => { input.value = value; input.oninput?.(); };
-async function panel() { const value = createAgentConnections({ ownsPage: () => current }); await value.load(); return value; }
+async function panel(options = {}) { const value = createAgentConnections({ ownsPage: () => current, ...options }); await value.load(); return value; }
+function deviceClock() {
+  let now = Date.now(), id = 0; const timers = new Map();
+  return { timers, now: () => now,
+    setTimeout: (fn, ms) => { timers.set(++id, { fn, ms }); return id; }, clearTimeout: key => timers.delete(key),
+    advance: ms => { now += ms; },
+    tick: async () => { const [key, timer] = timers.entries().next().value; timers.delete(key); now += timer.ms; await timer.fn(); },
+    login: (values = {}) => ({ id: data.connections[2].id, login_id: 'device-1', verification_uri: 'https://auth.openai.com/codex/device',
+      user_code: 'ABCD-EFGH', interval_seconds: 5, expires_at: new Date(now + 15 * 60000).toISOString(), ...values }),
+  };
+}
+const actionOf = entry => entry.url === '/api/action' ? JSON.parse(entry.options.body) : null;
+const deviceRequests = method => requests.map(actionOf).filter(action => action?.method === `agent.connections.device.${method}`);
 
 test('连接页进入只读本地列表，多账号不按服务商合并，资源和实际消费者分开显示', async () => {
   const p = await panel();
@@ -189,8 +205,8 @@ test('历史只读缓存，账号/范围切换拒绝迟到结果且各series独�
   await p.loadHistory(); expect(p.node.querySelectorAll('svg')).toHaveLength(2); expect(deepText(p.node)).toContain('历史已截断');
 });
 
-test('OAuth采用官方安全链接和手动回调，秘密提交后清空，错误不回显授权码', async () => {
-  const p = await panel(), codex = data.connections[2]; await btn(card(p, codex.id), '登录 / 重新登录').onclick();
+test('备用OAuth采用官方安全链接和手动回调，秘密提交后清空，错误不回显授权码', async () => {
+  const p = await panel(), codex = data.connections[2]; await btn(card(p, codex.id), '备用：回调 URL 登录').onclick();
   const link = p.node.querySelector('.agent-connection-form').querySelector('a');
   expect(link.href).toStartWith('https://auth.openai.com/oauth/authorize'); expect(link.rel).toBe('noopener noreferrer'); expect(link.target).toBe('_blank');
   const callback = field(p.node, 'redirect_url'); expect(callback.type).toBe('password');
@@ -205,12 +221,189 @@ test('OAuth采用官方安全链接和手动回调，秘密提交后清空，错
 test('OAuth拒绝非官方链接且迟到登录不能覆盖用户新编辑', async () => {
   const p = await panel(), codex = data.connections[2];
   intercept = (url, opts) => url === '/api/action' && JSON.parse(opts.body).method === 'agent.connections.login.start' ? json({ id: codex.id, login_id: 'bad', url: 'javascript:evil()', redirect_uri: 'http://localhost:1455/auth/callback', expires_at: '2099-10-01T00:00:00Z' }) : undefined;
-  await btn(card(p, codex.id), '登录 / 重新登录').onclick(); expect(field(p.node, 'redirect_url')).toBeNull();
+  await btn(card(p, codex.id), '备用：回调 URL 登录').onclick(); expect(field(p.node, 'redirect_url')).toBeNull();
   expect(deepText(p.node)).toContain('无法创建安全登录请求');
   const delayed = deferred(); intercept = (url, opts) => url === '/api/action' && JSON.parse(opts.body).method === 'agent.connections.login.start' ? delayed.promise : undefined;
-  const login = btn(card(p, codex.id), '登录 / 重新登录').onclick(); change(field(p.node, 'label'), '新的编辑');
+  const login = btn(card(p, codex.id), '备用：回调 URL 登录').onclick(); change(field(p.node, 'label'), '新的编辑');
   delayed.resolve(json({ id: codex.id, login_id: 'late', url: 'https://auth.openai.com/oauth/authorize?state=x', redirect_uri: 'http://localhost:1455/auth/callback', expires_at: '2099-10-01T00:00:00Z' })); await login;
   expect(field(p.node, 'label').value).toBe('新的编辑'); expect(field(p.node, 'redirect_url')).toBeNull();
+});
+
+test('设备码默认入口只展示官方链接与短码，按间隔自动等待、退避和完成', async () => {
+  const clock = deviceClock(), p = await panel(clock), codex = data.connections[2], login = clock.login();
+  let polls = 0;
+  intercept = (url, opts) => {
+    if (url !== '/api/action') return;
+    const action = JSON.parse(opts.body);
+    if (action.method === 'agent.connections.device.start') return json(login);
+    if (action.method === 'agent.connections.device.poll') return json(++polls === 1
+      ? { id: login.id, login_id: login.login_id, status: 'pending', interval_seconds: 10, expires_at: login.expires_at }
+      : { id: login.id, login_id: login.login_id, status: 'complete', connection: codex });
+  };
+  await btn(card(p, codex.id), '登录 / 重新登录').onclick();
+  const code = field(p.node, 'user_code'), link = p.node.querySelector('.agent-connection-form').querySelector('a');
+  expect(code.value).toBe('ABCD-EFGH'); expect(code.readOnly).toBe(true); expect(field(p.node, 'redirect_url')).toBeNull();
+  expect(link.href).toBe('https://auth.openai.com/codex/device'); expect(link.rel).toBe('noopener noreferrer'); expect(link.target).toBe('_blank');
+  expect(deepText(p.node)).toContain('ChatGPT 安全设置'); expect(deepText(p.node)).toContain('不要分享');
+  expect(p.node.querySelectorAll('.agent-call')).toHaveLength(0); expect(btn(p.node, '复制设备码').getAttribute('data-help')).toContain('不保存到浏览器');
+  expect(deviceRequests('poll')).toHaveLength(0); expect([...clock.timers.values()][0].ms).toBe(5000);
+  await clock.tick(); expect(deviceRequests('poll')).toHaveLength(1); expect([...clock.timers.values()][0].ms).toBe(10000);
+  expect(deepText(p.node)).toContain('每 10 秒'); await clock.tick();
+  expect(code.value).toBe(''); expect(field(p.node, 'user_code')).toBeNull(); expect(clock.timers.size).toBe(0);
+  expect(deviceRequests('cancel')).toHaveLength(0); expect(deepText(p.node)).toContain('设备码登录已保存');
+  expect(requests.filter(entry => entry.url === '/api/agent/connections')).toHaveLength(2);
+});
+
+test('取消设备码清空短码与定时器，备用回调仍需显式选择', async () => {
+  const clock = deviceClock(), p = await panel(clock), codex = data.connections[2];
+  await btn(card(p, codex.id), '登录 / 重新登录').onclick(); const code = field(p.node, 'user_code');
+  await btn(p.node, '取消登录').onclick(); expect(code.value).toBe(''); expect(clock.timers.size).toBe(0);
+  expect(deviceRequests('cancel').at(-1).params).toEqual({ id: codex.id, login_id: 'device-1' }); expect(deviceRequests('poll')).toHaveLength(0);
+  await btn(card(p, codex.id), '登录 / 重新登录').onclick();
+  await btn(card(p, codex.id), '备用：回调 URL 登录').onclick();
+  expect(clock.timers.size).toBe(0); expect(field(p.node, 'user_code')).toBeNull(); expect(field(p.node, 'redirect_url')).not.toBeNull();
+  expect(deviceRequests('cancel')).toHaveLength(2);
+});
+
+test('编辑变更与迟到设备码开始响应取消旧会话，不覆盖草稿', async () => {
+  const clock = deviceClock(), p = await panel(clock), codex = data.connections[2], pending = deferred();
+  intercept = (url, opts) => url === '/api/action' && JSON.parse(opts.body).method === 'agent.connections.device.start' ? pending.promise : undefined;
+  const started = btn(card(p, codex.id), '登录 / 重新登录').onclick(); change(field(p.node, 'label'), '继续编辑');
+  pending.resolve(json(clock.login())); await started;
+  expect(field(p.node, 'label').value).toBe('继续编辑'); expect(field(p.node, 'user_code')).toBeNull(); expect(clock.timers.size).toBe(0);
+  expect(deviceRequests('cancel')).toHaveLength(1);
+  intercept = null; await btn(card(p, codex.id), '登录 / 重新登录').onclick();
+  await btn(card(p), '编辑').onclick(); expect(clock.timers.size).toBe(0); expect(deviceRequests('cancel')).toHaveLength(2);
+});
+
+test('新登录已显示后，旧start迟到仅取消自己的login_id，不清除新设备码', async () => {
+  const clock = deviceClock(), p = await panel(clock), codex = data.connections[2], old = deferred(); let starts = 0;
+  intercept = (url, opts) => {
+    if (url !== '/api/action' || JSON.parse(opts.body).method !== 'agent.connections.device.start') return;
+    return ++starts === 1 ? old.promise : json(clock.login({ login_id: 'device-new', user_code: 'NEW-CODE' }));
+  };
+  const first = btn(card(p, codex.id), '登录 / 重新登录').onclick();
+  await btn(card(p, codex.id), '登录 / 重新登录').onclick();
+  old.resolve(json(clock.login({ login_id: 'device-old', user_code: 'OLD-CODE' }))); await first;
+  expect(field(p.node, 'user_code').value).toBe('NEW-CODE'); expect(clock.timers.size).toBe(1);
+  expect(deviceRequests('cancel').map(action => action.params.login_id)).toEqual(['device-old']);
+  await btn(p.node, '取消登录').onclick(); expect(clock.timers.size).toBe(0);
+  expect(deviceRequests('cancel').map(action => action.params.login_id)).toEqual(['device-old', 'device-new']);
+});
+
+test('离页或隐藏连接页签后不再poll，清除码并取消会话', async () => {
+  for (const hide of [false, true]) {
+    const clock = deviceClock(), p = await panel(clock), codex = data.connections[2]; current = true;
+    await btn(card(p, codex.id), '登录 / 重新登录').onclick(); const code = field(p.node, 'user_code');
+    if (hide) { const host = dom.document.createElement('div'); host.append(p.node); host.hidden = true; } else current = false;
+    const previous = deviceRequests('poll').length; await clock.tick();
+    expect(deviceRequests('poll')).toHaveLength(previous); expect(code.value).toBe(''); expect(clock.timers.size).toBe(0);
+    current = true;
+  }
+  expect(deviceRequests('cancel')).toHaveLength(2);
+});
+
+test('页面关闭会立即停止计时器并取消设备码登录', async () => {
+  const clock = deviceClock(), p = await panel(clock); await btn(card(p, data.connections[2].id), '登录 / 重新登录').onclick();
+  await dom.fire('pagehide'); expect(clock.timers.size).toBe(0); expect(field(p.node, 'user_code').value).toBe('');
+  expect(deviceRequests('cancel')).toHaveLength(1);
+});
+
+test('DOM隐藏观察器立即取消计时器，并在停止后断开监听', async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'MutationObserver'), clock = deviceClock();
+  let changed, disconnected = false, observed;
+  try {
+    Object.defineProperty(globalThis, 'MutationObserver', { configurable: true, value: class {
+      constructor(fn) { changed = fn; } observe(target, options) { observed = { target, options }; } disconnect() { disconnected = true; }
+    } });
+    const p = await panel(clock), host = dom.document.createElement('div'); host.append(p.node);
+    await btn(card(p, data.connections[2].id), '登录 / 重新登录').onclick();
+    expect(observed.target).toBe(dom.document.body); expect(observed.options.attributeFilter).toEqual(['hidden']);
+    host.hidden = true; changed(); expect(clock.timers.size).toBe(0); expect(disconnected).toBe(true);
+    expect(deviceRequests('cancel')).toHaveLength(1); expect(btn(p.node, '复制设备码').disabled).toBe(true);
+  } finally { if (descriptor) Object.defineProperty(globalThis, 'MutationObserver', descriptor); else delete globalThis.MutationObserver; }
+});
+
+test('离页后设备poll迟到成功不读取列表或改变画布', async () => {
+  const clock = deviceClock(), p = await panel(clock), codex = data.connections[2], pending = deferred();
+  await btn(card(p, codex.id), '登录 / 重新登录').onclick();
+  intercept = (url, opts) => url === '/api/action' && JSON.parse(opts.body).method === 'agent.connections.device.poll' ? pending.promise : undefined;
+  const polling = clock.tick(); current = false;
+  pending.resolve(json({ id: codex.id, login_id: 'device-1', status: 'complete', connection: codex })); await polling;
+  expect(field(p.node, 'user_code').value).toBe(''); expect(clock.timers.size).toBe(0);
+  expect(requests.filter(entry => entry.url === '/api/agent/connections')).toHaveLength(1);
+  expect(deepText(p.node)).not.toContain('设备码登录已保存'); expect(deviceRequests('cancel')).toHaveLength(1);
+});
+
+test('新设备码登录不被旧poll迟到成功覆盖，旧完成不取消新会话', async () => {
+  const clock = deviceClock(), p = await panel(clock), codex = data.connections[2], old = deferred(); let starts = 0;
+  intercept = (url, opts) => {
+    if (url !== '/api/action') return;
+    const action = JSON.parse(opts.body);
+    if (action.method === 'agent.connections.device.start') return json(clock.login({ login_id: `device-${++starts}`, user_code: `CODE-${starts}` }));
+    if (action.method === 'agent.connections.device.poll') return old.promise;
+  };
+  await btn(card(p, codex.id), '登录 / 重新登录').onclick(); const pending = clock.tick();
+  await btn(card(p, codex.id), '登录 / 重新登录').onclick();
+  old.resolve(json({ id: codex.id, login_id: 'device-1', status: 'complete', connection: codex })); await pending;
+  expect(field(p.node, 'user_code').value).toBe('CODE-2'); expect(clock.timers.size).toBe(1);
+  expect(deviceRequests('cancel').map(action => action.params.login_id)).toEqual(['device-1']);
+  expect(requests.filter(entry => entry.url === '/api/agent/connections')).toHaveLength(1);
+  await btn(p.node, '取消登录').onclick();
+});
+
+test('设备码到期不再联网；失败不回显上游秘密且不自动回退登录', async () => {
+  const clock = deviceClock(), p = await panel(clock), codex = data.connections[2];
+  intercept = (url, opts) => url === '/api/action' && JSON.parse(opts.body).method === 'agent.connections.device.start' ? json(clock.login({ expires_at: new Date(clock.now() + 2000).toISOString() })) : undefined;
+  await btn(card(p, codex.id), '登录 / 重新登录').onclick(); expect([...clock.timers.values()][0].ms).toBe(2000);
+  await clock.tick(); expect(deviceRequests('poll')).toHaveLength(0); expect(deepText(p.node)).toContain('设备码已过期'); expect(clock.timers.size).toBe(0);
+  intercept = null; await btn(card(p, codex.id), '登录 / 重新登录').onclick();
+  intercept = (url, opts) => url === '/api/action' && JSON.parse(opts.body).method === 'agent.connections.device.poll' ? fail('RAW-PRIVATE-DEVICE-TOKEN') : undefined;
+  await clock.tick(); expect(field(p.node, 'user_code').value).toBe(''); expect(clock.timers.size).toBe(0);
+  expect(deepText(p.node)).toContain('登录检查未完成'); expect(deepText(p.node)).not.toContain('RAW-PRIVATE-DEVICE-TOKEN');
+  expect(requests.map(actionOf).some(action => action?.method === 'agent.connections.login.start')).toBe(false);
+});
+
+test('浏览器检查最多持续15分钟，不因远端时钟偏差无限续期', async () => {
+  const clock = deviceClock(), p = await panel(clock), codex = data.connections[2];
+  intercept = (url, opts) => url === '/api/action' && JSON.parse(opts.body).method === 'agent.connections.device.start'
+    ? json(clock.login({ expires_at: '2099-10-01T09:00:00.000Z' })) : undefined;
+  await btn(card(p, codex.id), '登录 / 重新登录').onclick(); clock.advance(15 * 60000); await clock.tick();
+  expect(deviceRequests('poll')).toHaveLength(0); expect(clock.timers.size).toBe(0); expect(deepText(p.node)).toContain('设备码已过期');
+});
+
+test('设备码开始拒绝非官方链接、过期或无效间隔并安全取消', async () => {
+  const clock = deviceClock(), p = await panel(clock), codex = data.connections[2];
+  for (const values of [{ verification_uri: 'https://evil.invalid/device' }, { verification_uri: 'javascript:evil()' }, { interval_seconds: 0 },
+    { interval_seconds: Infinity }, { user_code: '<img>' }, { expires_at: new Date(clock.now() - 1).toISOString() }]) {
+    intercept = (url, opts) => url === '/api/action' && JSON.parse(opts.body).method === 'agent.connections.device.start' ? json(clock.login(values)) : undefined;
+    await btn(card(p, codex.id), '登录 / 重新登录').onclick();
+    expect(field(p.node, 'user_code')).toBeNull(); expect(clock.timers.size).toBe(0); expect(deepText(p.node)).toContain('无法获取设备码');
+  }
+  expect(deviceRequests('cancel')).toHaveLength(6); expect(p.node.querySelectorAll('img')).toHaveLength(0);
+});
+
+test('设备码poll拒绝会话错配或过小间隔，不展示原始错误', async () => {
+  const clock = deviceClock(), p = await panel(clock), codex = data.connections[2];
+  for (const values of [{ login_id: 'wrong' }, { interval_seconds: 0 }]) {
+    intercept = null; await btn(card(p, codex.id), '登录 / 重新登录').onclick();
+    intercept = (url, opts) => url === '/api/action' && JSON.parse(opts.body).method === 'agent.connections.device.poll'
+      ? json({ id: codex.id, login_id: 'device-1', status: 'pending', interval_seconds: 5, expires_at: new Date(clock.now() + 1000).toISOString(), ...values }) : undefined;
+    await clock.tick(); expect(clock.timers.size).toBe(0); expect(field(p.node, 'user_code').value).toBe('');
+  }
+});
+
+test('设备码可复制，剪贴板失败提供手动选码，不浏览器持久化', async () => {
+  const clock = deviceClock(), p = await panel(clock), descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator'); let copied;
+  try {
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText: async value => { copied = value; } } } });
+    await btn(card(p, data.connections[2].id), '登录 / 重新登录').onclick();
+    await btn(p.node, '复制设备码').onclick(); expect(copied).toBe('ABCD-EFGH'); expect(deepText(p.node)).toContain('设备码已复制');
+    globalThis.navigator.clipboard.writeText = async () => { throw new Error('PRIVATE-CLIPBOARD'); };
+    await btn(p.node, '复制设备码').onclick(); expect(deepText(p.node)).toContain('请手动选中'); expect(dom.document.activeElement).toBe(field(p.node, 'user_code'));
+    expect(deepText(p.node)).not.toContain('PRIVATE-CLIPBOARD'); expect(globalThis.localStorage.getItem('user_code')).toBeNull();
+    await btn(p.node, '取消登录').onclick();
+  } finally { if (descriptor) Object.defineProperty(globalThis, 'navigator', descriptor); else delete globalThis.navigator; }
 });
 
 test('Agent管理接入独立tab，切换保留草稿且只在首次进入读取本地连接', async () => {

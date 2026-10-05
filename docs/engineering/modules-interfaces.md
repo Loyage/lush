@@ -95,6 +95,7 @@
 | 执行详情代码阅读 | `test/workspaces/code-reader.test.js`（真实临时 Git 工作区、基线/净变化、ignored/链接/外部程序/大文件/历史降级、受阻路径明确失败、长转义路径的字节分页及真实 RPC 帧预算）、`test/workspaces/code-posix.test.js`（真实 openat/readlinkat、换链竞态、FD 回收/CLOEXEC 与 Darwin loader 契约）、`test/web/code-reader-api.test.js`（用户权限、窄参数、认证、Origin、多项目路由） |
 | 执行过程阅读 | `test/transcript*.test.js`、`test/web/{transcript-reader,dom-transcript-reader,dom-transcript-view,dom-results}.test.js` |
 | Agent 状态 | `test/agent/{status,usage-query,usage-settings,codex-usage-parsing,usage-auth-codex}.test.js`（fake Pi SDK、密钥命令不执行、脱敏身份、内置/HTTP mock 查询、独立Codex刷新/锁/写回和安全设置）、`test/project/{agent-usage,agent-usage-provider,codex-usage-history}.test.js`（存储/定时采样/热更新/有界历史/联调）、`test/web/{agent-status-api,agent-usage-api,dom-agent-status,dom-agent-usage}.test.js`（用户鉴权/项目路由、配置表单/缓存曲线/异步状态） |
+| 托管账号连接与设备码登录 | `test/agent/connections{,-device}.test.js`（固定协议、一次兑换、间隔/限流、取消与迟到防护）、`test/project/agent-connections-manager.test.js`（真实私有文件与项目准入）、`test/web/{agent-connections-api,codex-device-login-flow,dom-agent-connections}.test.js`（权限/安全投影、真实 HTTP→RPC→Manager 联调、页面自动确认与离页清理）；上游均 mock，不读取真实账号 |
 | 运行设置与 Agent | `test/runtime-settings.test.js`、`test/config*.test.js`、`test/agent-settings.test.js`、`test/soft-budget.test.js` |
 | 本地性能报告契约 | `test/read-performance.test.js`（参数 / 统计 / 原样本预算 / 输出不覆盖 / Git 身份与降级；不在通用套件重复运行大规模测量） |
 | 测试环境隔离 | `test/helpers.test.js`（子进程 HOME/XDG 与全局/系统 Git 配置隔离、合成 hook/签名/环境污染及退出回收；生产 Git 环境不变） |

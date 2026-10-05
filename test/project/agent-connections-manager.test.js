@@ -121,6 +121,42 @@ test('real OAuth login and coordinated refresh retain same-account history and a
   } finally { await f.close(); }
 });
 
+test('real device login actions save once behind project write admission without querying or audit secrets', async () => {
+  const requests=[];const f=setup(async (url,init)=>{
+    requests.push({url,init});
+    if(url.endsWith('/usercode'))return Response.json({device_auth_id:'private-device',user_code:'ABCD-EFGH',interval:5});
+    if(url.endsWith('/deviceauth/token'))return Response.json({authorization_code:'private-code',code_verifier:'private-verifier'});
+    return Response.json(tokens());
+  });
+  try {
+    const row=await f.service.save(configuration('openai-codex'));
+    f.project.clearing=true;await expect(f.service.deviceStart(row.id)).rejects.toThrow('clear is in progress');expect(requests).toHaveLength(0);f.project.clearing=false;
+    const started=await f.project.startConnectionDeviceLogin(row.id);expect(started.user_code).toBe('ABCD-EFGH');expect(requests).toHaveLength(1);
+    expect((await f.project.pollConnectionDeviceLogin(row.id,started.login_id)).status).toBe('pending');expect(requests).toHaveLength(1);
+    f.advance(5000);const complete=await f.project.pollConnectionDeviceLogin(row.id,started.login_id);expect(complete.status).toBe('complete');
+    const state=f.service.snapshot(row.id).state.revision;
+    expect(await f.service.devicePoll(row.id,started.login_id)).toEqual(complete);expect(f.service.snapshot(row.id).state.revision).toBe(state);
+    expect(requests.map(r=>r.url)).toEqual(['https://auth.openai.com/api/accounts/deviceauth/usercode','https://auth.openai.com/api/accounts/deviceauth/token','https://auth.openai.com/oauth/token']);
+    expect(f.service.list().connections[0].credential.status).toBe('configured');expect(count(f)).toBe(0);
+    expect(f.store.get('SELECT COUNT(*) AS n FROM events').n).toBe(0);noSecrets(complete);noSecrets(f.service.list());
+    expect(await f.project.cancelConnectionDeviceLogin(row.id,started.login_id)).toEqual({id:row.id,login_id:started.login_id,status:'cancelled'});
+  } finally {f.project.clearing=false;await f.close();}
+});
+
+test('real device stop aborts pending authorization without leaving project writes or saving credentials',async()=>{
+  const entered=gate();let aborted=false;
+  const f=setup(async(url,init)=>{
+    if(url.endsWith('/usercode'))return Response.json({device_auth_id:'private-device',user_code:'ABCD-EFGH',interval:5});
+    entered.resolve();return new Promise((_,reject)=>init.signal.addEventListener('abort',()=>{aborted=true;reject(new Error('private-device'));},{once:true}));
+  });
+  try {
+    const row=await f.service.save(configuration('openai-codex')),login=await f.service.deviceStart(row.id);f.advance(5000);
+    const result=f.service.devicePoll(row.id,login.login_id).then(value=>({value}),error=>({error}));await entered.promise;
+    await f.project.shutdown();expect(aborted).toBe(true);expect((await result).error.message).not.toContain('private-device');
+    expect(f.project.writing).toBe(0);expect(f.service.pending.size).toBe(0);expect(f.service.manager.devices.sessions.size).toBe(0);
+  } finally {await f.close();}
+});
+
 test('real Manager shutdown cancels a pending request before project Store closes', async () => {
   const entered = gate(); let aborted = false;
   const f = setup(async (_url, init) => {

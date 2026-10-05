@@ -5,6 +5,7 @@ import { DEFAULT_ENDPOINTS, digest, secret, fields, validId, normalizeConnection
   requestJson, fail, safeCode, unavailable } from './connections-utils.js';
 import { queryConnection } from './connections-query.js';
 import { authorization, callbackCode, REDIRECT_URI, exchange, refresh } from './connections-oauth.js';
+import { ConnectionDeviceLogins } from './connections-device.js';
 
 function publicConnection(row, now) {
   const { revision, credential, ...connection } = row;
@@ -26,6 +27,7 @@ export class ConnectionManager {
     check(typeof config?.home === 'string' && config.home.length > 0, 'connection home is required');
     this.file = new ConnectionFile(config.home); this.options = options; this.now = options.now || Date.now;
     this.logins = new Map(); this.flights = new Map(); this.pending = new Set();
+    this.devices = new ConnectionDeviceLogins(this, publicConnection);
     this.controller = new AbortController(); this.closed = false;
   }
   _alive() { if (this.closed) fail('stopped'); }
@@ -39,9 +41,10 @@ export class ConnectionManager {
     const pending = Promise.resolve().then(fn).finally(() => this.pending.delete(pending));
     this.pending.add(pending); return pending;
   }
-  _request(url, init) {
+  _request(url, init, options = {}) {
     this._alive();
-    return requestJson(url, init, { ...this.options, signal: this.controller.signal });
+    const signal = options.signal ? AbortSignal.any([this.controller.signal, options.signal]) : this.controller.signal;
+    return requestJson(url, init, { ...this.options, ...options, signal });
   }
   config() {
     const data = this.file.read();
@@ -88,7 +91,10 @@ export class ConnectionManager {
     this._alive(); const normalized = normalizeSampling(sampling);
     this.file.transaction(data => { data.sampling = normalized; }); return normalized;
   }
-  _cancelLogins(id) { for (const [key,value] of this.logins) if (value.id === id) this.logins.delete(key); }
+  _cancelLogins(id) {
+    for (const [key,value] of this.logins) if (value.id === id) this.logins.delete(key);
+    this.devices.cancelFor(id);
+  }
   _purgeLogins() { for (const [key,value] of this.logins) if (value.expires <= this.now()) this.logins.delete(key); }
   _publish(id, revision, credential) {
     this._alive();
@@ -162,6 +168,9 @@ export class ConnectionManager {
       return { id, ...binding, observation };
     });
   }
+  deviceStart(id) { return this.devices.start(id); }
+  devicePoll(id, login_id) { return this.devices.poll(id, login_id); }
+  deviceCancel(id, login_id) { return this.devices.cancel(id, login_id); }
   loginStart(id) {
     this._alive(); const row = this._row(id);
     check(row.auth_type === 'oauth' && row.provider === 'openai-codex', 'connection does not support OAuth login');
@@ -175,17 +184,21 @@ export class ConnectionManager {
     return this._track(async () => {
       check(validId(login_id), 'login id is invalid');
       const login = this.logins.get(login_id);
-      if (!login || login.id !== id || login.expires <= this.now()) { this._purgeLogins(); fail('login_expired'); }
+      if (!login || login.id !== id || login.exchanging || login.expires <= this.now()) { this._purgeLogins(); fail('login_expired'); }
       const row = this._row(id); if (digest(row) !== login.revision) fail('auth_changed');
       const code = callbackCode(redirect_url, login.state);
-      // Consume before await. Network failure requires a new login, never a second token exchange.
-      this.logins.delete(login_id);
-      const credential = await exchange(code, login.verifier, (url,init) => this._request(url,init), this.now);
-      return publicConnection(this._publish(id, digest(row), credential), this.now());
+      // Consume before await, but retain the guard so a newer device/browser
+      // login can invalidate an exchange already in flight.
+      login.exchanging = true;
+      try {
+        const credential = await exchange(code, login.verifier, (url,init) => this._request(url,init), this.now);
+        if (this.logins.get(login_id) !== login || login.expires <= this.now()) fail('login_expired');
+        return publicConnection(this._publish(id, digest(row), credential), this.now());
+      } finally { if (this.logins.get(login_id) === login) this.logins.delete(login_id); }
     });
   }
   async stop() {
-    this.closed = true; this.logins.clear(); this.controller.abort();
+    this.closed = true; this.logins.clear(); this.devices.stop(); this.controller.abort();
     await Promise.allSettled([...this.pending]);
   }
 }

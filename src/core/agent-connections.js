@@ -265,6 +265,46 @@ export class AgentConnectionsService {
       return { recorded };
     }));
   }
+  deviceStart(id) {
+    check(validConnectionId(id), 'invalid connection id');
+    return this.operation('start connection device login', async () => {
+      const result = await this.getManager().deviceStart(id);
+      check(result.id === id && validConnectionId(result.login_id)
+        && result.verification_uri === 'https://auth.openai.com/codex/device'
+        && typeof result.user_code === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(result.user_code), 'invalid device login response');
+      const pending = this.devicePending(id, result.login_id, result);
+      return { id, login_id: result.login_id, verification_uri: result.verification_uri, user_code: result.user_code,
+        expires_at: pending.expires_at, interval_seconds: pending.interval_seconds };
+    });
+  }
+  devicePending(id, login_id, result) {
+    const expires = typeof result.expires_at === 'string' ? Date.parse(result.expires_at) : NaN;
+    check(Number.isFinite(expires) && expires > this.now() && expires <= this.now() + 15 * 60000
+      && Number.isFinite(result.interval_seconds) && result.interval_seconds >= 1 && result.interval_seconds <= 300, 'invalid device login timing');
+    return { id, login_id, status: 'pending', interval_seconds: result.interval_seconds, expires_at: new Date(expires).toISOString() };
+  }
+  devicePoll(id, login_id) {
+    check(validConnectionId(id) && validConnectionId(login_id), 'invalid device login');
+    return this.operation('poll connection device login', async () => {
+      const result = await this.getManager().devicePoll(id, login_id);
+      check(result.id === id && result.login_id === login_id, 'invalid device login response');
+      if (result.status === 'pending') return this.devicePending(id, login_id, result);
+      check(result.status === 'complete', 'invalid device login status');
+      const connection = publicConnection(result.connection);
+      check(connection.id === id, 'invalid device login connection');
+      // snapshot tracks the new account/config once; repeated completion reads
+      // must not repeatedly rotate the persisted cache namespace.
+      this.snapshot(id);
+      return { id, login_id, status: 'complete', connection };
+    });
+  }
+  deviceCancel(id, login_id) {
+    check(validConnectionId(id) && validConnectionId(login_id), 'invalid device login');
+    return this.operation('cancel connection device login', async () => {
+      await this.getManager().deviceCancel(id, login_id);
+      return { id, login_id, status: 'cancelled' };
+    });
+  }
   loginStart(id) {
     check(validConnectionId(id), 'invalid connection id');
     return this.operation('start connection login', async () => {

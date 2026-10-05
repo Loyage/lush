@@ -15,9 +15,11 @@ const methods={
   'agent.connections.list':[], 'agent.connections.save':['connection','credential'], 'agent.connections.remove':['id'],
   'agent.connections.sampling':['sampling'], 'agent.connections.query':['id'], 'agent.connections.history':['id','days'],
   'agent.connections.login.start':['id'], 'agent.connections.login.finish':['id','login_id','redirect_url'],
+  'agent.connections.device.start':['id'], 'agent.connections.device.poll':['id','login_id'], 'agent.connections.device.cancel':['id','login_id'],
 };
 
 test('connection RPC surface is narrow and entirely user-only, with no secret read or passive write methods',()=>{
+  expect(Object.keys(PARAMS).filter(method=>method.startsWith('agent.connections.')).sort()).toEqual(Object.keys(methods).sort());
   for(const [method,params] of Object.entries(methods)){
     expect(PARAMS[method]).toEqual(params);expect(USER_ONLY.has(method)).toBe(true);
     expect(assertAllowed(method,{},null)).toBeNull();
@@ -83,6 +85,33 @@ test('connection login actions preserve URL metadata but never callback codes or
   } finally {await f.close();}
 });
 
+test('device actions return only safe projections, require user approval and preserve no-store/Origin protections',async()=>{
+  const f=await setup(),manager=new ManagerStub([connection({provider:'openai-codex',auth_type:'oauth',endpoint:'https://chatgpt.com/backend-api'})]);
+  const {service}=install(f,{manager}); let completed=false;
+  manager.deviceStart=id=>({id,login_id:'test-device',verification_uri:'https://auth.openai.com/codex/device',user_code:'ABCD-EFGH',expires_at:new Date(service.now()+900000).toISOString(),interval_seconds:5,device_auth_id:'SECRET-DEVICE'});
+  manager.devicePoll=(id,login_id)=>completed ? {id,login_id,status:'complete',connection:{...manager.connections[0],access:'SECRET-TOKEN'},authorization_code:'SECRET-CODE'}
+    : {id,login_id,status:'pending',expires_at:new Date(service.now()+900000).toISOString(),interval_seconds:5,device_auth_id:'SECRET-DEVICE'};
+  manager.deviceCancel=()=>({status:'cancelled',user_code:'SECRET-DEVICE'});
+  try {
+    const started=await action(f.url,'agent.connections.device.start',{id:'conn-one'});expect(started.status).toBe(200);expect(started.headers.get('cache-control')).toBe('no-store');
+    const start=await started.json();expect(start.user_code).toBe('ABCD-EFGH');expect(JSON.stringify(start)).not.toContain('SECRET');
+    const pending=await action(f.url,'agent.connections.device.poll',{id:'conn-one',login_id:'test-device'});expect(pending.status).toBe(200);
+    const waiting=await pending.json();expect(waiting.status).toBe('pending');expect(JSON.stringify(waiting)).not.toContain('SECRET');
+    completed=true;const complete=await action(f.url,'agent.connections.device.poll',{id:'conn-one',login_id:'test-device'});expect(complete.status).toBe(200);
+    const result=await complete.json();expect(result.status).toBe('complete');expect(result.connection.id).toBe('conn-one');expect(JSON.stringify(result)).not.toContain('SECRET');
+    const cancelled=await action(f.url,'agent.connections.device.cancel',{id:'conn-one',login_id:'test-device'});expect(cancelled.status).toBe(200);
+    expect(await cancelled.json()).toEqual({id:'conn-one',login_id:'test-device',status:'cancelled'});
+    expect((await action(f.url,'agent.connections.device.start',{id:'conn-one'},{Origin:'https://attacker.invalid'})).status).toBe(403);
+    expect((await action(f.url,'agent.connections.device.poll',{id:'conn-one',login_id:'test-device',device_auth_id:'SECRET'})).status).toBe(400);
+    manager.devicePoll=()=>{throw new Error('ABCD-EFGH SECRET-DEVICE SECRET-TOKEN');};
+    const failure=await action(f.url,'agent.connections.device.poll',{id:'conn-one',login_id:'test-device'});expect(failure.status).toBe(400);
+    const errorText=await failure.text();expect(errorText).not.toContain('SECRET');expect(errorText).not.toContain('ABCD-EFGH');
+    manager.deviceStart=id=>({id,login_id:'test-device',verification_uri:'https://attacker.invalid/codex/device',user_code:'ABCD-EFGH',expires_at:new Date(service.now()+900000).toISOString(),interval_seconds:5});
+    expect((await action(f.url,'agent.connections.device.start',{id:'conn-one'})).status).toBe(400);
+    expect(f.store.get('SELECT COUNT(*) AS n FROM events').n).toBe(0);
+  } finally {await f.close();}
+});
+
 test('all connection reads and writes require the existing Web login session',async()=>{
   const f=await setup({auth:{username:'owner',password:'test-only-password'}});install(f);
   try {
@@ -90,6 +119,7 @@ test('all connection reads and writes require the existing Web login session',as
     expect((await fetch(f.url+'/api/agent/connections/history?id=conn-one')).status).toBe(401);
     expect((await action(f.url,'agent.connections.query')).status).toBe(401);
     expect((await action(f.url,'agent.connections.login.start',{id:'conn-one'})).status).toBe(401);
+    for (const method of ['start','poll','cancel']) expect((await action(f.url,`agent.connections.device.${method}`,{id:'conn-one',...(method !== 'start' ? {login_id:'test-device'} : {})})).status).toBe(401);
     const login=await fetch(f.url+'/login',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'username=owner&password=test-only-password&next=%2F'});
     const Cookie=login.headers.get('set-cookie').split(';')[0];
     expect((await fetch(f.url+'/api/agent/connections',{headers:{Cookie}})).status).toBe(200);
@@ -109,11 +139,15 @@ test('global connection routes preserve project identity for reads/query/login/w
     expect((await (await fetch(`${url}/p/${idB}/api/agent/connections/history?id=conn-one&days=7`)).json()).project).toBe(fs.realpathSync(b));
     expect((await action(`${url}/p/${idA}`,'agent.connections.query',{id:'conn-one'})).status).toBe(200);
     expect((await action(`${url}/p/${idB}`,'agent.connections.login.start',{id:'conn-two'})).status).toBe(200);
+    for(const method of ['start','poll','cancel']) expect((await action(`${url}/p/${idA}`,`agent.connections.device.${method}`,{id:'conn-one',...(method !== 'start' ? {login_id:'device-session'} : {})})).status).toBe(200);
     expect(calls).toEqual([
       {project:fs.realpathSync(a),method:'agent.connections.list',params:{}},
       {project:fs.realpathSync(b),method:'agent.connections.history',params:{id:'conn-one',days:7}},
       {project:fs.realpathSync(a),method:'agent.connections.query',params:{id:'conn-one'}},
       {project:fs.realpathSync(b),method:'agent.connections.login.start',params:{id:'conn-two'}},
+      {project:fs.realpathSync(a),method:'agent.connections.device.start',params:{id:'conn-one'}},
+      {project:fs.realpathSync(a),method:'agent.connections.device.poll',params:{id:'conn-one',login_id:'device-session'}},
+      {project:fs.realpathSync(a),method:'agent.connections.device.cancel',params:{id:'conn-one',login_id:'device-session'}},
     ]);
     expect((await fetch(url+'/api/agent/connections')).status).toBe(400);
     expect((await fetch(`${url}/p/${'0'.repeat(16)}/api/agent/connections`)).status).toBe(400);

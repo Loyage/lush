@@ -6,7 +6,7 @@
 |---|---|---|---|
 | [pi-usage-meters](https://github.com/Quigleybits/pi-usage-meters/blob/83f8df3531285dd20894470fcbe495456639a18d/extensions/core.js) | `83f8df3531285dd20894470fcbe495456639a18d`（0.5.0） | Kimi 显式 duration/timeUnit、Z.AI unit/number 窗口与 usage/currentValue、Codex 使用接口/账号请求头 | [MIT](licenses/pi-usage-meters.txt) |
 | [@mtrojnar/pi-usage](https://github.com/mtrojnar/pi-usage/blob/bab49aed024f76b60877bc08f6854a8ffcb6d4b1/src/openrouter.ts) | `bab49aed024f76b60877bc08f6854a8ffcb6d4b1`（0.2.0） | OpenRouter UTC reset 计算、预算 used=limit-limit_remaining，而非 lifetime usage、Key 与 credits 独立读取 | [MIT](licenses/mtrojnar-pi-usage.txt) |
-| [Pi AI](https://github.com/earendil-works/pi/blob/d86654abb8862e201933517d6f1fce9f88dd117f/packages/ai/src/auth/oauth/openai-codex.ts) | `v0.99.1` / `d86654abb8862e201933517d6f1fce9f88dd117f` | Codex client ID、PKCE 授权参数、手动回调、token 兑换/刷新、账号 claim 提取 | [MIT](licenses/pi.txt) |
+| [Pi AI](https://github.com/earendil-works/pi/blob/d86654abb8862e201933517d6f1fce9f88dd117f/packages/ai/src/auth/oauth/openai-codex.ts) | `v0.99.1` / `d86654abb8862e201933517d6f1fce9f88dd117f` | Codex client ID、PKCE 授权参数、手动回调、设备码申请/状态/退避、token 兑换/刷新、账号 claim 提取 | [MIT](licenses/pi.txt) |
 
 审查时源文件 SHA-256：
 
@@ -19,6 +19,7 @@
 - 新网络边界限制目标、重定向、响应大小和完整 body 的截止时间；上游错误响应原文从不返回。
 - API Key、OAuth access/refresh token 只保存在 canonical 项目的私有文件，不读取/覆盖外部 Pi、Codex 或浏览器秘密。
 - 手动 OAuth 回调必须匹配固定 origin/path、唯一 state/code、有效时间与一次性消费；不接受裸授权码，不启动 callback HTTP 服务。
+- 设备码追加仍审查同一 Pi AI 0.99.1 固定源（上述 SHA-256 已再次核对）；使用固定 `auth.openai.com` usercode/token/codex-device 路径和设备码 token 兑换 redirect。403/404 按其协议视作等待，pending/slow_down 只保留状态，不暴露错误原文。不同于上游持续循环，本项目只在用户设备码页面发来的显式 poll action 中执行一次检查；服务端校验间隔、15 分钟寿命与取消/配置 revision，成功兑换单飞且一次性，短期保留安全完成态。
 - 没有浏览器抓取、后台 CLI 或付费 1-token 模型探测；套餐窗口未知就保留未知。
 - 不默认把 Kimi 顶层 membership 叫作周额度，也不把 Z.AI 月窗口换算成固定 30 天。
 - 现金余额、Key预算/消费与套餐百分比分别保留 kind/scope/unit；保留可得的绝对数字，不用归一化百分比覆盖它们。

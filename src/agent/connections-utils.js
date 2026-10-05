@@ -86,9 +86,15 @@ export async function requestJson(url, init = {}, options = {}) {
       if (parent?.aborted) fail('stopped');
       let response; try { response = await fetcher(url, { ...init, signal: controller.signal, redirect: 'error' }); }
       catch { if (parent?.aborted) fail('stopped'); fail('network'); }
+      if (response.redirected || response.status >= 300 && response.status < 400) fail('network');
+      // Only the fixed Codex device-poll adapter opts in. Error bodies stay private
+      // and bounded; ordinary balance/login requests never read error bodies.
+      const devicePoll = options.deviceAuthPoll === true;
+      if (devicePoll && [403,404].includes(response.status)) return { status: response.status, data: null };
+      const deviceError = devicePoll && [400,429].includes(response.status);
       if (response.status === 401 || response.status === 403) fail('unauthorized');
-      if (response.status === 429) fail('rate_limited');
-      if (!response.ok || response.redirected || response.status >= 300 && response.status < 400) fail('network');
+      if (!deviceError && response.status === 429) fail('rate_limited');
+      if (!deviceError && !response.ok) fail('network');
       if (Number(response.headers?.get?.('content-length')) > 65536) fail('invalid_response');
       const reader = response.body?.getReader(); if (!reader) fail('invalid_response');
       const chunks = []; let length = 0;
@@ -97,7 +103,10 @@ export async function requestJson(url, init = {}, options = {}) {
           const { done, value } = await reader.read(); if (done) break;
           length += value.byteLength; if (length > 65536) fail('invalid_response'); chunks.push(value);
         }
-        try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { fail('invalid_response'); }
+        try {
+          const data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          return devicePoll ? { status: response.status, data } : data;
+        } catch { fail('invalid_response'); }
       } finally { void reader.cancel().catch(() => {}); }
     })()]);
   } catch (error) { throw connectionError(safeCode(error)); }

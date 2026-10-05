@@ -44,6 +44,9 @@ export const handlers = {
   'agent.connections.sampling'(p, params) { return p.configureConnectionSampling(params.sampling); },
   'agent.connections.query'(p, params) { return p.queryAgentConnections(params.id); },
   'agent.connections.history'(p, params) { return p.agentConnectionHistory(params.id, params.days); },
+  'agent.connections.device.start'(p, params) { return p.startConnectionDeviceLogin(params.id); },
+  'agent.connections.device.poll'(p, params) { return p.pollConnectionDeviceLogin(params.id, params.login_id); },
+  'agent.connections.device.cancel'(p, params) { return p.cancelConnectionDeviceLogin(params.id, params.login_id); },
   'agent.connections.login.start'(p, params) { return p.startConnectionLogin(params.id); },
   'agent.connections.login.finish'(p, params) { return p.finishConnectionLogin(params.id, params.login_id, params.redirect_url); },
   // 环境变量值可能包含密钥：读取与写入都只允许本地用户/Web 登录会话，不向 agent token 开放。
