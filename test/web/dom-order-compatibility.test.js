@@ -49,7 +49,9 @@ for (const task_kind of ['order', 'say']) {
     expect(deliveryControls(task).querySelector('.auto-merge-toggle')).toBeTruthy();
     const accepted = { ...task, status: 'awaiting_acceptance', integration: 'merged' };
     expect(isIterationTask(accepted)).toBe(true);
-    expect(buttonOf(iterationControls(accepted, { refresh() {} }), '验收完成')).toBeTruthy();
+    const controls = iterationControls(accepted, { refresh() {} });
+    expect(buttonOf(controls, '仅验收')).toBeTruthy();
+    expect(buttonOf(controls, '验收并归档')).toBeTruthy();
     activateDetailView({ view: 'task-graph' }); ui.taskGraphMinimal = false;
     renderTaskGraph({ nodes: [task], edges: [], total: 1 });
     const card = dom.node('detail').querySelector('[data-task-id="77"]');
