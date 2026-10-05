@@ -1,6 +1,7 @@
 import { discoverAgentModels } from '../../agent/models.js';
 import { discoverAgentResources } from '../../agent/resources.js';
 import { readAgentEnvironment, saveAgentEnvironment } from '../../agent/environment.js';
+import { readNetworkConfiguration, saveNetworkConfiguration } from '../../agent/network.js';
 
 /** Project-level Agent configuration. Running invocations keep their resolved profile; the next call re-reads it. */
 export default {
@@ -23,6 +24,8 @@ export default {
   cancelConnectionDeviceLogin(id, loginId) { return this.agentConnections.deviceCancel(id, loginId); },
   startConnectionLogin(id) { return this.agentConnections.loginStart(id); },
   finishConnectionLogin(id, loginId, redirectUrl) { return this.agentConnections.loginFinish(id, loginId, redirectUrl); },
+  agentNetwork() { return readNetworkConfiguration(this.config); },
+  configureAgentNetwork(value) { return this.write('configure outbound network', () => saveNetworkConfiguration(this.config, value)); },
   agentEnvironment(target) { return readAgentEnvironment(this.config, target); },
   configureAgentEnvironment(target, values) { return saveAgentEnvironment(this.config, target, values); },
   configureAgents(value) { return this.agentSettings.save(value); },

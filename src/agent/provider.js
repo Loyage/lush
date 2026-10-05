@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { agentPrompt } from './prompts.js';
 import { agentEnvironment } from './environment.js';
+import { agentNetworkEnvironment, mergeNetworkEnvironment, redactNetworkText } from './network.js';
 import { forkCheckpoint } from './fork.js';
 import { createRuntimeConnection, readRuntimeObservations } from './connection-runtime.js';
 
@@ -61,7 +62,7 @@ function sessionFiles(config, task, context, messages, agent, messagesPage = nul
   fs.writeFileSync(systemFile, prompt.text, { mode: 0o600 });
   const environment = agentEnvironment(config, task.role);
   // 任务级覆盖只在本轮生效，优先级高于 common / 角色两层；不写进 prompt 文件，避免环境值进入模型上下文。
-  const values = { ...environment.values, ...(agent.env || {}) };
+  const values = agentNetworkEnvironment(config, environment.values, agent.env || {});
   return { sessions, promptFile, systemFile, environment: { ...environment, values } };
 }
 
@@ -71,13 +72,14 @@ async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, 
   // stdout/stderr and the exit code, and kills that group if the daemon dies (stdin EOF) —
   // including SIGKILL, which skips this process's abort/finally path entirely. The guard
   // receives stdin='pipe' and never has it forwarded downstream.
+  const networkEnv = mergeNetworkEnvironment(config.env, extraEnv);
   const child = cp.spawn(process.execPath, [GUARD, command, ...args], {
     cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...config.env, ...extraEnv, LUSH_TASK_ID: String(config.taskId ?? ''), LUSH_AGENT_TOKEN: token,
+    env: { ...networkEnv, LUSH_TASK_ID: String(config.taskId ?? ''), LUSH_AGENT_TOKEN: token,
       PATH: `${BIN}${path.delimiter}${extraEnv.PATH ?? config.env.PATH ?? ''}` },
   });
   onSpawn(child.pid);
-  let output = '', stderr = '', overflow = false;
+  let output = '', stderr = '', overflow = false, stderrOverflow = false;
   const kill = () => {
     try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch {} }
   };
@@ -87,7 +89,7 @@ async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, 
     else if (output.length + chunk.length > MAX_RESULT) { overflow = true; kill(); }
     else output += chunk;
   });
-  child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-12000); });
+  child.stderr.on('data', chunk => { if (stderr.length + chunk.length > 12000) stderrOverflow = true; else stderr += chunk; });
   signal.addEventListener('abort', kill, { once: true });
   if (signal.aborted) kill();
   const paths = preemptPaths(config);
@@ -103,8 +105,8 @@ async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, 
     const mark = takePreemptMark(preempt);
     if (mark) { onPreempt?.(mark); throw new AgentPreempted(mark); }
     if (overflow) throw new Error(`agent output exceeded ${MAX_RESULT} characters`);
-    if (code !== 0) throw new Error(`${path.basename(command)} exited ${code}: ${stderr}`);
-    return output.trim();
+    if (code !== 0) throw new Error(`${path.basename(command)} exited ${code}: ${stderrOverflow ? 'diagnostic output exceeded limit' : redactNetworkText(networkEnv, stderr)}`);
+    return redactNetworkText(networkEnv, output.trim());
   } finally {
     signal.removeEventListener('abort', kill);
     // 没被采纳的请求也必须清掉：否则下一次 invocation 会在第一个边界上被误停。
@@ -242,7 +244,9 @@ export class CodexProvider {
     if (!fs.existsSync(resultFile)) throw new Error('codex did not write a final response');
     const stat = fs.statSync(resultFile);
     if (stat.size > MAX_RESULT) throw new Error(`agent result exceeded ${MAX_RESULT} bytes`);
-    return fs.readFileSync(resultFile, 'utf8').trim();
+    const raw = fs.readFileSync(resultFile, 'utf8'), result = redactNetworkText(files.environment.values, raw);
+    if (result !== raw) fs.writeFileSync(resultFile, result, { mode: 0o600 });
+    return result.trim();
   }
 }
 

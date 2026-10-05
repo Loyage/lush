@@ -6,6 +6,7 @@ import { DEFAULT_ENDPOINTS, digest, secret, fields, validId, normalizeConnection
 import { queryConnection } from './connections-query.js';
 import { authorization, callbackCode, REDIRECT_URI, exchange, refresh } from './connections-oauth.js';
 import { ConnectionDeviceLogins } from './connections-device.js';
+import { networkSnapshot } from './network.js';
 
 function publicConnection(row, now) {
   const { revision, credential, ...connection } = row;
@@ -25,6 +26,7 @@ function identity(row) {
 export class ConnectionManager {
   constructor(config, options = {}) {
     check(typeof config?.home === 'string' && config.home.length > 0, 'connection home is required');
+    this.networkConfig = config;
     this.file = new ConnectionFile(config.home); this.options = options; this.now = options.now || Date.now;
     this.logins = new Map(); this.flights = new Map(); this.pending = new Set();
     this.devices = new ConnectionDeviceLogins(this, publicConnection);
@@ -41,10 +43,13 @@ export class ConnectionManager {
     const pending = Promise.resolve().then(fn).finally(() => this.pending.delete(pending));
     this.pending.add(pending); return pending;
   }
+  networkSnapshot() { return networkSnapshot(this.networkConfig); }
   _request(url, init, options = {}) {
     this._alive();
     const signal = options.signal ? AbortSignal.any([this.controller.signal, options.signal]) : this.controller.signal;
-    return requestJson(url, init, { ...this.options, ...options, signal });
+    const network = options.network || this.networkSnapshot();
+    return requestJson(url, init, { ...this.options, ...options, signal,
+      fetch: (target, request) => network.fetch(target, request, this.options.fetch) });
   }
   config() {
     const data = this.file.read();
@@ -105,16 +110,16 @@ export class ConnectionManager {
       return { ...row };
     });
   }
-  async _runtime(row, minimumValidityMs = 300000) {
+  async _runtime(row, minimumValidityMs = 300000, network = this.networkSnapshot()) {
     this._alive();
     if (!row.enabled) fail('disabled');
     if (!row.credential) fail('unconfigured');
     if (row.credential.type === 'oauth' && new URL(row.endpoint).origin !== new URL(DEFAULT_ENDPOINTS[row.provider]).origin) fail('unsupported');
     let current = row;
     if (row.credential.type === 'oauth' && row.credential.expires <= this.now() + minimumValidityMs) {
-      const key = digest([row,minimumValidityMs]);
+      const key = digest([row,minimumValidityMs,network.key]);
       if (!this.flights.has(key)) {
-        const pending = this._refresh(row, minimumValidityMs).finally(() => this.flights.delete(key));
+        const pending = this._refresh(row, minimumValidityMs, network).finally(() => this.flights.delete(key));
         this.flights.set(key, pending);
       }
       current = await this.flights.get(key);
@@ -126,7 +131,7 @@ export class ConnectionManager {
     if (current.credential.type === 'oauth' && current.credential.expires <= this.now() + minimumValidityMs) fail('expired');
     return { connection: publicConnection(current, this.now()), credential: { ...current.credential }, ...identity(current) };
   }
-  async _refresh(row, minimumValidityMs) {
+  async _refresh(row, minimumValidityMs, network) {
     const lock = await this.file.refreshLock(row.id, this.controller.signal, this.options.lockTimeout);
     try {
       lock.assert();
@@ -140,13 +145,13 @@ export class ConnectionManager {
         return latest;
       }
       if (latest.credential.expires > this.now() + minimumValidityMs) return latest;
-      const credential = await refresh(latest.credential, (url,init) => this._request(url,init), this.now);
+      const credential = await refresh(latest.credential, (url,init) => this._request(url,init,{ network }), this.now);
       lock.assert();
       return this._publish(row.id, digest(latest), credential);
     } finally { lock.release(); }
   }
-  prepareRuntime(id) { return this._track(() => this._runtime(this._row(id))); }
-  query(id) {
+  prepareRuntime(id) { const network = this.networkSnapshot(); return this._track(() => this._runtime(this._row(id), 300000, network)); }
+  query(id, network = this.networkSnapshot()) {
     return this._track(async () => {
       const row = this._row(id), checked_at = new Date(this.now()).toISOString();
       let observation, binding = identity(row);
@@ -156,8 +161,8 @@ export class ConnectionManager {
         if (!Object.hasOwn(DEFAULT_ENDPOINTS, row.provider)
           || new URL(row.endpoint).origin !== new URL(DEFAULT_ENDPOINTS[row.provider]).origin)
           return { id, ...binding, observation: unavailable('unsupported', checked_at, 'unsupported') };
-        const runtime = await this._runtime(row, 30000); binding = { account_key: runtime.account_key, source_key: runtime.source_key };
-        observation = await queryConnection(runtime.connection, runtime.credential, checked_at, (url,init) => this._request(url,init));
+        const runtime = await this._runtime(row, 30000, network); binding = { account_key: runtime.account_key, source_key: runtime.source_key };
+        observation = await queryConnection(runtime.connection, runtime.credential, checked_at, (url,init) => this._request(url,init,{ network }));
         this._alive();
         const latest = this.file.read().connections.find(entry => entry.id === id);
         if (!latest || digest(identity(latest)) !== digest(binding) || latest.enabled !== row.enabled || latest.label !== row.label
@@ -177,7 +182,7 @@ export class ConnectionManager {
     check(row.auth_type === 'oauth' && row.provider === 'openai-codex', 'connection does not support OAuth login');
     this._purgeLogins(); this._cancelLogins(id);
     const flow = authorization(), login_id = randomUUID(), expires = this.now() + 15 * 60000;
-    this.logins.set(login_id, { ...flow, id, revision: digest(row), expires });
+    this.logins.set(login_id, { ...flow, id, revision: digest(row), expires, network: this.networkSnapshot() });
     return { id, login_id, url: flow.url, expires_at: new Date(expires).toISOString(), redirect_uri: REDIRECT_URI,
       instructions: '在浏览器完成授权；若 localhost 回调页无法打开，复制地址栏完整回调 URL（含 code/state）粘贴回来。不要分享回调 URL。' };
   }
@@ -192,7 +197,7 @@ export class ConnectionManager {
       // login can invalidate an exchange already in flight.
       login.exchanging = true;
       try {
-        const credential = await exchange(code, login.verifier, (url,init) => this._request(url,init), this.now);
+        const credential = await exchange(code, login.verifier, (url,init) => this._request(url,init,{ network: login.network }), this.now);
         if (this.logins.get(login_id) !== login || login.expires <= this.now()) fail('login_expired');
         return publicConnection(this._publish(id, digest(row), credential), this.now());
       } finally { if (this.logins.get(login_id) === login) this.logins.delete(login_id); }

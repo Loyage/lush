@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { agentEnvironment } from './environment.js';
+import { agentNetworkEnvironment, networkSnapshot } from './network.js';
 import { MODEL_PRESETS } from './settings.js';
 import { discoverAgentResources } from './resources.js';
 import { resolvePiInstallation, statusCommand } from './status-command.js';
@@ -90,9 +91,10 @@ function projectPath(value, project, home = os.homedir()) {
 }
 function statusContext(config, profile) {
   const warnings = [], checked_at = new Date().toISOString();
-  let env = { ...config.env };
-  try { env = { ...env, ...agentEnvironment(config, 'agent').values, ...(profile.env || {}) }; }
-  catch { warnings.push('项目 Agent 环境文件无法安全读取；当前查询使用 daemon 环境，角色覆盖状态未知。'); }
+  const network = networkSnapshot(config);
+  let env = agentNetworkEnvironment(config);
+  try { env = agentNetworkEnvironment(config, agentEnvironment(config, 'agent').values, profile.env || {}); }
+  catch { warnings.push('项目 Agent 环境文件无法安全读取；当前查询使用项目网络默认环境，角色覆盖状态未知。'); }
   // Never pass a running agent's invocation credentials or session into a metadata subprocess.
   for (const key of Object.keys(env)) if (key === 'LUSH_AGENT_TOKEN' || key === 'LUSH_TASK_ID' || key.startsWith('PI_SESSION')
     || ['PI_PROVIDER', 'PI_MODEL', 'PI_REASONING_LEVEL', 'LUSH_RUNTIME_CONTEXT'].includes(key)) delete env[key];
@@ -109,7 +111,7 @@ function statusContext(config, profile) {
   const currentProvider = env.LUSH_PI_PROVIDER || (model?.includes('/') ? model.split('/')[0] : null)
     || projectSettings?.defaultProvider || globalSettings?.defaultProvider;
   const { accounts, keys, codexAuth } = readPiAccounts(config_dir, env, modelsConfig, warnings, currentProvider, checked_at);
-  return { warnings, checked_at, env, queryConfig, config_dir, modelsConfig, globalSettings, projectSettings, model, currentProvider, accounts, keys, codexAuth, homeDir };
+  return { warnings, checked_at, env, network, queryConfig, config_dir, modelsConfig, globalSettings, projectSettings, model, currentProvider, accounts, keys, codexAuth, homeDir };
 }
 async function status(config, profile, options, context) {
   const { warnings, checked_at, env, queryConfig, config_dir, modelsConfig, globalSettings, projectSettings, model, currentProvider, homeDir } = context;
@@ -181,14 +183,16 @@ function flight(map, config, profile, options, context, run) {
   const identities = context.accounts.map(({ balance, ...account }) => account);
   const key = usageDigest([profile, context.env, context.modelsConfig, context.globalSettings, context.projectSettings,
     identities, [...context.keys], context.codexAuth, options.usageConfig || null, options.timeout || null,
-    options.refreshCodex !== false]);
+    options.refreshCodex !== false, context.network.key]);
   let entries = map.get(config); if (!entries) { entries = new Map(); map.set(config, entries); }
   if (entries.has(key)) return entries.get(key);
   const pending = run().finally(() => { if (entries.get(key) === pending) entries.delete(key); });
   entries.set(key, pending); return pending;
 }
 function usageFlight(config, profile, options, context) {
-  return flight(usageFlights, config, profile, options, context, () => runUsageQueries(context, options));
+  return flight(usageFlights, config, profile, options, context, () => runUsageQueries(context, { ...options,
+    fetch: (url, init) => context.network.fetch(url, init, options.fetch),
+    authFetch: (url, init) => context.network.fetch(url, init, options.authFetch || options.fetch) }));
 }
 /** Lightweight account-only query; independent Codex refresh, no Pi executable, SDK, plugins or model calls. */
 export function discoverAgentUsage(config, profile, options = {}) {

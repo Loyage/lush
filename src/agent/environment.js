@@ -135,6 +135,10 @@ export function agentEnvironment(config, role) {
   const sources = [];
   for (const layer of layers) {
     if (!layer.exists) continue;
+    // Preserve the file's own names in this read model, but remove stale proxy aliases from lower layers.
+    for (const name of Object.keys(layer.values)) if (/^(https?_proxy|all_proxy|no_proxy)$/i.test(name)) {
+      for (const previous of Object.keys(values)) if (previous.toLowerCase() === name.toLowerCase()) delete values[previous];
+    }
     Object.assign(values, layer.values);
     sources.push(layer.file);
   }

@@ -13,6 +13,7 @@ import { DEFAULT_INPUT_ROUTES, ROUTE_TARGETS } from './input-routes.js';
 import { serviceRestartControls } from './service-restart.js';
 import { workbenchStatus } from './project-picker.js';
 import { createAgentConnectionPicker } from './agent-connection-picker.js';
+import { renderNetworkSettings } from './agent-network-settings.js';
 
 const TABS = [
   { id: 'interface', label: '界面', note: '阅读、外观与行为' },
@@ -480,7 +481,7 @@ export function renderAgentSettings(settings, repaint, { ownsPage = () => true }
     if (settings.roles[item.id]) list.append(profileEditor(settings, settings.roles[item.id], item.id, item.label, `仅用于 ${item.id} 角色。`, repaint, ownsPage));
     else list.append(inheritedRole(settings, item.id, repaint));
   }
-  roles.append(list); content.append(roles, environmentEditor(settings, repaint));
+  roles.append(list); content.append(roles, renderNetworkSettings({ ownsPage }), environmentEditor(settings, repaint));
   return content;
 }
 

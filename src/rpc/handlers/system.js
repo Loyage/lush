@@ -51,6 +51,8 @@ export const handlers = {
   'agent.connections.login.start'(p, params) { return p.startConnectionLogin(params.id); },
   'agent.connections.login.finish'(p, params) { return p.finishConnectionLogin(params.id, params.login_id, params.redirect_url); },
   // 环境变量值可能包含密钥：读取与写入都只允许本地用户/Web 登录会话，不向 agent token 开放。
+  'agent.network'(p) { return p.agentNetwork(); },
+  'agent.network.configure'(p, params) { return p.configureAgentNetwork(params.config); },
   'agent.environment'(p, params, actor) { return p.agentEnvironment(params.target); },
   'agent.environment.configure'(p, params, actor) { return p.configureAgentEnvironment(params.target, params.values); },
   'agent.configure'(p, params, actor) { return p.configureAgents(params.config); },

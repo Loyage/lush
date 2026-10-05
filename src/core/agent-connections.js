@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { networkSnapshot } from '../agent/network.js';
 import { check, LushError } from './types.js';
 import { connectionErrorCode, normalizeConnectionObservation, validConnectionHash, validConnectionId } from '../persistence/store/agent-connections.js';
 
@@ -180,14 +181,15 @@ export class AgentConnectionsService {
     if (next) next.resolve(); else this.active--;
   }
   queryOne(snapshot) {
-    const key = `${snapshot.connection.id}:${snapshot.state.revision}:${snapshot.identity.revision}`;
+    const network = this.getManager().networkSnapshot?.() || networkSnapshot(this.project.config);
+    const key = `${snapshot.connection.id}:${snapshot.state.revision}:${snapshot.identity.revision}:${network.key}`;
     if (this.flights.has(key)) return this.flights.get(key);
     const pending = this.project.write('query agent connection', async () => {
       await this.acquire();
       try {
         if (!this.current(snapshot) || this.closed) return;
         let result;
-        try { result = await this.getManager().query(snapshot.connection.id); }
+        try { result = await this.getManager().query(snapshot.connection.id, network); }
         catch (error) {
           const code = connectionErrorCode(error?.connectionCode || error?.usageCode || error?.error_code) || 'unknown';
           result = { id: snapshot.connection.id,

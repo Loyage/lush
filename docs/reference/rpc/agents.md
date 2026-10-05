@@ -17,6 +17,10 @@
 
 页面不自动轮询。进入页面或点击「刷新状态」发起查询并自动缓存；查看历史、切换范围或点击「刷新历史缓存」只读本地数据。实时状态查询整体失败时，仍可独立读取查询设置和缓存历史。
 
+## 出站网络
+
+「Agent 管理 → 设置 → 出站网络」独立管理本项目后台账号请求和后续 Agent 调用的默认代理，不修改模型端点或系统代理。按需读取 `agent.network {}` / `GET /api/agent/network`；保存用用户专属 `agent.network.configure {config}`。三种模式、只写认证、CLI 文件录入与远端边界见[项目出站网络代理](../../engineering/outbound-network.md)。运行中的调用不变；角色/Worker 的既有显式代理环境仍优先。
+
 ## 托管账号连接
 
 在「账号连接」添加 DeepSeek、OpenRouter、Z.AI、Kimi、自定义 OpenAI 兼容 API Key 或 Codex OAuth 连接。API Key 和登录均统一保存在当前项目共享连接库，不归某个 Worker；执行后端只引用它支持的认证。当前托管绑定支持 Pi，Codex CLI 仍用原登录方式。同服务商可保存多个账号，每项有独立名称、模型端点、认证诊断、模型范围和资源观测。密钥仅在录入/更换时提交，读 API 不返回秘密或前缀；保存后输入清空。不自动导入外部 Pi/Codex 凭证。

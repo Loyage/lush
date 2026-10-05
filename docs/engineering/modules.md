@@ -22,6 +22,10 @@
 
 用户已确认：启动直接进入主体，每项目独立窗口，Web SSH 在 Web 服务所在机器执行，关闭/断开后后台继续。修改启动、环境与项目入口前阅读[工作台设计](../design/workbench.md)；文件分工与新增接口以[工作台接入契约](workbench.md)为准。该接缝优先于下文旧首启连接页/项目闸门描述；逐步交付不得宣称尚未验收能力。
 
+## 项目出站网络接缝
+
+用户决定 #147：增加项目级出站网络设置，覆盖后台账号登录/刷新/查询与后续 Agent 子进程。网络代理与模型端点、入站 Host 代理分开；私有配置、安全投影、RPC/Web/CLI 接口、热更新/在途快照和并行文件分工见[项目出站网络代理](outbound-network.md)。新增共享模块 `src/agent/network.js`，现有模型凭证隔离与启动边界不变。
+
 ## 三条规矩
 
 1. **入口路径不变。** `src/core/project.js`、`src/core/workspaces.js`、`src/persistence/store.js`、

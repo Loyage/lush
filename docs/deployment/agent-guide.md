@@ -57,6 +57,7 @@ bun run lush --project /absolute/path/to/my-project agent prompt worker
 
 - 项目级配置写在 `<project>/.lush/agent.json`：一个 `default` 加 planner / coordinator / worker / research / verifier / merger / explainer / butler 八类角色覆盖。写入原子替换，运行中的调用不打断，下一次调用生效。
 - 角色 Prompt 由内置片段依次叠加 `.lush-agent/common.md`、`.lush-agent/<role>.md`、`.lush/agent/common.md`、`.lush/agent/<role>.md` 与 `append_prompt`。不要用非空 `default_prompt` 覆盖内置协议，除非你完整保留了Worker API、权限与交付流程。
+- 账号登录/刷新/查询与后续 Agent 的默认网络通过项目[出站网络设置](../engineering/outbound-network.md)配置；只在 Agent env 设置代理不会改变 daemon 的登录网络。不要替用户改整机代理、重启活动服务或把客户端回环地址当作远端地址。
 - Agent 子进程环境在 daemon 环境之上热加载 `<project>/.lush/agent/agent.env` 与 `<project>/.lush/agent/<role>.env`，用于代理等个人设置；`LUSH_*` 保留给 runtime，不能覆盖。细节见 [Agent 环境与权限](../reference/agent-environment.md)。
 
 ## 4. 远程 / 公网访问

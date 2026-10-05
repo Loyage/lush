@@ -10,6 +10,8 @@
 4. [核心 API 收敛](engineering/core-api.md)：当前公开的 RPC / CLI / Web 能力与已下线边界。
 5. [Agent 账号连接](reference/rpc/agents.md#托管账号连接)：多账号资源、密钥/OAuth登录、显式 Pi 连接选择和额度历史；[共享模型选择接口](engineering/managed-model-selection.md)说明兼容 API 与未来策略扩展边界。
 
+6. [项目出站网络代理](engineering/outbound-network.md)：项目后台与 Agent 的代理范围、私有配置、三种模式和远端执行位置；不同于模型端点或 Host 入站代理。
+
 ## 理解与修改系统
 
 - [核心架构](core-architecture.md) → [执行模型](engineering/execution-model.md) → [交付与验收](engineering/review-loop.md) → [工程架构索引](engineering/architecture.md)：当前主链的连续阅读。

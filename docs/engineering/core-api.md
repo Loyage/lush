@@ -49,6 +49,8 @@ Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体�
 
 - `worker.delete_preview {id}` / `worker.delete {id,revision,confirm:true}`：用户专属的整棵 Worker 子树彻底删除；只读预检资源、外部依赖与共享使用者，最终确认授权丢弃专属代码现场与历史，无剩余使用者的原始 Input 一并清除。活动任务先取消，main/owner 保护，陈旧 revision 拒绝，不恢复旧 `task.delete` 别名；见[磁盘回收与删除](../reference/rpc/maintenance.md#彻底删除-worker)。
 
+项目网络另有用户专属 `agent.network {}` / `agent.network.configure {config}`，CLI `agent network show|set --file PATH|reset`；后台账号请求与后续 Agent 调用共享默认网络，代理认证只写、安全读模型不含秘密，不增加整机调度。字段与协议边界见[项目出站网络代理](outbound-network.md)。
+
 服务维护另有用户专属的 `system.stop_if_idle {}`：daemon 同步拒绝有活动调用或 Git/合并工作的重启请求，准入后封闭新调度并正常停止。Host 的项目重启入口负责等待退出、启动新进程；Host 自身重启独立进行，不停止项目。完整 HTTP 与返回字段见[服务重启](../reference/web-routes.md#服务重启)。
 
 ## 移除与磁盘边界

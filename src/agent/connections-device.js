@@ -29,7 +29,7 @@ export class ConnectionDeviceLogins {
     if (digest(m._row(session.id)) !== session.revision) { this.discard(loginId, session); fail('auth_changed'); }
   }
   request(session, url, init, options = {}) {
-    return this.manager._request(url, init, { ...options, signal: session.controller.signal });
+    return this.manager._request(url, init, { ...options, network: session.network, signal: session.controller.signal });
   }
   start(id) {
     return this.manager._track(async () => {
@@ -37,7 +37,7 @@ export class ConnectionDeviceLogins {
       check(row.auth_type === 'oauth' && row.provider === 'openai-codex', 'connection does not support device login');
       this.purge(); m._cancelLogins(id);
       const loginId = randomUUID(), session = { id, revision: digest(row), expires: m.now() + LIFETIME,
-        status: 'starting', controller: new AbortController() };
+        status: 'starting', controller: new AbortController(), network: m.networkSnapshot() };
       this.sessions.set(loginId, session);
       try {
         const data = await this.request(session, USER_CODE_URL, jsonPost({ client_id: CODEX_CLIENT_ID }), { deviceAuthStart: true });

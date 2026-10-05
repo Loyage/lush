@@ -5,6 +5,7 @@ import { LushError, check, isPlainObject } from '../core/types.js';
 export const PARAMS = {
   'system.status': [], 'system.summary': [], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings'],
   'agent.config': [], 'agent.models': ['agent'], 'agent.resources': [], 'agent.status': [], 'agent.configure': ['config'],
+  'agent.network': [], 'agent.network.configure': ['config'],
   'agent.environment': ['target'], 'agent.environment.configure': ['target','values'],
   'agent.usage.config': [], 'agent.usage.configure': ['config'], 'agent.usage.history': ['provider','account_key','days'],
   'agent.selection.resources': [],
@@ -42,7 +43,7 @@ export const PARAMS = {
   'branch.archive': ['branch','discard','continue'], 'graph.get': [],
 };
 export const USER_ONLY = new Set([
-  'system.stop','system.stop_if_idle','system.configure','agent.configure','agent.status','agent.environment','agent.environment.configure',
+  'system.stop','system.stop_if_idle','system.configure','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
   'branch.history','worker.code_state','worker.code_tree','worker.code_file',
   'agent.usage.config','agent.usage.configure','agent.usage.history','agent.selection.resources',
   'agent.connections.list','agent.connections.save','agent.connections.remove','agent.connections.sampling',

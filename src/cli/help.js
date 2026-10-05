@@ -37,7 +37,10 @@ lush [--project PATH] [--json] <command>
   notice list|post|answer|dismiss|read    用户决策与告知已读
   notice post '标题' [--worker ID] [--body '正文']  发给指定 Worker（Agent 默认当前 Worker）
   progress plan|complete             Agent 汇报进度
-  agent show|models|set|reset|prompt|env|init  配置 Agent
+  agent show|models|set|reset|prompt|env|init|network  配置 Agent
+  agent network show                       读取项目出站代理设置（认证不回显）
+  agent network set --file PATH             从私有 JSON 文件保存代理，不在参数中填写密码
+  agent network reset                      恢复继承后台启动环境，后续请求与 Agent 生效
   agent set TARGET --connection UUID|off --model PROVIDER/MODEL  显式选择 Pi 账号连接（不自动路由）
   config show|set|reset              设置并发和调用限额（worker-call-limit 为单 Worker 调用上限）
 

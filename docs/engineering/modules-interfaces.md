@@ -23,7 +23,7 @@
 | `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 Agent 的 Worker） | `run` |
 | `cli/commands/notice.js` | `notice list/post/answer/dismiss/read`（read 为用户专属，只将 info 告知标已读） | `run` |
 | `cli/commands/branch.js` | `branch tree / show / bind / archive` | `run` |
-| `cli/commands/agent.js` | `agent show/models/set/reset` 配置 profile；`prompt/env` 查看最终组合和环境来源，`init` 创建共享/本机补充；`--prompt` 只作旧版 `--append-prompt` 别名 | `run` |
+| `cli/commands/agent.js` | `agent show/models/set/reset` 配置 profile；`prompt/env` 查看最终组合和环境来源，`network show/set --file PATH/reset` 管理出站代理（[契约](outbound-network.md)），`init` 创建共享/本机补充；`--prompt` 只作旧版 `--append-prompt` 别名 | `run` |
 | `cli/commands/config.js` | `config show / set / reset`：读 `system.status.settings`、写 `system.configure`；用户专属，agent 调用被拒 | `run` |
 
 历史命令模块（`draft.js` / `plan.js` / `spec.js` / `candidate.js` / `sleep.js`）仍在源码里，但 `COMMANDS` 不再挂载它们；`lush help` 也不列出，执行会报 `unknown command`。
@@ -95,6 +95,7 @@
 | 执行详情代码阅读 | `test/workspaces/code-reader.test.js`（真实临时 Git 工作区、基线/净变化、ignored/链接/外部程序/大文件/历史降级、受阻路径明确失败、长转义路径的字节分页及真实 RPC 帧预算）、`test/workspaces/code-posix.test.js`（真实 openat/readlinkat、换链竞态、FD 回收/CLOEXEC 与 Darwin loader 契约）、`test/web/code-reader-api.test.js`（用户权限、窄参数、认证、Origin、多项目路由） |
 | 执行过程阅读 | `test/transcript*.test.js`、`test/web/{transcript-reader,dom-transcript-reader,dom-transcript-view,dom-results}.test.js` |
 | Agent 状态 | `test/agent/{status,usage-query,usage-settings,codex-usage-parsing,usage-auth-codex}.test.js`（fake Pi SDK、密钥命令不执行、脱敏身份、内置/HTTP mock 查询、独立Codex刷新/锁/写回和安全设置）、`test/project/{agent-usage,agent-usage-provider,codex-usage-history}.test.js`（存储/定时采样/热更新/有界历史/联调）、`test/web/{agent-status-api,agent-usage-api,dom-agent-status,dom-agent-usage}.test.js`（用户鉴权/项目路由、配置表单/缓存曲线/异步状态） |
+| 项目出站网络 | `test/agent/{network,network-accounts}.test.js`（私有设置、快照、真实 HTTP/HTTPS CONNECT 与 TLS/取消/压缩、全部账号请求链路）、`test/project/network.test.js`（单飞/子进程环境）、`test/web/{network-api,network-cli-flow,dom-agent-network}.test.js` 与 `test/agent-network-cli.test.js`（安全权限/路由、真实 CLI→RPC→HTTP 私有配置联调、仅写认证与迟到保护） |
 | 托管账号连接与设备码登录 | `test/agent/connections{,-device}.test.js`（固定协议、一次兑换、间隔/限流、取消与迟到防护）、`test/project/agent-connections-manager.test.js`（真实私有文件与项目准入）、`test/web/{agent-connections-api,codex-device-login-flow,dom-agent-connections}.test.js`（权限/安全投影、真实 HTTP→RPC→Manager 联调、页面自动确认与离页清理）；上游均 mock，不读取真实账号 |
 | 运行设置与 Agent | `test/runtime-settings.test.js`、`test/config*.test.js`、`test/agent-settings.test.js`、`test/soft-budget.test.js` |
 | 本地性能报告契约 | `test/read-performance.test.js`（参数 / 统计 / 原样本预算 / 输出不覆盖 / Git 身份与降级；不在通用套件重复运行大规模测量） |

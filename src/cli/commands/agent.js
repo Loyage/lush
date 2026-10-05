@@ -35,6 +35,46 @@ function init(config, args) {
   return { scope: local ? 'local' : 'project', directory: dir, created, existing, role: selectedRole };
 }
 
+function safeNetworkView(value) {
+  check(value?.version === 1 && ['inherit', 'direct', 'proxy'].includes(value.mode)
+    && Array.isArray(value.no_proxy) && value.no_proxy.length <= 128
+    && value.no_proxy.every(rule => typeof rule === 'string' && rule.length <= 256 && !/[\x00-\x1f\x7f]/.test(rule))
+    && typeof value.has_proxy_auth === 'boolean', 'invalid network configuration response');
+  let proxy_url = null;
+  if (value.proxy_url !== null) {
+    let url; try { url = new URL(value.proxy_url); } catch { check(false, 'invalid network configuration response'); }
+    check(['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+      && !url.search && !url.hash && url.pathname === '/', 'invalid network configuration response');
+    proxy_url = url.origin;
+  }
+  return { version: 1, mode: value.mode, proxy_url, no_proxy: [...value.no_proxy], has_proxy_auth: value.has_proxy_auth };
+}
+
+async function network(args, client) {
+  const verb = args.shift() || 'show';
+  let method = 'agent.network', params = {};
+  if (verb === 'show') exact(args, 0);
+  else if (verb === 'reset') {
+    exact(args, 0); method = 'agent.network.configure';
+    params = { config: { version: 1, mode: 'inherit', proxy_url: null, no_proxy: [], proxy_auth: null } };
+  } else {
+    check(verb === 'set', 'agent network expects show, set --file PATH or reset');
+    const file = option(args, '--file'); exact(args, 0); check(file, 'agent network set requires --file PATH');
+    let config;
+    try {
+      check(fs.statSync(file).isFile() && fs.statSync(file).size <= 65536, 'invalid file');
+      const source = fs.readFileSync(file, 'utf8'); check(Buffer.byteLength(source) <= 65536, 'invalid file');
+      config = JSON.parse(source);
+    } catch { check(false, 'cannot safely read network configuration JSON file'); }
+    check(config && typeof config === 'object' && !Array.isArray(config), 'network configuration must be a JSON object');
+    method = 'agent.network.configure'; params = { config };
+  }
+  let result;
+  try { result = await client.request(method, params); }
+  catch { check(false, 'network configuration unavailable; check configuration, permissions, or update Host and daemon'); }
+  return safeNetworkView(result);
+}
+
 export async function run(command, args, { client, json }) {
   const verb = args.shift() || 'show';
   if (verb === 'prompt') {
@@ -69,6 +109,7 @@ export async function run(command, args, { client, json }) {
   }
 
   check(!client.token, 'agents cannot change Agent configuration');
+  if (verb === 'network') return network(args, client);
   if (verb === 'show') { exact(args, 0); return client.request('agent.config'); }
   if (verb === 'models') {
     exact(args, 1);
@@ -85,7 +126,7 @@ export async function run(command, args, { client, json }) {
     return client.request('agent.configure', { config: { version: 1, default: current.default, roles } });
   }
 
-  check(verb === 'set', 'agent expects show, models, prompt, env, init, set or reset');
+  check(verb === 'set', 'agent expects show, models, prompt, env, init, set, reset or network');
   const target = args.shift();
   check(TARGETS.has(target), 'agent set target must be default or a Worker role');
   const supplied = name => args.includes(name);

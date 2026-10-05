@@ -2,6 +2,7 @@ import cp from 'node:child_process';
 import path from 'node:path';
 import { check } from '../core/types.js';
 import { AGENT_BACKENDS, MODEL_PRESETS } from './settings.js';
+import { agentNetworkEnvironment, redactNetworkText } from './network.js';
 
 const MAX_OUTPUT = 2 * 1024 * 1024;
 const TIMEOUT_MS = 15_000;
@@ -29,7 +30,7 @@ function commandOutput(command, args, env) {
     });
     child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-4000); });
     child.on('error', error => finish(error));
-    child.on('close', code => finish(code === 0 ? null : new Error(`${path.basename(command)} exited ${code}: ${stderr.trim()}`), stdout));
+    child.on('close', code => finish(code === 0 ? null : new Error(`${path.basename(command)} exited ${code}; check outbound network and CLI configuration`), stdout));
   });
 }
 
@@ -69,16 +70,18 @@ function fallback(agent, error) {
 /** Read the model catalog exposed by the selected local CLI. Raw CLI output is never returned. */
 export async function discoverAgentModels(config, agent) {
   check(AGENT_BACKENDS.includes(agent), 'agent must be pi or codex');
+  let env;
   try {
+    env = agentNetworkEnvironment(config);
     if (agent === 'pi') {
       const command = config.env.LUSH_PI_COMMAND || 'pi';
-      const models = piModels(await commandOutput(command, ['--list-models'], config.env));
+      const models = piModels(await commandOutput(command, ['--list-models'], env));
       check(models.length > 0, 'pi returned an empty model catalog');
       return { agent, source: 'cli', models, warning: null };
     }
     const command = config.env.LUSH_CODEX_COMMAND || 'codex';
-    const models = codexModels(await commandOutput(command, ['debug', 'models'], config.env));
+    const models = codexModels(await commandOutput(command, ['debug', 'models'], env));
     check(models.length > 0, 'codex returned an empty model catalog');
     return { agent, source: 'cli', models, warning: null };
-  } catch (error) { return fallback(agent, error); }
+  } catch (error) { return fallback(agent, new Error(redactNetworkText(env || {}, String(error?.message || error)))); }
 }

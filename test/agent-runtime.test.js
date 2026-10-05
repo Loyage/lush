@@ -140,5 +140,7 @@ test('role env hot-load layer overrides common env', () => {
     expect(research.values).toEqual({ HTTP_PROXY: 'http://research', SHARED: 'yes', ONLY_ROLE: 'yes' });
     expect(research.sources).toEqual([path.join(dir, 'agent.env'), path.join(dir, 'research.env')]);
     expect(agentEnvironment(config, 'worker').values).toEqual({ HTTP_PROXY: 'http://common', SHARED: 'yes' });
+    fs.writeFileSync(path.join(dir, 'research.env'), 'http_proxy=http://lowercase-role\n');
+    expect(agentEnvironment(config, 'research').values).toEqual({ http_proxy: 'http://lowercase-role', SHARED: 'yes' });
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
