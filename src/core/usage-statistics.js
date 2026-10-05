@@ -39,6 +39,7 @@ function normalize(record, model, invocation, taskId) {
   const attribution = record.lush ?? invocation;
   const owned = attribution?.task_id === taskId;
   return {
+    foreign: attribution?.task_id != null && !owned,
     run_id: owned && Number.isSafeInteger(attribution.run_id) && attribution.run_id > 0 ? attribution.run_id : null,
     role: owned && ['planner','scheduler','coordinator','worker','research','verifier','merger','showcase','explainer','butler'].includes(attribution.role) ? attribution.role : null,
     at: timestamp(record.timestamp) ?? timestamp(m.timestamp),
@@ -104,8 +105,9 @@ async function readFile(file, stat) {
 async function scan(dir) {
   let names;
   try { names = await fs.promises.readdir(dir); }
-  catch (error) { if (error.code === 'ENOENT') return { files: [], codex_threads: 0, unreadable: 0 }; throw error; }
-  const result = { files: [], codex_threads: names.filter(name => /^codex-task-\d+\.json$/.test(name)).length, unreadable: 0 };
+  catch (error) { if (error.code === 'ENOENT') return { files: [], codex_threads: 0, codex_ids: [], unreadable: 0 }; throw error; }
+  const codexIds = names.map(name => /^codex-task-(\d+)\.json$/.exec(name)).filter(Boolean).map(match => Number(match[1]));
+  const result = { files: [], codex_threads: codexIds.length, codex_ids: codexIds, unreadable: 0 };
   const live = new Set(names.filter(name => SESSION.test(name)).map(name => path.join(dir, name)));
   for (const file of cache.keys()) if (path.dirname(file) === dir && !live.has(file)) cache.delete(file);
   for (const file of [...live].sort()) {
@@ -140,6 +142,46 @@ function bucketStarts(start, end, interval) {
   const out = [];
   for (let at = floor(start, interval); at < end && out.length <= MAX_BUCKETS; at = next(at, interval)) out.push(at);
   return out;
+}
+
+/** Compact lifetime resource summaries, independent of graph/group limits. */
+export async function readWorkerResources(config, tasks) {
+  const dir = path.join(config.home, 'sessions');
+  if (!pending.has(dir)) pending.set(dir, scan(dir).finally(() => pending.delete(dir)));
+  const source = await pending.get(dir);
+  const own = new Map(tasks.map(task => [task.id, { input: 0, output: 0, cost: 0,
+    unknown_tokens: 0, unknown_cost: 0, incomplete: source.unreadable > 0,
+    running: task.status === 'running' }]));
+  const observed = new Set();
+  for (const file of source.files) {
+    const total = own.get(file.task_id);
+    if (!total) continue;
+    total.incomplete ||= file.malformed > 0 || file.incomplete > 0;
+    for (const row of file.rows) {
+      // Forked context is not expenditure by the new Worker.
+      if (row.foreign) continue;
+      observed.add(file.task_id);
+      total.input += row.input + row.cache_read + row.cache_write;
+      total.output += row.output; total.cost += row.cost;
+      total.unknown_tokens += row.unknown_tokens; total.unknown_cost += row.unknown_cost;
+    }
+  }
+  // Codex thread metadata does not contain request expenditure.
+  for (const id of source.codex_ids) if (own.has(id) && !observed.has(id)) own.get(id).incomplete = true;
+  const byId = new Map(tasks.map(task => [task.id, task]));
+  const result = new Map(tasks.map(task => [task.id, { own: own.get(task.id),
+    subtree: { ...own.get(task.id) } }]));
+  // Traverse real ancestry, including archived/filtered/off-page Workers, once per source.
+  for (const task of tasks) {
+    const seen = new Set([task.id]);
+    for (let parent = byId.get(task.parent_id); parent && !seen.has(parent.id); parent = byId.get(parent.parent_id)) {
+      seen.add(parent.id);
+      const total = result.get(parent.id).subtree, row = own.get(task.id);
+      for (const key of ['input', 'output', 'cost', 'unknown_tokens', 'unknown_cost']) total[key] += row[key];
+      total.incomplete ||= row.incomplete; total.running ||= row.running;
+    }
+  }
+  return result;
 }
 
 export async function readUsageStatistics(config, options = {}, metadata = {}) {

@@ -98,6 +98,12 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 `worker.graph` / `/api/worker-graph` 是以 Worker 父子关系为边的有界读面；Web 的 `#worker-graph` 为主视角，旧 `#graph` 分支视图及 `/api/graph` HTTP 路由已移除；精简 Git 父分支、当前检出与关系诊断移入 Worker 卡片，完整谱系与未绑定分支绑定只保留 CLI / RPC。Worker 卡片按真实状态配色，读面投影 `archived`（内部 merge 队列随直接父 Worker 归档，详见 [Worker 图](task-graph.md)）及 `branch_info.subtree_order` / `branch_info.merge_run` 作为交付诊断；旧 `branch.orchestrate_plan` / `branch.orchestrate` 一键编排入口已下线。新指令从已提交 fork 读取 `.lush-task/input.mjs` 并冻结在项目 `.lush/task-rules/`；用户后续消息由固定规则返回 `message` 或安全点软抢占的 `interrupt`，失败回退并留事件。子 Worker 继承直接父的规则快照。可信代码风险与读面边界见 [Worker 图与固定输入规则](task-graph.md)。
 
+### Worker 树资源消耗读面
+
+`worker.graph` 每个节点新增 `resources:{own,subtree}`（读取失败为 null）；两个摘要均为 `{input,output,cost,unknown_tokens,unknown_cost,incomplete,running}`。input 包含缓存读取与写入，output 不重复加 reasoning，cost 是会话报告的美元估算；无请求为零，缺失费用/token 或不完整记录必须明示未知。完整会话扫描复用 `core/usage-statistics.js` 的签名缓存与单飞，不用 transcript 的 8 MiB 窗口或 attribution 的 100 组截断；显式属于其它 Worker 的 fork 上下文不重复计费。subtree 按完整 tasks 的真实 parent_id 累加（含归档、筛选及图外后代），running 为其范围内是否有 running Worker；Codex 只有线程元数据时不可假造消耗。
+
+两种展示模式均由 `task-graph-usage.js` 渲染：展开显示 own，收拢有子树的节点显示加粗 subtree；输入绿、输出红、费用主题正文色。范围内 running 才闪烁，静息、排队、暂停、停止不闪烁，遵循系统与应用减少动效设置。无新 RPC、持久化或 Agent 调用。
+
 ### Worker 图合并关系读面接缝
 
 `worker.graph` 每个返回节点新增 `merge_queue:{counts,total,items,truncated,limit_per_status:3}`：仅统计完整 tasks 表中真实直接子Worker的 `reservation.version=2,kind=merge,queue_protocol=1,parent_id=tasks.parent_id`，阶段为 executing/resolving/requested/suspended/blocked；pending、历史协议、integrated 不计入当前队列。`counts` 给五种阶段的精确计数，`items:[{id,status}]` 每阶段最多 3 条（ID 降序，仅供展示），`truncated` 明确关联条目未列全；无活动请求时返回零计数空列表。查询只读、SQL 聚合/窗口有界返回，不读取目标/正文，不新增表或调度行为。摘要对客户端筛选、折叠及 200 节点截断独立；旧服务缺字段时显示摘要不可用，不按局部节点伪造全量。

@@ -24,7 +24,11 @@ progress:i===5?null:{total:5,completed:i===4?5:2,current:i===4?null:{label:'实�
 })),
 {id:99,parent_id:1,task_kind:'order',role:'agent',title:'已归档 Worker',status:'completed',archived:true}
 ]};
-for (const node of window.graph.nodes) node.merge_queue={counts:{},total:0,items:[],truncated:false};
+for (const node of window.graph.nodes) {
+  node.merge_queue={counts:{},total:0,items:[],truncated:false};
+  node.resources={own:{input:121000,output:18000,cost:2.24,running:node.status==='running'},
+    subtree:{input:968000,output:144000,cost:17.92,running:true}};
+}
 window.graph.nodes[0].merge_queue={counts:{resolving:1,requested:7,blocked:1},total:9,truncated:true,
   items:[{id:2,status:'resolving'},{id:900,status:'requested'},{id:901,status:'blocked'}]};
 window.graph.nodes[1].reservation={version:2,kind:'merge',queue_protocol:1,parent_id:1,status:'resolving'};
@@ -91,6 +95,13 @@ try {
   await click('[data-graph-focus="detail-mode"]');
   assert(await execute(`return document.querySelector('[data-graph-focus="detail-mode"]').checked && !document.querySelector('.task-graph-minimal') && !!document.querySelector('.task-graph-result');`), 'details checkbox did not expand cards');
   await click('[data-graph-focus="detail-mode"]');
+  assert(await execute(`const usage=document.querySelector('[data-task-id="2"] .task-graph-usage');
+    return usage.textContent.includes('$2.24') && getComputedStyle(usage).animationName==='task-usage-live'
+      && getComputedStyle(usage.querySelector('.task-graph-usage-input')).color!==getComputedStyle(usage.querySelector('.task-graph-usage-output')).color;`), 'resource values, colors or running animation missing');
+  await click('[data-graph-focus="fold-1"]');
+  assert(await execute(`const usage=document.querySelector('[data-task-id="1"] .task-graph-usage');
+    return usage.classList.contains('is-aggregate') && usage.classList.contains('is-live') && getComputedStyle(usage).fontWeight==='700' && usage.textContent.includes('$17.92');`), 'folded subtree resource total missing');
+  await click('[data-graph-focus="fold-1"]');
   for (const theme of ['light', 'dark']) for (const [width, height] of [[1440,900],[900,700],[390,844]]) {
     await rpc(`/session/${session}/window/rect`, { width, height });
     await execute(`document.documentElement.dataset.theme='${theme}'`);

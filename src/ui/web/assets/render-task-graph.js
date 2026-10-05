@@ -10,6 +10,7 @@ import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { readPref, setPref, writePref } from './prefs.js';
 import { taskForest } from './task-graph-layout.js';
+import { resourceSummary } from './task-graph-usage.js';
 import { mergeRelations } from './task-graph-merge.js';
 import { captureGraph, restoreGraph, graphMotionRunning } from './task-graph-motion.js';
 import { branchDiagnostics, decisionRow } from './task-graph-parts.js';
@@ -157,6 +158,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   if (!minimal && node.task_kind) head.append(badge(node.task_kind === 'merge' ? 'merge（历史）' : workerKindLabel(node)));
   if (!minimal && node.freeze && node.freeze.task_id !== node.id) head.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
+  head.append(resourceSummary(node, folded.has(node.id)));
   row.append(head);
   if (minimal) {
     row.append(minimalSummary(node, queueNote), taskActionsMenu(node, mergeAllByBranch));

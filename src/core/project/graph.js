@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { iterationViews } from './iteration.js';
 import { branchFreeze } from '../branch-freeze.js';
+import { readWorkerResources } from '../usage-statistics.js';
 
 /** 分支图的规模上限：只读视图不该为了画全图把 daemon 拖垮，超限截断并在结果里说明。 */
 export const GRAPH_NODE_LIMIT = 200;
@@ -141,6 +142,8 @@ export default {
         WHEN status IN ('running','queued','waiting','awaiting') THEN 1 ELSE 2 END, id DESC LIMIT ?`, limit + 1);
     const selected = rows.slice(0, limit);
     const ids = selected.map(row => row.id);
+    const resources = await readWorkerResources(this.config,
+      this.store.all('SELECT id,parent_id,status FROM tasks')).catch(() => new Map());
     const iterations = iterationViews(this.store, selected);
     const mergeQueues = mergeQueueSummaries(this.store, ids);
     // 一批取回调用区间：任务图上的紧凑进度也要把等待排除在 Agent 工作用时之外。
@@ -285,6 +288,7 @@ export default {
         progress: plan, notice: notice.notice, notice_count: notice.count,
         children_total: child.total, children_active: child.active, waiting_reason,
         merge_queue: mergeQueues.get(row.id),
+        resources: resources.get(row.id) ?? null,
         freeze: freeze ? { kind: freeze.kind, task_id: freeze.task_id ?? null, reason: freeze.reason } : null,
         resolves_task_id: row.resolves_task_id ?? resolutions.get(row.id) ?? null,
         auto_merge: this.autoMergeView({ ...row, reservation }),

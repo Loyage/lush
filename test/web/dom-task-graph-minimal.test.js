@@ -34,6 +34,36 @@ beforeEach(async () => {
 });
 afterAll(() => dom.restore());
 
+test('资源消耗在两种模式显示自身，折叠显示后端完整子树合计并只为运行中的统计闪烁', async () => {
+  const own = { input: 121000, output: 18000, cost: 2.24, running: false };
+  graph.nodes[0].children_total = 20;
+  graph.nodes[0].resources = { own, subtree: { ...own, input: 242000, cost: 4.48, running: true } };
+  graph.nodes[1].resources = { own: { ...own, running: true } };
+  renderTaskGraph(graph);
+  let summary = card(1).querySelector('.task-graph-usage');
+  expect(deepText(summary)).toContain('↑121.0k');
+  expect(deepText(summary)).toContain('↓18.0k');
+  expect(deepText(summary)).toContain('$2.24');
+  expect(summary.classList.contains('is-live')).toBe(false);
+  expect(card(2).querySelector('.task-graph-usage').classList.contains('is-live')).toBe(true);
+  expect(deepText(card(3).querySelector('.task-graph-usage'))).toContain('↑—');
+  await card(1).querySelector('button').onclick();
+  summary = card(1).querySelector('.task-graph-usage');
+  expect(summary.classList.contains('is-aggregate')).toBe(true);
+  expect(summary.classList.contains('is-live')).toBe(true);
+  expect(deepText(summary)).toContain('$4.48');
+  expect(summary.getAttribute('data-help')).toContain('图外节点');
+  enableDetails();
+  expect(deepText(card(1).querySelector('.task-graph-usage'))).toContain('$4.48');
+  await card(1).querySelector('button').onclick();
+  expect(deepText(card(1).querySelector('.task-graph-usage'))).toContain('$2.24');
+  graph.nodes[1].resources.own.unknown_cost = 1;
+  graph.nodes[1].resources.own.running = false;
+  renderTaskGraph(graph);
+  expect(card(2).querySelector('.task-graph-usage-cost').textContent).toBe('—');
+  expect(card(2).querySelector('.task-graph-usage').classList.contains('is-live')).toBe(false);
+});
+
 test('默认极简且详情开关未勾选；主动开启详情，取消后回到双行摘要，不发业务请求', async () => {
   expect(mode().checked).toBe(false);
   expect(deepText(mode().parentNode)).toContain('详情模式');

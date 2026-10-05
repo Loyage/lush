@@ -496,6 +496,12 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-status-toggle:hover{filter:none;box-shadow:none;background:color-mix(in srgb,currentColor 14%,transparent)}
 .task-graph-status-toggle[aria-pressed="false"]{opacity:.45;border-style:dashed;text-decoration:line-through}
 .task-graph-status-reset{font-size:10px;padding:2px 7px}
+.task-graph-usage{display:inline-flex;gap:7px;align-items:center;white-space:nowrap;flex:none;font-size:11px;font-weight:400;font-variant-numeric:tabular-nums;color:var(--text)}
+.task-graph-usage-input{color:var(--completed)}
+.task-graph-usage-output{color:var(--failed)}
+.task-graph-usage.is-aggregate{font-weight:700}
+.task-graph-usage.is-live{animation:task-usage-live 1.8s ease-in-out infinite}
+@keyframes task-usage-live{0%,100%{opacity:1}50%{opacity:.55}}
 .task-graph-head,.task-graph-facts{display:flex;align-items:center;flex-wrap:wrap;gap:7px}.task-graph-head{margin-bottom:8px}
 .task-graph-title{text-align:left;font-weight:700;min-width:0;overflow-wrap:anywhere}.task-graph-facts{padding-top:8px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--muted)}
 .task-graph-goal,.task-graph-result{margin:6px 0;white-space:pre-wrap;line-height:1.6}.task-graph-result{color:var(--muted)}
